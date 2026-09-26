@@ -1,15 +1,15 @@
 """`api/routers/axis_admin.py`——軸スタジオの管理API（書き込み時の検証・例外の変換）。
 
 ここで見ないもの:
-- 軸そのものの不変条件（折れ点・段の境界・段ラベル）と公開の不変性・材料の排他 → `test_axis_definitions.py`
+- 軸そのものの不変条件（折れ点・段の境界・段ラベル）と公開の不変性・材料の排他、軸の外（材料カタログ・
+  ほかの軸）に照らす値の不変条件（`check_axis_definition`）の中身 → `test_axis_definitions.py`
 - 書き込みの本体（DBへの反映と`AXIS_DEFINITIONS`の差し替え） → `test_axis_registry_service.py`
 - 地図表示の導出・段が落ちるかの判定 → `test_axis_display.py`
 - 分布の計算 → `test_axis_preview_service.py`
 - 認可（どの口もBasic認証の依存を持つこと・その依存が拒むこと） → `test_admin_route_authorization.py`
 
-**ルーターが名前空間に持つ外向きの参照は差し替える**——材料カタログ（`is_known_material`・
-`material_dtype`）・軸の集合・動的材料の集合・配信実装の有無・地図表示の導出・分布の計算。
-材料と軸は性質だけを持つ架空のidで与える。
+**ルーターが名前空間に持つ外向きの参照は差し替える**——軸の集合・配信実装の有無・地図表示の導出・
+分布の計算。材料カタログは本物を使い、材料は型ごとに本物のカタログから選ぶ。
 """
 
 import pytest
@@ -18,12 +18,20 @@ from fastapi.testclient import TestClient
 from sqlalchemy.exc import DBAPIError
 
 from app.api.routers import axis_admin
+from app.domain.axis_definitions import REQUEST_DYNAMIC_MATERIAL_IDS
+from app.domain.material_catalog import MATERIAL_CATALOG
 from app.services.axis_preview_service import ValueDistribution
 from tests.admin_auth import AUTH_HEADERS
 from tests.bound_fake import bound
 
+
+def _static_materials(dtype: str) -> list[str]:
+    return [m for m, spec in MATERIAL_CATALOG.items() if spec.dtype == dtype and m not in REQUEST_DYNAMIC_MATERIAL_IDS]
+
+
 BASE = "/api/admin/axis-definitions"
-DTYPES = {"num_a": "numeric", "num_b": "numeric", "dyn_a": "numeric", "bool_a": "boolean", "cat_a": "categorical"}
+NUM_A, NUM_B = _static_materials("numeric")[:2]
+BOOL_A = _static_materials("boolean")[0]
 REFERENCED_AXIS = "ref"
 REPOSITORY = object()
 
@@ -37,7 +45,7 @@ def linear_shape(*materials):
 
 
 def payload(axis_id="a", **fields):
-    body = {"axis_id": axis_id, "label": "軸A", "default_weight": 1.0, "shape": linear_shape("num_a")}
+    body = {"axis_id": axis_id, "label": "軸A", "default_weight": 1.0, "shape": linear_shape(NUM_A)}
     body.update(fields)
     return body
 
@@ -102,7 +110,7 @@ def seams(monkeypatch):
     def served_dedicated_way_value_material(materials):
         materials = list(materials)
         received["served"].append(materials)
-        return "num_a" if materials == ["num_a"] else None
+        return NUM_A if materials == [NUM_A] else None
 
     def axis_display_for(definition):
         return axis_admin.AxisDisplaySpec(kind="none", label=f"表示:{definition.axis_id}")
@@ -122,8 +130,6 @@ def seams(monkeypatch):
         return [0, 1]
 
     fakes = {
-        "is_known_material": lambda material_id: material_id in DTYPES,
-        "material_dtype": lambda material_id: DTYPES.get(material_id),
         "served_dedicated_way_value_material": served_dedicated_way_value_material,
         "axis_display_for": axis_display_for,
         "axis_raw_value_distribution": axis_raw_value_distribution,
@@ -133,7 +139,6 @@ def seams(monkeypatch):
     for name, fake in fakes.items():
         monkeypatch.setattr(axis_admin, name, bound(getattr(axis_admin, name), fake))
     monkeypatch.setattr(axis_admin, "AXIS_DEFINITIONS", {REFERENCED_AXIS: stored(REFERENCED_AXIS)})
-    monkeypatch.setattr(axis_admin, "REQUEST_DYNAMIC_MATERIAL_IDS", frozenset({"dyn_a"}))
     return received
 
 
@@ -160,12 +165,12 @@ ROUTE_CASES = {
     ("PUT", BASE + "/{axis_id}"): (payload(), 503),
     ("DELETE", BASE + "/{axis_id}"): (None, 503),
     ("POST", BASE + "/{axis_id}/unpublish"): (None, 503),
-    ("POST", BASE + "/preview-distribution"): ({"shape": linear_shape("num_a")}, 503),
+    ("POST", BASE + "/preview-distribution"): ({"shape": linear_shape(NUM_A)}, 503),
     ("POST", BASE + "/preview-display-thresholds"): (
-        {"axis_id": "a", "shape": linear_shape("num_a"), "thresholds": [1.0]},
+        {"axis_id": "a", "shape": linear_shape(NUM_A), "thresholds": [1.0]},
         200,
     ),
-    ("POST", BASE + "/preview-scores"): ({"shape": linear_shape("num_a"), "xs": [0.5]}, 200),
+    ("POST", BASE + "/preview-scores"): ({"shape": linear_shape(NUM_A), "xs": [0.5]}, 200),
 }
 ROUTES = [(method, route.path) for route in axis_admin.router.routes for method in sorted(route.methods)]
 
@@ -300,66 +305,19 @@ class TestWrite:
 
 
 class TestPayloadValidation:
-    """新しく軸を書き込むときにだけ問える検証。拒否は422で、レジストリへは届かない。"""
+    """本文の検証。拒否は422で、レジストリへは届かない。値の不変条件は`check_axis_definition`へ渡し、
+    ルーターが持つのは配信の実装に照らす検証だけ。"""
 
     @pytest.mark.parametrize(
         ("fields", "reason"),
         [
-            ({"label": "とても長い名前"}, "文字を超えています"),
-            ({"shape": linear_shape("dyn_a", "num_a")}, "組み合わせることはできません"),
+            ({"shape": linear_shape("ghost")}, "無い材料・軸を指しています: ['ghost']"),
             (
-                {
-                    "shape": linear_shape("dyn_a"),
-                    "priority_overrides": [{"material": "bool_a", "equals": "true", "value": 0}],
-                },
-                "組み合わせることはできません",
-            ),
-            (
-                {"dedicated_way_value_layer": True, "shape": linear_shape("num_a", "num_b")},
+                {"dedicated_way_value_layer": True, "shape": linear_shape(NUM_A, NUM_B)},
                 "専用配信の軸は",
             ),
-            ({"shape": linear_shape("ghost")}, "無い材料・軸を指しています: ['ghost']"),
-            ({"shape": linear_shape("cat_a")}, "この計算の形には使えません"),
-            ({"shape": {"kind": "categorical", "material": "num_a", "mapping": {"x": 1}}}, "この計算の形には使えません"),
-            ({"shape": {"kind": "categorical", "material": "bool_a", "mapping": {"x": 1}}}, "値の型が合いません"),
-            ({"shape": {"kind": "categorical", "material": "cat_a", "mapping": {"true": 1}}}, "値の型が合いません"),
-            (
-                {"priority_overrides": [{"material": "ghost", "equals": "1", "value": 0}]},
-                "優先条件が材料カタログに無い材料・軸を指しています: ['ghost']",
-            ),
-            (
-                {"priority_overrides": [{"material": REFERENCED_AXIS, "equals": "1", "value": 0}]},
-                "真偽・分類の材料にだけ置けます",
-            ),
-            (
-                {"priority_overrides": [{"material": "num_a", "equals": "1", "value": 0}]},
-                "真偽・分類の材料にだけ置けます",
-            ),
-            (
-                {"priority_overrides": [{"material": "bool_a", "equals": "yes", "value": 0}]},
-                "の値として読めません",
-            ),
-            (
-                {"priority_overrides": [{"material": "cat_a", "equals": "true", "value": 0}]},
-                "の値として読めません",
-            ),
         ],
-        ids=[
-            "地図チップに収まらない表示名",
-            "動的材料と静的材料の混在",
-            "0次条件経由の混在",
-            "配信実装の無い専用レイヤー",
-            "カタログにも軸にも無い材料",
-            "折れ線に分類の材料",
-            "分類に数値の材料",
-            "真偽の材料に文字列のキー",
-            "分類の材料に真偽のキー",
-            "0次条件の未知の材料",
-            "0次条件が軸の点数を指す",
-            "0次条件が数値の材料を指す",
-            "0次条件が真偽の材料に真偽と読めない値",
-            "0次条件が分類の材料に真偽の値",
-        ],
+        ids=["値の不変条件に通らない", "配信実装の無い専用レイヤー"],
     )
     def test_rejected(self, client, registry, fields, reason):
         response = client.post(BASE, json=payload(**fields))
@@ -370,26 +328,8 @@ class TestPayloadValidation:
 
     @pytest.mark.parametrize(
         "fields",
-        [
-            {"label": "とても長い名前", "chip_label": "長名"},
-            {"shape": linear_shape("dyn_a", REFERENCED_AXIS)},
-            {"shape": linear_shape(REFERENCED_AXIS, "bool_a")},
-            {"shape": {"kind": "categorical", "material": "bool_a", "mapping": {"true": 1, "false": 0}}},
-            {"shape": {"kind": "categorical", "material": "cat_a", "mapping": {"yes": 1, "no": 0}}},
-            {"priority_overrides": [{"material": "bool_a", "equals": "false", "value": 0}]},
-            {"priority_overrides": [{"material": "cat_a", "equals": "yes", "value": 0}]},
-            {"dedicated_way_value_layer": True},
-        ],
-        ids=[
-            "長い表示名に略称を添える",
-            "動的材料と軸の参照",
-            "軸の参照と真偽の材料",
-            "真偽の材料に真偽のキー",
-            "分類の材料に真偽とも読める値の名前のキー",
-            "0次条件が真偽の材料に真偽の値",
-            "0次条件が分類の材料に値の名前",
-            "配信実装のある材料1つの専用レイヤー",
-        ],
+        [{"shape": linear_shape(REFERENCED_AXIS)}, {"dedicated_way_value_layer": True}],
+        ids=["今ある軸の参照", "配信実装のある材料1つの専用レイヤー"],
     )
     def test_accepted(self, client, fields):
         assert client.post(BASE, json=payload(**fields)).status_code == 201
@@ -399,16 +339,16 @@ class TestPayloadValidation:
             BASE,
             json=payload(
                 dedicated_way_value_layer=True,
-                priority_overrides=[{"material": "bool_a", "equals": "true", "value": 0}],
+                priority_overrides=[{"material": BOOL_A, "equals": "true", "value": 0}],
             ),
         )
 
-        assert seams["served"] == [["num_a", "bool_a"]]
+        assert seams["served"] == [[NUM_A, BOOL_A]]
 
 
 class TestPreviews:
     def test_distribution_is_computed_from_the_repository_for_the_draft_shape(self, client, seams):
-        body = client.post(BASE + "/preview-distribution", json={"shape": linear_shape("num_a")}).json()
+        body = client.post(BASE + "/preview-distribution", json={"shape": linear_shape(NUM_A)}).json()
 
         assert body == {
             "sample_ways": 3,
@@ -419,16 +359,16 @@ class TestPreviews:
         }
         ((repository, shape),) = seams["distribution"]
         assert repository is REPOSITORY
-        assert [t.material for t in shape.terms] == ["num_a"]
+        assert [t.material for t in shape.terms] == [NUM_A]
 
     def test_display_thresholds_answer_which_bands_the_map_drops_and_keeps(self, client, seams):
-        override = [{"material": "bool_a", "equals": "true", "value": 0.0}]
+        override = [{"material": BOOL_A, "equals": "true", "value": 0.0}]
 
         body = client.post(
             BASE + "/preview-display-thresholds",
             json={
                 "axis_id": "a",
-                "shape": linear_shape("num_a"),
+                "shape": linear_shape(NUM_A),
                 "priority_overrides": override,
                 "thresholds": [1.0, 2.0],
             },
@@ -437,13 +377,13 @@ class TestPreviews:
         assert body == {"dropped_on_map": [2.0], "bands_on_map": [0, 1]}
         for received in (seams["drops"], seams["keeps"]):
             ((axis_id, shape, overrides, thresholds),) = received
-            assert (axis_id, [o.material for o in overrides], thresholds) == ("a", ["bool_a"], [1.0, 2.0])
+            assert (axis_id, [o.material for o in overrides], thresholds) == ("a", [BOOL_A], [1.0, 2.0])
 
     @pytest.mark.parametrize("thresholds", [[2.0, 1.0], [1.0, 1.0]], ids=["降順", "同値"])
     def test_display_thresholds_must_rise_strictly(self, client, thresholds):
         response = client.post(
             BASE + "/preview-display-thresholds",
-            json={"axis_id": "a", "shape": linear_shape("num_a"), "thresholds": thresholds},
+            json={"axis_id": "a", "shape": linear_shape(NUM_A), "thresholds": thresholds},
         )
 
         assert response.status_code == 422

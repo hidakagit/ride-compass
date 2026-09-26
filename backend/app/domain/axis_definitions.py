@@ -52,6 +52,7 @@ from app.domain.axis_templates import (
     evaluate_categorical,
     round1_array,
 )
+from app.domain import material_catalog
 from app.domain.material_catalog import WIND_DRAG_RATIO
 from app.domain.strict_model import StrictModel
 
@@ -203,8 +204,8 @@ class PriorityCondition(StrictModel):
 def referenced_materials(shape: "AxisShape", priority_overrides: "Sequence[PriorityCondition]") -> list[str]:
     """`shape`と`priority_overrides`が参照する材料id・軸idの一覧（重複を除き順序は安定）。
 
-    `AxisDefinition.materials`と、書き込み時の検証（`api/routers/axis_admin.py`の
-    バリデータ）の**両方がこれを使う**。片方が`shape.terms`だけを見て他方が
+    `AxisDefinition.materials`（値の検査`check_axis_definition`も読む）と、専用配信の検証
+    （`api/routers/axis_admin.py`）の**両方がこれを使う**。片方が`shape.terms`だけを見て他方が
     `priority_overrides`も見る、という状態になると、検証を素通りした軸が
     実行時に落ちる（`priority_overrides`経由の静的材料が動的軸へ紛れ込み、
     `evaluate_axis_array`が`materials[override.material]`でKeyErrorになる）。
@@ -292,8 +293,7 @@ class AxisDefinition(StrictModel):
     chip_label: str | None = Field(default=None, min_length=1, max_length=MAP_CHIP_LABEL_MAX_LENGTH)
     """地図チップの略称。地図チップは固定サイズのタイルで、5文字以上はレイアウトが崩れる。
     未設定はlabelをそのまま使う——labelには長さの制約が無いため、地図チップに出す軸を
-    作るときはこちらを明示する（`axis_admin.py: AxisDefinitionPayload`が書き込み時に
-    要求する）。"""
+    作るときはこちらを明示する（`check_axis_definition`が要求する）。"""
     panel_hint: str | None = None
     """地図の「表示する項目を選ぶ」設定パネル（MapOverlayControls）向けの噛み砕いた
     説明文。未設定はdescriptionをそのまま使う（開発者向けの技術説明のため読みにくい場合がある）。"""
@@ -617,6 +617,120 @@ def check_internal_axis_not_published(candidate: AxisDefinition, existing: dict[
             raise AxisInternalAxisPublishError(candidate.axis_id, other_id)
 
 
+def check_axis_definition(definition: AxisDefinition, known_axis_ids: Collection[str]) -> None:
+    """軸の値の不変条件のうち、軸の外（材料カタログ・ほかの軸）に照らすものと、地図チップへ出す名前の長さ。
+
+    書き手を問わず成り立つべきもので、管理APIの本文（`AxisDefinitionPayload`）も、起動時・書き出し・復元の
+    読み込み（`services/axis_registry_service.py: load_axis_definitions`）も通す。`AxisDefinition`の
+    検証に置かないのは、保存済みの行を読み出す管理APIの一覧・単体取得が、通らなくなった行（材料を
+    カタログから外した後の軸等）もそのまま見せて直させる必要があるため。
+
+    `known_axis_ids`は、材料idでない参照を軸の参照として受け入れる軸idの集合。誤りは`axis_error`。
+    """
+    _check_map_chip_name(definition)
+    _check_dynamic_and_static_materials_are_not_mixed(definition)
+    _check_references(definition, known_axis_ids)
+
+
+def _check_map_chip_name(definition: AxisDefinition) -> None:
+    """`chip_label`未設定の軸は`label`をそのまま地図チップへ出すため、labelも上限の文字数以内でなければ
+    固定サイズのタイルからはみ出す。"""
+    if definition.chip_label is None and len(definition.label) > MAP_CHIP_LABEL_MAX_LENGTH:
+        raise axis_error(
+            f"表示名が{MAP_CHIP_LABEL_MAX_LENGTH}文字を超えています（{len(definition.label)}文字）。"
+            f"地図チップの略称（{MAP_CHIP_LABEL_MAX_LENGTH}文字以内）を設定してください。"
+        )
+
+
+def _check_dynamic_and_static_materials_are_not_mixed(definition: AxisDefinition) -> None:
+    """動的材料（`REQUEST_DYNAMIC_MATERIAL_IDS`）と静的材料を同じ軸で混在させない。
+
+    動的軸はリクエストごとに`evaluate_dynamic_axis_arrays`（domain/dynamic_materials.py）で
+    再評価され、そこへ渡るのは「静的スコア行列の公開軸スコア」と「動的材料」だけである。
+    静的材料の配列は渡らないため、混在させた軸は`evaluate_axis_array`が`materials[...]`で
+    KeyErrorになり、`/api/routes/generate`ごと失敗する。静的材料が必要なら、その部分を別の軸へ
+    切り出し（公開軸として評価され、動的軸からは軸参照で読める）合成する。
+
+    参照材料は`definition.materials`（`priority_overrides`が参照する材料も含む）——動的軸かどうかを
+    判定する`_axes_depending_on_materials`が同じ導出を根拠にしているため、ここだけ`shape.terms`に
+    絞ると検証を素通りした軸が実行時に落ちる。
+    """
+    materials = set(definition.materials)
+    dynamic = materials & REQUEST_DYNAMIC_MATERIAL_IDS
+    # 軸参照（他の軸のaxis_id）は静的材料ではないため除く。
+    static = {m for m in materials if material_catalog.is_known_material(m)} - REQUEST_DYNAMIC_MATERIAL_IDS
+    if dynamic and static:
+        raise axis_error(
+            f"時刻で変わる材料{sorted(dynamic)}と、変わらない材料{sorted(static)}を1つの軸で組み合わせることは"
+            "できません（時刻で変わる評価には、時刻で変わる材料と公開軸の点数しか届かないため）。"
+        )
+
+
+def _check_references(definition: AxisDefinition, known_axis_ids: Collection[str]) -> None:
+    """shapeと0次条件が指す材料・軸が既知で、材料の型がその使われ方に合うこと。
+
+    どれも破っても評価はエラーもログも出さず、その軸（または条件）が全区間で恒久的に効かなくなる:
+
+    - `CategoricalShape`はboolean/categorical材料を前提とする。numeric材料（例: maxspeed_kmh）を
+      指すと、`axis_templates.evaluate_categorical`は対応表のキーと一致する値しか引けないため常にNaNになる。
+      `BreakpointLinearShape`はnumeric/boolean材料を前提とする——項の計算は`value * term.weight`の
+      乗算なので真偽の値も`True==1.0`/`False==0.0`として正しく計算され、numeric/booleanの混在も許す。
+    - 対応表のキーの型（bool/str）は材料の型と一致すること。型の「種類」だけを見ると、分類の材料
+      （値は"residential"等の文字列）に真偽のキーの対応表を置けてしまい、常に引けない。
+    - 0次条件は、当たる値のある材料（真偽・分類）にだけ置け、`equals`を対応表のキーと同じ読み方
+      （`flag_or_value_name`）で読んだ値の型が材料の値の型と合うこと（真偽の材料に"yes"等は当たらない）。
+
+    軸参照は型の検査の対象外（評価結果は常に0-100の数値）。循環と参照先の実在の組み合わせは
+    `topological_axis_order`が見る。
+    """
+    shape = definition.shape
+    if isinstance(shape, BreakpointLinearShape):
+        materials = [term.material for term in shape.terms]
+        expected_dtypes = {"numeric", "boolean"}
+    else:
+        materials = [shape.material]
+        expected_dtypes = {"boolean", "categorical"}
+    unknown = sorted({m for m in materials if not material_catalog.is_known_material(m) and m not in known_axis_ids})
+    if unknown:
+        raise axis_error(f"材料カタログに無い材料・軸を指しています: {unknown}")
+    mismatched = sorted({m for m in materials if material_catalog.is_known_material(m) and material_catalog.material_dtype(m) not in expected_dtypes})
+    if mismatched:
+        raise axis_error(
+            f"材料{mismatched}はこの計算の形には使えません（使える材料の型: {sorted(expected_dtypes)}）。"
+        )
+    if isinstance(shape, CategoricalShape) and material_catalog.is_known_material(shape.material):
+        dtype = material_catalog.material_dtype(shape.material)
+        key_types = {type(key) for key in shape.mapping}
+        expected_key_type = bool if dtype == "boolean" else str
+        if key_types and key_types != {expected_key_type}:
+            raise axis_error(
+                f"材料「{shape.material}」（型 {dtype}）の値の行の値の型が合いません"
+                f"（{sorted(t.__name__ for t in key_types)}。すべて{expected_key_type.__name__}にしてください）。"
+            )
+    unknown_override_materials = sorted(
+        {
+            cond.material
+            for cond in definition.priority_overrides
+            if not material_catalog.is_known_material(cond.material) and cond.material not in known_axis_ids
+        }
+    )
+    if unknown_override_materials:
+        raise axis_error(f"優先条件が材料カタログに無い材料・軸を指しています: {unknown_override_materials}")
+    for cond in definition.priority_overrides:
+        override_dtype = material_catalog.material_dtype(cond.material) if material_catalog.is_known_material(cond.material) else None
+        if override_dtype not in ("boolean", "categorical"):
+            kind = "軸の点数" if override_dtype is None else "数値の材料"
+            raise axis_error(
+                f"優先条件は真偽・分類の材料にだけ置けます（「{cond.material}」は{kind}で、値の名前と一致しません）。"
+            )
+        expected_type = bool if override_dtype == "boolean" else str
+        if not isinstance(flag_or_value_name(cond.equals), expected_type):
+            raise axis_error(
+                f"優先条件の値「{cond.equals}」は材料「{cond.material}」（型 {override_dtype}）の値として読めません"
+                "（真偽の材料は\"true\"か\"false\"、分類の材料は値の名前で書いてください）。"
+            )
+
+
 _topological_order_cache: LRUCache = LRUCache(maxsize=64)
 
 
@@ -779,7 +893,7 @@ def _priority_override_mask(values: MaterialColumn, equals: str) -> np.ndarray:
 
 def _numeric_column(values: Sequence[object]) -> np.ndarray:
     """項の材料の値の並び（欠損=None）を数値の配列へ（真偽は1.0/0.0、欠損はNaN）。項の材料は
-    numeric/booleanに限られる（`axis_admin.AxisDefinitionPayload._check_materials_are_known`）。"""
+    numeric/booleanに限られる（`check_axis_definition`）。"""
     return np.array([np.nan if v is None else float(cast(SupportsFloat, v)) for v in values], dtype=float)
 
 
@@ -867,8 +981,7 @@ def evaluate_axes_array(materials: Mapping[str, MaterialColumn]) -> dict[str, np
 
 
 def _term_values(materials: Mapping[str, MaterialColumn], material_id: str) -> np.ndarray:
-    """項の材料の配列。項の材料はnumeric/booleanに限られ（`axis_admin.AxisDefinitionPayload.
-    _check_materials_are_known`）、分類の材料の列は来ない。"""
+    """項の材料の配列。項の材料はnumeric/booleanに限られ（`check_axis_definition`）、分類の材料の列は来ない。"""
     values = materials[material_id]
     if isinstance(values, CategoricalColumn):
         raise TypeError(f"項の材料{material_id}が分類の材料です（項は数値・真偽の材料だけを読む）")

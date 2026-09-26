@@ -16,10 +16,9 @@ from app.api.dependencies import (
     open_route_generation_setup,
 )
 from app.config import settings
-from app.domain.axis_definitions import AXIS_DEFINITIONS
 from app.domain.errors import RoutingError, SearchAreaTooLargeError
 from app.domain.hard_filters import HARD_FILTER_NAMES
-from app.domain.route_preference import RoutePreference
+from app.domain.route_preference import RoutePreference, check_axis_weights, published_axis_ids
 from app.domain.geo import haversine_distance_km
 from app.domain.wind import ASSUMED_SPEED_KMH, MAX_ASSUMED_SPEED_KMH, MIN_ASSUMED_SPEED_KMH
 from app.domain.route import Coordinates, RouteCandidate, RouteSegment
@@ -82,32 +81,16 @@ class RoutePreferenceWeights(RootModel[dict[str, float]]):
 
     軸ごとの固定フィールドではなくaxis_idキーの辞書にすることで、軸の増減でこのモデルの
     改修が不要になる。API境界では「キー省略時に既定値が黙って入る」ことを避けるため、
-    既知の全axis_idを明示することを検証で強制する（上書きするなら全軸を明示する、
-    という方針）。値は非負。
+    公開軸のaxis_idを全部明示することを検証で強制する（上書きするなら全軸を明示する、
+    という方針）。値の不変条件（公開軸のidだけ・非負）は`check_axis_weights`。
     """
 
     @model_validator(mode="after")
     def _check_axis_keys(self) -> "RoutePreferenceWeights":
-        # AXIS_DEFINITIONSには内部軸（is_published=False、他の公開軸から参照される
-        # 専用の推定軸）も含まれるため、一般ユーザー向けAPIの上書き対象は公開軸のみへ
-        # 絞る（domain/route_preference.py: RoutePreference._validate_and_fill_weightsと
-        # 同じ絞り込み）。
-        expected = {axis_id for axis_id, definition in AXIS_DEFINITIONS.items() if definition.is_published}
-        actual = self.root.keys()
-        if actual != expected:
-            missing = sorted(expected - actual)
-            extra = sorted(actual - expected)
-            detail_parts = []
-            if missing:
-                detail_parts.append(f"missing={missing}")
-            if extra:
-                detail_parts.append(f"unknown={extra}")
-            raise ValueError(
-                f"route_preference must specify exactly the {len(expected)} known axis_id keys ({', '.join(detail_parts)})"
-            )
-        negative = sorted(axis_id for axis_id, weight in self.root.items() if weight < 0)
-        if negative:
-            raise ValueError(f"route_preference weights must be >= 0 (negative: {negative})")
+        missing = sorted(published_axis_ids() - self.root.keys())
+        if missing:
+            raise ValueError(f"route_preference must specify every published axis_id (missing={missing})")
+        check_axis_weights(self.root)
         return self
 
 

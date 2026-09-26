@@ -10,6 +10,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.domain.axis_definitions import REQUEST_DYNAMIC_MATERIAL_IDS
 from app.domain.tuning import TUNING_PARAMETERS_BY_ID
 from app.infrastructure.admin_data_backup import AdminDataRestoreError
 from app.infrastructure.axis_definition_models import AxisDefinitionRow
@@ -27,6 +28,7 @@ pytestmark = [
 
 #: アプリの読み込みは未知の材料参照を拒むため、カタログに実在する材料を持たせる。
 CATALOG_MATERIAL = "gradient_percent"
+DYNAMIC_MATERIAL = next(iter(REQUEST_DYNAMIC_MATERIAL_IDS))
 _PARAM = "turn.right_seconds"
 
 
@@ -88,14 +90,38 @@ async def test_a_database_that_already_has_rows_is_left_untouched_unless_replaci
     assert axes["draft"].label == "下書き"
 
 
-async def test_a_backup_the_app_could_not_load_writes_nothing(road_graph_session, database_url):
+def _refer_to_a_deleted_material(row: dict) -> None:
+    row["shape_params"]["terms"][0]["material"] = "deleted_material"
+
+
+def _mix_in_a_material_that_changes_by_the_hour(row: dict) -> None:
+    row["shape_params"]["terms"].append({"material": DYNAMIC_MATERIAL, "weight": 1.0, "required": True})
+
+
+def _leave_a_long_label_without_a_short_name(row: dict) -> None:
+    row.update(label="地図チップに収まらない名前", chip_label=None)
+
+
+@pytest.mark.parametrize(
+    ("edit", "reason"),
+    [
+        (_refer_to_a_deleted_material, "deleted_material"),
+        (_mix_in_a_material_that_changes_by_the_hour, "組み合わせることはできません"),
+        (_leave_a_long_label_without_a_short_name, "文字を超えています"),
+    ],
+    ids=["消えた材料を指す", "時刻で変わる材料と変わらない材料の混在", "地図チップに収まらない表示名"],
+)
+async def test_a_backup_the_app_could_not_load_writes_nothing(road_graph_session, database_url, edit, reason):
     # 戻したあとにアプリが起動できない中身なら、行を残さない（残すと起動の失敗で初めて分かる）。
+    # 管理APIを通らずに書かれた行も、管理APIの本文と同じ値の不変条件を通る。
     await _write_admin_data(road_graph_session)
-    text = (await admin_data_backup.dump(database_url)).replace(f'"{CATALOG_MATERIAL}"', '"deleted_material"')
+    document = json.loads(await admin_data_backup.dump(database_url))
+    (row,) = [row for row in document["tables"]["axis_definitions"] if row["axis_id"] == "slope"]
+    edit(row)
     await _clear(road_graph_session)
 
-    with pytest.raises(AxisDefinitionSyncError, match="deleted_material"):
-        await admin_data_backup.restore(database_url, text, replace=False)
+    with pytest.raises(AxisDefinitionSyncError, match=reason):
+        await admin_data_backup.restore(database_url, json.dumps(document), replace=False)
 
     assert await AxisDefinitionRepository(road_graph_session).list_all() == {}
     assert await read_overrides(road_graph_session) == {}

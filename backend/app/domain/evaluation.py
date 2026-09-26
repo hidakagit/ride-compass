@@ -146,7 +146,7 @@ def _empty_material_arrays(n: int) -> dict[str, MaterialColumn]:
 
     **SQL式（`value_sql`）を持たない材料の列も確保する**。持たない材料（トリガー付きDEFER）を
     `MaterialTerm`等で参照する軸は軸スタジオから素朴に作れてしまい
-    （`_check_materials_are_known`は`value_sql`の有無を見ない）、列が無いと
+    （`axis_definitions.check_axis_definition`は`value_sql`の有無を見ない）、列が無いと
     `evaluate_axis_array`の`materials[term.material]`がKeyErrorで/api/routes/generate
     自体を落とす。確保しておけば「材料はあるがデータが無い」という既存の意味論へ揃い、
     その軸だけ恒久的に欠損扱いになる（`evaluate_axis_values`が無い材料を欠損として扱うのと同じ）。

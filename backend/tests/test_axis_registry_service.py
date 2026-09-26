@@ -76,8 +76,8 @@ async def test_refresh_raises_on_repository_error(road_graph_session):
 
 
 async def test_refresh_raises_when_axis_references_unknown_material(road_graph_session):
-    # 「行は読めるが、削除済みの材料idを参照している」状態を再現する。材料の実在検査を
-    # 持つのはAPI層だけなので、repositoryへ直接書き込んで作る。検出時はfail-fastする。
+    # 「行は読めるが、削除済みの材料idを参照している」状態を、管理APIを通さずrepositoryへ直接
+    # 書き込んで作る。検出時はfail-fastする。
     original = dict(AXIS_DEFINITIONS)
     repository = AxisDefinitionRepository(road_graph_session)
     await repository.upsert(axis_definition("test_axis", material="deleted_material"), sort_order=0)
@@ -86,7 +86,7 @@ async def test_refresh_raises_when_axis_references_unknown_material(road_graph_s
     with pytest.raises(AxisDefinitionSyncError, match="deleted_material") as exc_info:
         await refresh_axis_definitions(repository)
 
-    assert "未知の材料/軸参照を検出しました" in str(exc_info.value)
+    assert "アプリが受け入れない軸があります" in str(exc_info.value)
     assert AXIS_DEFINITIONS == original
 
 
