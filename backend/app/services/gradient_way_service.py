@@ -55,6 +55,7 @@ class GradientWayService:
 
         with log_external_call("region:gradient-way-values", z=z, x=x, y=y) as fields:
             # 世代は鍵の一部。渡し忘れると世代をまたいだ値を配る。
+            await derived_data_revision_service.refresh_current_revision(self._repository)
             revision = derived_data_revision_service.current_revision()
             cached = await get_tile_values(self.material_id, z, x, y, None, bearing_deg, revision=revision)
             if cached is not None:

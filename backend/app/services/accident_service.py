@@ -11,10 +11,6 @@ from app.services.tile_version_service import served_tile_version
 logger = logging.getLogger("ridecompass.accident")
 
 
-def _tile_cache_path(z: int, x: int, y: int) -> str:
-    return f"region/accidents/v{served_tile_version(ACCIDENT_TILE_SHAPE)}/{z}/{x}/{y}.pbf"
-
-
 class AccidentService:
     """警察庁交通事故統計データをXYZベクタタイルとして配る。
 
@@ -38,11 +34,12 @@ class AccidentService:
             fields["postgis"] = "hit"
             return tile_bytes
 
+        version = await served_tile_version(self._repository, ACCIDENT_TILE_SHAPE)
         return await serve_cached_tile(
             z=z,
             x=x,
             y=y,
-            cache_path=_tile_cache_path(z, x, y),
+            cache_path=f"region/accidents/v{version}/{z}/{x}/{y}.pbf",
             empty_tile=encode_empty_accident_tile(),
             content_type=MVT_CONTENT_TYPE,
             external_call_name="accident:tile",

@@ -17,13 +17,6 @@ from app.services.tile_version_service import current_tile_versions, served_tile
 
 logger = logging.getLogger("ridecompass.region")
 
-def _tile_cache_path(z: int, x: int, y: int) -> str:
-    return f"region/road-surface/v{served_tile_version(ROAD_SURFACE_TILE_SHAPE)}/{z}/{x}/{y}.pbf"
-
-
-def _poi_tile_cache_path(z: int, x: int, y: int) -> str:
-    return f"region/poi/v{served_tile_version(POI_TILE_SHAPE)}/{z}/{x}/{y}.pbf"
-
 
 class RegionService:
     """候補ルートに紐づかない「地域全体」のレイヤーを、XYZベクタタイルとして配る。
@@ -84,7 +77,8 @@ class RegionService:
         self,
         *,
         repository_method: str,
-        cache_path: str,
+        layer: str,
+        shape: str,
         empty_tile: bytes,
         external_call_name: str,
         label: str,
@@ -103,11 +97,12 @@ class RegionService:
                 )
             return postgis_tile
 
+        version = await served_tile_version(self._repository, shape)
         return await serve_cached_tile(
             z=z,
             x=x,
             y=y,
-            cache_path=cache_path,
+            cache_path=f"region/{layer}/v{version}/{z}/{x}/{y}.pbf",
             empty_tile=empty_tile,
             content_type=MVT_CONTENT_TYPE,
             external_call_name=external_call_name,
@@ -119,7 +114,8 @@ class RegionService:
     async def get_road_surface_tile(self, z: int, x: int, y: int) -> TileResponse:
         return await self._get_tile(
             repository_method="get_road_surface_tile_mvt",
-            cache_path=_tile_cache_path(z, x, y),
+            layer="road-surface",
+            shape=ROAD_SURFACE_TILE_SHAPE,
             empty_tile=encode_empty_road_surface_tile(),
             external_call_name="region:road-surface-tile",
             label="路面",
@@ -131,7 +127,8 @@ class RegionService:
     async def get_poi_tile(self, z: int, x: int, y: int) -> TileResponse:
         return await self._get_tile(
             repository_method="get_poi_tile_mvt",
-            cache_path=_poi_tile_cache_path(z, x, y),
+            layer="poi",
+            shape=POI_TILE_SHAPE,
             empty_tile=encode_empty_poi_tile(),
             external_call_name="region:poi-tile",
             label="POI",

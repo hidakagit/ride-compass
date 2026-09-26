@@ -18,6 +18,7 @@ from app.domain.accident import (
     OCCURRED_YEAR_SQL,
 )
 from app.domain.region import BoundingBox
+from app.infrastructure import derived_data_meta
 from app.infrastructure.cache_identity import shape_digest
 from app.infrastructure.vector_tile import ACCIDENT_LAYER_NAME, TILE_EXTENT
 
@@ -52,6 +53,10 @@ class AccidentTileQuery:
 
     def __init__(self, session: AsyncSession):
         self._session = session
+
+    async def get_derived_data_revision(self) -> int | None:
+        """派生データの世代。配信する事故タイルの世代に入る。"""
+        return await derived_data_meta.get_revision(self._session)
 
     async def get_accident_tile_mvt(self, z: int, x: int, y: int, bbox: BoundingBox) -> bytes:
         result = await self._session.execute(
