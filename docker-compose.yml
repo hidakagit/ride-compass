@@ -17,7 +17,7 @@ services:
     ports:
       - "8000:8000"
     env_file:
-      # ROAD_GRAPH_USE_REPOSITORY/DEBUG_MODE等、下のenvironment:で上書きしない設定値は
+      # DEBUG_MODE等、下のenvironment:で上書きしない設定値は
       # ここから読み込む（無ければ空のまま起動、config.pyのデフォルト値を使う）。
       # required: false が無いと、.envの無いチェックアウトではbackend以外のサービスへの
       # `docker compose exec`まで「env file not found」で止まる。

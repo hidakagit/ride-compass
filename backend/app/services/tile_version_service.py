@@ -45,10 +45,9 @@ TILE_SHAPES: dict[str, str] = {
 async def current_tile_versions(repository) -> dict[str, str]:
     """系統名→配信する世代（`<DBの世代>-<形の署名>`）。
 
-    `repository`はDBの世代を読める口（`get_derived_data_revision`）。`None`（DBなし構成）
-    なら世代は不明のままにする。TTLの内側なら読み直さないため、リクエストごとに呼んでよい。
+    `repository`はDBの世代を読める口（`get_derived_data_revision`）。TTLの内側なら
+    読み直さないため、リクエストごとに呼んでよい。
     """
-    if repository is not None:
-        await derived_data_revision_service.refresh_current_revision(repository)
+    await derived_data_revision_service.refresh_current_revision(repository)
     revision = derived_data_revision_service.current_revision()
     return {name: tile_version(revision, shape) for name, shape in TILE_SHAPES.items()}

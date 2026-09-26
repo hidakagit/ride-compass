@@ -115,18 +115,30 @@ def catalog_axes():
         yield
 
 
+class _CatalogRepository:
+    """`/api/axis-catalog`が`RegionService`越しに読むDBの口（派生データの世代・事故の収録年）の代役。"""
+
+    def __init__(self, revision: int | None = None):
+        self._revision = revision
+
+    async def get_derived_data_revision(self):
+        return self._revision
+
+    async def get_accident_years(self):
+        return []
+
+
 @pytest.fixture(autouse=True)
-def region_service_without_repository():
+def region_service_without_db():
     """このファイルの検証対象は軸カタログの内容で、DBの値は見ない。
 
-    `/api/axis-catalog`は`material_runtime_scales`（事故の収録年数）を出すためだけに
+    `/api/axis-catalog`は`material_runtime_scales`（事故の収録年数）とタイル世代を出すためだけに
     `RegionService`を経由する。実DBが繋がる環境ではリクエストごとに接続を開き、
     `TestClient`のイベントループをまたいだasyncpg接続がGCされる際にキャンセル用の
     コルーチンが未awaitのまま残る（`RuntimeWarning: coroutine 'Connection._cancel' was
-    never awaited`）。repositoryを注入しない形へ固定して、DBの有無でこのファイルの
-    経路が変わらないようにする。
+    never awaited`）。DBの口を代役へ固定して、DBの有無でこのファイルの経路が変わらないようにする。
     """
-    app.dependency_overrides[get_region_service] = lambda: RegionService()
+    app.dependency_overrides[get_region_service] = lambda: RegionService(repository=_CatalogRepository())
     yield
     app.dependency_overrides.pop(get_region_service, None)
 
@@ -338,21 +350,12 @@ def test_タイル世代はDBの派生データ世代を前置きして配る():
     """
     from app.services import derived_data_revision_service
 
-    class RepositoryWithRevision:
-        async def get_derived_data_revision(self):
-            return 42
-
-        async def get_accident_years(self):
-            return []
-
     derived_data_revision_service.reset_for_tests()
-    app.dependency_overrides[get_region_service] = lambda: RegionService(
-        repository=RepositoryWithRevision()
-    )
+    app.dependency_overrides[get_region_service] = lambda: RegionService(repository=_CatalogRepository(revision=42))
     try:
         versions = client.get("/api/axis-catalog").json()["tile_versions"]
     finally:
-        app.dependency_overrides[get_region_service] = lambda: RegionService()
+        app.dependency_overrides[get_region_service] = lambda: RegionService(repository=_CatalogRepository())
         derived_data_revision_service.reset_for_tests()
 
     assert versions, "タイル世代が配られていない"

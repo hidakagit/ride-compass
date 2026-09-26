@@ -17,7 +17,7 @@ def test_every_service_material_id_is_a_known_material():
     `transform_dedicated_way_values`が軸を評価できず無音で全道路が色なしになる）。"""
     weather_service = WeatherService()
     for material_id, factory in _DEDICATED_WAY_VALUE_SERVICE_FACTORIES.items():
-        service = factory(None, weather_service)
+        service = factory(object(), weather_service)
         assert service.material_id == material_id
         assert is_known_material(material_id)
 

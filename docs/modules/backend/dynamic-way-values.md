@@ -212,7 +212,6 @@ axis_id → dedicated_way_value_axes().get(axis_id)（無ければ404）
 ```
 get_way_values(z, x, y, at, bearing_deg, speed_kmh)
   ├─ bearing_deg・speed_kmh のいずれかがNoneなら即ValueError
-  ├─ repository未接続 → {}
   ├─ get_feature_keys_in_tile → 鍵の一覧（カバレッジ外はNone→{}、DB障害も{}。それ以外の例外は500）
   ├─ nearest_grid_point(タイル中心) → get_wind_grid([grid_point])
   ├─ _nearest_time_index（範囲外はNone→{}）

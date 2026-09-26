@@ -385,7 +385,7 @@ class ValueDistributionResponse(StrictModel):
 @router.post("/preview-distribution")
 async def preview_axis_distribution(
     payload: AxisPreviewRequest,
-    repository: RoadGraphRepository | None = Depends(get_road_graph_repository),
+    repository: RoadGraphRepository = Depends(get_road_graph_repository),
 ) -> ValueDistributionResponse:
     """編集中の`shape`で、実データの生値がどう分布するかを返す。
 
@@ -393,10 +393,6 @@ async def preview_axis_distribution(
     ルートを見るまで結果が分からない。この分布に折れ点を当てはめれば、「延長の何%が
     満点に張り付くか」が編集中に分かる。
     """
-    if repository is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="DB未接続のため分布を算出できません"
-        )
     distribution = await _guard_db_errors(
         axis_raw_value_distribution(repository, payload.shape)
     )

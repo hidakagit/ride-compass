@@ -1,14 +1,17 @@
+import inspect
 from collections import defaultdict
 from datetime import datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
 
+from app.api import dependencies
 from app.api.dependencies import get_dedicated_way_value_service, get_region_service
 from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisDefinition, BreakpointLinearShape, MaterialTerm
 from app.config import settings
 from app.domain.axis_inspector import AxisInspectorAxis, AxisInspectorResult
 from app.infrastructure import rate_limiter
+from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.tile_serving import TileResponse
 from app.domain.dynamic_way_values import transform_dedicated_way_values
 from app.main import app
@@ -470,6 +473,14 @@ def test_region_dedicated_way_values_unknown_axis_id_returns_404():
     assert response.status_code == 404
 
 
+class UncoveredRepository:
+    """どのタイルも取込範囲外と答えるDBの代役。"""
+
+    async def get_feature_gradient_inputs_in_tile(self, *args, **kwargs):
+        inspect.signature(RoadGraphRepository.get_feature_gradient_inputs_in_tile).bind(self, *args, **kwargs)
+        return None
+
+
 # 配信のサービスは軸の名前ではなく、軸が参照する材料で引く。実際の
 # get_dedicated_way_value_serviceを通し、初めて見る名前の軸が材料だけで配信されること・
 # 配信の実装が無い材料だけを参照する軸は404になることを見る。
@@ -479,7 +490,7 @@ def test_region_dedicated_way_values_resolves_the_service_by_the_axis_material(m
         "axis_new_name", material=material, dedicated_way_value_layer=True, dynamic_way_value_needs_bearing=True
     )
     monkeypatch.setitem(AXIS_DEFINITIONS, "axis_new_name", axis)
-    monkeypatch.setattr(settings, "road_graph_use_repository", False)
+    monkeypatch.setattr(dependencies, "RoadGraphRepository", lambda session: UncoveredRepository())
 
     response = client.get("/api/region/dynamic-way-values/axis_new_name/14/14551/6447", params={"bearing_deg": 0})
 

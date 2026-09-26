@@ -14,7 +14,6 @@ class Settings(BaseSettings):
 
     cors_allowed_origins: str = "http://localhost:3000"
     database_url: str = "postgresql+asyncpg://ridecompass:ridecompass@localhost:5432/ridecompass"
-    road_graph_use_repository: bool = True
     # 基礎地図プロキシのスタイルJSON内URLを書き換える先。MapLibreは相対URLをスタイルの
     # 取得元ではなくページのオリジンに対して解決するため絶対URLが必須で、かつ**backend自身
     # ではなくフロントエンドのオリジン**にする（タイルの大量リクエストとAPI呼び出しを

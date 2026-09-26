@@ -31,12 +31,12 @@ class RegionService:
     生成したタイルは基礎地図タイルと同じファイルキャッシュへ置く。そのため管理画面からの
     一括クリア（`api/routers/basemap.py: basemap_refresh`）で両方とも消える。
 
-    カバレッジ外・DB障害・`repository`未注入はいずれも空タイルを返す。取れなかったときに
+    カバレッジ外・DB障害はいずれも空タイルを返す。取れなかったときに
     別の経路から取り直すフォールバックは持たない（背景は
     docs/records/decisions/pre-static-attributes-gate.md 決定2）。
     """
 
-    def __init__(self, repository: RoadGraphRepository | None = None):
+    def __init__(self, repository: RoadGraphRepository):
         self._repository = repository
 
     async def tile_versions(self) -> dict[str, str]:
@@ -93,12 +93,6 @@ class RegionService:
         y: int,
     ) -> TileResponse:
         async def fetch_tile(fields: dict) -> bytes | None:
-            if self._repository is None:
-                log_throttled_warning(
-                    f"{external_call_name}-uncovered", "[%s] %sタイルがPostGIS取込範囲外 z=%d x=%d y=%d",
-                    external_call_name, label, z, x, y,
-                )
-                return None
             postgis_tile = await self._tile_from_repository(repository_method, z, x, y, fields, label)
             if postgis_tile is None and fields.get("postgis") != "error":
                 # error時に出さないのは、「取込範囲外」という表記がDB障害には当てはまらず、
@@ -167,11 +161,9 @@ class RegionService:
         `preference`は合成に使う重み。利用者がいま設定している重みを渡す——ルート生成と同じ重みで見せないと、
         重みを0にした軸まで効いて見える。省略すると既定の重み。
 
-        `repository`未注入・該当way不在・DB例外はいずれもNoneへ倒す（タイル配信と同じ
+        該当way不在・DB例外はいずれもNoneへ倒す（タイル配信と同じ
         グレースフルデグレード方針）。
         """
-        if self._repository is None:
-            return None
         with log_external_call("region:axis-inspector", osm_way_id=osm_way_id) as fields:
             try:
                 way_tags_result = await self._repository.get_way_tags_by_osm_way_id(osm_way_id)
@@ -215,10 +207,8 @@ class RegionService:
         表示側が年を文字列で持つと、取り込み直したときに黙って食い違う。年の正本は
         取込プロファイルの宣言（`source_runs.profile`）だけにする。
 
-        `repository`未注入・DB例外はいずれも空へ倒す。
+        DB例外は空へ倒す。
         """
-        if self._repository is None:
-            return []
         with log_external_call("region:accident-years-covered") as fields:
             try:
                 years = await self._repository.get_accident_years()
@@ -234,14 +224,12 @@ class RegionService:
     async def get_material_values(self, material_id: str) -> list[str] | None:
         """指定した材料についてDBへ実際に取り込まれている値の一覧。軸スタジオの値入力が使う。
 
-        **取得できなかったとき（`repository`未注入・DB例外・タイムアウト）はNone**、
+        **取得できなかったとき（DB例外・タイムアウト）はNone**、
         取得できて値が無いときは空リストを返す。両方を空リストへ倒すと、画面は
         「候補が無い」と「候補を出せなかった」を区別できず、DBのタイムアウトが
         「この材料には値が無い」として静かに表示される
         （`get_axis_inspector`と同じグレースフルデグレード方針だが、**結果の区別は残す**）。
         """
-        if self._repository is None:
-            return None
         with log_external_call("region:material-values", material_id=material_id) as fields:
             try:
                 values = await self._repository.get_distinct_material_values(material_id)

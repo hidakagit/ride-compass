@@ -48,7 +48,7 @@ def _nearest_time_index(times: list[str], target: datetime) -> int | None:
 
 
 class WindWayService:
-    def __init__(self, repository: RoadGraphRepository | None, weather_service: WeatherService):
+    def __init__(self, repository: RoadGraphRepository, weather_service: WeatherService):
         self._repository = repository
         self._weather_service = weather_service
 
@@ -56,7 +56,7 @@ class WindWayService:
     material_id = "wind_drag_ratio"
 
     @classmethod
-    def build(cls, repository: RoadGraphRepository | None, weather_service: WeatherService) -> "WindWayService":
+    def build(cls, repository: RoadGraphRepository, weather_service: WeatherService) -> "WindWayService":
         """登録テーブルから呼ぶための統一シグネチャ。依存の要否はサービスごとに違う。"""
         return cls(repository=repository, weather_service=weather_service)
 
@@ -65,7 +65,7 @@ class WindWayService:
     ) -> dict[str, float]:
         """指定タイル内のフィーチャーごとの風の材料値を返す。
 
-        repository未接続・取込範囲外・風データ取得不能はいずれも空dictへ倒し、「この道路に
+        取込範囲外・風データ取得不能はいずれも空dictへ倒し、「この道路に
         色が付かない」という劣化で済ませる。
 
         `bearing_deg`・`speed_kmh`は材料非依存な呼び出し口と形を揃えるため省略可能な形に
@@ -76,8 +76,6 @@ class WindWayService:
             raise ValueError("WindWayService.get_way_valuesにはbearing_degが必須です")
         if speed_kmh is None:
             raise ValueError("WindWayService.get_way_valuesにはspeed_kmhが必須です")
-        if self._repository is None:
-            return {}
         target = at or datetime.now(JST)
         bbox = tile_bounds_lonlat(z, x, y)
 

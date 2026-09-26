@@ -98,7 +98,7 @@ async def test_配信するタイル世代は読んだ世代を前置きする()
 
 
 async def test_世代を読めないうちは印を前置きする():
-    """世代の行が無いDB・DBなし構成。既定の世代を作らない——本物と区別が付かなくなる。"""
-    versions = await tile_version_service.current_tile_versions(None)
+    """世代の行が無いDB。既定の世代を作らない——本物と区別が付かなくなる。"""
+    versions = await tile_version_service.current_tile_versions(FakeRepository(None))
 
     assert all(v.startswith(f"{cache_identity.UNKNOWN_REVISION}-") for v in versions.values())

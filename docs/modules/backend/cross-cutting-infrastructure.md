@@ -128,24 +128,18 @@ uvicorn以外からの起動（テスト・スクリプト）は1とみなす。
 
 | 設定 | 既定値 | 影響範囲 |
 |---|---|---|
-| `database_url` | localhost | PostGIS接続文字列（[ルート生成エンジン](routing-engine.md)は常にこの接続を必須とする） |
-| `road_graph_use_repository` | `True` | 下記「暗黙の前提」参照 |
+| `database_url` | localhost | PostGIS接続文字列。[ルート生成エンジン](routing-engine.md)・地図のタイル配信・管理APIのどれもこの接続を必須とし、DBなしで動く構成は無い |
 | `admin_basic_auth_username`/`password` | 空文字（常に拒否） | 軸スタジオ・`debug_admin.py`の認可 |
 | `redis_url` | localhost | Redis接続文字列 |
 | `git_commit` | None（ローカル） | `/health`が返すデプロイ確認用コミットSHA |
 | 各種`*_rate_limit_per_minute`/`*_max_concurrent` | エンドポイントごとに個別 | per-IPレート制限・同時実行数上限 |
 | `jma_tile_prewarm_interval_minutes` | `10` | JMA動的タイル定期プリウォームの実行間隔（[動的気象レイヤー](weather-dynamic-layers.md)「定期プリウォーム」節） |
 
-**暗黙の前提（`road_graph_use_repository`、複数サービスが個別に分岐する横断フラグ）**:
-このフラグは「Road Graphの永続化（PostGIS）をランタイムのread-throughキャッシュとして
-使うか」を制御する。`GraphService`（[ルート生成エンジン](routing-engine.md)が使う）は
-**このフラグに関わらず常にrepository必須**（DB接続必須。ルート生成エンジンは
-road_graph一本のため、DATABASE_URLへの実接続なしで動く構成は存在しない）。一方
-`get_region_service`・`get_accident_service`・`get_dedicated_way_value_service`
-（いずれも`api/dependencies.py`）は、このフラグを
-**個別に見て**Falseならrepository自体を注入せず、空タイル・空dict等のグレースフル
-デグレードへ倒す（`else: yield None`/`yield RegionService()`のパターンが複数箇所に
-散在する。1つの設定値が複数のDI関数へ同じ判断ロジックとして繰り返し登場している）。
+**暗黙の前提**: DBの口（repository）を受け取るサービスは、口が無い状態を持たない。
+`api/dependencies.py`のDI工場は常にセッションを開いて口を渡し、DBに届かないときの
+空タイル・空dict等への倒し方は、読み取りで上がる例外（下記「DB障害として扱う例外」）だけが
+決める。設定で口を外して「データなし」に見せる経路を足すと、その設定の環境でだけ地図が
+黙って空になり、エラーも出ないため取込範囲外やDB障害と見分けがつかない。
 
 ## DB接続プールの分離（`api/dependencies.py`・`database.py`）
 

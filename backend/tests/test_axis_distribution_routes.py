@@ -1,7 +1,7 @@
 """分布プレビューの2エンドポイントのルーター層テスト。
 
 計算本体は`tests/test_axis_preview_service.py`が持つ。ここでは**ルーターの振る舞い**
-——DB未接続時の扱い・未知の材料・サービス層の例外の変換——だけを見る。
+——未知の材料・数値でない材料・サービス層の結果の変換——だけを見る。
 認可は`test_admin_route_authorization.py`が全ルートまとめて見る。
 """
 
@@ -52,16 +52,6 @@ def _override_repository():
     app.dependency_overrides.clear()
 
 
-def test_preview_distribution_returns_503_without_db(admin_credentials, _override_repository):
-    # DB未接続構成では算出できない。500ではなく503で「今は出せない」と返す
-    # （frontendはこの区別でエラー表示を出し分ける）。
-    _override_repository(None)
-
-    response = client.post(_PREVIEW_PATH, json={"shape": _SHAPE}, headers=AUTH_HEADERS)
-
-    assert response.status_code == 503
-
-
 def test_preview_distribution_returns_the_service_result(admin_credentials, monkeypatch, _override_repository):
     _override_repository(object())
 
@@ -84,17 +74,6 @@ def test_material_distribution_returns_404_for_unknown_material(admin_credential
     response = client.get(_material_path("no_such_material"), headers=AUTH_HEADERS)
 
     assert response.status_code == 404
-
-
-def test_material_distribution_reports_unavailable_without_db(admin_credentials, _override_repository):
-    # 材料側は503ではなくavailable=falseで返す（軸スタジオは「実データが出せない」旨を
-    # 行内に薄く出すだけで、編集そのものは続けられる）。
-    _override_repository(None)
-
-    response = client.get(_material_path("intersection_count_per_km"), headers=AUTH_HEADERS)
-
-    assert response.status_code == 200
-    assert response.json()["available"] is False
 
 
 def test_material_distribution_reports_unavailable_for_non_numeric_material(admin_credentials, monkeypatch, _override_repository):

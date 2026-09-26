@@ -421,11 +421,6 @@ class TestPreviews:
         assert repository is REPOSITORY
         assert [t.material for t in shape.terms] == ["num_a"]
 
-    def test_distribution_without_a_database_is_a_503(self, client, app):
-        app.dependency_overrides[axis_admin.get_road_graph_repository] = lambda: None
-
-        assert client.post(BASE + "/preview-distribution", json={"shape": linear_shape("num_a")}).status_code == 503
-
     def test_display_thresholds_answer_which_bands_the_map_drops_and_keeps(self, client, seams):
         override = [{"material": "bool_a", "equals": "true", "value": 0.0}]
 

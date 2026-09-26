@@ -125,7 +125,6 @@ class RouteGenerationSetup:
 
 
 async def get_graph_service():
-    # `road_graph_use_repository`設定に関わらず常にrepository付きで構築する。
     # 未splitエリアの初回タッチで発生しうる重い再構築が、タイル配信保護用の短い
     # command_timeoutでキャンセルされないよう、ルート生成用のセッション工場を使う。
     async with get_route_generation_session_factory()() as session:
@@ -228,27 +227,17 @@ def get_preview_builder(
 
 async def get_road_graph_repository():
     """`RoadGraphRepository`を直接使いたい読み取り専用の管理API向け。
-    DBなし構成ではNoneを渡し、呼び出し元が503で返す。
 
     利用者はいずれも全表走査寄りのため、タイル配信保護用の短いcommand_timeoutで
     キャンセルされないようルート生成用のセッション工場を使う。
     """
-    if settings.road_graph_use_repository:
-        async with get_route_generation_session_factory()() as session:
-            yield RoadGraphRepository(session)
-    else:
-        yield None
+    async with get_route_generation_session_factory()() as session:
+        yield RoadGraphRepository(session)
 
 
 async def get_region_service():
-    # `road_graph_use_repository`無効時はrepository自体を注入せず、路面レイヤーは常に
-    # 空タイルになる（取込範囲外・DB障害時と同じ扱い）。ルート生成側はこの設定に関わらず
-    # DB接続を必須とするため、この設定だけFalseにすると一貫性の無い構成になる。
-    if settings.road_graph_use_repository:
-        async with get_session_factory()() as session:
-            yield RegionService(repository=RoadGraphRepository(session))
-    else:
-        yield RegionService()
+    async with get_session_factory()() as session:
+        yield RegionService(repository=RoadGraphRepository(session))
 
 
 # way_id→動的値配信の実装。**軸を名指ししない**——各サービスは自分が返す材料
@@ -268,7 +257,7 @@ class DedicatedWayValueService(Protocol):
     ) -> dict[str, float]: ...
 
 
-DedicatedWayValueServiceFactory = Callable[[RoadGraphRepository | None, WeatherService], DedicatedWayValueService]
+DedicatedWayValueServiceFactory = Callable[[RoadGraphRepository, WeatherService], DedicatedWayValueService]
 
 _DEDICATED_WAY_VALUE_SERVICES = (
     WindWayService,
@@ -326,14 +315,8 @@ async def get_dedicated_way_value_service(
         yield None
         return
 
-    def _build(repository: RoadGraphRepository | None):
-        return factory(repository, weather_service)
-
-    if settings.road_graph_use_repository:
-        async with get_session_factory()() as session:
-            yield _build(RoadGraphRepository(session))
-    else:
-        yield _build(None)
+    async with get_session_factory()() as session:
+        yield factory(RoadGraphRepository(session), weather_service)
 
 
 async def directional_materials(
@@ -374,27 +357,19 @@ async def directional_materials(
     weather_service = get_weather_service()
     key = feature_key or str(osm_way_id)
 
-    async def collect(repository: RoadGraphRepository | None) -> dict[str, float]:
-        found: dict[str, float] = {}
+    found: dict[str, float] = {}
+    async with get_session_factory()() as session:
+        repository = RoadGraphRepository(session)
         for material, factory in wanted.items():
             values = await factory(repository, weather_service).get_way_values(z, x, y, at, bearing_deg, speed_kmh)
             if key in values:
                 found[material] = values[key]
-        return found
-
-    if settings.road_graph_use_repository:
-        async with get_session_factory()() as session:
-            return await collect(RoadGraphRepository(session))
-    return await collect(None)
+    return found
 
 
 async def get_accident_service():
-    # `get_region_service`と同じく、設定無効時はrepository自体を注入せず空タイルへ倒す。
-    if settings.road_graph_use_repository:
-        async with get_session_factory()() as session:
-            yield AccidentService(repository=AccidentTileQuery(session))
-    else:
-        yield AccidentService()
+    async with get_session_factory()() as session:
+        yield AccidentService(repository=AccidentTileQuery(session))
 
 
 def get_basemap_client():
