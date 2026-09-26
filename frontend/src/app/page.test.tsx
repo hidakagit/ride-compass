@@ -790,6 +790,30 @@ describe("生成の進み方と、結果の置き場", () => {
     expect(screen.getByRole("alert")).toHaveTextContent(shown);
   });
 
+  it("候補がある間に作り直しが失敗したら、前の候補を残したまま先頭に失敗を出し、条件が変わった旨は重ねない", async () => {
+    const user = renderPage();
+    await generate(user);
+    fireEvent.change(screen.getByLabelText("距離"), { target: { value: "45" } });
+    vi.mocked(generateRoutes).mockRejectedValueOnce(new Error("混み合っています"));
+    await generate(user);
+    expect(resultTabs()).toHaveLength(1);
+    expect(screen.getByRole("alert")).toHaveTextContent("作り直せませんでした。混み合っています");
+    expect(screen.queryByText("生成条件が変更されています")).not.toBeInTheDocument();
+
+    await generate(user);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("作り直しの失敗は「全消去」で消え、生成前の案内へ持ち越さない", async () => {
+    const user = renderPage();
+    await generate(user);
+    vi.mocked(generateRoutes).mockRejectedValueOnce(new Error("混み合っています"));
+    await generate(user);
+    await user.click(screen.getByRole("button", { name: "候補を全消去" }));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByText("「生成」を押すと候補がここに並びます")).toBeInTheDocument();
+  });
+
   it("入力の誤りは生成の失敗と同じ場所に出して閉じていても開き、直前の生成の案内より先に出す", async () => {
     respond([], {}, "直前の理由");
     const user = renderPage();
@@ -1516,18 +1540,34 @@ describe("モバイルの下部タブとシート", () => {
   });
 
   it.each([
-    ["候補が出た", () => respond([route("route-0")])],
-    ["候補0件だった", () => respond([])],
-    ["失敗した", () => vi.mocked(generateRoutes).mockRejectedValueOnce(new Error("失敗"))],
-  ])("生成して%sら「ルート結果」タブに印を付け、シートは開かず、タブを開くと消す", async (_case, prepare) => {
+    ["候補が出た", () => respond([route("route-0")]), "新しい結果があります"],
+    ["候補0件だった", () => respond([]), "新しい結果があります"],
+    ["失敗した", () => vi.mocked(generateRoutes).mockRejectedValueOnce(new Error("失敗")), "生成に失敗しました"],
+  ])("生成して%sら「ルート結果」タブに印を付け、シートは開かず、タブを開くと消す", async (_case, prepare, meaning) => {
     const user = renderPage();
     await user.click(navButton("ルート設定"));
     prepare();
     await generate(user);
     expect(hasOutcomeDot()).toBe(true);
+    expect(navButton("ルート結果")).toHaveAccessibleDescription(meaning);
     expect(screen.queryByRole("region", { name: "ルート結果" })).not.toBeInTheDocument();
     await user.click(navButton("ルート結果"));
     expect(hasOutcomeDot()).toBe(false);
+  });
+
+  it("候補がある間に作り直しが失敗したら、タブの印で失敗と分かり、「ルート結果」シートに前の候補と失敗を出す", async () => {
+    const user = renderPage();
+    await user.click(navButton("ルート設定"));
+    await generate(user);
+    await user.click(navButton("ルート結果"));
+    await user.click(navButton("ルート設定"));
+    vi.mocked(generateRoutes).mockRejectedValueOnce(new Error("混み合っています"));
+    await generate(user);
+    expect(navButton("ルート結果")).toHaveAccessibleDescription("生成に失敗しました");
+    await user.click(navButton("ルート結果"));
+    const outcome = screen.getByRole("region", { name: "ルート結果" });
+    expect(within(outcome).getAllByRole("tab")).toHaveLength(1);
+    expect(within(outcome).getByRole("alert")).toHaveTextContent("混み合っています");
   });
 
   it("候補を作った後に条件を変えると、「ルート結果」タブに印を付ける", async () => {
@@ -1539,6 +1579,7 @@ describe("モバイルの下部タブとシート", () => {
     expect(hasOutcomeDot()).toBe(false);
     fireEvent.change(screen.getByLabelText("距離"), { target: { value: "45" } });
     expect(hasOutcomeDot()).toBe(true);
+    expect(navButton("ルート結果")).toHaveAccessibleDescription("生成条件が変更されています");
   });
 
   it("シートの高さは2枚で共有し、操作中の高さはすぐ反映し、確定した高さだけを保存して自動の調整をやめる", async () => {

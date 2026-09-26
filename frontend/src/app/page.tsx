@@ -130,10 +130,16 @@ const ROUTE_OUTCOME_SHEET_TITLE_ID = "route-outcome-sheet-title";
 
 type MobileSheet = "routeSettings" | "routeOutcome" | null;
 
+/** 直近の生成の案内。失敗は前の候補を残したまま出すため、候補0件の理由と分けて持つ。 */
+type GenerationNotice = { kind: "failed" | "empty"; message: string };
+
 /** ルート生成の進み方。同時に成り立つのは1つだけ。 */
 type Generation =
-  { status: "idle"; message: string | null } | { status: "running"; progress: GenerationProgress | null };
-const GENERATION_IDLE: Generation = { status: "idle", message: null };
+  { status: "idle"; notice: GenerationNotice | null } | { status: "running"; progress: GenerationProgress | null };
+const GENERATION_IDLE: Generation = { status: "idle", notice: null };
+
+/** 「ルート結果」をまだ開いていない新着（モバイルのタブの印）。失敗だけは色を変えて見分けられるようにする。 */
+type UnseenOutcome = "failed" | "fresh";
 
 /** 区間の乗り換えの進み方。 */
 type SpliceTask = { status: "idle"; error: string | null } | { status: "previewing" } | { status: "applying" };
@@ -205,8 +211,8 @@ export default function Home() {
   const [selectedRouteSegment, setSelectedRouteSegment] = useState<SelectedRouteSegment | null>(null);
   // 「比較」タブを見ているか。選んだ候補は比較を見ている間も保ち、戻ったときにそのまま選ばれている。
   const [comparisonTabActive, setComparisonTabActive] = useState(false);
-  // 新しい結果が出て、まだ「ルート結果」を開いていない（モバイルのタブの合図）。
-  const [hasUnseenResults, setHasUnseenResults] = useState(false);
+  // 生成の結果が出て、まだ「ルート結果」を開いていない（モバイルのタブの合図）。
+  const [unseenOutcome, setUnseenOutcome] = useState<UnseenOutcome | null>(null);
   // ルート生成。実行中は順番待ちか実行中かと経過時間をボタンへ出し、終わった後は直近の案内（候補0件の
   // 理由・失敗の文言）を「ルート結果」欄に残す。
   const [generation, setGeneration] = useState<Generation>(GENERATION_IDLE);
@@ -368,6 +374,8 @@ export default function Home() {
     setGeneratedConditions(null);
     setExperimentSlots([]);
     setSelectedRouteSegment(null);
+    // 消した候補に向けた作り直しの失敗は、生成前の案内の場所へ持ち越さない。
+    setGeneration((current) => (current.status === "idle" ? GENERATION_IDLE : current));
   }, []);
 
   // デスクトップの区分の開閉（モバイルはシートの開閉がこれに当たる）。
@@ -537,7 +545,7 @@ export default function Home() {
     (sheet: Exclude<MobileSheet, null>) => {
       setMobileSheet((prev) => (prev === sheet ? null : sheet));
       // 「ルート結果」タブを開いたら、新着結果の合図は役目を終える。
-      if (sheet === "routeOutcome") setHasUnseenResults(false);
+      if (sheet === "routeOutcome") setUnseenOutcome(null);
     },
     [setMobileSheet],
   );
@@ -681,7 +689,7 @@ export default function Home() {
       setSelectedRouteId(sameRoute ? sameRoute.id : unique.id);
       setSelectedRouteSegment(null);
       setSplice(null);
-      notifyRouteOutcome();
+      notifyRouteOutcome("fresh");
     } catch (error) {
       setSpliceTask({ status: "idle", error: spliceFailureMessage(error) });
     } finally {
@@ -691,7 +699,7 @@ export default function Home() {
 
   async function handleGenerate(distanceKm: number) {
     setGeneration({ status: "running", progress: null });
-    let message: string | null = null;
+    let notice: GenerationNotice | null = null;
     try {
       const generationInput = buildCurrentGenerationInput(distanceKm);
       const {
@@ -714,7 +722,7 @@ export default function Home() {
       // 候補が入れ替わると、乗り換えの編集も押していた区間も意味を失う。
       setSplice(null);
       setSelectedRouteSegment(null);
-      setHasUnseenResults(candidates.length > 0);
+      setUnseenOutcome(candidates.length > 0 ? "fresh" : null);
       // 補正があったら補正後の地点で入力を組み直す（ピンも動かしたので、直後に「条件が変わった」にならない）。
       const generatedInput = conditions.corrected_destination
         ? buildCurrentGenerationInput(distanceKm, conditions.corrected_destination)
@@ -726,8 +734,11 @@ export default function Home() {
         routePreference: conditions.route_preference,
       });
       if (candidates.length === 0) {
-        message = noCandidatesReason ?? "条件に合うルート候補が見つかりませんでした。距離を変えて試してください。";
-        notifyRouteOutcome();
+        notice = {
+          kind: "empty",
+          message: noCandidatesReason ?? "条件に合うルート候補が見つかりませんでした。距離を変えて試してください。",
+        };
+        notifyRouteOutcome("fresh");
       } else if (researchEnabled) {
         // 研究モードの生成だけを実験スロットへ残す。代表は難易度が最小の候補（backendの並びの先頭。一覧の並びとは別で、
         // 後で選び直しても変えない）。
@@ -745,25 +756,44 @@ export default function Home() {
         });
       }
     } catch (error) {
-      message = error instanceof Error ? error.message : "不明なエラーが発生しました";
+      const message = error instanceof Error ? error.message : "不明なエラーが発生しました";
+      notice = { kind: "failed", message };
       debugLog("api:route", "ルート生成ハンドラで例外", { error: message }, "error");
-      notifyRouteOutcome();
+      notifyRouteOutcome("failed");
     } finally {
-      setGeneration({ status: "idle", message });
+      setGeneration({ status: "idle", notice });
     }
   }
 
   // 生成の結果（候補も失敗も）は「ルート結果」でしか見えないので知らせる。デスクトップは区分を開き、モバイルは
   // タブのドットで知らせる（シートは勝手に開かない）。
-  const notifyRouteOutcome = useCallback(() => {
-    setOutcomeOpen(true);
-    setHasUnseenResults(true);
-  }, [setOutcomeOpen]);
+  const notifyRouteOutcome = useCallback(
+    (outcome: UnseenOutcome) => {
+      setOutcomeOpen(true);
+      setUnseenOutcome(outcome);
+    },
+    [setOutcomeOpen],
+  );
 
   // 入力の検証の誤りも「ルート生成」を押した結果として同じく知らせる。
   useEffect(() => {
-    if (routeFormSubmit.error) notifyRouteOutcome();
+    if (routeFormSubmit.error) notifyRouteOutcome("failed");
   }, [routeFormSubmit.error, notifyRouteOutcome]);
+
+  // モバイルの「ルート結果」タブの印。失敗だけ色を変える（条件の変更と新しい結果は、開けば新しいものがある点で同じ）。
+  const outcomeTabSignal: { tone: "error" | "warning"; label: string } | null =
+    unseenOutcome === "failed"
+      ? { tone: "error", label: "生成に失敗しました" }
+      : unseenOutcome === "fresh"
+        ? { tone: "warning", label: "新しい結果があります" }
+        : conditionsDirty
+          ? { tone: "warning", label: "生成条件が変更されています" }
+          : null;
+
+  // 押した「生成」が通らなかった理由（入力の誤り・生成の失敗）。候補がある間も、前の候補の上に出す。
+  const generationFailure =
+    routeFormSubmit.error ??
+    (generation.status === "idle" && generation.notice?.kind === "failed" ? generation.notice.message : null);
 
   const generationProgress = generation.status === "running" ? generation.progress : null;
   const generationProgressLabel =
@@ -850,7 +880,7 @@ export default function Home() {
     if (loading) {
       return <p className={textVariants({ variant: "hint" })}>{generationProgressLabel ?? "生成中..."}</p>;
     }
-    const failure = routeFormSubmit.error ?? (generation.status === "idle" ? generation.message : null);
+    const failure = routeFormSubmit.error ?? (generation.status === "idle" ? generation.notice?.message : null);
     if (failure) {
       return <ErrorText>{failure}</ErrorText>;
     }
@@ -896,7 +926,19 @@ export default function Home() {
     );
   }
 
-  // 「ルート結果」の中身。候補ごとのタブ＋「比較」タブの1列で、タブの切り替えが候補の切り替えを兼ねる。
+  // 「ルート結果」の中身（デスクトップの区分・モバイルのシートの両方）。候補がある間に「生成」が通らなかったら、
+  // 前の候補を残したまま先頭で知らせる（候補だけが並ぶと、作り直せたように見える）。
+  function renderRouteOutcome() {
+    if (routes.length === 0) return renderRouteOutcomeEmptyState();
+    return (
+      <>
+        {generationFailure && <ErrorText>作り直せませんでした。{generationFailure}</ErrorText>}
+        {renderRouteOutcomeSectionBody()}
+      </>
+    );
+  }
+
+  // 候補ごとのタブ＋「比較」タブの1列で、タブの切り替えが候補の切り替えを兼ねる。
   function renderRouteOutcomeSectionBody() {
     // 編集中は同じ場所が編集面になる（「ルート編集」という別の置き場を持たない）。
     if (editingRoute) return renderRouteEditSectionBody();
@@ -915,7 +957,8 @@ export default function Home() {
 
     return (
       <>
-        {conditionsDirty && (
+        {/* 作り直しの失敗を出している間は、それが前の条件の候補であることも伝えているので重ねない。 */}
+        {conditionsDirty && !generationFailure && (
           <p className="m-0 text-[length:var(--font-size-sm)] text-[var(--color-warning-strong)]">
             生成条件が変更されています
           </p>
@@ -1232,7 +1275,7 @@ export default function Home() {
                   open={outcomeOpen}
                   onOpenChange={setOutcomeOpen}
                 >
-                  {routes.length > 0 ? renderRouteOutcomeSectionBody() : renderRouteOutcomeEmptyState()}
+                  {renderRouteOutcome()}
                 </Disclosure>
               </>
             )}
@@ -1395,15 +1438,15 @@ export default function Home() {
                 size="bare"
                 className="relative min-h-11 flex-1 touch-none flex-col gap-0.5 rounded-none border-0 text-[var(--foreground)] aria-expanded:bg-[var(--color-accent-bg)] aria-expanded:font-bold aria-expanded:text-[var(--color-accent-strong)]"
                 aria-expanded={mobileSheet === sheet}
+                aria-description={sheet === "routeOutcome" ? outcomeTabSignal?.label : undefined}
                 onClick={() => handleMobileTabClick(sheet)}
               >
                 <Icon />
                 <span className="text-[0.62rem] leading-none whitespace-nowrap">{label}</span>
-                {/* 条件が変わった（生成前）と、新しい結果が出た（生成後）の両方を同じ点で知らせる。 */}
-                {sheet === "routeOutcome" && (conditionsDirty || hasUnseenResults) && (
+                {sheet === "routeOutcome" && outcomeTabSignal && (
                   <span
                     aria-hidden="true"
-                    className={cn(dotVariants({ tone: "warning" }), "absolute top-1.5 right-2.5")}
+                    className={cn(dotVariants({ tone: outcomeTabSignal.tone }), "absolute top-1.5 right-2.5")}
                   />
                 )}
               </Button>
@@ -1439,7 +1482,7 @@ export default function Home() {
             onHeightCommit={handleMobileSheetHeightCommit}
             autoFitHeight={!sheetHeightChosen}
           >
-            {routes.length > 0 ? renderRouteOutcomeSectionBody() : renderRouteOutcomeEmptyState()}
+            {renderRouteOutcome()}
           </BottomSheet>
         </>
       )}
