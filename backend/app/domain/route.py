@@ -74,7 +74,7 @@ class RouteCandidate(StrictModel):
     """1本のルート候補。
 
     `overall_difficulty`はsegmentsの`difficulty`（絶対基準0-100）の距離加重平均で、
-    重み・条件が違う実験の間でも比較できる。候補タブの並び順はこの値の昇順で決まる。
+    重み・条件が違う実験の間でも比較できる。生成の応答はこの値の昇順で候補を並べる。
     segments欠損時・全区間difficulty欠損時はNone。
 
     辞書フィールドは`RouteSegmentDetail`の同名フィールドを候補の全区間へ距離加重平均で

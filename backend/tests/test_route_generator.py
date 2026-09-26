@@ -562,21 +562,21 @@ async def test_destination_asks_for_alternatives_up_to_the_requested_count():
     assert "trace_loop" not in engine.calls
 
 
-async def test_destination_pins_the_fastest_route_first_then_easiest_first():
+async def test_destination_adds_the_fastest_route_and_orders_all_easiest_first():
     engine = FakeEngine(
         via=[_loop("hard"), _loop("easy")],
         fastest=_loop("fastest"),
         candidates={
             "hard": _candidate("hard", 30.0),
             "easy": _candidate("easy", 10.0),
-            "fastest": _candidate("fastest", 50.0),
+            "fastest": _candidate("fastest", 20.0),
         },
     )
 
     result = await _destination_routes(engine, max_routes=3)
 
-    assert _keys(result) == ["fastest", "easy", "hard"]
-    assert [c.is_fastest for c in result] == [True, False, False]
+    assert _keys(result) == ["easy", "fastest", "hard"]
+    assert [c.is_fastest for c in result] == [False, True, False]
     assert [c.id for c in result] == ["route-destination-00", "route-destination-01", "route-destination-02"]
     assert {c.direction_label for c in result} == {"目的地ルート"}
 
@@ -590,10 +590,10 @@ async def test_destination_marks_an_alternative_that_is_already_the_fastest_inst
 
     result = await _destination_routes(engine, max_routes=3)
 
-    assert [(c.edge_ids[0], c.is_fastest) for c in result] == [("hard", True), ("easy", False)]
+    assert [(c.edge_ids[0], c.is_fastest) for c in result] == [("easy", False), ("hard", True)]
 
 
-async def test_destination_cuts_the_hardest_when_the_fastest_is_added_beyond_the_count():
+async def test_destination_keeps_the_fastest_even_when_hardest_and_cuts_the_next_hardest():
     engine = FakeEngine(
         via=[_loop("hard"), _loop("easy")],
         fastest=_loop("fastest"),
@@ -606,18 +606,18 @@ async def test_destination_cuts_the_hardest_when_the_fastest_is_added_beyond_the
 
     result = await _destination_routes(engine, max_routes=2)
 
-    assert _keys(result) == ["fastest", "easy"]
+    assert _keys(result) == ["easy", "fastest"]
 
 
 @pytest.mark.parametrize(
     ("fastest_difficulty", "expected"),
     [
-        # 1本だけ返すときは基準線を先頭に固定しない——軸の重みが結果に現れなくなる
+        # 1本だけ返すときは基準線を残さない——軸の重みが結果に現れなくなる
         (50.0, [("a", False)]),
         (5.0, [("fastest", True)]),
     ],
 )
-async def test_destination_with_a_single_route_does_not_pin_the_fastest(fastest_difficulty, expected):
+async def test_destination_with_a_single_route_does_not_keep_the_fastest(fastest_difficulty, expected):
     engine = FakeEngine(
         via=[_loop("a")],
         fastest=_loop("fastest"),
