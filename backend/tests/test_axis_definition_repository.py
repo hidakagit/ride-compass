@@ -61,7 +61,7 @@ async def test_upsert_then_list_all_round_trips_categorical_bool_keys(road_graph
     # 真偽の材料の対応表が値の名前の表になり、その軸は全区間で欠損になる。
     definition = AxisDefinition(
         axis_id="bool_categorical_axis",
-        shape=CategoricalShape(material="surface_good", mapping={True: 0.0, False: 80.0}),
+        shape=CategoricalShape(material="lit", mapping={True: 0.0, False: 80.0}),
         default_weight=0.1,
         label="テスト軸[bool_categorical_axis]",
         description="",

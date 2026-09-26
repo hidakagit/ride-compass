@@ -251,17 +251,6 @@
     "tile_property": "snow_ice_pct"
   },
   {
-    "material_id": "surface_good",
-    "label": "舗装良否 - surface_good",
-    "name": "舗装良否",
-    "description": "路面の見込みから判定した舗装の良否。true=舗装、false=それ以外の区分。見込みが「不明」の道（surfaceタグの区分も農道・林道の等級も無い道）は不明。",
-    "dtype": "boolean",
-    "unit": "",
-    "reference_points": [],
-    "value_labels": null,
-    "tile_property": "surface_good"
-  },
-  {
     "material_id": "intersection_count_per_km",
     "label": "交差点密度 - intersection_count_per_km",
     "name": "交差点密度",
@@ -454,7 +443,7 @@
     "material_id": "surface",
     "label": "路面種別 - surface",
     "name": "路面種別",
-    "description": "OSMの路面種別タグ(surface)の生値（例: asphalt/gravel等）。良否(舗装良否)だけでなく種別ごとに細かくスコアを設定したい場合に使います。",
+    "description": "OSMの路面種別タグ(surface)の生値（例: asphalt/gravel等）。区分（路面の区分）より細かく、タグの値ごとにスコアを設定したい場合に使います。",
     "dtype": "categorical",
     "unit": "",
     "reference_points": [],

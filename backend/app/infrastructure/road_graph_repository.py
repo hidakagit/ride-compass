@@ -37,7 +37,6 @@ from app.domain.material_sql import (
     LANES_COUNT_CASE_SQL,
     MAXSPEED_KMH_CASE_SQL,
     NODES_SOURCE_SQL,
-    SURFACE_GOOD_CASE_SQL,
     WAYS_SOURCE_SQL,
     nodes_lookup_sql,
     ways_lookup_sql,
@@ -264,7 +263,6 @@ _ROAD_SURFACE_TILE_MVT_SQL = text(
                     -- 持たない**ため、埋め込む側は必ずエスケープする。
                     NULLIF(btrim(w.tags->>'name'), '') AS name,
                     NULLIF(btrim(w.tags->>'ref'), '') AS ref,
-                    {SURFACE_GOOD_CASE_SQL} AS surface_good,
 {_CATEGORICAL_TILE_COLUMNS_SQL},
 {_BOOLEAN_TILE_COLUMNS_SQL},
                     -- 一方通行（表示専用）。上下線が分かれた道の片側は外す——道路としては

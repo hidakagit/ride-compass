@@ -16,7 +16,7 @@ interface AxisTileInput {
   trueValue?: number;
   falseValue?: number;
   /** true=タイルプロパティの欠損が「true/falseどちらでもない不明」を表す（例:
-   * surface_good、未分類の路面）。欠損時はtrueValue/falseValueどちらにも倒さず、
+   * 未分類の路面）。欠損時はtrueValue/falseValueどちらにも倒さず、
    * 灰色「不明」表示にする（registry.py: TileInputSpec.has_unknown_fallback参照）。既定false（欠損=falseとみなしてよい材料、例:
    * lit・has_tunnel⟵tunnel）はtrueValue/falseValueへ通常どおり倒す。 */
   hasUnknownFallback?: boolean;

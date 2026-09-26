@@ -46,7 +46,6 @@ from app.domain.material_sql import (
     SMOOTHNESS_NORMALIZED_SQL,
     SURFACE_CLASS_SQL,
     SURFACE_ESTIMATE_SQL,
-    SURFACE_GOOD_CASE_SQL,
     SURFACE_NORMALIZED_SQL,
     TRACKTYPE_NORMALIZED_SQL,
     cycleway_has_value_sql,
@@ -678,7 +677,6 @@ def _landcover_description(cls: LandcoverClass) -> str:
 #: ずれたときに読む側が材料を見つけられず、黙って欠損として扱う。
 GRADIENT_PERCENT = "gradient_percent"
 WIND_DRAG_RATIO = "wind_drag_ratio"
-SURFACE_GOOD = "surface_good"
 SURFACE_ESTIMATE = "surface_estimate"
 ACCIDENT_COUNT_PER_KM_YEAR = "accident_count_per_km_year"
 
@@ -778,23 +776,6 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         )
         for cls in LANDCOVER_CLASSES
     },
-    SURFACE_GOOD: MaterialSpec(
-        material_id=SURFACE_GOOD,
-        label="舗装良否",
-        description=(
-            "路面の見込みから判定した舗装の良否。true=舗装、false=それ以外の区分。"
-            "見込みが「不明」の道（surfaceタグの区分も農道・林道の等級も無い道）は不明。"
-        ),
-        dtype="boolean",
-        tile_property="surface_good",
-        primary_attribute=_ATTR_SURFACE,
-        value_sql=SURFACE_GOOD_CASE_SQL,
-        coverage=WayMaterialCoverageSpec(
-                missing_condition=f"({SURFACE_GOOD_CASE_SQL}) IS NULL",
-                source="OSM wayのタグ surface・tracktype（見込みが「不明」の道を欠損に数える）",
-                missing_semantics="unknown",
-            ),
-    ),
     "intersection_count_per_km": MaterialSpec(
         material_id="intersection_count_per_km",
         label="交差点密度",
@@ -963,7 +944,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "surface": MaterialSpec(
         material_id="surface",
         label="路面種別",
-        description="OSMの路面種別タグ(surface)の生値（例: asphalt/gravel等）。良否(舗装良否)だけでなく種別ごとに細かくスコアを設定したい場合に使います。",
+        description="OSMの路面種別タグ(surface)の生値（例: asphalt/gravel等）。区分（路面の区分）より細かく、タグの値ごとにスコアを設定したい場合に使います。",
         dtype="categorical",
         # 区分へ束ねる前のタグの値そのもの（正規化: lower/btrim）。束ねた値は材料surface_class。
         tile_property="surface",

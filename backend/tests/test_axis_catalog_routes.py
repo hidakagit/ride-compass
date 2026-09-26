@@ -10,6 +10,7 @@ from app.domain.axis_definitions import (
     CategoricalShape,
     MaterialTerm,
 )
+from app.domain.material_catalog import MATERIAL_CATALOG, SURFACE_ESTIMATE
 from app.domain.tuning import TUNING_PARAMETERS, TuningEffect
 from app.main import app
 from app.services.region_service import RegionService
@@ -46,7 +47,7 @@ CATALOG_AXES: dict[str, AxisDefinition] = {
     # 分類のshape。地図表示を導出でき、略称を持つ。
     "axis_categorical": AxisDefinition(
         axis_id="axis_categorical",
-        shape=CategoricalShape(material="surface_good", mapping={True: 0.0, False: 80.0}),
+        shape=CategoricalShape(material=SURFACE_ESTIMATE, mapping={"paved": 0.0, "gravel": 80.0}),
         default_weight=0.2,
         label="軸カ",
         is_published=True,
@@ -218,7 +219,7 @@ def test_get_axis_catalog_includes_display_for_hand_written_and_auto_derived_axe
     # 上書きが無い軸は導出した値をそのまま使う。
     derived = entries_by_id["axis_categorical"]["display"]
     assert derived["kind"] == "ramp"
-    assert derived["tile_inputs"][0]["property"] == "surface_good"
+    assert derived["tile_inputs"][0]["property"] == MATERIAL_CATALOG[SURFACE_ESTIMATE].tile_property
 
     # gradientはどちらの経路でも導出できないためkind="none"。
     assert entries_by_id["axis_way_value_signed"]["display"]["kind"] == "none"

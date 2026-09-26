@@ -26,7 +26,6 @@ from app.domain.material_sql import (
     MAXSPEED_KMH_CASE_SQL,
     MOTOR_VEHICLE_NORMALIZED_SQL,
     SMOOTHNESS_NORMALIZED_SQL,
-    SURFACE_GOOD_CASE_SQL,
     SURFACE_NORMALIZED_SQL,
     TUNNEL_NORMALIZED_SQL,
 )
@@ -72,7 +71,6 @@ def test_specs_carry_source_description_and_population():
     ("material_id", "fragment"),
     [
         ("surface", SURFACE_NORMALIZED_SQL),
-        ("surface_good", SURFACE_GOOD_CASE_SQL),
         ("smoothness", SMOOTHNESS_NORMALIZED_SQL),
         ("maxspeed_kmh", MAXSPEED_KMH_CASE_SQL),
         ("lanes_count", LANES_COUNT_CASE_SQL),

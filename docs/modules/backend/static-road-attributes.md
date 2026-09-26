@@ -101,9 +101,11 @@ OSMは**行だけを絞り、タグは絞らない**。タグは容量の1.9%し
 農道・林道（`TRACK_HIGHWAY`）とそれ以外の道を分ける——タグの無い一般の道は、タグの付いた同じ種類の道が
 ほぼ舗装なので舗装の転がり抵抗で見積もり、タグの無い農道・林道は舗装も未舗装も多いので間の値を使う。
 surfaceの値がどの区分にも当てはまらない道（区分「その他」）も、等級が無ければ不明になる。見込みの値
-（`SURFACE_ESTIMATES`）は、区分の値と2つの不明で、どれも舗装良否と転がり抵抗の較正値のidを持つ。
-舗装良否（`surface_good`）は見込みから導き（不明は不明のまま）、走行モデルの転がり抵抗も見込みから引く
+（`SURFACE_ESTIMATES`）は、区分の値と2つの不明で、どれも転がり抵抗の較正値のidを持つ。
+走行モデルの転がり抵抗は見込みから引く
 （`domain/cycling_speed.py: crr_for_surface`。値は較正値`speed.crr*`で、区分から較正値のidを引く）。
+路面を舗装／未舗装の2値へ束ねた材料は持たない——見込みの「不明」は2値のどちらにも倒せず、2値の材料を置くと
+軸と所要時間が同じ道を別の見なしで読む余地ができる。
 区分を足すなら、区分の宣言に転がり抵抗の較正値のidを書き、`domain/tuning.py`へその値を宣言する——
 等級の写し先・見込みの鍵の重なり・較正値の宣言漏れは、読み込みの時点で止まる。
 舗装質の軸がどの見込みにどの点数を付けるかは、軸の定義（本番DB）が持つ。
@@ -480,7 +482,7 @@ PBF取込時にしか変わらないため、再訪時の同一タイル再取�
 
 | ファイル | 役割 |
 |---|---|
-| `road.py` | 路面を表すタグの読み方の正準定義（surfaceの区分`SURFACE_CLASSES`、tracktypeの等級`TRACK_GRADES`と、2つを合成した路面の見込み`SURFACE_ESTIMATES`）。材料の値式・PostGIS側MVT生成SQL・地図の表示行・値の呼び名・舗装良否・走行モデルの転がり抵抗が共有する単一ソース |
+| `road.py` | 路面を表すタグの読み方の正準定義（surfaceの区分`SURFACE_CLASSES`、tracktypeの等級`TRACK_GRADES`と、2つを合成した路面の見込み`SURFACE_ESTIMATES`）。材料の値式・PostGIS側MVT生成SQL・地図の表示行・値の呼び名・走行モデルの転がり抵抗が共有する単一ソース |
 | `attributes.py` | `ElevationAttribute`・探索が読む材料の配列（`EdgeMaterialArrays`）と標高計算のSQL（[elevation.md](elevation.md)が主に扱う） |
 | `accident.py` | 警察庁データ取込の純関数群（度分秒座標の読み取り）と、生データの列から判定を組み立てるSQL断片・重み付けの定数 |
 | `traffic.py` | OSMタグの解釈。停止要因POI・補給休憩POIの種別の引き当て（`TAG_KIND_RULES`・`tag_kind_sql`）、信号の判定（`TRAFFIC_SIGNAL_SQL`）、停止要因の数える種別への畳み方と信号の読み替え（`COUNT_KIND_OF`・`count_kind_sql`・`stop_kind_sql`）、通行方向の解決（`DIRECTION_RULES`・`direction_sql`）、交差点判定の次数しきい値、交差点の階級（`HIGHWAY_RANK`）。いずれも派生バッチへSQLとして渡す表と式で、タグを読むためだけに行を取り出さない |
