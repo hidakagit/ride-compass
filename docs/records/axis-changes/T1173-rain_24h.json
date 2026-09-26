@@ -1,0 +1,37 @@
+{
+  "axis_id": "rain_24h",
+  "shape": {
+    "kind": "breakpoint_linear",
+    "terms": [
+      {
+        "material": "rain_24h_mm",
+        "weight": 1.0,
+        "required": true
+      }
+    ],
+    "preprocess": "identity",
+    "breakpoints": [
+      [0.0, 0.0],
+      [5.0, 30.0],
+      [20.0, 70.0],
+      [50.0, 100.0]
+    ]
+  },
+  "default_weight": 0.0,
+  "label": "雨（24時間）",
+  "description": "最寄りの雨量計で過去24時間に降った雨が多いほど難しい",
+  "category": "観測",
+  "is_published": true,
+  "priority_overrides": [],
+  "icon_id": null,
+  "chip_label": "雨24h",
+  "panel_hint": null,
+  "show_map_icon": false,
+  "time_scope": "always",
+  "display_thresholds_override": null,
+  "display_band_labels_override": null,
+  "dedicated_way_value_layer": true,
+  "dynamic_way_value_needs_time": false,
+  "dynamic_way_value_needs_bearing": false,
+  "dynamic_way_value_needs_speed": false
+}
