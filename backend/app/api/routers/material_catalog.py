@@ -24,7 +24,6 @@ highway/surface/smoothnessのようなOSMタグの生値でオープンエンド
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.exc import DBAPIError
 
 from app.api.admin_auth import require_admin_basic_auth
 from app.api.dependencies import (
@@ -33,6 +32,7 @@ from app.api.dependencies import (
     get_road_graph_repository,
 )
 from app.domain.material_catalog import MATERIAL_CATALOG, is_known_material
+from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.axis_preview_service import (
     EMPTY_DISTRIBUTION,
@@ -139,7 +139,7 @@ async def get_material_coverage(
     """
     try:
         return await service.get_material_coverage()
-    except DBAPIError as exc:
+    except DB_UNAVAILABLE_ERRORS as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="材料の欠損割合の集計に失敗しました（DB接続と、テーブルが作られているかを確認してください）",

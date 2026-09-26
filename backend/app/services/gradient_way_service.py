@@ -59,10 +59,10 @@ class GradientWayService:
             revision = derived_data_revision_service.current_revision()
             cached = await get_tile_values(self.material_id, z, x, y, None, bearing_deg, revision=revision)
             if cached is not None:
-                fields["cache_hit"] = len(cached)
-                fields["cache_status"] = "hit"
+                fields["cache"] = "hit"
+                fields["value_count"] = len(cached)
                 return cached
-            fields["cache_status"] = "miss"
+            fields["cache"] = "miss"
 
             try:
                 inputs = await self._repository.get_feature_gradient_inputs_in_tile(z, x, y, bbox)

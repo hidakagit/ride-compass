@@ -160,44 +160,23 @@ async def test_upsert_then_list_all_round_trips_display_fields_when_unset(road_g
     assert loaded.show_map_icon is True
 
 
-async def test_upsert_then_list_all_round_trips_dedicated_way_value_layer(road_graph_session):
-    # 改善計画T440フォローアップ: dedicated_way_value_layer=True（非既定値）がDB往復で
-    # 失われないことの回帰テスト。UPSERT文のvalues()にこのフィールドを渡し忘れていても
-    # ON CONFLICT SET句のexcluded参照だけでは値が反映されず、常に既定のFalseへ静かに
-    # 戻ってしまう不具合が実際にあった（axis_admin API経由での手動確認で発覚、
-    # test_axis_admin_routes.pyの往復テストはoverride_service[実DBを使わないフェイク]
-    # 経由のためこの種の不具合を検出できなかった）。
-    definition = axis_definition(
-        "dedicated_way_value_layer_axis",
-        dedicated_way_value_layer=True,
-    )
+async def test_upsert_then_list_all_round_trips_every_flag_away_from_its_default(road_graph_session):
+    # 真偽のフィールドは、書き込みか読み戻しで落ちると既定値へ静かに戻り、既定のままの軸では
+    # 見分けがつかない。母集団は`AxisDefinition`の真偽のフィールド全部で、足したフィールドも
+    # ここで既定と逆の値を往復させる。
+    flags = {
+        name: not field.default
+        for name, field in AxisDefinition.model_fields.items()
+        if field.annotation is bool
+    }
+    definition = axis_definition("flags_axis", **flags)
     repository = AxisDefinitionRepository(road_graph_session)
 
     await repository.upsert(definition, sort_order=0)
     await repository.commit()
 
     result = await repository.list_all()
-    assert result["dedicated_way_value_layer_axis"].dedicated_way_value_layer is True
-
-
-async def test_upsert_then_list_all_round_trips_dynamic_way_value_needs(road_graph_session):
-    # 改善計画T458: dynamic_way_value_needs_time/dynamic_way_value_needs_bearing
-    # （非既定値）がDB往復で失われないことの回帰テスト（dedicated_way_value_layerの
-    # 上記回帰テストと同型）。
-    definition = axis_definition(
-        "dynamic_way_value_needs_axis",
-        dedicated_way_value_layer=True,
-        dynamic_way_value_needs_time=True,
-        dynamic_way_value_needs_bearing=True,
-    )
-    repository = AxisDefinitionRepository(road_graph_session)
-
-    await repository.upsert(definition, sort_order=0)
-    await repository.commit()
-
-    result = await repository.list_all()
-    assert result["dynamic_way_value_needs_axis"].dynamic_way_value_needs_time is True
-    assert result["dynamic_way_value_needs_axis"].dynamic_way_value_needs_bearing is True
+    assert result == {"flags_axis": definition}
 
 
 async def test_upsert_orders_by_sort_order_not_axis_id(road_graph_session):

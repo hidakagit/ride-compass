@@ -204,6 +204,9 @@ axis_id → dedicated_way_value_axes().get(axis_id)（無ければ404）
 
 値は`{feature_key: 値}`のdict。TTLは呼び出し元が渡す（勾配=`GRADIENT_TILE_VALUES_TTL_SECONDS`
 ＝24時間）。正本を持たないキャッシュで、読み書きに失敗しても未キャッシュ扱いで実計算へ進む。
+このモジュール自身は`log_external_call`で囲まない。hit/missは呼び出し元のサービスが自分の
+`log_external_call`の`fields["cache"]`へ書き、`/api/debug/stats`のそのカテゴリのヒット率に載る
+（[docs/conventions/logging.md](../../conventions/logging.md)「外部API・キャッシュアクセス」節）。
 
 ## サービス実装
 
@@ -261,10 +264,11 @@ AND re.bearing_deg IS NOT NULL`を要求するため、[elevation.md](elevation.
 揃えてから平均する。
 
 ```python
-values = {
-    feature_key: round(GradientCalculator.effective_gradient(gradient_percent, road_bearing_deg, bearing_deg), 1)
+effective = (
+    (feature_key, GradientCalculator.effective_gradient(gradient_percent, road_bearing_deg, bearing_deg))
     for feature_key, (gradient_percent, road_bearing_deg) in inputs.items()
-}
+)
+values = {feature_key: round(value, 1) for feature_key, value in effective if value is not None}
 ```
 
 `at`引数はrouterとのインターフェース統一のためだけに受け取り、計算には使わない。

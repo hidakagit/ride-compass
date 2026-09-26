@@ -45,8 +45,8 @@ class TuningOverrideRow(Base):
 
     param_id: Mapped[str] = mapped_column(String, primary_key=True)
     value: Mapped[float] = mapped_column(Float, nullable=False)
-    #: いつこの値へ動かしたか。書き込み側は値を渡さずDB側の既定（`now()`）に任せる
-    #: ——アプリのプロセスの時計ではなくDBの時計で揃える。
+    #: いつこの値へ動かしたか。アプリのプロセスの時計ではなくDBの時計（`now()`）で揃える。
+    #: 列の既定は挿入にしか効かないため、既存の行を書き換えるときは`set_override`が明示する。
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now())
 
@@ -136,7 +136,7 @@ async def set_override(session: AsyncSession, param_id: str, value: float) -> No
     await session.execute(
         pg_insert(TuningOverrideRow)
         .values(param_id=param_id, value=value)
-        .on_conflict_do_update(index_elements=["param_id"], set_={"value": value})
+        .on_conflict_do_update(index_elements=["param_id"], set_={"value": value, "updated_at": func.now()})
     )
 
 

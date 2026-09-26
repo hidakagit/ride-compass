@@ -10,10 +10,10 @@
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.exc import DBAPIError
 
 from app.api.admin_auth import require_admin_basic_auth
 from app.api.dependencies import get_derived_data_freshness_service
+from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
 from app.services.derived_data_freshness_service import (
     DerivedDataFreshnessReport,
     DerivedDataFreshnessService,
@@ -32,7 +32,7 @@ async def get_derived_data_freshness(
     """派生データの表ごとの鮮度と、値の列ごとの未計算件数を返す。"""
     try:
         return await service.get_freshness_report()
-    except DBAPIError as exc:
+    except DB_UNAVAILABLE_ERRORS as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="派生データ鮮度台帳の集計に失敗しました（DB接続の状況を確認してください）",

@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import DBAPIError
 
@@ -89,10 +90,25 @@ def test_returns_imports_tables_and_connections(admin_credentials):
     assert body["database_bytes"] == 675 * 1024 * 1024
 
 
-def test_db_error_becomes_503_instead_of_an_empty_report(admin_credentials):
+@pytest.mark.parametrize(
+    "error",
+    [
+        DBAPIError("stmt", {}, Exception("boom")),
+        # command_timeoutはSQLAlchemyの例外へ訳されずに届く。
+        TimeoutError(),
+    ],
+)
+def test_db_error_becomes_503_instead_of_an_empty_report(admin_credentials, error):
     # 診断用APIのため、空のレポートへ倒すと「問題なし」に見えてしまう。
-    _override(_StubService(error=DBAPIError("stmt", {}, Exception("boom"))))
+    _override(_StubService(error=error))
 
     response = client.get(STATUS_URL, headers=AUTH_HEADERS)
 
     assert response.status_code == 503
+
+
+def test_an_implementation_error_is_not_reported_as_the_db_being_down(admin_credentials):
+    _override(_StubService(error=TypeError("wrong arguments")))
+
+    with pytest.raises(TypeError):
+        client.get(STATUS_URL, headers=AUTH_HEADERS)

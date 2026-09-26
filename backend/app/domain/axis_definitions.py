@@ -9,11 +9,10 @@
   1エントリ追加するだけで、区間インスペクタ・地図の値配信・ルート選び
   （`build_static_edge_score_matrix`）のすべてへ同時に反映される。評価は
   `evaluate_axis_array`1本で、Pythonの値で持つ入口（`evaluate_axis_values`）も配列にして通す。
-- breakpoints等の変換パラメータの単一ソースはここ（定数の片側import原則）。
 - 材料（material）はOSM生タグそのものではなく「評価直前まで解決済みの値」
   （勾配%・風ペナルティm/s・路面の見込み・km正規化済み密度・レシピ計算済みレベル・
   タグ由来フラグ）。材料の解決（抽出）は呼び出し元の責務で、材料idごとの意味は
-  `AXIS_DEFINITIONS`の各エントリのコメント参照。
+  材料カタログ（`domain/material_catalog.py: MATERIAL_CATALOG`の`description`）が持つ。
 - 0次ハードフィルタは軸単位ではなく独立した仕組み（`domain/hard_filters.py`）のため、
   本定義には持たない。
 - `axis_definitions`DBテーブルが全軸の唯一の正本。起動時（`app/services/
