@@ -1,13 +1,15 @@
 // 専用配信の値を取るタイルの座標と、複数タイルの応答の統合（軸によらない）。
 
+import regionTileConfig from "@/types/generated/region-tile-config.json";
+
 export interface TileXY {
   z: number;
   x: number;
   y: number;
 }
 
-// Web Mercatorで表せる緯度の限界（backendと同じ値）。挟まないとlogがNaN/Infinityになりうる。
-const MAX_MERCATOR_LATITUDE = 85.05112878;
+// Web Mercatorで表せる緯度の限界。挟まないとlogがNaN/Infinityになりうる。
+const MAX_MERCATOR_LATITUDE = regionTileConfig.max_mercator_latitude;
 
 /** 緯度経度を含むXYZタイルのx,y。 */
 function lonLatToTileIndex(lon: number, lat: number, z: number): [number, number] {

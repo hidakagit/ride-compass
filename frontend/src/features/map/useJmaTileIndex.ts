@@ -6,10 +6,10 @@ import { setJmaTileIndex } from "@/features/map/layers/jmaTileProtocol";
 import { usePolledFetch } from "@/features/map/usePolledFetch";
 import type { JmaTileIndexResponse } from "@/features/map/layers/jmaTileIndex";
 import { fetchJmaTileIndex } from "@/services/weatherApi";
+import refreshIntervals from "@/types/generated/refresh-intervals.json";
 
-// backendのプリウォームは10分間隔でインデックスを作り直す。取得が遅れても実害は
-// 「間引きが効かず従来どおり取りに行く」だけのため、間隔はそれより短ければよい。
-const JMA_TILE_INDEX_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+// backendがインデックスを作り直す間隔で取り直す。取得が遅れても実害は「間引きが効かず従来どおり取りに行く」だけ。
+const JMA_TILE_INDEX_REFRESH_INTERVAL_MS = refreshIntervals.jma_tile_index_seconds * 1000;
 
 /**
  * JMA動的タイルの在否インデックスを定期取得し、タイル要求を横取りする側

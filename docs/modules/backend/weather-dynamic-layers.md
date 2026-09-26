@@ -36,7 +36,7 @@ MSMは数値予報モデルの出力で観測値・公式発表の代わりに�
 
 | ファイル | 役割 | 消費側 |
 |---|---|---|
-| `weather.py` | 天候のPydanticモデル（`WeatherConditions`・`WeatherPeriodOutlook`）と、降水量・雲量・気温からWMO天気コードを導く`derive_weather_code`・アメダスの10分間の実測から同じコードを導く`derive_observed_weather_code`（雨と雪の境・降水の強さの段は予報と共有する——常設ヘッダーと「今日の見通し」が同じ気温で雨と雪を違えて出さないため） | `weather_service.py`・`jma_amedas.py` |
+| `weather.py` | 天候のPydanticモデル（`WeatherConditions`・`WeatherPeriodOutlook`）と、降水量・雲量・気温からWMO天気コードを導く`derive_weather_code`・アメダスの10分間の実測から同じコードを導く`derive_observed_weather_code`（「降っていない」の境`PRECIPITATION_MIN_MM`は、画面の予想降水量の「-」と地図の降水の塗りにも生成物で届く）（雨と雪の境・降水の強さの段は予報と共有する——常設ヘッダーと「今日の見通し」が同じ気温で雨と雪を違えて出さないため） | `weather_service.py`・`jma_amedas.py` |
 | `jma_amedas.py` | JMAアメダスの16方位コード変換（静穏・欠測・範囲外のコードは方位なし）・体感温度計算（BOM式）・`AmedasObservation`モデル（天気コード`weather_code`は保存した実測から応答のたびに導き、Redisには持たない） | `jma_amedas_service.py` |
 | `jma_area.py` | 緯度経度→JMA警報エリアコード（class20→class15→class10→office）の親子関係解決 | `warning_service.py`・`flood_service.py` |
 | `jma_warning.py` | JMA警報コード表・アクティブ警報抽出・警戒度の段（名称から導く。危険警報＝警戒レベル4は警報と特別警報の間の段で、氾濫危険警報と同じ段） | `warning_service.py` |

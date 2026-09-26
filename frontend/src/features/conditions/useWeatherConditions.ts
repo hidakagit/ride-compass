@@ -8,6 +8,7 @@ import {
   getWbgtStatus,
   getWeatherWarnings,
 } from "@/services/weatherApi";
+import refreshIntervals from "@/types/generated/refresh-intervals.json";
 import type { Coordinates } from "@/types/route";
 import type { AmedasObservation, WeatherConditions } from "@/types/weather";
 import type { WarningBadgeItem, WarningFetchFailure } from "@/features/conditions/WarningBadge/WarningBadge";
@@ -33,8 +34,8 @@ interface LocationFetchState<T> {
   error: string | null;
 }
 
-// 一定の間隔で取り直す（アメダスは10分ごと、警報は随時更新。一度きりだと、一時の失敗も残り続ける）。
-const WEATHER_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
+// 一定の間隔で取り直す（間隔はアメダスの更新に合わせる。警報は随時更新。一度きりだと、一時の失敗も残り続ける）。
+const WEATHER_REFRESH_INTERVAL_MS = refreshIntervals.amedas_seconds * 1000;
 
 /** 位置が決まるまで待ち、位置が変わるたびに取り直し、最後に出した要求の結果だけを反映する。失敗しても前の値は残し、
  * `error`を添える（消したい呼ぶ側は`error`を見て自分で落とす）。`fetcher`はモジュールの関数を渡す（描くたびに新しい

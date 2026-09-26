@@ -13,6 +13,10 @@ from app.domain.axis_definitions import (
 )
 from app.domain.strict_model import StrictModel
 
+#: 重みの配分を画面で調整するとき、1軸へ寄せられる上限。要求の検証には使わない——既定の重みや
+#: 保存された配分がこれを超えていても生成は受け付ける。
+MAX_AXIS_WEIGHT = 0.6
+
 
 class RoutePreference(StrictModel):
     """Evaluation Engineが使う、axis_idをキーとする重み辞書。

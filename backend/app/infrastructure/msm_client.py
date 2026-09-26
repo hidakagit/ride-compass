@@ -62,12 +62,16 @@ def _load_json(path: Path) -> dict:
         return {}
 
 
-def _update_interval_seconds_from(meta: dict, default: int = 3 * 60 * 60) -> int:
+#: 配信元のメタ情報が未同期のときに使うrun更新間隔。同期後はメタ情報の値が優先する。
+DEFAULT_UPDATE_INTERVAL_SECONDS = 3 * 60 * 60
+
+
+def _update_interval_seconds_from(meta: dict, default: int = DEFAULT_UPDATE_INTERVAL_SECONDS) -> int:
     value = meta.get("update_interval_seconds")
     return int(value) if isinstance(value, (int, float)) and value > 0 else default
 
 
-def update_interval_seconds(default: int = 3 * 60 * 60) -> int:
+def update_interval_seconds(default: int = DEFAULT_UPDATE_INTERVAL_SECONDS) -> int:
     """配信元のrun更新間隔。MSM由来の派生値をキャッシュするTTLの基準になる（これより長く
     保持すると新しいrunが出ても古い値を返し続ける）。未同期のときは既定値を返す。"""
     return _update_interval_seconds_from(_load_json(_META_FILE), default)

@@ -73,7 +73,8 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
 - 重み配分バー（帯グラフ）は表示専用ではなく、
   隣り合う2区間の境界（`role="slider"`のハンドル、幅16px）をポインタドラッグまたは
   矢印キーで操作すると、その両隣の2軸間でだけ重みが移動する（他の軸・2軸の合計は
-  変わらない、`clampBoundaryDrag`が範囲[`WEIGHT_STEP`, 0.6]内へクランプする）。
+  変わらない、`clampBoundaryDrag`が範囲[`WEIGHT_STEP`, 上限]内へクランプする。上限はbackendの
+  `domain/route_preference.py: MAX_AXIS_WEIGHT`が生成物`route-generate-config.json`で配る）。
   ハンドル自身だけに`touch-action: none`を絞ってあり、帯グラフの他の部分（セグメント
   本体）はスクロールジェスチャーを妨げない。**重みの調整手段はこの帯グラフの
   ドラッグ・矢印キー操作のみ**。ドラッグ中の値は帯の区間とチップの%がその場で動いて

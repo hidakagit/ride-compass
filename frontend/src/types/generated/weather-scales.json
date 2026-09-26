@@ -154,5 +154,7 @@
       "label": "発生確度2: 重点警戒（気象庁「竜巻注意」相当、的中率7〜14%）",
       "color": "#1d4ed8"
     }
-  ]
+  ],
+  "wind_calm_below_ms": 0.3,
+  "precipitation_none_below_mm": 0.1
 }
