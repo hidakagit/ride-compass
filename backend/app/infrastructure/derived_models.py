@@ -57,6 +57,7 @@ def covers(source: str) -> dict[str, str]:
 
 
 #: 数えた値は負にならない。未計算はNULLで表すので、0と取り違える余地も無い。
+#: 件数は小数を持つ——区間の端に乗るものは前後の区間が0.5ずつ持つ（`batch/derive_counts.py`）。
 _COUNT_COLUMNS = ("accident_count", "intersection_count") + tuple(
     poi_count_column(kind) for kind in sorted(POI_COUNT_KINDS))
 
@@ -159,12 +160,12 @@ class EdgeMaterialRow(Base):
     segment_index: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
 
     accident_count: Mapped[float | None] = mapped_column(REAL, nullable=True)
-    intersection_count: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
-    poi_signal: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
-    poi_crossing: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
-    poi_stop: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
-    poi_level_crossing: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
-    poi_barrier: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    intersection_count: Mapped[float | None] = mapped_column(REAL, nullable=True)
+    poi_signal: Mapped[float | None] = mapped_column(REAL, nullable=True)
+    poi_crossing: Mapped[float | None] = mapped_column(REAL, nullable=True)
+    poi_stop: Mapped[float | None] = mapped_column(REAL, nullable=True)
+    poi_level_crossing: Mapped[float | None] = mapped_column(REAL, nullable=True)
+    poi_barrier: Mapped[float | None] = mapped_column(REAL, nullable=True)
 
     start_elevation_m: Mapped[float | None] = mapped_column(REAL, nullable=True)
     end_elevation_m: Mapped[float | None] = mapped_column(REAL, nullable=True)
@@ -207,12 +208,12 @@ class WayMaterialRow(Base):
         BigInteger, primary_key=True, autoincrement=False, info=covers("osm_way"))
 
     accident_count: Mapped[float | None] = mapped_column(REAL, nullable=True)
-    intersection_count: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
-    poi_signal: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
-    poi_crossing: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
-    poi_stop: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
-    poi_level_crossing: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
-    poi_barrier: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    intersection_count: Mapped[float | None] = mapped_column(REAL, nullable=True)
+    poi_signal: Mapped[float | None] = mapped_column(REAL, nullable=True)
+    poi_crossing: Mapped[float | None] = mapped_column(REAL, nullable=True)
+    poi_stop: Mapped[float | None] = mapped_column(REAL, nullable=True)
+    poi_level_crossing: Mapped[float | None] = mapped_column(REAL, nullable=True)
+    poi_barrier: Mapped[float | None] = mapped_column(REAL, nullable=True)
 
     lc_valid_pixels: Mapped[int | None] = mapped_column(Integer, nullable=True)
     lc_water: Mapped[float | None] = mapped_column(REAL, nullable=True)
