@@ -74,6 +74,12 @@ STATE_RE = re.compile(r"^状態: *(完了|未完了)")
 TASK_FILE_RE = re.compile(r"^T\d+[a-z0-9-]*\.md$")
 
 CODE_SUFFIXES = (".py", ".ts", ".tsx")
+#: 総量の「実装」のうち、製品の挙動を持たない部分。製品の増減が生成物・運用の道具の増減に
+#: 埋もれないよう、総量の前回比で分けて出す。道具は運用・計測の道具と、テストの実行の足場
+#: （テストのファイル名を持たないE2Eの共通部品・テストランナーの設定）。
+GENERATED_PREFIXES = ("frontend/src/types/generated/",)
+TOOLING_PREFIXES = ("scripts/", "backend/scripts/", "backend/benchmarks/",
+                    "frontend/e2e", "frontend/playwright", "frontend/vitest")
 
 #: この行数以上のファイルは、個別閾値（size_thresholds.json）を持つまで毎回発火する。
 #: 越えた周期だけ鳴らすと、分類で閾値を決めなかったファイルが以後+15%の成長でしか
@@ -314,10 +320,22 @@ def volume_counts(paths: list[str], sha: str | None = None) -> dict[str, int]:
     return line_counts([f for f in paths if volume_kind(f)], sha)
 
 
+def implementation_part(path: str) -> str:
+    """実装の内訳（製品・生成物・道具）。"""
+    if path.startswith(GENERATED_PREFIXES):
+        return "うち生成物"
+    if path.startswith(TOOLING_PREFIXES):
+        return "うち道具"
+    return "うち製品"
+
+
 def volume_totals(counts: dict[str, int]) -> dict[str, int]:
-    totals = {"実装": 0, "テスト": 0, "文書": 0}
+    totals = {"実装": 0, "うち製品": 0, "うち生成物": 0, "うち道具": 0, "テスト": 0, "文書": 0}
     for f, n in counts.items():
-        totals[volume_kind(f)] += n
+        kind = volume_kind(f)
+        totals[kind] += n
+        if kind == "実装":
+            totals[implementation_part(f)] += n
     return totals
 
 
@@ -325,8 +343,9 @@ def cmd_size(args: argparse.Namespace) -> int:
     counts = line_counts([f for f in tracked_files()
                           if f.endswith(CODE_SUFFIXES + (".md",))
                           and not f.startswith(FROZEN_PREFIXES)])
-    thresholds = (json.loads(read(SIZE_THRESHOLDS)).get("thresholds", {})
-                  if SIZE_THRESHOLDS.exists() else {})
+    decided = json.loads(read(SIZE_THRESHOLDS)) if SIZE_THRESHOLDS.exists() else {}
+    thresholds = decided.get("thresholds", {})
+    on_fire = decided.get("on_fire", {})
     groups: dict[str, list[str]] = defaultdict(list)
     for f in counts:
         groups["docs" if f.startswith("docs/") else f.split("/")[0]].append(f)
@@ -372,6 +391,9 @@ def cmd_size(args: argparse.Namespace) -> int:
               f"{rate} | {'・'.join(reasons)} |")
     print()
     print(f"発火 {len(fired)}件: " + (", ".join(fired) if fired else "なし"))
+    for f in fired:
+        if f in on_fire:
+            print(f"  - {f} の既定の対応: {on_fire[f]}")
     print(f"閾値の見直し（到達率{THRESHOLD_SLACK_RATIO:.0%}未満・削除済み） {len(slack)}件: "
           + (", ".join(slack) if slack else "なし"))
     if not base_sha:
