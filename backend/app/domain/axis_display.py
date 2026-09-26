@@ -195,6 +195,9 @@ def _derive_ramp_inputs(
     if shape.preprocess != "identity":
         # 符号を畳む前処理を地図側の式が表現できない。
         return None
+    if shape.combine == "product" and len(shape.terms) > 1:
+        # 地図側の式は項の和（Σproperty×weight）しか表せない。
+        return None
     # 材料の欠損の扱いが評価側と地図側で食い違う（docs/modules/backend/axis-studio.md
     # 「暗黙の前提」節）。地図は欠損を寄与0として塗るため、評価不能な区間が良好に見える。
     tile_inputs = []

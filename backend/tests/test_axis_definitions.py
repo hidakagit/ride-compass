@@ -66,7 +66,7 @@ def term(material_id: str, weight: float = 1.0, required: bool = True) -> Materi
 
 
 def linear_axis(axis_id: str, *terms: MaterialTerm | str, breakpoints=LINEAR_0_100, **fields) -> AxisDefinition:
-    shape_fields = {k: fields.pop(k) for k in ("preprocess",) if k in fields}
+    shape_fields = {k: fields.pop(k) for k in ("preprocess", "combine") if k in fields}
     shape = BreakpointLinearShape(
         terms=[t if isinstance(t, MaterialTerm) else term(t) for t in terms],
         breakpoints=breakpoints,
@@ -410,6 +410,33 @@ class TestEvaluateAxisArray:
         result = axis_definitions.evaluate_axis_array(definition, {"num_a": np.array([-1.0])})
 
         assert result.tolist() == [3.3]
+
+    def test_a_product_axis_scores_only_where_every_term_is_present(self):
+        """0〜100の得点2つを0.1倍ずつして掛けると0〜100に収まり、どちらかが0なら0になる。"""
+        definition = linear_axis(
+            "a", term("num_a", weight=0.1), term("num_b", weight=0.1),
+            combine="product", breakpoints=[(0.0, 0.0), (100.0, 100.0)],
+        )
+
+        result = axis_definitions.evaluate_axis_array(
+            definition, {"num_a": np.array([50.0, 50.0, 0.0, np.nan]), "num_b": np.array([80.0, 0.0, 80.0, 80.0])}
+        )
+
+        assert result[:3].tolist() == [40.0, 0.0, 0.0]
+        assert math.isnan(result[3])
+
+    def test_a_missing_optional_term_leaves_the_product_of_the_others(self):
+        definition = linear_axis(
+            "a", term("num_a", weight=0.1, required=False), term("num_b", weight=0.1, required=False),
+            combine="product", breakpoints=[(0.0, 0.0), (100.0, 100.0)],
+        )
+
+        result = axis_definitions.evaluate_axis_array(
+            definition, {"num_a": np.array([np.nan, np.nan]), "num_b": np.array([80.0, np.nan])}
+        )
+
+        assert result[0] == 8.0
+        assert math.isnan(result[1])
 
     def test_categorical_axis_scores_registered_values_only(self):
         definition = categorical_axis("a", "cat_a", {"x": 40.0})

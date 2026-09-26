@@ -44,6 +44,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from pydantic.json_schema import SkipJsonSchema
 from pydantic_core import PydanticCustomError
 
 from app.domain.attributes import CategoricalColumn, MaterialColumn
@@ -85,6 +86,11 @@ class BreakpointLinearShape(StrictModel):
     合成（他軸参照）は独立したプリミティブではなく、`terms`の各materialが元々材料id・
     軸idのどちらも区別なく指せる設計から生じる性質にすぎない。真偽値フラグの加点合計は
     全termがboolean材料の場合として本shapeで表現する。
+
+    `combine="product"`は項（材料×重み）を足さずに掛け合わせる。どれかの項が0なら0になり、
+    「雨が多く、かつ未舗装のときだけ難しい」のような、揃ったときだけ効く形を表す。しきい値で
+    効かせる形は、段差の折れ点を持つ軸を項にすれば同じ積で書ける。欠損の扱いは和と同じ規則で、
+    寄与なしの項は積の単位元（1）になる。
     """
 
     model_config = _AXIS_MODEL_CONFIG
@@ -93,6 +99,8 @@ class BreakpointLinearShape(StrictModel):
     # 空を許すと下流の壊れ方が三者三様になる（スカラー版はNone、配列版はassert、
     # 地図表示の導出は`terms[0]`/`breakpoints[-1]`でIndexError）。登録時点で弾く。
     terms: list[MaterialTerm] = Field(min_length=1)
+    # 契約（OpenAPI）に載せない: 軸スタジオの画面はまだ積を編集も保持もできない。
+    combine: SkipJsonSchema[Literal["sum", "product"]] = "sum"
     preprocess: Literal["identity", "abs"] = "identity"
     breakpoints: list[tuple[float, float]] = Field(min_length=1)
 
@@ -889,19 +897,23 @@ def _missing_material_mask(values: np.ndarray) -> np.ndarray:
 def _breakpoint_raw_total_array(
     shape: BreakpointLinearShape, materials: Mapping[str, MaterialColumn]
 ) -> tuple[np.ndarray, np.ndarray]:
-    """`terms`の重み付き和（`preprocess`まで適用）と、全termの材料が欠損している要素の
-    マスクを返す。折れ点を通す前の値で、`evaluate_axis_array`と`axis_raw_value_array`が
+    """`terms`の重み付き和か積（`combine`、`preprocess`まで適用）と、全termの材料が欠損している
+    要素のマスクを返す。折れ点を通す前の値で、`evaluate_axis_array`と`axis_raw_value_array`が
     共有する。"""
+    product = shape.combine == "product"
     total: np.ndarray | None = None
     all_missing: np.ndarray | None = None
     for term in shape.terms:
         values = _term_values(materials, term.material)
         missing = _missing_material_mask(values)
         all_missing = missing if all_missing is None else all_missing & missing
-        if not term.required:
-            values = np.where(missing, 0.0, values)
         contribution = values * term.weight
-        total = contribution if total is None else total + contribution
+        if not term.required:
+            contribution = np.where(missing, 1.0 if product else 0.0, contribution)
+        if total is None:
+            total = contribution
+        else:
+            total = total * contribution if product else total + contribution
     assert total is not None  # 定義上termsは1件以上
     assert all_missing is not None
     if shape.preprocess == "abs":

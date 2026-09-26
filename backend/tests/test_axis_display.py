@@ -71,11 +71,12 @@ def term(material_id, weight=1.0):
     return MaterialTerm(material=material_id, weight=weight)
 
 
-def linear(*terms, breakpoints=((0.0, 0.0), (10.0, 100.0)), preprocess="identity"):
+def linear(*terms, breakpoints=((0.0, 0.0), (10.0, 100.0)), preprocess="identity", combine="sum"):
     return BreakpointLinearShape(
         terms=[t if isinstance(t, MaterialTerm) else term(t) for t in terms],
         breakpoints=list(breakpoints),
         preprocess=preprocess,
+        combine=combine,
     )
 
 
@@ -176,11 +177,12 @@ class TestLinearAxis:
         "shape",
         [
             linear("num_a", preprocess="abs"),
+            linear("num_a", "num_b", combine="product"),
             linear("num_a", "ghost"),
             linear("num_a", "num_notile"),
             linear("num_a", "num_dir"),
         ],
-        ids=["符号を畳む", "カタログにも軸にも無いid", "タイルに無い材料", "向きで値が変わる材料"],
+        ids=["符号を畳む", "項の積", "カタログにも軸にも無いid", "タイルに無い材料", "向きで値が変わる材料"],
     )
     def test_shapes_the_map_cannot_reproduce_are_not_drawn(self, shape):
         assert display(shape) == NONE

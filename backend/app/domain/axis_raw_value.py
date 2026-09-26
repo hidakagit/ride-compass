@@ -29,6 +29,9 @@ def raw_value_unit(definition: AxisDefinition) -> str | None:
     shape = definition.shape
     if not isinstance(shape, BreakpointLinearShape):
         return None
+    if shape.combine == "product" and len(shape.terms) > 1:
+        # 項の積は、どの材料の単位でも読めない。
+        return None
     specs = []
     for term in shape.terms:
         if term.weight == 0:
