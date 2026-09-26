@@ -28,8 +28,8 @@ WIND_GRID_SPACING_DEG = 0.1
 
 def _lattice_coordinate(origin_deg: float, index: int, spacing_deg: float) -> float:
     """ラティス上の1点の絶対座標。浮動小数の`+=`による誤差累積を避けるため整数の索引から
-    都度計算する。格子を生成する側と最寄りを求める側はどちらもこの関数で座標を決め、同じ
-    格子点は呼び出しをまたいで同じ値になる。"""
+    都度計算する。格子を生成する側はどれもこの関数で座標を決め、同じ格子点は呼び出しを
+    またいで同じ値になる。"""
     return round(origin_deg + index * spacing_deg, 4)
 
 
@@ -53,29 +53,6 @@ def generate_wind_grid_points(
         for i in range(_last_index(max_lat - min_lat, spacing_deg) + 1)
         for j in range(_last_index(max_lon - min_lon, spacing_deg) + 1)
     ]
-
-
-def nearest_grid_point(
-    point: Coordinates,
-    bbox: tuple[float, float, float, float] = WIND_GRID_BBOX,
-    spacing_deg: float = WIND_GRID_SPACING_DEG,
-) -> Coordinates:
-    """任意の地点から、generate_wind_grid_pointsと同じ固定ラティス（bboxの原点基準、
-    spacing_deg間隔）上の最寄り格子点を返す。
-
-    範囲外の地点はbboxの端へクランプしてから最寄りを求める（境界付近での取りこぼしを
-    避ける安全側の処理）。
-    """
-    min_lon, min_lat, max_lon, max_lat = bbox
-    clamped_lat = min(max(point.latitude, min_lat), max_lat)
-    clamped_lon = min(max(point.longitude, min_lon), max_lon)
-    # 最寄りが最後の格子点より先になることがある（bboxの幅が間隔の整数倍とは限らない）。
-    i = min(round((clamped_lat - min_lat) / spacing_deg), _last_index(max_lat - min_lat, spacing_deg))
-    j = min(round((clamped_lon - min_lon) / spacing_deg), _last_index(max_lon - min_lon, spacing_deg))
-    return Coordinates(
-        latitude=_lattice_coordinate(min_lat, i, spacing_deg),
-        longitude=_lattice_coordinate(min_lon, j, spacing_deg),
-    )
 
 
 # 詳細格子は「表示中の範囲だけ」を対象にする（全域をこの密度で計算すると応答サイズと

@@ -417,7 +417,7 @@ async def test_incomplete_landcover_is_not_reported(row):
 # --- タイル -------------------------------------------------------------------
 
 _TILE_METHODS = ("get_road_surface_tile_mvt", "get_poi_tile_mvt",
-                 "get_feature_keys_in_tile", "get_feature_gradient_inputs_in_tile")
+                 "get_feature_midpoints_in_tile", "get_feature_gradient_inputs_in_tile")
 
 
 @pytest.mark.parametrize("method", _TILE_METHODS)
@@ -446,11 +446,12 @@ async def test_tile_payload_is_returned_as_bytes(method):
 async def test_feature_keys_are_returned_as_text():
     """鍵はタイルが焼いたものと同じ文字列で配る。数で配ると、フロントのidと噛み合わず
     色が一切付かない。"""
-    repo, _ = _repo([_Row(covered=True, feature_keys=None)],
-                    [_Row(covered=True, feature_keys=[123, "123-4"])])
+    repo, _ = _repo([_Row(covered=True, midpoints=None)],
+                    [_Row(covered=True, midpoints={123: [35.1, 139.2], "123-4": [35, 139]})])
 
-    assert await repo.get_feature_keys_in_tile(14, 1, 2, BBOX) == []
-    assert await repo.get_feature_keys_in_tile(14, 1, 2, BBOX) == ["123", "123-4"]
+    assert await repo.get_feature_midpoints_in_tile(14, 1, 2, BBOX) == {}
+    assert await repo.get_feature_midpoints_in_tile(14, 1, 2, BBOX) == {
+        "123": (35.1, 139.2), "123-4": (35.0, 139.0)}
 
 
 async def test_gradient_inputs_are_pairs_of_numbers():

@@ -78,8 +78,7 @@ fail-open方針の非対称性: 警報・WBGT・洪水予報は失敗時に警�
 `WIND_GRID_BBOX`の原点から間隔ずつ数えた固定のラティスのうち、範囲に交差するものを選ぶ。画面は取り損ねた点を
 前回の値で補うとき点を緯度経度の一致で見分ける（`windLayer.ts: mergeWindGridKeepingStale`）ため、パンで範囲が
 ずれても重なる所が同じ座標で返ることに依っている——範囲の角から数えると、前回の点が今回の点と重ならずに
-残り、ずれた点が重なって描かれる。風の専用配信（`WindWayService`）も、タイル中心を同じラティスの格子点へ寄せる
-（`nearest_grid_point`）。受け付ける間隔は下限`WIND_GRID_DETAIL_MIN_SPACING_DEG`以上の有限の値で（下限未満は400、
+残り、ずれた点が重なって描かれる。受け付ける間隔は下限`WIND_GRID_DETAIL_MIN_SPACING_DEG`以上の有限の値で（下限未満は400、
 無限大・NaNは型の検査で422）、どの間隔を求めるかは画面がズームの段ごとに決める（`windLayer.ts`）。下限は画面が最も
 拡大したときの間隔で、元のMSMの格子（緯度0.05度・経度0.0625度）より20倍以上細かい——これより細かくしても補間の点が
 増えるだけで情報は増えない。座標を小数4桁へ丸める（`_lattice_coordinate`）ので、下限を0.0001度未満へ下げると
@@ -252,7 +251,7 @@ URLも変わるため、ブラウザキャッシュ（`api/cache_policy.py`）�
 | メソッド | 用途 | 時刻 | daily/weather_code |
 |---|---|---|---|
 | `get_conditions(point)` | `/api/weather`エンドポイント・`RoadGraphEngine`の起点判定 | 時系列の先頭（現在時刻の正時） | 天気コードは雲量・降水・気温から導出、日の出/日没は`twilight.py`で計算 |
-| `get_wind_forecast_lattice(bbox)` | `RoadGraphEngine`の探索前コスト合成（Edgeごとの通過予定時刻・最寄りの格子点の風） | 探索範囲を覆う格子点ごとの時別風向・風速の系列（JST）。MSMから読む | 対象外 |
+| `get_wind_forecast_lattice(bbox)` | `RoadGraphEngine`の探索前コスト合成（Edgeごとの通過予定時刻・最寄りの格子点の風）と、ルートを出す前の地図の風（`WindWayService`） | 範囲を覆う格子点ごとの時別風向・風速の系列（JST）。格子は緯度・経度0度から数えた固定の線に揃う。MSMから読む | 対象外 |
 | `get_wind_grid(points)` | 風グリッド・降水延長予報の地図レイヤー | 予報期間ぶんの時系列。MSMから読む | 対象外 |
 
 ## その他のサービス

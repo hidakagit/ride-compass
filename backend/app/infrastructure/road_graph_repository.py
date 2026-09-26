@@ -301,15 +301,26 @@ _ROAD_SURFACE_TILE_MVT_SQL = text(
 # 鍵→動的値配信層（風、「評価軸」グループ）。**タイルと同じソース**から鍵の一覧を引く。
 # 別に組み立てると、単位の切り替わり方がタイルとずれた瞬間に鍵が噛み合わず、色が一切
 # 付かない。ある道路の風の値は道路自身の向きに依らないため、方位は返さない。
-_FEATURE_KEYS_IN_TILE_SQL = text(
+# 中ほどは両端の平均で、ルートの区間の中点（`_EXTRA_MATERIAL_ARRAY_COLUMNS`の`mid_lat`/`mid_lon`）と同じ
+# 決め方にする——区間単位のズームでは同じ区間が同じ予報の格子点へ寄る。
+_FEATURE_MIDPOINTS_IN_TILE_SQL = text(
     f"""
     WITH coverage AS ({_COVERAGE_SQL})
     SELECT
         coverage.covered,
         CASE WHEN coverage.covered THEN (
-            SELECT COALESCE(jsonb_agg(src.feature_key), '[]'::jsonb)
+            SELECT COALESCE(
+                jsonb_object_agg(
+                    src.feature_key,
+                    jsonb_build_array(
+                        (ST_Y(ST_StartPoint(src.geom)) + ST_Y(ST_EndPoint(src.geom))) / 2,
+                        (ST_X(ST_StartPoint(src.geom)) + ST_X(ST_EndPoint(src.geom))) / 2
+                    )
+                ) FILTER (WHERE ST_StartPoint(src.geom) IS NOT NULL),
+                '{{}}'::jsonb
+            )
             FROM ({_TILE_FEATURE_SOURCE_SQL}) src
-        ) END AS feature_keys
+        ) END AS feature_midpoints
     FROM coverage
     """
 )
@@ -1027,17 +1038,18 @@ class RoadGraphRepository:
             return None
         return bytes(tile) if tile is not None else b""
 
-    async def get_feature_keys_in_tile(
+    async def get_feature_midpoints_in_tile(
         self, z: int, x: int, y: int, bbox: BoundingBox
-    ) -> list[str] | None:
-        """動的値配信層（風）向けに、指定タイルのフィーチャーの鍵を返す。鍵はタイルが焼いた
-        `feature_key`と同じもの。取込範囲外はNone、範囲内0件は空リスト。"""
+    ) -> dict[str, tuple[float, float]] | None:
+        """動的値配信層（風）向けに、指定タイルのフィーチャーごとの中ほどの`(緯度, 経度)`を返す。
+        鍵はタイルが焼いた`feature_key`と同じもの。取込範囲外はNone、範囲内0件は空。"""
         result = await self._session.execute(
-            _FEATURE_KEYS_IN_TILE_SQL, self._tile_params(z, x, y, bbox))
-        covered, feature_keys = result.one()
+            _FEATURE_MIDPOINTS_IN_TILE_SQL, self._tile_params(z, x, y, bbox))
+        covered, midpoints = result.one()
         if not covered:
             return None
-        return [str(key) for key in (feature_keys or [])]
+        return {str(key): (float(value[0]), float(value[1]))
+                for key, value in (midpoints or {}).items()}
 
     async def get_feature_gradient_inputs_in_tile(
         self, z: int, x: int, y: int, bbox: BoundingBox

@@ -85,7 +85,8 @@ if set(DYNAMIC_MATERIAL_EVALUATORS) != set(REQUEST_DYNAMIC_MATERIAL_IDS):
 def evaluate_dynamic_material_arrays(context: DynamicAxisRequestContext) -> dict[str, np.ndarray]:
     """`REQUEST_DYNAMIC_MATERIAL_IDS`の全材料を`context`から評価する（材料id→配列、
     `context.bearing_deg`と同じ行順）。動的材料を評価する唯一の経路で、
-    静的行列への動的軸合成（`evaluate_dynamic_axis_arrays`）もここを通る。"""
+    静的行列への動的軸合成（`evaluate_dynamic_axis_arrays`）も、ルートを出す前の地図へ配る値も
+    ここを通る。"""
     return {
         material_id: DYNAMIC_MATERIAL_EVALUATORS[material_id](context)
         for material_id in REQUEST_DYNAMIC_MATERIAL_IDS

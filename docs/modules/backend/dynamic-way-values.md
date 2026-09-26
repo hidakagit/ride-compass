@@ -6,8 +6,9 @@
 未確定時に視界内の全道路へ値を配信する。配信の単位は路面タイルのフィーチャーと同じで、
 ズームによってway丸ごとにも区間（road_edges）にもなる——このモジュールはどちらかを
 知る必要がなく、タイルと同じ`feature_key`を鍵として扱う（[static-road-attributes.md]
-(static-road-attributes.md)の`EDGE_UNIT_MIN_ZOOM`参照）。ルート確定後の風の評価は、実際には
-ルーティングエンジンにより計算方法が異なる（後述「風の評価が2つの経路で非対称」）。
+(static-road-attributes.md)の`EDGE_UNIT_MIN_ZOOM`参照）。ルート確定後の風はルーティングエンジンが
+求める（後述「ルート確定後の風の評価」）。前後で違うのは走行方位（前は利用者が決めた1つの方位、後は
+区間を実際に走る向き）と予報の範囲の外の時刻の扱いだけで、予報の地点と時刻の選び方・式は同じ。
 
 **対象ファイル**
 
@@ -20,7 +21,7 @@
 
 勾配材料の入力（`edge_materials.average_grade`・`road_edges.bearing_deg`）を
 DBから取り出す`infrastructure/road_graph_repository.py:
-get_feature_gradient_inputs_in_tile`・`get_feature_keys_in_tile`は
+get_feature_gradient_inputs_in_tile`・`get_feature_midpoints_in_tile`は
 [routing-engine.md](routing-engine.md)が主管するファイルに属する。
 
 ## 2つのidの名前空間（読む前の前提）
@@ -173,9 +174,9 @@ axis_id → dedicated_way_value_axes().get(axis_id)（無ければ404）
 
 ## キャッシュ（`infrastructure/dynamic_way_value_cache.py`）
 
-**キャッシュするのは勾配だけ**。風は「タイル中心1点の風を全wayへ配る」だけで計算が軽く、
-キャッシュが節約するのは1タイルあたり2.8ms（応答53msの5%）にとどまる一方、1エントリ
-190KBを保持することになるため、キャッシュせず都度計算する。勾配はフィーチャー単位の計算で
+**キャッシュするのは勾配だけ**。風は予報の格子点の風を配列でまとめて引くだけで計算が軽く、
+キャッシュが節約するのは1タイルあたり2.8ms（応答53msの5%。タイル中心1点の風を全wayへ配っていた版の
+本番実測）にとどまる一方、1エントリ190KBを保持することになるため、キャッシュせず都度計算する。勾配はフィーチャー単位の計算で
 809msを節約できるためキャッシュする（[docs/conventions/caching.md](../../conventions/caching.md)
 「キャッシュしないという選択」参照）。
 
@@ -206,28 +207,41 @@ axis_id → dedicated_way_value_axes().get(axis_id)（無ければ404）
 ### `WindWayService`（`wind_way_service.py`）
 
 走行方位（`bearing_deg`）は**ユーザーがコンパススライダーで指定した単一の値**（全道路
-共通）を使う。道路自身のOSM格納方向は使わない。同じタイル内の全フィーチャーは常に同じ
-`wind_drag_ratio`値を持つ（風グリッドもタイル中心1点で代表させる近似のため）。
+共通）を使う。道路自身のOSM格納方向は使わない——ルートを出す前は、その道をどちら向きに走るかが
+決まっていない。
+
+**予報の地点と時刻の選び方はルート確定後の区間と同じ**（同じ事実を1か所で持つ。
+[設計原則](../../architecture/design-principles.md)構造仕様17）。各フィーチャーは中ほど（両端の平均。
+区間単位のズームでは、ルートの区間の中点と同じ点）に最も近い予報の格子点（`domain/wind.py: WindLattice`）の、
+指定時刻に最も近い時刻の風を引き（`WindForecastSeries`）、値は同じ評価器
+（`domain/dynamic_materials.py: evaluate_dynamic_material_arrays`）で求める。格子は緯度・経度0度から数えた
+固定の線に揃えてあるため、タイルに敷いても探索範囲に敷いても同じ地点は同じ格子点へ寄る。同じタイルでも、
+中ほどが別の格子点に近い道は別の値になる。
+
+違うのは**予報の範囲の外の時刻**だけで、ルートの区間は予報の端の値で延ばして印を付けるが、地図は塗らない
+（「データなし」）。延ばした値は探索では「値が無いより妥当」として使うが、地図で色として見せるには当てにならない。
 
 ```
 get_way_values(z, x, y, at, bearing_deg, speed_kmh)
   ├─ bearing_deg・speed_kmh のいずれかがNoneなら即ValueError
-  ├─ get_feature_keys_in_tile → 鍵の一覧（カバレッジ外はNone→{}、DB障害も{}。それ以外の例外は500）
-  ├─ nearest_grid_point(タイル中心) → get_wind_grid([grid_point])
-  ├─ _nearest_time_index（範囲外はNone→{}）
-  ├─ wind_drag_ratio(speed, direction, bearing_deg, kmh_to_ms(speed_kmh))
-  └─ 戻り値は常に dict.fromkeys(feature_keys, penalty)   … 生値。難易度への変換はrouter側
+  ├─ 時刻をJSTのローカル時刻へ（tz付きはJSTへ変換してからtzinfoを外す）
+  ├─ get_feature_midpoints_in_tile → 鍵ごとの中ほど（カバレッジ外はNone→{}、DB障害も{}。それ以外の例外は500）
+  ├─ get_wind_forecast_lattice(タイルと全フィーチャーの中ほどを覆う矩形)（読めなければ{}）
+  │     … タイルをまたぐ道の中ほどはタイルの外にありうる。格子の外の点は端の格子点へ寄せられるため、覆う
+  ├─ sampled_times で時刻が予報の範囲の外（端へ寄せた）なら{}
+  ├─ evaluate_dynamic_material_arrays(DynamicAxisRequestContext(一律の方位, 通過時刻0, 各中ほどの格子点))
+  └─ 戻り値は {feature_key: 値}   … 生値。難易度への変換はrouter側
 ```
 
-**この値はキャッシュしない**。タイル中心1点の風を全フィーチャーへ配るだけで計算が軽く、
-節約（1タイルあたり2.8ms＝応答の5%）が保持コスト（1エントリ190KB）に見合わない
-（docs/conventions/caching.md「キャッシュしないという選択」）。
+**この値はキャッシュしない**。タイル1枚ぶんを1回のMSM読み出しと配列演算で求めるだけで計算が軽く、
+保持コスト（1エントリ190KB）に見合う節約にならない（下の「キャッシュ」節と
+docs/conventions/caching.md「キャッシュしないという選択」）。
 
 ### `GradientWayService`（`gradient_way_service.py`）
 
 風と異なり、`gradient_percent`自体が道路の始点→終点方向を基準にした符号付き値のため
-**道路自身の向きが本質的に必要**。風はタイル単位のスカラー値1個へ縮小できるが、勾配は
-フィーチャーごとに異なる値を返す。
+**道路自身の向きが本質的に必要**（風は利用者の1つの方位を全道路へ当てるが、勾配は道路ごとの
+向きで値が決まる）。
 
 入力は`RoadGraphRepository.get_feature_gradient_inputs_in_tile`が返す`(gradient_percent,
 road_bearing_deg)`のフィーチャー単位dict（`edge_materials.average_grade`と
@@ -275,7 +289,9 @@ values = {
 `wind_drag_ratio_array`は横風0のとき1次元式`sign(x)·x² − v²`（x=走行速度+
 向かい風成分）と一致し、追い風が走行速度を超える領域も連続。引数はスカラー・配列どちらも
 受け付け（numpyのブロードキャスト）、`domain/dynamic_materials.py: DYNAMIC_MATERIAL_EVALUATORS`が
-探索・区間表示の唯一の呼び出し元（[evaluation-scoring.md](evaluation-scoring.md)参照）。
+探索・区間表示・ルートを出す前の地図の唯一の呼び出し元（[evaluation-scoring.md](evaluation-scoring.md)参照）。
+スカラー版の`wind_drag_ratio`は、材料カタログの説明に載せる代表値の計算
+（`material_catalog.py`）だけが使う。
 
 ## ルート確定後の風の評価
 

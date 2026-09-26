@@ -103,7 +103,8 @@ Edgeコストは「探索範囲の静的Edge×公開軸スコア行列＋リク�
 その軸の材料も重みに関わらず含める（地図の色分けが重み0の軸でも成立するため）。
 逆回り候補はレグ割当ても反転する（先に走る側が往路配列、`_reverse_leg_assignment`）。レグ番号は走行順に振られるため、Edge列の反転と同時に番号自体も`max_leg - leg`へ振り直す。探索範囲を覆う格子点ごとの時別風予報
 （`WeatherService.get_wind_forecast_lattice`。格子はMSMと同じ細かさ、`domain/wind.py: WindLattice`・
-`ROUTE_WIND_LAT_STEP_DEG`/`ROUTE_WIND_LON_STEP_DEG`。各Edgeは中点に最も近い格子点の風を引く、
+`WIND_FORECAST_LAT_STEP_DEG`/`WIND_FORECAST_LON_STEP_DEG`。格子は緯度・経度0度から数えた固定の線に揃い、
+探索範囲に依らない。各Edgeは中点に最も近い格子点の風を引く——ルートを出す前の地図も同じ点を引く、
 `_LegCostComposer`の`_wind_points`）が無い場合は、出発時点のスナップショットで合成した1本を全レグで共有する（追加コスト
 ゼロ）。**重みが0でも時刻ビンは畳まない**——走行モデル（向かい風は速度そのものを落とす）が
 時刻で変わるため、重み0を理由に時刻固定へ落とすと所要時間が狂う。ただし`lens_axis_id`が風に依存する公開軸なら、
@@ -811,8 +812,8 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
 #### 派生delivery系クエリ（wind/gradient/road surface/POI）
 
 `_ROAD_SURFACE_TILE_MVT_SQL`（路面・道路種別・車ストレス材料タグ等をPostGIS側で
-ST_AsMVT丸ごと生成）・`_FEATURE_KEYS_IN_TILE_SQL`（wind、道路自身の方位角は使わず鍵の
-一覧のみ返す）・`_FEATURE_GRADIENT_INPUTS_IN_TILE_SQL`（gradient。そのフィーチャーに属する
+ST_AsMVT丸ごと生成）・`_FEATURE_MIDPOINTS_IN_TILE_SQL`（wind、道路自身の方位角は使わず鍵ごとに
+中ほど＝両端の平均の緯度経度を返す。区間の中ほどは探索の`mid_lat`/`mid_lon`と同じ点）・`_FEATURE_GRADIENT_INPUTS_IN_TILE_SQL`（gradient。そのフィーチャーに属する
 区間の値を長さで重み付けて平均する——区間単位のズームでは区間1本の値そのもの、way単位の
 ズームではwayの全区間をならした値になる。区間の勾配はジオメトリの始点→終点を正とするため、
 フィーチャーの基準方位とのcosの符号で向きを揃えてから平均する）は、いずれも

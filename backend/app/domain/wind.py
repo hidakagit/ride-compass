@@ -74,15 +74,25 @@ def wind_drag_ratio(wind_speed_ms: float, wind_direction_deg: float, travel_bear
     return float(wind_drag_ratio_array(wind_speed_ms, wind_direction_deg, travel_bearing_deg, travel_speed_ms))
 
 
-#: ルートの探索範囲に敷く予報の格子点の間隔（度）。MSMの格子（緯度0.05度・経度0.0625度、`domain/msm.py`）と同じ
+#: 道の風を引く予報の格子点の間隔（度）。MSMの格子（緯度0.05度・経度0.0625度、`domain/msm.py`）と同じ
 #: 細かさ——これより細かくしても補間の点が増えるだけで、予報の解像度は上がらない。
-ROUTE_WIND_LAT_STEP_DEG = 0.05
-ROUTE_WIND_LON_STEP_DEG = 0.0625
+WIND_FORECAST_LAT_STEP_DEG = 0.05
+WIND_FORECAST_LON_STEP_DEG = 0.0625
+
+
+def _grid_line_at_or_below(value: float, step: float) -> float:
+    # 割り算の丸めで格子線ちょうどの値が1本下へ落ちないよう、商を丸めてから切り捨てる。
+    return math.floor(round(value / step, 9)) * step
 
 
 @dataclass(frozen=True)
 class WindLattice:
-    """風の予報を引く等間隔の格子点。点の番号は南の行から、各行の中は西から（行×列）。"""
+    """風の予報を引く等間隔の格子点。点の番号は南の行から、各行の中は西から（行×列）。
+
+    道の風は、その道の中ほどに最も近い格子点から引く（`points_of`）。ルートを出す前の地図と
+    ルートの区間が同じ道で同じ予報の点を使うには、格子点が引く範囲に依らず決まっていなければ
+    ならない——そのため`covering`は格子を緯度・経度0度から間隔ずつ数えた固定の線に揃える。
+    """
 
     south: float
     west: float
@@ -95,11 +105,14 @@ class WindLattice:
     def covering(
         cls, south: float, west: float, north: float, east: float, lat_step: float, lon_step: float
     ) -> "WindLattice":
-        """矩形を覆う格子（北端・東端も格子の内側に入るよう、1つ先の点まで敷く）。"""
+        """矩形を覆う固定の格子。南端・西端は手前の格子線から、北端・東端も格子の内側に入るよう
+        1つ先の点まで敷く。"""
+        grid_south = _grid_line_at_or_below(south, lat_step)
+        grid_west = _grid_line_at_or_below(west, lon_step)
         return cls(
-            south=south, west=west, lat_step=lat_step, lon_step=lon_step,
-            rows=math.ceil((north - south) / lat_step) + 1,
-            cols=math.ceil((east - west) / lon_step) + 1,
+            south=grid_south, west=grid_west, lat_step=lat_step, lon_step=lon_step,
+            rows=math.ceil((north - grid_south) / lat_step) + 1,
+            cols=math.ceil((east - grid_west) / lon_step) + 1,
         )
 
     def coordinates(self) -> tuple[np.ndarray, np.ndarray]:

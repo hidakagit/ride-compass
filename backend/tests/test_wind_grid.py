@@ -1,4 +1,4 @@
-"""`domain/wind_grid.py`——風・降水の格子点マップの座標（固定の原点からの格子・最寄り格子点・詳細格子）。
+"""`domain/wind_grid.py`——風・降水の格子点マップの座標（固定の原点からの格子・詳細格子）。
 
 ここで見ないもの:
 - 格子点の値の取得 → `services/weather_service.py`（`test_weather_route.py`等）
@@ -41,52 +41,6 @@ def test_grid_coordinates_carry_no_floating_point_drift():
     points = wind_grid.generate_wind_grid_points((139.0, 35.0, 139.75, 35.0), SPACING)
 
     assert [p.longitude for p in points] == [139.0, 139.1, 139.2, 139.3, 139.4, 139.5, 139.6, 139.7]
-
-
-# ---- 最寄り格子点 ----
-
-
-@pytest.mark.parametrize(
-    "point",
-    [(35.04, 139.06), (35.16, 139.24), (35.2, 139.35), (35.001, 139.349)],
-)
-def test_the_nearest_grid_point_is_always_a_point_of_the_same_grid(point):
-    grid = _pairs(wind_grid.generate_wind_grid_points(BBOX, SPACING))
-
-    nearest = wind_grid.nearest_grid_point(Coordinates(latitude=point[0], longitude=point[1]), BBOX, SPACING)
-
-    assert (nearest.latitude, nearest.longitude) in grid
-
-
-def test_every_grid_point_is_its_own_nearest_point():
-    grid = wind_grid.generate_wind_grid_points(BBOX, SPACING)
-    assert grid
-
-    for point in grid:
-        assert wind_grid.nearest_grid_point(point, BBOX, SPACING) == point
-
-
-def test_the_nearest_grid_point_rounds_to_the_closest():
-    nearest = wind_grid.nearest_grid_point(Coordinates(latitude=35.16, longitude=139.24), BBOX, SPACING)
-
-    assert (nearest.latitude, nearest.longitude) == (35.2, 139.2)
-
-
-def test_a_point_beyond_the_last_grid_point_takes_the_last_one():
-    # 139.35へ最も近いのは139.4だが、格子は139.3で終わる
-    nearest = wind_grid.nearest_grid_point(Coordinates(latitude=35.0, longitude=139.35), BBOX, SPACING)
-
-    assert nearest.longitude == 139.3
-
-
-@pytest.mark.parametrize(
-    ("point", "expected"),
-    [((34.0, 138.0), (35.0, 139.0)), ((36.0, 140.0), (35.2, 139.3))],
-)
-def test_a_point_outside_the_bbox_is_clamped_to_its_edge(point, expected):
-    nearest = wind_grid.nearest_grid_point(Coordinates(latitude=point[0], longitude=point[1]), BBOX, SPACING)
-
-    assert (nearest.latitude, nearest.longitude) == expected
 
 
 # ---- 詳細格子 ----
