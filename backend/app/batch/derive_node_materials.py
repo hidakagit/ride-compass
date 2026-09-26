@@ -15,6 +15,7 @@ import time
 
 import asyncpg
 
+from app.batch._common import reset_columns_sql
 from app.domain.material_sql import NODES_SOURCE_SQL, WAYS_SOURCE_SQL
 from app.domain.traffic import (
     HIGHWAY_RANK,
@@ -35,6 +36,12 @@ def _source_nodes(extra_columns: str = "") -> str:
             f" FROM {NODES_SOURCE_SQL} n WHERE n.tags <> '{{}}'::jsonb")
 
 
+#: 種別を付けるためだけにこの段が作った行。`derive_topology`はグラフの頂点を枝数1以上で入れる。
+_DROP_KIND_ONLY = "DELETE FROM node_materials WHERE branch_count = 0"
+
+_RESET = reset_columns_sql("node_materials", {
+    "kind": "NULL", "has_traffic_signals": "false", "max_highway_rank": "0"})
+
 _UPSERT_KIND = f"""
 INSERT INTO node_materials (osm_node_id, kind, source_run_id)
 SELECT id, kind, $1 FROM ({tag_kind_sql(_source_nodes())}) k
@@ -45,8 +52,6 @@ _SIGNAL_NODES = f"""
 CREATE TEMP TABLE _signal_nodes ON COMMIT DROP AS
 SELECT s.id AS osm_node_id, s.geom FROM ({_source_nodes(", geom")}) s WHERE {TRAFFIC_SIGNAL_SQL}
 """
-
-_CLEAR_SIGNALS = "UPDATE node_materials SET has_traffic_signals = false WHERE has_traffic_signals"
 
 #: 信号の側から近くのノードを探す——索引を引く回数が、全ノード数ではなく信号の数で決まる。
 #: `&&`の前置フィルタを先に置くのは、`::geography`へのキャストがgeometryのGiSTを
@@ -94,12 +99,12 @@ async def derive(conn: asyncpg.Connection) -> int:
 
     values = ", ".join(f"('{h}', {r})" for h, r in sorted(HIGHWAY_RANK.items()))
     async with conn.transaction():
+        await conn.execute(_DROP_KIND_ONLY)
+        await conn.execute(_RESET)
         classified = int((await conn.execute(_UPSERT_KIND, run_id)).split()[-1])
         await conn.execute(_SIGNAL_NODES)
         signals = await conn.fetchval("SELECT count(*) FROM _signal_nodes")
         await conn.execute("ANALYZE _signal_nodes")
-        # 単独で流し直したときに、前回だけ信号の近くにあったノードを戻す。
-        await conn.execute(_CLEAR_SIGNALS)
         # 緯度が高いほど1度は短い。取りこぼさないよう余裕を持たせる。
         await conn.execute(_UPDATE_SIGNALS, SIGNAL_RADIUS_M,
                            SIGNAL_RADIUS_M / 111_000.0 * 2.0)

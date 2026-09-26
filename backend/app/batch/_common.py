@@ -7,7 +7,7 @@ import argparse
 import asyncio
 import logging
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TypeVar
@@ -115,6 +115,17 @@ def asyncpg_dsn(sqlalchemy_url: str) -> str:
 
 #: 進捗を出す間隔（秒）。件数ごとに出すと、関東全域では行数が多すぎて読めない。
 PROGRESS_INTERVAL_SECONDS = 15.0
+
+
+def reset_columns_sql(table: str, unset: Mapping[str, str]) -> str:
+    """派生の段が書く列を、値を出す前の状態へ戻すUPDATE。`unset`は列名→戻す値（SQLの式）。
+
+    段が値を書くのは値の出た行だけなので、先に戻しておかないと、流し直したときに
+    分類・しきい値・入力から外れた行へ前回の値が残る。すでに戻っている行は書かない。
+    """
+    assigned = ", ".join(f"{column} = {value}" for column, value in unset.items())
+    changed = " OR ".join(f"{column} IS DISTINCT FROM {value}" for column, value in unset.items())
+    return f"UPDATE {table} SET {assigned} WHERE {changed}"
 
 
 def format_duration(seconds: float) -> str:

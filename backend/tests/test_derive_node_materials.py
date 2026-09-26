@@ -1,4 +1,4 @@
-"""ノードに付く値（`batch/derive_node_materials.py`）のうち、信号の近接判定。"""
+"""ノードに付く値（`batch/derive_node_materials.py`）の信号の近接判定と、流し直したときの値。"""
 
 import json
 import struct
@@ -11,6 +11,7 @@ import pytest_asyncio
 from app.batch import derive_node_materials, derive_topology
 from app.batch._common import asyncpg_dsn
 from app.batch.ingest import ensure_partition
+from app.domain.traffic import HIGHWAY_RANK
 from tests.conftest import postgis_database_url
 
 # road_graph_session（conftest.py）と同じDBを使うため、docs/conventions/testing.mdのパターン2どおり
@@ -89,9 +90,42 @@ async def test_node_near_a_signal_is_flagged_and_far_one_is_not(node_conn):
     assert await _signals(node_conn) == {1: False, 3: True, 5: True, 9: True}
 
 
-async def test_rerun_clears_a_flag_that_no_signal_supports_any_more(node_conn):
-    """単独で流し直すと、今の生データでは信号の近くにないノードの印が外れる。"""
-    await node_conn.execute(
-        "UPDATE node_materials SET has_traffic_signals = true WHERE osm_node_id = 1")
-    await derive_node_materials.derive(node_conn)
-    assert (await _signals(node_conn))[1] is False
+async def _set_tags(conn: asyncpg.Connection, source: str, key: int, tags: dict[str, str]) -> None:
+    await conn.execute(
+        "UPDATE source_features SET attrs = $3::jsonb WHERE source = $1 AND natural_key = $2",
+        source, str(key), json.dumps(tags))
+
+
+async def _values(conn: asyncpg.Connection) -> dict[int, tuple[bool, bool, int]]:
+    """ノードごとの (種別が付いているか, 信号付きか, 最大階級)。"""
+    rows = await conn.fetch(
+        "SELECT osm_node_id, kind, has_traffic_signals, max_highway_rank FROM node_materials")
+    return {r["osm_node_id"]: (r["kind"] is not None, r["has_traffic_signals"],
+                               r["max_highway_rank"]) for r in rows}
+
+
+async def test_rerun_on_changed_input_keeps_no_value_the_input_no_longer_supports(node_conn):
+    """入力を変えて流し直すと、今の生データでは値の出ない行に前回の値が残らない。
+    タグが消えたノードは種別と信号の印を失い、階級の無い道になれば最大階級は0に戻り、
+    種別のためだけにあった行（どの道にも属さないノード）は行ごと消える。"""
+    primary = HIGHWAY_RANK["primary"]
+    signal = {"highway": "traffic_signals"}
+    await _set_tags(node_conn, "osm_way", 100, {"highway": "primary"})
+    try:
+        await derive_node_materials.derive(node_conn)
+        before = await _values(node_conn)
+        await _set_tags(node_conn, "osm_way", 100, {})
+        await _set_tags(node_conn, "osm_node", 3, {})
+        await _set_tags(node_conn, "osm_node", 9, {})
+        await derive_node_materials.derive(node_conn)
+        after = await _values(node_conn)
+    finally:
+        await _set_tags(node_conn, "osm_way", 100, {})
+        await _set_tags(node_conn, "osm_node", 3, signal)
+        await _set_tags(node_conn, "osm_node", 9, signal)
+        await derive_node_materials.derive(node_conn)
+
+    # 前提: 1回目は値が出ている。
+    assert before == {1: (False, False, primary), 3: (True, True, primary),
+                      5: (False, True, 0), 9: (True, True, 0)}
+    assert after == {1: (False, False, 0), 3: (False, False, 0), 5: (False, False, 0)}
