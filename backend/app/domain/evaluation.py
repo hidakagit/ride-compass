@@ -157,7 +157,7 @@ def _empty_material_arrays(n: int) -> dict[str, MaterialColumn]:
             arrays[spec.material_id] = CategoricalColumn(np.zeros(n, dtype=np.int16), (None,))
         elif spec.dtype == "boolean" and spec.bool_default == "false":
             arrays[spec.material_id] = np.zeros(n, dtype=bool)
-        else:  # numeric、またはbool_default="nan"のboolean（surface_good等）
+        else:  # numeric、またはbool_default="nan"のboolean
             arrays[spec.material_id] = np.full(n, np.nan)
     return arrays
 

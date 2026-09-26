@@ -27,7 +27,6 @@ from app.domain.material_sql import (
     positive_integer_tag_sql,
     surface_class_sql,
     surface_estimate_sql,
-    surface_good_sql,
     tag_absent_is_false_sql,
     tag_is_value_sql,
     ways_lookup_sql,
@@ -78,8 +77,8 @@ GOOD_A = "good_a"
 BAD_A = "bad_a"
 #: 区分と等級は架空のもので与える。実在の区分・等級が正しいかは`road.py`側の話。
 CLASSES = (
-    SurfaceClass("class_good", "良", True, {GOOD_A: "良A"}, "crr_good"),
-    SurfaceClass("class_bad", "悪", False, {BAD_A: "悪A"}, "crr_bad"),
+    SurfaceClass("class_good", "良", {GOOD_A: "良A"}, "crr_good"),
+    SurfaceClass("class_bad", "悪", {BAD_A: "悪A"}, "crr_bad"),
 )
 GRADE_GOOD = "grade_good"
 GRADE_BAD = "grade_bad"
@@ -100,10 +99,6 @@ async def _surface_class(session, surface: str | None):
 
 async def _surface_estimate(session, surface: str | None, **road):
     return await _way_value(session, surface_estimate_sql(CLASSES, GRADES), _road_tags(**road), surface=surface)
-
-
-async def _surface_good(session, surface: str | None, **road):
-    return await _way_value(session, surface_good_sql(CLASSES, GRADES), _road_tags(**road), surface=surface)
 
 
 async def _edge_value(session, expr: str, *, columns: str):
@@ -205,29 +200,6 @@ class TestSurfaceEstimate:
     async def test_any_other_road_with_neither_is_an_unknown_road(self, road_graph_session, surface):
         """値を持たないままにすると、走行モデルが値なしの読み方を別に持つことになる。"""
         assert await _surface_estimate(road_graph_session, surface) == UNKNOWN_ROAD_SURFACE.key
-
-
-class TestSurfaceQuality:
-    async def test_a_surface_in_the_good_list_is_good(self, road_graph_session):
-        assert await _surface_good(road_graph_session, GOOD_A) is True
-
-    async def test_a_surface_in_the_bad_list_is_bad(self, road_graph_session):
-        assert await _surface_good(road_graph_session, BAD_A) is False
-
-    async def test_a_grade_decides_it_when_the_surface_does_not(self, road_graph_session):
-        assert await _surface_good(road_graph_session, None, grade=GRADE_BAD) is False
-
-    async def test_a_surface_in_neither_list_stays_unknown(self, road_graph_session):
-        """どちらにも属さないタグを悪い側へ倒すと、未分類の路面が一律に遅く見積もられる。"""
-        assert await _surface_good(road_graph_session, "no_such_surface") is None
-
-    @pytest.mark.parametrize("highway", [OTHER_HIGHWAY, TRACK_HIGHWAY])
-    async def test_no_surface_tag_nor_grade_stays_unknown(self, road_graph_session, highway):
-        """「タグが無い＝舗装されていない」ではない。ここだけは非該当へ畳まない。"""
-        assert await _surface_good(road_graph_session, None, highway=highway) is None
-
-    async def test_the_case_a_contributor_used_does_not_matter(self, road_graph_session):
-        assert await _surface_good(road_graph_session, f" {GOOD_A.upper()} ") is True
 
 
 class TestCyclewayTags:

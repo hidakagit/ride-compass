@@ -40,7 +40,7 @@ function catalogResponse(): AxisCatalogResponse {
         chip_label: "舗装",
         panel_hint: null,
         show_map_icon: true,
-        shape: { kind: "categorical", material: "surface_good", mapping: { true: 0, false: 80 } },
+        shape: { kind: "categorical", material: "surface_estimate", mapping: { paved: 0, gravel: 80 } },
         display_thresholds_override: null,
         display_band_labels_override: null,
         dedicated_way_value_layer: false,

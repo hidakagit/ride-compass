@@ -30,7 +30,6 @@ from app.domain.road import (
     UNKNOWN_TRACK_SURFACE,
     SurfaceClass,
     TrackGrade,
-    surface_estimates,
 )
 from app.domain.traffic import poi_count_column
 
@@ -131,18 +130,8 @@ def surface_estimate_sql(classes: Sequence[SurfaceClass], grades: Sequence[Track
     )
 
 
-def surface_good_sql(classes: Sequence[SurfaceClass], grades: Sequence[TrackGrade]) -> str:
-    """舗装良否。路面の見込みから導き、「不明」の道は不明（NULL）のまま残す。"""
-    estimate = surface_estimate_sql(classes, grades)
-    estimates = surface_estimates(tuple(classes))
-    paved = _sql_literals(e.key for e in estimates if e.paved is True)
-    unpaved = _sql_literals(e.key for e in estimates if e.paved is False)
-    return f"CASE WHEN ({estimate}) IN ({paved}) THEN true WHEN ({estimate}) IN ({unpaved}) THEN false END"
-
-
 SURFACE_CLASS_SQL = surface_class_sql(SURFACE_CLASSES)
 SURFACE_ESTIMATE_SQL = surface_estimate_sql(SURFACE_CLASSES, TRACK_GRADES)
-SURFACE_GOOD_CASE_SQL = surface_good_sql(SURFACE_CLASSES, TRACK_GRADES)
 SMOOTHNESS_NORMALIZED_SQL = normalized_tag_sql("smoothness")
 MAXSPEED_KMH_CASE_SQL = positive_integer_tag_sql("maxspeed")
 LANES_COUNT_CASE_SQL = positive_integer_tag_sql("lanes")
