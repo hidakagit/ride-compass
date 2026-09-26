@@ -4,6 +4,7 @@
 どのリモートの枝からも届かなくなるが、監査で通したタスクの番号から始まる件名のコミットが監査の後にmasterへ
 入っていれば、スロットには失われるものが無い。規約の流れ（振り出し→担当のpush→監査で通す→取り込み→
 作業ブランチの削除→次の担当の起動）を、入口のコマンドだけで辿る。
+フックが起動役（`scripts/orchestration/launch.py`）を通して、本体の古い道具ではなくorigin/masterの版で渡すことも見る。
 """
 
 import json
@@ -226,3 +227,65 @@ def test_mark_left_by_a_dead_warm_is_cleared_when_handing_out(npm_world):
     assert handed.returncode == 0, handed.stderr
     assert "温める処理が死んで残った印を外した" in handed.stderr
     assert "渡し先 slot agent-b " in slot_line(main, orch)
+
+
+@pytest.fixture
+def tools_world(world):
+    """origin/masterに今の道具（scripts/）を入れ、本体のチェックアウトの道具だけを古くする（渡そうとすると落ちる版）。"""
+    main, orch = world
+    repo = ENTRY.parents[1]
+    for name in git(repo, "ls-files", "--", "scripts").splitlines():
+        (main / name).parent.mkdir(parents=True, exist_ok=True)
+        (main / name).write_bytes((repo / name).read_bytes())
+    git(main, "add", "scripts")
+    git(main, "commit", "--quiet", "-m", "T0: 道具")
+    git(main, "push", "--quiet", "origin", "master")
+    (main / "scripts" / "orchestration" / "slots.py").write_text(
+        "import sys\n\n\ndef main(argv):\n    print('本体の古い道具が動いた', file=sys.stderr)\n    return 3\n",
+        encoding="utf-8")
+    return main, orch
+
+
+def launch(main: Path, orch: Path, *args: str, stdin: str = "") -> subprocess.CompletedProcess[str]:
+    """フックの入口と同じく、起動役をorigin/masterから取り出して動かす。"""
+    launcher = main.parent / "launch.py"
+    launcher.write_text(git(main, "show", "origin/master:scripts/orchestration/launch.py"), encoding="utf-8")
+    return subprocess.run([sys.executable, str(launcher), "--project", str(main), "--dir", str(orch), *args],
+                          cwd=main, input=stdin, capture_output=True, text=True, encoding="utf-8", check=False)
+
+
+def exports(main: Path) -> set[str]:
+    return {p.name for p in (main / ".git" / "orchestration" / "tools").iterdir()}
+
+
+def test_worktree_hooks_through_the_launcher_use_the_tools_of_origin_master(tools_world):
+    main, orch = tools_world
+
+    handed = launch(main, orch, "slot", "hook-create", stdin=json.dumps({"name": "agent-a"}))
+
+    assert handed.returncode == 0, handed.stderr
+    assert "本体の古い道具が動いた" not in handed.stderr
+    slot = Path(handed.stdout.strip().splitlines()[-1])
+    assert git(slot, "rev-parse", "HEAD") == git(main, "rev-parse", "origin/master")
+    assert exports(main) == {git(main, "rev-parse", "origin/master")}
+    removed = launch(main, orch, "slot", "hook-remove", stdin=json.dumps({"worktree_path": str(slot)}))
+    assert removed.returncode == 0, removed.stderr
+    assert "空き（ロックなし）" in slot_line(main, orch)
+
+
+def test_export_of_an_older_master_is_removed_only_after_it_went_unused(tools_world):
+    main, orch = tools_world
+    assert launch(main, orch, "slot", "list").returncode == 0
+    first = git(main, "rev-parse", "origin/master")
+    commit(main, "README.md", "進んだ\n", "T2: masterが進む")
+    git(main, "push", "--quiet", "origin", "master")
+
+    assert launch(main, orch, "slot", "list").returncode == 0
+    assert exports(main) == {first, git(main, "rev-parse", "origin/master")}
+
+    long_ago = time.time() - 2 * 24 * 3600
+    os.utime(main / ".git" / "orchestration" / "tools" / first, (long_ago, long_ago))
+    commit(main, "README.md", "さらに進んだ\n", "T3: masterがさらに進む")
+    git(main, "push", "--quiet", "origin", "master")
+    assert launch(main, orch, "slot", "list").returncode == 0
+    assert first not in exports(main)
