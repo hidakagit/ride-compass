@@ -590,6 +590,16 @@ describe("生成リクエスト", () => {
     expect(lastRequest().route_preference).toEqual(WEIGHTS);
   });
 
+  it("重みタブと送る値は、同じ「公開軸へ揃えた重み」を読む（増えた軸は既定で補い、消えた軸は外す）", async () => {
+    const user = renderPage();
+    act(() => weightsPanel().onOverrideEnabledChange(true));
+    act(() => weightsPanel().onRoutePreferenceChange({ axis_a: 0.5, gone: 1 }));
+    const aligned = { ...catalog().defaultWeights, axis_a: 0.5 };
+    expect(weightsPanel().routePreference).toEqual(aligned);
+    await generate(user);
+    expect(lastRequest().route_preference).toEqual(aligned);
+  });
+
   it("重みを上書きしていても、軸カタログが届いていない間は送らない（届いた軸へ合わせられない）", async () => {
     stubs.catalog = EMPTY_CATALOG;
     const user = renderPage();

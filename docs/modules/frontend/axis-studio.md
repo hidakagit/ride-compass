@@ -29,6 +29,7 @@ APIを呼ぶ）・「データ保守」タブ（派生データ鮮度台帳の�
 | `features/admin/AxisStudio/MaterialRangeHint.tsx` | 材料選択行の下に、その材料が実データで取る値の分位（p50/p75/p90）を出す1行表示 |
 | `features/admin/adminApi.ts` | 管理画面のAPIクライアントをまとめたもの。管理API（backend `/api/admin/**`）は`adminRequest`1つを通して同一オリジンの口`/admin/api/**`へ投げ、backendのパスの`/api/admin`より後をそのまま使う（例: backend `GET /api/admin/db-status`は`/admin/api/db-status`）。`adminRequest`はbackendの完全なパスを`apiPath`（`lib/apiPath.ts`）で受け取り、管理APIの宣言に無いパスは型検査で落ちる。待ち時間は呼び出しごとに決める（全表走査の集計は`HEAVY_ADMIN_API_TIMEOUT_MS`、分布は`DISTRIBUTION_API_TIMEOUT_MS`）。稼働状況の口（`/health`・`/api/debug/stats`・`/api/version`）も同じファイルに置く |
 | `app/admin/api/[...path]/route.ts` | 管理APIの転送の口。`/admin/api/<X>`への要求を、サーバーの環境変数から組み立てたBasic認証を付けてbackendの`/api/admin/<X>`へ、メソッド・クエリ・本文・応答の状態と本文ごとそのまま渡す。転送の待ち時間はどのクライアントよりも長く取り（`ADMIN_PROXY_TIMEOUT_MS`）、打ち切りはクライアントに任せる |
+| `features/admin/useSettledDraftQuery.ts` | 下書きから組んだ問い合わせの骨格（入力をJSONにして取得の鍵にし、落ち着いてから問い合わせ、今の入力と違う答えは出さない）。backendが判定・計算を持ち、画面は下書きを送るだけの取得（例: `useScoresPreview`・`useMapBandsOfThresholds`）が使う |
 | `features/admin/useScoresPreview.ts` | 下書きの折れ点で、分布の階級の代表値と材料の参考点がそれぞれ何点になるか（参考点は折れ点の横軸の値も）を取得する（下書きが落ち着いてから問い合わせる。入力を変えた直後・失敗時はnull） |
 | `features/admin/useMapBandsOfThresholds.ts` | 下書きのしきい値が地図でどの段になるか（段にならない値・地図の各段に当たる入力の段）を取得する（下書きが落ち着いてから問い合わせる。失敗時は判定なし） |
 | `features/admin/useAxisValueDistribution.ts` | 編集中のshapeの生値分布を取得。取得キーに折れ点を含めないため、折れ点のドラッグ中は通信しない。取り直している間は前の分布を出したまま読み込み中にする |

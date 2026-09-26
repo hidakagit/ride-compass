@@ -1,39 +1,38 @@
 import type { RoutePreferenceWeights } from "@/types/route";
 
-// route_preferenceのキー集合を軸カタログに合わせて補正する。backendのroute_preference
-// 検証は「上書きするなら既知の全axis_idを明示する」方針（キー完全一致、
-// backend/app/api/routers/routes.py）のため、どちら向きのズレを放置してもルート生成が
-// 422になる。
-// - カタログに新しく現れた軸（軸スタジオがDBへ追加）: 既定重みを補う。
-// - カタログから消えた軸（公開軸のunpublish）: そのキーを削除する。
-//
-// RouteSettingsPanel.tsx（マウント中のみ実行）とpage.tsx（生成リクエスト組み立て時、
-// パネル未マウントのままヘッダーの生成ボタンだけを押した経路の穴埋め）の両方から呼ぶ
-// 共通ロジック。変更不要ならnullを返す（呼び出し側の「変更があった時だけstate更新する」
-// 判定に使う）。
-export function syncRoutePreferenceKeys(
-  routePreference: RoutePreferenceWeights,
-  catalogDefaultWeights: RoutePreferenceWeights,
-): RoutePreferenceWeights | null {
-  const catalogAxisIds = new Set(Object.keys(catalogDefaultWeights));
-  const missingAxisIds = Object.keys(catalogDefaultWeights).filter((id) => !(id in routePreference));
-  const staleAxisIds = Object.keys(routePreference).filter((id) => !catalogAxisIds.has(id));
-  if (missingAxisIds.length === 0 && staleAxisIds.length === 0) return null;
-
-  const synced = { ...routePreference };
-  for (const id of missingAxisIds) synced[id] = catalogDefaultWeights[id];
-  for (const id of staleAxisIds) delete synced[id];
-  return synced;
+interface CatalogWeights {
+  loaded: boolean;
+  defaultWeights: RoutePreferenceWeights;
 }
 
-/** 生成リクエストへ載せる重み。利用者が重みを上書きしていない間と、軸カタログを取得できて
- * いない間は送らず（null）、backendの既定の重みへ委ねる——取得前は軸が0件のため、そのまま
- * 整合させると保存済みの重みを全部消す。 */
-export function routePreferenceToSend(
+/** 重みのキーを軸カタログの公開軸へ揃えた値。backendの`route_preference`の検証はキーの完全一致を求め
+ * （`api/routers/routes.py`）、どちら向きにずれても生成が422になる。カタログに増えた軸は既定の重みで補い、
+ * 消えた軸（公開を取り下げた軸）は外す。**取得が決まるまでは揃えない**——軸0件のまま揃えると、保存済みの
+ * 重みを全部消す。揃える必要が無ければ渡した値をそのまま返す。
+ *
+ * 画面の重み（重みタブ・送る値・道の評価・結果の表示）はどれもこの関数を1回通した値を読む。 */
+export function alignRoutePreference(
   routePreference: RoutePreferenceWeights,
-  catalog: { loaded: boolean; defaultWeights: RoutePreferenceWeights },
+  catalog: CatalogWeights,
+): RoutePreferenceWeights {
+  if (!catalog.loaded) return routePreference;
+  const catalogAxisIds = new Set(Object.keys(catalog.defaultWeights));
+  const missingAxisIds = [...catalogAxisIds].filter((id) => !(id in routePreference));
+  const staleAxisIds = Object.keys(routePreference).filter((id) => !catalogAxisIds.has(id));
+  if (missingAxisIds.length === 0 && staleAxisIds.length === 0) return routePreference;
+
+  const aligned = { ...routePreference };
+  for (const id of missingAxisIds) aligned[id] = catalog.defaultWeights[id];
+  for (const id of staleAxisIds) delete aligned[id];
+  return aligned;
+}
+
+/** 生成リクエストへ載せる重み（`aligned`は`alignRoutePreference`を通した値）。利用者が重みを上書きしていない
+ * 間と、軸カタログを取得できていない間は送らず（null）、backendの既定の重みへ委ねる。 */
+export function routePreferenceToSend(
+  aligned: RoutePreferenceWeights,
+  catalogLoaded: boolean,
   overrideEnabled: boolean,
 ): RoutePreferenceWeights | null {
-  if (!overrideEnabled || !catalog.loaded) return null;
-  return syncRoutePreferenceKeys(routePreference, catalog.defaultWeights) ?? routePreference;
+  return overrideEnabled && catalogLoaded ? aligned : null;
 }

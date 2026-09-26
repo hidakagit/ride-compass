@@ -9,7 +9,7 @@ import type { HardFilterOverride } from "@/types/route";
 // 持つ形へ整合させることで、保存値をまたいだデプロイでも送信が成立する。
 //
 // `route_preference`側の同じ問題は`routePreferenceSync.ts`が扱う（あちらは軸カタログが
-// 実行時フェッチのため、復元時ではなくマウント時と送信時に補正する）。
+// 実行時フェッチのため、復元時ではなく、カタログが届いた後に読むたび揃える）。
 export function syncHardFilterKeys(stored: HardFilterOverride, canonical: HardFilterOverride): HardFilterOverride {
   const synced: HardFilterOverride = {};
   for (const [key, defaultEnabled] of Object.entries(canonical)) {

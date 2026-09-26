@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
 import { axisIconFor } from "@/components/ui/icons/axisIconPalette";
-import { syncRoutePreferenceKeys } from "@/features/route/routePreferenceSync";
 import { WEIGHT_STEP, clampBoundaryDrag, totalWeight } from "@/features/route/routeWeightShare";
 import { retryAxisCatalogFetch, useAxisCatalog } from "@/hooks/useAxisCatalog";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
@@ -20,6 +19,7 @@ const SEGMENT_ICON_MIN_PCT = 10;
 const SEGMENT_VALUE_MIN_PCT = 6;
 
 interface RouteSettingsPanelProps {
+  /** 軸カタログの公開軸へ揃えた重み（`features/route/routePreferenceSync.ts: alignRoutePreference`を通した値）。 */
   routePreference: RoutePreferenceWeights;
   onRoutePreferenceChange: (next: RoutePreferenceWeights) => void;
   /** 重みを上書きするか。値を変えると自動でONになる（切り替えの操作はこのパネルに出さない）。 */
@@ -46,15 +46,6 @@ export default function RouteSettingsPanel({
     const Icon = axisIconFor(axis.iconId);
     return <Icon size={size} />;
   }
-
-  // 重みのキーを公開軸と揃える（backendは全軸のキーを求め、どちらにずれても生成が422になる）。キーの足し引きだけなので
-  // 上書きのフラグは動かさない。取得が決まるまでは揃えない（0件のまま突き合わせると、保存済みの重みを全部消す）。
-  useEffect(() => {
-    if (!catalog.loaded) return;
-    const synced = syncRoutePreferenceKeys(routePreference, catalog.defaultWeights);
-    if (synced) onRoutePreferenceChange(synced);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [catalog.defaultWeights, catalog.loaded]);
 
   // 無効にした軸の重みを覚えておき、有効に戻したときに戻す（送る値の側は0になるので、ここでしか持てない）。
   const [lastWeights, setLastWeights] = useState<Record<string, number>>(() => ({

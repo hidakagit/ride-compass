@@ -272,11 +272,10 @@ Reactの外（モジュール評価時に初期値を決めるシングルトン
 
 ## page.tsxが橋渡しする主なデータフロー
 
-- `routePreference`（`RouteSettingsPanel`が編集）→ `syncRoutePreferenceKeys`による
-  キー整合補正 → ルート生成リクエスト。整合補正は役割の違う経路へ分かれる: `RouteSettingsPanel`の
-  マウント時（`useEffect`）は**stateを書き換える**、生成リクエストの組み立て
-  （`features/route/routePreferenceSync.ts: routePreferenceToSend`）は**送る値だけを整える**（stateは
-  触らない。パネルを開かずに生成する経路の穴埋め）。**利用者が重みを上書きしていない間
+- 重み（保存値、`RouteSettingsPanel`が編集）→ `features/route/routePreferenceSync.ts: alignRoutePreference`で
+  公開軸へキーを揃えた値 → 重みタブ・ルート生成リクエスト（`routePreferenceToSend`）・道の評価（`MapView`）・
+  結果の重みの表示。**揃えるのは`page.tsx`が読むときの1か所だけ**で、どの読み手も同じ揃えた値を読む
+  （保存値は書き換えず、利用者が次に重みを動かしたときに揃った形で書かれる）。**利用者が重みを上書きしていない間
   （`weightOverrideEnabled`がfalse）と、軸カタログを取得できていない間は`route_preference`
   自体を送らず、backendの既定の重みへ委ねる**——上書きしていない利用者の保存値は利用者が
   決めた重みではなく、取得前は軸が0件のため、そのまま整合させると保存済みの重みを全部消す。

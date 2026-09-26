@@ -29,7 +29,7 @@
 | `features/route/DifficultyProfile/DifficultyProfile.tsx`・`profileGeometry.ts` | 候補の中身の先頭に出す、道のりに沿った難易度のグラフ。横が始点からの距離、縦が区間ごとの難易度で、区間ごとの階段を軸の寄与で色分けして下から積む。区間はbackendがEdgeを約500mのビンへ畳んだもの（`aggregate_segments_into_bins`）で、Edge 1本ずつではない。**塗った面積がルートの負荷にほぼ一致する**——値の無い区間はルートの総合難易度の高さで灰色に描く（負荷は「値のある区間の距離加重平均×全長」で、値の無い区間を平均として数えるため）。ほぼなのは、ビンの中で値の無いEdgeがそのビンの平均で数えられるため。横軸の右端は**一覧の中で最も長い候補の距離**で、候補どうしで面積を見比べられる。押したまま動かす（キーボードは矢印・Home・End）と、その距離の区間と、区間の道なりの形の上で距離の割合ぶん進んだ地点を選ぶ——選択は地図で区間を押したときと同じ`selectedRouteSegment`で、地図に印が出て下に区間の詳細が出る。グラフ自体は区間を選んでいる間も残る |
 | `features/route/difficultyLoadBar.ts` | 難易度の帯の高さ（`baselineDistanceKm`・`loadBarHeightRatio`・`LOAD_BAR_MAX_HEIGHT_RATIO`）。帯は長さが総合難易度なので、高さへ距離の倍率を与えると塗られた面積が`difficulty_load`、積み上げの色ごとの面積が軸別の負荷になる。基準（高さ1.0）は**一覧の中で最も短い候補**——目標距離やbackendの値から取ると、周回モードと目的地モードで基準の意味が変わり、同じ高さが別のことを指す。距離の比をそのまま高さにすると行が破綻するため上限で頭打ちにし、そのぶん面積は負荷に厳密比例しなくなるので数値を併記する |
 | `lib/geoDistance.ts` | 座標列の距離計算（`cumulativeDistancesKm`）。区間の位置と代替の距離差を出すのに使う |
-| `features/route/routePreferenceSync.ts` | `route_preference`のキー集合をカタログへ同期する共通ロジック |
+| `features/route/routePreferenceSync.ts` | 重みのキー集合を軸カタログの公開軸へ揃える関数（`page.tsx`が読むときに1回だけ通す）と、生成リクエストへ重みを載せるかの判定 |
 | `features/route/hardFilterSync.ts` | 保存された`hard_filters`のキー集合を正本（`routeGenerateConfig.hard_filters`）へ整合させる。backendはキー集合の完全一致を要求するため、デプロイでフィルタが増減しても保存値をまたいで送信が成立するようにする |
 | `components/ui/FieldLabel/FieldLabel.tsx` | 情報アイコン付きラベルの共有UI部品（値を変えたら上書きをONにする包みは`RouteSettingsPanel.tsx`が持つ） |
 | `features/route/SegmentWind/SegmentWind.tsx` | 区間の詳細に出す、その区間の評価に使った風（下記「区間クリック詳細」） |
@@ -95,9 +95,9 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
   `page.tsx`の単一共有state（`travelBearingDeg`）を地図上の`TravelBearingControl`
   1箇所からのみ設定する（[ページ全体構成・状態管理](page-composition.md)「動的材料
   （風・勾配）の状態別表現契約」参照）。
-- `routePreference`（送信対象）とカタログのキー集合を`syncRoutePreferenceKeys`で
-  双方向同期する（軸の追加/unpublishに追従。backendは「上書きするなら既知の全axis_id
-  キー一致」を要求するため、ズレるとルート生成が422になる）。
+- パネルが受け取る重みは、`page.tsx`がカタログのキー集合へ揃えた値（`routePreferenceSync.ts: alignRoutePreference`。
+  軸の追加/unpublishに追従。backendは「上書きするなら既知の全axis_idキー一致」を要求するため、ズレるとルート生成が
+  422になる）。パネル自身は揃えない——送る値・道の評価と同じ1つの揃えた値を表示し、それを元に編集する。
 - 除外する道路（0次フィルタ）は独立したタブ（`HardFilterPanel`）に置く。重みづけと違い
   「通らない」指定であることを本文で明示し、将来の除外条件もこのタブへ足す。既定値から
   変更済みのときだけ、そのタブ内に戻すボタンを出す。

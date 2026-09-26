@@ -135,19 +135,7 @@ describe("RouteSettingsPanel 軸のチップ", () => {
   });
 });
 
-describe("RouteSettingsPanel 軸カタログとの合わせ込み", () => {
-  it("取得できたら、重みのキーをカタログへ合わせる（値は変えないので上書きはONにしない）", () => {
-    const { changes, onOverrideEnabledChange } = renderPanel({ surface: 0.2, removed: 0.8 });
-    expect(changes).toEqual([{ surface: 0.2, traffic: 0.3, slope: 0.2 }]);
-    expect(onOverrideEnabledChange).not.toHaveBeenCalled();
-  });
-
-  it("取得できていない間は合わせない（軸0件へ合わせると保存済みの重みが消える）", () => {
-    hook.catalog = catalogOf({ loaded: false });
-    const { changes } = renderPanel({ surface: 0.2, removed: 0.8 });
-    expect(changes).toEqual([]);
-  });
-
+describe("RouteSettingsPanel 軸カタログの取得の失敗", () => {
   it("取得に失敗したら、何が起きるかを伝え、再試行できるようにする", async () => {
     hook.catalog = { ...EMPTY_CATALOG, failed: true };
     renderPanel({});

@@ -54,7 +54,7 @@ import {
   generationConditionsKey,
   type GenerationInput,
 } from "@/features/route/generationRequest";
-import { routePreferenceToSend } from "@/features/route/routePreferenceSync";
+import { alignRoutePreference, routePreferenceToSend } from "@/features/route/routePreferenceSync";
 import { formatMaterialValue, MATERIAL_CATALOG, materialCatalogName } from "@/lib/axisMaterialsCatalog";
 import { downloadGpx } from "@/features/route/gpxExport";
 import { formatDurationShort } from "@/features/route/formatDuration";
@@ -335,11 +335,16 @@ export default function Home() {
     WEIGHT_OVERRIDE_ENABLED_STORAGE_KEY,
     false,
   );
-  // 初期値は空。既定の重みは実行時の軸カタログが配り、送る直前に当てる（ビルド時の写しを初期値にすると、
+  // 初期値は空。既定の重みは実行時の軸カタログが配り、下で揃えるときに補う（ビルド時の写しを初期値にすると、
   // 軸の増減が次のデプロイまで届かない）。
-  const [routePreference, setRoutePreference] = useStoredJsonState<RoutePreferenceWeights>(
+  const [storedRoutePreference, setRoutePreference] = useStoredJsonState<RoutePreferenceWeights>(
     ROUTE_PREFERENCE_STORAGE_KEY,
     {},
+  );
+  // 画面が読む重みは、軸カタログの公開軸へ揃えたこの値だけ（保存値は次に重みを動かしたときに揃った形で書かれる）。
+  const routePreference = useMemo(
+    () => alignRoutePreference(storedRoutePreference, axisCatalog),
+    [storedRoutePreference, axisCatalog],
   );
   // 除外の設定。常に送る。保存値に今は無い項目が混じっていても、読むときに今の項目へ揃える。
   const [hardFilters, setHardFilters] = useStoredState<HardFilterOverride>(
@@ -587,11 +592,7 @@ export default function Home() {
           axisCatalog.loaded && mapView.lens !== LENS_NONE_ID && mapView.lens !== LENS_DIFFICULTY_ID
             ? mapView.lens
             : null,
-        routePreference: routePreferenceToSend(
-          routePreference,
-          { loaded: axisCatalog.loaded, defaultWeights: axisCatalog.defaultWeights },
-          weightOverrideEnabled,
-        ),
+        routePreference: routePreferenceToSend(routePreference, axisCatalog.loaded, weightOverrideEnabled),
         waypoints: routeMode === "destination" ? waypoints : [],
         destination: routeMode === "destination" ? effectiveDestination : null,
       };
@@ -609,7 +610,6 @@ export default function Home() {
       mapView.lens,
       weightOverrideEnabled,
       axisCatalog.loaded,
-      axisCatalog.defaultWeights,
       routePreference,
     ],
   );
@@ -1290,11 +1290,7 @@ export default function Home() {
             locationSource={locationSource}
             look={mapView.look}
             rideConditions={rideConditions}
-            routePreference={routePreferenceToSend(
-              routePreference,
-              { loaded: axisCatalog.loaded, defaultWeights: axisCatalog.defaultWeights },
-              weightOverrideEnabled,
-            )}
+            routePreference={routePreferenceToSend(routePreference, axisCatalog.loaded, weightOverrideEnabled)}
             // 実験スロットは「比較」を見ている間だけ地図へ重ねる（それ以外は選んだルートの色分けと紛らわしい）。
             experimentSlots={researchEnabled && comparisonTabActive ? experimentSlots : []}
             selectedRouteSegment={selectedRouteSegment}
