@@ -47,7 +47,7 @@
 | `lib/tileBaseUrl.ts` | タイル配信元オリジンの決定（既定はフロント自身のオリジン＝rewrites経由、`NEXT_PUBLIC_TILE_BASE_URL`設定時はbackend直接）。路面/POI/事故タイル・基礎地図スタイル（`MapView.tsx: mapStyleUrl`）・国土地理院色別標高図・JMA動的タイル（[動的気象レイヤー](dynamic-weather-layers.md)）が共通に使う |
 | `next.config.ts`（`frontend/`直下） | フロント自身のオリジンへ来たタイル類（基礎地図・路面・POI・事故等）の要求をbackendへ転送するrewritesと、その転送を打ち切るまでの時間（`experimental.proxyTimeout`） |
 | `features/map/MapOverlayControls/` | 地図上チップ（フローティングUI）。グループへの束ね方と並びはレイヤーカタログ（`mapOverlayGroupFor`・`MAP_OVERLAY_GROUP_ORDER`）から導き、開いたグループ（同時に開けるのは`MAP_OVERLAY_MAX_EXPANDED_GROUPS`まで）と「表示する項目を選ぶ」で隠した項目を次の訪問でも保つ。▶（凡例）・つまみの付いた横線（表示する項目を選ぶ、`DisplayItemsIcon`）で開くパネルは`ui/Popover`（Radix）で、位置取り・画面端での縮み・外を押すと閉じる（同時に開くのは1つ）はライブラリが持つ。**ⓘは説明を開く記号にだけ使う**——「表示する項目」の一覧の各行にも説明のⓘが並ぶため、入口までⓘにすると1つのパネルの中で同じ記号が「選ぶ」と「説明」の2つの意味になる。開いた一覧の先頭には「表示する項目」の見出しを出す（押す前のtitleはスマホでは出ない） |
-| `components/ui/InfoPopover/InfoPopover.tsx` | 見出し脇の(i)アイコン→ポップオーバーという外枠の共通部品（開閉state・開閉に追随するアクセシブル名「◯◯を表示/隠す」・任意の見出し文言を含む）。中身はchildrenで呼び出し側が渡す。`RouteSettingsPanel`・`RouteAxisProfile`・`recipeControls.tsx: FieldLabel`・軸スタジオの材料説明が共用し、(i)→Popoverの組み立てを自前で持つ箇所は無い |
+| `components/ui/InfoPopover/InfoPopover.tsx` | 見出し脇の(i)アイコン→ポップオーバーという外枠の共通部品（開閉state・開閉に追随するアクセシブル名「◯◯を表示/隠す」・任意の見出し文言を含む）。中身はchildrenで呼び出し側が渡す。(i)→Popoverを出す箇所（例: `RouteSettingsPanel`・`ui/FieldLabel/FieldLabel.tsx: FieldLabel`・軸スタジオの材料説明）はこれを使い、組み立てを自前で持たない |
 | `features/map/LegendCheckboxList/LegendCheckboxList.tsx` | 凡例のチェックボックス一覧（チェックボックス+色スウォッチ+ラベル）の共通部品。リスト/行の見た目（class名）は呼び出し側が指定する（`LensControl`・`MapOverlayControls`の▶パネルで共用） |
 
 ## タイルの配信元（`lib/tileBaseUrl.ts`）
@@ -525,7 +525,7 @@ ramp軸[`dataNature==="composite"`]）に該当するものは`undefined`（地�
 
 **線の束ね方から、生のタグの値の呼び名を導出しない。** 道路の種類の線は複数の生タグ値を1グループへ
 束ねる（多対一）のに対し、軸スタジオは1値につき1ラベルを要る。粒度が違うので、値ラベルは
-`material_catalog.py: MaterialSpec.value_labels`（生成物`material-catalog.json`）から引く。
+`domain/material_catalog.py: MaterialSpec.value_labels`（生成物`material-catalog.json`）から引く。
 路面の区分は束ねた結果そのものが材料なので、行の名前と材料の値の呼び名は同じ宣言から来る。
 
 ## 地図全体で共有する配色の読み方
@@ -640,7 +640,7 @@ E2Eの`e2e/map-runtime.spec.ts`「宣言された地図レイヤーを全部ON�
 残す」操作にはならない。当事者の軸とANDで効く。
 
 路面ポップアップ（`features/map/MapView/roadFacts.ts`）の`smoothness`の値→表示名も
-同じ考え方で、正本はbackendの`material_catalog.py: MaterialSpec.value_labels`。生成物
+同じ考え方で、正本はbackendの`domain/material_catalog.py: MaterialSpec.value_labels`。生成物
 （`material-catalog.json`）から引く（手書きで持つと、同じ値を地図のポップアップと
 軸スタジオで別の呼び方をすることになる）。
 

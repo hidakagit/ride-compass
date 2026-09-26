@@ -163,7 +163,7 @@ JMAタイル系ソースの`minzoom`/`maxzoom`・パスの系統・ベクタの�
 配信元は要素ごとに実データを持つズームが異なり、上限を超えると空タイルが返って地図から色が
 消えるため、この値を画面側へ書かない。
 
-`gridMark`（`weather.ts: markElement`）の縁取りは、主層と別のsymbolレイヤーではなく
+`gridMark`（`scene/groups/weather.ts: markDrawing`）の縁取りは、主層と別のsymbolレイヤーではなく
 `icon-halo-color`/`icon-halo-width`（SDFアイコンのpaintプロパティ、`icon-image`に
 `sdf: true`が必須）で1層にまとめる。MapLibreはレイヤーの上から順にシンボルを配置する
 ため、同位置・大きめのシンボルを別レイヤー（下）で重ねると`icon-allow-overlap: false`
@@ -183,7 +183,7 @@ JMAタイル系ソースの`minzoom`/`maxzoom`・パスの系統・ベクタの�
 専用way値配信軸が担う。
 
 `disaster`（災害）は源泉がチップ`disaster`として宣言したソース（`dynamicWeather.ts: DisasterSourceKey`）を1チップへまとめたグループで、全ソースが1つの`showDisaster`に
-連動する。同じ段（描き方ごとに決まる。`weather.ts: TIER_OF`）の中では源泉の宣言
+連動する。同じ段（描き方ごとに決まる。`scene/groups/weather.ts: TIER_OF`）の中では源泉の宣言
 （backendの`domain/weather_elements.py: WEATHER_ELEMENTS`）の並び順が重なり順になるため、面（キキクル3種・雷・竜巻のラスタ）を下に、局所的で見落としやすい線（洪水）・点
 （落雷）を上に置く。面同士が重なった領域は混色し危険度5段階を読み取れなくなるが、危険度
 ゼロの領域は配信元のタイルが透明のため平常時の地図の見た目は変わらない。**この並び順が

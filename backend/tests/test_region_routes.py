@@ -164,8 +164,8 @@ def test_region_poi_tile_rejects_too_low_zoom():
 
 
 def test_region_poi_tile_rate_limit_is_independent_from_road_surface_tile_rate_limit():
-    # T54: poi-tileはroad-tileと同じsettings.road_tile_rate_limit_per_minuteを使うが、
-    # レート制限キーのprefixは別（region.py: _check_tile_rate_limit）。road-tile側の
+    # poi-tileはroad-tileと同じsettings.road_tile_rate_limit_per_minuteを使うが、
+    # レート制限キーのprefixは別（routers/region.py: _check_tile_rate_limit）。road-tile側の
     # 上限を使い切ってもpoi-tileには影響しないこと（road_surface_tile_rate_limit_is_
     # independent_from_basemap_rate_limitと同じ回帰観点）。
     app.dependency_overrides[get_region_service] = lambda: FakeRegionService()

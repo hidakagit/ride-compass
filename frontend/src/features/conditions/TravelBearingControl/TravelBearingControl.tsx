@@ -11,7 +11,7 @@ interface TravelBearingControlProps {
   onChange: (bearingDeg: number) => void;
 }
 
-// 風・勾配で共有する走行方位（page.tsx: travelBearingDeg）を設定する唯一の入り口。
+// 風・勾配で共有する走行方位（app/page.tsx: travelBearingDeg）を設定する唯一の入り口。
 // MapLibreのズーム+/−・回転コントロール（地図右上、既定でmap.addControlされる）の
 // すぐ下に置くことで、「地図の向き」と「走行方位（風・勾配の評価に使う向き）」という
 // 別概念を並べて示す。幅・高さ・アイコンの大きさは右上の列の共通値

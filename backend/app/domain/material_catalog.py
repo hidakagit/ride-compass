@@ -193,9 +193,8 @@ class MaterialSpec(StrictModel):
 
     material_id: str
     label: str
-    # 生成物`material-catalog.json`へ含め、
-    # フロント側は選択中の材料の隣に情報アイコン(ⓘ)でこの説明文を表示する（AxisComposer.tsx:
-    # MaterialInfoButton）。`value_sql`を持たない材料は、選んでも評価軸としては機能しない
+    # 生成物`material-catalog.json`へ含め、材料を選ぶ人へ見せる説明文として配る。
+    # `value_sql`を持たない材料は、選んでも評価軸としては機能しない
     # 旨をここに明記する（配線状況が変わったら追従が必要）。
     # 空を許すと、軸スタジオのⓘが何も出さない材料を登録できてしまう。
     description: str = Field(min_length=1)

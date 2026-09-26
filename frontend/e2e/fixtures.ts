@@ -50,7 +50,7 @@ function makeRouteCandidate(id: string, directionLabel: string, distanceKm: numb
     elevation_gain_m: 120,
     min_elevation_m: 10,
     max_elevation_m: 45,
-    // 選択中候補の区間色分け線（MapView.tsx: DETAIL_LAYER_ID）は区間が無いと描かれない。
+    // 選択中候補の区間色分け線は区間が無いと描かれない。
     // 地図の描画に関わる検証（縁取り等）が成り立つよう、最小限の2区間を持たせる。
     segments: [
       makeSegment(0, [
@@ -148,7 +148,7 @@ function amedasObservationFixture(): AmedasObservation {
   };
 }
 
-// MapLibreのスタイル読み込み先（MapView.tsx: MAP_STYLE）。sources/layersを空にして
+// 基礎地図スタイル（MapView.tsx: mapStyleUrl）の応答。sources/layersを空にして
 // 外部タイル・グリフ・スプライトへの追加リクエストが発生しない自己完結スタイルにする
 // （地図の見た目は検証対象外、UI操作の疎通のみが目的）。
 function emptyMapStyleFixture() {

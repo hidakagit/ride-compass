@@ -17,7 +17,7 @@
 
 ```
 国土地理院 DEMタイル（テキスト、256×256。製品ごと）
-   │ source_adapters/gsi_dem_tile.py: int32へ詰めて製品×タイル1枚=1行
+   │ source_adapters/gsi_dem_tile.py: 製品ごとにint32へ詰めて、製品×タイル1枚=1行
    ▼
 source_features(source='dem')          ← 生データ。取り直さない限り変わらない
    │ derive_raster_materials.py: 区間の形状点で、画素ごとに製品を選んで標高を読み、勾配を出す

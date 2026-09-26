@@ -298,9 +298,8 @@ class AxisDefinition(StrictModel):
     """地図の「表示する項目を選ぶ」設定パネル（MapOverlayControls）向けの噛み砕いた
     説明文。未設定はdescriptionをそのまま使う（開発者向けの技術説明のため読みにくい場合がある）。"""
     show_map_icon: bool = True
-    """falseなら地図上チップ（MapOverlayControls）の一覧からこの軸を丸ごと除外する
-    （frontend/src/components/Map/secondaryAxes.ts: secondaryAxesFromCatalogAxes()の
-    フィルタ条件）。"""
+    """falseなら地図上チップの一覧からこの軸を丸ごと除外する（`GET /api/axis-catalog`の
+    `show_map_icon`として配り、絞り込むのは受け取る側）。"""
     time_scope: Literal["always", "night_only"] = "always"
     """この軸の重みが常に有効か、特定の時間帯でのみ有効かの宣言。
     「`time_scope != "always"`な軸のうち、現在の`active_scopes`に含まれないものの
@@ -792,7 +791,7 @@ def topological_axis_order(definitions: dict[str, AxisDefinition]) -> list[str]:
 # 評価へ配線していない材料もNoneになる）ため流用せず、ここに正準定義を置く。
 # `dynamic_axis_topological_order`がこの集合を起点に、依存する軸を機械的に導出する
 # （軸id・材料idのハードコードを個別の軸ぶん増やさない汎用設計）。各材料の評価関数は
-# `domain/evaluation.py: DYNAMIC_MATERIAL_EVALUATORS`に1対1で登録する。
+# `domain/dynamic_materials.py: DYNAMIC_MATERIAL_EVALUATORS`に1対1で登録する。
 REQUEST_DYNAMIC_MATERIAL_IDS = frozenset({WIND_DRAG_RATIO})
 
 _dynamic_axis_order_cache: LRUCache = LRUCache(maxsize=64)

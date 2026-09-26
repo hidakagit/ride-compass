@@ -20,7 +20,7 @@
 | `features/route/routeTabLabel.ts` | 候補タブの「基準線からの超過時間」を組み立てる純関数（`fastestDurationSeconds`・`extraDurationLabel`）と、区間を乗り換えて作った候補の判定（`isSplicedRoute`・`SPLICED_ROUTE_ID_PREFIX`）。**合成も素の結果と本質的に区別せず**、並び順は生成候補と同じ（所要時間の短い順、`orderByDuration`）、見分けだけをタブの名前（「合成」）で付ける。**接頭辞はbackendが付ける値で、判定と組み立ての両方がこの1つを使う**——別々に書くと片方だけ変えたときに合成ルートが一覧で見分けられなくなる（型でも例外でも現れない）。タブ列自体はpage.tsxが組み立てる（[ページ全体構成・状態管理](page-composition.md)参照） |
 | `features/route/gpxExport.ts` | 候補1本をGPXとして書き出す（`downloadGpx`。押す口は[ページ全体構成・状態管理](page-composition.md)の候補の操作）。点数を上限（`MAX_GPX_TRACK_POINTS`）へ収めるとき、残す点を折れ線の形から選ぶ（下記「GPX書き出しの間引き」） |
 | `features/route/RouteAxisProfile/axisRawValue.ts` | 軸の生値（折れ点を通す前）を単位付きの表示文へ整える純関数（`formatAxisRawValue`）。走行距離を掛けた総量を添えるのは、軸カタログが`raw_value_total_unit`を返した軸だけ——総量が読み手の判断を変えるかの判断はbackendが持ち、フロントは単位の綴りから決めない。単位が定まらない軸の内訳1件を整える`formatMaterialBreakdown`（numeric/boolean）・`formatCategoryBreakdown`（categorical、最も延長の長い値）も持つ |
-| `components/AxisContributionBar/AxisContributionBar.tsx` | 「重み付き寄与度」内訳の表示部品（積み上げ1本バー＋凡例）。ルート全体の内訳（RouteAxisProfile）・区間クリック詳細（page.tsx: selectedRouteSegment）の両方から共用する |
+| `components/AxisContributionBar/AxisContributionBar.tsx` | 「重み付き寄与度」内訳の表示部品（積み上げ1本バー＋凡例）。ルート全体の内訳（RouteAxisProfile）・区間クリック詳細（app/page.tsx: selectedRouteSegment）の両方から共用する |
 | `features/route/ComparisonPanel/ComparisonPanel.tsx`・`types/experimentSlot.ts`（`ExperimentSlot`型・`MAX_EXPERIMENT_SLOTS`） | 研究モードの実験スロット比較表 |
 | `hooks/useAxisCatalog.ts` | `GET /api/axis-catalog`取得。軸一覧・既定重み・ramp軸・軸ラベル・二次軸・ルート色分けモードを一括提供 |
 | `lib/axisCatalog.ts` | 上記フックが返すカタログを、応答から導く純関数（`axisCatalogFromResponse`）と、画面が読む較正値（`CLIENT_TUNING_IDS`・`clientTuningValue`）。フックが持つのは「いつ取りに行き、誰と共有するか」だけ |
@@ -123,7 +123,7 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
 `loaded`と対になる`failed`は「取得を試みて失敗し、まだ一度も成功していない」を表す
 （未取得=両方false／成功=`loaded`のみ／失敗=`failed`のみ）。取り直している間（再試行・別の部品の
 マウント）は`failed`を下ろして取得中に戻す。この状態でも重み配分は
-編集できてしまうが、`page.tsx: handleGenerate`は`loaded`ガードにより`route_preference`と
+編集できてしまうが、`app/page.tsx: handleGenerate`は`loaded`ガードにより`route_preference`と
 `lens_axis_id`を送らず、backendの既定配分で探索される。黙って捨てると「重みを変えたのに
 結果が変わらない」を実験の差だと取り違えるため、`RouteSettingsPanel`が失敗の表示と
 再試行導線（`retryAxisCatalogFetch`、成功済みなら何もしない）を出す。
@@ -296,7 +296,7 @@ non-nullの間、「ルート結果」タブはルート全体の内訳の代わ
   （「今」の設定）は使わない。
 - **比べる相手がいない間は表の代わりに案内を出す**（スロット0件・1件）。`null`を返すと
   タブの下が空白になり、壊れているように見える。
-- 生成が成功したら比較タブから候補タブへ戻す（`page.tsx: handleGenerate`が
+- 生成が成功したら比較タブから候補タブへ戻す（`app/page.tsx: handleGenerate`が
   `comparisonTabActive`を倒す）——押した操作の結果が見えないまま前回までの比較表が残ると、
   生成が効かなかったように見える。
 
@@ -359,7 +359,7 @@ DBの`ROUTE_GENERATION_COMMAND_TIMEOUT_SECONDS`はクエリ1本ごとの上限�
 渡す）。中身を切り替えるタブと、押して生成を走らせるボタンは役割が違うため、行の中でも
 離し、タブは下線型・ボタンは塗りと見た目でも分ける（「ルート結果」見出し行の
 `renderRouteResultHeaderActions`と
-同じ場所）にあり、どのタブを見ていても押せる（`page.tsx: renderRouteSectionHeaderActions`）。検証エラーは本文でもボタンの隣でもなく
+同じ場所）にあり、どのタブを見ていても押せる（`app/page.tsx: renderRouteSectionHeaderActions`）。検証エラーは本文でもボタンの隣でもなく
 「ルート結果」欄へ出す（[page-composition.md](page-composition.md)の「生成に関する
 フィードバックの置き場」参照）。同じ見出し行には、生成条件が表示中の候補とずれている間だけ
 印（`conditionsDirty`）を出す——条件を変えている本人は設定側を見ているため。検証・送信ロジック自体は
@@ -417,9 +417,9 @@ string stateとして残り続ける値に対する境界チェック）向け�
 - 設定済みの地点から武装しても値は残る。次の地図タップが置き換えになる——生成後に目的地を
   変えたいとき、解除してから指定し直す2段階を踏ませないため。解除は行の✕が担う。
 - 目的地モードへ切り替えた時点で目的地・経由地とも未指定なら、行を押さなくても目的地を
-  置ける状態にする（`page.tsx: handleRouteModeChange`）。既に目的地・経由地がある場合は
+  置ける状態にする（`app/page.tsx: handleRouteModeChange`）。既に目的地・経由地がある場合は
   自動で武装しない——次のタップの意図が「経由地の追加」である可能性があり、武装したままだと
   意図せず目的地が上書きされてしまうため。
 - 置ける場所も限る。「ルート設定」区分を見ていて、かつ「条件」タブを開いている間だけ武装が
-  効く（`page.tsx: pinPlacementArmedRole`）。「ルート結果」を見ている間や他のタブを開いて
+  効く（`app/page.tsx: pinPlacementArmedRole`）。「ルート結果」を見ている間や他のタブを開いて
   いる間は、武装したままでも地図のタップはピンにしない。

@@ -397,7 +397,7 @@ idを`route-destination-00..`へ振り直すが、
 
 対象bboxの構築方法が2パターンある:
 
-- **周回探索（折返し点方式）**: `region.py: bbox_covering_points([origin], radius_km + マージン)`
+- **周回探索（折返し点方式）**: `domain/region.py: bbox_covering_points([origin], radius_km + マージン)`
   （円形の探索半径を包含する矩形、`radius_km = distance_km × TURNAROUND_RADIUS_RATIO`）。
 - **waypoints指定（経由地・目的地）**: `bbox_covering_points([origin, *waypoints], 固定マージン)`
   （起点＋全経由地＋目的地を包含する矩形）。
