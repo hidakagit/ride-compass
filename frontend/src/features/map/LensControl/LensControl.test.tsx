@@ -65,6 +65,12 @@ describe("LensControl（レンズのピル）", () => {
     expect(screen.getByRole("status")).toHaveTextContent(LAYER_DATA_STATUS_LABELS.error);
   });
 
+  it("読み込み中は開いた先へ文を出さない（ピルのドットだけで示す）", async () => {
+    renderLens({ dataStatus: "loading" });
+    await open();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
   it("選択肢は「なし」「総合難易度」、評価に使用中の軸、未使用の軸の順で、未使用・ルート後のみの印を付ける", async () => {
     renderLens();
     await open();

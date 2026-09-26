@@ -164,6 +164,17 @@ describe("▶の内訳", () => {
     setup([chip("status_only", { on: true, dataStatus: "empty" })]);
     expect(screen.getByRole("button", { name: "status_onlyの凡例" })).toBeInTheDocument();
   });
+
+  it("読み込み中は文を出さない（絞り込みのたびに凡例が揺れる）。凡例が無ければ▶も出さない", async () => {
+    const { panel } = await openDetails(
+      chip("layer", { on: true, dataStatus: "loading", legendDetails: [legend("a", ["1"])] }),
+    );
+    expect(within(panel).queryByRole("status")).not.toBeInTheDocument();
+    expect(within(panel).getByText("項目1")).toBeInTheDocument();
+
+    setup([chip("loading_only", { on: true, dataStatus: "loading" })]);
+    expect(screen.queryByRole("button", { name: "loading_onlyの凡例" })).not.toBeInTheDocument();
+  });
 });
 
 describe("チップの印", () => {

@@ -7,6 +7,7 @@ import { useStoredState } from "@/hooks/useStoredState";
 import {
   isAxisStudioLayer,
   LAYER_DATA_STATUS_LABELS,
+  layerDataStatusNotice,
   MAP_LAYER_CATEGORY_ORDER,
   MAP_OVERLAY_GROUP_LABELS,
   MAP_OVERLAY_GROUP_ORDER,
@@ -267,8 +268,8 @@ function isLegendFiltered(layer: OverlayLayerChip): boolean {
 
 /** 状態のドットの意味を文で読ませる置き場は▶の中（`title`はスマホでは出ない）。 */
 function dataStatusNotice(layer: OverlayLayerChip): string | null {
-  if (!layer.on || layer.disabled || !layer.dataStatus) return null;
-  return LAYER_DATA_STATUS_LABELS[layer.dataStatus];
+  if (!layer.on || layer.disabled) return null;
+  return layerDataStatusNotice(layer.dataStatus);
 }
 
 /** ▶の中身。無ければ▶自体を出さない（開いても空になる）。 */

@@ -5,7 +5,7 @@ import { useState } from "react";
 import LegendCheckboxList from "@/features/map/LegendCheckboxList/LegendCheckboxList";
 import { mapOverlayEdge } from "@/lib/mapOverlayEdges";
 import { legendSwatchBackground, type LegendEntry } from "@/lib/mapDisplay/legendFilter";
-import { LAYER_DATA_STATUS_LABELS, type LayerDataStatus } from "@/features/map/layers/mapLayers";
+import { LAYER_DATA_STATUS_LABELS, layerDataStatusNotice, type LayerDataStatus } from "@/features/map/layers/mapLayers";
 import {
   FIXED_LENS_LABELS,
   LENS_DIFFICULTY_ID,
@@ -67,6 +67,7 @@ export default function LensControl({
 }: LensControlProps) {
   const [open, setOpen] = useState(false);
   const statusLabel = dataStatus ? LAYER_DATA_STATUS_LABELS[dataStatus] : undefined;
+  const statusNotice = layerDataStatusNotice(dataStatus);
   const current =
     FIXED_LENS_LABELS[lens] !== undefined
       ? { label: FIXED_LENS_LABELS[lens], color: LENS_NEUTRAL_COLOR }
@@ -152,9 +153,9 @@ export default function LensControl({
         >
           <p className="mb-1.5 font-semibold">レンズ</p>
           {/* ピルの状態ドットの意味。titleはスマホでは出ないため、開いた先で文として読ませる。 */}
-          {statusLabel && (
+          {statusNotice && (
             <p className="mb-1.5 text-[length:var(--font-size-sm)]" role="status">
-              {statusLabel}
+              {statusNotice}
             </p>
           )}
           <ToggleGroup

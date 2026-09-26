@@ -456,6 +456,12 @@ export const LAYER_DATA_STATUS_LABELS: Record<LayerDataStatus, string> = {
   error: "データの取得に失敗しました。しばらくしてから再読み込みしてください",
 };
 
+/** 開いたパネルへ文として出す状態。待ちは絞り込み・ON/OFFの取り直しのたびに一瞬出ては消え、パネルの中身を
+ * 揺らすため文にせず、ドットだけで示す。 */
+export function layerDataStatusNotice(status: LayerDataStatus | undefined): string | null {
+  return status && status !== "loading" ? LAYER_DATA_STATUS_LABELS[status] : null;
+}
+
 /** 自前で取るレイヤーの取得の状態（失敗 > 読み込み中 > 取れたが値なし）。まだ一度も取れていない間を「値なし」に
  * しない（有効にした直後や、取得がそもそも走っていない状態が「データが無い」と読めてしまう）。 */
 export function deriveFetchLayerStatus(
