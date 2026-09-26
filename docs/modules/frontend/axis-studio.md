@@ -111,15 +111,14 @@ listAxisDefinitions() ──→ definitions（全軸）
 チェックボックスを置くと、外して保存しても公開へ戻り**画面の操作結果が無言で反転する**
 （design-principles.md「1つの状態は1つの場所でだけ操作する」）。
 
-- 削除前チェック: `axesReferencing(axisId, definitions)`が、削除しようとしている軸を
-  他の軸が材料として参照していないか調べ、参照があれば確認ダイアログ（`window.confirm`）で
-  警告する（一律拒否はしない、最終判断はユーザーに委ねる）。
+- 削除できるか（ほかの軸が参照している軸・最後の1軸は消せない）は画面で判定しない。backendが
+  起動時の読み込みと同じ判定で断り（[軸スタジオ（backend）](../backend/axis-studio.md)「書き込み時のガード」）、
+  画面はその理由を一覧の上の誤りとしてそのまま出す。
 - 一覧サマリ行（`renderRowMain`）は各軸が使う材料id/軸idの両方を`labelForMaterialOrAxis`で
   人間向けラベルへ解決する。まずこの軸一覧内に該当する軸id（内部軸階層、他axis_idを
   材料として参照するケース）が無いか探し、あればその`label`を優先する。無ければ
   `axisMaterialsCatalog.ts: materialCatalogLabel`（材料の一覧`MATERIAL_CATALOG`を
   引く）へフォールバックし、それにも無ければ生のidをそのまま出す。
-- 最後の1軸は削除ボタンを無効化する。
 - 編集・複製・新規作成はいずれもモーダル（`components/ui/Dialog`）で`AxisComposer`を開く
   （`<AxisComposer key={...}>`でkeyを切り替え、対象を変えるたびに再マウントする方式）。
 - `/admin`ページ自体が既にBasic認証（`frontend/src/proxy.ts`）で保護されているため、

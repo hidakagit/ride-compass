@@ -51,6 +51,24 @@ def _rejected_axes(definitions: dict[str, AxisDefinition]) -> dict[str, str]:
     return rejected
 
 
+def _loading_problem(definitions: dict[str, AxisDefinition]) -> str | None:
+    """起動時の読み込みがこの軸の集合を受け入れない理由。受け入れるならNone。
+
+    管理APIの書き込みも確定する前の状態をここへ通す——確定した後で通らないと分かっても、
+    行は既にDBにあり、次の起動が止まる。
+    """
+    if not definitions:
+        return (
+            "axis_definitionsテーブルが空です（軸の行はスキーマと一緒には作られない。入る経路は管理APIと、"
+            "バックアップからの復元 docs/conventions/deployment-sync.md「本番DBを失ったとき」）"
+        )
+    rejected = _rejected_axes(definitions)
+    if rejected:
+        reasons = "／".join(f"{axis_id}: {reason}" for axis_id, reason in rejected.items())
+        return f"アプリが受け入れない軸があります（{reasons}）"
+    return None
+
+
 async def refresh_axis_definitions(repository: AxisDefinitionRepository) -> None:
     """DBの内容でAXIS_DEFINITIONSをin-place更新する。
 
@@ -61,24 +79,26 @@ async def refresh_axis_definitions(repository: AxisDefinitionRepository) -> None
         definitions = await repository.list_all()
     except Exception as exc:  # noqa: BLE001 fail-fast用に専用の例外へラップして再送出する
         raise AxisDefinitionSyncError(f"軸定義のDB読み込みに失敗しました error={exc!r}") from exc
-    if not definitions:
-        raise AxisDefinitionSyncError(
-            "axis_definitionsテーブルが空です（軸の行はスキーマと一緒には作られない。入る経路は管理APIと、"
-            "バックアップからの復元 docs/conventions/deployment-sync.md「本番DBを失ったとき」）"
-        )
-    rejected = _rejected_axes(definitions)
-    if rejected:
-        raise AxisDefinitionSyncError(f"軸定義DBにアプリが受け入れない軸があります rejected={rejected}")
+    problem = _loading_problem(definitions)
+    if problem is not None:
+        raise AxisDefinitionSyncError(f"軸定義DBを読み込めません: {problem}")
     logger.info("軸定義をDBから読み込みました axes=%d", len(definitions))
     AXIS_DEFINITIONS.clear()
     AXIS_DEFINITIONS.update(definitions)
+
+
+def _check_loadable_after_write(after: dict[str, AxisDefinition]) -> None:
+    problem = _loading_problem(after)
+    if problem is not None:
+        raise ValueError(f"この変更を確定すると次の起動で軸定義を読み込めなくなるため、確定しません: {problem}")
 
 
 class AxisRegistryAdminService:
     """軸定義CRUD管理APIのユースケース層。
 
     書き込みは1操作=1トランザクションで確定し、直後に`refresh_axis_definitions`で
-    プロセス内へ反映する。
+    プロセス内へ反映する。作成・更新・削除は、確定する前に書いた後の全軸を起動時の読み込みと
+    同じ判定（`_loading_problem`）へ通す。
 
     書き込む操作はいずれも「読む→Python側で検証する→書く」の形のため、先頭で
     `acquire_write_lock`を取ってその全体を直列化する（取らないとTOCTOUで検証をすり抜ける。
@@ -109,9 +129,9 @@ class AxisRegistryAdminService:
         existing_definitions = {aid: d for aid, (d, _) in existing.items()}
         check_material_exclusivity(definition, existing_definitions)
         check_internal_axis_not_published(definition, existing_definitions)
-        # 軸間参照（内部軸→公開軸）の循環検証。参照先axis_idの実在は管理APIの本文の検証
-        # （`check_axis_definition`）が既に確かめている前提。
-        topological_axis_order({**existing_definitions, definition.axis_id: definition})
+        after = {**existing_definitions, definition.axis_id: definition}
+        _check_loadable_after_write(after)
+        topological_axis_order(after)
         sort_order = max((order for _, order in existing.values()), default=-1) + 1
         await self._repository.upsert(definition, sort_order)
         await self._repository.commit()
@@ -129,19 +149,20 @@ class AxisRegistryAdminService:
         existing_definitions = {aid: d for aid, (d, _) in existing.items()}
         check_material_exclusivity(definition, existing_definitions)
         check_internal_axis_not_published(definition, existing_definitions)
-        topological_axis_order({**existing_definitions, axis_id: definition})
+        after = {**existing_definitions, axis_id: definition}
+        _check_loadable_after_write(after)
+        topological_axis_order(after)
         await self._repository.upsert(definition, sort_order)
         await self._repository.commit()
         await refresh_axis_definitions(self._repository)
 
     async def delete(self, axis_id: str) -> None:
         await self._repository.acquire_write_lock()
-        # 空にすると、直後の`refresh_axis_definitions`が0行を検知して起動・反映に失敗する。
         existing = await self._repository.list_all()
-        if axis_id in existing and len(existing) == 1:
-            raise ValueError("最後の1軸は削除できません")
         if axis_id in existing:
             check_publish_immutability(existing[axis_id], "deleted")
+            # 他の軸が参照している軸・最後の1軸を消した状態は、起動時の読み込みが受け入れない。
+            _check_loadable_after_write({aid: d for aid, d in existing.items() if aid != axis_id})
         # 削除できるのは常に下書き軸だけ（公開済みは上のガードで止まる）で、下書きは
         # `GET /api/axis-catalog`に出ない。そのため「利用者の保存済み設定がこのaxis_idを
         # 重みキーとして参照したまま残る」状況は起こらず、その整合性検査を持たない。
