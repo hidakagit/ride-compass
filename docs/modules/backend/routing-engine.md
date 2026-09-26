@@ -80,10 +80,19 @@ Edgeコストは「探索範囲の静的Edge×公開軸スコア行列＋リク�
 探索アルゴリズムは時刻を知らない（配列への`list.__getitem__`しか行わない）ため、
 「いつ通過するか」は探索前に配列を合成する側で決める。`_build_search_graph`は静的スコア
 行列・重み・0次フィルタ・`lazy_graph`行順の対応表をリクエストにつき1回だけ用意した
-`_LegCostComposer`を作り、`compose(label, anchor, offset_hours, direction)`がレグごとに
-風の列だけを引き直して合成する（`domain/wind.py: estimate_passage_hours`、
-`direction=+1`は基準点から離れるレグ、`-1`は基準点へ向かうレグで`offset_hours`が
-到着予定時刻）。合成結果`LegCostArrays`は`cost_lazy`（区間の番号順）と表示用の
+`_LegCostComposer`を作り、`compose(label, anchor, offset_hours, direction)`がレグごとに合成する
+（`direction=+1`は基準点から離れるレグ、`-1`は基準点へ向かうレグで`offset_hours`が到着予定時刻）。
+ビンを刻むレグは各ビンの開始時刻を全区間の通過時刻として合成し、時刻ラベルを持てない目的地から遡る木だけは
+区間ごとの通過時刻（`passage_hours`。前向き木の実際の到達時間、届かない区間だけ
+`domain/wind.py: estimate_passage_hours`の直線距離からの推定）で1本に合成する。
+
+**時刻ビンごとに行うのは、その時刻の風に依る計算だけ**。風に依らない計算——走行モデルの出力と速度に
+依らない抵抗（`domain/cycling_speed.py: SegmentSpeedModel`）・停止の待ち——はリクエストに1回だけ求めて
+使い回す。時刻で変わる公開軸（風に依存する軸）の重みがすべて0なら、合成の難易度と割増の倍率も時刻に依らないので
+1回だけ求め、ビンのコストは所要時間にその倍率を掛けるだけになる（重みが0の軸は合成に何も足さない）。重みが
+あれば、時刻で変わらない軸の重み付き和を1回だけ求め、時刻で変わる軸だけをビンごとに足す。1ビンの中でも、
+予報の引き当てと風の分解（方位との差の三角関数）は、風の材料と走行モデルが同じ値を読む
+（`DynamicAxisRequestContext.wind_components_ms`）。合成結果`LegCostArrays`は`cost_lazy`（区間の番号順）と表示用の
 `difficulty_array`/`axis_arrays`/`weight_sums`/`material_arrays`（動的材料id→
 切り出した区間の順の配列の辞書、`evaluate_dynamic_material_arrays`が返す全材料のうち値がある
 ものだけ）を持ち、`_RoadGraphContext.legs`に添字順で並ぶ。`compose`は
@@ -112,9 +121,8 @@ Edgeコストは「探索範囲の静的Edge×公開軸スコア行列＋リク�
 探索範囲に依らない。各Edgeは中点に最も近い格子点の風を引く——ルートを出す前の地図も同じ点を引く、
 `_LegCostComposer`の`_wind_points`）が無い場合は、出発時点のスナップショットで合成した1本を全レグで共有する（追加コスト
 ゼロ）。**重みが0でも時刻ビンは畳まない**——走行モデル（向かい風は速度そのものを落とす）が
-時刻で変わるため、重み0を理由に時刻固定へ落とすと所要時間が狂う。ただし`lens_axis_id`が風に依存する公開軸なら、
-重み0でも区間表示のためレグごとに合成する（探索コストには影響しない、
-`_LegCostComposer`の`lens_axis_id`）。
+時刻で変わるため、重み0を理由に時刻固定へ落とすと所要時間が狂う。時別系列があれば重みにもレンズにも依らず
+時刻で合成し、`lens_axis_id`が効くのは区間に載せる材料の集合（`displayed_material_ids`）だけである。
 仮定巡航速度は`RouteGenerateRequest.assumed_speed_kmh`（既定`ASSUMED_SPEED_KMH`）で
 リクエストごとに変えられ、通過予定時刻と風の材料`wind_drag_ratio`（走行速度依存）の
 両方に効く。迂回率（道なり距離÷直線距離）は定数ではなく実測値を使う。直線距離を走行時間へ直す係数

@@ -195,17 +195,19 @@ bbox全体ぶんのコストをリクエストにつき1回だけnumpyで合成�
   失敗する）に加え、時刻依存の材料向けに時別予報（`wind_series`、格子点ごと）・出発時刻
   （`start`）・Edgeごとの通過予定時刻（`passage_hours`）と最寄りの格子点（`wind_points`。どちらも
   `bearing_deg`と同じ行順）を持つ。
-  3つが揃えば風の材料はEdgeごとにその時刻の風で求め（`wind_inputs()`）、揃わなければ
-  スナップショットを全Edgeへ一様に使う。`StaticEdgeScoreMatrix`は通過予定時刻の推定に
-  使うEdge中点座標（`mid_lat`/`mid_lon`、from/toノードの平均）も持つ（タイル単位で
-  キャッシュ）。
+  3つが揃えば風の材料はEdgeごとにその時刻の風で求め、揃わなければ
+  スナップショットを全Edgeへ一様に使う。風は進行方向の成分と横成分に分けて
+  （`wind_components_ms`、contextごとに1回だけ求める）読み、走行モデルも同じ成分を読む。
+  `StaticEdgeScoreMatrix`は通過予定時刻の推定と風の格子点の引き当てに使うEdge中点座標
+  （`mid_lat`/`mid_lon`、from/toノードの平均）も持つ（キャッシュしない）。
 - リクエスト時（`RoadGraphEngine._build_search_graph`）は、`StaticEdgeScoreMatrix`を
   軸id→配列の辞書へ展開→`evaluate_dynamic_axis_arrays`で動的軸を上書き→
   `compose_costs_from_axis_matrix`で重み合成→`compute_hard_filter_excluded`で0次
   フィルタを適用、の順にbbox全体ぶん1回だけ実行してコスト配列を得る。並行Edge
-  （同一Node間の複数Edge）は`domain/routing.py: build_lazy_road_graph`がedge_idの昇順で
-  先頭を採用する決定的な規則で解消する（コストは見ない。`LazyRoadGraph`はコストに
-  依存せずタイル集合キーでキャッシュするため）。
+  （同一Node間の複数Edge）は`domain/routing.py: build_lazy_road_graph`が元の行（切り出した区間の順）の
+  最も小さい1本を採る決定的な規則で解消する（コストはリクエストごとに変わるため見ない）。
+  時刻ビンごとに合成し直すときの、風に依らない計算の使い回しは[routing-engine.md](routing-engine.md)
+  「レグ別コスト配列」節。
   同じコスト配列・軸別スコア配列は`_build_segment_details`（区間表示）からも参照され、
   探索と表示の二重計算を避ける。区間の軸別寄与度（表示用）は`difficulty.py: axis_contributions_at_row`が
   経路上の区間ぶんだけ、合成が返した重みの和（`AxisComposition.weight_sums`）を分母に求める

@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 
 from app.domain import cycling_speed
-from app.domain.cycling_speed import RiderProfile
+from app.domain.cycling_speed import RiderProfile, SegmentSpeedModel
 from app.domain.tuning import TUNING_PARAMETERS
 from tests.bound_fake import bound
 
@@ -55,8 +55,11 @@ def declared_defaults(monkeypatch):
     return _read_from(monkeypatch, {p.id: p.default for p in TUNING_PARAMETERS})
 
 
-def _speed(cruise_kmh: float, grade: float = 0.0, headwind: float = 0.0, **kwargs) -> float:
-    (value,) = cycling_speed.speed_ms(RiderProfile(cruise_kmh), np.array([grade]), np.array([headwind]), **kwargs)
+def _speed(
+    cruise_kmh: float, grade: float = 0.0, headwind: float = 0.0, crosswind_ms=None, crr=None
+) -> float:
+    model = SegmentSpeedModel(RiderProfile(cruise_kmh), np.array([grade]), crr)
+    (value,) = model.speed_ms(np.array([headwind]), crosswind_ms)
     return float(value)
 
 
@@ -99,6 +102,14 @@ def test_heavier_rider_at_the_same_cruise_speed_is_slower_uphill(tuning):
 
 def test_headwind_slows_and_tailwind_speeds_up(tuning):
     assert _speed(20.0, headwind=5.0) < _speed(20.0) < _speed(20.0, headwind=-5.0)
+
+
+def test_one_model_solves_each_wind_on_its_own(tuning):
+    # ルート生成は1つのモデルを時刻ビンの数だけ解く。前の風で解いた値が次の解に残ってはいけない
+    model = SegmentSpeedModel(RiderProfile(20.0), np.zeros(1))
+    model.speed_ms(np.array([8.0]))
+
+    assert model.speed_ms(np.array([0.0]))[0] == pytest.approx(20.0 / 3.6, abs=SOLVE_TOLERANCE_MS)
 
 
 def test_crosswind_slows_the_rider_less_than_the_same_headwind(tuning):
@@ -155,8 +166,8 @@ def test_without_a_surface_material_every_segment_is_paved(tuning):
 
 
 def test_unpaved_segments_are_slower(tuning):
-    paved, unpaved = cycling_speed.speed_ms(
-        RiderProfile(20.0), np.zeros(2), np.zeros(2), crr=np.array([PAVED, UNPAVED])
+    paved, unpaved = SegmentSpeedModel(RiderProfile(20.0), np.zeros(2), crr=np.array([PAVED, UNPAVED])).speed_ms(
+        np.zeros(2)
     )
 
     assert unpaved < paved
@@ -188,7 +199,9 @@ def test_a_steep_descent_tops_out_at_the_descent_limit(tuning):
 
 
 def test_travel_time_is_distance_over_speed(tuning):
-    seconds = cycling_speed.travel_seconds(np.array([1000.0, 2000.0]), RiderProfile(18.0), np.zeros(2), np.zeros(2))
+    seconds = SegmentSpeedModel(RiderProfile(18.0), np.zeros(2)).travel_seconds(
+        np.array([1000.0, 2000.0]), np.zeros(2), np.zeros(2)
+    )
 
     # 巡航18km/h＝5m/s。呼び出し側（コスト配列）と同じ倍精度で返す
     assert seconds.dtype == np.float64
@@ -215,7 +228,7 @@ def test_climbing_speeds_stay_realistic_because_riders_push_harder(declared_defa
 
 
 def _speed_of(profile: RiderProfile, grade: float) -> float:
-    return float(cycling_speed.speed_ms(profile, np.array([grade]), np.array([0.0]))[0])
+    return float(SegmentSpeedModel(profile, np.array([grade])).speed_ms(np.array([0.0]))[0])
 
 
 # ---- 区間の配列の長さ ----
@@ -232,9 +245,10 @@ def _speed_of(profile: RiderProfile, grade: float) -> float:
 def test_segment_arrays_of_a_different_length_are_rejected(tuning, name, kwargs):
     # 長さ1の配列はブロードキャストで全区間へ黙って広がる（1区間の風が全区間に効く）
     arguments = {"headwind_ms": np.zeros(3), **kwargs}
+    crr = arguments.pop("crr", None)
 
     with pytest.raises(ValueError, match=name):
-        cycling_speed.speed_ms(RiderProfile(20.0), np.zeros(3), **arguments)
+        SegmentSpeedModel(RiderProfile(20.0), np.zeros(3), crr).speed_ms(**arguments)
 
 
 def test_surface_values_of_a_different_length_are_rejected(tuning):
@@ -244,4 +258,4 @@ def test_surface_values_of_a_different_length_are_rejected(tuning):
 
 def test_distances_of_a_different_length_are_rejected(tuning):
     with pytest.raises(ValueError):
-        cycling_speed.travel_seconds(np.array([100.0]), RiderProfile(20.0), np.zeros(3), np.zeros(3))
+        SegmentSpeedModel(RiderProfile(20.0), np.zeros(3)).travel_seconds(np.array([100.0]), np.zeros(3), np.zeros(3))
