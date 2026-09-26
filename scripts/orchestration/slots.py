@@ -7,8 +7,9 @@
     python scripts/orchestrate.py slot release <N>   # 渡した印（ロック）を外す
     python scripts/orchestrate.py slot hook-create   # WorktreeCreateフックの入口（標準入力がJSON）
     python scripts/orchestrate.py slot hook-remove   # WorktreeRemoveフックの入口
+    python scripts/orchestrate.py slot deps          # この作業ツリーの依存が入り終わるまで待つ（担当が呼ぶ）
 
-フックはこの2つを起動役（`launch.py`）経由で、origin/masterの版の道具として動かす。
+フックはhook-create・hook-removeを起動役（`launch.py`）経由で、origin/masterの版の道具として動かす。
 
 ## 渡したかどうかは作業ツリー自身が持つ
 
@@ -29,24 +30,35 @@
 
 ## 依存
 
-`frontend/package-lock.json`の中身が、前回`npm ci`した時点と違うとき（または`node_modules`が
-無いとき）だけ`npm ci`を`heavy`の枠で走らせる。前回の値は`node_modules`の中の印に置く——
-`node_modules`を消せば印も消え、入れ直しになる。
+`frontend/package-lock.json`の中身が、前回依存を入れた時点と違うときだけ`heavy`の枠で入れる。
+`node_modules`があれば`npm install`で差分だけを入れ、無ければ`npm ci`。前回の値は`node_modules`の中の印に置く——
+`node_modules`を消せば印も消え、入れ直しになる。`npm install`はpackage.jsonとlockが食い違うとlockを
+書き換えて合わせるが、それは`npm ci`なら止まる状態なので、書き換えが起きたらlockを元の中身へ戻して失敗にする。
+
+入れる処理は作業ツリーごとの錠（その作業ツリーのgitディレクトリの`slot-deps.lock`）で1本ずつにする。
+錠を待った側は、取れたときに印が合っていれば何もしない——`slot deps`はこれで「入り終わりを待つ」になる
+（入れている処理が死んでいれば、錠はOSが放すので待った側が入れる）。
+
+## 渡す処理は依存を待たない
+
+`npm ci`は枠の待ちを含めて10分を超えうる。渡す処理（WorktreeCreateフック）がそれを待つと、起動した
+司令塔のターンがその間塞がり、依存を使わない担当（backendだけ・scriptsだけ）も待たされる。そこで渡す処理は
+作業ツリーを作り直して印を付けるところまでで返し、依存が古ければ`slot deps`を裏で起こす（`start_deps`。
+出力はその作業ツリーのgitディレクトリの`slot-deps.log`）。frontendの検査を回す担当だけが、その前に
+`slot deps`を呼んで入り終わりを待つ。
 
 ## 渡す前に温める
 
     python scripts/orchestrate.py slot warm          # 空いていて冷えたスロットを最新のmasterで温める
 
-渡すその場で`npm ci`を走らせると、その数分は担当が着手できない。そこで定期確認（`check`）が、
-空いている（印の無い）スロットの印がorigin/masterの`package-lock.json`と違えば`slot warm`を裏で起こす
-（`start_warm`）。確認そのものは待たない——`npm ci`は枠の待ちを含めて10分を超えうるので、同期で
-走らせると確認の結果が返らず、その間は次の確認も止まる。起こした処理の出力は`<orchestrationディレクトリ>/warm.log`
-（起こすたびに上書き）。
+定期確認（`check`）は、空いている（印の無い）スロットの印がorigin/masterの`package-lock.json`と違い、
+依存を入れている途中でもなければ`slot warm`を裏で起こす（`start_warm`）。確認そのものは待たない。
+起こした処理の出力は`<orchestrationディレクトリ>/warm.log`（起こすたびに上書き）。
 
-温めている間は、そのスロットに印（`slot warm-<pid> <時刻>`）を付ける。渡す側（フック）は温めている
-スロットしか空いていなければ、温め終わるのを待ってから渡す——待つ時間は、その場で`npm ci`を
-走らせる時間を超えない。温める処理が死んで印だけが残ったら（pidのプロセスが無い）、渡す側が外す。
-担当に渡しているスロットには触らない。
+温める処理がスロットに印（`slot warm-<pid> <時刻>`）を付けるのは、作業ツリーを作り直す間だけで、
+依存は印を外してから入れる——入れている間にも渡せる（渡された担当は`slot deps`で同じ錠を待つ）。
+渡す側（フック）は作り直している途中のスロットしか空いていなければ、それが終わるのを待つ。
+温める処理が死んで印だけが残ったら（pidのプロセスが無い）、渡す側が外す。担当に渡しているスロットには触らない。
 """
 
 from __future__ import annotations
@@ -61,6 +73,7 @@ import sys
 import time
 from pathlib import Path
 
+import lockrun
 from orchestration import procs
 from orchestration.core import (
     DEFAULT_CONCURRENT,
@@ -79,12 +92,17 @@ from orchestration.core import (
 SLOT_PREFIX = "slot-"
 PACKAGE_LOCK = "frontend/package-lock.json"
 NPM_MARK = "frontend/node_modules/.slot-package-lock.sha1"
+NODE_MODULES = "frontend/node_modules"
+LOCKRUN = Path(__file__).resolve().parents[1] / "lockrun.py"
+#: 依存を入れる処理を作業ツリーごとに1本にする錠と、裏で起こした処理の出力（どちらも作業ツリーのgitディレクトリ）。
+DEPS_LOCK = "slot-deps.lock"
+DEPS_LOG = "slot-deps.log"
+DEPS_POLL_SECONDS = 1
 #: 温めている間の印の渡し先の頭（`warm-<pid>`）。
 WARM_OWNER_PREFIX = "warm-"
 WARM_LOG = "warm.log"
-#: 渡す側が温め終わりを待つ上限。WorktreeCreateフックの時間切れ（.claude/settings.jsonの1800秒）より短く、
-#: 枠の保持の上限（10分）に枠の待ちを足した長さを覆う。
-WARM_WAIT_SECONDS = 1200
+#: 渡す側が、温める処理の作り直し（git switch）が終わるのを待つ上限。依存を入れる間は印を持たないので短い。
+WARM_WAIT_SECONDS = 300
 WARM_POLL_SECONDS = 5
 #: 作業ツリーの中にあってはならないリンクの置き場（過去に共有元を指すジャンクションが置かれた所）。
 LINK_CANDIDATES = ("frontend/node_modules", "node_modules", "backend/data", "backend/.venv")
@@ -96,7 +114,7 @@ class SlotError(Exception):
 
 
 class Warming(SlotError):
-    """温めている途中のスロット。終われば渡せる。"""
+    """温める処理が作り直している途中のスロット。終われば渡せる。"""
 
 
 def main_root(ctx: Context) -> Path:
@@ -170,22 +188,66 @@ def deps_mark(path: Path) -> str | None:
     return mark.read_text(encoding="utf-8").strip() if mark.exists() else None
 
 
+def deps_stale(path: Path) -> bool:
+    want = lock_file_sha(path)
+    return want is not None and deps_mark(path) != want
+
+
+def worktree_gitdir(path: Path) -> Path:
+    return Path(run_git(path, "rev-parse", "--path-format=absolute", "--git-dir"))
+
+
+def open_deps_lock(path: Path) -> int:
+    return os.open(worktree_gitdir(path) / DEPS_LOCK, os.O_RDWR | os.O_CREAT)
+
+
+def deps_busy(path: Path) -> bool:
+    """依存を入れている途中の処理が、この作業ツリーの錠を持っているか。"""
+    fd = open_deps_lock(path)
+    if lockrun.try_lock(fd):
+        lockrun.unlock(fd)
+        return False
+    os.close(fd)
+    return True
+
+
 def ensure_deps(path: Path) -> str:
-    """package-lock.jsonが前回のnpm ciから変わったときだけnpm ciを走らせる。何をしたかを返す。"""
+    """依存をpackage-lock.jsonどおりにする。何をしたかを返す。入れている途中の処理がいれば、終わるのを待つ。"""
+    fd = open_deps_lock(path)
+    announced = False
+    while not lockrun.try_lock(fd):
+        if not announced:
+            print(f"[slot] {path.name}: 依存を入れている途中の処理がある。終わるのを待つ"
+                  f"（出力は{worktree_gitdir(path) / DEPS_LOG}）", file=sys.stderr, flush=True)
+            announced = True
+        time.sleep(DEPS_POLL_SECONDS)
+    try:
+        return install_deps(path)
+    finally:
+        lockrun.unlock(fd)
+
+
+def install_deps(path: Path) -> str:
     want = lock_file_sha(path)
     if want is None:
         return "frontend/package-lock.jsonが無い"
-    mark = path / NPM_MARK
     if deps_mark(path) == want:
-        return "npm ciは不要（package-lock.jsonが前回と同じ）"
-    lockrun = Path(__file__).resolve().parents[1] / "lockrun.py"
-    cmd = [sys.executable, str(lockrun), "--",
-           f"cd '{(path / 'frontend').as_posix()}' && npm ci --no-audit --no-fund"]
+        return "依存は入っている（package-lock.jsonが前回入れたときと同じ）"
+    lock = path / PACKAGE_LOCK
+    before = lock.read_bytes()
+    npm = "npm install" if (path / NODE_MODULES).is_dir() else "npm ci"
+    cmd = [sys.executable, str(LOCKRUN), "--", f"cd '{(path / 'frontend').as_posix()}' && {npm} --no-audit --no-fund"]
     r = subprocess.run(cmd, stdout=sys.stderr, stderr=sys.stderr, check=False)
+    if lock.read_bytes() != before:
+        lock.write_bytes(before)
+        raise SlotError(f"{npm}がpackage-lock.jsonを書き換えた（package.jsonとlockが食い違う）。書き換えは戻した。"
+                        "node_modulesはlockどおりでないので、直すにはlockを直してから入れ直す")
     if r.returncode != 0:
-        raise SlotError(f"npm ciが失敗（終了コード{r.returncode}）")
-    mark.write_text(want + "\n", encoding="utf-8")
-    return "npm ciを実行した（package-lock.jsonが前回と違う、またはnode_modulesが無い）"
+        raise SlotError(f"{npm}が失敗（終了コード{r.returncode}）")
+    (path / NPM_MARK).write_text(want + "\n", encoding="utf-8")
+    if npm == "npm install":
+        return "npm installで差分を入れた（package-lock.jsonが前回と違う）"
+    return "npm ciで入れた（node_modulesが無い）"
 
 
 def claim(ctx: Context, path: Path, owner: str) -> None:
@@ -219,7 +281,7 @@ def prepare(ctx: Context, n: int, owner: str, base: str) -> Path:
     pid = warm_pid(reason)
     if pid is not None:
         if process_alive(pid):
-            raise Warming(f"{path.name} は温めている途中（{reason}）")
+            raise Warming(f"{path.name} は温める処理が作り直している途中（{reason}）")
         run_git(ctx.repo, "worktree", "unlock", str(path))
         print(f"[slot] {path.name}: 温める処理が死んで残った印を外した（{reason}）", file=sys.stderr)
         reason = None
@@ -231,17 +293,17 @@ def prepare(ctx: Context, n: int, owner: str, base: str) -> Path:
     try:
         if not created:
             reset_to(ctx, path, branch, base)
-        print(f"[slot] {path.name}: {ensure_deps(path)}", file=sys.stderr)
     except SlotError:
         run_git(ctx.repo, "worktree", "unlock", str(path))
         raise
     restore_hooks_path(ctx)
+    print(f"[slot] {path.name}: {start_deps(ctx, path)}", file=sys.stderr)
     return path
 
 
 def acquire(ctx: Context, owner: str, base: str) -> Path:
     """空いているスロットを1つ渡す。空きが無ければSlotError（上限を仕組みで守る）。
-    温めている途中のスロットしか空いていなければ、温め終わるのを待つ。"""
+    温める処理が作り直している途中のスロットしか空いていなければ、それが終わるのを待つ。"""
     run_git(ctx.repo, "fetch", "--quiet", "origin", "master")
     deadline = time.monotonic() + WARM_WAIT_SECONDS
     announced = False
@@ -256,7 +318,7 @@ def acquire(ctx: Context, owner: str, base: str) -> Path:
         if not warming or time.monotonic() > deadline:
             raise SlotError("空いているスロットが無い: " + " / ".join(reasons))
         if not announced:
-            print("[slot] 温めている途中のスロットしか空いていないため、温め終わるのを待つ", file=sys.stderr)
+            print("[slot] 作り直している途中のスロットしか空いていないため、終わるのを待つ", file=sys.stderr)
             announced = True
         time.sleep(WARM_POLL_SECONDS)
 
@@ -278,7 +340,7 @@ def process_alive(pid: int) -> bool:
 
 
 def cold_slots(ctx: Context, base: str = DEFAULT_BASE) -> list[int]:
-    """空いていて（印が無い）、渡すとnpm ciが走る（印がbaseのpackage-lock.jsonと違う）スロット。
+    """空いていて（印が無い）、依存が古く（印がbaseのpackage-lock.jsonと違う）、入れている途中でもないスロット。
     作っていないスロットは数えない（作るのは渡す側）。"""
     want = lock_sha_at(ctx, base)
     if want is None:
@@ -286,11 +348,11 @@ def cold_slots(ctx: Context, base: str = DEFAULT_BASE) -> list[int]:
     trees = registered(ctx)
     return [n for n in range(1, slot_count(ctx) + 1)
             if trees.get(os.path.normcase(os.path.normpath(str(slot_path(ctx, n))))) == ""
-            and deps_mark(slot_path(ctx, n)) != want]
+            and deps_mark(slot_path(ctx, n)) != want and not deps_busy(slot_path(ctx, n))]
 
 
 def warm(ctx: Context, base: str) -> int:
-    """空いていて冷えたスロットを、印を付けてから最新のbaseへ作り直し、依存を入れて印を外す。
+    """空いていて冷えたスロットを、印を付けて最新のbaseへ作り直し、印を外してから依存を入れる。
     止める理由（未コミットの変更等）があるスロットは中身を変えずに飛ばす。"""
     run_git(ctx.repo, "fetch", "--quiet", "origin", "master")
     owner = f"{WARM_OWNER_PREFIX}{os.getpid()}"
@@ -304,13 +366,33 @@ def warm(ctx: Context, base: str) -> int:
             continue
         try:
             reset_to(ctx, path, f"{SLOT_PREFIX}{n}", base)
-            print(f"[slot] {path.name}: {ensure_deps(path)}", file=sys.stderr)
         except SlotError as e:
             print(f"[slot] {path.name}: 温められない: {e}", file=sys.stderr)
             failed += 1
+            continue
         finally:
             run_git(ctx.repo, "worktree", "unlock", str(path))
+        try:
+            print(f"[slot] {path.name}: {ensure_deps(path)}", file=sys.stderr)
+        except SlotError as e:
+            print(f"[slot] {path.name}: 依存を入れられない: {e}", file=sys.stderr)
+            failed += 1
     return 1 if failed else 0
+
+
+def start_deps(ctx: Context, path: Path) -> str:
+    """渡した作業ツリーの依存が古ければ`slot deps`を裏で起こし、何をしたかの1行を返す。渡す処理はこれを待たない。"""
+    if not deps_stale(path):
+        return "依存は入れなくてよい"
+    cmd = [sys.executable, str(ENTRY), "--repo", str(ctx.repo), "--dir", str(ctx.dir),
+           "slot", "deps", "--path", str(path)]
+    try:
+        log = worktree_gitdir(path) / DEPS_LOG
+        with open(log, "wb") as out:
+            spawn_detached(cmd, ctx.repo, out)
+    except (OSError, SlotError) as e:
+        return f"依存が古いが、入れる処理を裏で起こせなかった（{e}）。担当の`slot deps`が入れる"
+    return f"依存を裏で入れ始めた（出力は{log}）。frontendの検査の前に`python scripts/orchestrate.py slot deps`で待つ"
 
 
 def start_warm(ctx: Context) -> str | None:
@@ -328,7 +410,7 @@ def start_warm(ctx: Context) -> str | None:
             spawn_detached(cmd, ctx.repo, out)
     except OSError as e:
         return f"{names}のpackage-lock.jsonがorigin/masterと違うが、温める処理を起こせなかった（{e}）"
-    return f"{names}のpackage-lock.jsonがorigin/masterと違うため、npm ciを裏で起こした（出力は{log}）"
+    return f"{names}の依存がorigin/masterのpackage-lock.jsonと違うため、裏で入れ始めた（出力は{log}）"
 
 
 def spawn_detached(cmd: list[str], cwd: Path, out) -> None:
@@ -356,8 +438,11 @@ def cmd_list(ctx: Context) -> int:
             continue
         facts = [f"渡し先 {trees[key]}" if trees[key] else "空き（ロックなし）"]
         facts += blockers(ctx, path) or ["渡し直せる"]
-        facts.append("依存はorigin/masterと同じ" if want and deps_mark(path) == want
-                     else "依存がorigin/masterと違う（渡すか温めるとnpm ci）")
+        if deps_busy(path):
+            facts.append("依存を入れている途中（slot deps で待てる）")
+        else:
+            facts.append("依存はorigin/masterと同じ" if want and deps_mark(path) == want
+                         else "依存がorigin/masterと違う（渡すか温めると裏で入れる）")
         head = git_out(path, "log", "-1", "--format=%h %cd", "--date=format:%m-%d %H:%M") or "?"
         print(f"{path.name}: {head} / " + " / ".join(facts))
     extra = [p for p in trees if os.path.basename(p) not in
@@ -376,7 +461,7 @@ def read_hook_input() -> dict:
 
 def hook_create(ctx: Context) -> int:
     """WorktreeCreateフック。標準入力の`name`を渡し先として、空きスロットのパスを最後の行に出す。
-    失敗（空きが無い等）は0以外で終わり、Claude Codeは作業ツリーを作らずに起動を止める。"""
+    依存は待たない（裏で入れる）。失敗（空きが無い等）は0以外で終わり、Claude Codeは作業ツリーを作らずに起動を止める。"""
     data = read_hook_input()
     owner = str(data.get("name") or "unknown")
     try:
@@ -416,9 +501,15 @@ def main(argv: list[str]) -> int:
     sub.add_parser("hook-create")
     sub.add_parser("hook-remove")
     sub.add_parser("warm")
+    p = sub.add_parser("deps", help="作業ツリーの依存が入り終わるまで待つ（入っていなければ入れる）")
+    p.add_argument("--path", help="作業ツリー（既定は今いるディレクトリの作業ツリー）")
     args = parser.parse_args(argv)
     ctx = Context(Path(args.repo), args.dir)
     try:
+        if args.op == "deps":
+            path = Path(args.path or run_git(Path.cwd(), "rev-parse", "--show-toplevel"))
+            print(f"[slot] {path.name}: {ensure_deps(path)}", flush=True)
+            return 0
         if args.op == "list":
             return cmd_list(ctx)
         if args.op == "release":

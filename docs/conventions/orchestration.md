@@ -304,8 +304,8 @@
 ### 起動のしかた
 
 - `isolation: "worktree"`。作業ツリーは新しく作られず、空いているスロットが渡る（次の節）。
-  **1本ずつ起動する**——渡すたびにfetchと枝の作り直し（温めていないスロットで`package-lock.json`が
-  変わっていれば`npm ci`）が走る。空きが無いと起動そのものが失敗する（上限を仕組みで守っている。`slot list`で
+  **1本ずつ起動する**——渡すたびにfetchと枝の作り直しが走る（依存の入れ直しは待たずに裏で起こすので、
+  渡すのは数秒で返る）。空きが無いと起動そのものが失敗する（上限を仕組みで守っている。`slot list`で
   印の残りを確かめる）。
 - 指示文には、担当するタスク1件・その注意点・並行する他エージェントの担当範囲を書き、
   共通ルールは本規約の「エージェント共通ルール」節を**読ませる**（貼り付けない）。
@@ -322,7 +322,7 @@
   - masterへはpushしない。作業ブランチ orch/<名前> へpushし、報告にCIのrunのURLと結論を添える。CI待ち・落ちたジョブのログは python scripts/orchestration/github.py wait|log <40桁のsha>
   - docs・*.mdだけの変更ではci.ymlは走らない（Docs Consistencyだけ）。来ないCIを待たない
   - 報告の前に python scripts/orchestrate.py audit <名前> <sha> --base <rebase先> を通す（枠で包まない）
-  - 重い段（npm ci・tsc・vitest・pytest・build・playwright・ディレクトリ単位のeslint）だけを lockrun に入れる。上限10分。数分かかる本物の処理は最終確認の1回まで
+  - 重い段（npm ci・tsc・vitest・pytest・build・playwright・ディレクトリ単位のeslint）だけを lockrun に入れる。上限10分。数分かかる本物の処理は最終確認の1回まで。frontendの重い段の前に python scripts/orchestrate.py slot deps で依存の入り終わりを待つ（枠で包まない）
   - git reset --hard・git stash（共有）は使わない。退避は一時的なWIPコミット、戻しは reset --keep
   - 規模の予算を超えそうなら、その時点で途中の状態を報告する（母集団を数えて件数が見えた時点も）
   - 完了のコミットで Txxx.md に所要の1行を残す。最終報告に「摩擦」の欄を書く
@@ -361,14 +361,19 @@
   （印が残ると、同時に動かせる本数が1つ減る）。フックは全セッションに効くので、司令塔の外で
   `isolation: "worktree"`で起動した担当（`/review`の分担等）も同じスロットを使う。監査を
   通らないので、起動した側が担当の終了後に外す。
-- **空いているスロットは、渡す前に温めておく。** 定期確認（`check`）は、印の無いスロットの依存
-  （前回`npm ci`した`package-lock.json`）がorigin/masterと違えば、`slot warm`を裏で起こして
+- **渡す処理は依存（`frontend/node_modules`）を待たない。** 渡したスロットの依存が古ければ（前回入れた
+  `package-lock.json`と今のものが違えば）、`slot deps`を裏で起こしてすぐ返す（出力はそのスロットのgitディレクトリの
+  `slot-deps.log`）。依存を使わない担当（backendだけ・scriptsだけ）は入り終わりを待たずに着手でき、frontendの
+  重い段を回す担当だけが`slot deps`で待つ（「重い処理を減らす」節）。入れ方は、`node_modules`があれば`npm install`で
+  差分だけ（lockどおりの版で入り、lockを書き換えたら元へ戻して失敗にする）、無ければ`npm ci`。どちらも`heavy`の枠で走る。
+  差分は1本足した程度で約30秒（`npm ci`は166〜526秒。実測は[T1162](../records/tasks/T1162.md)）。
+- **空いているスロットは、渡す前に温めておく。** 定期確認（`check`）は、印の無いスロットの依存が
+  origin/masterの`package-lock.json`と違い、入れている途中でもなければ、`slot warm`を裏で起こして
   「スロットの温め: …」の1行を出す（確認そのものは待たない。出力は`<gitの共通ディレクトリ>/orchestration/warm.log`）。
-  `slot warm`はそのスロットに`slot warm-<pid>`の印を付けて最新のorigin/masterへ作り直し、`heavy`の枠で
-  `npm ci`してから印を外す。担当に渡しているスロットと、渡し直しを止める条件に当たるスロットには触らない。
-  渡す側は、温めている途中のスロットしか空いていなければ温め終わるのを待つ。どのスロットが温まっているかは
-  `slot list`の「依存」が出す。masterの`package-lock.json`を変えるタスクを取り込んだら、次の確認
-  （確認間隔以内）で温まる——すぐ振り出すなら、先に`slot warm`を裏で起こしておく。
+  `slot warm`はそのスロットに`slot warm-<pid>`の印を付けて最新のorigin/masterへ作り直し、印を外してから依存を入れる
+  ——入れている間にも渡せ、渡された担当の`slot deps`は同じ作業ツリーの錠で入り終わりを待つ。担当に渡しているスロットと、
+  渡し直しを止める条件に当たるスロットには触らない。どのスロットが温まっているか・入れている途中かは`slot list`の
+  「依存」が出す。masterの`package-lock.json`を変えるタスクを取り込んだら、次の確認（確認間隔以内）で温まる。
 - 担当とスロットの対応は印から導く（`status`の「作業ツリー」）。状態の表には写さない。
 - 担当はスロットを消さない・`git worktree unlock`しない。作業ツリーの中にリンク
   （ジャンクション）を置かない——置くとそのスロットは渡し直せなくなる。
@@ -432,7 +437,7 @@ python scripts/lockrun.py -- '<bashコマンド文字列>'
 **何を枠の下に置くか——処理の段1つで決め、包みでは決めない**:
 
 - **対象**: 単独で走らせても、複数のコアかディスクを数十秒以上使い切る段。依存の導入
-  （`npm ci`）・ビルド（`next build`・`next typegen`）・型検査（`tsc --noEmit`・`mypy`）・テストの実行
+  （`npm ci`・`npm install`）・ビルド（`next build`・`next typegen`）・型検査（`tsc --noEmit`・`mypy`）・テストの実行
   （`vitest run`・`pytest`・`playwright test`）・ディレクトリ単位のlint（`eslint`）等。
 - **対象外**: 数秒で終わる段と、ネットワーク待ちが主の段。`git`の操作（`fetch`・`rebase`・
   `push`そのもの）・`ruff`・変更ファイルだけの`prettier`・`review_checks.py docs`・
@@ -490,9 +495,13 @@ backendのPythonは作業ツリーに`.venv`が無いため、本体のチェッ
   （`backend/tests/test_orchestration_slots.py`）。本番ビルド・本物の`npm ci`は、仕組みの確認に繰り返し使わない
   （1回約5分のビルドを数回回して規模Sの予算の2.5倍かかった例、本物の`npm ci`の出力の文字コードの食い違いで10分
   空待ちした例がある。[T1162](../records/tasks/T1162.md)）。書き方は[testing.md](testing.md)「わざと壊すのは、テストの中で」。
-- **`npm ci`は、スロットの`frontend/package-lock.json`が前回の`npm ci`から変わったときだけ**走り、
-  多くは渡す前に定期確認が裏で起こす温めの中で済む（「作業ツリーのスロット」節。どちらも`heavy`の枠で
-  走る）。渡すその場で走るのは、温める前に振り出したときだけ。担当は自分で`npm ci`しない。
+- **依存（`frontend/node_modules`）は、スロットの`frontend/package-lock.json`が前回入れたときから変わったときだけ**
+  入れ直し、渡す処理は待たずに裏で入れる（「作業ツリーのスロット」節）。**frontendの重い段（`tsc`・`vitest`・
+  `eslint`・`next build`・`playwright`等）を回す担当は、最初の1回の前に`python scripts/orchestrate.py slot deps`で
+  入り終わりを待つ**——入り終わっていれば数秒で返り、入れている途中なら終わるまで返らない（入れている処理が
+  死んでいれば自分で入れる）。枠で包まない（入れる処理が枠を取る）。待ちは`npm ci`の枠の待ちを含めて10分を超えうるので、
+  Bashの時間切れを延ばすか裏で走らせる。backendだけ・scriptsだけの担当は呼ばない。担当は自分で`npm ci`・
+  `npm install`しない。
 - **フルスイートは回さない**（CIの持ち物。CLAUDE.md「テスト方針」）。
 - **確かめる検査は、作業ブランチへpushしてCIに回す**（「完了とpush」節）。手元で回すのは
   静的検査（`ruff`・`mypy`・`review_checks.py docs`・prettier・`tsc --noEmit`）と、書きながら挙動を

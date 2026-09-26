@@ -125,13 +125,17 @@ def test_slot_with_a_commit_after_the_landed_one_is_kept(world):
 
 @pytest.fixture
 def npm_world(world, tmp_path, monkeypatch):
-    """frontend/package-lock.jsonを持つmasterと、呼ばれた回数を数える偽のnpm（外部のツールなので差し替える）。
+    """frontend/package-lock.jsonを持つmasterと、呼ばれた引数を書き残す偽のnpm（外部のツールなので差し替える）。
+    偽のnpmは`NPM_GATE`のファイルができるまで終わらず、`NPM_REWRITE`があれば`npm install`でlockを書き換える。
     枠は持っている扱いにし（LOCKRUN_HELD）、試験が機械全体の枠を取らない。"""
     main, orch = world
     bin_dir, calls = tmp_path / "bin", tmp_path / "npm_calls.txt"
     bin_dir.mkdir()
     npm = bin_dir / "npm"
-    npm.write_text('#!/bin/sh\necho "$*" >> "$NPM_CALLS"\nmkdir -p node_modules\n', encoding="utf-8", newline="\n")
+    npm.write_text('#!/bin/sh\necho "$*" >> "$NPM_CALLS"\n'
+                   'if [ -n "$NPM_GATE" ]; then while [ ! -f "$NPM_GATE" ]; do sleep 0.2; done; fi\n'
+                   'if [ "$1" = install ] && [ -n "$NPM_REWRITE" ]; then echo \'{"rewritten": 1}\' > package-lock.json; fi\n'
+                   'mkdir -p node_modules\n', encoding="utf-8", newline="\n")
     npm.chmod(0o755)
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
     monkeypatch.setenv("NPM_CALLS", str(calls))
@@ -141,8 +145,8 @@ def npm_world(world, tmp_path, monkeypatch):
     commit(main, "frontend/package-lock.json", '{"v": 1}\n', "T0: 依存の版1")
     git(main, "push", "--quiet", "origin", "master")
 
-    def npm_calls() -> int:
-        return len(calls.read_text(encoding="utf-8").splitlines()) if calls.exists() else 0
+    def npm_calls() -> list[str]:
+        return [c.split()[0] for c in calls.read_text(encoding="utf-8").splitlines()] if calls.exists() else []
 
     return main, orch, npm_calls
 
@@ -152,11 +156,21 @@ def change_lock_on_master(main: Path) -> None:
     git(main, "push", "--quiet", "origin", "master")
 
 
+def settle(main: Path, orch: Path) -> str:
+    """渡したときに裏で起きた依存の入れ直しが終わるまで待ち、スロットの行を返す。"""
+    deadline = time.monotonic() + 60
+    while "依存はorigin/masterと同じ" not in (line := slot_line(main, orch)):
+        assert time.monotonic() < deadline, line
+        time.sleep(0.5)
+    return line
+
+
 def free_slot(main: Path, orch: Path, npm_calls) -> Path:
-    """担当Aへ渡して（npm ciが1回走る）印を外し、空いたスロットにする。"""
+    """担当Aへ渡して（裏でnpm ciが1回走る）印を外し、空いたスロットにする。"""
     handed = hand_out(main, orch, "a")
     assert handed.returncode == 0, handed.stderr
-    assert npm_calls() == 1
+    settle(main, orch)
+    assert npm_calls() == ["ci"]
     assert orchestrate(main, orch, "slot", "release", "1").returncode == 0
     return Path(handed.stdout.strip().splitlines()[-1])
 
@@ -165,7 +179,71 @@ def slot_line(main: Path, orch: Path) -> str:
     return next(x for x in orchestrate(main, orch, "slot", "list").stdout.splitlines() if x.startswith("slot-1:"))
 
 
-def test_warmed_slot_is_handed_out_without_npm_ci(npm_world):
+def wait_deps(main: Path, orch: Path, slot: Path) -> subprocess.Popen[str]:
+    """担当が呼ぶ入り終わりの待ちを、終わりを見張れるように裏で起こす。"""
+    return subprocess.Popen([sys.executable, str(ENTRY), "--repo", str(main), "--dir", str(orch),
+                             "slot", "deps", "--path", str(slot)], cwd=main, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True, encoding="utf-8")
+
+
+def test_hand_out_does_not_wait_for_npm_and_deps_waits_until_it_is_done(npm_world, tmp_path, monkeypatch):
+    main, orch, npm_calls = npm_world
+    gate = tmp_path / "npm_gate"
+    monkeypatch.setenv("NPM_GATE", str(gate))
+
+    handed = hand_out(main, orch, "a")
+
+    assert handed.returncode == 0, handed.stderr
+    assert "依存を裏で入れ始めた" in handed.stderr
+    slot = Path(handed.stdout.strip().splitlines()[-1])
+    deadline = time.monotonic() + 60
+    while npm_calls() != ["ci"]:
+        assert time.monotonic() < deadline, npm_calls()
+        time.sleep(0.2)
+    assert "依存を入れている途中" in slot_line(main, orch)
+    waiter = wait_deps(main, orch, slot)
+    time.sleep(3)
+    assert waiter.poll() is None, waiter.communicate()
+    gate.write_text("", encoding="utf-8")
+    out, err = waiter.communicate(timeout=60)
+    assert waiter.returncode == 0, err
+    assert "依存は入っている" in out
+    assert npm_calls() == ["ci"]
+    assert "依存はorigin/masterと同じ" in slot_line(main, orch)
+
+
+def test_changed_lock_is_installed_as_a_diff_not_from_scratch(npm_world):
+    main, orch, npm_calls = npm_world
+    slot = free_slot(main, orch, npm_calls)
+    change_lock_on_master(main)
+
+    handed = hand_out(main, orch, "b")
+    waiter = wait_deps(main, orch, slot)
+    _, err = waiter.communicate(timeout=60)
+
+    assert handed.returncode == 0, handed.stderr
+    assert waiter.returncode == 0, err
+    assert npm_calls() == ["ci", "install"]
+    assert "依存はorigin/masterと同じ" in slot_line(main, orch)
+
+
+def test_npm_install_that_rewrites_the_lock_fails_and_the_lock_is_restored(npm_world, monkeypatch):
+    main, orch, npm_calls = npm_world
+    slot = free_slot(main, orch, npm_calls)
+    change_lock_on_master(main)
+    monkeypatch.setenv("NPM_REWRITE", "1")
+
+    warmed = orchestrate(main, orch, "slot", "warm")
+
+    assert warmed.returncode != 0
+    assert "package-lock.jsonを書き換えた" in warmed.stderr
+    assert npm_calls() == ["ci", "install"]
+    assert (slot / "frontend" / "package-lock.json").read_text(encoding="utf-8") == '{"v": 2}\n'
+    assert git(slot, "status", "--porcelain") == ""
+    assert "依存がorigin/masterと違う" in slot_line(main, orch)
+
+
+def test_warmed_slot_is_handed_out_without_installing_again(npm_world):
     main, orch, npm_calls = npm_world
     slot = free_slot(main, orch, npm_calls)
     change_lock_on_master(main)
@@ -174,26 +252,52 @@ def test_warmed_slot_is_handed_out_without_npm_ci(npm_world):
     warmed = orchestrate(main, orch, "slot", "warm")
 
     assert warmed.returncode == 0, warmed.stderr
-    assert npm_calls() == 2
+    assert npm_calls() == ["ci", "install"]
     assert "空き（ロックなし）" in slot_line(main, orch)
     handed = hand_out(main, orch, "b")
     assert handed.returncode == 0, handed.stderr
-    assert "npm ciは不要" in handed.stderr
-    assert npm_calls() == 2
+    assert "依存は入れなくてよい" in handed.stderr
+    assert npm_calls() == ["ci", "install"]
     assert os.path.samefile(handed.stdout.strip().splitlines()[-1], slot)
     assert git(slot, "rev-parse", "HEAD") == git(main, "rev-parse", "origin/master")
+
+
+def test_slot_is_handed_out_while_warm_is_still_installing(npm_world, tmp_path, monkeypatch):
+    main, orch, npm_calls = npm_world
+    slot = free_slot(main, orch, npm_calls)
+    change_lock_on_master(main)
+    gate = tmp_path / "npm_gate"
+    monkeypatch.setenv("NPM_GATE", str(gate))
+    warming = subprocess.Popen([sys.executable, str(ENTRY), "--repo", str(main), "--dir", str(orch), "slot", "warm"],
+                               cwd=main, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8")
+    deadline = time.monotonic() + 60
+    while npm_calls() != ["ci", "install"]:
+        assert time.monotonic() < deadline and warming.poll() is None, warming.communicate()
+        time.sleep(0.2)
+
+    handed = hand_out(main, orch, "b")
+
+    assert handed.returncode == 0, handed.stderr
+    assert os.path.samefile(handed.stdout.strip().splitlines()[-1], slot)
+    assert "渡し先 slot agent-b " in slot_line(main, orch)
+    gate.write_text("", encoding="utf-8")
+    _, err = warming.communicate(timeout=60)
+    assert warming.returncode == 0, err
+    settle(main, orch)
+    assert npm_calls() == ["ci", "install"]
 
 
 def test_warm_leaves_a_handed_out_slot_alone(npm_world):
     main, orch, npm_calls = npm_world
     handed = hand_out(main, orch, "a")
     slot = Path(handed.stdout.strip().splitlines()[-1])
+    settle(main, orch)
     before = git(slot, "rev-parse", "HEAD")
     change_lock_on_master(main)
 
     assert orchestrate(main, orch, "slot", "warm").returncode == 0
 
-    assert npm_calls() == 1
+    assert npm_calls() == ["ci"]
     assert git(slot, "rev-parse", "HEAD") == before
     assert "渡し先 slot agent-a " in slot_line(main, orch)
 
@@ -205,14 +309,14 @@ def test_check_warms_a_cold_free_slot_in_the_background(npm_world):
 
     checked = orchestrate(main, orch, "check")
 
-    assert "npm ciを裏で起こした" in checked.stdout, checked.stdout + checked.stderr
+    assert "裏で入れ始めた" in checked.stdout, checked.stdout + checked.stderr
     deadline = time.monotonic() + 60
     while not ("空き（ロックなし）" in (line := slot_line(main, orch)) and "依存はorigin/masterと同じ" in line):
         assert time.monotonic() < deadline, line + (orch / "warm.log").read_text(encoding="utf-8", errors="replace")
         time.sleep(1)
-    assert npm_calls() == 2
-    assert "npm ciは不要" in hand_out(main, orch, "b").stderr
-    assert "npm ciを裏で起こした" not in orchestrate(main, orch, "check").stdout
+    assert npm_calls() == ["ci", "install"]
+    assert "依存は入れなくてよい" in hand_out(main, orch, "b").stderr
+    assert "裏で入れ始めた" not in orchestrate(main, orch, "check").stdout
 
 
 def test_mark_left_by_a_dead_warm_is_cleared_when_handing_out(npm_world):
