@@ -5,7 +5,7 @@ import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } fr
 import palette from "@/types/generated/palette.json";
 import type { RouteSegmentDetail, SelectedRouteSegment } from "@/types/route";
 
-import { columnAtKm, pointAlongSegment, profileBoxes, profileColumns, type ProfileBox } from "./difficultyProfile";
+import { columnAtKm, pointAlongSegment, profileBoxes, profileColumns, type ProfileBox } from "./profileGeometry";
 
 /** 描画の座標。横は距離を`VIEW_WIDTH`へ、縦は難易度0〜100をそのまま使い、枠いっぱいへ伸ばす。 */
 const VIEW_WIDTH = 1000;
