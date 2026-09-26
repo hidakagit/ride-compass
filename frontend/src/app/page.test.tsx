@@ -67,6 +67,7 @@ const stubs = vi.hoisted(() => {
   return {
     mounted,
     catalog: null as unknown,
+    catalogRetries: 0,
     isMobile: false,
     mapView: null as unknown,
     mapViewInputs: null as unknown,
@@ -135,7 +136,12 @@ vi.mock("@/components/BottomSheet/BottomSheet", async (importOriginal) => {
     ),
   };
 });
-vi.mock("@/hooks/useAxisCatalog", () => ({ useAxisCatalog: () => stubs.catalog }));
+vi.mock("@/hooks/useAxisCatalog", () => ({
+  useAxisCatalog: () => stubs.catalog,
+  retryAxisCatalogFetch: () => {
+    stubs.catalogRetries += 1;
+  },
+}));
 vi.mock("@/hooks/useIsMobile", () => ({ useIsMobile: () => stubs.isMobile }));
 vi.mock("@/features/map/view/useMapView", () => ({
   useMapView: (inputs: unknown) => {
@@ -360,6 +366,7 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(NOW);
   stubs.catalog = catalogWith(SPLICE_TUNING);
+  stubs.catalogRetries = 0;
   stubs.isMobile = false;
   stubs.mapView = {
     look: { marker: "見え方" },
@@ -600,13 +607,40 @@ describe("生成リクエスト", () => {
     expect(lastRequest().route_preference).toEqual(aligned);
   });
 
-  it("重みを上書きしていても、軸カタログが届いていない間は送らない（届いた軸へ合わせられない）", async () => {
+  it("重みを上書きしていても、軸カタログが届いていない間は送らず（届いた軸へ合わせられない）、既定の配分で作ったと結果に出す", async () => {
     stubs.catalog = EMPTY_CATALOG;
     const user = renderPage();
     act(() => weightsPanel().onOverrideEnabledChange(true));
     act(() => weightsPanel().onRoutePreferenceChange(WEIGHTS));
     await generate(user);
     expect(lastRequest().route_preference).toBeUndefined();
+    expect(screen.getByText("重み配分を反映できず、既定の配分で作りました。")).toBeInTheDocument();
+  });
+
+  it("重みを上書きしていなければ、軸カタログが無くても既定の配分で作ったとは言わない（元から既定の配分）", async () => {
+    stubs.catalog = EMPTY_CATALOG;
+    const user = renderPage();
+    await generate(user);
+    expect(resultTabs()).toHaveLength(1);
+    expect(screen.queryByText("重み配分を反映できず、既定の配分で作りました。")).not.toBeInTheDocument();
+  });
+
+  it("出発地が仮の地点のまま（位置を取れない）なら生成せず、理由を「ルート結果」に出す", async () => {
+    geolocation.getCurrentPosition.mockImplementation((_onSuccess, onError) =>
+      onError?.({} as GeolocationPositionError),
+    );
+    const user = renderPage();
+    await user.click(generateButton());
+    expect(generateRoutes).not.toHaveBeenCalled();
+    expect(
+      screen.getByText("現在地が分かりません。位置情報を許可するか、地図で出発地を選んでください。"),
+    ).toBeInTheDocument();
+
+    await chooseDestinationMode(user);
+    act(() => map().onPinPlace("origin", HALFWAY));
+    act(() => map().onPinPlace("destination", NEAR));
+    await generate(user);
+    expect(lastRequest()).toMatchObject({ latitude: HALFWAY.latitude, longitude: HALFWAY.longitude });
   });
 
   it("「除外」タブで変えた除外を、タブへ戻しつつ送る", async () => {
@@ -1245,11 +1279,11 @@ describe("区間の乗り換え", () => {
     expect(screen.getByRole("button", { name: "編集をやめて候補へ戻る" })).toBeInTheDocument();
   });
 
-  it("区間を割る下限を軸カタログから引けない間は、乗り換え先を作らない", async () => {
+  it("区間を割る下限を軸カタログから引けない間は、合成の入口を出さない（別の切り方で乗り換え先を作らない）", async () => {
     stubs.catalog = catalogWith({});
     const user = renderPage();
-    await startSpliceEditing(user);
-    expect(spliceStretches()).toEqual([]);
+    await generateToDestination(user, [ROUTE_A, ROUTE_B, ROUTE_C]);
+    expect(screen.queryByRole("button", { name: "ルートを合成" })).not.toBeInTheDocument();
   });
 
   it("地図で乗り換え先を押すとその道へ乗り換え、乗り換えた経路から次の乗り換え先を出す。1つ戻す・全部戻すで戻る", async () => {
@@ -1746,6 +1780,17 @@ describe("画面の枠と地図の周り", () => {
       items: weather.warningBadgeItems,
       failures: weather.warningFetchFailures,
     });
+  });
+
+  it("軸一覧を取得できないと、警報の未取得と並べてヘッダーの印に出し、そこから取り直せる", () => {
+    const warningFailure = { id: "jma", label: "警報・注意報", detail: "x", effect: "y" };
+    vi.mocked(useWeatherConditions).mockReturnValue({ ...EMPTY_WEATHER, warningFetchFailures: [warningFailure] });
+    stubs.catalog = { ...EMPTY_CATALOG, failed: true };
+    renderPage();
+    const failures = propsOf<typeof WarningBadgeList>("WarningBadgeList").failures ?? [];
+    expect(failures.map((failure) => failure.label)).toEqual(["警報・注意報", "軸一覧"]);
+    act(() => failures[1].onRetry?.());
+    expect(stubs.catalogRetries).toBe(1);
   });
 
   it("メニューからデバッグログを開閉し、コンソールの側からも閉じられる", () => {

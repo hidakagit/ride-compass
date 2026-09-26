@@ -180,7 +180,7 @@ export default function RouteSettingsPanel({
   return (
     <div className="flex flex-col gap-3">
       {/* 軸カタログが取れないと重みは送られず（backendの既定で探す）、同じ応答が運ぶタイルの世代も無いので地図の
-          道路・POI・事故も出ない。何が起きるかと再試行をここで見せる（再試行の入口はここだけ）。 */}
+          道路・POI・事故も出ない。重みを触っている人へ、何が起きるかと再試行をここでも見せる。 */}
       {catalog.failed && (
         <p
           className={cn(

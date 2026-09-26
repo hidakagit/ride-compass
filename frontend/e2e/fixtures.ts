@@ -165,6 +165,10 @@ export function axisCatalogFixture(axes: ReturnType<typeof catalogEntry>[]) {
  * ルートが先に当たる）。
  */
 export async function installApiMocks(page: Page): Promise<void> {
+  // 現在地を渡す。位置が取れない間は出発地が仮の地点のままで、生成が断られる。地点は候補の線の始点。
+  await page.context().grantPermissions(["geolocation"]);
+  await page.context().setGeolocation({ latitude: 35.7597, longitude: 139.7387 });
+
   await page.route(`${API_BASE}/health`, (route) => route.fulfill({ json: { status: "ok" } }));
 
   await page.route(`${API_BASE}/api/weather*`, (route) => route.fulfill({ json: weatherConditionsFixture() }));

@@ -154,10 +154,12 @@ describe("RouteForm 目的地の地点", () => {
     }
   });
 
-  it("出発地の印は、現在地を取れていない間は地図のピンと同じ灰色にする", () => {
+  it("現在地を取れていない間は、出発地を「現在地」と出さず、印を地図のピンと同じ灰色にする", () => {
     renderForm({ ...destination, originLocated: false });
+    const row = screen.getByRole("button", { name: "出発地を地図で選ぶ" });
+    expect(row).toHaveTextContent("現在地を取得できていません");
     // 行頭の印（地図のピンと同じ図形を描いた要素）。
-    const mark = screen.getByRole("button", { name: "出発地を地図で選ぶ" }).querySelector('[aria-hidden="true"]')!;
+    const mark = row.querySelector('[aria-hidden="true"]')!;
     expect(mark.innerHTML).toContain(ORIGIN_MARK_FALLBACK_COLOR);
     expect(mark.innerHTML).not.toContain(ORIGIN_MARK_COLOR);
   });

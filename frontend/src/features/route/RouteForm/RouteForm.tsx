@@ -41,8 +41,8 @@ interface RouteFormProps {
   onDestinationClear: () => void;
   /** 出発地を地図で置き直してあるか（falseなら現在地のまま）。 */
   originManual: boolean;
-  /** 現在地を実際に取得できているか。falseの間は地図のピンと同じく印を灰色にする
-   * （位置が既定値のままであることを、行と地図で同じ色で示す）。 */
+  /** 出発地が実際の位置か（現在地を取れたか、地図で置いたか）。falseの間は地図のピンと同じく印を灰色にし、
+   * 行の値も「現在地」と出さない（位置が仮の地点のままであることを、行と地図で示す）。 */
   originLocated: boolean;
   /** 出発地を現在地へ戻す（現在地の取得もこの操作が兼ねる）。 */
   onOriginReset: () => void;
@@ -234,7 +234,7 @@ export default function RouteForm({
                 "origin",
                 "出発地",
                 undefined,
-                originManual ? "地図で指定" : "現在地",
+                originManual ? "地図で指定" : originLocated ? "現在地" : "現在地を取得できていません",
                 "地図で選ぶ",
                 originManual ? (
                   <Button size="xs" aria-label="出発地を現在地に戻す" onClick={onOriginReset}>

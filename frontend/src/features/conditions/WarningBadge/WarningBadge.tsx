@@ -30,11 +30,16 @@ export interface WarningBadgeItem {
   title?: string;
 }
 
-/** 取得に失敗した警告の出所。`detail`は失敗の文言（429の案内・`[通信エラー]`等）。 */
+/** 取得に失敗した出所（警告に限らず、画面の前提になるデータも含む）。 */
 export interface WarningFetchFailure {
   id: string;
   label: string;
-  detail: string;
+  /** 失敗の文言（429の案内・`[通信エラー]`等）。文言を持たない取得では無い。 */
+  detail?: string;
+  /** 取れていない間に何が起きているか（利用者が何を当てにできないか）。 */
+  effect: string;
+  /** 取り直す操作。自動で取り直す出所では無い。 */
+  onRetry?: () => void;
 }
 
 interface WarningBadgeListProps {
@@ -72,8 +77,9 @@ export default function WarningBadgeList({ items, failures = [] }: WarningBadgeL
   );
 }
 
-// 取得に失敗している間だけ出す印。バッジが0件のときに「警告なし」と読ませないためのもので、
-// 成功している間は何も出さない。常時は小さな印だけにし、何が取れていないかはタップで開く。
+// 取得に失敗している間だけ出す印。バッジが0件のときに「警告なし」と読ませず、取れていないデータを当てにした
+// 画面（地図・生成）を正常と読ませないためのもので、成功している間は何も出さない。常時は小さな印だけにし、
+// 何が取れていないか・何が起きているか・再試行はタップで開く。
 function WarningFetchFailureMark({ failures }: { failures: readonly WarningFetchFailure[] }) {
   const labels = failures.map((failure) => failure.label).join("・");
   return (
@@ -99,11 +105,16 @@ function WarningFetchFailureMark({ failures }: { failures: readonly WarningFetch
         <p className={cn(textVariants({ variant: "heading" }), "mb-1 text-[length:var(--font-size-sm)]")}>
           {labels}を取得できていません
         </p>
-        <p className={cn(textVariants({ variant: "hint" }), "leading-[1.4]")}>出ていてもバッジは表示されません。</p>
-        <ul className="mt-1 mb-0 pl-4">
+        <ul className="mt-1 mb-0 flex flex-col gap-1 pl-4">
           {failures.map((failure) => (
             <li key={failure.id} className={cn(textVariants({ variant: "hint" }), "leading-[1.4]")}>
-              {failure.label}: {failure.detail}
+              <span className="block">{failure.detail ? `${failure.label}: ${failure.detail}` : failure.label}</span>
+              <span className="block">{failure.effect}</span>
+              {failure.onRetry && (
+                <Button variant="warning" size="xs" className="mt-0.5" onClick={failure.onRetry}>
+                  再試行
+                </Button>
+              )}
             </li>
           ))}
         </ul>

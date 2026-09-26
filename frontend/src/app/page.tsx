@@ -41,12 +41,12 @@ import {
 import AxisContributionBar from "@/components/AxisContributionBar/AxisContributionBar";
 import WeatherPanel from "@/features/conditions/WeatherPanel/WeatherPanel";
 import TodayOutlook from "@/features/conditions/TodayOutlook/TodayOutlook";
-import WarningBadgeList from "@/features/conditions/WarningBadge/WarningBadge";
+import WarningBadgeList, { type WarningFetchFailure } from "@/features/conditions/WarningBadge/WarningBadge";
 import HeaderMenu from "@/components/HeaderMenu/HeaderMenu";
 import RideConditionBar from "@/features/conditions/RideConditionBar/RideConditionBar";
 import TravelBearingControl from "@/features/conditions/TravelBearingControl/TravelBearingControl";
 import { useWeatherConditions } from "@/features/conditions/useWeatherConditions";
-import { useAxisCatalog } from "@/hooks/useAxisCatalog";
+import { retryAxisCatalogFetch, useAxisCatalog } from "@/hooks/useAxisCatalog";
 import { CLIENT_TUNING_IDS, clientTuningValue } from "@/lib/axisCatalog";
 import { syncHardFilterKeys } from "@/features/route/hardFilterSync";
 import {
@@ -297,6 +297,7 @@ export default function Home() {
     routeMode,
     waypointCount: waypoints.length,
     destinationSet: destination !== null,
+    originKnown: locationSource !== "default",
     onGenerate: handleGenerate,
   });
   // 想定速度（km/h）。区間の通過予定時刻・到達予想時刻の基準になるため、どのモードでも送る。
@@ -321,6 +322,8 @@ export default function Home() {
     key: string;
     /** 目的地が道路網から外れていて、backendが最寄りの行ける地点へ補正したか。 */
     destinationCorrected: boolean;
+    /** 利用者が重みを上書きしていたのに、軸カタログが無く送れなかったか（backendの既定の配分で探した）。 */
+    weightsNotApplied: boolean;
     /** 送った入力そのもの。乗り換えで合成した経路も同じ条件で評価する（同じ並びへ入るため、条件が違うと
      * 比べられない値で順位が決まる）。返ってきた条件（`conditions`）でなく入力を持つのは、そちらが
      * 塗る軸（`lens_axis_id`）を含まないため。 */
@@ -569,6 +572,24 @@ export default function Home() {
     warningBadgeItems,
     warningFetchFailures,
   } = useWeatherConditions(location, locationReady);
+  // 取れていない前提のデータは、警報の取得失敗と同じ常設ヘッダーの印で知らせる。軸一覧が無いと、地図は道路・スポット・
+  // 事故を描けず、生成は重みを送れず、合成は区間を割れない——どれも画面の中では「無い」ように見えるだけになる。
+  const headerFetchFailures = useMemo<WarningFetchFailure[]>(
+    () =>
+      axisCatalog.failed
+        ? [
+            ...warningFetchFailures,
+            {
+              id: "axis-catalog",
+              label: "軸一覧",
+              effect:
+                "地図の道路・スポット・事故を表示できません。ルートは重み配分を変えていても反映できず、既定の配分で作ります。ルートの合成も使えません。",
+              onRetry: retryAxisCatalogFetch,
+            },
+          ]
+        : warningFetchFailures,
+    [axisCatalog.failed, warningFetchFailures],
+  );
 
   // いまのフォームから生成の入力を組み立てる。生成と「条件が変わったか」の判定が同じ関数を通るので、送る値を
   // 足したときに比較の側へ足し忘れない。`destinationOverride`はbackendが補正した目的地。
@@ -717,6 +738,7 @@ export default function Home() {
       setGeneratedConditions({
         key: generationConditionsKey(generatedInput),
         destinationCorrected: Boolean(conditions.corrected_destination),
+        weightsNotApplied: weightOverrideEnabled && generatedInput.routePreference === null,
         input: generatedInput,
         routePreference: conditions.route_preference,
       });
@@ -950,6 +972,11 @@ export default function Home() {
             生成条件が変更されています
           </p>
         )}
+        {generatedConditions?.weightsNotApplied && (
+          <p className="m-0 text-[length:var(--font-size-sm)] text-[var(--color-warning-strong)]">
+            重み配分を反映できず、既定の配分で作りました。
+          </p>
+        )}
         {generatedConditions?.destinationCorrected && (
           <p className="m-0 text-[length:var(--font-size-sm)] text-[var(--color-warning-strong)]">
             指定した地点は自転車で行けない場所だったため、近くのアクセス可能な地点へ補正しました。
@@ -1128,8 +1155,14 @@ export default function Home() {
 
   // 編集できるのは目的地のルートだけ（周回は乗り換えると起点へ戻れる保証が無い）。表示中の候補を作った生成で見る
   // （いまのピンで見ると、周回へ切り替えた後も編集が出て、評価の要求が目的地無しで弾かれる）。
+  // 区間を割る下限を引けない間（軸カタログが取れていない）も出さない。取れていないことはヘッダーの印が知らせる。
   function canSpliceDisplayedRoute(): boolean {
-    return Boolean(generatedConditions?.input.destination) && routes.length > 1 && selectedCandidate !== null;
+    return (
+      Boolean(generatedConditions?.input.destination) &&
+      routes.length > 1 &&
+      selectedCandidate !== null &&
+      minStretchKm !== undefined
+    );
   }
 
   // 「ルート結果」が編集モードのときの中身。元は1本に固定で、相手を選び直しても変わらない。
@@ -1177,7 +1210,7 @@ export default function Home() {
           <TodayOutlook weather={weather} loading={weatherLoading} error={weatherError} />
         </div>
         <div className="ml-auto flex flex-shrink-0 items-center gap-2">
-          <WarningBadgeList items={warningBadgeItems} failures={warningFetchFailures} />
+          <WarningBadgeList items={warningBadgeItems} failures={headerFetchFailures} />
           <div className="right-0 flex items-center sticky z-1 bg-[var(--color-surface)]">
             <HeaderMenu
               debugEnabled={debugEnabled}

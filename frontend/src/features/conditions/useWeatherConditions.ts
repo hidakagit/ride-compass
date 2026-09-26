@@ -118,7 +118,9 @@ export function useWeatherConditions(location: Coordinates, locationReady: boole
         { id: "jma", label: "警報・注意報", error: warnings.error },
         { id: "wbgt", label: "暑さ指数", error: wbgt.error },
         { id: "flood", label: "河川氾濫予報", error: flood.error },
-      ].flatMap(({ id, label, error }) => (error ? [{ id, label, detail: error }] : [])),
+      ].flatMap(({ id, label, error }) =>
+        error ? [{ id, label, detail: error, effect: "出ていてもバッジは表示されません。" }] : [],
+      ),
     [warnings.error, wbgt.error, flood.error],
   );
 

@@ -204,7 +204,7 @@ describe("useWeatherConditions 警報のバッジ", () => {
     act(() => vi.advanceTimersByTime(10 * 60 * 1000));
     await settle();
     expect(result.current.warningBadgeItems).toEqual([]);
-    expect(result.current.warningFetchFailures).toEqual([
+    expect(result.current.warningFetchFailures).toMatchObject([
       { id: "jma", label: "警報・注意報", detail: "警報を取得できませんでした" },
       { id: "flood", label: "河川氾濫予報", detail: "氾濫予報を取得できませんでした" },
     ]);
