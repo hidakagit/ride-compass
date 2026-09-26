@@ -6,13 +6,14 @@
 （`<out_dir>/pending/<doc_id>.json`が1件。ファイル名が件のdoc_id）。置き場と1件の形の正本は
 `docs/conventions/asking-user.md`「仕掛中のダッシュボード」節。核はこのモジュールをimportしない。
 
-    python scripts/orchestrate.py pending-backup --pending <dir>   # 全件を日付のファイルへ書き出す（直近14日を残す。移し忘れを知らせる）
+    python scripts/orchestrate.py pending-backup --pending <dir>   # 全件を日付のファイルへ書き出す（直近14日を残す。移し忘れと、確認中・取り込み待ちの件を持ち主ごとに知らせる）
     python scripts/orchestrate.py pending-inbox [--pending <dir>]  # 確認中・取り込み待ちの件を、タスクごとの今の持ち主と並べる（既定: 最新のバックアップ）
     python scripts/orchestrate.py pending-waiting [--pending <dir>]  # タブごとの件数と、回答待ちの件（下の「タブの定義」）
 
-`check`は最新のバックアップから、確認中と取り込み待ちの件を持ち主ごとに要対応として出し、どの時刻の書き出しから
-読んだかを添える。書き出しが確認間隔の2倍より古ければ、その件がダッシュボードから既に消えているかもしれないと
-言う（`inbox_problems`）。書き出しより後に付いた答えは見えないので、司令塔は定期確認のたびに書き出し直す。
+`check`は最新のバックアップを読み、書き出しが無い・確認間隔の2倍より古いときは「書き出し直す」とだけ、そうでなく
+確認中・取り込み待ちの件があればその件数と書き出しの時刻を要対応として出す（`inbox_problems`）。件そのものは並べない
+——書き出しの後に取り込まれてダッシュボードから消えた件を、要対応として出し続けないため。件は、書き出し直した
+`pending-backup`が今の持ち主ごとに出す。書き出しより後に付いた答えは見えないので、司令塔は定期確認のたびに書き出し直す。
 
 ## タブの定義
 
@@ -47,18 +48,17 @@ import re
 from pathlib import Path
 
 from orchestration.core import (
-    ACTIVE_STATES,
     PRIORITIES,
     TASK_ID_RE,
     TASKS_DIR,
     Context,
-    audit_pending,
     cat_files,
     hm,
     in_cloud,
     load_board,
     now,
     parse_time,
+    task_holders,
     task_state,
 )
 
@@ -284,34 +284,38 @@ def by_owner(board: dict, items: dict[str, dict], stage: str) -> dict[str, list[
 AFTER = {CHECK: CHECK_HOW, INTAKE: "渡したら taken_at・taken_note を書く"}
 
 
+def owner_lines(board: dict, items: dict[str, dict]) -> list[str]:
+    """確認中・取り込み待ちの件を、タブと今の持ち主ごとに1行ずつ。"""
+    return [f"{stage}{len(lines)}件 → {owner}: " + "、".join(lines) + f"（{AFTER[stage]}）"
+            for stage in (CHECK, INTAKE) for owner, lines in by_owner(board, items, stage).items()]
+
+
 def inbox_problems(ctx: Context, board: dict, interval_min: int) -> list[str]:
-    """`check`の要対応: 書き出しが無い・古い、確認中と取り込み待ちの件（持ち主ごと。どの書き出しから読んだかを添える）。"""
+    """`check`の要対応: 書き出しが無い・古い、または書き出しに確認中・取り込み待ちの件がある。件は並べない——
+    書き出しの後に取り込まれてダッシュボードから消えた件を、要対応として出さないため。今の件は、書き出し直した
+    `pending-backup`が持ち主ごとに出す。"""
     latest = latest_dump(ctx)
-    how = "ArtifactDataのlistにout_dirを付けて書き出し、pending-backup --pending <dir>"
+    how = ("ArtifactDataのlistにout_dirを付けて書き出し、pending-backup --pending <dir>"
+           "（今の確認中・取り込み待ちを持ち主ごとに出す）")
     if latest is None:
         return [f"要対応: ダッシュボードの書き出しが無い（答えの出た問いを拾えない。{how}）"]
     _, items, saved = latest
-    out = []
     age = None if saved is None else int((now() - saved).total_seconds() // 60)
-    stale = age is None or age >= 2 * interval_min
     when = "いつか不明" if saved is None else f"{hm(saved.astimezone())}（{age}分前）"
-    if stale:
-        out.append(f"要対応: ダッシュボードの書き出しが{when}"
-                   f"（それより後の答えは見えず、下の件はダッシュボードから既に消えているかもしれない。{how}）")
-    source = f"{when}の書き出し" + ("。古いので書き出し直してから扱う" if stale else "")
-    for stage in (CHECK, INTAKE):
-        for owner, lines in by_owner(board, items, stage).items():
-            out.append(f"要対応: {stage}{len(lines)}件 → {owner}: " + "、".join(lines)
-                       + f"（{AFTER[stage]}。{source}）")
-    return out
+    if age is None or age >= 2 * interval_min:
+        return [f"要対応: ダッシュボードの書き出しが{when}で古い（それより後の答えは見えない。{how}）"]
+    counts = [f"{stage}{n}件" for stage in (CHECK, INTAKE) if (n := sum(stage_of(i) == stage for i in items.values()))]
+    if not counts:
+        return []
+    return [f"要対応: {when}の書き出しに{'・'.join(counts)}（書き出しの後に取り込まれて消えた件もありうるので、"
+            f"ここでは並べない。{how}）"]
 
 
 def owner_of(board: dict, task: str) -> str:
     """件の今の持ち主（モジュールの冒頭「件の持ち主」）。"""
     if not task:
         return "司令塔（起票案）"
-    holders = [a for a in board.get("agents") or []
-               if a.get("current_task") == task and (a.get("state") in ACTIVE_STATES or audit_pending(a))]
+    holders = task_holders(board, task)
     if holders:
         a = holders[0]
         if in_cloud(a):
@@ -378,9 +382,8 @@ def cmd_backup(ctx: Context, args: argparse.Namespace) -> int:
             removed.append(old.name)
     print(f"ダッシュボードの{len(items)}件を{path}へ書き出した"
           + (f"（{BACKUP_KEEP_DAYS}日より前の{'・'.join(removed)}を消した）" if removed else ""))
-    alerts = [a for a in [backup_alert(ctx)] if a] + left_behind(ctx, items) + untaken(items)
-    alerts += [f"{doc_id}: 答え・コメントが付いて取り込まれていない（pending-inbox で持ち主を出して回す）"
-               for doc_id, item in sorted(items.items()) if staged(item)]
+    alerts = ([a for a in [backup_alert(ctx)] if a] + left_behind(ctx, items) + untaken(items)
+              + owner_lines(load_board(ctx), items))
     for alert in alerts:
         print(f"! {alert}")
     return 1 if alerts else 0

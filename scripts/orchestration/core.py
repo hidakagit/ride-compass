@@ -15,7 +15,7 @@
     python scripts/orchestrate.py board claim                 # このセッションを司令塔として記録する
     python scripts/orchestrate.py audit <名前> <sha>         # 監査のうち機械で見られる項目＋CIの結論
     python scripts/orchestrate.py board set <名前> k=v ...    # エージェントの行を更新
-    python scripts/orchestrate.py board add <名前> k=v ...    # エージェントの行を追加
+    python scripts/orchestrate.py board add <名前> k=v ...    # エージェントの行を追加（同じ名前の止まった行は置き換える）
     python scripts/orchestrate.py board run k=v ...           # 回の値（limits.concurrent等）を更新
     python scripts/orchestrate.py board run start <名前>      # 新しい回を始める（目的・母集団を空にする）
     python scripts/orchestrate.py board run goal <文>         # 回の目的
@@ -109,6 +109,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -692,6 +693,27 @@ def in_cloud(agent: dict) -> bool:
 def audit_pending(agent: dict) -> bool:
     """監査待ちか。報告を受けて止めた（`停止済み`）が、現在のタスクがまだ監査で通されていない。"""
     return agent.get("state") == "停止済み" and bool(agent.get("current_task"))
+
+
+def task_holders(board: dict, task: str) -> list[dict]:
+    """そのタスクを現在のタスクに持つ担当（稼働中か監査待ち）。"""
+    return [a for a in board.get("agents") or []
+            if a.get("current_task") == task and (a.get("state") in ACTIVE_STATES or audit_pending(a))]
+
+
+def holder_of(board: dict, task: str, besides: dict | None = None) -> str | None:
+    """タスクが仕掛中なら、持っているもの（`besides`以外の担当か、手動のセッション）。"""
+    agent = next((a for a in task_holders(board, task) if a is not besides), None)
+    if agent is not None:
+        return f"担当 {agent.get('name')}（{'監査待ち' if audit_pending(agent) else agent.get('state')}）"
+    return "手動中" if task in [str(t) for t in board.get("manual") or []] else None
+
+
+def diff_lines(repo: Path, base: str, sha: str, path: str) -> tuple[list[str], list[str]]:
+    """`base`から`sha`までの`path`の差分の（足した行, 消した行）。"""
+    out = git_out(repo, "diff", "--no-renames", "-U0", base, sha, "--", path) or ""
+    lines = [line for line in out.splitlines() if not line.startswith(("+++", "---"))]
+    return [line[1:] for line in lines if line.startswith("+")], [line[1:] for line in lines if line.startswith("-")]
 
 
 def run_of(board: dict) -> dict:
@@ -1585,19 +1607,21 @@ def cmd_audit(ctx: Context, args: argparse.Namespace) -> int:
         elif status == "A" and E2E_SPEC_RE.match(path):
             flag(f"新しいe2eのspec（CIが拾う。使い捨てでないか）: {path}")
     touched_tasks = [m.group(1) for p in files if (m := TASK_DOC_RE.match(p))]
-    for task in touched_tasks:
-        if agent and task not in queue:
-            flag(f"担当のタスク外の記録を触っている: {task}（担当が書くのは自分のタスクの記録だけ。"
-                 "起票は承認のあと司令塔が行う）")
 
     # 2. 記録の整合
     print("\n2. 記録の整合（報告のコミット時点）")
+    if agent:
+        statuses = {p: s for s, p in changes}
+        for task in touched_tasks:
+            if task not in queue:
+                other_record(repo, board, agent, base, sha, task, statuses.get(f"{TASKS_DIR}/{task}.md"), flag)
     specs = ([f"{rev}:{TASKS_DIR}/{t}.md" for t in touched_tasks for rev in (sha, base)]
              + [f"{sha}:{PLAN_DOC}"])
     blobs = cat_files(repo, specs)
     listed = ledger_ids(blobs[f"{sha}:{PLAN_DOC}"])
-    if not touched_tasks:
-        flag("タスク記録（docs/records/tasks/Txxx.md）を1件も触っていない")
+    if not [t for t in touched_tasks if not queue or t in queue]:
+        flag(f"担当のタスク{'・'.join(queue)}の記録を触っていない" if queue
+             else "タスク記録（docs/records/tasks/Txxx.md）を1件も触っていない")
     for task in touched_tasks:
         st = task_state(blobs[f"{sha}:{TASKS_DIR}/{task}.md"])
         row = task in listed
@@ -1662,6 +1686,28 @@ def cmd_audit(ctx: Context, args: argparse.Namespace) -> int:
     print(f"通すなら: python scripts/orchestrate.py board set {args.name} reported_sha={sha[:12]} "
           f"audit_base={base[:12]} audit_done=now audit_result=通す [urgent=true]")
     return 1 if flags else 0
+
+
+def other_record(repo: Path, board: dict, agent: dict, base: str, sha: str, task: str, status: str | None,
+                 flag: Callable[[str], None]) -> None:
+    """担当が触った他のタスクの記録。書いてよいのは、撤去・改名で前提が変わった未完了タスクへの追記だけ
+    （CLAUDE.md「検査器にできず…」の3.）。行を消した・直した・作った、仕掛中のタスクへ書いた、を指摘し、
+    追記は足した行を並べて司令塔に見せる（前提の変化の追記かは中身を読まないと決まらない）。"""
+    path = f"{TASKS_DIR}/{task}.md"
+    added, deleted = diff_lines(repo, base, sha, path)
+    holder = holder_of(board, task, besides=agent)
+    if status != "M" or deleted:
+        flag(f"担当のタスク外の記録を{'作っている' if status == 'A' else '書き換えている'}: {task}"
+             "（他のタスクの記録へは、撤去・改名で前提が変わったことの追記だけ。起票は承認のあと司令塔が行う）")
+    elif holder:
+        flag(f"仕掛中のタスクの記録へ追記している: {task}（{holder}）。仕掛中のタスクへは記録に書かず、"
+             f"ダッシュボードに kind 決定・task {task} で置く（取り込みで衝突する）")
+    else:
+        print(f"  ? 他のタスクの記録への追記: {task}（+{len(added)}行。撤去・改名で前提が変わったことの追記か確かめる）")
+        for line in added[:3]:
+            print(f"      + {line[:100]}")
+        if len(added) > 3:
+            print(f"      …ほか{len(added) - 3}行")
 
 
 def ci_verdicts(sha: str) -> tuple[list[tuple[str, bool]], list[dict]]:
@@ -1815,16 +1861,35 @@ def apply_pairs(target: dict, pairs: list[str], at: dt.datetime, allowed: tuple[
             node[leaf] = value
 
 
+def renew_agent(ctx: Context, agent: dict) -> None:
+    """止まった担当の行（前の振り出し）を、同じ名前の新しい振り出しの行にする。監査の記録は、監査で通したものが
+    masterへ入ったかを導くのに使うので残す。まだ動いている・監査待ち・スロットの印が残っている行は置き換えない
+    （置き換えると、その担当の作業ツリーと監査を表から追えなくなる）。"""
+    name, state = agent.get("name"), agent.get("state")
+    if state in ACTIVE_STATES or audit_pending(agent):
+        raise SystemExit(f"既にある: {name}（{'監査待ち' if audit_pending(agent) else state}）。同じ担当の再開なら "
+                         "board set、別の振り出しなら別の名前で board add する")
+    tree = worktree_of(agent, list_worktrees(ctx))
+    if tree is not None:
+        raise SystemExit(f"既にある: {name}（{state}。前の振り出しの作業ツリー {os.path.basename(tree.path)} の印が"
+                         "残っている）。中身を確かめて slot release してから board add する")
+    log = agent.get("audit_log")
+    agent.clear()
+    agent.update({"name": name, "state": "稼働", **({"audit_log": log} if log else {})})
+    print(f"注: {name}は前の振り出し（{state}）の行を置き換えた（監査の記録は残した）")
+
+
 def cmd_board(ctx: Context, args: argparse.Namespace) -> int:
     board = load_board(ctx)
     at = now()
     if args.board_cmd in ("set", "add"):
         agent = find_agent(board, args.name)
         if args.board_cmd == "add":
-            if agent is not None:
-                raise SystemExit(f"既にある: {args.name}（board set で更新する）")
-            agent = {"name": args.name, "state": "稼働"}
-            board["agents"].append(agent)
+            if agent is None:
+                agent = {"name": args.name, "state": "稼働"}
+                board["agents"].append(agent)
+            else:
+                renew_agent(ctx, agent)
         elif agent is None:
             raise SystemExit(f"状態の表に無い: {args.name}（board add で追加する）")
         keys = {p.split("+=", 1)[0].split("=", 1)[0] for p in args.pairs}
