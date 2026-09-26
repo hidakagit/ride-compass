@@ -105,7 +105,7 @@ class WindWayService:
                 wind_series=series,
                 start=target,
                 passage_hours=passage_hours,
-                wind_points=None if series.lattice is None else series.lattice.points_of(latitudes, longitudes),
+                wind_points=series.lattice.points_of(latitudes, longitudes),
             )
             values = evaluate_dynamic_material_arrays(context)[self.material_id]
             fields["computed"] = len(keys)

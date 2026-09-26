@@ -41,7 +41,7 @@ from app.domain.routing import (
     TurnExpandedStructure,
     TurnExpandedTree,
 )
-from app.domain.wind import WindForecastSeries
+from app.domain.wind import WindForecastSeries, WindLattice
 from app.services import road_graph_engine as engine
 
 
@@ -82,12 +82,15 @@ def turn_tree(state_count, *, node_cost, node_length_m, node_seconds, node_best_
 
 
 def wind_series(hours=24, speed_ms=3.0, direction_deg=5.0):
-    """時別の風の予報（2026-09-22 0時から）。`speed_ms`は全時刻で同じ値か、時刻ごとの並び。"""
+    """時別の風の予報（2026-09-22 0時から）。`speed_ms`は全時刻で同じ値か、時刻ごとの並び。
+
+    格子点は1つだけで、どの区間もその格子点の風を引く（格子の外の地点は端の格子点へ寄る）。"""
     start = datetime(2026, 9, 22, 0, 0)
     return WindForecastSeries(
         times=[start + timedelta(hours=h) for h in range(hours)],
-        speed_ms=np.broadcast_to(np.asarray(speed_ms, dtype=float), (hours,)).copy(),
-        direction_deg=np.full(hours, direction_deg),
+        speed_ms=np.broadcast_to(np.asarray(speed_ms, dtype=float), (1, hours)).copy(),
+        direction_deg=np.full((1, hours), direction_deg),
+        lattice=WindLattice(south=0.0, west=0.0, lat_step=1.0, lon_step=1.0, rows=1, cols=1),
     )
 
 

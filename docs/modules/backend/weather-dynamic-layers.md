@@ -300,7 +300,8 @@ URLも変わるため、ブラウザキャッシュ（`api/cache_policy.py`）�
   提供期間外（月単位の粗い判定、4〜10月）は取得自体を行わない事前フィルタを持つ（無駄な
   API呼び出しを避けるためだけの判定で、正確性の最終防線ではない）。複数の発表回
   （`reference_time`）が検索窓に混在しうるため、まず最新の発表回に絞ってから現在時刻に
-  最も近い`forecast_time`を選ぶ2段階選択を行う。
+  最も近い`forecast_time`を選ぶ2段階選択を行う。現在時刻は呼び出し側（`/api/weather/wbgt`）が
+  JSTで渡し、サービスは時計を読まない。
 
 - **`FloodService`**: 河川洪水予報。`WarningService`と同じ`jma_area.resolve_area`を
   再利用して地点解決する。JMA洪水予報はstatus文字列ではなく`item.code`自体が発表/継続/

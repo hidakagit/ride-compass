@@ -137,20 +137,18 @@ class RouteCandidate(StrictModel):
 
 # エンジンが返すsegmentsはEdge単位（交差点間）でAPIペイロード・フロント描画コストが
 # 嵩むため、この距離単位へ集約してから返す。
-_SEGMENT_BIN_DISTANCE_KM = 0.5
+SEGMENT_BIN_DISTANCE_KM = 0.5
 
 
-def aggregate_segments_into_bins(
-    segments: list[RouteSegmentDetail], bin_distance_km: float = _SEGMENT_BIN_DISTANCE_KM
-) -> list[RouteSegmentDetail]:
-    """連続するEdge単位の`RouteSegmentDetail`を、累積距離`bin_distance_km`単位で
+def aggregate_segments_into_bins(segments: list[RouteSegmentDetail]) -> list[RouteSegmentDetail]:
+    """連続するEdge単位の`RouteSegmentDetail`を、累積距離`SEGMENT_BIN_DISTANCE_KM`単位で
     グルーピングし、1ビン1件の`RouteSegmentDetail`へ集約する。
 
     値の性質ごとに畳み方が違う: difficulty系と材料値は距離加重平均（値がNoneの区間は
     除外し、残りの距離で再正規化）、位置はビンの始点・終点、距離は合計、geometryは
     隣接区間の境界点を重複させずに連結する。
 
-    最後のビンは`bin_distance_km`未満でも単独で残す（切り捨てると経路全体の距離が
+    最後のビンは`SEGMENT_BIN_DISTANCE_KM`未満でも単独で残す（切り捨てると経路全体の距離が
     合わなくなる）。
     """
     if not segments:
@@ -162,7 +160,7 @@ def aggregate_segments_into_bins(
     for segment in segments:
         current_bin.append(segment)
         current_bin_distance += segment.distance_km
-        if current_bin_distance >= bin_distance_km:
+        if current_bin_distance >= SEGMENT_BIN_DISTANCE_KM:
             bins.append(current_bin)
             current_bin = []
             current_bin_distance = 0.0

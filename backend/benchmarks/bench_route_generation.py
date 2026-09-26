@@ -29,11 +29,14 @@ import logging
 import os
 import re
 import time
+from datetime import datetime
 
 from app.batch._common import asyncpg_dsn
 from app.config import settings
 from app.domain.route import Coordinates
 from app.domain.route_preference import RoutePreference
+from app.domain.time_zone import JST
+from app.services.route_generator import DEFAULT_MAX_ROUTES
 from benchmarks._resources import sample_resources
 from benchmarks._revision import announce_revision
 from benchmarks._route_generation_service import refresh_axis_registry, route_generator_session
@@ -141,7 +144,8 @@ async def main() -> int:
             async with sample_resources(dsn) as trace:
                 started = time.perf_counter()
                 candidates = await generator.generate_loops(
-                    origin, distance_km=distance_km, distance_tolerance_km=5.0)
+                    origin, distance_km=distance_km, distance_tolerance_km=5.0,
+                    max_routes=DEFAULT_MAX_ROUTES, start_time=datetime.now(JST))
                 elapsed = time.perf_counter() - started
             print(f"\n  [{kind}] {elapsed:7.1f}秒 / 候補 {len(candidates)}件")
             print(f"    {trace.summary()}")

@@ -13,7 +13,7 @@
 
 import logging
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime
 from types import SimpleNamespace
 
 import pytest
@@ -21,16 +21,17 @@ import pytest
 from app.domain.errors import SearchAreaTooLargeError
 from app.domain.loop_routing import LoopTurnaround, TracedLoop
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
+from app.domain.time_zone import JST
 from app.services import route_generator
 from app.services.road_graph_engine import RoadGraphEngine
-from app.services.route_generator import RouteGenerator
+from app.services.route_generator import DEFAULT_MAX_ROUTES, RouteGenerator
 from tests.bound_fake import bound
 
 ORIGIN = Coordinates(latitude=35.6789, longitude=139.7712)
 ORIGIN_LABEL = "(35.68,139.77)"  # 常時出るログ・利用者向けの理由は座標を小数2桁で出す
 WAYPOINT = Coordinates(latitude=35.69, longitude=139.78)
 DESTINATION = Coordinates(latitude=35.70, longitude=139.80)
-START = datetime(2026, 9, 24, 8, 0, tzinfo=route_generator.JST)
+START = datetime(2026, 9, 24, 8, 0, tzinfo=JST)
 AREA_PHRASE = "候補を生成できませんでした。対応エリア外の可能性があります。"
 
 
@@ -71,6 +72,10 @@ def _loop(key: str, distance_km: float = 10.0, bearing: int | None = 0) -> Trace
     return TracedLoop(bearing=bearing, distance_km=distance_km, data=[key], leg_of_edge=[0])
 
 
+def _context(destination_correction=None, no_candidates_side=None) -> SimpleNamespace:
+    return SimpleNamespace(destination_correction=destination_correction, no_candidates_side=no_candidates_side)
+
+
 def _turnaround(outcome: TracedLoop | Exception) -> LoopTurnaround:
     """復路探索の結果（または失敗）を`data`に抱えた折返し点。`data`はエンジンだけが読む。"""
     return LoopTurnaround(bearing=0, outbound_difficulty=None, data=outcome)
@@ -101,7 +106,7 @@ class FakeEngine:
         build_error=None,
         drop_evaluated=False,
     ):
-        self.context = SimpleNamespace() if context is _UNSET else context
+        self.context = _context() if context is _UNSET else context
         self.prepare_error = prepare_error
         self.turnarounds = list(turnarounds)
         self.similar = set(similar)
@@ -115,7 +120,7 @@ class FakeEngine:
         self.calls: dict[str, list[dict]] = defaultdict(list)
 
     @_engine_method
-    async def prepare(self, origin, radius_km, now=None, waypoints=None):
+    async def prepare(self, origin, radius_km, now, waypoints=None):
         self.calls["prepare"].append({"origin": origin, "radius_km": radius_km, "now": now, "waypoints": waypoints})
         if self.prepare_error is not None:
             raise self.prepare_error
@@ -175,9 +180,11 @@ class FakeEngine:
 
 
 ENTRANCES = {
-    "loops": lambda gen, **kw: gen.generate_loops(ORIGIN, 10.0, 1.0, **kw),
-    "via_waypoints": lambda gen, **kw: gen.generate_via_waypoints(ORIGIN, [WAYPOINT], 10.0, **kw),
-    "destination": lambda gen, **kw: gen.generate_via_waypoints(ORIGIN, [], 10.0, destination=DESTINATION, **kw),
+    "loops": lambda gen, **kw: gen.generate_loops(ORIGIN, 10.0, 1.0, max_routes=DEFAULT_MAX_ROUTES, **kw),
+    "via_waypoints": lambda gen, **kw: gen.generate_via_waypoints(
+        ORIGIN, [WAYPOINT], 10.0, destination=None, max_routes=1, **kw),
+    "destination": lambda gen, **kw: gen.generate_via_waypoints(
+        ORIGIN, [], 10.0, destination=DESTINATION, max_routes=1, **kw),
     "spliced": lambda gen, **kw: gen.generate_spliced_route(ORIGIN, DESTINATION, 10.0, ["e1"], **kw),
 }
 
@@ -222,18 +229,6 @@ async def test_too_large_search_area_gives_no_candidates_and_says_why(entrance, 
     assert "探索範囲の道路が多すぎる" in generator.last_no_candidates_reason
     assert any("edges=1300000" in r.getMessage() for r in _warnings(caplog))
     assert set(engine.calls) == {"prepare"}
-
-
-@pytest.mark.parametrize("entrance", sorted(ENTRANCES))
-async def test_start_time_defaults_to_now_in_japan_time(entrance):
-    engine = FakeEngine(context=None)
-    before = datetime.now(route_generator.JST)
-
-    await ENTRANCES[entrance](RouteGenerator(engine))
-
-    (prepare,) = engine.calls["prepare"]
-    assert prepare["now"].utcoffset() == timedelta(hours=9)
-    assert before <= prepare["now"] <= datetime.now(route_generator.JST)
 
 
 @pytest.mark.parametrize("entrance", sorted(ENTRANCES))
@@ -323,7 +318,7 @@ async def test_evaluation_that_does_not_answer_every_route_is_an_error():
     engine = FakeEngine(turnarounds=[_turnaround(_loop("a"))], candidates={"a": _candidate("a")}, drop_evaluated=True)
 
     with pytest.raises(route_generator.RoutingError):
-        await RouteGenerator(engine).generate_loops(ORIGIN, 10.0, 1.0, start_time=START)
+        await RouteGenerator(engine).generate_loops(ORIGIN, 10.0, 1.0, start_time=START, max_routes=DEFAULT_MAX_ROUTES)
 
 
 # ---- 周回 ----
@@ -353,7 +348,7 @@ async def test_loops_without_turnarounds_say_how_far_was_searched(caplog):
     generator = RouteGenerator(engine)
 
     with caplog.at_level(logging.WARNING, logger=route_generator.logger.name):
-        assert await generator.generate_loops(ORIGIN, 10.0, 1.0, start_time=START) == []
+        assert await generator.generate_loops(ORIGIN, 10.0, 1.0, start_time=START, max_routes=DEFAULT_MAX_ROUTES) == []
 
     assert generator.last_no_candidates_reason == (
         "起点から片道5.0km前後で到達できる折返し地点が見つかりませんでした。"
@@ -383,7 +378,7 @@ async def test_loops_skip_turnarounds_whose_return_trip_fails(caplog):
     )
 
     with caplog.at_level(logging.DEBUG, logger=route_generator.logger.name):
-        result = await RouteGenerator(engine).generate_loops(ORIGIN, 10.0, 1.0, start_time=START)
+        result = await RouteGenerator(engine).generate_loops(ORIGIN, 10.0, 1.0, start_time=START, max_routes=DEFAULT_MAX_ROUTES)
 
     assert [c.direction_label for c in result] == ["方位-a"]
     # 想定外の例外だけはエンジンの不具合として、スタックトレース付きのERRORで残す
@@ -400,7 +395,7 @@ async def test_loops_keep_only_routes_within_the_distance_tolerance():
         candidates={k: _candidate(k) for k in lengths},
     )
 
-    result = await RouteGenerator(engine).generate_loops(ORIGIN, 10.0, 1.0, start_time=START)
+    result = await RouteGenerator(engine).generate_loops(ORIGIN, 10.0, 1.0, start_time=START, max_routes=DEFAULT_MAX_ROUTES)
 
     # 目標±許容のちょうど端は含む
     assert sorted(c.direction_label for c in result) == ["方位-exact_lower", "方位-exact_upper"]
@@ -414,7 +409,7 @@ async def test_loops_drop_a_route_too_similar_to_one_already_accepted():
         candidates={k: _candidate(k) for k in keys},
     )
 
-    result = await RouteGenerator(engine).generate_loops(ORIGIN, 10.0, 1.0, start_time=START)
+    result = await RouteGenerator(engine).generate_loops(ORIGIN, 10.0, 1.0, start_time=START, max_routes=DEFAULT_MAX_ROUTES)
 
     assert sorted(c.direction_label for c in result) == ["方位-a", "方位-c"]
     # 1本目は比べる相手が無いので問わない。以降は採用済みの候補とだけ比べる
@@ -462,7 +457,7 @@ async def test_loops_that_all_fall_out_say_why(outcomes, reason, caplog):
     generator = RouteGenerator(engine)
 
     with caplog.at_level(logging.WARNING, logger=route_generator.logger.name):
-        assert await generator.generate_loops(ORIGIN, 10.0, 1.0, start_time=START) == []
+        assert await generator.generate_loops(ORIGIN, 10.0, 1.0, start_time=START, max_routes=DEFAULT_MAX_ROUTES) == []
 
     assert generator.last_no_candidates_reason == reason + "距離や除外する道路の設定を変えてお試しください。"
     assert _warnings(caplog)
@@ -480,7 +475,7 @@ async def test_waypoints_without_destination_return_to_the_origin():
     second = Coordinates(latitude=35.695, longitude=139.785)
 
     result = await RouteGenerator(engine).generate_via_waypoints(
-        ORIGIN, [WAYPOINT, second], 10.0, max_routes=5, start_time=START
+        ORIGIN, [WAYPOINT, second], 10.0, destination=None, max_routes=5, start_time=START
     )
 
     assert engine.calls["trace_loop"] == [{"waypoints": [ORIGIN, WAYPOINT, second, ORIGIN], "bearing": None}]
@@ -508,7 +503,7 @@ async def test_waypoints_that_cannot_be_connected_give_no_candidates_and_say_why
     generator = RouteGenerator(engine)
 
     with caplog.at_level(logging.WARNING, logger=route_generator.logger.name):
-        assert await generator.generate_via_waypoints(ORIGIN, [WAYPOINT], 10.0, start_time=START) == []
+        assert await generator.generate_via_waypoints(ORIGIN, [WAYPOINT], 10.0, start_time=START, destination=None, max_routes=1) == []
 
     assert generator.last_no_candidates_reason == (
         "指定した経由地・目的地を通る経路が見つかりませんでした。地点や除外する道路の設定を変えてお試しください。"
@@ -649,11 +644,11 @@ async def test_destination_without_a_fastest_route_marks_none_and_puts_unknown_d
     ("context", "expected"),
     [
         (
-            SimpleNamespace(destination_correction=Coordinates(latitude=35.71, longitude=139.81)),
+            _context(destination_correction=Coordinates(latitude=35.71, longitude=139.81)),
             Coordinates(latitude=35.71, longitude=139.81),
         ),
-        # 補正を持たないエンジンの文脈では、前の値を持ち越さずNone
-        (SimpleNamespace(), None),
+        # 補正しなかった文脈では、前の値を持ち越さずNone
+        (_context(), None),
     ],
 )
 async def test_destination_passes_on_where_the_destination_was_moved_to(context, expected):
@@ -661,7 +656,7 @@ async def test_destination_passes_on_where_the_destination_was_moved_to(context,
     generator = RouteGenerator(engine)
     generator.last_destination_correction = DESTINATION
 
-    await generator.generate_via_waypoints(ORIGIN, [], 10.0, destination=DESTINATION, start_time=START)
+    await generator.generate_via_waypoints(ORIGIN, [], 10.0, destination=DESTINATION, start_time=START, max_routes=1)
 
     assert generator.last_destination_correction == expected
 
@@ -681,12 +676,12 @@ async def test_destination_passes_on_where_the_destination_was_moved_to(context,
     ],
 )
 async def test_destination_without_alternatives_says_which_end_is_stuck(side, reason, caplog):
-    context = SimpleNamespace() if side is None else SimpleNamespace(no_candidates_side=side)
+    context = _context(no_candidates_side=side)
     engine = FakeEngine(context=context)
     generator = RouteGenerator(engine)
 
     with caplog.at_level(logging.WARNING, logger=route_generator.logger.name):
-        assert await generator.generate_via_waypoints(ORIGIN, [], 10.0, destination=DESTINATION, start_time=START) == []
+        assert await generator.generate_via_waypoints(ORIGIN, [], 10.0, destination=DESTINATION, start_time=START, max_routes=1) == []
 
     assert generator.last_no_candidates_reason == reason
     assert _warnings(caplog)

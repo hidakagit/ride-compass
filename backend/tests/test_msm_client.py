@@ -1,8 +1,9 @@
 """`infrastructure/msm_client.py`——気象庁MSMの予報を配信元と同期し、ローカルの`.om`ファイルから読む。
 
-確かめるのは公開の入口（`refresh`・`read_series`・`freshness`/`freshness_from_meta`/`warn_if_stale`・
-`update_interval_seconds`）から見える振る舞いだけ。差し替えるのはプロセス境界だけで、網は本物の
-`httpx.AsyncClient`へ配信元の代役（`MockTransport`）を付け、ディスクは一時ディレクトリ、時計は固定する。
+確かめるのは公開の入口（`refresh`・`read_series`・`freshness`/`freshness_from_meta`/`warn_if_stale`）から
+見える振る舞いだけ。差し替えるのはプロセス境界だけで、網は本物の`httpx.AsyncClient`へ配信元の代役
+（`MockTransport`）を付け、ディスクは一時ディレクトリ、時計は固定する。何時間先まで同期し・読むかは
+設定（`settings.msm_forecast_hours`）をテストごとに与える。
 `.om`ファイルは本物のライブラリ（omfiles）で書く。
 
 ここで見ないもの:
@@ -22,6 +23,7 @@ import numpy as np
 import pytest
 from omfiles import OmFileWriter
 
+from app.config import settings
 from app.domain.time_zone import JST
 from app.infrastructure import msm_client
 from app.infrastructure.msm_client import MsmUnavailableError
@@ -72,7 +74,11 @@ def msm_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(msm_client, "_ETAGS_FILE", directory / "etags.json")
     clock = SimpleNamespace(now=NOW)
     monkeypatch.setattr(msm_client, "time", SimpleNamespace(time=lambda: clock.now))
-    return SimpleNamespace(path=directory, clock=clock)
+
+    def forecast_hours(hours: int) -> None:
+        monkeypatch.setattr(settings, "msm_forecast_hours", hours)
+
+    return SimpleNamespace(path=directory, clock=clock, forecast_hours=forecast_hours)
 
 
 class Source:
@@ -108,9 +114,15 @@ class Source:
 
 async def _synced(tmp_path, msm_dir, meta=None, horizon_hours=CHUNK_HOURS):
     source = Source(tmp_path, meta)
+    msm_dir.forecast_hours(horizon_hours)
     async with source.client() as client:
-        await msm_client.refresh(client, horizon_hours=horizon_hours)
+        await msm_client.refresh(client)
     return source
+
+
+async def _read(msm_dir, points, hours):
+    msm_dir.forecast_hours(hours)
+    return await msm_client.read_series(*points)
 
 
 def _points(*points):
@@ -128,8 +140,10 @@ class TestSyncing:
         """
         source = Source(tmp_path)
         async with source.client() as client:
-            within = await msm_client.refresh(client, horizon_hours=3)
-            beyond = await msm_client.refresh(client, horizon_hours=6)
+            msm_dir.forecast_hours(3)
+            within = await msm_client.refresh(client)
+            msm_dir.forecast_hours(6)
+            beyond = await msm_client.refresh(client)
 
         variables = len(msm_client.FORECAST_VARIABLES)
         assert within == variables
@@ -140,8 +154,10 @@ class TestSyncing:
     async def test_a_chunk_the_source_has_not_changed_is_not_transferred_again(self, tmp_path, msm_dir):
         source = Source(tmp_path)
         async with source.client() as client:
-            await msm_client.refresh(client, horizon_hours=3)
-            again = await msm_client.refresh(client, horizon_hours=3)
+            msm_dir.forecast_hours(3)
+            await msm_client.refresh(client)
+            msm_dir.forecast_hours(3)
+            again = await msm_client.refresh(client)
 
         assert again == 0
 
@@ -149,10 +165,12 @@ class TestSyncing:
         """「変更なし」を信じて、無いファイルを読みに行かない。"""
         source = Source(tmp_path)
         async with source.client() as client:
-            await msm_client.refresh(client, horizon_hours=3)
+            msm_dir.forecast_hours(3)
+            await msm_client.refresh(client)
             variable = msm_client.FORECAST_VARIABLES[0]
             (msm_dir.path / variable / f"chunk_{NOW_CHUNK}.om").unlink()
-            again = await msm_client.refresh(client, horizon_hours=3)
+            msm_dir.forecast_hours(3)
+            again = await msm_client.refresh(client)
 
         assert again == 1
         assert (msm_dir.path / variable / f"chunk_{NOW_CHUNK}.om").exists()
@@ -161,9 +179,11 @@ class TestSyncing:
         """1ファイル十数MBあるため、予報に使わなくなった過去のチャンクを残さない。"""
         source = Source(tmp_path)
         async with source.client() as client:
-            await msm_client.refresh(client, horizon_hours=3)
+            msm_dir.forecast_hours(3)
+            await msm_client.refresh(client)
             msm_dir.clock.now = NOW + CHUNK_HOURS * 3600
-            await msm_client.refresh(client, horizon_hours=3)
+            msm_dir.forecast_hours(3)
+            await msm_client.refresh(client)
 
         for variable in msm_client.FORECAST_VARIABLES:
             names = {p.name for p in (msm_dir.path / variable).glob("chunk_*.om")}
@@ -171,12 +191,11 @@ class TestSyncing:
 
     async def test_after_syncing_the_schedule_of_the_source_is_readable(self, tmp_path, msm_dir):
         assert msm_client.freshness() is None
-        assert msm_client.update_interval_seconds(default=60) == 60
 
         await _synced(tmp_path, msm_dir, _meta(update_interval_seconds=7200))
 
-        assert msm_client.freshness() is not None
-        assert msm_client.update_interval_seconds(default=60) == 7200
+        # 2時間ごとの公開を2回続けて落としたら止まったと見る
+        assert msm_client.freshness().stale_threshold_hours == pytest.approx(4.0)
 
     @pytest.mark.parametrize("failing", ["meta", "chunk"])
     async def test_a_failed_request_to_the_source_is_raised(self, tmp_path, msm_dir, failing):
@@ -185,13 +204,15 @@ class TestSyncing:
         source.fail.add(failing)
         async with source.client() as client:
             with pytest.raises(httpx.HTTPStatusError):
-                await msm_client.refresh(client, horizon_hours=3)
+                msm_dir.forecast_hours(3)
+                await msm_client.refresh(client)
 
     async def test_meta_information_that_is_not_json_is_raised(self, tmp_path, msm_dir):
         source = Source(tmp_path, meta=b"<html>maintenance</html>")
         async with source.client() as client:
             with pytest.raises(ValueError):
-                await msm_client.refresh(client, horizon_hours=3)
+                msm_dir.forecast_hours(3)
+                await msm_client.refresh(client)
 
     async def test_syncing_a_source_that_stopped_publishing_warns(self, tmp_path, msm_dir, caplog):
         """ETagで304が続くと件数からは止まったことが分からない。公開の経過で気づく。"""
@@ -209,7 +230,7 @@ class TestReading:
     async def test_series_start_at_the_current_hour_in_japan_time(self, tmp_path, msm_dir):
         await _synced(tmp_path, msm_dir)
 
-        times, values = await msm_client.read_series(*_points(SOUTH_WEST), hours=3)
+        times, values = await _read(msm_dir, _points(SOUTH_WEST), 3)
 
         assert times == ["2026-09-22T05:00", "2026-09-22T06:00", "2026-09-22T07:00"]
         assert set(values) == set(msm_client.FORECAST_VARIABLES)
@@ -219,7 +240,7 @@ class TestReading:
         """南西の格子点はそのまま、北隣との中間は2点の平均（100i + 10j + t で i=0.5）。"""
         await _synced(tmp_path, msm_dir)
 
-        _, values = await msm_client.read_series(*_points(SOUTH_WEST, HALF_NORTH), hours=2)
+        _, values = await _read(msm_dir, _points(SOUTH_WEST, HALF_NORTH), 2)
 
         # 05:00はチャンクの先頭から2時間目（t=2）。
         assert values["temperature_2m"] == pytest.approx(np.array([[2.0, 3.0], [52.0, 53.0]]))
@@ -227,7 +248,7 @@ class TestReading:
     async def test_a_series_crossing_into_the_next_chunk_continues_from_it(self, tmp_path, msm_dir):
         await _synced(tmp_path, msm_dir)
 
-        times, values = await msm_client.read_series(*_points(SOUTH_WEST), hours=6)
+        times, values = await _read(msm_dir, _points(SOUTH_WEST), 6)
 
         assert times[3:] == ["2026-09-22T08:00", "2026-09-22T09:00", "2026-09-22T10:00"]
         assert values["precipitation"][0].tolist() == [2.0, 3.0, 4.0, 5.0, 1000.0, 1001.0]
@@ -236,7 +257,7 @@ class TestReading:
         """予報の終端より先は読めない。求めた長さより短い系列が返る。"""
         await _synced(tmp_path, msm_dir, _meta(data_end_time=NOW - NOW % 3600 + 2 * 3600))
 
-        times, _ = await msm_client.read_series(*_points(SOUTH_WEST), hours=24)
+        times, _ = await _read(msm_dir, _points(SOUTH_WEST), 24)
 
         assert times == ["2026-09-22T05:00", "2026-09-22T06:00"]
 
@@ -244,11 +265,11 @@ class TestReading:
         await _synced(tmp_path, msm_dir, _meta(data_end_time=NOW - NOW % 3600))
 
         with pytest.raises(MsmUnavailableError):
-            await msm_client.read_series(*_points(SOUTH_WEST), hours=3)
+            await _read(msm_dir, _points(SOUTH_WEST), 3)
 
     async def test_nothing_can_be_read_before_the_first_sync(self, msm_dir):
         with pytest.raises(MsmUnavailableError):
-            await msm_client.read_series(*_points(SOUTH_WEST), hours=3)
+            await _read(msm_dir, _points(SOUTH_WEST), 3)
 
     @pytest.mark.parametrize("variable_index", [0, -1])
     @pytest.mark.parametrize("missing_chunk", [NOW_CHUNK, NOW_CHUNK + 1])
@@ -258,13 +279,13 @@ class TestReading:
         (msm_dir.path / variable / f"chunk_{missing_chunk}.om").unlink()
 
         with pytest.raises(MsmUnavailableError):
-            await msm_client.read_series(*_points(SOUTH_WEST), hours=6)
+            await _read(msm_dir, _points(SOUTH_WEST), 6)
 
     async def test_a_point_outside_the_grid_is_refused(self, tmp_path, msm_dir):
         await _synced(tmp_path, msm_dir)
 
         with pytest.raises(ValueError):
-            await msm_client.read_series(*_points((36.0, 139.0)), hours=3)
+            await _read(msm_dir, _points((36.0, 139.0)), 3)
 
 
 # --- 鮮度 ---
@@ -343,8 +364,8 @@ class TestWarningAboutFreshness:
         assert any("尽きかけています" in m for m in messages)
 
 
-def test_an_unreadable_schedule_on_disk_uses_the_default_interval(msm_dir):
+def test_unreadable_meta_information_on_disk_has_no_freshness(msm_dir):
     msm_dir.path.mkdir()
     (msm_dir.path / "meta.json").write_text("{broken", encoding="utf-8")
 
-    assert msm_client.update_interval_seconds(default=60) == 60
+    assert msm_client.freshness() is None

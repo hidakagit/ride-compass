@@ -39,19 +39,16 @@ def _last_index(span_deg: float, spacing_deg: float) -> int:
     return int(span_deg / spacing_deg)
 
 
-def generate_wind_grid_points(
-    bbox: tuple[float, float, float, float] = WIND_GRID_BBOX,
-    spacing_deg: float = WIND_GRID_SPACING_DEG,
-) -> list[Coordinates]:
-    """bbox内を格子状に走査した座標列を返す。"""
-    min_lon, min_lat, max_lon, max_lat = bbox
+def generate_wind_grid_points() -> list[Coordinates]:
+    """`WIND_GRID_BBOX`内を`WIND_GRID_SPACING_DEG`間隔の格子状に走査した座標列を返す。"""
+    min_lon, min_lat, max_lon, max_lat = WIND_GRID_BBOX
     return [
         Coordinates(
-            latitude=_lattice_coordinate(min_lat, i, spacing_deg),
-            longitude=_lattice_coordinate(min_lon, j, spacing_deg),
+            latitude=_lattice_coordinate(min_lat, i, WIND_GRID_SPACING_DEG),
+            longitude=_lattice_coordinate(min_lon, j, WIND_GRID_SPACING_DEG),
         )
-        for i in range(_last_index(max_lat - min_lat, spacing_deg) + 1)
-        for j in range(_last_index(max_lon - min_lon, spacing_deg) + 1)
+        for i in range(_last_index(max_lat - min_lat, WIND_GRID_SPACING_DEG) + 1)
+        for j in range(_last_index(max_lon - min_lon, WIND_GRID_SPACING_DEG) + 1)
     ]
 
 

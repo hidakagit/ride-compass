@@ -157,48 +157,51 @@ class TestWindLattice:
         assert lattice.points_of(np.array([34.0, 36.0]), np.array([138.0, 140.0])).tolist() == [0, 11]
 
 
+#: 格子点が1つだけの格子。どの地点もこの格子点（番号0）の風を引く。
+ONE_POINT = WindLattice(south=35.0, west=139.0, lat_step=0.05, lon_step=0.0625, rows=1, cols=1)
+
+
 class TestWindForecastSeries:
 
     @staticmethod
     def _series(hours: int = 5) -> WindForecastSeries:
+        """格子点1つの系列。風速は時刻の番号と同じ値。"""
         start = datetime(2026, 6, 21, 9, 0)
         return WindForecastSeries(
             times=[start + timedelta(hours=h) for h in range(hours)],
-            speed_ms=np.arange(float(hours)),
-            direction_deg=np.zeros(hours),
+            speed_ms=np.arange(float(hours)).reshape(1, hours),
+            direction_deg=np.zeros((1, hours)),
+            lattice=ONE_POINT,
         )
+
+    @staticmethod
+    def _sample(series: WindForecastSeries, start: datetime, passage_hours: list[float]) -> list[float]:
+        speed, _ = series.sample(start, np.array(passage_hours), np.zeros(len(passage_hours), dtype=np.int64))
+        return speed.tolist()
 
     def test_it_takes_the_nearest_hour(self):
         series = self._series()
 
-        speed, _ = series.sample(series.times[0], np.array([0.4, 0.6, 2.0]))
-
-        assert speed.tolist() == [0.0, 1.0, 2.0]
+        assert self._sample(series, series.times[0], [0.4, 0.6, 2.0]) == [0.0, 1.0, 2.0]
 
     def test_times_before_the_series_clamp_to_the_first_value(self):
         """欠損にすると、その区間だけ風を無視する。"""
         series = self._series()
 
-        speed, _ = series.sample(series.times[0], np.array([-5.0]))
-
-        assert speed.tolist() == [0.0]
+        assert self._sample(series, series.times[0], [-5.0]) == [0.0]
 
     def test_times_after_the_series_clamp_to_the_last_value(self):
         series = self._series()
 
-        speed, _ = series.sample(series.times[0], np.array([99.0]))
-
-        assert speed.tolist() == [4.0]
+        assert self._sample(series, series.times[0], [99.0]) == [4.0]
 
     def test_a_later_start_shifts_the_lookup(self):
         series = self._series()
 
-        speed, _ = series.sample(series.times[2], np.array([1.0]))
-
-        assert speed.tolist() == [3.0]
+        assert self._sample(series, series.times[2], [1.0]) == [3.0]
 
     def test_a_lattice_series_takes_the_wind_of_each_grid_point(self):
-        """格子点ごとの系列は、区間ごとに近い格子点の風を引く（1地点の系列では全区間が同じ風になる）。"""
+        """区間ごとに、その区間の格子点の風を引く。"""
         start = datetime(2026, 6, 21, 9, 0)
         lattice = WindLattice(south=35.0, west=139.0, lat_step=0.05, lon_step=0.0625, rows=1, cols=2)
         series = WindForecastSeries(
@@ -212,23 +215,13 @@ class TestWindForecastSeries:
 
         assert speed.tolist() == [1.0, 2.0, 6.0]
 
-    def test_a_lattice_series_needs_the_grid_points(self):
-        start = datetime(2026, 6, 21, 9, 0)
-        lattice = WindLattice(south=35.0, west=139.0, lat_step=0.05, lon_step=0.0625, rows=1, cols=2)
-        series = WindForecastSeries(
-            times=[start, start + timedelta(hours=1)],
-            speed_ms=np.zeros((2, 2)), direction_deg=np.zeros((2, 2)), lattice=lattice,
-        )
-
-        with pytest.raises(ValueError):
-            series.sample(start, np.array([0.0]))
-
     def test_a_series_too_short_to_have_a_step_is_rejected(self):
         with pytest.raises(ValueError):
             WindForecastSeries(
                 times=[datetime(2026, 6, 21, 9, 0)],
-                speed_ms=np.array([1.0]),
-                direction_deg=np.array([0.0]),
+                speed_ms=np.array([[1.0]]),
+                direction_deg=np.array([[0.0]]),
+                lattice=ONE_POINT,
             )
 
     def test_mismatched_lengths_are_rejected(self):
@@ -237,8 +230,9 @@ class TestWindForecastSeries:
         with pytest.raises(ValueError):
             WindForecastSeries(
                 times=[start, start + timedelta(hours=1)],
-                speed_ms=np.array([1.0, 2.0, 3.0]),
-                direction_deg=np.array([0.0, 0.0]),
+                speed_ms=np.array([[1.0, 2.0, 3.0]]),
+                direction_deg=np.array([[0.0, 0.0]]),
+                lattice=ONE_POINT,
             )
 
     def test_a_step_other_than_one_hour_is_rejected(self):
@@ -247,8 +241,9 @@ class TestWindForecastSeries:
         with pytest.raises(ValueError):
             WindForecastSeries(
                 times=[start, start + timedelta(hours=3)],
-                speed_ms=np.array([1.0, 2.0]),
-                direction_deg=np.array([0.0, 0.0]),
+                speed_ms=np.array([[1.0, 2.0]]),
+                direction_deg=np.array([[0.0, 0.0]]),
+                lattice=ONE_POINT,
             )
 
 

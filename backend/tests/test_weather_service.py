@@ -33,7 +33,7 @@ def _series(times, *, u=None, v=None, precipitation=None, temperature=None, clou
 
 
 def _patch_read_series(monkeypatch, result):
-    async def read_series(latitudes, longitudes, hours=None):
+    async def read_series(latitudes, longitudes):
         times, values = result
         count = len(latitudes)
         return times, {key: np.tile(value[0], (count, 1)) for key, value in values.items()}
@@ -42,7 +42,7 @@ def _patch_read_series(monkeypatch, result):
 
 
 def _patch_unavailable(monkeypatch):
-    async def unavailable(latitudes, longitudes, hours=None):
+    async def unavailable(latitudes, longitudes):
         raise MsmUnavailableError("未同期")
 
     monkeypatch.setattr(msm_client, "read_series", unavailable)
@@ -173,7 +173,7 @@ ROUTE_BBOX = BoundingBox(min_latitude=35.0, min_longitude=139.0, max_latitude=35
 async def test_get_wind_forecast_lattice_reads_msm_at_every_grid_point_of_the_area(monkeypatch):
     asked = []
 
-    async def read_series(latitudes, longitudes, hours=None):
+    async def read_series(latitudes, longitudes):
         asked.append((np.asarray(latitudes), np.asarray(longitudes)))
         times, values = _series(["2026-09-07T13:00", "2026-09-07T14:00"], u=[3.0, 0.0], v=[0.0, 4.0])
         return times, {key: np.tile(value[0], (len(latitudes), 1)) for key, value in values.items()}
