@@ -133,3 +133,135 @@ def test_finished_task_is_popped_from_the_dispatch_queue_only_with_the_cleanup_m
     assert popped.returncode == 0, popped.stdout + popped.stderr
     assert '"cleanup": true' in popped.stdout
     assert [i.get("cleanup") for i in load(orch)["queue"]] == [None]
+
+
+def slot(main: Path, n: int, owner: str) -> Path:
+    """スロットnを作り、渡した印（`slot <渡し先> <時刻>`）を付ける。"""
+    path = main / ".claude" / "worktrees" / f"slot-{n}"
+    git(main, "worktree", "add", "--quiet", "-B", f"slot-{n}", str(path), "origin/master")
+    git(main, "worktree", "lock", "--reason", f"slot {owner} {ago(1)}", str(path))
+    return path
+
+
+def lock_reason(main: Path, path: Path) -> str | None:
+    for block in git(main, "worktree", "list", "--porcelain").split("\n\n"):
+        fields = dict(line.partition(" ")[::2] for line in block.splitlines())
+        if Path(fields.get("worktree", "")).resolve() == path.resolve():
+            return fields.get("locked")
+    raise AssertionError(f"作業ツリーに無い: {path}")
+
+
+def test_sha_made_only_of_digits_is_kept_as_written(world):
+    main, orch = world
+    assert orchestrate(main, orch, "board", "add", "A", "current_task=T1").returncode == 0
+
+    done = orchestrate(main, orch, "board", "set", "A", "state=停止済み", "reported_sha=447131473413", "audit_base=12e45678")
+
+    assert done.returncode == 0, done.stderr
+    agent = load(orch)["agents"][0]
+    assert (agent["reported_sha"], agent["audit_base"]) == ("447131473413", "12e45678")
+
+
+def test_audit_log_mistake_is_fixed_only_with_a_commit_that_exists(world):
+    main, orch = world
+    board = load(orch)
+    board["agents"] = [{"name": "A", "state": "停止済み", "audit_log": [
+        {"task": "T1", "reported_sha": "1234567", "audit_base": "78964a5bxxxx", "audit_result": "通す"}]}]
+    save(orch, board)
+    real = git(main, "rev-parse", "--short=12", "HEAD")
+
+    bogus = orchestrate(main, orch, "board", "audit-fix", "A", "1", "audit_base=78964a5bffff")
+    fixed = orchestrate(main, orch, "board", "audit-fix", "A", "1", f"audit_base={real}")
+
+    assert bogus.returncode != 0 and "引けない" in bogus.stderr, bogus.stdout + bogus.stderr
+    assert fixed.returncode == 0, fixed.stderr
+    assert load(orch)["agents"][0]["audit_log"][0]["audit_base"] == real
+    assert "1. " in orchestrate(main, orch, "board", "audit-fix", "A").stdout
+
+
+def test_passing_the_audit_before_the_report_still_stops_the_agent_and_frees_its_slot(world):
+    main, orch = world
+    path = slot(main, 1, "agent-a1")
+    assert orchestrate(main, orch, "board", "add", "A", "current_task=T1", "id=a1").returncode == 0
+
+    passed = orchestrate(main, orch, "board", "set", "A", "audit_done=now", "audit_result=通す")
+
+    assert passed.returncode == 0, passed.stderr
+    assert load(orch)["agents"][0]["state"] == "停止済み"
+    assert lock_reason(main, path) is None, passed.stdout
+
+
+def test_gate_stays_open_for_an_audit_wait_until_no_slot_is_left(world):
+    main, orch = world
+    board = load(orch)
+    board["limits"] = {"concurrent": 2}
+    board["agents"] = [{"name": "B", "id": "b1", "state": "停止済み", "current_task": "T1", "reported_sha": "1234567"}]
+    save(orch, board)
+    slot(main, 1, "agent-b1")
+
+    one_free = gate_output(main, orch)
+
+    assert "監査待ち" not in one_free and "空いているスロットが無い" not in one_free, one_free
+
+    board["agents"].append({"name": "C", "id": "c1", "state": "停止済み", "current_task": "T1", "reported_sha": "1234567"})
+    save(orch, board)
+    slot(main, 2, "agent-c1")
+
+    assert "空いているスロットが無い: slot-1（監査待ち B）、slot-2（監査待ち C）" in gate_output(main, orch)
+
+
+def test_idle_slot_with_waiting_dispatch_is_raised_after_five_minutes_even_with_the_gate_closed(world):
+    main, orch = world
+    assert orchestrate(main, orch, "board", "dispatch", "push", "T1").returncode == 0
+
+    first = orchestrate(main, orch, "check", "--record")
+
+    assert "続いている" not in first.stdout, first.stdout
+    assert int((orch / "next_check").read_text()) <= dt.datetime.now().timestamp() + 5 * 60 + 5
+    board = load(orch)
+    assert board["idle_since"]
+    board["idle_since"] = ago(6)
+    save(orch, board)
+    (orch / "STOP").write_text("", encoding="utf-8")
+
+    later = orchestrate(main, orch, "check").stdout
+
+    assert "稼働が上限未満（0本 / 上限3本）で振り出し待ち1件がある状態が" in later, later
+    assert "6分続いている（門: " in later and "停止ファイル" in later
+
+
+def test_check_says_which_dashboard_dump_it_read_and_when_that_is_stale(world):
+    main, orch = world
+    backup = orch / "pending-backup"
+    backup.mkdir()
+    item = {"task": "T1", "kind": "保留", "text": "コメントで答えた問い",
+            "comments": [{"text": "半分だけ残す", "at": ago(200)}]}
+
+    def check_with_dump(minutes: int) -> str:
+        day = dt.date.today().isoformat()
+        (backup / f"{day}.json").write_text(json.dumps({"saved_at": ago(minutes), "items": {"T1-q": item}},
+                                                       ensure_ascii=False), encoding="utf-8")
+        return orchestrate(main, orch, "check").stdout
+
+    fresh, stale = check_with_dump(1), check_with_dump(120)
+
+    assert "確認中1件 → " in fresh and "（1分前）の書き出し）" in fresh, fresh
+    assert "古い" not in fresh
+    assert "（120分前）の書き出し。古いので書き出し直してから扱う" in stale, stale
+    assert "既に消えているかもしれない" in stale
+
+
+def test_rules_prints_the_block_of_the_convention_with_the_agent_name(world):
+    main, orch = world
+    convention = Path(__file__).resolve().parents[2] / "docs" / "conventions" / "orchestration.md"
+    write(main, "docs/conventions/orchestration.md", convention.read_text(encoding="utf-8"))
+    git(main, "add", "docs")
+    git(main, "commit", "--quiet", "-m", "T0: 規約")
+    git(main, "push", "--quiet", "origin", "master")
+
+    rules = orchestrate(main, orch, "rules", "K-x")
+
+    assert rules.returncode == 0, rules.stderr
+    lines = rules.stdout.splitlines()
+    assert 1 <= len(lines) <= 10 and all(line.startswith("- ") for line in lines), rules.stdout
+    assert "orch/K-x" in rules.stdout and "<名前>" not in rules.stdout

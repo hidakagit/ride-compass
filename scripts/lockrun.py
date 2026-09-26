@@ -224,16 +224,31 @@ def under(cwd: str, top: str) -> bool:
     return path == top or path.startswith(top + os.sep)
 
 
+def parse_time(value: str) -> datetime:
+    """時刻の文字列。日付と時刻の間は空白でも`T`でもよく、時差が無ければ手元の時刻として読む。
+    文字列のまま比べると、空白（`2026-09-26 22:39`）は`T`より前に並び、`--since`がその日の記録を全部拾う。"""
+    at = datetime.fromisoformat(value.strip())
+    return at if at.tzinfo else at.astimezone()
+
+
+def parse_since(since: str) -> datetime:
+    try:
+        return parse_time(since)
+    except ValueError:
+        raise SystemExit(f"--since は時刻で書く（例: 2026-09-26 22:39）: {since}") from None
+
+
 def report(since: str | None, mine: bool = False) -> int:
     log = os.path.join(lock_root(), "log.jsonl")
     if not os.path.exists(log):
         print("記録がありません")
         return 0
+    start = parse_since(since) if since else None
     rows = []
     with open(log, encoding="utf-8") as f:
         for line in f:
             row = json.loads(line)
-            if since is None or row["start"] >= since:
+            if start is None or parse_time(row["start"]) >= start:
                 rows.append(row)
     if mine:
         # スロットは担当を替えて使い回すので、--since（依頼の時刻）と合わせて自分の分だけにする。
@@ -268,7 +283,7 @@ def main() -> int:
         return run(command)
     parser = argparse.ArgumentParser(description="ロック付き実行器の記録を集計する")
     parser.add_argument("--report", action="store_true", required=True)
-    parser.add_argument("--since", help="この時刻（ISO形式の前方一致比較）以降の記録だけを集計する")
+    parser.add_argument("--since", help="この時刻（例: 2026-09-26 22:39。時差が無ければ手元の時刻）以降の記録だけを集計する")
     parser.add_argument("--mine", action="store_true",
                         help="呼び出した作業ツリー（とその下のディレクトリ）で走った記録だけを集計する")
     args = parser.parse_args()

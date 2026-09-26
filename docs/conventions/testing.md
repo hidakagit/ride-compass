@@ -962,10 +962,15 @@ CSSの規則が当たる。開くたびに作り直される部品（ポップ�
     取得がこのオリジンに向く）。起点は`E2E_LIVE_POINT=緯度,経度`で開発DBの取込範囲の中を与える
     （取込範囲はリポジトリに記録が無い。既定はアプリの既定地点で、範囲外なら前提不成立で止まる）。
     予報（MSM）が古ければ、時刻を入力に取る枝は「該当なし」になる。
-  - **手順**: `python scripts/lockrun.py -- 'cd frontend && npm run build'` →
-    `python scripts/lockrun.py -- 'cd frontend && E2E_LIVE_POINT=<緯度,経度> ./node_modules/.bin/playwright test -c playwright.live.config.ts <シナリオ>'`
-    をシナリオごとに1回（`heavy`の枠の上限10分に1シナリオが収まる）。`NEXT_PUBLIC_API_URL`はビルドに
-    埋め込まれるので、backendの向け先を変えたらビルドし直す。
+  - **backendの起動は`python backend/scripts/serve_e2e_live.py`**（作業ツリーから。裏で走らせて出力を読む）。
+    作業ツリーには`.env`が無いので、本体のチェックアウトの`backend/.env`（DBの向け先・土地被覆ラスタのパス等）を読み、
+    上の基礎地図のURLとCORS（カンマ区切り）だけを足して、作業ツリーのコードを本体の`backend/.venv`で起動する。
+    ポートは8000が使われていれば空いているものを選び、起点は開発DBの区間のうち路面タイルに道が出る点を選ぶ。
+    `/health`が返ると、向け先と起点を埋めたビルドと実行のコマンド、止め方（backendのpid）を出す。
+  - **手順**: 起動の出力のとおり、`python scripts/lockrun.py -- 'cd frontend && NEXT_PUBLIC_API_URL=<backend> BACKEND_INTERNAL_URL=<backend> npm run build'` →
+    `python scripts/lockrun.py -- 'cd frontend && E2E_LIVE_API=<backend> E2E_LIVE_POINT=<緯度,経度> ./node_modules/.bin/playwright test -c playwright.live.config.ts <シナリオ>'`
+    をシナリオごとに1回（`heavy`の枠の上限10分に1シナリオが収まる）。`NEXT_PUBLIC_API_URL`と`BACKEND_INTERNAL_URL`
+    （Next.jsのサーバーが中継する基礎地図・タイルの行き先）はビルドに埋め込まれるので、backendの向け先を変えたらビルドし直す。
   - **誰がいつ回すか**: 地図の描き方（`features/map/scene/`等）・タイルへ焼く値・軸カタログ・動的値の
     配信・気象の描き方・ルート生成の応答に触る変更の担当が、**作業ブランチを出す前に1回**回し、
     実行したコマンドと結果（落ちた枝・「該当なし」・「外部要因」）をコミットメッセージへ書く。

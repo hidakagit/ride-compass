@@ -7,25 +7,27 @@
 `docs/conventions/asking-user.md`「仕掛中のダッシュボード」節。核はこのモジュールをimportしない。
 
     python scripts/orchestrate.py pending-backup --pending <dir>   # 全件を日付のファイルへ書き出す（直近14日を残す。移し忘れを知らせる）
-    python scripts/orchestrate.py pending-inbox [--pending <dir>]  # 取り込み待ちの件を、タスクごとの今の持ち主と並べる（既定: 最新のバックアップ）
+    python scripts/orchestrate.py pending-inbox [--pending <dir>]  # 確認中・取り込み待ちの件を、タスクごとの今の持ち主と並べる（既定: 最新のバックアップ）
     python scripts/orchestrate.py pending-waiting [--pending <dir>]  # タブごとの件数と、回答待ちの件（下の「タブの定義」）
 
-`check`は最新のバックアップから、取り込み待ちの件を持ち主ごとに要対応として出し、書き出しが確認間隔の2倍より古ければ
-それも出す（`inbox_problems`）。書き出しより後に付いた答えは見えないので、司令塔は定期確認のたびに書き出し直す。
+`check`は最新のバックアップから、確認中と取り込み待ちの件を持ち主ごとに要対応として出し、どの時刻の書き出しから
+読んだかを添える。書き出しが確認間隔の2倍より古ければ、その件がダッシュボードから既に消えているかもしれないと
+言う（`inbox_problems`）。書き出しより後に付いた答えは見えないので、司令塔は定期確認のたびに書き出し直す。
 
 ## タブの定義
 
-件の振り分けはダッシュボードのページのタブと同じ定義で導く（ページのソースの`inIntake`・`isStaged`・`stageOf`。
-件名と前提はどのタブにも数えない）:
+件の振り分けはダッシュボードのページのタブと同じ定義で導く（ページのソースの`inIntake`・`isStaged`・`inCheck`・`stageOf`。
+件名と前提はどのタブにも数えない。1件は次の順で最初に当たったタブにだけ入る——`stage_of`）:
 
+- **確認中**（`in_check`）: コメントが残っている件。ただし答えが付いていて、その答えもコメントも取り込み済み
+  （`taken_at`が答え・コメントの新しい方より後）の件は除く（記録待ちの流れに乗っている）。コメントは**選択肢以外の回答**
+  （問いへの別の答え・質問・直してほしい点）であって、選択肢の答えではない——書いた側が読んで件を書き直し、`comments`を外す。
 - **取り込み待ち**（`needs_take`）: 答えかコメントが付いていて、`taken_at`が無いか、答え・コメントの新しい方より前の件。
   `決定`はClaudeが書いた件なので、コメントだけで入る。答えはページの「Claude に反映を頼む」を押されなくても付くので、
   送ったか（`sent_at`）では決めない——問いを置く側が誤って`sent_at`を書いても、答えの無い件は入らない。
   そのうち送った後に答え・コメントが変わっていない件が**送った・取り込み待ち**（`awaiting_take`）、残りが**反映待ち**（`staged`）。
 - **回答待ち**（`waiting_answer`）: 答えを待つ種類（保留・操作・改善案・起票案）で、答えが無い件（`answer`の項目が無い件も含む）。
-- **記録待ち**（`waiting_record`）: 上のどちらでもなく、決定・答え・コメントのどれかがある件。
-
-    python scripts/orchestrate.py pending-waiting [--pending <dir>]  # タブごとの件数と、回答待ちの件を優先度の順に
+- **記録待ち**（`waiting_record`）: 上のどれでもなく、決定・答え・コメントのどれかがある件。
 
 ## 件の持ち主
 
@@ -67,6 +69,10 @@ UNTAKEN_ALERT_MINUTES = 60
 BACKUP_NAME_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})\.json$")
 #: ユーザーの答えを待つ種類（ページの「回答待ち」タブに入る種類）。
 WAITING_KINDS = ("保留", "操作", "改善案", "起票案")
+#: ページのタブの名前（`stage_of`の値）。
+ANSWER, CHECK, INTAKE, RECORD = "回答待ち", "確認中", "取り込み待ち", "記録待ち"
+#: 確認中の件の扱い方。コメントを選択肢の答えとして取り込まない。
+CHECK_HOW = "コメントは選択肢以外の回答。選択肢の答えとして取り込まず、読んで件を書き直し comments を外す"
 
 
 def load_pending(directory: str | Path) -> dict[str, dict]:
@@ -227,15 +233,35 @@ def awaiting_take(item: dict) -> bool:
     return needs_take(item) and not staged(item)
 
 
+def in_check(item: dict) -> bool:
+    """確認中か（モジュールの冒頭「確認中」）。答えもコメントも取り込み済みの件は記録待ちに回す。"""
+    return (is_item(item) and bool(comments_of(item))
+            and not (item.get("kind") != "決定" and answered(item) and not needs_take(item)))
+
+
+def stage_of(item: dict) -> str | None:
+    """件が入るタブ（ページの`stageOf`と同じ順）。どれにも当たらない件（件名・前提を含む）はNone。"""
+    if not is_item(item):
+        return None
+    if in_check(item):
+        return CHECK
+    if needs_take(item):
+        return INTAKE
+    if item.get("kind") in WAITING_KINDS and not answered(item):
+        return ANSWER
+    if item.get("kind") == "決定" or answered(item) or comments_of(item):
+        return RECORD
+    return None
+
+
 def waiting_answer(item: dict) -> bool:
-    """回答待ちか: 答えを待つ種類（保留・操作・改善案・起票案）で、答えがまだ無い件。"""
-    return is_item(item) and item.get("kind") in WAITING_KINDS and not answered(item) and not needs_take(item)
+    """回答待ちか: 答えを待つ種類（保留・操作・改善案・起票案）で、答えもコメントもまだ無い件。"""
+    return stage_of(item) == ANSWER
 
 
 def waiting_record(item: dict) -> bool:
-    """記録待ちか: 取り込み待ちでも回答待ちでもなく、決定・答え・コメントのどれかがある件。"""
-    return (is_item(item) and not needs_take(item) and not waiting_answer(item)
-            and (item.get("kind") == "決定" or answered(item) or bool(comments_of(item))))
+    """記録待ちか: 確認中・取り込み待ち・回答待ちのどれでもなく、決定・答え・コメントのどれかがある件。"""
+    return stage_of(item) == RECORD
 
 
 def priority_of(item: dict) -> str:
@@ -243,19 +269,23 @@ def priority_of(item: dict) -> str:
     return value if value in PRIORITIES else "中"
 
 
-def by_owner(board: dict, items: dict[str, dict]) -> dict[str, list[str]]:
-    """取り込み待ちの件を、今の持ち主ごとに「doc_id（タスク）題名」で並べる。"""
+def by_owner(board: dict, items: dict[str, dict], stage: str) -> dict[str, list[str]]:
+    """確認中か取り込み待ち（`stage`）の件を、今の持ち主ごとに「doc_id（タスク）題名」で並べる。"""
     out: dict[str, list[str]] = {}
     for doc_id, item in sorted(items.items()):
-        if needs_take(item):
+        if stage_of(item) == stage:
             task = str(item.get("task") or "")
             first = str(item.get("text") or "").splitlines()[0][:60] if item.get("text") else ""
             out.setdefault(owner_of(board, task), []).append(f"{doc_id}（{task or '番号なし'}）{first}")
     return out
 
 
+#: 確認中・取り込み待ちの件を渡した後にすること。
+AFTER = {CHECK: CHECK_HOW, INTAKE: "渡したら taken_at・taken_note を書く"}
+
+
 def inbox_problems(ctx: Context, board: dict, interval_min: int) -> list[str]:
-    """`check`の要対応: 書き出しが無い・古い、取り込み待ちの件（持ち主ごと）。"""
+    """`check`の要対応: 書き出しが無い・古い、確認中と取り込み待ちの件（持ち主ごと。どの書き出しから読んだかを添える）。"""
     latest = latest_dump(ctx)
     how = "ArtifactDataのlistにout_dirを付けて書き出し、pending-backup --pending <dir>"
     if latest is None:
@@ -263,12 +293,16 @@ def inbox_problems(ctx: Context, board: dict, interval_min: int) -> list[str]:
     _, items, saved = latest
     out = []
     age = None if saved is None else int((now() - saved).total_seconds() // 60)
-    if age is None or age >= 2 * interval_min:
-        out.append(f"要対応: ダッシュボードの書き出しが{'いつか不明' if age is None else f'{age}分前'}"
-                   f"（それより後の答えは見えない。{how}）")
-    for owner, lines in by_owner(board, items).items():
-        out.append(f"要対応: 取り込み待ち{len(lines)}件 → {owner}: " + "、".join(lines)
-                   + "（渡したら taken_at・taken_note を書く）")
+    stale = age is None or age >= 2 * interval_min
+    when = "いつか不明" if saved is None else f"{hm(saved.astimezone())}（{age}分前）"
+    if stale:
+        out.append(f"要対応: ダッシュボードの書き出しが{when}"
+                   f"（それより後の答えは見えず、下の件はダッシュボードから既に消えているかもしれない。{how}）")
+    source = f"{when}の書き出し" + ("。古いので書き出し直してから扱う" if stale else "")
+    for stage in (CHECK, INTAKE):
+        for owner, lines in by_owner(board, items, stage).items():
+            out.append(f"要対応: {stage}{len(lines)}件 → {owner}: " + "、".join(lines)
+                       + f"（{AFTER[stage]}。{source}）")
     return out
 
 
@@ -304,7 +338,7 @@ def untaken(items: dict[str, dict], minutes: int = UNTAKEN_ALERT_MINUTES) -> lis
 
 
 def cmd_inbox(ctx: Context, args: argparse.Namespace) -> int:
-    """取り込み待ちの件を、タスクごとの今の持ち主と並べる。書き出しを渡さなければ最新のバックアップを読む。"""
+    """確認中・取り込み待ちの件を、タスクごとの今の持ち主と並べる。書き出しを渡さなければ最新のバックアップを読む。"""
     if args.pending:
         items = load_pending(args.pending)
     else:
@@ -314,15 +348,17 @@ def cmd_inbox(ctx: Context, args: argparse.Namespace) -> int:
             return 1
         day, items = latest
         print(f"{day}のバックアップを読んだ（それより後に送られた件は、書き出して pending-backup し直すと見える）")
-    owners = by_owner(load_board(ctx), items)
-    if not owners:
-        print("取り込み待ちの件（送った・答えが出た）は無い")
-        return 0
-    for owner, lines in owners.items():
-        print(f"{owner}: {len(lines)}件")
-        for line in lines:
-            print(f"  {line}")
-    return 1
+    board = load_board(ctx)
+    found = False
+    for stage in (CHECK, INTAKE):
+        for owner, lines in by_owner(board, items, stage).items():
+            found = True
+            print(f"{stage} {owner}: {len(lines)}件（{AFTER[stage]}）")
+            for line in lines:
+                print(f"  {line}")
+    if not found:
+        print("確認中・取り込み待ちの件（コメント・答えが出た）は無い")
+    return 1 if found else 0
 
 
 def cmd_backup(ctx: Context, args: argparse.Namespace) -> int:
@@ -362,18 +398,26 @@ def cmd_waiting(ctx: Context, args: argparse.Namespace) -> int:
             return 1
         day, items = latest
         print(f"{day}のバックアップを読んだ（それより後の答えは、書き出して pending-backup し直すと見える）")
-    waiting = [(doc_id, item) for doc_id, item in sorted(items.items()) if waiting_answer(item)]
-    intake = [item for item in items.values() if needs_take(item)]
+    stages = {doc_id: stage_of(item) for doc_id, item in items.items()}
+    waiting = [(doc_id, item) for doc_id, item in sorted(items.items()) if stages[doc_id] == ANSWER]
+    checking = [(doc_id, item) for doc_id, item in sorted(items.items()) if stages[doc_id] == CHECK]
+    intake = [item for doc_id, item in items.items() if stages[doc_id] == INTAKE]
     by_priority = {p: [(d, i) for d, i in waiting if priority_of(i) == p] for p in PRIORITIES}
     print(f"回答待ち{len(waiting)}件（" + "・".join(f"{p}{len(v)}" for p, v in by_priority.items()) + "）"
+          f"／確認中{len(checking)}件"
           f"／取り込み待ち{len(intake)}件（反映待ち{sum(staged(i) for i in intake)}・送った{sum(awaiting_take(i) for i in intake)}）"
-          f"／記録待ち{sum(waiting_record(i) for i in items.values())}件")
+          f"／記録待ち{sum(stage == RECORD for stage in stages.values())}件")
+
+    def line(doc_id: str, item: dict) -> str:
+        first = str(item.get("text") or "").splitlines()[0][:60] if item.get("text") else ""
+        return f"{doc_id}（{item.get('task') or '番号なし'}・{item.get('kind')}）{first}"
+
     for p, entries in by_priority.items():
         for doc_id, item in entries:
-            first = str(item.get("text") or "").splitlines()[0][:60] if item.get("text") else ""
             why = str(item.get("priority_reason") or "").strip()
-            print(f"  [{p}] {doc_id}（{item.get('task') or '番号なし'}・{item.get('kind')}）{first}"
-                  + (f"  — {why}" if why else ""))
+            print(f"  [{p}] {line(doc_id, item)}" + (f"  — {why}" if why else ""))
+    for doc_id, item in checking:
+        print(f"  [確認中] {line(doc_id, item)}  — {CHECK_HOW}")
     return 0
 
 
@@ -384,9 +428,9 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("pending-backup", help="ダッシュボードの全件を日付のファイルへ書き出す")
     p.add_argument("--pending", required=True, help="ArtifactDataのlistでout_dirに書き出したディレクトリ")
-    p = sub.add_parser("pending-inbox", help="取り込み待ちの件（送った・答えが出た）を、タスクごとの今の持ち主と並べる")
+    p = sub.add_parser("pending-inbox", help="確認中・取り込み待ちの件（コメント・答えが出た）を、タスクごとの今の持ち主と並べる")
     p.add_argument("--pending", help="ArtifactDataのlistでout_dirに書き出したディレクトリ（既定: 最新のバックアップ）")
-    p = sub.add_parser("pending-waiting", help="タブごとの件数と、回答待ちの件を優先度の順に並べる")
+    p = sub.add_parser("pending-waiting", help="タブごとの件数と、回答待ちの件を優先度の順に・確認中の件を並べる")
     p.add_argument("--pending", help="ArtifactDataのlistでout_dirに書き出したディレクトリ（既定: 最新のバックアップ）")
     args = parser.parse_args(argv)
     ctx = Context(Path(args.repo), args.dir)
