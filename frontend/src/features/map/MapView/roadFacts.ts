@@ -16,7 +16,8 @@ export interface RoadSurfacePopupProperties {
   /** OSMの道路名・路線番号（表示専用の生値）。対訳表を持たない第三者編集データ。 */
   name?: string | null;
   ref?: string | null;
-  surface_good?: boolean | null;
+  surface_class?: string | null;
+  tracktype?: string | null;
   smoothness?: string | null;
   tunnel?: boolean | null;
   bridge?: boolean | null;
@@ -31,7 +32,13 @@ interface RoadFactRow {
 
 const MATERIALS = new Map(materialCatalog.map((material) => [material.material_id, material]));
 const materialLabel = (materialId: string) => MATERIALS.get(materialId)?.label ?? materialId;
-const SMOOTHNESS_LABELS = (MATERIALS.get("smoothness")?.value_labels ?? {}) as Record<string, string>;
+const valueLabel = (materialId: string, value: string) =>
+  (MATERIALS.get(materialId)?.value_labels as Record<string, string> | undefined)?.[value] ?? value;
+
+/** 値の呼び名で出す事実（材料）。**路面の区分は値が無くても「不明」として出す**——
+ * どの道でも最初に見たい項目で、行ごと消すと「舗装されていない」と読める。 */
+const ALWAYS_SHOWN_VALUE_MATERIAL = "surface_class";
+const VALUE_FACT_MATERIALS = ["tracktype", "smoothness"] as const;
 
 /** 当てはまるときだけ「あり」と出す事実（材料）。タイルのどの属性を読むかは材料の宣言が持つ。 */
 const PRESENT_FACT_MATERIALS = ["has_tunnel", "bridge", "oneway"] as const;
@@ -54,15 +61,21 @@ export function roadDisplayName(properties: RoadSurfacePopupProperties): string 
 /** 「項目: 値」の行。**値を持たない項目は行ごと出さない**——「なし」を並べると、
  * 実際に該当する項目が同じ密度の中に埋もれる。 */
 export function roadFactRows(properties: RoadSurfacePopupProperties): RoadFactRow[] {
+  const surfaceClass = tileValue(properties, ALWAYS_SHOWN_VALUE_MATERIAL);
   const rows: RoadFactRow[] = [
     {
-      label: "路面",
-      value: properties.surface_good == null ? "不明" : properties.surface_good ? "舗装路" : "未舗装路",
+      label: materialLabel(ALWAYS_SHOWN_VALUE_MATERIAL),
+      value:
+        typeof surfaceClass === "string" && surfaceClass
+          ? valueLabel(ALWAYS_SHOWN_VALUE_MATERIAL, surfaceClass)
+          : "不明",
     },
   ];
-  const smoothness = tileValue(properties, "smoothness");
-  if (typeof smoothness === "string" && smoothness) {
-    rows.push({ label: materialLabel("smoothness"), value: SMOOTHNESS_LABELS[smoothness] ?? smoothness });
+  for (const material of VALUE_FACT_MATERIALS) {
+    const value = tileValue(properties, material);
+    if (typeof value === "string" && value) {
+      rows.push({ label: materialLabel(material), value: valueLabel(material, value) });
+    }
   }
   for (const material of PRESENT_FACT_MATERIALS) {
     if (tileValue(properties, material)) rows.push({ label: materialLabel(material), value: "あり" });

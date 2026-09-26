@@ -34,20 +34,16 @@ from app.domain.material_catalog import (
     stop_poi_map_group_sql,
 )
 from app.domain.material_sql import (
-    HIGHWAY_SQL,
     LANES_COUNT_CASE_SQL,
     MAXSPEED_KMH_CASE_SQL,
     NODES_SOURCE_SQL,
-    SMOOTHNESS_NORMALIZED_SQL,
     SURFACE_GOOD_CASE_SQL,
-    SURFACE_NORMALIZED_SQL,
     WAYS_SOURCE_SQL,
     nodes_lookup_sql,
     ways_lookup_sql,
     ways_source_sql,
 )
 from app.domain.region import BoundingBox
-from app.domain.road import BAD_OSM_SURFACE_TAGS, GOOD_OSM_SURFACE_TAGS
 from app.domain.traffic import (
     POI_CLUSTER_EPS_M,
     POI_COUNT_KINDS,
@@ -216,6 +212,15 @@ _BOOLEAN_TILE_COLUMNS_SQL = (",\n").join(
     and spec.tile_property is not None and spec.value_sql is not None
 )
 
+#: 分類の材料（タグの値・その区分）の焼き込み列。値式をそのまま焼く——道路種別や路面の区分は道1本の
+#: 値で、式が`w`だけを読むため、区間単位でもway丸ごとでも同じ値になる。
+_CATEGORICAL_TILE_COLUMNS_SQL = (",\n").join(
+    f"                    {spec.value_sql} AS {spec.tile_property}"
+    for spec in MATERIAL_CATALOG.values()
+    if material_array_group(spec) == "categorical"
+    and spec.tile_property is not None and spec.value_sql is not None
+)
+
 #: タイルが材料を引くためのJOIN。区間単位のフィーチャーだけが`em`に一致し、way丸ごとの
 #: フィーチャーは`wm`側へ落ちる。
 _TILE_MATERIAL_JOINS = f"""
@@ -259,9 +264,7 @@ _ROAD_SURFACE_TILE_MVT_SQL = text(
                     NULLIF(btrim(w.tags->>'name'), '') AS name,
                     NULLIF(btrim(w.tags->>'ref'), '') AS ref,
                     {SURFACE_GOOD_CASE_SQL} AS surface_good,
-                    {SURFACE_NORMALIZED_SQL} AS surface,
-                    {HIGHWAY_SQL} AS highway,
-                    {SMOOTHNESS_NORMALIZED_SQL} AS smoothness,
+{_CATEGORICAL_TILE_COLUMNS_SQL},
 {_BOOLEAN_TILE_COLUMNS_SQL},
                     -- 一方通行（表示専用）。上下線が分かれた道の片側は外す——道路としては
                     -- 双方向で、逆方向は数m隣にある。
@@ -282,9 +285,6 @@ _ROAD_SURFACE_TILE_MVT_SQL = text(
         ) END AS tile
     FROM coverage
     """
-).bindparams(
-    bindparam("good_tags", value=sorted(GOOD_OSM_SURFACE_TAGS), type_=ARRAY(Text())),
-    bindparam("bad_tags", value=sorted(BAD_OSM_SURFACE_TAGS), type_=ARRAY(Text())),
 )
 
 
@@ -487,25 +487,10 @@ _WAY_MATERIAL_SELECT_SQL = ", ".join(
 )
 
 
-def _way_material_binds(statement):
-    """材料の値式が使う配列パラメータのうち、**その文が実際に参照するものだけ**を束ねる。
-
-    材料1件だけを引く場合（軸スタジオの値列挙）は式が使わないパラメータがあり、無条件に
-    束ねるとSQLAlchemyが「その名前のパラメータは無い」と落ちる。
-    """
-    candidates = (
-        bindparam("good_tags", value=sorted(GOOD_OSM_SURFACE_TAGS), type_=ARRAY(Text())),
-        bindparam("bad_tags", value=sorted(BAD_OSM_SURFACE_TAGS), type_=ARRAY(Text())),
-    )
-    return statement.bindparams(*(b for b in candidates if f":{b.key}" in statement.text))
-
-
-_WAY_MATERIAL_VALUES_SQL = _way_material_binds(
-    text(
-        f"SELECT {_WAY_MATERIAL_SELECT_SQL}"
-        + _way_from_clause(list(material_value_sql().values()),
-                           source=ways_lookup_sql(":osm_way_id"))
-    )
+_WAY_MATERIAL_VALUES_SQL = text(
+    f"SELECT {_WAY_MATERIAL_SELECT_SQL}"
+    + _way_from_clause(list(material_value_sql().values()),
+                       source=ways_lookup_sql(":osm_way_id"))
 )
 
 
@@ -516,13 +501,11 @@ _WAY_MATERIAL_VALUES_SQL = _way_material_binds(
 # 範囲を絞るときは抽選と併用しない——`TABLESAMPLE`は表全体のページから抽選するため、
 # 狭い範囲を重ねると当たるページがほとんど残らず、標本が範囲の広さに関係なく数本まで落ちる。
 def _sample_way_materials_sql(sampling: str, area: str):
-    return _way_material_binds(
-        text(
-            f"SELECT ST_Length(w.geom::geography) AS length_m, {_WAY_MATERIAL_SELECT_SQL}"
-            + _way_from_clause(list(material_value_sql().values()),
-                               source=ways_source_sql(sampling))
-            + f" WHERE w.highway IS NOT NULL {area} LIMIT :limit"
-        )
+    return text(
+        f"SELECT ST_Length(w.geom::geography) AS length_m, {_WAY_MATERIAL_SELECT_SQL}"
+        + _way_from_clause(list(material_value_sql().values()),
+                           source=ways_source_sql(sampling))
+        + f" WHERE w.highway IS NOT NULL {area} LIMIT :limit"
     )
 
 
@@ -652,9 +635,6 @@ _EDGE_MATERIAL_ARRAYS_SQL = text(
         )
     )
     + _EDGE_MATERIAL_ARRAYS_FROM
-).bindparams(
-    bindparam("good_tags", value=sorted(GOOD_OSM_SURFACE_TAGS), type_=ARRAY(Text())),
-    bindparam("bad_tags", value=sorted(BAD_OSM_SURFACE_TAGS), type_=ARRAY(Text())),
 )
 
 
@@ -977,12 +957,10 @@ class RoadGraphRepository:
             return []
         column_expr = spec.value_sql
         result = await self._session.execute(
-            _way_material_binds(
-                text(
-                    f"SELECT DISTINCT {column_expr} AS value"  # noqa: S608 カタログの宣言のみ
-                    + _way_from_clause([column_expr])
-                    + f" WHERE {column_expr} IS NOT NULL ORDER BY value"
-                )
+            text(
+                f"SELECT DISTINCT {column_expr} AS value"  # noqa: S608 カタログの宣言のみ
+                + _way_from_clause([column_expr])
+                + f" WHERE {column_expr} IS NOT NULL ORDER BY value"
             )
         )
         return [row.value for row in result]

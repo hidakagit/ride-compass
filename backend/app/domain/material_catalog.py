@@ -38,8 +38,10 @@ from app.domain.material_sql import (
     LANES_COUNT_CASE_SQL,
     MAXSPEED_KMH_CASE_SQL,
     SMOOTHNESS_NORMALIZED_SQL,
+    SURFACE_CLASS_SQL,
     SURFACE_GOOD_CASE_SQL,
     SURFACE_NORMALIZED_SQL,
+    TRACKTYPE_NORMALIZED_SQL,
     cycleway_has_value_sql,
     landcover_value_sql,
     poi_density_value_sql,
@@ -49,7 +51,6 @@ from app.domain.material_sql import (
     LIT_NORMALIZED_SQL,
     MOTOR_VEHICLE_NORMALIZED_SQL,
     TUNNEL_NORMALIZED_SQL,
-    normalized_tag_sql,
     tag_is_value_sql,
     tag_absent_is_false_sql,
 )
@@ -59,6 +60,7 @@ from app.domain.traffic import (
     poi_density_material_id,
     stop_kind_sql,
 )
+from app.domain.road import SURFACE_CLASSES, SURFACE_OTHER_KEY, SURFACE_OTHER_LABEL, TRACK_GRADES
 from app.domain.rain import HOURS_SINCE_RAIN, RAIN_HISTORY_HOURS, RAIN_WINDOW_HOURS, rain_window_material_id
 from app.domain.weather import PRECIPITATION_MIN_MM
 from app.domain.wind import WIND_DRAG_REFERENCE_SPEED_MS, wind_drag_ratio
@@ -371,8 +373,8 @@ _LANES_COUNT_REFERENCE_POINTS = [
 
 # 材料の値（OSMタグ生値）ごとの日本語ラベル対訳表。
 # MaterialSpec.value_labelsのdocstring参照——「地図表示と評価は別」という方針に基づき、
-# 地図の表示分類（一次属性`highway`/`surface`の`display_axes`が持つ`DisplayCategorySpec`、
-# 意図的に多対一）とは独立した1値1ラベルの専用対訳表。各値の日本語ラベルはOSM wiki
+# 地図の表示分類（一次属性`highway`の`display_axes`が持つ`DisplayCategorySpec`、
+# 意図的に多対一。路面は区分`surface_class`の値で塗る）とは独立した1値1ラベルの専用対訳表。各値の日本語ラベルはOSM wiki
 # （Key:highway/Key:surface）の一般的なタグ定義に基づく。MaterialSpecの呼び出し直下へ
 # インラインで書くと材料定義ブロックの見通しが悪くなるためここへ分けているだけで、
 # 値は`value_labels=`で各MaterialSpecへそのまま渡す。材料をまたぐ別辞書ではない。
@@ -490,38 +492,33 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
         tile_kind="road_surface",
         label="路面の種類",
         geometry="line",
-        # 行の値は正準分類（`GOOD_OSM_SURFACE_TAGS`∪`BAD_OSM_SURFACE_TAGS`）と過不足なく
-        # 一致させる——漏れた値の道は地図に出ないまま評価にだけ効く。正準分類に無いOSMの値は
-        # 評価では不明値になり、地図にも出ない。束ねる単位は「走りやすさの違いが出る単位」。
+        # 行は材料「路面の区分」の値そのもの（区分の宣言は`domain/road.py: SURFACE_CLASSES`）。
+        # 区分に無い値は材料の値が「その他」になり、地図も行の外（その他）として出す。
         display_axes=(
             DisplayAxisSpec(
                 key="surface",
-                property="surface",
+                property="surface_class",
                 palette="nominal",
                 hue_slot=9,
-                categories=(
-                    DisplayCategorySpec(
-                        key="asphalt", label="アスファルト",
-                        values=("asphalt", "paved", "chipseal"),
-                    ),
-                    DisplayCategorySpec(
-                        key="concrete", label="コンクリート",
-                        values=("concrete", "concrete:plates", "concrete:lanes"),
-                    ),
-                    # 正準分類で良い側（paving_stones・bricks）と悪い側（sett・cobblestone等）が
-                    # 混じる唯一の行。材質として同類なので良否で割らず、色も良し悪しを示さない。
-                    DisplayCategorySpec(
-                        key="stones", label="石畳・敷石",
-                        values=("paving_stones", "sett", "cobblestone", "unhewn_cobblestone", "bricks"),
-                    ),
-                    DisplayCategorySpec(
-                        key="gravel", label="砂利・締固め",
-                        values=("gravel", "fine_gravel", "compacted", "pebblestone", "rock"),
-                    ),
-                    DisplayCategorySpec(
-                        key="dirt", label="土・草・砂",
-                        values=("unpaved", "dirt", "ground", "earth", "mud", "sand", "grass", "woodchips"),
-                    ),
+                categories=tuple(
+                    DisplayCategorySpec(key=c.key, label=c.label, values=(c.key,)) for c in SURFACE_CLASSES
+                ),
+            ),
+        ),
+    ),
+    _ATTR_TRACKTYPE := PrimaryAttributeSpec(
+        attr_id="tracktype",
+        tile_kind="road_surface",
+        label="農道・林道の等級",
+        geometry="line",
+        # 等級は固い路面から柔らかい路面への順序を持つ。
+        display_axes=(
+            DisplayAxisSpec(
+                key="tracktype",
+                property="tracktype",
+                palette="ordered",
+                categories=tuple(
+                    DisplayCategorySpec(key=g.value, label=g.label, values=(g.value,)) for g in TRACK_GRADES
                 ),
             ),
         ),
@@ -859,14 +856,14 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     SURFACE_GOOD: MaterialSpec(
         material_id=SURFACE_GOOD,
         label="舗装良否",
-        description="OSMの路面タグ(surface)から判定した舗装の良否。true=舗装良好、false=未舗装等。",
+        description="路面の区分から判定した舗装の良否。true=舗装、false=それ以外の区分。区分に当てはまらない値とタグの無い道は不明。",
         dtype="boolean",
         tile_property="surface_good",
         primary_attribute=_ATTR_SURFACE,
         value_sql=SURFACE_GOOD_CASE_SQL,
         coverage=WayMaterialCoverageSpec(
                 missing_condition=f"({SURFACE_GOOD_CASE_SQL}) IS NULL",
-                source="OSM wayのタグ surface（良否いずれの分類にも該当しない値も欠損に含む）",
+                source="OSM wayのタグ surface（路面の区分に当てはまらない値も欠損に含む）",
                 missing_semantics="unknown",
             ),
     ),
@@ -1040,9 +1037,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         label="路面種別",
         description="OSMの路面種別タグ(surface)の生値（例: asphalt/gravel等）。良否(舗装良否)だけでなく種別ごとに細かくスコアを設定したい場合に使います。",
         dtype="categorical",
-        # OSMのsurfaceタグ生値（正規化: lower/btrim）。良否の正準分類は
-        # domain/road.py: GOOD_OSM_SURFACE_TAGS/BAD_OSM_SURFACE_TAGS参照（本材料は
-        # その分類前の生タグ値そのもの。分類後の真偽値は既存材料surface_good）。
+        # 区分へ束ねる前のタグの値そのもの（正規化: lower/btrim）。束ねた値は材料surface_class。
         tile_property="surface",
         primary_attribute=_ATTR_SURFACE,
         value_labels=_SURFACE_VALUE_LABELS,
@@ -1052,6 +1047,27 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
                 source="OSM wayのタグ surface",
                 missing_semantics="unknown",
             ),
+    ),
+    "surface_class": MaterialSpec(
+        material_id="surface_class",
+        label="路面の区分",
+        description=(
+            "OSMの路面種別タグ(surface)を、走りやすさの違いが出る区分へ束ねた値（例: 舗装・砂利・土）。"
+            "区分に当てはまらない値は「その他」です。"
+        ),
+        dtype="categorical",
+        tile_property="surface_class",
+        primary_attribute=_ATTR_SURFACE,
+        value_labels={
+            **{c.key: c.label for c in SURFACE_CLASSES},
+            SURFACE_OTHER_KEY: SURFACE_OTHER_LABEL,
+        },
+        value_sql=SURFACE_CLASS_SQL,
+        coverage=WayMaterialCoverageSpec(
+            missing_condition=f"{SURFACE_NORMALIZED_SQL} IS NULL",
+            source="OSM wayのタグ surface",
+            missing_semantics="unknown",
+        ),
     ),
     # 自転車インフラの分類を、評価軸ではなく材料の側で正規化したフラグ群。軸はこれらを
     # 重み付き線形結合するだけで、タグの読み方を知らない。それぞれ専用のtile_propertyを
@@ -1148,17 +1164,20 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
                 missing_semantics="unknown",
             ),
     ),
-    # tracktypeはOSMの未舗装路面グレード（grade1[良好]〜grade5[粗悪]）。MVTタイルへは
-    # 焼き込んでいないため（`tile_property=None`）地図には出ず、評価軸の材料としてだけ使える。
     "tracktype": MaterialSpec(
         material_id="tracktype",
-        label="未舗装路グレード(tracktype)",
-        description="OSMの未舗装路グレードタグ(tracktype)の生値（grade1[良好]〜grade5[粗悪]）。",
+        label="農道・林道の等級",
+        description=(
+            "OSMの農道・林道の路面等級タグ(tracktype)の値（grade1=固く締まった路面〜grade5=柔らかい土・草）。"
+            "路面の区分とは別のタグで、区分へは写しません。"
+        ),
         dtype="categorical",
-        tile_property=None,
-        value_sql=normalized_tag_sql("tracktype"),
+        tile_property="tracktype",
+        primary_attribute=_ATTR_TRACKTYPE,
+        value_labels={g.value: g.label for g in TRACK_GRADES},
+        value_sql=TRACKTYPE_NORMALIZED_SQL,
         coverage=WayMaterialCoverageSpec(
-                missing_condition=f"{normalized_tag_sql('tracktype')} IS NULL",
+                missing_condition=f"{TRACKTYPE_NORMALIZED_SQL} IS NULL",
                 source="OSM wayのタグ tracktype",
                 missing_semantics="unknown",
             ),

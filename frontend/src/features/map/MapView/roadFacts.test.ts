@@ -6,7 +6,13 @@ import materialCatalog from "@/types/generated/material-catalog.json";
 import { roadDisplayName, roadFactRows } from "./roadFacts";
 
 /** 項目名は材料カタログの名前（テストでも書き写さない）。 */
-const labelOf = (materialId: string) => materialCatalog.find((m) => m.material_id === materialId)!.label;
+const materialOf = (materialId: string) => materialCatalog.find((m) => m.material_id === materialId)!;
+const labelOf = (materialId: string) => materialOf(materialId).label;
+/** 材料の値のうち、呼び名を持つ最初の1つ（値も呼び名も書き写さない）。 */
+const labeledValueOf = (materialId: string): [string, string] =>
+  Object.entries(materialOf(materialId).value_labels ?? {}).find(
+    (entry): entry is [string, string] => typeof entry[1] === "string",
+  )!;
 
 describe("roadDisplayName", () => {
   it("nameとrefの両方があれば1つへ畳む", () => {
@@ -19,25 +25,31 @@ describe("roadDisplayName", () => {
   });
 
   it("どちらも無ければnull（空の見出しを作らない）", () => {
-    expect(roadDisplayName({ surface_good: true })).toBeNull();
+    expect(roadDisplayName({ surface_class: "paved" })).toBeNull();
   });
 });
 
 describe("roadFactRows", () => {
-  it("路面は常に出す（不明も含めて、その道の性質として読めるようにする）", () => {
-    expect(roadFactRows({ surface_good: true })).toEqual([{ label: "路面", value: "舗装路" }]);
-    expect(roadFactRows({ surface_good: false })[0].value).toBe("未舗装路");
-    expect(roadFactRows({})[0].value).toBe("不明");
+  it("路面の区分は常に出す（不明も含めて、その道の性質として読めるようにする）", () => {
+    const [value, label] = labeledValueOf("surface_class");
+    expect(roadFactRows({ surface_class: value })).toEqual([{ label: labelOf("surface_class"), value: label }]);
+    expect(roadFactRows({})).toEqual([{ label: labelOf("surface_class"), value: "不明" }]);
   });
 
   it("該当しない項目は行ごと出さない（「なし」が並ぶと該当する項目が埋もれる）", () => {
-    const labels = roadFactRows({ surface_good: true, tunnel: true }).map((row) => row.label);
-    expect(labels).toEqual(["路面", labelOf("has_tunnel")]);
+    const labels = roadFactRows({ tunnel: true }).map((row) => row.label);
+    expect(labels).toEqual([labelOf("surface_class"), labelOf("has_tunnel")]);
     expect(labels).not.toContain(labelOf("oneway"));
+    expect(labels).not.toContain(labelOf("tracktype"));
+  });
+
+  it("等級は値の呼び名で出す", () => {
+    const [value, label] = labeledValueOf("tracktype");
+    expect(roadFactRows({ tracktype: value }).find((row) => row.label === labelOf("tracktype"))?.value).toBe(label);
   });
 
   it("項目名は材料カタログから引き、対訳の無い値は生値のまま出す", () => {
-    const rows = roadFactRows({ surface_good: true, smoothness: "未知の値" });
+    const rows = roadFactRows({ smoothness: "未知の値" });
     expect(rows.find((row) => row.label === labelOf("smoothness"))?.value).toBe("未知の値");
   });
 });

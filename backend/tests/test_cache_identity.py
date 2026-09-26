@@ -84,10 +84,3 @@ class TestBoundValuesAreSigned:
 
         sql = text("SELECT :z AS z").bindparams(bindparam("z"))
         assert ci.bound_values(sql) == []
-
-    def test_road_surface_tile_shape_covers_the_surface_tag_sets(self):
-        # 実物で効いていること。分類タグを1つ足した版は別の鍵になる。
-        from app.infrastructure.road_graph_repository import _ROAD_SURFACE_TILE_MVT_SQL
-
-        names = [name for name, _ in ci.bound_values(_ROAD_SURFACE_TILE_MVT_SQL)]
-        assert "good_tags" in names and "bad_tags" in names

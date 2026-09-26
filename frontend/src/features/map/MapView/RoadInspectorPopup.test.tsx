@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { setDebugEnabled } from "@/lib/debugLog";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
 import { fetchAxisInspector } from "@/services/regionApi";
+import materialCatalog from "@/types/generated/material-catalog.json";
 import RoadInspectorPopup from "./RoadInspectorPopup";
 
 vi.mock("@/services/regionApi", () => ({ fetchAxisInspector: vi.fn() }));
@@ -13,6 +14,11 @@ const AXES: PreferenceAxisDef[] = [
   { axisId: "night", label: "夜間", description: "夜間の暗さの説明", dedicatedWayValueLayer: false },
 ];
 const AXIS_COLORS: Record<string, string> = { axis_sample: "#111111", night: "#222222" };
+/** 路面の区分の項目名と、その値の1つの呼び名（書き写さず材料カタログから引く）。 */
+const SURFACE_CLASS = materialCatalog.find((material) => material.material_id === "surface_class")!;
+const [SURFACE_CLASS_VALUE, SURFACE_CLASS_VALUE_LABEL] = Object.entries(SURFACE_CLASS.value_labels ?? {}).find(
+  (entry): entry is [string, string] => typeof entry[1] === "string",
+)!;
 
 function inspectorResult() {
   return {
@@ -44,7 +50,11 @@ describe("RoadInspectorPopup", () => {
     const user = userEvent.setup();
     vi.mocked(fetchAxisInspector).mockResolvedValue(inspectorResult());
     render(
-      <RoadInspectorPopup properties={{ osm_way_id: 1, surface_good: true }} axes={AXES} axisColors={AXIS_COLORS} />,
+      <RoadInspectorPopup
+        properties={{ osm_way_id: 1, surface_class: SURFACE_CLASS_VALUE }}
+        axes={AXES}
+        axisColors={AXIS_COLORS}
+      />,
     );
 
     await user.click(screen.getByRole("button", { name: "この道の評価を見る" }));
@@ -69,14 +79,14 @@ describe("RoadInspectorPopup", () => {
   it("事実だけを先に出し、評価は押したときに取りに行く（クリックのたびに引かない）", () => {
     render(
       <RoadInspectorPopup
-        properties={{ osm_way_id: 1, name: "明治通り", surface_good: true }}
+        properties={{ osm_way_id: 1, name: "明治通り", surface_class: SURFACE_CLASS_VALUE }}
         axes={AXES}
         axisColors={AXIS_COLORS}
       />,
     );
 
     expect(screen.getByText("明治通り")).toBeInTheDocument();
-    expect(screen.getByText("舗装路")).toBeInTheDocument();
+    expect(screen.getByText(SURFACE_CLASS_VALUE_LABEL)).toBeInTheDocument();
     expect(fetchAxisInspector).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "この道の評価を見る" })).toBeInTheDocument();
   });
@@ -85,7 +95,11 @@ describe("RoadInspectorPopup", () => {
     const user = userEvent.setup();
     vi.mocked(fetchAxisInspector).mockResolvedValue(inspectorResult());
     render(
-      <RoadInspectorPopup properties={{ osm_way_id: 1, surface_good: true }} axes={AXES} axisColors={AXIS_COLORS} />,
+      <RoadInspectorPopup
+        properties={{ osm_way_id: 1, surface_class: SURFACE_CLASS_VALUE }}
+        axes={AXES}
+        axisColors={AXIS_COLORS}
+      />,
     );
 
     await user.click(screen.getByRole("button", { name: "この道の評価を見る" }));
@@ -101,7 +115,11 @@ describe("RoadInspectorPopup", () => {
     const user = userEvent.setup();
     vi.mocked(fetchAxisInspector).mockResolvedValue(inspectorResult());
     render(
-      <RoadInspectorPopup properties={{ osm_way_id: 1, surface_good: true }} axes={AXES} axisColors={AXIS_COLORS} />,
+      <RoadInspectorPopup
+        properties={{ osm_way_id: 1, surface_class: SURFACE_CLASS_VALUE }}
+        axes={AXES}
+        axisColors={AXIS_COLORS}
+      />,
     );
 
     await user.click(screen.getByRole("button", { name: "この道の評価を見る" }));
@@ -114,7 +132,11 @@ describe("RoadInspectorPopup", () => {
     const user = userEvent.setup();
     vi.mocked(fetchAxisInspector).mockResolvedValue(inspectorResult());
     render(
-      <RoadInspectorPopup properties={{ osm_way_id: 1, surface_good: true }} axes={AXES} axisColors={AXIS_COLORS} />,
+      <RoadInspectorPopup
+        properties={{ osm_way_id: 1, surface_class: SURFACE_CLASS_VALUE }}
+        axes={AXES}
+        axisColors={AXIS_COLORS}
+      />,
     );
 
     await user.click(screen.getByRole("button", { name: "この道の評価を見る" }));
@@ -133,15 +155,19 @@ describe("RoadInspectorPopup", () => {
       tags: { highway: "residential", lit: "yes" },
     });
     render(
-      <RoadInspectorPopup properties={{ osm_way_id: 1, surface_good: true }} axes={AXES} axisColors={AXIS_COLORS} />,
+      <RoadInspectorPopup
+        properties={{ osm_way_id: 1, surface_class: SURFACE_CLASS_VALUE }}
+        axes={AXES}
+        axisColors={AXIS_COLORS}
+      />,
     );
 
     const attributes = screen.getByText("この道の属性").closest("details");
     expect(attributes).not.toHaveAttribute("open");
-    expect(screen.getByText("路面")).not.toBeVisible();
+    expect(screen.getByText(SURFACE_CLASS.label)).not.toBeVisible();
     // 畳みを開くと、評価を取る前からタイルの事実が読める。
     await user.click(screen.getByText("この道の属性"));
-    expect(screen.getByText("路面")).toBeVisible();
+    expect(screen.getByText(SURFACE_CLASS.label)).toBeVisible();
     await user.click(screen.getByRole("button", { name: "この道の評価を見る" }));
 
     await waitFor(() => expect(screen.getByText("residential")).toBeInTheDocument());

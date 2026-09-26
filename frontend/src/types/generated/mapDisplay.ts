@@ -99,6 +99,15 @@ export const mapDisplay = {
       "defaultOn": false
     },
     {
+      "id": "tracktype",
+      "label": "農道・林道の等級",
+      "dataSource": "road_surface",
+      "category": "roadCondition",
+      "kind": "static",
+      "dataNature": "raw",
+      "defaultOn": false
+    },
+    {
       "id": "tunnel",
       "label": "トンネル",
       "dataSource": "road_surface",

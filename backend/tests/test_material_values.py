@@ -16,22 +16,24 @@
 import json
 
 import pytest
-from sqlalchemy import ARRAY, Text, bindparam, text
+from sqlalchemy import bindparam, text
 
 from app.domain.material_catalog import material_value_sql
 from app.domain.material_sql import (
-    SURFACE_GOOD_CASE_SQL,
     cycleway_has_value_sql,
     landcover_value_sql,
     normalized_tag_sql,
     poi_density_value_sql,
     positive_integer_tag_sql,
+    surface_class_sql,
+    surface_good_sql,
     tag_absent_is_false_sql,
     tag_is_value_sql,
     ways_lookup_sql,
     ways_source_sql,
 )
 from app.domain.region import BoundingBox
+from app.domain.road import SURFACE_OTHER_KEY, SurfaceClass
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 
 pytestmark = [
@@ -66,18 +68,16 @@ async def _way_value(session, expr: str, tags: dict[str, str], *, surface=None, 
 
 GOOD_A = "good_a"
 BAD_A = "bad_a"
+#: 区分は架空の2つで与える。実在の区分が正しいかは`road.py`側の話。
+CLASSES = (SurfaceClass("class_good", "良", True, (GOOD_A,)), SurfaceClass("class_bad", "悪", False, (BAD_A,)))
+
+
+async def _surface_class(session, surface: str | None):
+    return await _way_value(session, surface_class_sql(CLASSES), {}, surface=surface)
 
 
 async def _surface_good(session, surface: str | None):
-    """良し悪しの語彙は架空の2値で与える。実在の語彙が正しいかは`road.py`側の話。"""
-    return await _way_value(
-        session,
-        SURFACE_GOOD_CASE_SQL,
-        {},
-        surface=surface,
-        good_tags=[GOOD_A],
-        bad_tags=[BAD_A],
-    )
+    return await _way_value(session, surface_good_sql(CLASSES), {}, surface=surface)
 
 
 async def _edge_value(session, expr: str, *, columns: str):
@@ -143,6 +143,18 @@ class TestNumericTags:
         expr = positive_integer_tag_sql(TAG_A)
 
         assert await _way_value(road_graph_session, expr, {TAG_A: written}) is None
+
+
+class TestSurfaceClass:
+    async def test_a_surface_falls_into_the_class_that_lists_it(self, road_graph_session):
+        assert await _surface_class(road_graph_session, f" {BAD_A.upper()} ") == "class_bad"
+
+    async def test_a_surface_no_class_lists_is_other_rather_than_missing(self, road_graph_session):
+        """タグはあるのでタグの無い道とは分ける。地図はこれを「その他」、タグの無い道を「データなし」で出す。"""
+        assert await _surface_class(road_graph_session, "no_such_surface") == SURFACE_OTHER_KEY
+
+    async def test_no_surface_tag_has_no_class(self, road_graph_session):
+        assert await _surface_class(road_graph_session, None) is None
 
 
 class TestSurfaceQuality:
@@ -267,11 +279,7 @@ class TestAgainstTheRealTables:
         query = text(
             "SELECT " + ", ".join(f"({expr})" for expr in sorted(expressions.values()))
             + f" FROM {ways_source_sql()} w, road_edges re, edge_materials em"
-        ).bindparams(
-            bindparam("good_tags", value=[GOOD_A], type_=ARRAY(Text())),
-            bindparam("bad_tags", value=[BAD_A], type_=ARRAY(Text())),
-            bindparam("accident_years", value=1),
-        )
+        ).bindparams(bindparam("accident_years", value=1))
 
         assert (await road_graph_session.execute(query)).all() == []
 

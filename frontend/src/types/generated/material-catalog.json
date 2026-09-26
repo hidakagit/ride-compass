@@ -173,7 +173,7 @@
   {
     "material_id": "surface_good",
     "label": "舗装良否",
-    "description": "OSMの路面タグ(surface)から判定した舗装の良否。true=舗装良好、false=未舗装等。",
+    "description": "路面の区分から判定した舗装の良否。true=舗装、false=それ以外の区分。区分に当てはまらない値とタグの無い道は不明。",
     "dtype": "boolean",
     "unit": "",
     "value_labels": null,
@@ -327,6 +327,22 @@
     "tile_property": "surface"
   },
   {
+    "material_id": "surface_class",
+    "label": "路面の区分",
+    "description": "OSMの路面種別タグ(surface)を、走りやすさの違いが出る区分へ束ねた値（例: 舗装・砂利・土）。区分に当てはまらない値は「その他」です。",
+    "dtype": "categorical",
+    "unit": "",
+    "value_labels": {
+      "paved": "舗装",
+      "compacted": "締め固め・細砂利",
+      "gravel": "砂利・未舗装",
+      "soil": "土・草・泥・砂",
+      "cobblestone": "石畳",
+      "other": "その他"
+    },
+    "tile_property": "surface_class"
+  },
+  {
     "material_id": "highway_is_cycleway",
     "label": "道路種別が自転車道",
     "description": "道路種別(highway)自体が自転車道(cycleway)かどうか。",
@@ -391,12 +407,18 @@
   },
   {
     "material_id": "tracktype",
-    "label": "未舗装路グレード(tracktype)",
-    "description": "OSMの未舗装路グレードタグ(tracktype)の生値（grade1[良好]〜grade5[粗悪]）。",
+    "label": "農道・林道の等級",
+    "description": "OSMの農道・林道の路面等級タグ(tracktype)の値（grade1=固く締まった路面〜grade5=柔らかい土・草）。路面の区分とは別のタグで、区分へは写しません。",
     "dtype": "categorical",
     "unit": "",
-    "value_labels": null,
-    "tile_property": null
+    "value_labels": {
+      "grade1": "1 舗装・固く締まる",
+      "grade2": "2 砂利[未舗装]",
+      "grade3": "3 砂利と土が半々",
+      "grade4": "4 土・草が主",
+      "grade5": "5 土・草・砂"
+    },
+    "tile_property": "tracktype"
   },
   {
     "material_id": "poi_signal_per_km",

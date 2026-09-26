@@ -20,7 +20,6 @@ from app.domain.map_display import ROAD_KNOWN_OPACITY, ROAD_UNKNOWN_OPACITY
 from app.domain.material_catalog import display_axis_missing_semantics
 from app.domain.material_catalog import PRIMARY_ATTRIBUTES
 from app.domain.traffic import STOP_POI_KINDS, SupplyPoiKind
-from app.domain.road import BAD_OSM_SURFACE_TAGS, GOOD_OSM_SURFACE_TAGS
 
 DISPLAYED = [attr for attr in PRIMARY_ATTRIBUTES if attr.display_axes]
 
@@ -148,13 +147,6 @@ def test_軸の中の色は互いに見分けられる(where, palette, colors) -
 @pytest.mark.parametrize("attr", DISPLAYED, ids=lambda a: a.attr_id)
 def test_面には表示定義を持たせない(attr) -> None:
     assert attr.geometry in ("line", "point"), f"{attr.attr_id} は面なのに行の定義を持っている"
-
-
-def test_路面の行は正準分類を過不足なく覆う() -> None:
-    canonical = GOOD_OSM_SURFACE_TAGS | BAD_OSM_SURFACE_TAGS
-    displayed = _values("surface")
-    assert displayed - canonical == set(), "正準分類に無い値が行にある（その行は永久に空になる）"
-    assert canonical - displayed == set(), "正準分類のタグが行から漏れている（地図に出ないまま評価に効く）"
 
 
 def test_停止要因の行は種別を過不足なく覆う() -> None:

@@ -170,6 +170,16 @@ export function RoadSurfaceIcon({ size = 16 }: IconProps) {
   );
 }
 
+/** 農道・林道の等級: 轍の2本線と、その間に生えた草。路面の種類（RoadSurfaceIcon）とは別のタグの話なので意匠を分ける */
+export function TrackGradeIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path d="M6.5 2 4 18M13.5 2 16 18" />
+      <path d="M9 15.5l1-2.5 1 2.5M9.4 9l.6-1.6.6 1.6" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 /** 注意喚起の三角＋感嘆符 */
 export function WarningTriangleIcon({ size = 16 }: IconProps) {
   return (

@@ -130,7 +130,9 @@ describe("状態を地図へ伝えた結果", () => {
     it("凡例で隠した分類は、その線から落ちる", () => {
       const { map, handle } = createRecordingMap();
 
-      rebuild(map as never, shown({ surface: true }, { hiddenLegendKeys: { surface: ["asphalt"] } }));
+      // 行の鍵は源泉の宣言から取る（書き写すと、行の鍵を変えたときにこの検査だけが黙って何も隠さなくなる）。
+      const firstRow = ROAD_TRACKS.find((track) => track.attr_id === "surface")!.display_axes[0].categories[0].key;
+      rebuild(map as never, shown({ surface: true }, { hiddenLegendKeys: { surface: [firstRow] } }));
 
       expect(handle.layer(roadLayerId("surface"))?.filter).toBeDefined();
     });
