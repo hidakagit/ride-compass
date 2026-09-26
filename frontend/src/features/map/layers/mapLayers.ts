@@ -103,14 +103,9 @@ export function isAxisStudioLayer(layer: {
   return layer.axisStudioLayer === true || layer.dataNature === "composite";
 }
 
-/** レイヤーが属するグループ。軸スタジオ由来のものは中分類だけ見るとどこかへ紛れ込むので、先に除く。 */
-export function mapOverlayGroupFor(layer: {
-  id: MapLayerId;
-  category?: MapLayerCategory;
-  dataNature?: MapLayerDataNature;
-  axisStudioLayer?: boolean;
-}): MapOverlayGroup | undefined {
-  if (isAxisStudioLayer(layer)) return undefined;
+/** チップが属するグループ。中分類だけで決めるので、軸スタジオ由来のレイヤー（中分類が観測のレイヤーと重なりうる）は
+ * 渡さない——チップの一覧（`features/map/view/overlayChips.ts: overlayChips`）が先に除く。 */
+export function mapOverlayGroupFor(layer: { category?: MapLayerCategory }): MapOverlayGroup | undefined {
   if (layer.category === undefined) return undefined;
   return GROUP_BY_CATEGORY[layer.category];
 }

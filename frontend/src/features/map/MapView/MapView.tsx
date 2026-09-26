@@ -507,7 +507,7 @@ export default function MapView({
 
     // 出典の表示は、データが載った時点でMapLibreが開いた状態（全文）にし、地図を一度ドラッグするまで閉じない。
     // その間ほかのUIと重なるため、同じイベントのたびに畳む。
-    const attribEl = mapContainerRef.current?.querySelector(".maplibregl-ctrl-attrib");
+    const attribEl = mapContainerRef.current.querySelector(".maplibregl-ctrl-attrib");
     function collapseAttribution() {
       attribEl?.classList.remove("maplibregl-compact-show");
     }

@@ -363,21 +363,18 @@ DBの`ROUTE_GENERATION_COMMAND_TIMEOUT_SECONDS`はクエリ1本ごとの上限�
 「ルート結果」欄へ出す（[page-composition.md](page-composition.md)の「生成に関する
 フィードバックの置き場」参照）。同じ見出し行には、生成条件が表示中の候補とずれている間だけ
 印（`conditionsDirty`）を出す——条件を変えている本人は設定側を見ているため。検証・送信ロジック自体は
-`useRouteFormSubmit`（`distance`・`maxRoutes`・`routeMode`・`waypointCount`・
-`destinationSet`・`onGenerate`を受け取り`{error, handleSubmit}`を返す）へ切り出し、
-`page.tsx`がヘッダーのボタンから直接呼ぶ。`isMaxRoutesRelevant(routeMode, waypointCount)`
-は`RouteForm`（候補数ステッパーの表示要否）・`useRouteFormSubmit`（検証要否）の両方が
-参照する単一の情報源。
+`useRouteFormSubmit`（`{error, handleSubmit}`を返す）へ切り出し、
+`page.tsx`がヘッダーのボタンから直接呼ぶ。候補数の指定が効くか（効かないならbackendの決まった数）は
+`useRouteFormSubmit.ts: fixedRouteCount`が1か所で決め、`RouteForm`（候補数ステッパーの表示）・
+`page.tsx`（送る値と「条件が変わった」の比較）が読む。
 
 距離は`<input type="range">`のスライダー、候補数は「‹ 8 › 件」のステッパー
 （-/+ボタン、`DynamicLayerTimeSlider`の1コマ送りボタンと同じ役割分担）にし、
 数値の直接入力欄は持たない（原則としてユーザーに数字を直接入力させない方針）。
-distance・maxRoutesはいずれもstring stateのまま親（`page.tsx`）が
-持ち、数値への変換は送信直前（`useRouteFormSubmit: handleSubmit`内の検証）でのみ行う。
-スライダー・ステッパーはmin/maxで値域を強制するため空文字・範囲外を作れず、
-`useRouteFormSubmit`側の距離・候補数の範囲検証は主に目的地モード（経由地を伴うと
-候補数ステッパーはbackendの決まった数〔`fixedRouteCount`〕を出して押せなくなり、その間も
-string stateとして残り続ける値に対する境界チェック）向けに残っている。目的地モードでは距離入力を出さない。想定速度はこの
+distance・maxRoutesはいずれもstring stateのまま親（`page.tsx`）が持ち、数値への変換は送るときに行う。
+**距離・候補数は検証しない**——スライダー・ステッパーはmin/maxで値域を強制するため空文字・範囲外を作れず、
+保存値も読むときに範囲の外を捨てる（`page.tsx`の`useStoredState`の`deserialize`）。`useRouteFormSubmit`が
+確かめるのは、目的地モードで地点が1つも無いことだけ。目的地モードでは距離入力を出さない。想定速度はこの
 フォームでは扱わない（地図右上の条件アイコン列`RideConditionBar`、page-composition.md参照）。
 候補数ステッパーは**モード切替と同じ行**に置く（どちらのモードでも効く共通の条件で、
 モードごとの入力［距離／地点］とは階層が違う。モードごとの中身の下に置くと、モードに

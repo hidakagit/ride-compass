@@ -75,9 +75,7 @@ describe("buildMapLayers（レイヤーの一覧）", () => {
 });
 
 describe("地図上チップのグループ", () => {
-  it("軸スタジオ由来・種別を持たないもの（ルート）はどのグループにも入れない", () => {
-    expect(mapOverlayGroupFor(layer(withAxes, "axis:ramp_a"))).toBeUndefined();
-    expect(mapOverlayGroupFor(layer(withAxes, "dedicated_bAxis"))).toBeUndefined();
+  it("種別を持たないもの（ルート）はどのグループにも入れない", () => {
     expect(mapOverlayGroupFor(layer(withoutAxes, "route"))).toBeUndefined();
   });
 });

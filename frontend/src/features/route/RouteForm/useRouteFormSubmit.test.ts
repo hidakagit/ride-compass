@@ -5,12 +5,8 @@ import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 
 import { fixedRouteCount, useRouteFormSubmit, type RouteMode } from "./useRouteFormSubmit";
 
-const MAX_DISTANCE_KM = routeGenerateConfig.max_distance_km;
-const MAX_ROUTES = routeGenerateConfig.max_routes;
-
 function submit(options: {
   distance?: string;
-  maxRoutes?: string;
   routeMode?: RouteMode;
   waypointCount?: number;
   destinationSet?: boolean;
@@ -19,7 +15,6 @@ function submit(options: {
   const { result } = renderHook(() =>
     useRouteFormSubmit({
       distance: "20",
-      maxRoutes: "3",
       routeMode: "loop",
       waypointCount: 0,
       destinationSet: false,
@@ -40,68 +35,10 @@ describe("fixedRouteCount（候補数の指定を使わない生成の、決ま�
 });
 
 describe("useRouteFormSubmit 周回", () => {
-  it("距離と候補数が正しければ、その距離で生成する", () => {
-    const { error, onGenerate } = submit({ distance: "25.5", maxRoutes: "4" });
+  it("入力の距離で生成する", () => {
+    const { error, onGenerate } = submit({ distance: "25.5" });
     expect(error).toBeNull();
     expect(onGenerate).toHaveBeenCalledWith(25.5);
-  });
-
-  it("距離が数値でない・0以下・上限を超えるなら生成せず、それぞれの文言を出す", () => {
-    for (const [distance, message] of [
-      ["", "距離は数値で入力してください。"],
-      ["abc", "距離は数値で入力してください。"],
-      ["0", "距離は0より大きい値を入力してください。"],
-      [String(MAX_DISTANCE_KM + 1), `距離は${MAX_DISTANCE_KM}km以下で入力してください。`],
-    ]) {
-      const { error, onGenerate } = submit({ distance });
-      expect(error).toBe(message);
-      expect(onGenerate).not.toHaveBeenCalled();
-    }
-    expect(submit({ distance: String(MAX_DISTANCE_KM) }).error).toBeNull();
-  });
-
-  it("候補数が整数でない・範囲の外なら生成せず、それぞれの文言を出す", () => {
-    for (const [maxRoutes, message] of [
-      ["", "候補数は整数で入力してください。"],
-      ["2.5", "候補数は整数で入力してください。"],
-      ["0", `候補数は1〜${MAX_ROUTES}件で入力してください。`],
-      [String(MAX_ROUTES + 1), `候補数は1〜${MAX_ROUTES}件で入力してください。`],
-    ]) {
-      const { error, onGenerate } = submit({ maxRoutes });
-      expect(error).toBe(message);
-      expect(onGenerate).not.toHaveBeenCalled();
-    }
-  });
-
-  it("候補数は1件と上限ちょうどを受け付ける", () => {
-    expect(submit({ maxRoutes: "1" }).error).toBeNull();
-    expect(submit({ maxRoutes: String(MAX_ROUTES) }).error).toBeNull();
-  });
-
-  it("距離と候補数の両方が誤っていれば、距離の文言を出す", () => {
-    expect(submit({ distance: "0", maxRoutes: "0" }).error).toBe("距離は0より大きい値を入力してください。");
-  });
-
-  it("誤りを直して押し直すと、文言が消えて生成する", () => {
-    const onGenerate = vi.fn();
-    let distance = "0";
-    const { result, rerender } = renderHook(() =>
-      useRouteFormSubmit({
-        distance,
-        maxRoutes: "3",
-        routeMode: "loop",
-        waypointCount: 0,
-        destinationSet: false,
-        onGenerate,
-      }),
-    );
-    act(() => result.current.handleSubmit());
-    expect(result.current.error).not.toBeNull();
-    distance = "10";
-    rerender();
-    act(() => result.current.handleSubmit());
-    expect(result.current.error).toBeNull();
-    expect(onGenerate).toHaveBeenCalledWith(10);
   });
 });
 
@@ -117,12 +54,18 @@ describe("useRouteFormSubmit 目的地", () => {
     expect(submit({ routeMode: "destination", waypointCount: 1, distance: "" }).onGenerate).toHaveBeenCalledWith(0);
   });
 
-  it("候補数は、効くとき（経由地が無い）だけ確かめる", () => {
-    expect(submit({ routeMode: "destination", destinationSet: true, maxRoutes: "0" }).error).toBe(
-      `候補数は1〜${MAX_ROUTES}件で入力してください。`,
+  it("地点を置いて押し直すと、文言が消えて生成する", () => {
+    const onGenerate = vi.fn();
+    let destinationSet = false;
+    const { result, rerender } = renderHook(() =>
+      useRouteFormSubmit({ distance: "20", routeMode: "destination", waypointCount: 0, destinationSet, onGenerate }),
     );
-    const withWaypoint = submit({ routeMode: "destination", destinationSet: true, waypointCount: 1, maxRoutes: "0" });
-    expect(withWaypoint.error).toBeNull();
-    expect(withWaypoint.onGenerate).toHaveBeenCalledWith(0);
+    act(() => result.current.handleSubmit());
+    expect(result.current.error).not.toBeNull();
+    destinationSet = true;
+    rerender();
+    act(() => result.current.handleSubmit());
+    expect(result.current.error).toBeNull();
+    expect(onGenerate).toHaveBeenCalledWith(0);
   });
 });

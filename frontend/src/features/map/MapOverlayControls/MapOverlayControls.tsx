@@ -5,7 +5,6 @@ import useEmblaCarousel from "embla-carousel-react";
 import { WheelGesturesPlugin } from "embla-carousel-wheel-gestures";
 import { useStoredState } from "@/hooks/useStoredState";
 import {
-  isAxisStudioLayer,
   LAYER_DATA_STATUS_LABELS,
   layerDataStatusNotice,
   MAP_LAYER_CATEGORY_ORDER,
@@ -15,7 +14,6 @@ import {
   mapOverlayGroupFor,
   type LayerDataStatus,
   type MapLayerCategory,
-  type MapLayerDataNature,
   type MapLayerId,
   type MapOverlayGroup,
 } from "@/features/map/layers/mapLayers";
@@ -70,9 +68,6 @@ export interface OverlayLayerChip {
   /** ▶を開いたときの、軸ごとの全カテゴリの内訳（表示中・非表示のどちらも含む）。 */
   legendDetails?: readonly LegendFilterSummaryAxis[];
   category?: MapLayerCategory;
-  dataNature?: MapLayerDataNature;
-  /** 軸スタジオ由来のレイヤーか。渡し漏れると専用way値配信軸が単独チップとして地図へ出る。 */
-  axisStudioLayer?: boolean;
   /** 「表示する項目を選ぶ」パネルで、この項目のⓘから開く説明。 */
   panelHint?: string;
   /** データの取得状態。ONの間だけ状態のドットと▶の中の一文で出す。 */
@@ -165,7 +160,7 @@ function LegendDetails({
   return (
     <div className="flex flex-col gap-2">
       {axes.map((axis, axisIndex) => (
-        <div key={axis.axisId ?? axis.label ?? axisIndex} className="flex flex-col gap-1">
+        <div key={axis.axisId ?? axisIndex} className="flex flex-col gap-1">
           {axis.axisId ? (
             // 1つのチェックボックスで両方向を兼ねる（全部表示中なら全部隠す、1つでも隠れていれば全部出す）。
             <label className="flex cursor-pointer items-center gap-1.5">
@@ -612,8 +607,8 @@ export default function MapOverlayControls({
       const members = layers.filter((layer) => mapOverlayGroupFor(layer) === group);
       return members.length > 0 ? [groupRow(group, members)] : [];
     }),
-    // どのグループにも属さないレイヤー（ルート等）は単独チップ。軸スタジオ由来のレイヤーは地図のチップに出さない。
-    ...layers.filter((layer) => !mapOverlayGroupFor(layer) && !isAxisStudioLayer(layer)).map(singleChip),
+    // どのグループにも属さないレイヤー（ルート等）は単独チップ。
+    ...layers.filter((layer) => !mapOverlayGroupFor(layer)).map(singleChip),
   ];
 
   return (

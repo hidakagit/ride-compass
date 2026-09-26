@@ -218,9 +218,7 @@ function weatherStateFrom(props: SceneWiringProps): WeatherState {
       if (source === undefined) continue;
       shown.set(`${groupId}/${sourceId}`, {
         visible: source.visible,
-        ...(source.payload === undefined || source.payload === null
-          ? {}
-          : { payload: weatherPayloadFrom(source.payload) }),
+        ...(source.payload === undefined ? {} : { payload: weatherPayloadFrom(source.payload) }),
       });
     }
   }

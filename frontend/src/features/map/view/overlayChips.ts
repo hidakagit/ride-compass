@@ -38,7 +38,8 @@ function chipLegends(layer: MapLayerDescriptor, screenLegends: readonly ChipLege
   ];
 }
 
-/** 地図上チップの一覧。軸スタジオ由来のレイヤーは出さない——表示はレンズだけが決める。 */
+/** 地図上チップの一覧。軸スタジオ由来のレイヤーは出さない——表示はレンズだけが決める。チップの束ね方
+ * （`mapLayers.ts: mapOverlayGroupFor`）は中分類しか見ないので、除くのはここの1か所で、束ねる前に除く。 */
 export function overlayChips(options: {
   layers: readonly MapLayerDescriptor[];
   visibility: MapLayerVisibility;
@@ -80,8 +81,6 @@ export function overlayChips(options: {
           }),
         ),
         category: layer.category,
-        dataNature: layer.dataNature,
-        axisStudioLayer: layer.axisStudioLayer,
         panelHint: layer.panelHint,
         // 世代が無いとソースを作らないため、MapLibreのイベントは何も言わない。
         dataStatus: versionMissing ? (catalogSettled ? "error" : "loading") : options.dataStatus[layer.id],

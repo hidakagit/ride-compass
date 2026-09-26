@@ -120,7 +120,7 @@ export function selectFrame<T>(
   }
   const index =
     rule.kind === "latestObservation"
-      ? observationIndexForTime(frames, at, (rule.windowMinutes ?? 0) * MINUTE_MS)
+      ? observationIndexForTime(frames, at, rule.windowMinutes * MINUTE_MS)
       : frameIndexForTime(frames, at);
   return index === null ? undefined : frames[index];
 }

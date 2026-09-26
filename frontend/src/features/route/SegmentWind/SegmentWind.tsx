@@ -2,6 +2,7 @@ import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
 import { textVariants } from "@/components/ui/Text/Text";
 import { cardinalLabel } from "@/lib/cardinalLabel";
 import { cn } from "@/lib/cn";
+import { formatJstHourMinute, parseJstLocalValue } from "@/lib/time";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import type { RouteSegmentDetail } from "@/types/route";
 
@@ -12,7 +13,8 @@ const HOURS_PER_LEG = routeGenerateConfig.wind_forecast_hours_per_leg;
 export default function SegmentWind({ wind }: { wind: RouteSegmentDetail["wind"] }) {
   // backendより先にこの画面が出ると、応答に`wind`が無い（undefined）。
   if (wind == null) return null;
-  const when = wind.forecast_at == null ? "出発時点の風" : `${wind.forecast_at.slice(11, 16)}の予報`;
+  const when =
+    wind.forecast_at == null ? "出発時点の風" : `${formatJstHourMinute(parseJstLocalValue(wind.forecast_at))}の予報`;
   return (
     <p className={cn(textVariants({ variant: "hint" }), "m-0 inline-flex flex-wrap items-baseline gap-x-1")}>
       <span>

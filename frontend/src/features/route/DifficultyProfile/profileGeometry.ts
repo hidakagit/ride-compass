@@ -60,7 +60,7 @@ export function profileBoxes(
   const missing: ProfileBox[] = [];
   for (const { segment, startKm, endKm } of columns) {
     if (endKm <= startKm) continue;
-    if (segment.difficulty === null || segment.difficulty === undefined) {
+    if (segment.difficulty === null) {
       if (averageDifficulty !== null && averageDifficulty > 0) {
         missing.push({ startKm, endKm, bottom: 0, top: averageDifficulty });
       }

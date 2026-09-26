@@ -13,12 +13,12 @@ const FAILED_CATALOG: AxisCatalog = { ...EMPTY_CATALOG, failed: true };
 async function fetchAxisCatalog(): Promise<AxisCatalog> {
   const response = await getAxisCatalog();
   // タイルの世代は地図のソースのURLに入るため、カタログより先に渡す。
-  setTileVersions(response.tile_versions ?? {});
+  setTileVersions(response.tile_versions);
   return axisCatalogFromResponse(
     response.axes,
-    response.material_runtime_scales ?? {},
-    response.client_tuning ?? {},
-    response.accident_years ?? [],
+    response.material_runtime_scales,
+    response.client_tuning,
+    response.accident_years,
   );
 }
 

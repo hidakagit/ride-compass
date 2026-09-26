@@ -29,9 +29,7 @@ const TestIcon = () => <svg />;
 
 /** グループごとの、源泉の並びで先頭のカテゴリ。 */
 function categoriesOf(group: MapOverlayGroup): MapLayerCategory[] {
-  return MAP_LAYER_CATEGORY_ORDER.filter(
-    (category) => mapOverlayGroupFor({ id: "x" as MapLayerId, category }) === group,
-  );
+  return MAP_LAYER_CATEGORY_ORDER.filter((category) => mapOverlayGroupFor({ category }) === group);
 }
 const [ROAD, ENVIRONMENT] = MAP_OVERLAY_GROUP_ORDER;
 const ROAD_LABEL = MAP_OVERLAY_GROUP_LABELS[ROAD];
@@ -205,16 +203,11 @@ describe("チップの印", () => {
 });
 
 describe("グループ", () => {
-  it("レイヤーを源泉のグループへ束ね、グループの並びのあとに単独のチップを並べる。軸スタジオ由来のレイヤーは出さない", () => {
+  it("レイヤーを源泉のグループへ束ね、グループの並びのあとに単独のチップを並べる", () => {
     const members = MAP_OVERLAY_GROUP_ORDER.map((group) =>
       chip(`member_${group}`, { category: categoriesOf(group)[0] }),
     );
-    setup([
-      chip("route"),
-      ...members.reverse(),
-      roadMember("ramp_axis", { dataNature: "composite" }),
-      chip("dedicated_axis", { axisStudioLayer: true }),
-    ]);
+    setup([chip("route"), ...members.reverse()]);
     const chipNames = screen
       .getAllByRole("button")
       .filter((button) => !button.getAttribute("aria-label"))

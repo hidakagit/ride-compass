@@ -21,7 +21,7 @@
 | `lib/mapDisplay/__fixtures__/catalogAxes.ts` | 軸カタログの軸（backendの契約から生成した型そのもの）を組む雛形（テスト専用。e2eのモックも使う）。**実際の公開軸を入力に使わない**——軸の集合はDBが持つ。既定値は型を満たすための空だけで、見たい性質は呼び出し側が書く |
 | `lib/mapDisplay/mapColorLegend.ts` | 地図上の色分け凡例（`MapColorLegendBand`型・`buildRangeLegendBands`・`rangeStepLabel`）の共通ロジックと、値が無い行（`NO_DATA_LEGEND_BAND`）。凡例を作る関数（`features/map/view/lens.ts`）・道の属性の凡例（`features/map/scene/legends.ts`）と管理画面が使う |
 | `features/map/LensControl/LensControl.tsx` | レンズ（地図を何で塗るか）の唯一の入口。地図上部中央のピルが現在のレンズと凡例を示し、タップで単一選択の一覧（なし／総合難易度／評価に使用中の軸／未使用の軸）と「ルート後も周囲の道路を薄く塗る」トグルを開く（`page.tsx`が選択肢・凡例を組み立てる） |
-| `features/map/layers/mapLayers.ts` | `isAxisStudioLayer`（レイヤーID判定）・専用配信軸のレイヤーIDの導出（`dedicatedWayValueMapLayerId`） |
+| `features/map/layers/mapLayers.ts` | `isAxisStudioLayer`（記述子の印で判定。地図上チップの一覧`overlayChips`が除くのに使う）・専用配信軸のレイヤーIDの導出（`dedicatedWayValueMapLayerId`） |
 | `features/map/MapView/MapView.tsx`（専用way値配信軸・ルート線の区間クリックの箇所のみ） | 画面の状態を宣言の入力へ渡すだけの配線（下記「MapView.tsx側の配線」）。軸ごとの処理は持たない |
 | `features/map/scene/groups/routes.ts` | 色分け線そのものを引く側。レンズの配色式・凡例フィルタを受け取ってMapLibreの線レイヤーへ流す |
 | `lib/mapDisplay/axisLayers.ts`（`DedicatedWayValueAxis`関連のみ） | 軸カタログ→専用way値配信軸一覧の変換（`dedicatedWayValueAxesFromCatalogAxes`。表示宣言`display`も同じ行から軸へ載せる） |

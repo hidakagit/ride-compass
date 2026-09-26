@@ -294,7 +294,6 @@ export default function Home() {
   // 「ルート生成」の検証と送信（handleGenerateは関数宣言なので後ろで定義していても読める）。
   const routeFormSubmit = useRouteFormSubmit({
     distance: distanceInput,
-    maxRoutes: maxRoutesInput,
     routeMode,
     waypointCount: waypoints.length,
     destinationSet: destination !== null,
@@ -868,7 +867,7 @@ export default function Home() {
     if (loading) {
       return <p className={textVariants({ variant: "hint" })}>{generationProgressLabel ?? "生成中..."}</p>;
     }
-    const failure = routeFormSubmit.error ?? (generation.status === "idle" ? generation.notice?.message : null);
+    const failure = routeFormSubmit.error ?? generation.notice?.message;
     if (failure) {
       return <ErrorText>{failure}</ErrorText>;
     }

@@ -427,17 +427,16 @@ backendが200で応答する窓では、カタログは取得済みなのに世�
 
 ## 最上位グルーピング（道路/環境/スポット）
 
-`mapLayers.ts: mapOverlayGroupFor(layer)`がレイヤーIDを3グループへ分類する。
+`mapLayers.ts: mapOverlayGroupFor(layer)`がチップを`category`からグループへ分類する。
 **どのレイヤーがどの`category`かは源泉が宣言する**（`domain/map_display.py`。`category`→
 グループの対応と同じ場所）——画面が持つのは描画の都合だけで、束ね方の所属はそこに入らない。
-`isAxisStudioLayer`（`dedicated_way_value_layer`軸[記述子の`axisStudioLayer`が立つ]・
-ramp軸[`dataNature==="composite"`]）に該当するものは`undefined`（地図上チップ・サイドバーの
-どちらにも一切出さない——ルート設定パネルへ移設済み、[ページ構成](page-composition.md)参照）。
+軸スタジオ由来のレイヤー（`isAxisStudioLayer`: `dedicated_way_value_layer`軸[記述子の`axisStudioLayer`が立つ]・
+ramp軸[`dataNature==="composite"`]）はチップの一覧（`features/map/view/overlayChips.ts: overlayChips`）が
+**束ねる前に1か所で**除く（地図上チップのどこにも出さない。表示はレンズが持つ）。
 
-**暗黙の前提**: `mapOverlayGroupFor`は`isAxisStudioLayer`を最初にチェックしてから
-`category`値を見る。`category`だけでは判別できない（例: `car_stress`の
-`category="trafficSafety"`は`accidents`等と同じ値のため、`isAxisStudioLayer`のガードが
-無いと誤って「スポット」グループへ紛れ込む）。
+**暗黙の前提**: `mapOverlayGroupFor`は`category`しか見ないので、軸スタジオ由来のレイヤーを渡すと
+グループへ紛れ込む（例: `car_stress`の`category="trafficSafety"`は`accidents`等と同じ値）。
+チップの一覧を通さずにレイヤーを束ねる場所を作るなら、同じ除外を先に通す。
 
 グループは表示上のまとまりだけを表し、**どのレイヤーも複数同時にONにできる**。重なって
 読みにくくなった場合は、各チップの▶パネルで要素・カテゴリ単位に絞り込む（下記「凡例

@@ -59,7 +59,7 @@ function pointAxisLegend(layer: (typeof POINT_LAYERS)[number], axis: PointAxis, 
   return {
     layerId: layer.attr_id,
     axisId: pointAxisKey(layer, axis),
-    label: axis.label ?? "",
+    label: axis.label,
     entries: axis.categories.map((category) =>
       index === 0 && "color" in category
         ? { key: category.key, label: category.label, color: category.color }
