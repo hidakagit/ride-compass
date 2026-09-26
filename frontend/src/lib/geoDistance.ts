@@ -3,7 +3,7 @@ import type { Coordinates } from "@/types/route";
 const EARTH_RADIUS_KM = 6371;
 
 /** 2点間の大円距離（km）。 */
-export function haversineKm(a: Coordinates, b: Coordinates): number {
+function haversineKm(a: Coordinates, b: Coordinates): number {
   const toRad = (deg: number) => (deg * Math.PI) / 180;
   const dLat = toRad(b.latitude - a.latitude);
   const dLon = toRad(b.longitude - a.longitude);

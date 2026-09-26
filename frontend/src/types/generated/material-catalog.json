@@ -5,7 +5,8 @@
     "description": "国土地理院の標高データから算出した進行方向の勾配（%）。登り坂はプラス、下り坂はマイナスです。",
     "dtype": "numeric",
     "unit": "%",
-    "value_labels": null
+    "value_labels": null,
+    "tile_property": null
   },
   {
     "material_id": "wind_drag_ratio",
@@ -13,7 +14,8 @@
     "description": "出発時刻の気象予報・ルートの進行方向・想定速度から、相対風速の二乗則で求めた空気抵抗の増分（時速20kmで無風のときの空気抵抗を1とする倍率）。プラス=向かい風で重くなる、マイナス=追い風で楽になる、真横の風は小さなプラス。同じ風でも速く走るほど値が大きくなります。目安（時速20km）: 向かい風2m/s→0.85、向かい風4m/s→1.96、向かい風8m/s→4.95、追い風4m/s→-0.92、真横4m/s→0.23、走行速度と同じ追い風→-1.0。",
     "dtype": "numeric",
     "unit": "",
-    "value_labels": null
+    "value_labels": null,
+    "tile_property": null
   },
   {
     "material_id": "trees_percent",
@@ -21,7 +23,8 @@
     "description": "衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、道路周囲100mリング内の樹木被覆の割合(%)。",
     "dtype": "numeric",
     "unit": "%",
-    "value_labels": null
+    "value_labels": null,
+    "tile_property": "trees_pct"
   },
   {
     "material_id": "built_percent",
@@ -29,7 +32,8 @@
     "description": "衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、道路周囲100mリング内の建物被覆の割合(%)。",
     "dtype": "numeric",
     "unit": "%",
-    "value_labels": null
+    "value_labels": null,
+    "tile_property": "built_pct"
   },
   {
     "material_id": "crops_percent",
@@ -37,7 +41,8 @@
     "description": "衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、道路周囲100mリング内の農地の割合(%)。",
     "dtype": "numeric",
     "unit": "%",
-    "value_labels": null
+    "value_labels": null,
+    "tile_property": "crops_pct"
   },
   {
     "material_id": "rangeland_percent",
@@ -45,7 +50,8 @@
     "description": "衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、道路周囲100mリング内の草地の割合(%)。",
     "dtype": "numeric",
     "unit": "%",
-    "value_labels": null
+    "value_labels": null,
+    "tile_property": "rangeland_pct"
   },
   {
     "material_id": "water_percent",
@@ -53,7 +59,8 @@
     "description": "衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、道路周囲100mリング内の水面の割合(%)。",
     "dtype": "numeric",
     "unit": "%",
-    "value_labels": null
+    "value_labels": null,
+    "tile_property": "water_pct"
   },
   {
     "material_id": "bare_percent",
@@ -61,7 +68,8 @@
     "description": "衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、道路周囲100mリング内の裸地（河川敷・造成地等）の割合(%)。",
     "dtype": "numeric",
     "unit": "%",
-    "value_labels": null
+    "value_labels": null,
+    "tile_property": "bare_pct"
   },
   {
     "material_id": "flooded_veg_percent",
@@ -69,7 +77,8 @@
     "description": "衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、道路周囲100mリング内の湿地（冠水植生）の割合(%)。",
     "dtype": "numeric",
     "unit": "%",
-    "value_labels": null
+    "value_labels": null,
+    "tile_property": "flooded_veg_pct"
   },
   {
     "material_id": "snow_ice_percent",
@@ -77,7 +86,8 @@
     "description": "衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、道路周囲100mリング内の雪氷の割合(%)。",
     "dtype": "numeric",
     "unit": "%",
-    "value_labels": null
+    "value_labels": null,
+    "tile_property": "snow_ice_pct"
   },
   {
     "material_id": "surface_good",
@@ -85,7 +95,8 @@
     "description": "OSMの路面タグ(surface)から判定した舗装の良否。true=舗装良好、false=未舗装等。",
     "dtype": "boolean",
     "unit": "",
-    "value_labels": null
+    "value_labels": null,
+    "tile_property": "surface_good"
   },
   {
     "material_id": "intersection_count_per_km",
@@ -93,7 +104,8 @@
     "description": "接続する道路が3本以上ある交差点の1kmあたりの発生回数。",
     "dtype": "numeric",
     "unit": "回/km",
-    "value_labels": null
+    "value_labels": null,
+    "tile_property": "intersection_per_km"
   },
   {
     "material_id": "accident_count_per_km_year",
@@ -101,7 +113,8 @@
     "description": "警察庁の事故データに基づく、1kmあたり・1年あたりの人身事故件数。",
     "dtype": "numeric",
     "unit": "件/(km・年)",
-    "value_labels": null
+    "value_labels": null,
+    "tile_property": "accident_per_km"
   },
   {
     "material_id": "lit",
@@ -109,7 +122,8 @@
     "description": "OSMの街灯タグ(lit=yes)に該当する区間はtrue。タグ不在はfalse（街灯なし扱い）。",
     "dtype": "boolean",
     "unit": "",
-    "value_labels": null
+    "value_labels": null,
+    "tile_property": "lit"
   },
   {
     "material_id": "has_tunnel",
@@ -117,7 +131,8 @@
     "description": "OSMのトンネルタグ(tunnel=yes)に該当する区間はtrue。",
     "dtype": "boolean",
     "unit": "",
-    "value_labels": null
+    "value_labels": null,
+    "tile_property": "tunnel"
   },
   {
     "material_id": "bridge",
@@ -125,7 +140,8 @@
     "description": "OSMの橋・高架タグ(bridge=yes)に該当する区間はtrue。",
     "dtype": "boolean",
     "unit": "",
-    "value_labels": null
+    "value_labels": null,
+    "tile_property": "bridge"
   },
   {
     "material_id": "motor_vehicle_no",
@@ -133,7 +149,8 @@
     "description": "OSMのタグ(motor_vehicle=no)から判定した、自動車が通行できない区間かどうか。",
     "dtype": "boolean",
     "unit": "",
-    "value_labels": null
+    "value_labels": null,
+    "tile_property": "motor_vehicle_no"
   },
   {
     "material_id": "oneway",
@@ -141,7 +158,8 @@
     "description": "OSMのタグから判定した一方通行区間かどうか。現時点では評価軸の材料として配線されておらず、選んでもこの軸は常に「データなし」として扱われます（地図表示専用）。",
     "dtype": "boolean",
     "unit": "",
-    "value_labels": null
+    "value_labels": null,
+    "tile_property": "oneway"
   },
   {
     "material_id": "maxspeed_kmh",
@@ -149,7 +167,8 @@
     "description": "OSMの制限速度タグ(maxspeed)から解析した制限速度（km/h）。",
     "dtype": "numeric",
     "unit": "km/h",
-    "value_labels": null
+    "value_labels": null,
+    "tile_property": "maxspeed_kmh"
   },
   {
     "material_id": "lanes_count",
@@ -157,7 +176,8 @@
     "description": "OSMの車線数タグ(lanes)から解析した車線数。",
     "dtype": "numeric",
     "unit": "",
-    "value_labels": null
+    "value_labels": null,
+    "tile_property": "lanes_count"
   },
   {
     "material_id": "highway",
@@ -188,7 +208,8 @@
       "bridleway": "乗馬道",
       "steps": "階段",
       "track": "農道・林道"
-    }
+    },
+    "tile_property": "highway"
   },
   {
     "material_id": "surface",
@@ -221,7 +242,8 @@
       "sand": "砂",
       "grass": "芝・草地",
       "woodchips": "ウッドチップ"
-    }
+    },
+    "tile_property": "surface"
   },
   {
     "material_id": "highway_is_cycleway",
@@ -229,7 +251,8 @@
     "description": "道路種別(highway)自体が自転車道(cycleway)かどうか。",
     "dtype": "boolean",
     "unit": "",
-    "value_labels": null
+    "value_labels": null,
+    "tile_property": "highway_is_cycleway"
   },
   {
     "material_id": "cycleway_has_track",
@@ -237,7 +260,8 @@
     "description": "車道と分離された自転車道(cycleway=track)を併設しているかどうか。",
     "dtype": "boolean",
     "unit": "",
-    "value_labels": null
+    "value_labels": null,
+    "tile_property": "cycleway_has_track"
   },
   {
     "material_id": "cycleway_has_lane",
@@ -245,7 +269,8 @@
     "description": "車道上に線で区切られた自転車レーン(cycleway=lane)を併設しているかどうか。",
     "dtype": "boolean",
     "unit": "",
-    "value_labels": null
+    "value_labels": null,
+    "tile_property": "cycleway_has_lane"
   },
   {
     "material_id": "cycleway_has_shared",
@@ -253,7 +278,8 @@
     "description": "バス専用レーン共用など、簡易な自転車レーン(cycleway=share_busway/shared_lane)を併設しているかどうか。",
     "dtype": "boolean",
     "unit": "",
-    "value_labels": null
+    "value_labels": null,
+    "tile_property": "cycleway_has_shared"
   },
   {
     "material_id": "shared_pedestrian_path",
@@ -261,7 +287,8 @@
     "description": "車道と分離された歩行者道のうち、自転車の通行が認められている区間（河川敷サイクリングロード等、highway=footway/pathかつbicycle=yes/designated）かどうか。",
     "dtype": "boolean",
     "unit": "",
-    "value_labels": null
+    "value_labels": null,
+    "tile_property": "shared_pedestrian_path"
   },
   {
     "material_id": "smoothness",
@@ -278,7 +305,8 @@
       "horrible": "劣悪",
       "very_horrible": "極めて劣悪",
       "impassable": "通行不能"
-    }
+    },
+    "tile_property": "smoothness"
   },
   {
     "material_id": "tracktype",
@@ -286,7 +314,8 @@
     "description": "OSMの未舗装路グレードタグ(tracktype)の生値（grade1[良好]〜grade5[粗悪]）。",
     "dtype": "categorical",
     "unit": "",
-    "value_labels": null
+    "value_labels": null,
+    "tile_property": null
   },
   {
     "material_id": "poi_signal_per_km",
@@ -294,7 +323,8 @@
     "description": "進行する道路上にある信号の、1kmあたりの数。",
     "dtype": "numeric",
     "unit": "回/km",
-    "value_labels": null
+    "value_labels": null,
+    "tile_property": "poi_signal_per_km"
   },
   {
     "material_id": "poi_crossing_per_km",
@@ -302,7 +332,8 @@
     "description": "進行する道路上にある横断歩道(信号なし)の、1kmあたりの数。",
     "dtype": "numeric",
     "unit": "回/km",
-    "value_labels": null
+    "value_labels": null,
+    "tile_property": "poi_crossing_per_km"
   },
   {
     "material_id": "poi_stop_per_km",
@@ -310,7 +341,8 @@
     "description": "進行する道路上にある一時停止・徐行の、1kmあたりの数。",
     "dtype": "numeric",
     "unit": "回/km",
-    "value_labels": null
+    "value_labels": null,
+    "tile_property": "poi_stop_per_km"
   },
   {
     "material_id": "poi_level_crossing_per_km",
@@ -318,7 +350,8 @@
     "description": "進行する道路上にある踏切の、1kmあたりの数。",
     "dtype": "numeric",
     "unit": "回/km",
-    "value_labels": null
+    "value_labels": null,
+    "tile_property": "poi_level_crossing_per_km"
   },
   {
     "material_id": "poi_barrier_per_km",
@@ -326,6 +359,7 @@
     "description": "進行する道路上にある車止め・減速構造の、1kmあたりの数。",
     "dtype": "numeric",
     "unit": "回/km",
-    "value_labels": null
+    "value_labels": null,
+    "tile_property": "poi_barrier_per_km"
   }
 ]

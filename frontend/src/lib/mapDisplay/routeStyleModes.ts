@@ -85,15 +85,13 @@ function buildRangeSteppedMode(options: {
 function routeColorableModeFromAxis(axis: AxisCatalogEntry): RouteStyleMode {
   const kind: MapValueKind = axis.map_value_kind;
   const boundaries = axis.map_value_thresholds ?? DEFAULT_DIFFICULTY_BOUNDARIES;
-  // backendは`map_value_kind`が`signed_material`になる条件としてterms 1件を要求するが
-  // （domain/dynamic_way_values.py）、その不変条件はカタログのJSONには現れない。
-  // 材料が引けないときは難易度モードへ倒す（塗れないより、軸の難易度で塗る方が近い）。
-  const signedMaterial = axis.shape.kind === "breakpoint_linear" ? axis.shape.terms[0]?.material : undefined;
-  if (kind === "signed_material" && signedMaterial) {
+  // 生値を塗る材料はbackendが名指す（`map_value_material`）。名指しが無ければ難易度モードへ倒す
+  // （塗れないより、軸の難易度で塗る方が近い）。
+  if (kind === "signed_material" && axis.map_value_material !== null) {
     return buildRangeSteppedMode({
       id: axis.axis_id,
       label: axis.label,
-      valueExpression: ["get", signedMaterial, ["get", "material_values"]],
+      valueExpression: ["get", axis.map_value_material, ["get", "material_values"]],
       kind,
       boundaries,
       unit: axis.map_value_unit,

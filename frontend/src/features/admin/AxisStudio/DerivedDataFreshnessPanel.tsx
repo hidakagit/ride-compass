@@ -10,9 +10,7 @@ function formatRunId(value: number | null): string {
   return value === null ? "-" : `#${value}`;
 }
 
-/** 表1つぶんの状態。「取込が新しくなったのに派生が古い」と「値の列に未計算が残っている」は
- * 判定の方式が違うが、読み手が知りたいのは「作り直しが要るかどうか」で同じ。行の見た目を
- * 揃え、方式の違いは開いた先の中身で表す。 */
+/** 表1つぶんの状態。作り直しが要るかはbackendが決め（`needs_rebuild`）、理由の違いは開いた先の中身で表す。 */
 function rowsFromReport(report: DerivedDataFreshnessResponse): StatusRow[] {
   return report.tables.map((table) => {
     const incomplete = table.columns.filter((column) => column.is_incomplete);
@@ -22,7 +20,7 @@ function rowsFromReport(report: DerivedDataFreshnessResponse): StatusRow[] {
     return {
       name: table.table_name,
       scale: `${formatCount(table.row_count)}行`,
-      flagged: table.is_stale || incomplete.length > 0 || missing > 0,
+      flagged: table.needs_rebuild,
       detail: [
         {
           label: table.source ?? "取込",

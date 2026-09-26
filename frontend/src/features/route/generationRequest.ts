@@ -10,8 +10,8 @@ import type { Coordinates, HardFilterOverride, RouteGenerateRequest, RoutePrefer
 /** 生成リクエストを決める入力一式（画面の状態から実効値へ解決済み）。 */
 export interface GenerationInput {
   origin: Coordinates;
-  /** 実効距離（目的地モードは指定点の最遠距離から自動算出した値）。 */
-  distanceKm: number;
+  /** 周回の目標距離。経由地・目的地を置いたときはnull（探索の範囲はbackendが置いた点から決める）。 */
+  distanceKm: number | null;
   distanceToleranceKm: number;
   /** 実際に使う候補数（経由地を伴う目的地ルートは決まった数、`fixedRouteCount`）。 */
   maxRoutes: number;
@@ -35,7 +35,7 @@ export function buildGenerateRequest(input: GenerationInput): RouteGenerateReque
   return {
     latitude: input.origin.latitude,
     longitude: input.origin.longitude,
-    distance_km: input.distanceKm,
+    ...(input.distanceKm !== null ? { distance_km: input.distanceKm } : {}),
     distance_tolerance_km: input.distanceToleranceKm,
     route_type: "loop",
     // 主観と時間の換算レート（P）は**送らない**。このAPIでは省略が「較正値から読む」の

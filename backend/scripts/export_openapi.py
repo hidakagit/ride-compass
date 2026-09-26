@@ -142,6 +142,7 @@ from app.services.route_generator import (  # noqa: E402
     SPLICED_ROUTE_ID,
 )
 from app.config import Settings  # noqa: E402
+from app.domain.loop_routing import WAYPOINTS_ROUTE_ID  # noqa: E402
 from app.domain.region import MAX_MERCATOR_LATITUDE  # noqa: E402
 from app.domain.route_preference import MAX_AXIS_WEIGHT  # noqa: E402
 from app.domain.tuning import client_tuning_values  # noqa: E402
@@ -475,6 +476,8 @@ def main() -> None:
                 "dtype": spec.dtype,
                 "unit": spec.unit,
                 "value_labels": dict(spec.value_labels) if spec.value_labels else None,
+                # 路面タイルがこの材料を載せる属性の名前（載せない材料はnull）。
+                "tile_property": spec.tile_property,
             }
             for spec in MATERIAL_CATALOG.values()
         ],
@@ -539,6 +542,7 @@ def main() -> None:
             "default_assumed_speed_kmh": ASSUMED_SPEED_KMH,
             "default_distance_tolerance_km": DEFAULT_DISTANCE_TOLERANCE_KM,
             "spliced_route_id": SPLICED_ROUTE_ID,
+            "waypoints_route_id": WAYPOINTS_ROUTE_ID,
             "max_axis_weight": MAX_AXIS_WEIGHT,
             "min_assumed_speed_kmh": MIN_ASSUMED_SPEED_KMH,
             "max_assumed_speed_kmh": MAX_ASSUMED_SPEED_KMH,

@@ -9,6 +9,9 @@ from typing import Any
 
 from app.domain.geo import compass_label
 
+#: 経由地・目的地を置いたルートのid。方位を持たないため、画面はタブに順位番号を付けず`direction_label`を出す。
+WAYPOINTS_ROUTE_ID = "route-waypoints"
+
 
 @dataclass
 class LoopTurnaround:
@@ -52,5 +55,5 @@ def candidate_identity(bearing: int | None) -> dict[str, str]:
     複数の候補が並びうるため、方位由来のidは一意にならない。
     """
     if bearing is None:
-        return {"id": "route-waypoints", "direction_label": "経由地ルート"}
+        return {"id": WAYPOINTS_ROUTE_ID, "direction_label": "経由地ルート"}
     return {"id": f"route-{bearing:03d}", "direction_label": compass_label(bearing)}

@@ -90,7 +90,7 @@ localStorageキーは`ridecompass:route-style-mode`）。ルート前は全道�
 参照）。
 
 `map_value_kind==="signed_material"`の場合、値は`axis_difficulties[axis_id]`ではなく
-`material_values`から`shape.terms[0].material`（生材料、例: `gradient_percent`）を
+`material_values`からbackendが名指す材料（軸カタログの`map_value_material`。生材料、例: `gradient_percent`）を
 `["get", material, ["get", "material_values"]]`で直接読む——向き（登り/下り）は
 絶対値化されたdifficultyでは表現できないため。
 

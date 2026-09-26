@@ -15,6 +15,7 @@
 """
 
 import asyncio
+import math
 from collections import defaultdict
 from datetime import datetime
 
@@ -24,6 +25,7 @@ import pytest
 from app.api import dependencies
 from app.api.routers import routes
 from app.config import settings
+from app.domain.geo import haversine_distance_km
 from app.domain.hard_filters import DEFAULT_HARD_FILTERS, HARD_FILTER_NAMES
 from app.domain.tuning import TUNING_VALUES
 from app.infrastructure import rate_limiter, road_network_store
@@ -45,6 +47,7 @@ from tests.route_world import (
 #: ASGIの代役がHTTPの相手として名乗る番地（レート制限の鍵になる）。
 CLIENT_HOST = "127.0.0.1"
 FAR_AWAY = {"latitude": 35.80, "longitude": 139.80}  # 格子から約25km。道が無い
+BEYOND_REACH = {"latitude": 37.0, "longitude": 139.8}  # 格子から100km超
 
 
 def _point(osm_node_id):
@@ -230,6 +233,18 @@ async def test_the_departure_time_is_read_in_japan_time(client, sent, applied):
     assert conditions["start_time"].endswith("+09:00")
 
 
+async def test_a_destination_route_searches_as_far_as_the_farthest_point_whatever_distance_is_sent(client):
+    """点を置いたときの距離は探索の範囲で、backendが点から決める（最も遠い点の距離を切り上げて1km足す）。"""
+    origin = at(SOUTH_WEST)
+    farthest = max(haversine_distance_km(origin, at(node)) for node in (CENTER, NORTH_EAST))
+    for sent in ({}, {"distance_km": 0.5}):
+        conditions = (await _generate(
+            client, **_point(SOUTH_WEST), waypoints=[_point(CENTER)], destination=_point(NORTH_EAST), **sent,
+        ))["result"]["conditions"]
+
+        assert conditions["distance_km"] == math.ceil(farthest) + 1
+
+
 async def test_a_destination_moved_to_the_nearest_reachable_road_is_echoed(client, world):
     world.network = grid_network(island=True)
 
@@ -253,7 +268,8 @@ async def test_a_destination_moved_to_the_nearest_reachable_road_is_echoed(clien
     {"hard_filters": {}},
     {"hard_filters": {**{name: True for name in HARD_FILTER_NAMES}, "no_such_filter": True}},
     {"spliced_edge_ids": ["way-100-seg0-fwd"]},                       # 目的地が無い
-    {"destination": FAR_AWAY},                                       # 起点から目標距離より遠い
+    {"destination": BEYOND_REACH},                                   # 起点から生成できる距離より遠い
+    {"distance_km": None},                                           # 周回なのに目標距離が無い
     {"waypoints": [_point(CENTER)] * 9},
 ])
 async def test_a_request_outside_what_can_be_generated_is_refused_before_any_job(client, body):

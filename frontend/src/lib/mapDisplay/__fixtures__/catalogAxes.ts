@@ -48,6 +48,7 @@ export function catalogEntry(
     display_band_labels_override: null,
     dedicated_way_value_layer: false,
     map_value_kind: "difficulty",
+    map_value_material: null,
     map_value_unit: "",
     map_value_thresholds: null,
     raw_value_unit: null,

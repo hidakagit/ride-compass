@@ -512,7 +512,7 @@ describe("生成リクエスト", () => {
     expect(request.lens_axis_id).toBeUndefined();
   });
 
-  it("目的地は、置いた点のうち最も遠いものより長い距離（km単位へ切り上げて1km足す）と、経由地を置いた順に送る", async () => {
+  it("目的地は距離を送らず（探索の範囲はbackendが置いた点から決める）、経由地を置いた順に送る", async () => {
     const user = renderPage();
     await chooseDestinationMode(user);
     await user.click(screen.getByRole("button", { name: "経由地を追加" }));
@@ -522,19 +522,11 @@ describe("生成リクエスト", () => {
     act(() => map().onPinPlace("destination", HALFWAY));
     await generate(user);
     expect(lastRequest()).toMatchObject({
-      distance_km: 13,
       waypoints: [NEAR, { latitude: 35.02, longitude: 139 }],
       destination: HALFWAY,
       max_routes: routeGenerateConfig.routes_with_waypoints,
     });
-  });
-
-  it("目的地までの距離は、生成できる距離の上限で頭打ちにする", async () => {
-    const user = renderPage();
-    await chooseDestinationMode(user);
-    act(() => map().onPinPlace("destination", FAR));
-    await generate(user);
-    expect(lastRequest().distance_km).toBe(routeGenerateConfig.max_distance_km);
+    expect(lastRequest().distance_km).toBeUndefined();
   });
 
   it("経由地の無い目的地は、候補数の入力をそのまま送る", async () => {
@@ -546,13 +538,14 @@ describe("生成リクエスト", () => {
     expect(lastRequest().max_routes).toBe(routeGenerateConfig.default_max_routes + 1);
   });
 
-  it("目的地を置かず経由地だけでも、経由地から距離を決めて送り、目的地は送らない", async () => {
+  it("目的地を置かず経由地だけでも、距離も目的地も送らない", async () => {
     const user = renderPage();
     await chooseDestinationMode(user);
     await user.click(screen.getByRole("button", { name: "経由地を追加" }));
     act(() => map().onPinPlace("waypoint", NEAR));
     await generate(user);
-    expect(lastRequest()).toMatchObject({ distance_km: 13, waypoints: [NEAR] });
+    expect(lastRequest()).toMatchObject({ waypoints: [NEAR] });
+    expect(lastRequest().distance_km).toBeUndefined();
     expect(lastRequest().destination).toBeUndefined();
   });
 

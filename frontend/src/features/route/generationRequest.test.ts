@@ -20,6 +20,7 @@ const LOOP: GenerationInput = {
 
 const DESTINATION: GenerationInput = {
   ...LOOP,
+  distanceKm: null,
   waypoints: [
     { latitude: 35.61, longitude: 139.71 },
     { latitude: 35.62, longitude: 139.72 },
@@ -42,11 +43,12 @@ describe("buildGenerateRequest", () => {
     });
   });
 
-  it("レンズの軸・重みの上書き・経由地・目的地は、値があるときだけ送る", () => {
+  it("レンズの軸・重みの上書き・経由地・目的地・距離は、値があるときだけ送る", () => {
     const loop = buildGenerateRequest(LOOP);
     for (const key of ["lens_axis_id", "route_preference", "waypoints", "destination"]) {
       expect(loop).not.toHaveProperty(key);
     }
+    expect(buildGenerateRequest(DESTINATION)).not.toHaveProperty("distance_km");
     const full = buildGenerateRequest({ ...DESTINATION, lensAxisId: "wind", routePreference: { wind: 1 } });
     expect(full).toMatchObject({
       lens_axis_id: "wind",

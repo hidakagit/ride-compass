@@ -48,6 +48,8 @@ class TableEntry(StrictModel):
     #: なければNULLでもない）。
     missing_rows: int | None
     columns: list[ColumnEntry]
+    #: 作り直しが要るか。画面は理由を問わずこれで表を「作り直しが必要」に数える。
+    needs_rebuild: bool
 
 
 class DerivedDataFreshnessResponse(StrictModel):
@@ -91,6 +93,7 @@ async def get_derived_data_freshness(
                     )
                     for column in table.columns
                 ],
+                needs_rebuild=table.needs_rebuild,
             )
             for table in report.tables
         ],

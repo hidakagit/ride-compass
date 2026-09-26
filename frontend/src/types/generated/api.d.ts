@@ -770,6 +770,8 @@ export interface components {
              * @enum {string}
              */
             map_value_kind: "difficulty" | "signed_material";
+            /** Map Value Material */
+            map_value_material: string | null;
             /** Map Value Unit */
             map_value_unit: string;
             /** Map Value Thresholds */
@@ -1602,7 +1604,7 @@ export interface components {
             /** Longitude */
             longitude: number;
             /** Distance Km */
-            distance_km: number;
+            distance_km?: number | null;
             /**
              * Distance Tolerance Km
              * @default 5
@@ -1976,6 +1978,8 @@ export interface components {
             missing_rows: number | null;
             /** Columns */
             columns: components["schemas"]["ColumnEntry"][];
+            /** Needs Rebuild */
+            needs_rebuild: boolean;
         };
     };
     responses: never;

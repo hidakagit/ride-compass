@@ -2298,6 +2298,17 @@
             ],
             "title": "Map Value Kind"
           },
+          "map_value_material": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Map Value Material"
+          },
           "map_value_unit": {
             "type": "string",
             "title": "Map Value Unit"
@@ -2377,6 +2388,7 @@
           "display_band_labels_override",
           "dedicated_way_value_layer",
           "map_value_kind",
+          "map_value_material",
           "map_value_unit",
           "map_value_thresholds",
           "raw_value_unit",
@@ -4708,9 +4720,16 @@
             "title": "Longitude"
           },
           "distance_km": {
-            "type": "number",
-            "maximum": 100.0,
-            "exclusiveMinimum": 0.0,
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Distance Km"
           },
           "distance_tolerance_km": {
@@ -4853,8 +4872,7 @@
         "type": "object",
         "required": [
           "latitude",
-          "longitude",
-          "distance_km"
+          "longitude"
         ],
         "title": "RouteGenerateRequest"
       },
@@ -5942,6 +5960,10 @@
             },
             "type": "array",
             "title": "Columns"
+          },
+          "needs_rebuild": {
+            "type": "boolean",
+            "title": "Needs Rebuild"
           }
         },
         "additionalProperties": false,
@@ -5956,7 +5978,8 @@
           "coverage_parent",
           "coverage_parent_row_count",
           "missing_rows",
-          "columns"
+          "columns",
+          "needs_rebuild"
         ],
         "title": "TableEntry"
       }

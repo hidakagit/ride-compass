@@ -308,6 +308,8 @@ def test_get_axis_catalog_includes_map_value_kind_and_unit(catalog_axes):
     entries_by_id = {entry["axis_id"]: entry for entry in response.json()["axes"]}
     assert entries_by_id["axis_way_value_signed"]["map_value_kind"] == "signed_material"
     assert entries_by_id["axis_way_value_signed"]["map_value_unit"] == "%"
+    assert entries_by_id["axis_way_value_signed"]["map_value_material"] == "gradient_percent"
+    assert entries_by_id["axis_way_value_scored"]["map_value_material"] is None
     assert entries_by_id["axis_way_value_scored"]["map_value_kind"] == "difficulty"
     assert entries_by_id["axis_way_value_scored"]["map_value_unit"] == ""
 

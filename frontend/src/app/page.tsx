@@ -31,7 +31,6 @@ import HardFilterPanel, { DEFAULT_HARD_FILTERS } from "@/features/route/RouteSet
 import RouteAxisProfile from "@/features/route/RouteAxisProfile/RouteAxisProfile";
 import SegmentWind from "@/features/route/SegmentWind/SegmentWind";
 import RouteSplicePanel from "@/features/route/RouteSplicePanel/RouteSplicePanel";
-import { haversineKm } from "@/lib/geoDistance";
 import {
   buildSplicedShape,
   stretchAlternativeGroups,
@@ -96,7 +95,7 @@ import { cardVariants } from "@/components/ui/Card/Card";
 import { dotVariants } from "@/components/ui/Dot/Dot";
 
 // 経由地ルートのid（常に1件、「方位」という概念が無いためタブに順位番号を付けない）。
-const NON_DIRECTIONAL_ROUTE_IDS = new Set(["route-waypoints"]);
+const NON_DIRECTIONAL_ROUTE_IDS = new Set([routeGenerateConfig.waypoints_route_id]);
 
 function formatSegmentArrivalTime(iso: string | null): string {
   if (!iso) return "不明";
@@ -104,8 +103,6 @@ function formatSegmentArrivalTime(iso: string | null): string {
   if (Number.isNaN(date.getTime())) return "不明";
   return formatJstHourMinute(date);
 }
-
-const MAX_DISTANCE_KM = routeGenerateConfig.max_distance_km;
 
 const GENERATE_OPEN_STORAGE_KEY = "ridecompass:generate-open";
 const OUTCOME_OPEN_STORAGE_KEY = "ridecompass:outcome-open";
@@ -571,8 +568,7 @@ export default function Home() {
   } = useWeatherConditions(location, locationReady);
 
   // いまのフォームから生成の入力を組み立てる。生成と「条件が変わったか」の判定が同じ関数を通るので、送る値を
-  // 足したときに比較の側へ足し忘れない。`destinationOverride`はbackendが補正した目的地（目的地から導く距離も
-  // 一緒に組み直すため、ここを通す）。
+  // 足したときに比較の側へ足し忘れない。`destinationOverride`はbackendが補正した目的地。
   const buildCurrentGenerationInput = useCallback(
     (distanceKm: number, destinationOverride?: Coordinates): GenerationInput => {
       const effectiveDestination = destinationOverride ?? destination;
@@ -580,15 +576,8 @@ export default function Home() {
         routeMode === "destination" ? [...waypoints, ...(effectiveDestination ? [effectiveDestination] : [])] : [];
       return {
         origin: location,
-        // 目的地モードの距離は、置いた点の最も遠いものより必ず長くする（backendは探索範囲と「点が遠すぎないか」の
-        // 検査にこの距離を使う）。
-        distanceKm:
-          routeMode === "destination" && destinationModePoints.length > 0
-            ? Math.min(
-                MAX_DISTANCE_KM,
-                Math.ceil(destinationModePoints.reduce((max, p) => Math.max(max, haversineKm(location, p)), 0)) + 1,
-              )
-            : distanceKm,
+        // 点を置いたときの探索の範囲はbackendが点から決めるため、距離は送らない。
+        distanceKm: routeMode === "destination" && destinationModePoints.length > 0 ? null : distanceKm,
         distanceToleranceKm: routeGenerateConfig.default_distance_tolerance_km,
         maxRoutes: fixedRouteCount(routeMode, waypoints.length) ?? Number(maxRoutesInput),
         assumedSpeedKmh,

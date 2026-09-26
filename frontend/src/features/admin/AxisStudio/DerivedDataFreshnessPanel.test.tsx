@@ -32,6 +32,7 @@ function table(overrides: Partial<Table>): Table {
     coverage_parent_row_count: null,
     missing_rows: null,
     columns: [],
+    needs_rebuild: false,
     ...overrides,
   };
 }
@@ -70,12 +71,8 @@ describe("DerivedDataFreshnessPanel", () => {
     expect(within(rowOf("fresh")).getByText("最新")).toBeInTheDocument();
   });
 
-  it.each([
-    ["取込より古い", { is_stale: true }],
-    ["値の列に未計算が残る", { columns: [column({ null_count: 3, is_incomplete: true })] }],
-    ["親に対して行が欠ける", { coverage_parent: "road_edges", coverage_parent_row_count: 10, missing_rows: 2 }],
-  ] satisfies [string, Partial<Table>][])("%s表は、作り直し待ちとして数える", async (_case, overrides) => {
-    await collect(report([table({ table_name: "target", ...overrides }), table({ table_name: "fresh" })]));
+  it("作り直しが要る表は、作り直し待ちとして数える", async () => {
+    await collect(report([table({ table_name: "target", needs_rebuild: true }), table({ table_name: "fresh" })]));
 
     expect(screen.getByText("1件が作り直し待ち")).toBeInTheDocument();
     expect(within(rowOf("target")).getByText("作り直しが必要")).toBeInTheDocument();
