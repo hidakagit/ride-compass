@@ -2,7 +2,7 @@
 
 ## 責務
 
-風・勾配のような「動的（時々刻々変わりうる）＋向きに依存する」材料について、ルート
+風・勾配・雨のような、タイルへ焼けない材料（時々刻々変わる・向きに依存する）について、ルート
 未確定時に視界内の全道路へ値を配信する。配信の単位は路面タイルのフィーチャーと同じで、
 ズームによってway丸ごとにも区間（road_edges）にもなる——このモジュールはどちらかを
 知る必要がなく、タイルと同じ`feature_key`を鍵として扱う（[static-road-attributes.md]
@@ -14,8 +14,8 @@
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `wind.py`・`wind_grid.py`・`gradient.py`・`dynamic_way_values.py` |
-| services | `wind_way_service.py`・`gradient_way_service.py` |
+| domain | `wind.py`・`wind_grid.py`・`gradient.py`・`rain.py`（雨の材料の宣言——窓の長さの一覧——と、1時間雨量の履歴から材料の値を求める計算・最寄りの観測所の選び方）・`dynamic_way_values.py` |
+| services | `wind_way_service.py`・`gradient_way_service.py`・`rain_way_service.py` |
 | infrastructure | `dynamic_way_value_cache.py`（勾配のみ。ディスク経由）・`tile_persistent_cache.py`（呼び出し元が設計したタプルの鍵でPythonオブジェクトを置く汎用のディスクキャッシュ。`diskcache`の包み） |
 | api | `region.py`（`GET /api/region/dynamic-way-values/{axis_id}/...`）・`dependencies.py`（`get_dedicated_way_value_service`） |
 
@@ -32,15 +32,15 @@ get_feature_gradient_inputs_in_tile`・`get_feature_midpoints_in_tile`は
 | id | 何を指すか | 実体 | 出てくる場所 |
 |---|---|---|---|
 | **軸id** (`axis_id`) | 評価軸そのもの。軸スタジオでDBの行として増減する | `axis_definitions.axis_id` | APIのパスパラメータ、`dedicated_way_value_axes()`のキー |
-| **材料id** (`material_id`) | サービスが返す生値が軸定義のどの材料か。例: `wind_drag_ratio`・`gradient_percent` | `material_catalog.py`のキー | 各サービスの`material_id`クラス属性、`_DEDICATED_WAY_VALUE_SERVICE_FACTORIES`のキー、キャッシュの名前空間、`transform_dedicated_way_values`の第2引数 |
+| **材料id** (`material_id`) | サービスが返す生値が軸定義のどの材料か。例: `wind_drag_ratio`・`gradient_percent`・`rain_24h_mm` | `material_catalog.py`のキー | 各サービスの`material_ids`クラス属性（担当する材料）と組み立てたインスタンスの`material_id`、`_DEDICATED_WAY_VALUE_SERVICE_FACTORIES`のキー、キャッシュの名前空間、`transform_dedicated_way_values`の第2引数 |
 
 **実装は軸idを持たない。** 軸とサービスは、軸定義が参照する材料（`AxisDefinition.materials`）と
 サービスの`material_id`の突き合わせで結ばれる。材料はコードが正本（GUIから増減しない）なので、
 実装が材料の名前を知るのは、DBの行で増減する軸の名前を知るのとは違う。公開済みの軸は直さずに
 複製して改良するため、軸の名前で結ぶと複製した軸が配信されない。
 
-`tests/test_dedicated_way_value_services.py`が、登録キー＝`material_id`属性であること・
-`material_id`が材料カタログの既知材料であること・1つの材料を2つのサービスが担当すると
+`tests/test_dedicated_way_value_services.py`が、登録キーで組み立てたサービスの`material_id`が
+そのキーであること・材料カタログの既知材料であること・1つの材料を2つのサービスが担当すると
 登録時に落ちることを検査する。
 
 ## 軸登録と地図表示値（`domain/dynamic_way_values.py`）
@@ -78,10 +78,10 @@ _check_dedicated_layer_is_implemented`）、既存データ等で万一そうな
 フォールバックが効かない）。
 
 - `needs_time`: 時刻（`at`クエリパラメータ）に依存するか。風=Yes（気象予報）、
-  勾配=No（標高・道路の向きは時刻で変わらない）。
+  勾配=No（標高・道路の向きは時刻で変わらない）、雨=No（今の観測を示し、出発時刻では変わらない）。
 - `needs_bearing`: 向き（`bearing_deg`クエリパラメータ）に依存するか。風・勾配とも
   Yes（向きの*出所*が異なるだけで、パラメータとしては両方ともユーザー指定の走行方位を
-  必要とする）。
+  必要とする）、雨=No。
 - `needs_speed`: 想定速度（`speed_kmh`クエリパラメータ）に依存するか。走行速度依存の
   材料`wind_drag_ratio`を参照する風軸で立てる（勾配=No）。
 - `dedicated_way_value_layer=True`は軸スタジオで立てられるフラグで、配信を実装した材料を
@@ -101,12 +101,14 @@ _check_dedicated_layer_is_implemented`）、既存データ等で万一そうな
 | `transform_dedicated_way_values(definition, material_id, values)` | 生値→地図表示値。`difficulty`は`evaluate_axis_values`でタイル内の全道路を1回の配列評価、`signed_material`は素通し。`material_id`以外の材料に0次条件を置いた軸は全道路を落とす——配信はその材料の値しか持たず、条件が当たるかを決められない |
 
 `api/dependencies.py`の`_DEDICATED_WAY_VALUE_SERVICE_FACTORIES`は、材料id→サービス実装本体
-（`WindWayService`/`GradientWayService`）の組み立てを担うdict。こちらはPython実装本体
-（コンストラクタ）の登録のため軸スタジオの宣言だけでは代替できず、**新しい材料**の配信には
-コード変更が要る（同じ材料を参照する軸を増やすのには要らない）。実装はクラス属性
-`material_id`と統一シグネチャの`build`を持ち、インスタンスが`DedicatedWayValueService`
-（`material_id`・`get_way_values`）の形を満たせば、`_DEDICATED_WAY_VALUE_SERVICES`へ
-1行足すだけで登録される（キーは`material_id`から取るため、名前を2箇所に書かない）。
+（`WindWayService`/`GradientWayService`/`RainWayService`）の組み立てを担うdict。こちらはPython実装本体
+（コンストラクタ）の登録のため軸スタジオの宣言だけでは代替できず、**新しい計算の材料**の配信には
+コード変更が要る（同じ材料を参照する軸を増やすのには要らない）。実装は担当する材料のクラス属性
+`material_ids`と、組み立てる材料を`material_id`で受け取る統一シグネチャの`build`を持ち、インスタンスが
+`DedicatedWayValueService`（`material_id`・`get_way_values`）の形を満たせば、`_DEDICATED_WAY_VALUE_SERVICES`へ
+1行足すだけで登録される（キーは`material_ids`から取るため、名前を2箇所に書かない）。
+1つの実装が同じ計算の材料群を担当できる——雨は窓の長さの一覧（`domain/rain.py: RAIN_WINDOW_HOURS`）へ
+1件足すと、材料カタログの行も配信の登録も一緒に増える。
 1つの材料を2つのサービスが担当していると、モジュールの読み込み時（＝起動時）に落ちる。
 
 ## API（`api/routers/region.py`）
@@ -117,7 +119,7 @@ _check_dedicated_layer_is_implemented`）、既存データ等で万一そうな
 axis_id → dedicated_way_value_axes().get(axis_id)（無ければ404）
         → needs_bearing かつ bearing_deg 省略 → 422
         → needs_speed かつ speed_kmh 省略 → 422（それ以外の軸はspeed_kmhを無視）
-        → get_dedicated_way_value_service(axis_id) が軸の参照する材料から WindWayService/GradientWayService を組み立て
+        → get_dedicated_way_value_service(axis_id) が軸の参照する材料から担当のサービス（WindWayService等）を組み立て
           （配信を実装した材料がちょうど1つでなければNone→404）
         → service.get_way_values(z, x, y, at, bearing_deg, speed_kmh)   … 材料の生値（キャッシュ対象）
         → transform_dedicated_way_values(AXIS_DEFINITIONS[axis_id], service.material_id, 生値)
@@ -174,7 +176,8 @@ axis_id → dedicated_way_value_axes().get(axis_id)（無ければ404）
 
 ## キャッシュ（`infrastructure/dynamic_way_value_cache.py`）
 
-**キャッシュするのは勾配だけ**。風は予報の格子点の風を配列でまとめて引くだけで計算が軽く、
+**キャッシュするのは勾配だけ**（雨はタイルごとの値を持たず、観測所ごとの材料の値だけをプロセス内に
+短く持つ。下の「`RainWayService`」）。風は予報の格子点の風を配列でまとめて引くだけで計算が軽く、
 キャッシュが節約するのは1タイルあたり2.8ms（応答53msの5%。タイル中心1点の風を全wayへ配っていた版の
 本番実測）にとどまる一方、1エントリ190KBを保持することになるため、キャッシュせず都度計算する。勾配はフィーチャー単位の計算で
 809msを節約できるためキャッシュする（[docs/conventions/caching.md](../../conventions/caching.md)
@@ -266,10 +269,37 @@ values = {
 
 `at`引数はrouterとのインターフェース統一のためだけに受け取り、計算には使わない。
 
-両サービスとも`get_way_values(z, x, y, at, bearing_deg, speed_kmh) -> dict[str, float]`という
-同じシグネチャで`region.py`から材料非依存に呼ばれる（勾配は`at`・`speed_kmh`を無視する）。
+### `RainWayService`（`rain_way_service.py`）
 
-両サービスが空dictへ倒すのは**DB障害だけ**（`database.py`の`DB_UNAVAILABLE_ERRORS`。
+1つの実装が雨の材料すべて（`domain/rain.py: RAIN_MATERIAL_IDS`——窓ごとの雨量と雨が止んでからの時間）を担当し、
+どの材料を返すかは組み立てるときに受け取る。値は**最寄りの雨量計の今の観測**で、走行方位・時刻・想定速度には
+依らない（`at`等は受け取るだけ）。出発時刻の予報で延ばすことはしない。
+
+```
+get_way_values(z, x, y, ...)
+  ├─ jma_amedas_service.load_station_rain_materials(今) → 観測所ごとの材料の値（無い・古ければ{}）
+  ├─ get_feature_midpoints_in_tile → 鍵ごとの中ほど（カバレッジ外・空は{}、DB障害も{}）
+  ├─ nearest_point_indices（domain/rain.py）: 中ほどに最も近い雨量計
+  └─ その雨量計の値。欠測（NaN）の道は結果から除く
+```
+
+- **候補は雨量計を持つ観測所だけ**（正時の地図JSONに1時間雨量の項目がある観測所）。気温だけの観測所が
+  近くにあっても、その値は無い。**最寄りの雨量計が欠測なら、次に近い雨量計で埋めない**——近さの順に
+  埋めると、同じ道が欠測の有無で別の雨量計の値へ静かに切り替わる。
+- 最寄りは、地点ごとの緯度で経度を縮めた平面の距離で決める。観測所の間隔（十数km）では球面の距離と順位が
+  入れ替わらない（`tests/test_rain.py`がhaversineの最寄りと突き合わせる）。
+- 観測所ごとの材料の値は`load_station_rain_materials`がRedisの履歴から組み立て、プロセス内に5分持つ
+  （タイル1枚ごとに全観測所×全時間の履歴を読み直さない）。履歴の取り方は
+  [気象・動的レイヤー](weather-dynamic-layers.md)「`JmaAmedasService`」。
+- **材料の値は観測どおりの量**（mm・時間）で、どこからを濡れているとみなすかは軸の折れ点が決める。
+  値の定義（窓の中に欠測があれば値なし、止んでからの時間の上限）は材料カタログの説明と`domain/rain.py`が持つ。
+- ルートの評価（探索・区間表示）にはまだ配線していない。雨の材料を参照する軸は、地図の色分けと道の詳細
+  （`directional_materials`経由の区間インスペクタ）では値を持つが、ルートでは「データなし」になる。
+
+各サービスとも`get_way_values(z, x, y, at, bearing_deg, speed_kmh) -> dict[str, float]`という
+同じシグネチャで`region.py`から材料非依存に呼ばれる（勾配は`at`・`speed_kmh`を、雨はどれも無視する）。
+
+各サービスが例外を空dictへ倒すのは**DB障害だけ**（`database.py`の`DB_UNAVAILABLE_ERRORS`。
 [横断インフラ](cross-cutting-infrastructure.md)「DB障害として扱う例外」節）。リポジトリとの
 引数の食い違いのような実装の誤りまで空へ倒すと、応答は200・空のままになり、地図では
 「データなし」と見分けがつかない。

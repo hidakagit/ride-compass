@@ -530,6 +530,7 @@ export const mapDisplay = {
     "&copy; <a href=\"https://www.openstreetmap.org/copyright\" target=\"_blank\" rel=\"noreferrer\">OpenStreetMap contributors</a>",
     "<a href=\"https://maps.gsi.go.jp/development/ichiran.html\" target=\"_blank\" rel=\"noreferrer\">地理院タイル(標高タイル)</a>を加工して作成",
     "交通事故統計情報（警察庁）を加工して作成",
+    "気象庁「<a href=\"https://www.jma.go.jp/bosai/map.html#contents=amedas\" target=\"_blank\" rel=\"noreferrer\">アメダス</a>」を加工して作成",
     "土地被覆: <a href=\"https://livingatlas.arcgis.com/landcover/\" target=\"_blank\" rel=\"noreferrer\">Esri, Impact Observatory, Microsoft</a> (CC BY 4.0)"
   ],
   "noDataDash": [

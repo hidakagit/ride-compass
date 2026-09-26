@@ -59,6 +59,8 @@ from app.domain.traffic import (
     poi_density_material_id,
     stop_kind_sql,
 )
+from app.domain.rain import HOURS_SINCE_RAIN, RAIN_HISTORY_HOURS, RAIN_WINDOW_HOURS, rain_window_material_id
+from app.domain.weather import PRECIPITATION_MIN_MM
 from app.domain.wind import WIND_DRAG_REFERENCE_SPEED_MS, wind_drag_ratio
 from app.domain.strict_model import StrictModel
 
@@ -314,6 +316,16 @@ def _wind_drag_ratio_by_situation() -> dict[str, float]:
 
 
 _WIND_DRAG_RATIO_BY_SITUATION = _wind_drag_ratio_by_situation()
+
+# `value_sql`を持たない材料は、評価軸として機能しない範囲をここで明記する（`MaterialSpec.description`）。
+_RAIN_MATERIAL_NOTE = (
+    "雨量計は0.5mm刻みで、それより弱い雨は観測されません。出発時刻の予報では延ばさず、今の観測を示します。"
+    "ルートの評価にはまだ使われず、地図の色分けと道の詳細でだけ確かめられます。"
+)
+_RAIN_COVERAGE = CoverageExcluded(
+    reason="アメダスの観測から都度引く動的材料で、DBに静的な値を持たない",
+    missing_semantics="unknown",
+)
 
 
 _GRADIENT_PERCENT_REFERENCE_POINTS = [
@@ -724,6 +736,37 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
             reason="出発時刻の気象予報・想定速度から都度計算する動的材料で、DBに静的な値を持たない",
             missing_semantics="unknown",
         ),
+    ),
+    # --- 雨の材料。`domain/rain.py: RAIN_WINDOW_HOURS`（窓の長さの一覧）から生成する ---
+    # 値は`services/rain_way_service.py`が最寄りの雨量計の観測から配る。
+    **{
+        rain_window_material_id(hours): MaterialSpec(
+            material_id=rain_window_material_id(hours),
+            label=f"過去{hours}時間の雨量",
+            description=(
+                f"最寄りのアメダス雨量計で観測した、直近の正時までの{hours}時間の降水量の合計（mm）。"
+                "窓の中に欠測の1時間があれば値を持ちません。" + _RAIN_MATERIAL_NOTE
+            ),
+            dtype="numeric",
+            unit="mm",
+            tile_property=None,
+            coverage=_RAIN_COVERAGE,
+        )
+        for hours in RAIN_WINDOW_HOURS
+    },
+    HOURS_SINCE_RAIN: MaterialSpec(
+        material_id=HOURS_SINCE_RAIN,
+        label="雨が止んでからの時間",
+        description=(
+            f"最寄りのアメダス雨量計で、雨（1時間に{PRECIPITATION_MIN_MM:g}mm以上）を観測した最後の1時間が"
+            "終わってからの時間（1時間刻み）。直近の1時間に雨があれば0。"
+            f"{RAIN_HISTORY_HOURS}時間さかのぼって雨が無ければ{RAIN_HISTORY_HOURS}（{RAIN_HISTORY_HOURS}時間以上）。"
+            "雨を見つける前に欠測の1時間があれば値を持ちません。" + _RAIN_MATERIAL_NOTE
+        ),
+        dtype="numeric",
+        unit="時間",
+        tile_property=None,
+        coverage=_RAIN_COVERAGE,
     ),
     "trees_percent": MaterialSpec(
         material_id="trees_percent",
