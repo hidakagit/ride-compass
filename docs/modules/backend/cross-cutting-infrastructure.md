@@ -373,6 +373,18 @@ push型更新と同じ前提）。`JobStatus = "queued"|"running"|"done"|"failed
 独立に値を持たず、生成物`route-generate-config.json`の`job_result_ttl_seconds`から受け取る。ルート生成に特化させず`result: Any`型で汎用化してあるため、
 本モジュール自体はルート生成の型を知らない（`routes.py`との循環import回避）。
 
+**ジョブキュー（arq等）は使わない。** arqはジョブの列と結果をRedisに置き、ジョブは`arq`コマンドで起動する
+別のワーカープロセスで走る（[arqの文書](https://arq-docs.helpmanual.io/)）。これは次の2点と合わない:
+
+- ジョブ本体（ルート生成）が読む状態は、webプロセスの中にある（道路網全体の配列・軸定義と較正値。
+  管理APIの書き込みで読み直す）。別プロセスのワーカーはそれを共有できず、同じものを別に持って別に
+  読み直すことになる——上の「1プロセスの境界」が止めている形そのもの。
+- Redisは失っても困らないキャッシュだけを置くfail-openの層で、ルート生成はRedisを使わない
+  （[ルート生成エンジン](routing-engine.md)「キャッシュ」）。ジョブの列をRedisへ置くと、Redisの障害が
+  生成の失敗になる。
+
+代わりに失うもの: ジョブはプロセスの再起動（デプロイ）で消える。
+
 ## ログ集計の詳細（`debug_log.py: log_external_call`）
 
 `log_external_call(category, **fields)`はコンテキストマネージャで、`yield`されたdictへ
