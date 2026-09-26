@@ -618,8 +618,8 @@ def check_internal_axis_not_published(candidate: AxisDefinition, existing: dict[
 def check_axis_definition(definition: AxisDefinition, known_axis_ids: Collection[str]) -> None:
     """軸の値の不変条件のうち、軸の外（材料カタログ・ほかの軸）に照らすものと、地図チップへ出す名前の長さ。
 
-    書き手を問わず成り立つべきもので、管理APIの本文（`AxisDefinitionPayload`）も、起動時・書き出し・復元の
-    読み込み（`services/axis_registry_service.py: load_axis_definitions`）も通す。`AxisDefinition`の
+    書き手を問わず成り立つべきもので、管理APIの本文（`AxisDefinitionPayload`）も、起動時の読み込み
+    （`services/axis_registry_service.py: refresh_axis_definitions`。バックアップから戻した行もここで初めて通る）も通す。`AxisDefinition`の
     検証に置かないのは、保存済みの行を読み出す管理APIの一覧・単体取得が、通らなくなった行（材料を
     カタログから外した後の軸等）もそのまま見せて直させる必要があるため。
 

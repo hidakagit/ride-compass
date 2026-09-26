@@ -35,8 +35,9 @@ DB接続・Redis・HTTPクライアント・レート制限・ログ・デバッ
 | infrastructure | `tuning_overrides.py` | 較正値の上書き（宣言の既定値から動かしたぶんだけをDBへ持つ）。起動時と管理APIの書き込み直後にプロセス内へ読み込む |
 | services | `tuning_service.py` | 較正値の上書きの取引境界（構造仕様7）。書いた直後にプロセス内の値まで反映するところまでを持つ |
 | api | `tuning_admin.py` | 較正値の一覧・更新（管理画面用、`require_admin_basic_auth`の内側）。並べる項目も、効き方ごとの見出しと並び順も宣言から導く |
-| infrastructure | `admin_data_backup.py` | 取り直せない管理データの表の書き出しと戻し。母集団は表の印（`orm_base.IRREPLACEABLE`）から導く |
-| scripts | `admin_data_backup.py` | その入口（`dump`・`restore`）。書き出しも戻しも、アプリの起動時と同じ読み込みで検算する |
+| scripts | `admin_data_dump_args.py` | 取り直せない管理データの表を書き出す`pg_dump`の引数（DB名と表）。表は印（`orm_base.IRREPLACEABLE`）から導く |
+| ops | `admin_data_backup.sh` | 本番VMのホストで、上の引数で`pg_dump`し、Object Storageの非公開バケットへ置く |
+| ops | `ridecompass-admin-data-backup.service`・`ridecompass-admin-data-backup.timer` | それを毎日打つsystemdのユニット（VMへの登録は手で1回） |
 | scripts | `schema_gap.py` | 実DBのスキーマとORMの宣言（`orm_base.declared_metadata`）の差を、alembicの`compare_metadata`で出す（開発用の依存。本番のイメージには入らないので、本番DBへは`run_probe.py`の手元実行で当てる） |
 | scripts | `_stdio.py` | `scripts/`の実行口が共通で使う、標準出力・標準エラーのUTF-8化 |
 | scripts | `run_probe.py` | 調査用のスクリプトを本番DBに対して走らせる（手元のPythonから本番DBを引くか、本番のbackendコンテナの中で走らせる）。手元実行では接続文字列をSQLAlchemy用と素のasyncpg用の両方の形で環境変数へ渡す |
@@ -391,23 +392,30 @@ FastAPI側で処理済みのためここには来ない）。
 コンテナの`TZ`ではなく整形する側を変える。`TZ`を動かすと素の`datetime.now()`の意味まで
 変わり、スケジューラ・DBへ書く時刻へ波及する。
 
-## 取り直せない管理データのバックアップ（`admin_data_backup.py`）
+## 取り直せない管理データのバックアップ（`ops/admin_data_backup.sh`）
 
 管理画面で人が積み上げた行（軸の定義・較正値の上書き等）は、外部から取り直せず派生からも作り直せない。
-DBを失ったときに戻せるよう、`scripts/admin_data_backup.py dump`が1つのJSONへ書き出し、
-`restore`がまっさらなDBへ戻す（手順は[deployment-sync.md](../../conventions/deployment-sync.md)
-「本番DBを失ったとき」）。
+DBを失ったときに戻せるよう、本番VMのsystemdのtimerが毎日、その表だけを`pg_dump`（custom形式）で書き出し、
+Oracle Cloud Object Storageの非公開バケットへ置く。戻しは`pg_restore`（登録・戻しの手順は
+[deployment-sync.md](../../conventions/deployment-sync.md)「管理データのバックアップ」「本番DBを失ったとき」）。
 
-- **対象は表の印から導く**。ORMの表に`__table_args__ = {"info": IRREPLACEABLE}`を付けると、書き出しにも
-  戻しにも入る。書き出したJSONは平文なので、**印を付ける表に個人情報・認証情報の列を置かない**。
-- **書き出しも戻しも、アプリが起動時に行う読み込み（`load_axis_definitions`・`load_tuning_values`）を
-  通す**。書き出しは、アプリが起動できない中身（軸が0行・値の不変条件に通らない軸・範囲の外の較正値）なら
-  何も出さずに失敗する——手元の最新のバックアップを、戻せない中身で上書きしないため。戻しは同じ検算に通るまで
-  確定せず、通らなければロールバックする。軸の値の不変条件は管理APIの本文と同じ関数
-  （`domain/axis_definitions.py: check_axis_definition`）なので、戻す行も管理APIで書いたときと同じ検査を通る。
-- **戻しは既定で空の表にだけ入れる**。行が残っていれば何も書かずに止まり、`--replace`で同じトランザクションの
-  中で消してから入れる。バックアップに無い表（書き出した後で印を付けた表）は空のまま進み、宣言に無い表・列が
-  あれば止める（捨てて進むと、戻したつもりの値が黙って欠ける）。
+- **対象は表の印から導く**。ORMの表に`__table_args__ = {"info": IRREPLACEABLE}`を付けると、次の書き出しから
+  入る。表の名前とDB名は、デプロイ済みのイメージで`scripts/admin_data_dump_args.py`を打って取る（シェルに
+  表の名前を書かない）。`pg_dump`は`--strict-names`で打つので、印の付いた表が本番DBに無ければ書き出しごと失敗する。
+- **`pg_dump`はホストのもの**を使う。サーバーと同じPGDGのパッケージで入るので版が揃う——`pg_dump`は自分より
+  新しいメジャー版のサーバーからは書き出さず、イメージ（python:slim）のDebianの配布物はサーバーより古い。
+- **置くのはVMの鍵を使わない形**（インスタンス・プリンシパル。OCI CLIは公式のコンテナイメージで打つ）。VMに
+  許すのはそのバケットへの新しいオブジェクトの作成（`OBJECT_CREATE`）だけで、読み出し・上書き・削除はできない
+  ——VMが乗っ取られても、置いたバックアップは消せない。オブジェクト名は書き出した時刻（UTC）なので、毎日増える
+  だけで上書きしない。消す規則も持たない（1回ぶんは小さく、無料枠の容量に対して無視できる）。止まった日が
+  続いても、それまでのものは残る。
+- **書き出しの時点では中身を検算しない**。アプリが起動できない中身（値の不変条件に通らない軸等）も書き出すが、
+  前の日のものは残る。戻した行は、backendの起動時の読み込み（`services/axis_registry_service.py:
+  refresh_axis_definitions`・`infrastructure/tuning_overrides.py: load_tuning_values`）が管理APIの本文と同じ
+  検査に通し、通らなければ起動しない。
+- **戻しはスキーマごと入れ替える**（`pg_restore --clean --if-exists --single-transaction`）。表の定義は
+  書き出した日の本番のもので、ほかの表からの外部キーは無いので落とせる。1つのトランザクションなので、
+  途中で落ちれば何も変わらない。
 - 稼働中のbackendは戻した行を読み直さない（読み込みは起動時と管理APIの書き込み直後だけ）。戻したら再起動する。
 
 ## 非同期ジョブレジストリ詳細（`job_registry.py`）

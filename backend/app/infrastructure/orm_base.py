@@ -9,7 +9,7 @@ from sqlalchemy.orm import DeclarativeBase
 
 #: 表の`info`に付ける印（`__table_args__ = {"info": IRREPLACEABLE}`）。外部から取り直せず、派生からも
 #: 作り直せない表（人が管理画面で積み上げた行）であることを宣言する。バックアップ
-#: （`admin_data_backup.py`）が書き出す母集団はこの印から導く。
+#: （`scripts/admin_data_dump_args.py`）が書き出す母集団はこの印から導く。
 IRREPLACEABLE_KEY = "irreplaceable"
 IRREPLACEABLE = {IRREPLACEABLE_KEY: True}
 

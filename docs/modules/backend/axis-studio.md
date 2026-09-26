@@ -234,7 +234,7 @@ Pythonの値、ルート選びは材料の型ごとの配列で、分類の材�
 `scripts/bootstrap_database.py`が作るのはスキーマ・取込・派生までで、`axis_definitions`の
 行は作らない。`refresh_axis_definitions`は0行を`AxisDefinitionSyncError`として扱うため、
 **新規環境ではアプリが起動しない**。軸を足す管理APIも起動したbackendにしか無いので、新規環境へ
-軸を入れる経路は、書き出した管理データのバックアップからの復元（`scripts/admin_data_backup.py restore`、
+軸を入れる経路は、管理データのバックアップからの復元（`pg_restore`、
 [横断基盤](cross-cutting-infrastructure.md)「取り直せない管理データのバックアップ」）だけである。
 新規環境（composeのDB・クラウドのセッション）はテストを回す場と決めており、
 アプリを確かめるのは本番か手元の開発機で行う（[setup.md](../../architecture/setup.md)）。
@@ -404,9 +404,9 @@ idの文字列ではなく宣言そのもので指す。材料が指す要素に
 ### 軸の外に照らす値の不変条件（`domain/axis_definitions.py: check_axis_definition`）
 
 材料カタログ・ほかの軸に照らす値の不変条件と、地図チップへ出す名前の長さ。**書き手を問わず成り立つべきもの**
-なので、管理APIの本文（`AxisDefinitionPayload`）も、起動時・書き出し・復元の読み込み
-（`services/axis_registry_service.py: load_axis_definitions`）も同じ関数を通す——管理APIを通らずに書かれた
-行（復元）も、書き込み時と同じ検査で止まる。軸の参照として受け入れるのは、管理APIでは今の`AXIS_DEFINITIONS`、
+なので、管理APIの本文（`AxisDefinitionPayload`）も、起動時の読み込み
+（`services/axis_registry_service.py: refresh_axis_definitions`）も同じ関数を通す——管理APIを通らずに書かれた
+行（バックアップからの復元）も、次の起動で書き込み時と同じ検査に止まる（通らなければ起動しない）。軸の参照として受け入れるのは、管理APIでは今の`AXIS_DEFINITIONS`、
 読み込みでは同じ読み込み結果の軸。モデルの検証に置かないのは、保存済みの行を読み出す管理APIの一覧・単体取得が、
 通らなくなった行（材料をカタログから外した後の軸等）もそのまま見せて直させる必要があるため。
 
