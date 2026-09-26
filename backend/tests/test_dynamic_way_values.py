@@ -12,9 +12,17 @@
 import pytest
 
 from app.domain import dynamic_way_values, material_catalog
-from app.domain.axis_definitions import AxisDefinition, BreakpointLinearShape, CategoricalShape, MaterialTerm
+from app.domain.axis_definitions import (
+    AxisDefinition,
+    BreakpointLinearShape,
+    CategoricalShape,
+    MaterialTerm,
+    PriorityCondition,
+)
 from app.domain.registry import AxisDisplaySpec
 from tests.bound_fake import bound
+
+FLAG_CONDITION = PriorityCondition(material="flag", equals="true", value=0.0)
 
 
 def linear(*materials, breakpoints=((0.0, 0.0), (10.0, 100.0)), preprocess="identity"):
@@ -122,6 +130,12 @@ class TestMapValueKind:
         assert dynamic_way_values.map_value_kind(definition) == "difficulty"
         assert dynamic_way_values.map_value_unit(definition) == ""
 
+    def test_an_axis_with_a_priority_condition_is_painted_as_difficulty(self):
+        """生値は条件の当たる道でも生値のままで、評価（条件の値）と食い違う。"""
+        definition = axis("a", linear("grade", preprocess="abs"), priority_overrides=[FLAG_CONDITION])
+
+        assert dynamic_way_values.map_value_kind(definition) == "difficulty"
+
 
 @pytest.mark.usefixtures("catalog")
 class TestMapValueThresholds:
@@ -217,3 +231,10 @@ class TestTransformDedicatedWayValues:
 
         assert result == {"w1": 20.0, "w2": 20.0, "w4": 30.0}
         assert calls == [{"speed": 2.0}, {"speed": -1.0}, {"speed": 3.0}]
+
+    def test_a_condition_on_a_material_the_layer_does_not_serve_leaves_every_road_unscored(self):
+        """配信は1つの材料の値しか持たず、ほかの材料に置いた条件が当たるかを決められない。当たらないものと
+        して塗ると、条件の当たる道でルート選びと違う色になる。"""
+        definition = axis("a", linear("speed"), priority_overrides=[FLAG_CONDITION])
+
+        assert dynamic_way_values.transform_dedicated_way_values(definition, "speed", {"w1": 2.0}) == {}

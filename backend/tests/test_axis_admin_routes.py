@@ -327,6 +327,22 @@ class TestPayloadValidation:
                 {"priority_overrides": [{"material": "ghost", "equals": "1", "value": 0}]},
                 "優先条件が材料カタログに無い材料・軸を指しています: ['ghost']",
             ),
+            (
+                {"priority_overrides": [{"material": REFERENCED_AXIS, "equals": "1", "value": 0}]},
+                "真偽・分類の材料にだけ置けます",
+            ),
+            (
+                {"priority_overrides": [{"material": "num_a", "equals": "1", "value": 0}]},
+                "真偽・分類の材料にだけ置けます",
+            ),
+            (
+                {"priority_overrides": [{"material": "bool_a", "equals": "yes", "value": 0}]},
+                "の値として読めません",
+            ),
+            (
+                {"priority_overrides": [{"material": "cat_a", "equals": "true", "value": 0}]},
+                "の値として読めません",
+            ),
         ],
         ids=[
             "地図チップに収まらない表示名",
@@ -339,6 +355,10 @@ class TestPayloadValidation:
             "真偽の材料に文字列のキー",
             "分類の材料に真偽のキー",
             "0次条件の未知の材料",
+            "0次条件が軸の点数を指す",
+            "0次条件が数値の材料を指す",
+            "0次条件が真偽の材料に真偽と読めない値",
+            "0次条件が分類の材料に真偽の値",
         ],
     )
     def test_rejected(self, client, registry, fields, reason):
@@ -356,7 +376,8 @@ class TestPayloadValidation:
             {"shape": linear_shape(REFERENCED_AXIS, "bool_a")},
             {"shape": {"kind": "categorical", "material": "bool_a", "mapping": {"true": 1, "false": 0}}},
             {"shape": {"kind": "categorical", "material": "cat_a", "mapping": {"yes": 1, "no": 0}}},
-            {"priority_overrides": [{"material": REFERENCED_AXIS, "equals": "1", "value": 0}]},
+            {"priority_overrides": [{"material": "bool_a", "equals": "false", "value": 0}]},
+            {"priority_overrides": [{"material": "cat_a", "equals": "yes", "value": 0}]},
             {"dedicated_way_value_layer": True},
         ],
         ids=[
@@ -365,7 +386,8 @@ class TestPayloadValidation:
             "軸の参照と真偽の材料",
             "真偽の材料に真偽のキー",
             "分類の材料に真偽とも読める値の名前のキー",
-            "0次条件が軸を参照する",
+            "0次条件が真偽の材料に真偽の値",
+            "0次条件が分類の材料に値の名前",
             "配信実装のある材料1つの専用レイヤー",
         ],
     )

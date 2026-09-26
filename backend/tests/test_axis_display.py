@@ -185,9 +185,11 @@ class TestLinearAxis:
     def test_shapes_the_map_cannot_reproduce_are_not_drawn(self, shape):
         assert display(shape) == NONE
 
-    def test_an_override_material_the_tile_does_not_carry_keeps_the_axis_off_the_map(self):
+    @pytest.mark.parametrize("override_material", ["bool_false", "cat_notile"], ids=["タイルに載る材料", "タイルに無い材料"])
+    def test_an_axis_with_a_priority_condition_is_not_drawn(self, override_material):
+        """地図の式は0次条件を表せない。条件を落として塗ると、条件の当たる道で地図の色が評価と食い違う。"""
         result = display(
-            linear("num_a"), priority_overrides=[PriorityCondition(material="num_notile", equals="1", value=0.0)]
+            linear("num_a"), priority_overrides=[PriorityCondition(material=override_material, equals="true", value=0.0)]
         )
 
         assert result == NONE
@@ -248,6 +250,18 @@ class TestReferencedAxis:
     )
     def test_referenced_axes_the_tile_form_cannot_express_keep_the_outer_axis_off_the_map(self, axes, referenced):
         axes(axis("ref", referenced), axis("inner", linear("num_a")))
+
+        assert display(self.outer()) == NONE
+
+    @pytest.mark.parametrize(
+        "referenced",
+        [categorical("bool_unknown", {True: 80.0, False: 0.0}), linear("num_a", breakpoints=[(0.0, 0.0), (4.0, 100.0)])],
+        ids=["分類", "折れ線"],
+    )
+    def test_a_referenced_axis_with_a_priority_condition_keeps_the_outer_axis_off_the_map(self, axes, referenced):
+        """畳んだ参照先の0次条件も地図の式に載らない。"""
+        condition = PriorityCondition(material="bool_false", equals="true", value=0.0)
+        axes(axis("ref", referenced, priority_overrides=[condition]))
 
         assert display(self.outer()) == NONE
 

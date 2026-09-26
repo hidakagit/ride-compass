@@ -161,7 +161,6 @@ CLAUDE.md参照。節見出しはタスクのテーマ分類で、日付は起�
 - [ ] [T1131](records/tasks/T1131.md). backendの層（api・services・domain・batch・infrastructure）が持ってよいもの・持たないものが書かれておらず、越境が層のあちこちにある 規模S
 - [ ] [T1132](records/tasks/T1132.md). frontendの「機能どうしは互いを読まない」が破られても何も落ちず、T1107で1件破られた 規模S
 - [ ] [T1133](records/tasks/T1133.md). 評価の配色が2組あり、ramp表示の軸はルートを出す前と後で同じ段が違う色になる 規模M
-- [ ] [T1134](records/tasks/T1134.md). 軸の0次条件（当たる道を通らせない条件）が、区間の内訳・地図の色・ルート選びで効き方が違う 規模M
 - [ ] [T1135](records/tasks/T1135.md). 取込・派生データの作り直しの間、生データと派生が食い違った道路網と値の無いタイルが本番で配られる 規模M
 - [ ] [T1136](records/tasks/T1136.md). 派生の段を途中から流し直すと、分類やしきい値から外れた行に前回の値が残る 規模S
 - [ ] [T1137](records/tasks/T1137.md). 停止要因の分類規則がbatchとinfrastructureのSQLに2通り書かれ、地図の点の数と評価の停止回数が合わない 規模S

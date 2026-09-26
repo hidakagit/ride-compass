@@ -30,6 +30,7 @@ from app.domain.axis_definitions import (
     BreakpointLinearShape,
     CategoricalShape,
     PriorityCondition,
+    flag_or_value_name,
     referenced_materials,
 )
 from app.domain.axis_display import axis_display_for, bands_the_map_keeps, thresholds_the_map_drops
@@ -198,13 +199,9 @@ class AxisDefinitionPayload(AxisDefinition):
                     f"材料「{self.shape.material}」（型 {dtype}）の値の行の値の型が合いません"
                     f"（{sorted(t.__name__ for t in key_types)}。すべて{expected_key_type.__name__}にしてください）。"
                 )
-        # priority_overrides[*].materialは上の検証（shapeが参照する材料のみ対象）の
-        # 対象外のため、未知の材料id・軸id（typo等）を指定すると評価時に
-        # materials.get(override.material)が常にNoneを返し0次条件が無警告のまま
-        # 一切発動しなくなる。shapeと同じ「未知の材料/軸参照」チェックをここでも行う
-        # （equalsは文字列固定で比較先の値の型を問わないため、dtype検証は対象外——
-        # boolean/categorical/numericいずれのmaterialも文字列化して比較できる、
-        # _priority_override_matches_scalar参照）。
+        # 0次条件は、どの道にも当たらないまま保存されても評価はエラーもログも出さない。材料が未知のとき、
+        # 当たる値が無い材料（数値の材料・軸の点数）のとき、`equals`を対応表のキーと同じ読み方
+        # （`flag_or_value_name`）で読んだ値の型が材料の値の型と合わないとき（真偽の材料に"yes"等）がそれに当たる。
         unknown_override_materials = sorted(
             {
                 cond.material
@@ -214,6 +211,19 @@ class AxisDefinitionPayload(AxisDefinition):
         )
         if unknown_override_materials:
             raise axis_error(f"優先条件が材料カタログに無い材料・軸を指しています: {unknown_override_materials}")
+        for cond in self.priority_overrides:
+            override_dtype = material_dtype(cond.material) if is_known_material(cond.material) else None
+            if override_dtype not in ("boolean", "categorical"):
+                kind = "軸の点数" if override_dtype is None else "数値の材料"
+                raise axis_error(
+                    f"優先条件は真偽・分類の材料にだけ置けます（「{cond.material}」は{kind}で、値の名前と一致しません）。"
+                )
+            expected_type = bool if override_dtype == "boolean" else str
+            if not isinstance(flag_or_value_name(cond.equals), expected_type):
+                raise axis_error(
+                    f"優先条件の値「{cond.equals}」は材料「{cond.material}」（型 {override_dtype}）の値として読めません"
+                    "（真偽の材料は\"true\"か\"false\"、分類の材料は値の名前で書いてください）。"
+                )
         return self
 
     def to_definition(self) -> AxisDefinition:

@@ -118,11 +118,11 @@ def _resolve_referenced_axis_tile_input(axis_id: str, weight: float) -> TileInpu
     referenced = AXIS_DEFINITIONS[axis_id]
     shape = referenced.shape
     if isinstance(shape, CategoricalShape):
-        ramp = _derive_ramp_inputs(axis_id, shape, referenced.materials)
+        ramp = _derive_ramp_inputs(axis_id, shape, referenced.priority_overrides)
         if ramp is None or len(ramp.tile_inputs) != 1:
             return None
         return _rescale_categorical_tile_input(ramp.tile_inputs[0], weight)
-    if shape.preprocess != "identity" or len(shape.terms) != 1:
+    if referenced.priority_overrides or shape.preprocess != "identity" or len(shape.terms) != 1:
         return None
     inner_term = shape.terms[0]
     if inner_term.weight != 1.0:
@@ -141,8 +141,14 @@ def _resolve_referenced_axis_tile_input(axis_id: str, weight: float) -> TileInpu
     return TileInputSpec(property=inner_spec.tile_property, breakpoints=shape.breakpoints, weight=weight)
 
 
-def _derive_ramp_inputs(axis_id: str, shape: AxisShape, materials: list[str]) -> RampInputs | None:
-    specs: dict[str, MaterialSpec | None] = {m: MATERIAL_CATALOG.get(m) for m in materials}
+def _derive_ramp_inputs(
+    axis_id: str, shape: AxisShape, priority_overrides: list[PriorityCondition]
+) -> RampInputs | None:
+    if priority_overrides:
+        # 地図の式（`TileInputSpec`）は0次条件を表せない。条件を落として塗ると、条件の当たる道で
+        # 地図の色がルート選び・区間の内訳と食い違う。
+        return None
+    specs: dict[str, MaterialSpec | None] = {m: MATERIAL_CATALOG.get(m) for m in referenced_materials(shape, [])}
     for material_id, spec in specs.items():
         if spec is None:
             # 段の下書きのプレビューは保存前の軸を受けるため、自分自身を参照する軸が届く（保存は
@@ -246,7 +252,7 @@ def axis_display_for(definition: AxisDefinition) -> AxisDisplaySpec:
     ここの段の境界を折れ線で写して作る——段の識別子は前後で同じ保存先へ書かれるため、
     数が違うとルート前に隠した段が生成後に別の段へ化ける。
     """
-    ramp = _derive_ramp_inputs(definition.axis_id, definition.shape, definition.materials)
+    ramp = _derive_ramp_inputs(definition.axis_id, definition.shape, definition.priority_overrides)
     if ramp is None:
         return AxisDisplaySpec(kind="none", label=definition.label)
     thresholds = _map_band_thresholds(ramp, definition.shape, definition.display_thresholds_override)
@@ -269,7 +275,7 @@ def bands_the_map_keeps(
     揃えずに、段を決めるのに要る入力だけを受け取る。ramp表示を持たない軸（地図に出ない軸・
     専用way値配信の軸）は上書きをそのまま使うため、全段が残る。
     """
-    ramp = _derive_ramp_inputs(axis_id, shape, referenced_materials(shape, priority_overrides))
+    ramp = _derive_ramp_inputs(axis_id, shape, priority_overrides)
     if ramp is None:
         return list(range(len(thresholds) + 1))
     kept = set(_map_band_thresholds(ramp, shape, thresholds))

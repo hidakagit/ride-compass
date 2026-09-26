@@ -139,6 +139,18 @@
 `material`の値が`equals`と一致する場合、shape評価をスキップし`value`をそのまま返す
 （探索除外のハードフィルタ`domain/hard_filters.py: DEFAULT_HARD_FILTERS`とは別の仕組み）。
 
+**一致の判定は配列版1本**（`_priority_override_mask`）で、スカラー版（区間の内訳・専用way値配信）は
+材料の値を長さ1の配列にして同じ関数を通す。材料の値は入口ごとに別の形で届く——スカラーは
+Pythonの値、配列は材料の型ごとの配列で、「不明」を持つ真偽の材料（`surface_good`等）は1.0/0.0/NaNの
+数値の配列になる。判定を2本持つと、この形の違いで区間の内訳とルート選びが同じ道に違う答えを出す。
+`equals`は`CategoricalShape.mapping`のキーと同じ読み方（`flag_or_value_name`）で、`"true"`/`"false"`だけを
+真偽と読み、それ以外は書いたとおりの値の名前として比べる。欠損（None・NaN）はどの条件にも当たらない。
+
+**地図の色は0次条件を表せない。** タイルの式（`TileInputSpec`）に条件を載せる形が無いため、0次条件を持つ軸は
+地図に出さない（下の「地図表示ルールの自動導出」）。専用way値配信も、配信する材料以外に置いた条件は
+当たるかを決められないため全道路を落とし、符号付き材料の生値は塗らない（[dynamic-way-values.md](dynamic-way-values.md)）。
+条件を落として塗ると、条件の当たる道で地図の色とルート選び・区間の内訳が食い違う。
+
 ### 軸の階層
 
 `MaterialTerm.material`/`CategoricalShape.material`は材料idだけでなく他の軸の`axis_id`も
@@ -226,6 +238,7 @@ DB側の値が変わっても追従しない。軸の中身が主題でないテ
 | `preprocess="abs"`を含む軸 | **できない**（実装しないと確定済み。方向依存材料[風・勾配]を含む軸は別の制約でも弾かれるため二重に対象外） |
 | タイル非依存材料・方向依存材料（`tile_property_direction_dependent`）を含む軸 | できない |
 | 他の軸を参照する`MaterialTerm`を含む軸 | 参照先の軸を1段だけ解決して畳めれば可（`_resolve_referenced_axis_tile_input`、car_stressが参照する内部軸が実例）。2段階以上のネストは非対応 |
+| `priority_overrides`（0次条件）を持つ軸、または畳む参照先の軸が持つ | できない（タイルの式が条件を表せない。上の「`PriorityCondition`」） |
 
 `axis_display_for(definition)`の優先順位: ①自動導出成功＋`display_thresholds_override`
 設定済みなら両方を組み合わせる、②自動導出成功のみなら自動導出のしきい値をそのまま使う、
@@ -376,8 +389,11 @@ idの文字列ではなく宣言そのもので指す。材料が指す要素に
   boolean/categorical材料、`BreakpointLinearShape`はnumeric/boolean材料）。
   `CategoricalShape`はさらに`mapping`のキー型（bool/str）が材料のdtypeと一致することも
   検証する。
-- `priority_overrides[*].material`も既知材料/軸参照であること（未知の場合、0次条件が
-  無警告のまま一切発動しなくなるため）。
+- `priority_overrides`は、どの道にも当たらない条件を拒む（評価はエラーもログも出さず、条件が
+  無警告のまま一切発動しなくなるため）: `material`が既知の材料であること、その材料が真偽・分類の
+  材料であること（数値の材料・軸の点数には値の名前で当たる値が無い）、`equals`を対応表のキーと同じ
+  読み方で読んだ値の型が材料の値の型と合うこと（真偽の材料は`"true"`/`"false"`、分類の材料はそれ以外の
+  値の名前）。
 - リクエスト時に評価される動的材料（`REQUEST_DYNAMIC_MATERIAL_IDS`）と静的材料を同じ軸で
   混在させないこと。動的軸の再評価経路（`domain/dynamic_materials.py:
   evaluate_dynamic_axis_arrays`）へ渡るのは「タイル単位でキャッシュ済みの公開軸スコア」と
