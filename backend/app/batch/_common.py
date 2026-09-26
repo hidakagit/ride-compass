@@ -16,13 +16,14 @@ import httpx
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.config import settings
-from app.infrastructure import derived_data_meta, road_network_store
 
 _T = TypeVar("_T")
 
 
 @asynccontextmanager
-async def batch_session_factory(database_url: str | None) -> AsyncIterator[async_sessionmaker]:
+async def batch_session_factory(
+    database_url: str | None, *, schema: str | None = None,
+) -> AsyncIterator[async_sessionmaker]:
     """バッチ用のセッションファクトリを作り、終了時にエンジンを必ず破棄する。
 
     バッチはリクエスト経路と違い自前でエンジンを持つ。`infrastructure/database.py`の
@@ -31,8 +32,11 @@ async def batch_session_factory(database_url: str | None) -> AsyncIterator[async
 
     `expire_on_commit=False`はバッチ共通の前提——commit後もORMオブジェクトの属性へ
     触れる（件数集計・ログ出力）ため。
+
+    `schema`を渡すと、表の名前をそのスキーマから先に探す（無ければ`public`）。
     """
-    engine = create_async_engine(database_url or settings.database_url)
+    connect_args = {"server_settings": {"search_path": f"{schema}, public"}} if schema else {}
+    engine = create_async_engine(database_url or settings.database_url, connect_args=connect_args)
     try:
         yield async_sessionmaker(engine, expire_on_commit=False)
     finally:
@@ -43,63 +47,21 @@ def run_batch_cli(
     parser: argparse.ArgumentParser,
     start: Callable[[argparse.Namespace, str], Awaitable[int]],
 ) -> int:
-    """DBを書くバッチの入口の骨格。ログを整え、引数を読み、本体を流して派生データの世代を進め、
-    その世代の道路網の配列（`infrastructure/road_network_store.py`）を作る。
+    """DBを書くバッチの入口の骨格。ログを整え、引数を読み、本体を流す。
 
     `--database-url`はここで足す（省けば設定値）。`start`は読んだ引数とDBのURLを受けて
     本体のコルーチンを返す。イベントループの外で呼ぶので、引数の検査（`parser.error`）は
     `start`の中に置いてよい。
-
-    道路網の配列を作れなかったときは失敗の終了コードを返す——DBは書き終えているが、
-    ルート生成は古い配列を読み続けるため、打った人が気づける形で止める。
     """
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
     parser.add_argument("--database-url", default=None)
     args = parser.parse_args()
-    database_url = args.database_url or settings.database_url
-    code = asyncio.run(with_derived_data_revision_bump(
-        start(args, database_url), database_url=database_url))
-    if code != 0:
-        return code
-    try:
-        asyncio.run(_ensure_road_network(database_url))
-    except Exception:
-        logging.getLogger("ridecompass.batch").exception(
-            "道路網の配列を作れませんでした。scripts/build_road_network.py を打ち直してください")
-        return 1
-    return 0
+    started = start(args, args.database_url or settings.database_url)
 
+    async def body() -> int:
+        return await started
 
-async def _ensure_road_network(database_url: str) -> None:
-    async with batch_session_factory(database_url) as session_factory:
-        await road_network_store.ensure_current(session_factory)
-
-
-async def with_derived_data_revision_bump(coro: Awaitable[int], *, database_url: str | None) -> int:
-    """バッチ本体を実行し、成功したら派生データの世代（`derived_data_meta.revision`）を進める。
-
-    進めないと、backendがディスクへ既にキャッシュ済みの材料を「作り直されていない」と
-    判断して古いまま復元し続ける（未訪問のタイルだけが新しい値になるため気づきにくい）。
-    **どのバッチが材料に効くかを個別に判断しない**——効かないバッチで余分に進めても
-    キャッシュが1度作り直されるだけだが、効くバッチで進め忘れると静かに古い値が残る。
-
-    異常終了では進めない（DBを書き終えていない）。世代を進める書き込み自体が
-    失敗してもバッチの終了コードは変えない——データは既に書けており、キャッシュの
-    追随はTTLごとの次の確認でも回復するため、ここで失敗扱いにする方が害が大きい。
-    """
-    code = await coro
-    if code != 0:
-        return code
-    try:
-        async with batch_session_factory(database_url) as session_factory:
-            async with session_factory() as session:
-                revision = await derived_data_meta.bump_revision(session)
-        logging.getLogger("ridecompass.batch").info("派生データ世代を進めました revision=%s", revision)
-    except Exception:
-        logging.getLogger("ridecompass.batch").warning(
-            "派生データ世代の更新に失敗しました（キャッシュの追随が遅れます）", exc_info=True
-        )
-    return code
+    return asyncio.run(body())
 
 
 def asyncpg_dsn(sqlalchemy_url: str) -> str:

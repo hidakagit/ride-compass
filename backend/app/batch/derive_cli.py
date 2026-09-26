@@ -15,10 +15,17 @@
 変えた段の値を読まない段まで流し直すことがある。段は単独の入口を持たない——どの段がどの段の
 値を読むかは宣言されておらず、1段だけ流してそれを読む段を流し忘れると、古い入力から作った
 値が残る。
+
+**作り直しは作業用のスキーマで行い、道路網の配列まで作ってから1つのトランザクションで`public`の
+表と入れ替える**（仕組みと理由は`docs/modules/backend/static-road-attributes.md`「派生」）。
+段のSQLは表の名前をスキーマを付けずに書く——接続の`search_path`が作業用のスキーマを先に探し、
+生データは`public`から読む。
 """
 
 import argparse
+import asyncio
 import logging
+import shutil
 import sys
 import time
 from collections.abc import Awaitable, Callable
@@ -35,7 +42,15 @@ from app.batch import (  # noqa: E402
     derive_topology,
     derive_way_materials,
 )
-from app.batch._common import asyncpg_dsn, format_duration, run_batch_cli  # noqa: E402
+from app.batch._common import (  # noqa: E402
+    asyncpg_dsn,
+    batch_session_factory,
+    format_duration,
+    run_batch_cli,
+)
+from app.infrastructure import derived_data_meta, road_network_store  # noqa: E402
+from app.infrastructure.derived_data_freshness import derived_tables  # noqa: E402
+from app.infrastructure.road_graph_repository import RoadGraphRepository  # noqa: E402
 
 logger = logging.getLogger("ridecompass.derive_cli")
 
@@ -47,23 +62,134 @@ STAGES: tuple[tuple[str, Callable[[asyncpg.Connection], Awaitable[object]]], ...
     ("ways", derive_way_materials.derive),
 )
 
+#: 作り直す間の表を置くスキーマ。同時に2本走ると互いの表を消し合うため、この名前で1本に限る。
+WORK_SCHEMA = "derived_rebuild"
+
+#: 入れ替えが読み手を待つ上限。入れ替えは表の排他ロックを取り、待つ間は後から来た読み手も
+#: 後ろに並ぶ——長く読む相手（道路網の配列を作るデプロイの前処理等）がいると、その間の
+#: タイル配信が止まる。上限で諦め、間を置いてやり直す。
+_SWAP_LOCK_TIMEOUT = "5s"
+_SWAP_ATTEMPTS = 60
+_SWAP_RETRY_SECONDS = 10.0
+
+#: 写す表の、索引を伴う制約（主キー・一意）と外部キー。外部キーは参照先の鍵の後に作る。
+#: 定義は`search_path`が`public`だけのときに読むので、`public`の表は名前だけで出る——
+#: 作業用のスキーマを先に探す接続で打てば、写した表どうしを指し、生データの表は`public`を指す。
+_CONSTRAINTS_SQL = """
+SELECT r.relname AS table_name, c.conname AS name, pg_get_constraintdef(c.oid) AS definition
+FROM pg_constraint c
+JOIN pg_class r ON r.oid = c.conrelid
+JOIN pg_namespace n ON n.oid = r.relnamespace
+WHERE n.nspname = 'public' AND r.relname = ANY($1::text[]) AND c.contype IN ('p', 'u', 'x', 'f')
+ORDER BY c.contype = 'f', r.relname, c.conname
+"""
+
+#: 制約に属さない索引（空間索引等）。名前を保つため、定義を写して作る。
+_INDEXES_SQL = """
+SELECT r.relname AS table_name, pg_get_indexdef(x.indexrelid) AS definition
+FROM pg_index x
+JOIN pg_class r ON r.oid = x.indrelid
+JOIN pg_namespace n ON n.oid = r.relnamespace
+WHERE n.nspname = 'public' AND r.relname = ANY($1::text[])
+  AND NOT EXISTS (SELECT 1 FROM pg_constraint c
+                  WHERE c.conindid = x.indexrelid AND c.conrelid = x.indrelid)
+ORDER BY r.relname
+"""
+
+
+async def _copy_to_work_schema(conn: asyncpg.Connection, tables: list[str]) -> None:
+    """派生の表を今の中身ごと作業用のスキーマへ写し、接続がそちらを先に探すようにする。
+
+    列・既定値・検査制約は`LIKE`で、鍵・外部キー・索引は`public`の定義から名前ごと写す——
+    入れ替えた後の`public`の表は、入れ替える前と同じ名前の制約と索引を持つ。索引は行を
+    入れてから作る（1行ずつ索引を伸ばすより速い）。
+    """
+    started = time.perf_counter()
+    await conn.execute("SET search_path = public")
+    constraints = await conn.fetch(_CONSTRAINTS_SQL, tables)
+    indexes = await conn.fetch(_INDEXES_SQL, tables)
+    await conn.execute(f"DROP SCHEMA IF EXISTS {WORK_SCHEMA} CASCADE")
+    await conn.execute(f"CREATE SCHEMA {WORK_SCHEMA}")
+    for table in tables:
+        await conn.execute(
+            f"CREATE TABLE {WORK_SCHEMA}.{table} (LIKE public.{table} INCLUDING ALL EXCLUDING INDEXES)")
+        await conn.execute(f"INSERT INTO {WORK_SCHEMA}.{table} SELECT * FROM public.{table}")
+    await conn.execute(f"SET search_path = {WORK_SCHEMA}, public")
+    for row in constraints:
+        await conn.execute(f'ALTER TABLE {row["table_name"]} ADD CONSTRAINT {row["name"]} {row["definition"]}')
+    for row in indexes:
+        qualified = f" ON public.{row['table_name']} "
+        if qualified not in row["definition"]:
+            raise RuntimeError(f"索引の定義を読み替えられない: {row['definition']}")
+        await conn.execute(row["definition"].replace(qualified, f" ON {WORK_SCHEMA}.{row['table_name']} ", 1))
+    await conn.execute("ANALYZE " + ", ".join(tables))
+    logger.info("派生の表を作業用のスキーマ %s へ写した / %s",
+                WORK_SCHEMA, format_duration(time.perf_counter() - started))
+
+
+async def _build_road_network(database_url: str, revision: int) -> Path:
+    """作業用のスキーマの表から道路網の配列を作り、読み手がまだ拾わない名前で置く。"""
+    async with batch_session_factory(database_url, schema=WORK_SCHEMA) as session_factory:
+        async with session_factory() as session:
+            network = await road_network_store.build(RoadGraphRepository(session), revision)
+    return road_network_store.write_pending(network)
+
+
+async def _swap(conn: asyncpg.Connection, tables: list[str], revision: int) -> None:
+    """`public`の派生の表を作業用のスキーマの表で置き換え、世代を`revision`へ進める（1トランザクション）。"""
+    for attempt in range(1, _SWAP_ATTEMPTS + 1):
+        try:
+            async with conn.transaction():
+                await conn.execute(f"SET LOCAL lock_timeout = '{_SWAP_LOCK_TIMEOUT}'")
+                await conn.execute("DROP TABLE " + ", ".join(f"public.{table}" for table in tables))
+                for table in tables:
+                    await conn.execute(f"ALTER TABLE {WORK_SCHEMA}.{table} SET SCHEMA public")
+                bumped = await derived_data_meta.bump_revision(conn)
+                if bumped != revision:
+                    raise RuntimeError(
+                        f"派生データの世代が作り直しの間に動いた（道路網は {revision} で作った。今 {bumped}）")
+            return
+        except asyncpg.exceptions.LockNotAvailableError:
+            logger.warning("入れ替えが表を読んでいる相手を待ちきれなかった。%.0f秒後にやり直す（%d/%d）",
+                           _SWAP_RETRY_SECONDS, attempt, _SWAP_ATTEMPTS)
+            await asyncio.sleep(_SWAP_RETRY_SECONDS)
+    raise RuntimeError("入れ替えられなかった: 派生の表を読み続けている相手がいる")
+
 
 async def run(database_url: str, start_from: str | None) -> int:
     names = [name for name, _ in STAGES]
     begin = names.index(start_from) if start_from else 0
+    tables = [table.name for table in derived_tables()]
     conn = await asyncpg.connect(asyncpg_dsn(database_url))
+    if not await conn.fetchval("SELECT pg_try_advisory_lock(hashtext($1))", WORK_SCHEMA):
+        await conn.close()
+        raise RuntimeError("別の派生の作り直しが走っている")
+    pending: Path | None = None
     started = time.perf_counter()
     try:
+        await _copy_to_work_schema(conn, tables)
         for index, (name, stage) in enumerate(STAGES[begin:], start=1):
             stage_started = time.perf_counter()
             logger.info("段 %s を開始（%d/%d）", name, index, len(STAGES) - begin)
             await stage(conn)
             logger.info("段 %s 完了 / %s", name,
                         format_duration(time.perf_counter() - stage_started))
+        revision = (await conn.fetchval("SELECT revision FROM derived_data_meta WHERE id = 1") or 0) + 1
+        pending = await _build_road_network(database_url, revision)
+        await _swap(conn, tables, revision)
+        road_network_store.publish(pending)
+        pending = None
     finally:
+        if pending is not None:
+            shutil.rmtree(pending, ignore_errors=True)
+        try:
+            await conn.execute(f"DROP SCHEMA IF EXISTS {WORK_SCHEMA} CASCADE")
+        except (asyncpg.PostgresError, OSError):
+            logger.warning("作業用のスキーマ %s を消せなかった（次の作り直しの最初に消す）",
+                           WORK_SCHEMA, exc_info=True)
         await conn.close()
-    logger.info("派生を作り直した: %s / %s",
-                "→".join(names[begin:]), format_duration(time.perf_counter() - started))
+    logger.info("派生を作り直して入れ替えた: %s / 派生データの世代 %d / %s",
+                "→".join(names[begin:]), revision, format_duration(time.perf_counter() - started))
     return 0
 
 

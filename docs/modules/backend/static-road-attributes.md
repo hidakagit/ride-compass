@@ -14,7 +14,7 @@ OSM由来の道路データ（PBF取込）・警察庁事故データ・土地�
 | services | `tile_serving.py`・`accident_service.py`・`region_service.py`・`landcover_tile_service.py`（土地被覆ラスタタイルの配信）・`derived_data_freshness_service.py`（派生データ鮮度台帳）・`tile_version_service.py`（配信するタイル世代の組み立て。形の署名とDBの派生データ世代から作る）・`derived_data_revision_service.py`（DBの派生データ世代をTTL付きで読み直す。別コンテナのバッチが書き直したことにbackendが気づく唯一の経路で、タイル世代の組み立て等の配信側が読む）・`db_status_service.py`（本番DB状態の判定。しきい値と根拠を持つ） |
 | infrastructure | `vector_tile.py`・`tile_cache.py`・`landcover_raster.py`（土地被覆GeoTIFFの読み取り・再投影・着色）・`source_models.py`（外部ソースの生データを、ソースによらない1つの形で持つ。点・線・ラスタのタイルを同じ骨格へ載せ、取込1回ぶんを`source_runs`が記録する）・`derived_models.py`（生データから導いたもの。粒度ごとに1表で、バッチが1つ増えても表は増えない）・`orm_base.py`（ORMの基底。どのモデルからも辿れる位置に置き、モデル同士がimportで絡まないようにする。全表を載せたmetadata［`declared_metadata`。importの有無で表が欠けないよう、全表を見る側はここを通す］と、取り直せない表の印［`IRREPLACEABLE`］もここが持つ）・`accident_repository.py`・`derived_data_freshness.py`（派生データ鮮度台帳）・`db_status.py`（本番DBの状態＝取込runの最終実行・テーブルの実数と容量・統計とVACUUMの鮮度・接続）・`proj_data.py`（rasterioが参照するPROJデータをrasterio同梱のものへ固定する。別インストールの`proj.db`を掴むとEPSG解決が失敗するため、rasterioのimport前に呼ぶ） |
 | api | `region.py`（路面/POI/動的材料/土地被覆タイル・区間インスペクタ）・`accidents.py`（事故タイル）・`_tile_http.py`（両者が共有する座標検証と応答組み立て）・`derived_data_freshness.py`（`GET /api/admin/derived-data/freshness`、Basic認証必須）・`db_status.py`（`GET /api/admin/db-status`、同） |
-| batch | `ingest.py`（外部ソースの共通取込経路。アダプタから受けた1件ずつをステージングへ積み、そのソースのパーティションだけを入れ替え、`source_runs`へ適用した絞り込みごと記録する）・`ingest_cli.py`（その入口）・`source_profile.py`／`source_profile.yaml`（取り込む母集団の宣言。実装には範囲を書かない。読む側が知らない欄があれば取込の前に止める）・`source_adapters/`（外部の形を開いて1件ずつ返すだけの実装。`npa_honhyo.py`は警察庁の本票CSV（配信元は叩かず、手元にあるものを読む。無ければ何を流せばよいかを言って止まる）、`osm_pbf.py`はOSMのPBF（way・node。タグを絞らず全部持つ。PBFの読み取り自体は`pbf_source.py`が持ち、pyosmiumへの依存をそこへ閉じ込める）、`io_lulc_tile.py`は土地被覆ラスタをタイルへ切って、`gsi_dem_tile.py`は地理院の標高タイル——製品×タイル1枚を1行として返し、標高はint32（0.01m単位）で詰める。面のタイルは`_raster_wkb.py`がPostGISの`raster`へ包む。位置・画素の大きさ・型・欠測値をその値自身に持たせ、読み手が属性から形を組み立てなくてよいようにする）・`derive_cli.py`（派生を作り直す入口。段の順番はここだけが持つ）・`derive_topology.py`（生データから区間`road_edges`とノードの枝数を導く。切る位置は2本以上の道が通るノード）・`derive_node_materials.py`（ノードの種別・信号の有無・集まる道の最大階級。種別の判断は取込ではなくここで行うため、判断が変わっても生データは取り直さない）・`derive_counts.py`（区間と道に付く数の値。停止要因は端点を0.5ずつ持ち、道の値は区間の和から導くため地図と評価で食い違わない）・`derive_raster_materials.py`（面のタイルを線へ落とす。標高は形状点で測り、土地被覆は中心線の周りの帯に落ちる画素を数える）・`derive_way_materials.py`（道1本の性質。通行方向をタグから決め、上下線分離は逆向きに並走する相方の有無で判定する）・`_common.py`（バッチ間共通ヘルパ。asyncpg用DSN変換・`fetch_verified`［配布元のファイルを手元へ写す取得スクリプト共通の手順。読めるものは落とし直さず、一時ファイル経由で置き、落とし終えたら開いてみて開けなければ退ける］・`batch_session_factory`[エンジン生成と破棄]・`with_derived_data_revision_bump`[派生を作り直したら、それを読んで作ったキャッシュの世代を上げる]・`reset_columns_sql`[派生の段が書く列を、値を出す前の状態へ戻す]・`run_batch_cli`[DBを書く入口（例: `ingest_cli.py`・`derive_cli.py`・`scripts/bootstrap_database.py`）の骨格。ログの設定・`--database-url`の読み取り・世代の更新を持ち、入口は自分の引数と本体だけを書く]）・`scripts/fetch_lulc_raster.py`（土地被覆ラスタの取得。デプロイが呼ぶ）・`scripts/fetch_osm_pbf.py`（OSMの抽出ファイルの取得）・`scripts/fetch_accident_csv.py`（警察庁の本票CSVの取得。年ごとに1ファイルで、要る年はプロファイルが持つ）・`scripts/bootstrap_database.py`（まっさらなDBを使える状態まで立ち上げる。スキーマ→取込→派生の順はここだけが持ち、途中から流し直せる） |
+| batch | `ingest.py`（外部ソースの共通取込経路。アダプタから受けた1件ずつをステージングへ積み、そのソースのパーティションだけを入れ替え、`source_runs`へ適用した絞り込みごと記録する）・`ingest_cli.py`（その入口）・`source_profile.py`／`source_profile.yaml`（取り込む母集団の宣言。実装には範囲を書かない。読む側が知らない欄があれば取込の前に止める）・`source_adapters/`（外部の形を開いて1件ずつ返すだけの実装。`npa_honhyo.py`は警察庁の本票CSV（配信元は叩かず、手元にあるものを読む。無ければ何を流せばよいかを言って止まる）、`osm_pbf.py`はOSMのPBF（way・node。タグを絞らず全部持つ。PBFの読み取り自体は`pbf_source.py`が持ち、pyosmiumへの依存をそこへ閉じ込める）、`io_lulc_tile.py`は土地被覆ラスタをタイルへ切って、`gsi_dem_tile.py`は地理院の標高タイル——製品×タイル1枚を1行として返し、標高はint32（0.01m単位）で詰める。面のタイルは`_raster_wkb.py`がPostGISの`raster`へ包む。位置・画素の大きさ・型・欠測値をその値自身に持たせ、読み手が属性から形を組み立てなくてよいようにする）・`derive_cli.py`（派生を作り直す入口。段の順番はここだけが持つ。作業用のスキーマで作り、道路網の配列まで作ってから`public`の表と入れ替えて世代を進める）・`derive_topology.py`（生データから区間`road_edges`とノードの枝数を導く。切る位置は2本以上の道が通るノード）・`derive_node_materials.py`（ノードの種別・信号の有無・集まる道の最大階級。種別の判断は取込ではなくここで行うため、判断が変わっても生データは取り直さない）・`derive_counts.py`（区間と道に付く数の値。停止要因は端点を0.5ずつ持ち、道の値は区間の和から導くため地図と評価で食い違わない）・`derive_raster_materials.py`（面のタイルを線へ落とす。標高は形状点で測り、土地被覆は中心線の周りの帯に落ちる画素を数える）・`derive_way_materials.py`（道1本の性質。通行方向をタグから決め、上下線分離は逆向きに並走する相方の有無で判定する）・`_common.py`（バッチ間共通ヘルパ。asyncpg用DSN変換・`fetch_verified`［配布元のファイルを手元へ写す取得スクリプト共通の手順。読めるものは落とし直さず、一時ファイル経由で置き、落とし終えたら開いてみて開けなければ退ける］・`batch_session_factory`[エンジン生成と破棄。表を先に探すスキーマを指定できる]・`reset_columns_sql`[派生の段が書く列を、値を出す前の状態へ戻す]・`run_batch_cli`[DBを書く入口（例: `ingest_cli.py`・`derive_cli.py`・`scripts/bootstrap_database.py`）の骨格。ログの設定・`--database-url`の読み取りを持ち、入口は自分の引数と本体だけを書く]）・`scripts/fetch_lulc_raster.py`（土地被覆ラスタの取得。デプロイが呼ぶ）・`scripts/fetch_osm_pbf.py`（OSMの抽出ファイルの取得）・`scripts/fetch_accident_csv.py`（警察庁の本票CSVの取得。年ごとに1ファイルで、要る年はプロファイルが持つ）・`scripts/bootstrap_database.py`（まっさらなDBを使える状態まで立ち上げる。スキーマ→取込→派生の順はここだけが持ち、途中から流し直せる） |
 
 `api/routers/region.py`のうち`GET /api/region/dynamic-way-values/...`エンドポイントは
 [動的材料・way_id値配信](dynamic-way-values.md)の管轄、`domain/road.py`の
@@ -138,6 +138,26 @@ int32の0.01m単位、土地被覆はuint8）で持つ。位置・画素の大�
 その後ろにある。そのため`--from`は、変えた段の値を読まない段まで流し直すことがある
 （例: ノードの段だけを直しても、面の段まで流れる）。どの段がどの段の値を読むかは宣言されて
 いないので、1段だけを流す入口は置かない——流し忘れた後ろの段に、古い入力から作った値が残る。
+
+**作り直しの途中は読み手に見せない。** 入口は派生の表（`source_run_id`を持つ表）を今の中身ごと
+作業用のスキーマ（`derive_cli.py: WORK_SCHEMA`）へ写し、段はそこを書く。接続の`search_path`を
+作業用のスキーマ→`public`にするので、段のSQLは表の名前をそのまま書き、生データは`public`から読む
+——段のSQLへ`public.`を書くと、作り直しの途中の値がそのまま配られる。全段が終わったら、作業用の
+表と生データから道路網の配列（[ルート生成エンジン](routing-engine.md)「道路網全体の配列」）を作り、
+1つのトランザクションで`public`の表を消して作業用の表を移し、派生データの世代を進め、直後に配列を
+読み手の拾う名前へ付け替える。それまでbackendは作り直す前の表・世代・配列を読み続け、途中で落ちれば
+何も入れ替わらない。段ごとに`public`へコミットすると、区間を切り直す段から値を埋める段までの間
+（全段で約1時間）値の無い区間が配られ、その間に焼いたタイルは古い世代の鍵でディスクに残る。
+
+- 写すとき、列・既定値・検査制約は`LIKE`で、鍵・外部キー・索引は`public`の定義から名前ごと写す
+  ——入れ替えた後の表は、前の表と同じ名前の制約と索引を持つ。本番では派生の表が合わせて約3.3GBあり
+  （2026-09-27）、作り直しの間はディスクをその分余計に使う。
+- 入れ替えは表の排他ロックを取る。待つ間は後から来た読み手も後ろに並ぶため、待つのは数秒までにし、
+  諦めて間を置いてやり直す（長く読む相手がいる間、タイル配信を止めないため）。
+- 同時に2本流すと作業用のスキーマを互いに消し合うため、2本目は始めずに止まる。
+- **取込は世代を進めず、道路網の配列も作らない。** 世代と配列は派生の表の中身を表すもので、取込は
+  派生の表を変えない。取込の後で世代を進めると、派生を作り直す前にデプロイの前処理
+  （`scripts/build_road_network.py`）が新しい生データと古い派生から配列を作ってしまう。
 
 **段は、自分が書く列を先に「値を出す前の状態」へ戻してから値を出す**（`_common.py:
 reset_columns_sql`。戻す値は、未計算のNULL・「無い」を表す0やfalse等、列ごとに段が決める）。
@@ -269,8 +289,7 @@ OSMは中央分離帯のある道路の上下線を別々のwayとして持ち�
 残るのは「取り直した後に派生を流していない」ときだけで、そのときは行の世代が最新の
 取込runより古いという**鮮度**の側で鳴る。`way_materials`は道への外部キーを持てない
 （生データ側の鍵が複合で、表が分割されている）ため、この消去が無いと消えた道の行が
-古い値のまま残り続ける。表ごと空にしないのは、後ろの段が埋める値（通行方向・
-上下線分離・土地被覆）を、作り直しの途中で既定値へ戻さないため。
+古い値のまま残り続ける。
 
 NULLの意味は列によって違う。「まだ計算していない」と「確定して値が無い」（橋の勾配・
 指定のない道・POIでないノード）を分けるため、後者は列の宣言へ印を付ける
