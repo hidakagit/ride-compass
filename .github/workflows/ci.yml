@@ -84,6 +84,9 @@ jobs:
       - run: python -m ruff check app scripts benchmarks tests
       # 関数の宣言と違う型の値を渡す呼び出しを止める。対象と設定はbackend/mypy.ini。
       - run: python -m mypy
+      # 層の向き（上の層だけが下の層を読む）を止める。契約はbackend/.importlinter、各層が持つものは
+      # docs/architecture/directory-layout.md。
+      - run: lint-imports
       # -n auto（pytest-xdist、改善計画T233フォローアップ）でCPUコア数ぶん並列化する。
       # PostGIS統合テストは全ファイルxdist_group="postgis"で同一workerへ固定済み
       # （同じridecompass_test DBへの同時TRUNCATEレースを防ぐ、docs/conventions/testing.mdパターン2）

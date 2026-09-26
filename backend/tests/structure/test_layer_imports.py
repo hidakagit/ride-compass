@@ -2,7 +2,11 @@
 
 `app.batch`配下はバッチ実行時にしか要らない重い依存（ラスタ・OSM系）を読む。web層が
 モジュールトップでこれをimportすると、本番のwebだけが起動できなくなる（依存が入っていない
-ため）。共有したい値は`domain/`へ置くか、import自体を関数内へ遅延させる。
+ため）。共有したい値は`domain/`へ置く。
+
+層の向き（`services`以下は関数内でも`app.batch`を読まない）は`backend/.importlinter`が持つ。
+この検査が見るのはその契約が許す上の層（`api`・`main`）のモジュール直下のimportで、関数内へ
+遅延させたimportは許す——import-linterは関数内のimportも数え、直下だけを見る設定を持たない。
 
 母集団はソースから導く——`backend/app`配下（`app/batch`自身を除く）の全`.py`をASTで読み、
 **モジュール直下の**import文だけを見る（関数内の遅延importは対象外）。

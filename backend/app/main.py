@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.cache_policy import CachePolicyMiddleware
+from app.api.dependencies import get_amedas_service, get_jma_tile_client
 from app.api.routers import api_router
 from app.config import settings
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
@@ -19,7 +20,6 @@ from app.infrastructure.database import get_session_factory
 from app.infrastructure.debug_control import install_ring_buffer_handler
 from app.infrastructure.http_client import close_all_http_clients, get_http_client
 from app.infrastructure import road_network_store
-from app.infrastructure.jma_tile_client import JmaTileClient
 from app.infrastructure.msm_client import refresh as refresh_msm
 from app.infrastructure.request_log import (
     format_log_lines,
@@ -30,7 +30,7 @@ from app.infrastructure.response_compression import ContentTypeGZipMiddleware
 from app.infrastructure.single_process import require_single_worker
 from app.infrastructure.tuning_overrides import refresh_tuning_values
 from app.services.axis_registry_service import refresh_axis_definitions
-from app.services.jma_amedas_service import AMEDAS_REFRESH_INTERVAL_MINUTES, JmaAmedasService
+from app.services.jma_amedas_service import AMEDAS_REFRESH_INTERVAL_MINUTES
 from app.services.jma_tile_prewarm_service import prewarm_jma_tiles
 
 logging.basicConfig(level=logging.DEBUG if settings.debug_mode else logging.INFO)
@@ -74,12 +74,12 @@ def _log_job_failure(event: JobExecutionEvent) -> None:
 async def _refresh_amedas_job() -> None:
     """JMAアメダスは1地点だけを絞り込めず全国ぶんを1レスポンスで返すため、リクエストごとに
     引くのではなくここでまとめて取得しRedisへ書き戻す。"""
-    count = await JmaAmedasService(get_http_client(10.0)).refresh_all_stations()
+    count = await get_amedas_service().refresh_all_stations()
     logging.getLogger("ridecompass.jma_amedas_scheduler").debug("アメダス定期更新完了 count=%d", count)
 
 
 async def _prewarm_jma_tile_job() -> None:
-    await prewarm_jma_tiles(JmaTileClient(get_http_client(15.0)))
+    await prewarm_jma_tiles(get_jma_tile_client())
 
 
 async def _sync_msm_job() -> None:

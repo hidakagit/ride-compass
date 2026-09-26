@@ -592,7 +592,7 @@ importしていないため、名前空間経由では中身の型へ届かな�
 | 層 | 回すもの | 担うこと |
 |---|---|---|
 | 手元 | 直接触った範囲だけ: 変更したファイルへの`ruff`・`prettier`、変更が届くテストファイル、backendに触れたら`mypy`、frontendに触れたら`tsc --noEmit`、`review_checks.py docs` | 書きながら挙動を確かめる。赤を**作りにくくする** |
-| 作業ブランチ（`orch/**`）のCI | `ci.yml`の全ジョブ（prettier・eslint・knip・tsc・vitest・ruff・mypy・pytest全件・E2E・API契約）と`docs-consistency.yml` | 触った範囲の外にある前提（フルスイート・Linuxでの結果）。masterへ入れてよいかの判定 |
+| 作業ブランチ（`orch/**`）のCI | `ci.yml`の全ジョブ（prettier・eslint・knip・tsc・vitest・ruff・mypy・lint-imports・pytest全件・E2E・API契約）と`docs-consistency.yml` | 触った範囲の外にある前提（フルスイート・Linuxでの結果）。masterへ入れてよいかの判定 |
 | masterのCI | 同じ`ci.yml`と`docs-consistency.yml` | 作業ブランチで個別に通ったコミットを組み合わせた木の検査。`ci.yml`が全部通るまでbackendのデプロイは起動しない（**本番へ出る前の門はここ**） |
 
 - **`.githooks/pre-push`は検査をしない。** CIと同じ検査をpushの直前に置くと、masterへのpushの
@@ -629,6 +629,19 @@ backendの型検査は、関数が受け取ると宣言した型と、呼び出�
   Windows（cp932）では非ASCIIの1文字で起動に失敗する。設定の理由はここに書く。
 - 解析結果は`backend/.mypy_cache/`に残り、2回目以降は変わったファイルだけを見直す。
   作業ツリーごとの初回は保存が無く、開発機で40〜70秒かかる（2回目以降は2〜4秒）。
+
+### 層の向き（import-linter）
+
+backendの層（[directory-layout.md](../architecture/directory-layout.md)「backend」）の向きを、
+下の層が上の層を読んだ時点で止める。設定は`backend/.importlinter`、実行は`backend/`で`lint-imports`
+（引数なし）。
+
+- **契約を緩める指定（`ignore_imports`）を足さない**——足すと、その向きの新しい越境も一緒に止まらなく
+  なる。越境は、読む側を正しい層へ移すか、共有したいものを下の層へ下ろして解く。
+- **`.importlinter`はASCIIだけで書く。** import-linterはINIの設定ファイルをOSの既定の文字コードで読む
+  （`mypy.ini`と同じ）。
+- 解析結果は`backend/.import_linter_cache/`に残る（中に自分を無視する`.gitignore`を置くので、
+  コミットには入らない）。
 
 ### 使われないコード（knip）
 

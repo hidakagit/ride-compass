@@ -5,6 +5,8 @@
 ruff==0.16.6
 # 型検査。設定はmypy.ini。CI（.github/workflows/ci.yml）がruffの次に走らせる。
 mypy==2.3.1
+# 層の向き（上の層だけが下の層を読む）。設定は.importlinter。CIがmypyの次に走らせる。
+import-linter==2.15
 # 型情報を配っていないライブラリの型（スタブ）。版は本体の版に合わせる——asyncpg-stubsは
 # 対応するasyncpgの版を依存に持つため、asyncpgだけを上げるとpipの解決で止まる。
 # スタブが無いライブラリはmypy.iniのignore_missing_importsで扱う。
