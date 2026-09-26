@@ -23,13 +23,21 @@
 
 手元のブランチへは取り込まない（fetchで追う）。
 
+## 承認の確かめ
+
+番号は、仕掛中のダッシュボードで承認された起票案にだけ振る（docs/conventions/asking-user.md「起票は承認制」）。
+各件に起票案のdoc_id（`--proposal`）を渡し、最新のダッシュボードの書き出し（`pending-backup`。
+`scripts/orchestration/pending.py`）にその件が kind `起票案` で、`answer`が「承認」で始まることを確かめてから
+番号を振る。1件でも確かめられなければ、fetchもpushもせずに止まる。書き出しより後に付いた承認は見えないので、
+承認を`answer`へ書いたら（チャットの承認は聞いた側が書く）、書き出して`pending-backup`し直してから呼ぶ。
+
 ## 使い方
 
-    python scripts/new_task.py "タイトル" --section "節見出しの一部" --size S [--background "背景"] \\
-        [-- "タイトル2" --section ... --size M ...]
+    python scripts/new_task.py "タイトル" --section "節見出しの一部" --size S --proposal <起票案のdoc_id> \\
+        [--background "背景"] [-- "タイトル2" --section ... --size M --proposal ... ...]
 
-`--`で区切って、承認された件を並べる。終了コード: 確保できたら0。節が一意に決まらない・pushできない等で
-確保できなければ1。
+`--`で区切って、承認された件を並べる。終了コード: 確保できたら0。承認された起票案が無い・節が一意に決まらない・
+pushできない等で確保できなければ1。
 """
 
 from __future__ import annotations
@@ -132,6 +140,7 @@ def parse_tasks(argv: list[str]) -> list[argparse.Namespace]:
     parser.add_argument("--section", required=True, help="台帳の節見出しの一部（一意に決まること）")
     parser.add_argument("--size", required=True, help="規模（S・M・L・S〜M 等）")
     parser.add_argument("--background", default="", help="背景1〜2行")
+    parser.add_argument("--proposal", required=True, help="ダッシュボードで承認された起票案のdoc_id")
     groups: list[list[str]] = [[]]
     for arg in argv:
         if arg == "--":
@@ -146,9 +155,38 @@ def parse_tasks(argv: list[str]) -> list[argparse.Namespace]:
     return tasks
 
 
+def unapproved(tasks: list[argparse.Namespace]) -> list[str]:
+    """承認を確かめられない件の理由（モジュールの冒頭「承認の確かめ」）。空なら全件が承認済み。"""
+    from orchestration.core import Context
+    from orchestration.pending import latest_backup
+
+    latest = latest_backup(Context(REPO_ROOT, os.environ.get("ORCH_DIR")))
+    if latest is None:
+        return ["ダッシュボードの書き出しが無い（ArtifactDataのlistにout_dirを付けて書き出し、"
+                "python scripts/orchestrate.py pending-backup --pending <dir>）"]
+    day, items = latest
+    out = []
+    for task in tasks:
+        item = items.get(task.proposal)
+        if item is None:
+            out.append(f"{task.proposal}: {day}の書き出しに無い")
+        elif item.get("kind") != "起票案":
+            out.append(f"{task.proposal}: kind が起票案ではない（{item.get('kind')}）")
+        elif not str(item.get("answer") or "").strip().startswith("承認"):
+            out.append(f"{task.proposal}: 承認されていない（answer: {str(item.get('answer') or '').strip() or 'なし'}）")
+    return out
+
+
 def main() -> int:
     tasks = parse_tasks(sys.argv[1:])
     today = dt.datetime.now().astimezone().date().isoformat()
+    refused = unapproved(tasks)
+    if refused:
+        print("承認された起票案を確かめられないので、番号を振らずに止めます（docs/conventions/asking-user.md"
+              "「起票は承認制」。承認をanswerへ書いたら、書き出してpending-backupし直す）:", file=sys.stderr)
+        for reason in refused:
+            print(f"  {reason}", file=sys.stderr)
+        return 1
     try:
         base = fetch_base()
         plan = decode(git("show", f"{base}:{PLAN_DOC}").stdout)
@@ -165,6 +203,7 @@ def main() -> int:
             ok, output = push(sha)
             if ok:
                 print(f"{'・'.join(ids)} を確保しました（push: {sha}。手元へはfetchで取り込む）")
+                print("ダッシュボードから消す起票案: " + "・".join(f"{t.proposal}（{tid}）" for t, tid in zip(tasks, ids)))
                 return 0
             new_base = fetch_base()
             if new_base == base:
