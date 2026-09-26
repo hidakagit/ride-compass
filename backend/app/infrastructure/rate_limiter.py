@@ -3,7 +3,7 @@ from collections import defaultdict
 
 # 路面ベクタタイル・basemapプロキシは認証なしで叩けるため、x/y（または path）を
 # 総当たりされるとディスク（tile_cache）や上流（Overpass/OpenFreeMap）への負荷が
-# 無制限にかかりうる。プロセス内メモリのみの簡易な固定窓レート制限で歯止めをかける
+# 無制限にかかりうる。プロセス内メモリのみの簡易な移動窓レート制限で歯止めをかける
 # （標高・天候キャッシュと同じ「プロセス内・永続化なし」の割り切り）。
 _WINDOW_SECONDS = 60.0
 _hits: dict[str, list[float]] = defaultdict(list)

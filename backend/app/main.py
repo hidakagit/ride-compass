@@ -1,13 +1,13 @@
 import asyncio
-import functools
 import logging
 import os
 import sys
-from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import datetime
 
+from apscheduler.events import EVENT_JOB_ERROR, JobExecutionEvent
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from asgi_correlation_id import CorrelationIdMiddleware
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -22,9 +22,7 @@ from app.infrastructure import road_network_store, tile_cache
 from app.infrastructure.jma_tile_client import JmaTileClient
 from app.infrastructure.msm_client import refresh as refresh_msm
 from app.infrastructure.request_log import (
-    LOG_FORMAT,
-    JstLogFormatter,
-    RequestIdLogFilter,
+    format_log_lines,
     request_log_middleware,
     unhandled_exception_handler,
 )
@@ -37,8 +35,7 @@ from app.services.jma_tile_prewarm_service import prewarm_jma_tiles
 
 logging.basicConfig(level=logging.DEBUG if settings.debug_mode else logging.INFO)
 for _handler in logging.getLogger().handlers:
-    _handler.addFilter(RequestIdLogFilter())
-    _handler.setFormatter(JstLogFormatter(LOG_FORMAT))
+    format_log_lines(_handler)
 
 install_ring_buffer_handler()
 
@@ -63,29 +60,17 @@ logging.getLogger("ridecompass.startup").info(
 _scheduler = AsyncIOScheduler()
 
 
-def _with_failure_log(
-    logger_name: str, label: str
-) -> Callable[[Callable[[], Awaitable[None]]], Callable[[], Awaitable[None]]]:
-    """スケジューラへ載せるジョブを包み、失敗をWARNINGで残す。
+def _log_job_failure(event: JobExecutionEvent) -> None:
+    """定期ジョブの失敗を`ridecompass.scheduler`へWARNINGで残す。
 
-    APScheduler自身のログはこのプロジェクトの命名規約（`ridecompass.*`）から外れるため、
-    どのジョブが失敗したかを揃った名前で追えるようにする。
+    APScheduler自身も失敗をスタックトレース付きで`apscheduler.executors`へ出すが、その名前は
+    このプロジェクトの接頭辞（`ridecompass.*`）から外れ、接頭辞単位でレベルを絞ると漏れる。
     """
-
-    def decorate(func: Callable[[], Awaitable[None]]) -> Callable[[], Awaitable[None]]:
-        @functools.wraps(func)
-        async def job() -> None:
-            try:
-                await func()
-            except Exception:
-                logging.getLogger(logger_name).warning("%sに失敗しました", label, exc_info=True)
-
-        return job
-
-    return decorate
+    logging.getLogger("ridecompass.scheduler").warning(
+        "定期ジョブ%sに失敗しました: %r", event.job_id, event.exception
+    )
 
 
-@_with_failure_log("ridecompass.jma_amedas_scheduler", "アメダス定期更新")
 async def _refresh_amedas_job() -> None:
     """JMAアメダスは1地点だけを絞り込めず全国ぶんを1レスポンスで返すため、リクエストごとに
     引くのではなくここでまとめて取得しRedisへ書き戻す。"""
@@ -93,12 +78,10 @@ async def _refresh_amedas_job() -> None:
     logging.getLogger("ridecompass.jma_amedas_scheduler").debug("アメダス定期更新完了 count=%d", count)
 
 
-@_with_failure_log("ridecompass.jma_tile_prewarm_scheduler", "JMAタイルの定期プリウォーム")
 async def _prewarm_jma_tile_job() -> None:
     await prewarm_jma_tiles(JmaTileClient(get_http_client(15.0)))
 
 
-@_with_failure_log("ridecompass.msm_sync_scheduler", "MSMの定期同期")
 async def _sync_msm_job() -> None:
     """気象庁MSM（風・降水の予報）の.omファイルをローカルへ同期する。
 
@@ -108,7 +91,6 @@ async def _sync_msm_job() -> None:
     await refresh_msm(get_http_client(60.0))
 
 
-@_with_failure_log("ridecompass.tile_cache_prune", "ディスク永続キャッシュの旧世代削除")
 async def _prune_stale_disk_generations_job() -> None:
     """ディスク永続化キャッシュの古い世代を削除する。
 
@@ -142,6 +124,7 @@ async def lifespan(app: FastAPI):
         # 較正値は行が1つも無ければ宣言どおりの既定値のまま動く（壊れた値の行だけが起動を止める）。
         await refresh_tuning_values(session)
 
+    _scheduler.add_listener(_log_job_failure, EVENT_JOB_ERROR)
     # next_run_time=nowで起動直後にも1回実行し、次の定期実行までキャッシュが空のまま
     # 502を返し続けるのを避ける。
     _scheduler.add_job(
@@ -195,9 +178,10 @@ app.add_middleware(
 app.add_middleware(ContentTypeGZipMiddleware)
 app.add_middleware(CachePolicyMiddleware)
 
-# 後から登録したミドルウェアが外側になる(リクエストIDの付与・アクセスログはCORS処理も
-# 含めた全体を計測・記録したいため、CORSより外側に置く)。
+# 後から登録したミドルウェアが外側になる(アクセスログはCORS処理も含めた全体を計測・記録したい
+# ため、CORSより外側に置く。リクエストIDはアクセスログの行にも載るよう、さらにその外側に置く)。
 app.middleware("http")(request_log_middleware)
+app.add_middleware(CorrelationIdMiddleware)
 # 未処理例外(500)発生時もX-Request-IDヘッダを付ける。
 app.add_exception_handler(Exception, unhandled_exception_handler)
 

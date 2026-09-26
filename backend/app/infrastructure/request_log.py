@@ -1,21 +1,14 @@
-"""リクエストIDの付与と、リクエスト1件=1行のHTTPアクセスサマリログ(方針は docs/conventions/logging.md)。
+"""リクエスト1件=1行のHTTPアクセスサマリログと、ログ1行の書式(方針は docs/conventions/logging.md)。
 
-クライアントが`X-Request-ID`ヘッダを送ってきた場合はそれを引き継ぐ（フロントやcurlから
-調査用に指定できる）。レスポンスにも同じヘッダで返すため、CORS越しに読めるよう
-`main.py`の`expose_headers`へ入れておく必要がある。
-
-**リクエストIDはcontextvarと`request.state`の両方へ置く。** 本ミドルウェアの`finally`節は、
-未処理例外の伝播中に（`ServerErrorMiddleware`側のハンドラ実行より先に）contextvarを
-リセットする。そのため500応答を組み立てる`unhandled_exception_handler`はcontextvarから
-読めず、ASGI scopeに紐づいて巻き戻しの影響を受けない`request.state`から読む。
+リクエストIDの引き継ぎ・発行・応答ヘッダへの付与は`asgi_correlation_id.CorrelationIdMiddleware`
+（`main.py`で登録）が持ち、ここはそのIDをログ行と500応答へ載せる側だけを持つ。
 """
 
-import contextvars
 import logging
 import time
-import uuid
 from datetime import datetime
 
+from asgi_correlation_id import CorrelationIdFilter, correlation_id
 from fastapi import Request, Response
 from fastapi.responses import PlainTextResponse
 
@@ -23,16 +16,13 @@ from app.domain.time_zone import JST
 
 access_logger = logging.getLogger("ridecompass.access")
 
-request_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="-")
-
 # タイル系は通常操作でも毎分数百リクエストになるため、成功時のアクセスログは
 # DEBUG(debug_mode時のみ実質出力)へ落とし、ログを埋めないようにする。
 HIGH_FREQUENCY_PATH_PREFIXES = ("/api/basemap", "/api/region/road-surface-tiles")
 
 
-#: ログ1行の書式。標準出力（main.py）と管理画面のリングバッファ（debug_control.py）が
-#: 同じ行を出すよう、ここだけに置く。`%(request_id)s`は下の`RequestIdLogFilter`が入れる。
-LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s [req:%(request_id)s]: %(message)s"
+#: ログ1行の書式。`%(correlation_id)s`は`format_log_lines`が付けるフィルタが入れる。
+LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s [req:%(correlation_id)s]: %(message)s"
 
 
 class JstLogFormatter(logging.Formatter):
@@ -49,28 +39,27 @@ class JstLogFormatter(logging.Formatter):
         return f"{at.strftime('%Y-%m-%d %H:%M:%S')},{int(record.msecs):03d}{at.strftime('%z')}"
 
 
-class RequestIdLogFilter(logging.Filter):
-    """全ログレコードへcontextvarのrequest_idを注入する(main.pyでrootハンドラに装着)。"""
+def format_log_lines(handler: logging.Handler) -> None:
+    """ハンドラへログ1行の書式（JSTの時刻・リクエストID）を付ける。
 
-    def filter(self, record: logging.LogRecord) -> bool:
-        record.request_id = request_id_var.get()
-        return True
-
-
-def new_request_id() -> str:
-    return uuid.uuid4().hex[:12]
+    標準出力（main.py）と管理画面のリングバッファ（debug_control.py）が同じ行を出すよう、
+    書式とリクエストIDの入れ方はここだけに置く。リクエストの外で出た行のIDは`-`になる。
+    """
+    handler.addFilter(CorrelationIdFilter(default_value="-"))
+    handler.setFormatter(JstLogFormatter(LOG_FORMAT))
 
 
 async def unhandled_exception_handler(request: Request, exc: Exception) -> Response:
     """FastAPIの`Exception`ハンドラとして登録する(main.py: `app.add_exception_handler`)。
 
-    500応答は本来Starletteの`ServerErrorMiddleware`（本ミドルウェアの外側）が作るため、
-    そこにはX-Request-IDを付けられない。FastAPIのExceptionハンドラはそれより先に
+    500応答は本来Starletteの`ServerErrorMiddleware`（リクエストIDのミドルウェアの外側）が
+    作るため、そこにはX-Request-IDが付かない。FastAPIのExceptionハンドラはその中で
     呼ばれるので、ここで同じ形のプレーンテキスト応答を組み立ててヘッダを載せる。
     """
-    del exc  # スタックトレースはrequest_log_middleware側で既にERRORログ済み
-    request_id = getattr(request.state, "request_id", None) or "-"
-    return PlainTextResponse("Internal Server Error", status_code=500, headers={"X-Request-ID": request_id})
+    del request, exc  # スタックトレースはrequest_log_middleware側で既にERRORログ済み
+    return PlainTextResponse(
+        "Internal Server Error", status_code=500, headers={"X-Request-ID": correlation_id.get() or "-"}
+    )
 
 
 def _access_level(method: str, path: str, status_code: int) -> int:
@@ -90,35 +79,28 @@ def _access_level(method: str, path: str, status_code: int) -> int:
 
 
 async def request_log_middleware(request: Request, call_next) -> Response:
-    request_id = request.headers.get("X-Request-ID") or new_request_id()
-    request.state.request_id = request_id  # モジュールdocstring参照
-    token = request_id_var.set(request_id)
     started = time.monotonic()
     client = request.client.host if request.client else "unknown"
     try:
-        try:
-            response = await call_next(request)
-        except Exception:
-            elapsed_ms = round((time.monotonic() - started) * 1000)
-            access_logger.exception(
-                "%s %s -> unhandled exception after %dms client=%s",
-                request.method,
-                request.url.path,
-                elapsed_ms,
-                client,
-            )
-            raise
+        response = await call_next(request)
+    except Exception:
         elapsed_ms = round((time.monotonic() - started) * 1000)
-        response.headers["X-Request-ID"] = request_id
-        access_logger.log(
-            _access_level(request.method, request.url.path, response.status_code),
-            "%s %s -> %d in %dms client=%s",
+        access_logger.exception(
+            "%s %s -> unhandled exception after %dms client=%s",
             request.method,
             request.url.path,
-            response.status_code,
             elapsed_ms,
             client,
         )
-        return response
-    finally:
-        request_id_var.reset(token)
+        raise
+    elapsed_ms = round((time.monotonic() - started) * 1000)
+    access_logger.log(
+        _access_level(request.method, request.url.path, response.status_code),
+        "%s %s -> %d in %dms client=%s",
+        request.method,
+        request.url.path,
+        response.status_code,
+        elapsed_ms,
+        client,
+    )
+    return response

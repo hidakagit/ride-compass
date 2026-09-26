@@ -9,9 +9,11 @@ DBを触る呼び出しはすべてスタブへ差し替え、実接続を残さ
 
 import inspect
 import logging
+import threading
 from datetime import datetime
 
 import pytest
+from apscheduler.events import EVENT_JOB_ERROR
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi.testclient import TestClient
 
@@ -135,17 +137,25 @@ def test_every_interval_job_also_runs_immediately_at_startup(captured_add_job_ca
         assert abs((started_at - before).total_seconds()) < 5, call["id"]
 
 
-async def test_a_failing_scheduled_job_is_logged_and_does_not_escape(caplog):
-    """ジョブ本体の失敗はWARNINGとして残り、スケジューラの外へは伝わらない。"""
+def test_a_failing_scheduled_job_is_logged_under_the_project_prefix(caplog, _isolated_scheduler):
+    """起動後のスケジューラで失敗した定期ジョブは、`ridecompass.`のロガーにWARNINGで残る。
 
-    @main_module._with_failure_log("ridecompass.test_job", "テスト用ジョブ")
+    接頭辞の外にしか残らないと、接頭辞単位でレベルを絞ったときに失敗が見えなくなる。
+    """
+    ran = threading.Event()
+
     async def _boom() -> None:
         raise RuntimeError("boom")
 
-    with caplog.at_level(logging.WARNING, logger="ridecompass.test_job"):
-        await _boom()
+    with caplog.at_level(logging.WARNING, logger="ridecompass.scheduler"):
+        with TestClient(app):
+            _isolated_scheduler.add_listener(lambda event: ran.set(), EVENT_JOB_ERROR)
+            _isolated_scheduler.add_job(_boom, trigger="date", run_date=datetime.now(), id="boom")
+            assert ran.wait(5), "失敗させたジョブが走らなかった"
 
-    assert "テスト用ジョブに失敗しました" in caplog.text
+    failures = [r for r in caplog.records if r.name == "ridecompass.scheduler"]
+    assert [r.levelno for r in failures] == [logging.WARNING]
+    assert "boom" in failures[0].getMessage()
 
 
 def test_lifespan_shuts_down_scheduler_before_closing_http_clients(monkeypatch, _isolated_scheduler):

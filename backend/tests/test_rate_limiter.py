@@ -1,4 +1,4 @@
-"""`infrastructure/rate_limiter.py`——プロセス内の固定窓レート制限。
+"""`infrastructure/rate_limiter.py`——プロセス内の移動窓レート制限。
 
 ここで見ないもの:
 - 超過をHTTPの429へ翻訳する層とキーの組み立て → `api/dependencies.py`を通る各ルーターのテスト
