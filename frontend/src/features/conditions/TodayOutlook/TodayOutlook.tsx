@@ -5,6 +5,7 @@ import { ClockIcon, RaindropIcon, ThermometerIcon, WindIcon } from "@/components
 import { formatJstHourMinute } from "@/lib/time";
 import { getWeatherCodeDisplay } from "@/features/conditions/WeatherPanel/weatherCode";
 import type { WeatherConditions, WeatherPeriodOutlook } from "@/types/weather";
+import weatherScales from "@/types/generated/weather-scales.json";
 import { Button } from "@/components/ui/Button/Button";
 import { textVariants } from "@/components/ui/Text/Text";
 import { cn } from "@/lib/cn";
@@ -37,10 +38,10 @@ function formatPeriodLabel(period: string): string {
   return Number.isNaN(hour) ? period : `${hour}時`;
 }
 
-// 予想降水量。降らない見込み（0.1mm未満）は「-」。単位はコマ単体で意味が読み取れるよう
+// 予想降水量。降らない見込み（backendの「降っていない」の境未満）は「-」。単位はコマ単体で意味が読み取れるよう
 // 各コマへ付ける（横スクロールで見出しが画面外へ出るため）。
 function formatPrecipitation(mm: number): string {
-  return mm < 0.1 ? "-" : `${mm.toFixed(1)}mm`;
+  return mm < weatherScales.precipitation_none_below_mm ? "-" : `${mm.toFixed(1)}mm`;
 }
 
 function PeriodSlot({ period }: { period: WeatherPeriodOutlook }) {

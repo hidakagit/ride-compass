@@ -21,10 +21,9 @@ import type { WindGridPoint } from "@/types/weather";
 export const PRECIPITATION_COLOR_STOPS: readonly { mmPerHour: number; color: string; name: string }[] =
   weatherScales.precipitation.map((stop) => ({ mmPerHour: stop.value, color: stop.color, name: stop.name }));
 
-// 格子の塗り（gridFill）でこの値未満は「ほぼ降水なし」として非表示にする（windLayer.tsの
-// WIND_CALM_THRESHOLD_MSと同じ考え方）。0（完全な無降水）まで含めると格子点ぶんのセルが
-// 常時全域を埋め尽くしてしまうため、視覚的なノイズを避ける小さな閾値を設ける。
-export const PRECIPITATION_NONE_THRESHOLD_MM = 0.1;
+// 格子の塗り（gridFill）でこの値未満は「降っていない」として塗らない。境はbackendの宣言が持ち、
+// 天気コードの雨の判定・「今日の見通し」の予想降水量の「-」と同じ値。
+export const PRECIPITATION_NONE_THRESHOLD_MM = weatherScales.precipitation_none_below_mm;
 
 /** 降水強度の凡例（地図チップ）。色の段1つにつき1行。 */
 export const PRECIPITATION_INTENSITY_LEVELS: readonly MapColorLegendBand[] = buildRangeLegendBands(

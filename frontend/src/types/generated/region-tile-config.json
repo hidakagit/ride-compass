@@ -15,6 +15,7 @@
   },
   "road_tile_min_zoom": 12,
   "road_tile_max_zoom": 15,
+  "max_mercator_latitude": 85.05112878,
   "gsi": {
     "relief": {
       "tile_url": "/api/gsi-relief-tile/xyz/relief/{z}/{x}/{y}.png",

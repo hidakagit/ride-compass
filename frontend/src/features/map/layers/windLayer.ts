@@ -48,8 +48,8 @@ export function mergeWindGridKeepingStale(
 export const WIND_SPEED_COLOR_STOPS: readonly { speedMs: number; color: string; name: string }[] =
   weatherScales.wind_speed.map((stop) => ({ speedMs: stop.value, color: stop.color, name: stop.name }));
 
-// この風速未満は無風として矢印を描かない（1.0m/s程度にすると、関東でごく普通の弱い風でも矢印が全部消える）。
-export const WIND_CALM_THRESHOLD_MS = 0.3;
+// この風速未満は無風として矢印を描かない。境はbackendの宣言が持つ。
+export const WIND_CALM_THRESHOLD_MS = weatherScales.wind_calm_below_ms;
 
 // 凡例の行は地図の段と1対1（束ねると、束ねた中の値が色見本と食い違う）。先頭に矢印を出さない無風の行を置く。
 export const WIND_SPEED_LEGEND_LEVELS: readonly MapColorLegendBand[] = buildRangeLegendBands(

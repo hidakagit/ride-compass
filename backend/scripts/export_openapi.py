@@ -103,6 +103,7 @@ from app.domain.weather_display import (  # noqa: E402
     RISK_LEVEL_COLORS,
     THUNDER_ACTIVITY_LEVELS,
     TORNADO_POTENTIAL_LEVELS,
+    WIND_CALM_BELOW_MS,
     WIND_SPEED_COLOR_STOPS,
 )
 from app.domain.display_palette import (  # noqa: E402
@@ -140,7 +141,13 @@ from app.services.route_generator import (  # noqa: E402
     ROUTES_WITH_WAYPOINTS,
     SPLICED_ROUTE_ID,
 )
+from app.config import Settings  # noqa: E402
+from app.domain.region import MAX_MERCATOR_LATITUDE  # noqa: E402
+from app.domain.route_preference import MAX_AXIS_WEIGHT  # noqa: E402
 from app.domain.tuning import client_tuning_values  # noqa: E402
+from app.domain.weather import PRECIPITATION_MIN_MM  # noqa: E402
+from app.infrastructure.msm_client import DEFAULT_UPDATE_INTERVAL_SECONDS as MSM_UPDATE_INTERVAL_SECONDS  # noqa: E402
+from app.services.jma_amedas_service import AMEDAS_REFRESH_INTERVAL_MINUTES  # noqa: E402
 from app.infrastructure.job_registry import JOB_TTL_SECONDS  # noqa: E402
 from app.services.tile_version_service import TILE_SHAPES  # noqa: E402
 
@@ -150,6 +157,7 @@ REGION_TILE_CONFIG_PATH = GENERATED_DIR / "region-tile-config.json"
 PRIMARY_ATTRIBUTES_PATH = GENERATED_DIR / "primaryAttributes.ts"
 WIND_GRID_CONFIG_PATH = GENERATED_DIR / "wind-grid-config.json"
 ROUTE_GENERATE_CONFIG_PATH = GENERATED_DIR / "route-generate-config.json"
+REFRESH_INTERVALS_PATH = GENERATED_DIR / "refresh-intervals.json"
 AXIS_PAYLOAD_CONFIG_PATH = GENERATED_DIR / "axis-payload-config.json"
 MATERIAL_CATALOG_PATH = GENERATED_DIR / "material-catalog.json"
 LANDCOVER_CLASSES_PATH = GENERATED_DIR / "landcover-classes.json"
@@ -279,6 +287,8 @@ def main() -> None:
             # backendだけ広げてもfrontendが要求せずレイヤーが黙って消える。
             "road_tile_min_zoom": ROAD_TILE_MIN_ZOOM,
             "road_tile_max_zoom": ROAD_TILE_MAX_ZOOM,
+            # 画面が点からタイル座標を求めるときに緯度を挟む限界（`domain/region.py`と同じ式を使う）。
+            "max_mercator_latitude": MAX_MERCATOR_LATITUDE,
             # 国土地理院タイル（色別標高図・標高）。配信元が実データを持つ範囲・画面が
             # 要求するURL・出典表記・標高の読み戻し係数は、すべてbackendが正本を持つ
             # （domain/gsi_tiles.py・domain/terrain_rgb.py）。**画面はこれを写さない**。
@@ -421,6 +431,19 @@ def main() -> None:
             "linear_rainband_color": LINEAR_RAINBAND_COLOR,
             "thunder_activity": [level._asdict() for level in THUNDER_ACTIVITY_LEVELS],
             "tornado_potential": [level._asdict() for level in TORNADO_POTENTIAL_LEVELS],
+            "wind_calm_below_ms": WIND_CALM_BELOW_MS,
+            "precipitation_none_below_mm": PRECIPITATION_MIN_MM,
+        },
+    )
+    # 画面が取り直す間隔。新しい値が出る間隔（配信元の更新・backendの作り直し）そのもので、これより短く
+    # 取り直しても新しい値は無い。実行時に変わりうるもの（プリウォームの間隔は環境変数、MSMのrun更新間隔は
+    # 配信元のメタ情報）も、生成物は宣言の既定値を運ぶ——ずれても画面の鮮度が遅れるか取り直しが増えるだけ。
+    _write_json(
+        REFRESH_INTERVALS_PATH,
+        {
+            "amedas_seconds": AMEDAS_REFRESH_INTERVAL_MINUTES * 60,
+            "jma_tile_index_seconds": Settings.model_fields["jma_tile_prewarm_interval_minutes"].default * 60,
+            "msm_seconds": MSM_UPDATE_INTERVAL_SECONDS,
         },
     )
     # 土地被覆のクラス（画素値・割合列・表示名・色）。地図タイルの塗りと同じレジストリから
@@ -516,6 +539,7 @@ def main() -> None:
             "default_assumed_speed_kmh": ASSUMED_SPEED_KMH,
             "default_distance_tolerance_km": DEFAULT_DISTANCE_TOLERANCE_KM,
             "spliced_route_id": SPLICED_ROUTE_ID,
+            "max_axis_weight": MAX_AXIS_WEIGHT,
             "min_assumed_speed_kmh": MIN_ASSUMED_SPEED_KMH,
             "max_assumed_speed_kmh": MAX_ASSUMED_SPEED_KMH,
             # フロントのポーリングの打ち切り。backendが結果を持つ時間より長く待つと、

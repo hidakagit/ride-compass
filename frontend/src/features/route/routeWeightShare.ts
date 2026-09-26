@@ -1,11 +1,12 @@
 import type { RoutePreferenceWeights } from "@/types/route";
+import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 
-// 重み配分の調整量の刻みと、1軸が取りうる重みの範囲。下限は0ではない——0まで下げると
+// 重み配分の調整量の刻みと、1軸が取りうる重みの範囲（上限はbackendの宣言）。下限は0ではない——0まで下げると
 // その軸は「チェックOFF」（weight>0が有効の判定基準）に化けるため、配分の調整操作で
 // 軸の有効/無効を兼ねさせない。
 export const WEIGHT_STEP = 0.01;
 const MIN_AXIS_WEIGHT = WEIGHT_STEP;
-const MAX_AXIS_WEIGHT = 0.6;
+const MAX_AXIS_WEIGHT = routeGenerateConfig.max_axis_weight;
 
 function roundToStep(value: number): number {
   return Number(value.toFixed(2));

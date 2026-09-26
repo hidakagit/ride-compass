@@ -2,7 +2,8 @@ from app.domain.strict_model import StrictModel
 
 # 天気コードの導出しきい値。MSMは天気そのものを配信しないため、降水量・雲量・気温から
 # WMO天気コード相当へ落とす。コードの分類と表示名はdomain/weather_display.py（WEATHER_CATEGORIES）が持つ。
-_PRECIPITATION_MIN_MM = 0.1
+#: これ未満（mm/h）は「降っていない」。天気コードのほか、画面の予想降水量の「-」と地図の降水の塗りも同じ境で切る。
+PRECIPITATION_MIN_MM = 0.1
 _PRECIPITATION_MODERATE_MM = 1.0
 _PRECIPITATION_HEAVY_MM = 4.0
 _SNOW_MAX_TEMPERATURE_C = 0.0
@@ -19,7 +20,7 @@ def derive_weather_code(
     画面はコードを天気の分類（`weather_display.WEATHER_CATEGORIES`）へ丸めて出すので、降水の強度と
     雲量の段が区別できれば足りる。霧・雷雨はMSMの配信変数からは判定できないため返さない。
     """
-    if precipitation_mm is not None and precipitation_mm >= _PRECIPITATION_MIN_MM:
+    if precipitation_mm is not None and precipitation_mm >= PRECIPITATION_MIN_MM:
         snow = temperature_c is not None and temperature_c <= _SNOW_MAX_TEMPERATURE_C
         if precipitation_mm < _PRECIPITATION_MODERATE_MM:
             return 71 if snow else 61
