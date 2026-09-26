@@ -23,11 +23,7 @@ highway/surface/smoothnessのようなOSMタグの生値でオープンエンド
 認可を要求する理由は`get_material_coverage`のdocstring参照。
 """
 
-from dataclasses import asdict
-from datetime import datetime
-
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import Field
 from sqlalchemy.exc import DBAPIError
 
 from app.api.admin_auth import require_admin_basic_auth
@@ -36,16 +32,14 @@ from app.api.dependencies import (
     get_region_service,
     get_road_graph_repository,
 )
-from app.domain.material_catalog import (
-    MATERIAL_CATALOG,
-    MaterialDType,
-    MissingSemantics,
-    Population,
-    is_known_material,
-)
+from app.domain.material_catalog import MATERIAL_CATALOG, is_known_material
 from app.infrastructure.road_graph_repository import RoadGraphRepository
-from app.services.axis_preview_service import material_value_distribution
-from app.services.material_coverage_service import MaterialCoverageService
+from app.services.axis_preview_service import (
+    EMPTY_DISTRIBUTION,
+    ValueDistribution,
+    material_value_distribution,
+)
+from app.services.material_coverage_service import MaterialCoverageReport, MaterialCoverageService
 from app.services.region_service import RegionService
 from app.domain.strict_model import StrictModel
 
@@ -70,41 +64,10 @@ class MaterialValuesResponse(StrictModel):
     values: list[MaterialValueEntry]
 
 
-class MaterialCoverageEntry(StrictModel):
-    material_id: str
-    label: str
-    dtype: MaterialDType
-    # 集計対象外の材料はpopulation/total/missing/missing_ratio/missing_semanticsがnullで、
-    # excluded_reasonに理由を持つ。
-    population: Population | None
-    total: int | None
-    missing: int | None
-    # 0〜1（total=0の場合はnull）。
-    missing_ratio: float | None
-    # 欠損判定の根拠（どのテーブル・列・タグの不在を欠損とみなすか）。
-    source: str
-    # "unknown"=欠損は不明値として扱われ軸が評価対象外になる、"definite"=欠損は確定値
-    # （タグ不在=非該当等）として扱われ軸は通常どおり評価される。
-    missing_semantics: MissingSemantics | None
-    excluded_reason: str | None
-
-
-class MaterialCoverageResponse(StrictModel):
-    computed_at: datetime
-    way_total: int
-    edge_total: int
-    materials: list[MaterialCoverageEntry]
-
-
-class MaterialDistributionResponse(StrictModel):
-    """材料の値の分布（延長で重み付け）。`available=false`は数値材料でない。"""
+class MaterialDistributionResponse(ValueDistribution):
+    """材料の値の分布（延長で重み付け）。`available=false`は数値材料でなく、分布は空。"""
 
     available: bool
-    sample_ways: int = 0
-    total_km: float = 0.0
-    quantiles: dict[str, float] = Field(default_factory=dict)
-    bins: list[tuple[float, float, float]] = Field(default_factory=list)
-    zero_share: float = 0.0
 
 
 @router.get(
@@ -125,8 +88,8 @@ async def get_material_distribution(
         raise HTTPException(status_code=404, detail=f"unknown material '{material_id}'")
     distribution = await material_value_distribution(repository, material_id)
     if distribution is None:
-        return MaterialDistributionResponse(available=False)
-    return MaterialDistributionResponse(available=True, **asdict(distribution))
+        return MaterialDistributionResponse(available=False, **EMPTY_DISTRIBUTION.model_dump())
+    return MaterialDistributionResponse(available=True, **distribution.model_dump())
 
 
 @router.get(
@@ -161,12 +124,12 @@ async def get_material_values(
 
 @router.get(
     "/api/admin/material-catalog/coverage",
-    response_model=MaterialCoverageResponse,
+    response_model=MaterialCoverageReport,
     dependencies=[Depends(require_admin_basic_auth)],
 )
 async def get_material_coverage(
     service: MaterialCoverageService = Depends(get_material_coverage_service),
-) -> MaterialCoverageResponse:
+) -> MaterialCoverageReport:
     """全材料の欠損割合（`MATERIAL_CATALOG`の登録順、集計対象外の材料は理由付き）を返す。
 
     読み取り専用のAPIだがBasic認証を要求する:
@@ -175,29 +138,9 @@ async def get_material_coverage(
     DB例外は`axis_admin.py`と同じく503へ変換する（診断用APIのため空レポートへ倒さない）。
     """
     try:
-        report = await service.get_material_coverage()
+        return await service.get_material_coverage()
     except DBAPIError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="材料の欠損割合の集計に失敗しました（DB接続と、テーブルが作られているかを確認してください）",
         ) from exc
-    return MaterialCoverageResponse(
-        computed_at=report.computed_at,
-        way_total=report.way_total,
-        edge_total=report.edge_total,
-        materials=[
-            MaterialCoverageEntry(
-                material_id=entry.material_id,
-                label=entry.label,
-                dtype=entry.dtype,
-                population=entry.population,
-                total=entry.total,
-                missing=entry.missing,
-                missing_ratio=entry.missing_ratio,
-                source=entry.source,
-                missing_semantics=entry.missing_semantics,
-                excluded_reason=entry.excluded_reason,
-            )
-            for entry in report.materials
-        ],
-    )

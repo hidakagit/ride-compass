@@ -6,11 +6,11 @@
 
 /** `GET /api/admin/material-catalog/{material_id}/distribution`の応答本体。
  *
- * backendの`ValueDistributionResponse`をそのまま使う（手書きで写すと、フィールドを足した
+ * backendの`ValueDistribution`をそのまま使う（手書きで写すと、フィールドを足した
  * ときに片側だけ古くなる。`bins`は[階級の下限, 上限, その階級が占める延長の割合]）。 */
 import type { components } from "@/types/generated/api";
 
-export type ValueDistribution = components["schemas"]["ValueDistributionResponse"];
+export type ValueDistribution = components["schemas"]["ValueDistribution"];
 
 interface ScoreBand {
   label: string;

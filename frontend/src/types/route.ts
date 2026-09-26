@@ -97,9 +97,9 @@ export type MaterialValuesResponse = Schemas["MaterialValuesResponse"];
 // 材料ごとの欠損割合。GET /api/admin/material-catalog/coverage（Basic認証必須、
 // 管理画面「材料」タブが同一オリジンのroute handler経由で取得する）のレスポンス。
 export type MaterialCoverageEntry = Schemas["MaterialCoverageEntry"];
-export type MaterialCoverageResponse = Schemas["MaterialCoverageResponse"];
+export type MaterialCoverageResponse = Schemas["MaterialCoverageReport"];
 
 // 派生データ鮮度台帳。GET /api/admin/derived-data/freshness（Basic認証必須、
 // 管理画面「データ保守」タブが同一オリジンのroute handler経由で取得する）のレスポンス。
-export type DerivedDataFreshnessResponse = Schemas["DerivedDataFreshnessResponse"];
-export type DbStatusResponse = Schemas["DbStatusResponse"];
+export type DerivedDataFreshnessResponse = Schemas["DerivedDataFreshnessReport"];
+export type DbStatusResponse = Schemas["DbStatusReport"];

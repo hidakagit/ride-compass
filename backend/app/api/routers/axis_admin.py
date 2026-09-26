@@ -10,7 +10,6 @@
 from typing import Awaitable, TypeVar
 
 from collections.abc import Mapping
-from dataclasses import asdict
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import Field, field_validator, model_validator
 from sqlalchemy.exc import DBAPIError
@@ -18,7 +17,7 @@ from sqlalchemy.exc import DBAPIError
 from app.api.admin_auth import require_admin_basic_auth
 from app.api.dependencies import get_road_graph_repository
 from app.infrastructure.road_graph_repository import RoadGraphRepository
-from app.services.axis_preview_service import axis_raw_value_distribution
+from app.services.axis_preview_service import ValueDistribution, axis_raw_value_distribution
 from app.api.dependencies import get_axis_registry_admin_service, served_dedicated_way_value_material
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
@@ -239,37 +238,18 @@ class AxisPreviewRequest(StrictModel):
     shape: AxisShape
 
 
-class ValueDistributionResponse(StrictModel):
-    """延長で重み付けた値の分布（`services/axis_preview_service.py`参照）。
-
-    折れ点を通す前の**生値**を返し、折れ点の当てはめはフロント側が行う——折れ点を1つ
-    動かすたびに通信すると編集の手応えが失われるうえ、折れ点は区分線形の写像でしかなく、
-    生値のヒストグラムがあればクライアントで正確に求まる。
-    """
-
-    sample_ways: int
-    total_km: float
-    quantiles: dict[str, float]
-    # (階級の下限, 上限, その階級が占める延長の割合)
-    bins: list[tuple[float, float, float]]
-    zero_share: float
-
-
 @router.post("/preview-distribution")
 async def preview_axis_distribution(
     payload: AxisPreviewRequest,
     repository: RoadGraphRepository = Depends(get_road_graph_repository),
-) -> ValueDistributionResponse:
-    """編集中の`shape`で、実データの生値がどう分布するかを返す。
+) -> ValueDistribution:
+    """編集中の`shape`で、実データの生値（折れ点を通す前）がどう分布するかを返す。
 
     軸スタジオは数値の入力欄を並べるだけでは折れ点の妥当性を判断できず、公開して地図と
     ルートを見るまで結果が分からない。この分布に折れ点を当てはめれば、「延長の何%が
     満点に張り付くか」が編集中に分かる。
     """
-    distribution = await _guard_db_errors(
-        axis_raw_value_distribution(repository, payload.shape)
-    )
-    return ValueDistributionResponse(**asdict(distribution))
+    return await _guard_db_errors(axis_raw_value_distribution(repository, payload.shape))
 
 
 class ScoresPreviewRequest(StrictModel):

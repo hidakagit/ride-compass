@@ -1378,7 +1378,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ValueDistributionResponse"
+                  "$ref": "#/components/schemas/ValueDistribution"
                 }
               }
             }
@@ -1688,7 +1688,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MaterialCoverageResponse"
+                  "$ref": "#/components/schemas/MaterialCoverageReport"
                 }
               }
             }
@@ -1875,7 +1875,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DerivedDataFreshnessResponse"
+                  "$ref": "#/components/schemas/DerivedDataFreshnessReport"
                 }
               }
             }
@@ -1897,7 +1897,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DbStatusResponse"
+                  "$ref": "#/components/schemas/DbStatusReport"
                 }
               }
             }
@@ -3276,10 +3276,11 @@
         ],
         "title": "Coordinates"
       },
-      "DbStatusResponse": {
+      "DbStatusReport": {
         "properties": {
           "computed_at": {
             "type": "string",
+            "format": "date-time",
             "title": "Computed At"
           },
           "imports": {
@@ -3291,7 +3292,7 @@
           },
           "tables": {
             "items": {
-              "$ref": "#/components/schemas/app__api__routers__db_status__TableEntry"
+              "$ref": "#/components/schemas/app__services__db_status_service__TableEntry"
             },
             "type": "array",
             "title": "Tables"
@@ -3313,7 +3314,7 @@
           "connections",
           "database_bytes"
         ],
-        "title": "DbStatusResponse"
+        "title": "DbStatusReport"
       },
       "DebugModeRequest": {
         "properties": {
@@ -3401,15 +3402,16 @@
         ],
         "title": "DebugStatsResponse"
       },
-      "DerivedDataFreshnessResponse": {
+      "DerivedDataFreshnessReport": {
         "properties": {
           "computed_at": {
             "type": "string",
+            "format": "date-time",
             "title": "Computed At"
           },
           "tables": {
             "items": {
-              "$ref": "#/components/schemas/app__api__routers__derived_data_freshness__TableEntry"
+              "$ref": "#/components/schemas/app__services__derived_data_freshness_service__TableEntry"
             },
             "type": "array",
             "title": "Tables"
@@ -3421,7 +3423,7 @@
           "computed_at",
           "tables"
         ],
-        "title": "DerivedDataFreshnessResponse"
+        "title": "DerivedDataFreshnessReport"
       },
       "DisplayThresholdsPreviewRequest": {
         "properties": {
@@ -3785,7 +3787,8 @@
           "latest_finished_at": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "format": "date-time"
               },
               {
                 "type": "null"
@@ -3825,7 +3828,8 @@
           "latest_succeeded_finished_at": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "format": "date-time"
               },
               {
                 "type": "null"
@@ -4141,7 +4145,7 @@
         ],
         "title": "MaterialCoverageEntry"
       },
-      "MaterialCoverageResponse": {
+      "MaterialCoverageReport": {
         "properties": {
           "computed_at": {
             "type": "string",
@@ -4172,23 +4176,17 @@
           "edge_total",
           "materials"
         ],
-        "title": "MaterialCoverageResponse"
+        "title": "MaterialCoverageReport"
       },
       "MaterialDistributionResponse": {
         "properties": {
-          "available": {
-            "type": "boolean",
-            "title": "Available"
-          },
           "sample_ways": {
             "type": "integer",
-            "title": "Sample Ways",
-            "default": 0
+            "title": "Sample Ways"
           },
           "total_km": {
             "type": "number",
-            "title": "Total Km",
-            "default": 0.0
+            "title": "Total Km"
           },
           "quantiles": {
             "additionalProperties": {
@@ -4219,13 +4217,21 @@
           },
           "zero_share": {
             "type": "number",
-            "title": "Zero Share",
-            "default": 0.0
+            "title": "Zero Share"
+          },
+          "available": {
+            "type": "boolean",
+            "title": "Available"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
+          "sample_ways",
+          "total_km",
+          "quantiles",
+          "bins",
+          "zero_share",
           "available"
         ],
         "title": "MaterialDistributionResponse"
@@ -5274,7 +5280,7 @@
         ],
         "title": "ValidationError"
       },
-      "ValueDistributionResponse": {
+      "ValueDistribution": {
         "properties": {
           "sample_ways": {
             "type": "integer",
@@ -5325,7 +5331,7 @@
           "bins",
           "zero_share"
         ],
-        "title": "ValueDistributionResponse"
+        "title": "ValueDistribution"
       },
       "WbgtStatus": {
         "properties": {
@@ -5706,7 +5712,7 @@
         ],
         "title": "WindGridResponse"
       },
-      "app__api__routers__db_status__TableEntry": {
+      "app__services__db_status_service__TableEntry": {
         "properties": {
           "table_name": {
             "type": "string",
@@ -5727,7 +5733,8 @@
           "analyzed_at": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "format": "date-time"
               },
               {
                 "type": "null"
@@ -5738,7 +5745,8 @@
           "vacuumed_at": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "format": "date-time"
               },
               {
                 "type": "null"
@@ -5769,7 +5777,7 @@
         ],
         "title": "TableEntry"
       },
-      "app__api__routers__derived_data_freshness__TableEntry": {
+      "app__services__derived_data_freshness_service__TableEntry": {
         "properties": {
           "table_name": {
             "type": "string",

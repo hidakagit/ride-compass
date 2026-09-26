@@ -7,14 +7,14 @@
 返すのは**折れ点を通す前の生値**（`terms`の重み付き和）の分布で、折れ点そのものは
 フロント側が局所的に当てはめる——折れ点を1つ動かすたびに通信すると編集の手応えが
 失われるうえ、折れ点は区分線形の写像でしかなく、生値のヒストグラムがあれば
-クライアントで正確に求まる。
+クライアントで正確に求まる。分布の型（`ValueDistribution`）は2つの分布のエンドポイントの
+応答の型を兼ねる。
 
 母集団はWay単位（道の生データの抽選サンプル）で、**延長で重み付ける**。本数で数えると
 短い道が多数を占めて実際に走る距離の感覚と合わない。
 """
 
 import logging
-from dataclasses import dataclass
 from typing import SupportsFloat, cast
 
 import numpy as np
@@ -23,6 +23,7 @@ from cachetools import TTLCache
 from app.domain.axis_definitions import AxisShape, raw_values, referenced_materials
 from app.domain.material_catalog import material_dtype
 from app.domain.region import BoundingBox
+from app.domain.strict_model import StrictModel
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 
 logger = logging.getLogger("ridecompass.axis_preview")
@@ -41,8 +42,7 @@ _sample_cache: TTLCache = TTLCache(maxsize=1, ttl=_SAMPLE_TTL_SECONDS)
 HISTOGRAM_BINS = 60
 
 
-@dataclass(frozen=True, slots=True)
-class ValueDistribution:
+class ValueDistribution(StrictModel):
     """延長で重み付けた分布。`bins`は`(下限, 上限, その階級が占める延長の割合)`。
 
     `bins`の範囲はデータの値域から決まり、**負の生値を持つ軸では下限も負になる**
@@ -55,6 +55,9 @@ class ValueDistribution:
     bins: list[tuple[float, float, float]]
     # 値がちょうど0である延長の割合（負の値は含まない）。
     zero_share: float
+
+
+EMPTY_DISTRIBUTION = ValueDistribution(sample_ways=0, total_km=0.0, quantiles={}, bins=[], zero_share=0.0)
 
 
 async def load_way_sample(
@@ -99,7 +102,7 @@ async def _load_sample(repository: RoadGraphRepository) -> list[tuple[float, dic
 def _distribution(pairs: list[tuple[float, float]]) -> ValueDistribution:
     """`(長さm, 値)`から延長で重み付けた分布を組み立てる。"""
     if not pairs:
-        return ValueDistribution(0, 0.0, {}, [], 0.0)
+        return EMPTY_DISTRIBUTION
     lengths, values = np.asarray(pairs, dtype=float).T
     total_m = float(lengths.sum())
     targets = [("p10", 0.10), ("p25", 0.25), ("p50", 0.50), ("p75", 0.75), ("p90", 0.90), ("p99", 0.99)]

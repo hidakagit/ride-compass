@@ -14,87 +14,26 @@ from sqlalchemy.exc import DBAPIError
 
 from app.api.admin_auth import require_admin_basic_auth
 from app.api.dependencies import get_derived_data_freshness_service
-from app.domain.strict_model import StrictModel
-from app.services.derived_data_freshness_service import DerivedDataFreshnessService
+from app.services.derived_data_freshness_service import (
+    DerivedDataFreshnessReport,
+    DerivedDataFreshnessService,
+)
 
 router = APIRouter(dependencies=[Depends(require_admin_basic_auth)])
 
 
-class ColumnEntry(StrictModel):
-    """値の列1本ぶんの完成度。
-
-    NULLが「まだ計算していない」を意味する列と、「確定して値が無い」を意味する列がある。
-    件数は常に返し、鳴らすかどうか（`is_incomplete`）だけを区別する。
-    """
-
-    column: str
-    null_count: int
-    is_incomplete: bool
-
-
-class TableEntry(StrictModel):
-    table_name: str
-    row_count: int
-    #: その行を作った取込のソース名（`source_runs.source`）。行が無ければNone。
-    source: str | None
-    oldest_run_id: int | None
-    latest_run_id: int | None
-    #: 生データを取り直したのに派生を流し直していない。
-    is_stale: bool
-    #: 被覆の母数（生データのソース名か親の表名）。覆うことを宣言していない表はNone。
-    coverage_parent: str | None
-    coverage_parent_row_count: int | None
-    #: 親にあって行が無い件数。鮮度・完成度はこれを見つけられない（行が無ければ古くも
-    #: なければNULLでもない）。
-    missing_rows: int | None
-    columns: list[ColumnEntry]
-    #: 作り直しが要るか。画面は理由を問わずこれで表を「作り直しが必要」に数える。
-    needs_rebuild: bool
-
-
-class DerivedDataFreshnessResponse(StrictModel):
-    computed_at: str
-    tables: list[TableEntry]
-
-
 @router.get(
     "/api/admin/derived-data/freshness",
-    response_model=DerivedDataFreshnessResponse,
+    response_model=DerivedDataFreshnessReport,
 )
 async def get_derived_data_freshness(
     service: DerivedDataFreshnessService = Depends(get_derived_data_freshness_service),
-) -> DerivedDataFreshnessResponse:
+) -> DerivedDataFreshnessReport:
     """派生データの表ごとの鮮度と、値の列ごとの未計算件数を返す。"""
     try:
-        report = await service.get_freshness_report()
+        return await service.get_freshness_report()
     except DBAPIError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="派生データ鮮度台帳の集計に失敗しました（DB接続の状況を確認してください）",
         ) from exc
-    return DerivedDataFreshnessResponse(
-        computed_at=report.computed_at.isoformat(),
-        tables=[
-            TableEntry(
-                table_name=table.table_name,
-                row_count=table.row_count,
-                source=table.source,
-                oldest_run_id=table.oldest_run_id,
-                latest_run_id=table.latest_run_id,
-                is_stale=table.is_stale,
-                coverage_parent=table.coverage_parent,
-                coverage_parent_row_count=table.coverage_parent_row_count,
-                missing_rows=table.missing_rows,
-                columns=[
-                    ColumnEntry(
-                        column=column.column,
-                        null_count=column.null_count,
-                        is_incomplete=column.is_incomplete,
-                    )
-                    for column in table.columns
-                ],
-                needs_rebuild=table.needs_rebuild,
-            )
-            for table in report.tables
-        ],
-    )
