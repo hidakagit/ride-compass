@@ -106,7 +106,7 @@ def _directed(network: RoadNetwork) -> list[tuple[int, int, bool, int, int]]:
 
 async def test_edges_become_directed_rows_in_way_and_segment_order():
     """区間は順方向・逆方向の行になる。一方通行は走れる向きだけ、端点のノードが無い区間は落ちる。"""
-    network = await road_network_store.build(FakeRepository())
+    network = await road_network_store.build(FakeRepository(), 7)
 
     assert _directed(network) == [
         (10, 0, True, 1, 2),
@@ -117,7 +117,7 @@ async def test_edges_become_directed_rows_in_way_and_segment_order():
 
 
 async def test_materials_follow_the_directed_rows():
-    network = await road_network_store.build(FakeRepository())
+    network = await road_network_store.build(FakeRepository(), 7)
 
     expected = [_numeric(w, s, f) for w, s, f, _a, _b in _directed(network)]
     assert network.numeric_values[:, 0].tolist() == expected
@@ -126,7 +126,7 @@ async def test_materials_follow_the_directed_rows():
 
 
 async def test_categorical_values_are_codes_into_a_vocabulary_that_starts_with_none():
-    network = await road_network_store.build(FakeRepository())
+    network = await road_network_store.build(FakeRepository(), 7)
 
     (vocab,) = network.categorical_vocab
     assert vocab[0] is None
@@ -136,7 +136,7 @@ async def test_categorical_values_are_codes_into_a_vocabulary_that_starts_with_n
 
 
 async def test_highway_is_a_code_into_its_vocabulary():
-    network = await road_network_store.build(FakeRepository())
+    network = await road_network_store.build(FakeRepository(), 7)
 
     highway_of_way = {w: h for w, _s, _a, _b, _d, h in EDGES}
     assert [network.highway_vocab[code] for code in network.edge_highway] == [
@@ -145,7 +145,7 @@ async def test_highway_is_a_code_into_its_vocabulary():
 
 
 async def test_saved_network_reads_back_the_same():
-    network = await road_network_store.build(FakeRepository())
+    network = await road_network_store.build(FakeRepository(), 7)
 
     loaded = road_network_store.load(road_network_store.save(network))
 
@@ -195,10 +195,10 @@ def _session_factory():
 async def test_current_reads_the_newest_revision_and_follows_a_newer_one(monkeypatch):
     """バッチが新しい世代の置き場を作ったら、次の読み出しからそちらを使う。"""
     monkeypatch.setattr(road_network_store, "_loaded", None)
-    road_network_store.save(await road_network_store.build(FakeRepository(revision=7)))
+    road_network_store.save(await road_network_store.build(FakeRepository(), 7))
     assert road_network_store.current().revision == 7
 
-    road_network_store.save(await road_network_store.build(FakeRepository(revision=8)))
+    road_network_store.save(await road_network_store.build(FakeRepository(), 8))
 
     assert road_network_store.current().revision == 8
 
@@ -214,7 +214,7 @@ def test_no_network_for_the_current_code_is_an_error_not_an_empty_network(monkey
 
 async def test_directories_of_other_shapes_are_removed_after_startup():
     """材料の式を変えたデプロイで古い形の置き場が残り続けないよう、起動後に消す。今の形は残す。"""
-    current = road_network_store.save(await road_network_store.build(FakeRepository(revision=7)))
+    current = road_network_store.save(await road_network_store.build(FakeRepository(), 7))
     other_shape = road_network_store.ROOT / "0123456789ab-r9"
     other_shape.mkdir()
     (other_shape / "manifest.json").write_text("{}", encoding="utf-8")

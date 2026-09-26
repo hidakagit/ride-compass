@@ -1,11 +1,13 @@
 """取込範囲全体の道路網（`domain/road_network.py: RoadNetwork`）をDBから作り、ディスクへ置き、読む。
 
-DBから作ると数分かかる。そのため作るのはバッチ（世代を進めた直後）とデプロイの前処理
-（`scripts/build_road_network.py`）だけで、backendは置かれたものを読むだけにする。
+DBから作ると数分かかる。そのため作るのは派生の作り直し（`batch/derive_cli.py`。作り直した表を
+入れ替える前に作り、入れ替えた直後に置く）とデプロイの前処理（`scripts/build_road_network.py`）だけで、
+backendは置かれたものを読むだけにする。
 
 置き場は`data/road_network/<形の署名>-r<派生データの世代>/`。中に配列ごとの`.npy`と、
-配列でない値（語彙・列の並び・世代）を書いた`manifest.json`を置く。書き終えるまでは一時
-ディレクトリに書き、最後に名前を付け替える——途中で落ちても、読む側が書きかけを掴まない。
+配列でない値（語彙・列の並び・世代）を書いた`manifest.json`を置く。書き終えるまでは読み手が
+拾わない名前（先頭が`.`）のディレクトリに書き、最後に名前を付け替える——途中で落ちても、読む側が
+書きかけを掴まない。
 
 形の署名は`RoadNetwork`の列と、読み出しのSQL（材料の式を含む）から導く。材料の式を変えた
 コードをデプロイすると署名が変わり、古い置き場は選ばれなくなる。
@@ -63,12 +65,17 @@ def latest_directory() -> Path | None:
 
 
 def save(network: RoadNetwork) -> Path:
-    """置き場を作って書く。同じ世代の置き場が既にあれば書かずにそれを返す。"""
+    """置き場を作って書き、同じ形で世代の古い置き場を消す。同じ世代の置き場が既にあれば書かずにそれを返す。"""
     target = ROOT / directory_name(network.revision)
     if target.exists():
         return target
+    return publish(write_pending(network))
+
+
+def write_pending(network: RoadNetwork) -> Path:
+    """読み手（`latest_directory`）が拾わない名前で書き、そのディレクトリを返す。`publish`で世代の名前にする。"""
     ROOT.mkdir(parents=True, exist_ok=True)
-    temporary = ROOT / f".{target.name}.tmp-{os.getpid()}"
+    temporary = ROOT / f".{directory_name(network.revision)}.tmp-{os.getpid()}"
     shutil.rmtree(temporary, ignore_errors=True)
     temporary.mkdir()
     values: dict[str, object] = {}
@@ -79,13 +86,23 @@ def save(network: RoadNetwork) -> Path:
         else:
             values[f.name] = value
     (temporary / _MANIFEST).write_text(json.dumps(values, ensure_ascii=False), encoding="utf-8")
+    return temporary
+
+
+def publish(pending: Path) -> Path:
+    """`write_pending`が書いたものを世代の名前へ付け替え、同じ形で世代の古い置き場を消す。"""
+    revision = json.loads((pending / _MANIFEST).read_text(encoding="utf-8"))["revision"]
+    target = ROOT / directory_name(revision)
     try:
-        temporary.rename(target)
+        pending.rename(target)
     except OSError:
         # 同じ世代を別の処理が先に書き終えた。中身は同じなので、こちらの書きかけを捨てる。
-        shutil.rmtree(temporary, ignore_errors=True)
+        shutil.rmtree(pending, ignore_errors=True)
         if not target.exists():
             raise
+    for removed in prune(target):
+        logger.info("古い道路網の置き場を消しました %s", removed.name)
+    logger.info("道路網の置き場を作りました %s", target.name)
     return target
 
 
@@ -169,28 +186,21 @@ def prune_other_shapes() -> int:
 
 
 async def ensure_current(session_factory: async_sessionmaker[AsyncSession]) -> Path:
-    """今の派生データの世代・今の形の置き場を用意する。既にあれば作らない。
-
-    作ったときは、同じ形で世代の古い置き場を消す。
-    """
+    """今の派生データの世代・今の形の置き場を用意する。既にあれば作らない。"""
     async with session_factory() as session:
         repository = RoadGraphRepository(session)
-        target = ROOT / directory_name(await repository.get_derived_data_revision())
+        revision = await repository.get_derived_data_revision()
+        target = ROOT / directory_name(revision)
         if target.exists():
             logger.info("道路網の置き場は作成済みです %s", target.name)
             return target
-        network = await build(repository)
-    path = save(network)
-    for removed in prune(path):
-        logger.info("古い道路網の置き場を消しました %s", removed.name)
-    logger.info("道路網の置き場を作りました %s", path.name)
-    return path
+        network = await build(repository, revision)
+    return save(network)
 
 
-async def build(repository: RoadGraphRepository) -> RoadNetwork:
-    """DBから道路網全体を読み、`RoadNetwork`を組む。"""
+async def build(repository: RoadGraphRepository, revision: int | None) -> RoadNetwork:
+    """DBから道路網全体を読み、`revision`の世代の`RoadNetwork`を組む。"""
     started = time.monotonic()
-    revision = await repository.get_derived_data_revision()
     node_columns = await _read_nodes(repository)
     node_osm_id = node_columns["osm_node_id"]
     edges = await _read_directed_edges(repository, node_osm_id)
