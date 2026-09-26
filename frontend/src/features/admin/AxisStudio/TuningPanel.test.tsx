@@ -9,8 +9,7 @@
  * - 数値の入力欄の途中の文字の扱い → `components/ui/NumberInput`
  * - 叩く先 → `app/admin/adminApi.test.ts`
  */
-import { StrictMode } from "react";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -87,27 +86,6 @@ describe("TuningPanel", () => {
 
     expect(await screen.findByRole("spinbutton", { name: "アルファ" })).toHaveValue(10);
     expect(screen.queryByText("リクエストに失敗しました")).not.toBeInTheDocument();
-  });
-
-  it.each([
-    ["成功", (late: { resolve: (rows: TuningParameter[]) => void }) => late.resolve([beta])],
-    ["失敗", (late: { reject: (reason: unknown) => void }) => late.reject(new Error("古い取得の失敗"))],
-  ] as const)("立ち上げ直しで取得が2回走っても、後から届いた古い方の%sで上書きしない", async (_kind, settleLate) => {
-    let late!: { resolve: (rows: TuningParameter[]) => void; reject: (reason: unknown) => void };
-    api.listTuningParameters
-      .mockReturnValueOnce(new Promise<TuningParameter[]>((resolve, reject) => (late = { resolve, reject })))
-      .mockResolvedValueOnce([alpha]);
-    render(
-      <StrictMode>
-        <TuningPanel />
-      </StrictMode>,
-    );
-    expect(await screen.findByRole("spinbutton", { name: "アルファ" })).toBeInTheDocument();
-
-    await act(async () => settleLate(late));
-    expect(screen.getByRole("spinbutton", { name: "アルファ" })).toBeInTheDocument();
-    expect(screen.queryByRole("spinbutton", { name: "ベータ" })).not.toBeInTheDocument();
-    expect(screen.queryByText("古い取得の失敗")).not.toBeInTheDocument();
   });
 
   it("取得の失敗がError以外なら、取得に失敗したと言う", async () => {

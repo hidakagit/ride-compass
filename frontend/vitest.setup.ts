@@ -9,8 +9,12 @@ if (typeof window !== "undefined") {
   document.head.insertAdjacentHTML("beforeend", "<style>.pointer-events-auto{pointer-events:auto}</style>");
   await import("@testing-library/jest-dom/vitest");
   const { cleanup } = await import("@testing-library/react");
+  const { getQueryClient } = await import("@/lib/queryClient");
   afterEach(() => {
     cleanup();
+    // 画面のデータ取得のキャッシュはファイルの中のテストをまたいで残るため、描いたものを外したあとに空にする
+    // （残すと、前のテストで届いた値が次のテストの取得の代わりに出る）。
+    getQueryClient().clear();
   });
 }
 

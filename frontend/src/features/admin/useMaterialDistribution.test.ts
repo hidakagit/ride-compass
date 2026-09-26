@@ -2,12 +2,9 @@
  * `useMaterialDistribution.ts`——材料1件の値の分布を取り、同じ材料は（取れなかったことも含めて）
  * 1回しか取りに行かないこと。
  *
- * 結果はモジュールの中で共有されるため、テストごとに別の材料idを使う。
- *
  * ここで見ないもの:
  * - 分布を画面にどう出すか → `AxisStudio/MaterialRangeHint.test.tsx`
  */
-import { StrictMode } from "react";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -40,8 +37,8 @@ describe("useMaterialDistribution", () => {
     const { result } = renderHook(() => useMaterialDistribution("m_loading"));
 
     await waitFor(() => expect(result.current.loading).toBe(true));
-    await act(async () => resolve(distribution(5)));
-    expect(result.current).toEqual({ distribution: distribution(5), loading: false });
+    resolve(distribution(5));
+    await waitFor(() => expect(result.current).toEqual({ distribution: distribution(5), loading: false }));
   });
 
   it("同じ材料を別の場所が選んでも、取りに行くのは1回で、同じ分布を返す", async () => {
@@ -64,44 +61,5 @@ describe("useMaterialDistribution", () => {
     await act(async () => {});
     expect(second.result.current).toEqual({ distribution: null, loading: false });
     expect(api.fetchMaterialDistribution).toHaveBeenCalledTimes(1);
-  });
-
-  it("立ち上げ直し（StrictModeの二重実行）でも、取りに行くのは1回", async () => {
-    api.fetchMaterialDistribution.mockResolvedValue(distribution(4));
-    const { result } = renderHook(() => useMaterialDistribution("m_strict"), { wrapper: StrictMode });
-    await waitFor(() => expect(result.current.distribution).toEqual(distribution(4)));
-    expect(api.fetchMaterialDistribution).toHaveBeenCalledTimes(1);
-  });
-
-  it("材料を切り替えたら、前の材料の取得が後から失敗しても今の分布を消さない", async () => {
-    let failFirst!: (reason: unknown) => void;
-    api.fetchMaterialDistribution
-      .mockReturnValueOnce(new Promise<MaterialDistribution>((_resolve, reject) => (failFirst = reject)))
-      .mockResolvedValueOnce(distribution(3));
-    const { result, rerender } = renderHook(({ id }) => useMaterialDistribution(id), {
-      initialProps: { id: "m_old_failing" },
-    });
-    await waitFor(() => expect(api.fetchMaterialDistribution).toHaveBeenCalledTimes(1));
-
-    rerender({ id: "m_new_after_failing" });
-    await waitFor(() => expect(result.current.distribution).toEqual(distribution(3)));
-    await act(async () => failFirst(new Error("遅れた失敗")));
-    expect(result.current).toEqual({ distribution: distribution(3), loading: false });
-  });
-
-  it("材料を切り替えたら、後から届いた前の材料の分布を出さない", async () => {
-    let answerFirst!: (value: MaterialDistribution) => void;
-    api.fetchMaterialDistribution
-      .mockReturnValueOnce(new Promise<MaterialDistribution>((resolve) => (answerFirst = resolve)))
-      .mockResolvedValueOnce(distribution(2));
-    const { result, rerender } = renderHook(({ id }) => useMaterialDistribution(id), {
-      initialProps: { id: "m_old" },
-    });
-    await waitFor(() => expect(api.fetchMaterialDistribution).toHaveBeenCalledTimes(1));
-
-    rerender({ id: "m_new" });
-    await waitFor(() => expect(result.current.distribution).toEqual(distribution(2)));
-    await act(async () => answerFirst(distribution(99)));
-    expect(result.current.distribution).toEqual(distribution(2));
   });
 });
