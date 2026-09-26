@@ -150,8 +150,7 @@ interface RawTargetTime {
   elements: string[];
 }
 
-// 未解決のフェッチだけを時刻一覧のパスごとに共有する（useAxisCatalog.tsのinFlightCatalogFetchと
-// 同じ重複排除。解決したら即座に捨てる）。
+// 未解決のフェッチだけを時刻一覧のパスごとに共有する（解決したら即座に捨てる）。
 const inFlightTargetTimes = new Map<string, Promise<unknown[]>>();
 
 /** 時刻一覧のファイル1つを取得する。同じパスを同時に取りに行く呼び出し元（降水短時間予報と

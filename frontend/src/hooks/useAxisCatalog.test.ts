@@ -11,10 +11,9 @@ vi.mock("@/services/axisCatalogApi", () => ({
 
 import { CLIENT_TUNING_IDS } from "@/lib/axisCatalog";
 
-// このフックは、複数の呼び出し元へ同じカタログを配るためにモジュールスコープのストアを
-// 持つ。**テストごとに読み込み直して初期状態へ戻す**——本番へ「テストのために戻す」口を
-// 置かないため（設計原則 構造仕様15）。取得のモックも読み込み直しで作り直されるので、
-// 毎回こちらも取り直す。
+// 届いたカタログは共有のキャッシュ（`lib/queryClient.ts`）に残る。**テストごとに読み込み直して
+// 空のキャッシュから始める**——本番へ「テストのために戻す」口を置かないため（設計原則 構造仕様15）。
+// 取得のモックも読み込み直しで作り直されるので、毎回こちらも取り直す。
 let mod: typeof import("./useAxisCatalog");
 let getAxisCatalog: ReturnType<typeof vi.fn>;
 
@@ -229,24 +228,6 @@ describe("useAxisCatalog（改善計画T308: rampAxes/axisLabels/secondaryAxes�
     expect(vi.mocked(getAxisCatalog).mock.calls.length).toBe(callsBefore);
   });
 
-  it("コードレビュー指摘の修正確認: 同時にマウントされた複数の呼び出し元は1回のフェッチを共有する", async () => {
-    // page.tsx・RouteSettingsPanel.tsxが同時にuseAxisCatalog()を呼ぶ初回描画のシナリオ
-    // （以前は呼び出し元の数だけGET /api/axis-catalogが同時に飛んでいた）。
-    // 呼び出し回数はvi.mocked(getAxisCatalog)がテストファイル内で共有される（このテスト単体
-    // では自動リセットされない）ため、このテスト内での増分だけを見る。
-    vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse());
-    const callsBefore = vi.mocked(getAxisCatalog).mock.calls.length;
-
-    const first = renderHook(() => mod.useAxisCatalog());
-    const second = renderHook(() => mod.useAxisCatalog());
-
-    await waitFor(() => {
-      expect(first.result.current.rampAxes.some((axis) => axis.axisId === "gui_published_axis")).toBe(true);
-      expect(second.result.current.rampAxes.some((axis) => axis.axisId === "gui_published_axis")).toBe(true);
-    });
-    expect(vi.mocked(getAxisCatalog).mock.calls.length - callsBefore).toBe(1);
-  });
-
   it("改善計画T527: 先にマウント済みの呼び出し元は、別の呼び出し元が後から再フェッチした結果も共有する", async () => {
     // page.tsxが先にマウントしてフェッチ完了した後、RouteSettingsPanel.tsxが再マウント
     // （モバイルのBottomSheetでタブを開き直す等）して再フェッチするシナリオ。以前は
@@ -268,14 +249,13 @@ describe("useAxisCatalog（改善計画T308: rampAxes/axisLabels/secondaryAxes�
     const second = renderHook(() => mod.useAxisCatalog());
 
     await waitFor(() => expect(second.result.current.axes).toHaveLength(1));
-    // firstは自分では再フェッチしていないが、共有ストア経由で最新の1軸へ追従する。
+    // firstは自分では再フェッチしていないが、共有のキャッシュ経由で最新の1軸へ追従する。
     expect(first.result.current.axes).toHaveLength(1);
     expect(first.result.current.axes).toBe(second.result.current.axes);
   });
 
   it("改善計画T527: 後発の呼び出し元の再フェッチが失敗しても、既に取得済みの正常なカタログを巻き戻さない", async () => {
-    // 呼び出し回数はテストファイル内で共有されるため、このテスト内での増分だけを見る
-    // （「同時にマウントされた複数の呼び出し元」テストと同じ方針）。
+    // 呼び出し回数はテストファイル内で共有されるため、このテスト内での増分だけを見る。
     vi.mocked(getAxisCatalog).mockResolvedValueOnce(catalogResponse());
     const first = renderHook(() => mod.useAxisCatalog());
     await waitFor(() => expect(first.result.current.loaded).toBe(true));

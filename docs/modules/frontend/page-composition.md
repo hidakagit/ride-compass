@@ -18,7 +18,7 @@
 | hooks | `useStoredState.ts`・`useIsMobile.ts`・`useElementHeightCssVar.ts`・`useLocation.ts`・`useDebouncedValue.ts`・`useIsomorphicLayoutEffect.ts` |
 | features/map/view | `useMapView.ts`（地図の見え方の状態と、地図・操作部品へ渡す値）・`mapLook.ts`（地図へ渡す見え方の値の型）・`lens.ts`（レンズから塗る軸・凡例・選択肢を導く）・`overlayChips.ts`（地図上チップの状態とレイヤー表示の保存形式）・`legendFilters.ts`（凡例で隠した行の保存先の読み書き） |
 | features/map/MapView | `useLayerDataStatus.ts`（`layerDataStatus` stateの実装） |
-| lib | `apiBaseUrl.ts`・`apiPath.ts`（backendのAPIのパスをOpenAPIの宣言と型で照合して作る）・`apiError.ts`・`backendInternalUrl.ts`・`fetchJson.ts`・`apiTimeouts.ts`（APIリクエストのタイムアウト。呼び出しの性質ごとの名前付き定数）・`safeStorage.ts`（localStorageの読み書きで例外を外へ出さない薄いラッパ）・`paletteCssVariables.ts`（地図に塗る色と同じ色をUIにも出す箇所へ、配信された値をCSS変数として流す。`layout.tsx`がサーバー側で`:root`へ入れる。CSSが値を持つのはライト/ダークで2値を持つものだけ）・`mapOverlayEdges.ts`（地図の上に重ねる部品へ付ける「どの辺を覆うか」の印と、印の付いた部品が覆う幅の実測。印を付ける部品は地図の機能の外にもあるので共有の層に置く。下記「`MapView`との境界」） |
+| lib | `apiBaseUrl.ts`・`apiPath.ts`（backendのAPIのパスをOpenAPIの宣言と型で照合して作る）・`apiError.ts`・`backendInternalUrl.ts`・`fetchJson.ts`・`queryClient.ts`（画面のデータ取得が共有するTanStack Queryのキャッシュ。下記「データ取得の骨格」）・`apiTimeouts.ts`（APIリクエストのタイムアウト。呼び出しの性質ごとの名前付き定数）・`safeStorage.ts`（localStorageの読み書きで例外を外へ出さない薄いラッパ）・`paletteCssVariables.ts`（地図に塗る色と同じ色をUIにも出す箇所へ、配信された値をCSS変数として流す。`layout.tsx`がサーバー側で`:root`へ入れる。CSSが値を持つのはライト/ダークで2値を持つものだけ）・`mapOverlayEdges.ts`（地図の上に重ねる部品へ付ける「どの辺を覆うか」の印と、印の付いた部品が覆う幅の実測。印を付ける部品は地図の機能の外にもあるので共有の層に置く。下記「`MapView`との境界」） |
 | features/route | `routeApi.ts`（ルート生成・プレビューAPI）・`formatDuration.ts`（秒を「1時間42分」の形にする）・`generationRequest.ts`（生成リクエストのpayloadと`conditionsDirty`の比較キーを同じ入力から導出する純関数）・`routeSplice.ts`（候補どうしが別々の道を通る区間を`edge_ids`の集合演算で求め、表示中の側と相手側を対応づけ、選んだ区間を差し替えた経路を組み立て純関数。差し替えた経路の評価はbackendが行うため計算式は持たない。合成結果も生成候補と同じ並び（所要時間の短い順、`routeTabLabel.ts: orderByDuration`）へ入れる。区間を割る下限は持たず呼び出し側から受け取る［backendの較正値で、管理画面から変えられる］） |
 | features/conditions | `useDepartureTime.ts`（出発時刻。選ぶまでは5分刻みの「今」へ追従し、選んだ時刻は動かさない）・`rideConditions.ts`（走行条件の出発時刻ラベルと想定速度の丸め。速度の上下限はbackendの`routeGenerateConfig`から読む） |
 | types | `types/route.ts`（`RouteCandidate`等の生成APIレスポンス型） |
@@ -65,6 +65,22 @@ backendの宣言に無いため対象外。`useLocation.ts`はブラウザのGeo
 日本語の`Error`へ包み直し、ブラウザ由来の英語の文言（`Failed to fetch`・`signal timed out`）は
 `cause`とdebugLogにだけ残す——呼び出し元の多くが`error.message`をそのまま画面へ出すため、
 包むかどうかを呼び出し元に選ばせると、選び忘れた経路から英語が本文へ漏れる。
+
+## データ取得の骨格（TanStack Query）
+
+画面がbackendから値を取り、部品の間で共有し、取り直す骨格（同じ取得の重複排除・最新の応答の採用・
+読み込み中と失敗の状態・一度届いた値を失敗で巻き戻さない）はTanStack Queryが持つ。フックは`useQuery`へ
+キーと取得の関数を渡し、その取得に固有の約束（いつ取り直すか・読み手が消えた後も残すか）だけを設定に書く。
+新しく書くフックは、自前の取り消しの印・連番・進行中の取得の共有を持たない。
+
+- **Providerを置かず、クライアントを引数で渡す**（`useQuery(options, getQueryClient())`）。Providerを置くと、
+  取得するフックを含む部品を描くテストがすべて包みを要する。サーバーでの描画は利用者をまたいで値を共有
+  しないよう、呼ぶたびに新しいクライアントを作る（サーバーでは取得を走らせないので空のまま捨てられる）。
+- **既定の自動の再試行・画面へ戻ったとき・通信が戻ったときの取り直しは切る**（`queryClient.ts`）。取り直す
+  契機はフックの宣言（マウント・キーの変化・`refetchInterval`）だけにする。再試行は失敗の表示を遅らせ、
+  backendのレート上限へ重ねて当たる。
+- 取得の関数の中身（通信・ログ・文言）は`fetchJson.ts`・`services/*Api.ts`のまま。キャッシュは呼び出し口の
+  外側に被せるだけで、呼び出し口を置き換えない。
 
 ## 時刻（画面全体の規約）
 

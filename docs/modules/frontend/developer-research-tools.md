@@ -80,12 +80,9 @@ ONにすると`page.tsx`側の`handleGenerate`が生成した結果が実験ス�
 
 ## 暗黙の前提
 
-- `useAxisCatalog()`（`GET /api/axis-catalog`）は解決済みのカタログをモジュールレベルの
-  単一ストアとして持ち、全呼び出し元が`useSyncExternalStore`で同じオブジェクト参照を
-  購読する。同時に飛んでいる未解決フェッチは`inFlightCatalogFetch`で重複排除する
-  （`page.tsx`と`RouteSettingsPanel.tsx`が同時にマウントされる際、同じリクエストが
-  2重に飛ぶのを防ぐ）。解決後の結果は永続キャッシュしない——後続の別マウント
-  （例: `/admin`と`/`を別タブで開く）では改めて最新を取得する。
+- `useAxisCatalog()`（`GET /api/axis-catalog`）の共有・取り直しの規則は
+  [ルート設定・結果パネル](route-settings-and-results.md)「暗黙の前提」が持つ。`/admin`と`/`を別タブで
+  開くと、タブごとに別のキャッシュで取る。
 - `SystemStatusPanel`・`DebugConsole`はポーリングをせず、開いたとき（`open`が`true`に
   なった瞬間）と明示的な「更新」ボタン押下時にのみ`fetchAll`/エントリ取得を行う
   （プロセス内カウンタ・モジュール評価時刻のスナップショットという性質のため）。
