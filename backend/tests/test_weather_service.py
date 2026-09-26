@@ -9,34 +9,33 @@ from app.domain.region import BoundingBox
 from app.domain.route import Coordinates
 from app.domain.weather import derive_observed_weather_code, derive_weather_code
 from app.infrastructure import msm_client
-from app.infrastructure.msm_client import MsmUnavailableError
+from app.infrastructure.msm_client import MsmSeries, MsmUnavailableError
 from app.services.weather_service import WeatherService
 
 POINT = Coordinates(latitude=35.7597, longitude=139.7387)
 OTHER_POINT = Coordinates(latitude=35.1, longitude=139.1)
 
 
-def _series(times, *, u=None, v=None, precipitation=None, temperature=None, cloud_cover=None):
-    """MSMの読み出し結果（[地点数, 時刻数]）を1地点ぶん組み立てる。省略した変数は既定値で埋める。"""
+def _series(times, *, u=None, v=None, precipitation=None, temperature=None, cloud_cover=None, count=1):
+    """MSMの読み出し結果を、`count`地点とも同じ値で組み立てる。省略した変数は既定値で埋める。"""
     n = len(times)
 
     def column(values, default):
-        return np.array([values if values is not None else [default] * n], dtype=float)
+        return np.tile(np.array(values if values is not None else [default] * n, dtype=float), (count, 1))
 
-    return times, {
-        "wind_u_component_10m": column(u, 0.0),
-        "wind_v_component_10m": column(v, 0.0),
-        "precipitation": column(precipitation, 0.0),
-        "temperature_2m": column(temperature, 20.0),
-        "cloud_cover": column(cloud_cover, 0.0),
-    }
+    return MsmSeries(
+        times=times,
+        wind_u_ms=column(u, 0.0),
+        wind_v_ms=column(v, 0.0),
+        precipitation_mm=column(precipitation, 0.0),
+        temperature_c=column(temperature, 20.0),
+        cloud_cover_percent=column(cloud_cover, 0.0),
+    )
 
 
-def _patch_read_series(monkeypatch, result):
+def _patch_read_series(monkeypatch, **values):
     async def read_series(latitudes, longitudes):
-        times, values = result
-        count = len(latitudes)
-        return times, {key: np.tile(value[0], (count, 1)) for key, value in values.items()}
+        return _series(**values, count=len(latitudes))
 
     monkeypatch.setattr(msm_client, "read_series", read_series)
 
@@ -51,14 +50,12 @@ def _patch_unavailable(monkeypatch):
 async def test_get_conditions_reports_the_first_hour_as_current(monkeypatch):
     _patch_read_series(
         monkeypatch,
-        _series(
-            ["2026-09-07T13:00", "2026-09-07T14:00"],
-            u=[3.0, 0.0],
-            v=[0.0, 0.0],
-            temperature=[24.6, 25.0],
-            precipitation=[0.2, 0.0],
-            cloud_cover=[90.0, 10.0],
-        ),
+        times=["2026-09-07T13:00", "2026-09-07T14:00"],
+        u=[3.0, 0.0],
+        v=[0.0, 0.0],
+        temperature=[24.6, 25.0],
+        precipitation=[0.2, 0.0],
+        cloud_cover=[90.0, 10.0],
     )
 
     conditions = await WeatherService().get_conditions(POINT)
@@ -78,12 +75,10 @@ async def test_get_conditions_aggregates_today_only(monkeypatch):
     """日次の集計は同じJST暦日ぶんに限る（翌日の値を今日の最高気温に混ぜない）。"""
     _patch_read_series(
         monkeypatch,
-        _series(
-            ["2026-09-07T22:00", "2026-09-07T23:00", "2026-09-08T00:00"],
-            temperature=[25.0, 23.0, 35.0],
-            precipitation=[0.0, 1.5, 9.9],
-            u=[1.0, 4.0, 20.0],
-        ),
+        times=["2026-09-07T22:00", "2026-09-07T23:00", "2026-09-08T00:00"],
+        temperature=[25.0, 23.0, 35.0],
+        precipitation=[0.0, 1.5, 9.9],
+        u=[1.0, 4.0, 20.0],
     )
 
     conditions = await WeatherService().get_conditions(POINT)
@@ -96,7 +91,7 @@ async def test_get_conditions_aggregates_today_only(monkeypatch):
 
 async def test_get_conditions_builds_two_hourly_periods(monkeypatch):
     times = [f"2026-09-07T{hour:02d}:00" for hour in range(6, 22)]
-    _patch_read_series(monkeypatch, _series(times, temperature=[20.0 + i for i in range(len(times))]))
+    _patch_read_series(monkeypatch, times=times, temperature=[20.0 + i for i in range(len(times))])
 
     conditions = await WeatherService().get_conditions(POINT)
 
@@ -115,7 +110,7 @@ async def test_get_conditions_builds_two_hourly_periods(monkeypatch):
 
 async def test_get_conditions_truncates_periods_at_the_end_of_the_forecast(monkeypatch):
     """予報の終端に達したらコマ数は8未満になる（runによって予報の長さが変わるため）。"""
-    _patch_read_series(monkeypatch, _series(["2026-09-07T13:00", "2026-09-07T14:00", "2026-09-07T15:00"]))
+    _patch_read_series(monkeypatch, times=["2026-09-07T13:00", "2026-09-07T14:00", "2026-09-07T15:00"])
 
     conditions = await WeatherService().get_conditions(POINT)
 
@@ -124,7 +119,7 @@ async def test_get_conditions_truncates_periods_at_the_end_of_the_forecast(monke
 
 async def test_get_conditions_computes_sunrise_and_sunset_locally(monkeypatch):
     """日の出・日没は外部に問い合わせず天文計算（domain/twilight.py）で埋める。"""
-    _patch_read_series(monkeypatch, _series(["2026-09-07T13:00"]))
+    _patch_read_series(monkeypatch, times=["2026-09-07T13:00"])
 
     conditions = await WeatherService().get_conditions(POINT)
 
@@ -141,7 +136,7 @@ async def test_get_conditions_returns_none_when_msm_unavailable(monkeypatch):
 
 async def test_get_wind_grid_builds_speed_and_direction_from_msm(monkeypatch):
     # 北風（v=-1, u=0）は「北から吹いてくる」ため風向0度、風速1.0 m/s になる。
-    _patch_read_series(monkeypatch, _series(["2026-09-07T13:00"], u=[0.0], v=[-1.0], precipitation=[0.4]))
+    _patch_read_series(monkeypatch, times=["2026-09-07T13:00"], u=[0.0], v=[-1.0], precipitation=[0.4])
 
     times, results = await WeatherService().get_wind_grid([POINT, OTHER_POINT])
 
@@ -175,8 +170,7 @@ async def test_get_wind_forecast_lattice_reads_msm_at_every_grid_point_of_the_ar
 
     async def read_series(latitudes, longitudes):
         asked.append((np.asarray(latitudes), np.asarray(longitudes)))
-        times, values = _series(["2026-09-07T13:00", "2026-09-07T14:00"], u=[3.0, 0.0], v=[0.0, 4.0])
-        return times, {key: np.tile(value[0], (len(latitudes), 1)) for key, value in values.items()}
+        return _series(["2026-09-07T13:00", "2026-09-07T14:00"], u=[3.0, 0.0], v=[0.0, 4.0], count=len(latitudes))
 
     monkeypatch.setattr(msm_client, "read_series", read_series)
 

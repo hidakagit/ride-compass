@@ -32,6 +32,7 @@ from app.domain.jma_amedas import (
 from app.domain.route import Coordinates
 from app.domain.twilight import sunrise_sunset_jst
 from app.infrastructure import jma_amedas_client
+from app.infrastructure.jma_amedas_client import AmedasReading, AmedasStation
 from app.infrastructure.debug_log import log_throttled_warning
 from app.infrastructure.redis_client import (
     get_redis_client_or_none,
@@ -64,19 +65,11 @@ def _redis_key(station_id: str) -> str:
     return f"{_REDIS_KEY_PREFIX}:{station_id}"
 
 
-def _nearest_station(stations: dict, point: Coordinates) -> str | None:
+def _nearest_station(stations: dict[str, AmedasStation], point: Coordinates) -> str | None:
     best_station_id: str | None = None
     best_distance = float("inf")
-    for station_id, entry in stations.items():
-        lat = entry.get("lat")
-        lon = entry.get("lon")
-        name = entry.get("kjName")
-        if not lat or not lon or not name:
-            continue
-        # JMAのlat/lonは[度, 分]配列（jma_amedas_client.pyのdocstring参照）。
-        latitude = lat[0] + lat[1] / 60
-        longitude = lon[0] + lon[1] / 60
-        distance = haversine_distance_km(point, LatLonPoint(latitude=latitude, longitude=longitude))
+    for station_id, station in stations.items():
+        distance = haversine_distance_km(point, LatLonPoint(latitude=station.latitude, longitude=station.longitude))
         if distance < best_distance:
             best_distance = distance
             best_station_id = station_id
@@ -178,47 +171,18 @@ class JmaAmedasService:
             logger.warning("アメダス観測値マップの取得に失敗しました（全滅バッチ）time=%s", compact_timestamp)
             return 0
 
-        observations = []
-        for station_id, raw in observation_map.items():
-            station_meta = stations.get(station_id)
-            if station_meta is None:
-                continue
-            lat = station_meta.get("lat")
-            lon = station_meta.get("lon")
-            name = station_meta.get("kjName")
-            if not lat or not lon or not name:
-                continue
-            wind_direction_code = _first_int(raw.get("windDirection"))
-            temperature_c = _first_value(raw.get("temp"))
-            wind_speed_ms = _first_value(raw.get("wind"))
-            humidity_percent = _first_value(raw.get("humidity"))
-            wind_direction_deg, wind_direction_label = wind_direction_from_jma_code(wind_direction_code) or (None, None)
-            observations.append(
-                AmedasObservation(
-                    station_id=station_id,
-                    station_name=name,
-                    latitude=lat[0] + lat[1] / 60,
-                    longitude=lon[0] + lon[1] / 60,
-                    observed_at=latest_time,
-                    temperature_c=temperature_c,
-                    apparent_temperature_c=apparent_temperature_from_amedas(
-                        temperature_c, humidity_percent, wind_speed_ms
-                    ),
-                    wind_speed_ms=wind_speed_ms,
-                    wind_direction_deg=wind_direction_deg,
-                    wind_direction_label=wind_direction_label,
-                    precipitation_10min_mm=_first_value(raw.get("precipitation10m")),
-                    sunshine_10min_minutes=_first_value(raw.get("sun10m")),
-                    # クエリ地点依存のためバッチ時点では決められない。
-                    sunrise=None,
-                    sunset=None,
-                )
-            )
+        observations = [
+            _observation(station_id, station, reading, latest_time)
+            for station_id, reading in observation_map.items()
+            if (station := stations.get(station_id)) is not None
+        ]
         await self._save_all_to_redis(observations)
         await self._refresh_rain_history(stations, datetime.fromisoformat(latest_time), observation_map)
         return len(observations)
 
-    async def _refresh_rain_history(self, stations: dict, latest_time: datetime, latest_map: dict) -> None:
+    async def _refresh_rain_history(
+        self, stations: dict[str, AmedasStation], latest_time: datetime, latest_map: dict[str, AmedasReading]
+    ) -> None:
         """毎正時の1時間雨量の履歴（直近`RAIN_HISTORY_HOURS`本）に欠けている正時を、その正時の
         地図JSONから埋める。
 
@@ -243,7 +207,7 @@ class JmaAmedasService:
             if _hour_key(hour) in history:
                 continue
             if hour == latest_time:
-                hour_map: dict | None = latest_map
+                hour_map: dict[str, AmedasReading] | None = latest_map
             else:
                 hour_map = await jma_amedas_client.fetch_observation_map(
                     self._http_client, hour.strftime("%Y%m%d%H%M%S")
@@ -266,9 +230,9 @@ class JmaAmedasService:
             {
                 "latest_hour": _hour_key(latest_hour),
                 "stations": {
-                    station_id: _decimal_coordinates(stations[station_id])
+                    station_id: [stations[station_id].latitude, stations[station_id].longitude]
                     for station_id in {station_id for rain in history.values() for station_id in rain}
-                    if station_id in stations and stations[station_id].get("lat") and stations[station_id].get("lon")
+                    if station_id in stations
                 },
                 "hours": history,
             },
@@ -315,20 +279,27 @@ class JmaAmedasService:
             record_redis_success()
 
 
-def _first_value(pair: list | None) -> float | None:
-    """JMAの[値, 品質フラグ]配列から値を取り出す。
-
-    品質フラグの意味は判定せず、値の有無だけを見る。フィールド自体を持たない観測所
-    （雨量計のみ等）があるのは正常な状態で、その場合はNoneのまま返す。
-    """
-    if not pair:
-        return None
-    return pair[0]
-
-
-def _first_int(pair: list | None) -> int | None:
-    value = _first_value(pair)
-    return None if value is None else int(value)
+def _observation(station_id: str, station: AmedasStation, reading: AmedasReading, observed_at: str) -> AmedasObservation:
+    wind_direction_deg, wind_direction_label = wind_direction_from_jma_code(reading.wind_direction_code) or (None, None)
+    return AmedasObservation(
+        station_id=station_id,
+        station_name=station.name,
+        latitude=station.latitude,
+        longitude=station.longitude,
+        observed_at=observed_at,
+        temperature_c=reading.temperature_c,
+        apparent_temperature_c=apparent_temperature_from_amedas(
+            reading.temperature_c, reading.humidity_percent, reading.wind_speed_ms
+        ),
+        wind_speed_ms=reading.wind_speed_ms,
+        wind_direction_deg=wind_direction_deg,
+        wind_direction_label=wind_direction_label,
+        precipitation_10min_mm=reading.precipitation_10min_mm,
+        sunshine_10min_minutes=reading.sunshine_10min_minutes,
+        # クエリ地点依存のためバッチ時点では決められない。
+        sunrise=None,
+        sunset=None,
+    )
 
 
 def _redis_value(value: float | None) -> str:
@@ -343,19 +314,13 @@ def _hour_key(hour: datetime) -> str:
     return hour.strftime("%Y%m%d%H")
 
 
-def _decimal_coordinates(station_meta: dict) -> list[float]:
-    lat = station_meta["lat"]
-    lon = station_meta["lon"]
-    return [lat[0] + lat[1] / 60, lon[0] + lon[1] / 60]
-
-
-def _hourly_rain(observation_map: dict) -> dict[str, float | None]:
-    """正時の地図JSONから、雨量計を持つ観測所の直前1時間の雨量（欠測はNone）。雨量の項目を
+def _hourly_rain(observation_map: dict[str, AmedasReading]) -> dict[str, float | None]:
+    """正時の観測値から、雨量計を持つ観測所の直前1時間の雨量（欠測はNone）。雨量の項目を
     持たない観測所は載せない。"""
     return {
-        station_id: _first_value(raw["precipitation1h"])
-        for station_id, raw in observation_map.items()
-        if "precipitation1h" in raw
+        station_id: reading.precipitation_1h_mm
+        for station_id, reading in observation_map.items()
+        if reading.reports_precipitation_1h
     }
 
 

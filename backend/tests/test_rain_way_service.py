@@ -17,6 +17,7 @@ from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services import jma_amedas_service
 from app.services.jma_amedas_service import JmaAmedasService
 from app.services.rain_way_service import RainWayService
+from tests.fake_api_http import FakeResponse, RoutingHttpClient
 
 Z, X, Y = 14, 14551, 6447
 
@@ -67,10 +68,6 @@ class FakeMidpointsRepository:
         return self._midpoints
 
 
-async def _async_return(value):
-    return value
-
-
 @pytest.fixture(autouse=True)
 def fake_redis(monkeypatch):
     fake = FakeRedis()
@@ -83,19 +80,20 @@ def fake_redis(monkeypatch):
 async def _observe(monkeypatch, rain_mm: dict[str, float]):
     """アメダスの定期バッチを1回通す。どの正時も、観測所ごとに`rain_mm`の1時間雨量を返す。"""
     latest_time = datetime.now(JST).replace(minute=0, second=0, microsecond=0) - timedelta(minutes=10)
+    observation = {station_id: {"temp": [20.0, 0]} for station_id in STATIONS}
+    for station_id, rain in rain_mm.items():
+        observation[station_id]["precipitation1h"] = [rain, 0]
 
-    async def fetch_map(http_client, timestamp):
-        observation = {station_id: {"temp": [20.0, 0]} for station_id in STATIONS}
-        for station_id, rain in rain_mm.items():
-            observation[station_id]["precipitation1h"] = [rain, 0]
-        return observation
+    def route(url):
+        if url == jma_amedas_client.AMEDAS_STATION_TABLE_URL:
+            return FakeResponse(STATIONS)
+        if url == jma_amedas_client.AMEDAS_LATEST_TIME_URL:
+            return FakeResponse(text=latest_time.isoformat())
+        return FakeResponse(observation)
 
-    monkeypatch.setattr(jma_amedas_client, "fetch_station_table", lambda http_client: _async_return(STATIONS))
-    monkeypatch.setattr(
-        jma_amedas_client, "fetch_latest_observation_time", lambda http_client: _async_return(latest_time.isoformat())
-    )
-    monkeypatch.setattr(jma_amedas_client, "fetch_observation_map", fetch_map)
-    await JmaAmedasService(http_client=None).refresh_all_stations()
+    monkeypatch.setattr(jma_amedas_client, "_station_table_cache", TTLCache(maxsize=1, ttl=60))
+    monkeypatch.setattr(jma_amedas_client, "_latest_time_cache", TTLCache(maxsize=1, ttl=60))
+    await JmaAmedasService(http_client=RoutingHttpClient(route)).refresh_all_stations()
 
 
 async def test_each_road_takes_the_value_of_its_nearest_rain_gauge(monkeypatch):

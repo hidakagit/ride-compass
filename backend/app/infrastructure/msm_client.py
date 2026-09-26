@@ -36,15 +36,29 @@ _META_FILE = MSM_DIR / "meta.json"
 _ETAGS_FILE = MSM_DIR / "etags.json"
 
 
-# 同期・読み出しの対象変数。増やすと同期量がそのぶん増えるため、実際に消費するものだけを
-# 並べる。風グリッドは風と降水を、今日の見通しは気温・雲量・降水・風を使う。
-FORECAST_VARIABLES: tuple[str, ...] = (
-    "wind_u_component_10m",
-    "wind_v_component_10m",
-    "precipitation",
-    "temperature_2m",
-    "cloud_cover",
-)
+@dataclass(frozen=True)
+class MsmSeries:
+    """地点ごとの予報の時系列。値の配列はどれも[地点数, 時刻数]。"""
+
+    #: JSTのISO文字列（分まで、タイムゾーン指定なし）。フロントの既存パーサの入力形式と揃える。
+    times: list[str]
+    wind_u_ms: np.ndarray
+    wind_v_ms: np.ndarray
+    precipitation_mm: np.ndarray
+    temperature_c: np.ndarray
+    cloud_cover_percent: np.ndarray
+
+
+# 同期・読み出しの対象変数（配信元の変数名 → `MsmSeries`の項目）。増やすと同期量がそのぶん
+# 増えるため、実際に消費するものだけを並べる。風グリッドは風と降水を、今日の見通しは
+# 気温・雲量・降水・風を使う。
+FORECAST_VARIABLES: dict[str, str] = {
+    "wind_u_component_10m": "wind_u_ms",
+    "wind_v_component_10m": "wind_v_ms",
+    "precipitation": "precipitation_mm",
+    "temperature_2m": "temperature_c",
+    "cloud_cover": "cloud_cover_percent",
+}
 
 
 class MsmUnavailableError(RuntimeError):
@@ -301,9 +315,7 @@ def _grid_from_meta(meta: dict, n_lat: int, n_lon: int) -> MsmGrid:
     return MsmGrid.from_bbox_and_shape(parse_bbox(meta["crs_wkt"]), n_lat, n_lon)
 
 
-def _read_series_sync(
-    latitudes: np.ndarray, longitudes: np.ndarray, hours: int, now: int
-) -> tuple[list[str], dict[str, np.ndarray]]:
+def _read_series_sync(latitudes: np.ndarray, longitudes: np.ndarray, hours: int, now: int) -> MsmSeries:
     meta = _load_json(_META_FILE)
     if not meta:
         raise MsmUnavailableError("MSMのメタ情報が未同期です")
@@ -316,7 +328,7 @@ def _read_series_sync(
         raise MsmUnavailableError("MSMの予報データが現在時刻に追いついていません")
 
     # 形状は実データから読む（緯度・経度方向の格子点数を定数として持たないため）。
-    sample_path = _chunk_path(FORECAST_VARIABLES[0], _chunk_number(start, chunk_hours))
+    sample_path = _chunk_path(next(iter(FORECAST_VARIABLES)), _chunk_number(start, chunk_hours))
     if not sample_path.exists():
         raise MsmUnavailableError(f"MSMのチャンクが未同期です: {sample_path.name}")
     with OmFileReader(str(sample_path)) as reader:
@@ -340,14 +352,15 @@ def _read_series_sync(
         )
         cursor = chunk_begin + t1 * 3600
 
-    return times, {variable: np.concatenate(parts, axis=1) for variable, parts in series.items()}
+    return MsmSeries(
+        times=times,
+        **{FORECAST_VARIABLES[variable]: np.concatenate(parts, axis=1) for variable, parts in series.items()},
+    )
 
 
-async def read_series(latitudes: np.ndarray, longitudes: np.ndarray) -> tuple[list[str], dict[str, np.ndarray]]:
+async def read_series(latitudes: np.ndarray, longitudes: np.ndarray) -> MsmSeries:
     """地点ごとの時系列（現在時刻の正時から`settings.msm_forecast_hours`時間ぶん）を返す。
 
-    戻り値は(時刻列, 変数ごとの[地点数, 時刻数]配列)。時刻はJSTのISO文字列
-    （分まで、タイムゾーン指定なし）で、フロントの既存パーサの入力形式と揃える。
     同期が済んでいない・予報が現在時刻へ追いついていない場合は`MsmUnavailableError`。
     """
     requested = settings.msm_forecast_hours
@@ -361,5 +374,5 @@ async def read_series(latitudes: np.ndarray, longitudes: np.ndarray) -> tuple[li
             fields["error_type"] = error_type_label(exc)
             raise
         fields["result"] = "ok"
-        fields["times"] = len(result[0])
+        fields["times"] = len(result.times)
         return result

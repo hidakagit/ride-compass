@@ -1,8 +1,12 @@
 """JMAアメダス観測値APIのクライアント。
 
 `jma_warning_client.py`と同じ「JMA公式の非公開だが広く使われているエンドポイント」を使う。
-取得失敗時はNoneを返し、呼び出し元（`jma_amedas_service.py`）が「観測値なし」として扱う。
+応答の形（キー名・[度, 分]の座標・[値, 品質フラグ]の観測値）はここで解き、呼び出し元
+（`jma_amedas_service.py`）へは`AmedasStation`・`AmedasReading`の値で渡す。
+取得失敗時はNoneを返し、呼び出し元が「観測値なし」として扱う。
 """
+
+from dataclasses import dataclass
 
 import httpx
 from cachetools import TTLCache
@@ -11,8 +15,7 @@ from app.infrastructure.simple_api_client import UnexpectedShapeError, cached_fe
 
 # 観測所マスタは`amedastable.json`（`amedas.json`ではない）。最新時刻は`latest_time.txt`
 # （ISO時刻文字列1個のプレーンテキスト、JSON配列ではない。fetch_latest_observation_time
-# 参照）。データ構造はlat/lon=[度,分]配列、temp/wind/windDirection/humidity/
-# precipitation10mのキー名。
+# 参照）。
 AMEDAS_STATION_TABLE_URL = "https://www.jma.go.jp/bosai/amedas/const/amedastable.json"
 AMEDAS_LATEST_TIME_URL = "https://www.jma.go.jp/bosai/amedas/data/latest_time.txt"
 AMEDAS_OBSERVATION_URL_TEMPLATE = "https://www.jma.go.jp/bosai/amedas/data/map/{timestamp}.json"
@@ -31,17 +34,80 @@ _STATION_TABLE_CACHE_KEY = "stations"
 _LATEST_TIME_CACHE_KEY = "latest_time"
 
 
-async def fetch_station_table(client: httpx.AsyncClient) -> dict | None:
-    """観測所マスタ（station_id -> {lat, lon, kjName(漢字名), ...}）を取得する。
+@dataclass(frozen=True)
+class AmedasStation:
+    name: str
+    latitude: float
+    longitude: float
 
-    JMAのlat/lonは[度, 分]の配列で表現される独特の形式（呼び出し元
-    jma_amedas_service.pyで10進度へ変換する）。
-    """
 
-    async def fetch() -> dict:
+@dataclass(frozen=True)
+class AmedasReading:
+    """1観測所の1時刻ぶんの観測値。センサーを持たない・欠測の項目はNone。"""
+
+    temperature_c: float | None
+    humidity_percent: float | None
+    wind_speed_ms: float | None
+    #: 気象庁の16方位コード（0=静穏）。角度への読み替えは`domain/jma_amedas.py: wind_direction_from_jma_code`。
+    wind_direction_code: int | None
+    precipitation_10min_mm: float | None
+    sunshine_10min_minutes: float | None
+    #: その時刻に終わる1時間の雨量。正時の観測値だけが持つ。
+    precipitation_1h_mm: float | None
+    #: 1時間雨量の項目を持つか。雨量計の無い観測所は持たず、雨量計はあるが欠測なら
+    #: 項目はあって値がNone——雨の履歴は前者を載せず、後者を欠測として載せる。
+    reports_precipitation_1h: bool
+
+
+def _degree_minute(value: list) -> float:
+    """気象庁の[度, 分]を10進度にする。"""
+    return value[0] + value[1] / 60
+
+
+def _parse_station_table(payload: dict) -> dict[str, AmedasStation]:
+    """座標か名称の無い観測所は載せない（最寄りにも、雨の履歴の座標にも使えない）。"""
+    stations = {}
+    for station_id, entry in payload.items():
+        lat = entry.get("lat")
+        lon = entry.get("lon")
+        name = entry.get("kjName")
+        if not lat or not lon or not name:
+            continue
+        stations[station_id] = AmedasStation(name=name, latitude=_degree_minute(lat), longitude=_degree_minute(lon))
+    return stations
+
+
+def _first_value(pair: list | None) -> float | None:
+    """[値, 品質フラグ]から値を取り出す。品質フラグの意味は判定せず、値の有無だけを見る。"""
+    if not pair:
+        return None
+    return pair[0]
+
+
+def _parse_reading(raw: dict) -> AmedasReading:
+    wind_direction = _first_value(raw.get("windDirection"))
+    return AmedasReading(
+        temperature_c=_first_value(raw.get("temp")),
+        humidity_percent=_first_value(raw.get("humidity")),
+        wind_speed_ms=_first_value(raw.get("wind")),
+        wind_direction_code=None if wind_direction is None else int(wind_direction),
+        precipitation_10min_mm=_first_value(raw.get("precipitation10m")),
+        sunshine_10min_minutes=_first_value(raw.get("sun10m")),
+        precipitation_1h_mm=_first_value(raw.get("precipitation1h")),
+        reports_precipitation_1h="precipitation1h" in raw,
+    )
+
+
+async def fetch_station_table(client: httpx.AsyncClient) -> dict[str, AmedasStation] | None:
+    """観測所マスタ（観測所id → 観測所）を取得する。"""
+
+    async def fetch() -> dict[str, AmedasStation]:
         response = await client.get(AMEDAS_STATION_TABLE_URL, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
-        return response.json()
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise UnexpectedShapeError(f"station table is {type(payload).__name__}")
+        return _parse_station_table(payload)
 
     return await cached_fetch(
         "weather:jma-amedas-stations", fetch, cache=_station_table_cache, key=_STATION_TABLE_CACHE_KEY
@@ -73,19 +139,21 @@ async def fetch_latest_observation_time(client: httpx.AsyncClient) -> str | None
     )
 
 
-async def fetch_observation_map(client: httpx.AsyncClient, timestamp: str) -> dict | None:
-    """指定時刻（fetch_latest_observation_timeが返すISO文字列）の全観測所ぶんの生観測値を取得する。
+async def fetch_observation_map(client: httpx.AsyncClient, timestamp: str) -> dict[str, AmedasReading] | None:
+    """指定時刻の全観測所ぶんの観測値（観測所id → 観測値）を取得する。
 
     URLはYYYYMMDDHHMMSS形式のコンパクトなタイムスタンプを要求するため、呼び出し元
     （jma_amedas_service.py）がISO文字列から変換して渡す。
     """
-    async def fetch() -> dict:
+
+    async def fetch() -> dict[str, AmedasReading]:
         response = await client.get(
             AMEDAS_OBSERVATION_URL_TEMPLATE.format(timestamp=timestamp), timeout=REQUEST_TIMEOUT
         )
         response.raise_for_status()
-        return response.json()
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise UnexpectedShapeError(f"observation map is {type(payload).__name__}")
+        return {station_id: _parse_reading(raw) for station_id, raw in payload.items()}
 
-    return await cached_fetch(
-        "weather:jma-amedas-observation", fetch, expect=dict, timestamp=timestamp
-    )
+    return await cached_fetch("weather:jma-amedas-observation", fetch, timestamp=timestamp)

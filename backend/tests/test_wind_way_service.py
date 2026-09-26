@@ -18,7 +18,7 @@ from app.domain.msm import wind_speed_and_direction
 from app.domain.time_zone import JST
 from app.domain.wind import kmh_to_ms, wind_drag_ratio
 from app.infrastructure import msm_client
-from app.infrastructure.msm_client import MsmUnavailableError
+from app.infrastructure.msm_client import MsmSeries, MsmUnavailableError
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.weather_service import WeatherService
 from app.services.wind_way_service import WindWayService
@@ -64,13 +64,14 @@ def _patch_msm(monkeypatch, times: list[str] = TIMES) -> list[tuple[np.ndarray, 
         asked.append((np.asarray(latitudes), np.asarray(longitudes)))
         u, v = zip(*(_wind_uv(latitudes, longitudes, h) for h in range(len(times))))
         count = len(latitudes)
-        return times, {
-            "wind_u_component_10m": np.stack(u, axis=1),
-            "wind_v_component_10m": np.stack(v, axis=1),
-            "precipitation": np.zeros((count, len(times))),
-            "temperature_2m": np.full((count, len(times)), 20.0),
-            "cloud_cover": np.zeros((count, len(times))),
-        }
+        return MsmSeries(
+            times=times,
+            wind_u_ms=np.stack(u, axis=1),
+            wind_v_ms=np.stack(v, axis=1),
+            precipitation_mm=np.zeros((count, len(times))),
+            temperature_c=np.full((count, len(times)), 20.0),
+            cloud_cover_percent=np.zeros((count, len(times))),
+        )
 
     monkeypatch.setattr(msm_client, "read_series", read_series)
     return asked

@@ -247,8 +247,8 @@ backendのテストが全要素で確かめる。
    新しいチップidを名乗ればチップも増える（`WEATHER_LAYER_GROUPS`はこの宣言から導かれ、
    生成物経由で`DynamicWeatherLayerId`・`MapLayerId`になる）。`scripts/export_openapi.py`で
    生成物（`mapDisplay.ts`の`weatherElements`）を作り直す。自前のMSM格子から描くなら、
-   `wind_grid.py`の`WindGridPoint`へ値フィールドを、`msm_client.py`の`FORECAST_VARIABLES`へ
-   MSM変数を足す（この経路は風・降水延長予報限定）
+   `wind_grid.py`の`WindGridPoint`へ値フィールドを、`msm_client.py`の`MsmSeries`へ項目を、
+   `FORECAST_VARIABLES`へMSM変数とその項目の対応を足す（この経路は風・降水延長予報限定）
 2. `features/map/scene/groups/weather.ts`: 配信元のラスタ（`rasterTile`）なら何も足さない
    （見た目は共通の1つ）。それ以外は`DRAWINGS`へ見た目（`paint`・`layout`・`filter`・記号）を
    1件足す——鍵は生成物から導かれるため、足し忘れると型検査が落ちる。ソース名・ソースの宣言・

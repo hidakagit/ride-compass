@@ -42,6 +42,24 @@ class FakeHttpClient:
         return FakeResponse(self._payload, text=self._text)
 
 
+class RoutingHttpClient:
+    """要求URLごとに応答を決める上流。`route(url)`が`FakeResponse`を返し、Noneなら接続の失敗にする。
+
+    要求されたURLは`requested_urls`へ順に残る（どのURLを引いたか・引かなかったかを見る）。
+    """
+
+    def __init__(self, route):
+        self._route = route
+        self.requested_urls = []
+
+    async def get(self, url, params=None, timeout=None):
+        self.requested_urls.append(url)
+        response = self._route(url)
+        if response is None:
+            raise httpx.RequestError("boom")
+        return response
+
+
 class FailingHttpClient:
     """接続そのものが失敗する上流。"""
 

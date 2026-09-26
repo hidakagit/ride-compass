@@ -261,7 +261,10 @@ URLも変わるため、ブラウザキャッシュ（`api/cache_policy.py`）�
 
 - **`JmaAmedasService`（取得と配信の分離）**: `get_nearest_observation`は**Redis読み取り
   専用**（JMAへは問い合わせない）。`refresh_all_stations`が全国分を1回取得し観測所ごとに
-  Redis Hash（`jma:amedas:{station_id}`、TTL 15分）へ書き戻す。
+  Redis Hash（`jma:amedas:{station_id}`、TTL 15分）へ書き戻す。気象庁の応答の形（キー名・
+  [度, 分]の座標・[値, 品質フラグ]の観測値）はクライアントが解き（`jma_amedas_client.py: AmedasStation`・
+  `jma_amedas_client.py: AmedasReading`）、サービスは値だけを読む。座標か名称の無い観測所は
+  観測所マスタの時点で落ちる（最寄りにも雨の履歴の座標にも使えないため）。
 
   **暗黙の前提**: `refresh_all_stations`はリクエスト経路からは呼ばれない。`app/main.py`の
   lifespan内でAPScheduler（`AsyncIOScheduler`）へ`interval`トリガー
@@ -415,6 +418,7 @@ MSM（`.om`形式、CC-BY-4.0）をローカルへ同期して読む。予報を
 |---|---|
 | 配信元 | `settings.msm_base_url`（既定はopenmeteo.s3.amazonaws.comのjma_msm） |
 | 同期対象 | `msm_client.py: FORECAST_VARIABLES`（風の東西成分・南北成分・降水量・気温・雲量）の、現在時刻から`msm_forecast_hours`先までを覆うチャンク |
+| 読み出しの戻り値 | `msm_client.py: MsmSeries`（時刻列と、項目ごとの[地点数, 時刻数]の配列）。配信元の変数名は持たない——変数名と項目の対応は`FORECAST_VARIABLES`だけが持ち、サービスは項目で読む |
 | チャンク | 変数ごとに日本全域・`chunk_time_length`時間ぶんを1ファイルにまとめたもの。1ファイル十数MB |
 | 保存先 | `backend/data/msm/`（本番はコンテナへマウントされるホスト側ディレクトリのため、デプロイをまたいで残る） |
 | 更新の検出 | ETagによる条件付きGET。内容が変わっていなければ304で転送自体が起きない |

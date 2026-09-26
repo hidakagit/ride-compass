@@ -167,7 +167,7 @@ class TestSyncing:
         async with source.client() as client:
             msm_dir.forecast_hours(3)
             await msm_client.refresh(client)
-            variable = msm_client.FORECAST_VARIABLES[0]
+            variable = next(iter(msm_client.FORECAST_VARIABLES))
             (msm_dir.path / variable / f"chunk_{NOW_CHUNK}.om").unlink()
             msm_dir.forecast_hours(3)
             again = await msm_client.refresh(client)
@@ -230,36 +230,35 @@ class TestReading:
     async def test_series_start_at_the_current_hour_in_japan_time(self, tmp_path, msm_dir):
         await _synced(tmp_path, msm_dir)
 
-        times, values = await _read(msm_dir, _points(SOUTH_WEST), 3)
+        series = await _read(msm_dir, _points(SOUTH_WEST), 3)
 
-        assert times == ["2026-09-22T05:00", "2026-09-22T06:00", "2026-09-22T07:00"]
-        assert set(values) == set(msm_client.FORECAST_VARIABLES)
-        assert all(array.shape == (1, 3) for array in values.values())
+        assert series.times == ["2026-09-22T05:00", "2026-09-22T06:00", "2026-09-22T07:00"]
+        assert all(getattr(series, field).shape == (1, 3) for field in msm_client.FORECAST_VARIABLES.values())
 
     async def test_each_point_is_interpolated_between_the_grid_points_around_it(self, tmp_path, msm_dir):
         """南西の格子点はそのまま、北隣との中間は2点の平均（100i + 10j + t で i=0.5）。"""
         await _synced(tmp_path, msm_dir)
 
-        _, values = await _read(msm_dir, _points(SOUTH_WEST, HALF_NORTH), 2)
+        series = await _read(msm_dir, _points(SOUTH_WEST, HALF_NORTH), 2)
 
         # 05:00はチャンクの先頭から2時間目（t=2）。
-        assert values["temperature_2m"] == pytest.approx(np.array([[2.0, 3.0], [52.0, 53.0]]))
+        assert series.temperature_c == pytest.approx(np.array([[2.0, 3.0], [52.0, 53.0]]))
 
     async def test_a_series_crossing_into_the_next_chunk_continues_from_it(self, tmp_path, msm_dir):
         await _synced(tmp_path, msm_dir)
 
-        times, values = await _read(msm_dir, _points(SOUTH_WEST), 6)
+        series = await _read(msm_dir, _points(SOUTH_WEST), 6)
 
-        assert times[3:] == ["2026-09-22T08:00", "2026-09-22T09:00", "2026-09-22T10:00"]
-        assert values["precipitation"][0].tolist() == [2.0, 3.0, 4.0, 5.0, 1000.0, 1001.0]
+        assert series.times[3:] == ["2026-09-22T08:00", "2026-09-22T09:00", "2026-09-22T10:00"]
+        assert series.precipitation_mm[0].tolist() == [2.0, 3.0, 4.0, 5.0, 1000.0, 1001.0]
 
     async def test_a_series_stops_where_the_forecast_ends(self, tmp_path, msm_dir):
         """予報の終端より先は読めない。求めた長さより短い系列が返る。"""
         await _synced(tmp_path, msm_dir, _meta(data_end_time=NOW - NOW % 3600 + 2 * 3600))
 
-        times, _ = await _read(msm_dir, _points(SOUTH_WEST), 24)
+        series = await _read(msm_dir, _points(SOUTH_WEST), 24)
 
-        assert times == ["2026-09-22T05:00", "2026-09-22T06:00"]
+        assert series.times == ["2026-09-22T05:00", "2026-09-22T06:00"]
 
     async def test_a_forecast_that_ended_before_now_cannot_be_read(self, tmp_path, msm_dir):
         await _synced(tmp_path, msm_dir, _meta(data_end_time=NOW - NOW % 3600))
@@ -275,7 +274,7 @@ class TestReading:
     @pytest.mark.parametrize("missing_chunk", [NOW_CHUNK, NOW_CHUNK + 1])
     async def test_a_chunk_that_has_not_been_synced_cannot_be_read(self, tmp_path, msm_dir, missing_chunk, variable_index):
         await _synced(tmp_path, msm_dir)
-        variable = msm_client.FORECAST_VARIABLES[variable_index]
+        variable = list(msm_client.FORECAST_VARIABLES)[variable_index]
         (msm_dir.path / variable / f"chunk_{missing_chunk}.om").unlink()
 
         with pytest.raises(MsmUnavailableError):

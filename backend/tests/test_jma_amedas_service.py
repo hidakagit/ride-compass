@@ -1,12 +1,11 @@
 """jma_amedas_service.pyのテスト。
 
-JMAへの実HTTP・実Redisは使わず、infrastructure.jma_amedas_clientの各関数とRedisクライアントを
-monkeypatchで差し替える（docs/conventions/testing.md: 実I/Oを伴わない単体テストの原則）。
+差し替えるのはプロセス境界だけ——気象庁への取得は応答の形のままURLごとに返す上流の代役
+（`RoutingHttpClient`）、Redisはメモリのフェイク。応答の形を解くクライアントは本物を通す。
 
-設計（2026-08-29、ユーザー指摘を受け改訂）: JMAの観測値エンドポイントは1地点だけを
-絞り込めず全国分を1レスポンスで返すため、取得は`refresh_all_stations`（main.pyの
-定期バッチが呼ぶ）が一括で担い、`get_nearest_observation`（リクエスト経路）はRedis
-読み取り専用にした。
+JMAの観測値エンドポイントは1地点だけを絞り込めず全国分を1レスポンスで返すため、取得は
+`refresh_all_stations`（main.pyの定期バッチが呼ぶ）が一括で担い、`get_nearest_observation`
+（リクエスト経路）はRedis読み取り専用である。
 """
 
 from datetime import datetime, timedelta
@@ -22,8 +21,10 @@ from app.domain.time_zone import JST
 from app.infrastructure import jma_amedas_client, redis_json_cache
 from app.services import jma_amedas_service
 from app.services.jma_amedas_service import RAIN_HISTORY_MAX_AGE, JmaAmedasService, load_station_rain_materials
+from tests.fake_api_http import FakeResponse, RoutingHttpClient
 
 POINT = Coordinates(latitude=35.68, longitude=139.76)
+LATEST_TIME = "2026-08-29T12:00:00+09:00"
 
 STATIONS = {
     "44132": {"lat": [35, 41.4], "lon": [139, 45.6], "kjName": "東京"},
@@ -87,18 +88,28 @@ class FakePipeline:
                 self._redis.hashes.setdefault(key, {}).update({k: str(v) for k, v in mapping.items()})
 
 
-async def _async_return(value):
-    return value
+def _upstream(*, stations=STATIONS, latest_time=LATEST_TIME, observation_map=lambda timestamp: OBSERVATION_MAP):
+    """気象庁アメダスの代役。観測値は要求された時刻（URLの`YYYYMMDDHHMMSS`）ごとに`observation_map`が返す。
+    どれもNoneなら、その取得は接続の失敗になる。"""
+    prefix, suffix = jma_amedas_client.AMEDAS_OBSERVATION_URL_TEMPLATE.split("{timestamp}")
+
+    def route(url):
+        if url == jma_amedas_client.AMEDAS_STATION_TABLE_URL:
+            payload = stations
+        elif url == jma_amedas_client.AMEDAS_LATEST_TIME_URL:
+            return None if latest_time is None else FakeResponse(text=latest_time)
+        else:
+            payload = observation_map(url.removeprefix(prefix).removesuffix(suffix))
+        return None if payload is None else FakeResponse(payload)
+
+    return RoutingHttpClient(route)
 
 
-def _patch_client(monkeypatch, redis=None):
-    monkeypatch.setattr(jma_amedas_client, "fetch_station_table", lambda http_client: _async_return(STATIONS))
-    monkeypatch.setattr(
-        jma_amedas_client, "fetch_latest_observation_time", lambda http_client: _async_return("2026-08-29T12:00:00+09:00")
-    )
-    monkeypatch.setattr(
-        jma_amedas_client, "fetch_observation_map", lambda http_client, timestamp: _async_return(OBSERVATION_MAP)
-    )
+def _patch_redis(monkeypatch, redis=None):
+    """Redisをフェイクへ、クライアントのプロセス内キャッシュを空にする（観測所マスタ・最新時刻は
+    テストをまたいで残るため）。"""
+    monkeypatch.setattr(jma_amedas_client, "_station_table_cache", TTLCache(maxsize=1, ttl=60))
+    monkeypatch.setattr(jma_amedas_client, "_latest_time_cache", TTLCache(maxsize=1, ttl=60))
     fake_redis = redis if redis is not None else FakeRedis()
     monkeypatch.setattr(jma_amedas_service, "get_redis_client_or_none", lambda: fake_redis)
     monkeypatch.setattr(redis_json_cache, "get_redis_client_or_none", lambda: fake_redis)
@@ -106,8 +117,8 @@ def _patch_client(monkeypatch, redis=None):
 
 
 async def test_refresh_all_stations_caches_every_station_in_one_batch(monkeypatch):
-    fake_redis = _patch_client(monkeypatch)
-    service = JmaAmedasService(http_client=None)
+    fake_redis = _patch_redis(monkeypatch)
+    service = JmaAmedasService(http_client=_upstream())
 
     count = await service.refresh_all_stations()
 
@@ -123,9 +134,8 @@ async def test_refresh_all_stations_caches_every_station_in_one_batch(monkeypatc
 async def test_refresh_all_stations_warns_when_station_table_fetch_fails(monkeypatch, caplog):
     # 呼び出し元は例外の有無しか見ないため、1件も書けていないことはサービス層自身が
     # WARNINGで残すしかない。
-    _patch_client(monkeypatch)
-    monkeypatch.setattr(jma_amedas_client, "fetch_station_table", lambda http_client: _async_return({}))
-    service = JmaAmedasService(http_client=None)
+    _patch_redis(monkeypatch)
+    service = JmaAmedasService(http_client=_upstream(stations=None))
 
     with caplog.at_level("WARNING", logger="ridecompass.jma_amedas_service"):
         count = await service.refresh_all_stations()
@@ -135,9 +145,8 @@ async def test_refresh_all_stations_warns_when_station_table_fetch_fails(monkeyp
 
 
 async def test_refresh_all_stations_warns_when_latest_observation_time_fetch_fails(monkeypatch, caplog):
-    _patch_client(monkeypatch)
-    monkeypatch.setattr(jma_amedas_client, "fetch_latest_observation_time", lambda http_client: _async_return(None))
-    service = JmaAmedasService(http_client=None)
+    _patch_redis(monkeypatch)
+    service = JmaAmedasService(http_client=_upstream(latest_time=None))
 
     with caplog.at_level("WARNING", logger="ridecompass.jma_amedas_service"):
         count = await service.refresh_all_stations()
@@ -147,11 +156,8 @@ async def test_refresh_all_stations_warns_when_latest_observation_time_fetch_fai
 
 
 async def test_refresh_all_stations_warns_when_observation_map_fetch_fails(monkeypatch, caplog):
-    _patch_client(monkeypatch)
-    monkeypatch.setattr(
-        jma_amedas_client, "fetch_observation_map", lambda http_client, timestamp: _async_return(None)
-    )
-    service = JmaAmedasService(http_client=None)
+    _patch_redis(monkeypatch)
+    service = JmaAmedasService(http_client=_upstream(observation_map=lambda timestamp: None))
 
     with caplog.at_level("WARNING", logger="ridecompass.jma_amedas_service"):
         count = await service.refresh_all_stations()
@@ -161,19 +167,17 @@ async def test_refresh_all_stations_warns_when_observation_map_fetch_fails(monke
 
 
 async def test_get_nearest_observation_reads_from_redis_without_fetching(monkeypatch):
-    _patch_client(monkeypatch)
-    service = JmaAmedasService(http_client=None)
+    _patch_redis(monkeypatch)
+    upstream = _upstream()
+    service = JmaAmedasService(http_client=upstream)
     # バッチ（定期実行想定）が先に全国分をキャッシュ済みという前提を再現する。
     await service.refresh_all_stations()
-
-    def _fail(*args, **kwargs):
-        raise AssertionError("get_nearest_observationはRedis読み取りのみで、JMAへ再取得してはいけない")
-
-    monkeypatch.setattr(jma_amedas_client, "fetch_latest_observation_time", _fail)
-    monkeypatch.setattr(jma_amedas_client, "fetch_observation_map", _fail)
+    upstream.requested_urls.clear()
 
     result = await service.get_nearest_observation(POINT)
 
+    # 観測所マスタはクライアントのキャッシュから引き、観測値は気象庁へ取りに行かない。
+    assert upstream.requested_urls == []
     assert result is not None
     assert result.station_id == "44132"
     assert result.station_name == "東京"
@@ -189,8 +193,8 @@ async def test_get_nearest_observation_reads_from_redis_without_fetching(monkeyp
 
 
 async def test_get_nearest_observation_returns_none_when_not_yet_cached(monkeypatch):
-    _patch_client(monkeypatch)
-    service = JmaAmedasService(http_client=None)
+    _patch_redis(monkeypatch)
+    service = JmaAmedasService(http_client=_upstream())
 
     # refresh_all_stationsを呼んでいない（＝定期バッチがまだ一度も成功していない）状態。
     result = await service.get_nearest_observation(POINT)
@@ -201,9 +205,9 @@ async def test_get_nearest_observation_returns_none_when_not_yet_cached(monkeypa
 async def test_get_nearest_observation_fails_open_when_redis_client_unavailable(monkeypatch):
     # 設定ミス等でクライアント生成自体が失敗する場合、`get_redis_client_or_none`はNoneを
     # 返す。例外を外へ漏らさず「観測値なし」へ倒すこと。
-    _patch_client(monkeypatch)
+    _patch_redis(monkeypatch)
     monkeypatch.setattr(jma_amedas_service, "get_redis_client_or_none", lambda: None)
-    service = JmaAmedasService(http_client=None)
+    service = JmaAmedasService(http_client=_upstream())
 
     result = await service.get_nearest_observation(POINT)
 
@@ -212,9 +216,9 @@ async def test_get_nearest_observation_fails_open_when_redis_client_unavailable(
 
 async def test_refresh_all_stations_fails_open_when_redis_client_unavailable(monkeypatch, caplog):
     # 書き込み側も同じfail-open契約を守る。書き込みだけをスキップし、バッチは完了する。
-    _patch_client(monkeypatch)
+    _patch_redis(monkeypatch)
     monkeypatch.setattr(jma_amedas_service, "get_redis_client_or_none", lambda: None)
-    service = JmaAmedasService(http_client=None)
+    service = JmaAmedasService(http_client=_upstream())
 
     count = await service.refresh_all_stations()
 
@@ -245,7 +249,7 @@ class RainMaps:
         self.failing_backs = set(failing_backs)
         self.requested_hours: list[int] = []
 
-    async def fetch(self, http_client, timestamp):
+    def observation_map(self, timestamp):
         at = datetime.strptime(timestamp, "%Y%m%d%H%M%S").replace(tzinfo=JST)
         if at.minute != 0:
             return OBSERVATION_MAP
@@ -257,20 +261,17 @@ class RainMaps:
         return {**OBSERVATION_MAP, "44132": {**OBSERVATION_MAP["44132"], "precipitation1h": [rain, 0]}}
 
 
-def _patch_rain(monkeypatch, maps: RainMaps, redis=None):
-    fake_redis = _patch_client(monkeypatch, redis)
+def _rain_service(monkeypatch, maps: RainMaps, redis=None) -> JmaAmedasService:
+    _patch_redis(monkeypatch, redis)
     latest_time = (maps.latest_hour + timedelta(minutes=50)).isoformat()
-    monkeypatch.setattr(jma_amedas_client, "fetch_latest_observation_time", lambda http_client: _async_return(latest_time))
-    monkeypatch.setattr(jma_amedas_client, "fetch_observation_map", maps.fetch)
-    return fake_redis
+    return JmaAmedasService(http_client=_upstream(latest_time=latest_time, observation_map=maps.observation_map))
 
 
 async def test_rain_history_is_backfilled_from_past_hourly_maps(monkeypatch):
     now = datetime.now(JST)
     maps = RainMaps(_latest_hour(now), rain_by_back={2: 3.0, 3: 3.0})
-    _patch_rain(monkeypatch, maps)
 
-    await JmaAmedasService(http_client=None).refresh_all_stations()
+    await _rain_service(monkeypatch, maps).refresh_all_stations()
     materials = await load_station_rain_materials(now)
 
     assert sorted(maps.requested_hours) == list(range(RAIN_HISTORY_HOURS))
@@ -287,12 +288,11 @@ async def test_rain_history_fetches_only_hours_it_does_not_have(monkeypatch):
     now = datetime.now(JST)
     latest_hour = _latest_hour(now)
     earlier = RainMaps(latest_hour - timedelta(hours=1), rain_by_back={})
-    fake_redis = _patch_rain(monkeypatch, earlier)
-    await JmaAmedasService(http_client=None).refresh_all_stations()
+    fake_redis = FakeRedis()
+    await _rain_service(monkeypatch, earlier, fake_redis).refresh_all_stations()
 
     later = RainMaps(latest_hour, rain_by_back={0: 1.5})
-    _patch_rain(monkeypatch, later, fake_redis)
-    await JmaAmedasService(http_client=None).refresh_all_stations()
+    await _rain_service(monkeypatch, later, fake_redis).refresh_all_stations()
     materials = await load_station_rain_materials(now)
 
     assert later.requested_hours == [0]
@@ -304,8 +304,8 @@ async def test_an_hour_that_could_not_be_fetched_is_retried_and_leaves_its_windo
     now = datetime.now(JST)
     latest_hour = _latest_hour(now)
     failing = RainMaps(latest_hour, rain_by_back={}, failing_backs={5})
-    fake_redis = _patch_rain(monkeypatch, failing)
-    await JmaAmedasService(http_client=None).refresh_all_stations()
+    fake_redis = FakeRedis()
+    await _rain_service(monkeypatch, failing, fake_redis).refresh_all_stations()
     materials = await load_station_rain_materials(now)
 
     assert materials is not None
@@ -313,8 +313,7 @@ async def test_an_hour_that_could_not_be_fetched_is_retried_and_leaves_its_windo
     assert np.isnan(materials.values[rain_window_material_id(6)][0])
 
     retry = RainMaps(latest_hour, rain_by_back={})
-    _patch_rain(monkeypatch, retry, fake_redis)
-    await JmaAmedasService(http_client=None).refresh_all_stations()
+    await _rain_service(monkeypatch, retry, fake_redis).refresh_all_stations()
 
     assert retry.requested_hours == [5]
 
@@ -326,9 +325,8 @@ async def test_rain_history_is_not_refetched_while_redis_is_down(monkeypatch):
             raise ConnectionError("redis is down")
 
     maps = RainMaps(_latest_hour(datetime.now(JST)), rain_by_back={})
-    _patch_rain(monkeypatch, maps, DownRedis())
 
-    await JmaAmedasService(http_client=None).refresh_all_stations()
+    await _rain_service(monkeypatch, maps, DownRedis()).refresh_all_stations()
 
     assert maps.requested_hours == []
 
@@ -336,8 +334,7 @@ async def test_rain_history_is_not_refetched_while_redis_is_down(monkeypatch):
 async def test_rain_materials_are_not_served_from_a_stale_history(monkeypatch):
     now = datetime.now(JST)
     maps = RainMaps(_latest_hour(now), rain_by_back={})
-    _patch_rain(monkeypatch, maps)
-    await JmaAmedasService(http_client=None).refresh_all_stations()
+    await _rain_service(monkeypatch, maps).refresh_all_stations()
 
     assert await load_station_rain_materials(now) is not None
     assert await load_station_rain_materials(maps.latest_hour + RAIN_HISTORY_MAX_AGE + timedelta(minutes=1)) is None
