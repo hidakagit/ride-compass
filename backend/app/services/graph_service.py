@@ -6,7 +6,7 @@ from app.config import settings
 from app.domain.errors import SearchAreaTooLargeError
 from app.domain.evaluation import StaticEdgeScoreMatrix, build_static_edge_score_matrix
 from app.domain.graph import LeanEdge
-from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tile_bounds_lonlat, tiles_covering_bbox
+from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tiles_covering_bbox
 from app.domain.road_network import RoadSlice, material_arrays_of, slice_network
 from app.infrastructure import container_memory, road_network_store
 from app.infrastructure.road_graph_repository import RoadGraphRepository
@@ -47,8 +47,8 @@ class GraphService:
     ) -> tuple[RoadSlice, StaticEdgeScoreMatrix, frozenset[tuple[int, int, int]]] | None:
         """探索範囲の区間と、その静的スコア行列（行は切り出した区間の順）を返す。
 
-        切り出すのはbboxを覆うz12タイルの外接矩形。あわせて返すタイル集合は、同じ範囲を
-        指す鍵として使える（学習した迂回率の鍵）。
+        切り出すのはbboxそのもの。あわせて返すbboxを覆うz12タイルの集合は、近い範囲をまとめて
+        指す鍵として使う（学習した迂回率の鍵）。
         """
         if not await self._repository.is_covered(bbox):
             logger.warning(
@@ -58,10 +58,8 @@ class GraphService:
 
         started = time.monotonic()
         tiles = tiles_covering_bbox(bbox, ROAD_GRAPH_TILE_ZOOM)
-        envelope = _tiles_envelope(tiles)
         network = await asyncio.to_thread(road_network_store.current)
-        road = slice_network(
-            network, envelope.min_longitude, envelope.min_latitude, envelope.max_longitude, envelope.max_latitude)
+        road = slice_network(network, bbox.min_longitude, bbox.min_latitude, bbox.max_longitude, bbox.max_latitude)
         limit = _max_search_edges()
         if limit is not None and road.edge_count > limit:
             logger.warning(
@@ -81,13 +79,3 @@ class GraphService:
     async def get_edges_with_geometry(self, edges: list[LeanEdge]) -> dict[str, LeanEdge]:
         """探索用グラフは形を持たない。確定した経路の区間へ実体を後付けする。"""
         return await self._repository.get_edges_with_geometry(edges)
-
-
-def _tiles_envelope(tiles: list[tuple[int, int]]) -> BoundingBox:
-    bounds = [tile_bounds_lonlat(ROAD_GRAPH_TILE_ZOOM, x, y) for x, y in tiles]
-    return BoundingBox(
-        min_latitude=min(b.min_latitude for b in bounds),
-        min_longitude=min(b.min_longitude for b in bounds),
-        max_latitude=max(b.max_latitude for b in bounds),
-        max_longitude=max(b.max_longitude for b in bounds),
-    )

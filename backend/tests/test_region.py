@@ -2,7 +2,7 @@
 
 ここで見ないもの:
 - タイルのズーム範囲を使う配信の口 → `test_region_routes.py`
-- 探索範囲をタイルの外接矩形で切り出す → `test_graph_service.py`
+- 探索範囲をbboxで切り出す → `test_graph_service.py`
 
 タイルの期待値はWeb Mercatorの事実（z0の1枚が全世界・z1で4分割・yは北から南へ増える・緯度の上限約85.05度）から作る。
 """
