@@ -427,6 +427,24 @@ def test_record_only_commit_audited_under_a_non_task_name_is_unpushed_until_it_l
     assert "監査済み・未push 0件" in after, after
 
 
+def test_ledger_sync_drops_the_rows_of_closed_records_and_restores_the_rows_of_reopened_ones(world):
+    main, orch = world
+    t2_row = "- [ ] [T2](records/tasks/T2.md). 閉じたタスク 規模S"
+    write(main, "docs/improvement-plan.md", PLAN + "\n## 節B\n\n" + t2_row + "\n")
+    git(main, "commit", "--quiet", "-am", "T2: 起票")
+    write(main, "docs/improvement-plan.md", PLAN + "\n## 節B\n")
+    git(main, "commit", "--quiet", "-am", "T2: 閉じた")
+    write(main, "docs/records/tasks/T1.md", "# T1. 走っているタスク\n\n状態: 完了\n")
+    write(main, "docs/records/tasks/T2.md", "# T2. 閉じたタスク\n\n状態: 未完了（開け直した）\n")
+
+    synced = orchestrate(main, orch, "ledger", "sync")
+
+    assert synced.returncode == 0, synced.stdout + synced.stderr
+    assert "消した行: T1" in synced.stdout and "戻した行: T2" in synced.stdout, synced.stdout
+    plan = (main / "docs" / "improvement-plan.md").read_text(encoding="utf-8")
+    assert "[T1]" not in plan and plan.endswith("## 節B\n\n" + t2_row + "\n"), plan
+
+
 def test_rules_prints_the_block_of_the_convention_with_the_agent_name(world):
     main, orch = world
     convention = Path(__file__).resolve().parents[2] / "docs" / "conventions" / "orchestration.md"

@@ -118,7 +118,7 @@ def run_jobs(run_id: int, cache: Path | None = None) -> list[dict] | None:
     """実行のジョブ（名前・状態・結論・開始と終了の時刻・段の名前と結論）。取得できなければNone。
 
     完了した実行のジョブは以後変わらないので、`cache`（JSONファイル）に持ち、同じ実行を2度問い合わせない
-    （定期確認は20分おきに同じ実行を見直すため、キャッシュが無いと枠を毎回使う）。
+    （定期確認は確認のたびに同じ実行を見直すため、キャッシュが無いと枠を毎回使う）。
     """
     key = str(run_id)
     stored: dict = {}
@@ -153,7 +153,7 @@ def run_jobs(run_id: int, cache: Path | None = None) -> list[dict] | None:
 
 FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 SHORT_SHA_NOTE = "完全な40桁のshaを渡す（短いshaではActionsの実行を引けない）"
-#: 成功とみなす結論（check_master_ci.is_failure と同じ）。
+#: 成功とみなす結論。
 PASSING = ("success", "skipped", "neutral")
 #: CIを待つときの読み直しの間隔と上限（秒）。実行全体は2〜3分かかり、認証なしの枠（1時間60回）は開発機の全員で
 #: 分けるので、数秒おきには読まない。
@@ -171,10 +171,40 @@ def job_log(job_id: int, timeout: float = 30.0) -> tuple[str | None, str]:
     return body.decode("utf-8", errors="replace"), ""
 
 
+def latest_per_workflow(runs: list[dict], head_sha: str | None) -> list[dict]:
+    """`head_sha`に対する実行を、ワークフローごとに最も新しい1件へ絞る。
+
+    同じコミットに複数の実行が混ざりうる（手動の再実行・concurrency設定に打ち切られた実行）。
+    並びは`created_at`の降順で先頭が新しいが、**同じ秒に作られた実行どうしの順序は保証
+    されない**ため、`run_number`（ワークフロー内で単調に増える）が大きい方を採る。値が無い
+    応答では並び順のまま先頭を残す。
+    """
+    latest: dict[str, dict] = {}
+    for run in runs:
+        if run.get("head_sha") != head_sha:
+            continue
+        name = run.get("name")
+        if not isinstance(name, str):
+            continue
+        previous = latest.get(name)
+        if previous is None or run_number(run) > run_number(previous):
+            latest[name] = run
+    return list(latest.values())
+
+
+def is_failure(run: dict) -> bool:
+    """完了していて成功ではない実行。実行中のものは結論が出ていないので含めない。"""
+    return run.get("status") == "completed" and run.get("conclusion") not in (*PASSING, None)
+
+
+def run_number(run: dict) -> int:
+    """ワークフロー内で単調に増える実行番号。持たない応答は最古として扱う。"""
+    value = run.get("run_number")
+    return value if isinstance(value, int) else -1
+
+
 def latest_runs(sha: str) -> tuple[list[dict] | None, str]:
     """`sha`に対するワークフローごとの最新の実行（名前の順）と失敗の理由。"""
-    from check_master_ci import latest_per_workflow
-
     runs, error = actions_runs(f"head_sha={sha}&per_page=30")
     if runs is None:
         return None, error
@@ -232,7 +262,6 @@ def verdict_line(run: dict) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     sys.stdout.reconfigure(encoding="utf-8")
-    sys.path.insert(0, str(REPO_ROOT / "scripts"))
     parser = argparse.ArgumentParser(description="GitHubのActionsを読む（問い合わせの枠・CI待ち・落ちたジョブのログ）")
     sub = parser.add_subparsers(dest="cmd")
     p = sub.add_parser("wait", help="コミットのCIが全部終わるまで待ち、結論を出す（全部成功なら0）")

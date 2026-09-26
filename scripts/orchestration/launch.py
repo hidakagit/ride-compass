@@ -4,7 +4,7 @@
 手で早送りしない限り古いままである。本体を自動で書き換えるのはユーザーの作業ツリーを触ることになるので、
 フックの入口（PostToolUseは`scripts/orchestration/hook.sh`、WorktreeCreate・WorktreeRemoveは
 `.claude/settings.json`の行そのもの）がこのファイルをorigin/masterから取り出して動かし、このファイルが道具一式
-（`scripts/orchestrate.py`・`scripts/orchestration/`・`scripts/check_master_ci.py`・`scripts/lockrun.py`）を
+（`scripts/orchestrate.py`・`scripts/orchestration/`・`scripts/lockrun.py`）を
 origin/masterの版で`<gitの共通ディレクトリ>/orchestration/tools/<sha>/`へ書き出して、そこから動かす。
 書き出しはshaごとに1回。書き出しから動かした処理はフックの時間切れまで走りうるので、別のshaの書き出しは
 しばらく使われなかったものだけを消す。書き出せなければ本体の道具へは落とさず、失敗として終わる。
@@ -31,8 +31,8 @@ import tempfile
 import time
 from pathlib import Path
 
-#: origin/masterから書き出す道具（定期確認が読み込むもの・定期確認が裏で起こすスロットの温めが呼ぶ枠）。
-TOOL_PATHS = ("scripts/orchestrate.py", "scripts/check_master_ci.py", "scripts/lockrun.py", "scripts/orchestration")
+#: origin/masterから書き出す道具（入口と、スロットを渡す処理・温める処理が読む枠）。
+TOOL_PATHS = ("scripts/orchestrate.py", "scripts/lockrun.py", "scripts/orchestration")
 #: 本体から読まれるフックの入口。
 ENTRY_PATHS = ("scripts/orchestration/hook.sh", ".claude/settings.json")
 CHECK_COMMAND = ("check", "--if-due")

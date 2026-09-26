@@ -81,13 +81,12 @@ from orchestration.core import (
     EXPECTED_HOOKS_PATH,
     SLOT_LOCK_PREFIX,
     Context,
-    git,
-    git_out,
     list_worktrees,
     load_board,
     restore_hooks_path,
     unsaved_work,
 )
+from orchestration.gitio import git, git_out
 
 SLOT_PREFIX = "slot-"
 PACKAGE_LOCK = "frontend/package-lock.json"
