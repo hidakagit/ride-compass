@@ -86,7 +86,7 @@ FROM句に`re`は無い。例外は`surface_good`で、`true`/`false`/NULLを区
 
 | 経路 | 入口 | 粒度 |
 |---|---|---|
-| 区間の評価 | `road_graph_repository.py: get_edge_material_arrays` | 有向の区間の列（道路網全体の配列を作るときに全区間ぶん） |
+| 区間の評価 | `road_graph_repository.py: get_edge_material_arrays` | 区間群（タイル1枚ぶん） |
 | way1本 | `road_graph_repository.py: get_way_material_values` | way1本（区間インスペクタ） |
 | way標本 | `road_graph_repository.py: sample_way_material_values` | way標本（軸スタジオの分布プレビュー） |
 
@@ -136,9 +136,9 @@ way1本を指す区間インスペクタも同じ評価・合成を長さ1の配
   `select_fastest_route`が返す基準線と同じ物差し）、Pを上げるほど悪路が強く避けられる。
   `cost >= 下地`という不変条件はP>=0の間常に成り立つ（下地は探索では区間ごとの
   所要時間、Edge単位の評価では距離）。
-- **`build_static_edge_score_matrix`**: `AXIS_DEFINITIONS`を軸ごとに適用して
-  difficulty配列を求める（`StaticEdgeScoreMatrix`: 公開軸別の行列に加え、0次フィルタ判定用の
-  生フラグ`hard_filter_flags`/`gradient_percent`も持つ——`hard_filters`はリクエストごとに
+- **`_evaluate_axes_from_material_arrays`**: `AXIS_DEFINITIONS`を軸ごとに適用して
+  difficulty配列を求める（`BulkAxisEvaluation`: 公開軸別配列に加え、0次フィルタ判定用の
+  生フラグ`hard_filter_flags`/`gradient_percent`も返す——`hard_filters`はリクエストごとに
   変わりうるため、除外判定そのものはここでは確定させない）。動的材料
   （`REQUEST_DYNAMIC_MATERIAL_IDS`、風）の列はNaNのままで、それに依存する軸の列も自然に
   NaNへ伝播する（動的軸の特別扱いが不要）。
@@ -195,16 +195,19 @@ bbox全体ぶんのコストをリクエストにつき1回だけnumpyで合成�
   失敗する）に加え、時刻依存の材料向けに時別予報（`wind_series`、格子点ごと）・出発時刻
   （`start`）・Edgeごとの通過予定時刻（`passage_hours`）と最寄りの格子点（`wind_points`。どちらも
   `bearing_deg`と同じ行順）を持つ。
-  3つが揃えば風の材料はEdgeごとにその時刻の風で求め（`wind_inputs()`）、揃わなければ
-  スナップショットを全Edgeへ一様に使う。`StaticEdgeScoreMatrix`は通過予定時刻の推定に
-  使うEdge中点座標（`mid_lat`/`mid_lon`、from/toノードの平均）も持つ。
+  3つが揃えば風の材料はEdgeごとにその時刻の風で求め、揃わなければ
+  スナップショットを全Edgeへ一様に使う。風は進行方向の成分と横成分に分けて
+  （`wind_components_ms`、contextごとに1回だけ求める）読み、走行モデルも同じ成分を読む。
+  `StaticEdgeScoreMatrix`は通過予定時刻の推定と風の格子点の引き当てに使うEdge中点座標
+  （`mid_lat`/`mid_lon`、from/toノードの平均）も持つ（キャッシュしない）。
 - リクエスト時（`RoadGraphEngine._build_search_graph`）は、`StaticEdgeScoreMatrix`を
   軸id→配列の辞書へ展開→`evaluate_dynamic_axis_arrays`で動的軸を上書き→
   `compose_costs_from_axis_matrix`で重み合成→`compute_hard_filter_excluded`で0次
   フィルタを適用、の順にbbox全体ぶん1回だけ実行してコスト配列を得る。並行Edge
-  （同一Node間の複数Edge）は`domain/routing.py: build_lazy_road_graph`が元の行の最も小さい
-  1本を採る決定的な規則で解消する（コストは見ない。コストはリクエストごとに変わるため、
-  トポロジを組む時点では選べない）。
+  （同一Node間の複数Edge）は`domain/routing.py: build_lazy_road_graph`が元の行（切り出した区間の順）の
+  最も小さい1本を採る決定的な規則で解消する（コストはリクエストごとに変わるため見ない）。
+  時刻ビンごとに合成し直すときの、風に依らない計算の使い回しは[routing-engine.md](routing-engine.md)
+  「レグ別コスト配列」節。
   同じコスト配列・軸別スコア配列は`_build_segment_details`（区間表示）からも参照され、
   探索と表示の二重計算を避ける。区間の軸別寄与度（表示用）は`difficulty.py: axis_contributions_at_row`が
   経路上の区間ぶんだけ、合成が返した重みの和（`AxisComposition.weight_sums`）を分母に求める
@@ -233,7 +236,7 @@ bbox全体ぶんのコストをリクエストにつき1回だけnumpyで合成�
 数µsから十数µsへ増え（区間5〜20件で2〜4µs→10〜14µs）、ビンごと・値の種類ごとに呼ぶルートの
 集約で積み上がるため、2本のままにしている。
 
-同じ集約を軸の**生値**（折れ点を通す前の値、`StaticEdgeScoreMatrix.axis_raw_values`）にも
+同じ集約を軸の**生値**（折れ点を通す前の値、`BulkAxisEvaluation.axis_raw_arrays`）にも
 掛ける（`RouteSegmentDetail.axis_raw_values`→`merge_axis_raw_values`→
 `RouteCandidate.axis_raw_values`）。得点0-100は目盛りの引き方に依存する相対評価のため、
 軸単体で経路を判断するには絶対値が要る。生値を持つのは単位が定まる軸

@@ -17,7 +17,8 @@
   （`domain/cycling_speed.py`）・風（`domain/wind.py`）・0次フィルタ（`domain/hard_filters.py`）
   → それぞれの持ち主のテストが持つ。
 
-**合成器が呼ぶ相手（走行モデル・風・軸の合成）は架空の実装へ差し替える**（`composer_world`）。
+**合成器が呼ぶ相手のうち、走行モデルと動的軸の評価は架空の実装へ差し替える**（`composer_world`）。
+軸の合成と風の分解は本物を通す——コストが「所要時間×割増の倍率」になることは、合成の本物の性質だから。
 実在の軸id・材料idには依らない（`axis_a`・`mat_a`のような性質だけの名前を使う）。
 ただしこのファイルが組み立てて渡し、読むデータ型（`StaticEdgeScoreMatrix`・探索構造・
 `RouteCandidate`等）は本物で作る——代役にしても何も切り離せず、本物が変わったときに黙ってずれるだけになる。
@@ -30,7 +31,7 @@ import numpy as np
 import pytest
 
 from app.domain.attributes import ElevationAttribute
-from app.domain.evaluation import AxisComposition, StaticEdgeScoreMatrix
+from app.domain.evaluation import StaticEdgeScoreMatrix
 from app.domain.graph import LeanEdge
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
 from app.domain.routing import (
@@ -81,11 +82,12 @@ def turn_tree(state_count, *, node_cost, node_length_m, node_seconds, node_best_
 
 
 def wind_series(hours=24, speed_ms=3.0, direction_deg=5.0):
-    """時別の風の予報。合成が見るのは「系列があるか」で、中身は動的軸の文脈へ渡るだけ。"""
+    """時別の風の予報（2026-09-22 0時から）。`speed_ms`は全時刻で同じ値か、時刻ごとの並び。"""
     start = datetime(2026, 9, 22, 0, 0)
     return WindForecastSeries(
         times=[start + timedelta(hours=h) for h in range(hours)],
-        speed_ms=np.full(hours, speed_ms), direction_deg=np.full(hours, direction_deg),
+        speed_ms=np.broadcast_to(np.asarray(speed_ms, dtype=float), (hours,)).copy(),
+        direction_deg=np.full(hours, direction_deg),
     )
 
 
@@ -438,12 +440,10 @@ MAT_DYN_EMPTY = "mat_dyn_empty"
 
 
 class ComposerWorld:
-    """合成が呼ぶ相手（走行モデル・風・軸の合成）の代役。渡された値を記録する。"""
+    """合成が呼ぶ相手（走行モデル・動的軸の評価）の代役。渡された値を記録する。"""
 
     def __init__(self):
         self.passages = []
-        self.compose_calls = []
-        self.weighted_sum_calls = []
         self.crr_inputs = []
 
 
@@ -461,48 +461,29 @@ def composer_world(monkeypatch):
         resolved[MAT_DYN_EMPTY] = np.full(count, np.nan)
         return resolved
 
-    def fake_wind_components(headwind_ms, crosswind_ms, bearing_deg):
-        count = len(bearing_deg)
-        return np.full(count, headwind_ms), np.full(count, crosswind_ms)
-
     def fake_crr(values, count):
         world.crr_inputs.append(values)
         return np.full(count, 0.005)
 
-    def fake_travel(distance_m, profile, grade, headwind, crosswind, crr):
-        return np.asarray(distance_m, dtype=float) / 10.0 + np.asarray(headwind, dtype=float)
+    class FakeSpeedModel:
+        """10mにつき1秒、向かい風1m/sにつき1秒を足す走行モデル（値を手で追えるように）。"""
 
-    def fake_compose_costs(distance_m, time_varying, weights, penalty, *, base, static_sums):
-        count = len(distance_m)
-        total = np.zeros(count)
-        for axis_id, values in time_varying.items():
-            total = total + weights.get(axis_id, 0.0) * np.asarray(values, dtype=float)
-        world.compose_calls.append(
-            {"axes": sorted(time_varying), "penalty": penalty, "static_sums": static_sums}
-        )
-        return AxisComposition(
-            cost=np.asarray(base, dtype=float) + total,
-            difficulty=total.copy(),
-            weight_sums=np.full(count, float(len(time_varying))),
-        )
+        def __init__(self, profile, grade, crr):
+            pass
 
-    def fake_weighted_sums(arrays, weights, count):
-        world.weighted_sum_calls.append(sorted(arrays))
-        return np.zeros(count), np.zeros(count)
+        def travel_seconds(self, distance_m, headwind_ms, crosswind_ms=None):
+            return np.asarray(distance_m, dtype=float) / 10.0 + np.asarray(headwind_ms, dtype=float)
 
     monkeypatch.setattr(engine, "AXIS_DEFINITIONS", {})
     monkeypatch.setattr(engine, "dynamic_axis_topological_order", lambda definitions: [AXIS_WIND])
     monkeypatch.setattr(engine, "REQUEST_DYNAMIC_MATERIAL_IDS", (MAT_DYN, MAT_DYN_EMPTY))
     monkeypatch.setattr(engine, "evaluate_dynamic_axis_arrays", fake_evaluate)
-    monkeypatch.setattr(engine, "wind_components", fake_wind_components)
     monkeypatch.setattr(engine, "crr_for_surface", fake_crr)
-    monkeypatch.setattr(engine, "travel_seconds", fake_travel)
+    monkeypatch.setattr(engine, "SegmentSpeedModel", FakeSpeedModel)
     monkeypatch.setattr(engine, "ROLLING_RESISTANCE_MATERIAL_ID", MAT_CRR)
     monkeypatch.setattr(engine, "POI_COUNT_KINDS", ("kind_a", "kind_b"))
     monkeypatch.setattr(engine, "stop_count_material_ids", lambda: [MAT_STOP_A, MAT_STOP_B])
     monkeypatch.setattr(engine, "stop_seconds", lambda kind: {"kind_a": 10.0, "kind_b": 2.0}[kind])
-    monkeypatch.setattr(engine, "compose_costs_from_axis_matrix", fake_compose_costs)
-    monkeypatch.setattr(engine, "axis_weighted_sums", fake_weighted_sums)
     monkeypatch.setattr(engine, "kmh_to_ms", lambda kmh: kmh / 3.6)
     return world
 
@@ -711,11 +692,45 @@ def test_travel_time_reads_rolling_resistance_from_the_material_arrays(composer_
     assert composer_world.crr_inputs[-1].tolist() == [0.004, 0.004, 0.004]
 
 
-def test_fixed_axis_sums_exclude_the_time_varying_axes(composer_world):
-    """時刻で変わる軸が固定側にも入ると、合成で二重に足される。"""
-    composer = make_composer(wind_series=wind_series())
+def hourly_wind_composer(wind_weight):
+    """時刻ごとに風が強まる世界。出発は8時で、h時の風は向かい風h m/s（方位0・風向0）。区間は1km・2kmで、
+    停止の待ちは1kmあたり20秒、時刻で変わらない軸の得点は40・80。走行時間は10mにつき1秒＋向かい風1m/sにつき1秒。"""
+    matrix = make_score_matrix(
+        count=2,
+        distance_m=np.array([1000.0, 2000.0]),
+        axis_scores=np.column_stack([np.array([40.0, 80.0]), np.full(2, np.nan)]),
+        axis_raw_values=np.zeros((2, 1)),
+        material_values=np.column_stack([np.full(2, 2.0), np.full(2, 0.004)]),
+        categorical_material_values=np.array([["paved"], ["paved"]], dtype=object),
+    )
+    return make_composer(
+        matrix, weights={AXIS_STATIC: 1.0, AXIS_WIND: wind_weight}, penalty=0.5,
+        wind_series=wind_series(speed_ms=np.arange(24.0), direction_deg=0.0),
+    )
 
-    composer.compose("outbound", coords(35.0, 139.0), 0.0, +1, duration_hours=3.0)
 
-    assert composer_world.weighted_sum_calls == [[AXIS_STATIC]]
-    assert composer_world.compose_calls[0]["axes"] == [AXIS_WIND]
+def test_each_bin_costs_its_own_travel_time_times_the_fixed_penalty(composer_world):
+    """時刻で変わる軸の重みが0なら、割増の倍率は時刻に依らない。風は走行時間を通してだけビンごとに効く。"""
+    composer = hourly_wind_composer(wind_weight=0.0)
+
+    leg = composer.compose("outbound", coords(35.0, 139.0), 0.0, +1, duration_hours=2.0)
+
+    # 8時: 100+8+20・200+8+40秒、9時: 向かい風が1m/s強い
+    assert leg.travel_bins_lazy.tolist() == [[128.0, 248.0], [129.0, 249.0]]
+    # 倍率は 1 + 0.5 × 得点/100
+    assert leg.cost_bins_lazy.ravel().tolist() == pytest.approx([128.0 * 1.2, 248.0 * 1.4, 129.0 * 1.2, 249.0 * 1.4])
+    assert leg.difficulty_array.tolist() == [40.0, 80.0]
+
+
+def test_a_weighted_time_varying_axis_enters_each_bin_at_its_own_time(composer_world):
+    """時刻で変わる軸に重みがあれば、各ビンの合成にそのビンの時刻の値が入る（時刻で変わらない側には入らない）。"""
+    composer = hourly_wind_composer(wind_weight=1.0)
+
+    leg = composer.compose("outbound", coords(35.0, 139.0), 0.0, +1, duration_hours=2.0)
+
+    # 動的軸の代役はビンの開始時刻（出発からの経過）を得点にする: 合成は (40+0)/2・(80+0)/2、次のビンは (40+1)/2・(80+1)/2
+    assert leg.cost_bins_lazy.ravel().tolist() == pytest.approx(
+        [128.0 * 1.1, 248.0 * 1.2, 129.0 * 1.1025, 249.0 * 1.2025]
+    )
+    rows = composer.values_at_rows(np.array([1]), np.array([1.0]))
+    assert rows.difficulty_array.tolist() == [40.5]

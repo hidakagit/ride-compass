@@ -59,13 +59,18 @@ def wind_drag_ratio_array(wind_speed_ms, wind_direction_deg, travel_bearing_deg,
     `wind_speed_ms`/`wind_direction_deg`/`travel_bearing_deg`はスカラーまたは同じ長さの配列、
     `travel_speed_ms`はリクエスト単位のスカラー（m/s、正）。
     """
+    return wind_drag_ratio_from_components(
+        *wind_components(wind_speed_ms, wind_direction_deg, travel_bearing_deg), travel_speed_ms
+    )
+
+
+def wind_drag_ratio_from_components(headwind_ms, crosswind_ms, travel_speed_ms: float) -> np.ndarray:
+    """`wind_drag_ratio_array`を、風を分解した成分（`wind_components`）から求める。走行モデルと同じ成分を
+    使い回せば、風向と方位の差の三角関数を1回で済ませられる。"""
     if travel_speed_ms <= 0:
         raise ValueError("wind_drag_ratio_array: travel_speed_ms must be positive")
-    wind_speed = np.asarray(wind_speed_ms, dtype=float)
-    angle = _wind_relative_angle_rad(wind_direction_deg, travel_bearing_deg)
-    along = travel_speed_ms + wind_speed * np.cos(angle)
-    cross = wind_speed * np.sin(angle)
-    relative_speed = np.sqrt(along * along + cross * cross)
+    along = travel_speed_ms + headwind_ms
+    relative_speed = np.sqrt(along * along + crosswind_ms * crosswind_ms)
     return (relative_speed * along - travel_speed_ms * travel_speed_ms) / (WIND_DRAG_REFERENCE_SPEED_MS**2)
 
 

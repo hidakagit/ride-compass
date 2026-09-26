@@ -15,7 +15,7 @@
 **駆動系の伝達効率は掛けない**。巡航速度から逆算するのはホイールでの出力で、他の条件でも
 同じ量を使うため相殺される。
 
-速度の逆算は`v`の3次方程式になるため二分法で解く（`speed_ms`、numpyでベクトル化）。
+速度の逆算は`v`の3次方程式になるため二分法で解く（`SegmentSpeedModel.speed_ms`、numpyでベクトル化）。
 探索中には呼ばず、コスト配列を合成するときに区間ごと（風は時刻ビンごと）へ事前計算する。
 """
 
@@ -95,97 +95,97 @@ def climb_power_ratio(grade: np.ndarray) -> np.ndarray:
     )
 
 
-def speed_ms(
-    profile: RiderProfile,
-    grade: np.ndarray,
-    headwind_ms: np.ndarray,
-    crosswind_ms: np.ndarray | None = None,
-    crr: np.ndarray | None = None,
-) -> np.ndarray:
-    """区間ごとの走行速度（m/s）。`grade`は勾配（0.05なら5%）、`headwind_ms`は進行方向への
-    向かい風成分（正が向かい風）、`crosswind_ms`は横成分。`crr`を渡すと区間ごとに転がり抵抗を
-    変えられる（未舗装等）。**配列はすべて`grade`と同じ長さで渡す**——長さ1の配列は
+class SegmentSpeedModel:
+    """区間ごとの走行モデルのうち、風に依らない部分（出力・速度に依らない抵抗・挟み込みの初期区間）を
+    先に1回だけ求めたもの。風の成分を渡すたびに速度を解く。
+
+    時刻ビンごとに変わるのは風だけなので、ルート生成は探索範囲に1回作ってビンの数だけ解く。
+    較正値は作った時点で読む。**配列はすべて`grade`と同じ長さで渡す**——長さ1の配列は
     numpyのブロードキャストで全区間へ黙って広がるため、揃っていることをここで確かめる。
-
-    走行方程式`P = 抵抗力(v) × v`を`v`について解く。3次方程式になるため、二分法で挟んでから
-    解を返す（ニュートン法は抵抗力が0を跨ぐ下り坂で発散しうるため、区間を確実に狭める方を採る）。
-
-    リクエストごとに時刻ビンの本数ぶん呼ばれ、区間数は数十万規模になるため、反復の中では
-    配列を確保し直さず用意したバッファへ書き込む。**反復はfloat32で回す**——この解法は
-    計算そのものより配列の読み書きで時間が決まっており（実測）、幅を半分にすると比例して
-    速くなる。float32の有効桁は7桁で、二分法が詰める幅（0.003m/s）より4桁細かい。
     """
-    grade = np.asarray(grade, dtype=np.float32)
-    headwind = np.asarray(headwind_ms, dtype=np.float32)
-    rolling_crr = (
-        np.full(grade.shape, tuning_value("speed.crr"), dtype=np.float32)
-        if crr is None
-        else np.asarray(crr, dtype=np.float32)
-    )
-    cross = (
-        np.zeros(grade.shape, dtype=np.float32)
-        if crosswind_ms is None
-        else np.asarray(crosswind_ms, dtype=np.float32)
-    )
-    mismatched = {
-        name: array.shape
-        for name, array in (("headwind_ms", headwind), ("crosswind_ms", cross), ("crr", rolling_crr))
-        if array.shape != grade.shape
-    }
-    if mismatched:
-        raise ValueError(f"区間の配列の長さが揃っていません grade={grade.shape} {mismatched}")
-    power = (wheel_power_w(profile) * climb_power_ratio(grade)).astype(np.float32)
-    # 速度に依らない抵抗（転がり＋重力）は反復の外で1回だけ求める。
-    constant_force = (
-        rolling_crr * np.float32(profile.mass_kg * GRAVITY_M_S2)
-        + np.float32(profile.mass_kg * GRAVITY_M_S2) * grade
-    )
-    drag_coefficient = np.float32(0.5 * AIR_DENSITY_KG_M3 * profile.cda_m2)
-    cross_squared = cross * cross
 
-    low = np.full(grade.shape, tuning_value("speed.walking_kmh") / 3.6, dtype=np.float32)
-    high = np.full(grade.shape, tuning_value("speed.max_descent_kmh") / 3.6, dtype=np.float32)
-    middle = np.empty_like(low)
-    along = np.empty_like(low)
-    scratch = np.empty_like(low)
-    too_fast = np.empty(low.shape, dtype=bool)
-    for _ in range(SPEED_SOLVE_ITERATIONS):
+    def __init__(self, profile: RiderProfile, grade: np.ndarray, crr: np.ndarray | None = None) -> None:
+        """`grade`は勾配（0.05なら5%）。`crr`を渡すと区間ごとに転がり抵抗を変えられる（未舗装等）。"""
+        grade = np.asarray(grade, dtype=np.float32)
+        rolling_crr = (
+            np.full(grade.shape, tuning_value("speed.crr"), dtype=np.float32)
+            if crr is None
+            else np.asarray(crr, dtype=np.float32)
+        )
+        if rolling_crr.shape != grade.shape:
+            raise ValueError(f"区間の配列の長さが揃っていません grade={grade.shape} crr={rolling_crr.shape}")
+        self._shape = grade.shape
+        self._power = (wheel_power_w(profile) * climb_power_ratio(grade)).astype(np.float32)
+        self._constant_force = (
+            rolling_crr * np.float32(profile.mass_kg * GRAVITY_M_S2)
+            + np.float32(profile.mass_kg * GRAVITY_M_S2) * grade
+        )
+        self._drag_coefficient = np.float32(0.5 * AIR_DENSITY_KG_M3 * profile.cda_m2)
+        self._lowest_ms = tuning_value("speed.walking_kmh") / 3.6
+        self._highest_ms = tuning_value("speed.max_descent_kmh") / 3.6
+
+    def speed_ms(self, headwind_ms: np.ndarray, crosswind_ms: np.ndarray | None = None) -> np.ndarray:
+        """区間ごとの走行速度（m/s）。`headwind_ms`は進行方向への向かい風成分（正が向かい風）、
+        `crosswind_ms`は横成分。
+
+        走行方程式`P = 抵抗力(v) × v`を`v`について解く。3次方程式になるため、二分法で挟んでから
+        解を返す（ニュートン法は抵抗力が0を跨ぐ下り坂で発散しうるため、区間を確実に狭める方を採る）。
+
+        区間数は数十万規模になるため、反復の中では配列を確保し直さず用意したバッファへ書き込む。
+        **反復はfloat32で回す**——この解法は計算そのものより配列の読み書きで時間が決まっており
+        （実測）、幅を半分にすると比例して速くなる。float32の有効桁は7桁で、二分法が詰める幅
+        （0.003m/s）より4桁細かい。
+        """
+        headwind = np.asarray(headwind_ms, dtype=np.float32)
+        cross = (
+            np.zeros(self._shape, dtype=np.float32)
+            if crosswind_ms is None
+            else np.asarray(crosswind_ms, dtype=np.float32)
+        )
+        mismatched = {
+            name: array.shape
+            for name, array in (("headwind_ms", headwind), ("crosswind_ms", cross))
+            if array.shape != self._shape
+        }
+        if mismatched:
+            raise ValueError(f"区間の配列の長さが揃っていません grade={self._shape} {mismatched}")
+        power = self._power
+        constant_force = self._constant_force
+        drag_coefficient = self._drag_coefficient
+        cross_squared = cross * cross
+
+        low = np.full(self._shape, self._lowest_ms, dtype=np.float32)
+        high = np.full(self._shape, self._highest_ms, dtype=np.float32)
+        middle = np.empty_like(low)
+        along = np.empty_like(low)
+        scratch = np.empty_like(low)
+        too_fast = np.empty(low.shape, dtype=bool)
+        for _ in range(SPEED_SOLVE_ITERATIONS):
+            np.add(low, high, out=middle)
+            np.multiply(middle, np.float32(0.5), out=middle)
+            np.add(middle, headwind, out=along)
+            np.multiply(along, along, out=scratch)
+            np.add(scratch, cross_squared, out=scratch)
+            np.sqrt(scratch, out=scratch)
+            np.multiply(scratch, along, out=scratch)
+            np.multiply(scratch, drag_coefficient, out=scratch)
+            np.add(scratch, constant_force, out=scratch)
+            np.multiply(scratch, middle, out=scratch)
+            # 必要な出力が持っている出力を超えるなら、その速度は出せない（上限を下げる）。
+            np.greater(scratch, power, out=too_fast)
+            np.copyto(high, middle, where=too_fast)
+            np.copyto(low, middle, where=~too_fast)
         np.add(low, high, out=middle)
         np.multiply(middle, np.float32(0.5), out=middle)
-        np.add(middle, headwind, out=along)
-        np.multiply(along, along, out=scratch)
-        np.add(scratch, cross_squared, out=scratch)
-        np.sqrt(scratch, out=scratch)
-        np.multiply(scratch, along, out=scratch)
-        np.multiply(scratch, drag_coefficient, out=scratch)
-        np.add(scratch, constant_force, out=scratch)
-        np.multiply(scratch, middle, out=scratch)
-        # 必要な出力が持っている出力を超えるなら、その速度は出せない（上限を下げる）。
-        np.greater(scratch, power, out=too_fast)
-        np.copyto(high, middle, where=too_fast)
-        np.copyto(low, middle, where=~too_fast)
-    np.add(low, high, out=middle)
-    np.multiply(middle, np.float32(0.5), out=middle)
-    # 呼び出し側（コスト配列・所要時間）はfloat64で揃えてある。
-    return middle.astype(np.float64)
+        # 呼び出し側（コスト配列・所要時間）はfloat64で揃えてある。
+        return middle.astype(np.float64)
 
-
-def travel_seconds(
-    distance_m: np.ndarray,
-    profile: RiderProfile,
-    grade: np.ndarray,
-    headwind_ms: np.ndarray,
-    crosswind_ms: np.ndarray | None = None,
-    crr: np.ndarray | None = None,
-) -> np.ndarray:
-    """区間ごとの走行時間（秒）。停止・ターンの待ちは含まない（別に足す）。
-
-    配列はすべて同じ長さで渡す（`speed_ms`と同じ理由）。
-    """
-    distance = np.asarray(distance_m, dtype=np.float64)
-    speed = speed_ms(profile, grade, headwind_ms, crosswind_ms, crr)
-    if distance.shape != speed.shape:
-        raise ValueError(f"距離が区間数と揃っていません 距離={distance.shape} 区間={speed.shape}")
-    return distance / speed
-
-
+    def travel_seconds(
+        self, distance_m: np.ndarray, headwind_ms: np.ndarray, crosswind_ms: np.ndarray | None = None
+    ) -> np.ndarray:
+        """区間ごとの走行時間（秒）。停止・ターンの待ちは含まない（別に足す）。"""
+        distance = np.asarray(distance_m, dtype=np.float64)
+        speed = self.speed_ms(headwind_ms, crosswind_ms)
+        if distance.shape != speed.shape:
+            raise ValueError(f"距離が区間数と揃っていません 距離={distance.shape} 区間={speed.shape}")
+        return distance / speed

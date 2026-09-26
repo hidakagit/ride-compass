@@ -7,6 +7,7 @@ Edgeへ永続保存せず、リクエストのたびに風・走行速度・通�
 
 from datetime import datetime
 from dataclasses import dataclass
+from functools import cached_property
 from typing import Callable, Mapping
 
 import numpy as np
@@ -19,10 +20,10 @@ from app.domain.axis_definitions import (
 )
 from app.domain.material_catalog import WIND_DRAG_RATIO
 from app.domain.weather import WeatherConditions
-from app.domain.wind import WindForecastSeries, wind_drag_ratio_array
+from app.domain.wind import WindForecastSeries, wind_components, wind_drag_ratio_from_components
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class DynamicAxisRequestContext:
     """動的材料をリクエスト時にベクトル評価するための統一入力。Edgeの幾何配列と
     リクエスト単位の動的データ（風・走行速度）を束ねる。
@@ -45,23 +46,27 @@ class DynamicAxisRequestContext:
     # 格子点ごとの系列のとき、各Edgeに最も近い格子点の番号（`bearing_deg`と同じ行順）。
     wind_points: np.ndarray | None = None
 
-    def wind_inputs(self) -> tuple[np.ndarray, np.ndarray] | None:
-        """各Edgeに適用する（風速, 風向）。時別系列と通過予定時刻が揃っていればEdgeごとに
-        その時刻の値、揃っていなければ出発時点のスナップショット（全Edge共通のスカラー）。
-        風が無ければNone。"""
+    @cached_property
+    def wind_components_ms(self) -> tuple[np.ndarray, np.ndarray] | None:
+        """各Edgeの進行方向に対する風の成分（正が向かい風）と横成分（`wind_components`）。時別系列と通過予定時刻が
+        揃っていればEdgeごとにその時刻の風、揃っていなければ出発時点のスナップショットの風で求める。風が無ければNone。
+
+        風の材料と走行モデルが同じ値を読むため、予報の引き当てと三角関数はcontext1つにつき1回にする。"""
         if self.wind_series is not None and self.start is not None and self.passage_hours is not None:
-            return self.wind_series.sample(self.start, self.passage_hours, self.wind_points)
-        if self.weather is None:
+            speed, direction = self.wind_series.sample(self.start, self.passage_hours, self.wind_points)
+        elif self.weather is not None:
+            speed = np.asarray(self.weather.wind_speed_ms, dtype=float)
+            direction = np.asarray(self.weather.wind_direction_deg, dtype=float)
+        else:
             return None
-        return np.asarray(self.weather.wind_speed_ms, dtype=float), np.asarray(self.weather.wind_direction_deg, dtype=float)
+        return wind_components(speed, direction, self.bearing_deg)
 
 
 def _evaluate_wind_drag_ratio_array(context: DynamicAxisRequestContext) -> np.ndarray:
-    inputs = context.wind_inputs()
-    if inputs is None:
+    components = context.wind_components_ms
+    if components is None:
         return np.full(context.bearing_deg.shape, np.nan)
-    speed, direction = inputs
-    return wind_drag_ratio_array(speed, direction, context.bearing_deg, context.travel_speed_ms)
+    return wind_drag_ratio_from_components(*components, context.travel_speed_ms)
 
 
 # 材料idから、リクエスト時点の幾何配列＋動的contextをベクトル評価する関数への唯一の
