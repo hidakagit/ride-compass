@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import AxisContributionBar from "@/components/AxisContributionBar/AxisContributionBar";
-import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
+import type { CatalogAxis } from "@/lib/catalogAxis";
 import { isDebugEnabled } from "@/lib/debugLog";
 import { getQueryClient } from "@/lib/queryClient";
 import { fetchAxisInspector, type AxisInspectorConditions } from "@/services/regionApi";
@@ -19,7 +19,7 @@ import { cn } from "@/lib/cn";
 interface RoadInspectorPopupProps {
   properties: RoadSurfacePopupProperties;
   /** 公開軸すべて（順序・ラベルの正本）。ルート結果と同じ並びで内訳を出すために渡す。 */
-  axes: readonly PreferenceAxisDef[];
+  axes: readonly CatalogAxis[];
   /** 軸id→色（ルート結果の寄与度バー・凡例チップと同じ配色）。 */
   axisColors: Record<string, string>;
   /** 地図が今指定している走行の条件＋押した点のタイル。**進行方向が決まらないと算出

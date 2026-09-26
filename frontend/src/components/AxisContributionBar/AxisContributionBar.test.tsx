@@ -1,15 +1,16 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
+import { catalogAxisFromEntry, type CatalogAxis } from "@/lib/catalogAxis";
+import { catalogEntry } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
 import palette from "@/types/generated/palette.json";
 import AxisContributionBar from "./AxisContributionBar";
 
-const AXES: PreferenceAxisDef[] = [
-  { axisId: "axis_sample", label: "見本の軸", description: "説明", dedicatedWayValueLayer: false },
-  { axisId: "wind", label: "風", description: "説明", dedicatedWayValueLayer: true },
-  { axisId: "night", label: "夜間", description: "説明", dedicatedWayValueLayer: false },
-];
+const axis = (axisId: string, label: string, dedicated = false): CatalogAxis =>
+  catalogAxisFromEntry(
+    catalogEntry({ axis_id: axisId, label, description: "説明", dedicated_way_value_layer: dedicated }),
+  );
+const AXES = [axis("axis_sample", "見本の軸"), axis("wind", "風", true), axis("night", "夜間")];
 
 const AXIS_COLORS: Record<string, string> = { axis_sample: "#111111", wind: "#222222", night: "#333333" };
 

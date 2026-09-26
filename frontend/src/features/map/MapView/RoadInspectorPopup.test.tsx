@@ -2,17 +2,17 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { setDebugEnabled } from "@/lib/debugLog";
-import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
+import { catalogAxisFromEntry, type CatalogAxis } from "@/lib/catalogAxis";
+import { catalogEntry } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
 import { fetchAxisInspector } from "@/services/regionApi";
 import materialCatalog from "@/types/generated/material-catalog.json";
 import RoadInspectorPopup from "./RoadInspectorPopup";
 
 vi.mock("@/services/regionApi", () => ({ fetchAxisInspector: vi.fn() }));
 
-const AXES: PreferenceAxisDef[] = [
-  { axisId: "axis_sample", label: "見本の軸", description: "車の通行量の説明", dedicatedWayValueLayer: false },
-  { axisId: "night", label: "夜間", description: "夜間の暗さの説明", dedicatedWayValueLayer: false },
-];
+const axis = (axisId: string, label: string, description: string): CatalogAxis =>
+  catalogAxisFromEntry(catalogEntry({ axis_id: axisId, label, description }));
+const AXES = [axis("axis_sample", "見本の軸", "車の通行量の説明"), axis("night", "夜間", "夜間の暗さの説明")];
 const AXIS_COLORS: Record<string, string> = { axis_sample: "#111111", night: "#222222" };
 /** 路面の区分の項目名と、その値の1つの呼び名（書き写さず材料カタログから引く）。 */
 const SURFACE_CLASS = materialCatalog.find((material) => material.material_id === "surface_class")!;

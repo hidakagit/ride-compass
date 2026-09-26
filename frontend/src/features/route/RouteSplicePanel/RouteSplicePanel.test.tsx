@@ -2,17 +2,14 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
+import { catalogAxisFromEntry, type CatalogAxis } from "@/lib/catalogAxis";
+import { catalogEntry } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
 import { makeRouteCandidate } from "@/testing/routeFixtures";
 
 import RouteSplicePanel from "./RouteSplicePanel";
 
-const axis = (axisId: string, label: string): PreferenceAxisDef => ({
-  axisId,
-  label,
-  description: "",
-  dedicatedWayValueLayer: false,
-});
+const axis = (axisId: string, label: string): CatalogAxis =>
+  catalogAxisFromEntry(catalogEntry({ axis_id: axisId, label }));
 const AXES = [axis("wind", "風"), axis("slope", "勾配"), axis("stops", "停止")];
 
 const DISPLAYED = makeRouteCandidate({

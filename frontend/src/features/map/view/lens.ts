@@ -16,7 +16,7 @@ import {
   type RouteStyleMode,
 } from "@/lib/mapDisplay/routeStyleModes";
 import type { LensOption } from "@/features/map/LensControl/LensControl";
-import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
+import type { CatalogAxis } from "@/lib/catalogAxis";
 
 /** 全道路を塗っている軸。ルート確定後は、周囲も塗り続ける設定の間だけ塗る。 */
 export function paintedAxisId(lens: LensId, hasDetail: boolean, keepAfterRoute: boolean): LensId | null {
@@ -47,7 +47,7 @@ export function lensLegend(
  * 「未使用」は生成に実際に使われた重み（`usedWeights`）が0の軸で、生成前（null）は付けない
  * ——使う軸は生成した時点で決まる。 */
 export function lensOptions(
-  axes: readonly PreferenceAxisDef[],
+  axes: readonly CatalogAxis[],
   paintableAxisIds: ReadonlySet<string>,
   usedWeights: Readonly<Record<string, number>> | null,
   axisColors: Readonly<Record<string, string>>,

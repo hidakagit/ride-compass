@@ -6,7 +6,8 @@ import { LEGEND_NO_DATA_KEY } from "@/lib/mapDisplay/mapColorLegend";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import palette from "@/types/generated/palette.json";
 
-import type { RampAxis } from "@/lib/mapDisplay/axisLayers";
+import { rampAxesFromCatalogAxes, type RampAxis } from "@/lib/mapDisplay/axisLayers";
+import { rampEntry } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
 
 import { axisLineGroup, buildAxisRampValueExpression, type AxisLineState } from "./axisLines";
 
@@ -159,14 +160,7 @@ describe("配信された値で塗る軸", () => {
 });
 
 describe("buildAxisRampValueExpression（改善計画T292: categories/breakpoints分岐）", () => {
-  const baseAxis: RampAxis = {
-    axisId: "test",
-    label: "テスト",
-    category: "trafficSafety",
-    tileInputs: [],
-    thresholds: [50],
-    unit: "",
-  };
+  const baseAxis: RampAxis = { ...rampAxesFromCatalogAxes([rampEntry("test", [50])])[0], tileInputs: [] };
 
   it("categories入力はmatch式でmapping値×weightを返す", () => {
     const axis: RampAxis = {

@@ -1,7 +1,7 @@
 "use client";
 
 import { formatMaterialValue, materialCatalogName, type AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
-import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
+import type { CatalogAxis } from "@/lib/catalogAxis";
 import type { ExperimentSlot } from "@/types/experimentSlot";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/Table/Table";
 import { textVariants } from "@/components/ui/Text/Text";
@@ -12,7 +12,7 @@ interface ComparisonPanelProps {
   /** 軸id→名前（その回に送った重みの見出し）。 */
   axisLabels: Record<string, string>;
   /** 軸の並びと名前の正本（軸ごとの行を作る）。 */
-  axes: readonly PreferenceAxisDef[];
+  axes: readonly CatalogAxis[];
   /** 材料の名前と単位（材料の値の行を作る）。 */
   materials: readonly AxisMaterialOption[];
 }
@@ -63,7 +63,7 @@ const OVERALL_DIFFICULTY_ROW: MetricRow = {
 };
 
 // 軸ごとの難易度（0〜100の距離加重平均）の行。どれかの回が値を持つ軸だけ、カタログの並びで。
-function buildAxisDifficultyRows(slots: ExperimentSlot[], axes: readonly PreferenceAxisDef[]): MetricRow[] {
+function buildAxisDifficultyRows(slots: ExperimentSlot[], axes: readonly CatalogAxis[]): MetricRow[] {
   return axes
     .filter((axis) => slots.some((slot) => slot.topCandidate.axis_difficulties[axis.axisId] != null))
     .map((axis) => ({

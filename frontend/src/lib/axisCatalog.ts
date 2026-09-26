@@ -3,8 +3,7 @@
  * **フックではなくここに置く**——導出は純関数で、フックが持っているのは「いつ取りに行き、
  * 誰と共有するか」だけ。同居させると、導出を確かめたい側がストアごと引き回すことになる。
  */
-import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
-import { preferenceAxisFromCatalog } from "@/lib/evaluationAxes";
+import { catalogAxisFromEntry, type CatalogAxis } from "@/lib/catalogAxis";
 import type { AxisCatalogEntry, RoutePreferenceWeights } from "@/types/route";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import {
@@ -23,8 +22,9 @@ import {
 
 /** 軸カタログ。`GET /api/axis-catalog`の応答から導いた、画面が読む形。 */
 export interface AxisCatalog {
-  /** axisId・label・descriptionの一覧。 */
-  axes: readonly PreferenceAxisDef[];
+  /** 重みを付けられる軸（公開軸すべて、カタログの並び順）。地図のチップの一覧（`secondaryAxes`）からは作らない
+   * ——チップに出すかと重みを付けられるかは別の判断で、チップを消した軸が重みの一覧から消えてはいけない。 */
+  axes: readonly CatalogAxis[];
   /** axis_idから既定重みを引く。未知のaxis_idには0を返す。 */
   defaultWeights: RoutePreferenceWeights;
   /** 地図のramp表示を持つ軸。 */
@@ -79,7 +79,7 @@ export function clientTuningValue(catalog: AxisCatalog, id: string): number | un
 
 /** 軸の識別色。色に意味は持たせず、色相環を軸数で等分して表示順に割り当てる（軸数が
  * いくつでも衝突せず、重みを0にした軸があっても他の軸の色は動かない）。 */
-function axisColorsOf(axes: readonly PreferenceAxisDef[]): Record<string, string> {
+function axisColorsOf(axes: readonly CatalogAxis[]): Record<string, string> {
   return Object.fromEntries(axes.map((axis, index) => [axis.axisId, `hsl(${(index * 360) / axes.length}, 62%, 55%)`]));
 }
 
@@ -109,7 +109,7 @@ export function axisCatalogFromResponse(
 ): AxisCatalog {
   const defaultWeights: RoutePreferenceWeights = {};
   for (const entry of entries) defaultWeights[entry.axis_id] = entry.default_weight;
-  const axes: PreferenceAxisDef[] = entries.map(preferenceAxisFromCatalog);
+  const axes = entries.map(catalogAxisFromEntry);
   return {
     clientTuning,
     axes,

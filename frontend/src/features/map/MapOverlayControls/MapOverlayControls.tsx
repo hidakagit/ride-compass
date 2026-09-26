@@ -56,8 +56,8 @@ export interface OverlayLayerChip {
   id: MapLayerId;
   label: string;
   icon: MapIconComponent;
-  /** チップ下の短い表記（未指定ならlabel）。 */
-  chipLabel?: string;
+  /** チップ下の短い表記（略名が無いレイヤーはlabelと同じ。`overlayChips`が決める）。 */
+  chipLabel: string;
   on: boolean;
   disabled?: boolean;
   /** チップのtitle（ONにすると何が出るか、disabledなら使えない理由）。 */
@@ -494,7 +494,7 @@ export default function MapOverlayControls({
         key={member.id}
         Icon={member.icon}
         label={member.label}
-        chipLabel={member.chipLabel ?? member.label}
+        chipLabel={member.chipLabel}
         on={on}
         pressed={on}
         disabled={member.disabled}
@@ -527,7 +527,7 @@ export default function MapOverlayControls({
             {members.map((member) => {
               const hiddenKey = `${group}:${member.id}`;
               const hidden = hiddenIds.has(hiddenKey);
-              const name = member.chipLabel ?? member.label;
+              const name = member.chipLabel;
               return (
                 <li key={member.id} className="flex items-center gap-1.5 text-[length:var(--font-size-sm)]">
                   <Checkbox
@@ -589,7 +589,7 @@ export default function MapOverlayControls({
         key={layer.id}
         Icon={layer.icon}
         label={layer.label}
-        chipLabel={layer.chipLabel ?? layer.label}
+        chipLabel={layer.chipLabel}
         on={on}
         pressed={on}
         disabled={layer.disabled}

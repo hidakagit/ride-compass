@@ -2,15 +2,13 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
-import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
+import { catalogAxisFromEntry, type CatalogAxis } from "@/lib/catalogAxis";
+import { catalogEntry } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
 
 import RouteAxisProfile from "./RouteAxisProfile";
 
-const axis = (axisId: string, label: string, extra: Partial<PreferenceAxisDef> = {}): PreferenceAxisDef => ({
-  axisId,
-  label,
-  description: `${label}の説明文`,
-  dedicatedWayValueLayer: false,
+const axis = (axisId: string, label: string, extra: Partial<CatalogAxis> = {}): CatalogAxis => ({
+  ...catalogAxisFromEntry(catalogEntry({ axis_id: axisId, label, description: `${label}の説明文` })),
   ...extra,
 });
 
