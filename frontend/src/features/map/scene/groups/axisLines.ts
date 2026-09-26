@@ -153,8 +153,8 @@ export const axisLineGroup = declareGroup<AxisLineState>((state) => {
  * 入力を持たない軸はnull（不明という状態を持たない）。
  *
  * 分類材料（N値文字列、例: highway）は、プロパティの欠損に加えて**値はあるが分類表に
- * 無い**ときも不明に含める。backendの評価（`domain/axis_definitions.py:
- * evaluate_axis_scalar`）は未登録値を評価不能として扱うため、地図だけ「寄与0（最良側）」で
+ * 無い**ときも不明に含める。backendの評価（`domain/axis_templates.py:
+ * evaluate_categorical`）は未登録値を評価不能として扱うため、地図だけ「寄与0（最良側）」で
  * 塗ると評価と食い違う。真偽値材料には「未登録値」という状態が無いので欠損だけで判定する。
  *
  * 欠損は`null`のままにせず、同じ型の番兵へ倒してから式へ入れる（文字列なら

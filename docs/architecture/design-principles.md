@@ -38,7 +38,7 @@
    持たない。新しい軸を追加するときfrontendのコード変更が一切不要（軸スタジオでの登録の
    みで完結する）状態を仕様とする。
 3. **評価軸の追加は1本道のみ**: 取込（`source_profile.yaml`）→ 派生（`batch/derive_*`）→
-   材料の値式（`material_catalog.py: MaterialSpec.value_sql`へ1件）→ 軸定義（軸スタジオが
+   材料の値式（`domain/material_catalog.py: MaterialSpec.value_sql`へ1件）→ 軸定義（軸スタジオが
    `axis_definitions`へ1行）→ フロントは軸カタログから汎用機構が組み立てる、という一本の
    データフローのみを持つ。エンジンファイルに軸固有の知識を
    持たない。この構造は`dedicated_way_value_layer`軸（wind/gradient等、専用の

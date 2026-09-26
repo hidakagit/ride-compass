@@ -84,8 +84,7 @@ describe("useStoredState", () => {
     const deserialize = (raw: string): Record<string, boolean> | null => {
       try {
         const parsed = JSON.parse(raw) as Record<string, unknown>;
-        // 未フェッチ時は固定キーのみ、フェッチ完了後は動的キーも走査する
-        // （page.tsx: layerVisibilityのdeserializeと同じ形）。
+        // 未フェッチ時は固定キーのみ、フェッチ完了後は動的キーも走査する。
         const keys = loaded ? ["fixed", "dynamic"] : ["fixed"];
         const next: Record<string, boolean> = { fixed: false, dynamic: false };
         for (const key of keys) {

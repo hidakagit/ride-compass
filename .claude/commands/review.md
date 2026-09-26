@@ -292,7 +292,7 @@ python scripts/review_checks.py docs
 
 | 見るもの | 読み方と起点 | 見る先と基準 |
 |---|---|---|
-| **名指しの実在** | 名前の逆引き。起点は対象範囲で消えた・改名されたもの: ファイル（`git diff --name-status --diff-filter=DR <タグ>..HEAD`）、定義名（関数・クラス・定数・テーブル・環境変数・APIのパスのうち、削除行にあって追加行に無いもの） | 維持する対象全体（`CLAUDE.md`・`docs/`・`.claude/`・ソースのコメントとdocstring。テストも含む）でgrepし、**現在形で名指ししている箇所**。断りつきで経緯を書いているなら、それは記録へ移すもの |
+| **名指しの実在** | 名前の逆引き。起点は対象範囲で消えた・改名されたもの: ファイル（`git diff --name-status --diff-filter=DR <タグ>..HEAD`）、定義名（関数・クラス・定数・テーブル・環境変数・APIのパスのうち、削除行にあって追加行に無いもの） | 維持する対象全体（`CLAUDE.md`・`docs/`・`.claude/`・ソースのコメントとdocstring。テストも含む）でgrepし、**現在形で名指ししている箇所**。断りつきで経緯を書いているなら、それは記録へ移すもの。「パス: 名前」の形の名指しは`backend/tests/structure/test_named_references.py`が常に見るので、ここで拾うのは形を外れた名指し |
 | **記載漏れ** | 変更ファイルのうち新設分。起点は`git diff --name-only --diff-filter=A <タグ>..HEAD`の実装ファイルと、ORMの`__tablename__`の差分に現れた表 | 実装ファイルは`docs/modules/*.md`の対象ファイル表のどこかに載っているか。表は`docs/architecture/`がその存在を知っているか |
 | **文書の定数値** | 名前の逆引き。起点は対象範囲で値が変わった定数（削除行と追加行に同じ名前で違う値） | 維持する文書が名前の直後に書いた値が、実装と合うか（単位の読み替えは許す。[documentation.md](../../docs/conventions/documentation.md)「DBの行データ・コードの定数を名指しするとき」） |
 | **DBの行データの名指し** | 本番DBの軸定義（`GET /api/axis-catalog`）を起点にする | 維持する文書・コメントが、本番DBに無い軸id・材料idを現行として名指ししていないか |

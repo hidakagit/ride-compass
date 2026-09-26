@@ -124,9 +124,8 @@ class AxisCatalogEntry(StrictModel):
     # この軸が参照する材料を、対応する一次属性id（domain/registry.py:
     # PrimaryAttributeSpec.attr_id、frontend側はprimaryAttributes.tsのキーと同じ名前空間）へ
     # 解決したもの（重複除去、対応が無い材料[動的気象・未登録一次属性]・他の軸を参照する
-    # 材料[階層構造]は除く）。フロント側の「材料が同時表示中は太い下敷きで
-    # 強調する」機能（page.tsx: secondaryAxisCasingLayerIds）が、軸スタジオの公開軸に
-    # 対しても同じ仕組みで動くようにするために必要。
+    # 材料[階層構造]は除く）。軸と一次属性レイヤーの対応を、軸idで分岐せずに引けるよう
+    # 軸スタジオの公開軸にも同じ形で配る。
     primary_attribute_ids: list[str]
     # 「軸スタジオで決められること」（AxisDefinitionが実際に持つ未公開の
     # フィールド）を個別に選んでフィールド追加するのではなく、まとめて返す方針。
@@ -196,9 +195,8 @@ class AxisCatalogResponse(StrictModel):
     # リクエスト毎に1回だけDBから解決する「たまにしか変わらないグローバル定数」）。
     # `tile_property_needs_runtime_scale=True`な材料（material_catalog.py参照）の
     # material_id→スケール係数（タイル生値に掛けると材料スケールへ変換できる倍率）。
-    # フロントのJS式ビルダー（axisLayers.ts: buildAxisRampValueExpression）が
-    # `TileInputSpec.needs_runtime_scale=True`なtile_inputに対してこの係数を追加で
-    # 掛け合わせる。値が解決できない材料（現状はaccident_count_per_km_year、収録年数が
+    # `TileInputSpec.needs_runtime_scale=True`なtile_inputのタイル生値へ、受け取る側が
+    # この係数を掛ける。値が解決できない材料（現状はaccident_count_per_km_year、収録年数が
     # 0件のとき）はキー自体を含めない——フロント側はキーが無い場合、その材料の寄与を
     # 0として扱う（RegionService.get_accident_yearsのdocstring参照）。
     material_runtime_scales: dict[str, float] = {}

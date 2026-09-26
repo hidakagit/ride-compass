@@ -284,7 +284,7 @@ backend `GET /api/admin/material-catalog/coverage`の
 レスポンス（`MaterialCoverageResponse`、生成型）をそのまま表にする。
 
 - 「欠損時の扱い」（`missing_semantics`）でグループに分けて表示する。見出し・説明・並びは
-  backendの宣言（`material_catalog.py: MISSING_SEMANTICS_DISPLAY`、生成物`vocabulary.ts`）。例:
+  backendの宣言（`domain/material_catalog.py: MISSING_SEMANTICS_DISPLAY`、生成物`vocabulary.ts`）。例:
   「評価に影響する欠損」（欠損区間ではその材料を使う軸が評価対象外）と「タグ不在を確定値として
   評価する材料（参考）」（欠損は「該当なし」を意味し評価に穴は開かない）。欠損割合の数字が同じでも
   意味が正反対のため同じ表へ並べない。各グループは`<section aria-label>`で、見出し＋1行の説明＋表。
@@ -368,7 +368,7 @@ backend `POST /api/admin/basemap/refresh`を呼び、
 ## 材料説明ポップオーバー
 
 `InfoPopoverButton`/`MaterialInfoButton`（`AxisFormFields.tsx`）が、材料選択欄の隣に
-(ⓘ)アイコンを置き、backend `material_catalog.py: MaterialSpec.description`をポップオーバー
+(ⓘ)アイコンを置き、backend `domain/material_catalog.py: MaterialSpec.description`をポップオーバー
 表示する。外枠（開閉state・Radix Popover・開閉に追随するアクセシブル名）は共通部品
 `components/ui/InfoPopover/InfoPopover.tsx`が持ち、ここはラベル文言を持たない小型トリガーとしての薄いラッパー。
 見た目は共通部品（`ui/Button`の`info`・`ui/Popover`の`note`）が持つ。

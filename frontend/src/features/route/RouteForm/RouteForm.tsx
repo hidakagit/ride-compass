@@ -88,7 +88,7 @@ export default function RouteForm({
 
   // 出発地・経由地・目的地は同じ形の行で並べる（役割が同じ「地点を置く」操作のため）。
   // 行頭の印は**地図のピンと同じ図形**（pinMarks.ts）で、行とピンを見た目で結ぶ。
-  // 武装は1つだけで、押している行以外は自動的に解除される（page.tsx: armedPinRole）。
+  // 武装は1つだけで、押している行以外は自動的に解除される（app/page.tsx: armedPinRole）。
   function renderPointRow(
     role: PinRole,
     label: string,
