@@ -811,16 +811,22 @@ def _heap_pop(heap: _Heap, size: int) -> tuple[float, int, int]:
     return g, state, size
 
 
-@njit(cache=True, inline="always")
 def time_bin_of(travelled: float, bin_seconds: float, bin_count: int) -> int:
     """出発からの経過時間`travelled`（秒）が落ちる時刻ビン。範囲外は端のビンへ寄せる。区間の表示も経路を
-    たどってこれで同じビンを選ぶ（探索と表示が別のビンを読むと、同じ区間の風が食い違う）。"""
+    たどってこれで同じビンを選ぶ（探索と表示が別のビンを読むと、同じ区間の風が食い違う）。
+
+    探索の中では同じ本体をJITした`_time_bin_of_kernel`を展開する。Pythonから呼ぶ側がJITの版を呼ぶと、
+    プロセスで最初の呼び出しがイメージに焼いていないコンパイルを払う。
+    """
     time_bin = int(travelled / bin_seconds)
     if time_bin >= bin_count:
         return bin_count - 1
     if time_bin < 0:
         return 0
     return time_bin
+
+
+_time_bin_of_kernel = njit(cache=True, inline="always")(time_bin_of)
 
 
 @njit(cache=True)
@@ -869,7 +875,7 @@ def _turn_expanded_dijkstra(
         if g > best[state]:
             continue
         travelled = arrival[state]
-        time_bin = time_bin_of(travelled, bin_seconds, bin_count)
+        time_bin = _time_bin_of_kernel(travelled, bin_seconds, bin_count)
         for entry in range(indptr[state], indptr[state + 1]):
             nxt = target_state[entry]
             cost = edge_cost[time_bin, nxt]
@@ -1183,7 +1189,7 @@ def _turn_expanded_astar(
             goal_state = state
             break
         travelled = arrival[state]
-        time_bin = time_bin_of(travelled, bin_seconds, bin_count)
+        time_bin = _time_bin_of_kernel(travelled, bin_seconds, bin_count)
         for entry in range(indptr[state], indptr[state + 1]):
             nxt = target_state[entry]
             cost = edge_cost[time_bin, nxt]
@@ -1250,7 +1256,8 @@ def compile_search_kernels() -> None:
     `@njit(cache=True)`の結果はこのファイルの隣の`__pycache__`に残り、別のプロセスはそこから読む。
     イメージの組み立て（`backend/Dockerfile`）で呼び、入れ替えたコンテナの最初のルート生成が
     コンパイルを待たないようにする。探索の入口が引数の型を揃える（`_kernel_array`）ため、ここで
-    作る入力は形が合えばよい。
+    作る入力は形が合えばよい。焼くのはここがPythonから呼ぶJITだけなので、本番の経路がPythonから呼ぶJITも
+    この2本に限る（部品は探索の中へ展開し、Pythonからは素の関数を呼ぶ）。
     """
     lazy_graph = build_lazy_road_graph(np.array([0, 1]), np.array([1, 0]), 2)
     statics = build_search_graph_statics(lazy_graph, np.ones(2))

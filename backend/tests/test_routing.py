@@ -12,14 +12,30 @@
 """
 import dataclasses
 import math
+import sys
+from datetime import datetime, timedelta, timezone
 from typing import NamedTuple
 
 import numba
 import numpy as np
 import pytest
+from numba.core.registry import CPUDispatcher
 
 from app.domain import routing
 from app.domain.route import Coordinates
+from app.domain.wind import WindForecastSeries, WindLattice
+from app.services.route_generator import RouteGenerator
+from tests.route_world import (
+    BASE_LAT,
+    BASE_LON,
+    CENTER,
+    NORTH_EAST,
+    SOUTH_WEST,
+    at,
+    avoid_axis_declared,
+    engine_for,
+    grid_network,
+)
 
 
 class EdgeSpec(NamedTuple):
@@ -1315,3 +1331,43 @@ def test_each_search_compiles_once_whatever_arrays_the_caller_passes():
 
     assert len(routing._turn_expanded_dijkstra.signatures) == 1
     assert len(routing._turn_expanded_astar.signatures) == 1
+
+
+async def test_route_generation_calls_from_python_only_the_jit_that_the_image_bakes(monkeypatch):
+    """イメージに焼くのは`compile_search_kernels`がPythonから呼ぶJITだけ。生成の経路がPythonからそれ以外のJIT
+    （探索の中へ展開する部品等）を呼ぶと、コンテナの最初の生成がそのコンパイルを払う。
+
+    `app`の全モジュールが持つJITの関数を、Pythonからの呼び出しを記録する包みへ差し替えて数える。探索の中から
+    の呼び出しはコンパイル済みの本体どうしで結ばれ、包みを通らない。"""
+    if numba.config.DISABLE_JIT:
+        pytest.skip("JITを切って測っている（numbaの型がそもそも無い）")
+    routing.compile_search_kernels()  # 包む前に本体を用意する（包んだ後にコンパイルすると、部品の代わりに包みを読む）
+    called: set[str] = set()
+
+    def recording(name, dispatcher):
+        def call(*args, **kwargs):
+            called.add(name)
+            return dispatcher(*args, **kwargs)
+        return call
+
+    for module in [m for name, m in sys.modules.items() if name == "app" or name.startswith("app.")]:
+        for attr, value in list(vars(module).items()):
+            if isinstance(value, CPUDispatcher):
+                monkeypatch.setattr(module, attr, recording(value.py_func.__qualname__, value))
+    routing.compile_search_kernels()
+    baked, called = called, set()
+
+    times = [datetime(2026, 9, 22, h) for h in range(24)]
+    speed = np.full((4, len(times)), 3.0)
+    wind = WindForecastSeries(
+        times=times, speed_ms=speed, direction_deg=np.zeros_like(speed),
+        lattice=WindLattice(south=BASE_LAT, west=BASE_LON, lat_step=0.018, lon_step=0.022, rows=2, cols=2),
+    )
+    with avoid_axis_declared():
+        generator = RouteGenerator(engine_for(monkeypatch, grid_network(), 0.0, wind))
+        departure = datetime(2026, 9, 22, 8, tzinfo=timezone(timedelta(hours=9)))
+        assert await generator.generate_loops(at(CENTER), 4.0, 1.5, max_routes=3, start_time=departure)
+        assert await generator.generate_via_waypoints(
+            at(SOUTH_WEST), [], 4.0, destination=at(NORTH_EAST), max_routes=3, start_time=departure)
+
+    assert called and called <= baked
