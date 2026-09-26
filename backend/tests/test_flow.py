@@ -2,6 +2,7 @@
 
 GitHub はプロセス境界なので `flow.gh` を偽物に差し替える。偽物は gh が返す形（issue の一覧・GraphQL の欄の値・
 Actions の実行）を持ち、単一選択の欄に無い選択肢を書こうとすると gh と同じく失敗する。git は本物を使う。
+ユーザーの回答は、回答ページ（tools/answer-form/worker.js）が書くのと同じ形のコメントを足して表す。
 """
 
 import io
@@ -20,6 +21,7 @@ import flow  # noqa: E402
 
 REPO = "owner/tasks"
 HOLD = ("--review", "2999-01-01")
+BOT = "bot-token"
 
 
 def git(cwd: Path, *args: str) -> str:
@@ -32,27 +34,30 @@ class FakeGh:
         self.issues: list[dict] = []
         self.fields: dict[str, dict] = {}
         self.runs: dict[str, list[dict]] = {}
+        self.asked: list[tuple[int, str]] = []
 
     def issue(self, number: int | str) -> dict:
         return next(i for i in self.issues if i["number"] == int(number))
 
-    def __call__(self, *args: str) -> str:
+    def __call__(self, *args: str, token: str | None = None) -> str:
         opt = {args[i]: args[i + 1] for i in range(len(args) - 1) if args[i].startswith("-")}
         cmd = args[:2]
+        if cmd == ("issue", "list") and "comments" in opt["--json"]:
+            return json.dumps([{"number": i["number"], "comments": [{"body": c} for c in i["comments"]]}
+                               for i in self.issues if i["state"] == "OPEN"])
         if cmd == ("issue", "list"):
             return json.dumps([{k: v for k, v in i.items() if k != "comments"} for i in self.issues])
-        if cmd == ("issue", "view"):
-            issue = self.issue(args[2])
-            return json.dumps({"body": issue["body"], "comments": [{"body": c} for c in issue["comments"]]})
         if cmd == ("issue", "create"):
             url = f"https://github.com/{REPO}/issues/{len(self.issues) + 1}"
             self.issues.append({"number": len(self.issues) + 1, "title": opt["--title"], "body": opt["--body"],
                                 "state": "OPEN", "labels": [], "url": url, "comments": []})
             return url + "\n"
         if cmd == ("issue", "edit"):
-            self.issue(args[2])["title"] = opt["--title"]
+            self.issue(args[2]).update(title=opt["--title"], body=opt["--body"])
         elif cmd == ("issue", "comment"):
             self.issue(args[2])["comments"].append(opt["--body"])
+            if token:
+                self.asked.append((int(args[2]), token))
         elif cmd == ("issue", "close"):
             self.issue(args[2]).update(state="CLOSED")
         elif cmd == ("project", "item-add"):
@@ -82,8 +87,8 @@ class FakeGh:
     def field(self, number: int, name: str) -> str | None:
         return self.fields[self.issue(number)["url"]].get(name)
 
-    def label(self, number: int, name: str) -> None:
-        self.issue(number)["labels"].append({"name": name})
+    def answer(self, number: int, choice: str) -> None:
+        self.issue(number)["comments"].append(f"回答: A（{choice}）\n\n補足: 回答ページから")
 
 
 @pytest.fixture
@@ -102,6 +107,8 @@ def world(tmp_path, monkeypatch):
     git(main, "push", "--quiet", "origin", "master")
     git(main, "config", "flow.repo", REPO)
     git(main, "config", "flow.project", "1")
+    git(main, "config", "flow.answer", "https://answer.example/")
+    monkeypatch.setenv(flow.ASK_TOKEN_ENV, BOT)
     monkeypatch.chdir(main)
     fake = FakeGh()
     monkeypatch.setattr(flow, "gh", fake)
@@ -115,7 +122,7 @@ def run(*args: str) -> int:
 def admitted(fake: FakeGh, title: str, *extra: str) -> int:
     """承認して入口を通した ① の issue の番号。"""
     assert run("propose", title, *extra) == 0
-    fake.label(len(fake.issues), flow.APPROVAL_LABEL)
+    fake.answer(len(fake.issues), flow.APPROVE)
     assert run("take") == 0
     return len(fake.issues)
 
@@ -136,13 +143,18 @@ def test_take_numbers_approved_proposals_after_records_and_issues(world):
     stage = admitted(fake, "段を足す", "--task", "T5")
 
     assert (fake.state(1), fake.issue(1)["title"]) == ("①", "承認されていない")
+    question = fake.issue(1)["comments"][0]
+    assert question.startswith("@owner 問い: ") and (1, BOT) in fake.asked
+    assert "https://answer.example/answer?issue=1&o=%E6%89%BF%E8%AA%8D&o=%E8%A6%8B%E9%80%81%E3%82%8A" in question
     assert fake.issue(new)["title"] == "T8-A: 新しいタスク"
     assert fake.issue(stage)["title"] == "T5-C: 段を足す"
     assert (fake.state(new), fake.field(new, "段"), fake.field(new, "次に動かす人")) == ("③", "T8-A", "司令塔")
+    assert f"answer?issue={new}&o=%E8%A6%8B%E9%80%81%E3%82%8A" in fake.issue(new)["body"]
 
-    fake.label(1, flow.DROP_LABEL)
+    fake.answer(1, flow.DROP)
+    fake.answer(new, flow.DROP)
     run("take")
-    assert fake.state(1) == flow.DONE
+    assert (fake.state(1), fake.state(new), fake.state(stage)) == (flow.DONE, flow.DONE, "③")
 
 
 def test_move_refuses_what_the_table_does_not_have(world):
@@ -156,25 +168,27 @@ def test_move_refuses_what_the_table_does_not_have(world):
     assert fake.state(number) == "④"
 
 
-def test_user_hold_is_answered_by_checking_one_choice_and_extends_once(world):
+def test_user_hold_is_answered_on_the_answer_page_and_extends_once(world, monkeypatch):
     _, fake = world
     number = admitted(fake, "作業")
     run("move", "T6-A", "④")
     ask = ("--by", "ユーザー", "--missing", "どちらで測るか", *HOLD)
 
     assert run("move", "T6-A", "②", *ask) == 1  # 選択肢が無い
+    monkeypatch.delenv(flow.ASK_TOKEN_ENV)
+    assert run("move", "T6-A", "②", *ask, "--choice", "本番") == 1  # 問いを書く別アカウントが無い
+    monkeypatch.setenv(flow.ASK_TOKEN_ENV, BOT)
     assert run("move", "T6-A", "②", *ask, "--choice", "本番", "--choice", "開発DB") == 0
     assert run("move", "T6-A", "②", "--review", "2999-02-01") == 0
     assert run("move", "T6-A", "②", "--review", "2999-03-01") == 1
     assert (fake.field(number, "見直す日"), fake.field(number, "延ばした回数")) == ("2999-02-01", "1")
+    assert fake.issue(number)["comments"][-2].startswith("@owner 問い: どちらで測るか")
 
-    run("take")
+    run("take")  # ① の承認の回答は、後から置いた問いの答えにならない
     assert fake.state(number) == "②"
-    question = next(i for i, c in enumerate(fake.issue(number)["comments"]) if "- [ ] 本番" in c)
-    fake.issue(number)["comments"][question] = fake.issue(number)["comments"][question].replace("- [ ] 本番",
-                                                                                                "- [x] 本番")
+    fake.answer(number, "本番")
     run("take")
-    assert (fake.state(number), fake.field(number, "見直す日")) == ("③", None)
+    assert (fake.state(number), fake.field(number, "見直す日"), fake.field(number, flow.BACK)) == ("③", None, None)
     assert "答え: 本番" in fake.issue(number)["comments"][-1]
 
 
@@ -200,6 +214,9 @@ def test_land_needs_green_ci_and_releases_the_stage_waiting_for_it(world):
     git(main, "push", "--quiet", "origin", "--delete", "orch/T6-A")
     git(main, "branch", "--quiet", "-D", "orch/T6-A")
     sha = work_branch(main, "T6-A", "T6-A: 作業が済む", "検証: pytest → 1 passed")
+    assert run("move", "T6-A", "⑤") == 0
+    assert run("move", "T6-A", "②", "--by", "司令塔", "--missing", "画面の目視", *HOLD) == 0
+    assert run("move", "T6-A", "③") == 1  # ⑤ から入った ② の戻り先は ⑤
     assert run("move", "T6-A", "⑤") == 0
     fake.runs[sha] = [{"name": "CI", "status": "completed", "conclusion": "failure", "url": "u"}]
     assert run("land", "T6-A") == 1
