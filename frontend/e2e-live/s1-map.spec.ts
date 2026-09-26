@@ -108,9 +108,11 @@ test("S1 地図の描画（生成前）", async ({ page }) => {
       const errorsBefore = watch.pageErrors.length;
       await page.mouse.click(point!.x, point!.y);
       await expect(page.locator(".maplibregl-popup")).toBeVisible({ timeout: 10_000 });
-      // 開いたのが道の詳細であること（道の詳細は路面の行を必ず持つ）。描画の例外はエラー境界（app/error.tsx）が
-      // 受けてページの例外にならないので、中身が出たかで見る。
-      await expect(page.locator(".maplibregl-popup").getByText("路面", { exact: true })).toBeVisible();
+      // 開いたのが道の詳細であること（道の詳細は路面の行を必ず持つ。属性は畳んで開くので、開いてから見る）。
+      // 描画の例外はエラー境界（app/error.tsx）が受けてページの例外にならないので、中身が出たかで見る。
+      const popup = page.locator(".maplibregl-popup");
+      await popup.getByText("この道の属性", { exact: true }).click();
+      await expect(popup.getByText("路面", { exact: true })).toBeVisible();
       await settleMap(page);
       expect.soft(watch.pageErrors.slice(errorsBefore), "道を押したあとのページの例外").toEqual([]);
       await expect.soft(page.locator(".maplibregl-popup").getByRole("alert")).toHaveCount(0);
