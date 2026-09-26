@@ -19,8 +19,6 @@ from app.domain.region import BoundingBox, tiles_covering_bbox
 
 logger = logging.getLogger("ridecompass.ingest.io_lulc_tile")
 
-_TILE_SIZE = 256
-
 
 @dataclass(frozen=True)
 class LulcGrid:
@@ -57,16 +55,17 @@ async def read_lulc_tiles(spec: SourceSpec, profile: SourceProfile,
         if classes is None:
             uncovered += 1
             continue
+        # 画素数は描画が切った配列から読む——タイルの一辺を決めるのは描画の側で、ここではない。
+        height, width = classes.shape
         yield SourceRecord(
             natural_key=f"{zoom}/{x}/{y}",
             geom_wkb=tile_bbox_wkb(zoom, x, y),
             # 型・欠測値・位置はrasterの値自身が持つため書かない。幅は画素の番地を
             # 出すのに要る（rasterから読むと画素が実体化される）。
-            attrs={"z": zoom, "x": x, "y": y,
-                   "width": _TILE_SIZE},
+            attrs={"z": zoom, "x": x, "y": y, "width": width},
             rast=tile_raster_wkb(
                 classes.tobytes(), zoom=zoom, x=x, y=y,
-                width=_TILE_SIZE, height=_TILE_SIZE, dtype="uint8", nodata=0),
+                width=width, height=height, dtype="uint8", nodata=0),
         )
     if uncovered:
         logger.info("ラスタが覆っていないタイル: %d枚", uncovered)

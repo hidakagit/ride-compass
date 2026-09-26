@@ -18,7 +18,7 @@
 | hooks | `useStoredState.ts`・`useIsMobile.ts`・`useElementHeightCssVar.ts`・`useLocation.ts`・`useDebouncedValue.ts`・`useIsomorphicLayoutEffect.ts` |
 | features/map/view | `useMapView.ts`（地図の見え方の状態と、地図・操作部品へ渡す値）・`mapLook.ts`（地図へ渡す見え方の値の型）・`lens.ts`（レンズから塗る軸・凡例・選択肢を導く）・`overlayChips.ts`（地図上チップの状態とレイヤー表示の保存形式）・`legendFilters.ts`（凡例で隠した行の保存先の読み書き） |
 | features/map/MapView | `useLayerDataStatus.ts`（`layerDataStatus` stateの実装） |
-| lib | `apiBaseUrl.ts`・`apiPath.ts`（backendのAPIのパスをOpenAPIの宣言と型で照合して作る）・`apiError.ts`・`backendInternalUrl.ts`・`fetchJson.ts`・`queryClient.ts`（画面のデータ取得が共有するTanStack Queryのキャッシュ。下記「データ取得の骨格」）・`apiTimeouts.ts`（APIリクエストのタイムアウト。呼び出しの性質ごとの名前付き定数）・`safeStorage.ts`（localStorageの読み書きで例外を外へ出さない薄いラッパ）・`paletteCssVariables.ts`（地図に塗る色と同じ色をUIにも出す箇所へ、配信された値をCSS変数として流す。`layout.tsx`がサーバー側で`:root`へ入れる。CSSが値を持つのはライト/ダークで2値を持つものだけ）・`mapOverlayEdges.ts`（地図の上に重ねる部品へ付ける「どの辺を覆うか」の印と、印の付いた部品が覆う幅の実測。印を付ける部品は地図の機能の外にもあるので共有の層に置く。下記「`MapView`との境界」） |
+| lib | `apiBaseUrl.ts`・`apiPath.ts`（backendのAPIのパスと問い合わせの項目をOpenAPIの宣言と型で照合して作る）・`apiError.ts`・`backendInternalUrl.ts`・`fetchJson.ts`・`queryClient.ts`（画面のデータ取得が共有するTanStack Queryのキャッシュ。下記「データ取得の骨格」）・`apiTimeouts.ts`（APIリクエストのタイムアウト。呼び出しの性質ごとの名前付き定数）・`safeStorage.ts`（localStorageの読み書きで例外を外へ出さない薄いラッパ）・`paletteCssVariables.ts`（地図に塗る色と同じ色をUIにも出す箇所へ、配信された値をCSS変数として流す。`layout.tsx`がサーバー側で`:root`へ入れる。CSSが値を持つのはライト/ダークで2値を持つものだけ）・`mapOverlayEdges.ts`（地図の上に重ねる部品へ付ける「どの辺を覆うか」の印と、印の付いた部品が覆う幅の実測。印を付ける部品は地図の機能の外にもあるので共有の層に置く。下記「`MapView`との境界」） |
 | features/route | `routeApi.ts`（ルート生成・プレビューAPI）・`formatDuration.ts`（秒を「1時間42分」の形にする）・`generationRequest.ts`（生成リクエストのpayloadと`conditionsDirty`の比較キーを同じ入力から導出する純関数）・`routeSplice.ts`（候補どうしが別々の道を通る区間を`edge_ids`の集合演算で求め、表示中の側と相手側を対応づけ、選んだ区間を差し替えた経路を組み立て純関数。差し替えた経路の評価はbackendが行うため計算式は持たない。合成結果も生成候補と同じ並び（所要時間の短い順、`routeTabLabel.ts: orderByDuration`）へ入れる。区間を割る下限は持たず呼び出し側から受け取る［backendの較正値で、管理画面から変えられる］） |
 | features/conditions | `useDepartureTime.ts`（出発時刻。選ぶまでは5分刻みの「今」へ追従し、選んだ時刻は動かさない）・`rideConditions.ts`（走行条件の出発時刻ラベルと想定速度の丸め。速度の上下限はbackendの`routeGenerateConfig`から読む） |
 | types | `types/route.ts`（`RouteCandidate`等の生成APIレスポンス型） |
@@ -34,7 +34,10 @@ Next.js route handlerからのサーバー間fetch先を区別する（後者は
 **backendのAPIのパスは手で書かず、`apiPath`（`lib/apiPath.ts`）で作る。** 引数はOpenAPIの生成物（`types/generated/api.d.ts`）の
 `paths`のキーで、`{名前}`の値を渡すと埋める（渡さなかった名前は残る——タイルの`{z}/{x}/{y}`は地図ライブラリが埋める）。backendが
 パスを変えると、生成物の更新で呼び出し元が型検査で落ちる——手で書いたパスは画面から実際に呼ぶまで食い違いに気づけない。
-戻り値は印の付いた型（`DeclaredApiPath`）で、サービス層の骨格（`adminRequest`・生成のPOST・地点の取得）はこの型しか受け取らない。
+戻り値は印の付いた型（`DeclaredApiPath`）で、サービス層の骨格（`adminRequest`・生成のPOST）はこの型しか受け取らない。
+**問い合わせの項目（`?`以降）も手で書かず、`apiQuery`（同じファイル）で作る**。項目の型はそのパスのGETの宣言から引くため、
+宣言に無い名前・必須の項目の欠けは型検査で落ちる——FastAPIは宣言に無い問い合わせの項目を既定では黙って無視するので、
+手で書いた名前が古くなると、任意の項目は届かないまま応答が返り、画面からは気づけない。値がnull・undefined・空文字の項目は付けない。
 ベースURL（`API_BASE_URL`・タイルの`tileBaseUrl()`）は呼び出し側が付ける。frontend自身のroute handler（`/api/version`）は
 backendの宣言に無いため対象外。`useLocation.ts`はブラウザのGeolocation APIを
 扱うhookで、起点座標の取得に使う。

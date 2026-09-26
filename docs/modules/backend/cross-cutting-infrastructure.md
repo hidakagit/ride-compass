@@ -151,6 +151,11 @@ uvicorn以外からの起動（テスト・スクリプト）は1とみなす。
 | 各種`*_rate_limit_per_minute`/`*_max_concurrent` | エンドポイントごとに個別 | per-IPレート制限・同時実行数上限 |
 | `jma_tile_prewarm_interval_minutes` | `10` | JMA動的タイル定期プリウォームの実行間隔（[動的気象レイヤー](weather-dynamic-layers.md)「定期プリウォーム」節） |
 
+**既定値はこのクラスだけが持つ。** `.env`の雛形（`backend/.env.example`・リポジトリ直下の`.env.example`）は項目と
+上書きの仕方だけを書き、値を写さない——写した値は`.env`へコピーされた時点で固定され、既定値を直しても手元では
+古い値が効き続ける。`docker-compose.yml`の`environment:`がCORSの許可元・基礎地図の書き換え先を書くのは写しではない:
+composeのfrontendの公開先に従う値で、既定値（手元で`next dev`を起動したときのオリジン）を変えても変わらない。
+
 **暗黙の前提**: DBの口（repository）を受け取るサービスは、口が無い状態を持たない。
 `api/dependencies.py`のDI工場は常にセッションを開いて口を渡し、DBに届かないときの
 空タイル・空dict等への倒し方は、読み取りで上がる例外（下記「DB障害として扱う例外」）だけが

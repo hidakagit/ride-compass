@@ -42,7 +42,7 @@ TILE_CRS = "EPSG:3857"
 
 # 1回の読み取りで扱う元画素の上限（1辺）。低ズームのタイルほど元画素を多く覆うため、
 # これを超える場合は間引いて読む（GDAL側で間引かれ、メモリは常にこの辺長の2乗で収まる）。
-# 出力が256画素である以上、これ以上細かく読んでも結果は変わらない。
+# 出力が`TILE_SIZE`画素である以上、これ以上細かく読んでも結果は変わらない。
 _MAX_SOURCE_READ_SIDE = 1024
 
 
@@ -156,7 +156,7 @@ def opened_raster_paths() -> list[str]:
 
 
 def tile_classes(z: int, x: int, y: int) -> "np.ndarray | None":
-    """1タイルぶんのクラス番号（uint8、256x256）を返す。
+    """1タイルぶんのクラス番号（uint8、`TILE_SIZE`四方）を返す。
 
     どのラスタも覆っていない範囲ではNone——ラスタの外側は「土地被覆が無い」のではなく
     このデータが何も言えない場所である。
@@ -197,7 +197,7 @@ def tile_classes(z: int, x: int, y: int) -> "np.ndarray | None":
 
 
 def render_tile(z: int, x: int, y: int) -> bytes | None:
-    """1タイルぶんのPNG（RGBA、256x256）を返す。覆っていない範囲ではNone。
+    """1タイルぶんのPNG（RGBA、`TILE_SIZE`四方）を返す。覆っていない範囲ではNone。
 
     呼び出し側は覆っていない範囲を空タイルとして扱う（後からラスタを足せば値を
     持ちうるため、キャッシュへは残さない）。

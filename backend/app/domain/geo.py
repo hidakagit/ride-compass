@@ -47,7 +47,13 @@ def km_per_degree_longitude(latitude: float) -> float:
     """
     return KM_PER_DEGREE_LATITUDE * max(math.cos(math.radians(latitude)), 1e-6)
 
-COMPASS_LABELS = ["北", "北東", "東", "南東", "南", "南西", "西", "北西"]
+#: 16方位の呼び名（0=北から時計回り）。8方位の呼び名はこの1つおきで、別に持たない——
+#: 片方だけ直すと、同じ向きを場所によって違う名前で出す。
+SIXTEEN_POINT_LABELS = [
+    "北", "北北東", "北東", "東北東", "東", "東南東", "南東", "南南東",
+    "南", "南南西", "南西", "西南西", "西", "西北西", "北西", "北北西",
+]
+COMPASS_LABELS = SIXTEEN_POINT_LABELS[::2]
 
 
 def compass_label(bearing_deg: float) -> str:

@@ -6,17 +6,20 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # 起動方法では読み込まれない。このファイルの位置から解決してcwdへの依存を無くす。
 _ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
 
+# 手元で`next dev`を起動したときのfrontendのオリジン。
+_LOCAL_FRONTEND_ORIGIN = "http://localhost:3000"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
 
-    cors_allowed_origins: str = "http://localhost:3000"
+    cors_allowed_origins: str = _LOCAL_FRONTEND_ORIGIN
     database_url: str = "postgresql+asyncpg://ridecompass:ridecompass@localhost:5432/ridecompass"
     # 基礎地図プロキシのスタイルJSON内URLを書き換える先。MapLibreは相対URLをスタイルの
     # 取得元ではなくページのオリジンに対して解決するため絶対URLが必須で、かつ**backend自身
     # ではなくフロントエンドのオリジン**にする（タイルの大量リクエストとAPI呼び出しを
     # ブラウザの同一オリジン接続数上限で競合させない。frontend/next.config.ts参照）。
-    basemap_public_base_url: str = "http://localhost:3000/api/basemap"
+    basemap_public_base_url: str = f"{_LOCAL_FRONTEND_ORIGIN}/api/basemap"
     debug_mode: bool = False
     # デプロイ先でビルド・起動されたコミットのフルSHA。`GIT_COMMIT`環境変数から渡し、
     # .envには書かない（ローカル開発では未設定のままでよい）。

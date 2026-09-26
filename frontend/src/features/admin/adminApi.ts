@@ -1,6 +1,6 @@
 import type { ValueDistribution } from "@/features/admin/AxisStudio/scoreDistribution";
 import { API_BASE_URL } from "@/lib/apiBaseUrl";
-import { apiPath, type ApiPath, type DeclaredApiPath } from "@/lib/apiPath";
+import { apiPath, apiQuery, type ApiPath, type ApiQuery, type DeclaredApiPath } from "@/lib/apiPath";
 import {
   CATALOG_API_TIMEOUT_MS,
   DEFAULT_API_TIMEOUT_MS,
@@ -9,7 +9,7 @@ import {
   STATUS_API_TIMEOUT_MS,
 } from "@/lib/apiTimeouts";
 import { fetchJson, requestJson } from "@/lib/fetchJson";
-import type { components, paths } from "@/types/generated/api";
+import type { components } from "@/types/generated/api";
 import type {
   AxisDefinitionPayload,
   AxisDefinitionResponse,
@@ -27,7 +27,7 @@ interface AdminRequestOptions {
   timeoutMs?: number;
   /** 失敗の文言の主語（例: "DB状態の取得"→「DB状態の取得に失敗しました」）。 */
   label: string;
-  /** クエリ文字列（`?`を除く）。 */
+  /** 問い合わせの項目（`apiQuery`の戻り値。`?`から始まる）。 */
   query?: string;
 }
 
@@ -40,7 +40,7 @@ function adminRequest<T>(
   backendPath: DeclaredApiPath<AdminApiPath>,
   { method = "GET", body, timeoutMs = DEFAULT_API_TIMEOUT_MS, label, query }: AdminRequestOptions,
 ) {
-  const path = `${backendPath.slice(BACKEND_ADMIN_PREFIX.length)}${query ? `?${query}` : ""}`;
+  const path = `${backendPath.slice(BACKEND_ADMIN_PREFIX.length)}${query ?? ""}`;
   return requestJson<T>(`/admin/api${path}`, {
     method,
     body,
@@ -216,17 +216,15 @@ export function updateTuningParameter(paramId: string, value: number | null) {
 
 // ログ
 
-type LogsQuery = NonNullable<paths["/api/admin/debug/logs"]["get"]["parameters"]["query"]>;
+const LOGS_PATH = "/api/admin/debug/logs";
+type LogsQuery = ApiQuery<typeof LOGS_PATH>;
 
 /** Python標準loggingのレベル名。正本はbackendで、契約から引く。 */
 export type LogLevelName = NonNullable<LogsQuery["min_level"]>;
 
 /** 直近のログ行（プロセス内リングバッファ）。debug_modeがOFFの間もWARNING以上は常に含まれる。 */
 export function getRecentLogs(query: LogsQuery = {}) {
-  const params = new URLSearchParams(
-    Object.entries(query).flatMap(([key, value]) => (value == null || value === "" ? [] : [[key, String(value)]])),
-  ).toString();
-  return adminRequest<string[]>(apiPath("/api/admin/debug/logs"), { label: "ログの取得", query: params });
+  return adminRequest<string[]>(apiPath(LOGS_PATH), { label: "ログの取得", query: apiQuery(LOGS_PATH, query) });
 }
 
 // 稼働状況（認証の要らない口）

@@ -4,16 +4,9 @@ import math
 
 from pydantic import computed_field
 
+from app.domain.geo import SIXTEEN_POINT_LABELS
 from app.domain.strict_model import StrictModel
 from app.domain.weather import derive_observed_weather_code
-
-# JMAアメダスのwindDirectionは0=静穏、1〜16が16方位（1=北北東からcode*22.5度で時計回りに
-# 進み、16=北[360度=0度]で一周する）という特有の割当のため、domain/geo.pyの8方位
-# compass_label（0=北起点）とは別に専用のテーブルを持つ。
-_SIXTEEN_POINT_LABELS = [
-    "北", "北北東", "北東", "東北東", "東", "東南東", "南東", "南南東",
-    "南", "南南西", "南西", "西南西", "西", "西北西", "北西", "北北西",
-]
 
 
 def wind_direction_from_jma_code(code: int | None) -> tuple[float, str] | None:
@@ -25,10 +18,12 @@ def wind_direction_from_jma_code(code: int | None) -> tuple[float, str] | None:
     角度とラベルを別々の関数で返さない——どちらも同じ1つのコードの読み替えで、分けると
     「方位がある/ない」の判定と16方位の割当が2箇所に分かれ、片方だけずれても落ちない。
     """
+    # JMA特有なのは番号の割当だけ（1=北北東からcode*22.5度で時計回りに進み、16=北で一周する）。
+    # 16で割った余りが北を0とした16方位の番号になり、呼び名は共通の並びから引く。
     if code is None or not 1 <= code <= 16:
         return None
     index = code % 16
-    return index * 22.5, _SIXTEEN_POINT_LABELS[index]
+    return index * 22.5, SIXTEEN_POINT_LABELS[index]
 
 
 def apparent_temperature_from_amedas(
