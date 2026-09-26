@@ -410,7 +410,7 @@ class _LegCostComposer:
         # 勾配は静的スコア行列が生配列として常に持つ（0次フィルタの勾配しきい値と同じ列）。
         # 内訳として見せる材料だけを運ぶ`material_arrays`では、勾配軸が分解されていない構成で欠ける。
         grade = np.nan_to_num(take(self._score_matrix.gradient_percent)) / 100.0
-        crr = crr_for_surface(static_material(ROLLING_RESISTANCE_MATERIAL_ID), len(distance_m))
+        crr = crr_for_surface(take(self._categorical_material_arrays[ROLLING_RESISTANCE_MATERIAL_ID]))
         model = SegmentSpeedModel(RiderProfile(cruise_speed_kmh=self.speed_kmh), grade, crr)
         stops = np.zeros(len(distance_m))
         # 材料idの綴りは`stop_count_material_ids()`が単一の情報源。ここで組み立て直すと、
