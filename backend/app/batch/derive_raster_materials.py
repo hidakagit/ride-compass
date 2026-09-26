@@ -18,7 +18,12 @@ import time
 import asyncpg
 
 from app.domain.attributes import elevation_values_sql
-from app.domain.landcover import PERCENT_CLASSES, class_percentages_sql
+from app.domain.landcover import (
+    LANDCOVER_RING_INNER_M,
+    LANDCOVER_RING_OUTER_M,
+    PERCENT_CLASSES,
+    class_percentages_sql,
+)
 from app.domain.region import tile_position_sql
 from app.domain.material_sql import (
     BRIDGE_NORMALIZED_SQL,
@@ -27,10 +32,6 @@ from app.domain.material_sql import (
 )
 
 logger = logging.getLogger("ridecompass.derive_raster_materials")
-
-#: 土地被覆を数える帯。中心線からこの距離までを見て、路面そのものの幅は除く。
-_LANDCOVER_RING_M = 100.0
-_LANDCOVER_INNER_M = 10.0
 
 _EDGE_SHAPES = f"""
 SELECT e.osm_way_id, e.segment_index, e.geom,
@@ -162,7 +163,7 @@ async def derive_landcover(conn: asyncpg.Connection) -> int:
         logger.warning("土地被覆タイルが1枚も取り込まれていません")
         return 0
 
-    await conn.execute(_BUILD_RINGS, _LANDCOVER_RING_M, _LANDCOVER_INNER_M)
+    await conn.execute(_BUILD_RINGS, LANDCOVER_RING_OUTER_M, LANDCOVER_RING_INNER_M)
     await conn.execute("CREATE INDEX ON _rings USING GIST (ring4326)")
     await conn.execute("ANALYZE _rings")
     logger.info("土地被覆: 帯 %d本を作った。重なる画素を数える",

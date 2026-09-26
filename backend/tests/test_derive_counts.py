@@ -119,3 +119,28 @@ async def test_way_values_of_a_way_gone_from_the_raw_data_do_not_survive(counts_
     finally:
         await counts_conn.execute("INSERT INTO source_features SELECT * FROM _removed")
         await counts_conn.execute("DROP TABLE _removed")
+
+
+async def test_a_crossing_near_a_signal_is_counted_as_a_signal(counts_conn):
+    """近くに信号がある横断歩道は、横断歩道ではなく信号として数える。
+
+    地図も同じ読み替えで信号の点を出す（`test_poi_tile.py`）。
+    """
+    await ensure_partition(counts_conn, "osm_node")
+    run = await _insert_run(counts_conn, "osm_node")
+    lon, lat = _point(TIED_NODE)
+    await counts_conn.execute(
+        "INSERT INTO source_features (source, natural_key, run_id, geom, attrs)"
+        " VALUES ('osm_node', $1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), '{}'::jsonb)",
+        str(TIED_NODE), run, lon, lat)
+    await counts_conn.execute(
+        "UPDATE node_materials SET kind = 'crossing', has_traffic_signals = true"
+        " WHERE osm_node_id = $1", TIED_NODE)
+
+    await derive_counts.derive(counts_conn)
+
+    rows = await counts_conn.fetch(
+        "SELECT DISTINCT m.poi_signal, m.poi_crossing FROM edge_materials m JOIN road_edges e"
+        "  ON e.osm_way_id = m.osm_way_id AND e.segment_index = m.segment_index"
+        " WHERE $1 IN (e.from_node_id, e.to_node_id)", TIED_NODE)
+    assert [(r["poi_signal"] > 0, r["poi_crossing"]) for r in rows] == [(True, 0)]

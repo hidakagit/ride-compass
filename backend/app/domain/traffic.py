@@ -13,7 +13,9 @@
 ——軸は「その道を走るときのつらさ」、こちらは「そこを通るのにかかる時間」を表す。
 """
 
-from typing import Literal, get_args
+from collections.abc import Mapping
+from typing import Literal, TypeVar, get_args
+
 from app.domain.tuning import TUNING_PARAMETERS_BY_ID, stop_seconds_parameter_id, tuning_value
 
 # 交差点判定の次数しきい値（この数以上の異なる隣接Nodeを持つNodeを交差点とみなす）。
@@ -40,8 +42,7 @@ _HIGHWAY_STOP_KINDS: dict[str, StopPoiKind] = {
 # 踏切。`level_crossing`は車道が線路を渡る踏切、`crossing`は歩道・自転車道が渡る踏切で、
 # 自転車にとってはどちらも同じ「線路を渡るため止まる/徐行する点」。路面電車側
 # （tram_*）も同じ扱いにする。kindを分けたまま持つのは、後から集計を分けたくなったときに
-# 生タグを読み直さずに済ませるため（集計キーへの写像は
-# `batch/derive_counts.py: COUNT_KIND_OF`が持つ）。
+# 生タグを読み直さずに済ませるため（集計キーへの写像は`COUNT_KIND_OF`が持つ）。
 _RAILWAY_STOP_KINDS: dict[str, StopPoiKind] = {
     "level_crossing": "level_crossing",
     "tram_level_crossing": "level_crossing",
@@ -81,7 +82,7 @@ _BARRIER_STOP_VALUES: frozenset[str] = frozenset(
 )
 
 # 減速構造（`traffic_calming=*`）。停止ではなく減速のため車止めとは別kindで持つが、
-# 集計キーは同じ（`batch/derive_counts.py: COUNT_KIND_OF`）。`island`（中央島）・`no`は
+# 集計キーは同じ（`COUNT_KIND_OF`）。`island`（中央島）・`no`は
 # 進行を妨げないため外す。
 _TRAFFIC_CALMING_VALUES: frozenset[str] = frozenset(
     {
@@ -128,6 +129,28 @@ POI_COUNT_KINDS: dict[str, str] = {
     "level_crossing": "踏切",
     "barrier": "車止め・減速構造",
 }
+
+#: 取込時の種別 → 数える種別（`POI_COUNT_KINDS`のキー）。畳み方は上の説明のとおり。
+#: 数える側・地図へ出す側とも、この表と信号の読み替えは`count_kind_sql`・`stop_kind_sql`
+#: からだけ読む。
+COUNT_KIND_OF: dict[StopPoiKind, str] = {
+    "traffic_signals": "signal",
+    "crossing": "crossing",
+    "stop": "stop",
+    "give_way": "stop",
+    "level_crossing": "level_crossing",
+    "railway_crossing": "level_crossing",
+    "barrier": "barrier",
+    "traffic_calming": "barrier",
+}
+
+# 表に無い種別は数えられず、その種別の点は地図に出るのに停止回数へ入らない。
+_UNFOLDED_STOP_KINDS = sorted(STOP_POI_KINDS - COUNT_KIND_OF.keys())
+_UNKNOWN_COUNT_KINDS = sorted(set(COUNT_KIND_OF.values()) - POI_COUNT_KINDS.keys())
+if _UNFOLDED_STOP_KINDS or _UNKNOWN_COUNT_KINDS:
+    raise RuntimeError(
+        f"`COUNT_KIND_OF`の欠け: 畳み先の無い種別 {_UNFOLDED_STOP_KINDS}・"
+        f"`POI_COUNT_KINDS`に無い畳み先 {_UNKNOWN_COUNT_KINDS}")
 
 # 数える種別すべてに較正値の宣言があることを、読み込みの時点で確かめる。`tuning.py`は
 # こちらをimportできない（循環する）ため、両者の対応を宣言から導けるのはこの向きだけで、
@@ -298,6 +321,40 @@ DIRECTION_DEFAULT = "both"
 
 def _quote(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
+
+
+#: 信号の読み替え。近くに信号がある（`has_traffic_signals`）これらの種別の点は、利用者から
+#: 見れば信号である（信号は流入路ごと・横断歩道位置ごとの複数ノードで描かれる）。
+_SIGNAL_READ_KINDS: tuple[StopPoiKind, ...] = ("traffic_signals", "crossing")
+_SIGNAL_KIND: StopPoiKind = "traffic_signals"
+
+_Kind = TypeVar("_Kind", bound=str)
+
+
+def stop_kind_sql(alias: str) -> str:
+    """`node_materials`の別名`alias`の行の種別を、信号の読み替えを済ませて返すSQL式。
+
+    地図へ出す種別も数える種別もこの式から導く——別々に書くと、見えている点の数と
+    評価の停止回数が合わなくなる。
+    """
+    read = ", ".join(_quote(kind) for kind in _SIGNAL_READ_KINDS)
+    return (f"(CASE WHEN {alias}.has_traffic_signals AND {alias}.kind IN ({read})"
+            f" THEN {_quote(_SIGNAL_KIND)} ELSE {alias}.kind END)")
+
+
+def kind_map_sql(kind_sql: str, mapping: Mapping[_Kind, str], *, otherwise: str = "NULL") -> str:
+    """種別の式`kind_sql`を表`mapping`で読み替えるSQL式。表に無い種別は`otherwise`。"""
+    whens = " ".join(
+        f"WHEN {_quote(kind)} THEN {_quote(mapped)}" for kind, mapped in sorted(mapping.items()))
+    return f"(CASE {kind_sql} {whens} ELSE {otherwise} END)"
+
+
+def count_kind_sql(alias: str) -> str:
+    """`node_materials`の別名`alias`の行を、数える種別（`POI_COUNT_KINDS`のキー）へ畳むSQL式。
+
+    停止要因でない行（補給休憩・ただの交差点）はNULL。
+    """
+    return kind_map_sql(stop_kind_sql(alias), COUNT_KIND_OF)
 
 
 def _values_clause(rules: tuple[tuple[str, str, str, int], ...]) -> str:

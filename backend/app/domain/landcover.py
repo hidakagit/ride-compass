@@ -30,6 +30,11 @@ LULC_RANGELAND = 11
 # No Data(0)・Clouds(10)は分母（有効画素数）から除外する。
 LULC_INVALID_VALUES = frozenset({0, LULC_CLOUDS})
 
+#: 土地被覆を数える帯。中心線からこの距離までを見て、路面そのものの幅は除く。
+#: 材料の値を決める量であり、材料の説明文もこの値を読む。
+LANDCOVER_RING_OUTER_M = 100.0
+LANDCOVER_RING_INNER_M = 10.0
+
 # これ未満の有効画素数は「値なし」（行を作らない）。統計的に安定した割合と呼べる
 # 最低限の画素数（10m画素×20 = 2,000m2程度）。
 MIN_VALID_PIXELS = 20
