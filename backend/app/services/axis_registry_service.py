@@ -14,6 +14,7 @@ import logging
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
     AxisDefinition,
+    check_axis_definition,
     check_internal_axis_not_published,
     check_material_exclusivity,
     check_publish_immutability,
@@ -34,25 +35,26 @@ class AxisDefinitionSyncError(RuntimeError):
     """
 
 
-def _find_unknown_references(definitions: dict[str, AxisDefinition]) -> dict[str, list[str]]:
-    """軸id→そのshapeが参照する未知の材料id・軸id。
+def _rejected_axes(definitions: dict[str, AxisDefinition]) -> dict[str, str]:
+    """軸id→値の不変条件（`check_axis_definition`）に通らない理由。
 
-    Pydanticのバリデーションはshapeの**構造**だけを見て材料の実在を見ないため、削除済みの
-    材料idを参照し続けている行は「読めるが意味的には古い」状態のまま素通りする。
+    行をモデルへ組み立てる検証は軸そのものしか見ないため、削除済みの材料idを参照し続けている行等は
+    「読めるが意味的には古い」状態のまま素通りする。管理APIを通らずに書かれた行（復元）も、ここで
+    管理APIと同じ検査を通る。軸の参照は同じ読み込み結果の軸だけを受け入れる。
     """
-    known_axis_ids = set(definitions)
-    unknown: dict[str, list[str]] = {}
+    rejected: dict[str, str] = {}
     for axis_id, definition in definitions.items():
-        missing = sorted({m for m in definition.materials if not is_known_material(m) and m not in known_axis_ids})
-        if missing:
-            unknown[axis_id] = missing
-    return unknown
+        try:
+            check_axis_definition(definition, definitions.keys())
+        except ValueError as error:
+            rejected[axis_id] = str(error)
+    return rejected
 
 
 async def load_axis_definitions(repository: AxisDefinitionRepository) -> dict[str, AxisDefinition]:
     """DBの軸を読み、アプリが起動時に受け入れる状態かを検算する（プロセスへはまだ反映しない）。
 
-    読めない・0行・未知参照のいずれも`AxisDefinitionSyncError`。
+    読めない・0行・値の不変条件に通らない軸のいずれも`AxisDefinitionSyncError`。
     """
     try:
         definitions = await repository.list_all()
@@ -63,11 +65,9 @@ async def load_axis_definitions(repository: AxisDefinitionRepository) -> dict[st
             "axis_definitionsテーブルが空です（軸の行はスキーマと一緒には作られない。入る経路は管理APIと、"
             "バックアップからの復元 scripts/admin_data_backup.py restore）"
         )
-    unknown_references = _find_unknown_references(definitions)
-    if unknown_references:
-        raise AxisDefinitionSyncError(
-            f"軸定義DBに未知の材料/軸参照を検出しました unknown={unknown_references}"
-        )
+    rejected = _rejected_axes(definitions)
+    if rejected:
+        raise AxisDefinitionSyncError(f"軸定義DBにアプリが受け入れない軸があります rejected={rejected}")
     return definitions
 
 
@@ -118,8 +118,8 @@ class AxisRegistryAdminService:
         existing_definitions = {aid: d for aid, (d, _) in existing.items()}
         check_material_exclusivity(definition, existing_definitions)
         check_internal_axis_not_published(definition, existing_definitions)
-        # 軸間参照（内部軸→公開軸）の循環検証。参照先axis_idの実在はrouter層が既に
-        # 確かめている前提。
+        # 軸間参照（内部軸→公開軸）の循環検証。参照先axis_idの実在は管理APIの本文の検証
+        # （`check_axis_definition`）が既に確かめている前提。
         topological_axis_order({**existing_definitions, definition.axis_id: definition})
         sort_order = max((order for _, order in existing.values()), default=-1) + 1
         await self._repository.upsert(definition, sort_order)

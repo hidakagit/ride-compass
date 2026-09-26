@@ -236,6 +236,118 @@ class TestMaterialExclusivity:
         axis_definitions.check_material_exclusivity(linear_axis("pub2", "inner", "num_b"), existing)
 
 
+DYNAMIC = next(iter(axis_definitions.REQUEST_DYNAMIC_MATERIAL_IDS))
+KNOWN_AXIS = "ref"
+
+
+def shape_over(*materials):
+    return {"kind": "breakpoint_linear", "terms": [{"material": m} for m in materials], "breakpoints": LINEAR_0_100}
+
+
+def axis_body(**fields) -> AxisDefinition:
+    """管理APIの本文と同じ形（JSON）から組み立てた軸。"""
+    return AxisDefinition.model_validate(
+        {"axis_id": "a", "label": "軸A", "default_weight": 1.0, "shape": shape_over("num_a"), **fields}
+    )
+
+
+class TestValuesCheckedAgainstTheCatalogAndTheOtherAxes:
+    """`check_axis_definition`——書き手（管理API・復元）を問わず、読み込みも通す値の不変条件。"""
+
+    @pytest.fixture(autouse=True)
+    def dynamic_material(self, catalog):
+        catalog[DYNAMIC] = material(DYNAMIC)
+
+    @pytest.mark.parametrize(
+        ("fields", "reason"),
+        [
+            ({"label": "とても長い名前"}, "文字を超えています"),
+            ({"shape": shape_over(DYNAMIC, "num_a")}, "組み合わせることはできません"),
+            (
+                {
+                    "shape": shape_over(DYNAMIC),
+                    "priority_overrides": [{"material": "bool_a", "equals": "true", "value": 0}],
+                },
+                "組み合わせることはできません",
+            ),
+            ({"shape": shape_over("ghost")}, "無い材料・軸を指しています: ['ghost']"),
+            ({"shape": shape_over("cat_a")}, "この計算の形には使えません"),
+            ({"shape": {"kind": "categorical", "material": "num_a", "mapping": {"x": 1}}}, "この計算の形には使えません"),
+            ({"shape": {"kind": "categorical", "material": "bool_a", "mapping": {"x": 1}}}, "値の型が合いません"),
+            ({"shape": {"kind": "categorical", "material": "cat_a", "mapping": {"true": 1}}}, "値の型が合いません"),
+            (
+                {"priority_overrides": [{"material": "ghost", "equals": "1", "value": 0}]},
+                "優先条件が材料カタログに無い材料・軸を指しています: ['ghost']",
+            ),
+            (
+                {"priority_overrides": [{"material": KNOWN_AXIS, "equals": "1", "value": 0}]},
+                "真偽・分類の材料にだけ置けます",
+            ),
+            (
+                {"priority_overrides": [{"material": "num_a", "equals": "1", "value": 0}]},
+                "真偽・分類の材料にだけ置けます",
+            ),
+            (
+                {"priority_overrides": [{"material": "bool_a", "equals": "yes", "value": 0}]},
+                "の値として読めません",
+            ),
+            (
+                {"priority_overrides": [{"material": "cat_a", "equals": "true", "value": 0}]},
+                "の値として読めません",
+            ),
+        ],
+        ids=[
+            "地図チップに収まらない表示名",
+            "動的材料と静的材料の混在",
+            "0次条件経由の混在",
+            "カタログにも軸にも無い材料",
+            "折れ線に分類の材料",
+            "分類に数値の材料",
+            "真偽の材料に文字列のキー",
+            "分類の材料に真偽のキー",
+            "0次条件の未知の材料",
+            "0次条件が軸の点数を指す",
+            "0次条件が数値の材料を指す",
+            "0次条件が真偽の材料に真偽と読めない値",
+            "0次条件が分類の材料に真偽の値",
+        ],
+    )
+    def test_rejected(self, fields, reason):
+        with pytest.raises(ValueError) as excinfo:
+            axis_definitions.check_axis_definition(axis_body(**fields), {KNOWN_AXIS})
+
+        assert reason in str(excinfo.value)
+
+    @pytest.mark.parametrize(
+        "fields",
+        [
+            {"label": "とても長い名前", "chip_label": "長名"},
+            {"shape": shape_over(DYNAMIC, KNOWN_AXIS)},
+            {"shape": shape_over(KNOWN_AXIS, "bool_a")},
+            {"shape": {"kind": "categorical", "material": "bool_a", "mapping": {"true": 1, "false": 0}}},
+            {"shape": {"kind": "categorical", "material": "cat_a", "mapping": {"yes": 1, "no": 0}}},
+            {"priority_overrides": [{"material": "bool_a", "equals": "false", "value": 0}]},
+            {"priority_overrides": [{"material": "cat_a", "equals": "yes", "value": 0}]},
+        ],
+        ids=[
+            "長い表示名に略称を添える",
+            "動的材料と軸の参照",
+            "軸の参照と真偽の材料",
+            "真偽の材料に真偽のキー",
+            "分類の材料に真偽とも読める値の名前のキー",
+            "0次条件が真偽の材料に真偽の値",
+            "0次条件が分類の材料に値の名前",
+        ],
+    )
+    def test_accepted(self, fields):
+        axis_definitions.check_axis_definition(axis_body(**fields), {KNOWN_AXIS})
+
+    def test_an_axis_reference_is_known_only_through_the_axes_passed_in(self):
+        """軸の参照を受け入れるのは、渡された軸の集合（読み込みでは同じ読み込み結果）にある軸だけ。"""
+        with pytest.raises(ValueError, match=KNOWN_AXIS):
+            axis_definitions.check_axis_definition(axis_body(shape=shape_over(KNOWN_AXIS)), set())
+
+
 class TestAxisDependencies:
     def test_only_references_to_known_axes_are_dependencies(self, catalog):
         definition = linear_axis("a", "num_a", "inner", "ghost")

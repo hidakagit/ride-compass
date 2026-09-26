@@ -22,20 +22,16 @@ from app.services.axis_preview_service import axis_raw_value_distribution
 from app.api.dependencies import get_axis_registry_admin_service, served_dedicated_way_value_material
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
-    MAP_CHIP_LABEL_MAX_LENGTH,
     axis_error,
-    REQUEST_DYNAMIC_MATERIAL_IDS,
     AxisDefinition,
     AxisShape,
     BreakpointLinearShape,
-    CategoricalShape,
     PriorityCondition,
-    flag_or_value_name,
+    check_axis_definition,
     referenced_materials,
 )
 from app.domain.axis_display import axis_display_for, bands_the_map_keeps, thresholds_the_map_drops
 from app.domain.difficulty import weight_share
-from app.domain.material_catalog import is_known_material, material_dtype
 from app.domain.registry import AxisDisplaySpec
 from app.services.axis_registry_service import AxisRegistryAdminService
 from app.domain.strict_model import StrictModel
@@ -73,49 +69,14 @@ class AxisDefinitionPayload(AxisDefinition):
 
     フィールドと、軸そのものの不変条件（重みの非負・折れ点のx昇順・段の境界の昇順・
     段ラベルの件数など）は`AxisDefinition`が持ち、DBの行から組み立てる経路にも同じように
-    効く。ここが足すのは**新しく軸を作るときにしか問えないもの**——材料カタログ・既存の
-    軸・配信実装という軸の外側に照らす検証と、地図チップへ出す名前の長さである。
+    効く。軸の外（材料カタログ・既存の軸）に照らす値の不変条件は`check_axis_definition`が持ち、
+    起動時・復元時の読み込みも同じものを通す。ここが自分で持つのは、このプロセスの組み立て
+    （配信の実装）に照らす検証だけである。
     """
 
     @model_validator(mode="after")
-    def _the_map_chip_needs_a_short_name(self) -> "AxisDefinitionPayload":
-        """`chip_label`未設定の軸は`label`をそのまま地図チップへ出すため、labelも4文字以内で
-        なければ固定サイズのタイルからはみ出す。labelの長さは軸そのものの不変条件ではない
-        （地図チップへ出ない内部軸・`show_map_icon=False`の軸にも同じ制約を課すことになる）
-        ので、新しく軸を作る側へ短い名前を要求するこの入口に置く。
-        """
-        if self.chip_label is None and len(self.label) > MAP_CHIP_LABEL_MAX_LENGTH:
-            raise axis_error(
-                f"表示名が{MAP_CHIP_LABEL_MAX_LENGTH}文字を超えています（{len(self.label)}文字）。"
-                f"地図チップの略称（{MAP_CHIP_LABEL_MAX_LENGTH}文字以内）を設定してください。"
-            )
-        return self
-
-    @model_validator(mode="after")
-    def _check_dynamic_and_static_materials_are_not_mixed(self) -> "AxisDefinitionPayload":
-        """動的材料（`REQUEST_DYNAMIC_MATERIAL_IDS`）と静的材料を同じshapeで混在させない。
-
-        動的軸はリクエストごとに`evaluate_dynamic_axis_arrays`（domain/dynamic_materials.py）で
-        再評価され、そこへ渡るのは「静的スコア行列の公開軸スコア」と「動的材料」
-        だけである。静的材料の配列は渡らないため、混在させた軸は`evaluate_axis_array`が
-        `materials[...]`でKeyErrorになり、`/api/routes/generate`ごと500になる
-        （GUI操作だけで全ルート生成が落ちる）。静的材料が必要なら、その部分を別の軸へ切り出し
-        （公開軸として評価され、動的軸からは軸参照で読める）合成する。
-
-        参照材料の導出は`AxisDefinition.materials`と同じ`referenced_materials`を使う
-        （shapeの種別を問わず、`priority_overrides`が参照する材料も含む）。動的軸かどうかを
-        判定する`_axes_depending_on_materials`が同じ導出を根拠にしているため、ここだけ
-        `shape.terms`に絞ると検証を素通りした軸が実行時に落ちる。
-        """
-        materials = set(referenced_materials(self.shape, self.priority_overrides))
-        dynamic = materials & REQUEST_DYNAMIC_MATERIAL_IDS
-        # 軸参照（他の軸のaxis_id）は静的材料ではないため除く。
-        static = {m for m in materials if is_known_material(m)} - REQUEST_DYNAMIC_MATERIAL_IDS
-        if dynamic and static:
-            raise axis_error(
-                f"時刻で変わる材料{sorted(dynamic)}と、変わらない材料{sorted(static)}を1つの軸で組み合わせることは"
-                "できません（時刻で変わる評価には、時刻で変わる材料と公開軸の点数しか届かないため）。"
-            )
+    def _check_against_the_catalog_and_the_other_axes(self) -> "AxisDefinitionPayload":
+        check_axis_definition(self, AXIS_DEFINITIONS.keys())
         return self
 
     @model_validator(mode="after")
@@ -127,6 +88,9 @@ class AxisDefinitionPayload(AxisDefinition):
         配信できる値が無い。宣言だけを通すと、その軸のタイル要求が実装の無いまま
         呼ばれ続ける（配信側は404を返すため表示は壊れないが、地図に出ない軸の宣言が
         残り続けて「宣言したのに出ない」原因が分からなくなる）。
+
+        値の不変条件ではないので`check_axis_definition`へ置かない: 照らす相手はこのプロセスが組み立てた
+        配信の実装で、実装の無い軸の配信は未知の軸と同じ404で済む（読み込みを止める理由にならない）。
         """
         if not self.dedicated_way_value_layer:
             return self
@@ -138,94 +102,6 @@ class AxisDefinitionPayload(AxisDefinition):
             )
         return self
 
-    @model_validator(mode="after")
-    def _check_materials_are_known(self) -> "AxisDefinitionPayload":
-        """shapeが参照する材料が`domain/material_catalog.py:
-        MATERIAL_CATALOG`の既知材料であることを検証する（未知の文字列を送っても
-        通ってしまう抜け穴を塞ぐ）。材料は今後コード変更で増減しうるため、
-        判定は`MATERIAL_CATALOG`を都度参照する形にし、本モデル側に材料一覧を
-        複製しない。
-
-        あわせて、材料のdtype（numeric/boolean/categorical）がshape種別の前提と
-        一致するかも検証する（`CategoricalShape`にnumeric材料[例: maxspeed_kmh]を
-        指定すると、`axis_templates.evaluate_categorical`は対応表のキーと一致する値
-        しか引けないため、想定外dtypeの値は常にNaNとなり、
-        その軸は全Edgeで恒久的に欠損扱いになる——エラーもログも一切出ないまま）。
-        `CategoricalShape`はboolean/categorical材料（str多値対応）、
-        `BreakpointLinearShape`はnumeric/boolean材料を前提とする（
-        項の計算（`evaluate_axis_array`）は`value * term.weight`という単純な乗算のため、
-        bool値でも`True==1.0`/`False==0.0`として数値的に正しく計算される——
-        CategoricalShapeの表引きのような「想定外dtypeが静かに欠損化する」
-        問題はBreakpointLinearShapeには無い。全termがboolean材料であることの構造上の
-        強制は無く、numeric/boolean混在も許容する（公開軸`bicycle_infra_quality`が
-        boolean材料5件、`night`が2件をtermsに使う）。
-
-        materialsは`MATERIAL_CATALOG`の材料idだけでなく、他の軸の
-        axis_id（軸の階層構造、内部軸→公開軸）も指せる。軸参照はdtypeチェックの
-        対象外とする（評価結果は常に数値[0-100のdifficulty]のため、単純な材料の
-        dtype検証とは別の話。循環参照・参照先の存在チェックは
-        `AxisRegistryAdminService.create/update`側で行う）。
-        """
-        if isinstance(self.shape, BreakpointLinearShape):
-            materials = [term.material for term in self.shape.terms]
-            expected_dtypes = {"numeric", "boolean"}
-        else:
-            materials = [self.shape.material]
-            expected_dtypes = {"boolean", "categorical"}
-        unknown = sorted({m for m in materials if not is_known_material(m) and m not in AXIS_DEFINITIONS})
-        if unknown:
-            raise axis_error(f"材料カタログに無い材料・軸を指しています: {unknown}")
-        mismatched = sorted(
-            {m for m in materials if is_known_material(m) and material_dtype(m) not in expected_dtypes}
-        )
-        if mismatched:
-            raise axis_error(
-                f"材料{mismatched}はこの計算の形には使えません（使える材料の型: {sorted(expected_dtypes)}）。"
-            )
-        # 上のdtypeチェックはmaterialのdtype「クラス」（boolean/categoricalのどちらか）
-        # しか見ないため、CategoricalShape.mappingの実際のキー型（bool値かstr値か）が
-        # そのmaterialのdtypeと一致するかは別に検証する必要がある。例えばhighway
-        # （dtype="categorical"、値は"residential"等の文字列）を参照するCategoricalShape
-        # に{True: 1.0, False: 0.0}というboolキーのmappingを指定すると、評価時
-        # evaluate_categoricalがmapping.get("residential", None)で常にNoneを返す
-        # ため、その軸は全Edgeで恒久的に欠損扱いになる。CategoricalShapeに限り、
-        # mappingキーの型とmaterialのdtypeが一致することも検証する。
-        if isinstance(self.shape, CategoricalShape) and is_known_material(self.shape.material):
-            dtype = material_dtype(self.shape.material)
-            key_types = {type(key) for key in self.shape.mapping}
-            expected_key_type = bool if dtype == "boolean" else str
-            if key_types and key_types != {expected_key_type}:
-                raise axis_error(
-                    f"材料「{self.shape.material}」（型 {dtype}）の値の行の値の型が合いません"
-                    f"（{sorted(t.__name__ for t in key_types)}。すべて{expected_key_type.__name__}にしてください）。"
-                )
-        # 0次条件は、どの道にも当たらないまま保存されても評価はエラーもログも出さない。材料が未知のとき、
-        # 当たる値が無い材料（数値の材料・軸の点数）のとき、`equals`を対応表のキーと同じ読み方
-        # （`flag_or_value_name`）で読んだ値の型が材料の値の型と合わないとき（真偽の材料に"yes"等）がそれに当たる。
-        unknown_override_materials = sorted(
-            {
-                cond.material
-                for cond in self.priority_overrides
-                if not is_known_material(cond.material) and cond.material not in AXIS_DEFINITIONS
-            }
-        )
-        if unknown_override_materials:
-            raise axis_error(f"優先条件が材料カタログに無い材料・軸を指しています: {unknown_override_materials}")
-        for cond in self.priority_overrides:
-            override_dtype = material_dtype(cond.material) if is_known_material(cond.material) else None
-            if override_dtype not in ("boolean", "categorical"):
-                kind = "軸の点数" if override_dtype is None else "数値の材料"
-                raise axis_error(
-                    f"優先条件は真偽・分類の材料にだけ置けます（「{cond.material}」は{kind}で、値の名前と一致しません）。"
-                )
-            expected_type = bool if override_dtype == "boolean" else str
-            if not isinstance(flag_or_value_name(cond.equals), expected_type):
-                raise axis_error(
-                    f"優先条件の値「{cond.equals}」は材料「{cond.material}」（型 {override_dtype}）の値として読めません"
-                    "（真偽の材料は\"true\"か\"false\"、分類の材料は値の名前で書いてください）。"
-                )
-        return self
-
     def to_definition(self) -> AxisDefinition:
         """派生クラスのまま先へ渡すと、Pydanticの等価判定がクラスまで見るため
         `is_cosmetic_only_update`の突き合わせが常に不一致になる。基底の型へ戻す。"""
@@ -234,11 +110,8 @@ class AxisDefinitionPayload(AxisDefinition):
 
 class AxisDefinitionResponse(AxisDefinition):
     """一覧・単体取得のレスポンスボディ。DB由来の既存データをそのまま返すため、
-    `AxisDefinitionPayload`の書き込み時専用バリデータ（`_check_materials_are_known`）は
-    継承せず`AxisDefinition`から派生する。`material_catalog.py`は「材料は今後コード変更で
-    増減しうる」設計のため、ある材料を削除・リネームした後、DBに永続化済みの既存軸が
-    まだその材料idを参照していると、一覧・単体取得が未捕捉の500になる——読み取りは
-    「DBの内容をそのまま返す」だけであるべきで、書き込み時点の妥当性を再検証しない。
+    `AxisDefinitionPayload`の検証（`check_axis_definition`）は継承せず`AxisDefinition`から派生する
+    ——通らなくなった行も見せて直させる。
 
     `display`: `domain/axis_display.py: axis_display_for()`の計算結果
     （`GET /api/axis-catalog`と同じ関数）。軸スタジオのGUI（AxisComposer.tsx）が

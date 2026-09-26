@@ -218,9 +218,10 @@ Pythonの値、ルート選びは材料の型ごとの配列で、分類の材�
 ```
 
 - `AXIS_DEFINITIONS`はPython literalの初期値を持たない（空dictで開始）。DBが唯一の正本。
-- `refresh_axis_definitions`はDB読み込み失敗・0行・未知材料/軸参照のいずれかを検出すると
-  `AxisDefinitionSyncError`を送出しfail-fastする（安全側フォールバックは持たない、
-  main.pyのlifespanはこれを捕捉せずアプリ起動自体を失敗させる）。
+- `refresh_axis_definitions`はDB読み込み失敗・0行・値の不変条件（下の「軸の外に照らす値の不変条件」）に
+  通らない軸のいずれかを検出すると`AxisDefinitionSyncError`を送出しfail-fastする（安全側フォールバックは
+  持たない、main.pyのlifespanはこれを捕捉せずアプリ起動自体を失敗させる）。材料をカタログから外す・材料の
+  型を変えるコード変更は、それを指す軸が本番DBに残っていればデプロイした起動で落ちる——先に軸を直す。
 - **行データ（軸の新規追加・既存軸の値変更）は`axis_admin.py`経由でしか入らない。**
   スキーマは`axis_definition_models.py`のORM宣言から`create_tables()`が作る。
 - **公開済み軸を不変にしているのは、一般ユーザーの保存設定が`axis_id`キーで再現される
@@ -392,7 +393,7 @@ idの文字列ではなく宣言そのもので指す。材料が指す要素に
   1〜4文字。重み・係数にNaN・無限大を許さない（軸の得点も合成difficultyも黙ってNaNになり、
   欠損と区別できなくなるため）。
 
-### 書き込み時のバリデーション（`AxisDefinitionPayload`）
+### 検証の文
 
 **検証の文は管理画面の保存の誤りにそのまま出る**（画面は軸の不変条件を写さない）。文は利用者が読める
 日本語で書き、`axis_definitions.py: axis_error`（`PydanticCustomError`）で返す——`ValueError`は
@@ -400,11 +401,17 @@ idの文字列ではなく宣言そのもので指す。材料が指す要素に
 起きるもの（表示名が空・しきい値の上書きが0件）は、制約より先に動く検証（`mode="before"`）で日本語にする
 （制約そのものは契約に載せるため残す）。
 
-軸の外側の状態（材料カタログ・既存の軸・配信実装）に照らすものだけがこちら側にある。
+### 軸の外に照らす値の不変条件（`domain/axis_definitions.py: check_axis_definition`）
+
+材料カタログ・ほかの軸に照らす値の不変条件と、地図チップへ出す名前の長さ。**書き手を問わず成り立つべきもの**
+なので、管理APIの本文（`AxisDefinitionPayload`）も、起動時・書き出し・復元の読み込み
+（`services/axis_registry_service.py: load_axis_definitions`）も同じ関数を通す——管理APIを通らずに書かれた
+行（復元）も、書き込み時と同じ検査で止まる。軸の参照として受け入れるのは、管理APIでは今の`AXIS_DEFINITIONS`、
+読み込みでは同じ読み込み結果の軸。モデルの検証に置かないのは、保存済みの行を読み出す管理APIの一覧・単体取得が、
+通らなくなった行（材料をカタログから外した後の軸等）もそのまま見せて直させる必要があるため。
 
 - `chip_label`未設定時は`label`自体が4文字以下であること——未設定だと`label`がそのまま
-  地図チップへ出るため。`label`の長さは軸そのものの不変条件ではない（地図チップへ出ない
-  内部軸・`show_map_icon=false`の軸にも課すことになる）ので、新規作成する側へ要求する。
+  地図チップへ出るため（地図チップへ出ない内部軸・`show_map_icon=false`の軸にも課す）。
 - shapeが参照する材料・軸参照が既知であること、材料のdtype（numeric/boolean/
   categorical）がshape種別の前提と一致すること（`CategoricalShape`は
   boolean/categorical材料、`BreakpointLinearShape`はnumeric/boolean材料）。
@@ -425,10 +432,14 @@ idの文字列ではなく宣言そのもので指す。材料が指す要素に
   （`domain/axis_definitions.py`）を使い、**shapeの種別を問わず`priority_overrides`が
   参照する材料も含める**。動的軸かどうかを判定する`_axes_depending_on_materials`が
   同じ導出を根拠にしているため、検証側だけ`shape.terms`に絞ると素通りした軸が実行時に落ちる。
-- `dedicated_way_value_layer`を立てられるのは、フィーチャー→値配信の実装
-  （`api/dependencies.py`の`_DEDICATED_WAY_VALUE_SERVICE_FACTORIES`、材料ごとに登録）がある
-  材料を**ちょうど1つ**参照する軸だけ（軸の名前は問わない）。宣言だけでは配信できる値が無い
-  （配信側はそういう軸を未知の`axis_id`と同じく404で返す）。
+
+### 書き込み時だけの検証（`AxisDefinitionPayload`）
+
+`dedicated_way_value_layer`を立てられるのは、フィーチャー→値配信の実装
+（`api/dependencies.py`の`_DEDICATED_WAY_VALUE_SERVICE_FACTORIES`、材料ごとに登録）がある
+材料を**ちょうど1つ**参照する軸だけ（軸の名前は問わない）。宣言だけでは配信できる値が無い
+（配信側はそういう軸を未知の`axis_id`と同じく404で返す）。照らす相手はこのプロセスが組み立てた配信の実装で、
+値の不変条件ではないため読み込みでは見ない——実装の無い軸の配信は404で済み、起動を止める理由にならない。
 
 ### 書き込み時のガード（`AxisRegistryAdminService`）
 

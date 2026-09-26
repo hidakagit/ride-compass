@@ -441,8 +441,11 @@ way粒度で引くときは、同じ式のまま`w`の行から同じ名前の�
 ## RoutePreference（`domain/route_preference.py`）
 
 `weights: dict[str, float]`（axis_id→重み、既定値は`default_axis_weights()`）。
-バリデーションは公開軸（`is_published=True`）のキー集合の完全一致を要求する（内部軸は
-一般ユーザー・リクエストからの重み付け対象外）。
+部分指定を許し、書かれなかった公開軸は`default_weight`で補う。値の不変条件は`check_axis_weights`が持ち、
+組み立てるたびに通す——キーは公開軸（`is_published=True`）のidだけ（内部軸は重み付けの対象外）、値は非負
+（負の重みは合成difficultyの分母と分子の符号を食い違わせる）。ルート生成の要求を通らずに組み立てる書き手
+（研究のスクリプト・テスト）も同じ検査を通る。「上書きするなら公開軸を全部書く」は要求の形で、
+`api/routers/routes.py: RoutePreferenceWeights`が持ち、値の検査は同じ`check_axis_weights`を呼ぶ。
 
 - `with_weight(axis_id, value)`: 1軸の重みだけを差し替えたコピーを返す。`axis_id`が
   現在の`weights`（＝現在の公開軸集合）に無い場合は無変更の`self`を返す。
