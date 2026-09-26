@@ -488,6 +488,21 @@ class TestEvaluateAxesValues:
         assert scores == {"pub": [50.0, None], "unevaluated": [None, None]}
 
 
+class TestEvaluateAxesInputs:
+    def test_returns_the_value_each_published_axis_maps_to_its_score(self, axes):
+        """折れ点の軸は生値（他の軸を読むならその得点の重み付き和）、対応表の軸は引く材料の値。
+        対応表に無い値も、その値のまま返す。"""
+        axes(
+            linear_axis("pub", term("inner", weight=2.0), breakpoints=[(0.0, 0.0), (100.0, 100.0)], is_published=True),
+            linear_axis("inner", "num_a"),
+            categorical_axis("cat", "cat_a", {"x": 40.0}, is_published=True),
+        )
+
+        inputs = axis_definitions.evaluate_axes_inputs({"num_a": [5.0, None], "cat_a": ["y", None]}, 2)
+
+        assert inputs == {"pub": [100.0, None], "cat": ["y", None]}
+
+
 class TestEvaluateAxisArray:
     def test_a_missing_required_material_leaves_the_element_unevaluated(self):
         definition = linear_axis("a", "num_a", "num_b")
