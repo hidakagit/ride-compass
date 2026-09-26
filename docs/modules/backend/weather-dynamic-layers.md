@@ -8,7 +8,8 @@
 読む）。
 
 **外部タイルのプロキシ配信もここが持つ**（基礎地図・国土地理院）。気象のデータではないが、
-「外部のタイルを中継し`tile_cache`へ永続化する」という仕組みを気象庁タイルと共有しており、
+「外部のタイルを中継してキャッシュする」という仕組みを気象庁タイルと共有しており（気象庁はRedis、
+基礎地図・地理院はディスクの`tile_cache`）、
 片方だけを別の文書へ移すと同じ仕組みの説明が二手に分かれる。標高そのものの取得（DEM→
 Edge属性、ルート評価の入力）は[elevation.md](elevation.md)が持つ。
 
@@ -357,7 +358,7 @@ URLも変わるため、ブラウザキャッシュ（`api/cache_policy.py`）�
 ## 基礎地図プロキシ（`basemap_client.py`・`api/routers/basemap.py`）
 
 OpenFreeMapのスタイルJSON・TileJSON・スプライト・グリフ・タイルを透過的にプロキシし、
-`tile_cache`（ファイル）へ保存する。JSON（スタイル/TileJSON）は上流のURLを
+`tile_cache`（ディスク）へ保存する。JSON（スタイル/TileJSON）は上流のURLを
 `settings.basemap_public_base_url`へ書き換えて返す。**絶対URLへの書き換えは省略できない**
 ——MapLibreはスタイルJSON内の相対URLを、スタイル自身の取得元ではなく**ページのオリジン**に
 対して解決し、スプライトのURLに至っては相対URLを明示的に拒否する。書き換えた内容を
@@ -369,14 +370,14 @@ OpenFreeMapのスタイルJSON・TileJSON・スプライト・グリフ・タイ
 古い配信先が配られ続ける。配信元が持たない部品（用意されていない書体の範囲等）は404として
 返し、上流障害（502）と分ける——分けないと、無いことが`/api/debug/stats`の障害率へ乗り、
 本当の障害が埋もれる。`POST /api/admin/basemap/refresh`は`tile_cache.clear_all()`で路面タイル等も
-含めたファイルキャッシュ全体を消す。全利用者へ影響するため管理API認可境界
+含めたディスクキャッシュ全体を消す。全利用者へ影響するため管理API認可境界
 （`require_admin_basic_auth`）の内側に置き、入口は管理画面`/admin`の「データ保守」タブ
 （`TileCachePanel.tsx`）だけに持つ。
 
 ## 地理院タイルプロキシ（`gsi_tile_client.py`・`api/routers/gsi_tile.py`）
 
-国土地理院のタイルを**パスで指定して**透過的にプロキシしつつ`tile_cache`（ファイル）へ
-キャッシュする。`basemap_client.py`と同じ「pathを丸ごとプロキシ＋`tile_cache`の永続ファイル
+国土地理院のタイルを**パスで指定して**透過的にプロキシしつつ`tile_cache`（ディスク）へ
+キャッシュする。`basemap_client.py`と同じ「pathを丸ごとプロキシ＋`tile_cache`の永続ディスク
 キャッシュ」方式だが、タイルはPNG単体でJSON応答を持たないためURL書き換えは不要。地理院タイルは
 `basetime`/`validtime`のような時刻依存パラメータを持たない静的データのため、TTL付きキャッシュも
 不要。クライアントは製品ごとの解釈を持たない——現在は色別標高図（`xyz/relief/…`、
@@ -399,7 +400,7 @@ OpenFreeMapのスタイルJSON・TileJSON・スプライト・グリフ・タイ
 で、他の失敗（タイムアウト・
 5xx等）と区別して502・WARNINGログ・`/api/debug/stats`のerror集計へは乗せない。確認済みの
 404は`GsiTileNotFound`センチネルとしてプロセス内メモリのみ（上限付きLRU、キー=path）に
-記憶し、`tile_cache.py`の永続ファイルキャッシュへは書かない（将来GSI側の整備区域が広がった
+記憶し、`tile_cache.py`の永続ディスクキャッシュへは書かない（将来GSI側の整備区域が広がった
 場合、プロセス再起動だけで再取得の機会が来るようにするため）。`api/routers/gsi_tile.py`
 は`GsiTileNotFound`を受け取ると404（それ以外の`None`は502）を返す。
 

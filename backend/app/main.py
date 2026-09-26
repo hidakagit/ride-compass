@@ -18,7 +18,7 @@ from app.infrastructure.axis_definition_repository import AxisDefinitionReposito
 from app.infrastructure.database import get_session_factory
 from app.infrastructure.debug_control import install_ring_buffer_handler
 from app.infrastructure.http_client import close_all_http_clients, get_http_client
-from app.infrastructure import road_network_store, tile_cache
+from app.infrastructure import road_network_store
 from app.infrastructure.jma_tile_client import JmaTileClient
 from app.infrastructure.msm_client import refresh as refresh_msm
 from app.infrastructure.request_log import (
@@ -97,13 +97,9 @@ async def _prune_stale_disk_generations_job() -> None:
     世代番号は参照先を切り替えるだけで、ディスク上の古い実体は残り続ける。削除対象が
     大きい（数百MB規模）ことがあるためスレッドで実行する。
     """
-    # 焼き済みタイルの置き場は鍵に世代を持たないため、世代単位では消せない。古い順で落とす。
-    freed = await asyncio.to_thread(
-        tile_cache.prune_to_size_limit, settings.tile_cache_size_limit_mb * 1024 * 1024
-    )
-    freed += await asyncio.to_thread(road_network_store.prune_other_shapes)
+    freed = await asyncio.to_thread(road_network_store.prune_other_shapes)
     if freed:
-        logging.getLogger("ridecompass.tile_cache_prune").info(
+        logging.getLogger("ridecompass.disk_generation_prune").info(
             "ディスク永続キャッシュの旧世代を削除しました freed_mb=%.1f", freed / 1e6
         )
 
