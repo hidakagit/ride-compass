@@ -15,6 +15,7 @@ import time
 
 import asyncpg
 
+from app.batch._common import reset_columns_sql
 from app.domain.accident import (
     ACCIDENT_FATAL_WEIGHT,
     ACCIDENT_MATCH_MAX_DISTANCE_M,
@@ -78,11 +79,10 @@ FROM (
 WHERE p.osm_way_id = m.osm_way_id AND p.segment_index = m.segment_index
 """
 
-#: 停止要因が1つも無い区間も0で埋める（NULLは「未計算」を表すため）。
-_EDGE_STOP_ZERO = f"""
-UPDATE edge_materials SET {", ".join(f"{c} = COALESCE({c}, 0)" for c in _STOP_COLUMNS.values())}
-WHERE {" OR ".join(f"{c} IS NULL" for c in _STOP_COLUMNS.values())}
-"""
+#: 数える前に0へ戻す。停止要因・事故が1つも無い区間も0になる（NULLは「未計算」を表すため）。
+#: 交差点の数は全区間を書くので戻さない。
+_EDGE_RESET = reset_columns_sql(
+    "edge_materials", {c: "0" for c in ("accident_count", *_STOP_COLUMNS.values())})
 
 _EDGE_INTERSECTIONS = """
 WITH ends AS (
@@ -120,8 +120,6 @@ FROM (
 WHERE s.osm_way_id = m.osm_way_id AND s.segment_index = m.segment_index
 """
 
-_EDGE_ACCIDENT_ZERO = "UPDATE edge_materials SET accident_count = 0 WHERE accident_count IS NULL"
-
 _WAY_ORPHANS = """
 DELETE FROM way_materials w
 WHERE NOT EXISTS (SELECT 1 FROM road_edges e WHERE e.osm_way_id = w.osm_way_id)
@@ -149,11 +147,10 @@ async def derive(conn: asyncpg.Connection) -> None:
     async with conn.transaction():
         await conn.execute(_CLUSTER_SQL, POI_CLUSTER_EPS_M)
         clustered = await conn.fetchval("SELECT count(*) FROM _stop_nodes")
+        await conn.execute(_EDGE_RESET)
         await conn.execute(_EDGE_STOP_COUNTS)
-        await conn.execute(_EDGE_STOP_ZERO)
         await conn.execute(_EDGE_INTERSECTIONS, INTERSECTION_DEGREE_THRESHOLD)
         await conn.execute(_EDGE_ACCIDENTS, ACCIDENT_FATAL_WEIGHT, degrees)
-        await conn.execute(_EDGE_ACCIDENT_ZERO)
         await conn.execute(_WAY_ORPHANS)
         await conn.execute(_WAY_FROM_EDGES)
         await conn.execute("ANALYZE way_materials")

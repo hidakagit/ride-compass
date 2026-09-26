@@ -21,6 +21,7 @@ import time
 
 import asyncpg
 
+from app.batch._common import reset_columns_sql
 from app.batch.dem_tile_store import PRODUCT_PRIORITY
 from app.domain.attributes import elevation_values_sql
 from app.domain.landcover import (
@@ -108,12 +109,13 @@ SELECT v.osm_way_id, v.segment_index, v.ord, v.lon, v.lat, v.on_structure, e.ele
 FROM _vertex v LEFT JOIN _vertex_elev e ON e.vid = v.vid
 """
 
+_ELEVATION_COLUMNS = ("start_elevation_m", "end_elevation_m", "elevation_gain_m",
+                      "elevation_loss_m", "average_grade", "max_grade", "min_grade")
+
+_RESET_ELEVATION = reset_columns_sql("edge_materials", dict.fromkeys(_ELEVATION_COLUMNS, "NULL"))
+
 _UPDATE_ELEVATION = f"""
-UPDATE edge_materials m SET
-    start_elevation_m = v.start_elevation_m, end_elevation_m = v.end_elevation_m,
-    elevation_gain_m = v.elevation_gain_m, elevation_loss_m = v.elevation_loss_m,
-    average_grade = v.average_grade,
-    max_grade = v.max_grade, min_grade = v.min_grade
+UPDATE edge_materials m SET {", ".join(f"{c} = v.{c}" for c in _ELEVATION_COLUMNS)}
 FROM ({elevation_values_sql(_VERTEX_ELEVATIONS)}) v
 WHERE v.osm_way_id = m.osm_way_id AND v.segment_index = m.segment_index
 """
@@ -140,6 +142,7 @@ async def _products_in_priority(conn: asyncpg.Connection) -> list[tuple[str, int
 async def derive_elevation(conn: asyncpg.Connection) -> int:
     started = time.perf_counter()
     products = await _products_in_priority(conn)
+    await conn.execute(_RESET_ELEVATION)
     if not products:
         logger.warning("標高タイルが1枚も取り込まれていません")
         return 0
@@ -195,6 +198,11 @@ def _landcover_columns() -> list[tuple[str, str]]:
     return [(name, "lc_" + name.removesuffix("_percent")) for name, _ in PERCENT_CLASSES]
 
 
+def _reset_landcover_sql(table: str) -> str:
+    columns = ["lc_valid_pixels", *(column for _, column in _landcover_columns())]
+    return reset_columns_sql(table, dict.fromkeys(columns, "NULL"))
+
+
 def _update_landcover_sql() -> str:
     assigned = ", ".join(f"{column} = p.{name}" for name, column in _landcover_columns())
     return f"""
@@ -206,6 +214,7 @@ WHERE p.osm_way_id = m.osm_way_id AND p.segment_index = m.segment_index
 
 async def derive_landcover(conn: asyncpg.Connection) -> int:
     started = time.perf_counter()
+    await conn.execute(_reset_landcover_sql("edge_materials"))
     tiles = await conn.fetchval(
         "SELECT count(*) FROM source_features WHERE source = 'lulc'")
     if not tiles:
@@ -253,4 +262,5 @@ async def derive(conn: asyncpg.Connection) -> None:
     async with conn.transaction():
         await derive_elevation(conn)
         await derive_landcover(conn)
+        await conn.execute(_reset_landcover_sql("way_materials"))
         await conn.execute(_way_rollup_sql())

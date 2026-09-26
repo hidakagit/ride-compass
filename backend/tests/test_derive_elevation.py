@@ -151,3 +151,37 @@ async def test_each_pixel_takes_the_most_accurate_product_that_has_a_value(eleva
         " ORDER BY osm_way_id")
     got = {r["osm_way_id"]: (r["start_elevation_m"], r["end_elevation_m"]) for r in rows}
     assert got == {way_id: (expected, expected) for way_id, _pixels, expected in CASES}
+
+
+async def test_rerun_without_a_product_keeps_no_value_only_that_product_gave(elevation_conn):
+    """製品を抜いて流し直すと、その製品だけが値を持っていた区間は値を失い、ほかは変わらない。
+    製品が1つも無くなれば、どの区間も値を持たない。"""
+    conn = elevation_conn
+
+    async def elevations() -> dict[int, float | None]:
+        rows = await conn.fetch("SELECT osm_way_id, start_elevation_m, max_grade FROM edge_materials")
+        assert all((r["start_elevation_m"] is None) == (r["max_grade"] is None) for r in rows)
+        return {r["osm_way_id"]: r["start_elevation_m"] for r in rows}
+
+    async def rerun() -> dict[int, float | None]:
+        async with conn.transaction():
+            await derive_raster_materials.derive_elevation(conn)
+        return await elevations()
+
+    await conn.execute(
+        "CREATE TEMP TABLE _dem AS SELECT * FROM source_features WHERE source = 'dem'")
+    try:
+        await conn.execute(
+            "DELETE FROM source_features WHERE source = 'dem' AND attrs->>'product' = 'dem'")
+        without_dem = await rerun()
+        await conn.execute("DELETE FROM source_features WHERE source = 'dem'")
+        without_any = await rerun()
+    finally:
+        await conn.execute("DELETE FROM source_features WHERE source = 'dem'")
+        await conn.execute("INSERT INTO source_features SELECT * FROM _dem")
+        await conn.execute("DROP TABLE _dem")
+        await rerun()
+
+    assert without_dem == {way_id: None if way_id == 4 else expected
+                           for way_id, _pixels, expected in CASES}
+    assert without_any == dict.fromkeys(without_dem)

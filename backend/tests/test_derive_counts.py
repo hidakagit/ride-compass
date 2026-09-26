@@ -11,6 +11,7 @@ import pytest_asyncio
 from app.batch import derive_counts, derive_topology
 from app.batch._common import asyncpg_dsn
 from app.batch.ingest import ensure_partition
+from app.domain.traffic import POI_COUNT_KINDS, poi_count_column
 from tests.conftest import postgis_database_url
 
 # road_graph_session（conftest.py）と同じDBを使うため、docs/conventions/testing.mdのパターン2どおり
@@ -144,3 +145,42 @@ async def test_a_crossing_near_a_signal_is_counted_as_a_signal(counts_conn):
         "  ON e.osm_way_id = m.osm_way_id AND e.segment_index = m.segment_index"
         " WHERE $1 IN (e.from_node_id, e.to_node_id)", TIED_NODE)
     assert [(r["poi_signal"] > 0, r["poi_crossing"]) for r in rows] == [(True, 0)]
+
+
+async def test_rerun_on_changed_input_keeps_no_count_the_input_no_longer_supports(counts_conn):
+    """入力を変えて流し直すと、停止要因も事故も無くなった区間・道の数は0へ戻る。"""
+    await ensure_partition(counts_conn, "osm_node")
+    run = await _insert_run(counts_conn, "osm_node")
+    lon, lat = _point(TIED_NODE)
+    await counts_conn.execute(
+        "INSERT INTO source_features (source, natural_key, run_id, geom, attrs)"
+        " VALUES ('osm_node', $1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), '{}'::jsonb)"
+        " ON CONFLICT DO NOTHING", str(TIED_NODE), run, lon, lat)
+    columns = ("accident_count", *(poi_count_column(k) for k in sorted(POI_COUNT_KINDS)))
+    total = " + ".join(f"sum({c})" for c in columns)
+
+    async def counted() -> tuple[float, float]:
+        """(区間の数の総和, 道の数の総和)。"""
+        return (await counts_conn.fetchval(f"SELECT {total} FROM edge_materials"),
+                await counts_conn.fetchval(f"SELECT {total} FROM way_materials"))
+
+    await counts_conn.execute(
+        "UPDATE node_materials SET kind = 'crossing', has_traffic_signals = false"
+        " WHERE osm_node_id = $1", TIED_NODE)
+    await counts_conn.execute(
+        "CREATE TEMP TABLE _accidents AS SELECT * FROM source_features WHERE source = 'accident'")
+    try:
+        await derive_counts.derive(counts_conn)
+        before = await counted()
+        await counts_conn.execute(
+            "UPDATE node_materials SET kind = NULL WHERE osm_node_id = $1", TIED_NODE)
+        await counts_conn.execute("DELETE FROM source_features WHERE source = 'accident'")
+        await derive_counts.derive(counts_conn)
+        after = await counted()
+    finally:
+        await counts_conn.execute("INSERT INTO source_features SELECT * FROM _accidents")
+        await counts_conn.execute("DROP TABLE _accidents")
+
+    # 前提: 1回目は数が付いている。
+    assert all(n > 0 for n in before)
+    assert after == (0, 0)
