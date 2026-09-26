@@ -1,4 +1,10 @@
-import type { RouteFitObscuredPx } from "@/features/map/MapView/MapView";
+/** 地図キャンバスの上に重なるUIで覆われている辺ごとの高さ(px)。 */
+export interface RouteFitObscuredPx {
+  top?: number;
+  bottom?: number;
+  left?: number;
+  right?: number;
+}
 
 type Edge = keyof RouteFitObscuredPx;
 

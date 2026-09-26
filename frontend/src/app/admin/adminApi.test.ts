@@ -1,6 +1,7 @@
 // @vitest-environment node
 /**
- * `adminApi.ts`——管理画面のAPIクライアントが叩く先に受け手がいることと、応答や問い合わせを組み立てる部分。
+ * `features/admin/adminApi.ts`——管理画面のAPIクライアントが叩く先に受け手がいることと、応答や問い合わせを組み立てる部分。
+ * 機能のクライアントと`app/`の口の両方を読むので、両方より上の`app/`に置く（機能は`app/`を読まない）。
  *
  * 叩く先の母集団はこのファイルがexportする関数の全部。1つずつ呼び、出た要求を受け手まで辿る:
  * - 相対パス: `app/**\/route.ts`に口がある。管理APIの口（`app/admin/api/[...path]`）なら、転送先がbackendの
@@ -17,7 +18,7 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import * as adminApi from "./adminApi";
+import * as adminApi from "@/features/admin/adminApi";
 import * as adminRoute from "@/app/admin/api/[...path]/route";
 import { ADMIN_PROXY_TIMEOUT_MS } from "@/lib/apiTimeouts";
 

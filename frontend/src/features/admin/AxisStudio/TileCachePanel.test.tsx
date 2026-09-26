@@ -2,7 +2,7 @@
  * `TileCachePanel.tsx`——押したときだけタイルキャッシュを消し、消したこと（反映の時機つき）か失敗の理由を出す。
  *
  * ここで見ないもの:
- * - 叩く先 → `features/admin/adminApi.test.ts`
+ * - 叩く先 → `app/admin/adminApi.test.ts`
  */
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";

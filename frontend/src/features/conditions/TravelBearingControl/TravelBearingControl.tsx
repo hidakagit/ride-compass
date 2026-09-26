@@ -4,7 +4,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/Popover
 import WindBearingSlider from "@/features/conditions/WindBearingSlider/WindBearingSlider";
 import { WindDirectionArrowIcon } from "@/components/ui/icons/icons";
 import { Button } from "@/components/ui/Button/Button";
-import { mapOverlayEdge } from "@/features/map/MapView/mapOverlayEdges";
+import { mapOverlayEdge } from "@/lib/mapOverlayEdges";
 
 interface TravelBearingControlProps {
   value: number;

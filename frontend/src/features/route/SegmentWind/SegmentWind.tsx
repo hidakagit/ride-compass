@@ -1,6 +1,6 @@
 import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
 import { textVariants } from "@/components/ui/Text/Text";
-import { cardinalLabel } from "@/features/conditions/cardinalLabel";
+import { cardinalLabel } from "@/lib/cardinalLabel";
 import { cn } from "@/lib/cn";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import type { RouteSegmentDetail } from "@/types/route";

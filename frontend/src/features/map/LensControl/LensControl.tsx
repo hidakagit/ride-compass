@@ -3,7 +3,7 @@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/Popover/Popover";
 import { useState } from "react";
 import LegendCheckboxList from "@/features/map/LegendCheckboxList/LegendCheckboxList";
-import { mapOverlayEdge } from "@/features/map/MapView/mapOverlayEdges";
+import { mapOverlayEdge } from "@/lib/mapOverlayEdges";
 import { legendSwatchBackground, type LegendEntry } from "@/lib/mapDisplay/legendFilter";
 import { LAYER_DATA_STATUS_LABELS, type LayerDataStatus } from "@/features/map/layers/mapLayers";
 import {

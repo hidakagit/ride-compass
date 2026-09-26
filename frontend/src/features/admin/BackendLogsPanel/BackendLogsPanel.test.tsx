@@ -3,7 +3,7 @@
  * まとめてコピーできること。
  *
  * ここで見ないもの:
- * - 絞り込みを問い合わせの項目へ組み立てること → `features/admin/adminApi.test.ts`
+ * - 絞り込みを問い合わせの項目へ組み立てること → `app/admin/adminApi.test.ts`
  * - クリップボードへの書き込みと失敗の文言 → `hooks/useCopyToClipboard.ts`
  * - 行の色そのもの → `components/ui/LogLine`（ここでは差し替えて、どの重さで描かせたかだけを見る）
  */

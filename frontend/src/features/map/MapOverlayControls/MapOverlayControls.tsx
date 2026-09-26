@@ -23,7 +23,7 @@ import { mapDisplay } from "@/types/generated/mapDisplay";
 import LegendCheckboxList from "@/features/map/LegendCheckboxList/LegendCheckboxList";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
-import { mapOverlayEdge } from "@/features/map/MapView/mapOverlayEdges";
+import { mapOverlayEdge } from "@/lib/mapOverlayEdges";
 import {
   EnvironmentDataIcon,
   DisplayItemsIcon,

@@ -6,8 +6,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs/T
 import Disclosure from "@/components/Disclosure/Disclosure";
 import { Button } from "@/components/ui/Button/Button";
 import { cn } from "@/lib/cn";
-import MapView, { type RouteFitObscuredPx } from "@/features/map/MapView/MapView";
-import { mapOverlayEdge } from "@/features/map/MapView/mapOverlayEdges";
+import MapView from "@/features/map/MapView/MapView";
+import { mapOverlayEdge, type RouteFitObscuredPx } from "@/lib/mapOverlayEdges";
 import MapOverlayControls from "@/features/map/MapOverlayControls/MapOverlayControls";
 import {
   ClearAllFiltersIcon,
