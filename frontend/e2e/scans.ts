@@ -50,10 +50,13 @@ interface AXNode {
 }
 
 /**
- * 観点1（配置の検査）: ページが横にスクロールしないこと、操作できる部品が画面の横幅からはみ出さないこと。
+ * 観点1（配置の検査）: ページが横にスクロールしないこと、操作できる部品が画面の横幅からはみ出さないこと、
+ * 操作できる部品の中心点（押す点）が祖先に切り取られていないこと。
  * 部品はブラウザが計算したロール（アクセシビリティツリー）で決める。部品が横スクロールする容器（祖先の計算後の
  * `overflow-x`が`auto`・`scroll`。縦にスクロールする容器も計算後は`auto`になる）の中にあれば、容器を
  * スクロールすれば届くので、部品の代わりに最も近いその容器が画面の横幅に収まるかを見る（件数は`viaContainer`）。
+ * 切り取りは、スクロールしない祖先（その軸の`overflow`が`hidden`・`clip`）の外に中心点があるかで見る。
+ * その軸でスクロールする祖先より外側の切り取りは、スクロールすれば届くので見ない。
  * `resolved`は解決済みのノードの使い回し（同じページの間だけ有効）。
  */
 export async function scanLayout(
@@ -104,24 +107,53 @@ export async function scanLayout(
             Math.round(b.left) + "〜" + Math.round(b.right) + "px）";
         };
         const fits = (b) => b.left >= -1 && b.right <= window.innerWidth + 1;
+        const scrolls = (v) => v === "auto" || v === "scroll";
+        const clips = (v) => v === "hidden" || v === "clip";
+        const cx = box.left + box.width / 2;
+        const cy = box.top + box.height / 2;
+        let container = null;
+        let clipped = "";
+        let reachX = false;
+        let reachY = false;
+        // 絶対・固定配置の要素を切り取り・スクロールで動かすのは、包含ブロックとその外側の祖先だけ。
+        let position = getComputedStyle(el).position;
         // ページ全体のスクロール要素まで来たら、部品自身で見る（ページの横スクロールは別に見ている）。
         for (let p = el.parentElement; p && p !== document.scrollingElement; p = p.parentElement) {
-          const overflowX = getComputedStyle(p).overflowX;
-          if (overflowX !== "auto" && overflowX !== "scroll") continue;
+          const style = getComputedStyle(p);
+          const containing = style.transform !== "none" || (position === "absolute" && style.position !== "static");
+          if ((position === "absolute" || position === "fixed") && !containing) continue;
+          position = style.position;
           const outer = p.getBoundingClientRect();
-          return { via: true, problem: fits(outer) ? "" : "容器 " + describe(p, outer) };
+          const outX = !reachX && clips(style.overflowX) && (cx < outer.left || cx > outer.right);
+          const outY = !reachY && clips(style.overflowY) && (cy < outer.top || cy > outer.bottom);
+          if (!clipped && (outX || outY)) {
+            const name = el.getAttribute("aria-label") ?? (el.textContent ?? "").trim().slice(0, 20);
+            clipped = el.tagName.toLowerCase() + ' "' + name + '" の押す点（' + Math.round(cx) + "," +
+              Math.round(cy) + "）が祖先 " + p.tagName.toLowerCase() + "（" + Math.round(outer.left) + "〜" +
+              Math.round(outer.right) + " × " + Math.round(outer.top) + "〜" + Math.round(outer.bottom) +
+              "px）に切り取られて押せない";
+          }
+          if (scrolls(style.overflowX)) {
+            container ??= p;
+            reachX = true;
+          }
+          if (scrolls(style.overflowY)) reachY = true;
         }
-        return { via: false, problem: fits(box) ? "" : describe(el, box) };
+        if (container) {
+          const outer = container.getBoundingClientRect();
+          return { via: true, problems: [fits(outer) ? "" : "容器 " + describe(container, outer), clipped] };
+        }
+        return { via: false, problems: [fits(box) ? "" : describe(el, box), clipped] };
       });
     }`,
-  })) as { result: { value: ({ via: boolean; problem: string } | null)[] } };
+  })) as { result: { value: ({ via: boolean; problems: string[] } | null)[] } };
   let checked = 0;
   let viaContainer = 0;
   for (const value of result.value) {
     if (value === null) continue;
     checked += 1;
     if (value.via) viaContainer += 1;
-    if (value.problem !== "") problems.push(value.problem);
+    problems.push(...value.problems.filter((problem) => problem !== ""));
   }
   return { checked, viaContainer, problems };
 }

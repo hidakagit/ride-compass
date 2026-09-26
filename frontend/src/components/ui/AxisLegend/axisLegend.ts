@@ -8,8 +8,9 @@ export const legendChipsClass = "m-0 flex list-none flex-wrap gap-1 p-0";
 export const legendChipClass =
   "inline-flex flex-auto items-stretch overflow-hidden rounded-sm bg-[var(--color-surface-2)] data-[checked=false]:opacity-55";
 
+/** チップの本体。余りだけを取って伸び、隣に並ぶ(i)を枠の外へ押し出さない。 */
 export const legendChipBodyClass =
-  "inline-flex w-full items-center gap-1 whitespace-nowrap px-2 py-1 text-[length:var(--font-size-sm)] text-[var(--foreground)]";
+  "inline-flex grow items-center gap-1 whitespace-nowrap px-2 py-1 text-[length:var(--font-size-sm)] text-[var(--foreground)]";
 
 /** 帯グラフ。長さが総合難易度（幅いっぱい＝100）で、色ごとの長さが軸ごとの寄与。 */
 export const stackBarClass = "flex h-[10px] overflow-hidden rounded-[5px] bg-[var(--color-surface-2)]";

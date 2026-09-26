@@ -24,7 +24,6 @@ export interface LensOption {
   id: LensId;
   label: string;
   color: string;
-  description?: string;
   /** 生成条件の重みが0（評価に使っていない）。選べるが「未使用」バッジを付ける。 */
   unused: boolean;
   /** ルート未確定時に塗る手段（ramp・専用配信）を持たない軸。選べるがルート前は塗らない。 */

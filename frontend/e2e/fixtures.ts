@@ -244,7 +244,7 @@ async function rewriteRules(): Promise<{ source: string }[]> {
 export const MOBILE_VIEWPORT = { width: 390, height: 812 };
 
 /** モバイルの下部タブバーが持つシート。値はタブのラベル兼シートのアクセシブル名。 */
-export type MobileSheetName = "ルート設定" | "ルート結果" | "ルート編集";
+export type MobileSheetName = "ルート設定" | "ルート結果";
 
 /**
  * localStorageの初期値を流し込む（goto前に呼ぶ）。保存される画面状態（レイヤーのON/OFF・

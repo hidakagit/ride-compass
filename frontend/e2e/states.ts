@@ -113,12 +113,18 @@ export function installPageHelpers(): void {
     }
     return parts.join("<");
   };
+  // 同じタブ列のタブは見分けが同じになり、選ばれたタブが移っても多重集合は変わらないので、列の中の位置を添える。
+  const switchKey = (el: Element) => {
+    if (el.getAttribute("role") !== "tab") return componentKey(el);
+    const tabs = [...(el.closest('[role="tablist"]')?.querySelectorAll('[role="tab"]') ?? [])];
+    return `${componentKey(el)}#${tabs.indexOf(el)}`;
+  };
   // 指紋: 開閉の値を部品の見分けごとに集めたもの（同じ部品が複数あれば多重集合）と倍率。localStorageは入れない
   // ——辿る間にページを読み直さないので、保存値はアプリの状態を通してしか画面に効かず、それは開閉の値で読める。
   const fingerprint = () =>
     [
       ...[...document.querySelectorAll(SWITCH)]
-        .map((el) => `${componentKey(el)} = ${el.getAttribute("aria-expanded")}/${el.getAttribute("aria-selected")}`)
+        .map((el) => `${switchKey(el)} = ${el.getAttribute("aria-expanded")}/${el.getAttribute("aria-selected")}`)
         .sort(),
       `倍率 ${window.visualViewport?.scale ?? 1}`,
     ].join("\n");

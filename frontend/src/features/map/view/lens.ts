@@ -62,7 +62,6 @@ export function lensOptions(
     id: axis.axisId,
     label: axis.label,
     color: axisColors[axis.axisId] ?? LENS_NEUTRAL_COLOR,
-    description: axis.description,
     unused: usedWeights !== null && (usedWeights[axis.axisId] ?? 0) <= 0,
     routeOnly: !paintableAxisIds.has(axis.axisId),
   }));
