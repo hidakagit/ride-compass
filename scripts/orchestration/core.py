@@ -548,39 +548,6 @@ def ledger_ids(plan_text: str | None) -> set[str]:
     return {m.group(1) for line in plan_text.splitlines() if (m := LEDGER_ROW_RE.match(line))}
 
 
-def cpu_percent(sample: float = CPU_SAMPLE_SECONDS) -> float | None:
-    """全体のCPU使用率。取れなければNone。プロセスを起こさずに取る（飽和時に足さない）。"""
-    try:
-        if os.name == "nt":
-            import ctypes
-            from ctypes import wintypes
-
-            class FileTime(ctypes.Structure):
-                _fields_ = [("lo", wintypes.DWORD), ("hi", wintypes.DWORD)]
-
-            def snap() -> tuple[int, int] | None:
-                idle, kernel, user = FileTime(), FileTime(), FileTime()
-                if not ctypes.windll.kernel32.GetSystemTimes(
-                        ctypes.byref(idle), ctypes.byref(kernel), ctypes.byref(user)):
-                    return None
-                value = lambda t: (t.hi << 32) | t.lo
-                # カーネル時間はアイドル時間を含む。
-                return value(idle), value(kernel) + value(user)
-        else:
-            def snap() -> tuple[int, int] | None:
-                with open("/proc/stat", encoding="ascii") as f:
-                    fields = [int(x) for x in f.readline().split()[1:]]
-                return fields[3] + fields[4], sum(fields)
-        a = snap()
-        time.sleep(sample)
-        b = snap()
-        if a is None or b is None or b[1] == a[1]:
-            return None
-        return 100.0 * (1 - (b[0] - a[0]) / (b[1] - a[1]))
-    except (OSError, AttributeError, ValueError, IndexError):
-        return None
-
-
 # ---------------------------------------------------------------- 置き場所と状態の表
 
 
@@ -975,6 +942,8 @@ def release_slot(ctx: Context, agent: dict) -> None:
 
 class Facts:
     def __init__(self, ctx: Context, args: argparse.Namespace, *, cpu: bool = True):
+        from orchestration import procs
+
         self.ctx = ctx
         self.at = now()
         self.board = load_board(ctx)
@@ -985,7 +954,7 @@ class Facts:
         self.agent_trees = {id(a): worktree_of(a, self.trees) for a in self.board["agents"]}
         self.stop = ctx.stop_path.exists()
         self.hooks_path = git_out(ctx.repo, "config", "--get", "core.hooksPath")
-        self.cpu = cpu_percent() if cpu else None
+        self.cpu = procs.cpu_percent(CPU_SAMPLE_SECONDS) if cpu else None
         self.lock_records = self._recent_locks()
         self.lock_holders = self._lock_holders()
         self.ledger = ledger_rows(ctx)
@@ -1323,7 +1292,7 @@ def stage_pattern(stage: str) -> re.Pattern:
 def heavy_holder(ctx: Context, table: dict | None = None) -> dict:
     """`heavy`の枠の今の保持者（scripts/lockrun.pyが書く保持者のファイル）。いなければ空。
     ファイルは放した後も残るので、書かれたpidのlockrunがまだ動いているときだけ保持者とみなす。
-    pidは使い回されうるので、コマンドラインが読めればlockrunかを見る。プロセス一覧が取れなければファイルのまま。"""
+    pidは使い回されうるので、コマンドラインが読めればlockrunかを見る。"""
     from orchestration import procs
 
     try:
@@ -1332,12 +1301,9 @@ def heavy_holder(ctx: Context, table: dict | None = None) -> dict:
         return {}
     if not isinstance(owner, dict) or not isinstance(owner.get("pid"), int):
         return {}
-    if table is None:
-        table = procs.processes()
-    if table is not None:
-        proc = table.get(owner["pid"])
-        if proc is None or (proc.cmdline is not None and "lockrun.py" not in proc.cmdline):
-            return {}
+    proc = (procs.processes() if table is None else table).get(owner["pid"])
+    if proc is None or (proc.cmdline is not None and "lockrun.py" not in proc.cmdline):
+        return {}
     return owner
 
 
@@ -1347,8 +1313,6 @@ def heavy_outside_lock(ctx: Context) -> list[str]:
     from orchestration import procs
 
     table = procs.processes()
-    if table is None:
-        return []
     convention = cat_files(ctx.repo, [f"origin/master:{CONVENTION_DOC}"])[f"origin/master:{CONVENTION_DOC}"]
     stages = [(s, stage_pattern(s)) for s in heavy_stages(convention or "")]
     if not stages:

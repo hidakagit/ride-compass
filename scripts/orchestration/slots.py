@@ -272,11 +272,8 @@ def warm_pid(reason: str | None) -> int | None:
 
 def process_alive(pid: int) -> bool:
     """温める処理がまだ動いているか。pidは使い回されうるので、コマンドラインが読めればそれも見る。
-    確かめられないときは生きているとみなす（温めている途中のスロットを渡さない側へ倒す）。"""
-    table = procs.processes()
-    if table is None:
-        return True
-    p = table.get(pid)
+    コマンドラインが読めないときは生きているとみなす（温めている途中のスロットを渡さない側へ倒す）。"""
+    p = procs.processes().get(pid)
     return p is not None and (p.cmdline is None or "warm" in p.cmdline)
 
 

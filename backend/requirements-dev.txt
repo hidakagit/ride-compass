@@ -17,3 +17,5 @@ alembic==1.20.0
 # ベンチマーク（benchmarks/bench_t790_turn_expanded.py）が現行の自前探索と比べるために使う。
 # 本番の探索は到達時刻をラベルとして持ち回るためscipyでは表せず、webイメージには入れない。
 scipy==1.18.1
+# 並行作業の道具（リポジトリ直下のscripts/）が要る部品。tests/test_orchestration_*.pyが道具を動かす。
+-r ../scripts/requirements.txt

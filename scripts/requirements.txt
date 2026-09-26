@@ -1,0 +1,5 @@
+# 並行作業の道具（scripts/）が要る部品。道具はフックからシステムのPythonで動くので、司令塔を動かす機械の
+# システムのPythonへ入れる: python -m pip install -r scripts/requirements.txt
+# CIのテスト（backend/tests/test_orchestration_*.py）へはbackend/requirements-dev.txtが取り込む。
+# プロセス一覧とCPU使用率（scripts/orchestration/procs.py）。
+psutil==7.2.2

@@ -273,6 +273,20 @@ def test_worktree_hooks_through_the_launcher_use_the_tools_of_origin_master(tool
     assert "空き（ロックなし）" in slot_line(main, orch)
 
 
+def test_hook_on_a_python_without_psutil_stops_with_how_to_install_it(tools_world, tmp_path, monkeypatch):
+    main, orch = tools_world
+    missing = tmp_path / "without-psutil" / "psutil"
+    missing.mkdir(parents=True)
+    (missing / "__init__.py").write_text("raise ImportError('psutil')\n", encoding="utf-8")
+    monkeypatch.setenv("PYTHONPATH", str(missing.parent))
+
+    handed = launch(main, orch, "slot", "hook-create", stdin=json.dumps({"name": "agent-a"}))
+
+    assert handed.returncode != 0
+    assert "python -m pip install -r scripts/requirements.txt" in handed.stderr, handed.stderr
+    assert "Traceback" not in handed.stderr, handed.stderr
+
+
 def test_export_of_an_older_master_is_removed_only_after_it_went_unused(tools_world):
     main, orch = tools_world
     assert launch(main, orch, "slot", "list").returncode == 0
