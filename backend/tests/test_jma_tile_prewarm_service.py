@@ -46,11 +46,10 @@ def _target_times():
         N1: [_row("20260922001000", "20260922001000", "hrpns"), _row("20260922001000", "20260922003000", "hrpns")],
         # 別の要素の行は、1段目の境目にも2段目の選び方にも入れない（入れると境目が02:30へずれる）。
         N2: [_row("20260922001000", "20260922010000", "hrpns"), _row("20260922001000", "20260922023000", "other")],
-        # 雷・竜巻。より新しい行が別の要素だけを載せている（その要素のタイルは無い）。memberを持っていても
-        # nowc系のパスには固定値を置く。
+        # 雷・竜巻。より新しい行が別の要素だけを載せている（その要素のタイルは無い）。
         N3: [
-            _row("20260922000000", "20260922000000", "thns", "trns", member="m9"),
-            _row("20260922000500", "20260922000500", "thns", "trns", member="m9"),
+            _row("20260922000000", "20260922000000", "thns", "trns"),
+            _row("20260922000500", "20260922000500", "thns", "trns"),
             _row("20260922002000", "20260922002000", "other"),
         ],
         RASRF: [
@@ -159,15 +158,30 @@ async def test_tiles_are_fetched_at_the_zooms_the_source_has_data_for(stored):
     assert {_tile_parts(p)["z"] for p in source.tile_requests("thns")} == {4, 6, 8}
 
 
-async def test_the_latest_observed_frame_is_warmed_for_an_element_that_has_one(stored):
-    """実況（validtime==basetime）の中で最新。予測フレームは温めない（全フレームだとタイル数が桁違いになる）。"""
+async def test_an_element_with_observations_and_forecasts_warms_the_latest_observation(stored):
+    """実況＋予測の要素は、画面の時系列の左端（最新の実況）を温める。予測フレームは温めない（全フレームだと
+    タイル数が桁違いになる）。"""
     source = Source()
+
+    await _run(source)
+
+    frames = {(_tile_parts(p)["basetime"], _tile_parts(p)["validtime"]) for p in source.tile_requests("hrpns")}
+    assert frames == {("20260922001000", "20260922001000")}
+
+
+async def test_an_element_that_holds_one_current_value_warms_its_newest_row_even_when_it_is_a_forecast(stored):
+    """配信元が実況と予測を統合済みの「現在」の単一値は、画面が最新の行を描く。実況の行を優先すると、画面と
+    違うフレームを温め、在否インデックスも画面のフレームと一致しなくなる。"""
+    target_times = _target_times()
+    target_times[RISK] += [_row("20260922001000", "20260922013000", *RISK_ELEMENTS)]
+    source = Source(target_times=target_times)
 
     await _run(source)
 
     frames = {(_tile_parts(p)["basetime"], _tile_parts(p)["validtime"], _tile_parts(p)["member"])
               for p in source.tile_requests("rain_mesh")}
-    assert frames == {("20260922000000", "20260922000000", "none")}
+    assert frames == {("20260922001000", "20260922013000", "none")}
+    assert stored[0]["elements"]["rain_mesh"]["validtime"] == "20260922013000"
 
 
 async def test_rows_that_do_not_list_the_element_are_ignored(stored):
@@ -278,8 +292,8 @@ async def test_elements_whose_time_list_cannot_be_read_are_skipped_with_a_warnin
     assert all(element in warning for element in RISK_ELEMENTS)
 
 
-async def test_a_later_stage_is_skipped_when_the_earlier_stage_has_no_frames(stored):
-    """1段目の境目が分からなければ、2段目で画面が最初に描くフレームも決められない。"""
+async def test_a_later_stage_starts_the_timeline_when_the_earlier_stage_has_no_frames(stored):
+    """1段目が取れなければ、画面は2段目を最初から描く。温めるのもその最初のフレーム。"""
     target_times = _target_times()
     target_times[N1] = target_times[N2] = None
 
@@ -287,8 +301,9 @@ async def test_a_later_stage_is_skipped_when_the_earlier_stage_has_no_frames(sto
     await _run(source)
 
     assert not source.tile_requests("hrpns")
-    assert not source.tile_requests("rasrf")
-    assert source.tile_requests("sjfcstmap")
+    frames = {(_tile_parts(p)["basetime"], _tile_parts(p)["validtime"], _tile_parts(p)["member"])
+              for p in source.tile_requests("rasrf")}
+    assert frames == {("20260922000000", "20260922003000", "m1")}
 
 
 async def test_nothing_is_stored_when_no_time_list_can_be_read(stored):

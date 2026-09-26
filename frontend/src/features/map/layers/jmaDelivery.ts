@@ -258,6 +258,8 @@ function readLatest(rows: readonly RawTargetTime[], elementId: string): JmaFrame
   return latest ? [toFrame(latest)] : [];
 }
 
+// backendのプリウォームが同じ読み方で温めるフレームを選ぶ（`domain/jma_tile_specs.py: read_target_times`）。
+// 片方だけ変えると在否インデックスのフレームが画面と一致せず、画面は全タイルを取りに行く。
 const READERS: Record<JmaDelivery["reader"], (rows: readonly RawTargetTime[], elementId: string) => JmaFrame[]> = {
   nowcast: readNowcast,
   latestFullRun: readLatestFullRun,

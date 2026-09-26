@@ -255,7 +255,9 @@ backendのテストが全要素で確かめる。
    レイヤー・記号の絵の登録はここから導かれる
 3. 新しいチップを足したときだけ: backendの`domain/map_display.py`へ種別・情報源（`ownFetch`）・
    性質（`dynamic`）を1行、`mapLayers.ts`へ記述子（アイコン・凡例）を1エントリ足す
-4. 新しい種類を足したときだけ: 時刻一覧の読み方なら`jmaDelivery.ts`の読み方の表、コマの規則なら
+4. 新しい種類を足したときだけ: 時刻一覧の読み方なら`jmaDelivery.ts`の読み方の表と、同じ読み方でプリウォームの
+   フレームを選ぶbackendの`jma_tile_specs.py: read_target_times`（[動的気象レイヤー（backend）](../backend/weather-dynamic-layers.md)
+   「定期プリウォーム」）、コマの規則なら
    `weatherSources.ts: selectFrame`、格子の値なら`useDynamicWeatherLayers.ts: GRID_PAYLOAD`へ1つ足す
    （種類の集合は生成物から導くため、足し忘れは型検査が落ちる）。取得・時系列・描画内容・取得状態は
    宣言の一覧をループして作るため、要素を足すだけならフロントの手書き作業は無い。

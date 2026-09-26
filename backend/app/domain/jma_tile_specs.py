@@ -1,4 +1,5 @@
-"""気象庁タイル配信の要素ごとの仕様レジストリ（パスの系統・ズーム・ベクタのレイヤー名）。
+"""気象庁タイル配信の要素ごとの仕様レジストリ（パスの系統・ズーム・ベクタのレイヤー名・時刻一覧の在り処と
+読み方）と、その読み方で時刻一覧の行をコマにする関数。
 
 配信元（気象庁の各`*.properties__<hash>.xml`）は要素ごとに`zoomUse`（使用するズームの
 偶奇）と`maxNativeZoom`（XML中のコメントで「画像が実在する最大ズームレベル」と説明されて
@@ -10,8 +11,9 @@ MapLibreの`maxzoom`（frontendへは`domain/weather_elements.py: WEATHER_ELEMEN
 （`services/jma_tile_prewarm_service.py`）は、いずれも`effective_max_zoom()`でこの1箇所から導く。
 """
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal, NamedTuple, assert_never
 
 #: 配信元がタイルを生成するズームの偶奇。`"all"`は偶奇の制約が無いことを表す。
 ZoomUse = Literal["even", "odd", "all"]
@@ -131,6 +133,65 @@ JMA_TARGET_TIMES_READERS: dict[str, TargetTimesReader] = {
     "flood": "latest",
     "sjfcstmap": "latest",
 }
+
+
+class JmaFrame(NamedTuple):
+    """時刻一覧から読み出したコマ1つ。タイルのURLを決める時刻と系列。"""
+
+    basetime: str
+    #: 数値予報の系列。系列を持たない行（nowc）は"none"。
+    member: str
+    validtime: str
+
+
+def read_target_times(
+    reader: TargetTimesReader, rows: Sequence[Mapping[str, Any]], element_id: str
+) -> list[JmaFrame]:
+    """時刻一覧の行を、その要素のコマ（`validtime`の順）にする。
+
+    画面（frontend `jmaDelivery.ts`の`READERS`）と同じ読み方をする——温めるフレームと在否インデックスの
+    フレームは、画面が描くフレームと一致しないと役に立たない（インデックスは一致したフレームにしか使われない）。
+    1つの時刻一覧には別の要素の行も載るため、先にその要素の行へ絞る。"""
+    frames = [
+        JmaFrame(row["basetime"], row.get("member", "none"), row["validtime"])
+        for row in rows
+        if element_id in row.get("elements", [])
+    ]
+    match reader:
+        case "nowcast":
+            return _read_nowcast(frames)
+        case "latestFullRun":
+            return _read_latest_full_run(frames)
+        case "latest":
+            return [max(frames, key=lambda frame: frame.basetime)] if frames else []
+        case _:
+            assert_never(reader)
+
+
+def _read_nowcast(frames: list[JmaFrame]) -> list[JmaFrame]:
+    """最新の実況（`validtime`==`basetime`）より前を捨てる。実況が1つも無ければ何も捨てない。"""
+    ordered = sorted(frames, key=lambda frame: frame.validtime)
+    observed = [index for index, frame in enumerate(ordered) if frame.validtime == frame.basetime]
+    return ordered[observed[-1] :] if observed else ordered
+
+
+def _read_latest_full_run(frames: list[JmaFrame]) -> list[JmaFrame]:
+    """系列ごとに、有効時刻を複数持つ最新のランだけを使う。系列どうしで有効時刻が重なれば新しいランを採る。"""
+    by_validtime: dict[str, JmaFrame] = {}
+    for member in dict.fromkeys(frame.member for frame in frames):
+        of_member = [frame for frame in frames if frame.member == member]
+        validtimes_by_run: dict[str, set[str]] = {}
+        for frame in of_member:
+            validtimes_by_run.setdefault(frame.basetime, set()).add(frame.validtime)
+        full_runs = [basetime for basetime, validtimes in validtimes_by_run.items() if len(validtimes) > 1]
+        if not full_runs:
+            continue
+        latest = max(full_runs)
+        for frame in of_member:
+            taken = by_validtime.get(frame.validtime)
+            if frame.basetime == latest and (taken is None or taken.basetime < frame.basetime):
+                by_validtime[frame.validtime] = frame
+    return sorted(by_validtime.values(), key=lambda frame: frame.validtime)
 
 
 def jma_target_time_files(element_id: str) -> tuple[str, ...]:
