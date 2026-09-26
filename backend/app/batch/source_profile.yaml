@@ -67,10 +67,9 @@ sources:
         dem5c: 15          # 5mメッシュ（写真測量）
         dem: 14            # 10mメッシュ（DEM10B）。7.73 m/画素
 
+  # どのラスタ（UTMゾーン・年）を読むかは環境変数 LULC_RASTER_PATHS が決める（地図のラスタタイルと共有）。
   - name: lulc
     adapter: io_lulc_tile
     grid:
-      product: io-lulc-annual-v02
-      year: 2024
       zoom: 14             # 7.73 m/画素。元データは10m画素
 

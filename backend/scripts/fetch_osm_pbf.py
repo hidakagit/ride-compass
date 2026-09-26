@@ -7,7 +7,7 @@ r"""OSMの抽出ファイル（`.pbf`）を配布元から手元へ写す（取�
 `app.batch._common.fetch_verified`が持つ。読めないPBFを置いたまま成功を報告すると、
 次に落ちるのは何時間もかかる取込の途中になる。
 
-どのファイルを要するかはプロファイルが持つ（OSMを読むソースの`rows.file`）。配布元の
+どのファイルを要するかはプロファイルが持つ（wayのソースの`rows.file`）。配布元の
 URLの組み立て方だけがここにある。
 
 実行方法（backendディレクトリから）:
@@ -25,7 +25,7 @@ import httpx
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.batch._common import fetch_verified  # noqa: E402
-from app.batch.source_adapters.osm_pbf import DATA_DIR  # noqa: E402
+from app.batch.source_adapters.osm_pbf import DATA_DIR, OsmWayRows  # noqa: E402
 from app.batch.source_profile import load_source_profile  # noqa: E402
 
 logger = logging.getLogger("ridecompass.fetch_osm_pbf")
@@ -76,13 +76,10 @@ def main() -> int:
     args = parser.parse_args()
 
     profile = load_source_profile(args.profile)
-    # OSMを読むソースが指すファイル。同じファイルを複数のソースが指すので重複を除く。
-    names = sorted({
-        spec.rows.file for spec in profile.sources
-        if spec.adapter.startswith("osm_pbf") and spec.rows.file
-    })
+    # wayのソースが読むファイル。頂点のソースは参照先のwayと同じファイルを読むので数えない。
+    names = sorted({spec.rows.file for spec in profile.sources if isinstance(spec.rows, OsmWayRows)})
     if not names:
-        logger.info("プロファイルにOSMの抽出ファイルの指定がありません")
+        logger.info("プロファイルにOSMのwayのソースがありません")
         return 0
     return 1 if _fetch(names) else 0
 
