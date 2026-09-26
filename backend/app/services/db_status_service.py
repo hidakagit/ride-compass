@@ -1,14 +1,14 @@
 """本番DBの状態を「注意が要るか」まで判定してレポートにするサービス層。
 
 **判定のしきい値はこのモジュールが持つ**。しきい値そのものより「なぜその値か」が重要なため、
-定数ごとに根拠を書く。
+定数ごとに根拠を書く。レポートの型は`GET /api/admin/db-status`の応答の型を兼ねる。
 """
 
 import logging
 import time
-from dataclasses import dataclass
 from datetime import datetime
 
+from app.domain.strict_model import StrictModel
 from app.infrastructure.db_status import DbStatusCounts, DbStatusQuery
 from app.infrastructure.debug_log import log_external_call
 
@@ -34,12 +34,15 @@ STATISTICS_WARN_MIN_ROWS = 10_000
 DEAD_TUPLE_WARN_MIN_ROWS = 1_000
 
 
-@dataclass(frozen=True)
-class ImportRunEntry:
+class ImportRunEntry(StrictModel):
+    """生データ取込1種別の最終実行。派生データの世代比較はこの記録を基準にするため、
+    ここが失敗したままだと鮮度の判定そのものが古い基準の上で行われる。"""
+
     label: str
     latest_id: int | None
     latest_status: str | None
     latest_finished_at: datetime | None
+    #: runを識別する情報（PBF名・対象年・種別など、テーブルごとに中身が違う）。
     latest_identity: dict[str, str]
     latest_item_count: int | None
     latest_succeeded_id: int | None
@@ -49,8 +52,10 @@ class ImportRunEntry:
     note: str
 
 
-@dataclass(frozen=True)
-class TableEntry:
+class TableEntry(StrictModel):
+    """テーブル1つの実数・容量とメンテナンス状態。行数は統計値ではなく実数を数えている
+    （統計はANALYZE前のテーブルで大きくずれ、取り込み漏れの検出に使えないため）。"""
+
     table_name: str
     row_count: int
     total_bytes: int
@@ -62,8 +67,7 @@ class TableEntry:
     note: str
 
 
-@dataclass(frozen=True)
-class ConnectionEntry:
+class ConnectionEntry(StrictModel):
     total: int
     max_connections: int
     idle_in_transaction: int
@@ -73,8 +77,7 @@ class ConnectionEntry:
     note: str
 
 
-@dataclass(frozen=True)
-class DbStatusReport:
+class DbStatusReport(StrictModel):
     computed_at: datetime
     imports: list[ImportRunEntry]
     tables: list[TableEntry]

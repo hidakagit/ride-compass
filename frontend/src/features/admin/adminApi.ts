@@ -142,9 +142,7 @@ export function fetchScoresPreview(body: ScoresPreviewRequest) {
 
 // 材料
 
-export interface MaterialDistribution extends ValueDistribution {
-  available: boolean;
-}
+export type MaterialDistribution = Schemas["MaterialDistributionResponse"];
 
 /** 1材料の値が実データでどの範囲に散らばっているか。 */
 export function fetchMaterialDistribution(materialId: string) {

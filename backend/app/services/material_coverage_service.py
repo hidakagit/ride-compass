@@ -1,11 +1,14 @@
-"""材料ごとの欠損割合レポートを組み立てるサービス層。"""
+"""材料ごとの欠損割合レポートを組み立てるサービス層。
+
+レポートの型は`GET /api/admin/material-catalog/coverage`の応答の型を兼ねる。
+"""
 
 import logging
 import time
-from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from app.domain.material_catalog import MATERIAL_CATALOG, MaterialDType, MissingSemantics, Population
+from app.domain.strict_model import StrictModel
 from app.infrastructure.debug_log import log_external_call
 from app.infrastructure.material_coverage import (
     MATERIAL_COVERAGE_EXCLUSIONS,
@@ -17,8 +20,7 @@ from app.infrastructure.material_coverage import (
 logger = logging.getLogger("ridecompass.material_coverage")
 
 
-@dataclass(frozen=True)
-class MaterialCoverageEntry:
+class MaterialCoverageEntry(StrictModel):
     material_id: str
     label: str
     dtype: MaterialDType
@@ -27,14 +29,15 @@ class MaterialCoverageEntry:
     population: Population | None
     total: int | None
     missing: int | None
+    # 0〜1（total=0の場合はNone）。
     missing_ratio: float | None
+    # 欠損判定の根拠（どのテーブル・列・タグの不在を欠損とみなすか）。
     source: str
     missing_semantics: MissingSemantics | None
     excluded_reason: str | None
 
 
-@dataclass(frozen=True)
-class MaterialCoverageReport:
+class MaterialCoverageReport(StrictModel):
     computed_at: datetime
     way_total: int
     edge_total: int

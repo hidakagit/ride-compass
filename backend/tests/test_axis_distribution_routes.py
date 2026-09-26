@@ -1,11 +1,9 @@
 """分布プレビューの2エンドポイントのルーター層テスト。
 
 計算本体は`tests/test_axis_preview_service.py`が持つ。ここでは**ルーターの振る舞い**
-——未知の材料・数値でない材料・サービス層の結果の変換——だけを見る。
+——未知の材料・数値でない材料・サービス層の結果を応答へ出すこと——だけを見る。
 認可は`test_admin_route_authorization.py`が全ルートまとめて見る。
 """
-
-from dataclasses import asdict
 
 import pytest
 from fastapi.testclient import TestClient
@@ -35,10 +33,7 @@ _DISTRIBUTION = ValueDistribution(
 
 
 def _expected_json() -> dict:
-    """JSONではtupleが配列になるため、期待値もその形へそろえる。"""
-    payload = asdict(_DISTRIBUTION)
-    payload["bins"] = [list(b) for b in payload["bins"]]
-    return payload
+    return _DISTRIBUTION.model_dump(mode="json")
 
 
 @pytest.fixture

@@ -1110,14 +1110,17 @@ export interface components {
             /** Longitude */
             longitude: number;
         };
-        /** DbStatusResponse */
-        DbStatusResponse: {
-            /** Computed At */
+        /** DbStatusReport */
+        DbStatusReport: {
+            /**
+             * Computed At
+             * Format: date-time
+             */
             computed_at: string;
             /** Imports */
             imports: components["schemas"]["ImportRunEntry"][];
             /** Tables */
-            tables: components["schemas"]["app__api__routers__db_status__TableEntry"][];
+            tables: components["schemas"]["app__services__db_status_service__TableEntry"][];
             connections: components["schemas"]["ConnectionEntry"];
             /** Database Bytes */
             database_bytes: number;
@@ -1150,12 +1153,15 @@ export interface components {
             };
             msm: components["schemas"]["MsmFreshnessResponse"] | null;
         };
-        /** DerivedDataFreshnessResponse */
-        DerivedDataFreshnessResponse: {
-            /** Computed At */
+        /** DerivedDataFreshnessReport */
+        DerivedDataFreshnessReport: {
+            /**
+             * Computed At
+             * Format: date-time
+             */
             computed_at: string;
             /** Tables */
-            tables: components["schemas"]["app__api__routers__derived_data_freshness__TableEntry"][];
+            tables: components["schemas"]["app__services__derived_data_freshness_service__TableEntry"][];
         };
         /** DisplayThresholdsPreviewRequest */
         DisplayThresholdsPreviewRequest: {
@@ -1368,8 +1374,8 @@ export interface components {
             /** Excluded Reason */
             excluded_reason: string | null;
         };
-        /** MaterialCoverageResponse */
-        MaterialCoverageResponse: {
+        /** MaterialCoverageReport */
+        MaterialCoverageReport: {
             /**
              * Computed At
              * Format: date-time
@@ -1384,33 +1390,24 @@ export interface components {
         };
         /** MaterialDistributionResponse */
         MaterialDistributionResponse: {
-            /** Available */
-            available: boolean;
-            /**
-             * Sample Ways
-             * @default 0
-             */
+            /** Sample Ways */
             sample_ways: number;
-            /**
-             * Total Km
-             * @default 0
-             */
+            /** Total Km */
             total_km: number;
             /** Quantiles */
-            quantiles?: {
+            quantiles: {
                 [key: string]: number;
             };
             /** Bins */
-            bins?: [
+            bins: [
                 number,
                 number,
                 number
             ][];
-            /**
-             * Zero Share
-             * @default 0
-             */
+            /** Zero Share */
             zero_share: number;
+            /** Available */
+            available: boolean;
         };
         /** MaterialTerm */
         MaterialTerm: {
@@ -1786,8 +1783,8 @@ export interface components {
             /** Error Type */
             type: string;
         };
-        /** ValueDistributionResponse */
-        ValueDistributionResponse: {
+        /** ValueDistribution */
+        ValueDistribution: {
             /** Sample Ways */
             sample_ways: number;
             /** Total Km */
@@ -1890,7 +1887,7 @@ export interface components {
             points: components["schemas"]["WindGridPoint"][];
         };
         /** TableEntry */
-        app__api__routers__db_status__TableEntry: {
+        app__services__db_status_service__TableEntry: {
             /** Table Name */
             table_name: string;
             /** Row Count */
@@ -1909,7 +1906,7 @@ export interface components {
             note: string;
         };
         /** TableEntry */
-        app__api__routers__derived_data_freshness__TableEntry: {
+        app__services__derived_data_freshness_service__TableEntry: {
             /** Table Name */
             table_name: string;
             /** Row Count */
@@ -2867,7 +2864,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ValueDistributionResponse"];
+                    "application/json": components["schemas"]["ValueDistribution"];
                 };
             };
             /** @description Validation Error */
@@ -3099,7 +3096,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MaterialCoverageResponse"];
+                    "application/json": components["schemas"]["MaterialCoverageReport"];
                 };
             };
         };
@@ -3205,7 +3202,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["DerivedDataFreshnessResponse"];
+                    "application/json": components["schemas"]["DerivedDataFreshnessReport"];
                 };
             };
         };
@@ -3225,7 +3222,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["DbStatusResponse"];
+                    "application/json": components["schemas"]["DbStatusReport"];
                 };
             };
         };

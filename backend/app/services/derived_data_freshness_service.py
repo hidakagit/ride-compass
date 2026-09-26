@@ -1,13 +1,14 @@
 """派生データの鮮度レポートを組み立てるサービス層。
 
 集計の生値へ、画面がそのまま並べられる判定（古いか・未計算が残っているか）を足す。
+レポートの型は`GET /api/admin/derived-data/freshness`の応答の型を兼ねる。
 """
 
 import logging
 import time
-from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from app.domain.strict_model import StrictModel
 from app.infrastructure.debug_log import log_external_call
 from app.infrastructure.derived_data_freshness import (
     DerivedDataFreshness,
@@ -17,35 +18,41 @@ from app.infrastructure.derived_data_freshness import (
 logger = logging.getLogger("ridecompass.derived_data_freshness")
 
 
-@dataclass(frozen=True)
-class ColumnEntry:
+class ColumnEntry(StrictModel):
+    """値の列1本ぶんの完成度。
+
+    NULLが「まだ計算していない」を意味する列と、「確定して値が無い」を意味する列がある。
+    件数は常に返し、鳴らすかどうか（`is_incomplete`）だけを区別する。
+    """
+
     column: str
     null_count: int
     #: NULLが「まだ計算していない」を意味する列で、実際にNULLが残っている。
     is_incomplete: bool
 
 
-@dataclass(frozen=True)
-class TableEntry:
+class TableEntry(StrictModel):
     table_name: str
     row_count: int
+    #: その行を作った取込のソース名（`source_runs.source`）。行が無ければNone。
     source: str | None
     oldest_run_id: int | None
     latest_run_id: int | None
     #: 生データを取り直したのに派生を流し直していない。
     is_stale: bool
-    #: 被覆の母数の呼び名。覆うことを宣言していない表はNone。
+    #: 被覆の母数（生データのソース名か親の表名）。覆うことを宣言していない表はNone。
     coverage_parent: str | None
     coverage_parent_row_count: int | None
-    #: 親にあって行が無い件数。覆うはずの表で1件でもあれば作り直しが要る。
+    #: 親にあって行が無い件数。覆うはずの表で1件でもあれば作り直しが要る。鮮度・完成度は
+    #: これを見つけられない（行が無ければ古くもなければNULLでもない）。
     missing_rows: int | None
     columns: list[ColumnEntry]
     #: 作り直しが要る（取込より古い・値の列に未計算が残る・親に対して行が欠ける のどれか）。
+    #: 画面は理由を問わずこれで表を「作り直しが必要」に数える。
     needs_rebuild: bool
 
 
-@dataclass(frozen=True)
-class DerivedDataFreshnessReport:
+class DerivedDataFreshnessReport(StrictModel):
     computed_at: datetime
     tables: list[TableEntry]
 
