@@ -1,24 +1,17 @@
 """JMA動的タイル（ラスタPNG・洪水ベクタPBF）本体のRedis cache-aside。
 
-共通骨格（`redis_json_cache.py`）に乗らず自前で書いているのは、値がバイナリのため。
 `redis_client.py`は`decode_responses=True`（文字列前提）で生バイト列をそのまま保存
 できないので、base64エンコードした文字列をJSONへ包んで1キーに保存する。
 """
 
 import base64
-import json
 
-from app.infrastructure.debug_log import error_type_label, log_external_call
-from app.infrastructure.redis_client import (
-    get_redis_client_or_none,
-    record_redis_failure,
-    record_redis_success,
-    redis_available,
-)
 from app.infrastructure.jma_tile_content import is_empty_tile
+from app.infrastructure.redis_json_cache import get_json, set_json
 from app.infrastructure.tile_cache import cache_key
 
 _KEY_PREFIX = "jma:tile"
+_CATEGORY = "cache:jma-tile-redis"
 # プリウォーム間隔（jma_tile_prewarm_service.py、10分）より余裕を持たせ、1回のプリウォーム
 # 失敗・遅延で即座に空にならないようにする。
 _TTL_SECONDS = 20 * 60
@@ -55,60 +48,16 @@ async def get(path: str) -> tuple[bytes, str] | EmptyTile | None:
     """Redisキャッシュ済みなら(内容, Content-Type)または`EMPTY_TILE`を返す。
     未キャッシュ・Redis障害時はNone（呼び出し元は通常のオンデマンドフェッチへ
     フォールバックする）。"""
-    if not redis_available():
+    payload = await get_json(_key(path), category=_CATEGORY, path=path)
+    if payload is None:
         return None
-    client = get_redis_client_or_none()
-    if client is None:
+    try:
+        if payload.get("empty"):
+            return EMPTY_TILE
+        return base64.b64decode(payload["body_b64"]), payload["content_type"]
+    except (AttributeError, KeyError, TypeError, ValueError):
+        # JSONとしては読めるが形の違うエントリは未キャッシュ扱いにする。
         return None
-    with log_external_call("cache:jma-tile-redis", path=path) as fields:
-        try:
-            raw = await client.get(_key(path))
-        except Exception as exc:  # noqa: BLE001 Redis障害は「未キャッシュ」へのfail-open対象
-            record_redis_failure()
-            fields["result"] = "error"
-            fields["error"] = repr(exc)
-            fields["error_type"] = error_type_label(exc)
-            return None
-        record_redis_success()
-        if raw is None:
-            fields["result"] = "ok"
-            fields["cache"] = "miss"
-            return None
-        try:
-            payload = json.loads(raw)
-            if payload.get("empty"):
-                fields["result"] = "ok"
-                fields["cache"] = "hit"
-                return EMPTY_TILE
-            content = base64.b64decode(payload["body_b64"])
-            content_type = payload["content_type"]
-        except (ValueError, TypeError, KeyError):
-            # 壊れたエントリ（フォーマット変更等）は未キャッシュ扱いにする。
-            fields["result"] = "ok"
-            fields["cache"] = "miss"
-            return None
-        fields["result"] = "ok"
-        fields["cache"] = "hit"
-        return content, content_type
-
-
-async def _store(path: str, payload: dict) -> None:
-    if not redis_available():
-        return
-    client = get_redis_client_or_none()
-    if client is None:
-        return
-    with log_external_call("cache:jma-tile-redis", path=path) as fields:
-        try:
-            await client.set(_key(path), json.dumps(payload), ex=_TTL_SECONDS)
-        except Exception as exc:  # noqa: BLE001 書き込み失敗は次回フェッチで自己修復する
-            record_redis_failure()
-            fields["result"] = "error"
-            fields["error"] = repr(exc)
-            fields["error_type"] = error_type_label(exc)
-        else:
-            record_redis_success()
-            fields["result"] = "ok"
 
 
 async def set(path: str, content: bytes, content_type: str) -> None:
@@ -121,9 +70,10 @@ async def set(path: str, content: bytes, content_type: str) -> None:
     if is_empty_tile(content, _extension(path)):
         await set_empty(path)
         return
-    await _store(path, {"content_type": content_type, "body_b64": base64.b64encode(content).decode("ascii")})
+    payload = {"content_type": content_type, "body_b64": base64.b64encode(content).decode("ascii")}
+    await set_json(_key(path), payload, ttl_seconds=_TTL_SECONDS, category=_CATEGORY, path=path)
 
 
 async def set_empty(path: str) -> None:
     """このパスに描くものが無いと確認したときに呼ぶ（上流の404、または200で返った空タイル）。"""
-    await _store(path, {"empty": True})
+    await set_json(_key(path), {"empty": True}, ttl_seconds=_TTL_SECONDS, category=_CATEGORY, path=path)
