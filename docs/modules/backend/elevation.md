@@ -11,16 +11,16 @@
 |---|---|
 | domain | `attributes.py`（`elevation_values_sql`。区間の頂点列から標高・勾配を出すSQLを組み立てる） |
 | services | `elevation_aggregation.py` |
-| batch | `source_adapters/gsi_dem_tile.py`（取込。手元へ写したタイルを読み、int32へ詰める。配信元は叩かない）・`dem_tile_store.py`（写したタイルの置き場と、配信元のURL・製品の優先順・どの製品にも無いことの印）・`scripts/fetch_dem_tiles.py`（取得。手元に無い分だけ取りに行く。取込と分けてあるので、失敗しても欠けた分だけ取り直せる）・`source_adapters/_raster_wkb.py`（画素の並びをPostGISの`raster`へ包む）・`derive_raster_materials.py`（派生） |
+| batch | `source_adapters/gsi_dem_tile.py`（取込。手元へ写したタイルを製品ごとに読み、int32へ詰める。配信元は叩かない）・`dem_tile_store.py`（写したタイルの置き場と、配信元のURL・画素の値を採る製品の順・その製品に無いことの印）・`scripts/fetch_dem_tiles.py`（取得。プロファイルが挙げた製品ごとに、手元に無い分だけ取りに行く。取込と分けてあるので、失敗しても欠けた分だけ取り直せる）・`source_adapters/_raster_wkb.py`（画素の並びをPostGISの`raster`へ包む）・`derive_raster_materials.py`（派生） |
 
 ## 3段に分かれている
 
 ```
-国土地理院 DEMタイル（テキスト、256×256）
-   │ source_adapters/gsi_dem_tile.py: int32へ詰めてタイル1枚=1行
+国土地理院 DEMタイル（テキスト、256×256。製品ごと）
+   │ source_adapters/gsi_dem_tile.py: int32へ詰めて製品×タイル1枚=1行
    ▼
 source_features(source='dem')          ← 生データ。取り直さない限り変わらない
-   │ derive_raster_materials.py: 区間の形状点で標高を読み、勾配を出す
+   │ derive_raster_materials.py: 区間の形状点で、画素ごとに製品を選んで標高を読み、勾配を出す
    ▼
 edge_materials（start/end・gain/loss・average/max/min）
    │ 探索フェーズが材料として読む（road_graph_repository.py）
@@ -54,9 +54,15 @@ edge_materials（start/end・gain/loss・average/max/min）
 平均勾配として混入する。距離（両点とも既知なので常に正確）と、獲得/喪失・勾配（欠損を
 挟むと信頼できない）を分けて積む。
 
-整備区域外のタイルは配信元が404を返す。取込はそのタイルを行として作らないため、そこに
-落ちる区間は標高を持たない——「試したが値が無い」と「まだ試していない」は、タイルの行が
-在るかどうかで区別できる。
+その製品の整備区域外のタイルは配信元が404を返す。取得は製品ごとに印を置き、取込はその
+製品のタイルを行として作らない。どの製品の行も無い地点に落ちる区間は標高を持たない。
+取込は、印も本文も無い（まだ試していない）タイルを製品ごとに数えてWARNINGで出す。
+
+タイルの中の欠測（`"e"`）は画素ごとに扱う。上位の製品が欠けた画素だけが下位の製品で埋まり、
+どの製品にも値が無い画素は欠測のまま残る。水部がその典型で、配信元は「地図上で水部になって
+いる地域では、標高値がデータに入っていない場合や、正確な値が入っていない場合があります」
+（https://maps.gsi.go.jp/development/hyokochi.html ）と書いている——下位の製品を足しても、
+欠測の大半は埋まらない。
 
 ## 向きと標高
 
@@ -73,17 +79,29 @@ edge_materials（start/end・gain/loss・average/max/min）
 
 ## タイルの読み方（`batch/source_adapters/gsi_dem_tile.py`）
 
-配信元のURL・製品の優先順（細かい製品が全域を覆わないため粗い側へ落ちる）・欠測の記法を
-持つ。取込だけが使い、web側は読まない。ズームは`source_profile.yaml`が持つ。
+欠測の記法を持つ。配信元のURLと製品の順は`dem_tile_store.py`が持ち、取込・取得・派生だけが
+使う（web側は読まない）。どの製品をどのズームで取るかは`source_profile.yaml`が持つ。
 
 タイル本文はテキスト（256行×256列のカンマ区切り、単位m、欠測は`"e"`）で、取込は
-int32（0.01m単位）へ詰めて`payload`へ入れる。**どう読むかは`attrs`が持つ**
-（幅・高さ・型・尺度・欠測値）ため、読み手はこの形をコード側に持たない。
+int32（0.01m単位）へ詰めてPostGISの`raster`（`rast`列）へ入れる。位置・画素の大きさ・型・
+欠測値は`raster`の値自身が持ち、`raster`が持てない尺度と、画素の番地を出すのに要る幅だけを
+`attrs`へ書く（`raster`から幅を読むと、そのたびに画素が実体化される）。
 
 ### 製品ごとの性質（配信元の仕様、コードからは導けない）
 
-`PRODUCT_PRIORITY`（`dem_tile_store.py`）が細かい製品から順に落ちていくのは、製品ごとに
-整備範囲が違い、非対応エリアはタイル丸ごと404になるため。
+`PRODUCT_PRIORITY`（`dem_tile_store.py`）は、配信元が「その地点で最も計測精度の良い値」を
+採るときの順（DEM5A→DEM5B→DEM5C→DEM10B）である。配信元はこの順を**画素ごと**に当てる
+（https://maps.gsi.go.jp/development/hyokochi.html ）ので、派生も画素ごとに当てる——タイル
+単位で1製品を選ぶと、選んだ製品の欠測画素が、他の製品に値があっても埋まらない。取得は
+この順を使わず、宣言した製品を全部取る。
+
+**製品ごとに最大ズームが違う**（例: DEM10Bはz14まで。同じページに公表）。
+各製品をその最大ズームで取り、派生はその製品のズームで頂点の番地を出す。DEM10Bをz15で
+求めると、配信元は全タイルで404を返す。
+
+**DEM1A（1mメッシュ、z17）は取らない。** 標高を拾うのはOSMの形状点で、その間隔（多くは5m超）
+に対して1m格子にしても拾う点が増えない。効くのは区間内のサンプリングを5m未満へ細かくした
+ときで、タイル数はz15の16倍になる。
 
 **`dem`（サフィックス無し）はDEM5A/5B/5Cを統合したものではない。** DEM10B相当の別データ
 セットで、同じタイルでも`dem5a`と違う値を返す。`dem5a`/`dem5b`/`dem5c`はそれぞれ独立に
