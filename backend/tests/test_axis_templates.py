@@ -30,10 +30,6 @@ class TestEvaluateBreakpointLinear:
 class TestEvaluateCategorical:
     MAPPING = {"b": 20.0, "a": 10.0}
 
-    @pytest.mark.parametrize(("value", "expected"), [("a", 10.0), ("z", None), (None, None)])
-    def test_scalar_looks_up_the_value_and_leaves_the_rest_unevaluated(self, value, expected):
-        assert axis_templates.evaluate_categorical(value, self.MAPPING) == expected
-
     def test_array_of_strings_scores_only_registered_values(self):
         """未登録の値は、並べたキーのどこに落ちても（先頭より前・間・末尾より後）一致させない。
         欠損は検索のために先頭キーへ置き換えるが、それでも一致させない。"""

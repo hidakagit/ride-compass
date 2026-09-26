@@ -20,7 +20,7 @@ from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
     AxisDefinition,
     BreakpointLinearShape,
-    evaluate_axis_scalar,
+    evaluate_axis_values,
 )
 from app.domain.axis_display import axis_display_for
 from app.domain.axis_templates import evaluate_breakpoint_linear
@@ -162,20 +162,16 @@ def transform_dedicated_way_values(
     変換する。`map_value_kind`が`difficulty`なら軸スタジオの定義（breakpoints・
     priority_overrides）で評価した難易度、`signed_material`なら生値のまま。評価できない
     値（軸が他の材料も必須にしている等）はその道路を結果から除く（地図上は「データなし」）。
-    同じ材料値は1回だけ評価する（風のようにタイル内が全て同値の場合、評価は1回で済む）。
+    タイル内の全道路を1回の配列評価で求める。
     """
     if map_value_kind(definition) == "signed_material":
         return values
     if any(override.material != material_id for override in definition.priority_overrides):
         # 配信が値を持つのは`material_id`だけで、ほかの材料に置いた0次条件は当たるかどうかを決められない。
         return {}
-    evaluated: dict[float, float | None] = {}
-    result: dict[str, float] = {}
-    for feature_key, value in values.items():
-        if value not in evaluated:
-            evaluated[value] = evaluate_axis_scalar(definition, {material_id: value})
-        difficulty = evaluated[value]
-        if difficulty is not None:
-            result[feature_key] = difficulty
-    return result
+    feature_keys = list(values)
+    difficulties = evaluate_axis_values(
+        definition, {material_id: [values[key] for key in feature_keys]}, len(feature_keys)
+    )
+    return {key: difficulty for key, difficulty in zip(feature_keys, difficulties) if difficulty is not None}
 

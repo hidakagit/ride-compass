@@ -38,7 +38,7 @@ from app.domain.axis_definitions import (
     AxisShape,
     primary_attribute_ids_for,
 )
-from app.domain.material_catalog import MATERIAL_CATALOG
+from app.domain.material_catalog import ACCIDENT_COUNT_PER_KM_YEAR, MATERIAL_CATALOG
 from app.domain.axis_display import axis_display_for, map_band_labels
 from app.domain.axis_raw_value import (
     axis_material_shares,
@@ -230,7 +230,7 @@ async def get_axis_catalog(region_service: RegionService = Depends(get_region_se
     material_runtime_scales: dict[str, float] = {}
     accident_years = await region_service.get_accident_years()
     if accident_years:
-        material_runtime_scales["accident_count_per_km_year"] = 1 / len(accident_years)
+        material_runtime_scales[ACCIDENT_COUNT_PER_KM_YEAR] = 1 / len(accident_years)
 
     return AxisCatalogResponse(
         client_tuning=client_tuning_values(),

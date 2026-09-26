@@ -38,6 +38,15 @@ class LatLonPoint(NamedTuple):
 # haversine_distance_kmで正確に行う。
 KM_PER_DEGREE_LATITUDE = 111.0
 
+
+def km_per_degree_longitude(latitude: float) -> float:
+    """緯度`latitude`での経度1度あたりの概算距離（km、`KM_PER_DEGREE_LATITUDE`と同じ目安用途）。
+
+    極では`cos`が0へ落ちるため下限を置く——この値で割る側（矩形のマージン・索引のセル幅）が
+    ゼロ除算にならないように。
+    """
+    return KM_PER_DEGREE_LATITUDE * max(math.cos(math.radians(latitude)), 1e-6)
+
 COMPASS_LABELS = ["北", "北東", "東", "南東", "南", "南西", "西", "北西"]
 
 
@@ -57,20 +66,12 @@ def bearing_between(origin: LatLon, destination: LatLon) -> float:
     """originからdestinationを見た初期方位角（0=北、時計回り、0-360）を球面三角法で求める。
 
     同じ地点どうしは向きが定まらず、例外にせず0（北）を返す（`atan2(0, 0)`）。"""
-    lat1 = math.radians(origin.latitude)
-    lat2 = math.radians(destination.latitude)
-    dlon = math.radians(destination.longitude - origin.longitude)
-
-    x = math.sin(dlon) * math.cos(lat2)
-    y = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(dlon)
-
-    return math.degrees(math.atan2(x, y)) % 360
+    return float(bearing_between_array(origin, np.asarray(destination.latitude), np.asarray(destination.longitude)))
 
 
 def bearing_between_array(origin: LatLon, lat: np.ndarray, lon: np.ndarray) -> np.ndarray:
-    """`bearing_between`のベクトル化版。originから`(lat, lon)`の各点を見た初期方位角
-    （0=北、時計回り、0-360）を配列で返す（大量Nodeに対する`bearing_between`の
-    繰り返し呼び出しを避ける）。"""
+    """`bearing_between`を多数の点へまとめて求める。originから`(lat, lon)`の各点を見た初期方位角
+    （0=北、時計回り、0-360）を配列で返す。式はここ1本で、1点の`bearing_between`もこれを通す。"""
     lat1 = math.radians(origin.latitude)
     lat2 = np.radians(lat)
     dlon = np.radians(lon - origin.longitude)
@@ -83,25 +84,16 @@ def bearing_between_array(origin: LatLon, lat: np.ndarray, lon: np.ndarray) -> n
 
 def haversine_distance_km(a: LatLon, b: LatLon) -> float:
     """2地点間の球面距離（km）。"""
-    lat1, lon1, lat2, lon2 = (
-        math.radians(a.latitude),
-        math.radians(a.longitude),
-        math.radians(b.latitude),
-        math.radians(b.longitude),
-    )
-    dlat = lat2 - lat1
-    dlon = lon2 - lon1
-    h = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
-    return 2 * EARTH_RADIUS_KM * math.asin(math.sqrt(h))
+    return float(haversine_distance_km_array(np.asarray(a.latitude), np.asarray(a.longitude), b))
 
 
 def haversine_distance_km_array(lat: np.ndarray, lon: np.ndarray, target: LatLon) -> np.ndarray:
-    """`haversine_distance_km`のnumpyベクトル版。
+    """`haversine_distance_km`を多数の地点へまとめて求める。式はここ1本で、2地点の
+    `haversine_distance_km`もこれを通す。
 
     `lat`/`lon`は複数地点の緯度経度配列（同一形状）、`target`は単一の目的地。
     A*ヒューリスティック（`node_heuristic`）が、レグごとに目的地が変わるたびグラフ上の
-    全Nodeとの距離を1回のnumpy演算で求め直すために使う。スカラー版とのビット単位一致は
-    不要——A*のヒューリスティックは下界を返しさえすれば正しく動く。
+    全Nodeとの距離を1回のnumpy演算で求め直すために使う。
     """
     lat1 = np.radians(lat)
     lon1 = np.radians(lon)

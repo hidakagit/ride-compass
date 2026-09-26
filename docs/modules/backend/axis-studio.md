@@ -59,8 +59,8 @@
 違いは**折れ点を通した後の難易度**を見る点にある（飽和は折れ点の当て方の問題なので、
 生値の分布だけでは判断できない）。
 
-軸の難易度は`domain/axis_definitions.py: evaluate_axes_scalar`で得る。個々の軸へ
-`evaluate_axis_scalar`を直接当てると、他の軸を材料にする合成軸（車の圧迫感）が
+軸の難易度は`domain/axis_definitions.py: evaluate_axes_values`で標本の全wayぶんをまとめて得る。個々の軸へ
+`evaluate_axis_values`を直接当てると、他の軸を材料にする合成軸（車の圧迫感）が
 「材料が欠損」として現れてしまう。
 
 **分布は地域で大きく変わる**。全域の抽選標本では市街地の偏りが平均に埋もれるため、
@@ -117,7 +117,7 @@
   （x範囲外は両端値へクランプ、NaN混入時は明示的にNaNへ戻す後処理が必要——`np.interp`は
   NaNを正しく伝播しないため）。
 - `MaterialTerm.required`と欠損: `required=True`の材料が欠損すれば軸全体が欠損
-  （スカラーNone/配列NaN）。`required=False`の材料の欠損は寄与0として残りの項だけで
+  （Pythonの値の入口はNone、配列はNaN）。`required=False`の材料の欠損は寄与0として残りの項だけで
   評価する。ただし全termが欠損した場合は、残る項が無く「寄与0の合計＝0」と「観測値が0」を
   区別できないため、`required`の有無によらず軸全体が欠損になる。
 - `CategoricalShape`: 単一`material`の値を`mapping`（カテゴリ値→スコア）で引く。
@@ -139,9 +139,9 @@
 `material`の値が`equals`と一致する場合、shape評価をスキップし`value`をそのまま返す
 （探索除外のハードフィルタ`domain/hard_filters.py: DEFAULT_HARD_FILTERS`とは別の仕組み）。
 
-**一致の判定は配列版1本**（`_priority_override_mask`）で、スカラー版（区間の内訳・専用way値配信）は
-材料の値を長さ1の配列にして同じ関数を通す。材料の値は入口ごとに別の形で届く——スカラーは
-Pythonの値、配列は材料の型ごとの配列で、「不明」を持つ真偽の材料（`surface_good`等）は1.0/0.0/NaNの
+**一致の判定は1本**（`_priority_override_mask`）で、Pythonの値で持つ入口（区間の内訳・専用way値配信）も
+材料の値を配列にして同じ関数を通す。材料の値は入口ごとに別の形で届く——区間の内訳と配信は
+Pythonの値、ルート選びは材料の型ごとの配列で、「不明」を持つ真偽の材料（`surface_good`等）は1.0/0.0/NaNの
 数値の配列になる。判定を2本持つと、この形の違いで区間の内訳とルート選びが同じ道に違う答えを出す。
 `equals`は`CategoricalShape.mapping`のキーと同じ読み方（`flag_or_value_name`）で、`"true"`/`"false"`だけを
 真偽と読み、それ以外は書いたとおりの値の名前として比べる。欠損（None・NaN）はどの条件にも当たらない。
@@ -161,13 +161,14 @@ Pythonの値、配列は材料の型ごとの配列で、「不明」を持つ�
 
 | 関数 | 用途 |
 |---|---|
-| `evaluate_axis_scalar(definition, materials)` | 1Edge分。欠損はNone |
-| `evaluate_axis_array(definition, materials)` | numpy配列版。欠損はNaN、ベクトル化経路用 |
-| `evaluate_axes_scalar(materials)` | 全軸を依存順（`topological_axis_order`、内部軸→公開軸）で評価し、公開軸のみのdifficulty辞書と全軸を含むmaterials辞書を返す |
+| `evaluate_axis_values(definition, materials, length)` | 材料id→Pythonの値の並びから要素ごとの得点。欠損はNone。配列へ並べ替えて`evaluate_axis_array`を通す |
+| `evaluate_axis_array(definition, materials)` | 軸の評価の本体（numpy配列、欠損はNaN）。どの入口もここを通る |
+| `evaluate_axes_array(materials)` | 全軸を依存順（`topological_axis_order`、内部軸→公開軸）で評価し、材料へ全軸の得点を足した辞書を返す |
+| `evaluate_axes_values(materials, length)` | `evaluate_axes_array`をPythonの値の並びから通し、公開軸だけの得点を返す（評価できない公開軸もキーを残してNone） |
+| `raw_values(shape, materials, length)` | 折れ点を通す前の生値をPythonの値の並びから求める。保存前の`shape`を受け取れるため分布プレビューが使う |
 
-折れ線の得点は小数1桁へ丸め、配列版もスカラー版の`round()`と同じ値へ丸める
-（`axis_templates.round1_array`）。区間を押したときの内訳（スカラー）とルート選び（配列）が
-同じ得点を使うため——`np.round`は×10の丸め誤差で、端数がちょうど`.x5`の値を別の側へ丸める。
+折れ線の得点は小数1桁へ丸め、Pythonの`round()`と同じ値へ丸める
+（`axis_templates.round1_array`。2進の実際の値で丸める）——`np.round`は×10の丸め誤差で、端数がちょうど`.x5`の値を別の側へ丸める。
 
 `topological_axis_order`は深さ優先探索でトポロジカルソートし、結果を内容ベースの
 キー（各軸の`materials`）でメモ化する（件数上限つきの`cachetools.LRUCache`。軸スタジオの
@@ -270,7 +271,7 @@ DB側の値が変わっても追従しない。軸の中身が主題でないテ
 
 **暗黙の前提（重要な既知の非対称性）**: 自動導出した表示と評価側の整合性は
 `required=False`の材料でのみ厳密に一致する。`required=True`の材料が欠損している場合、
-評価側（`evaluate_axis_scalar`）は軸全体を「評価不能（None）」にするが、フロント側の
+評価側（`evaluate_axis_array`）は軸全体を「評価不能（None）」にするが、フロント側の
 自動導出expression（`buildAxisRampValueExpression`）はタイルプロパティ欠損を寄与0
 （coalesce）として扱う——本来「評価不能」な区間が地図上では「評価済みで良好（緑）」に
 誤表示されうる。テストで検証済みの許容された制約であり、実務上は稀（way単位の

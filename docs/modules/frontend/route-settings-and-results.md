@@ -220,7 +220,7 @@ page.tsx（[ページ全体構成・状態管理](page-composition.md)参照）�
   寄与度0-100、backend側で区間ごとの合成に使ったのと同じ重み配分を軸別に分解しルート
   全体へ距離加重平均で集約した値。評価できなかった軸（データ欠損）はキー自体が無く非表示。
   重み0の軸はキー自体は残り値が常に0.0になる（backend:
-  `domain/evaluation.py: axis_contributions_at_row`参照。frontend側で値0を除外する、
+  `domain/difficulty.py: axis_contributions_at_row`参照。frontend側で値0を除外する、
   下記`AxisContributionBar.tsx`参照）を、「総合難易度」の数字の
   隣に`AxisContributionBar`（積み上げ1本バー＋その下の凡例）でそのまま表示する。バーは長さだけで
   総合難易度を表す（距離と面積は上の道のりのグラフが持つ）。合計が

@@ -23,7 +23,7 @@ from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from app.domain.attributes import EdgeMaterialArrays
-from app.domain.graph import LeanEdge, edge_key, node_key
+from app.domain.graph import LeanEdge, edge_feature_key_sql, edge_key, node_key, parse_edge_feature_key
 from app.domain.hard_filters import HARD_FILTER_VALUE_SQL, hard_filter_columns
 from app.domain.landcover import PERCENT_CLASSES, LandcoverPercentages
 from app.domain.material_catalog import (
@@ -138,18 +138,6 @@ _COVERAGE_SQL = """
 EDGE_UNIT_MIN_ZOOM = 14
 
 
-def parse_edge_feature_key(key: str) -> tuple[int, int] | None:
-    """`feature_key`（区間単位は`<osm_way_id>-<segment_index>`、SQL側で組み立てる）の逆。
-    way丸ごとの鍵（区切りが無い）はNone。"""
-    way_id, separator, segment = key.partition("-")
-    if not separator:
-        return None
-    try:
-        return int(way_id), int(segment)
-    except ValueError:
-        return None
-
-
 #: どちらの単位も`feature_key`という同じ名前で出す。フロントは`promoteId`でこれを
 #: feature.idへ昇格させるだけでよく、中身がway_idか区間の鍵かを知らなくてよい。
 #:
@@ -170,7 +158,7 @@ _TILE_FEATURE_SOURCE_SQL = f"""
         re.geom,
         re.osm_way_id,
         re.segment_index,
-        re.osm_way_id::text || '-' || re.segment_index::text,
+        {edge_feature_key_sql("re.osm_way_id", "re.segment_index")},
         -- 密度（件/km）の分母。way全体ではなくこの区間の長さで割る。
         re.distance_m
     FROM road_edges re

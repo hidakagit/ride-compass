@@ -14,7 +14,7 @@ import numpy as np
 from app.domain.geo import bearing_between, haversine_distance_km
 from app.domain.graph import node_key
 from app.domain.hard_filters import hard_filter_columns
-from app.domain.material_sql import MATERIAL_ID_GRADIENT_PERCENT
+from app.domain.material_catalog import GRADIENT_PERCENT
 from app.domain.traffic import stop_count_material_ids
 from app.domain.road_network import RoadNetwork
 from app.domain.route import Coordinates
@@ -95,7 +95,7 @@ def grid_network(
         edge_highway=np.ones(n, dtype=np.int16), highway_vocab=(None, "residential"),
         edge_min_lon=np.minimum(lon[tail], lon[head]), edge_min_lat=np.minimum(lat[tail], lat[head]),
         edge_max_lon=np.maximum(lon[tail], lon[head]), edge_max_lat=np.maximum(lat[tail], lat[head]),
-        numeric_ids=(BAD_MATERIAL, MATERIAL_ID_GRADIENT_PERCENT, *stop_count_material_ids()),
+        numeric_ids=(BAD_MATERIAL, GRADIENT_PERCENT, *stop_count_material_ids()),
         numeric_values=np.column_stack([bad, gradient, *(stop_count for _ in stop_count_material_ids())]),
         boolean_ids=(), boolean_values=np.zeros((n, 0), dtype=bool),
         categorical_ids=(), categorical_codes=np.zeros((n, 0), dtype=np.int16), categorical_vocab=(),

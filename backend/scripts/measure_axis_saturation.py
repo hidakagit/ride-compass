@@ -27,7 +27,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.batch._common import batch_session_factory  # noqa: E402
-from app.domain.axis_definitions import AXIS_DEFINITIONS, evaluate_axes_scalar  # noqa: E402
+from app.domain.axis_definitions import AXIS_DEFINITIONS, evaluate_axes_values  # noqa: E402
 from app.domain.region import BoundingBox, parse_bbox  # noqa: E402
 from app.infrastructure.road_graph_repository import RoadGraphRepository  # noqa: E402
 from app.services import axis_preview_service  # noqa: E402
@@ -88,14 +88,15 @@ async def run(
     print("-" * 86)
 
     # 軸の階層（内部軸→公開軸）を解いて公開軸の難易度を得る。個々の軸へ
-    # `evaluate_axis_scalar`を直接当てると、他の軸を材料にする合成軸（車の圧迫感）が
+    # `evaluate_axis_values`を直接当てると、他の軸を材料にする合成軸（車の圧迫感）が
     # 「材料が欠損」になってしまう。
+    material_ids = {key for _, materials in sample for key in materials}
+    columns = {key: [materials.get(key) for _, materials in sample] for key in material_ids}
     by_axis: dict[str, list[tuple[float, float]]] = {}
-    for length_m, materials in sample:
-        scores, _ = evaluate_axes_scalar(materials)
-        for axis_id, score in scores.items():
-            if score is not None:
-                by_axis.setdefault(axis_id, []).append((length_m, score))
+    for axis_id, scores in evaluate_axes_values(columns, len(sample)).items():
+        by_axis[axis_id] = [
+            (length_m, score) for (length_m, _), score in zip(sample, scores) if score is not None
+        ]
 
     saturated: list[str] = []
     for axis_id in sorted(AXIS_DEFINITIONS):

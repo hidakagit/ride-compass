@@ -13,7 +13,7 @@
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `road_network.py`（取込範囲全体の道路網を、有向の区間とノードの番号で引ける列の配列として持つ型。行の並び・分類の材料を語彙への番号で持つことはそのdocstringが持つ）・`routing.py`・`graph.py`・`route.py`・`geo.py`・`errors.py`・`region.py`（矩形（`BoundingBox`）とXYZタイルの相互変換、Road Graphを取得する単位のズーム。タイル配信側もこの変換を共有する）・`cycling_speed.py`（自転車の走行モデル。平地・無風の巡航速度からホイール出力を逆算し、勾配・向かい風・転がり抵抗から区間ごとの速度を走行方程式で解く。速度の逆算は`v`の3次方程式になるため二分法で、numpyでベクトル化してある。候補の所要時間と基準線の探索コストがここから出る）・`tuning.py`（ルーティング評価が読む固定値の宣言。走ってみて決める値［較正値］は既定ごとここが持ち、エンジンが読む値・管理画面が並べる項目・変更が効くために何をやり直す必要があるかをそこから導く。較正値ではない固定値は載せず、使う側のモジュールが持つ）・`loop_routing.py`（周回・目的地ルートの探索結果を運ぶ型。探索の実装と候補を並べる戦略のどちらにも属さない） |
+| domain | `road_network.py`（取込範囲全体の道路網を、有向の区間とノードの番号で引ける列の配列として持つ型。行の並び・分類の材料を語彙への番号で持つことはそのdocstringが持つ）・`routing.py`・`graph.py`・`route.py`・`geo.py`・`errors.py`・`region.py`（矩形（`BoundingBox`）と地点を覆う矩形の組み立て、XYZタイルとの相互変換（緯度経度・Web Mercatorのメートル・同じ式のSQL）、Road Graphを取得する単位のズーム。タイル配信・取込・派生バッチもこの変換を共有する）・`cycling_speed.py`（自転車の走行モデル。平地・無風の巡航速度からホイール出力を逆算し、勾配・向かい風・転がり抵抗から区間ごとの速度を走行方程式で解く。速度の逆算は`v`の3次方程式になるため二分法で、numpyでベクトル化してある。候補の所要時間と基準線の探索コストがここから出る）・`tuning.py`（ルーティング評価が読む固定値の宣言。走ってみて決める値［較正値］は既定ごとここが持ち、エンジンが読む値・管理画面が並べる項目・変更が効くために何をやり直す必要があるかをそこから導く。較正値ではない固定値は載せず、使う側のモジュールが持つ）・`loop_routing.py`（周回・目的地ルートの探索結果を運ぶ型。探索の実装と候補を並べる戦略のどちらにも属さない） |
 | services | `route_generator.py`（戦略層）・`road_graph_engine.py`・`graph_service.py` |
 | infrastructure | `road_graph_repository.py`（道路網・材料の読み出し専用）・`road_network_store.py`（道路網全体の配列をDBから作り、ディスクへ置き、読む）・`search_graph_cache.py`（探索範囲ごとに学習した迂回率）・`cache_identity.py`（キャッシュ鍵の組み立て方の正本。手で書くリビジョンと、焼き込みSQL・列構成から導く署名を合成する。道路網の置き場の形の署名とタイル配信側の世代も同じ関数を使う）・`container_memory.py`（このプロセスのコンテナのメモリ上限。読み込む量の上限を導く）・`derived_data_meta.py`（派生データの世代。バッチが中身を書き直すたびに進む単調カウンタで、デプロイを伴わない変化を表せる唯一の経路） |
 | api | `routes.py` |
@@ -368,9 +368,9 @@ idを`route-destination-00..`へ振り直すが、
 
 対象bboxの構築方法が2パターンある:
 
-- **周回探索（折返し点方式）**: `_bbox_around_point(origin, radius_km + マージン)`
+- **周回探索（折返し点方式）**: `region.py: bbox_covering_points([origin], radius_km + マージン)`
   （円形の探索半径を包含する矩形、`radius_km = distance_km × TURNAROUND_RADIUS_RATIO`）。
-- **waypoints指定（経由地・目的地）**: `_bbox_covering_points(origin, waypoints, ...)`
+- **waypoints指定（経由地・目的地）**: `bbox_covering_points([origin, *waypoints], 固定マージン)`
   （起点＋全経由地＋目的地を包含する矩形）。
 
 `GraphService.get_search_slice`で探索範囲の区間（`domain/road_network.py: RoadSlice`）と、
@@ -726,7 +726,9 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
   探索は区間の番号で動き、このオブジェクトを作らない。`geometry`は作った時点では空リストで、
   表示のために`get_edges_with_geometry`が取り直して埋める。
 - 区間とノードの文字列の鍵（`edge_key`・`node_key`）と、区間の鍵の読み戻し（`parse_edge_key`）は
-  ここだけが持つ。APIが運ぶ鍵とDBの`(osm_way_id, segment_index, forward)`の対応がここで決まる。
+  ここだけが持つ。路面タイルのフィーチャーの鍵（向きを持たない区間。`edge_feature_key_sql`・
+  `parse_edge_feature_key`）も同じ場所に置く——`edge_key`とは別の鍵で、タイルのSQLが組み立て、
+  区間インスペクタが読み戻す。APIが運ぶ鍵とDBの`(osm_way_id, segment_index, forward)`の対応がここで決まる。
 
 ### `domain/route.py`
 

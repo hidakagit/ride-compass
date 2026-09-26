@@ -2,12 +2,16 @@
 
 import pytest
 
-from app.domain.axis_definitions import BreakpointLinearShape, CategoricalShape, MaterialTerm
+from app.domain.axis_definitions import BreakpointLinearShape, CategoricalShape, MaterialTerm, raw_values
 from app.services.axis_preview_service import (
     HISTOGRAM_BINS,
     _distribution,
-    _raw_value,
 )
+
+
+def _raw_value(shape, materials):
+    """way1本ぶんの生値。プレビューは標本の全wayを`raw_values`へまとめて渡す。"""
+    return raw_values(shape, {key: [value] for key, value in materials.items()}, 1)[0]
 
 
 def _bins_cover(bins, value: float) -> bool:

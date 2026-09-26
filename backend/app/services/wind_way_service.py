@@ -11,6 +11,7 @@ import logging
 from datetime import datetime
 
 from app.domain.time_zone import JST
+from app.domain.material_catalog import WIND_DRAG_RATIO
 from app.domain.region import BoundingBox, tile_bounds_lonlat
 from app.domain.route import Coordinates
 from app.domain.wind import kmh_to_ms, wind_drag_ratio
@@ -53,7 +54,7 @@ class WindWayService:
         self._weather_service = weather_service
 
     #: 返す生値の材料id。この材料を参照する軸の配信を担当する。
-    material_id = "wind_drag_ratio"
+    material_id = WIND_DRAG_RATIO
 
     @classmethod
     def build(cls, repository: RoadGraphRepository, weather_service: WeatherService) -> "WindWayService":

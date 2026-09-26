@@ -134,7 +134,7 @@ async def test_create_persists_and_refreshes_process_cache(road_graph_session):
 async def test_create_rejects_axis_id_colliding_with_known_material(road_graph_session):
     # MATERIAL_CATALOGに実在する材料id（例: "highway"）と同名のaxis_idは
     # 作成できない。放置すると評価時に生の材料値がdifficulty値で上書きされ、それ以降に
-    # 評価される軸が黙って壊れる（axis_definitions.py: evaluate_axes_scalar参照）。
+    # 評価される軸が黙って壊れる（axis_definitions.py: evaluate_axes_array参照）。
     repository = AxisDefinitionRepository(road_graph_session)
     service = AxisRegistryAdminService(repository)
 

@@ -1,4 +1,4 @@
-"""`domain/region.py`——緯度経度の矩形（`BoundingBox`）と、XYZタイル（Web Mercator）との行き来。
+"""`domain/region.py`——緯度経度の矩形（`BoundingBox`）とその組み立て、XYZタイル（Web Mercator）との行き来。
 
 ここで見ないもの:
 - タイルのズーム範囲を使う配信の口 → `test_region_routes.py`
@@ -11,6 +11,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.domain import region
+from app.domain.geo import LatLonPoint
 
 Box = region.BoundingBox
 
@@ -59,6 +60,42 @@ def test_a_box_outside_the_globe_is_rejected(corners):
 def test_a_box_whose_edges_do_not_increase_is_rejected_naming_the_axis(corners, axis):
     with pytest.raises(ValidationError, match=axis):
         _box(*corners)
+
+
+# ---- 地点を覆う矩形 ----
+
+
+P = LatLonPoint
+
+
+def test_a_box_around_one_point_widens_longitude_with_latitude():
+    """同じkmでも高緯度ほど経度は広く取る（経度1度の実距離が縮むため）。"""
+    at_equator = region.bbox_covering_points([P(0.0, 139.0)], 10.0)
+    at_high = region.bbox_covering_points([P(60.0, 139.0)], 10.0)
+
+    equator_lon_margin = at_equator.max_longitude - 139.0
+    equator_lat_margin = at_equator.max_latitude - 0.0
+    assert equator_lon_margin == pytest.approx(equator_lat_margin)
+    assert at_high.max_longitude - 139.0 > equator_lon_margin
+    assert at_high.max_latitude - 60.0 == pytest.approx(equator_lat_margin)
+
+
+def test_a_box_covering_points_takes_the_extremes_plus_margin():
+    bbox = region.bbox_covering_points([P(35.0, 139.0), P(36.0, 140.0)], 2.0)
+
+    assert bbox.min_latitude < 35.0
+    assert bbox.max_latitude > 36.0
+    assert bbox.min_longitude < 139.0
+    assert bbox.max_longitude > 140.0
+    assert bbox.max_latitude - 36.0 == pytest.approx(35.0 - bbox.min_latitude)
+
+
+def test_the_longitude_margin_is_scaled_by_the_mean_latitude():
+    """経度マージンの基準は端ではなく平均緯度。端を使うと片側が足りなくなる。"""
+    spread = region.bbox_covering_points([P(0.0, 139.0), P(60.0, 139.0)], 2.0)
+    at_mean = region.bbox_covering_points([P(30.0, 139.0)], 2.0)
+
+    assert spread.max_longitude - 139.0 == pytest.approx(at_mean.max_longitude - 139.0)
 
 
 # ---- CLIの--bbox ----

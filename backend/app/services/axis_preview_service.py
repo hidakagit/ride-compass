@@ -19,7 +19,7 @@ from typing import SupportsFloat, cast
 
 from cachetools import TTLCache
 
-from app.domain.axis_definitions import AxisShape, BreakpointLinearShape
+from app.domain.axis_definitions import AxisShape, raw_values, referenced_materials
 from app.domain.material_catalog import material_dtype
 from app.domain.region import BoundingBox
 from app.infrastructure.road_graph_repository import RoadGraphRepository
@@ -105,27 +105,6 @@ async def _load_sample(repository: RoadGraphRepository) -> list[tuple[float, dic
     return sample
 
 
-def _raw_value(shape: AxisShape, materials: dict[str, object]) -> float | None:
-    """折れ点を通す前の生値。categorical軸は生値の概念を持たないためNone。"""
-    if not isinstance(shape, BreakpointLinearShape):
-        return None
-    total = 0.0
-    seen = False
-    for term in shape.terms:
-        value = materials.get(term.material)
-        if value is None:
-            if term.required:
-                return None
-            continue
-        seen = True
-        total += float(cast(SupportsFloat, value)) * term.weight
-    if not seen:
-        return None
-    if shape.preprocess == "abs":
-        total = abs(total)
-    return total
-
-
 def _distribution(pairs: list[tuple[float, float]]) -> ValueDistribution:
     """`(長さm, 値)`から延長で重み付けた分布を組み立てる。"""
     if not pairs:
@@ -175,11 +154,11 @@ async def axis_raw_value_distribution(
 ) -> ValueDistribution:
     """候補の`shape`の生値（折れ点を通す前）の分布。"""
     sample = await _load_sample(repository)
-    pairs = []
-    for length_m, materials in sample:
-        value = _raw_value(shape, materials)
-        if value is not None:
-            pairs.append((length_m, value))
+    material_ids = referenced_materials(shape, [])
+    values = raw_values(
+        shape, {m: [materials.get(m) for _, materials in sample] for m in material_ids}, len(sample)
+    )
+    pairs = [(length_m, value) for (length_m, _), value in zip(sample, values) if value is not None]
     return _distribution(pairs)
 
 

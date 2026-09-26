@@ -5,8 +5,8 @@
 - 軸1本の得点の計算 → `test_axis_definitions.py`
 - 配信サービス本体と、軸と配信実装の突き合わせ → 各サービスのテストと`api/dependencies.py`の利用者
 
-**名前空間の外向きの参照は差し替える**——軸の集合・材料カタログは架空のもので、地図表示の導出と
-軸の評価は`bound()`で本物の署名へ当てた代役で与える。
+**名前空間の外向きの参照は差し替える**——軸の集合・材料カタログは架空のもので、地図表示の導出は
+`bound()`で本物の署名へ当てた代役で与える。軸の評価は本物を通す（同じdomainの関数のため）。
 """
 
 import pytest
@@ -211,26 +211,20 @@ class TestTransformDedicatedWayValues:
             == values
         )
 
-    def test_a_difficulty_axis_scores_each_distinct_value_once_and_drops_the_unscorable(self, monkeypatch):
-        calls = []
-
-        def evaluate_axis_scalar(definition, materials):
-            calls.append(materials)
-            value = materials["speed"]
-            return None if value < 0 else value * 10
-
-        monkeypatch.setattr(
-            dynamic_way_values,
-            "evaluate_axis_scalar",
-            bound(dynamic_way_values.evaluate_axis_scalar, evaluate_axis_scalar),
-        )
-
+    def test_a_difficulty_axis_paints_each_road_with_its_score(self):
         result = dynamic_way_values.transform_dedicated_way_values(
-            axis("a", linear("speed")), "speed", {"w1": 2.0, "w2": 2.0, "w3": -1.0, "w4": 3.0}
+            axis("a", linear("speed")), "speed", {"w1": 2.0, "w2": 2.0, "w3": 3.0}
         )
 
-        assert result == {"w1": 20.0, "w2": 20.0, "w4": 30.0}
-        assert calls == [{"speed": 2.0}, {"speed": -1.0}, {"speed": 3.0}]
+        assert result == {"w1": 20.0, "w2": 20.0, "w3": 30.0}
+
+    def test_an_axis_that_also_needs_a_material_the_layer_does_not_serve_leaves_every_road_unscored(self):
+        """配信が値を持つのは1つの材料だけ。ほかにも必須の材料がある軸は評価できず、地図上は「データなし」。"""
+        result = dynamic_way_values.transform_dedicated_way_values(
+            axis("a", linear("speed", "grade")), "speed", {"w1": 2.0}
+        )
+
+        assert result == {}
 
     def test_a_condition_on_a_material_the_layer_does_not_serve_leaves_every_road_unscored(self):
         """配信は1つの材料の値しか持たず、ほかの材料に置いた条件が当たるかを決められない。当たらないものと

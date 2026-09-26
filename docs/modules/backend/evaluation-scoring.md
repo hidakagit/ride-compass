@@ -11,7 +11,7 @@
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `evaluation.py`（Edge Costの算出。スカラー／ベクトル／タイル静的行列の3表現）・`hard_filters.py`（0次フィルタ）・`route_preference.py`（重み指定）・`dynamic_materials.py`（風などリクエスト時に決まる材料）・`axis_inspector.py`（区間インスペクタ）・`difficulty.py`・`material_catalog.py`・`material_sql.py`（材料の値をSQLで導出する式と、道・ノードの生データの読み方） |
+| domain | `evaluation.py`（Edge Costの算出。探索範囲の静的スコア行列と、コストの合成・逆算）・`hard_filters.py`（0次フィルタ）・`route_preference.py`（重み指定）・`dynamic_materials.py`（風などリクエスト時に決まる材料）・`axis_inspector.py`（区間インスペクタ）・`difficulty.py`（軸の得点の合成と、区間からルートへの集約）・`material_catalog.py`・`material_sql.py`（材料の値をSQLで導出する式と、道・ノードの生データの読み方） |
 | services | `evaluation_service.py`・`material_coverage_service.py` |
 | infrastructure | `material_coverage.py`（材料ごとの欠損割合の集計クエリ） |
 | api | `material_catalog.py`（材料カタログ・材料値一覧・欠損割合のエンドポイント） |
@@ -109,17 +109,20 @@ way粒度の経路も**区間向けと同じ式**を使う。`_way_from_clause`�
         │  bearing配列・天候・走行速度から求める
         ▼
   二次: 軸id → difficulty(0-100) の辞書
-        │  domain/axis_definitions.py: evaluate_axes_scalar が AXIS_DEFINITIONS を評価
+        │  domain/axis_definitions.py: evaluate_axes_array が AXIS_DEFINITIONS を評価
         │  （軸が他の軸のdifficultyをmaterialとして参照する階層構造も含む）
         ▼
   三次: compose_costs_from_axis_matrix(distance_m, axis_arrays, weights, penalty_strength)
-        │  cost = 下地 × (1 + P × Σᵢ wᵢ × axisᵢ / 100)
+        │  difficulty = Σᵢ wᵢ × axisᵢ / Σᵢ wᵢ（difficulty.py: composite_difficulty_array）
+        │  cost = 下地 × (1 + P × difficulty / 100)
         ▼
   cost・difficulty配列（0次フィルタの除外は`compute_hard_filter_excluded`が別途判定）
 ```
 
-way1本を指す区間インスペクタだけはスカラーで評価する（`axis_inspector_breakdown`→
-`evaluate_axes_scalar`）。
+way1本を指す区間インスペクタも同じ評価・合成を長さ1の配列で通す（`axis_inspector_breakdown`→
+`evaluate_axes_values`・`difficulty.py: composite_difficulty`）。軸の評価と合成の式は配列版の
+1本ずつで、入口ごとに書き写さない——書き写すと、区間を押して見える得点とルート選びが使う得点が
+同じ道で食い違う。
 
 - 評価できなかった軸は合成から除外され、残りの重みで再正規化される。
 - `penalty_strength`（P）は**主観的割増と時間の換算レート**。リクエストが省略したときの値は
@@ -136,17 +139,17 @@ way1本を指す区間インスペクタだけはスカラーで評価する（`
   変わりうるため、除外判定そのものはここでは確定させない）。動的材料
   （`REQUEST_DYNAMIC_MATERIAL_IDS`、風）の列はNaNのままで、それに依存する軸の列も自然に
   NaNへ伝播する（動的軸の特別扱いが不要）。
-- **`compose_costs_from_axis_matrix`**: 軸別スコア配列群と重み辞書からNeumaier加算→
-  `round1_array`丸め→cost算出まで配列演算で行う。0次フィルタによる除外
+- **`compose_costs_from_axis_matrix`**: 軸別スコア配列群と重み辞書から合成difficulty
+  （`difficulty.py: composite_difficulty_array`）→cost算出まで配列演算で行う。costからdifficultyへの
+  逆算（折返し点・経由Nodeの並べ替えが使う）は同じファイルの`difficulty_from_cost`が持つ。0次フィルタによる除外
   （`compute_hard_filter_excluded`が`hard_filters`/`max_average_grade_percent`を反映して
   別途判定）はここには含まれない。重み付き軸がすべて欠損のEdgeはcost算出だけbbox内平均
   difficultyを代入する（表示用の戻り値には影響しない、詳細は後述「探索コストの既定経路」節）。
 
-**暗黙の前提（浮動小数点の一致）**: `_neumaier_accumulate`（Neumaier補償加算のnumpy版）は
-Python組み込み`sum()`（Python 3.12以降、Neumaier補償加算を使う）とビット単位で同じ
-結果を返すために存在する。単純な逐次`+=`ではちょうど.X5境界の値で最終丸め結果が
-スカラー経路（`composite_difficulty`）と食い違う。最終丸めも同じ理由で`round(x, 1)`と
-ビット単位で一致させる必要がある（`round1_array`）。`×10→np.rint→÷10`を配列全体で
+**暗黙の前提（浮動小数点の丸め）**: 合成の和は補償加算（`difficulty.py: _neumaier_accumulate`）で
+求める。単純な逐次`+=`では誤差が項の数だけ積み上がり、真の値がちょうど.X5境界にある合成値の
+最終丸めが誤差の向きしだいで別の側へ倒れる。最終丸めは`round(x, 1)`と同じ値へ丸める
+（`round1_array`）。`×10→np.rint→÷10`を配列全体で
 まとめて計算し、計算後の値がちょうど`.5`に乗った要素だけ、その要素の元の値へPythonの
 `round()`（10進の正しい丸め）を個別に適用して結果を決め直す。軸1本の得点
 （`evaluate_axis_array`）も同じ`round1_array`で丸める。
@@ -154,8 +157,8 @@ Python組み込み`sum()`（Python 3.12以降、Neumaier補償加算を使う）
 **暗黙の前提**: 軸が読む材料の配列は`MATERIAL_CATALOG`の全材料ぶん確保する
 （`value_sql`を持たない材料も既定値[NaN/False]で確保）。確保しないと、値式が無い材料を
 軸スタジオでGUI作成した軸を評価した際に`evaluate_axis_array`が`KeyError`で
-`/api/routes/generate`自体を落とす（スカラー版`evaluate_axes_scalar`は
-`materials.get(...)`のためこの経路では発生しない非対称性がある）。
+`/api/routes/generate`自体を落とす（Pythonの値の入口`evaluate_axes_values`は、無い材料を
+全要素欠損の列として埋めてから配列へ通す）。
 
 ## 探索範囲の静的スコア行列と動的軸合成（探索コストの既定経路）
 
@@ -201,7 +204,7 @@ bbox全体ぶんのコストをリクエストにつき1回だけnumpyで合成�
   先頭を採用する決定的な規則で解消する（コストは見ない。`LazyRoadGraph`はコストに
   依存せずタイル集合キーでキャッシュするため）。
   同じコスト配列・軸別スコア配列は`_build_segment_details`（区間表示）からも参照され、
-  探索と表示の二重計算を避ける。区間の軸別寄与度（表示用）は`axis_contributions_at_row`が
+  探索と表示の二重計算を避ける。区間の軸別寄与度（表示用）は`difficulty.py: axis_contributions_at_row`が
   経路上の区間ぶんだけ、合成が返した重みの和（`AxisComposition.weight_sums`）を分母に求める
   ——全区間ぶんは作らない。**唯一の例外**（探索コストのみ補完・表示は変えない、
   `docs/architecture/design-principles.md`「探索コストと表示difficultyの一致」参照）: 重み付き軸が
@@ -221,6 +224,12 @@ bbox全体ぶんのコストをリクエストにつき1回だけnumpyで合成�
 |---|---|---|
 | `overall_difficulty` | 距離加重平均（`distance_weighted_difficulty`） | 距離で正規化されるため、遠回りして難所を避けるほど下がる。候補の並び順はこの昇順 |
 | `difficulty_load` | 平均×距離合計（`difficulty_load`） | 距離が伸びればそのまま増える。「走り切るまでのしんどさ」に近く、遠回りが不利に出る |
+
+距離加重平均は、区間の並び（Pythonの値）を受ける`weighted_mean_by_distance`と、探索範囲全体の
+配列を受ける`distance_weighted_difficulty_array`の2本が同じ規則（値の無い区間は分母からも外す・
+距離の合計が0以下ならNone）を持つ。前者を配列へ並べ替えて後者を通すと、1呼び出しあたりの所要が
+数µsから十数µsへ増え（区間5〜20件で2〜4µs→10〜14µs）、ビンごと・値の種類ごとに呼ぶルートの
+集約で積み上がるため、2本のままにしている。
 
 同じ集約を軸の**生値**（折れ点を通す前の値、`BulkAxisEvaluation.axis_raw_arrays`）にも
 掛ける（`RouteSegmentDetail.axis_raw_values`→`merge_axis_raw_values`→
@@ -303,6 +312,9 @@ MaterialSpec]`が単一ソース。
   （軸スタジオの材料選択肢には現れる）。
 - 材料自体はGUIから追加・編集・削除できない（コード変更＋デプロイが前提）。軸スタジオ
   は`GET /api/material-catalog`経由で本カタログを動的取得する。
+- コードが名指しで読む材料（例: 勾配・風・路面の良否）は、同じファイルのid定数（`GRADIENT_PERCENT`等）で
+  指し、カタログのキーにも同じ定数を使う。文字列で書き写すと、綴りがずれたときに読む側が材料を
+  見つけられず、黙って欠損（区間の表示から値が消える・全区間が舗装路扱いになる等）として扱う。
 - 風の材料は`wind_drag_ratio`（無次元。相対風速ベクトルの二乗則で求めた、時速20kmで無風の
   ときの空気抵抗を1とする進行方向の抵抗増分。`domain/wind.py: wind_drag_ratio_array`、
   基準速度`WIND_DRAG_REFERENCE_SPEED_MS`は`ASSUMED_SPEED_KMH`とは独立の定数）。

@@ -131,8 +131,3 @@ def landcover_value_sql(key: str) -> str:
     """区間単位の土地被覆。道1本の値へは落とさない——区間の値は全区間ぶん計算されており、
     落とす先は「同じ道の平均」でしかない（区間ごとの違いを消す）。"""
     return f"em.lc_{key}"
-
-
-# `EdgeMaterialArrays`が標高属性を組み立てるとき、勾配だけは材料の列から読む
-# （表示用の標高列と重複して持たないため）。
-MATERIAL_ID_GRADIENT_PERCENT = "gradient_percent"

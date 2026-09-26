@@ -15,10 +15,7 @@ import struct
 import shapely
 from shapely.geometry import box
 
-from app.domain.region import tile_bounds_lonlat
-
-#: Webメルカトルが世界を写す一辺の半分（m）。
-_WORLD_HALF_M = 20037508.342789244
+from app.domain.region import tile_bounds_3857, tile_bounds_lonlat
 
 #: 取込が`attrs`へ書く型 → PostGISのバンド種別と、欠測値の詰め方。
 _BAND_TYPE: dict[str, tuple[int, str]] = {
@@ -35,16 +32,16 @@ def tile_raster_wkb(pixels: bytes, *, zoom: int, x: int, y: int,
                     width: int, height: int, dtype: str, nodata: int) -> bytes:
     """タイル1枚のraster WKB。`pixels`はそのまま1バンドの中身になる。"""
     band_type, nodata_format = _BAND_TYPE[dtype]
-    span = 2 * _WORLD_HALF_M / (2 ** zoom)
+    west, south, east, north = tile_bounds_3857(zoom, x, y)
     header = struct.pack(
         "<BHH dddd dd i HH",
         1,                              # リトルエンディアン
         0,                              # 版
         1,                              # バンド数
-        span / width,                   # 画素の幅
-        -span / height,                 # 画素の高さ（上から下へ）
-        -_WORLD_HALF_M + x * span,      # 左上のX
-        _WORLD_HALF_M - y * span,       # 左上のY
+        (east - west) / width,          # 画素の幅
+        (south - north) / height,       # 画素の高さ（上から下へ）
+        west,                           # 左上のX
+        north,                          # 左上のY
         0.0, 0.0,                       # ゆがみ
         3857,
         width, height,

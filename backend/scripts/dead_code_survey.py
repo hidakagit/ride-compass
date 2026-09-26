@@ -20,7 +20,7 @@ r"""本番の入力から到達しない定義を出す。
 実行方法（backendディレクトリから）:
     .venv\Scripts\python.exe scripts\dead_code_survey.py
     .venv\Scripts\python.exe scripts\dead_code_survey.py --show-entrypoints
-    .venv\Scripts\python.exe scripts\dead_code_survey.py --why evaluate_axes_scalar
+    .venv\Scripts\python.exe scripts\dead_code_survey.py --why evaluate_axes_values
 """
 
 import argparse

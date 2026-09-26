@@ -29,7 +29,7 @@ from app.domain.landcover import LandcoverPercentages
 from app.domain.material_catalog import material_array_columns
 from app.domain.region import BoundingBox
 from app.infrastructure import road_graph_repository
-from app.domain.graph import edge_key, node_key
+from app.domain.graph import edge_key, node_key, parse_edge_feature_key
 from app.infrastructure.road_graph_repository import (
     MATERIAL_ARRAY_COLUMN_ORDER,
     RoadGraphRepository,
@@ -37,7 +37,6 @@ from app.infrastructure.road_graph_repository import (
     _SAMPLE_WAY_MATERIAL_VALUES_IN_BBOX_SQL,
     _SAMPLE_WAY_MATERIAL_VALUES_SQL,
     _way_from_clause,
-    parse_edge_feature_key,
     reversed_material_expression,
 )
 

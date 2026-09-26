@@ -124,44 +124,6 @@ def test_representative_bin_clamps_to_the_last_bin():
 
 
 # --------------------------------------------------------------------------------------
-# bboxの組み立て
-# --------------------------------------------------------------------------------------
-
-
-def test_bbox_around_point_widens_longitude_with_latitude():
-    """同じkmでも高緯度ほど経度は広く取る（経度1度の実距離が縮むため）。"""
-    at_equator = engine._bbox_around_point(coords(0.0, 139.0), 10.0)
-    at_high = engine._bbox_around_point(coords(60.0, 139.0), 10.0)
-
-    equator_lon_margin = at_equator.max_longitude - 139.0
-    equator_lat_margin = at_equator.max_latitude - 0.0
-    assert equator_lon_margin == pytest.approx(equator_lat_margin)
-    assert at_high.max_longitude - 139.0 > equator_lon_margin
-    assert at_high.max_latitude - 60.0 == pytest.approx(equator_lat_margin)
-
-
-def test_bbox_covering_points_uses_the_extremes_plus_margin():
-    points = [coords(35.0, 139.0), coords(36.0, 140.0)]
-    bbox = engine._bbox_covering_points(points, 2.0)
-
-    assert bbox.min_latitude < 35.0
-    assert bbox.max_latitude > 36.0
-    assert bbox.min_longitude < 139.0
-    assert bbox.max_longitude > 140.0
-    assert bbox.max_latitude - 36.0 == pytest.approx(35.0 - bbox.min_latitude)
-
-
-def test_bbox_covering_points_scales_longitude_by_the_mean_latitude():
-    """経度マージンの基準は端ではなく平均緯度。端を使うと片側が足りなくなる。"""
-    spread = engine._bbox_covering_points(
-        [coords(0.0, 139.0), coords(60.0, 139.0)], 2.0
-    )
-    at_mean = engine._bbox_covering_points([coords(30.0, 139.0)], 2.0)
-
-    assert spread.max_longitude - 139.0 == pytest.approx(at_mean.max_longitude - 139.0)
-
-
-# --------------------------------------------------------------------------------------
 # ジオメトリの連結と境界点
 # --------------------------------------------------------------------------------------
 

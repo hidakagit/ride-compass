@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from app.domain.material_catalog import SURFACE_GOOD
 from app.domain.tuning import tuning_value
 
 AIR_DENSITY_KG_M3 = 1.225
@@ -39,7 +40,7 @@ SPEED_SOLVE_ITERATIONS = 12
 
 # 路面の良否を持つ材料id。走行モデルはこれを**軸の構成と無関係に**必要とする
 # （`domain/traffic.py: stop_count_material_ids`と同じ理由）。
-ROLLING_RESISTANCE_MATERIAL_ID = "surface_good"
+ROLLING_RESISTANCE_MATERIAL_ID = SURFACE_GOOD
 
 
 def crr_for_surface(surface_good: np.ndarray | None, length: int) -> np.ndarray:

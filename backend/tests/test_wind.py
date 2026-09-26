@@ -118,15 +118,6 @@ class TestWindDragRatio:
         assert result.shape == (3,)
         assert result[0] > result[1] > result[2]
 
-    def test_the_scalar_and_array_forms_agree(self):
-        speeds, directions = np.array([3.0, 7.0]), np.array([0.0, 180.0])
-
-        array = wind_drag_ratio_array(speeds, directions, np.array([0.0, 0.0]), CRUISE_MS)
-
-        assert array.tolist() == pytest.approx(
-            [wind_drag_ratio(s, d, 0.0, CRUISE_MS) for s, d in zip(speeds, directions)]
-        )
-
 
 class TestWindLattice:
 

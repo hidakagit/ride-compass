@@ -9,7 +9,7 @@
 import numpy as np
 
 from app.domain.attributes import EdgeMaterialArrays
-from app.domain.material_sql import MATERIAL_ID_GRADIENT_PERCENT
+from app.domain.material_catalog import GRADIENT_PERCENT
 
 NUM_A = "num_a"
 BOOL_A = "bool_a"
@@ -20,7 +20,7 @@ FILTER_A = "filter_a"
 def _arrays(n: int) -> EdgeMaterialArrays:
     gradients = [1.0] * n
     return EdgeMaterialArrays(
-        numeric_ids=(MATERIAL_ID_GRADIENT_PERCENT, NUM_A),
+        numeric_ids=(GRADIENT_PERCENT, NUM_A),
         numeric_values=np.array([[g, 10.0 * (i + 1)] for i, g in enumerate(gradients)]),
         boolean_ids=(BOOL_A,),
         boolean_values=np.array([[i % 2 == 0] for i in range(n)]),
