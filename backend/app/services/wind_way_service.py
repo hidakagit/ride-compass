@@ -33,10 +33,11 @@ class WindWayService:
 
     #: 返す生値の材料id。この材料を参照する軸の配信を担当する。
     material_id = WIND_DRAG_RATIO
+    material_ids = (WIND_DRAG_RATIO,)
 
     @classmethod
-    def build(cls, repository: RoadGraphRepository, weather_service: WeatherService) -> "WindWayService":
-        """登録テーブルから呼ぶための統一シグネチャ。依存の要否はサービスごとに違う。"""
+    def build(cls, repository: RoadGraphRepository, weather_service: WeatherService, material_id: str) -> "WindWayService":
+        """登録テーブルから呼ぶための統一シグネチャ。依存の要否はサービスごとに違い、風の材料は1つだけ。"""
         return cls(repository=repository, weather_service=weather_service)
 
     async def get_way_values(

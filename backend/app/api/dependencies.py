@@ -8,6 +8,7 @@ from datetime import datetime
 import logging
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
+from functools import partial
 from typing import AsyncIterator, Awaitable, Callable, Iterable, Protocol
 
 from fastapi import Depends, HTTPException, Request
@@ -49,6 +50,7 @@ from app.services.jma_amedas_service import JmaAmedasService
 from app.services.db_status_service import DbStatusService
 from app.services.derived_data_freshness_service import DerivedDataFreshnessService
 from app.services.material_coverage_service import MaterialCoverageService
+from app.services.rain_way_service import RainWayService
 from app.services.warning_service import WarningService
 from app.services.wbgt_service import WbgtService
 from app.services.weather_service import WeatherService
@@ -259,9 +261,12 @@ class DedicatedWayValueService(Protocol):
 
 DedicatedWayValueServiceFactory = Callable[[RoadGraphRepository, WeatherService], DedicatedWayValueService]
 
+# 各サービスは担当する材料を`material_ids`で宣言し、`build`は組み立てる材料を`material_id`で受け取る
+# （1つの実装が同じ計算の材料群——雨の窓の長さ違い等——をまとめて担当できる）。
 _DEDICATED_WAY_VALUE_SERVICES = (
     WindWayService,
     GradientWayService,
+    RainWayService,
 )
 
 
@@ -270,11 +275,12 @@ def _factories_by_material(services) -> dict[str, DedicatedWayValueServiceFactor
     ——どちらを選ぶかを黙って決めない。"""
     factories: dict[str, DedicatedWayValueServiceFactory] = {}
     for service in services:
-        if service.material_id in factories:
-            raise RuntimeError(
-                f"material '{service.material_id}' is served by more than one dedicated way value service"
-            )
-        factories[service.material_id] = service.build
+        for material_id in service.material_ids:
+            if material_id in factories:
+                raise RuntimeError(
+                    f"material '{material_id}' is served by more than one dedicated way value service"
+                )
+            factories[material_id] = partial(service.build, material_id=material_id)
     return factories
 
 
@@ -329,9 +335,9 @@ async def directional_materials(
     bearing_deg: float | None,
     speed_kmh: float | None,
 ) -> dict[str, float]:
-    """進行方向に依存する材料を、指定された条件でまとめて引く。
+    """専用配信の材料（進行方向に依存する勾配・風、観測で変わる雨等）を、指定された条件でまとめて引く。
 
-    **1本の道は往復2方向で値が違う**ため、方向が決まらないと算出できない。方向・時刻・
+    進行方向に依存する材料は**1本の道が往復2方向で値が違う**ため、方向が決まらないと算出できない。方向・時刻・
     想定速度が揃った軸だけを引き、揃わない軸は黙って飛ばす（呼び出し側では「データなし」
     になる）。
 

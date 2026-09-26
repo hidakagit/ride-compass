@@ -28,13 +28,14 @@ GRADIENT_TILE_VALUES_TTL_SECONDS = 24 * 3600
 class GradientWayService:
     #: 返す生値の材料id。この材料を参照する軸の配信を担当し、キャッシュの名前空間にもなる。
     material_id = GRADIENT_PERCENT
+    material_ids = (GRADIENT_PERCENT,)
 
     def __init__(self, repository: RoadGraphRepository):
         self._repository = repository
 
     @classmethod
-    def build(cls, repository: RoadGraphRepository, weather_service: object) -> "GradientWayService":
-        """登録テーブルから呼ぶための統一シグネチャ。勾配は天候を要らない。"""
+    def build(cls, repository: RoadGraphRepository, weather_service: object, material_id: str) -> "GradientWayService":
+        """登録テーブルから呼ぶための統一シグネチャ。勾配は天候を要らず、材料は1つだけ。"""
         return cls(repository=repository)
 
     async def get_way_values(

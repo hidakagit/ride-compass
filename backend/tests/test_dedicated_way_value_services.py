@@ -1,8 +1,8 @@
-"""専用way値配信サービス（WindWayService/GradientWayService）の登録規約のテスト。
+"""専用way値配信サービス（WindWayService/GradientWayService/RainWayService）の登録規約のテスト。
 
-サービスは自分が返す材料（`material_id`）だけを宣言し、軸との対応は軸定義が参照する
-材料から引く。材料idが材料カタログの既知材料であること、1つの材料を2つのサービスが
-担当していないことを、登録済みの全サービスに対して確かめる。
+サービスは自分が担当する材料（`material_ids`）だけを宣言し、軸との対応は軸定義が参照する
+材料から引く。材料idが材料カタログの既知材料であること、組み立てたサービスがその材料の値を
+返すこと、1つの材料を2つのサービスが担当していないことを、登録済みの全サービスに対して確かめる。
 """
 
 import pytest
@@ -24,10 +24,10 @@ def test_every_service_material_id_is_a_known_material():
 
 def test_two_services_for_one_material_fail_at_registration():
     class First:
-        material_id = "gradient_percent"
+        material_ids = ("gradient_percent",)
 
         @classmethod
-        def build(cls, repository, weather_service):
+        def build(cls, repository, weather_service, material_id):
             return cls()
 
     class Second(First):
