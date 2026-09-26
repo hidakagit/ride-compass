@@ -30,6 +30,7 @@ from typing import Literal, NamedTuple
 
 from pydantic import ConfigDict, Field, model_validator
 
+from app.domain.landcover import LANDCOVER_RING_OUTER_M
 from app.domain.registry import DisplayAxisSpec, DisplayCategorySpec, PrimaryAttributeSpec
 
 from app.domain.material_sql import (
@@ -52,7 +53,12 @@ from app.domain.material_sql import (
     tag_is_value_sql,
     tag_absent_is_false_sql,
 )
-from app.domain.traffic import POI_COUNT_KINDS, poi_density_material_id
+from app.domain.traffic import (
+    POI_COUNT_KINDS,
+    kind_map_sql,
+    poi_density_material_id,
+    stop_kind_sql,
+)
 from app.domain.wind import WIND_DRAG_REFERENCE_SPEED_MS, wind_drag_ratio
 from app.domain.strict_model import StrictModel
 
@@ -638,6 +644,30 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
 )
 
 
+def stop_poi_map_group_sql(alias: str) -> str:
+    """地図の停止要因の点を近いものどうしまとめる単位を返すSQL式（`node_materials`の別名`alias`）。
+
+    単位は凡例の行で、数える種別（`COUNT_KIND_OF`）ではない。地図の点は「そこに何があるか」を
+    示すため、凡例で分けて見せている種別（例: 車止めとハンプ・狭さく）は近くても別の点のまま
+    出し、評価では1回と数える。凡例で同じ行に入る種別は地図で見分けられないので1点にまとめる。
+    凡例の行に無い種別（補給休憩）は種別そのままを返す。
+    """
+    kind = stop_kind_sql(alias)
+    row_of = {
+        value: category.key
+        for category in _ATTR_STOP_POI.display_axes[0].categories
+        for value in category.values
+        if isinstance(value, str)
+    }
+    return kind_map_sql(kind, row_of, otherwise=kind)
+
+
+_LANDCOVER_DESCRIPTION_HEAD = (
+    "衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、"
+    f"道路周囲{LANDCOVER_RING_OUTER_M:g}mリング内の"
+)
+
+
 #: コードが名指しで読む材料のid。カタログのキーにも同じ定数を使う——綴りを別々に書くと、
 #: ずれたときに読む側が材料を見つけられず、黙って欠損として扱う。
 GRADIENT_PERCENT = "gradient_percent"
@@ -698,7 +728,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "trees_percent": MaterialSpec(
         material_id="trees_percent",
         label="樹木被覆率",
-        description="衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、道路周囲100mリング内の樹木被覆の割合(%)。",
+        description=f"{_LANDCOVER_DESCRIPTION_HEAD}樹木被覆の割合(%)。",
         dtype="numeric",
         unit="%",
         tile_property="trees_pct",
@@ -709,7 +739,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "built_percent": MaterialSpec(
         material_id="built_percent",
         label="建物被覆率",
-        description="衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、道路周囲100mリング内の建物被覆の割合(%)。",
+        description=f"{_LANDCOVER_DESCRIPTION_HEAD}建物被覆の割合(%)。",
         dtype="numeric",
         unit="%",
         tile_property="built_pct",
@@ -720,7 +750,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "crops_percent": MaterialSpec(
         material_id="crops_percent",
         label="農地被覆率",
-        description="衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、道路周囲100mリング内の農地の割合(%)。",
+        description=f"{_LANDCOVER_DESCRIPTION_HEAD}農地の割合(%)。",
         dtype="numeric",
         unit="%",
         tile_property="crops_pct",
@@ -731,7 +761,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "rangeland_percent": MaterialSpec(
         material_id="rangeland_percent",
         label="草地被覆率",
-        description="衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、道路周囲100mリング内の草地の割合(%)。",
+        description=f"{_LANDCOVER_DESCRIPTION_HEAD}草地の割合(%)。",
         dtype="numeric",
         unit="%",
         tile_property="rangeland_pct",
@@ -742,7 +772,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "water_percent": MaterialSpec(
         material_id="water_percent",
         label="水面被覆率",
-        description="衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、道路周囲100mリング内の水面の割合(%)。",
+        description=f"{_LANDCOVER_DESCRIPTION_HEAD}水面の割合(%)。",
         dtype="numeric",
         unit="%",
         tile_property="water_pct",
@@ -753,7 +783,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "bare_percent": MaterialSpec(
         material_id="bare_percent",
         label="裸地被覆率",
-        description="衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、道路周囲100mリング内の裸地（河川敷・造成地等）の割合(%)。",
+        description=f"{_LANDCOVER_DESCRIPTION_HEAD}裸地（河川敷・造成地等）の割合(%)。",
         dtype="numeric",
         unit="%",
         tile_property="bare_pct",
@@ -764,7 +794,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "flooded_veg_percent": MaterialSpec(
         material_id="flooded_veg_percent",
         label="湿地被覆率",
-        description="衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、道路周囲100mリング内の湿地（冠水植生）の割合(%)。",
+        description=f"{_LANDCOVER_DESCRIPTION_HEAD}湿地（冠水植生）の割合(%)。",
         dtype="numeric",
         unit="%",
         tile_property="flooded_veg_pct",
@@ -775,7 +805,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "snow_ice_percent": MaterialSpec(
         material_id="snow_ice_percent",
         label="雪氷被覆率",
-        description="衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、道路周囲100mリング内の雪氷の割合(%)。",
+        description=f"{_LANDCOVER_DESCRIPTION_HEAD}雪氷の割合(%)。",
         dtype="numeric",
         unit="%",
         tile_property="snow_ice_pct",

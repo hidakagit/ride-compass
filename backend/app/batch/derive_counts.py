@@ -26,37 +26,20 @@ from app.domain.traffic import (
     INTERSECTION_DEGREE_THRESHOLD,
     POI_CLUSTER_EPS_M,
     POI_COUNT_KINDS,
+    count_kind_sql,
     poi_count_column,
 )
 
 logger = logging.getLogger("ridecompass.derive_counts")
 
-#: 分類器が付ける種別 → 数えるときのまとめ方。停止要因の数は`POI_COUNT_KINDS`の粒度で持つ。
-COUNT_KIND_OF: dict[str, str] = {
-    "traffic_signals": "signal",
-    "crossing": "crossing",
-    "stop": "stop",
-    "give_way": "stop",
-    "level_crossing": "level_crossing",
-    "railway_crossing": "level_crossing",
-    "barrier": "barrier",
-    "traffic_calming": "barrier",
-}
-
-#: 信号が近いノードは、種別が横断歩道でも信号として数える。
-_SIGNAL_OVERRIDE = "signal"
-
 #: まとまりの代表を1点だけ残す。
 _CLUSTER_SQL = f"""
 CREATE TEMP TABLE _stop_nodes ON COMMIT DROP AS
 WITH classified AS (
-    SELECT nm.osm_node_id,
-           CASE WHEN nm.has_traffic_signals AND nm.kind IN ('traffic_signals', 'crossing')
-                THEN $2 ELSE k.count_kind END AS count_kind,
-           n.geom
+    SELECT nm.osm_node_id, {count_kind_sql("nm")} AS count_kind, n.geom
     FROM node_materials nm
     JOIN LATERAL {nodes_lookup_sql("nm.osm_node_id")} n ON true
-    JOIN (VALUES {{kind_values}}) AS k(kind, count_kind) ON k.kind = nm.kind
+    WHERE {count_kind_sql("nm")} IS NOT NULL
 ),
 clustered AS (
     SELECT osm_node_id, count_kind,
@@ -161,12 +144,10 @@ ON CONFLICT (osm_way_id) DO UPDATE SET
 
 async def derive(conn: asyncpg.Connection) -> None:
     started = time.perf_counter()
-    kind_values = ", ".join(f"('{k}', '{v}')" for k, v in sorted(COUNT_KIND_OF.items()))
     degrees = ACCIDENT_MATCH_MAX_DISTANCE_M / (KM_PER_DEGREE_LATITUDE * 1000.0) * 2.0
 
     async with conn.transaction():
-        await conn.execute(_CLUSTER_SQL.format(kind_values=kind_values),
-                           POI_CLUSTER_EPS_M, _SIGNAL_OVERRIDE)
+        await conn.execute(_CLUSTER_SQL, POI_CLUSTER_EPS_M)
         clustered = await conn.fetchval("SELECT count(*) FROM _stop_nodes")
         await conn.execute(_EDGE_STOP_COUNTS)
         await conn.execute(_EDGE_STOP_ZERO)

@@ -10,7 +10,7 @@ OSM由来の道路データ（PBF取込）・警察庁事故データ・土地�
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `road.py`・`attributes.py`・`accident.py`・`traffic.py`（OSMタグの解釈と分類。停止要因・補給POIの種別、通行方向、道の階級）・`landcover.py`（土地被覆クラス別割合の算出、評価軸の材料）・`divided_carriageway.py`（上下線が分かれた道の片側かを判定するしきい値）・`map_display.py`・`display_palette.py`（地図の束ね方・レイヤーごとの種別と情報源と既定表示・常に出す出典・描く寸法と配色。**本番プロセスは読まず**、`scripts/export_openapi.py`の生成物を経由してだけ画面へ届く。読み方は[地図: 静的レイヤー](../frontend/static-map-layers.md)）（[region.py](routing-engine.md)は別モジュール管轄） |
+| domain | `road.py`・`attributes.py`・`accident.py`・`traffic.py`（OSMタグの解釈と分類。停止要因・補給POIの種別、通行方向、道の階級）・`landcover.py`（土地被覆クラス別割合の算出と、数える帯の幅。評価軸の材料）・`divided_carriageway.py`（上下線が分かれた道の片側かを判定するしきい値）・`map_display.py`・`display_palette.py`（地図の束ね方・レイヤーごとの種別と情報源と既定表示・常に出す出典・描く寸法と配色。**本番プロセスは読まず**、`scripts/export_openapi.py`の生成物を経由してだけ画面へ届く。読み方は[地図: 静的レイヤー](../frontend/static-map-layers.md)）（[region.py](routing-engine.md)は別モジュール管轄） |
 | services | `tile_serving.py`・`accident_service.py`・`region_service.py`・`landcover_tile_service.py`（土地被覆ラスタタイルの配信）・`derived_data_freshness_service.py`（派生データ鮮度台帳）・`tile_version_service.py`（配信するタイル世代の組み立て。形の署名とDBの派生データ世代から作る）・`db_status_service.py`（本番DB状態の判定。しきい値と根拠を持つ） |
 | infrastructure | `vector_tile.py`・`tile_cache.py`・`landcover_raster.py`（土地被覆GeoTIFFの読み取り・再投影・着色）・`source_models.py`（外部ソースの生データを、ソースによらない1つの形で持つ。点・線・ラスタのタイルを同じ骨格へ載せ、取込1回ぶんを`source_runs`が記録する）・`derived_models.py`（生データから導いたもの。粒度ごとに1表で、バッチが1つ増えても表は増えない）・`orm_base.py`（ORMの基底。どのモデルからも辿れる位置に置き、モデル同士がimportで絡まないようにする）・`accident_repository.py`・`derived_data_freshness.py`（派生データ鮮度台帳）・`db_status.py`（本番DBの状態＝取込runの最終実行・テーブルの実数と容量・統計とVACUUMの鮮度・接続）・`proj_data.py`（rasterioが参照するPROJデータをrasterio同梱のものへ固定する。別インストールの`proj.db`を掴むとEPSG解決が失敗するため、rasterioのimport前に呼ぶ） |
 | api | `region.py`（路面/POI/動的材料/土地被覆タイル・区間インスペクタ）・`accidents.py`（事故タイル）・`_tile_http.py`（両者が共有する座標検証と応答組み立て）・`derived_data_freshness.py`（`GET /api/admin/derived-data/freshness`、Basic認証必須）・`db_status.py`（`GET /api/admin/db-status`、同） |
@@ -127,14 +127,18 @@ uint8）で持つ。どう読むかは`attrs`が持つ（幅・型・尺度・�
   停止回数を上回る。
 - **端点は前後の区間が半分ずつ持つ**。交差点のノードは「入る区間」と「出る区間」の両方が
   触れるため、両方が数えると1回の停止が2回になる。経路上で合計1回になればよい。
-- **近くに信号がある横断歩道は信号として数える**。利用者から見れば信号であり、この判定は
-  地図へ点を出す側（`_POI_TILE_KIND_EXPR`）と共有する——違う規則を使うと、見えている点の
-  数と評価の停止回数が合わない。
+- **近くに信号がある横断歩道は信号として数える**。利用者から見れば信号である。
 
 集計キー（`domain/traffic.py: POI_COUNT_KINDS`）は分類器が付ける`kind`と1対1ではない。
 `give_way`は`stop`へ、車道用と歩道用の踏切は`level_crossing`へ、車止めと減速構造は
 `barrier`へ畳む——いずれも自転車から見て同じ止まり方で、重みを分ける根拠がまだ無い。
 **分類は取込時ではなく派生時**に行うため、キーの切り方を変えても取り直しは要らない。
+
+**畳み方の表（`COUNT_KIND_OF`）と信号の読み替えは`domain/traffic.py`の宣言1つだけが持ち**、
+数える段も地図の点（下の「タイル配信」）もそこから組み立てたSQL式（`count_kind_sql`・
+`stop_kind_sql`）を読む。別々に書くと、見えている点の数と評価の停止回数が説明できない形で
+合わなくなる。表に無い停止要因の種別があると、読み込みの時点で止まる——その種別の点は地図に
+出るのに停止回数へ入らなくなるため。
 
 ### 未計算はNULL
 
@@ -311,8 +315,13 @@ DB障害時は空タイルを返す。
   タイル境界で塊が切れないよう、クラスタ化はタイルの外側まで読んでから行い、重心がこの
   タイルに入るものだけを出す。**補給休憩POIはまとめない**——近くにある2台の自販機は別々の
   実体で、畳むと嘘になる。地図へ出す`kind`も、信号の2通りの書かれ方だけは数える側と同じ
-  述語で1つへ寄せる（それ以外を取込時のまま残すのは、地図では「徐行」と「一時停止」を
-  見分けたいため。集計キーとは分け方が違う）。
+  式（`stop_kind_sql`）で1つへ寄せる。**まとめる単位は凡例の行**（`material_catalog.py:
+  stop_poi_map_group_sql`。停止要因の`display_axes`から導く）で、集計キーではない。地図の点は
+  「そこに何があるか」を示すため、凡例で分けて見せている種別（例: 車止めとハンプ・狭さく、
+  一時停止と徐行）は近くても別の点のまま出し、評価はそれを1回と数える——地図の点の数と
+  評価の停止回数がずれるのは、この組が並んでいるときだけである。凡例で同じ行に入る種別
+  （車道用と歩道・自転車道用の踏切）は地図で見分けられないため1点にまとめ、代表の`kind`は
+  どれを採っても同じ行に入る。
 - **表示専用の生値**（道路名`name`・路線番号`ref`）: 材料の正規化（小文字化）はかけず
   OSMタグのまま焼き込む。前後空白を落とし、空になればキーごと省く（名前を持たないwayが
   大多数のためタイルが軽くなる、密度の`NULLIF`と同じ流儀）。**対訳表を持たない第三者編集
@@ -408,7 +417,7 @@ PBF取込時にしか変わらないため、再訪時の同一タイル再取�
 | `road.py` | 路面語彙の正準定義（`GOOD_OSM_SURFACE_TAGS`/`BAD_OSM_SURFACE_TAGS`）。材料の値式とPostGIS側MVT生成SQLが共有する単一ソース |
 | `attributes.py` | `ElevationAttribute`・探索が読む材料の配列（`EdgeMaterialArrays`）と標高計算のSQL（[elevation.md](elevation.md)が主に扱う） |
 | `accident.py` | 警察庁データ取込の純関数群（度分秒座標の読み取り）と、生データの列から判定を組み立てるSQL断片・重み付けの定数 |
-| `traffic.py` | OSMタグの解釈。停止要因POI・補給休憩POIの種別の引き当て（`TAG_KIND_RULES`・`tag_kind_sql`）、信号の判定（`TRAFFIC_SIGNAL_SQL`）、通行方向の解決（`DIRECTION_RULES`・`direction_sql`）、交差点判定の次数しきい値、交差点の階級（`HIGHWAY_RANK`）。いずれも派生バッチへSQLとして渡す表と式で、タグを読むためだけに行を取り出さない |
+| `traffic.py` | OSMタグの解釈。停止要因POI・補給休憩POIの種別の引き当て（`TAG_KIND_RULES`・`tag_kind_sql`）、信号の判定（`TRAFFIC_SIGNAL_SQL`）、停止要因の数える種別への畳み方と信号の読み替え（`COUNT_KIND_OF`・`count_kind_sql`・`stop_kind_sql`）、通行方向の解決（`DIRECTION_RULES`・`direction_sql`）、交差点判定の次数しきい値、交差点の階級（`HIGHWAY_RANK`）。いずれも派生バッチへSQLとして渡す表と式で、タグを読むためだけに行を取り出さない |
 | `divided_carriageway.py` | 上下線が分かれた道の片側かを判定するしきい値 |
 
 `traffic.py: TAG_KIND_RULES`は信号・横断歩道・一時停止・徐行（`highway=*`）・踏切

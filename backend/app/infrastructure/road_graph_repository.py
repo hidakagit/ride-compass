@@ -31,6 +31,7 @@ from app.domain.material_catalog import (
     material_array_columns,
     material_array_group,
     material_value_sql,
+    stop_poi_map_group_sql,
 )
 from app.domain.material_sql import (
     HIGHWAY_SQL,
@@ -53,6 +54,7 @@ from app.domain.traffic import (
     STOP_POI_KINDS,
     poi_count_column,
     poi_density_material_id,
+    stop_kind_sql,
 )
 from app.infrastructure import derived_data_meta
 from app.infrastructure.cache_identity import shape_digest
@@ -369,17 +371,9 @@ _FEATURE_GRADIENT_INPUTS_IN_TILE_SQL = text(
 
 
 # 停止要因POI・補給POIを1タイルへ焼き込む。種別は`node_materials.kind`（派生側の分類器が
-# 付けたもの）で、位置は`source_features`の点。
-#
-# **信号かどうかの判定は数える側と同じもの**（`derive_counts.py`）を使う。信号は流入路ごと
-# ・横断歩道位置ごとの複数ノードで描かれるため、近くに信号ノードがある横断歩道は利用者から
-# 見れば信号である。地図と評価で違う規則を使うと、見えている点の数と評価の停止回数が合わない。
-_POI_TILE_KIND_EXPR = """CASE
-                        WHEN nm.has_traffic_signals
-                             AND nm.kind IN ('traffic_signals', 'crossing')
-                            THEN 'traffic_signals'
-                        ELSE nm.kind
-                    END"""
+# 付けたもの）に信号の読み替えを済ませたもので、位置は`source_features`の点。
+_POI_TILE_KIND_EXPR = stop_kind_sql("nm")
+_POI_TILE_GROUP_EXPR = stop_poi_map_group_sql("nm")
 
 #: クラスタ化のためにタイルの外側も読む幅（度）。タイル境界で塊が切れると、同じ交差点が
 #: 隣り合うタイルで別々の点になる。`POI_CLUSTER_EPS_M`より十分広く取る。
@@ -399,10 +393,12 @@ _POI_TILE_MVT_SQL = text(
                     ) AS geom,
                     grouped.kind AS kind
                 FROM (
-                    SELECT clustered.kind AS kind,
+                    -- まとめた点の種別はどれを代表にしても凡例の同じ行に入る。
+                    SELECT min(clustered.kind) AS kind,
                            ST_Centroid(ST_Collect(clustered.geom)) AS geom
                     FROM (
                         SELECT {_POI_TILE_KIND_EXPR} AS kind,
+                               {_POI_TILE_GROUP_EXPR} AS map_group,
                                p.geom AS geom,
                                -- 停止要因はまとめてから出す（同じ交差点が複数の点に
                                -- ならないように）。補給POIは別々の実体なのでまとめない。
@@ -410,7 +406,7 @@ _POI_TILE_MVT_SQL = text(
                                    'c' || ST_ClusterDBSCAN(
                                        ST_Transform(p.geom, 3857),
                                        eps := :cluster_eps_m, minpoints := 1
-                                   ) OVER (PARTITION BY {_POI_TILE_KIND_EXPR})
+                                   ) OVER (PARTITION BY {_POI_TILE_GROUP_EXPR})
                                ELSE 'n' || p.osm_node_id END AS cluster_key
                         FROM {NODES_SOURCE_SQL} p
                         JOIN node_materials nm ON nm.osm_node_id = p.osm_node_id
@@ -421,7 +417,7 @@ _POI_TILE_MVT_SQL = text(
                                   ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326),
                                   :cluster_pad_deg))
                     ) clustered
-                    GROUP BY clustered.kind, clustered.cluster_key
+                    GROUP BY clustered.map_group, clustered.cluster_key
                 ) grouped
                 WHERE ST_Intersects(
                     grouped.geom, ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326))
