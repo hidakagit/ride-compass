@@ -3,6 +3,7 @@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/Popover/Popover";
 import { useState } from "react";
 import LegendCheckboxList from "@/features/map/LegendCheckboxList/LegendCheckboxList";
+import { mapOverlayEdge } from "@/features/map/MapView/mapOverlayEdges";
 import { legendSwatchBackground, type LegendEntry } from "@/lib/mapDisplay/legendFilter";
 import { LAYER_DATA_STATUS_LABELS, type LayerDataStatus } from "@/features/map/layers/mapLayers";
 import {
@@ -100,7 +101,10 @@ export default function LensControl({
   }
 
   return (
-    <div className="absolute top-3 left-1/2 z-[var(--z-map-control)] max-w-[min(14rem,calc(100%-7rem))] -translate-x-1/2">
+    <div
+      className="absolute top-3 left-1/2 z-[var(--z-map-control)] max-w-[min(14rem,calc(100%-7rem))] -translate-x-1/2"
+      {...mapOverlayEdge("top")}
+    >
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <Button

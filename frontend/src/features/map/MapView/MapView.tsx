@@ -83,6 +83,7 @@ import { useLayerDataStatus } from "@/features/map/MapView/useLayerDataStatus";
 import { useJmaTileIndex } from "@/features/map/useJmaTileIndex";
 import { registerJmaTileProtocol } from "@/features/map/layers/jmaTileProtocol";
 import { debugLog } from "@/lib/debugLog";
+import { MAP_OVERLAY_EDGE_ATTRIBUTE, measureMapOverlayEdges } from "@/features/map/MapView/mapOverlayEdges";
 import { textVariants } from "@/components/ui/Text/Text";
 import { cn } from "@/lib/cn";
 
@@ -174,6 +175,16 @@ function computeRouteBounds(routes: RouteCandidate[]): maplibregl.LngLatBounds {
   return bounds;
 }
 
+const MAP_UI_LOCALE: Record<string, string> = {
+  "Map.Title": "地図",
+  "NavigationControl.ZoomIn": "拡大",
+  "NavigationControl.ZoomOut": "縮小",
+  "NavigationControl.ResetBearing": "ドラッグで地図を回転、押すと北を上に戻す",
+  "AttributionControl.ToggleAttribution": "出典の表示を切り替える",
+  "AttributionControl.MapFeedback": "地図の誤りを報告する",
+  "Popup.Close": "閉じる",
+};
+
 // ルート全体を収めるときの基本余白（全辺）。
 const ROUTE_FIT_BASE_PADDING_PX = 40;
 // フィット後に必ず残す可視領域の幅・高さ。覆うUIが大きいと、余白同士が地図を食い尽くしてズームが破綻する。
@@ -215,16 +226,31 @@ function computeRouteFitPadding(
   return padding;
 }
 
-function fitBoundsToRoutes(map: MapLibreMap, routes: RouteCandidate[], obscured?: RouteFitObscuredPx) {
+/** 呼び出し側が測った覆いと、印の付いた部品（`mapOverlayEdge`）の覆いの、辺ごとの大きい方。 */
+function mergeObscured(a: RouteFitObscuredPx | undefined, b: RouteFitObscuredPx): RouteFitObscuredPx {
+  return {
+    top: Math.max(a?.top ?? 0, b.top ?? 0),
+    bottom: Math.max(a?.bottom ?? 0, b.bottom ?? 0),
+    left: Math.max(a?.left ?? 0, b.left ?? 0),
+    right: Math.max(a?.right ?? 0, b.right ?? 0),
+  };
+}
+
+function fitBoundsToRoutes(
+  map: MapLibreMap,
+  routes: RouteCandidate[],
+  measureObscured?: () => RouteFitObscuredPx | undefined,
+) {
   if (routes.length === 0) return;
 
   const bounds = computeRouteBounds(routes);
 
   runWhenStyleReady(map, () => {
     const canvas = map.getCanvas();
-    map.fitBounds(bounds, {
-      padding: computeRouteFitPadding(obscured, { width: canvas.clientWidth, height: canvas.clientHeight }),
-    });
+    const obscured = mergeObscured(measureObscured?.(), measureMapOverlayEdges(canvas.getBoundingClientRect()));
+    const padding = computeRouteFitPadding(obscured, { width: canvas.clientWidth, height: canvas.clientHeight });
+    debugLog("map:viewport", "ルートを収める", { padding });
+    map.fitBounds(bounds, { padding });
   });
 }
 
@@ -308,7 +334,7 @@ interface MapViewProps {
   /** 目的地マーカークリックで呼ばれる（解除）。 */
   onDestinationClear: () => void;
   /** 地図の上に重なるUIで覆われている辺ごとの高さ(px)をいま測る。ルートを収めるとき、覆われた所へ収めないため。
-   * レイアウトを持つ呼び出し側が測る。 */
+   * レイアウトを持つ呼び出し側が測る。地図の上に置いた部品は、ここで測らず`mapOverlayEdge`の印を付ければ地図が測る。 */
   measureRouteFitObscuredPx?: () => RouteFitObscuredPx | undefined;
 }
 
@@ -480,8 +506,10 @@ export default function MapView({
         debugLog("map:request", `${resourceType ?? "unknown"} ${url}`);
         return { url };
       },
+      locale: MAP_UI_LOCALE,
     });
     map.addControl(new maplibregl.NavigationControl(), "top-right");
+    map.getContainer().querySelector(".maplibregl-ctrl-top-right")?.setAttribute(MAP_OVERLAY_EDGE_ATTRIBUTE, "right");
     mapRef.current = map;
     debugLog("map:lifecycle", "初期化", { center: [location.longitude, location.latitude], zoom: 13 });
 
@@ -845,7 +873,7 @@ export default function MapView({
     if (!map) return;
 
     if (routes.length > 0) {
-      fitBoundsToRoutes(map, routes, latest.current.measureRouteFitObscuredPx?.());
+      fitBoundsToRoutes(map, routes, latest.current.measureRouteFitObscuredPx);
     }
   }, [routes]);
 

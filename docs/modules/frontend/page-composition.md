@@ -17,7 +17,7 @@
 | app | `page.tsx`・`layout.tsx`・`error.tsx`・`global-error.tsx` |
 | hooks | `useStoredState.ts`・`useIsMobile.ts`・`useElementHeightCssVar.ts`・`useLocation.ts`・`useDebouncedValue.ts`・`useIsomorphicLayoutEffect.ts` |
 | features/map/view | `useMapView.ts`（地図の見え方の状態と、地図・操作部品へ渡す値）・`mapLook.ts`（地図へ渡す見え方の値の型）・`lens.ts`（レンズから塗る軸・凡例・選択肢を導く）・`overlayChips.ts`（地図上チップの状態とレイヤー表示の保存形式）・`legendFilters.ts`（凡例で隠した行の保存先の読み書き） |
-| features/map/MapView | `useLayerDataStatus.ts`（`layerDataStatus` stateの実装） |
+| features/map/MapView | `useLayerDataStatus.ts`（`layerDataStatus` stateの実装）・`mapOverlayEdges.ts`（地図の上に重ねる部品へ付ける「どの辺を覆うか」の印と、印の付いた部品が覆う幅の実測。下記「`MapView`との境界」） |
 | lib | `apiBaseUrl.ts`・`apiPath.ts`（backendのAPIのパスをOpenAPIの宣言と型で照合して作る）・`apiError.ts`・`backendInternalUrl.ts`・`fetchJson.ts`・`apiTimeouts.ts`（APIリクエストのタイムアウト。呼び出しの性質ごとの名前付き定数）・`safeStorage.ts`（localStorageの読み書きで例外を外へ出さない薄いラッパ）・`paletteCssVariables.ts`（地図に塗る色と同じ色をUIにも出す箇所へ、配信された値をCSS変数として流す。`layout.tsx`がサーバー側で`:root`へ入れる。CSSが値を持つのはライト/ダークで2値を持つものだけ） |
 | features/route | `routeApi.ts`（ルート生成・プレビューAPI）・`formatDuration.ts`（秒を「1時間42分」の形にする）・`generationRequest.ts`（生成リクエストのpayloadと`conditionsDirty`の比較キーを同じ入力から導出する純関数）・`routeSplice.ts`（候補どうしが別々の道を通る区間を`edge_ids`の集合演算で求め、表示中の側と相手側を対応づけ、選んだ区間を差し替えた経路を組み立て純関数。差し替えた経路の評価はbackendが行うため計算式は持たない。合成結果も生成候補と同じ並び（所要時間の短い順、`routeTabLabel.ts: orderByDuration`）へ入れる。区間を割る下限は持たず呼び出し側から受け取る［backendの較正値で、管理画面から変えられる］） |
 | features/conditions | `useDepartureTime.ts`（出発時刻。選ぶまでは5分刻みの「今」へ追従し、選んだ時刻は動かさない）・`rideConditions.ts`（走行条件の出発時刻ラベルと想定速度の丸め。速度の上下限はbackendの`routeGenerateConfig`から読む） |
@@ -197,6 +197,9 @@ travelBearingDeg（page.tsxの単一useState、TravelBearingControlで操作）�
 アプリのボタンを積み始める位置はNavigationControlの既定のボタン数（3つ）から導く——
 どこか1か所だけ別の値を持つと、その継ぎ目だけ間隔や幅がずれる。値を出すボタンは高さだけが
 中身に合わせて伸びる。右下の現在地ボタン（44px）も、この列と中心がそろう位置に置く。
+MapLibreが自分の部品（ズーム・方位のボタン、出典の開閉、ポップアップの閉じる、地図そのもの）に付ける読み上げ名・titleは
+既定が英語のため、地図を作るときの`locale`でこの地図が使う部品の分を日本語へ上書きする（`MapView.tsx: MAP_UI_LOCALE`）。
+MapLibreの部品を新しく足すときは、その部品の文言のキー（`maplibre-gl/src/ui/default_locale.ts`）も足す。
 
 **暗黙の前提**: way_id単位の実データ本体と取得中かは、軸id→取得結果の1つの`Map`として
 見え方の値（`MapLook.dedicatedWayValues`）に載る（design-principles.md構造仕様3「軸ごとに
@@ -430,3 +433,8 @@ composite_difficulty`と同じ考え方で軸の重みを反映した寄与度�
 シート・タブバーの存在を知らないままでいられ、画面の寸法を状態として持ち続けなくてよい。`MapView`側はそれを基本余白へ足し、対向する2辺が地図の縦・横を食い尽くす
 場合だけ可視領域が残るところまで縮める（`computeRouteFitPadding`）。フィット自体は候補一覧が
 変わったときだけ行う（シートの開閉・高さ変更では地図を動かさない）。
+地図の上に重ねた操作部品（左のチップ列・右の操作列・上のレンズ・下のまとめて操作する行等）も同じ理由で余白へ足す。
+これらは部品の側に「どの辺を覆うか」の印（`mapOverlayEdge`）を付け、`MapView`がフィットする瞬間に印の付いた部品の実寸を
+測って、呼び出し側が測った値と辺ごとに大きい方を取る——部品を足す人は印を1つ付ければよく、`page.tsx`の測る関数へ
+部品ごとの計算を足さない。印は位置取りを持つ要素（`absolute`で置いた外枠）に付ける。中の小さい要素に付けると、覆う幅を
+小さく測る。

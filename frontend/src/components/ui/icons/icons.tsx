@@ -567,6 +567,17 @@ export function ClearAllFiltersIcon({ size = 16 }: IconProps) {
   );
 }
 
+/** 表示する項目を選ぶ: 中抜きのつまみが付いた横線2本。RouteSettingsIcon（塗りの点3つ）とは、つまみの形と本数で見分ける。 */
+export function DisplayItemsIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path d="M3 6.5h4.7M12.3 6.5H17M3 13.5h1.2M8.8 13.5H17" />
+      <circle cx="10" cy="6.5" r="2.3" />
+      <circle cx="6.5" cy="13.5" r="2.3" />
+    </svg>
+  );
+}
+
 /** 補足説明: ラベル横に添える汎用の情報アイコン（円＋i、hoverで詳細を出す補足用途）。 */
 export function InfoIcon({ size = 14 }: IconProps) {
   return (
