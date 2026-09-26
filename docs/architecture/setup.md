@@ -34,8 +34,9 @@ docker compose run --rm backend python scripts/bootstrap_database.py --create-ex
 
 **スキーマを作っても、軸定義が0行のままではbackendは起動しない**（`refresh_axis_definitions`が
 0行を起動失敗にする。[axis-studio.md](../modules/backend/axis-studio.md)「まっさらなDBに軸の行は
-入らない」）。軸を入れる管理APIも起動したbackendにしか無いため、新しい環境へ軸を入れる手段は
-無く、用意もしない——composeのDB・クラウドのセッションは**テストを回す場**であり、アプリを実データで
+入らない」）。軸を入れる管理APIも起動したbackendにしか無いため、新しい環境へ軸が入るのは管理データの
+バックアップから戻したときだけで、それは本番を作り直すための経路である（[deployment-sync.md](../conventions/deployment-sync.md)
+「本番DBを失ったとき」）——composeのDB・クラウドのセッションは**テストを回す場**であり、アプリを実データで
 確かめるのは本番か手元の開発機で行う（地図に色を出すには軸のほかに取込済みのデータも要る）。
 テスト（`-m postgis`を含む）は軸を要らないので、この状態で回せる。
 

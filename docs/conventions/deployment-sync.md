@@ -5,9 +5,8 @@ CLAUDE.md「コミット時の同期ルール」から参照される。個々�
 ここに書かない（`docs/modules/*.md`が正）。ここに書くのは「作業として何を完了条件に
 含めるべきか」という運用ルールのみ。
 
-本番DBをゼロから再構築する手順（disaster recovery）は**現在ない**——T970でデータ層を
-作り直した際に旧手順が指す入口が全て入れ替わったため、バックアップの形と合わせて
-[T972](../records/tasks/T972.md)で作り直す。派生データの作り直しは下の「派生データの作り直し」。
+本番DBを失ったときの作り直しは下の「本番DBを失ったとき」、派生データの作り直しは
+「派生データの作り直し」。
 
 軸定義を軸スタジオに何をさせるかは
 [axis-definition-maintenance-split.md](../records/decisions/axis-definition-maintenance-split.md)。
@@ -34,6 +33,36 @@ CLAUDE.md「コミット時の同期ルール」から参照される。個々�
 - なぜ: 手元の端末で打つと、そこから見えるのは開発用のDBで、本番は古いまま変わらない。稼働中のbackendの
   コンテナの中で走らせると、そのコンテナのメモリ上限まで使い切ったときにコンテナごとOOM killされ、
   サービス全体が止まる。別のコンテナを`--memory`付きで立てれば、上限を超えても止まるのはバッチだけで済む。
+
+## 本番DBを失ったとき
+
+- 対象: 本番DB（またはVMごと）を失った・管理データの表を誤操作で壊したとき。
+- 戻る材料: 生データは外部に正本があり取り直せる。派生データは生データから作り直せる。**取り直せないのは
+  管理データ（軸の定義・較正値の上書き等）だけ**で、これは`scripts/admin_data_backup.py dump`が書き出した
+  JSON（管理データのバックアップ）から戻す。書き出しはアプリが起動できない中身では失敗するので、書き出した
+  JSONは書き出した時点のコードでは戻せる。軸の形を変えるコードの変更の後は、戻すときの検算で止まりうる
+  （止まれば何も書かれない。[横断基盤](../modules/backend/cross-cutting-infrastructure.md)
+  「取り直せない管理データのバックアップ」）。
+- 手元へ書き出す（VMにSSHで入れるとき）:
+
+  ```
+  ssh <VM> "sudo docker run --rm --network=host --env-file /home/ubuntu/ridecompass-backend.env \
+    ridecompass-backend:latest python scripts/admin_data_backup.py dump" > admin-data.json
+  ```
+
+- 作り直しの順番（本番VMでは、上の「派生データの作り直し」と同じ形の使い捨てのコンテナで打つ。
+  JSONは`-v <置いた場所>:/tmp/admin-data.json:ro`で渡す）:
+  1. スキーマを作る: `python scripts/bootstrap_database.py --to schema`（拡張が無ければ、何をスーパーユーザーで
+     打てばよいかを言って止まる）
+  2. 管理データを戻す: `python scripts/admin_data_backup.py restore /tmp/admin-data.json`
+  3. 取り込んで派生を作る: `python scripts/bootstrap_database.py --from ingest`（外部ソースのファイルは先に
+     手元へ写しておく。何を写すかは`bootstrap_database.py`の冒頭）
+  4. backendのコンテナを起動し直す（軸と較正値は起動時に読む）
+- 管理データの表だけを誤操作で壊したとき: 2.を`--replace`付きで打ち（同じトランザクションの中で消して
+  から入れる）、4.だけを行う。
+- なぜこの順か: 2.は表があれば通り、取込・派生とは互いに読まない。backendは軸が0行だと起動しない
+  （[axis-studio.md](../modules/backend/axis-studio.md)「まっさらなDBに軸の行は入らない」）ので、4.より前に
+  2.を済ませる。
 
 ## backendを先に出した窓では、frontendが新しい材料を知らない
 

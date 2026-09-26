@@ -59,7 +59,7 @@ from app.domain.traffic import (
 from app.infrastructure import derived_data_meta
 from app.infrastructure.cache_identity import shape_digest
 from app.infrastructure.derived_models import EdgeMaterialRow, WayMaterialRow
-from app.infrastructure.orm_base import Base
+from app.infrastructure.orm_base import declared_metadata
 from app.infrastructure.vector_tile import (
     ROAD_SURFACE_LAYER_NAME,
     STOP_POI_LAYER_NAME,
@@ -89,16 +89,6 @@ async def create_tables(engine: AsyncEngine) -> None:
     拡張は**入れずに要求する**。入れるふりをすると、権限が無い環境で「機能拡張を作成する
     権限がありません」とだけ出て、何をすればよいかが伝わらない。
     """
-    # `Base.metadata`には**importしたモジュールの表しか載らない**。ここで全部を読み込んで
-    # おかないと、呼び出し側のimport次第で表が静かに欠ける。
-    from app.infrastructure import (  # noqa: F401
-        axis_definition_models,
-        derived_data_meta,
-        derived_models,
-        source_models,
-        tuning_overrides,
-    )
-
     async with engine.begin() as conn:
         installed = set(
             (await conn.execute(text("SELECT extname FROM pg_extension"))).scalars())
@@ -108,7 +98,7 @@ async def create_tables(engine: AsyncEngine) -> None:
             raise RuntimeError(
                 f"このDBに拡張 {', '.join(missing)} が入っていません。"
                 f"スーパーユーザーで先に実行してください: {commands}")
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(declared_metadata().create_all)
 
 
 # --- 取り込んだ範囲（カバレッジ） -------------------------------------------

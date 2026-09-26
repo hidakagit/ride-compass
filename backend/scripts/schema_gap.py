@@ -23,13 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from sqlalchemy import text  # noqa: E402
 from sqlalchemy.ext.asyncio import create_async_engine  # noqa: E402
 
-# Base.metadataへ全モデルを登録するためのimport（副作用が目的）。
-from app.infrastructure import axis_definition_models  # noqa: F401,E402
-from app.infrastructure import derived_data_meta  # noqa: F401,E402
-from app.infrastructure import derived_models  # noqa: F401,E402
-from app.infrastructure import source_models  # noqa: F401,E402
-from app.infrastructure import tuning_overrides  # noqa: F401,E402
-from app.infrastructure.orm_base import Base  # noqa: E402
+from app.infrastructure.orm_base import declared_metadata  # noqa: E402
 
 #: PostGISが持ち込む表。アプリのスキーマではないので母集団から外す。
 _NOT_OURS = frozenset({"spatial_ref_sys"})
@@ -86,7 +80,7 @@ async def _collect(url: str) -> list[str]:
     finally:
         await engine.dispose()
 
-    orm_tables = set(Base.metadata.tables)
+    orm_tables = set(declared_metadata().tables)
     gaps: list[str] = []
     for name in sorted(db_tables - orm_tables):
         gaps.append(f"{name}: 実DBにあるがORMが宣言していない表")
@@ -94,7 +88,7 @@ async def _collect(url: str) -> list[str]:
         gaps.append(f"{name}: ORMが宣言しているが実DBに無い表")
 
     for name in sorted(orm_tables & db_tables):
-        table = Base.metadata.tables[name]
+        table = declared_metadata().tables[name]
         orm_c = {c.name: bool(c.nullable) for c in table.columns}
         db_c = db_cols.get(name, {})
         for col in sorted(set(orm_c) - set(db_c)):

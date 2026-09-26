@@ -10,7 +10,7 @@ from sqlalchemy import Boolean, DateTime, Float, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.infrastructure.orm_base import Base
+from app.infrastructure.orm_base import IRREPLACEABLE, Base
 
 
 class AxisDefinitionRow(Base):
@@ -22,6 +22,7 @@ class AxisDefinitionRow(Base):
     """
 
     __tablename__ = "axis_definitions"
+    __table_args__ = {"info": IRREPLACEABLE}
 
     axis_id: Mapped[str] = mapped_column(String, primary_key=True)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False)
