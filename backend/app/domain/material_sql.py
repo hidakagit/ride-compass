@@ -19,6 +19,9 @@
 別で、そちらは非該当（false）になる（`tag_absent_is_false_sql`）。
 """
 
+from collections.abc import Iterable, Sequence
+
+from app.domain.road import SURFACE_CLASSES, SURFACE_OTHER_KEY, SurfaceClass
 from app.domain.traffic import poi_count_column
 
 
@@ -84,13 +87,32 @@ def positive_integer_tag_sql(tag: str) -> str:
 
 HIGHWAY_SQL = "w.highway"
 SURFACE_NORMALIZED_SQL = "lower(btrim(w.surface))"
-# :good_tags/:bad_tags バインドパラメータを要する（domain/road.py:
-# GOOD_OSM_SURFACE_TAGS/BAD_OSM_SURFACE_TAGS、呼び出し元がbindparamsで渡す）。
-SURFACE_GOOD_CASE_SQL = (
-    f"CASE WHEN {SURFACE_NORMALIZED_SQL} = ANY(:good_tags) THEN true "
-    f"WHEN {SURFACE_NORMALIZED_SQL} = ANY(:bad_tags) THEN false END"
-)
+
+
+def _sql_literals(values: Iterable[str]) -> str:
+    return ", ".join("'" + value.replace("'", "''") + "'" for value in values)
+
+
+def surface_class_sql(classes: Sequence[SurfaceClass]) -> str:
+    """surfaceタグの路面区分。タグが無ければNULL、区分に無い値は`SURFACE_OTHER_KEY`。"""
+    branches = " ".join(
+        f"WHEN {SURFACE_NORMALIZED_SQL} IN ({_sql_literals(c.tags)}) THEN '{c.key}'" for c in classes if c.tags
+    )
+    return f"CASE {branches} WHEN {SURFACE_NORMALIZED_SQL} IS NOT NULL THEN '{SURFACE_OTHER_KEY}' END"
+
+
+def surface_good_sql(classes: Sequence[SurfaceClass]) -> str:
+    """舗装良否。路面区分から導き、区分に無い値とタグの無い道は不明（NULL）のまま残す。"""
+    surface_class = surface_class_sql(classes)
+    paved = _sql_literals(c.key for c in classes if c.paved)
+    unpaved = _sql_literals(c.key for c in classes if not c.paved)
+    return f"CASE WHEN ({surface_class}) IN ({paved}) THEN true WHEN ({surface_class}) IN ({unpaved}) THEN false END"
+
+
+SURFACE_CLASS_SQL = surface_class_sql(SURFACE_CLASSES)
+SURFACE_GOOD_CASE_SQL = surface_good_sql(SURFACE_CLASSES)
 SMOOTHNESS_NORMALIZED_SQL = normalized_tag_sql("smoothness")
+TRACKTYPE_NORMALIZED_SQL = normalized_tag_sql("tracktype")
 MAXSPEED_KMH_CASE_SQL = positive_integer_tag_sql("maxspeed")
 LANES_COUNT_CASE_SQL = positive_integer_tag_sql("lanes")
 LIT_NORMALIZED_SQL = normalized_tag_sql("lit")

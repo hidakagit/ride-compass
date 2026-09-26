@@ -137,6 +137,7 @@ _LAYER_SPECS: dict[str, MapLayerSpec] = {
     "landcover": MapLayerSpec("landcoverRaster", "terrain"),
     "highway": _tile_layer("highway", "roadCondition"),
     "surface": _tile_layer("surface", "roadCondition"),
+    "tracktype": _tile_layer("tracktype", "roadCondition"),
     "tunnel": _tile_layer("tunnel", "roadCondition"),
     "oneway": _tile_layer("oneway", "roadCondition"),
     "stop_poi": _tile_layer("stop_poi", "trafficSafety"),

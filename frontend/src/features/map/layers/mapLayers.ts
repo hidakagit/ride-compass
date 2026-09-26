@@ -20,6 +20,7 @@ import {
   ShieldIcon,
   StopPoiIcon,
   SupplyPoiIcon,
+  TrackGradeIcon,
   TunnelIcon,
   WindIcon,
   type MapIconComponent,
@@ -234,10 +235,19 @@ export function buildMapLayers(
       ...staticLayer("surface"),
       icon: RoadSurfaceIcon,
       chipLabel: "路面",
-      description: "路面の材質を色で表示[アスファルト・砂利・土など]",
+      description: "路面の材質を色で表示[舗装・砂利・土など]",
       panelHint:
         "OSMのsurfaceタグ[路面の材質]を区分にまとめて色分けしています。タグの無い道は「データなし」[灰色の薄い破線]、" +
         "区分に当てはまらない値の道は「その他」[灰色]で出します[データなしは未舗装という意味ではありません]。",
+    },
+    {
+      ...staticLayer("tracktype"),
+      icon: TrackGradeIcon,
+      chipLabel: "等級",
+      description: "農道・林道の路面の等級を色で表示[1=固く締まった路面ほど濃く、5=柔らかい土・草ほど明るい色]",
+      panelHint:
+        "OSMのtracktypeタグ[農道・林道の路面の固さの等級]を色分けしています。路面の材質[surfaceタグ]とは別のタグで、" +
+        "材質のタグが無い農道・林道にも付いていることがあります。タグの無い道は「データなし」[灰色の薄い破線]です。",
     },
     {
       ...staticLayer("tunnel"),

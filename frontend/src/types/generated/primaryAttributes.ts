@@ -103,66 +103,103 @@ export const primaryAttributes = [
       {
         "key": "surface",
         "label": "",
-        "property": "surface",
+        "property": "surface_class",
         "categories": [
           {
-            "key": "asphalt",
-            "label": "アスファルト",
+            "key": "paved",
+            "label": "舗装",
             "values": [
-              "asphalt",
-              "paved",
-              "chipseal"
+              "paved"
             ],
             "color": "#48886f"
           },
           {
-            "key": "concrete",
-            "label": "コンクリート",
+            "key": "compacted",
+            "label": "締め固め・細砂利",
             "values": [
-              "concrete",
-              "concrete:plates",
-              "concrete:lanes"
+              "compacted"
             ],
             "color": "#3085a4"
           },
           {
-            "key": "stones",
-            "label": "石畳・敷石",
+            "key": "gravel",
+            "label": "砂利・未舗装",
             "values": [
-              "paving_stones",
-              "sett",
-              "cobblestone",
-              "unhewn_cobblestone",
-              "bricks"
+              "gravel"
             ],
             "color": "#8873a1"
           },
           {
-            "key": "gravel",
-            "label": "砂利・締固め",
+            "key": "soil",
+            "label": "土・草・泥・砂",
             "values": [
-              "gravel",
-              "fine_gravel",
-              "compacted",
-              "pebblestone",
-              "rock"
+              "soil"
             ],
             "color": "#ab6a6c"
           },
           {
-            "key": "dirt",
-            "label": "土・草・砂",
+            "key": "cobblestone",
+            "label": "石畳",
             "values": [
-              "unpaved",
-              "dirt",
-              "ground",
-              "earth",
-              "mud",
-              "sand",
-              "grass",
-              "woodchips"
+              "cobblestone"
             ],
             "color": "#8a7b4c"
+          }
+        ],
+        "missing_semantics": "unknown"
+      }
+    ]
+  },
+  {
+    "attr_id": "tracktype",
+    "label": "農道・林道の等級",
+    "geometry": "line",
+    "tile_kind": "road_surface",
+    "display_axes": [
+      {
+        "key": "tracktype",
+        "label": "",
+        "property": "tracktype",
+        "categories": [
+          {
+            "key": "grade1",
+            "label": "1 舗装・固く締まる",
+            "values": [
+              "grade1"
+            ],
+            "color": "#433176"
+          },
+          {
+            "key": "grade2",
+            "label": "2 砂利[未舗装]",
+            "values": [
+              "grade2"
+            ],
+            "color": "#064f94"
+          },
+          {
+            "key": "grade3",
+            "label": "3 砂利と土が半々",
+            "values": [
+              "grade3"
+            ],
+            "color": "#036793"
+          },
+          {
+            "key": "grade4",
+            "label": "4 土・草が主",
+            "values": [
+              "grade4"
+            ],
+            "color": "#0e7e98"
+          },
+          {
+            "key": "grade5",
+            "label": "5 土・草・砂",
+            "values": [
+              "grade5"
+            ],
+            "color": "#0d959d"
           }
         ],
         "missing_semantics": "unknown"

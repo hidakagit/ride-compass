@@ -14,6 +14,10 @@ import {
   roadSourceId,
   settleMap,
 } from "./live";
+import materialCatalog from "@/types/generated/material-catalog.json";
+
+/** 道の詳細が必ず持つ行（路面の区分）の項目名。名前は材料カタログが持つ。 */
+const SURFACE_ROW_LABEL = materialCatalog.find((material) => material.material_id === "surface_class")!.label;
 
 // S1 地図の描画（生成前）。実データが式・部品へ入って初めて壊れるもの（公開軸の材料がタイルに無く地図に出ない、
 // 専用レイヤーの軸が出ない・巻き添えで消える、取得の失敗が空で返る、道を押すと例外で開かない）を見る。
@@ -108,11 +112,11 @@ test("S1 地図の描画（生成前）", async ({ page }) => {
       const errorsBefore = watch.pageErrors.length;
       await page.mouse.click(point!.x, point!.y);
       await expect(page.locator(".maplibregl-popup")).toBeVisible({ timeout: 10_000 });
-      // 開いたのが道の詳細であること（道の詳細は路面の行を必ず持つ。属性は畳んで開くので、開いてから見る）。
+      // 開いたのが道の詳細であること（道の詳細は路面の区分の行を必ず持つ。属性は畳んで開くので、開いてから見る）。
       // 描画の例外はエラー境界（app/error.tsx）が受けてページの例外にならないので、中身が出たかで見る。
       const popup = page.locator(".maplibregl-popup");
       await popup.getByText("この道の属性", { exact: true }).click();
-      await expect(popup.getByText("路面", { exact: true })).toBeVisible();
+      await expect(popup.getByText(SURFACE_ROW_LABEL, { exact: true })).toBeVisible();
       await settleMap(page);
       expect.soft(watch.pageErrors.slice(errorsBefore), "道を押したあとのページの例外").toEqual([]);
       await expect.soft(page.locator(".maplibregl-popup").getByRole("alert")).toHaveCount(0);

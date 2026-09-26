@@ -31,13 +31,10 @@ from app.domain.material_catalog import (
     material_coverage_exclusions,
     material_coverage_specs,
 )
-from sqlalchemy import bindparam, text
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.types import Text
 
 from app.domain.material_sql import WAYS_SOURCE_SQL
-from app.domain.road import BAD_OSM_SURFACE_TAGS, GOOD_OSM_SURFACE_TAGS
 
 # 材料ごとの宣言は`MaterialSpec.coverage`が持つ（材料を1つ増やすとき触るのは1か所）。
 # ここは測り方の実装だけを持ち、宣言は持たない。
@@ -68,13 +65,7 @@ def build_way_coverage_sql(specs: dict[str, MaterialCoverageSpec] = MATERIAL_COV
     sql = (  # noqa: S608 固定の内部辞書のみ使用
         f"SELECT count(*) AS total{', ' + columns if columns else ''} FROM {WAYS_SOURCE_SQL} AS w"
     )
-    statement = text(sql)
-    if ":good_tags" in sql:
-        statement = statement.bindparams(
-            bindparam("good_tags", value=sorted(GOOD_OSM_SURFACE_TAGS), type_=ARRAY(Text())),
-            bindparam("bad_tags", value=sorted(BAD_OSM_SURFACE_TAGS), type_=ARRAY(Text())),
-        )
-    return statement
+    return text(sql)
 
 
 def build_edge_coverage_sql(specs: dict[str, MaterialCoverageSpec] = MATERIAL_COVERAGE_SPECS):

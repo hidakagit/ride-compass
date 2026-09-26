@@ -94,7 +94,7 @@ def test_way_missing_condition_uses_shared_fragment_also_used_by_mvt_sql(materia
     assert fragment in _ROAD_SURFACE_TILE_MVT_SQL.text
 
 
-def test_build_way_coverage_sql_has_one_filter_column_per_way_material_and_binds_surface_tags():
+def test_build_way_coverage_sql_has_one_filter_column_per_way_material():
     statement = build_way_coverage_sql()
     sql = statement.text
 
@@ -109,9 +109,6 @@ def test_build_way_coverage_sql_has_one_filter_column_per_way_material_and_binds
     for material_id in way_material_ids:
         assert f" AS {material_id}" in sql
     assert sql.count("count(*) FILTER") == len(way_material_ids)
-    compiled_params = statement.compile().params
-    assert "asphalt" in compiled_params["good_tags"]
-    assert "gravel" in compiled_params["bad_tags"]
 
 
 def test_build_edge_coverage_sql_counts_every_edge_material_in_one_scan():
@@ -127,13 +124,6 @@ def test_build_edge_coverage_sql_counts_every_edge_material_in_one_scan():
         spec = MATERIAL_COVERAGE_SPECS[material_id]
         assert f"count(*) FILTER (WHERE {spec.present_condition}) AS {material_id}" in sql
     assert sql.count("count(*) FILTER") == len(edge_material_ids)
-
-
-def test_build_way_coverage_sql_without_surface_good_does_not_bind_tags():
-    statement = build_way_coverage_sql({"highway": MATERIAL_COVERAGE_SPECS["highway"]})
-
-    assert ":good_tags" not in statement.text
-    assert statement.compile().params == {}
 
 
 # --- レポート組み立て（純関数） ---

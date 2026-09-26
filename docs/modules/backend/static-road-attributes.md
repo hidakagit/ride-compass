@@ -72,11 +72,16 @@ OSMは**行だけを絞り、タグは絞らない**。タグは容量の1.9%し
 合わせることもしない**——取込スコープを広げたときに凡例が壊れないことを優先する。
 凡例に取込対象外の値が並ぶのは、この選択の結果である。
 
-路面（surface）は逆に**正準が1箇所**（`domain/road.py`）で、他はすべてそこから導く。
-地図の表示行（`material_catalog.py`の路面属性の`display_axes`）だけは手で並べるため、
-**backendの不変条件テスト**（`tests/test_primary_attribute_display.py`）が「表示行の全タグ＝
-正準分類済みタグ全体」を検証する。フロントは生成物（`primaryAttributes.ts`）で表示行を
-受け取るだけで、突き合わせを持たない。
+路面（surface）は逆に**正準が1箇所**（`domain/road.py: SURFACE_CLASSES`）で、他はすべてそこから導く。
+タグの値を「走りやすさの違いが出る単位」の区分へ束ねたものが材料「路面の区分」（`surface_class`）で、
+地図の表示行・材料の値の呼び名・舗装良否（`surface_good`。区分ごとの「舗装か」から導く）は
+いずれもこの宣言から組み立てる。区分に当てはまらない値は区分「その他」、タグの無い道は値を持たない
+——地図はこの2つを「その他」と「データなし」に分けて出し、舗装良否はどちらも不明のまま残す。
+同じタグを2つの区分へ書くと、読み込みの時点で止まる。
+
+農道・林道の等級（`tracktype`）は路面の区分とは**別の材料のまま持つ**。等級ごとの路面は区分と
+1対1にならない（本番で`grade2`の道のsurfaceは大半が砂利だが、舗装も混ざる）ため、区分へ写すと
+実態とずれる。呼び名と並び（固い路面→柔らかい路面）は`domain/road.py: TRACK_GRADES`が持つ。
 
 ### 面のデータもタイル1枚=1行で持つ（`gsi_dem_tile.py`・`io_lulc_tile.py`）
 
@@ -414,7 +419,7 @@ PBF取込時にしか変わらないため、再訪時の同一タイル再取�
 
 | ファイル | 役割 |
 |---|---|
-| `road.py` | 路面語彙の正準定義（`GOOD_OSM_SURFACE_TAGS`/`BAD_OSM_SURFACE_TAGS`）。材料の値式とPostGIS側MVT生成SQLが共有する単一ソース |
+| `road.py` | 路面を表すタグの読み方の正準定義（surfaceの区分`SURFACE_CLASSES`と、tracktypeの等級`TRACK_GRADES`）。材料の値式・PostGIS側MVT生成SQL・地図の表示行・値の呼び名が共有する単一ソース |
 | `attributes.py` | `ElevationAttribute`・探索が読む材料の配列（`EdgeMaterialArrays`）と標高計算のSQL（[elevation.md](elevation.md)が主に扱う） |
 | `accident.py` | 警察庁データ取込の純関数群（度分秒座標の読み取り）と、生データの列から判定を組み立てるSQL断片・重み付けの定数 |
 | `traffic.py` | OSMタグの解釈。停止要因POI・補給休憩POIの種別の引き当て（`TAG_KIND_RULES`・`tag_kind_sql`）、信号の判定（`TRAFFIC_SIGNAL_SQL`）、停止要因の数える種別への畳み方と信号の読み替え（`COUNT_KIND_OF`・`count_kind_sql`・`stop_kind_sql`）、通行方向の解決（`DIRECTION_RULES`・`direction_sql`）、交差点判定の次数しきい値、交差点の階級（`HIGHWAY_RANK`）。いずれも派生バッチへSQLとして渡す表と式で、タグを読むためだけに行を取り出さない |
