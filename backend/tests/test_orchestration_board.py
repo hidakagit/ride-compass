@@ -157,11 +157,30 @@ def test_sha_made_only_of_digits_is_kept_as_written(world):
     main, orch = world
     assert orchestrate(main, orch, "board", "add", "A", "current_task=T1").returncode == 0
 
-    done = orchestrate(main, orch, "board", "set", "A", "state=停止済み", "reported_sha=447131473413", "audit_base=12e45678")
+    reported = orchestrate(main, orch, "board", "set", "A", "state=停止済み", "reported_sha=447131473413")
+    audited = orchestrate(main, orch, "board", "set", "A", "audit_base=12e45678", "audit_done=now", "audit_result=差し戻す")
 
-    assert done.returncode == 0, done.stderr
+    assert reported.returncode == 0 and audited.returncode == 0, reported.stderr + audited.stderr
+    entry = load(orch)["agents"][0]["audit_log"][0]
+    assert (entry["reported_sha"], entry["audit_base"]) == ("447131473413", "12e45678")
+
+
+def test_audit_values_go_only_into_the_audit_log_and_are_not_carried_into_the_next_audit(world):
+    main, orch = world
+    assert orchestrate(main, orch, "board", "add", "A", "current_task=T1").returncode == 0
+    assert orchestrate(main, orch, "board", "set", "A", "state=停止済み", "reported_sha=1234567").returncode == 0
+    assert orchestrate(main, orch, "board", "set", "A", "audit_base=7654321", "audit_done=now",
+                       "audit_result=差し戻す").returncode == 0
     agent = load(orch)["agents"][0]
-    assert (agent["reported_sha"], agent["audit_base"]) == ("447131473413", "12e45678")
+    assert not {"reported_sha", "audit_base", "audit_done", "audit_result", "urgent"} & set(agent), agent
+
+    forgot_result = orchestrate(main, orch, "board", "set", "A", "audit_done=now")
+    again = orchestrate(main, orch, "board", "set", "A", "audit_done=now", "audit_result=通す")
+
+    assert forgot_result.returncode != 0 and "audit_result=<結果>" in forgot_result.stderr, forgot_result.stderr
+    assert again.returncode == 0, again.stderr
+    second = load(orch)["agents"][0]["audit_log"][1]
+    assert (second["reported_sha"], second["audit_base"], second["audit_result"]) == (None, None, "通す")
 
 
 def test_audit_log_mistake_is_fixed_only_with_a_commit_that_exists(world):
@@ -353,6 +372,59 @@ def test_audit_lets_an_append_to_an_idle_task_record_through_and_flags_the_rest(
     records = out[out.index("2. 記録の整合"):out.index("4. 検証の証拠")]
     assert expected in records, out
     assert unexpected not in records, out
+
+
+MAP_FILE = "frontend/src/features/map/x.ts"
+EVIDENCE = ("\n\n検証: `python scripts/lockrun.py -- 'cd frontend && ./node_modules/.bin/playwright test"
+            " -c playwright.live.config.ts s1-map'` → 3 passed\n増減: 実装 +1/−0\n")
+
+
+@pytest.mark.parametrize(("message", "expected", "unexpected"), [
+    ("T1: 地図を変えた", ["? 候補: ", "無: 「検証:」の欄・「増減:」の欄", "e2e-liveの実行の記録も回さない理由も無い: " + MAP_FILE,
+                      "指摘 1件・候補 2件"], []),
+    ("T1: 地図を変えた" + EVIDENCE, ["指摘 1件・候補 0件"], ["? 候補: "]),
+], ids=["欄もe2e-liveの記録も無い", "欄とe2e-liveの記録がある"])
+def test_audit_lists_evidence_and_e2e_live_as_candidates_without_counting_them(
+        world, monkeypatch, capsys, message, expected, unexpected):
+    main, orch = world
+    git(main, "switch", "--quiet", "-c", "work")
+    write(main, "docs/records/tasks/T1.md", "# T1. 走っているタスク\n\n状態: 未完了\n\n実施した\n")
+    write(main, MAP_FILE, "export {};\n")
+    git(main, "add", "docs", "frontend")
+    git(main, "commit", "--quiet", "-m", message)
+    board = load(orch)
+    board["agents"] = [{"name": "A", "state": "停止済み", "current_task": "T1"}]
+    save(orch, board)
+
+    out = audit(main, orch, "A", git(main, "rev-parse", "HEAD"), monkeypatch, capsys)
+
+    assert all(text in out for text in expected), out
+    assert not any(text in out for text in unexpected), out
+    assert "! このコミットに対するCIの実行が無い" in out
+
+
+def test_record_only_commit_audited_under_a_non_task_name_is_unpushed_until_it_lands(world):
+    main, orch = world
+    base = git(main, "rev-parse", "HEAD")
+    git(main, "switch", "--quiet", "-c", "work")
+    write(main, "docs/records/tasks/T2.md", "# T2. 閉じたタスク\n\n状態: 完了\n\n答え: 見送り\n")
+    git(main, "add", "docs")
+    git(main, "commit", "--quiet", "-m", "記録: 答え T2")
+    sha = git(main, "rev-parse", "HEAD")
+    board = load(orch)
+    board["agents"] = [{"name": "C", "state": "停止済み", "audit_log": [
+        {"task": "記録待ち", "reported_sha": sha[:12], "audit_base": base[:12], "audit_done": ago(1), "audit_result": "通す"}]}]
+    save(orch, board)
+
+    before = orchestrate(main, orch, "board", "unpushed").stdout
+    git(main, "switch", "--quiet", "master")
+    git(main, "cherry-pick", sha)
+    git(main, "commit", "--quiet", "--amend", "--no-edit")
+    git(main, "push", "--quiet", "origin", "master")
+    after = orchestrate(main, orch, "board", "unpushed").stdout
+
+    assert "監査済み・未push 1件" in before, before
+    assert "監査済み・未push 0件" in after, after
 
 
 def test_rules_prints_the_block_of_the_convention_with_the_agent_name(world):

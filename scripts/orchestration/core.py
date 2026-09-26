@@ -39,8 +39,9 @@
 - タスクの題名と規模札は台帳（origin/masterの`docs/improvement-plan.md`の行）。見込み超過の予算は、
   担当の現在のタスクの規模札（「S〜M」のような幅は大きい側）について、タスク記録の所要の行
   （`所要（並行実行）:`）を集めた80パーセンタイルから、読むたびに計算する（`effort_budgets`）。
-- 監査済みのコミットがmasterへ入ったかは、監査の記録（`audit_log`の`通す`）と、監査で通したタスクの
-  番号から始まる件名のコミットが監査の後にorigin/masterへ入ったか（`has_landed`）。作業ツリーの担当の
+- 監査済みのコミットがmasterへ入ったかは、監査の記録（`audit_log`の`通す`）と、監査で通したタスクを名指す件名
+  （`T1234: …`・`記録: 答え T1234`。番号でない担当は範囲の件名が名指すすべて。`audited_keys`）のコミットが
+  監査の後にorigin/masterへ入ったか（`has_landed`）。作業ツリーの担当の
   元のコミットが取り込み済みか（`unlanded_commits`。スロットを渡し直せるかに使う）も同じ判定で、入った
   タスクの報告のshaから届くコミットを取り込み済みとする。前回のpushの時刻はorigin/masterの先端のコミットの時刻。
 - 振り出し待ちの行のタスクが完了したかは、origin/masterの記録の`状態:`。完了の行は取り出さず、行は消さない
@@ -73,7 +74,8 @@
 監査待ちは、担当の状態が`停止済み`で現在のタスクが残っていること（報告を受けて止めたが、まだ監査で
 通していない）から導く。
 
-`board set <名前> audit_done=now audit_result=通す`は、監査の記録（audit_log）を1件残す。
+`board set <名前> audit_done=now audit_result=通す`は、監査の記録（audit_log）を1件残す。監査の値（`AUDIT_ENTRY_KEYS`）と
+報告のsha（`reported_sha`）は記録にだけ入れて担当の行から外す——行に残すと、次の監査で書き忘れた値に前回の値が黙って写る。
 
 `k=v`の値は、`now`なら現在時刻、識別子のキー（sha・id等、`TEXT_KEYS`）なら書いたままの文字列、JSONとして
 読めればその値（数値・配列）、それ以外は文字列。監査の記録の書き損じは`board audit-fix`で直す。
@@ -133,6 +135,8 @@ TASK_ID_RE = re.compile(r"T\d+[a-z0-9-]*")
 TASK_DOC_RE = re.compile(r"^docs/records/tasks/(T\d+[a-z0-9-]*)\.md$")
 #: コミットの件名の先頭のタスク番号の並び（CLAUDE.md「1タスク=1コミット」の件名）。
 SUBJECT_TASKS_RE = re.compile(r"^(T\d+[a-z0-9-]*(?:・T\d+[a-z0-9-]*)*)[:： ]")
+#: 記録だけを変えるコミットの決まった件名（docs/conventions/asking-user.md「記録だけを変えるコミットの例外」）。
+RECORD_SUBJECT_RE = re.compile(r"^(記録: 答え|台帳: 起票) (T\d+[a-z0-9-]*(?:・T\d+[a-z0-9-]*)*)\s*$")
 
 #: 状態の表の`state`の語彙。司令塔の指示（振り出した・止めた）だけで、監査の段階は監査の記録から導く。
 ACTIVE_STATES = ("稼働", "停止指示")
@@ -145,22 +149,24 @@ ALLOWED_KEYS = {
     "top": ("run", "limits", "check_interval_min", "manual", "agents", "last_check", "idle_since", "queue",
             "coordinator_queue"),
     "agent": ("name", "id", "where", "session", "state", "current_task", "task_first_started", "overrun_ack", "reported_sha",
-              "audit_base", "audit_done", "audit_result", "audit_log"),
+              "audit_log"),
     "audit_log": ("task", "reported_sha", "audit_base", "audit_done", "audit_result", "urgent"),
     "limits": ("concurrent",),
     "queue": ("task", "priority", "added", "after", "agent", "cleanup"),
     "coordinator_queue": ("what", "priority", "added"),
 }
-#: `board set・add`・`board run`・`board dispatch push`の`k=v`で書けるキー。
+#: `board set・add`・`board run`・`board dispatch push`の`k=v`で書けるキー。`board set`はほかに監査の値
+#: （`AUDIT_ENTRY_KEYS`）を受け、監査の記録へ入れる。
 SETTABLE = {
-    "agent": ("id", "where", "session", "state", "current_task", "overrun_ack", "reported_sha", "audit_base", "audit_done",
-              "audit_result", "urgent"),
+    "agent": ("id", "where", "session", "state", "current_task", "overrun_ack", "reported_sha"),
     "top": ("limits.concurrent", "check_interval_min", "manual"),
     "queue": ("after", "agent", "cleanup"),
 }
 #: 値を常に文字列で持つキー（識別子）。数字だけのsha（`447131473413`）・指数に読める sha（`12e45678`）を
 #: JSONとして読むと数に化け、先頭の0や桁が失われる。
 TEXT_KEYS = ("id", "session", "current_task", "reported_sha", "audit_base", "task")
+#: `board set`で書くと監査の記録へ1件入り、担当の行には残らないキー（`audit_done`が記録の契機）。
+AUDIT_ENTRY_KEYS = ("audit_base", "audit_done", "audit_result", "urgent")
 #: 監査の記録の1件で、後から書き直せるキー（書き損じの訂正。`board audit-fix`）。
 AUDIT_FIXABLE = ("reported_sha", "audit_base", "task")
 #: 振り出し待ちがあるのに稼働が上限未満の状態がこれだけ続いたら、門の理由によらず要対応にする。
@@ -227,18 +233,27 @@ EXPECTED_HOOKS_PATH = ".githooks"
 #: 空いたスロットを温める処理が作り直している間の`warm-<pid>`。
 SLOT_LOCK_PREFIX = "slot "
 
-#: 監査の同期ルール（CLAUDE.md「コミット時の同期ルール」）で、生成物の再生成を要する宣言の場所。
-API_DECL_RE = re.compile(r"^backend/(app/(api|domain)/|app/config\.py|scripts/export_openapi\.py)")
 GENERATED_PREFIX = "frontend/src/types/generated/"
 STATIC_CHECK_TIMEOUT = 600
 #: 使い捨ての成果物が紛れ込みやすい形。混入の候補であって判定ではない。
 SCRATCH_RE = re.compile(r"(^|/)(scratch|tmp|temp)(/|$)|\.(log|png|jpe?g|webm|zip)$", re.IGNORECASE)
 E2E_SPEC_RE = re.compile(r"^frontend/e2e/.*\.spec\.[jt]s$")
-#: コミットメッセージに検証の証拠らしき記述があるかの目安。
-COMMAND_HINT_RE = re.compile(
-    r"pytest|ruff|vitest|tsc|eslint|playwright|review_checks|lockrun|run_probe|npm |python |git (grep|diff)|`[^`]+`")
+#: コミットメッセージの欄（CLAUDE.md「1タスク=1コミット」の書式）の見出し。
+MESSAGE_FIELD_RE = re.compile(r"^(背景|課題|成果|検証|増減|残り)[:：]", re.MULTILINE)
+#: 「検証:」の欄に、実行したコマンドと観測値らしき記述があるかの目安（候補を出すだけで判定しない）。
+COMMAND_HINT_RE = re.compile(r"pytest|ruff|mypy|vitest|tsc|eslint|prettier|playwright|review_checks|lockrun|run_probe"
+                             r"|orchestrate\.py|npm |python |grep|git (diff|log)")
 OBSERVED_HINT_RE = re.compile(r"\d+ ?(件|passed|failed|秒|分|ms|本|行|%)|→|緑|赤")
-DELTA_HINT_RE = re.compile(r"増減|[+＋−-]\d+ ?行|\+\d+/[−-]\d+")
+#: 実データのe2e（docs/conventions/testing.md パターン4「誰がいつ回すか」の領域）に当たる変更の入口のファイル。
+#: 当たる変更のコミットメッセージに`e2e-live`の実行の記録も回さない理由も無ければ、監査が候補に出す。
+E2E_LIVE_PATHS = (
+    "frontend/src/features/map/", f"{GENERATED_PREFIX}region-tile-config.json",
+    "backend/app/infrastructure/vector_tile.py", "backend/app/api/routers/axis_catalog.py",
+    "backend/app/domain/axis_display.py", "backend/app/domain/map_display.py", "backend/app/domain/dynamic_way_values.py",
+    "backend/app/api/routers/weather.py", "backend/app/api/routers/jma_tile.py", "backend/app/domain/weather_display.py",
+    "backend/app/api/routers/routes.py", "backend/app/domain/route.py",
+)
+E2E_LIVE_MENTION_RE = re.compile(r"e2e-live|playwright\.live")
 
 
 # ---------------------------------------------------------------- 共通
@@ -513,22 +528,42 @@ def passed_audits(board: dict) -> list[tuple[dict, dict, dt.datetime]]:
     return out
 
 
+def landing_keys(subject: str) -> list[str]:
+    """件名が名指すタスク。`T1234: …`は番号、記録だけを変えるコミット（`記録: 答え T1・T2`）は件名の種類と番号の組。"""
+    tasks = subject_tasks(subject)
+    if tasks:
+        return tasks
+    m = RECORD_SUBJECT_RE.match(subject)
+    return [f"{m.group(1)} {t}" for t in m.group(2).split("・")] if m else []
+
+
 def landed_since(ctx: Context, since: dt.datetime) -> dict[str, list[dt.datetime]]:
-    """`since`より後にorigin/masterへ入ったコミットの、件名の先頭のタスク番号 → コミットの時刻。"""
+    """`since`より後にorigin/masterへ入ったコミットの、件名が名指すタスク（`landing_keys`）→ コミットの時刻。"""
     landed: dict[str, list[dt.datetime]] = {}
     log = git_out(ctx.repo, "log", "--format=%ct %s", f"--since={iso(since)}", "origin/master") or ""
     for line in log.splitlines():
         ts, _, subject = line.partition(" ")
-        for task in subject_tasks(subject):
-            landed.setdefault(task, []).append(dt.datetime.fromtimestamp(int(ts)).astimezone())
+        for key in landing_keys(subject):
+            landed.setdefault(key, []).append(dt.datetime.fromtimestamp(int(ts)).astimezone())
     return landed
 
 
-def has_landed(entry: dict, done: dt.datetime, landed: dict[str, list[dt.datetime]]) -> bool:
-    """監査で通した記録のタスクがmasterへ入ったか。監査で通したタスクの番号から始まる件名のコミットが、
-    監査の時刻より後にorigin/masterへ入ったかで見る。取り込みでは衝突を解き、後始末を畳み、件名を直すので、
+def audited_keys(ctx: Context, entry: dict) -> list[str]:
+    """監査で通したものがmasterへ入ったかを見る`landing_keys`。範囲の件名のうち監査のときの現在のタスクを名指すもの
+    （`T1234: …`・`記録: 答え T1234`）。現在のタスクが番号でない（記録の後始末等）なら範囲の件名が名指すすべて。
+    範囲の基点は古いことがあり（masterへ入った他のタスクのコミットを含む）、番号があれば他のタスクは見ない。"""
+    task, sha, base = str(entry.get("task")), str(entry.get("reported_sha") or ""), entry.get("audit_base")
+    log = git_out(ctx.repo, "log", "--format=%s", f"{base}..{sha}" if base else "-1", *([] if base else [sha]))
+    keys = sorted({k for subject in (log or "").splitlines() for k in landing_keys(subject)})
+    own = [k for k in keys if k.rsplit(" ", 1)[-1] == task]
+    return own or ([task] if TASK_ID_RE.fullmatch(task) or not keys else keys)
+
+
+def has_landed(keys: list[str], done: dt.datetime, landed: dict[str, list[dt.datetime]]) -> bool:
+    """監査で通したものがmasterへ入ったか。`audited_keys`のすべてについて、同じものを名指す件名のコミットが監査の
+    時刻より後にorigin/masterへ入ったかで見る。取り込みでは衝突を解き、後始末を畳み、件名を直すので、
     中身や件名の一致では判定できない。"""
-    return any(t >= done for t in landed.get(str(entry.get("task")), []))
+    return all(any(t >= done for t in landed.get(key, [])) for key in keys)
 
 
 def audited_unpushed(ctx: Context, board: dict, at: dt.datetime) -> list[dict]:
@@ -539,7 +574,7 @@ def audited_unpushed(ctx: Context, board: dict, at: dt.datetime) -> list[dict]:
              "base": entry.get("audit_base"), "audited": entry.get("audit_done"),
              "urgent": bool(entry.get("urgent"))}
             for agent, entry, done in passed_audits(board)
-            if done >= since and not has_landed(entry, done, landed)]
+            if done >= since and not has_landed(audited_keys(ctx, entry), done, landed)]
 
 
 def ledger_ids(plan_text: str | None) -> set[str]:
@@ -910,7 +945,7 @@ def unlanded_commits(ctx: Context, path: Path) -> list[str] | None:
     if not reported:
         return stray
     landed = landed_since(ctx, min(done for _, done, _ in reported))
-    tips = [full for entry, done, full in reported if has_landed(entry, done, landed)]
+    tips = [full for entry, done, full in reported if has_landed(audited_keys(ctx, entry), done, landed)]
     if not tips:
         return stray
     rest = git_out(path, "rev-list", "HEAD", "--not", "--remotes=origin", *tips)
@@ -1548,12 +1583,18 @@ def cmd_audit(ctx: Context, args: argparse.Namespace) -> int:
         last = next((s for s in reversed(passed) if s), None)
         if last and last != sha and is_ancestor(repo, base, str(last)) and is_ancestor(repo, str(last), sha):
             base, base_note = git_out(repo, "rev-parse", str(last)) or base, "前回通したコミット"
-    flags = 0
+    flags = candidates = 0
 
     def flag(text: str) -> None:
         nonlocal flags
         flags += 1
         print(f"  ! {text}")
+
+    def candidate(text: str) -> None:
+        """目安で拾ったもの。司令塔が読んで判断する材料で、指摘の件数（終了コード）に数えない。"""
+        nonlocal candidates
+        candidates += 1
+        print(f"  ? 候補: {text}")
 
     print(f"監査: {args.name} {sha[:8]}（範囲 {base[:8]}..{sha[:8]}。基点は{base_note}）")
     if agent is None:
@@ -1567,9 +1608,9 @@ def cmd_audit(ctx: Context, args: argparse.Namespace) -> int:
     print("\n".join(f"  {line}" for line in (git_out(repo, "diff", "--stat=120", base, sha) or "").splitlines()))
     for status, path in changes:
         if SCRATCH_RE.search(path):
-            flag(f"使い捨ての候補: {path}")
+            candidate(f"使い捨てか: {path}")
         elif status == "A" and E2E_SPEC_RE.match(path):
-            flag(f"新しいe2eのspec（CIが拾う。使い捨てでないか）: {path}")
+            candidate(f"新しいe2eのspec（CIが拾う。使い捨てでないか）: {path}")
     touched_tasks = [m.group(1) for p in files if (m := TASK_DOC_RE.match(p))]
 
     # 2. 記録の整合
@@ -1603,26 +1644,31 @@ def cmd_audit(ctx: Context, args: argparse.Namespace) -> int:
             print(f"  {line}")
 
     # 4. 検証の証拠
-    print("\n4. 検証の証拠（コミットメッセージの記述の有無の目安。判定ではない）")
+    print("\n4. 検証の証拠（コミットメッセージの「検証:」「増減:」の欄と、実データのe2eの記録。候補を並べるだけで判定しない）")
     log = git_out(repo, "log", "--format=%x00%h %s%x01%B", f"{base}..{sha}") or ""
+    bodies = []
     for entry in filter(None, log.split("\0")):
         head, _, body = entry.partition("\x01")
-        found = [label for label, rx in (("コマンド", COMMAND_HINT_RE), ("観測値", OBSERVED_HINT_RE),
-                                          ("増減", DELTA_HINT_RE)) if rx.search(body)]
-        missing = [x for x in ("コマンド", "観測値", "増減") if x not in found]
-        text = f"{head[:70]}  有: {'・'.join(found) or 'なし'}"
+        bodies.append(body)
+        fields = message_fields(body)
+        check = fields.get("検証")
+        missing = (["「検証:」の欄"] if check is None else
+                   [label for label, rx in (("検証のコマンド", COMMAND_HINT_RE), ("検証の観測値", OBSERVED_HINT_RE))
+                    if not rx.search(check)])
+        missing += [] if "増減" in fields else ["「増減:」の欄"]
         if missing:
-            flag(f"{text}  無: {'・'.join(missing)}")
+            candidate(f"{head[:70]}  無: {'・'.join(missing)}")
         else:
-            print(f"  {text}")
+            print(f"  {head[:70]}")
+    live = [p for p in files if p.startswith(E2E_LIVE_PATHS)]
+    if live and not any(E2E_LIVE_MENTION_RE.search(body) for body in bodies):
+        candidate("実データのe2e（testing.md パターン4「誰がいつ回すか」）に当たるファイルを変えたが、コミットメッセージに"
+                  f"e2e-liveの実行の記録も回さない理由も無い: {'、'.join(live[:3])}"
+                  + (f" ほか{len(live) - 3}件" if len(live) > 3 else ""))
 
     # 7. 同期ルール
-    print("\n7. 同期ルール")
-    decl = [p for p in files if API_DECL_RE.match(p)]
-    if decl and not any(p.startswith(GENERATED_PREFIX) for p in files):
-        flag(f"API・domainの宣言を変えたが{GENERATED_PREFIX}が変わっていない"
-             f"（再生成して差分が出ないなら問題ない）: {'、'.join(decl[:5])}")
-    code = [p for p in files if p.endswith((".py", ".ts", ".tsx")) and not p.startswith(GENERATED_PREFIX)]
+    print("\n7. 同期ルール（生成物の再生成の漏れは、CIのapi-contractのジョブが見る。下の「CI」の項）")
+    code =[p for p in files if p.endswith((".py", ".ts", ".tsx")) and not p.startswith(GENERATED_PREFIX)]
     modules = [p for p in files if p.startswith("docs/modules/")]
     print(f"  実装ファイル{len(code)}件・docs/modules/{len(modules)}件を変更"
           f"{'（実装を変えてモジュール文書が0件。追従が要らないか）' if code and not modules else ''}")
@@ -1643,13 +1689,19 @@ def cmd_audit(ctx: Context, args: argparse.Namespace) -> int:
     print("  5. 主張の抜き取り検証 — 結論が最も強く依存する主張を1つ自分で確かめる")
     print(f"  6. 本番への影響 — backend/**を{'含む。DB行の互換・マイグレーション・本番操作の記述を確かめる' if backend else '含まない'}")
     print("  8. 報告の正確さ・9. 見積もりとのずれ — 記録")
-    print(f"\n機械で見た項目の指摘 {flags}件")
+    print(f"\n機械で見た項目の指摘 {flags}件・候補 {candidates}件（候補は件数に数えない。読んで判断する）")
     if needs_user:
         print("ユーザー確認（項目10）に当たる: 通さず、所要の比較を添えてユーザーへ上げる"
               "（通す・縮めてから通す・CIの持ち場を変える）")
     print(f"通すなら: python scripts/orchestrate.py board set {args.name} reported_sha={sha[:12]} "
           f"audit_base={base[:12]} audit_done=now audit_result=通す [urgent=true]")
     return 1 if flags else 0
+
+
+def message_fields(body: str) -> dict[str, str]:
+    """コミットメッセージの欄の見出し（`検証`等）→ 次の欄の見出しまでの中身。"""
+    parts = MESSAGE_FIELD_RE.split(body)
+    return dict(zip(parts[1::2], parts[2::2], strict=True))
 
 
 def other_record(repo: Path, board: dict, agent: dict, base: str, sha: str, task: str, status: str | None,
@@ -1856,9 +1908,14 @@ def cmd_board(ctx: Context, args: argparse.Namespace) -> int:
                 renew_agent(ctx, agent)
         elif agent is None:
             raise SystemExit(f"状態の表に無い: {args.name}（board add で追加する）")
-        keys = {p.split("+=", 1)[0].split("=", 1)[0] for p in args.pairs}
+        key_of = {p: p.split("+=", 1)[0].split("=", 1)[0] for p in args.pairs}
+        keys = set(key_of.values())
+        audit_pairs = [p for p in args.pairs if key_of[p] in AUDIT_ENTRY_KEYS]
+        if audit_pairs and not {"audit_done", "audit_result"} <= keys:
+            raise SystemExit("監査の値（" + "・".join(AUDIT_ENTRY_KEYS) + "）は audit_done=now audit_result=<結果> と同じ"
+                             "呼び出しで書く（監査の記録にだけ入り、担当の行には残らない。何も書いていない）")
         previous_task, previous_where = agent.get("current_task"), agent.get("where")
-        apply_pairs(agent, args.pairs, at, SETTABLE["agent"])
+        apply_pairs(agent, [p for p in args.pairs if p not in audit_pairs], at, SETTABLE["agent"])
         if "where" in keys:
             if agent.get("where") in ("", None, "手元"):
                 agent.pop("where", None)
@@ -1875,17 +1932,18 @@ def cmd_board(ctx: Context, args: argparse.Namespace) -> int:
                 print(f"注: {task}は台帳に規模札のある行が無い。見込み超過をタスク単位で測れない")
         if agent.get("state") == "稼働":
             restore_hooks_path(ctx)
-        urgent = bool(agent.pop("urgent", False))
-        passed = "audit_done" in keys and agent.get("audit_result") == "通す"
-        if "audit_done" in keys:
+        passed = False
+        if audit_pairs:
             # 監査の待ち時間（受領→結果）を回の記録で測るため、1件ごとに残す。
-            entry = {k: agent.get(k) for k in ("reported_sha", "audit_base", "audit_done", "audit_result")}
+            entry = {"reported_sha": agent.pop("reported_sha", None), "audit_base": None}
+            apply_pairs(entry, audit_pairs, at, AUDIT_ENTRY_KEYS)
             entry["task"] = agent.get("current_task")
-            entry["urgent"] = urgent
+            entry["urgent"] = bool(entry.get("urgent"))
+            passed = entry.get("audit_result") == "通す"
             if not entry["task"]:
                 print("注: 現在のタスクが無いまま監査を記録した。masterに入ったかを board unpushed で追えない")
             agent.setdefault("audit_log", []).append(entry)
-            if agent.get("audit_result") == "通す":
+            if passed:
                 # 監査を通ったタスクは表から外す（所要の実績は完了のコミットでTxxx.mdにある）。
                 agent["current_task"] = None
                 agent["task_first_started"] = None
