@@ -4,6 +4,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/Popover
 import WindBearingSlider from "@/features/conditions/WindBearingSlider/WindBearingSlider";
 import { WindDirectionArrowIcon } from "@/components/ui/icons/icons";
 import { Button } from "@/components/ui/Button/Button";
+import { mapOverlayEdge } from "@/features/map/MapView/mapOverlayEdges";
 
 interface TravelBearingControlProps {
   value: number;
@@ -31,6 +32,7 @@ export default function TravelBearingControl({ value, onChange }: TravelBearingC
           size="mapCtrl"
           className="absolute top-[var(--map-ctrl-stack-top)] right-[var(--map-ctrl-margin)] z-[var(--z-map-control)]"
           aria-label="走行方位を設定"
+          {...mapOverlayEdge("right")}
         >
           <span
             aria-hidden="true"

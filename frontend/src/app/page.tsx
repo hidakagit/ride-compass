@@ -7,6 +7,7 @@ import Disclosure from "@/components/Disclosure/Disclosure";
 import { Button } from "@/components/ui/Button/Button";
 import { cn } from "@/lib/cn";
 import MapView, { type RouteFitObscuredPx } from "@/features/map/MapView/MapView";
+import { mapOverlayEdge } from "@/features/map/MapView/mapOverlayEdges";
 import MapOverlayControls from "@/features/map/MapOverlayControls/MapOverlayControls";
 import {
   ClearAllFiltersIcon,
@@ -1322,6 +1323,7 @@ export default function Home() {
           {/* 地図の下の中央に「まとめて元に戻す」操作を並べる（レイヤーのON/OFFと凡例の絞り込みは別の状態）。 */}
           <div
             ref={bottomControlRowRef}
+            {...mapOverlayEdge("bottom")}
             className="pointer-events-none absolute bottom-3 left-1/2 z-[var(--z-map-control)] flex max-w-[100vw] -translate-x-1/2 flex-row items-center gap-2 max-mobile:bottom-[max(calc(var(--space-3)+var(--mobile-tabbar-height)),calc(var(--space-2)+var(--mobile-tabbar-height)+var(--mobile-sheet-height)))]"
           >
             <Button
@@ -1359,7 +1361,10 @@ export default function Home() {
           <TravelBearingControl value={travelBearingDeg} onChange={setTravelBearingDeg} />
 
           {/* 走行条件（出発時刻・想定速度）は走行方位の直下に積む。出発時刻は気象レイヤーの表示時刻と同じもの。 */}
-          <div className="pointer-events-none absolute top-[calc(var(--map-ctrl-stack-top)+var(--map-ctrl-button-size)+var(--map-ctrl-stack-gap))] right-[var(--map-ctrl-margin)] z-[var(--z-map-control)]">
+          <div
+            {...mapOverlayEdge("right")}
+            className="pointer-events-none absolute top-[calc(var(--map-ctrl-stack-top)+var(--map-ctrl-button-size)+var(--map-ctrl-stack-gap))] right-[var(--map-ctrl-margin)] z-[var(--z-map-control)]"
+          >
             <RideConditionBar
               departureTime={departure.at}
               onDepartureTimeChange={departure.setAt}
@@ -1375,6 +1380,7 @@ export default function Home() {
             shape="pill"
             onClick={handleLocateMe}
             disabled={locating}
+            {...mapOverlayEdge("right")}
             aria-label="現在地に移動"
             title="現在地に移動"
             className={cn(

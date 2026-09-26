@@ -289,6 +289,11 @@ describe("表示する項目を選ぶ", () => {
     expect(screen.queryByRole("button", { name: "hidden_on" })).not.toBeInTheDocument();
   });
 
+  it("開いた一覧は、押す前のtitleを読めないスマホでも何の一覧かを見出しで示す", async () => {
+    const { panel } = await openSettings([roadMember("member")]);
+    expect(within(panel).getByText("表示する項目")).toBeVisible();
+  });
+
   it("説明のある項目にだけⓘを出し、押すと説明を読める", async () => {
     const { user, panel } = await openSettings([roadMember("with_hint", { panelHint: "説明文" }), roadMember("plain")]);
     expect(within(panel).queryByRole("button", { name: /plainの説明/ })).not.toBeInTheDocument();

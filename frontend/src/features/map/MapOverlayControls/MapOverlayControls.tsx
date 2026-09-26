@@ -23,9 +23,10 @@ import { mapDisplay } from "@/types/generated/mapDisplay";
 import LegendCheckboxList from "@/features/map/LegendCheckboxList/LegendCheckboxList";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
+import { mapOverlayEdge } from "@/features/map/MapView/mapOverlayEdges";
 import {
   EnvironmentDataIcon,
-  InfoIcon,
+  DisplayItemsIcon,
   RoadIcon,
   SpotDataIcon,
   type MapIconComponent,
@@ -521,8 +522,11 @@ export default function MapOverlayControls({
           title="表示する項目を選ぶ"
           regionLabel={`${label}の表示項目`}
           side="bottom"
-          trigger={<InfoIcon size={12} />}
+          trigger={<DisplayItemsIcon size={14} />}
         >
+          <div className="mb-1 text-[length:var(--font-size-xs)] font-bold text-[var(--color-neutral)]">
+            表示する項目
+          </div>
           <ul className="m-0 flex list-none flex-col gap-0.5 p-0">
             {members.map((member) => {
               const hiddenKey = `${group}:${member.id}`;
@@ -612,7 +616,10 @@ export default function MapOverlayControls({
   ];
 
   return (
-    <div className="pointer-events-none absolute top-3 left-3 z-[var(--z-map-control)] flex w-max max-w-[calc(100%-2*var(--space-3)-3rem)] flex-col items-start gap-2 max-mobile:bottom-[calc(var(--space-3)+var(--mobile-tabbar-height)+var(--bottom-control-row-height,0px))]">
+    <div
+      className="pointer-events-none absolute top-3 left-3 z-[var(--z-map-control)] flex w-max max-w-[calc(100%-2*var(--space-3)-3rem)] flex-col items-start gap-2 max-mobile:bottom-[calc(var(--space-3)+var(--mobile-tabbar-height)+var(--bottom-control-row-height,0px))]"
+      {...mapOverlayEdge("left")}
+    >
       {hasLess && (
         <Button
           variant="float"

@@ -8,6 +8,7 @@ import {
   installApiMocks,
   openMobileApp,
   openMobileSheet,
+  runGeneration,
   seedStoredState,
 } from "./fixtures";
 import { pinchOpen } from "./scans";
@@ -196,6 +197,39 @@ test("宣言された地図レイヤーを全部ONにしても、スタイル検
   await page.waitForTimeout(3000);
 
   expect(styleErrors).toEqual([]);
+});
+
+// ルートを収める余白は、地図の上に重ねた部品が覆う幅を含む（含まないと、ルートの端が操作列の下に隠れる）。
+// 余白はMapLibreへ渡した値をデバッグログで読み、覆う幅は部品を名前で探して実寸で測る——余白を決めた側の印とは
+// 別の入力で確かめる。
+test("ルートを収めるとき、地図の上の操作部品が覆う所へルートの端を置かない", async ({ page }) => {
+  const fit: { padding?: Record<"top" | "bottom" | "left" | "right", number> } = {};
+  page.on("console", async (message) => {
+    if (!message.text().includes("[map:viewport] ルートを収める")) return;
+    Object.assign(fit, await message.args()[1]?.jsonValue());
+  });
+  await installApiMocks(page);
+  await seedStoredState(page, { "ridecompass:debug-enabled": "1" });
+  await page.goto("/");
+  await expect(page.getByText("地図を読み込み中…")).toBeHidden({ timeout: 15_000 });
+  await runGeneration(page);
+  await expect.poll(() => fit.padding, { timeout: 10_000 }).toBeDefined();
+
+  const canvas = (await page.locator("canvas.maplibregl-canvas").boundingBox())!;
+  const covers = async (name: string | RegExp) => {
+    const boxes = await Promise.all((await page.getByRole("button", { name }).all()).map((b) => b.boundingBox()));
+    return boxes.filter((box) => box !== null);
+  };
+  const depths = {
+    left: (await covers(/の表示項目$/)).map((box) => box.x + box.width - canvas.x),
+    right: (await covers(/^(拡大|縮小|走行方位を設定|現在地に移動)$/)).map((box) => canvas.x + canvas.width - box.x),
+    top: (await covers(/^レンズ:/)).map((box) => box.y + box.height - canvas.y),
+    bottom: (await covers("地図の表示を再描画する")).map((box) => canvas.y + canvas.height - box.y),
+  };
+  for (const [edge, values] of Object.entries(depths) as [keyof typeof depths, number[]][]) {
+    expect(values.length, `${edge}の辺を覆う部品が見つからない`).toBeGreaterThan(0);
+    expect(fit.padding![edge], `${edge}の余白`).toBeGreaterThanOrEqual(Math.max(...values));
+  }
 });
 
 // 地図の上で始めたピンチは、ページではなく地図を拡大する（パターン4 観点2）。地図のcanvas以外の部品から
