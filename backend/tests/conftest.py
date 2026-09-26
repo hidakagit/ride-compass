@@ -16,7 +16,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from app.batch._common import asyncpg_dsn
-from app.infrastructure import redis_client, tile_persistent_cache
+from app.infrastructure import rate_limiter, redis_client, tile_persistent_cache
 from app.infrastructure.orm_base import Base
 from app.infrastructure.road_graph_repository import (
     REQUIRED_EXTENSIONS,
@@ -54,6 +54,44 @@ def _reset_derived_data_revision():
     derived_data_revision_service.reset_for_tests()
     yield
     derived_data_revision_service.reset_for_tests()
+
+
+class RateLimitClock:
+    """回数制限が読む時計。止まっていて、進めたぶんだけ進む。"""
+
+    def __init__(self) -> None:
+        self._now = 0.0
+
+    def monotonic(self) -> float:
+        return self._now
+
+    def advance(self, seconds: float) -> None:
+        self._now += seconds
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _rate_limit_clock_for_the_session():
+    """回数制限（infrastructure/rate_limiter.py）が読む時計を、テストが進める時計へ替える。
+
+    戻すのはセッションの終わりだけ。途中で実時計へ戻すと、進めた時計で数えた回数が
+    未来の時刻として窓の中に残り、後のテストの上限に食い込む。
+    """
+    clock = RateLimitClock()
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(rate_limiter, "time", clock)
+        yield clock
+
+
+@pytest.fixture(autouse=True)
+def rate_limit_clock(_rate_limit_clock_for_the_session) -> RateLimitClock:
+    """テストごとに1窓ぶん進め、前のテストが数えた回数を窓の外へ出す。
+
+    回数の記録は接続元（TestClientでは常に`testclient`）ごとのプロセス大域にあり、進めないと
+    前のテストのリクエストが今のテストの上限に食い込む。記録そのものには触らない。
+    """
+    clock = _rate_limit_clock_for_the_session
+    clock.advance(rate_limiter._WINDOW_SECONDS)
+    return clock
 
 
 @pytest.fixture(autouse=True, scope="session")

@@ -1,4 +1,3 @@
-import pytest
 from fastapi.testclient import TestClient
 
 from app.api.dependencies import get_basemap_client
@@ -10,13 +9,6 @@ from tests.admin_auth import ADMIN_PASSWORD, ADMIN_USERNAME
 client = TestClient(app)
 
 REFRESH_PATH = "/api/admin/basemap/refresh"
-
-
-@pytest.fixture(autouse=True)
-def clear_rate_limiter():
-    rate_limiter._hits.clear()
-    yield
-    rate_limiter._hits.clear()
 
 
 class FakeBasemapClient:
