@@ -3,9 +3,9 @@
 
 import palette from "@/types/generated/palette.json";
 import type { LegendEntry } from "./legendFilter";
-import { bandLabelsForBandCount, buildRangeLegendBands, LEGEND_NO_DATA_KEY } from "./mapColorLegend";
+import { NO_DATA_LEGEND_BAND } from "./mapColorLegend";
 import type { AxisCatalogEntry } from "@/types/route";
-import { bandColorsFor, COLOR_NO_DATA, DEFAULT_DIFFICULTY_BOUNDARIES, type MapValueKind } from "./valueScale";
+import { COLOR_NO_DATA, DEFAULT_DIFFICULTY_BOUNDARIES, valueBands, type MapValueKind } from "./valueScale";
 
 type RouteStyleModeId = "difficulty" | "none" | (string & {});
 
@@ -52,7 +52,7 @@ function buildSteppedMode(
     if (i < boundaries.length) conditions.push(["<", value, boundaries[i]]);
     return { key, label, color, filter: ["all", ...conditions] };
   });
-  legend.push({ key: LEGEND_NO_DATA_KEY, label: "データなし", color: COLOR_NO_DATA, filter: noData, isFallback: true });
+  legend.push({ ...NO_DATA_LEGEND_BAND, filter: noData });
 
   return {
     legend,
@@ -72,8 +72,7 @@ function buildRangeSteppedMode(options: {
   bandLabels?: readonly string[] | null;
 }): RouteStyleMode {
   const { id, label, valueExpression, kind, boundaries, unit, bandLabels } = options;
-  const labels = bandLabelsForBandCount(bandLabels, boundaries.length + 1);
-  const steps = buildRangeLegendBands(boundaries, bandColorsFor(kind, boundaries), unit, labels);
+  const steps = valueBands(kind, boundaries, unit, bandLabels);
   return {
     id,
     label,

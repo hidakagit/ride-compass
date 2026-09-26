@@ -3,17 +3,11 @@
  * 全道路の塗り（ramp軸・専用配信軸）もルート線の色分けも同じ`lens`から導き、軸の種類ごとの
  * 分岐は持たない——軸を公開すれば、ここへ何も足さずに選択肢と塗り分けへ現れる。
  */
-import { rampColorForBand, type DedicatedWayValueAxis, type RampAxis } from "@/lib/mapDisplay/axisLayers";
+import type { DedicatedWayValueAxis, RampAxis } from "@/lib/mapDisplay/axisLayers";
 import type { DedicatedWayValueDisplay } from "@/lib/mapDisplay/dedicatedWayValueLayer";
-import {
-  bandLabelsForBandCount,
-  buildRangeLegendBands,
-  LEGEND_NO_DATA_KEY,
-  type MapColorLegendBand,
-} from "@/lib/mapDisplay/mapColorLegend";
-import { bandColorsFor, COLOR_NO_DATA, DEFAULT_DIFFICULTY_BOUNDARIES } from "@/lib/mapDisplay/valueScale";
+import { NO_DATA_LEGEND_BAND, type MapColorLegendBand } from "@/lib/mapDisplay/mapColorLegend";
+import { dedicatedAxisBands, rampAxisBands } from "@/lib/mapDisplay/valueScale";
 import { buildAxisRampUnknownExpression, buildAxisRampValueExpression } from "@/features/map/scene/groups/axisLines";
-import { COLOR_UNKNOWN } from "@/features/map/scene/sceneBuilders";
 import type { LegendEntry } from "@/lib/mapDisplay/legendFilter";
 import {
   LENS_DIFFICULTY_ID,
@@ -68,40 +62,27 @@ export function lensOptions(
 }
 
 /** ramp軸の凡例。分類で塗るレイヤーと同じLegendEntry型で返し、凡例のチェックボックス・
- * 地図チップの▶展開凡例をそのまま共有する。段の鍵・範囲の文字・体感ラベルの添え方は
- * 専用配信軸の凡例と同じ`buildRangeLegendBands`が決める——段の鍵はルート確定前後で共通で、
+ * 地図チップの▶展開凡例をそのまま共有する。段の鍵・範囲の文字・体感ラベル・色は
+ * 地図の線と同じ`rampAxisBands`が決める——段の鍵はルート確定前後で共通で、
  * **軸idを混ぜない**（非表示にした段の保存先は前後で同じ軸idの下なので、別の綴りにすると
  * 隠した段がルート生成で黙って戻る）。
  * filterはbuildAxisRampValueExpression（地図の色分けが使うのと同じ線形結合）への
  * 範囲比較で、実際に塗られる色と凡例が食い違わないようにする。
- * hasUnknownFallbackな軸は末尾に「不明」エントリを足し、他の段階のfilterには
- * 「不明ではない」条件を足して二重分類を防ぐ。 */
+ * hasUnknownFallbackな軸は末尾に「データなし」の行を足し、他の段階のfilterには
+ * 「値が無いのではない」条件を足して二重分類を防ぐ。 */
 function buildAxisRampLegend(axis: RampAxis): LegendEntry[] {
   const valueExpression = buildAxisRampValueExpression(axis);
   const unknownExpression = buildAxisRampUnknownExpression(axis);
   const { thresholds } = axis;
-  const bandCount = thresholds.length + 1;
-  const colors = Array.from({ length: bandCount }, (_, index) => rampColorForBand(index, bandCount));
-  const labels = bandLabelsForBandCount(axis.bandLabelsOverride, bandCount);
-  const bands = buildRangeLegendBands(thresholds, colors, axis.unit, labels).map((band, index) => {
+  const bands = rampAxisBands(axis).map(({ key, label, color }, index) => {
     const filterParts: unknown[] = ["all"];
     if (unknownExpression !== null) filterParts.push(["!", unknownExpression]);
     if (index > 0) filterParts.push([">=", valueExpression, thresholds[index - 1]]);
     if (index < thresholds.length) filterParts.push(["<", valueExpression, thresholds[index]]);
-    return { ...band, filter: filterParts };
+    return { key, label, color, filter: filterParts };
   });
   if (unknownExpression === null) return bands;
-  return [
-    ...bands,
-    {
-      // 値を持たない道の受け皿もルート線側と同じキー（ルート線は「データなし」と呼ぶ）。
-      key: LEGEND_NO_DATA_KEY,
-      label: "不明",
-      color: COLOR_UNKNOWN,
-      filter: ["all", unknownExpression],
-      isFallback: true,
-    },
-  ];
+  return [...bands, { ...NO_DATA_LEGEND_BAND, filter: ["all", unknownExpression] }];
 }
 
 /** 地図上の色分け凡例。地図の線と同じ配色・しきい値から段階ラベル付きの凡例を組み立てる。
@@ -109,13 +90,7 @@ function buildAxisRampLegend(axis: RampAxis): LegendEntry[] {
  * （不一致な保存データへの防御）。末尾の「データなし」は値を受け取れなかった道路の受け皿で、
  * ルート確定後のルート線の凡例（`routeStyleModes.ts`）と段階の並び・キーを揃える。 */
 function dedicatedWayValueLegend(display: DedicatedWayValueDisplay): MapColorLegendBand[] {
-  const boundaries = display.boundaries ?? DEFAULT_DIFFICULTY_BOUNDARIES;
-  const colors = bandColorsFor(display.kind, boundaries);
-  const labels = bandLabelsForBandCount(display.bandLabels, boundaries.length + 1);
-  return [
-    ...buildRangeLegendBands(boundaries, colors, display.unit, labels),
-    { key: LEGEND_NO_DATA_KEY, label: "データなし", color: COLOR_NO_DATA, isFallback: true },
-  ];
+  return [...dedicatedAxisBands(display).map(({ key, label, color }) => ({ key, label, color })), NO_DATA_LEGEND_BAND];
 }
 
 // 既定のレンズは総合難易度（軸の公開状態に依存せず常に存在するモード）。

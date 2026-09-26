@@ -14,12 +14,12 @@
 |---|---|
 | `lib/mapDisplay/routeStyleModes.ts` | ルート確定後の色分けモード一覧・色式 |
 | `lib/mapDisplay/dedicatedWayValueLayer.ts` | ルート確定前の評価軸グループ線（専用way値レイヤー）の表示宣言の型（`DedicatedWayValueDisplay`）。凡例は`features/map/view/lens.ts: dedicatedWayValueLegend`が作る。軸カタログの表示宣言だけから組み立て、軸ごとのファイル・定数を持たない |
-| `lib/mapDisplay/valueScale.ts` | 地図表示値の種類（`MapValueKind`: 難易度／符号付き材料）ごとの既定しきい値・配色（HSL補間）。ルート前後の色分けと凡例が共有する葉モジュール |
+| `lib/mapDisplay/valueScale.ts` | 地図表示値の種類（`MapValueKind`: 難易度／符号付き材料）ごとの既定しきい値・配色（HSL補間）と、軸を塗る段の並び（`valueBands`・`rampAxisBands`・`dedicatedAxisBands`）。ルート前（ramp軸・専用配信軸）・ルート後の色分け・凡例・管理画面のプレビューが共有する（下記「valueScale.ts」） |
 | `features/map/scene/groups/axisLines.ts` | ルート確定前に評価軸（ramp軸・専用way値配信軸）で道を塗る線の宣言と、ramp軸の値・不明のMapLibre式（`buildAxisRampValueExpression`・`buildAxisRampUnknownExpression`）。段の色、値が無い道・取得中の道の色と濃さ、凡例で隠した段の落とし方（下記「評価軸の線」） |
 | `features/map/layers/dynamicWayValues.ts` | タイル座標計算・複数タイル応答の統合（材料非依存の共通部分） |
-| `lib/mapDisplay/axisLayers.ts` | `rampColorForBand`（ramp軸の段の色。地図と管理画面が共有）。「不明」の色`COLOR_UNKNOWN`は地図の描画（`features/map/scene/sceneBuilders.ts`）が持つ。ramp軸自体の全面的な生成ロジックは主に[地図: 静的レイヤー・道路表示](static-map-layers.md)の管轄 |
+| `lib/mapDisplay/axisLayers.ts`（`RampAxis`関連のみ） | 軸カタログ→ramp軸一覧の変換（`rampAxesFromCatalogAxes`）。段の色は持たない（`valueScale.ts: rampAxisBands`）。値が無い道の色`COLOR_UNKNOWN`は地図の描画（`features/map/scene/sceneBuilders.ts`）が持つ。ramp軸自体の全面的な生成ロジックは主に[地図: 静的レイヤー・道路表示](static-map-layers.md)の管轄 |
 | `lib/mapDisplay/__fixtures__/catalogAxes.ts` | 軸カタログの軸（backendの契約から生成した型そのもの）を組む雛形（テスト専用。e2eのモックも使う）。**実際の公開軸を入力に使わない**——軸の集合はDBが持つ。既定値は型を満たすための空だけで、見たい性質は呼び出し側が書く |
-| `lib/mapDisplay/mapColorLegend.ts` | 地図上の色分け凡例（`MapColorLegendBand`型・`buildRangeLegendBands`・`rangeStepLabel`）の共通ロジック。凡例を作る関数（`features/map/view/lens.ts`）と管理画面が使う |
+| `lib/mapDisplay/mapColorLegend.ts` | 地図上の色分け凡例（`MapColorLegendBand`型・`buildRangeLegendBands`・`rangeStepLabel`）の共通ロジックと、値が無い行（`NO_DATA_LEGEND_BAND`）。凡例を作る関数（`features/map/view/lens.ts`）・道の属性の凡例（`features/map/scene/legends.ts`）と管理画面が使う |
 | `features/map/LensControl/LensControl.tsx` | レンズ（地図を何で塗るか）の唯一の入口。地図上部中央のピルが現在のレンズと凡例を示し、タップで単一選択の一覧（なし／総合難易度／評価に使用中の軸／未使用の軸）と「ルート後も周囲の道路を薄く塗る」トグルを開く（`page.tsx`が選択肢・凡例を組み立てる） |
 | `features/map/layers/mapLayers.ts` | `isAxisStudioLayer`（レイヤーID判定）・専用配信軸のレイヤーIDの導出（`dedicatedWayValueMapLayerId`） |
 | `features/map/MapView/MapView.tsx`（専用way値配信軸・ルート線の区間クリックの箇所のみ） | 画面の状態を宣言の入力へ渡すだけの配線（下記「MapView.tsx側の配線」）。軸ごとの処理は持たない |
@@ -69,7 +69,7 @@ backend（`domain/dynamic_way_values.py: map_value_thresholds`）が軸の折れ
 | フェッチに時刻／向き／想定速度を載せるか | `AxisCatalogEntry.dynamic_way_value_needs_time` / `_needs_bearing` / `_needs_speed` | `useDedicatedWayValues`（載せない入力は依存キーからも外れるため、その入力が変わっても再フェッチしない） |
 | 符号付き材料を直接読むか／難易度を読むか | `AxisCatalogEntry.map_value_kind`（backend `domain/dynamic_way_values.py: map_value_kind`が`shape`から導出） | `routeStyleModes.ts: routeColorableModeFromAxis`・`dedicatedWayValueLayer.ts`（`DedicatedWayValueDisplay.kind`） |
 | 凡例の単位 | `AxisCatalogEntry.map_value_unit`（材料カタログの`unit`） | 同上 |
-| ramp軸（タイル焼き込み）の凡例の単位 | `AxisCatalogEntry.raw_value_unit`（段の境界は折れ点を通す前の重み付き和の目盛り。単位が定まらない軸は`null`で、数値だけの段階ラベルになる） | `axisLayers.ts: rampAxesFromCatalogAxes`が`RampAxis.unit`へ載せ、`axisRampBandLabel`が段階ラベルへ添える |
+| ramp軸（タイル焼き込み）の凡例の単位 | `AxisCatalogEntry.raw_value_unit`（段の境界は折れ点を通す前の重み付き和の目盛り。単位が定まらない軸は`null`で、数値だけの段階ラベルになる） | `axisLayers.ts: rampAxesFromCatalogAxes`が`RampAxis.unit`へ載せ、`valueScale.ts: rampAxisBands`が段階ラベルへ添える |
 
 公開軸は無条件でレンズの選択肢になる（`routeStyleModes.ts: routeStyleModesFromCatalogAxes`が
 公開軸すべて＋`difficulty`（総合難易度）＋`none`（塗らない）をマップする）。重み0の軸も
@@ -103,15 +103,23 @@ localStorageキーは`ridecompass:route-style-mode`）。ルート前は全道�
 
 ## valueScale.ts（ルート前後で共有する葉モジュール）
 
-- `valueScaleFor(kind)`: 種類ごとの既定しきい値（軸カタログの`map_value_thresholds`が
-  未設定のときだけ使う）。
-- `interpolateColorStops(anchors, count)`: 中継点を並べた配色の上をHSL色空間でcount色に
-  均等補間する。固定の色配列を持たないため、しきい値の個数が変わっても色が自動追従する。
-- `bandColorsFor(kind, boundaries)`: 段階ごとの色。**ルート前の全道路の塗り・ルート後の
-  ルート線・凡例がすべてこの1つの関数を通る**ため、同じ軸の同じ段階はどこでも同じ色になる。
+- `DEFAULT_DIFFICULTY_BOUNDARIES`: 難易度の既定の境界（軸カタログの`map_value_thresholds`が
+  未設定のときだけ使う。値はbackendが配る）。
+- `valueBands(kind, boundaries, unit, bandLabels)`: 軸を塗る段の並び（低い段から、段ごとに鍵・下限・
+  範囲の文字・色）。**ルート前の道の線（ramp軸・専用配信軸、`scene/applyToMap.ts`）・ルート後のルート線
+  （`routeStyleModes.ts`）・凡例（`features/map/view/lens.ts`）がすべてこの1つの関数を通る**ため、同じ軸の
+  同じ段はどこでも同じ鍵・色になる。ramp軸は`rampAxisBands`（境界は軸の地図表示のしきい値）、専用配信軸は
+  `dedicatedAxisBands`（境界は`map_value_thresholds`）が軸1本からこれを呼ぶ。管理画面のしきい値プレビューは
+  下書きの境界を塗るため、同じ`bandColorsFor`を直接通す（[軸スタジオ](axis-studio.md)）。
+- `bandColorsFor(kind, boundaries)`: 段階ごとの色。中継点を並べた配色の上をHSL色空間で段の数だけ均等に
+  補間する。固定の色配列を持たないため、しきい値の個数が変わっても色が自動追従する。**配色は値の種類ごとに
+  1組で、全軸が同じものを使う**——「易しい=緑〜難しい=暗赤」の読み方を1回覚えれば全軸に通用させ、軸ごとの
+  配色を作らない。ramp軸（タイルへ焼いた材料の重み付き和）は向きの符号を持たないので、難易度の配色で塗る
+  （`RAMP_AXIS_VALUE_KIND`）。
   - 難易度: 評価の配色（`EVALUATION_ANCHORS`、緑→黄→赤→暗赤。中継点の色はbackendの`SEMANTIC_COLORS`の
-    `evaluation_*`）の補間。**色相だけでなく明度も動かす**——良い・悪いの2色を色相だけで補間すると、易しい側の
-    2段がどちらも緑に見え、段が細かいほど「楽」に見える区間が増える。
+    `evaluation_*`で、順序を持つ評価の配色の中継点はこの1組だけ）の補間。**色相だけでなく明度も動かす**——
+    良い・悪いの2色を色相だけで補間すると、易しい側の2段がどちらも緑に見え、段が細かいほど「楽」に見える
+    区間が増える。
   - 符号付き材料: **0を含む段階（`boundaries`から求める）を境に、下り側と上り側で別の配色を
     補間する**。一本の補間だと0付近の段階が片方の端の色へ寄り、段階を細かくするほど隣と
     見分けられなくなる。上り側は難易度と同じ評価の配色を使う。境界がすべて正／すべて負／ちょうど0を含む場合も、この判定だけで
@@ -130,7 +138,7 @@ localStorageキーは`ridecompass:route-style-mode`）。ルート前は全道�
   `hasUnknownFallback`な材料が欠けている（または分類表に無い値を持つ）道
   （`scene/groups/axisLines.ts: buildAxisRampUnknownExpression`）が該当する。ramp軸の値の式は欠損を
   番兵（0）へ倒してあるため、その値で段を引くと評価できない道が最良の段の色になる。
-  値が無い道は「データなし／不明」の色の破線（`mapDisplay.noDataDash`）で、**取得中**（配信値でまだ一度も
+  値が無い道は「データなし」の色の破線（`mapDisplay.noDataDash`）で、**取得中**（配信値でまだ一度も
   値を受け取っていない間）は取得中の色の実線で塗る（取得中は値が無いと決まっていない）。
   **配信値の軸は破線にしない**（値が無い道は「データなし」の色と薄さだけで示す）——配信値はfeature-stateに載り、
   MapLibreの破線の刻み（`line-dasharray`）はfeature-stateを読めない。読めない場所に書いた式はスタイル検証も
@@ -148,7 +156,7 @@ localStorageキーは`ridecompass:route-style-mode`）。ルート前は全道�
 - **凡例で隠した段は、値の届き方によらず色を透明にして下の路面レイヤーを見せる。**
   **feature-state経由の値はMapLibreの`filter`から読めない**ので、配信値の軸に合わせてramp軸も
   同じ透明色で隠す（隠し方を1つにする）。評価軸の線は当たり判定を持たない（道を押すと下の
-  路面の線が受ける）ので、透明にした線が押せてしまうことは起きない。「不明」を隠すと評価できない
+  路面の線が受ける）ので、透明にした線が押せてしまうことは起きない。「データなし」を隠すと評価できない
   道が透明になる。取得中の色だけは「データなし」を隠していても残す（「まだ来ていない」と
   「隠した」が区別できなくなるため）。
 
@@ -168,7 +176,8 @@ axis_display_for`が前の境界を決め、`domain/dynamic_way_values.py: map_v
 それを軸の折れ線で写す）。**フロントはどちらも受け取った境界をそのまま使い、自分で写さない。**
 
 同じ理由で段の識別子も前後で共通（`mapColorLegend.ts: legendBandKey`＝`step-N`、値を持たない
-道の受け皿は`LEGEND_NO_DATA_KEY`）。**軸idを綴りへ混ぜない**——非表示にした段の保存先は前後で
+道の受け皿は`LEGEND_NO_DATA_KEY`）。値を持たない道・区間の行は、道の属性の凡例も含めてどこでも
+`mapColorLegend.ts: NO_DATA_LEGEND_BAND`の1行（「データなし」）で、前後で呼び方が変わらない。**軸idを綴りへ混ぜない**——非表示にした段の保存先は前後で
 同じ鍵（軸id）のため、別の綴りにすると隠した段がルート生成で黙って戻る
 。
 

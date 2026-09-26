@@ -1,13 +1,20 @@
-// 地図が軸について塗る値の配色。ルート前の道路の線・ルートの線・凡例が同じ関数を通るので、同じ軸の同じ段は
-// どこでも同じ色になる。
+// 地図が軸について塗る値の段と配色。ルート前の道路の線（ramp軸・専用配信の軸）・ルートの線・凡例・管理画面の
+// プレビューが同じ関数を通るので、同じ軸の同じ段はどこでも同じ色になる。
 
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import type { components } from "@/types/generated/api";
 import palette from "@/types/generated/palette.json";
+import type { RampAxis } from "./axisLayers";
+import type { DedicatedWayValueDisplay } from "./dedicatedWayValueLayer";
+import { bandLabelsForBandCount, buildRangeLegendBands, type MapColorLegendBand } from "./mapColorLegend";
 
 /** 地図がその軸について塗る値の種類（正本はbackend）。`difficulty`は評価済みの0〜100、`signed_material`は
  * 向きの符号が意味を持つ材料1つの生値（勾配等）。 */
 export type MapValueKind = NonNullable<components["schemas"]["AxisCatalogEntry"]["map_value_kind"]>;
+
+/** ramp軸（タイルへ焼いた材料の重み付き和で塗る軸）の値の種類。重み付き和は向きの符号を持たないので、
+ * 難易度と同じ評価の配色で塗る。 */
+export const RAMP_AXIS_VALUE_KIND: MapValueKind = "difficulty";
 
 const COLOR_EASY = palette.semantic.evaluation_good;
 export const COLOR_NO_DATA = palette.semantic.no_data;
@@ -129,4 +136,40 @@ function signedBandColors(boundaries: readonly number[]): string[] {
 export function bandColorsFor(kind: MapValueKind, boundaries: readonly number[]): string[] {
   if (kind === "signed_material") return signedBandColors(boundaries);
   return interpolateColorStops(EVALUATION_ANCHORS, boundaries.length + 1);
+}
+
+/** 段1つ。`lowerBound`は段の下限（最も低い段は-∞）で、判定は`>= 下限`・`< 次の下限`。 */
+export interface ValueBand extends MapColorLegendBand {
+  lowerBound: number;
+}
+
+/** 軸を塗る段の並び（低い段から）。鍵・範囲の文字・体感ラベル・色をここで一度に決める。体感ラベルは件数が段の数と
+ * 合うときだけ添える（`bandLabelsForBandCount`）。 */
+export function valueBands(
+  kind: MapValueKind,
+  boundaries: readonly number[],
+  unit: string,
+  bandLabels?: readonly string[] | null,
+): ValueBand[] {
+  const colors = bandColorsFor(kind, boundaries);
+  const labels = bandLabelsForBandCount(bandLabels, colors.length);
+  return buildRangeLegendBands(boundaries, colors, unit, labels).map((band, index) => ({
+    ...band,
+    lowerBound: index === 0 ? Number.NEGATIVE_INFINITY : (boundaries[index - 1] as number),
+  }));
+}
+
+/** ramp軸の段。境界は軸の地図表示のしきい値（重み付き和の目盛り）。 */
+export function rampAxisBands(axis: RampAxis): ValueBand[] {
+  return valueBands(RAMP_AXIS_VALUE_KIND, axis.thresholds, axis.unit, axis.bandLabelsOverride);
+}
+
+/** 専用配信の軸の段。境界を宣言していない軸は難易度の既定の境界で切る。 */
+export function dedicatedAxisBands(display: DedicatedWayValueDisplay): ValueBand[] {
+  return valueBands(
+    display.kind,
+    display.boundaries ?? DEFAULT_DIFFICULTY_BOUNDARIES,
+    display.unit,
+    display.bandLabels,
+  );
 }

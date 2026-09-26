@@ -1,26 +1,13 @@
 // @vitest-environment node
 /**
- * `axisLayers.ts`——軸カタログの軸から、タイルの材料で塗るramp軸と軸の名前の辞書を作り、段の数によらない緑→赤の
- * 配色を出すこと。
+ * `axisLayers.ts`——軸カタログの軸から、タイルの材料で塗るramp軸と軸の名前の辞書を作ること。
  *
- * 軸は架空のもの（`__fixtures__/catalogAxes.ts`）。配色のアンカーの値はbackendの宣言（生成物）なので書き写さない。
+ * 軸は架空のもの（`__fixtures__/catalogAxes.ts`）。
  */
 import { describe, expect, it } from "vitest";
 
 import { catalogEntry, tileInput } from "./__fixtures__/catalogAxes";
-import { axisLabelsFromCatalogAxes, rampAxesFromCatalogAxes, rampColorForBand } from "./axisLayers";
-
-describe("rampColorForBand", () => {
-  it("両端は段の数によらず同じ色で、段が1つなら低い側の色。どれも#rrggbb", () => {
-    const [low, high] = [rampColorForBand(0, 4), rampColorForBand(3, 4)];
-    for (const bandCount of [2, 3, 5, 6]) {
-      expect(rampColorForBand(0, bandCount)).toBe(low);
-      expect(rampColorForBand(bandCount - 1, bandCount)).toBe(high);
-      expect(rampColorForBand(1, bandCount)).toMatch(/^#[0-9a-f]{6}$/);
-    }
-    expect(rampColorForBand(0, 1)).toBe(low);
-  });
-});
+import { axisLabelsFromCatalogAxes, rampAxesFromCatalogAxes } from "./axisLayers";
 
 describe("rampAxesFromCatalogAxes", () => {
   it("地図の表示がrampの軸だけを、タイルの入力・境界・単位・地図のチップの表示と一緒に移す", () => {

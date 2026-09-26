@@ -1,12 +1,13 @@
-/** 凡例の行を、地図を描いているのと同じ宣言から作る。
+/** 地図チップの凡例の行（道の属性・点・災害）を、地図を描いているのと同じ宣言から作る。
  *
- * **色と分類の正本はグループ（`groups/*.ts`）にしかない**——凡例が別に色を持つと、
- * 地図とチップの色が静かに食い違う。ここはその宣言を凡例の形へ移すだけで、値を持たない。
+ * 分類と色は、道と点はグループ（`groups/*.ts`）の宣言、災害は源泉の気象の段、値が無い行は
+ * `NO_DATA_LEGEND_BAND`から引く——凡例が別に色を持つと、地図とチップの色が静かに食い違う。
+ * 評価軸の凡例はここではなく`features/map/view/lens.ts`が、地図の線と同じ段の関数から作る。
  */
 import { COLOR_UNKNOWN } from "@/features/map/scene/sceneBuilders";
 import type { DisasterSourceKey } from "@/features/map/layers/dynamicWeather";
 import type { LegendEntry } from "@/lib/mapDisplay/legendFilter";
-import { LEGEND_NO_DATA_KEY } from "@/lib/mapDisplay/mapColorLegend";
+import { NO_DATA_LEGEND_BAND } from "@/lib/mapDisplay/mapColorLegend";
 
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import palette from "@/types/generated/palette.json";
@@ -32,14 +33,6 @@ function otherEntry(hasMissing: boolean): LegendEntry {
   return { key: ROAD_OTHER_KEY, label: hasMissing ? "その他" : "該当なし", color: COLOR_UNKNOWN };
 }
 
-/** タグが無い道の受け皿。**地図も同じ扱い**（消さずに薄い破線で出す）。 */
-const NO_DATA_ENTRY: LegendEntry = {
-  key: LEGEND_NO_DATA_KEY,
-  label: "不明",
-  color: COLOR_UNKNOWN,
-  isFallback: true,
-};
-
 export function roadLegendAxes(): readonly SceneLegendAxis[] {
   return ROAD_TRACKS.map((track) => ({
     layerId: track.attr_id,
@@ -54,7 +47,8 @@ export function roadLegendAxes(): readonly SceneLegendAxis[] {
         line: true as const,
       })),
       { ...otherEntry(roadTrackHasMissing(track)), line: true as const },
-      ...(roadTrackHasMissing(track) ? [{ ...NO_DATA_ENTRY, line: true as const }] : []),
+      // タグが無い道の受け皿。**地図も同じ扱い**（消さずに薄い破線で出す）。
+      ...(roadTrackHasMissing(track) ? [{ ...NO_DATA_LEGEND_BAND, line: true as const }] : []),
     ],
   }));
 }
