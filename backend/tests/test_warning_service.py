@@ -1,38 +1,45 @@
 from app.services import warning_service
 from app.services.warning_service import WarningService
-from tests.jma_area_fixtures import CHIYODA_POINT, CLASS10_CODE, CLASS10_NAME, CLASS20_CODE, patch_area_lookup
+from tests.jma_area_fixtures import (
+    CHIYODA_POINT,
+    CLASS10_CODE,
+    CLASS10_NAME,
+    CLASS20_CODE,
+    OFFSHORE_POINT,
+    patch_area_lookup,
+)
 
 
-def _patch(monkeypatch, **kwargs):
-    patch_area_lookup(monkeypatch, warning_service, "fetch_warning_documents", **kwargs)
+def _patch(monkeypatch, tmp_path, **kwargs):
+    patch_area_lookup(monkeypatch, tmp_path, warning_service, "fetch_warning_documents", **kwargs)
 
 
-async def test_get_warnings_returns_empty_when_municipality_code_lookup_fails(monkeypatch):
-    _patch(monkeypatch, muni_cd=None)
-    result = await WarningService(http_client=None).get_warnings(CHIYODA_POINT)
+async def test_get_warnings_returns_empty_when_the_point_is_in_no_area(monkeypatch, tmp_path):
+    _patch(monkeypatch, tmp_path)
+    result = await WarningService(http_client=None).get_warnings(OFFSHORE_POINT)
     assert result.warnings == []
     assert result.area_name is None
 
 
-async def test_get_warnings_returns_empty_when_area_data_fetch_fails(monkeypatch):
-    _patch(monkeypatch, area_data=None)
+async def test_get_warnings_returns_empty_when_area_data_fetch_fails(monkeypatch, tmp_path):
+    _patch(monkeypatch, tmp_path, area_data=None)
     result = await WarningService(http_client=None).get_warnings(CHIYODA_POINT)
     assert result.warnings == []
 
 
-async def test_get_warnings_returns_empty_when_area_resolution_fails(monkeypatch):
-    _patch(monkeypatch, muni_cd="99999")
+async def test_get_warnings_returns_empty_when_area_resolution_fails(monkeypatch, tmp_path):
+    _patch(monkeypatch, tmp_path, class20_code="9999900")
     result = await WarningService(http_client=None).get_warnings(CHIYODA_POINT)
     assert result.warnings == []
 
 
-async def test_get_warnings_returns_empty_when_warning_documents_fetch_fails(monkeypatch):
-    _patch(monkeypatch, documents=None)
+async def test_get_warnings_returns_empty_when_warning_documents_fetch_fails(monkeypatch, tmp_path):
+    _patch(monkeypatch, tmp_path, documents=None)
     result = await WarningService(http_client=None).get_warnings(CHIYODA_POINT)
     assert result.warnings == []
 
 
-async def test_get_warnings_merges_across_documents_and_dedupes(monkeypatch):
+async def test_get_warnings_merges_across_documents_and_dedupes(monkeypatch, tmp_path):
     documents = [
         {
             "reportDatetime": "2026-08-22T18:09:00+09:00",
@@ -63,7 +70,7 @@ async def test_get_warnings_merges_across_documents_and_dedupes(monkeypatch):
             },
         },
     ]
-    _patch(monkeypatch, documents=documents)
+    _patch(monkeypatch, tmp_path, documents=documents)
 
     result = await WarningService(http_client=None).get_warnings(CHIYODA_POINT)
 
@@ -74,7 +81,7 @@ async def test_get_warnings_merges_across_documents_and_dedupes(monkeypatch):
     assert codes == ["14", "43"]
 
 
-async def test_get_warnings_falls_back_to_class10_when_class20_items_absent(monkeypatch):
+async def test_get_warnings_falls_back_to_class10_when_class20_items_absent(monkeypatch, tmp_path):
     documents = [
         {
             "reportDatetime": "2026-08-22T15:29:00+09:00",
@@ -86,7 +93,7 @@ async def test_get_warnings_falls_back_to_class10_when_class20_items_absent(monk
             },
         }
     ]
-    _patch(monkeypatch, documents=documents)
+    _patch(monkeypatch, tmp_path, documents=documents)
 
     result = await WarningService(http_client=None).get_warnings(CHIYODA_POINT)
 
@@ -94,14 +101,14 @@ async def test_get_warnings_falls_back_to_class10_when_class20_items_absent(monk
     assert result.area_name == CLASS10_NAME
 
 
-async def test_get_warnings_returns_empty_when_no_active_cycling_relevant_codes(monkeypatch):
+async def test_get_warnings_returns_empty_when_no_active_cycling_relevant_codes(monkeypatch, tmp_path):
     documents = [
         {
             "reportDatetime": "2026-08-22T15:29:00+09:00",
             "warning": {"class20Items": [{"areaCode": CLASS20_CODE, "kinds": [{"status": "発表警報・注意報はなし"}]}]},
         }
     ]
-    _patch(monkeypatch, documents=documents)
+    _patch(monkeypatch, tmp_path, documents=documents)
 
     result = await WarningService(http_client=None).get_warnings(CHIYODA_POINT)
 

@@ -8,7 +8,8 @@ from app.domain.flood_forecast import ActiveFloodForecast, extract_active_flood_
 from app.domain.jma_area import resolve_area
 from app.domain.route import Coordinates
 from app.infrastructure.flood_client import fetch_flood_documents
-from app.infrastructure.jma_warning_client import fetch_area_data, fetch_municipality_code
+from app.infrastructure.jma_area_boundaries import find_class20_code
+from app.infrastructure.jma_warning_client import fetch_area_data
 from app.domain.strict_model import StrictModel
 
 
@@ -26,15 +27,15 @@ class FloodService:
         エリア解決・予報取得のどこで失敗しても例外にせず空を返す（警報・WBGTと共有する
         fail-open方針）。
         """
-        muni_cd = await fetch_municipality_code(self._http_client, point.latitude, point.longitude)
-        if muni_cd is None:
+        class20_code = await find_class20_code(point.latitude, point.longitude)
+        if class20_code is None:
             return FloodForecasts(forecasts=[])
 
         area_data = await fetch_area_data(self._http_client)
         if area_data is None:
             return FloodForecasts(forecasts=[])
 
-        resolved = resolve_area(muni_cd, area_data)
+        resolved = resolve_area(class20_code, area_data)
         if resolved is None:
             return FloodForecasts(forecasts=[])
 
