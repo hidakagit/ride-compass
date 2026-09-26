@@ -112,8 +112,7 @@ describe("useWeatherGrid（風・延長降水予報の格子）", () => {
       { minLon: 139.7, minLat: 35.6, maxLon: 139.72, maxLat: 35.62 },
       DETAIL_SPACING,
     );
-    expect(result.current.detailGrid[0].times).toEqual(HOURS.slice(1));
-    expect(result.current.effectiveGrid).toBe(result.current.detailGrid);
+    expect(result.current.effectiveGrid.map((p) => [p.latitude, p.times])).toEqual([[35.61, HOURS.slice(1)]]);
     expect(result.current.effectiveGridSpacingDeg).toBe(DETAIL_SPACING);
   });
 
@@ -122,19 +121,20 @@ describe("useWeatherGrid（風・延長降水予報の格子）", () => {
     await settle();
     rerender({ enabled: true, viewport: WIDE });
     await settle();
-    expect(result.current.detailGrid).toEqual([]);
+    expect(result.current.effectiveGrid).toBe(result.current.grid);
     expect(result.current.effectiveGridSpacingDeg).toBe(WIND_GRID_SPACING_DEG);
 
     rerender({ enabled: true, viewport: ZOOMED });
     await settle();
     rerender({ enabled: false, viewport: ZOOMED });
     await settle();
-    expect(result.current.detailGrid).toEqual([]);
+    expect(result.current.effectiveGrid).toEqual([]);
 
     api.getWindGridDetail.mockRejectedValueOnce(new Error("詳細を取れません"));
     rerender({ enabled: true, viewport: { ...ZOOMED, east: 139.73 } });
     await settle();
-    expect(result.current.detailGrid).toEqual([]);
+    expect(result.current.effectiveGrid).toBe(result.current.grid);
+    expect(result.current.effectiveGridSpacingDeg).toBe(WIND_GRID_SPACING_DEG);
     expect(result.current.error).toBeNull();
   });
 
@@ -148,7 +148,7 @@ describe("useWeatherGrid（風・延長降水予報の格子）", () => {
 
     rerender({ enabled: true, viewport: { ...ZOOMED, north: 35.63 } });
     await settle();
-    expect(result.current.detailGrid.map((p) => [p.latitude, p.wind_speed_ms[0]])).toEqual([
+    expect(result.current.effectiveGrid.map((p) => [p.latitude, p.wind_speed_ms[0]])).toEqual([
       [35.61, 7],
       [35.615, 1],
     ]);
@@ -156,7 +156,7 @@ describe("useWeatherGrid（風・延長降水予報の格子）", () => {
     rerender({ enabled: true, viewport: { ...ZOOMED, zoom: 13 } });
     await settle();
     expect(api.getWindGridDetail).toHaveBeenLastCalledWith(expect.anything(), FINER_SPACING);
-    expect(result.current.detailGrid.map((p) => p.wind_speed_ms[0])).toEqual([9]);
+    expect(result.current.effectiveGrid.map((p) => p.wind_speed_ms[0])).toEqual([9]);
     expect(result.current.effectiveGridSpacingDeg).toBe(FINER_SPACING);
   });
 
@@ -167,7 +167,7 @@ describe("useWeatherGrid（風・延長降水予報の格子）", () => {
     rerender({ enabled: true, viewport: { ...ZOOMED, zoom: 13 } });
     await settle();
     expect(api.getWindGridDetail).toHaveBeenLastCalledWith(expect.anything(), FINER_SPACING);
-    expect(result.current.detailGrid).toHaveLength(1);
+    expect(result.current.effectiveGrid.map((p) => p.latitude)).toEqual([35.61]);
     expect(result.current.effectiveGridSpacingDeg).toBe(DETAIL_SPACING);
   });
 });

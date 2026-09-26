@@ -9,25 +9,24 @@
 import { useCallback, useMemo, useRef, type RefObject } from "react";
 import type { LayerDataStatusByLayer, MapLayerId } from "@/features/map/layers/mapLayers";
 
-export interface LayerDataSourceEntry {
+interface LayerDataSourceEntry {
   key: MapLayerId;
   sourceId: string;
   sourceLayer?: string;
 }
 
 // computeLayerDataStatusが必要とするMapインスタンスの最小限の形（構造的部分型のため、
-// 実際のMapLibreMapをそのまま渡せる。テストでは最小限のフェイクだけを用意すればよい）。
-export interface DataStatusMapLike {
+// 実際のMapLibreMapをそのまま渡せる）。
+interface DataStatusMapLike {
   getSource(id: string): unknown;
   isSourceLoaded(id: string): boolean;
   querySourceFeatures(id: string, options: { sourceLayer: string }): unknown[];
 }
 
 // 表示ON中のレイヤーだけを対象に、(source, source-layer)ごとの現在状態から
-// loading/empty/errorを判定する純粋関数（MapView.segments.test.tsと同じ考え方でテスト可能に
-// エクスポートしている）。判定順序: エラー中 > 未読込(loading) > 読込済みだが0件(empty)。
+// loading/empty/errorを判定する純粋関数。判定順序: エラー中 > 未読込(loading) > 読込済みだが0件(empty)。
 // 正常時（既知件数のデータが描画できている状態）はキー自体を持たない。
-export function computeLayerDataStatus(
+function computeLayerDataStatus(
   map: DataStatusMapLike,
   erroredSourceIds: ReadonlySet<string>,
   visibility: Partial<Record<MapLayerId, boolean>>,

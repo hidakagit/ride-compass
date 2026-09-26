@@ -6,22 +6,15 @@ interface AdminBasicAuthCredentials {
   password: string;
 }
 
-/** 環境変数から資格情報を読む。未設定なら`null`（呼び出し側は認証を成立させない）。 */
-export function adminBasicAuthCredentials(): AdminBasicAuthCredentials | null {
-  return resolveAdminBasicAuth(process.env.ADMIN_BASIC_AUTH_USERNAME, process.env.ADMIN_BASIC_AUTH_PASSWORD);
-}
-
 /**
- * 上記の判断そのもの。`process.env`に触らず引数だけで決まる。
+ * 環境変数から資格情報を読む。未設定なら`null`（呼び出し側は認証を成立させない）。
  *
  * 片方でも空なら`null`を返す——「ユーザー名だけ設定された」状態で空パスワードの認証が
- * 通ってしまうのを防ぐ（安全側に倒す）。判断をこちら側へ出すのは、`process.env`が
- * テストファイルをまたいで共有されるため（docs/conventions/testing.md参照）。
+ * 通ってしまうのを防ぐ（安全側に倒す）。
  */
-export function resolveAdminBasicAuth(
-  username: string | undefined,
-  password: string | undefined,
-): AdminBasicAuthCredentials | null {
+export function adminBasicAuthCredentials(): AdminBasicAuthCredentials | null {
+  const username = process.env.ADMIN_BASIC_AUTH_USERNAME;
+  const password = process.env.ADMIN_BASIC_AUTH_PASSWORD;
   if (!username || !password) return null;
   return { username, password };
 }

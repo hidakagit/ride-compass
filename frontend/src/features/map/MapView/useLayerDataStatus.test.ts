@@ -8,12 +8,9 @@ import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { LayerDataStatusByLayer, MapLayerId } from "@/features/map/layers/mapLayers";
-import {
-  computeLayerDataStatus,
-  type DataStatusMapLike,
-  type LayerDataSourceEntry,
-  useLayerDataStatus,
-} from "./useLayerDataStatus";
+import { useLayerDataStatus } from "./useLayerDataStatus";
+
+type Args = Parameters<typeof useLayerDataStatus>[0];
 
 interface FakeMapState {
   added?: string[];
@@ -22,7 +19,7 @@ interface FakeMapState {
   queries?: string[];
 }
 
-function fakeMap(state: FakeMapState): DataStatusMapLike {
+function fakeMap(state: FakeMapState): NonNullable<Args["mapRef"]["current"]> {
   return {
     getSource: (id) => (state.added === undefined || state.added.includes(id) ? {} : undefined),
     isSourceLoaded: (id) => !(state.unloaded ?? []).includes(id),
@@ -35,7 +32,7 @@ function fakeMap(state: FakeMapState): DataStatusMapLike {
 
 const id = (key: string) => key as MapLayerId;
 /** 2つのレイヤーが同じタイルを分け合い、1つは別のタイル、1つはsource-layerの無いラスタ。 */
-const SOURCES: LayerDataSourceEntry[] = [
+const SOURCES: Args["layerDataSources"] = [
   { key: id("a"), sourceId: "road", sourceLayer: "lines" },
   { key: id("b"), sourceId: "road", sourceLayer: "lines" },
   { key: id("c"), sourceId: "points", sourceLayer: "poi" },
@@ -43,41 +40,51 @@ const SOURCES: LayerDataSourceEntry[] = [
 ];
 const ALL_ON = { a: true, b: true, c: true, raster: true } as Partial<Record<MapLayerId, boolean>>;
 
-describe("computeLayerDataStatus", () => {
-  it("表示中のレイヤーだけを、失敗＞取得中＞空の順で判定し、正常なものはキーを持たない", () => {
-    const map = fakeMap({ unloaded: ["points"], empty: ["road/lines"] });
-    expect(computeLayerDataStatus(map, new Set(["relief"]), ALL_ON, SOURCES)).toEqual({
-      a: "empty",
-      b: "empty",
-      c: "loading",
-      raster: "error",
-    });
-    expect(computeLayerDataStatus(map, new Set(), { [id("c")]: true }, SOURCES)).toEqual({ c: "loading" });
-    expect(computeLayerDataStatus(fakeMap({}), new Set(), ALL_ON, SOURCES)).toEqual({});
-  });
-
-  it("ソースがまだ地図に無いレイヤーは数えない。source-layerの無いラスタは空と判定しない", () => {
-    const map = fakeMap({ added: ["relief"], empty: ["relief/undefined"] });
-    expect(computeLayerDataStatus(map, new Set(), ALL_ON, SOURCES)).toEqual({});
-  });
-
-  it("同じタイルを分け合うレイヤーがいくつ見えていても、地物は1回だけ数える", () => {
-    const queries: string[] = [];
-    computeLayerDataStatus(fakeMap({ queries }), new Set(), ALL_ON, SOURCES);
-    expect(queries.sort()).toEqual(["points/poi", "road/lines"]);
-  });
-});
-
-function renderStatus(state: FakeMapState) {
+function renderStatus(state: FakeMapState, visibility: Partial<Record<MapLayerId, boolean>> = ALL_ON) {
   const onChange = vi.fn<(status: LayerDataStatusByLayer) => void>();
   const map = fakeMap(state);
   const { result } = renderHook(() =>
-    useLayerDataStatus({ mapRef: { current: map }, layerDataSources: SOURCES, getVisibility: () => ALL_ON, onChange }),
+    useLayerDataStatus({
+      mapRef: { current: map },
+      layerDataSources: SOURCES,
+      getVisibility: () => visibility,
+      onChange,
+    }),
   );
   return { hook: () => result.current, onChange, state };
 }
 
-describe("useLayerDataStatus", () => {
+describe("useLayerDataStatus（数え方）", () => {
+  it("表示中のレイヤーだけを、失敗＞取得中＞空の順で判定し、正常なものはキーを持たない", () => {
+    const state = { unloaded: ["points"], empty: ["road/lines"] };
+    const all = renderStatus(state);
+    act(() => all.hook().markSourceErrored("relief"));
+    expect(all.onChange).toHaveBeenLastCalledWith({ a: "empty", b: "empty", c: "loading", raster: "error" });
+
+    const onlyC = renderStatus(state, { [id("c")]: true });
+    act(() => onlyC.hook().recompute());
+    expect(onlyC.onChange).toHaveBeenLastCalledWith({ c: "loading" });
+
+    const healthy = renderStatus({});
+    act(() => healthy.hook().recompute());
+    expect(healthy.onChange).not.toHaveBeenCalled();
+  });
+
+  it("ソースがまだ地図に無いレイヤーは数えない。source-layerの無いラスタは空と判定しない", () => {
+    const { hook, onChange } = renderStatus({ added: ["relief"], empty: ["relief/undefined"] });
+    act(() => hook().recompute());
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("同じタイルを分け合うレイヤーがいくつ見えていても、地物は1回だけ数える", () => {
+    const queries: string[] = [];
+    const { hook } = renderStatus({ queries });
+    act(() => hook().recompute());
+    expect(queries.sort()).toEqual(["points/poi", "road/lines"]);
+  });
+});
+
+describe("useLayerDataStatus（知らせ方と解除）", () => {
   it("失敗したソースのレイヤーを失敗として知らせ、追っていないソースの失敗は無視する", () => {
     const { hook, onChange } = renderStatus({});
     act(() => hook().markSourceErrored("untracked"));

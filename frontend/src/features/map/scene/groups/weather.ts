@@ -34,7 +34,7 @@ const WEATHER = mapDisplay.weather;
 
 type DeclaredElement = (typeof mapDisplay.weatherElements)[number];
 
-export type WeatherRenderKind = DeclaredElement["kind"];
+type WeatherRenderKind = DeclaredElement["kind"];
 
 const TIER_OF = {
   rasterTile: "area",
@@ -271,7 +271,7 @@ export const WEATHER_ICONS: readonly { id: string; create: () => ImageData }[] =
  * **描き方も名前に含める**——同じ名前付きソースを描き方違いで2要素が名乗る（降水の`main`は
  * 配信元のラスタと自前の格子の面）。描き方を落とすとソースが1本へ畳まれ、後から名乗った側の
  * レイヤーが種類の合わないソースを指して、そのレイヤーだけが黙って描かれない。 */
-export function weatherSourceId(element: Pick<WeatherElement, "group" | "source" | "kind">): SceneSourceId {
+function weatherSourceId(element: Pick<WeatherElement, "group" | "source" | "kind">): SceneSourceId {
   return sceneSourceId(`${element.group}-${element.source}-${element.kind}`);
 }
 

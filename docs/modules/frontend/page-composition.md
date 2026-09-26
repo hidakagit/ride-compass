@@ -239,19 +239,20 @@ propを新設しない」）。表示宣言（種類・単位・しきい値・�
 
 ## 状態の永続化（`hooks/useStoredState.ts`）
 
-`useStoredState(key, defaultValue, {serialize, deserialize, autoSave, reloadKey})`が
+`useStoredState(key, defaultValue, {serialize, deserialize, reloadKey})`が
 localStorageへの保存・復元を1箇所に集約する。
 
 - 復元は`useState`の初期化子ではなく、マウント後の`layout effect`
   （`useIsomorphicLayoutEffect`）で行う（SSR時のHTMLとハイドレーション結果のずれ防止）。
-- 保存は「setter呼び出しのたびに即書き込む」方式（`autoSave`省略時true）。
+- 保存は「setter呼び出しのたびに即書き込む」方式。途中の値を保存したくないもの（モバイルのシートの
+  ドラッグ中の高さ）は、途中の値を別の`useState`で持ち、確定した値だけをsetterへ渡す。
 - `reloadKey`: 復元処理を再実行させたい追加の依存値。`deserialize`はrefへ退避しない
   （`reloadKey`が変わった際、その時点の最新の`deserialize`クロージャで再復元する）。例:
   レンズの選択（`lens`）は`deserialize`が実行時カタログの`routeStyleModes`を参照するため、
   `axisCatalog.loaded`を`reloadKey`にする——カタログ取得前の1回だけで判定すると、軸を指す
   保存値が未知のidとして捨てられ、再訪のたびに総合難易度へ戻る。
-- `useStoredJsonState`は`JSON.stringify`/`JSON.parse`を既定にした薄いラッパー
-  （`/admin`とのstate共有に使う）。
+- `useStoredJsonState`は`JSON.stringify`/`JSON.parse`を既定にした薄いラッパー、`useStoredBooleanState`は
+  それに加えて保存値が真偽値かまで確かめるラッパー。
 - 読み書きの失敗（プライベートブラウジング等）はデフォルト値へのフォールバックとして
   握りつぶす。
 

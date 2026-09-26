@@ -33,9 +33,7 @@ interface DetailGrid {
 interface UseWeatherGridResult {
   /** 粗い格子（関東の全域、今より前は切り詰め済み）。 */
   grid: WindGridPoint[];
-  /** 詳細格子（ズームしたときだけ、表示範囲の付近を密に。切り詰め済み）。 */
-  detailGrid: WindGridPoint[];
-  /** 詳細格子があればそれ、無ければ粗い格子。 */
+  /** 詳細格子（ズームしたときだけ、表示範囲の付近を密に。切り詰め済み）があればそれ、無ければ粗い格子。 */
   effectiveGrid: WindGridPoint[];
   /** effectiveGridの間隔（度）。取ったときの値を返す（呼ぶ側でズームから計算し直すと、取った後にズームが動いたとき
    * 中身と食い違う）。 */
@@ -51,7 +49,6 @@ interface UseWeatherGridResult {
 
 const DISABLED: UseWeatherGridResult = {
   grid: EMPTY_GRID,
-  detailGrid: EMPTY_GRID,
   effectiveGrid: EMPTY_GRID,
   effectiveGridSpacingDeg: WIND_GRID_SPACING_DEG,
   loading: false,
@@ -130,7 +127,6 @@ export function useWeatherGrid(enabled: boolean, mapViewport: MapViewport | null
   const useDetail = detailGrid.length > 0;
   return {
     grid,
-    detailGrid,
     effectiveGrid: useDetail ? detailGrid : grid,
     effectiveGridSpacingDeg: useDetail ? detail.data!.spacingDeg : WIND_GRID_SPACING_DEG,
     loading: coarse.isLoading,

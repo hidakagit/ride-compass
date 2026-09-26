@@ -8,8 +8,6 @@ interface UseStoredStateOptions<T> {
   serialize: (value: T) => string;
   /** 保存文字列からTへの変換。不正・旧形式の値はnullを返す（デフォルト値のまま扱われる）。 */
   deserialize: (raw: string) => T | null;
-  /** falseならsetterは保存せず、呼び出し側が戻り値の3番目（commit）で保存する（例: ドラッグ中は保存せず確定時だけ）。 */
-  autoSave?: boolean;
   /** 変わるたびに、その時点のdeserializeで読み直す（省略時はマウントの1回だけ）。deserializeが実行時に届く一覧
    * （軸カタログ等）で復元する値を決めるとき、届いたことを渡す。 */
   reloadKey?: unknown;
@@ -23,10 +21,10 @@ interface UseStoredStateOptions<T> {
 export function useStoredState<T>(
   key: string,
   defaultValue: T,
-  { serialize, deserialize, autoSave = true, reloadKey }: UseStoredStateOptions<T>,
-): [T, (value: T | ((prev: T) => T)) => void, (value: T) => void] {
+  { serialize, deserialize, reloadKey }: UseStoredStateOptions<T>,
+): [T, (value: T | ((prev: T) => T)) => void] {
   const [value, setValue] = useState(defaultValue);
-  // serializeは描画ごとに別の関数で届くが、commit・setterの参照は安定させたい（ほかの依存に使われる）。
+  // serializeは描画ごとに別の関数で届くが、setterの参照は安定させたい（ほかの依存に使われる）。
   const serializeRef = useRef(serialize);
   useIsomorphicLayoutEffect(() => {
     serializeRef.current = serialize;
@@ -48,34 +46,24 @@ export function useStoredState<T>(
     // defaultValueは依存に入れない（呼び出し側が描画ごとに新しいリテラルを渡すため、入れると読み直しが止まらない）。
   }, [key, reloadKey]);
 
-  const commit = useCallback(
-    (next: T) => {
-      try {
-        window.localStorage.setItem(key, serializeRef.current(next));
-      } catch {}
-    },
-    [key],
-  );
-
   const setStoredValue = useCallback(
     (next: T | ((prev: T) => T)) => {
       setValue((prev) => {
         const resolved = typeof next === "function" ? (next as (prev: T) => T)(prev) : next;
-        if (autoSave) commit(resolved);
+        try {
+          window.localStorage.setItem(key, serializeRef.current(resolved));
+        } catch {}
         return resolved;
       });
     },
-    [autoSave, commit],
+    [key],
   );
 
-  return [value, setStoredValue, commit];
+  return [value, setStoredValue];
 }
 
 // JSONで保存するuseState（壊れた保存値は既定値）。
-export function useStoredJsonState<T>(
-  key: string,
-  defaultValue: T,
-): [T, (value: T | ((prev: T) => T)) => void, (value: T) => void] {
+export function useStoredJsonState<T>(key: string, defaultValue: T): [T, (value: T | ((prev: T) => T)) => void] {
   return useStoredState<T>(key, defaultValue, {
     serialize: (v) => JSON.stringify(v),
     deserialize: (raw) => {
@@ -92,7 +80,7 @@ export function useStoredJsonState<T>(
 export function useStoredBooleanState(
   key: string,
   defaultValue: boolean,
-): [boolean, (value: boolean | ((prev: boolean) => boolean)) => void, (value: boolean) => void] {
+): [boolean, (value: boolean | ((prev: boolean) => boolean)) => void] {
   return useStoredState<boolean>(key, defaultValue, {
     serialize: (v) => JSON.stringify(v),
     deserialize: (raw) => {

@@ -18,9 +18,9 @@ function requestWithAuth(authorization?: string): NextRequest {
 }
 
 // 資格情報は`@/lib/adminBasicAuth`が唯一の読み取り口で、その環境変数依存は
-// `src/lib/adminBasicAuth.test.ts`が純関数として検証する。ここでモックするのは、
-// `process.env`がテストファイルをまたいで共有されるため（pool: vmThreads）、環境変数を
-// 立て下ろしすると並行実行中の別ファイルの期待値を静かに書き換えるため
+// `src/lib/adminBasicAuth.test.ts`が環境変数を立てて検証する。ここでモックするのは、
+// `process.env`がテストファイルをまたいで共有されるため（pool: vmThreads）、並行実行中の
+// その検証が立てた値をここが読まないようにするため
 // （docs/conventions/testing.md「環境変数に依存する挙動のテスト」参照）。
 let credentials: { username: string; password: string } | null = null;
 vi.mock("@/lib/adminBasicAuth", () => ({ adminBasicAuthCredentials: () => credentials }));

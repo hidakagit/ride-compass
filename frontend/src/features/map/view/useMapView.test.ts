@@ -21,7 +21,7 @@ import {
   TILE_VERSIONS_MISSING_NOTICE,
   TILE_ZOOM_TOO_WIDE_NOTICE,
 } from "@/features/map/layers/mapLayers";
-import { DISASTER_LAYER_ID } from "@/features/map/scene/legends";
+import { disasterSourceLegendAxis } from "@/features/map/scene/legends";
 import { LENS_DIFFICULTY_ID } from "@/lib/mapDisplay/routeStyleModes";
 
 import { catalogOf, dedicatedEntry, rampEntry } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
@@ -152,10 +152,11 @@ describe("凡例で隠した行", () => {
 
   it("災害の▶パネルで隠した要素を、気象レイヤーの取得へ渡す", () => {
     const { result } = render();
-    act(() => result.current.overlayControls.onLegendEntryToggle(DISASTER_LAYER_ID, "thunder"));
-    expect(mocks.useDynamicWeatherLayers.mock.lastCall?.[0].hiddenSources[DISASTER_LAYER_ID]).toEqual(["thunder"]);
-    act(() => result.current.overlayControls.onLegendAxisSetHidden(DISASTER_LAYER_ID, []));
-    expect(mocks.useDynamicWeatherLayers.mock.lastCall?.[0].hiddenSources[DISASTER_LAYER_ID]).toEqual([]);
+    const { layerId } = disasterSourceLegendAxis();
+    act(() => result.current.overlayControls.onLegendEntryToggle(layerId, "thunder"));
+    expect(mocks.useDynamicWeatherLayers.mock.lastCall?.[0].hiddenSources[layerId]).toEqual(["thunder"]);
+    act(() => result.current.overlayControls.onLegendAxisSetHidden(layerId, []));
+    expect(mocks.useDynamicWeatherLayers.mock.lastCall?.[0].hiddenSources[layerId]).toEqual([]);
   });
 });
 

@@ -15,7 +15,7 @@ export interface MapColorLegendBand {
 /** 段階の安定キー。**ルート確定前の全道路の塗りとルート確定後のルート線が同じ段階を同じ
  * キーで指す**ため、片方で非表示にした段階はもう片方でも非表示のまま引き継がれる
  * （どちらも同じ`map_value_thresholds`で同じ順に段階を並べる）。 */
-export function legendBandKey(index: number): string {
+function legendBandKey(index: number): string {
   return `step-${index}`;
 }
 
