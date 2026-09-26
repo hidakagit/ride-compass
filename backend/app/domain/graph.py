@@ -18,11 +18,9 @@ class LeanEdge:
     to_node_id: str
     geometry: list[list[float]]
     distance_m: float
-    osm_way_id: int | None = None
-    segment_index: int | None = None
-    forward: bool = True
-    highway: str | None = None
-    bearing_deg: float | None = None
+    osm_way_id: int
+    segment_index: int
+    forward: bool
 
 
 def node_key(osm_node_id: int) -> str:

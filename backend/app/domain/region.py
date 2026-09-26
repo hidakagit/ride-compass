@@ -11,11 +11,6 @@ from app.domain.strict_model import StrictModel
 ROAD_TILE_MIN_ZOOM = 12
 ROAD_TILE_MAX_ZOOM = 15
 
-# Road Graphの永続化キャッシュ単位。表示ズームに追従するROAD_TILE_MIN/MAX_ZOOMと違い、
-# 「このタイルは取得済みか」を単純な真偽で判定するために単一の固定ズームとする。
-# z12は東京付近で1辺約8km（1辺=360/2^12度）。
-ROAD_GRAPH_TILE_ZOOM = 12
-
 
 class BoundingBox(StrictModel):
     """緯度経度の矩形。緯度と経度それぞれがmin < maxであることを型が保証する。

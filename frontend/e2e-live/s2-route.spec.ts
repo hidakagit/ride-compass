@@ -22,7 +22,7 @@ test("S2 ルート生成（生成後）", async ({ page }) => {
     await settings.getByLabel("距離").fill(String(distanceKm));
     const started = Date.now();
     await settings.getByRole("button", { name: "ルート生成" }).click();
-    // 冷えたキャッシュでの初回の生成は、タイル材料の読み出しで数十秒以上かかる。
+    // 生成は探索範囲の区間の数に比例して数秒〜数十秒かかる。
     await expect(settings.getByRole("button", { name: "ルート生成" })).toBeEnabled({ timeout: 240_000 });
     console.log(`[e2e-live] 生成（${distanceKm}km） ${((Date.now() - started) / 1000).toFixed(1)}秒`);
   }

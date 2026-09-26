@@ -6,7 +6,7 @@ from app.config import settings
 from app.domain.errors import SearchAreaTooLargeError
 from app.domain.evaluation import StaticEdgeScoreMatrix, build_static_edge_score_matrix
 from app.domain.graph import LeanEdge
-from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tiles_covering_bbox
+from app.domain.region import BoundingBox, tiles_covering_bbox
 from app.domain.road_network import RoadSlice, material_arrays_of, slice_network
 from app.infrastructure import container_memory, road_network_store
 from app.infrastructure.road_graph_repository import RoadGraphRepository
@@ -17,6 +17,9 @@ logger = logging.getLogger("ridecompass.graph")
 _RESERVED_BYTES = 2 * 1024**3
 #: 1件の生成が、切り出した有向の区間1本あたりに使うメモリ（探索用グラフ・コスト配列・ターン構造・候補の評価の合計）。
 _BYTES_PER_EDGE = 1050
+#: 近い探索範囲をまとめる粒度。bboxを覆うこのズームのタイル集合が同じなら、学習した迂回率
+#: （`detour_ratio_cache`）を共有する。z12は東京付近で1辺約8km。
+_RANGE_KEY_ZOOM = 12
 
 
 def _max_search_edges() -> int | None:
@@ -57,7 +60,7 @@ class GraphService:
             return None
 
         started = time.monotonic()
-        tiles = tiles_covering_bbox(bbox, ROAD_GRAPH_TILE_ZOOM)
+        tiles = tiles_covering_bbox(bbox, _RANGE_KEY_ZOOM)
         network = await asyncio.to_thread(road_network_store.current)
         road = slice_network(network, bbox.min_longitude, bbox.min_latitude, bbox.max_longitude, bbox.max_latitude)
         limit = _max_search_edges()
@@ -73,7 +76,7 @@ class GraphService:
             "get_search_slice tiles=%d edges=%d nodes=%d slice_ms=%d total_ms=%d",
             len(tiles), road.edge_count, road.node_count, slice_ms, round((time.monotonic() - started) * 1000),
         )
-        tile_set = frozenset((ROAD_GRAPH_TILE_ZOOM, x, y) for x, y in tiles)
+        tile_set = frozenset((_RANGE_KEY_ZOOM, x, y) for x, y in tiles)
         return road, matrix, tile_set
 
     async def get_edges_with_geometry(self, edges: list[LeanEdge]) -> dict[str, LeanEdge]:

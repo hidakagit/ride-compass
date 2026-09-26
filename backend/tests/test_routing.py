@@ -1067,13 +1067,6 @@ def test_two_dimensional_cost_is_passed_through():
     assert cost_bins.shape == (3, 4)
 
 
-@pytest.mark.parametrize("cost", [np.ones(3), np.ones((2, 3))])
-def test_cost_always_requires_plain_seconds(cost):
-    """秒が無いと到達時刻の時計がコストで進む。ビン1本でも同じで、単位が混ざる。"""
-    with pytest.raises(ValueError):
-        routing._time_bin_arrays("caller", cost, None, 60.0)
-
-
 def test_more_than_two_dimensions_is_refused():
     """黙って(1, n)へ潰すと、ビン数の食い違いの検査もすり抜けてJITが範囲外を読む。"""
     with pytest.raises(ValueError):

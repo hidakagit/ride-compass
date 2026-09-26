@@ -180,8 +180,7 @@ def test_way_from_clause_joins_only_what_the_expression_reads():
 
 def _geometry_row(way_id=1, segment=0, coordinates=((139.0, 35.0), (139.1, 35.2))):
     return _Row(osm_way_id=way_id, segment_index=segment, from_node_id=1, to_node_id=2,
-                distance_m=100.0, bearing_deg=10.0, reverse_bearing_deg=190.0,
-                wkb=shapely.to_wkb(shapely.LineString(coordinates)))
+                distance_m=100.0, wkb=shapely.to_wkb(shapely.LineString(coordinates)))
 
 
 async def test_geometry_is_not_fetched_for_an_empty_request():
@@ -205,10 +204,6 @@ async def test_both_directions_of_a_segment_share_one_row():
     assert forward.geometry == [[35.0, 139.0], [35.2, 139.1]]
     assert backward.geometry == [[35.2, 139.1], [35.0, 139.0]]
     assert (backward.from_node_id, backward.to_node_id) == (node_key(2), node_key(1))
-    assert backward.bearing_deg == 190.0
-
-
-# --- 材料の行列 ---------------------------------------------------------------
 
 
 def _lean_edge(way_id=1, segment=0, forward=True) -> LeanEdge:
@@ -216,6 +211,9 @@ def _lean_edge(way_id=1, segment=0, forward=True) -> LeanEdge:
                     from_node_id=node_key(1), to_node_id=node_key(2),
                     geometry=[], distance_m=100.0,
                     osm_way_id=way_id, segment_index=segment, forward=forward)
+
+
+# --- 材料の行列 ---------------------------------------------------------------
 
 
 def _arrays_row(count: int, values: dict[str, list] | None = None) -> _Row:
@@ -233,16 +231,13 @@ async def test_material_values_land_in_the_matrix_of_their_dtype():
     repo, _ = _repo([_arrays_row(2, {numeric: [1.5, None], boolean: [True, None],
                                      categorical: ["value_a", "value_a"]})])
 
-    arrays = await repo.get_edge_material_arrays([_lean_edge(), _lean_edge(segment=1)], 5)
+    arrays = await repo.get_edge_material_arrays([1, 1], [0, 1], [True, True], 5)
 
     assert arrays.columns()[numeric][0] == 1.5
     # 欠損は0ではなくNaN。0で埋めると「値が無い」が「一番良い値」として採点される。
     assert np.isnan(arrays.columns()[numeric][1])
     assert arrays.columns()[boolean].tolist() == [True, False]
-    first, second = arrays.columns()[categorical]
-    assert first == "value_a"
-    # 同じ文字列は1つのオブジェクトを指す（pickleが重複を省き、ディスクの実体が縮む）。
-    assert first is second
+    assert arrays.columns()[categorical].tolist() == ["value_a", "value_a"]
 
 
 async def test_hard_filter_flags_are_named_by_their_filter():
@@ -251,19 +246,17 @@ async def test_hard_filter_flags_are_named_by_their_filter():
     assert names, "0次ハードフィルタが1つも無い"
     repo, _ = _repo([_arrays_row(1, {f"hf_{names[0]}": [True]})])
 
-    arrays = await repo.get_edge_material_arrays([_lean_edge()], 1)
+    arrays = await repo.get_edge_material_arrays([1], [0], [True], 1)
 
     assert arrays.hard_filter_columns()[names[0]].tolist() == [True]
 
 
 async def test_rows_keep_the_order_of_the_given_edges_across_chunks(monkeypatch):
-    """並びは渡した枝の位置で決まる。1つでもずれると値が列の間で静かに入れ替わる。"""
+    """並びは渡した区間の位置で決まる。1つでもずれると値が列の間で静かに入れ替わる。"""
     monkeypatch.setattr(road_graph_repository, "_ID_CHUNK_SIZE", 1)
     repo, session = _repo([_arrays_row(1, {"distance_m": [10.0]})],
                           [_arrays_row(1, {"distance_m": [20.0]})])
-    edges = [_lean_edge(1, 0, True), _lean_edge(2, 3, False)]
-
-    arrays = await repo.get_edge_material_arrays(edges, 1)
+    arrays = await repo.get_edge_material_arrays([1, 2], [0, 3], [True, False], 1)
 
     assert arrays.distance_m.tolist() == [10.0, 20.0]
     assert [params["way_ids"] for params in session.params] == [[1], [2]]
@@ -280,7 +273,7 @@ async def test_paired_edge_columns_are_not_swapped():
         "elevation_max_grade": [3.0], "elevation_min_grade": [-4.0],
     })])
 
-    arrays = await repo.get_edge_material_arrays([_lean_edge()], 1)
+    arrays = await repo.get_edge_material_arrays([1], [0], [True], 1)
 
     assert (arrays.mid_lat[0], arrays.mid_lon[0]) == (35.5, 139.5)
     assert (arrays.elevation_start_m[0], arrays.elevation_end_m[0]) == (5.0, 7.0)

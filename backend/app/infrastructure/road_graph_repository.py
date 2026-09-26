@@ -674,8 +674,7 @@ NETWORK_SQL_SOURCES = (_NETWORK_EDGES_SQL, _NETWORK_NODES_SQL, _EDGE_MATERIAL_AR
 
 _EDGE_GEOMETRIES_SQL = text("""
 SELECT re.osm_way_id, re.segment_index, re.from_node_id, re.to_node_id,
-       re.distance_m, re.bearing_deg, re.reverse_bearing_deg,
-       ST_AsBinary(re.geom) AS wkb
+       re.distance_m, ST_AsBinary(re.geom) AS wkb
 FROM unnest(CAST(:way_ids AS bigint[]), CAST(:segment_indexes AS int[]))
      AS ids(osm_way_id, segment_index)
 JOIN road_edges re
@@ -683,8 +682,7 @@ JOIN road_edges re
 """)
 
 
-def _rows_to_directed_edges(rows, wanted: dict[tuple[int | None, int | None], list[bool]]
-                            ) -> dict[str, LeanEdge]:
+def _rows_to_directed_edges(rows, wanted: dict[tuple[int, int], list[bool]]) -> dict[str, LeanEdge]:
     """ジオメトリ付きの`LeanEdge`。逆向きは形状点列を逆順にする。
 
     `shapely.from_wkb`のバッチAPIで一括デコードする（GEOS呼び出しのループをPythonでは
@@ -703,22 +701,13 @@ def _rows_to_directed_edges(rows, wanted: dict[tuple[int | None, int | None], li
                 edge_id=key, from_node_id=node_key(from_id), to_node_id=node_key(to_id),
                 geometry=points if forward else list(reversed(points)),
                 distance_m=row.distance_m, osm_way_id=row.osm_way_id,
-                segment_index=row.segment_index, forward=forward, highway=None,
-                bearing_deg=row.bearing_deg if forward else row.reverse_bearing_deg,
+                segment_index=row.segment_index, forward=forward,
             )
     return edges
 
 
 def _float_array(values: list) -> np.ndarray:
     return np.array([np.nan if v is None else float(v) for v in values], dtype=np.float64)
-
-
-def _edge_triples(edges: list[LeanEdge]) -> tuple[list[int | None], list[int | None], list[bool]]:
-    return (
-        [e.osm_way_id for e in edges],
-        [e.segment_index for e in edges],
-        [e.forward for e in edges],
-    )
 
 
 def _chunked(items: list, size: int):
@@ -735,8 +724,8 @@ class RoadGraphRepository:
     # --- 世代・カバレッジ ----------------------------------------------------
 
     async def get_derived_data_revision(self) -> int | None:
-        """派生データの世代。バッチが中身を書き直すたびに進む。材料キャッシュがディスクの
-        中身と突き合わせるのに使う。"""
+        """派生データの世代。バッチが中身を書き直すたびに進む。道路網全体の配列の置き場の
+        名前と、配信する地図タイルの世代に入る。"""
         return await derived_data_meta.get_revision(self._session)
 
     async def get_accident_years(self) -> list[int]:
@@ -791,7 +780,7 @@ class RoadGraphRepository:
         """
         if not edges:
             return {}
-        wanted: dict[tuple[int | None, int | None], list[bool]] = {}
+        wanted: dict[tuple[int, int], list[bool]] = {}
         for edge in edges:
             wanted.setdefault((edge.osm_way_id, edge.segment_index), []).append(edge.forward)
         keys = sorted(wanted)
@@ -807,26 +796,27 @@ class RoadGraphRepository:
     # --- 材料 ----------------------------------------------------------------
 
     async def get_edge_material_arrays(
-        self, edges: list[LeanEdge], accident_years_covered: int
+        self, way_ids: list[int], segment_indexes: list[int], forwards: list[bool], accident_years_covered: int
     ) -> EdgeMaterialArrays:
-        """材料を**DB側で導出し、dtypeごとの行列として**受け取る。
+        """有向の区間（`(osm_way_id, segment_index, forward)`を位置で揃えた3本の列）の材料を、
+        **DB側で導出し、dtypeごとの行列として**受け取る。
 
         区間数に比例するPythonの仕事を持たない。**すべての列が同じ並びを持つ**必要がある
-        （1つでも違うと値が列の間で静かにずれ、エラーは出ない）。並びは渡した枝の位置
+        （1つでも違うと値が列の間で静かにずれ、エラーは出ない）。並びは渡した区間の位置
         （`WITH ORDINALITY`）で固定する。
         """
         numeric_ids, boolean_ids, categorical_ids = material_array_columns()
         raw: dict[str, list] = {name: [] for name in MATERIAL_ARRAY_COLUMN_ORDER}
-        for chunk in _chunked(edges, _ID_CHUNK_SIZE):
-            way_ids, segment_indexes, forwards = _edge_triples(chunk)
+        n = len(way_ids)
+        for start in range(0, n, _ID_CHUNK_SIZE):
+            stop = start + _ID_CHUNK_SIZE
             row = (await self._session.execute(_EDGE_MATERIAL_ARRAYS_SQL, {
-                "way_ids": way_ids, "segment_indexes": segment_indexes, "forwards": forwards,
-                "accident_years": accident_years_covered,
+                "way_ids": way_ids[start:stop], "segment_indexes": segment_indexes[start:stop],
+                "forwards": forwards[start:stop], "accident_years": accident_years_covered,
             })).one()
             for name in raw:
                 raw[name].extend(getattr(row, f"c_{name}") or [])
 
-        n = len(edges)
         hard_filter_ids = hard_filter_columns()
         hard_filter_flags = np.empty((n, len(hard_filter_ids)), dtype=bool)
         for i, name in enumerate(hard_filter_ids):
