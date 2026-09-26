@@ -11,17 +11,14 @@ docs/modules/backend/evaluation-scoring.md「材料カタログ」参照）。
 網羅的に登録する。登録済みでも対応する軸が無ければ評価には使われない（軸スタジオの
 材料選択肢には現れる）。
 
-材料自体はGUIから追加・編集・削除できない（コード変更＋デプロイが前提）。軸スタジオ
-（`/admin`）が材料を選ぶ際は、本カタログを`GET /api/material-catalog`経由で動的に取得する
-（`api/routers/material_catalog.py`）。新しい材料を増やすときはこのファイルへ1件追加する
-だけで、フロントのコード変更・再デプロイなしに軸コンポーザーの選択肢へ現れる。
+材料自体はGUIから追加・編集・削除できない（コード変更＋デプロイが前提）。frontendは本カタログを
+ビルド時の生成物（`scripts/export_openapi.py`が書き出す`material-catalog.json`）だけから知る。
+新しい材料を増やすときはこのファイルへ1件追加して生成物を書き出し直すだけで、フロントのコード
+変更なしに軸コンポーザーの選択肢へ現れる。
 
 `tile_property`はMVTタイル（`road_graph_repository.py:
 _ROAD_SURFACE_TILE_MVT_SQL`）に既に焼き込まれているプロパティ名（無ければ材料が
-タイル非依存＝地図レイヤーのramp自動生成が不可能なことを表す）。`GET /api/material-catalog`
-の公開レスポンスには含めない（フロントの軸コンポーザーが必要とするのは`material_id`/
-`label`/`dtype`のみで、tileの内部実装詳細を露出させる理由が無いため）——`domain/axis_display.py`が
-backend内部でのみこのフィールドを使う。
+タイル非依存＝地図レイヤーのramp自動生成が不可能なことを表す）。
 """
 
 from dataclasses import dataclass
@@ -191,7 +188,7 @@ class MaterialSpec(StrictModel):
 
     material_id: str
     label: str
-    # GET /api/material-catalogの公開レスポンスへ含め、
+    # 生成物`material-catalog.json`へ含め、
     # フロント側は選択中の材料の隣に情報アイコン(ⓘ)でこの説明文を表示する（AxisComposer.tsx:
     # MaterialInfoButton）。`value_sql`を持たない材料は、選んでも評価軸としては機能しない
     # 旨をここに明記する（配線状況が変わったら追従が必要）。

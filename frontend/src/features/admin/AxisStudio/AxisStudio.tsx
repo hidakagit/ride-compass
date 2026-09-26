@@ -3,8 +3,7 @@
 import { useEffect, useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs/Tabs";
 import { DialogContent, DialogRoot } from "@/components/ui/Dialog/Dialog";
-import { materialCatalogLabel, type AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
-import { useMaterialCatalog } from "@/hooks/useMaterialCatalog";
+import { MATERIAL_CATALOG, materialCatalogLabel } from "@/lib/axisMaterialsCatalog";
 import {
   createAxisDefinition,
   deleteAxisDefinition,
@@ -31,12 +30,8 @@ function materialIdsOf(shape: AxisShape): string[] {
 
 // shapeのtermは材料idと他の軸idのどちらも指しうる。軸として見つかればその表示名を、
 // 見つからなければ材料カタログから引く。
-function labelForMaterialOrAxis(
-  id: string,
-  definitions: readonly AxisDefinitionResponse[],
-  materials: readonly AxisMaterialOption[],
-): string {
-  return definitions.find((d) => d.axis_id === id)?.label ?? materialCatalogLabel(id, materials);
+function labelForMaterialOrAxis(id: string, definitions: readonly AxisDefinitionResponse[]): string {
+  return definitions.find((d) => d.axis_id === id)?.label ?? materialCatalogLabel(id, MATERIAL_CATALOG);
 }
 
 // 「この軸を削除しようとしたら、他の軸から材料として参照されていた」という事実が
@@ -50,7 +45,6 @@ function axesReferencing(axisId: string, definitions: readonly AxisDefinitionRes
 // 集約し、フォーム自体はAxisComposerへ委ねる。認証・route handler経由の詳細は
 // docs/modules/frontend/axis-studio.md「AxisStudio.tsx（一覧・状態管理）」節参照。
 export default function AxisStudio() {
-  const { materials } = useMaterialCatalog();
   const [definitions, setDefinitions] = useState<AxisDefinitionResponse[] | null>(null);
   const [listError, setListError] = useState<string | null>(null);
   const [editingAxisId, setEditingAxisId] = useState<string | null>(null);
@@ -216,7 +210,7 @@ export default function AxisStudio() {
         <span className={cn(textVariants({ variant: "hint" }), "[overflow-wrap:anywhere]")}>
           {def.category} ・ 重み{def.default_weight.toFixed(2)} ・{" "}
           {materialIdsOf(def.shape)
-            .map((id) => labelForMaterialOrAxis(id, definitions ?? [], materials))
+            .map((id) => labelForMaterialOrAxis(id, definitions ?? []))
             .join("・")}
         </span>
       </div>

@@ -4,12 +4,11 @@
 // AxisScoringSection（点数の決め方）・AxisMapDisplaySection（地図の色分け・公開）が持ち、
 // ここは状態・検証・保存と、その組み立てだけを担う。
 
-import { useCallback, useMemo, useState } from "react";
+import { useState } from "react";
 import { FieldLabel } from "@/components/ui/FieldLabel/FieldLabel";
-import { useMaterialCatalog } from "@/hooks/useMaterialCatalog";
 import { useMapBandsOfThresholds } from "@/features/admin/useMapBandsOfThresholds";
 import type { AxisDefinitionPayload, AxisDefinitionResponse } from "@/types/route";
-import type { AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
+import { MATERIAL_CATALOG, type AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
 
 import { AxisMapDisplaySection } from "./AxisMapDisplaySection";
 import { AxisScoringSection } from "./AxisScoringSection";
@@ -64,33 +63,12 @@ export default function AxisComposer({
   onCancelEdit,
   onSave,
 }: AxisComposerProps) {
-  const { materials: materialOptions, loaded: catalogLoaded } = useMaterialCatalog();
-  // 軸の一覧は描画ごとに別の配列で届きうるため、idの並びが変わったときだけ作り直す。
-  const axisIdsKey = JSON.stringify((otherAxes ?? []).map((axis) => axis.axis_id));
-  const axisIds = useMemo(() => new Set<string>(JSON.parse(axisIdsKey)), [axisIdsKey]);
-  const deriveDraft = useCallback((): Draft => {
-    if (editing) return draftFromExisting(editing, materialOptions, axisIds);
-    if (duplicateFrom) return draftFromDuplicate(duplicateFrom, materialOptions, axisIds);
-    return emptyDraft(materialOptions);
-  }, [editing, duplicateFrom, materialOptions, axisIds]);
-  // 材料カタログは実行時フェッチで後から入れ替わる。**入れ替わったら下書きを作り直す**
-  // ——`useState`の初期化はマウント時に1度しか走らないため、取得前の空の一覧で固定されたままになる。
-  //
-  // 作り直すのは**利用者がまだ触っていないとき**だけ（触った後に入れ替えると入力が消える）。
-  // 触ったかどうかは、いまの下書きが最後に導出したものと同じ実体かで判定する。
-  const [derived, setDerived] = useState(() => deriveDraft());
-  const [draft, setDraft] = useState<Draft>(derived);
-  const [derivedFrom, setDerivedFrom] = useState(() => deriveDraft);
-  if (derivedFrom !== deriveDraft) {
-    const next = deriveDraft();
-    setDerivedFrom(() => deriveDraft);
-    setDerived(next);
-    if (draft === derived) setDraft(next);
-  }
-  // categorical材料の値入力欄に候補選択を添えるための実データ値一覧。
-  // dtype="categorical"の材料を選んでいる間だけ取得する（boolean材料選択中・
-  // categorical材料でも動的値一覧に対応していない場合は空配列が返り、
-  // 呼び出し先の入力欄は自由テキストのままになる）。
+  const [draft, setDraft] = useState<Draft>(() => {
+    const axisIds = new Set((otherAxes ?? []).map((axis) => axis.axis_id));
+    if (editing) return draftFromExisting(editing, MATERIAL_CATALOG, axisIds);
+    if (duplicateFrom) return draftFromDuplicate(duplicateFrom, MATERIAL_CATALOG, axisIds);
+    return emptyDraft(MATERIAL_CATALOG);
+  });
   // 公開済み軸は、backendが表示専用フィールドの差分しか受け付けない
   // （`domain/axis_definitions.py: _COSMETIC_ONLY_FIELDS`）。編集できない節は
   // 描画そのものを省き、いま何が変えられるかを画面の形で示す。
@@ -102,50 +80,20 @@ export default function AxisComposer({
   const isNew = editing === null;
   const thresholds = draft.displayThresholdsOverride;
   const mapBands = useMapBandsOfThresholds(
-    thresholds && thresholds.length > 0 && materialOptions.length > 0
+    thresholds && thresholds.length > 0
       ? {
           axis_id: draft.axisId,
-          shape: buildShape(draft, materialOptions),
+          shape: buildShape(draft, MATERIAL_CATALOG),
           priority_overrides: draft.passthrough.priority_overrides,
           thresholds,
         }
       : null,
   );
 
-  // 材料が1件も無ければどの入力欄も選択肢を作れず、保存できない軸しか組めない。
-  // フォームの代わりに状態を出して、開かせない。**読み込み中と0件は分けて出す**
-  // ——同じ文言にすると、通信が遅いだけのときに利用者がbackendの異常を疑う。
-  // フックの呼び出しはすべてこのガードより前で終えているためRules of Hooksには反しない。
-  if (!catalogLoaded) {
-    return (
-      <div
-        className={cn(cardVariants({ variant: "outline" }), "flex flex-col gap-3 border-[var(--color-border-strong)]")}
-      >
-        材料カタログを読み込んでいます…
-      </div>
-    );
-  }
-  if (materialOptions.length === 0) {
-    return (
-      <div
-        className={cn(cardVariants({ variant: "outline" }), "flex flex-col gap-3 border-[var(--color-border-strong)]")}
-      >
-        <p className={textVariants({ variant: "error" })}>
-          材料カタログを取得できませんでした（0件の応答）。時間をおいて再度開くか、backend側の材料カタログ（material_catalog.py）の状態を確認してください。
-        </p>
-        <div className="flex flex-wrap items-center gap-3">
-          <Button size="sm" onClick={onCancelEdit}>
-            閉じる
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
   // backend側は元々MaterialTerm.materialへ他の軸のaxis_idを指定できる設計
   // （domain/axis_definitions.py: AxisDefinition docstring「軸の階層」）。「他の軸の
   // 計算結果をもとに点数を変える」テンプレートでは、この軸候補一覧（otherAxes）を
-  // materialOptions（MATERIAL_CATALOGの材料）とは別に用意する。編集中の軸自身は
+  // 材料の一覧（MATERIAL_CATALOG）とは別に用意する。編集中の軸自身は
   // 自己参照になるため候補から除く。軸のスコアは常に0〜100（difficultyの規約）のため
   // dtype="numeric"として扱う。
   const axisTermOptions: readonly AxisMaterialOption[] = (otherAxes ?? [])
@@ -197,7 +145,7 @@ export default function AxisComposer({
       label: draft.label.trim(),
       description: draft.description,
       default_weight: draft.defaultWeight,
-      shape: buildShape(draft, materialOptions),
+      shape: buildShape(draft, MATERIAL_CATALOG),
       is_published: draft.isPublished,
       // 空文字列は「未設定」の意味でnullへ変換する（trim()の理由はlabelと同じ、
       // 空白のみの入力を未設定扱いにする）。
@@ -320,7 +268,7 @@ export default function AxisComposer({
         <AxisScoringSection
           draft={draft}
           setDraft={setDraft}
-          materialOptions={materialOptions}
+          materialOptions={MATERIAL_CATALOG}
           axisTermOptions={axisTermOptions}
         />
       )}

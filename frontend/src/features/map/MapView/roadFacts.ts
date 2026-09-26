@@ -31,7 +31,7 @@ interface RoadFactRow {
 }
 
 const MATERIALS = new Map(materialCatalog.map((material) => [material.material_id, material]));
-const materialLabel = (materialId: string) => MATERIALS.get(materialId)?.label ?? materialId;
+const materialLabel = (materialId: string) => MATERIALS.get(materialId)?.name ?? materialId;
 const valueLabel = (materialId: string, value: string) =>
   (MATERIALS.get(materialId)?.value_labels as Record<string, string> | undefined)?.[value] ?? value;
 

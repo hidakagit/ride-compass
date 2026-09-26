@@ -3,7 +3,7 @@
  * 調整）でフォームを開くか、保存・削除・非公開化・調整の結果をどう扱うか。
  *
  * フォーム（`AxisComposer`）は差し替え、渡したものを見て、保存（`onSave(payload, isNew)`）とやめる（`onCancelEdit`）
- * だけを呼ばせる。管理API・材料カタログ・軸カタログも差し替える。
+ * だけを呼ばせる。管理API・軸カタログも差し替える。材料は本物の一覧（生成物）を通す。
  *
  * ここで見ないもの:
  * - フォームの中身・検証・payloadの組み立て → `AxisComposer.test.tsx`
@@ -14,7 +14,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { EMPTY_CATALOG, type AxisCatalog } from "@/lib/axisCatalog";
-import type { AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
+import { MATERIAL_CATALOG } from "@/lib/axisMaterialsCatalog";
 import type { RampAxis } from "@/lib/mapDisplay/axisLayers";
 import type { AxisDefinitionPayload, AxisDefinitionResponse } from "@/types/route";
 
@@ -28,11 +28,7 @@ const api = vi.hoisted(() => ({
 vi.mock("@/features/admin/adminApi", () => api);
 
 const catalogs = vi.hoisted(() => ({
-  materials: [] as AxisMaterialOption[],
   axisCatalog: null as unknown,
-}));
-vi.mock("@/hooks/useMaterialCatalog", () => ({
-  useMaterialCatalog: () => ({ materials: catalogs.materials, loaded: true }),
 }));
 vi.mock("@/hooks/useAxisCatalog", () => ({ useAxisCatalog: () => catalogs.axisCatalog }));
 
@@ -127,7 +123,6 @@ beforeEach(() => {
   api.unpublishAxisDefinition.mockImplementation(async (axisId: string) => {
     server = server.map((a) => (a.axis_id === axisId ? { ...a, is_published: false } : a));
   });
-  catalogs.materials = [];
   catalogs.axisCatalog = axisCatalog();
   composer.props = null;
   composer.saveError = null;
@@ -175,16 +170,15 @@ describe("一覧", () => {
   });
 
   it("行には分類・既定重み（小数2桁）・使うものを出し、使うものは軸なら軸の名前、材料なら材料の名前、どちらでもなければidで出す", async () => {
-    catalogs.materials = [
-      { id: "mat_a", label: "材料A - mat_a", name: "材料A", description: "", dtype: "numeric", unit: "" },
-    ];
+    const material = MATERIAL_CATALOG[0];
     api.listAxisDefinitions.mockResolvedValue([
-      axis({ axis_id: "axis_ref", label: "参照する軸", shape: termsOf("axis_base", "mat_a", "unknown_id") }),
+      axis({ axis_id: "axis_ref", label: "参照する軸", shape: termsOf("axis_base", material.id, "unknown_id") }),
       axis({ axis_id: "axis_base", label: "土台の軸" }),
     ]);
     await renderStudio();
 
-    expect(await screen.findByText(/推定 ・ 重み0\.25 ・ 土台の軸・材料A - mat_a・unknown_id/)).toBeInTheDocument();
+    const summary = `推定 ・ 重み0.25 ・ 土台の軸・${material.label}・unknown_id`;
+    expect(await screen.findByText(new RegExp(summary.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))).toBeInTheDocument();
   });
 });
 

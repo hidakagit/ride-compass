@@ -41,10 +41,8 @@ APIを呼ぶ）・「データ保守」タブ（派生データ鮮度台帳の�
 | `features/admin/AxisStudio/ReportCard.tsx` | 集計のパネル（材料の欠損割合・派生データ鮮度台帳・本番DBの状態）が共有するカード。見出しとⓘ・「集計する」ボタン・集計中と失敗の表示・集計の時刻（日本時間）を持ち、中身の描画は各パネルが渡す。件数と時点の書式（`formatCount`・`formatMoment`）もここに置く |
 | `features/admin/AxisStudio/TileCachePanel.tsx` | 「データ保守」タブの2枚目。サーバー側のタイルファイルキャッシュ（基礎地図・路面/事故/POIタイルが共有）を全消去する操作パネル。全利用者へ影響するため入口はここだけに持つ |
 | `features/admin/AxisStudio/TuningPanel.tsx` | 「較正値」タブ本体。走ってみて決める値をデプロイなしで編集する。**並べる項目はbackendが宣言から導く**ため画面側に一覧を持たず、効き方（`effect`）ごとに見出しを分けて「変えたのに効かない」群がそれと分かるようにする。1件=1行で、説明と既定値・範囲は(i)の奥（他の管理パネルと同じ省スペースの作り）。入力は打っただけでは送らず「DBへ保存」でまとめて書き、既定と同じ値にして保存した行は上書きを消す（DBへ残るのは動かしたぶんだけ） |
-| `hooks/useMaterialCatalog.ts` | `GET /api/material-catalog`取得。静的な写しは持たず、取得完了までと失敗時は空の一覧を返し、`loaded`で読み込み中と区別する（写しで埋めると、backendへ材料を足しても古い一覧が出続ける） |
 | `features/admin/useMaterialValues.ts` | `GET /api/admin/material-catalog/{material_id}/values`取得（`adminApi.ts: getMaterialValues`）。categorical材料の候補選択セレクトに使う実データ値一覧 |
-| `services/materialCatalogApi.ts` | `useMaterialCatalog`が叩く`GET /api/material-catalog`の薄いラッパー |
-| `lib/axisMaterialsCatalog.ts` | 材料の型（`AxisMaterialOption`。一覧そのものは`hooks/useMaterialCatalog.ts`が取る）と、材料idを表示へ変える関数。`materialCatalogLabel`（論理名 - 物理名、軸スタジオ専用）/`materialCatalogName`（論理名だけ。カタログに無いidはundefinedで、呼び出し側はその材料を出さない）/`formatMaterialValue`。後の2つは軸スタジオ外（[ルート設定・結果パネル](route-settings-and-results.md)のComparisonPanel、page.tsxの区間クリック詳細）が`material_values`のラベル・単位表記に使う共用ヘルパー |
+| `lib/axisMaterialsCatalog.ts` | 材料の一覧（`MATERIAL_CATALOG`。生成物`material-catalog.json`から作る）と型（`AxisMaterialOption`）、材料idを表示へ変える関数。`materialCatalogLabel`（論理名 - 物理名、軸スタジオ専用）/`materialCatalogName`（論理名だけ。カタログに無いidはundefinedで、呼び出し側はその材料を出さない）/`formatMaterialValue`。後の2つは軸スタジオ外（[ルート設定・結果パネル](route-settings-and-results.md)のComparisonPanel、page.tsxの区間クリック詳細）が`material_values`のラベル・単位表記に使う共用ヘルパー |
 | `components/ui/icons/axisIconPalette.tsx` | 地図チップアイコンの固定パレット（`icon_id`→アイコンコンポーネント） |
 | `components/ui/FieldLabel/FieldLabel.tsx` | 情報アイコン付きラベルの共有UI部品（ルート設定とも共有） |
 
@@ -118,7 +116,7 @@ listAxisDefinitions() ──→ definitions（全軸）
 - 一覧サマリ行（`renderRowMain`）は各軸が使う材料id/軸idの両方を`labelForMaterialOrAxis`で
   人間向けラベルへ解決する。まずこの軸一覧内に該当する軸id（内部軸階層、他axis_idを
   材料として参照するケース）が無いか探し、あればその`label`を優先する。無ければ
-  `axisMaterialsCatalog.ts: materialCatalogLabel`（`useMaterialCatalog`が取得した材料一覧を
+  `axisMaterialsCatalog.ts: materialCatalogLabel`（材料の一覧`MATERIAL_CATALOG`を
   引く）へフォールバックし、それにも無ければ生のidをそのまま出す。
 - 最後の1軸は削除ボタンを無効化する。
 - 編集・複製・新規作成はいずれもモーダル（`components/ui/Dialog`）で`AxisComposer`を開く
@@ -148,10 +146,8 @@ listAxisDefinitions() ──→ definitions（全軸）
 返す値（`weight_share_when_published`）で、画面は計算し直さない——保存した重みで計算するため、編集中の値は保存して
 から変わる。
 
-**暗黙の前提**: 下書きは材料カタログ（値ごとの材料か、はい/いいえの材料か）と軸の一覧から導くが、
-カタログは実行時フェッチで後から入れ替わる。**入れ替わったら導出し直す**——`useState`の初期化はマウント時に
-1度しか走らないため、取得前の空の一覧で固定されたままになる。導出し直すのは**利用者がまだ触っていないとき**だけで、
-判定はいまの下書きが最後に導出したものと同じ実体かで行う（触った後に入れ替えると入力が消える）。
+下書きは材料の一覧（値ごとの材料か、はい/いいえの材料か）と軸の一覧からマウント時に1度だけ導く。材料の一覧は
+ビルド時の生成物で、開いている間に入れ替わらない（読み込み中・取得失敗の状態も無い）。
 
 `SECTIONS`は「どの節の検証か」を指す識別子で、順番の意味を持たない。保存時に
 `validateSection`が入力の読み取りの誤り（しきい値が数値として読めない）だけを確かめ、原因を文章で出す。
@@ -217,7 +213,7 @@ default_weight等）は`draftFromExisting`が読み込んだ既存値のまま�
 `buildShape(draft, materialOptions)`が送信直前に`draft.shapeKind`を`shape.kind`
 （`"breakpoint_linear"`か`"categorical"`）へ正規化する。既存軸を編集/複製する際は、逆に`draftFromExisting`が、`shape.terms`がすべて軸の一覧（`otherAxes`）の軸を指すなら
 「ほかの軸」、そうでなければ材料として開く（保存済みの`kind`だけでは判別できないため）。材料カタログに無いかでは
-決めない——backendが先に新しい材料を足した窓では、その材料が軸に見える。
+決めない——backendのデプロイがfrontendより先に進んだ窓では、新しい材料がfrontendの一覧に無く、軸に見える。
 
 「ほかの軸」を選んでいる間は`materialOptions`ではなく`otherAxes`（編集中の軸自身を除く
 全軸、`AxisStudio.tsx`が渡す）を候補にする——`MaterialTerm.material`が他axis_idを指せる
@@ -251,8 +247,8 @@ default_weight等）は`draftFromExisting`が読み込んだ既存値のまま�
     「きりのいい」1/2/5×10^nを選ぶ）。
 - **効き目プレビュー表・自動生成の値の目安（「参考点から値を選ぶ」ボタン）**は、
   `draft.terms.length === 1`かつ他軸参照ではない（`shapeKind === "breakpoint_linear"`）
-  場合にのみ、そのterm1件の材料が持つ`referencePoints`（`GET /api/material-catalog`の
-  `reference_points`、下記「useMaterialCatalog.ts / useMaterialValues.ts」節参照）から出す。
+  場合にのみ、そのterm1件の材料が持つ`referencePoints`（生成物`material-catalog.json`の
+  `reference_points`）から出す。
   複数termの組み合わせ・他軸参照は参考点の対応が取れないため対象外
   （`AxisScoringSection.tsx: primaryMaterial`）。参考点の生値を折れ点の横軸の値（重みと前処理を当てた値）へ
   写すのも、その点数も、backendの軽い口（`preview-scores`の`material_points`）が返す。届くまではボタンと表を
@@ -369,15 +365,6 @@ backend `POST /api/admin/basemap/refresh`を呼び、
 変わらない（この画面は地図を持たない）ため、消したこと自体と、各利用者へ反映されるのが
 既存タイルの`Cache-Control`（基礎地図は10分）が切れた後であることを結果表示で伝える。
 
-## 材料が0件のときの防御
-
-`useMaterialCatalog()`は取得完了まで・失敗時・0件の応答のいずれも空配列を返し、
-取得が終わったかを`loaded`で別に持つ（後述）。`AxisComposer`は`loaded`が偽の間は読み込み中の
-表示だけを出し（通信が遅いだけのときにbackendの異常を疑わせない）、取得後も0件ならフォーム
-自体を表示せず、「材料カタログを取得できませんでした（0件の応答）」というエラー画面＋
-「閉じる」ボタンのみを出す（`emptyDraft`が`materialOptions[0]`への無条件アクセスでクラッシュするのを防ぐガード。
-フック呼び出し自体はこのガードより前で完了させ、Rules of Hooksには反しない）。
-
 ## 材料説明ポップオーバー
 
 `InfoPopoverButton`/`MaterialInfoButton`（`AxisFormFields.tsx`）が、材料選択欄の隣に
@@ -386,11 +373,13 @@ backend `POST /api/admin/basemap/refresh`を呼び、
 `components/ui/InfoPopover/InfoPopover.tsx`が持ち、ここはラベル文言を持たない小型トリガーとしての薄いラッパー。
 見た目は共通部品（`ui/Button`の`info`・`ui/Popover`の`note`）が持つ。
 
-## useMaterialCatalog.ts / useMaterialValues.ts（材料カタログhook）
+## useMaterialValues.ts（材料の実データ値hook）
+
+材料の一覧そのものは取得しない（`lib/axisMaterialsCatalog.ts: MATERIAL_CATALOG`が生成物から作る）。
+実行時に取るのは、実データを読まないと答えられない値の一覧だけ。
 
 | フック | 取得先 | フォールバック | 取得成功かつ0件のとき |
 |---|---|---|---|
-| `useMaterialCatalog()` | `GET /api/material-catalog` | 持たない（静的な写しで埋めると、backendへ材料を足しても古い一覧が出続ける） | **空配列をそのまま返す**。「読み込み中」と「取得後に空」は`loaded`で区別する |
 | `useMaterialValues(materialId)` | `GET /api/admin/material-catalog/{id}/values` | 持たない（実データ値一覧はコード側で妥当な代替を用意できないため） | 空配列（＝呼び出し側は自由テキスト入力へフォールバック） |
 
 **暗黙の前提**: `useMaterialValues`はpropが変わった直後の1レンダー中、前の材料の値一覧を

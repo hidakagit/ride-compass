@@ -293,7 +293,7 @@ MaterialSpec]`が単一ソース。
 | フィールド | 意味 |
 |---|---|
 | `dtype` | `"numeric"`/`"boolean"`/`"categorical"` |
-| `unit` | 値の単位（凡例・比較パネル等の数値表示用、無次元・真偽値・カテゴリ値は空文字）。`GET /api/material-catalog`が配信し、frontendは単位を持たない（唯一の正）。**`label`へ単位を書かない**——ラベルと単位を別々に組み立てる画面で「制限速度(km/h) 35km/h」のように二重になる |
+| `unit` | 値の単位（凡例・比較パネル等の数値表示用、無次元・真偽値・カテゴリ値は空文字）。生成物`material-catalog.json`がfrontendへ届け、frontendは単位を持たない（唯一の正）。**`label`へ単位を書かない**——ラベルと単位を別々に組み立てる画面で「制限速度(km/h) 35km/h」のように二重になる |
 | `additive` | 同じ単位の他の材料と**足し合わせて意味を持つ量**か（示量／示強の区別）。個数と、それを同じ距離で割った密度はTrue。%・km/h・倍率のような割合・率はFalse。`raw_value_unit`が2項以上の和を見せてよいかの判定に使う |
 | `total_unit` | 生値へ走行距離を掛けた**総量**を出すときの単位（出す意味が無ければ`None`）。`additive`とは別の問い——事故密度（件/[km・年]）は足せるが、総量に比べる尺度が無い。|
 | `tile_property` | MVTタイルへ既に焼き込み済みのプロパティ名。`None`は「タイル非依存」（地図レイヤーのramp自動生成の対象になりえない） |
@@ -303,7 +303,7 @@ MaterialSpec]`が単一ソース。
 | `value_sql` | その材料の値をDBから求めるSQL式。`None`は「SQLでは求められない」（リクエスト時に決まる風、評価へ配線していないトリガー付きDEFER） |
 | `coverage` | 欠損率の測り方。way単位・区間単位・対象外の3択で、**どれかを必ず持つ**（どちらの一覧にも載っていない材料を型として作れなくする） |
 | `bool_default` | `dtype="boolean"`の材料が欠損を取りうるときの配列上の扱い。`"false"`（真偽の行列へ載せる）か`"nan"`（不明を非該当と混同しないため数値の行列へ載せる）で、数値的に等価ではない。**宣言ではなく`coverage.missing_semantics`から導くプロパティ**（`"unknown"`なら`"nan"`）——欠損の意味を2か所に宣言すると、片方だけ書き換えたときに画面と評価が食い違う |
-| `value_labels` | categorical材料の値ごとの日本語ラベル対訳表（`GET /api/admin/material-catalog/{id}/values`が返す） |
+| `value_labels` | categorical材料の値ごとの日本語ラベル対訳表（生成物`material-catalog.json`と`GET /api/admin/material-catalog/{id}/values`が届ける） |
 | `reference_points` | 軸スタジオの折れ点編集を助ける「値の目安」一覧（`MaterialReferencePoint`のlabel/value）。値域が直感的でない材料（風等）ほど有用で、真偽値・categorical材料や単純な材料は空リストのままでよい。換算式はbackendだけが持ち、値はここで計算済みのものを持たせる |
 
 - **評価軸が参照する材料は、正規化された生データ（数値・boolean・単純categorical）に
@@ -315,8 +315,11 @@ MaterialSpec]`が単一ソース。
 - 材料の「登録」（本カタログに載る）と「評価軸での利用」（`AxisDefinition.shape`が
   実際に参照する）は独立している。登録済みでも対応する軸が無ければ評価には使われない
   （軸スタジオの材料選択肢には現れる）。
-- 材料自体はGUIから追加・編集・削除できない（コード変更＋デプロイが前提）。軸スタジオ
-  は`GET /api/material-catalog`経由で本カタログを動的取得する。
+- 材料自体はGUIから追加・編集・削除できない（コード変更＋デプロイが前提）。frontendが材料を知る
+  経路はビルド時の生成物`material-catalog.json`（`scripts/export_openapi.py`）だけで、実行時のAPIでは
+  配らない——材料は再デプロイでしか変わらないため、実行時に取りに行くと取得失敗という状態だけが増える。
+  生成物の`label`は「論理名 - 物理名」（`MaterialSpec.full_label`、軸スタジオ向け）、`name`は論理名だけ
+  （一般向けの画面・地図のポップアップ向け）。
 - コードが名指しで読む材料（例: 勾配・風・路面の良否）は、同じファイルのid定数（`GRADIENT_PERCENT`等）で
   指し、カタログのキーにも同じ定数を使う。文字列で書き写すと、綴りがずれたときに読む側が材料を
   見つけられず、黙って欠損（区間の表示から値が消える・全区間が舗装路扱いになる等）として扱う。
@@ -377,9 +380,10 @@ way粒度で引くときは、同じ式のまま`w`の行から同じ名前の�
 
 ### 材料カタログのAPI（`api/routers/material_catalog.py`）
 
+材料の一覧そのものはAPIで配らない（上記）。ここにあるのは実データを読まないと答えられないものだけ。
+
 | エンドポイント | 認可 | 内容 |
 |---|---|---|
-| `GET /api/material-catalog` | 不要 | `display_only=False`の材料一覧（`material_id`/`label`[論理名 - 物理名]/`description`/`dtype`/`unit`/`reference_points`のみ。`tile_property`等のbackend内部フィールドは含めない） |
 | `GET /api/admin/material-catalog/{material_id}/values` | HTTP Basic | categorical材料の実データ値一覧（`RegionService.get_material_values`経由、未知idは404・値一覧を持たない材料は空リスト・DB障害やタイムアウトは`available=false`）。索引の効かない`SELECT DISTINCT`をタイル配信と同じ接続プール上で実行するため、`coverage`と同じく認可を課す |
 | `GET /api/admin/material-catalog/coverage` | Basic認証必須 | 材料ごとの欠損割合（下記）。全表走査を伴うため認可なしには公開しない |
 

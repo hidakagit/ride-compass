@@ -48,7 +48,6 @@ import TravelBearingControl from "@/features/conditions/TravelBearingControl/Tra
 import { useWeatherConditions } from "@/features/conditions/useWeatherConditions";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
 import { CLIENT_TUNING_IDS, clientTuningValue } from "@/lib/axisCatalog";
-import { useMaterialCatalog } from "@/hooks/useMaterialCatalog";
 import { syncHardFilterKeys } from "@/features/route/hardFilterSync";
 import {
   buildGenerateRequest,
@@ -56,7 +55,7 @@ import {
   type GenerationInput,
 } from "@/features/route/generationRequest";
 import { routePreferenceToSend } from "@/features/route/routePreferenceSync";
-import { formatMaterialValue, materialCatalogName } from "@/lib/axisMaterialsCatalog";
+import { formatMaterialValue, MATERIAL_CATALOG, materialCatalogName } from "@/lib/axisMaterialsCatalog";
 import { downloadGpx } from "@/features/route/gpxExport";
 import { formatDurationShort } from "@/features/route/formatDuration";
 import { baselineDistanceKm, loadBarHeightRatio } from "@/features/route/difficultyLoadBar";
@@ -189,7 +188,6 @@ export default function Home() {
     useLocation();
 
   const axisCatalog = useAxisCatalog();
-  const { materials: materialCatalog } = useMaterialCatalog();
 
   const [routes, setRoutes] = useState<RouteCandidate[]>([]);
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
@@ -1077,12 +1075,12 @@ export default function Home() {
                       <ul className={cn(textVariants({ variant: "hint" }), "m-0 flex list-none flex-col gap-0.5 p-0")}>
                         {/* 名前を引けない材料は出さない——材料idは内部名。 */}
                         {Object.entries(selectedRouteSegment.segment.material_values).flatMap(([materialId, value]) => {
-                          const name = materialCatalogName(materialId, materialCatalog);
+                          const name = materialCatalogName(materialId, MATERIAL_CATALOG);
                           return name === undefined
                             ? []
                             : [
                                 <li key={materialId}>
-                                  {name}: {formatMaterialValue(materialId, value, materialCatalog)}
+                                  {name}: {formatMaterialValue(materialId, value, MATERIAL_CATALOG)}
                                 </li>,
                               ];
                         })}
@@ -1119,7 +1117,7 @@ export default function Home() {
                   axes={axisCatalog.axes.filter((axis) =>
                     experimentSlots.some((slot) => (slot.conditions.route_preference[axis.axisId] ?? 0) > 0),
                   )}
-                  materials={materialCatalog}
+                  materials={MATERIAL_CATALOG}
                 />
               </TabsContent>
             )}

@@ -1593,23 +1593,6 @@
         }
       }
     },
-    "/api/material-catalog": {
-      "get": {
-        "operationId": "get_material_catalog_api_material_catalog_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MaterialCatalogResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/admin/material-catalog/{material_id}/distribution": {
       "get": {
         "operationId": "get_material_distribution_api_admin_material_catalog__material_id__distribution_get",
@@ -4044,75 +4027,6 @@
         ],
         "title": "LandcoverPercentages"
       },
-      "MaterialCatalogEntry": {
-        "properties": {
-          "material_id": {
-            "type": "string",
-            "title": "Material Id"
-          },
-          "label": {
-            "type": "string",
-            "title": "Label"
-          },
-          "name": {
-            "type": "string",
-            "title": "Name"
-          },
-          "description": {
-            "type": "string",
-            "title": "Description"
-          },
-          "dtype": {
-            "type": "string",
-            "enum": [
-              "numeric",
-              "boolean",
-              "categorical"
-            ],
-            "title": "Dtype"
-          },
-          "unit": {
-            "type": "string",
-            "title": "Unit"
-          },
-          "reference_points": {
-            "items": {
-              "$ref": "#/components/schemas/MaterialReferencePointEntry"
-            },
-            "type": "array",
-            "title": "Reference Points"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "material_id",
-          "label",
-          "name",
-          "description",
-          "dtype",
-          "unit",
-          "reference_points"
-        ],
-        "title": "MaterialCatalogEntry"
-      },
-      "MaterialCatalogResponse": {
-        "properties": {
-          "materials": {
-            "items": {
-              "$ref": "#/components/schemas/MaterialCatalogEntry"
-            },
-            "type": "array",
-            "title": "Materials"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "materials"
-        ],
-        "title": "MaterialCatalogResponse"
-      },
       "MaterialCoverageEntry": {
         "properties": {
           "material_id": {
@@ -4315,25 +4229,6 @@
           "available"
         ],
         "title": "MaterialDistributionResponse"
-      },
-      "MaterialReferencePointEntry": {
-        "properties": {
-          "label": {
-            "type": "string",
-            "title": "Label"
-          },
-          "value": {
-            "type": "number",
-            "title": "Value"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "label",
-          "value"
-        ],
-        "title": "MaterialReferencePointEntry"
       },
       "MaterialTerm": {
         "properties": {

@@ -289,7 +289,7 @@ Starlette側が付与する。
 | `immutable` | 「URLが同じなら内容も同じ」と保証できる場合のみ。ブラウザはリロード時の条件付きリクエストすら省くため、内容が更新されうるURLに付けると更新が届かなくなる |
 
 ポリシーは秒数の直書きではなく意味を持つ名前（`PERMANENT`・`IMMUTABLE_TILE`・`BATCH_TILE`・
-`BASEMAP`・`CATALOG`・`SHORT`・`VOLATILE`・`LIVE`・`NO_STORE`）で定義し、時間の調整は
+`BASEMAP`・`SHORT`・`VOLATILE`・`LIVE`・`NO_STORE`）で定義し、時間の調整は
 その定義1箇所で行う。同じ秒数でも意味が違うものは別の定数として持つ（片方だけを後から
 動かせるようにするため）。
 

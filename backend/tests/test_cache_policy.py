@@ -55,7 +55,7 @@ def middleware_client():
     test_app = FastAPI()
     test_app.add_middleware(CachePolicyMiddleware)
 
-    @test_app.get("/api/material-catalog")
+    @test_app.get("/api/axis-catalog")
     def catalog():
         return {"ok": True}
 
@@ -63,13 +63,13 @@ def middleware_client():
     def stats():
         return {"ok": True}
 
-    @test_app.get("/api/material-catalog/explicit")
+    @test_app.get("/api/axis-catalog/explicit")
     def explicit():
         from fastapi import Response
 
         return Response(content="{}", media_type="application/json", headers={"Cache-Control": "max-age=1"})
 
-    @test_app.get("/api/material-catalog/boom")
+    @test_app.get("/api/axis-catalog/boom")
     def boom():
         from fastapi import HTTPException
 
@@ -79,8 +79,8 @@ def middleware_client():
 
 
 def test_middleware_applies_policy_from_the_table(middleware_client):
-    response = middleware_client.get("/api/material-catalog")
-    assert response.headers["cache-control"] == "public, max-age=3600"
+    response = middleware_client.get("/api/axis-catalog")
+    assert response.headers["cache-control"] == "public, max-age=60"
 
 
 def test_middleware_applies_no_store(middleware_client):
@@ -89,11 +89,11 @@ def test_middleware_applies_no_store(middleware_client):
 
 
 def test_middleware_keeps_handler_supplied_header(middleware_client):
-    response = middleware_client.get("/api/material-catalog/explicit")
+    response = middleware_client.get("/api/axis-catalog/explicit")
     assert response.headers["cache-control"] == "max-age=1"
 
 
 def test_middleware_does_not_cache_error_responses(middleware_client):
-    response = middleware_client.get("/api/material-catalog/boom")
+    response = middleware_client.get("/api/axis-catalog/boom")
     assert response.status_code == 502
     assert "cache-control" not in response.headers

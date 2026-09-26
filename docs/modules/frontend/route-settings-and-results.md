@@ -282,7 +282,7 @@ non-nullの間、「ルート結果」タブはルート全体の内訳の代わ
   (1) ルート属性（距離・獲得標高。材料ではないため`material_values`には乗らない固定行）→
   (2) 材料値の行（`RouteCandidate.material_values`から動的生成。重み>0の軸が参照する
   材料id→値の辞書で、いずれかのスロットが値を持つ材料だけを行にする。ラベル・単位は
-  `materials`[page.tsxが`useMaterialCatalog()`を渡す]から引く。**行見出しは論理名だけ**
+  `materials`[page.tsxが`MATERIAL_CATALOG`（生成物から作る材料の一覧）を渡す]から引く。**行見出しは論理名だけ**
   （`materialCatalogName`）——物理名まで併記するのは材料を選ぶ軸スタジオの都合で、読むだけの
   この表では見出しが横へ伸びて値の列を画面外へ押し出す）→
   (3) 軸ごとの難易度の行（`axisLabels`・`axes`をpage.tsxから受け取り、

@@ -17,7 +17,7 @@ import {
 import materialCatalog from "@/types/generated/material-catalog.json";
 
 /** 道の詳細が必ず持つ行（路面の区分）の項目名。名前は材料カタログが持つ。 */
-const SURFACE_ROW_LABEL = materialCatalog.find((material) => material.material_id === "surface_class")!.label;
+const SURFACE_ROW_LABEL = materialCatalog.find((material) => material.material_id === "surface_class")!.name;
 
 // S1 地図の描画（生成前）。実データが式・部品へ入って初めて壊れるもの（公開軸の材料がタイルに無く地図に出ない、
 // 専用レイヤーの軸が出ない・巻き添えで消える、取得の失敗が空で返る、道を押すと例外で開かない）を見る。

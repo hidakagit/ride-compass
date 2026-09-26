@@ -1,271 +1,429 @@
 [
   {
     "material_id": "gradient_percent",
-    "label": "勾配（符号付き）",
+    "label": "勾配（符号付き） - gradient_percent",
+    "name": "勾配（符号付き）",
     "description": "国土地理院の標高データから算出した進行方向の勾配（%）。登り坂はプラス、下り坂はマイナスです。",
     "dtype": "numeric",
     "unit": "%",
+    "reference_points": [
+      {
+        "label": "平坦",
+        "value": 0.0
+      },
+      {
+        "label": "緩い坂",
+        "value": 3.0
+      },
+      {
+        "label": "きつい坂",
+        "value": 9.0
+      },
+      {
+        "label": "激坂",
+        "value": 15.0
+      }
+    ],
     "value_labels": null,
     "tile_property": null
   },
   {
     "material_id": "wind_drag_ratio",
-    "label": "風の追加負荷(倍率)",
+    "label": "風の追加負荷(倍率) - wind_drag_ratio",
+    "name": "風の追加負荷(倍率)",
     "description": "出発時刻の気象予報・ルートの進行方向・想定速度から、相対風速の二乗則で求めた空気抵抗の増分（時速20kmで無風のときの空気抵抗を1とする倍率）。プラス=向かい風で重くなる、マイナス=追い風で楽になる、真横の風は小さなプラス。同じ風でも速く走るほど値が大きくなります。目安（時速20km）: 向かい風2m/s→0.85、向かい風4m/s→1.96、向かい風8m/s→4.95、追い風4m/s→-0.92、真横4m/s→0.23、走行速度と同じ追い風→-1.0。",
     "dtype": "numeric",
     "unit": "",
+    "reference_points": [
+      {
+        "label": "時速20km・向かい風2m/s",
+        "value": 0.85
+      },
+      {
+        "label": "時速20km・向かい風4m/s",
+        "value": 1.96
+      },
+      {
+        "label": "時速20km・向かい風8m/s",
+        "value": 4.95
+      },
+      {
+        "label": "時速20km・追い風4m/s",
+        "value": -0.92
+      },
+      {
+        "label": "時速20km・真横4m/s",
+        "value": 0.23
+      },
+      {
+        "label": "時速20km・走行速度と同じ追い風",
+        "value": -1.0
+      }
+    ],
     "value_labels": null,
     "tile_property": null
   },
   {
     "material_id": "rain_1h_mm",
-    "label": "過去1時間の雨量",
+    "label": "過去1時間の雨量 - rain_1h_mm",
+    "name": "過去1時間の雨量",
     "description": "最寄りのアメダス雨量計で観測した、直近の正時までの1時間の降水量の合計（mm）。窓の中に欠測の1時間があれば値を持ちません。雨量計は0.5mm刻みで、それより弱い雨は観測されません。出発時刻の予報では延ばさず、今の観測を示します。ルートの評価にはまだ使われず、地図の色分けと道の詳細でだけ確かめられます。",
     "dtype": "numeric",
     "unit": "mm",
+    "reference_points": [],
     "value_labels": null,
     "tile_property": null
   },
   {
     "material_id": "rain_3h_mm",
-    "label": "過去3時間の雨量",
+    "label": "過去3時間の雨量 - rain_3h_mm",
+    "name": "過去3時間の雨量",
     "description": "最寄りのアメダス雨量計で観測した、直近の正時までの3時間の降水量の合計（mm）。窓の中に欠測の1時間があれば値を持ちません。雨量計は0.5mm刻みで、それより弱い雨は観測されません。出発時刻の予報では延ばさず、今の観測を示します。ルートの評価にはまだ使われず、地図の色分けと道の詳細でだけ確かめられます。",
     "dtype": "numeric",
     "unit": "mm",
+    "reference_points": [],
     "value_labels": null,
     "tile_property": null
   },
   {
     "material_id": "rain_4h_mm",
-    "label": "過去4時間の雨量",
+    "label": "過去4時間の雨量 - rain_4h_mm",
+    "name": "過去4時間の雨量",
     "description": "最寄りのアメダス雨量計で観測した、直近の正時までの4時間の降水量の合計（mm）。窓の中に欠測の1時間があれば値を持ちません。雨量計は0.5mm刻みで、それより弱い雨は観測されません。出発時刻の予報では延ばさず、今の観測を示します。ルートの評価にはまだ使われず、地図の色分けと道の詳細でだけ確かめられます。",
     "dtype": "numeric",
     "unit": "mm",
+    "reference_points": [],
     "value_labels": null,
     "tile_property": null
   },
   {
     "material_id": "rain_6h_mm",
-    "label": "過去6時間の雨量",
+    "label": "過去6時間の雨量 - rain_6h_mm",
+    "name": "過去6時間の雨量",
     "description": "最寄りのアメダス雨量計で観測した、直近の正時までの6時間の降水量の合計（mm）。窓の中に欠測の1時間があれば値を持ちません。雨量計は0.5mm刻みで、それより弱い雨は観測されません。出発時刻の予報では延ばさず、今の観測を示します。ルートの評価にはまだ使われず、地図の色分けと道の詳細でだけ確かめられます。",
     "dtype": "numeric",
     "unit": "mm",
+    "reference_points": [],
     "value_labels": null,
     "tile_property": null
   },
   {
     "material_id": "rain_12h_mm",
-    "label": "過去12時間の雨量",
+    "label": "過去12時間の雨量 - rain_12h_mm",
+    "name": "過去12時間の雨量",
     "description": "最寄りのアメダス雨量計で観測した、直近の正時までの12時間の降水量の合計（mm）。窓の中に欠測の1時間があれば値を持ちません。雨量計は0.5mm刻みで、それより弱い雨は観測されません。出発時刻の予報では延ばさず、今の観測を示します。ルートの評価にはまだ使われず、地図の色分けと道の詳細でだけ確かめられます。",
     "dtype": "numeric",
     "unit": "mm",
+    "reference_points": [],
     "value_labels": null,
     "tile_property": null
   },
   {
     "material_id": "rain_24h_mm",
-    "label": "過去24時間の雨量",
+    "label": "過去24時間の雨量 - rain_24h_mm",
+    "name": "過去24時間の雨量",
     "description": "最寄りのアメダス雨量計で観測した、直近の正時までの24時間の降水量の合計（mm）。窓の中に欠測の1時間があれば値を持ちません。雨量計は0.5mm刻みで、それより弱い雨は観測されません。出発時刻の予報では延ばさず、今の観測を示します。ルートの評価にはまだ使われず、地図の色分けと道の詳細でだけ確かめられます。",
     "dtype": "numeric",
     "unit": "mm",
+    "reference_points": [],
     "value_labels": null,
     "tile_property": null
   },
   {
     "material_id": "rain_48h_mm",
-    "label": "過去48時間の雨量",
+    "label": "過去48時間の雨量 - rain_48h_mm",
+    "name": "過去48時間の雨量",
     "description": "最寄りのアメダス雨量計で観測した、直近の正時までの48時間の降水量の合計（mm）。窓の中に欠測の1時間があれば値を持ちません。雨量計は0.5mm刻みで、それより弱い雨は観測されません。出発時刻の予報では延ばさず、今の観測を示します。ルートの評価にはまだ使われず、地図の色分けと道の詳細でだけ確かめられます。",
     "dtype": "numeric",
     "unit": "mm",
+    "reference_points": [],
     "value_labels": null,
     "tile_property": null
   },
   {
     "material_id": "rain_72h_mm",
-    "label": "過去72時間の雨量",
+    "label": "過去72時間の雨量 - rain_72h_mm",
+    "name": "過去72時間の雨量",
     "description": "最寄りのアメダス雨量計で観測した、直近の正時までの72時間の降水量の合計（mm）。窓の中に欠測の1時間があれば値を持ちません。雨量計は0.5mm刻みで、それより弱い雨は観測されません。出発時刻の予報では延ばさず、今の観測を示します。ルートの評価にはまだ使われず、地図の色分けと道の詳細でだけ確かめられます。",
     "dtype": "numeric",
     "unit": "mm",
+    "reference_points": [],
     "value_labels": null,
     "tile_property": null
   },
   {
     "material_id": "hours_since_rain",
-    "label": "雨が止んでからの時間",
+    "label": "雨が止んでからの時間 - hours_since_rain",
+    "name": "雨が止んでからの時間",
     "description": "最寄りのアメダス雨量計で、雨（1時間に0.1mm以上）を観測した最後の1時間が終わってからの時間（1時間刻み）。直近の1時間に雨があれば0。72時間さかのぼって雨が無ければ72（72時間以上）。雨を見つける前に欠測の1時間があれば値を持ちません。雨量計は0.5mm刻みで、それより弱い雨は観測されません。出発時刻の予報では延ばさず、今の観測を示します。ルートの評価にはまだ使われず、地図の色分けと道の詳細でだけ確かめられます。",
     "dtype": "numeric",
     "unit": "時間",
+    "reference_points": [],
     "value_labels": null,
     "tile_property": null
   },
   {
     "material_id": "built_percent",
-    "label": "建物被覆率",
+    "label": "建物被覆率 - built_percent",
+    "name": "建物被覆率",
     "description": "衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、道路周囲100mリング内の建物の割合(%)。",
     "dtype": "numeric",
     "unit": "%",
+    "reference_points": [],
     "value_labels": null,
     "tile_property": "built_pct"
   },
   {
     "material_id": "trees_percent",
-    "label": "樹木被覆率",
+    "label": "樹木被覆率 - trees_percent",
+    "name": "樹木被覆率",
     "description": "衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、道路周囲100mリング内の樹木の割合(%)。",
     "dtype": "numeric",
     "unit": "%",
+    "reference_points": [],
     "value_labels": null,
     "tile_property": "trees_pct"
   },
   {
     "material_id": "crops_percent",
-    "label": "農地被覆率",
+    "label": "農地被覆率 - crops_percent",
+    "name": "農地被覆率",
     "description": "衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、道路周囲100mリング内の農地の割合(%)。",
     "dtype": "numeric",
     "unit": "%",
+    "reference_points": [],
     "value_labels": null,
     "tile_property": "crops_pct"
   },
   {
     "material_id": "rangeland_percent",
-    "label": "草地被覆率",
+    "label": "草地被覆率 - rangeland_percent",
+    "name": "草地被覆率",
     "description": "衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、道路周囲100mリング内の草地の割合(%)。",
     "dtype": "numeric",
     "unit": "%",
+    "reference_points": [],
     "value_labels": null,
     "tile_property": "rangeland_pct"
   },
   {
     "material_id": "water_percent",
-    "label": "水面被覆率",
+    "label": "水面被覆率 - water_percent",
+    "name": "水面被覆率",
     "description": "衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、道路周囲100mリング内の水面の割合(%)。",
     "dtype": "numeric",
     "unit": "%",
+    "reference_points": [],
     "value_labels": null,
     "tile_property": "water_pct"
   },
   {
     "material_id": "flooded_veg_percent",
-    "label": "湿地被覆率",
+    "label": "湿地被覆率 - flooded_veg_percent",
+    "name": "湿地被覆率",
     "description": "衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、道路周囲100mリング内の湿地（冠水植生）の割合(%)。",
     "dtype": "numeric",
     "unit": "%",
+    "reference_points": [],
     "value_labels": null,
     "tile_property": "flooded_veg_pct"
   },
   {
     "material_id": "bare_percent",
-    "label": "裸地被覆率",
+    "label": "裸地被覆率 - bare_percent",
+    "name": "裸地被覆率",
     "description": "衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、道路周囲100mリング内の裸地（河川敷・造成地等）の割合(%)。",
     "dtype": "numeric",
     "unit": "%",
+    "reference_points": [],
     "value_labels": null,
     "tile_property": "bare_pct"
   },
   {
     "material_id": "snow_ice_percent",
-    "label": "雪氷被覆率",
+    "label": "雪氷被覆率 - snow_ice_percent",
+    "name": "雪氷被覆率",
     "description": "衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、道路周囲100mリング内の雪氷の割合(%)。",
     "dtype": "numeric",
     "unit": "%",
+    "reference_points": [],
     "value_labels": null,
     "tile_property": "snow_ice_pct"
   },
   {
     "material_id": "surface_good",
-    "label": "舗装良否",
+    "label": "舗装良否 - surface_good",
+    "name": "舗装良否",
     "description": "路面の区分から判定した舗装の良否。true=舗装、false=それ以外の区分。区分に当てはまらない値とタグの無い道は不明。",
     "dtype": "boolean",
     "unit": "",
+    "reference_points": [],
     "value_labels": null,
     "tile_property": "surface_good"
   },
   {
     "material_id": "intersection_count_per_km",
-    "label": "交差点密度",
+    "label": "交差点密度 - intersection_count_per_km",
+    "name": "交差点密度",
     "description": "接続する道路が3本以上ある交差点の1kmあたりの発生回数。",
     "dtype": "numeric",
     "unit": "回/km",
+    "reference_points": [
+      {
+        "label": "少ない",
+        "value": 1.0
+      },
+      {
+        "label": "普通",
+        "value": 3.0
+      },
+      {
+        "label": "多い",
+        "value": 8.0
+      }
+    ],
     "value_labels": null,
     "tile_property": "intersection_per_km"
   },
   {
     "material_id": "accident_count_per_km_year",
-    "label": "事故密度",
+    "label": "事故密度 - accident_count_per_km_year",
+    "name": "事故密度",
     "description": "警察庁の事故データに基づく、1kmあたり・1年あたりの人身事故件数。",
     "dtype": "numeric",
     "unit": "件/(km・年)",
+    "reference_points": [
+      {
+        "label": "少ない",
+        "value": 0.02
+      },
+      {
+        "label": "普通",
+        "value": 0.1
+      },
+      {
+        "label": "多い",
+        "value": 0.3
+      }
+    ],
     "value_labels": null,
     "tile_property": "accident_per_km"
   },
   {
     "material_id": "lit",
-    "label": "街灯あり",
+    "label": "街灯あり - lit",
+    "name": "街灯あり",
     "description": "OSMの街灯タグ(lit=yes)に該当する区間はtrue。タグ不在はfalse（街灯なし扱い）。",
     "dtype": "boolean",
     "unit": "",
+    "reference_points": [],
     "value_labels": null,
     "tile_property": "lit"
   },
   {
     "material_id": "has_tunnel",
-    "label": "トンネル",
+    "label": "トンネル - has_tunnel",
+    "name": "トンネル",
     "description": "OSMのトンネルタグ(tunnel=yes)に該当する区間はtrue。",
     "dtype": "boolean",
     "unit": "",
+    "reference_points": [],
     "value_labels": null,
     "tile_property": "tunnel"
   },
   {
     "material_id": "bridge",
-    "label": "橋・高架",
+    "label": "橋・高架 - bridge",
+    "name": "橋・高架",
     "description": "OSMの橋・高架タグ(bridge=yes)に該当する区間はtrue。",
     "dtype": "boolean",
     "unit": "",
+    "reference_points": [],
     "value_labels": null,
     "tile_property": "bridge"
   },
   {
     "material_id": "motor_vehicle_no",
-    "label": "自動車通行不可",
+    "label": "自動車通行不可 - motor_vehicle_no",
+    "name": "自動車通行不可",
     "description": "OSMのタグ(motor_vehicle=no)から判定した、自動車が通行できない区間かどうか。",
     "dtype": "boolean",
     "unit": "",
+    "reference_points": [],
     "value_labels": null,
     "tile_property": "motor_vehicle_no"
   },
   {
     "material_id": "oneway",
-    "label": "一方通行",
+    "label": "一方通行 - oneway",
+    "name": "一方通行",
     "description": "OSMのタグから判定した一方通行区間かどうか。現時点では評価軸の材料として配線されておらず、選んでもこの軸は常に「データなし」として扱われます（地図表示専用）。",
     "dtype": "boolean",
     "unit": "",
+    "reference_points": [],
     "value_labels": null,
     "tile_property": "oneway"
   },
   {
     "material_id": "maxspeed_kmh",
-    "label": "制限速度",
+    "label": "制限速度 - maxspeed_kmh",
+    "name": "制限速度",
     "description": "OSMの制限速度タグ(maxspeed)から解析した制限速度（km/h）。",
     "dtype": "numeric",
     "unit": "km/h",
+    "reference_points": [
+      {
+        "label": "生活道路",
+        "value": 20.0
+      },
+      {
+        "label": "一般道",
+        "value": 40.0
+      },
+      {
+        "label": "幹線道路",
+        "value": 60.0
+      },
+      {
+        "label": "高規格道路",
+        "value": 80.0
+      }
+    ],
     "value_labels": null,
     "tile_property": "maxspeed_kmh"
   },
   {
     "material_id": "lanes_count",
-    "label": "車線数",
+    "label": "車線数 - lanes_count",
+    "name": "車線数",
     "description": "OSMの車線数タグ(lanes)から解析した車線数。",
     "dtype": "numeric",
     "unit": "",
+    "reference_points": [
+      {
+        "label": "1車線",
+        "value": 1.0
+      },
+      {
+        "label": "2車線",
+        "value": 2.0
+      },
+      {
+        "label": "4車線以上",
+        "value": 4.0
+      }
+    ],
     "value_labels": null,
     "tile_property": "lanes_count"
   },
   {
     "material_id": "highway",
-    "label": "道路種別",
+    "label": "道路種別 - highway",
+    "name": "道路種別",
     "description": "OSMの道路種別タグ(highway)の生値（例: residential/primary/cycleway等）。値ごとに個別のスコアを設定できます。",
     "dtype": "categorical",
     "unit": "",
+    "reference_points": [],
     "value_labels": {
       "motorway": "高速道路",
       "motorway_link": "高速道路の連絡路",
@@ -294,10 +452,12 @@
   },
   {
     "material_id": "surface",
-    "label": "路面種別",
+    "label": "路面種別 - surface",
+    "name": "路面種別",
     "description": "OSMの路面種別タグ(surface)の生値（例: asphalt/gravel等）。良否(舗装良否)だけでなく種別ごとに細かくスコアを設定したい場合に使います。",
     "dtype": "categorical",
     "unit": "",
+    "reference_points": [],
     "value_labels": {
       "asphalt": "アスファルト",
       "paved": "舗装（種別不明）",
@@ -328,10 +488,12 @@
   },
   {
     "material_id": "surface_class",
-    "label": "路面の区分",
+    "label": "路面の区分 - surface_class",
+    "name": "路面の区分",
     "description": "OSMの路面種別タグ(surface)を、走りやすさの違いが出る区分へ束ねた値（例: 舗装・砂利・土）。区分に当てはまらない値は「その他」です。",
     "dtype": "categorical",
     "unit": "",
+    "reference_points": [],
     "value_labels": {
       "paved": "舗装",
       "compacted": "締め固め・細砂利",
@@ -344,55 +506,67 @@
   },
   {
     "material_id": "highway_is_cycleway",
-    "label": "道路種別が自転車道",
+    "label": "道路種別が自転車道 - highway_is_cycleway",
+    "name": "道路種別が自転車道",
     "description": "道路種別(highway)自体が自転車道(cycleway)かどうか。",
     "dtype": "boolean",
     "unit": "",
+    "reference_points": [],
     "value_labels": null,
     "tile_property": "highway_is_cycleway"
   },
   {
     "material_id": "cycleway_has_track",
-    "label": "自転車道(track)を併設",
+    "label": "自転車道(track)を併設 - cycleway_has_track",
+    "name": "自転車道(track)を併設",
     "description": "車道と分離された自転車道(cycleway=track)を併設しているかどうか。",
     "dtype": "boolean",
     "unit": "",
+    "reference_points": [],
     "value_labels": null,
     "tile_property": "cycleway_has_track"
   },
   {
     "material_id": "cycleway_has_lane",
-    "label": "自転車レーン(lane)を併設",
+    "label": "自転車レーン(lane)を併設 - cycleway_has_lane",
+    "name": "自転車レーン(lane)を併設",
     "description": "車道上に線で区切られた自転車レーン(cycleway=lane)を併設しているかどうか。",
     "dtype": "boolean",
     "unit": "",
+    "reference_points": [],
     "value_labels": null,
     "tile_property": "cycleway_has_lane"
   },
   {
     "material_id": "cycleway_has_shared",
-    "label": "バス共用等の自転車レーンを併設",
+    "label": "バス共用等の自転車レーンを併設 - cycleway_has_shared",
+    "name": "バス共用等の自転車レーンを併設",
     "description": "バス専用レーン共用など、簡易な自転車レーン(cycleway=share_busway/shared_lane)を併設しているかどうか。",
     "dtype": "boolean",
     "unit": "",
+    "reference_points": [],
     "value_labels": null,
     "tile_property": "cycleway_has_shared"
   },
   {
     "material_id": "shared_pedestrian_path",
-    "label": "歩行者自転車共用道",
+    "label": "歩行者自転車共用道 - shared_pedestrian_path",
+    "name": "歩行者自転車共用道",
     "description": "車道と分離された歩行者道のうち、自転車の通行が認められている区間（河川敷サイクリングロード等、highway=footway/pathかつbicycle=yes/designated）かどうか。",
     "dtype": "boolean",
     "unit": "",
+    "reference_points": [],
     "value_labels": null,
     "tile_property": "shared_pedestrian_path"
   },
   {
     "material_id": "smoothness",
-    "label": "路面の状態",
+    "label": "路面の状態 - smoothness",
+    "name": "路面の状態",
     "description": "OSMの路面状態タグ(smoothness)の生値（excellent〜impassable）。同じ路面種別(surface)でも実際の荒れ具合を区別したい場合に使います。",
     "dtype": "categorical",
     "unit": "",
+    "reference_points": [],
     "value_labels": {
       "excellent": "非常に良好（ロードバイク推奨）",
       "good": "良好",
@@ -407,10 +581,12 @@
   },
   {
     "material_id": "tracktype",
-    "label": "農道・林道の等級",
+    "label": "農道・林道の等級 - tracktype",
+    "name": "農道・林道の等級",
     "description": "OSMの農道・林道の路面等級タグ(tracktype)の値（grade1=固く締まった路面〜grade5=柔らかい土・草）。路面の区分とは別のタグで、区分へは写しません。",
     "dtype": "categorical",
     "unit": "",
+    "reference_points": [],
     "value_labels": {
       "grade1": "1 舗装・固く締まる",
       "grade2": "2 砂利[未舗装]",
@@ -422,46 +598,121 @@
   },
   {
     "material_id": "poi_signal_per_km",
-    "label": "信号の密度",
+    "label": "信号の密度 - poi_signal_per_km",
+    "name": "信号の密度",
     "description": "進行する道路上にある信号の、1kmあたりの数。",
     "dtype": "numeric",
     "unit": "回/km",
+    "reference_points": [
+      {
+        "label": "少ない",
+        "value": 0.5
+      },
+      {
+        "label": "普通",
+        "value": 2.0
+      },
+      {
+        "label": "多い",
+        "value": 5.0
+      }
+    ],
     "value_labels": null,
     "tile_property": "poi_signal_per_km"
   },
   {
     "material_id": "poi_crossing_per_km",
-    "label": "横断歩道(信号なし)の密度",
+    "label": "横断歩道(信号なし)の密度 - poi_crossing_per_km",
+    "name": "横断歩道(信号なし)の密度",
     "description": "進行する道路上にある横断歩道(信号なし)の、1kmあたりの数。",
     "dtype": "numeric",
     "unit": "回/km",
+    "reference_points": [
+      {
+        "label": "少ない",
+        "value": 0.5
+      },
+      {
+        "label": "普通",
+        "value": 2.0
+      },
+      {
+        "label": "多い",
+        "value": 5.0
+      }
+    ],
     "value_labels": null,
     "tile_property": "poi_crossing_per_km"
   },
   {
     "material_id": "poi_stop_per_km",
-    "label": "一時停止・徐行の密度",
+    "label": "一時停止・徐行の密度 - poi_stop_per_km",
+    "name": "一時停止・徐行の密度",
     "description": "進行する道路上にある一時停止・徐行の、1kmあたりの数。",
     "dtype": "numeric",
     "unit": "回/km",
+    "reference_points": [
+      {
+        "label": "少ない",
+        "value": 0.5
+      },
+      {
+        "label": "普通",
+        "value": 2.0
+      },
+      {
+        "label": "多い",
+        "value": 5.0
+      }
+    ],
     "value_labels": null,
     "tile_property": "poi_stop_per_km"
   },
   {
     "material_id": "poi_level_crossing_per_km",
-    "label": "踏切の密度",
+    "label": "踏切の密度 - poi_level_crossing_per_km",
+    "name": "踏切の密度",
     "description": "進行する道路上にある踏切の、1kmあたりの数。",
     "dtype": "numeric",
     "unit": "回/km",
+    "reference_points": [
+      {
+        "label": "少ない",
+        "value": 0.5
+      },
+      {
+        "label": "普通",
+        "value": 2.0
+      },
+      {
+        "label": "多い",
+        "value": 5.0
+      }
+    ],
     "value_labels": null,
     "tile_property": "poi_level_crossing_per_km"
   },
   {
     "material_id": "poi_barrier_per_km",
-    "label": "車止め・減速構造の密度",
+    "label": "車止め・減速構造の密度 - poi_barrier_per_km",
+    "name": "車止め・減速構造の密度",
     "description": "進行する道路上にある車止め・減速構造の、1kmあたりの数。",
     "dtype": "numeric",
     "unit": "回/km",
+    "reference_points": [
+      {
+        "label": "少ない",
+        "value": 0.5
+      },
+      {
+        "label": "普通",
+        "value": 2.0
+      },
+      {
+        "label": "多い",
+        "value": 5.0
+      }
+    ],
     "value_labels": null,
     "tile_property": "poi_barrier_per_km"
   }

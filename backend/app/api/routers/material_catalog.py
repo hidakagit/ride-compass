@@ -1,16 +1,8 @@
-"""材料カタログの公開読み取りAPI。
+"""材料カタログの管理画面向けAPI（いずれもHTTP Basic認可要）。
 
-軸スタジオ（`/admin`、`components/AxisStudio/AxisComposer.tsx`）が材料選択の候補一覧を
-取得するための読み取り専用・認可不要のエンドポイント。材料自体の追加・編集・削除は
-GUIから行わない（`domain/material_catalog.py`へのコード変更＋デプロイのみ）。
-
-`tile_property`（地図レイヤーのramp自動生成が内部で使う想定）は公開レスポンスに
-含めない——フロントの軸コンポーザーが選択と編集に使う項目（`material_id`・`label`・
-`description`等。`description`は情報アイコンから表示する説明文、`reference_points`は
-折れ点編集を助ける「値の目安」一覧）だけを返す。実際に返す項目は
-`MaterialCatalogEntry`が正本。
-
-正しく表現できず誤解を招くため。地図表示（`tile_property`経由）には影響しない。
+材料の一覧そのものはAPIで配らない。材料はコードの宣言（`domain/material_catalog.py`）で決まり
+再デプロイでしか変わらないため、frontendはビルド時の生成物（`export_openapi.py`が書き出す
+`material-catalog.json`）だけから材料を知る。ここに置くのは、実データを読まないと答えられないものだけ。
 
 `GET /api/admin/material-catalog/{material_id}/values`（読み取り専用だがHTTP Basic認可要）は、
 highway/surface/smoothnessのようなOSMタグの生値でオープンエンドな材料について、DBに
@@ -20,8 +12,8 @@ highway/surface/smoothnessのようなOSMタグの生値でオープンエンド
 
 `values.label`（`MaterialSpec.value_label`）は材料の値ごとの日本語ラベル対訳表
 （`MaterialSpec.value_labels`、`domain/material_catalog.py`、材料定義自体の一部）を
-そのまま返す。`values.label`・`materials.label`（`MaterialSpec.full_label`）ともに
-「論理名 - 物理名」形式（例: 材料"道路種別 - highway"、値"自転車専用道 - cycleway"）で
+そのまま返す。材料名（生成物の`label`、`MaterialSpec.full_label`）と同じく
+「論理名 - 物理名」形式（例: 値"自転車専用道 - cycleway"）で
 返す——論理名だけではどのOSMタグ値に対応するか分からず、軸定義
 （`AxisDefinitionResponse`）や外部ドキュメント上で物理名を探す必要があるため。
 
@@ -58,35 +50,6 @@ from app.services.region_service import RegionService
 from app.domain.strict_model import StrictModel
 
 router = APIRouter()
-
-
-class MaterialReferencePointEntry(StrictModel):
-    label: str
-    value: float
-
-
-class MaterialCatalogEntry(StrictModel):
-    material_id: str
-    # 「論理名 - 物理名」形式（MaterialSpec.full_label、例: "道路種別 - highway"）。
-    # 論理名だけでは物理名(material_id)が分からないため併記する。
-    label: str
-    # 論理名だけ（MaterialSpec.label、例: "道路種別"）。物理名を出す意味が無い一般向けの
-    # 表示（比較表の行見出し等）が使う——`label`から物理名を削って作り直すと、論理名に
-    # 区切り文字が含まれたときに壊れる。
-    name: str
-    # 情報アイコン(ⓘ)から表示する説明文（labelだけでは何を表す材料か分かりにくいため）。
-    description: str
-    dtype: MaterialDType
-    # 値の単位（MaterialSpec.unitが単一ソース、無次元・真偽値・カテゴリ値は空文字）。
-    # 凡例・比較パネル等、数値を表示する箇所の単位表記の唯一の正（frontendは単位を持たない）。
-    unit: str
-    # 軸スタジオの折れ点編集を助ける「値の目安」一覧。値域が直感的でない材料（風等）
-    # ほど有用なため、真偽値・categorical材料や単純な材料は空配列になりうる。
-    reference_points: list[MaterialReferencePointEntry]
-
-
-class MaterialCatalogResponse(StrictModel):
-    materials: list[MaterialCatalogEntry]
 
 
 class MaterialValueEntry(StrictModel):
@@ -142,26 +105,6 @@ class MaterialDistributionResponse(StrictModel):
     quantiles: dict[str, float] = Field(default_factory=dict)
     bins: list[tuple[float, float, float]] = Field(default_factory=list)
     zero_share: float = 0.0
-
-
-@router.get("/api/material-catalog", response_model=MaterialCatalogResponse)
-async def get_material_catalog() -> MaterialCatalogResponse:
-    return MaterialCatalogResponse(
-        materials=[
-            MaterialCatalogEntry(
-                material_id=m.material_id,
-                label=m.full_label(),
-                name=m.label,
-                description=m.description,
-                dtype=m.dtype,
-                unit=m.unit,
-                reference_points=[
-                    MaterialReferencePointEntry(label=p.label, value=p.value) for p in m.reference_points
-                ],
-            )
-            for m in MATERIAL_CATALOG.values()
-        ]
-    )
 
 
 @router.get(
