@@ -9,9 +9,15 @@
     # 本番コンテナの中で走らせる（アプリと同じ環境・localhost接続で測りたいとき）
     python scripts/run_probe.py --in-container path/to/probe.py
 
-手元実行の場合、プローブは`PROBE_DATABASE_URL`（本番の接続文字列）と`BACKEND_DIR`
-（`app`パッケージのある場所）を環境変数から受け取る。コンテナ実行の場合は
-`app.config.settings.database_url`をそのまま使えばよい。
+手元実行の場合、プローブは次を環境変数から受け取る:
+
+- `PROBE_DATABASE_URL`: 本番の接続文字列（SQLAlchemyの`create_async_engine`へ渡す形）
+- `PROBE_ASYNCPG_DSN`: 同じ接続先を素の`asyncpg.connect`へ渡せる形にしたもの。SQLAlchemyの形の
+  `ssl=`クエリをasyncpgは接続オプションと解さず、サーバーの実行時パラメータとして送って拒否される
+- `BACKEND_DIR`: `app`パッケージのある場所
+
+コンテナ実行の場合は`app.config.settings.database_url`を使い、素のasyncpgで繋ぐなら
+`app.batch._common.asyncpg_dsn`を通す。
 
 接続情報は`backend/.env.oracle.local`の`DATABASE_URL`と`SSH_COMMAND`から読む（在処の探し方は`_prod_env.py`）。
 """
@@ -25,13 +31,19 @@ import sys
 from _prod_env import read_prod_env
 
 _BACKEND_DIR = pathlib.Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_BACKEND_DIR))
+
+from app.batch._common import asyncpg_dsn  # noqa: E402
+
 _CONTAINER = "ridecompass-backend"
 
 
 def _run_locally(probe: pathlib.Path) -> int:
+    database_url = read_prod_env("DATABASE_URL")
     env = {
         **os.environ,
-        "PROBE_DATABASE_URL": read_prod_env("DATABASE_URL"),
+        "PROBE_DATABASE_URL": database_url,
+        "PROBE_ASYNCPG_DSN": asyncpg_dsn(database_url),
         "BACKEND_DIR": str(_BACKEND_DIR),
         "PYTHONIOENCODING": "utf-8",
     }
