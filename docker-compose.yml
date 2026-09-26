@@ -24,6 +24,9 @@ services:
       - path: .env
         required: false
     environment:
+      # CORSの許可元と基礎地図の書き換え先は、ブラウザから見たfrontendのオリジン（上のfrontendの
+      # ports:）に従う。config.pyの既定値（手元でnext devを起動したときのオリジン）と今は同じ値だが、
+      # 既定値を変えてもcomposeのfrontendの公開先は変わらないため、ここで書く。
       CORS_ALLOWED_ORIGINS: http://localhost:3000
       # SQLAlchemyの非同期エンジン（asyncpgドライバ）用のURLスキーム。
       DATABASE_URL: postgresql+asyncpg://ridecompass:ridecompass@postgres:5432/ridecompass

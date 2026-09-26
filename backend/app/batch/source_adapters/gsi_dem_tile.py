@@ -30,7 +30,9 @@ from app.domain.region import BoundingBox, tiles_covering_bbox
 
 logger = logging.getLogger("ridecompass.ingest.gsi_dem_tile")
 
-#: 1枚の一辺の画素数。出典: https://maps.gsi.go.jp/development/demtile.html
+#: 1枚の一辺の画素数。配信元の仕様で、自前で描くタイルの画素数
+#: （`infrastructure/landcover_raster.py: TILE_SIZE`）を変えてもこちらは変わらない。
+#: 出典: https://maps.gsi.go.jp/development/demtile.html
 _DEM_TILE_SIZE = 256
 
 #: 欠測を表す文字。「標高値が存在しない画素には「e」の文字が格納されている。」

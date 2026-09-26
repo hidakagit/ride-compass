@@ -836,7 +836,9 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
 ### `domain/geo.py`・`domain/errors.py`
 
 `geo.py`は球面三角法の地理計算——2地点の球面距離と初期方位角、それを多数の地点へまとめて求める配列版、
-角度から方位の呼び名への変換（例: `haversine_distance_km`・`compass_label`）——を持つ。`LatLon`（`Protocol`）・
+角度から方位の呼び名への変換（例: `haversine_distance_km`・`compass_label`）——を持つ。方位の呼び名は
+16方位の並び（`SIXTEEN_POINT_LABELS`）1つだけを持ち、8方位（`COMPASS_LABELS`）はその1つおきとして導く——アメダスの
+16方位の風向（`domain/jma_amedas.py`）もこの並びを引くので、同じ向きが画面の場所によって違う名前にならない。`LatLon`（`Protocol`）・
 `LatLonPoint`（`NamedTuple`）は`Coordinates`（Pydantic、API境界の入力検証用）を経由
 せずに緯度経度を扱うための軽量な構造的型で、最近傍ノード探索のような
 ホットパスがバリデーションコストを避けるために使う。

@@ -1,7 +1,7 @@
 import type { AxisInspectorResult } from "@/types/traffic";
 import type { RoutePreferenceWeights } from "@/types/route";
 import { API_BASE_URL } from "@/lib/apiBaseUrl";
-import { apiPath } from "@/lib/apiPath";
+import { apiPath, apiQuery } from "@/lib/apiPath";
 import { tileBaseUrl } from "@/lib/tileBaseUrl";
 import { debugLog } from "@/lib/debugLog";
 import { requestOk } from "@/lib/fetchJson";
@@ -160,12 +160,13 @@ export async function fetchDynamicWayValues(
   at?: Date,
   speedKmh?: number,
 ): Promise<DynamicWayValuesResult> {
-  const params = new URLSearchParams();
-  if (bearingDeg !== undefined) params.set("bearing_deg", String(bearingDeg));
-  if (at) params.set("at", at.toISOString());
-  if (speedKmh !== undefined && Number.isFinite(speedKmh)) params.set("speed_kmh", String(speedKmh));
-  const path = apiPath("/api/region/dynamic-way-values/{axis_id}/{z}/{x}/{y}", { axis_id: axisId, z, x, y });
-  const url = `${API_BASE_URL}${path}?${params.toString()}`;
+  const declared = "/api/region/dynamic-way-values/{axis_id}/{z}/{x}/{y}";
+  const query = apiQuery(declared, {
+    bearing_deg: bearingDeg,
+    at: at?.toISOString(),
+    speed_kmh: speedKmh !== undefined && Number.isFinite(speedKmh) ? speedKmh : undefined,
+  });
+  const url = `${API_BASE_URL}${apiPath(declared, { axis_id: axisId, z, x, y })}${query}`;
   const logCategory = `api:${axisId}-way-values`;
   try {
     const { response, durationMs, requestId } = await requestOk(url, {
