@@ -988,14 +988,11 @@ class Facts:
         return rows
 
     def _lock_holders(self) -> list[str]:
-        if not self.ctx.lock_root.is_dir():
+        owner = heavy_holder(self.ctx)
+        if not owner:
             return []
-        out = []
-        for entry in sorted(self.ctx.lock_root.iterdir()):
-            if entry.is_dir():
-                age = minutes(self.at - dt.datetime.fromtimestamp(entry.stat().st_ctime).astimezone())
-                out.append(f"{entry.name}（{age}分保持）")
-        return out
+        at = parse_time(owner.get("at"))
+        return [f"{HEAVY_LOCK}（{f'{minutes(self.at - at)}分保持' if at else '保持の始まり不明'}）"]
 
     def tree(self, agent: dict) -> Worktree | None:
         return self.agent_trees.get(id(agent))
@@ -1301,6 +1298,27 @@ def stage_pattern(stage: str) -> re.Pattern:
     return re.compile(head + tail + r"(?=$|[\s'\"`;&|)])")
 
 
+def heavy_holder(ctx: Context, table: dict | None = None) -> dict:
+    """`heavy`の枠の今の保持者（scripts/lockrun.pyが書く保持者のファイル）。いなければ空。
+    ファイルは放した後も残るので、書かれたpidのlockrunがまだ動いているときだけ保持者とみなす。
+    pidは使い回されうるので、コマンドラインが読めればlockrunかを見る。プロセス一覧が取れなければファイルのまま。"""
+    from orchestration import procs
+
+    try:
+        owner = json.loads((ctx.lock_root / f"{HEAVY_LOCK}.owner.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(owner, dict) or not isinstance(owner.get("pid"), int):
+        return {}
+    if table is None:
+        table = procs.processes()
+    if table is not None:
+        proc = table.get(owner["pid"])
+        if proc is None or (proc.cmdline is not None and "lockrun.py" not in proc.cmdline):
+            return {}
+    return owner
+
+
 def heavy_outside_lock(ctx: Context) -> list[str]:
     """枠（`heavy`の保持者）の子孫でないところで走っている重い段。候補であって判定ではない
     （コマンドラインに段の語を含むだけの`grep`等も拾う）。"""
@@ -1313,10 +1331,7 @@ def heavy_outside_lock(ctx: Context) -> list[str]:
     stages = [(s, stage_pattern(s)) for s in heavy_stages(convention or "")]
     if not stages:
         return [f"重い段を規約から読めない（origin/master:{CONVENTION_DOC}の「{HEAVY_TARGET_PREFIX}」の項目）"]
-    try:
-        holder = json.loads((ctx.lock_root / HEAVY_LOCK / "owner.json").read_text(encoding="utf-8")).get("pid")
-    except (OSError, ValueError, AttributeError):
-        holder = None
+    holder = heavy_holder(ctx, table).get("pid")
     matched = {}
     for p in table.values():
         # lockrunを呼んだ包み（待っている間も含む）は、コマンドラインに段の語を持つが枠の外で走ってはいない。

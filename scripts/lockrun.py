@@ -7,15 +7,14 @@ docs/conventions/orchestration.md「重い処理は機械全体で1本ずつ」�
     python scripts/lockrun.py -- '<bashコマンド文字列>'
     python scripts/lockrun.py --report [--since 2026-09-23T00:00] [--mine]
 
-ロックはgitの共通ディレクトリ（全worktreeで共有される）の`lockrun/`に置き、ディレクトリの
-mkdir（原子的）で取る。保持中は30秒ごとにmtimeを更新し、5分以上更新の無いロックは持ち主が
-死んだものとして破棄する——ツールの時間切れでプロセスが殺されると`finally`が走らないため。
-破棄したときは、保持者のpidがその時点で生きていたか・そのプロセス名を`lockrun/breaks.jsonl`へ
-追記する（生きている保持者の枠が破棄されたなら、破棄の規則のほうが誤っている）。
+ロックはgitの共通ディレクトリ（全worktreeで共有される）の`lockrun/heavy.lock`に対するOSのファイル
+ロック（Windowsは`msvcrt.locking`、それ以外は`fcntl.flock`）で取る。`finally`が走らない殺され方でも、
+保持者のプロセスが終わればOSが放す。ロックのファイルは消さない——消すと、開いて待っている側と
+作り直した側が別々のファイルを掴み、2本が同時に保持しうる。保持者の表示（待ち手・定期確認が読む）は
+別のファイル`lockrun/heavy.owner.json`が持つ。Windowsのロックはその範囲の読み取りも拒むため、
+ロックのファイルへは書かない。
 
-放すときは、ディレクトリが消えたことを確かめるまで短い間隔で消し直す。Windowsでは、待っている側が
-保持者を表示するために`owner.json`を開いている瞬間に消すと共有違反で消せず、放したはずの枠が
-更新の無いまま残って、後ろの全員が破棄の5分を待つ。消し切れなければ`breaks.jsonl`へ残す。
+保持者のプロセスだけが殺されてbashの子が残った場合、ロックは即座に放され、次の処理が子と並んで走る。
 
 枠は機械全体で1つ（ロック名`heavy`）。
 
@@ -30,24 +29,21 @@ import os
 import shutil
 import subprocess
 import sys
-import threading
 import time
 from datetime import datetime
 
-from orchestration import procs
+if os.name == "nt":
+    import msvcrt
+else:
+    import fcntl
 
-STALE_SECONDS = 300
-HEARTBEAT_SECONDS = 30
 #: 1回の保持の上限。超えたら処理を打ち切ってロックを放す——1本が枠を持ち続けると、後ろに
 #: 並んだ全員（数秒で終わるものも含む）が同じだけ待つ。npm ci・検査・テスト1段階はこの中に収まる。
 MAX_HOLD_SECONDS = int(os.environ.get("LOCKRUN_MAX_HOLD_SECONDS", "600"))
 TIMED_OUT = 124
 HELD_ENV = "LOCKRUN_HELD"
 POLL_SECONDS = 5
-#: 放すときに消し直す回数と間隔。待っている側が`owner.json`を開くのは読み取りの一瞬だけ。
-RELEASE_ATTEMPTS = 20
-RELEASE_RETRY_SECONDS = 0.25
-#: 機械全体で1つの枠の名前（ロックのディレクトリ・記録の`lock`）。
+#: 機械全体で1つの枠の名前（ロックのファイル・保持者のファイル・記録の`lock`）。
 LOCK_NAME = "heavy"
 WINDOWS_BASH = (r"C:\Program Files\Git\bin\bash.exe", r"C:\Program Files\Git\usr\bin\bash.exe")
 
@@ -72,80 +68,52 @@ def find_bash() -> str:
     return shutil.which("bash") or "bash"
 
 
-def load_owner(path: str) -> dict:
+def owner_path(root: str, name: str) -> str:
+    return os.path.join(root, f"{name}.owner.json")
+
+
+def read_owner(root: str, name: str) -> str:
     try:
-        with open(os.path.join(path, "owner.json"), encoding="utf-8") as f:
+        with open(owner_path(root, name), encoding="utf-8") as f:
             owner = json.load(f)
-        return owner if isinstance(owner, dict) else {}
-    except (OSError, ValueError):
-        return {}
+        return f"{owner.get('cwd')} / {owner.get('cmd')}"
+    except (OSError, ValueError, AttributeError):
+        return "不明"
 
 
-def read_owner(path: str) -> str:
-    owner = load_owner(path)
-    return f"{owner.get('cwd')} / {owner.get('cmd')}" if owner else "不明"
+def try_lock(fd: int) -> bool:
+    try:
+        if os.name == "nt":
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+        else:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return True
+    except OSError:
+        return False
 
 
-def record_break(path: str, name: str, age: float) -> None:
-    owner = load_owner(path)
-    pid = owner.get("pid")
-    table = procs.processes() if isinstance(pid, int) else None
-    proc = table.get(pid) if table is not None else None
-    alive = None if table is None else proc is not None
-    record = {
-        "at": datetime.now().astimezone().isoformat(timespec="seconds"), "lock": name, "age_s": int(age),
-        "holder_pid": pid, "holder_alive": alive, "holder_name": proc.name if proc else None,
-        # pidは再利用されうる。生きていたときは、それが本当にlockrunかをコマンドラインで見分ける。
-        "holder_cmdline": (proc.cmdline or "")[:300] if proc else None,
-        "owner_cwd": owner.get("cwd"), "owner_cmd": owner.get("cmd"), "breaker_pid": os.getpid(),
-    }
-    state = {True: "生きていた", False: "死んでいた", None: "生死を確かめられなかった"}[alive]
-    print(f"[lockrun] {name} のロックが{int(age)}秒更新されていないため破棄します"
-          f"（保持者 pid {pid} は{state}{f'、{proc.name}' if proc else ''}）", flush=True)
-    with open(os.path.join(os.path.dirname(path), "breaks.jsonl"), "a", encoding="utf-8") as f:
-        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+def unlock(fd: int) -> None:
+    try:
+        if os.name == "nt":
+            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+        else:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
 
 
-def release(path: str, name: str) -> bool:
-    """枠を放す。消し切れたか。消し切れなければ知らせて`breaks.jsonl`へ残す。"""
-    for _ in range(RELEASE_ATTEMPTS):
-        shutil.rmtree(path, ignore_errors=True)
-        if not os.path.exists(path):
-            return True
-        time.sleep(RELEASE_RETRY_SECONDS)
-    left = sorted(os.listdir(path)) if os.path.isdir(path) else None
-    record = {
-        "at": datetime.now().astimezone().isoformat(timespec="seconds"), "lock": name,
-        "release_failed": True, "releaser_pid": os.getpid(), "left": left,
-    }
-    print(f"[lockrun] {name} のロックを放せなかった（{path} が残っている。"
-          f"{STALE_SECONDS}秒後に次の待ち手が破棄する）", flush=True)
-    with open(os.path.join(os.path.dirname(path), "breaks.jsonl"), "a", encoding="utf-8") as f:
-        f.write(json.dumps(record, ensure_ascii=False) + "\n")
-    return False
-
-
-def acquire(path: str, name: str) -> float:
+def acquire(root: str, name: str) -> tuple[int, float]:
+    """ロックを取ったファイル記述子と、待った秒数。"""
+    fd = os.open(os.path.join(root, f"{name}.lock"), os.O_RDWR | os.O_CREAT)
     started = time.monotonic()
     last_report = -60.0
-    while True:
-        try:
-            os.mkdir(path)
-            return time.monotonic() - started
-        except FileExistsError:
-            try:
-                age = time.time() - os.path.getmtime(path)
-            except FileNotFoundError:
-                continue
-            if age > STALE_SECONDS:
-                record_break(path, name, age)
-                shutil.rmtree(path, ignore_errors=True)
-                continue
-            waited = time.monotonic() - started
-            if waited - last_report >= 60:
-                print(f"[lockrun] {name} のロック待ち（保持者: {read_owner(path)}、待ち{int(waited)}秒）", flush=True)
-                last_report = waited
-            time.sleep(POLL_SECONDS)
+    while not try_lock(fd):
+        waited = time.monotonic() - started
+        if waited - last_report >= 60:
+            print(f"[lockrun] {name} のロック待ち（保持者: {read_owner(root, name)}、待ち{int(waited)}秒）", flush=True)
+            last_report = waited
+        time.sleep(POLL_SECONDS)
+    return fd, time.monotonic() - started
 
 
 def kill_tree(proc: subprocess.Popen) -> None:
@@ -171,24 +139,14 @@ def run(command: str) -> int:
     if name in os.environ.get(HELD_ENV, "").split(","):
         # 枠を持った処理の中から同じ枠を取りに来た。待つと自分を待って止まる。
         return subprocess.run([find_bash(), "-c", command], cwd=os.getcwd(), check=False).returncode
-    path = os.path.join(root, name)
     start = datetime.now().astimezone().isoformat(timespec="seconds")
-    wait_seconds = acquire(path, name)
-    stop = threading.Event()
-
-    def heartbeat() -> None:
-        while not stop.wait(HEARTBEAT_SECONDS):
-            try:
-                os.utime(path)
-            except OSError:
-                pass
-
+    fd, wait_seconds = acquire(root, name)
     held_from = time.monotonic()
     returncode = -1
     try:
-        with open(os.path.join(path, "owner.json"), "w", encoding="utf-8") as f:
-            json.dump({"cwd": os.getcwd(), "cmd": command[:200], "pid": os.getpid()}, f, ensure_ascii=False)
-        threading.Thread(target=heartbeat, daemon=True).start()
+        with open(owner_path(root, name), "w", encoding="utf-8") as f:
+            json.dump({"cwd": os.getcwd(), "cmd": command[:200], "pid": os.getpid(),
+                       "at": datetime.now().astimezone().isoformat(timespec="seconds")}, f, ensure_ascii=False)
         print(f"[lockrun] {name} のロックを取得（待ち{int(wait_seconds)}秒）", flush=True)
         held = ",".join(filter(None, [os.environ.get(HELD_ENV, ""), name]))
         proc = subprocess.Popen([find_bash(), "-c", command], cwd=os.getcwd(), env={**os.environ, HELD_ENV: held})
@@ -200,8 +158,7 @@ def run(command: str) -> int:
             print(f"[lockrun] {name} の保持が上限{MAX_HOLD_SECONDS}秒を超えたため打ち切りました。"
                   "処理を上限内に分けるか、司令塔に独占の枠を求めること", flush=True)
     finally:
-        stop.set()
-        release(path, name)
+        unlock(fd)
         record = {
             "start": start, "lock": name, "cwd": os.getcwd(), "cmd": command[:200],
             "wait_s": round(wait_seconds, 1), "hold_s": round(time.monotonic() - held_from, 1),
