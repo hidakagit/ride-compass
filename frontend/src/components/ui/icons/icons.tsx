@@ -1,7 +1,35 @@
-// 地図上のアイコンボタン（MapOverlayControls）で使う自作SVGアイコン集。
-// 外部アイコンライブラリは使わず、既存の現在地アイコン（page.tsx）と同じ線画スタイル
-// （stroke=currentColor、丸端、フォント非依存）に揃えている。
+// 地図・パネル・ヘッダーが共有するアイコン集。天気・警告・操作のような意味の決まった汎用の形は
+// lucide-reactの同じ意味の形を使い、このアプリ固有の概念（軸・レイヤー・区間の乗り換え等）の形だけを
+// 自前のSVGで持つ。自前の形はlucideと同じ線画の様式（線の色は文字色・丸い端・塗りなし基調）で描き、
+// 線の太さを表示の大きさに対する比でそろえる。
 import type { ReactElement } from "react";
+import {
+  ArrowUp,
+  Clock,
+  Cloud,
+  CloudFog,
+  CloudLightning,
+  Copy,
+  Download,
+  Droplet,
+  EllipsisVertical,
+  Gauge,
+  Info,
+  Layers,
+  Moon,
+  Play,
+  RotateCw,
+  Shield,
+  SlidersHorizontal,
+  Snowflake,
+  Sun,
+  Target,
+  Thermometer,
+  Trash,
+  TriangleAlert,
+  Wind,
+  type LucideIcon,
+} from "lucide-react";
 
 // サイズは呼び出し側のCSSで決まる（デフォルトは16px）ため、ここでは形だけを定義する。
 
@@ -13,12 +41,17 @@ interface IconProps {
  * カタログ（mapLayers.ts）のどちらもこの型で持つ。 */
 export type MapIconComponent = (props: IconProps) => ReactElement;
 
+const VIEWBOX_SIZE = 20;
+const STROKE_WIDTH = 1.6;
+/** lucideの形は24単位の枠で描かれているので、同じ比の太さへ直す。 */
+const LUCIDE_STROKE_WIDTH = (STROKE_WIDTH * 24) / VIEWBOX_SIZE;
+
 // 線の色・太さ・端は親に置き、子は既定と違うときだけ書く（線を持たない形は`stroke="none"`）。
 const svgProps = {
-  viewBox: "0 0 20 20",
+  viewBox: `0 0 ${VIEWBOX_SIZE} ${VIEWBOX_SIZE}`,
   fill: "none" as const,
   stroke: "currentColor",
-  strokeWidth: 1.6,
+  strokeWidth: STROKE_WIDTH,
   strokeLinecap: "round" as const,
   "aria-hidden": true as const,
 };
@@ -180,16 +213,6 @@ export function TrackGradeIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** 注意喚起の三角＋感嘆符 */
-export function WarningTriangleIcon({ size = 16 }: IconProps) {
-  return (
-    <svg width={size} height={size} {...svgProps}>
-      <path d="M10 2 18.5 17H1.5L10 2Z" strokeLinejoin="round" strokeLinecap="butt" />
-      <path d="M10 8v4" />
-      <circle cx="10" cy="14.4" r="0.9" fill="currentColor" stroke="none" />
-    </svg>
-  );
-}
 export function TunnelIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
@@ -312,126 +335,6 @@ export function LogIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** 風（天候ヘッダ T57）: 渦を巻く気流を表す3本の曲線 */
-export function WindIcon({ size = 16 }: IconProps) {
-  return (
-    <svg width={size} height={size} {...svgProps}>
-      <path d="M2 6.5h11a2.5 2.5 0 1 0-2.2-3.7" />
-      <path d="M2 10.5h14.5a2.5 2.5 0 1 1-2.2 3.7" />
-      <path d="M2 14.5h8a2 2 0 1 1-1.8 2.9" />
-    </svg>
-  );
-}
-
-/** 風向（天候ヘッダのスマホ1行化）: まっすぐな矢印。呼び出し側がwind_direction_degぶん
- * 回転させて使う（回転前提のため、渦を巻くWindIconと違い上向き固定の単純な矢印にしてある）。 */
-export function WindDirectionArrowIcon({ size = 16 }: IconProps) {
-  return (
-    <svg width={size} height={size} {...svgProps}>
-      <path
-        d="M10 2v14M10 2 5 8M10 2l5 6"
-
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-/** 気温（天候ヘッダ T61）: 温度計 */
-export function ThermometerIcon({ size = 16 }: IconProps) {
-  return (
-    <svg width={size} height={size} {...svgProps}>
-      <path
-        d="M9 3.2v8.75a3 3 0 1 0 2 0V3.2a1 1 0 0 0-2 0Z"
-
-        strokeLinejoin="round"
-      />
-      <circle cx="10" cy="15" r="1.2" fill="currentColor" stroke="none" />
-    </svg>
-  );
-}
-
-/** 降水確率（天候ヘッダ T61）: 雨粒 */
-export function RaindropIcon({ size = 16 }: IconProps) {
-  return (
-    <svg width={size} height={size} {...svgProps}>
-      <path
-        d="M10 2.8C7.2 7 4.8 10.2 4.8 12.8a5.2 5.2 0 0 0 10.4 0C15.2 10.2 12.8 7 10 2.8Z"
-
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-/** 雷ナウキャスト（地図チップ）: 雷雲から伸びる稲妻 */
-export function ThunderIcon({ size = 16 }: IconProps) {
-  return (
-    <svg width={size} height={size} {...svgProps}>
-      <path
-        d="M6 8.5a4 4 0 0 1 7.6-1.7A3.2 3.2 0 0 1 13 13H6.5a3.5 3.5 0 0 1-.5-6.95"
-
-        strokeLinejoin="round"
-      />
-      <path d="M10.5 12 8 16.5h2.6L9.5 20l4-6h-2.6L12.5 12Z" fill="currentColor" stroke="none" />
-    </svg>
-  );
-}
-
-/** UV指数（天候ヘッダ）: 太陽 */
-export function SunIcon({ size = 16 }: IconProps) {
-  return (
-    <svg width={size} height={size} {...svgProps}>
-      <circle cx="10" cy="10" r="3.6" strokeLinecap="butt" />
-      <path d="M10 2.5v2.2M10 15.3v2.2M17.5 10h-2.2M4.7 10H2.5M15.3 4.7l-1.6 1.6M6.3 13.7l-1.6 1.6M15.3 15.3l-1.6-1.6M6.3 6.3 4.7 4.7" />
-    </svg>
-  );
-}
-
-/** 天気アイコン（天候ヘッダ）: 夜間の晴れ。三日月 */
-export function MoonIcon({ size = 16 }: IconProps) {
-  return (
-    <svg width={size} height={size} {...svgProps}>
-      <path
-        d="M17.4 10.6A7.4 7.4 0 1 1 9.3 2.5 5.8 5.8 0 0 0 17.4 10.6Z"
-
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-/** 天気アイコン（天候ヘッダ）: くもり。丸みを帯びた雲のシルエット */
-export function CloudIcon({ size = 16 }: IconProps) {
-  return (
-    <svg width={size} height={size} {...svgProps}>
-      <path
-        d="M6.3 14.6a3.3 3.3 0 0 1 .4-6.6 4.3 4.3 0 0 1 8.1-1.3 3.6 3.6 0 0 1-.4 7.9H6.3Z"
-
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-/** 天気アイコン（天候ヘッダ）: 霧。視界不良を表す水平線3本 */
-export function FogIcon({ size = 16 }: IconProps) {
-  return (
-    <svg width={size} height={size} {...svgProps}>
-      <path d="M3 7h11M3 10.2h14M3 13.4h9" />
-    </svg>
-  );
-}
-
-/** 天気アイコン（天候ヘッダ）: 雪。3本の直径が交差する結晶 */
-export function SnowflakeIcon({ size = 16 }: IconProps) {
-  return (
-    <svg width={size} height={size} {...svgProps}>
-      <path d="M10 3v14M4.5 6.5l11 7M15.5 6.5l-11 7" />
-    </svg>
-  );
-}
-
 /** 区間の乗り換え: 2本の道が合流して1本になる形。「別の候補の道を取り込んで1本にする」
  * という操作そのものを絵にする（鉛筆の「編集」だと、どのルートの何を変えるのかが伝わらない）。
  * 分岐点・合流点に節を置き、取り込む側の道を太く描く。 */
@@ -470,15 +373,6 @@ export function RouteDiffIcon({ size = 16 }: IconProps) {
         fill="none"
         strokeLinecap="butt"
       />
-    </svg>
-  );
-}
-
-/** 条件からルートの候補を作る: 実行の三角。 */
-export function GenerateRoutesIcon({ size = 16 }: IconProps) {
-  return (
-    <svg width={size} height={size} {...svgProps}>
-      <path d="M6.5 4.5v11l8.5-5.5Z" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -535,19 +429,6 @@ export function UndoAllIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** 生成した候補を捨てる: ゴミ箱。**バツ印を使わない**——このボタンはパネルを閉じる
- * ✕の隣に並ぶため、同じ形だとどちらがどちらか分からなくなる。 */
-export function ClearRoutesIcon({ size = 16 }: IconProps) {
-  return (
-    <svg width={size} height={size} {...svgProps}>
-      <path d="M3.6 5.4h12.8" />
-      <path d="M7.9 5.4V3.9h4.2v1.5" strokeLinejoin="round" strokeLinecap="butt" />
-      <path d="M5.7 5.4h8.6l-.7 10.7H6.4L5.7 5.4Z" strokeLinejoin="round" strokeLinecap="butt" />
-      <path d="M8.6 8.6v4.6M11.4 8.6v4.6" strokeWidth="1.4" />
-    </svg>
-  );
-}
-
 /** 全レイヤー一括OFF: 重なり（レイヤー）＋バツ。
  * 地図下部の一括操作行には「戻す」操作が複数並ぶため、バツは「消す」の意味だけに使い、
  * 何を消すのかは対象の形（重なり／漏斗）で示す——バツ単体だと対象を表せない。 */
@@ -577,7 +458,7 @@ export function ClearAllFiltersIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** 表示する項目を選ぶ: 中抜きのつまみが付いた横線2本。RouteSettingsIcon（塗りの点3つ）とは、つまみの形と本数で見分ける。 */
+/** 表示する項目を選ぶ: 中抜きのつまみが付いた横線2本。RouteSettingsIcon（短い縦線のつまみが3つ）とは、つまみの形と本数で見分ける。 */
 export function DisplayItemsIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
@@ -588,145 +469,39 @@ export function DisplayItemsIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** 補足説明: ラベル横に添える汎用の情報アイコン（円＋i、hoverで詳細を出す補足用途）。 */
-export function InfoIcon({ size = 14 }: IconProps) {
-  return (
-    <svg width={size} height={size} {...svgProps}>
-      <circle cx="10" cy="10" r="7.5" strokeLinecap="butt" />
-      <circle cx="10" cy="6.6" r="0.9" fill="currentColor" stroke="none" />
-      <path d="M10 9.4v5" />
-    </svg>
-  );
+// --- 汎用の形（lucide-react） ---
+
+/** lucideの形を、このファイルの他のアイコンと同じ呼び方（`size`だけを受け、既定16px）と
+ * 同じ線の太さ（表示の大きさに対する比）にそろえる。 */
+function fromLucide(Icon: LucideIcon, defaultSize = 16): MapIconComponent {
+  return function LucideMapIcon({ size = defaultSize }: IconProps) {
+    return <Icon size={size} strokeWidth={LUCIDE_STROKE_WIDTH} />;
+  };
 }
 
-/** コピー: 重なった2枚の紙。押すと中身がクリップボードへ入ることを表す。 */
-export function CopyIcon({ size = 16 }: IconProps) {
-  return (
-    <svg width={size} height={size} {...svgProps}>
-      <rect x="7" y="7" width="10" height="11" rx="1.6" strokeLinecap="butt" />
-      <path d="M13 4.5H4.6A1.6 1.6 0 0 0 3 6.1v8.4" />
-    </svg>
-  );
-}
-
-/** 地図の再描画: 閉じかけた円弧と矢じり。地図インスタンスだけを描き直す操作を表す。 */
-export function RedrawMapIcon({ size = 16 }: IconProps) {
-  return (
-    <svg width={size} height={size} {...svgProps}>
-      <path d="M16 10a6 6 0 1 1-1.8-4.3" />
-      <path
-        d="M16.4 2.6v3.6h-3.6"
-
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-/** ルート設定（モバイル下部タブ）: 高さ違いのスライダー3本 */
-export function RouteSettingsIcon({ size = 16 }: IconProps) {
-  return (
-    <svg width={size} height={size} {...svgProps}>
-      <path d="M3 6h14M3 10h14M3 14h14" />
-      <circle cx="7" cy="6" r="1.8" fill="currentColor" stroke="none" />
-      <circle cx="13" cy="10" r="1.8" fill="currentColor" stroke="none" />
-      <circle cx="9" cy="14" r="1.8" fill="currentColor" stroke="none" />
-    </svg>
-  );
-}
-
-// --- 軸スタジオの地図チップアイコン選択パレット向け、汎用ピクトグラム ---
-// 既存の軸専用アイコン（勾配=GradientAxisIcon等）に加え、新規作成した軸がすぐ選べる
-// スペアをあらかじめ用意しておく。既存アイコンと同じ線画スタイル（stroke=currentColor、
-// 丸端、塗りなし基調）に揃える。新しい意匠の追加は引き続きコード変更を要する
-// （axisIconPalette.tsx参照、GUIからの任意SVG登録はしない）。
-
-/** 盾（安全・保護の概念向け）: 縦の盾形シルエット */
-export function ShieldIcon({ size = 16 }: IconProps) {
-  return (
-    <svg width={size} height={size} {...svgProps}>
-      <path
-        d="M10 2.5 16.5 5v5c0 4.2-2.9 6.8-6.5 7.5-3.6-.7-6.5-3.3-6.5-7.5V5L10 2.5Z"
-
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-/** 的（精度・命中の概念向け）: 同心円3つ */
-export function TargetIcon({ size = 16 }: IconProps) {
-  return (
-    <svg width={size} height={size} {...svgProps}>
-      <circle cx="10" cy="10" r="7" strokeLinecap="butt" />
-      <circle cx="10" cy="10" r="4" strokeLinecap="butt" />
-      <circle cx="10" cy="10" r="1.2" fill="currentColor" stroke="none" />
-    </svg>
-  );
-}
-
-/** 時計（時間・スケジュールの概念向け）: 円+短針長針 */
-export function ClockIcon({ size = 16 }: IconProps) {
-  return (
-    <svg width={size} height={size} {...svgProps}>
-      <circle cx="10" cy="10" r="7.5" strokeLinecap="butt" />
-      <path d="M10 6v4.2l3 2" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-/** 積層（複数材料の合成・複合指標の概念向け）: ずらして重ねた3枚のひし形 */
-export function LayersStackIcon({ size = 16 }: IconProps) {
-  return (
-    <svg width={size} height={size} {...svgProps}>
-      <path
-        d="M10 3 17 7.5 10 12 3 7.5 10 3Z"
-
-        strokeLinejoin="round"
-      />
-      <path
-        d="M3 11 10 15.5 17 11"
-
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-/** メニュー起動（HeaderMenu.tsx）: 縦3点（ケバブメニュー）の一般的な「その他の操作」
- * アフォーダンス。RouteSettingsIcon（横線+丸、スライダーの見た目）とは意味が異なる
- * ため区別する。 */
-export function MenuIcon({ size = 16 }: IconProps) {
-  return (
-    <svg width={size} height={size} {...svgProps}>
-      <circle cx="10" cy="5" r="1.5" fill="currentColor" stroke="none" />
-      <circle cx="10" cy="10" r="1.5" fill="currentColor" stroke="none" />
-      <circle cx="10" cy="15" r="1.5" fill="currentColor" stroke="none" />
-    </svg>
-  );
-}
-
-// ルート結果ヘッダの操作枠（保存・GPX出力）。機能実装まではdisabledの占位として使う。
-export function DownloadIcon({ size = 16 }: IconProps) {
-  return (
-    <svg width={size} height={size} {...svgProps}>
-      <path
-        d="M10 3v9m0 0-3.5-3.5M10 12l3.5-3.5M4 15v2h12v-2"
-        fill="none"
-
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-/** 想定速度: 半円のメーターと針 */
-export function SpeedGaugeIcon({ size = 16 }: IconProps) {
-  return (
-    <svg width={size} height={size} {...svgProps}>
-      <path d="M3 14a7 7 0 0 1 14 0" />
-      <path d="M10 14 13 9" />
-      <circle cx="10" cy="14" r="1.3" fill="currentColor" stroke="none" />
-    </svg>
-  );
-}
+export const WarningTriangleIcon = fromLucide(TriangleAlert);
+export const WindIcon = fromLucide(Wind);
+/** 呼び出し側が風向・走行方位のぶん回転させて使うため、上向きのまっすぐな矢印にしてある。 */
+export const WindDirectionArrowIcon = fromLucide(ArrowUp);
+export const ThermometerIcon = fromLucide(Thermometer);
+export const RaindropIcon = fromLucide(Droplet);
+export const ThunderIcon = fromLucide(CloudLightning);
+export const SunIcon = fromLucide(Sun);
+export const MoonIcon = fromLucide(Moon);
+export const CloudIcon = fromLucide(Cloud);
+export const FogIcon = fromLucide(CloudFog);
+export const SnowflakeIcon = fromLucide(Snowflake);
+export const GenerateRoutesIcon = fromLucide(Play);
+/** 生成した候補を捨てる。バツ印にしない——パネルを閉じる✕の隣に並び、同じ形だと見分けられない。 */
+export const ClearRoutesIcon = fromLucide(Trash);
+export const InfoIcon = fromLucide(Info, 14);
+export const CopyIcon = fromLucide(Copy);
+export const RedrawMapIcon = fromLucide(RotateCw);
+export const RouteSettingsIcon = fromLucide(SlidersHorizontal);
+export const ShieldIcon = fromLucide(Shield);
+export const TargetIcon = fromLucide(Target);
+export const ClockIcon = fromLucide(Clock);
+export const LayersStackIcon = fromLucide(Layers);
+export const MenuIcon = fromLucide(EllipsisVertical);
+export const DownloadIcon = fromLucide(Download);
+export const SpeedGaugeIcon = fromLucide(Gauge);

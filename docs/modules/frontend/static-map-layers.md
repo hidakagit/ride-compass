@@ -720,4 +720,8 @@ HTMLでもよい（例: `pinMarks.ts`の`pinMarkHtml`）。第三者が書ける
   直し、読み戻すときに自分で戻す。`maplibre-gl/src/util/vectortile_to_geojson.ts`）ので、読む側で戻さない。
 - `icons.tsx`はこのモジュール（`MapOverlayControls`のアイコン辞書）専用ではなく、
   [動的気象レイヤー](dynamic-weather-layers.md)の`WeatherPanel`/`TodayOutlook`からも
-  使われる、地図関連UI全体で共有するアイコン集である。
+  使われる、地図関連UI全体で共有するアイコン集である。天気・警告・操作のような意味の決まった
+  汎用の形はlucide-reactの形を同じ呼び方（`size`だけ・既定16px）と同じ線の太さの比へ包んで書き出し、
+  軸・レイヤー・区間の乗り換えのようなこのアプリ固有の概念の形だけを自前のSVGで持つ。組になって
+  見分け方を決めている形（「戻す」と「全部戻す」、一括操作の「重なり＋×」と「漏斗＋×」等）は、
+  片方だけをlucideへ替えると組の意匠が崩れるので、組ごと自前に置く。
