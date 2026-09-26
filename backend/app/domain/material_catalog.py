@@ -107,7 +107,7 @@ MISSING_SEMANTICS_DISPLAY: dict[MissingSemantics, MissingSemanticsDisplay] = {
 
 @dataclass(frozen=True)
 class WayMaterialCoverageSpec:
-    """道の生データ全行（`WAYS_SOURCE_SQL`）を母集団とする材料。`missing_condition`はその列・
+    """道の生データ全行（別名`w`）を母集団とする材料。`missing_condition`はその列・
     JSONB参照のみで構成したSQL真偽式（trueなら欠損）で、外部入力を連結しない。
 
     欠損は生データの全行について数える。値を埋めるバッチが一部の行しか処理しない材料では、

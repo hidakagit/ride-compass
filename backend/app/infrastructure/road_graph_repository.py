@@ -33,9 +33,8 @@ from app.domain.material_catalog import (
     material_value_sql,
     stop_poi_map_group_sql,
 )
-from app.domain.material_sql import (
-    LANES_COUNT_CASE_SQL,
-    MAXSPEED_KMH_CASE_SQL,
+from app.domain.material_sql import LANES_COUNT_CASE_SQL, MAXSPEED_KMH_CASE_SQL
+from app.infrastructure.source_models import (
     NODES_SOURCE_SQL,
     WAYS_SOURCE_SQL,
     nodes_lookup_sql,

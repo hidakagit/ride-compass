@@ -17,7 +17,7 @@ import time
 
 import asyncpg
 
-from app.domain.material_sql import ways_source_sql
+from app.infrastructure.source_models import ways_source_sql
 
 logger = logging.getLogger("ridecompass.derive_topology")
 

@@ -107,13 +107,8 @@ from app.domain.display_palette import (  # noqa: E402
     SEMANTIC_COLORS,
     resolved_display_axes,
 )
-from app.domain.gsi_tiles import (  # noqa: E402
-    RELIEF_ATTRIBUTION,
-    RELIEF_MAX_ZOOM,
-    RELIEF_TILE_URL,
-    TERRAIN_MAX_ZOOM,
-    TERRAIN_TILE_URL,
-)
+from app.api.routers.gsi_tile import RELIEF_TILE_URL, TERRAIN_TILE_URL  # noqa: E402
+from app.domain.gsi_tiles import RELIEF_ATTRIBUTION, RELIEF_MAX_ZOOM, TERRAIN_MAX_ZOOM  # noqa: E402
 from app.domain.terrain_rgb import TERRAIN_RGB_BASE_M, TERRAIN_RGB_UNIT_M  # noqa: E402
 from app.domain.landcover import (  # noqa: E402
     LANDCOVER_CLASSES,

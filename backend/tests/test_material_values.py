@@ -29,9 +29,8 @@ from app.domain.material_sql import (
     surface_estimate_sql,
     tag_absent_is_false_sql,
     tag_is_value_sql,
-    ways_lookup_sql,
-    ways_source_sql,
 )
+from app.infrastructure.source_models import ways_lookup_sql, ways_source_sql
 from app.domain.region import BoundingBox
 from app.domain.road import (
     SURFACE_OTHER_KEY,

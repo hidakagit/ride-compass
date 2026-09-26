@@ -10,7 +10,7 @@ import time
 import asyncpg
 
 from app.domain import divided_carriageway as dc
-from app.domain.material_sql import WAYS_SOURCE_SQL
+from app.infrastructure.source_models import WAYS_SOURCE_SQL
 from app.domain.traffic import direction_sql
 
 logger = logging.getLogger("ridecompass.derive_way_materials")

@@ -91,6 +91,59 @@ class SourceFeatureRow(Base):
     rast: Mapped[object | None] = mapped_column(Raster, nullable=True)
 
 
+# --- 道とノードの生データを読む副問い合わせ ---
+#
+# 材料の式（`domain/material_sql.py`）が読む別名`w`（道）と、ノードの別名の中身。生データの
+# 入れ方（`source`の値・キーの型）はここだけが知る。よく引くタグを列として出し、式の側が
+# `attrs`の構造を知らなくて済むようにする。
+
+_TABLE = SourceFeatureRow.__tablename__
+
+
+def _ways_select(extra_columns: tuple[str, ...]) -> str:
+    columns = ("natural_key::bigint AS osm_way_id", "geom", "attrs AS tags",
+               "attrs->>'highway' AS highway", "attrs->>'surface' AS surface", *extra_columns)
+    return "SELECT " + ", ".join(columns) + f" FROM {_TABLE}"
+
+
+def ways_source_sql(sampling: str = "", *, extra_columns: tuple[str, ...] = ()) -> str:
+    """道の生データの全行を指す副問い合わせ（別名`w`で置く）。
+
+    `sampling`は`TABLESAMPLE ...`を入れる口。抽選は副問い合わせの**中**へ置く
+    （外に付けると構文エラーになる）。`extra_columns`は生データの表の列を
+    そのまま足す口（構成ノードの並び`payload`等、材料の式が読まない列を要る読み手向け）。
+    """
+    return f"({_ways_select(extra_columns)} {sampling} WHERE source = 'osm_way')"
+
+
+WAYS_SOURCE_SQL = ways_source_sql()
+
+
+def ways_lookup_sql(key_expr: str) -> str:
+    """道を1本だけ引くときの副問い合わせ（LATERALの中に置く）。
+
+    **照合はtextのまま行う。** 主キーは`(source, natural_key)`で、`natural_key::bigint`
+    と比べると索引が使えず、道の全件に対する総当たりになる（実測: 区間1,766本の材料
+    取得で2,124万行を捨てて2.95秒）。
+    """
+    return (f"({_ways_select(())} "
+            f"WHERE source = 'osm_way' AND natural_key = ({key_expr})::text)")
+
+
+_NODES_SELECT = f"SELECT natural_key::bigint AS osm_node_id, geom, attrs AS tags FROM {_TABLE}"
+
+#: ノードの生データの全件を指す副問い合わせ（空間で絞る読み手・全件を流す派生の段向け）。
+#: キーで引くなら`nodes_lookup_sql`を使う——ここの`osm_node_id`で突き合わせると、
+#: `ways_lookup_sql`と同じ理由で主キーの索引が使えない。
+NODES_SOURCE_SQL = f"({_NODES_SELECT} WHERE source = 'osm_node')"
+
+
+def nodes_lookup_sql(key_expr: str) -> str:
+    """ノードを1点だけ引くときの副問い合わせ（LATERALの中に置く）。照合をtextのまま
+    行う理由は`ways_lookup_sql`と同じ。"""
+    return f"({_NODES_SELECT} WHERE source = 'osm_node' AND natural_key = ({key_expr})::text)"
+
+
 # 圧縮しない指定は型では表せないので、表を作った直後に当てる。親へ当てれば以後の
 # パーティションも引き継ぐ。
 for _column in ("payload", "rast"):

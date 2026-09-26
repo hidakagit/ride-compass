@@ -16,7 +16,7 @@ import time
 import asyncpg
 
 from app.batch._common import reset_columns_sql
-from app.domain.material_sql import NODES_SOURCE_SQL, WAYS_SOURCE_SQL
+from app.infrastructure.source_models import NODES_SOURCE_SQL, WAYS_SOURCE_SQL
 from app.domain.traffic import (
     HIGHWAY_RANK,
     TRAFFIC_SIGNAL_SQL,

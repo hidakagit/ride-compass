@@ -32,11 +32,8 @@ from app.domain.landcover import (
     landcover_key,
 )
 from app.domain.region import tile_position_sql
-from app.domain.material_sql import (
-    BRIDGE_NORMALIZED_SQL,
-    TUNNEL_NORMALIZED_SQL,
-    WAYS_SOURCE_SQL,
-)
+from app.domain.material_sql import BRIDGE_NORMALIZED_SQL, TUNNEL_NORMALIZED_SQL
+from app.infrastructure.source_models import WAYS_SOURCE_SQL
 
 logger = logging.getLogger("ridecompass.derive_raster_materials")
 

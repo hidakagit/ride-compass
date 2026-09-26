@@ -5,10 +5,19 @@ from app.api.dependencies import enforce_rate_limit, get_gsi_tile_client
 from app.api.routers._tile_http import validate_tile_coords
 from app.config import settings
 from app.infrastructure.gsi_tile_client import GsiTileClient, GsiTileNotFound
-from app.domain.gsi_tiles import RELIEF_ROUTE, TERRAIN_MAX_ZOOM, TERRAIN_MIN_ZOOM, TERRAIN_ROUTE
+from app.domain.gsi_tiles import RELIEF_UPSTREAM_PATH, TERRAIN_MAX_ZOOM, TERRAIN_MIN_ZOOM
 from app.services.terrain_tile_service import PNG_CONTENT_TYPE, get_terrain_rgb_tile
 
 router = APIRouter()
+
+_RELIEF_PREFIX = "/api/gsi-relief-tile"
+#: 色別標高図は上流のパスをそのまま中継する。
+RELIEF_ROUTE = f"{_RELIEF_PREFIX}/{{path:path}}"
+#: 画面が要求するURL（生成物で届く）。ルートの接頭辞と上流のパスから決まる（別々に書かない）。
+RELIEF_TILE_URL = f"{_RELIEF_PREFIX}/{RELIEF_UPSTREAM_PATH}"
+#: 標高タイルは変換して配るため、上流のパスではなく自前のルートを持ち、それが画面の要求するURLになる。
+TERRAIN_ROUTE = "/api/gsi-terrain-tile/{z}/{x}/{y}.png"
+TERRAIN_TILE_URL = TERRAIN_ROUTE
 
 
 @router.get(RELIEF_ROUTE)

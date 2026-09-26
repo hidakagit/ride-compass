@@ -18,8 +18,8 @@ from app.infrastructure.material_coverage import (
     build_edge_coverage_sql,
     build_way_coverage_sql,
 )
+from app.infrastructure.source_models import WAYS_SOURCE_SQL
 from app.domain.material_sql import (
-    WAYS_SOURCE_SQL,
     BRIDGE_NORMALIZED_SQL,
     LANES_COUNT_CASE_SQL,
     LIT_NORMALIZED_SQL,

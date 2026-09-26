@@ -34,7 +34,7 @@ from app.domain.material_catalog import (
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domain.material_sql import WAYS_SOURCE_SQL
+from app.infrastructure.source_models import WAYS_SOURCE_SQL
 
 # 材料ごとの宣言は`MaterialSpec.coverage`が持つ（材料を1つ増やすとき触るのは1か所）。
 # ここは測り方の実装だけを持ち、宣言は持たない。

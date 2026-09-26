@@ -22,7 +22,7 @@ from app.domain.accident import (
     FATAL_SQL,
 )
 from app.domain.geo import KM_PER_DEGREE_LATITUDE
-from app.domain.material_sql import nodes_lookup_sql
+from app.infrastructure.source_models import nodes_lookup_sql
 from app.domain.traffic import (
     INTERSECTION_DEGREE_THRESHOLD,
     POI_CLUSTER_EPS_M,
