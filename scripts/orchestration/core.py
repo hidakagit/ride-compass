@@ -36,9 +36,10 @@
 - タスクの題名と規模札は台帳（origin/masterの`docs/improvement-plan.md`の行）。見込み超過の予算は、
   担当の現在のタスクの規模札（「S〜M」のような幅は大きい側）について、タスク記録の所要の行
   （`所要（並行実行）:`）を集めた80パーセンタイルから、読むたびに計算する（`effort_budgets`）。
-- 監査済みのコミットがmasterへ入ったかは、監査の記録（`audit_log`の`通す`）と、そのコミットの件名の
-  先頭のタスク番号から始まる件名のコミットが監査の後にorigin/masterへ入ったか。前回のpushの時刻は
-  origin/masterの先端のコミットの時刻。
+- 監査済みのコミットがmasterへ入ったかは、監査の記録（`audit_log`の`通す`）と、監査で通したタスクの
+  番号から始まる件名のコミットが監査の後にorigin/masterへ入ったか（`has_landed`）。作業ツリーの担当の
+  元のコミットが取り込み済みか（`unlanded_commits`。スロットを渡し直せるかに使う）も同じ判定で、入った
+  タスクの報告のshaから届くコミットを取り込み済みとする。前回のpushの時刻はorigin/masterの先端のコミットの時刻。
 - 振り出し待ちの行のタスクが完了したかは、origin/masterの記録の`状態:`。完了の行は取り出さず、行は消さない
   （`dispatchable`。開け直せば、また取り出せる）。
 - 担当がクラウドで動くかは表の`where`（`クラウド`。書かなければ手元）にしか無い事実なので表に持つ。クラウドの担当は
@@ -478,31 +479,44 @@ def subject_tasks(subject: str) -> list[str]:
     return m.group(1).split("・") if m else []
 
 
-def audited_unpushed(ctx: Context, board: dict, at: dt.datetime) -> list[dict]:
-    """監査を通したコミットのうち、まだorigin/masterに入っていないもの。
+def passed_audits(board: dict) -> list[tuple[dict, dict, dt.datetime]]:
+    """監査で通した記録（担当・記録・監査の時刻）。タスクの無い記録は、masterに入ったかを追う対象が無いので除く。"""
+    out = []
+    for agent in board.get("agents") or []:
+        for entry in agent.get("audit_log") or []:
+            done = parse_time(entry.get("audit_done"))
+            if entry.get("audit_result") == "通す" and entry.get("task") and done:
+                out.append((agent, entry, done))
+    return out
 
-    入ったかは、監査で通したタスク（監査の記録の`task`）の番号から始まる件名のコミットが、監査の時刻より後に
-    origin/masterへ入ったかで見る。取り込みでは衝突を解き、後始末を畳み、件名を直すので、中身や件名の
-    一致では判定できない。タスクの無い監査の記録は、追う対象が無いので見ない。"""
-    since = at - dt.timedelta(hours=UNPUSHED_LOOKBACK_HOURS)
+
+def landed_since(ctx: Context, since: dt.datetime) -> dict[str, list[dt.datetime]]:
+    """`since`より後にorigin/masterへ入ったコミットの、件名の先頭のタスク番号 → コミットの時刻。"""
     landed: dict[str, list[dt.datetime]] = {}
     log = git_out(ctx.repo, "log", "--format=%ct %s", f"--since={iso(since)}", "origin/master") or ""
     for line in log.splitlines():
         ts, _, subject = line.partition(" ")
         for task in subject_tasks(subject):
             landed.setdefault(task, []).append(dt.datetime.fromtimestamp(int(ts)).astimezone())
-    out = []
-    for agent in board.get("agents") or []:
-        for entry in agent.get("audit_log") or []:
-            task, done = entry.get("task"), parse_time(entry.get("audit_done"))
-            if entry.get("audit_result") != "通す" or not task or not done or done < since:
-                continue
-            if any(t >= done for t in landed.get(str(task), [])):
-                continue
-            out.append({"agent": agent.get("name"), "task": task, "sha": entry.get("reported_sha"),
-                        "base": entry.get("audit_base"), "audited": entry.get("audit_done"),
-                        "urgent": bool(entry.get("urgent"))})
-    return out
+    return landed
+
+
+def has_landed(entry: dict, done: dt.datetime, landed: dict[str, list[dt.datetime]]) -> bool:
+    """監査で通した記録のタスクがmasterへ入ったか。監査で通したタスクの番号から始まる件名のコミットが、
+    監査の時刻より後にorigin/masterへ入ったかで見る。取り込みでは衝突を解き、後始末を畳み、件名を直すので、
+    中身や件名の一致では判定できない。"""
+    return any(t >= done for t in landed.get(str(entry.get("task")), []))
+
+
+def audited_unpushed(ctx: Context, board: dict, at: dt.datetime) -> list[dict]:
+    """監査を通したコミットのうち、まだorigin/masterに入っていないもの（入ったかは`has_landed`）。"""
+    since = at - dt.timedelta(hours=UNPUSHED_LOOKBACK_HOURS)
+    landed = landed_since(ctx, since)
+    return [{"agent": agent.get("name"), "task": entry.get("task"), "sha": entry.get("reported_sha"),
+             "base": entry.get("audit_base"), "audited": entry.get("audit_done"),
+             "urgent": bool(entry.get("urgent"))}
+            for agent, entry, done in passed_audits(board)
+            if done >= since and not has_landed(entry, done, landed)]
 
 
 def ledger_ids(plan_text: str | None) -> set[str]:
@@ -835,7 +849,7 @@ def worktree_of(agent: dict, trees: list[Worktree]) -> Worktree | None:
     return next((t for t in trees if os.path.basename(t.path) == key or slot_owner(t) == key), None)
 
 
-def unsaved_work(path: Path) -> list[str]:
+def unsaved_work(ctx: Context, path: Path) -> list[str]:
     """作業ツリーにしか無い成果。空なら、作業ツリーを次の担当へ渡しても何も失われない。
     確かめられなかったときも、失われうるものとして返す。"""
     r = git(path, "status", "--porcelain=v1", "-z", "--no-renames", "--untracked-files=all")
@@ -847,12 +861,37 @@ def unsaved_work(path: Path) -> list[str]:
     if dirty:
         shown = "、".join(dirty[:5]) + (f" ほか{len(dirty) - 5}件" if len(dirty) > 5 else "")
         out.append(f"未コミットの変更がある: {shown}")
-    unpushed = git_out(path, "rev-list", "--count", "HEAD", "--not", "--remotes=origin")
-    if unpushed is None:
+    stray = unlanded_commits(ctx, path)
+    if stray is None:
         out.append("pushしていないコミットを確かめられない（git rev-listが失敗した）")
-    elif unpushed != "0":
-        out.append(f"どのリモートの枝からも届かないコミットが{unpushed}件ある（pushしていない成果）")
+    elif stray:
+        out.append(f"どのリモートの枝からも届かず、masterへ入ったとも導けないコミットが{len(stray)}件ある"
+                   "（pushしていない成果）")
     return out
+
+
+def unlanded_commits(ctx: Context, path: Path) -> list[str] | None:
+    """作業ツリーのHEADから届き、どのリモートの枝からも届かないコミットのうち、取り込み済みでないもの。
+    取り込み済みとは、監査で通した報告のshaから届き、そのタスクが監査の後にmasterへ入った（`has_landed`）
+    こと——司令塔は担当のコミットを畳み直した別のコミットとしてmasterへ入れ、作業ブランチを消すので、
+    担当の元のコミットはどのリモートの枝からも届かなくなる。gitが失敗したらNone。"""
+    out = git_out(path, "rev-list", "HEAD", "--not", "--remotes=origin")
+    if out is None:
+        return None
+    stray = out.split()
+    if not stray:
+        return []
+    reported = [(entry, done, full) for _, entry, done in passed_audits(load_board(ctx))
+                if len(sha := str(entry.get("reported_sha") or "").lower()) >= 7
+                for full in stray if full.startswith(sha)]
+    if not reported:
+        return stray
+    landed = landed_since(ctx, min(done for _, done, _ in reported))
+    tips = [full for entry, done, full in reported if has_landed(entry, done, landed)]
+    if not tips:
+        return stray
+    rest = git_out(path, "rev-list", "HEAD", "--not", "--remotes=origin", *tips)
+    return None if rest is None else rest.split()
 
 
 def release_slot(ctx: Context, agent: dict) -> None:
@@ -866,7 +905,7 @@ def release_slot(ctx: Context, agent: dict) -> None:
     if tree is None:
         return
     slot = os.path.basename(tree.path)
-    problems = unsaved_work(Path(tree.path))
+    problems = unsaved_work(ctx, Path(tree.path))
     if problems:
         print(f"{slot}の印を残した（渡し先 {owner}）: " + " / ".join(problems))
         return
