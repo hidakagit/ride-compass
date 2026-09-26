@@ -8,14 +8,24 @@
 
     python scripts/orchestrate.py pending-backup --pending <dir>   # 全件を日付のファイルへ書き出す（直近14日を残す。移し忘れを知らせる）
     python scripts/orchestrate.py pending-inbox [--pending <dir>]  # 取り込み待ちの件を、タスクごとの今の持ち主と並べる（既定: 最新のバックアップ）
+    python scripts/orchestrate.py pending-waiting [--pending <dir>]  # タブごとの件数と、回答待ちの件（下の「タブの定義」）
 
 `check`は最新のバックアップから、取り込み待ちの件を持ち主ごとに要対応として出し、書き出しが確認間隔の2倍より古ければ
 それも出す（`inbox_problems`）。書き出しより後に付いた答えは見えないので、司令塔は定期確認のたびに書き出し直す。
 
-## 取り込み待ち
+## タブの定義
 
-送った件（`sent_at`があり`taken_at`がそれより前か無い）と、答えが出た件（`answer`があり、`taken_at`が無いか`answered_at`より
-前）。答えはページの「Claude に反映を頼む」を押されなくても付くので、送ったかだけを見ると答えを見落とす。
+件の振り分けはダッシュボードのページのタブと同じ定義で導く（ページのソースの`inIntake`・`isStaged`・`stageOf`。
+件名と前提はどのタブにも数えない）:
+
+- **取り込み待ち**（`needs_take`）: 答えかコメントが付いていて、`taken_at`が無いか、答え・コメントの新しい方より前の件。
+  `決定`はClaudeが書いた件なので、コメントだけで入る。答えはページの「Claude に反映を頼む」を押されなくても付くので、
+  送ったか（`sent_at`）では決めない——問いを置く側が誤って`sent_at`を書いても、答えの無い件は入らない。
+  そのうち送った後に答え・コメントが変わっていない件が**送った・取り込み待ち**（`awaiting_take`）、残りが**反映待ち**（`staged`）。
+- **回答待ち**（`waiting_answer`）: 答えを待つ種類（保留・操作・改善案・起票案）で、答えが無い件（`answer`の項目が無い件も含む）。
+- **記録待ち**（`waiting_record`）: 上のどちらでもなく、決定・答え・コメントのどれかがある件。
+
+    python scripts/orchestrate.py pending-waiting [--pending <dir>]  # タブごとの件数と、回答待ちの件を優先度の順に
 
 ## 件の持ち主
 
@@ -36,6 +46,7 @@ from pathlib import Path
 
 from orchestration.core import (
     ACTIVE_STATES,
+    PRIORITIES,
     TASK_ID_RE,
     TASKS_DIR,
     Context,
@@ -54,6 +65,8 @@ BACKUP_KEEP_DAYS = 14
 #: 頼む」は起こしたセッションへすぐ届くので、1時間取り込まれなければ、受け取るセッションがいないとみなす。
 UNTAKEN_ALERT_MINUTES = 60
 BACKUP_NAME_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})\.json$")
+#: ユーザーの答えを待つ種類（ページの「回答待ち」タブに入る種類）。
+WAITING_KINDS = ("保留", "操作", "改善案", "起票案")
 
 
 def load_pending(directory: str | Path) -> dict[str, dict]:
@@ -83,17 +96,6 @@ def prereqs_in(items: dict[str, dict], task: str) -> list[str]:
             if m and m.group(0) not in out:
                 out.append(m.group(0))
     return out
-
-
-def answered_untaken(item: dict) -> bool:
-    """答えが出て取り込まれていないか: `answer`があり、`taken_at`が無いか`answered_at`より前。"""
-    if not answered(item):
-        return False
-    taken = parse_time(item.get("taken_at"))
-    if taken is None:
-        return True
-    at = parse_time(item.get("answered_at"))
-    return at is not None and taken < at
 
 
 def open_holds(items: dict[str, dict]) -> set[str]:
@@ -177,15 +179,68 @@ def left_behind(ctx: Context, items: dict[str, dict]) -> list[str]:
     return out
 
 
-def awaiting_take(item: dict) -> bool:
-    """送った・取り込み待ちか: `sent_at`があり、`taken_at`がそれより前か無い。"""
-    sent, taken = parse_time(item.get("sent_at")), parse_time(item.get("taken_at"))
-    return sent is not None and (taken is None or taken < sent)
+def epoch(value: object) -> float:
+    """時刻の文字列を比べられる数へ。無い・読めなければ0（ページの比べ方と同じ）。"""
+    t = parse_time(value)
+    return t.timestamp() if t else 0.0
+
+
+def comments_of(item: dict) -> list[dict]:
+    raw = item.get("comments")
+    return [c for c in raw if isinstance(c, dict) and str(c.get("text") or "").strip()] if isinstance(raw, list) else []
+
+
+def last_comment(item: dict) -> float:
+    raw = item.get("comments")
+    return max([0.0] + [epoch(c.get("at")) for c in raw if isinstance(c, dict)]) if isinstance(raw, list) else 0.0
+
+
+def last_user(item: dict) -> float:
+    """ユーザーが最後に手を入れた時刻（答え・コメントの新しい方）。"""
+    return max(epoch(item.get("answered_at")), last_comment(item))
+
+
+def is_item(item: dict) -> bool:
+    """タブに数える件か（件名と前提は数えない）。"""
+    return item.get("kind") not in ("件名", "前提")
 
 
 def needs_take(item: dict) -> bool:
     """取り込み待ちか（モジュールの冒頭「取り込み待ち」）。"""
-    return awaiting_take(item) or answered_untaken(item)
+    if not is_item(item):
+        return False
+    decided = item.get("kind") == "決定"
+    if not (comments_of(item) if decided else answered(item) or comments_of(item)):
+        return False
+    taken = epoch(item.get("taken_at"))
+    return not taken or taken < (last_comment(item) if decided else last_user(item))
+
+
+def staged(item: dict) -> bool:
+    """反映待ちか: 取り込み待ちのうち、ユーザーがまだ「Claude に反映を頼む」で送っていない件。"""
+    return needs_take(item) and ((answered(item) and not item.get("sent_at"))
+                                 or (last_user(item) > 0 and last_user(item) > epoch(item.get("sent_at"))))
+
+
+def awaiting_take(item: dict) -> bool:
+    """送った・取り込み待ちか: 取り込み待ちのうち、送った後に答え・コメントが変わっていない件。"""
+    return needs_take(item) and not staged(item)
+
+
+def waiting_answer(item: dict) -> bool:
+    """回答待ちか: 答えを待つ種類（保留・操作・改善案・起票案）で、答えがまだ無い件。"""
+    return is_item(item) and item.get("kind") in WAITING_KINDS and not answered(item) and not needs_take(item)
+
+
+def waiting_record(item: dict) -> bool:
+    """記録待ちか: 取り込み待ちでも回答待ちでもなく、決定・答え・コメントのどれかがある件。"""
+    return (is_item(item) and not needs_take(item) and not waiting_answer(item)
+            and (item.get("kind") == "決定" or answered(item) or bool(comments_of(item))))
+
+
+def priority_of(item: dict) -> str:
+    value = str(item.get("priority") or "").strip()
+    return value if value in PRIORITIES else "中"
 
 
 def by_owner(board: dict, items: dict[str, dict]) -> dict[str, list[str]]:
@@ -288,11 +343,38 @@ def cmd_backup(ctx: Context, args: argparse.Namespace) -> int:
     print(f"ダッシュボードの{len(items)}件を{path}へ書き出した"
           + (f"（{BACKUP_KEEP_DAYS}日より前の{'・'.join(removed)}を消した）" if removed else ""))
     alerts = [a for a in [backup_alert(ctx)] if a] + left_behind(ctx, items) + untaken(items)
-    alerts += [f"{doc_id}: 答えが出て取り込まれていない（pending-inbox で持ち主を出して回す）"
-               for doc_id, item in sorted(items.items()) if answered_untaken(item) and not awaiting_take(item)]
+    alerts += [f"{doc_id}: 答え・コメントが付いて取り込まれていない（pending-inbox で持ち主を出して回す）"
+               for doc_id, item in sorted(items.items()) if staged(item)]
     for alert in alerts:
         print(f"! {alert}")
     return 1 if alerts else 0
+
+
+def cmd_waiting(ctx: Context, args: argparse.Namespace) -> int:
+    """タブごとの件数と、回答待ちの件を優先度（高・中・低）の順に並べる。手で条件を組んで数えない
+    （`answer`の項目が無い件を拾い損ねる）。"""
+    if args.pending:
+        items = load_pending(args.pending)
+    else:
+        latest = latest_backup(ctx)
+        if latest is None:
+            print("ダッシュボードのバックアップが無い（ArtifactDataのlistにout_dirを付けて書き出し、pending-backup --pending <dir>）")
+            return 1
+        day, items = latest
+        print(f"{day}のバックアップを読んだ（それより後の答えは、書き出して pending-backup し直すと見える）")
+    waiting = [(doc_id, item) for doc_id, item in sorted(items.items()) if waiting_answer(item)]
+    intake = [item for item in items.values() if needs_take(item)]
+    by_priority = {p: [(d, i) for d, i in waiting if priority_of(i) == p] for p in PRIORITIES}
+    print(f"回答待ち{len(waiting)}件（" + "・".join(f"{p}{len(v)}" for p, v in by_priority.items()) + "）"
+          f"／取り込み待ち{len(intake)}件（反映待ち{sum(staged(i) for i in intake)}・送った{sum(awaiting_take(i) for i in intake)}）"
+          f"／記録待ち{sum(waiting_record(i) for i in items.values())}件")
+    for p, entries in by_priority.items():
+        for doc_id, item in entries:
+            first = str(item.get("text") or "").splitlines()[0][:60] if item.get("text") else ""
+            why = str(item.get("priority_reason") or "").strip()
+            print(f"  [{p}] {doc_id}（{item.get('task') or '番号なし'}・{item.get('kind')}）{first}"
+                  + (f"  — {why}" if why else ""))
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -304,6 +386,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--pending", required=True, help="ArtifactDataのlistでout_dirに書き出したディレクトリ")
     p = sub.add_parser("pending-inbox", help="取り込み待ちの件（送った・答えが出た）を、タスクごとの今の持ち主と並べる")
     p.add_argument("--pending", help="ArtifactDataのlistでout_dirに書き出したディレクトリ（既定: 最新のバックアップ）")
+    p = sub.add_parser("pending-waiting", help="タブごとの件数と、回答待ちの件を優先度の順に並べる")
+    p.add_argument("--pending", help="ArtifactDataのlistでout_dirに書き出したディレクトリ（既定: 最新のバックアップ）")
     args = parser.parse_args(argv)
     ctx = Context(Path(args.repo), args.dir)
-    return cmd_inbox(ctx, args) if args.cmd == "pending-inbox" else cmd_backup(ctx, args)
+    handler = {"pending-inbox": cmd_inbox, "pending-waiting": cmd_waiting, "pending-backup": cmd_backup}[args.cmd]
+    return handler(ctx, args)

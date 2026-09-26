@@ -41,7 +41,12 @@
   元のコミットが取り込み済みか（`unlanded_commits`。スロットを渡し直せるかに使う）も同じ判定で、入った
   タスクの報告のshaから届くコミットを取り込み済みとする。前回のpushの時刻はorigin/masterの先端のコミットの時刻。
 - 振り出し待ちの行のタスクが完了したかは、origin/masterの記録の`状態:`。完了の行は取り出さず、行は消さない
-  （`dispatchable`。開け直せば、また取り出せる）。
+  （`dispatchable`。開け直せば、また取り出せる）。閉じたタスクの後始末を振り出すときだけ、行に後始末の印
+  （`cleanup`。表にしか無い事実）を付けて積み、印の行は完了でも取り出す。
+- 見込み超過は担当の現在のタスクの着手時刻と予算から導く。司令塔が問い合わせて進みを確かめた事実だけは表に
+  しか無いので、是正済みの印（`overrun_ack`、確かめた時刻）として持つ。印は現在のタスクの着手より後に付けたもので、
+  付けてから予算の分数が経つまでだけ効き（`overrun_acked`）、その間はその担当の見込み超過で門を閉じない。
+  タスクが替わるか監査を通すと外れる。
 - 担当がクラウドで動くかは表の`where`（`クラウド`。書かなければ手元）にしか無い事実なので表に持つ。クラウドの担当は
   作業ツリーの検査と稼働（手元）の本数（門）から外す。
 - 回（`run`）が持つのは名前・目的・母集団（タスク番号と派生元）・打ち切りの引き継ぎ（`handover`）・
@@ -130,19 +135,19 @@ STATES = ACTIVE_STATES + STOPPED_STATES
 #: ために、書けるキーを決めておく。`board_cmd`が書けるのは`SETTABLE`のキーだけで、残りは道具が書く。
 ALLOWED_KEYS = {
     "top": ("run", "limits", "check_interval_min", "manual", "agents", "last_check", "queue", "coordinator_queue"),
-    "agent": ("name", "id", "where", "session", "state", "current_task", "task_first_started", "reported_sha", "audit_base",
-              "audit_done", "audit_result", "audit_log"),
+    "agent": ("name", "id", "where", "session", "state", "current_task", "task_first_started", "overrun_ack", "reported_sha",
+              "audit_base", "audit_done", "audit_result", "audit_log"),
     "audit_log": ("task", "reported_sha", "audit_base", "audit_done", "audit_result", "urgent"),
     "limits": ("concurrent",),
-    "queue": ("task", "priority", "added", "after", "agent"),
+    "queue": ("task", "priority", "added", "after", "agent", "cleanup"),
     "coordinator_queue": ("what", "priority", "added"),
 }
 #: `board set・add`・`board run`・`board dispatch push`の`k=v`で書けるキー。
 SETTABLE = {
-    "agent": ("id", "where", "session", "state", "current_task", "reported_sha", "audit_base", "audit_done", "audit_result",
-              "urgent"),
+    "agent": ("id", "where", "session", "state", "current_task", "overrun_ack", "reported_sha", "audit_base", "audit_done",
+              "audit_result", "urgent"),
     "top": ("limits.concurrent", "check_interval_min", "manual"),
-    "queue": ("after", "agent"),
+    "queue": ("after", "agent", "cleanup"),
 }
 #: 振り出し待ちの優先度。この順に取り出す。
 PRIORITIES = ("高", "中", "低")
@@ -340,9 +345,10 @@ def queue_done(ctx: Context, items: list[dict]) -> set[str]:
 
 
 def dispatchable(item: dict, done: set[str]) -> bool:
-    """取り出してよい行か: そのタスクがまだ完了しておらず、前提がすべて完了している。
-    完了は記録の状態から導き、行は消さない（開け直せば、また取り出せる）。"""
-    return str(item.get("task")) not in done and all(t in done for t in prereqs_of_item(item))
+    """取り出してよい行か: そのタスクがまだ完了しておらず（後始末の印`cleanup`がある行は完了していてもよい）、
+    前提がすべて完了している。完了は記録の状態から導き、行は消さない（開け直せば、また取り出せる）。"""
+    return ((str(item.get("task")) not in done or bool(item.get("cleanup")))
+            and all(t in done for t in prereqs_of_item(item)))
 
 
 def ready_to_dispatch(ctx: Context, items: list[dict]) -> list[dict]:
@@ -648,9 +654,19 @@ def budget_of(agent: dict, rows: dict[str, dict], budgets: dict[str, dict]) -> i
 
 
 def start_task(agent: dict, task: str, at: dt.datetime) -> None:
-    """担当の現在のタスクを切り替え、着手時刻を入れる。"""
+    """担当の現在のタスクを切り替え、着手時刻を入れる。是正済みの印は前のタスクのものなので外す。"""
     agent["current_task"] = task
     agent["task_first_started"] = iso(at)
+    agent.pop("overrun_ack", None)
+
+
+def overrun_acked(agent: dict, budget: int, at: dt.datetime) -> dt.datetime | None:
+    """見込み超過が是正済みか（印の時刻）。問い合わせで確かめたのはその時点の進みだけなので、印は現在のタスクの
+    着手より後に付けたもので、付けてから同じタスクの予算の分数が経つまでだけ効く。"""
+    ack, first = parse_time(agent.get("overrun_ack")), parse_time(agent.get("task_first_started"))
+    if ack is None or first is None or ack < first or at - ack >= dt.timedelta(minutes=budget):
+        return None
+    return ack
 
 
 def in_cloud(agent: dict) -> bool:
@@ -988,7 +1004,8 @@ class Facts:
         """クラウドで稼働中の担当。開発機の枠も作業ツリーも使わないので、稼働（手元）とは別に数える。"""
         return [str(a.get("name")) for a in self.board["agents"] if a.get("state") in ACTIVE_STATES and in_cloud(a)]
 
-    def overrun(self) -> list[str]:
+    def overrun(self, *, acked: bool = False) -> list[str]:
+        """見込み超過の担当。`acked`なら、是正済みの印が効いているもの（門を閉じない）だけを、無ければ残りを返す。"""
         out = []
         for a in self.board["agents"]:
             if a.get("state") not in ACTIVE_STATES or audit_pending(a):
@@ -997,8 +1014,12 @@ class Facts:
             if first and budget is not None:
                 total = minutes(self.at - first)
                 if total > budget:
+                    ack = overrun_acked(a, budget, self.at)
+                    if bool(ack) != acked:
+                        continue
                     task = a.get("current_task") or "現在のタスク"
-                    out.append(f"{a.get('name')}: {task}の着手から通算{total}分 / 規模の予算{budget}分")
+                    note = f"（是正済み {hm(ack)}。門は閉じない）" if ack else ""
+                    out.append(f"{a.get('name')}: {task}の着手から通算{total}分 / 規模の予算{budget}分{note}")
         return out
 
     def audit_waiting(self) -> list[dict]:
@@ -1261,8 +1282,9 @@ def cmd_check(ctx: Context, args: argparse.Namespace) -> int:
     active = f.active()
     if len(active) > f.limit:
         problems.append(f"稼働が上限を超えている（{len(active)}本 / 上限{f.limit}本）: " + "、".join(active))
-    problems += [f"見込み超過: {x}" for x in f.overrun()]
-    stale = dt.timedelta(minutes=STALE_COMMIT_MINUTES)
+    problems += [f"見込み超過: {x}（問い合わせて進みを確かめたら board set <名前> overrun_ack=now）"
+                 for x in f.overrun()]
+    stale =dt.timedelta(minutes=STALE_COMMIT_MINUTES)
     for a in f.board["agents"]:
         t = f.tree(a)
         if in_cloud(a):
@@ -1339,6 +1361,8 @@ def cmd_check(ctx: Context, args: argparse.Namespace) -> int:
               f"監査待ち{len(f.audit_waiting())}本、CPU {cpu}）")
     for line in run_summary_lines(view, detail=False) + prereq_lines:
         print(line)
+    for line in f.overrun(acked=True):
+        print(f"見込み超過: {line}")
     print(budget_line(f.budgets))
     # masterのpackage-lock.jsonが変わったら、空いているスロットを渡す前に温めておく（渡すその場のnpm ciを避ける）。
     warmed = slots.start_warm(ctx)
@@ -1734,6 +1758,7 @@ def cmd_board(ctx: Context, args: argparse.Namespace) -> int:
                 # 監査を通ったタスクは表から外す（所要の実績は完了のコミットでTxxx.mdにある）。
                 agent["current_task"] = None
                 agent["task_first_started"] = None
+                agent.pop("overrun_ack", None)
         save_board(ctx, board)
         print(json.dumps(agent, ensure_ascii=False, indent=1))
         # 差し戻しでは同じ担当が同じスロットで再開するので、印は監査を通すまで外さない。
@@ -1823,10 +1848,11 @@ def cmd_board(ctx: Context, args: argparse.Namespace) -> int:
             mark = "  前提待ち: " + "・".join(waiting) if waiting else "  前提: 済"
             task = str(item.get("task"))
             if task in done:
-                mark = "  完了済み（記録）。取り出さない"
+                mark = ("  後始末（記録は完了。取り出す）" + (mark if waiting else "") if item.get("cleanup")
+                        else "  完了済み（記録）。取り出さない（後始末なら cleanup=true を付けて積み直す）")
             if task not in population:
                 mark += "  回の母集団の外"
-            rest = {k: v for k, v in item.items() if k not in ("task", "priority", "added", "after")}
+            rest = {k: v for k, v in item.items() if k not in ("task", "priority", "added", "after", "cleanup")}
             print(f"{n}. [{item.get('priority', '-')}] {task}: {task_title(ctx, task, rows)}"
                   f"  （{hm(parse_time(item.get('added')))}）{mark}"
                   f"{'  ' + json.dumps(rest, ensure_ascii=False) if rest else ''}")
@@ -1994,7 +2020,7 @@ def main(argv: list[str] | None = None) -> int:
         ops = q.add_subparsers(dest="op", required=True)
         r = ops.add_parser("push")
         r.add_argument("text", help="todo は作業の文、dispatch はタスク番号（題名・規模は台帳から導く）")
-        r.add_argument("--priority", default="中" if name == "dispatch" else "7",
+        r.add_argument("--priority", default="中" if name == "dispatch" else "8",
                        help="dispatch は 高・中・低、todo は規約「司令塔の作業の優先順位」の順位（1が最優先）")
         r.add_argument("pairs", nargs="*")
         r = ops.add_parser("pop")
