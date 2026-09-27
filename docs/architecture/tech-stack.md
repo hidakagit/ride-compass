@@ -12,6 +12,7 @@
 | Frontend | Next.js (App Router) + TypeScript + MapLibre GL JS + React | バージョンの正本は`frontend/package.json` |
 | Frontendスタイリング | Tailwind CSS + Radix UI + `frontend/src/components/ui/`（CSS Modulesは使わない） | 使い分け基準・Design Token・意図的に作らないものは[frontend-design-system.md](../modules/frontend/frontend-design-system.md) |
 | Frontendのデータ取得 | TanStack Query（`@tanstack/react-query`） | 取得の共有・取り直し・状態の骨格。MIT（依存の`@tanstack/query-core`も同じ）で、商用で使える。対応するReactは18・19（パッケージの`peerDependencies`）。使い方は[page-composition.md](../modules/frontend/page-composition.md)「データ取得の骨格」 |
+| FrontendのAPIの呼び出し | openapi-fetch（`openapi-typescript`の生成物からパス・問い合わせ・本文・応答の型を推論する） | MIT（依存の`openapi-typescript-helpers`も同じ）で、商用で使える。版の制約は下記。使い方は[page-composition.md](../modules/frontend/page-composition.md) |
 | Frontendアイコン | lucide-react（汎用の形）＋自前のSVG（このアプリ固有の概念の形） | 振り分けと線の太さのそろえ方は`frontend/src/components/ui/icons/icons.tsx`。lucideはISC（一部のアイコンはFeather由来でMIT）で、商用で使える |
 | Backend | Python + FastAPI | バージョンの正本は`backend/requirements.txt` |
 | DB | PostgreSQL + PostGIS | 生データ層・派生層・MVT生成（`ST_AsMVT`）の唯一の系統。**取込範囲外は「データ未整備」として扱い、外部APIへのフォールバックを持たない**。ルート生成には`DATABASE_URL`への実接続が必須 |
@@ -54,6 +55,17 @@
 （テストの評価器だけが新しい構文を受け付ける等）。`maplibre-gl`側の依存範囲に収まる版を
 選び、キャレットで勝手に動かないよう固定する。**`maplibre-gl`を上げるときは、上げた先が
 要求する範囲にこの固定版が収まっているかを併せて確認する。**
+
+## `openapi-fetch`は0.16系に留める
+
+0.17.0は応答・本文の型を`Readable`/`Writable`（`openapi-typescript-helpers`）で包み直し、その変換が配列の要素を
+取り出して配列へ戻すため、**タプルが配列になる**（契約の`[number, number][]`が`number[][]`として届く）。このアプリの
+契約は折れ点・分布の階級などでタプルを使い、推論した応答を生成物の型（`components["schemas"]`）へ渡すと型検査で落ちる。
+上流の報告は[openapi-ts/openapi-typescript#2632](https://github.com/openapi-ts/openapi-typescript/issues/2632)で、
+直す変更（#2673・#2842）は2026-09-27時点で取り込まれていない。0.16.0は同じ変換を持たず、実行時の実装は
+0.17.0と同じ（差は長さ0の応答の判定だけ）。`package.json`の`^0.16.0`は0.x系のキャレットなので0.17へは上がらない。
+**上げるときは、上げた先でタプルを含む応答（例: `/api/admin/material-catalog/{material_id}/distribution`の`bins`）の
+推論した型がタプルのままかを`tsc --noEmit`で確かめる。**
 
 ## Windows: `uvicorn --reload`の多重プロセス
 

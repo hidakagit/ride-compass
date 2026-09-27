@@ -2,7 +2,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AxisCatalogResponse } from "@/types/route";
 import { getAxisCatalog } from "./axisCatalogApi";
-import { makeResponse } from "@/testing/fetchMocks";
 
 describe("getAxisCatalog", () => {
   afterEach(() => {
@@ -17,38 +16,16 @@ describe("getAxisCatalog", () => {
       accident_years: [],
       tile_versions: {},
     };
-    const fetchMock = vi.fn().mockResolvedValue(makeResponse({ json: async () => catalog }));
+    const fetchMock = vi.fn<(request: Request) => Promise<Response>>(async () => Response.json(catalog));
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(getAxisCatalog()).resolves.toEqual(catalog);
     // 既定値NEXT_PUBLIC_API_URL未設定時はhttp://localhost:8000宛
-    expect(fetchMock).toHaveBeenCalledWith("http://localhost:8000/api/axis-catalog", expect.anything());
+    expect(fetchMock.mock.calls[0][0].url).toBe("http://localhost:8000/api/axis-catalog");
   });
 
-  it("ok:falseの場合はHTTPステータスを含むエラーを投げる", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(makeResponse({ ok: false, status: 500 })));
-
+  it("失敗は評価軸カタログの文言で投げる", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 500 })));
     await expect(getAxisCatalog()).rejects.toThrow("評価軸カタログの取得に失敗しました[HTTP 500]");
-  });
-
-  it("jsonのparseが失敗した場合は解析失敗のエラーを投げる", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        makeResponse({
-          json: async () => {
-            throw new Error("parse failed");
-          },
-        }),
-      ),
-    );
-
-    await expect(getAxisCatalog()).rejects.toThrow("評価軸カタログの解析に失敗しました");
-  });
-
-  it("fetch自体が失敗した場合（通信エラー）は英語の元の文言を出さず、日本語の失敗文言で投げる", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
-
-    await expect(getAxisCatalog()).rejects.toThrow("評価軸カタログの取得に失敗しました[通信エラー]");
   });
 });

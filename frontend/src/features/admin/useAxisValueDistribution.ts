@@ -10,6 +10,7 @@ import type { ValueDistribution } from "@/features/admin/AxisStudio/scoreDistrib
 import { fetchAxisValueDistribution } from "@/features/admin/adminApi";
 import { MAP_FETCH_DEBOUNCE_MS, useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { getQueryClient } from "@/lib/queryClient";
+import type { AxisShape } from "@/types/route";
 
 interface AxisValueDistributionResult {
   distribution: ValueDistribution | null;
@@ -27,7 +28,7 @@ const NO_DISTRIBUTION: AxisValueDistributionResult = { distribution: null, loadi
 export function useAxisValueDistribution(
   enabled: boolean,
   termsKey: string,
-  shapeForRequest: () => unknown,
+  shapeForRequest: () => AxisShape,
 ): AxisValueDistributionResult {
   const debouncedKey = useDebouncedValue(termsKey, MAP_FETCH_DEBOUNCE_MS);
   const shapeRef = useRef(shapeForRequest);

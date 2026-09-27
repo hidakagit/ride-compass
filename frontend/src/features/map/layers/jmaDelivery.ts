@@ -2,7 +2,7 @@
 // 地点のURLと、タイルのURLの読み戻し。どの配信要素を・どのパスの形で・どの時刻一覧から・どう読むかは
 // 源泉の宣言（`mapDisplay.weatherElements`の`jmaElements`）が持ち、ここは宣言を受け取って組み立てるだけ。
 
-import { fetchJson } from "@/lib/fetchJson";
+import { fetchJson } from "@/lib/apiClient";
 import { apiPath } from "@/lib/apiPath";
 import { tileBaseUrl } from "@/lib/tileBaseUrl";
 import { DEFAULT_API_TIMEOUT_MS } from "@/lib/apiTimeouts";

@@ -1,6 +1,4 @@
-import type { ValueDistribution } from "@/features/admin/AxisStudio/scoreDistribution";
-import { API_BASE_URL } from "@/lib/apiBaseUrl";
-import { apiPath, apiQuery, type ApiPath, type ApiQuery, type DeclaredApiPath } from "@/lib/apiPath";
+import { adminApiClient, backendApi, fetchJson, getOptions, requestApi } from "@/lib/apiClient";
 import {
   CATALOG_API_TIMEOUT_MS,
   DEFAULT_API_TIMEOUT_MS,
@@ -8,105 +6,74 @@ import {
   HEAVY_ADMIN_API_TIMEOUT_MS,
   STATUS_API_TIMEOUT_MS,
 } from "@/lib/apiTimeouts";
-import { fetchJson, requestJson } from "@/lib/fetchJson";
-import type { components } from "@/types/generated/api";
-import type {
-  AxisDefinitionPayload,
-  AxisDefinitionResponse,
-  DbStatusResponse,
-  DerivedDataFreshnessResponse,
-  MaterialCoverageResponse,
-  MaterialValuesResponse,
-} from "@/types/route";
+import type { components, paths } from "@/types/generated/api";
+import type { AxisDefinitionPayload, AxisShape } from "@/types/route";
 
 type Schemas = components["schemas"];
 
-interface AdminRequestOptions {
-  method?: "GET" | "POST" | "PUT" | "DELETE";
-  body?: unknown;
-  timeoutMs?: number;
-  /** 失敗の文言の主語（例: "DB状態の取得"→「DB状態の取得に失敗しました」）。 */
-  label: string;
-  /** 問い合わせの項目（`apiQuery`の戻り値。`?`から始まる）。 */
-  query?: string;
-}
-
-const BACKEND_ADMIN_PREFIX = "/api/admin";
-type AdminApiPath = Extract<ApiPath, `${typeof BACKEND_ADMIN_PREFIX}/${string}`>;
-
-/** backendの管理API`/api/admin<X>`を、同一オリジンの口`/admin/api<X>`経由で呼ぶ（/adminのBasic認証を
- * そのまま使う。`app/admin/api/[...path]/route.ts`）。区間の値は呼び出し側が`encodeURIComponent`する。 */
-function adminRequest<T>(
-  backendPath: DeclaredApiPath<AdminApiPath>,
-  { method = "GET", body, timeoutMs = DEFAULT_API_TIMEOUT_MS, label, query }: AdminRequestOptions,
+/** 管理APIの呼び出しの骨格の設定。`label`は失敗の文言の主語（例: "DB状態の取得"→「DB状態の取得に失敗しました」）。
+ * 本文を送る呼び出しは`body`を渡すと開始のログに載る。 */
+function adminOptions(
+  label: string,
+  { timeoutMs = DEFAULT_API_TIMEOUT_MS, body }: { timeoutMs?: number; body?: unknown } = {},
 ) {
-  const path = `${backendPath.slice(BACKEND_ADMIN_PREFIX.length)}${query ?? ""}`;
-  return requestJson<T>(`/admin/api${path}`, {
-    method,
-    body,
+  return {
     timeoutMs,
     category: "api:admin",
     messages: { failure: `${label}に失敗しました`, parseFailure: `${label}の結果を解析できませんでした` },
-    startLabel: `${method} ${path}`,
     ...(body !== undefined ? { requestMeta: { body } } : {}),
-    logMeta: { path },
-  });
+  };
 }
-
-const segment = encodeURIComponent;
 
 // 軸の定義
 
 export function listAxisDefinitions() {
-  return adminRequest<AxisDefinitionResponse[]>(apiPath("/api/admin/axis-definitions"), { label: "軸の一覧の取得" });
+  return requestApi((init) => adminApiClient.GET("/axis-definitions", init), adminOptions("軸の一覧の取得"));
 }
 
 export function createAxisDefinition(payload: AxisDefinitionPayload) {
-  return adminRequest<AxisDefinitionResponse>(apiPath("/api/admin/axis-definitions"), {
-    method: "POST",
-    body: payload,
-    label: "軸の保存",
-  });
-}
-
-export function updateAxisDefinition(axisId: string, payload: AxisDefinitionPayload) {
-  return adminRequest<AxisDefinitionResponse>(
-    apiPath("/api/admin/axis-definitions/{axis_id}", { axis_id: segment(axisId) }),
-    {
-      method: "PUT",
-      body: payload,
-      label: "軸の保存",
-    },
+  return requestApi(
+    (init) => adminApiClient.POST("/axis-definitions", { body: payload, ...init }),
+    adminOptions("軸の保存", { body: payload }),
   );
 }
 
-export function deleteAxisDefinition(axisId: string) {
-  return adminRequest<void>(apiPath("/api/admin/axis-definitions/{axis_id}", { axis_id: segment(axisId) }), {
-    method: "DELETE",
-    label: "軸の削除",
-  });
+export function updateAxisDefinition(axisId: string, payload: AxisDefinitionPayload) {
+  return requestApi(
+    (init) =>
+      adminApiClient.PUT("/axis-definitions/{axis_id}", {
+        params: { path: { axis_id: axisId } },
+        body: payload,
+        ...init,
+      }),
+    adminOptions("軸の保存", { body: payload }),
+  );
+}
+
+export async function deleteAxisDefinition(axisId: string): Promise<void> {
+  await requestApi(
+    (init) => adminApiClient.DELETE("/axis-definitions/{axis_id}", { params: { path: { axis_id: axisId } }, ...init }),
+    adminOptions("軸の削除"),
+  );
 }
 
 export function unpublishAxisDefinition(axisId: string) {
-  return adminRequest<AxisDefinitionResponse>(
-    apiPath("/api/admin/axis-definitions/{axis_id}/unpublish", { axis_id: segment(axisId) }),
-    {
-      method: "POST",
-      label: "軸の非公開化",
-    },
+  return requestApi(
+    (init) =>
+      adminApiClient.POST("/axis-definitions/{axis_id}/unpublish", { params: { path: { axis_id: axisId } }, ...init }),
+    adminOptions("軸の非公開化"),
   );
 }
 
 // 軸の編集中のプレビュー。分布は初回にWayの抽選と材料の組み立てを伴う。しきい値と点数はDBを読まない。
 
 /** 編集中のshapeで、折れ点を通す前の生値がどう分布するか。 */
-export function fetchAxisValueDistribution(shape: unknown) {
-  return adminRequest<ValueDistribution>(apiPath("/api/admin/axis-definitions/preview-distribution"), {
-    method: "POST",
-    body: { shape },
-    timeoutMs: DISTRIBUTION_API_TIMEOUT_MS,
-    label: "分布の取得",
-  });
+export function fetchAxisValueDistribution(shape: AxisShape) {
+  const body = { shape };
+  return requestApi(
+    (init) => adminApiClient.POST("/axis-definitions/preview-distribution", { body, ...init }),
+    adminOptions("分布の取得", { timeoutMs: DISTRIBUTION_API_TIMEOUT_MS, body }),
+  );
 }
 
 export type DisplayThresholdsPreviewRequest = Schemas["DisplayThresholdsPreviewRequest"];
@@ -121,9 +88,9 @@ export interface MapBandsOfThresholds {
 /** 編集中の軸で、人が刻んだ段の境界のうち地図では段にならないものと、地図に残る段。判定はbackendが地図の段を
  * 作るのと同じ関数で行う。 */
 export async function fetchMapBandsOfThresholds(body: DisplayThresholdsPreviewRequest): Promise<MapBandsOfThresholds> {
-  const response = await adminRequest<Schemas["DisplayThresholdsPreviewResponse"]>(
-    apiPath("/api/admin/axis-definitions/preview-display-thresholds"),
-    { method: "POST", body, label: "しきい値の確認" },
+  const response = await requestApi(
+    (init) => adminApiClient.POST("/axis-definitions/preview-display-thresholds", { body, ...init }),
+    adminOptions("しきい値の確認", { body }),
   );
   return { droppedOnMap: response.dropped_on_map, bandsOnMap: response.bands_on_map };
 }
@@ -133,11 +100,10 @@ export type ScoresPreview = Schemas["ScoresPreviewResponse"];
 
 /** 編集中の折れ点で、値がそれぞれ何点になるか。点数はbackendが評価と同じ計算で出す。 */
 export function fetchScoresPreview(body: ScoresPreviewRequest) {
-  return adminRequest<ScoresPreview>(apiPath("/api/admin/axis-definitions/preview-scores"), {
-    method: "POST",
-    body,
-    label: "点数の確認",
-  });
+  return requestApi(
+    (init) => adminApiClient.POST("/axis-definitions/preview-scores", { body, ...init }),
+    adminOptions("点数の確認", { body }),
+  );
 }
 
 // 材料
@@ -146,54 +112,53 @@ export type MaterialDistribution = Schemas["MaterialDistributionResponse"];
 
 /** 1材料の値が実データでどの範囲に散らばっているか。 */
 export function fetchMaterialDistribution(materialId: string) {
-  return adminRequest<MaterialDistribution>(
-    apiPath("/api/admin/material-catalog/{material_id}/distribution", { material_id: segment(materialId) }),
-    {
-      timeoutMs: DISTRIBUTION_API_TIMEOUT_MS,
-      label: "分布の取得",
-    },
+  return requestApi(
+    (init) =>
+      adminApiClient.GET("/material-catalog/{material_id}/distribution", {
+        params: { path: { material_id: materialId } },
+        ...init,
+      }),
+    adminOptions("分布の取得", { timeoutMs: DISTRIBUTION_API_TIMEOUT_MS }),
   );
 }
 
 /** categoricalの材料が実データで取る値の一覧。 */
 export function getMaterialValues(materialId: string) {
-  return adminRequest<MaterialValuesResponse>(
-    apiPath("/api/admin/material-catalog/{material_id}/values", { material_id: segment(materialId) }),
-    {
-      timeoutMs: CATALOG_API_TIMEOUT_MS,
-      label: "材料の値一覧の取得",
-    },
+  return requestApi(
+    (init) =>
+      adminApiClient.GET("/material-catalog/{material_id}/values", {
+        params: { path: { material_id: materialId } },
+        ...init,
+      }),
+    adminOptions("材料の値一覧の取得", { timeoutMs: CATALOG_API_TIMEOUT_MS }),
   );
 }
 
 export function getMaterialCoverage() {
-  return adminRequest<MaterialCoverageResponse>(apiPath("/api/admin/material-catalog/coverage"), {
-    timeoutMs: HEAVY_ADMIN_API_TIMEOUT_MS,
-    label: "材料の欠損割合の取得",
-  });
+  return requestApi(
+    (init) => adminApiClient.GET("/material-catalog/coverage", init),
+    adminOptions("材料の欠損割合の取得", { timeoutMs: HEAVY_ADMIN_API_TIMEOUT_MS }),
+  );
 }
 
 // データ保守
 
 export function getDerivedDataFreshness() {
-  return adminRequest<DerivedDataFreshnessResponse>(apiPath("/api/admin/derived-data/freshness"), {
-    timeoutMs: HEAVY_ADMIN_API_TIMEOUT_MS,
-    label: "派生データ鮮度台帳の取得",
-  });
+  return requestApi(
+    (init) => adminApiClient.GET("/derived-data/freshness", init),
+    adminOptions("派生データ鮮度台帳の取得", { timeoutMs: HEAVY_ADMIN_API_TIMEOUT_MS }),
+  );
 }
 
 export function getDbStatus() {
-  return adminRequest<DbStatusResponse>(apiPath("/api/admin/db-status"), {
-    timeoutMs: HEAVY_ADMIN_API_TIMEOUT_MS,
-    label: "DB状態の取得",
-  });
+  return requestApi(
+    (init) => adminApiClient.GET("/db-status", init),
+    adminOptions("DB状態の取得", { timeoutMs: HEAVY_ADMIN_API_TIMEOUT_MS }),
+  );
 }
 
 export async function refreshTileCache(): Promise<void> {
-  await adminRequest<unknown>(apiPath("/api/admin/basemap/refresh"), {
-    method: "POST",
-    label: "タイルキャッシュの消去",
-  });
+  await requestApi((init) => adminApiClient.POST("/basemap/refresh", init), adminOptions("タイルキャッシュの消去"));
 }
 
 // 較正値
@@ -202,29 +167,31 @@ export async function refreshTileCache(): Promise<void> {
 export type TuningParameter = Schemas["TuningParameterView"];
 
 export function listTuningParameters() {
-  return adminRequest<TuningParameter[]>(apiPath("/api/admin/tuning"), { label: "較正値の取得" });
+  return requestApi((init) => adminApiClient.GET("/tuning", init), adminOptions("較正値の取得"));
 }
 
 /** 1件を書き換える。`value`にnullを渡すと既定へ戻す。 */
 export function updateTuningParameter(paramId: string, value: number | null) {
-  return adminRequest<TuningParameter>(apiPath("/api/admin/tuning/{param_id}", { param_id: segment(paramId) }), {
-    method: "PUT",
-    body: { value },
-    label: "較正値の保存",
-  });
+  const body = { value };
+  return requestApi(
+    (init) => adminApiClient.PUT("/tuning/{param_id}", { params: { path: { param_id: paramId } }, body, ...init }),
+    adminOptions("較正値の保存", { body }),
+  );
 }
 
 // ログ
 
-const LOGS_PATH = "/api/admin/debug/logs";
-type LogsQuery = ApiQuery<typeof LOGS_PATH>;
+type LogsQuery = NonNullable<paths["/api/admin/debug/logs"]["get"]["parameters"]["query"]>;
 
 /** Python標準loggingのレベル名。正本はbackendで、契約から引く。 */
 export type LogLevelName = NonNullable<LogsQuery["min_level"]>;
 
 /** 直近のログ行（プロセス内リングバッファ）。debug_modeがOFFの間もWARNING以上は常に含まれる。 */
 export function getRecentLogs(query: LogsQuery = {}) {
-  return adminRequest<string[]>(apiPath(LOGS_PATH), { label: "ログの取得", query: apiQuery(LOGS_PATH, query) });
+  return requestApi(
+    (init) => adminApiClient.GET("/debug/logs", { params: { query }, ...init }),
+    adminOptions("ログの取得"),
+  );
 }
 
 // 稼働状況（認証の要らない口）
@@ -232,11 +199,10 @@ export function getRecentLogs(query: LogsQuery = {}) {
 export type DebugStats = Schemas["DebugStatsResponse"];
 
 export function getDebugStats() {
-  return fetchJson<DebugStats>(`${API_BASE_URL}${apiPath("/api/debug/stats")}`, {
-    timeoutMs: STATUS_API_TIMEOUT_MS,
-    category: "api:debug-stats",
-    errorLabel: "システム状況",
-  });
+  return requestApi(
+    (init) => backendApi.GET("/api/debug/stats", init),
+    getOptions({ timeoutMs: STATUS_API_TIMEOUT_MS, category: "api:debug-stats", errorLabel: "システム状況" }),
+  );
 }
 
 /** `app/api/version/route.ts`の応答。 */
@@ -254,18 +220,16 @@ export function getFrontendVersion() {
 }
 
 /** backendへ疎通できるか。画面は「OK/接続できません」の2値しか出さないため失敗の種類は返さないが、中身は
- * `requestJson`がdebugLogへ残す。 */
+ * `requestApi`がdebugLogへ残す。 */
 export async function checkBackendHealth(): Promise<boolean> {
+  const failure = "バックエンドへの疎通確認に失敗しました";
   try {
-    const data = await requestJson<{ status?: string }>(`${API_BASE_URL}${apiPath("/health")}`, {
+    const data = await requestApi((init) => backendApi.GET("/health", init), {
       timeoutMs: STATUS_API_TIMEOUT_MS,
       category: "api:health",
-      messages: {
-        failure: "バックエンドへの疎通確認に失敗しました",
-        parseFailure: "バックエンドへの疎通確認に失敗しました",
-      },
+      messages: { failure, parseFailure: failure },
     });
-    return data?.status === "ok";
+    return data.status === "ok";
   } catch {
     return false;
   }

@@ -65,10 +65,10 @@ RideCompassのログはRender（本番）のログストリームだけで障害
 
 - ミドルウェア（`asgi_correlation_id`の`CorrelationIdMiddleware`、`main.py`で登録）が全リクエストへ
   付与し、レスポンスの`X-Request-ID`で返す。
-- フロントの`lib/fetchJson.ts`はレスポンスヘッダから読み、DebugConsoleのdetailに含める
+- フロントの`lib/apiClient.ts`はレスポンスヘッダから読み、DebugConsoleのdetailに含める
   （画面へ出す失敗の文言には混ぜない）。DebugConsoleのreq値でbackendのログを検索すれば
   当該リクエストの全ログが引ける。
-- 新しいfetch呼び出しを追加する場合も同じパターンでrequestIdをdebugLogへ含めること。
+- backendを呼ぶ新しい呼び出しも`lib/apiClient.ts`の骨格（`requestApi`）を通す（requestIdのログは骨格が持つ）。
 
 ### ログの時刻
 

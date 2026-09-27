@@ -1,7 +1,6 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { makeResponse } from "@/testing/fetchMocks";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import type { RouteGenerateRequest } from "@/types/route";
 
@@ -11,7 +10,7 @@ import { generateRoutes } from "./routeApi";
 // 1回ごとの応答は`respond`へ並べ、fetchは並んだ順に返す（尽きたら最後の応答を返し続ける）。
 type Step = { json: unknown } | { status: number } | { reject: Error };
 let steps: Step[];
-let calls: { url: string; init: RequestInit }[];
+let calls: Request[];
 
 const REQUEST = { latitude: 35.6, longitude: 139.7, distance_km: 20 } as RouteGenerateRequest;
 const DONE = {
@@ -28,12 +27,12 @@ beforeEach(() => {
   calls = [];
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (url: string, init: RequestInit) => {
-      calls.push({ url, init });
+    vi.fn(async (request: Request) => {
+      calls.push(request);
       const step = steps.length > 1 ? steps.shift()! : steps[0];
       if ("reject" in step) throw step.reject;
-      if ("status" in step) return makeResponse({ ok: false, status: step.status, json: async () => ({}) });
-      return makeResponse({ json: async () => step.json });
+      if ("status" in step) return Response.json({}, { status: step.status });
+      return Response.json(step.json);
     }),
   );
 });
@@ -51,7 +50,7 @@ async function run(onProgress?: Parameters<typeof generateRoutes>[1]) {
   return promise;
 }
 
-const polls = () => calls.filter((call) => call.init.method === "GET" || call.init.method === undefined);
+const polls = () => calls.filter((call) => call.method === "GET");
 
 describe("generateRoutes", () => {
   it("ジョブを投稿し、そのjob_idの結果を問い合わせて、候補と生成条件を返す", async () => {
@@ -59,8 +58,8 @@ describe("generateRoutes", () => {
     const result = await run();
 
     expect(calls[0].url).toMatch(/\/api\/routes\/generate$/);
-    expect(calls[0].init.method).toBe("POST");
-    expect(JSON.parse(String(calls[0].init.body))).toEqual(REQUEST);
+    expect(calls[0].method).toBe("POST");
+    expect(await calls[0].json()).toEqual(REQUEST);
     expect(calls[1].url).toMatch(/\/api\/routes\/generate\/job-7$/);
     expect(result).toEqual({ routes: [{ id: "r1" }], conditions: { distance_km: 20 }, noCandidatesReason: undefined });
   });

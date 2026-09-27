@@ -1,7 +1,6 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { makeResponse } from "@/testing/fetchMocks";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 
 import {
@@ -16,8 +15,9 @@ import {
   type JmaDelivery,
 } from "./jmaDelivery";
 
-// テストはnode環境で動くため、配信のオリジンは空（相対パス）になる。
-const PROXY = "/api/jma-tile/";
+// 配信のオリジンは`@/lib/tileBaseUrl`が決める（`src/lib/tileBaseUrl.test.ts`）。ここでは固定する。
+vi.mock("@/lib/tileBaseUrl", () => ({ tileBaseUrl: () => "https://tiles.test" }));
+const PROXY = "https://tiles.test/api/jma-tile/";
 const DELIVERIES = mapDisplay.weatherElements.flatMap((element): readonly JmaDelivery[] => element.jmaElements);
 const isTileElement = (element: (typeof mapDisplay.weatherElements)[number]) =>
   (element.kind === "rasterTile" || element.kind === "vectorTile") && element.jmaElements.length > 0;
@@ -35,9 +35,9 @@ const tileAt = (template: string, z: number, x: number, y: number) =>
 
 /** 時刻一覧のファイルごとの応答。`undefined`のファイルは500を返す。 */
 function stubFiles(files: Record<string, unknown>) {
-  const fetchMock = vi.fn(async (url: string) => {
-    const body = files[url];
-    return body === undefined ? makeResponse({ ok: false, status: 500 }) : makeResponse({ json: async () => body });
+  const fetchMock = vi.fn(async (request: Request) => {
+    const body = files[request.url];
+    return body === undefined ? new Response(null, { status: 500 }) : Response.json(body);
   });
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
@@ -198,27 +198,25 @@ describe("コマのURL", () => {
   });
 
   it("地点はそのコマの要素配下のGeoJSONを取り、どの地点にも記号の大きさを決める値を足す（元の属性は残す）", async () => {
-    const fetchMock = vi.fn<(url: string) => Promise<ReturnType<typeof makeResponse>>>(async () =>
-      makeResponse({
-        json: async () => ({
-          type: "FeatureCollection",
-          features: [
-            { type: "Feature", geometry: { type: "Point", coordinates: [139, 35] }, properties: { type: 1 } },
-            { type: "Feature", geometry: { type: "Point", coordinates: [140, 36] }, properties: null },
-          ],
-        }),
+    const fetchMock = vi.fn<(request: Request) => Promise<Response>>(async () =>
+      Response.json({
+        type: "FeatureCollection",
+        features: [
+          { type: "Feature", geometry: { type: "Point", coordinates: [139, 35] }, properties: { type: 1 } },
+          { type: "Feature", geometry: { type: "Point", coordinates: [140, 36] }, properties: null },
+        ],
       }),
     );
     vi.stubGlobal("fetch", fetchMock);
 
     const geojson = await fetchJmaPointGeojson(delivery, frame, "地点");
-    expect(fetchMock.mock.calls[0][0]).toBe(
+    expect(fetchMock.mock.calls[0][0].url).toBe(
       `${PROXY}${delivery.urlTemplate}`
         .replace("{basetime}", frame.basetime)
         .replace("{member}", frame.member)
         .replace("{validtime}", frame.validtime),
     );
-    expect(fetchMock.mock.calls[0][0]).toMatch(/\.geojson\?/);
+    expect(fetchMock.mock.calls[0][0].url).toMatch(/\.geojson\?/);
     expect(geojson.features.map((feature) => feature.properties)).toEqual([
       { type: 1, [JMA_POINT_VALUE_PROPERTY]: 1 },
       { [JMA_POINT_VALUE_PROPERTY]: 1 },
@@ -228,7 +226,7 @@ describe("コマのURL", () => {
   it("地点の取得の失敗はそのまま投げる（表示しないかは呼び出し側が決める）", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => makeResponse({ ok: false, status: 503 })),
+      vi.fn(async () => new Response(null, { status: 503 })),
     );
     await expect(fetchJmaPointGeojson(delivery, frame, "地点")).rejects.toThrow("地点");
   });

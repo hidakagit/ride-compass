@@ -1,20 +1,19 @@
 // @vitest-environment node
 /**
  * `weatherApi.ts`——地点を渡す取得は緯度経度をクエリに付けて応答をそのまま返し、風の格子は応答の時刻の列を各点へ
- * 配り直すこと。失敗の扱いは共通の`fetchJson`が持つ（`lib/fetchJson.test.ts`）。
+ * 配り直すこと。失敗の扱いは共通の骨格が持つ（`lib/apiClient.test.ts`）。
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as weatherApi from "./weatherApi";
-import { makeResponse } from "@/testing/fetchMocks";
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
 function stubFetch(body: unknown) {
-  const fetchMock = vi.fn().mockResolvedValue(makeResponse({ json: async () => body }));
+  const fetchMock = vi.fn<(request: Request) => Promise<Response>>(async () => Response.json(body));
   vi.stubGlobal("fetch", fetchMock);
-  return () => new URL(String(fetchMock.mock.calls[0][0]));
+  return () => new URL(fetchMock.mock.calls[0][0].url);
 }
 
 const POINT_GETTERS = [
