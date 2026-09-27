@@ -34,6 +34,7 @@ from app.infrastructure.source_models import SOURCE_RUN_STATUS_LABELS  # noqa: E
 from app.domain.axis_definitions import MAP_CHIP_LABEL_MAX_LENGTH  # noqa: E402
 from app.infrastructure.vector_tile import (  # noqa: E402
     ACCIDENT_LAYER_NAME,
+    ROAD_FEATURE_PROPERTIES,
     ROAD_SURFACE_LAYER_NAME,
     STOP_POI_LAYER_NAME,
 )
@@ -269,7 +270,7 @@ def main() -> None:
             # ここから照合する**——片側だけ系統を足すと、足りない側は「世代が揃った」と
             # 判定したまま配られない世代を待ち続ける（`regionApi.ts: TILE_KINDS`）。
             "tile_version_kinds": sorted(TILE_SHAPES),
-            "road_surface": {"layer_name": ROAD_SURFACE_LAYER_NAME},
+            "road_surface": {"layer_name": ROAD_SURFACE_LAYER_NAME, "properties": ROAD_FEATURE_PROPERTIES},
             "accident": {"layer_name": ACCIDENT_LAYER_NAME},
             "poi": {"stop_poi_layer_name": STOP_POI_LAYER_NAME},
             # 路面タイルを要求するズーム範囲。frontendのMapLibreソース設定

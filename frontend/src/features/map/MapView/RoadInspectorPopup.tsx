@@ -11,7 +11,7 @@ import type { AxisInspectorResult } from "@/types/traffic";
 import type { RoutePreferenceWeights } from "@/types/route";
 import { LANDCOVER_CLASSES } from "@/features/map/layers/landcoverClasses";
 import { PRIMARY_ATTRIBUTE_LABELS } from "@/features/map/layers/primaryAttributes";
-import { roadDisplayName, roadFactRows, type RoadSurfacePopupProperties } from "./roadFacts";
+import { roadDisplayName, roadFactRows, roadFeatureKey, roadWayId, type RoadSurfacePopupProperties } from "./roadFacts";
 import { Button } from "@/components/ui/Button/Button";
 import { textVariants } from "@/components/ui/Text/Text";
 import { cn } from "@/lib/cn";
@@ -53,20 +53,15 @@ export default function RoadInspectorPopup({
   } | null>(null);
   const pinned = pressed !== null && pressed.weightsKey === weightsKey ? pressed : null;
   const name = roadDisplayName(properties);
-  const wayId = properties.osm_way_id;
+  const wayId = roadWayId(properties);
+  const featureKey = roadFeatureKey(properties);
   const inspector = useQuery(
     {
-      queryKey: [
-        "axis-inspector",
-        wayId,
-        properties.feature_key ?? null,
-        pinned?.conditionsKey ?? conditionsKey,
-        weightsKey,
-      ],
+      queryKey: ["axis-inspector", wayId, featureKey, pinned?.conditionsKey ?? conditionsKey, weightsKey],
       queryFn: async () => {
         const value = await fetchAxisInspector(
           wayId!,
-          properties.feature_key,
+          featureKey,
           pinned !== null ? pinned.conditions : conditions,
           routePreference,
         );

@@ -15,6 +15,7 @@
 import { sceneSourceId } from "@/features/map/scene/sceneBuilders";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import palette from "@/types/generated/palette.json";
+import regionTileConfig from "@/types/generated/region-tile-config.json";
 import type { FilterSpecification } from "maplibre-gl";
 
 import { primaryAttributes } from "@/types/generated/primaryAttributes";
@@ -30,11 +31,10 @@ export const ROAD_LINE_SOURCE_ID = sceneSourceId("road-tiles");
 /** 押したときに拾う対象。道路の線はどれも共通の名前を名乗る。 */
 const ROAD_LINE_HIT_TARGET = "road";
 
-/** 地物へ安定したidを与えるための昇格先。**この綴りでなければ feature-state が効かない**
- * ——タイルの地物はズームによって道1本にも区間にもなり、この列だけがその単位に追従する。 */
-const FEATURE_KEY_PROPERTY = "feature_key";
-/** 詳細の強調が突き合わせる列（道1本の単位）。 */
-const WAY_ID_PROPERTY = "osm_way_id";
+/** `feature_key`は地物へ安定したidを与えるための昇格先（**この列でなければ feature-state が効かない**
+ * ——タイルの地物はズームによって道1本にも区間にもなり、この列だけがその単位に追従する）。`way_id`は詳細の強調が
+ * 突き合わせる列（道1本の単位）。列名はタイルを焼くbackendが配る。 */
+const { feature_key: FEATURE_KEY_PROPERTY, way_id: WAY_ID_PROPERTY } = regionTileConfig.road_surface.properties;
 
 /** 線で描くもの。**源泉が「線の幾何を持ち、表示の定義がある」と言ったものが出る。**
  * 束ね方・行の名前・並び・色はすべて源泉が決め、ここは受け取って塗るだけ
