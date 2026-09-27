@@ -31,7 +31,9 @@ def cache() -> diskcache.Cache:
             str(CACHE_DIR),
             size_limit=settings.tile_persistent_cache_size_limit_mb * 1024 * 1024,
             eviction_policy="least-recently-used",
-            tag_index=True,
+            # 設定は置き場に保存され、渡さなければ前に開いたときの値を引き継ぐ。明示しないと、
+            # 以前張ったタグの索引が書き込みのたびに更新され続ける。
+            tag_index=False,
         )
     return _cache
 
@@ -51,14 +53,14 @@ def get_by_key(key: tuple) -> Any | None:
     return value
 
 
-def set_by_key(key: tuple, value: Any, *, tag: str | None = None, expire: float | None = None) -> None:
+def set_by_key(key: tuple, value: Any, *, expire: float | None = None) -> None:
     """任意のタプルキーで書く。`expire`（秒）を渡すとその時間で失効する。
 
     書き込み失敗（ディスクフル・pickle化不能な値等）は握りつぶし、警告ログのみで
     no-opにフォールバックする（キャッシュ書き込みの失敗が応答を止める理由にはならない）。
     """
     try:
-        cache().set(key, value, tag=tag, expire=expire)
+        cache().set(key, value, expire=expire)
     except Exception as exc:  # noqa: BLE001 OSError（ディスクフル）・pickle化不能のいずれも吸収する
         logger.warning("tile persistent cache write failed key=%r error=%r", key, exc, exc_info=True)
 

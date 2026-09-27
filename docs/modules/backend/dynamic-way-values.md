@@ -188,9 +188,17 @@ axis_id → dedicated_way_value_axes().get(axis_id)（無ければ404）
 (タイル×向き×速度×時刻)の組み合わせで増えるためプロセス内メモリにも置かない。
 
 キーは`_key(material_id, z, x, y, hour_bucket, bearing_deg, speed_kmh)`のタプルへ**路面タイルの
-形の署名**（`ROAD_SURFACE_TILE_SHAPE`）と派生データの世代を加えたもの（`material_id`は各サービスの
-`material_id`属性がそのまま入る）。値は材料の生値で軸に依存しないため、同じ材料を参照する軸が
-複数あってもキャッシュを共有する。
+形の署名**（`ROAD_SURFACE_TILE_SHAPE`）と派生データの世代と**材料の値の作り方の署名**（`value_shape`）を
+加えたもの（`material_id`は各サービスの`material_id`属性がそのまま入る）。値は材料の生値で軸に依存しないため、
+同じ材料を参照する軸が複数あってもキャッシュを共有する。
+
+**材料単位の失効は鍵で表す**。`value_shape`は材料のサービスが必須キーワードで渡し、勾配は
+`services/gradient_way_service.py: GRADIENT_VALUE_SHAPE`（入力のSQLの署名
+`infrastructure/road_graph_repository.py: FEATURE_GRADIENT_INPUTS_SHAPE`・直角付近を落とす幅・丸めの桁を
+機械で署名し、式を変えたときだけ手で上げるリビジョンを添えたもの）。材料の計算を変えたデプロイの直後から、その材料のエントリだけが読まれなくなり、
+他の材料のエントリは残る。タグで消す方式（起動時に材料ごと`evict`）にしないのは、デプロイで入れ替わるまで
+旧コンテナが同じ置き場へ古い計算の値を書き続け、消した直後に同じ鍵へ戻るため。読まれなくなったエントリは
+TTLで失効し、書き込みのたびに`diskcache`が失効したものを消す（容量上限の退避とは別に働く）。
 
 **世代を鍵へ入れる理由**: ここに入る鍵は路面タイルの`feature_key`と一字一句一致して初めて
 意味を持つ（フロントが`setFeatureState`のidとして使う）。タイルの焼き方を変えたデプロイの

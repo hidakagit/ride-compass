@@ -19,20 +19,25 @@ MATERIAL = "material_a"
 TILE = (14, 1000, 2000)
 BEARING = 90.0
 REVISION = 7
+VALUE_SHAPE = "shape-1"
 TTL_SECONDS = 60
 VALUES = {"edge-1": 3.2, "edge-2": -1.5}
 
 
-async def _put(*, material=MATERIAL, tile=TILE, bearing=BEARING, revision=REVISION, values=VALUES):
+async def _put(
+    *, material=MATERIAL, tile=TILE, bearing=BEARING, revision=REVISION, value_shape=VALUE_SHAPE, values=VALUES
+):
     z, x, y = tile
     await dynamic_way_value_cache.set_tile_values(
-        material, z, x, y, None, bearing, values, TTL_SECONDS, revision=revision
+        material, z, x, y, None, bearing, values, TTL_SECONDS, revision=revision, value_shape=value_shape
     )
 
 
-async def _get(*, material=MATERIAL, tile=TILE, bearing=BEARING, revision=REVISION):
+async def _get(*, material=MATERIAL, tile=TILE, bearing=BEARING, revision=REVISION, value_shape=VALUE_SHAPE):
     z, x, y = tile
-    return await dynamic_way_value_cache.get_tile_values(material, z, x, y, None, bearing, revision=revision)
+    return await dynamic_way_value_cache.get_tile_values(
+        material, z, x, y, None, bearing, revision=revision, value_shape=value_shape
+    )
 
 
 class TestRoundTrip:
@@ -71,6 +76,16 @@ class TestWhatMakesEntriesDifferent:
         monkeypatch.setattr(dynamic_way_value_cache, "ROAD_SURFACE_TILE_SHAPE", "another-shape")
 
         assert await _get() is None
+
+    async def test_changing_how_one_material_is_computed_drops_only_that_materials_entries(self):
+        """材料の計算を変えたデプロイの後、その材料は前の計算の値を配らず、他の材料は作り直さない。
+        作り方の署名が鍵に無いと、DBの世代もタイルの形も動かないため、前の計算の値がTTLの間返り続ける。
+        """
+        await _put(material="material_a", value_shape="a-1")
+        await _put(material="material_b", value_shape="b-1", values={"edge-9": 0.5})
+
+        assert await _get(material="material_a", value_shape="a-2") is None
+        assert await _get(material="material_b", value_shape="b-1") == {"edge-9": 0.5}
 
     async def test_another_material_does_not_read_this_one(self):
         await _put()
