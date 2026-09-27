@@ -1,5 +1,9 @@
 # 並行作業の道具（scripts/）が要る部品。道具はフックからシステムのPythonで動くので、司令塔を動かす機械の
 # システムのPythonへ入れる: python -m pip install -r scripts/requirements.txt
-# CIのテスト（backend/tests/test_orchestration_*.py）へはbackend/requirements-dev.txtが取り込む。
+# CIのテスト（backend/tests/test_orchestration_*.py・test_flow.py）へはbackend/requirements-dev.txtが取り込む。
 # プロセス一覧とCPU使用率（scripts/orchestration/procs.py）。
 psutil==7.2.2
+# 段の状態機械（scripts/flow.py の遷移の表を判定する）。MIT。
+transitions==0.9.3
+# GitHub の GraphQL と REST（scripts/flow.py）。MIT。httpx・pydantic は backend の版と同じものを使う。
+githubkit==0.16.1
