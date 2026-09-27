@@ -8,10 +8,11 @@ from app.domain.jma_tile_specs import (
     JMA_REFRESH_INTERVAL_SECONDS,
     JmaFrame,
     JmaTileSpec,
-    PathGroup,
     TargetTimesReader,
     effective_max_zoom,
+    jma_target_times_paths,
     jma_tile_spec,
+    jma_url_template,
 )
 
 #: 動的気象の描き方の種類。配信元が描いた画像（`rasterTile`）・配信元の地物（`vectorTile`）・
@@ -114,9 +115,10 @@ class WeatherDelivery(NamedTuple):
     """配信元から取る時刻の段1つ。"""
 
     element_id: str
-    path_group: PathGroup
-    #: その要素の行が載る時刻一覧のファイル。
-    target_time_files: tuple[str, ...]
+    #: その要素の行が載る時刻一覧の、配信元のパス。
+    target_times_paths: tuple[str, ...]
+    #: コマの配信元のパスのテンプレート（`jma_tile_specs.jma_url_template`）。
+    url_template: str
     reader: TargetTimesReader
     refresh_interval_seconds: int
 
@@ -131,8 +133,8 @@ def weather_element_deliveries(element: WeatherElement) -> list[WeatherDelivery]
         deliveries.append(
             WeatherDelivery(
                 element_id,
-                declared.path_group,
-                declared.time_files,
+                jma_target_times_paths(element_id),
+                jma_url_template(element_id),
                 declared.reader,
                 JMA_REFRESH_INTERVAL_SECONDS[declared.path_group],
             )

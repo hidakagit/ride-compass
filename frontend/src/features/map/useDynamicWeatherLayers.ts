@@ -12,7 +12,6 @@ import {
   fetchJmaPointGeojson,
   fetchJmaTargetTimesFile,
   jmaFramesOf,
-  jmaTargetTimesPaths,
   jmaTilePayload,
   type JmaDelivery,
   type JmaFrame,
@@ -95,7 +94,7 @@ function pointStatesOf(results: readonly UseQueryResult<GeoJSON.FeatureCollectio
 function targetTimesFilesOf(deliveries: readonly { delivery: JmaDelivery; label: string }[]): TargetTimesFile[] {
   const byPath = new Map<string, TargetTimesFile>();
   for (const { delivery, label } of deliveries) {
-    for (const path of jmaTargetTimesPaths(delivery)) {
+    for (const path of delivery.targetTimesPaths) {
       const known = byPath.get(path);
       byPath.set(path, {
         path,
@@ -184,7 +183,7 @@ export function useDynamicWeatherLayers({
     const byPath = new Map(files.map((file, index) => [file.path, fileStates[index]]));
     const results = new Map<string, DeliveryResult>();
     for (const { delivery, label } of deliveries) {
-      const states = jmaTargetTimesPaths(delivery).map((path) => byPath.get(path) ?? PENDING_FILE);
+      const states = delivery.targetTimesPaths.map((path) => byPath.get(path) ?? PENDING_FILE);
       // 読み込み中の間は結果を持たない（どれかのファイルがまだ一度も届いていない）。
       if (states.some((state) => state.rows === undefined && state.error === undefined)) continue;
       // 一部のファイルだけ取れなくても残りで部分的な時系列を作り、全部取れなかったときだけ最初の失敗を出す。

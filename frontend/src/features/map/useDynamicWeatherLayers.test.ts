@@ -2,7 +2,8 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { buildDefaultLayerVisibility, type MapLayerVisibility } from "@/features/map/layers/mapLayers";
-import { jmaTargetTimesPaths, type JmaDelivery, type JmaFrame } from "@/features/map/layers/jmaDelivery";
+import { readJmaTileUrl, type JmaDelivery, type JmaFrame } from "@/features/map/layers/jmaDelivery";
+import type { DynamicWeatherRenderPayload } from "@/features/map/layers/dynamicWeather";
 import { WEATHER_SOURCES, type WeatherSource } from "@/features/map/layers/weatherSources";
 import type { WindGridPoint } from "@/types/weather";
 
@@ -34,7 +35,7 @@ const source = (group: string, name: string) =>
 const jmaDeliveries = (entry: WeatherSource) =>
   entry.stages.flatMap((stage) => (stage.origin === "jma" ? [stage.delivery] : []));
 const pathsOf = (sources: readonly WeatherSource[]) =>
-  [...new Set(sources.flatMap(jmaDeliveries).flatMap(jmaTargetTimesPaths))].sort();
+  [...new Set(sources.flatMap(jmaDeliveries).flatMap((delivery) => delivery.targetTimesPaths))].sort();
 const inGroup = (group: string) => WEATHER_SOURCES.filter((entry) => entry.group === group);
 
 // 日本時間 9:05（協定世界時 0:05）の出発時刻。
@@ -56,10 +57,7 @@ const DELIVERIES = WEATHER_SOURCES.flatMap(jmaDeliveries);
  * （1つのファイルに複数の要素の行が載る）。 */
 function rowsOf(path: string, framesOf: (delivery: JmaDelivery) => readonly JmaFrame[]) {
   const owners = new Map(
-    DELIVERIES.filter((delivery) => jmaTargetTimesPaths(delivery)[0] === path).map((delivery) => [
-      delivery.id,
-      delivery,
-    ]),
+    DELIVERIES.filter((delivery) => delivery.targetTimesPaths[0] === path).map((delivery) => [delivery.id, delivery]),
   );
   return [...owners.values()].flatMap((delivery) =>
     framesOf(delivery).map((ownFrame) => ({ ...ownFrame, elements: [delivery.id] })),
@@ -126,6 +124,11 @@ function render(options: Partial<Options> = {}) {
 }
 const fetchedPaths = () =>
   [...new Set(fetchers.fetchJmaTargetTimesFile.mock.calls.map((call) => call[0] as string))].sort();
+/** 配信元のタイルの描画内容が指す配信要素とコマ（地図ライブラリがタイル座標を埋めたURLから読み戻す）。 */
+const drawn = (payload: DynamicWeatherRenderPayload | undefined) =>
+  payload && "tileUrlTemplate" in payload
+    ? readJmaTileUrl(payload.tileUrlTemplate.replace("{z}", "4").replace("{x}", "14").replace("{y}", "6"))
+    : null;
 
 describe("取りに行くかどうか", () => {
   it("チップがOFFの間は何も取りに行かない", async () => {
@@ -168,8 +171,9 @@ describe("選んだ時刻に描くもの", () => {
     await settle();
     expect(result.current.dynamicWeather.precipitationNowcast?.main).toMatchObject({
       visible: true,
-      payload: { kind: "rasterTile", tileUrlTemplate: expect.stringContaining(`/none/${utc("0005")}/surf/`) },
+      payload: { kind: "rasterTile" },
     });
+    expect(drawn(result.current.dynamicWeather.precipitationNowcast?.main?.payload)?.frame).toEqual(frame(utc("0005")));
 
     rerender({
       visibility: visibility({ precipitationNowcast: true }),
@@ -203,8 +207,9 @@ describe("選んだ時刻に描くもの", () => {
     const thunder = source("disaster", "thunder");
     const { result } = render({ visibility: visibility({ disaster: true }) });
     await settle();
-    expect(result.current.dynamicWeather.disaster?.thunder?.payload).toMatchObject({
-      tileUrlTemplate: expect.stringContaining(`/${utc("0005")}/surf/${jmaDeliveries(thunder)[0].id}/`),
+    expect(drawn(result.current.dynamicWeather.disaster?.thunder?.payload)).toMatchObject({
+      delivery: jmaDeliveries(thunder)[0],
+      frame: { validtime: utc("0005") },
     });
   });
 
@@ -328,14 +333,14 @@ describe("配信元の地点（最新の観測の規則）", () => {
 });
 
 describe("時刻一覧が複数のファイルに分かれる要素", () => {
-  const split = DELIVERIES.find((delivery) => delivery.targetTimeFiles.length > 1)!;
+  const split = DELIVERIES.find((delivery) => delivery.targetTimesPaths.length > 1)!;
   const owner = WEATHER_SOURCES.find((entry) => jmaDeliveries(entry).includes(split))!;
   const others = inGroup(owner.group)
     .filter((entry) => entry !== owner)
     .map((entry) => entry.source);
   const show = () =>
     render({ visibility: visibility({ [owner.group]: true }), hiddenSources: { [owner.group]: others } });
-  const splitFiles = jmaTargetTimesPaths(split);
+  const splitFiles: readonly string[] = split.targetTimesPaths;
   const failFiles = (failing: readonly string[]) =>
     fetchers.fetchJmaTargetTimesFile.mockImplementation(async (path: string) => {
       if (failing.includes(path)) throw new Error("取れません");
@@ -399,7 +404,7 @@ describe("取得状態", () => {
   });
 
   it("チップ内のどの取得が失敗しても失敗", async () => {
-    const failing = jmaTargetTimesPaths(inGroup("precipitationNowcast").flatMap(jmaDeliveries)[0]);
+    const failing: readonly string[] = inGroup("precipitationNowcast").flatMap(jmaDeliveries)[0].targetTimesPaths;
     fetchers.fetchJmaTargetTimesFile.mockImplementation(async (path: string) => {
       if (failing.includes(path)) throw new Error("取れません");
       return rowsOf(path, framesByReader);
@@ -415,9 +420,7 @@ describe("取得状態", () => {
     const payload = result.current.dynamicWeather.disaster?.thunder?.payload;
     const template = payload && "tileUrlTemplate" in payload ? payload.tileUrlTemplate : "";
     act(() => {
-      fetchers.failures.current = new Map([
-        [jmaDeliveries(source("disaster", "thunder"))[0].id, template.slice(0, template.indexOf("{z}"))],
-      ]);
+      fetchers.failures.current = new Map([[jmaDeliveries(source("disaster", "thunder"))[0].id, template]]);
       fetchers.failures.listeners.forEach((listener) => listener());
     });
     expect(result.current.dynamicWeatherDataStatus.disaster).toBe("error");
@@ -455,8 +458,8 @@ describe("出発時刻が「今」へ追従しているとき", () => {
     act(() => vi.advanceTimersByTime(30 * 60 * 1000));
     await settle();
     rerender(props(new Date("2026-09-24T00:35:00Z")));
-    expect(result.current.dynamicWeather.precipitationNowcast?.main?.payload).toMatchObject({
-      tileUrlTemplate: expect.stringContaining(`/${utc("0035")}/none/${utc("0035")}/surf/`),
-    });
+    expect(drawn(result.current.dynamicWeather.precipitationNowcast?.main?.payload)?.frame).toEqual(
+      frame(utc("0035"), utc("0035")),
+    );
   });
 });

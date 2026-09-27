@@ -8,20 +8,30 @@ import {
   fetchJmaPointGeojson,
   fetchJmaTargetTimesFile,
   jmaFramesOf,
-  jmaTargetTimesPaths,
   JMA_POINT_VALUE_PROPERTY,
   jmaPlaceholderTileUrl,
   jmaTilePayload,
   parseValidtime,
+  readJmaTileUrl,
   type JmaDelivery,
 } from "./jmaDelivery";
 
 // テストはnode環境で動くため、配信のオリジンは空（相対パス）になる。
-const PROXY = "/api/jma-tile/bosai/jmatile/data";
+const PROXY = "/api/jma-tile/";
 const DELIVERIES = mapDisplay.weatherElements.flatMap((element): readonly JmaDelivery[] => element.jmaElements);
+const isTileElement = (element: (typeof mapDisplay.weatherElements)[number]) =>
+  (element.kind === "rasterTile" || element.kind === "vectorTile") && element.jmaElements.length > 0;
+const TILE_ELEMENTS = mapDisplay.weatherElements.filter(isTileElement);
+const TILE_DELIVERIES = TILE_ELEMENTS.flatMap((element): readonly JmaDelivery[] => element.jmaElements);
+const POINT_ELEMENT = mapDisplay.weatherElements.find(
+  (element) => !isTileElement(element) && element.jmaElements.length > 0,
+)!;
+const POINT_DELIVERY: JmaDelivery = POINT_ELEMENT.jmaElements[0]!;
 const withReader = (reader: JmaDelivery["reader"]) => DELIVERIES.find((delivery) => delivery.reader === reader)!;
-const fileOf = (delivery: JmaDelivery, index = 0) =>
-  `${PROXY}/${delivery.pathGroup}/${delivery.targetTimeFiles[index]}`;
+const fileOf = (delivery: JmaDelivery, index = 0) => `${PROXY}${delivery.targetTimesPaths[index]}`;
+/** 地図ライブラリがタイル座標を埋めたURL。 */
+const tileAt = (template: string, z: number, x: number, y: number) =>
+  template.replace("{z}", String(z)).replace("{x}", String(x)).replace("{y}", String(y));
 
 /** 時刻一覧のファイルごとの応答。`undefined`のファイルは500を返す。 */
 function stubFiles(files: Record<string, unknown>) {
@@ -133,7 +143,7 @@ describe("時刻一覧のファイル", () => {
   it("配列でない応答は形式の誤りとして失敗に数える", async () => {
     const delivery = DELIVERIES[0];
     stubFiles({ [fileOf(delivery)]: {} });
-    await expect(fetchJmaTargetTimesFile(jmaTargetTimesPaths(delivery)[0], "要素")).rejects.toThrow(
+    await expect(fetchJmaTargetTimesFile(delivery.targetTimesPaths[0], "要素")).rejects.toThrow(
       "要素の時刻一覧の形式が想定と異なります",
     );
   });
@@ -141,31 +151,49 @@ describe("時刻一覧のファイル", () => {
 
 describe("コマのURL", () => {
   const frame = { basetime: "20260924000000", member: "immed", validtime: "20260924010000" };
-  const delivery = DELIVERIES[0];
+  const delivery = POINT_DELIVERY;
 
-  it("配信元のパス構造 .../data/<系統>/<basetime>/<member>/<validtime>/surf/<要素>/ に、描き方の拡張子を付ける", () => {
-    expect(jmaTilePayload("vectorTile", delivery, frame)).toEqual({
-      kind: "vectorTile",
-      tileUrlTemplate: `${PROXY}/${delivery.pathGroup}/20260924000000/immed/20260924010000/surf/${delivery.id}/{z}/{x}/{y}.pbf`,
-    });
-    expect(jmaTilePayload("rasterTile", delivery, frame)).toMatchObject({
+  it("源泉のテンプレートの時刻と系列をコマで埋め、タイル座標は地図ライブラリに残す", () => {
+    const tile = TILE_DELIVERIES[0]!;
+    expect(jmaTilePayload("rasterTile", tile, frame)).toEqual({
       kind: "rasterTile",
-      tileUrlTemplate: expect.stringMatching(/\{z\}\/\{x\}\/\{y\}\.png$/),
+      tileUrlTemplate: `${PROXY}${tile.urlTemplate}`
+        .replace("{basetime}", frame.basetime)
+        .replace("{member}", frame.member)
+        .replace("{validtime}", frame.validtime),
     });
+    expect(jmaTilePayload("rasterTile", tile, frame).tileUrlTemplate).toMatch(/\{z\}\/\{x\}\/\{y\}\.png$/);
   });
 
-  it("中身が届く前の仮のURLは、タイルで描く要素のどれも実在しない時刻を指し、描き方の拡張子を持つ", () => {
-    const tileElements = mapDisplay.weatherElements.filter(
-      (element) => (element.kind === "rasterTile" || element.kind === "vectorTile") && element.jmaElements.length > 0,
-    );
-    expect(tileElements).not.toHaveLength(0);
-    for (const element of tileElements) {
-      const extension = element.kind === "vectorTile" ? "pbf" : "png";
-      expect(
-        jmaPlaceholderTileUrl(element).endsWith(
-          `/00000000000000/none/00000000000000/surf/${element.jmaElements[0]!.id}/{z}/{x}/{y}.${extension}`,
-        ),
-      ).toBe(true);
+  it("タイルのURLは、タイルで描くどの配信要素でも、組み立てたコマとタイル座標に読み戻せる", () => {
+    expect(TILE_DELIVERIES).not.toHaveLength(0);
+    for (const tile of TILE_DELIVERIES) {
+      const { tileUrlTemplate } = jmaTilePayload("rasterTile", tile, frame);
+      expect(readJmaTileUrl(tileAt(tileUrlTemplate, 9, 454, 201)), tile.id).toEqual({
+        delivery: tile,
+        frame,
+        frameUrl: tileUrlTemplate,
+        z: 9,
+        x: 454,
+        y: 201,
+      });
+    }
+  });
+
+  it("源泉のテンプレートに当たらないURLは読み戻さない", () => {
+    const { tileUrlTemplate } = jmaTilePayload("rasterTile", TILE_DELIVERIES[0]!, frame);
+    expect(readJmaTileUrl("https://example.com/tile/5/28/12.png")).toBeNull();
+    expect(readJmaTileUrl(tileUrlTemplate)).toBeNull(); // タイル座標が埋まっていない
+    expect(readJmaTileUrl(`${tileAt(tileUrlTemplate, 5, 28, 12)}?t=1`)).toBeNull();
+    expect(readJmaTileUrl(jmaPlaceholderTileUrl(POINT_ELEMENT))).toBeNull(); // タイルで描かない要素の地点
+  });
+
+  it("中身が届く前の仮のURLは、タイルで描く要素のどれも最初の段の実在しない時刻を指す", () => {
+    expect(TILE_ELEMENTS).not.toHaveLength(0);
+    for (const element of TILE_ELEMENTS) {
+      const ref = readJmaTileUrl(tileAt(jmaPlaceholderTileUrl(element), 4, 14, 6));
+      expect(ref?.delivery, element.source).toBe(element.jmaElements[0]);
+      expect(ref?.frame).toEqual({ basetime: "00000000000000", member: "none", validtime: "00000000000000" });
     }
   });
 
@@ -185,8 +213,12 @@ describe("コマのURL", () => {
 
     const geojson = await fetchJmaPointGeojson(delivery, frame, "地点");
     expect(fetchMock.mock.calls[0][0]).toBe(
-      `${PROXY}/${delivery.pathGroup}/20260924000000/immed/20260924010000/surf/${delivery.id}/data.geojson?id=${delivery.id}`,
+      `${PROXY}${delivery.urlTemplate}`
+        .replace("{basetime}", frame.basetime)
+        .replace("{member}", frame.member)
+        .replace("{validtime}", frame.validtime),
     );
+    expect(fetchMock.mock.calls[0][0]).toMatch(/\.geojson\?/);
     expect(geojson.features.map((feature) => feature.properties)).toEqual([
       { type: 1, [JMA_POINT_VALUE_PROPERTY]: 1 },
       { [JMA_POINT_VALUE_PROPERTY]: 1 },

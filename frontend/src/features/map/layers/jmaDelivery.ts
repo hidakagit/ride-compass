@@ -1,7 +1,6 @@
-// 気象庁の配信（bosai/jmatile/data/配下）から取る段の共通部品。配信元のパス構造・時刻一覧の
-// 取得・時刻一覧の行をコマにする読み方・コマのタイルや地点のURL。どの配信要素を・どの系統の・
-// どのファイルから・どう読むかは源泉の宣言（`mapDisplay.weatherElements`の`jmaElements`）が持ち、
-// ここは宣言を受け取って組み立てるだけ。
+// 気象庁の配信から取る段の共通部品。時刻一覧の取得・時刻一覧の行をコマにする読み方・コマのタイルや
+// 地点のURLと、タイルのURLの読み戻し。どの配信要素を・どのパスの形で・どの時刻一覧から・どう読むかは
+// 源泉の宣言（`mapDisplay.weatherElements`の`jmaElements`）が持ち、ここは宣言を受け取って組み立てるだけ。
 
 import { fetchJson } from "@/lib/fetchJson";
 import { apiPath } from "@/lib/apiPath";
@@ -27,20 +26,19 @@ import type { DynamicWeatherRenderPayload } from "@/features/map/layers/dynamicW
  * 呼び出し時に評価する関数として提供する（SSRで空文字に固定されるのを避ける）。
  */
 function jmaProxyUrl(path: string): string {
-  return `${tileBaseUrl()}${apiPath("/api/jma-tile/{path}", { path: `bosai${path}` })}`;
+  return `${tileBaseUrl()}${apiPath("/api/jma-tile/{path}", { path })}`;
 }
 
 type DeclaredElement = (typeof mapDisplay.weatherElements)[number];
 
-/** 時刻の段1つぶんの配信要素（要素id・パスの系統・時刻一覧のファイル・読み方・更新間隔）。 */
+/** 時刻の段1つぶんの配信要素（要素id・時刻一覧のパス・コマのパスのテンプレート・読み方・更新間隔）。 */
 export type JmaDelivery = DeclaredElement["jmaElements"][number];
-
-type JmaPathGroup = JmaDelivery["pathGroup"];
 
 /** 配信元のタイルで描く描き方。 */
 type JmaTileKind = "rasterTile" | "vectorTile";
 
-/** 時刻一覧から読み出したコマ1つ。タイル・地点のURLを決める時刻と系列。 */
+/** 時刻一覧から読み出したコマ1つ。タイル・地点のURLを決める時刻と系列。項目名は源泉のパスのテンプレートの
+ * `{basetime}`等と同じ名前で、テンプレートはこの名前で埋める。 */
 export interface JmaFrame {
   basetime: string;
   /** 数値予報の系列。系列を持たない系統（nowc）は常に"none"。 */
@@ -48,52 +46,27 @@ export interface JmaFrame {
   validtime: string;
 }
 
-/** 配信元はベクタで描く要素をMapbox Vector Tile（.pbf）、それ以外を画像（.png）で配る。 */
-function tileExtension(kind: DeclaredElement["kind"]): "png" | "pbf" {
-  return kind === "vectorTile" ? "pbf" : "png";
-}
+const PLACEHOLDER = /\{([^}]+)\}/g;
 
-/** 配信元のパスが持つ可変部分。 */
-interface JmaTarget {
-  /** 配信系統。`targetTimes.json`の在り処もこれで決まる。 */
-  group: JmaPathGroup;
-  /** 要素id（`land`・`rain_mesh`・`hrpns`・`thns`等）。 */
-  element: string;
-  basetime: string;
-  member: string;
-  validtime: string;
-}
-
-/**
- * 配信元の要素配下URL。`suffix`はタイル座標（`{z}/{x}/{y}.png`）とGeoJSON
- * （`data.geojson?id=...`）で異なるが、そこまでのパス構造は共通のためここで組み立てる。
- *
- * `.../data/<group>/<basetime>/<member>/<validtime>/surf/<element>/`という**配信元のパス構造を
- * 表す唯一の場所**——構造を各所で組み立てると、要素を1つ足すたびに同じ並びを書き写すことになる。
- */
-function jmaElementUrl(target: JmaTarget, suffix: string): string {
-  return jmaProxyUrl(
-    `/jmatile/data/${target.group}/${target.basetime}/${target.member}/${target.validtime}` +
-      `/surf/${target.element}/${suffix}`,
+/** 源泉のテンプレート（`urlTemplate`）の、コマの項目を埋める。タイル座標の`{z}/{x}/{y}`は地図ライブラリが埋めるので残す。 */
+function fillFrame(template: string, frame: JmaFrame): string {
+  return template.replace(PLACEHOLDER, (whole, name: string) =>
+    name in frame ? frame[name as keyof JmaFrame] : whole,
   );
 }
 
-function jmaTarget(delivery: JmaDelivery, frame: JmaFrame): JmaTarget {
-  return {
-    group: delivery.pathGroup,
-    element: delivery.id,
-    basetime: frame.basetime,
-    member: frame.member,
-    validtime: frame.validtime,
-  };
+/** そのコマの配信元のURL。タイルなら`{z}/{x}/{y}`を残したテンプレート、地点ならGeoJSONのURL。 */
+function jmaFrameUrl(delivery: JmaDelivery, frame: JmaFrame): string {
+  return jmaProxyUrl(fillFrame(delivery.urlTemplate, frame));
 }
 
 /** 配信元のタイルで描く段の、そのコマの描画ペイロード。 */
-export function jmaTilePayload(kind: JmaTileKind, delivery: JmaDelivery, frame: JmaFrame): DynamicWeatherRenderPayload {
-  return {
-    kind,
-    tileUrlTemplate: jmaElementUrl(jmaTarget(delivery, frame), `{z}/{x}/{y}.${tileExtension(kind)}`),
-  };
+export function jmaTilePayload(
+  kind: JmaTileKind,
+  delivery: JmaDelivery,
+  frame: JmaFrame,
+): Extract<DynamicWeatherRenderPayload, { kind: JmaTileKind }> {
+  return { kind, tileUrlTemplate: jmaFrameUrl(delivery, frame) };
 }
 
 /** ソース初期化時の仮URLに使う、実在しない時刻。 */
@@ -105,13 +78,62 @@ const PLACEHOLDER_TIME = "00000000000000";
  * 実データが来る前にsourceを作るための仮の値で、中身が届くと本物のURLへ差し替わる。
  * 時刻部分は実在しない値のため、万一このまま要求されても配信元で404になる。
  */
-export function jmaPlaceholderTileUrl(element: Pick<DeclaredElement, "jmaElements" | "kind">): string {
+export function jmaPlaceholderTileUrl(element: Pick<DeclaredElement, "jmaElements">): string {
   const [first] = element.jmaElements;
   if (first === undefined) throw new Error("配信元から取らない要素のタイルのURLを求めた");
-  return jmaElementUrl(
-    jmaTarget(first, { basetime: PLACEHOLDER_TIME, member: "none", validtime: PLACEHOLDER_TIME }),
-    `{z}/{x}/{y}.${tileExtension(element.kind)}`,
-  );
+  return jmaFrameUrl(first, { basetime: PLACEHOLDER_TIME, member: "none", validtime: PLACEHOLDER_TIME });
+}
+
+/** 配信元のタイルのURLから読み戻したもの。`frameUrl`はそのコマの`jmaTilePayload`のテンプレートと同じ文字列。 */
+export interface JmaTileRef {
+  delivery: JmaDelivery;
+  frame: JmaFrame;
+  frameUrl: string;
+  z: number;
+  x: number;
+  y: number;
+}
+
+/** タイル座標は数字に、それ以外の項目はパスの1区切りに当てる。 */
+const TILE_COORDINATES = new Set(["z", "x", "y"]);
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** 源泉のテンプレートを、URLの末尾に当てる正規表現と項目名の並びにする。 */
+function templateMatcher(template: string): { pattern: RegExp; names: string[] } {
+  const parts = template.split(PLACEHOLDER);
+  const names = parts.filter((_, index) => index % 2 === 1);
+  const body = parts
+    .map((part, index) => (index % 2 === 0 ? escapeRegExp(part) : TILE_COORDINATES.has(part) ? "(\\d+)" : "([^/?]+)"))
+    .join("");
+  return { pattern: new RegExp(`/${body}$`), names };
+}
+
+const TILE_DELIVERY_MATCHERS = mapDisplay.weatherElements
+  .filter((element) => element.kind === "rasterTile" || element.kind === "vectorTile")
+  .flatMap((element): readonly JmaDelivery[] => element.jmaElements)
+  .map((delivery) => ({ delivery, ...templateMatcher(delivery.urlTemplate) }));
+
+/** 配信元のタイルのURL（地図ライブラリがタイル座標を埋めたもの）が、どの配信要素のどのコマのどのタイルか。
+ * 源泉のテンプレートのどれにも当たらなければnull。 */
+export function readJmaTileUrl(url: string): JmaTileRef | null {
+  for (const { delivery, pattern, names } of TILE_DELIVERY_MATCHERS) {
+    const match = pattern.exec(url);
+    if (!match) continue;
+    const fields = Object.fromEntries(names.map((name, index) => [name, match[index + 1]]));
+    const frame: JmaFrame = { basetime: fields.basetime, member: fields.member, validtime: fields.validtime };
+    return {
+      delivery,
+      frame,
+      frameUrl: jmaFrameUrl(delivery, frame),
+      z: Number(fields.z),
+      x: Number(fields.x),
+      y: Number(fields.y),
+    };
+  }
+  return null;
 }
 
 /** 配信元が地点をGeoJSONで配る段の記号の大きさを決めるプロパティ。配信元は地点ごとの強弱を
@@ -125,10 +147,11 @@ export async function fetchJmaPointGeojson(
   frame: JmaFrame,
   label: string,
 ): Promise<GeoJSON.FeatureCollection> {
-  const geojson = await fetchJson<GeoJSON.FeatureCollection>(
-    jmaElementUrl(jmaTarget(delivery, frame), `data.geojson?id=${delivery.id}`),
-    { timeoutMs: DEFAULT_API_TIMEOUT_MS, category: "api:jma-points", errorLabel: label },
-  );
+  const geojson = await fetchJson<GeoJSON.FeatureCollection>(jmaFrameUrl(delivery, frame), {
+    timeoutMs: DEFAULT_API_TIMEOUT_MS,
+    category: "api:jma-points",
+    errorLabel: label,
+  });
   return {
     ...geojson,
     features: geojson.features.map((feature) => ({
@@ -150,14 +173,7 @@ interface RawTargetTime {
   elements: string[];
 }
 
-/** 配信要素の時刻一覧（`targetTimes*.json`）のファイルのパス（宣言の順）。在り処（系統とファイル名）は源泉の宣言が
- * 持ち、ここは`.../data/<系統>/<ファイル>`というパス構造だけを知る。時刻一覧が複数のファイルに分かれる要素（降水
- * ナウキャストの実況と予測）は複数、同じファイルを読む要素（キキクルの各要素等）どうしは同じパスになる。 */
-export function jmaTargetTimesPaths(delivery: JmaDelivery): string[] {
-  return delivery.targetTimeFiles.map((file) => `/jmatile/data/${delivery.pathGroup}/${file}`);
-}
-
-/** 時刻一覧のファイル1つの行。`label`はエラーメッセージに使う対象名（「の時刻一覧」は本関数が付ける）。 */
+/** 時刻一覧のファイル1つ（源泉の`targetTimesPaths`の1つ）の行。`label`はエラーメッセージに使う対象名（「の時刻一覧」は本関数が付ける）。 */
 export async function fetchJmaTargetTimesFile(path: string, label: string): Promise<unknown[]> {
   const data = await fetchJson<unknown>(jmaProxyUrl(path), {
     timeoutMs: DEFAULT_API_TIMEOUT_MS,

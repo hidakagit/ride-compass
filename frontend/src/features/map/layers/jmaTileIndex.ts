@@ -12,6 +12,7 @@
  * `available: false`ならインデックス無し（従来どおり全取得）。 */
 export type { JmaTileIndexResponse } from "@/types/route";
 import type { JmaTileIndexResponse as JmaTileIndexResponseType } from "@/types/route";
+import { readJmaTileUrl, type JmaTileRef } from "@/features/map/layers/jmaDelivery";
 
 /** 判定用に前処理した形。座標の線形探索を避けるためSetへ展開しておく。 */
 export interface JmaTileIndexLookup {
@@ -20,31 +21,10 @@ export interface JmaTileIndexLookup {
   elements: Map<string, { frame: string; present: Set<string> }>;
 }
 
-/** タイルURLから読み取った、在否判定に必要な情報。 */
-interface JmaTileRef {
-  element: string;
-  /** `basetime/member/validtime`。1つのbasetimeに実況と複数の予測のvalidtimeが載るため、
-   * 3つが揃って初めて同じ画像を指す。 */
-  frame: string;
-  z: number;
-  x: number;
-  y: number;
-}
-
-// .../data/{group}/{basetime}/{member}/{validtime}/surf/{element}/{z}/{x}/{y}.{png|pbf}
-const TILE_URL_PATTERN =
-  /\/data\/[a-z]+\/(\d{14}\/[^/]+\/\d{14})\/surf\/([a-z0-9_]+)\/(\d+)\/(\d+)\/(\d+)\.(?:png|pbf)/;
-
-function parseJmaTileUrl(url: string): JmaTileRef | null {
-  const match = TILE_URL_PATTERN.exec(url);
-  if (!match) return null;
-  return {
-    frame: match[1],
-    element: match[2],
-    z: Number(match[3]),
-    x: Number(match[4]),
-    y: Number(match[5]),
-  };
+/** インデックスの要素ごとのフレームの鍵。1つのbasetimeに実況と複数の予測のvalidtimeが載るため、
+ * 3つが揃って初めて同じ画像を指す。 */
+function frameKey(frame: { basetime: string; member: string; validtime: string }): string {
+  return `${frame.basetime}/${frame.member}/${frame.validtime}`;
 }
 
 export function buildJmaTileIndexLookup(response: JmaTileIndexResponseType | null): JmaTileIndexLookup | null {
@@ -58,13 +38,16 @@ export function buildJmaTileIndexLookup(response: JmaTileIndexResponseType | nul
     for (const [zoom, coords] of Object.entries(entry.zooms)) {
       for (const [x, y] of coords) present.add(`${zoom}/${x}/${y}`);
     }
-    elements.set(elementId, { frame: `${entry.basetime}/${entry.member}/${entry.validtime}`, present });
+    elements.set(elementId, {
+      frame: frameKey({ basetime: entry.basetime, member: entry.member, validtime: entry.validtime }),
+      present,
+    });
   }
   return elements.size > 0 ? { coverage: response.coverage, elements } : null;
 }
 
 /** タイル(z,x,y)の地理範囲がcoverageと交差するか（Webメルカトル）。 */
-function intersectsCoverage(ref: JmaTileRef, coverage: JmaTileIndexLookup["coverage"]): boolean {
+function intersectsCoverage(ref: Pick<JmaTileRef, "z" | "x" | "y">, coverage: JmaTileIndexLookup["coverage"]): boolean {
   const n = 2 ** ref.z;
   const west = (ref.x / n) * 360 - 180;
   const east = ((ref.x + 1) / n) * 360 - 180;
@@ -91,31 +74,11 @@ function intersectsCoverage(ref: JmaTileRef, coverage: JmaTileIndexLookup["cover
  */
 export function isKnownEmptyTile(lookup: JmaTileIndexLookup | null, url: string): boolean {
   if (!lookup) return false;
-  const ref = parseJmaTileUrl(url);
+  const ref = readJmaTileUrl(url);
   if (!ref) return false;
-  const entry = lookup.elements.get(ref.element);
+  const entry = lookup.elements.get(ref.delivery.id);
   if (!entry) return false;
-  if (entry.frame !== ref.frame) return false;
+  if (entry.frame !== frameKey(ref.frame)) return false;
   if (!intersectsCoverage(ref, lookup.coverage)) return false;
   return !entry.present.has(`${ref.z}/${ref.x}/${ref.y}`);
-}
-
-/** タイルURLのうち、要素配下（`.../surf/<element>/`）までの前半と、その要素id。
- *
- * タイル座標より手前しか見ないため、実URLと`{z}/{x}/{y}`を含むテンプレートのどちらからも
- * 同じ前半が取れる。前半はbasetime・validtimeを含むので、フレームが変われば別の値になる。 */
-interface JmaTileElementRef {
-  element: string;
-  prefix: string;
-}
-
-const ELEMENT_PATH_SEGMENT = "/surf/";
-
-export function parseJmaTileElement(url: string): JmaTileElementRef | null {
-  const at = url.indexOf(ELEMENT_PATH_SEGMENT);
-  if (at < 0) return null;
-  const elementStart = at + ELEMENT_PATH_SEGMENT.length;
-  const elementEnd = url.indexOf("/", elementStart);
-  if (elementEnd <= elementStart) return null;
-  return { element: url.slice(elementStart, elementEnd), prefix: url.slice(0, elementEnd + 1) };
 }

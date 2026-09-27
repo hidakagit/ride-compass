@@ -226,13 +226,13 @@ def _weather_element_entry(element: WeatherElement) -> dict:
         "label": element.label,
         "frameRule": {"kind": element.frame_rule.kind, "windowMinutes": element.frame_rule.window_minutes},
         "gridValue": element.grid_value,
-        # 時刻の段の順（近い時刻から）。画面のデータ層は、配信元のURLを要素idと系統から、
-        # 時刻一覧のURLを系統とファイル名から組み立て、行を読み方に従ってコマにする。
+        # 時刻の段の順（近い時刻から）。画面のデータ層は、時刻一覧をそのパスから取り、行を読み方に従って
+        # コマにし、コマの時刻と系列でパスのテンプレートを埋めて取りに行く。
         "jmaElements": [
             {
                 "id": delivery.element_id,
-                "pathGroup": delivery.path_group,
-                "targetTimeFiles": list(delivery.target_time_files),
+                "targetTimesPaths": list(delivery.target_times_paths),
+                "urlTemplate": delivery.url_template,
                 "reader": delivery.reader,
                 "refreshIntervalMs": delivery.refresh_interval_seconds * 1000,
             }
