@@ -169,8 +169,8 @@ export default function RouteSplicePanel({
         {/* 使い方は画面へ書かずここへ置く（設計原則「冗長なものは削る」）。 */}
         <InfoPopover triggerAriaLabel="区間の乗り換えの説明">
           地図の破線が、いまの道から乗り換えられる先です。タップするとそこへ乗り換わり、その先に
-          分かれ道があれば次の破線が出ます。太い線が、いま作っているルートです。軸の棒は中央が0で、左（−）へ
-          伸びた軸ほど難易度が下がり、右（＋）へ伸びた軸ほど上がっています。
+          分かれ道があれば次の破線が出ます。太い線が、いま作っているルートです。軸の棒は中央が0で、左[−]へ
+          伸びた軸ほど難易度が下がり、右[＋]へ伸びた軸ほど上がっています。
         </InfoPopover>
         {appliedCount > 0 && <span className={cn(textVariants({ variant: "hint" }), "ml-1")}>{appliedCount}回</span>}
         {!unavailable && (

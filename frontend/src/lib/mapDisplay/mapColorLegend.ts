@@ -63,7 +63,7 @@ export function buildRangeLegendBands(
     const lower = index === 0 ? null : (boundaries[index - 1] ?? null);
     const upper = index >= boundaries.length ? null : (boundaries[index] ?? null);
     const rangeLabel = rangeStepLabel(lower, upper, unit);
-    const label = labels ? `${labels[index]}（${rangeLabel}）` : rangeLabel;
+    const label = labels ? `${labels[index]}[${rangeLabel}]` : rangeLabel;
     return { key: legendBandKey(index), label, color };
   });
 }

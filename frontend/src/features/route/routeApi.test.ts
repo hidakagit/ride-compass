@@ -127,7 +127,7 @@ describe("generateRoutes", () => {
     const error = await run().catch((e: Error) => e);
     expect(error).toBeInstanceOf(Error);
     expect((error as Error).message).toMatch(
-      /^ルート生成の状況確認に続けて失敗しました（.+）。時間をおいて再度お試しください。$/,
+      /^ルート生成の状況確認に続けて失敗しました: .+。時間をおいて再度お試しください。$/,
     );
     expect((error as Error).message).not.toContain("Failed to fetch");
     expect((error as Error).cause).toBeInstanceOf(Error);

@@ -71,7 +71,7 @@ describe("LensControl（レンズのピル）", () => {
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
-  it("選択肢は「なし」「総合難易度」、評価に使用中の軸、未使用の軸の順で、未使用・ルート後のみの印を付ける", async () => {
+  it("選択肢は「なし」「総合難易度」、評価に使用中の軸、未使用の軸の順で、使用中か未使用かは見出しで分け、ルート後のみの印を付ける", async () => {
     renderLens();
     await open();
     const group = screen.getByRole("radiogroup", { name: "レンズ" });
@@ -83,11 +83,10 @@ describe("LensControl（レンズのピル）", () => {
       FIXED_LENS_LABELS[LENS_DIFFICULTY_ID],
       "usedの軸",
       "routeの軸ルート後のみ",
-      "idleの軸未使用",
+      "idleの軸",
     ]);
     expect(within(group).getByText("評価に使用中")).toBeInTheDocument();
-    // 見出しの「未使用」と、未使用の軸の印
-    expect(within(group).getAllByText("未使用")).toHaveLength(2);
+    expect(within(group).getByText("未使用")).toBeInTheDocument();
   });
 
   it("ルート確定後は「ルート後のみ」を付けず、使用中・未使用の見出しは中身があるときだけ", async () => {

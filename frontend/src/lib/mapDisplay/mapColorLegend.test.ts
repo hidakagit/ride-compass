@@ -23,6 +23,6 @@ describe("buildRangeLegendBands", () => {
   it("体感ラベルを渡すと、数値レンジの前に添える", () => {
     const bands = buildRangeLegendBands([6], ["#a", "#b"], "m/s", ["追い風", "向かい風"]);
 
-    expect(bands.map((band) => band.label)).toEqual(["追い風（6m/s未満）", "向かい風（6m/s以上）"]);
+    expect(bands.map((band) => band.label)).toEqual(["追い風[6m/s未満]", "向かい風[6m/s以上]"]);
   });
 });

@@ -122,14 +122,14 @@ export default function TodayOutlook({ weather, loading, error }: TodayOutlookPr
           今日のモデルの計算値
         </p>
         <p className={cn(textVariants({ variant: "note" }), "mb-2")}>
-          気象庁の数値予報モデル（MSM）の計算値です。予報ではなく、誤差を含みえます。
+          気象庁の数値予報モデルMSMの計算値です。予報ではなく、誤差を含みえます。
         </p>
         <div className="grid grid-cols-2 gap-x-3 gap-y-2">
           {weather.precipitation_max_mm != null && (
             <div className="flex items-start gap-1.5 text-[var(--color-accent)] [&_svg]:mt-0.5 [&_svg]:shrink-0">
               <RaindropIcon size={15} />
               <span>
-                <span className={cn(textVariants({ variant: "note" }), "block")}>降水量（最大）</span>
+                <span className={cn(textVariants({ variant: "note" }), "block")}>降水量[最大]</span>
                 <span className="block text-[length:var(--font-size-md)] leading-[1.3] font-semibold text-[var(--foreground)]">
                   {weather.precipitation_max_mm.toFixed(1)}
                   <span className="text-[0.75em] font-normal text-[var(--color-muted)]">mm/h</span>
@@ -141,7 +141,7 @@ export default function TodayOutlook({ weather, loading, error }: TodayOutlookPr
             <div className="flex items-start gap-1.5 text-[var(--color-accent)] [&_svg]:mt-0.5 [&_svg]:shrink-0">
               <WindIcon size={15} />
               <span>
-                <span className={cn(textVariants({ variant: "note" }), "block")}>風（最大）</span>
+                <span className={cn(textVariants({ variant: "note" }), "block")}>風[最大]</span>
                 <span className="block text-[length:var(--font-size-md)] leading-[1.3] font-semibold text-[var(--foreground)]">
                   {weather.wind_speed_max_ms.toFixed(1)}
                   <span className="text-[0.75em] font-normal text-[var(--color-muted)]">m/s</span>

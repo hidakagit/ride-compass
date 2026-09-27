@@ -86,10 +86,7 @@ describe("lensLegend（レンズの凡例）", () => {
   });
 
   it("体感ラベルは段数と一致するときだけ添える", () => {
-    expect(lensLegend("labelled", false, catalog).map((entry) => entry.label)).toEqual([
-      "平ら（10未満）",
-      "坂（10以上）",
-    ]);
+    expect(lensLegend("labelled", false, catalog).map((entry) => entry.label)).toEqual(["平ら[10未満]", "坂[10以上]"]);
     expect(lensLegend("mislabelled", false, catalog).map((entry) => entry.label)).toEqual(["10未満", "10以上"]);
   });
 
@@ -163,17 +160,20 @@ describe("lensOptions（レンズの選択肢）", () => {
   const paintable = new Set(["ramp"]);
 
   it("全道路を塗れない軸はルートだけの印を持ち、識別色が無ければ中立色", () => {
-    const [ramp, routeOnly] = lensOptions(axes, paintable, null, { ramp: "#123456" });
+    const [ramp, routeOnly] = lensOptions(axes, paintable, { ramp: 1, route_only: 1 }, { ramp: "#123456" });
     expect(ramp).toMatchObject({ id: "ramp", label: "ramp", color: "#123456", routeOnly: false, unused: false });
     expect(routeOnly.routeOnly).toBe(true);
     expect(routeOnly.color).not.toBe("#123456");
   });
 
-  it("「未使用」は、生成に使った重みが0以下の軸にだけ、生成した後で付ける", () => {
+  it("「未使用」は、渡した重みが0以下か、重みを持たない軸", () => {
     const [ramp, routeOnly] = lensOptions(axes, paintable, { ramp: 2 }, {});
     expect(ramp.unused).toBe(false);
     expect(routeOnly.unused).toBe(true);
-    expect(lensOptions(axes, paintable, null, {}).some((option) => option.unused)).toBe(false);
+    expect(lensOptions(axes, paintable, { ramp: 0, route_only: 1 }, {}).map((option) => option.unused)).toEqual([
+      true,
+      false,
+    ]);
   });
 });
 

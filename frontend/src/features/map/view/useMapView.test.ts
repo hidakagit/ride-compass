@@ -36,7 +36,14 @@ const RIDE = { bearingDeg: 90, at: new Date("2026-09-24T00:00:00Z"), speedKmh: 2
 const EMPTY_WEATHER = { dynamicWeather: {}, dynamicWeatherDataStatus: {} };
 
 type Inputs = Parameters<typeof useMapView>[0];
-const INPUTS: Inputs = { hasSelectedRoute: false, hasDetail: false, ride: RIDE, now: RIDE.at, usedWeights: null };
+const INPUTS: Inputs = {
+  hasSelectedRoute: false,
+  hasDetail: false,
+  ride: RIDE,
+  now: RIDE.at,
+  usedWeights: null,
+  currentWeights: {},
+};
 
 function render(inputs: Partial<Inputs> = {}) {
   return renderHook((props: Inputs) => useMapView(props), { initialProps: { ...INPUTS, ...inputs } });
@@ -123,11 +130,17 @@ describe("レンズ", () => {
   });
 
   it("選択肢は公開軸で、全道路を塗れない軸にはルートだけの印が付き、生成に使わなかった軸は未使用", () => {
-    const { result } = render({ usedWeights: { ramp: 1 } });
+    const { result } = render({ usedWeights: { ramp: 1 }, currentWeights: { dedicated: 1 } });
     const options = result.current.lensControl.axisOptions;
     expect(options.map((option) => option.id)).toEqual(CATALOG.axes.map((axis) => axis.axisId));
     expect(options.find((option) => option.id === "ramp")).toMatchObject({ routeOnly: false, unused: false });
     expect(options.find((option) => option.id === "dedicated")).toMatchObject({ routeOnly: false, unused: true });
+  });
+
+  it("生成前は、今の設定の重みが0の軸を未使用にする", () => {
+    const { result } = render({ currentWeights: { ramp: 0, dedicated: 1 } });
+    const unused = result.current.lensControl.axisOptions.filter((option) => option.unused).map((option) => option.id);
+    expect(unused).toEqual(["ramp"]);
   });
 });
 

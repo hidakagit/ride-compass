@@ -377,7 +377,7 @@ function ChipButton({
   ]
     .filter(Boolean)
     .join("・");
-  const chipTitle = titleNotes ? (title ? `${title}（${titleNotes}）` : titleNotes) : title;
+  const chipTitle = titleNotes ? (title ? `${title}[${titleNotes}]` : titleNotes) : title;
   return (
     <div data-slot="chip-row-item" className="flex flex-shrink-0 items-center gap-1 self-start">
       <Button

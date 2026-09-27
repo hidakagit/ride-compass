@@ -133,7 +133,7 @@ export default function RouteAxisProfile({
                 <span className="text-[1.05rem] font-semibold">{formatDurationShort(estimatedDurationSeconds)}</span>
                 <InfoPopover triggerAriaLabel="所要時間の説明">
                   <p>
-                    走行時間（勾配・風・想定した巡航速度から区間ごとに計算）に、信号などで止まる
+                    走行時間[勾配・風・想定した巡航速度から区間ごとに計算]に、信号などで止まる
                     待ちと、交差点で曲がる待ちを足した見積もりです。実際の信号のタイミングや 走り方で変わります。
                   </p>
                 </InfoPopover>
@@ -153,7 +153,7 @@ export default function RouteAxisProfile({
                   </p>
                   <p>
                     上のグラフは横が距離、縦が区間ごとの難易度で、塗られた面積がこの負荷にあたります
-                    （色ごとの面積がその軸の負荷）。灰色は値の無い区間で、平均の高さで数えています。
+                    [色ごとの面積がその軸の負荷]。灰色は値の無い区間で、平均の高さで数えています。
                     候補一覧の行のバーは、長さが総合難易度・高さが距離で、面積が負荷の目安です。
                   </p>
                 </InfoPopover>
@@ -169,7 +169,7 @@ export default function RouteAxisProfile({
           )}
           {missingTravelDataShare != null && Math.round(missingTravelDataShare * 100) >= 1 && (
             <p className={cn(textVariants({ variant: "hint" }), "m-0 text-[var(--color-warning-strong)]")}>
-              {`データの無い区間が${Math.round(missingTravelDataShare * 100)}%（坂・信号の無い道として所要時間を出しています）`}
+              {`データの無い区間が${Math.round(missingTravelDataShare * 100)}%[坂・信号の無い道として所要時間を出しています]`}
             </p>
           )}
           {contributionRows.length > 0 ? (

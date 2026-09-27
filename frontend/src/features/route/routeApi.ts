@@ -123,7 +123,7 @@ export async function generateRoutes(
         // 原因（通信・混雑・ジョブの消失）は断定せず、最後の失敗の文言を添える。
         const lastCause = error instanceof Error ? error.message.replace(/。$/, "") : null;
         throw new Error(
-          `ルート生成の状況確認に続けて失敗しました${lastCause ? `（${lastCause}）` : ""}。時間をおいて再度お試しください。`,
+          `ルート生成の状況確認に続けて失敗しました${lastCause ? `: ${lastCause}` : ""}。時間をおいて再度お試しください。`,
           { cause: error },
         );
       }

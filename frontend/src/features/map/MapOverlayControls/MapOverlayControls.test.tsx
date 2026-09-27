@@ -184,7 +184,7 @@ describe("チップの印", () => {
     ]);
     expect(screen.getByRole("button", { name: "loading" })).toHaveAttribute(
       "title",
-      `説明（${LAYER_DATA_STATUS_LABELS.loading}）`,
+      `説明[${LAYER_DATA_STATUS_LABELS.loading}]`,
     );
     expect(screen.getByRole("button", { name: "off" })).toHaveAttribute("title", "説明");
     expect(screen.getByRole("button", { name: "normal" })).toHaveAttribute("title", "説明");

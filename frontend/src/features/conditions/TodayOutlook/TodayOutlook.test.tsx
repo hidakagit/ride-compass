@@ -53,7 +53,7 @@ describe("TodayOutlook 1日の値", () => {
   it("数値予報モデルの計算値であり、予報ではないことを見出しの下で示す", async () => {
     render(<TodayOutlook weather={weather({ wind_speed_max_ms: 5 })} loading={false} error={null} />);
     await open();
-    expect(screen.getByText(/数値予報モデル（MSM）の計算値です。予報ではなく、誤差を含みえます。/)).toBeInTheDocument();
+    expect(screen.getByText(/数値予報モデルMSMの計算値です。予報ではなく、誤差を含みえます。/)).toBeInTheDocument();
   });
 
   it("最大の降水量・風速は小数1桁、気温は最低〜最高を整数で出す", async () => {
@@ -70,15 +70,15 @@ describe("TodayOutlook 1日の値", () => {
       />,
     );
     await open();
-    expect(stat("降水量（最大）")).toBe("2.5mm/h");
-    expect(stat("風（最大）")).toBe("7.0m/s");
+    expect(stat("降水量[最大]")).toBe("2.5mm/h");
+    expect(stat("風[最大]")).toBe("7.0m/s");
     expect(stat("気温")).toBe("18℃〜25℃");
   });
 
   it("値の無い項目は出さない。気温は片方だけでも出す", async () => {
     render(<TodayOutlook weather={weather({ temperature_max_c: 25 })} loading={false} error={null} />);
     await open();
-    expect(screen.queryByText("降水量（最大）")).not.toBeInTheDocument();
+    expect(screen.queryByText("降水量[最大]")).not.toBeInTheDocument();
     expect(screen.queryByText("日の出・日没")).not.toBeInTheDocument();
     expect(stat("気温")).toBe("25℃");
   });

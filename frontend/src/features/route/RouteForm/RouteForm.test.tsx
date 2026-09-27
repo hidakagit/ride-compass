@@ -130,7 +130,7 @@ describe("RouteForm 目的地の地点", () => {
 
   it("経由地を待っている間は、置いた数を隠さない", () => {
     renderForm({ ...destination, waypointCount: 2, armedPinRole: "waypoint" });
-    expect(screen.getByRole("button", { name: "経由地の指定をやめる" })).toHaveTextContent("地図をタップ（2地点）");
+    expect(screen.getByRole("button", { name: "経由地の指定をやめる" })).toHaveTextContent("地図をタップ[2地点]");
   });
 
   it("置いた地点は行に出し、消す操作を添える（置いていない地点には添えない）", async () => {

@@ -121,6 +121,7 @@ export default function Home() {
     ride: ride.ride,
     now: ride.departure.now,
     usedWeights: results.usedWeights,
+    currentWeights: conditions.routePreference,
   });
 
   // 生成の結果（候補も失敗も）は「ルート結果」でしか見えないので知らせる。デスクトップは区分を開き、モバイルは

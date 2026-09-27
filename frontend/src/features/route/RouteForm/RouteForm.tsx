@@ -259,7 +259,7 @@ export default function RouteForm({
                     ✕
                   </Button>
                 ) : undefined,
-                waypointCount > 0 ? `地図をタップ（${waypointCount}地点）` : "地図をタップ",
+                waypointCount > 0 ? `地図をタップ[${waypointCount}地点]` : "地図をタップ",
               )}
               {renderPointRow(
                 "destination",

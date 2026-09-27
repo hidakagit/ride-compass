@@ -10,13 +10,13 @@ describe("区間の風", () => {
     );
 
     expect(screen.getByText("風 12:00のモデルの計算値・東の風 3.2m/s")).toBeInTheDocument();
-    expect(screen.queryByText("（追える時刻の先へ延ばして使用）")).not.toBeInTheDocument();
+    expect(screen.queryByText("[追える時刻の先へ延ばして使用]")).not.toBeInTheDocument();
   });
 
   it("追える時刻の先の区間には、延ばして使ったことを出す", () => {
     render(<SegmentWind wind={{ speed_ms: 3, direction_deg: 0, forecast_at: "2026-09-26T15:00", extended: true }} />);
 
-    expect(screen.getByText("（追える時刻の先へ延ばして使用）")).toBeInTheDocument();
+    expect(screen.getByText("[追える時刻の先へ延ばして使用]")).toBeInTheDocument();
   });
 
   it("時別の値が無く出発時点の値を使った区間は、そう出す", () => {

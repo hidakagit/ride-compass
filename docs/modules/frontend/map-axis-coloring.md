@@ -73,8 +73,9 @@ backend（`domain/dynamic_way_values.py: map_value_thresholds`）が軸の折れ
 
 公開軸は無条件でレンズの選択肢になる（`routeStyleModes.ts: routeStyleModesFromCatalogAxes`が
 公開軸すべて＋`difficulty`（総合難易度）＋`none`（塗らない）をマップする）。重み0の軸も
-選べ、生成に使われた重みが0だった軸は`LensControl`が「未使用」バッジで示す——使う軸は
-生成した時点で決まるため、生成前は付けない（`features/map/view/lens.ts: lensOptions`）。ルート前に塗る手段（ramp・専用配信）を
+選べ、重みが0の軸は`LensControl`が「未使用」の見出しの下へ並べる（項目ごとの札は付けない——見出しと札の
+二重になる）。分ける重みは、生成後は生成に使われた重み、生成前は今の設定の重み（重みタブが薄く出す軸と
+同じ。`features/map/view/lens.ts: lensOptions`）——重みを変えずに生成すれば、前後で並びが変わらない。ルート前に塗る手段（ramp・専用配信）を
 持たない軸は「ルート後のみ」バッジ付きで選べるが、ルート前は何も塗らない。
 
 **レンズ状態は1つ**（`features/map/view/useMapView.ts`の`lens`、`"none" | "difficulty" | axis_id`。

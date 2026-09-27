@@ -44,19 +44,19 @@ export function lensLegend(
 
 /** レンズの選択肢（公開軸、カタログの並び順）。「なし」「総合難易度」は`LensControl`が足す。
  *
- * 「未使用」は生成に実際に使われた重み（`usedWeights`）が0の軸で、生成前（null）は付けない
- * ——使う軸は生成した時点で決まる。 */
+ * 「未使用」は`weights`（生成後は生成に使われた重み、生成前は今の設定の重み）が0の軸——重みタブが
+ * 薄く出す軸と同じで、重みを変えずに生成すれば前後で並びが変わらない。 */
 export function lensOptions(
   axes: readonly CatalogAxis[],
   paintableAxisIds: ReadonlySet<string>,
-  usedWeights: Readonly<Record<string, number>> | null,
+  weights: Readonly<Record<string, number>>,
   axisColors: Readonly<Record<string, string>>,
 ): LensOption[] {
   return axes.map((axis) => ({
     id: axis.axisId,
     label: axis.label,
     color: axisColors[axis.axisId] ?? LENS_NEUTRAL_COLOR,
-    unused: usedWeights !== null && (usedWeights[axis.axisId] ?? 0) <= 0,
+    unused: (weights[axis.axisId] ?? 0) <= 0,
     routeOnly: !paintableAxisIds.has(axis.axisId),
   }));
 }

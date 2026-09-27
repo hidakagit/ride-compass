@@ -113,18 +113,18 @@ describe("windArrows（風の矢印）", () => {
 describe("風速の凡例", () => {
   it("先頭は矢印を出さない無風の範囲、続いて色の段1つにつき1行（同じ順・同じ色・段の名前）", () => {
     expect(WIND_SPEED_LEGEND_LEVELS[0]).toMatchObject({
-      label: `無風・矢印なし（${WIND_CALM_THRESHOLD_MS}m/s未満）`,
+      label: `無風・矢印なし[${WIND_CALM_THRESHOLD_MS}m/s未満]`,
       color: palette.semantic.no_data,
     });
     const bands = WIND_SPEED_LEGEND_LEVELS.slice(1);
     expect(bands.map((band) => band.color)).toEqual(WIND_SPEED_COLOR_STOPS.map((stop) => stop.color));
-    bands.forEach((band, i) => expect(band.label.startsWith(`${WIND_SPEED_COLOR_STOPS[i].name}（`)).toBe(true));
+    bands.forEach((band, i) => expect(band.label.startsWith(`${WIND_SPEED_COLOR_STOPS[i].name}[`)).toBe(true));
   });
 
   it("最初の色の帯は無風の上から、最後の帯は上限なしで始まる", () => {
     const stops = WIND_SPEED_COLOR_STOPS;
-    expect(WIND_SPEED_LEGEND_LEVELS[1].label).toContain(`（${WIND_CALM_THRESHOLD_MS}〜${stops[1].speedMs}m/s）`);
-    expect(WIND_SPEED_LEGEND_LEVELS.at(-1)?.label).toContain(`（${stops.at(-1)?.speedMs}m/s以上）`);
+    expect(WIND_SPEED_LEGEND_LEVELS[1].label).toContain(`[${WIND_CALM_THRESHOLD_MS}〜${stops[1].speedMs}m/s]`);
+    expect(WIND_SPEED_LEGEND_LEVELS.at(-1)?.label).toContain(`[${stops.at(-1)?.speedMs}m/s以上]`);
   });
 });
 

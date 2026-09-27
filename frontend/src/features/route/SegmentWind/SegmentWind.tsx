@@ -23,13 +23,13 @@ export default function SegmentWind({ wind }: { wind: RouteSegmentDetail["wind"]
       <span>
         風 {when}・{cardinalLabel(wind.direction_deg)}の風 {wind.speed_ms.toFixed(1)}m/s
       </span>
-      {wind.extended && <span>（追える時刻の先へ延ばして使用）</span>}
+      {wind.extended && <span>[追える時刻の先へ延ばして使用]</span>}
       <InfoPopover triggerAriaLabel="区間の風の説明">
         <p>
-          この区間を通る見込みの時刻の、その場所に最も近い格子点の風（気象庁の数値予報モデル（MSM）の計算値、1時間刻み）で評価しています。
+          この区間を通る見込みの時刻の、その場所に最も近い格子点の風[気象庁の数値予報モデルMSMの計算値、1時間刻み]で評価しています。
           予報ではなく、誤差を含みえます。往路・復路それぞれ、走り始めてから
           {HOURS_PER_LEG}
-          時間先までを追い、その先の区間は最後に追った時刻の値をそのまま使います（「追える時刻の先へ延ばして使用」と出ます）。
+          時間先までを追い、その先の区間は最後に追った時刻の値をそのまま使います[「追える時刻の先へ延ばして使用」と出ます]。
         </p>
       </InfoPopover>
     </p>
