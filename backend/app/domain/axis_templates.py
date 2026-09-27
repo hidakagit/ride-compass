@@ -76,9 +76,27 @@ def round1_array(values: np.ndarray) -> np.ndarray:
     out = np.rint(scaled) / 10.0
     # ×10の丸め誤差で判定が変わりうるのは、計算後の値がちょうど.5に乗った要素だけ
     # （真の積が.5境界の反対側にあれば、float64の積は必ずちょうど.5へ丸まる）。
-    # その要素だけPythonのround()（10進の正しい丸め）で決め直す。NaNはそのまま伝播する。
+    # その要素だけ決め直す。NaNはそのまま伝播する。
     tie = (scaled - np.floor(scaled)) == 0.5
     if tie.any():
-        idx = np.flatnonzero(tie)
-        out[idx] = [round(float(values[i]), 1) for i in idx]
+        out[tie] = _round1_on_half(values[tie], np.floor(scaled[tie]))
     return out
+
+
+def _round1_on_half(values: np.ndarray, lower: np.ndarray) -> np.ndarray:
+    """×10がちょうど`lower + 0.5`になった値を、`round(x, 1)`と同じ値へ丸める。
+
+    重み0.5ずつの和のように、小数1桁の得点を半分にした値は半数近くの要素がここへ来るため、
+    要素ごとにPythonの`round()`を呼ばず配列のまま決める。値と10進の中点`(2*lower + 1)/20`の大小を
+    整数で正確に比べる——値は`仮数 × 2**-shift`と正確に書けるので、`20 × 仮数`と
+    `(2*lower + 1) × 2**shift`の比較になる。中点に等しい（中点が2進で正確に表せる、例: 0.25）ときは
+    `round()`と同じく偶数の側へ丸める。×10がちょうど.5に乗るのは|値|が0.05以上で×10が2**52未満の
+    ときだけなので、shiftは57以下で、両辺は2**59未満に収まりint64であふれない。
+    """
+    mantissa, exponent = np.frexp(values)
+    significand = np.ldexp(mantissa, 53).astype(np.int64)
+    scale = np.left_shift(np.int64(1), 53 - exponent.astype(np.int64))
+    midpoint = (2.0 * lower + 1.0).astype(np.int64)
+    difference = 20 * significand - midpoint * scale
+    round_up = (difference > 0) | ((difference == 0) & (np.mod(lower, 2.0) == 1.0))
+    return np.copysign((lower + round_up) / 10.0, values)
