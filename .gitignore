@@ -14,6 +14,8 @@ venv/
 .pytest_cache/
 .coverage
 htmlcov/
+# pytest-testmonの記録（作業ツリーごと。docs/conventions/testing.md「変更が届くテストを選ぶ」）
+.testmondata*
 
 # Env files
 .env
