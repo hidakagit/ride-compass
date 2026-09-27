@@ -190,7 +190,7 @@ export const mapDisplay = {
     },
     {
       "id": "windVector",
-      "label": "風（矢印）",
+      "label": "風[矢印]",
       "dataSource": "ownFetch",
       "category": "weather",
       "kind": "static",
@@ -476,7 +476,7 @@ export const mapDisplay = {
       "group": "disaster",
       "source": "flood",
       "kind": "vectorTile",
-      "label": "洪水キキクル（河川）",
+      "label": "洪水キキクル[河川]",
       "frameRule": {
         "kind": "current",
         "windowMinutes": null
@@ -504,7 +504,7 @@ export const mapDisplay = {
       "group": "disaster",
       "source": "liden",
       "kind": "gridMark",
-      "label": "落雷（発生地点）",
+      "label": "落雷[発生地点]",
       "frameRule": {
         "kind": "latestObservation",
         "windowMinutes": 20
@@ -538,7 +538,7 @@ export const mapDisplay = {
   "alwaysShownAttributions": [
     "&copy; <a href=\"https://www.openstreetmap.org/copyright\" target=\"_blank\" rel=\"noreferrer\">OpenStreetMap contributors</a>",
     "<a href=\"https://maps.gsi.go.jp/development/ichiran.html\" target=\"_blank\" rel=\"noreferrer\">地理院タイル(標高タイル)</a>を加工して作成",
-    "交通事故統計情報（警察庁）を加工して作成",
+    "交通事故統計情報[警察庁]を加工して作成",
     "気象庁「<a href=\"https://www.jma.go.jp/bosai/map.html#contents=amedas\" target=\"_blank\" rel=\"noreferrer\">アメダス</a>」を加工して作成",
     "土地被覆: <a href=\"https://livingatlas.arcgis.com/landcover/\" target=\"_blank\" rel=\"noreferrer\">Esri, Impact Observatory, Microsoft</a> (CC BY 4.0)"
   ],
@@ -566,6 +566,9 @@ export const mapDisplay = {
     "opacity": 0.55,
     "hillshadeIlluminationDeg": 315,
     "hillshadeMethod": "igor",
+    "hillshadeExaggeration": 1,
+    "hillshadeShadowColor": "rgba(60, 50, 40, 0.55)",
+    "hillshadeHighlightColor": "rgba(255, 252, 245, 0.55)",
     "terrainExaggeration": 5
   },
   "weather": {
@@ -575,7 +578,39 @@ export const mapDisplay = {
       2.6
     ],
     "windFullScaleMs": 15,
-    "lightningIconScale": 0.8
+    "lightningIconScale": 0.8,
+    "markSizeByZoom": [
+      [
+        10,
+        0.75
+      ],
+      [
+        13,
+        1
+      ],
+      [
+        16,
+        1.5
+      ],
+      [
+        19,
+        2
+      ]
+    ],
+    "floodLineWidthByZoom": [
+      [
+        6,
+        1.5
+      ],
+      [
+        10,
+        3
+      ],
+      [
+        14,
+        5
+      ]
+    ]
   },
   "valueScale": {
     "difficultyBoundaries": [
@@ -599,7 +634,11 @@ export const mapDisplay = {
     },
     "opacities": {
       "selectedHalo": 0.25,
-      "splice": 0.75
+      "splice": 0.75,
+      "candidate": 0.65,
+      "slot": 0.85,
+      "slotCasing": 0.85,
+      "arrowHalo": 0.95
     },
     "spliceDash": [
       2,

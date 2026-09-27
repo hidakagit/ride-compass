@@ -31,12 +31,12 @@ SURFACE_CLASSES: tuple[SurfaceClass, ...] = (
         "舗装",
         {
             "asphalt": "アスファルト",
-            "paved": "舗装（種別不明）",
+            "paved": "舗装[種別不明]",
             "chipseal": "チップシール舗装",
             "concrete": "コンクリート",
             "concrete:plates": "コンクリート版",
-            "concrete:lanes": "コンクリート帯（轍部のみ舗装）",
-            "paving_stones": "石畳（切石）",
+            "concrete:lanes": "コンクリート帯[轍部のみ舗装]",
+            "paving_stones": "石畳[切石]",
             "bricks": "レンガ舗装",
         },
         "speed.crr",
@@ -50,7 +50,7 @@ SURFACE_CLASSES: tuple[SurfaceClass, ...] = (
     SurfaceClass(
         "gravel",
         "砂利・未舗装",
-        {"gravel": "砂利", "pebblestone": "小石敷き", "rock": "岩盤", "unpaved": "未舗装（種別不明）"},
+        {"gravel": "砂利", "pebblestone": "小石敷き", "rock": "岩盤", "unpaved": "未舗装[種別不明]"},
         "speed.crr_gravel",
     ),
     SurfaceClass(
@@ -58,8 +58,8 @@ SURFACE_CLASSES: tuple[SurfaceClass, ...] = (
         "土・草・泥・砂",
         {
             "dirt": "土",
-            "ground": "地面（土・砂利混合）",
-            "earth": "土（地表面）",
+            "ground": "地面[土・砂利混合]",
+            "earth": "土[地表面]",
             "mud": "泥",
             "sand": "砂",
             "grass": "芝・草地",
@@ -70,7 +70,7 @@ SURFACE_CLASSES: tuple[SurfaceClass, ...] = (
     SurfaceClass(
         "cobblestone",
         "石畳",
-        {"sett": "石畳（玉石）", "cobblestone": "玉石舗装", "unhewn_cobblestone": "玉石舗装（未加工）"},
+        {"sett": "石畳[玉石]", "cobblestone": "玉石舗装", "unhewn_cobblestone": "玉石舗装[未加工]"},
         "speed.crr_cobblestone",
     ),
 )
@@ -132,9 +132,9 @@ class SurfaceEstimate(NamedTuple):
 #: 区分も等級も無い道のうち、「不明（農道・林道）」にする道路種別。
 TRACK_HIGHWAY = "track"
 #: 区分も等級も無い農道・林道。舗装の道も未舗装の道も多いので、転がり抵抗は両者の間の値を使う。
-UNKNOWN_TRACK_SURFACE = SurfaceEstimate("unknown_track", "不明（農道・林道）", "speed.crr_unknown")
+UNKNOWN_TRACK_SURFACE = SurfaceEstimate("unknown_track", "不明[農道・林道]", "speed.crr_unknown")
 #: 区分も等級も無い、農道・林道以外の道。タグの付いたこの種の道はほぼ舗装なので、舗装の転がり抵抗を使う。
-UNKNOWN_ROAD_SURFACE = SurfaceEstimate("unknown_road", "不明（一般の道）", "speed.crr")
+UNKNOWN_ROAD_SURFACE = SurfaceEstimate("unknown_road", "不明[一般の道]", "speed.crr")
 
 #: 路面の見込みがとりうる値: surfaceの区分と、2つの不明。
 SURFACE_ESTIMATES: tuple[SurfaceEstimate, ...] = (

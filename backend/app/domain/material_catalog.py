@@ -403,7 +403,7 @@ _HIGHWAY_VALUE_LABELS: dict[str, str] = {
     "tertiary_link": "地方道の連絡路",
     "unclassified": "未区分の道路",
     "residential": "住宅街の道路",
-    "living_street": "生活道路（歩車共存）",
+    "living_street": "生活道路[歩車共存]",
     "service": "施設内通路",
     "road": "種別不明の道路",
     "cycleway": "自転車専用道",
@@ -416,7 +416,7 @@ _HIGHWAY_VALUE_LABELS: dict[str, str] = {
 }
 
 _SMOOTHNESS_VALUE_LABELS: dict[str, str] = {
-    "excellent": "非常に良好（ロードバイク推奨）",
+    "excellent": "非常に良好[ロードバイク推奨]",
     "good": "良好",
     "intermediate": "普通",
     "bad": "悪い",
@@ -688,7 +688,7 @@ ACCIDENT_COUNT_PER_KM_YEAR = "accident_count_per_km_year"
 MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     GRADIENT_PERCENT: MaterialSpec(
         material_id=GRADIENT_PERCENT,
-        label="勾配（符号付き）",
+        label="勾配[符号付き]",
         description="国土地理院の標高データから算出した進行方向の勾配（%）。登り坂はプラス、下り坂はマイナスです。",
         dtype="numeric",
         unit="%",

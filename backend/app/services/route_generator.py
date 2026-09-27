@@ -543,9 +543,9 @@ class RouteGenerator:
         """
         parts = []
         if failed:
-            parts.append(f"{failed}件の折返し候補で復路の探索に失敗しました（除外設定をご確認ください）")
+            parts.append(f"{failed}件の折返し候補で復路の探索に失敗しました[除外設定をご確認ください]")
         if filtered_out:
             parts.append(
-                f"{filtered_out}件の周回候補は指定距離（{distance_km:.1f}km±{distance_tolerance_km:.1f}km）から外れました"
+                f"{filtered_out}件の周回候補は指定距離[{distance_km:.1f}km±{distance_tolerance_km:.1f}km]から外れました"
             )
         return "、".join(parts) + "。距離や除外する道路の設定を変えてお試しください。"

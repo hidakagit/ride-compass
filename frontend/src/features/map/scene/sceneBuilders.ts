@@ -49,24 +49,9 @@ export function layerSpec(spec: {
   } as unknown as LayerSpecification;
 }
 
-/** 記号を拡大する曲線（ズーム→倍率）。**記号はどれも同じ曲線で拡大する**——家族ごとに
- * 別の曲線を使うと、同じ地図の中で拡大の速さが食い違う。
- *
- * 曲線が要るのは、`icon-size`が既定で画面上の固定ピクセルだからである。拡大するほど周囲の
- * 道路・建物は大きく描かれるのに記号だけ同じ大きさで残り、相対的に小さく・目立たなくなる。
- * 初期表示のズーム（13）を倍率1の基準に置く。 */
-const ICON_ZOOM_SCALE: readonly (readonly [number, number])[] = [
-  [10, 0.75],
-  [13, 1],
-  [16, 1.5],
-  [19, 2],
-];
-
-/** 大きさを、ズームで決まる倍率で伸縮させる式。`base`は定数でも値から決まる式でもよい。 */
-export function zoomScaleExpression(
-  base: unknown,
-  stops: readonly (readonly [number, number])[] = ICON_ZOOM_SCALE,
-): unknown {
+/** 大きさを、ズームで決まる倍率で伸縮させる式。`base`は定数でも値から決まる式でもよい。倍率の曲線（`stops`、
+ * ズーム→倍率）は宣言（`mapDisplay`）が配る。 */
+export function zoomScaleExpression(base: unknown, stops: readonly (readonly [number, number])[]): unknown {
   return [
     "interpolate",
     ["linear"],
