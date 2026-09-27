@@ -108,3 +108,59 @@ def test_an_element_not_delivered_as_tiles_has_no_tile_spec(monkeypatch):
 
     with pytest.raises(ValueError):
         specs.jma_tile_spec("el")
+    with pytest.raises(ValueError):
+        specs.jma_tile_path(specs.JmaTile("el", FRAME, 5, 1, 2))
+
+
+# ---- コマの配信元のパス ----
+
+FRAME = specs.JmaFrame("20260101000000", "immed0", "20260101003000")
+DIR = "bosai/jmatile/data/risk/20260101000000/immed0/20260101003000/surf"
+
+
+@pytest.fixture
+def delivered(monkeypatch):
+    monkeypatch.setattr(
+        specs,
+        "JMA_ELEMENTS",
+        {
+            "raster_el": Element("risk", ("t.json",), "latest", Spec("even", 10)),
+            "vector_el": Element("risk", ("t.json",), "latest", Spec("even", 10, vector_layer="lines")),
+            "points_el": Element("risk", ("t.json",), "latest"),
+        },
+    )
+
+
+def test_a_tile_sits_under_its_frame_with_the_extension_of_its_kind(delivered):
+    assert specs.jma_tile_path(specs.JmaTile("raster_el", FRAME, 5, 1, 2)) == f"{DIR}/raster_el/5/1/2.png"
+    assert specs.jma_tile_path(specs.JmaTile("vector_el", FRAME, 5, 1, 2)) == f"{DIR}/vector_el/5/1/2.pbf"
+
+
+def test_the_template_leaves_the_frame_and_the_tile_coordinates_to_fill(delivered):
+    """画面は生成物のテンプレートをコマの項目名で埋め、タイル座標は地図ライブラリが埋める。"""
+    frame_dir = "bosai/jmatile/data/risk/{basetime}/{member}/{validtime}/surf"
+    assert specs.jma_url_template("raster_el") == f"{frame_dir}/raster_el/{{z}}/{{x}}/{{y}}.png"
+    assert specs.jma_url_template("points_el") == f"{frame_dir}/points_el/data.geojson?id=points_el"
+
+
+def test_a_tile_path_reads_back_to_the_same_tile():
+    """組み立てと読み戻しは同じ宣言から導く。宣言のある、タイルで配る要素すべてで往復する。"""
+    tile_elements = [element_id for element_id, element in specs.JMA_ELEMENTS.items() if element.tile is not None]
+    assert tile_elements
+    for element_id in tile_elements:
+        tile = specs.JmaTile(element_id, FRAME, 9, 454, 201)
+        assert specs.read_jma_tile_path(specs.jma_tile_path(tile)) == tile, element_id
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        f"{DIR}/raster_el/5/1/2.pbf",  # 要素の描き方と違う拡張子
+        f"{DIR}/unknown_el/5/1/2.png",  # 宣言の無い要素
+        f"{DIR}/points_el/data.geojson?id=points_el",  # タイルで配らない要素
+        f"{DIR}/raster_el/5/1/two.png",
+        "bosai/jmatile/data/risk/t.json",
+    ],
+)
+def test_paths_that_are_not_declared_tiles_do_not_read(delivered, path):
+    assert specs.read_jma_tile_path(path) is None

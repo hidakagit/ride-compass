@@ -3,7 +3,6 @@
 // docs/modules/frontend/dynamic-weather-layers.mdが持つ。
 
 import { mapDisplay } from "@/types/generated/mapDisplay";
-import { parseJmaTileElement } from "@/features/map/layers/jmaTileIndex";
 import { nearestTimeIndex } from "@/lib/time";
 
 interface DynamicWeatherSourceState {
@@ -108,14 +107,14 @@ export function tileDeliveryFailureLayerIds(
   failures: ReadonlyMap<string, string>,
 ): DynamicWeatherLayerId[] {
   if (failures.size === 0) return [];
+  const failedUrls = new Set(failures.values());
   const failed: DynamicWeatherLayerId[] = [];
   for (const [layerId, group] of Object.entries(groups) as [DynamicWeatherLayerId, DynamicWeatherGroupState][]) {
     const hit = Object.values(group ?? {}).some((source) => {
       if (!source?.visible) return false;
       const payload = source.payload;
       if (payload?.kind !== "rasterTile" && payload?.kind !== "vectorTile") return false;
-      const ref = parseJmaTileElement(payload.tileUrlTemplate);
-      return ref !== null && failures.get(ref.element) === ref.prefix;
+      return failedUrls.has(payload.tileUrlTemplate);
     });
     if (hit) failed.push(layerId);
   }

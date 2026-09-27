@@ -10,10 +10,10 @@ import { addProtocol } from "maplibre-gl";
 
 import { debugLog } from "@/lib/debugLog";
 
+import { readJmaTileUrl } from "@/features/map/layers/jmaDelivery";
 import {
   buildJmaTileIndexLookup,
   isKnownEmptyTile,
-  parseJmaTileElement,
   type JmaTileIndexLookup,
   type JmaTileIndexResponse,
 } from "@/features/map/layers/jmaTileIndex";
@@ -55,12 +55,12 @@ export function setJmaTileIndex(response: JmaTileIndexResponse | null): void {
 // 危険度ゼロと見分けられないため、失敗を要素ごとに保持して購読側（動的気象レイヤーの
 // データ取得状態）へ渡す。
 //
-// 値は失敗したタイルの要素配下URL（basetime・validtimeを含む）。購読側はいま描画している
-// フレームのURLと突き合わせるため、フレームが進めば古い失敗は自然に無視される。
+// 値は失敗したタイルのコマのURL（`jmaTilePayload`のテンプレートと同じ文字列。basetime・validtimeを含む）。
+// 購読側はいま描画しているコマのテンプレートと突き合わせるため、コマが進めば古い失敗は自然に無視される。
 let tileFailures: ReadonlyMap<string, string> = new Map();
 const failureListeners = new Set<() => void>();
 
-/** 失敗中の要素id→要素配下URL。参照は変更時にだけ差し替わる（useSyncExternalStoreの
+/** 失敗中の配信要素id→コマのURL。参照は変更時にだけ差し替わる（useSyncExternalStoreの
  * スナップショットとして使うため、同じ内容なら同じ参照を返す必要がある）。 */
 export function jmaTileFailures(): ReadonlyMap<string, string> {
   return tileFailures;
@@ -79,20 +79,20 @@ function publishFailures(next: ReadonlyMap<string, string>): void {
 }
 
 function markDeliveryFailed(realUrl: string): void {
-  const ref = parseJmaTileElement(realUrl);
-  if (!ref || tileFailures.get(ref.element) === ref.prefix) return;
+  const ref = readJmaTileUrl(realUrl);
+  if (!ref || tileFailures.get(ref.delivery.id) === ref.frameUrl) return;
   const next = new Map(tileFailures);
-  next.set(ref.element, ref.prefix);
+  next.set(ref.delivery.id, ref.frameUrl);
   publishFailures(next);
 }
 
 /** 配信元が応答した（中身の有無は問わない）。疎な格子状タイルの404もここに当たる——
  * 空であることを配信元が答えているため、その要素の配信は生きている。 */
 function markDeliveryHealthy(realUrl: string): void {
-  const ref = parseJmaTileElement(realUrl);
-  if (!ref || !tileFailures.has(ref.element)) return;
+  const ref = readJmaTileUrl(realUrl);
+  if (!ref || !tileFailures.has(ref.delivery.id)) return;
   const next = new Map(tileFailures);
-  next.delete(ref.element);
+  next.delete(ref.delivery.id);
   publishFailures(next);
 }
 

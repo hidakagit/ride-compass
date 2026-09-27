@@ -15,7 +15,6 @@
 """
 
 import io
-import re
 
 import mapbox_vector_tile
 from PIL import Image
@@ -23,28 +22,22 @@ from shapely.affinity import scale, translate
 from shapely.geometry import GeometryCollection, box, shape
 from shapely.geometry.base import BaseGeometry
 
-#: `bosai/jmatile/data/<group>/<basetime>/<member>/<validtime>/surf/<element>/<z>/<x>/<y>.<ext>`
-#: からズーム・タイル座標・要素idを取り出す。クエリ文字列付き（liden系のGeoJSON）は
-#: タイルではないため一致しない。
-_TILE_PATH_PATTERN = re.compile(
-    r"^(?P<head>.+/surf/(?P<element>[a-z0-9_]+))/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.(?P<ext>png|pbf)$"
-)
-
+from app.domain.jma_tile_specs import JmaTile, jma_tile_path, jma_tile_spec, read_jma_tile_path, tile_extension
 
 class TileCoords:
     """タイルパスから読み取った座標と、親タイルのパスを組み立てる手段。"""
 
-    def __init__(self, head: str, element: str, z: int, x: int, y: int, ext: str):
-        self.head = head
-        self.element = element
-        self.z = z
-        self.x = x
-        self.y = y
-        self.ext = ext
+    def __init__(self, tile: JmaTile):
+        self._tile = tile
+        self.element = tile.element_id
+        self.z = tile.z
+        self.x = tile.x
+        self.y = tile.y
+        self.ext = tile_extension(jma_tile_spec(tile.element_id))
 
     def parent_path(self) -> str:
         """1段上（z-1）のタイルのパス。"""
-        return f"{self.head}/{self.z - 1}/{self.x // 2}/{self.y // 2}.{self.ext}"
+        return jma_tile_path(self._tile._replace(z=self.z - 1, x=self.x // 2, y=self.y // 2))
 
     @property
     def quadrant(self) -> tuple[int, int]:
@@ -53,18 +46,9 @@ class TileCoords:
 
 
 def parse_tile_path(path: str) -> TileCoords | None:
-    """タイルパスを解析する。タイル以外（targetTimes.json・GeoJSON等）はNone。"""
-    match = _TILE_PATH_PATTERN.match(path)
-    if match is None:
-        return None
-    return TileCoords(
-        head=match.group("head"),
-        element=match.group("element"),
-        z=int(match.group("z")),
-        x=int(match.group("x")),
-        y=int(match.group("y")),
-        ext=match.group("ext"),
-    )
+    """タイルパスを解析する。タイル以外（時刻一覧・地点のGeoJSON等）と宣言の無い要素はNone。"""
+    tile = read_jma_tile_path(path)
+    return None if tile is None else TileCoords(tile)
 
 
 def crop_and_upscale(parent_png: bytes, quadrant: tuple[int, int]) -> bytes:

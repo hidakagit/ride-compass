@@ -20,7 +20,8 @@ from app.infrastructure.jma_tile_interpolation import (
     parse_tile_path,
 )
 
-TILE_PATH = "bosai/jmatile/data/nowc/20260101000000/none/20260101000500/surf/hrpns/10/909/403.png"
+ELEMENT_DIR = "bosai/jmatile/data/nowc/20260101000000/none/20260101000500/surf/hrpns"
+TILE_PATH = f"{ELEMENT_DIR}/10/909/403.png"
 
 _QUADRANT_COLORS = {
     (0, 0): (220, 20, 20, 255),
@@ -94,8 +95,8 @@ def test_paths_that_are_not_tiles_are_not_parsed(path):
     [(908, 402, (0, 0)), (909, 402, (1, 0)), (908, 403, (0, 1)), (909, 403, (1, 1))],
 )
 def test_parent_tile_halves_the_coordinates_and_keeps_the_quadrant(x, y, quadrant):
-    coords = parse_tile_path(f"head/surf/hrpns/10/{x}/{y}.png")
-    assert coords.parent_path() == "head/surf/hrpns/9/454/201.png"
+    coords = parse_tile_path(f"{ELEMENT_DIR}/10/{x}/{y}.png")
+    assert coords.parent_path() == f"{ELEMENT_DIR}/9/454/201.png"
     assert coords.quadrant == quadrant
 
 

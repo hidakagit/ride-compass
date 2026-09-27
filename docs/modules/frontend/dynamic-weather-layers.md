@@ -19,11 +19,11 @@
 | `features/map/layers/dynamicWeather.ts` | 共通契約（型・共有タイムライン・状態管理の型・純粋関数） |
 | `lib/time.ts` | 画面に出す時刻の扱い（日本時間の暦と時刻・書式・日時の入力欄との変換）と、時刻の並びから最も近いコマを引く関数。気象レイヤーと出発時刻は同じ表記・同じ引き方を使う |
 | `features/map/layers/weatherSources.ts` | 源泉の宣言（`mapDisplay.weatherElements`）を名前付きソースへ束ね、段を1本の時系列へつなぎ、源泉が要素ごとに宣言する規則で選んだ時刻に描くコマを選ぶ |
-| `features/map/layers/jmaDelivery.ts` | 気象庁の配信のパス構造・時刻一覧の取得と読み方・コマのタイルと地点（GeoJSON）のURL |
+| `features/map/layers/jmaDelivery.ts` | 気象庁の配信の時刻一覧の取得と読み方・コマのタイルと地点（GeoJSON）のURL（源泉のパスのテンプレートをコマで埋める）・タイルのURLの読み戻し |
 | `features/map/layers/precipitationNowcast.ts` | 降水の色の段・凡例と、自前の格子の降水の塗り（gridFill） |
 | `features/map/layers/windLayer.ts`・`windArrowIcon.ts` | 風と降水が共有する格子の扱い（取り損ねた地点を補う・時刻ごとに描く格子を選び点ごとに時刻で値を引く・詳細格子の間隔と範囲）と、風の矢印（gridMark）・Canvas 2Dアイコン描画 |
 | `features/map/layers/lidenIcon.ts` | 落雷の地点の記号（Canvas 2Dアイコン描画） |
-| `features/map/layers/jmaTileIndex.ts` | 在否インデックスの解釈（URL解析・「空だと確認済み」の判定、純ロジック） |
+| `features/map/layers/jmaTileIndex.ts` | 在否インデックスの解釈（「空だと確認済み」の判定、純ロジック） |
 | `features/map/layers/jmaTileProtocol.ts` | `jmatile://`スキームのMapLibreプロトコル。空と分かっているタイルをネットワークへ出さずに透明タイルで返し、配信の失敗を要素ごとに記録して購読できるようにする |
 | `features/map/useJmaTileIndex.ts` | 在否インデックスの定期取得 |
 | `features/map/scene/groups/weather.ts` | 動的気象の描き方。何を描くか（チップid・名前付きソース・描き方の種類・配信元）は源泉の`mapDisplay.weatherElements`をループして受け取り、ここは要素ごとの見た目（`paint`・`layout`・`filter`・記号の絵）だけを持つ。ソース名（`weatherSourceId`）・ソースの宣言・レイヤー・記号の絵の登録（`WEATHER_ICONS`）はこの2つから導かれる |
@@ -163,7 +163,7 @@ postMessageが`An ArrayBuffer is detached and could not be cloned`で失敗し�
 取得に失敗した応答（404を含む）も空タイルとして返す——MapLibreは失敗タイルを再試行しない
 ため、ここで例外にするとその位置が永久に空白になる。
 
-JMAタイル系ソースの`minzoom`/`maxzoom`・パスの系統・ベクタのレイヤー名は、源泉の宣言の`tile`
+JMAタイル系ソースの`minzoom`/`maxzoom`・ベクタのレイヤー名は、源泉の宣言の`tile`
 （`mapDisplay.weatherElements`）から受け取る（正本は
 [気象・動的レイヤー](../backend/weather-dynamic-layers.md)の`domain/jma_tile_specs.py`）。
 配信元は要素ごとに実データを持つズームが異なり、上限を超えると空タイルが返って地図から色が
@@ -208,9 +208,13 @@ disasterSourceLegendAxis`が作り、隠したソースは他の凡例絞り込�
 配信要素どうしは1つの取得を共有する（下記）。
 
 **配信元の要素id・パスの系統・時刻一覧の在り処と読み方はデータ層も源泉から引く**（`jmaDelivery.ts`）。
-データ層は要素を名指さず、URLの要素id・系統・拡張子（ベクタなら`.pbf`）と時刻一覧のURLは
-`mapDisplay.weatherElements`の`jmaElements`・`kind`から組み立てる。要素idが変われば画面は新しいidで
-取りに行く（手で持っていると、古いidのタイルが404→空タイルとなり地図から黙って消える）。
+データ層は要素を名指さず、配信元のパスの形も持たない。コマのURLは`mapDisplay.weatherElements`の
+`jmaElements[].urlTemplate`（系統・要素id・拡張子まで埋まり、コマの項目`{basetime}`等とタイル座標`{z}/{x}/{y}`が
+残ったテンプレート。項目名は`jmaDelivery.ts: JmaFrame`の項目名と同じ）をコマで埋めて作り、タイル座標は地図ライブラリが
+埋める。時刻一覧は`jmaElements[].targetTimesPaths`から取る。要素idやパスの形が変われば画面は新しい形で
+取りに行く（手で持っていると、古い形のタイルが404→空タイルとなり地図から黙って消える）。タイルのURLを読み戻す側
+（在否インデックスの判定・配信の失敗の記録）も同じテンプレートに当てて読む（`jmaDelivery.ts: readJmaTileUrl`）——
+どのテンプレートにも当たらないURLは読めないものとして扱い、取りに行く側へ倒す。
 時刻一覧（`targetTimes*.json`）の中から自分の行を選ぶ`elements`の照合も同じ要素idを使う。
 行をコマにする読み方（`reader`）も源泉が配信要素ごとに宣言する——同じ系統・同じファイルでも、
 実況＋予測（その要素の行を時刻順に並べ、最新の実況より前を捨てる）・数値予報のラン（系列ごとに
@@ -226,7 +230,7 @@ disasterSourceLegendAxis`が作り、隠したソースは他の凡例絞り込�
 生成時に確かめる（食い違えば生成が落ちる）。同じ名前付きソースの要素はコマの規則も同じで、
 backendのテストが全要素で確かめる。
 
-時刻一覧はファイル（`jmaDelivery.ts: jmaTargetTimesPaths`）ごとにキャッシュのキーを持ち、同じファイルを読む要素
+時刻一覧はファイル（`jmaElements[].targetTimesPaths`の1つ）ごとにキャッシュのキーを持ち、同じファイルを読む要素
 （キキクルの各要素、降水短時間予報と線状降水帯予測マップ）は1つの取得と1つの取り直しの周期を共有する——要素ごとに
 取ると、後から表示した要素の周期がずれて同じファイルを周期ごとに2回取る。時刻一覧が複数のファイルに分かれる要素
 （降水ナウキャストの実況と予測）は、`useDynamicWeatherLayers.ts`が読めたファイルの行を宣言の順につないで
@@ -312,9 +316,9 @@ payloadが`undefined`のままレイヤーが非表示になり続け、MapLibre
 レイヤー（キキクル等）では、これが危険度ゼロと見分けられない。そのためプロトコルハンドラが
 404以外の失敗を要素ごとに記録し（404は配信元が「空」と答えている＝配信は生きている）、
 `useSyncExternalStore`で購読した記録を`dynamicWeather.ts: tileDeliveryFailureLayerIds`が
-表示中のpayloadのタイルURLと突き合わせて、当たったチップを`"error"`にする。記録は
-失敗したフレームの要素配下URL（basetime・validtimeを含む）で持つため、フレームが進んで
-取得できるようになれば自然に外れる。グループ配下を機械的に走査するので、要素やチップが
+表示中のpayloadのタイルURLと突き合わせて、当たったチップを`"error"`にする。記録は配信要素ごとに、
+失敗したタイルのURLを源泉のテンプレートで読み戻したコマのテンプレート（payloadの`tileUrlTemplate`と同じ文字列。
+basetime・validtimeを含む）で持つため、フレームが進んで取得できるようになれば自然に外れる。グループ配下を機械的に走査するので、要素やチップが
 増えても足すコードは無い。
 
 算出した`dynamicWeatherDataStatus`は`useMapView`が地図から上がる取得状態（ソースイベント側）と
@@ -404,5 +408,5 @@ payloadが`undefined`のままレイヤーが非表示になり続け、MapLibre
   **タイルURLは時刻一覧が返るまで確定しない**ため、ここでフロントのホスティングを経由すると
   往復1つぶんが初回表示のクリティカルパスへ直列に乗る。`tileBaseUrl()`は`window`を参照する
   ので、モジュール直下の定数ではなく呼び出し時に評価する関数
-  （`jmaDelivery.ts: jmaProxyUrl(path)`。時刻一覧の系統とファイル名は源泉の
+  （`jmaDelivery.ts: jmaProxyUrl(path)`。時刻一覧のパスとコマのパスのテンプレートは源泉の
   `jmaElements`が持つ）として持つ。

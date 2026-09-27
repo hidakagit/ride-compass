@@ -24,10 +24,11 @@ import time
 
 from app.domain.jma_tile_specs import (
     JmaFrame,
+    JmaTile,
     TargetTimesRow,
     effective_max_zoom,
     has_native_tile,
-    jma_target_times_paths,
+    jma_tile_path,
     jma_tile_spec,
     read_target_times,
     source_zoom_for_interpolation,
@@ -69,9 +70,7 @@ class _PrewarmLayer:
         # 登録の無い要素idを書いた時点（import時）にKeyErrorで落ちる——既定のズームへ
         # 倒すと、綴り違いのレイヤーが「1段も温まらない」だけで静かに通る。
         self.spec = jma_tile_spec(delivery.element_id)
-        self.group = delivery.path_group
-        self.extension = "pbf" if self.spec.vector_layer else "png"
-        self.target_times_paths = jma_target_times_paths(delivery.element_id)
+        self.target_times_paths = delivery.target_times_paths
 
     @property
     def max_zoom(self) -> int:
@@ -99,10 +98,7 @@ def _tile_paths_for_layer(layer: "_PrewarmLayer", frame: JmaFrame) -> list[str]:
         if not has_native_tile(layer.spec, z):
             continue
         for x, y in tiles_covering_bbox(_PREWARM_BBOX, z):
-            paths.append(
-                f"bosai/jmatile/data/{layer.group}/{frame.basetime}/{frame.member}/{frame.validtime}/surf/"
-                f"{layer.element_id}/{z}/{x}/{y}.{layer.extension}"
-            )
+            paths.append(jma_tile_path(JmaTile(layer.element_id, frame, z, x, y)))
     return paths
 
 

@@ -67,7 +67,7 @@ def test_配信元から取る段はすべて時刻一覧のファイルを持�
     """ファイルが無いと画面は時刻一覧を取りに行けない。"""
     for element in WEATHER_ELEMENTS:
         for delivery in weather_element_deliveries(element):
-            assert delivery.target_time_files, f"{element.group}/{element.source} の {delivery.element_id}"
+            assert delivery.target_times_paths, f"{element.group}/{element.source} の {delivery.element_id}"
 
 
 def test_どの要素も時刻の読み方を持つ() -> None:

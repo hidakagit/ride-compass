@@ -7,17 +7,33 @@ const { addProtocol, debugLog } = vi.hoisted(() => ({ addProtocol: vi.fn(), debu
 vi.mock("maplibre-gl", () => ({ addProtocol }));
 vi.mock("@/lib/debugLog", () => ({ debugLog }));
 
+import { mapDisplay } from "@/types/generated/mapDisplay";
+
+import { jmaTilePayload, type JmaDelivery } from "./jmaDelivery";
+
 type Handler = (params: { url: string }, abort: AbortController) => Promise<{ data: ArrayBuffer | Uint8Array }>;
 
 const BASETIME = "20260924000000";
 const VALIDTIME = "20260924010000";
-const PREFIX = `https://www.jma.go.jp/bosai/jmatile/data/risk/${BASETIME}/none/${VALIDTIME}/surf/inund/`;
-const EMPTY_PNG_URL = `${PREFIX}5/28/12.png`;
-const PRESENT_PNG_URL = `${PREFIX}5/28/13.png`;
+const FRAME = { basetime: BASETIME, member: "none", validtime: VALIDTIME };
+const deliveryOf = (id: string) =>
+  mapDisplay.weatherElements
+    .flatMap((element): readonly JmaDelivery[] => element.jmaElements)
+    .find((delivery) => delivery.id === id)!;
+/** そのコマのタイルのテンプレート（描画ペイロードが持つもの）と、地図ライブラリが座標を埋めたURL。 */
+const TEMPLATE = jmaTilePayload("rasterTile", deliveryOf("inund"), FRAME).tileUrlTemplate;
+const at = (template: string, x: number, y: number) =>
+  template.replace("{z}", "5").replace("{x}", String(x)).replace("{y}", String(y));
+const EMPTY_PNG_URL = at(TEMPLATE, 28, 12);
+const PRESENT_PNG_URL = at(TEMPLATE, 28, 13);
+const EMPTY_PBF_URL = at(jmaTilePayload("vectorTile", deliveryOf("flood"), FRAME).tileUrlTemplate, 28, 12);
 const INDEX = {
   available: true,
   coverage: { min_longitude: 122, min_latitude: 24, max_longitude: 146, max_latitude: 46 },
-  elements: { inund: { basetime: BASETIME, validtime: VALIDTIME, member: "none", zooms: { "5": [[28, 13]] } } },
+  elements: {
+    inund: { basetime: BASETIME, validtime: VALIDTIME, member: "none", zooms: { "5": [[28, 13]] } },
+    flood: { basetime: BASETIME, validtime: VALIDTIME, member: "none", zooms: {} },
+  },
 };
 
 // 失敗の記録とインデックスはモジュールが持つため、テストごとに読み込み直す。
@@ -89,7 +105,9 @@ describe("jmatile:// プロトコル", () => {
   it("空と分かっているベクタタイルは0バイト（地物なし）", async () => {
     const { setJmaTileIndex, request } = await load();
     setJmaTileIndex(INDEX);
-    expect((await request(EMPTY_PNG_URL.replace(".png", ".pbf"))).data).toHaveLength(0);
+    expect(EMPTY_PBF_URL).toMatch(/\.pbf$/);
+    expect((await request(EMPTY_PBF_URL)).data).toHaveLength(0);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("それ以外は実URLへ取りに行き、中身をそのまま返す（インデックスが無い間は全部取りに行く）", async () => {
@@ -107,7 +125,7 @@ describe("jmatile:// プロトコル", () => {
 });
 
 describe("配信の失敗の記録", () => {
-  it("5xxは空タイルで代替し、要素配下のURLを失敗として記録して購読者へ知らせる", async () => {
+  it("5xxは空タイルで代替し、そのコマのタイルのテンプレートを失敗として記録して購読者へ知らせる", async () => {
     const { request, jmaTileFailures, subscribeJmaTileFailures } = await load();
     const listener = vi.fn();
     subscribeJmaTileFailures(listener);
@@ -115,7 +133,7 @@ describe("配信の失敗の記録", () => {
 
     const { data } = await request(PRESENT_PNG_URL);
     expect(isFullyTransparentPng(data as Uint8Array)).toBe(true);
-    expect(jmaTileFailures()).toEqual(new Map([["inund", PREFIX]]));
+    expect(jmaTileFailures()).toEqual(new Map([["inund", TEMPLATE]]));
     expect(listener).toHaveBeenCalledTimes(1);
     expect(debugLog).toHaveBeenCalledWith("weather", expect.any(String), expect.anything(), "warn");
   });
@@ -127,7 +145,7 @@ describe("配信の失敗の記録", () => {
     const recorded = jmaTileFailures();
     const listener = vi.fn();
     subscribeJmaTileFailures(listener);
-    await request(`${PREFIX}5/29/13.png`);
+    await request(at(TEMPLATE, 29, 13));
     expect(jmaTileFailures()).toBe(recorded);
     expect(listener).not.toHaveBeenCalled();
   });
@@ -156,7 +174,7 @@ describe("配信の失敗の記録", () => {
 
     fetchMock.mockRejectedValueOnce(new TypeError("network"));
     await expect(request(PRESENT_PNG_URL)).rejects.toThrow("network");
-    expect(jmaTileFailures().get("inund")).toBe(PREFIX);
+    expect(jmaTileFailures().get("inund")).toBe(TEMPLATE);
   });
 
   it("購読を外せば知らせない", async () => {

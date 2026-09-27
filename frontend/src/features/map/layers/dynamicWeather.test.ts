@@ -102,17 +102,18 @@ describe("gridToFeatureCollection・gridCellRing（格子から地物へ）", ()
 });
 
 describe("tileDeliveryFailureLayerIds（配信が止まっている要素を表示中のチップ）", () => {
-  const PREFIX = "https://www.jma.go.jp/bosai/jmatile/data/risk/20260924000000/none/20260924010000/surf/inund/";
-  const tile = (kind: "rasterTile" | "vectorTile", prefix = PREFIX): DynamicWeatherRenderPayload => ({
+  // 記録の値は、失敗したタイルのコマのテンプレート（`jmaTileProtocol.ts`が描画ペイロードと同じ文字列で持つ）。
+  const TEMPLATE = "https://example.com/risk/20260924000000/none/20260924010000/inund/{z}/{x}/{y}.png";
+  const tile = (kind: "rasterTile" | "vectorTile", template = TEMPLATE): DynamicWeatherRenderPayload => ({
     kind,
-    tileUrlTemplate: `${prefix}{z}/{x}/{y}.png`,
+    tileUrlTemplate: template,
   });
-  const failures = new Map([["inund", PREFIX]]);
+  const failures = new Map([["inund", TEMPLATE]]);
   const group = (payload: DynamicWeatherRenderPayload | undefined, visible = true): DynamicWeatherGroupState => ({
     main: { visible, payload },
   });
 
-  it("表示中のタイルが、いま失敗している要素配下を指すチップ（ラスタ・ベクタとも）", () => {
+  it("表示中のタイルが、いま失敗しているコマを指すチップ（ラスタ・ベクタとも）", () => {
     expect(tileDeliveryFailureLayerIds({ disaster: group(tile("vectorTile")) }, failures)).toEqual(["disaster"]);
     expect(
       tileDeliveryFailureLayerIds(
@@ -122,12 +123,12 @@ describe("tileDeliveryFailureLayerIds（配信が止まっている要素を表�
     ).toEqual(["precipitationNowcast"]);
   });
 
-  it("フレームが進んで別の前半を指していれば、古い失敗は当たらない", () => {
-    const nextFrame = PREFIX.replace("20260924010000", "20260924011000");
+  it("フレームが進んで別のコマを指していれば、古い失敗は当たらない", () => {
+    const nextFrame = TEMPLATE.replace("20260924010000", "20260924011000");
     expect(tileDeliveryFailureLayerIds({ disaster: group(tile("vectorTile", nextFrame)) }, failures)).toEqual([]);
   });
 
-  it("非表示のソース・自前で取る表現（格子）・要素を読めないURLは対象外", () => {
+  it("非表示のソース・自前で取る表現（格子）・失敗の記録に無いURLは対象外", () => {
     const grid: DynamicWeatherRenderPayload = {
       kind: "gridFill",
       geojson: { type: "FeatureCollection", features: [] },

@@ -251,20 +251,20 @@ export const mapDisplay = {
       "jmaElements": [
         {
           "id": "hrpns",
-          "pathGroup": "nowc",
-          "targetTimeFiles": [
-            "targetTimes_N1.json",
-            "targetTimes_N2.json"
+          "targetTimesPaths": [
+            "bosai/jmatile/data/nowc/targetTimes_N1.json",
+            "bosai/jmatile/data/nowc/targetTimes_N2.json"
           ],
+          "urlTemplate": "bosai/jmatile/data/nowc/{basetime}/{member}/{validtime}/surf/hrpns/{z}/{x}/{y}.png",
           "reader": "nowcast",
           "refreshIntervalMs": 300000
         },
         {
           "id": "rasrf",
-          "pathGroup": "rasrf",
-          "targetTimeFiles": [
-            "targetTimes.json"
+          "targetTimesPaths": [
+            "bosai/jmatile/data/rasrf/targetTimes.json"
           ],
+          "urlTemplate": "bosai/jmatile/data/rasrf/{basetime}/{member}/{validtime}/surf/rasrf/{z}/{x}/{y}.png",
           "reader": "latestFullRun",
           "refreshIntervalMs": 600000
         }
@@ -303,10 +303,10 @@ export const mapDisplay = {
       "jmaElements": [
         {
           "id": "sjfcstmap",
-          "pathGroup": "rasrf",
-          "targetTimeFiles": [
-            "targetTimes.json"
+          "targetTimesPaths": [
+            "bosai/jmatile/data/rasrf/targetTimes.json"
           ],
+          "urlTemplate": "bosai/jmatile/data/rasrf/{basetime}/{member}/{validtime}/surf/sjfcstmap/{z}/{x}/{y}.png",
           "reader": "latest",
           "refreshIntervalMs": 600000
         }
@@ -345,10 +345,10 @@ export const mapDisplay = {
       "jmaElements": [
         {
           "id": "rain_mesh",
-          "pathGroup": "risk",
-          "targetTimeFiles": [
-            "targetTimes.json"
+          "targetTimesPaths": [
+            "bosai/jmatile/data/risk/targetTimes.json"
           ],
+          "urlTemplate": "bosai/jmatile/data/risk/{basetime}/{member}/{validtime}/surf/rain_mesh/{z}/{x}/{y}.png",
           "reader": "latest",
           "refreshIntervalMs": 600000
         }
@@ -373,10 +373,10 @@ export const mapDisplay = {
       "jmaElements": [
         {
           "id": "land",
-          "pathGroup": "risk",
-          "targetTimeFiles": [
-            "targetTimes.json"
+          "targetTimesPaths": [
+            "bosai/jmatile/data/risk/targetTimes.json"
           ],
+          "urlTemplate": "bosai/jmatile/data/risk/{basetime}/{member}/{validtime}/surf/land/{z}/{x}/{y}.png",
           "reader": "latest",
           "refreshIntervalMs": 600000
         }
@@ -401,10 +401,10 @@ export const mapDisplay = {
       "jmaElements": [
         {
           "id": "inund",
-          "pathGroup": "risk",
-          "targetTimeFiles": [
-            "targetTimes.json"
+          "targetTimesPaths": [
+            "bosai/jmatile/data/risk/targetTimes.json"
           ],
+          "urlTemplate": "bosai/jmatile/data/risk/{basetime}/{member}/{validtime}/surf/inund/{z}/{x}/{y}.png",
           "reader": "latest",
           "refreshIntervalMs": 600000
         }
@@ -429,10 +429,10 @@ export const mapDisplay = {
       "jmaElements": [
         {
           "id": "thns",
-          "pathGroup": "nowc",
-          "targetTimeFiles": [
-            "targetTimes_N3.json"
+          "targetTimesPaths": [
+            "bosai/jmatile/data/nowc/targetTimes_N3.json"
           ],
+          "urlTemplate": "bosai/jmatile/data/nowc/{basetime}/{member}/{validtime}/surf/thns/{z}/{x}/{y}.png",
           "reader": "nowcast",
           "refreshIntervalMs": 300000
         }
@@ -457,10 +457,10 @@ export const mapDisplay = {
       "jmaElements": [
         {
           "id": "trns",
-          "pathGroup": "nowc",
-          "targetTimeFiles": [
-            "targetTimes_N3.json"
+          "targetTimesPaths": [
+            "bosai/jmatile/data/nowc/targetTimes_N3.json"
           ],
+          "urlTemplate": "bosai/jmatile/data/nowc/{basetime}/{member}/{validtime}/surf/trns/{z}/{x}/{y}.png",
           "reader": "nowcast",
           "refreshIntervalMs": 300000
         }
@@ -485,10 +485,10 @@ export const mapDisplay = {
       "jmaElements": [
         {
           "id": "flood",
-          "pathGroup": "risk",
-          "targetTimeFiles": [
-            "targetTimes.json"
+          "targetTimesPaths": [
+            "bosai/jmatile/data/risk/targetTimes.json"
           ],
+          "urlTemplate": "bosai/jmatile/data/risk/{basetime}/{member}/{validtime}/surf/flood/{z}/{x}/{y}.pbf",
           "reader": "latest",
           "refreshIntervalMs": 600000
         }
@@ -513,10 +513,10 @@ export const mapDisplay = {
       "jmaElements": [
         {
           "id": "liden",
-          "pathGroup": "nowc",
-          "targetTimeFiles": [
-            "targetTimes_N3.json"
+          "targetTimesPaths": [
+            "bosai/jmatile/data/nowc/targetTimes_N3.json"
           ],
+          "urlTemplate": "bosai/jmatile/data/nowc/{basetime}/{member}/{validtime}/surf/liden/data.geojson?id=liden",
           "reader": "nowcast",
           "refreshIntervalMs": 300000
         }

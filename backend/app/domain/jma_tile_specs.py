@@ -11,6 +11,7 @@ MapLibreの`maxzoom`（frontendへは`domain/weather_elements.py: WEATHER_ELEMEN
 （`services/jma_tile_prewarm_service.py`）は、いずれも`effective_max_zoom()`でこの1箇所から導く。
 """
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal, NamedTuple, assert_never
@@ -167,10 +168,97 @@ def _read_latest_full_run(frames: list[JmaFrame]) -> list[JmaFrame]:
     return sorted(by_validtime.values(), key=lambda frame: frame.validtime)
 
 
+_DATA_ROOT = "bosai/jmatile/data"
+#: 時刻一覧の置き場。
+_TARGET_TIMES_PATH = _DATA_ROOT + "/{group}/{file}"
+#: 配信要素の1コマの置き場。この下にタイル（地図の`{z}/{x}/{y}`）か、タイルで配らない要素の地点（GeoJSON）がある。
+_FRAME_PATH = _DATA_ROOT + "/{group}/{basetime}/{member}/{validtime}/surf/{element}"
+_TILE_FILE = "{z}/{x}/{y}.{extension}"
+_POINTS_FILE = "data.geojson?id={element}"
+#: 読み戻すとき数字だけに当てる項目（タイル座標）。他の項目はパスの1区切りに当てる。
+_NUMERIC_FIELDS = frozenset({"z", "x", "y"})
+_NUMBER = r"\d+"
+_SEGMENT = r"[^/?]+"
+_PLACEHOLDER = re.compile(r"\{(\w+)\}")
+
+
+def _fill(template: str, **values: str) -> str:
+    """`{名前}`を値で埋める。渡さなかった名前は`{名前}`のまま残す。"""
+    return _PLACEHOLDER.sub(lambda match: values.get(match.group(1), match.group(0)), template)
+
+
+def tile_extension(spec: JmaTileSpec) -> str:
+    """配信元はベクタをMapbox Vector Tile（.pbf）、ラスタを画像（.png）で配る。"""
+    return "pbf" if spec.vector_layer else "png"
+
+
 def jma_target_times_paths(element_id: str) -> tuple[str, ...]:
-    """その要素の時刻一覧の、配信元のパス（`bosai/jmatile/data/<系統>/<ファイル>`）。"""
+    """その要素の時刻一覧の、配信元のパス。"""
     element = JMA_ELEMENTS[element_id]
-    return tuple(f"bosai/jmatile/data/{element.path_group}/{name}" for name in element.time_files)
+    return tuple(_fill(_TARGET_TIMES_PATH, group=element.path_group, file=name) for name in element.time_files)
+
+
+def jma_url_template(element_id: str) -> str:
+    """その要素のコマの、配信元のパスのテンプレート。時刻と系列（`JmaFrame`の項目名の`{basetime}`等）と、
+    タイルならタイル座標（`{z}/{x}/{y}`）が埋まらずに残る。画面へは生成物で届き、画面もこれを埋めて取りに行く。"""
+    element = JMA_ELEMENTS[element_id]
+    if element.tile is None:
+        return _fill(f"{_FRAME_PATH}/{_POINTS_FILE}", group=element.path_group, element=element_id)
+    return _fill(
+        f"{_FRAME_PATH}/{_TILE_FILE}",
+        group=element.path_group,
+        element=element_id,
+        extension=tile_extension(element.tile),
+    )
+
+
+class JmaTile(NamedTuple):
+    """配信元のタイル1枚。"""
+
+    element_id: str
+    frame: JmaFrame
+    z: int
+    x: int
+    y: int
+
+
+def jma_tile_path(tile: JmaTile) -> str:
+    """タイルの、配信元のパス。タイルで配らない要素は`ValueError`。"""
+    if JMA_ELEMENTS[tile.element_id].tile is None:
+        raise ValueError(f"タイルで配らない配信要素: {tile.element_id}")
+    return _fill(
+        jma_url_template(tile.element_id),
+        **tile.frame._asdict(),
+        z=str(tile.z),
+        x=str(tile.x),
+        y=str(tile.y),
+    )
+
+
+def _template_pattern(template: str) -> re.Pattern[str]:
+    parts = _PLACEHOLDER.split(template)
+    pattern = "".join(
+        re.escape(part) if index % 2 == 0 else f"(?P<{part}>{_NUMBER if part in _NUMERIC_FIELDS else _SEGMENT})"
+        for index, part in enumerate(parts)
+    )
+    return re.compile(f"^{pattern}$")
+
+
+def read_jma_tile_path(path: str) -> JmaTile | None:
+    """配信元のパスを、宣言のある要素のタイルとして読む。タイルでないパス（時刻一覧・地点）・宣言の無い要素はNone。"""
+    for element_id, element in JMA_ELEMENTS.items():
+        if element.tile is None:
+            continue
+        match = _template_pattern(jma_url_template(element_id)).match(path)
+        if match is not None:
+            return JmaTile(
+                element_id,
+                JmaFrame(match["basetime"], match["member"], match["validtime"]),
+                int(match["z"]),
+                int(match["x"]),
+                int(match["y"]),
+            )
+    return None
 
 
 def jma_tile_spec(element_id: str) -> JmaTileSpec:
