@@ -1524,11 +1524,6 @@ export interface components {
             edge_point_offsets?: number[];
             /** Node Ids */
             node_ids?: string[];
-            /**
-             * Is Fastest
-             * @default false
-             */
-            is_fastest: boolean;
         };
         /** RouteGenerateJobCreatedResponse */
         RouteGenerateJobCreatedResponse: {

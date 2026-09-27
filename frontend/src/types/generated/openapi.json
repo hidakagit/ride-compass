@@ -4534,11 +4534,6 @@
             },
             "type": "array",
             "title": "Node Ids"
-          },
-          "is_fastest": {
-            "type": "boolean",
-            "title": "Is Fastest",
-            "default": false
           }
         },
         "additionalProperties": false,

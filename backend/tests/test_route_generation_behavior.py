@@ -85,6 +85,11 @@ def assert_connected(candidate, start: int, end: int) -> None:
     assert math.isclose(sum(lengths), candidate.distance_km, abs_tol=0.02)
 
 
+def fastest_of(candidates):
+    """一覧の中で所要時間が最小の候補（基準線）。"""
+    return min(candidates, key=lambda c: c.estimated_duration_seconds)
+
+
 async def test_destination_route_runs_from_origin_to_destination(engine_over):
     generator = engine_over(grid_network())
 
@@ -94,7 +99,7 @@ async def test_destination_route_runs_from_origin_to_destination(engine_over):
     for candidate in candidates:
         assert_connected(candidate, SOUTH_WEST, NORTH_EAST)
     # 格子の対角は最短で4区間（約4km）。基準線（時間最短）はそれより遠回りしない。
-    fastest = next(c for c in candidates if c.is_fastest)
+    fastest = fastest_of(candidates)
     assert len(fastest.edge_ids) == 4
 
 
@@ -105,8 +110,7 @@ async def test_weight_on_an_axis_steers_the_route_away_from_what_it_scores_badly
 
     candidates = await generator.generate_via_waypoints(at(SOUTH_WEST), [], 4.0, destination=at(NORTH_EAST), max_routes=3, start_time=DEPARTURE)
 
-    easiest = min((c for c in candidates if not c.is_fastest), key=lambda c: c.overall_difficulty,
-                  default=candidates[0])
+    easiest = min(candidates, key=lambda c: c.overall_difficulty)
     assert_connected(easiest, SOUTH_WEST, NORTH_EAST)
     assert not set(ways_of(easiest)) & bad
 
@@ -183,7 +187,7 @@ async def test_fastest_route_ignores_the_axis_weights(engine_over):
     candidates = await generator.generate_via_waypoints(
         at(SOUTH_WEST), [], 3.0, destination=at(SOUTH_EAST), max_routes=3, start_time=DEPARTURE)
 
-    fastest = next(c for c in candidates if c.is_fastest)
+    fastest = fastest_of(candidates)
     assert ways_of(fastest) == [100, 101]
 
 
@@ -310,7 +314,7 @@ async def test_a_segment_without_data_does_not_show_the_axis_as_zero(engine_over
     candidates = await generator.generate_via_waypoints(
         at(SOUTH_WEST), [], 3.0, destination=at(SOUTH_EAST), max_routes=3, start_time=DEPARTURE)
 
-    fastest = next(c for c in candidates if c.is_fastest)
+    fastest = fastest_of(candidates)
     first, second = fastest.segments
     assert AVOID_AXIS not in first.axis_difficulties
     assert second.axis_difficulties[AVOID_AXIS] == 0.0
@@ -325,12 +329,12 @@ async def test_the_share_of_the_route_timed_without_data_is_reported(engine_over
     candidates = await generator.generate_via_waypoints(
         at(SOUTH_WEST), [], 3.0, destination=at(SOUTH_EAST), max_routes=3, start_time=DEPARTURE)
 
-    fastest = next(c for c in candidates if c.is_fastest)
+    fastest = fastest_of(candidates)
     assert ways_of(fastest)[0] == 100
     assert fastest.missing_travel_data_share == pytest.approx(0.5, abs=0.01)
     complete = await engine_over(grid_network()).generate_via_waypoints(
         at(SOUTH_WEST), [], 3.0, destination=at(SOUTH_EAST), max_routes=3, start_time=DEPARTURE)
-    assert next(c for c in complete if c.is_fastest).missing_travel_data_share == 0.0
+    assert fastest_of(complete).missing_travel_data_share == 0.0
 
 
 def _wind(times: list[datetime], speed_by_point: list[float]) -> WindForecastSeries:
@@ -371,7 +375,7 @@ async def test_each_segment_takes_the_wind_of_the_grid_point_nearest_to_it(engin
     candidates = await generator.generate_via_waypoints(
         at(SOUTH_WEST), [], 3.0, destination=at(SOUTH_EAST), max_routes=3, start_time=DEPARTURE)
 
-    fastest = next(c for c in candidates if c.is_fastest)
+    fastest = fastest_of(candidates)
     assert [s.wind.speed_ms for s in fastest.segments] == [2.0, 8.0]
 
 
