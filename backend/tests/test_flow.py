@@ -23,6 +23,7 @@ import flow  # noqa: E402
 
 FIELD_RE = re.compile(r'gh project field-create \S+ --owner \S+ --name "(.+?)" --data-type (\w+)'
                       r'(?: --single-select-options "(.+?)")?')
+LABEL_RE = re.compile(r'gh label create "(.+?)"')
 MATERIALS = "".join(f"## {h}\n{h}の中身\n" for kind in flow.KINDS.values() for h in kind.materials)
 GREEN = [{"name": "CI", "status": "completed", "conclusion": "success", "html_url": "u"}]
 RED = [{"name": "CI", "status": "completed", "conclusion": "failure", "html_url": "u"}]
@@ -42,6 +43,7 @@ class FakeGitHub:
                               **({"options": [{"id": f"O-{name}-{o}", "name": o} for o in opts.split(",")]}
                                  if opts else {})}
                        for name, kind, opts in FIELD_RE.findall(doc)}
+        self.labels = {name: f"L-{name}" for name in LABEL_RE.findall(doc)}  # 名前 → id
         self.issues: dict[int, dict] = {}
         self.runs: dict[str, list[dict]] = {}
         self.asked: list[int] = []  # 道具用のアカウントのトークンでコメントを書かれた issue
@@ -60,7 +62,9 @@ class FakeGitHub:
             return httpx.Response(200, json={"data": {a: self.mutate(name, v[a], "ask" in auth)
                                                       for a, name in re.findall(r"(a\d+): (\w+)\(input:", query)}})
         issue = self.issues[v["k"]]
-        return httpx.Response(200, json={"data": {"repository": {"issue": {"id": issue["id"], "body": issue["body"]}}}})
+        labels = {"nodes": [{"name": n} for n, i in self.labels.items() if i in issue["labels"]]}
+        return httpx.Response(200, json={"data": {"repository": {"issue": {"id": issue["id"], "body": issue["body"],
+                                                                           "labels": labels}}}})
 
     def items(self, inventory: bool) -> dict:
         kind = {"SINGLE_SELECT": "name", "TEXT": "text", "DATE": "date", "NUMBER": "number"}
@@ -69,7 +73,9 @@ class FakeGitHub:
                   "fieldValues": {"nodes": [{kind[self.fields[n]["dataType"]]: val, "field": {"name": n}}
                                             for n, val in i["values"].items()]}}
                  for i in self.issues.values() if i["item"]]
-        return {"rateLimit": {"cost": 1, "remaining": 5000}, "repository": {"id": "R"},
+        label = self.labels.get(flow.INVENTORY_LABEL)
+        return {"rateLimit": {"cost": 1, "remaining": 5000},
+                "repository": {"id": "R", **({"label": label and {"id": label}} if inventory else {})},
                 "user": {"projectV2": {"id": "P", "fields": {"nodes": list(self.fields.values())},
                                        "items": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": nodes}}},
                 **({"search": {"nodes": []}} if inventory else {})}
@@ -79,7 +85,8 @@ class FakeGitHub:
         if name == "createIssue":
             n = len(self.issues) + 1
             self.issues[n] = {"id": f"I{n}", "number": n, "title": inp["title"], "body": inp["body"], "state": "OPEN",
-                              "stateReason": None, "comments": [], "item": None, "values": {}}
+                              "stateReason": None, "comments": [], "item": None, "values": {},
+                              "labels": inp.get("labelIds", [])}
             return {"issue": {"id": f"I{n}", "number": n}}
         issue = self.issue(next(inp[k] for k in ("itemId", "subjectId", "issueId", "id", "contentId") if k in inp))
         if name == "addProjectV2ItemById":
@@ -421,10 +428,32 @@ def test_inventory_names_the_user_once_and_closing_carries_the_holds_over(w):
     w.seed("②", "T7-A", 止めている人="司令塔", 欠けているもの="冬の前", 戻り先=flow.STATES["③"])
     assert w.run("inventory") == 0
     sheet = max(w.fake.issues)
-    assert w.fake.issues[sheet]["title"].startswith("棚卸") and w.fake.issues[sheet]["body"].startswith("@owner")
+    assert w.fake.issues[sheet]["labels"] == [w.fake.labels[flow.INVENTORY_LABEL]]  # 棚卸はラベルで見分ける
+    assert w.fake.issues[sheet]["body"].startswith("@owner")
     assert f"- #{held} " in w.fake.issues[sheet]["body"] and "- #2 " not in w.fake.issues[sheet]["body"]
+    assert w.run("inventory", "--close", str(held)) == 1  # ラベルの無い issue は棚卸として閉じない
     assert w.run("inventory", "--close", str(sheet)) == 0
     assert (w.value(held, "持ち越した回数"), w.fake.issues[sheet]["state"]) == (1.0, "CLOSED")
+    w.fake.labels.clear()  # 置き場にラベルが無ければ、棚卸の issue を作る前に断る
+    before = len(w.fake.issues)
+    assert w.run("inventory") == 1 and len(w.fake.issues) == before
+
+
+def test_table_shows_every_row_and_every_kind(capsys):
+    assert flow.main(["table"]) == 0
+    out = capsys.readouterr().out.splitlines()
+    for row in flow.ROWS:
+        dest = "状態を変えない" if row.dest == "=" else row.dest
+        assert any(line.startswith(f"| {row.trigger} | {'・'.join(row.sources)} | {dest} | ") and row.does in line
+                   for line in out), row
+    kinds = out[out.index("## 問いの種類の表"):]  # 遷移の表にも同じ語（中止）の行がある
+    for kind, spec in flow.KINDS.items():
+        line = next(line for line in kinds if line.startswith(f"| {kind} | "))
+        assert all(op.key in line or op.key == flow.CHOICE for op in spec.ops) and all(m in line for m in spec.materials)
+    for name in {n for row in flow.ROWS for n in row.inputs}:
+        assert any(line.startswith(f"| {name} | ") for line in out), name
+    for reason, hold in flow.HOLD_REASONS.items():
+        assert f"| {reason} | {hold.blocker} | {hold.missing} | {hold.moves} |" in out
 
 
 def test_slots_are_lent_once_and_kept_while_work_would_be_lost(w):

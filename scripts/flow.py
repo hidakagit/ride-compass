@@ -7,6 +7,7 @@
     python scripts/flow.py ask <段|#番号> <種類> "<問いの題>" --file <判断材料.md> [--choice …]
     python scripts/flow.py land <段>
     python scripts/flow.py inventory [--close <棚卸の issue の番号>]
+    python scripts/flow.py table     # 遷移の表・問いの種類の表を Markdown で読む
 
 GitHub へはユーザーのトークン（GH_TOKEN か `gh auth token`）で読み書きし、ユーザーを名指す書き込み（問い・棚卸）
 だけを道具用のアカウントのトークン（環境変数 FLOW_ASK_TOKEN）で書く。名指しの通知は本人以外が書いたときだけ届く。
@@ -41,8 +42,24 @@ BLOCKER = "止めている人"
 #: ② へ入ったときの戻り先（① からは承認で入る）。
 RETURN = {"①": "③", "③": "③", "④": "③", "⑤": "⑤"}
 HOLD_FIELDS = (BLOCKER, "欠けているもの", "戻り先", "見る時機", "最初に止まった日", "持ち越した回数")
-#: 止めている理由 → 止めている人（docs/conventions/flow.md「② の止めている人の決め方」）。
-HOLD_REASONS = {"前提": COORD, "時機": COORD, "判断": USER, "担当": WORKER}
+#: 棚卸の issue に付けるラベル（前回の棚卸を見分ける）。
+INVENTORY_LABEL = "棚卸"
+
+
+@dataclass(frozen=True)
+class Hold:
+    blocker: str  # 止めている人
+    missing: str  # 欄「欠けているもの」に書くもの
+    moves: str  # 満たされたときの動かし方
+
+
+#: 止めている理由（hold の引数）→ ② の止めている人の決め方。
+HOLD_REASONS = {
+    "前提": Hold(COORD, "前提の段の番号", "前提の段が ⑥（完成）になったら道具が戻り先へ"),
+    "時機": Hold(COORD, "待っている出来事（冬季前・実走の後など）", "棚卸で司令塔が判断する"),
+    "判断": Hold(USER, "問いの題（判断材料・選択肢付きの問いを必ず書く）", "回答ページの答え"),
+    "担当": Hold(WORKER, "欠けているもの（担当が作業の途中で止まった）", "担当か司令塔が満たして戻す"),
+}
 
 
 @dataclass(frozen=True)
@@ -53,25 +70,49 @@ class Row:
     roles: tuple[str, ...]  # BLOCKER は欄「止めている人」が指す役割
     inputs: tuple[str, ...] = ()
     when: str | None = None  # 同じ遷移の行き先を選ぶ条件（WHEN）
+    does: str = ""  # 通ったときに道具がすること（`table` が出す説明）
 
 
-#: 遷移の表。表に無い遷移・必要な入力が欠けた遷移は、どの入口から来ても断る。
+#: 遷移の表（唯一の規則）。表に無い遷移・必要な入力が欠けた遷移は、どの入口から来ても断る。
+#: 人が読む形は `python scripts/flow.py table`。
 ROWS = (
-    Row("承認", ("①",), "③", (USER,), (), "前提が無い"),
-    Row("承認", ("①",), "②", (USER,), (), "前提がある"),
-    Row("棚卸まで保留", ("①", "②"), "=", (USER,)),
-    Row("中止", OPEN, DONE, (USER,), ("理由",)),
-    Row("再開", ("②",), "③", (BLOCKER, TOOL), ("答え",), "戻り先が③"),
-    Row("再開", ("②",), "⑤", (BLOCKER, TOOL), ("答え",), "戻り先が⑤"),
-    Row("NG", ("②",), "③", (USER,), ("理由",), "戻り先が⑤"),
-    Row("どれでもない", ("②",), "=", (USER,), ("記述",)),
-    Row("着手", ("③",), "④", (COORD,), ("スロット",)),
-    Row("止める", ("③", "④", "⑤"), "②", (COORD, WORKER), (BLOCKER, "欠けているもの")),
-    Row("検証へ", ("④",), "⑤", (WORKER,), ("作業ブランチ",)),
-    Row("差し戻し", ("⑤",), "③", (COORD,), ("理由",)),
-    Row("完成", ("⑤",), DONE, (TOOL,), ("CI", "検証", "早送り", "範囲外の行き先")),
-    Row("判断できない", OPEN, "=", (USER,), ("質問",)),
+    Row("承認", ("①",), "③", (USER,), (), "前提が無い",
+        "番号を振って題名の頭と欄「段」に書き、本文に中止の口を置く"),
+    Row("承認", ("①",), "②", (USER,), (), "前提がある",
+        "番号を振り、止めている人＝司令塔・欠けているもの＝前提の段・戻り先＝③"),
+    Row("棚卸まで保留", ("①", "②"), "=", (USER,), (), None, "見る時機＝次の棚卸"),
+    Row("中止", OPEN, DONE, (USER,), ("理由",), None, "Close as not planned で閉じ、終わり方＝中止"),
+    Row("再開", ("②",), "③", (BLOCKER, TOOL), ("答え",), "戻り先が③", "② の欄を消して戻り先へ"),
+    Row("再開", ("②",), "⑤", (BLOCKER, TOOL), ("答え",), "戻り先が⑤", "② の欄を消して戻り先へ"),
+    Row("NG", ("②",), "③", (USER,), ("理由",), "戻り先が⑤", "確認の NG。⑤ → ③ の差し戻しと同じ扱い（作業ブランチは残す）"),
+    Row("どれでもない", ("②",), "=", (USER,), ("記述",), None, "止めている人を司令塔へ（司令塔が読んで扱いを決める）"),
+    Row("着手", ("③",), "④", (COORD,), ("スロット",), None, "スロットに印が無いことを確かめる（担当の起動は司令塔）"),
+    Row("止める", ("③", "④", "⑤"), "②", (COORD, WORKER), (BLOCKER, "欠けているもの"), None,
+        "止めている人・欠けているもの・戻り先（③ ④ からは③、⑤ からは⑤）・最初に止まった日を書く"),
+    Row("検証へ", ("④",), "⑤", (WORKER,), ("作業ブランチ",), None,
+        "作業ブランチ orch/<段> に件名が段で始まるコミットだけがあることを確かめる"),
+    Row("差し戻し", ("⑤",), "③", (COORD,), ("理由",), None, "作業ブランチは残す"),
+    Row("完成", ("⑤",), DONE, (TOOL,), ("CI", "検証", "早送り", "範囲外の行き先"), None,
+        "出口。作業ブランチのコミットを書き換えずに master へ push して閉じ（終わり方＝完成）、"
+        "前提として待つ ② を戻り先へ"),
+    Row("判断できない", OPEN, "=", (USER,), ("質問",), None,
+        "状態は変えない。止めている人を司令塔へ（司令塔が答えて ask で問いをユーザーへ戻す）"),
 )
+#: 必要な入力の意味（`table` が出す説明）。
+INPUTS = {
+    "理由": "中止・差し戻し・NG の理由（回答ページの本文か --text、ボードで閉じたならその前のコメント）",
+    "答え": "問いへの答え。止めている人がユーザーのときだけ要る（ボードで動かしたときは動かしたこと自体）",
+    "記述": "どれでもないときの記述",
+    "質問": "判断できないときの質問",
+    BLOCKER: "止めている理由（hold の引数）から決まる",
+    "欠けているもの": "前提の段・待っている出来事・問いの題など",
+    "スロット": "空いたスロット（--slot N）",
+    "作業ブランチ": "orch/<段> に件名が段で始まるコミットだけがある",
+    "CI": "作業ブランチの先端の CI が緑",
+    "検証": "コミットの本文に「検証:」の結果",
+    "早送り": "master から早送りできる",
+    "範囲外の行き先": "記録の「範囲外」の節の各項目に「行き先:」（段・起票案・直さない（理由））",
+}
 WHEN: dict[str, Callable[[Any, dict], bool]] = {
     "前提が無い": lambda item, given: not given.get("前提"),
     "前提がある": lambda item, given: bool(given.get("前提")),
@@ -116,7 +157,8 @@ TRANSPORT: httpx.BaseTransport | None = None
 
 _VALUE = "field { ... on ProjectV2FieldCommon { name } }"
 ITEMS_QUERY = f"""query Items($owner: String!, $name: String!, $number: Int!, $after: String, $inv: Boolean!,
- $q: String!) {{ rateLimit {{ cost remaining }} repository(owner: $owner, name: $name) {{ id }}
+ $q: String!, $label: String!) {{ rateLimit {{ cost remaining }}
+ repository(owner: $owner, name: $name) {{ id label(name: $label) @include(if: $inv) {{ id }} }}
  search(query: $q, type: ISSUE, first: 1) @include(if: $inv) {{ nodes {{ ... on Issue {{ closedAt }} }} }}
  user(login: $owner) {{ projectV2(number: $number) {{ id
   fields(first: 50) {{ nodes {{ ... on ProjectV2FieldCommon {{ id name dataType }}
@@ -221,18 +263,21 @@ class Place:
         self.hub = client(token())
         self.items: list[Item] = []
         self.last_inventory: str | None = None
+        self.inventory_label: str | None = None
 
     def read(self, inventory: bool = False) -> list[Item]:
-        """Project の全件を、欄と最近のコメントごと、100件ごとに1回の問い合わせで読む。"""
+        """Project の全件を、欄と最近のコメントごと、100件ごとに1回の問い合わせで読む。
+        inventory なら、棚卸のラベルと、そのラベルの付いた閉じた issue のうち最新の閉じた日も読む。"""
         items, after = [], None
-        q = f"repo:{self.repo} is:issue is:closed in:title 棚卸 sort:created-desc"
+        q = f'repo:{self.repo} is:issue is:closed label:"{INVENTORY_LABEL}" sort:created-desc'
         while True:
             data = self.hub.graphql(ITEMS_QUERY, {"owner": self.owner, "name": self.name, "number": self.number,
-                                                  "after": after, "inv": inventory, "q": q})
+                                                  "after": after, "inv": inventory, "q": q, "label": INVENTORY_LABEL})
             project = data["user"]["projectV2"]
             self.repo_id, self.project_id = data["repository"]["id"], project["id"]
             self.fields = {f["name"]: f for f in project["fields"]["nodes"] if f}
             if inventory:
+                self.inventory_label = (data["repository"].get("label") or {}).get("id")
                 self.last_inventory = next((n["closedAt"] for n in data["search"]["nodes"] if n), None)
             for node in project["items"]["nodes"]:
                 issue = node.get("content") or {}
@@ -306,7 +351,7 @@ def comment(item: Item, body: str) -> tuple[str, dict]:
 # --- 表での判定（transitions） ----------------------------------------------------
 
 def missing(row: Row, item: Item, given: dict) -> list[str]:
-    """表の「必要な入力」のうち欠けているもの。答えは止めている人がユーザーのときだけ要る（表の但し書き）。"""
+    """表の「必要な入力」のうち欠けているもの。答えは止めている人がユーザーのときだけ要る（INPUTS の但し書き）。"""
     return [n for n in row.inputs if not given.get(n) and not (n == "答え" and item.values.get(BLOCKER) != USER)]
 
 
@@ -544,9 +589,7 @@ def cmd_ask(place: Place, args: argparse.Namespace) -> None:
 
 def cmd_hold(place: Place, args: argparse.Namespace) -> None:
     item = place.find(args.stage)
-    blocker = HOLD_REASONS.get(args.reason)
-    if blocker is None:
-        raise FlowError(f"止めている理由は {'・'.join(HOLD_REASONS)} のどれか")
+    blocker = HOLD_REASONS[args.reason].blocker
     if args.reason == "前提" and not STAGE_RE.match(args.missing):
         raise FlowError(f"前提で止めるなら、欠けているものは段（T1234-A）: {args.missing}")
     body = None
@@ -663,9 +706,12 @@ def cmd_inventory(place: Place, args: argparse.Namespace) -> None:
         if item.confirmed == "①" or item.values.get(BLOCKER) == USER:
             asked.append(line)
     if asked:
+        if not place.inventory_label:
+            raise FlowError(f"置き場にラベル「{INVENTORY_LABEL}」が無い（docs/conventions/flow.md「欄の初期設定」）")
         body = (f"@{place.owner} 棚卸です。続けるなら何もしない、再開はボードで戻り先の列へ、中止は Close as not planned"
                 "（理由はコメント）、判断できなければコメントへ。\n\n" + "\n".join(asked))
         issue = place.write([("createIssue", {"repositoryId": place.repo_id, "body": body,
+                                              "labelIds": [place.inventory_label],
                                               "title": f"棚卸 {dt.date.today().isoformat()}"})], ask=True)
         print(f"棚卸の issue: #{issue['a0']['issue']['number']}")
 
@@ -673,12 +719,38 @@ def cmd_inventory(place: Place, args: argparse.Namespace) -> None:
 def close_inventory(place: Place, number: int) -> None:
     """棚卸を閉じる。載せた件のうちまだ ② のものの持ち越した回数を1つ増やす。閉じた日が棚卸の日になる。"""
     issue = place.hub.graphql("query($o: String!, $n: String!, $k: Int!) { repository(owner: $o, name: $n) {"
-                              " issue(number: $k) { id body } } }",
+                              " issue(number: $k) { id body labels(first: 20) { nodes { name } } } } }",
                               {"o": place.owner, "n": place.name, "k": number})["repository"]["issue"]
+    if INVENTORY_LABEL not in [label["name"] for label in issue["labels"]["nodes"]]:
+        raise FlowError(f"#{number} は棚卸の issue ではない（ラベル「{INVENTORY_LABEL}」が無い）")
     listed = {int(n) for n in re.findall(r"^- #(\d+) ", issue["body"], re.M)}
     ops = [op for item in place.read() if item.number in listed and item.confirmed == "②" and not item.closed
            for op in place.set_ops(item.id, {"持ち越した回数": int(item.values.get("持ち越した回数") or 0) + 1})]
     place.write([*ops, ("closeIssue", {"issueId": issue["id"], "stateReason": "COMPLETED"})])
+
+
+def tables() -> str:
+    """遷移の表・必要な入力・問いの種類の表・止めている人の決め方を Markdown で。人が表を読む唯一の形。"""
+    def cells(*values: str) -> str:
+        return "| " + " | ".join(values) + " |"
+
+    out = ["## 遷移の表", "", cells("遷移", "どこから", "どこへ", "役割", "必要な入力", "行き先の条件", "道具がすること"),
+           cells(*["---"] * 7)]
+    out += [cells(r.trigger, "・".join(r.sources), "状態を変えない" if r.dest == "=" else r.dest, "・".join(r.roles),
+                  "・".join(r.inputs) or "なし", r.when or "―", r.does) for r in ROWS]
+    out += ["", "## 必要な入力", "", cells("入力", "意味"), cells("---", "---")]
+    out += [cells(name, meaning) for name, meaning in INPUTS.items()]
+    out += ["", "## 問いの種類の表", "", cells("種類", "要る判断材料（見出し）", "選べる操作（括弧は必須の入力）", "操作の遷移"),
+            cells(*["---"] * 4)]
+    for kind, spec in KINDS.items():
+        ops = [("選択肢のどれか（2つ以上）" if op.key == CHOICE else op.key) + (f"（{op.text}）" if op.text else "")
+               for op in spec.ops]
+        out.append(cells(kind, "・".join(spec.materials) or "―", "／".join(ops),
+                         "／".join(dict.fromkeys(op.trigger for op in spec.ops))))
+    out += ["", "## ② の止めている人の決め方", "", cells("止めている理由", "止めている人", "欠けているもの", "動かし方"),
+            cells(*["---"] * 4)]
+    out += [cells(reason, h.blocker, h.missing, h.moves) for reason, h in HOLD_REASONS.items()]
+    return "\n".join(out)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -713,9 +785,13 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("land", help="出口: ⑤ の段を master へ入れる").add_argument("stage")
     p = sub.add_parser("inventory", help="棚卸")
     p.add_argument("--close", type=int, help="閉じる棚卸の issue の番号")
+    sub.add_parser("table", help="遷移の表・問いの種類の表を Markdown で出す（GitHub へは触らない）")
     args = parser.parse_args(argv)
     if getattr(args, "stage", None) and not STAGE_RE.match(args.stage):
         parser.error(f"段は T1234-A の形: {args.stage}")
+    if args.cmd == "table":
+        print(tables())
+        return 0
     commands = {"propose": cmd_propose, "take": cmd_take, "do": cmd_do, "hold": cmd_hold, "ask": cmd_ask,
                 "land": cmd_land, "inventory": cmd_inventory}
     try:
