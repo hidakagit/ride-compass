@@ -93,7 +93,6 @@ from app.domain.map_display import (  # noqa: E402
 from app.domain.warning_display import WARNING_BADGE_DISPLAY  # noqa: E402
 from app.domain.weather_display import (  # noqa: E402
     WEATHER_CATEGORIES,
-    WEATHER_CATEGORY_FALLBACK,
     LINEAR_RAINBAND_COLOR,
     PRECIPITATION_COLOR_STOPS,
     RISK_LEVEL_COLORS,
@@ -400,7 +399,6 @@ def main() -> None:
                 source: [level._asdict() for level in levels] for source, levels in WARNING_BADGE_DISPLAY.items()
             },
             "weatherCategories": [{"key": c.key, "label": c.label, "codes": list(c.codes)} for c in WEATHER_CATEGORIES],
-            "weatherCategoryFallback": WEATHER_CATEGORY_FALLBACK,
             "materialPopulations": [{"key": key, "label": label} for key, label in POPULATION_LABELS.items()],
             # backendのログのレベル（軽い順）。画面の絞り込みの選択肢と、ログ行からレベルを読む正規表現がこの並びを使う。
             "logLevels": list(get_args(LogLevelName)),

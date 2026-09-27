@@ -106,7 +106,8 @@ class WeatherCategory(NamedTuple):
     codes: tuple[int, ...]
 
 
-#: 天気コードの分類。どれにも当たらないコードは「くもり」として出す（`WEATHER_CATEGORY_FALLBACK`）。
+#: 天気コードの分類。画面はどれにも当たらないコードを天気の分からないコードとして何も出さないので、
+#: 応答が運ぶコード（`domain/weather.py: derive_observed_weather_code`の返す値）はどれかの分類に入っていなければならない。
 #: 画面は分類ごとに小さいアイコン1つで出すので、コードごとに描き分けず粗く丸める（「晴れ時々くもり」等の
 #: 中間の状態はアイコンでは見分けられない）。
 WEATHER_CATEGORIES: tuple[WeatherCategory, ...] = (
@@ -117,4 +118,3 @@ WEATHER_CATEGORIES: tuple[WeatherCategory, ...] = (
     WeatherCategory("snow", "雪", (71, 73, 75, 77, 85, 86)),
     WeatherCategory("thunderstorm", "雷雨", (95, 96, 99)),
 )
-WEATHER_CATEGORY_FALLBACK = "cloudy"

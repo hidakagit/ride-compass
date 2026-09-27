@@ -237,7 +237,8 @@ backendのテストが全要素で確かめる。
 配るため、選んだコマが変わるたびに`jmaDelivery.ts: fetchJmaPointGeojson`を非同期に取りに行く。
 `useDynamicWeatherLayers.ts`は取れた中身を配信要素と時刻の鍵で持ち、選んでいるコマの鍵と一致する
 ときだけpayloadへ反映する——scrub中に古いフェッチが後から解決しても、直前の時刻のデータを新しい
-時刻の表示へ混ぜない。地点ごとの強弱を示す値を配信元が持たないため、gridMarkが必須とする
+時刻の表示へ混ぜない。取れなかったコマの地点は描かず、チップの状態を失敗にする（下の「データ取得状態」）——描かない
+だけでは、落雷が無いことと地点を取れていないことが同じに見える。地点ごとの強弱を示す値を配信元が持たないため、gridMarkが必須とする
 `valueProperty`（`JMA_POINT_VALUE_PROPERTY`）は固定値1を全featureへ合成し、`minScale===maxScale`に
 よりicon-sizeはズームのみに依存する。
 
@@ -279,7 +280,8 @@ backendのテストが全要素で確かめる。
 純粋関数を通り、`LayerDataStatus`（"loading"/"empty"/"error"、`mapLayers.ts`）を1つ返す
 （判定順序はエラー中 > 読込中 > 未取得[undefined] > 読込済みだが値なし、
 `useLayerDataStatus.ts: computeLayerDataStatus`と同じ）。チップの表示中のソースが読む配信要素の
-読み取り結果（まだ無ければ読み込み中・失敗があれば失敗）と、格子を読むソースがあれば
+読み取り結果（まだ無ければ読み込み中・失敗があれば失敗）と、配信元の地点を描くソース（落雷等）が選んだコマの
+地点の取得（取っている間は読み込み中・失敗は失敗）と、格子を読むソースがあれば
 `useWeatherGrid`の状態から決め、`hasPayload`は選択中の共有時刻に対応するpayloadが`undefined`で
 ないかで決まる。`hasFetched`は一度でも取得が完了したかで、初回取得前を「値なし（empty）」と
 誤って見せないために要る。

@@ -25,14 +25,9 @@ describe("getAmedasWeatherDisplay", () => {
     }
   });
 
-  it("宣言に無いコードは、既定の分類へ倒す", () => {
+  it("天気が決まっていない・宣言に無いコードは、別の天気に見せず何も出さない", () => {
     const declared = new Set(vocabulary.weatherCategories.flatMap((category) => category.codes));
-    const unknown = Math.max(...declared) + 1;
-    const fallback = vocabulary.weatherCategories.find((c) => c.key === vocabulary.weatherCategoryFallback)!;
-    expect(getAmedasWeatherDisplay(unknown, true)?.label).toBe(fallback.label);
-  });
-
-  it("天気が決まっていなければ何も出さない", () => {
     expect(getAmedasWeatherDisplay(null, true)).toBeNull();
+    expect(getAmedasWeatherDisplay(Math.max(...declared) + 1, true)).toBeNull();
   });
 });

@@ -1793,6 +1793,21 @@ describe("画面の枠と地図の周り", () => {
     expect(stubs.catalogRetries).toBe(1);
   });
 
+  it("現在地が分からない間は仮の地点の天候・警報を取らず、ヘッダーの印に「現在地」を出して、そこから取り直せる", () => {
+    geolocation.getCurrentPosition.mockImplementation((_onSuccess, onError) =>
+      onError?.({} as GeolocationPositionError),
+    );
+    renderPage();
+    const failures = () => propsOf<typeof WarningBadgeList>("WarningBadgeList").failures ?? [];
+    expect(useWeatherConditions).toHaveBeenLastCalledWith(expect.anything(), false);
+    expect(failures().map((failure) => failure.label)).toEqual(["現在地"]);
+
+    answerHere();
+    act(() => failures()[0].onRetry?.());
+    expect(useWeatherConditions).toHaveBeenLastCalledWith(HERE, true);
+    expect(failures()).toEqual([]);
+  });
+
   it("メニューからデバッグログを開閉し、コンソールの側からも閉じられる", () => {
     renderPage();
     const menu = () => propsOf<typeof HeaderMenu>("HeaderMenu");

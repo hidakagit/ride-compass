@@ -25,6 +25,7 @@ export const WEATHER_CATEGORY_ICON: Record<WeatherCodeCategory, (props: { size?:
   thunderstorm: ThunderIcon,
 };
 
-export function weatherCategoryOf(weatherCode: number): WeatherCodeCategory {
-  return CATEGORY_BY_CODE.get(weatherCode) ?? vocabulary.weatherCategoryFallback;
+/** 分類に無いコードはnull（天気の分からないコードで、別の天気に見せない）。 */
+export function weatherCategoryOf(weatherCode: number): WeatherCodeCategory | null {
+  return CATEGORY_BY_CODE.get(weatherCode) ?? null;
 }

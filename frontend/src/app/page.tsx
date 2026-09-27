@@ -561,7 +561,8 @@ export default function Home() {
     [setChosenSheetHeightVh, setWorkingSheetHeightVh],
   );
 
-  // 「今日」のパネル・最寄りの実測・警報の類（位置が決まってから、位置が変わるたびに取る）。
+  // 「今日」のパネル・最寄りの実測・警報の類（位置が決まってから、位置が変わるたびに取る。仮の地点では取らない）。
+  const locationUnknown = locationReady && locationSource === "default";
   const {
     weather,
     weatherLoading,
@@ -571,14 +572,25 @@ export default function Home() {
     amedasError,
     warningBadgeItems,
     warningFetchFailures,
-  } = useWeatherConditions(location, locationReady);
+  } = useWeatherConditions(location, locationReady && !locationUnknown);
   // 取れていない前提のデータは、警報の取得失敗と同じ常設ヘッダーの印で知らせる。軸一覧が無いと、地図は道路・スポット・
   // 事故を描けず、生成は重みを送れず、合成は区間を割れない——どれも画面の中では「無い」ように見えるだけになる。
   const headerFetchFailures = useMemo<WarningFetchFailure[]>(
-    () =>
-      axisCatalog.failed
+    () => [
+      ...(locationUnknown
         ? [
-            ...warningFetchFailures,
+            {
+              id: "location",
+              label: "現在地",
+              effect:
+                "現在地が分からないため、天候・警報を出していません。位置情報を許可するか、地図で出発地を選んでください。",
+              onRetry: handleLocateMe,
+            },
+          ]
+        : []),
+      ...warningFetchFailures,
+      ...(axisCatalog.failed
+        ? [
             {
               id: "axis-catalog",
               label: "軸一覧",
@@ -587,8 +599,9 @@ export default function Home() {
               onRetry: retryAxisCatalogFetch,
             },
           ]
-        : warningFetchFailures,
-    [axisCatalog.failed, warningFetchFailures],
+        : []),
+    ],
+    [locationUnknown, handleLocateMe, axisCatalog.failed, warningFetchFailures],
   );
 
   // いまのフォームから生成の入力を組み立てる。生成と「条件が変わったか」の判定が同じ関数を通るので、送る値を
