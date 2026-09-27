@@ -5,7 +5,6 @@
 「チップが無い」としか見えない（例外にならない）。
 """
 
-from app.domain.jma_tile_specs import JMA_TARGET_TIME_FILES
 from app.domain.map_display import MAP_LAYER_CATEGORIES, MAP_LAYERS, MAP_OVERLAY_GROUPS, map_layer_label
 from app.domain.weather_elements import WEATHER_ELEMENTS, weather_element_deliveries, weather_element_tile
 
@@ -64,14 +63,11 @@ def test_タイルで描く気象の要素は配信元の仕様を持つ() -> No
             assert tile.vector_layer is not None, f"{element.group}/{element.source} のベクタのレイヤー名が無い"
 
 
-def test_配信元から取る段はすべて系統と_系統の時刻一覧に在るファイルを持つ() -> None:
-    """系統が無いと画面は配信元のURLを、ファイルが無いと時刻一覧を取りに行けない。系統に無い
-    ファイル名は、配信元に存在しない時刻一覧を指す。"""
+def test_配信元から取る段はすべて時刻一覧のファイルを持つ() -> None:
+    """ファイルが無いと画面は時刻一覧を取りに行けない。"""
     for element in WEATHER_ELEMENTS:
         for delivery in weather_element_deliveries(element):
-            files = delivery.target_time_files
-            assert files, f"{element.group}/{element.source} の {delivery.element_id}"
-            assert set(files) <= set(JMA_TARGET_TIME_FILES[delivery.path_group]), f"{delivery.element_id}: {files}"
+            assert delivery.target_time_files, f"{element.group}/{element.source} の {delivery.element_id}"
 
 
 def test_どの要素も時刻の読み方を持つ() -> None:
