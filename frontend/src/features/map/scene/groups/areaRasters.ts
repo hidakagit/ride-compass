@@ -29,11 +29,6 @@ const TERRAIN_RGB = {
   baseShift: -GSI.terrain.rgb_base_m,
 } as const;
 
-/** 陰影の濃さは影・光の色のalphaで渡す（hillshadeは不透明度のプロパティを持たない）。
- * 傾きが0の画素は影も光も出ないため、上げても平地は濁らない。 */
-const HILLSHADE_SHADOW_COLOR = `rgba(60, 50, 40, ${AREA.opacity})`;
-const HILLSHADE_HIGHLIGHT_COLOR = `rgba(255, 252, 245, ${AREA.opacity})`;
-
 type AreaRasterRole = Extract<(typeof primaryAttributes)[number], { geometry: "area" }>["attr_id"] | "hillshade";
 
 export type AreaRasterState = {
@@ -108,10 +103,9 @@ function layersFor(state: AreaRasterState): readonly SceneLayerEntry[] {
       type: "hillshade",
       paint: {
         "hillshade-method": AREA.hillshadeMethod,
-        // igorは傾きの大きさを`exaggeration * 2`倍してから角度へ直す。上限の1にする。
-        "hillshade-exaggeration": 1,
-        "hillshade-shadow-color": HILLSHADE_SHADOW_COLOR,
-        "hillshade-highlight-color": HILLSHADE_HIGHLIGHT_COLOR,
+        "hillshade-exaggeration": AREA.hillshadeExaggeration,
+        "hillshade-shadow-color": AREA.hillshadeShadowColor,
+        "hillshade-highlight-color": AREA.hillshadeHighlightColor,
         "hillshade-illumination-direction": AREA.hillshadeIlluminationDeg,
         "hillshade-illumination-anchor": "map",
       },

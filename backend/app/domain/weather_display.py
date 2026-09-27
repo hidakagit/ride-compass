@@ -76,27 +76,27 @@ LINEAR_RAINBAND_COLOR = "#ff2800"
 #: （「大雨の警戒レベルをわかりやすく伝えるために５色の配色を定めました」令和2年5月29日
 #: https://www.bousai.go.jp/pdf/200529_haishoku.pdf。白255,255,255・黄242,231,0・赤255,40,0・紫170,0,170・黒12,0,12）。
 RISK_LEVEL_COLORS: tuple[LevelColor, ...] = (
-    LevelColor("level0", "平常（危険度なし）", "#ffffff"),
-    LevelColor("level1", "注意（黄）", "#f2e700"),
-    LevelColor("level2", "警戒（赤）", "#ff2800"),
-    LevelColor("level3", "危険（紫）", "#aa00aa"),
-    LevelColor("level4", "災害切迫（黒）", "#0c000c"),
+    LevelColor("level0", "平常[危険度なし]", "#ffffff"),
+    LevelColor("level1", "注意[黄]", "#f2e700"),
+    LevelColor("level2", "警戒[赤]", "#ff2800"),
+    LevelColor("level3", "危険[紫]", "#aa00aa"),
+    LevelColor("level4", "災害切迫[黒]", "#0c000c"),
 )
 
 #: 雷の活動度。弱い＝黄→強い＝紫というナウキャスト系の配色慣習に沿う。気象庁はタイルの配色の
 #: カラーコードを公開していないため、雷・竜巻の色は近似値で、実際のタイル画像の色とは厳密には一致しない。
 THUNDER_ACTIVITY_LEVELS: tuple[LevelColor, ...] = (
-    LevelColor("level1", "活動度1: 雷雲発達の可能性（1時間以内に発雷のおそれ）", "#fde047"),
+    LevelColor("level1", "活動度1: 雷雲発達の可能性[1時間以内に発雷のおそれ]", "#fde047"),
     LevelColor("level2", "活動度2: 雷雲発生、落雷の可能性", "#fb923c"),
     LevelColor("level3", "活動度3: 落雷が発生中", "#ef4444"),
-    LevelColor("level4", "活動度4: 激しい雷（雹に注意）", "#9333ea"),
+    LevelColor("level4", "活動度4: 激しい雷[雹に注意]", "#9333ea"),
 )
 
 #: 竜巻発生確度。数字は切迫度ではなく「可能性の程度」の違い（気象庁の注記どおり）。
 #: 雷と区別できる寒色系にする。
 TORNADO_POTENTIAL_LEVELS: tuple[LevelColor, ...] = (
-    LevelColor("potential1", "発生確度1: 広く注意（見逃しを減らす、的中率1〜7%）", "#38bdf8"),
-    LevelColor("potential2", "発生確度2: 重点警戒（気象庁「竜巻注意」相当、的中率7〜14%）", "#1d4ed8"),
+    LevelColor("potential1", "発生確度1: 広く注意[見逃しを減らす、的中率1〜7%]", "#38bdf8"),
+    LevelColor("potential2", "発生確度2: 重点警戒[気象庁「竜巻注意」相当、的中率7〜14%]", "#1d4ed8"),
 )
 
 

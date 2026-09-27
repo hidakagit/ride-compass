@@ -143,7 +143,7 @@ export const routeGroup = declareGroup<RouteState>((state) => {
       paint: {
         "line-color": palette.semantic.route_candidate,
         "line-width": ROUTE.lineWidthsPx.candidate,
-        "line-opacity": 0.65,
+        "line-opacity": ROUTE.opacities.candidate,
       },
     },
     {
@@ -155,7 +155,7 @@ export const routeGroup = declareGroup<RouteState>((state) => {
       paint: {
         "line-color": palette.semantic.route_casing,
         "line-width": ROUTE.casingWidthsPx.slot,
-        "line-opacity": 0.85,
+        "line-opacity": ROUTE.opacities.slotCasing,
       },
     },
     {
@@ -167,7 +167,7 @@ export const routeGroup = declareGroup<RouteState>((state) => {
       paint: {
         "line-color": ["get", SLOT_COLOR_PROPERTY],
         "line-width": ROUTE.lineWidthsPx.slot,
-        "line-opacity": 0.85,
+        "line-opacity": ROUTE.opacities.slot,
       },
     },
     {
@@ -257,7 +257,7 @@ export const routeGroup = declareGroup<RouteState>((state) => {
           "icon-ignore-placement": true,
           "icon-size": arrowSize(ROUTE.arrowHaloScale),
         },
-        paint: { "icon-color": palette.semantic.route_arrow_halo, "icon-opacity": 0.95 },
+        paint: { "icon-color": palette.semantic.route_arrow_halo, "icon-opacity": ROUTE.opacities.arrowHalo },
       },
       {
         role: "arrow",

@@ -106,15 +106,18 @@ function markDrawing(options: {
       // 記号が密なズームでは間引く（重ねると格子が塗り潰しに見える）。
       "icon-allow-overlap": false,
       "icon-ignore-placement": false,
-      "icon-size": zoomScaleExpression([
-        "interpolate",
-        ["linear"],
-        ["to-number", ["get", options.valueProperty]],
-        0,
-        options.minScale,
-        options.fullScaleValue,
-        options.maxScale,
-      ]),
+      "icon-size": zoomScaleExpression(
+        [
+          "interpolate",
+          ["linear"],
+          ["to-number", ["get", options.valueProperty]],
+          0,
+          options.minScale,
+          options.fullScaleValue,
+          options.maxScale,
+        ],
+        WEATHER.markSizeByZoom,
+      ),
     },
     paint: {
       "icon-color": options.color,
@@ -174,8 +177,7 @@ const DRAWINGS: { readonly [K in DrawnKey]: Drawing } = {
         RISK_LEVELS[4].color,
         RISK_LEVELS[0].color,
       ],
-      // 低いズームで目立たせすぎず、拡大するほど個々の川筋を追えるようにする。
-      "line-width": ["interpolate", ["linear"], ["zoom"], 6, 1.5, 10, 3, 14, 5],
+      "line-width": zoomScaleExpression(1, WEATHER.floodLineWidthByZoom),
     },
     // 平常時の基準線（level=0）まで出すと、危険情報が無い日も川が全部塗られる。
     filter: aboveFilter("level", 0),

@@ -90,7 +90,7 @@ ALWAYS_SHOWN_ATTRIBUTIONS: tuple[str, ...] = (
     "OpenStreetMap contributors</a>",
     '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noreferrer">'
     "地理院タイル(標高タイル)</a>を加工して作成",
-    "交通事故統計情報（警察庁）を加工して作成",
+    "交通事故統計情報[警察庁]を加工して作成",
     '気象庁「<a href="https://www.jma.go.jp/bosai/map.html#contents=amedas" target="_blank" rel="noreferrer">'
     "アメダス</a>」を加工して作成",
     '土地被覆: <a href="https://livingatlas.arcgis.com/landcover/" target="_blank" rel="noreferrer">'
@@ -145,7 +145,7 @@ _LAYER_SPECS: dict[str, MapLayerSpec] = {
     "accident_point": _tile_layer("accident_point", "trafficSafety"),
     "precipitationNowcast": MapLayerSpec("ownFetch", "weather", data_nature="dynamic", label="降水ナウキャスト"),
     # 道路の色分け（向かい風・追い風）と見分けられる名前にする。
-    "windVector": MapLayerSpec("ownFetch", "weather", data_nature="dynamic", label="風（矢印）"),
+    "windVector": MapLayerSpec("ownFetch", "weather", data_nature="dynamic", label="風[矢印]"),
     # 予兆が出てからONにするのでは手遅れになるため既定ONにする。危険度が出ている間は広い範囲が
     # 塗られ、他の面レイヤー（緑と水・標高図）も基礎地図の色も覆われるが、危険度ゼロの領域は
     # 配信元のタイルが透明なので、影響が出るのは警戒度が上がっている間だけ。そのときは防災の
@@ -196,7 +196,15 @@ ROUTE_CASING_WIDTHS_PX: dict[str, float] = {
     role: ROUTE_LINE_WIDTHS_PX[role] + CASING_MARGIN_PX for role in ("composite", "slot", "detail")
 }
 
-ROUTE_LINE_OPACITIES: dict[str, float] = {"selectedHalo": 0.25, "splice": 0.75}
+#: 線の濃さ（役割ごと）。候補の参考線は選んだ候補より薄く、比較スロットは下の道が透ける濃さにする。
+ROUTE_LINE_OPACITIES: dict[str, float] = {
+    "selectedHalo": 0.25,
+    "splice": 0.75,
+    "candidate": 0.65,
+    "slot": 0.85,
+    "slotCasing": 0.85,
+    "arrowHalo": 0.95,
+}
 
 #: 破線の刻み。実線との違いが読める最小の組み合わせ。
 ROUTE_SPLICE_DASH: tuple[float, ...] = (2, 1.5)
@@ -222,6 +230,12 @@ AREA_OPACITY = 0.55
 #: ——既定の`standard`はsinに比例し、平野部の数度では実効の濃さが0.03を下回って見えない。
 HILLSHADE_ILLUMINATION_DEG = 315
 HILLSHADE_METHOD = "igor"
+#: `igor`は傾きの大きさを`exaggeration * 2`倍してから角度へ直す。上限の1にする。
+HILLSHADE_EXAGGERATION = 1
+#: 陰影の濃さは影・光の色のalphaで渡す（hillshadeは不透明度のプロパティを持たない）。傾きが0の画素は
+#: 影も光も出ないため、上げても平地は濁らない。
+HILLSHADE_SHADOW_COLOR = f"rgba(60, 50, 40, {AREA_OPACITY})"
+HILLSHADE_HIGHLIGHT_COLOR = f"rgba(255, 252, 245, {AREA_OPACITY})"
 #: 標高の強調。**タイルの値は実際の標高のままで、読み方（復元式の係数）へ掛ける**
 #: ——タイル側を書き換えると、同じタイルを別の倍率で読み直せなくなる。
 #: 上げるほど緩い斜面が読めるが、上げすぎると急斜面との差が潰れる。
@@ -232,6 +246,12 @@ WEATHER_MARK_HALO_WIDTH_PX = 1.5
 WIND_ICON_SCALE_RANGE: tuple[float, float] = (0.9, 2.6)
 WIND_FULL_SCALE_MS = 15
 LIGHTNING_ICON_SCALE = 0.8
+#: 記号を拡大する曲線（ズーム→倍率）。**気象の記号はどれも同じ曲線で拡大する**——家族ごとに別の曲線を使うと、
+#: 同じ地図の中で拡大の速さが食い違う。`icon-size`は既定で画面上の固定ピクセルなので、曲線が無いと拡大するほど
+#: 周囲の道路・建物だけが大きく描かれ、記号が相対的に小さくなる。初期表示のズーム（13）を倍率1に置く。
+MARK_SIZE_BY_ZOOM: tuple[tuple[float, float], ...] = ((10, 0.75), (13, 1), (16, 1.5), (19, 2))
+#: 洪水の川筋の太さ（ズーム→px）。低いズームで目立たせすぎず、拡大するほど個々の川筋を追えるようにする。
+FLOOD_LINE_WIDTH_BY_ZOOM: tuple[tuple[float, float], ...] = ((6, 1.5), (10, 3), (14, 5))
 
 
 #: 道の線。太さは意味を運ばない（意味は色だけ）ので、分類の線はすべて同じ太さ。

@@ -87,10 +87,10 @@ WEATHER_ELEMENTS: tuple[WeatherElement, ...] = (
     WeatherElement("disaster", "inundation", "rasterTile", ("inund",), "浸水キキクル", FrameRule("current")),
     WeatherElement("disaster", "thunder", "rasterTile", ("thns",), "雷ナウキャスト", _NEAREST),
     WeatherElement("disaster", "tornado", "rasterTile", ("trns",), "竜巻発生確度", _NEAREST),
-    WeatherElement("disaster", "flood", "vectorTile", ("flood",), "洪水キキクル（河川）", FrameRule("current")),
+    WeatherElement("disaster", "flood", "vectorTile", ("flood",), "洪水キキクル[河川]", FrameRule("current")),
     # 落雷は予測を持たない。遅れの幅は配信の遅れの実績値へ余裕を足した上限。
     WeatherElement(
-        "disaster", "liden", "gridMark", ("liden",), "落雷（発生地点）", FrameRule("latestObservation", 20)
+        "disaster", "liden", "gridMark", ("liden",), "落雷[発生地点]", FrameRule("latestObservation", 20)
     ),
 )
 

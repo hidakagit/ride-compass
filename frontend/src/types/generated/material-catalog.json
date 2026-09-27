@@ -1,8 +1,8 @@
 [
   {
     "material_id": "gradient_percent",
-    "label": "勾配（符号付き） - gradient_percent",
-    "name": "勾配（符号付き）",
+    "label": "勾配[符号付き] - gradient_percent",
+    "name": "勾配[符号付き]",
     "description": "国土地理院の標高データから算出した進行方向の勾配（%）。登り坂はプラス、下り坂はマイナスです。",
     "dtype": "numeric",
     "unit": "%",
@@ -426,7 +426,7 @@
       "tertiary_link": "地方道の連絡路",
       "unclassified": "未区分の道路",
       "residential": "住宅街の道路",
-      "living_street": "生活道路（歩車共存）",
+      "living_street": "生活道路[歩車共存]",
       "service": "施設内通路",
       "road": "種別不明の道路",
       "cycleway": "自転車専用道",
@@ -449,29 +449,29 @@
     "reference_points": [],
     "value_labels": {
       "asphalt": "アスファルト",
-      "paved": "舗装（種別不明）",
+      "paved": "舗装[種別不明]",
       "chipseal": "チップシール舗装",
       "concrete": "コンクリート",
       "concrete:plates": "コンクリート版",
-      "concrete:lanes": "コンクリート帯（轍部のみ舗装）",
-      "paving_stones": "石畳（切石）",
+      "concrete:lanes": "コンクリート帯[轍部のみ舗装]",
+      "paving_stones": "石畳[切石]",
       "bricks": "レンガ舗装",
       "compacted": "締固め砂利",
       "fine_gravel": "細砂利",
       "gravel": "砂利",
       "pebblestone": "小石敷き",
       "rock": "岩盤",
-      "unpaved": "未舗装（種別不明）",
+      "unpaved": "未舗装[種別不明]",
       "dirt": "土",
-      "ground": "地面（土・砂利混合）",
-      "earth": "土（地表面）",
+      "ground": "地面[土・砂利混合]",
+      "earth": "土[地表面]",
       "mud": "泥",
       "sand": "砂",
       "grass": "芝・草地",
       "woodchips": "ウッドチップ",
-      "sett": "石畳（玉石）",
+      "sett": "石畳[玉石]",
       "cobblestone": "玉石舗装",
-      "unhewn_cobblestone": "玉石舗装（未加工）"
+      "unhewn_cobblestone": "玉石舗装[未加工]"
     },
     "tile_property": "surface"
   },
@@ -507,8 +507,8 @@
       "gravel": "砂利・未舗装",
       "soil": "土・草・泥・砂",
       "cobblestone": "石畳",
-      "unknown_track": "不明（農道・林道）",
-      "unknown_road": "不明（一般の道）"
+      "unknown_track": "不明[農道・林道]",
+      "unknown_road": "不明[一般の道]"
     },
     "tile_property": "surface_estimate"
   },
@@ -576,7 +576,7 @@
     "unit": "",
     "reference_points": [],
     "value_labels": {
-      "excellent": "非常に良好（ロードバイク推奨）",
+      "excellent": "非常に良好[ロードバイク推奨]",
       "good": "良好",
       "intermediate": "普通",
       "bad": "悪い",
