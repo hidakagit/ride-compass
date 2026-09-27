@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 
 import { MoonIcon, SunIcon } from "@/components/ui/icons/icons";
+import { vocabulary } from "@/types/generated/vocabulary";
 
 import { getAmedasWeatherDisplay } from "./amedasWeatherIcon";
 import { WEATHER_CATEGORY_ICON, WEATHER_CATEGORY_LABEL } from "./weatherCode";
@@ -12,11 +13,23 @@ describe("getAmedasWeatherDisplay", () => {
     expect(getAmedasWeatherDisplay(0, false)).toEqual({ Icon: MoonIcon, label: WEATHER_CATEGORY_LABEL.clear });
   });
 
-  it("晴れ以外は、予報と同じ分類のアイコンと名前", () => {
-    expect(getAmedasWeatherDisplay(71, false)).toEqual({
-      Icon: WEATHER_CATEGORY_ICON.snow,
-      label: WEATHER_CATEGORY_LABEL.snow,
-    });
+  it("宣言された天気コードは、その分類の名前になり、晴れ以外は分類のアイコンになる", () => {
+    const codes = vocabulary.weatherCategories.flatMap((category) =>
+      category.codes.map((code) => ({ category, code })),
+    );
+    expect(codes).not.toHaveLength(0);
+    for (const { category, code } of codes) {
+      const display = getAmedasWeatherDisplay(code, true);
+      expect(display?.label).toBe(category.label);
+      if (category.key !== "clear") expect(display?.Icon).toBe(WEATHER_CATEGORY_ICON[category.key]);
+    }
+  });
+
+  it("宣言に無いコードは、既定の分類へ倒す", () => {
+    const declared = new Set(vocabulary.weatherCategories.flatMap((category) => category.codes));
+    const unknown = Math.max(...declared) + 1;
+    const fallback = vocabulary.weatherCategories.find((c) => c.key === vocabulary.weatherCategoryFallback)!;
+    expect(getAmedasWeatherDisplay(unknown, true)?.label).toBe(fallback.label);
   });
 
   it("天気が決まっていなければ何も出さない", () => {

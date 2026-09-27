@@ -3,7 +3,6 @@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/Popover/Popover";
 import { ClockIcon, RaindropIcon, ThermometerIcon, WindIcon } from "@/components/ui/icons/icons";
 import { formatJstHourMinute } from "@/lib/time";
-import { getWeatherCodeDisplay } from "@/features/conditions/WeatherPanel/weatherCode";
 import type { WeatherConditions, WeatherPeriodOutlook } from "@/types/weather";
 import weatherScales from "@/types/generated/weather-scales.json";
 import { Button } from "@/components/ui/Button/Button";
@@ -16,13 +15,15 @@ interface TodayOutlookProps {
   error: string | null;
 }
 
-// 「今日の見通し」二次パネル。常設ヘッダーはどの季節・
+// 「今日」の二次パネル。常設ヘッダーはどの季節・
 // 地域でも常に意味を持つ瞬間値（気温・風・降水量・天気アイコン）だけに絞り、
 // 「今日の最大降水量・今日の最大風速・今日の気温レンジ」という1日1個の値はタップで
 // 開く本パネルへ集約する（常設ヘッダーへ項目を足さず、個別ON/OFF設定も新設せず、
 // 既存のWarningBadgeListと同じPopoverパターンで済ませる）。
 // 日の出/日没も1日1個の値のためここへ置く（常設ヘッダーは走行中に何度も見る瞬間値だけに
-// 絞る）。値はMSM予報のレスポンスに乗っている（backend側でastralが計算する）。
+// 絞る）。日の出/日没以外は数値予報モデル（MSM）の計算値で、「予報」と呼ばず、天気（晴れ・雨等）も
+// 出さない——どちらも気象業務法の予報業務の許可の対象と気象庁の公式の説明が書いている
+// （docs/architecture/data-sources.md「気象業務法の予報業務許可」節）。
 
 /** 日の出・日没の時刻（JST）。壊れた値は「--:--」にして行ごと落とさない。 */
 function formatClockTime(iso: string): string {
@@ -38,18 +39,16 @@ function formatPeriodLabel(period: string): string {
   return Number.isNaN(hour) ? period : `${hour}時`;
 }
 
-// 予想降水量。降らない見込み（backendの「降っていない」の境未満）は「-」。単位はコマ単体で意味が読み取れるよう
+// 降水量。backendの「降っていない」の境未満は「-」。単位はコマ単体で意味が読み取れるよう
 // 各コマへ付ける（横スクロールで見出しが画面外へ出るため）。
 function formatPrecipitation(mm: number): string {
   return mm < weatherScales.precipitation_none_below_mm ? "-" : `${mm.toFixed(1)}mm`;
 }
 
 function PeriodSlot({ period }: { period: WeatherPeriodOutlook }) {
-  const display = getWeatherCodeDisplay(period.weather_code);
   return (
     <div className="flex w-10 flex-shrink-0 flex-col items-center gap-1 text-[var(--color-accent)]">
       <span className={cn(textVariants({ variant: "note" }), "tabular-nums")}>{formatPeriodLabel(period.period)}</span>
-      {display ? <display.Icon size={17} /> : <span className="text-[var(--color-muted)]">-</span>}
       <span className="text-[length:var(--font-size-sm)] font-semibold text-[var(--foreground)] tabular-nums">
         {period.temperature_c != null ? `${Math.round(period.temperature_c)}℃` : "-"}
       </span>
@@ -74,7 +73,7 @@ export default function TodayOutlook({ weather, loading, error }: TodayOutlookPr
             size="xs"
             shape="pill"
             className="font-semibold"
-            aria-label="今日の見通しの取得に失敗しました"
+            aria-label="今日のモデルの計算値の取得に失敗しました"
           >
             今日
           </Button>
@@ -86,7 +85,7 @@ export default function TodayOutlook({ weather, loading, error }: TodayOutlookPr
           align="start"
         >
           <p className={cn(textVariants({ variant: "note" }), "mb-2 font-bold tracking-wide uppercase")}>
-            今日の見通し
+            今日のモデルの計算値
           </p>
           <p>取得に失敗しました: {error}</p>
         </PopoverContent>
@@ -114,12 +113,17 @@ export default function TodayOutlook({ weather, loading, error }: TodayOutlookPr
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button size="xs" shape="pill" className="bg-transparent font-semibold" aria-label="今日の見通しを表示">
+        <Button size="xs" shape="pill" className="bg-transparent font-semibold" aria-label="今日のモデルの計算値を表示">
           今日
         </Button>
       </PopoverTrigger>
       <PopoverContent layer="header" className="w-76 max-w-[calc(100vw-2*var(--space-3))]" side="bottom" align="start">
-        <p className={cn(textVariants({ variant: "note" }), "mb-2 font-bold tracking-wide uppercase")}>今日の見通し</p>
+        <p className={cn(textVariants({ variant: "note" }), "font-bold tracking-wide uppercase")}>
+          今日のモデルの計算値
+        </p>
+        <p className={cn(textVariants({ variant: "note" }), "mb-2")}>
+          気象庁の数値予報モデル（MSM）の計算値です。予報ではなく、誤差を含みえます。
+        </p>
         <div className="grid grid-cols-2 gap-x-3 gap-y-2">
           {weather.precipitation_max_mm != null && (
             <div className="flex items-start gap-1.5 text-[var(--color-accent)] [&_svg]:mt-0.5 [&_svg]:shrink-0">
@@ -173,7 +177,7 @@ export default function TodayOutlook({ weather, loading, error }: TodayOutlookPr
         </div>
         {hasFlow && (
           <div className="mt-2 border-t border-[var(--color-border)] pt-2">
-            <p className={cn(textVariants({ variant: "note" }), "mb-1")}>天気の流れ</p>
+            <p className={cn(textVariants({ variant: "note" }), "mb-1")}>2時間ごと</p>
             {/* コマがスマホ横幅に収まりきらない場合は、パネル内だけで横スクロールさせる。 */}
             <div className="-mx-3 flex gap-2 overflow-x-auto px-3 pb-0.5">
               {weather.today_periods.map((period) => (

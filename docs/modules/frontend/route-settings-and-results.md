@@ -214,7 +214,7 @@ page.tsx（[ページ全体構成・状態管理](page-composition.md)参照）�
   （[評価・スコアリング](../backend/evaluation-scoring.md)「ルート単位の集約」節参照）。
   候補の並び順には影響しない。**数値と併せて、上の道のりのグラフ（`DifficultyProfile`）が面積で同じことを表す**
   ——負荷は総合難易度に距離を掛けただけの派生量のため、独立した数値として並べるだけでは平均と総量の関係が読めない。
-- **所要時間の前提が崩れたことの注記**: 所要時間のすぐ下に、`RouteCandidate.wind_unavailable`なら「風の予報を
+- **所要時間の前提が崩れたことの注記**: 所要時間のすぐ下に、`RouteCandidate.wind_unavailable`なら「風のモデルの計算値を
   使えなかったため、無風として所要時間を出しています」、`missing_travel_data_share`（勾配か停止要因の件数の値が無く、
   平地・待ち無しとして数えた区間の距離の割合）が丸めて1%以上なら「データの無い区間が◯%」を出す——黙って短い所要時間を
   見せない。0%は判断の材料にならないため出さない。どちらもbackendがEdge単位で数えた値をそのまま使う。
@@ -272,7 +272,8 @@ handleRouteSegmentClick`がクリック地点の座標とともに設定する�
 クリック地点へ軽量なマーカーを立てるだけでテキストポップアップは出さない
 （[地図: 静的レイヤー・道路表示](static-map-layers.md)参照）。`selectedRouteSegment`が
 non-nullの間、「ルート結果」タブはルート全体の内訳の代わりにその区間の地点・到達予想
-時刻・評価に使った風（`SegmentWind`: 予報の時刻・風向風速、予報を追える範囲の先で延ばして使った区間はその旨。
+時刻・評価に使った風（`SegmentWind`: 数値予報モデルの計算値の時刻・風向風速、追える時刻の先で延ばして使った区間はその旨。
+「予報」とは呼ばない——[動的気象レイヤー](dynamic-weather-layers.md)「責務」。
 (i)の説明がレグごとに追う時間を生成物`route-generate-config.json`の`wind_forecast_hours_per_leg`から出す）＋
 `AxisContributionBar`（区間の`axis_contributions`）を表示し、×ボタンで
 `selectedRouteSegment`をnullへ戻すとルート全体表示に復帰する。研究モード

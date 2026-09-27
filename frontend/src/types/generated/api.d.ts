@@ -1827,10 +1827,6 @@ export interface components {
             precipitation_mm: number | null;
             /** Observed At */
             observed_at: string;
-            /** Weather Code */
-            weather_code: number | null;
-            /** Is Day */
-            is_day: number | null;
             /** Sunset */
             sunset: string | null;
             /** Sunrise */
@@ -1850,8 +1846,6 @@ export interface components {
         WeatherPeriodOutlook: {
             /** Period */
             period: string;
-            /** Weather Code */
-            weather_code: number | null;
             /** Temperature C */
             temperature_c: number | null;
             /** Precipitation Mm */

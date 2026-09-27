@@ -8,8 +8,8 @@ interface AmedasWeatherDisplay {
   label: string;
 }
 
-/** アメダスの実測からbackendが導いた天気コード+昼夜フラグから天気アイコン+ラベルを決める
- * （weatherCode.tsのgetWeatherCodeDisplayと同じ構成）。コードが無ければnullを返す。 */
+/** アメダスの実測からbackendが導いた天気コード+昼夜フラグから天気アイコン+ラベルを決める。
+ * コードが無ければnullを返す。 */
 export function getAmedasWeatherDisplay(weatherCode: number | null, isDay: boolean): AmedasWeatherDisplay | null {
   if (weatherCode == null) return null;
   const category = weatherCategoryOf(weatherCode);

@@ -707,7 +707,8 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         material_id=WIND_DRAG_RATIO,
         label="風の追加負荷(倍率)",
         description=(
-            "出発時刻の気象予報・ルートの進行方向・想定速度から、相対風速の二乗則で求めた空気抵抗の増分"
+            "出発時刻の風（気象庁の数値予報モデルの計算値。予報ではなく誤差を含みうる）・ルートの進行方向・想定速度から、"
+            "相対風速の二乗則で求めた空気抵抗の増分"
             f"（{_WIND_REFERENCE_SPEED_LABEL}で無風のときの空気抵抗を1とする倍率）。プラス=向かい風で重くなる、マイナス=追い風で楽になる、"
             "真横の風は小さなプラス。同じ風でも速く走るほど値が大きくなります。"
             f"目安（{_WIND_REFERENCE_SPEED_LABEL}）: "
@@ -725,7 +726,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
             for situation, ratio in _WIND_DRAG_RATIO_BY_SITUATION.items()
         ],
         coverage=CoverageExcluded(
-            reason="出発時刻の気象予報・想定速度から都度計算する動的材料で、DBに静的な値を持たない",
+            reason="出発時刻の風（数値予報モデルの計算値）・想定速度から都度計算する動的材料で、DBに静的な値を持たない",
             missing_semantics="unknown",
         ),
     ),

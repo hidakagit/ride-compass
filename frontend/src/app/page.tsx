@@ -561,7 +561,7 @@ export default function Home() {
     [setChosenSheetHeightVh, setWorkingSheetHeightVh],
   );
 
-  // 今日の見通し・最寄りの実測・警報の類（位置が決まってから、位置が変わるたびに取る）。
+  // 「今日」のパネル・最寄りの実測・警報の類（位置が決まってから、位置が変わるたびに取る）。
   const {
     weather,
     weatherLoading,
@@ -1204,7 +1204,7 @@ export default function Home() {
         className="flex flex-shrink-0 flex-nowrap items-center gap-2 overflow-x-auto border-b border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         title="風向・風速はルート候補の評価に使われます"
       >
-        {/* 風と今日の見通しは左端に固定して常に見せる。入り切らないときに隠れるのは警報の側。 */}
+        {/* 風と「今日」のパネルは左端に固定して常に見せる。入り切らないときに隠れるのは警報の側。 */}
         <div className="left-0 flex flex-shrink-0 items-center gap-2 sticky z-1 bg-[var(--color-surface)]">
           <WeatherPanel amedas={amedas} loading={amedasLoading} error={amedasError} />
           <TodayOutlook weather={weather} loading={weatherLoading} error={weatherError} />

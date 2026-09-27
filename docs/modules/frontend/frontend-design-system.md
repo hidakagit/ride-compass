@@ -71,7 +71,7 @@ Tailwindのユーティリティで書く。CSS Modulesは使わない（CSSの�
 | `--z-map-popup` | 25 | MapLibreのポップアップ |
 | `--z-map-detail` | 30 | 地図内の詳細パネル |
 | `--z-bottom-sheet` | 45 | モバイルのBottomSheet・下部タブバー |
-| `--z-header-popover` | 46 | ヘッダー由来のポップオーバー（メニュー・警報バッジ・今日の見通し） |
+| `--z-header-popover` | 46 | ヘッダー由来のポップオーバー（メニュー・警報バッジ・「今日」のパネル） |
 | `--z-floating-panel` | 50 | 開発者向けFloatingPanel・`ui/Dialog` |
 | `--z-top-popover` | 60 | 開いた時点で必ず見えるべき浮きパネル（`ui/Popover`の既定・レンズ一覧・走行条件） |
 

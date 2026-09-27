@@ -22,7 +22,7 @@ export const PRECIPITATION_COLOR_STOPS: readonly { mmPerHour: number; color: str
   weatherScales.precipitation.map((stop) => ({ mmPerHour: stop.value, color: stop.color, name: stop.name }));
 
 // 格子の塗り（gridFill）でこの値未満は「降っていない」として塗らない。境はbackendの宣言が持ち、
-// 天気コードの雨の判定・「今日の見通し」の予想降水量の「-」と同じ値。
+// 天気コードの雨の判定・「今日」のパネルの降水量の「-」と同じ値。
 export const PRECIPITATION_NONE_THRESHOLD_MM = weatherScales.precipitation_none_below_mm;
 
 /** 降水強度の凡例（地図チップ）。色の段1つにつき1行。 */
