@@ -1,31 +1,13 @@
 import type {
   GenerationConditions,
   RouteCandidate,
-  RouteGenerateJobCreatedResponse,
   RouteGenerateJobStatusResponse,
   RouteGenerateRequest,
 } from "@/types/route";
-import { API_BASE_URL } from "@/lib/apiBaseUrl";
-import { apiPath, type DeclaredApiPath } from "@/lib/apiPath";
+import { backendApi, getOptions, requestApi } from "@/lib/apiClient";
 import { debugLog } from "@/lib/debugLog";
-import { fetchJson, requestJson } from "@/lib/fetchJson";
 import { DEFAULT_API_TIMEOUT_MS } from "@/lib/apiTimeouts";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
-
-/** ルート生成系のPOST。エラー文言はエンドポイントごとに動詞が変わる（生成・取得等）ため
- * 「リクエストに失敗しました」で統一し、詳細はbackendのdetailに委ねる。 */
-async function postJson<T>(path: DeclaredApiPath, body: unknown, timeoutMs: number): Promise<T> {
-  return requestJson<T>(`${API_BASE_URL}${path}`, {
-    method: "POST",
-    body,
-    timeoutMs,
-    category: "api:route",
-    messages: { failure: "リクエストに失敗しました", parseFailure: "サーバーからの応答の解析に失敗しました" },
-    startLabel: `POST ${path}`,
-    requestMeta: { body },
-    logMeta: { path },
-  });
-}
 
 interface GenerateRoutesResult {
   routes: RouteCandidate[];
@@ -57,16 +39,13 @@ function sleep(ms: number): Promise<void> {
 }
 
 /** 生成のジョブの状態を1回取る。 */
-function pollGenerationJob(jobId: string): Promise<RouteGenerateJobStatusResponse> {
-  return fetchJson<RouteGenerateJobStatusResponse>(
-    `${API_BASE_URL}${apiPath("/api/routes/generate/{job_id}", { job_id: jobId })}`,
-    {
-      timeoutMs: DEFAULT_API_TIMEOUT_MS,
-      category: "api:route",
-      errorLabel: "ルート生成の状態",
-      requestMeta: { jobId },
-    },
+async function pollGenerationJob(jobId: string): Promise<RouteGenerateJobStatusResponse> {
+  const status = await requestApi(
+    (init) => backendApi.GET("/api/routes/generate/{job_id}", { params: { path: { job_id: jobId } }, ...init }),
+    getOptions({ timeoutMs: DEFAULT_API_TIMEOUT_MS, category: "api:route", errorLabel: "ルート生成の状態" }),
   );
+  // 契約の型へ、backendが常に返す項目の必須化とGeoJSONの形を足したもの（`types/route.ts`）。
+  return status as RouteGenerateJobStatusResponse;
 }
 
 /** ルート生成はバックグラウンドジョブ化されている。`POST /api/routes/generate`は
@@ -77,10 +56,15 @@ export async function generateRoutes(
   request: RouteGenerateRequest,
   onProgress?: (progress: GenerationProgress) => void,
 ): Promise<GenerateRoutesResult> {
-  const { job_id: jobId } = await postJson<RouteGenerateJobCreatedResponse>(
-    apiPath("/api/routes/generate"),
-    request,
-    DEFAULT_API_TIMEOUT_MS,
+  // 文言は「リクエストに失敗しました」に留め、詳細はbackendのdetailに委ねる。
+  const { job_id: jobId } = await requestApi(
+    (init) => backendApi.POST("/api/routes/generate", { body: request, ...init }),
+    {
+      timeoutMs: DEFAULT_API_TIMEOUT_MS,
+      category: "api:route",
+      messages: { failure: "リクエストに失敗しました", parseFailure: "サーバーからの応答の解析に失敗しました" },
+      requestMeta: { body: request },
+    },
   );
   const startedAt = performance.now();
   let consecutivePollFailures = 0;

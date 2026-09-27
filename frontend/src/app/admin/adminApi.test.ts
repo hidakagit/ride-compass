@@ -1,17 +1,18 @@
-// @vitest-environment node
 /**
  * `features/admin/adminApi.ts`——管理画面のAPIクライアントが叩く先に受け手がいることと、応答や問い合わせを組み立てる部分。
  * 機能のクライアントと`app/`の口の両方を読むので、両方より上の`app/`に置く（機能は`app/`を読まない）。
  *
  * 叩く先の母集団はこのファイルがexportする関数の全部。1つずつ呼び、出た要求を受け手まで辿る:
- * - 相対パス: `app/**\/route.ts`に口がある。管理APIの口（`app/admin/api/[...path]`）なら、転送先がbackendの
+ * - 画面と同じオリジン: `app/**\/route.ts`に口がある。管理APIの口（`app/admin/api/[...path]`）なら、転送先がbackendの
  *   契約（`openapi.json`）にある同じメソッドの操作で、本文の有無と項目名も契約と合い、**クライアントの待ち時間が
  *   転送の待ち時間を超えない**（超えると転送が先に打ち切り、クライアントを延ばしても症状が変わらない）。
- * - 絶対URL（backendを直接）: backendの契約にそのメソッドのパスがある。
+ * - 別のオリジン（backendを直接）: backendの契約にそのメソッドのパスがある。
+ *
+ * 画面と同じオリジンの口は相対パスで呼ぶので、ブラウザと同じく相対パスを解決できるDOMの環境で動かす。
  *
  * ここで見ないもの:
  * - 転送そのもの（資格情報・本文・状態の受け渡し） → `app/admin/api/[...path]/route.test.ts`
- * - 骨格（失敗時の文言・204・ログ） → `lib/fetchJson.ts`
+ * - 骨格（失敗時の文言・204・ログ） → `lib/apiClient.ts`
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -27,7 +28,6 @@ vi.mock("@/lib/adminBasicAuth", () => ({
 }));
 
 const SRC = join(__dirname, "../..");
-const FRONTEND_ORIGIN = "http://frontend.test";
 
 interface Operation {
   requestBody?: { content: Record<string, { schema: { $ref?: string } }> };
@@ -53,28 +53,29 @@ interface Recorded {
   body: string | undefined;
   timeoutMs: number | undefined;
 }
-const timeouts = new WeakMap<AbortSignal, number>();
+/** 直前に作られた待ち時間の印の長さ。要求は1つずつ出るので、出た時点の値がその要求の待ち時間。 */
+let lastTimeoutMs: number | undefined;
 let recorded: Recorded[] = [];
-let respond: (url: string) => Response;
 
-async function dispatch(url: string, init: RequestInit = {}): Promise<Response> {
-  const method = init.method ?? "GET";
-  const body = typeof init.body === "string" ? init.body : undefined;
-  recorded.push({ url, method, body, timeoutMs: init.signal ? timeouts.get(init.signal) : undefined });
-  if (url.startsWith("/admin/api/")) {
+async function dispatch(input: Request | string, init?: RequestInit): Promise<Response> {
+  const request = typeof input === "string" ? new Request(input, init) : input;
+  const text = await request.text();
+  const body = text === "" ? undefined : text;
+  const { method, url } = request;
+  recorded.push({ url, method, body, timeoutMs: lastTimeoutMs });
+  if (new URL(url).pathname.startsWith("/admin/api/")) {
     const handler = (adminRoute as unknown as Record<string, (request: Request) => Promise<Response>>)[method];
-    return handler(new Request(new URL(url, FRONTEND_ORIGIN), { method, body }));
+    return handler(new Request(url, { method, body }));
   }
-  return respond(url);
+  return Response.json({});
 }
 
 beforeEach(() => {
   recorded = [];
-  respond = () => new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+  lastTimeoutMs = undefined;
   vi.spyOn(AbortSignal, "timeout").mockImplementation((ms: number) => {
-    const signal = new AbortController().signal;
-    timeouts.set(signal, ms);
-    return signal;
+    lastTimeoutMs = ms;
+    return new AbortController().signal;
   });
   vi.stubGlobal("fetch", vi.fn(dispatch));
 });
@@ -100,13 +101,14 @@ describe("叩く先", () => {
     const [fromClient, ...forwarded] = recorded;
     expect(fromClient, `${name}が要求を出していない`).toBeDefined();
 
-    if (!fromClient.url.startsWith("/")) {
-      expect(backendOperation(new URL(fromClient.url).pathname, fromClient.method), fromClient.url).toBeDefined();
+    const { origin, pathname } = new URL(fromClient.url);
+    if (origin !== window.location.origin) {
+      expect(backendOperation(pathname, fromClient.method), fromClient.url).toBeDefined();
       return;
     }
-    if (!fromClient.url.startsWith("/admin/api/")) {
+    if (!pathname.startsWith("/admin/api/")) {
       // フロント自身が答える口（`/api/version`等）は、口があれば足りる。
-      expect(existsSync(join(SRC, "app", new URL(fromClient.url, FRONTEND_ORIGIN).pathname, "route.ts"))).toBe(true);
+      expect(existsSync(join(SRC, "app", pathname, "route.ts"))).toBe(true);
       return;
     }
 
@@ -129,9 +131,9 @@ describe("叩く先", () => {
 function answer(body: unknown) {
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (url: string) => {
-      recorded.push({ url, method: "GET", body: undefined, timeoutMs: undefined });
-      return new Response(JSON.stringify(body), { status: 200 });
+    vi.fn(async (request: Request) => {
+      recorded.push({ url: request.url, method: request.method, body: undefined, timeoutMs: undefined });
+      return Response.json(body);
     }),
   );
 }
@@ -158,14 +160,14 @@ describe("getRecentLogs", () => {
       "line 1",
       "line 2",
     ]);
-    const query = new URL(recorded[0].url, FRONTEND_ORIGIN).searchParams;
+    const query = new URL(recorded[0].url).searchParams;
     expect(Object.fromEntries(query)).toEqual({ limit: "200", contains: "jma tile", min_level: "WARNING" });
   });
 
-  it("絞り込みが無い・空文字なら問い合わせを付けない（backendの既定＝保持している全件）", async () => {
+  it("絞り込みが無ければ問い合わせを付けない（backendの既定＝保持している全件）", async () => {
     answer([]);
     await adminApi.getRecentLogs();
-    await adminApi.getRecentLogs({ contains: "" });
+    await adminApi.getRecentLogs({ contains: undefined });
     expect(recorded.map((r) => r.url).filter((url) => url.includes("?"))).toEqual([]);
   });
 });

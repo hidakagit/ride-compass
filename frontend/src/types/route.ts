@@ -56,8 +56,6 @@ type RouteGenerateResponse = Omit<Required<Schemas["RouteGenerateResponse"]>, "r
 // ルート生成のバックグラウンドジョブ化に伴う型。POST /api/routes/generateは即座に
 // job_idを返し、GET /api/routes/generate/{job_id}をポーリングして結果を得る
 // （frontend features/route/routeApi.ts参照）。
-export type RouteGenerateJobCreatedResponse = Schemas["RouteGenerateJobCreatedResponse"];
-
 export type RouteGenerateJobStatusResponse = Omit<Required<Schemas["RouteGenerateJobStatusResponse"]>, "result"> & {
   result: RouteGenerateResponse | null;
 };

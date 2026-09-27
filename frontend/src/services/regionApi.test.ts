@@ -23,6 +23,12 @@ import {
 // タイル世代は実行時にbackendから受け取る（setTileVersions）。
 const TILE_VERSIONS = { road_surface: "7-aaaa", poi: "7-bbbb", accident: "7-cccc" } as const;
 
+function stubFetch(response: () => Response) {
+  const fetchMock = vi.fn<(request: Request) => Promise<Response>>(async () => response());
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
 describe("regionApi", () => {
   beforeEach(() => {
     setTileVersions(TILE_VERSIONS);
@@ -83,33 +89,21 @@ describe("regionApi", () => {
         composite_difficulty: 25.0,
         covered_weight_fraction: 1.0,
       };
-      const fetchMock = vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        headers: new Headers(),
-        json: async () => result_,
-      });
-      vi.stubGlobal("fetch", fetchMock);
+      const fetchMock = stubFetch(() => Response.json(result_));
 
       const result = await fetchAxisInspector(12345);
 
-      const [url, options] = fetchMock.mock.calls[0];
-      expect(String(url)).toContain("/api/region/axis-inspector");
-      expect(options.method).toBe("POST");
-      expect(JSON.parse(options.body as string)).toEqual({ osm_way_id: 12345 });
+      const [request] = fetchMock.mock.calls[0];
+      expect(request.url).toContain("/api/region/axis-inspector");
+      expect(request.method).toBe("POST");
+      expect(await request.json()).toEqual({ osm_way_id: 12345 });
       expect(result).toEqual(result_);
     });
 
     it("地図の指定が揃っていればbackendの名前でボディへ載せる", async () => {
       // 載らないと、進行方向が決まらないと算出できない軸（勾配・風）が内訳だけ
       // 「データなし」になる。鍵の綴り・日時の形はbackendのAxisInspectorRequestが正。
-      const fetchMock = vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        headers: new Headers(),
-        json: async () => null,
-      });
-      vi.stubGlobal("fetch", fetchMock);
+      const fetchMock = stubFetch(() => Response.json(null));
 
       await fetchAxisInspector(12345, "way-12345-seg0-fwd", {
         z: 14,
@@ -120,8 +114,8 @@ describe("regionApi", () => {
         speedKmh: 20,
       });
 
-      const [, options] = fetchMock.mock.calls[0];
-      expect(JSON.parse(options.body as string)).toEqual({
+      const [request] = fetchMock.mock.calls[0];
+      expect(await request.json()).toEqual({
         osm_way_id: 12345,
         feature_key: "way-12345-seg0-fwd",
         z: 14,
@@ -134,24 +128,13 @@ describe("regionApi", () => {
     });
 
     it("該当wayが無い場合(null)もそのまま返す", async () => {
-      vi.stubGlobal(
-        "fetch",
-        vi.fn().mockResolvedValue({ ok: true, status: 200, headers: new Headers(), json: async () => null }),
-      );
+      stubFetch(() => Response.json(null));
 
       await expect(fetchAxisInspector(12345)).resolves.toBeNull();
     });
 
     it("fetchがok:falseの場合は例外を投げる", async () => {
-      vi.stubGlobal(
-        "fetch",
-        vi.fn().mockResolvedValue({
-          ok: false,
-          status: 429,
-          headers: new Headers(),
-          json: async () => ({ detail: "リクエストが多すぎます。" }),
-        }),
-      );
+      stubFetch(() => Response.json({ detail: "リクエストが多すぎます。" }, { status: 429 }));
 
       await expect(fetchAxisInspector(12345)).rejects.toThrow(/リクエストが多すぎます/);
     });
@@ -166,78 +149,52 @@ describe("regionApi", () => {
     });
 
     it("axis_id・z/x/y・bearing_degを含むURLへGETし、{way_id: 値}のJSONをそのまま返す", async () => {
-      const fetchMock = vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        headers: new Headers(),
-        json: async () => ({ "1": 2.34, "2": -1.5 }),
-      });
-      vi.stubGlobal("fetch", fetchMock);
+      const fetchMock = stubFetch(() => Response.json({ "1": 2.34, "2": -1.5 }));
 
       const result = await fetchDynamicWayValues("wind", 14, 14551, 6447, 90);
 
-      const [url, options] = fetchMock.mock.calls[0];
+      const [request] = fetchMock.mock.calls[0];
       // fetchAxisInspectorと同じ理由（アプリのfetch()から直接呼ぶ、MapLibreのWeb Worker
       // 経由ではない）でAPI_BASE_URL（既定値、テスト環境ではNEXT_PUBLIC_API_URL未設定時の
       // フォールバックhttp://localhost:8000）を使う。roadSurfaceTileUrl等（window.location.
       // origin経由）とは異なる点に注意。
-      expect(String(url)).toBe("http://localhost:8000/api/region/dynamic-way-values/wind/14/14551/6447?bearing_deg=90");
-      expect(options.method ?? "GET").toBe("GET");
+      expect(request.url).toBe("http://localhost:8000/api/region/dynamic-way-values/wind/14/14551/6447?bearing_deg=90");
+      expect(request.method).toBe("GET");
       expect(result).toEqual({ values: { "1": 2.34, "2": -1.5 }, error: false });
     });
 
     it("axis_idが変わればパスも変わる（軸id駆動のエンドポイント統一）", async () => {
-      const fetchMock = vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        headers: new Headers(),
-        json: async () => ({}),
-      });
-      vi.stubGlobal("fetch", fetchMock);
+      const fetchMock = stubFetch(() => Response.json({}));
 
       await fetchDynamicWayValues("gradient", 14, 14551, 6447, 90);
 
-      const [url] = fetchMock.mock.calls[0];
-      expect(String(url)).toBe(
-        "http://localhost:8000/api/region/dynamic-way-values/gradient/14/14551/6447?bearing_deg=90",
-      );
+      const { url } = fetchMock.mock.calls[0][0];
+      expect(url).toBe("http://localhost:8000/api/region/dynamic-way-values/gradient/14/14551/6447?bearing_deg=90");
     });
 
     it("speedKmhを渡すとspeed_kmhクエリパラメータとして付与する（走行速度依存の材料向け）", async () => {
-      const fetchMock = vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        headers: new Headers(),
-        json: async () => ({}),
-      });
-      vi.stubGlobal("fetch", fetchMock);
+      const fetchMock = stubFetch(() => Response.json({}));
 
       await fetchDynamicWayValues("wind", 14, 14551, 6447, 90, undefined, 25);
 
-      const [url] = fetchMock.mock.calls[0];
-      expect(String(url)).toBe(
+      const { url } = fetchMock.mock.calls[0][0];
+      expect(url).toBe(
         "http://localhost:8000/api/region/dynamic-way-values/wind/14/14551/6447?bearing_deg=90&speed_kmh=25",
       );
     });
 
     it("atを渡すとISO文字列のクエリパラメータとして付与する", async () => {
-      const fetchMock = vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        headers: new Headers(),
-        json: async () => ({}),
-      });
-      vi.stubGlobal("fetch", fetchMock);
+      const fetchMock = stubFetch(() => Response.json({}));
       const at = new Date("2026-08-30T09:00:00.000Z");
 
       await fetchDynamicWayValues("wind", 14, 14551, 6447, 0, at);
 
-      const [url] = fetchMock.mock.calls[0];
-      expect(new URL(String(url)).searchParams.get("at")).toBe(at.toISOString());
+      const { url } = fetchMock.mock.calls[0][0];
+      expect(new URL(url).searchParams.get("at")).toBe(at.toISOString());
     });
 
     it("HTTPエラー時は例外を投げずerror:trueの空valuesを返す（本当に空のデータと区別する）", async () => {
-      vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 500, headers: new Headers() }));
+      stubFetch(() => new Response(null, { status: 500 }));
 
       await expect(fetchDynamicWayValues("wind", 14, 14551, 6447, 0)).resolves.toEqual({
         values: {},
@@ -246,7 +203,7 @@ describe("regionApi", () => {
     });
 
     it("通信エラー時も例外を投げずerror:trueの空valuesを返す", async () => {
-      vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network error")));
+      vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("network error")));
 
       await expect(fetchDynamicWayValues("wind", 14, 14551, 6447, 0)).resolves.toEqual({
         values: {},

@@ -21,7 +21,7 @@
 | hooks | `useStoredState.ts`・`useIsMobile.ts`・`useElementHeightCssVar.ts`・`useLocation.ts`・`useDebouncedValue.ts`・`useIsomorphicLayoutEffect.ts` |
 | features/map/view | `useMapView.ts`（地図の見え方の状態と、地図・操作部品へ渡す値）・`mapLook.ts`（地図へ渡す見え方の値の型）・`lens.ts`（レンズから塗る軸・凡例・選択肢を導く）・`overlayChips.ts`（地図上チップの状態とレイヤー表示の保存形式）・`legendFilters.ts`（凡例で隠した行の保存先の読み書き） |
 | features/map/MapView | `useLayerDataStatus.ts`（`layerDataStatus` stateの実装） |
-| lib | `apiBaseUrl.ts`・`apiPath.ts`（backendのAPIのパスと問い合わせの項目をOpenAPIの宣言と型で照合して作る）・`apiError.ts`・`backendInternalUrl.ts`・`fetchJson.ts`・`queryClient.ts`（画面のデータ取得が共有するTanStack Queryのキャッシュ。下記「データ取得の骨格」）・`apiTimeouts.ts`（APIリクエストのタイムアウト。呼び出しの性質ごとの名前付き定数）・`safeStorage.ts`（localStorageの読み書きで例外を外へ出さない薄いラッパ）・`paletteCssVariables.ts`（地図に塗る色と同じ色をUIにも出す箇所へ、配信された値をCSS変数として流す。`layout.tsx`がサーバー側で`:root`へ入れる。CSSが値を持つのはライト/ダークで2値を持つものだけ）・`mapOverlayEdges.ts`（地図の上に重ねる部品へ付ける「どの辺を覆うか」の印と、印の付いた部品が覆う幅の実測。印を付ける部品は地図の機能の外にもあるので共有の層に置く。下記「`MapView`との境界」） |
+| lib | `apiBaseUrl.ts`・`apiClient.ts`（backendのAPIを呼ぶ口と、全呼び出しが共有する骨格。下記）・`apiPath.ts`（アプリ自身が呼ばないURL［地図ライブラリへ渡すタイル・スタイル］のパスをOpenAPIの宣言と型で照合して作る）・`apiError.ts`・`backendInternalUrl.ts`・`queryClient.ts`（画面のデータ取得が共有するTanStack Queryのキャッシュ。下記「データ取得の骨格」）・`apiTimeouts.ts`（APIリクエストのタイムアウト。呼び出しの性質ごとの名前付き定数）・`safeStorage.ts`（localStorageの読み書きで例外を外へ出さない薄いラッパ）・`paletteCssVariables.ts`（地図に塗る色と同じ色をUIにも出す箇所へ、配信された値をCSS変数として流す。`layout.tsx`がサーバー側で`:root`へ入れる。CSSが値を持つのはライト/ダークで2値を持つものだけ）・`mapOverlayEdges.ts`（地図の上に重ねる部品へ付ける「どの辺を覆うか」の印と、印の付いた部品が覆う幅の実測。印を付ける部品は地図の機能の外にもあるので共有の層に置く。下記「`MapView`との境界」） |
 | features/route | `routeApi.ts`（ルート生成・プレビューAPI）・`formatDuration.ts`（秒を「1時間42分」の形にする）・`generationRequest.ts`（生成リクエストのpayloadと`conditionsDirty`の比較キーを同じ入力から導出する純関数）・`routeSplice.ts`（候補どうしが別々の道を通る区間を`edge_ids`の集合演算で求め、表示中の側と相手側を対応づけ、選んだ区間を差し替えた経路を組み立て純関数。差し替えた経路の評価はbackendが行うため計算式は持たない。合成結果も生成候補と同じ並び（所要時間の短い順、`routeTabLabel.ts: orderByDuration`）へ入れる。区間を割る下限は持たず呼び出し側から受け取る［backendの較正値で、管理画面から変えられる］） |
 | features/conditions | `useRideConditions.ts`（走行条件: 走行方位・出発時刻・想定速度。想定速度だけを保存し、保存値は画面の範囲内の整数だけを受け入れる）・`useDepartureTime.ts`（出発時刻。選ぶまでは5分刻みの「今」へ追従し、選んだ時刻は動かさない）・`rideConditions.ts`（走行条件の出発時刻ラベルと想定速度の丸め。速度の上下限はbackendの`routeGenerateConfig`から読む） |
 | types | `types/route.ts`（`RouteCandidate`等の生成APIレスポンス型） |
@@ -34,32 +34,41 @@
 Next.js route handlerからのサーバー間fetch先を区別する（後者はコンテナ内部
 ネットワークのURLになりうるため別変数）。
 
-**backendのAPIのパスは手で書かず、`apiPath`（`lib/apiPath.ts`）で作る。** 引数はOpenAPIの生成物（`types/generated/api.d.ts`）の
-`paths`のキーで、`{名前}`の値を渡すと埋める（渡さなかった名前は残る——タイルの`{z}/{x}/{y}`は地図ライブラリが埋める）。backendが
-パスを変えると、生成物の更新で呼び出し元が型検査で落ちる——手で書いたパスは画面から実際に呼ぶまで食い違いに気づけない。
-戻り値は印の付いた型（`DeclaredApiPath`）で、サービス層の骨格（`adminRequest`・生成のPOST）はこの型しか受け取らない。
-**問い合わせの項目（`?`以降）も手で書かず、`apiQuery`（同じファイル）で作る**。項目の型はそのパスのGETの宣言から引くため、
-宣言に無い名前・必須の項目の欠けは型検査で落ちる——FastAPIは宣言に無い問い合わせの項目を既定では黙って無視するので、
-手で書いた名前が古くなると、任意の項目は届かないまま応答が返り、画面からは気づけない。値がnull・undefined・空文字の項目は付けない。
-ベースURL（`API_BASE_URL`・タイルの`tileBaseUrl()`）は呼び出し側が付ける。frontend自身のroute handler（`/api/version`）は
-backendの宣言に無いため対象外。`useLocation.ts`はブラウザのGeolocation APIを
-扱うhookで、起点座標の取得に使う。
+**backendのAPIは`apiClient.ts`の呼び出し口（openapi-fetch）で呼び、パス・問い合わせの項目・本文・応答の型は
+OpenAPIの生成物（`types/generated/api.d.ts`の`paths`）から推論させる。** 呼ぶ側はパスも応答の型も手で書かない——手で書いた
+型はbackendの応答の形が変わっても追従せず、画面から実際に呼ぶまで食い違いに気づけない。宣言に無いパス・問い合わせの項目の
+名前・必須の項目の欠けも型検査で落ちる（FastAPIは宣言に無い問い合わせの項目を既定では黙って無視するので、手で書いた名前が
+古くなると、任意の項目は届かないまま応答が返る）。値がnull・undefinedの項目は付けない（空文字は付く。付けたくない呼ぶ側が
+undefinedにする）。パスの`{名前}`へ入る値は呼び出し口が1区切りとして符号化する。
+
+| 呼び出し口 | 叩く先 |
+|---|---|
+| `backendApi` | backend（`API_BASE_URL`）の契約にある口 |
+| `adminApiClient` | 管理API。backendの`/api/admin<X>`を同一オリジンの口`/admin/api<X>`（`app/admin/api/[...path]/route.ts`）経由で呼ぶ。パスは`/api/admin`より後を書く（例: backend `GET /api/admin/db-status`は`adminApiClient.GET("/db-status")`）。型は`paths`から`/api/admin`で始まるものだけを抜いて接頭辞を外したもので、backendのパスが変われば型検査で落ちる——接頭辞を実行時に書き換えないので、要求を作り直す手間が無い |
+| `fetchJson(url)` | 応答の形がbackendの契約に無い口（気象庁の配信をそのまま返す転送`/api/jma-tile/{path}`・フロント自身のroute handler`/api/version`）。応答の型は呼ぶ側の約束で、検査されない |
+
+**backendの応答の形と、フロントが使う型が違う呼び出しは、違いを`types/route.ts`に1か所だけ持つ。** backendが常に返す
+既定値付きの項目は契約では任意（`?`）になり、GeoJSONは契約では自由なオブジェクトになる。これを補った型へ推論した応答を
+当てはめる（`features/route/routeApi.ts`の生成のジョブの状態）。
+
+**アプリ自身が呼ばないURL（地図ライブラリへ渡すタイル・スタイル・気象庁の配信のテンプレート）のパスは`apiPath`
+（`lib/apiPath.ts`）で作る。** 引数は`paths`のキーで、`{名前}`の値を渡すと埋める（渡さなかった名前は残る——タイルの
+`{z}/{x}/{y}`は地図ライブラリが埋める。区切りの`/`を含む値もそのまま埋める）。ベースURL（`tileBaseUrl()`）は呼び出し側が付ける。
+
+`useLocation.ts`はブラウザのGeolocation APIを扱うhookで、起点座標の取得に使う。
 
 タイムアウトは`apiTimeouts.ts`の名前付き定数（既定15秒・状態確認5秒・カタログ10秒・
 分布プレビュー60秒・管理画面の重い集計90秒）から選ぶ。**同じ呼び出しのブラウザ側
 クライアントとNext.js route handler（backendへの転送）は必ず同じ定数を共有する**
 ——別々に持つと片方だけ延ばしてももう片方が先に打ち切って症状が変わらない。
 
-`fetchJson.ts`/`apiError.ts`は全`services/*Api.ts`クライアントが共有するfetch骨格と
-エラー正規化。骨格は「fetch→通信エラーのtry/catch→`response.ok`確認→エラーボディ解析→
-`Error`をthrow→各段階でdebugLog記録」で、**呼び出しごとに違うのは
-メソッド・成功時のボディ解釈・エラー文言の3点だけ**:
-
-| 入口 | 戻り値 | 使う場面 |
-|---|---|---|
-| `requestJson<T>` | 応答をJSONとして解釈（204は`undefined`） | 大半のクライアント |
-| `requestOk` | 成功時の`Response`そのもの（成功ログは呼び出し側） | 成功ログのfieldsが呼び出しごとに違う場合 |
-| `fetchJson<T>` | `requestJson`のGET向け糖衣 | 文言を`errorLabel`から「◯◯の取得/解析に失敗しました」で組み立てる |
+`apiClient.ts`/`apiError.ts`は全呼び出しが共有する骨格とエラー正規化。骨格（`requestApi`）は呼び出し口の1回の呼び出しを包み、
+「開始→通信の失敗・HTTPの失敗・本文の解析の失敗・成功のどれかをdebugLogに記録→失敗は`Error`をthrow」を行う。
+**呼び出しごとに違うのは、待ち時間・ログのカテゴリ・エラー文言・成功ログへ足す項目だけ**で、それを引数で受け取る。
+取得（GET）の多くは文言を`errorLabel`から「◯◯の取得/解析に失敗しました」で組み立てる（`getOptions`）。通信の失敗は
+openapi-fetchのmiddlewareの`onError`で包み直し、本文の解析の失敗は応答が届いた後の例外として見分ける（`onResponse`で
+届いたことを記録する）。HTTPの失敗は呼び出し口が例外にせず`error`として返すので、骨格が`detail`から文言を作って投げる。
+呼び出し口は作った時点の`fetch`を握るので、呼ぶたびに`globalThis.fetch`を引く関数を渡している（テストが差し替えた`fetch`を届けるため）。
 
 `x-request-id`とHTTPステータスは失敗のdebugLogに残し、投げる`Error`の`message`には入れない。
 リクエストIDは開発者向け（debugLog・`BackendLogsPanel`）の情報で、画面へ出す文言に混ぜると
@@ -96,7 +105,7 @@ backendの宣言に無いため対象外。`useLocation.ts`はブラウザのGeo
   （`features/map/useDedicatedWayValues.ts`）。
 - テストでは、取得の結果は区切り（`setTimeout(0)`、`query-core/src/notifyManager.ts`）ごとに購読者へ届く。応答を
   返した直後に同期で確かめず、`waitFor`か区切りを待つ（偽の時計で`setTimeout`まで止めると届かない）。
-- 取得の関数の中身（通信・ログ・文言）は`fetchJson.ts`・`services/*Api.ts`のまま。キャッシュは呼び出し口の
+- 取得の関数の中身（通信・ログ・文言）は`apiClient.ts`・`services/*Api.ts`のまま。キャッシュは呼び出し口の
   外側に被せるだけで、呼び出し口を置き換えない。
 
 ## 時刻（画面全体の規約）
@@ -117,7 +126,7 @@ backendも日本時間で扱う。`domain/time_zone.py`）。暦と時刻の取�
    ように失敗側へ倒して書く。
 2. **文言は常に日本語。** 失敗の文言の出所は、backendの`detail`（429の混雑案内を含む、
    HTTPエラー時）か、`messages.failure`（通信エラー・タイムアウト・本文の無いHTTPエラー）の
-   どちらかだけにする（上記`fetchJson.ts`）。Next.js route handlerが自前で組み立てる`detail`
+   どちらかだけにする（上記`apiClient.ts`）。Next.js route handlerが自前で組み立てる`detail`
    （管理APIの転送の口`app/admin/api/[...path]`の転送失敗）も同じで、ランタイム由来の英語はサーバーのログにだけ
    残す。**エラーを受け取って言い直す側は、原因を断定
    しない**——ポーリングの連続失敗のように原因が複数ありうる場所は、最後の失敗の文言を

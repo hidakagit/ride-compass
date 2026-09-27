@@ -1,10 +1,8 @@
 import type { AxisInspectorResult } from "@/types/traffic";
 import type { RoutePreferenceWeights } from "@/types/route";
-import { API_BASE_URL } from "@/lib/apiBaseUrl";
-import { apiPath, apiQuery } from "@/lib/apiPath";
+import { apiPath } from "@/lib/apiPath";
 import { tileBaseUrl } from "@/lib/tileBaseUrl";
-import { debugLog } from "@/lib/debugLog";
-import { requestOk } from "@/lib/fetchJson";
+import { backendApi, requestApi } from "@/lib/apiClient";
 import regionTileConfig from "@/types/generated/region-tile-config.json";
 import { DEFAULT_API_TIMEOUT_MS } from "@/lib/apiTimeouts";
 
@@ -121,20 +119,13 @@ export async function fetchAxisInspector(
         }
       : {}),
   };
-  const { response, durationMs, requestId } = await requestOk(
-    `${API_BASE_URL}${apiPath("/api/region/axis-inspector")}`,
-    {
-      method: "POST",
-      body,
-      timeoutMs: DEFAULT_API_TIMEOUT_MS,
-      category: "api:axis-inspector",
-      messages: { failure: "内訳の取得に失敗しました", parseFailure: "内訳の取得に失敗しました" },
-      requestMeta: { body },
-    },
-  );
-  const data: AxisInspectorResult | null = await response.json();
-  debugLog("api:axis-inspector", "成功", { durationMs, requestId, composite: data?.composite_difficulty });
-  return data;
+  return requestApi((init) => backendApi.POST("/api/region/axis-inspector", { body, ...init }), {
+    timeoutMs: DEFAULT_API_TIMEOUT_MS,
+    category: "api:axis-inspector",
+    messages: { failure: "内訳の取得に失敗しました", parseFailure: "内訳の取得に失敗しました" },
+    requestMeta: { body },
+    successMeta: (data) => ({ composite: data?.composite_difficulty }),
+  });
 }
 
 // 専用配信の軸の、タイルの中のway_idごとの値。パスは軸idで決まり、軸ごとの関数を持たない。世代のクエリを持たない
@@ -160,25 +151,27 @@ export async function fetchDynamicWayValues(
   at?: Date,
   speedKmh?: number,
 ): Promise<DynamicWayValuesResult> {
-  const declared = "/api/region/dynamic-way-values/{axis_id}/{z}/{x}/{y}";
-  const query = apiQuery(declared, {
-    bearing_deg: bearingDeg,
-    at: at?.toISOString(),
-    speed_kmh: speedKmh !== undefined && Number.isFinite(speedKmh) ? speedKmh : undefined,
-  });
-  const url = `${API_BASE_URL}${apiPath(declared, { axis_id: axisId, z, x, y })}${query}`;
-  const logCategory = `api:${axisId}-way-values`;
+  const params = {
+    path: { axis_id: axisId, z, x, y },
+    query: {
+      bearing_deg: bearingDeg,
+      at: at?.toISOString(),
+      speed_kmh: speedKmh !== undefined && Number.isFinite(speedKmh) ? speedKmh : undefined,
+    },
+  };
   try {
-    const { response, durationMs, requestId } = await requestOk(url, {
-      timeoutMs: DEFAULT_API_TIMEOUT_MS,
-      category: logCategory,
-      messages: { failure: "道路の色分けの取得に失敗しました", parseFailure: "道路の色分けの解析に失敗しました" },
-    });
-    const data = (await response.json()) as Record<string, number>;
-    debugLog(logCategory, "成功", { durationMs, requestId, wayCount: Object.keys(data).length });
-    return { values: data, error: false };
+    const values = await requestApi(
+      (init) => backendApi.GET("/api/region/dynamic-way-values/{axis_id}/{z}/{x}/{y}", { params, ...init }),
+      {
+        timeoutMs: DEFAULT_API_TIMEOUT_MS,
+        category: `api:${axisId}-way-values`,
+        messages: { failure: "道路の色分けの取得に失敗しました", parseFailure: "道路の色分けの解析に失敗しました" },
+        successMeta: (data) => ({ wayCount: Object.keys(data).length }),
+      },
+    );
+    return { values, error: false };
   } catch {
-    // 失敗の内訳は`requestOk`が記録済み。
+    // 失敗の内訳は`requestApi`が記録済み。
     return { values: {}, error: true };
   }
 }
