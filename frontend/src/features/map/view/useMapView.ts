@@ -139,7 +139,7 @@ export function useMapView({ hasSelectedRoute, hasDetail, ride, now, usedWeights
   const lensHidden = presentHiddenKeys(legend, hiddenKeysOf(hidden, lens));
   const lensFetch = dedicatedWayValues.get(lens);
   const chips = overlayChips({
-    layers: buildMapLayers(catalog.rampAxes, catalog.dedicatedAxes, catalog.accidentYears),
+    layers: buildMapLayers(catalog),
     visibility: layerVisibility,
     hidden,
     // ルート線の凡例はレンズと同じ保存先なので、どちらで隠しても同じ段が隠れる。

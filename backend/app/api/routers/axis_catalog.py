@@ -37,6 +37,7 @@ from app.domain.axis_definitions import (
     AxisDefinition,
     AxisShape,
     primary_attribute_ids_for,
+    weather_layer_groups_for,
 )
 from app.domain.material_catalog import ACCIDENT_COUNT_PER_KM_YEAR, MATERIAL_CATALOG
 from app.domain.axis_display import axis_display_for, map_band_labels
@@ -127,6 +128,9 @@ class AxisCatalogEntry(StrictModel):
     # 材料[階層構造]は除く）。軸と一次属性レイヤーの対応を、軸idで分岐せずに引けるよう
     # 軸スタジオの公開軸にも同じ形で配る。
     primary_attribute_ids: list[str]
+    # この軸の材料の元データを描く気象のチップ（`domain/axis_definitions.py: weather_layer_groups_for`）。
+    # 一次属性を持たない動的な材料（風等）は`primary_attribute_ids`に現れないため、こちらが運ぶ。
+    weather_layer_groups: list[str]
     # 「軸スタジオで決められること」（AxisDefinitionが実際に持つ未公開の
     # フィールド）を個別に選んでフィールド追加するのではなく、まとめて返す方針。
     # shapeはルート結果の色分け（frontend routeStyleModes.ts）が、
@@ -250,6 +254,7 @@ async def get_axis_catalog(region_service: RegionService = Depends(get_region_se
                 panel_hint=definition.panel_hint,
                 show_map_icon=definition.show_map_icon,
                 primary_attribute_ids=primary_attribute_ids_for(definition),
+                weather_layer_groups=weather_layer_groups_for(definition),
                 shape=definition.shape,
                 display_thresholds_override=definition.display_thresholds_override,
                 display_band_labels_override=map_band_labels(definition),

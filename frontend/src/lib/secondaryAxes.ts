@@ -7,8 +7,6 @@ import type { AxisCatalogEntry } from "@/types/route";
 export interface SecondaryAxisSummary extends CatalogAxis {
   /** 地図の専用レイヤー。無い軸はチップを薄く出す。 */
   layerId?: AxisMapLayerId;
-  /** 軸が読む材料の一次属性id。 */
-  primaryAttributeIds: readonly string[];
 }
 
 /** カタログの並び順のまま。一覧から外すのは軸の`show_map_icon`だけで決める（軸idの名指しで外さない）。 */
@@ -18,6 +16,5 @@ export function secondaryAxesFromCatalogAxes(axes: readonly AxisCatalogEntry[]):
     .map((axis) => ({
       ...catalogAxisFromEntry(axis),
       layerId: axis.display.kind === "ramp" ? axisMapLayerId(axis.axis_id) : undefined,
-      primaryAttributeIds: axis.primary_attribute_ids,
     }));
 }

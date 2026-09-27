@@ -38,6 +38,10 @@ export interface CatalogAxis {
   /** 生値へ距離を掛けた総量の単位。総量を出しても判断が変わらない軸はnull。 */
   rawValueTotalUnit: string | null;
   materialBreakdown: readonly AxisMaterialBreakdown[];
+  /** 軸が読む材料の一次属性id（地図のレイヤーを持つものは、レイヤーの名前と同じ）。 */
+  primaryAttributeIds: readonly string[];
+  /** 軸の材料の元データを描く気象のチップ（一次属性を持たない動的な材料の分）。 */
+  weatherLayerGroups: readonly string[];
 }
 
 export function catalogAxisFromEntry(axis: AxisCatalogEntry): CatalogAxis {
@@ -61,5 +65,7 @@ export function catalogAxisFromEntry(axis: AxisCatalogEntry): CatalogAxis {
       share: entry.share,
       valueLabels: entry.value_labels,
     })),
+    primaryAttributeIds: axis.primary_attribute_ids,
+    weatherLayerGroups: axis.weather_layer_groups,
   };
 }

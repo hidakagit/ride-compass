@@ -581,6 +581,19 @@ def primary_attribute_ids_for(definition: AxisDefinition) -> list[str]:
     return list(seen)
 
 
+def weather_layer_groups_for(definition: AxisDefinition) -> list[str]:
+    """軸の材料の元データを描く気象のチップ（`WEATHER_LAYER_GROUPS`の名前）。一次属性を持つ材料は現れない。"""
+    from app.domain.material_catalog import MATERIAL_CATALOG
+    from app.domain.weather_elements import WEATHER_ELEMENTS
+
+    grid_values = {
+        spec.weather_grid_value
+        for material_id in _leaf_materials(definition)
+        if (spec := MATERIAL_CATALOG.get(material_id)) is not None and spec.weather_grid_value is not None
+    }
+    return list(dict.fromkeys(element.group for element in WEATHER_ELEMENTS if element.grid_value in grid_values))
+
+
 class AxisInternalAxisPublishError(ValueError):
     """他の軸から参照されている内部軸を公開（is_published=True）しようとした場合に
     送出する。

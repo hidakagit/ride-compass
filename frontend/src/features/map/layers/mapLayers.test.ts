@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 
-import { catalogOf, dedicatedEntry, rampEntry } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
+import { catalogEntry, catalogOf, dedicatedEntry, rampEntry } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
 import { pointLegendAxes } from "@/features/map/scene/legends";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 
@@ -21,8 +21,9 @@ const catalog = catalogOf([
   rampEntry("ramp_a", [10, 20], { raw_value_unit: "%", chip_label: "勾配" }),
   dedicatedEntry("dedicated_b", [1, 2]),
 ]);
-const withAxes = buildMapLayers(catalog.rampAxes, catalog.dedicatedAxes, [2021, 2019, 2020]);
-const withoutAxes = buildMapLayers([], []);
+const withAxes = buildMapLayers({ ...catalog, accidentYears: [2021, 2019, 2020] });
+const withoutAxes = buildMapLayers(catalogOf([]));
+const withYears = (accidentYears: number[]) => buildMapLayers({ ...catalogOf([]), accidentYears });
 const layer = (layers: readonly MapLayerDescriptor[], id: string) => layers.find((entry) => entry.id === id)!;
 const staticLayerIds: readonly string[] = mapDisplay.layers.map((entry) => entry.id);
 
@@ -51,8 +52,8 @@ describe("buildMapLayers（レイヤーの一覧）", () => {
 
   it("事故の説明は収録年を、連続していれば範囲で言う（年が届くまでは触れない）", () => {
     expect(layer(withAxes, "accident_point").description).toContain("[2019〜2021年]");
-    expect(layer(buildMapLayers([], [], [2018, 2020]), "accident_point").description).toContain("[2018・2020年]");
-    expect(layer(buildMapLayers([], [], [2020]), "accident_point").description).toContain("[2020年]");
+    expect(layer(withYears([2018, 2020]), "accident_point").description).toContain("[2018・2020年]");
+    expect(layer(withYears([2020]), "accident_point").description).toContain("[2020年]");
     expect(layer(withoutAxes, "accident_point").description).not.toContain("[");
   });
 
@@ -66,6 +67,30 @@ describe("buildMapLayers（レイヤーの一覧）", () => {
         else expect(description).toContain(entry.label);
       }
     }
+  });
+
+  it("説明は、そのレイヤーの元データを材料に持つ公開中の評価を名前で挙げ、無ければ評価に触れない", () => {
+    const axes = buildMapLayers(
+      catalogOf([
+        catalogEntry({ axis_id: "night", label: "暗さ", primary_attribute_ids: ["lit", "tunnel"] }),
+        catalogEntry({ axis_id: "stops", label: "止まりやすさ", primary_attribute_ids: ["stop_poi"] }),
+        catalogEntry({ axis_id: "wind", label: "向かい風", weather_layer_groups: ["windVector"] }),
+      ]),
+    );
+    expect(layer(axes, "tunnel").panelHint).toContain("評価「暗さ」");
+    expect(layer(axes, "stop_poi").panelHint).toContain("評価「止まりやすさ」");
+    expect(layer(axes, "windVector").panelHint).toContain("評価「向かい風」");
+    for (const id of ["tunnel", "stop_poi", "windVector"]) {
+      expect(layer(withoutAxes, id).panelHint).not.toContain("評価");
+    }
+  });
+
+  it("ルートの説明は、レンズで選べる色分け（公開中の評価と総合難易度）を並べる", () => {
+    const axes = buildMapLayers(
+      catalogOf([catalogEntry({ axis_id: "a", label: "坂" }), catalogEntry({ axis_id: "b", label: "風" })]),
+    );
+    expect(layer(axes, "route").description).toContain("[坂・風・総合難易度]");
+    expect(layer(withoutAxes, "route").description).toContain("[総合難易度]");
   });
 
   it("土地被覆の凡例は、地図に塗るクラスだけを並べる", () => {

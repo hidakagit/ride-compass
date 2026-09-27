@@ -13,7 +13,7 @@ import { catalogOf, dedicatedEntry, rampEntry } from "@/lib/mapDisplay/__fixture
 import { deserializeLayerVisibility, overlayChips } from "./overlayChips";
 
 const catalog = catalogOf([rampEntry("ramp_a", [1]), dedicatedEntry("dedicated_b", [1])]);
-const LAYERS = buildMapLayers(catalog.rampAxes, catalog.dedicatedAxes);
+const LAYERS = buildMapLayers(catalog);
 
 type Options = Parameters<typeof overlayChips>[0];
 function chips(options: Partial<Options> = {}) {
