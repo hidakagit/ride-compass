@@ -65,7 +65,7 @@ MSMは数値予報モデルの出力で観測値・公式発表の代わりに�
 | `GET /api/weather/wbgt` | 環境省WBGT | 502 | 30 |
 | `GET /api/weather/flood-forecast` | 河川洪水予報 | 502 | 30 |
 | `GET /api/weather/amedas` | 気象庁アメダス実測値（Redis読み取り専用） | 502 | 30 |
-| `GET /api/weather/wind-grid`・`/wind-grid-detail` | 気象庁MSM（ローカルの`.om`ファイル） | 全滅時のみ502 | 20／30 |
+| `GET /api/weather/wind-grid`・`/wind-grid-detail` | 気象庁MSM（ローカルの`.om`ファイル） | 全滅時と、対象範囲が読めないとき502 | 20／30 |
 
 `/api/weather`は常設ヘッダー用ではなく、「今日」のパネル（日次集計・2時間おき8コマの
 気温・降水量）専用。常設ヘッダー（気温・体感温度・風速風向の現在値）はアメダス実測を使う
@@ -84,11 +84,19 @@ MSMは数値予報モデルの出力で観測値・公式発表の代わりに�
 警報・WBGT・洪水予報・アメダスは`VOLATILE`（2分）、`/api/weather`は`SHORT`。502は2xxでは
 ないためミドルウェアの対象外になる。
 
-**詳細格子の座標と間隔**（`domain/wind_grid.py`）: 詳細格子の点は、問い合わせ範囲の角ではなく
-`WIND_GRID_BBOX`の原点から間隔ずつ数えた固定のラティスのうち、範囲に交差するものを選ぶ。画面は取り損ねた点を
-前回の値で補うとき点を緯度経度の一致で見分ける（`windLayer.ts: mergeWindGridKeepingStale`）ため、パンで範囲が
-ずれても重なる所が同じ座標で返ることに依っている——範囲の角から数えると、前回の点が今回の点と重ならずに
-残り、ずれた点が重なって描かれる。受け付ける間隔は下限`WIND_GRID_DETAIL_MIN_SPACING_DEG`以上の有限の値で（下限未満は400、
+**格子を敷く範囲**: 粗い格子（`/wind-grid`）は対象範囲全体に、詳細格子は問い合わせ範囲を対象範囲へクリップした所に
+敷く。対象範囲は取り込んだ道路の範囲で、`RegionService.get_ingested_area`が成功した最新の道路の取込の記録
+（`source_runs.profile`の`target.bbox`）から読む——ルート生成の「取込範囲か」（`RoadGraphRepository.is_covered`）と
+同じ行を読むので、取込範囲を広げれば風の格子・気象庁タイルのプリウォームも同じ範囲へ広がり、道路の無い所には敷かない。
+取込の宣言`batch/source_profile.yaml`を直接読まないのは、webの層が`app.batch`を読まない（`backend/.importlinter`）ため。
+範囲はリクエストごとにDBから読む（`source_runs`の1行を引くだけで、キャッシュは置いていない）。読めない（DB障害・道路を未取込）ときは
+格子を組めないので502で、原因はWARNINGで残る。
+
+**詳細格子の座標と間隔**（`domain/wind_grid.py`）: 格子の点は、問い合わせ範囲の角からも対象範囲の角からも数えず、
+緯度・経度0度から間隔ずつ数えた固定のラティス（道の風の`domain/wind.py: WindLattice`と同じ数え方）のうち、範囲に
+交差するものを選ぶ。画面は取り損ねた点を前回の値で補うとき点を緯度経度の一致で見分ける
+（`windLayer.ts: mergeWindGridKeepingStale`）ため、パンで範囲がずれても、取込範囲が変わっても、重なる所が同じ座標で
+返ることに依っている——範囲の角から数えると、前回の点が今回の点と重ならずに残り、ずれた点が重なって描かれる。受け付ける間隔は下限`WIND_GRID_DETAIL_MIN_SPACING_DEG`以上の有限の値で（下限未満は400、
 無限大・NaNは型の検査で422）、どの間隔を求めるかは画面がズームの段ごとに決める（`windLayer.ts`）。下限は画面が最も
 拡大したときの間隔で、元のMSMの格子（緯度0.05度・経度0.0625度）より20倍以上細かい——これより細かくしても補間の点が
 増えるだけで情報は増えない。座標を小数4桁へ丸める（`_lattice_coordinate`）ので、下限を0.0001度未満へ下げると
@@ -240,9 +248,9 @@ URLも変わるため、ブラウザキャッシュ（`api/cache_policy.py`）�
 
 **定期プリウォーム（`services/jma_tile_prewarm_service.py`）**: `main.py`のAPScheduler
 （アメダスと同じ`interval`トリガー、`jma_tile_prewarm_interval_minutes`＝10分、
-`next_run_time=datetime.now()`で起動直後にも即時実行）が、アプリの実運用範囲
-（`domain/wind_grid.py: WIND_GRID_BBOX`）ぶんのタイルをあらかじめ`JmaTileClient.get()`
-経由でRedisへ温める。対象ズームは上記`effective_max_zoom()`が導出した上限まで——超過
+`next_run_time=datetime.now()`で起動直後にも即時実行）が、サービスの対象範囲
+（風の格子と同じ`RegionService.get_ingested_area`。上の「格子を敷く範囲」）ぶんのタイルをあらかじめ`JmaTileClient.get()`
+経由でRedisへ温める。範囲が読めない回は温めない（在否インデックスも書かない）。対象ズームは上記`effective_max_zoom()`が導出した上限まで——超過
 ズームはMapLibreがクライアント側で拡大表示するだけで追加の通信が発生しないため。
 温める要素は動的気象の要素の宣言（`WEATHER_ELEMENTS`）のうちタイルで描くものの配信要素すべてで、
 宣言から導く（プリウォーム側に要素idの一覧を持たない。宣言へ1件足せば温まる）。
@@ -368,7 +376,7 @@ URLも変わるため、ブラウザキャッシュ（`api/cache_policy.py`）�
 
 ## レート制限（`config.py`）の設計方針
 
-風の格子点マップ（`wind_grid_rate_limit_per_minute`＝20/分）は624地点ぶんの応答（数百KB）を組み立てる
+風の格子点マップ（`wind_grid_rate_limit_per_minute`＝20/分）は対象範囲全体の格子点ぶんの応答（数百KB）を組み立てる
 エンドポイントのため`/weather`（60/分）より低く抑える一方、詳細格子
 （`wind_grid_detail_rate_limit_per_minute`＝30/分）はパン・ズームのたびに呼ばれうるためやや高め——1回あたりの
 地点数は`WIND_GRID_DETAIL_MAX_POINTS`で上限が掛かる。警報・WBGT・洪水予報・アメダス（いずれも30/分）は「地点変更時

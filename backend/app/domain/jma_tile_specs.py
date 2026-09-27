@@ -98,8 +98,11 @@ JMA_ELEMENTS: dict[str, JmaElement] = {
 }
 
 
-#: 系統ごとの時刻一覧の更新間隔（秒）。降水・雷の実況は5分おき、キキクル・降水短時間予報・
-#: 線状降水帯予測マップは10分おきに更新される。
+#: 系統ごとの時刻一覧の更新間隔（秒）。系統の中で最も短い要素の更新間隔にする——長い要素を早めに取り直しても
+#: 古い表示にはならない。出典（気象庁の公表値）: 高解像度降水ナウキャスト5分・雷ナウキャスト・竜巻発生確度ナウキャスト
+#: 10分・速報版降水短時間予報10分（https://www.data.jma.go.jp/developer/weatherdataguide/appendix/2-1-b.html）、
+#: 土砂キキクル10分（https://www.jma.go.jp/jma/kishou/know/bosai/doshakeikai.html）、線状降水帯予測マップ10分
+#: （配信資料に関する技術情報第666号 https://www.data.jma.go.jp/suishin/jyouhou/pdf/666.pdf の「作成頻度」）。
 JMA_REFRESH_INTERVAL_SECONDS: dict[PathGroup, int] = {
     "nowc": 5 * 60,
     "rasrf": 10 * 60,

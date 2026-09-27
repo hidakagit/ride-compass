@@ -3,13 +3,24 @@ import math
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.dependencies import get_flood_service, get_warning_service, get_wbgt_service, get_weather_service
+from app.api.dependencies import (
+    get_flood_service,
+    get_ingested_area,
+    get_warning_service,
+    get_wbgt_service,
+    get_weather_service,
+)
 from app.api.routers import weather as weather_router
 from app.config import settings
 from app.domain.flood_forecast import ActiveFloodForecast
 from app.domain.jma_warning import ActiveWarning
+from app.domain.region import BoundingBox
 from app.domain.weather import WeatherConditions, WeatherPeriodOutlook
-from app.domain.wind_grid import WIND_GRID_BBOX, WIND_GRID_DETAIL_MIN_SPACING_DEG, generate_wind_grid_detail_points
+from app.domain.wind_grid import (
+    WIND_GRID_DETAIL_MIN_SPACING_DEG,
+    generate_wind_grid_detail_points,
+    generate_wind_grid_points,
+)
 from app.infrastructure import rate_limiter
 from app.main import app
 from app.services.flood_service import FloodForecasts
@@ -17,6 +28,21 @@ from app.services.warning_service import WeatherWarnings
 from app.services.wbgt_service import WbgtStatus
 
 client = TestClient(app)
+
+#: 格子を敷く対象範囲。本物はDBの取込の記録から読む（`get_ingested_area`）ので、ここではテストが与える。
+AREA = BoundingBox(min_latitude=34.9, min_longitude=138.4, max_latitude=37.2, max_longitude=140.9)
+
+
+def _box(min_lon: float, min_lat: float, max_lon: float, max_lat: float) -> BoundingBox:
+    return BoundingBox(min_latitude=min_lat, min_longitude=min_lon, max_latitude=max_lat, max_longitude=max_lon)
+
+
+@pytest.fixture(autouse=True)
+def ingested_area():
+    """各テストは差し替えを`dependency_overrides.clear()`で片付けるので、範囲は毎回入れ直す。"""
+    app.dependency_overrides[get_ingested_area] = lambda: AREA
+    yield
+    app.dependency_overrides.clear()
 
 
 class FakeWeatherService:
@@ -166,9 +192,7 @@ def test_get_wind_grid_returns_502_when_all_points_fail():
     # 改善計画T200（統合レビュー2026-08-22指摘）: 以前は全地点失敗でも空リスト+200 OKを
     # 返しており、フロントがエラーと判定できなかった。WeatherService.get_wind_gridの
     # 実契約どおり、pointsと同じ長さの全Noneを返すfakeで再現する。
-    from app.domain.wind_grid import generate_wind_grid_points
-
-    point_count = len(generate_wind_grid_points())
+    point_count = len(generate_wind_grid_points(AREA))
     app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(None, wind_grid=[None] * point_count)
 
     try:
@@ -178,6 +202,29 @@ def test_get_wind_grid_returns_502_when_all_points_fail():
 
     assert response.status_code == 502
     assert response.json()["detail"] == "気象データの取得に失敗しました"
+
+
+@pytest.mark.parametrize(("path", "params"), [
+    ("/api/weather/wind-grid", {}),
+    ("/api/weather/wind-grid-detail", {"min_lon": 139.70, "min_lat": 35.60, "max_lon": 139.90, "max_lat": 35.80}),
+])
+def test_the_grid_is_a_failure_when_the_area_cannot_be_read(path, params):
+    """対象範囲が読めない（DB障害・道路を未取込）ときは格子を組めない。空の格子で返すと、画面は風が無いのと区別できない。"""
+    fetched = []
+
+    class RecordingFakeWeatherService(FakeWeatherService):
+        async def get_wind_grid(self, points):
+            fetched.append(len(points))
+            return [], []
+
+    app.dependency_overrides[get_weather_service] = lambda: RecordingFakeWeatherService(None)
+    app.dependency_overrides[get_ingested_area] = lambda: None
+
+    response = client.get(path, params=params)
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "対象範囲を読めませんでした"
+    assert fetched == []
 
 
 def test_get_wind_grid_is_rate_limited_per_client():
@@ -259,7 +306,7 @@ def test_get_wind_grid_detail_omits_none_points():
 def test_get_wind_grid_detail_returns_502_when_all_points_fail():
     # 改善計画T200。wind-gridと同じ全滅ガードがwind-grid-detailにも適用されること。
     bbox = (139.70, 35.60, 139.90, 35.80)
-    point_count = len(generate_wind_grid_detail_points(bbox))
+    point_count = len(generate_wind_grid_detail_points(AREA, _box(*bbox)))
     app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(None, wind_grid=[None] * point_count)
 
     try:
@@ -299,16 +346,15 @@ def test_get_wind_grid_detail_rejects_bbox_too_large_without_fetching(spacing_de
             return [], []
 
     app.dependency_overrides[get_weather_service] = lambda: RecordingFakeWeatherService(None)
-    min_lon, min_lat, max_lon, max_lat = WIND_GRID_BBOX
 
     try:
         response = client.get(
             "/api/weather/wind-grid-detail",
             params={
-                "min_lon": min_lon,
-                "min_lat": min_lat,
-                "max_lon": max_lon,
-                "max_lat": max_lat,
+                "min_lon": AREA.min_longitude,
+                "min_lat": AREA.min_latitude,
+                "max_lon": AREA.max_longitude,
+                "max_lat": AREA.max_latitude,
                 "spacing_deg": spacing_deg,
             },
         )
@@ -323,9 +369,10 @@ def test_get_wind_grid_detail_rejects_bbox_too_large_without_fetching(spacing_de
 @pytest.mark.parametrize(("extra_columns", "expected_status"), [(0, 200), (1, 400)])
 def test_get_wind_grid_detail_accepts_exactly_the_max_points_and_rejects_one_more(extra_columns, expected_status):
     # 1行×上限ちょうどの列の範囲。端を格子点の中間に置き、浮動小数の誤差で列数が揺れないようにする。
+    # 数え始めは対象範囲の内側の格子線（格子は緯度・経度0度から数える）。
     spacing = WIND_GRID_DETAIL_MIN_SPACING_DEG
     max_points = weather_router.WIND_GRID_DETAIL_MAX_POINTS
-    origin_lon, origin_lat, _, _ = WIND_GRID_BBOX
+    origin_lon, origin_lat = AREA.min_longitude, AREA.min_latitude
     bbox = (
         origin_lon + 0.5 * spacing,
         origin_lat + 100.2 * spacing,
@@ -417,7 +464,7 @@ def test_get_wind_grid_detail_builds_the_lattice_of_any_spacing_from_the_lower_b
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
-    assert received == [generate_wind_grid_detail_points(bbox, spacing_deg)]
+    assert received == [generate_wind_grid_detail_points(AREA, _box(*bbox), spacing_deg)]
 
 
 @pytest.mark.parametrize(
@@ -709,9 +756,7 @@ def test_get_wind_grid_sets_cache_control():
 
 def test_get_wind_grid_does_not_cache_total_failure():
     # 全地点失敗（502）はキャッシュさせず次のリクエストで取り直させる。
-    from app.domain.wind_grid import generate_wind_grid_points
-
-    point_count = len(generate_wind_grid_points())
+    point_count = len(generate_wind_grid_points(AREA))
     app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(None, wind_grid=[None] * point_count)
 
     try:

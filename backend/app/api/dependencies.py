@@ -20,6 +20,7 @@ from app.domain.dynamic_way_values import dedicated_way_value_axes
 from app.domain.errors import RoutingError
 from app.domain.evaluation import resolve_penalty_strength
 from app.domain.hard_filters import DEFAULT_HARD_FILTERS
+from app.domain.region import BoundingBox
 from app.domain.route_preference import RoutePreference
 from app.domain.route import Coordinates, RouteSegment
 from app.infrastructure.accident_repository import AccidentTileQuery
@@ -239,6 +240,12 @@ async def get_road_graph_repository():
 async def get_region_service():
     async with get_session_factory()() as session:
         yield RegionService(repository=RoadGraphRepository(session))
+
+
+async def get_ingested_area() -> BoundingBox | None:
+    """サービスの対象範囲（`RegionService.get_ingested_area`）。読めなければNone。"""
+    async with get_session_factory()() as session:
+        return await RegionService(repository=RoadGraphRepository(session)).get_ingested_area()
 
 
 # way_id→動的値配信の実装。**軸を名指ししない**——各サービスは自分が返す材料

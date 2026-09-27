@@ -637,7 +637,8 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
 ### 取得の入口（`get_search_slice`）
 
 1. **カバレッジ判定**: `RoadGraphRepository.is_covered`が、bboxが取込の宣言した範囲
-   （成功した`osm_way`取込の`source_runs.profile`のtarget.bbox）に触れるかを1クエリで判定する。
+   （成功した最新の`osm_way`取込の`source_runs.profile`のtarget.bbox。取込はパーティションを入れ替え、派生も最新の
+   runから作るため、古いrunの範囲は手元のデータの範囲ではない）に触れるかを1クエリで判定する。
    範囲外ならNone（WARNING常時ログ）。マーカーの表は持たない——持つと取込範囲を広げたときに
    2箇所を揃える必要が生まれる（判定式は路面タイルのMVT生成と共有、下記「派生delivery系
    クエリ」）。

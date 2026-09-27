@@ -13,47 +13,30 @@
 services/weather_service.pyのget_wind_grid、APIエンドポイントはapi/routers/weather.py）。
 """
 
-import math
-
-
+from app.domain.region import BoundingBox
 from app.domain.route import Coordinates
 from app.domain.strict_model import StrictModel
+from app.domain.wind import grid_index_at_or_below
 
-# 関東本土7都県（離島除く）のbbox。
-WIND_GRID_BBOX: tuple[float, float, float, float] = (138.35, 34.85, 140.95, 37.20)  # (min_lon, min_lat, max_lon, max_lat)
 # 格子間隔（度）。0.1°（緯度約11km・経度約9km）は、正方格子の最悪ケース（どの地点でも
 # 最寄り格子点まで対角線の半分＝約7km以内）がズーム13の表示半径にほぼ収まる値。
 WIND_GRID_SPACING_DEG = 0.1
 
 
-def _lattice_coordinate(origin_deg: float, index: int, spacing_deg: float) -> float:
+def _lattice_coordinate(index: int, spacing_deg: float) -> float:
     """ラティス上の1点の絶対座標。浮動小数の`+=`による誤差累積を避けるため整数の索引から
     都度計算する。格子を生成する側はどれもこの関数で座標を決め、同じ格子点は呼び出しを
     またいで同じ値になる。"""
-    return round(origin_deg + index * spacing_deg, 4)
+    return round(index * spacing_deg, 4)
 
 
-def _last_index(span_deg: float, spacing_deg: float) -> int:
-    """原点からspan_deg以内に収まる最後の索引（端点が必ず格子点になる保証はしない、
-    密なメッシュを要求する用途ではないため許容）。"""
-    return int(span_deg / spacing_deg)
-
-
-def generate_wind_grid_points() -> list[Coordinates]:
-    """`WIND_GRID_BBOX`内を`WIND_GRID_SPACING_DEG`間隔の格子状に走査した座標列を返す。"""
-    min_lon, min_lat, max_lon, max_lat = WIND_GRID_BBOX
-    return [
-        Coordinates(
-            latitude=_lattice_coordinate(min_lat, i, WIND_GRID_SPACING_DEG),
-            longitude=_lattice_coordinate(min_lon, j, WIND_GRID_SPACING_DEG),
-        )
-        for i in range(_last_index(max_lat - min_lat, WIND_GRID_SPACING_DEG) + 1)
-        for j in range(_last_index(max_lon - min_lon, WIND_GRID_SPACING_DEG) + 1)
-    ]
+def generate_wind_grid_points(area: BoundingBox) -> list[Coordinates]:
+    """対象範囲`area`全体の、`WIND_GRID_SPACING_DEG`間隔の格子点。"""
+    return generate_wind_grid_detail_points(area, area, WIND_GRID_SPACING_DEG)
 
 
 # 詳細格子は「表示中の範囲だけ」を対象にする（全域をこの密度で計算すると応答サイズと
-# 計算量が増すため）。座標は問い合わせ範囲の角ではなくWIND_GRID_BBOXの原点から数える
+# 計算量が増すため）。座標は問い合わせ範囲の角からも対象範囲の角からも数えず、緯度・経度0度から数える
 # （理由はdocs/modules/backend/weather-dynamic-layers.md「詳細格子の座標と間隔」節）。
 WIND_GRID_DETAIL_SPACING_DEG = 0.02
 # 1リクエストで許容する最大点数（乱用・広すぎるbboxでの過大な同時フェッチを防ぐ）。
@@ -66,49 +49,42 @@ WIND_GRID_DETAIL_MAX_POINTS = 900
 WIND_GRID_DETAIL_MIN_SPACING_DEG = 0.0025
 
 
-def _detail_index_ranges(bbox: tuple[float, float, float, float], spacing_deg: float) -> tuple[range, range]:
-    """bboxをWIND_GRID_BBOXへクリップした上で、WIND_GRID_BBOXの原点に固定されたラティス
-    （spacing_deg間隔の絶対座標グリッド）のうちbboxに交差する点の緯度方向・経度方向の索引の範囲。
-    点数を数える側と点を作る側はどちらもこの範囲に従う。"""
-    origin_lon, origin_lat, bbox_max_lon, bbox_max_lat = WIND_GRID_BBOX
-    min_lon = max(bbox[0], origin_lon)
-    min_lat = max(bbox[1], origin_lat)
-    max_lon = min(bbox[2], bbox_max_lon)
-    max_lat = min(bbox[3], bbox_max_lat)
+def _detail_index_ranges(area: BoundingBox, bbox: BoundingBox, spacing_deg: float) -> tuple[range, range]:
+    """bboxを対象範囲`area`へクリップした上で、緯度・経度0度から`spacing_deg`ずつ数えたラティスのうち
+    bboxに交差する点の緯度方向・経度方向の索引の範囲。点数を数える側と点を作る側はどちらもこの範囲に従う。"""
+    min_lon = max(bbox.min_longitude, area.min_longitude)
+    min_lat = max(bbox.min_latitude, area.min_latitude)
+    max_lon = min(bbox.max_longitude, area.max_longitude)
+    max_lat = min(bbox.max_latitude, area.max_latitude)
     if min_lon >= max_lon or min_lat >= max_lat:
         return range(0), range(0)
-
-    # 索引の範囲がクリップ後のbboxから決まるため、ここで改めて範囲を確かめる必要はない
-    # （開始は0以上、終わりはクリップ後の端を超えない）。
     return (
-        range(math.floor((min_lat - origin_lat) / spacing_deg), math.floor((max_lat - origin_lat) / spacing_deg) + 1),
-        range(math.floor((min_lon - origin_lon) / spacing_deg), math.floor((max_lon - origin_lon) / spacing_deg) + 1),
+        range(grid_index_at_or_below(min_lat, spacing_deg), grid_index_at_or_below(max_lat, spacing_deg) + 1),
+        range(grid_index_at_or_below(min_lon, spacing_deg), grid_index_at_or_below(max_lon, spacing_deg) + 1),
     )
 
 
 def count_wind_grid_detail_points(
-    bbox: tuple[float, float, float, float],
+    area: BoundingBox,
+    bbox: BoundingBox,
     spacing_deg: float = WIND_GRID_DETAIL_SPACING_DEG,
 ) -> int:
     """generate_wind_grid_detail_pointsが返す点の数を、点を作らずに求める。"""
-    rows, columns = _detail_index_ranges(bbox, spacing_deg)
+    rows, columns = _detail_index_ranges(area, bbox, spacing_deg)
     return len(rows) * len(columns)
 
 
 def generate_wind_grid_detail_points(
-    bbox: tuple[float, float, float, float],
+    area: BoundingBox,
+    bbox: BoundingBox,
     spacing_deg: float = WIND_GRID_DETAIL_SPACING_DEG,
 ) -> list[Coordinates]:
     """bboxに交差する詳細格子の点（範囲は_detail_index_ranges）を返す。点数の上限
     （WIND_GRID_DETAIL_MAX_POINTS）はここでは確かめない——呼び出し元が点を作る前に
     count_wind_grid_detail_pointsで確かめる。"""
-    rows, columns = _detail_index_ranges(bbox, spacing_deg)
-    origin_lon, origin_lat, _, _ = WIND_GRID_BBOX
+    rows, columns = _detail_index_ranges(area, bbox, spacing_deg)
     return [
-        Coordinates(
-            latitude=_lattice_coordinate(origin_lat, i, spacing_deg),
-            longitude=_lattice_coordinate(origin_lon, j, spacing_deg),
-        )
+        Coordinates(latitude=_lattice_coordinate(i, spacing_deg), longitude=_lattice_coordinate(j, spacing_deg))
         for i in rows
         for j in columns
     ]

@@ -5,7 +5,7 @@
 フェッチにならない状態を目指す。
 
 **対象範囲の決め方**:
-- 地理範囲は`WIND_GRID_BBOX`（アプリの実運用範囲を表す既存定数）を流用する。
+- 地理範囲はサービスの対象範囲（取り込んだ道路の範囲、`RegionService.get_ingested_area`）。呼び出し元が渡す。
 - ズーム上限は`domain/jma_tile_specs.py`が配信元仕様から導出する。それを超えるズームでは
   クライアントがタイルを拡大表示するだけで追加の通信が起きないため、実データの上限が
   そのままプリウォームの上限になる。
@@ -41,7 +41,6 @@ from app.domain.weather_elements import (
     weather_element_deliveries,
     weather_element_tile,
 )
-from app.domain.wind_grid import WIND_GRID_BBOX
 from app.infrastructure.jma_tile_client import EmptyTile, JmaTileClient, get_target_times
 from app.infrastructure.jma_tile_content import is_empty_tile
 from app.infrastructure.jma_tile_index import set_index
@@ -49,12 +48,6 @@ from app.infrastructure.jma_tile_interpolation import parse_tile_path
 
 logger = logging.getLogger("ridecompass.jma_tile_prewarm_service")
 
-_PREWARM_BBOX = BoundingBox(
-    min_latitude=WIND_GRID_BBOX[1],
-    min_longitude=WIND_GRID_BBOX[0],
-    max_latitude=WIND_GRID_BBOX[3],
-    max_longitude=WIND_GRID_BBOX[2],
-)
 _MIN_ZOOM = 4
 # 同時実行数の上限。配信元へ配慮しつつ、対象タイル全体を定期実行の間隔内に終えられること。
 _MAX_CONCURRENCY = 8
@@ -89,7 +82,7 @@ def _stages_from_weather_elements() -> tuple[tuple[_PrewarmLayer, ...], ...]:
 _STAGES: tuple[tuple[_PrewarmLayer, ...], ...] = _stages_from_weather_elements()
 
 
-def _tile_paths_for_layer(layer: "_PrewarmLayer", frame: JmaFrame) -> list[str]:
+def _tile_paths_for_layer(layer: "_PrewarmLayer", frame: JmaFrame, area: BoundingBox) -> list[str]:
     paths = []
     for z in range(_MIN_ZOOM, layer.max_zoom + 1):
         # 配信元が実データを持たないズーム（zoomUseの偶奇に合わない段）は温めても空タイル
@@ -97,7 +90,7 @@ def _tile_paths_for_layer(layer: "_PrewarmLayer", frame: JmaFrame) -> list[str]:
         # jma_tile_interpolation.py）、親側さえ温まっていればよい。
         if not has_native_tile(layer.spec, z):
             continue
-        for x, y in tiles_covering_bbox(_PREWARM_BBOX, z):
+        for x, y in tiles_covering_bbox(area, z):
             paths.append(jma_tile_path(JmaTile(layer.element_id, frame, z, x, y)))
     return paths
 
@@ -131,7 +124,7 @@ def _with_interpolated_zooms(
 
 
 async def _store_index(
-    layer_frames: dict[str, JmaFrame], present: dict[str, dict[int, list[list[int]]]]
+    area: BoundingBox, layer_frames: dict[str, JmaFrame], present: dict[str, dict[int, list[list[int]]]]
 ) -> None:
     """在否インデックスを組み立てて保存する。
 
@@ -146,10 +139,10 @@ async def _store_index(
         return
     payload = {
         "coverage": {
-            "min_longitude": _PREWARM_BBOX.min_longitude,
-            "min_latitude": _PREWARM_BBOX.min_latitude,
-            "max_longitude": _PREWARM_BBOX.max_longitude,
-            "max_latitude": _PREWARM_BBOX.max_latitude,
+            "min_longitude": area.min_longitude,
+            "min_latitude": area.min_latitude,
+            "max_longitude": area.max_longitude,
+            "max_latitude": area.max_latitude,
         },
         "elements": {
             element_id: {
@@ -172,8 +165,8 @@ async def _store_index(
     await set_index(payload)
 
 
-async def prewarm_jma_tiles(client: JmaTileClient) -> None:
-    """対象範囲のタイルを列挙し、`JmaTileClient.get()`で取得する。
+async def prewarm_jma_tiles(client: JmaTileClient, area: BoundingBox) -> None:
+    """対象範囲`area`のタイルを列挙し、`JmaTileClient.get()`で取得する。
 
     Redisへの書き込みは`get()`の副作用で起きる。プリウォーム専用の書き込み経路は持たない
     ——持つと、通常の取得経路とキャッシュの形が分かれる。
@@ -198,7 +191,7 @@ async def prewarm_jma_tiles(client: JmaTileClient) -> None:
                 skipped_labels.append(f"{layer.label}({layer.element_id})")
                 continue
             layer_frames[layer.element_id] = frame
-            all_paths.extend(_tile_paths_for_layer(layer, frame))
+            all_paths.extend(_tile_paths_for_layer(layer, frame, area))
 
     if skipped_labels:
         logger.warning("jma tile prewarm: targetTimes取得/解析に失敗しスキップ labels=%s", skipped_labels)
@@ -235,7 +228,7 @@ async def prewarm_jma_tiles(client: JmaTileClient) -> None:
         present.setdefault(coords.element, {}).setdefault(coords.z, []).append([coords.x, coords.y])
 
     await asyncio.gather(*(_fetch_one(path) for path in all_paths))
-    await _store_index(layer_frames, present)
+    await _store_index(area, layer_frames, present)
 
     elapsed_ms = round((time.monotonic() - started) * 1000)
     non_empty = sum(len(coords) for zooms in present.values() for coords in zooms.values())
