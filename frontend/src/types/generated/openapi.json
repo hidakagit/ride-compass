@@ -5436,28 +5436,6 @@
             "type": "string",
             "title": "Observed At"
           },
-          "weather_code": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Weather Code"
-          },
-          "is_day": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Is Day"
-          },
           "sunset": {
             "anyOf": [
               {
@@ -5541,8 +5519,6 @@
           "wind_direction_label",
           "precipitation_mm",
           "observed_at",
-          "weather_code",
-          "is_day",
           "sunset",
           "sunrise",
           "precipitation_max_mm",
@@ -5558,17 +5534,6 @@
           "period": {
             "type": "string",
             "title": "Period"
-          },
-          "weather_code": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Weather Code"
           },
           "temperature_c": {
             "anyOf": [
@@ -5597,7 +5562,6 @@
         "type": "object",
         "required": [
           "period",
-          "weather_code",
           "temperature_c",
           "precipitation_mm"
         ],

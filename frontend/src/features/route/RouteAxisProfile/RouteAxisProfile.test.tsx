@@ -120,9 +120,11 @@ describe("RouteAxisProfile 軸の詳細", () => {
 });
 
 describe("RouteAxisProfile 所要時間の前提", () => {
-  it("風の予報を使えず無風で出した所要時間は、そう知らせる", () => {
+  it("風の値を使えず無風で出した所要時間は、そう知らせる", () => {
     renderProfile({ windUnavailable: true });
-    expect(screen.getByText(/風の予報を使えなかったため、無風として所要時間を出しています/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/風のモデルの計算値を使えなかったため、無風として所要時間を出しています/),
+    ).toBeInTheDocument();
   });
 
   it("データの無い区間の割合を知らせ、丸めて0%なら出さない", () => {
@@ -132,6 +134,6 @@ describe("RouteAxisProfile 所要時間の前提", () => {
 
     renderProfile({ missingTravelDataShare: 0.004 });
     expect(screen.queryByText(/データの無い区間/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/風の予報を使えなかった/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/風のモデルの計算値を使えなかった/)).not.toBeInTheDocument();
   });
 });

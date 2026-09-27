@@ -46,18 +46,16 @@ class MsmSeries:
     wind_v_ms: np.ndarray
     precipitation_mm: np.ndarray
     temperature_c: np.ndarray
-    cloud_cover_percent: np.ndarray
 
 
 # 同期・読み出しの対象変数（配信元の変数名 → `MsmSeries`の項目）。増やすと同期量がそのぶん
-# 増えるため、実際に消費するものだけを並べる。風グリッドは風と降水を、今日の見通しは
-# 気温・雲量・降水・風を使う。
+# 増えるため、実際に消費するものだけを並べる。風グリッドは風と降水を、「今日」のパネルは
+# 気温・降水・風を使う。
 FORECAST_VARIABLES: dict[str, str] = {
     "wind_u_component_10m": "wind_u_ms",
     "wind_v_component_10m": "wind_v_ms",
     "precipitation": "precipitation_mm",
     "temperature_2m": "temperature_c",
-    "cloud_cover": "cloud_cover_percent",
 }
 
 
@@ -248,14 +246,15 @@ async def _download_chunk(client: httpx.AsyncClient, variable: str, chunk_number
 
 
 def _prune(keep: set[Path]) -> None:
-    """予報に使わなくなった過去チャンクを消す。1ファイル十数MBのため放置すると増え続ける。"""
-    for variable in FORECAST_VARIABLES:
-        directory = MSM_DIR / variable
-        if not directory.is_dir():
-            continue
-        for path in directory.glob("chunk_*.om"):
-            if path not in keep:
-                path.unlink(missing_ok=True)
+    """使わなくなったチャンクを消す。1ファイル十数MBのため放置すると増え続ける。
+
+    `FORECAST_VARIABLES`から外した変数のチャンクも消すため、変数の一覧ではなく置き場の全ディレクトリを見る。
+    """
+    if not MSM_DIR.is_dir():
+        return
+    for path in MSM_DIR.glob("*/chunk_*.om"):
+        if path not in keep:
+            path.unlink(missing_ok=True)
 
 
 async def refresh(client: httpx.AsyncClient) -> int:

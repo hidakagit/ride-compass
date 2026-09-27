@@ -16,11 +16,11 @@ import type { AmedasObservation, WeatherConditions } from "@/types/weather";
 import type { WarningBadgeItem, WarningFetchFailure } from "@/features/conditions/WarningBadge/WarningBadge";
 
 interface UseWeatherConditionsResult {
-  /** 今日の見通し（予報）。常設のヘッダーは読まない（ヘッダーは実測、見通しは予報）。 */
+  /** 「今日」のパネル（数値予報モデルの計算値）。常設のヘッダーは読まない（ヘッダーは実測）。 */
   weather: WeatherConditions | null;
   weatherLoading: boolean;
   weatherError: string | null;
-  /** 最寄りのアメダスの実測（常設のヘッダー）。予報の成否・遅さに引きずられないよう別に取る。 */
+  /** 最寄りのアメダスの実測（常設のヘッダー）。モデル側の成否・遅さに引きずられないよう別に取る。 */
   amedas: AmedasObservation | null;
   amedasLoading: boolean;
   amedasError: string | null;

@@ -40,8 +40,6 @@ def test_get_weather_returns_conditions_on_success():
         wind_direction_label="東",
         precipitation_mm=0.5,
         observed_at="2026-08-13T21:15",
-        weather_code=2,
-        is_day=1,
         sunrise="2026-08-13T05:12",
         sunset="2026-08-13T18:41",
         wind_speed_max_ms=5.5,
@@ -49,7 +47,7 @@ def test_get_weather_returns_conditions_on_success():
         precipitation_max_mm=None,
         temperature_min_c=23.0,
         today_periods=[
-            WeatherPeriodOutlook(period="12:00", weather_code=2, temperature_c=27.0, precipitation_mm=0.4),
+            WeatherPeriodOutlook(period="12:00", temperature_c=27.0, precipitation_mm=0.4),
         ],
     )
     app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(conditions)
@@ -84,8 +82,6 @@ def test_get_weather_is_rate_limited_per_client():
         wind_direction_label="東",
         precipitation_mm=0.5,
         observed_at="2026-08-13T21:15",
-        weather_code=2,
-        is_day=1,
         sunrise="2026-08-13T05:12",
         sunset="2026-08-13T18:41",
         wind_speed_max_ms=5.5,
@@ -93,7 +89,7 @@ def test_get_weather_is_rate_limited_per_client():
         precipitation_max_mm=None,
         temperature_min_c=23.0,
         today_periods=[
-            WeatherPeriodOutlook(period="12:00", weather_code=2, temperature_c=27.0, precipitation_mm=0.4),
+            WeatherPeriodOutlook(period="12:00", temperature_c=27.0, precipitation_mm=0.4),
         ],
     )
     app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(conditions)

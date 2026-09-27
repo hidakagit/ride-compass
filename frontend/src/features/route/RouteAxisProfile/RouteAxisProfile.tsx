@@ -42,7 +42,7 @@ interface RouteAxisProfileProps {
   difficultyLoad: number | null;
   /** RouteCandidate.estimated_duration_seconds（走行＋停止＋ターンの見積もり）。 */
   estimatedDurationSeconds: number | null;
-  /** 所要時間を、風の予報を使えず無風として出した（RouteCandidate.wind_unavailable）。 */
+  /** 所要時間を、風の値を使えず無風として出した（RouteCandidate.wind_unavailable）。 */
   windUnavailable: boolean;
   /** 所要時間を、勾配か停止要因の値が無く平地・待ち無しとして出した区間の距離の割合（0〜1、
    * RouteCandidate.missing_travel_data_share）。 */
@@ -164,7 +164,7 @@ export default function RouteAxisProfile({
               値の無い区間は丸めて1%以上のときだけ出す——0%を並べても判断の材料にならない。 */}
           {windUnavailable && (
             <p className={cn(textVariants({ variant: "hint" }), "m-0 text-[var(--color-warning-strong)]")}>
-              風の予報を使えなかったため、無風として所要時間を出しています
+              風のモデルの計算値を使えなかったため、無風として所要時間を出しています
             </p>
           )}
           {missingTravelDataShare != null && Math.round(missingTravelDataShare * 100) >= 1 && (

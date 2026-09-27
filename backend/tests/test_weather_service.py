@@ -7,7 +7,7 @@ import pytest
 
 from app.domain.region import BoundingBox
 from app.domain.route import Coordinates
-from app.domain.weather import derive_observed_weather_code, derive_weather_code
+from app.domain.weather import derive_observed_weather_code
 from app.infrastructure import msm_client
 from app.infrastructure.msm_client import MsmSeries, MsmUnavailableError
 from app.services.weather_service import WeatherService
@@ -16,7 +16,7 @@ POINT = Coordinates(latitude=35.7597, longitude=139.7387)
 OTHER_POINT = Coordinates(latitude=35.1, longitude=139.1)
 
 
-def _series(times, *, u=None, v=None, precipitation=None, temperature=None, cloud_cover=None, count=1):
+def _series(times, *, u=None, v=None, precipitation=None, temperature=None, count=1):
     """MSMの読み出し結果を、`count`地点とも同じ値で組み立てる。省略した変数は既定値で埋める。"""
     n = len(times)
 
@@ -29,7 +29,6 @@ def _series(times, *, u=None, v=None, precipitation=None, temperature=None, clou
         wind_v_ms=column(v, 0.0),
         precipitation_mm=column(precipitation, 0.0),
         temperature_c=column(temperature, 20.0),
-        cloud_cover_percent=column(cloud_cover, 0.0),
     )
 
 
@@ -55,7 +54,6 @@ async def test_get_conditions_reports_the_first_hour_as_current(monkeypatch):
         v=[0.0, 0.0],
         temperature=[24.6, 25.0],
         precipitation=[0.2, 0.0],
-        cloud_cover=[90.0, 10.0],
     )
 
     conditions = await WeatherService().get_conditions(POINT)
@@ -67,8 +65,6 @@ async def test_get_conditions_reports_the_first_hour_as_current(monkeypatch):
     assert conditions.wind_direction_deg == 270.0
     assert conditions.wind_direction_label == "西"
     assert conditions.precipitation_mm == 0.2
-    # 降水0.2mm/hは弱い雨（61）。
-    assert conditions.weather_code == 61
 
 
 async def test_get_conditions_aggregates_today_only(monkeypatch):
@@ -125,7 +121,6 @@ async def test_get_conditions_computes_sunrise_and_sunset_locally(monkeypatch):
 
     assert conditions.sunrise.startswith("2026-09-07T0")
     assert conditions.sunset.startswith("2026-09-07T1")
-    assert conditions.is_day == 1
 
 
 async def test_get_conditions_returns_none_when_msm_unavailable(monkeypatch):
@@ -193,70 +188,20 @@ async def test_get_wind_forecast_lattice_returns_none_when_msm_unavailable(monke
 
 
 @pytest.mark.parametrize(
-    ("precipitation", "cloud_cover", "temperature", "expected"),
-    [
-        (0.0, 5.0, 20.0, 0),  # 快晴
-        (0.0, 30.0, 20.0, 1),
-        (0.0, 70.0, 20.0, 2),
-        (0.0, 95.0, 20.0, 3),  # 曇天
-        (0.05, 95.0, 20.0, 3),  # 微量の降水は雨扱いにしない
-        (0.5, 95.0, 20.0, 61),  # 弱い雨
-        (2.0, 95.0, 20.0, 63),
-        (10.0, 95.0, 20.0, 65),  # 強い雨
-        (0.5, 95.0, -1.0, 71),  # 氷点下は雪
-        (10.0, 95.0, -5.0, 75),
-    ],
-)
-def test_derive_weather_code(precipitation, cloud_cover, temperature, expected):
-    assert derive_weather_code(precipitation, cloud_cover, temperature) == expected
-
-
-def test_derive_weather_code_only_returns_the_documented_codes():
-    """docstringが宣言する10値以外を返さないことを、値域を広く掃いて確かめる。
-
-    frontendの`weatherCode.ts`はこの10値を前提に対訳表を持ち、未知コードは
-    「くもり」へ倒す（雨や雪が黙ってくもりになる）。導出ロジックを変えて新しいコードが
-    返るようになったら、frontend側の表も同時に更新する必要がある。
-    """
-    documented = {0, 1, 2, 3, 61, 63, 65, 71, 73, 75}
-
-    seen = set()
-    for precipitation in [None, 0.0, 0.05, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 50.0]:
-        for cloud_cover in [None, 0.0, 5.0, 20.0, 30.0, 60.0, 70.0, 84.9, 85.0, 100.0]:
-            for temperature in [None, -20.0, -5.0, -1.0, 0.0, 0.5, 5.0, 20.0, 40.0]:
-                seen.add(derive_weather_code(precipitation, cloud_cover, temperature))
-
-    assert seen - {None} <= documented
-    # 掃いた入力で全10値が実際に出ることも見る（片方だけの包含では、返す値が減っても
-    # 気づけない——frontendに使われない対訳表の行が残る）。
-    assert documented <= seen
-
-
-def test_derive_weather_code_returns_none_without_cloud_cover():
-    assert derive_weather_code(0.0, None, 20.0) is None
-
-
-@pytest.mark.parametrize(
     ("precipitation_10min", "sunshine_10min", "temperature", "expected"),
     [
         (0.0, 10.0, 20.0, 0),  # 降水なし・日が差している
         (0.0, 0.0, 20.0, 3),  # 降水なし・日照なし
         (None, 0.0, 20.0, 3),
-        (0.5, 10.0, 20.0, 63),  # 10分0.5mm＝1時間3mm相当。日照より降水を先に見る
-        (0.5, None, -1.0, 73),
+        (0.1, 10.0, 20.0, 61),  # 10分0.1mm＝1時間0.6mm相当は弱い雨。日照より降水を先に見る
+        (0.5, 10.0, 20.0, 63),  # 1時間3mm相当
+        (1.0, None, 20.0, 65),  # 1時間6mm相当は強い雨
+        (0.5, None, 0.0, 73),  # 0℃以下は雪
+        (0.5, None, 0.1, 63),
+        (0.5, None, None, 63),  # 気温が欠測なら雨
         (0.0, None, 20.0, None),  # 降水なしで日照が欠測なら判定材料が無い
         (None, None, 20.0, None),
     ],
 )
 def test_derive_observed_weather_code(precipitation_10min, sunshine_10min, temperature, expected):
     assert derive_observed_weather_code(precipitation_10min, sunshine_10min, temperature) == expected
-
-
-def test_observed_and_forecast_split_rain_and_snow_at_the_same_temperature():
-    """常設ヘッダー（観測）と「今日の見通し」（予報）が、同じ気温で雨と雪を違えて出さない。"""
-    snow_codes = {71, 73, 75}
-    for tenths in range(-50, 51):
-        temperature = tenths / 10
-        observed = derive_observed_weather_code(0.5, None, temperature) in snow_codes
-        forecast = derive_weather_code(3.0, 100.0, temperature) in snow_codes
-        assert observed == forecast, temperature

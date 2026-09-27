@@ -43,10 +43,9 @@ async def get_weather(
     longitude: float = Query(ge=-180, le=180),
     weather_service: WeatherService = Depends(get_weather_service),
 ) -> WeatherConditions:
-    """今日の見通し（TodayOutlook、日次集計・weather_code・UV指数等の予報値）向け。
+    """「今日」のパネル（TodayOutlook、1日の最大・最小と2時間おきのコマ）向けの、数値予報モデル（MSM）の計算値。
     常設ヘッダー（現在値の気温・体感温度・風速風向）はアメダス実測を使う
-    `GET /api/weather/amedas`が担うため、このエンドポイントは予報（MSM）の値を
-    そのまま返す。"""
+    `GET /api/weather/amedas`が担う。"""
     # Queryのge/leで範囲外の値をFastAPI層で弾く（Coordinatesへの委譲だと
     # pydantic.ValidationErrorが関数内から送出され、422ではなく未処理の500になる）。
     enforce_rate_limit(http_request, "weather", settings.weather_rate_limit_per_minute)
@@ -139,7 +138,7 @@ async def get_wind_grid(
     http_request: Request,
     weather_service: WeatherService = Depends(get_weather_service),
 ) -> WindGridResponse:
-    """風・降水延長予報の格子点マップ。
+    """風・降水（数値予報モデルの計算値）の格子点マップ。
     関東本土全域の固定格子点（domain/wind_grid.py: WIND_GRID_BBOX/WIND_GRID_SPACING_DEG）
     ぶんの時間別風向・風速・降水量をまとめて返す。取得に失敗した地点はレスポンスから
     除外する（他の外部API連携と同じ「取得失敗は握りつぶす」方針、1地点の失敗で全体を
@@ -164,7 +163,7 @@ async def get_wind_grid_detail(
     spacing_deg: float = Query(default=WIND_GRID_DETAIL_SPACING_DEG, allow_inf_nan=False),
     weather_service: WeatherService = Depends(get_weather_service),
 ) -> WindGridResponse:
-    """風・降水延長予報の詳細格子（ヒートマップ等の面表現用、spacing_degでズーム依存の間隔を
+    """風・降水（数値予報モデルの計算値）の詳細格子（ヒートマップ等の面表現用、spacing_degでズーム依存の間隔を
     可変化）。呼び出し元（フロント）が渡した表示範囲（bbox）に交差する
     密格子点（domain/wind_grid.py: generate_wind_grid_detail_points、固定ラティス上の座標）
     ぶんの時間別風向・風速・降水量を返す。get_wind_gridと同じく取得失敗地点は結果から除外し、

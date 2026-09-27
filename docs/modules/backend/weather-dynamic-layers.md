@@ -2,9 +2,9 @@
 
 ## 責務
 
-気象庁MSM（風・降水・気温等の予報）・気象庁（アメダス・警報/注意報・タイル系ナウキャスト・
+気象庁MSM（数値予報モデル。風・降水・気温の計算値）・気象庁（アメダス・警報/注意報・タイル系ナウキャスト・
 洪水予報）・環境省（WBGT）由来のデータを取得・キャッシュし、地点の天候・警報・地図タイル
-として配信する。外部の気象予報APIには依存しない（予報はMSMのファイルをローカルへ同期して
+として配信する。外部の気象予報APIには依存しない（MSMはファイルをローカルへ同期して
 読む）。
 
 **外部タイルのプロキシ配信もここが持つ**（基礎地図・国土地理院）。気象のデータではないが、
@@ -13,10 +13,15 @@
 片方だけを別の文書へ移すと同じ仕組みの説明が二手に分かれる。標高そのものの取得（DEM→
 Edge属性、ルート評価の入力）は[elevation.md](elevation.md)が持つ。
 
-**予報と実測の住み分け**: 予報（風・降水の格子点マップ、ルート評価が使う時刻別の風）は
-気象庁MSMの前処理済みファイルをローカルへ同期して読む。実測（現在の気温・風速、降水
+**モデルの計算値と実測の住み分け**: 先の時刻の値（風・降水の格子点マップ、ルート評価が使う時刻別の風、
+「今日」のパネル）は気象庁MSMの前処理済みファイルをローカルへ同期して読む。実測（現在の気温・風速、降水
 ナウキャスト）と防災情報（警報・注意報・洪水・キキクル）は気象庁の公開APIから取る。
 MSMは数値予報モデルの出力で観測値・公式発表の代わりにはならないため、両者は統合しない。
+**MSMの値から天気（晴れ・雨等）を導かない**——天気コードはアメダスの観測からだけ導く
+（`domain/weather.py: derive_observed_weather_code`）。数値予報から天気を計算して出すことと、モデルの値を「予報」と
+称して出すことは、気象庁の公式の説明が予報業務の許可の対象と書いている
+（[data-sources.md](../../architecture/data-sources.md)「気象業務法の予報業務許可」節）。画面の文言の側の扱いは
+[動的気象レイヤー（frontend）](../frontend/dynamic-weather-layers.md)「責務」。
 
 このモジュールが扱う情報は大きく2系統に分かれる:
 1. **バッジ系**（警報・WBGT・洪水予報・アメダス）: 出発地点1点に対する現在の警戒状態を
@@ -38,7 +43,7 @@ MSMは数値予報モデルの出力で観測値・公式発表の代わりに�
 
 | ファイル | 役割 | 消費側 |
 |---|---|---|
-| `weather.py` | 天候のPydanticモデル（`WeatherConditions`・`WeatherPeriodOutlook`）と、降水量・雲量・気温からWMO天気コードを導く`derive_weather_code`・アメダスの10分間の実測から同じコードを導く`derive_observed_weather_code`（「降っていない」の境`PRECIPITATION_MIN_MM`は、画面の予想降水量の「-」と地図の降水の塗りにも生成物で届く）（雨と雪の境・降水の強さの段は予報と共有する——常設ヘッダーと「今日の見通し」が同じ気温で雨と雪を違えて出さないため） | `weather_service.py`・`jma_amedas.py` |
+| `weather.py` | 天候のPydanticモデル（`WeatherConditions`・`WeatherPeriodOutlook`。MSMの計算値）と、アメダスの10分間の実測からWMO天気コードを導く`derive_observed_weather_code`（「降っていない」の境`PRECIPITATION_MIN_MM`は、「今日」のパネルの降水量の「-」と地図の降水の塗りにも生成物で届く） | `weather_service.py`・`jma_amedas.py` |
 | `jma_amedas.py` | JMAアメダスの16方位コード変換（静穏・欠測・範囲外のコードは方位なし。JMA特有なのは番号の割当だけで、呼び名は`domain/geo.py: SIXTEEN_POINT_LABELS`から引く）・体感温度計算（BOM式）・`AmedasObservation`モデル（天気コード`weather_code`は保存した実測から応答のたびに導き、Redisには持たない） | `jma_amedas_service.py` |
 | `jma_area.py` | 区域（class20）のコード→JMA警報エリア（class20→class15→class10→office）の親子関係解決。辿る地域マスタは`AreaMaster`（area.jsonの形は`jma_warning_client.py`が解く） | `warning_service.py`・`flood_service.py` |
 | `jma_warning.py` | JMA警報コード表・アクティブ警報抽出（電文の1地域ぶんの種別`AreaWarningKind`から）・警戒度の段（名称から導く。危険警報＝警戒レベル4は警報と特別警報の間の段で、氾濫危険警報と同じ段） | `warning_service.py` |
@@ -55,15 +60,15 @@ MSMは数値予報モデルの出力で観測値・公式発表の代わりに�
 
 | エンドポイント | データ源 | fail時 | レート制限/分 |
 |---|---|---|---|
-| `GET /api/weather` | 気象庁MSM（今日の見通し: 日次集計・天気コード・時間帯別の流れ） | 502 | 60 |
+| `GET /api/weather` | 気象庁MSM（「今日」のパネル: 日次集計・2時間おきのコマ） | 502 | 60 |
 | `GET /api/weather/warnings` | 気象庁警報・注意報 | 空（200） | 30 |
 | `GET /api/weather/wbgt` | 環境省WBGT | 空（200） | 30 |
 | `GET /api/weather/flood-forecast` | 河川洪水予報 | 空（200） | 30 |
 | `GET /api/weather/amedas` | 気象庁アメダス実測値（Redis読み取り専用） | 502 | 30 |
 | `GET /api/weather/wind-grid`・`/wind-grid-detail` | 気象庁MSM（ローカルの`.om`ファイル） | 全滅時のみ502 | 20／30 |
 
-`/api/weather`は常設ヘッダー用ではなく、「今日の見通し」パネル（日次集計・2時間おき8コマの
-天気の流れ）専用。常設ヘッダー（気温・体感温度・風速風向の現在値）はアメダス実測を使う
+`/api/weather`は常設ヘッダー用ではなく、「今日」のパネル（日次集計・2時間おき8コマの
+気温・降水量）専用。常設ヘッダー（気温・体感温度・風速風向の現在値）はアメダス実測を使う
 `/api/weather/amedas`が担う。
 
 fail-open方針の非対称性: 警報・WBGT・洪水予報は失敗時に警告なしとして返す。一方
@@ -252,11 +257,11 @@ URLも変わるため、ブラウザキャッシュ（`api/cache_policy.py`）�
 
 ## 天候取得（`weather_service.py: WeatherService`）
 
-| メソッド | 用途 | 時刻 | daily/weather_code |
+| メソッド | 用途 | 時刻 | 日次の値 |
 |---|---|---|---|
-| `get_conditions(point)` | `/api/weather`エンドポイント・`RoadGraphEngine`の起点判定 | 時系列の先頭（現在時刻の正時） | 天気コードは雲量・降水・気温から導出、日の出/日没は`twilight.py`で計算 |
+| `get_conditions(point)` | `/api/weather`エンドポイント・`RoadGraphEngine`の起点判定 | 時系列の先頭（現在時刻の正時） | 同じJST暦日の残りの最大・最小。日の出/日没は`twilight.py`で計算 |
 | `get_wind_forecast_lattice(bbox)` | `RoadGraphEngine`の探索前コスト合成（Edgeごとの通過予定時刻・最寄りの格子点の風）と、ルートを出す前の地図の風（`WindWayService`） | 範囲を覆う格子点ごとの時別風向・風速の系列（JST）。格子は緯度・経度0度から数えた固定の線に揃う。MSMから読む | 対象外 |
-| `get_wind_grid(points)` | 風グリッド・降水延長予報の地図レイヤー | 予報期間ぶんの時系列。MSMから読む | 対象外 |
+| `get_wind_grid(points)` | 風グリッド・降水の格子の段の地図レイヤー | 予報期間ぶんの時系列。MSMから読む | 対象外 |
 
 ## その他のサービス
 
@@ -423,12 +428,12 @@ MSM（`.om`形式、CC-BY-4.0）をローカルへ同期して読む。予報を
 | 項目 | 内容 |
 |---|---|
 | 配信元 | `settings.msm_base_url`（既定はopenmeteo.s3.amazonaws.comのjma_msm） |
-| 同期対象 | `msm_client.py: FORECAST_VARIABLES`（風の東西成分・南北成分・降水量・気温・雲量）の、現在時刻から`msm_forecast_hours`先までを覆うチャンク |
+| 同期対象 | `msm_client.py: FORECAST_VARIABLES`（消費するものだけ。例: 風の東西成分・南北成分・降水量）の、現在時刻から`msm_forecast_hours`先までを覆うチャンク |
 | 読み出しの戻り値 | `msm_client.py: MsmSeries`（時刻列と、項目ごとの[地点数, 時刻数]の配列）。配信元の変数名は持たない——変数名と項目の対応は`FORECAST_VARIABLES`だけが持ち、サービスは項目で読む |
 | チャンク | 変数ごとに日本全域・`chunk_time_length`時間ぶんを1ファイルにまとめたもの。1ファイル十数MB |
 | 保存先 | `backend/data/msm/`（本番はコンテナへマウントされるホスト側ディレクトリのため、デプロイをまたいで残る） |
 | 更新の検出 | ETagによる条件付きGET。内容が変わっていなければ304で転送自体が起きない |
-| 不要ファイル | 予報窓の外に出たチャンクは同期のたびに削除する |
+| 不要ファイル | 予報窓の外に出たチャンクと、`FORECAST_VARIABLES`から外した変数のチャンクは同期のたびに削除する（置き場の全ディレクトリを見る） |
 | 定期実行 | `main.py`のAPScheduler（`msm_sync_interval_minutes`、`next_run_time=now`で起動直後にも1回） |
 | 配信停止の検知 | 同期のたびに`freshness_from_meta`で最新run・予報終端を見て`warn_if_stale`がWARNINGを出す。値は`GET /api/debug/stats`の`msm`にも載る |
 

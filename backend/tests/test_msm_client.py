@@ -189,6 +189,20 @@ class TestSyncing:
             names = {p.name for p in (msm_dir.path / variable).glob("chunk_*.om")}
             assert names == {f"chunk_{NOW_CHUNK + 1}.om"}
 
+    async def test_chunks_of_a_variable_no_longer_synced_are_removed(self, tmp_path, msm_dir):
+        """同期の対象から外した変数のチャンクも、置き場に残さない。"""
+        dropped = msm_dir.path / "dropped_variable" / f"chunk_{NOW_CHUNK}.om"
+        dropped.parent.mkdir(parents=True)
+        dropped.write_bytes(b"old")
+        source = Source(tmp_path)
+        async with source.client() as client:
+            msm_dir.forecast_hours(3)
+            await msm_client.refresh(client)
+
+        assert not dropped.exists()
+        variable = next(iter(msm_client.FORECAST_VARIABLES))
+        assert (msm_dir.path / variable / f"chunk_{NOW_CHUNK}.om").exists()
+
     async def test_after_syncing_the_schedule_of_the_source_is_readable(self, tmp_path, msm_dir):
         assert msm_client.freshness() is None
 

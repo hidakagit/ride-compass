@@ -107,8 +107,6 @@ function weatherConditionsFixture(): WeatherConditions {
     wind_direction_label: "東",
     precipitation_mm: null,
     observed_at: new Date().toISOString(),
-    weather_code: null,
-    is_day: null,
     sunrise: null,
     sunset: null,
     precipitation_max_mm: null,

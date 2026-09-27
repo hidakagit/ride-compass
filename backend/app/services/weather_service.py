@@ -2,12 +2,11 @@ from datetime import datetime
 
 import numpy as np
 
-from app.domain.time_zone import JST
 from app.domain.geo import compass_label
 from app.domain.msm import wind_speed_and_direction
 from app.domain.route import Coordinates
-from app.domain.twilight import is_night, sunrise_sunset_jst
-from app.domain.weather import WeatherConditions, WeatherPeriodOutlook, derive_weather_code
+from app.domain.twilight import sunrise_sunset_jst
+from app.domain.weather import WeatherConditions, WeatherPeriodOutlook
 from app.domain.region import BoundingBox
 from app.domain.wind import WIND_FORECAST_LAT_STEP_DEG, WIND_FORECAST_LON_STEP_DEG, WindForecastSeries, WindLattice
 from app.domain.wind_grid import WindGridPoint
@@ -98,7 +97,7 @@ class WeatherService:
         return series.times, results
 
     def _conditions_from_series(self, point: Coordinates, series: MsmSeries) -> WeatherConditions:
-        """MSMの時系列（1地点ぶん）から「今日の見通し」パネル向けの値を組み立てる。
+        """MSMの時系列（1地点ぶん）から「今日」のパネル向けの値を組み立てる。
 
         時系列の先頭（現在時刻の正時）を現在値として扱い、日次の集計は同じJST暦日の
         残り時間ぶんを対象にする（MSMは過去の時刻を返さないため、朝から見た「今日の最高
@@ -108,7 +107,6 @@ class WeatherService:
         speed, direction = wind_speed_and_direction(series.wind_u_ms[0], series.wind_v_ms[0])
         temperature = series.temperature_c[0]
         precipitation = series.precipitation_mm[0]
-        cloud_cover = series.cloud_cover_percent[0]
 
         now = datetime.fromisoformat(times[0])
         today = [index for index, t in enumerate(times) if datetime.fromisoformat(t).date() == now.date()]
@@ -121,10 +119,6 @@ class WeatherService:
             wind_direction_label=compass_label(float(direction[0])),
             precipitation_mm=round(float(precipitation[0]), 2),
             observed_at=times[0],
-            weather_code=derive_weather_code(
-                float(precipitation[0]), float(cloud_cover[0]), float(temperature[0])
-            ),
-            is_day=0 if is_night(point, now.replace(tzinfo=JST)) else 1,
             sunrise=sunrise,
             sunset=sunset,
             precipitation_max_mm=self._daily_max(precipitation, today),
@@ -161,9 +155,6 @@ class WeatherService:
             results.append(
                 WeatherPeriodOutlook(
                     period=datetime.fromisoformat(series.times[index]).strftime("%H:%M"),
-                    weather_code=derive_weather_code(
-                        precipitation, float(series.cloud_cover_percent[0][index]), temperature
-                    ),
                     temperature_c=round(temperature, 1),
                     precipitation_mm=round(precipitation, 2),
                 )

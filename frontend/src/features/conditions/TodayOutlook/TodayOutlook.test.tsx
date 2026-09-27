@@ -18,8 +18,8 @@ const EMPTY = {
 const weather = (overrides: Partial<WeatherConditions> = {}) => ({ ...EMPTY, ...overrides }) as WeatherConditions;
 
 async function open() {
-  await userEvent.click(screen.getByRole("button", { name: "今日の見通しを表示" }));
-  return screen.findByText("今日の見通し");
+  await userEvent.click(screen.getByRole("button", { name: "今日のモデルの計算値を表示" }));
+  return screen.findByText("今日のモデルの計算値");
 }
 
 /** 見出しの付いた1項目の値（見出しの次の文字）。 */
@@ -28,13 +28,13 @@ const stat = (heading: string) => screen.getByText(heading).nextElementSibling?.
 describe("TodayOutlook 取得の状態", () => {
   it("見通しが無く失敗したら、警戒の見た目の入口を出し、開くと失敗の理由を出す", async () => {
     render(<TodayOutlook weather={null} loading={false} error="混雑しています" />);
-    await userEvent.click(screen.getByRole("button", { name: "今日の見通しの取得に失敗しました" }));
+    await userEvent.click(screen.getByRole("button", { name: "今日のモデルの計算値の取得に失敗しました" }));
     expect(await screen.findByText("取得に失敗しました: 混雑しています")).toBeInTheDocument();
   });
 
   it("見通しがあれば、直近の取り直しが失敗していても見通しを出す", () => {
     render(<TodayOutlook weather={weather({ wind_speed_max_ms: 5 })} loading={false} error="混雑しています" />);
-    expect(screen.getByRole("button", { name: "今日の見通しを表示" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "今日のモデルの計算値を表示" })).toBeInTheDocument();
   });
 
   it("読み込み中・見通しが無い・出せる値が1つも無い間は、入口を出さない", () => {
@@ -50,6 +50,12 @@ describe("TodayOutlook 取得の状態", () => {
 });
 
 describe("TodayOutlook 1日の値", () => {
+  it("数値予報モデルの計算値であり、予報ではないことを見出しの下で示す", async () => {
+    render(<TodayOutlook weather={weather({ wind_speed_max_ms: 5 })} loading={false} error={null} />);
+    await open();
+    expect(screen.getByText(/数値予報モデル（MSM）の計算値です。予報ではなく、誤差を含みえます。/)).toBeInTheDocument();
+  });
+
   it("最大の降水量・風速は小数1桁、気温は最低〜最高を整数で出す", async () => {
     render(
       <TodayOutlook
@@ -96,25 +102,23 @@ describe("TodayOutlook 1日の値", () => {
   });
 });
 
-describe("TodayOutlook 天気の流れ", () => {
+describe("TodayOutlook 2時間ごとのコマ", () => {
   const periods = [
-    { period: "06:00", weather_code: 0, temperature_c: 18.4, precipitation_mm: 0.05 },
-    { period: "08:00", weather_code: null, temperature_c: null, precipitation_mm: 1.26 },
-    { period: "昼", weather_code: 61, temperature_c: 22, precipitation_mm: null },
+    { period: "06:00", temperature_c: 18.4, precipitation_mm: 0.05 },
+    { period: "08:00", temperature_c: null, precipitation_mm: 1.26 },
+    { period: "昼", temperature_c: 22, precipitation_mm: null },
   ];
 
-  it("コマごとに時・天気・気温（整数）・降水量を出す。降らない見込みと値の無いものは「-」", async () => {
+  it("コマごとに時・気温（整数）・降水量を出す。降らない量と値の無いものは「-」", async () => {
     render(<TodayOutlook weather={weather({ today_periods: periods } as never)} loading={false} error={null} />);
     await open();
-    const slots = screen.getByText("天気の流れ").nextElementSibling!.children;
-    expect([...slots].map((slot) => slot.textContent)).toEqual(["6時18℃-", "8時--1.3mm", "昼22℃-"]);
-    expect(slots[0].querySelector("svg")).not.toBeNull();
-    expect(slots[1].querySelector("svg")).toBeNull();
+    const slots = screen.getByText("2時間ごと").nextElementSibling!.children;
+    expect([...slots].map((slot) => slot.textContent)).toEqual(["6時18℃-", "8時-1.3mm", "昼22℃-"]);
   });
 
-  it("コマが無ければ、流れの欄は出さない", async () => {
+  it("コマが無ければ、コマの欄は出さない", async () => {
     render(<TodayOutlook weather={weather({ wind_speed_max_ms: 3 })} loading={false} error={null} />);
     await open();
-    expect(screen.queryByText("天気の流れ")).not.toBeInTheDocument();
+    expect(screen.queryByText("2時間ごと")).not.toBeInTheDocument();
   });
 });

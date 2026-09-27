@@ -70,7 +70,6 @@ def _patch_msm(monkeypatch, times: list[str] = TIMES) -> list[tuple[np.ndarray, 
             wind_v_ms=np.stack(v, axis=1),
             precipitation_mm=np.zeros((count, len(times))),
             temperature_c=np.full((count, len(times)), 20.0),
-            cloud_cover_percent=np.zeros((count, len(times))),
         )
 
     monkeypatch.setattr(msm_client, "read_series", read_series)
