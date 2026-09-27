@@ -576,12 +576,11 @@ async def test_destination_adds_the_fastest_route_and_orders_all_easiest_first()
     result = await _destination_routes(engine, max_routes=3)
 
     assert _keys(result) == ["easy", "fastest", "hard"]
-    assert [c.is_fastest for c in result] == [False, True, False]
     assert [c.id for c in result] == ["route-destination-00", "route-destination-01", "route-destination-02"]
     assert {c.direction_label for c in result} == {"目的地ルート"}
 
 
-async def test_destination_marks_an_alternative_that_is_already_the_fastest_instead_of_adding_it():
+async def test_destination_does_not_add_the_fastest_twice_when_an_alternative_is_already_it():
     engine = FakeEngine(
         via=[_loop("hard"), _loop("easy")],
         fastest=_loop("hard"),
@@ -590,7 +589,23 @@ async def test_destination_marks_an_alternative_that_is_already_the_fastest_inst
 
     result = await _destination_routes(engine, max_routes=3)
 
-    assert [(c.edge_ids[0], c.is_fastest) for c in result] == [("easy", False), ("hard", True)]
+    assert _keys(result) == ["easy", "hard"]
+
+
+async def test_destination_keeps_the_alternative_that_is_the_fastest_when_cutting():
+    engine = FakeEngine(
+        via=[_loop("hard"), _loop("mid"), _loop("easy")],
+        fastest=_loop("hard"),
+        candidates={
+            "hard": _candidate("hard", 30.0),
+            "mid": _candidate("mid", 20.0),
+            "easy": _candidate("easy", 10.0),
+        },
+    )
+
+    result = await _destination_routes(engine, max_routes=2)
+
+    assert _keys(result) == ["easy", "hard"]
 
 
 async def test_destination_keeps_the_fastest_even_when_hardest_and_cuts_the_next_hardest():
@@ -613,8 +628,8 @@ async def test_destination_keeps_the_fastest_even_when_hardest_and_cuts_the_next
     ("fastest_difficulty", "expected"),
     [
         # 1本だけ返すときは基準線を残さない——軸の重みが結果に現れなくなる
-        (50.0, [("a", False)]),
-        (5.0, [("fastest", True)]),
+        (50.0, ["a"]),
+        (5.0, ["fastest"]),
     ],
 )
 async def test_destination_with_a_single_route_does_not_keep_the_fastest(fastest_difficulty, expected):
@@ -626,10 +641,10 @@ async def test_destination_with_a_single_route_does_not_keep_the_fastest(fastest
 
     result = await _destination_routes(engine, max_routes=1)
 
-    assert [(c.edge_ids[0], c.is_fastest) for c in result] == expected
+    assert _keys(result) == expected
 
 
-async def test_destination_without_a_fastest_route_marks_none_and_puts_unknown_difficulty_last():
+async def test_destination_without_a_fastest_route_puts_unknown_difficulty_last():
     engine = FakeEngine(
         via=[_loop("unknown"), _loop("a")],
         candidates={"unknown": _candidate("unknown", None), "a": _candidate("a", 10.0)},
@@ -637,7 +652,7 @@ async def test_destination_without_a_fastest_route_marks_none_and_puts_unknown_d
 
     result = await _destination_routes(engine, max_routes=3)
 
-    assert [(c.edge_ids[0], c.is_fastest) for c in result] == [("a", False), ("unknown", False)]
+    assert _keys(result) == ["a", "unknown"]
 
 
 @pytest.mark.parametrize(

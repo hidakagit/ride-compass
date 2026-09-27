@@ -72,8 +72,7 @@ def turnaround_pool_size(max_routes: int) -> int:
 
 #: 区間から候補単位へ集約する値（載せるフィールド → `segments`から作る関数）。
 #: **集約を1段増やすときはここへ1行足す**（design-principles.md 構造仕様8）。集約は候補の
-#: 並び順・印（`is_fastest`等）を読まないため、呼び出し側がそれらを付ける前でも後でも
-#: 結果は変わらない。
+#: 並び順・id等を読まないため、呼び出し側がそれらを付ける前でも後でも結果は変わらない。
 SEGMENT_AGGREGATES: dict[str, Callable[[list[Any]], Any]] = {
     # ルート単位の絶対基準。エンジン非依存のため、engine実装側には持たせない。
     "overall_difficulty": lambda segments: distance_weighted_difficulty(
@@ -501,10 +500,9 @@ class RouteGenerator:
 
         evaluate_started = time.monotonic()
         candidates = await self._evaluate_and_aggregate(context, traced, start_time)
-        if fastest_index is not None:
-            candidates[fastest_index] = candidates[fastest_index].model_copy(
-                update={"is_fastest": True}
-            )
+        # 基準線は応答に印を持たない（候補として並べるだけで、どれと比べるかは受け取る側が
+        # 決める）。件数を切るときに残すためだけに、オブジェクトの同一性で覚えておく。
+        baseline = candidates[fastest_index] if fastest_index is not None else None
         candidates.sort(key=_difficulty_order)
         # max_routesを超えたぶんは難易度の高い側から切るが、基準線は難易度で最下位でも残す。
         # ただし`max_routes`が1のときは残さない。基準線は**比べる相手があって初めて基準**
@@ -513,7 +511,7 @@ class RouteGenerator:
         excess = len(candidates) - max_routes
         if excess > 0:
             keep_fastest = max_routes >= 2
-            droppable = [i for i, c in enumerate(candidates) if not (keep_fastest and c.is_fastest)]
+            droppable = [i for i, c in enumerate(candidates) if not (keep_fastest and c is baseline)]
             dropped = set(droppable[-excess:])
             candidates = [c for i, c in enumerate(candidates) if i not in dropped]
         candidates = [

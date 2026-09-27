@@ -21,9 +21,8 @@ export function isSplicedRoute(route: { id: string }): boolean {
  * 一覧の中で最も所要時間が短い候補のid（＝基準線）。候補が1件以下、または所要時間を持つ
  * 候補が無ければnull（比べる相手が無い）。
  *
- * **backendの`is_fastest`は見ない**——あれは目的地モードでしか付かず、周回モードでは
- * 基準線が一度も決まらない。主用途である周回でも「何と比べた+N分か」を出せるよう、
- * 一覧の中だけで決める。同着は先に来た方（並び順は総合難易度の昇順なので、易しい方）。
+ * 一覧の中だけで決める——周回・目的地のどちらでも、区間を乗り換えて作った候補を含めて
+ * 「何と比べた+N分か」を同じ判定で出すため。同着は先に来た方（並び順は総合難易度の昇順なので、易しい方）。
  */
 export function fastestRouteId(
   routes: readonly { id: string; estimated_duration_seconds?: number | null }[],

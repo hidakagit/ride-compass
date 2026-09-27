@@ -128,11 +128,6 @@ class RouteCandidate(StrictModel):
     # 「同じ地点」の判定が結果を左右するため、グラフが持つ同一性をそのまま渡す。
     # `edge_ids`が空の候補では空のまま。
     node_ids: list[str] = Field(default_factory=list)
-    # 所要時間が最短の経路か＝軸の重みをすべて0にしたときの基準線（目的地モードのみ。
-    # 周回は目標距離が距離を決めるため常にFalse）。「backendが基準線として別途探索した
-    # 候補」を指す印であり、候補一覧から選んだ所要時間の最小とは意味が違う。
-    # Trueは高々1本で、基準線を求められなければ1本も立たない。
-    is_fastest: bool = False
 
 
 # エンジンが返すsegmentsはEdge単位（交差点間）でAPIペイロード・フロント描画コストが
