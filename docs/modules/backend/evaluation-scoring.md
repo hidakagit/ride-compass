@@ -108,6 +108,8 @@ way粒度の経路も**区間向けと同じ式**を使う。`_way_from_clause`�
 
 ```
 一次: 材料の値（DBが`MaterialSpec.value_sql`で導出、`EdgeMaterialArrays`）
+        │  観測を引く材料（雨）は探索範囲を組むときに区間の中点に最も近い雨量計の今の観測を
+        │  列として足す（`GraphService.get_search_slice`→`domain/rain.py: rain_material_columns`）
         │  動的材料（風）だけはリクエスト時に`evaluate_dynamic_material_arrays`が
         │  bearing配列・天候・走行速度から求める
         ▼
@@ -141,7 +143,11 @@ way1本を指す区間インスペクタも同じ評価・合成を長さ1の配
   生フラグ`hard_filter_flags`/`gradient_percent`も持つ——`hard_filters`はリクエストごとに
   変わりうるため、除外判定そのものはここでは確定させない）。動的材料
   （`REQUEST_DYNAMIC_MATERIAL_IDS`、風）の列はNaNのままで、それに依存する軸の列も自然に
-  NaNへ伝播する（動的軸の特別扱いが不要）。
+  NaNへ伝播する（動的軸の特別扱いが不要）。観測を引く材料（雨、`observed_materials`）はDBの材料と
+  同じ列として重ねる——向きにも通過の時刻にも依らず、生成1回につき1つの値で済むため、軸の得点・
+  生値（mm）・内訳にDBの材料と同じ経路で載り、道の材料と1つの軸で組み合わせることもできる（動的材料は
+  静的材料と同じ軸に置けない。`axis_definitions.py: _check_dynamic_and_static_materials_are_not_mixed`）。
+  観測の履歴が無ければ空で、その材料を読む軸はその生成で「データなし」になる。
 - **`compose_costs_from_axis_matrix`**: 軸別スコア配列群と重み辞書から合成difficulty
   （`difficulty.py: composite_difficulty_array`）→cost算出まで配列演算で行う。costからdifficultyへの
   逆算（折返し点・経由Nodeの並べ替えが使う）は同じファイルの`difficulty_from_cost`が持つ。0次フィルタによる除外

@@ -18,13 +18,17 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 import pytest
 
+from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisDefinition, BreakpointLinearShape, MaterialTerm
 from app.domain.geo import haversine_distance_km
 from app.domain.graph import node_key
+from app.domain.rain import rain_window_material_id
 from app.domain.road_network import RoadNetwork
 from app.domain.route import Coordinates
 from app.domain.wind import WindForecastSeries, WindLattice
 from app.domain.time_zone import JST
 from app.services.route_generator import RouteGenerator
+from tests import rain_history_fake
+from tests.axis_system_fixture import replaced_axis_definitions
 from tests.route_world import (
     AVOID_AXIS,
     BASE_LAT,
@@ -335,6 +339,26 @@ async def test_the_share_of_the_route_timed_without_data_is_reported(engine_over
     complete = await engine_over(grid_network()).generate_via_waypoints(
         at(SOUTH_WEST), [], 3.0, destination=at(SOUTH_EAST), max_routes=3, start_time=DEPARTURE)
     assert fastest_of(complete).missing_travel_data_share == 0.0
+
+
+async def test_the_rain_observed_now_is_scored_on_the_segments_and_carried_in_mm(engine_over, monkeypatch):
+    """雨の材料（最寄りの雨量計の今の観測）は、道の材料と同じく区間の得点と候補の生値（mm）に載る。
+    雨量計は格子の中に1つ置き、1時間1.0mmの雨が続いている。"""
+    rain_history_fake.use_fake_redis(monkeypatch)
+    gauge = {"gauge": {"lat": [35, 36.6], "lon": [139, 36.6], "kjName": "格子の中"}}
+    await rain_history_fake.observe(monkeypatch, gauge, {"gauge": 1.0})
+    rain_axis = AxisDefinition(
+        axis_id="rain", label="雨", default_weight=0.0, is_published=True,
+        shape=BreakpointLinearShape(terms=[MaterialTerm(material=rain_window_material_id(3))], breakpoints=[(0.0, 0.0), (10.0, 100.0)]),
+    )
+
+    with replaced_axis_definitions({**AXIS_DEFINITIONS, "rain": rain_axis}):
+        candidates = await engine_over(grid_network()).generate_via_waypoints(
+            at(SOUTH_WEST), [], 4.0, destination=at(NORTH_EAST), max_routes=3, start_time=DEPARTURE)
+
+    fastest = fastest_of(candidates)
+    assert [segment.axis_difficulties["rain"] for segment in fastest.segments] == [30.0] * len(fastest.segments)
+    assert fastest.axis_raw_values["rain"] == 3.0
 
 
 def _wind(times: list[datetime], speed_by_point: list[float]) -> WindForecastSeries:

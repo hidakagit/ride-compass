@@ -291,8 +291,9 @@ URLも変わるため、ブラウザキャッシュ（`api/cache_policy.py`）�
   10分ごとに全本を問い合わせ続けるため）。値`[値, フラグ]`の値がnullのもの（欠測。フラグの公式の意味は
   未確認）は欠測として持ち、雨量の項目を持たない観測所（雨量計が無い）は載せない。
   読む側（`load_station_rain_materials`、[動的材料・フィーチャー値配信](dynamic-way-values.md)の
-  `RainWayService`が使う）は、最新の正時が`RAIN_HISTORY_MAX_AGE`より古い履歴を配らない——バッチが
-  止まったまま古い雨量を今の値として塗らないため。
+  `RainWayService`と、ルートの探索範囲を組む`GraphService.get_search_slice`が使う）は、最新の正時が
+  `RAIN_HISTORY_MAX_AGE`より古い履歴を配らない——バッチが止まったまま古い雨量を今の値として塗らない・
+  ルートの評価に使わないため。
 
   日の出/日没（`sunrise`/`sunset`）はRedisへ保存せず、`get_nearest_observation`が
   クエリ地点（最寄り観測所ではなくリクエストの緯度経度そのもの）に対し都度

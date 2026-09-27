@@ -283,22 +283,24 @@ values = {feature_key: round(value, 1) for feature_key, value in effective if va
 get_way_values(z, x, y, ...)
   ├─ jma_amedas_service.load_station_rain_materials(今) → 観測所ごとの材料の値（無い・古ければ{}）
   ├─ get_feature_midpoints_in_tile → 鍵ごとの中ほど（カバレッジ外・空は{}、DB障害も{}）
-  ├─ nearest_point_indices（domain/rain.py）: 中ほどに最も近い雨量計
-  └─ その雨量計の値。欠測（NaN）の道は結果から除く
+  ├─ rain_material_columns（domain/rain.py）: 中ほどに最も近い雨量計の値
+  └─ 欠測（NaN）の道は結果から除く
 ```
 
 - **候補は雨量計を持つ観測所だけ**（正時の地図JSONに1時間雨量の項目がある観測所）。気温だけの観測所が
   近くにあっても、その値は無い。**最寄りの雨量計が欠測なら、次に近い雨量計で埋めない**——近さの順に
   埋めると、同じ道が欠測の有無で別の雨量計の値へ静かに切り替わる。
-- 最寄りは、地点ごとの緯度で経度を縮めた平面の距離で決める。観測所の間隔（十数km）では球面の距離と順位が
-  入れ替わらない（`tests/test_rain.py`がhaversineの最寄りと突き合わせる）。
+- 最寄りは球面の距離で決める（`domain/rain.py: nearest_point_indices`）。ルートの探索範囲は数百万区間になるため、
+  全区間×全観測所の距離は作らず、緯度・経度の格子ごとに最寄りになりうる観測所だけを候補に残して比べる
+  （粗い格子で絞ってから細かい格子で絞る。どちらも三角不等式で、最寄りを落とさない）。
+- **ルートの区間も同じ関数で、区間の中点の値を引く**（[ルーティングエンジン](routing-engine.md)
+  「取得の入口」）。区間単位のズームのフィーチャーの中ほどはルートの区間の中点と同じ点なので、地図の色と
+  ルートの区間の値は同じ雨量計の同じ観測になる。
 - 観測所ごとの材料の値は`load_station_rain_materials`がRedisの履歴から組み立て、プロセス内に5分持つ
   （タイル1枚ごとに全観測所×全時間の履歴を読み直さない）。履歴の取り方は
   [気象・動的レイヤー](weather-dynamic-layers.md)「`JmaAmedasService`」。
 - **材料の値は観測どおりの量**（mm・時間）で、どこからを濡れているとみなすかは軸の折れ点が決める。
   値の定義（窓の中に欠測があれば値なし、止んでからの時間の上限）は材料カタログの説明と`domain/rain.py`が持つ。
-- ルートの評価（探索・区間表示）にはまだ配線していない。雨の材料を参照する軸は、地図の色分けと道の詳細
-  （`directional_materials`経由の区間インスペクタ）では値を持つが、ルートでは「データなし」になる。
 
 各サービスとも`get_way_values(z, x, y, at, bearing_deg, speed_kmh) -> dict[str, float]`という
 同じシグネチャで`region.py`から材料非依存に呼ばれる（勾配は`at`・`speed_kmh`を、雨はどれも無視する）。
