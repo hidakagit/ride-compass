@@ -35,6 +35,9 @@ logger = logging.getLogger("ridecompass.weather")
 
 router = APIRouter()
 
+# 警報系バッジの失敗の文。画面は出所の名前を前に付けて出す（「警報・注意報: 取得できませんでした。」）。
+_BADGE_SOURCE_UNAVAILABLE = "取得できませんでした。"
+
 
 @router.get("/api/weather", response_model=WeatherConditions)
 async def get_weather(
@@ -63,12 +66,12 @@ async def get_weather_warnings(
     warning_service: WarningService = Depends(get_warning_service),
 ) -> WeatherWarnings:
     """出発地点近傍のJMA警報・注意報を、サイクリングに関連する種別へ絞ってバッジ用に返す。
-    地点→市区町村→警報エリアの解決、または警報自体の取得に失敗した
-    場合は例外にせず「警報なし」を返す（warning_service.py参照。他の/api/weather系と異なり
-    このfail-openは意図的な仕様のため、502は返さない——WBGT警告と共有する
-    「安全側ではないが失敗時は警告なしとする」という既定の方針）。"""
+    地点→区域→警報エリアの解決か、警報自体の取得に失敗したら502（空の応答は「警報なし」だけを表す）。"""
     enforce_rate_limit(http_request, "weather-warnings", settings.weather_warnings_rate_limit_per_minute)
-    return await warning_service.get_warnings(Coordinates(latitude=latitude, longitude=longitude))
+    warnings = await warning_service.get_warnings(Coordinates(latitude=latitude, longitude=longitude))
+    if warnings is None:
+        raise HTTPException(status_code=502, detail=_BADGE_SOURCE_UNAVAILABLE)
+    return warnings
 
 
 @router.get("/api/weather/wbgt", response_model=WbgtStatus)
@@ -79,11 +82,13 @@ async def get_wbgt(
     wbgt_service: WbgtService = Depends(get_wbgt_service),
 ) -> WbgtStatus:
     """出発地点近傍の暑さ指数（WBGT）警戒レベルをバッジ用に返す。
-    提供期間外（11〜3月）・地点解決や取得に失敗した場合・「ほぼ安全」（21未満）の
-    いずれも例外にせず空（level=None）を返す（wbgt_service.py参照。警報・
-    注意報バッジと同じfail-open方針のため502は返さない）。"""
+    提供期間外（11〜3月）と「ほぼ安全」（21未満）は空（level=None）。地点解決・取得に失敗したか
+    今の時刻の値が得られなければ502。"""
     enforce_rate_limit(http_request, "weather-wbgt", settings.weather_wbgt_rate_limit_per_minute)
-    return await wbgt_service.get_status(Coordinates(latitude=latitude, longitude=longitude), datetime.now(JST))
+    status = await wbgt_service.get_status(Coordinates(latitude=latitude, longitude=longitude), datetime.now(JST))
+    if status is None:
+        raise HTTPException(status_code=502, detail=_BADGE_SOURCE_UNAVAILABLE)
+    return status
 
 
 @router.get("/api/weather/flood-forecast", response_model=FloodForecasts)
@@ -94,12 +99,14 @@ async def get_flood_forecast(
     flood_service: FloodService = Depends(get_flood_service),
 ) -> FloodForecasts:
     """出発地点近傍のJMA指定河川洪水予報（レベル2〜5）をバッジ用に返す。
-    地点解決・洪水予報自体の取得のどこで失敗しても
-    例外にせず空を返す（警報・WBGTと共有するfail-open方針、502は返さない）。"""
+    地点解決か洪水予報自体の取得に失敗したら502（空の応答は「予報なし」だけを表す）。"""
     enforce_rate_limit(
         http_request, "weather-flood-forecast", settings.weather_flood_forecast_rate_limit_per_minute
     )
-    return await flood_service.get_forecasts(Coordinates(latitude=latitude, longitude=longitude))
+    forecasts = await flood_service.get_forecasts(Coordinates(latitude=latitude, longitude=longitude))
+    if forecasts is None:
+        raise HTTPException(status_code=502, detail=_BADGE_SOURCE_UNAVAILABLE)
+    return forecasts
 
 
 @router.get("/api/weather/amedas", response_model=AmedasObservation)
@@ -111,8 +118,7 @@ async def get_amedas(
 ) -> AmedasObservation:
     """出発地点近傍の最寄りアメダス観測所の直近観測値を返す。
     観測値本体はRedis Hash（TTL 15分）でキャッシュされる（jma_amedas_service.py参照）。
-    観測所解決・取得のいずれかに失敗した場合は502を返す（/api/weatherと同じ方針。
-    警報・注意報バッジ系と違いこちらは表示の主対象になりうる数値のため、fail-openにしない）。"""
+    観測所解決・取得のいずれかに失敗した場合は502を返す。"""
     enforce_rate_limit(http_request, "amedas", settings.weather_amedas_rate_limit_per_minute)
     observation = await amedas_service.get_nearest_observation(Coordinates(latitude=latitude, longitude=longitude))
     if observation is None:

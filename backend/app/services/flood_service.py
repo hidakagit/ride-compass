@@ -8,7 +8,7 @@ from app.domain.flood_forecast import ActiveFloodForecast, extract_active_flood_
 from app.domain.jma_area import resolve_area
 from app.domain.route import Coordinates
 from app.infrastructure.flood_client import fetch_flood_documents
-from app.infrastructure.jma_area_boundaries import find_class20_code
+from app.infrastructure.jma_area_boundaries import AreaBoundariesUnavailableError, find_class20_code
 from app.infrastructure.jma_warning_client import fetch_area_data
 from app.domain.strict_model import StrictModel
 
@@ -21,27 +21,30 @@ class FloodService:
     def __init__(self, http_client: httpx.AsyncClient):
         self._http_client = http_client
 
-    async def get_forecasts(self, point: Coordinates) -> FloodForecasts:
+    async def get_forecasts(self, point: Coordinates) -> FloodForecasts | None:
         """出発地点近傍の指定河川洪水予報を取得する。
 
-        エリア解決・予報取得のどこで失敗しても例外にせず空を返す（警報・WBGTと共有する
-        fail-open方針）。
+        エリア解決か予報の取得に失敗したらNone（出ているかが分からない）。空は、地点がどの区域にも
+        入らないときと、取れた予報にその区域のものが無いときだけ。
         """
-        class20_code = await find_class20_code(point.latitude, point.longitude)
+        try:
+            class20_code = await find_class20_code(point.latitude, point.longitude)
+        except AreaBoundariesUnavailableError:
+            return None
         if class20_code is None:
             return FloodForecasts(forecasts=[])
 
         area_master = await fetch_area_data(self._http_client)
         if area_master is None:
-            return FloodForecasts(forecasts=[])
+            return None
 
         resolved = resolve_area(class20_code, area_master)
         if resolved is None:
-            return FloodForecasts(forecasts=[])
+            return None
 
         bulletins = await fetch_flood_documents(self._http_client)
         if bulletins is None:
-            return FloodForecasts(forecasts=[])
+            return None
 
         forecasts: list[ActiveFloodForecast] = []
         for bulletin in bulletins:

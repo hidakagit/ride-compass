@@ -74,10 +74,15 @@ def load_boundaries(path: Path) -> AreaBoundaries:
     return boundaries
 
 
-async def find_class20_code(lat: float, lon: float) -> str | None:
-    """地点が属する区域（area.jsonのclass20）のコード。境界が読めなければNone。
+class AreaBoundariesUnavailableError(Exception):
+    """区域の境界を読めない。地点が区域の外（None）とは別の事実で、区域を引けたかが分からない。"""
 
-    初回だけ境界の読み込み（数秒かかる）が走るため、イベントループの外で読む。
+
+async def find_class20_code(lat: float, lon: float) -> str | None:
+    """地点が属する区域（area.jsonのclass20）のコード。どの区域にも入らなければNone。
+
+    境界を読めなければ`AreaBoundariesUnavailableError`を送出する。初回だけ境界の読み込み（数秒かかる）が
+    走るため、イベントループの外で読む。
     """
     try:
         boundaries = await asyncio.to_thread(load_boundaries, BOUNDARY_PATH)
@@ -87,5 +92,5 @@ async def find_class20_code(lat: float, lon: float) -> str | None:
             "（scripts/fetch_jma_area_boundaries.pyで取得する）",
             BOUNDARY_PATH, exc,
         )
-        return None
+        raise AreaBoundariesUnavailableError from exc
     return boundaries.find(lat, lon)

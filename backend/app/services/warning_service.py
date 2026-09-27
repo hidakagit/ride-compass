@@ -7,7 +7,7 @@ import httpx
 from app.domain.jma_area import ResolvedArea, resolve_area
 from app.domain.jma_warning import ActiveWarning, extract_active_warnings
 from app.domain.route import Coordinates
-from app.infrastructure.jma_area_boundaries import find_class20_code
+from app.infrastructure.jma_area_boundaries import AreaBoundariesUnavailableError, find_class20_code
 from app.infrastructure.jma_warning_client import WarningBulletin, fetch_area_data, fetch_warning_documents
 from app.domain.strict_model import StrictModel
 
@@ -22,28 +22,30 @@ class WarningService:
     def __init__(self, http_client: httpx.AsyncClient):
         self._http_client = http_client
 
-    async def get_warnings(self, point: Coordinates) -> WeatherWarnings:
+    async def get_warnings(self, point: Coordinates) -> WeatherWarnings | None:
         """出発地点の警報・注意報バッジ情報を取得する。
 
-        地点→区域→警報エリアの解決、または警報自体の取得のどこで失敗しても
-        例外にせず「警報なし」を返す。実際には警報が出ているのに見えなくなりうる
-        安全側ではないトレードオフだが、WBGT警告と共有する既知の仕様として受け入れる。
+        地点→区域→警報エリアの解決か、警報自体の取得に失敗したらNone（出ているかが分からない）。
+        「警報なし」は、地点がどの区域にも入らないときと、取れた電文がその区域に警報を持たないときだけ。
         """
-        class20_code = await find_class20_code(point.latitude, point.longitude)
+        try:
+            class20_code = await find_class20_code(point.latitude, point.longitude)
+        except AreaBoundariesUnavailableError:
+            return None
         if class20_code is None:
             return _empty_warnings()
 
         area_master = await fetch_area_data(self._http_client)
         if area_master is None:
-            return _empty_warnings()
+            return None
 
         resolved = resolve_area(class20_code, area_master)
         if resolved is None:
-            return _empty_warnings()
+            return None
 
         bulletins = await fetch_warning_documents(self._http_client, resolved.office_code)
         if bulletins is None:
-            return _empty_warnings()
+            return None
 
         return _build_warnings(bulletins, resolved)
 

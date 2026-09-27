@@ -10,7 +10,12 @@ import pytest
 from shapely.geometry import box
 
 from app.infrastructure import jma_area_boundaries
-from app.infrastructure.jma_area_boundaries import NEAREST_LIMIT_DEG, find_class20_code, write_boundaries
+from app.infrastructure.jma_area_boundaries import (
+    NEAREST_LIMIT_DEG,
+    AreaBoundariesUnavailableError,
+    find_class20_code,
+    write_boundaries,
+)
 
 WEST = "1310100"
 EAST = "1310200"
@@ -46,11 +51,12 @@ async def test_a_point_farther_than_the_limit_from_every_area_is_none(boundaries
     assert await find_class20_code(35.70 + NEAREST_LIMIT_DEG * 2, 139.72) is None
 
 
-async def test_missing_boundaries_are_none_with_a_warning(tmp_path, monkeypatch, caplog):
-    """境界が無いまま「区域なし」を黙って返すと、警報が出ないことに誰も気づけない。"""
+async def test_missing_boundaries_are_not_reported_as_no_area(tmp_path, monkeypatch, caplog):
+    """境界が無いまま「区域なし」を返すと、警報が出ていないことと区域を引けないことが同じに見える。"""
     monkeypatch.setattr(jma_area_boundaries, "BOUNDARY_PATH", tmp_path / "missing.json")
 
     with caplog.at_level(logging.WARNING, logger="ridecompass.jma_area_boundaries"):
-        assert await find_class20_code(35.68, 139.72) is None
+        with pytest.raises(AreaBoundariesUnavailableError):
+            await find_class20_code(35.68, 139.72)
 
     assert "区域の境界を読めない" in caplog.text
