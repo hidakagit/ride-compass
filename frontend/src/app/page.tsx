@@ -23,16 +23,16 @@ import {
 } from "@/components/ui/icons/icons";
 import BottomSheet, { clampSheetHeightVh, DEFAULT_SHEET_HEIGHT_VH } from "@/components/BottomSheet/BottomSheet";
 import LensControl from "@/features/map/LensControl/LensControl";
-import { LENS_DIFFICULTY_ID, LENS_NONE_ID } from "@/lib/mapDisplay/routeStyleModes";
 import ErrorText from "@/components/ErrorText/ErrorText";
 import RouteForm, { type SettingsTab } from "@/features/route/RouteForm/RouteForm";
-import { fixedRouteCount, useRouteFormSubmit, type RouteMode } from "@/features/route/RouteForm/useRouteFormSubmit";
 import RouteSettingsPanel from "@/features/route/RouteSettingsPanel/RouteSettingsPanel";
-import HardFilterPanel, { DEFAULT_HARD_FILTERS } from "@/features/route/RouteSettingsPanel/HardFilterPanel";
+import HardFilterPanel from "@/features/route/RouteSettingsPanel/HardFilterPanel";
 import RouteAxisProfile from "@/features/route/RouteAxisProfile/RouteAxisProfile";
 import SegmentWind from "@/features/route/SegmentWind/SegmentWind";
 import RouteSplicePanel from "@/features/route/RouteSplicePanel/RouteSplicePanel";
 import { useSpliceSession } from "@/features/route/useSpliceSession";
+import { useGenerationConditions } from "@/features/route/useGenerationConditions";
+import { useRouteGeneration } from "@/features/route/useRouteGeneration";
 import AxisContributionBar from "@/components/AxisContributionBar/AxisContributionBar";
 import WeatherPanel from "@/features/conditions/WeatherPanel/WeatherPanel";
 import TodayOutlook from "@/features/conditions/TodayOutlook/TodayOutlook";
@@ -42,13 +42,6 @@ import RideConditionBar from "@/features/conditions/RideConditionBar/RideConditi
 import TravelBearingControl from "@/features/conditions/TravelBearingControl/TravelBearingControl";
 import { useWeatherConditions } from "@/features/conditions/useWeatherConditions";
 import { retryAxisCatalogFetch, useAxisCatalog } from "@/hooks/useAxisCatalog";
-import { syncHardFilterKeys } from "@/features/route/hardFilterSync";
-import {
-  buildGenerateRequest,
-  generationConditionsKey,
-  type GenerationInput,
-} from "@/features/route/generationRequest";
-import { alignRoutePreference, routePreferenceToSend } from "@/features/route/routePreferenceSync";
 import { formatMaterialValue, MATERIAL_CATALOG, materialCatalogName } from "@/lib/axisMaterialsCatalog";
 import { downloadGpx } from "@/features/route/gpxExport";
 import { formatDurationShort } from "@/features/route/formatDuration";
@@ -58,30 +51,19 @@ import {
   isSplicedRoute,
   fastestDurationSeconds,
   fastestRouteId,
-  orderByDuration,
 } from "@/features/route/routeTabLabel";
 import ComparisonPanel from "@/features/route/ComparisonPanel/ComparisonPanel";
 import DifficultyProfile from "@/features/route/DifficultyProfile/DifficultyProfile";
 import DebugConsole from "@/components/DebugConsole/DebugConsole";
-import { debugLog } from "@/lib/debugLog";
 import { useDebugEnabled } from "@/hooks/useDebugLog";
 import { useResearchEnabled } from "@/hooks/useResearchMode";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useElementHeightCssVar } from "@/hooks/useElementHeightCssVar";
 import { useLocation } from "@/hooks/useLocation";
-import { useStoredState, useStoredBooleanState, useStoredJsonState } from "@/hooks/useStoredState";
-import { useDepartureTime } from "@/features/conditions/useDepartureTime";
+import { useStoredState, useStoredBooleanState } from "@/hooks/useStoredState";
+import { useRideConditions } from "@/features/conditions/useRideConditions";
 import { useMapView } from "@/features/map/view/useMapView";
-import { generateRoutes, type GenerationProgress } from "@/features/route/routeApi";
-import type {
-  Coordinates,
-  PinRole,
-  HardFilterOverride,
-  RouteCandidate,
-  RoutePreferenceWeights,
-  SelectedRouteSegment,
-} from "@/types/route";
-import { EXPERIMENT_SLOT_COLORS, MAX_EXPERIMENT_SLOTS, type ExperimentSlot } from "@/types/experimentSlot";
+import type { RouteCandidate, RoutePreferenceWeights, SelectedRouteSegment } from "@/types/route";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import { textVariants } from "@/components/ui/Text/Text";
 import { cardVariants } from "@/components/ui/Card/Card";
@@ -101,17 +83,6 @@ const GENERATE_OPEN_STORAGE_KEY = "ridecompass:generate-open";
 const OUTCOME_OPEN_STORAGE_KEY = "ridecompass:outcome-open";
 // モバイルの下部シートの高さ。シートは1つずつしか開かないため、1つの値を共有する。
 const MOBILE_SHEET_HEIGHT_STORAGE_KEY = "ridecompass:mobile-sheet-height-vh";
-const WEIGHT_OVERRIDE_ENABLED_STORAGE_KEY = "ridecompass:weight-override-enabled";
-const ROUTE_PREFERENCE_STORAGE_KEY = "ridecompass:route-preference";
-const HARD_FILTERS_STORAGE_KEY = "ridecompass:hard-filters";
-// 「条件」タブの入力値。場所（目的地・経由地のピン）は持たない——行くたびに変わるうえ、
-// 古いピンが残っていると気づかないまま生成してしまう。
-const ROUTE_MODE_STORAGE_KEY = "ridecompass:route-mode";
-const DISTANCE_STORAGE_KEY = "ridecompass:distance-km";
-const MAX_ROUTES_STORAGE_KEY = "ridecompass:max-routes";
-// 走行条件のうち想定速度だけを保つ（出発時刻・走行方位は行くたびに変わる）。
-const ASSUMED_SPEED_STORAGE_KEY = "ridecompass:assumed-speed-kmh";
-
 // 区分の見出しのDOM id（デスクトップの区分・モバイルのシート）。
 const GENERATE_SECTION_TITLE_ID = "generate-section-title";
 const OUTCOME_SECTION_TITLE_ID = "outcome-section-title";
@@ -119,14 +90,6 @@ const ROUTE_SETTINGS_SHEET_TITLE_ID = "route-settings-sheet-title";
 const ROUTE_OUTCOME_SHEET_TITLE_ID = "route-outcome-sheet-title";
 
 type MobileSheet = "routeSettings" | "routeOutcome" | null;
-
-/** 直近の生成の案内。失敗は前の候補を残したまま出すため、候補0件の理由と分けて持つ。 */
-type GenerationNotice = { kind: "failed" | "empty"; message: string };
-
-/** ルート生成の進み方。同時に成り立つのは1つだけ。 */
-type Generation =
-  { status: "idle"; notice: GenerationNotice | null } | { status: "running"; progress: GenerationProgress | null };
-const GENERATION_IDLE: Generation = { status: "idle", notice: null };
 
 /** 「ルート結果」をまだ開いていない新着（モバイルのタブの印）。失敗だけは色を変えて見分けられるようにする。 */
 type UnseenOutcome = "failed" | "fresh";
@@ -150,179 +113,14 @@ export default function Home() {
   const [selectedRouteSegment, setSelectedRouteSegment] = useState<SelectedRouteSegment | null>(null);
   // 「比較」タブを見ているか。選んだ候補は比較を見ている間も保ち、戻ったときにそのまま選ばれている。
   const [comparisonTabActive, setComparisonTabActive] = useState(false);
+  // 生成に使われた重み（利用者の重みは生成後も変わりうる）。
+  const [usedWeights, setUsedWeights] = useState<RoutePreferenceWeights | null>(null);
   // 生成の結果が出て、まだ「ルート結果」を開いていない（モバイルのタブの合図）。
   const [unseenOutcome, setUnseenOutcome] = useState<UnseenOutcome | null>(null);
-  // ルート生成。実行中は順番待ちか実行中かと経過時間をボタンへ出し、終わった後は直近の案内（候補0件の
-  // 理由・失敗の文言）を「ルート結果」欄に残す。
-  const [generation, setGeneration] = useState<Generation>(GENERATION_IDLE);
-  const loading = generation.status === "running";
 
-  // 経由地（通る順）。
-  const [waypoints, setWaypoints] = useState<Coordinates[]>([]);
-  const handleWaypointRemove = useCallback((index: number) => {
-    setWaypoints((prev) => prev.filter((_, i) => i !== index));
-  }, []);
-  const handleWaypointMove = useCallback((index: number, point: Coordinates) => {
-    setWaypoints((prev) => prev.map((current, i) => (i === index ? point : current)));
-  }, []);
-  const handleWaypointsClear = useCallback(() => setWaypoints([]), []);
-
-  // 目的地（あれば片道のルート）。
-  const [destination, setDestination] = useState<Coordinates | null>(null);
-  // 地図のタップで置ける地点の役割（1つだけ）。無い間は地図を触ってもピンは増えない。
-  const [armedPinRole, setArmedPinRole] = useState<PinRole | null>(null);
-
-  // 周回か目的地か。切り替えても経由地・目的地は消さない（周回の間は地図に出さず送らないだけで、戻れば復元される）。
-  const [routeMode, setRouteMode] = useStoredState<RouteMode>(ROUTE_MODE_STORAGE_KEY, "loop", {
-    serialize: (mode) => mode,
-    deserialize: (raw) => (raw === "loop" || raw === "destination" ? raw : null),
-  });
-  const handleRouteModeChange = useCallback(
-    (mode: RouteMode) => {
-      setRouteMode(mode);
-      if (mode === "destination") {
-        // 何も置いていなければ、次のタップで目的地を置けるようにする。既に置いてあれば、次のタップは経由地の
-        // 追加かもしれないので自動では武装しない（目的地が意図せず上書きされる）。
-        setArmedPinRole(destination === null && waypoints.length === 0 ? "destination" : null);
-      } else {
-        setArmedPinRole(null);
-      }
-    },
-    [destination, waypoints.length, setRouteMode],
-  );
-
-  // 武装中の役割の地点として地図のタップを受ける。経由地だけは置いたあとも武装を続ける
-  // （続けて何地点も置くのが普通の使い方で、1つ置くたびに押し直させない）。
-  const handlePinPlace = useCallback(
-    (role: PinRole, point: Coordinates) => {
-      if (role === "origin") {
-        setManualLocation(point);
-        setArmedPinRole(null);
-        return;
-      }
-      if (role === "destination") {
-        setDestination(point);
-        setArmedPinRole(null);
-        return;
-      }
-      setWaypoints((prev) => [...prev, point]);
-    },
-    [setManualLocation],
-  );
-  const handleDestinationClear = useCallback(() => setDestination(null), []);
-  // 行を押して武装する。置いてある地点から武装しても値は残し、次のタップで置き換える（外してから置き直させない）。
-  const handleArmPinRole = useCallback((role: PinRole | null) => setArmedPinRole(role), []);
-
-  // 距離の入力（文字列のまま）。ここで持つのは、表示中の候補を作った条件と比べて「生成条件が変更されています」を出すため。
-  const [distanceInput, setDistanceInput] = useStoredState(DISTANCE_STORAGE_KEY, "30", {
-    serialize: (value) => value,
-    // 保存値は画面の範囲内の数値だけを受け入れる（範囲が縮んだ後でも、範囲外の距離が復元されて送られない）。
-    deserialize: (raw) => {
-      const parsed = Number(raw);
-      return Number.isFinite(parsed) && parsed >= 1 && parsed <= routeGenerateConfig.max_distance_km ? raw : null;
-    },
-  });
-  // 候補数（文字列のまま、送るときに数へ）。
-  const [maxRoutesInput, setMaxRoutesInput] = useStoredState(
-    MAX_ROUTES_STORAGE_KEY,
-    String(routeGenerateConfig.default_max_routes),
-    {
-      serialize: (value) => value,
-      deserialize: (raw) => {
-        const parsed = Number(raw);
-        return Number.isInteger(parsed) && parsed >= 1 && parsed <= routeGenerateConfig.max_routes ? raw : null;
-      },
-    },
-  );
-  // 「ルート生成」の検証と送信（handleGenerateは関数宣言なので後ろで定義していても読める）。
-  const routeFormSubmit = useRouteFormSubmit({
-    distance: distanceInput,
-    routeMode,
-    waypointCount: waypoints.length,
-    destinationSet: destination !== null,
-    originKnown: locationSource !== "default",
-    onGenerate: handleGenerate,
-  });
-  // 想定速度（km/h）。区間の通過予定時刻・到達予想時刻の基準になるため、どのモードでも送る。
-  const [assumedSpeedKmh, setAssumedSpeedKmh] = useStoredState<number>(
-    ASSUMED_SPEED_STORAGE_KEY,
-    routeGenerateConfig.default_assumed_speed_kmh,
-    {
-      serialize: String,
-      deserialize: (raw) => {
-        const parsed = Number(raw);
-        return Number.isInteger(parsed) &&
-          parsed >= routeGenerateConfig.min_assumed_speed_kmh &&
-          parsed <= routeGenerateConfig.max_assumed_speed_kmh
-          ? parsed
-          : null;
-      },
-    },
-  );
-  // 表示中の候補を作ったときの条件。
-  const [generatedConditions, setGeneratedConditions] = useState<{
-    /** 送った入力から導いた比較のキー。いまのフォームから同じ関数で作ったキーと比べる。 */
-    key: string;
-    /** 目的地が道路網から外れていて、backendが最寄りの行ける地点へ補正したか。 */
-    destinationCorrected: boolean;
-    /** 利用者が重みを上書きしていたのに、軸カタログが無く送れなかったか（backendの既定の配分で探した）。 */
-    weightsNotApplied: boolean;
-    /** 送った入力そのもの。乗り換えで合成した経路も同じ条件で評価する（同じ並びへ入るため、条件が違うと
-     * 比べられない値で順位が決まる）。返ってきた条件（`conditions`）でなく入力を持つのは、そちらが
-     * 塗る軸（`lens_axis_id`）を含まないため。 */
-    input: GenerationInput;
-    /** 生成に使われた重み（利用者の重みは生成後も変わりうる）。 */
-    routePreference: RoutePreferenceWeights;
-  } | null>(null);
-  const generatedRoutePreference = generatedConditions?.routePreference ?? null;
-
-  // 重みを上書きして送るか。OFFの間は重みを送らず、backendの既定で探す。重みを操作するとONになる。
-  const [weightOverrideEnabled, setWeightOverrideEnabled] = useStoredBooleanState(
-    WEIGHT_OVERRIDE_ENABLED_STORAGE_KEY,
-    false,
-  );
-  // 初期値は空。既定の重みは実行時の軸カタログが配り、下で揃えるときに補う（ビルド時の写しを初期値にすると、
-  // 軸の増減が次のデプロイまで届かない）。
-  const [storedRoutePreference, setRoutePreference] = useStoredJsonState<RoutePreferenceWeights>(
-    ROUTE_PREFERENCE_STORAGE_KEY,
-    {},
-  );
-  // 画面が読む重みは、軸カタログの公開軸へ揃えたこの値だけ（保存値は次に重みを動かしたときに揃った形で書かれる）。
-  const routePreference = useMemo(
-    () => alignRoutePreference(storedRoutePreference, axisCatalog),
-    [storedRoutePreference, axisCatalog],
-  );
-  // 除外の設定。常に送る。保存値に今は無い項目が混じっていても、読むときに今の項目へ揃える。
-  const [hardFilters, setHardFilters] = useStoredState<HardFilterOverride>(
-    HARD_FILTERS_STORAGE_KEY,
-    DEFAULT_HARD_FILTERS,
-    {
-      serialize: (value) => JSON.stringify(value),
-      deserialize: (raw) => {
-        try {
-          return syncHardFilterKeys(JSON.parse(raw) as HardFilterOverride, DEFAULT_HARD_FILTERS);
-        } catch {
-          return null;
-        }
-      },
-    },
-  );
-
-  // 実験スロット: 研究モードの生成結果の直近数件（地図の重ね描き・比較表）。
-  const [experimentSlots, setExperimentSlots] = useState<ExperimentSlot[]>([]);
-
-  // 生成したルート（候補・選択）だけを消す。地点のピンは消さない。実験スロットも地図へ重ね描きされるので一緒に消す
-  // （押した見た目どおり地図が空になる）。
-  const handleRoutesClear = useCallback(() => {
-    setRoutes([]);
-    setSelectedRouteId(null);
-    setComparisonTabActive(false);
-    setGeneratedConditions(null);
-    setExperimentSlots([]);
-    setSelectedRouteSegment(null);
-    // 消した候補に向けた作り直しの失敗は、生成前の案内の場所へ持ち越さない。
-    setGeneration((current) => (current.status === "idle" ? GENERATION_IDLE : current));
-  }, []);
+  // 生成の条件（「ルート設定」の入力）と走行条件。
+  const conditions = useGenerationConditions({ onOriginPlace: setManualLocation });
+  const ride = useRideConditions();
 
   // デスクトップの区分の開閉（モバイルはシートの開閉がこれに当たる）。
   const [generateOpen, setGenerateOpen] = useStoredBooleanState(GENERATE_OPEN_STORAGE_KEY, true);
@@ -355,14 +153,67 @@ export default function Home() {
   const [debugConsoleOpen, setDebugConsoleOpen] = useState(false);
   const researchEnabled = useResearchEnabled();
   const selectedCandidate = routes.find((r) => r.id === selectedRouteId) ?? null;
+  const hasDetail = !!selectedCandidate?.segments && selectedCandidate.segments.length > 0;
+
+  const mapView = useMapView({
+    hasSelectedRoute: selectedCandidate !== null,
+    hasDetail,
+    ride: ride.ride,
+    now: ride.departure.now,
+    usedWeights,
+  });
+
+  // 生成の結果（候補も失敗も）は「ルート結果」でしか見えないので知らせる。デスクトップは区分を開き、モバイルは
+  // タブのドットで知らせる（シートは勝手に開かない）。
+  const notifyRouteOutcome = useCallback(
+    (outcome: UnseenOutcome) => {
+      setOutcomeOpen(true);
+      setUnseenOutcome(outcome);
+    },
+    [setOutcomeOpen],
+  );
+
+  const generation = useRouteGeneration({
+    conditions,
+    origin: location,
+    originKnown: locationSource !== "default",
+    departure: ride.departure,
+    assumedSpeedKmh: ride.speedKmh,
+    lens: mapView.lens,
+    hasRoutes: routes.length > 0,
+    onGenerated: ({ routes: generated, routePreference }) => {
+      setRoutes(generated);
+      // 最初に選ぶのは先頭（最も早く着く候補）。
+      setSelectedRouteId(generated[0]?.id ?? null);
+      // 比較を開いたまま生成したら新しい候補へ戻す（比較表が残ると、生成が効かなかったように見える）。
+      setComparisonTabActive(false);
+      // 候補が入れ替わると、押していた区間も意味を失う。
+      setSelectedRouteSegment(null);
+      setUsedWeights(routePreference);
+      setUnseenOutcome(generated.length > 0 ? "fresh" : null);
+    },
+    onOutcome: notifyRouteOutcome,
+  });
+
+  // 生成したルート（候補・選択）だけを消す。地点のピンは消さない。実験スロットも地図へ重ね描きされるので一緒に消す
+  // （押した見た目どおり地図が空になる）。
+  const clearGeneration = generation.clear;
+  const handleRoutesClear = useCallback(() => {
+    setRoutes([]);
+    setSelectedRouteId(null);
+    setComparisonTabActive(false);
+    setUsedWeights(null);
+    setSelectedRouteSegment(null);
+    clearGeneration();
+  }, [clearGeneration]);
 
   // 区間の乗り換え。あれば「ルート結果」の同じ場所が編集面になる。
   const splice = useSpliceSession({
     routes,
-    generatedInput: generatedConditions?.input ?? null,
+    generatedInput: generation.generatedInput,
     hasSelectedRoute: selectedCandidate !== null,
     // 作ると、直前の生成の失敗の文言を残さない。
-    onApplyStart: () => setGeneration((current) => (current.status === "idle" ? GENERATION_IDLE : current)),
+    onApplyStart: generation.clearNotice,
     onApplied: ({ routes: nextRoutes, selectedRouteId: nextSelectedRouteId }) => {
       setRoutes(nextRoutes);
       setSelectedRouteId(nextSelectedRouteId);
@@ -371,7 +222,6 @@ export default function Home() {
     },
   });
   const editingRoute = splice.editingRoute;
-  const hasDetail = !!selectedCandidate?.segments && selectedCandidate.segments.length > 0;
 
   const isMobile = useIsMobile();
 
@@ -386,7 +236,8 @@ export default function Home() {
   const routeOutcomeActive = isMobile ? mobileSheet === "routeOutcome" : !sidebarCollapsed && outcomeOpen;
   const pointEditingEnabled = routeSettingsActive && settingsTab === "generate" && editingRoute === null;
   const routeInspectionEnabled = routeOutcomeActive && editingRoute === null;
-  const pinPlacementArmedRole = routeMode === "destination" && pointEditingEnabled ? armedPinRole : null;
+  const pinPlacementArmedRole =
+    conditions.routeMode === "destination" && pointEditingEnabled ? conditions.armedPinRole : null;
 
   // 地図のチップ列は、下部の行（時刻スライダー等）の高さを知らない。地図の枠へ実測の高さをCSS変数で渡す。
   const mapPaneRef = useRef<HTMLDivElement>(null);
@@ -401,21 +252,6 @@ export default function Home() {
     const sheetPx = mobileSheet ? (window.innerHeight * mobileSheetHeightVh) / 100 : 0;
     return { bottom: (mobileTabBarRef.current?.getBoundingClientRect().height ?? 0) + sheetPx };
   };
-
-  // 走行条件。地図の見え方・生成リクエスト・道の詳細が同じ値を読む。
-  const [travelBearingDeg, setTravelBearingDeg] = useState(0);
-  const departure = useDepartureTime();
-  const rideConditions = useMemo(
-    () => ({ bearingDeg: travelBearingDeg, at: departure.at, speedKmh: assumedSpeedKmh }),
-    [travelBearingDeg, departure.at, assumedSpeedKmh],
-  );
-  const mapView = useMapView({
-    hasSelectedRoute: selectedCandidate !== null,
-    hasDetail,
-    ride: rideConditions,
-    now: departure.now,
-    usedWeights: generatedRoutePreference,
-  });
 
   // モバイルのタブ。同じタブをもう一度押したら閉じる。
   const handleMobileTabClick = useCallback(
@@ -478,162 +314,15 @@ export default function Home() {
     [locationUnknown, handleLocateMe, axisCatalog.failed, warningFetchFailures],
   );
 
-  // いまのフォームから生成の入力を組み立てる。生成と「条件が変わったか」の判定が同じ関数を通るので、送る値を
-  // 足したときに比較の側へ足し忘れない。`destinationOverride`はbackendが補正した目的地。
-  const buildCurrentGenerationInput = useCallback(
-    (distanceKm: number, destinationOverride?: Coordinates): GenerationInput => {
-      const effectiveDestination = destinationOverride ?? destination;
-      const destinationModePoints =
-        routeMode === "destination" ? [...waypoints, ...(effectiveDestination ? [effectiveDestination] : [])] : [];
-      return {
-        origin: location,
-        // 点を置いたときの探索の範囲はbackendが点から決めるため、距離は送らない。
-        distanceKm: routeMode === "destination" && destinationModePoints.length > 0 ? null : distanceKm,
-        distanceToleranceKm: routeGenerateConfig.default_distance_tolerance_km,
-        maxRoutes: fixedRouteCount(routeMode, waypoints.length) ?? Number(maxRoutesInput),
-        assumedSpeedKmh,
-        startTime: departure.at,
-        startTimePinned: departure.pinned,
-        hardFilters,
-        // 軸カタログが届くまでは塗る軸を送らない（backendは知らない軸を黙って無視する）。
-        lensAxisId:
-          axisCatalog.loaded && mapView.lens !== LENS_NONE_ID && mapView.lens !== LENS_DIFFICULTY_ID
-            ? mapView.lens
-            : null,
-        routePreference: routePreferenceToSend(routePreference, axisCatalog.loaded, weightOverrideEnabled),
-        waypoints: routeMode === "destination" ? waypoints : [],
-        destination: routeMode === "destination" ? effectiveDestination : null,
-      };
-    },
-    [
-      routeMode,
-      waypoints,
-      destination,
-      location,
-      maxRoutesInput,
-      assumedSpeedKmh,
-      departure.at,
-      departure.pinned,
-      hardFilters,
-      mapView.lens,
-      weightOverrideEnabled,
-      axisCatalog.loaded,
-      routePreference,
-    ],
-  );
-
-  // 表示中の候補を作った条件と、いまのフォームがずれているか（変えただけでは何も起きないことを知らせる）。
-  const conditionsDirty =
-    generatedConditions != null &&
-    routes.length > 0 &&
-    generationConditionsKey(buildCurrentGenerationInput(Number(distanceInput))) !== generatedConditions.key;
-
-  async function handleGenerate(distanceKm: number) {
-    setGeneration({ status: "running", progress: null });
-    let notice: GenerationNotice | null = null;
-    try {
-      const generationInput = buildCurrentGenerationInput(distanceKm);
-      const {
-        routes: candidates,
-        conditions,
-        noCandidatesReason,
-      } = await generateRoutes(buildGenerateRequest(generationInput), (progress) =>
-        setGeneration({ status: "running", progress }),
-      );
-      // backendが目的地を補正したら、地図のピンも実際に使われた地点へ合わせる。
-      if (conditions.corrected_destination) {
-        setDestination(conditions.corrected_destination);
-      }
-      // 一覧は所要時間の短い順。最初に選ぶのも先頭（最も早く着く候補）。
-      const ordered = orderByDuration(candidates);
-      setRoutes(ordered);
-      setSelectedRouteId(ordered[0]?.id ?? null);
-      // 比較を開いたまま生成したら新しい候補へ戻す（比較表が残ると、生成が効かなかったように見える）。
-      setComparisonTabActive(false);
-      // 候補が入れ替わると、乗り換えの編集も押していた区間も意味を失う。
-      splice.end();
-      setSelectedRouteSegment(null);
-      setUnseenOutcome(candidates.length > 0 ? "fresh" : null);
-      // 補正があったら補正後の地点で入力を組み直す（ピンも動かしたので、直後に「条件が変わった」にならない）。
-      const generatedInput = conditions.corrected_destination
-        ? buildCurrentGenerationInput(distanceKm, conditions.corrected_destination)
-        : generationInput;
-      setGeneratedConditions({
-        key: generationConditionsKey(generatedInput),
-        destinationCorrected: Boolean(conditions.corrected_destination),
-        weightsNotApplied: weightOverrideEnabled && generatedInput.routePreference === null,
-        input: generatedInput,
-        routePreference: conditions.route_preference,
-      });
-      if (candidates.length === 0) {
-        notice = {
-          kind: "empty",
-          message: noCandidatesReason ?? "条件に合うルート候補が見つかりませんでした。距離を変えて試してください。",
-        };
-        notifyRouteOutcome("fresh");
-      } else if (researchEnabled) {
-        // 研究モードの生成だけを実験スロットへ残す。代表は難易度が最小の候補（backendの並びの先頭。一覧の並びとは別で、
-        // 後で選び直しても変えない）。
-        setExperimentSlots((prev) => {
-          const next: ExperimentSlot = {
-            id: `slot-${conditions.generated_at}-${Math.random().toString(36).slice(2, 8)}`,
-            color: EXPERIMENT_SLOT_COLORS[0],
-            conditions,
-            topCandidate: candidates[0],
-          };
-          // 色は並びの位置で決める（最新が先頭の色）。
-          return [next, ...prev]
-            .slice(0, MAX_EXPERIMENT_SLOTS)
-            .map((slot, i) => ({ ...slot, color: EXPERIMENT_SLOT_COLORS[i % EXPERIMENT_SLOT_COLORS.length] }));
-        });
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "不明なエラーが発生しました";
-      notice = { kind: "failed", message };
-      debugLog("api:route", "ルート生成ハンドラで例外", { error: message }, "error");
-      notifyRouteOutcome("failed");
-    } finally {
-      setGeneration({ status: "idle", notice });
-    }
-  }
-
-  // 生成の結果（候補も失敗も）は「ルート結果」でしか見えないので知らせる。デスクトップは区分を開き、モバイルは
-  // タブのドットで知らせる（シートは勝手に開かない）。
-  const notifyRouteOutcome = useCallback(
-    (outcome: UnseenOutcome) => {
-      setOutcomeOpen(true);
-      setUnseenOutcome(outcome);
-    },
-    [setOutcomeOpen],
-  );
-
-  // 入力の検証の誤りも「ルート生成」を押した結果として同じく知らせる。
-  useEffect(() => {
-    if (routeFormSubmit.error) notifyRouteOutcome("failed");
-  }, [routeFormSubmit.error, notifyRouteOutcome]);
-
   // モバイルの「ルート結果」タブの印。失敗だけ色を変える（条件の変更と新しい結果は、開けば新しいものがある点で同じ）。
   const outcomeTabSignal: { tone: "error" | "warning"; label: string } | null =
     unseenOutcome === "failed"
       ? { tone: "error", label: "生成に失敗しました" }
       : unseenOutcome === "fresh"
         ? { tone: "warning", label: "新しい結果があります" }
-        : conditionsDirty
+        : generation.conditionsDirty
           ? { tone: "warning", label: "生成条件が変更されています" }
           : null;
-
-  // 押した「生成」が通らなかった理由（入力の誤り・生成の失敗）。候補がある間も、前の候補の上に出す。
-  const generationFailure =
-    routeFormSubmit.error ??
-    (generation.status === "idle" && generation.notice?.kind === "failed" ? generation.notice.message : null);
-
-  const generationProgress = generation.status === "running" ? generation.progress : null;
-  const generationProgressLabel =
-    generationProgress?.status === "queued"
-      ? "順番待ち..."
-      : generationProgress?.status === "running"
-        ? `生成中...(${Math.round(generationProgress.elapsedMs / 1000)}秒経過)`
-        : undefined;
 
   // 「ルート設定」のタブ列は見出し行に置き（本文の縦を空ける）、「ルート生成」は同じ行の右端に離して置く（どのタブを
   // 見ていても押せる）。
@@ -651,7 +340,7 @@ export default function Home() {
     return (
       <div className="flex items-center gap-2">
         {/* 条件を変えている本人は設定の側を見ているので、押すべきボタンの隣でも知らせる。 */}
-        {conditionsDirty && (
+        {generation.conditionsDirty && (
           <span
             className={dotVariants({ tone: "warning" })}
             role="img"
@@ -662,12 +351,12 @@ export default function Home() {
         <Button
           variant="primary"
           size="iconLabel"
-          disabled={loading}
-          onClick={routeFormSubmit.handleSubmit}
-          aria-label={loading ? (generationProgressLabel ?? "生成中...") : "ルート生成"}
+          disabled={generation.running}
+          onClick={generation.submit}
+          aria-label={generation.running ? (generation.progressLabel ?? "生成中...") : "ルート生成"}
         >
           <GenerateRoutesIcon size={18} />
-          {loading ? (generationProgress?.status === "queued" ? "順番待ち" : "生成中") : "生成"}
+          {generation.running ? (generation.queued ? "順番待ち" : "生成中") : "生成"}
         </Button>
       </div>
     );
@@ -678,30 +367,32 @@ export default function Home() {
   function renderRouteSectionBody() {
     return (
       <RouteForm
-        distance={distanceInput}
-        onDistanceChange={setDistanceInput}
-        maxRoutes={maxRoutesInput}
-        onMaxRoutesChange={setMaxRoutesInput}
-        routeMode={routeMode}
-        onRouteModeChange={handleRouteModeChange}
-        waypointCount={waypoints.length}
-        onWaypointsClear={handleWaypointsClear}
-        destinationSet={destination !== null}
-        onDestinationClear={handleDestinationClear}
+        distance={conditions.distanceInput}
+        onDistanceChange={conditions.setDistanceInput}
+        maxRoutes={conditions.maxRoutesInput}
+        onMaxRoutesChange={conditions.setMaxRoutesInput}
+        routeMode={conditions.routeMode}
+        onRouteModeChange={conditions.changeRouteMode}
+        waypointCount={conditions.waypoints.length}
+        onWaypointsClear={conditions.clearWaypoints}
+        destinationSet={conditions.destination !== null}
+        onDestinationClear={conditions.clearDestination}
         originManual={locationSource === "manual"}
         originLocated={locationSource !== "default"}
         onOriginReset={handleLocateMe}
-        armedPinRole={armedPinRole}
-        onArmPinRole={handleArmPinRole}
+        armedPinRole={conditions.armedPinRole}
+        onArmPinRole={conditions.armPinRole}
         weightsPanel={
           <RouteSettingsPanel
-            routePreference={routePreference}
-            onRoutePreferenceChange={setRoutePreference}
-            overrideEnabled={weightOverrideEnabled}
-            onOverrideEnabledChange={setWeightOverrideEnabled}
+            routePreference={conditions.routePreference}
+            onRoutePreferenceChange={conditions.setRoutePreference}
+            overrideEnabled={conditions.weightOverrideEnabled}
+            onOverrideEnabledChange={conditions.setWeightOverrideEnabled}
           />
         }
-        exclusionsPanel={<HardFilterPanel hardFilters={hardFilters} onHardFiltersChange={setHardFilters} />}
+        exclusionsPanel={
+          <HardFilterPanel hardFilters={conditions.hardFilters} onHardFiltersChange={conditions.setHardFilters} />
+        }
       />
     );
   }
@@ -709,12 +400,11 @@ export default function Home() {
   // 「ルート結果」に候補が無いときの中身（生成前・生成中・失敗）。候補0件で生成前の案内へ戻ると、押したのに何も
   // 起きていないように見える。
   function renderRouteOutcomeEmptyState() {
-    if (loading) {
-      return <p className={textVariants({ variant: "hint" })}>{generationProgressLabel ?? "生成中..."}</p>;
+    if (generation.running) {
+      return <p className={textVariants({ variant: "hint" })}>{generation.progressLabel ?? "生成中..."}</p>;
     }
-    const failure = routeFormSubmit.error ?? generation.notice?.message;
-    if (failure) {
-      return <ErrorText>{failure}</ErrorText>;
+    if (generation.lastMessage) {
+      return <ErrorText>{generation.lastMessage}</ErrorText>;
     }
     return <p className={textVariants({ variant: "hint" })}>「生成」を押すと候補がここに並びます</p>;
   }
@@ -764,7 +454,7 @@ export default function Home() {
     if (routes.length === 0) return renderRouteOutcomeEmptyState();
     return (
       <>
-        {generationFailure && <ErrorText>作り直せませんでした。{generationFailure}</ErrorText>}
+        {generation.failure && <ErrorText>作り直せませんでした。{generation.failure}</ErrorText>}
         {renderRouteOutcomeSectionBody()}
       </>
     );
@@ -786,22 +476,22 @@ export default function Home() {
     // 道のりのグラフの横軸の右端。候補どうしで同じ物差しにし、面積（負荷）を見比べられるようにする。
     const longestDistanceKm = Math.max(0, ...routes.map((route) => route.distance_km));
     // 重みが0の軸を「未使用」と出す判定に使う（生成に使った重み）。
-    const routeWeights = generatedRoutePreference ?? routePreference;
+    const routeWeights = usedWeights ?? conditions.routePreference;
 
     return (
       <>
         {/* 作り直しの失敗を出している間は、それが前の条件の候補であることも伝えているので重ねない。 */}
-        {conditionsDirty && !generationFailure && (
+        {generation.conditionsDirty && !generation.failure && (
           <p className="m-0 text-[length:var(--font-size-sm)] text-[var(--color-warning-strong)]">
             生成条件が変更されています
           </p>
         )}
-        {generatedConditions?.weightsNotApplied && (
+        {generation.weightsNotApplied && (
           <p className="m-0 text-[length:var(--font-size-sm)] text-[var(--color-warning-strong)]">
             重み配分を反映できず、既定の配分で作りました。
           </p>
         )}
-        {generatedConditions?.destinationCorrected && (
+        {generation.destinationCorrected && (
           <p className="m-0 text-[length:var(--font-size-sm)] text-[var(--color-warning-strong)]">
             指定した地点は自転車で行けない場所だったため、近くのアクセス可能な地点へ補正しました。
           </p>
@@ -962,10 +652,10 @@ export default function Home() {
               <TabsContent className="flex flex-col gap-2 data-[state=inactive]:hidden" value="comparison" forceMount>
                 {/* 比較の軸は各スロットを作ったときの重みで選ぶ（いまの重みで絞ると、重みを0にした軸の差が比較から消える）。 */}
                 <ComparisonPanel
-                  slots={experimentSlots}
+                  slots={generation.experimentSlots}
                   axisLabels={axisCatalog.axisLabels}
                   axes={axisCatalog.axes.filter((axis) =>
-                    experimentSlots.some((slot) => (slot.conditions.route_preference[axis.axisId] ?? 0) > 0),
+                    generation.experimentSlots.some((slot) => (slot.conditions.route_preference[axis.axisId] ?? 0) > 0),
                   )}
                   materials={MATERIAL_CATALOG}
                 />
@@ -1099,23 +789,23 @@ export default function Home() {
             location={location}
             locationSource={locationSource}
             look={mapView.look}
-            rideConditions={rideConditions}
-            routePreference={routePreferenceToSend(routePreference, axisCatalog.loaded, weightOverrideEnabled)}
+            rideConditions={ride.ride}
+            routePreference={conditions.routePreferenceToSend}
             // 実験スロットは「比較」を見ている間だけ地図へ重ねる（それ以外は選んだルートの色分けと紛らわしい）。
-            experimentSlots={researchEnabled && comparisonTabActive ? experimentSlots : []}
+            experimentSlots={researchEnabled && comparisonTabActive ? generation.experimentSlots : []}
             selectedRouteSegment={selectedRouteSegment}
             onRouteSegmentSelect={(selection) => {
               if (!routeInspectionEnabled) return;
               setSelectedRouteSegment(selection);
             }}
-            waypoints={routeMode === "destination" ? waypoints : []}
-            onWaypointRemove={handleWaypointRemove}
-            onWaypointMove={handleWaypointMove}
-            destination={routeMode === "destination" ? destination : null}
-            onDestinationClear={handleDestinationClear}
+            waypoints={conditions.routeMode === "destination" ? conditions.waypoints : []}
+            onWaypointRemove={conditions.removeWaypoint}
+            onWaypointMove={conditions.moveWaypoint}
+            destination={conditions.routeMode === "destination" ? conditions.destination : null}
+            onDestinationClear={conditions.clearDestination}
             armedPinRole={pinPlacementArmedRole}
             pointEditingEnabled={pointEditingEnabled}
-            onPinPlace={handlePinPlace}
+            onPinPlace={conditions.placePin}
             measureRouteFitObscuredPx={measureRouteFitObscuredPx}
           />
 
@@ -1161,7 +851,7 @@ export default function Home() {
             </Button>
           </div>
 
-          <TravelBearingControl value={travelBearingDeg} onChange={setTravelBearingDeg} />
+          <TravelBearingControl value={ride.bearingDeg} onChange={ride.setBearingDeg} />
 
           {/* 走行条件（出発時刻・想定速度）は走行方位の直下に積む。出発時刻は気象レイヤーの表示時刻と同じもの。 */}
           <div
@@ -1169,11 +859,11 @@ export default function Home() {
             className="pointer-events-none absolute top-[calc(var(--map-ctrl-stack-top)+var(--map-ctrl-button-size)+var(--map-ctrl-stack-gap))] right-[var(--map-ctrl-margin)] z-[var(--z-map-control)]"
           >
             <RideConditionBar
-              departureTime={departure.at}
-              onDepartureTimeChange={departure.setAt}
-              onDepartureNow={departure.followNow}
-              speedKmh={assumedSpeedKmh}
-              onSpeedKmhChange={setAssumedSpeedKmh}
+              departureTime={ride.departure.at}
+              onDepartureTimeChange={ride.departure.setAt}
+              onDepartureNow={ride.departure.followNow}
+              speedKmh={ride.speedKmh}
+              onSpeedKmhChange={ride.setSpeedKmh}
             />
           </div>
 
@@ -1263,7 +953,7 @@ export default function Home() {
               onHeightChange={setWorkingSheetHeightVh}
               onHeightCommit={handleMobileSheetHeightCommit}
               autoFitHeight={!sheetHeightChosen}
-              fitKey={`${settingsTab}:${routeMode}`}
+              fitKey={`${settingsTab}:${conditions.routeMode}`}
             >
               {renderRouteSectionBody()}
             </BottomSheet>

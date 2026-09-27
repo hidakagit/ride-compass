@@ -31,7 +31,8 @@ interface UseRouteFormSubmitResult {
 }
 
 /** 「ルート生成」ボタン（page.tsxの「ルート設定」見出し行）から呼ぶ検証と送信。距離・候補数は確かめない——
- * 入力がスライダー・ステッパーで、保存値も読むときに範囲の外を捨てる（page.tsx）ので、範囲の外の値は作れない。 */
+ * 入力がスライダー・ステッパーで、保存値も読むときに範囲の外を捨てる（`features/route/useGenerationConditions.ts`）ので、
+ * 範囲の外の値は作れない。 */
 export function useRouteFormSubmit({
   distance,
   routeMode,
@@ -52,7 +53,7 @@ export function useRouteFormSubmit({
       return;
     }
     setError(null);
-    // 目的地モードの距離は、page.tsxが地図上の点から決める（handleGenerate）。
+    // 目的地モードの距離は送らない（探索の範囲はbackendが置いた点から決める。`features/route/useRouteGeneration.ts`）。
     onGenerate(routeMode === "destination" ? 0 : Number(distance));
   }
 

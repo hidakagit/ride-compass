@@ -25,6 +25,9 @@ const withoutError = (task: SpliceTask): SpliceTask => (task.status === "idle" ?
 
 /** 区間の乗り換えの編集1回ぶん。 */
 interface SpliceSession {
+  /** 編集を始めたときの候補を作った生成。作り直す・消すと、この編集は効かなくなる（候補のidは作り直しでも
+   * 同じ値が振られうるため、idだけでは別の候補を指したまま残る）。 */
+  basis: GenerationInput;
   /** 編集の元にした候補。 */
   routeId: string;
   /** 適用した乗り換えを積み上げる。各要素の範囲は「適用した時点の経路」に対する位置のため、
@@ -59,7 +62,7 @@ export interface SpliceSessionInputs {
   /** 候補の一覧（編集の元と乗り換え先はここから引く）。 */
   routes: RouteCandidate[];
   /** 表示中の候補を作った生成の入力。合成した経路も同じ条件で評価する（同じ並びへ入るため、条件が違うと
-   * 比べられない値で順位が決まる）。 */
+   * 比べられない値で順位が決まる）。変わると（作り直す・消す）編集は終わる。 */
   generatedInput: GenerationInput | null;
   /** 候補を選んでいるか。 */
   hasSelectedRoute: boolean;
@@ -85,8 +88,6 @@ export interface SpliceSessionView {
   canStart: boolean;
   /** 候補を元に編集を始める（空から始まる）。 */
   start: (routeId: string) => void;
-  /** 編集を終える（中身ごと消え、次の編集へ持ち込まない）。 */
-  end: () => void;
   map: SpliceMapProps;
   /** 編集面（`RouteSplicePanel`）へ渡す値。編集していなければnull。 */
   panel: ComponentProps<typeof RouteSplicePanel> | null;
@@ -105,7 +106,8 @@ export function useSpliceSession({
 }: SpliceSessionInputs): SpliceSessionView {
   const axisCatalog = useAxisCatalog();
   // 始めると空から始まり、抜けると中身ごと消える（前回の編集の残りを次へ持ち込まない）。
-  const [splice, setSplice] = useState<SpliceSession | null>(null);
+  const [session, setSplice] = useState<SpliceSession | null>(null);
+  const splice = session !== null && session.basis === generatedInput ? session : null;
   const updateSplice = (next: (current: SpliceSession) => SpliceSession) =>
     setSplice((current) => (current === null ? null : next(current)));
   const editingRouteId = splice?.routeId ?? null;
@@ -270,8 +272,9 @@ export function useSpliceSession({
     // 区間を割る下限を引けない間（軸カタログが取れていない）も出さない。取れていないことはヘッダーの印が知らせる。
     canStart:
       Boolean(generatedInput?.destination) && routes.length > 1 && hasSelectedRoute && minStretchKm !== undefined,
-    start: (routeId) => setSplice({ routeId, applied: [], previews: {}, task: SPLICE_IDLE }),
-    end: () => setSplice(null),
+    start: (routeId) => {
+      if (generatedInput) setSplice({ basis: generatedInput, routeId, applied: [], previews: {}, task: SPLICE_IDLE });
+    },
     map: {
       spliceStretches: spliceStretchFeatures,
       splicedRoute: splicedShape ? splicedShape.coordinates : null,

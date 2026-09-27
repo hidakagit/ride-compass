@@ -66,7 +66,7 @@ localStorage経由で`/`側へ共有される（`HeaderMenu`はデバッグロ�
 
 ## 研究モード（`HeaderMenu.tsx`でON/OFF、`useResearchEnabled()`で参照）
 
-ONにすると`page.tsx`側の`handleGenerate`が生成した結果が実験スロット（`page.tsx`の
+ONにすると生成（`features/route/useRouteGeneration.ts`）が生成した結果が実験スロット（同じフックの
 `experimentSlots`、最大3件）へ記録され、比較タブ（`ComparisonPanel`、ルート結果の
 タブ列で候補タブ群の末尾に並ぶ。researchEnabledの間だけ現れる）・地図の重ね描き
 （`MapView`の`experimentSlots` prop）に使えるように

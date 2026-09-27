@@ -22,7 +22,7 @@ import { cn } from "@/lib/cn";
 export type SettingsTab = "generate" | "weights" | "exclusions";
 
 interface RouteFormProps {
-  /** 距離入力の現在値（文字列のまま）。生成条件のdirty判定（page.tsx）に使うため親が持つ */
+  /** 距離入力の現在値（文字列のまま）。生成条件のdirty判定（`features/route/useRouteGeneration.ts`）に使うため親が持つ */
   distance: string;
   onDistanceChange: (value: string) => void;
   /** 候補件数入力の現在値（文字列のまま）。距離と同じ理由で親が持つ。周回モードと、
@@ -88,7 +88,7 @@ export default function RouteForm({
 
   // 出発地・経由地・目的地は同じ形の行で並べる（役割が同じ「地点を置く」操作のため）。
   // 行頭の印は**地図のピンと同じ図形**（pinMarks.ts）で、行とピンを見た目で結ぶ。
-  // 武装は1つだけで、押している行以外は自動的に解除される（app/page.tsx: armedPinRole）。
+  // 武装は1つだけで、押している行以外は自動的に解除される（`features/route/useGenerationConditions.ts`の`armedPinRole`）。
   function renderPointRow(
     role: PinRole,
     label: string,

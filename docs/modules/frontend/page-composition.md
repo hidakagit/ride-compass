@@ -23,7 +23,7 @@
 | features/map/MapView | `useLayerDataStatus.ts`（`layerDataStatus` stateの実装） |
 | lib | `apiBaseUrl.ts`・`apiPath.ts`（backendのAPIのパスと問い合わせの項目をOpenAPIの宣言と型で照合して作る）・`apiError.ts`・`backendInternalUrl.ts`・`fetchJson.ts`・`queryClient.ts`（画面のデータ取得が共有するTanStack Queryのキャッシュ。下記「データ取得の骨格」）・`apiTimeouts.ts`（APIリクエストのタイムアウト。呼び出しの性質ごとの名前付き定数）・`safeStorage.ts`（localStorageの読み書きで例外を外へ出さない薄いラッパ）・`paletteCssVariables.ts`（地図に塗る色と同じ色をUIにも出す箇所へ、配信された値をCSS変数として流す。`layout.tsx`がサーバー側で`:root`へ入れる。CSSが値を持つのはライト/ダークで2値を持つものだけ）・`mapOverlayEdges.ts`（地図の上に重ねる部品へ付ける「どの辺を覆うか」の印と、印の付いた部品が覆う幅の実測。印を付ける部品は地図の機能の外にもあるので共有の層に置く。下記「`MapView`との境界」） |
 | features/route | `routeApi.ts`（ルート生成・プレビューAPI）・`formatDuration.ts`（秒を「1時間42分」の形にする）・`generationRequest.ts`（生成リクエストのpayloadと`conditionsDirty`の比較キーを同じ入力から導出する純関数）・`routeSplice.ts`（候補どうしが別々の道を通る区間を`edge_ids`の集合演算で求め、表示中の側と相手側を対応づけ、選んだ区間を差し替えた経路を組み立て純関数。差し替えた経路の評価はbackendが行うため計算式は持たない。合成結果も生成候補と同じ並び（所要時間の短い順、`routeTabLabel.ts: orderByDuration`）へ入れる。区間を割る下限は持たず呼び出し側から受け取る［backendの較正値で、管理画面から変えられる］） |
-| features/conditions | `useDepartureTime.ts`（出発時刻。選ぶまでは5分刻みの「今」へ追従し、選んだ時刻は動かさない）・`rideConditions.ts`（走行条件の出発時刻ラベルと想定速度の丸め。速度の上下限はbackendの`routeGenerateConfig`から読む） |
+| features/conditions | `useRideConditions.ts`（走行条件: 走行方位・出発時刻・想定速度。想定速度だけを保存し、保存値は画面の範囲内の整数だけを受け入れる）・`useDepartureTime.ts`（出発時刻。選ぶまでは5分刻みの「今」へ追従し、選んだ時刻は動かさない）・`rideConditions.ts`（走行条件の出発時刻ラベルと想定速度の丸め。速度の上下限はbackendの`routeGenerateConfig`から読む） |
 | types | `types/route.ts`（`RouteCandidate`等の生成APIレスポンス型） |
 | components（特定モジュールの責務ではない共通部品） | `ErrorText/ErrorText.tsx`（フォームのエラー文言表示）・`BottomSheet/BottomSheet.tsx`（モバイル下部シート、下記「モバイル/デスクトップのレイアウト分岐」節参照）・`Disclosure/Disclosure.tsx`（折りたたみ表示、[ルート設定・結果パネル](route-settings-and-results.md)等が使う） |
 | features/conditions/RideConditionBar | `RideConditionBar.tsx`（地図右上、走行方位アイコン直下の走行条件アイコン列本体。出発時刻・想定速度ともTravelBearingControlと同じ列の幅のアイコンボタンで、アイコンの下へ現在値（出発時刻は当日なら「12:40」、別の日は「9/24」「12:40」の2行。想定速度は「20km/h」）を出す。表示・`aria-label`・`title`は同じ文字列から作る。タップしたポップオーバー内はドラッグ式タイムライン（「今」の目盛りを選ぶと追従へ戻す）＋`input[type=datetime-local]`の直接指定[出発時刻、日本時間で読み書きする]、スライダー＋数値入力[想定速度]）・`departureTimeline.ts`（出発時刻ポップオーバーのドラッグタイムライン用の目盛り生成。気象レイヤーの実フレームには依存しない自己完結した合成タイムライン） |
@@ -177,7 +177,11 @@ backendも日本時間で扱う。`domain/time_zone.py`）。暦と時刻の取�
 この部分だけで、軸やレイヤーの種類を知らない値だけを受け取る形にしておけば、足しても
 `page.tsx`は変わらない。**区間の乗り換え**は`features/route/useSpliceSession.ts`が持ち、`page.tsx`は
 候補の一覧と生成の入力を渡して、地図へ渡す値と編集面へ渡す値を受け取る（作った経路で一覧を入れ替えるのは`page.tsx`）。
-残り（ルートの生成と結果・レイアウト）は`page.tsx`が持ち、子コンポーネントへはpropsで渡す（子が独自に同じ状態を持たない）。全件の一覧は
+**生成の条件**（「ルート設定」の入力）は`features/route/useGenerationConditions.ts`、**生成**（送信・進み方・案内・
+条件のずれ・実験スロット）は`features/route/useRouteGeneration.ts`、**走行条件**は`features/conditions/useRideConditions.ts`が持つ。
+生成は候補の一覧を持たず、結果を`page.tsx`へ渡す（地図の見え方が生成に使われた重みを読み、生成が地図のレンズを読むため、
+候補と使われた重みを生成の側に置くと呼ぶ順が回る）。
+残り（ルートの結果・レイアウト）は`page.tsx`が持ち、子コンポーネントへはpropsで渡す（子が独自に同じ状態を持たない）。全件の一覧は
 実装を読むのが正で、ここでは**永続化するかどうかの判断基準**だけを示す——一覧を書き写すと、
 状態を1つ足したときにこの節だけが古くなる。
 
@@ -204,11 +208,11 @@ backendも日本時間で扱う。`domain/time_zone.py`）。暦と時刻の取�
 
 `page.tsx`は風・勾配を「評価軸グループ（線、視界内の全道路へ一律色分け）」として配線する
 （面塗りの表現は持たない）。両者は`[時刻, 向き]`のうち「時刻」の扱いが異なる（風のみ
-時刻依存）が、「向き」は単一の共有state`travelBearingDeg`を風・勾配の両方が使う
+時刻依存）が、「向き」は単一の共有state（走行方位）を風・勾配の両方が使う
 （走行方位という1つの概念を表す単一state）:
 
 ```
-travelBearingDeg（page.tsxの単一useState、TravelBearingControlで操作）。出発時刻は`features/conditions/useDepartureTime.ts`の`at`、想定速度は`assumedSpeedKmh`（いずれも地図右上の条件アイコン列`features/conditions/RideConditionBar/RideConditionBar.tsx`で操作し、生成リクエストの`start_time`/`assumed_speed_kmh`とレンズの`speed_kmh`へ同じ値が乗る）
+走行方位（`features/conditions/useRideConditions.ts`の`bearingDeg`、TravelBearingControlで操作）。出発時刻は`features/conditions/useDepartureTime.ts`の`at`、想定速度は`useRideConditions.ts`の`speedKmh`（いずれも地図右上の条件アイコン列`features/conditions/RideConditionBar/RideConditionBar.tsx`で操作し、生成リクエストの`start_time`/`assumed_speed_kmh`とレンズの`speed_kmh`へ同じ値が乗る）
   │
   ├─→ 風:   [時刻]出発時刻（useDepartureTime由来）
   │           │
@@ -287,14 +291,14 @@ Reactの外（モジュール評価時に初期値を決めるシングルトン
 
 - 重み（保存値、`RouteSettingsPanel`が編集）→ `features/route/routePreferenceSync.ts: alignRoutePreference`で
   公開軸へキーを揃えた値 → 重みタブ・ルート生成リクエスト（`routePreferenceToSend`）・道の評価（`MapView`）・
-  結果の重みの表示。**揃えるのは`page.tsx`が読むときの1か所だけ**で、どの読み手も同じ揃えた値を読む
+  結果の重みの表示。**揃えるのは`useGenerationConditions.ts`が読むときの1か所だけ**で、どの読み手も同じ揃えた値を読む
   （保存値は書き換えず、利用者が次に重みを動かしたときに揃った形で書かれる）。**利用者が重みを上書きしていない間
   （`weightOverrideEnabled`がfalse）と、軸カタログを取得できていない間は`route_preference`
   自体を送らず、backendの既定の重みへ委ねる**——上書きしていない利用者の保存値は利用者が
   決めた重みではなく、取得前は軸が0件のため、そのまま整合させると保存済みの重みを全部消す。
 - 走行条件（走行方位・出発時刻・想定速度）→ 地図の見え方（`useMapView`の入力）・生成リクエスト・
   道の詳細（`MapView`の`rideConditions`）が同じ値を読む（上記「動的材料の状態別表現契約」参照）。
-- 生成に使われた重み（生成条件`generatedConditions`の1項目、backendが生成時に使った値を返す）→ レンズの
+- 生成に使われた重み（`page.tsx`の`usedWeights`。backendが生成時に使った値を返し、生成が結果と一緒に渡す）→ レンズの
   選択肢の「未使用」。**使う軸は生成した時点で決まる**ため、生成前は「未使用」を付けない。
 - 地図の見え方の値（`useMapView`の`look`）→ `MapView`。レイヤーのON/OFF・レンズ・塗っている軸・
   隠した行・取得結果の状態そのものだけを渡し、そこから導けるもの（どのレイヤーを出すか・家族ごとの
@@ -404,8 +408,8 @@ propでヘッダ右側・閉じるボタンの手前へ要素を差し込める�
 される（「ルート選択」のような候補一覧をまとめる中間タブは無い）。候補数
 （`RouteForm`で指定する`max_routes`件＋経由地/目的地ルート）がシートの高さを超える場合は
 候補一覧の中だけが縦スクロールする（右の中身はスクロールしない）。`routes`・`selectedRouteId`・
-`comparisonTabActive`・`generatedConditions`に加え
-`experimentSlots`（比較タブ・地図重ね描き用の履歴）も同時に空にする（`handleRoutesClear`）。
+`comparisonTabActive`・生成に使われた重みに加え、生成の側の作った条件と
+`experimentSlots`（比較タブ・地図重ね描き用の履歴）も同時に空にする（`handleRoutesClear`→`useRouteGeneration.ts`の`clear`）。
 
 `conditionsDirty`（表示中の候補を作った条件と現在のフォーム値のずれ）は、
 `features/route/generationRequest.ts`が組み立てる比較キーの一致で決まる。**送るpayloadと比較キーを
@@ -422,9 +426,9 @@ backendの決まった数）ので、その条件で候補数の入力を変え�
 タブ列の上には、条件変更後の未反映（`conditionsDirty`）を知らせるヒント（作り直しの失敗を出している間は、
 それが前の条件の候補であることも伝えているので出さない）に加え、
 経由地の無い目的地ルートで指定した地点が自転車で行ける道路に繋がっていなかったため
-backendが最寄りのアクセス可能な地点へ補正した場合のヒントを出す（`generatedConditions.
-destinationCorrected`）。補正時は地図上の目的地ピンも
-`handleGenerate`が実際に使われた地点（`conditions.corrected_destination`）へ動かす
+backendが最寄りのアクセス可能な地点へ補正した場合のヒントを出す（`useRouteGeneration.ts`の
+`destinationCorrected`）。補正時は地図上の目的地ピンも
+生成が実際に使われた地点（`conditions.corrected_destination`）へ動かす
 （ピンの位置と生成されたルートの終点がずれて見えないようにする）。
 
 「ルート結果」ヘッダの操作枠（`renderRouteResultHeaderActions()`）には**候補すべてに効く操作だけ**を置く
