@@ -146,6 +146,17 @@ FROM (
 WHERE s.osm_way_id = m.osm_way_id AND s.segment_index = m.segment_index
 """
 
+#: 数えた事故の取込と、その宣言の年（密度の分母）。数える文と同じトランザクションで書く——取込は
+#: ソースの行をTRUNCATEで入れ替えて表の排他ロックを取るので、このトランザクションが事故の行を
+#: 読んだ後は、終わるまで行が入れ替わらない。
+_ACCIDENT_YEARS = """
+INSERT INTO accident_count_years (source_run_id, years)
+SELECT r.run_id,
+       ARRAY(SELECT y::smallint FROM jsonb_array_elements_text(r.profile->'source'->'rows'->'years') AS t(y))
+FROM source_runs r
+WHERE r.run_id = (SELECT run_id FROM source_features WHERE source = 'accident' LIMIT 1)
+"""
+
 _WAY_ORPHANS = """
 DELETE FROM way_materials w
 WHERE NOT EXISTS (SELECT 1 FROM road_edges e WHERE e.osm_way_id = w.osm_way_id)
@@ -185,6 +196,8 @@ async def derive(conn: asyncpg.Connection) -> None:
         await conn.execute(_EDGE_STOP_COUNTS)
         await conn.execute(_EDGE_INTERSECTIONS, INTERSECTION_DEGREE_THRESHOLD)
         await conn.execute(_EDGE_ACCIDENTS, ACCIDENT_FATAL_WEIGHT, degrees)
+        await conn.execute("DELETE FROM accident_count_years")
+        await conn.execute(_ACCIDENT_YEARS)
         await conn.execute(_WAY_ORPHANS)
         await conn.execute(_WAY_FROM_EDGES)
         await conn.execute("ANALYZE way_materials")

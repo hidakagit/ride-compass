@@ -1,4 +1,5 @@
-"""区間と道に付く数の値（`batch/derive_counts.py`）が、意図した区間へ数を付けること。"""
+"""区間と道に付く数の値（`batch/derive_counts.py`）が、意図した区間へ数を付け、事故の件数を
+数えた取込の年を分母として残すこと。"""
 
 import json
 import struct
@@ -7,11 +8,13 @@ from datetime import UTC, datetime
 import asyncpg
 import pytest
 import pytest_asyncio
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.batch import derive_counts, derive_topology
 from app.batch._common import asyncpg_dsn
 from app.batch.ingest import ensure_partition
 from app.domain.traffic import POI_COUNT_KINDS, poi_count_column
+from app.infrastructure.road_graph_repository import RoadGraphRepository
 from tests.conftest import postgis_database_url
 
 # road_graph_session（conftest.py）と同じDBを使うため、docs/conventions/testing.mdのパターン2どおり
@@ -42,11 +45,13 @@ def _point(node_id: int) -> tuple[float, float]:
     return (BASE_LON + STEP * node_id, BASE_LAT + STEP * (node_id % 2))
 
 
-async def _insert_run(conn: asyncpg.Connection, source: str) -> int:
+async def _insert_run(conn: asyncpg.Connection, source: str, years: list[int] | None = None) -> int:
+    """取込1回の記録。`years`を渡すと、その年を宣言した取込にする。"""
+    profile = {} if years is None else {"source": {"rows": {"years": years}}}
     return await conn.fetchval(
         "INSERT INTO source_runs (source, status, started_at, origin, profile, counts)"
-        " VALUES ($1, 'succeeded', $2, $3, $3, $3) RETURNING run_id",
-        source, datetime.now(UTC), json.dumps({}))
+        " VALUES ($1, 'succeeded', $2, $3, $4, $3) RETURNING run_id",
+        source, datetime.now(UTC), json.dumps({}), json.dumps(profile))
 
 
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
@@ -95,6 +100,32 @@ async def test_equidistant_accident_goes_to_exactly_one_existing_segment(counts_
         " WHERE a.source = 'accident'")
     # 前提: 3区間とも本当に等距離（タイを作れている）。
     assert [r["d"] for r in distances] == [0.0]
+
+
+async def test_accident_years_stay_those_of_the_counted_import_until_recounted(counts_conn, road_graph_engine):
+    """密度の分母（収録年）は、件数を数えた取込の宣言。取り込み直しても、数え直すまでは前の取込の
+    年のまま——件数は数え直すまで前の取込から数えたものなので、分母だけが先に変わると密度がずれる。"""
+
+    async def years() -> list[int]:
+        async with AsyncSession(road_graph_engine) as session:
+            return await RoadGraphRepository(session).get_accident_years()
+
+    async def ingest(run_id: int) -> None:
+        await counts_conn.execute("UPDATE source_features SET run_id = $1 WHERE source = 'accident'", run_id)
+
+    original = await counts_conn.fetchval("SELECT run_id FROM source_features WHERE source = 'accident'")
+    try:
+        await ingest(await _insert_run(counts_conn, "accident", [2024]))
+        await derive_counts.derive(counts_conn)
+        counted = await years()
+        await ingest(await _insert_run(counts_conn, "accident", [2023, 2024]))
+        before_recount = await years()
+        await derive_counts.derive(counts_conn)
+        recounted = await years()
+    finally:
+        await ingest(original)
+
+    assert (counted, before_recount, recounted) == ([2024], [2024], [2023, 2024])
 
 
 async def test_way_values_of_a_way_gone_from_the_raw_data_do_not_survive(counts_conn):

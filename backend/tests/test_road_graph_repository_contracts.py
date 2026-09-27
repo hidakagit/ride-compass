@@ -358,15 +358,15 @@ async def test_distinct_values_are_listed_only_for_categorical_materials(monkeyp
 # --- 事故の収録年 -------------------------------------------------------------
 
 
-async def test_accident_years_come_from_the_declared_profile():
-    """実データの発生年を数えない——事故が1件も無かった年が落ちて、密度の分母がずれる。"""
+async def test_accident_years_come_in_order():
+    """宣言の書き順によらず、年の昇順で返す。"""
     repo, _ = _repo([_Row(years=[2023, 2021, 2022])])
 
     assert await repo.get_accident_years() == [2021, 2022, 2023]
 
 
-async def test_no_accident_profile_yields_no_years():
-    repo, _ = _repo([_Row(years=None)])
+async def test_no_counted_accidents_yield_no_years():
+    repo, _ = _repo([])
 
     assert await repo.get_accident_years() == []
 

@@ -193,7 +193,7 @@ class RegionService:
         """事故データの収録年。地図の説明文へ配る。
 
         表示側が年を文字列で持つと、取り込み直したときに黙って食い違う。年の正本は
-        取込プロファイルの宣言（`source_runs.profile`）だけにする。
+        事故の件数を数えた取込の宣言だけにする（`road_graph_repository.py: RoadGraphRepository.get_accident_years`）。
 
         DB例外は空へ倒す。
         """

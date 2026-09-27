@@ -738,20 +738,17 @@ class RoadGraphRepository:
         return await derived_data_meta.get_revision(self._session)
 
     async def get_accident_years(self) -> list[int]:
-        """事故データの収録年。
+        """事故データの収録年。区間・道の事故の件数を数えた取込の宣言（`rows.years`）。
 
-        取込プロファイルの宣言（`rows.years`）をそのまま返す——実データの発生年を数えると、
-        事故が1件も無かった年が落ちる。年数は`accident_count_per_km_year`の分母に、年そのものは
-        地図の説明文に使う。どちらもここが正本で、**表示側は年を自分で持たない**。
+        実データの発生年は数えない——事故が1件も無かった年が落ちる。最新の取込からも引かない
+        ——取り込み直してから派生を作り直すまでの間、件数は前の取込から数えたままなので、分母
+        だけが新しい年数になる（`derived_models.py: AccidentCountYearsRow`）。年数は
+        `accident_count_per_km_year`の分母に、年そのものは地図の説明文に使う。どちらもここが
+        正本で、**表示側は年を自分で持たない**。
         """
-        row = await self._session.execute(text("""
-            SELECT profile->'source'->'rows'->'years' AS years
-            FROM source_runs
-            WHERE source = 'accident' AND status = 'succeeded'
-            ORDER BY run_id DESC LIMIT 1
-        """))
+        row = await self._session.execute(text("SELECT years FROM accident_count_years"))
         value = row.scalar()
-        if not isinstance(value, list):
+        if value is None:
             return []
         return sorted(int(year) for year in value)
 

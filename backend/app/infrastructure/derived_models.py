@@ -12,6 +12,9 @@
 面（ラスタ）の派生は持たない——面の生データを読む出口は「そのまま見せる」か「線へ
 落とす」のどちらかで、面のままの中間結果を要る相手がいない。
 
+粒度に属さない表は、行の値からは分からない数え上げの前提（例: 事故の件数を何年分から
+数えたか。`accident_count_years`）を、値と一緒に入れ替わる場所に置くためだけに持つ。
+
 `source_run_id`はどの取込世代から作ったかを指す。生データを差し替えると新しいrunになり、
 これが最新でないことで古いと分かる。
 """
@@ -28,6 +31,7 @@ from sqlalchemy import (
     SmallInteger,
     String,
 )
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.infrastructure.orm_base import Base
@@ -235,6 +239,27 @@ class WayMaterialRow(Base):
     source_run_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("source_runs.run_id"), nullable=False
     )
+
+
+class AccidentCountYearsRow(Base):
+    """区間・道の事故の件数（`accident_count`）を数えた事故の取込と、その宣言の収録年。
+
+    件数を年あたりへ直す分母はここから引く。取込の記録（`source_runs`）の最新から引くと、
+    取り込み直してから派生を作り直すまでの間、分母は新しい取込の年数を、件数は前の取込から
+    数えたものを指す。件数を数える段が同じトランザクションで書き、派生の表として件数と一緒に
+    入れ替わる。
+
+    行は多くて1つ——取込はソースの行を丸ごと入れ替えるので、数える事故の行は1つの取込から
+    来る。事故を取り込んでいなければ行は無い。
+    """
+
+    __tablename__ = "accident_count_years"
+
+    source_run_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("source_runs.run_id"), primary_key=True, autoincrement=False
+    )
+    #: その取込の宣言（`profile`の`rows.years`）。事故が1件も無かった年も落とさない。
+    years: Mapped[list[int]] = mapped_column(ARRAY(SmallInteger), nullable=False)
 
 
 class NodeMaterialRow(Base):
