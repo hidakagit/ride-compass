@@ -2230,6 +2230,13 @@
             "type": "array",
             "title": "Primary Attribute Ids"
           },
+          "weather_layer_groups": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Weather Layer Groups"
+          },
           "shape": {
             "oneOf": [
               {
@@ -2366,6 +2373,7 @@
           "panel_hint",
           "show_map_icon",
           "primary_attribute_ids",
+          "weather_layer_groups",
           "shape",
           "display_thresholds_override",
           "display_band_labels_override",

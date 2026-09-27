@@ -264,6 +264,16 @@ def test_get_axis_catalog_primary_attribute_ids_match_legacy_static_inputs(catal
     assert set(entries_by_id["axis_boolean_terms"]["primary_attribute_ids"]) == {"lit", "tunnel"}
 
 
+def test_get_axis_catalog_names_the_weather_chip_that_shows_a_dynamic_material(catalog_axes):
+    # 風の材料は一次属性を持たないが、同じ格子の風を描く気象のチップが元データを見せる。
+    response = client.get("/api/axis-catalog")
+    entries_by_id = {entry["axis_id"]: entry for entry in response.json()["axes"]}
+
+    assert entries_by_id["axis_way_value_scored"]["weather_layer_groups"] == ["windVector"]
+    assert entries_by_id["axis_way_value_scored"]["primary_attribute_ids"] == []
+    assert entries_by_id["axis_categorical"]["weather_layer_groups"] == []
+
+
 def test_get_axis_catalog_marks_accident_tile_input_as_needing_runtime_scale(catalog_axes):
     # 実行時スケールが要る材料は印だけ付け、係数はmaterial_runtime_scalesで別途返す。
     response = client.get("/api/axis-catalog")

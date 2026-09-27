@@ -30,12 +30,10 @@ import { LANDCOVER_PAINTED_CLASSES } from "./landcoverClasses";
 import { PRECIPITATION_INTENSITY_LEVELS } from "./precipitationNowcast";
 import { WIND_SPEED_LEGEND_LEVELS } from "./windLayer";
 import { pointLegendAxes } from "@/features/map/scene/legends";
-import {
-  axisMapLayerId,
-  type AxisMapLayerId,
-  type DedicatedWayValueAxis,
-  type RampAxis,
-} from "@/lib/mapDisplay/axisLayers";
+import { axisMapLayerId, type AxisMapLayerId, type RampAxis } from "@/lib/mapDisplay/axisLayers";
+import type { AxisCatalog } from "@/lib/axisCatalog";
+import type { CatalogAxis } from "@/lib/catalogAxis";
+import { FIXED_LENS_LABELS, LENS_DIFFICULTY_ID } from "@/lib/mapDisplay/routeStyleModes";
 
 /** チップの説明文へ差し込む種別名の並び（凡例と同じ宣言から作る）。 */
 function pointKindList(role: string): string {
@@ -175,13 +173,31 @@ function coverageYearsLabel(years: readonly number[]): string {
   return continuous ? `${sorted[0]}〜${sorted[sorted.length - 1]}年` : `${sorted.join("・")}年`;
 }
 
-export function buildMapLayers(
-  rampAxes: readonly RampAxis[],
-  dedicatedAxes: readonly DedicatedWayValueAxis[],
-  accidentYears: readonly number[] = [],
-): readonly MapLayerDescriptor[] {
+/** レイヤーの一覧を組むのに要る軸カタログの項目。 */
+type LayerCatalog = Pick<AxisCatalog, "axes" | "rampAxes" | "dedicatedAxes" | "accidentYears">;
+
+const NO_AXES: LayerCatalog = { axes: [], rampAxes: [], dedicatedAxes: [], accidentYears: [] };
+
+/** そのレイヤーが見せる元データを材料に持つ公開中の評価の名前（「A」「B」）。無ければ空文字で、呼ぶ側は評価に触れる一文を出さない。 */
+function axisNamesReading(axes: readonly CatalogAxis[], layerId: StaticMapLayerId): string {
+  return axes
+    .filter((axis) => axis.primaryAttributeIds.includes(layerId) || axis.weatherLayerGroups.includes(layerId))
+    .map((axis) => `「${axis.label}」`)
+    .join("");
+}
+
+export function buildMapLayers({
+  axes,
+  rampAxes,
+  dedicatedAxes,
+  accidentYears,
+}: LayerCatalog): readonly MapLayerDescriptor[] {
   // 取れていないときは年に触れない（既定の年を出すと、それが正しいように見える）。
   const accidentCoverage = coverageYearsLabel(accidentYears);
+  const tunnelAxes = axisNamesReading(axes, "tunnel");
+  const stopPoiAxes = axisNamesReading(axes, "stop_poi");
+  const windAxes = axisNamesReading(axes, "windVector");
+  const routeLenses = [...axes.map((axis) => axis.label), FIXED_LENS_LABELS[LENS_DIFFICULTY_ID]].join("・");
   return [
     {
       ...staticLayer("elevation"),
@@ -248,9 +264,7 @@ export function buildMapLayers(
       ...staticLayer("tunnel"),
       icon: TunnelIcon,
       description: "トンネル区間[OSMのtunnelタグ]を色分け表示",
-      panelHint:
-        "OSMのtunnelタグが該当する区間です。「夜間」軸[推定グループ]の材料の1つとして、" +
-        "夜間の危険度の判定に使われます。night軸自体も専用レイヤーを持ちます。",
+      panelHint: "OSMのtunnelタグが該当する区間です。" + (tunnelAxes ? `評価${tunnelAxes}の材料の1つです。` : ""),
     },
     {
       ...staticLayer("oneway"),
@@ -266,8 +280,10 @@ export function buildMapLayers(
       icon: StopPoiIcon,
       description: `${pointKindList("stop_poi")}の位置を種別ごとに色分け表示`,
       panelHint:
-        `${pointKindList("stop_poi")}の位置です。評価の「停止密度」軸が近傍のこれらを` +
-        "数えて算出しているものを、種別ごとの色分けで直接確認できます。",
+        `${pointKindList("stop_poi")}の位置です。` +
+        (stopPoiAxes
+          ? `評価${stopPoiAxes}が近傍のこれらを数えて算出しているものを、種別ごとの色分けで直接確認できます。`
+          : ""),
     },
     {
       ...staticLayer("supply_poi"),
@@ -366,8 +382,11 @@ export function buildMapLayers(
         "モデルの計算値で、予報ではなく、誤差を含みえます。" +
         "矢印の向きが風向、長さ・太さ・色の濃淡が風速の強さを表します。ごく弱い風の地点は" +
         "矢印を表示しません。ONにすると地図上に時刻スライダーが現れ、1時間刻みで切り替えられます" +
-        "（先まで見られる範囲は配信中の計算値の長さによって1〜3日の間で変わります）。走行方位に対する向かい風/追い風の強さは、地図上部中央の" +
-        "「レンズ」で風の評価軸を選ぶと、道路の色分けとして別途確認できます。",
+        "（先まで見られる範囲は配信中の計算値の長さによって1〜3日の間で変わります）。" +
+        (windAxes
+          ? `走行方位に対する向かい風/追い風の強さは、地図上部中央の「レンズ」で評価${windAxes}を選ぶと、` +
+            "道路の色分けとして別途確認できます。"
+          : ""),
     },
     // 専用配信の軸。チップには出ないが、地図の組み立てが情報源をここから引く（無いと描く時点で落ちる）。
     ...dedicatedAxes.map((axis): MapLayerDescriptor => ({
@@ -406,7 +425,8 @@ export function buildMapLayers(
     {
       ...staticLayer("route"),
       icon: RouteIcon,
-      description: "選択中ルート沿いの情報[風・勾配・路面・総合難易度]を色分け表示",
+      // 並びはレンズの選択肢と同じ（公開中の評価と総合難易度）。
+      description: `選択中ルート沿いの情報[${routeLenses}]を色分け表示`,
     },
   ];
 }
@@ -427,14 +447,14 @@ const TILE_VERSION_GATED_SOURCES: ReadonlySet<string> = new Set(regionTileConfig
 
 /** タイルの世代が届くまで何も描けないレイヤー。ramp軸も路面タイルを読むので含める。 */
 export function tileVersionGatedLayerIds(rampAxes: readonly RampAxis[]): readonly MapLayerId[] {
-  return buildMapLayers(rampAxes, [])
+  return buildMapLayers({ ...NO_AXES, rampAxes })
     .filter((layer) => TILE_VERSION_GATED_SOURCES.has(layer.dataSource))
     .map((layer) => layer.id);
 }
 
 /** そのズームではタイルが要求されず、ONにしても何も出ないレイヤー。軸のレイヤーはチップが無く案内の出し先が無いので含めない。 */
 export function tileZoomTooWideLayerIds(zoom: number): readonly MapLayerId[] {
-  return buildMapLayers([], [])
+  return buildMapLayers(NO_AXES)
     .filter((layer) => layer.tileMinZoom !== undefined && zoom < layer.tileMinZoom)
     .map((layer) => layer.id);
 }
@@ -442,7 +462,7 @@ export function tileZoomTooWideLayerIds(zoom: number): readonly MapLayerId[] {
 /** チップからON/OFFできるレイヤーの既定の表示。軸のレイヤーはレンズだけが決めるので持たない。 */
 export function buildDefaultLayerVisibility(): MapLayerVisibility {
   return Object.fromEntries(
-    buildMapLayers([], []).map((layer) => [layer.id, layer.defaultOn === true]),
+    buildMapLayers(NO_AXES).map((layer) => [layer.id, layer.defaultOn === true]),
   ) as MapLayerVisibility;
 }
 

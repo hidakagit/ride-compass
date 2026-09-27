@@ -38,6 +38,7 @@ export function catalogEntry(
     panel_hint: null,
     show_map_icon: false,
     primary_attribute_ids: [],
+    weather_layer_groups: [],
     shape: {
       kind: "breakpoint_linear",
       terms: [],

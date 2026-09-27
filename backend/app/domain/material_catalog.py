@@ -75,6 +75,7 @@ from app.domain.road import (
 )
 from app.domain.rain import HOURS_SINCE_RAIN, RAIN_HISTORY_HOURS, RAIN_WINDOW_HOURS, rain_window_material_id
 from app.domain.weather import PRECIPITATION_MIN_MM
+from app.domain.weather_elements import GridValue
 from app.domain.wind import WIND_DRAG_REFERENCE_SPEED_MS, wind_drag_ratio
 from app.domain.strict_model import StrictModel
 
@@ -239,6 +240,9 @@ class MaterialSpec(StrictModel):
     # 軸ごとにこれを解決して返すことで、frontend側（page.tsx: 軸と観測データレイヤーの連動）が
     # 軸スタジオ作成軸に対しても同じ仕組みで動く。
     primary_attribute: PrimaryAttributeSpec | None = None
+    # この材料が読む自前のMSM格子の値（`weather_elements.py: GridValue`）。一次属性を持たない動的な材料の
+    # 元データを、同じ格子の値を描く気象のチップ（`WeatherElement.grid_value`）が地図に見せる。
+    weather_grid_value: GridValue | None = None
     # この材料の値をDBから求めるSQL式。読み出し側（`road_graph_repository.py`）が
     # エイリアス（区間なら`re`/`c`/`e`/`el`/`wl`/`d`、wayなら同名の別ソース）を用意し、
     # この式をそのまま並べる。Noneは「SQLでは求められない」——リクエスト時に決まる風、
@@ -720,6 +724,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # （動的気象は`PRIMARY_ATTRIBUTES`の対象外）。
         tile_property=None,
         tile_property_direction_dependent=True,
+        weather_grid_value="wind",
         reference_points=[
             MaterialReferencePoint(label=f"{_WIND_REFERENCE_SPEED_LABEL}・{situation}", value=ratio)
             for situation, ratio in _WIND_DRAG_RATIO_BY_SITUATION.items()

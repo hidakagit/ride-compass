@@ -741,6 +741,8 @@ export interface components {
             show_map_icon: boolean;
             /** Primary Attribute Ids */
             primary_attribute_ids: string[];
+            /** Weather Layer Groups */
+            weather_layer_groups: string[];
             /** Shape */
             shape: components["schemas"]["BreakpointLinearShape"] | components["schemas"]["CategoricalShape"];
             /** Display Thresholds Override */

@@ -373,10 +373,7 @@ export default function MapView({
   const [roadPopupContainer, setRoadPopupContainer] = useState<HTMLDivElement | null>(null);
   const catalog = useAxisCatalog();
   const tileVersionsReady = useTileVersionsReady();
-  const mapLayerCatalog = useMemo(
-    () => buildMapLayers(catalog.rampAxes, catalog.dedicatedAxes),
-    [catalog.rampAxes, catalog.dedicatedAxes],
-  );
+  const mapLayerCatalog = useMemo(() => buildMapLayers(catalog), [catalog]);
   const layerDataSources = useMemo(() => buildLayerDataSources(mapLayerCatalog), [mapLayerCatalog]);
   // 詳細を見ている道。強調も scene の一部として当てる。
   const inspectedWayId = roadPopup?.properties.osm_way_id ?? null;
