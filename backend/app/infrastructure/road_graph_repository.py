@@ -438,6 +438,9 @@ _POI_TILE_MVT_SQL = text(
 #: そちらは`services/tile_version_service.py`が世代の変化として扱う。
 ROAD_SURFACE_TILE_SHAPE = shape_digest(_ROAD_SURFACE_TILE_MVT_SQL)
 POI_TILE_SHAPE = shape_digest(_POI_TILE_MVT_SQL)
+#: 勾配の入力を取り出すSQLの形の署名。勾配のタイル値のキャッシュの鍵に入る
+#: （`services/gradient_way_service.py: GRADIENT_VALUE_SHAPE`）。
+FEATURE_GRADIENT_INPUTS_SHAPE = shape_digest(_FEATURE_GRADIENT_INPUTS_IN_TILE_SQL)
 
 
 # --- way粒度の材料 -----------------------------------------------------------

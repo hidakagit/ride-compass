@@ -8,6 +8,7 @@ from app.config import settings
 from app.domain.gradient import GradientCalculator
 from app.infrastructure import debug_log
 from app.infrastructure.road_graph_repository import RoadGraphRepository
+from app.services import gradient_way_service
 from app.services.gradient_way_service import GradientWayService
 
 Z, X, Y = 14, 14551, 6447
@@ -137,6 +138,19 @@ async def test_a_new_derived_data_revision_recomputes_without_the_catalog(monkey
     await service.get_way_values(Z, X, Y, None, 0.0)
 
     repository.revision = 2
+    await service.get_way_values(Z, X, Y, None, 0.0)
+
+    assert len(repository.calls) == 2
+
+
+async def test_a_deploy_that_changes_how_gradient_is_computed_recomputes(monkeypatch):
+    """勾配の作り方（入力のSQL・落とす幅・丸め・式のリビジョン）を変えたデプロイは、DBの世代も路面タイルの形も
+    動かさない。署名が鍵に届いていないと、前の計算の値がTTL（24時間）の間返り続ける。"""
+    repository = FakeGradientInputsRepository(inputs={1: (5.0, 30.0)})
+    service = GradientWayService(repository=repository)
+    await service.get_way_values(Z, X, Y, None, 0.0)
+
+    monkeypatch.setattr(gradient_way_service, "GRADIENT_VALUE_SHAPE", "another-computation")
     await service.get_way_values(Z, X, Y, None, 0.0)
 
     assert len(repository.calls) == 2

@@ -9,20 +9,30 @@
 import logging
 from datetime import datetime
 
-from app.domain.gradient import GradientCalculator
+from app.domain.gradient import LENS_PERPENDICULAR_BAND_DEG, GradientCalculator
 from app.domain.material_catalog import GRADIENT_PERCENT
 from app.domain.region import tile_bounds_lonlat
+from app.infrastructure.cache_identity import cache_identity
 from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
 from app.infrastructure.debug_log import log_external_call
 from app.infrastructure.dynamic_way_value_cache import get_tile_values, set_tile_values
 from app.services import derived_data_revision_service
-from app.infrastructure.road_graph_repository import RoadGraphRepository
+from app.infrastructure.road_graph_repository import FEATURE_GRADIENT_INPUTS_SHAPE, RoadGraphRepository
 
 logger = logging.getLogger("ridecompass.gradient_way")
 
 # 勾配の入力は道路の向きと標高で決まりほぼ不変のため、鮮度の制約が無い。長く持って
 # DBへの再問い合わせを抑える。正本を持たないキャッシュで、期限切れ後は再計算されるだけ。
 GRADIENT_TILE_VALUES_TTL_SECONDS = 24 * 3600
+
+_VALUE_DECIMALS = 1
+
+#: 勾配の値の作り方の署名。キャッシュの鍵に入り、変われば勾配のタイル値だけを作り直す。
+#: 入力のSQL・落とす幅・丸めは機械で署名する。式（`domain/gradient.py: GradientCalculator.effective_gradient`）を
+#: 変えたときは先頭のリビジョンを上げる——関数のソースは署名しない（docs/conventions/caching.md「無効化」）。
+GRADIENT_VALUE_SHAPE = cache_identity(
+    "1", FEATURE_GRADIENT_INPUTS_SHAPE, LENS_PERPENDICULAR_BAND_DEG, _VALUE_DECIMALS
+)
 
 
 class GradientWayService:
@@ -57,7 +67,9 @@ class GradientWayService:
             # 世代は鍵の一部。渡し忘れると世代をまたいだ値を配る。
             await derived_data_revision_service.refresh_current_revision(self._repository)
             revision = derived_data_revision_service.current_revision()
-            cached = await get_tile_values(self.material_id, z, x, y, None, bearing_deg, revision=revision)
+            cached = await get_tile_values(
+                self.material_id, z, x, y, None, bearing_deg, revision=revision, value_shape=GRADIENT_VALUE_SHAPE
+            )
             if cached is not None:
                 fields["cache"] = "hit"
                 fields["value_count"] = len(cached)
@@ -88,13 +100,13 @@ class GradientWayService:
                 for feature_key, (gradient_percent, road_bearing_deg) in inputs.items()
             )
             values = {
-                feature_key: round(value, 1)
+                feature_key: round(value, _VALUE_DECIMALS)
                 for feature_key, value in effective
                 if value is not None
             }
             await set_tile_values(
                 self.material_id, z, x, y, None, bearing_deg, values, GRADIENT_TILE_VALUES_TTL_SECONDS,
-                revision=revision,
+                revision=revision, value_shape=GRADIENT_VALUE_SHAPE,
             )
             fields["computed"] = len(values)
             return values

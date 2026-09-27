@@ -1,8 +1,11 @@
 """動的＋向きあり材料の「フィーチャー→値」配信専用のディスクキャッシュ。
 路面タイルのフィーチャー別の動的値を配るレイヤーで、材料そのものの取得層とは別レイヤー。
 
-キーは`(路面タイルの世代, material_id, z, x, y, 時刻バケット, 向きバケット, 速度バケット)`。
+キーは`(路面タイルの世代, material_id, 材料の値の作り方の署名, z, x, y, 時刻バケット, 向きバケット, 速度バケット)`。
 値は配信サービスが返すのと同じ`{feature_key: 値}`のdict。
+
+材料の値の作り方の署名（`value_shape`）も呼び出し側が必須キーワードで渡す。材料単位の失効を
+消去でなく鍵で表す理由は docs/modules/backend/dynamic-way-values.md「キャッシュ」節。
 
 **キーへタイルの世代（`<DBの世代>-<形の署名>`）を含める理由**: ここに入る鍵は路面タイルの
 `feature_key`と一字一句一致して初めて意味を持つ（フロントが`setFeatureState`のidとして使う）。
@@ -52,22 +55,22 @@ def speed_bucket(speed_kmh: float) -> int:
 
 def _key(
     material_id: str, z: int, x: int, y: int, hour_bucket: str | None, bearing_deg: float | None,
-    speed_kmh: float | None, revision: int | None,
+    speed_kmh: float | None, revision: int | None, value_shape: str,
 ) -> tuple:
     bearing_token = bearing_bucket(bearing_deg) if bearing_deg is not None else None
     speed_token = speed_bucket(speed_kmh) if speed_kmh is not None else None
     return (
-        _KEY_PREFIX, revision, ROAD_SURFACE_TILE_SHAPE, material_id, z, x, y,
+        _KEY_PREFIX, revision, ROAD_SURFACE_TILE_SHAPE, material_id, value_shape, z, x, y,
         hour_bucket, bearing_token, speed_token,
     )
 
 
 async def get_tile_values(
     material_id: str, z: int, x: int, y: int, hour_bucket: str | None, bearing_deg: float | None,
-    speed_kmh: float | None = None, *, revision: int | None,
+    speed_kmh: float | None = None, *, revision: int | None, value_shape: str,
 ) -> dict[str, float] | None:
     """該当バケットの`{フィーチャー鍵: 値}`。未キャッシュ・読み出し失敗はいずれもNone。"""
-    key = _key(material_id, z, x, y, hour_bucket, bearing_deg, speed_kmh, revision)
+    key = _key(material_id, z, x, y, hour_bucket, bearing_deg, speed_kmh, revision, value_shape)
     return await asyncio.to_thread(tile_persistent_cache.get_by_key, key)
 
 
@@ -83,9 +86,8 @@ async def set_tile_values(
     speed_kmh: float | None = None,
     *,
     revision: int | None,
+    value_shape: str,
 ) -> None:
     """新規に計算できた`{フィーチャー鍵: 値}`をディスクへ書き戻す。"""
-    key = _key(material_id, z, x, y, hour_bucket, bearing_deg, speed_kmh, revision)
-    await asyncio.to_thread(
-        tile_persistent_cache.set_by_key, key, dict(values), tag=f"{_KEY_PREFIX}:{material_id}", expire=ttl_seconds
-    )
+    key = _key(material_id, z, x, y, hour_bucket, bearing_deg, speed_kmh, revision, value_shape)
+    await asyncio.to_thread(tile_persistent_cache.set_by_key, key, dict(values), expire=ttl_seconds)
