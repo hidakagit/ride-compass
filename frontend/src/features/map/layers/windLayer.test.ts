@@ -7,9 +7,10 @@ import type { WindGridPoint } from "@/types/weather";
 
 import {
   clampWindDetailBbox,
+  gridAtTime,
   mergeWindGridKeepingStale,
-  trimWindGridToCurrentAndFuture,
   WIND_CALM_THRESHOLD_MS,
+  WIND_GRID_SPACING_DEG,
   WIND_DETAIL_MIN_ZOOM,
   WIND_SPEED_COLOR_STOPS,
   WIND_SPEED_LEGEND_LEVELS,
@@ -38,31 +39,26 @@ function point(
 }
 
 const HOURS = ["2026-09-24T09:00", "2026-09-24T10:00", "2026-09-24T11:00"];
-const jst = (text: string) => new Date(`${text}+09:00`);
+const LATER_HOURS = ["2026-09-24T10:00", "2026-09-24T11:00", "2026-09-24T12:00"];
 
-describe("trimWindGridToCurrentAndFuture（今より前の時刻を落とす）", () => {
-  it("今が属する1時間から先だけを、全格子点・全系列で同じだけ残す", () => {
-    const [trimmed] = trimWindGridToCurrentAndFuture([point(HOURS)], jst("2026-09-24T10:59"));
-    expect(trimmed.times).toEqual(HOURS.slice(1));
-    expect(trimmed.wind_speed_ms).toHaveLength(2);
-    expect(trimmed.wind_direction_deg).toHaveLength(2);
-    expect(trimmed.precipitation_mm).toEqual([1, 2]);
+describe("gridAtTime（時刻ごとに描く格子）", () => {
+  const coarse = [point(LATER_HOURS)];
+  const detail = { spacingDeg: 0.01, points: [point(HOURS, { latitude: 35.61 })] };
+
+  it("詳細格子がその時刻を持てば、詳細格子とその間隔", () => {
+    expect(gridAtTime(coarse, detail, "2026-09-24T11:00")).toBe(detail);
   });
 
-  it("正時ちょうどはその1時間に入る", () => {
-    expect(trimWindGridToCurrentAndFuture([point(HOURS)], jst("2026-09-24T11:00"))[0].times).toEqual(HOURS.slice(2));
+  it("詳細格子がその時刻を持たなければ（取った時刻が早く、先の端が手前で終わる）、粗い格子とその間隔", () => {
+    expect(gridAtTime(coarse, detail, "2026-09-24T12:00")).toEqual({
+      spacingDeg: WIND_GRID_SPACING_DEG,
+      points: coarse,
+    });
   });
 
-  it("先頭がまだ来ていなければ何も落とさず、空は空", () => {
-    expect(trimWindGridToCurrentAndFuture([point(HOURS)], jst("2026-09-24T08:30"))[0].times).toEqual(HOURS);
-    expect(trimWindGridToCurrentAndFuture([], jst("2026-09-24T10:00"))).toEqual([]);
-  });
-
-  it("どの端末の時刻帯でも、格子の時刻は日本時間として読む", () => {
-    // 協定世界時 01:30 = 日本時間 10:30
-    expect(trimWindGridToCurrentAndFuture([point(HOURS)], new Date("2026-09-24T01:30:00Z"))[0].times).toEqual(
-      HOURS.slice(1),
-    );
+  it("詳細格子が無いか空なら粗い格子", () => {
+    expect(gridAtTime(coarse, null, "2026-09-24T11:00").points).toBe(coarse);
+    expect(gridAtTime(coarse, { spacingDeg: 0.01, points: [] }, "2026-09-24T11:00").points).toBe(coarse);
   });
 });
 
@@ -85,7 +81,7 @@ describe("windArrows（風の矢印）", () => {
       point(["t"], { longitude: 139.1, speed: [null], direction: [0] }),
       point(["t"], { longitude: 139.2, speed: [3], direction: [null] }),
     ];
-    const payload = windArrows(grid, 0);
+    const payload = windArrows(grid, "t");
     expect(payload.kind).toBe("gridMark");
     const features = payload.kind === "gridMark" ? payload.geojson.features : [];
     expect(features).toEqual([
@@ -94,6 +90,22 @@ describe("windArrows（風の矢印）", () => {
         geometry: { type: "Point", coordinates: [139, 35] },
         properties: { speed: 4, bearing: 90 },
       },
+    ]);
+  });
+
+  it("点ごとにその時刻の値を引き（取った時刻で列の先頭が違う点が同居する）、その時刻を持たない点は描かない", () => {
+    const grid = [
+      point(LATER_HOURS, { longitude: 139, speed: [10, 11, 12] }),
+      point(HOURS, { longitude: 139.1, speed: [9, 10, 11] }),
+      point(HOURS.slice(0, 2), { longitude: 139.2, speed: [9, 10] }),
+    ];
+    const payload = windArrows(grid, "2026-09-24T11:00");
+    const features = payload.kind === "gridMark" ? payload.geojson.features : [];
+    expect(
+      features.map((feature) => [(feature.geometry as GeoJSON.Point).coordinates[0], feature.properties?.speed]),
+    ).toEqual([
+      [139, 11],
+      [139.1, 11],
     ]);
   });
 });

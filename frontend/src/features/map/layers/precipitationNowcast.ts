@@ -12,6 +12,7 @@ import {
   gridToFeatureCollection,
   type DynamicWeatherRenderPayload,
 } from "@/features/map/layers/dynamicWeather";
+import { timeIndexOf } from "@/features/map/layers/windLayer";
 import type { WindGridPoint } from "@/types/weather";
 
 // 降水強度→色の段（帯の下限）と段の呼び名。値・色・呼び名は源泉（backend
@@ -33,20 +34,20 @@ export const PRECIPITATION_INTENSITY_LEVELS: readonly MapColorLegendBand[] = bui
   PRECIPITATION_COLOR_STOPS.map((stop) => stop.name),
 );
 
-/** 格子の`index`番目の時刻の降水量を、各格子点を中心とする1辺`spacingDeg`の正方形で塗る。
- * 値が欠けた格子点は飛ばす（1点の欠損で全体を落とさない）。「ほぼ降水なし」の間引き
+/** 時刻`time`の降水量を、各格子点を中心とする1辺`spacingDeg`の正方形で塗る。
+ * 値が欠けた格子点・その時刻を持たない格子点は飛ばす（1点の欠損で全体を落とさない）。「ほぼ降水なし」の間引き
  * （PRECIPITATION_NONE_THRESHOLD_MM）はここでは行わない（MapLibre側のfilterに任せる）。
- * `spacingDeg`は描く格子の実際の間隔（ズーム依存の詳細格子になりうる。`useWeatherGrid.ts`）。 */
+ * `spacingDeg`は描く格子の実際の間隔（ズーム依存の詳細格子になりうる。`windLayer.ts: gridAtTime`）。 */
 export function precipitationCells(
   grid: readonly WindGridPoint[],
-  index: number,
+  time: string,
   spacingDeg: number,
 ): DynamicWeatherRenderPayload {
   return {
     kind: "gridFill",
     geojson: gridToFeatureCollection(
       grid,
-      (point) => point.precipitation_mm[index] ?? null,
+      (point) => point.precipitation_mm[timeIndexOf(point, time)] ?? null,
       (point, mmPerHour) => ({
         type: "Feature",
         geometry: { type: "Polygon", coordinates: [gridCellRing(point.latitude, point.longitude, spacingDeg)] },

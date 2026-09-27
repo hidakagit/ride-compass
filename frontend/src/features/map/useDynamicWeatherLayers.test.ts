@@ -104,8 +104,7 @@ beforeEach(() => {
     }));
   fetchers.useWeatherGrid.mockReset().mockReturnValue({
     grid: GRID,
-    effectiveGrid: GRID,
-    effectiveGridSpacingDeg: 0.1,
+    detail: null,
     loading: false,
     error: null,
     hasFetched: true,
@@ -246,6 +245,43 @@ describe("選んだ時刻に描くもの", () => {
   });
 });
 
+describe("格子の段と詳細格子（ズームしたとき）", () => {
+  // 値は時刻の「時」そのもの。backendは取った時点の正時から先を返すので、粗い格子は13時に、詳細格子はそれより前の
+  // 10時に取ったものとして、時刻の列の先頭が違う。
+  const hourly = (latitude: number, startHour: number): WindGridPoint => {
+    const times = Array.from({ length: 6 }, (_, i) => `2026-09-24T${String(startHour + i).padStart(2, "0")}:00`);
+    return {
+      latitude,
+      longitude: 139,
+      times,
+      wind_speed_ms: times.map((time) => Number(time.slice(11, 13))),
+      wind_direction_deg: times.map(() => 0),
+      precipitation_mm: times.map(() => 0),
+    } as WindGridPoint;
+  };
+  const arrowsAt = (at: Date) => {
+    fetchers.useWeatherGrid.mockReturnValue({
+      grid: [hourly(35, 13)],
+      detail: { spacingDeg: 0.01, points: [hourly(35.61, 10)] },
+      loading: false,
+      error: null,
+      hasFetched: true,
+    });
+    const { result } = render({ visibility: visibility({ windVector: true }), at, now: at });
+    const payload = result.current.dynamicWeather.windVector?.arrow?.payload;
+    const features = payload?.kind === "gridMark" ? payload.geojson.features : [];
+    return features.map((feature) => [(feature.geometry as GeoJSON.Point).coordinates[1], feature.properties?.speed]);
+  };
+
+  it("粗い格子と詳細格子を取った時刻が違っても、詳細格子の選んだ時刻の値を描く", () => {
+    expect(arrowsAt(new Date("2026-09-24T13:20:00+09:00"))).toEqual([[35.61, 13]]);
+  });
+
+  it("詳細格子が持たない先の時刻は、粗い格子で描く", () => {
+    expect(arrowsAt(new Date("2026-09-24T17:00:00+09:00"))).toEqual([[35, 17]]);
+  });
+});
+
 describe("配信元の地点（最新の観測の規則）", () => {
   const others = inGroup("disaster")
     .filter((entry) => entry.source !== "liden")
@@ -328,8 +364,7 @@ describe("取得状態", () => {
     fetchers.fetchJmaTargetTimesFile.mockImplementation(() => new Promise(() => {}));
     fetchers.useWeatherGrid.mockReturnValue({
       grid: [],
-      effectiveGrid: [],
-      effectiveGridSpacingDeg: 0.1,
+      detail: null,
       loading: false,
       error: "格子を取れません",
       hasFetched: true,
@@ -342,8 +377,7 @@ describe("取得状態", () => {
   it("OFFのチップは取りに行っていないので、何も言わない（「データが無い」と断定しない）", async () => {
     fetchers.useWeatherGrid.mockImplementation((enabled: boolean) => ({
       grid: [],
-      effectiveGrid: [],
-      effectiveGridSpacingDeg: 0.1,
+      detail: null,
       loading: false,
       error: null,
       hasFetched: enabled,

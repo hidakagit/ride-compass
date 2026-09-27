@@ -68,19 +68,28 @@ function buildWeatherSources(): readonly WeatherSource[] {
 /** 名前付きソースの一覧（源泉の宣言の順）。 */
 export const WEATHER_SOURCES: readonly WeatherSource[] = buildWeatherSources();
 
-/** 段のコマ。配信元の段は時刻一覧から読んだコマ、格子の段は格子の時刻の位置
- * （描くときの格子はズーム依存の詳細格子になりうるため、コマを作った格子の点そのものは指さない）。 */
-export type StageFrameRef = { stage: number; frame: JmaFrame } | { stage: number; index: number };
+/** 段のコマ。配信元の段は時刻一覧から読んだコマ、格子の段は格子の時刻の値
+ * （描くときの格子はズーム依存の詳細格子になりうるため、コマを作った格子の点そのものは指さない。
+ * `windLayer.ts: gridAtTime`）。 */
+export type StageFrameRef = { stage: number; frame: JmaFrame } | { stage: number; time: string };
 
 /** 配信元の段のコマを、共有タイムラインのコマにする。 */
 export function jmaStageFrames(stage: number, frames: readonly JmaFrame[]): DynamicWeatherFrame<StageFrameRef>[] {
   return frames.map((frame) => ({ time: parseValidtime(frame.validtime), ref: { stage, frame } }));
 }
 
-/** 格子の段のコマ。全格子点で時刻配列が共通（1回のMSMの読み出しで全点を取る）なので先頭の点だけを見る。
- * 格子の時刻は日本時間の壁時計の値。 */
-export function gridStageFrames(stage: number, grid: readonly WindGridPoint[]): DynamicWeatherFrame<StageFrameRef>[] {
-  return (grid[0]?.times ?? []).map((time, index) => ({ time: parseJstLocalValue(time), ref: { stage, index } }));
+/** 格子の段のコマ。1回の取得の時刻の列は全点で共通なので、先頭の点（最後に届いた応答の点）だけを見る。
+ * 格子の時刻は日本時間の壁時計の値。`now`が属する1時間より前のコマは出さない（格子は取ってから時間が経つと先頭が
+ * 過去になる）。「属する1時間」は最も近い時刻ではなく`now`以下で最も新しい時刻——最も近い時刻だと、正時を少し
+ * 過ぎただけで今の1時間が消える。 */
+export function gridStageFrames(
+  stage: number,
+  grid: readonly WindGridPoint[],
+  now: Date,
+): DynamicWeatherFrame<StageFrameRef>[] {
+  const frames = (grid[0]?.times ?? []).map((time) => ({ time: parseJstLocalValue(time), ref: { stage, time } }));
+  const current = frames.findLastIndex((frame) => frame.time.getTime() <= now.getTime());
+  return frames.slice(Math.max(current, 0));
 }
 
 /** 段のコマを1本の時系列へつなぐ。各段は前の段の最後のコマより後の時刻だけを継ぐ——近い時刻は

@@ -1,4 +1,4 @@
-// 風と降水が共有する格子の扱い（今より前の時刻を落とす・取り損ねた地点を補う・詳細格子の間隔と範囲）と、風の矢印。
+// 風と降水が共有する格子の扱い（取り損ねた地点を補う・描く格子を時刻で選ぶ・詳細格子の間隔と範囲）と、風の矢印。
 
 import palette from "@/types/generated/palette.json";
 import type { Bbox } from "@/services/weatherApi";
@@ -6,35 +6,35 @@ import weatherScales from "@/types/generated/weather-scales.json";
 import { gridToFeatureCollection, type DynamicWeatherRenderPayload } from "@/features/map/layers/dynamicWeather";
 import type { WindGridPoint } from "@/types/weather";
 import windGridConfig from "@/types/generated/wind-grid-config.json";
-import { parseJstLocalValue } from "@/lib/time";
 import { buildRangeLegendBands, type MapColorLegendBand } from "@/lib/mapDisplay/mapColorLegend";
 
-/** 格子を「今が属する1時間」以降へ切り詰める（取ってから時間が経つと先頭が過去になる）。「今」は最も近い時刻ではなく
- * 今以下で最も新しい時刻——最も近い時刻だと、正時を少し過ぎただけで今の1時間が消える。時刻の列は全点で共通。 */
-export function trimWindGridToCurrentAndFuture(
-  grid: readonly WindGridPoint[],
-  now: Date = new Date(),
-): WindGridPoint[] {
-  if (grid.length === 0) return [];
-  const times = grid[0].times;
-  const nowMs = now.getTime();
-  let startIndex = 0;
-  for (let i = 0; i < times.length; i++) {
-    if (parseJstLocalValue(times[i]).getTime() <= nowMs) startIndex = i;
-  }
-  if (startIndex === 0) return grid.slice();
-  return grid.map((point) => ({
-    ...point,
-    times: point.times.slice(startIndex),
-    wind_speed_ms: point.wind_speed_ms.slice(startIndex),
-    wind_direction_deg: point.wind_direction_deg.slice(startIndex),
-    precipitation_mm: point.precipitation_mm.slice(startIndex),
-  }));
+/** 格子の点と、その格子の間隔（度）。 */
+export interface SpacedWindGrid {
+  spacingDeg: number;
+  points: readonly WindGridPoint[];
+}
+
+/** 格子点の値の列のうち、時刻`time`（格子の時刻の値そのもの）の位置。その時刻を持たない点は-1。値は位置ではなく
+ * 時刻で引く——backendは取った時点の正時から先を返すので、取った時刻が違う格子（粗い格子と詳細格子、前回の値で
+ * 補った点）は同じ位置が別の時刻を指す。 */
+export function timeIndexOf(point: WindGridPoint, time: string): number {
+  return point.times.indexOf(time);
+}
+
+/** 時刻`time`に描く格子。詳細格子がその時刻を持てば詳細格子で粗い格子を置き換え（半透明の面を2枚重ねると、
+ * 重なった所だけ濃く見える）、持たなければ粗い格子（詳細格子は取った時刻の分だけ予報の先の端が手前で終わる）。 */
+export function gridAtTime(
+  coarse: readonly WindGridPoint[],
+  detail: SpacedWindGrid | null,
+  time: string,
+): SpacedWindGrid {
+  if (detail !== null && detail.points.length > 0 && timeIndexOf(detail.points[0], time) >= 0) return detail;
+  return { spacingDeg: WIND_GRID_SPACING_DEG, points: coarse };
 }
 
 /** 新しい格子に、前回の格子のうち新しい方に無い地点を補う。backendは取れなかった地点を応答から除くので、取り直す
- * たびに欠ける地点が変わる——古い値が残る方が、地図に穴が開くよりよい。地点は緯度経度で見分ける。切り詰める前の
- * 格子を渡す（切り詰めた後は先頭の位置が取るたびにずれ、古い地点だけ添字の意味が食い違う）。 */
+ * たびに欠ける地点が変わる——古い値が残る方が、地図に穴が開くよりよい。地点は緯度経度で見分ける。補った点は前回の
+ * 時刻の列を持ったまま残る（描くときに時刻で引く）。 */
 export function mergeWindGridKeepingStale(
   previous: readonly WindGridPoint[],
   next: readonly WindGridPoint[],
@@ -66,11 +66,12 @@ interface WindPointFeatureProperties {
   bearing: number;
 }
 
-/** 格子の`index`番目の時刻の風を、格子点ごとの矢印（gridMark）にする。値の欠けた点は飛ばす。 */
-export function windArrows(grid: readonly WindGridPoint[], index: number): DynamicWeatherRenderPayload {
+/** 時刻`time`の風を、格子点ごとの矢印（gridMark）にする。値の欠けた点・その時刻を持たない点は飛ばす。 */
+export function windArrows(grid: readonly WindGridPoint[], time: string): DynamicWeatherRenderPayload {
   const geojson: GeoJSON.FeatureCollection<GeoJSON.Point, WindPointFeatureProperties> = gridToFeatureCollection(
     grid,
     (point) => {
+      const index = timeIndexOf(point, time);
       const speed = point.wind_speed_ms[index];
       const direction = point.wind_direction_deg[index];
       return speed == null || direction == null ? null : ({ speed, direction } as const);
