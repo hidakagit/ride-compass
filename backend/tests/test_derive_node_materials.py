@@ -55,34 +55,41 @@ async def _signals(conn: asyncpg.Connection) -> dict[int, bool]:
 
 
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
-async def node_conn(road_graph_engine):
+async def module_conn(road_graph_engine):
     """`road_graph_engine`に依存するのはスキーマを作らせるため（`test_derive_topology.py`と同じ）。"""
     conn = await asyncpg.connect(asyncpg_dsn(postgis_database_url()))
     try:
         for source in ("osm_way", "osm_node"):
             await ensure_partition(conn, source)
-        await conn.execute("TRUNCATE " + ", ".join(TABLES) + " CASCADE")
-        way_run = await _insert_run(conn, "osm_way")
-        position = {node_id: (lon, lat) for node_id, lon, lat, _ in NODES}
-        for way_id, node_ids in WAYS:
-            wkt = "LINESTRING(" + ", ".join(
-                "{} {}".format(*position[n]) for n in node_ids) + ")"
-            await conn.execute(
-                "INSERT INTO source_features (source, natural_key, run_id, geom, attrs, payload)"
-                " VALUES ('osm_way', $1, $2, ST_GeomFromText($3, 4326), '{}'::jsonb, $4)",
-                str(way_id), way_run, wkt, struct.pack(f"<{len(node_ids)}q", *node_ids))
-        node_run = await _insert_run(conn, "osm_node")
-        for node_id, lon, lat, tags in NODES:
-            await conn.execute(
-                "INSERT INTO source_features (source, natural_key, run_id, geom, attrs)"
-                " VALUES ('osm_node', $1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5::jsonb)",
-                str(node_id), node_run, lon, lat, json.dumps(tags))
-        await derive_topology.derive(conn)
-        await derive_node_materials.derive(conn)
         yield conn
     finally:
         await conn.execute("TRUNCATE " + ", ".join(TABLES) + " CASCADE")
         await conn.close()
+
+
+@pytest_asyncio.fixture(loop_scope="module")
+async def node_conn(module_conn):
+    """テストごとに同じ生データから作り直す。生データのタグを書き換えるテストがあるため。"""
+    conn = module_conn
+    await conn.execute("TRUNCATE " + ", ".join(TABLES) + " CASCADE")
+    way_run = await _insert_run(conn, "osm_way")
+    position = {node_id: (lon, lat) for node_id, lon, lat, _ in NODES}
+    for way_id, node_ids in WAYS:
+        wkt = "LINESTRING(" + ", ".join(
+            "{} {}".format(*position[n]) for n in node_ids) + ")"
+        await conn.execute(
+            "INSERT INTO source_features (source, natural_key, run_id, geom, attrs, payload)"
+            " VALUES ('osm_way', $1, $2, ST_GeomFromText($3, 4326), '{}'::jsonb, $4)",
+            str(way_id), way_run, wkt, struct.pack(f"<{len(node_ids)}q", *node_ids))
+    node_run = await _insert_run(conn, "osm_node")
+    for node_id, lon, lat, tags in NODES:
+        await conn.execute(
+            "INSERT INTO source_features (source, natural_key, run_id, geom, attrs)"
+            " VALUES ('osm_node', $1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5::jsonb)",
+            str(node_id), node_run, lon, lat, json.dumps(tags))
+    await derive_topology.derive(conn)
+    await derive_node_materials.derive(conn)
+    return conn
 
 
 async def test_node_near_a_signal_is_flagged_and_far_one_is_not(node_conn):
@@ -109,21 +116,14 @@ async def test_rerun_on_changed_input_keeps_no_value_the_input_no_longer_support
     タグが消えたノードは種別と信号の印を失い、階級の無い道になれば最大階級は0に戻り、
     種別のためだけにあった行（どの道にも属さないノード）は行ごと消える。"""
     primary = HIGHWAY_RANK["primary"]
-    signal = {"highway": "traffic_signals"}
     await _set_tags(node_conn, "osm_way", 100, {"highway": "primary"})
-    try:
-        await derive_node_materials.derive(node_conn)
-        before = await _values(node_conn)
-        await _set_tags(node_conn, "osm_way", 100, {})
-        await _set_tags(node_conn, "osm_node", 3, {})
-        await _set_tags(node_conn, "osm_node", 9, {})
-        await derive_node_materials.derive(node_conn)
-        after = await _values(node_conn)
-    finally:
-        await _set_tags(node_conn, "osm_way", 100, {})
-        await _set_tags(node_conn, "osm_node", 3, signal)
-        await _set_tags(node_conn, "osm_node", 9, signal)
-        await derive_node_materials.derive(node_conn)
+    await derive_node_materials.derive(node_conn)
+    before = await _values(node_conn)
+    await _set_tags(node_conn, "osm_way", 100, {})
+    await _set_tags(node_conn, "osm_node", 3, {})
+    await _set_tags(node_conn, "osm_node", 9, {})
+    await derive_node_materials.derive(node_conn)
+    after = await _values(node_conn)
 
     # 前提: 1回目は値が出ている。
     assert before == {1: (False, False, primary), 3: (True, True, primary),

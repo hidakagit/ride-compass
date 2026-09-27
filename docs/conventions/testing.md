@@ -674,6 +674,53 @@ backend/.venv/Scripts/python.exe -m pytest backend/tests -q -m postgis
 `EOFError: expected 1 bytes, got 0`のINTERNALERRORになる。リポジトリのパスに含まれる
 非ASCII文字がサロゲート化するためで、UTF-8モードにすると解消する。
 
+### 変更が届くテストを選ぶ（pytest-testmon）
+
+`--testmon`を付けて流すと、テストごとに通った行を記録し（`backend/.testmondata`。作業ツリーごとで、
+コミットしない）、次に`--testmon`を付けた実行では、**渡した範囲のうち、前回から変わった行を通るテストと
+記録の無いテストだけ**を流す。記録はそのスロットで`--testmon`付きで流した分だけ溜まり、スロットを使い回す
+間は残る。
+
+```bash
+PYTHONUTF8=1 backend/.venv/Scripts/python.exe -m pytest backend/tests/test_foo.py backend/tests/test_bar.py -q --testmon
+```
+
+- **渡した範囲の外は選ばない。** 候補のファイルは今までどおり導き（CLAUDE.md「テスト方針」の
+  grepと`--co`）、testmonはその中から変わった行に届かないテストを外す。実測: 3ファイル73件を記録した後の
+  2回目は73件すべてを外し、`domain/geo.py`の関数1本を書き換えると、その関数を通る7件だけを流した。
+- **追わないもの**（公式）: Python以外のファイル（生成物のJSON等）と、網の向こうにあるもの（テストDBの
+  中身もこちら）。それらだけを変えたときは`--testmon`を外して流す。
+- 記録を取る実行は、通った行を測るぶん遅い（上の3ファイルで4.5秒→6.3秒）。
+- CIは使わない（毎回全件を流す）。
+
+### 実行順をばらす（pytest-randomly）
+
+入っているだけで働く。モジュール→クラス→関数の順に、それぞれの中で並びを混ぜ、各テストの前に
+`random`（とnumpyの旧い乱数）の種を決まった値へ戻す。**前のテストが残した状態に頼るテストは、並びが
+変わった回に落ちる**——その失敗は実装の欠陥ではなく、テストの隠れた順序依存である。
+
+- 混ぜるのはモジュールの中だけで、モジュールをまたいでテストを混ぜ合わせない。ファイル単位でエンジンと
+  イベントループを共有するPostGIS統合テスト（パターン2）の前提はそのまま成り立つ。
+- 種は実行の見出しに`Using --randomly-seed=…`と出る（`-q`では出ない）。CIはrunのIDを種に渡している
+  （`.github/workflows/ci.yml`）ので、CIで落ちた並びは手元で`--randomly-seed=<runのID>`を付けると
+  同じ並びになる。CIはその並びを複数のワーカーへ配るため、手元で`-n`を付けずに1本で流すと、
+  ワーカーの中の順まではCIと揃わない。
+- 前回と同じ並びは`--randomly-seed=last`、混ぜずに流すのは`-p no:randomly`。
+
+### 止まったテストを落とす（pytest-timeout）
+
+`backend/pytest.ini`の`timeout`が1件あたりの上限（秒。fixtureの準備・本体・後片付けの合計）で、
+超えたテストを落とす。**条件に合う入力が無いまま探索が終わらない、のような止まり方をCIの実行時間の
+上限まで待たずに、どのテストが止まったかとして出す。**
+
+- CI（Linux）はシグナル方式: 時間切れのテストだけが失敗になり、後片付けも走って残りへ進む。
+- 開発機（Windows）はスレッド方式: 時間切れで全スレッドのスタックを出し、**プロセスごと終わる**
+  （後片付けは走らない。以降のテストも流れない）。テストDBに残った行は、次の実行でそのファイルの
+  エンジンの準備（`tests/conftest.py: road_graph_engine`）が消す。
+- デバッガが動いている間は発火を避ける（公式）。
+- 上限は、CIの`--durations`で測ったふだんの最長の数倍に置く（値の根拠は`backend/pytest.ini`の
+  コメント）。1件だけ長いと分かっているテストは`@pytest.mark.timeout(<秒>)`で個別に上げる。
+
 ### テストDBは作業ツリーごとに分かれる
 
 並行セッション（複数のClaude Code・複数の作業ツリー）が同じDBの同じ行を書き換えると、
@@ -818,6 +865,10 @@ test_accident_routes.py, test_routes_generate.py
    `MultipleEventLoopsRequestedError`になる。
 3. 素の`@pytest.fixture`でasync generatorを書かない。`@pytest_asyncio.fixture`を明示的に使う
    （前者は互換用の内部変換パスを通り、モジュールスコープのイベントループと衝突する）。
+4. ファイル単位で共有するのは接続とスキーマまでにする。**テストが書き換える行（生データ・派生の表）は、
+   関数スコープのfixtureで各テストの前に作り直す。** 共有した行を書き換えて後片付けで戻す形は、戻し
+   漏れが次のテストの前提を静かに変え、実行順が変わった回にだけ落ちる（実行順は毎回混ぜている。
+   「開発機でのbackendテストの回し方」の「実行順をばらす」）。
 
 実例: test_material_values.py（road_graph_sessionを直接使う）, test_derive_topology.py（自前の
 module fixtureを重ねる）
