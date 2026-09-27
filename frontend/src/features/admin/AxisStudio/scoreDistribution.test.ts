@@ -18,6 +18,13 @@ function distribution(bins: [number, number, number][]): ValueDistribution {
   return { sample_ways: 1, total_km: 1, quantiles: {}, bins, zero_share: 0 };
 }
 
+/** 点数が揃ったときの帯（揃わなければnullが返るので、ここで落とす）。 */
+function bandsOf(value: ValueDistribution | null, scores: readonly number[] | null) {
+  const bands = scoreBands(value, scores);
+  expect(bands).not.toBeNull();
+  return bands!;
+}
+
 /** 「0点」「1-25」「100点」を、その帯が受け持つ点数の範囲へ読む。 */
 function rangeOf(label: string): [number, number] {
   const single = /^(\d+)点$/.exec(label);
@@ -42,20 +49,20 @@ describe("binMidpoints", () => {
 
 describe("scoreBands", () => {
   it("分布が無い・階級が無いときも、全帯を0で返す", () => {
-    for (const bands of [scoreBands(null, null), scoreBands(distribution([]), [])]) {
+    for (const bands of [bandsOf(null, null), bandsOf(distribution([]), [])]) {
       expect(bands.length).toBeGreaterThan(0);
       expect(bands.every((band) => band.share === 0)).toBe(true);
     }
   });
 
-  it("点数が届いていない・階級と数が合わない間は、全帯を0で返す（前の折れ点の点数を当てない）", () => {
+  it("点数が届いていない・階級と数が合わない間は、帯を返さない（前の折れ点の点数を当てず、全帯0とも言わない）", () => {
     for (const scores of [null, [10, 20]]) {
-      expect(scoreBands(distribution([[0, 1, 1]]), scores).every((band) => band.share === 0)).toBe(true);
+      expect(scoreBands(distribution([[0, 1, 1]]), scores)).toBeNull();
     }
   });
 
   it("0点と100点は単独の帯で、帯は0点から100点まで隙間なく並ぶ", () => {
-    const labels = scoreBands(null, null).map((band) => band.label);
+    const labels = bandsOf(null, null).map((band) => band.label);
     expect(rangeOf(labels[0])).toEqual([0, 0]);
     expect(rangeOf(labels.at(-1)!)).toEqual([100, 100]);
     for (let i = 1; i < labels.length; i++) {
@@ -64,9 +71,9 @@ describe("scoreBands", () => {
   });
 
   it("0〜100の整数の点数は、その点数を名前の範囲に含む帯へ入る", () => {
-    const labels = scoreBands(null, null).map((band) => band.label);
+    const labels = bandsOf(null, null).map((band) => band.label);
     for (let score = 0; score <= 100; score++) {
-      const bands = scoreBands(distribution([[0, 1, 1]]), [score]);
+      const bands = bandsOf(distribution([[0, 1, 1]]), [score]);
       const hit = bands.findIndex((band) => band.share === 1);
       const [low, high] = rangeOf(labels[hit]);
       expect(score, `点数${score}が帯「${labels[hit]}」へ入った`).toBeGreaterThanOrEqual(low);
@@ -75,13 +82,13 @@ describe("scoreBands", () => {
   });
 
   it("99点台の端数は、100点ではなく一つ手前の帯へ入る", () => {
-    const bands = scoreBands(distribution([[0, 1, 1]]), [99.5]);
+    const bands = bandsOf(distribution([[0, 1, 1]]), [99.5]);
     expect(bands.at(-1)!.share).toBe(0);
     expect(bands.at(-2)!.share).toBe(1);
   });
 
   it("同じ帯に入った階級の割合は足し合わせる", () => {
-    const bands = scoreBands(
+    const bands = bandsOf(
       distribution([
         [0, 2, 0.3],
         [8, 12, 0.2],
@@ -96,7 +103,7 @@ describe("scoreBands", () => {
 
 describe("distributionWarnings", () => {
   function bandsWith(zero: number, full: number) {
-    return scoreBands(
+    return bandsOf(
       distribution([
         [-1, -1, zero],
         [200, 200, full],

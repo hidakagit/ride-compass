@@ -6,8 +6,12 @@
 import { fetchScoresPreview, type ScoresPreview, type ScoresPreviewRequest } from "@/features/admin/adminApi";
 import { useSettledDraftQuery } from "@/features/admin/useSettledDraftQuery";
 
-/** `request`がnullの間は問い合わせない。入力を変えた直後・取得に失敗したときはnull——前の折れ点の
- * 点数を今の折れ点のものとして出さない。 */
-export function useScoresPreview(request: ScoresPreviewRequest | null): ScoresPreview | null {
-  return useSettledDraftQuery("scores-preview", request, fetchScoresPreview) ?? null;
+/** `request`がnullの間は問い合わせない。入力を変えた直後・取得に失敗したときは`preview`がnull——前の折れ点の
+ * 点数を今の折れ点のものとして出さない。失敗したことは`failed`で返す。 */
+export function useScoresPreview(request: ScoresPreviewRequest | null): {
+  preview: ScoresPreview | null;
+  failed: boolean;
+} {
+  const { data, failed } = useSettledDraftQuery("scores-preview", request, fetchScoresPreview);
+  return { preview: data ?? null, failed };
 }

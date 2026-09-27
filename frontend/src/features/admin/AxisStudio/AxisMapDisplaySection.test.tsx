@@ -14,7 +14,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { MapBandsOfThresholds } from "@/features/admin/adminApi";
+import type { MapBandsJudgement } from "@/features/admin/useMapBandsOfThresholds";
 import { AXIS_ICON_PALETTE } from "@/components/ui/icons/axisIconPalette";
 import type { AxisDefinitionResponse } from "@/types/route";
 
@@ -30,7 +30,7 @@ interface HarnessProps {
   republishing?: boolean;
   mapBandColors?: (boundaries: readonly number[]) => readonly string[];
   mapValueUnit?: string;
-  mapBands?: MapBandsOfThresholds;
+  mapBands?: MapBandsJudgement;
 }
 
 function Harness({ initial, editing = null, restrictedDisplayOnly = false, mapValueUnit = "", ...rest }: HarnessProps) {
@@ -167,7 +167,7 @@ describe("色分けしきい値", () => {
   });
 
   it("地図で段にならない値があれば、入力欄の下で名指しする。入力が読めない間は出さない", async () => {
-    const mapBands = { droppedOnMap: [2], bandsOnMap: [0, 2] };
+    const mapBands = { droppedOnMap: [2], bandsOnMap: [0, 2], failed: false };
     const user = renderSection({ initial: draftWith({ displayThresholdsOverride: [1, 2, 3] }), mapBands });
     expect(screen.getByText("地図では効かない: 2")).toBeInTheDocument();
 
@@ -190,7 +190,7 @@ describe("段階プレビュー", () => {
     );
     renderSection({
       initial: draftWith({ displayThresholdsOverride: [1, 2, 3] }),
-      mapBands: { droppedOnMap: [2], bandsOnMap: [0, 2, 3] },
+      mapBands: { droppedOnMap: [2], bandsOnMap: [0, 2, 3], failed: false },
       mapBandColors,
     });
 
@@ -210,13 +210,27 @@ describe("段階プレビュー", () => {
   it("体感ラベルは、地図の各段に当たる入力の段のラベルを添える", () => {
     renderSection({
       initial: draftWith({ displayThresholdsOverride: [1, 2], displayBandLabelsOverride: ["低", "中", "高"] }),
-      mapBands: { droppedOnMap: [2], bandsOnMap: [0, 2] },
+      mapBands: { droppedOnMap: [2], bandsOnMap: [0, 2], failed: false },
     });
     const items = within(preview()).getAllByRole("listitem");
     expect(items).toHaveLength(2);
     expect(items[0]).toHaveTextContent("低");
     expect(items[1]).toHaveTextContent("高");
     expect(preview()).not.toHaveTextContent("中");
+  });
+
+  it("地図での段の判定を取れなかったときだけ、入力どおりの段で出していると添える", () => {
+    const note = /段の判定を取得できなかった/;
+    const initial = draftWith({ displayThresholdsOverride: [1, 2] });
+    const { unmount } = render(
+      <Harness initial={initial} mapBands={{ droppedOnMap: [], bandsOnMap: null, failed: true }} />,
+    );
+    expect(preview()).toHaveTextContent("3段階になります");
+    expect(within(preview()).getByText(note)).toBeInTheDocument();
+    unmount();
+
+    render(<Harness initial={initial} />);
+    expect(screen.queryByText(note)).not.toBeInTheDocument();
   });
 
   it("段のレンジへ、渡された単位を添える", () => {
@@ -246,7 +260,9 @@ describe("体感ラベル", () => {
 
   it("地図の段に当たらない入力の段のラベル欄には、地図には出ないと印を付ける。判定が無ければ付けない", () => {
     const initial = draftWith({ displayThresholdsOverride: [1, 2], displayBandLabelsOverride: ["低", "中", "高"] });
-    const { unmount } = render(<Harness initial={initial} mapBands={{ droppedOnMap: [2], bandsOnMap: [0, 2] }} />);
+    const { unmount } = render(
+      <Harness initial={initial} mapBands={{ droppedOnMap: [2], bandsOnMap: [0, 2], failed: false }} />,
+    );
     const marked = [1, 2, 3].map(
       (n) =>
         within(screen.getByRole("textbox", { name: `体感ラベル${n}` }).parentElement!).queryByText("地図には出ない") !==

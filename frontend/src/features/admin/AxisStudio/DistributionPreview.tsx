@@ -16,6 +16,8 @@ interface Props {
   distribution: ValueDistribution | null;
   /** 分布の階級ごとの点数（`binMidpoints`の順、backendが返す）。届くまではnull。 */
   binScores: readonly number[] | null;
+  /** 点数の取得が失敗したか（届いていないのが計算中か失敗かを分けて出す）。 */
+  scoresFailed: boolean;
   loading: boolean;
   error: string | null;
 }
@@ -26,10 +28,10 @@ function quantilesInOrder(quantiles: Readonly<Record<string, number>>): [string,
   return Object.entries(quantiles).sort(([a], [b]) => Number(a.slice(1)) - Number(b.slice(1)));
 }
 
-export function DistributionPreview({ distribution, binScores, loading, error }: Props) {
+export function DistributionPreview({ distribution, binScores, scoresFailed, loading, error }: Props) {
   const bands = scoreBands(distribution, binScores);
-  const warnings = distributionWarnings(bands);
-  const maxShare = Math.max(...bands.map((b) => b.share), 0.0001);
+  const warnings = bands === null ? [] : distributionWarnings(bands);
+  const maxShare = Math.max(...(bands ?? []).map((b) => b.share), 0.0001);
 
   return (
     <section
@@ -59,24 +61,33 @@ export function DistributionPreview({ distribution, binScores, loading, error }:
             関東の道路を抽選した{distribution.sample_ways.toLocaleString()}本（
             {distribution.total_km.toLocaleString()}km）を、走る距離で重み付けた割合です。
           </p>
-          {bands.map((band) => (
-            <div
-              key={band.label}
-              className={cn(
-                textVariants({ variant: "hint" }),
-                "mb-0.5 grid grid-cols-[4.5rem_1fr_3rem] items-center gap-2",
-              )}
-            >
-              <span>{band.label}</span>
-              <span className="h-2.5 overflow-hidden rounded-sm bg-[var(--color-surface)]">
-                <span
-                  className="block h-full bg-[var(--color-accent)]"
-                  style={{ width: `${(band.share / maxShare) * 100}%` }}
-                />
-              </span>
-              <span className="text-right tabular-nums text-[var(--foreground)]">{(band.share * 100).toFixed(1)}%</span>
-            </div>
-          ))}
+          {bands === null ? (
+            // 点数が無い間に全帯0.0%のバーを並べると、「この折れ点では全部0点」と読めてしまう。
+            <p className={cn(textVariants({ variant: "hint" }), "mb-2")}>
+              {scoresFailed ? "この折れ点での点数を取得できませんでした。" : "この折れ点での点数を計算中…"}
+            </p>
+          ) : (
+            bands.map((band) => (
+              <div
+                key={band.label}
+                className={cn(
+                  textVariants({ variant: "hint" }),
+                  "mb-0.5 grid grid-cols-[4.5rem_1fr_3rem] items-center gap-2",
+                )}
+              >
+                <span>{band.label}</span>
+                <span className="h-2.5 overflow-hidden rounded-sm bg-[var(--color-surface)]">
+                  <span
+                    className="block h-full bg-[var(--color-accent)]"
+                    style={{ width: `${(band.share / maxShare) * 100}%` }}
+                  />
+                </span>
+                <span className="text-right tabular-nums text-[var(--foreground)]">
+                  {(band.share * 100).toFixed(1)}%
+                </span>
+              </div>
+            ))
+          )}
           <p className={cn(textVariants({ variant: "hint" }), "tabular-nums")}>
             材料の合成値:{" "}
             {quantilesInOrder(distribution.quantiles)

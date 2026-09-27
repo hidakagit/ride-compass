@@ -40,11 +40,14 @@ export function binMidpoints(distribution: ValueDistribution | null): number[] {
 }
 
 /** 分布の階級ごとの点数（`binMidpoints`の順）を、得点帯ごとの延長割合へまとめる。点数が届いていない・階級と
- * 数が合わない間は、全帯を0で返す（前の折れ点の点数を今の分布へ当てない）。 */
-export function scoreBands(distribution: ValueDistribution | null, binScores: readonly number[] | null): ScoreBand[] {
+ * 数が合わない間はnull——前の折れ点の点数を今の分布へ当てず、全帯0%で「全部0点」とも読ませない。 */
+export function scoreBands(
+  distribution: ValueDistribution | null,
+  binScores: readonly number[] | null,
+): ScoreBand[] | null {
   const bands = BAND_LABELS.map((label) => ({ label, share: 0 }));
   if (!distribution || distribution.bins.length === 0) return bands;
-  if (binScores === null || binScores.length !== distribution.bins.length) return bands;
+  if (binScores === null || binScores.length !== distribution.bins.length) return null;
   for (const [i, [, , share]] of distribution.bins.entries()) {
     const score = binScores[i];
     let index: number;
