@@ -2,7 +2,7 @@ import logging
 
 from app.domain.axis_inspector import AxisInspectorResult, axis_inspector_breakdown
 from app.domain.route_preference import RoutePreference
-from app.domain.region import tile_bounds_lonlat
+from app.domain.region import BoundingBox, tile_bounds_lonlat
 from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
 from app.infrastructure.debug_log import error_type_label, log_external_call, log_throttled_warning
 from app.infrastructure.road_graph_repository import (
@@ -208,6 +208,26 @@ class RegionService:
                 return []
             fields["years_covered"] = len(years)
             return years
+
+    async def get_ingested_area(self) -> BoundingBox | None:
+        """サービスの対象範囲（取り込んだ道路の範囲）。風の格子と気象庁タイルのプリウォームが、ここから
+        範囲を引く——範囲を持つのは取込の宣言だけで、取込範囲を広げれば風とタイルも同じ範囲へ広がる。
+
+        道路をまだ取り込んでいない・DB例外のときはNone（どちらもWARNING）。
+        """
+        with log_external_call("region:ingested-area") as fields:
+            try:
+                area = await self._repository.get_ingested_area()
+            except DB_UNAVAILABLE_ERRORS as exc:
+                fields["result"] = "error"
+                fields["warned"] = True
+                fields["error_type"] = error_type_label(exc)
+                log_throttled_warning("region:ingested-area", "取込範囲のPostGIS読み取りに失敗 error=%r", exc)
+                return None
+            fields["ingested"] = area is not None
+            if area is None:
+                log_throttled_warning("region:ingested-area", "道路の取込が成功した記録が無く、対象範囲が決まらない")
+            return area
 
     async def get_material_values(self, material_id: str) -> list[str] | None:
         """指定した材料についてDBへ実際に取り込まれている値の一覧。軸スタジオの値入力が使う。

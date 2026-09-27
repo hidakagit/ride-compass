@@ -1,8 +1,8 @@
 """`services/jma_tile_prewarm_service.py`——気象庁の動的タイルを定期的に温め、在否インデックスを残す。
 
 確かめるのは公開の入口`prewarm_jma_tiles`から見える振る舞いだけ: 配信元へ何を取りに行くか（時刻一覧と
-タイルのパス）と、保存する在否インデックス、取れなかったときの警告。温める要素・範囲・ズームは本物の宣言
-（動的気象の要素・配信元仕様・運用範囲）をそのまま通す。
+タイルのパス）と、保存する在否インデックス、取れなかったときの警告。温める要素・ズームは本物の宣言
+（動的気象の要素・配信元仕様）をそのまま通す。範囲は呼び出し元が渡す入力なので、テストが渡す。
 
 差し替えるのは、注入される配信元のクライアント（`JmaTileClient.get`の1メソッド。本物の署名に当てる）と、
 インデックスの書き込み先（Redis）だけ。
@@ -23,6 +23,7 @@ import logging
 import pytest
 from PIL import Image
 
+from app.domain.region import BoundingBox, tiles_covering_bbox
 from app.infrastructure.jma_tile_client import JmaTileClient
 from app.services import jma_tile_prewarm_service as prewarm
 from tests.bound_fake import bound
@@ -133,8 +134,11 @@ def stored(monkeypatch):
     return payloads
 
 
+AREA = BoundingBox(min_latitude=35.5, min_longitude=139.5, max_latitude=36.0, max_longitude=140.0)
+
+
 async def _run(source):
-    await prewarm.prewarm_jma_tiles(source)
+    await prewarm.prewarm_jma_tiles(source, AREA)
 
 
 # --- 取りに行くもの ---
@@ -156,6 +160,15 @@ async def test_tiles_are_fetched_at_the_zooms_the_source_has_data_for(stored):
 
     assert {_tile_parts(p)["z"] for p in source.tile_requests("rain_mesh")} == {4, 6, 8, 10}
     assert {_tile_parts(p)["z"] for p in source.tile_requests("thns")} == {4, 6, 8}
+
+
+async def test_tiles_are_fetched_over_the_given_area(stored):
+    source = Source()
+
+    await _run(source)
+
+    z10 = {(_tile_parts(p)["x"], _tile_parts(p)["y"]) for p in source.tile_requests("rain_mesh") if _tile_parts(p)["z"] == 10}
+    assert z10 == set(tiles_covering_bbox(AREA, 10))
 
 
 async def test_an_element_with_observations_and_forecasts_warms_the_latest_observation(stored):
@@ -268,9 +281,7 @@ async def test_the_index_says_which_frame_and_which_area_it_describes(stored):
     assert payload["elements"]["rasrf"] | {"zooms": None} == {
         "basetime": "20260922000000", "validtime": "20260922020000", "member": "m1", "zooms": None,
     }
-    coverage = payload["coverage"]
-    assert coverage["min_longitude"] < coverage["max_longitude"]
-    assert coverage["min_latitude"] < coverage["max_latitude"]
+    assert BoundingBox(**payload["coverage"]) == AREA
 
 
 # --- 時刻一覧が取れないとき ---

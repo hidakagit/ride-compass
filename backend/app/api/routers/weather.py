@@ -7,12 +7,14 @@ from app.api.dependencies import (
     enforce_rate_limit,
     get_amedas_service,
     get_flood_service,
+    get_ingested_area,
     get_warning_service,
     get_wbgt_service,
     get_weather_service,
 )
 from app.config import settings
 from app.domain.jma_amedas import AmedasObservation
+from app.domain.region import BoundingBox
 from app.domain.route import Coordinates
 from app.domain.time_zone import JST
 from app.domain.weather import WeatherConditions
@@ -139,20 +141,28 @@ def _reject_if_all_points_failed(label: str, points: list, grid: list) -> None:
         raise HTTPException(status_code=502, detail="気象データの取得に失敗しました")
 
 
+def _require_area(area: BoundingBox | None) -> BoundingBox:
+    """格子を敷く対象範囲。読めなければ格子を組めないので502（原因は`get_ingested_area`がWARNINGで残す）。"""
+    if area is None:
+        raise HTTPException(status_code=502, detail="対象範囲を読めませんでした")
+    return area
+
+
 @router.get("/api/weather/wind-grid", response_model=WindGridResponse)
 async def get_wind_grid(
     http_request: Request,
     weather_service: WeatherService = Depends(get_weather_service),
+    area: BoundingBox | None = Depends(get_ingested_area),
 ) -> WindGridResponse:
     """風・降水（数値予報モデルの計算値）の格子点マップ。
-    関東本土全域の固定格子点（domain/wind_grid.py: WIND_GRID_BBOX/WIND_GRID_SPACING_DEG）
+    対象範囲（取り込んだ道路の範囲）全体の固定格子点（domain/wind_grid.py: generate_wind_grid_points）
     ぶんの時間別風向・風速・降水量をまとめて返す。取得に失敗した地点はレスポンスから
     除外する（他の外部API連携と同じ「取得失敗は握りつぶす」方針、1地点の失敗で全体を
     502にしない）。ただし全地点が失敗した場合は502を返す（_reject_if_all_points_failed
     参照）。時刻配列はpoints内の各点からは外し、応答トップレベルに1本だけ持つ
     （WindGridResponseのdocstring参照）。"""
     enforce_rate_limit(http_request, "wind-grid", settings.wind_grid_rate_limit_per_minute)
-    points = generate_wind_grid_points()
+    points = generate_wind_grid_points(_require_area(area))
     times, grid = await weather_service.get_wind_grid(points)
     _reject_if_all_points_failed("wind-grid", points, grid)
     return WindGridResponse(times=times, points=[point for point in grid if point is not None])
@@ -168,6 +178,7 @@ async def get_wind_grid_detail(
     # 無限大の間隔は索引0の点の座標をNaNにする（0×inf）。
     spacing_deg: float = Query(default=WIND_GRID_DETAIL_SPACING_DEG, allow_inf_nan=False),
     weather_service: WeatherService = Depends(get_weather_service),
+    area: BoundingBox | None = Depends(get_ingested_area),
 ) -> WindGridResponse:
     """風・降水（数値予報モデルの計算値）の詳細格子（ヒートマップ等の面表現用、spacing_degでズーム依存の間隔を
     可変化）。呼び出し元（フロント）が渡した表示範囲（bbox）に交差する
@@ -182,11 +193,12 @@ async def get_wind_grid_detail(
         raise HTTPException(status_code=400, detail="表示範囲が不正です。")
     if spacing_deg < WIND_GRID_DETAIL_MIN_SPACING_DEG:
         raise HTTPException(status_code=400, detail="spacing_degの値が不正です。")
-    bbox = (min_lon, min_lat, max_lon, max_lat)
+    bbox = BoundingBox(min_latitude=min_lat, min_longitude=min_lon, max_latitude=max_lat, max_longitude=max_lon)
+    target = _require_area(area)
     # 点を作る処理は同期でイベントループを止めるため、上限を超える範囲は作る前に断る。
-    if count_wind_grid_detail_points(bbox, spacing_deg) > WIND_GRID_DETAIL_MAX_POINTS:
+    if count_wind_grid_detail_points(target, bbox, spacing_deg) > WIND_GRID_DETAIL_MAX_POINTS:
         raise HTTPException(status_code=400, detail="表示範囲が広すぎます。ズームインしてください。")
-    points = generate_wind_grid_detail_points(bbox, spacing_deg)
+    points = generate_wind_grid_detail_points(target, bbox, spacing_deg)
     times, grid = await weather_service.get_wind_grid(points)
     _reject_if_all_points_failed("wind-grid-detail", points, grid)
     return WindGridResponse(times=times, points=[point for point in grid if point is not None])

@@ -85,9 +85,14 @@ WIND_FORECAST_LAT_STEP_DEG = 0.05
 WIND_FORECAST_LON_STEP_DEG = 0.0625
 
 
-def _grid_line_at_or_below(value: float, step: float) -> float:
+def grid_index_at_or_below(value: float, step: float) -> int:
+    """緯度・経度0度から`step`ずつ数えた格子線のうち、`value`以下で最も近いものの番号。"""
     # 割り算の丸めで格子線ちょうどの値が1本下へ落ちないよう、商を丸めてから切り捨てる。
-    return math.floor(round(value / step, 9)) * step
+    return math.floor(round(value / step, 9))
+
+
+def _grid_line_at_or_below(value: float, step: float) -> float:
+    return grid_index_at_or_below(value, step) * step
 
 
 @dataclass(frozen=True)

@@ -12,7 +12,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.cache_policy import CachePolicyMiddleware
-from app.api.dependencies import get_amedas_service, get_jma_tile_client
+from app.api.dependencies import get_amedas_service, get_ingested_area, get_jma_tile_client
 from app.api.routers import api_router
 from app.config import settings
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
@@ -79,7 +79,10 @@ async def _refresh_amedas_job() -> None:
 
 
 async def _prewarm_jma_tile_job() -> None:
-    await prewarm_jma_tiles(get_jma_tile_client())
+    """対象範囲が読めなければ温めない（原因は`get_ingested_area`がWARNINGで残す）。"""
+    area = await get_ingested_area()
+    if area is not None:
+        await prewarm_jma_tiles(get_jma_tile_client(), area)
 
 
 async def _sync_msm_job() -> None:
