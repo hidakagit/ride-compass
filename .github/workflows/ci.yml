@@ -91,7 +91,9 @@ jobs:
       # PostGIS統合テストは全ファイルxdist_group="postgis"で同一workerへ固定済み
       # （同じridecompass_test DBへの同時TRUNCATEレースを防ぐ、docs/conventions/testing.mdパターン2）
       # なので、それら以外のテストだけが安全に並列化される。上記コメント参照:
-      - run: python -m pytest -q -n auto --dist loadgroup
+      # 実行順はpytest-randomlyがばらす。-qでは種が見出しに出ないため、runのIDを種に渡す——落ちた並びは
+      # 手元で --randomly-seed=<runのID> を付けて同じ順に並べ直せる。
+      - run: python -m pytest -q -n auto --dist loadgroup --randomly-seed=${{ github.run_id }}
 
   api-contract:
     runs-on: ubuntu-latest

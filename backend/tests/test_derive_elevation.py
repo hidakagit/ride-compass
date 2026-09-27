@@ -98,43 +98,55 @@ def _profile():
     return replace(load_source_profile(), target=Target(bbox=bbox))
 
 
-@pytest_asyncio.fixture(scope="module", loop_scope="module")
-async def elevation_conn(road_graph_engine, tmp_path_factory):
-    """`road_graph_engine`に依存するのはスキーマを作らせるため（`test_derive_topology.py`と同じ）。"""
+@pytest.fixture(scope="module")
+def tile_root(tmp_path_factory):
+    """手元へ写したタイルの置き場。"""
     root = tmp_path_factory.mktemp("dem")
     dem_tile_store.write_tile(root, "dem5a", ZOOM, X, Y, _tile_text(_dem5a))
     dem_tile_store.write_tile(root, "dem5b", ZOOM, X, Y, _tile_text(_dem5b))
     dem_tile_store.write_tile(root, "dem", *PARENT, _tile_text(_dem10b))
     dem_tile_store.mark_absent(root, "dem5c", ZOOM, X, Y)
+    return root
 
+
+@pytest_asyncio.fixture(scope="module", loop_scope="module")
+async def module_conn(road_graph_engine):
+    """`road_graph_engine`に依存するのはスキーマを作らせるため（`test_derive_topology.py`と同じ）。"""
     conn = await asyncpg.connect(asyncpg_dsn(postgis_database_url()))
     try:
         await ensure_partition(conn, "osm_way")
-        await conn.execute("TRUNCATE " + ", ".join(TABLES) + " CASCADE")
-        with pytest.MonkeyPatch.context() as patch:
-            patch.setattr(dem_tile_store, "TILE_ROOT", root)
-            async with conn.transaction():
-                await ingest_source(conn, _profile(), "dem")
-
-        run = await conn.fetchval(
-            "INSERT INTO source_runs (source, status, started_at, origin, profile, counts)"
-            " VALUES ('osm_way', 'succeeded', $1, $2, $2, $2) RETURNING run_id",
-            datetime.now(UTC), json.dumps({}))
-        for way_id, pixels, _expected in CASES:
-            node_ids = [way_id * 10 + i for i in range(len(pixels))]
-            wkt = "LINESTRING(" + ", ".join(
-                "{} {}".format(*_pixel_center(r, c)) for r, c in pixels) + ")"
-            await conn.execute(
-                "INSERT INTO source_features (source, natural_key, run_id, geom, attrs, payload)"
-                " VALUES ('osm_way', $1, $2, ST_GeomFromText($3, 4326), '{}'::jsonb, $4)",
-                str(way_id), run, wkt, struct.pack(f"<{len(node_ids)}q", *node_ids))
-        async with conn.transaction():
-            await derive_topology.derive(conn)
-            await derive_raster_materials.derive_elevation(conn)
         yield conn
     finally:
         await conn.execute("TRUNCATE " + ", ".join(TABLES) + " CASCADE")
         await conn.close()
+
+
+@pytest_asyncio.fixture(loop_scope="module")
+async def elevation_conn(module_conn, tile_root):
+    """テストごとに同じタイルから取り込み直す。取り込んだ製品を消して流し直すテストがあるため。"""
+    conn = module_conn
+    await conn.execute("TRUNCATE " + ", ".join(TABLES) + " CASCADE")
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(dem_tile_store, "TILE_ROOT", tile_root)
+        async with conn.transaction():
+            await ingest_source(conn, _profile(), "dem")
+
+    run = await conn.fetchval(
+        "INSERT INTO source_runs (source, status, started_at, origin, profile, counts)"
+        " VALUES ('osm_way', 'succeeded', $1, $2, $2, $2) RETURNING run_id",
+        datetime.now(UTC), json.dumps({}))
+    for way_id, pixels, _expected in CASES:
+        node_ids = [way_id * 10 + i for i in range(len(pixels))]
+        wkt = "LINESTRING(" + ", ".join(
+            "{} {}".format(*_pixel_center(r, c)) for r, c in pixels) + ")"
+        await conn.execute(
+            "INSERT INTO source_features (source, natural_key, run_id, geom, attrs, payload)"
+            " VALUES ('osm_way', $1, $2, ST_GeomFromText($3, 4326), '{}'::jsonb, $4)",
+            str(way_id), run, wkt, struct.pack(f"<{len(node_ids)}q", *node_ids))
+    async with conn.transaction():
+        await derive_topology.derive(conn)
+        await derive_raster_materials.derive_elevation(conn)
+    return conn
 
 
 async def test_each_product_the_origin_returned_becomes_its_own_row(elevation_conn):
@@ -169,18 +181,10 @@ async def test_rerun_without_a_product_keeps_no_value_only_that_product_gave(ele
         return await elevations()
 
     await conn.execute(
-        "CREATE TEMP TABLE _dem AS SELECT * FROM source_features WHERE source = 'dem'")
-    try:
-        await conn.execute(
-            "DELETE FROM source_features WHERE source = 'dem' AND attrs->>'product' = 'dem'")
-        without_dem = await rerun()
-        await conn.execute("DELETE FROM source_features WHERE source = 'dem'")
-        without_any = await rerun()
-    finally:
-        await conn.execute("DELETE FROM source_features WHERE source = 'dem'")
-        await conn.execute("INSERT INTO source_features SELECT * FROM _dem")
-        await conn.execute("DROP TABLE _dem")
-        await rerun()
+        "DELETE FROM source_features WHERE source = 'dem' AND attrs->>'product' = 'dem'")
+    without_dem = await rerun()
+    await conn.execute("DELETE FROM source_features WHERE source = 'dem'")
+    without_any = await rerun()
 
     assert without_dem == {way_id: None if way_id == 4 else expected
                            for way_id, _pixels, expected in CASES}

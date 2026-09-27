@@ -50,33 +50,40 @@ async def _insert_run(conn: asyncpg.Connection, source: str) -> int:
 
 
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
-async def counts_conn(road_graph_engine):
+async def module_conn(road_graph_engine):
     """`road_graph_engine`に依存するのはスキーマを作らせるため（`test_derive_topology.py`と同じ）。"""
     conn = await asyncpg.connect(asyncpg_dsn(postgis_database_url()))
     try:
-        for source in ("osm_way", "accident"):
+        for source in ("osm_way", "accident", "osm_node"):
             await ensure_partition(conn, source)
-        await conn.execute("TRUNCATE " + ", ".join(TABLES) + " CASCADE")
-        way_run = await _insert_run(conn, "osm_way")
-        for way_id, node_ids in WAYS:
-            wkt = "LINESTRING(" + ", ".join(
-                f"{lon} {lat}" for lon, lat in map(_point, node_ids)) + ")"
-            await conn.execute(
-                "INSERT INTO source_features (source, natural_key, run_id, geom, attrs, payload)"
-                " VALUES ('osm_way', $1, $2, ST_GeomFromText($3, 4326), '{}'::jsonb, $4)",
-                str(way_id), way_run, wkt, struct.pack(f"<{len(node_ids)}q", *node_ids))
-        accident_run = await _insert_run(conn, "accident")
-        lon, lat = _point(TIED_NODE)
-        await conn.execute(
-            "INSERT INTO source_features (source, natural_key, run_id, geom, attrs)"
-            " VALUES ('accident', 'tied', $1, ST_SetSRID(ST_MakePoint($2, $3), 4326), '{}'::jsonb)",
-            accident_run, lon, lat)
-        await derive_topology.derive(conn)
-        await derive_counts.derive(conn)
         yield conn
     finally:
         await conn.execute("TRUNCATE " + ", ".join(TABLES) + " CASCADE")
         await conn.close()
+
+
+@pytest_asyncio.fixture(loop_scope="module")
+async def counts_conn(module_conn):
+    """テストごとに同じ生データから作り直す。どのテストも生データと派生の表を書き換えるため。"""
+    conn = module_conn
+    await conn.execute("TRUNCATE " + ", ".join(TABLES) + " CASCADE")
+    way_run = await _insert_run(conn, "osm_way")
+    for way_id, node_ids in WAYS:
+        wkt = "LINESTRING(" + ", ".join(
+            f"{lon} {lat}" for lon, lat in map(_point, node_ids)) + ")"
+        await conn.execute(
+            "INSERT INTO source_features (source, natural_key, run_id, geom, attrs, payload)"
+            " VALUES ('osm_way', $1, $2, ST_GeomFromText($3, 4326), '{}'::jsonb, $4)",
+            str(way_id), way_run, wkt, struct.pack(f"<{len(node_ids)}q", *node_ids))
+    accident_run = await _insert_run(conn, "accident")
+    lon, lat = _point(TIED_NODE)
+    await conn.execute(
+        "INSERT INTO source_features (source, natural_key, run_id, geom, attrs)"
+        " VALUES ('accident', 'tied', $1, ST_SetSRID(ST_MakePoint($2, $3), 4326), '{}'::jsonb)",
+        accident_run, lon, lat)
+    await derive_topology.derive(conn)
+    await derive_counts.derive(conn)
+    return conn
 
 
 async def test_equidistant_accident_goes_to_exactly_one_existing_segment(counts_conn):
@@ -103,23 +110,18 @@ async def test_way_values_of_a_way_gone_from_the_raw_data_do_not_survive(counts_
     await counts_conn.execute(
         "UPDATE way_materials SET direction = 'forward' WHERE osm_way_id = 100")
     await counts_conn.execute(
-        "CREATE TEMP TABLE _removed AS SELECT * FROM source_features"
-        " WHERE source = 'osm_way' AND natural_key = '200'")
-    await counts_conn.execute(
         "DELETE FROM source_features WHERE source = 'osm_way' AND natural_key = '200'")
     new_run = await _insert_run(counts_conn, "osm_way")
     await counts_conn.execute(
         "UPDATE source_features SET run_id = $1 WHERE source = 'osm_way'", new_run)
-    try:
-        await derive_topology.derive(counts_conn)
-        await derive_counts.derive(counts_conn)
-        rows = await counts_conn.fetch(
-            "SELECT osm_way_id, direction, source_run_id FROM way_materials ORDER BY osm_way_id")
-        assert [(r["osm_way_id"], r["direction"], r["source_run_id"]) for r in rows] == [
-            (100, "forward", new_run), (300, "both", new_run)]
-    finally:
-        await counts_conn.execute("INSERT INTO source_features SELECT * FROM _removed")
-        await counts_conn.execute("DROP TABLE _removed")
+
+    await derive_topology.derive(counts_conn)
+    await derive_counts.derive(counts_conn)
+
+    rows = await counts_conn.fetch(
+        "SELECT osm_way_id, direction, source_run_id FROM way_materials ORDER BY osm_way_id")
+    assert [(r["osm_way_id"], r["direction"], r["source_run_id"]) for r in rows] == [
+        (100, "forward", new_run), (300, "both", new_run)]
 
 
 async def test_a_crossing_near_a_signal_is_counted_as_a_signal(counts_conn):
@@ -127,7 +129,6 @@ async def test_a_crossing_near_a_signal_is_counted_as_a_signal(counts_conn):
 
     地図も同じ読み替えで信号の点を出す（`test_poi_tile.py`）。
     """
-    await ensure_partition(counts_conn, "osm_node")
     run = await _insert_run(counts_conn, "osm_node")
     lon, lat = _point(TIED_NODE)
     await counts_conn.execute(
@@ -149,13 +150,12 @@ async def test_a_crossing_near_a_signal_is_counted_as_a_signal(counts_conn):
 
 async def test_rerun_on_changed_input_keeps_no_count_the_input_no_longer_supports(counts_conn):
     """入力を変えて流し直すと、停止要因も事故も無くなった区間・道の数は0へ戻る。"""
-    await ensure_partition(counts_conn, "osm_node")
     run = await _insert_run(counts_conn, "osm_node")
     lon, lat = _point(TIED_NODE)
     await counts_conn.execute(
         "INSERT INTO source_features (source, natural_key, run_id, geom, attrs)"
-        " VALUES ('osm_node', $1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), '{}'::jsonb)"
-        " ON CONFLICT DO NOTHING", str(TIED_NODE), run, lon, lat)
+        " VALUES ('osm_node', $1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), '{}'::jsonb)",
+        str(TIED_NODE), run, lon, lat)
     columns = ("accident_count", *(poi_count_column(k) for k in sorted(POI_COUNT_KINDS)))
     total = " + ".join(f"sum({c})" for c in columns)
 
@@ -167,19 +167,13 @@ async def test_rerun_on_changed_input_keeps_no_count_the_input_no_longer_support
     await counts_conn.execute(
         "UPDATE node_materials SET kind = 'crossing', has_traffic_signals = false"
         " WHERE osm_node_id = $1", TIED_NODE)
+    await derive_counts.derive(counts_conn)
+    before = await counted()
     await counts_conn.execute(
-        "CREATE TEMP TABLE _accidents AS SELECT * FROM source_features WHERE source = 'accident'")
-    try:
-        await derive_counts.derive(counts_conn)
-        before = await counted()
-        await counts_conn.execute(
-            "UPDATE node_materials SET kind = NULL WHERE osm_node_id = $1", TIED_NODE)
-        await counts_conn.execute("DELETE FROM source_features WHERE source = 'accident'")
-        await derive_counts.derive(counts_conn)
-        after = await counted()
-    finally:
-        await counts_conn.execute("INSERT INTO source_features SELECT * FROM _accidents")
-        await counts_conn.execute("DROP TABLE _accidents")
+        "UPDATE node_materials SET kind = NULL WHERE osm_node_id = $1", TIED_NODE)
+    await counts_conn.execute("DELETE FROM source_features WHERE source = 'accident'")
+    await derive_counts.derive(counts_conn)
+    after = await counted()
 
     # 前提: 1回目は数が付いている。
     assert all(n > 0 for n in before)
