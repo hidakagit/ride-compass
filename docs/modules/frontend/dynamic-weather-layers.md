@@ -246,11 +246,8 @@ backendのテストが全要素で確かめる。
 
 1. backend: `domain/weather_elements.py: WEATHER_ELEMENTS`へ宣言を1件足す（チップid・名前付き
    ソース・描き方の種類・気象庁の配信要素id・選んだ時刻に描くコマの規則、自前の格子から描くなら
-   読む値）。タイルで描くなら`domain/jma_tile_specs.py:
-   JMA_TILE_SPECS`へ配信元の仕様（パスの系統・ズーム・ベクタのレイヤー名）を1件足す。
-   配信元から取るがタイルでは描かない要素（落雷のGeoJSON等）は、同じファイルの
-   `JMA_NON_TILE_PATH_GROUPS`へパスの系統だけを足す。配信元から取るなら、同じファイルの
-   `JMA_TARGET_TIMES_READERS`へ時刻一覧の読み方を1件足す（無いと生成が落ちる）。
+   読む値）。配信元から取るなら`domain/jma_tile_specs.py: JMA_ELEMENTS`へ配信要素の宣言を1件足す
+   （パスの系統・時刻一覧のファイルと読み方、タイルで描くならズームとベクタのレイヤー名。宣言が無いと生成が落ちる）。
    新しいチップidを名乗ればチップも増える（`WEATHER_LAYER_GROUPS`はこの宣言から導かれ、
    生成物経由で`DynamicWeatherLayerId`・`MapLayerId`になる）。`scripts/export_openapi.py`で
    生成物（`mapDisplay.ts`の`weatherElements`）を作り直す。自前のMSM格子から描くなら、

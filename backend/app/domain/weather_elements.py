@@ -4,16 +4,14 @@ from collections.abc import Sequence
 from typing import Literal, NamedTuple
 
 from app.domain.jma_tile_specs import (
+    JMA_ELEMENTS,
     JMA_REFRESH_INTERVAL_SECONDS,
-    JMA_TARGET_TIMES_READERS,
-    JMA_TILE_SPECS,
     JmaFrame,
     JmaTileSpec,
     PathGroup,
     TargetTimesReader,
     effective_max_zoom,
-    jma_path_group,
-    jma_target_time_files,
+    jma_tile_spec,
 )
 
 #: 動的気象の描き方の種類。配信元が描いた画像（`rasterTile`）・配信元の地物（`vectorTile`）・
@@ -52,7 +50,7 @@ class WeatherElement(NamedTuple):
     kind: WeatherRenderKind
     #: 気象庁の配信要素id（配信元のパス`.../surf/<id>/`）を、**時刻の段の順**（近い時刻から）に並べる
     #: ——1つの名前付きソースが、選んだ時刻によって別の配信要素から届くことがある。タイルで描くものは
-    #: 全段が`JMA_TILE_SPECS`に仕様を持ち、ソースのズーム範囲は1つなので段の間で一致する。
+    #: 全段が`JMA_ELEMENTS`にタイルの仕様を持ち、ソースのズーム範囲は1つなので段の間で一致する。
     #: 自前のMSM格子から描くものは空。
     jma_elements: tuple[str, ...]
     #: 画面で要素を呼ぶ名前（▶パネルで要素ごとに表示を切り替える行の名前）。同じ名前付き
@@ -100,12 +98,12 @@ def weather_element_tile(element: WeatherElement) -> JmaTileSpec | None:
     """タイルで描く要素の配信元仕様。タイルで描かない要素はNone。
 
     段ごとに仕様が違っても、1つのソースが持てるズーム範囲とベクタのレイヤー名は1つだけなので、
-    食い違えば`ValueError`。"""
+    食い違えば`ValueError`。タイルで配らない配信要素を段に持つときも`ValueError`。"""
     if element.kind not in _TILE_KINDS:
         return None
     if not element.jma_elements:
         raise ValueError(f"タイルで描く要素に配信要素idが無い: {element.group}/{element.source}")
-    specs = [JMA_TILE_SPECS[element_id] for element_id in element.jma_elements]
+    specs = [jma_tile_spec(element_id) for element_id in element.jma_elements]
     shapes = {(spec.min_zoom, effective_max_zoom(spec), spec.vector_layer) for spec in specs}
     if len(shapes) > 1:
         raise ValueError(f"時刻の段の間でタイルのズーム範囲が食い違う: {element.group}/{element.source} {shapes}")
@@ -126,17 +124,17 @@ class WeatherDelivery(NamedTuple):
 def weather_element_deliveries(element: WeatherElement) -> list[WeatherDelivery]:
     """配信元から取る段（近い時刻から）。自前のMSM格子から描く要素は空。
 
-    読み方の宣言が無い配信要素は`KeyError`。"""
+    宣言の無い配信要素は`KeyError`。"""
     deliveries = []
     for element_id in element.jma_elements:
-        path_group = jma_path_group(element_id)
+        declared = JMA_ELEMENTS[element_id]
         deliveries.append(
             WeatherDelivery(
                 element_id,
-                path_group,
-                jma_target_time_files(element_id),
-                JMA_TARGET_TIMES_READERS[element_id],
-                JMA_REFRESH_INTERVAL_SECONDS[path_group],
+                declared.path_group,
+                declared.time_files,
+                declared.reader,
+                JMA_REFRESH_INTERVAL_SECONDS[declared.path_group],
             )
         )
     return deliveries

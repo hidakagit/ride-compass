@@ -33,7 +33,7 @@ MSMは数値予報モデルの出力で観測値・公式発表の代わりに�
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `msm.py`（MSM格子の幾何・双一次補間）・`jma_tile_specs.py`（配信元の要素ごとの仕様レジストリ。パスの系統・ズーム・ベクタのレイヤー名・時刻一覧の読み方と、系統ごとの時刻一覧の更新間隔。読み方に従って時刻一覧の行をコマにする`read_target_times`も持つ）・`weather_elements.py`（動的気象で地図に描くものの宣言。要素ごとに、選んだ時刻に描くコマの規則と、自前の格子から描くなら読む値も持つ。時刻の段をつないだとき各段が最初に描くコマを求める`stage_first_frames`も持つ。画面へは生成物で届き、本番プロセスではプリウォームが温める要素をここから導く。**本番が読むため**、本番が読まない表示値の宣言`map_display.py`とは別のファイルに置く——デプロイの要否はファイル単位で決まる）・`weather.py`・`jma_amedas.py`・`jma_area.py`・`jma_warning.py`・`wbgt.py`・`wbgt_points.py`・`twilight.py`・`flood_forecast.py`・`terrain_rgb.py`（標高タイルのエンコード変換、純関数）・`gsi_tiles.py`（国土地理院タイルの製品ごとの事実——実データを持つズーム範囲・上流のパス・出典表記。中継ルートと画面へ配るURLは受ける層の`api/routers/gsi_tile.py`が上流のパスから導く）・`weather_display.py`（気象の値を色へ写す段と、天気コードの分類と名前。段は値の昇順でなければ読み込んだ時点で落とす——画面はこの順のまま塗り分けの式を組み、MapLibreの`step`式は昇順でないと式ごと失敗してレイヤーが黙って消える。**本番プロセスは読まず**、`scripts/export_openapi.py`の生成物を経由してだけ画面へ届く）・`warning_display.py`（警戒度バッジの出所ごとの段階の呼び名と色。暑さ指数・氾濫の呼び名はそれぞれの段階の宣言から読む。本番プロセスは読まず、生成物`vocabulary.ts`だけが届く） |
+| domain | `msm.py`（MSM格子の幾何・双一次補間）・`jma_tile_specs.py`（配信元の要素ごとの宣言`JMA_ELEMENTS`。要素1件がパスの系統・時刻一覧のファイルと読み方・タイルで配るならズームとベクタのレイヤー名を持つ。ほかに系統ごとの時刻一覧の更新間隔。読み方に従って時刻一覧の行をコマにする`read_target_times`も持つ）・`weather_elements.py`（動的気象で地図に描くものの宣言。要素ごとに、選んだ時刻に描くコマの規則と、自前の格子から描くなら読む値も持つ。時刻の段をつないだとき各段が最初に描くコマを求める`stage_first_frames`も持つ。画面へは生成物で届き、本番プロセスではプリウォームが温める要素をここから導く。**本番が読むため**、本番が読まない表示値の宣言`map_display.py`とは別のファイルに置く——デプロイの要否はファイル単位で決まる）・`weather.py`・`jma_amedas.py`・`jma_area.py`・`jma_warning.py`・`wbgt.py`・`wbgt_points.py`・`twilight.py`・`flood_forecast.py`・`terrain_rgb.py`（標高タイルのエンコード変換、純関数）・`gsi_tiles.py`（国土地理院タイルの製品ごとの事実——実データを持つズーム範囲・上流のパス・出典表記。中継ルートと画面へ配るURLは受ける層の`api/routers/gsi_tile.py`が上流のパスから導く）・`weather_display.py`（気象の値を色へ写す段と、天気コードの分類と名前。段は値の昇順でなければ読み込んだ時点で落とす——画面はこの順のまま塗り分けの式を組み、MapLibreの`step`式は昇順でないと式ごと失敗してレイヤーが黙って消える。**本番プロセスは読まず**、`scripts/export_openapi.py`の生成物を経由してだけ画面へ届く）・`warning_display.py`（警戒度バッジの出所ごとの段階の呼び名と色。暑さ指数・氾濫の呼び名はそれぞれの段階の宣言から読む。本番プロセスは読まず、生成物`vocabulary.ts`だけが届く） |
 | services | `weather_service.py`・`jma_amedas_service.py`・`wbgt_service.py`・`warning_service.py`・`flood_service.py`・`jma_tile_prewarm_service.py`（定期プリウォームバッチ）・`terrain_tile_service.py`（地理院の標高タイルをTerrain-RGBへ変換して配信） |
 | infrastructure | `msm_client.py`（MSMの同期・読み出し）・`jma_tile_client.py`・`jma_tile_redis_cache.py`（タイル本体のRedis cache-aside）・`jma_tile_interpolation.py`（配信元が持たないズームの補間）・`jma_tile_index.py`（在否インデックス）・`jma_tile_content.py`（タイルが空かどうかの判定。キャッシュと在否インデックスが共有する）・`jma_amedas_client.py`・`jma_warning_client.py`・`wbgt_client.py`・`flood_client.py`・`basemap_client.py`・`gsi_tile_client.py`・`simple_api_client.py`（後者4クライアントが共有する定型文、後述）・`jma_area_boundaries.py`（地点→区域のコード。気象庁の区域の境界をディスクから読む、後述） |
 | api | `weather.py`・`jma_tile.py`・`basemap.py`・`gsi_tile.py` |
@@ -46,7 +46,7 @@ MSMは数値予報モデルの出力で観測値・公式発表の代わりに�
 | `weather.py` | 天候のPydanticモデル（`WeatherConditions`・`WeatherPeriodOutlook`。MSMの計算値）と、アメダスの10分間の実測からWMO天気コードを導く`derive_observed_weather_code`（「降っていない」の境`PRECIPITATION_MIN_MM`は、「今日」のパネルの降水量の「-」と地図の降水の塗りにも生成物で届く） | `weather_service.py`・`jma_amedas.py` |
 | `jma_amedas.py` | JMAアメダスの16方位コード変換（静穏・欠測・範囲外のコードは方位なし。JMA特有なのは番号の割当だけで、呼び名は`domain/geo.py: SIXTEEN_POINT_LABELS`から引く）・体感温度計算（BOM式）・`AmedasObservation`モデル（天気コード`weather_code`は保存した実測から応答のたびに導き、Redisには持たない） | `jma_amedas_service.py` |
 | `jma_area.py` | 区域（class20）のコード→JMA警報エリア（class20→class15→class10→office）の親子関係解決。辿る地域マスタは`AreaMaster`（area.jsonの形は`jma_warning_client.py`が解く） | `warning_service.py`・`flood_service.py` |
-| `jma_warning.py` | JMA警報コード表・アクティブ警報抽出（電文の1地域ぶんの種別`AreaWarningKind`から）・警戒度の段（名称から導く。危険警報＝警戒レベル4は警報と特別警報の間の段で、氾濫危険警報と同じ段） | `warning_service.py` |
+| `jma_warning.py` | JMA警報コード表（配信元のコード表の写し。発表中なのに表に無いコードは、写しが古くなった印としてWARNINGを出して捨てる）・アクティブ警報抽出（電文の1地域ぶんの種別`AreaWarningKind`から）・警戒度の段（名称から導く。危険警報＝警戒レベル4は警報と特別警報の間の段で、氾濫危険警報と同じ段） | `warning_service.py` |
 | `wbgt.py` | WBGT警戒レベル判定（熱中症予防運動指針の5段階閾値）・提供期間判定・段階の表示名（`WBGT_LEVEL_LABELS`） | `wbgt_service.py`・`warning_display.py` |
 | `wbgt_points.py` | 緯度経度→最寄りWBGT情報提供地点（約840地点の総当たり最近傍探索） | `wbgt_service.py` |
 | `flood_forecast.py` | JMA指定河川洪水予報コード表・アクティブ予報抽出（電文1件`FloodBulletin`から。電文の形は`flood_client.py`が解く）・段階の表示名（`FLOOD_LEVEL_LABELS`） | `flood_service.py`・`warning_display.py` |
@@ -153,9 +153,9 @@ fail-open方針の非対称性: 警報・WBGT・洪水予報は失敗時に警�
 「`maxNativeZoom`以下で`zoomUse`の偶奇を満たす最大値」を導出し、MapLibreの`maxzoom`
 （frontendへは動的気象の要素の宣言`domain/weather_elements.py: WEATHER_ELEMENTS`の生成物
 `mapDisplay.weatherElements`の`tile`として配る）とプリウォームの対象ズームの両方が
-この1箇所から決まる。パスの系統（`risk`・`nowc`・`rasrf`）も同じ仕様が持ち、タイルで配らない
-配信要素（落雷のGeoJSON）の系統だけは`JMA_NON_TILE_PATH_GROUPS`が持つ（1つの要素idの系統は
-どちらか一方だけ。`jma_path_group()`が引く）。プリウォームの取得先はここから、画面の仮のURLと
+この1箇所から決まる。ズームの仕様は配信要素の宣言`JMA_ELEMENTS`の1件がパスの系統（`risk`・`nowc`・`rasrf`）・
+時刻一覧のファイルと読み方と一緒に持ち、タイルで配らない配信要素（落雷のGeoJSON）はズームの仕様を持たない
+（要素ごとの性質を表に分けて持つと、要素idを両方に書き、つながりをテストで守ることになる）。プリウォームの取得先はここから、画面の仮のURLと
 データ層が組み立てる実データのURLは生成物の要素ごとの`jmaElements`（時刻の段の順に並んだ
 配信要素id・系統・時刻一覧のファイル）から組み立てる。1つの名前付きソースが時刻によって別の配信要素
 から届く（降水の`main`は`hrpns`→`rasrf`）ため段の並びで持ち、段の間でソースのズーム範囲が
@@ -179,12 +179,13 @@ fail-open方針の非対称性: 警報・WBGT・洪水予報は失敗時に警�
 Noneを返し、上流の空タイルがそのまま画面へ届く。
 
 **時刻一覧の在り処**（同じファイル）: 配信元は系統ごとに時刻一覧のファイルを持つ（公式ページの
-設定ファイルの`<dataRootUrl>`配下の`<timeFile>`、`JMA_TARGET_TIME_FILES`）。`nowc`だけが複数の
-ファイルに分かれ、どの要素がどのファイルに載るかは設定ファイルに無く、各ファイルの行の
-`elements`で決まる（`JMA_TARGET_TIME_FILES_BY_ELEMENT`。降水の実況・予測と、雷・竜巻・落雷で
-ファイルが違う）。系統の全ファイルを読む形にしないのは、要素の行が1件も無いファイルの取得失敗まで
-その要素の失敗に数えることになるため。`jma_target_time_files()`が要素ごとのファイルを引き、
-プリウォームはここから、画面は生成物の`jmaElements[].targetTimeFiles`から時刻一覧を取りに行く。
+設定ファイルの`<dataRootUrl>`配下の`<timeFile>`）。`nowc`だけが複数のファイルに分かれ、どの要素が
+どのファイルに載るかは設定ファイルに無く、各ファイルの行の`elements`で決まる（降水の実況・予測と、
+雷・竜巻・落雷でファイルが違う）。そこで配信要素の宣言が、その要素の行が載るファイルを要素ごとに持つ
+（`JmaElement.time_files`）。系統の全ファイルを読む形にしないのは、要素の行が1件も無いファイルの取得失敗まで
+その要素の失敗に数えることになるため。プリウォームは`jma_target_times_paths()`から、画面は生成物の
+`jmaElements[].targetTimeFiles`から時刻一覧を取りに行く。ファイル名を誤ると、配信元に無い時刻一覧を
+取りに行ってその要素の取得が失敗する（どこかの表との突き合わせでは止めない）。
 
 **配信元が持たないズームの補間（`infrastructure/jma_tile_interpolation.py`）**:
 MapLibreのソース設定は連続したズーム区間しか表現できず「偶数だけ使う」を伝えられないため、

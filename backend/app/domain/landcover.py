@@ -17,6 +17,8 @@ from pydantic import create_model
 
 from app.domain.strict_model import StrictModel
 
+# 画素値とクラスの対応は配布元が決めたもの。出典は配布元のSTACの各ラスタの`file:values`
+# （https://api.impactobservatory.com/stac-aws/collections/io-10m-annual-lulc/items）。
 LULC_WATER = 1
 LULC_TREES = 2
 LULC_FLOODED_VEG = 4

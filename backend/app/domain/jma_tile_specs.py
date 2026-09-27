@@ -22,13 +22,18 @@ ZoomUse = Literal["even", "odd", "all"]
 PathGroup = Literal["risk", "nowc", "rasrf"]
 
 
+#: 時刻一覧の行の並び方。要素ごとに違い、同じ系統・同じファイルでも一致しない。
+#: - `nowcast`: その要素の行が時刻順に並ぶ実況＋予測。実況（validtime==basetime）は過去へ長く続く。
+#: - `latestFullRun`: 数値予報のラン。系列（`member`）ごとに、有効時刻を複数持つ最新のラン
+#:   （単発の中間ランではないもの）だけが完全な予報になる。
+#: - `latest`: 実況と予測を配信元が統合済みの「現在」の単一値。最新の行だけが意味を持つ。
+TargetTimesReader = Literal["nowcast", "latestFullRun", "latest"]
+
+
 @dataclass(frozen=True)
 class JmaTileSpec:
-    """1要素分の配信元仕様。要素id（タイルパス中の
-    `.../surf/<element_id>/{z}/{x}/{y}.png`）は`JMA_TILE_SPECS`のキーが唯一の持ち主で、
-    ここには持たない——両方に書くと、ずれても探索は成功し、取りに行く先だけが変わる。"""
+    """タイルで配る要素の、タイルの仕様。"""
 
-    path_group: PathGroup
     zoom_use: ZoomUse
     max_native_zoom: int
     min_zoom: int = 4
@@ -50,59 +55,45 @@ def effective_max_zoom(spec: JmaTileSpec) -> int:
     return z
 
 
-# 出典は各要素を表示する公式ページが読み込む設定ファイル:
+@dataclass(frozen=True)
+class JmaElement:
+    """配信要素1つの宣言。要素id（配信元のパス`.../<系統>/.../surf/<element_id>/`）は`JMA_ELEMENTS`のキーが
+    持ち、ここには持たない——両方に書くと、ずれても探索は成功し、取りに行く先だけが変わる。"""
+
+    path_group: PathGroup
+    #: その要素の行が載る時刻一覧のファイル（系統の`.../data/<系統>/`の直下）。
+    time_files: tuple[str, ...]
+    reader: TargetTimesReader
+    #: タイルで配る要素の仕様。タイルで配らない要素（落雷の位置のGeoJSON）はNone。
+    tile: JmaTileSpec | None = None
+
+
+# 出典は各要素を表示する公式ページが読み込む設定ファイル（系統・時刻一覧のファイル・ズーム）:
 #   キキクル4種 … `bosai/risk/table/risk.properties__<hash>.xml`
 #   降水/雷/竜巻 … `bosai/nowc/table/nowc.properties__<hash>.xml`
 #   降水短時間予報・線状降水帯予測マップ … `bosai/kaikotan/table/kaikotan.properties__<hash>.xml`
-JMA_TILE_SPECS: dict[str, JmaTileSpec] = {
+# 設定ファイルの名前は配信元の更新ごとに変わるハッシュを含み、決まった所から取れないため、ここへ写して持つ。
+# 設定ファイルは時刻一覧の分け方を持たず、分かれている系統では各ファイルの行の`elements`で決まる
+# （nowcのN1・N2は降水の実況・予測、N3は雷・竜巻・落雷）。系統の全ファイルを読む形にしないのは、
+# 要素の行が1件も無いファイルの取得失敗まで、その要素の失敗に数えることになるため。
+JMA_ELEMENTS: dict[str, JmaElement] = {
     # キキクル（危険度分布）。土砂・大雨・浸水はラスタ、洪水はベクタ（.pbf）。
-    "land": JmaTileSpec("risk", "even", 11),
-    "rain_mesh": JmaTileSpec("risk", "even", 11),
-    "inund": JmaTileSpec("risk", "even", 11),
+    "land": JmaElement("risk", ("targetTimes.json",), "latest", JmaTileSpec("even", 11)),
+    "rain_mesh": JmaElement("risk", ("targetTimes.json",), "latest", JmaTileSpec("even", 11)),
+    "inund": JmaElement("risk", ("targetTimes.json",), "latest", JmaTileSpec("even", 11)),
     # floodは`zoomUse="even"`を持つが`maxNativeZoom`の記載が無い。同じrisk系の他要素と
     # 同じ11として扱う——z10に実データがありz11・z12が空という実測とも一致する。
-    "flood": JmaTileSpec("risk", "even", 11, vector_layer="flood"),
+    "flood": JmaElement("risk", ("targetTimes.json",), "latest", JmaTileSpec("even", 11, vector_layer="flood")),
     # 降水ナウキャスト（60分先まで）と降水短時間予報（その先15時間先まで）。
-    "hrpns": JmaTileSpec("nowc", "even", 10),
-    "rasrf": JmaTileSpec("rasrf", "even", 10),
+    "hrpns": JmaElement("nowc", ("targetTimes_N1.json", "targetTimes_N2.json"), "nowcast", JmaTileSpec("even", 10)),
+    "rasrf": JmaElement("rasrf", ("targetTimes.json",), "latestFullRun", JmaTileSpec("even", 10)),
     # 雷・竜巻ナウキャストはmaxNativeZoomが9で、他のJMAタイルより1段粗い。
-    "thns": JmaTileSpec("nowc", "even", 9),
-    "trns": JmaTileSpec("nowc", "even", 9),
+    "thns": JmaElement("nowc", ("targetTimes_N3.json",), "nowcast", JmaTileSpec("even", 9)),
+    "trns": JmaElement("nowc", ("targetTimes_N3.json",), "nowcast", JmaTileSpec("even", 9)),
+    # 落雷の位置。タイルではなく、同じ系統の下にGeoJSONで配られる。
+    "liden": JmaElement("nowc", ("targetTimes_N3.json",), "nowcast"),
     # 線状降水帯予測マップ。
-    "sjfcstmap": JmaTileSpec("rasrf", "even", 10),
-}
-
-#: タイルでは配らない配信要素の系統。落雷の位置（`liden`）は同じ系統の下にGeoJSONで配られる。
-#: 1つの要素idの系統は、ここか`JMA_TILE_SPECS`のどちらか一方だけが持つ。
-JMA_NON_TILE_PATH_GROUPS: dict[str, PathGroup] = {
-    "liden": "nowc",
-}
-
-
-def jma_path_group(element_id: str) -> PathGroup:
-    """配信要素のパスの系統。どちらの表にも無い要素idは`KeyError`。"""
-    spec = JMA_TILE_SPECS.get(element_id)
-    if spec is not None:
-        return spec.path_group
-    return JMA_NON_TILE_PATH_GROUPS[element_id]
-
-
-#: 系統ごとの時刻一覧のファイル（公式ページの設定ファイルの`<dataRootUrl>`配下の`<timeFile>`）。
-JMA_TARGET_TIME_FILES: dict[PathGroup, tuple[str, ...]] = {
-    "risk": ("targetTimes.json",),
-    "nowc": ("targetTimes_N1.json", "targetTimes_N2.json", "targetTimes_N3.json"),
-    "rasrf": ("targetTimes.json",),
-}
-
-#: 時刻一覧が複数のファイルに分かれる系統で、その要素の行が載るファイル。設定ファイルは分け方を
-#: 持たず、各ファイルの行の`elements`で決まる（N1・N2は降水の実況・予測、N3は雷・竜巻・落雷）。
-#: 系統の全ファイルを読む形にしないのは、要素の行が1件も無いファイルの取得失敗まで、その要素の
-#: 失敗に数えることになるため。
-JMA_TARGET_TIME_FILES_BY_ELEMENT: dict[str, tuple[str, ...]] = {
-    "hrpns": ("targetTimes_N1.json", "targetTimes_N2.json"),
-    "thns": ("targetTimes_N3.json",),
-    "trns": ("targetTimes_N3.json",),
-    "liden": ("targetTimes_N3.json",),
+    "sjfcstmap": JmaElement("rasrf", ("targetTimes.json",), "latest", JmaTileSpec("even", 10)),
 }
 
 
@@ -112,26 +103,6 @@ JMA_REFRESH_INTERVAL_SECONDS: dict[PathGroup, int] = {
     "nowc": 5 * 60,
     "rasrf": 10 * 60,
     "risk": 10 * 60,
-}
-
-#: 時刻一覧の行の並び方。要素ごとに違い、同じ系統・同じファイルでも一致しない。
-#: - `nowcast`: その要素の行が時刻順に並ぶ実況＋予測。実況（validtime==basetime）は過去へ長く続く。
-#: - `latestFullRun`: 数値予報のラン。系列（`member`）ごとに、有効時刻を複数持つ最新のラン
-#:   （単発の中間ランではないもの）だけが完全な予報になる。
-#: - `latest`: 実況と予測を配信元が統合済みの「現在」の単一値。最新の行だけが意味を持つ。
-TargetTimesReader = Literal["nowcast", "latestFullRun", "latest"]
-
-JMA_TARGET_TIMES_READERS: dict[str, TargetTimesReader] = {
-    "hrpns": "nowcast",
-    "thns": "nowcast",
-    "trns": "nowcast",
-    "liden": "nowcast",
-    "rasrf": "latestFullRun",
-    "land": "latest",
-    "rain_mesh": "latest",
-    "inund": "latest",
-    "flood": "latest",
-    "sjfcstmap": "latest",
 }
 
 
@@ -196,20 +167,18 @@ def _read_latest_full_run(frames: list[JmaFrame]) -> list[JmaFrame]:
     return sorted(by_validtime.values(), key=lambda frame: frame.validtime)
 
 
-def jma_target_time_files(element_id: str) -> tuple[str, ...]:
-    """その要素の行が載る時刻一覧のファイル名（系統の`.../data/<系統>/`の直下）。
-
-    複数のファイルに分かれる系統で分け方が宣言されていない要素は`KeyError`。"""
-    files = JMA_TARGET_TIME_FILES[jma_path_group(element_id)]
-    if len(files) == 1:
-        return files
-    return JMA_TARGET_TIME_FILES_BY_ELEMENT[element_id]
-
-
 def jma_target_times_paths(element_id: str) -> tuple[str, ...]:
     """その要素の時刻一覧の、配信元のパス（`bosai/jmatile/data/<系統>/<ファイル>`）。"""
-    group = jma_path_group(element_id)
-    return tuple(f"bosai/jmatile/data/{group}/{name}" for name in jma_target_time_files(element_id))
+    element = JMA_ELEMENTS[element_id]
+    return tuple(f"bosai/jmatile/data/{element.path_group}/{name}" for name in element.time_files)
+
+
+def jma_tile_spec(element_id: str) -> JmaTileSpec:
+    """タイルで配る要素のタイルの仕様。宣言の無い要素idは`KeyError`、タイルで配らない要素は`ValueError`。"""
+    tile = JMA_ELEMENTS[element_id].tile
+    if tile is None:
+        raise ValueError(f"タイルで配らない配信要素: {element_id}")
+    return tile
 
 
 def has_native_tile(spec: JmaTileSpec, zoom: int) -> bool:
@@ -233,7 +202,8 @@ def source_zoom_for_interpolation(element_id: str, zoom: int) -> int | None:
     `zoom - 1`（そこは必ず反対の偶奇になる）。親が`min_zoom`を下回る場合は補間できない
     （拡大の元が無い）。上限を超えるズームはMapLibre側のoverzoomが担うため対象外。
     """
-    spec = JMA_TILE_SPECS.get(element_id)
+    element = JMA_ELEMENTS.get(element_id)
+    spec = element.tile if element is not None else None
     if spec is None or spec.zoom_use == "all":
         return None
     if zoom > effective_max_zoom(spec) or zoom < spec.min_zoom:

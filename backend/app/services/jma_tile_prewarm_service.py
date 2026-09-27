@@ -23,12 +23,12 @@ import logging
 import time
 
 from app.domain.jma_tile_specs import (
-    JMA_TILE_SPECS,
     JmaFrame,
     TargetTimesRow,
     effective_max_zoom,
     has_native_tile,
     jma_target_times_paths,
+    jma_tile_spec,
     read_target_times,
     source_zoom_for_interpolation,
 )
@@ -68,8 +68,8 @@ class _PrewarmLayer:
         # 配信元仕様は`domain/jma_tile_specs.py`が持つ。ここで引いておくことで、
         # 登録の無い要素idを書いた時点（import時）にKeyErrorで落ちる——既定のズームへ
         # 倒すと、綴り違いのレイヤーが「1段も温まらない」だけで静かに通る。
-        self.spec = JMA_TILE_SPECS[delivery.element_id]
-        self.group = self.spec.path_group
+        self.spec = jma_tile_spec(delivery.element_id)
+        self.group = delivery.path_group
         self.extension = "pbf" if self.spec.vector_layer else "png"
         self.target_times_paths = jma_target_times_paths(delivery.element_id)
 
@@ -122,7 +122,7 @@ def _with_interpolated_zooms(
     if not zooms:
         return zooms
     filled = dict(zooms)
-    for zoom in range(min(zooms) + 1, effective_max_zoom(JMA_TILE_SPECS[element_id]) + 1):
+    for zoom in range(min(zooms) + 1, effective_max_zoom(jma_tile_spec(element_id)) + 1):
         if source_zoom_for_interpolation(element_id, zoom) is None:
             continue
         parents = filled.get(zoom - 1)

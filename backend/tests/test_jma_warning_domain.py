@@ -9,6 +9,8 @@
 作ると恒真になる）。気象庁の別表3が決めている段を、代表のコードで突き合わせる。
 """
 
+import logging
+
 import pytest
 
 from app.domain import jma_warning
@@ -71,8 +73,12 @@ def test_an_area_with_nothing_issued_has_no_code_and_gives_nothing():
     assert jma_warning.extract_active_warnings([_kind(None, "発表警報・注意報はなし")]) == []
 
 
-def test_a_code_not_in_the_table_is_left_out():
-    assert jma_warning.extract_active_warnings([_kind("no_such_code")]) == []
+def test_an_issued_code_not_in_the_table_is_left_out_and_reported(caplog):
+    # 表が配信元より古くなったことに気付けるよう、黙って捨てない
+    with caplog.at_level(logging.WARNING, logger="ridecompass.jma_warning"):
+        assert jma_warning.extract_active_warnings([_kind("no_such_code")]) == []
+
+    assert "no_such_code" in caplog.text
 
 
 def test_every_kind_not_relevant_to_cycling_is_left_out():
