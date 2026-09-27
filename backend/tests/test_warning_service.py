@@ -3,6 +3,9 @@
 電文は気象庁の応答の形のまま上流の代役から返し、解くクライアントとdomainの取り出しは本物を通す。
 """
 
+import pytest
+
+from app.infrastructure import jma_area_boundaries
 from app.services.warning_service import WarningService
 from tests.jma_area_fixtures import (
     CHIYODA_POINT,
@@ -20,23 +23,25 @@ def _service(monkeypatch, tmp_path, **kwargs) -> WarningService:
 
 async def test_get_warnings_returns_empty_when_the_point_is_in_no_area(monkeypatch, tmp_path):
     result = await _service(monkeypatch, tmp_path).get_warnings(OFFSHORE_POINT)
+    assert result is not None
     assert result.warnings == []
     assert result.area_name is None
 
 
-async def test_get_warnings_returns_empty_when_area_data_fetch_fails(monkeypatch, tmp_path):
-    result = await _service(monkeypatch, tmp_path, area_data=None).get_warnings(CHIYODA_POINT)
-    assert result.warnings == []
+@pytest.mark.parametrize("failure", [
+    {"area_data": None},
+    {"class20_code": "9999900"},  # 境界が返した区域を地域マスタで辿れない
+    {"warning_documents": None},
+])
+async def test_get_warnings_is_unknown_rather_than_empty_when_a_step_fails(monkeypatch, tmp_path, failure):
+    """取れなかったことを「警報なし」と同じ空で返すと、画面は警報が出ていないと見せる。"""
+    assert await _service(monkeypatch, tmp_path, **failure).get_warnings(CHIYODA_POINT) is None
 
 
-async def test_get_warnings_returns_empty_when_area_resolution_fails(monkeypatch, tmp_path):
-    result = await _service(monkeypatch, tmp_path, class20_code="9999900").get_warnings(CHIYODA_POINT)
-    assert result.warnings == []
-
-
-async def test_get_warnings_returns_empty_when_warning_documents_fetch_fails(monkeypatch, tmp_path):
-    result = await _service(monkeypatch, tmp_path, warning_documents=None).get_warnings(CHIYODA_POINT)
-    assert result.warnings == []
+async def test_get_warnings_is_unknown_when_area_boundaries_are_unreadable(monkeypatch, tmp_path):
+    service = _service(monkeypatch, tmp_path, warning_documents=[])
+    monkeypatch.setattr(jma_area_boundaries, "BOUNDARY_PATH", tmp_path / "missing.json")
+    assert await service.get_warnings(CHIYODA_POINT) is None
 
 
 async def test_get_warnings_merges_across_documents_and_dedupes(monkeypatch, tmp_path):

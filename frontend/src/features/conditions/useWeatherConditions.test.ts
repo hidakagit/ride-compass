@@ -150,29 +150,11 @@ describe("useWeatherConditions 警報のバッジ", () => {
         label: "大雨警報",
         level: "warning",
         source: "jma",
-        title: "付随事項: 土砂災害・浸水害 / 取得できない場合は警報が出ていてもバッジが表示されないことがあります",
+        title: "付随事項: 土砂災害・浸水害",
       },
-      {
-        id: "10",
-        label: "雷注意報",
-        level: "advisory",
-        source: "jma",
-        title: "取得できない場合は警報が出ていてもバッジが表示されないことがあります",
-      },
-      {
-        id: "wbgt",
-        label: "暑さ指数厳重警戒",
-        level: "warning",
-        source: "wbgt",
-        title: "暑さ指数 29.0 / 取得できない場合は警戒レベルに関わらずバッジが表示されないことがあります",
-      },
-      {
-        id: "flood-r1",
-        label: "多摩川氾濫警戒",
-        level: "warning",
-        source: "flood",
-        title: "氾濫警戒情報 / 取得できない場合は氾濫予報が出ていてもバッジが表示されないことがあります",
-      },
+      { id: "10", label: "雷注意報", level: "advisory", source: "jma" },
+      { id: "wbgt", label: "暑さ指数厳重警戒", level: "warning", source: "wbgt", title: "暑さ指数 29.0" },
+      { id: "flood-r1", label: "多摩川氾濫警戒", level: "warning", source: "flood", title: "氾濫警戒情報" },
     ]);
   });
 
@@ -199,14 +181,19 @@ describe("useWeatherConditions 警報のバッジ", () => {
     await settle();
     expect(result.current.warningBadgeItems).toHaveLength(1);
 
-    api.getWeatherWarnings.mockRejectedValue(new Error("警報を取得できませんでした"));
-    api.getFloodForecasts.mockRejectedValue(new Error("氾濫予報を取得できませんでした"));
+    api.getWeatherWarnings.mockRejectedValue(new Error("取得できませんでした。"));
+    api.getFloodForecasts.mockRejectedValue(new Error("河川氾濫予報の取得に失敗しました[通信エラー]"));
     act(() => vi.advanceTimersByTime(10 * 60 * 1000));
     await settle();
     expect(result.current.warningBadgeItems).toEqual([]);
     expect(result.current.warningFetchFailures).toMatchObject([
-      { id: "jma", label: "警報・注意報", detail: "警報を取得できませんでした" },
-      { id: "flood", label: "河川氾濫予報", detail: "氾濫予報を取得できませんでした" },
+      {
+        id: "jma",
+        label: "警報・注意報",
+        detail: "取得できませんでした。",
+        effect: "出ていてもバッジは表示されません。",
+      },
+      { id: "flood", label: "河川氾濫予報", detail: "河川氾濫予報の取得に失敗しました[通信エラー]" },
     ]);
   });
 });

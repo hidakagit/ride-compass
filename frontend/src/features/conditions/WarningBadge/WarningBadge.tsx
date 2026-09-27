@@ -25,8 +25,7 @@ export interface WarningBadgeItem {
   label: string;
   level: WarningBadgeLevel;
   source: WarningBadgeSource;
-  /** 補足（付随事項・取得失敗時のトレードオフの注意書き等）。詳細パネル（下記）へ
-   * 本文として出す。 */
+  /** 補足（付随事項・値・状況の文等）。詳細パネル（下記）へ本文として出す。 */
   title?: string;
 }
 

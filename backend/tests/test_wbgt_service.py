@@ -5,6 +5,7 @@
 
 from datetime import datetime
 
+import pytest
 from cachetools import TTLCache
 
 from app.domain.route import Coordinates
@@ -52,22 +53,16 @@ async def test_get_status_returns_empty_outside_provision_period(monkeypatch):
     assert upstream.requested_urls == []
 
 
-async def test_get_status_returns_empty_when_point_master_fetch_fails(monkeypatch):
-    service, _ = _service(monkeypatch, point_master=None)
-    result = await service.get_status(POINT, now=SUMMER_NOW)
-    assert result.level is None
-
-
-async def test_get_status_returns_empty_when_no_points_available(monkeypatch):
-    service, _ = _service(monkeypatch, point_master=POINT_MASTER_CSV.splitlines()[0] + "\n")
-    result = await service.get_status(POINT, now=SUMMER_NOW)
-    assert result.level is None
-
-
-async def test_get_status_returns_empty_when_forecast_fetch_fails(monkeypatch):
-    service, _ = _service(monkeypatch, forecast=None)
-    result = await service.get_status(POINT, now=SUMMER_NOW)
-    assert result.level is None
+@pytest.mark.parametrize("failure", [
+    {"point_master": None},
+    {"point_master": POINT_MASTER_CSV.splitlines()[0] + "\n"},  # 運用中の地点が1つも読めない
+    {"forecast": None},
+    {"forecast": []},  # 検索窓に発表が無い
+])
+async def test_get_status_is_unknown_rather_than_empty_when_no_current_value_is_obtained(monkeypatch, failure):
+    """取れなかったことを段なし（「ほぼ安全」・期間外と同じ空）で返すと、画面は警戒が要らないと見せる。"""
+    service, _ = _service(monkeypatch, **failure)
+    assert await service.get_status(POINT, now=SUMMER_NOW) is None
 
 
 async def test_get_status_returns_empty_when_below_almost_safe_threshold(monkeypatch):
@@ -112,7 +107,7 @@ async def test_get_status_uses_only_the_latest_reference_time_when_multiple_are_
     assert result.value == 25.0
 
 
-async def test_the_nearest_forecast_without_a_value_gives_nothing_rather_than_a_farther_one(monkeypatch):
+async def test_the_nearest_forecast_without_a_value_is_unknown_rather_than_a_farther_one(monkeypatch):
     """最も近い予測の値が読めなければ、遠い時刻の値で埋めない（別の時刻の暑さを今の暑さとして出さない）。"""
     forecast = [
         _forecast("2026/08/22 14:00:00", "2026/08/22 15:00:00", None),
@@ -120,6 +115,4 @@ async def test_the_nearest_forecast_without_a_value_gives_nothing_rather_than_a_
     ]
     service, _ = _service(monkeypatch, forecast=forecast)
 
-    result = await service.get_status(POINT, now=SUMMER_NOW)
-
-    assert result.level is None
+    assert await service.get_status(POINT, now=SUMMER_NOW) is None

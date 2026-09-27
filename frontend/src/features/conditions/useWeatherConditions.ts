@@ -66,7 +66,7 @@ export function useWeatherConditions(location: Coordinates, locationReady: boole
   const amedas = useLocationFetch("amedas", getAmedasObservation, location, locationReady);
 
   // 警告は、取れない間その出所のバッジを出さず、失敗した出所を別に渡す（バッジが無いのを「警告なし」と読ませない）。
-  // backendの中の失敗は空の応答で届くので、ここで拾えるのは通信の失敗・429等だけ。
+  // 空の応答は「出ていない」だけを表し、backendが配信元から取れなかったときも失敗（502）で届く。
   const warnings = useLocationFetch("warnings", getWeatherWarnings, location, locationReady);
   const wbgt = useLocationFetch("wbgt", getWbgtStatus, location, locationReady);
   const flood = useLocationFetch("flood", getFloodForecasts, location, locationReady);
@@ -81,12 +81,7 @@ export function useWeatherConditions(location: Coordinates, locationReady: boole
           label: warning.name,
           level: warning.level,
           source: "jma",
-          title: [
-            warning.additions.length > 0 ? `付随事項: ${warning.additions.join("・")}` : null,
-            "取得できない場合は警報が出ていてもバッジが表示されないことがあります",
-          ]
-            .filter(Boolean)
-            .join(" / "),
+          title: warning.additions.length > 0 ? `付随事項: ${warning.additions.join("・")}` : undefined,
         }))
       : [];
     // 暑さ指数は段が無い間（提供期間外・「ほぼ安全」等）は出さない。
@@ -98,7 +93,7 @@ export function useWeatherConditions(location: Coordinates, locationReady: boole
               label: `暑さ指数${wbgtStatus.label ?? ""}`,
               level: wbgtStatus.level,
               source: "wbgt",
-              title: `暑さ指数 ${wbgtStatus.value.toFixed(1)} / 取得できない場合は警戒レベルに関わらずバッジが表示されないことがあります`,
+              title: `暑さ指数 ${wbgtStatus.value.toFixed(1)}`,
             },
           ]
         : [];
@@ -107,7 +102,7 @@ export function useWeatherConditions(location: Coordinates, locationReady: boole
       label: forecast.label,
       level: forecast.badge_level,
       source: "flood",
-      title: `${forecast.condition} / 取得できない場合は氾濫予報が出ていてもバッジが表示されないことがあります`,
+      title: forecast.condition,
     }));
     return [...jmaItems, ...wbgtItem, ...floodItems];
   }, [weatherWarnings, wbgtStatus, floodForecasts]);

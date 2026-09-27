@@ -33,33 +33,33 @@ class WbgtService:
     def __init__(self, http_client: httpx.AsyncClient):
         self._http_client = http_client
 
-    async def get_status(self, point: Coordinates, now: datetime) -> WbgtStatus:
+    async def get_status(self, point: Coordinates, now: datetime) -> WbgtStatus | None:
         """出発地点の`now`（JST）時点の暑さ指数警戒レベルを取得する。
 
-        提供期間外は取得自体を行わない。地点解決・予測値取得のどこで失敗しても例外にせず
-        空を返す（他の警報系バッジと共有するfail-open方針）。警告として意味を持たない低い
-        レベルも空へ倒す。
+        空（段なし）を返すのは、提供期間外（取得自体を行わない）と、警告として意味を持たない低い
+        レベルのときだけ。地点解決・予測値の取得に失敗したか、今の時刻の値が得られなければNone
+        （警戒レベルが分からない）。
         """
         if not is_within_provision_period(now):
             return _empty_status()
 
         points = await fetch_point_master(self._http_client)
         if not points:
-            return _empty_status()
+            return None
 
         nearest = nearest_point(point.latitude, point.longitude, points)
         if nearest is None:
-            return _empty_status()
+            return None
 
         range_to = now.strftime("%Y%m%d%H%M%S")
         range_from = (now - timedelta(hours=_FORECAST_SEARCH_WINDOW_HOURS)).strftime("%Y%m%d%H%M%S")
         forecasts = await fetch_forecast(self._http_client, nearest.no, range_from, range_to)
         if not forecasts:
-            return _empty_status()
+            return None
 
         forecast = _pick_nearest_forecast(forecasts, now)
         if forecast is None or forecast.wbgt is None:
-            return _empty_status()
+            return None
 
         level_info = wbgt_level(forecast.wbgt)
         if level_info is None:

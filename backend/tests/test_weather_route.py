@@ -494,9 +494,7 @@ def test_get_weather_warnings_returns_warnings_on_success():
     assert body["warnings"][0]["additions"] == ["竜巻"]
 
 
-def test_get_weather_warnings_returns_empty_without_error_on_failure():
-    # 改善計画T205完了条件「取得失敗時は警告なし」。502ではなく空のwarningsで200を返す
-    # （wind-grid系の全滅502ガード、T200とは意図的に異なる方針）。
+def test_no_warnings_is_an_empty_success():
     app.dependency_overrides[get_warning_service] = lambda: FakeWarningService(
         WeatherWarnings(area_name=None, report_datetime=None, warnings=[])
     )
@@ -568,9 +566,7 @@ def test_get_wbgt_returns_status_on_success():
     assert body["value"] == 30.0
 
 
-def test_get_wbgt_returns_empty_without_error_on_failure_or_offseason():
-    # 改善計画T174完了条件「取得失敗時は警告なし」「提供期間外は何も出ない」。
-    # 502ではなく空のlevel=Noneで200を返す（T205のwarningsエンドポイントと同じfail-open方針）。
+def test_no_wbgt_level_is_an_empty_success():
     app.dependency_overrides[get_wbgt_service] = lambda: FakeWbgtService(
         WbgtStatus(level=None, label=None, value=None, observed_at=None)
     )
@@ -635,9 +631,7 @@ def test_get_flood_forecast_returns_forecasts_on_success():
     assert body["forecasts"][0]["badge_level"] == "severe_warning"
 
 
-def test_get_flood_forecast_returns_empty_without_error_on_failure():
-    # 改善計画T212完了条件「取得失敗時は警告なし」。502ではなく空配列で200を返す
-    # （T205/T174と同じfail-open方針）。
+def test_no_flood_forecast_is_an_empty_success():
     app.dependency_overrides[get_flood_service] = lambda: FakeFloodService(FloodForecasts(forecasts=[]))
 
     try:
@@ -647,6 +641,24 @@ def test_get_flood_forecast_returns_empty_without_error_on_failure():
 
     assert response.status_code == 200
     assert response.json() == {"forecasts": []}
+
+
+@pytest.mark.parametrize(("path", "dependency", "fake"), [
+    ("/api/weather/warnings", get_warning_service, FakeWarningService(None)),
+    ("/api/weather/wbgt", get_wbgt_service, FakeWbgtService(None)),
+    ("/api/weather/flood-forecast", get_flood_service, FakeFloodService(None)),
+])
+def test_a_badge_source_that_could_not_be_obtained_is_a_failure_not_an_empty_answer(path, dependency, fake):
+    """空の応答は「出ていない」を表す。取れなかったことを同じ空で返すと、画面は出ていないと見せる。"""
+    app.dependency_overrides[dependency] = lambda: fake
+
+    try:
+        response = client.get(path, params={"latitude": 35.6812, "longitude": 139.7671})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 502
+    assert response.json() == {"detail": "取得できませんでした。"}
 
 
 def test_get_flood_forecast_is_rate_limited_per_client():

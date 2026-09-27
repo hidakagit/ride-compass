@@ -38,7 +38,7 @@ export async function getCurrentWeather(point: Coordinates): Promise<WeatherCond
 export const getAmedasObservation = (point: Coordinates) =>
   getAtPoint<AmedasObservation>("/api/weather/amedas", point, "api:amedas", "アメダス観測値");
 
-// 警報・WBGT・河川氾濫は、取得できなかったときもbackendが空の中身で200を返す。ここで投げるのは通信の失敗だけ。
+// 警報・WBGT・河川氾濫の空の中身は「出ていない」を表す。backendが配信元から取れなかったときは502で投げる。
 export const getWeatherWarnings = (point: Coordinates) =>
   getAtPoint<WeatherWarnings>("/api/weather/warnings", point, "api:weatherWarnings", "警報・注意報");
 

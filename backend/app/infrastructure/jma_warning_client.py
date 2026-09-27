@@ -2,8 +2,8 @@
 
 どちらも更新頻度が低い（area.jsonは行政区画変更でしか変わらず、
 警報自体も分単位では動かない）ため、429前提の再試行は設けない。取得失敗はNoneを返し、呼び出し元
-（warning_service.py）が「警報なし」として扱う（安全側ではない既知のトレードオフを
-WBGTと共有する）。応答の形はここで解き、呼び出し元へは`AreaMaster`・`WarningBulletin`で渡す。
+（warning_service.py）が「警報なし」と分けて返す。応答の形はここで解き、呼び出し元へは
+`AreaMaster`・`WarningBulletin`で渡す。
 """
 
 from dataclasses import dataclass
