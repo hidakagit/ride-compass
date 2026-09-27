@@ -11,8 +11,8 @@ export type WeatherPeriodOutlook = components["schemas"]["WeatherPeriodOutlook"]
 export type WindGridResponse = components["schemas"]["WindGridResponse"];
 // フロント内部で使う格子点の表現。バックエンドのWindGridPoint（times無し）に、
 // 応答トップレベルのtimesを合成したもの（services/weatherApi.ts: getWindGridPoints）。
-// windLayer.ts・useWeatherGrid.ts等の内部ロジックは「各点がtimesを持つ」前提のまま
-// 変えていない（trimWindGridToCurrentAndFuture等が個々の点のtimesをスライスする設計）。
+// 点ごとにtimesを持つのは、取った時刻が違う点（前回の値で補った点）が1つの格子に同居し、
+// 時刻の列の先頭がそれぞれ違うため（値は点ごとに時刻で引く。windLayer.ts: timeIndexOf）。
 // ネットワーク上の表現とフロント内部表現をここで切り離すことで、応答サイズ削減が
 // 内部ロジックへ波及しないようにしている。
 export type WindGridPoint = components["schemas"]["WindGridPoint"] & { times: string[] };

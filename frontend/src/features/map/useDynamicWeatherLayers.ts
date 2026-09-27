@@ -28,7 +28,7 @@ import {
   type WeatherSource,
 } from "@/features/map/layers/weatherSources";
 import { precipitationCells } from "@/features/map/layers/precipitationNowcast";
-import { windArrows, type MapViewport } from "@/features/map/layers/windLayer";
+import { gridAtTime, windArrows, type MapViewport } from "@/features/map/layers/windLayer";
 import {
   tileDeliveryFailureLayerIds,
   type DynamicWeatherGroupState,
@@ -43,7 +43,7 @@ import type { WindGridPoint } from "@/types/weather";
 /** 格子の段の描き方。読む値ごとに1つ。 */
 const GRID_PAYLOAD: Record<
   GridValue,
-  (grid: readonly WindGridPoint[], index: number, spacingDeg: number) => DynamicWeatherRenderPayload
+  (grid: readonly WindGridPoint[], time: string, spacingDeg: number) => DynamicWeatherRenderPayload
 > = {
   precipitation: precipitationCells,
   wind: windArrows,
@@ -216,7 +216,7 @@ export function useDynamicWeatherLayers({
       const timeline = sourceTimeline(
         source.stages.map((stage, index) =>
           stage.origin === "grid"
-            ? gridStageFrames(index, grid.grid)
+            ? gridStageFrames(index, grid.grid, now)
             : jmaStageFrames(index, deliveryResults.get(stage.delivery.id)?.frames ?? []),
         ),
       );
@@ -278,9 +278,10 @@ export function useDynamicWeatherLayers({
       const ref = selected.get(source);
       if (ref === undefined) return undefined;
       const stage = source.stages[ref.stage];
-      if ("index" in ref) {
+      if ("time" in ref) {
         if (stage.origin !== "grid") return undefined;
-        return GRID_PAYLOAD[stage.value](grid.effectiveGrid, ref.index, grid.effectiveGridSpacingDeg);
+        const drawn = gridAtTime(grid.grid, grid.detail, ref.time);
+        return GRID_PAYLOAD[stage.value](drawn.points, ref.time, drawn.spacingDeg);
       }
       if (stage.origin !== "jma") return undefined;
       if (stage.kind === "gridMark") {
@@ -290,7 +291,7 @@ export function useDynamicWeatherLayers({
       if (stage.kind === "gridFill") return undefined;
       return jmaTilePayload(stage.kind, stage.delivery, ref.frame);
     },
-    [selected, grid.effectiveGrid, grid.effectiveGridSpacingDeg, points],
+    [selected, grid.grid, grid.detail, points],
   );
 
   const dynamicWeather = useMemo(() => {

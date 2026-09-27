@@ -18,13 +18,40 @@ const grid = (times: string[]): WindGridPoint[] => [
   } as WindGridPoint,
 ];
 
+// 格子のどの時刻よりも前（何も落とさない）。
+const BEFORE_GRID = new Date("2026-09-24T00:00:00+09:00");
+
+describe("gridStageFrames（格子の段のコマ）", () => {
+  const HOURS = ["2026-09-24T09:00", "2026-09-24T10:00", "2026-09-24T11:00"];
+  const jst = (text: string) => new Date(`${text}+09:00`);
+  const times = (now: Date) => gridStageFrames(0, grid(HOURS), now).map(({ ref }) => ("time" in ref ? ref.time : ""));
+
+  it("今が属する1時間から先のコマだけを、格子の時刻の値で指す", () => {
+    expect(times(jst("2026-09-24T10:59"))).toEqual(HOURS.slice(1));
+  });
+
+  it("正時ちょうどはその1時間に入る", () => {
+    expect(times(jst("2026-09-24T11:00"))).toEqual(HOURS.slice(2));
+  });
+
+  it("先頭がまだ来ていなければ何も落とさず、空の格子は空", () => {
+    expect(times(jst("2026-09-24T08:30"))).toEqual(HOURS);
+    expect(gridStageFrames(0, [], jst("2026-09-24T10:00"))).toEqual([]);
+  });
+
+  it("どの端末の時刻帯でも、格子の時刻は日本時間として読む", () => {
+    // 協定世界時 01:30 = 日本時間 10:30
+    expect(times(new Date("2026-09-24T01:30:00Z"))).toEqual(HOURS.slice(1));
+  });
+});
+
 describe("sourceTimeline（段を1本の時系列へつなぐ）", () => {
   it("段の順に、前の段の最後より後の時刻だけを継ぐ", () => {
     const timeline = sourceTimeline([
       jmaStageFrames(0, [frame("20260924000000"), frame("20260924010000")]),
       jmaStageFrames(1, [frame("20260924010000"), frame("20260924020000")]),
       // 日本時間 11:00 = 協定世界時 02:00（前の段の最後と同時刻）、12:00 = 03:00
-      gridStageFrames(2, grid(["2026-09-24T11:00", "2026-09-24T12:00"])),
+      gridStageFrames(2, grid(["2026-09-24T11:00", "2026-09-24T12:00"]), BEFORE_GRID),
     ]);
     expect(timeline.map(({ time, ref }) => [time.toISOString(), ref.stage])).toEqual([
       ["2026-09-24T00:00:00.000Z", 0],
@@ -32,20 +59,20 @@ describe("sourceTimeline（段を1本の時系列へつなぐ）", () => {
       ["2026-09-24T02:00:00.000Z", 1],
       ["2026-09-24T03:00:00.000Z", 2],
     ]);
-    expect(timeline[3].ref).toEqual({ stage: 2, index: 1 });
+    expect(timeline[3].ref).toEqual({ stage: 2, time: "2026-09-24T12:00" });
   });
 
   it("途中の段が取れていなければ、その前の段の直後から次の段を継ぐ", () => {
     const timeline = sourceTimeline([
       jmaStageFrames(0, [frame("20260924000000")]),
       jmaStageFrames(1, []),
-      gridStageFrames(2, grid(["2026-09-24T09:00", "2026-09-24T10:00"])),
+      gridStageFrames(2, grid(["2026-09-24T09:00", "2026-09-24T10:00"]), BEFORE_GRID),
     ]);
     expect(timeline.map(({ ref }) => ref.stage)).toEqual([0, 2]);
   });
 
   it("どの段も無ければ空", () => {
-    expect(sourceTimeline([jmaStageFrames(0, []), gridStageFrames(1, [])])).toEqual([]);
+    expect(sourceTimeline([jmaStageFrames(0, []), gridStageFrames(1, [], BEFORE_GRID)])).toEqual([]);
   });
 });
 
