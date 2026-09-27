@@ -1,23 +1,17 @@
 """鍵→雨の材料の配信層（`services/rain_way_service.py`）。ルートを出す前の地図の雨。
 
 各道は中ほどに最も近い雨量計の値を引く。差し替えるのはDB（リポジトリ）・気象庁への取得・Redisだけで、
-履歴の組み立てと材料の計算は本物を通す（履歴はアメダスの定期バッチの入口から作る）。
+履歴の組み立てと材料の計算は本物を通す（履歴はアメダスの定期バッチの入口から作る。`tests/rain_history_fake.py`）。
 """
 
 import inspect
-from datetime import datetime, timedelta
 
 import pytest
-from cachetools import TTLCache
 
 from app.domain.rain import HOURS_SINCE_RAIN, RAIN_HISTORY_HOURS, rain_window_material_id
-from app.domain.time_zone import JST
-from app.infrastructure import jma_amedas_client, redis_json_cache
 from app.infrastructure.road_graph_repository import RoadGraphRepository
-from app.services import jma_amedas_service
-from app.services.jma_amedas_service import JmaAmedasService
 from app.services.rain_way_service import RainWayService
-from tests.fake_api_http import FakeResponse, RoutingHttpClient
+from tests import rain_history_fake
 
 Z, X, Y = 14, 14551, 6447
 
@@ -27,34 +21,6 @@ STATIONS = {
     # 雨量計を持たない観測所。東京駅のすぐそばに置いても、最寄りの候補にならない。
     "99999": {"lat": [35, 40.8], "lon": [139, 46.0], "kjName": "雨量計なし"},
 }
-
-
-class FakeRedis:
-    def __init__(self):
-        self.strings: dict[str, str] = {}
-
-    async def hgetall(self, key):
-        return {}
-
-    def pipeline(self, transaction=False):
-        return FakePipeline()
-
-    async def get(self, key):
-        return self.strings.get(key)
-
-    async def set(self, key, value, ex=None):
-        self.strings[key] = value
-
-
-class FakePipeline:
-    def hset(self, key, mapping):
-        return self
-
-    def expire(self, key, ttl):
-        return self
-
-    async def execute(self):
-        return []
 
 
 class FakeMidpointsRepository:
@@ -70,30 +36,11 @@ class FakeMidpointsRepository:
 
 @pytest.fixture(autouse=True)
 def fake_redis(monkeypatch):
-    fake = FakeRedis()
-    monkeypatch.setattr(jma_amedas_service, "get_redis_client_or_none", lambda: fake)
-    monkeypatch.setattr(redis_json_cache, "get_redis_client_or_none", lambda: fake)
-    monkeypatch.setattr(jma_amedas_service, "_rain_materials_cache", TTLCache(maxsize=1, ttl=300))
-    return fake
+    return rain_history_fake.use_fake_redis(monkeypatch)
 
 
-async def _observe(monkeypatch, rain_mm: dict[str, float]):
-    """アメダスの定期バッチを1回通す。どの正時も、観測所ごとに`rain_mm`の1時間雨量を返す。"""
-    latest_time = datetime.now(JST).replace(minute=0, second=0, microsecond=0) - timedelta(minutes=10)
-    observation = {station_id: {"temp": [20.0, 0]} for station_id in STATIONS}
-    for station_id, rain in rain_mm.items():
-        observation[station_id]["precipitation1h"] = [rain, 0]
-
-    def route(url):
-        if url == jma_amedas_client.AMEDAS_STATION_TABLE_URL:
-            return FakeResponse(STATIONS)
-        if url == jma_amedas_client.AMEDAS_LATEST_TIME_URL:
-            return FakeResponse(text=latest_time.isoformat())
-        return FakeResponse(observation)
-
-    monkeypatch.setattr(jma_amedas_client, "_station_table_cache", TTLCache(maxsize=1, ttl=60))
-    monkeypatch.setattr(jma_amedas_client, "_latest_time_cache", TTLCache(maxsize=1, ttl=60))
-    await JmaAmedasService(http_client=RoutingHttpClient(route)).refresh_all_stations()
+async def _observe(monkeypatch, rain_mm: dict[str, float | None]):
+    await rain_history_fake.observe(monkeypatch, STATIONS, rain_mm)
 
 
 async def test_each_road_takes_the_value_of_its_nearest_rain_gauge(monkeypatch):

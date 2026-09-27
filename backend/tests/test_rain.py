@@ -59,13 +59,13 @@ def test_every_rain_material_gets_a_value_per_station():
 
 
 def test_nearest_point_matches_the_great_circle_nearest():
-    """観測所の間隔（十数km）では、平面で比べても球面の最寄りと同じ観測所になる。区切りの刻みを
-    またぐ件数で確かめる。"""
+    """格子で候補を絞っても、全点と比べた球面の最寄りと同じ点になる。地点を密に撒き、候補が2つ以上
+    残る格子（最寄りの境目の近く）にも多く当てる。"""
     rng = np.random.default_rng(0)
     station_lat = rng.uniform(34.0, 37.0, 300)
     station_lon = rng.uniform(138.0, 141.0, 300)
-    lat = rng.uniform(34.5, 36.5, 1500)
-    lon = rng.uniform(138.5, 140.5, 1500)
+    lat = rng.uniform(34.5, 36.5, 20000)
+    lon = rng.uniform(138.5, 140.5, 20000)
 
     phi1, phi2 = np.radians(lat)[:, None], np.radians(station_lat)[None, :]
     dphi = phi2 - phi1

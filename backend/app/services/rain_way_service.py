@@ -1,6 +1,7 @@
 """鍵→動的値配信層（雨）。
 
-各フィーチャーは中ほどに最も近い雨量計の値を引く（`domain/rain.py`）。値は今の観測で、
+各フィーチャーは中ほどに最も近い雨量計の値を引く（`domain/rain.py: rain_material_columns`。ルートの区間も同じ関数で
+中点の値を引く）。値は今の観測で、
 走行方位・時刻・想定速度には依らない。1つの実装が雨の材料すべてを担当し、どの材料を返すかは
 組み立てるときに受け取る——窓の長さの一覧（`RAIN_WINDOW_HOURS`）が増えても、ここは変わらない。
 
@@ -12,7 +13,7 @@ from datetime import datetime
 
 import numpy as np
 
-from app.domain.rain import RAIN_MATERIAL_IDS, nearest_point_indices
+from app.domain.rain import RAIN_MATERIAL_IDS, rain_material_columns
 from app.domain.region import tile_bounds_lonlat
 from app.domain.time_zone import JST
 from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
@@ -66,8 +67,7 @@ class RainWayService:
             keys = list(midpoints)
             latitudes = np.array([midpoints[key][0] for key in keys], dtype=float)
             longitudes = np.array([midpoints[key][1] for key in keys], dtype=float)
-            nearest = nearest_point_indices(latitudes, longitudes, stations.latitudes, stations.longitudes)
-            values = stations.values[self.material_id][nearest]
+            values = rain_material_columns(stations, latitudes, longitudes)[self.material_id]
             result = {key: round(float(value), 1) for key, value in zip(keys, values) if not np.isnan(value)}
             fields["feature_count"] = len(keys)
             fields["computed"] = len(result)

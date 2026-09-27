@@ -659,8 +659,11 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
    外で動くため、枠いっぱいの生成と重なったときは取り置きから使う。
    戦略層（`RouteGenerator._prepare`）はこの例外を「探索範囲の道路が多すぎる」理由付きの候補0件に、
    区間確認APIは422にする。
-4. **静的スコア行列**: 切り出した区間の材料（`material_arrays_of`、分類の材料は語彙への番号のまま）から
-   `build_static_edge_score_matrix`で求める。キャッシュしない——軸定義の編集がそのまま次の生成に効き、
+4. **静的スコア行列**: 切り出した区間の材料（`material_arrays_of`、分類の材料は語彙への番号のまま）に、
+   区間の中点に最も近い雨量計の今の観測（雨の材料、`domain/rain.py: rain_material_columns`。地図の雨と同じ関数・
+   同じ観測）を足し、`build_static_edge_score_matrix`で求める。観測の履歴は`load_station_rain_materials`が
+   Redisから読み（プロセス内に5分持つ）、無い・古ければ雨の材料は欠損のまま組む（WARNINGを抑制付きで出し、
+   INFOサマリの`rain_hour=none`で分かる）。キャッシュしない——軸定義の編集と雨の観測がそのまま次の生成に効き、
    軸定義の世代を突き合わせる仕組みが要らない。
 
 戻り値は`(RoadSlice, StaticEdgeScoreMatrix, タイル集合)`。スコア行列の行は切り出した区間の順。

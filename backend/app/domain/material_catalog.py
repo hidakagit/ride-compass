@@ -328,10 +328,9 @@ def _wind_drag_ratio_by_situation() -> dict[str, float]:
 
 _WIND_DRAG_RATIO_BY_SITUATION = _wind_drag_ratio_by_situation()
 
-# `value_sql`を持たない材料は、評価軸として機能しない範囲をここで明記する（`MaterialSpec.description`）。
 _RAIN_MATERIAL_NOTE = (
-    "雨量計は0.5mm刻みで、それより弱い雨は観測されません。出発時刻の予報では延ばさず、今の観測を示します。"
-    "ルートの評価にはまだ使われず、地図の色分けと道の詳細でだけ確かめられます。"
+    "雨量計は0.5mm刻みで、それより弱い雨は観測されません。"
+    "出発時刻では延ばさず、地図・道の詳細・ルートのどれでも今の観測を使います。"
 )
 _RAIN_COVERAGE = CoverageExcluded(
     reason="アメダスの観測から都度引く動的材料で、DBに静的な値を持たない",
@@ -731,7 +730,8 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         ),
     ),
     # --- 雨の材料。`domain/rain.py: RAIN_WINDOW_HOURS`（窓の長さの一覧）から生成する ---
-    # 値は`services/rain_way_service.py`が最寄りの雨量計の観測から配る。
+    # 値は最寄りの雨量計の観測（`domain/rain.py: rain_material_columns`）で、地図へは専用の配信、
+    # ルートへは探索範囲の静的スコア行列の列として届く。
     **{
         rain_window_material_id(hours): MaterialSpec(
             material_id=rain_window_material_id(hours),
