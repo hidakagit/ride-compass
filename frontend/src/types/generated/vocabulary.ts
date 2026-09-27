@@ -134,7 +134,6 @@ export const vocabulary = {
       ]
     }
   ],
-  "weatherCategoryFallback": "cloudy",
   "materialPopulations": [
     {
       "key": "way",

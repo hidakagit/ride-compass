@@ -8,6 +8,7 @@ import pytest
 from app.domain.region import BoundingBox
 from app.domain.route import Coordinates
 from app.domain.weather import derive_observed_weather_code
+from app.domain.weather_display import WEATHER_CATEGORIES
 from app.infrastructure import msm_client
 from app.infrastructure.msm_client import MsmSeries, MsmUnavailableError
 from app.services.weather_service import WeatherService
@@ -205,3 +206,18 @@ async def test_get_wind_forecast_lattice_returns_none_when_msm_unavailable(monke
 )
 def test_derive_observed_weather_code(precipitation_10min, sunshine_10min, temperature, expected):
     assert derive_observed_weather_code(precipitation_10min, sunshine_10min, temperature) == expected
+
+
+def test_every_derived_weather_code_has_a_category():
+    """画面は分類に無いコードを出さないので、導くコードはどれも分類に入る。入力は降水量の全ての強さの帯・日照の
+    有無・気温の雨と雪の両側を掃く。"""
+    precipitations = [None, *(step / 100 for step in range(201))]
+    derived = {
+        derive_observed_weather_code(precipitation, sunshine, temperature)
+        for precipitation in precipitations
+        for sunshine in (None, 0.0, 5.0, 10.0)
+        for temperature in (None, -5.0, 0.0, 0.1, 20.0)
+    } - {None}
+    categorized = {code for category in WEATHER_CATEGORIES for code in category.codes}
+    assert derived
+    assert derived <= categorized, sorted(derived - categorized)

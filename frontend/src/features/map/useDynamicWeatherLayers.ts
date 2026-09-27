@@ -76,8 +76,20 @@ function fileStatesOf(results: readonly UseQueryResult<unknown[]>[]): FileState[
   }));
 }
 
-function dataOf<T>(results: readonly UseQueryResult<T>[]): (T | undefined)[] {
-  return results.map((result) => result.data);
+/** 地点の取得1つの状態。取れなかった地点は描かず、その失敗はチップの状態に数える（描かないだけにすると、落雷の
+ * 地点が無いことと取れていないことを見分けられない）。 */
+interface PointState {
+  geojson: GeoJSON.FeatureCollection | undefined;
+  pending: boolean;
+  error: string | undefined;
+}
+
+function pointStatesOf(results: readonly UseQueryResult<GeoJSON.FeatureCollection>[]): PointState[] {
+  return results.map((result) => ({
+    geojson: result.data,
+    pending: result.status === "pending",
+    error: result.status === "error" ? result.error.message : undefined,
+  }));
 }
 
 function targetTimesFilesOf(deliveries: readonly { delivery: JmaDelivery; label: string }[]): TargetTimesFile[] {
@@ -218,7 +230,13 @@ export function useDynamicWeatherLayers({
   // 時刻）で持ち、選んでいるコマの鍵と一致するときだけ描く——コマを動かした後に前のコマの取得が
   // 解決しても、別の時刻の地点を混ぜない。
   const pointRequests = useMemo(() => {
-    const requests: { key: string; delivery: JmaDelivery; frame: JmaFrame; label: string }[] = [];
+    const requests: {
+      key: string;
+      group: DynamicWeatherLayerId;
+      delivery: JmaDelivery;
+      frame: JmaFrame;
+      label: string;
+    }[] = [];
     for (const source of shownSources) {
       const ref = selected.get(source);
       if (ref === undefined || !("frame" in ref)) continue;
@@ -226,6 +244,7 @@ export function useDynamicWeatherLayers({
       if (stage.origin !== "jma" || stage.kind !== "gridMark") continue;
       requests.push({
         key: pointKey(stage.delivery, ref.frame),
+        group: source.group,
         delivery: stage.delivery,
         frame: ref.frame,
         label: source.label,
@@ -233,14 +252,13 @@ export function useDynamicWeatherLayers({
     }
     return requests;
   }, [shownSources, selected]);
-  // 取れなければ描かないだけに留める（取得の失敗はfetchJsonがdebugLogへ記録済み）。
-  const pointData = useQueries(
+  const pointStates = useQueries(
     {
       queries: pointRequests.map((request) => ({
         queryKey: ["jma-points", request.key],
         queryFn: () => fetchJmaPointGeojson(request.delivery, request.frame, request.label),
       })),
-      combine: dataOf,
+      combine: pointStatesOf,
     },
     client,
   );
@@ -248,11 +266,11 @@ export function useDynamicWeatherLayers({
     () =>
       new Map(
         pointRequests.flatMap((request, index): [string, GeoJSON.FeatureCollection][] => {
-          const geojson = pointData[index];
+          const geojson = pointStates[index]?.geojson;
           return geojson === undefined ? [] : [[request.key, geojson]];
         }),
       ),
-    [pointRequests, pointData],
+    [pointRequests, pointStates],
   );
 
   const payloadOf = useCallback(
@@ -297,9 +315,16 @@ export function useDynamicWeatherLayers({
     for (const group of groups) {
       const sources = shownSources.filter((source) => source.group === group);
       const results = deliveriesOf(sources).map(({ delivery }) => deliveryResults.get(delivery.id));
+      const groupPoints = pointStates.filter((_, index) => pointRequests[index]?.group === group);
       const readsGrid = sources.some((source) => source.stages.some((stage) => stage.origin === "grid"));
-      const loading = results.some((result) => result === undefined) || (readsGrid && grid.loading);
-      const error = results.find((result) => result?.error)?.error ?? (readsGrid ? grid.error : null);
+      const loading =
+        results.some((result) => result === undefined) ||
+        groupPoints.some((point) => point.pending) ||
+        (readsGrid && grid.loading);
+      const error =
+        results.find((result) => result?.error)?.error ??
+        groupPoints.find((point) => point.error)?.error ??
+        (readsGrid ? grid.error : null);
       const hasFetched = results.some((result) => result !== undefined) || (readsGrid && grid.hasFetched);
       const hasPayload = sources.some((source) => dynamicWeather[source.group]?.[source.source]?.payload !== undefined);
       status[group] = deriveFetchLayerStatus(loading, error, hasPayload, hasFetched);
@@ -308,7 +333,17 @@ export function useDynamicWeatherLayers({
     // （deriveFetchLayerStatusと同じくエラーを最優先にする）。
     for (const layerId of tileDeliveryFailureLayerIds(dynamicWeather, tileFailures)) status[layerId] = "error";
     return status;
-  }, [shownSources, deliveryResults, grid.loading, grid.error, grid.hasFetched, dynamicWeather, tileFailures]);
+  }, [
+    shownSources,
+    deliveryResults,
+    pointRequests,
+    pointStates,
+    grid.loading,
+    grid.error,
+    grid.hasFetched,
+    dynamicWeather,
+    tileFailures,
+  ]);
 
   return { dynamicWeather, dynamicWeatherDataStatus };
 }

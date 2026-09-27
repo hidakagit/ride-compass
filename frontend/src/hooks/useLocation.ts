@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Coordinates, LocationSource } from "@/types/route";
 
-// 位置が取れないときの初期地点（東京都北区・王子駅付近）。ここからはルートを生成しない。
+// 位置が取れないときの初期地点（東京都北区・王子駅付近）。ここからはルートを生成せず、天候・警報も取らない。
 const DEFAULT_LOCATION: Coordinates = { latitude: 35.7597, longitude: 139.7387 };
 const GEOLOCATION_TIMEOUT_MS = 8000;
 

@@ -274,12 +274,20 @@ describe("配信元の地点（最新の観測の規則）", () => {
     expect(result.current.dynamicWeather.disaster?.liden?.payload).toBeUndefined();
   });
 
-  it("地点の取得に失敗したコマは描かない", async () => {
+  it("地点の取得に失敗したコマは描かず、チップは「値なし」ではなく失敗", async () => {
     fetchers.fetchJmaPointGeojson.mockRejectedValue(new Error("取れません"));
     const { result } = liden(NOW);
     await settle();
     expect(fetchers.fetchJmaPointGeojson).toHaveBeenCalled();
     expect(result.current.dynamicWeather.disaster?.liden?.payload).toBeUndefined();
+    expect(result.current.dynamicWeatherDataStatus.disaster).toBe("error");
+  });
+
+  it("地点を取っている間は「値なし」ではなく読み込み中", async () => {
+    fetchers.fetchJmaPointGeojson.mockImplementation(() => new Promise(() => {}));
+    const { result } = liden(NOW);
+    await settle();
+    expect(result.current.dynamicWeatherDataStatus.disaster).toBe("loading");
   });
 });
 

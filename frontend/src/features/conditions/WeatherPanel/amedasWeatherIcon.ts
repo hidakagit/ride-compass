@@ -9,10 +9,11 @@ interface AmedasWeatherDisplay {
 }
 
 /** アメダスの実測からbackendが導いた天気コード+昼夜フラグから天気アイコン+ラベルを決める。
- * コードが無ければnullを返す。 */
+ * コードが無い・分類に無ければnullを返す。 */
 export function getAmedasWeatherDisplay(weatherCode: number | null, isDay: boolean): AmedasWeatherDisplay | null {
   if (weatherCode == null) return null;
   const category = weatherCategoryOf(weatherCode);
+  if (category === null) return null;
   const label = WEATHER_CATEGORY_LABEL[category];
   // 「晴れ」だけは実測のis_dayで昼夜を切り替える（アメダスはコマ単位の昼夜を持つ）。
   if (category === "clear") {
