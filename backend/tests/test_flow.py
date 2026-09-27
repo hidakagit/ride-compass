@@ -391,7 +391,8 @@ def test_board_moves_are_judged_by_the_same_table_and_written_back_when_refused(
     w.fake.issues[cancelled].update(state="CLOSED", stateReason="NOT_PLANNED")
     w.take()
     assert w.value(skipped, "状態") == flow.STATES["③"] and "遷移の表に無い" in w.last(skipped)
-    assert w.value(by_coordinator, "状態") == flow.STATES["②"] and "断った" in w.last(by_coordinator)
+    # ユーザーはどの ② もボードで再開できる（止めている人が司令塔でも）。役割の違いで断る場面は _resume が持つ
+    assert (w.state(by_coordinator), w.value(by_coordinator, "止めている人")) == ("③", None)
     assert w.state(by_user) == "③"
     assert (w.fake.issues[completed]["state"], w.value(completed, "状態")) == ("OPEN", flow.STATES["④"])
     assert (w.fake.issues[reopened]["state"], w.fake.issues[reopened]["stateReason"]) == ("CLOSED", "COMPLETED")
