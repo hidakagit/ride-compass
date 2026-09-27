@@ -5,24 +5,29 @@
 // 手書きで持つと、同じ値を地図のポップアップと軸スタジオで別の呼び方をすることになる。
 
 import materialCatalog from "@/types/generated/material-catalog.json";
+import regionTileConfig from "@/types/generated/region-tile-config.json";
 
-export interface RoadSurfacePopupProperties {
-  /** 区間インスペクタで全軸の内訳を引き直すための識別子。 */
-  osm_way_id?: number | null;
-  /** クリックされたフィーチャーそのものの識別子。区間単位のズームでは区間のid、
-   * way単位のズームではosm_way_idの文字列。**内訳を地図の色と同じ単位で計算させる**
-   * ためにそのまま送る（どちらでもbackendが受け取れる）。 */
-  feature_key?: string | null;
-  /** OSMの道路名・路線番号（表示専用の生値）。対訳表を持たない第三者編集データ。 */
-  name?: string | null;
-  ref?: string | null;
-  surface_class?: string | null;
-  tracktype?: string | null;
-  smoothness?: string | null;
-  tunnel?: boolean | null;
-  bridge?: boolean | null;
-  /** 一方通行（一次属性、OSM onewayタグ）。未該当（双方向）はプロパティ欠落。 */
-  oneway?: boolean | null;
+/** 押した道の路面タイルの属性（列名→値）。材料の列の名前は材料カタログの`tile_property`、材料の外の列
+ * （識別子・道路名）の名前は生成物`region-tile-config.json`の`road_surface.properties`が持ち、ここは列名を持たない。 */
+export type RoadSurfacePopupProperties = Readonly<Record<string, unknown>>;
+
+const COLUMNS = regionTileConfig.road_surface.properties;
+
+function textColumn(properties: RoadSurfacePopupProperties, column: string): string | null {
+  const value = properties[column];
+  return typeof value === "string" && value ? value : null;
+}
+
+/** 区間インスペクタで全軸の内訳を引き直すための識別子。 */
+export function roadWayId(properties: RoadSurfacePopupProperties): number | null {
+  const value = properties[COLUMNS.way_id];
+  return typeof value === "number" ? value : null;
+}
+
+/** 押したフィーチャーそのものの識別子（区間単位のズームでは区間の鍵、way単位のズームではway_idの文字列）。
+ * **内訳を地図の色と同じ単位で計算させる**ためにそのまま送る（どちらでもbackendが受け取れる）。 */
+export function roadFeatureKey(properties: RoadSurfacePopupProperties): string | null {
+  return textColumn(properties, COLUMNS.feature_key);
 }
 
 interface RoadFactRow {
@@ -46,14 +51,14 @@ const PRESENT_FACT_MATERIALS = ["has_tunnel", "bridge", "oneway"] as const;
 /** 材料をタイルの属性から読む。属性の名前は材料カタログの`tile_property`。 */
 function tileValue(properties: RoadSurfacePopupProperties, materialId: string): unknown {
   const property = MATERIALS.get(materialId)?.tile_property;
-  return property == null ? undefined : (properties as Record<string, unknown>)[property];
+  return property == null ? undefined : properties[property];
 }
 
 /** 道路名。`name`（通称）と`ref`（路線番号）は独立したタグで、片方だけ持つwayが多い
- * （番号だけの国道・名前だけの市道）。両方あれば「名前[番号]」として1つに畳む。 */
+ * （番号だけの国道・名前だけの市道）。両方あれば「名前[番号]」として1つに畳む。対訳表を持たない第三者編集の生値。 */
 export function roadDisplayName(properties: RoadSurfacePopupProperties): string | null {
-  const name = properties.name || null;
-  const ref = properties.ref || null;
+  const name = textColumn(properties, COLUMNS.name);
+  const ref = textColumn(properties, COLUMNS.ref);
   if (name && ref) return `${name}[${ref}]`;
   return name ?? ref;
 }

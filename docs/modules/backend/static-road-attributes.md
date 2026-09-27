@@ -482,9 +482,12 @@ DB障害時は空タイルを返す。
 
 ### vector_tile.py・tile_cache.py
 
-`vector_tile.py`はMVTの共有定数（`TILE_EXTENT`・各レイヤー名）と空タイルのエンコード
+`vector_tile.py`はMVTの共有定数（`TILE_EXTENT`・各レイヤー名・路面タイルが材料の外に持つ列の名前
+`ROAD_FEATURE_PROPERTIES`）と空タイルのエンコード
 関数のみを持つ（実際のMVT生成はPostGIS側のST_AsMVTが担い、Pythonでのジオメトリ
-エンコードは行わない）。`tile_cache.py`はタイルの生バイトを配信パスを鍵にディスク
+エンコードは行わない）。列の名前は焼き込みSQLが別名として差し込み、生成物`region-tile-config.json`の
+`road_surface.properties`が画面へ配る——画面は識別子・道路名の列名を持たない（材料の列は材料の`tile_property`）。
+名前を変えると焼き込みSQLの文字列が変わるので、タイルの形の署名も変わって作り直しが起きる。`tile_cache.py`はタイルの生バイトを配信パスを鍵にディスク
 （`DATA_DIR/tile_cache/`）へ置く`diskcache`の包みで、容量の上限と退避はライブラリが持つ
 （退避の順を書いた順にしている理由は[キャッシュ方針](../../conventions/caching.md)「ディスクを選ぶときの責任」）。
 読み書きの失敗（ディスクフル等）は未キャッシュ扱いにし、タイル配信自体を失敗させない。

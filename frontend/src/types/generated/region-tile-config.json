@@ -5,7 +5,13 @@
     "road_surface"
   ],
   "road_surface": {
-    "layer_name": "road_surface"
+    "layer_name": "road_surface",
+    "properties": {
+      "feature_key": "feature_key",
+      "way_id": "osm_way_id",
+      "name": "name",
+      "ref": "ref"
+    }
   },
   "accident": {
     "layer_name": "accidents"

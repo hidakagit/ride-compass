@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { buildPointPopupContent } from "@/features/map/MapView/pointPopup";
 import RoadInspectorPopup from "@/features/map/MapView/RoadInspectorPopup";
-import type { RoadSurfacePopupProperties } from "@/features/map/MapView/roadFacts";
+import { roadWayId, type RoadSurfacePopupProperties } from "@/features/map/MapView/roadFacts";
 import * as maplibregl from "maplibre-gl";
 
 import { configureMaplibreWorker } from "@/features/map/maplibreWorker";
@@ -376,7 +376,7 @@ export default function MapView({
   const mapLayerCatalog = useMemo(() => buildMapLayers(catalog), [catalog]);
   const layerDataSources = useMemo(() => buildLayerDataSources(mapLayerCatalog), [mapLayerCatalog]);
   // 詳細を見ている道。強調も scene の一部として当てる。
-  const inspectedWayId = roadPopup?.properties.osm_way_id ?? null;
+  const inspectedWayId = roadPopup ? roadWayId(roadPopup.properties) : null;
   // 地図に載るもの全部の入力。**ここが scene の唯一の組み立て口**。
   const sceneInputs = useMemo<SceneInputs>(
     () =>
@@ -555,7 +555,7 @@ export default function MapView({
       }
       setRoadPopup({
         lngLat: [e.lngLat.lng, e.lngLat.lat],
-        properties: feature.properties as unknown as RoadSurfacePopupProperties,
+        properties: feature.properties,
         tile: tileContainingLonLat(e.lngLat.lng, e.lngLat.lat, map.getZoom(), ROAD_TILE_MIN_ZOOM, ROAD_TILE_MAX_ZOOM),
       });
     }

@@ -55,6 +55,7 @@ from app.infrastructure.cache_identity import shape_digest
 from app.infrastructure.derived_models import EdgeMaterialRow, WayMaterialRow
 from app.infrastructure.orm_base import declared_metadata
 from app.infrastructure.vector_tile import (
+    ROAD_FEATURE_PROPERTIES,
     ROAD_SURFACE_LAYER_NAME,
     STOP_POI_LAYER_NAME,
     TILE_EXTENT,
@@ -252,16 +253,16 @@ _ROAD_SURFACE_TILE_MVT_SQL = text(
                     ST_AsMVTGeom(
                         ST_Transform(src.geom, 3857), ST_TileEnvelope(:z, :x, :y), :extent, 256, true
                     ) AS geom,
-                    src.feature_key AS feature_key,
+                    src.feature_key AS {ROAD_FEATURE_PROPERTIES['feature_key']},
                     -- 区間インスペクタが、ポップアップに出た値と同じ行を曖昧さ無く引き
                     -- 直すための識別子。空間マッチ（半径内最近傍）だと交差点付近で別の
                     -- 道路を拾いうる。
-                    w.osm_way_id AS osm_way_id,
+                    w.osm_way_id AS {ROAD_FEATURE_PROPERTIES['way_id']},
                     -- 道路名・路線番号（表示専用）。材料の正規化はかけない——利用者へ
                     -- そのまま見せる固有名詞のため。**第三者が編集できる生値で対訳表を
                     -- 持たない**ため、埋め込む側は必ずエスケープする。
-                    NULLIF(btrim(w.tags->>'name'), '') AS name,
-                    NULLIF(btrim(w.tags->>'ref'), '') AS ref,
+                    NULLIF(btrim(w.tags->>'name'), '') AS {ROAD_FEATURE_PROPERTIES['name']},
+                    NULLIF(btrim(w.tags->>'ref'), '') AS {ROAD_FEATURE_PROPERTIES['ref']},
 {_CATEGORICAL_TILE_COLUMNS_SQL},
 {_BOOLEAN_TILE_COLUMNS_SQL},
                     -- 一方通行（表示専用）。上下線が分かれた道の片側は外す——道路としては
