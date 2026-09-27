@@ -16,11 +16,11 @@
 | `features/route/routeWeightShare.ts` | 重み配分の純関数（帯グラフの境界ドラッグ`clampBoundaryDrag`・刻みと上下限） |
 | `features/conditions/WindBearingSlider/WindBearingSlider.tsx` | 走行方位の指定コンパスダイヤル（`TravelBearingControl`から使われる。単体としての設置場所は[ページ全体構成・状態管理](page-composition.md)参照） |
 | `lib/cardinalLabel.ts` | 角度を方位の呼び名へ（走行方位のダイヤルと区間の風の両方が使う）。呼び名の並びはbackend（`domain/geo.py: COMPASS_LABELS`）が配り、丸めはbackendと同じhalf-up——違うと境界の角度でラベルが食い違う |
-| `features/route/RouteAxisProfile/RouteAxisProfile.tsx` | 候補ごとのタブの中身（公開軸すべての軸別難易度一覧＋「重み付き寄与度」内訳）。地図の色分けを選ぶ操作はここには無い（`LensControl`）。候補一覧のタブ自体はpage.tsxが直接組み立てる（[ページ全体構成・状態管理](page-composition.md)参照） |
-| `features/route/routeTabLabel.ts` | 候補タブの「基準線からの超過時間」を組み立てる純関数（`fastestDurationSeconds`・`extraDurationLabel`）と、区間を乗り換えて作った候補の判定（`isSplicedRoute`・`SPLICED_ROUTE_ID_PREFIX`）。**合成も素の結果と本質的に区別せず**、並び順は生成候補と同じ（所要時間の短い順、`orderByDuration`）、見分けだけをタブの名前（「合成」）で付ける。**接頭辞はbackendが付ける値で、判定と組み立ての両方がこの1つを使う**——別々に書くと片方だけ変えたときに合成ルートが一覧で見分けられなくなる（型でも例外でも現れない）。タブ列自体はpage.tsxが組み立てる（[ページ全体構成・状態管理](page-composition.md)参照） |
+| `features/route/RouteAxisProfile/RouteAxisProfile.tsx` | 候補ごとのタブの中身（公開軸すべての軸別難易度一覧＋「重み付き寄与度」内訳）。地図の色分けを選ぶ操作はここには無い（`LensControl`）。候補一覧のタブ自体は`RouteOutcome.tsx`が組み立てる |
+| `features/route/routeTabLabel.ts` | 候補タブの「基準線からの超過時間」を組み立てる純関数（`fastestDurationSeconds`・`extraDurationLabel`）と、区間を乗り換えて作った候補の判定（`isSplicedRoute`・`SPLICED_ROUTE_ID_PREFIX`）。**合成も素の結果と本質的に区別せず**、並び順は生成候補と同じ（所要時間の短い順、`orderByDuration`）、見分けだけをタブの名前（「合成」）で付ける。**接頭辞はbackendが付ける値で、判定と組み立ての両方がこの1つを使う**——別々に書くと片方だけ変えたときに合成ルートが一覧で見分けられなくなる（型でも例外でも現れない）。タブ列自体は`RouteOutcome.tsx`が組み立てる |
 | `features/route/gpxExport.ts` | 候補1本をGPXとして書き出す（`downloadGpx`。押す口は[ページ全体構成・状態管理](page-composition.md)の候補の操作）。点数を上限（`MAX_GPX_TRACK_POINTS`）へ収めるとき、残す点を折れ線の形から選ぶ（下記「GPX書き出しの間引き」） |
 | `features/route/RouteAxisProfile/axisRawValue.ts` | 軸の生値（折れ点を通す前）を単位付きの表示文へ整える純関数（`formatAxisRawValue`）。走行距離を掛けた総量を添えるのは、軸カタログが`raw_value_total_unit`を返した軸だけ——総量が読み手の判断を変えるかの判断はbackendが持ち、フロントは単位の綴りから決めない。単位が定まらない軸の内訳1件を整える`formatMaterialBreakdown`（numeric/boolean）・`formatCategoryBreakdown`（categorical、最も延長の長い値）も持つ |
-| `components/AxisContributionBar/AxisContributionBar.tsx` | 「重み付き寄与度」内訳の表示部品（積み上げ1本バー＋凡例）。ルート全体の内訳（RouteAxisProfile）・区間クリック詳細（app/page.tsx: selectedRouteSegment）の両方から共用する |
+| `components/AxisContributionBar/AxisContributionBar.tsx` | 「重み付き寄与度」内訳の表示部品（積み上げ1本バー＋凡例）。ルート全体の内訳（RouteAxisProfile）・区間クリック詳細（`RouteOutcome.tsx`）の両方から共用する |
 | `features/route/ComparisonPanel/ComparisonPanel.tsx`・`types/experimentSlot.ts`（`ExperimentSlot`型・`MAX_EXPERIMENT_SLOTS`） | 研究モードの実験スロット比較表 |
 | `hooks/useAxisCatalog.ts` | `GET /api/axis-catalog`取得。軸一覧・既定重み・ramp軸・軸ラベル・二次軸・ルート色分けモードを一括提供 |
 | `lib/axisCatalog.ts` | 上記フックが返すカタログを、応答から導く純関数（`axisCatalogFromResponse`）と、画面が読む較正値（`CLIENT_TUNING_IDS`・`clientTuningValue`）。フックが持つのは「いつ取りに行き、誰と共有するか」だけ |
@@ -34,6 +34,8 @@
 | `components/ui/FieldLabel/FieldLabel.tsx` | 情報アイコン付きラベルの共有UI部品（値を変えたら上書きをONにする包みは`RouteSettingsPanel.tsx`が持つ） |
 | `features/route/SegmentWind/SegmentWind.tsx` | 区間の詳細に出す、その区間の評価に使った風（下記「区間クリック詳細」） |
 | `features/route/RouteSplicePanel/RouteSplicePanel.tsx` | 区間の乗り換えの結果面（「ルート結果」が編集モードのときの中身）。**選ぶのは地図、パネルは結果だけ**——地図の破線が「いまの道から乗り換えられる先」・太い実線が「いま作っているルート」で、タップすると乗り換わり、その先の分かれ道が次の破線になる（次に選べる区間は`features/route/routeSplice.ts: buildSplicedShape`が組む「いまの組み合わせ」との差として求めるため、乗り換え先の道の上の分岐もそのまま現れる。候補どうしが同じ地点を通るかはbackendが返すNode id［`node_ids`］で判定し、**当てると一度通った地点へ戻る代替は選択肢に出さない**——backendは連結性しか見ず、折り返しも走れはするため落とさない）。パネルはルート結果と同じ指標（距離・所要・総合難易度・負荷）で元と編集後を**2列×2行**に並べ（1セルに「元→編集後 差」を収め、列見出しを持たない）、軸別は2本並べず**差だけの1本**（中央が0・左が楽になった側・長さが変化量・色は軸チップと同じ）。戻すのは見出し行の「1つ戻す」「全部戻す」で、巻き戻せるのは直前の1手ずつ（適用済みの範囲はその時点の経路に対する位置のため、途中だけは外せない）。`edge_ids`が空の候補では「差が無い」と「そもそも出せない」を区別して伝える。使い方は画面へ書かず見出し脇の(i)の奥に置き、操作（1つ戻す・全部戻す・差分・作成）はパネルの他の操作と同じアイコンの横に名前を置く形 |
+| `features/route/useRouteResults.ts` | 「ルート結果」の状態: 候補の一覧・選んだ候補・地図で押した区間・比較タブを見ているか・生成に使われた重み。生成の結果で入れ替えると先頭を選び、比較タブと押した区間を外す。タブを選び替えると押した区間を外す。比較を見ている間も選んだ候補は保つ |
+| `features/route/RouteOutcome/RouteOutcome.tsx` | 「ルート結果」の中身: 生成前・生成中・失敗の案内、候補の一覧（縦のタブ。順位・距離・所要時間・総合難易度の帯）、候補の操作（合成・GPX）、選んだ候補の中身（道のりのグラフ・`RouteAxisProfile`）と地図で押した区間の詳細、研究モードの比較、編集中は`RouteSplicePanel`（[ページ全体構成・状態管理](page-composition.md)「ルート結果の中身」） |
 | `features/route/useGenerationConditions.ts` | 生成の条件（「ルート設定」の入力）: 周回か目的地か・距離・候補数・経由地と目的地・地図のタップで置ける役割・重み・除外。保存する値は読むときに今の画面が受け付ける範囲・今の項目へ揃え、重みは軸カタログの公開軸へ揃えた値だけを返す（下記「RouteSettingsPanel.tsx」）。出発地は位置の取得と同じ持ち主（`hooks/useLocation.ts`）が持ち、地図で置いた出発地は呼び出し側へ渡す |
 | `features/route/useRouteGeneration.ts` | ルート生成: 検証と送信（`useRouteFormSubmit`）・実行中の進み方・直近の案内（候補0件の理由・失敗の文言）・表示中の候補を作った条件といまのフォームのずれ（`conditionsDirty`）・研究モードの実験スロット。生成の入力は生成と「条件が変わったか」の判定が同じ関数で組み立て、目的地が補正されたら補正後の地点で組み直す。候補の一覧と選択は持たず、結果を`onGenerated`で呼び出し側へ渡す |
 | `features/route/useSpliceSession.ts` | 区間の乗り換えの編集1回ぶんの状態（編集の元の候補・適用した乗り換え・評価結果の控え・処理状態）と操作。**抜けると中身ごと消え、次の編集へ持ち込まない**。編集は始めたときの生成に結びつき、作り直す・消すと効かなくなる（候補のidは作り直しでも同じ値が振られうる）。組み合わせた経路は**表示中の候補を作った生成の入力**で評価する——いまのフォームで評価すると、生成後に重みを変えた1本だけが別の条件で並ぶ。評価は組み合わせ（適用した順を含む）ごとに覚え、「差分を見る」と「作成」で投げ直さない（生成APIには回数の上限がある）。「作成」は連打の2回目を同じタスクの中で止め、作った経路が既にある候補と同じ道ならその候補を選ぶだけにする。区間を割る下限（軸カタログの較正値）を引けない間は乗り換え先を作らず入口も出さない。返すのは地図へ渡す値（乗り換え先の帯・いま作っているルート・帯のタップ）と`RouteSplicePanel`へ渡す値で、候補の一覧を入れ替えるのは呼び出し側（`onApplied`） |
@@ -170,9 +172,9 @@ TravelBearingControl.tsx`（`page.tsx`から直接importされ地図上に置か
 
 ## RouteAxisProfile.tsx（候補ごとタブの中身: 総合難易度＋軸別内訳）
 
-page.tsx（[ページ全体構成・状態管理](page-composition.md)参照）が組み立てる候補ごとの
+`RouteOutcome.tsx`（[ページ全体構成・状態管理](page-composition.md)「ルート結果の中身」参照）が組み立てる候補ごとの
 タブ（方向・距離のみを表示。総合難易度の点数はタブ内では繰り返さない）の中身として、
-候補1件につき1つ表示する。呼び出し側（page.tsx）は`axes`へ公開軸すべてを渡す——重み0の軸を
+候補1件につき1つ表示する。呼び出し側（`RouteOutcome.tsx`）は`axes`へ公開軸すべてを渡す——重み0の軸を
 落とすと、下記の「未使用の軸」行（この候補を評価した重みが0だった軸が何本あるかを示す）が
 構造的に出せなくなる。
 
@@ -263,13 +265,13 @@ page.tsx（[ページ全体構成・状態管理](page-composition.md)参照）�
 ——軸別難易度も材料値も呼び出し側が持つデータであり、ここが知ると値の出どころを知らない
 という前提が崩れる。
 ルート全体の内訳（RouteAxisProfile、`RouteCandidate.axis_contributions`）と
-区間クリック詳細（page.tsx、`RouteSegmentDetail.axis_contributions`、下記「区間クリック
+区間クリック詳細（`RouteOutcome.tsx`、`RouteSegmentDetail.axis_contributions`、下記「区間クリック
 詳細（selectedRouteSegment）」参照）の両方が同じこのコンポーネントを使う——「重み付き
 寄与度」の表示はこの1部品に一元化されており、値の出どころごとに別の表現を持たない。
 
 ## 区間クリック詳細（selectedRouteSegment）
 
-地図上でルート線の区間をクリックすると、`page.tsx`の`selectedRouteSegment` state
+地図上でルート線の区間をクリックすると、`useRouteResults.ts`の`selectedRouteSegment` state
 （`{ segment: RouteSegmentDetail, latitude, longitude }`、`MapView.tsx:
 handleRouteSegmentClick`がクリック地点の座標とともに設定する）が入る。地図側は
 クリック地点へ軽量なマーカーを立てるだけでテキストポップアップは出さない
@@ -291,20 +293,20 @@ non-nullの間、「ルート結果」タブはルート全体の内訳の代わ
   (1) ルート属性（距離・獲得標高。材料ではないため`material_values`には乗らない固定行）→
   (2) 材料値の行（`RouteCandidate.material_values`から動的生成。重み>0の軸が参照する
   材料id→値の辞書で、いずれかのスロットが値を持つ材料だけを行にする。ラベル・単位は
-  `materials`[page.tsxが`MATERIAL_CATALOG`（生成物から作る材料の一覧）を渡す]から引く。**行見出しは論理名だけ**
+  `materials`[`RouteOutcome.tsx`が`MATERIAL_CATALOG`（生成物から作る材料の一覧）を渡す]から引く。**行見出しは論理名だけ**
   （`materialCatalogName`）——物理名まで併記するのは材料を選ぶ軸スタジオの都合で、読むだけの
   この表では見出しが横へ伸びて値の列を画面外へ押し出す）→
-  (3) 軸ごとの難易度の行（`axisLabels`・`axes`をpage.tsxから受け取り、
+  (3) 軸ごとの難易度の行（`axisLabels`・`axes`を`RouteOutcome.tsx`から受け取り、
   `RouteCandidate.axis_difficulties`から動的生成。軸スタジオの軸増減に自動追従する）→
   (4) 全軸合成の総合難易度（`overall_difficulty`、末尾固定）。各列は各回の
   `ExperimentSlot.topCandidate`（生成直後の`overall_difficulty`最小候補で固定、
-  [ページ全体構成・状態管理](page-composition.md)参照）。page.tsxが渡す`axes`は、
+  [ページ全体構成・状態管理](page-composition.md)参照）。`RouteOutcome.tsx`が渡す`axes`は、
   表示中のいずれかの実験スロットで生成時点の重み（`ExperimentSlot.conditions.
   route_preference`）が>0だった軸に絞り込み済み——現在のライブな`routePreference`
   （「今」の設定）は使わない。
 - **比べる相手がいない間は表の代わりに案内を出す**（スロット0件・1件）。`null`を返すと
   タブの下が空白になり、壊れているように見える。
-- 生成が成功したら比較タブから候補タブへ戻す（生成の結果を受け取った`page.tsx`が
+- 生成が成功したら比較タブから候補タブへ戻す（生成の結果で一覧を入れ替える`useRouteResults.ts`が
   `comparisonTabActive`を倒す）——押した操作の結果が見えないまま前回までの比較表が残ると、
   生成が効かなかったように見える。
 

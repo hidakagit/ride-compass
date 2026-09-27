@@ -164,7 +164,7 @@ backendも日本時間で扱う。`domain/time_zone.py`）。暦と時刻の取�
 | 地図本体 | `features/map/MapView/MapView`（全静的/動的レイヤーのMapLibre実装本体） |
 | 地図オーバーレイ制御 | `MapOverlayControls`（地図上チップ）・`TravelBearingControl`（走行方位ダイヤルの地図右上アイコン）・`LensControl`（地図上部中央のレンズ選択ピル）・`RideConditionBar`（走行方位アイコン直下、地図右上の走行条件アイコン列、出発時刻・想定速度） |
 | ルート設定 | `RouteForm`（モード切替/距離/候補件数/生成ボタン）・`RouteSettingsPanel`（0次除外・軸選択・重み） |
-| ルート結果 | `RouteAxisProfile`（候補ごとのタブの中身、軸別難易度）。候補の一覧（縦タブ）自体は独立コンポーネントを持たずpage.tsxが直接組み立てる |
+| ルート結果 | `features/route/RouteOutcome/RouteOutcome.tsx`（「ルート結果」の中身: 空の状態・候補の一覧［縦タブ］・候補の操作・区間の詳細・比較・編集面）・`RouteAxisProfile`（候補ごとのタブの中身、軸別難易度） |
 | 研究モード | `ComparisonPanel`（実験スロット比較表） |
 | レイアウト | `BottomSheet`（モバイル下部シート） |
 
@@ -176,12 +176,14 @@ backendも日本時間で扱う。`domain/time_zone.py`）。暦と時刻の取�
 生成に使われた重みだけにする——評価軸・レイヤー・外部データ源を足したときに膨らむのは
 この部分だけで、軸やレイヤーの種類を知らない値だけを受け取る形にしておけば、足しても
 `page.tsx`は変わらない。**区間の乗り換え**は`features/route/useSpliceSession.ts`が持ち、`page.tsx`は
-候補の一覧と生成の入力を渡して、地図へ渡す値と編集面へ渡す値を受け取る（作った経路で一覧を入れ替えるのは`page.tsx`）。
+候補の一覧と生成の入力を渡して、地図へ渡す値と編集面へ渡す値を受け取る。
 **生成の条件**（「ルート設定」の入力）は`features/route/useGenerationConditions.ts`、**生成**（送信・進み方・案内・
 条件のずれ・実験スロット）は`features/route/useRouteGeneration.ts`、**走行条件**は`features/conditions/useRideConditions.ts`が持つ。
-生成は候補の一覧を持たず、結果を`page.tsx`へ渡す（地図の見え方が生成に使われた重みを読み、生成が地図のレンズを読むため、
-候補と使われた重みを生成の側に置くと呼ぶ順が回る）。
-残り（ルートの結果・レイアウト）は`page.tsx`が持ち、子コンポーネントへはpropsで渡す（子が独自に同じ状態を持たない）。全件の一覧は
+**結果**（候補・選択・地図で押した区間・比較タブ・生成に使われた重み）は`features/route/useRouteResults.ts`が持ち、
+生成と乗り換えは作った候補を`page.tsx`経由でそこへ入れる（地図の見え方が生成に使われた重みを読み、生成が地図のレンズを
+読むため、結果を生成の側に置くと呼ぶ順が回る）。「ルート結果」の中身は`features/route/RouteOutcome/RouteOutcome.tsx`が結果・生成・乗り換えの値から描く。
+残り（画面の枠: 区分・シートの開閉と高さ、「ルート設定」のタブ、新着の印）は`page.tsx`が持ち、子コンポーネントへはpropsで渡す
+（子が独自に同じ状態を持たない）。全件の一覧は
 実装を読むのが正で、ここでは**永続化するかどうかの判断基準**だけを示す——一覧を書き写すと、
 状態を1つ足したときにこの節だけが古くなる。
 
@@ -298,7 +300,7 @@ Reactの外（モジュール評価時に初期値を決めるシングルトン
   決めた重みではなく、取得前は軸が0件のため、そのまま整合させると保存済みの重みを全部消す。
 - 走行条件（走行方位・出発時刻・想定速度）→ 地図の見え方（`useMapView`の入力）・生成リクエスト・
   道の詳細（`MapView`の`rideConditions`）が同じ値を読む（上記「動的材料の状態別表現契約」参照）。
-- 生成に使われた重み（`page.tsx`の`usedWeights`。backendが生成時に使った値を返し、生成が結果と一緒に渡す）→ レンズの
+- 生成に使われた重み（`useRouteResults.ts`の`usedWeights`。backendが生成時に使った値を返し、生成が結果と一緒に渡す）→ レンズの
   選択肢の「未使用」。**使う軸は生成した時点で決まる**ため、生成前は「未使用」を付けない。
 - 地図の見え方の値（`useMapView`の`look`）→ `MapView`。レイヤーのON/OFF・レンズ・塗っている軸・
   隠した行・取得結果の状態そのものだけを渡し、そこから導けるもの（どのレイヤーを出すか・家族ごとの
@@ -330,11 +332,11 @@ Reactの外（モジュール評価時に初期値を決めるシングルトン
   一覧の中を縦スクロール）——一覧に固定の高さ上限を置くと、シートに余白があっても
   伸びずに触れない余白が残る。
   「ルート結果」は候補が無い間、
-  `renderRouteOutcomeEmptyState()`が生成前・生成中・失敗（検証エラー・APIエラー・候補0件）を
+  `features/route/RouteOutcome/RouteOutcome.tsx`が生成前・生成中・失敗（検証エラー・APIエラー・候補0件）を
   出し分ける。**生成に関するフィードバックの置き場はここ1箇所**——「ルート生成」は見出し行の
   ボタンで本文を畳んだままでも押せるため、押した結果を「ルート設定」本文へ出すと操作している
   場所から見えない。**候補がある間に押した「生成」が通らなかったとき（検証エラー・APIエラー）も、
-  前の候補を残したまま先頭に「作り直せませんでした。」＋理由を出す**（`renderRouteOutcome`）——
+  前の候補を残したまま先頭に「作り直せませんでした。」＋理由を出す**（`RouteOutcome.tsx`）——
   候補だけが並んだままだと作り直せたように見え、前の条件の候補で走り出しうる。候補を消すと
   見ていた候補も地図のルートも失い、混雑は待てば通るため残す。この文言は次に「生成」を押した時点・
   「全消去」・合成の作成で消える。候補0件は候補を空にするので、この形にはならない。
@@ -343,7 +345,7 @@ Reactの外（モジュール評価時に初期値を決めるシングルトン
   **ルートの編集は「ルート結果」の中のモード**（`features/route/useSpliceSession.ts`。編集の元の候補・適用した乗り換え・
   評価結果の控え・処理状態を1つに持ち、抜けると中身ごと消える）で、独立した置き場を
   持たない——別の置き場にすると、どのルートを編集しているのかを編集側で選び直す形になる。
-  入口は候補のタブの中身の先頭にある「合成」（`renderCandidateActions`）で、
+  入口は候補のタブの中身の先頭にある「合成」（`RouteOutcome.tsx`の候補の操作）で、
   乗り換えできない生成（周回・候補1件）と編集中、区間を割る下限（軸カタログが運ぶ較正値）を
   引けない間には出さない——押しても何もできない入口・較正と違う切り方で動く入口を残さない。編集の元は押した候補に固定し、作ったら同じ場所が一覧へ戻る
   （[route-settings-and-results.md](route-settings-and-results.md)参照）。
@@ -382,12 +384,12 @@ Reactの外（モジュール評価時に初期値を決めるシングルトン
 判断に使えない。合わせた高さはドラッグで上書きでき、その値は次に開くまで有効
 （`onHeightCommit`の保存は、実寸が取れない実行のフォールバックとして残る）。任意の`headerAction`
 propでヘッダ右側・閉じるボタンの手前へ要素を差し込める（「ルート結果」シートの
-「全消去」、下記`renderRouteOutcomeSectionBody`参照）。
+「全消去」、下記「ルート結果の中身」参照）。
 
-## `renderRouteOutcomeSectionBody`（生成結果、デスクトップ「ルート結果」区分・
+## ルート結果の中身（`features/route/RouteOutcome/RouteOutcome.tsx`。デスクトップ「ルート結果」区分・
 モバイル「ルート結果」タブ共通）
 
-`routes.length === 0`の間は何も描画しない（生成前は空）。見出しは描画しない
+候補が無い間は上の空の状態（生成前・生成中・失敗）を出す。見出しは描画しない
 （デスクトップは`Disclosure`の見出し、モバイルはBottomSheetの`title`が担う）。1件以上
 生成された後は、Radix Tabs（`@radix-ui/react-tabs`）1段のフラットなタブ列を描画する。タブの並び順は
 **所要時間の短い順**（`routeTabLabel.ts: orderByDuration`。同着は受け取った並び＝backendの総合難易度の昇順を保つ）。
@@ -433,13 +435,13 @@ backendが最寄りのアクセス可能な地点へ補正した場合のヒン�
 
 「ルート結果」ヘッダの操作枠（`renderRouteResultHeaderActions()`）には**候補すべてに効く操作だけ**を置く
 （「全消去」、`ClearRoutesIcon`、`handleRoutesClear`）。候補1本に効く操作（「合成」＝区間の乗り換えの入口・
-「GPX」＝`features/route/gpxExport.ts: downloadGpx`）は`renderCandidateActions(route)`がその候補のタブの中身の
+「GPX」＝`features/route/gpxExport.ts: downloadGpx`）は`RouteOutcome.tsx`がその候補のタブの中身の
 先頭に置く——見出しに並べると、どれが選んでいる1本だけに効くのか見分けられない。「全消去」に**バツ印は使わない**
 ——シートの閉じる✕の隣に並ぶため、同じ形だとどちらがどちらか分からない。総合難易度の説明は
 `RouteAxisProfile`側（総合難易度の表示の隣、`InfoPopover`）にあり、候補タブごとに
 繰り返し表示される。デスクトップは「ルート結果」`Disclosure`の`trailing`、モバイルは
 BottomSheetの`headerAction`propとして同じヘルパーを渡す（`routes.length > 0`の間のみ）。
-候補タブ列のvalue体系はroute idと`"comparison"`。
+候補タブ列のvalue体系はroute idと`features/route/useRouteResults.ts: COMPARISON_TAB`。
 
 外側タブの選択値は`selectedRouteId`（候補タブ選択時）と`comparisonTabActive`
 （比較タブ選択時）を組み合わせて求める。`selectedRouteId`自体は比較タブを見ている間も
