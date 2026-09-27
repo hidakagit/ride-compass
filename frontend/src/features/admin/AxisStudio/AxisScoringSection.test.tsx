@@ -36,13 +36,14 @@ const captured = vi.hoisted(() => ({
   curve: null as Record<string, unknown> | null,
   scoresRequest: null as unknown,
   scoresPreview: null as { scores: number[]; material_points: { x: number; score: number }[] } | null,
+  scoresFailed: false,
 }));
 // 点数と参考点の横軸の値はbackendが返す（`useScoresPreview`）。ここでは決まった値を返させ、画面がそれを
 // そのまま使うことと、問い合わせに渡すものを見る。
 vi.mock("@/features/admin/useScoresPreview", () => ({
   useScoresPreview: (request: unknown) => {
     captured.scoresRequest = request;
-    return captured.scoresPreview;
+    return { preview: captured.scoresPreview, failed: captured.scoresFailed };
   },
 }));
 vi.mock("@/features/admin/useAxisValueDistribution", () => ({
@@ -98,6 +99,7 @@ const REFERENCE_POINTS = [
 
 beforeEach(() => {
   captured.scoresPreview = { scores: [], material_points: REFERENCE_POINTS };
+  captured.scoresFailed = false;
 });
 
 function Harness({ initial, axes }: { initial: Draft; axes: readonly AxisMaterialOption[] }) {
@@ -477,7 +479,15 @@ describe("分布と折れ点の直接編集", () => {
       loading: true,
       error: "e",
       binScores: [40, 60],
+      scoresFailed: false,
     });
+  });
+
+  it("点数の取得に失敗したら、点数の無いことと失敗したことを分布の表示へ渡す", () => {
+    captured.scoresPreview = null;
+    captured.scoresFailed = true;
+    renderSection(linearDraft());
+    expect(captured.preview).toMatchObject({ binScores: null, scoresFailed: true });
   });
 
   it("曲線エディタの横軸は、backendが返した参考点の横軸の値の範囲で固定し、参考点が無ければ固定しない", () => {

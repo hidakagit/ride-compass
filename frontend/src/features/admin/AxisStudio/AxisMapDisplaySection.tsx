@@ -12,8 +12,7 @@ import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import { FieldLabel } from "@/components/ui/FieldLabel/FieldLabel";
 import type { AxisDefinitionResponse } from "@/types/route";
 import { InfoPopoverButton, SectionLabel } from "./AxisFormFields";
-import { NO_MAP_BANDS_JUDGEMENT } from "@/features/admin/useMapBandsOfThresholds";
-import type { MapBandsOfThresholds } from "@/features/admin/adminApi";
+import { NO_MAP_BANDS_JUDGEMENT, type MapBandsJudgement } from "@/features/admin/useMapBandsOfThresholds";
 import {
   bandLabelsOnMap,
   formatThresholdList,
@@ -46,7 +45,7 @@ interface AxisMapDisplaySectionProps {
   mapBandColors?: (boundaries: readonly number[]) => readonly string[];
   mapValueUnit: string;
   /** 入力したしきい値が地図でどの段になるか（判定はbackend、親が取得して渡す）。 */
-  mapBands?: MapBandsOfThresholds;
+  mapBands?: MapBandsJudgement;
   /** まとめ入力が読めない間は保存させないため、親の検証へ伝える。 */
   onThresholdErrorChange: (error: string | null) => void;
 }
@@ -131,6 +130,11 @@ export function AxisMapDisplaySection({
     return (
       <div className="mt-2" aria-label={`色分けプレビュー（${bandCount}段階）`}>
         <p className={cn(textVariants({ variant: "hint" }), "mb-1")}>{bandCount}段階になります</p>
+        {mapBands.failed && (
+          <p className={cn(textVariants({ variant: "hint" }), "mb-1")}>
+            地図での段の判定を取得できなかったため、入力どおりの段で出しています（地図の段はこれより少ないことがあります）。
+          </p>
+        )}
         <ul className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-x-2 gap-y-0.5 p-0">
           {bands.map((band) => (
             <li key={band.key} className="flex items-center gap-1.5 text-[length:var(--font-size-sm)] tabular-nums">

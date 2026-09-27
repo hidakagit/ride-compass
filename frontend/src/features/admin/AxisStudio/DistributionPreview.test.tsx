@@ -1,6 +1,6 @@
 /**
  * `DistributionPreview.tsx`——折れ点での得点分布を、状態（失敗・集計中・未選択・Way単位で値が定まらない・分布あり）
- * ごとに1つだけ出すこと。分布があれば帯ごとの割合と分位、警告を並べる。
+ * ごとに1つだけ出すこと。分布があれば帯ごとの割合と分位、警告を並べる（点数が届くまでは帯の代わりに理由）。
  *
  * ここで見ないもの:
  * - 帯への振り分けと警告の条件 → `scoreDistribution.test.ts`（期待値はそこの関数から引く）
@@ -29,7 +29,16 @@ function distribution(overrides: Partial<ValueDistribution> = {}): ValueDistribu
 }
 
 function renderPreview(props: Partial<Parameters<typeof DistributionPreview>[0]>) {
-  render(<DistributionPreview distribution={null} binScores={SCORES} loading={false} error={null} {...props} />);
+  render(
+    <DistributionPreview
+      distribution={null}
+      binScores={SCORES}
+      scoresFailed={false}
+      loading={false}
+      error={null}
+      {...props}
+    />,
+  );
   return screen.getByRole("region", { name: "折れ点の効き方" });
 }
 
@@ -66,7 +75,7 @@ describe("DistributionPreview", () => {
 
     expect(region).toHaveTextContent("1,234本");
     expect(region).toHaveTextContent("56.5km");
-    const bands = scoreBands(value, SCORES);
+    const bands = scoreBands(value, SCORES)!;
     expect(bands.length).toBeGreaterThan(0);
     for (const band of bands) {
       const row = within(region).getByText(band.label).parentElement!;
@@ -81,10 +90,20 @@ describe("DistributionPreview", () => {
 
   it("帯の割合から出る警告を、そのまま並べる", () => {
     const value = distribution({ bins: [[200, 200, 1]] });
-    const warnings = distributionWarnings(scoreBands(value, [100]));
+    const warnings = distributionWarnings(scoreBands(value, [100])!);
     expect(warnings.length).toBeGreaterThan(0);
 
     const region = renderPreview({ distribution: value, binScores: [100] });
     for (const warning of warnings) expect(within(region).getByText(warning)).toBeInTheDocument();
+  });
+
+  it.each([
+    [false, "計算中"],
+    [true, "取得できませんでした"],
+  ])("点数が届いていなければ、0%の帯を並べずに理由を出す（失敗=%s）", (scoresFailed, reason) => {
+    const region = renderPreview({ distribution: distribution(), binScores: null, scoresFailed });
+    expect(region).toHaveTextContent(reason);
+    expect(region).toHaveTextContent("1,234本");
+    expect(region).not.toHaveTextContent("%");
   });
 });

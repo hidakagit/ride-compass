@@ -83,7 +83,7 @@ export function AxisScoringSection({ draft, setDraft, materialOptions, axisTermO
   );
   // 分布の階級と参考点の点数・参考点の横軸の値は、backendが評価と同じ計算で返す（折れ点を動かすたびに、
   // 落ち着いたら問い合わせる）。届くまでは効き目の表と参考点のボタンを出さない。
-  const scoresPreview = useScoresPreview(
+  const { preview: scoresPreview, failed: scoresFailed } = useScoresPreview(
     draft.shapeKind === "breakpoint_linear" && draft.terms.length > 0 && draft.breakpoints.length > 0
       ? {
           shape: buildShape(draft, materialOptions) as ScoresPreviewRequest["shape"],
@@ -467,6 +467,7 @@ export function AxisScoringSection({ draft, setDraft, materialOptions, axisTermO
                 <DistributionPreview
                   distribution={valueDistribution.distribution}
                   binScores={scoresPreview?.scores ?? null}
+                  scoresFailed={scoresFailed}
                   loading={valueDistribution.loading}
                   error={valueDistribution.error}
                 />

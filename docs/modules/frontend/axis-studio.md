@@ -29,9 +29,9 @@ APIを呼ぶ）・「データ保守」タブ（派生データ鮮度台帳の�
 | `features/admin/AxisStudio/MaterialRangeHint.tsx` | 材料選択行の下に、その材料が実データで取る値の分位（p50/p75/p90）を出す1行表示 |
 | `features/admin/adminApi.ts` | 管理画面のAPIクライアントをまとめたもの。管理API（backend `/api/admin/**`）は`adminRequest`1つを通して同一オリジンの口`/admin/api/**`へ投げ、backendのパスの`/api/admin`より後をそのまま使う（例: backend `GET /api/admin/db-status`は`/admin/api/db-status`）。`adminRequest`はbackendの完全なパスを`apiPath`（`lib/apiPath.ts`）で受け取り、管理APIの宣言に無いパスは型検査で落ちる。待ち時間は呼び出しごとに決める（全表走査の集計は`HEAVY_ADMIN_API_TIMEOUT_MS`、分布は`DISTRIBUTION_API_TIMEOUT_MS`）。稼働状況の口（`/health`・`/api/debug/stats`・`/api/version`）も同じファイルに置く |
 | `app/admin/api/[...path]/route.ts` | 管理APIの転送の口。`/admin/api/<X>`への要求を、サーバーの環境変数から組み立てたBasic認証を付けてbackendの`/api/admin/<X>`へ、メソッド・クエリ・本文・応答の状態と本文ごとそのまま渡す。転送の待ち時間はどのクライアントよりも長く取り（`ADMIN_PROXY_TIMEOUT_MS`）、打ち切りはクライアントに任せる |
-| `features/admin/useSettledDraftQuery.ts` | 下書きから組んだ問い合わせの骨格（入力をJSONにして取得の鍵にし、落ち着いてから問い合わせ、今の入力と違う答えは出さない）。backendが判定・計算を持ち、画面は下書きを送るだけの取得（例: `useScoresPreview`・`useMapBandsOfThresholds`）が使う |
-| `features/admin/useScoresPreview.ts` | 下書きの折れ点で、分布の階級の代表値と材料の参考点がそれぞれ何点になるか（参考点は折れ点の横軸の値も）を取得する（下書きが落ち着いてから問い合わせる。入力を変えた直後・失敗時はnull） |
-| `features/admin/useMapBandsOfThresholds.ts` | 下書きのしきい値が地図でどの段になるか（段にならない値・地図の各段に当たる入力の段）を取得する（下書きが落ち着いてから問い合わせる。失敗時は判定なし） |
+| `features/admin/useSettledDraftQuery.ts` | 下書きから組んだ問い合わせの骨格（入力をJSONにして取得の鍵にし、落ち着いてから問い合わせ、今の入力と違う答えは出さない）。答えと一緒に、今の入力の問い合わせが失敗したかを返す（届く前と失敗はどちらも答えが無いため、呼ぶ側が分けて出せるように）。backendが判定・計算を持ち、画面は下書きを送るだけの取得（例: `useScoresPreview`・`useMapBandsOfThresholds`）が使う |
+| `features/admin/useScoresPreview.ts` | 下書きの折れ点で、分布の階級の代表値と材料の参考点がそれぞれ何点になるか（参考点は折れ点の横軸の値も）を取得する（下書きが落ち着いてから問い合わせる。入力を変えた直後・失敗時は点数なしで、失敗したことも返す） |
+| `features/admin/useMapBandsOfThresholds.ts` | 下書きのしきい値が地図でどの段になるか（段にならない値・地図の各段に当たる入力の段）を取得する（下書きが落ち着いてから問い合わせる。失敗時は判定なしで、失敗したことも返す） |
 | `features/admin/useAxisValueDistribution.ts` | 編集中のshapeの生値分布を取得。取得キーに折れ点を含めないため、折れ点のドラッグ中は通信しない。取り直している間は前の分布を出したまま読み込み中にする |
 | `features/admin/useMaterialDistribution.ts` | 材料1件の値の分布を取得。同じ材料を複数行が選んでも、画面を開いている間に取りに行くのは1回（取れなかったことも覚える） |
 | `features/admin/AxisStudio/breakpointTools.ts` | 折れ点の自動生成・区分線形補間・追加位置決定・ドラッグスナップ刻み幅算出（DOM非依存の純粋関数、`AxisComposer.tsx`が使う） |
@@ -80,6 +80,8 @@ listAxisDefinitions() ──→ definitions（全軸）
 抽選した道が1本も値を持たない（`sample_ways=0`）ときは、全帯0%のバーではなく理由を言葉で
 出す。ルート文脈が要る材料（走行方向・時刻に依存する勾配・風）はWay単位では値が定まらず、
 その軸ではこの状態が常態のため——0%のバーを並べると「分布はあるが全部0」と読めてしまう。
+同じ理由で、分布はあるが**点数がまだ届いていない・取得に失敗した**間も帯を並べず、計算中か取得できなかったかを
+言葉で出す（`scoreDistribution.ts: scoreBands`が点数の揃わない間はnullを返す）。
 
 同じ分布を**曲線エディタの背景へも重ねる**（`curveDistributionOverlay.ts`）。得点帯ごとの
 割合（上記のパネル）は「結果がどう散らばるか」を答えるが、「**曲線のどの部分が効いて
@@ -439,7 +441,8 @@ backend `POST /api/admin/basemap/refresh`を呼び、
 段階プレビュー（見出しの「N段階になります」と並び）も同じ判定の結果から、地図が段として
 作る境界だけで描く（`axisDraft.ts: thresholdsKeptOnMap`。入力からbackendが返した値を除く
 だけ）——印だけ出して段数を入力どおりに数えると、見出しと地図の凡例の段数が食い違う。
-判定の結果が届くまでの間は、入力どおりの段で出る。
+判定の結果が届くまでの間は、入力どおりの段で出る。判定の取得に失敗したときも入力どおりの段で出し、そのことを
+プレビューに添える（地図の段はそれより少ないことがある——黙って入力どおりに出すと、地図と同じ段だと読める）。
 体感ラベルも同じ応答の`bands_on_map`（地図の各段に当たる入力の段の番号）で引き直してから
 プレビューへ添え（`axisDraft.ts: bandLabelsOnMap`。番号で引くだけ）、地図に出ない段のラベル
 欄には「地図には出ない」と印を付ける——地図は落ちた境界でまとまった段に下側の段のラベルを

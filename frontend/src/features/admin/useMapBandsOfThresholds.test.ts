@@ -1,6 +1,6 @@
 /**
  * `useMapBandsOfThresholds.ts`——しきい値を上書きしている間だけ、地図で段にならない境界と地図に残る段を
- * backendに問い、判定できないとき・入力を変えた直後は「判定なし」を返すこと。
+ * backendに問い、判定できないとき・入力を変えた直後は「判定なし」を返すこと（判定できなかったときは、そのことも返す）。
  *
  * 待ちの長さ（落ち着くまで遅らせること）は `hooks/useDebouncedValue` の持ち物なので、ここでは即時にする。
  *
@@ -23,6 +23,7 @@ function request(thresholds: number[]): DisplayThresholdsPreviewRequest {
 }
 
 const judged: MapBandsOfThresholds = { droppedOnMap: [2], bandsOnMap: [0, 2] };
+const judgedOk = { ...judged, failed: false };
 
 beforeEach(() => {
   api.fetchMapBandsOfThresholds.mockReset();
@@ -40,16 +41,16 @@ describe("useMapBandsOfThresholds", () => {
     api.fetchMapBandsOfThresholds.mockResolvedValue(judged);
     const { result } = renderHook(() => useMapBandsOfThresholds(request([1, 2])));
 
-    await waitFor(() => expect(result.current).toEqual(judged));
+    await waitFor(() => expect(result.current).toEqual(judgedOk));
     expect(api.fetchMapBandsOfThresholds).toHaveBeenCalledWith(request([1, 2]));
   });
 
-  it("判定に失敗したら、判定なし（効かない値がある、とは言わない）", async () => {
+  it("判定に失敗したら、判定なし（効かない値がある、とは言わない）で、失敗したことを返す", async () => {
     api.fetchMapBandsOfThresholds.mockRejectedValue(new Error("しきい値の確認に失敗しました"));
     const { result } = renderHook(() => useMapBandsOfThresholds(request([1])));
     await waitFor(() => expect(api.fetchMapBandsOfThresholds).toHaveBeenCalledTimes(1));
     await act(async () => {});
-    expect(result.current).toEqual(NO_MAP_BANDS_JUDGEMENT);
+    expect(result.current).toEqual({ ...NO_MAP_BANDS_JUDGEMENT, failed: true });
   });
 
   it("入力を変えた直後は、前の入力の答えを返さない", async () => {
@@ -60,7 +61,7 @@ describe("useMapBandsOfThresholds", () => {
     const { result, rerender } = renderHook(({ thresholds }) => useMapBandsOfThresholds(request(thresholds)), {
       initialProps: { thresholds: [1, 2] },
     });
-    await waitFor(() => expect(result.current).toEqual(judged));
+    await waitFor(() => expect(result.current).toEqual(judgedOk));
 
     rerender({ thresholds: [1, 3] });
     expect(result.current).toEqual(NO_MAP_BANDS_JUDGEMENT);
