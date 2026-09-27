@@ -205,13 +205,13 @@ export function useSpliceSession({
   // 選んだ組み合わせをbackendで評価する（frontendは経路を組み立てるだけ）。差分の表示と「作る」で同じものを使い、
   // 評価済みなら投げ直さない。
   async function evaluateSplicedRoute(): Promise<RouteCandidate | null> {
-    if (!editingRoute || appliedAlternatives.length === 0 || !splicedShape) return null;
-    const cached = splice?.previews[spliceChoiceKey];
+    if (!splice || !editingRoute || appliedAlternatives.length === 0 || !splicedShape) return null;
+    const cached = splice.previews[spliceChoiceKey];
     if (cached) return cached;
-    // 表示中の候補を作った条件で評価する（いまのフォームだと、生成後に重みを変えた1本だけ別の条件で並ぶ）。
-    if (!generatedInput) return null;
+    // 表示中の候補を作った条件（編集を始めたときの生成の入力）で評価する（いまのフォームだと、生成後に重みを
+    // 変えた1本だけ別の条件で並ぶ）。
     const { routes: candidates } = await generateRoutes({
-      ...buildGenerateRequest(generatedInput),
+      ...buildGenerateRequest(splice.basis),
       spliced_edge_ids: splicedShape.edgeIds,
     });
     const spliced = candidates[0] ?? null;
@@ -235,9 +235,8 @@ export function useSpliceSession({
   async function handleApplySplice() {
     // 連打で2本入るのを防ぐ（ボタンを押せなくするのは再描画を待つため、その前の2回目は通る）。
     if (applyingRef.current) return;
-    if (!editingRoute || appliedAlternatives.length === 0) return;
     // 前提の確認は印を立てる前に済ませる（立ててから抜けると、印が立ったままこの操作が二度と効かなくなる）。
-    if (!generatedInput) return;
+    if (!editingRoute || appliedAlternatives.length === 0) return;
     applyingRef.current = true;
     setSpliceTask({ status: "applying" });
     onApplyStart();
