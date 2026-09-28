@@ -30,7 +30,7 @@ export default {
     if (url.pathname === "/button.svg" && request.method === "GET")
       return new Response(BUTTON_SVG, { headers: { "content-type": "image/svg+xml", "cache-control": "public, max-age=86400" } });
     if (url.pathname === "/answer" && (request.method === "GET" || request.method === "POST") && env.FORM_TOKEN)
-      return answerForm(request, env, config, ctx);
+      return answerForm(request, env, config);
     return new Response("not found", { status: 404 });
   },
 };

@@ -75,21 +75,20 @@ export class Gate {
     if (want.reopen) update.stateInput = { value: "OPEN" };
     if (Object.keys(update).length) m.add("updateIssue", { id: issue.id, ...update });
 
-    for (const id of want.fold ?? []) m.add("minimizeComment", { subjectId: id, classifier: "RESOLVED" });
     await m.send(this.gh);
     Object.assign(issue, next, { body, labels: { nodes: (update.labelIds ? labels : have).map((name) => ({ name })) } });
   }
 
   // 表で照らし、通れば書く。written はステータスがもう GitHub で変わっていること（ボードの移動）。
-  // next を渡さなければ表の既定の割り当てを書く。dryRun は照らすだけで書かない。fold・seen は回答フォームが渡す
-  // （畳むコメントと、この直前に書いた答え）。
-  async apply(issue, from, to, { next, labels = [], written = false, dryRun = false, fold, seen } = {}) {
+  // next を渡さなければ表の既定の割り当てを書く。dryRun は照らすだけで書かない。seen は回答フォームが渡す
+  // この直前に書いた答え（本文の先頭の1行を消すかを決めるのに使う）。
+  async apply(issue, from, to, { next, labels = [], written = false, dryRun = false, seen } = {}) {
     const verdict = from === to ? { ok: true, rule: null } : check(this.config, from, to, issue.blockedBy.nodes);
     if (!verdict.ok) return verdict;
     const missing = labels.filter((n) => !this.labelIds[n]);
     if (missing.length) return { ok: false, reason: `ラベル「${missing.join("」「")}」が GitHub にありません。` };
     if (dryRun) return { ok: true };
-    const want = { labels, fold, seen, assign: next !== undefined ? next : (verdict.rule?.assign ?? undefined) };
+    const want = { labels, seen, assign: next !== undefined ? next : (verdict.rule?.assign ?? undefined) };
     if (!written) want.status = to;
     if (to === this.config.done && issue.state === "OPEN") want.close = "NOT_PLANNED";
     if (from !== to && this.config.ask.statuses.includes(to) && to !== this.config.adoption.status) {

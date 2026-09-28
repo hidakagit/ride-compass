@@ -99,7 +99,7 @@ test("ボードで完了にしたら見送りで閉じ、完成で閉じて段�
   assert.deepEqual([gh.issue.status, gh.issue.assignees], [config.nextStage.to, [config.nextStage.assign]]);
 });
 
-test("回答フォーム: 表で行ける選択肢だけを出し、答えは hidakagit の名義、ステータスと割り当てはゲートが書き、問いを畳んで本文の先頭のリンクを消す", async () => {
+test("回答フォーム: 表で行ける選択肢だけを出し、答えは hidakagit の名義、ステータスと割り当てはゲートが書き、本文の先頭のリンクを消し、問いと答えは畳まない", async () => {
   const q = "## 問い\n手順はどちらにしますか？\n\n### 選択肢\n- A 案 → 未着手\n- 私がやる → 未着手 / hidakagit\n- 進める → 進行中\n";
   const gh = fakeGitHub({ issue: { number: 4, authorId: ME, status: "回答待ち", assignees: ["hidakagit"], body: "<!-- flow-gate -->\n**回答待ち**: 手順は？ → [回答フォーム](x)\n<!-- /flow-gate -->\n\n本文", comments: [{ body: q, author: { login: "hidakagit-bot", databaseId: BOT } }] } });
   const html = await (await worker.fetch(new Request("https://gate.test/answer?issue=4"), env)).text();
@@ -109,18 +109,15 @@ test("回答フォーム: 表で行ける選択肢だけを出し、答えは hi
 
   const form = new FormData();
   Object.entries({ issue: "4", q: "C_0", choice: "1", next: "hidakagit", note: "" }).forEach(([k, v]) => form.set(k, v));
-  const before = gh.requests.length, waits = [];
-  const r = await (await worker.fetch(new Request("https://gate.test/answer", { method: "POST", body: form }), env, { waitUntil: (p) => waits.push(p) })).json();
-  await Promise.all(waits);
-  assert.deepEqual(gh.requests.slice(before), ["読む", "addComment", "updateProjectV2ItemFieldValue+updateIssue", "minimizeComment+minimizeComment"],
-    "送信は、読む・答えを書く（1個）・決定を書く（ステータスと issue の更新の2個）で返し、畳むのは返したあと");
-  assert.equal(waits.length, 1, "畳むのは返したあとに続ける1つだけ");
+  const before = gh.requests.length;
+  const r = await (await worker.fetch(new Request("https://gate.test/answer", { method: "POST", body: form }), env)).json();
+  assert.deepEqual(gh.requests.slice(before), ["読む", "addComment", "updateProjectV2ItemFieldValue+updateIssue"],
+    "送信は、読む・答えを書く（1個）・決定を書く（ステータスと issue の更新の2個）だけ");
   assert.equal(r.label, "私がやる");
   const answer = gh.writes.find((w) => w.op === "addComment");
   assert.equal(answer.as, "hidakagit");
   assert.match(answer.body, /^## 回答\n問い: u#0\n選んだもの: 私がやる\n次のステータス: 未着手\n次に動くのは: hidakagit$/);
   assert.deepEqual([gh.issue.status, gh.issue.assignees], ["未着手", ["hidakagit"]]);
-  assert.deepEqual(gh.writes.filter((w) => w.op === "minimizeComment").map((w) => [w.subjectId, w.as]), [["C_0", "hidakagit"], ["C_new", "hidakagit"]]);
   assert.deepEqual([gh.issue.body, gh.issue.labels], ["本文", ["状態:未着手"]]);
 });
 
@@ -145,13 +142,10 @@ test("採否の問いはコメントが無くても回答フォームに出て�
   assert.match(html, new RegExp(config.adoption.question.replace("？", "\\？")));
   const form = new FormData();
   Object.entries({ issue: "7", q: "adoption", choice: "0", next: "hidakagit-bot", note: "" }).forEach(([k, v]) => form.set(k, v));
-  const waits = [];
-  const r = await (await worker.fetch(new Request("https://gate.test/answer", { method: "POST", body: form }), env, { waitUntil: (p) => waits.push(p) })).json();
-  await Promise.all(waits);
+  const r = await (await worker.fetch(new Request("https://gate.test/answer", { method: "POST", body: form }), env)).json();
   assert.equal(r.label, config.adoption.options[0].text);
   assert.match(comments(gh)[0], /^## 回答\n問い: https:\/\/github\.com\/[^\n]+\/issues\/7#採否\n/);
   assert.deepEqual([gh.issue.status, gh.issue.assignees], [config.adoption.options[0].to, ["hidakagit-bot"]]);
-  assert.deepEqual(gh.writes.filter((w) => w.op === "minimizeComment").map((w) => w.subjectId), ["C_new"], "採否の問いにはコメントが無いので、畳むのは答えだけ");
 });
 
 test("ステータスのラベルは Project の Status と同じ1つだけにそろい、手で付け替えても戻る", async () => {

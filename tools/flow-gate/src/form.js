@@ -1,6 +1,6 @@
 // 回答フォーム（hidakagit が開く1枚の画面）。答えのコメントは hidakagit の名義（env.FORM_TOKEN）で書き、
 // ステータス・割り当て・ラベルはゲートの遷移の処理（Gate.apply）がゲートの名義で書く。
-import { ADOPTION_ID, Gate, currentQuestion } from "./gate.js";
+import { Gate, currentQuestion } from "./gate.js";
 import { GitHub, Mutations } from "./github.js";
 import { answerBody, answers, formChoices } from "./rules.js";
 
@@ -88,7 +88,7 @@ function render(config, { issue, q, choices }) {
   );
 }
 
-async function submit(gate, env, data, ctx) {
+async function submit(gate, env, data) {
   const loaded = await load(gate, Number(data.get("issue")));
   if (loaded.error) return loaded;
   const { issue, q, choices } = loaded;
@@ -103,27 +103,24 @@ async function submit(gate, env, data, ctx) {
   if (!precheck.ok) return { error: precheck.reason };
 
   // 答えの記録（hidakagit の名義）を先に書き、決定と見せ方（ゲートの名義）を書いてから返す。
-  // 問いと答えを畳むのは見せ方だけなので、返したあとに続ける（GitHub は mutation 1つごとに時間がかかる）。
-  const form = new GitHub(env.FORM_TOKEN);
   const body = answerBody(gate.config, { questionUrl: q.url, choice, next, note });
-  const written = await new Mutations().add("addComment", { subjectId: issue.id, body }, "commentEdge { node { id url } }").send(form);
+  const written = await new Mutations()
+    .add("addComment", { subjectId: issue.id, body }, "commentEdge { node { id url } }")
+    .send(new GitHub(env.FORM_TOKEN));
   const answer = written.m0.commentEdge.node;
   const r = await gate.apply(issue, issue.status, choice.to, {
     next: next ?? undefined,
     labels: choice.labels,
     seen: [{ body, url: answer.url, author: { login: "hidakagit" } }],
   });
-  const fold = new Mutations();
-  for (const id of [q.id, answer.id].filter((id) => id !== ADOPTION_ID)) fold.add("minimizeComment", { subjectId: id, classifier: "RESOLVED" });
-  ctx.waitUntil(fold.send(form).catch((e) => console.error("問いと答えを畳めなかった", e)));
   if (!r.ok) return { error: r.reason };
   return { url: issue.url, label: choice.text };
 }
 
-export async function answerForm(request, env, config, ctx) {
+export async function answerForm(request, env, config) {
   const url = new URL(request.url);
   const gate = await Gate.open(env, config, url.origin);
-  if (request.method === "POST") return Response.json(await submit(gate, env, await request.formData(), ctx));
+  if (request.method === "POST") return Response.json(await submit(gate, env, await request.formData()));
   const loaded = await load(gate, Number(url.searchParams.get("issue")));
   return loaded.error ? page(`<p>${esc(loaded.error)}</p>`, 404) : render(config, loaded);
 }
