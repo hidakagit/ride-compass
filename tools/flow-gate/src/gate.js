@@ -53,6 +53,7 @@ export class Gate {
     const next = {
       ...issue,
       status: "status" in want ? want.status : issue.status,
+      fields: { ...issue.fields, ...(want.fields ?? {}) },
       assignees: want.assign ? { nodes: [{ id: this.config.people[want.assign].node, login: want.assign }] } : issue.assignees,
       state: want.close ? "CLOSED" : want.reopen ? "OPEN" : issue.state,
       comments: { nodes: [...issue.comments.nodes, ...added, ...(want.seen ?? [])] },
@@ -62,6 +63,11 @@ export class Gate {
       const at = { projectId: this.project.id, itemId: issue.item, fieldId: this.project.field };
       if (next.status === null) m.add("clearProjectV2ItemFieldValue", at);
       else m.add("updateProjectV2ItemFieldValue", { ...at, value: { singleSelectOptionId: this.project.options[next.status] } });
+    }
+    for (const [name, value] of Object.entries(want.fields ?? {})) {
+      const field = this.project.fields[name];
+      if (issue.fields[name] === value || !field?.options[value]) continue;
+      m.add("updateProjectV2ItemFieldValue", { projectId: this.project.id, itemId: issue.item, fieldId: field.id, value: { singleSelectOptionId: field.options[value] } });
     }
     for (const body of want.comments ?? []) m.add("addComment", { subjectId: issue.id, body });
     for (const id of want.closeOthers ?? []) m.add("closeIssue", { issueId: id, stateReason: "COMPLETED" });
@@ -127,7 +133,9 @@ export class Gate {
     const issue = await this.read({ nodeId });
     if (this.project.id !== projectNodeId || !issue?.item || issue.parent || issue.status) return;
     const entry = entryFor(this.config, issue.author.databaseId);
-    await this.write(issue, { status: entry.to, assign: entry.assign });
+    // 欄の既定値（優先度など）は、まだ値の無いものにだけ入れる。
+    const fields = Object.fromEntries(Object.entries(this.config.project.defaults).filter(([name]) => !issue.fields[name]));
+    await this.write(issue, { status: entry.to, assign: entry.assign, fields });
   }
 
   async moved(nodeId, projectNodeId, from, to) {

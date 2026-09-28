@@ -54,6 +54,7 @@ test("入口: hidakagit が書いた issue は未着手で Claude に、ほか�
   await deliver("projects_v2_item", item({ action: "created", sender: { login: "github-project-automation[bot]" } }));
   assert.deepEqual([gh.issue.status, gh.issue.assignees], ["未着手", ["hidakagit-bot"]]);
   assert.deepEqual([gh.issue.labels, gh.issue.body ?? "本文"], [["状態:未着手"], "本文"]);
+  assert.deepEqual(gh.issue.fields, config.project.defaults, "欄の既定値（優先度など）が入る");
 
   gh = fakeGitHub({ issue: { number: 2, authorId: BOT } });
   await deliver("projects_v2_item", item({ action: "created" }));
@@ -136,19 +137,22 @@ test("問い直し: 「その他」で答えた後に Claude が問いを書い�
   assert.equal(gh.writes.filter((w) => w.op === "updateIssue" && "body" in w).length, 1, "リンクが今の状態と同じなら書き直さない");
 });
 
-test("回答フォームは置き場のラベル（ステータスのものを除く）を今の付き方のまま並べ、付け外しがそのまま効いて答えに残る", async () => {
-  const gh = fakeGitHub({ issue: { number: 7, authorId: BOT, status: "採否待ち", assignees: ["hidakagit"], labels: ["規模S", "状態:採否待ち"] } });
+test("回答フォームは置き場のラベルを全部、今の付き方のまま並べ、付け外しがそのまま効いて答えに残る（Project の欄は出さない）", async () => {
+  const gh = fakeGitHub({ issue: { number: 7, authorId: BOT, status: "採否待ち", assignees: ["hidakagit"], labels: ["規模S", "状態:採否待ち"], fields: { [config.project.priorityField]: "中" } } });
   const html = await (await worker.fetch(new Request("https://gate.test/answer?issue=7"), env)).text();
+  assert.doesNotMatch(html, /name="field:/, "Project の欄は機械が決めるので出さない");
   assert.match(html, /name="label" value="規模S" checked/);
-  assert.match(html, /name="label" value="優先">/);
-  assert.doesNotMatch(html, /value="状態:/);
+  assert.match(html, new RegExp(`name="label" value="${config.project.urgentLabel}">`));
+  assert.match(html, /name="label" value="状態:採否待ち" checked/);
   const form = new FormData();
   Object.entries({ issue: "7", q: "adoption", choice: "0", next: "hidakagit-bot", note: "", labels: "1" }).forEach(([k, v]) => form.set(k, v));
-  form.append("label", "優先");
+  form.append("label", "状態:採否待ち"); // 画面ではチェック済みで送られる
+  form.append("label", config.project.urgentLabel);
   form.append("label", config.verify.label);
   await worker.fetch(new Request("https://gate.test/answer", { method: "POST", body: form }), env);
-  assert.deepEqual(gh.issue.labels.sort(), ["優先", config.verify.label, "状態:未着手"].sort());
-  assert.match(comments(gh)[0], new RegExp(`\nラベル: \\+優先 \\+${config.verify.label} −規模S$`));
+  assert.deepEqual(gh.issue.labels.sort(), [config.project.urgentLabel, config.verify.label, "状態:未着手"].sort());
+  assert.match(comments(gh)[0], new RegExp(`\nラベル: \\+${config.project.urgentLabel} \\+${config.verify.label} −規模S$`));
+  assert.deepEqual(gh.issue.fields, { [config.project.priorityField]: "中" }, "回答フォームは欄を変えない");
 });
 
 test("採否の問いはコメントが無くても回答フォームに出て、答えると採否の問いへの答えとして記録される", async () => {
