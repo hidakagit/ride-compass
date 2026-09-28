@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Annotated, Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import Field, RootModel, model_validator
+from pydantic import Field, RootModel, field_validator, model_validator
 
 from app.domain.time_zone import JST
 from app.api.dependencies import (
@@ -17,6 +17,16 @@ from app.config import settings
 from app.domain.errors import RoutingError
 from app.domain.hard_filters import HARD_FILTER_NAMES
 from app.domain.route_preference import RoutePreference, check_axis_weights, published_axis_ids
+from app.domain.route_request import (
+    DEFAULT_DISTANCE_TOLERANCE_KM,
+    MAX_DISTANCE_TOLERANCE_KM,
+    MAX_ROUTE_DISTANCE_KM,
+    MAX_SPLICED_EDGES,
+    MAX_WAYPOINTS,
+    check_point_distance,
+    check_spliced_edge_count,
+    check_waypoint_count,
+)
 from app.domain.geo import haversine_distance_km
 from app.domain.wind import ASSUMED_SPEED_KMH, MAX_ASSUMED_SPEED_KMH, MIN_ASSUMED_SPEED_KMH
 from app.domain.route import Coordinates, RouteCandidate
@@ -27,17 +37,6 @@ from app.domain.strict_model import StrictModel
 
 router = APIRouter()
 logger = logging.getLogger("ridecompass.generate")
-
-# ルート生成距離の上限（km）。上限が無いとbboxが際限なく広がりタイル問い合わせが長時間
-# ハングしうる。30km規模までの検証実績を踏まえ、余裕を見つつも無制限は避ける値として
-# 100kmとする。この値はOpenAPI生成物経由でフロントへ渡す唯一の情報源にする
-# （design-principles.md構造仕様1「フロントエンドとバックエンドの境界」: 上限値はbackendが
-#   唯一の正として持ち、frontendはOpenAPI生成物から読む。export_openapi.py:
-# ROUTE_GENERATE_CONFIG_PATH参照）。
-MAX_ROUTE_DISTANCE_KM = 100
-# 目標距離からの許容差（km）。frontendは`route-generate-config.json`経由で受け取る
-# ——手書きで複製すると、片方だけ変えたときに画面の見込みと探索の範囲がずれる。
-DEFAULT_DISTANCE_TOLERANCE_KM = 5.0
 
 # ルート生成の同時実行上限（settings.generate_max_concurrent、config.pyのコメント参照）。
 # 上限を超えた分は待たせず429で即座に返し、ブラウザのリトライや連打で外部サービスへの
@@ -101,18 +100,13 @@ class HardFilterOverride(RootModel[dict[str, bool]]):
         return cls({name: name in active for name in sorted(HARD_FILTER_NAMES)})
 
 
-# 合成ルートで受け取るEdge idの上限。1本の候補が数百Edgeで、区間を差し替えても
-# 2本ぶんの長さを超えることはない。
-MAX_SPLICED_EDGES = 5000
-
-
 class RouteGenerateRequest(StrictModel):
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
     # 周回の目標距離。経由地・目的地を置いたときは探索の範囲になり、置いた点からbackendが決める
     # （`_resolve_distance`。送られた値は使わない）ため省略できる。
     distance_km: float | None = Field(default=None, gt=0, le=MAX_ROUTE_DISTANCE_KM)
-    distance_tolerance_km: float = Field(gt=0, le=50, default=DEFAULT_DISTANCE_TOLERANCE_KM)
+    distance_tolerance_km: float = Field(gt=0, le=MAX_DISTANCE_TOLERANCE_KM, default=DEFAULT_DISTANCE_TOLERANCE_KM)
     route_type: Literal["loop"] = "loop"
     # 評価重みのリクエスト単位の上書き（研究用）。省略時はAXIS_DEFINITIONS由来の既定値
     # （`RoutePreference()`）を使う。
@@ -133,8 +127,7 @@ class RouteGenerateRequest(StrictModel):
     # （destination指定・waypoints未指定）はvia-node方式の代替経路にも同じ値が効く。
     # 経由地を1つ以上伴う経由地・目的地指定ルートでは無視される（常に1件、経由地が
     # あるとレグごとに代替案が組合せで増えるため）。上限・既定値はOpenAPI生成物
-    # （route-generate-config.json）経由でフロントへ渡す唯一の情報源にする
-    # （MAX_ROUTE_DISTANCE_KMと同じ設計原則）。
+    # （route-generate-config.json）経由でフロントへ渡す唯一の情報源にする。
     max_routes: int = Field(ge=1, le=MAX_ROUTES, default=DEFAULT_MAX_ROUTES)
     # 仮定巡航速度（km/h）。各区間の通過予定時刻（探索時の風の時刻選択）・到達予想時刻の
     # 算出に使う。範囲・既定値はOpenAPI生成物（route-generate-config.json）経由でフロントへ
@@ -144,7 +137,7 @@ class RouteGenerateRequest(StrictModel):
     # 生成する）。指定時は周回候補の生成を行わない。bboxが際限なく広がらないよう、
     # 起点からdistance_km以内という緩いガードのみ課す（詳細な妥当性はルーティング自体の
     # 成否に委ねる）。
-    waypoints: list[Coordinates] | None = Field(default=None, max_length=8)
+    waypoints: list[Coordinates] | None = Field(default=None, max_length=MAX_WAYPOINTS)
     # 指定時は起点に戻らず目的地で終わる片道ルートにする（経由地のみの場合は起点で
     # 終わる周回）。
     destination: Coordinates | None = None
@@ -161,6 +154,21 @@ class RouteGenerateRequest(StrictModel):
     # 生成と同じコスト曲線（`prepare`が支配的）のため、別エンドポイントにせず同じ
     # ジョブ機構へ載せる。
     spliced_edge_ids: list[str] | None = Field(default=None, min_length=1, max_length=MAX_SPLICED_EDGES)
+
+    # 画面の操作で届く上限は、制約（英語の文を返す）より先に日本語で止める。制約は契約に載せるため残す。
+    @field_validator("waypoints", mode="before")
+    @classmethod
+    def _check_waypoint_count(cls, value: object) -> object:
+        if isinstance(value, list):
+            check_waypoint_count(len(value))
+        return value
+
+    @field_validator("spliced_edge_ids", mode="before")
+    @classmethod
+    def _check_spliced_edge_count(cls, value: object) -> object:
+        if isinstance(value, list):
+            check_spliced_edge_count(len(value))
+        return value
 
     @model_validator(mode="after")
     def _check_spliced_route_has_a_destination(self) -> "RouteGenerateRequest":
@@ -181,8 +189,7 @@ class RouteGenerateRequest(StrictModel):
             return self
         origin = Coordinates(latitude=self.latitude, longitude=self.longitude)
         farthest_km = max(haversine_distance_km(origin, point) for point in points)
-        if farthest_km > MAX_ROUTE_DISTANCE_KM:
-            raise ValueError("waypoints/destination must be within the maximum distance of the origin")
+        check_point_distance(farthest_km)
         self.distance_km = min(MAX_ROUTE_DISTANCE_KM, math.ceil(farthest_km) + 1)
         return self
 

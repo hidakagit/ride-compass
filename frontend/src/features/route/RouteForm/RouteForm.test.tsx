@@ -156,6 +156,18 @@ describe("RouteForm 目的地の地点", () => {
     expect(screen.getByRole("button", { name: "経由地の指定をやめる" })).toHaveTextContent("地図をタップ[2地点]");
   });
 
+  it("経由地が生成の受け付ける数に達したら、行を押せなくして上限と示し、消す操作は残す", async () => {
+    const limit = routeGenerateConfig.max_waypoints;
+    const props = renderForm({ ...destination, waypointCount: limit });
+    const row = screen.getByRole("button", { name: "経由地は上限まで置いてあります" });
+    expect(row).toBeDisabled();
+    expect(row).toHaveTextContent(`${limit}地点上限`);
+    await userEvent.click(row);
+    expect(props.onArmPinRole).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "経由地をクリア" }));
+    expect(props.onWaypointsClear).toHaveBeenCalled();
+  });
+
   it("置いた地点は行に出し、消す操作を添える（置いていない地点には添えない）", async () => {
     const props = renderForm({ ...destination, waypointCount: 2, destinationSet: true, originManual: true });
     expect(screen.getByRole("button", { name: "出発地を地図で選ぶ" })).toHaveTextContent("地図で指定");
