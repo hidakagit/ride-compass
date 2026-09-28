@@ -21,16 +21,26 @@ on:
   push:
     # orch/** はmasterへ入れる前の作業ブランチ。重い検査を開発機からここへ移すために回す。
     branches: [master, "orch/**"]
-    # docs/**・*.md はこのワークフローのどの検査の入力でもない（テスト・lint・型検査・E2Eは
-    # これらを読まない）ため、結果の変わらない実行を起こさない。文書の整合は
-    # docs-consistency.yml が別に見る。
-    paths-ignore:
-      - "docs/**"
-      - "**/*.md"
+    # 文書（docs/**・*.md）だけの変更では走らせない。飛ばしてよいのは、このワークフローの検査が
+    # 読まない文書だけで、読むものは次のどちらかで走らせる（決め方は docs/architecture/tech-stack.md
+    # 「CIの実行枠」）。
+    # - 読む範囲が一部のディレクトリに限られる検査は、そのディレクトリを後の行で入れ直す
+    #   （frontend/src/structure/caseOnlyPaths.test.ts は frontend/src の下の .md も読む）。
+    # - 全ての文書を読む検査（backend/tests/structure/test_named_references.py）は、常に走る
+    #   docs-consistency.yml でも走らせる。
+    # 行は上から順に当て、後の行が前の行に勝つ（`!`で外し、その後の行で入れ直す）。
+    # pull_request にも同じ並びを置く。
+    paths:
+      - "**"
+      - "!docs/**"
+      - "!**/*.md"
+      - "frontend/src/**"
   pull_request:
-    paths-ignore:
-      - "docs/**"
-      - "**/*.md"
+    paths:
+      - "**"
+      - "!docs/**"
+      - "!**/*.md"
+      - "frontend/src/**"
   workflow_dispatch:
 
 jobs:
