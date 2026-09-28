@@ -76,7 +76,8 @@ export class Gate {
     const prefix = this.config.statusLabelPrefix;
     const statusLabel = next.status ? `${prefix}${next.status}` : null;
     const have = issue.labels.nodes.map((l) => l.name);
-    const labels = [...new Set([...have.filter((n) => !n.startsWith(prefix)), ...(want.labels ?? []), ...(statusLabel ? [statusLabel] : [])])].filter(
+    const drop = (n) => n.startsWith(prefix) || (want.unlabels ?? []).includes(n);
+    const labels = [...new Set([...have.filter((n) => !drop(n)), ...(want.labels ?? []), ...(statusLabel ? [statusLabel] : [])])].filter(
       (n) => this.labelIds[n],
     );
     if (labels.length !== have.length || labels.some((n) => !have.includes(n))) update.labelIds = labels.map((n) => this.labelIds[n]);
@@ -93,13 +94,13 @@ export class Gate {
   // 表で照らし、通れば書く。written はステータスがもう GitHub で変わっていること（ボードの移動）。
   // next を渡さなければ表の既定の割り当てを書く。dryRun は照らすだけで書かない。seen は回答フォームが渡す
   // この直前に書いた答え（本文の先頭の1行を消すかを決めるのに使う）。
-  async apply(issue, from, to, { next, labels = [], written = false, dryRun = false, seen, comments = [], close } = {}) {
+  async apply(issue, from, to, { next, labels = [], unlabels = [], written = false, dryRun = false, seen, comments = [], close } = {}) {
     const verdict = from === to ? { ok: true, rule: null } : check(this.config, from, to, issue.blockedBy.nodes);
     if (!verdict.ok) return verdict;
     const missing = labels.filter((n) => !this.labelIds[n]);
     if (missing.length) return { ok: false, reason: `ラベル「${missing.join("」「")}」が GitHub にありません。` };
     if (dryRun) return { ok: true };
-    const want = { labels, seen, comments, assign: next !== undefined ? next : (verdict.rule?.assign ?? undefined) };
+    const want = { labels, unlabels, seen, comments, assign: next !== undefined ? next : (verdict.rule?.assign ?? undefined) };
     if (!written) want.status = to;
     if (to === this.config.done && issue.state === "OPEN") want.close = close ?? "NOT_PLANNED";
     // ユーザーが確かめると決めたタスク（verify.label）は、確かめる番を表の既定ではなく答える人（ask.answerer）にする。

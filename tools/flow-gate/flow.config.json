@@ -41,9 +41,6 @@
     "question": "このタスクをやりますか？",
     "options": [
       { "text": "やる", "to": "未着手", "next": "hidakagit-bot" },
-      { "text": "やる（優先）", "to": "未着手", "next": "hidakagit-bot", "labels": ["優先"] },
-      { "text": "やる（ユーザーが確かめる）", "to": "未着手", "next": "hidakagit-bot", "labels": ["ユーザー確認"] },
-      { "text": "やる（優先・ユーザーが確かめる）", "to": "未着手", "next": "hidakagit-bot", "labels": ["優先", "ユーザー確認"] },
       { "text": "やらない", "to": "完了" }
     ]
   },

@@ -18,7 +18,9 @@ f?.addEventListener("submit", async (e) => {
   e.preventDefault();
   if (!f.classList.contains("confirm")) {
     const c = f.querySelector("[name=choice]:checked");
-    sum.textContent = "送る内容: " + c.dataset.text + (c.dataset.next ? " ／ 次に動くのは " + f.next.selectedOptions[0].text : "") + (f.note.value ? " ／ 補足あり" : "");
+    const ch = [...f.querySelectorAll("[name=label]")].filter((b) => b.checked !== Boolean(b.dataset.had)).map((b) => (b.checked ? "+" : "−") + b.value);
+    sum.textContent = "送る内容: " + c.dataset.text + (c.dataset.next ? " ／ 次に動くのは " + f.next.selectedOptions[0].text : "") +
+      (ch.length ? " ／ ラベル " + ch.join(" ") : "") + (f.note.value ? " ／ 補足あり" : "");
     f.classList.add("confirm");
     return;
   }
@@ -53,6 +55,7 @@ const page = (body, status = 200) =>
       `.row{display:flex;gap:.5rem;margin-top:.4rem}.row button{flex:1;font:inherit;padding:.6rem;border-radius:.4rem;border:1px solid #888}` +
       `.primary{background:#1f6feb;color:#fff;border-color:#1f6feb!important}button:disabled{opacity:.5}` +
       `.ok,#sum{display:none}.confirm .ok,.confirm #sum{display:block}.confirm .ask{display:none}.confirm label{pointer-events:none;opacity:.6}` +
+      `.labels{display:flex;flex-wrap:wrap;gap:.3rem}.labels label{margin:0;padding:.3rem .55rem;font-size:14px}` +
       `.back{display:block;text-align:center;padding:.7rem;border-radius:.4rem;background:#1f6feb;color:#fff;text-decoration:none;margin-top:.6rem}` +
       `@media(prefers-color-scheme:dark){body{background:#121212;color:#eee}details{background:#222}label{border-color:#444}}` +
       `</style></head><body>${body}${SCRIPT}</body></html>`,
@@ -60,6 +63,7 @@ const page = (body, status = 200) =>
   );
 
 // 今の問いと、答えてよいか（まだ答えが無いか）を読む。答えられなければ理由を返す。
+// 付け外しできるラベルは、置き場のリポジトリに GitHub で定義されているもの全部（ゲートが Status に合わせて付けるものを除く）。
 async function load(gate, number) {
   const issue = await gate.read({ number });
   if (!issue?.item) return { error: "この issue は対象外です。" };
@@ -68,10 +72,15 @@ async function load(gate, number) {
   if (!q) return { error: "答える問いがありません。" };
   if (issue.comments.nodes.some((c) => answers(c.body, q.url))) return { error: "この問いにはもう答えてあります。" };
   if (!q.parsed) return { error: "問いの形が崩れています。Claude が書き直すのを待ってください。" };
-  return { issue, q, choices: formChoices(gate.config, q.parsed, issue.status) };
+  const labels = Object.keys(gate.labelIds).filter((n) => !n.startsWith(gate.config.statusLabelPrefix));
+  return { issue, q, labels, choices: formChoices(gate.config, q.parsed, issue.status) };
 }
 
-function render(config, { issue, q, choices }) {
+function render(config, { issue, q, labels, choices }) {
+  const have = new Set(issue.labels.nodes.map((l) => l.name));
+  const boxes = labels.map(
+    (n) => `<label><input type="checkbox" name="label" value="${esc(n)}"${have.has(n) ? ' checked data-had="1"' : ""}> ${esc(n)}</label>`,
+  );
   const people = Object.entries(config.people).map(([k, p]) => `<option value="${esc(k)}">${esc(p.shown)}</option>`);
   const radios = choices.map(
     (c, i) =>
@@ -82,6 +91,7 @@ function render(config, { issue, q, choices }) {
       (q.parsed.material ? `<details><summary>判断材料</summary><div>${esc(q.parsed.material)}</div></details>` : "") +
       `<form><input type="hidden" name="issue" value="${issue.number}"><input type="hidden" name="q" value="${esc(q.id)}">${radios.join("")}` +
       `<p id="who" hidden>次に動くのは <select name="next">${people.join("")}</select></p>` +
+      `<p>ラベル</p><input type="hidden" name="labels" value="1"><div class="labels">${boxes.join("")}</div>` +
       `<p><textarea name="note" rows="2" placeholder="補足（「その他」を選んだときは必須）"></textarea></p>` +
       `<p id="sum"></p><div class="row"><button type="button" id="back" class="ok">戻る</button><button class="ok primary">送信</button>` +
       `<button class="ask primary">確認へ</button></div></form>`,
@@ -91,7 +101,7 @@ function render(config, { issue, q, choices }) {
 async function submit(gate, env, data) {
   const loaded = await load(gate, Number(data.get("issue")));
   if (loaded.error) return loaded;
-  const { issue, q, choices } = loaded;
+  const { issue, q, labels, choices } = loaded;
   if (data.get("q") !== q.id) return { error: "問いが新しくなっています。開き直してください。" };
   const choice = choices[Number(data.get("choice"))];
   const note = String(data.get("note") ?? "").trim();
@@ -99,18 +109,24 @@ async function submit(gate, env, data) {
   if (choice.note && !note) return { error: `「${choice.text}」には補足が要ります。` };
   const next = choice.next === null ? null : choice.fixed ? choice.next : String(data.get("next"));
   if (next !== null && !gate.config.people[next]) return { error: "次に動く者が選べていません。" };
-  const precheck = await gate.apply({ ...issue }, issue.status, choice.to, { dryRun: true, labels: choice.labels });
+  // ラベルの欄を持たない古い画面からの送信では、ラベルを変えない（チェックの無いものは送られてこないため）。
+  const had = issue.labels.nodes.map((l) => l.name).filter((n) => labels.includes(n));
+  const chosen = data.get("labels") ? data.getAll("label").map(String).filter((n) => labels.includes(n)) : had;
+  const added = [...new Set([...chosen, ...choice.labels])].filter((n) => !had.includes(n));
+  const removed = had.filter((n) => !chosen.includes(n) && !choice.labels.includes(n));
+  const precheck = await gate.apply({ ...issue }, issue.status, choice.to, { dryRun: true, labels: added });
   if (!precheck.ok) return { error: precheck.reason };
 
   // 答えの記録（hidakagit の名義）を先に書き、決定と見せ方（ゲートの名義）を書いてから返す。
-  const body = answerBody(gate.config, { questionUrl: q.url, choice, next, note });
+  const body = answerBody(gate.config, { questionUrl: q.url, choice, next, note, added, removed });
   const written = await new Mutations()
     .add("addComment", { subjectId: issue.id, body }, "commentEdge { node { id url } }")
     .send(new GitHub(env.FORM_TOKEN));
   const answer = written.m0.commentEdge.node;
   const r = await gate.apply(issue, issue.status, choice.to, {
     next: next ?? undefined,
-    labels: choice.labels,
+    labels: added,
+    unlabels: removed,
     seen: [{ body, url: answer.url, author: { login: "hidakagit" } }],
   });
   if (!r.ok) return { error: r.reason };
