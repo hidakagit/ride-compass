@@ -32,7 +32,7 @@ function formatClockTime(iso: string): string {
   return formatJstHourMinute(date);
 }
 
-// today_periodsの各コマ（2時間おきの代表時刻文字列"HH:MM"）の頭2桁を「6時」のような
+// today_periodsの各コマ（代表時刻文字列"HH:MM"）の頭2桁を「6時」のような
 // 短い表示ラベルへ整形する（フロントの担当、weather.pyのdocstring参照）。
 function formatPeriodLabel(period: string): string {
   const hour = Number.parseInt(period.slice(0, 2), 10);
@@ -186,7 +186,9 @@ export default function TodayOutlook({ weather, loading, error }: TodayOutlookPr
         </div>
         {hasFlow && (
           <div className="mt-2 border-t border-[var(--color-border)] pt-2">
-            <p className={cn(textVariants({ variant: "note" }), "mb-1")}>2時間ごと</p>
+            <p
+              className={cn(textVariants({ variant: "note" }), "mb-1")}
+            >{`${weather.today_period_interval_hours}時間ごと`}</p>
             {/* コマがスマホ横幅に収まりきらない場合は、パネル内だけで横スクロールさせる。 */}
             <div className="-mx-3 flex gap-2 overflow-x-auto px-3 pb-0.5">
               {weather.today_periods.map((period) => (

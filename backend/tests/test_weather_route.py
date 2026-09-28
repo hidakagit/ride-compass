@@ -77,6 +77,7 @@ def test_get_weather_returns_conditions_on_success():
         wind_speed_max_ms=5.5,
         precipitation_max_mm=None,
         temperature_range=TemperatureRange(min_c=23.0, max_c=29.0),
+        today_period_interval_hours=2,
         today_periods=[
             WeatherPeriodOutlook(period="12:00", temperature_c=27.0, precipitation_mm=0.4),
         ],
@@ -117,6 +118,7 @@ def test_get_weather_is_rate_limited_per_client():
         wind_speed_max_ms=5.5,
         precipitation_max_mm=None,
         temperature_range=TemperatureRange(min_c=23.0, max_c=29.0),
+        today_period_interval_hours=2,
         today_periods=[
             WeatherPeriodOutlook(period="12:00", temperature_c=27.0, precipitation_mm=0.4),
         ],

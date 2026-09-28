@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 
 import { axisCatalogFromResponse } from "@/lib/axisCatalog";
 import { LEGEND_NO_DATA_KEY } from "@/lib/mapDisplay/mapColorLegend";
-import { DEFAULT_DIFFICULTY_BOUNDARIES } from "@/lib/mapDisplay/valueScale";
 
 import { catalogEntry, catalogOf, dedicatedEntry, rampEntry, tileInput } from "@/testing/catalogAxes";
 import { matchesFilter as matches } from "@/testing/mapExpressions";
@@ -38,7 +37,6 @@ const catalog = catalogOf([
   rampEntry("mislabelled", [10], { display_band_labels_override: ["1つだけ"] }),
   valueRamp("unknown", [10], {}, true),
   dedicatedEntry("dedicated", [1, 3], { map_value_unit: "m/s" }),
-  dedicatedEntry("defaults", [], { map_value_thresholds: null }),
 ]);
 
 describe("paintedAxisId（全道路を塗る軸）", () => {
@@ -106,10 +104,6 @@ describe("lensLegend（レンズの凡例）", () => {
     const legend = lensLegend("dedicated", false, catalog);
     expect(legend.map((entry) => entry.label)).toEqual(["1m/s未満", "1〜3m/s", "3m/s以上", "データなし"]);
     expect(legend.at(-1)).toMatchObject({ key: LEGEND_NO_DATA_KEY, isFallback: true });
-  });
-
-  it("専用配信軸が境界を持たなければ、難易度の既定の境界で段を作る", () => {
-    expect(lensLegend("defaults", false, catalog)).toHaveLength(DEFAULT_DIFFICULTY_BOUNDARIES.length + 2);
   });
 
   it("ルート確定後は、ルート線の色分けモードの凡例。塗る軸でない・無いモードは空", () => {

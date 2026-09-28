@@ -30,8 +30,7 @@ const EVALUATION_ANCHORS: readonly string[] = [
 /** 符号付き材料は0（平坦）を境に2方向の配色へ分ける（2色の補間1本だと0付近の段が端の色に寄る）。 */
 const SIGNED_DESCENT_ANCHORS: readonly string[] = [COLOR_SIGNED_LOW, COLOR_SIGNED_FLAT];
 
-/** 難易度の段の境界の既定（軸が宣言していないとき）。backendが配る。符号付き材料の段はbackendが軸ごとに必ず
- * 返すので、ここに既定を持たない。 */
+/** 総合難易度（軸ではない）の段の境界。backendが配る。軸の段は宣言の無い軸の既定もbackendが解いて軸ごとに返す。 */
 export const DEFAULT_DIFFICULTY_BOUNDARIES: readonly number[] = mapDisplay.valueScale.difficultyBoundaries;
 
 function hexToRgb(hex: string): [number, number, number] {
@@ -160,12 +159,7 @@ export function rampAxisBands(axis: RampAxis): ValueBand[] {
   return valueBands(axis.mapValueKind, axis.thresholds, axis.rawValueUnit ?? "", axis.bandLabelsOverride);
 }
 
-/** 専用配信の軸の段。境界を宣言していない軸は難易度の既定の境界で切る。 */
+/** 専用配信の軸の段。 */
 export function dedicatedAxisBands(display: DedicatedWayValueDisplay): ValueBand[] {
-  return valueBands(
-    display.kind,
-    display.boundaries ?? DEFAULT_DIFFICULTY_BOUNDARIES,
-    display.unit,
-    display.bandLabels,
-  );
+  return valueBands(display.kind, display.boundaries, display.unit, display.bandLabels);
 }

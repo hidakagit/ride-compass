@@ -3,7 +3,7 @@
 import type { components } from "./generated/api";
 
 export type WeatherConditions = components["schemas"]["WeatherConditions"];
-// 「今日」のパネルの2時間おきのコマ（today_periods）1つぶん。
+// 「今日」のパネルの一定間隔のコマ（today_periods）1つぶん。
 export type WeatherPeriodOutlook = components["schemas"]["WeatherPeriodOutlook"];
 // バックエンドの応答本体（時刻配列を1本だけ持つ）。weatherApi.tsの
 // getWindGrid/getWindGridDetailが受け取る生の形で、フロント内部では使わない

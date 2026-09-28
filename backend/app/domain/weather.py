@@ -38,7 +38,7 @@ def derive_observed_weather_code(
 
 
 class WeatherPeriodOutlook(StrictModel):
-    """「今日」のパネルの2時間おきのコマ1つぶん（数値予報モデルの計算値）。
+    """「今日」のパネルの一定間隔のコマ1つぶん（数値予報モデルの計算値）。
 
     `period`は代表時刻の"HH:MM"文字列で、朝/午後/夜のような意味づけラベルは持たない
     ——時刻の解釈・表示ラベルへの整形はfrontend側が担う。
@@ -70,13 +70,15 @@ class WeatherConditions(StrictModel):
     precipitation_max_mm: float | None
     wind_speed_max_ms: float | None
     temperature_range: TemperatureRange | None
-    # 「今日」のパネルへ並べる2時間おきのコマ。取得失敗時もNoneではなく空リストに
+    # 「今日」のパネルへ並べる一定間隔のコマ。取得失敗時もNoneではなく空リストに
     # なる（フロント側はnullチェック無しで.filter/.mapできる）。
     today_periods: list[WeatherPeriodOutlook]
+    # コマの間隔（時間）。画面はコマの並びの見出しにこの間隔を出す。
+    today_period_interval_hours: int
 
 
 _PERIOD_SLOT_COUNT = 8
-_PERIOD_INTERVAL_HOURS = 2
+PERIOD_INTERVAL_HOURS = 2
 
 
 def today_indices(times: list[str]) -> list[int]:
@@ -111,7 +113,7 @@ def period_outlooks(times: list[str], temperature: np.ndarray, precipitation: np
     """
     results = []
     for slot in range(_PERIOD_SLOT_COUNT):
-        index = slot * _PERIOD_INTERVAL_HOURS
+        index = slot * PERIOD_INTERVAL_HOURS
         if index >= len(times):
             break
         results.append(

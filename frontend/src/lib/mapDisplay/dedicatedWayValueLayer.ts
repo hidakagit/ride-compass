@@ -6,11 +6,11 @@
 import type { MapValueKind } from "./valueScale";
 
 /** 軸カタログ（GET /api/axis-catalog）から軸ごとに組み立てる表示宣言。しきい値は
- * map_value_thresholds（地図が塗る値のスケールへ揃えた境界）、段階ラベルは
- * display_band_labels_override（未設定ならそれぞれ種類の既定値・数値レンジのみ）。 */
+ * map_value_thresholds（地図が塗る値のスケールへ揃えた境界。宣言の無い軸の既定もbackendが解いて入れる）、
+ * 段階ラベルはdisplay_band_labels_override（未設定なら数値レンジのみ）。 */
 export interface DedicatedWayValueDisplay {
   kind: MapValueKind;
   unit: string;
-  boundaries?: readonly number[] | null;
+  boundaries: readonly number[];
   bandLabels?: readonly string[] | null;
 }

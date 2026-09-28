@@ -50,9 +50,9 @@ from app.domain.weather_elements import (  # noqa: E402
     weather_element_deliveries,
     weather_element_tile,
 )
+from app.domain.dynamic_way_values import DEFAULT_DIFFICULTY_BOUNDARIES  # noqa: E402
 from app.domain.map_display import (  # noqa: E402
     ALWAYS_SHOWN_ATTRIBUTIONS,
-    DEFAULT_DIFFICULTY_BOUNDARIES,
     AXIS_LAYER_SPECS,
     MAP_LAYER_CATEGORIES,
     MAP_LAYERS,
@@ -117,10 +117,12 @@ from app.domain.display_palette import (  # noqa: E402
     resolved_display_axes,
 )
 from app.api.routers.gsi_tile import RELIEF_TILE_URL, TERRAIN_TILE_URL  # noqa: E402
+from app.api.cache_policy import BASEMAP  # noqa: E402
 from app.domain.gsi_tiles import RELIEF_ATTRIBUTION, RELIEF_MAX_ZOOM, TERRAIN_MAX_ZOOM  # noqa: E402
 from app.domain.terrain_rgb import TERRAIN_RGB_BASE_M, TERRAIN_RGB_UNIT_M  # noqa: E402
 from app.domain.landcover import (  # noqa: E402
     LANDCOVER_CLASSES,
+    LANDCOVER_RING_OUTER_M,
     LANDCOVER_TILE_MAX_ZOOM,
     LANDCOVER_TILE_MIN_ZOOM,
 )
@@ -311,6 +313,8 @@ def main() -> None:
             # backendが決める（domain/landcover.py）。
             "landcover": {
                 "tile_version": LANDCOVER_TILE_VERSION,
+                # 評価の材料が土地被覆を数える帯の外側（道路の中心線からm）。地図の説明がこの距離を出す。
+                "ring_outer_m": LANDCOVER_RING_OUTER_M,
                 "min_zoom": LANDCOVER_TILE_MIN_ZOOM,
                 "max_zoom": LANDCOVER_TILE_MAX_ZOOM,
             },
@@ -452,6 +456,8 @@ def main() -> None:
             "amedas_seconds": AMEDAS_REFRESH_INTERVAL_MINUTES * 60,
             "jma_tile_index_seconds": Settings.model_fields["jma_tile_prewarm_interval_minutes"].default * 60,
             "msm_seconds": MSM_UPDATE_INTERVAL_SECONDS,
+            # 基礎地図のタイルをブラウザが持つ時間。管理画面のタイルキャッシュの消去が各利用者の画面へ届くまでの遅れ。
+            "basemap_browser_cache_seconds": BASEMAP.max_age_seconds,
         },
     )
     # 土地被覆のクラス（画素値・割合列・表示名・色）。地図タイルの塗りと同じレジストリから
@@ -565,6 +571,8 @@ def main() -> None:
             # 風の予報を追う長さ（レグごと、時刻ビンの本数×幅）。区間の詳細の説明が、この先は最後に追った時刻の予報を
             # そのまま使うことを数字で示す。
             "wind_forecast_hours_per_leg": MAX_TIME_BINS * TIME_BIN_HOURS,
+            # 区間の風を引く時刻の刻み（時刻ビンの幅）。区間の詳細の説明が評価の刻みを数字で示す。
+            "wind_time_bin_hours": TIME_BIN_HOURS,
             # フロントが使う較正値の**既定**（`domain/tuning.py`の宣言そのまま）。
             # 実際に効いている値はGET /api/axis-catalogが返し、これはそれを取れるまでの値。
             "client_tuning": client_tuning_values(),

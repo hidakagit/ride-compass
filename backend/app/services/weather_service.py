@@ -6,7 +6,7 @@ from app.domain.geo import compass_label
 from app.domain.msm import wind_speed_and_direction
 from app.domain.route import Coordinates
 from app.domain.twilight import sunrise_sunset_jst
-from app.domain.weather import WeatherConditions, daily_max, daily_range, period_outlooks, today_indices
+from app.domain.weather import PERIOD_INTERVAL_HOURS, WeatherConditions, daily_max, daily_range, period_outlooks, today_indices
 from app.domain.region import BoundingBox
 from app.domain.wind import WIND_FORECAST_LAT_STEP_DEG, WIND_FORECAST_LON_STEP_DEG, WindForecastSeries, WindLattice
 from app.domain.wind_grid import WindGridPoint
@@ -117,4 +117,5 @@ class WeatherService:
             wind_speed_max_ms=daily_max(speed, today),
             temperature_range=daily_range(temperature, today),
             today_periods=period_outlooks(times, temperature, precipitation),
+            today_period_interval_hours=PERIOD_INTERVAL_HOURS,
         )

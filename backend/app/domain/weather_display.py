@@ -35,6 +35,16 @@ class LevelColor(NamedTuple):
     color: str
 
 
+class RiskLevel(NamedTuple):
+    """危険度の段。配信元のベクタタイル（洪水キキクル）は段を番号の属性で持ち、画面はこの番号で色を引く。"""
+
+    #: 配信元のタイルの属性`level`の値。
+    level: int
+    key: str
+    label: str
+    color: str
+
+
 #: 降水の強さ（mm/h）。背景と同じ色にすると「降っていない」と見分けが付かないため、
 #: いちばん弱い段も色を持つ。20mm/h以上の切れ目と名前は気象庁「雨の強さと降り方」の分類、
 #: それ未満は公式の区分が無いため体感の言い方（ポツポツ・パラパラ等）で分ける。
@@ -80,12 +90,12 @@ LINEAR_RAINBAND_OUTLINE_CASING_COLOR = "#ffffff"
 #: 危険度分布。白→黄→赤→紫→黒と上がる。色は内閣府（防災担当）が警戒レベルの画面上の推奨配色として公表したRGB値
 #: （「大雨の警戒レベルをわかりやすく伝えるために５色の配色を定めました」令和2年5月29日
 #: https://www.bousai.go.jp/pdf/200529_haishoku.pdf。白255,255,255・黄242,231,0・赤255,40,0・紫170,0,170・黒12,0,12）。
-RISK_LEVEL_COLORS: tuple[LevelColor, ...] = (
-    LevelColor("level0", "平常[危険度なし]", "#ffffff"),
-    LevelColor("level1", "注意[黄]", "#f2e700"),
-    LevelColor("level2", "警戒[赤]", "#ff2800"),
-    LevelColor("level3", "危険[紫]", "#aa00aa"),
-    LevelColor("level4", "災害切迫[黒]", "#0c000c"),
+RISK_LEVEL_COLORS: tuple[RiskLevel, ...] = (
+    RiskLevel(0, "level0", "平常[危険度なし]", "#ffffff"),
+    RiskLevel(1, "level1", "注意[黄]", "#f2e700"),
+    RiskLevel(2, "level2", "警戒[赤]", "#ff2800"),
+    RiskLevel(3, "level3", "危険[紫]", "#aa00aa"),
+    RiskLevel(4, "level4", "災害切迫[黒]", "#0c000c"),
 )
 
 #: 雷の活動度。弱い＝黄→強い＝紫というナウキャスト系の配色慣習に沿う。気象庁はタイルの配色の

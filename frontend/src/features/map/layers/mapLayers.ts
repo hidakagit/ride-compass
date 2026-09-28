@@ -26,7 +26,7 @@ import {
   type MapIconComponent,
 } from "@/components/ui/icons/icons";
 import type { LegendEntry } from "@/lib/mapDisplay/legendFilter";
-import { LANDCOVER_PAINTED_CLASSES } from "./landcoverClasses";
+import { LANDCOVER_CLASSES, LANDCOVER_PAINTED_CLASSES } from "./landcoverClasses";
 import { PRECIPITATION_INTENSITY_LEVELS } from "./precipitationNowcast";
 import { WIND_SPEED_LEGEND_LEVELS } from "./windLayer";
 import { pointLegendAxes } from "@/features/map/scene/legends";
@@ -207,6 +207,11 @@ export function buildMapLayers({
   const stopPoiAxes = axisNamesReading(axes, "stop_poi");
   const windAxes = axisNamesReading(axes, "windVector");
   const routeLenses = [...axes.map((axis) => axis.label), FIXED_LENS_LABELS[LENS_DIFFICULTY_ID]].join("・");
+  // 面で塗らない土地被覆の分類（区間インスペクタの割合には出る）。塗らないのは、広い範囲を単色で覆って基礎地図を
+  // 隠すわりに何も足さない分類だけ（源泉`domain/landcover.py: LandcoverClass.painted`）。
+  const unpaintedLandcover = LANDCOVER_CLASSES.filter((cls) => !cls.painted)
+    .map((cls) => cls.label)
+    .join("・");
   return [
     {
       ...staticLayer("elevation"),
@@ -234,13 +239,14 @@ export function buildMapLayers({
         },
       ],
       icon: LandcoverIcon,
-      description: "周囲の緑・水辺・農地を面で重ねる[建物は塗らない]",
+      description: `周囲の緑・水辺・農地を面で重ねる${unpaintedLandcover ? `[${unpaintedLandcover}は塗らない]` : ""}`,
       panelHint:
         "衛星画像から分類した10m四方ごとの土地の使われ方です。1区画に1種類だけが入るため、" +
-        "評価軸が使う「道路の周囲100mの割合」とは違い、混ざらずそのまま見えます。" +
-        "建物は塗りません——市街地では画素のほとんどがそのクラスになり、地図が単色で" +
-        "覆われるだけになるためです[建物があることは基礎地図から分かります]。" +
-        "区間インスペクタの内訳には建物も出ます。",
+        `評価軸が使う「道路の周囲${regionTileConfig.landcover.ring_outer_m}mの割合」とは違い、混ざらずそのまま見えます。` +
+        (unpaintedLandcover
+          ? `${unpaintedLandcover}は塗りません——広い範囲を単色で覆い、基礎地図を隠すだけになるためです。` +
+            `区間インスペクタの内訳には${unpaintedLandcover}も出ます。`
+          : ""),
     },
     {
       ...staticLayer("highway"),
@@ -430,11 +436,12 @@ export function buildMapLayers({
       chipLabel: "災害",
       description:
         "気象庁の雷・竜巻・落雷とキキクル4種[土砂災害・大雨・浸水・洪水]をまとめて表示" +
-        "[雷・竜巻・落雷は実況〜60分先、キキクルは現在の危険度のみ]",
+        "[雷・竜巻は実況〜60分先、落雷は直近の観測、キキクルは現在の危険度のみ]",
       panelHint:
         "気象庁の防災情報をまとめて表示します。雷ナウキャスト[活動度1〜4]・竜巻発生確度" +
-        "ナウキャスト[発生確度1・2]・雷放電位置データ[実際の落雷地点]は時刻スライダーに" +
-        "連動し、実況[直近]から60分先までを切り替えて確認できます。キキクル4種[土砂災害・" +
+        "ナウキャスト[発生確度1・2]は時刻スライダーに連動し、実況[直近]から60分先までを" +
+        "切り替えて確認できます。雷放電位置データ[実際の落雷地点]は観測だけのため、最新の観測より" +
+        "先の時刻には出ません。キキクル4種[土砂災害・" +
         "大雨・浸水・洪水]は5段階[注意・警戒・危険・災害切迫、平常時は表示なし]で色分け" +
         "した現在の危険度で、「現在の危険度」単一値のみの配信のため時刻スライダーには連動" +
         "しません。平常時は危険度ゼロの領域が透明のため、ONのままでも地図の見た目は" +

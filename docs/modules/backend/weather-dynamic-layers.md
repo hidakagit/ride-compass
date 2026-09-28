@@ -43,7 +43,7 @@ MSMは数値予報モデルの出力で観測値・公式発表の代わりに�
 
 | ファイル | 役割 | 消費側 |
 |---|---|---|
-| `weather.py` | 天候のPydanticモデル（`WeatherConditions`・`WeatherPeriodOutlook`。MSMの計算値）と「今日」のパネルの読み方（時系列の先頭と同じ暦日の時刻・日次の最大と範囲・2時間おきのコマ）、アメダスの10分間の実測からWMO天気コードを導く`derive_observed_weather_code`（「降っていない」の境`PRECIPITATION_MIN_MM`は、「今日」のパネルの降水量の「-」と地図の降水の塗りにも生成物で届く） | `weather_service.py`・`jma_amedas.py` |
+| `weather.py` | 天候のPydanticモデル（`WeatherConditions`・`WeatherPeriodOutlook`。MSMの計算値）と「今日」のパネルの読み方（時系列の先頭と同じ暦日の時刻・日次の最大と範囲・一定間隔のコマ（間隔は応答にも載る））、アメダスの10分間の実測からWMO天気コードを導く`derive_observed_weather_code`（「降っていない」の境`PRECIPITATION_MIN_MM`は、「今日」のパネルの降水量の「-」と地図の降水の塗りにも生成物で届く） | `weather_service.py`・`jma_amedas.py` |
 | `jma_amedas.py` | JMAアメダスの16方位コード変換（静穏・欠測・範囲外のコードは方位なし。JMA特有なのは番号の割当だけで、呼び名は`domain/geo.py: SIXTEEN_POINT_LABELS`から引く）・体感温度計算（BOM式）・`AmedasObservation`モデル（天気コード`weather_code`は保存した実測から応答のたびに導き、Redisには持たない） | `jma_amedas_service.py` |
 | `jma_area.py` | 区域（class20）のコード→JMA警報エリア（class20→class15→class10→office）の親子関係解決。辿る地域マスタは`AreaMaster`（area.jsonの形は`jma_warning_client.py`が解く） | `warning_service.py`・`flood_service.py` |
 | `jma_warning.py` | JMA警報コード表（配信元のコード表の写し。発表中なのに表に無いコードは、写しが古くなった印としてWARNINGを出して捨てる）・電文1件`WarningBulletin`と、区域の種別の引き方（区域の項目が無い電文だけを二次細分区域で引く）・アクティブ警報抽出（電文の1地域ぶんの種別`AreaWarningKind`から）・警戒度の段（名称から導く。危険警報＝警戒レベル4は警報と特別警報の間の段で、氾濫危険警報と同じ段） | `warning_service.py` |
@@ -59,15 +59,16 @@ MSMは数値予報モデルの出力で観測値・公式発表の代わりに�
 
 | エンドポイント | データ源 | fail時 | レート制限/分 |
 |---|---|---|---|
-| `GET /api/weather` | 気象庁MSM（「今日」のパネル: 日次集計・2時間おきのコマ） | 502 | 60 |
+| `GET /api/weather` | 気象庁MSM（「今日」のパネル: 日次集計・一定間隔のコマ） | 502 | 60 |
 | `GET /api/weather/warnings` | 気象庁警報・注意報 | 502 | 30 |
 | `GET /api/weather/wbgt` | 環境省WBGT | 502 | 30 |
 | `GET /api/weather/flood-forecast` | 河川洪水予報 | 502 | 30 |
 | `GET /api/weather/amedas` | 気象庁アメダス実測値（Redis読み取り専用） | 502 | 30 |
 | `GET /api/weather/wind-grid`・`/wind-grid-detail` | 気象庁MSM（ローカルの`.om`ファイル） | 全滅時と、対象範囲が読めないとき502 | 20／30 |
 
-`/api/weather`は常設ヘッダー用ではなく、「今日」のパネル（日次集計・2時間おき8コマの
-気温・降水量）専用。常設ヘッダー（気温・体感温度・風速風向の現在値）はアメダス実測を使う
+`/api/weather`は常設ヘッダー用ではなく、「今日」のパネル（日次集計・一定間隔のコマの
+気温・降水量）専用。コマの間隔は応答の`today_period_interval_hours`で届き、画面はコマの並びの見出しに
+それを出す（間隔を画面が文字で持つと、backendで間隔を変えたときに見出しだけが古くなる）。常設ヘッダー（気温・体感温度・風速風向の現在値）はアメダス実測を使う
 `/api/weather/amedas`が担う。
 
 **警報・WBGT・洪水予報の空の応答は「出ていない」だけを表す**（警報なし・予報なし・暑さ指数の段なし）。
