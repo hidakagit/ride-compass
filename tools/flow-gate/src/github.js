@@ -1,4 +1,6 @@
 // GitHub への読み書き。ゲートは App（env.APP_ID・env.APP_KEY は PKCS#8）の名義、答えのコメントは env.FORM_TOKEN の名義で書く。
+// 1回の出来事・1回の送信で、読むのも書くのも GraphQL の1回ずつにまとめる（呼び出しは1回ごとに往復の時間がかかり、
+// 回答フォームはその間あなたを待たせるため）。
 const API = "https://api.github.com";
 const b64url = (bytes) =>
   btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -17,12 +19,9 @@ export class GitHub {
     this.token = token;
   }
 
-  // installationId が無ければ、置き場のリポジトリに入っているインストールを引く。
-  static async asApp(env, repository, installationId) {
-    const jwt = await appJwt(env);
-    const app = new GitHub(jwt);
-    const id = installationId ?? (await app.rest("GET", `/repos/${repository}/installation`)).id;
-    return new GitHub((await app.rest("POST", `/app/installations/${id}/access_tokens`)).token);
+  static async asApp(env, installationId) {
+    const app = new GitHub(await appJwt(env));
+    return new GitHub((await app.rest("POST", `/app/installations/${installationId}/access_tokens`)).token);
   }
 
   async rest(method, path, body) {
@@ -49,38 +48,52 @@ export class GitHub {
   }
 }
 
-const ISSUE_FIELDS = `id number title body url state stateReason author { login ... on User { databaseId } }
-  parent { number } assignees(first: 5) { nodes { login databaseId } } labels(first: 20) { nodes { name } }
-  blockedBy(first: 50) { nodes { number state stateReason } }
-  subIssues(first: 50) { nodes { id number state } }
-  comments(last: 50) { nodes { id url body isMinimized author { login ... on User { databaseId } } } }
-  projectItems(first: 10) { nodes { id project { id }
-    fieldValueByName(name: $field) { ... on ProjectV2ItemFieldSingleSelectValue { name } } } }`;
+// 書き込みを GraphQL の1回の要求にまとめる。並べた順に実行される。入力の型は GitHub の命名（<名前>Input）に従う。
+export class Mutations {
+  constructor() {
+    this.parts = [];
+    this.vars = {};
+  }
 
-// タスクを判断に要るだけ読む。Project の件は設定の Project のものだけを見る。
-export async function readIssue(gh, config, project, ref) {
-  const d = ref.nodeId
-    ? await gh.gql(`query Issue($id: ID!, $field: String!) { node(id: $id) { ... on Issue { ${ISSUE_FIELDS} repository { nameWithOwner } } } }`, {
-        id: ref.nodeId,
-        field: config.project.statusField,
-      })
-    : await gh.gql(
-        `query Issue($o: String!, $n: String!, $k: Int!, $field: String!) { repository(owner: $o, name: $n) { issue(number: $k) { ${ISSUE_FIELDS} repository { nameWithOwner } } } }`,
-        { o: config.repository.split("/")[0], n: config.repository.split("/")[1], k: ref.number, field: config.project.statusField },
-      );
-  const issue = ref.nodeId ? d.node : d.repository.issue;
-  if (!issue || issue.repository.nameWithOwner !== config.repository) return null;
-  const item = issue.projectItems.nodes.find((i) => i.project.id === project.id);
-  return { ...issue, item: item?.id ?? null, status: item?.fieldValueByName?.name ?? null };
+  add(name, input, select = "clientMutationId") {
+    const key = `m${this.parts.length}`;
+    this.parts.push({ key, name, select });
+    this.vars[key] = input;
+    return this;
+  }
+
+  async send(gh) {
+    if (!this.parts.length) return {};
+    const decl = this.parts.map(({ key, name }) => `$${key}: ${name[0].toUpperCase()}${name.slice(1)}Input!`).join(", ");
+    const body = this.parts.map(({ key, name, select }) => `${key}: ${name}(input: $${key}) { ${select} }`).join(" ");
+    return gh.gql(`mutation Batch(${decl}) { ${body} }`, this.vars);
+  }
 }
 
-// 設定の Project の ID と Status の欄・選択肢の ID。
-export async function readProject(gh, config) {
-  const d = await gh.gql(
-    `query Project($o: String!, $n: Int!, $field: String!) { organization(login: $o) { projectV2(number: $n) { id
-      field(name: $field) { ... on ProjectV2SingleSelectField { id options { id name } } } } } }`,
-    { o: config.project.owner, n: config.project.number, field: config.project.statusField },
-  );
+const TASK = `fragment Task on Issue { id number title body url state stateReason author { login ... on User { databaseId } }
+  parent { number } assignees(first: 5) { nodes { id login } } labels(first: 20) { nodes { name } }
+  blockedBy(first: 50) { nodes { number state stateReason } } subIssues(first: 50) { nodes { id number state } }
+  comments(last: 50) { nodes { id url body isMinimized author { login ... on User { databaseId } } } }
+  lastClose: timelineItems(last: 1, itemTypes: [CLOSED_EVENT]) { nodes { ... on ClosedEvent { stateReason } } }
+  projectItems(first: 10) { nodes { id project { id } fieldValueByName(name: $field) { ... on ProjectV2ItemFieldSingleSelectValue { name } } } }
+  repository { nameWithOwner } }`;
+const COMMON = `organization(login: $po) { projectV2(number: $pn) { id field(name: $field) { ... on ProjectV2SingleSelectField { id options { id name } } } } }
+  repository(owner: $o, name: $n) { labels(first: 100) { nodes { id name } }`;
+
+// タスクを、判断と書き込みに要るだけ1回の問い合わせで読む（Project の欄・置き場のラベル・issue）。
+// Project の件は設定の Project のものだけを見る。issue が置き場のものでなければ issue は null。
+export async function readTask(gh, config, ref) {
+  const [o, n] = config.repository.split("/");
+  const v = { po: config.project.owner, pn: config.project.number, field: config.project.statusField, o, n };
+  const head = "$po: String!, $pn: Int!, $field: String!, $o: String!, $n: String!";
+  const d = ref.nodeId
+    ? await gh.gql(`query Task(${head}, $id: ID!) { ${COMMON} } node(id: $id) { ...Task } } ${TASK}`, { ...v, id: ref.nodeId })
+    : await gh.gql(`query Task(${head}, $k: Int!) { ${COMMON} issue(number: $k) { ...Task } } } ${TASK}`, { ...v, k: ref.number });
   const p = d.organization.projectV2;
-  return { id: p.id, field: p.field.id, options: Object.fromEntries(p.field.options.map((o) => [o.name, o.id])) };
+  const project = { id: p.id, field: p.field.id, options: Object.fromEntries(p.field.options.map((x) => [x.name, x.id])) };
+  const labels = Object.fromEntries(d.repository.labels.nodes.map((l) => [l.name, l.id]));
+  const issue = ref.nodeId ? d.node : d.repository.issue;
+  if (!issue || issue.repository?.nameWithOwner !== config.repository) return { project, labels, issue: null };
+  const item = issue.projectItems.nodes.find((i) => i.project.id === project.id);
+  return { project, labels, issue: { ...issue, item: item?.id ?? null, status: item?.fieldValueByName?.name ?? null } };
 }

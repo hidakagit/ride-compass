@@ -2,9 +2,10 @@
   "repository": "ridecompass/ride-compass-tasks",
   "project": { "owner": "ridecompass", "number": 2, "statusField": "Status" },
   "gate": "ridecompass-gate[bot]",
+  "installation": 165726503,
   "people": {
-    "hidakagit": { "id": 6731891, "shown": "hidakagit" },
-    "hidakagit-bot": { "id": 334916358, "shown": "Claude" }
+    "hidakagit": { "id": 6731891, "node": "MDQ6VXNlcjY3MzE4OTE=", "shown": "hidakagit" },
+    "hidakagit-bot": { "id": 334916358, "node": "U_kgDOE_ZrBg", "shown": "Claude" }
   },
   "statuses": ["採否待ち", "回答待ち", "保留", "未着手", "進行中", "検証中", "完了"],
   "done": "完了",
