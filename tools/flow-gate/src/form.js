@@ -1,6 +1,6 @@
 // 回答フォーム（hidakagit が開く1枚の画面）。答えのコメントは hidakagit の名義（env.FORM_TOKEN）で書き、
 // ステータス・割り当て・ラベルはゲートの遷移の処理（Gate.apply）がゲートの名義で書く。
-import { Gate, currentQuestion } from "./gate.js";
+import { ADOPTION_ID, Gate, currentQuestion } from "./gate.js";
 import { GitHub, Mutations } from "./github.js";
 import { answerBody, answers, formChoices } from "./rules.js";
 
@@ -114,7 +114,7 @@ async function submit(gate, env, data, ctx) {
     seen: [{ body, url: answer.url, author: { login: "hidakagit" } }],
   });
   const fold = new Mutations();
-  for (const id of [q.id, answer.id]) fold.add("minimizeComment", { subjectId: id, classifier: "RESOLVED" });
+  for (const id of [q.id, answer.id].filter((id) => id !== ADOPTION_ID)) fold.add("minimizeComment", { subjectId: id, classifier: "RESOLVED" });
   ctx.waitUntil(fold.send(form).catch((e) => console.error("問いと答えを畳めなかった", e)));
   if (!r.ok) return { error: r.reason };
   return { url: issue.url, label: choice.text };

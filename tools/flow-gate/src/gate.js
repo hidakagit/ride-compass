@@ -10,6 +10,8 @@ export class Gate {
     const gate = new Gate();
     gate.config = config;
     gate.origin = origin;
+    // ボタンの画像は GitHub が中継して取りに来るので、Access の外の Worker（GATE_ORIGIN）から返す。
+    gate.buttonUrl = `${env.GATE_ORIGIN ?? origin}/button.svg`;
     gate.gh = await GitHub.asApp(env, config.installation);
     return gate;
   }
@@ -29,9 +31,8 @@ export class Gate {
   bodyFor(issue) {
     const q = this.config.ask.statuses.includes(issue.status) ? currentQuestion(this.config, issue) : null;
     const open = issue.state === "OPEN" && q?.parsed && !issue.comments.nodes.some((c) => answers(c.body, q.url));
-    return open
-      ? withBanner(issue.body, issue.status, { text: q.parsed.text, url: `${this.origin}/answer?issue=${issue.number}` })
-      : withoutBanner(issue.body);
+    const url = `${this.origin}/answer?issue=${issue.number}`;
+    return open ? withBanner(issue.body, issue.status, { text: q.parsed.text, url, button: this.buttonUrl }) : withoutBanner(issue.body);
   }
 
   // 1つのタスクへの書き込みを1回の要求で行う。want には変えたい中身だけを渡す。見せ方（ステータスのラベルは Project の
@@ -91,9 +92,8 @@ export class Gate {
     const want = { labels, fold, seen, assign: next !== undefined ? next : (verdict.rule?.assign ?? undefined) };
     if (!written) want.status = to;
     if (to === this.config.done && issue.state === "OPEN") want.close = "NOT_PLANNED";
-    if (from !== to && this.config.ask.statuses.includes(to)) {
-      if (to === this.config.adoption.status) want.comments = [adoptionQuestion(this.config)];
-      else if (!currentQuestion(this.config, issue)?.parsed) {
+    if (from !== to && this.config.ask.statuses.includes(to) && to !== this.config.adoption.status) {
+      if (!currentQuestion(this.config, issue)?.parsed) {
         want.comments = ["問いの形が崩れています（docs/conventions/flow.md「問い」）。問いを書き直してください。"];
         want.assign = this.config.ask.askers[0];
       }
@@ -112,8 +112,7 @@ export class Gate {
     const issue = await this.read({ nodeId });
     if (this.project.id !== projectNodeId || !issue?.item || issue.parent || issue.status) return;
     const entry = entryFor(this.config, issue.author.databaseId);
-    const adopt = this.config.ask.statuses.includes(entry.to) && entry.to === this.config.adoption.status;
-    await this.write(issue, { status: entry.to, assign: entry.assign, comments: adopt ? [adoptionQuestion(this.config)] : [] });
+    await this.write(issue, { status: entry.to, assign: entry.assign });
   }
 
   async moved(nodeId, projectNodeId, from, to) {
@@ -142,7 +141,10 @@ export class Gate {
   }
 }
 
+export const ADOPTION_ID = "adoption";
+
 // 今の問い: 問いを書ける者（askers）かゲートが書いた、1行目が「## 問い」のコメントのうち最新の1つ。
+// 採否待ちでそれが無ければ、設定の採否の問い（決まった中身なのでコメントには書かない）。
 export function currentQuestion(config, issue) {
   const gateLogin = config.gate.replace(/\[bot\]$/, "");
   const q = [...issue.comments.nodes]
@@ -152,7 +154,10 @@ export function currentQuestion(config, issue) {
         c.body.startsWith("## 問い") &&
         (c.author?.login === gateLogin || config.ask.askers.includes(personById(config, c.author?.databaseId))),
     );
-  return q ? { ...q, parsed: parseQuestion(config, q.body) } : null;
+  if (q) return { ...q, parsed: parseQuestion(config, q.body) };
+  if (issue.status !== config.adoption.status) return null;
+  const body = adoptionQuestion(config);
+  return { id: ADOPTION_ID, url: `${issue.url}#採否`, body, parsed: parseQuestion(config, body) };
 }
 
 export async function handleEvent(env, config, origin, name, payload) {

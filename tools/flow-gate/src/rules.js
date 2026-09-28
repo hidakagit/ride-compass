@@ -90,7 +90,13 @@ export function answerBody(config, { questionUrl, choice, next, note }) {
 const BANNER = /^<!-- flow-gate -->\n[\s\S]*?\n<!-- \/flow-gate -->\n*/;
 export const withoutBanner = (body) => (body ?? "").replace(/\r\n/g, "\n").replace(BANNER, "");
 export const withBanner = (body, status, ask) =>
-  `<!-- flow-gate -->\n**${status}**: ${ask.text} → [回答フォーム](${ask.url})\n<!-- /flow-gate -->\n\n${withoutBanner(body)}`;
+  `<!-- flow-gate -->\n[![回答する](${ask.button})](${ask.url})\n\n**${status}**: ${ask.text} → [回答フォーム](${ask.url})\n<!-- /flow-gate -->\n\n${withoutBanner(body)}`;
+
+// 回答フォームへのボタンの画像。GitHub の画面にはボタンを足せないので、本文の先頭にリンク付きの画像として置く。
+export const BUTTON_SVG =
+  `<svg xmlns="http://www.w3.org/2000/svg" width="152" height="44" viewBox="0 0 152 44"><rect width="152" height="44" rx="8" fill="#1f6feb"/>` +
+  `<text x="76" y="28" text-anchor="middle" font-size="17" font-weight="700" fill="#fff" ` +
+  `font-family="system-ui,-apple-system,'Hiragino Sans','Noto Sans JP','Yu Gothic',sans-serif">回答する</text></svg>`;
 
 export const answers = (body, questionUrl) =>
   body.startsWith("## 回答\n") && body.split("\n")[1] === `問い: ${questionUrl}`;
