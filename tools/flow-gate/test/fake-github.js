@@ -3,13 +3,15 @@ import config from "../flow.config.json" with { type: "json" };
 
 const OPTIONS = Object.fromEntries(config.statuses.map((s, i) => [s, `opt${i}`]));
 const NAMES = Object.fromEntries(Object.entries(OPTIONS).map(([k, v]) => [v, k]));
+// Status のほかの単一選択の欄（Project に足してあるもの）。選択肢の id は「欄の名前:選択肢」。
+const FIELDS = { [config.project.priorityField]: ["高", "中", "低"], [config.project.sizeField]: ["S", "M", "L"] };
 const BY_NODE = Object.fromEntries(Object.entries(config.people).map(([k, p]) => [p.node, k]));
 
 // code はコードのリポジトリの状態（Pull Request の一覧・master の CI の実行）。
-export function fakeGitHub({ issue, labels = ["優先", "規模S", config.verify.label], code = { prs: [], runs: [] } }) {
+export function fakeGitHub({ issue, labels = [config.project.urgentLabel, "規模S", config.verify.label], code = { prs: [], runs: [] } }) {
   const repoLabels = [...labels, ...config.statuses.map((s) => `${config.statusLabelPrefix}${s}`)];
   const state = {
-    issue: { comments: [], blockedBy: [], subIssues: [], assignees: [], labels: [], lastClose: [], state: "OPEN", ...issue },
+    issue: { comments: [], blockedBy: [], subIssues: [], assignees: [], labels: [], lastClose: [], state: "OPEN", fields: {}, ...issue },
     writes: [],
     requests: [],
     calls: 0,
@@ -25,13 +27,20 @@ export function fakeGitHub({ issue, labels = ["優先", "規模S", config.verify
       labels: { nodes: i.labels.map((name) => ({ name })) }, blockedBy: { nodes: i.blockedBy }, subIssues: { nodes: i.subIssues },
       comments: { nodes: i.comments.map((c, k) => ({ id: `C_${k}`, url: `u#${k}`, isMinimized: false, ...c })) },
       lastClose: { nodes: i.lastClose }, repository: { nameWithOwner: config.repository },
-      projectItems: { nodes: [{ id: "PVTI_1", project: { id: "PVT_1" }, fieldValueByName: i.status ? { name: i.status } : null }] },
+      projectItems: { nodes: [{ id: "PVTI_1", project: { id: "PVT_1" }, fieldValues: { nodes: [
+        ...(i.status ? [{ name: i.status, field: { name: config.project.statusField } }] : []),
+        ...Object.entries(i.fields).map(([name, value]) => ({ name: value, field: { name } })),
+      ] } }] },
     };
   };
   const apply = (name, input, as) => {
     const i = state.issue;
     state.writes.push({ op: name, as, ...input });
-    if (name === "updateProjectV2ItemFieldValue") i.status = NAMES[input.value.singleSelectOptionId];
+    if (name === "updateProjectV2ItemFieldValue" && input.fieldId === "F_1") i.status = NAMES[input.value.singleSelectOptionId];
+    else if (name === "updateProjectV2ItemFieldValue") {
+      const [field, value] = input.value.singleSelectOptionId.split(":");
+      i.fields = { ...i.fields, [field]: value };
+    }
     if (name === "clearProjectV2ItemFieldValue") i.status = null;
     if (name === "addComment") {
       i.comments.push({ body: input.body, author: { login: as === "hidakagit" ? "hidakagit" : "ridecompass-gate" } });
@@ -54,7 +63,11 @@ export function fakeGitHub({ issue, labels = ["優先", "規模S", config.verify
     }
     if (query.startsWith("query Task") && state.requests.push("読む"))
       return {
-        organization: { projectV2: { id: "PVT_1", field: { id: "F_1", options: Object.entries(OPTIONS).map(([name, id]) => ({ id, name })) } } },
+        organization: { projectV2: { id: "PVT_1", fields: { nodes: [
+          { id: "F_1", name: config.project.statusField, options: Object.entries(OPTIONS).map(([name, id]) => ({ id, name })) },
+          ...Object.entries(FIELDS).map(([field, options]) => ({ id: `F_${field}`, name: field, options: options.map((o) => ({ id: `${field}:${o}`, name: o })) })),
+          { id: "F_title", name: "Title" },
+        ] } } },
         repository: { labels: { nodes: repoLabels.map((name) => ({ id: `L:${name}`, name })) }, issue: node() },
         node: node(),
       };

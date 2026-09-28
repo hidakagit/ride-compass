@@ -1,5 +1,5 @@
 // 担当の作業ツリー（.claude/worktrees/w1〜w4）を、どの issue が使っているかの表を出す。表は持たず、毎回事実から組み立てる:
-// 使っている issue は作業ツリーのブランチ（orch/tasks-<番号>）、経過時間は Project の Status の欄が最後に変わった時刻、規模はラベル。
+// 使っている issue は作業ツリーのブランチ（orch/tasks-<番号>）、経過時間は Project の Status の欄が最後に変わった時刻、規模は Project の規模の欄。
 // 使い方: node tools/flow-gate/bin/slots.js [--json] [作業ツリーの名前...]（名前を省くと w1〜w4）
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -40,7 +40,7 @@ for (const slot of SLOTS) {
     number: Number(number),
     status: issue.status,
     minutes: since ? Math.round((Date.now() - Date.parse(since)) / 60000) : null,
-    size: issue.labels.nodes.map((l) => l.name).find((n) => n.startsWith("規模")) ?? "",
+    size: issue.fields[config.project.sizeField] ?? "",
     title: issue.title,
   });
 }

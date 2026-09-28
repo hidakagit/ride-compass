@@ -63,7 +63,8 @@ const page = (body, status = 200) =>
   );
 
 // 今の問いと、答えてよいか（まだ答えが無いか）を読む。答えられなければ理由を返す。
-// 付け外しできるラベルは、置き場のリポジトリに GitHub で定義されているもの全部（ゲートが Status に合わせて付けるものを除く）。
+// ラベルはユーザーが付けるもので、置き場のリポジトリに GitHub で定義されているものを名前を持たずに全部出す。
+// Project の欄（優先度・規模など）は機械が決めるので出さない。
 async function load(gate, number) {
   const issue = await gate.read({ number });
   if (!issue?.item) return { error: "この issue は対象外です。" };
@@ -72,7 +73,7 @@ async function load(gate, number) {
   if (!q) return { error: "答える問いがありません。" };
   if (issue.comments.nodes.some((c) => answers(c.body, q.url))) return { error: "この問いにはもう答えてあります。" };
   if (!q.parsed) return { error: "問いの形が崩れています。Claude が書き直すのを待ってください。" };
-  const labels = Object.keys(gate.labelIds).filter((n) => !n.startsWith(gate.config.statusLabelPrefix));
+  const labels = Object.keys(gate.labelIds);
   return { issue, q, labels, choices: formChoices(gate.config, q.parsed, issue.status) };
 }
 
