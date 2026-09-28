@@ -66,7 +66,10 @@ export class Gate {
     const person = next !== undefined ? next : verdict.rule?.assign;
     if (person) await this.assign(issue, person);
     if (labels.length) await this.gh.rest("POST", `/repos/${this.config.repository}/issues/${issue.number}/labels`, { labels });
-    if (to === this.config.done && issue.state === "OPEN") await this.patch(issue, { state: "closed", state_reason: "not_planned" });
+    if (to === this.config.done && issue.state === "OPEN") {
+      await this.patch(issue, { state: "closed", state_reason: "not_planned" });
+      issue.state = "CLOSED";
+    }
     if (from !== to && this.config.ask.statuses.includes(to)) await this.askFor(issue, to);
     issue.status = to;
     await this.syncBanner(issue);
@@ -85,12 +88,14 @@ export class Gate {
     }
   }
 
-  // 回答フォームが要る（採否待ち・回答待ちで、答えの無い問いがある）ときだけ、本文の先頭にリンクを置く。
+  // 開いているタスクの本文の先頭に今のステータスを置く。回答フォームが要る（採否待ち・回答待ちで、答えの無い問いが
+  // ある）ときは、問いの文とリンクも並べる。閉じたタスクからは消す。
   async syncBanner(issue) {
     const q = this.config.ask.statuses.includes(issue.status) ? currentQuestion(this.config, issue) : null;
-    const open = q?.parsed && !issue.comments.nodes.some((c) => answers(c.body, q.url));
-    const url = `${this.origin}/answer?issue=${issue.number}`;
-    const body = open ? withBanner(issue.body, issue.status, q.parsed.text, url) : withoutBanner(issue.body);
+    const ask = q?.parsed && !issue.comments.nodes.some((c) => answers(c.body, q.url))
+      ? { text: q.parsed.text, url: `${this.origin}/answer?issue=${issue.number}` } : null;
+    const shown = issue.state === "OPEN" && issue.status;
+    const body = shown ? withBanner(issue.body, issue.status, ask) : withoutBanner(issue.body);
     if (body !== (issue.body ?? "").replace(/\r\n/g, "\n")) await this.patch(issue, { body });
     issue.body = body;
   }
@@ -127,10 +132,14 @@ export class Gate {
     if (!check(this.config, issue.status, this.config.done).ok) return;
     const stage = reason === "completed" && issue.subIssues.nodes.find((s) => s.state === "OPEN");
     issue.status = stage ? this.config.nextStage.to : this.config.done;
-    await this.syncBanner(issue);
-    if (!stage) return this.setStatus(issue, this.config.done);
+    if (!stage) {
+      await this.syncBanner(issue);
+      return this.setStatus(issue, this.config.done);
+    }
     await this.gh.rest("PATCH", `/repos/${this.config.repository}/issues/${stage.number}`, { state: "closed", state_reason: "completed" });
     await this.patch(issue, { state: "open" });
+    issue.state = "OPEN";
+    await this.syncBanner(issue);
     await this.setStatus(issue, this.config.nextStage.to);
     await this.assign(issue, this.config.nextStage.assign);
   }
