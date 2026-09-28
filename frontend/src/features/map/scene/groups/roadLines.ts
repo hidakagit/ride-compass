@@ -20,7 +20,7 @@ import type { FilterSpecification } from "maplibre-gl";
 
 import { primaryAttributes } from "@/types/generated/primaryAttributes";
 
-import { COLOR_UNKNOWN, noDataDashExpression } from "@/features/map/scene/sceneBuilders";
+import { noDataDashExpression } from "@/features/map/scene/sceneBuilders";
 import { LEGEND_NO_DATA_KEY } from "@/lib/mapDisplay/mapColorLegend";
 
 import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "@/features/map/scene/mapSceneGroups";
@@ -100,7 +100,7 @@ function colorExpression(track: RoadTrack): unknown[] {
     ["in", value, ["literal", [...category.values]]],
     category.color,
   ]);
-  return ["case", ...cases, COLOR_UNKNOWN];
+  return ["case", ...cases, palette.semantic.no_data];
 }
 
 /** 分類に入る道は濃く、それ以外（その他・不明）は薄く（消さずに薄くする）。 */

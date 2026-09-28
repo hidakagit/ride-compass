@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { Tabs } from "@/components/ui/Tabs/Tabs";
-import { ORIGIN_MARK_COLOR, ORIGIN_MARK_FALLBACK_COLOR } from "@/lib/mapDisplay/pinMarks";
+import { ORIGIN_MARK_COLOR, ORIGIN_MARK_FALLBACK_COLOR } from "@/components/PinMark/PinMark";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 
 import RouteForm from "./RouteForm";
@@ -12,6 +12,13 @@ const MAX_ROUTES = routeGenerateConfig.max_routes;
 const MAX_DISTANCE_KM = routeGenerateConfig.max_distance_km;
 
 type Props = React.ComponentProps<typeof RouteForm>;
+
+/** ブラウザが`style.color`へ入れ直した形（16進は`rgb(...)`になる）。 */
+function cssColor(color: string): string {
+  const probe = document.createElement("span");
+  probe.style.color = color;
+  return probe.style.color;
+}
 
 function renderForm(overrides: Partial<Props> = {}, tab = "generate") {
   const props: Props = {
@@ -159,9 +166,9 @@ describe("RouteForm 目的地の地点", () => {
     const row = screen.getByRole("button", { name: "出発地を地図で選ぶ" });
     expect(row).toHaveTextContent("現在地を取得できていません");
     // 行頭の印（地図のピンと同じ図形を描いた要素）。
-    const mark = row.querySelector('[aria-hidden="true"]')!;
-    expect(mark.innerHTML).toContain(ORIGIN_MARK_FALLBACK_COLOR);
-    expect(mark.innerHTML).not.toContain(ORIGIN_MARK_COLOR);
+    const tinted = row.querySelector<HTMLElement>('[aria-hidden="true"] [style]')!;
+    expect(tinted.style.color).toBe(cssColor(ORIGIN_MARK_FALLBACK_COLOR));
+    expect(tinted.style.color).not.toBe(cssColor(ORIGIN_MARK_COLOR));
   });
 });
 

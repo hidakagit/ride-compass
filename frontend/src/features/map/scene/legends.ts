@@ -4,7 +4,6 @@
  * `NO_DATA_LEGEND_BAND`から引く——凡例が別に色を持つと、地図とチップの色が静かに食い違う。
  * 評価軸の凡例はここではなく`features/map/view/lens.ts`が、地図の線と同じ段の関数から作る。
  */
-import { COLOR_UNKNOWN } from "@/features/map/scene/sceneBuilders";
 import type { DisasterSourceKey } from "@/features/map/layers/dynamicWeather";
 import type { LegendEntry } from "@/lib/mapDisplay/legendFilter";
 import { NO_DATA_LEGEND_BAND } from "@/lib/mapDisplay/mapColorLegend";
@@ -30,7 +29,7 @@ type SceneLegendAxis = {
 /** 分類に当てはまらない値の道。値はあるので実線で出す。タグの不在も確定した値として載る属性（トンネル等）では、
  * それが「該当しない」ことそのものなので呼び方を変える。 */
 function otherEntry(hasMissing: boolean): LegendEntry {
-  return { key: ROAD_OTHER_KEY, label: hasMissing ? "その他" : "該当なし", color: COLOR_UNKNOWN };
+  return { key: ROAD_OTHER_KEY, label: hasMissing ? "その他" : "該当なし", color: palette.semantic.no_data };
 }
 
 export function roadLegendAxes(): readonly SceneLegendAxis[] {

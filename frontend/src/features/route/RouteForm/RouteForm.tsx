@@ -6,8 +6,8 @@ import {
   ORIGIN_MARK_COLOR,
   ORIGIN_MARK_FALLBACK_COLOR,
   PIN_MARK_BACKGROUND,
-  pinMarkHtml,
-} from "@/lib/mapDisplay/pinMarks";
+  PinMark,
+} from "@/components/PinMark/PinMark";
 import type { PinRole } from "@/types/route";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import { fixedRouteCount, type RouteMode } from "./useRouteFormSubmit";
@@ -87,7 +87,6 @@ export default function RouteForm({
   }
 
   // 出発地・経由地・目的地は同じ形の行で並べる（役割が同じ「地点を置く」操作のため）。
-  // 行頭の印は**地図のピンと同じ図形**（pinMarks.ts）で、行とピンを見た目で結ぶ。
   // 武装は1つだけで、押している行以外は自動的に解除される（`features/route/useGenerationConditions.ts`の`armedPinRole`）。
   function renderPointRow(
     role: PinRole,
@@ -114,21 +113,20 @@ export default function RouteForm({
           aria-label={armed ? `${label}の指定をやめる` : `${label}を${armLabel}`}
           onClick={() => onArmPinRole(armed ? null : role)}
         >
-          {/* 地図のピンと同じ図形をそのまま出す（pinMarks.tsの定数だけを組み立てた文字列で、
-              外部の入力は入らない）。同じものを2度描くと、片方だけ直したときに行とピンが
+          {/* 地図のピンと同じ図形を出す。同じものを2度描くと、片方だけ直したときに行とピンが
               違う見た目になる。 */}
           <span
             aria-hidden="true"
             className="inline-flex size-4.5 flex-none items-center justify-center rounded-full text-[0.7rem] text-white"
             style={{ background: PIN_MARK_BACKGROUND[role] }}
-            dangerouslySetInnerHTML={{
-              __html: pinMarkHtml(role, {
-                label: markLabel,
-                size: 13,
-                color: originLocated ? ORIGIN_MARK_COLOR : ORIGIN_MARK_FALLBACK_COLOR,
-              }),
-            }}
-          />
+          >
+            <PinMark
+              role={role}
+              label={markLabel}
+              size={13}
+              color={originLocated ? ORIGIN_MARK_COLOR : ORIGIN_MARK_FALLBACK_COLOR}
+            />
+          </span>
           <span
             className={cn(
               textVariants({ variant: "hint" }),
