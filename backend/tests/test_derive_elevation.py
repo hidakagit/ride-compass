@@ -128,8 +128,7 @@ async def elevation_conn(module_conn, tile_root):
     await conn.execute("TRUNCATE " + ", ".join(TABLES) + " CASCADE")
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(dem_tile_store, "TILE_ROOT", tile_root)
-        async with conn.transaction():
-            await ingest_source(conn, _profile(), "dem")
+        await ingest_source(conn, _profile(), "dem")
 
     run = await conn.fetchval(
         "INSERT INTO source_runs (source, status, started_at, origin, profile, counts)"

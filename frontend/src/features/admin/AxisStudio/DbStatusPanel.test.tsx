@@ -192,7 +192,7 @@ describe("DbStatusPanel", () => {
     expect(detailOf("clean").map(([label]) => label)).not.toContain("不要行");
   });
 
-  it("取込の行は、最新の番号と状態（成功はそう訳す）を規模に出し、開いた先に最終実行・成功した最新・件数・識別を並べる", async () => {
+  it("取込の行は、最新の番号と状態（宣言の呼び名へ訳す）を規模に出し、開いた先に最終実行・成功した最新・件数・識別を並べる", async () => {
     await collect(
       status({
         imports: [
@@ -221,7 +221,7 @@ describe("DbStatusPanel", () => {
     ]);
 
     const failed = screen.getByText("accidents").closest("summary")!;
-    expect(failed).toHaveTextContent("#5 failed");
+    expect(failed).toHaveTextContent("#5 失敗");
     expect(within(failed).getByText("注意が要る")).toBeInTheDocument();
 
     expect(screen.getByText("never").closest("summary")).toHaveTextContent("記録なし");

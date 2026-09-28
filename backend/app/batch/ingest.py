@@ -24,6 +24,7 @@ import asyncpg
 
 from app.batch._common import PROGRESS_INTERVAL_SECONDS, format_progress
 from app.batch.source_profile import NoFields, SourceProfile, SourceSpec
+from app.infrastructure.source_models import SUCCEEDED
 
 logger = logging.getLogger("ridecompass.ingest")
 
@@ -151,9 +152,13 @@ async def ingest_source(
 ) -> int:
     """1ソースぶんを取り込み、`run_id`を返す。
 
-    既にあるそのソースの行は入れ替える。呼び出し側はトランザクションを開いておくこと
-    （途中で落ちたら run は`failed`のまま残り、行は元のまま）。
+    既にあるそのソースの行は入れ替える。`conn`はトランザクションの外で渡す——runを開く記録と
+    失敗の記録は、行の入れ替えとは別のトランザクションで書く。入れ替えが途中で落ちても行は元の
+    ままで、runは`failed`で残る。成功の記録は入れ替えと同じトランザクションで書くので、
+    `succeeded`のrunの行は必ず入っている。
     """
+    if conn.is_in_transaction():
+        raise RuntimeError("取込はトランザクションの外の接続で呼ぶ（中で呼ぶと、失敗の記録が行と一緒に巻き戻る）")
     spec = profile.source(source_name)
     adapter = ADAPTERS[spec.adapter].read
 
@@ -161,12 +166,6 @@ async def ingest_source(
     origin: dict[str, Any] = {}
     run_id = await _open_run(conn, spec, profile, origin)
     started = time.perf_counter()
-
-    staging = f"_stage_{spec.name}"
-    await conn.execute(f'CREATE TEMP TABLE "{staging}" '
-                       "(natural_key text, geom_wkb bytea, attrs jsonb, payload bytea, rast bytea) "
-                       "ON COMMIT DROP")
-
     written = 0
 
     async def rows() -> AsyncIterator[tuple[str, bytes, str, bytes | None, bytes | None]]:
@@ -182,30 +181,54 @@ async def ingest_source(
             yield (record.natural_key, record.geom_wkb, _json(record.attrs),
                    record.payload, record.rast)
 
+    try:
+        async with conn.transaction():
+            await _replace_rows(conn, spec.name, run_id, rows())
+            elapsed = time.perf_counter() - started
+            await _close_run(conn, run_id, SUCCEEDED,
+                             {"records": written, "elapsed_seconds": round(elapsed, 1)}, origin)
+    except BaseException:
+        elapsed = time.perf_counter() - started
+        logger.warning("取込失敗: source=%s run_id=%d records=%d elapsed=%.1fs",
+                       spec.name, run_id, written, elapsed)
+        try:
+            await _close_run(conn, run_id, "failed",
+                             {"records": written, "elapsed_seconds": round(elapsed, 1)}, origin)
+        except Exception:
+            logger.warning("取込の失敗をrunへ書けなかった（runは running のまま残る）: run_id=%d",
+                           run_id, exc_info=True)
+        raise
+    logger.info("取込完了: source=%s run_id=%d records=%d elapsed=%.1fs",
+                spec.name, run_id, written, elapsed)
+    return run_id
+
+
+async def _replace_rows(conn: asyncpg.Connection, source: str, run_id: int,
+                        rows: AsyncIterator[tuple[str, bytes, str, bytes | None, bytes | None]]) -> None:
+    """そのソースのパーティションの行を、`rows`で入れ替える。トランザクションの中で呼ぶ。"""
+    staging = f"_stage_{source}"
+    await conn.execute(f'CREATE TEMP TABLE "{staging}" '
+                       "(natural_key text, geom_wkb bytea, attrs jsonb, payload bytea, rast bytea) "
+                       "ON COMMIT DROP")
+
     # 行を溜めずに1本のCOPYへ流す。asyncpgは非同期のイテラブルを一定の大きさずつ送るため、
     # 取込が抱えるのは送りかけの分だけで、件数にも1件の大きさにもよらない。
     await conn.copy_records_to_table(
-        staging, records=rows(), columns=["natural_key", "geom_wkb", "attrs", "payload", "rast"])
+        staging, records=rows, columns=["natural_key", "geom_wkb", "attrs", "payload", "rast"])
 
     # そのソースぶんだけを入れ替える。パーティションを切ってあるので他のソースへ触らない。
-    await conn.execute(f'TRUNCATE "{partition_table_name(spec.name)}"')
+    partition = partition_table_name(source)
+    await conn.execute(f'TRUNCATE "{partition}"')
     await conn.execute(
-        f'INSERT INTO "{partition_table_name(spec.name)}" '
+        f'INSERT INTO "{partition}" '
         "(source, natural_key, run_id, geom, attrs, payload, rast) "
         "SELECT $1, natural_key, $2, ST_SetSRID(ST_GeomFromWKB(geom_wkb), 4326), attrs, "
         # rasterは16進のテキストからしか作れない。DB側で変換し、転送量を倍にしない。
         "payload, encode(rast, 'hex')::raster "
         f'FROM "{staging}"',
-        spec.name, run_id,
+        source, run_id,
     )
     # 入れ替えた直後に統計を作る。autovacuumは行数がしきい値（既定50）に満たない表を
     # 永久に拾わないため、タイルのように枚数の少ないソースは自動では統計を持てない。
     # 統計の無い表を派生が読むと、実行計画が桁で外れる。
-    await conn.execute(f'ANALYZE "{partition_table_name(spec.name)}"')
-
-    elapsed = time.perf_counter() - started
-    await _close_run(conn, run_id, "succeeded",
-                     {"records": written, "elapsed_seconds": round(elapsed, 1)}, origin)
-    logger.info("取込完了: source=%s run_id=%d records=%d elapsed=%.1fs",
-                spec.name, run_id, written, elapsed)
-    return run_id
+    await conn.execute(f'ANALYZE "{partition}"')

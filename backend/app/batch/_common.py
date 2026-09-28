@@ -12,10 +12,12 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TypeVar
 
+import asyncpg
 import httpx
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.config import settings
+from app.infrastructure.source_models import latest_succeeded_run_sql
 
 _T = TypeVar("_T")
 
@@ -73,6 +75,14 @@ def asyncpg_dsn(sqlalchemy_url: str) -> str:
     dsn = sqlalchemy_url.replace("+asyncpg", "")
     return dsn.replace("?ssl=", "?sslmode=").replace("&ssl=", "&sslmode=")
 
+
+
+async def latest_succeeded_run_id(conn: asyncpg.Connection, source: str) -> int:
+    """派生の基準にする取込（そのソースの成功した最新のrun）。無ければ止める。"""
+    run_id = await conn.fetchval(f"SELECT run_id FROM {latest_succeeded_run_sql('$1')} latest", source)
+    if run_id is None:
+        raise RuntimeError(f"'{source}' の取込が成功していません")
+    return run_id
 
 
 #: 進捗を出す間隔（秒）。件数ごとに出すと、関東全域では行数が多すぎて読めない。

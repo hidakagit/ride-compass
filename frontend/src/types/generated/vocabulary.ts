@@ -171,6 +171,10 @@ export const vocabulary = {
       "label": "実行中か中断"
     },
     {
+      "key": "failed",
+      "label": "失敗"
+    },
+    {
       "key": "succeeded",
       "label": "成功"
     }
