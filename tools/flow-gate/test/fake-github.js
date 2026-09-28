@@ -10,6 +10,7 @@ export function fakeGitHub({ issue, labels = ["優先", "規模S"] }) {
   const state = {
     issue: { comments: [], blockedBy: [], subIssues: [], assignees: [], labels: [], lastClose: [], state: "OPEN", ...issue },
     writes: [],
+    requests: [],
     calls: 0,
   };
   const json = (body, status = 200) => new Response(JSON.stringify(body), { status });
@@ -36,6 +37,8 @@ export function fakeGitHub({ issue, labels = ["優先", "規模S"] }) {
     }
     if (name === "updateIssue" && input.assigneeIds) i.assignees = input.assigneeIds.map((id) => BY_NODE[id]);
     if (name === "updateIssue" && "body" in input) i.body = input.body;
+    if (name === "updateIssue" && input.labelIds) i.labels = input.labelIds.map((id) => id.slice(2));
+    if (name === "updateIssue" && input.stateInput) i.state = input.stateInput.value;
     if (name === "addLabelsToLabelable") i.labels.push(...input.labelIds.map((id) => id.slice(2)));
     if (name === "removeLabelsFromLabelable") i.labels = i.labels.filter((l) => !input.labelIds.includes(`L:${l}`));
     if (name === "closeIssue" && input.issueId === "I_1") i.state = "CLOSED";
@@ -43,14 +46,16 @@ export function fakeGitHub({ issue, labels = ["優先", "規模S"] }) {
     return { clientMutationId: null };
   };
   const graphql = ({ query, variables }, as) => {
-    if (query.startsWith("query Task"))
+    if (query.startsWith("query Task") && state.requests.push("読む"))
       return {
         organization: { projectV2: { id: "PVT_1", field: { id: "F_1", options: Object.entries(OPTIONS).map(([name, id]) => ({ id, name })) } } },
         repository: { labels: { nodes: repoLabels.map((name) => ({ id: `L:${name}`, name })) }, issue: node() },
         node: node(),
       };
     const data = {};
-    for (const [, key, name] of query.matchAll(/(m\d+): (\w+)\(input: \$m\d+\)/g)) data[key] = apply(name, variables[key], as);
+    const ops = [...query.matchAll(/(m\d+): (\w+)\(input: \$m\d+\)/g)];
+    state.requests.push(ops.map(([, , name]) => name).join("+"));
+    for (const [, key, name] of ops) data[key] = apply(name, variables[key], as);
     return data;
   };
   globalThis.fetch = async (url, init = {}) => {

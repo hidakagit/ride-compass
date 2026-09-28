@@ -22,7 +22,10 @@ f?.addEventListener("submit", async (e) => {
     f.classList.add("confirm");
     return;
   }
-  const r = await fetch(location.pathname, { method: "POST", body: new FormData(f) });
+  const data = new FormData(f);
+  f.querySelectorAll("button").forEach((b) => (b.disabled = true));
+  sum.textContent = "送信しています…";
+  const r = await fetch(location.pathname, { method: "POST", body: data });
   const j = await r.json();
   document.body.textContent = "";
   const p = document.createElement("p");
@@ -46,8 +49,10 @@ const page = (body, status = 200) =>
       `h1{font-size:1.05rem;margin:.2rem 0}p{margin:.4rem 0}` +
       `details{background:#f4f4f4;padding:.4rem .6rem;border-radius:.4rem;font-size:14px}details div{white-space:pre-wrap;overflow-wrap:anywhere;max-height:32vh;overflow:auto}` +
       `label{display:flex;gap:.5rem;align-items:center;padding:.45rem .6rem;border:1px solid #bbb;border-radius:.4rem;margin:.3rem 0}` +
-      `textarea,select{width:100%;box-sizing:border-box;font:inherit;font-size:14px}button{font:inherit;padding:.45rem 1.2rem;margin:.3rem .3rem 0 0}` +
-      `.ok,#sum{display:none}.confirm .ok,.confirm #sum{display:inline-block}.confirm .ask{display:none}.confirm label{pointer-events:none;opacity:.6}` +
+      `textarea,select{width:100%;box-sizing:border-box;font:inherit;font-size:14px}` +
+      `.row{display:flex;gap:.5rem;margin-top:.4rem}.row button{flex:1;font:inherit;padding:.6rem;border-radius:.4rem;border:1px solid #888}` +
+      `.primary{background:#1f6feb;color:#fff;border-color:#1f6feb!important}button:disabled{opacity:.5}` +
+      `.ok,#sum{display:none}.confirm .ok,.confirm #sum{display:block}.confirm .ask{display:none}.confirm label{pointer-events:none;opacity:.6}` +
       `.back{display:block;text-align:center;padding:.7rem;border-radius:.4rem;background:#1f6feb;color:#fff;text-decoration:none;margin-top:.6rem}` +
       `@media(prefers-color-scheme:dark){body{background:#121212;color:#eee}details{background:#222}label{border-color:#444}}` +
       `</style></head><body>${body}${SCRIPT}</body></html>`,
@@ -78,11 +83,12 @@ function render(config, { issue, q, choices }) {
       `<form><input type="hidden" name="issue" value="${issue.number}"><input type="hidden" name="q" value="${esc(q.id)}">${radios.join("")}` +
       `<p id="who" hidden>次に動くのは <select name="next">${people.join("")}</select></p>` +
       `<p><textarea name="note" rows="2" placeholder="補足（「その他」を選んだときは必須）"></textarea></p>` +
-      `<p id="sum"></p><button class="ask">確認へ</button><button class="ok">送信</button><button type="button" id="back" class="ok">戻る</button></form>`,
+      `<p id="sum"></p><div class="row"><button type="button" id="back" class="ok">戻る</button><button class="ok primary">送信</button>` +
+      `<button class="ask primary">確認へ</button></div></form>`,
   );
 }
 
-async function submit(gate, env, data) {
+async function submit(gate, env, data, ctx) {
   const loaded = await load(gate, Number(data.get("issue")));
   if (loaded.error) return loaded;
   const { issue, q, choices } = loaded;
@@ -96,27 +102,28 @@ async function submit(gate, env, data) {
   const precheck = await gate.apply({ ...issue }, issue.status, choice.to, { dryRun: true, labels: choice.labels });
   if (!precheck.ok) return { error: precheck.reason };
 
-  // 答えの記録（hidakagit の名義）を先に1回で書き、決定と見せ方（ゲートの名義）をもう1回で書く。
+  // 答えの記録（hidakagit の名義）を先に書き、決定と見せ方（ゲートの名義）を書いてから返す。
+  // 問いと答えを畳むのは見せ方だけなので、返したあとに続ける（GitHub は mutation 1つごとに時間がかかる）。
+  const form = new GitHub(env.FORM_TOKEN);
   const body = answerBody(gate.config, { questionUrl: q.url, choice, next, note });
-  const written = await new Mutations()
-    .add("addComment", { subjectId: issue.id, body }, "commentEdge { node { id url } }")
-    .add("minimizeComment", { subjectId: q.id, classifier: "RESOLVED" })
-    .send(new GitHub(env.FORM_TOKEN));
+  const written = await new Mutations().add("addComment", { subjectId: issue.id, body }, "commentEdge { node { id url } }").send(form);
   const answer = written.m0.commentEdge.node;
   const r = await gate.apply(issue, issue.status, choice.to, {
     next: next ?? undefined,
     labels: choice.labels,
-    fold: [answer.id],
     seen: [{ body, url: answer.url, author: { login: "hidakagit" } }],
   });
+  const fold = new Mutations();
+  for (const id of [q.id, answer.id]) fold.add("minimizeComment", { subjectId: id, classifier: "RESOLVED" });
+  ctx.waitUntil(fold.send(form).catch((e) => console.error("問いと答えを畳めなかった", e)));
   if (!r.ok) return { error: r.reason };
   return { url: issue.url, label: choice.text };
 }
 
-export async function answerForm(request, env, config) {
+export async function answerForm(request, env, config, ctx) {
   const url = new URL(request.url);
   const gate = await Gate.open(env, config, url.origin);
-  if (request.method === "POST") return Response.json(await submit(gate, env, await request.formData()));
+  if (request.method === "POST") return Response.json(await submit(gate, env, await request.formData(), ctx));
   const loaded = await load(gate, Number(url.searchParams.get("issue")));
   return loaded.error ? page(`<p>${esc(loaded.error)}</p>`, 404) : render(config, loaded);
 }

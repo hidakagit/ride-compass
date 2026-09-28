@@ -52,33 +52,31 @@ export class Gate {
       else m.add("updateProjectV2ItemFieldValue", { ...at, value: { singleSelectOptionId: this.project.options[next.status] } });
     }
     for (const body of want.comments ?? []) m.add("addComment", { subjectId: issue.id, body });
+    for (const id of want.closeOthers ?? []) m.add("closeIssue", { issueId: id, stateReason: "COMPLETED" });
 
+    // 割り当て・ラベル・本文・開閉は updateIssue の1つにまとめる（GitHub は mutation を1つずつ順に処理し、1つごとに時間がかかる）。
     const update = {};
     if (want.assign) {
       const id = this.config.people[want.assign].node;
       const now = issue.assignees.nodes.map((a) => a.id);
       if (now.length !== 1 || now[0] !== id) update.assigneeIds = [id];
     }
-    const body = this.bodyFor(next);
-    if (body !== normalize(issue.body)) update.body = body;
-    if (Object.keys(update).length) m.add("updateIssue", { id: issue.id, ...update });
-
     const prefix = this.config.statusLabelPrefix;
     const statusLabel = next.status ? `${prefix}${next.status}` : null;
     const have = issue.labels.nodes.map((l) => l.name);
-    const add = [...new Set([...(want.labels ?? []), ...(statusLabel ? [statusLabel] : [])])].filter(
-      (n) => !have.includes(n) && this.labelIds[n],
+    const labels = [...new Set([...have.filter((n) => !n.startsWith(prefix)), ...(want.labels ?? []), ...(statusLabel ? [statusLabel] : [])])].filter(
+      (n) => this.labelIds[n],
     );
-    const remove = have.filter((n) => n.startsWith(prefix) && n !== statusLabel && this.labelIds[n]);
-    if (add.length) m.add("addLabelsToLabelable", { labelableId: issue.id, labelIds: add.map((n) => this.labelIds[n]) });
-    if (remove.length) m.add("removeLabelsFromLabelable", { labelableId: issue.id, labelIds: remove.map((n) => this.labelIds[n]) });
+    if (labels.length !== have.length || labels.some((n) => !have.includes(n))) update.labelIds = labels.map((n) => this.labelIds[n]);
+    const body = this.bodyFor(next);
+    if (body !== normalize(issue.body)) update.body = body;
+    if (want.close) update.stateInput = { value: "CLOSED", stateReason: want.close };
+    if (want.reopen) update.stateInput = { value: "OPEN" };
+    if (Object.keys(update).length) m.add("updateIssue", { id: issue.id, ...update });
 
     for (const id of want.fold ?? []) m.add("minimizeComment", { subjectId: id, classifier: "RESOLVED" });
-    for (const id of want.closeOthers ?? []) m.add("closeIssue", { issueId: id, stateReason: "COMPLETED" });
-    if (want.close) m.add("closeIssue", { issueId: issue.id, stateReason: want.close });
-    if (want.reopen) m.add("reopenIssue", { issueId: issue.id });
     await m.send(this.gh);
-    Object.assign(issue, next, { body, labels: { nodes: [...have.filter((n) => !remove.includes(n)), ...add].map((name) => ({ name })) } });
+    Object.assign(issue, next, { body, labels: { nodes: (update.labelIds ? labels : have).map((name) => ({ name })) } });
   }
 
   // 表で照らし、通れば書く。written はステータスがもう GitHub で変わっていること（ボードの移動）。

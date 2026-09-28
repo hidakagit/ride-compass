@@ -90,11 +90,11 @@ test("ボードで完了にしたら見送りで閉じ、完成で閉じて段�
   let gh = fakeGitHub({ issue: { number: 1, authorId: ME, status: "完了" } });
   await move("保留", "完了");
   assert.equal(gh.issue.state, "CLOSED");
-  assert.equal(gh.writes.find((w) => w.op === "closeIssue").stateReason, "NOT_PLANNED");
+  assert.deepEqual(gh.writes.find((w) => w.stateInput).stateInput, { value: "CLOSED", stateReason: "NOT_PLANNED" });
 
   gh = fakeGitHub({ issue: { number: 1, authorId: ME, status: "検証中", state: "CLOSED", subIssues: [{ id: "S", number: 5, state: "OPEN" }] } });
   await deliver("issues", { action: "closed", issue: { node_id: "I_1", state_reason: "completed" } });
-  assert.deepEqual(gh.writes.filter((w) => ["closeIssue", "reopenIssue"].includes(w.op)).map((w) => [w.op, w.issueId]), [["closeIssue", "S"], ["reopenIssue", "I_1"]]);
+  assert.deepEqual(gh.writes.filter((w) => w.op === "closeIssue" || w.stateInput).map((w) => [w.issueId ?? w.id, w.stateReason ?? w.stateInput.value]), [["S", "COMPLETED"], ["I_1", "OPEN"]]);
   assert.deepEqual([gh.issue.status, gh.issue.assignees], [config.nextStage.to, [config.nextStage.assign]]);
 });
 
@@ -108,15 +108,18 @@ test("回答フォーム: 表で行ける選択肢だけを出し、答えは hi
 
   const form = new FormData();
   Object.entries({ issue: "4", q: "C_0", choice: "1", next: "hidakagit", note: "" }).forEach(([k, v]) => form.set(k, v));
-  const before = gh.calls;
-  const r = await (await worker.fetch(new Request("https://gate.test/answer", { method: "POST", body: form }), env)).json();
-  assert.equal(gh.calls - before, 4, "送信で GitHub を呼ぶのは、トークン・読む・答えを書く・決定を書くの4回");
+  const before = gh.requests.length, waits = [];
+  const r = await (await worker.fetch(new Request("https://gate.test/answer", { method: "POST", body: form }), env, { waitUntil: (p) => waits.push(p) })).json();
+  await Promise.all(waits);
+  assert.deepEqual(gh.requests.slice(before), ["読む", "addComment", "updateProjectV2ItemFieldValue+updateIssue", "minimizeComment+minimizeComment"],
+    "送信は、読む・答えを書く（1個）・決定を書く（ステータスと issue の更新の2個）で返し、畳むのは返したあと");
+  assert.equal(waits.length, 1, "畳むのは返したあとに続ける1つだけ");
   assert.equal(r.label, "私がやる");
   const answer = gh.writes.find((w) => w.op === "addComment");
   assert.equal(answer.as, "hidakagit");
   assert.match(answer.body, /^## 回答\n問い: u#0\n選んだもの: 私がやる\n次のステータス: 未着手\n次に動くのは: hidakagit$/);
   assert.deepEqual([gh.issue.status, gh.issue.assignees], ["未着手", ["hidakagit"]]);
-  assert.deepEqual(gh.writes.filter((w) => w.op === "minimizeComment").map((w) => [w.subjectId, w.as]), [["C_0", "hidakagit"], ["C_new", "gate"]]);
+  assert.deepEqual(gh.writes.filter((w) => w.op === "minimizeComment").map((w) => [w.subjectId, w.as]), [["C_0", "hidakagit"], ["C_new", "hidakagit"]]);
   assert.deepEqual([gh.issue.body, gh.issue.labels], ["本文", ["状態:未着手"]]);
 });
 
