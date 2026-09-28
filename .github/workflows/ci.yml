@@ -21,9 +21,11 @@ on:
   push:
     # orch/** はmasterへ入れる前の作業ブランチ。重い検査を開発機からここへ移すために回す。
     branches: [master, "orch/**"]
-    # 文書（docs/**・*.md）だけの変更では走らせない。飛ばしてよいのは、このワークフローの検査が
-    # 読まない文書だけで、読むものは次のどちらかで走らせる（決め方は docs/architecture/tech-stack.md
-    # 「CIの実行枠」）。
+    # 文書（docs/**・*.md）・Claude Codeの設定（.claude/**）・運用の道具（scripts/ のうちテストとデプロイが
+    # 読まないもの）だけの変更では走らせない。飛ばしてよいのは、このワークフローの検査が読まないものだけで、
+    # 読むものは次のどちらかで走らせる（決め方は docs/architecture/tech-stack.md「CIの実行枠」）。
+    # 運用の道具の静的検査は docs-consistency.yml が常に走らせる。scripts/ の中でもテストやデプロイが
+    # 読むもの（deploy_backend_gate.py 等）は外さない。
     # - 読む範囲が一部のディレクトリに限られる検査は、そのディレクトリを後の行で入れ直す
     #   （frontend/src/structure/caseOnlyPaths.test.ts は frontend/src の下の .md も読む）。
     # - 全ての文書を読む検査（backend/tests/structure/test_named_references.py）は、常に走る
@@ -34,12 +36,22 @@ on:
       - "**"
       - "!docs/**"
       - "!**/*.md"
+      - "!.claude/**"
+      - "!scripts/heavy.py"
+      - "!scripts/review_checks.py"
+      - "!scripts/size_thresholds.json"
+      - "!scripts/remote_dev/**"
       - "frontend/src/**"
   pull_request:
     paths:
       - "**"
       - "!docs/**"
       - "!**/*.md"
+      - "!.claude/**"
+      - "!scripts/heavy.py"
+      - "!scripts/review_checks.py"
+      - "!scripts/size_thresholds.json"
+      - "!scripts/remote_dev/**"
       - "frontend/src/**"
   workflow_dispatch:
 
@@ -88,8 +100,9 @@ jobs:
       - run: pip install -r requirements-batch.txt
       - run: pip install -r requirements-dev.txt
       # lintはテストより先に置く（frontendジョブがeslint→tsc→vitestの順であるのと同じ、
-      # 実行の速いものから）。設定はbackend/ruff.toml。
-      - run: python -m ruff check app scripts benchmarks tests
+      # 実行の速いものから）。設定はbackend/ruff.toml。対象はbackendの下のPythonすべてで、backendの外は
+      # docs-consistency.ymlが見る。
+      - run: python -m ruff check .
       # 関数の宣言と違う型の値を渡す呼び出しを止める。対象と設定はbackend/mypy.ini。
       - run: python -m mypy
       # 層の向き（上の層だけが下の層を読む）を止める。契約はbackend/.importlinter、各層が持つものは

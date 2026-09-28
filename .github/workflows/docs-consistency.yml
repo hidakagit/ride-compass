@@ -9,6 +9,8 @@
 # - doc-reading-tests: 全ての文書を読むbackendのテスト。ci.ymlのbackendジョブでも走るが、
 #   文書だけの変更ではci.ymlが走らないため、ここでも走らせる（起動条件の決め方は
 #   docs/architecture/tech-stack.md「CIの実行枠」）。
+# - repo-wide: ci.ymlが見ない、またはci.ymlを飛ばす変更の入力になる運用の道具（backendの外のPython・
+#   追跡しているsh）の静的検査。依存が軽く数十秒で終わる。
 name: Docs Consistency
 
 on:
@@ -45,3 +47,18 @@ jobs:
       # tests/conftest.py と pytest.ini が読む依存（requirements-dev.txt が requirements.txt を内包する）。
       - run: pip install -r requirements-dev.txt
       - run: python -m pytest -q tests/structure/test_named_references.py
+
+  repo-wide:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      # 版はbackendの依存の宣言から取る（ci.ymlのbackendジョブと同じ版）。
+      - run: pip install $(grep -hE '^ruff==' backend/requirements.txt backend/requirements-dev.txt)
+      # backendの外のPythonすべて。backendの下はci.ymlのbackendジョブが見る。設定ファイルが無いので
+      # ruffの既定のルールで見る（backend/ruff.tomlが選ぶものと同じ）。構文の誤りもruffが出す。
+      - run: ruff check --extend-exclude backend .
+      # 追跡しているshの構文。
+      - run: git ls-files -z '*.sh' | xargs -0 -n1 bash -n
