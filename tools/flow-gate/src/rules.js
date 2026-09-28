@@ -86,12 +86,11 @@ export function answerBody(config, { questionUrl, choice, next, note }) {
   ].join("\n");
 }
 
-// 本文の先頭に置く、今のステータス（答えが要るときは問いの文と回答フォームへのリンクも）の1行。
-// スマホの issue の画面は Project の欄を出さないので、ステータスはここで見せる。印の間だけを足し替え、本文の中身には触れない。
+// 答えが要るときに本文の先頭に置く、ステータス・問いの文・回答フォームへのリンクの1行。印の間だけを足し替え、本文の中身には触れない。
 const BANNER = /^<!-- flow-gate -->\n[\s\S]*?\n<!-- \/flow-gate -->\n*/;
 export const withoutBanner = (body) => (body ?? "").replace(/\r\n/g, "\n").replace(BANNER, "");
 export const withBanner = (body, status, ask) =>
-  `<!-- flow-gate -->\nステータス: **${status}**${ask ? ` — ${ask.text} → [回答フォーム](${ask.url})` : ""}\n<!-- /flow-gate -->\n\n${withoutBanner(body)}`;
+  `<!-- flow-gate -->\n**${status}**: ${ask.text} → [回答フォーム](${ask.url})\n<!-- /flow-gate -->\n\n${withoutBanner(body)}`;
 
 export const answers = (body, questionUrl) =>
   body.startsWith("## 回答\n") && body.split("\n")[1] === `問い: ${questionUrl}`;

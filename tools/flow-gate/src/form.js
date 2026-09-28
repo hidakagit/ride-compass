@@ -104,7 +104,7 @@ async function submit(gate, env, data) {
   if (!r.ok) return { error: r.reason };
   for (const id of [q.id, answer.node_id])
     await form.gql(`mutation Fold($id: ID!) { minimizeComment(input: { subjectId: $id, classifier: RESOLVED }) { clientMutationId } }`, { id });
-  await gate.syncBanner(await gate.read({ number: issue.number }));
+  await gate.sync(await gate.read({ number: issue.number }));
   return { url: issue.url, label: choice.text };
 }
 
