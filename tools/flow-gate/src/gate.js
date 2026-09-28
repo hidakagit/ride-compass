@@ -66,10 +66,13 @@ export class Gate {
     const person = next !== undefined ? next : verdict.rule?.assign;
     if (person) await this.assign(issue, person);
     if (labels.length) await this.gh.rest("POST", `/repos/${this.config.repository}/issues/${issue.number}/labels`, { labels });
-    if (to === this.config.done && issue.state === "OPEN") await this.patch(issue, { state: "closed", state_reason: "not_planned" });
+    if (to === this.config.done && issue.state === "OPEN") {
+      await this.patch(issue, { state: "closed", state_reason: "not_planned" });
+      issue.state = "CLOSED";
+    }
     if (from !== to && this.config.ask.statuses.includes(to)) await this.askFor(issue, to);
     issue.status = to;
-    await this.syncBanner(issue);
+    await this.sync(issue);
     return { ok: true };
   }
 
@@ -85,20 +88,30 @@ export class Gate {
     }
   }
 
-  // 回答フォームが要る（採否待ち・回答待ちで、答えの無い問いがある）ときだけ、本文の先頭にリンクを置く。
-  async syncBanner(issue) {
+  // 見せ方を今の状態に合わせる。ステータスのラベルは Project の Status と同じ1つだけ（スマホの issue の画面は Project の
+  // 欄を出さず、ラベルなら一覧・詳細・絞り込みで見える）。本文の先頭の1行は、回答フォームが要る（採否待ち・回答待ちで、
+  // 答えの無い問いがある）間だけ置く。
+  async sync(issue) {
     const q = this.config.ask.statuses.includes(issue.status) ? currentQuestion(this.config, issue) : null;
-    const open = q?.parsed && !issue.comments.nodes.some((c) => answers(c.body, q.url));
-    const url = `${this.origin}/answer?issue=${issue.number}`;
-    const body = open ? withBanner(issue.body, issue.status, q.parsed.text, url) : withoutBanner(issue.body);
+    const ask = issue.state === "OPEN" && q?.parsed && !issue.comments.nodes.some((c) => answers(c.body, q.url))
+      ? { text: q.parsed.text, url: `${this.origin}/answer?issue=${issue.number}` } : null;
+    const body = ask ? withBanner(issue.body, issue.status, ask) : withoutBanner(issue.body);
     if (body !== (issue.body ?? "").replace(/\r\n/g, "\n")) await this.patch(issue, { body });
     issue.body = body;
+
+    const prefix = this.config.statusLabelPrefix;
+    const want = issue.status ? `${prefix}${issue.status}` : null;
+    const have = issue.labels.nodes.map((l) => l.name).filter((n) => n.startsWith(prefix));
+    const path = `/repos/${this.config.repository}/issues/${issue.number}/labels`;
+    for (const name of have.filter((n) => n !== want)) await this.gh.rest("DELETE", `${path}/${encodeURIComponent(name)}`);
+    if (want && !have.includes(want)) await this.gh.rest("POST", path, { labels: [want] });
+    issue.labels.nodes = [...issue.labels.nodes.filter((l) => !l.name.startsWith(prefix)), ...(want ? [{ name: want }] : [])];
   }
 
   // 割り当て・本文・ラベルなどの出来事: リンクの有無だけを今の状態に合わせる（問い直したときにも出す）。
   async touched(nodeId) {
     const issue = await this.read({ nodeId });
-    if (issue?.item && !issue.parent) await this.syncBanner(issue);
+    if (issue?.item && !issue.parent) await this.sync(issue);
   }
 
   async enter(nodeId) {
@@ -109,7 +122,7 @@ export class Gate {
     await this.assign(issue, entry.assign);
     issue.status = entry.to;
     if (this.config.ask.statuses.includes(entry.to)) await this.askFor(issue, entry.to);
-    await this.syncBanner(issue);
+    await this.sync(issue);
   }
 
   async moved(nodeId, from, to) {
@@ -127,10 +140,14 @@ export class Gate {
     if (!check(this.config, issue.status, this.config.done).ok) return;
     const stage = reason === "completed" && issue.subIssues.nodes.find((s) => s.state === "OPEN");
     issue.status = stage ? this.config.nextStage.to : this.config.done;
-    await this.syncBanner(issue);
-    if (!stage) return this.setStatus(issue, this.config.done);
+    if (!stage) {
+      await this.sync(issue);
+      return this.setStatus(issue, this.config.done);
+    }
     await this.gh.rest("PATCH", `/repos/${this.config.repository}/issues/${stage.number}`, { state: "closed", state_reason: "completed" });
     await this.patch(issue, { state: "open" });
+    issue.state = "OPEN";
+    await this.sync(issue);
     await this.setStatus(issue, this.config.nextStage.to);
     await this.assign(issue, this.config.nextStage.assign);
   }

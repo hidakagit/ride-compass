@@ -53,16 +53,13 @@ test("入口: hidakagit が書いた issue は未着手で Claude に、ほか�
   let gh = fakeGitHub({ issue: { number: 1, authorId: ME } });
   await deliver("projects_v2_item", item({ action: "created", sender: { login: "github-project-automation[bot]" } }));
   assert.deepEqual([gh.issue.status, gh.issue.assignees], ["未着手", ["hidakagit-bot"]]);
+  assert.deepEqual([gh.issue.labels, gh.issue.body ?? "本文"], [["状態:未着手"], "本文"]);
 
   gh = fakeGitHub({ issue: { number: 2, authorId: BOT } });
   await deliver("projects_v2_item", item({ action: "created" }));
-  assert.deepEqual([gh.issue.status, gh.issue.assignees], ["採否待ち", ["hidakagit"]]);
+  assert.deepEqual([gh.issue.status, gh.issue.assignees, gh.issue.labels], ["採否待ち", ["hidakagit"], ["状態:採否待ち"]]);
   assert.deepEqual(comments(gh), [adoptionQuestion(config)]);
-  assert.equal(gh.issue.body, `<!-- flow-gate -->
-**採否待ち**: ${config.adoption.question} → [回答フォーム](https://gate.test/answer?issue=2)
-<!-- /flow-gate -->
-
-本文`);
+  assert.equal(gh.issue.body, `<!-- flow-gate -->\n**採否待ち**: ${config.adoption.question} → [回答フォーム](https://gate.test/answer?issue=2)\n<!-- /flow-gate -->\n\n本文`);
 });
 
 test("段階（親のある issue）は入口にしない", async () => {
@@ -118,7 +115,7 @@ test("回答フォーム: 表で行ける選択肢だけを出し、答えは hi
   assert.match(answer.body.body, /^## 回答\n問い: u#0\n選んだもの: 私がやる\n次のステータス: 未着手\n次に動くのは: hidakagit$/);
   assert.deepEqual([gh.issue.status, gh.issue.assignees], ["未着手", ["hidakagit"]]);
   assert.deepEqual(gh.writes.filter((w) => w.op === "Fold").map((w) => w.id), ["C_0", "C_new"]);
-  assert.equal(gh.issue.body, "本文");
+  assert.deepEqual([gh.issue.body, gh.issue.labels], ["本文", ["状態:未着手"]]);
 });
 
 test("問い直し: 「その他」で答えた後に Claude が問いを書いて hidakagit に割り当てると、本文の先頭にリンクが出る", async () => {
@@ -133,6 +130,12 @@ test("問い直し: 「その他」で答えた後に Claude が問いを書い�
   assert.match(gh.issue.body, /^<!-- flow-gate -->\n\*\*回答待ち\*\*: 新しい問い？ → \[回答フォーム\]\(https:\/\/gate\.test\/answer\?issue=5\)/);
   await deliver("issues", { action: "labeled", issue: { node_id: "I_1" } });
   assert.equal(gh.writes.filter((w) => w.method === "PATCH").length, 1, "リンクが今の状態と同じなら書き直さない");
+});
+
+test("ステータスのラベルは Project の Status と同じ1つだけにそろい、手で付け替えても戻る", async () => {
+  const gh = fakeGitHub({ issue: { number: 6, authorId: ME, status: "未着手", labels: ["規模S", "状態:完了", "状態:保留"] } });
+  await deliver("issues", { action: "labeled", issue: { node_id: "I_1" } });
+  assert.deepEqual(gh.issue.labels.sort(), ["状態:未着手", "規模S"].sort());
 });
 
 test("設定の不変条件: 表・入口・フォームが使う名前はすべて宣言されており、フォームは表で行けない先を出さない", () => {

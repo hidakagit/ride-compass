@@ -50,7 +50,7 @@ export class GitHub {
 }
 
 const ISSUE_FIELDS = `id number title body url state stateReason author { login ... on User { databaseId } }
-  parent { number } assignees(first: 5) { nodes { login databaseId } }
+  parent { number } assignees(first: 5) { nodes { login databaseId } } labels(first: 20) { nodes { name } }
   blockedBy(first: 50) { nodes { number state stateReason } }
   subIssues(first: 50) { nodes { id number state } }
   comments(last: 50) { nodes { id url body isMinimized author { login ... on User { databaseId } } } }
