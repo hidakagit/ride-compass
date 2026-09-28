@@ -82,25 +82,32 @@ const TASK = `fragment Task on Issue { id number title body url state stateReaso
   blockedBy(first: 50) { nodes { number state stateReason } } subIssues(first: 50) { nodes { id number state } }
   comments(last: 50) { nodes { id url body isMinimized author { login ... on User { databaseId } } } }
   lastClose: timelineItems(last: 1, itemTypes: [CLOSED_EVENT]) { nodes { ... on ClosedEvent { stateReason } } }
-  projectItems(first: 10) { nodes { id project { id } fieldValueByName(name: $field) { ... on ProjectV2ItemFieldSingleSelectValue { name } } } }
+  projectItems(first: 10) { nodes { id project { id } fieldValues(first: 30) { nodes {
+    ... on ProjectV2ItemFieldSingleSelectValue { name field { ... on ProjectV2SingleSelectField { name } } } } } } }
   repository { nameWithOwner } }`;
-const COMMON = `organization(login: $po) { projectV2(number: $pn) { id field(name: $field) { ... on ProjectV2SingleSelectField { id options { id name } } } } }
+const COMMON = `organization(login: $po) { projectV2(number: $pn) { id fields(first: 50) { nodes { ... on ProjectV2SingleSelectField { id name options { id name } } } } } }
   repository(owner: $o, name: $n) { labels(first: 100) { nodes { id name } }`;
 
-// タスクを、判断と書き込みに要るだけ1回の問い合わせで読む（Project の欄・置き場のラベル・issue）。
+// タスクを、判断と書き込みに要るだけ1回の問い合わせで読む（Project の単一選択の欄・置き場のラベル・issue）。
+// project.fields は欄の名前 → { id, options: 選択肢の名前 → id, order: 選択肢の並び }、issue.fields は欄の名前 → 今の値。
 // Project の件は設定の Project のものだけを見る。issue が置き場のものでなければ issue は null。
 export async function readTask(gh, config, ref) {
   const [o, n] = config.repository.split("/");
-  const v = { po: config.project.owner, pn: config.project.number, field: config.project.statusField, o, n };
-  const head = "$po: String!, $pn: Int!, $field: String!, $o: String!, $n: String!";
+  const v = { po: config.project.owner, pn: config.project.number, o, n };
+  const head = "$po: String!, $pn: Int!, $o: String!, $n: String!";
   const d = ref.nodeId
     ? await gh.gql(`query Task(${head}, $id: ID!) { ${COMMON} } node(id: $id) { ...Task } } ${TASK}`, { ...v, id: ref.nodeId })
     : await gh.gql(`query Task(${head}, $k: Int!) { ${COMMON} issue(number: $k) { ...Task } } } ${TASK}`, { ...v, k: ref.number });
   const p = d.organization.projectV2;
-  const project = { id: p.id, field: p.field.id, options: Object.fromEntries(p.field.options.map((x) => [x.name, x.id])) };
+  const fields = Object.fromEntries(
+    p.fields.nodes.filter((f) => f.options).map((f) => [f.name, { id: f.id, options: Object.fromEntries(f.options.map((x) => [x.name, x.id])), order: f.options.map((x) => x.name) }]),
+  );
+  const status = fields[config.project.statusField];
+  const project = { id: p.id, field: status.id, options: status.options, fields };
   const labels = Object.fromEntries(d.repository.labels.nodes.map((l) => [l.name, l.id]));
   const issue = ref.nodeId ? d.node : d.repository.issue;
   if (!issue || issue.repository?.nameWithOwner !== config.repository) return { project, labels, issue: null };
   const item = issue.projectItems.nodes.find((i) => i.project.id === project.id);
-  return { project, labels, issue: { ...issue, item: item?.id ?? null, status: item?.fieldValueByName?.name ?? null } };
+  const values = Object.fromEntries((item?.fieldValues.nodes ?? []).filter((x) => x.field).map((x) => [x.field.name, x.name]));
+  return { project, labels, issue: { ...issue, item: item?.id ?? null, status: values[config.project.statusField] ?? null, fields: values } };
 }

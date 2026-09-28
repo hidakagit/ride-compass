@@ -1,6 +1,6 @@
 {
   "repository": "ridecompass/ride-compass-tasks",
-  "project": { "owner": "ridecompass", "number": 2, "statusField": "Status" },
+  "project": { "owner": "ridecompass", "number": 2, "statusField": "Status", "priorityField": "優先度", "urgentLabel": "急ぎ", "sizeField": "規模", "defaults": { "優先度": "中" } },
   "gate": "ridecompass-gate[bot]",
   "installation": 165726503,
   "people": {
