@@ -80,8 +80,9 @@ class GatedWeather(Weather):
         return None
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def world(monkeypatch):
+    """格子の道路網・天気の代役と、避けたい材料を読む公開軸1本（`avoid_axis_declared`）。"""
     world = World()
     real_graph_service, real_weather_service = dependencies.get_graph_service, dependencies.get_weather_service
 
@@ -99,7 +100,8 @@ def world(monkeypatch):
 
 
 @pytest.fixture
-async def client():
+async def client(world):
+    """`world`の上で動くアプリへのHTTPの口。"""
     transport = httpx.ASGITransport(app=app, client=(CLIENT_HOST, 50000))
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         yield client

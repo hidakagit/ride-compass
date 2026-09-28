@@ -200,10 +200,7 @@ def test_reverse_leg_assignment_renumbers_as_well_as_reverses():
     assert engine._reverse_leg_assignment([]) == []
 
 
-def test_pick_better_candidate_prefers_the_lower_difficulty(monkeypatch):
-    monkeypatch.setattr(
-        engine, "distance_weighted_difficulty", lambda pairs: pairs[0][0] if pairs else None
-    )
+def test_pick_better_candidate_prefers_the_lower_difficulty():
     forward = route_candidate("forward", segments=[segment_detail(5.0, 1.0)])
     reverse = route_candidate("reverse", segments=[segment_detail(3.0, 1.0)])
 
@@ -211,39 +208,28 @@ def test_pick_better_candidate_prefers_the_lower_difficulty(monkeypatch):
     assert engine._pick_better_candidate(reverse, forward) is reverse
 
 
-def test_pick_better_candidate_falls_back_to_forward_when_reverse_cannot_be_scored(monkeypatch):
+def test_pick_better_candidate_falls_back_to_forward_when_reverse_cannot_be_scored():
     """比較不能を「逆回りの方が良い」と読まない（安全側）。"""
-    monkeypatch.setattr(
-        engine, "distance_weighted_difficulty", lambda pairs: pairs[0][0] if pairs else None
-    )
     forward = route_candidate("forward", segments=[segment_detail(5.0, 1.0)])
     reverse = route_candidate("reverse", segments=[])
 
     assert engine._pick_better_candidate(forward, reverse) is forward
 
 
-def test_pick_better_candidate_takes_reverse_when_only_forward_is_unscorable(monkeypatch):
-    monkeypatch.setattr(
-        engine, "distance_weighted_difficulty", lambda pairs: pairs[0][0] if pairs else None
-    )
+def test_pick_better_candidate_takes_reverse_when_only_forward_is_unscorable():
     forward = route_candidate("forward", segments=[])
     reverse = route_candidate("reverse", segments=[segment_detail(7.0, 1.0)])
 
     assert engine._pick_better_candidate(forward, reverse) is reverse
 
 
-def test_route_composite_difficulty_feeds_difficulty_and_distance_pairs(monkeypatch):
-    captured = {}
+def test_route_composite_difficulty_is_the_distance_weighted_mean_of_the_scored_segments():
+    """難易度の無い区間は平均に入れない（(2×0.5 + 4×1.5) / 2.0）。"""
+    candidate = route_candidate(
+        "candidate", segments=[segment_detail(2.0, 0.5), segment_detail(4.0, 1.5), segment_detail(None, 0.3)]
+    )
 
-    def record(pairs):
-        captured["pairs"] = list(pairs)
-        return 1.5
-
-    monkeypatch.setattr(engine, "distance_weighted_difficulty", record)
-    candidate = route_candidate("candidate", segments=[segment_detail(2.0, 0.5), segment_detail(None, 0.3)])
-
-    assert engine._route_composite_difficulty(candidate) == 1.5
-    assert captured["pairs"] == [(2.0, 0.5), (None, 0.3)]
+    assert engine._route_composite_difficulty(candidate) == 3.5
 
 
 def test_route_composite_difficulty_is_none_without_segments():

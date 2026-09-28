@@ -11,8 +11,9 @@ from app.domain.route_preference import RoutePreference
 from tests.axis_system_fixture import axis_definition, replaced_axis_definitions
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def axes():
+    """公開軸`pub`と、公開していない軸`internal`。"""
     with replaced_axis_definitions(
         {
             "pub": axis_definition("pub", is_published=True, default_weight=1.0),
@@ -27,10 +28,10 @@ def axes():
     [({"pub": -0.5}, ">= 0"), ({"internal": 1.0}, "unknown axis_id")],
     ids=["負の重み", "公開していない軸"],
 )
-def test_weights_the_composition_cannot_use_are_refused_without_the_api(weights, reason):
+def test_weights_the_composition_cannot_use_are_refused_without_the_api(axes, weights, reason):
     with pytest.raises(ValidationError, match=reason):
         RoutePreference(weights=weights)
 
 
-def test_a_zero_weight_is_a_weight():
+def test_a_zero_weight_is_a_weight(axes):
     assert RoutePreference(weights={"pub": 0.0}).weights == {"pub": 0.0}

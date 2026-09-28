@@ -8,13 +8,13 @@
 
 階級の値そのものに意味は無く、比較の結果だけが使われる。表の中身は書き写さず、表から導いた
 母集団（ランプ全件・表に無い値）に対して成り立つことだけを見る。
-停止の待ちの秒数は較正値の読み出し（`tuning_value`）を差し替えて与える。
+停止の待ちの秒数は、いま効いている較正値（`TUNING_VALUES`）へ差し込んで与える。
 """
 
 import pytest
 
 from app.domain import traffic
-from tests.bound_fake import bound
+from app.domain.tuning import TUNING_VALUES
 
 # ---- 道の階級 ----
 
@@ -41,9 +41,9 @@ def test_a_value_missing_from_the_table_ranks_below_every_road_in_it(highway):
 @pytest.fixture
 def stop_values(monkeypatch):
     """種別ごとに別の秒数を持つ較正値。書き換えると次の呼び出しから効く。"""
-    values = {traffic.stop_seconds_parameter_id(kind): float(i) for i, kind in enumerate(traffic.POI_COUNT_KINDS)}
-    monkeypatch.setattr(traffic, "tuning_value", bound(traffic.tuning_value, lambda param_id: values[param_id]))
-    return values
+    for i, kind in enumerate(traffic.POI_COUNT_KINDS):
+        monkeypatch.setitem(TUNING_VALUES, traffic.stop_seconds_parameter_id(kind), float(i))
+    return TUNING_VALUES
 
 
 def test_each_counted_kind_reads_its_own_waiting_time(stop_values):

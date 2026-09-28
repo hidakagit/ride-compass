@@ -241,20 +241,9 @@ def test_zero_length_segments_do_not_count_toward_category_shares():
 # ---- 畳み方の宣言漏れの検出 ----
 
 
-@pytest.mark.parametrize(
-    ("annotation", "default"),
-    [
-        (dict[str, str], {}),
-        # 値が無いこともある辞書・既定値つきの数値や文字も、畳み方が無ければビンで既定値に化ける
-        (dict[str, float] | None, None),
-        (int, 0),
-        (str, ""),
-    ],
-)
-def test_undeclared_field_is_reported_whatever_its_type(monkeypatch, annotation, default):
-    WithExtraField = type(
-        "WithExtraField", (RouteSegmentDetail,), {"__annotations__": {"extra": annotation}, "extra": default}
-    )
-    monkeypatch.setattr(route, "RouteSegmentDetail", WithExtraField)
+@pytest.mark.parametrize("field", sorted(RouteSegmentDetail.model_fields))
+def test_a_field_without_a_declared_merger_is_reported_whatever_its_type(monkeypatch, field):
+    """畳み方の無いフィールドは、ビンで既定値に化ける（値が無いこともある辞書・既定値つきの数値や文字も）。"""
+    monkeypatch.delitem(route.BIN_FIELD_MERGERS, field)
 
-    assert route._undeclared_fields() == ["extra"]
+    assert route._undeclared_fields() == [field]

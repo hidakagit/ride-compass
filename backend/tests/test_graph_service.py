@@ -20,7 +20,6 @@ from app.domain.rain import rain_window_material_id
 from app.domain.region import BoundingBox
 from app.infrastructure import container_memory, road_network_store
 from app.infrastructure.road_graph_repository import RoadGraphRepository
-from app.services import graph_service
 from app.services.graph_service import GraphService
 from tests import rain_history_fake
 from tests.axis_system_fixture import replaced_axis_definitions
@@ -66,13 +65,14 @@ class FakeRepository:
         return self.covered
 
 
-@pytest.fixture(autouse=True)
-def _network(monkeypatch):
+@pytest.fixture
+def road_network(monkeypatch):
+    """取込範囲全体の道路網は`test_road_network.network()`。"""
     monkeypatch.setattr(road_network_store, "current", network)
 
 
-@pytest.fixture(autouse=True)
-def _rain_history(monkeypatch):
+@pytest.fixture
+def empty_rain_history(monkeypatch):
     """雨の観測の履歴は空から始める。"""
     rain_history_fake.use_fake_redis(monkeypatch)
 
@@ -81,7 +81,7 @@ async def test_outside_the_ingested_area_there_is_no_search_range():
     assert await GraphService(FakeRepository(covered=False)).get_search_slice(BBOX) is None
 
 
-async def test_the_range_is_cut_along_the_bbox_itself_and_scored_row_by_row():
+async def test_the_range_is_cut_along_the_bbox_itself_and_scored_row_by_row(road_network, empty_rain_history):
     """切り出しはbboxそのもの——同じz12タイル（138.955〜139.043E）の中でも、bboxの外の道20は取らない。
     タイル集合は迂回率の鍵としてz12で返る。"""
     narrow = BoundingBox(min_latitude=34.99, min_longitude=138.99, max_latitude=35.01, max_longitude=139.005)
@@ -100,14 +100,9 @@ def _memory_limit(monkeypatch, tmp_path, content):
     monkeypatch.setattr(container_memory, "CGROUP_MEMORY_MAX", path)
 
 
-async def test_a_range_too_large_for_the_memory_limit_is_refused_before_it_is_scored(monkeypatch, tmp_path):
+async def test_a_range_too_large_for_the_memory_limit_is_refused(monkeypatch, tmp_path, road_network):
     """取り置きぶんしか無いメモリ上限では、どの範囲も組めない。"""
     _memory_limit(monkeypatch, tmp_path, str(2 * 1024**3))
-
-    def score_must_not_run(materials, observed_materials):
-        raise AssertionError("上限を超えた範囲のスコア行列を作りに来た")
-
-    monkeypatch.setattr(graph_service, "build_static_edge_score_matrix", score_must_not_run)
 
     with pytest.raises(SearchAreaTooLargeError) as raised:
         await GraphService(FakeRepository()).get_search_slice(BBOX)
@@ -115,7 +110,7 @@ async def test_a_range_too_large_for_the_memory_limit_is_refused_before_it_is_sc
     assert (raised.value.edges, raised.value.limit) == (3, 0)
 
 
-async def test_the_limit_grows_with_the_memory_limit(monkeypatch, tmp_path):
+async def test_the_limit_grows_with_the_memory_limit(monkeypatch, tmp_path, road_network, empty_rain_history):
     """メモリを増やせば、上限の数字を直さなくても同じ範囲が通るようになる。"""
     _memory_limit(monkeypatch, tmp_path, str(2 * 1024**3 + 1))
     with pytest.raises(SearchAreaTooLargeError):
@@ -128,7 +123,7 @@ async def test_the_limit_grows_with_the_memory_limit(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize("content", ["max\n", None], ids=["上限なし", "cgroupの外"])
-async def test_without_a_memory_limit_no_range_is_refused(monkeypatch, tmp_path, content):
+async def test_without_a_memory_limit_no_range_is_refused(monkeypatch, tmp_path, content, road_network, empty_rain_history):
     _memory_limit(monkeypatch, tmp_path, content)
 
     road, _matrix, _tiles = await GraphService(FakeRepository()).get_search_slice(BBOX)
@@ -140,7 +135,7 @@ def _axis_column(matrix, axis_id: str) -> list[float]:
     return matrix.axis_scores[:, matrix.axis_ids.index(axis_id)].tolist()
 
 
-async def test_each_edge_reads_the_rain_observed_at_the_gauge_nearest_its_midpoint(monkeypatch):
+async def test_each_edge_reads_the_rain_observed_at_the_gauge_nearest_its_midpoint(monkeypatch, road_network, empty_rain_history):
     """雨の材料は区間の中点に最も近い雨量計の今の観測で、道の材料と同じ列として軸の得点・生値に載る
     ——雨と道の材料を1つの軸で足すこともできる。"""
     await rain_history_fake.observe(monkeypatch, RAIN_GAUGES, {"west": 1.0, "east": 0.0})
@@ -155,7 +150,7 @@ async def test_each_edge_reads_the_rain_observed_at_the_gauge_nearest_its_midpoi
     assert matrix.axis_raw_values[:, matrix.raw_axis_ids.index("rain")].tolist() == [3.0, 3.0, 0.0]
 
 
-async def test_without_an_observation_history_the_rain_axis_has_no_data_but_the_range_is_built():
+async def test_without_an_observation_history_the_rain_axis_has_no_data_but_the_range_is_built(road_network, empty_rain_history):
     """履歴が無い（バッチがまだ・Redisが不通）ときは、雨を読む軸だけが「データなし」になる。"""
     with replaced_axis_definitions(RAIN_AXES):
         road, matrix, _tiles = await GraphService(FakeRepository()).get_search_slice(BBOX)

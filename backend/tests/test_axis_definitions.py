@@ -254,8 +254,8 @@ def axis_body(**fields) -> AxisDefinition:
 class TestValuesCheckedAgainstTheCatalogAndTheOtherAxes:
     """`check_axis_definition`——書き手（管理API・復元）を問わず、読み込みも通す値の不変条件。"""
 
-    @pytest.fixture(autouse=True)
-    def dynamic_material(self, catalog):
+    @pytest.fixture
+    def catalog_with_a_dynamic_material(self, catalog):
         catalog[DYNAMIC] = material(DYNAMIC)
 
     @pytest.mark.parametrize(
@@ -312,7 +312,7 @@ class TestValuesCheckedAgainstTheCatalogAndTheOtherAxes:
             "0次条件が分類の材料に真偽の値",
         ],
     )
-    def test_rejected(self, fields, reason):
+    def test_rejected(self, catalog_with_a_dynamic_material, fields, reason):
         with pytest.raises(ValueError) as excinfo:
             axis_definitions.check_axis_definition(axis_body(**fields), {KNOWN_AXIS})
 
@@ -339,10 +339,10 @@ class TestValuesCheckedAgainstTheCatalogAndTheOtherAxes:
             "0次条件が分類の材料に値の名前",
         ],
     )
-    def test_accepted(self, fields):
+    def test_accepted(self, catalog_with_a_dynamic_material, fields):
         axis_definitions.check_axis_definition(axis_body(**fields), {KNOWN_AXIS})
 
-    def test_an_axis_reference_is_known_only_through_the_axes_passed_in(self):
+    def test_an_axis_reference_is_known_only_through_the_axes_passed_in(self, catalog_with_a_dynamic_material):
         """軸の参照を受け入れるのは、渡された軸の集合（読み込みでは同じ読み込み結果）にある軸だけ。"""
         with pytest.raises(ValueError, match=KNOWN_AXIS):
             axis_definitions.check_axis_definition(axis_body(shape=shape_over(KNOWN_AXIS)), set())

@@ -50,8 +50,15 @@ from tests.route_world import (
 
 
 @pytest.fixture
-def engine_over(monkeypatch):
-    """道路網から、本物のエンジンの上に戦略層（`RouteGenerator`）を組む。"""
+def avoid_axis():
+    """避けたい材料が1の区間ほど難しいと評価する公開軸を1本だけ宣言する（`avoid_weight`はこの軸の重み）。"""
+    with avoid_axis_declared():
+        yield
+
+
+@pytest.fixture
+def engine_over(monkeypatch, avoid_axis):
+    """道路網から、本物のエンジンの上に戦略層（`RouteGenerator`）を組む。軸は`avoid_axis`の1本。"""
 
     def build(network: RoadNetwork, *, avoid_weight: float = 0.0, wind: WindForecastSeries | None = None):
         return RouteGenerator(engine_for(monkeypatch, network, avoid_weight, wind))
@@ -60,8 +67,8 @@ def engine_over(monkeypatch):
 
 
 @pytest.fixture
-def preview_over(monkeypatch):
-    """道路網から、2点間の区間確認（`/api/routes/preview`の入口）を組む。"""
+def preview_over(monkeypatch, avoid_axis):
+    """道路網から、2点間の区間確認（`/api/routes/preview`の入口）を組む。軸は`avoid_axis`の1本。"""
 
     def build(network: RoadNetwork):
         return engine_for(monkeypatch, network, 0.0, None).preview_segment
@@ -70,12 +77,6 @@ def preview_over(monkeypatch):
 
 
 # ---------------------------------------------------------------------------------------
-
-
-@pytest.fixture(autouse=True)
-def _avoid_axis():
-    with avoid_axis_declared():
-        yield
 
 
 def assert_connected(candidate, start: int, end: int) -> None:
