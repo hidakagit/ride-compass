@@ -78,13 +78,14 @@ export function formChoices(config, question, current) {
     .map(({ ok, ...c }) => c);
 }
 
-export function answerBody(config, { questionUrl, choice, next, note }) {
+export function answerBody(config, { questionUrl, choice, next, note, added = [], removed = [] }) {
   return [
     "## 回答",
     `問い: ${questionUrl}`,
     `選んだもの: ${choice.text}`,
     `次のステータス: ${choice.to}`,
     ...(next ? [`次に動くのは: ${config.people[next].shown}`] : []),
+    ...(added.length || removed.length ? [`ラベル: ${[...added.map((n) => `+${n}`), ...removed.map((n) => `−${n}`)].join(" ")}`] : []),
     ...(note ? [`補足: ${note}`] : []),
   ].join("\n");
 }
