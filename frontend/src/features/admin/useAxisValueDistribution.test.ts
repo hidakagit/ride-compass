@@ -1,114 +1,176 @@
 /**
- * `useAxisValueDistribution.ts`——編集中の点数の形で生値の分布を取り、取り直すのは「分布の形を決める部分」
- * （`termsKey`）が変わったときだけにすること。折れ点だけを動かしている間は通信しない。
- *
- * 待ちの長さ（落ち着くまで遅らせること）は `hooks/useDebouncedValue` の持ち物なので、ここでは即時にする。
+ * 軸スタジオの生値分布の取得（`features/admin/useAxisValueDistribution.ts: useAxisValueDistribution`）——分布の形を決める鍵が落ち着いてから取りに行き、
+ * 取り直している間は前の分布を出したまま取得中を示し、失敗を文言で返す。
  *
  * ここで見ないもの:
- * - 分布へ折れ点を当てはめること → `AxisStudio/scoreDistribution.test.ts`
+ * - 分布を描く・各階級の点数 → `AxisStudio/`の部品と`useScoresPreview.ts`
+ * - 鍵（`termsKey`）の組み立て → 呼び出し元の部品
+ * - 間引きの待ち方そのもの → `hooks/useDebouncedValue.ts`（ここでは本物を通し、時計を進める）
+ *
+ * 差し替えたもの: backendを呼ぶ口（`features/admin/adminApi.ts: fetchAxisValueDistribution`）。応答はテストが決める。
  */
-import { act, renderHook, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, renderHook } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { ValueDistribution } from "@/features/admin/AxisStudio/scoreDistribution";
+import { MAP_FETCH_DEBOUNCE_MS } from "@/hooks/useDebouncedValue";
 import type { AxisShape } from "@/types/route";
-import type { ValueDistribution } from "./AxisStudio/scoreDistribution";
 
 const api = vi.hoisted(() => ({ fetchAxisValueDistribution: vi.fn() }));
 vi.mock("@/features/admin/adminApi", () => api);
-vi.mock("@/hooks/useDebouncedValue", () => ({ MAP_FETCH_DEBOUNCE_MS: 0, useDebouncedValue: <T>(value: T) => value }));
 
 import { useAxisValueDistribution } from "./useAxisValueDistribution";
 
-/** 折れ点の位置だけが違う形。 */
-function shape(breakpoint: number): AxisShape {
-  return { kind: "breakpoint_linear", terms: [], preprocess: "identity", breakpoints: [[breakpoint, 0]] };
-}
+const SHAPE_A = { kind: "linear", terms: [{ material_id: "num_a", weight: 1 }] } as unknown as AxisShape;
+const SHAPE_B = { kind: "linear", terms: [{ material_id: "num_b", weight: 1 }] } as unknown as AxisShape;
+const DIST_A = { edges: [0, 1], counts: [3] } as unknown as ValueDistribution;
+const DIST_B = { edges: [0, 2], counts: [5] } as unknown as ValueDistribution;
 
-function distribution(sampleWays: number): ValueDistribution {
-  return { sample_ways: sampleWays, total_km: 1, quantiles: {}, bins: [], zero_share: 0 };
-}
-
-interface Props {
+interface Args {
   enabled: boolean;
   termsKey: string;
   shape: AxisShape;
 }
 
-function renderDistribution(initialProps: Props) {
-  return renderHook(({ enabled, termsKey, shape }: Props) => useAxisValueDistribution(enabled, termsKey, () => shape), {
-    initialProps,
+function mount(initial: Args) {
+  return renderHook(({ enabled, termsKey, shape }: Args) => useAxisValueDistribution(enabled, termsKey, () => shape), {
+    initialProps: initial,
   });
 }
 
+/** 時計を進め、取得の結果が届くまでの区切りも流す。 */
+async function advance(ms = 0) {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(ms);
+  });
+}
+
+/** 解決を手で決められる応答。 */
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 beforeEach(() => {
-  api.fetchAxisValueDistribution.mockReset();
+  vi.useFakeTimers();
 });
 
-describe("useAxisValueDistribution", () => {
+afterEach(() => {
+  vi.useRealTimers();
+  vi.clearAllMocks();
+});
+
+describe("取りに行かないとき", () => {
   it.each([
-    ["使わない", { enabled: false, termsKey: "k", shape: shape(0) }],
-    ["形を決める部分が空", { enabled: true, termsKey: "", shape: shape(0) }],
-  ])("%sときは取りに行かず、分布なし", async (_case, props) => {
-    const { result } = renderDistribution(props);
-    await act(async () => {});
+    ["無効", { enabled: false, termsKey: "k1", shape: SHAPE_A }],
+    ["鍵が空", { enabled: true, termsKey: "", shape: SHAPE_A }],
+  ])("%sなら、分布も取得中も失敗も無く、問い合わせない", async (_, args) => {
+    const { result } = mount(args);
+    await advance(MAP_FETCH_DEBOUNCE_MS);
+
+    expect(result.current).toEqual({ distribution: null, loading: false, error: null });
     expect(api.fetchAxisValueDistribution).not.toHaveBeenCalled();
+  });
+
+  it("取れた後に無効へ変わると、分布を出さない", async () => {
+    api.fetchAxisValueDistribution.mockResolvedValue(DIST_A);
+    const { result, rerender } = mount({ enabled: true, termsKey: "k1", shape: SHAPE_A });
+    await advance();
+    expect(result.current.distribution).toEqual(DIST_A);
+
+    rerender({ enabled: false, termsKey: "k1", shape: SHAPE_A });
+
     expect(result.current).toEqual({ distribution: null, loading: false, error: null });
   });
+});
 
-  it("取っている間は読み込み中で、届いたら分布を返す。送るのは今の形", async () => {
-    let resolve!: (value: ValueDistribution) => void;
-    api.fetchAxisValueDistribution.mockReturnValue(new Promise<ValueDistribution>((res) => (resolve = res)));
-    const { result } = renderDistribution({ enabled: true, termsKey: "k1", shape: shape(1) });
+describe("取得", () => {
+  it("最初の鍵は待たずにその時の形で取りに行き、届くまでは取得中で、届くと分布を返す", async () => {
+    const response = deferred<ValueDistribution>();
+    api.fetchAxisValueDistribution.mockReturnValue(response.promise);
+    const { result } = mount({ enabled: true, termsKey: "k1", shape: SHAPE_A });
+    await advance();
 
-    await waitFor(() => expect(result.current.loading).toBe(true));
-    expect(api.fetchAxisValueDistribution).toHaveBeenCalledWith(shape(1));
-    resolve(distribution(3));
-    await waitFor(() => expect(result.current).toEqual({ distribution: distribution(3), loading: false, error: null }));
+    expect(api.fetchAxisValueDistribution).toHaveBeenCalledExactlyOnceWith(SHAPE_A);
+    expect(result.current).toEqual({ distribution: null, loading: true, error: null });
+
+    response.resolve(DIST_A);
+    await advance();
+
+    expect(result.current).toEqual({ distribution: DIST_A, loading: false, error: null });
   });
 
-  it("形を決める部分が変わらなければ、形（折れ点）が変わっても取り直さない。変われば取り直す", async () => {
-    api.fetchAxisValueDistribution.mockResolvedValue(distribution(1));
-    const { result, rerender } = renderDistribution({ enabled: true, termsKey: "k1", shape: shape(1) });
-    await waitFor(() => expect(result.current.distribution).toEqual(distribution(1)));
+  it("鍵が変わっても間引きの間は取りに行かず、続けて変えたら最後の鍵を1回だけ取る", async () => {
+    api.fetchAxisValueDistribution.mockResolvedValue(DIST_A);
+    const { rerender } = mount({ enabled: true, termsKey: "k1", shape: SHAPE_A });
+    await advance();
+    api.fetchAxisValueDistribution.mockClear();
 
-    rerender({ enabled: true, termsKey: "k1", shape: shape(2) });
-    await act(async () => {});
-    expect(api.fetchAxisValueDistribution).toHaveBeenCalledTimes(1);
+    rerender({ enabled: true, termsKey: "k2", shape: SHAPE_A });
+    await advance(MAP_FETCH_DEBOUNCE_MS - 1);
+    rerender({ enabled: true, termsKey: "k3", shape: SHAPE_B });
+    await advance(MAP_FETCH_DEBOUNCE_MS - 1);
+    expect(api.fetchAxisValueDistribution).not.toHaveBeenCalled();
 
-    rerender({ enabled: true, termsKey: "k2", shape: shape(3) });
-    await waitFor(() => expect(api.fetchAxisValueDistribution).toHaveBeenCalledTimes(2));
-    expect(api.fetchAxisValueDistribution).toHaveBeenLastCalledWith(shape(3));
+    await advance(1);
+
+    expect(api.fetchAxisValueDistribution).toHaveBeenCalledExactlyOnceWith(SHAPE_B);
   });
 
-  it("取り直している間は、前の分布を出したまま読み込み中にする", async () => {
-    let resolveSecond!: (value: ValueDistribution) => void;
-    api.fetchAxisValueDistribution
-      .mockResolvedValueOnce(distribution(1))
-      .mockReturnValueOnce(new Promise<ValueDistribution>((resolve) => (resolveSecond = resolve)));
-    const { result, rerender } = renderDistribution({ enabled: true, termsKey: "k1", shape: shape(0) });
-    await waitFor(() => expect(result.current.distribution).toEqual(distribution(1)));
+  it("取り直している間は前の分布を出したまま取得中を示し、届くと入れ替わる", async () => {
+    api.fetchAxisValueDistribution.mockResolvedValue(DIST_A);
+    const { result, rerender } = mount({ enabled: true, termsKey: "k1", shape: SHAPE_A });
+    await advance();
+    const response = deferred<ValueDistribution>();
+    api.fetchAxisValueDistribution.mockReturnValue(response.promise);
 
-    rerender({ enabled: true, termsKey: "k2", shape: shape(0) });
-    await waitFor(() => expect(result.current).toEqual({ distribution: distribution(1), loading: true, error: null }));
-    resolveSecond(distribution(2));
-    await waitFor(() => expect(result.current).toEqual({ distribution: distribution(2), loading: false, error: null }));
+    rerender({ enabled: true, termsKey: "k2", shape: SHAPE_B });
+    await advance(MAP_FETCH_DEBOUNCE_MS);
+
+    expect(result.current).toEqual({ distribution: DIST_A, loading: true, error: null });
+
+    response.resolve(DIST_B);
+    await advance();
+
+    expect(result.current).toEqual({ distribution: DIST_B, loading: false, error: null });
   });
 
-  it.each([
-    ["Error", new Error("分布の解析に失敗しました"), "分布の解析に失敗しました"],
-    ["Error以外", "timeout", "分布の取得に失敗しました"],
-  ])("%sで失敗したら、分布なしで理由を返す", async (_kind, reason, message) => {
-    api.fetchAxisValueDistribution.mockRejectedValue(reason);
-    const { result } = renderDistribution({ enabled: true, termsKey: "k", shape: shape(0) });
-    await waitFor(() => expect(result.current).toEqual({ distribution: null, loading: false, error: message }));
+  it("鍵が同じまま形だけ変わっても取り直さず、次に鍵が変わったときは最新の形で取る", async () => {
+    api.fetchAxisValueDistribution.mockResolvedValue(DIST_A);
+    const { rerender } = mount({ enabled: true, termsKey: "k1", shape: SHAPE_A });
+    await advance();
+    api.fetchAxisValueDistribution.mockClear();
+
+    rerender({ enabled: true, termsKey: "k1", shape: SHAPE_B });
+    await advance(MAP_FETCH_DEBOUNCE_MS);
+    expect(api.fetchAxisValueDistribution).not.toHaveBeenCalled();
+
+    rerender({ enabled: true, termsKey: "k2", shape: SHAPE_B });
+    await advance(MAP_FETCH_DEBOUNCE_MS);
+
+    expect(api.fetchAxisValueDistribution).toHaveBeenCalledExactlyOnceWith(SHAPE_B);
+  });
+});
+
+describe("失敗", () => {
+  it("失敗は理由の文言を返し、分布は出さない", async () => {
+    api.fetchAxisValueDistribution.mockRejectedValue(new Error("分布の取得: 500"));
+    const { result } = mount({ enabled: true, termsKey: "k1", shape: SHAPE_A });
+    await advance();
+
+    expect(result.current).toEqual({ distribution: null, loading: false, error: "分布の取得: 500" });
   });
 
-  it("使わなくなったら、分布を消す", async () => {
-    api.fetchAxisValueDistribution.mockResolvedValue(distribution(1));
-    const { result, rerender } = renderDistribution({ enabled: true, termsKey: "k", shape: shape(0) });
-    await waitFor(() => expect(result.current.distribution).toEqual(distribution(1)));
+  it("理由の無い失敗は、決まった文言を返す", async () => {
+    api.fetchAxisValueDistribution.mockRejectedValue("timeout");
+    const { result } = mount({ enabled: true, termsKey: "k1", shape: SHAPE_A });
+    await advance();
 
-    rerender({ enabled: false, termsKey: "k", shape: shape(0) });
-    await waitFor(() => expect(result.current.distribution).toBeNull());
+    expect(result.current).toEqual({ distribution: null, loading: false, error: "分布の取得に失敗しました" });
   });
 });
