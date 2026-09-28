@@ -2,8 +2,6 @@
 
 `gradient_percent`は道路の始点→終点方向を基準にした符号付き値で、道路自身の向きが要る。
 そのため**鍵ごとに異なる値**を返す——タイル単位のスカラー1個へ縮められない。
-
-勾配は時刻に依存しないため、キャッシュキーの時刻バケットは常にNoneで扱う。
 """
 
 from datetime import datetime
@@ -68,7 +66,7 @@ class GradientWayService:
             # 路面タイルの世代は鍵の一部。渡し忘れると世代をまたいだ値を配る。
             surface_tile_version = await served_tile_version(self._repository, ROAD_SURFACE_TILE_SHAPE)
             cached = await get_tile_values(
-                self.material_id, z, x, y, None, bearing_deg,
+                self.material_id, z, x, y, bearing_deg,
                 surface_tile_version=surface_tile_version, value_shape=GRADIENT_VALUE_SHAPE,
             )
             if cached is not None:
@@ -104,7 +102,7 @@ class GradientWayService:
                 if value is not None
             }
             await set_tile_values(
-                self.material_id, z, x, y, None, bearing_deg, values, GRADIENT_TILE_VALUES_TTL_SECONDS,
+                self.material_id, z, x, y, bearing_deg, values, GRADIENT_TILE_VALUES_TTL_SECONDS,
                 surface_tile_version=surface_tile_version, value_shape=GRADIENT_VALUE_SHAPE,
             )
             fields["computed"] = len(values)

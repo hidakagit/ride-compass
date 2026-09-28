@@ -1,7 +1,9 @@
-"""動的＋向きあり材料の「フィーチャー→値」配信専用のディスクキャッシュ。
+"""勾配の「フィーチャー→値」配信専用のディスクキャッシュ。
 路面タイルのフィーチャー別の動的値を配るレイヤーで、材料そのものの取得層とは別レイヤー。
+配信する材料のうちキャッシュするのは勾配だけで、時刻・速度に依る材料（風）はキャッシュしない
+（docs/modules/backend/dynamic-way-values.md「キャッシュ」節）。
 
-キーは`(路面タイルの世代, material_id, 材料の値の作り方の署名, z, x, y, 時刻バケット, 向きバケット, 速度バケット)`。
+キーは`(路面タイルの世代, material_id, 材料の値の作り方の署名, z, x, y, 向きバケット)`。
 値は配信サービスが返すのと同じ`{feature_key: 値}`のdict。
 
 材料の値の作り方の署名（`value_shape`）も呼び出し側が必須キーワードで渡す。材料単位の失効を
@@ -12,19 +14,16 @@
 鍵の中身は**形の署名だけでは決まらない**——`feature_key`は`road_edges`の中身そのもので、
 バッチが作り直せば同じSQLでも別の値になる。形の署名だけを鍵にすると、世代をまたいだ
 エントリがどの地物にも一致しないまま生き残り、TTLが切れるまで（勾配は24時間）色が静かに
-消える。バケット（向き5度・速度1km/h）ごとに新旧が混ざるため、「コンパスを少し回すと
-色が出たり消えたりする」形で出る。
+消える。向きのバケット（5度）ごとに新旧が混ざるため、「コンパスを少し回すと色が出たり
+消えたりする」形で出る。
 
 路面タイルの世代は**呼び出し側が必須キーワードで渡す**（`surface_tile_version`。配信している路面タイルと
 同じ文字列）。infrastructureから`services/tile_version_service.py`を読むと依存が逆向きになるため、
 ここでは受け取るだけにする。省略できない形にしてあるので、新しい材料を足したときに渡し忘れると
 その場で失敗する（静かに古い値を配るより良い）。
 
-時刻・向き・速度はバケットへ丸めてからキーにする（材料が依存しない軸はNone）。
-スライダーの連続値をそのままキーへ使うとヒット率がほぼ0になるため。
-
-TTLは呼び出し元（各材料のサービス）が渡す。風は気象データの新鮮さに合わせる必要があるが、
-勾配は道路の向き・標高由来でほぼ不変、と材料ごとに基準が違うため。
+向きはバケットへ丸めてからキーにする。スライダーの連続値をそのままキーへ使うとヒット率が
+ほぼ0になるため。TTLは呼び出し元（材料のサービス）が渡す。
 """
 
 import asyncio
@@ -47,29 +46,19 @@ def bearing_bucket(bearing_deg: float) -> int:
     return math.floor(normalized / BEARING_BUCKET_DEG + 0.5) % (360 // BEARING_BUCKET_DEG)
 
 
-def speed_bucket(speed_kmh: float) -> int:
-    """想定速度（km/h）を1km/h刻みのバケット番号へ丸める。"""
-    return math.floor(speed_kmh + 0.5)
-
-
 def _key(
-    material_id: str, z: int, x: int, y: int, hour_bucket: str | None, bearing_deg: float | None,
-    speed_kmh: float | None, surface_tile_version: str, value_shape: str,
+    material_id: str, z: int, x: int, y: int, bearing_deg: float, surface_tile_version: str, value_shape: str
 ) -> tuple:
-    bearing_token = bearing_bucket(bearing_deg) if bearing_deg is not None else None
-    speed_token = speed_bucket(speed_kmh) if speed_kmh is not None else None
     return (
-        _KEY_PREFIX, surface_tile_version, material_id, value_shape, z, x, y,
-        hour_bucket, bearing_token, speed_token,
+        _KEY_PREFIX, surface_tile_version, material_id, value_shape, z, x, y, bearing_bucket(bearing_deg),
     )
 
 
 async def get_tile_values(
-    material_id: str, z: int, x: int, y: int, hour_bucket: str | None, bearing_deg: float | None,
-    speed_kmh: float | None = None, *, surface_tile_version: str, value_shape: str,
+    material_id: str, z: int, x: int, y: int, bearing_deg: float, *, surface_tile_version: str, value_shape: str,
 ) -> dict[str, float] | None:
     """該当バケットの`{フィーチャー鍵: 値}`。未キャッシュ・読み出し失敗はいずれもNone。"""
-    key = _key(material_id, z, x, y, hour_bucket, bearing_deg, speed_kmh, surface_tile_version, value_shape)
+    key = _key(material_id, z, x, y, bearing_deg, surface_tile_version, value_shape)
     return await asyncio.to_thread(tile_persistent_cache.get_by_key, key)
 
 
@@ -78,15 +67,13 @@ async def set_tile_values(
     z: int,
     x: int,
     y: int,
-    hour_bucket: str | None,
-    bearing_deg: float | None,
+    bearing_deg: float,
     values: dict[str, float],
     ttl_seconds: int,
-    speed_kmh: float | None = None,
     *,
     surface_tile_version: str,
     value_shape: str,
 ) -> None:
     """新規に計算できた`{フィーチャー鍵: 値}`をディスクへ書き戻す。"""
-    key = _key(material_id, z, x, y, hour_bucket, bearing_deg, speed_kmh, surface_tile_version, value_shape)
+    key = _key(material_id, z, x, y, bearing_deg, surface_tile_version, value_shape)
     await asyncio.to_thread(tile_persistent_cache.set_by_key, key, dict(values), expire=ttl_seconds)
