@@ -14,14 +14,21 @@ async function appJwt(env) {
   return `${data}.${b64url(await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(data)))}`;
 }
 
+const tokens = new Map();
+
 export class GitHub {
   constructor(token) {
     this.token = token;
   }
 
+  // インストールのトークンは1時間有効。同じ Worker の中で続く要求には、切れる5分前まで使い回す。
   static async asApp(env, installationId) {
+    const hit = tokens.get(installationId);
+    if (hit && hit.expires - Date.now() > 5 * 60 * 1000) return new GitHub(hit.token);
     const app = new GitHub(await appJwt(env));
-    return new GitHub((await app.rest("POST", `/app/installations/${installationId}/access_tokens`)).token);
+    const t = await app.rest("POST", `/app/installations/${installationId}/access_tokens`);
+    tokens.set(installationId, { token: t.token, expires: Date.parse(t.expires_at) });
+    return new GitHub(t.token);
   }
 
   async rest(method, path, body) {

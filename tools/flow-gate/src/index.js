@@ -27,7 +27,7 @@ export default {
       return new Response("accepted", { status: 202 });
     }
     if (url.pathname === "/answer" && (request.method === "GET" || request.method === "POST") && env.FORM_TOKEN)
-      return answerForm(request, env, config);
+      return answerForm(request, env, config, ctx);
     return new Response("not found", { status: 404 });
   },
 };
