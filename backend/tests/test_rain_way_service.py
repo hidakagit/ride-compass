@@ -34,8 +34,8 @@ class FakeMidpointsRepository:
         return self._midpoints
 
 
-@pytest.fixture(autouse=True)
-def fake_redis(monkeypatch):
+@pytest.fixture
+def empty_rain_history(monkeypatch):
     return rain_history_fake.use_fake_redis(monkeypatch)
 
 
@@ -43,7 +43,7 @@ async def _observe(monkeypatch, rain_mm: dict[str, float | None]):
     await rain_history_fake.observe(monkeypatch, STATIONS, rain_mm)
 
 
-async def test_each_road_takes_the_value_of_its_nearest_rain_gauge(monkeypatch):
+async def test_each_road_takes_the_value_of_its_nearest_rain_gauge(monkeypatch, empty_rain_history):
     await _observe(monkeypatch, {"44132": 2.0, "46106": 0.5})
     repository = FakeMidpointsRepository({"tokyo": (35.68, 139.77), "yokohama": (35.45, 139.64)})
 
@@ -52,7 +52,7 @@ async def test_each_road_takes_the_value_of_its_nearest_rain_gauge(monkeypatch):
     assert values == {"tokyo": 6.0, "yokohama": 1.5}
 
 
-async def test_a_gauge_with_a_missing_reading_leaves_its_roads_without_a_value(monkeypatch):
+async def test_a_gauge_with_a_missing_reading_leaves_its_roads_without_a_value(monkeypatch, empty_rain_history):
     """近くの雨量計が欠測なら、遠くの雨量計で埋めずに「データなし」にする。"""
     await _observe(monkeypatch, {"44132": None, "46106": 0.0})
     repository = FakeMidpointsRepository({"tokyo": (35.68, 139.77), "yokohama": (35.45, 139.64)})
@@ -62,13 +62,13 @@ async def test_a_gauge_with_a_missing_reading_leaves_its_roads_without_a_value(m
     assert values == {"yokohama": float(RAIN_HISTORY_HOURS)}
 
 
-async def test_no_history_yet_gives_no_values():
+async def test_no_history_yet_gives_no_values(empty_rain_history):
     repository = FakeMidpointsRepository({"tokyo": (35.68, 139.77)})
 
     assert await RainWayService(repository, rain_window_material_id(1)).get_way_values(Z, X, Y, None, None) == {}
 
 
-async def test_outside_the_imported_area_gives_no_values(monkeypatch):
+async def test_outside_the_imported_area_gives_no_values(monkeypatch, empty_rain_history):
     await _observe(monkeypatch, {"44132": 2.0})
 
     assert await RainWayService(FakeMidpointsRepository(None), rain_window_material_id(1)).get_way_values(

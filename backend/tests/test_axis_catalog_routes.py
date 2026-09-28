@@ -16,8 +16,6 @@ from app.main import app
 from app.services.region_service import RegionService
 from tests.axis_system_fixture import axis_definition, replaced_axis_definitions
 
-client = TestClient(app)
-
 #: カタログが配る軸。1本ごとに、カタログの別の出し分けを通す性質を持たせる。
 CATALOG_AXES: dict[str, AxisDefinition] = {
     # 単一材料の絶対値を評価する軸（地図は符号付きの生値を塗り、生値の単位が定まる）。
@@ -129,9 +127,9 @@ class _CatalogRepository:
         return []
 
 
-@pytest.fixture(autouse=True)
-def region_service_without_db():
-    """このファイルの検証対象は軸カタログの内容で、DBの値は見ない。
+@pytest.fixture
+def client():
+    """`/api/axis-catalog`を叩く口。このファイルの検証対象は軸カタログの内容で、DBの値は見ない。
 
     `/api/axis-catalog`は`material_runtime_scales`（事故の収録年数）とタイル世代を出すためだけに
     `RegionService`を経由する。実DBが繋がる環境ではリクエストごとに接続を開き、
@@ -140,7 +138,7 @@ def region_service_without_db():
     never awaited`）。DBの口を代役へ固定して、DBの有無でこのファイルの経路が変わらないようにする。
     """
     app.dependency_overrides[get_region_service] = lambda: RegionService(repository=_CatalogRepository())
-    yield
+    yield TestClient(app)
     app.dependency_overrides.pop(get_region_service, None)
 
 
@@ -154,7 +152,7 @@ def draft_axis():
     del AXIS_DEFINITIONS["draft_axis"]
 
 
-def test_get_axis_catalog_requires_no_auth_and_returns_builtin_axes(catalog_axes):
+def test_get_axis_catalog_requires_no_auth_and_returns_builtin_axes(client, catalog_axes):
     # 改善計画T269: 読み取り専用・認可不要（axis_adminとは異なりトークン無しでアクセスできる）。
     response = client.get("/api/axis-catalog")
 
@@ -166,7 +164,7 @@ def test_get_axis_catalog_requires_no_auth_and_returns_builtin_axes(catalog_axes
     assert axis_ids == published_axis_ids
 
 
-def test_get_axis_catalog_reflects_axis_definitions_content(catalog_axes):
+def test_get_axis_catalog_reflects_axis_definitions_content(client, catalog_axes):
     response = client.get("/api/axis-catalog")
 
     body = response.json()
@@ -179,7 +177,7 @@ def test_get_axis_catalog_reflects_axis_definitions_content(catalog_axes):
     assert gradient["default_weight"] == AXIS_DEFINITIONS["axis_way_value_signed"].default_weight
 
 
-def test_get_axis_catalog_reflects_display_fields(catalog_axes):
+def test_get_axis_catalog_reflects_display_fields(client, catalog_axes):
     # 地図チップの表示要素（icon_id/chip_label/show_map_icon）は、軸自身のデータを
     # そのまま配る。未設定はnullで返し、フロントが汎用の既定で埋める。
     response = client.get("/api/axis-catalog")
@@ -194,7 +192,7 @@ def test_get_axis_catalog_reflects_display_fields(catalog_axes):
     assert entries_by_id["axis_no_map_icon"]["show_map_icon"] is False
 
 
-def test_get_axis_catalog_excludes_draft_axes(draft_axis):
+def test_get_axis_catalog_excludes_draft_axes(client, draft_axis):
     # 改善計画T271完了条件: 下書き軸が一般向けAPIに漏れないこと。
     response = client.get("/api/axis-catalog")
 
@@ -202,7 +200,7 @@ def test_get_axis_catalog_excludes_draft_axes(draft_axis):
     assert "draft_axis" not in axis_ids
 
 
-def test_get_axis_catalog_includes_display_for_hand_written_and_auto_derived_axes(catalog_axes):
+def test_get_axis_catalog_includes_display_for_hand_written_and_auto_derived_axes(client, catalog_axes):
     # 改善計画T308: displayフィールドが軸ごとに含まれ、is_published切替が即座に
     # （axis-catalog.jsonの再生成・フロント再デプロイなしに）反映されることの土台。
     response = client.get("/api/axis-catalog")
@@ -225,7 +223,7 @@ def test_get_axis_catalog_includes_display_for_hand_written_and_auto_derived_axe
     assert entries_by_id["axis_way_value_signed"]["display"]["kind"] == "none"
 
 
-def test_get_axis_catalog_display_reflects_gui_created_published_axis():
+def test_get_axis_catalog_display_reflects_gui_created_published_axis(client):
     # 改善計画T308の完了条件そのもの: 軸スタジオが公開した軸（複数材料の重み付き結合、
     # 手書きoverrideテーブルに含まれない）が、コード変更・再デプロイなしにramp表示を持つ。
     AXIS_DEFINITIONS["gui_published_axis"] = AxisDefinition(
@@ -253,7 +251,7 @@ def test_get_axis_catalog_display_reflects_gui_created_published_axis():
         del AXIS_DEFINITIONS["gui_published_axis"]
 
 
-def test_get_axis_catalog_primary_attribute_ids_match_legacy_static_inputs(catalog_axes):
+def test_get_axis_catalog_primary_attribute_ids_match_legacy_static_inputs(client, catalog_axes):
     # 一次属性idは軸が参照する材料から導く。軸が材料を複数持てば、その材料が属する
     # 一次属性がすべて挙がる。
     response = client.get("/api/axis-catalog")
@@ -264,7 +262,7 @@ def test_get_axis_catalog_primary_attribute_ids_match_legacy_static_inputs(catal
     assert set(entries_by_id["axis_boolean_terms"]["primary_attribute_ids"]) == {"lit", "tunnel"}
 
 
-def test_get_axis_catalog_names_the_weather_chip_that_shows_a_dynamic_material(catalog_axes):
+def test_get_axis_catalog_names_the_weather_chip_that_shows_a_dynamic_material(client, catalog_axes):
     # 風の材料は一次属性を持たないが、同じ格子の風を描く気象のチップが元データを見せる。
     response = client.get("/api/axis-catalog")
     entries_by_id = {entry["axis_id"]: entry for entry in response.json()["axes"]}
@@ -274,7 +272,7 @@ def test_get_axis_catalog_names_the_weather_chip_that_shows_a_dynamic_material(c
     assert entries_by_id["axis_categorical"]["weather_layer_groups"] == []
 
 
-def test_get_axis_catalog_marks_accident_tile_input_as_needing_runtime_scale(catalog_axes):
+def test_get_axis_catalog_marks_accident_tile_input_as_needing_runtime_scale(client, catalog_axes):
     # 実行時スケールが要る材料は印だけ付け、係数はmaterial_runtime_scalesで別途返す。
     response = client.get("/api/axis-catalog")
     body = response.json()
@@ -292,7 +290,7 @@ def test_get_axis_catalog_marks_accident_tile_input_as_needing_runtime_scale(cat
     assert isinstance(body["material_runtime_scales"], dict)
 
 
-def test_get_axis_catalog_carries_the_calibration_values_the_client_needs(monkeypatch):
+def test_get_axis_catalog_carries_the_calibration_values_the_client_needs(client, monkeypatch):
     """フロントが使う較正値は、このカタログが**いま効いている値**で運ぶ。
 
     ビルド時生成物（route-generate-config.json）だけで配ると、管理画面から変えても
@@ -311,7 +309,7 @@ def test_get_axis_catalog_carries_the_calibration_values_the_client_needs(monkey
     assert body["client_tuning"][param_id] == 9.5
 
 
-def test_get_axis_catalog_includes_map_value_kind_and_unit(catalog_axes):
+def test_get_axis_catalog_includes_map_value_kind_and_unit(client, catalog_axes):
     # 地図の色分けがルート前後で同じスケールを使うための宣言（domain/dynamic_way_values.py:
     # map_value_kind/map_value_unit）。勾配だけが符号付き材料（%）、他は難易度（無次元）。
     response = client.get("/api/axis-catalog")
@@ -324,7 +322,7 @@ def test_get_axis_catalog_includes_map_value_kind_and_unit(catalog_axes):
     assert entries_by_id["axis_way_value_scored"]["map_value_unit"] == ""
 
 
-def test_get_axis_catalog_includes_raw_value_unit(catalog_axes):
+def test_get_axis_catalog_includes_raw_value_unit(client, catalog_axes):
     # 得点の隣へ生値を出すための単位（domain/axis_raw_value.py: raw_value_unit）。
     # 勾配は単一材料をそのまま使うので%、内部軸を合成する軸は単位が定まらずnull。
     response = client.get("/api/axis-catalog")
@@ -334,7 +332,7 @@ def test_get_axis_catalog_includes_raw_value_unit(catalog_axes):
     assert entries_by_id["axis_optional_terms"]["raw_value_unit"] is None
 
 
-def test_get_axis_catalog_includes_material_breakdown(catalog_axes):
+def test_get_axis_catalog_includes_material_breakdown(client, catalog_axes):
     # 単位が定まらない軸は、材料まで分解した内訳を持つ（得点だけでは軸単体で判断できない、
     # docs/records/tasks/T689.md）。並びは正規化重みの降順で、フロントは並べ替えを持たない。
     response = client.get("/api/axis-catalog")
@@ -353,17 +351,15 @@ def test_get_axis_catalog_includes_material_breakdown(catalog_axes):
     assert lit["value_labels"] == {}
 
 
-def test_タイル世代はDBの派生データ世代を前置きして配る():
+def test_タイル世代はDBの派生データ世代を前置きして配る(client):
     """フロントはこの世代でブラウザのキャッシュを分ける。
 
     カタログは起動直後に取られるため、**カタログ側が自分で読み直しを促さないと**
     「まだ誰も読んでいない」印（`x-`）のまま配ってしまう。
     """
     app.dependency_overrides[get_region_service] = lambda: RegionService(repository=_CatalogRepository(revision=42))
-    try:
-        versions = client.get("/api/axis-catalog").json()["tile_versions"]
-    finally:
-        app.dependency_overrides[get_region_service] = lambda: RegionService(repository=_CatalogRepository())
+
+    versions = client.get("/api/axis-catalog").json()["tile_versions"]
 
     assert versions, "タイル世代が配られていない"
     for name, version in versions.items():

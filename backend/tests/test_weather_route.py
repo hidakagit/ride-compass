@@ -38,11 +38,16 @@ def _box(min_lon: float, min_lat: float, max_lon: float, max_lat: float) -> Boun
 
 
 @pytest.fixture(autouse=True)
-def ingested_area():
-    """各テストは差し替えを`dependency_overrides.clear()`で片付けるので、範囲は毎回入れ直す。"""
-    app.dependency_overrides[get_ingested_area] = lambda: AREA
+def _clear_dependency_overrides():
+    """テストが足した依存の差し替えを、抜けるときに片付ける。"""
     yield
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def ingested_area():
+    """風の格子を敷く対象範囲（`AREA`）。"""
+    app.dependency_overrides[get_ingested_area] = lambda: AREA
 
 
 class FakeWeatherService:
@@ -132,7 +137,7 @@ def test_get_weather_is_rate_limited_per_client():
     assert response.status_code == 429
 
 
-def test_get_wind_grid_returns_points_on_success():
+def test_get_wind_grid_returns_points_on_success(ingested_area):
     from app.domain.wind_grid import WindGridPoint
 
     grid = [
@@ -162,7 +167,7 @@ def test_get_wind_grid_returns_points_on_success():
     assert body["points"][0]["precipitation_mm"] == [0.0, 0.5]
 
 
-def test_get_wind_grid_omits_none_points():
+def test_get_wind_grid_omits_none_points(ingested_area):
     from app.domain.wind_grid import WindGridPoint
 
     grid = [
@@ -188,7 +193,7 @@ def test_get_wind_grid_omits_none_points():
     assert len(response.json()["points"]) == 1
 
 
-def test_get_wind_grid_returns_502_when_all_points_fail():
+def test_get_wind_grid_returns_502_when_all_points_fail(ingested_area):
     # 改善計画T200（統合レビュー2026-08-22指摘）: 以前は全地点失敗でも空リスト+200 OKを
     # 返しており、フロントがエラーと判定できなかった。WeatherService.get_wind_gridの
     # 実契約どおり、pointsと同じ長さの全Noneを返すfakeで再現する。
@@ -227,7 +232,7 @@ def test_the_grid_is_a_failure_when_the_area_cannot_be_read(path, params):
     assert fetched == []
 
 
-def test_get_wind_grid_is_rate_limited_per_client():
+def test_get_wind_grid_is_rate_limited_per_client(ingested_area):
     app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(None, wind_grid=[])
 
     try:
@@ -244,7 +249,7 @@ def test_get_wind_grid_is_rate_limited_per_client():
 # 改善計画T180: 詳細格子（wind-grid-detail、ヒートマップ等の面表現用）。
 
 
-def test_get_wind_grid_detail_returns_points_on_success():
+def test_get_wind_grid_detail_returns_points_on_success(ingested_area):
     from app.domain.wind_grid import WindGridPoint
 
     grid = [
@@ -274,7 +279,7 @@ def test_get_wind_grid_detail_returns_points_on_success():
     assert body["points"][0]["latitude"] == 35.68
 
 
-def test_get_wind_grid_detail_omits_none_points():
+def test_get_wind_grid_detail_omits_none_points(ingested_area):
     from app.domain.wind_grid import WindGridPoint
 
     grid = [
@@ -303,7 +308,7 @@ def test_get_wind_grid_detail_omits_none_points():
     assert len(response.json()["points"]) == 1
 
 
-def test_get_wind_grid_detail_returns_502_when_all_points_fail():
+def test_get_wind_grid_detail_returns_502_when_all_points_fail(ingested_area):
     # 改善計画T200。wind-gridと同じ全滅ガードがwind-grid-detailにも適用されること。
     bbox = (139.70, 35.60, 139.90, 35.80)
     point_count = len(generate_wind_grid_detail_points(AREA, _box(*bbox)))
@@ -321,7 +326,7 @@ def test_get_wind_grid_detail_returns_502_when_all_points_fail():
     assert response.json()["detail"] == "気象データの取得に失敗しました"
 
 
-def test_get_wind_grid_detail_rejects_inverted_bbox():
+def test_get_wind_grid_detail_rejects_inverted_bbox(ingested_area):
     app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(None, wind_grid=[])
 
     try:
@@ -337,7 +342,7 @@ def test_get_wind_grid_detail_rejects_inverted_bbox():
 
 # 下限の間隔でも、下限より粗い任意の間隔でも上限が効く
 @pytest.mark.parametrize("spacing_deg", [WIND_GRID_DETAIL_MIN_SPACING_DEG, 0.003])
-def test_get_wind_grid_detail_rejects_bbox_too_large_without_fetching(spacing_deg):
+def test_get_wind_grid_detail_rejects_bbox_too_large_without_fetching(ingested_area, spacing_deg):
     fetched = []
 
     class RecordingFakeWeatherService(FakeWeatherService):
@@ -367,7 +372,7 @@ def test_get_wind_grid_detail_rejects_bbox_too_large_without_fetching(spacing_de
 
 
 @pytest.mark.parametrize(("extra_columns", "expected_status"), [(0, 200), (1, 400)])
-def test_get_wind_grid_detail_accepts_exactly_the_max_points_and_rejects_one_more(extra_columns, expected_status):
+def test_get_wind_grid_detail_accepts_exactly_the_max_points_and_rejects_one_more(ingested_area, extra_columns, expected_status):
     # 1行×上限ちょうどの列の範囲。端を格子点の中間に置き、浮動小数の誤差で列数が揺れないようにする。
     # 数え始めは対象範囲の内側の格子線（格子は緯度・経度0度から数える）。
     spacing = WIND_GRID_DETAIL_MIN_SPACING_DEG
@@ -410,7 +415,7 @@ def test_get_wind_grid_detail_accepts_exactly_the_max_points_and_rejects_one_mor
 # gridFillの格子がゴワゴワして気になる」）。
 
 
-def test_get_wind_grid_detail_spacing_deg_defaults_to_02_when_omitted():
+def test_get_wind_grid_detail_spacing_deg_defaults_to_02_when_omitted(ingested_area):
     # spacing_degを省略したとき（既存クライアント・後方互換）と、明示的にWIND_GRID_DETAIL_
     # SPACING_DEG(0.02)を渡したときとで、生成される格子点数が一致することを確認する。
     captured_points = {}
@@ -438,7 +443,7 @@ def test_get_wind_grid_detail_spacing_deg_defaults_to_02_when_omitted():
 
 
 @pytest.mark.parametrize("spacing_deg", [WIND_GRID_DETAIL_MIN_SPACING_DEG, 0.003, 0.0137, 0.03])
-def test_get_wind_grid_detail_builds_the_lattice_of_any_spacing_from_the_lower_bound(spacing_deg):
+def test_get_wind_grid_detail_builds_the_lattice_of_any_spacing_from_the_lower_bound(ingested_area, spacing_deg):
     bbox = (139.70, 35.70, 139.72, 35.72)
     received = []
 
@@ -477,7 +482,7 @@ def test_get_wind_grid_detail_builds_the_lattice_of_any_spacing_from_the_lower_b
         ("nan", 422),
     ],
 )
-def test_get_wind_grid_detail_rejects_spacing_deg_below_the_lower_bound_or_not_finite(spacing_deg, expected_status):
+def test_get_wind_grid_detail_rejects_spacing_deg_below_the_lower_bound_or_not_finite(ingested_area, spacing_deg, expected_status):
     app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(None, wind_grid=[])
 
     try:
@@ -497,7 +502,7 @@ def test_get_wind_grid_detail_rejects_spacing_deg_below_the_lower_bound_or_not_f
     assert response.status_code == expected_status
 
 
-def test_get_wind_grid_detail_rejects_bbox_too_large_for_finer_spacing_deg_even_when_ok_at_default():
+def test_get_wind_grid_detail_rejects_bbox_too_large_for_finer_spacing_deg_even_when_ok_at_default(ingested_area):
     app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(None, wind_grid=[])
     # 0.02°間隔なら十分小さい(0.4°四方=21x21=441点)bboxでも、0.0025°間隔だと
     # 161x161=25921点相当になりWIND_GRID_DETAIL_MAX_POINTSを大幅に超える。
@@ -573,7 +578,7 @@ def test_get_weather_warnings_is_rate_limited_per_client():
     assert response.status_code == 429
 
 
-def test_get_wind_grid_detail_is_rate_limited_per_client():
+def test_get_wind_grid_detail_is_rate_limited_per_client(ingested_area):
     app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(None, wind_grid=[])
     params = {"min_lon": 139.70, "min_lat": 35.60, "max_lon": 139.90, "max_lat": 35.80}
 
@@ -726,7 +731,7 @@ def test_get_flood_forecast_is_rate_limited_per_client():
     assert response.status_code == 429
 
 
-def test_get_wind_grid_sets_cache_control():
+def test_get_wind_grid_sets_cache_control(ingested_area):
     # 風グリッドは数十時間ぶんの時刻配列を持ち、上流（MSM）の更新は3時間ごとの
     # ため、数分の再利用で表示が古くならない。URLに時刻を含まないためimmutableにはしない。
     from app.domain.wind_grid import WindGridPoint
@@ -754,7 +759,7 @@ def test_get_wind_grid_sets_cache_control():
     assert "immutable" not in response.headers["cache-control"]
 
 
-def test_get_wind_grid_does_not_cache_total_failure():
+def test_get_wind_grid_does_not_cache_total_failure(ingested_area):
     # 全地点失敗（502）はキャッシュさせず次のリクエストで取り直させる。
     point_count = len(generate_wind_grid_points(AREA))
     app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(None, wind_grid=[None] * point_count)

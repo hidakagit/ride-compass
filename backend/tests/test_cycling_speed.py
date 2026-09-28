@@ -4,13 +4,12 @@
 - 較正値の宣言そのもの（既定・範囲・効き方）と、上書きがプロセス内の値まで届くこと → `test_tuning_overrides.py`
 - 所要時間をコスト配列へ合成すること → `test_leg_costs.py`
 
-**較正値は宣言の既定に頼らず、テストが与える**（`tuning`フィクスチャ）。走行モデルは較正値を
-呼ぶたびに読むので、値を差し替えると次の計算から効く——上下限として効く値は、頭打ちになる入力を
-通して観測する。例外は「宣言の標準値で、実際の自転車の範囲に入るか」の節で、期待値の出どころが
-コードの外（実際の自転車の出力・登坂速度）にあるため、宣言の既定値（`declared_defaults`）で計算する。
-どちらもプロセスで共有する「いま効いている値」は読まない（他のテストが上書きを読み込んでいても
-結果が変わらない）。宣言の既定値だけは`domain/tuning.py`から直接読む——この節の検査の対象が
-宣言の既定値そのものだから。
+**較正値は宣言の既定に頼らず、テストが与える**（`tuning`フィクスチャ）。与えた値はいま効いている値
+（`TUNING_VALUES`）へ差し込む。走行モデルは較正値を呼ぶたびに読むので、値を書き換えると次の計算から
+効く——上下限として効く値は、頭打ちになる入力を通して観測する。例外は「宣言の標準値で、実際の自転車の
+範囲に入るか」の節で、期待値の出どころがコードの外（実際の自転車の出力・登坂速度）にあるため、宣言の
+既定値（`declared_defaults`）を差し込んで計算する（他のテストが上書きを読み込んでいても結果が変わらない）。
+宣言の既定値だけは`domain/tuning.py`から直接読む——この節の検査の対象が宣言の既定値そのものだから。
 """
 
 import numpy as np
@@ -20,8 +19,7 @@ from app.domain import cycling_speed
 from app.domain.attributes import CategoricalColumn
 from app.domain.cycling_speed import RiderProfile, SegmentSpeedModel
 from app.domain.road import SURFACE_ESTIMATES
-from app.domain.tuning import TUNING_PARAMETERS
-from tests.bound_fake import bound
+from app.domain.tuning import TUNING_PARAMETERS, TUNING_VALUES
 
 TUNING = {
     "speed.cda_m2": 0.4,
@@ -42,15 +40,15 @@ SOLVE_TOLERANCE_MS = 0.004
 
 
 def _read_from(monkeypatch, values: dict[str, float]) -> dict[str, float]:
-    monkeypatch.setattr(
-        cycling_speed, "tuning_value", bound(cycling_speed.tuning_value, lambda param_id: values[param_id])
-    )
-    return values
+    """`values`をいま効いている較正値へ差し込み、その辞書を返す（`values`にある値を書き換えると次の計算から効く）。"""
+    for param_id, value in values.items():
+        monkeypatch.setitem(TUNING_VALUES, param_id, value)
+    return TUNING_VALUES
 
 
 @pytest.fixture
 def tuning(monkeypatch):
-    """走行モデルが読む較正値。テストごとに新しい辞書を渡し、書き換えると次の計算から効く。"""
+    """走行モデルが読む較正値。書き換えると次の計算から効く。"""
     return _read_from(monkeypatch, dict(TUNING))
 
 

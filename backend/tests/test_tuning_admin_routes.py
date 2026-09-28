@@ -7,8 +7,8 @@
 - 較正値の宣言の中身 → `domain/tuning.py`のテスト
 
 **宣言は本物の宣言から作った架空の較正値へ差し替える**（`dataclasses.replace`で本物の型のまま、
-効き方と並びだけをテストが決める）。上書きの読み書き（サービス）と、いま効いている値は差し替え、
-本物の署名へ当てる（`bound`）。
+効き方と並びだけをテストが決める）。いま効いている値は`TUNING_VALUES`へ差し込む。上書きの読み書き
+（サービス）は差し替え、本物の署名へ当てる（`bound`）。
 """
 
 import dataclasses
@@ -18,6 +18,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api.routers import tuning_admin
+from app.domain.tuning import TUNING_VALUES
 from tests.admin_auth import AUTH_HEADERS
 from tests.bound_fake import bound
 
@@ -68,10 +69,8 @@ def declarations(monkeypatch):
     )
     monkeypatch.setattr(tuning_admin, "TUNING_PARAMETERS", params)
     monkeypatch.setattr(tuning_admin, "TUNING_PARAMETERS_BY_ID", {p.id: p for p in params})
-    values = {"a": 11.0, "b": 12.0, "c": 13.0}
-    monkeypatch.setattr(
-        tuning_admin, "tuning_value", bound(tuning_admin.tuning_value, lambda param_id: values[param_id])
-    )
+    for param_id, value in {"a": 11.0, "b": 12.0, "c": 13.0}.items():
+        monkeypatch.setitem(TUNING_VALUES, param_id, value)
     return params
 
 

@@ -38,10 +38,19 @@ def score_of_one(definition, materials):
 
 @pytest.fixture
 def catalog(monkeypatch):
-    """材料と認めるidを差し替える。ここに無いidは軸参照の候補になる。"""
-    known = {"num_a", "num_b", DYNAMIC}
-    monkeypatch.setattr(material_catalog, "is_known_material", lambda m: m in known)
-    return known
+    """材料カタログを架空の材料だけにする。ここに無いidは軸参照の候補になる。"""
+    specs = {
+        material_id: material_catalog.MaterialSpec(
+            material_id=material_id,
+            label=material_id,
+            description=material_id,
+            dtype="numeric",
+            coverage=material_catalog.CoverageExcluded(reason="テスト用", missing_semantics="unknown"),
+        )
+        for material_id in ("num_a", "num_b", DYNAMIC)
+    }
+    monkeypatch.setattr(material_catalog, "MATERIAL_CATALOG", specs)
+    return specs
 
 
 def _axis(axis_id: str, materials: list[str], **overrides) -> AxisDefinition:

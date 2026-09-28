@@ -8,8 +8,8 @@
 - 分布の計算 → `test_axis_preview_service.py`
 - 認可（どの口もBasic認証の依存を持つこと・その依存が拒むこと） → `test_admin_route_authorization.py`
 
-**ルーターが名前空間に持つ外向きの参照は差し替える**——軸の集合・配信実装の有無・地図表示の導出・
-分布の計算。材料カタログは本物を使い、材料は型ごとに本物のカタログから選ぶ。
+**ルーターが名前空間に持つ外向きの参照は差し替える**——軸の集合・配信実装の有無・分布の計算（DB）。
+地図表示の導出（domain）と材料カタログは本物を通し、材料は性質ごとに本物のカタログから選ぶ。
 """
 
 import pytest
@@ -32,6 +32,12 @@ def _static_materials(dtype: str) -> list[str]:
 BASE = "/api/admin/axis-definitions"
 NUM_A, NUM_B = _static_materials("numeric")[:2]
 BOOL_A = _static_materials("boolean")[0]
+#: 地図に塗れる（タイルに向きによらない値を持つ）数値の材料。
+RAMP_NUM = next(
+    m
+    for m in _static_materials("numeric")
+    if MATERIAL_CATALOG[m].tile_property and not MATERIAL_CATALOG[m].tile_property_direction_dependent
+)
 REFERENCED_AXIS = "ref"
 REPOSITORY = object()
 
@@ -105,15 +111,12 @@ def registry():
 @pytest.fixture
 def seams(monkeypatch):
     """差し替えた外向きの参照が受けた引数を記録する。"""
-    received: dict[str, list] = {"served": [], "distribution": [], "drops": [], "keeps": []}
+    received: dict[str, list] = {"served": [], "distribution": []}
 
     def served_dedicated_way_value_material(materials):
         materials = list(materials)
         received["served"].append(materials)
         return NUM_A if materials == [NUM_A] else None
-
-    def axis_display_for(definition):
-        return axis_admin.AxisDisplaySpec(kind="none", label=f"表示:{definition.axis_id}")
 
     async def axis_raw_value_distribution(repository, shape):
         received["distribution"].append((repository, shape))
@@ -121,20 +124,9 @@ def seams(monkeypatch):
             sample_ways=3, total_km=1.5, quantiles={"p50": 2.0}, bins=[(0.0, 4.0, 1.0)], zero_share=0.25
         )
 
-    def thresholds_the_map_drops(axis_id, shape, priority_overrides, thresholds):
-        received["drops"].append((axis_id, shape, priority_overrides, thresholds))
-        return [thresholds[-1]]
-
-    def bands_the_map_keeps(axis_id, shape, priority_overrides, thresholds):
-        received["keeps"].append((axis_id, shape, priority_overrides, thresholds))
-        return [0, 1]
-
     fakes = {
         "served_dedicated_way_value_material": served_dedicated_way_value_material,
-        "axis_display_for": axis_display_for,
         "axis_raw_value_distribution": axis_raw_value_distribution,
-        "thresholds_the_map_drops": thresholds_the_map_drops,
-        "bands_the_map_keeps": bands_the_map_keeps,
     }
     for name, fake in fakes.items():
         monkeypatch.setattr(axis_admin, name, bound(getattr(axis_admin, name), fake))
@@ -202,11 +194,11 @@ def test_a_database_failure_becomes_a_503_on_every_route_that_reads_it(client, r
 
 class TestRead:
     def test_list_returns_every_axis_with_its_map_display(self, client, registry):
-        registry.axes = {"a": stored("a"), "b": stored("b")}
+        registry.axes = {"a": stored("a"), "b": stored("b", label="軸B")}
 
         body = client.get(BASE).json()
 
-        assert [(item["axis_id"], item["display"]["label"]) for item in body] == [("a", "表示:a"), ("b", "表示:b")]
+        assert [(item["axis_id"], item["display"]["label"]) for item in body] == [("a", "軸A"), ("b", "軸B")]
 
     def test_get_returns_the_axis_with_its_map_display(self, client, registry):
         registry.axes["a"] = stored()
@@ -214,7 +206,7 @@ class TestRead:
         body = client.get(BASE + "/a").json()
 
         assert body["axis_id"] == "a"
-        assert body["display"]["label"] == "表示:a"
+        assert body["display"]["label"] == "軸A"
 
     def test_get_of_an_unknown_axis_is_404(self, client):
         assert client.get(BASE + "/missing").status_code == 404
@@ -233,7 +225,7 @@ class TestWrite:
         response = client.post(BASE, json=payload(chip_label="略"))
 
         assert response.status_code == 201
-        assert response.json()["display"]["label"] == "表示:a"
+        assert response.json()["display"]["label"] == "軸A"
         ((name, definition),) = registry.writes
         assert name == "create"
         assert type(definition) is axis_admin.AxisDefinition
@@ -301,7 +293,7 @@ class TestWrite:
 
         body = client.post(BASE + "/a/unpublish").json()
 
-        assert (body["is_published"], body["display"]["label"]) == (False, "表示:a")
+        assert (body["is_published"], body["display"]["label"]) == (False, "軸A")
 
 
 class TestPayloadValidation:
@@ -361,23 +353,31 @@ class TestPreviews:
         assert repository is REPOSITORY
         assert [t.material for t in shape.terms] == [NUM_A]
 
-    def test_display_thresholds_answer_which_bands_the_map_drops_and_keeps(self, client, seams):
-        override = [{"material": BOOL_A, "equals": "true", "value": 0.0}]
+    @pytest.mark.parametrize(
+        ("overrides", "expected"),
+        [
+            ([], {"dropped_on_map": [8.0], "bands_on_map": [0, 1, 2]}),
+            (
+                [{"material": BOOL_A, "equals": "true", "value": 0.0}],
+                {"dropped_on_map": [], "bands_on_map": [0, 1, 2, 3]},
+            ),
+        ],
+        ids=["同じ点数へ写る境界は地図に出ない", "0次条件のある軸は地図に塗らないので全段が残る"],
+    )
+    def test_display_thresholds_answer_which_bands_the_map_drops_and_keeps(self, client, overrides, expected):
+        """5より上は点数が100で平らなので、6と8の境界は地図では区別できない。"""
+        shape = {
+            "kind": "breakpoint_linear",
+            "terms": [{"material": RAMP_NUM}],
+            "breakpoints": [[0, 0], [5, 100], [10, 100]],
+        }
 
         body = client.post(
             BASE + "/preview-display-thresholds",
-            json={
-                "axis_id": "a",
-                "shape": linear_shape(NUM_A),
-                "priority_overrides": override,
-                "thresholds": [1.0, 2.0],
-            },
+            json={"axis_id": "a", "shape": shape, "priority_overrides": overrides, "thresholds": [1.0, 6.0, 8.0]},
         ).json()
 
-        assert body == {"dropped_on_map": [2.0], "bands_on_map": [0, 1]}
-        for received in (seams["drops"], seams["keeps"]):
-            ((axis_id, shape, overrides, thresholds),) = received
-            assert (axis_id, [o.material for o in overrides], thresholds) == ("a", [BOOL_A], [1.0, 2.0])
+        assert body == expected
 
     @pytest.mark.parametrize("thresholds", [[2.0, 1.0], [1.0, 1.0]], ids=["降順", "同値"])
     def test_display_thresholds_must_rise_strictly(self, client, thresholds):

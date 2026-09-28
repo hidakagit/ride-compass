@@ -24,6 +24,7 @@ from numba.core.registry import CPUDispatcher
 from app.domain import routing
 from app.domain.geo import haversine_distance_km_array
 from app.domain.route import Coordinates
+from app.domain.tuning import TUNING_VALUES
 from app.domain.wind import WindForecastSeries, WindLattice
 from app.services.route_generator import RouteGenerator
 from tests.route_world import (
@@ -629,10 +630,9 @@ def test_node_index_only_holds_the_candidate_nodes():
 
 def test_turn_cost_is_rebuilt_from_tuning_on_every_call(monkeypatch):
     """呼ぶたびに較正値を引き直す。束ねると管理画面から変えた値が効かなくなる。"""
-    shift = {"value": 0.0}
-    monkeypatch.setattr(routing, "tuning_value", lambda key: float(len(key)) + shift["value"])
     before = dataclasses.asdict(routing.current_turn_cost())
-    shift["value"] = 100.0
+    for param_id in [param_id for param_id in TUNING_VALUES if param_id.startswith("turn.")]:
+        monkeypatch.setitem(TUNING_VALUES, param_id, TUNING_VALUES[param_id] + 100.0)
     after = dataclasses.asdict(routing.current_turn_cost())
     assert before
     assert all(after[name] == before[name] + 100.0 for name in before)

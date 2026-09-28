@@ -88,11 +88,16 @@ class FakeRepository:
 
 
 @pytest.fixture(autouse=True)
-def _small_batches_and_tmp_root(monkeypatch, tmp_path):
-    """束の境目をまたぐよう、流す単位と材料の束を小さくする。置き場はテストごとの一時ディレクトリ。"""
+def _tmp_root(monkeypatch, tmp_path):
+    """置き場はテストごとの一時ディレクトリ。"""
+    monkeypatch.setattr(road_network_store, "ROOT", tmp_path / "road_network")
+
+
+@pytest.fixture
+def small_batches(monkeypatch):
+    """束の境目をまたぐよう、流す単位と材料の束を小さくする。"""
     monkeypatch.setattr(road_network_store, "_STREAM_CHUNK", 3)
     monkeypatch.setattr(road_network_store, "_MATERIAL_BATCH", 2)
-    monkeypatch.setattr(road_network_store, "ROOT", tmp_path / "road_network")
 
 
 def _directed(network: RoadNetwork) -> list[tuple[int, int, bool, int, int]]:
@@ -104,7 +109,7 @@ def _directed(network: RoadNetwork) -> list[tuple[int, int, bool, int, int]]:
     ]
 
 
-async def test_edges_become_directed_rows_in_way_and_segment_order(caplog):
+async def test_edges_become_directed_rows_in_way_and_segment_order(caplog, small_batches):
     """区間は順方向・逆方向の行になる。一方通行は走れる向きだけ、端点のノードが無い区間は落ち、落とした数をログに出す。"""
     with caplog.at_level("INFO", logger=road_network_store.logger.name):
         network = await road_network_store.build(FakeRepository(), 7)
@@ -119,7 +124,7 @@ async def test_edges_become_directed_rows_in_way_and_segment_order(caplog):
     assert "端点のノードが無く落とした有向の区間=2" in caplog.text
 
 
-async def test_materials_follow_the_directed_rows():
+async def test_materials_follow_the_directed_rows(small_batches):
     network = await road_network_store.build(FakeRepository(), 7)
 
     expected = [_numeric(w, s, f) for w, s, f, _a, _b in _directed(network)]
@@ -128,7 +133,7 @@ async def test_materials_follow_the_directed_rows():
     assert network.hard_filter_flags[:, 0].tolist() == (network.edge_segment == 0).tolist()
 
 
-async def test_categorical_values_are_codes_into_a_vocabulary_that_starts_with_none():
+async def test_categorical_values_are_codes_into_a_vocabulary_that_starts_with_none(small_batches):
     network = await road_network_store.build(FakeRepository(), 7)
 
     (vocab,) = network.categorical_vocab
@@ -138,7 +143,7 @@ async def test_categorical_values_are_codes_into_a_vocabulary_that_starts_with_n
         network.edge_way_id, network.edge_segment, strict=True)]
 
 
-async def test_highway_is_a_code_into_its_vocabulary():
+async def test_highway_is_a_code_into_its_vocabulary(small_batches):
     network = await road_network_store.build(FakeRepository(), 7)
 
     highway_of_way = {w: h for w, _s, _a, _b, _d, h in EDGES}
@@ -147,7 +152,7 @@ async def test_highway_is_a_code_into_its_vocabulary():
     ]
 
 
-async def test_saved_network_reads_back_the_same():
+async def test_saved_network_reads_back_the_same(small_batches):
     network = await road_network_store.build(FakeRepository(), 7)
 
     loaded = road_network_store.load(road_network_store.save(network))

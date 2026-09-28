@@ -5,8 +5,9 @@
 - 軸1本の得点の計算 → `test_axis_definitions.py`
 - 配信サービス本体と、軸と配信実装の突き合わせ → 各サービスのテストと`api/dependencies.py`の利用者
 
-**名前空間の外向きの参照は差し替える**——軸の集合・材料カタログは架空のもので、地図表示の導出は
-`bound()`で本物の署名へ当てた代役で与える。軸の評価は本物を通す（同じdomainの関数のため）。
+**軸の集合と材料は架空のもの**——材料は本物のカタログへ架空の材料を差し込んで与える（地図表示の導出も
+同じカタログを読む）。軸の評価と地図表示の導出は本物を通す（同じdomainの関数のため）。地図に出るかは
+材料で決める: `painted`はタイルに値を持ち地図に塗れる、`grade`・`speed`は地図に出ない。
 """
 
 import pytest
@@ -19,8 +20,6 @@ from app.domain.axis_definitions import (
     MaterialTerm,
     PriorityCondition,
 )
-from app.domain.registry import AxisDisplaySpec
-from tests.bound_fake import bound
 
 FLAG_CONDITION = PriorityCondition(material="flag", equals="true", value=0.0)
 
@@ -48,21 +47,16 @@ def catalog(monkeypatch):
         )
         for m, unit in (("grade", "%"), ("speed", "km/h"))
     }
-    monkeypatch.setattr(dynamic_way_values, "MATERIAL_CATALOG", specs)
-
-
-@pytest.fixture
-def map_display(monkeypatch):
-    """地図表示の導出を差し替え、軸ごとに返す表示を決める（既定は地図に出ない）。"""
-    displays: dict[str, object] = {}
-
-    def axis_display_for(definition):
-        return displays.get(definition.axis_id, AxisDisplaySpec(kind="none", label=definition.label))
-
-    monkeypatch.setattr(
-        dynamic_way_values, "axis_display_for", bound(dynamic_way_values.axis_display_for, axis_display_for)
+    specs["painted"] = material_catalog.MaterialSpec(
+        material_id="painted",
+        label="painted",
+        description="painted",
+        dtype="numeric",
+        tile_property="painted",
+        coverage=material_catalog.CoverageExcluded(reason="テスト用", missing_semantics="unknown"),
     )
-    return displays
+    for material_id, spec in specs.items():
+        monkeypatch.setitem(dynamic_way_values.MATERIAL_CATALOG, material_id, spec)
 
 
 class TestDedicatedWayValueAxes:
@@ -143,12 +137,12 @@ class TestMapValueKind:
 class TestMapValueThresholds:
     """地図に出ない軸（専用配信）は地図が塗る値そのものの境界を、地図に出る軸は地図の段を難易度の目盛りへ写した境界を返す。"""
 
-    def test_an_axis_off_the_map_uses_its_override_as_given(self, map_display):
+    def test_an_axis_off_the_map_uses_its_override_as_given(self):
         definition = axis("a", linear("grade", preprocess="abs"), display_thresholds_override=[-1.0, 2.0])
 
         assert dynamic_way_values.map_value_thresholds(definition) == [-1.0, 2.0]
 
-    def test_a_signed_axis_off_the_map_bands_symmetrically_at_its_breakpoints(self, map_display):
+    def test_a_signed_axis_off_the_map_bands_symmetrically_at_its_breakpoints(self):
         definition = axis(
             "a",
             linear(
@@ -170,33 +164,21 @@ class TestMapValueThresholds:
         ],
         ids=["符号を畳まない", "複数の項", "項が材料でなく軸", "分類"],
     )
-    def test_other_axes_off_the_map_have_no_bands(self, map_display, shape):
+    def test_other_axes_off_the_map_have_no_bands(self, shape):
         assert dynamic_way_values.map_value_thresholds(axis("a", shape)) is None
 
-    def test_a_linear_axis_on_the_map_maps_its_bands_onto_the_difficulty_scale(self, map_display):
-        definition = axis("a", linear("grade", breakpoints=[(0.0, 0.0), (3.0, 10.0)]))
-        map_display["a"] = AxisDisplaySpec(
-            kind="ramp", label="aの名前", tile_inputs=[{"property": "grade"}], thresholds=[1.0, 2.0, 5.0]
+    def test_a_linear_axis_on_the_map_maps_its_bands_onto_the_difficulty_scale(self):
+        definition = axis(
+            "a",
+            linear("painted", breakpoints=[(0.0, 0.0), (3.0, 10.0)]),
+            display_thresholds_override=[1.0, 2.0, 5.0],
         )
 
         assert dynamic_way_values.map_value_thresholds(definition) == [3.3, 6.7, 10.0]
 
-    def test_an_axis_on_the_map_that_folds_the_sign_is_refused(self, map_display):
-        """地図に塗れる軸を符号を畳まない形に限るのは地図表示の導出で、そこが変われば負の境界が正の側へ
-        折り返り、ルート線が全区間同じ帯になる。黙って写さずに止める。"""
-        definition = axis("a", linear("grade", "speed", preprocess="abs"))
-        map_display["a"] = AxisDisplaySpec(
-            kind="ramp", label="aの名前", tile_inputs=[{"property": "grade"}], thresholds=[-1.0, 1.0]
-        )
-
-        with pytest.raises(ValueError, match="folds the sign"):
-            dynamic_way_values.map_value_thresholds(definition)
-
-    def test_a_categorical_axis_on_the_map_keeps_its_bands_which_are_already_scores(self, map_display):
-        definition = axis("a", CategoricalShape(material="grade", mapping={"x": 0.0, "z": 100.0}))
-        map_display["a"] = AxisDisplaySpec(
-            kind="ramp", label="aの名前", tile_inputs=[{"property": "grade"}], thresholds=[50.0]
-        )
+    def test_a_categorical_axis_on_the_map_keeps_its_bands_which_are_already_scores(self):
+        """分類の地図の段は、点数の隣り合う値の中点（0と100なら50）。"""
+        definition = axis("a", CategoricalShape(material="painted", mapping={"x": 0.0, "z": 100.0}))
 
         assert dynamic_way_values.map_value_thresholds(definition) == [50.0]
 
