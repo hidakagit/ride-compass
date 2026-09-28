@@ -1,7 +1,7 @@
 // 回答フォーム（hidakagit が開く1枚の画面）。答えのコメントは hidakagit の名義（env.FORM_TOKEN）で書き、
 // ステータス・割り当て・ラベルはゲートの遷移の処理（Gate.apply）がゲートの名義で書く。
 import { Gate, currentQuestion } from "./gate.js";
-import { GitHub } from "./github.js";
+import { GitHub, Mutations } from "./github.js";
 import { answerBody, answers, formChoices } from "./rules.js";
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -96,15 +96,20 @@ async function submit(gate, env, data) {
   const precheck = await gate.apply({ ...issue }, issue.status, choice.to, { dryRun: true, labels: choice.labels });
   if (!precheck.ok) return { error: precheck.reason };
 
-  const form = new GitHub(env.FORM_TOKEN);
-  const answer = await form.rest("POST", `/repos/${gate.config.repository}/issues/${issue.number}/comments`, {
-    body: answerBody(gate.config, { questionUrl: q.url, choice, next, note }),
+  // 答えの記録（hidakagit の名義）を先に1回で書き、決定と見せ方（ゲートの名義）をもう1回で書く。
+  const body = answerBody(gate.config, { questionUrl: q.url, choice, next, note });
+  const written = await new Mutations()
+    .add("addComment", { subjectId: issue.id, body }, "commentEdge { node { id url } }")
+    .add("minimizeComment", { subjectId: q.id, classifier: "RESOLVED" })
+    .send(new GitHub(env.FORM_TOKEN));
+  const answer = written.m0.commentEdge.node;
+  const r = await gate.apply(issue, issue.status, choice.to, {
+    next: next ?? undefined,
+    labels: choice.labels,
+    fold: [answer.id],
+    seen: [{ body, url: answer.url, author: { login: "hidakagit" } }],
   });
-  const r = await gate.apply(issue, issue.status, choice.to, { next: next ?? undefined, labels: choice.labels });
   if (!r.ok) return { error: r.reason };
-  for (const id of [q.id, answer.node_id])
-    await form.gql(`mutation Fold($id: ID!) { minimizeComment(input: { subjectId: $id, classifier: RESOLVED }) { clientMutationId } }`, { id });
-  await gate.sync(await gate.read({ number: issue.number }));
   return { url: issue.url, label: choice.text };
 }
 

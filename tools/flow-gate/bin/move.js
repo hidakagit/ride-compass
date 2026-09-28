@@ -3,7 +3,7 @@
 import { execFileSync } from "node:child_process";
 import config from "../flow.config.json" with { type: "json" };
 import { currentQuestion } from "../src/gate.js";
-import { GitHub, readIssue, readProject } from "../src/github.js";
+import { GitHub, readTask } from "../src/github.js";
 import { check } from "../src/rules.js";
 
 // Windows のユーザー環境変数は、それより前に起動したプロセスの環境には入らないので、無ければ登録簿から読む。
@@ -19,8 +19,7 @@ if (!/^\d+$/.test(number ?? "") || !config.statuses.includes(to)) {
   process.exit(2);
 }
 const gh = new GitHub(token());
-const project = await readProject(gh, config);
-const issue = await readIssue(gh, config, project, { number: Number(number) });
+const { project, issue } = await readTask(gh, config, { number: Number(number) });
 if (!issue?.item) throw new Error(`#${number} は ${config.repository} の Project の件ではありません。`);
 const verdict = check(config, issue.status, to, issue.blockedBy.nodes);
 if (!verdict.ok) throw new Error(verdict.reason);

@@ -1,55 +1,66 @@
-// テスト用の GitHub。ゲートの網の外側（fetch）だけを差し替え、書き込みを記録する。
+// テスト用の GitHub。ゲートの網の外側（fetch）だけを差し替え、書き込みと呼び出しの回数を記録する。
 import config from "../flow.config.json" with { type: "json" };
 
 const OPTIONS = Object.fromEntries(config.statuses.map((s, i) => [s, `opt${i}`]));
 const NAMES = Object.fromEntries(Object.entries(OPTIONS).map(([k, v]) => [v, k]));
-const LOGINS = Object.fromEntries(Object.entries(config.people).map(([k, p]) => [p.id, k]));
+const BY_NODE = Object.fromEntries(Object.entries(config.people).map(([k, p]) => [p.node, k]));
 
-export function fakeGitHub({ issue, labels = ["優先"] }) {
-  const state = { issue: { comments: [], blockedBy: [], subIssues: [], assignees: [], labels: [], state: "OPEN", ...issue }, writes: [] };
+export function fakeGitHub({ issue, labels = ["優先", "規模S"] }) {
+  const repoLabels = [...labels, ...config.statuses.map((s) => `${config.statusLabelPrefix}${s}`)];
+  const state = {
+    issue: { comments: [], blockedBy: [], subIssues: [], assignees: [], labels: [], lastClose: [], state: "OPEN", ...issue },
+    writes: [],
+    calls: 0,
+  };
   const json = (body, status = 200) => new Response(JSON.stringify(body), { status });
   const node = () => {
     const i = state.issue;
     return {
       id: "I_1", number: i.number, title: "題名", body: i.body ?? "本文", url: `https://github.com/${config.repository}/issues/${i.number}`,
       state: i.state, stateReason: null, author: { login: "x", databaseId: i.authorId }, parent: i.parent ?? null,
-      assignees: { nodes: i.assignees.map((login) => ({ login })) }, labels: { nodes: i.labels.map((name) => ({ name })) }, blockedBy: { nodes: i.blockedBy },
-      subIssues: { nodes: i.subIssues }, repository: { nameWithOwner: config.repository },
+      assignees: { nodes: i.assignees.map((login) => ({ id: config.people[login]?.node, login })) },
+      labels: { nodes: i.labels.map((name) => ({ name })) }, blockedBy: { nodes: i.blockedBy }, subIssues: { nodes: i.subIssues },
       comments: { nodes: i.comments.map((c, k) => ({ id: `C_${k}`, url: `u#${k}`, isMinimized: false, ...c })) },
+      lastClose: { nodes: i.lastClose }, repository: { nameWithOwner: config.repository },
       projectItems: { nodes: [{ id: "PVTI_1", project: { id: "PVT_1" }, fieldValueByName: i.status ? { name: i.status } : null }] },
     };
   };
-  const graphql = ({ query, variables }) => {
-    const op = /^(query|mutation) (\w+)/.exec(query)[2];
-    if (op === "Project")
-      return { organization: { projectV2: { id: "PVT_1", field: { id: "F_1", options: Object.entries(OPTIONS).map(([name, id]) => ({ id, name })) } } } };
-    if (op === "Issue") return variables.id ? { node: node() } : { repository: { issue: node() } };
-    if (op === "Set") state.issue.status = NAMES[variables.o];
-    if (op === "Clear") state.issue.status = null;
-    state.writes.push({ op, ...variables });
-    return { ok: true };
+  const apply = (name, input, as) => {
+    const i = state.issue;
+    state.writes.push({ op: name, as, ...input });
+    if (name === "updateProjectV2ItemFieldValue") i.status = NAMES[input.value.singleSelectOptionId];
+    if (name === "clearProjectV2ItemFieldValue") i.status = null;
+    if (name === "addComment") {
+      i.comments.push({ body: input.body, author: { login: as === "hidakagit" ? "hidakagit" : "ridecompass-gate" } });
+      return { commentEdge: { node: { id: "C_new", url: "u#new" } } };
+    }
+    if (name === "updateIssue" && input.assigneeIds) i.assignees = input.assigneeIds.map((id) => BY_NODE[id]);
+    if (name === "updateIssue" && "body" in input) i.body = input.body;
+    if (name === "addLabelsToLabelable") i.labels.push(...input.labelIds.map((id) => id.slice(2)));
+    if (name === "removeLabelsFromLabelable") i.labels = i.labels.filter((l) => !input.labelIds.includes(`L:${l}`));
+    if (name === "closeIssue" && input.issueId === "I_1") i.state = "CLOSED";
+    if (name === "reopenIssue") i.state = "OPEN";
+    return { clientMutationId: null };
+  };
+  const graphql = ({ query, variables }, as) => {
+    if (query.startsWith("query Task"))
+      return {
+        organization: { projectV2: { id: "PVT_1", field: { id: "F_1", options: Object.entries(OPTIONS).map(([name, id]) => ({ id, name })) } } },
+        repository: { labels: { nodes: repoLabels.map((name) => ({ id: `L:${name}`, name })) }, issue: node() },
+        node: node(),
+      };
+    const data = {};
+    for (const [, key, name] of query.matchAll(/(m\d+): (\w+)\(input: \$m\d+\)/g)) data[key] = apply(name, variables[key], as);
+    return data;
   };
   globalThis.fetch = async (url, init = {}) => {
-    const path = new URL(url).pathname, method = init.method ?? "GET";
+    state.calls++;
+    const path = new URL(url).pathname;
     const body = init.body ? JSON.parse(init.body) : null;
-    const auth = init.headers.authorization;
-    if (path === `/repos/${config.repository}/installation`) return json({ id: 7 });
+    const as = init.headers.authorization === "Bearer form-token" ? "hidakagit" : "gate";
     if (path.endsWith("/access_tokens")) return json({ token: "app-token" });
-    if (path === "/graphql") return json({ data: graphql(body) });
-    if (path.startsWith("/user/")) return json({ login: LOGINS[Number(path.slice(6))] });
-    if (method === "GET" && path.startsWith(`/repos/${config.repository}/labels/`))
-      return labels.includes(decodeURIComponent(path.split("/labels/")[1])) ? json({}) : json({}, 404);
-    state.writes.push({ method, path, body, as: auth === "Bearer form-token" ? "hidakagit" : "gate" });
-    if (method === "POST" && path.endsWith("/labels")) state.issue.labels.push(...body.labels);
-    if (method === "DELETE" && path.includes("/labels/")) state.issue.labels = state.issue.labels.filter((l) => l !== decodeURIComponent(path.split("/labels/")[1]));
-    if (method === "PATCH" && body.assignees) state.issue.assignees = body.assignees;
-    if (method === "PATCH" && body.state) state.issue.state = body.state.toUpperCase();
-    if (method === "PATCH" && "body" in body) state.issue.body = body.body;
-    if (path.endsWith("/comments")) {
-      state.issue.comments.push({ body: body.body, author: { login: auth === "Bearer form-token" ? "hidakagit" : "ridecompass-gate" } });
-      return json({ node_id: "C_new", html_url: "u#new" }, 201);
-    }
-    return json({});
+    if (path === "/graphql") return json({ data: graphql(body, as) });
+    throw new Error(`テストの GitHub が知らない呼び出し: ${init.method} ${path}`);
   };
   return state;
 }
