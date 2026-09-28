@@ -72,6 +72,11 @@ WIND_CALM_BELOW_MS = 0.3
 #: （危険度の段の色がたまたま近いだけで、別の配色として動く）。
 LINEAR_RAINBAND_COLOR = "#ff2800"
 
+#: 線状降水帯の雨域の輪郭線の色と、下に敷く縁取りの色。**配信元の公式の画面の描画定義の値そのもの**
+#: （雨雲の動きの設定ファイルの`strokeColor`・`bgStrokeColor`）で、画面の好みではない。
+LINEAR_RAINBAND_OUTLINE_COLOR = "#ff0000"
+LINEAR_RAINBAND_OUTLINE_CASING_COLOR = "#ffffff"
+
 #: 危険度分布。白→黄→赤→紫→黒と上がる。色は内閣府（防災担当）が警戒レベルの画面上の推奨配色として公表したRGB値
 #: （「大雨の警戒レベルをわかりやすく伝えるために５色の配色を定めました」令和2年5月29日
 #: https://www.bousai.go.jp/pdf/200529_haishoku.pdf。白255,255,255・黄242,231,0・赤255,40,0・紫170,0,170・黒12,0,12）。

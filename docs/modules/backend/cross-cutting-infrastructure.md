@@ -331,10 +331,10 @@ Starlette側が付与する。
 その定義1箇所で行う。同じ秒数でも意味が違うものは別の定数として持つ（片方だけを後から
 動かせるようにするため）。
 
-`/api/jma-tile/`だけは1つのパスで性質の異なる3種類（内容が確定して以後変化しないタイル
-本体・同じURLのまま更新される時刻一覧・恒久404）を返すため、表では`HANDLER_MANAGED`とし、
+`/api/jma-tile/`だけは1つのパスで性質の異なるもの（内容が確定して以後変化しないタイル
+本体・同じURLのまま更新される時刻一覧・恒久404・配信前の地物の404）を返すため、表では`HANDLER_MANAGED`とし、
 どのポリシーを使うかを`jma_tile.py`が選ぶ。選択肢自体（`JMA_TARGET_TIMES`・
-`JMA_TILE_NOT_FOUND`）は`cache_policy.py`が持ち、キャッシュ時間の定義がこのファイルの外へ
+`JMA_TILE_NOT_FOUND`・`JMA_NOT_YET_DELIVERED`）は`cache_policy.py`が持ち、キャッシュ時間の定義がこのファイルの外へ
 漏れないようにしてある。
 
 `tests/test_cache_policy.py`が全`APIRoute`と表を突き合わせ、表に無いルート（ポリシーの

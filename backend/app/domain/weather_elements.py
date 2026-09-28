@@ -16,8 +16,8 @@ from app.domain.jma_tile_specs import (
 )
 
 #: 動的気象の描き方の種類。配信元が描いた画像（`rasterTile`）・配信元の地物（`vectorTile`）・
-#: 自前の格子の面（`gridFill`）・格子や地点の記号（`gridMark`）。
-WeatherRenderKind = Literal["rasterTile", "vectorTile", "gridFill", "gridMark"]
+#: 自前の格子の面（`gridFill`）・格子や地点の記号（`gridMark`）・配信元がGeoJSONで配る領域の輪郭線（`outline`）。
+WeatherRenderKind = Literal["rasterTile", "vectorTile", "gridFill", "gridMark", "outline"]
 _TILE_KINDS: frozenset[str] = frozenset({"rasterTile", "vectorTile"})
 
 #: 選んだ時刻に対してどのコマを描くか。
@@ -80,6 +80,18 @@ WEATHER_ELEMENTS: tuple[WeatherElement, ...] = (
         "線状降水帯予測",
         FrameRule("current", 3 * 60),
     ),
+    # 今まさに追跡中の線状降水帯の雨域（実況と30分先まで）。公式の既定の表示と同じく2つを同じ見た目で重ねる。
+    WeatherElement(
+        "precipitationNowcast", "linearRainbandArea", "outline", ("slmcs_unify",), "線状降水帯の雨域", _NEAREST
+    ),
+    WeatherElement(
+        "precipitationNowcast",
+        "linearRainbandAreaForecast",
+        "outline",
+        ("slmcs_unifyfcst",),
+        "線状降水帯の雨域",
+        _NEAREST,
+    ),
     WeatherElement("windVector", "arrow", "gridMark", (), "風", _NEAREST, "wind"),
     # キキクルは「現在の危険度」だけを配るので、選んだ時刻によらず描く。
     WeatherElement("disaster", "heavyRain", "rasterTile", ("rain_mesh",), "大雨キキクル", FrameRule("current")),
@@ -121,6 +133,8 @@ class WeatherDelivery(NamedTuple):
     url_template: str
     reader: TargetTimesReader
     refresh_interval_seconds: int
+    #: 配信の遅れ（`domain/jma_tile_specs.py: JmaElement.data_delay_minutes`）。
+    data_delay_minutes: int
 
 
 def weather_element_deliveries(element: WeatherElement) -> list[WeatherDelivery]:
@@ -137,6 +151,7 @@ def weather_element_deliveries(element: WeatherElement) -> list[WeatherDelivery]
                 jma_url_template(element_id),
                 declared.reader,
                 JMA_REFRESH_INTERVAL_SECONDS[declared.path_group],
+                declared.data_delay_minutes,
             )
         )
     return deliveries

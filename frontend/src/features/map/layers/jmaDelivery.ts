@@ -37,6 +37,11 @@ export type JmaDelivery = DeclaredElement["jmaElements"][number];
 /** 配信元のタイルで描く描き方。 */
 type JmaTileKind = "rasterTile" | "vectorTile";
 
+/** 配信元のタイルで描く描き方か。それ以外の描き方の配信要素は、コマごとの地物をGeoJSONで配る。 */
+export function isJmaTileKind(kind: DeclaredElement["kind"]): kind is JmaTileKind {
+  return kind === "rasterTile" || kind === "vectorTile";
+}
+
 /** 時刻一覧から読み出したコマ1つ。タイル・地点のURLを決める時刻と系列。項目名は源泉のパスのテンプレートの
  * `{basetime}`等と同じ名前で、テンプレートはこの名前で埋める。 */
 export interface JmaFrame {
@@ -112,7 +117,7 @@ function templateMatcher(template: string): { pattern: RegExp; names: string[] }
 }
 
 const TILE_DELIVERY_MATCHERS = mapDisplay.weatherElements
-  .filter((element) => element.kind === "rasterTile" || element.kind === "vectorTile")
+  .filter((element) => isJmaTileKind(element.kind))
   .flatMap((element): readonly JmaDelivery[] => element.jmaElements)
   .map((delivery) => ({ delivery, ...templateMatcher(delivery.urlTemplate) }));
 
@@ -141,15 +146,17 @@ export function readJmaTileUrl(url: string): JmaTileRef | null {
  * （`features/map/scene/groups/weather.ts`）もこの定数を参照する。 */
 export const JMA_POINT_VALUE_PROPERTY = "value";
 
-/** そのコマの地点（落雷の位置等）。 */
-export async function fetchJmaPointGeojson(
+/** そのコマの地物（落雷の地点・線状降水帯の雨域等）。どの地物にも記号の大きさを決める値を足す（線・面には効かない）。
+ * 失敗（配信元の404を含む）はそのまま投げる——取るコマは配信の遅れのぶん前へずらしてあり（`jmaFramesOf`）、配信済みの
+ * コマは地物が無くても空の集まりで返るので、404は取れていないことを表す。 */
+export async function fetchJmaGeojson(
   delivery: JmaDelivery,
   frame: JmaFrame,
   label: string,
 ): Promise<GeoJSON.FeatureCollection> {
   const geojson = await fetchJson<GeoJSON.FeatureCollection>(jmaFrameUrl(delivery, frame), {
     timeoutMs: DEFAULT_API_TIMEOUT_MS,
-    category: "api:jma-points",
+    category: "api:jma-geojson",
     errorLabel: label,
   });
   return {
@@ -244,7 +251,8 @@ function readLatest(rows: readonly RawTargetTime[], elementId: string): JmaFrame
 }
 
 // backendのプリウォームが同じ読み方で温めるフレームを選ぶ（`domain/jma_tile_specs.py: read_target_times`）。
-// 片方だけ変えると在否インデックスのフレームが画面と一致せず、画面は全タイルを取りに行く。
+// 片方だけ変えると在否インデックスのフレームが画面と一致せず、画面は全タイルを取りに行く。配信の遅れのずらし
+// （`delayed`）はプリウォームが持たず、タイルの要素には宣言できない（`domain/jma_tile_specs.py: JmaElement`）。
 const READERS: Record<JmaDelivery["reader"], (rows: readonly RawTargetTime[], elementId: string) => JmaFrame[]> = {
   nowcast: readNowcast,
   latestFullRun: readLatestFullRun,
@@ -252,9 +260,32 @@ const READERS: Record<JmaDelivery["reader"], (rows: readonly RawTargetTime[], el
 };
 
 /** 時刻一覧の行（読めたファイルの行を宣言の順につないだもの）から、その配信要素の段のコマ（時刻順）を読む。
- * 読み方は源泉の宣言が決める。 */
+ * 読み方と配信の遅れは源泉の宣言が決める。 */
 export function jmaFramesOf(delivery: JmaDelivery, rows: readonly unknown[]): JmaFrame[] {
-  return READERS[delivery.reader](rows as readonly RawTargetTime[], delivery.id);
+  const frames = READERS[delivery.reader](rows as readonly RawTargetTime[], delivery.id);
+  return delayed(frames, rows as readonly RawTargetTime[], delivery);
+}
+
+/** 配信の遅れ（`dataDelayMinutes`）を持つ要素は、時刻一覧に載せたコマをまだ配信していないことがある。公式の画面と
+ * 同じく、その要素の最新の`basetime`から遅れの幅に入るコマを、幅の端まで前の`basetime`へずらす（実況のコマは
+ * `validtime`も同じだけ戻し、ずらした先の実況にする）。 */
+function delayed(frames: JmaFrame[], rows: readonly RawTargetTime[], delivery: JmaDelivery): JmaFrame[] {
+  const delayMs = delivery.dataDelayMinutes * 60_000;
+  if (delayMs === 0) return frames;
+  const latest = Math.max(
+    ...rows.filter((row) => row.elements.includes(delivery.id)).map((row) => parseValidtime(row.basetime).getTime()),
+  );
+  return frames.map((frame) => {
+    const behindMs = latest - parseValidtime(frame.basetime).getTime();
+    if (behindMs >= delayMs) return frame;
+    const basetime = formatValidtime(new Date(parseValidtime(frame.basetime).getTime() - (delayMs - behindMs)));
+    return { ...frame, basetime, validtime: frame.validtime === frame.basetime ? basetime : frame.validtime };
+  });
+}
+
+/** Date → "YYYYMMDDHHmmss"（UTC）形式。 */
+function formatValidtime(date: Date): string {
+  return date.toISOString().replace(/[-:T]/g, "").slice(0, 14);
 }
 
 /** "YYYYMMDDHHmmss"（UTC）形式のvalidtime → Date。 */
