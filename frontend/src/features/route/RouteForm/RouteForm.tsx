@@ -58,6 +58,7 @@ interface RouteFormProps {
 
 const MAX_DISTANCE_KM = routeGenerateConfig.max_distance_km;
 const MAX_ROUTES = routeGenerateConfig.max_routes;
+const MAX_WAYPOINTS = routeGenerateConfig.max_waypoints;
 
 export default function RouteForm({
   distance,
@@ -98,6 +99,8 @@ export default function RouteForm({
     /** 武装中に値の代わりに出す文言。置いた数を隠さないため、経由地は件数を添える。 */
     armedHint: string = "地図をタップ",
     usage?: string,
+    /** 上限まで置いてあり、これ以上置けない（武装できない）。 */
+    full: boolean = false,
   ) {
     const armed = armedPinRole === role;
     return (
@@ -111,7 +114,10 @@ export default function RouteForm({
           variant="plain"
           className="flex min-w-0 flex-auto items-center gap-2 rounded-sm px-1.5 py-1"
           pressed={armed}
-          aria-label={armed ? `${label}の指定をやめる` : `${label}を${armLabel}`}
+          disabled={full}
+          aria-label={
+            full ? `${label}は上限まで置いてあります` : armed ? `${label}の指定をやめる` : `${label}を${armLabel}`
+          }
           onClick={() => onArmPinRole(armed ? null : role)}
           usage={usage}
         >
@@ -148,7 +154,7 @@ export default function RouteForm({
                 : "flex-none text-[length:var(--font-size-sm)] text-[var(--color-accent-strong)]"
             }
           >
-            {armed ? "やめる" : armLabel}
+            {armed ? "やめる" : full ? "上限" : armLabel}
           </span>
         </Toggle>
         {extra}
@@ -284,6 +290,7 @@ export default function RouteForm({
                 ) : undefined,
                 waypointCount > 0 ? `地図をタップ[${waypointCount}地点]` : "地図をタップ",
                 "押してから地図をタップするたびに、そこを通る経由地を足します。もう一度押すとやめます。",
+                waypointCount >= MAX_WAYPOINTS,
               )}
               {renderPointRow(
                 "destination",
