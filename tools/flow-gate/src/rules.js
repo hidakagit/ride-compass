@@ -86,11 +86,11 @@ export function answerBody(config, { questionUrl, choice, next, note }) {
   ].join("\n");
 }
 
-// 答えが要るときに本文の先頭に置く、ステータス・問いの文・回答フォームへのリンクの1行。印の間だけを足し替え、本文の中身には触れない。
+// 答えが要るときに本文の先頭に置く、回答フォームへのボタンと、ステータス・問いの文の行。印の間だけを足し替え、本文の中身には触れない。
 const BANNER = /^<!-- flow-gate -->\n[\s\S]*?\n<!-- \/flow-gate -->\n*/;
 export const withoutBanner = (body) => (body ?? "").replace(/\r\n/g, "\n").replace(BANNER, "");
 export const withBanner = (body, status, ask) =>
-  `<!-- flow-gate -->\n[![回答する](${ask.button})](${ask.url})\n\n**${status}**: ${ask.text} → [回答フォーム](${ask.url})\n<!-- /flow-gate -->\n\n${withoutBanner(body)}`;
+  `<!-- flow-gate -->\n[![回答する](${ask.button})](${ask.url})\n\n**${status}**: ${ask.text}\n<!-- /flow-gate -->\n\n${withoutBanner(body)}`;
 
 // 回答フォームへのボタンの画像。GitHub の画面にはボタンを足せないので、本文の先頭にリンク付きの画像として置く。
 export const BUTTON_SVG =

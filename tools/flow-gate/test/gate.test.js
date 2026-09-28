@@ -60,7 +60,7 @@ test("入口: hidakagit が書いた issue は未着手で Claude に、ほか�
   assert.deepEqual([gh.issue.status, gh.issue.assignees, gh.issue.labels], ["採否待ち", ["hidakagit"], ["状態:採否待ち"]]);
   assert.deepEqual(comments(gh), []);
   const form = "https://gate.test/answer?issue=2";
-  assert.equal(gh.issue.body, `<!-- flow-gate -->\n[![回答する](https://gate.test/button.svg)](${form})\n\n**採否待ち**: ${config.adoption.question} → [回答フォーム](${form})\n<!-- /flow-gate -->\n\n本文`);
+  assert.equal(gh.issue.body, `<!-- flow-gate -->\n[![回答する](https://gate.test/button.svg)](${form})\n\n**採否待ち**: ${config.adoption.question}\n<!-- /flow-gate -->\n\n本文`);
 });
 
 test("段階（親のある issue）は入口にしない", async () => {
@@ -131,7 +131,7 @@ test("問い直し: 「その他」で答えた後に Claude が問いを書い�
   ] } });
   await deliver("issues", { action: "assigned", issue: { node_id: "I_1" } });
   assert.ok(gh.issue.body.startsWith("<!-- flow-gate -->\n[![回答する]"));
-  assert.match(gh.issue.body, /\*\*回答待ち\*\*: 新しい問い？ → \[回答フォーム\]\(https:\/\/gate\.test\/answer\?issue=5\)/);
+  assert.ok(gh.issue.body.includes("[![回答する](https://gate.test/button.svg)](https://gate.test/answer?issue=5)\n\n**回答待ち**: 新しい問い？\n"));
   await deliver("issues", { action: "labeled", issue: { node_id: "I_1" } });
   assert.equal(gh.writes.filter((w) => w.op === "updateIssue" && "body" in w).length, 1, "リンクが今の状態と同じなら書き直さない");
 });
