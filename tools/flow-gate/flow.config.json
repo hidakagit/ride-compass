@@ -1,6 +1,6 @@
 {
-  "repository": "ridecompass/flow-trial",
-  "project": { "owner": "ridecompass", "number": 1, "statusField": "Status" },
+  "repository": "ridecompass/ride-compass-tasks",
+  "project": { "owner": "ridecompass", "number": 2, "statusField": "Status" },
   "gate": "ridecompass-gate[bot]",
   "people": {
     "hidakagit": { "id": 6731891, "shown": "hidakagit" },
