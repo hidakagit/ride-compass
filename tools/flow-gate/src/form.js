@@ -75,7 +75,7 @@ function render(config, { issue, q, choices }) {
   const people = Object.entries(config.people).map(([k, p]) => `<option value="${esc(k)}">${esc(p.shown)}</option>`);
   const radios = choices.map(
     (c, i) =>
-      `<label><input type="radio" name="choice" value="${i}" required data-text="${esc(c.text)}" data-next="${esc(c.next ?? "")}"> ${esc(c.text)}</label>`,
+      `<label><input type="radio" name="choice" value="${i}" required data-text="${esc(c.text)}" data-next="${esc(c.fixed ? "" : (c.next ?? ""))}"> ${esc(c.text)}</label>`,
   );
   return page(
     `<h1>#${issue.number} ${esc(issue.title)}</h1><p>${esc(q.parsed.text)}</p>` +
@@ -97,7 +97,7 @@ async function submit(gate, env, data) {
   const note = String(data.get("note") ?? "").trim();
   if (!choice) return { error: "選択肢を1つ選んでください。" };
   if (choice.note && !note) return { error: `「${choice.text}」には補足が要ります。` };
-  const next = choice.next === null ? null : String(data.get("next"));
+  const next = choice.next === null ? null : choice.fixed ? choice.next : String(data.get("next"));
   if (next !== null && !gate.config.people[next]) return { error: "次に動く者が選べていません。" };
   const precheck = await gate.apply({ ...issue }, issue.status, choice.to, { dryRun: true, labels: choice.labels });
   if (!precheck.ok) return { error: precheck.reason };

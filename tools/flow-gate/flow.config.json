@@ -32,6 +32,7 @@
     "askers": ["hidakagit-bot"],
     "answerer": "hidakagit"
   },
+  "afterAnswer": { "回答待ち": "未着手" },
   "nextStage": { "to": "未着手", "assign": "hidakagit-bot" },
   "adoption": {
     "status": "採否待ち",

@@ -126,7 +126,7 @@ test("問い直し: 「その他」で答えた後に Claude が問いを書い�
   const q2 = "## 問い\n新しい問い？\n\n### 選択肢\n- A → 未着手\n- B → 保留\n";
   const gh = fakeGitHub({ issue: { number: 5, authorId: ME, status: "回答待ち", assignees: ["hidakagit"], comments: [
     { body: q1, author: { login: "hidakagit-bot", databaseId: BOT } },
-    { body: "## 回答\n問い: u#0\n選んだもの: その他（コメント）\n次のステータス: 回答待ち", author: { login: "hidakagit" } },
+    { body: "## 回答\n問い: u#0\n選んだもの: その他（コメント）\n次のステータス: 未着手", author: { login: "hidakagit" } },
     { body: q2, author: { login: "hidakagit-bot", databaseId: BOT } },
   ] } });
   await deliver("issues", { action: "assigned", issue: { node_id: "I_1" } });
@@ -161,9 +161,20 @@ test("設定の不変条件: 表・入口・フォームが使う名前はすべ
     assert.ok(t.assign === null || people.includes(t.assign), t.assign);
   }
   for (const e of config.entry) assert.ok(config.statuses.includes(e.to) && people.includes(e.assign));
+  for (const [from, to] of Object.entries(config.afterAnswer)) assert.ok(check(config, from, to).ok, `${from}→${to}`);
   const adoption = parseQuestion(config, adoptionQuestion(config));
   for (const status of config.ask.statuses)
     for (const c of formChoices(config, adoption, status)) assert.ok(c.to === status || check(config, status, c.to).ok, `${status}→${c.to}`);
+});
+
+test("行き先を書いていない選択肢（「その他」を含む）で答えると、回答待ちは未着手へ進み、採否待ちは採否が決まらないまま Claude の番になる", () => {
+  const q = parseQuestion(config, "## 問い\nどうする？\n\n### 選択肢\n- A → 保留\n- B\n");
+  const other = (choices) => choices.find((c) => c.note);
+  const answered = other(formChoices(config, q, "回答待ち"));
+  assert.deepEqual([answered.to, answered.next], ["未着手", "hidakagit-bot"]);
+  assert.equal(formChoices(config, q, "回答待ち").find((c) => c.text === "B").to, "未着手");
+  const adoption = other(formChoices(config, parseQuestion(config, adoptionQuestion(config)), "採否待ち"));
+  assert.deepEqual([adoption.to, adoption.next, adoption.fixed], ["採否待ち", "hidakagit-bot", true]);
 });
 
 test("問いの形に合わないもの（知らないステータス・選択肢が1つ）は読まない", () => {

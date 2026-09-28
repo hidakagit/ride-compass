@@ -63,13 +63,16 @@ export function adoptionQuestion(config) {
 }
 
 // フォームに出す選択肢。問いの選択肢とフォームが必ず足す選択肢のうち、今のステータスから表で行けるものだけ。
+// 行き先を書いていない選択肢は、afterAnswer にある今のステータスならそこへ進む（答えたのに回答待ちに残さない）。
+// 答えてもステータスが変わらないなら、次に動けるのは問いを書く側だけ（hidakagit はもう答えたので、選ばせない）。
 export function formChoices(config, question, current) {
   return [...question.options, ...config.formOptions]
     .map((o) => {
-      const to = o.to ?? current;
-      const rule = to === current ? null : ruleFor(config, current, to);
-      const next = to === config.done ? null : (o.next ?? rule?.assign ?? "hidakagit-bot");
-      return { text: o.text, to, next, labels: o.labels ?? [], note: Boolean(o.note), ok: to === current || rule };
+      const to = o.to ?? config.afterAnswer[current] ?? current;
+      const fixed = to === current;
+      const rule = fixed ? null : ruleFor(config, current, to);
+      const next = to === config.done ? null : fixed ? config.ask.askers[0] : (o.next ?? rule?.assign ?? "hidakagit-bot");
+      return { text: o.text, to, next, fixed, labels: o.labels ?? [], note: Boolean(o.note), ok: fixed || rule };
     })
     .filter((c) => c.ok)
     .map(({ ok, ...c }) => c);

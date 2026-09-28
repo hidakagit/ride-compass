@@ -1,5 +1,5 @@
 // Claude の番（hidakagit-bot に割り当て）のタスクを、司令塔が振り出す順に並べて出す。
-// 並び: 検証中 → 未着手。それぞれの中は「優先」のラベルがあるもの → 番号の若い順。前提が閉じていない未着手には印を付ける。
+// 並び: 採否待ち・回答待ち（Claude に戻った問い。「その他」で答えた採否や、形の崩れた問い）→ 検証中 → 未着手。それぞれの中は「優先」のラベルがあるもの → 番号の若い順。前提が閉じていない未着手には印を付ける。
 // 検証中のうち作業ブランチ（orch/tasks-<番号>）の先端が master に入ったものには、その master の CI の結果（成功・失敗・待ち）を付ける。
 // 使い方: node tools/flow-gate/bin/queue.js [--json]（コードのリポジトリの作業ツリーの中で打つ）
 import { execFileSync } from "node:child_process";
@@ -7,7 +7,7 @@ import config from "../flow.config.json" with { type: "json" };
 import { GitHub } from "../src/github.js";
 import { botToken, userEnv } from "./token.js";
 
-const ORDER = ["検証中", "未着手"];
+const ORDER = ["採否待ち", "回答待ち", "検証中", "未着手"];
 const bot = config.people["hidakagit-bot"].node;
 const gh = new GitHub(botToken());
 const q = `query Queue($o: String!, $n: Int!, $field: String!, $c: String) { organization(login: $o) { projectV2(number: $n) {
