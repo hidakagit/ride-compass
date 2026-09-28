@@ -17,7 +17,6 @@ export type MapValueKind = NonNullable<components["schemas"]["AxisCatalogEntry"]
 export const RAMP_AXIS_VALUE_KIND: MapValueKind = "difficulty";
 
 const COLOR_EASY = palette.semantic.evaluation_good;
-export const COLOR_NO_DATA = palette.semantic.no_data;
 /** 符号付き材料の負側（下り坂等、走行が楽になる側）の色。 */
 const COLOR_SIGNED_LOW = palette.semantic.signed_descent;
 /** 平坦の色は難易度の「易しい」と同じにして、楽な区間の色を種類をまたいで揃える。 */

@@ -20,8 +20,6 @@ import type { FilterSpecification } from "maplibre-gl";
 
 import { primaryAttributes } from "@/types/generated/primaryAttributes";
 
-import { COLOR_UNKNOWN } from "@/features/map/scene/sceneBuilders";
-
 import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "@/features/map/scene/mapSceneGroups";
 
 const POINT = mapDisplay.point;
@@ -83,12 +81,12 @@ function valueOf(axis: PointAxis): unknown {
 function colorExpression(layer: PointLayer): unknown {
   const axis = layer.display_axes[0];
   // 行が1つも無いときに`case`を出すと、対を持たない式になって地図が受け付けない。
-  if (axis === undefined) return COLOR_UNKNOWN;
+  if (axis === undefined) return palette.semantic.no_data;
   const cases = axis.categories.flatMap((category) => [
     ["in", valueOf(axis), ["literal", [...category.values]]],
     category.color,
   ]);
-  return ["case", ...cases, COLOR_UNKNOWN];
+  return ["case", ...cases, palette.semantic.no_data];
 }
 
 /** 通す分類だけを残す絞り込み。軸が複数あるときはすべてANDで効く。 */

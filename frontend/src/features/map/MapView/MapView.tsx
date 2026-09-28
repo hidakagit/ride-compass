@@ -33,8 +33,9 @@ import {
   ORIGIN_MARK_COLOR,
   ORIGIN_MARK_FALLBACK_COLOR,
   PIN_MARK_BACKGROUND,
-  pinMarkHtml,
-} from "@/lib/mapDisplay/pinMarks";
+  PinMark,
+  pinMarkText,
+} from "@/components/PinMark/PinMark";
 import {
   buildMapLayers,
   type MapLayerDataSource,
@@ -95,7 +96,8 @@ function mapStyleUrl(): string {
 }
 
 // 出発地点は現在地の記号（十字線と中心の点）を白い円に乗せる。左右対称なので、アンカーは地点＝中心（"center"）。
-function createOriginMarkerElement(color: string): HTMLDivElement {
+// 中身の印はReactでportalして描く。
+function createOriginMarkerElement(): HTMLDivElement {
   const el = document.createElement("div");
   el.style.cssText =
     "width:32px; height:32px; border-radius:50%; background:" +
@@ -103,16 +105,15 @@ function createOriginMarkerElement(color: string): HTMLDivElement {
     "; display:flex; " +
     "align-items:center; justify-content:center; box-shadow:0 1px 4px rgba(0,0,0,0.4); " +
     "touch-action:none; cursor:grab;";
-  el.innerHTML = pinMarkHtml("origin", { size: 20, color });
   return el;
 }
 
 // 経由地・目的地のピン。3つの地点はどれもつかんで動かせるため、出発地と同じ丸いバッジで揃える。白縁と影は
 // どの配色の上でも輪郭が消えないため、touch-action:noneは指の起点がピンに乗ってもパンとして確定させるため。
-function createPointMarkerElement(role: PinRole, label?: string): HTMLDivElement {
+function createPointMarkerElement(role: Exclude<PinRole, "origin">, label?: string): HTMLDivElement {
   const el = document.createElement("div");
   const background = PIN_MARK_BACKGROUND[role];
-  el.innerHTML = pinMarkHtml(role, { label });
+  el.textContent = pinMarkText(role, label);
   el.style.cssText =
     `width:26px; height:26px; border-radius:50%; background:${background}; color:#fff; ` +
     "font-size:13px; font-weight:bold; display:flex; align-items:center; justify-content:center; " +
@@ -371,6 +372,8 @@ export default function MapView({
     tile: TileXY;
   } | null>(null);
   const [roadPopupContainer, setRoadPopupContainer] = useState<HTMLDivElement | null>(null);
+  // 出発地点の印の器（Markerの要素）と、中身の印の色。
+  const [originMark, setOriginMark] = useState<{ element: HTMLDivElement; color: string } | null>(null);
   const catalog = useAxisCatalog();
   const tileVersionsReady = useTileVersionsReady();
   const mapLayerCatalog = useMemo(() => buildMapLayers(catalog), [catalog]);
@@ -740,8 +743,10 @@ export default function MapView({
       } else {
         markerRef.current?.remove();
         const color = locationSource === "default" ? ORIGIN_MARK_FALLBACK_COLOR : ORIGIN_MARK_COLOR;
+        const element = createOriginMarkerElement();
+        setOriginMark({ element, color });
         markerRef.current = new maplibregl.Marker({
-          element: createOriginMarkerElement(color),
+          element,
           anchor: "center",
           draggable: latest.current.pointEditingEnabled,
         })
@@ -957,6 +962,8 @@ export default function MapView({
           />,
           roadPopupContainer,
         )}
+      {originMark !== null &&
+        createPortal(<PinMark role="origin" size={20} color={originMark.color} />, originMark.element)}
     </div>
   );
 }

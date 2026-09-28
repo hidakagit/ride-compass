@@ -13,6 +13,7 @@ import {
   ClearAllLayersIcon,
   ClearRoutesIcon,
   GenerateRoutesIcon,
+  LocateIcon,
   RedrawMapIcon,
   RouteIcon,
   RouteSettingsIcon,
@@ -577,20 +578,7 @@ export default function Home() {
               locating && "cursor-wait opacity-60",
             )}
           >
-            {locating ? (
-              "…"
-            ) : (
-              // 文字の「◎」は書体によって中央の点が描かれないため、SVGで描く。
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <circle cx="12" cy="12" r="3" fill="currentColor" />
-                <path
-                  d="M12 2v3M12 19v3M2 12h3M19 12h3M12 6a6 6 0 1 0 0 12 6 6 0 0 0 0-12Z"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                />
-              </svg>
-            )}
+            {locating ? "…" : <LocateIcon size={20} />}
           </Button>
 
           {locateError && (

@@ -469,6 +469,17 @@ export function DisplayItemsIcon({ size = 16 }: IconProps) {
   );
 }
 
+/** 現在地（出発地の印・現在地へ移動）: 照準の輪と、塗った中心の点。lucideの`LocateFixed`は中心が輪で、
+ * 行頭の印の大きさ（13px）では点に見えない。この形だけ24単位の枠で描く。 */
+export function LocateIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps} viewBox="0 0 24 24" strokeWidth={LUCIDE_STROKE_WIDTH}>
+      <circle cx="12" cy="12" r="3" fill="currentColor" stroke="none" />
+      <path d="M12 2v3M12 19v3M2 12h3M19 12h3M12 6a6 6 0 1 0 0 12 6 6 0 0 0 0-12Z" />
+    </svg>
+  );
+}
+
 // --- 汎用の形（lucide-react） ---
 
 /** lucideの形を、このファイルの他のアイコンと同じ呼び方（`size`だけを受け、既定16px）と

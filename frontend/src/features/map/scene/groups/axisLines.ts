@@ -12,7 +12,7 @@ import palette from "@/types/generated/palette.json";
 import type { MapSceneFeatureStates, MapSceneFeatureStateValue } from "@/features/map/scene/mapScene";
 import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "@/features/map/scene/mapSceneGroups";
 import type { RampAxis } from "@/lib/mapDisplay/axisLayers";
-import { COLOR_UNKNOWN, noDataDashExpression } from "@/features/map/scene/sceneBuilders";
+import { noDataDashExpression } from "@/features/map/scene/sceneBuilders";
 import { LEGEND_NO_DATA_KEY } from "@/lib/mapDisplay/mapColorLegend";
 
 import { ROAD_LINE_SOURCE_ID, ROAD_TRACKS } from "./roadLines";
@@ -85,15 +85,15 @@ function colorExpression(axisId: string, axis: AxisLineState["axes"][number]): u
     cases.push([">=", value, band.lowerBound], color);
   }
   const missing = missingCondition(axisId, axis.value);
-  if (missing === null) return ["case", ...cases, COLOR_UNKNOWN];
+  if (missing === null) return ["case", ...cases, palette.semantic.no_data];
   // 取得中の色は「値なし」を隠していても残す——消すと「まだ来ていない」と「隠した」が
   // 区別できなくなる。
   const missingColor = loading
     ? palette.semantic.loading
     : axis.hiddenBandKeys.includes(LEGEND_NO_DATA_KEY)
       ? palette.semantic.hidden
-      : COLOR_UNKNOWN;
-  return ["case", missing, missingColor, ...cases, COLOR_UNKNOWN];
+      : palette.semantic.no_data;
+  return ["case", missing, missingColor, ...cases, palette.semantic.no_data];
 }
 
 function featureStatesFor(state: AxisLineState): MapSceneFeatureStates {
