@@ -45,7 +45,7 @@
   ここへ書かない**（2026-08-31再明文化。既に「既知の逸脱はモジュール設計書には不要」と
   定めていたが、全ソース再検証中にTxxxへの違反リンクを本文へ書き込んでしまい再度
   指摘された）。「AがBと矛盾する」「Cにガードが無い」のような指摘は
-  `docs/records/tasks/Txxx.md`／周期レビューの起票案（[/review](../../.claude/commands/review.md)）側の役割。
+  タスクの issue／周期レビューの起票案（[/review](../../.claude/commands/review.md)）側の役割。
   ここは常に「今のコードはこう動く」という中立的な事実の記述に徹する——起票済みの
   Txxxへのリンクを含め、違反や不整合を名指しする文自体を書かない。
 
@@ -62,7 +62,7 @@
 | 実行環境・プラットフォーム固有の制約 | [architecture/tech-stack.md](../architecture/tech-stack.md) | バンドラ・ホスティング・OSに由来する回避策 |
 | 外部データソースの利用条件 | [architecture/data-sources.md](../architecture/data-sources.md) | 商用利用の可否・出典と加工した旨の表記要件。提供元の公式ページにしか無い |
 | 検知器・レビュー基盤（`scripts/`） | [/review](../../.claude/commands/review.md)と`scripts/review_checks.py` | 何をどの経路で機械的にブロックするか。アプリの挙動ではなく**アプリを検査する側**のため、下の対象ファイル表の母集団にも入らない |
-| 並行実行の道具（`scripts/orchestrate.py`・`scripts/orchestration/`等） | [conventions/orchestration.md](../conventions/orchestration.md)（ファイルの逆引きは「道具のファイル」節） | 状態の表・門・定期確認・監査・スロット。アプリの外の運用の道具で、下の対象ファイル表の母集団に入らない |
+| タスクの流れのゲート（`tools/flow-gate/`） | [conventions/flow.md](../conventions/flow.md) | ステータスの遷移の表・問いと答えの形・回答フォーム。アプリの外の運用の道具で、下の対象ファイル表の母集団に入らない |
 | クラウドのセッションの用意（`scripts/remote_dev/`） | [architecture/setup.md](../architecture/setup.md)「クラウドのセッション」 | 依存の導入とDB・Redisの起動 |
 
 判断の目安は**「その制約を、コードだけを読んで知れるか」**。知れないならモジュール設計書の

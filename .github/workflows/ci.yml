@@ -1,4 +1,4 @@
-# CI。masterと並行実行の作業ブランチ（orch/**）へのpush・PRごとに、backend・frontendの全チェックを回す。
+# CI。masterと作業ブランチ（orch/**）へのpush・PRごとに、backend・frontendの全チェックを回す。
 #
 # - backend: ruff（lint）→ mypy（型検査）→ pytest（PostGIS統合テスト込み）。PostGIS統合テスト（tests/conftest.py の
 #   road_graph_session）は、ランナーへ直接入れたPostgreSQL＋PostGIS + TEST_DATABASE_URL 注入で実行する。
@@ -19,8 +19,7 @@ name: CI
 
 on:
   push:
-    # orch/** は並行実行のエージェントが担当ごとに持つ作業ブランチ（docs/conventions/orchestration.md
-    # 「完了とpush」）。重い検査を開発機からここへ移すために回す。
+    # orch/** はmasterへ入れる前の作業ブランチ。重い検査を開発機からここへ移すために回す。
     branches: [master, "orch/**"]
     # docs/**・*.md はこのワークフローのどの検査の入力でもない（テスト・lint・型検査・E2Eは
     # これらを読まない）ため、結果の変わらない実行を起こさない。文書の整合は
@@ -70,7 +69,6 @@ jobs:
             backend/requirements.txt
             backend/requirements-batch.txt
             backend/requirements-dev.txt
-            scripts/requirements.txt
       # requirements-batch.txt（-r requirements.txtを内包、+osmium）を入れる。tests/には
       # test_import_pbf.py・test_pbf_source.pyというPBF取込バッチ（app/batch/）専用の
       # テストが存在し無条件でosmiumをimportするため、requirements.txtのみのインストール

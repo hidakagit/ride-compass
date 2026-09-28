@@ -23,39 +23,6 @@
           }
         ]
       }
-    ],
-    "PostToolUse": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "f=\"$CLAUDE_PROJECT_DIR/scripts/orchestration/hook.sh\"; [ -f \"$f\" ] || exit 0; . \"$f\"",
-            "timeout": 120
-          }
-        ]
-      }
-    ],
-    "WorktreeCreate": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "timeout": 1800,
-            "command": "d=$(git -C \"$CLAUDE_PROJECT_DIR\" rev-parse --path-format=absolute --git-common-dir)/orchestration && mkdir -p \"$d\" && f=\"$d/launch-$$.py\" && git -C \"$CLAUDE_PROJECT_DIR\" show origin/master:scripts/orchestration/launch.py > \"$f\" && python \"$f\" --project \"$CLAUDE_PROJECT_DIR\" slot hook-create; r=$?; rm -f \"$f\"; exit $r"
-          }
-        ]
-      }
-    ],
-    "WorktreeRemove": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "timeout": 60,
-            "command": "d=$(git -C \"$CLAUDE_PROJECT_DIR\" rev-parse --path-format=absolute --git-common-dir)/orchestration && mkdir -p \"$d\" && f=\"$d/launch-$$.py\" && git -C \"$CLAUDE_PROJECT_DIR\" show origin/master:scripts/orchestration/launch.py > \"$f\" && python \"$f\" --project \"$CLAUDE_PROJECT_DIR\" slot hook-remove; r=$?; rm -f \"$f\"; exit $r"
-          }
-        ]
-      }
     ]
   }
 }

@@ -307,8 +307,7 @@ Edgeが無いのは正常な事実だが、それを欠陥と同じ群に入れ�
 その場に書いていることがある。実測: 起こし直し2回で担当が挙げた欠陥・改善案20件のうち誤検知は
 3件で、3件ともこの形だった（[T1041](../records/tasks/T1041.md)）。
 
-聞くかどうかの決め方・書く順・製品の言葉で書くこと・届け方は
-[asking-user.md](asking-user.md)が正本。テストの欠陥の要確認で足すのは次の2つだけ。
+問いの形と届け方は[flow.md](flow.md)「問い」が正本。テストの欠陥の要確認で判断材料に足すのは次の2つだけ。
 
 **設計書・コード・テストが、それぞれ何を主張しているか。** 利用者への約束と場面の次に、3行の表で、
 **同じ粒度・実装の語を使わずに**。「コードはこう実装されている」ではなく「コードはこう主張
@@ -579,7 +578,7 @@ importしていないため、名前空間経由では中身の型へ届かな�
   モックの応答を差し替える、vitestなら渡す入力（props・フェイクの応答）を差し替える。ソースを書き換えて
   本番ビルドし直す確かめ方は、1回で数分かかるうえ戻し忘れを生む。
 - **道具（`scripts/`）の仕組み**は、一時的なgitリポジトリと入力の差し替え（網・時計・書き出したファイル）で、
-  入口のコマンドから確かめる（`backend/tests/test_orchestration_slots.py`）。
+  入口から確かめる。
 - **数分かかる本物の処理**（本番ビルド・本物の`npm ci`・E2Eの一式）は、最終確認の1回までにする。仕組みを
   確かめるために繰り返し使うと、1回ごとに数分を払い、しかも本物の環境の癖（出力の文字コード等）で結果が
   ぶれて待ちが延びる（規模Sのタスクが予算の2〜2.5倍かかった実測は[T1162](../records/tasks/T1162.md)）。
@@ -595,13 +594,30 @@ importしていないため、名前空間経由では中身の型へ届かな�
 | 作業ブランチ（`orch/**`）のCI | `ci.yml`の全ジョブ（prettier・eslint・knip・tsc・vitest・ruff・mypy・lint-imports・pytest全件・E2E・API契約）と`docs-consistency.yml` | 触った範囲の外にある前提（フルスイート・Linuxでの結果）。masterへ入れてよいかの判定 |
 | masterのCI | 同じ`ci.yml`と`docs-consistency.yml` | 作業ブランチで個別に通ったコミットを組み合わせた木の検査。`ci.yml`が全部通るまでbackendのデプロイは起動しない（**本番へ出る前の門はここ**） |
 
-- **`.githooks/pre-push`は検査をしない。** CIと同じ検査をpushの直前に置くと、masterへのpushの
-  たびに開発機で同じ答えを買い直す。フックに残すのはCIにできないこと（並行実行の停止ファイルが
-  ある間のpushの拒否と、masterのCIが赤いときの警告）だけ。
+- **pushの直前（gitのフック）には検査を置かない。** CIと同じ検査をpushの直前に置くと、masterへのpushの
+  たびに開発機で同じ答えを買い直す。
 - 手元で通さずにpushしてもCIが止めるが、赤を作ってから直す往復はCIの所要ぶん遅い。手元の層を
   省いてよい理由にはならない。
 - frontend（Render）のデプロイがCIを待つかは、Renderのダッシュボードの設定で決まる
   （docs/architecture/tech-stack.md「デプロイの反映確認」）。
+
+### CIの結論を読む
+
+**masterの結論は、masterの最新コミットに対するものを読む。** 古いコミットで落ちたまま最新で直って
+いる失敗を数え続けると、赤そのものが無視されるようになる。逆に、masterが赤いままの上では新しい赤が
+埋もれ、「CIが通った」を完了の根拠にできない。実行中の実行は結論が出ていないので赤に数えない。
+打ち切り・時間切れで終わった実行は、成功していない以上「通った」に数えない。
+
+`gh`が入っていない環境では、ActionsのREST APIを直接読む。そのときの事実:
+
+- 認証なしの問い合わせは接続元のIPごとに1時間60回までで、開発機のすべてのセッションが同じ枠を使う。
+  `git credential fill`で取れるトークンを`Authorization: Bearer`で付ける。トークンは出力・ログ・例外文に出さない。
+- 実行はコミットの完全なsha（40桁）でしか引けない（`head_sha`に短いshaを渡すと実行が返らない）。
+- 同じコミットに複数の実行が混ざる（手動の再実行・同じブランチへ続けたpush）。`created_at`が同じ秒の
+  実行どうしは並び順が保証されないので、ワークフローごとに`run_number`が最大の1件を採る。
+- ジョブのログは署名付きの別のURLへの302で返り、転送先は転送された認証の見出しを拒む。リダイレクトで
+  見出しを引き継ぐクライアント（Pythonの標準ライブラリの`urllib`等）では、認証の見出しを転送先へ渡さない
+  （`Request.add_unredirected_header`で付ける）。
 
 ### 型検査（mypy）
 
@@ -678,8 +694,8 @@ backend/.venv/Scripts/python.exe -m pytest backend/tests -q -m postgis
 
 `--testmon`を付けて流すと、テストごとに通った行を記録し（`backend/.testmondata`。作業ツリーごとで、
 コミットしない）、次に`--testmon`を付けた実行では、**渡した範囲のうち、前回から変わった行を通るテストと
-記録の無いテストだけ**を流す。記録はそのスロットで`--testmon`付きで流した分だけ溜まり、スロットを使い回す
-間は残る。
+記録の無いテストだけ**を流す。記録はその作業ツリーで`--testmon`付きで流した分だけ溜まり、作業ツリーを
+使い回す間は残る。
 
 ```bash
 PYTHONUTF8=1 backend/.venv/Scripts/python.exe -m pytest backend/tests/test_foo.py backend/tests/test_bar.py -q --testmon
@@ -786,14 +802,6 @@ backend/.venv/Scripts/python.exe backend/scripts/drop_orphan_test_databases.py -
 実装を変えてテストを直し忘れると、気づくのはCIになる。実際にこの型で3件の赤が生まれている
 （[T834](../records/tasks/T834.md)・[T835](../records/tasks/T835.md)）——**CIが担うのはここ**で、手元で
 先回りして通すことでは置き換えない。
-
-**あわせて、masterのCIが赤いままなら手元へ出る**（`.githooks/pre-push`→
-`scripts/check_master_ci.py`、[T835](../records/tasks/T835.md)）。pushの直前にmasterの最新コミットに
-対する結論を読み、成功していないワークフローがあれば警告する（`orch/**`だけへの
-pushでは読まない）。**pushは止めない**——赤の原因が
-自分の変更とは限らず、止めると無関係な作業がブロックされるため、気づかせるところまでを担う。
-変更が届く範囲を手元で通すことと役割が違う——赤を**作りにくくする**のが手元の実行、
-作ってしまった赤に**気づく**のがこの警告とCIである。
 
 ## ソースを読む検査は、専用ディレクトリへ置く
 
@@ -1002,7 +1010,7 @@ CSSの規則が当たる。開くたびに作り直される部品（ポップ�
 ### 走らせ方
 
 - **`npm run test:e2e`**（`npm run build`→`playwright test`）。CIのe2eジョブも同じ
-  コマンドを使う。並行実行の開発機では`heavy`の枠を通す（[orchestration.md](orchestration.md)）。
+  コマンドを使う。
 - **全状態の走査（`e2e/all-states.spec.ts`）は、CIでは幅ごとの別ジョブ（`e2e-scan`）で走らせ、
   それ以外のspecは`e2e`ジョブで走らせる。** 走査は1本の中で画面の状態を辿るので、分けられる単位は幅に
   なる。masterと作業ブランチ（`orch/**`）のどちらでも走る。手元で先に確かめたいときは
@@ -1043,17 +1051,15 @@ CSSの規則が当たる。開くたびに作り直される部品（ポップ�
     上の基礎地図のURLとCORS（カンマ区切り）だけを足して、作業ツリーのコードを本体の`backend/.venv`で起動する。
     ポートは8000が使われていれば空いているものを選び、起点は開発DBの区間のうち路面タイルに道が出る点を選ぶ。
     `/health`が返ると、向け先と起点を埋めたビルドと実行のコマンド、止め方（backendのpid）を出す。
-  - **手順**: 起動の出力のとおり、`python scripts/lockrun.py -- 'cd frontend && NEXT_PUBLIC_API_URL=<backend> BACKEND_INTERNAL_URL=<backend> npm run build'` →
-    `python scripts/lockrun.py -- 'cd frontend && E2E_LIVE_API=<backend> E2E_LIVE_POINT=<緯度,経度> ./node_modules/.bin/playwright test -c playwright.live.config.ts <シナリオ>'`
-    をシナリオごとに1回（`heavy`の枠の上限10分に1シナリオが収まる）。`NEXT_PUBLIC_API_URL`と`BACKEND_INTERNAL_URL`
+  - **手順**: 起動の出力のとおり、`cd frontend && NEXT_PUBLIC_API_URL=<backend> BACKEND_INTERNAL_URL=<backend> npm run build` →
+    `cd frontend && E2E_LIVE_API=<backend> E2E_LIVE_POINT=<緯度,経度> ./node_modules/.bin/playwright test -c playwright.live.config.ts <シナリオ>`
+    をシナリオごとに1回。`NEXT_PUBLIC_API_URL`と`BACKEND_INTERNAL_URL`
     （Next.jsのサーバーが中継する基礎地図・タイルの行き先）はビルドに埋め込まれるので、backendの向け先を変えたらビルドし直す。
   - **誰がいつ回すか**: 地図の描き方（`features/map/scene/`等）・タイルへ焼く値・軸カタログ・動的値の
     配信・気象の描き方・ルート生成の応答に触る変更の担当が、**作業ブランチを出す前に1回**回し、
     実行したコマンドと結果（落ちた枝・「該当なし」・「外部要因」）をコミットメッセージへ書く。回せない
     環境（クラウドのセッション等）・当たるファイルを変えたが描き方にも応答にも触らない変更では、回さない理由を
-    `e2e-live`の語を添えてコミットメッセージへ書く。触らない変更では回さない。門にはしない（CIでもpre-pushでもない）。
-    回したかは監査が候補として見る: 当たる変更（入口のファイルは`scripts/orchestration/core.py`の`E2E_LIVE_PATHS`）で、
-    範囲のコミットメッセージに`e2e-live`・`playwright.live`の語が無ければ候補に出す（止めはしない）。
+    `e2e-live`の語を添えてコミットメッセージへ書く。触らない変更では回さない。門にはしない（CIに載せない）。
 
 ### 書き方
 
@@ -1228,6 +1234,5 @@ str(Path("venv") / "Scripts" / "uvicorn.exe")
 持ち込まない。実装に両方の区切りを読む分岐を足してテストへ合わせることもしない。
 
 これは書く人が守るもので、機械では確かめていない。**最終的にはCI（Linux）が判定する**——
-並行実行では作業ブランチ（`orch/<名前>`）へのpushでCIが走り、監査がその結論を読む
-（[orchestration.md](orchestration.md)「完了とpush」）ので、Windowsで通っただけのテストは
-masterへ入る前に止まる。
+作業ブランチ（`orch/**`）へのpushでCIが走り、masterへ入れる前の確かめがその結論を読む
+（[flow.md](flow.md)の検証中）ので、Windowsで通っただけのテストはmasterへ入る前に止まる。

@@ -68,6 +68,10 @@ docker compose run --rm backend python scripts/bootstrap_database.py --create-ex
   かかる（キャッシュからの開始の実測22秒。温まったディスクなら7〜8秒）。DBを使う前に
   `bash scripts/remote_dev/wait_db.sh`で待つ（起動が済んでいれば即座に返り、失敗ならログの場所を出して
   終了コード1）。
+  フックのコマンドは`/bin/sh -c`で動き、クラウドのUbuntuでは`/bin/sh`がdashなので、`.claude/settings.json`の
+  行はPOSIXのshだけで書き、bashの機能が要る処理はスクリプトへ出して`bash`で起こす。フックの定義はセッションを
+  始めたチェックアウトの`.claude/settings.json`から読まれるので、masterで直しても、そのチェックアウトを
+  進めるまでは古い定義で動く。
 - **環境のキャッシュを作る実行**では、セットアップスクリプトのあとに基盤が`claude --init-only`を
   走らせ、リポジトリの`Setup`フック（trigger `init`）とSessionStartフックがこの順に走る（公式の文書に
   あるのは`--init-only`で`Setup`が走ることだけで、キャッシュ作りの中で走ることは環境マネージャの
@@ -149,10 +153,10 @@ RideCompass/
   frontend/           Next.js (App Router) + TypeScript + MapLibre GL JS
   backend/            FastAPI (Python) + PostGIS
   docs/               architecture/（構成と設計原則）・modules/（実装の詳細）・
-                      conventions/（規約）・improvement-plan.md（台帳）・records/（記録）
+                      conventions/（規約）・records/（記録）
   .claude/            レビュー基盤・スキル定義
   scripts/            リポジトリ横断の検査スクリプト・クラウドのセッションの用意（remote_dev/）
-  .githooks/          push直前の門（git config core.hooksPath .githooks で有効化）
+  tools/flow-gate/    タスクの流れのゲートと回答フォーム（docs/conventions/flow.md）
   docker-compose.yml  frontend/backend/postgres(PostGIS)/redisを一括起動
   restart-dev.bat / stop-dev.bat   Windows向けの再起動・停止（残留プロセスをkillして
                                     バックグラウンド起動、ログはlogs/へ）

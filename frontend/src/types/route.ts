@@ -1,6 +1,6 @@
 // APIの型はbackendのOpenAPIスキーマから生成した generated/api.d.ts を正とし、
 // このファイルはその再エクスポート＋フロント専用の補正だけを持つ（手書きの二重管理を
-// しない。docs/improvement-plan.md T4）。backendのレスポンスモデルを変更したら
+// しない）。backendのレスポンスモデルを変更したら
 // backend/scripts/export_openapi.py → npm run generate:api で生成物を更新すること
 // （CIのapi-contractジョブがドリフトを検知する）。
 //

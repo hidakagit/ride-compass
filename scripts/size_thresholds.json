@@ -13,8 +13,7 @@
     "frontend/src/features/admin/AxisStudio/AxisScoringSection.tsx": 900,
     "frontend/src/components/ui/icons/icons.tsx": 1000,
     "frontend/src/features/map/MapOverlayControls/MapOverlayControls.tsx": 800,
-    "frontend/src/types/generated/api.d.ts": 3800,
-    "scripts/orchestration/core.py": 2300
+    "frontend/src/types/generated/api.d.ts": 3800
   },
   "on_fire": {
     "backend/app/domain/material_catalog.py": "一次属性の表（PRIMARY_ATTRIBUTESとその型）を別モジュールへ出す",

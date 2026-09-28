@@ -172,11 +172,11 @@ def main() -> int:
         point = choose_point(api, env, args.point)
         print(f"backend: {api}（この作業ツリーのコード・開発DB。pid {proc.pid}、ログ {log}）")
         print(f"起点: E2E_LIVE_POINT={point}")
-        print("ビルド（向け先はビルドに埋め込まれる）: python scripts/lockrun.py -- "
-              f"'cd frontend && NEXT_PUBLIC_API_URL={api} BACKEND_INTERNAL_URL={api} npm run build'")
-        print("実行（シナリオごとに1回）: python scripts/lockrun.py -- "
-              f"'cd frontend && E2E_LIVE_API={api} E2E_LIVE_POINT={point} "
-              "./node_modules/.bin/playwright test -c playwright.live.config.ts e2e-live/<シナリオ>.spec.ts'")
+        print("ビルド（向け先はビルドに埋め込まれる）: "
+              f"cd frontend && NEXT_PUBLIC_API_URL={api} BACKEND_INTERNAL_URL={api} npm run build")
+        print("実行（シナリオごとに1回）: "
+              f"cd frontend && E2E_LIVE_API={api} E2E_LIVE_POINT={point} "
+              "./node_modules/.bin/playwright test -c playwright.live.config.ts e2e-live/<シナリオ>.spec.ts")
         # 呼び出した側を止めてもbackendの子は残りうる（Windowsは親を止めても子を止めない）ので、pidで止める形を出す。
         print(f"止める: PowerShellで Stop-Process -Id {proc.pid}（この処理も終わる）", flush=True)
         return proc.wait()

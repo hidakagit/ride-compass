@@ -90,7 +90,7 @@ CronCreate等）に付随する進捗・ログ・通知メッセージも例外�
   分からないこと（暗黙の前提・外部システムの挙動・実測値）
 - **代表例は許容する**。挙動を分かりやすくするためなら「◯◯等」「例:」の形で挙げてよい
 - 全件が必要なら生成物（material-catalog.json等）かそれを定義するコードを指す
-- 例外はdocs/modules/*.mdの対象ファイル表（と並行実行の道具の同じ表）だけ（新しい実装ファイルの責務を逆引きする
+- 例外はdocs/modules/*.mdの対象ファイル表だけ（新しい実装ファイルの責務を逆引きする
   ために全件を持つ。完全性は周期レビューで人が見る）。同じ一覧を二重に持たない
 - **文書・コメントが他のファイルの定義を名指すときは「パス: 名前」の形で書く**
   （例: `domain/material_catalog.py: MaterialSpec.value_labels`）。この形に限り、名前が消えた・
@@ -133,7 +133,7 @@ CronCreate等）に付随する進捗・ログ・通知メッセージも例外�
   プロジェクト全体で1回通す（`./node_modules/.bin/tsc --noEmit`で27秒。Next.jsの生成型が
   未作成なら`./node_modules/.bin/next typegen`を先に）。
 - **フルスイート（backend全体・`-m postgis`・frontendの`vitest`全体）はCIの持ち物であり、
-  手元の完了条件に含めない。** `.github/workflows/ci.yml`がmasterと並行実行の作業ブランチ
+  手元の完了条件に含めない。** `.github/workflows/ci.yml`がmasterと作業ブランチ
   （`orch/**`）へのpushのたびに
   backend ruff→mypy→pytest（PostGIS統合テスト込み、`-n auto --dist loadgroup`で並列）・
   frontend prettier→eslint→tsc→vitestを実行し、masterでは全部通るまでbackendのデプロイを起動しない

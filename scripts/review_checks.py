@@ -9,14 +9,11 @@
 この要件から、次が導かれる。
 
 - **走査範囲を絞る仕組みを持たない。** 不変条件なら、全件でも差分でも同じ答えになる。
-  「新しく入った分だけを咎める」必要があるなら、それは不変条件ではない。例外は1つで、
-  答えが**どの木を検査しているか**で変わる: 台帳の行と記録の状態の対応はmasterの木でだけ
-  成り立つ（作業ブランチでは担当が状態だけを変え、行は取り込みで司令塔が直す）ので、masterでは
-  違反、それ以外のブランチでは参考として出す（`find_task_state_problems`）
+  「新しく入った分だけを咎める」必要があるなら、それは不変条件ではない
 - **許可リストを持たない。** 許可リストは誤検知を認めた印である。「この綴りは外部の
   語彙だから除外する」が必要なら、その検査は事実を見ていない
 - **母集団を手で書かない。** 「どのファイルが対象か」を人が列挙すると、実装が動いた
-  ときに静かにずれる。対象は、その検査が読む対象そのもの（マークダウン全件・台帳1本）
+  ときに静かにずれる。対象は、その検査が読む対象そのもの（マークダウン全件）
   から自然に決まるものに限る
 - **実装そのものを検査対象にしない**（コードの書き方・import規則・型・レイヤーの
   不変条件）。実装側の道具（lint・型検査・テスト）が持つ。検知器が実装の姿を知ろうと
@@ -26,7 +23,7 @@
 
 ## 使い方
 
-    python scripts/review_checks.py docs      # 文書と台帳の整合（常に全件）
+    python scripts/review_checks.py docs      # 文書の整合（常に全件）
     python scripts/review_checks.py size      # 規模と前回比
     python scripts/review_checks.py metrics   # 定量メトリクスと総量の前回比
     python scripts/review_checks.py trigger   # 周期レビューの発火判定
@@ -39,21 +36,13 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
-import os
 import re
 import subprocess
 import sys
 from collections import defaultdict
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-from orchestration import ledger
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
-#: 台帳の行を閉じた（消した）状態が揃っているべきブランチ。並行実行の作業ブランチでは、
-#: 台帳の行は取り込みの後に司令塔が消す（docs/conventions/orchestration.md「監査の結果」）。
-MAIN_BRANCH = "master"
 SIZE_THRESHOLDS = REPO_ROOT / "scripts" / "size_thresholds.json"
 
 #: 記録。**維持しない**（`docs/records/README.md`）。記録時点で嘘が無ければよく、後から
@@ -160,84 +149,14 @@ def find_dead_doc_links(md_files: list[str], universe: set[str]) -> list[str]:
     return out
 
 
-def find_plan_entry_problems() -> list[str]:
-    """台帳のエントリが指す先の不在と、2つのエントリが同じ先を指している箇所。
-
-    **番号ではなくリンク先を見る。** 同じ番号でも別の記録を指しているなら曖昧さは無く
-    （`T317` と `T317-2.md` が実例）、逆に番号が違っても同じ先を指していれば、どちらの
-    行を読めばよいか決まらない。
-    """
-    plan = REPO_ROOT / ledger.PLAN_DOC
-    if not plan.exists():
-        return [f"{ledger.PLAN_DOC} が無い（台帳が無ければエントリの一意性を検査できない）"]
-    seen: dict[str, int] = {}
-    out = []
-    for row in ledger.rows(read(plan)):
-        if not (plan.parent / row.target).exists():
-            out.append(f"{ledger.PLAN_DOC}:{row.lineno}: リンク先 {row.target} が無い")
-        elif row.target in seen:
-            out.append(f"{ledger.PLAN_DOC}:{row.lineno}: {row.target} を {seen[row.target]}行目も指している")
-        else:
-            seen[row.target] = row.lineno
-    return out
-
-
-def checked_branch() -> str | None:
-    """検査しているコミットのブランチ。CIではワークフローを起動したref、手元では今のブランチ。
-
-    どちらも取れない（プルリクエストの合成コミット・detached HEAD）ならNone。
-    """
-    if os.environ.get("GITHUB_ACTIONS") == "true":
-        ref = os.environ.get("GITHUB_REF", "")
-        return ref.removeprefix("refs/heads/") if ref.startswith("refs/heads/") else None
-    return git("symbolic-ref", "--short", "-q", "HEAD", check=False).strip() or None
-
-
-def find_task_state_problems(on_main: bool) -> tuple[list[str], list[str]]:
-    """タスク記録の状態表記と、台帳との対応。(違反, 参考) を返す。
-
-    **管理したいのは「片付いたかどうか」だけ**なので、`状態:` は `完了` か `未完了` で
-    始まる。着手中・保留・設計確定といった作業中の呼び分けは一時的な話なので本文へ書く。
-    2語に決めてあるぶん、次の3つが語彙の推測なしに言える。
-
-    - 表記が2語のどちらでもない → どちらか判定できない
-    - `未完了` なのに台帳へ行が無い → 誤ってクローズした（誰も着手しない）
-    - `完了` なのに台帳へ行がある → 閉じ忘れ（終わった話が候補に混ざる）
-
-    2つ目と3つ目は`MAIN_BRANCH`でだけ違反にし、それ以外のブランチでは参考として出す。台帳は全担当が
-    1行ずつ触る共有のファイルで、別々のブランチが隣り合った行を変えると取り込みで衝突するため、
-    並行実行の担当は`状態:`だけを変え（閉じる・開け直す）、行は司令塔が取り込みで直す
-    （`scripts/orchestrate.py ledger sync`）。masterへ入る時点で行が揃っていることは、
-    masterへのpushのCIがこの検査で見る。状態の解釈と食い違いの判定は`orchestration/ledger.py`が持つ。
-    """
-    listed = set(ledger.rows_by_task(read(REPO_ROOT / ledger.PLAN_DOC)))
-    why = {ledger.OPEN_WITHOUT_ROW: "（誤ってクローズしたか、開け直した）", ledger.DONE_WITH_ROW: "（閉じ忘れ）"}
-    out, notes = [], []
-    for f in ledger.record_files(REPO_ROOT):
-        rel = f.relative_to(REPO_ROOT).as_posix()
-        state = ledger.task_state(read(f))
-        problem = ledger.row_mismatch(state, f.stem in listed)
-        if problem == ledger.BAD_STATE:
-            out.append(f"{rel}: {problem}（{state}）")
-        elif problem:
-            (out if on_main else notes).append(f"{rel}: {problem}{why.get(problem, '')}")
-    return out, notes
-
-
 def cmd_docs(args: argparse.Namespace) -> int:
     universe = set(tracked_files())
-    branch = checked_branch()
-    state_problems, state_notes = find_task_state_problems(branch == MAIN_BRANCH)
     md_files = [f for f in universe
                 if f.endswith(".md") and not f.startswith(FROZEN_PREFIXES)]
 
     sections = [
         ("dead_doc_links", "文書のリンクが解決しない",
          find_dead_doc_links(sorted(md_files), universe)),
-        ("plan_entries", "台帳のエントリが同じ先を指している／リンク先が無い",
-         find_plan_entry_problems()),
-        ("task_state", "タスク記録の状態表記と、台帳との対応",
-         state_problems),
     ]
 
     total = 0
@@ -246,12 +165,6 @@ def cmd_docs(args: argparse.Namespace) -> int:
         for line in lines:
             print(f"  - {line}")
         total += len(lines)
-    if state_notes:
-        print(f"## [参考] 状態と台帳の行の食い違い: {len(state_notes)}件"
-              f"（{branch or 'ブランチ不明'}は{MAIN_BRANCH}ではないので違反にしない。"
-              f"取り込みで司令塔が ledger sync で直す）")
-        for line in state_notes:
-            print(f"  - {line}")
 
     print()
     if total:
@@ -464,7 +377,7 @@ def main() -> int:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
     for name, help_text, func in (
-        ("docs", "文書と台帳の整合（常に全件）", cmd_docs),
+        ("docs", "文書の整合（常に全件）", cmd_docs),
         ("metrics", "定量メトリクスと総量の前回比", cmd_metrics),
         ("trigger", "周期レビューの発火判定", cmd_trigger),
     ):
