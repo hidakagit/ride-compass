@@ -157,9 +157,5 @@ def stage_first_frames(stage_frames: Sequence[Sequence[JmaFrame]]) -> list[JmaFr
     return first_frames
 
 
-def weather_element_attribution(element: WeatherElement) -> str:
-    return "気象庁" if element.jma_elements else "気象庁MSM"
-
-
 #: 気象のまとまり（チップ）。要素の宣言から導く——並びは最初に現れた順。
 WEATHER_LAYER_GROUPS: tuple[str, ...] = tuple(dict.fromkeys(element.group for element in WEATHER_ELEMENTS))

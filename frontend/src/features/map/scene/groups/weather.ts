@@ -219,7 +219,6 @@ function drawingOf(element: DeclaredElement): Drawing {
 function sourceOf(
   element: DeclaredElement,
 ): Pick<WeatherElement, "sourceSpec" | "sourceLayer" | "placeholderTiles" | "placeholderData"> {
-  const { attribution } = element;
   switch (element.kind) {
     case "rasterTile":
       return {
@@ -228,19 +227,18 @@ function sourceOf(
           tileSize: 256,
           minzoom: element.tile.minZoom,
           maxzoom: element.tile.maxZoom,
-          attribution,
         },
         placeholderTiles: [jmaPlaceholderTileUrl(element)],
       };
     case "vectorTile":
       return {
-        sourceSpec: { type: "vector", minzoom: element.tile.minZoom, maxzoom: element.tile.maxZoom, attribution },
+        sourceSpec: { type: "vector", minzoom: element.tile.minZoom, maxzoom: element.tile.maxZoom },
         sourceLayer: element.tile.vectorLayer,
         placeholderTiles: [jmaPlaceholderTileUrl(element)],
       };
     case "gridFill":
     case "gridMark":
-      return { sourceSpec: { type: "geojson", attribution }, placeholderData: EMPTY_FEATURE_COLLECTION };
+      return { sourceSpec: { type: "geojson" }, placeholderData: EMPTY_FEATURE_COLLECTION };
   }
 }
 

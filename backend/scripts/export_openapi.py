@@ -46,7 +46,6 @@ from app.domain.weather_elements import (  # noqa: E402
     WEATHER_ELEMENTS,
     WEATHER_LAYER_GROUPS,
     WeatherElement,
-    weather_element_attribution,
     weather_element_deliveries,
     weather_element_tile,
 )
@@ -243,7 +242,6 @@ def _weather_element_entry(element: WeatherElement) -> dict:
             }
             for delivery in weather_element_deliveries(element)
         ],
-        "attribution": weather_element_attribution(element),
         # タイルで描くものだけが持つ。ズームの上限は配信元に実データがある範囲から導く。
         "tile": None
         if tile is None

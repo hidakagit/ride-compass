@@ -79,20 +79,27 @@ ROUTE_LAYER_ID = "route"
 #: 陰影は属性ではなく標高の別の描き方。源泉に属性として現れないのが正しい。
 HILLSHADE_LAYER_ID = "hillshade"
 
-#: 地図へ常に出す出典（HTML）。路面の色・評価・ルートの計算へ常に使うデータで、どのレイヤーを表示しているかと
-#: 関係なく出典が要る（レイヤーのソースに付けると、そのレイヤーを消したとき出典も消える）。地理院・警察庁の利用規約は
-#: 出典とは別に加工した旨を求め、標高からは勾配を、事故の点からは区間ごとの件数を、アメダスの観測からは累計の雨量と
-#: 雨が止んでからの時間（雨の材料）・常設ヘッダーの天気を導いている。基礎地図は配信元の
-#: TileJSONが出典を持つので入れない（入れると2回並ぶ）。データ源を足したら、利用条件（docs/architecture/data-sources.md）
-#: と合わせてここも見る。
+#: 地図へ常に出す出典（HTML）。路面の色・評価・ルートの計算・常設の表示（ヘッダーの天気・警戒度バッジ）へ常に使う
+#: データで、どのレイヤーを表示しているかと関係なく出典が要る（レイヤーのソースに付けると、そのレイヤーを消したとき
+#: 出典も消える）。公共データ利用規約（PDL1.0）とCC BY 4.0は出典とは別に加工した旨を求め、標高からは勾配を、事故の点から
+#: は区間ごとの件数を、アメダスの観測からは雨の材料と天気を、区域の境界は簡略化して、配信タイルは欠けたズームを隣の
+#: ズームから、MSMの格子は地点・時刻へ補間して使っている。気象レイヤーの出典もここが持つ（気象庁のデータは常設の表示
+#: で常に使うため）。基礎地図は配信元のTileJSONが出典を持つので入れない（入れると2回並ぶ）。データ源を足したら、
+#: 利用条件（docs/architecture/data-sources.md）と合わせてここも見る。
 ALWAYS_SHOWN_ATTRIBUTIONS: tuple[str, ...] = (
     '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">'
     "OpenStreetMap contributors</a>",
     '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noreferrer">'
     "地理院タイル(標高タイル)</a>を加工して作成",
     "交通事故統計情報[警察庁]を加工して作成",
-    '気象庁「<a href="https://www.jma.go.jp/bosai/map.html#contents=amedas" target="_blank" rel="noreferrer">'
-    "アメダス</a>」を加工して作成",
+    '<a href="https://www.jma.go.jp/" target="_blank" rel="noreferrer">気象庁ホームページ</a>'
+    "(アメダス・警報・キキクル・ナウキャスト等)と気象庁"
+    '「<a href="https://www.data.jma.go.jp/developer/gis.html" target="_blank" rel="noreferrer">'
+    "予報区等GISデータ</a>」を加工して作成",
+    "気象庁メソ数値予報モデル(MSM)を加工して作成。"
+    '配布: <a href="https://open-meteo.com/" target="_blank" rel="noreferrer">Weather data by Open-Meteo.com</a>'
+    ' (<a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer">CC BY 4.0</a>)',
+    '暑さ指数: 出典 <a href="https://www.wbgt.env.go.jp/" target="_blank" rel="noreferrer">環境省熱中症予防情報サイト</a>',
     '土地被覆: <a href="https://livingatlas.arcgis.com/landcover/" target="_blank" rel="noreferrer">'
     "Esri, Impact Observatory, Microsoft</a> (CC BY 4.0)",
 )

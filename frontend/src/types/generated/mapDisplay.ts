@@ -269,7 +269,6 @@ export const mapDisplay = {
           "refreshIntervalMs": 600000
         }
       ],
-      "attribution": "気象庁",
       "tile": {
         "minZoom": 4,
         "maxZoom": 10,
@@ -287,7 +286,6 @@ export const mapDisplay = {
       },
       "gridValue": "precipitation",
       "jmaElements": [],
-      "attribution": "気象庁MSM",
       "tile": null
     },
     {
@@ -311,7 +309,6 @@ export const mapDisplay = {
           "refreshIntervalMs": 600000
         }
       ],
-      "attribution": "気象庁",
       "tile": {
         "minZoom": 4,
         "maxZoom": 10,
@@ -329,7 +326,6 @@ export const mapDisplay = {
       },
       "gridValue": "wind",
       "jmaElements": [],
-      "attribution": "気象庁MSM",
       "tile": null
     },
     {
@@ -353,7 +349,6 @@ export const mapDisplay = {
           "refreshIntervalMs": 600000
         }
       ],
-      "attribution": "気象庁",
       "tile": {
         "minZoom": 4,
         "maxZoom": 10,
@@ -381,7 +376,6 @@ export const mapDisplay = {
           "refreshIntervalMs": 600000
         }
       ],
-      "attribution": "気象庁",
       "tile": {
         "minZoom": 4,
         "maxZoom": 10,
@@ -409,7 +403,6 @@ export const mapDisplay = {
           "refreshIntervalMs": 600000
         }
       ],
-      "attribution": "気象庁",
       "tile": {
         "minZoom": 4,
         "maxZoom": 10,
@@ -437,7 +430,6 @@ export const mapDisplay = {
           "refreshIntervalMs": 300000
         }
       ],
-      "attribution": "気象庁",
       "tile": {
         "minZoom": 4,
         "maxZoom": 8,
@@ -465,7 +457,6 @@ export const mapDisplay = {
           "refreshIntervalMs": 300000
         }
       ],
-      "attribution": "気象庁",
       "tile": {
         "minZoom": 4,
         "maxZoom": 8,
@@ -493,7 +484,6 @@ export const mapDisplay = {
           "refreshIntervalMs": 600000
         }
       ],
-      "attribution": "気象庁",
       "tile": {
         "minZoom": 4,
         "maxZoom": 10,
@@ -521,7 +511,6 @@ export const mapDisplay = {
           "refreshIntervalMs": 300000
         }
       ],
-      "attribution": "気象庁",
       "tile": null
     }
   ],
@@ -539,7 +528,9 @@ export const mapDisplay = {
     "&copy; <a href=\"https://www.openstreetmap.org/copyright\" target=\"_blank\" rel=\"noreferrer\">OpenStreetMap contributors</a>",
     "<a href=\"https://maps.gsi.go.jp/development/ichiran.html\" target=\"_blank\" rel=\"noreferrer\">地理院タイル(標高タイル)</a>を加工して作成",
     "交通事故統計情報[警察庁]を加工して作成",
-    "気象庁「<a href=\"https://www.jma.go.jp/bosai/map.html#contents=amedas\" target=\"_blank\" rel=\"noreferrer\">アメダス</a>」を加工して作成",
+    "<a href=\"https://www.jma.go.jp/\" target=\"_blank\" rel=\"noreferrer\">気象庁ホームページ</a>(アメダス・警報・キキクル・ナウキャスト等)と気象庁「<a href=\"https://www.data.jma.go.jp/developer/gis.html\" target=\"_blank\" rel=\"noreferrer\">予報区等GISデータ</a>」を加工して作成",
+    "気象庁メソ数値予報モデル(MSM)を加工して作成。配布: <a href=\"https://open-meteo.com/\" target=\"_blank\" rel=\"noreferrer\">Weather data by Open-Meteo.com</a> (<a href=\"https://creativecommons.org/licenses/by/4.0/\" target=\"_blank\" rel=\"noreferrer\">CC BY 4.0</a>)",
+    "暑さ指数: 出典 <a href=\"https://www.wbgt.env.go.jp/\" target=\"_blank\" rel=\"noreferrer\">環境省熱中症予防情報サイト</a>",
     "土地被覆: <a href=\"https://livingatlas.arcgis.com/landcover/\" target=\"_blank\" rel=\"noreferrer\">Esri, Impact Observatory, Microsoft</a> (CC BY 4.0)"
   ],
   "noDataDash": [
