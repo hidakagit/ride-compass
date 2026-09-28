@@ -1,9 +1,14 @@
-# 文書の整合（scripts/review_checks.py docs）。
+# 文書の整合。文書だけの変更でも走る検査を置く。
 #
-# ci.ymlはdocs/**・*.mdだけの変更では走らないが、この検査はその変更こそが対象なので、
+# ci.ymlはdocs/**・*.mdだけの変更では走らないが、ここの検査はその変更こそが対象なので、
 # 別ワークフローにして常に走らせる。**常に全件**を見る——検知器はどの走査範囲でも
 # 同じ答えになる事実だけを扱うので、差分の起点を解決する必要がない（設計要件は
-# scripts/review_checks.py の冒頭）。pure pythonで数秒。
+# scripts/review_checks.py の冒頭）。
+#
+# - docs-consistency: scripts/review_checks.py docs。pure pythonで数秒。
+# - doc-reading-tests: 全ての文書を読むbackendのテスト。ci.ymlのbackendジョブでも走るが、
+#   文書だけの変更ではci.ymlが走らないため、ここでも走らせる（起動条件の決め方は
+#   docs/architecture/tech-stack.md「CIの実行枠」）。
 name: Docs Consistency
 
 on:
@@ -22,3 +27,21 @@ jobs:
         with:
           python-version: "3.12"
       - run: python scripts/review_checks.py docs
+
+  doc-reading-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+      # tests/conftest.py と pytest.ini が読む依存（requirements-dev.txt が requirements.txt を内包する）。
+      - run: pip install -r requirements-dev.txt
+      - run: python -m pytest -q tests/structure/test_named_references.py
