@@ -1,0 +1,14 @@
+# ゲート（src/index.js）を2つの Worker に置く。秘密の値は `wrangler secret put [--env form]` で置く（ここには書かない）。
+# 既定: Webhook を受ける Worker。秘密は APP_ID・APP_KEY（App の鍵を PKCS#8 にしたもの）・WEBHOOK_SECRET。
+# --env form: 回答フォームの Worker（ホスト全体を Cloudflare Access で守る）。秘密は APP_ID・APP_KEY・FORM_TOKEN。
+name = "ridecompass-gate"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+workers_dev = true
+
+[vars]
+FORM_ORIGIN = "https://ride-compass-answer.h7g4bin.workers.dev"
+
+[env.form]
+name = "ride-compass-answer"
+workers_dev = true

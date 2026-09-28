@@ -204,6 +204,15 @@ jobs:
           name: playwright-report-scan-${{ matrix.width }}
           path: frontend/playwright-report/
           retention-days: 7
+  # タスク管理のゲート（tools/flow-gate/）。依存するパッケージが無いので npm ci は要らない。
+  flow-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: node --test tools/flow-gate/test/*.test.js
   deploy-backend:
     needs: [backend, api-contract, frontend, e2e, e2e-scan]
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'

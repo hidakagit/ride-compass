@@ -1,0 +1,47 @@
+{
+  "repository": "ridecompass/flow-trial",
+  "project": { "owner": "ridecompass", "number": 1, "statusField": "Status" },
+  "gate": "ridecompass-gate[bot]",
+  "people": {
+    "hidakagit": { "id": 6731891, "shown": "hidakagit" },
+    "hidakagit-bot": { "id": 334916358, "shown": "Claude" }
+  },
+  "statuses": ["採否待ち", "回答待ち", "保留", "未着手", "進行中", "検証中", "完了"],
+  "done": "完了",
+  "entry": [
+    { "author": "hidakagit", "to": "未着手", "assign": "hidakagit-bot" },
+    { "author": null, "to": "採否待ち", "assign": "hidakagit" }
+  ],
+  "transitions": [
+    { "from": ["採否待ち"], "to": ["未着手"], "assign": "hidakagit-bot" },
+    { "from": ["未着手", "進行中", "検証中"], "to": ["回答待ち"], "assign": "hidakagit" },
+    { "from": ["未着手", "進行中", "検証中"], "to": ["保留"], "assign": "hidakagit-bot" },
+    { "from": ["回答待ち"], "to": ["未着手", "検証中"], "assign": "hidakagit-bot" },
+    { "from": ["回答待ち"], "to": ["保留"], "assign": "hidakagit-bot" },
+    { "from": ["保留"], "to": ["未着手", "検証中"], "assign": "hidakagit-bot" },
+    { "from": ["保留"], "to": ["回答待ち"], "assign": "hidakagit" },
+    { "from": ["未着手"], "to": ["進行中"], "when": "blockersCompleted", "assign": null },
+    { "from": ["進行中"], "to": ["検証中"], "assign": "hidakagit-bot" },
+    { "from": ["検証中"], "to": ["未着手"], "assign": "hidakagit-bot" },
+    { "from": ["採否待ち", "回答待ち", "保留", "未着手", "進行中", "検証中"], "to": ["完了"], "assign": null }
+  ],
+  "ask": {
+    "statuses": ["採否待ち", "回答待ち"],
+    "askers": ["hidakagit-bot"],
+    "answerer": "hidakagit"
+  },
+  "nextStage": { "to": "未着手", "assign": "hidakagit-bot" },
+  "adoption": {
+    "status": "採否待ち",
+    "question": "このタスクをやりますか？",
+    "options": [
+      { "text": "やる", "to": "未着手", "next": "hidakagit-bot" },
+      { "text": "やる（優先）", "to": "未着手", "next": "hidakagit-bot", "labels": ["優先"] },
+      { "text": "やらない", "to": "完了" }
+    ]
+  },
+  "formOptions": [
+    { "text": "その他（コメント）", "to": null, "next": "hidakagit-bot", "note": true },
+    { "text": "今は答えられない", "to": "保留", "next": "hidakagit-bot" }
+  ]
+}

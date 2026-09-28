@@ -1,8 +1,0 @@
-# 回答ページ（worker.js）。秘密の値は `wrangler secret put GITHUB_TOKEN` で置く（ここには書かない）。
-name = "ride-compass-answer"
-main = "worker.js"
-compatibility_date = "2026-09-01"
-workers_dev = true
-
-[vars]
-TASKS_REPO = "hidakagit/ride-compass-tasks"
