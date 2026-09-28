@@ -12,6 +12,7 @@ const EMPTY = {
   temperature_range: null,
   twilight: null,
   today_periods: [],
+  today_period_interval_hours: 3,
 };
 const TWILIGHT = { sunrise: "2026-09-23T20:30:00Z", sunset: "2026-09-24T08:40:00Z" };
 const weather = (overrides: Partial<WeatherConditions> = {}) => ({ ...EMPTY, ...overrides }) as WeatherConditions;
@@ -109,23 +110,23 @@ describe("TodayOutlook 1日の値", () => {
   });
 });
 
-describe("TodayOutlook 2時間ごとのコマ", () => {
+describe("TodayOutlook 一定間隔のコマ", () => {
   const periods = [
     { period: "06:00", temperature_c: 18.4, precipitation_mm: 0.05 },
     { period: "08:00", temperature_c: null, precipitation_mm: 1.26 },
     { period: "昼", temperature_c: 22, precipitation_mm: null },
   ];
 
-  it("コマごとに時・気温（整数）・降水量を出す。降らない量と値の無いものは「-」", async () => {
+  it("コマの並びに届いた間隔を添え、コマごとに時・気温（整数）・降水量を出す。降らない量と値の無いものは「-」", async () => {
     render(<TodayOutlook weather={weather({ today_periods: periods } as never)} loading={false} error={null} />);
     await open();
-    const slots = screen.getByText("2時間ごと").nextElementSibling!.children;
+    const slots = screen.getByText("3時間ごと").nextElementSibling!.children;
     expect([...slots].map((slot) => slot.textContent)).toEqual(["6時18℃-", "8時-1.3mm", "昼22℃-"]);
   });
 
   it("コマが無ければ、コマの欄は出さない", async () => {
     render(<TodayOutlook weather={weather({ wind_speed_max_ms: 3 })} loading={false} error={null} />);
     await open();
-    expect(screen.queryByText("2時間ごと")).not.toBeInTheDocument();
+    expect(screen.queryByText("3時間ごと")).not.toBeInTheDocument();
   });
 });

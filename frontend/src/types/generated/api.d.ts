@@ -734,7 +734,7 @@ export interface components {
             /** Map Value Unit */
             map_value_unit: string;
             /** Map Value Thresholds */
-            map_value_thresholds: number[] | null;
+            map_value_thresholds: number[];
             /** Raw Value Unit */
             raw_value_unit: string | null;
             /** Raw Value Total Unit */
@@ -1966,6 +1966,8 @@ export interface components {
             temperature_range: components["schemas"]["TemperatureRange"] | null;
             /** Today Periods */
             today_periods: components["schemas"]["WeatherPeriodOutlook"][];
+            /** Today Period Interval Hours */
+            today_period_interval_hours: number;
         };
         /** WeatherPeriodOutlook */
         WeatherPeriodOutlook: {

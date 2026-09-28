@@ -83,7 +83,7 @@ function buildRangeSteppedMode(options: {
 // 公開軸1本のモード。塗る値の種類・単位・しきい値はbackendが決め、ルート前の専用配信の塗りと同じ尺度・配色になる。
 function routeColorableModeFromAxis(axis: AxisCatalogEntry): RouteStyleMode {
   const mapValue = axis.map_value;
-  const boundaries = axis.map_value_thresholds ?? DEFAULT_DIFFICULTY_BOUNDARIES;
+  const boundaries = axis.map_value_thresholds;
   // 生値を塗る材料はbackendが名指す（`map_value.material`）。
   if (mapValue.kind === "signed_material") {
     return buildRangeSteppedMode({

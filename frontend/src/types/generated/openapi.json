@@ -2268,17 +2268,10 @@
             "title": "Map Value Unit"
           },
           "map_value_thresholds": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "number"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
             "title": "Map Value Thresholds"
           },
           "raw_value_unit": {
@@ -5779,6 +5772,10 @@
             },
             "type": "array",
             "title": "Today Periods"
+          },
+          "today_period_interval_hours": {
+            "type": "integer",
+            "title": "Today Period Interval Hours"
           }
         },
         "additionalProperties": false,
@@ -5794,7 +5791,8 @@
           "precipitation_max_mm",
           "wind_speed_max_ms",
           "temperature_range",
-          "today_periods"
+          "today_periods",
+          "today_period_interval_hours"
         ],
         "title": "WeatherConditions"
       },

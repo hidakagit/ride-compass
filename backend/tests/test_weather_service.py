@@ -111,6 +111,8 @@ async def test_get_conditions_builds_two_hourly_periods(monkeypatch):
         "20:00",
     ]
     assert conditions.today_periods[1].temperature_c == 22.0
+    # 画面はこの間隔をコマの並びの見出しに出す。並びの実際の間隔と食い違わない。
+    assert conditions.today_period_interval_hours == 2
 
 
 async def test_get_conditions_truncates_periods_at_the_end_of_the_forecast(monkeypatch):

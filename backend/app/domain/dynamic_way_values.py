@@ -28,6 +28,11 @@ from app.domain.axis_display import axis_display_for
 from app.domain.material_catalog import MATERIAL_CATALOG
 from app.domain.strict_model import StrictModel
 
+#: 難易度（0〜100）の段の境界。軸が宣言していないときに使う。**値ではなく等分の規則**
+#: ——無次元の得点には目盛りの手掛かりが無いので、3等分する。符号付き材料の段は
+#: 軸の折れ線から導く（`_signed_thresholds_from_breakpoints`）ので、ここには持たない。
+DEFAULT_DIFFICULTY_BOUNDARIES: tuple[float, ...] = (33, 66)
+
 # 地図がその軸について塗る値の種類。`signed_material`は「単一材料の絶対値を評価する軸」
 # （勾配のように向きの符号が意味を持つ）で、地図は難易度ではなく符号付きの材料生値を塗る。
 # それ以外は軸スタジオのbreakpointsで評価済みの難易度（0〜100）を塗る。ルート確定前の
@@ -129,8 +134,9 @@ def _signed_thresholds_from_breakpoints(shape: BreakpointLinearShape) -> list[fl
     return [-x for x in reversed(knots)] + knots
 
 
-def map_value_thresholds(definition: AxisDefinition) -> list[float] | None:
-    """`map_value_kind`が示すスケールでの段階境界。
+def map_value_thresholds(definition: AxisDefinition) -> list[float]:
+    """`map_value_kind`が示すスケールでの段階境界。境界を宣言していない難易度の軸は既定の境界
+    （`DEFAULT_DIFFICULTY_BOUNDARIES`）——既定をここで解くので、読む側は既定を持たない。
 
     **ルート確定前の全道路の塗りと、確定後のルート線は同じ段で塗る。** 前者は材料の
     重み付き和を、後者は0〜100の難易度を塗るため、同じ段を両方の目盛りで言い直す必要が
@@ -149,7 +155,7 @@ def map_value_thresholds(definition: AxisDefinition) -> list[float] | None:
         if map_value_kind(definition) == "signed_material":
             # `signed_material`は折れ線の軸にしか付かない。
             return _signed_thresholds_from_breakpoints(cast(BreakpointLinearShape, definition.shape))
-        return None
+        return list(DEFAULT_DIFFICULTY_BOUNDARIES)
     shape = definition.shape
     if not isinstance(shape, BreakpointLinearShape):
         return list(display.thresholds)

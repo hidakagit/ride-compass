@@ -5,6 +5,10 @@ import { Button } from "@/components/ui/Button/Button";
 import { Card } from "@/components/ui/Card/Card";
 import { refreshTileCache } from "@/features/admin/adminApi";
 import { textVariants } from "@/components/ui/Text/Text";
+import refreshIntervals from "@/types/generated/refresh-intervals.json";
+
+/** 基礎地図のタイルをブラウザが持つ時間（分）。消去が各利用者の画面へ届くまでの遅れ。 */
+const BASEMAP_BROWSER_CACHE_MINUTES = Math.round(refreshIntervals.basemap_browser_cache_seconds / 60);
 
 // 「データ保守」タブ（/admin）から、サーバー側のタイルファイルキャッシュを全消去するパネル。
 // 隣のDerivedDataFreshnessPanelが「古いかどうかを見る」のに対し、こちらは「古いものを
@@ -35,8 +39,9 @@ export default function TileCachePanel() {
         （この画面は地図を持たない）。
       </p>
       <p className={textVariants({ variant: "hint" })}>
-        各利用者の画面へ反映されるのは、ブラウザが持つ既存タイルのCache-Controlが切れた後
-        （基礎地図は最大10分）。取込バッチや軸の変更を本番へ反映した直後など、 古いタイルを掴ませたくないときに使う。
+        各利用者の画面へ反映されるのは、ブラウザが持つ既存タイルのCache-Controlが切れた後 （基礎地図は最大
+        {BASEMAP_BROWSER_CACHE_MINUTES}分）。取込バッチや軸の変更を本番へ反映した直後など、
+        古いタイルを掴ませたくないときに使う。
       </p>
       <div className="flex flex-wrap items-center gap-2">
         <Button onClick={handleClear} disabled={running}>
@@ -46,8 +51,8 @@ export default function TileCachePanel() {
       {error && <p className={textVariants({ variant: "error" })}>{error}</p>}
       {done && (
         <p className={textVariants({ variant: "hint" })}>
-          消去しました。各利用者の表示へは次回のタイル取得時、遅くとも既存タイルの
-          Cache-Control（基礎地図は10分）が切れた時点で反映されます。
+          消去しました。各利用者の表示へは次回のタイル取得時、遅くとも既存タイルの Cache-Control（基礎地図は
+          {BASEMAP_BROWSER_CACHE_MINUTES}分）が切れた時点で反映されます。
         </p>
       )}
     </Card>

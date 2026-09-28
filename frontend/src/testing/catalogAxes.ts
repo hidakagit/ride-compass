@@ -1,8 +1,10 @@
 // 軸カタログ（`GET /api/axis-catalog`）の軸を、テストが自分で組むための雛形。型はbackendの契約から生成したもの。
 //
 // **実際の公開軸を入力に使わない。** 軸idは軸スタジオでユーザーが決める任意の値で、公開される集合もDBが持つ。
-// **既定値は型を満たすための空だけ。** 見たい性質（ramp表示を持つ・専用配信を持つ等）は呼び出し側が書く。
+// **既定値は型を満たすための空だけ**（段の境界だけは、backendが宣言の無い軸にも必ず入れる既定の境界）。見たい性質
+// （ramp表示を持つ・専用配信を持つ等）は呼び出し側が書く。
 import { axisCatalogFromResponse, type AxisCatalog } from "@/lib/axisCatalog";
+import { mapDisplay } from "@/types/generated/mapDisplay";
 import type { AxisCatalogEntry } from "@/types/route";
 
 type TileInput = AxisCatalogEntry["display"]["tile_inputs"][number];
@@ -52,7 +54,8 @@ export function catalogEntry(
     dedicated_way_value_layer: false,
     map_value: { kind: "difficulty" },
     map_value_unit: "",
-    map_value_thresholds: null,
+    // 境界を宣言していない軸にbackendが入れる既定の境界（空の境界は塗りの式にならない）。
+    map_value_thresholds: [...mapDisplay.valueScale.difficultyBoundaries],
     raw_value_unit: null,
     raw_value_total_unit: null,
     material_breakdown: [],

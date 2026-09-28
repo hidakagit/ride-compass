@@ -27,8 +27,9 @@ import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "@/fea
 import { AREA_OPACITY } from "./areaRasters";
 import { zoomScaleExpression, sceneSourceId, type SceneSourceId } from "@/features/map/scene/sceneBuilders";
 
-/** キキクルの危険度の段の色（源泉`domain/weather_display.py`）。洪水の線を段ごとに塗る。 */
+/** キキクルの危険度の段（源泉`domain/weather_display.py`）。洪水の線を、配信元のタイルが持つ段の番号で塗る。 */
 const RISK_LEVELS = weatherScales.risk_levels;
+const LOWEST_RISK_LEVEL = RISK_LEVELS.reduce((lowest, level) => (level.level < lowest.level ? level : lowest));
 
 const WEATHER = mapDisplay.weather;
 
@@ -186,15 +187,8 @@ const DRAWINGS: { readonly [K in DrawnKey]: Drawing } = {
       "line-color": [
         "match",
         ["to-number", ["get", "level"]],
-        1,
-        RISK_LEVELS[1].color,
-        2,
-        RISK_LEVELS[2].color,
-        3,
-        RISK_LEVELS[3].color,
-        4,
-        RISK_LEVELS[4].color,
-        RISK_LEVELS[0].color,
+        ...RISK_LEVELS.flatMap((level) => [level.level, level.color]),
+        LOWEST_RISK_LEVEL.color,
       ],
       "line-width": zoomScaleExpression(1, WEATHER.floodLineWidthByZoom),
     },

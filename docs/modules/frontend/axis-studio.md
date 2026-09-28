@@ -375,7 +375,8 @@ backend `POST /api/admin/basemap/refresh`を呼び、
 入口を持たないことが、`/`側の「地図の表示を再描画」ボタン（押した人の地図インスタンス
 だけを組み直す純粋なクライアント操作）と分かれている理由。押しても管理者自身の画面は
 変わらない（この画面は地図を持たない）ため、消したこと自体と、各利用者へ反映されるのが
-既存タイルの`Cache-Control`（基礎地図は10分）が切れた後であることを結果表示で伝える。
+既存タイルの`Cache-Control`が切れた後であることを結果表示で伝える（基礎地図の時間は生成物`refresh-intervals.json`の
+`basemap_browser_cache_seconds`。backendの`api/cache_policy.py: BASEMAP`から出る）。
 
 ## 材料説明ポップオーバー
 

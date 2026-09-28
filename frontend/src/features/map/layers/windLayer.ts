@@ -106,7 +106,8 @@ const WIND_GRID_DETAIL_SPACING_STOPS: readonly { zoom: number; spacingDeg: numbe
   { zoom: WIND_DETAIL_MIN_ZOOM, spacingDeg: 0.02 },
   { zoom: 13, spacingDeg: 0.01 },
   { zoom: 16, spacingDeg: 0.005 },
-  { zoom: 19, spacingDeg: 0.0025 },
+  // 最も細かい段はbackendが受け付ける最小の間隔（これより細かく求めると断られる）。
+  { zoom: 19, spacingDeg: windGridConfig.detail_min_spacing_deg },
 ];
 
 /** そのズームで詳細格子を求める間隔（度）。 */

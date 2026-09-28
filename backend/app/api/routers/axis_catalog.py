@@ -158,9 +158,8 @@ class AxisCatalogEntry(StrictModel):
     # 上の`map_value`の種類が示すスケールでの段階境界（domain/dynamic_way_values.py:
     # map_value_thresholds）。地図の色分けはルート前後ともこれを使う——
     # `display_thresholds_override`はramp表示の自動導出値（材料の重み付き和）を上書きする
-    # フィールドで、難易度を塗る軸ではスケールが違う。未設定の軸はnullで、読む側が
-    # `map_value`の種類ごとの既定値を使う。
-    map_value_thresholds: list[float] | None
+    # フィールドで、難易度を塗る軸ではスケールが違う。境界を宣言していない軸には既定の境界が入る。
+    map_value_thresholds: list[float]
     # 折れ点を通す前の生値の単位（`domain/axis_raw_value.py: raw_value_unit`）。
     # 定まらない軸はnull。ルート結果は得点の隣にこの単位で生値を出す。
     raw_value_unit: str | None

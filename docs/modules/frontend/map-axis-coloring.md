@@ -105,8 +105,9 @@ localStorageキーは`ridecompass:route-style-mode`）。ルート前は全道�
 
 ## valueScale.ts（ルート前後で共有する葉モジュール）
 
-- `DEFAULT_DIFFICULTY_BOUNDARIES`: 難易度の既定の境界（軸カタログの`map_value_thresholds`が
-  未設定のときだけ使う。値はbackendが配る）。
+- `DEFAULT_DIFFICULTY_BOUNDARIES`: 総合難易度（軸ではない）の段の境界（値はbackendが配る）。軸の段は
+  境界を宣言していない軸の既定もbackendが解いて`map_value_thresholds`に入れるため、画面は軸について既定を持たない
+  ——読む側ごとに既定を解くと、1か所だけ解き忘れた経路でその軸の段の数がルート確定の前後で食い違う。
 - `valueBands(kind, boundaries, unit, bandLabels)`: 軸を塗る段の並び（低い段から、段ごとに鍵・下限・
   範囲の文字・色）。**ルート前の道の線（ramp軸・専用配信軸、`scene/applyToMap.ts`）・ルート後のルート線
   （`routeStyleModes.ts`）・凡例（`features/map/view/lens.ts`）がすべてこの1つの関数を通る**ため、同じ軸の
@@ -167,8 +168,8 @@ localStorageキーは`ridecompass:route-style-mode`）。ルート前は全道�
 
 ## routeStyleModes.ts（ルート確定後）
 
-- `buildRangeSteppedMode`: 境界値配列（軸カタログの`map_value_thresholds`、未設定時は
-  種類ごとの既定値）の**長さがそのまま段階数を決める**汎用関数。ラベルは境界値の実際の
+- `buildRangeSteppedMode`: 境界値配列（軸カタログの`map_value_thresholds`、総合難易度は
+  `DEFAULT_DIFFICULTY_BOUNDARIES`）の**長さがそのまま段階数を決める**汎用関数。ラベルは境界値の実際の
   数字から機械的に生成し、体感ラベルを持つ軸ではその前に添える
   （`bandLabelsForBandCount`、ルート前の凡例と同じ規則）。
 

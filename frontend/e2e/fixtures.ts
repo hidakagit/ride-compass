@@ -127,6 +127,7 @@ function weatherConditionsFixture(): WeatherConditions {
     wind_speed_max_ms: null,
     temperature_range: null,
     today_periods: [],
+    today_period_interval_hours: 2,
   };
 }
 

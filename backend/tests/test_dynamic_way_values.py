@@ -168,8 +168,11 @@ def test_an_override_on_an_axis_the_tiles_cannot_paint_is_used_as_is():
     assert map_value_thresholds(definition) == [-3.0, 0.0, 3.0]
 
 
-def test_a_difficulty_axis_the_tiles_cannot_paint_has_no_bands_of_its_own():
-    assert map_value_thresholds(_axis(_line("num_live", "num_other", preprocess="abs"))) is None
+def test_a_difficulty_axis_the_tiles_cannot_paint_is_cut_at_the_default_difficulty_bands():
+    """既定をここで解くので、読む側は既定を持たない。"""
+    assert map_value_thresholds(_axis(_line("num_live", "num_other", preprocess="abs"))) == list(
+        dynamic_way_values.DEFAULT_DIFFICULTY_BOUNDARIES
+    )
 
 
 @pytest.mark.parametrize(
