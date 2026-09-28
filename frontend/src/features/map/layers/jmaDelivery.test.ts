@@ -4,9 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 
 import {
-  fetchJmaPointGeojson,
+  fetchJmaGeojson,
   fetchJmaTargetTimesFile,
+  isJmaTileKind,
   jmaFramesOf,
+  jmaFramesWithEarlierBasetime,
   JMA_POINT_VALUE_PROPERTY,
   jmaPlaceholderTileUrl,
   jmaTilePayload,
@@ -20,13 +22,13 @@ vi.mock("@/lib/tileBaseUrl", () => ({ tileBaseUrl: () => "https://tiles.test" })
 const PROXY = "https://tiles.test/api/jma-tile/";
 const DELIVERIES = mapDisplay.weatherElements.flatMap((element): readonly JmaDelivery[] => element.jmaElements);
 const isTileElement = (element: (typeof mapDisplay.weatherElements)[number]) =>
-  (element.kind === "rasterTile" || element.kind === "vectorTile") && element.jmaElements.length > 0;
+  isJmaTileKind(element.kind) && element.jmaElements.length > 0;
 const TILE_ELEMENTS = mapDisplay.weatherElements.filter(isTileElement);
 const TILE_DELIVERIES = TILE_ELEMENTS.flatMap((element): readonly JmaDelivery[] => element.jmaElements);
-const POINT_ELEMENT = mapDisplay.weatherElements.find(
+const FEATURE_ELEMENT = mapDisplay.weatherElements.find(
   (element) => !isTileElement(element) && element.jmaElements.length > 0,
 )!;
-const POINT_DELIVERY: JmaDelivery = POINT_ELEMENT.jmaElements[0]!;
+const FEATURE_DELIVERY: JmaDelivery = FEATURE_ELEMENT.jmaElements[0]!;
 const withReader = (reader: JmaDelivery["reader"]) => DELIVERIES.find((delivery) => delivery.reader === reader)!;
 const fileOf = (delivery: JmaDelivery, index = 0) => `${PROXY}${delivery.targetTimesPaths[index]}`;
 /** 地図ライブラリがタイル座標を埋めたURL。 */
@@ -151,7 +153,7 @@ describe("時刻一覧のファイル", () => {
 
 describe("コマのURL", () => {
   const frame = { basetime: "20260924000000", member: "immed", validtime: "20260924010000" };
-  const delivery = POINT_DELIVERY;
+  const delivery = FEATURE_DELIVERY;
 
   it("源泉のテンプレートの時刻と系列をコマで埋め、タイル座標は地図ライブラリに残す", () => {
     const tile = TILE_DELIVERIES[0]!;
@@ -185,7 +187,7 @@ describe("コマのURL", () => {
     expect(readJmaTileUrl("https://example.com/tile/5/28/12.png")).toBeNull();
     expect(readJmaTileUrl(tileUrlTemplate)).toBeNull(); // タイル座標が埋まっていない
     expect(readJmaTileUrl(`${tileAt(tileUrlTemplate, 5, 28, 12)}?t=1`)).toBeNull();
-    expect(readJmaTileUrl(jmaPlaceholderTileUrl(POINT_ELEMENT))).toBeNull(); // タイルで描かない要素の地点
+    expect(readJmaTileUrl(jmaPlaceholderTileUrl(FEATURE_ELEMENT))).toBeNull(); // タイルで描かない要素の地物
   });
 
   it("中身が届く前の仮のURLは、タイルで描く要素のどれも最初の段の実在しない時刻を指す", () => {
@@ -197,7 +199,7 @@ describe("コマのURL", () => {
     }
   });
 
-  it("地点はそのコマの要素配下のGeoJSONを取り、どの地点にも記号の大きさを決める値を足す（元の属性は残す）", async () => {
+  it("地物はそのコマの要素配下のGeoJSONを取り、どの地物にも記号の大きさを決める値を足す（元の属性は残す）", async () => {
     const fetchMock = vi.fn<(request: Request) => Promise<Response>>(async () =>
       Response.json({
         type: "FeatureCollection",
@@ -209,7 +211,7 @@ describe("コマのURL", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const geojson = await fetchJmaPointGeojson(delivery, frame, "地点");
+    const geojson = await fetchJmaGeojson(delivery, [frame], "地点");
     expect(fetchMock.mock.calls[0][0].url).toBe(
       `${PROXY}${delivery.urlTemplate}`
         .replace("{basetime}", frame.basetime)
@@ -223,12 +225,54 @@ describe("コマのURL", () => {
     ]);
   });
 
-  it("地点の取得の失敗はそのまま投げる（表示しないかは呼び出し側が決める）", async () => {
+  it("地物の取得の失敗はそのまま投げる（表示しないかは呼び出し側が決める）", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response(null, { status: 503 })),
     );
-    await expect(fetchJmaPointGeojson(delivery, frame, "地点")).rejects.toThrow("地点");
+    await expect(fetchJmaGeojson(delivery, [frame], "地点")).rejects.toThrow("地点");
+  });
+
+  const earlier = { ...frame, basetime: "20260923235000" };
+  const urlOf = (candidate: typeof frame) =>
+    `${PROXY}${delivery.urlTemplate}`
+      .replace("{basetime}", candidate.basetime)
+      .replace("{member}", candidate.member)
+      .replace("{validtime}", candidate.validtime);
+
+  it("配信元が「無い」（404）と答えたコマは、次の候補のコマを取る", async () => {
+    const fetchMock = vi.fn(async (request: Request) =>
+      request.url === urlOf(earlier)
+        ? Response.json({ type: "FeatureCollection", features: [] })
+        : new Response(null, { status: 404 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(fetchJmaGeojson(delivery, [frame, earlier], "地物")).resolves.toMatchObject({ features: [] });
+    expect(fetchMock.mock.calls.map(([request]) => request.url)).toEqual([urlOf(frame), urlOf(earlier)]);
+  });
+
+  it("404以外の失敗と、最後の候補の404は、次へ進まずに投げる", async () => {
+    const fetchMock = vi.fn(async () => new Response(null, { status: 503 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(fetchJmaGeojson(delivery, [frame, earlier], "地物")).rejects.toThrow("地物");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 404 })),
+    );
+    await expect(fetchJmaGeojson(delivery, [frame, earlier], "地物")).rejects.toThrow("地物");
+  });
+
+  it("次の候補は、その要素の行のうち選んだコマより1つ前のbasetimeで、同じ時刻と系列を取る", () => {
+    const rows = [
+      row("20260923234000", "20260923234000", [delivery.id]),
+      row("20260923235000", "20260923235000", [delivery.id]),
+      row("20260923235500", "20260923235500", ["other"]), // 別の要素の行
+      row(frame.basetime, frame.basetime, [delivery.id]),
+    ];
+    expect(jmaFramesWithEarlierBasetime(delivery, rows, frame)).toEqual([frame, earlier]);
+    expect(jmaFramesWithEarlierBasetime(delivery, rows.slice(2), frame)).toEqual([frame]);
   });
 });
 

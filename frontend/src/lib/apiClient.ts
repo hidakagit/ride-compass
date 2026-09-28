@@ -63,6 +63,17 @@ type SkeletonInit = {
   middleware: Middleware[];
 };
 
+/** 応答が失敗の状態で返った。状態で振る舞いを分ける呼び出し元（配信元がまだ出していないコマの404等）が`status`を読む。 */
+export class HttpStatusError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "HttpStatusError";
+    this.status = status;
+  }
+}
+
 function errorDetail(body: unknown): unknown {
   return body !== null && typeof body === "object" && "detail" in body ? body.detail : undefined;
 }
@@ -128,7 +139,10 @@ export async function requestApi<R extends ApiResult>(
   const fields = { url: seen.url, durationMs: elapsedMs(), requestId: response.headers.get("x-request-id") };
   if (!response.ok) {
     debugLog(category, `失敗 (HTTP ${response.status})`, { ...fields, errorBody: result.error }, "error");
-    throw new Error(formatErrorDetail(errorDetail(result.error)) ?? `${messages.failure}[HTTP ${response.status}]`);
+    throw new HttpStatusError(
+      formatErrorDetail(errorDetail(result.error)) ?? `${messages.failure}[HTTP ${response.status}]`,
+      response.status,
+    );
   }
   const data = result.data as DataOf<R>;
   debugLog(category, "成功", { ...fields, ...successMeta?.(data) });

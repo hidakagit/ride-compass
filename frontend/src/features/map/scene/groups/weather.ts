@@ -40,6 +40,7 @@ const TIER_OF = {
   rasterTile: "area",
   gridFill: "area",
   vectorTile: "observedLine",
+  outline: "observedLine",
   gridMark: "point",
 } as const satisfies Record<WeatherRenderKind, string>;
 
@@ -48,7 +49,8 @@ export type WeatherPayload =
   | { readonly kind: "rasterTile"; readonly tiles: readonly string[] }
   | { readonly kind: "vectorTile"; readonly tiles: readonly string[] }
   | { readonly kind: "gridFill"; readonly data: unknown }
-  | { readonly kind: "gridMark"; readonly data: unknown };
+  | { readonly kind: "gridMark"; readonly data: unknown }
+  | { readonly kind: "outline"; readonly data: unknown };
 
 /** 要素1つぶんの見た目。画面が決めてよいのはここだけ。 */
 type Drawing = {
@@ -57,6 +59,8 @@ type Drawing = {
   readonly filter?: FilterSpecification;
   /** 記号を描くのに要るアイコン。登録してからでないと出ない。 */
   readonly icon?: { readonly id: string; readonly create: () => ImageData };
+  /** 主の線の下に敷く縁取りの線の見た目。背景の色に関わらず線を読めるようにする。 */
+  readonly casing?: { readonly paint: Readonly<Record<string, unknown>> };
 };
 
 /** 宣言1件の鍵（チップ/名前付きソース/描き方）。同じ名前付きソースを描き方違いで2要素が名乗るため、
@@ -85,6 +89,21 @@ function aboveFilter(property: string, min: number): FilterSpecification {
 }
 
 const RASTER_DRAWING: Drawing = { paint: { "raster-opacity": AREA_OPACITY } };
+
+/** 線状降水帯の雨域の輪郭線。色・太さは配信元の公式の画面の描画定義の値で、塗らず、属性も読まない。 */
+const RAINBAND_OUTLINE_DRAWING: Drawing = {
+  paint: {
+    "line-color": weatherScales.linear_rainband_outline_color,
+    "line-width": WEATHER.rainbandOutlineWidthPx,
+  },
+  layout: { "line-join": "round", "line-cap": "round" },
+  casing: {
+    paint: {
+      "line-color": weatherScales.linear_rainband_outline_casing_color,
+      "line-width": WEATHER.rainbandOutlineCasingWidthPx,
+    },
+  },
+};
 
 function markDrawing(options: {
   readonly iconId: string;
@@ -182,6 +201,8 @@ const DRAWINGS: { readonly [K in DrawnKey]: Drawing } = {
     // 平常時の基準線（level=0）まで出すと、危険情報が無い日も川が全部塗られる。
     filter: aboveFilter("level", 0),
   },
+  "precipitationNowcast/linearRainbandArea/outline": RAINBAND_OUTLINE_DRAWING,
+  "precipitationNowcast/linearRainbandAreaForecast/outline": RAINBAND_OUTLINE_DRAWING,
   "disaster/liden/gridMark": markDrawing({
     iconId: "weather-liden",
     createIcon: createLidenIcon,
@@ -238,6 +259,7 @@ function sourceOf(
       };
     case "gridFill":
     case "gridMark":
+    case "outline":
       return { sourceSpec: { type: "geojson" }, placeholderData: EMPTY_FEATURE_COLLECTION };
   }
 }
@@ -302,6 +324,21 @@ export const weatherGroup = declareGroup<WeatherState>((state) => {
           : { data: element.placeholderData }),
     });
 
+    const visible = (shown?.visible ?? false) && matches;
+    // 縁取りは同じ段の中で主の線より先に積み、下に置く。
+    if (drawing.casing !== undefined) {
+      layers.push({
+        role: `${element.kind}-casing`,
+        tier: TIER_OF[element.kind],
+        source: id,
+        ...(element.sourceLayer === undefined ? {} : { sourceLayer: element.sourceLayer }),
+        type: layerTypeOf(element.kind),
+        paint: drawing.casing.paint,
+        ...(drawing.layout === undefined ? {} : { layout: drawing.layout }),
+        visible,
+        ...(drawing.filter === undefined ? {} : { filter: drawing.filter }),
+      });
+    }
     layers.push({
       role: element.kind,
       tier: TIER_OF[element.kind],
@@ -310,7 +347,7 @@ export const weatherGroup = declareGroup<WeatherState>((state) => {
       type: layerTypeOf(element.kind),
       paint: drawing.paint,
       ...(drawing.layout === undefined ? {} : { layout: drawing.layout }),
-      visible: (shown?.visible ?? false) && matches,
+      visible,
       ...(drawing.filter === undefined ? {} : { filter: drawing.filter }),
     });
   }
@@ -325,6 +362,7 @@ function layerTypeOf(kind: WeatherRenderKind): SceneLayerEntry["type"] {
     case "gridFill":
       return "fill";
     case "vectorTile":
+    case "outline":
       return "line";
     case "gridMark":
       return "symbol";
