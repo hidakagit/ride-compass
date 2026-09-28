@@ -15,7 +15,7 @@ import time
 
 import asyncpg
 
-from app.batch._common import reset_columns_sql
+from app.batch._common import latest_succeeded_run_id, reset_columns_sql
 from app.infrastructure.source_models import NODES_SOURCE_SQL, WAYS_SOURCE_SQL
 from app.domain.traffic import (
     HIGHWAY_RANK,
@@ -85,16 +85,8 @@ FROM best WHERE best.node_id = nm.osm_node_id
 """
 
 
-async def _latest_run(conn: asyncpg.Connection, source: str) -> int:
-    run_id = await conn.fetchval(
-        "SELECT max(run_id) FROM source_runs WHERE source = $1 AND status = 'succeeded'", source)
-    if run_id is None:
-        raise RuntimeError(f"'{source}' の取込が成功していません")
-    return run_id
-
-
 async def derive(conn: asyncpg.Connection) -> int:
-    run_id = await _latest_run(conn, "osm_node")
+    run_id = await latest_succeeded_run_id(conn, "osm_node")
     started = time.perf_counter()
 
     values = ", ".join(f"('{h}', {r})" for h, r in sorted(HIGHWAY_RANK.items()))

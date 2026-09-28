@@ -19,5 +19,3 @@ types-shapely==2.0.0.20250404
 pytest-testmon==2.2.0
 pytest-randomly==5.0.0
 pytest-timeout==2.4.0
-# 実DBとORMの宣言の比較（scripts/schema_gap.py）。migrationは持たず、比較の部品としてだけ使う。
-alembic==1.20.0

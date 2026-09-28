@@ -1,4 +1,5 @@
 """取込の共通経路（`ingest.ingest_source`）が、行の多さ・大きさに比例してメモリを抱えないこと。
+途中で落ちた取込が、行を元のまま残して失敗のrunを記録すること。
 
 本番の取込は上限つきの使い捨てコンテナで走り、標高のタイルは1件が約0.26MB（256×256画素のint32）ある。
 ここでは同じ大きさの行を数百件、本物の入口へ流し、取込の間のPythonの確保の最大が、流した総量より
@@ -22,7 +23,7 @@ from app.batch.ingest import (
     ingest_source,
     partition_table_name,
 )
-from app.batch.source_profile import NoFields, SourceSpec, load_source_profile
+from app.batch.source_profile import NoFields, SourceProfile, SourceSpec, load_source_profile
 from tests.conftest import postgis_database_url
 
 # road_graph_session（conftest.py）と同じDBを使うため、docs/conventions/testing.mdのパターン2どおり
@@ -66,8 +67,7 @@ async def test_memory_held_while_ingesting_does_not_grow_with_the_rows(conn, mon
 
     tracemalloc.start()
     try:
-        async with conn.transaction():
-            await ingest_source(conn, profile, SOURCE)
+        await ingest_source(conn, profile, SOURCE)
         _, peak = tracemalloc.get_traced_memory()
     finally:
         tracemalloc.stop()
@@ -77,3 +77,39 @@ async def test_memory_held_while_ingesting_does_not_grow_with_the_rows(conn, mon
     assert (count, total) == (ROWS, ROWS * ROW_BYTES)
     # 流した総量は約79MB。溜めずに流していれば、確保の最大は行数によらず一定（数MB）に留まる。
     assert peak < ROWS * ROW_BYTES / 10, f"取込の間の確保の最大 {peak / 1e6:.1f}MB"
+
+
+def _only(source: str, adapter: str) -> SourceProfile:
+    return replace(load_source_profile(), sources=(
+        SourceSpec(name=source, adapter=adapter, rows=NoFields(), grid=NoFields()),))
+
+
+async def _breaks_midway(spec, profile, origin):
+    yield SourceRecord(natural_key="new", geom_wkb=POINT_WKB, attrs={})
+    raise OSError("配信元が途中で切れた")
+
+
+async def test_a_failed_ingest_leaves_a_failed_run_and_the_previous_rows(conn, monkeypatch):
+    async def one_row(spec, profile, origin):
+        yield SourceRecord(natural_key="old", geom_wkb=POINT_WKB, attrs={})
+
+    monkeypatch.setitem(ADAPTERS, "one_row", RegisteredAdapter(read=one_row, rows=NoFields, grid=NoFields))
+    monkeypatch.setitem(ADAPTERS, "breaks", RegisteredAdapter(read=_breaks_midway, rows=NoFields, grid=NoFields))
+    succeeded = await ingest_source(conn, _only(SOURCE, "one_row"), SOURCE)
+
+    with pytest.raises(OSError):
+        await ingest_source(conn, _only(SOURCE, "breaks"), SOURCE)
+
+    runs = await conn.fetch(
+        "SELECT run_id, status, finished_at IS NOT NULL AS closed FROM source_runs"
+        " WHERE source = $1 AND run_id >= $2 ORDER BY run_id", SOURCE, succeeded)
+    assert [(r["status"], r["closed"]) for r in runs] == [("succeeded", True), ("failed", True)]
+    kept = await conn.fetch(f'SELECT natural_key, run_id FROM "{partition_table_name(SOURCE)}"')
+    assert [(r["natural_key"], r["run_id"]) for r in kept] == [("old", succeeded)]
+
+
+async def test_ingesting_inside_a_transaction_is_refused(conn, monkeypatch):
+    monkeypatch.setitem(ADAPTERS, "breaks", RegisteredAdapter(read=_breaks_midway, rows=NoFields, grid=NoFields))
+    async with conn.transaction():
+        with pytest.raises(RuntimeError, match="トランザクションの外"):
+            await ingest_source(conn, _only(SOURCE, "breaks"), SOURCE)

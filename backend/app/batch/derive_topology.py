@@ -17,6 +17,7 @@ import time
 
 import asyncpg
 
+from app.batch._common import latest_succeeded_run_id
 from app.infrastructure.source_models import ways_source_sql
 
 logger = logging.getLogger("ridecompass.derive_topology")
@@ -134,16 +135,8 @@ SELECT osm_way_id, segment_index, source_run_id FROM road_edges
 """
 
 
-async def _latest_run(conn: asyncpg.Connection, source: str) -> int:
-    run_id = await conn.fetchval(
-        "SELECT max(run_id) FROM source_runs WHERE source = $1 AND status = 'succeeded'", source)
-    if run_id is None:
-        raise RuntimeError(f"'{source}' の取込が成功していません")
-    return run_id
-
-
 async def derive(conn: asyncpg.Connection) -> tuple[int, int]:
-    run_id = await _latest_run(conn, "osm_way")
+    run_id = await latest_succeeded_run_id(conn, "osm_way")
     started = time.perf_counter()
 
     async with conn.transaction():

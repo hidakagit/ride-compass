@@ -19,6 +19,8 @@ from datetime import datetime
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.infrastructure.source_models import latest_succeeded_run_sql
+
 
 # PostGISが作る付属テーブル。アプリのデータではないため一覧から外す。
 _EXCLUDED_TABLES = ("spatial_ref_sys",)
@@ -94,7 +96,7 @@ class DbStatusCounts:
 
 #: ソースごとの最新run（成否を問わない）と、成功した最新run。取込の記録は`source_runs`
 #: 1つだけなので、ソースが増えても宣言は要らない。
-_IMPORT_RUNS_SQL = """
+_IMPORT_RUNS_SQL = f"""
 SELECT DISTINCT ON (source)
        source,
        run_id AS latest_id,
@@ -102,11 +104,8 @@ SELECT DISTINCT ON (source)
        finished_at AS latest_finished_at,
        counts AS latest_counts,
        origin AS latest_origin,
-       (SELECT max(run_id) FROM source_runs s
-         WHERE s.source = r.source AND s.status = 'succeeded') AS latest_succeeded_id,
-       (SELECT finished_at FROM source_runs s
-         WHERE s.source = r.source AND s.status = 'succeeded'
-         ORDER BY run_id DESC LIMIT 1) AS latest_succeeded_finished_at
+       (SELECT run_id FROM {latest_succeeded_run_sql("r.source")} s) AS latest_succeeded_id,
+       (SELECT finished_at FROM {latest_succeeded_run_sql("r.source")} s) AS latest_succeeded_finished_at
 FROM source_runs r
 ORDER BY source, run_id DESC
 """

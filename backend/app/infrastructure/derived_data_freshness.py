@@ -20,7 +20,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infrastructure import derived_models  # noqa: F401  Base.metadataへの登録が目的
-from app.infrastructure import source_models  # noqa: F401  同上（外部キーの解決に要る）
+from app.infrastructure import source_models  # 外部キーの解決にも要る
 from app.infrastructure.orm_base import Base
 
 #: 系譜の列。これを持つ表が派生データ。
@@ -182,10 +182,8 @@ def build_table_sql(table) -> str:
 
 
 #: その取込runのソースと、同じソースの最新の成功run。
-_RUN_SOURCE_SQL = text("""
-SELECT r.source,
-       (SELECT max(run_id) FROM source_runs l
-         WHERE l.source = r.source AND l.status = 'succeeded') AS latest_run_id
+_RUN_SOURCE_SQL = text(f"""
+SELECT r.source, (SELECT run_id FROM {source_models.latest_succeeded_run_sql("r.source")} l) AS latest_run_id
 FROM source_runs r WHERE r.run_id = :run_id
 """)
 

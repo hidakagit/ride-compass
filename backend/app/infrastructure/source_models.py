@@ -14,6 +14,7 @@ from geoalchemy2 import Geometry, Raster
 from sqlalchemy import (
     DDL,
     BigInteger,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     LargeBinary,
@@ -26,11 +27,16 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.infrastructure.orm_base import Base
 
 
-#: 取込のrunの状態と、管理画面に出す呼び名。取込は開くときに`running`、書き終えたら`succeeded`で閉じる
-#: （`batch/ingest.py`）。途中で止まったrunは`running`のまま残るため、呼び名はその両方を言う。
+#: 成功した取込の状態。生データはこの状態のrunの行だけが入っている。
+SUCCEEDED = "succeeded"
+
+#: 取込のrunの状態と、管理画面に出す呼び名。取込は開くときに`running`を書き、失敗すれば`failed`、
+#: 書き終えれば`succeeded`で閉じる（`batch/ingest.py`）。プロセスごと止まったrunは閉じる者が
+#: いないので`running`のまま残り、呼び名はその両方を言う。表の`status`はこの鍵しか入れさせない。
 SOURCE_RUN_STATUS_LABELS: dict[str, str] = {
     "running": "実行中か中断",
-    "succeeded": "成功",
+    "failed": "失敗",
+    SUCCEEDED: "成功",
 }
 
 
@@ -45,6 +51,11 @@ class SourceRunRow(Base):
     """
 
     __tablename__ = "source_runs"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN (" + ", ".join(f"'{s}'" for s in SOURCE_RUN_STATUS_LABELS) + ")",
+            name="source_runs_status_known"),
+    )
 
     run_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     source: Mapped[str] = mapped_column(String, nullable=False)
@@ -89,6 +100,16 @@ class SourceFeatureRow(Base):
     payload: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     #: 面のソースの画素。線・点のソースでは空。
     rast: Mapped[object | None] = mapped_column(Raster, nullable=True)
+
+
+def latest_succeeded_run_sql(source_sql: str) -> str:
+    """そのソースの成功した最新の取込1行（`source_runs`の全列）を指す副問い合わせ。
+
+    `source_sql`はソース名を出すSQLの式（`'osm_way'`・`$1`・外側の問い合わせの列等）。
+    生データに入っているのはこのrunの行だけなので、派生の基準も取込の範囲もここから読む。
+    """
+    return (f"(SELECT * FROM {SourceRunRow.__tablename__} WHERE source = {source_sql}"
+            f" AND status = '{SUCCEEDED}' ORDER BY run_id DESC LIMIT 1)")
 
 
 # --- 道とノードの生データを読む副問い合わせ ---

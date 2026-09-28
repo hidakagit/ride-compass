@@ -37,6 +37,7 @@ from app.domain.material_sql import LANES_COUNT_CASE_SQL, MAXSPEED_KMH_CASE_SQL
 from app.infrastructure.source_models import (
     NODES_SOURCE_SQL,
     WAYS_SOURCE_SQL,
+    latest_succeeded_run_sql,
     nodes_lookup_sql,
     ways_lookup_sql,
     ways_source_sql,
@@ -103,15 +104,13 @@ async def create_tables(engine: AsyncEngine) -> None:
 #
 # 手元の道路データは、成功した最新の道路の取込のもの——取込はソースのパーティションを入れ替え、派生も
 # 最新のrunから作る。範囲はそのrunが記録した宣言（`profile.target.bbox`、(min_lat, min_lon, max_lat, max_lon)）。
-_INGESTED_BBOX_SQL = """
+_INGESTED_BBOX_SQL = f"""
     SELECT
         (profile->'target'->'bbox'->>0)::double precision AS min_lat,
         (profile->'target'->'bbox'->>1)::double precision AS min_lon,
         (profile->'target'->'bbox'->>2)::double precision AS max_lat,
         (profile->'target'->'bbox'->>3)::double precision AS max_lon
-    FROM source_runs
-    WHERE source = 'osm_way' AND status = 'succeeded'
-    ORDER BY run_id DESC LIMIT 1
+    FROM {latest_succeeded_run_sql("'osm_way'")} latest
 """
 
 _COVERAGE_SQL = f"""
@@ -744,12 +743,9 @@ class RoadGraphRepository:
         事故が1件も無かった年が落ちる。年数は`accident_count_per_km_year`の分母に、年そのものは
         地図の説明文に使う。どちらもここが正本で、**表示側は年を自分で持たない**。
         """
-        row = await self._session.execute(text("""
-            SELECT profile->'source'->'rows'->'years' AS years
-            FROM source_runs
-            WHERE source = 'accident' AND status = 'succeeded'
-            ORDER BY run_id DESC LIMIT 1
-        """))
+        latest = latest_succeeded_run_sql("'accident'")
+        row = await self._session.execute(
+            text(f"SELECT profile->'source'->'rows'->'years' AS years FROM {latest} latest"))
         value = row.scalar()
         if not isinstance(value, list):
             return []

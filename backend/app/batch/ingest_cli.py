@@ -28,9 +28,8 @@ async def run(source_names: list[str], database_url: str, profile: SourceProfile
     conn = await asyncpg.connect(asyncpg_dsn(database_url))
     try:
         for name in source_names:
-            async with conn.transaction():
-                run_id = await ingest_source(conn, profile, name)
-                logger.info("source=%s run_id=%d", name, run_id)
+            run_id = await ingest_source(conn, profile, name)
+            logger.info("source=%s run_id=%d", name, run_id)
     finally:
         await conn.close()
     return 0

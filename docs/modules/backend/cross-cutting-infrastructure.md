@@ -38,7 +38,7 @@ DB接続・Redis・HTTPクライアント・レート制限・ログ・デバッ
 | scripts | `admin_data_dump_args.py` | 取り直せない管理データの表を書き出す`pg_dump`の引数（DB名と表）。表は印（`orm_base.IRREPLACEABLE`）から導く |
 | ops | `admin_data_backup.sh` | 本番VMのホストで、上の引数で`pg_dump`し、Object Storageの非公開バケットへ置く |
 | ops | `ridecompass-admin-data-backup.service`・`ridecompass-admin-data-backup.timer` | それを毎日打つsystemdのユニット（VMへの登録は手で1回） |
-| scripts | `schema_gap.py` | 実DBのスキーマとORMの宣言（`orm_base.declared_metadata`）の差を、alembicの`compare_metadata`で出す（開発用の依存。本番のイメージには入らないので、本番DBへは`run_probe.py`の手元実行で当てる） |
+| scripts | `schema_gap.py` | 実DBのスキーマとORMの宣言（`orm_base.declared_metadata`）の差を出す。宣言どおりの表を同じ接続の一時スキーマへ作ってから巻き戻すまでの間に、`public`とカタログを突き合わせる——制約・既定値・索引の式をPostgreSQLが正規化した形で比べるので、CHECKの式・主キー・一意も比べられる。名前は比べない。本番DBへは`run_probe.py`で当てる |
 | scripts | `lost_constraints.py` | 2つの版の`backend/app`をgitから取り出し、ORMが宣言する表・制約を名前抜きの同じ形へ揃えて、消えたものを出す（DBは使わない）。SQLの文の中の絞り込みは見ない——断片をつないで組み立てるSQLは文字列から構文木を取れないものが残るため |
 | scripts | `_stdio.py` | `scripts/`の実行口が共通で使う、標準出力・標準エラーのUTF-8化 |
 | scripts | `run_probe.py` | 調査用のスクリプトを本番DBに対して走らせる（手元のPythonから本番DBを引くか、本番のbackendコンテナの中で走らせる）。手元実行では接続文字列をSQLAlchemy用と素のasyncpg用の両方の形で環境変数へ渡す |
