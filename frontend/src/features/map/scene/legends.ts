@@ -80,16 +80,23 @@ export function pointLegendAxes(): readonly SceneLegendAxis[] {
 
 const DISASTER_LAYER_ID = "disaster";
 
+/** 段の並びから鍵で1段の色を引く。位置で引くと、源泉が段を足した・並べ替えたときに別の段を指す。 */
+function levelColor(levels: readonly { key: string; color: string }[], key: string): string {
+  const level = levels.find((candidate) => candidate.key === key);
+  if (!level) throw new Error(`気象の段に鍵が無い: ${key}`);
+  return level.color;
+}
+
 /** 災害の要素ごとの色見本。地図がその要素を塗る段のうち、注意を促す段の色（平常時の色を
  * 見本にすると、どの要素も同じに見える）。鍵は源泉が配る災害のソースで、要素が増えれば
  * 型検査が落ちる。 */
 const DISASTER_SOURCE_SWATCH: Record<DisasterSourceKey, string> = {
-  heavyRain: weatherScales.risk_levels[2].color,
-  landslide: weatherScales.risk_levels[2].color,
-  inundation: weatherScales.risk_levels[2].color,
-  flood: weatherScales.risk_levels[2].color,
-  thunder: weatherScales.thunder_activity[1].color,
-  tornado: weatherScales.tornado_potential[0].color,
+  heavyRain: levelColor(weatherScales.risk_levels, "level2"),
+  landslide: levelColor(weatherScales.risk_levels, "level2"),
+  inundation: levelColor(weatherScales.risk_levels, "level2"),
+  flood: levelColor(weatherScales.risk_levels, "level2"),
+  thunder: levelColor(weatherScales.thunder_activity, "level2"),
+  tornado: levelColor(weatherScales.tornado_potential, "potential1"),
   liden: palette.semantic.lightning,
 };
 

@@ -37,6 +37,7 @@
   },
   "landcover": {
     "tile_version": "1-e30a2b1df328",
+    "ring_outer_m": 100.0,
     "min_zoom": 6,
     "max_zoom": 14
   }

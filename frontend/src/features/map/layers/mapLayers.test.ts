@@ -5,7 +5,9 @@ import { catalogEntry, catalogOf, dedicatedEntry, rampEntry } from "@/testing/ca
 import { pointLegendAxes } from "@/features/map/scene/legends";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 
-import { LANDCOVER_PAINTED_CLASSES } from "./landcoverClasses";
+import regionTileConfig from "@/types/generated/region-tile-config.json";
+
+import { LANDCOVER_CLASSES, LANDCOVER_PAINTED_CLASSES } from "./landcoverClasses";
 import {
   buildDefaultLayerVisibility,
   buildMapLayers,
@@ -96,6 +98,17 @@ describe("buildMapLayers（レイヤーの一覧）", () => {
   it("土地被覆の凡例は、地図に塗るクラスだけを並べる", () => {
     const [block] = layer(withoutAxes, "landcover").readOnlyLegend ?? [];
     expect(block.legend.map((entry) => entry.label)).toEqual(LANDCOVER_PAINTED_CLASSES.map((cls) => cls.label));
+  });
+
+  it("土地被覆の説明は、塗らない分類と、評価が土地被覆を数える帯の幅を源泉から出す", () => {
+    const landcover = layer(withoutAxes, "landcover");
+    const unpainted = LANDCOVER_CLASSES.filter((entry) => !entry.painted);
+    expect(unpainted.length).toBeGreaterThan(0);
+    for (const cls of unpainted) {
+      expect(landcover.description).toContain(cls.label);
+      expect(landcover.panelHint).toContain(`${cls.label}は塗りません`);
+    }
+    expect(landcover.panelHint).toContain(`周囲${regionTileConfig.landcover.ring_outer_m}m`);
   });
 });
 

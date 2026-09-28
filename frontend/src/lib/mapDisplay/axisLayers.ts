@@ -123,7 +123,7 @@ export function dedicatedWayValueAxesFromCatalogAxes(axes: readonly AxisCatalogE
       display: {
         kind: axis.map_value.kind,
         unit: axis.map_value_unit,
-        boundaries: axis.map_value_thresholds ?? undefined,
+        boundaries: axis.map_value_thresholds,
         bandLabels: axis.display_band_labels_override ?? undefined,
       },
     }));

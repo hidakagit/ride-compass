@@ -163,8 +163,10 @@ class TestMapValueThresholds:
         ],
         ids=["符号を畳まない", "複数の項", "項が材料でなく軸", "分類"],
     )
-    def test_other_axes_off_the_map_have_no_bands(self, shape):
-        assert dynamic_way_values.map_value_thresholds(axis("a", shape)) is None
+    def test_other_axes_off_the_map_are_cut_at_the_default_difficulty_bands(self, shape):
+        assert dynamic_way_values.map_value_thresholds(axis("a", shape)) == list(
+            dynamic_way_values.DEFAULT_DIFFICULTY_BOUNDARIES
+        )
 
     def test_a_linear_axis_on_the_map_maps_its_bands_onto_the_difficulty_scale(self):
         definition = axis(

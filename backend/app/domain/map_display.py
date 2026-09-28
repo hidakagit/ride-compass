@@ -223,12 +223,6 @@ ROUTE_ARROW_HALO_SCALE = 1.5
 ROUTE_ARROW_SIZE_BY_ZOOM: tuple[tuple[float, float], ...] = ((10, 0.6), (13, 0.8), (16, 1.2), (19, 1.6))
 
 
-#: 難易度（0〜100）の段の境界。軸が宣言していないときに使う。**値ではなく等分の規則**
-#: ——無次元の得点には目盛りの手掛かりが無いので、3等分する。符号付き材料の段は
-#: 軸の折れ線から導く（`domain/dynamic_way_values.py`）ので、ここには持たない。
-DEFAULT_DIFFICULTY_BOUNDARIES: tuple[float, ...] = (33, 66)
-
-
 #: 面の濃さ。下限は「最も薄い階級が背景に対してΔE（CIE76）15以上」、上限は面の下にある
 #: 土地の塗りが潰れない範囲。**上下から挟まれている**ので片側だけを見て動かさない。
 AREA_OPACITY = 0.55
