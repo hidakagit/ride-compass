@@ -7,7 +7,7 @@ import httpx
 from cachetools import TTLCache
 
 from app.config import settings
-from app.domain.jma_tile_specs import JmaFrame, TargetTimesRow
+from app.domain.jma_tile_specs import JmaFrame, TargetTimesRow, is_final_absence
 from app.infrastructure import jma_tile_redis_cache
 from app.infrastructure.debug_log import error_type_label, log_external_call
 from app.infrastructure.jma_tile_redis_cache import EmptyTile
@@ -100,8 +100,9 @@ class JmaTileClient:
         ではないため、`log_external_call`の計測（elapsed_ms）に含めないよう、
         `with`ブロックへ入る前に済ませる。
 
-        上流の404は`JmaTileNotFoundError`を送出する（疎な格子状タイルでは珍しくない正常系
-        のため、`result="ok"`のまま記録しWARNINGを出さない。他の失敗はNoneを返す）。
+        上流の404は`JmaTileNotFoundError`を送出する（疎な格子状タイルでは珍しくない正常系、配信前の
+        地物では毎回の配信の間に必ず起きる正常系のため、`result="ok"`のまま記録しWARNINGを出さない。
+        他の失敗はNoneを返す）。
         """
         await _wait_for_upstream_rate_limit()
         is_target_times = is_target_times_path(path)
@@ -120,12 +121,11 @@ class JmaTileClient:
                     fields["result"] = "ok"
                     fields["status"] = 404
                     not_found = True
-                    # 恒久404をキャッシュし、次回以降は上流へ問い合わせず
-                    # JmaTileNotFoundErrorで即座に済ませる（basetime/validtimeが確定した過去の
-                    # 一時点への結果のため、再フェッチしても変わらない）。
+                    # 確定した404だけを覚え、次回以降は上流へ問い合わせずJmaTileNotFoundErrorで即座に済ませる。
+                    # 配信前の地物の404を覚えると、配信された後もその間は「無い」を返し続ける。
                     if is_target_times:
                         _target_times_cache[path] = jma_tile_redis_cache.EMPTY_TILE
-                    else:
+                    elif is_final_absence(path):
                         await jma_tile_redis_cache.set_empty(path)
                 else:
                     fields["result"] = "error"

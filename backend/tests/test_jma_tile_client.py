@@ -22,6 +22,9 @@ from tests.fake_tile_http import FakeHttpClient
 
 TILE_PATH = "bosai/jmatile/data/nowc/20260101000000/none/20260101000000/surf/hrpns/6/57/25.png"
 TARGET_TIMES_PATH = "bosai/jmatile/data/nowc/targetTimes_N1.json"
+FEATURES_PATH = (
+    "bosai/jmatile/data/nowc/20260101000000/none/20260101000000/surf/slmcs_unify/data.geojson?id=slmcs_unify"
+)
 
 #: 差し替え前の共有キャッシュが配っている「描くものが無い」センチネル。
 EMPTY_TILE = jma_tile_client.jma_tile_redis_cache.EMPTY_TILE
@@ -248,6 +251,18 @@ async def test_a_missing_tile_is_raised_apart_from_other_failures_and_remembered
     assert redis.entries == {TILE_PATH: EMPTY_TILE}
     assert recorded[0].fields["result"] == "ok"
     assert recorded[0].fields["status"] == 404
+
+
+async def test_features_not_yet_delivered_are_raised_but_not_remembered(monkeypatch, sleeps):
+    """配信元はコマの地物を配信するまで404を返す。覚えると、配信された後もその間は「無い」を返し続ける。"""
+    redis, recorded = install_fakes(monkeypatch)
+    http_client = FakeHttpClient(b"", None, raises=http_status_error(404))
+
+    with pytest.raises(jma_tile_client.JmaTileNotFoundError):
+        await jma_tile_client.JmaTileClient(http_client).fetch(FEATURES_PATH)
+
+    assert redis.entries == {}
+    assert recorded[0].fields["result"] == "ok"
 
 
 async def test_a_missing_time_listing_is_remembered_as_empty_in_this_process(monkeypatch, sleeps):

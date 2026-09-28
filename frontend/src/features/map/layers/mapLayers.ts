@@ -74,6 +74,15 @@ function readOnlyEntries(levels: readonly Omit<LegendEntry, "filter">[]): Legend
   return levels.map((level) => ({ ...level, filter: UNUSED_LEGEND_FILTER }));
 }
 
+/** 名前付きソースを重ねる幅（「今」から何時間先まで）。源泉が要素の描くコマの規則として宣言する値。 */
+function windowHoursOf(source: string): number {
+  const minutes = mapDisplay.weatherElements.find((element) => element.source === source)?.frameRule.windowMinutes;
+  if (minutes == null) throw new Error(`${source}は重ねる幅を宣言していない`);
+  return minutes / 60;
+}
+
+const LINEAR_RAINBAND_HOURS = windowHoursOf("linearRainband");
+
 /** そのレイヤーの絵がどこから来るか。取得状態はここから導く（同じタイルを読むレイヤーは同時に空・失敗になる）。
  * `ownFetch`はMapLibreのソースを経由せず自前で取るもので、取得状態はそのフェッチ自身が出す。 */
 export type MapLayerDataSource = (typeof mapDisplay.layerDataSources)[number]["key"];
@@ -329,13 +338,25 @@ export function buildMapLayers({
           legend: readOnlyEntries(PRECIPITATION_INTENSITY_LEVELS),
         },
         {
-          label: "線状降水帯予測マップ[現在〜3時間先のみ]",
+          label: `線状降水帯予測マップ[現在〜${LINEAR_RAINBAND_HOURS}時間先のみ]`,
           // 色は配信元の塗り色そのもの。矩形に見えることも書く（細かい雨域と重なると描画の不具合に見える）。
           legend: [
             {
               key: "linearRainband",
-              label: "今後3時間以内に大雨のおそれ[矩形の予測領域]",
+              label: `今後${LINEAR_RAINBAND_HOURS}時間以内に大雨のおそれ[矩形の予測領域]`,
               color: weatherScales.linear_rainband_color,
+              filter: UNUSED_LEGEND_FILTER,
+            },
+          ],
+        },
+        {
+          label: "線状降水帯の雨域[実況〜30分先のみ]",
+          // 文言は配信元の公式の画面の凡例に合わせる。
+          legend: [
+            {
+              key: "linearRainbandArea",
+              label: "大雨災害発生の危険度が急激に高まっている線状降水帯の雨域[赤い輪郭線]",
+              color: weatherScales.linear_rainband_outline_color,
               filter: UNUSED_LEGEND_FILTER,
             },
           ],
@@ -346,9 +367,10 @@ export function buildMapLayers({
       // 15時間より先は数値予報モデル（MSM）の計算値なので「予報」と呼ばない
       // （docs/architecture/data-sources.md「気象業務法の予報業務許可」節）。
       description:
-        "気象庁の降水ナウキャスト・降水短時間予報・線状降水帯予測マップと、数値予報モデルが計算した降水量を重ねて表示" +
+        "気象庁の降水ナウキャスト・降水短時間予報・線状降水帯予測マップ・線状降水帯の雨域と、数値予報モデルが計算した降水量を重ねて表示" +
         "[実況〜60分先は5分刻み、60分〜15時間先は気象庁の降水短時間予報、以降は気象庁の数値予報モデルMSMの" +
-        "計算値を1時間刻みで、予報ではなく誤差を含みうる。線状降水帯予測マップは現在〜3時間先の間だけ追加で重畳]",
+        `計算値を1時間刻みで、予報ではなく誤差を含みうる。線状降水帯予測マップは現在〜${LINEAR_RAINBAND_HOURS}時間先、線状降水帯の雨域は` +
+        "実況〜30分先の間だけ追加で重畳]",
       panelHint:
         "気象庁の高解像度降水ナウキャストです。ONにすると地図上に時刻スライダーが現れ、" +
         "実況[直近]から60分先までの雨雲の分布を切り替えて確認できます。60分より先は、" +
@@ -357,12 +379,14 @@ export function buildMapLayers({
         "なるほど不確実性が増します。15時間より先は、風と同じ仕組み[気象庁の数値予報モデルMSMが" +
         "格子点ごとに計算した降水量]で、格子を降水強度に応じた色で塗る表示へさらに切り替わり、" +
         "1〜3日先まで確認できます[降水短時間予報よりも粗い5kmメッシュのモデルの計算値で、予報ではなく" +
-        "誤差を含みえます]。加えて、現在〜3時間先の" +
-        "間だけ、気象庁の線状降水帯予測マップを重ねて表示します[今後3時間以内に大雨の" +
+        `誤差を含みえます]。加えて、現在〜${LINEAR_RAINBAND_HOURS}時間先の` +
+        `間だけ、気象庁の線状降水帯予測マップを重ねて表示します[今後${LINEAR_RAINBAND_HOURS}時間以内に大雨の` +
         "おそれがある領域を赤で示すもので、予測は格子単位のため矩形に見えます。" +
         "今まさに発生している線状降水帯の雨域を示すものではありません]。" +
+        "今まさに発生している線状降水帯は、実況から30分先までの間、その雨域を赤い輪郭線で重ねます" +
+        "[気象庁が線状降水帯を解析しているときだけ出ます]。" +
         "非公式の内部APIを利用している実況・60分先までの" +
-        "部分・線状降水帯予測マップは、取得に失敗することがあります。",
+        "部分・線状降水帯予測マップ・線状降水帯の雨域は、取得に失敗することがあります。",
     },
     {
       ...staticLayer("windVector"),

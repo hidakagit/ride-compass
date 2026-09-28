@@ -119,10 +119,11 @@ MSMは数値予報モデルの出力で観測値・公式発表の代わりに�
 | `targetTimes*.json`（`jma_tile_client.py: is_target_times_path`で判定） | プロセス内メモリ`TTLCache`（maxsize=16） | 2分 | `public, max-age=60` |
 | タイル本体（ラスタPNG・洪水キキクルのベクタPBF） | `jma_tile_redis_cache.py`（Redis cache-aside、正本を持たない） | 20分 | `public, max-age=1200, immutable` |
 | 描くものが無いタイル（`EmptyTile`。上流の404、または200で返った空タイル） | 上記と同じキー・TTL（実体ではなくフラグ） | 20分 | `public, max-age=600` |
+| 配信前のコマの地物（GeoJSON）の404 | 保存しない | — | `no-store` |
 | 502（上流障害） | 保存しない | — | 付けない |
 
 `Cache-Control`の値自体は`api/cache_policy.py`（`IMMUTABLE_TILE`・`JMA_TARGET_TIMES`・
-`JMA_TILE_NOT_FOUND`）が持ち、このプロキシは1つのパスで性質の異なる3種類を返すため
+`JMA_TILE_NOT_FOUND`・`JMA_NOT_YET_DELIVERED`）が持ち、このプロキシは1つのパスで性質の異なるものを返すため
 対応表では`HANDLER_MANAGED`とし、どれを使うかだけを`jma_tile.py`が選ぶ
 （[横断基盤](cross-cutting-infrastructure.md)「応答のCache-Control」参照）。
 
@@ -155,8 +156,17 @@ MSMは数値予報モデルの出力で観測値・公式発表の代わりに�
 
 `jma_tile.py`は`EmptyTile`を受け取ると上流へ再問い合わせせず即座に404を返す（レート制限も
 消費しない）。クライアント側（`jmaTileProtocol.ts`）は404も空タイルも透明タイルへ倒すため、
-200＋空タイルを返す必要はない。`basetime`/`validtime`が確定した過去の一時点への結果のため、
+200＋空タイルを返す必要はない。配信された`basetime`/`validtime`の一時点への結果のため、
 この事実は再フェッチしても変わらない。
+
+**配信前の地物の404は覚えない**: タイルで配らない要素のコマの地物（GeoJSON。例: 落雷の地点・線状降水帯の雨域）は、
+配信元がそのコマを配信するまで404を返し、配信した後は地物が無くても200で空の集まりを返す。線状降水帯の雨域は
+時刻一覧に載ってから10分近く404が続き、その間に1つ前の`basetime`の同じ時刻が配信される（2026-09-28の実測で、
+`basetime`から約13.5分後に配信、その約1分後に時刻一覧の最新が次の`basetime`へ進む）。この404を覚えると、
+画面が前の`basetime`へ倒したときの取り直し先に、配信前に覚えた404が当たり続ける。そこで、404が確定した事実か
+（`domain/jma_tile_specs.py: is_final_absence`。パスの形が地物か）で分け、地物の404は`EmptyTile`として保存せず、
+ブラウザへも`no-store`で返す。画面が前の`basetime`へ倒す側は[動的気象レイヤー（frontend）](../frontend/dynamic-weather-layers.md)
+「配信元は、時刻一覧に載せた最新の`basetime`の地物をしばらく出さない」。
 
 **要素ごとのズーム上限（`domain/jma_tile_specs.py`）**: 配信元は要素ごとに`zoomUse`
 （使用するズームの偶奇）と`maxNativeZoom`（画像が実在する最大ズーム）を持ち、**両方を
@@ -165,7 +175,7 @@ MSMは数値予報モデルの出力で観測値・公式発表の代わりに�
 （frontendへは動的気象の要素の宣言`domain/weather_elements.py: WEATHER_ELEMENTS`の生成物
 `mapDisplay.weatherElements`の`tile`として配る）とプリウォームの対象ズームの両方が
 この1箇所から決まる。ズームの仕様は配信要素の宣言`JMA_ELEMENTS`の1件がパスの系統（`risk`・`nowc`・`rasrf`）・
-時刻一覧のファイルと読み方と一緒に持ち、タイルで配らない配信要素（落雷のGeoJSON）はズームの仕様を持たない
+時刻一覧のファイルと読み方と一緒に持ち、タイルで配らない配信要素（落雷・線状降水帯の雨域のGeoJSON）はズームの仕様を持たない
 （要素ごとの性質を表に分けて持つと、要素idを両方に書き、つながりをテストで守ることになる）。プリウォームの取得先はここから、画面の仮のURLと
 データ層が組み立てる実データのURLは生成物の要素ごとの`jmaElements`（時刻の段の順に並んだ
 配信要素id・時刻一覧のパス・コマのパスのテンプレート）から組み立てる。1つの名前付きソースが時刻によって別の配信要素
@@ -199,7 +209,7 @@ Noneを返し、上流の空タイルがそのまま画面へ届く。
 取りに行ってその要素の取得が失敗する（どこかの表との突き合わせでは止めない）。
 
 **配信元のパスの形**（同じファイル）: 根（`bosai/jmatile/data`）の下の、系統・時刻・系列・要素idの並びとその下のタイル座標
-（またはタイルで配らない要素の地点のGeoJSON）の形を1か所に持つ。`jma_url_template()`が要素ごとに系統・要素id・
+（またはタイルで配らない要素の地物のGeoJSON。例: 落雷の地点・線状降水帯の雨域）の形を1か所に持つ。`jma_url_template()`が要素ごとに系統・要素id・
 拡張子（ベクタは`.pbf`、ラスタは`.png`）まで埋め、コマの項目（`JmaFrame`の項目名の`{basetime}`等）とタイル座標
 （地図の`{z}/{x}/{y}`）を残したテンプレートを返す。プリウォームはこれを埋めて取りに行き（`jma_tile_path`）、
 プロキシの補間はパスを同じテンプレートに当てて読み戻す（`read_jma_tile_path`）。画面は同じテンプレートを生成物の

@@ -233,6 +233,7 @@ function weatherPayloadFrom(payload: DynamicWeatherRenderPayload): WeatherPayloa
       return { kind: payload.kind, tiles: [withJmaTileProtocol(payload.tileUrlTemplate)] };
     case "gridFill":
     case "gridMark":
+    case "outline":
       return { kind: payload.kind, data: payload.geojson };
   }
 }

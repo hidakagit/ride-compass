@@ -259,6 +259,10 @@ LIGHTNING_ICON_SCALE = 0.8
 MARK_SIZE_BY_ZOOM: tuple[tuple[float, float], ...] = ((10, 0.75), (13, 1), (16, 1.5), (19, 2))
 #: 洪水の川筋の太さ（ズーム→px）。低いズームで目立たせすぎず、拡大するほど個々の川筋を追えるようにする。
 FLOOD_LINE_WIDTH_BY_ZOOM: tuple[tuple[float, float], ...] = ((6, 1.5), (10, 3), (14, 5))
+#: 線状降水帯の雨域の輪郭線の太さ（px）と、下に敷く縁取りの太さ。配信元の公式の画面の描画定義の値
+#: （`strokeWidth`と、縁取りはその+2）で、ズームによらない。
+RAINBAND_OUTLINE_WIDTH_PX = 4
+RAINBAND_OUTLINE_CASING_WIDTH_PX = RAINBAND_OUTLINE_WIDTH_PX + 2
 
 
 #: 道の線。太さは意味を運ばない（意味は色だけ）ので、分類の線はすべて同じ太さ。

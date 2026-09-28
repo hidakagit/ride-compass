@@ -2,7 +2,7 @@
 // 地点のURLと、タイルのURLの読み戻し。どの配信要素を・どのパスの形で・どの時刻一覧から・どう読むかは
 // 源泉の宣言（`mapDisplay.weatherElements`の`jmaElements`）が持ち、ここは宣言を受け取って組み立てるだけ。
 
-import { fetchJson } from "@/lib/apiClient";
+import { fetchJson, HttpStatusError } from "@/lib/apiClient";
 import { apiPath } from "@/lib/apiPath";
 import { tileBaseUrl } from "@/lib/tileBaseUrl";
 import { DEFAULT_API_TIMEOUT_MS } from "@/lib/apiTimeouts";
@@ -36,6 +36,11 @@ export type JmaDelivery = DeclaredElement["jmaElements"][number];
 
 /** 配信元のタイルで描く描き方。 */
 type JmaTileKind = "rasterTile" | "vectorTile";
+
+/** 配信元のタイルで描く描き方か。それ以外の描き方の配信要素は、コマごとの地物をGeoJSONで配る。 */
+export function isJmaTileKind(kind: DeclaredElement["kind"]): kind is JmaTileKind {
+  return kind === "rasterTile" || kind === "vectorTile";
+}
 
 /** 時刻一覧から読み出したコマ1つ。タイル・地点のURLを決める時刻と系列。項目名は源泉のパスのテンプレートの
  * `{basetime}`等と同じ名前で、テンプレートはこの名前で埋める。 */
@@ -112,7 +117,7 @@ function templateMatcher(template: string): { pattern: RegExp; names: string[] }
 }
 
 const TILE_DELIVERY_MATCHERS = mapDisplay.weatherElements
-  .filter((element) => element.kind === "rasterTile" || element.kind === "vectorTile")
+  .filter((element) => isJmaTileKind(element.kind))
   .flatMap((element): readonly JmaDelivery[] => element.jmaElements)
   .map((delivery) => ({ delivery, ...templateMatcher(delivery.urlTemplate) }));
 
@@ -141,17 +146,31 @@ export function readJmaTileUrl(url: string): JmaTileRef | null {
  * （`features/map/scene/groups/weather.ts`）もこの定数を参照する。 */
 export const JMA_POINT_VALUE_PROPERTY = "value";
 
-/** そのコマの地点（落雷の位置等）。 */
-export async function fetchJmaPointGeojson(
+/** そのコマの地物（落雷の地点・線状降水帯の雨域等）。`frames`（`jmaFramesWithEarlierBasetime`）を順に取り、配信元が
+ * 404を返したら次を取る——配信元はコマの地物を配信するまで404を返し、配信した後は地物が無くても空の集まりを返す。
+ * 代わりのコマが無い（選んだコマだけ）ときの404は、その時刻に届く配信がまだ無いので何も描かない（範囲の外の時刻と
+ * 同じ）。代わりのコマまで404なのは、とうに配信されているはずのものが取れていないので失敗にする。404以外の失敗は
+ * そのまま投げる。どの地物にも記号の大きさを決める値を足す（線・面には効かない）。 */
+export async function fetchJmaGeojson(
   delivery: JmaDelivery,
-  frame: JmaFrame,
+  frames: readonly JmaFrame[],
   label: string,
 ): Promise<GeoJSON.FeatureCollection> {
-  const geojson = await fetchJson<GeoJSON.FeatureCollection>(jmaFrameUrl(delivery, frame), {
-    timeoutMs: DEFAULT_API_TIMEOUT_MS,
-    category: "api:jma-points",
-    errorLabel: label,
-  });
+  let geojson: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
+  for (const [index, frame] of frames.entries()) {
+    try {
+      geojson = await fetchJson<GeoJSON.FeatureCollection>(jmaFrameUrl(delivery, frame), {
+        timeoutMs: DEFAULT_API_TIMEOUT_MS,
+        category: "api:jma-geojson",
+        errorLabel: label,
+      });
+      break;
+    } catch (error) {
+      const notYet = error instanceof HttpStatusError && error.status === 404;
+      const substituteMissing = frames.length > 1 && index === frames.length - 1;
+      if (!notYet || substituteMissing) throw error;
+    }
+  }
   return {
     ...geojson,
     features: geojson.features.map((feature) => ({
@@ -159,6 +178,29 @@ export async function fetchJmaPointGeojson(
       properties: { ...feature.properties, [JMA_POINT_VALUE_PROPERTY]: 1 },
     })),
   };
+}
+
+/** 地物を取るコマの候補（取る順）。選んだコマと、同じ`validtime`をその要素のより前の`basetime`（新しい順）で取るコマ
+ * ——配信元は時刻一覧に載せた最新の`basetime`の地物を、載せてから10分近く404で返す。前の`basetime`は、その要素の
+ * 予測が届く先（時刻一覧の行の`validtime`と`basetime`の差の最大）が選んだ`validtime`に届くものだけを候補にする
+ * （時刻一覧は前の`basetime`の予測の行を載せないが、配信元はその予測の地物を配り続ける）。`rows`は`jmaFramesOf`へ
+ * 渡すものと同じ時刻一覧の行。 */
+export function jmaFramesWithEarlierBasetime(
+  delivery: JmaDelivery,
+  rows: readonly unknown[],
+  frame: JmaFrame,
+): JmaFrame[] {
+  const own = (rows as readonly RawTargetTime[]).filter((row) => row.elements.includes(delivery.id));
+  const reachMs = Math.max(
+    0,
+    ...own.map((row) => parseValidtime(row.validtime).getTime() - parseValidtime(row.basetime).getTime()),
+  );
+  const target = parseValidtime(frame.validtime).getTime();
+  const earlier = [...new Set(own.map((row) => row.basetime))]
+    .filter((basetime) => basetime < frame.basetime && parseValidtime(basetime).getTime() + reachMs >= target)
+    .sort()
+    .reverse();
+  return [frame, ...earlier.map((basetime) => ({ ...frame, basetime }))];
 }
 
 /** 時刻一覧の1行。 */

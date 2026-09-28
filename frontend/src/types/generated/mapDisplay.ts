@@ -316,6 +316,52 @@ export const mapDisplay = {
       }
     },
     {
+      "group": "precipitationNowcast",
+      "source": "linearRainbandArea",
+      "kind": "outline",
+      "label": "線状降水帯の雨域",
+      "frameRule": {
+        "kind": "nearest",
+        "windowMinutes": null
+      },
+      "gridValue": null,
+      "jmaElements": [
+        {
+          "id": "slmcs_unify",
+          "targetTimesPaths": [
+            "bosai/jmatile/data/nowc/targetTimes_N3.json"
+          ],
+          "urlTemplate": "bosai/jmatile/data/nowc/{basetime}/{member}/{validtime}/surf/slmcs_unify/data.geojson?id=slmcs_unify",
+          "reader": "nowcast",
+          "refreshIntervalMs": 300000
+        }
+      ],
+      "tile": null
+    },
+    {
+      "group": "precipitationNowcast",
+      "source": "linearRainbandAreaForecast",
+      "kind": "outline",
+      "label": "線状降水帯の雨域",
+      "frameRule": {
+        "kind": "nearest",
+        "windowMinutes": null
+      },
+      "gridValue": null,
+      "jmaElements": [
+        {
+          "id": "slmcs_unifyfcst",
+          "targetTimesPaths": [
+            "bosai/jmatile/data/nowc/targetTimes_N3.json"
+          ],
+          "urlTemplate": "bosai/jmatile/data/nowc/{basetime}/{member}/{validtime}/surf/slmcs_unifyfcst/data.geojson?id=slmcs_unifyfcst",
+          "reader": "nowcast",
+          "refreshIntervalMs": 300000
+        }
+      ],
+      "tile": null
+    },
+    {
       "group": "windVector",
       "source": "arrow",
       "kind": "gridMark",
@@ -601,7 +647,9 @@ export const mapDisplay = {
         14,
         5
       ]
-    ]
+    ],
+    "rainbandOutlineWidthPx": 4,
+    "rainbandOutlineCasingWidthPx": 6
   },
   "valueScale": {
     "difficultyBoundaries": [
