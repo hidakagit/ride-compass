@@ -27,7 +27,7 @@ from app.domain.wind_grid import (  # noqa: E402
     WIND_GRID_DETAIL_MIN_SPACING_DEG,
     WIND_GRID_SPACING_DEG,
 )
-from app.api.routers.routes import DEFAULT_DISTANCE_TOLERANCE_KM, MAX_ROUTE_DISTANCE_KM  # noqa: E402
+from app.domain.route_request import DEFAULT_DISTANCE_TOLERANCE_KM, MAX_ROUTE_DISTANCE_KM, MAX_WAYPOINTS  # noqa: E402
 from app.api.routers.axis_admin import AxisDefinitionPayload  # noqa: E402
 from app.api.routers.debug_admin import LogLevelName  # noqa: E402
 from app.infrastructure.source_models import SOURCE_RUN_STATUS_LABELS  # noqa: E402
@@ -552,6 +552,8 @@ def main() -> None:
             "routes_with_waypoints": ROUTES_WITH_WAYPOINTS,
             "default_assumed_speed_kmh": ASSUMED_SPEED_KMH,
             "default_distance_tolerance_km": DEFAULT_DISTANCE_TOLERANCE_KM,
+            # 画面は経由地をこの数まで置け、超える点は置かない。
+            "max_waypoints": MAX_WAYPOINTS,
             "spliced_route_id": SPLICED_ROUTE_ID,
             "waypoints_route_id": WAYPOINTS_ROUTE_ID,
             "max_axis_weight": MAX_AXIS_WEIGHT,

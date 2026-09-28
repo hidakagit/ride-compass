@@ -16,6 +16,7 @@
 
 import asyncio
 import math
+import re
 from contextlib import asynccontextmanager
 from datetime import datetime
 
@@ -27,6 +28,7 @@ from app.api.routers import routes
 from app.config import settings
 from app.domain.geo import haversine_distance_km
 from app.domain.hard_filters import DEFAULT_HARD_FILTERS, HARD_FILTER_NAMES
+from app.domain.route_request import MAX_SPLICED_EDGES, MAX_WAYPOINTS
 from app.domain.tuning import TUNING_VALUES
 from app.infrastructure import rate_limiter, road_network_store
 from app.infrastructure.road_network_store import RoadNetworkUnavailableError
@@ -48,6 +50,7 @@ from tests.route_world import (
 CLIENT_HOST = "127.0.0.1"
 FAR_AWAY = {"latitude": 35.80, "longitude": 139.80}  # 格子から約25km。道が無い
 BEYOND_REACH = {"latitude": 37.0, "longitude": 139.8}  # 格子から100km超
+JAPANESE = re.compile(r"[぀-ヿ一-鿿]")  # かな・漢字
 
 
 def _point(osm_node_id):
@@ -268,12 +271,26 @@ async def test_a_destination_moved_to_the_nearest_reachable_road_is_echoed(clien
     {"spliced_edge_ids": ["way-100-seg0-fwd"]},                       # 目的地が無い
     {"destination": BEYOND_REACH},                                   # 起点から生成できる距離より遠い
     {"distance_km": None},                                           # 周回なのに目標距離が無い
-    {"waypoints": [_point(CENTER)] * 9},
+    {"waypoints": [_point(CENTER)] * (MAX_WAYPOINTS + 1)},
 ])
 async def test_a_request_outside_what_can_be_generated_is_refused_before_any_job(client, body):
     response = await _post(client, **body)
 
     assert response.status_code == 422
+
+
+@pytest.mark.parametrize("body", [
+    {"waypoints": [_point(CENTER)] * (MAX_WAYPOINTS + 1)},
+    {"destination": BEYOND_REACH},
+    {"destination": _point(NORTH_EAST), "spliced_edge_ids": ["way-100-seg0-fwd"] * (MAX_SPLICED_EDGES + 1)},
+])
+async def test_a_limit_reached_by_placing_points_is_refused_in_words_the_rider_reads(client, body):
+    """画面は誤りの文をそのまま結果欄へ出す。前置き（「Value error, 」）の付かない日本語の文だけが返る。"""
+    response = await _post(client, **body)
+
+    messages = [error["msg"] for error in response.json()["detail"]]
+    assert response.status_code == 422
+    assert messages and all(JAPANESE.search(m) and not m.startswith("Value error") for m in messages)
 
 
 # --- ジョブ ---

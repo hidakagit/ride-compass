@@ -110,6 +110,19 @@ describe("地点の指定", () => {
     expect(result.current.armedPinRole).toBe("waypoint");
   });
 
+  it("経由地は生成が受け付ける数まで置け、そこで置く状態をやめ、それより多くは置かない", () => {
+    const { result } = render();
+    const limit = routeGenerateConfig.max_waypoints;
+    act(() => result.current.armPinRole("waypoint"));
+    for (let i = 0; i < limit - 1; i++) act(() => result.current.placePin("waypoint", A));
+    expect(result.current.armedPinRole).toBe("waypoint");
+    act(() => result.current.placePin("waypoint", B));
+    expect(result.current.armedPinRole).toBeNull();
+    act(() => result.current.placePin("waypoint", C));
+    expect(result.current.waypoints).toHaveLength(limit);
+    expect(result.current.waypoints.at(-1)).toEqual(B);
+  });
+
   it("経由地は位置を指して動かす・消す・まとめて消すことができ、目的地も消せる", () => {
     const { result } = render();
     act(() => result.current.placePin("waypoint", A));
