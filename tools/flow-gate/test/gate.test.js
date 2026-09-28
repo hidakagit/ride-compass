@@ -121,6 +121,20 @@ test("回答フォーム: 表で行ける選択肢だけを出し、答えは hi
   assert.equal(gh.issue.body, "本文");
 });
 
+test("問い直し: 「その他」で答えた後に Claude が問いを書いて hidakagit に割り当てると、本文の先頭にリンクが出る", async () => {
+  const q1 = "## 問い\n前の問い？\n\n### 選択肢\n- A → 未着手\n- B → 保留\n";
+  const q2 = "## 問い\n新しい問い？\n\n### 選択肢\n- A → 未着手\n- B → 保留\n";
+  const gh = fakeGitHub({ issue: { number: 5, authorId: ME, status: "回答待ち", assignees: ["hidakagit"], comments: [
+    { body: q1, author: { login: "hidakagit-bot", databaseId: BOT } },
+    { body: "## 回答\n問い: u#0\n選んだもの: その他（コメント）\n次のステータス: 回答待ち", author: { login: "hidakagit" } },
+    { body: q2, author: { login: "hidakagit-bot", databaseId: BOT } },
+  ] } });
+  await deliver("issues", { action: "assigned", issue: { node_id: "I_1" } });
+  assert.match(gh.issue.body, /^<!-- flow-gate -->\n\*\*回答待ち\*\*: 新しい問い？ → \[回答フォーム\]\(https:\/\/gate\.test\/answer\?issue=5\)/);
+  await deliver("issues", { action: "labeled", issue: { node_id: "I_1" } });
+  assert.equal(gh.writes.filter((w) => w.method === "PATCH").length, 1, "リンクが今の状態と同じなら書き直さない");
+});
+
 test("設定の不変条件: 表・入口・フォームが使う名前はすべて宣言されており、フォームは表で行けない先を出さない", () => {
   const people = Object.keys(config.people);
   for (const t of config.transitions) {

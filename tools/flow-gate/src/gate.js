@@ -1,6 +1,6 @@
 // 遷移の処理。Webhook の出来事も回答フォームの送信も、ここの apply を通って表で照らされる。
 import { GitHub, readIssue, readProject } from "./github.js";
-import { adoptionQuestion, check, entryFor, parseQuestion, personById, withBanner, withoutBanner } from "./rules.js";
+import { adoptionQuestion, answers, check, entryFor, parseQuestion, personById, withBanner, withoutBanner } from "./rules.js";
 
 export class Gate {
   static async open(env, config, origin, installationId) {
@@ -67,32 +67,38 @@ export class Gate {
     if (person) await this.assign(issue, person);
     if (labels.length) await this.gh.rest("POST", `/repos/${this.config.repository}/issues/${issue.number}/labels`, { labels });
     if (to === this.config.done && issue.state === "OPEN") await this.patch(issue, { state: "closed", state_reason: "not_planned" });
-    const ask = this.config.ask.statuses;
-    if (from !== to && ask.includes(to)) await this.offerForm(issue, to);
-    else if (from !== to && ask.includes(from)) await this.clearBanner(issue);
+    if (from !== to && this.config.ask.statuses.includes(to)) await this.askFor(issue, to);
+    issue.status = to;
+    await this.syncBanner(issue);
     return { ok: true };
   }
 
-  // 問いを確かめ、本文の先頭に回答フォームへのリンクを置く。採否の問いはゲートが決まった中身で書く。
-  async offerForm(issue, status) {
-    let text = this.config.adoption.question;
-    if (status === this.config.adoption.status) await this.comment(issue, adoptionQuestion(this.config));
-    else {
-      text = currentQuestion(this.config, issue)?.parsed?.text;
-      if (!text) {
-        await this.comment(issue, "問いの形が崩れています（docs/conventions/flow.md「問い」）。問いを書き直してください。");
-        await this.assign(issue, this.config.ask.askers[0]);
-        return;
-      }
+  // 採否待ちへ入ったら採否の問いを決まった中身で書く。それ以外の問いの形が崩れていれば Claude へ戻す。
+  async askFor(issue, status) {
+    if (status === this.config.adoption.status) {
+      const body = adoptionQuestion(this.config);
+      const c = await this.comment(issue, body);
+      issue.comments.nodes.push({ id: c.node_id, url: c.html_url, body, isMinimized: false, author: { login: this.config.gate.replace(/\[bot\]$/, "") } });
+    } else if (!currentQuestion(this.config, issue)?.parsed) {
+      await this.comment(issue, "問いの形が崩れています（docs/conventions/flow.md「問い」）。問いを書き直してください。");
+      await this.assign(issue, this.config.ask.askers[0]);
     }
-    await this.patch(issue, { body: withBanner(issue.body, status, text, `${this.origin}/answer?issue=${issue.number}`) });
   }
 
-  async clearBanner(issue) {
-    if (!(issue.body ?? "").startsWith("<!-- flow-gate -->")) return;
-    const body = withoutBanner(issue.body);
-    await this.patch(issue, { body });
+  // 回答フォームが要る（採否待ち・回答待ちで、答えの無い問いがある）ときだけ、本文の先頭にリンクを置く。
+  async syncBanner(issue) {
+    const q = this.config.ask.statuses.includes(issue.status) ? currentQuestion(this.config, issue) : null;
+    const open = q?.parsed && !issue.comments.nodes.some((c) => answers(c.body, q.url));
+    const url = `${this.origin}/answer?issue=${issue.number}`;
+    const body = open ? withBanner(issue.body, issue.status, q.parsed.text, url) : withoutBanner(issue.body);
+    if (body !== (issue.body ?? "").replace(/\r\n/g, "\n")) await this.patch(issue, { body });
     issue.body = body;
+  }
+
+  // 割り当て・本文・ラベルなどの出来事: リンクの有無だけを今の状態に合わせる（問い直したときにも出す）。
+  async touched(nodeId) {
+    const issue = await this.read({ nodeId });
+    if (issue?.item && !issue.parent) await this.syncBanner(issue);
   }
 
   async enter(nodeId) {
@@ -101,7 +107,9 @@ export class Gate {
     const entry = entryFor(this.config, issue.author.databaseId);
     await this.setStatus(issue, entry.to);
     await this.assign(issue, entry.assign);
-    if (this.config.ask.statuses.includes(entry.to)) await this.offerForm(issue, entry.to);
+    issue.status = entry.to;
+    if (this.config.ask.statuses.includes(entry.to)) await this.askFor(issue, entry.to);
+    await this.syncBanner(issue);
   }
 
   async moved(nodeId, from, to) {
@@ -118,7 +126,8 @@ export class Gate {
     if (!issue?.item || issue.parent || issue.status === this.config.done) return;
     if (!check(this.config, issue.status, this.config.done).ok) return;
     const stage = reason === "completed" && issue.subIssues.nodes.find((s) => s.state === "OPEN");
-    await this.clearBanner(issue);
+    issue.status = stage ? this.config.nextStage.to : this.config.done;
+    await this.syncBanner(issue);
     if (!stage) return this.setStatus(issue, this.config.done);
     await this.gh.rest("PATCH", `/repos/${this.config.repository}/issues/${stage.number}`, { state: "closed", state_reason: "completed" });
     await this.patch(issue, { state: "open" });
@@ -165,5 +174,6 @@ export async function handleEvent(env, config, origin, name, payload) {
   }
   if (name === "issues" && payload.action === "closed") return gate.closed(payload.issue.node_id, payload.issue.state_reason);
   if (name === "issues" && payload.action === "reopened") return gate.reopened(payload.issue.node_id);
+  if (name === "issues") return gate.touched(payload.issue.node_id);
   return "対象外の出来事";
 }
