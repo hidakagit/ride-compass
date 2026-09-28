@@ -1,6 +1,7 @@
 // 遷移の処理。Webhook の出来事も回答フォームの送信も、ここの apply を通って表で照らされる。
 // 1つの出来事では、タスクを1回読み（read）、書き込みを1回にまとめて書く（write）。
 import { GitHub, Mutations, readTask } from "./github.js";
+import { reconcile } from "./review.js";
 import { adoptionQuestion, answers, check, entryFor, parseQuestion, personById, withBanner, withoutBanner } from "./rules.js";
 
 const normalize = (body) => (body ?? "").replace(/\r\n/g, "\n");
@@ -12,6 +13,7 @@ export class Gate {
     gate.origin = origin;
     // ボタンの画像は GitHub が中継して取りに来るので、Access の外の Worker（GATE_ORIGIN）から返す。
     gate.buttonUrl = `${env.GATE_ORIGIN ?? origin}/button.svg`;
+    gate.reviewUrl = `${env.GATE_ORIGIN ?? origin}/review.svg`;
     gate.gh = await GitHub.asApp(env, config.installation);
     return gate;
   }
@@ -28,7 +30,15 @@ export class Gate {
   }
 
   // 答えが要る（採否待ち・回答待ちで、答えの無い問いがある）間だけ、本文の先頭にステータス・問い・リンクの1行を置く。
+  // ユーザーが確かめる番の検証中の間は、同じ場所に Pull Request を開くボタンを置く（作業ブランチで引く検索の画面へ）。
   bodyFor(issue) {
+    const { verify, code, ask } = this.config;
+    const reviewer = this.config.people[ask.answerer].node;
+    if (issue.state === "OPEN" && issue.status === verify.status && issue.assignees.nodes.some((a) => a.id === reviewer)) {
+      const q = encodeURIComponent(`is:pr head:${code.branchPrefix}${issue.number}`);
+      const url = `https://github.com/${code.repository}/pulls?q=${q}`;
+      return withBanner(issue.body, issue.status, { text: "Pull Request を確かめ、マージするか閉じるかを決める", url, button: this.reviewUrl, alt: "確かめる" });
+    }
     const q = this.config.ask.statuses.includes(issue.status) ? currentQuestion(this.config, issue) : null;
     const open = issue.state === "OPEN" && q?.parsed && !issue.comments.nodes.some((c) => answers(c.body, q.url));
     const url = `${this.origin}/answer?issue=${issue.number}`;
@@ -43,6 +53,7 @@ export class Gate {
     const next = {
       ...issue,
       status: "status" in want ? want.status : issue.status,
+      assignees: want.assign ? { nodes: [{ id: this.config.people[want.assign].node, login: want.assign }] } : issue.assignees,
       state: want.close ? "CLOSED" : want.reopen ? "OPEN" : issue.state,
       comments: { nodes: [...issue.comments.nodes, ...added, ...(want.seen ?? [])] },
     };
@@ -82,18 +93,22 @@ export class Gate {
   // 表で照らし、通れば書く。written はステータスがもう GitHub で変わっていること（ボードの移動）。
   // next を渡さなければ表の既定の割り当てを書く。dryRun は照らすだけで書かない。seen は回答フォームが渡す
   // この直前に書いた答え（本文の先頭の1行を消すかを決めるのに使う）。
-  async apply(issue, from, to, { next, labels = [], written = false, dryRun = false, seen } = {}) {
+  async apply(issue, from, to, { next, labels = [], written = false, dryRun = false, seen, comments = [], close } = {}) {
     const verdict = from === to ? { ok: true, rule: null } : check(this.config, from, to, issue.blockedBy.nodes);
     if (!verdict.ok) return verdict;
     const missing = labels.filter((n) => !this.labelIds[n]);
     if (missing.length) return { ok: false, reason: `ラベル「${missing.join("」「")}」が GitHub にありません。` };
     if (dryRun) return { ok: true };
-    const want = { labels, seen, assign: next !== undefined ? next : (verdict.rule?.assign ?? undefined) };
+    const want = { labels, seen, comments, assign: next !== undefined ? next : (verdict.rule?.assign ?? undefined) };
     if (!written) want.status = to;
-    if (to === this.config.done && issue.state === "OPEN") want.close = "NOT_PLANNED";
+    if (to === this.config.done && issue.state === "OPEN") want.close = close ?? "NOT_PLANNED";
+    // ユーザーが確かめると決めたタスク（verify.label）は、確かめる番を表の既定ではなく答える人（ask.answerer）にする。
+    const verify = this.config.verify;
+    if (to === verify.status && from !== to && next === undefined && issue.labels.nodes.some((l) => l.name === verify.label))
+      want.assign = this.config.ask.answerer;
     if (from !== to && this.config.ask.statuses.includes(to) && to !== this.config.adoption.status) {
       if (!currentQuestion(this.config, issue)?.parsed) {
-        want.comments = ["問いの形が崩れています（docs/conventions/flow.md「問い」）。問いを書き直してください。"];
+        want.comments = [...comments, "問いの形が崩れています（docs/conventions/flow.md「問い」）。問いを書き直してください。"];
         want.assign = this.config.ask.askers[0];
       }
     }
@@ -161,6 +176,7 @@ export function currentQuestion(config, issue) {
 
 export async function handleEvent(env, config, origin, name, payload) {
   if (payload.sender?.login === config.gate) return "ゲート自身の出来事";
+  if (payload.repository?.full_name === config.code.repository) return codeEvent(env, config, origin, name, payload);
   if (name === "projects_v2_item") {
     const item = payload.projects_v2_item;
     const change = payload.changes?.field_value;
@@ -175,4 +191,16 @@ export async function handleEvent(env, config, origin, name, payload) {
   if (payload.action === "closed") return gate.closed(payload.issue.node_id, payload.issue.state_reason);
   if (payload.action === "reopened") return gate.reopened(payload.issue.node_id);
   return gate.touched(payload.issue.node_id);
+}
+
+// コードのリポジトリの出来事: Pull Request が閉じた（マージ・マージせず）ときはその作業ブランチのタスクを、master の CI が
+// 終わったときは検証中のタスクをすべて、今の状態に合わせて動かす。
+function codeEvent(env, config, origin, name, payload) {
+  const { branchPrefix, base } = config.code;
+  if (name === "pull_request" && payload.action === "closed") {
+    const number = payload.pull_request.head.ref.startsWith(branchPrefix) && Number(payload.pull_request.head.ref.slice(branchPrefix.length));
+    return number ? reconcile(env, config, origin, [number]) : "作業ブランチの Pull Request ではない";
+  }
+  if (name === "workflow_run" && payload.action === "completed" && payload.workflow_run.head_branch === base) return reconcile(env, config, origin);
+  return "対象外の出来事";
 }

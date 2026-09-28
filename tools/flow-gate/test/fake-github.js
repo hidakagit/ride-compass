@@ -5,13 +5,15 @@ const OPTIONS = Object.fromEntries(config.statuses.map((s, i) => [s, `opt${i}`])
 const NAMES = Object.fromEntries(Object.entries(OPTIONS).map(([k, v]) => [v, k]));
 const BY_NODE = Object.fromEntries(Object.entries(config.people).map(([k, p]) => [p.node, k]));
 
-export function fakeGitHub({ issue, labels = ["優先", "規模S"] }) {
+// code はコードのリポジトリの状態（Pull Request の一覧・master の CI の実行）。
+export function fakeGitHub({ issue, labels = ["優先", "規模S", config.verify.label], code = { prs: [], runs: [] } }) {
   const repoLabels = [...labels, ...config.statuses.map((s) => `${config.statusLabelPrefix}${s}`)];
   const state = {
     issue: { comments: [], blockedBy: [], subIssues: [], assignees: [], labels: [], lastClose: [], state: "OPEN", ...issue },
     writes: [],
     requests: [],
     calls: 0,
+    code,
   };
   const json = (body, status = 200) => new Response(JSON.stringify(body), { status });
   const node = () => {
@@ -46,6 +48,10 @@ export function fakeGitHub({ issue, labels = ["優先", "規模S"] }) {
     return { clientMutationId: null };
   };
   const graphql = ({ query, variables }, as) => {
+    if (query.startsWith("query Verifying")) {
+      const on = state.issue.state === "OPEN" && `${config.statusLabelPrefix}${state.issue.status}` === variables.l;
+      return { repository: { issues: { nodes: on ? [{ number: state.issue.number }] : [] } } };
+    }
     if (query.startsWith("query Task") && state.requests.push("読む"))
       return {
         organization: { projectV2: { id: "PVT_1", field: { id: "F_1", options: Object.entries(OPTIONS).map(([name, id]) => ({ id, name })) } } },
@@ -65,6 +71,9 @@ export function fakeGitHub({ issue, labels = ["優先", "規模S"] }) {
     const as = init.headers.authorization === "Bearer form-token" ? "hidakagit" : "gate";
     if (path.endsWith("/access_tokens")) return json({ token: "app-token" });
     if (path === "/graphql") return json({ data: graphql(body, as) });
+    const repo = `/repos/${config.code.repository}`;
+    if (path === `${repo}/pulls`) return json(state.code.prs.filter((p) => `${config.code.repository.split("/")[0]}:${p.head.ref}` === new URL(url).searchParams.get("head")));
+    if (path === `${repo}/actions/runs`) return json({ workflow_runs: state.code.runs.filter((r) => r.head_sha === new URL(url).searchParams.get("head_sha")) });
     throw new Error(`テストの GitHub が知らない呼び出し: ${init.method} ${path}`);
   };
   return state;

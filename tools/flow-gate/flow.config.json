@@ -33,6 +33,8 @@
     "answerer": "hidakagit"
   },
   "afterAnswer": { "回答待ち": "未着手" },
+  "verify": { "status": "検証中", "label": "ユーザー確認", "back": "未着手" },
+  "code": { "repository": "hidakagit/ride-compass", "branchPrefix": "orch/tasks-", "base": "master" },
   "nextStage": { "to": "未着手", "assign": "hidakagit-bot" },
   "adoption": {
     "status": "採否待ち",
@@ -40,6 +42,8 @@
     "options": [
       { "text": "やる", "to": "未着手", "next": "hidakagit-bot" },
       { "text": "やる（優先）", "to": "未着手", "next": "hidakagit-bot", "labels": ["優先"] },
+      { "text": "やる（ユーザーが確かめる）", "to": "未着手", "next": "hidakagit-bot", "labels": ["ユーザー確認"] },
+      { "text": "やる（優先・ユーザーが確かめる）", "to": "未着手", "next": "hidakagit-bot", "labels": ["優先", "ユーザー確認"] },
       { "text": "やらない", "to": "完了" }
     ]
   },
