@@ -2,10 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 import logging
 
-from app.api.cache_policy import IMMUTABLE_TILE, JMA_TARGET_TIMES, JMA_TILE_NOT_FOUND
+from app.api.cache_policy import IMMUTABLE_TILE, JMA_NOT_YET_DELIVERED, JMA_TARGET_TIMES, JMA_TILE_NOT_FOUND
 from app.api.dependencies import enforce_rate_limit, get_jma_tile_client
 from app.config import settings
-from app.domain.jma_tile_specs import source_zoom_for_interpolation
+from app.domain.jma_tile_specs import is_final_absence, source_zoom_for_interpolation
 from app.infrastructure.jma_tile_client import (
     EmptyTile,
     JmaTileClient,
@@ -26,8 +26,8 @@ logger = logging.getLogger("ridecompass.routers.jma_tile")
 
 router = APIRouter()
 
-# このプロキシは1つのパスで性質の異なる3種類（内容が確定して以後変化しないタイル本体・
-# 同じURLのまま更新される時刻一覧・恒久404）を返すため、`cache_policy.py`の対応表では
+# このプロキシは1つのパスで性質の異なる4種類（内容が確定して以後変化しないタイル本体・
+# 同じURLのまま更新される時刻一覧・恒久404・配信前の地物の404）を返すため、`cache_policy.py`の対応表では
 # `HANDLER_MANAGED`とし、どのポリシーを使うかだけをここで選ぶ。キャッシュ時間そのものは
 # `cache_policy.py`が持つ。
 
@@ -173,10 +173,11 @@ async def jma_tile_proxy(
     except JmaTileNotFoundError:
         # 疎な格子状タイル（降水・浸水想定区域等）では特定のz/x/yに対応するタイルが
         # 存在しないことは珍しくない正常系のため、502（上流障害）ではなく404を返す。
+        policy = JMA_TILE_NOT_FOUND if is_final_absence(path) else JMA_NOT_YET_DELIVERED
         raise HTTPException(
             status_code=404,
             detail="指定されたタイルは存在しません",
-            headers={"Cache-Control": JMA_TILE_NOT_FOUND.header()},
+            headers={"Cache-Control": policy.header()},
         ) from None
     if result is None:
         # 上流障害は一時的なため、キャッシュさせず次のリクエストで取り直させる。

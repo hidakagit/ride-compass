@@ -65,17 +65,25 @@ class JmaElement:
     #: その要素の行が載る時刻一覧のファイル（系統の`.../data/<系統>/`の直下）。
     time_files: tuple[str, ...]
     reader: TargetTimesReader
-    #: タイルで配る要素の仕様。タイルで配らない要素（落雷の位置のGeoJSON）はNone。
+    #: タイルで配る要素の仕様。タイルで配らない要素（コマごとの地物のGeoJSON。例: 落雷の地点）はNone。
     tile: JmaTileSpec | None = None
+    #: 配信の遅れ（分。公式の画面の設定の`dataDelay`）。配信元は時刻一覧に載せたコマをこの幅のあいだ配信しておらず、
+    #: 画面はその要素の最新の`basetime`から幅に入るコマを、幅の端まで前の`basetime`へずらして読む（公式の画面と同じ）。
+    data_delay_minutes: int = 0
+
+    def __post_init__(self) -> None:
+        # ずらし方は画面の読み方だけが持ち、プリウォーム（タイルだけを温める）の読み方`read_target_times`は持たない。
+        if self.tile is not None and self.data_delay_minutes:
+            raise ValueError("タイルで配る要素に配信の遅れを宣言するなら、プリウォームの読み方にも同じずらしが要る")
 
 
 # 出典は各要素を表示する公式ページが読み込む設定ファイル（系統・時刻一覧のファイル・ズーム）:
 #   キキクル4種 … `bosai/risk/table/risk.properties__<hash>.xml`
-#   降水/雷/竜巻 … `bosai/nowc/table/nowc.properties__<hash>.xml`
+#   降水/雷/竜巻/線状降水帯の雨域 … `bosai/nowc/table/nowc.properties__<hash>.xml`
 #   降水短時間予報・線状降水帯予測マップ … `bosai/kaikotan/table/kaikotan.properties__<hash>.xml`
 # 設定ファイルの名前は配信元の更新ごとに変わるハッシュを含み、決まった所から取れないため、ここへ写して持つ。
 # 設定ファイルは時刻一覧の分け方を持たず、分かれている系統では各ファイルの行の`elements`で決まる
-# （nowcのN1・N2は降水の実況・予測、N3は雷・竜巻・落雷）。系統の全ファイルを読む形にしないのは、
+# （nowcのN1・N2は降水の実況・予測、N3は雷・竜巻・落雷・線状降水帯の雨域）。系統の全ファイルを読む形にしないのは、
 # 要素の行が1件も無いファイルの取得失敗まで、その要素の失敗に数えることになるため。
 JMA_ELEMENTS: dict[str, JmaElement] = {
     # キキクル（危険度分布）。土砂・大雨・浸水はラスタ、洪水はベクタ（.pbf）。
@@ -93,6 +101,11 @@ JMA_ELEMENTS: dict[str, JmaElement] = {
     "trns": JmaElement("nowc", ("targetTimes_N3.json",), "nowcast", JmaTileSpec("even", 9)),
     # 落雷の位置。タイルではなく、同じ系統の下にGeoJSONで配られる。
     "liden": JmaElement("nowc", ("targetTimes_N3.json",), "nowcast"),
+    # 線状降水帯の雨域（公式の既定の表示「代表楕円表示方式」が読む2つ）。落雷と同じくコマごとのGeoJSONで、
+    # 1つの`basetime`が実況と30分先までの予測を持つ。時刻一覧は最新の`basetime`の実況と20分先までを載せるが、
+    # 配信は遅れるので、公式の画面は1つ前の`basetime`の実況と予測を読む。
+    "slmcs_unify": JmaElement("nowc", ("targetTimes_N3.json",), "nowcast", data_delay_minutes=10),
+    "slmcs_unifyfcst": JmaElement("nowc", ("targetTimes_N3.json",), "nowcast", data_delay_minutes=10),
     # 線状降水帯予測マップ。
     "sjfcstmap": JmaElement("rasrf", ("targetTimes.json",), "latest", JmaTileSpec("even", 10)),
 }
@@ -174,10 +187,10 @@ def _read_latest_full_run(frames: list[JmaFrame]) -> list[JmaFrame]:
 _DATA_ROOT = "bosai/jmatile/data"
 #: 時刻一覧の置き場。
 _TARGET_TIMES_PATH = _DATA_ROOT + "/{group}/{file}"
-#: 配信要素の1コマの置き場。この下にタイル（地図の`{z}/{x}/{y}`）か、タイルで配らない要素の地点（GeoJSON）がある。
+#: 配信要素の1コマの置き場。この下にタイル（地図の`{z}/{x}/{y}`）か、タイルで配らない要素の地物（GeoJSON）がある。
 _FRAME_PATH = _DATA_ROOT + "/{group}/{basetime}/{member}/{validtime}/surf/{element}"
 _TILE_FILE = "{z}/{x}/{y}.{extension}"
-_POINTS_FILE = "data.geojson?id={element}"
+_FEATURES_FILE = "data.geojson?id={element}"
 #: 読み戻すとき数字だけに当てる項目（タイル座標）。他の項目はパスの1区切りに当てる。
 _NUMERIC_FIELDS = frozenset({"z", "x", "y"})
 _NUMBER = r"\d+"
@@ -206,7 +219,7 @@ def jma_url_template(element_id: str) -> str:
     タイルならタイル座標（`{z}/{x}/{y}`）が埋まらずに残る。画面へは生成物で届き、画面もこれを埋めて取りに行く。"""
     element = JMA_ELEMENTS[element_id]
     if element.tile is None:
-        return _fill(f"{_FRAME_PATH}/{_POINTS_FILE}", group=element.path_group, element=element_id)
+        return _fill(f"{_FRAME_PATH}/{_FEATURES_FILE}", group=element.path_group, element=element_id)
     return _fill(
         f"{_FRAME_PATH}/{_TILE_FILE}",
         group=element.path_group,
@@ -248,7 +261,7 @@ def _template_pattern(template: str) -> re.Pattern[str]:
 
 
 def read_jma_tile_path(path: str) -> JmaTile | None:
-    """配信元のパスを、宣言のある要素のタイルとして読む。タイルでないパス（時刻一覧・地点）・宣言の無い要素はNone。"""
+    """配信元のパスを、宣言のある要素のタイルとして読む。タイルでないパス（時刻一覧・地物）・宣言の無い要素はNone。"""
     for element_id, element in JMA_ELEMENTS.items():
         if element.tile is None:
             continue
@@ -262,6 +275,19 @@ def read_jma_tile_path(path: str) -> JmaTile | None:
                 int(match["y"]),
             )
     return None
+
+
+def is_final_absence(path: str) -> bool:
+    """配信元がこのパスに404を返したとき、それが「描くものが無い」という確定した事実か。
+
+    タイルと時刻一覧は確定する（疎な格子の穴）。タイルで配らない要素のコマの地物（GeoJSON）は確定しない
+    ——配信元は時刻一覧に載せたコマの地物を配信するまで404を返し、配信した後は地物が無くても200で空の
+    集まりを返すため、この404は「まだ配信されていない」である。"""
+    return not any(
+        _template_pattern(jma_url_template(element_id)).match(path)
+        for element_id, element in JMA_ELEMENTS.items()
+        if element.tile is None
+    )
 
 
 def jma_tile_spec(element_id: str) -> JmaTileSpec:

@@ -18,6 +18,8 @@ export type DynamicWeatherRenderPayload =
   | { kind: "rasterTile"; tileUrlTemplate: string }
   | { kind: "gridFill"; geojson: GeoJSON.FeatureCollection }
   | { kind: "gridMark"; geojson: GeoJSON.FeatureCollection }
+  // 配信元がGeoJSONで配る領域の輪郭線（属性は読まず、線として描くだけ）。
+  | { kind: "outline"; geojson: GeoJSON.FeatureCollection }
   // 配信元のベクタタイルをそのまま渡す（色分けに使うプロパティ名等は描き方の宣言が持つ）。
   | { kind: "vectorTile"; tileUrlTemplate: string };
 

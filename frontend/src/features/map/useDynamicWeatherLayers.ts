@@ -3,14 +3,15 @@
 // 動的気象レイヤーの取得・選んだ時刻に描くコマ・地図へ渡す描画内容・チップの取得状態。
 // **要素を名指さない**——何を・どこから・どう読み・どのコマを描くかは源泉の宣言
 // （`weatherSources.ts: WEATHER_SOURCES`）が持ち、ここは表示中のソースをループして、段の種類
-// （配信元のタイル・配信元の地点・自前の格子）ごとに1つずつの実装で描画内容を作る。
+// （配信元のタイル・配信元の地物・自前の格子）ごとに1つずつの実装で描画内容を作る。
 import { useQueries, type UseQueryResult } from "@tanstack/react-query";
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import type { MapLayerVisibility } from "@/features/map/layers/mapLayers";
 import { deriveFetchLayerStatus, type LayerDataStatus } from "@/features/map/layers/mapLayers";
 import {
-  fetchJmaPointGeojson,
+  fetchJmaGeojson,
   fetchJmaTargetTimesFile,
+  isJmaTileKind,
   jmaFramesOf,
   jmaTilePayload,
   type JmaDelivery,
@@ -75,15 +76,15 @@ function fileStatesOf(results: readonly UseQueryResult<unknown[]>[]): FileState[
   }));
 }
 
-/** 地点の取得1つの状態。取れなかった地点は描かず、その失敗はチップの状態に数える（描かないだけにすると、落雷の
+/** 地物の取得1つの状態。取れなかった地物は描かず、その失敗はチップの状態に数える（描かないだけにすると、落雷の
  * 地点が無いことと取れていないことを見分けられない）。 */
-interface PointState {
+interface GeojsonState {
   geojson: GeoJSON.FeatureCollection | undefined;
   pending: boolean;
   error: string | undefined;
 }
 
-function pointStatesOf(results: readonly UseQueryResult<GeoJSON.FeatureCollection>[]): PointState[] {
+function geojsonStatesOf(results: readonly UseQueryResult<GeoJSON.FeatureCollection>[]): GeojsonState[] {
   return results.map((result) => ({
     geojson: result.data,
     pending: result.status === "pending",
@@ -119,8 +120,8 @@ function deliveriesOf(sources: readonly WeatherSource[]): { delivery: JmaDeliver
   return [...byId.values()];
 }
 
-/** 配信元の段の、選んだコマの地点を取る鍵（要素配下のURLと同じく、配信要素と時刻で決まる）。 */
-function pointKey(delivery: JmaDelivery, frame: JmaFrame): string {
+/** 配信元の段の、選んだコマの地物を取る鍵（要素配下のURLと同じく、配信要素と時刻で決まる）。 */
+function geojsonKey(delivery: JmaDelivery, frame: JmaFrame): string {
   return `${delivery.id}/${frame.basetime}/${frame.member}/${frame.validtime}`;
 }
 
@@ -144,7 +145,7 @@ interface UseDynamicWeatherLayersResult {
   /** MapViewへそのまま渡す動的気象レイヤーのプロパティ（チップ→名前付きソース→表示・中身）。 */
   dynamicWeather: Partial<Record<DynamicWeatherLayerId, DynamicWeatherGroupState>>;
   /** チップごとのデータ取得状態。MapLibreのソースイベント（`useLayerDataStatus.ts`）は経由しない
-   * ——時刻一覧・格子・地点は自前のJSで取りに行き、結果を流し込むだけのため、MapLibre側の
+   * ——時刻一覧・格子・地物は自前のJSで取りに行き、結果を流し込むだけのため、MapLibre側の
    * ソースイベントはその待ち時間・失敗を観測できない。 */
   dynamicWeatherDataStatus: Partial<Record<DynamicWeatherLayerId, LayerDataStatus>>;
 }
@@ -224,11 +225,11 @@ export function useDynamicWeatherLayers({
     return bySource;
   }, [deliveryResults, grid.grid, at, now]);
 
-  // 配信元から取る記号の段（gridMark）は、配信元が地点をGeoJSONで配る。タイルで描く段は時刻一覧
-  // だけでURLが決まるが、この段は選んだコマが変わるたびに中身を取る。取れた中身を鍵（配信要素と
+  // 配信元のタイルで描かない段（落雷の地点・線状降水帯の雨域）は、配信元が地物をGeoJSONで配る。タイルで描く段は
+  // 時刻一覧だけでURLが決まるが、この段は選んだコマが変わるたびに中身を取る。取れた中身を鍵（配信要素と
   // 時刻）で持ち、選んでいるコマの鍵と一致するときだけ描く——コマを動かした後に前のコマの取得が
-  // 解決しても、別の時刻の地点を混ぜない。
-  const pointRequests = useMemo(() => {
+  // 解決しても、別の時刻の地物を混ぜない。
+  const geojsonRequests = useMemo(() => {
     const requests: {
       key: string;
       group: DynamicWeatherLayerId;
@@ -240,9 +241,9 @@ export function useDynamicWeatherLayers({
       const ref = selected.get(source);
       if (ref === undefined || !("frame" in ref)) continue;
       const stage = source.stages[ref.stage];
-      if (stage.origin !== "jma" || stage.kind !== "gridMark") continue;
+      if (stage.origin !== "jma" || isJmaTileKind(stage.kind)) continue;
       requests.push({
-        key: pointKey(stage.delivery, ref.frame),
+        key: geojsonKey(stage.delivery, ref.frame),
         group: source.group,
         delivery: stage.delivery,
         frame: ref.frame,
@@ -251,25 +252,25 @@ export function useDynamicWeatherLayers({
     }
     return requests;
   }, [shownSources, selected]);
-  const pointStates = useQueries(
+  const geojsonStates = useQueries(
     {
-      queries: pointRequests.map((request) => ({
-        queryKey: ["jma-points", request.key],
-        queryFn: () => fetchJmaPointGeojson(request.delivery, request.frame, request.label),
+      queries: geojsonRequests.map((request) => ({
+        queryKey: ["jma-geojson", request.key],
+        queryFn: () => fetchJmaGeojson(request.delivery, request.frame, request.label),
       })),
-      combine: pointStatesOf,
+      combine: geojsonStatesOf,
     },
     client,
   );
-  const points = useMemo(
+  const geojsons = useMemo(
     () =>
       new Map(
-        pointRequests.flatMap((request, index): [string, GeoJSON.FeatureCollection][] => {
-          const geojson = pointStates[index]?.geojson;
+        geojsonRequests.flatMap((request, index): [string, GeoJSON.FeatureCollection][] => {
+          const geojson = geojsonStates[index]?.geojson;
           return geojson === undefined ? [] : [[request.key, geojson]];
         }),
       ),
-    [pointRequests, pointStates],
+    [geojsonRequests, geojsonStates],
   );
 
   const payloadOf = useCallback(
@@ -283,14 +284,11 @@ export function useDynamicWeatherLayers({
         return GRID_PAYLOAD[stage.value](drawn.points, ref.time, drawn.spacingDeg);
       }
       if (stage.origin !== "jma") return undefined;
-      if (stage.kind === "gridMark") {
-        const geojson = points.get(pointKey(stage.delivery, ref.frame));
-        return geojson && { kind: "gridMark", geojson };
-      }
-      if (stage.kind === "gridFill") return undefined;
-      return jmaTilePayload(stage.kind, stage.delivery, ref.frame);
+      if (isJmaTileKind(stage.kind)) return jmaTilePayload(stage.kind, stage.delivery, ref.frame);
+      const geojson = geojsons.get(geojsonKey(stage.delivery, ref.frame));
+      return geojson && { kind: stage.kind, geojson };
     },
-    [selected, grid.grid, grid.detail, points],
+    [selected, grid.grid, grid.detail, geojsons],
   );
 
   const dynamicWeather = useMemo(() => {
@@ -315,15 +313,15 @@ export function useDynamicWeatherLayers({
     for (const group of groups) {
       const sources = shownSources.filter((source) => source.group === group);
       const results = deliveriesOf(sources).map(({ delivery }) => deliveryResults.get(delivery.id));
-      const groupPoints = pointStates.filter((_, index) => pointRequests[index]?.group === group);
+      const groupGeojsons = geojsonStates.filter((_, index) => geojsonRequests[index]?.group === group);
       const readsGrid = sources.some((source) => source.stages.some((stage) => stage.origin === "grid"));
       const loading =
         results.some((result) => result === undefined) ||
-        groupPoints.some((point) => point.pending) ||
+        groupGeojsons.some((geojson) => geojson.pending) ||
         (readsGrid && grid.loading);
       const error =
         results.find((result) => result?.error)?.error ??
-        groupPoints.find((point) => point.error)?.error ??
+        groupGeojsons.find((geojson) => geojson.error)?.error ??
         (readsGrid ? grid.error : null);
       const hasFetched = results.some((result) => result !== undefined) || (readsGrid && grid.hasFetched);
       const hasPayload = sources.some((source) => dynamicWeather[source.group]?.[source.source]?.payload !== undefined);
@@ -336,8 +334,8 @@ export function useDynamicWeatherLayers({
   }, [
     shownSources,
     deliveryResults,
-    pointRequests,
-    pointStates,
+    geojsonRequests,
+    geojsonStates,
     grid.loading,
     grid.error,
     grid.hasFetched,

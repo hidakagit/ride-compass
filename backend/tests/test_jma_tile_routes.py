@@ -210,6 +210,25 @@ def test_jma_tile_proxy_caches_not_found_responses():
     assert response.headers["cache-control"] == "public, max-age=600"
 
 
+def test_jma_tile_proxy_does_not_cache_features_not_yet_delivered():
+    # 配信元はコマの地物（GeoJSON）を配信するまで404を返す。ブラウザが覚えると、配信された後もその間は取れない。
+    from app.infrastructure.jma_tile_client import JmaTileNotFoundError
+
+    fake = FakeJmaTileClient(cached_result=None, fetch_raises=JmaTileNotFoundError("boom"))
+    app.dependency_overrides[get_jma_tile_client] = lambda: fake
+
+    try:
+        response = client.get(
+            "/api/jma-tile/bosai/jmatile/data/nowc/20260829170000/none/20260829170000/surf/slmcs_unify/data.geojson",
+            params={"id": "slmcs_unify"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 404
+    assert response.headers["cache-control"] == "no-store"
+
+
 def test_jma_tile_proxy_does_not_cache_upstream_failures():
     # 上流障害は一時的なため、次のリクエストで取り直させる。
     fake = FakeJmaTileClient(cached_result=None, fetch_result=None)

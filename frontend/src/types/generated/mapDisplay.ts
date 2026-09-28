@@ -257,7 +257,8 @@ export const mapDisplay = {
           ],
           "urlTemplate": "bosai/jmatile/data/nowc/{basetime}/{member}/{validtime}/surf/hrpns/{z}/{x}/{y}.png",
           "reader": "nowcast",
-          "refreshIntervalMs": 300000
+          "refreshIntervalMs": 300000,
+          "dataDelayMinutes": 0
         },
         {
           "id": "rasrf",
@@ -266,7 +267,8 @@ export const mapDisplay = {
           ],
           "urlTemplate": "bosai/jmatile/data/rasrf/{basetime}/{member}/{validtime}/surf/rasrf/{z}/{x}/{y}.png",
           "reader": "latestFullRun",
-          "refreshIntervalMs": 600000
+          "refreshIntervalMs": 600000,
+          "dataDelayMinutes": 0
         }
       ],
       "tile": {
@@ -306,7 +308,8 @@ export const mapDisplay = {
           ],
           "urlTemplate": "bosai/jmatile/data/rasrf/{basetime}/{member}/{validtime}/surf/sjfcstmap/{z}/{x}/{y}.png",
           "reader": "latest",
-          "refreshIntervalMs": 600000
+          "refreshIntervalMs": 600000,
+          "dataDelayMinutes": 0
         }
       ],
       "tile": {
@@ -314,6 +317,54 @@ export const mapDisplay = {
         "maxZoom": 10,
         "vectorLayer": null
       }
+    },
+    {
+      "group": "precipitationNowcast",
+      "source": "linearRainbandArea",
+      "kind": "outline",
+      "label": "線状降水帯の雨域",
+      "frameRule": {
+        "kind": "nearest",
+        "windowMinutes": null
+      },
+      "gridValue": null,
+      "jmaElements": [
+        {
+          "id": "slmcs_unify",
+          "targetTimesPaths": [
+            "bosai/jmatile/data/nowc/targetTimes_N3.json"
+          ],
+          "urlTemplate": "bosai/jmatile/data/nowc/{basetime}/{member}/{validtime}/surf/slmcs_unify/data.geojson?id=slmcs_unify",
+          "reader": "nowcast",
+          "refreshIntervalMs": 300000,
+          "dataDelayMinutes": 10
+        }
+      ],
+      "tile": null
+    },
+    {
+      "group": "precipitationNowcast",
+      "source": "linearRainbandAreaForecast",
+      "kind": "outline",
+      "label": "線状降水帯の雨域",
+      "frameRule": {
+        "kind": "nearest",
+        "windowMinutes": null
+      },
+      "gridValue": null,
+      "jmaElements": [
+        {
+          "id": "slmcs_unifyfcst",
+          "targetTimesPaths": [
+            "bosai/jmatile/data/nowc/targetTimes_N3.json"
+          ],
+          "urlTemplate": "bosai/jmatile/data/nowc/{basetime}/{member}/{validtime}/surf/slmcs_unifyfcst/data.geojson?id=slmcs_unifyfcst",
+          "reader": "nowcast",
+          "refreshIntervalMs": 300000,
+          "dataDelayMinutes": 10
+        }
+      ],
+      "tile": null
     },
     {
       "group": "windVector",
@@ -346,7 +397,8 @@ export const mapDisplay = {
           ],
           "urlTemplate": "bosai/jmatile/data/risk/{basetime}/{member}/{validtime}/surf/rain_mesh/{z}/{x}/{y}.png",
           "reader": "latest",
-          "refreshIntervalMs": 600000
+          "refreshIntervalMs": 600000,
+          "dataDelayMinutes": 0
         }
       ],
       "tile": {
@@ -373,7 +425,8 @@ export const mapDisplay = {
           ],
           "urlTemplate": "bosai/jmatile/data/risk/{basetime}/{member}/{validtime}/surf/land/{z}/{x}/{y}.png",
           "reader": "latest",
-          "refreshIntervalMs": 600000
+          "refreshIntervalMs": 600000,
+          "dataDelayMinutes": 0
         }
       ],
       "tile": {
@@ -400,7 +453,8 @@ export const mapDisplay = {
           ],
           "urlTemplate": "bosai/jmatile/data/risk/{basetime}/{member}/{validtime}/surf/inund/{z}/{x}/{y}.png",
           "reader": "latest",
-          "refreshIntervalMs": 600000
+          "refreshIntervalMs": 600000,
+          "dataDelayMinutes": 0
         }
       ],
       "tile": {
@@ -427,7 +481,8 @@ export const mapDisplay = {
           ],
           "urlTemplate": "bosai/jmatile/data/nowc/{basetime}/{member}/{validtime}/surf/thns/{z}/{x}/{y}.png",
           "reader": "nowcast",
-          "refreshIntervalMs": 300000
+          "refreshIntervalMs": 300000,
+          "dataDelayMinutes": 0
         }
       ],
       "tile": {
@@ -454,7 +509,8 @@ export const mapDisplay = {
           ],
           "urlTemplate": "bosai/jmatile/data/nowc/{basetime}/{member}/{validtime}/surf/trns/{z}/{x}/{y}.png",
           "reader": "nowcast",
-          "refreshIntervalMs": 300000
+          "refreshIntervalMs": 300000,
+          "dataDelayMinutes": 0
         }
       ],
       "tile": {
@@ -481,7 +537,8 @@ export const mapDisplay = {
           ],
           "urlTemplate": "bosai/jmatile/data/risk/{basetime}/{member}/{validtime}/surf/flood/{z}/{x}/{y}.pbf",
           "reader": "latest",
-          "refreshIntervalMs": 600000
+          "refreshIntervalMs": 600000,
+          "dataDelayMinutes": 0
         }
       ],
       "tile": {
@@ -508,7 +565,8 @@ export const mapDisplay = {
           ],
           "urlTemplate": "bosai/jmatile/data/nowc/{basetime}/{member}/{validtime}/surf/liden/data.geojson?id=liden",
           "reader": "nowcast",
-          "refreshIntervalMs": 300000
+          "refreshIntervalMs": 300000,
+          "dataDelayMinutes": 0
         }
       ],
       "tile": null
@@ -601,7 +659,9 @@ export const mapDisplay = {
         14,
         5
       ]
-    ]
+    ],
+    "rainbandOutlineWidthPx": 4,
+    "rainbandOutlineCasingWidthPx": 6
   },
   "valueScale": {
     "difficultyBoundaries": [

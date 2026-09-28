@@ -33,7 +33,7 @@ MSMは数値予報モデルの出力で観測値・公式発表の代わりに�
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `msm.py`（MSM格子の幾何・双一次補間）・`jma_tile_specs.py`（配信元の要素ごとの宣言`JMA_ELEMENTS`。要素1件がパスの系統・時刻一覧のファイルと読み方・タイルで配るならズームとベクタのレイヤー名を持つ。ほかに系統ごとの時刻一覧の更新間隔。読み方に従って時刻一覧の行をコマにする`read_target_times`と、配信元のパスの形——時刻一覧のパス・コマのパスのテンプレート`jma_url_template`・タイルのパスの組み立て`jma_tile_path`と読み戻し`read_jma_tile_path`——も持つ）・`weather_elements.py`（動的気象で地図に描くものの宣言。要素ごとに、選んだ時刻に描くコマの規則と、自前の格子から描くなら読む値も持つ。時刻の段をつないだとき各段が最初に描くコマを求める`stage_first_frames`も持つ。画面へは生成物で届き、本番プロセスではプリウォームが温める要素をここから導く。**本番が読むため**、本番が読まない表示値の宣言`map_display.py`とは別のファイルに置く——デプロイの要否はファイル単位で決まる）・`weather.py`・`jma_amedas.py`・`jma_area.py`・`jma_warning.py`・`wbgt.py`・`wbgt_points.py`・`twilight.py`・`flood_forecast.py`・`terrain_rgb.py`（標高タイルのエンコード変換、純関数）・`gsi_tiles.py`（国土地理院タイルの製品ごとの事実——実データを持つズーム範囲・上流のパス・出典表記。中継ルートと画面へ配るURLは受ける層の`api/routers/gsi_tile.py`が上流のパスから導く）・`weather_display.py`（気象の値を色へ写す段と、天気コードの分類と名前。段は値の昇順でなければ読み込んだ時点で落とす——画面はこの順のまま塗り分けの式を組み、MapLibreの`step`式は昇順でないと式ごと失敗してレイヤーが黙って消える。**本番プロセスは読まず**、`scripts/export_openapi.py`の生成物を経由してだけ画面へ届く）・`warning_display.py`（警戒度バッジの出所ごとの段階の呼び名と色。暑さ指数・氾濫の呼び名はそれぞれの段階の宣言から読む。本番プロセスは読まず、生成物`vocabulary.ts`だけが届く） |
+| domain | `msm.py`（MSM格子の幾何・双一次補間）・`jma_tile_specs.py`（配信元の要素ごとの宣言`JMA_ELEMENTS`。要素1件がパスの系統・時刻一覧のファイルと読み方・タイルで配るならズームとベクタのレイヤー名・配信の遅れを持つ（遅れは画面だけが読み、プリウォームの読み方は持たないので、タイルで配る要素には宣言できない）。ほかに系統ごとの時刻一覧の更新間隔。読み方に従って時刻一覧の行をコマにする`read_target_times`と、配信元のパスの形——時刻一覧のパス・コマのパスのテンプレート`jma_url_template`・タイルのパスの組み立て`jma_tile_path`と読み戻し`read_jma_tile_path`——も持つ）・`weather_elements.py`（動的気象で地図に描くものの宣言。要素ごとに、選んだ時刻に描くコマの規則と、自前の格子から描くなら読む値も持つ。時刻の段をつないだとき各段が最初に描くコマを求める`stage_first_frames`も持つ。画面へは生成物で届き、本番プロセスではプリウォームが温める要素をここから導く。**本番が読むため**、本番が読まない表示値の宣言`map_display.py`とは別のファイルに置く——デプロイの要否はファイル単位で決まる）・`weather.py`・`jma_amedas.py`・`jma_area.py`・`jma_warning.py`・`wbgt.py`・`wbgt_points.py`・`twilight.py`・`flood_forecast.py`・`terrain_rgb.py`（標高タイルのエンコード変換、純関数）・`gsi_tiles.py`（国土地理院タイルの製品ごとの事実——実データを持つズーム範囲・上流のパス・出典表記。中継ルートと画面へ配るURLは受ける層の`api/routers/gsi_tile.py`が上流のパスから導く）・`weather_display.py`（気象の値を色へ写す段と、天気コードの分類と名前。段は値の昇順でなければ読み込んだ時点で落とす——画面はこの順のまま塗り分けの式を組み、MapLibreの`step`式は昇順でないと式ごと失敗してレイヤーが黙って消える。**本番プロセスは読まず**、`scripts/export_openapi.py`の生成物を経由してだけ画面へ届く）・`warning_display.py`（警戒度バッジの出所ごとの段階の呼び名と色。暑さ指数・氾濫の呼び名はそれぞれの段階の宣言から読む。本番プロセスは読まず、生成物`vocabulary.ts`だけが届く） |
 | services | `weather_service.py`・`jma_amedas_service.py`・`wbgt_service.py`・`warning_service.py`・`flood_service.py`・`jma_tile_prewarm_service.py`（定期プリウォームバッチ）・`terrain_tile_service.py`（地理院の標高タイルをTerrain-RGBへ変換して配信） |
 | infrastructure | `msm_client.py`（MSMの同期・読み出し）・`jma_tile_client.py`・`jma_tile_redis_cache.py`（タイル本体のRedis cache-aside）・`jma_tile_interpolation.py`（配信元が持たないズームの補間）・`jma_tile_index.py`（在否インデックス）・`jma_tile_content.py`（タイルが空かどうかの判定。キャッシュと在否インデックスが共有する）・`jma_amedas_client.py`・`jma_warning_client.py`・`wbgt_client.py`・`flood_client.py`・`basemap_client.py`・`gsi_tile_client.py`・`simple_api_client.py`（後者4クライアントが共有する定型文、後述）・`jma_area_boundaries.py`（地点→区域のコード。気象庁の区域の境界をディスクから読む、後述） |
 | api | `weather.py`・`jma_tile.py`・`basemap.py`・`gsi_tile.py` |
@@ -119,10 +119,11 @@ MSMは数値予報モデルの出力で観測値・公式発表の代わりに�
 | `targetTimes*.json`（`jma_tile_client.py: is_target_times_path`で判定） | プロセス内メモリ`TTLCache`（maxsize=16） | 2分 | `public, max-age=60` |
 | タイル本体（ラスタPNG・洪水キキクルのベクタPBF） | `jma_tile_redis_cache.py`（Redis cache-aside、正本を持たない） | 20分 | `public, max-age=1200, immutable` |
 | 描くものが無いタイル（`EmptyTile`。上流の404、または200で返った空タイル） | 上記と同じキー・TTL（実体ではなくフラグ） | 20分 | `public, max-age=600` |
+| 配信前のコマの地物（GeoJSON）の404 | 保存しない | — | `no-store` |
 | 502（上流障害） | 保存しない | — | 付けない |
 
 `Cache-Control`の値自体は`api/cache_policy.py`（`IMMUTABLE_TILE`・`JMA_TARGET_TIMES`・
-`JMA_TILE_NOT_FOUND`）が持ち、このプロキシは1つのパスで性質の異なる3種類を返すため
+`JMA_TILE_NOT_FOUND`・`JMA_NOT_YET_DELIVERED`）が持ち、このプロキシは1つのパスで性質の異なるものを返すため
 対応表では`HANDLER_MANAGED`とし、どれを使うかだけを`jma_tile.py`が選ぶ
 （[横断基盤](cross-cutting-infrastructure.md)「応答のCache-Control」参照）。
 
@@ -155,8 +156,18 @@ MSMは数値予報モデルの出力で観測値・公式発表の代わりに�
 
 `jma_tile.py`は`EmptyTile`を受け取ると上流へ再問い合わせせず即座に404を返す（レート制限も
 消費しない）。クライアント側（`jmaTileProtocol.ts`）は404も空タイルも透明タイルへ倒すため、
-200＋空タイルを返す必要はない。`basetime`/`validtime`が確定した過去の一時点への結果のため、
+200＋空タイルを返す必要はない。配信された`basetime`/`validtime`の一時点への結果のため、
 この事実は再フェッチしても変わらない。
+
+**配信前の地物の404は覚えない**: タイルで配らない要素のコマの地物（GeoJSON。例: 落雷の地点・線状降水帯の雨域）は、
+配信元がそのコマを配信するまで404を返し、配信した後は地物が無くても200で空の集まりを返す。線状降水帯の雨域は
+時刻一覧に載ってから約13.5分404が続く（2026-09-28の実測。その約1分後に時刻一覧の最新が次の`basetime`へ進む）。
+画面は配信の遅れ（`domain/jma_tile_specs.py: JmaElement.data_delay_minutes`、公式の画面の`dataDelay`）のぶん
+前の`basetime`を取るので配信前のコマを取りに行かないが、時刻の食い違いで取りに行く利用者が1人でもいると、覚えた404が
+配信された後もその間は全員に「無い」を返す。そこで、404が確定した事実か
+（`domain/jma_tile_specs.py: is_final_absence`。パスの形が地物か）で分け、地物の404は`EmptyTile`として保存せず、
+ブラウザへも`no-store`で返す。画面の側は[動的気象レイヤー（frontend）](../frontend/dynamic-weather-layers.md)
+「配信の遅れを持つ要素は、時刻一覧のコマをそのまま取らない」。
 
 **要素ごとのズーム上限（`domain/jma_tile_specs.py`）**: 配信元は要素ごとに`zoomUse`
 （使用するズームの偶奇）と`maxNativeZoom`（画像が実在する最大ズーム）を持ち、**両方を
@@ -165,7 +176,7 @@ MSMは数値予報モデルの出力で観測値・公式発表の代わりに�
 （frontendへは動的気象の要素の宣言`domain/weather_elements.py: WEATHER_ELEMENTS`の生成物
 `mapDisplay.weatherElements`の`tile`として配る）とプリウォームの対象ズームの両方が
 この1箇所から決まる。ズームの仕様は配信要素の宣言`JMA_ELEMENTS`の1件がパスの系統（`risk`・`nowc`・`rasrf`）・
-時刻一覧のファイルと読み方と一緒に持ち、タイルで配らない配信要素（落雷のGeoJSON）はズームの仕様を持たない
+時刻一覧のファイルと読み方と一緒に持ち、タイルで配らない配信要素（落雷・線状降水帯の雨域のGeoJSON）はズームの仕様を持たない
 （要素ごとの性質を表に分けて持つと、要素idを両方に書き、つながりをテストで守ることになる）。プリウォームの取得先はここから、画面の仮のURLと
 データ層が組み立てる実データのURLは生成物の要素ごとの`jmaElements`（時刻の段の順に並んだ
 配信要素id・時刻一覧のパス・コマのパスのテンプレート）から組み立てる。1つの名前付きソースが時刻によって別の配信要素
@@ -199,7 +210,7 @@ Noneを返し、上流の空タイルがそのまま画面へ届く。
 取りに行ってその要素の取得が失敗する（どこかの表との突き合わせでは止めない）。
 
 **配信元のパスの形**（同じファイル）: 根（`bosai/jmatile/data`）の下の、系統・時刻・系列・要素idの並びとその下のタイル座標
-（またはタイルで配らない要素の地点のGeoJSON）の形を1か所に持つ。`jma_url_template()`が要素ごとに系統・要素id・
+（またはタイルで配らない要素の地物のGeoJSON。例: 落雷の地点・線状降水帯の雨域）の形を1か所に持つ。`jma_url_template()`が要素ごとに系統・要素id・
 拡張子（ベクタは`.pbf`、ラスタは`.png`）まで埋め、コマの項目（`JmaFrame`の項目名の`{basetime}`等）とタイル座標
 （地図の`{z}/{x}/{y}`）を残したテンプレートを返す。プリウォームはこれを埋めて取りに行き（`jma_tile_path`）、
 プロキシの補間はパスを同じテンプレートに当てて読み戻す（`read_jma_tile_path`）。画面は同じテンプレートを生成物の

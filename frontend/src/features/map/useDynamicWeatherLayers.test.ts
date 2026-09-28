@@ -10,14 +10,14 @@ import type { WindGridPoint } from "@/types/weather";
 // 配信元への取得は差し替え、時刻一覧の読み方・段のつなぎ・コマの選び方・描画内容の組み立ては本物を通す。
 const fetchers = vi.hoisted(() => ({
   fetchJmaTargetTimesFile: vi.fn(),
-  fetchJmaPointGeojson: vi.fn(),
+  fetchJmaGeojson: vi.fn(),
   useWeatherGrid: vi.fn(),
   failures: { current: new Map<string, string>() as ReadonlyMap<string, string>, listeners: new Set<() => void>() },
 }));
 vi.mock("@/features/map/layers/jmaDelivery", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   fetchJmaTargetTimesFile: fetchers.fetchJmaTargetTimesFile,
-  fetchJmaPointGeojson: fetchers.fetchJmaPointGeojson,
+  fetchJmaGeojson: fetchers.fetchJmaGeojson,
 }));
 vi.mock("@/features/map/useWeatherGrid", () => ({ useWeatherGrid: fetchers.useWeatherGrid }));
 vi.mock("@/features/map/layers/jmaTileProtocol", () => ({
@@ -93,13 +93,11 @@ function visibility(on: Partial<MapLayerVisibility>): MapLayerVisibility {
 beforeEach(() => {
   fetchers.fetchJmaTargetTimesFile.mockReset();
   respondWith(framesByReader);
-  fetchers.fetchJmaPointGeojson
-    .mockReset()
-    .mockImplementation(async (_delivery: JmaDelivery, pointFrame: JmaFrame) => ({
-      type: "FeatureCollection",
-      features: [],
-      id: pointFrame.validtime,
-    }));
+  fetchers.fetchJmaGeojson.mockReset().mockImplementation(async (_delivery: JmaDelivery, selectedFrame: JmaFrame) => ({
+    type: "FeatureCollection",
+    features: [],
+    id: selectedFrame.validtime,
+  }));
   fetchers.useWeatherGrid.mockReset().mockReturnValue({
     grid: GRID,
     detail: null,
@@ -297,7 +295,7 @@ describe("配信元の地点（最新の観測の規則）", () => {
   it("配信の遅れの間は最新の観測の地点を取って描く", async () => {
     const { result } = liden(new Date("2026-09-24T00:30:00Z"));
     await settle();
-    expect(fetchers.fetchJmaPointGeojson).toHaveBeenLastCalledWith(
+    expect(fetchers.fetchJmaGeojson).toHaveBeenLastCalledWith(
       jmaDeliveries(source("disaster", "liden"))[0],
       NOWCAST[2],
       expect.any(String),
@@ -316,19 +314,48 @@ describe("配信元の地点（最新の観測の規則）", () => {
   });
 
   it("地点の取得に失敗したコマは描かず、チップは「値なし」ではなく失敗", async () => {
-    fetchers.fetchJmaPointGeojson.mockRejectedValue(new Error("取れません"));
+    fetchers.fetchJmaGeojson.mockRejectedValue(new Error("取れません"));
     const { result } = liden(NOW);
     await settle();
-    expect(fetchers.fetchJmaPointGeojson).toHaveBeenCalled();
+    expect(fetchers.fetchJmaGeojson).toHaveBeenCalled();
     expect(result.current.dynamicWeather.disaster?.liden?.payload).toBeUndefined();
     expect(result.current.dynamicWeatherDataStatus.disaster).toBe("error");
   });
 
   it("地点を取っている間は「値なし」ではなく読み込み中", async () => {
-    fetchers.fetchJmaPointGeojson.mockImplementation(() => new Promise(() => {}));
+    fetchers.fetchJmaGeojson.mockImplementation(() => new Promise(() => {}));
     const { result } = liden(NOW);
     await settle();
     expect(result.current.dynamicWeatherDataStatus.disaster).toBe("loading");
+  });
+});
+
+describe("配信元の領域（線状降水帯の雨域）", () => {
+  const area = source("precipitationNowcast", "linearRainbandArea");
+  const [delivery] = jmaDeliveries(area);
+  const others = inGroup("precipitationNowcast")
+    .filter((entry) => entry !== area)
+    .map((entry) => entry.source);
+
+  it("時刻一覧の最新のbasetimeは配信の遅れのぶん前のbasetimeで取り、選んだ時刻の領域を輪郭線として描く", async () => {
+    // 時刻一覧の最新の予測の先端（0:25）。配信済みの前のbasetimeの予測が届く。
+    const at = new Date("2026-09-24T00:25:00Z");
+    const { result } = render({
+      visibility: visibility({ precipitationNowcast: true }),
+      hiddenSources: { precipitationNowcast: others },
+      at,
+    });
+    await settle();
+    const delivered = new Date(NOW.getTime() - delivery.dataDelayMinutes * 60_000);
+    expect(fetchers.fetchJmaGeojson).toHaveBeenLastCalledWith(
+      delivery,
+      frame(utc("0025"), delivered.toISOString().replace(/[-:T]/g, "").slice(0, 14)),
+      expect.any(String),
+    );
+    expect(result.current.dynamicWeather.precipitationNowcast?.linearRainbandArea).toMatchObject({
+      visible: true,
+      payload: { kind: "outline", geojson: { id: utc("0025") } },
+    });
   });
 });
 
