@@ -2,7 +2,7 @@
 // 無ければ登録簿から読む。
 import { execFileSync } from "node:child_process";
 
-export function userEnv(name) {
+function userEnv(name) {
   if (process.env[name]) return process.env[name];
   const out = execFileSync("reg", ["query", "HKCU\\Environment", "/v", name], { encoding: "utf8" });
   return new RegExp(`${name}\\s+REG_SZ\\s+(\\S+)`).exec(out)[1];

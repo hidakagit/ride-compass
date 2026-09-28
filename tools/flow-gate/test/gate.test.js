@@ -6,7 +6,7 @@ import worker from "../src/index.js";
 import { adoptionQuestion, check, formChoices, parseQuestion } from "../src/rules.js";
 import { fakeGitHub } from "./fake-github.js";
 
-const env = { APP_ID: "1", WEBHOOK_SECRET: "secret", FORM_TOKEN: "form-token" };
+const env = { APP_ID: "1", WEBHOOK_SECRET: "secret", FORM_TOKEN: "form-token", CODE_TOKEN: "code-token" };
 const [ME, BOT] = [config.people.hidakagit.id, config.people["hidakagit-bot"].id];
 
 before(async () => {
@@ -146,6 +146,49 @@ test("採否の問いはコメントが無くても回答フォームに出て�
   assert.equal(r.label, config.adoption.options[0].text);
   assert.match(comments(gh)[0], /^## 回答\n問い: https:\/\/github\.com\/[^\n]+\/issues\/7#採否\n/);
   assert.deepEqual([gh.issue.status, gh.issue.assignees], [config.adoption.options[0].to, ["hidakagit-bot"]]);
+});
+
+test("検証中へ動くと、ユーザーが確かめると決めたタスクはユーザーに、ほかは Claude に割り当たる", async () => {
+  let gh = fakeGitHub({ issue: { number: 8, authorId: ME, status: "検証中", assignees: ["hidakagit-bot"], labels: [config.verify.label] } });
+  await move("進行中", "検証中");
+  assert.deepEqual(gh.issue.assignees, [config.ask.answerer]);
+  gh = fakeGitHub({ issue: { number: 9, authorId: ME, status: "検証中", assignees: ["hidakagit-bot"] } });
+  await move("進行中", "検証中");
+  assert.deepEqual(gh.issue.assignees, ["hidakagit-bot"]);
+});
+
+const pr = (extra) => ({ number: 3, head: { ref: `${config.code.branchPrefix}8` }, html_url: "https://github.com/pr/3", state: "open", merged_at: null, merge_commit_sha: "M", ...extra });
+const run = (conclusion, status = "completed") => ({ name: "CI", head_sha: "M", status, conclusion, html_url: "https://github.com/run/1" });
+const verifying = (code, extra) => fakeGitHub({ code, issue: { number: 8, authorId: ME, status: "検証中", assignees: ["hidakagit-bot"], labels: ["状態:検証中"], ...extra } });
+const codeEvent = (event, payload) => deliver(event, { repository: { full_name: config.code.repository }, ...payload });
+
+test("Pull Request がマージされずに閉じると、そのタスクは未着手へ戻り、理由を読むよう書かれる", async () => {
+  const gh = verifying({ prs: [pr({ state: "closed" })], runs: [] });
+  await codeEvent("pull_request", { action: "closed", pull_request: { head: { ref: `${config.code.branchPrefix}8` } } });
+  assert.deepEqual([gh.issue.status, gh.issue.assignees], [config.verify.back, ["hidakagit-bot"]]);
+  assert.match(comments(gh)[0], /マージされずに閉じられました/);
+});
+
+test("マージしたあと master の CI を待ち、通れば完成として閉じ、落ちれば落ちた実行を書いて未着手へ戻す", async () => {
+  let gh = verifying({ prs: [pr({ state: "closed", merged_at: "t" })], runs: [run(null, "in_progress")] });
+  await codeEvent("pull_request", { action: "closed", pull_request: { head: { ref: `${config.code.branchPrefix}8` } } });
+  assert.deepEqual([gh.issue.status, gh.writes], ["検証中", []], "CI が終わるまでは動かさない");
+  gh.code.runs = [run("success")];
+  await codeEvent("workflow_run", { action: "completed", workflow_run: { head_branch: config.code.base } });
+  assert.deepEqual([gh.issue.status, gh.issue.state], [config.done, "CLOSED"]);
+  assert.equal(gh.writes.find((w) => w.stateInput)?.stateInput.stateReason, "COMPLETED");
+
+  gh = verifying({ prs: [pr({ state: "closed", merged_at: "t" })], runs: [run("success"), run("failure")] });
+  await codeEvent("workflow_run", { action: "completed", workflow_run: { head_branch: config.code.base } });
+  assert.deepEqual([gh.issue.status, gh.issue.state], [config.verify.back, "OPEN"]);
+  assert.match(comments(gh)[0], /CI が通りませんでした[\s\S]*run\/1/);
+});
+
+test("ユーザーが確かめる番の検証中は、本文の先頭に作業ブランチの Pull Request を開くボタンが出る", async () => {
+  const gh = fakeGitHub({ issue: { number: 8, authorId: ME, status: "検証中", assignees: ["hidakagit-bot"], labels: [config.verify.label] } });
+  await move("進行中", "検証中");
+  const q = encodeURIComponent(`is:pr head:${config.code.branchPrefix}8`);
+  assert.ok(gh.issue.body.includes(`[![確かめる](https://gate.test/review.svg)](https://github.com/${config.code.repository}/pulls?q=${q})`));
 });
 
 test("ステータスのラベルは Project の Status と同じ1つだけにそろい、手で付け替えても戻る", async () => {
