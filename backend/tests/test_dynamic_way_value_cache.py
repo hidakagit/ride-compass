@@ -1,4 +1,4 @@
-"""`infrastructure/dynamic_way_value_cache.py`——動的かつ向きに依存する材料の、タイル単位の
+"""`infrastructure/dynamic_way_value_cache.py`——向きに依存する材料（勾配）の、タイル単位の
 値を配るディスクキャッシュ。
 
 ここで見ないもの:
@@ -30,7 +30,7 @@ async def _put(
 ):
     z, x, y = tile
     await dynamic_way_value_cache.set_tile_values(
-        material, z, x, y, None, bearing, values, TTL_SECONDS, surface_tile_version=version, value_shape=value_shape
+        material, z, x, y, bearing, values, TTL_SECONDS, surface_tile_version=version, value_shape=value_shape
     )
 
 
@@ -39,7 +39,7 @@ async def _get(
 ):
     z, x, y = tile
     return await dynamic_way_value_cache.get_tile_values(
-        material, z, x, y, None, bearing, surface_tile_version=version, value_shape=value_shape
+        material, z, x, y, bearing, surface_tile_version=version, value_shape=value_shape
     )
 
 
