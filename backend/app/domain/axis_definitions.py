@@ -325,8 +325,8 @@ class AxisDefinition(StrictModel):
     軸ごとの好み）で、風・勾配のdedicated_way_value_layer軸だけでなく、通常のramp軸
     （`buildAxisRampLegend`）の凡例にも同じ仕組みで使える。"""
     dedicated_way_value_layer: bool = False
-    """この軸が専用のway_id→値配信レイヤー（Redis経由、`app/infrastructure/
-    dynamic_way_value_cache.py`）を持つかの宣言。`axis_id`の文字列比較による
+    """この軸が専用のフィーチャー→値配信レイヤー（`GET /api/region/dynamic-way-values/
+    {axis_id}/...`、`api/routers/region.py`）を持つかの宣言。`axis_id`の文字列比較による
     ハードコード分岐ではなく、性質ベースの宣言的フィールドとして持たせてある。
 
     **ルート確定後**の地図色分け（`axis_difficulties[axis_id]`を
@@ -336,11 +336,10 @@ class AxisDefinition(StrictModel):
     工学的事実——「専用のway_id配信レイヤーがbackendに実際に実装されているか」は
     軸の評価ロジック（shape）自体からは自動導出できないため、他のbool系フィールドと
     同様に明示的に持たせ、軸スタジオの編集画面（管理API）からも設定できるようにする。
-    既定Falseは、この専用レイヤーを持たない大多数の軸の実際の状態と一致する
-    （現状trueなのは`wind`・`gradient`の2軸のみ）。"""
+    既定Falseは、この専用レイヤーを持たない大多数の軸の実際の状態と一致する。"""
     dynamic_way_value_needs_time: bool = False
     """`dedicated_way_value_layer=True`の軸のみ意味を持つ。`GET /api/region/
-    dynamic-way-values/{material_id}/...`（`api/routers/region.py`）の`at`クエリ
+    dynamic-way-values/{axis_id}/...`（`api/routers/region.py`）の`at`クエリ
     パラメータにこの軸の値が依存するかの宣言（風=True、気象予報が時々刻々変わる。
     勾配=False、標高・道路の向きは時刻で変わらない）。`dedicated_way_value_layer`と
     同様、この値自体は軸の評価ロジック（shape）から自動導出できない工学的事実のため、
@@ -355,7 +354,7 @@ class AxisDefinition(StrictModel):
     """`dedicated_way_value_layer=True`の軸のみ意味を持つ。同エンドポイントの
     `speed_kmh`クエリパラメータ（想定速度）にこの軸の値が依存するかの宣言。走行速度に
     依存する材料（`wind_drag_ratio`）を参照する軸で立てる。他の2フラグと同じ理由で
-    明示的なフィールドとして持たせる（キャッシュキーへ速度バケットを含めるかの判定にも使う）。"""
+    明示的なフィールドとして持たせる。"""
 
     @field_validator("display_thresholds_override")
     @classmethod
