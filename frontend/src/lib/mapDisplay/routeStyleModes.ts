@@ -5,7 +5,7 @@ import palette from "@/types/generated/palette.json";
 import type { LegendEntry } from "./legendFilter";
 import { NO_DATA_LEGEND_BAND } from "./mapColorLegend";
 import type { AxisCatalogEntry } from "@/types/route";
-import { COLOR_NO_DATA, DEFAULT_DIFFICULTY_BOUNDARIES, valueBands, type MapValueKind } from "./valueScale";
+import { DEFAULT_DIFFICULTY_BOUNDARIES, valueBands, type MapValueKind } from "./valueScale";
 
 type RouteStyleModeId = "difficulty" | "none" | (string & {});
 
@@ -56,7 +56,7 @@ function buildSteppedMode(
 
   return {
     legend,
-    colorExpression: ["case", noData, COLOR_NO_DATA, colorExpression],
+    colorExpression: ["case", noData, palette.semantic.no_data, colorExpression],
     noDataExpression: noData,
   };
 }

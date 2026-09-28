@@ -21,6 +21,7 @@
 | `features/route/gpxExport.ts` | 候補1本をGPXとして書き出す（`downloadGpx`。押す口は[ページ全体構成・状態管理](page-composition.md)の候補の操作）。点数を上限（`MAX_GPX_TRACK_POINTS`）へ収めるとき、残す点を折れ線の形から選ぶ（下記「GPX書き出しの間引き」） |
 | `features/route/RouteAxisProfile/axisRawValue.ts` | 軸の生値（折れ点を通す前）を単位付きの表示文へ整える純関数（`formatAxisRawValue`）。走行距離を掛けた総量を添えるのは、軸カタログが`raw_value_total_unit`を返した軸だけ——総量が読み手の判断を変えるかの判断はbackendが持ち、フロントは単位の綴りから決めない。単位が定まらない軸の内訳1件を整える`formatMaterialBreakdown`（numeric/boolean）・`formatCategoryBreakdown`（categorical、最も延長の長い値）も持つ |
 | `components/AxisContributionBar/AxisContributionBar.tsx` | 「重み付き寄与度」内訳の表示部品（積み上げ1本バー＋凡例）。ルート全体の内訳（RouteAxisProfile）・区間クリック詳細（`RouteOutcome.tsx`）の両方から共用する |
+| `components/PinMark/PinMark.tsx` | 地点（出発地・経由地・目的地）の印の中身と背景色。行頭の印と地図のピンが共用する（下記「地点の指定」） |
 | `features/route/ComparisonPanel/ComparisonPanel.tsx`・`types/experimentSlot.ts`（`ExperimentSlot`型・`MAX_EXPERIMENT_SLOTS`） | 研究モードの実験スロット比較表 |
 | `hooks/useAxisCatalog.ts` | `GET /api/axis-catalog`取得。軸一覧・既定重み・ramp軸・軸ラベル・二次軸・ルート色分けモードを一括提供 |
 | `lib/axisCatalog.ts` | 上記フックが返すカタログを、応答から導く純関数（`axisCatalogFromResponse`）と、画面が読む較正値（`CLIENT_TUNING_IDS`・`clientTuningValue`）。フックが持つのは「いつ取りに行き、誰と共有するか」だけ |
@@ -408,8 +409,9 @@ distance・maxRoutesはいずれもstring stateのまま`useGenerationConditions
 
 - 地図のピンは3つとも同じ丸いバッジ（`MapView.tsx: createPointMarkerElement`、出発地だけは
   現在地アイコン入りの白バッジ）で、**どれもつかんで動かせる**。**行頭の印と地図のピンは
-  同じ図形を使う**（`lib/mapDisplay/pinMarks.ts`が中身と背景色を持ち、地図側はMarkerへ渡す生のDOM、
-  パネル側はその文字列をそのまま描く）——同じものを2箇所で描くと、片方だけ直したときに
+  同じ図形を使う**（`components/PinMark/PinMark.tsx`が中身と背景色を持ち、出発地の現在地の印はアイコン集の
+  `components/ui/icons/icons.tsx: LocateIcon`。地図側はMarkerへ渡す要素へ出発地の印をportalで描き、経由地・目的地の
+  文字は`components/PinMark/PinMark.tsx: pinMarkText`を要素の文字として入れる）——同じものを2箇所で描くと、片方だけ直したときに
   行とピンが違う見た目になる。動かした直後のclickは読み飛ばす（`bindDragAwareClick`）——同じ操作の
   終わりにclickが飛ぶため、動かしただけで削除・解除が起きてしまう。
 - **行そのものが押下領域**（`pointMain`）。押す場所を探させず、行の幅も詰まる。解除（✕）と
