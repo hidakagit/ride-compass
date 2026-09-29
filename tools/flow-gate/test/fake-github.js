@@ -9,7 +9,8 @@ const BY_NODE = Object.fromEntries(Object.entries(config.people).map(([k, p]) =>
 
 // code はコードのリポジトリの状態（Pull Request の一覧・master の CI の実行）。
 // parent を渡すと、issue をその子にする（親の子は、parent.siblings の状態と issue の今の状態）。親の id は I_P。
-export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel, "規模S", config.verify.label], code = { prs: [], runs: [] } }) {
+// markdown を false にすると、Markdown を描く呼び出しが失敗する。
+export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel, "規模S", config.verify.label], code = { prs: [], runs: [] }, markdown = true }) {
   const blank = { blockedBy: [], subIssues: [], assignees: [], labels: [], lastClose: [], state: "OPEN", fields: {} };
   const state = {
     issue: { ...blank, ...issue },
@@ -82,6 +83,7 @@ export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel
     const as = init.headers.authorization === "Bearer form-token" ? "hidakagit" : "gate";
     if (path.endsWith("/access_tokens")) return json({ token: "app-token" });
     if (path === "/graphql") return json({ data: graphql(body, as) });
+    if (path === "/markdown") return markdown ? new Response(`<p>描いた: ${body.text}</p>`) : new Response("失敗", { status: 500 });
     const repo = `/repos/${config.code.repository}`;
     if (path === `${repo}/pulls`) return json(state.code.prs.filter((p) => `${config.code.repository.split("/")[0]}:${p.head.ref}` === new URL(url).searchParams.get("head")));
     if (path === `${repo}/actions/runs`) return json({ workflow_runs: state.code.runs.filter((r) => r.head_sha === new URL(url).searchParams.get("head_sha")) });

@@ -106,6 +106,8 @@ test("回答フォーム: 表で行ける選択肢だけを出し、答えは hi
   const html = await (await worker.fetch(new Request("https://gate.test/answer?issue=4"), env)).text();
   assert.match(html, /A 案/);
   assert.doesNotMatch(html, /進める/);
+  assert.match(html, /<div class="cols"><details><summary>判断材料<\/summary><div class="md"><p>描いた: 材料の文<\/p><\/div><\/details><form>/,
+    "判断材料は GitHub の描き方で出し、PC の幅で左右に並べる箱に入れる");
 
   const form = new FormData();
   Object.entries({ issue: "4", q: questionId(html), choice: "1", next: "hidakagit", note: "" }).forEach(([k, v]) => form.set(k, v));
@@ -119,6 +121,13 @@ test("回答フォーム: 表で行ける選択肢だけを出し、答えは hi
   assert.equal(answer.body, "## 回答\n**手順はどちらにしますか？**\n\n○ A 案\n● **私がやる**\n○ その他（コメント）\n\n" +
     "次のステータス: 未着手\n次に動くのは: hidakagit\n\n<details><summary>判断材料</summary>\n\n材料の文\n</details>");
   assert.deepEqual([gh.issue.status, gh.issue.assignees, gh.issue.body], ["未着手", ["hidakagit"], "本文"]);
+});
+
+test("判断材料を GitHub で描けないときは、判断材料の文字をそのまま出す", async () => {
+  fakeGitHub({ markdown: false, issue: { number: 4, authorId: ME, status: "回答待ち", assignees: ["hidakagit"],
+    body: asked("## 問い\nどうする？\n\n### 選択肢\n- A → 未着手\n- B → 保留\n\n<details><summary>判断材料</summary>\n**太字** と <b>タグ</b>\n</details>") } });
+  const html = await (await worker.fetch(new Request("https://gate.test/answer?issue=4"), env)).text();
+  assert.match(html, /<div class="plain">\*\*太字\*\* と &#60;b&#62;タグ&#60;\/b&#62;<\/div>/);
 });
 
 test("問い直し: 答えて Claude の番になると回答フォームは開かず、Claude が問いを書いて hidakagit に割り当てると、本文の先頭の問いの下にボタンが出る", async () => {

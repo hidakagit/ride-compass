@@ -10,6 +10,7 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
 // 1回目の送信で選んだ内容を見せ、2回目で送る。
 const SCRIPT = `<script>
 const f = document.querySelector("form"), sum = document.getElementById("sum");
+if (matchMedia("(min-width:960px)").matches) document.querySelector(".cols details")?.setAttribute("open", "");
 f?.addEventListener("change", (e) => {
   if (e.target.name === "choice") f.next.value = e.target.dataset.next || "";
   document.getElementById("who").hidden = !e.target.form.querySelector("[name=choice]:checked")?.dataset.next;
@@ -55,7 +56,9 @@ const page = (body, status = 200) =>
       `<meta name="color-scheme" content="light dark"><title>回答</title><style>` +
       `body{font:15px/1.5 system-ui,sans-serif;max-width:34rem;margin:.6rem auto;padding:0 16px}` +
       `h1{font-size:1.05rem;margin:.2rem 0}p{margin:.4rem 0}` +
-      `details{background:#f4f4f4;padding:.4rem .6rem;border-radius:.4rem;font-size:14px}details div{white-space:pre-wrap;overflow-wrap:anywhere;max-height:32vh;overflow:auto}` +
+      `details{background:#f4f4f4;padding:.4rem .6rem;border-radius:.4rem;font-size:14px}details>div{overflow-wrap:anywhere;max-height:32vh;overflow:auto}` +
+      `.plain{white-space:pre-wrap}.md p,.md ul,.md ol{margin:.3rem 0}.md ul,.md ol{padding-left:1.2rem}.md a{color:#1f6feb}` +
+      `.md code{font-size:13px;background:rgba(127,127,127,.15);padding:0 .2em;border-radius:3px}` +
       `label{display:flex;gap:.5rem;align-items:center;padding:.45rem .6rem;border:1px solid #bbb;border-radius:.4rem;margin:.3rem 0}` +
       `textarea,select{width:100%;box-sizing:border-box;font:inherit;font-size:14px}` +
       `.row{display:flex;gap:.5rem;margin-top:.4rem}.row button{flex:1;font:inherit;padding:.6rem;border-radius:.4rem;border:1px solid #888}` +
@@ -64,6 +67,9 @@ const page = (body, status = 200) =>
       `.labels{display:flex;flex-wrap:wrap;gap:.3rem}.labels label{margin:0;padding:.3rem .55rem;font-size:14px}` +
       `.back{display:block;text-align:center;padding:.7rem;border-radius:.4rem;background:#1f6feb;color:#fff;text-decoration:none;margin-top:.6rem}` +
       `@media(prefers-color-scheme:dark){body{background:#121212;color:#eee}details{background:#222}label{border-color:#444}}` +
+      // PC の幅では、判断材料を左に開いたまま全部、選択肢と送信を右に並べ、右はスクロールしても見える位置に留める。
+      `@media(min-width:960px){body{max-width:72rem}.cols{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:1.5rem;align-items:start}` +
+      `.cols details{margin:0}.cols details>div{max-height:none}.cols form{position:sticky;top:.6rem}}` +
       `</style></head><body>${body}${SCRIPT}</body></html>`,
     { status, headers: { "content-type": "text/html; charset=utf-8" } },
   );
@@ -83,7 +89,8 @@ async function load(gate, number) {
   return { issue, q, labels, choices: formChoices(gate.config, q.parsed, issue.status) };
 }
 
-function render(config, { issue, q, labels, choices }) {
+// materialHtml は GitHub が描いた判断材料。描けなかったとき（null）は、判断材料の文字をそのまま出す。
+function render(config, { issue, q, labels, choices, materialHtml }) {
   const have = new Set(issue.labels.nodes.map((l) => l.name));
   const boxes = labels.map(
     (n) => `<label><input type="checkbox" name="label" value="${esc(n)}"${have.has(n) ? ' checked data-had="1"' : ""}> ${esc(n)}</label>`,
@@ -93,15 +100,17 @@ function render(config, { issue, q, labels, choices }) {
     (c, i) =>
       `<label><input type="radio" name="choice" value="${i}" required data-text="${esc(c.text)}" data-next="${esc(c.fixed ? "" : (c.next ?? ""))}"> ${esc(c.text)}</label>`,
   );
+  const material = materialHtml ? `<div class="md">${materialHtml}</div>` : `<div class="plain">${esc(q.parsed.material)}</div>`;
   return page(
     `<h1>#${issue.number} ${esc(issue.title)}</h1><p>${esc(q.parsed.text)}</p>` +
-      (q.parsed.material ? `<details><summary>判断材料</summary><div>${esc(q.parsed.material)}</div></details>` : "") +
+      (q.parsed.material ? `<div class="cols"><details><summary>判断材料</summary>${material}</details>` : "") +
       `<form><input type="hidden" name="issue" value="${issue.number}"><input type="hidden" name="q" value="${esc(q.id)}">${radios.join("")}` +
       `<p id="who" hidden>次に動くのは <select name="next">${people.join("")}</select></p>` +
       `<p>ラベル</p><div class="labels">${boxes.join("")}</div>` +
       `<p><textarea name="note" rows="6" placeholder="補足（「その他」を選んだときは必須）"></textarea></p>` +
       `<p id="sum"></p><div class="row"><button type="button" id="back" class="ok">戻る</button><button class="ok primary">送信</button>` +
-      `<button class="ask primary">確認へ</button></div></form>`,
+      `<button class="ask primary">確認へ</button></div></form>` +
+      (q.parsed.material ? "</div>" : ""),
   );
 }
 
@@ -136,5 +145,10 @@ export async function answerForm(request, env, config) {
   const gate = await Gate.open(env, config, url.origin);
   if (request.method === "POST") return Response.json(await submit(gate, env, await request.formData()));
   const loaded = await load(gate, Number(url.searchParams.get("issue")));
-  return loaded.error ? page(`<p>${esc(loaded.error)}</p>`, 404) : render(config, loaded);
+  if (loaded.error) return page(`<p>${esc(loaded.error)}</p>`, 404);
+  const material = loaded.q.parsed.material;
+  const materialHtml = material
+    ? await gate.gh.markdown(material, config.repository).catch((e) => (console.warn(`判断材料を描けなかった: ${e.message}`), null))
+    : null;
+  return render(config, { ...loaded, materialHtml });
 }

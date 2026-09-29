@@ -32,6 +32,16 @@ export class GitHub {
   }
 
   async rest(method, path, body) {
+    const text = await this.text(method, path, body);
+    return text ? JSON.parse(text) : null;
+  }
+
+  // Markdown を GitHub の issue と同じ描き方で HTML にする（危ない HTML は GitHub が取り除く）。
+  markdown(text, repository) {
+    return this.text("POST", "/markdown", { text, mode: "gfm", context: repository });
+  }
+
+  async text(method, path, body) {
     const res = await fetch(API + path, {
       method,
       headers: {
@@ -45,7 +55,7 @@ export class GitHub {
     });
     const text = await res.text();
     if (!res.ok) throw new Error(`GitHub ${method} ${path}: ${res.status} ${text.slice(0, 200)}`);
-    return text ? JSON.parse(text) : null;
+    return text;
   }
 
   async gql(query, variables = {}) {
