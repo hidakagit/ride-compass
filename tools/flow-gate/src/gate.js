@@ -2,7 +2,7 @@
 // 1つの出来事では、タスクを1回読み（read）、書き込みを1回にまとめて書く（write）。
 import { GitHub, Mutations, readTask } from "./github.js";
 import { reconcile } from "./review.js";
-import { adoptionQuestion, answers, check, entryFor, parseQuestion, personById, withBanner, withoutBanner } from "./rules.js";
+import { adoptionQuestion, check, entryFor, joinBody, parseQuestion, splitBody } from "./rules.js";
 
 const normalize = (body) => (body ?? "").replace(/\r\n/g, "\n");
 
@@ -18,10 +18,6 @@ export class Gate {
     return gate;
   }
 
-  get gateLogin() {
-    return this.config.gate.replace(/\[bot\]$/, "");
-  }
-
   async read(ref) {
     const r = await readTask(this.gh, this.config, ref);
     this.project = r.project;
@@ -29,34 +25,33 @@ export class Gate {
     return r.issue;
   }
 
-  // 答えが要る（採否待ち・回答待ちで、答えの無い問いがある）間だけ、本文の先頭にステータス・問い・リンクの1行を置く。
-  // ユーザーが確かめる番の検証中の間は、同じ場所に Pull Request を開くボタンを置く（作業ブランチで引く検索の画面へ）。
+  // 答える人（ask.answerer）の番の間だけ、本文の先頭にボタンとステータスの行を置く。採否待ち・回答待ちなら回答フォームへ、
+  // 検証中なら Pull Request へ（作業ブランチで引く検索の画面へ）。答えを待つ問いは、答えるまで同じ場所に画面に出ない形で残す。
   bodyFor(issue) {
     const { verify, code, ask } = this.config;
-    const reviewer = this.config.people[ask.answerer].node;
-    if (issue.state === "OPEN" && issue.status === verify.status && issue.assignees.nodes.some((a) => a.id === reviewer)) {
+    const { question, rest } = splitBody(issue.body);
+    const answerer = this.config.people[ask.answerer].node;
+    const turn = issue.state === "OPEN" && issue.assignees.nodes.some((a) => a.id === answerer);
+    if (turn && issue.status === verify.status) {
       const q = encodeURIComponent(`is:pr head:${code.branchPrefix}${issue.number}`);
       const url = `https://github.com/${code.repository}/pulls?q=${q}`;
-      return withBanner(issue.body, issue.status, { text: "Pull Request を確かめ、マージするか閉じるかを決める", url, button: this.reviewUrl, alt: "確かめる" });
+      return joinBody(rest, question, { status: issue.status, text: "Pull Request を確かめ、マージするか閉じるかを決める", url, button: this.reviewUrl, alt: "確かめる" });
     }
-    const q = this.config.ask.statuses.includes(issue.status) ? currentQuestion(this.config, issue) : null;
-    const open = issue.state === "OPEN" && q?.parsed && !issue.comments.nodes.some((c) => answers(c.body, q.url));
+    const q = turn && ask.statuses.includes(issue.status) ? currentQuestion(this.config, issue) : null;
     const url = `${this.origin}/answer?issue=${issue.number}`;
-    return open ? withBanner(issue.body, issue.status, { text: q.parsed.text, url, button: this.buttonUrl }) : withoutBanner(issue.body);
+    return joinBody(rest, question, q?.parsed && { status: issue.status, text: q.parsed.text, url, button: this.buttonUrl });
   }
 
-  // 1つのタスクへの書き込みを1回の要求で行う。want には変えたい中身だけを渡す。見せ方（ステータスのラベルは Project の
-  // Status と同じ1つだけ、本文の先頭の1行は答えが要る間だけ）も、書いた後の状態に合わせて同じ要求に入れる。
-  // ステータスのラベルを置くのは、スマホの issue の画面が Project の欄を出さず、ラベルなら一覧・詳細・絞り込みで見えるため。
+  // 1つのタスクへの書き込みを1回の要求で行う。want には変えたい中身だけを渡す。本文の先頭の見せ方も、書いた後の状態に
+  // 合わせて同じ要求に入れる。clearQuestion は答えを待つ問いを本文から消す（答えたとき）。
   async write(issue, want = {}) {
-    const added = (want.comments ?? []).map((body) => ({ body, url: null, author: { login: this.gateLogin } }));
     const next = {
       ...issue,
       status: "status" in want ? want.status : issue.status,
       fields: { ...issue.fields, ...(want.fields ?? {}) },
       assignees: want.assign ? { nodes: [{ id: this.config.people[want.assign].node, login: want.assign }] } : issue.assignees,
       state: want.close ? "CLOSED" : want.reopen ? "OPEN" : issue.state,
-      comments: { nodes: [...issue.comments.nodes, ...added, ...(want.seen ?? [])] },
+      body: want.clearQuestion ? splitBody(issue.body).rest : issue.body,
     };
     const m = new Mutations();
     if (next.status !== issue.status) {
@@ -79,13 +74,8 @@ export class Gate {
       const now = issue.assignees.nodes.map((a) => a.id);
       if (now.length !== 1 || now[0] !== id) update.assigneeIds = [id];
     }
-    const prefix = this.config.statusLabelPrefix;
-    const statusLabel = next.status ? `${prefix}${next.status}` : null;
     const have = issue.labels.nodes.map((l) => l.name);
-    const drop = (n) => n.startsWith(prefix) || (want.unlabels ?? []).includes(n);
-    const labels = [...new Set([...have.filter((n) => !drop(n)), ...(want.labels ?? []), ...(statusLabel ? [statusLabel] : [])])].filter(
-      (n) => this.labelIds[n],
-    );
+    const labels = [...new Set([...have.filter((n) => !(want.unlabels ?? []).includes(n)), ...(want.labels ?? [])])].filter((n) => this.labelIds[n]);
     if (labels.length !== have.length || labels.some((n) => !have.includes(n))) update.labelIds = labels.map((n) => this.labelIds[n]);
     const body = this.bodyFor(next);
     if (body !== normalize(issue.body)) update.body = body;
@@ -98,15 +88,12 @@ export class Gate {
   }
 
   // 表で照らし、通れば書く。written はステータスがもう GitHub で変わっていること（ボードの移動）。
-  // next を渡さなければ表の既定の割り当てを書く。dryRun は照らすだけで書かない。seen は回答フォームが渡す
-  // この直前に書いた答え（本文の先頭の1行を消すかを決めるのに使う）。
-  async apply(issue, from, to, { next, labels = [], unlabels = [], written = false, dryRun = false, seen, comments = [], close } = {}) {
+  // next を渡さなければ表の既定の割り当てを書く。dryRun は照らすだけで書かない。
+  async apply(issue, from, to, { next, labels = [], unlabels = [], written = false, dryRun = false, comments = [], close, clearQuestion } = {}) {
     const verdict = from === to ? { ok: true, rule: null } : check(this.config, from, to, issue.blockedBy.nodes);
     if (!verdict.ok) return verdict;
-    const missing = labels.filter((n) => !this.labelIds[n]);
-    if (missing.length) return { ok: false, reason: `ラベル「${missing.join("」「")}」が GitHub にありません。` };
     if (dryRun) return { ok: true };
-    const want = { labels, unlabels, seen, comments, assign: next !== undefined ? next : (verdict.rule?.assign ?? undefined) };
+    const want = { labels, unlabels, comments, clearQuestion, assign: next !== undefined ? next : (verdict.rule?.assign ?? undefined) };
     if (!written) want.status = to;
     if (to === this.config.done && issue.state === "OPEN") want.close = close ?? "NOT_PLANNED";
     // ユーザーが確かめると決めたタスク（verify.label）は、確かめる番を表の既定ではなく答える人（ask.answerer）にする。
@@ -123,7 +110,7 @@ export class Gate {
     return { ok: true };
   }
 
-  // 割り当て・本文・ラベルなどの出来事: 見せ方だけを今の状態に合わせる（問い直したとき・ラベルを手で付け替えたとき）。
+  // 割り当て・本文などの出来事: 見せ方だけを今の状態に合わせる（問いを書いたとき・割り当て直したとき）。
   async touched(nodeId) {
     const issue = await this.read({ nodeId });
     if (issue?.item && !issue.parent) await this.write(issue);
@@ -166,21 +153,20 @@ export class Gate {
 
 export const ADOPTION_ID = "adoption";
 
-// 今の問い: 問いを書ける者（askers）かゲートが書いた、1行目が「## 問い」のコメントのうち最新の1つ。
-// 採否待ちでそれが無ければ、設定の採否の問い（決まった中身なのでコメントには書かない）。
+// 今の問い: 本文の先頭に置いた問い（bin/ask.js が書く）。採否待ちでそれが無ければ、設定の採否の問い（決まった中身なので
+// 本文には書かない）。id は問いの中身から作り、回答フォームを開いたあとに問いが書き直されたかを見分けるのに使う。
 export function currentQuestion(config, issue) {
-  const gateLogin = config.gate.replace(/\[bot\]$/, "");
-  const q = [...issue.comments.nodes]
-    .reverse()
-    .find(
-      (c) =>
-        c.body.startsWith("## 問い") &&
-        (c.author?.login === gateLogin || config.ask.askers.includes(personById(config, c.author?.databaseId))),
-    );
-  if (q) return { ...q, parsed: parseQuestion(config, q.body) };
+  const { question } = splitBody(issue.body);
+  if (question) return { id: questionId(question), body: question, parsed: parseQuestion(config, question) };
   if (issue.status !== config.adoption.status) return null;
   const body = adoptionQuestion(config);
-  return { id: ADOPTION_ID, url: `${issue.url}#採否`, body, parsed: parseQuestion(config, body) };
+  return { id: ADOPTION_ID, body, parsed: parseQuestion(config, body) };
+}
+
+function questionId(text) {
+  let h = 0;
+  for (const c of text) h = (h * 31 + c.codePointAt(0)) >>> 0;
+  return h.toString(36);
 }
 
 export async function handleEvent(env, config, origin, name, payload) {

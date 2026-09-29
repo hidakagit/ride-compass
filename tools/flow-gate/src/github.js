@@ -80,7 +80,6 @@ export class Mutations {
 const TASK = `fragment Task on Issue { id number title body url state stateReason author { login ... on User { databaseId } }
   parent { number } assignees(first: 5) { nodes { id login } } labels(first: 20) { nodes { name } }
   blockedBy(first: 50) { nodes { number state stateReason } } subIssues(first: 50) { nodes { id number state } }
-  comments(last: 50) { nodes { id url body isMinimized author { login ... on User { databaseId } } } }
   lastClose: timelineItems(last: 1, itemTypes: [CLOSED_EVENT]) { nodes { ... on ClosedEvent { stateReason } } }
   projectItems(first: 10) { nodes { id project { id } fieldValues(first: 30) { nodes {
     ... on ProjectV2ItemFieldSingleSelectValue { name field { ... on ProjectV2SingleSelectField { name } } } } } } }

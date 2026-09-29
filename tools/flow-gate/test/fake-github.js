@@ -9,9 +9,8 @@ const BY_NODE = Object.fromEntries(Object.entries(config.people).map(([k, p]) =>
 
 // code はコードのリポジトリの状態（Pull Request の一覧・master の CI の実行）。
 export function fakeGitHub({ issue, labels = [config.project.urgentLabel, "規模S", config.verify.label], code = { prs: [], runs: [] } }) {
-  const repoLabels = [...labels, ...config.statuses.map((s) => `${config.statusLabelPrefix}${s}`)];
   const state = {
-    issue: { comments: [], blockedBy: [], subIssues: [], assignees: [], labels: [], lastClose: [], state: "OPEN", fields: {}, ...issue },
+    issue: { blockedBy: [], subIssues: [], assignees: [], labels: [], lastClose: [], state: "OPEN", fields: {}, ...issue },
     writes: [],
     requests: [],
     calls: 0,
@@ -25,7 +24,6 @@ export function fakeGitHub({ issue, labels = [config.project.urgentLabel, "規�
       state: i.state, stateReason: null, author: { login: "x", databaseId: i.authorId }, parent: i.parent ?? null,
       assignees: { nodes: i.assignees.map((login) => ({ id: config.people[login]?.node, login })) },
       labels: { nodes: i.labels.map((name) => ({ name })) }, blockedBy: { nodes: i.blockedBy }, subIssues: { nodes: i.subIssues },
-      comments: { nodes: i.comments.map((c, k) => ({ id: `C_${k}`, url: `u#${k}`, isMinimized: false, ...c })) },
       lastClose: { nodes: i.lastClose }, repository: { nameWithOwner: config.repository },
       projectItems: { nodes: [{ id: "PVTI_1", project: { id: "PVT_1" }, fieldValues: { nodes: [
         ...(i.status ? [{ name: i.status, field: { name: config.project.statusField } }] : []),
@@ -42,10 +40,6 @@ export function fakeGitHub({ issue, labels = [config.project.urgentLabel, "規�
       i.fields = { ...i.fields, [field]: value };
     }
     if (name === "clearProjectV2ItemFieldValue") i.status = null;
-    if (name === "addComment") {
-      i.comments.push({ body: input.body, author: { login: as === "hidakagit" ? "hidakagit" : "ridecompass-gate" } });
-      return { commentEdge: { node: { id: "C_new", url: "u#new" } } };
-    }
     if (name === "updateIssue" && input.assigneeIds) i.assignees = input.assigneeIds.map((id) => BY_NODE[id]);
     if (name === "updateIssue" && "body" in input) i.body = input.body;
     if (name === "updateIssue" && input.labelIds) i.labels = input.labelIds.map((id) => id.slice(2));
@@ -58,8 +52,8 @@ export function fakeGitHub({ issue, labels = [config.project.urgentLabel, "規�
   };
   const graphql = ({ query, variables }, as) => {
     if (query.startsWith("query Verifying")) {
-      const on = state.issue.state === "OPEN" && `${config.statusLabelPrefix}${state.issue.status}` === variables.l;
-      return { repository: { issues: { nodes: on ? [{ number: state.issue.number }] : [] } } };
+      const on = state.issue.state === "OPEN" && variables.q.includes(`${config.project.statusField}:"${state.issue.status}"`);
+      return { organization: { projectV2: { items: { nodes: on ? [{ content: { number: state.issue.number } }] : [] } } } };
     }
     if (query.startsWith("query Task") && state.requests.push("読む"))
       return {
@@ -68,7 +62,7 @@ export function fakeGitHub({ issue, labels = [config.project.urgentLabel, "規�
           ...Object.entries(FIELDS).map(([field, options]) => ({ id: `F_${field}`, name: field, options: options.map((o) => ({ id: `${field}:${o}`, name: o })) })),
           { id: "F_title", name: "Title" },
         ] } } },
-        repository: { labels: { nodes: repoLabels.map((name) => ({ id: `L:${name}`, name })) }, issue: node() },
+        repository: { labels: { nodes: labels.map((name) => ({ id: `L:${name}`, name })) }, issue: node() },
         node: node(),
       };
     const data = {};

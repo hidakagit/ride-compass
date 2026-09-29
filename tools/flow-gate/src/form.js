@@ -2,7 +2,7 @@
 // ステータス・割り当て・ラベルはゲートの遷移の処理（Gate.apply）がゲートの名義で書く。
 import { Gate, currentQuestion } from "./gate.js";
 import { GitHub, Mutations } from "./github.js";
-import { answerBody, answers, formChoices } from "./rules.js";
+import { answerBody, formChoices } from "./rules.js";
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
@@ -62,16 +62,17 @@ const page = (body, status = 200) =>
     { status, headers: { "content-type": "text/html; charset=utf-8" } },
   );
 
-// 今の問いと、答えてよいか（まだ答えが無いか）を読む。答えられなければ理由を返す。
+// 今の問いと、答えてよいか（答える人の番か）を読む。答えられなければ理由を返す。
 // ラベルはユーザーが付けるもので、置き場のリポジトリに GitHub で定義されているものを名前を持たずに全部出す。
 // Project の欄（優先度・規模など）は機械が決めるので出さない。
 async function load(gate, number) {
   const issue = await gate.read({ number });
   if (!issue?.item) return { error: "この issue は対象外です。" };
   if (!gate.config.ask.statuses.includes(issue.status)) return { error: `いまは答える問いがありません（ステータス: ${issue.status ?? "無し"}）。` };
+  const answerer = gate.config.people[gate.config.ask.answerer].node;
+  if (!issue.assignees.nodes.some((a) => a.id === answerer)) return { error: "いまは Claude の番です（答えは届いています）。" };
   const q = currentQuestion(gate.config, issue);
   if (!q) return { error: "答える問いがありません。" };
-  if (issue.comments.nodes.some((c) => answers(c.body, q.url))) return { error: "この問いにはもう答えてあります。" };
   if (!q.parsed) return { error: "問いの形が崩れています。Claude が書き直すのを待ってください。" };
   const labels = Object.keys(gate.labelIds);
   return { issue, q, labels, choices: formChoices(gate.config, q.parsed, issue.status) };
@@ -92,7 +93,7 @@ function render(config, { issue, q, labels, choices }) {
       (q.parsed.material ? `<details><summary>判断材料</summary><div>${esc(q.parsed.material)}</div></details>` : "") +
       `<form><input type="hidden" name="issue" value="${issue.number}"><input type="hidden" name="q" value="${esc(q.id)}">${radios.join("")}` +
       `<p id="who" hidden>次に動くのは <select name="next">${people.join("")}</select></p>` +
-      `<p>ラベル</p><input type="hidden" name="labels" value="1"><div class="labels">${boxes.join("")}</div>` +
+      `<p>ラベル</p><div class="labels">${boxes.join("")}</div>` +
       `<p><textarea name="note" rows="2" placeholder="補足（「その他」を選んだときは必須）"></textarea></p>` +
       `<p id="sum"></p><div class="row"><button type="button" id="back" class="ok">戻る</button><button class="ok primary">送信</button>` +
       `<button class="ask primary">確認へ</button></div></form>`,
@@ -110,26 +111,17 @@ async function submit(gate, env, data) {
   if (choice.note && !note) return { error: `「${choice.text}」には補足が要ります。` };
   const next = choice.next === null ? null : choice.fixed ? choice.next : String(data.get("next"));
   if (next !== null && !gate.config.people[next]) return { error: "次に動く者が選べていません。" };
-  // ラベルの欄を持たない古い画面からの送信では、ラベルを変えない（チェックの無いものは送られてこないため）。
   const had = issue.labels.nodes.map((l) => l.name).filter((n) => labels.includes(n));
-  const chosen = data.get("labels") ? data.getAll("label").map(String).filter((n) => labels.includes(n)) : had;
-  const added = [...new Set([...chosen, ...choice.labels])].filter((n) => !had.includes(n));
-  const removed = had.filter((n) => !chosen.includes(n) && !choice.labels.includes(n));
-  const precheck = await gate.apply({ ...issue }, issue.status, choice.to, { dryRun: true, labels: added });
+  const chosen = data.getAll("label").map(String).filter((n) => labels.includes(n));
+  const added = chosen.filter((n) => !had.includes(n));
+  const removed = had.filter((n) => !chosen.includes(n));
+  const precheck = await gate.apply({ ...issue }, issue.status, choice.to, { dryRun: true });
   if (!precheck.ok) return { error: precheck.reason };
 
-  // 答えの記録（hidakagit の名義）を先に書き、決定と見せ方（ゲートの名義）を書いてから返す。
-  const body = answerBody(gate.config, { questionUrl: q.url, choice, next, note, added, removed });
-  const written = await new Mutations()
-    .add("addComment", { subjectId: issue.id, body }, "commentEdge { node { id url } }")
-    .send(new GitHub(env.FORM_TOKEN));
-  const answer = written.m0.commentEdge.node;
-  const r = await gate.apply(issue, issue.status, choice.to, {
-    next: next ?? undefined,
-    labels: added,
-    unlabels: removed,
-    seen: [{ body, url: answer.url, author: { login: "hidakagit" } }],
-  });
+  // 答えの記録（hidakagit の名義）を先に書き、決定と見せ方（ゲートの名義。本文の問いとボタンを消す）を書いてから返す。
+  const body = answerBody(gate.config, { question: q.parsed, choices, choice, next, note, added, removed });
+  await new Mutations().add("addComment", { subjectId: issue.id, body }).send(new GitHub(env.FORM_TOKEN));
+  const r = await gate.apply(issue, issue.status, choice.to, { next: next ?? undefined, labels: added, unlabels: removed, clearQuestion: true });
   if (!r.ok) return { error: r.reason };
   return { url: issue.url, label: choice.text };
 }
