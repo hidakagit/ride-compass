@@ -41,11 +41,18 @@ function makeSegment(index: number, coordinates: [number, number][]) {
 }
 
 // geometryは往復可能な閉じたループの体裁のみ整える（実座標としての精度は問わない）。
-function makeRouteCandidate(id: string, directionLabel: string, distanceKm: number): RouteCandidate {
+// 所要時間は本物の生成が必ず付ける（無いと候補の行の所要時間が描かれず、走査がその配置を見ない）。
+function makeRouteCandidate(
+  id: string,
+  directionLabel: string,
+  distanceKm: number,
+  durationSeconds: number,
+): RouteCandidate {
   return makeCandidate({
     id,
     direction_label: directionLabel,
     distance_km: distanceKm,
+    estimated_duration_seconds: durationSeconds,
     geometry: {
       type: "LineString",
       coordinates: [
@@ -84,7 +91,7 @@ export function doneJobFixture(result: DoneJob["result"] = routeGenerateResponse
 // 増えたときに、このモックの欠落を型検査が知らせるようにする。
 export function routeGenerateResponseFixture(): DoneJob["result"] {
   return {
-    routes: [makeRouteCandidate("route-1", "北", 20.3), makeRouteCandidate("route-2", "南", 19.8)],
+    routes: [makeRouteCandidate("route-1", "北", 20.3, 66 * 60), makeRouteCandidate("route-2", "南", 19.8, 60 * 60)],
     no_candidates_reason: null,
     conditions: {
       latitude: 35.7597,

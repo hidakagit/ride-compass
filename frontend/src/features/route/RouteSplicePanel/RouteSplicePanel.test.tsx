@@ -105,7 +105,7 @@ describe("RouteSplicePanel 指標", () => {
   it("評価する前は元の値だけを出す（矢印も出さない）。値が無ければ「—」", () => {
     renderPanel({ displayed: { ...DISPLAYED, overall_difficulty: null } });
     expect(metric("距離").map((cell) => cell.textContent)).toEqual(["30.0", "", "", ""]);
-    expect(metric("所要")[0]).toHaveTextContent("1時間30分");
+    expect(metric("所要")[0]).toHaveTextContent("90分");
     expect(metric("総合難易度")[0]).toHaveTextContent("—");
     expect(metric("負荷")[0]).toHaveTextContent("—");
   });
@@ -119,7 +119,7 @@ describe("RouteSplicePanel 指標", () => {
     });
     renderPanel({ appliedCount: 1, preview });
     expect(metric("距離").map((cell) => cell.textContent)).toEqual(["30.0", "→", "31.3km", "+1.3"]);
-    expect(metric("所要").map((cell) => cell.textContent)).toEqual(["1時間30分", "→", "1時間25分", "−5"]);
+    expect(metric("所要").map((cell) => cell.textContent)).toEqual(["90分", "→", "85分", "−5"]);
     expect(metric("総合難易度").map((cell) => cell.textContent)).toEqual(["40", "→", "40", "±0"]);
     expect(metric("負荷").map((cell) => cell.textContent)).toEqual(["1206", "→", "1263", "+57"]);
   });
@@ -141,7 +141,7 @@ describe("RouteSplicePanel 指標", () => {
   it("どちらかの値が無い指標は、差を出さない", () => {
     const preview = makeRouteCandidate({ distance_km: 30, estimated_duration_seconds: null });
     renderPanel({ appliedCount: 1, preview });
-    expect(metric("所要").map((cell) => cell.textContent)).toEqual(["1時間30分", "", "", ""]);
+    expect(metric("所要").map((cell) => cell.textContent)).toEqual(["90分", "", "", ""]);
   });
 
   it("経路のEdgeを持たない候補では、区間を出せない旨だけを出す", () => {

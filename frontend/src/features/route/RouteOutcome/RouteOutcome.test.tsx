@@ -174,7 +174,7 @@ describe("候補の一覧の行", () => {
     const [fast, slow, unknown] = rows();
     expect(fast).toHaveTextContent(/^1 12\.3km/);
     expect(within(fast).getByRole("img", { name: "最速" })).toBeInTheDocument();
-    expect(fast).toHaveTextContent("1時間0分");
+    expect(fast).toHaveTextContent("60分");
     expect(slow).toHaveTextContent(/^2 9\.0km/);
     expect(slow).toHaveTextContent("+12分");
     expect(within(slow).queryByRole("img", { name: "最速" })).not.toBeInTheDocument();

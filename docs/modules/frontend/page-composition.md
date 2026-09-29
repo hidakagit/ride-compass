@@ -22,7 +22,7 @@
 | features/map/view | `useMapView.ts`（地図の見え方の状態と、地図・操作部品へ渡す値）・`mapLook.ts`（地図へ渡す見え方の値の型）・`lens.ts`（レンズから塗る軸・凡例・選択肢を導く）・`overlayChips.ts`（地図上チップの状態とレイヤー表示の保存形式）・`legendFilters.ts`（凡例で隠した行の保存先の読み書き） |
 | features/map/MapView | `useLayerDataStatus.ts`（MapLibreのソースイベントからレイヤーごとの取得状態を算出して渡す） |
 | lib | `apiBaseUrl.ts`・`apiClient.ts`（backendのAPIを呼ぶ口と、全呼び出しが共有する骨格。下記）・`apiPath.ts`（アプリ自身が呼ばないURL［地図ライブラリへ渡すタイル・スタイル］のパスをOpenAPIの宣言と型で照合して作る）・`apiError.ts`・`backendInternalUrl.ts`・`queryClient.ts`（画面のデータ取得が共有するTanStack Queryのキャッシュ。下記「データ取得の骨格」）・`apiTimeouts.ts`（APIリクエストのタイムアウト。呼び出しの性質ごとの名前付き定数）・`safeStorage.ts`（localStorageの読み書きで例外を外へ出さない薄いラッパ）・`paletteCssVariables.ts`（地図に塗る色と同じ色をUIにも出す箇所へ、配信された値をCSS変数として流す。`layout.tsx`がサーバー側で`:root`へ入れる。CSSが値を持つのはライト/ダークで2値を持つものだけ）・`mapOverlayEdges.ts`（地図の上に重ねる部品へ付ける「どの辺を覆うか」の印と、印の付いた部品が覆う幅の実測。印を付ける部品は地図の機能の外にもあるので共有の層に置く。下記「`MapView`との境界」） |
-| features/route | `routeApi.ts`（ルート生成・プレビューAPI）・`formatDuration.ts`（秒を「1時間42分」の形にする）・`generationRequest.ts`（生成リクエストのpayloadと`conditionsDirty`の比較キーを同じ入力から導出する純関数）・`routeSplice.ts`（候補どうしが別々の道を通る区間を`edge_ids`の集合演算で求め、表示中の側と相手側を対応づけ、選んだ区間を差し替えた経路を組み立て純関数。差し替えた経路の評価はbackendが行うため計算式は持たない。合成結果も生成候補と同じ並び（所要時間の短い順、`routeTabLabel.ts: orderByDuration`）へ入れる。区間を割る下限は持たず呼び出し側から受け取る［backendの較正値で、管理画面から変えられる］） |
+| features/route | `routeApi.ts`（ルート生成・プレビューAPI）・`formatDuration.ts`（秒を「102分」の形にする。1時間を超えても分で書き、候補の一覧・候補の中身・差し替えの比較で同じ単位で見比べる）・`generationRequest.ts`（生成リクエストのpayloadと`conditionsDirty`の比較キーを同じ入力から導出する純関数）・`routeSplice.ts`（候補どうしが別々の道を通る区間を`edge_ids`の集合演算で求め、表示中の側と相手側を対応づけ、選んだ区間を差し替えた経路を組み立て純関数。差し替えた経路の評価はbackendが行うため計算式は持たない。合成結果も生成候補と同じ並び（所要時間の短い順、`routeTabLabel.ts: orderByDuration`）へ入れる。区間を割る下限は持たず呼び出し側から受け取る［backendの較正値で、管理画面から変えられる］） |
 | features/conditions | `useRideConditions.ts`（走行条件: 走行方位・出発時刻・想定速度。想定速度だけを保存し、保存値は画面の範囲内の整数だけを受け入れる）・`useDepartureTime.ts`（出発時刻。選ぶまでは5分刻みの「今」へ追従し、選んだ時刻は動かさない）・`rideConditions.ts`（走行条件の出発時刻ラベルと想定速度の丸め。速度の上下限はbackendの`routeGenerateConfig`から読む） |
 | types | `types/route.ts`（`RouteCandidate`等の生成APIレスポンス型）・`types/fetchFailure.ts`（常設ヘッダーの「未取得」の印に並ぶ項目の型。下記「失敗・空・待ちの伝え方」） |
 | components（特定モジュールの責務ではない共通部品） | `ErrorText/ErrorText.tsx`（フォームのエラー文言表示）・`BottomSheet/BottomSheet.tsx`（モバイル下部シート、下記「モバイル/デスクトップのレイアウト分岐」節参照）・`Disclosure/Disclosure.tsx`（折りたたみ表示、[ルート設定・結果パネル](route-settings-and-results.md)等が使う）・`UsageGuide/UsageGuide.tsx`（説明を見る状態。下記「使い方の説明」）・`UsageGuide/usageTarget.ts`（押された要素から説明する部品・名前・使い方の文を引く）・`FirstVisitIntro/FirstVisitIntro.tsx`（初めて開いたときだけ出す案内。下記「初回の案内」） |
@@ -370,7 +370,9 @@ Reactの外（モジュール評価時に初期値を決めるシングルトン
   （`features/route/difficultyLoadBar.ts`、基準は一覧の中で最も短い候補）を与える——長さが総合難易度の
   ため、塗られた面積がそのまま負荷（`overall_difficulty.load`）になり、候補の中身の道のりのグラフ
   （`DifficultyProfile`、面積が負荷）と同じ見方で読める。行は**一覧の中で所要時間が最小の候補に
-  その所要時間と最速の印（時計のアイコン）、他の候補にはそこから何分余計にかかるか（`+8分`）を添える**——並び順は所要時間の短い順で、
+  その所要時間と最速の印（時計のアイコン）、他の候補にはそこから何分余計にかかるか（`+8分`・`+107分`）を、順位・距離の
+  後ろに添える**（1時間を超えても分で書いて行を短く保つ。幅に収まらないときは省略で切らず所要時間を次の行へ送る——
+  切ると最速の所要時間が画面のどこにも出ない）——並び順は所要時間の短い順で、
   易しさ（総合難易度）は行の数値と帯で見比べる。基準線は一覧の中だけで決める（backendの応答は基準線に
   印を付けない。周回・目的地・区間を乗り換えて作った候補を同じ判定で比べる）。時間の最上級と距離の最上級を
   同じ列へ並べると何と比べているのか読めなくなるため、**距離の「最短」は出さない**。2カラムは高さを
