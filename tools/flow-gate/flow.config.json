@@ -9,7 +9,6 @@
   },
   "statuses": ["採否待ち", "回答待ち", "保留", "未着手", "進行中", "検証中", "完了"],
   "done": "完了",
-  "statusLabelPrefix": "状態:",
   "entry": [
     { "author": "hidakagit", "to": "未着手", "assign": "hidakagit-bot" },
     { "author": null, "to": "採否待ち", "assign": "hidakagit" }
@@ -45,7 +44,6 @@
     ]
   },
   "formOptions": [
-    { "text": "その他（コメント）", "to": null, "next": "hidakagit-bot", "note": true },
-    { "text": "今は答えられない", "to": "保留", "next": "hidakagit-bot" }
+    { "text": "その他（コメント）", "to": null, "next": "hidakagit-bot", "note": true }
   ]
 }

@@ -21,15 +21,15 @@ export async function verdictFor(code, config, number) {
   return { kind: runs.length && runs.every((r) => r.status === "completed") ? "passed" : "wait", pr, runs };
 }
 
-// 検証中の候補は、ステータスのラベル（ゲートが Project の Status に合わせて付ける）で引く。1件ずつ読み直すときに Status で確かめる。
+// 検証中の候補を、Project の件の Status で引く（items の query はボードの絞り込みと同じ書き方）。1件ずつ読み直すときに Status で確かめる。
 async function verifying(gate) {
-  const [o, n] = gate.config.repository.split("/");
-  const label = `${gate.config.statusLabelPrefix}${gate.config.verify.status}`;
+  const { project, repository, verify } = gate.config;
   const d = await gate.gh.gql(
-    `query Verifying($o: String!, $n: String!, $l: String!) { repository(owner: $o, name: $n) { issues(first: 100, states: OPEN, labels: [$l]) { nodes { number } } } }`,
-    { o, n, l: label },
+    `query Verifying($o: String!, $n: Int!, $q: String!) { organization(login: $o) { projectV2(number: $n) {
+      items(first: 100, query: $q) { nodes { content { ... on Issue { number } } } } } } }`,
+    { o: project.owner, n: project.number, q: `${project.statusField}:"${verify.status}" is:open repo:${repository}` },
   );
-  return d.repository.issues.nodes.map((i) => i.number);
+  return d.organization.projectV2.items.nodes.map((i) => i.content.number);
 }
 
 const MESSAGES = {

@@ -1,6 +1,6 @@
 // 遷移の表・問いと答えの形。GitHub に触れない純粋な関数だけを置く。
 
-export const personById = (config, id) => Object.keys(config.people).find((k) => config.people[k].id === id) ?? null;
+const personById = (config, id) => Object.keys(config.people).find((k) => config.people[k].id === id) ?? null;
 export const personByShown = (config, shown) =>
   Object.keys(config.people).find((k) => config.people[k].shown === shown) ?? null;
 
@@ -24,7 +24,7 @@ export function check(config, from, to, blockers = []) {
   return { ok: true, rule };
 }
 
-// 問いのコメントを読む。形（docs/conventions/flow.md「問い」）に合わなければ null。
+// 問いを読む。形（docs/conventions/flow.md「問い」）に合わなければ null。
 export function parseQuestion(config, body) {
   const lines = body.replace(/\r/g, "").split("\n");
   if (lines[0].trim() !== "## 問い") return null;
@@ -39,10 +39,9 @@ export function parseQuestion(config, body) {
     }
     if (!line.startsWith("- ")) break;
     const [label, rest] = line.slice(2).split(" → ");
-    const option = { text: label.trim(), to: null, next: null, labels: [] };
+    const option = { text: label.trim(), to: null, next: null };
     for (const part of rest ? rest.split(" / ").map((p) => p.trim()) : []) {
-      if (part.startsWith("+")) option.labels.push(part.slice(1));
-      else if (config.statuses.includes(part)) option.to = part;
+      if (config.statuses.includes(part)) option.to = part;
       else if (personByShown(config, part)) option.next = personByShown(config, part);
       else return null;
     }
@@ -56,9 +55,7 @@ export function parseQuestion(config, body) {
 
 export function adoptionQuestion(config) {
   const shown = (key) => config.people[key].shown;
-  const options = config.adoption.options.map(
-    (o) => `- ${o.text} → ${[o.to, o.next && shown(o.next), ...(o.labels ?? []).map((l) => `+${l}`)].filter(Boolean).join(" / ")}`,
-  );
+  const options = config.adoption.options.map((o) => `- ${o.text} → ${[o.to, o.next && shown(o.next)].filter(Boolean).join(" / ")}`);
   return `## 問い\n${config.adoption.question}\n\n### 選択肢\n${options.join("\n")}\n`;
 }
 
@@ -72,29 +69,47 @@ export function formChoices(config, question, current) {
       const fixed = to === current;
       const rule = fixed ? null : ruleFor(config, current, to);
       const next = to === config.done ? null : fixed ? config.ask.askers[0] : (o.next ?? rule?.assign ?? "hidakagit-bot");
-      return { text: o.text, to, next, fixed, labels: o.labels ?? [], note: Boolean(o.note), ok: fixed || rule };
+      return { text: o.text, to, next, fixed, note: Boolean(o.note), ok: fixed || rule };
     })
     .filter((c) => c.ok)
     .map(({ ok, ...c }) => c);
 }
 
-export function answerBody(config, { questionUrl, choice, next, note, added = [], removed = [] }) {
+// 答えのコメント。問いは答えると本文から消えるので、問い・選択肢・判断材料もここに残す（このコメント1つで読める）。
+export function answerBody(config, { question, choices, choice, next, note, added = [], removed = [] }) {
   return [
     "## 回答",
-    `問い: ${questionUrl}`,
-    `選んだもの: ${choice.text}`,
+    `**${question.text}**`,
+    "",
+    ...choices.map((c) => (c === choice ? `● **${c.text}**` : `○ ${c.text}`)),
+    "",
     `次のステータス: ${choice.to}`,
     ...(next ? [`次に動くのは: ${config.people[next].shown}`] : []),
     ...(added.length || removed.length ? [`ラベル: ${[...added.map((n) => `+${n}`), ...removed.map((n) => `−${n}`)].join(" ")}`] : []),
     ...(note ? [`補足: ${note}`] : []),
+    ...(question.material ? ["", `<details><summary>判断材料</summary>\n\n${question.material}\n</details>`] : []),
   ].join("\n");
 }
 
-// 答えが要るときに本文の先頭に置く、回答フォームへのボタンと、ステータス・問いの文の行。印の間だけを足し替え、本文の中身には触れない。
-const BANNER = /^<!-- flow-gate -->\n[\s\S]*?\n<!-- \/flow-gate -->\n*/;
-export const withoutBanner = (body) => (body ?? "").replace(/\r\n/g, "\n").replace(BANNER, "");
-export const withBanner = (body, status, ask) =>
-  `<!-- flow-gate -->\n[![${ask.alt ?? "回答する"}](${ask.button})](${ask.url})\n\n**${status}**: ${ask.text}\n<!-- /flow-gate -->\n\n${withoutBanner(body)}`;
+// 本文の先頭の、ゲートの印の間。答えを待つ問い（画面に出ない HTML のコメント）と、ボタンとステータスの行を置く。
+// 印の間だけを足し替え、本文の中身には触れない。
+const BLOCK = /^<!-- flow-gate -->\n([\s\S]*?)\n?<!-- \/flow-gate -->\n*/;
+const QUESTION = /<!-- 問い\n([\s\S]*?)\n-->/;
+
+export function splitBody(body) {
+  const text = (body ?? "").replace(/\r\n/g, "\n");
+  const m = BLOCK.exec(text);
+  return { question: (m && QUESTION.exec(m[1])?.[1]) ?? null, rest: m ? text.slice(m[0].length) : text };
+}
+
+// button は { status, text, url, button, alt }。問いもボタンも無ければ印ごと置かない。
+export function joinBody(rest, question, button) {
+  const parts = [
+    ...(question ? [`<!-- 問い\n${question}\n-->`] : []),
+    ...(button ? [`[![${button.alt ?? "回答する"}](${button.button})](${button.url})\n\n**${button.status}**: ${button.text}`] : []),
+  ];
+  return parts.length ? `<!-- flow-gate -->\n${parts.join("\n")}\n<!-- /flow-gate -->\n\n${rest}` : rest;
+}
 
 // 本文の先頭に置くボタンの画像（回答フォーム・Pull Request へ）。GitHub の画面にはボタンを足せないので、本文の先頭にリンク付きの画像として置く。
 const button = (label) =>
@@ -103,6 +118,3 @@ const button = (label) =>
   `font-family="system-ui,-apple-system,'Hiragino Sans','Noto Sans JP','Yu Gothic',sans-serif">${label}</text></svg>`;
 export const BUTTON_SVG = button("回答する");
 export const REVIEW_SVG = button("確かめる");
-
-export const answers = (body, questionUrl) =>
-  body.startsWith("## 回答\n") && body.split("\n")[1] === `問い: ${questionUrl}`;
