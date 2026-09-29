@@ -1,5 +1,5 @@
 // Claude がタスクを段階に分ける（hidakagit-bot の名義）。段階は親を付けたまま作る（作ってから親を付けると、Project に入った
-// 時点で段階と分からず、入口で採否待ちになる）。Project へは「Auto-add sub-issues to project」が入れ、ゲートが入口で未着手にする。
+// 時点で段階と分からず、入口で採否の問いが付く）。Project へは「Auto-add sub-issues to project」が入れ、ゲートが入口で未着手にする。
 // 使い方: node tools/flow-gate/bin/stage.js <親の番号> <題名> <本文のファイル> [前の段階の番号...]（前の段階は blocked by になる）
 import { readFileSync } from "node:fs";
 import config from "../flow.config.json" with { type: "json" };

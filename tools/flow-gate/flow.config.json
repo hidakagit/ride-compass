@@ -7,37 +7,33 @@
     "hidakagit": { "id": 6731891, "node": "MDQ6VXNlcjY3MzE4OTE=", "shown": "hidakagit" },
     "hidakagit-bot": { "id": 334916358, "node": "U_kgDOE_ZrBg", "shown": "Claude" }
   },
-  "statuses": ["採否待ち", "回答待ち", "保留", "未着手", "進行中", "検証中", "完了"],
+  "statuses": ["回答待ち", "保留", "未着手", "進行中", "検証中", "完了"],
   "done": "完了",
+  "hold": "保留",
   "entry": [
     { "parent": true, "to": "未着手", "assign": "hidakagit-bot" },
     { "author": "hidakagit", "to": "未着手", "assign": "hidakagit-bot" },
-    { "author": null, "to": "採否待ち", "assign": "hidakagit" }
+    { "author": null, "to": "回答待ち", "assign": "hidakagit", "adoption": true }
   ],
   "transitions": [
-    { "from": ["採否待ち"], "to": ["未着手"], "assign": "hidakagit-bot" },
     { "from": ["未着手", "進行中", "検証中"], "to": ["回答待ち"], "assign": "hidakagit" },
-    { "from": ["未着手", "進行中", "検証中"], "to": ["保留"], "assign": "hidakagit-bot" },
+    { "from": ["未着手", "進行中", "検証中", "回答待ち"], "to": ["保留"], "assign": "hidakagit" },
     { "from": ["回答待ち"], "to": ["未着手", "検証中"], "assign": "hidakagit-bot" },
-    { "from": ["回答待ち"], "to": ["保留"], "assign": "hidakagit-bot" },
     { "from": ["保留"], "to": ["未着手", "検証中"], "assign": "hidakagit-bot" },
-    { "from": ["保留"], "to": ["回答待ち"], "assign": "hidakagit" },
     { "from": ["未着手"], "to": ["進行中"], "when": "blockersCompleted", "assign": null },
     { "from": ["進行中"], "to": ["検証中"], "assign": "hidakagit-bot" },
     { "from": ["検証中"], "to": ["未着手"], "assign": "hidakagit-bot" },
-    { "from": ["採否待ち", "回答待ち", "保留", "未着手", "進行中", "検証中"], "to": ["完了"], "assign": null }
+    { "from": ["回答待ち", "保留", "未着手", "進行中", "検証中"], "to": ["完了"], "assign": null }
   ],
   "ask": {
-    "statuses": ["採否待ち", "回答待ち"],
+    "status": "回答待ち",
     "askers": ["hidakagit-bot"],
     "answerer": "hidakagit"
   },
-  "afterAnswer": { "回答待ち": "未着手" },
   "verify": { "from": "進行中", "status": "検証中", "label": "ユーザー確認", "back": "未着手" },
   "code": { "repository": "hidakagit/ride-compass", "branchPrefix": "orch/tasks-", "base": "master" },
-  "coordinator": { "order": ["採否待ち", "回答待ち", "検証中", "未着手"], "busy": ["進行中"], "worktrees": ["w1", "w2", "w3", "w4"] },
+  "coordinator": { "order": ["回答待ち", "検証中", "未着手"], "verifyPrefix": "verify/tasks-", "worktrees": ["w1", "w2", "w3", "w4"] },
   "adoption": {
-    "status": "採否待ち",
     "question": "このタスクをやりますか？",
     "options": [
       { "text": "やる", "to": "未着手", "next": "hidakagit-bot" },
@@ -45,6 +41,7 @@
     ]
   },
   "formOptions": [
-    { "text": "その他（コメント）", "to": null, "next": "hidakagit-bot", "note": true }
+    { "text": "その他（コメント）", "to": null, "next": "hidakagit-bot", "note": true },
+    { "text": "止める（保留。理由を補足に）", "to": "保留", "next": "hidakagit", "note": true }
   ]
 }
