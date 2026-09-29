@@ -1,5 +1,5 @@
 // Project の「状況の更新」（Status updates）。今の状態は最新の1件が持ち、Project の見出しと一覧に出る。
-// 司令塔（bin/status.js）が様子を、ゲート（index.js）が出来事の処理の失敗を、見張り（bin/watch.js）が司令塔の止まりを書く。
+// 起動役（bin/status.js）が様子を、ゲート（index.js）が出来事の処理の失敗を、見張り（bin/watch.js）が振り出しの止まりを書く。
 import { GitHub, Mutations } from "./github.js";
 
 export const ON_TRACK = "ON_TRACK";
@@ -25,26 +25,32 @@ export function putUpdate(gh, projectId, target, status, body) {
   return m.send(gh);
 }
 
-// 司令塔の最後の更新。司令塔は On track・At risk だけを書き、Claude の名義の Off track は見張りのもの。
+// 起動役の最後の更新。起動役は On track・At risk だけを書き、Claude の名義の Off track は見張りのもの。
 export const coordinatorUpdate = (config, updates) => updates.find((u) => u.by === config.claude && u.status !== OFF_TRACK);
 
-// 司令塔の最後の更新が coordinator.staleMinutes より古ければ、Off track を足す（司令塔が起きなくなると、誰も
-// 書かないので見出しが最後の On track のまま残るため）。最新が見張りの Off track なら、もう知らせてあるので足さない。
-// 司令塔は次の1回で新しい更新を足し、見出しを戻す。返すのはしたことの1行。
+// 状況の更新の本文に残す、空いたスロットと振り出せる仕事（前提待ちでも動いている最中でもないキューの項目）の数。
+export const marker = (free, ready) => `<!-- 空き ${free} 振り出せる ${ready} -->`;
+const MARKER = /<!-- 空き (\d+) 振り出せる (\d+) -->/;
+
+// 最後の更新の時点で空きと振り出せる仕事が両方あったのに、coordinator.staleMinutes を超えて誰も書いていなければ、振り出しが
+// 止まっているので Off track を足す（状況の更新はスロットの鍵が変わるときだけ書かれるので、仕事か空きが無くて静かなだけの間は
+// 足さない）。最新が見張りの Off track なら、もう知らせてあるので足さない。返すのはしたことの1行。
 export async function watchCoordinator(gh, config, now = Date.now()) {
   const { projectId, updates } = await readUpdates(gh, config);
   const last = coordinatorUpdate(config, updates);
-  if (!last) return "司令塔の更新がまだ無い";
+  if (!last) return "起動役の更新がまだ無い";
   const minutes = Math.floor((now - Date.parse(last.updatedAt)) / 60000);
-  const since = `司令塔が最後に起きた時刻: ${clock(new Date(last.updatedAt))}（${Math.floor(minutes / 60)}時間${minutes % 60}分前）`;
+  const since = `最後に状況の更新を書いた時刻: ${clock(new Date(last.updatedAt))}（${Math.floor(minutes / 60)}時間${minutes % 60}分前）`;
   if (minutes <= config.coordinator.staleMinutes) return `止まっていない。${since}`;
+  const [, free = 0, ready = 0] = MARKER.exec(last.body ?? "") ?? [];
+  if (!(Number(free) && Number(ready))) return `空きか振り出せる仕事が無いので静かなだけ。${since}`;
   if (updates[0].by === config.claude && updates[0].status === OFF_TRACK) return `もう Off track を出してある。${since}`;
   const body = [
-    `**司令塔が止まっている**（${config.coordinator.staleMinutes / 60}時間を超えて、状況の更新を書いていない）`,
+    `**振り出しが止まっている**（空きと振り出せる仕事があるのに、${config.coordinator.staleMinutes / 60}時間を超えて状況の更新が書かれていない）`,
     "",
     `- ${since}（日本時間）`,
     `- 見張りが見た時刻: ${clock(new Date(now))}`,
-    "- 考えられること: PC が寝ている・アプリが閉じている・許可の確認で止まっている。司令塔が次に起きると、この見出しは戻る",
+    "- 考えられること: PC が寝ている・ログオンしていない・タスク スケジューラの登録が止まっている・CLI のログインが切れている。次に担当が起きると、この見出しは戻る",
   ].join("\n");
   await putUpdate(gh, projectId, null, OFF_TRACK, body);
   return `Off track を足した。${since}`;
