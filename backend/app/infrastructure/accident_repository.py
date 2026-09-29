@@ -13,9 +13,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.accident import (
     BICYCLE_PARTY_TYPE_CODES,
-    BICYCLE_SQL,
     FATAL_SQL,
     OCCURRED_YEAR_SQL,
+    bicycle_sql,
 )
 from app.domain.region import BoundingBox
 from app.infrastructure import derived_data_meta
@@ -30,7 +30,7 @@ _ACCIDENT_TILE_MVT_SQL = text(
             ST_AsMVTGeom(
                 ST_Transform(a.geom, 3857), ST_TileEnvelope(:z, :x, :y), :extent, 256, true
             ) AS geom,
-            {BICYCLE_SQL} AS involves_bicycle,
+            {bicycle_sql(":bicycle_party_types")} AS involves_bicycle,
             {FATAL_SQL} AS fatal,
             {OCCURRED_YEAR_SQL} AS occurred_year
         FROM source_features a

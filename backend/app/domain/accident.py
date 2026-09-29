@@ -67,11 +67,14 @@ def longitude_from_raw(raw: str) -> float | None:
 #: 死者数の列。ゼロ埋めの数字列で入っている。
 FATAL_SQL = "coalesce((a.attrs->>'死者数')::int, 0) > 0"
 
-#: 当事者種別のいずれかが自転車系コードなら自転車関連事故とみなす。
-BICYCLE_SQL = (
-    "(a.attrs->>'当事者種別（当事者A）' = ANY(:bicycle_party_types)"
-    " OR a.attrs->>'当事者種別（当事者B）' = ANY(:bicycle_party_types))"
-)
+def bicycle_sql(party_types: str) -> str:
+    """当事者種別のいずれかが自転車系コードなら自転車関連事故とみなす式。
+
+    `party_types`は`BICYCLE_PARTY_TYPE_CODES`を渡すtext[]のパラメータの書き方で、
+    実行する側のドライバが決める（SQLAlchemyなら`:name`、asyncpgなら`$n`）。
+    """
+    return (f"(a.attrs->>'当事者種別（当事者A）' = ANY({party_types})"
+            f" OR a.attrs->>'当事者種別（当事者B）' = ANY({party_types}))")
 
 #: 発生年（全角空白を含む列名）。
 OCCURRED_YEAR_SQL = "(a.attrs->>'発生日時　　年')::int"
