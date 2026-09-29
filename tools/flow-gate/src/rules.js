@@ -40,32 +40,19 @@ export const remaining = (config, issue) => [
   ...(issue.labels.nodes.some((l) => l.name === config.confirmLabel) ? [`ユーザーの確認（ラベル「${config.confirmLabel}」）`] : []),
 ];
 
-// 問いを読む（docs/conventions/flow.md「問い」）: 1行目が「## 問い」、次の行が問いの文、「### 案」の下の箇条書きが案、
-// <details> の中が判断材料。問いの文が無ければ null。
-// 前の形の問い（「### 選択肢」の各行に「→ 行き先 / 次に動く者」）も読む。読み方は前の形を受け付けていたゲートの規則のまま
-// （行を最初の「 → 」（前後に空白）で分け、前が選択肢の文、後ろが「 / 」で区切った行き先と次に動く者）なので、ユーザーが前の
-// 回答フォームで見ていた文がそのまま案になる。回答フォームが一律に出す「進める」以外の選択肢（止める・完成・見送り）と同じ
-// 行き先のものは落とす。
-export function parseQuestion(config, body) {
-  const lines = normalizeBody(body).split("\n");
-  if (lines[0].trim() !== "## 問い") return null;
-  const text = lines.slice(1).find((l) => l.trim())?.trim();
-  if (!text || text.startsWith("#")) return null;
-  const go = config.answers.find((a) => a.plans).to;
-  const covered = config.answers.map((a) => a.to).filter((s) => s !== go);
-  const plans = [];
-  const at = lines.findIndex((l) => ["### 案", "### 選択肢"].includes(l.trim()));
-  const old = at >= 0 && lines[at].trim() === "### 選択肢";
-  for (const line of at < 0 ? [] : lines.slice(at + 1)) {
-    if (!line.startsWith("- ")) {
-      if (line.trim() || plans.length) break;
-      continue;
-    }
-    const [label, rest] = old ? line.slice(2).split(" → ") : [line.slice(2)];
-    if (!covered.includes(rest?.split(" / ").map((p) => p.trim()).find((p) => config.statuses.includes(p)))) plans.push(label.trim());
-  }
-  const material = /<details>\s*<summary>[^<]*<\/summary>([\s\S]*?)<\/details>/.exec(body)?.[1].trim() ?? "";
-  return { text, plans: plans.filter(Boolean), material };
+// 問いを読む（docs/conventions/flow.md「問い」）。最初の <details> から後ろは判断材料で、中身を解釈しない。それより前に
+// 置けるのは、1行目の「## 問い」・問いの文（1行）・「### 案」とその下の「- 」の行（1行に1案、書いたとおり）・空行だけで、
+// ほかの行が1行でもあれば形に合わないので null。
+export function parseQuestion(body) {
+  const all = normalizeBody(body);
+  const cut = all.indexOf("<details>");
+  const [first, ...lines] = (cut < 0 ? all : all.slice(0, cut)).split("\n");
+  if (first.trim() !== "## 問い") return null;
+  const [text, header, ...items] = lines.map((l) => l.trim()).filter(Boolean);
+  if (!text || text.startsWith("#") || text.startsWith("- ")) return null;
+  if (header !== undefined && (header !== "### 案" || !items.length || items.some((l) => !l.startsWith("- ")))) return null;
+  const material = cut < 0 ? "" : (/^<details>\s*<summary>[^<]*<\/summary>([\s\S]*?)<\/details>/.exec(all.slice(cut))?.[1].trim() ?? "");
+  return { text, plans: items.map((l) => l.slice(2).trim()), material };
 }
 
 export const questionBody = (text) => `## 問い\n${text}`;
