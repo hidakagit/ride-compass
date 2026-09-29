@@ -1,8 +1,17 @@
 // 遷移の表・問いと答えの形。GitHub に触れない純粋な関数だけを置く。
 
 const personById = (config, id) => Object.keys(config.people).find((k) => config.people[k].id === id) ?? null;
-export const personByShown = (config, shown) =>
-  Object.keys(config.people).find((k) => config.people[k].shown === shown) ?? null;
+const personByShown = (config, shown) => Object.keys(config.people).find((k) => config.people[k].shown === shown) ?? null;
+
+// Claude（問いを書く側）。Claude の番は、これに割り当たっているもの。
+export const claude = (config) => config.ask.askers[0];
+
+// 答える人（ask.answerer）の番か: 開いていて、答える人に割り当たっている。
+export const answererTurn = (config, issue) =>
+  issue.state === "OPEN" && issue.assignees.nodes.some((a) => a.id === config.people[config.ask.answerer].node);
+
+// 前提のうち、完了（completed）で閉じていないもの。
+export const openBlockers = (blockers) => blockers.filter((b) => !(b.state === "CLOSED" && b.stateReason === "COMPLETED"));
 
 // 入口の行: 親のある issue（段階）は「parent」の行、ほかは書いた人の行、無ければ author が null の行。
 export function entryFor(config, issue) {
@@ -11,15 +20,14 @@ export function entryFor(config, issue) {
   return config.entry.find((e) => !e.parent && e.author === author) ?? config.entry.find((e) => !e.parent && e.author === null);
 }
 
-export const ruleFor = (config, from, to) =>
-  config.transitions.find((t) => t.from.includes(from) && t.to.includes(to)) ?? null;
+const ruleFor = (config, from, to) => config.transitions.find((t) => t.from.includes(from) && t.to.includes(to)) ?? null;
 
 // 表で照らす。blockers は前提の issue（{ number, state, stateReason }）。
 export function check(config, from, to, blockers = []) {
   const rule = ruleFor(config, from, to);
   if (!rule) return { ok: false, reason: `「${from ?? "（無し）"}」から「${to ?? "（無し）"}」へは動かせません（遷移の表に無い）。` };
   if (rule.when === "blockersCompleted") {
-    const open = blockers.filter((b) => !(b.state === "CLOSED" && b.stateReason === "COMPLETED"));
+    const open = openBlockers(blockers);
     if (open.length)
       return { ok: false, reason: `前提 ${open.map((b) => `#${b.number}`).join("・")} が完了（completed）で閉じていないため、「${to}」にできません。` };
   }
@@ -70,7 +78,7 @@ export function formChoices(config, question, current) {
       const to = o.to ?? config.afterAnswer[current] ?? current;
       const fixed = to === current;
       const rule = fixed ? null : ruleFor(config, current, to);
-      const next = to === config.done ? null : fixed ? config.ask.askers[0] : (o.next ?? rule?.assign ?? "hidakagit-bot");
+      const next = to === config.done ? null : fixed ? claude(config) : (o.next ?? rule?.assign ?? claude(config));
       return { text: o.text, to, next, fixed, note: Boolean(o.note), ok: fixed || rule };
     })
     .filter((c) => c.ok)
@@ -98,8 +106,10 @@ export function answerBody(config, { question, choices, choice, next, note, adde
 const BLOCK = /^<!-- flow-gate -->\n([\s\S]*?)\n?<!-- \/flow-gate -->\n*/;
 const QUESTION = /<!-- 問い\n([\s\S]*?)\n-->/;
 
+export const normalizeBody = (body) => (body ?? "").replace(/\r\n/g, "\n");
+
 export function splitBody(body) {
-  const text = (body ?? "").replace(/\r\n/g, "\n");
+  const text = normalizeBody(body);
   const m = BLOCK.exec(text);
   return { question: (m && QUESTION.exec(m[1])?.[1]) ?? null, rest: m ? text.slice(m[0].length) : text };
 }

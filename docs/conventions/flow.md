@@ -43,8 +43,7 @@
 
     node tools/flow-gate/bin/move.js <issue の番号> <ステータス>
 
-表で通らない変化は書く前に断る。回答待ちへ動かすときは、今の問い（「問い」の節）が形に合わなければ断る。
-問うときは move.js ではなく `ask.js`（「問い」の節）を使う。
+表で通らない変化は書く前に断る。採否待ち・回答待ちへは動かさない（問いと一緒に `ask.js` で動かす。「問い」の節）。
 Claude の番を振り出す順に並べて出すのは `node tools/flow-gate/bin/queue.js`（`--json` で機械向け）。
 
 ## 司令塔と担当（Claude が自分の番を進める）
@@ -56,16 +55,16 @@ Claude の番（hidakagit-bot に割り当て）は、司令塔が担当へ振�
   アプリが開いていて PC が起きている間だけ動く。前の回のセッションが動いている間は次の回を飛ばすが、背景の担当を待って
   いる間はセッションが動いていない扱いになり、次の回が起きる。そのため司令塔は担当を待たずに終わり、終わったあとに届いた
   担当の報告では何も動かさない（二つの司令塔が同じ作業ツリーへ振り出さないため）。空いた作業ツリーは次の起動が埋める。
-- **作業ツリー**: 本体の `.claude/worktrees/` に、司令塔用の `coord` と担当用の `w1`〜`w4` を置いたままにして使い回す
+- **作業ツリー**: 本体の `.claude/worktrees/` に、司令塔用の `coord` と担当用（`flow.config.json: coordinator.worktrees`。例: `w1`〜`w4`）を置いたままにして使い回す
   （frontend の依存の入れ直しを毎回しないため。`node_modules` の共有は CLAUDE.md で禁止）。どれをどの issue が
   使っているかは `node tools/flow-gate/bin/slots.js` が、作業ツリーのブランチ・issue のステータス・ステータスが変わってからの
-  時間・Project の規模の欄からその場で組み立てて出す（表は持たない）。担当を一度に動かすのは最大4人。
+  時間・Project の規模の欄からその場で組み立てて出す（表は持たない）。担当を一度に動かすのは、担当用の作業ツリーの数まで。
 - **重い処理は機械全体で1本ずつ**: 依存の入れ直し・型検査・テスト・ビルド・e2e は `python scripts/heavy.py -- <コマンド>`
   で包む（同時に走ると CPU とディスクを取り合って1本ごとの所要が何倍にも伸びる）。
 
 **司令塔の1回**
 1. `coord` を `git fetch origin master` のあと `git checkout --detach origin/master` にし、そこでこの節を読み直す。
-2. `node tools/flow-gate/bin/queue.js --json` で Claude の番を読む（並びは Claude に戻った採否待ち・回答待ち → 検証中 → 未着手、
+2. `node tools/flow-gate/bin/queue.js --json` で Claude の番を読む（並びはステータスの順 `coordinator.order`（Claude に戻った採否待ち・回答待ち → 検証中 → 未着手）、
    中はラベル「急ぎ」（ユーザーの依頼。優先度の欄より上。`project.urgentLabel`）→ Project の優先度の欄の選択肢の順 → 番号の若い順）。
 3. `slots.js` で空いている作業ツリーを見て、その数まで上から振り出す。
    採否待ち・回答待ち（Claude に戻った問い）は、ステータスを動かさずに作る担当へ渡す（担当は答えや補足を読み、提案か問いを
@@ -73,15 +72,20 @@ Claude の番（hidakagit-bot に割り当て）は、司令塔が担当へ振�
    `node tools/flow-gate/bin/move.js <番号> 進行中` のあと作る担当へ渡す。担当は背景の Agent で起動し、作業ツリーの
    パスと issue の番号を渡す（司令塔が渡す固定の作業ツリーを使うので、`isolation` は付けない）。
 4. 振り出したら、担当の報告を待たずに終わる。
-5. `slots.js` で、ステータスが変わってから4時間を超えて進行中・検証中のままの作業ツリーは、担当が落ちた（PC の再起動等）と
+5. `slots.js` で、ステータスが変わってから4時間を超えて進行中のままの作業ツリーは、担当が落ちた（PC の再起動等）と
    みなし、その issue にコメントで書いて `move.js` で 保留 にする（作業ツリーの変更は消さない。hidakagit が棚卸しで決める）。
+   作業ツリーを使うのは進行中の間だけ（`flow.config.json: coordinator.busy`）。Pull Request を出したら中身は GitHub にあるので、
+   検証中は作業ツリーを空け、確かめる人（ユーザーを含む）がどれだけ時間をかけても保留にしない。
 
 **作る担当**・**確かめる担当**のどちらも、作業は渡された作業ツリーの中だけで行う（ほかの作業ツリーや本体では、ファイルの
 編集も git の操作もしない。ほかの作業ツリーは別の担当が使っていて、変更を残すとその作業に混ざる）。
 
 **作る担当**
-1. 渡された作業ツリーで、未コミットの変更が無いことを確かめてから `git fetch origin master` と
-   `git checkout -B orch/tasks-<番号> origin/master`。変更が残っていれば、何もせず司令塔へ報告する。
+1. 渡された作業ツリーで、未コミットの変更が無いことを確かめてから `git fetch origin master`。変更が残っていれば、何もせず
+   司令塔へ報告する。作業ブランチ `orch/tasks-<番号>` が GitHub にあれば（Pull Request が閉じられて戻った・答えをもらって
+   戻ったタスク）、`git fetch origin orch/tasks-<番号>` と `git checkout -B orch/tasks-<番号> origin/orch/tasks-<番号>` のあと
+   `git rebase origin/master` で前の作業を master の上へ載せ直す（競合したら直して続け、直せなければ司令塔へ報告）。
+   無ければ `git checkout -B orch/tasks-<番号> origin/master`。
 2. `frontend/package-lock.json` が前の回と違えば、`frontend` で `python ../scripts/heavy.py -- npm ci`。backend は
    作業ツリーに `.venv` を持たず、本体の `backend/.venv` の Python を使う（依存は共有してよい）。
 3. issue の本文とコメント（やり直しなら、前の Pull Request のコメントも）を読み、CLAUDE.md と規約のとおりに作る。
@@ -109,12 +113,15 @@ Claude の番（hidakagit-bot に割り当て）は、司令塔が担当へ振�
 - マージされた → マージのあとの master の CI を待ち、通れば完了で閉じ、落ちれば落ちた実行を書いて未着手。通っても、本文の
   完了の条件にチェックの無いもの（`- [ ]`）が残っていれば閉じず、残りを書いて未着手（Claude）へ戻す。Claude は残りを済ませ
   （hidakagit の操作なら `ask.js` で頼む）、チェックを付けてから `gh issue close <番号> --reason completed` で閉じる
+- 閉じたときに issue が検証中でなければ（検証中を通らずにマージした・閉じた issue の古い Pull Request など）、ステータスは
+  動かさず（確かめる段を飛ばさないため）、理由をコメントに書いて、開いていれば hidakagit に割り当てる。次は hidakagit が決める
 - Claude も司令塔も、これらを自分で動かさない（`move.js` を使わない）。
 - GitHub は届かなかった出来事を送り直さない。マージや CI のあとも検証中のまま止まったものは、コードのリポジトリの Settings →
   Webhooks → Recent Deliveries から Redeliver する（3日分まで）。
 
 **確かめる担当**（ラベル `ユーザー確認` の無い検証中。作った担当とは別）
-1. Pull Request（本文のキャプチャ・差分）・作業ブランチの CI・issue の完了の条件・変更が届く範囲（要るなら画面）を
+1. 渡された作業ツリーで、未コミットの変更が無いことを確かめてから、作業ブランチを取ってくる（`git fetch origin orch/tasks-<番号>` と
+   `git checkout --detach origin/orch/tasks-<番号>`）。Pull Request（本文のキャプチャ・差分）・作業ブランチの CI・issue の完了の条件・変更が届く範囲（要るなら画面）を
    確かめる。作る担当の報告を読み写さず、自分で見る（画面なら自分で撮る）。Pull Request が無ければ（手順が変わる前に
    検証中になったもの）、作る担当の5のとおりに出してから確かめる。`lost_constraints.py` も自分で回し、「消えた」の
    1件ずつに本文の処置があるかを見る（処置の無いものが1件でもあれば満たしていない）。

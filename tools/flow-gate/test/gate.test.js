@@ -204,6 +204,18 @@ test("マージしたあと master の CI を待ち、通れば完成として�
   assert.match(comments(gh)[0], /CI が通りませんでした[\s\S]*run\/1/);
 });
 
+test("作業ブランチの Pull Request が閉じたのに issue が検証中でなければ、ステータスは動かさず、理由を書き、開いていれば答える人に渡す", async () => {
+  let gh = verifying({ prs: [pr({ state: "closed", merged_at: "t" })], runs: [] }, { status: "進行中" });
+  await codeEvent("pull_request", { action: "closed", pull_request: { head: { ref: `${config.code.branchPrefix}8` } } });
+  assert.deepEqual([gh.issue.status, gh.issue.state, gh.issue.assignees], ["進行中", "OPEN", [config.ask.answerer]]);
+  assert.match(comments(gh)[0], /\[#3 tasks#8: 題名\]\(https:\/\/github\.com\/pr\/3\) がマージされましたが、この issue は「進行中」なので、ステータスは動かしていません/);
+
+  gh = verifying({ prs: [pr({ state: "closed" })], runs: [] }, { status: "完了", state: "CLOSED" });
+  await codeEvent("pull_request", { action: "closed", pull_request: { head: { ref: `${config.code.branchPrefix}8` } } });
+  assert.deepEqual([gh.issue.status, gh.issue.state, gh.issue.assignees], ["完了", "CLOSED", ["hidakagit-bot"]]);
+  assert.match(comments(gh)[0], /マージされずに閉じられましたが、この issue は「完了」で閉じているので/);
+});
+
 test("マージのあとの CI が通っても、本文の完了の条件にチェックの無いものが残っていれば閉じず、残りを書いて Claude に戻す", async () => {
   const gh = verifying({ prs: [pr({ state: "closed", merged_at: "t" })], runs: [run("success")] },
     { body: "要約\n\n<details><summary>完了の条件</summary>\n\n- [x] 済んだこと\n- [ ] マージのあとの操作\n</details>" });
@@ -245,6 +257,7 @@ test("設定の不変条件: 表・入口・フォームが使う名前はすべ
     assert.ok(t.assign === null || people.includes(t.assign), t.assign);
   }
   for (const e of config.entry) assert.ok(config.statuses.includes(e.to) && people.includes(e.assign));
+  for (const s of [...config.coordinator.order, ...config.coordinator.busy]) assert.ok(config.statuses.includes(s), s);
   for (const [from, to] of Object.entries(config.afterAnswer)) assert.ok(check(config, from, to).ok, `${from}→${to}`);
   const adoption = parseQuestion(config, adoptionQuestion(config));
   for (const status of config.ask.statuses)
