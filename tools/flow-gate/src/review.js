@@ -8,11 +8,18 @@ import { splitBody } from "./rules.js";
 
 const PASSED = ["success", "skipped", "neutral"];
 
-// Pull Request と CI から、検証中のタスクがどこへ動くべきかを決める。none は Pull Request がまだ無い（出されるのを待つ）。
-async function verdictFor(code, config, number) {
-  const { repository, branchPrefix, base } = config.code;
+// タスクの作業ブランチの、いちばん新しい Pull Request（閉じたもの・マージしたものも含む）。無ければ undefined。
+export async function latestPr(code, config, number) {
+  const { repository, branchPrefix } = config.code;
   const owner = repository.split("/")[0];
   const [pr] = await code.rest("GET", `/repos/${repository}/pulls?head=${owner}:${branchPrefix}${number}&state=all&sort=created&direction=desc&per_page=1`);
+  return pr;
+}
+
+// Pull Request と CI から、検証中のタスクがどこへ動くべきかを決める。none は Pull Request がまだ無い（出されるのを待つ）。
+async function verdictFor(code, config, number) {
+  const { repository, base } = config.code;
+  const pr = await latestPr(code, config, number);
   if (!pr) return { kind: "none" };
   if (pr.state === "open") return { kind: "wait", pr };
   if (!pr.merged_at) return { kind: "rejected", pr };
@@ -23,9 +30,9 @@ async function verdictFor(code, config, number) {
 }
 
 // 検証中の候補を、Project の件の Status で引く（items の query はボードの絞り込みと同じ書き方）。1件ずつ読み直すときに Status で確かめる。
-async function verifying(gate) {
-  const { project, repository, verify } = gate.config;
-  const d = await gate.gh.gql(
+export async function verifying(gh, config) {
+  const { project, repository, verify } = config;
+  const d = await gh.gql(
     `query Verifying($o: String!, $n: Int!, $q: String!) { organization(login: $o) { projectV2(number: $n) {
       items(first: 100, query: $q) { nodes { content { ... on Issue { number } } } } } } }`,
     { o: project.owner, n: project.number, q: `${project.statusField}:"${verify.status}" is:open repo:${repository}` },
@@ -77,7 +84,7 @@ export async function reconcile(env, config, origin, numbers) {
   const gate = await Gate.open(env, config, origin);
   const code = new GitHub(env.CODE_TOKEN);
   const done = [];
-  for (const number of numbers ?? (await verifying(gate))) {
+  for (const number of numbers ?? (await verifying(gate.gh, config))) {
     const issue = await gate.read({ number });
     if (!issue?.item) continue;
     const v = await verdictFor(code, config, number);

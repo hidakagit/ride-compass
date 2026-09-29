@@ -9,8 +9,9 @@ const BY_NODE = Object.fromEntries(Object.entries(config.people).map(([k, p]) =>
 
 // code はコードのリポジトリの状態（Pull Request の一覧・master の CI の実行）。
 // parent を渡すと、issue をその子にする（親の子は、parent.siblings の状態と issue の今の状態）。親の id は I_P。
-// markdown を false にすると、Markdown を描く呼び出しが失敗する。
-export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel, "規模S", config.verify.label], code = { prs: [], runs: [] }, markdown = true }) {
+// markdown を false にすると、Markdown を描く呼び出しが失敗する。fail を渡すと、タスクを読む呼び出しがその文で失敗する。
+// updates は Project の状況の更新（新しいものが先。{ id, status, body, by, updatedAt? }）。トークン bot-token は hidakagit-bot の名義。
+export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel, "規模S", config.verify.label], code = { prs: [], runs: [] }, markdown = true, fail, updates = [] }) {
   const blank = { blockedBy: [], subIssues: [], assignees: [], labels: [], lastClose: [], state: "OPEN", fields: {} };
   const state = {
     issue: { ...blank, ...issue },
@@ -19,6 +20,7 @@ export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel
     requests: [],
     calls: 0,
     code,
+    updates,
   };
   const byId = (id) => (id === "I_P" || id === "PVTI_P" ? state.parent : state.issue);
   const json = (body, status = 200) => new Response(JSON.stringify(body), { status });
@@ -39,8 +41,11 @@ export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel
     };
   };
   const apply = (name, input, as) => {
-    const i = byId(input.id ?? input.itemId ?? input.subjectId);
     state.writes.push({ op: name, as, ...input });
+    if (name === "createProjectV2StatusUpdate") state.updates.unshift({ id: `SU_${state.updates.length + 1}`, status: input.status, body: input.body, by: as });
+    if (name === "updateProjectV2StatusUpdate") Object.assign(state.updates.find((u) => u.id === input.statusUpdateId), { status: input.status, body: input.body });
+    if (name.endsWith("StatusUpdate")) return { clientMutationId: null };
+    const i = byId(input.id ?? input.itemId ?? input.subjectId);
     if (name === "updateProjectV2ItemFieldValue" && input.fieldId === "F_1") i.status = NAMES[input.value.singleSelectOptionId];
     else if (name === "updateProjectV2ItemFieldValue") {
       const [field, value] = input.value.singleSelectOptionId.split(":");
@@ -57,6 +62,10 @@ export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel
     if (query.startsWith("query Verifying")) {
       const on = state.issue.state === "OPEN" && variables.q.includes(`${config.project.statusField}:"${state.issue.status}"`);
       return { organization: { projectV2: { items: { nodes: on ? [{ content: { number: state.issue.number } }] : [] } } } };
+    }
+    if (query.startsWith("query Updates")) {
+      const nodes = state.updates.slice(0, variables.k).map(({ by, ...u }) => ({ createdAt: "t", updatedAt: "t", ...u, creator: { login: by } }));
+      return { organization: { projectV2: { id: "PVT_1", statusUpdates: { nodes } } } };
     }
     if (query.startsWith("query Task") && state.requests.push("読む")) {
       const i = state.parent && (variables.id === "I_P" || variables.k === state.parent.number) ? state.parent : state.issue;
@@ -80,8 +89,9 @@ export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel
     state.calls++;
     const path = new URL(url).pathname;
     const body = init.body ? JSON.parse(init.body) : null;
-    const as = init.headers.authorization === "Bearer form-token" ? "hidakagit" : "gate";
+    const as = { "Bearer form-token": "hidakagit", "Bearer bot-token": "hidakagit-bot" }[init.headers.authorization] ?? "gate";
     if (path.endsWith("/access_tokens")) return json({ token: "app-token" });
+    if (path === "/graphql" && fail && body.query.startsWith("query Task")) return json({ errors: [{ message: fail }] });
     if (path === "/graphql") return json({ data: graphql(body, as) });
     if (path === "/markdown") return markdown ? new Response(`<p>描いた: ${body.text}</p>`) : new Response("失敗", { status: 500 });
     const repo = `/repos/${config.code.repository}`;
