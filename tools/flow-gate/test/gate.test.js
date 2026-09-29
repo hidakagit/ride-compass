@@ -294,8 +294,10 @@ test("設定の不変条件: 表・番・入口・選択肢が使う名前はす
   }
 });
 
-test("問いは「## 問い」の次の行が文で、「### 案」の箇条書きが案。文が無ければ読まない", () => {
-  assert.deepEqual(parseQuestion("## 問い\nどうする？\n\n### 案\n- A\n- B\n\n<details><summary>判断材料</summary>\n材料\n</details>"),
+test("問いは「## 問い」の次の行が文で、「### 案」の箇条書きが案。前の形（「### 選択肢」と行き先）も案として読み、文が無ければ読まない", () => {
+  assert.deepEqual(parseQuestion(config, "## 問い\nどうする？\n\n### 案\n- A\n- B\n\n<details><summary>判断材料</summary>\n材料\n</details>"),
     { text: "どうする？", plans: ["A", "B"], material: "材料" });
-  assert.equal(parseQuestion("## 問い\n\n### 案\n- A\n"), null);
+  const old = "## 問い\nどうする？\n\n### 選択肢\n- A → 未着手 / Claude\n- B（小さく）→ 未着手\n- C\n- やらない → 完了\n- 待つ → 保留 / hidakagit\n";
+  assert.deepEqual(parseQuestion(config, old).plans, ["A", "B（小さく）", "C"], "行き先を外し、止める・完成・見送りで選べる行き先の選択肢は落とす");
+  assert.equal(parseQuestion(config, "## 問い\n\n### 案\n- A\n"), null);
 });

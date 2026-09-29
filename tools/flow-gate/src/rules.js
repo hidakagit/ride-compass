@@ -42,16 +42,24 @@ export const remaining = (config, issue) => [
 
 // 問いを読む（docs/conventions/flow.md「問い」）: 1行目が「## 問い」、次の行が問いの文、「### 案」の下の箇条書きが案、
 // <details> の中が判断材料。問いの文が無ければ null。
-export function parseQuestion(body) {
+// 前の形の問い（「### 選択肢」の各行に「→ 行き先 / 次に動く者」）も読む: 行き先を外して案にし、回答フォームが一律に出す
+// 「進める」以外の選択肢（止める・完成・見送り）と同じ行き先のものは落とす。
+export function parseQuestion(config, body) {
   const lines = normalizeBody(body).split("\n");
   if (lines[0].trim() !== "## 問い") return null;
   const text = lines.slice(1).find((l) => l.trim())?.trim();
   if (!text || text.startsWith("#")) return null;
+  const go = config.answers.find((a) => a.plans).to;
+  const covered = config.answers.map((a) => a.to).filter((s) => s !== go);
   const plans = [];
-  const at = lines.findIndex((l) => l.trim() === "### 案");
+  const at = lines.findIndex((l) => ["### 案", "### 選択肢"].includes(l.trim()));
   for (const line of at < 0 ? [] : lines.slice(at + 1)) {
-    if (line.startsWith("- ")) plans.push(line.slice(2).trim());
-    else if (line.trim() || plans.length) break;
+    if (!line.startsWith("- ")) {
+      if (line.trim() || plans.length) break;
+      continue;
+    }
+    const [plan, to] = line.slice(2).split("→");
+    if (!covered.includes(to?.split("/")[0].trim())) plans.push(plan.trim());
   }
   const material = /<details>\s*<summary>[^<]*<\/summary>([\s\S]*?)<\/details>/.exec(body)?.[1].trim() ?? "";
   return { text, plans: plans.filter(Boolean), material };
