@@ -15,7 +15,7 @@ if (args.length !== 2 || !/^\d+$/.test(number)) {
 }
 const question = normalizeBody(readFileSync(file, "utf8")).trim();
 if (question.includes("-->")) throw new Error("問いに「-->」を含められません（本文の中で問いを隠す HTML のコメントが途中で閉じるため）。");
-if (!parseQuestion(question)) throw new Error("問いが形（docs/conventions/flow.md「問い」）に合いません。");
+if (!parseQuestion(config, question)) throw new Error("問いが形（docs/conventions/flow.md「問い」）に合いません。");
 
 const gh = new GitHub(botToken());
 const { project, issue } = await readTask(gh, config, { number: Number(number) });
