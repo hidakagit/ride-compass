@@ -132,5 +132,9 @@ async def test_each_stop_place_counts_once_on_any_route_through_it(stop_conn, ta
 
 
 async def test_an_intersection_counts_once_on_a_route_through_it(stop_conn):
-    """枝の多い交差点のノードは、入る区間と出る区間が0.5ずつ持ち、通れば1回になる。"""
-    assert (await _along(stop_conn, "edge_materials", "intersection_count"))["交差点を直進"] == 1.0
+    """枝の多い交差点のノードは、入る区間と出る区間が0.5ずつ持ち、通れば1回になる。
+    枝の少ないノード（道の継ぎ目・行き止まり）は交差点に数えない。"""
+    through_intersection = {name for name, ways in ROUTES.items()
+                            if any(100 in WAYS[w] for w in ways)}
+    assert await _along(stop_conn, "edge_materials", "intersection_count") == {
+        name: 1.0 if name in through_intersection else 0.0 for name in ROUTES}

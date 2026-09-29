@@ -8,9 +8,15 @@ import asyncpg
 import pytest
 import pytest_asyncio
 
-from app.batch import derive_counts, derive_topology
+from app.batch import derive_counts, derive_node_materials, derive_topology
 from app.batch._common import asyncpg_dsn
 from app.batch.ingest import ensure_partition
+from app.domain.accident import (
+    ACCIDENT_FATAL_WEIGHT,
+    ACCIDENT_MATCH_MAX_DISTANCE_M,
+    BICYCLE_PARTY_TYPE_CODES,
+)
+from app.domain.geo import KM_PER_DEGREE_LATITUDE
 from app.domain.traffic import POI_COUNT_KINDS, poi_count_column
 from tests.conftest import postgis_database_url
 
@@ -33,6 +39,12 @@ WAYS: tuple[tuple[int, list[int]], ...] = (
     (100, [5, 3]),
 )
 TIED_NODE = 3
+#: 道300（ノード1から3へ東西に延びる）の中ほど。ほかの道はここから約90m以上離れる。
+BESIDE_WAY = (BASE_LON + STEP * 2, BASE_LAT + STEP)
+
+#: 自転車の当事者種別と、自転車ではない軽車両（その他）の当事者種別。
+BICYCLE_PARTY = min(BICYCLE_PARTY_TYPE_CODES)
+OTHER_PARTY = "59"
 
 TABLES = ("edge_materials", "way_materials", "road_edges", "node_materials",
           "source_features", "source_runs")
@@ -47,6 +59,54 @@ async def _insert_run(conn: asyncpg.Connection, source: str) -> int:
         "INSERT INTO source_runs (source, status, started_at, origin, profile, counts)"
         " VALUES ($1, 'succeeded', $2, $3, $3, $3) RETURNING run_id",
         source, datetime.now(UTC), json.dumps({}))
+
+
+def _north_of_way(meters: float) -> tuple[float, float]:
+    """道300の中ほどから北へ`meters`離れた点。"""
+    lon, lat = BESIDE_WAY
+    return (lon, lat + meters / (KM_PER_DEGREE_LATITUDE * 1000.0))
+
+
+async def _insert_accident(conn: asyncpg.Connection, key: str, position: tuple[float, float], *,
+                           bicycle: bool = True, fatal: bool = False) -> None:
+    """本票の列名で当事者種別と死者数を持つ事故を1件置く。"""
+    run = await conn.fetchval("SELECT max(run_id) FROM source_runs WHERE source = 'accident'")
+    attrs = {"当事者種別（当事者A）": BICYCLE_PARTY if bicycle else OTHER_PARTY,
+             "当事者種別（当事者B）": OTHER_PARTY,
+             "死者数": "001" if fatal else "000"}
+    await conn.execute(
+        "INSERT INTO source_features (source, natural_key, run_id, geom, attrs)"
+        " VALUES ('accident', $1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5::jsonb)",
+        key, run, *position, json.dumps(attrs, ensure_ascii=False))
+
+
+async def _accidents(conn: asyncpg.Connection) -> dict[tuple[int, int], float]:
+    """事故の付いた区間ごとの数。"""
+    rows = await conn.fetch(
+        "SELECT osm_way_id, segment_index, accident_count FROM edge_materials"
+        " WHERE accident_count > 0")
+    return {(r["osm_way_id"], r["segment_index"]): r["accident_count"] for r in rows}
+
+
+async def _derive_with_nodes(conn: asyncpg.Connection,
+                             nodes: dict[int, tuple[tuple[float, float], dict[str, str]]]) -> None:
+    """{ノードid: (位置, タグ)} のノードを置き、ノードの段から流し直す。"""
+    run = await _insert_run(conn, "osm_node")
+    for node_id, ((lon, lat), tags) in nodes.items():
+        await conn.execute(
+            "INSERT INTO source_features (source, natural_key, run_id, geom, attrs)"
+            " VALUES ('osm_node', $1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5::jsonb)",
+            str(node_id), run, lon, lat, json.dumps(tags))
+    await derive_node_materials.derive(conn)
+    await derive_counts.derive(conn)
+
+
+async def _stop_counts(conn: asyncpg.Connection) -> dict[int, dict[str, float]]:
+    """道ごとの、停止要因の集計キーごとの数（0は省く）。"""
+    columns = {kind: poi_count_column(kind) for kind in sorted(POI_COUNT_KINDS)}
+    rows = await conn.fetch(
+        "SELECT osm_way_id, " + ", ".join(columns.values()) + " FROM way_materials")
+    return {r["osm_way_id"]: {kind: r[c] for kind, c in columns.items() if r[c]} for r in rows}
 
 
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
@@ -75,12 +135,8 @@ async def counts_conn(module_conn):
             "INSERT INTO source_features (source, natural_key, run_id, geom, attrs, payload)"
             " VALUES ('osm_way', $1, $2, ST_GeomFromText($3, 4326), '{}'::jsonb, $4)",
             str(way_id), way_run, wkt, struct.pack(f"<{len(node_ids)}q", *node_ids))
-    accident_run = await _insert_run(conn, "accident")
-    lon, lat = _point(TIED_NODE)
-    await conn.execute(
-        "INSERT INTO source_features (source, natural_key, run_id, geom, attrs)"
-        " VALUES ('accident', 'tied', $1, ST_SetSRID(ST_MakePoint($2, $3), 4326), '{}'::jsonb)",
-        accident_run, lon, lat)
+    await _insert_run(conn, "accident")
+    await _insert_accident(conn, "tied", _point(TIED_NODE))
     await derive_topology.derive(conn)
     await derive_counts.derive(conn)
     return conn
@@ -92,11 +148,7 @@ async def test_equidistant_accident_goes_to_exactly_one_existing_segment(counts_
     鍵の2列を別々の探索で取ると、タイのときに片方ずつ別の区間を指し、どの区間にも
     付かない（存在しない組へ集計される）ことがある。
     """
-    rows = await counts_conn.fetch(
-        "SELECT osm_way_id, segment_index, accident_count FROM edge_materials"
-        " WHERE accident_count > 0")
-    assert [(r["osm_way_id"], r["segment_index"], r["accident_count"]) for r in rows] == [
-        (100, 0, 1.0)]
+    assert await _accidents(counts_conn) == {(100, 0): 1.0}
     distances = await counts_conn.fetch(
         "SELECT DISTINCT e.geom <-> a.geom AS d FROM road_edges e, source_features a"
         " WHERE a.source = 'accident'")
@@ -178,3 +230,53 @@ async def test_rerun_on_changed_input_keeps_no_count_the_input_no_longer_support
     # 前提: 1回目は数が付いている。
     assert all(n > 0 for n in before)
     assert after == (0, 0)
+
+
+@pytest.mark.xfail(reason="事故の数え上げが自転車の関わらない事故も数える（tasks#49 で直す）")
+async def test_an_accident_without_a_bicycle_is_not_counted(counts_conn):
+    """自転車の関わらない事故は数えない。同じ場所の自転車の事故は数える。"""
+    await _insert_accident(counts_conn, "car", _north_of_way(5.0), bicycle=False)
+    await _insert_accident(counts_conn, "bicycle", _north_of_way(5.0))
+
+    await derive_counts.derive(counts_conn)
+
+    assert await _accidents(counts_conn) == {(100, 0): 1.0, (300, 0): 1.0}
+
+
+@pytest.mark.xfail(reason="事故の数え上げが道からの距離の上限を持たない（tasks#49 で直す）")
+async def test_an_accident_farther_than_the_match_distance_is_not_counted(counts_conn):
+    """道から帰属の距離より遠い事故は、最も近い道にも付けない。距離の内側の事故は付ける。"""
+    await _insert_accident(counts_conn, "near", _north_of_way(ACCIDENT_MATCH_MAX_DISTANCE_M - 10))
+    await _insert_accident(counts_conn, "far", _north_of_way(ACCIDENT_MATCH_MAX_DISTANCE_M + 10))
+
+    await derive_counts.derive(counts_conn)
+
+    assert await _accidents(counts_conn) == {(100, 0): 1.0, (300, 0): 1.0}
+
+
+async def test_only_a_fatal_accident_is_weighted(counts_conn):
+    """死亡事故は重みの件数分、死亡以外の事故（ノード3の事故）は1件と数える。"""
+    await _insert_accident(counts_conn, "fatal", _north_of_way(5.0), fatal=True)
+
+    await derive_counts.derive(counts_conn)
+
+    assert await _accidents(counts_conn) == {(100, 0): 1.0, (300, 0): ACCIDENT_FATAL_WEIGHT}
+
+
+async def test_a_stop_point_on_no_segment_is_not_counted(counts_conn):
+    """どの区間にも乗らない停止要因の点（取り込んでいない道の上の点等）は、すぐ隣の道にも
+    数えない。区間の端に乗る点は数える（行き止まりなので入る区間の0.5）。"""
+    stop = {"highway": "stop"}
+    await _derive_with_nodes(counts_conn, {9: (_north_of_way(5.0), stop), 4: (_point(4), stop)})
+
+    assert await _stop_counts(counts_conn) == {100: {}, 200: {"stop": 0.5}, 300: {}}
+
+
+async def test_a_point_that_is_not_a_stop_is_not_counted(counts_conn):
+    """停止要因の種別でない点（補給の店等）は、区間の上にあっても停止の数に入らない。"""
+    await _derive_with_nodes(counts_conn, {
+        TIED_NODE: (_point(TIED_NODE), {"shop": "convenience"}),
+        4: (_point(4), {"highway": "stop"}),
+    })
+
+    assert await _stop_counts(counts_conn) == {100: {}, 200: {"stop": 0.5}, 300: {}}

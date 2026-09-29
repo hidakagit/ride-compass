@@ -188,3 +188,31 @@ async def test_rerun_without_a_product_keeps_no_value_only_that_product_gave(ele
     assert without_dem == {way_id: None if way_id == 4 else expected
                            for way_id, _pixels, expected in CASES}
     assert without_any == dict.fromkeys(without_dem)
+
+
+#: 谷を渡る形の頂点列。左上（10m）→右上（20m）→左上（10m）で、地表は上って下る。
+VALLEY_PIXELS = ((40, 40), (40, 200), (40, 44))
+
+
+@pytest.mark.parametrize("structure", [{"bridge": "yes"}, {"tunnel": "yes"}])
+async def test_a_bridge_or_tunnel_does_not_climb_the_terrain_under_it(elevation_conn, structure):
+    """橋・トンネルの区間は、下の地表の起伏を上り下りに数えない。同じ形のタグの無い道は数える。"""
+    conn = elevation_conn
+    run = await conn.fetchval("SELECT max(run_id) FROM source_runs WHERE source = 'osm_way'")
+    wkt = "LINESTRING(" + ", ".join(
+        "{} {}".format(*_pixel_center(r, c)) for r, c in VALLEY_PIXELS) + ")"
+    for way_id, tags in ((11, {}), (12, structure)):
+        node_ids = [way_id * 10 + i for i in range(len(VALLEY_PIXELS))]
+        await conn.execute(
+            "INSERT INTO source_features (source, natural_key, run_id, geom, attrs, payload)"
+            " VALUES ('osm_way', $1, $2, ST_GeomFromText($3, 4326), $4::jsonb, $5)",
+            str(way_id), run, wkt, json.dumps(tags), struct.pack(f"<{len(node_ids)}q", *node_ids))
+    async with conn.transaction():
+        await derive_topology.derive(conn)
+        await derive_raster_materials.derive_elevation(conn)
+
+    rows = await conn.fetch(
+        "SELECT osm_way_id, elevation_gain_m, elevation_loss_m FROM edge_materials"
+        " WHERE osm_way_id IN (11, 12)")
+    assert {r["osm_way_id"]: (r["elevation_gain_m"], r["elevation_loss_m"]) for r in rows} == {
+        11: (10.0, 10.0), 12: (0.0, 0.0)}
