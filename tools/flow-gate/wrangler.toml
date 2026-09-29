@@ -7,13 +7,6 @@ main = "src/index.js"
 compatibility_date = "2026-09-01"
 workers_dev = true
 
-[vars]
-FORM_ORIGIN = "https://ride-compass-answer.h7g4bin.workers.dev"
-GATE_ORIGIN = "https://ridecompass-gate.h7g4bin.workers.dev"
-
 [env.form]
 name = "ride-compass-answer"
 workers_dev = true
-
-[env.form.vars]
-GATE_ORIGIN = "https://ridecompass-gate.h7g4bin.workers.dev"

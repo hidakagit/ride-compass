@@ -5,13 +5,11 @@ import { pullRequest } from "./review.js";
 import { check, entryFor, joinBody, normalizeBody, ownerOf, parseQuestion, questionBody, remaining, splitBody, userTurn } from "./rules.js";
 
 export class Gate {
-  static async open(env, config, origin) {
+  // env.GITHUB_TOKEN があればその名義で読み書きする（手元・CI で開いた issue を揃える道具。src/refresh.js）。無ければ App の名義。
+  static async open(env, config) {
     const gate = new Gate();
     gate.config = config;
-    gate.origin = origin;
-    // ボタンの画像は GitHub が中継して取りに来るので、Access の外の Worker（GATE_ORIGIN）から返す。
-    gate.buttonUrl = `${env.GATE_ORIGIN ?? origin}/button.svg`;
-    gate.gh = await GitHub.asApp(env, config.installation);
+    gate.gh = env.GITHUB_TOKEN ? new GitHub(env.GITHUB_TOKEN) : await GitHub.asApp(env, config.installation);
     return gate;
   }
 
@@ -27,8 +25,10 @@ export class Gate {
   bodyFor(issue) {
     const { question, rest } = splitBody(issue.body);
     if (!userTurn(this.config, issue)) return joinBody(rest, question, null);
-    const url = `${this.origin}/answer?issue=${issue.number}`;
-    return joinBody(rest, question, { status: issue.status, text: currentQuestion(this.config, issue).parsed.text, url, image: this.buttonUrl });
+    // ボタンの画像は GitHub が中継して取りに来るので、Access の外の Worker（urls.gate）から返す。
+    const { gate, form } = this.config.urls;
+    const url = `${form}/answer?issue=${issue.number}`;
+    return joinBody(rest, question, { status: issue.status, text: currentQuestion(this.config, issue).parsed.text, url, image: `${gate}/button.svg` });
   }
 
   // 1つのタスクへの書き込みを1回の要求で行う。want には変えたい中身だけを渡す。担当者はステータスから決め（ownerOf）、
@@ -173,24 +173,24 @@ function questionId(text) {
   return h.toString(36);
 }
 
-export async function handleEvent(env, config, origin, name, payload) {
+export async function handleEvent(env, config, name, payload) {
   if (payload.sender?.login === config.gate) return "ゲート自身の出来事";
   if (payload.repository?.full_name === config.code.repository) {
     if (name === "pull_request" && ["opened", "reopened", "closed"].includes(payload.action))
-      return pullRequest(env, config, origin, payload.action, payload.pull_request);
+      return pullRequest(env, config, payload.action, payload.pull_request);
     return "対象外の出来事";
   }
   if (name === "projects_v2_item") {
     const item = payload.projects_v2_item;
     const change = payload.changes?.field_value;
     if (item.content_type !== "Issue") return "対象外の件";
-    if (payload.action === "created") return (await Gate.open(env, config, origin)).enter(item.content_node_id, item.project_node_id);
+    if (payload.action === "created") return (await Gate.open(env, config)).enter(item.content_node_id, item.project_node_id);
     if (payload.action === "edited" && change?.field_name === config.project.statusField)
-      return (await Gate.open(env, config, origin)).moved(item.content_node_id, item.project_node_id, change.from?.name ?? null, change.to?.name ?? null, payload.sender?.login);
+      return (await Gate.open(env, config)).moved(item.content_node_id, item.project_node_id, change.from?.name ?? null, change.to?.name ?? null, payload.sender?.login);
     return "対象外の欄";
   }
   if (name !== "issues") return "対象外の出来事";
-  const gate = await Gate.open(env, config, origin);
+  const gate = await Gate.open(env, config);
   if (payload.action === "closed") return gate.closed(payload.issue.node_id);
   if (payload.action === "reopened") return gate.reopened(payload.issue.node_id);
   return gate.touched(payload.issue.node_id);

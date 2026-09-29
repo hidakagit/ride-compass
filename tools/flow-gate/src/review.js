@@ -17,11 +17,11 @@ const prLink = (pr) => `[#${pr.number} ${pr.title.replace(/[[\]]/g, "\\$&")}](${
 
 // 開いた（開き直された）→ 検証中。マージされずに閉じた → 未着手。マージされた → 残り（チェックの無い完了の条件・ユーザーの確認）が
 // 無ければ完了、あれば未着手（Claude が残りを済ませる）。表で行けない出来事（進行中でない issue の Pull Request 等）は何もしない。
-export async function pullRequest(env, config, origin, action, pr) {
+export async function pullRequest(env, config, action, pr) {
   const { branchPrefix } = config.code;
   const number = pr.head.ref.startsWith(branchPrefix) && Number(pr.head.ref.slice(branchPrefix.length));
   if (!number) return "作業ブランチの Pull Request ではない";
-  const gate = await Gate.open(env, config, origin);
+  const gate = await Gate.open(env, config);
   const issue = await gate.read({ number });
   if (!issue?.item || issue.state !== "OPEN") return "動かすものは無い";
   // 行き先は表の行から取る（マージだけは完了とそれ以外の2つ）。

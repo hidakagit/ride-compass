@@ -2,6 +2,7 @@
   "repository": "ridecompass/ride-compass-tasks",
   "project": { "owner": "ridecompass", "number": 2, "statusField": "Status", "priorityField": "優先度", "urgentLabel": "急ぎ", "sizeField": "規模", "defaults": { "優先度": "中" } },
   "gate": "ridecompass-gate[bot]",
+  "urls": { "gate": "https://ridecompass-gate.h7g4bin.workers.dev", "form": "https://ride-compass-answer.h7g4bin.workers.dev" },
   "installation": 165726503,
   "people": {
     "hidakagit": { "id": 6731891, "node": "MDQ6VXNlcjY3MzE4OTE=" },

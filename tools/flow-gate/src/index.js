@@ -24,10 +24,9 @@ export default {
         return new Response("bad signature", { status: 401 });
       // GitHub は10秒で待ちを打ち切るので、受付を先に返して処理は後で続ける。
       const name = request.headers.get("x-github-event");
-      const formOrigin = env.FORM_ORIGIN ?? url.origin;
       const payload = JSON.parse(body);
       ctx.waitUntil(
-        handleEvent(env, config, formOrigin, name, payload).catch((e) => {
+        handleEvent(env, config, name, payload).catch((e) => {
           console.error(`処理に失敗: ${name}`, e);
           return reportFailure(env, config, name, payload, e).catch((f) => console.error("状況の更新に書けなかった", f));
         }),

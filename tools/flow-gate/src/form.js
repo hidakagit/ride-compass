@@ -131,7 +131,7 @@ async function submit(gate, env, data) {
 
 export async function answerForm(request, env, config) {
   const url = new URL(request.url);
-  const gate = await Gate.open(env, config, url.origin);
+  const gate = await Gate.open(env, config);
   if (request.method === "POST") return Response.json(await submit(gate, env, await request.formData()));
   const loaded = await load(gate, Number(url.searchParams.get("issue")));
   if (loaded.error) return page(`<p>${esc(loaded.error)}</p>`, 404);
