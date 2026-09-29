@@ -12,9 +12,13 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 from app.domain.warning_levels import WarningBadgeLevel
+
+_WEDNESDAY = 2
+_PROVISION_WEEKS = 26
+
 # 熱中症予防運動指針の閾値（暑さ指数の値、以上/未満の境界）。
 # 21未満（ほぼ安全）はNoneを返す。
 _LEVEL_THRESHOLDS: list[tuple[float, WarningBadgeLevel, str]] = [
@@ -37,14 +41,20 @@ def wbgt_level(value: float) -> tuple[WarningBadgeLevel, str] | None:
     return None
 
 
-# 提供期間（環境省サイトの運用期間、例年4月第4水曜〜10月第3水曜。年ごとに厳密な開始/
-# 終了日が変わるため月単位の粗い判定に留める）。この判定は「無駄なAPI呼び出しを避ける」
-# ための事前フィルタに過ぎず、正確性の最終防線ではない——月の境界（4月上旬・10月下旬）は
-# 実際には提供期間外でも判定上は期間内に倒れる。その間は配信元から今の値が得られず、
-# 呼び出し元（wbgt_service.py）は警戒レベルが分からないものとして返す。
-PROVISION_START_MONTH = 4
-PROVISION_END_MONTH = 10
+def provision_period(year: int) -> tuple[date, date]:
+    """その年の暑さ指数の提供期間（初日と最終日。どちらの日も期間に含む）。
+
+    環境省は運用期間を年ごとに発表し、4月第4水曜から26週後の水曜までに置いている。
+    終わりは10月第3水曜の年も第4水曜の年もあるため、月の何週目では決まらない。
+    期間外の配信元は、エラーではなく値の無い成功を返す。
+    """
+    april_first = date(year, 4, 1)
+    first_wednesday = april_first + timedelta(days=(_WEDNESDAY - april_first.weekday()) % 7)
+    start = first_wednesday + timedelta(weeks=3)
+    return start, start + timedelta(weeks=_PROVISION_WEEKS)
 
 
 def is_within_provision_period(at: datetime) -> bool:
-    return PROVISION_START_MONTH <= at.month <= PROVISION_END_MONTH
+    """`at`（JST）の日が提供期間に入るか。"""
+    start, end = provision_period(at.year)
+    return start <= at.date() <= end
