@@ -42,6 +42,24 @@ test("鍵を掛けたスロットは使用中になり、二人目は掛けら�
   }
 });
 
+test("起動役の pid を鍵に足すと、そのプロセスが生きているかが出る（居なくなった起動役を見分けるため）", async () => {
+  const r = repo();
+  try {
+    assert.equal((await slots(r.dir, "take", "a", "7", "作る")).code, 0);
+    assert.equal((await slots(r.dir, "pid", "a", String(process.pid))).code, 0);
+    let [a] = await list(r.dir);
+    assert.deepEqual([a.number, a.pid, a.alive], [7, process.pid, true]);
+    assert.equal((await slots(r.dir, "pid", "a", "1")).code, 2, "pid は一度だけ足せる");
+    r.git("worktree", "unlock", join(r.dir, ".claude", "worktrees", "a"));
+    assert.equal((await slots(r.dir, "take", "a", "8", "確かめる")).code, 0);
+    assert.equal((await slots(r.dir, "pid", "a", "999999")).code, 0);
+    [a] = await list(r.dir);
+    assert.deepEqual([a.number, a.alive], [8, false]);
+  } finally {
+    r.done();
+  }
+});
+
 test("同じ番号がほかのスロットで鍵を持っていれば、掛けた鍵を外して失敗する", async () => {
   const r = repo();
   try {

@@ -1,4 +1,6 @@
-// 司令塔の様子を Project の「状況の更新」に書く（hidakagit-bot の名義）。司令塔の1回の最後に呼ぶ。
+// 担当とスロットの様子を Project の「状況の更新」に書く（hidakagit-bot の名義）。起動役（work.js）が、担当を起こしたときと
+// 後始末のあとに呼ぶ（スロットの鍵が変わるたび）。本文の最後に、見張り（src/status.js: watchCoordinator）が読む空きと
+// 振り出せる仕事の数を、画面に出ない形で残す。
 // スロット（slots.js）・キュー（queue.js）・検証中の Pull Request・ほかが書いた状況の更新を読み、異常を機械で見つける。
 // キューの長さは異常に数えない（スロットより多い仕事は待つのが普通で、振り出しが止まったことは起きた時刻の古さに出る）。
 // 異常が1つでもあれば At risk、無ければ On track。最新の更新が自分の書いたもので状態が同じなら書き換え、違えば新しく足す
@@ -10,7 +12,7 @@ import { fileURLToPath } from "node:url";
 import config from "../flow.config.json" with { type: "json" };
 import { GitHub } from "../src/github.js";
 import { latestPr } from "../src/review.js";
-import { AT_RISK, OFF_TRACK, ON_TRACK, clock, coordinatorUpdate, putUpdate, readUpdates } from "../src/status.js";
+import { AT_RISK, OFF_TRACK, ON_TRACK, clock, coordinatorUpdate, marker, putUpdate, readUpdates } from "../src/status.js";
 import { botToken, codeToken } from "./token.js";
 
 const args = process.argv.slice(2);
@@ -65,8 +67,11 @@ for (const u of updates)
 
 const count = (status, pick = () => true) => queue.filter((t) => t.status === status && pick(t)).length;
 const waiting = count("未着手", (t) => t.waitingFor.length);
+const busy = new Set(slots.filter((s) => s.number).map((s) => s.number));
+const free = slots.filter((s) => s.state === "空き").length;
+const ready = queue.filter((t) => !busy.has(t.number) && !t.waitingFor.length).length;
 const body = [
-  `**司令塔が最後に起きた時刻**: ${clock(new Date(now))}（日本時間）`,
+  `**最後に書いた時刻**: ${clock(new Date(now))}（日本時間）`,
   "",
   "### 異常",
   ...(anomalies.length ? anomalies.map((a) => `- ${a}`) : ["無し"]),
@@ -82,6 +87,8 @@ const body = [
   "",
   "### キュー（Claude の番）",
   `${order.map((s) => `${s} ${count(s)}`).join("・")}${waiting ? `（未着手のうち前提待ち ${waiting}）` : ""}`,
+  "",
+  marker(free, ready),
 ].join("\n");
 
 const status = anomalies.length ? AT_RISK : ON_TRACK;
