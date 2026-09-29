@@ -49,6 +49,23 @@ test("ゲート自身が起こした出来事は捨てる", async () => {
   assert.deepEqual(gh.writes, []);
 });
 
+test("出来事の処理に失敗すると At risk の状況の更新を足し、失敗が続けば新しく足さずにその更新へ1行ずつ足す", async () => {
+  const gh = fakeGitHub({
+    issue: { number: 1, authorId: ME, status: "未着手" },
+    fail: "鍵が切れた",
+    updates: [{ id: "SU_0", status: "ON_TRACK", body: "司令塔の様子", by: "hidakagit-bot" }],
+  });
+  assert.equal((await move("未着手", "進行中")).status, 202, "受付は先に返す");
+  assert.deepEqual(gh.updates.map((u) => [u.status, u.by]), [["AT_RISK", "gate"], ["ON_TRACK", "hidakagit-bot"]]);
+  assert.match(gh.updates[0].body, /projects_v2_item\.edited Project の件 I_1: .*鍵が切れた/, "何の出来事で何が起きたかを書く");
+
+  await deliver("issues", { action: "edited", issue: { number: 1, node_id: "I_1" } });
+  assert.equal(gh.updates.length, 2, "最新がゲートの失敗なら、新しく足さない");
+  const lines = gh.updates[0].body.split("\n").filter((l) => l.startsWith("- "));
+  assert.equal(lines.length, 2);
+  assert.match(lines[0], /issues\.edited #1: .*鍵が切れた/, "新しい失敗が上");
+});
+
 test("入口: hidakagit が書いた issue は未着手で Claude に、ほかの人のものは回答待ちで hidakagit に割り当て、採否の問いを本文に置いてボタンを出す（コメントは書かない）", async () => {
   let gh = fakeGitHub({ issue: { number: 1, authorId: ME } });
   await deliver("projects_v2_item", item({ action: "created", sender: { login: "github-project-automation[bot]" } }));

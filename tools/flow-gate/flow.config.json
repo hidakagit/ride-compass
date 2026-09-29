@@ -32,7 +32,10 @@
   },
   "verify": { "from": "進行中", "status": "検証中", "label": "ユーザー確認", "back": "未着手" },
   "code": { "repository": "hidakagit/ride-compass", "branchPrefix": "orch/tasks-", "base": "master" },
-  "coordinator": { "order": ["回答待ち", "検証中", "未着手"], "verifyPrefix": "verify/tasks-", "worktrees": ["w1", "w2", "w3", "w4"] },
+  "coordinator": {
+    "order": ["回答待ち", "検証中", "未着手"], "verifyPrefix": "verify/tasks-", "worktrees": ["w1", "w2", "w3", "w4"],
+    "dropMinutes": 240, "mergedMinutes": 60, "staleMinutes": 120
+  },
   "adoption": {
     "question": "このタスクをやりますか？",
     "options": [

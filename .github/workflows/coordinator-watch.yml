@@ -1,0 +1,22 @@
+# 司令塔が止まっていないかの見張り（tools/flow-gate/bin/watch.js）。止まっていれば Project の状況の更新を Off track にする。
+# 毎時0分は混み合って遅れやすい（GitHub の公式の文書）ので、ずらしてある。
+name: coordinator-watch
+on:
+  schedule:
+    - cron: "23 * * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: tools/flow-gate
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: node tools/flow-gate/bin/watch.js
+        env:
+          FLOW_BOT_TOKEN: ${{ secrets.FLOW_BOT_TOKEN }}

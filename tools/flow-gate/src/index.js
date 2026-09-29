@@ -4,6 +4,7 @@ import config from "../flow.config.json" with { type: "json" };
 import { answerForm } from "./form.js";
 import { handleEvent } from "./gate.js";
 import { BUTTON_SVG, REVIEW_SVG } from "./rules.js";
+import { reportFailure } from "./status.js";
 
 // X-Hub-Signature-256 を Web Crypto の HMAC で確かめる（verify は比較を一定時間で行う）。
 export async function signed(secret, body, header) {
@@ -24,7 +25,13 @@ export default {
       // GitHub は10秒で待ちを打ち切るので、受付を先に返して処理は後で続ける。
       const name = request.headers.get("x-github-event");
       const formOrigin = env.FORM_ORIGIN ?? url.origin;
-      ctx.waitUntil(handleEvent(env, config, formOrigin, name, JSON.parse(body)).catch((e) => console.error(`処理に失敗: ${name}`, e)));
+      const payload = JSON.parse(body);
+      ctx.waitUntil(
+        handleEvent(env, config, formOrigin, name, payload).catch((e) => {
+          console.error(`処理に失敗: ${name}`, e);
+          return reportFailure(env, config, name, payload, e).catch((f) => console.error("状況の更新に書けなかった", f));
+        }),
+      );
       return new Response("accepted", { status: 202 });
     }
     const svg = { "/button.svg": BUTTON_SVG, "/review.svg": REVIEW_SVG }[url.pathname];
