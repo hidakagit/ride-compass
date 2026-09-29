@@ -60,6 +60,7 @@ export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel
     return { clientMutationId: null };
   };
   const graphql = ({ query, variables }, as) => {
+    if (query.startsWith("query Open")) return { repository: { issues: { pageInfo: { hasNextPage: false }, nodes: [{ number: state.issue.number }] } } };
     if (query.startsWith("query Updates")) {
       const nodes = state.updates.slice(0, variables.k).map(({ by, ...u }) => ({ createdAt: "t", updatedAt: "t", ...u, creator: { login: by } }));
       return { organization: { projectV2: { id: "PVT_1", statusUpdates: { nodes } } } };

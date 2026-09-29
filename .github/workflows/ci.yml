@@ -260,7 +260,7 @@ jobs:
       - run: |
           [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = "false" ]
   # タスクの流れのゲート（tools/flow-gate/）を、master に入ったら公開する（Cloudflare の公式の wrangler-action）。
-  # 公開の直後に、本文の先頭に残る前の形の問いを今の形へ直す（前の形が無ければ何もしない）。
+  # 公開の直後に、開いた issue を全部、今の規則が書くはずの姿（担当者・本文の先頭・問いの形）へ揃える（揃っていれば何も書かない）。
   deploy-gate:
     needs: [ci-ok]
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
@@ -299,7 +299,7 @@ jobs:
       - if: steps.diff.outputs.gate == 'true'
         env:
           FLOW_BOT_TOKEN: ${{ secrets.FLOW_BOT_TOKEN }}
-        run: node tools/flow-gate/bin/migrate-questions.js
+        run: node tools/flow-gate/bin/refresh.js
   deploy-backend:
     needs: [backend, api-contract, frontend, e2e, e2e-scan]
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
