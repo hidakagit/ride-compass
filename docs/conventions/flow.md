@@ -336,6 +336,7 @@ Claude の番のうち振り出すもの（`coordinator.order` のステータ�
 
 ## ゲートを変える・公開する
 
-表・入口・回答フォームの選択肢・決まった問いは `flow.config.json` を直す。公開は `tools/flow-gate` で `wrangler deploy`（Webhook）と
-`wrangler deploy --env form`（回答フォーム）。秘密の値の名前は `tools/flow-gate/wrangler.toml` の先頭にある。
+表・入口・回答フォームの選択肢・決まった問いは `flow.config.json` を直す。公開は、master に入ると CI（`ci.yml` の `deploy-gate`）が
+`wrangler deploy`（Webhook）と `wrangler deploy --env form`（回答フォーム）で行う（コードのリポジトリの秘密の値 `CLOUDFLARE_API_TOKEN`・
+`CLOUDFLARE_ACCOUNT_ID` を使う）。手で公開するときは `tools/flow-gate` で同じコマンドを打つ。秘密の値の名前は `tools/flow-gate/wrangler.toml` の先頭にある。
 テストは `node --test tools/flow-gate/test/*.test.js`（CI の `flow-gate` も同じ）。

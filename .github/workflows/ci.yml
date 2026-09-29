@@ -20,6 +20,7 @@
 #   常に走る docs-consistency.yml が持つ。決め方は docs/architecture/tech-stack.md「CIの実行枠」。
 # - ci-ok: コードのリポジトリの必須チェックに置く1本。上のどれかが失敗・取り消しなら落ち、スキップは通す
 #   （必須にするのをこの1本にまとめると、ジョブを足し引きしても必須チェックの設定を変えずに済む）。
+# - deploy-gate: masterへのpushで ci-ok が通り、tools/flow-gate/ が変わっていれば、ゲートを Cloudflare へ公開する。
 # - deploy-backend: masterへのpushで上の全ジョブが通ったときだけ、backendを本番へ出す
 #   （出すかの判定と手順は deploy-backend.yml）。**本番へ出る前の検査はこのワークフロー**で、
 #   どれかが赤ならデプロイは起動しない。
@@ -258,6 +259,47 @@ jobs:
     steps:
       - run: |
           [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = "false" ]
+  # タスクの流れのゲート（tools/flow-gate/）を、master に入ったら公開する（Cloudflare の公式の wrangler-action）。
+  # 公開のあとに、本文の先頭に残る古い形の問いを今の形へ書き換える（古い形が無ければ何もしない）。
+  deploy-gate:
+    needs: [ci-ok]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ -z "$BEFORE" ] || ! git cat-file -e "$BEFORE^{commit}" || git diff --name-only "$BEFORE" "$GITHUB_SHA" -- tools/flow-gate | grep -q .; then
+            echo "gate=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "gate=false" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.diff.outputs.gate == 'true'
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: tools/flow-gate
+          command: deploy
+      - if: steps.diff.outputs.gate == 'true'
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: tools/flow-gate
+          command: deploy --env form
+      - if: steps.diff.outputs.gate == 'true'
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - if: steps.diff.outputs.gate == 'true'
+        env:
+          FLOW_BOT_TOKEN: ${{ secrets.FLOW_BOT_TOKEN }}
+        run: node tools/flow-gate/bin/migrate-questions.js
   deploy-backend:
     needs: [backend, api-contract, frontend, e2e, e2e-scan]
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
