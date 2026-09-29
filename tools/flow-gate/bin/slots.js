@@ -1,22 +1,36 @@
 // 担当のスロット（.claude/worktrees/ の coordinator.worktrees）を予約し、空きを出す。表は持たず、git の作業ツリーの鍵が状態を持つ:
 // 振り出す側が鍵を掛けてから担当を起こし、担当は終わるときに枝を手放してから鍵を外す（git worktree unlock）。
-// 鍵の掛かった作業ツリーは使用中で、理由（「tasks#<番号> <作る|確かめる> <掛けた時刻>」）の番号のキューの項目は動いている最中。
+// 鍵の掛かった作業ツリーは使用中で、理由（「tasks#<番号> <作る|確かめる> <掛けた時刻>」、起動役が動き出すと「 pid=<起動役の pid>」が
+// 足される）の番号のキューの項目は動いている最中。
 // 使い方: node tools/flow-gate/bin/slots.js [--json] [作業ツリーの名前...]（名前を省くと coordinator.worktrees）
 //         node tools/flow-gate/bin/slots.js take <作業ツリーの名前> <issue の番号> <作る|確かめる>
+//         node tools/flow-gate/bin/slots.js pid <作業ツリーの名前> <起動役の pid>（起動役が自分の pid を鍵の理由へ足す）
 import { execFileSync } from "node:child_process";
-import { closeSync, existsSync, openSync, readFileSync, readdirSync, rmSync, writeSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync, writeSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import config from "../flow.config.json" with { type: "json" };
 
 const USAGE = [
   "使い方: node tools/flow-gate/bin/slots.js [--json] [作業ツリーの名前...]",
   "        node tools/flow-gate/bin/slots.js take <作業ツリーの名前> <issue の番号> <作る|確かめる>",
+  "        node tools/flow-gate/bin/slots.js pid <作業ツリーの名前> <起動役の pid>",
 ].join("\n");
 const KINDS = ["作る", "確かめる"];
 const git = (dir, ...args) => execFileSync("git", ["-C", dir, ...args], { encoding: "utf8" }).trim();
-const common = execFileSync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { encoding: "utf8" }).trim();
+// 置き場はこのファイルの場所から引く（タスク スケジューラは作業ディレクトリを %windir%\system32 にして起こす）。
+const common = git(dirname(fileURLToPath(import.meta.url)), "rev-parse", "--path-format=absolute", "--git-common-dir");
 const root = join(common, "..", ".claude", "worktrees");
-const REASON = new RegExp(`^tasks#(\\d+) (${KINDS.join("|")}) (\\S+)$`);
+const REASON = new RegExp(`^tasks#(\\d+) (${KINDS.join("|")}) (\\S+)(?: pid=(\\d+))?$`);
+// その pid のプロセスが生きているか（シグナル 0 は送らずに有無だけを見る）。
+const alive = (pid) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return e.code === "EPERM";
+  }
+};
 
 // 鍵は作業ツリーの管理の場所（<共通の .git>/worktrees/<名前>/）の locked で、中身が理由（git の文書「git-worktree」の DETAILS）。
 // git worktree list --porcelain は ASCII 以外を含む理由やパスを引用符と8進で書くので、ファイルを直に読む。
@@ -74,6 +88,16 @@ function take([slot, number, kind, ...rest]) {
   console.log(`スロット ${slot} に鍵を掛けた（#${number} ${kind}）`);
 }
 
+function recordPid([slot, pid, ...rest]) {
+  const file = slot && existsSync(join(root, slot)) && lockFile(join(root, slot));
+  const m = file && REASON.exec(reasonOf(file) ?? "");
+  if (!m || !/^\d+$/.test(pid ?? "") || rest.length || m[4]) {
+    console.error(USAGE);
+    process.exit(2);
+  }
+  writeFileSync(file, `${reasonOf(file)} pid=${pid}`);
+}
+
 function list(args) {
   const named = args.filter((a) => a !== "--json");
   const slots = named.length ? named : config.coordinator.worktrees;
@@ -100,6 +124,8 @@ function list(args) {
       reason,
       branch,
       minutes: m ? Math.round((Date.now() - Date.parse(m[3])) / 60000) : null,
+      pid: m?.[4] ? Number(m[4]) : null,
+      alive: m?.[4] ? alive(Number(m[4])) : null,
     });
   }
   if (args.includes("--json")) console.log(JSON.stringify(rows, null, 2));
@@ -116,6 +142,7 @@ function list(args) {
 
 const args = process.argv.slice(2);
 if (args[0] === "take") take(args.slice(1));
+else if (args[0] === "pid") recordPid(args.slice(1));
 else if (args.some((a) => a.startsWith("--") && a !== "--json")) {
   console.error(USAGE);
   process.exit(2);
