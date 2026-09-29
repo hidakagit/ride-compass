@@ -1,8 +1,9 @@
 // 回答フォーム（hidakagit が開く1枚の画面）。答えのコメントは hidakagit の名義（env.FORM_TOKEN）で書き、
 // ステータス・割り当て・ラベルはゲートの遷移の処理（Gate.apply）がゲートの名義で書く。
-import { Gate, currentQuestion } from "./gate.js";
+import { Gate, currentQuestion, questionId } from "./gate.js";
 import { GitHub, Mutations } from "./github.js";
-import { answerBody, answererTurn, formChoices } from "./rules.js";
+import { verifyPlace } from "./review.js";
+import { answerBody, answererTurn, formChoices, openBlockers, whatQuestion } from "./rules.js";
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
@@ -74,19 +75,34 @@ const page = (body, status = 200) =>
     { status, headers: { "content-type": "text/html; charset=utf-8" } },
   );
 
-// 今の問いと、答えてよいか（答える人の番か）を読む。答えられなければ理由を返す。
+// 答える人の番の issue の行き先を、開いた時点の状態で決める（本文の先頭のボタンはどのステータスでもここを指す）。
+// 回答待ちで問いが正しい形ならその問い。検証中で待てるもの（開いた Pull Request・実行中の CI）があれば、その画面へ移る（redirect）。
+// それ以外は「どうしますか？」。答えられなければ理由を返す。
 // ラベルはユーザーが付けるもので、置き場のリポジトリに GitHub で定義されているものを名前を持たずに全部出す。
 // Project の欄（優先度・規模など）は機械が決めるので出さない。
-async function load(gate, number) {
+async function load(gate, env, number) {
+  const { config } = gate;
   const issue = await gate.read({ number });
   if (!issue?.item) return { error: "この issue は対象外です。" };
-  if (issue.status !== gate.config.ask.status) return { error: `いまは答える問いがありません（ステータス: ${issue.status ?? "無し"}）。` };
-  if (!answererTurn(gate.config, issue)) return { error: "いまは Claude の番です（答えは届いています）。" };
-  const q = currentQuestion(gate.config, issue);
-  if (!q) return { error: "答える問いがありません。" };
-  if (!q.parsed) return { error: "問いの形が崩れています。Claude が書き直すのを待ってください。" };
+  if (!answererTurn(config, issue)) return { error: issue.state === "OPEN" ? "いまは Claude の番です（答えは届いています）。" : "この issue は閉じています。" };
   const labels = Object.keys(gate.labelIds);
-  return { issue, q, labels, choices: formChoices(gate.config, q.parsed, issue.status) };
+  const blockers = issue.blockedBy.nodes;
+  const q = currentQuestion(config, issue);
+  if (issue.status === config.ask.status && q?.parsed) return { issue, q, labels, choices: formChoices(config, q.parsed, issue.status, blockers) };
+  const place = await placeOf(config, env, issue, q);
+  if (place.url) return { redirect: place.url };
+  const parsed = whatQuestion(config, issue.status, place.why);
+  return { issue, q: { id: questionId(JSON.stringify(parsed)), parsed }, labels, choices: formChoices(config, parsed, issue.status, blockers) };
+}
+
+// 答える問いが無いときに、なぜ「どうしますか？」へ来たか（why）か、移る先（url）。コードのリポジトリは公開なので、
+// Pull Request と CI は回答フォームの持つトークンで読む。
+async function placeOf(config, env, issue, q) {
+  if (issue.status === config.ask.status) return { why: q ? "問いの形が崩れています。" : "答える問いがありません。" };
+  const open = openBlockers(issue.blockedBy.nodes);
+  if (open.length) return { why: `前提 ${open.map((b) => `#${b.number}`).join("・")} が完了（completed）で閉じていません。` };
+  if (issue.status === config.verify.status) return verifyPlace(config, new GitHub(env.FORM_TOKEN), issue.number);
+  return { why: "" };
 }
 
 // materialHtml は GitHub が描いた判断材料。描けなかったとき（null）は、判断材料の文字をそのまま出す。
@@ -107,7 +123,7 @@ function render(config, { issue, q, labels, choices, materialHtml }) {
       `<form><input type="hidden" name="issue" value="${issue.number}"><input type="hidden" name="q" value="${esc(q.id)}">${radios.join("")}` +
       `<p id="who" hidden>次に動くのは <select name="next">${people.join("")}</select></p>` +
       `<p>ラベル</p><div class="labels">${boxes.join("")}</div>` +
-      `<p><textarea name="note" rows="6" placeholder="補足（「その他」「止める」を選んだときは必須）"></textarea></p>` +
+      `<p><textarea name="note" rows="6" placeholder="補足（「その他」と、補足にと書いた選択肢では必須）"></textarea></p>` +
       `<p id="sum"></p><div class="row"><button type="button" id="back" class="ok">戻る</button><button class="ok primary">送信</button>` +
       `<button class="ask primary">確認へ</button></div></form>` +
       (q.parsed.material ? "</div>" : ""),
@@ -115,8 +131,9 @@ function render(config, { issue, q, labels, choices, materialHtml }) {
 }
 
 async function submit(gate, env, data) {
-  const loaded = await load(gate, Number(data.get("issue")));
+  const loaded = await load(gate, env, Number(data.get("issue")));
   if (loaded.error) return loaded;
+  if (loaded.redirect) return { error: "いまは Pull Request か CI を待っています。本文の先頭のボタンから開き直してください。" };
   const { issue, q, labels, choices } = loaded;
   if (data.get("q") !== q.id) return { error: "問いが新しくなっています。開き直してください。" };
   const choice = choices[Number(data.get("choice"))];
@@ -132,10 +149,10 @@ async function submit(gate, env, data) {
   const precheck = await gate.apply({ ...issue }, issue.status, choice.to, { dryRun: true });
   if (!precheck.ok) return { error: precheck.reason };
 
-  // 答えの記録（hidakagit の名義）を先に書き、決定と見せ方（ゲートの名義。本文の問いとボタンを消す）を書いてから返す。
+  // 答えの記録（hidakagit の名義）を先に書き、決定と見せ方（ゲートの名義。本文の問いを消し、ボタンを決定のあとの番に合わせる）を書いてから返す。
   const body = answerBody(gate.config, { question: q.parsed, choices, choice, next, note, added, removed });
   await new Mutations().add("addComment", { subjectId: issue.id, body }).send(new GitHub(env.FORM_TOKEN));
-  const r = await gate.apply(issue, issue.status, choice.to, { next: next ?? undefined, labels: added, unlabels: removed, clearQuestion: true });
+  const r = await gate.apply(issue, issue.status, choice.to, { next: next ?? undefined, labels: added, unlabels: removed, clearQuestion: true, close: choice.close ?? undefined });
   if (!r.ok) return { error: r.reason };
   return { url: issue.url, label: choice.text };
 }
@@ -144,8 +161,9 @@ export async function answerForm(request, env, config) {
   const url = new URL(request.url);
   const gate = await Gate.open(env, config, url.origin);
   if (request.method === "POST") return Response.json(await submit(gate, env, await request.formData()));
-  const loaded = await load(gate, Number(url.searchParams.get("issue")));
+  const loaded = await load(gate, env, Number(url.searchParams.get("issue")));
   if (loaded.error) return page(`<p>${esc(loaded.error)}</p>`, 404);
+  if (loaded.redirect) return Response.redirect(loaded.redirect, 302);
   const material = loaded.q.parsed.material;
   const materialHtml = material
     ? await gate.gh.markdown(material, config.repository).catch((e) => (console.warn(`判断材料を描けなかった: ${e.message}`), null))

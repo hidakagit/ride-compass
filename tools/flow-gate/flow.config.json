@@ -40,6 +40,14 @@
       { "text": "やらない", "to": "完了" }
     ]
   },
+  "what": {
+    "question": "どうしますか？",
+    "move": "「{to}」にする",
+    "options": [
+      { "text": "見送りで閉じる", "to": "完了" },
+      { "text": "完成で閉じる（確かめたことを補足に）", "to": "完了", "close": "COMPLETED", "note": true }
+    ]
+  },
   "formOptions": [
     { "text": "その他（コメント）", "to": null, "next": "hidakagit-bot", "note": true },
     { "text": "止める（保留。理由を補足に）", "to": "保留", "next": "hidakagit", "note": true }

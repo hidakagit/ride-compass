@@ -69,20 +69,30 @@ export function adoptionQuestion(config) {
   return `## 問い\n${config.adoption.question}\n\n### 選択肢\n${options.join("\n")}\n`;
 }
 
-// フォームに出す選択肢。問いの選択肢とフォームが必ず足す選択肢のうち、今のステータスから表で行けるものだけ。
+// フォームに出す選択肢。問いの選択肢とフォームが必ず足す選択肢のうち、今のステータスから表で行けるもの（前提も照らす）だけ。
 // ステータスは選択肢に書いた行き先だけで決まる。行き先を書いていない選択肢（「その他」を含む）は状態を決めず、今のままで
 // 問いを書く側（Claude）の番になる。Claude は補足を読んで問い直すだけで、ステータスを動かさない。
-export function formChoices(config, question, current) {
+export function formChoices(config, question, current, blockers = []) {
   return [...question.options, ...config.formOptions]
     .map((o) => {
       const to = o.to ?? current;
       const fixed = to === current;
-      const rule = fixed ? null : ruleFor(config, current, to);
-      const next = to === config.done ? null : fixed ? claude(config) : (o.next ?? rule?.assign ?? claude(config));
-      return { text: o.text, to, next, fixed, note: Boolean(o.note), ok: fixed || rule };
+      const verdict = fixed ? { ok: true } : check(config, current, to, blockers);
+      const next = to === config.done ? null : fixed ? claude(config) : (o.next ?? verdict.rule?.assign ?? claude(config));
+      return { text: o.text, to, next, fixed, note: Boolean(o.note), close: o.close ?? null, ok: verdict.ok };
     })
     .filter((c) => c.ok)
     .map(({ ok, ...c }) => c);
+}
+
+// 答える人の番なのに答える問いが無いときの問い（what）。選択肢は、表で今のステータスから行ける先と、閉じ方（見送り・完成）。
+// 回答待ちへは問いと一緒にしか入れず、保留へは「止める」で入り、進行中は司令塔が担当を渡すときだけ入れるので、ここには出さない。
+// why は、なぜここへ来たか（判断材料の文）。
+export function whatQuestion(config, status, why) {
+  const skip = [status, config.ask.status, config.hold, config.done, config.verify.from];
+  const targets = [...new Set(config.transitions.filter((t) => t.from.includes(status)).flatMap((t) => t.to))].filter((to) => !skip.includes(to));
+  const options = [...targets.map((to) => ({ text: config.what.move.replace("{to}", to), to, next: null })), ...config.what.options];
+  return { text: config.what.question, options, material: `いまのステータスは「${status ?? "無し"}」です。${why}` };
 }
 
 // 答えのコメント。問いは答えると本文から消えるので、問い・選択肢・判断材料もここに残す（このコメント1つで読める）。
@@ -114,19 +124,29 @@ export function splitBody(body) {
   return { question: (m && QUESTION.exec(m[1])?.[1]) ?? null, rest: m ? text.slice(m[0].length) : text };
 }
 
-// button は { status, text, url, button, alt }。問いもボタンも無ければ印ごと置かない。
+// button は { status, text, url, image }。問いもボタンも無ければ印ごと置かない。
 export function joinBody(rest, question, button) {
   const parts = [
     ...(question ? [`<!-- 問い\n${question}\n-->`] : []),
-    ...(button ? [`[![${button.alt ?? "回答する"}](${button.button})](${button.url})\n\n**${button.status}**: ${button.text}`] : []),
+    ...(button ? [`[![${BUTTON_LABEL}](${button.image})](${button.url})\n\n**${button.status}**: ${button.text}`] : []),
   ];
   return parts.length ? `<!-- flow-gate -->\n${parts.join("\n")}\n<!-- /flow-gate -->\n\n${rest}` : rest;
 }
 
-// 本文の先頭に置くボタンの画像（回答フォーム・Pull Request へ）。GitHub の画面にはボタンを足せないので、本文の先頭にリンク付きの画像として置く。
-const button = (label) =>
+// 答える人（ask.answerer）の番の間は、どのステータスでも本文の先頭にボタンを1つとステータスの行を置く。ボタンは回答フォームの
+// 入口を指し、行き先は押した時点で回答フォームが決める（本文は出来事が来たときにしか書き直されず、書いた時点の行き先は古くなるため）。
+// 答えを待つ問いは、答えるまで同じ場所に画面に出ない形で残す。links は { form: 回答フォームの origin, image: ボタンの画像の URL }。
+export function turnBody(config, links, issue) {
+  const { question, rest } = splitBody(issue.body);
+  if (!answererTurn(config, issue)) return joinBody(rest, question, null);
+  const q = issue.status === config.ask.status && question ? parseQuestion(config, question) : null;
+  const url = `${links.form}/answer?issue=${issue.number}`;
+  return joinBody(rest, question, { status: issue.status ?? "無し", text: q?.text ?? config.what.question, url, image: links.image });
+}
+
+// 本文の先頭に置くボタンの画像。GitHub の画面にはボタンを足せないので、本文の先頭にリンク付きの画像として置く。
+const BUTTON_LABEL = "対応する";
+export const BUTTON_SVG =
   `<svg xmlns="http://www.w3.org/2000/svg" width="152" height="44" viewBox="0 0 152 44"><rect width="152" height="44" rx="8" fill="#1f6feb"/>` +
   `<text x="76" y="28" text-anchor="middle" font-size="17" font-weight="700" fill="#fff" ` +
-  `font-family="system-ui,-apple-system,'Hiragino Sans','Noto Sans JP','Yu Gothic',sans-serif">${label}</text></svg>`;
-export const BUTTON_SVG = button("回答する");
-export const REVIEW_SVG = button("確かめる");
+  `font-family="system-ui,-apple-system,'Hiragino Sans','Noto Sans JP','Yu Gothic',sans-serif">${BUTTON_LABEL}</text></svg>`;

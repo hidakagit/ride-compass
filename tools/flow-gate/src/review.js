@@ -48,6 +48,20 @@ const MESSAGES = {
     `「${issue.status ?? "（ステータス無し）"}」${issue.state === "CLOSED" ? "で閉じている" : "な"}ので、ステータスは動かしていません。どうするかを決めてください。`,
 };
 
+// 答える人が検証中のタスクのボタンを押したときの行き先。開いた Pull Request があればそれ、マージのあとの master の CI が
+// 実行中ならその実行（終われば reconcile が閉じるか戻すので、その間は「どうしますか？」で閉じさせない）。ほかは url を返さず、
+// Pull Request と CI から待てるものが無い理由（why。「どうしますか？」の判断材料）を返す。
+export async function verifyPlace(config, code, number) {
+  const v = await verdictFor(code, config, number);
+  if (v.kind === "none") return { why: "作業ブランチの Pull Request がありません。" };
+  const waiting = v.pr.state === "open" ? v.pr : v.runs?.find((r) => r.status !== "completed");
+  if (waiting) return { url: waiting.html_url };
+  const pr = `Pull Request ${prLink(v.pr)} は`;
+  if (!v.pr.merged_at) return { why: `${pr}マージされずに閉じています。` };
+  if (!v.runs.length) return { why: `${pr}マージ済みですが、マージのあとの master の CI がありません。` };
+  return { why: `${pr}マージ済みで、マージのあとの master の CI は${v.kind === "failed" ? "通りませんでした" : "通りました"}。` };
+}
+
 // 本文のチェックの無い項目（`- [ ]`。本文のチェックは完了の条件にだけ使う）。
 const unchecked = (body) =>
   splitBody(body)

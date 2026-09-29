@@ -8,19 +8,21 @@ const FIELDS = { [config.project.priorityField]: ["高", "中", "低"], [config.
 const BY_NODE = Object.fromEntries(Object.entries(config.people).map(([k, p]) => [p.node, k]));
 
 // code はコードのリポジトリの状態（Pull Request の一覧・master の CI の実行）。
-// parent を渡すと、issue をその子にする（親の子は、parent.siblings の状態と issue の今の状態）。親の id は I_P。
-// markdown を false にすると、Markdown を描く呼び出しが失敗する。
-export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel, "規模S", config.verify.label], code = { prs: [], runs: [] }, markdown = true }) {
+// parent を渡すと issue をその子に（親の子は、parent.siblings の状態と issue の今の状態）、blocked を渡すと issue をその前提にする。
+// 2つ目の issue（親か後ろのタスク）の id は I_P。markdown を false にすると、Markdown を描く呼び出しが失敗する。
+export function fakeGitHub({ issue, parent, blocked, labels = [config.project.urgentLabel, "規模S", config.verify.label], code = { prs: [], runs: [] }, markdown = true }) {
   const blank = { blockedBy: [], subIssues: [], assignees: [], labels: [], lastClose: [], state: "OPEN", fields: {} };
   const state = {
     issue: { ...blank, ...issue },
     parent: parent && { ...blank, siblings: [], ...parent },
+    blocked: blocked && { ...blank, siblings: [], ...blocked },
     writes: [],
     requests: [],
     calls: 0,
     code,
   };
-  const byId = (id) => (id === "I_P" || id === "PVTI_P" ? state.parent : state.issue);
+  const other = state.parent ?? state.blocked;
+  const byId = (id) => (id === "I_P" || id === "PVTI_P" ? other : state.issue);
   const json = (body, status = 200) => new Response(JSON.stringify(body), { status });
   const node = (i) => {
     const main = i === state.issue;
@@ -30,6 +32,7 @@ export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel
       parent: main && state.parent ? { number: state.parent.number } : (i.parent ?? null),
       assignees: { nodes: i.assignees.map((login) => ({ id: config.people[login]?.node, login })) },
       labels: { nodes: i.labels.map((name) => ({ name })) }, blockedBy: { nodes: i.blockedBy },
+      blocking: { nodes: main && state.blocked ? [{ number: state.blocked.number, state: state.blocked.state }] : [] },
       subIssues: { nodes: main ? i.subIssues : [...i.siblings, { state: state.issue.state }] },
       lastClose: { nodes: i.lastClose }, repository: { nameWithOwner: config.repository },
       projectItems: { nodes: [{ id: main ? "PVTI_1" : "PVTI_P", project: { id: "PVT_1" }, fieldValues: { nodes: [
@@ -59,7 +62,7 @@ export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel
       return { organization: { projectV2: { items: { nodes: on ? [{ content: { number: state.issue.number } }] : [] } } } };
     }
     if (query.startsWith("query Task") && state.requests.push("読む")) {
-      const i = state.parent && (variables.id === "I_P" || variables.k === state.parent.number) ? state.parent : state.issue;
+      const i = other && (variables.id === "I_P" || variables.k === other.number) ? other : state.issue;
       return {
         organization: { projectV2: { id: "PVT_1", fields: { nodes: [
           { id: "F_1", name: config.project.statusField, options: Object.entries(OPTIONS).map(([name, id]) => ({ id, name })) },

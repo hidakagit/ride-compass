@@ -2,16 +2,14 @@
 // 1つの出来事では、タスクを1回読み（read）、書き込みを1回にまとめて書く（write）。
 import { GitHub, Mutations, readTask, setField } from "./github.js";
 import { opened, reconcile } from "./review.js";
-import { adoptionQuestion, answererTurn, check, claude, entryFor, joinBody, normalizeBody, parseQuestion, splitBody } from "./rules.js";
+import { adoptionQuestion, answererTurn, check, claude, entryFor, joinBody, normalizeBody, parseQuestion, splitBody, turnBody } from "./rules.js";
 
 export class Gate {
   static async open(env, config, origin) {
     const gate = new Gate();
     gate.config = config;
-    gate.origin = origin;
     // ボタンの画像は GitHub が中継して取りに来るので、Access の外の Worker（GATE_ORIGIN）から返す。
-    gate.buttonUrl = `${env.GATE_ORIGIN ?? origin}/button.svg`;
-    gate.reviewUrl = `${env.GATE_ORIGIN ?? origin}/review.svg`;
+    gate.links = { form: origin, image: `${env.GATE_ORIGIN ?? origin}/button.svg` };
     gate.gh = await GitHub.asApp(env, config.installation);
     return gate;
   }
@@ -23,25 +21,10 @@ export class Gate {
     return r.issue;
   }
 
-  // 答える人（ask.answerer）の番の間だけ、本文の先頭にボタンとステータスの行を置く。回答待ちなら回答フォームへ、
-  // 検証中なら Pull Request へ（作業ブランチで引く検索の画面へ）。答えを待つ問いは、答えるまで同じ場所に画面に出ない形で残す。
-  bodyFor(issue) {
-    const { verify, code, ask } = this.config;
-    const { question, rest } = splitBody(issue.body);
-    const turn = answererTurn(this.config, issue);
-    if (turn && issue.status === verify.status) {
-      const q = encodeURIComponent(`is:pr head:${code.branchPrefix}${issue.number}`);
-      const url = `https://github.com/${code.repository}/pulls?q=${q}`;
-      return joinBody(rest, question, { status: issue.status, text: "Pull Request を確かめ、マージするか閉じるかを決める", url, button: this.reviewUrl, alt: "確かめる" });
-    }
-    const q = turn && issue.status === ask.status ? currentQuestion(this.config, issue) : null;
-    const url = `${this.origin}/answer?issue=${issue.number}`;
-    return joinBody(rest, question, q?.parsed && { status: issue.status, text: q.parsed.text, url, button: this.buttonUrl });
-  }
-
   // 1つのタスクへの書き込みを1回の要求で行う。want には変えたい中身だけを渡す。本文の先頭の見せ方も、書いた後の状態に
   // 合わせて同じ要求に入れる。question は答えを待つ問いを本文の先頭に置く（null なら消す。答えたとき）。
-  // 閉じた子（段階）を書いたあとは、親の子が全部閉じたかを見る（ゲートは自分が閉じた出来事を捨てるので、ここで見る）。
+  // 閉じたタスクを書いたあとは、親の子が全部閉じたか・後ろのタスクが始められなくなったかを見る（ゲートは自分が閉じた出来事を
+  // 捨てるので、ここで見る）。closedAs は、もう閉じている issue の閉じた理由（人が閉じた出来事から渡る）。
   async write(issue, want = {}) {
     const next = {
       ...issue,
@@ -73,7 +56,7 @@ export class Gate {
     const have = issue.labels.nodes.map((l) => l.name);
     const labels = [...new Set([...have.filter((n) => !(want.unlabels ?? []).includes(n)), ...(want.labels ?? [])])].filter((n) => this.labelIds[n]);
     if (labels.length !== have.length || labels.some((n) => !have.includes(n))) update.labelIds = labels.map((n) => this.labelIds[n]);
-    const body = this.bodyFor(next);
+    const body = turnBody(this.config, this.links, next);
     if (body !== normalizeBody(issue.body)) update.body = body;
     if (want.close) update.stateInput = { value: "CLOSED", stateReason: want.close };
     if (Object.keys(update).length) m.add("updateIssue", { id: issue.id, ...update });
@@ -81,6 +64,20 @@ export class Gate {
     await m.send(this.gh);
     Object.assign(issue, next, { body, labels: { nodes: (update.labelIds ? labels : have).map((name) => ({ name })) } });
     if (issue.parent && issue.state === "CLOSED") await this.closeParent(issue.parent.number);
+    const closedAs = want.close ?? want.closedAs;
+    if (closedAs && closedAs !== "COMPLETED") await this.releaseBlocked(issue);
+  }
+
+  // 前提が完了（completed）でなく閉じると、後ろのタスクは進行中にできなくなる（表の blockersCompleted）。Claude の番のまま
+  // 誰も気づかないので、理由を書いて答える人に渡す（本文の先頭のボタンから「どうしますか？」で決める）。
+  async releaseBlocked(issue) {
+    for (const { number, state } of issue.blocking.nodes) {
+      if (state !== "OPEN") continue;
+      const blocked = await this.read({ number });
+      if (!blocked?.item || answererTurn(this.config, blocked)) continue;
+      const comment = `前提 #${issue.number} が完了（completed）でなく閉じたので、このタスクは始められません。どうするかを決めてください。`;
+      await this.write(blocked, { assign: this.config.ask.answerer, comments: [comment] });
+    }
   }
 
   // 子が全部閉じた親を完了（completed）で閉じる。子が完成でも見送りでも、全部閉じれば親の仕事は終わっている。
@@ -139,11 +136,11 @@ export class Gate {
     if (!r.ok) await this.write(issue, { status: from, comments: [`${r.reason}「${from ?? "（無し）"}」へ戻しました。`] });
   }
 
-  async closed(nodeId) {
+  async closed(nodeId, reason) {
     const issue = await this.read({ nodeId });
     if (!issue?.item || issue.status === this.config.done) return;
     if (!check(this.config, issue.status, this.config.done).ok) return;
-    await this.write(issue, { status: this.config.done });
+    await this.write(issue, { status: this.config.done, closedAs: reason });
   }
 
   async reopened(nodeId) {
@@ -163,7 +160,7 @@ export function currentQuestion(config, issue) {
   return question ? { id: questionId(question), body: question, parsed: parseQuestion(config, question) } : null;
 }
 
-function questionId(text) {
+export function questionId(text) {
   let h = 0;
   for (const c of text) h = (h * 31 + c.codePointAt(0)) >>> 0;
   return h.toString(36);
@@ -183,7 +180,7 @@ export async function handleEvent(env, config, origin, name, payload) {
   }
   if (name !== "issues") return "対象外の出来事";
   const gate = await Gate.open(env, config, origin);
-  if (payload.action === "closed") return gate.closed(payload.issue.node_id);
+  if (payload.action === "closed") return gate.closed(payload.issue.node_id, payload.issue.state_reason?.toUpperCase());
   if (payload.action === "reopened") return gate.reopened(payload.issue.node_id);
   return gate.touched(payload.issue.node_id);
 }
