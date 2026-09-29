@@ -9,7 +9,7 @@ import { splitBody } from "./rules.js";
 const PASSED = ["success", "skipped", "neutral"];
 
 // Pull Request と CI から、検証中のタスクがどこへ動くべきかを決める。none は Pull Request がまだ無い（出されるのを待つ）。
-export async function verdictFor(code, config, number) {
+async function verdictFor(code, config, number) {
   const { repository, branchPrefix, base } = config.code;
   const owner = repository.split("/")[0];
   const [pr] = await code.rest("GET", `/repos/${repository}/pulls?head=${owner}:${branchPrefix}${number}&state=all&sort=created&direction=desc&per_page=1`);

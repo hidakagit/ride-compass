@@ -1,14 +1,15 @@
-// Claude の番（hidakagit-bot に割り当て）のタスクを、司令塔が振り出す順に並べて出す。
-// 並び: 採否待ち・回答待ち（Claude に戻った問い。「その他」で答えた採否や、形の崩れた問い）→ 検証中 → 未着手。それぞれの中は
-// ラベル「急ぎ」（project.urgentLabel。ユーザーの依頼で、優先度の欄より上）→ Project の優先度の欄の選択肢の順（欄に選択肢を足せば、そのまま並びに効く。
+// Claude の番（Claude に割り当て）のタスクを、司令塔が振り出す順に並べて出す。
+// 並び: ステータスの順（coordinator.order。Claude に戻った問い → 検証中 → 未着手）→ ラベル「急ぎ」（project.urgentLabel。
+// ユーザーの依頼で、優先度の欄より上）→ Project の優先度の欄の選択肢の順（欄に選択肢を足せば、そのまま並びに効く。
 // 値の無いものは最後）→ 番号の若い順。前提が閉じていない未着手には印を付ける。
 // 使い方: node tools/flow-gate/bin/queue.js [--json]
 import config from "../flow.config.json" with { type: "json" };
 import { GitHub } from "../src/github.js";
+import { claude, openBlockers } from "../src/rules.js";
 import { botToken } from "./token.js";
 
-const ORDER = ["採否待ち", "回答待ち", "検証中", "未着手"];
-const bot = config.people["hidakagit-bot"].node;
+const ORDER = config.coordinator.order;
+const bot = config.people[claude(config)].node;
 const gh = new GitHub(botToken());
 const q = `query Queue($o: String!, $n: Int!, $field: String!, $p: String!, $c: String) { organization(login: $o) { projectV2(number: $n) {
   field(name: $p) { ... on ProjectV2SingleSelectField { options { name } } }
@@ -38,7 +39,7 @@ const tasks = items
     url: t.url,
     urgent: t.labels.nodes.some((l) => l.name === config.project.urgentLabel),
     priority: t.priority,
-    waitingFor: t.blockedBy.nodes.filter((b) => !(b.state === "CLOSED" && b.stateReason === "COMPLETED")).map((b) => b.number),
+    waitingFor: openBlockers(t.blockedBy.nodes).map((b) => b.number),
   }))
   .sort((a, b) => ORDER.indexOf(a.status) - ORDER.indexOf(b.status) || b.urgent - a.urgent || rank(a.priority) - rank(b.priority) || a.number - b.number);
 

@@ -2,7 +2,7 @@
 // ステータス・割り当て・ラベルはゲートの遷移の処理（Gate.apply）がゲートの名義で書く。
 import { Gate, currentQuestion } from "./gate.js";
 import { GitHub, Mutations } from "./github.js";
-import { answerBody, formChoices } from "./rules.js";
+import { answerBody, answererTurn, formChoices } from "./rules.js";
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
@@ -75,8 +75,7 @@ async function load(gate, number) {
   const issue = await gate.read({ number });
   if (!issue?.item) return { error: "この issue は対象外です。" };
   if (!gate.config.ask.statuses.includes(issue.status)) return { error: `いまは答える問いがありません（ステータス: ${issue.status ?? "無し"}）。` };
-  const answerer = gate.config.people[gate.config.ask.answerer].node;
-  if (!issue.assignees.nodes.some((a) => a.id === answerer)) return { error: "いまは Claude の番です（答えは届いています）。" };
+  if (!answererTurn(gate.config, issue)) return { error: "いまは Claude の番です（答えは届いています）。" };
   const q = currentQuestion(gate.config, issue);
   if (!q) return { error: "答える問いがありません。" };
   if (!q.parsed) return { error: "問いの形が崩れています。Claude が書き直すのを待ってください。" };

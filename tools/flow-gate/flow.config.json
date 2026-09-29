@@ -35,6 +35,7 @@
   "afterAnswer": { "回答待ち": "未着手" },
   "verify": { "status": "検証中", "label": "ユーザー確認", "back": "未着手" },
   "code": { "repository": "hidakagit/ride-compass", "branchPrefix": "orch/tasks-", "base": "master" },
+  "coordinator": { "order": ["採否待ち", "回答待ち", "検証中", "未着手"], "busy": ["進行中", "検証中"], "worktrees": ["w1", "w2", "w3", "w4"] },
   "adoption": {
     "status": "採否待ち",
     "question": "このタスクをやりますか？",

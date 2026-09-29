@@ -77,7 +77,14 @@ export class Mutations {
   }
 }
 
-const TASK = `fragment Task on Issue { id number title body url state stateReason author { login ... on User { databaseId } }
+// Project の単一選択の欄（Status・規模など）を名前と選択肢の名前で書く1件を、まとめる書き込み（Mutations）に足す。
+export function setField(m, project, item, name, value) {
+  const field = project.fields[name];
+  if (!field?.options[value]) throw new Error(`欄「${name}」に選択肢「${value}」がありません（${field ? field.order.join("・") : Object.keys(project.fields).join("・")}）。`);
+  return m.add("updateProjectV2ItemFieldValue", { projectId: project.id, itemId: item, fieldId: field.id, value: { singleSelectOptionId: field.options[value] } });
+}
+
+const TASK = `fragment Task on Issue { id number title body url state author { ... on User { databaseId } }
   parent { number } assignees(first: 5) { nodes { id login } } labels(first: 20) { nodes { name } }
   blockedBy(first: 50) { nodes { number state stateReason } } subIssues(first: 50) { nodes { state } }
   lastClose: timelineItems(last: 1, itemTypes: [CLOSED_EVENT]) { nodes { ... on ClosedEvent { stateReason } } }
@@ -101,8 +108,7 @@ export async function readTask(gh, config, ref) {
   const fields = Object.fromEntries(
     p.fields.nodes.filter((f) => f.options).map((f) => [f.name, { id: f.id, options: Object.fromEntries(f.options.map((x) => [x.name, x.id])), order: f.options.map((x) => x.name) }]),
   );
-  const status = fields[config.project.statusField];
-  const project = { id: p.id, field: status.id, options: status.options, fields };
+  const project = { id: p.id, fields };
   const labels = Object.fromEntries(d.repository.labels.nodes.map((l) => [l.name, l.id]));
   const issue = ref.nodeId ? d.node : d.repository.issue;
   if (!issue || issue.repository?.nameWithOwner !== config.repository) return { project, labels, issue: null };

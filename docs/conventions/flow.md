@@ -43,8 +43,7 @@
 
     node tools/flow-gate/bin/move.js <issue の番号> <ステータス>
 
-表で通らない変化は書く前に断る。回答待ちへ動かすときは、今の問い（「問い」の節）が形に合わなければ断る。
-問うときは move.js ではなく `ask.js`（「問い」の節）を使う。
+表で通らない変化は書く前に断る。採否待ち・回答待ちへは動かさない（問いと一緒に `ask.js` で動かす。「問い」の節）。
 Claude の番を振り出す順に並べて出すのは `node tools/flow-gate/bin/queue.js`（`--json` で機械向け）。
 
 ## 司令塔と担当（Claude が自分の番を進める）
@@ -56,16 +55,16 @@ Claude の番（hidakagit-bot に割り当て）は、司令塔が担当へ振�
   アプリが開いていて PC が起きている間だけ動く。前の回のセッションが動いている間は次の回を飛ばすが、背景の担当を待って
   いる間はセッションが動いていない扱いになり、次の回が起きる。そのため司令塔は担当を待たずに終わり、終わったあとに届いた
   担当の報告では何も動かさない（二つの司令塔が同じ作業ツリーへ振り出さないため）。空いた作業ツリーは次の起動が埋める。
-- **作業ツリー**: 本体の `.claude/worktrees/` に、司令塔用の `coord` と担当用の `w1`〜`w4` を置いたままにして使い回す
+- **作業ツリー**: 本体の `.claude/worktrees/` に、司令塔用の `coord` と担当用（`flow.config.json: coordinator.worktrees`。例: `w1`〜`w4`）を置いたままにして使い回す
   （frontend の依存の入れ直しを毎回しないため。`node_modules` の共有は CLAUDE.md で禁止）。どれをどの issue が
   使っているかは `node tools/flow-gate/bin/slots.js` が、作業ツリーのブランチ・issue のステータス・ステータスが変わってからの
-  時間・Project の規模の欄からその場で組み立てて出す（表は持たない）。担当を一度に動かすのは最大4人。
+  時間・Project の規模の欄からその場で組み立てて出す（表は持たない）。担当を一度に動かすのは、担当用の作業ツリーの数まで。
 - **重い処理は機械全体で1本ずつ**: 依存の入れ直し・型検査・テスト・ビルド・e2e は `python scripts/heavy.py -- <コマンド>`
   で包む（同時に走ると CPU とディスクを取り合って1本ごとの所要が何倍にも伸びる）。
 
 **司令塔の1回**
 1. `coord` を `git fetch origin master` のあと `git checkout --detach origin/master` にし、そこでこの節を読み直す。
-2. `node tools/flow-gate/bin/queue.js --json` で Claude の番を読む（並びは Claude に戻った採否待ち・回答待ち → 検証中 → 未着手、
+2. `node tools/flow-gate/bin/queue.js --json` で Claude の番を読む（並びはステータスの順 `coordinator.order`（Claude に戻った採否待ち・回答待ち → 検証中 → 未着手）、
    中はラベル「急ぎ」（ユーザーの依頼。優先度の欄より上。`project.urgentLabel`）→ Project の優先度の欄の選択肢の順 → 番号の若い順）。
 3. `slots.js` で空いている作業ツリーを見て、その数まで上から振り出す。
    採否待ち・回答待ち（Claude に戻った問い）は、ステータスを動かさずに作る担当へ渡す（担当は答えや補足を読み、提案か問いを

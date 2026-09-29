@@ -245,6 +245,7 @@ test("設定の不変条件: 表・入口・フォームが使う名前はすべ
     assert.ok(t.assign === null || people.includes(t.assign), t.assign);
   }
   for (const e of config.entry) assert.ok(config.statuses.includes(e.to) && people.includes(e.assign));
+  for (const s of [...config.coordinator.order, ...config.coordinator.busy]) assert.ok(config.statuses.includes(s), s);
   for (const [from, to] of Object.entries(config.afterAnswer)) assert.ok(check(config, from, to).ok, `${from}→${to}`);
   const adoption = parseQuestion(config, adoptionQuestion(config));
   for (const status of config.ask.statuses)
