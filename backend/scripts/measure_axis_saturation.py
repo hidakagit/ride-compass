@@ -17,10 +17,14 @@
     python scripts/measure_axis_saturation.py
     python scripts/measure_axis_saturation.py --axis stop_density --sample-percent 5
     python scripts/measure_axis_saturation.py --bbox 35.65,139.72,35.71,139.80
+    python scripts/run_probe.py scripts/measure_axis_saturation.py --bbox 35.65,139.72,35.71,139.80   # 本番
+
+抽選（`TABLESAMPLE`）は回ごとに違う標本を引く。同じ標本で前後を比べるなら`--bbox`で範囲を決める。
 """
 
 import argparse
 import asyncio
+import os
 import sys
 from collections import defaultdict
 from collections.abc import Callable
@@ -99,12 +103,13 @@ def saturation_cause(rows: list[Row]) -> Cause | None:
 
 
 async def run(
+    database_url: str | None,
     axis_filter: str | None,
     sample_percent: float,
     limit: int,
     bbox: BoundingBox | None,
 ) -> int:
-    async with batch_session_factory(None) as session_factory:
+    async with batch_session_factory(database_url) as session_factory:
         async with session_factory() as session:
             # 軸定義はDBが唯一の正本。Python側に既定値は無いため先に読み込む。
             await refresh_axis_definitions(AxisDefinitionRepository(session))
@@ -189,9 +194,11 @@ def main() -> int:
     parser.add_argument(
         "--bbox", default=None,
         help="この範囲だけを測る（min_lat,min_lon,max_lat,max_lon。抽選は使わない）")
+    parser.add_argument("--database-url", default=None, help="既定: 本番の調査の道具が渡す接続先、無ければ設定値")
     args = parser.parse_args()
     bbox = parse_bbox(args.bbox) if args.bbox else None
-    return asyncio.run(run(args.axis, args.sample_percent, args.limit, bbox))
+    database_url = args.database_url or os.environ.get("PROBE_DATABASE_URL")
+    return asyncio.run(run(database_url, args.axis, args.sample_percent, args.limit, bbox))
 
 
 if __name__ == "__main__":

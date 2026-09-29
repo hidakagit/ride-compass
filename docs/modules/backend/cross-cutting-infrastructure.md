@@ -41,7 +41,8 @@ DB接続・Redis・HTTPクライアント・レート制限・ログ・デバッ
 | scripts | `schema_gap.py` | 実DBのスキーマとORMの宣言（`orm_base.declared_metadata`）の差を出す。宣言どおりの表を同じ接続の一時スキーマへ作ってから巻き戻すまでの間に、`public`とカタログを突き合わせる——制約・既定値・索引の式をPostgreSQLが正規化した形で比べるので、CHECKの式・主キー・一意も比べられる。名前は比べない。本番DBへは`run_probe.py`で当てる |
 | scripts | `lost_constraints.py` | 2つの版の`backend/app`をgitから取り出し、ORMが宣言する表・制約を名前抜きの同じ形へ揃えて、消えたものを出す（DBは使わない）。SQLの文の中の絞り込みは見ない——断片をつないで組み立てるSQLは文字列から構文木を取れないものが残るため |
 | scripts | `_stdio.py` | `scripts/`の実行口が共通で使う、標準出力・標準エラーのUTF-8化 |
-| scripts | `run_probe.py` | 調査用のスクリプトを本番DBに対して走らせる（手元のPythonから本番DBを引くか、本番のbackendコンテナの中で走らせる）。手元実行では接続文字列をSQLAlchemy用と素のasyncpg用の両方の形で環境変数へ渡す |
+| scripts | `run_probe.py` | 調査用のスクリプトを本番DBに対して走らせる（手元のPythonから本番DBを引くか、本番のbackendコンテナの中で走らせる）。手元実行では接続文字列をSQLAlchemy用と素のasyncpg用の両方の形で環境変数へ渡す。プローブの後ろに書いた引数はそのままプローブへ渡す |
+| scripts | `derived_distribution.py` | 派生の表の値の列ごとに、値のある割合と、型に応じた分布（数: 0でない割合・合計・分位・最大、真偽: 真の割合、文字: 種類の数）を1列1行で出す。表と列は`infrastructure/derived_data_freshness.py: derived_tables`・`value_columns`から導く。派生の値を変える変更の前後を並べるための道具（[flow.md](../../conventions/flow.md)「分布の前後」）。本番DBへは`run_probe.py`で当てる |
 | scripts | `_prod_env.py` | 本番へつなぐ道具（`run_probe.py`・`axis_apply.py`等）が共有する、手元の接続情報（`backend/.env.oracle.local`）の読み方。worktreeから打ったときは本体のチェックアウト側のファイルを読む（gitignore対象のファイルはworktreeへ写らない） |
 
 ## Pydanticモデルの基底（`domain/strict_model.py`）
