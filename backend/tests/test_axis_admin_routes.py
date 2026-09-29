@@ -303,7 +303,7 @@ class TestPayloadValidation:
     @pytest.mark.parametrize(
         ("fields", "reason"),
         [
-            ({"shape": linear_shape("ghost")}, "無い材料・軸を指しています: ['ghost']"),
+            ({"shape": linear_shape("ghost")}, "存在しない材料・軸を指しています（ghost）"),
             (
                 {"dedicated_way_value_layer": True, "shape": linear_shape(NUM_A, NUM_B)},
                 "専用配信の軸は",

@@ -24,6 +24,7 @@ import {
 import { Button } from "@/components/ui/Button/Button";
 import { Input, Select, Textarea } from "@/components/ui/Input/Input";
 import { textVariants } from "@/components/ui/Text/Text";
+import { calloutVariants } from "@/components/ui/Callout/Callout";
 import { cn } from "@/lib/cn";
 import { cardVariants } from "@/components/ui/Card/Card";
 import { fieldClass } from "@/components/ui/Input/Input";
@@ -214,10 +215,8 @@ export function AxisMapDisplaySection({
               />
               {thresholdError && <p className={cn(textVariants({ variant: "error" }), "mt-1")}>{thresholdError}</p>}
               {!thresholdError && thresholdsDroppedOnMap.length > 0 && (
-                <div className="flex items-center gap-1">
-                  <p className={cn(textVariants({ variant: "error" }), "mt-1")}>
-                    地図では効かない: {formatThresholdList(thresholdsDroppedOnMap)}
-                  </p>
+                <div className={cn(calloutVariants({ tone: "warning" }), "mt-1 flex items-center gap-1")}>
+                  <p className="m-0">地図では効かない: {formatThresholdList(thresholdsDroppedOnMap)}</p>
                   <InfoPopoverButton
                     ariaLabel="地図では効かない値の説明"
                     description="点数の決め方で、この値は1つ手前の境界と同じ点数になります。地図は点数が変わらない所に段を作らないため、下の段階はこの値を除いた地図の段で出しています。刻みたい場合は、点数の決め方（0点・100点にする値や折れ点）を先に広げてください。"

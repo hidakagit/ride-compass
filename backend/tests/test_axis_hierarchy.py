@@ -125,7 +125,7 @@ class TestTheEvaluationOrder:
             topological_axis_order(definitions)
 
         assert "a" in caught.value.cycle and "b" in caught.value.cycle
-        assert "->" in str(caught.value)
+        assert "「軸[a]」→「軸[b]」→「軸[a]」" in str(caught.value)
 
     def test_an_axis_that_references_itself_is_a_cycle(self):
         definitions = _definitions(_axis("a", ["a"]))

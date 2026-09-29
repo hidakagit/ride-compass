@@ -221,6 +221,31 @@ def axis_error(message: str) -> PydanticCustomError:
     return PydanticCustomError("axis_definition", message)
 
 
+#: 材料の型の呼び名。軸スタジオの材料の選択肢の分け方と同じ語にする。
+_DTYPE_NAMES: dict[material_catalog.MaterialDType, str] = {
+    "numeric": "数値",
+    "boolean": "はい・いいえ",
+    "categorical": "種類",
+}
+
+
+def named_references(refs: Iterable[str], axes: Mapping[str, "AxisDefinition"]) -> str:
+    """材料・軸の参照を、利用者が画面で見る名前（材料は`MaterialSpec.label`、軸は`label`）で「」に包んで並べる。
+
+    検証・断りの文に使う——idは画面のどこにも出ないので、idで名指すと利用者はどれのことか辿れない。
+    材料にも軸にも無い参照は名前を持たないため、idのまま包む。
+    """
+
+    def name(ref: str) -> str:
+        spec = material_catalog.MATERIAL_CATALOG.get(ref)
+        if spec is not None:
+            return spec.label
+        axis = axes.get(ref)
+        return axis.label if axis is not None else ref
+
+    return "".join(f"「{name(ref)}」" for ref in refs)
+
+
 #: 地図チップに出す名前の上限（文字数）。地図チップは固定サイズのタイルで、これを超えるとはみ出す。
 MAP_CHIP_LABEL_MAX_LENGTH = 4
 
@@ -418,15 +443,19 @@ class AxisMaterialConflictError(ValueError):
     事故を構造的に防ぐ。
     """
 
-    def __init__(self, axis_id: str, conflicting_axis_id: str, overlapping_materials: set[str]) -> None:
-        self.axis_id = axis_id
-        self.conflicting_axis_id = conflicting_axis_id
+    def __init__(self, candidate: "AxisDefinition", conflicting: "AxisDefinition", overlapping_materials: set[str]) -> None:
+        self.axis_id = candidate.axis_id
+        self.conflicting_axis_id = conflicting.axis_id
         self.overlapping_materials = overlapping_materials
-        materials = ", ".join(sorted(overlapping_materials))
+        other = named_references([conflicting.axis_id], {conflicting.axis_id: conflicting})
         super().__init__(
-            f"axis '{axis_id}' shares material(s) [{materials}] with existing axis '{conflicting_axis_id}'; "
-            f"each material may belong to at most one axis (exclusive assignment principle)"
+            f"材料{named_references(sorted(overlapping_materials), {})}は、すでに軸{other}が使っています"
+            f"（1つの材料は1つの軸でだけ数えます）。別の材料を選ぶか、{other}を「ほかの軸」として組み合わせてください。"
         )
+
+
+#: 公開済みの軸に拒む操作。
+PublishedAxisAction = Literal["updated", "deleted"]
 
 
 class AxisPublishedImmutableError(ValueError):
@@ -443,13 +472,18 @@ class AxisPublishedImmutableError(ValueError):
     変更・削除は不変という原則自体は変えない。
     """
 
-    def __init__(self, axis_id: str, action: str) -> None:
-        self.axis_id = axis_id
+    def __init__(self, existing: "AxisDefinition", action: PublishedAxisAction) -> None:
+        self.axis_id = existing.axis_id
         self.action = action
-        super().__init__(
-            f"axis '{axis_id}' is published and cannot be {action} "
-            f"(publish-immutability principle); duplicate it as a new draft axis instead"
-        )
+        name = named_references([existing.axis_id], {existing.axis_id: existing})
+        if action == "deleted":
+            message = f"{name}は公開中のため削除できません。先に非公開に戻してください。"
+        else:
+            message = (
+                f"{name}は公開中のため、表示以外は変えられません。非公開に戻してから変えるか、"
+                "複製して新しい軸として作ってください。"
+            )
+        super().__init__(message)
 
 
 # 評価ロジック（shape・default_weight・priority_overrides等）に一切影響しない
@@ -478,15 +512,17 @@ def is_cosmetic_only_update(existing: AxisDefinition, candidate: AxisDefinition)
     return patched == candidate
 
 
-def check_publish_immutability(existing: AxisDefinition, action: str, candidate: AxisDefinition | None = None) -> None:
+def check_publish_immutability(
+    existing: AxisDefinition, action: PublishedAxisAction, candidate: AxisDefinition | None = None
+) -> None:
     """`existing`が公開済みなら`AxisPublishedImmutableError`を送出する（更新・削除の
-    どちらの直前でも呼べる汎用関数、`action`はエラーメッセージ用の英語動詞句）。
+    どちらの直前でも呼べる汎用関数、`action`は断りの文を選ぶ）。
 
     `candidate`（更新後の内容）が渡され、かつその差分が表示専用
     フィールドのみ（`is_cosmetic_only_update`）の場合は例外的に許可する。`delete()`のように
     `candidate`が無い呼び出しは一律拒否のまま。"""
     if existing.is_published and not (candidate is not None and is_cosmetic_only_update(existing, candidate)):
-        raise AxisPublishedImmutableError(existing.axis_id, action)
+        raise AxisPublishedImmutableError(existing, action)
 
 
 def check_material_exclusivity(candidate: AxisDefinition, existing: dict[str, AxisDefinition]) -> None:
@@ -512,17 +548,17 @@ def check_material_exclusivity(candidate: AxisDefinition, existing: dict[str, Ax
             continue
         overlap = candidate_materials & {m for m in other.materials if is_known_material(m)}
         if overlap:
-            raise AxisMaterialConflictError(candidate.axis_id, other_id, overlap)
+            raise AxisMaterialConflictError(candidate, other, overlap)
 
 
 class AxisDependencyCycleError(ValueError):
     """軸間の依存関係（他の軸をmaterialとして参照する構造）に循環があった場合に
     送出する。"""
 
-    def __init__(self, cycle: list[str]) -> None:
+    def __init__(self, cycle: list[str], definitions: Mapping[str, "AxisDefinition"]) -> None:
         self.cycle = cycle
-        chain = " -> ".join(cycle)
-        super().__init__(f"circular axis dependency detected: {chain}")
+        chain = "→".join(named_references([axis_id], definitions) for axis_id in cycle)
+        super().__init__(f"軸の組み合わせが輪になっています（{chain}）。どこか1か所の組み合わせを外してください。")
 
 
 def axis_dependencies(definition: AxisDefinition, known_axis_ids: set[str]) -> set[str]:
@@ -594,12 +630,13 @@ class AxisInternalAxisPublishError(ValueError):
     （`GET /api/axis-catalog`、is_publishedフィルタのみ）へそのまま漏れ出てしまう。
     """
 
-    def __init__(self, axis_id: str, referencing_axis_id: str) -> None:
-        self.axis_id = axis_id
-        self.referencing_axis_id = referencing_axis_id
+    def __init__(self, candidate: "AxisDefinition", referencing: "AxisDefinition") -> None:
+        self.axis_id = candidate.axis_id
+        self.referencing_axis_id = referencing.axis_id
+        axes = {candidate.axis_id: candidate, referencing.axis_id: referencing}
         super().__init__(
-            f"axis '{axis_id}' is referenced by axis '{referencing_axis_id}' as an internal axis "
-            f"and cannot be published (internal axes stay permanently unpublished)"
+            f"{named_references([candidate.axis_id], axes)}は{named_references([referencing.axis_id], axes)}が組み合わせに使っている軸なので、"
+            "公開できません（組み合わせに使う軸は非公開のまま使います）。公開せずに保存してください。"
         )
 
 
@@ -615,10 +652,10 @@ def check_internal_axis_not_published(candidate: AxisDefinition, existing: dict[
         if other_id == candidate.axis_id:
             continue
         if candidate.axis_id in axis_dependencies(other, known_axis_ids):
-            raise AxisInternalAxisPublishError(candidate.axis_id, other_id)
+            raise AxisInternalAxisPublishError(candidate, other)
 
 
-def check_axis_definition(definition: AxisDefinition, known_axis_ids: Collection[str]) -> None:
+def check_axis_definition(definition: AxisDefinition, axes: Mapping[str, AxisDefinition]) -> None:
     """軸の値の不変条件のうち、軸の外（材料カタログ・ほかの軸）に照らすものと、地図チップへ出す名前の長さ。
 
     書き手を問わず成り立つべきもので、管理APIの本文（`AxisDefinitionPayload`）も、起動時の読み込み
@@ -626,11 +663,11 @@ def check_axis_definition(definition: AxisDefinition, known_axis_ids: Collection
     検証に置かないのは、保存済みの行を読み出す管理APIの一覧・単体取得が、通らなくなった行（材料を
     カタログから外した後の軸等）もそのまま見せて直させる必要があるため。
 
-    `known_axis_ids`は、材料idでない参照を軸の参照として受け入れる軸idの集合。誤りは`axis_error`。
+    `axes`は、材料idでない参照を軸の参照として受け入れる軸（誤りの文ではその表示名で名指す）。誤りは`axis_error`。
     """
     _check_map_chip_name(definition)
     _check_dynamic_and_static_materials_are_not_mixed(definition)
-    _check_references(definition, known_axis_ids)
+    _check_references(definition, axes)
 
 
 def _check_map_chip_name(definition: AxisDefinition) -> None:
@@ -662,12 +699,13 @@ def _check_dynamic_and_static_materials_are_not_mixed(definition: AxisDefinition
     static = {m for m in materials if material_catalog.is_known_material(m)} - REQUEST_DYNAMIC_MATERIAL_IDS
     if dynamic and static:
         raise axis_error(
-            f"時刻で変わる材料{sorted(dynamic)}と、変わらない材料{sorted(static)}を1つの軸で組み合わせることは"
-            "できません（時刻で変わる評価には、時刻で変わる材料と公開軸の点数しか届かないため）。"
+            f"時刻で変わる材料{named_references(sorted(dynamic), {})}と、変わらない材料{named_references(sorted(static), {})}は"
+            "1つの軸で組み合わせられません（時刻で変わる評価には、時刻で変わる材料と公開軸の点数しか届かないため）。"
+            "変わらない材料で別の軸を作り、「ほかの軸」として組み合わせてください。"
         )
 
 
-def _check_references(definition: AxisDefinition, known_axis_ids: Collection[str]) -> None:
+def _check_references(definition: AxisDefinition, axes: Mapping[str, AxisDefinition]) -> None:
     """shapeと0次条件が指す材料・軸が既知で、材料の型がその使われ方に合うこと。
 
     どれも破っても評価はエラーもログも出さず、その軸（または条件）が全区間で恒久的に効かなくなる:
@@ -685,50 +723,53 @@ def _check_references(definition: AxisDefinition, known_axis_ids: Collection[str
     `topological_axis_order`が見る。
     """
     shape = definition.shape
+    expected_dtypes: tuple[material_catalog.MaterialDType, ...]
     if isinstance(shape, BreakpointLinearShape):
         materials = [term.material for term in shape.terms]
-        expected_dtypes = {"numeric", "boolean"}
+        expected_dtypes = ("numeric", "boolean")
     else:
         materials = [shape.material]
-        expected_dtypes = {"boolean", "categorical"}
-    unknown = sorted({m for m in materials if not material_catalog.is_known_material(m) and m not in known_axis_ids})
+        expected_dtypes = ("boolean", "categorical")
+    unknown = sorted({m for m in materials if not material_catalog.is_known_material(m) and m not in axes})
     if unknown:
-        raise axis_error(f"材料カタログに無い材料・軸を指しています: {unknown}")
+        raise axis_error(f"存在しない材料・軸を指しています（{', '.join(unknown)}）。点数の決め方で選び直してください。")
     mismatched = sorted({m for m in materials if material_catalog.is_known_material(m) and material_catalog.material_dtype(m) not in expected_dtypes})
     if mismatched:
+        kinds = "・".join(_DTYPE_NAMES[dtype] for dtype in expected_dtypes)
         raise axis_error(
-            f"材料{mismatched}はこの計算の形には使えません（使える材料の型: {sorted(expected_dtypes)}）。"
+            f"材料{named_references(mismatched, axes)}は、この点数の決め方には使えません（使えるのは{kinds}の材料）。"
         )
     if isinstance(shape, CategoricalShape) and material_catalog.is_known_material(shape.material):
-        dtype = material_catalog.material_dtype(shape.material)
+        dtype = material_catalog.MATERIAL_CATALOG[shape.material].dtype
         key_types = {type(key) for key in shape.mapping}
         expected_key_type = bool if dtype == "boolean" else str
         if key_types and key_types != {expected_key_type}:
+            keys = "「はい」「いいえ」" if dtype == "boolean" else "値の名前"
             raise axis_error(
-                f"材料「{shape.material}」（型 {dtype}）の値の行の値の型が合いません"
-                f"（{sorted(t.__name__ for t in key_types)}。すべて{expected_key_type.__name__}にしてください）。"
+                f"{named_references([shape.material], axes)}は{_DTYPE_NAMES[dtype]}の材料なので、"
+                f"値ごとの点数の行は{keys}で書いてください。"
             )
     unknown_override_materials = sorted(
         {
             cond.material
             for cond in definition.priority_overrides
-            if not material_catalog.is_known_material(cond.material) and cond.material not in known_axis_ids
+            if not material_catalog.is_known_material(cond.material) and cond.material not in axes
         }
     )
     if unknown_override_materials:
-        raise axis_error(f"優先条件が材料カタログに無い材料・軸を指しています: {unknown_override_materials}")
+        raise axis_error(f"優先条件が存在しない材料・軸を指しています（{', '.join(unknown_override_materials)}）。")
     for cond in definition.priority_overrides:
         override_dtype = material_catalog.material_dtype(cond.material) if material_catalog.is_known_material(cond.material) else None
         if override_dtype not in ("boolean", "categorical"):
-            kind = "軸の点数" if override_dtype is None else "数値の材料"
+            kind = "軸" if override_dtype is None else "数値の材料"
             raise axis_error(
-                f"優先条件は真偽・分類の材料にだけ置けます（「{cond.material}」は{kind}で、値の名前と一致しません）。"
+                f"優先条件は、はい・いいえか種類の材料にだけ置けます（{named_references([cond.material], axes)}は{kind}です）。"
             )
         expected_type = bool if override_dtype == "boolean" else str
         if not isinstance(flag_or_value_name(cond.equals), expected_type):
             raise axis_error(
-                f"優先条件の値「{cond.equals}」は材料「{cond.material}」（型 {override_dtype}）の値として読めません"
-                "（真偽の材料は\"true\"か\"false\"、分類の材料は値の名前で書いてください）。"
+                f"優先条件の値「{cond.equals}」は{named_references([cond.material], axes)}の値として読めません"
+                "（はい・いいえの材料は\"true\"か\"false\"、種類の材料は値の名前で書いてください）。"
             )
 
 
@@ -774,7 +815,7 @@ def topological_axis_order(definitions: dict[str, AxisDefinition]) -> list[str]:
         if state == 1:
             return
         if state == 0:
-            raise AxisDependencyCycleError([*path, axis_id])
+            raise AxisDependencyCycleError([*path, axis_id], definitions)
         visited[axis_id] = 0
         for dep in sorted(axis_dependencies(definitions[axis_id], known_axis_ids)):
             visit(dep, [*path, axis_id])
