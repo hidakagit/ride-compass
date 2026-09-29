@@ -1,23 +1,25 @@
-// 司令塔の様子を Project の「状況の更新」に書く（hidakagit-bot の名義）。司令塔の1回の最後に呼ぶ。
+// 担当とスロットの様子を Project の「状況の更新」に書く（hidakagit-bot の名義）。起動役（work.js）が、担当を起こしたときと
+// 後始末のあとに呼ぶ（スロットの鍵が変わるたび）。本文の最後に、見張り（src/status.js: watchCoordinator）が読む空きと
+// 振り出せる仕事の数を、画面に出ない形で残す。
 // スロット（slots.js）・キュー（queue.js）・検証中の Pull Request・ほかが書いた状況の更新を読み、異常を機械で見つける。
 // キューの長さは異常に数えない（スロットより多い仕事は待つのが普通で、振り出しが止まったことは起きた時刻の古さに出る）。
 // 異常が1つでもあれば At risk、無ければ On track。最新の更新が自分の書いたもので状態が同じなら書き換え、違えば新しく足す
 // （起きるたびに履歴を増やさず、状態が変わった所だけが履歴に残る）。閾値は flow.config.json: coordinator。
-// 使い方: node tools/flow-gate/bin/status.js [--found <司令塔が見つけた異常と、したこと>]...
+// 使い方: node tools/flow-gate/bin/status.js [--found <起動役が見つけた異常と、したこと>]...
 import { execFileSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import config from "../flow.config.json" with { type: "json" };
 import { GitHub } from "../src/github.js";
 import { latestPr } from "../src/review.js";
-import { AT_RISK, OFF_TRACK, ON_TRACK, clock, coordinatorUpdate, putUpdate, readUpdates } from "../src/status.js";
+import { AT_RISK, OFF_TRACK, ON_TRACK, clock, coordinatorUpdate, marker, putUpdate, readUpdates } from "../src/status.js";
 import { botToken, codeToken } from "./token.js";
 
 const args = process.argv.slice(2);
 const found = [];
 for (let i = 0; i < args.length; i += 2) {
   if (args[i] !== "--found" || !args[i + 1]?.trim()) {
-    console.error("使い方: node tools/flow-gate/bin/status.js [--found <司令塔が見つけた異常と、したこと>]...");
+    console.error("使い方: node tools/flow-gate/bin/status.js [--found <起動役が見つけた異常と、したこと>]...");
     process.exit(2);
   }
   found.push(args[i + 1].trim());
@@ -59,14 +61,17 @@ for (const u of updates)
   if (u !== mine && [AT_RISK, OFF_TRACK].includes(u.status) && (!mine || u.createdAt > mine.updatedAt))
     anomalies.push(
       u.by === me
-        ? `司令塔が止まっていた（見張りが ${clock(new Date(u.createdAt))} に Off track の状況の更新を足した）`
+        ? `振り出しが止まっていた（見張りが ${clock(new Date(u.createdAt))} に Off track の状況の更新を足した）`
         : `${u.by ?? "だれか"} が ${clock(new Date(u.createdAt))} に ${u.status === AT_RISK ? "At risk" : "Off track"} の状況の更新を足した（下の履歴）`,
     );
 
 const count = (status, pick = () => true) => queue.filter((t) => t.status === status && pick(t)).length;
 const waiting = count("未着手", (t) => t.waitingFor.length);
+const busy = new Set(slots.filter((s) => s.number).map((s) => s.number));
+const free = slots.filter((s) => s.state === "空き").length;
+const ready = queue.filter((t) => !busy.has(t.number) && !t.waitingFor.length).length;
 const body = [
-  `**司令塔が最後に起きた時刻**: ${clock(new Date(now))}（日本時間）`,
+  `**最後に書いた時刻**: ${clock(new Date(now))}（日本時間）`,
   "",
   "### 異常",
   ...(anomalies.length ? anomalies.map((a) => `- ${a}`) : ["無し"]),
@@ -82,6 +87,8 @@ const body = [
   "",
   "### キュー（Claude の番）",
   `${order.map((s) => `${s} ${count(s)}`).join("・")}${waiting ? `（未着手のうち前提待ち ${waiting}）` : ""}`,
+  "",
+  marker(free, ready),
 ].join("\n");
 
 const status = anomalies.length ? AT_RISK : ON_TRACK;
