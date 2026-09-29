@@ -25,7 +25,7 @@ export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel
     const main = i === state.issue;
     return {
       id: main ? "I_1" : "I_P", number: i.number, title: "題名", body: i.body ?? "本文", url: `https://github.com/${config.repository}/issues/${i.number}`,
-      state: i.state, stateReason: null, author: { login: "x", databaseId: i.authorId },
+      state: i.state, author: { databaseId: i.authorId },
       parent: main && state.parent ? { number: state.parent.number } : (i.parent ?? null),
       assignees: { nodes: i.assignees.map((login) => ({ id: config.people[login]?.node, login })) },
       labels: { nodes: i.labels.map((name) => ({ name })) }, blockedBy: { nodes: i.blockedBy },
@@ -50,9 +50,6 @@ export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel
     if (name === "updateIssue" && "body" in input) i.body = input.body;
     if (name === "updateIssue" && input.labelIds) i.labels = input.labelIds.map((id) => id.slice(2));
     if (name === "updateIssue" && input.stateInput) i.state = input.stateInput.value;
-    if (name === "addLabelsToLabelable") i.labels.push(...input.labelIds.map((id) => id.slice(2)));
-    if (name === "removeLabelsFromLabelable") i.labels = i.labels.filter((l) => !input.labelIds.includes(`L:${l}`));
-    if (name === "reopenIssue") i.state = "OPEN";
     return { clientMutationId: null };
   };
   const graphql = ({ query, variables }, as) => {

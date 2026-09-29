@@ -1,10 +1,8 @@
 // 遷移の処理。Webhook の出来事も回答フォームの送信も、ここの apply を通って表で照らされる。
 // 1つの出来事では、タスクを1回読み（read）、書き込みを1回にまとめて書く（write）。
-import { GitHub, Mutations, readTask } from "./github.js";
+import { GitHub, Mutations, readTask, setField } from "./github.js";
 import { reconcile } from "./review.js";
-import { adoptionQuestion, check, entryFor, joinBody, parseQuestion, splitBody } from "./rules.js";
-
-const normalize = (body) => (body ?? "").replace(/\r\n/g, "\n");
+import { adoptionQuestion, answererTurn, check, claude, entryFor, joinBody, normalizeBody, parseQuestion, splitBody } from "./rules.js";
 
 export class Gate {
   static async open(env, config, origin) {
@@ -30,8 +28,7 @@ export class Gate {
   bodyFor(issue) {
     const { verify, code, ask } = this.config;
     const { question, rest } = splitBody(issue.body);
-    const answerer = this.config.people[ask.answerer].node;
-    const turn = issue.state === "OPEN" && issue.assignees.nodes.some((a) => a.id === answerer);
+    const turn = answererTurn(this.config, issue);
     if (turn && issue.status === verify.status) {
       const q = encodeURIComponent(`is:pr head:${code.branchPrefix}${issue.number}`);
       const url = `https://github.com/${code.repository}/pulls?q=${q}`;
@@ -55,16 +52,15 @@ export class Gate {
       body: want.clearQuestion ? splitBody(issue.body).rest : issue.body,
     };
     const m = new Mutations();
+    const statusField = this.config.project.statusField;
     if (next.status !== issue.status) {
-      const at = { projectId: this.project.id, itemId: issue.item, fieldId: this.project.field };
-      if (next.status === null) m.add("clearProjectV2ItemFieldValue", at);
-      else m.add("updateProjectV2ItemFieldValue", { ...at, value: { singleSelectOptionId: this.project.options[next.status] } });
+      if (next.status === null)
+        m.add("clearProjectV2ItemFieldValue", { projectId: this.project.id, itemId: issue.item, fieldId: this.project.fields[statusField].id });
+      else setField(m, this.project, issue.item, statusField, next.status);
     }
-    for (const [name, value] of Object.entries(want.fields ?? {})) {
-      const field = this.project.fields[name];
-      if (issue.fields[name] === value || !field?.options[value]) continue;
-      m.add("updateProjectV2ItemFieldValue", { projectId: this.project.id, itemId: issue.item, fieldId: field.id, value: { singleSelectOptionId: field.options[value] } });
-    }
+    // 欄の既定値など: Project に無い欄・選択肢は書かずに飛ばす。
+    for (const [name, value] of Object.entries(want.fields ?? {}))
+      if (issue.fields[name] !== value && this.project.fields[name]?.options[value]) setField(m, this.project, issue.item, name, value);
     for (const body of want.comments ?? []) m.add("addComment", { subjectId: issue.id, body });
 
     // 割り当て・ラベル・本文・開閉は updateIssue の1つにまとめる（GitHub は mutation を1つずつ順に処理し、1つごとに時間がかかる）。
@@ -78,7 +74,7 @@ export class Gate {
     const labels = [...new Set([...have.filter((n) => !(want.unlabels ?? []).includes(n)), ...(want.labels ?? [])])].filter((n) => this.labelIds[n]);
     if (labels.length !== have.length || labels.some((n) => !have.includes(n))) update.labelIds = labels.map((n) => this.labelIds[n]);
     const body = this.bodyFor(next);
-    if (body !== normalize(issue.body)) update.body = body;
+    if (body !== normalizeBody(issue.body)) update.body = body;
     if (want.close) update.stateInput = { value: "CLOSED", stateReason: want.close };
     if (Object.keys(update).length) m.add("updateIssue", { id: issue.id, ...update });
 
@@ -110,7 +106,7 @@ export class Gate {
     if (from !== to && this.config.ask.statuses.includes(to) && to !== this.config.adoption.status) {
       if (!currentQuestion(this.config, issue)?.parsed) {
         want.comments = [...comments, "問いの形が崩れています（docs/conventions/flow.md「問い」）。問いを書き直してください。"];
-        want.assign = this.config.ask.askers[0];
+        want.assign = claude(this.config);
       }
     }
     await this.write(issue, want);
@@ -156,7 +152,7 @@ export class Gate {
   }
 }
 
-export const ADOPTION_ID = "adoption";
+const ADOPTION_ID = "adoption";
 
 // 今の問い: 本文の先頭に置いた問い（bin/ask.js が書く）。採否待ちでそれが無ければ、設定の採否の問い（決まった中身なので
 // 本文には書かない）。id は問いの中身から作り、回答フォームを開いたあとに問いが書き直されたかを見分けるのに使う。

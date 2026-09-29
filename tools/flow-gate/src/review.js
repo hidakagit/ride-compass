@@ -9,7 +9,7 @@ import { splitBody } from "./rules.js";
 const PASSED = ["success", "skipped", "neutral"];
 
 // Pull Request と CI から、検証中のタスクがどこへ動くべきかを決める。none は Pull Request がまだ無い（出されるのを待つ）。
-export async function verdictFor(code, config, number) {
+async function verdictFor(code, config, number) {
   const { repository, branchPrefix, base } = config.code;
   const owner = repository.split("/")[0];
   const [pr] = await code.rest("GET", `/repos/${repository}/pulls?head=${owner}:${branchPrefix}${number}&state=all&sort=created&direction=desc&per_page=1`);
@@ -43,6 +43,9 @@ const MESSAGES = {
   passed: (v) => `${merged(v)}完了にします。`,
   left: (v, left) =>
     `${merged(v)}完了の条件にチェックの無いものが残っているので、閉じずに戻します。残りを済ませてチェックを付け、完了（completed）で閉じてください。\n\n${left.map((l) => `- ${l}`).join("\n")}`,
+  untracked: (pr, issue) =>
+    `Pull Request ${prLink(pr)} が${pr.merged_at ? "マージされました" : "マージされずに閉じられました"}が、この issue は` +
+    `「${issue.status ?? "（ステータス無し）"}」${issue.state === "CLOSED" ? "で閉じている" : "な"}ので、ステータスは動かしていません。どうするかを決めてください。`,
 };
 
 // 本文のチェックの無い項目（`- [ ]`。本文のチェックは完了の条件にだけ使う）。
@@ -52,15 +55,23 @@ const unchecked = (body) =>
     .map((l) => /^\s*- \[ \] (.+)$/.exec(l)?.[1])
     .filter(Boolean);
 
-// numbers を渡さなければ、検証中のタスクをすべて見る。
+// numbers を渡さなければ、検証中のタスクをすべて見る。numbers は Pull Request が閉じた出来事から渡り、その issue が検証中で
+// なければ動かさずに理由をコメントに書き、開いていれば答える人に渡す（黙って何もしないと、検証中を通らずに入った変更に誰も気づかない）。
 export async function reconcile(env, config, origin, numbers) {
   const gate = await Gate.open(env, config, origin);
   const code = new GitHub(env.CODE_TOKEN);
   const done = [];
   for (const number of numbers ?? (await verifying(gate))) {
     const issue = await gate.read({ number });
-    if (!issue?.item || issue.status !== config.verify.status) continue;
+    if (!issue?.item) continue;
     const v = await verdictFor(code, config, number);
+    if (issue.status !== config.verify.status) {
+      if (numbers && v.pr?.state === "closed") {
+        await gate.write(issue, { comments: [MESSAGES.untracked(v.pr, issue)], assign: issue.state === "OPEN" ? config.ask.answerer : undefined });
+        done.push(`#${number} untracked`);
+      }
+      continue;
+    }
     if (v.kind === "none" || v.kind === "wait") continue;
     const left = v.kind === "passed" ? unchecked(issue.body) : [];
     if (v.kind === "passed" && !left.length) await gate.apply(issue, issue.status, config.done, { comments: [MESSAGES.passed(v)], close: "COMPLETED" });

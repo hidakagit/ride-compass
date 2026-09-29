@@ -6,8 +6,9 @@ import config from "../flow.config.json" with { type: "json" };
 import { GitHub, Mutations } from "../src/github.js";
 import { botToken } from "./token.js";
 
-const [parent, title, file, ...after] = process.argv.slice(2);
-if (!/^\d+$/.test(parent ?? "") || !title || !file || after.some((n) => !/^\d+$/.test(n))) {
+const args = process.argv.slice(2);
+const [parent, title, file, ...after] = args;
+if (args.some((a) => a.startsWith("--")) || !/^\d+$/.test(parent ?? "") || !title || !file || after.some((n) => !/^\d+$/.test(n))) {
   console.error("使い方: node tools/flow-gate/bin/stage.js <親の番号> <題名> <本文のファイル> [前の段階の番号...]");
   process.exit(2);
 }
