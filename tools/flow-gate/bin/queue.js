@@ -15,7 +15,7 @@ const q = `query Queue($o: String!, $n: Int!, $field: String!, $p: String!, $c: 
   items(first: 100, after: $c) { pageInfo { hasNextPage endCursor } nodes {
     fieldValueByName(name: $field) { ... on ProjectV2ItemFieldSingleSelectValue { name } }
     priority: fieldValueByName(name: $p) { ... on ProjectV2ItemFieldSingleSelectValue { name } }
-    content { ... on Issue { number title url state parent { number } assignees(first: 5) { nodes { id } } labels(first: 20) { nodes { name } }
+    content { ... on Issue { number title url state assignees(first: 5) { nodes { id } } labels(first: 20) { nodes { name } }
       blockedBy(first: 50) { nodes { number state stateReason } } } } } } } } }`;
 const items = [];
 let ranks = [];
@@ -30,7 +30,7 @@ for (let c = null; ; ) {
 const rank = (p) => (ranks.includes(p) ? ranks.indexOf(p) : ranks.length);
 const tasks = items
   .map((i) => ({ ...i.content, status: i.fieldValueByName?.name, priority: i.priority?.name ?? null }))
-  .filter((t) => t.number && t.state === "OPEN" && !t.parent && ORDER.includes(t.status) && t.assignees.nodes.some((a) => a.id === bot))
+  .filter((t) => t.number && t.state === "OPEN" && ORDER.includes(t.status) && t.assignees.nodes.some((a) => a.id === bot))
   .map((t) => ({
     number: t.number,
     status: t.status,

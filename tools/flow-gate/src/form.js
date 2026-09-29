@@ -34,9 +34,15 @@ f?.addEventListener("submit", async (e) => {
   p.textContent = j.error || "受け付けました（" + j.label + "）。";
   document.body.append(p);
   if (j.url) {
+    // 先にタブを閉じる（リンクで移ったあとではこのページが無く、閉じる処理が動かない）。ブラウザが閉じさせない開き方
+    // （移動したことのあるタブなど）なら、issue へ移る。
     const a = document.createElement("a");
     a.href = j.url; a.textContent = "GitHub に戻る"; a.className = "back";
-    a.addEventListener("click", () => setTimeout(() => window.close(), 400));
+    a.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      window.close();
+      setTimeout(() => location.replace(j.url), 300);
+    });
     document.body.append(a);
   }
 });
@@ -94,7 +100,7 @@ function render(config, { issue, q, labels, choices }) {
       `<form><input type="hidden" name="issue" value="${issue.number}"><input type="hidden" name="q" value="${esc(q.id)}">${radios.join("")}` +
       `<p id="who" hidden>次に動くのは <select name="next">${people.join("")}</select></p>` +
       `<p>ラベル</p><div class="labels">${boxes.join("")}</div>` +
-      `<p><textarea name="note" rows="2" placeholder="補足（「その他」を選んだときは必須）"></textarea></p>` +
+      `<p><textarea name="note" rows="6" placeholder="補足（「その他」を選んだときは必須）"></textarea></p>` +
       `<p id="sum"></p><div class="row"><button type="button" id="back" class="ok">戻る</button><button class="ok primary">送信</button>` +
       `<button class="ask primary">確認へ</button></div></form>`,
   );

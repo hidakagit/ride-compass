@@ -8,31 +8,37 @@ const FIELDS = { [config.project.priorityField]: ["高", "中", "低"], [config.
 const BY_NODE = Object.fromEntries(Object.entries(config.people).map(([k, p]) => [p.node, k]));
 
 // code はコードのリポジトリの状態（Pull Request の一覧・master の CI の実行）。
-export function fakeGitHub({ issue, labels = [config.project.urgentLabel, "規模S", config.verify.label], code = { prs: [], runs: [] } }) {
+// parent を渡すと、issue をその子にする（親の子は、parent.siblings の状態と issue の今の状態）。親の id は I_P。
+export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel, "規模S", config.verify.label], code = { prs: [], runs: [] } }) {
+  const blank = { blockedBy: [], subIssues: [], assignees: [], labels: [], lastClose: [], state: "OPEN", fields: {} };
   const state = {
-    issue: { blockedBy: [], subIssues: [], assignees: [], labels: [], lastClose: [], state: "OPEN", fields: {}, ...issue },
+    issue: { ...blank, ...issue },
+    parent: parent && { ...blank, siblings: [], ...parent },
     writes: [],
     requests: [],
     calls: 0,
     code,
   };
+  const byId = (id) => (id === "I_P" || id === "PVTI_P" ? state.parent : state.issue);
   const json = (body, status = 200) => new Response(JSON.stringify(body), { status });
-  const node = () => {
-    const i = state.issue;
+  const node = (i) => {
+    const main = i === state.issue;
     return {
-      id: "I_1", number: i.number, title: "題名", body: i.body ?? "本文", url: `https://github.com/${config.repository}/issues/${i.number}`,
-      state: i.state, stateReason: null, author: { login: "x", databaseId: i.authorId }, parent: i.parent ?? null,
+      id: main ? "I_1" : "I_P", number: i.number, title: "題名", body: i.body ?? "本文", url: `https://github.com/${config.repository}/issues/${i.number}`,
+      state: i.state, stateReason: null, author: { login: "x", databaseId: i.authorId },
+      parent: main && state.parent ? { number: state.parent.number } : (i.parent ?? null),
       assignees: { nodes: i.assignees.map((login) => ({ id: config.people[login]?.node, login })) },
-      labels: { nodes: i.labels.map((name) => ({ name })) }, blockedBy: { nodes: i.blockedBy }, subIssues: { nodes: i.subIssues },
+      labels: { nodes: i.labels.map((name) => ({ name })) }, blockedBy: { nodes: i.blockedBy },
+      subIssues: { nodes: main ? i.subIssues : [...i.siblings, { state: state.issue.state }] },
       lastClose: { nodes: i.lastClose }, repository: { nameWithOwner: config.repository },
-      projectItems: { nodes: [{ id: "PVTI_1", project: { id: "PVT_1" }, fieldValues: { nodes: [
+      projectItems: { nodes: [{ id: main ? "PVTI_1" : "PVTI_P", project: { id: "PVT_1" }, fieldValues: { nodes: [
         ...(i.status ? [{ name: i.status, field: { name: config.project.statusField } }] : []),
         ...Object.entries(i.fields).map(([name, value]) => ({ name: value, field: { name } })),
       ] } }] },
     };
   };
   const apply = (name, input, as) => {
-    const i = state.issue;
+    const i = byId(input.id ?? input.itemId ?? input.subjectId);
     state.writes.push({ op: name, as, ...input });
     if (name === "updateProjectV2ItemFieldValue" && input.fieldId === "F_1") i.status = NAMES[input.value.singleSelectOptionId];
     else if (name === "updateProjectV2ItemFieldValue") {
@@ -46,7 +52,6 @@ export function fakeGitHub({ issue, labels = [config.project.urgentLabel, "規�
     if (name === "updateIssue" && input.stateInput) i.state = input.stateInput.value;
     if (name === "addLabelsToLabelable") i.labels.push(...input.labelIds.map((id) => id.slice(2)));
     if (name === "removeLabelsFromLabelable") i.labels = i.labels.filter((l) => !input.labelIds.includes(`L:${l}`));
-    if (name === "closeIssue" && input.issueId === "I_1") i.state = "CLOSED";
     if (name === "reopenIssue") i.state = "OPEN";
     return { clientMutationId: null };
   };
@@ -55,16 +60,18 @@ export function fakeGitHub({ issue, labels = [config.project.urgentLabel, "規�
       const on = state.issue.state === "OPEN" && variables.q.includes(`${config.project.statusField}:"${state.issue.status}"`);
       return { organization: { projectV2: { items: { nodes: on ? [{ content: { number: state.issue.number } }] : [] } } } };
     }
-    if (query.startsWith("query Task") && state.requests.push("読む"))
+    if (query.startsWith("query Task") && state.requests.push("読む")) {
+      const i = state.parent && (variables.id === "I_P" || variables.k === state.parent.number) ? state.parent : state.issue;
       return {
         organization: { projectV2: { id: "PVT_1", fields: { nodes: [
           { id: "F_1", name: config.project.statusField, options: Object.entries(OPTIONS).map(([name, id]) => ({ id, name })) },
           ...Object.entries(FIELDS).map(([field, options]) => ({ id: `F_${field}`, name: field, options: options.map((o) => ({ id: `${field}:${o}`, name: o })) })),
           { id: "F_title", name: "Title" },
         ] } } },
-        repository: { labels: { nodes: labels.map((name) => ({ id: `L:${name}`, name })) }, issue: node() },
-        node: node(),
+        repository: { labels: { nodes: labels.map((name) => ({ id: `L:${name}`, name })) }, issue: node(i) },
+        node: node(i),
       };
+    }
     const data = {};
     const ops = [...query.matchAll(/(m\d+): (\w+)\(input: \$m\d+\)/g)];
     state.requests.push(ops.map(([, , name]) => name).join("+"));
