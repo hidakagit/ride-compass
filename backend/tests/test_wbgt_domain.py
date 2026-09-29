@@ -3,11 +3,11 @@
 取得・キャッシュは`test_wbgt_service.py`、地点の解決は`test_wbgt_points.py`が持つ。
 """
 
-from datetime import datetime
+from datetime import date, datetime
 
 import pytest
 
-from app.domain.wbgt import PROVISION_END_MONTH, PROVISION_START_MONTH, is_within_provision_period, wbgt_level
+from app.domain.wbgt import is_within_provision_period, provision_period, wbgt_level
 
 
 class TestWbgtLevel:
@@ -41,11 +41,31 @@ class TestWbgtLevel:
 
 class TestProvisionPeriod:
 
+    @pytest.mark.parametrize(
+        ("year", "announced"),
+        [
+            # 環境省の報道発表（熱中症特別警戒アラート等の運用開始）が載せた運用期間。
+            (2024, (date(2024, 4, 24), date(2024, 10, 23))),
+            (2025, (date(2025, 4, 23), date(2025, 10, 22))),
+            (2026, (date(2026, 4, 22), date(2026, 10, 21))),
+        ],
+    )
+    def test_the_period_matches_the_announced_one(self, year, announced):
+        """ずれると、期間の端で配信元の値が無いのに「取得できませんでした」が出るか、値があるのに出さない。"""
+        assert provision_period(year) == announced
+
+    @pytest.mark.parametrize(
+        ("at", "expected"),
+        [
+            (datetime(2026, 4, 21, 23, 59), False),
+            (datetime(2026, 4, 22, 0, 0), True),
+            (datetime(2026, 10, 21, 23, 59), True),
+            (datetime(2026, 10, 22, 0, 0), False),
+        ],
+    )
+    def test_both_end_days_are_inside(self, at, expected):
+        assert is_within_provision_period(at) is expected
+
     @pytest.mark.parametrize("month", [1, 2, 3, 11, 12])
     def test_the_other_months_are_outside(self, month):
         assert is_within_provision_period(datetime(2026, month, 15)) is False
-
-    def test_the_judgement_is_by_month_not_by_day(self):
-        """日で切ると毎年値を直すことになり、直し忘れた年だけ静かにずれる。"""
-        assert is_within_provision_period(datetime(2026, PROVISION_START_MONTH, 1)) is True
-        assert is_within_provision_period(datetime(2026, PROVISION_END_MONTH, 31)) is True

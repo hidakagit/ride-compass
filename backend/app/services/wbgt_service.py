@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta
 
 import httpx
@@ -16,6 +17,8 @@ from app.domain.strict_model import StrictModel
 # 発表（reference_time）は概ね毎時だが遅延もありうるため、直近この時間幅で発表時刻を
 # 検索する（1〜2時間の遅延は起こりうる前提で余裕を持たせる）。
 _FORECAST_SEARCH_WINDOW_HOURS = 6
+
+logger = logging.getLogger("ridecompass.wbgt_service")
 
 
 class WbgtStatus(StrictModel):
@@ -37,8 +40,8 @@ class WbgtService:
         """出発地点の`now`（JST）時点の暑さ指数警戒レベルを取得する。
 
         空（段なし）を返すのは、提供期間外（取得自体を行わない）と、警告として意味を持たない低い
-        レベルのときだけ。地点解決・予測値の取得に失敗したか、今の時刻の値が得られなければNone
-        （警戒レベルが分からない）。
+        レベルのときだけ。地点解決・予測値の取得に失敗したか、提供期間の中で今の時刻の値が
+        得られなければNone（警戒レベルが分からない）。
         """
         if not is_within_provision_period(now):
             return _empty_status()
@@ -54,7 +57,14 @@ class WbgtService:
         range_to = now.strftime("%Y%m%d%H%M%S")
         range_from = (now - timedelta(hours=_FORECAST_SEARCH_WINDOW_HOURS)).strftime("%Y%m%d%H%M%S")
         forecasts = await fetch_forecast(self._http_client, nearest.no, range_from, range_to)
+        if forecasts is None:
+            return None
         if not forecasts:
+            # 提供期間の中で発表が無いのは配信の止まりで、段なしにすると警戒が要らないと見せる。
+            logger.warning(
+                "暑さ指数の検索窓に発表がありません wbgt_no=%s range_from=%s range_to=%s",
+                nearest.no, range_from, range_to,
+            )
             return None
 
         forecast = _pick_nearest_forecast(forecasts, now)

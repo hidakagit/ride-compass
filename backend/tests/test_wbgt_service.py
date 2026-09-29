@@ -44,10 +44,12 @@ def _service(monkeypatch, *, point_master=POINT_MASTER_CSV, forecast=None) -> tu
     return WbgtService(http_client=upstream), upstream
 
 
-async def test_get_status_returns_empty_outside_provision_period(monkeypatch):
-    service, upstream = _service(monkeypatch)
+@pytest.mark.parametrize("now", [WINTER_NOW, datetime(2026, 4, 10, 12, 0, 0), datetime(2026, 10, 28, 12, 0, 0)])
+async def test_get_status_returns_empty_outside_provision_period(monkeypatch, now):
+    """4月・10月でも期間の外なら配信元は値を返さないので、取りに行くと「取得できませんでした」になる。"""
+    service, upstream = _service(monkeypatch, forecast=[])
 
-    result = await service.get_status(POINT, now=WINTER_NOW)
+    result = await service.get_status(POINT, now=now)
 
     assert result.level is None
     assert upstream.requested_urls == []
@@ -63,6 +65,16 @@ async def test_get_status_is_unknown_rather_than_empty_when_no_current_value_is_
     """取れなかったことを段なし（「ほぼ安全」・期間外と同じ空）で返すと、画面は警戒が要らないと見せる。"""
     service, _ = _service(monkeypatch, **failure)
     assert await service.get_status(POINT, now=SUMMER_NOW) is None
+
+
+async def test_no_issuance_inside_the_period_is_logged(monkeypatch, caplog):
+    """配信元の失敗はクライアントが出すが、発表の無い成功はここで出さないと502の理由がどこにも残らない。"""
+    service, _ = _service(monkeypatch, forecast=[])
+
+    with caplog.at_level("WARNING", logger="ridecompass.wbgt_service"):
+        await service.get_status(POINT, now=SUMMER_NOW)
+
+    assert any("発表がありません" in record.getMessage() for record in caplog.records)
 
 
 async def test_get_status_returns_empty_when_below_almost_safe_threshold(monkeypatch):
