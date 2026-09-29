@@ -48,3 +48,14 @@ def test_a_probe_connects_with_plain_asyncpg_when_the_url_carries_the_sqlalchemy
 
     assert run_probe.main([str(probe)]) == 0
     assert capfd.readouterr().out.strip() == "1"
+
+
+def test_arguments_after_the_probe_reach_the_probe(tmp_path, monkeypatch, capfd):
+    env_file = tmp_path / ".env.oracle.local"
+    env_file.write_text(f"DATABASE_URL={postgis_database_url()}\n", encoding="utf-8")
+    monkeypatch.setattr(_prod_env, "prod_env_file", lambda: env_file)
+    probe = tmp_path / "probe.py"
+    probe.write_text("import sys\nprint(sys.argv[1:])\n", encoding="utf-8")
+
+    assert run_probe.main([str(probe), "--column", "edge_materials.accident_count"]) == 0
+    assert capfd.readouterr().out.strip() == "['--column', 'edge_materials.accident_count']"

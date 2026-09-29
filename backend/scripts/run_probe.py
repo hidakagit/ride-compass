@@ -9,6 +9,9 @@
     # 本番コンテナの中で走らせる（アプリと同じ環境・localhost接続で測りたいとき）
     python scripts/run_probe.py --in-container path/to/probe.py
 
+    # プローブの後ろに書いた引数は、そのままプローブへ渡る
+    python scripts/run_probe.py scripts/derived_distribution.py --column edge_materials.accident_count
+
 手元実行の場合、プローブは次を環境変数から受け取る:
 
 - `PROBE_DATABASE_URL`: 本番の接続文字列（SQLAlchemyの`create_async_engine`へ渡す形）
@@ -25,6 +28,7 @@
 import argparse
 import os
 import pathlib
+import shlex
 import subprocess
 import sys
 
@@ -38,7 +42,7 @@ from app.batch._common import asyncpg_dsn  # noqa: E402
 _CONTAINER = "ridecompass-backend"
 
 
-def _run_locally(probe: pathlib.Path) -> int:
+def _run_locally(probe: pathlib.Path, probe_args: list[str]) -> int:
     database_url = read_prod_env("DATABASE_URL")
     env = {
         **os.environ,
@@ -47,13 +51,14 @@ def _run_locally(probe: pathlib.Path) -> int:
         "BACKEND_DIR": str(_BACKEND_DIR),
         "PYTHONIOENCODING": "utf-8",
     }
-    return subprocess.call([sys.executable, str(probe)], env=env)
+    return subprocess.call([sys.executable, str(probe), *probe_args], env=env)
 
 
-def _run_in_container(probe: pathlib.Path) -> int:
+def _run_in_container(probe: pathlib.Path, probe_args: list[str]) -> int:
     """プローブの本文を標準入力でコンテナ内のPythonへ流す（VMにもコンテナにもファイルを残さない）。"""
     ssh = read_prod_env("SSH_COMMAND").split()
-    remote = f"sudo docker exec -i -w /app -e PYTHONPATH=/app {_CONTAINER} python -"
+    remote = " ".join([f"sudo docker exec -i -w /app -e PYTHONPATH=/app {_CONTAINER} python -",
+                       *map(shlex.quote, probe_args)])
     with probe.open("rb") as source:
         return subprocess.call([*ssh, remote], stdin=source)
 
@@ -66,10 +71,12 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="本番VMのbackendコンテナ内で走らせる（既定は手元のPythonから本番DBを引く）",
     )
+    parser.add_argument("probe_args", nargs=argparse.REMAINDER, help="プローブへそのまま渡す引数")
     args = parser.parse_args(argv)
     if not args.probe.exists():
         raise SystemExit(f"{args.probe} がない")
-    return _run_in_container(args.probe) if args.in_container else _run_locally(args.probe)
+    run = _run_in_container if args.in_container else _run_locally
+    return run(args.probe, args.probe_args)
 
 
 if __name__ == "__main__":
