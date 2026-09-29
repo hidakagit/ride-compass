@@ -3,7 +3,7 @@
 import config from "../flow.config.json" with { type: "json" };
 import { answerForm } from "./form.js";
 import { handleEvent } from "./gate.js";
-import { BUTTON_SVG, REVIEW_SVG } from "./rules.js";
+import { BUTTON_SVG } from "./rules.js";
 import { reportFailure } from "./status.js";
 
 // X-Hub-Signature-256 を Web Crypto の HMAC で確かめる（verify は比較を一定時間で行う）。
@@ -34,9 +34,8 @@ export default {
       );
       return new Response("accepted", { status: 202 });
     }
-    const svg = { "/button.svg": BUTTON_SVG, "/review.svg": REVIEW_SVG }[url.pathname];
-    if (svg && request.method === "GET")
-      return new Response(svg, { headers: { "content-type": "image/svg+xml", "cache-control": "public, max-age=86400" } });
+    if (url.pathname === "/button.svg" && request.method === "GET")
+      return new Response(BUTTON_SVG, { headers: { "content-type": "image/svg+xml", "cache-control": "public, max-age=86400" } });
     if (url.pathname === "/answer" && (request.method === "GET" || request.method === "POST") && env.FORM_TOKEN)
       return answerForm(request, env, config);
     return new Response("not found", { status: 404 });
