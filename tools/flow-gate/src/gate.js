@@ -23,7 +23,7 @@ export class Gate {
     return r.issue;
   }
 
-  // 答える人（ask.answerer）の番の間だけ、本文の先頭にボタンとステータスの行を置く。採否待ち・回答待ちなら回答フォームへ、
+  // 答える人（ask.answerer）の番の間だけ、本文の先頭にボタンとステータスの行を置く。回答待ちなら回答フォームへ、
   // 検証中なら Pull Request へ（作業ブランチで引く検索の画面へ）。答えを待つ問いは、答えるまで同じ場所に画面に出ない形で残す。
   bodyFor(issue) {
     const { verify, code, ask } = this.config;
@@ -34,13 +34,13 @@ export class Gate {
       const url = `https://github.com/${code.repository}/pulls?q=${q}`;
       return joinBody(rest, question, { status: issue.status, text: "Pull Request を確かめ、マージするか閉じるかを決める", url, button: this.reviewUrl, alt: "確かめる" });
     }
-    const q = turn && ask.statuses.includes(issue.status) ? currentQuestion(this.config, issue) : null;
+    const q = turn && issue.status === ask.status ? currentQuestion(this.config, issue) : null;
     const url = `${this.origin}/answer?issue=${issue.number}`;
     return joinBody(rest, question, q?.parsed && { status: issue.status, text: q.parsed.text, url, button: this.buttonUrl });
   }
 
   // 1つのタスクへの書き込みを1回の要求で行う。want には変えたい中身だけを渡す。本文の先頭の見せ方も、書いた後の状態に
-  // 合わせて同じ要求に入れる。clearQuestion は答えを待つ問いを本文から消す（答えたとき）。
+  // 合わせて同じ要求に入れる。question は答えを待つ問いを本文の先頭に置く（null なら消す。答えたとき）。
   // 閉じた子（段階）を書いたあとは、親の子が全部閉じたかを見る（ゲートは自分が閉じた出来事を捨てるので、ここで見る）。
   async write(issue, want = {}) {
     const next = {
@@ -49,7 +49,7 @@ export class Gate {
       fields: { ...issue.fields, ...(want.fields ?? {}) },
       assignees: want.assign ? { nodes: [{ id: this.config.people[want.assign].node, login: want.assign }] } : issue.assignees,
       state: want.close ? "CLOSED" : issue.state,
-      body: want.clearQuestion ? splitBody(issue.body).rest : issue.body,
+      body: "question" in want ? joinBody(splitBody(issue.body).rest, want.question, null) : issue.body,
     };
     const m = new Mutations();
     const statusField = this.config.project.statusField;
@@ -96,14 +96,15 @@ export class Gate {
     const verdict = from === to ? { ok: true, rule: null } : check(this.config, from, to, issue.blockedBy.nodes);
     if (!verdict.ok) return verdict;
     if (dryRun) return { ok: true };
-    const want = { labels, unlabels, comments, clearQuestion, assign: next !== undefined ? next : (verdict.rule?.assign ?? undefined) };
+    const want = { labels, unlabels, comments, assign: next !== undefined ? next : (verdict.rule?.assign ?? undefined) };
+    if (clearQuestion) want.question = null;
     if (!written) want.status = to;
     if (to === this.config.done && issue.state === "OPEN") want.close = close ?? "NOT_PLANNED";
     // ユーザーが確かめると決めたタスク（verify.label）は、確かめる番を表の既定ではなく答える人（ask.answerer）にする。
     const verify = this.config.verify;
     if (to === verify.status && from !== to && next === undefined && issue.labels.nodes.some((l) => l.name === verify.label))
       want.assign = this.config.ask.answerer;
-    if (from !== to && this.config.ask.statuses.includes(to) && to !== this.config.adoption.status) {
+    if (from !== to && to === this.config.ask.status) {
       if (!currentQuestion(this.config, issue)?.parsed) {
         want.comments = [...comments, "問いの形が崩れています（docs/conventions/flow.md「問い」）。問いを書き直してください。"];
         want.assign = claude(this.config);
@@ -125,7 +126,10 @@ export class Gate {
     const entry = entryFor(this.config, issue);
     // 欄の既定値（優先度など）は、まだ値の無いものにだけ入れる。
     const fields = Object.fromEntries(Object.entries(this.config.project.defaults).filter(([name]) => !issue.fields[name]));
-    await this.write(issue, { status: entry.to, assign: entry.assign, fields });
+    const want = { status: entry.to, assign: entry.assign, fields };
+    // Claude の起票は、設定の採否の問いを本文の先頭に置いて回答待ちにする（問いは bin/ask.js と同じ置き場）。
+    if (entry.adoption) want.question = adoptionQuestion(this.config).trim();
+    await this.write(issue, want);
   }
 
   async moved(nodeId, projectNodeId, from, to) {
@@ -152,16 +156,11 @@ export class Gate {
   }
 }
 
-const ADOPTION_ID = "adoption";
-
-// 今の問い: 本文の先頭に置いた問い（bin/ask.js が書く）。採否待ちでそれが無ければ、設定の採否の問い（決まった中身なので
-// 本文には書かない）。id は問いの中身から作り、回答フォームを開いたあとに問いが書き直されたかを見分けるのに使う。
+// 今の問い: 本文の先頭に置いた問い（bin/ask.js か、入口の採否の問いならゲートが書く）。id は問いの中身から作り、回答フォームを
+// 開いたあとに問いが書き直されたかを見分けるのに使う。
 export function currentQuestion(config, issue) {
   const { question } = splitBody(issue.body);
-  if (question) return { id: questionId(question), body: question, parsed: parseQuestion(config, question) };
-  if (issue.status !== config.adoption.status) return null;
-  const body = adoptionQuestion(config);
-  return { id: ADOPTION_ID, body, parsed: parseQuestion(config, body) };
+  return question ? { id: questionId(question), body: question, parsed: parseQuestion(config, question) } : null;
 }
 
 function questionId(text) {

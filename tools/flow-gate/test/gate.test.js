@@ -49,7 +49,7 @@ test("ゲート自身が起こした出来事は捨てる", async () => {
   assert.deepEqual(gh.writes, []);
 });
 
-test("入口: hidakagit が書いた issue は未着手で Claude に、ほかの人のものは採否待ちで hidakagit に割り当て、採否の問いのボタンを出す（コメントは書かない）", async () => {
+test("入口: hidakagit が書いた issue は未着手で Claude に、ほかの人のものは回答待ちで hidakagit に割り当て、採否の問いを本文に置いてボタンを出す（コメントは書かない）", async () => {
   let gh = fakeGitHub({ issue: { number: 1, authorId: ME } });
   await deliver("projects_v2_item", item({ action: "created", sender: { login: "github-project-automation[bot]" } }));
   assert.deepEqual([gh.issue.status, gh.issue.assignees], ["未着手", ["hidakagit-bot"]]);
@@ -58,10 +58,11 @@ test("入口: hidakagit が書いた issue は未着手で Claude に、ほか�
 
   gh = fakeGitHub({ issue: { number: 2, authorId: BOT } });
   await deliver("projects_v2_item", item({ action: "created" }));
-  assert.deepEqual([gh.issue.status, gh.issue.assignees], ["採否待ち", ["hidakagit"]]);
+  assert.deepEqual([gh.issue.status, gh.issue.assignees], ["回答待ち", ["hidakagit"]]);
   assert.deepEqual(comments(gh), []);
   const form = "https://gate.test/answer?issue=2";
-  assert.equal(gh.issue.body, `<!-- flow-gate -->\n[![回答する](https://gate.test/button.svg)](${form})\n\n**採否待ち**: ${config.adoption.question}\n<!-- /flow-gate -->\n\n本文`);
+  assert.equal(gh.issue.body, `<!-- flow-gate -->\n<!-- 問い\n${adoptionQuestion(config).trim()}\n-->\n` +
+    `[![回答する](https://gate.test/button.svg)](${form})\n\n**回答待ち**: ${config.adoption.question}\n<!-- /flow-gate -->\n\n本文`);
 });
 
 test("入口: 段階（親のある issue）は、書いた人によらず未着手で Claude に割り当てる（採否は親で済んでいる）", async () => {
@@ -72,13 +73,17 @@ test("入口: 段階（親のある issue）は、書いた人によらず未着
 
 test("表にある移動は通して既定の割り当てを書き、表に無い移動は戻して理由を書く", async () => {
   let gh = fakeGitHub({ issue: { number: 1, authorId: ME, status: "未着手", assignees: ["hidakagit"] } });
-  await move("採否待ち", "未着手");
+  await move("保留", "未着手");
   assert.deepEqual([gh.issue.status, gh.issue.assignees], ["未着手", ["hidakagit-bot"]]);
 
   gh = fakeGitHub({ issue: { number: 1, authorId: ME, status: "進行中", assignees: ["hidakagit-bot"] } });
   await move("保留", "進行中");
   assert.equal(gh.issue.status, "保留");
   assert.match(comments(gh)[0], /「保留」から「進行中」へは動かせません.*「保留」へ戻しました/);
+
+  gh = fakeGitHub({ issue: { number: 1, authorId: ME, status: "回答待ち", assignees: ["hidakagit"] } });
+  await move("保留", "回答待ち");
+  assert.equal(gh.issue.status, "保留", "保留から回答待ちへはボードで動かせない（問いは未着手に戻してから Claude が書く）");
 });
 
 test("前提が完了で閉じていなければ進行中にできない", async () => {
@@ -118,7 +123,7 @@ test("回答フォーム: 表で行ける選択肢だけを出し、答えは hi
   assert.equal(r.label, "私がやる");
   const answer = gh.writes.find((w) => w.op === "addComment");
   assert.equal(answer.as, "hidakagit");
-  assert.equal(answer.body, "## 回答\n**手順はどちらにしますか？**\n\n○ A 案\n● **私がやる**\n○ その他（コメント）\n\n" +
+  assert.equal(answer.body, `## 回答\n**手順はどちらにしますか？**\n\n○ A 案\n● **私がやる**\n${config.formOptions.map((o) => `○ ${o.text}`).join("\n")}\n\n` +
     "次のステータス: 未着手\n次に動くのは: hidakagit\n\n<details><summary>判断材料</summary>\n\n材料の文\n</details>");
   assert.deepEqual([gh.issue.status, gh.issue.assignees, gh.issue.body], ["未着手", ["hidakagit"], "本文"]);
 });
@@ -131,7 +136,7 @@ test("判断材料を GitHub で描けないときは、判断材料の文字を
 });
 
 test("問い直し: 答えて Claude の番になると回答フォームは開かず、Claude が問いを書いて hidakagit に割り当てると、本文の先頭の問いの下にボタンが出る", async () => {
-  const gh = fakeGitHub({ issue: { number: 5, authorId: BOT, status: "採否待ち", assignees: ["hidakagit-bot"] } });
+  const gh = fakeGitHub({ issue: { number: 5, authorId: BOT, status: "回答待ち", assignees: ["hidakagit-bot"] } });
   const closed = await worker.fetch(new Request("https://gate.test/answer?issue=5"), env);
   assert.equal(closed.status, 404);
   assert.match(await closed.text(), /Claude の番/);
@@ -139,20 +144,20 @@ test("問い直し: 答えて Claude の番になると回答フォームは開�
   const q = "## 問い\n新しい問い？\n\n### 選択肢\n- A → 未着手\n- B → 保留";
   Object.assign(gh.issue, { body: asked(q), assignees: ["hidakagit"] });
   await deliver("issues", { action: "assigned", issue: { node_id: "I_1" } });
-  assert.equal(gh.issue.body, `<!-- flow-gate -->\n<!-- 問い\n${q}\n-->\n[![回答する](https://gate.test/button.svg)](https://gate.test/answer?issue=5)\n\n**採否待ち**: 新しい問い？\n<!-- /flow-gate -->\n\n本文`);
+  assert.equal(gh.issue.body, `<!-- flow-gate -->\n<!-- 問い\n${q}\n-->\n[![回答する](https://gate.test/button.svg)](https://gate.test/answer?issue=5)\n\n**回答待ち**: 新しい問い？\n<!-- /flow-gate -->\n\n本文`);
   assert.match(await (await worker.fetch(new Request("https://gate.test/answer?issue=5"), env)).text(), /新しい問い？/);
   await deliver("issues", { action: "labeled", issue: { node_id: "I_1" } });
   assert.equal(gh.writes.filter((w) => w.op === "updateIssue" && "body" in w).length, 1, "本文の先頭が今の状態と同じなら書き直さない");
 });
 
 test("回答フォームは置き場のラベルを全部、今の付き方のまま並べ、付け外しがそのまま効いて答えに残る（Project の欄は出さない）", async () => {
-  const gh = fakeGitHub({ issue: { number: 7, authorId: BOT, status: "採否待ち", assignees: ["hidakagit"], labels: ["規模S"], fields: { [config.project.priorityField]: "中" } } });
+  const gh = fakeGitHub({ issue: { number: 7, authorId: BOT, status: "回答待ち", assignees: ["hidakagit"], labels: ["規模S"], fields: { [config.project.priorityField]: "中" }, body: asked(adoptionQuestion(config).trim()) } });
   const html = await (await worker.fetch(new Request("https://gate.test/answer?issue=7"), env)).text();
   assert.doesNotMatch(html, /name="field:/, "Project の欄は機械が決めるので出さない");
   assert.match(html, /name="label" value="規模S" checked/);
   assert.match(html, new RegExp(`name="label" value="${config.project.urgentLabel}">`));
   const form = new FormData();
-  Object.entries({ issue: "7", q: "adoption", choice: "0", next: "hidakagit-bot", note: "" }).forEach(([k, v]) => form.set(k, v));
+  Object.entries({ issue: "7", q: questionId(html), choice: "0", next: "hidakagit-bot", note: "" }).forEach(([k, v]) => form.set(k, v));
   form.append("label", config.project.urgentLabel);
   form.append("label", config.verify.label);
   await worker.fetch(new Request("https://gate.test/answer", { method: "POST", body: form }), env);
@@ -161,18 +166,46 @@ test("回答フォームは置き場のラベルを全部、今の付き方の�
   assert.deepEqual(gh.issue.fields, { [config.project.priorityField]: "中" }, "回答フォームは欄を変えない");
 });
 
-test("採否の問いは本文に無くても回答フォームに出て、答えると採否の問いと選択肢ごと答えに残る", async () => {
-  const gh = fakeGitHub({ issue: { number: 7, authorId: BOT, status: "採否待ち", assignees: ["hidakagit"] } });
-  const html = await (await worker.fetch(new Request("https://gate.test/answer?issue=7"), env)).text();
+test("採否の問い（入口で本文に置いたもの）に答えると、採否の問いと選択肢ごと答えに残り、やらないなら見送りで閉じる", async () => {
+  const body = asked(adoptionQuestion(config).trim());
+  let gh = fakeGitHub({ issue: { number: 7, authorId: BOT, status: "回答待ち", assignees: ["hidakagit"], body } });
+  let html = await (await worker.fetch(new Request("https://gate.test/answer?issue=7"), env)).text();
   assert.match(html, new RegExp(config.adoption.question.replace("？", "\\？")));
-  const form = new FormData();
-  Object.entries({ issue: "7", q: "adoption", choice: "0", next: "hidakagit-bot", note: "" }).forEach(([k, v]) => form.set(k, v));
+  let form = new FormData();
+  Object.entries({ issue: "7", q: questionId(html), choice: "0", next: "hidakagit-bot", note: "" }).forEach(([k, v]) => form.set(k, v));
   const r = await (await worker.fetch(new Request("https://gate.test/answer", { method: "POST", body: form }), env)).json();
   const [yes, no] = config.adoption.options;
   assert.equal(r.label, yes.text);
-  assert.equal(comments(gh)[0], `## 回答\n**${config.adoption.question}**\n\n● **${yes.text}**\n○ ${no.text}\n○ ${config.formOptions[0].text}\n\n` +
+  assert.equal(comments(gh)[0], `## 回答\n**${config.adoption.question}**\n\n● **${yes.text}**\n○ ${no.text}\n${config.formOptions.map((o) => `○ ${o.text}`).join("\n")}\n\n` +
     `次のステータス: ${yes.to}\n次に動くのは: ${config.people["hidakagit-bot"].shown}`);
   assert.deepEqual([gh.issue.status, gh.issue.assignees], [yes.to, ["hidakagit-bot"]]);
+
+  gh = fakeGitHub({ issue: { number: 7, authorId: BOT, status: "回答待ち", assignees: ["hidakagit"], body } });
+  html = await (await worker.fetch(new Request("https://gate.test/answer?issue=7"), env)).text();
+  form = new FormData();
+  Object.entries({ issue: "7", q: questionId(html), choice: "1", note: "" }).forEach(([k, v]) => form.set(k, v));
+  await worker.fetch(new Request("https://gate.test/answer", { method: "POST", body: form }), env);
+  assert.deepEqual([gh.issue.status, gh.issue.state], [config.done, "CLOSED"]);
+  assert.equal(gh.writes.find((w) => w.stateInput).stateInput.stateReason, "NOT_PLANNED");
+});
+
+test("どの問いにも「止める」が出て、補足が無ければ断り、補足があれば保留にしてユーザーに渡し、理由は答えのコメントに残る", async () => {
+  const stop = config.formOptions.find((o) => o.to === config.hold);
+  const q = "## 問い\nどうする？\n\n### 選択肢\n- A → 未着手\n- B → 未着手";
+  const gh = fakeGitHub({ issue: { number: 4, authorId: ME, status: "回答待ち", assignees: ["hidakagit"], body: asked(q) } });
+  const html = await (await worker.fetch(new Request("https://gate.test/answer?issue=4"), env)).text();
+  const index = [...html.matchAll(/name="choice" value="(\d+)"[^>]*data-text="([^"]*)"/g)].find((m) => m[2] === stop.text)?.[1];
+  assert.ok(index, "止めるが選択肢に出る");
+  const send = async (note) => {
+    const form = new FormData();
+    Object.entries({ issue: "4", q: questionId(html), choice: index, next: "hidakagit", note }).forEach(([k, v]) => form.set(k, v));
+    return (await worker.fetch(new Request("https://gate.test/answer", { method: "POST", body: form }), env)).json();
+  };
+  assert.match((await send("")).error, /補足が要ります/);
+  assert.equal(gh.issue.status, "回答待ち");
+  await send("来月の本番の入れ替えまで待つ");
+  assert.deepEqual([gh.issue.status, gh.issue.assignees], [config.hold, [config.ask.answerer]]);
+  assert.match(comments(gh)[0], /● \*\*止める[\s\S]*補足: 来月の本番の入れ替えまで待つ/);
 });
 
 test("検証中へ動くと、ユーザーが確かめると決めたタスクはユーザーに、ほかは Claude に割り当たる", async () => {
@@ -282,21 +315,21 @@ test("設定の不変条件: 表・入口・フォームが使う名前はすべ
     assert.ok(t.assign === null || people.includes(t.assign), t.assign);
   }
   for (const e of config.entry) assert.ok(config.statuses.includes(e.to) && people.includes(e.assign));
-  for (const s of [...config.coordinator.order, ...config.coordinator.busy]) assert.ok(config.statuses.includes(s), s);
-  for (const [from, to] of Object.entries(config.afterAnswer)) assert.ok(check(config, from, to).ok, `${from}→${to}`);
+  for (const s of [...config.coordinator.order, config.hold, config.ask.status]) assert.ok(config.statuses.includes(s), s);
   const adoption = parseQuestion(config, adoptionQuestion(config));
-  for (const status of config.ask.statuses)
-    for (const c of formChoices(config, adoption, status)) assert.ok(c.to === status || check(config, status, c.to).ok, `${status}→${c.to}`);
+  const all = formChoices(config, adoption, config.ask.status);
+  for (const c of all) assert.ok(c.to === config.ask.status || check(config, config.ask.status, c.to).ok, `${config.ask.status}→${c.to}`);
+  assert.equal(all.length, config.adoption.options.length + config.formOptions.length, "採否の問いの選択肢とフォームが足す選択肢は、どれも回答待ちから行ける");
 });
 
-test("行き先を書いていない選択肢（「その他」を含む）で答えると、回答待ちは未着手へ進み、採否待ちは採否が決まらないまま Claude の番になる", () => {
+test("行き先を書いていない選択肢（「その他」を含む）は状態を決めず、回答待ちのまま Claude の番になる（採否の問いでも）", () => {
   const q = parseQuestion(config, "## 問い\nどうする？\n\n### 選択肢\n- A → 保留\n- B\n");
-  const other = (choices) => choices.find((c) => c.note);
-  const answered = other(formChoices(config, q, "回答待ち"));
-  assert.deepEqual([answered.to, answered.next], ["未着手", "hidakagit-bot"]);
-  assert.equal(formChoices(config, q, "回答待ち").find((c) => c.text === "B").to, "未着手");
-  const adoption = other(formChoices(config, parseQuestion(config, adoptionQuestion(config)), "採否待ち"));
-  assert.deepEqual([adoption.to, adoption.next, adoption.fixed], ["採否待ち", "hidakagit-bot", true]);
+  assert.equal(formChoices(config, q, config.ask.status).find((c) => c.text === "B").to, config.ask.status);
+  for (const question of [q, parseQuestion(config, adoptionQuestion(config))]) {
+    const stay = formChoices(config, question, config.ask.status).filter((c) => c.to === config.ask.status);
+    assert.ok(stay.some((c) => c.text === config.formOptions[0].text), "「その他」は状態を決めない");
+    for (const c of stay) assert.deepEqual([c.next, c.fixed], ["hidakagit-bot", true], c.text);
+  }
 });
 
 test("問いの形に合わないもの（知らないステータス・選択肢が1つ）は読まない", () => {

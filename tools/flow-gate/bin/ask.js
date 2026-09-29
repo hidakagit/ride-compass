@@ -1,5 +1,5 @@
 // Claude が hidakagit に問う（hidakagit-bot の名義）。問いを本文の先頭（ゲートの印の間）に画面に出ない形で書き、回答待ちへ動かす
-// （もう採否待ち・回答待ちなら hidakagit に割り当て直す）。ボタンはゲートが出す。
+// （もう回答待ちなら hidakagit に割り当て直す）。ボタンはゲートが出す。
 // 使い方: node tools/flow-gate/bin/ask.js <issue の番号> <問いのファイル（docs/conventions/flow.md「問い」の形）>
 import { readFileSync } from "node:fs";
 import config from "../flow.config.json" with { type: "json" };
@@ -20,8 +20,8 @@ if (!parseQuestion(config, question)) throw new Error("問いが形（docs/conve
 const gh = new GitHub(botToken());
 const { project, issue } = await readTask(gh, config, { number: Number(number) });
 if (!issue?.item || issue.state !== "OPEN") throw new Error(`#${number} は ${config.repository} の Project の開いた件ではありません。`);
-const asking = config.ask.statuses.includes(issue.status);
-const to = config.ask.statuses.find((s) => s !== config.adoption.status);
+const to = config.ask.status;
+const asking = issue.status === to;
 if (!asking) {
   const verdict = check(config, issue.status, to, issue.blockedBy.nodes);
   if (!verdict.ok) throw new Error(verdict.reason);

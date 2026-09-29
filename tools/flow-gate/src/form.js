@@ -80,7 +80,7 @@ const page = (body, status = 200) =>
 async function load(gate, number) {
   const issue = await gate.read({ number });
   if (!issue?.item) return { error: "この issue は対象外です。" };
-  if (!gate.config.ask.statuses.includes(issue.status)) return { error: `いまは答える問いがありません（ステータス: ${issue.status ?? "無し"}）。` };
+  if (issue.status !== gate.config.ask.status) return { error: `いまは答える問いがありません（ステータス: ${issue.status ?? "無し"}）。` };
   if (!answererTurn(gate.config, issue)) return { error: "いまは Claude の番です（答えは届いています）。" };
   const q = currentQuestion(gate.config, issue);
   if (!q) return { error: "答える問いがありません。" };
@@ -107,7 +107,7 @@ function render(config, { issue, q, labels, choices, materialHtml }) {
       `<form><input type="hidden" name="issue" value="${issue.number}"><input type="hidden" name="q" value="${esc(q.id)}">${radios.join("")}` +
       `<p id="who" hidden>次に動くのは <select name="next">${people.join("")}</select></p>` +
       `<p>ラベル</p><div class="labels">${boxes.join("")}</div>` +
-      `<p><textarea name="note" rows="6" placeholder="補足（「その他」を選んだときは必須）"></textarea></p>` +
+      `<p><textarea name="note" rows="6" placeholder="補足（「その他」「止める」を選んだときは必須）"></textarea></p>` +
       `<p id="sum"></p><div class="row"><button type="button" id="back" class="ok">戻る</button><button class="ok primary">送信</button>` +
       `<button class="ask primary">確認へ</button></div></form>` +
       (q.parsed.material ? "</div>" : ""),
