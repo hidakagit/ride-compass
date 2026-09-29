@@ -110,7 +110,7 @@ export default function RouteAxisProfile({
     <div className="flex flex-col">
       {overallDifficulty != null && (
         <div className="mx-0.5 mt-0.5 mb-1 flex flex-col gap-1">
-          {/* 数値の行と内訳のバーを分ける——同じ折り返しの行へ入れると、数値の文字数（所要の「58分」と「1時間5分」等）で
+          {/* 数値の行と内訳のバーを分ける——同じ折り返しの行へ入れると、数値の文字数（所要の「58分」と「125分」等）で
               バーが数値の横へ入るか次の行へ落ちるかが変わり、候補ごとにバーの長さが揃わない。 */}
           <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
             <span className="inline-flex flex-shrink-0 items-baseline gap-0.5">

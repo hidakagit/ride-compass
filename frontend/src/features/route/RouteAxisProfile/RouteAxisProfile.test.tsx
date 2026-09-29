@@ -51,7 +51,7 @@ describe("RouteAxisProfile 見出しの数値", () => {
   it("総合難易度・所要・負荷を出す（難易度と負荷は整数へ丸める）", () => {
     renderProfile();
     expect(screen.getByText("総合難易度").parentElement).toHaveTextContent("総合難易度31/100");
-    expect(screen.getByText("所要").parentElement).toHaveTextContent("所要1時間42分");
+    expect(screen.getByText("所要").parentElement).toHaveTextContent("所要102分");
     expect(screen.getByText("負荷").parentElement).toHaveTextContent("負荷998");
   });
 

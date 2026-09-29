@@ -49,6 +49,10 @@ describe("extraDurationLabel（基準線より余計にかかる分）", () => {
     expect(extraDurationLabel(route("x", 600 + 90), 600)).toBe("+2分");
   });
 
+  it("1時間以上の差も分で出す", () => {
+    expect(extraDurationLabel(route("x", 600 + 107 * 60), 600)).toBe("+107分");
+  });
+
   it("差が丸めて1分未満なら出さない（基準線自身もここに入る）", () => {
     expect(extraDurationLabel(route("x", 600), 600)).toBeNull();
     expect(extraDurationLabel(route("x", 629), 600)).toBeNull();

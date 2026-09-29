@@ -179,17 +179,20 @@ export default function RouteOutcome({ results, generation, splice, routeWeights
             <TabsList variant="side" className="max-mobile:min-h-0 max-mobile:overflow-y-auto" aria-label="ルート結果">
               {routes.map((route, index) => (
                 <TabsTrigger key={route.id} value={route.id} usage={CANDIDATE_TAB_USAGE}>
-                  {/* 見分けるための順位番号（並び順どおり）と距離。経由地のルートは常に1件なので番号の代わりに名前。 */}
-                  <span className="truncate">
-                    {NON_DIRECTIONAL_ROUTE_IDS.has(route.id) ? route.direction_label : `${index + 1}`}{" "}
-                    {route.distance_km.toFixed(1)}km
-                    {isSplicedRoute(route) && (
-                      <span className="ml-1 font-normal text-[var(--color-muted-strong)]">合成</span>
-                    )}
+                  {/* 値を省略で切らず、幅に収まらないときだけ所要時間を次の行へ送る（切られた値は画面のどこにも出ない）。 */}
+                  <span className="flex min-w-0 flex-wrap items-center gap-x-1">
+                    {/* 見分けるための順位番号（並び順どおり）と距離。経由地のルートは常に1件なので番号の代わりに名前。 */}
+                    <span>
+                      {NON_DIRECTIONAL_ROUTE_IDS.has(route.id) ? route.direction_label : `${index + 1}`}{" "}
+                      {route.distance_km.toFixed(1)}km
+                      {isSplicedRoute(route) && (
+                        <span className="ml-1 font-normal text-[var(--color-muted-strong)]">合成</span>
+                      )}
+                    </span>
                     {/* 最速の候補はその所要時間を印付きで、他の候補はそこから何分余計にかかるか（見比べる場所に置く）。 */}
                     {route.id === fastestRouteIdInList && fastestSeconds !== null ? (
                       <span
-                        className="ml-1 inline-flex items-center gap-0.5 font-normal text-[var(--color-muted-strong)]"
+                        className="inline-flex items-center gap-0.5 font-normal text-[var(--color-muted-strong)]"
                         title="最速"
                       >
                         <span role="img" aria-label="最速" className="inline-flex">
@@ -199,7 +202,7 @@ export default function RouteOutcome({ results, generation, splice, routeWeights
                       </span>
                     ) : (
                       extraDurationLabel(route, fastestSeconds) && (
-                        <span className="ml-1 font-normal text-[var(--color-muted-strong)]">
+                        <span className="font-normal text-[var(--color-muted-strong)]">
                           {extraDurationLabel(route, fastestSeconds)}
                         </span>
                       )
