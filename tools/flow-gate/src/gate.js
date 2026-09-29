@@ -1,7 +1,7 @@
 // 遷移の処理。Webhook の出来事も回答フォームの送信も、ここの apply を通って表で照らされる。
 // 1つの出来事では、タスクを1回読み（read）、書き込みを1回にまとめて書く（write）。
 import { GitHub, Mutations, readTask, setField } from "./github.js";
-import { reconcile } from "./review.js";
+import { opened, reconcile } from "./review.js";
 import { adoptionQuestion, answererTurn, check, claude, entryFor, joinBody, normalizeBody, parseQuestion, splitBody } from "./rules.js";
 
 export class Gate {
@@ -189,13 +189,15 @@ export async function handleEvent(env, config, origin, name, payload) {
   return gate.touched(payload.issue.node_id);
 }
 
-// コードのリポジトリの出来事: Pull Request が閉じた（マージ・マージせず）ときはその作業ブランチのタスクを、master の CI が
+// コードのリポジトリの出来事: Pull Request が開いた・閉じた（マージ・マージせず）ときはその作業ブランチのタスクを、master の CI が
 // 終わったときは検証中のタスクをすべて、今の状態に合わせて動かす。
 function codeEvent(env, config, origin, name, payload) {
   const { branchPrefix, base } = config.code;
-  if (name === "pull_request" && payload.action === "closed") {
-    const number = payload.pull_request.head.ref.startsWith(branchPrefix) && Number(payload.pull_request.head.ref.slice(branchPrefix.length));
-    return number ? reconcile(env, config, origin, [number]) : "作業ブランチの Pull Request ではない";
+  if (name === "pull_request" && ["opened", "reopened", "closed"].includes(payload.action)) {
+    const ref = payload.pull_request.head.ref;
+    const number = ref.startsWith(branchPrefix) && Number(ref.slice(branchPrefix.length));
+    if (!number) return "作業ブランチの Pull Request ではない";
+    return payload.action === "closed" ? reconcile(env, config, origin, [number]) : opened(env, config, origin, number);
   }
   if (name === "workflow_run" && payload.action === "completed" && payload.workflow_run.head_branch === base) return reconcile(env, config, origin);
   return "対象外の出来事";

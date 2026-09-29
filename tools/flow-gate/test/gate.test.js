@@ -213,6 +213,22 @@ test("マージしたあと master の CI を待ち、通れば完成として�
   assert.match(comments(gh)[0], /CI が通りませんでした[\s\S]*run\/1/);
 });
 
+test("作業ブランチの Pull Request が開くと、進行中の issue は検証中になり、ユーザー確認ならユーザー、無ければ Claude の番になる", async () => {
+  const open = { pull_request: { head: { ref: `${config.code.branchPrefix}8` } } };
+  let gh = verifying({ prs: [pr()], runs: [] }, { status: "進行中" });
+  await codeEvent("pull_request", { action: "opened", ...open });
+  assert.deepEqual([gh.issue.status, gh.issue.assignees, comments(gh)], ["検証中", ["hidakagit-bot"], []]);
+
+  gh = verifying({ prs: [pr()], runs: [] }, { status: "進行中", labels: [config.verify.label] });
+  await codeEvent("pull_request", { action: "reopened", ...open });
+  assert.deepEqual([gh.issue.status, gh.issue.assignees], ["検証中", [config.ask.answerer]]);
+
+  gh = verifying({ prs: [pr()], runs: [] }, { status: "未着手" });
+  await codeEvent("pull_request", { action: "opened", ...open });
+  assert.deepEqual([gh.issue.status, gh.issue.assignees], ["未着手", [config.ask.answerer]]);
+  assert.match(comments(gh)[0], /が開かれましたが、この issue は「未着手」なので、ステータスは動かしていません/);
+});
+
 test("作業ブランチの Pull Request が閉じたのに issue が検証中でなければ、ステータスは動かさず、理由を書き、開いていれば答える人に渡す", async () => {
   let gh = verifying({ prs: [pr({ state: "closed", merged_at: "t" })], runs: [] }, { status: "進行中" });
   await codeEvent("pull_request", { action: "closed", pull_request: { head: { ref: `${config.code.branchPrefix}8` } } });

@@ -44,7 +44,7 @@ const MESSAGES = {
   left: (v, left) =>
     `${merged(v)}完了の条件にチェックの無いものが残っているので、閉じずに戻します。残りを済ませてチェックを付け、完了（completed）で閉じてください。\n\n${left.map((l) => `- ${l}`).join("\n")}`,
   untracked: (pr, issue) =>
-    `Pull Request ${prLink(pr)} が${pr.merged_at ? "マージされました" : "マージされずに閉じられました"}が、この issue は` +
+    `Pull Request ${prLink(pr)} が${pr.state === "open" ? "開かれました" : pr.merged_at ? "マージされました" : "マージされずに閉じられました"}が、この issue は` +
     `「${issue.status ?? "（ステータス無し）"}」${issue.state === "CLOSED" ? "で閉じている" : "な"}ので、ステータスは動かしていません。どうするかを決めてください。`,
 };
 
@@ -54,6 +54,22 @@ const unchecked = (body) =>
     .rest.split("\n")
     .map((l) => /^\s*- \[ \] (.+)$/.exec(l)?.[1])
     .filter(Boolean);
+
+// 作業ブランチの Pull Request が開いた（開き直された）: その issue が進行中（verify.from）なら検証中へ動かす（割り当ては
+// Gate.apply が決める）。もう検証中なら何もしない。ほかのステータスなら動かさず、閉じたときと同じく理由を書いて答える人に渡す。
+export async function opened(env, config, origin, number) {
+  const gate = await Gate.open(env, config, origin);
+  const issue = await gate.read({ number });
+  if (!issue?.item || issue.status === config.verify.status) return "動かすものは無い";
+  if (issue.status === config.verify.from && issue.state === "OPEN") {
+    const r = await gate.apply(issue, issue.status, config.verify.status);
+    return r.ok ? `#${number} verifying` : r.reason;
+  }
+  const { pr } = await verdictFor(new GitHub(env.CODE_TOKEN), config, number);
+  if (!pr) return "Pull Request が無い";
+  await gate.write(issue, { comments: [MESSAGES.untracked(pr, issue)], assign: issue.state === "OPEN" ? config.ask.answerer : undefined });
+  return `#${number} untracked`;
+}
 
 // numbers を渡さなければ、検証中のタスクをすべて見る。numbers は Pull Request が閉じた出来事から渡り、その issue が検証中で
 // なければ動かさずに理由をコメントに書き、開いていれば答える人に渡す（黙って何もしないと、検証中を通らずに入った変更に誰も気づかない）。
