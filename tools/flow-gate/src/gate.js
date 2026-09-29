@@ -127,7 +127,7 @@ export class Gate {
     if (this.project.id !== projectNodeId || !issue?.item || from === to || from === null) return;
     const by = sender === this.config.claude ? "claude" : null;
     const verdict = by ? check(this.config, from, to, { by, blockers: issue.blockedBy.nodes }) : { ok: false, reason: "ステータスは回答フォームで答えて動かします。" };
-    if (verdict.ok && verdict.rule.on === "問い" && !parseQuestion(this.config, splitBody(issue.body).question ?? "")) {
+    if (verdict.ok && verdict.rule.on === "問い" && !parseQuestion(splitBody(issue.body).question ?? "")) {
       verdict.ok = false;
       verdict.reason = "問いが本文の先頭に無いため、回答待ちにできません（bin/ask.js で問います）。";
     }
@@ -163,8 +163,8 @@ export class Gate {
 // 問いが書き直されたかを見分けるのに使う。
 export function currentQuestion(config, issue) {
   const written = splitBody(issue.body).question;
-  const body = written && parseQuestion(config, written) ? written : questionBody(config.questions[issue.status] ?? config.questions.default);
-  return { id: questionId(body), body, parsed: parseQuestion(config, body) };
+  const body = written && parseQuestion(written) ? written : questionBody(config.questions[issue.status] ?? config.questions.default);
+  return { id: questionId(body), body, parsed: parseQuestion(body) };
 }
 
 function questionId(text) {
