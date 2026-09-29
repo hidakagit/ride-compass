@@ -16,7 +16,7 @@ from app.domain.accident import (
     ACCIDENT_MATCH_MAX_DISTANCE_M,
     BICYCLE_PARTY_TYPE_CODES,
 )
-from app.domain.geo import KM_PER_DEGREE_LATITUDE
+from app.domain.geo import KM_PER_DEGREE_LATITUDE, km_per_degree_longitude
 from app.domain.traffic import POI_COUNT_KINDS, poi_count_column
 from tests.conftest import postgis_database_url
 
@@ -232,7 +232,6 @@ async def test_rerun_on_changed_input_keeps_no_count_the_input_no_longer_support
     assert after == (0, 0)
 
 
-@pytest.mark.xfail(reason="事故の数え上げが自転車の関わらない事故も数える（tasks#49 で直す）")
 async def test_an_accident_without_a_bicycle_is_not_counted(counts_conn):
     """自転車の関わらない事故は数えない。同じ場所の自転車の事故は数える。"""
     await _insert_accident(counts_conn, "car", _north_of_way(5.0), bicycle=False)
@@ -243,7 +242,6 @@ async def test_an_accident_without_a_bicycle_is_not_counted(counts_conn):
     assert await _accidents(counts_conn) == {(100, 0): 1.0, (300, 0): 1.0}
 
 
-@pytest.mark.xfail(reason="事故の数え上げが道からの距離の上限を持たない（tasks#49 で直す）")
 async def test_an_accident_farther_than_the_match_distance_is_not_counted(counts_conn):
     """道から帰属の距離より遠い事故は、最も近い道にも付けない。距離の内側の事故は付ける。"""
     await _insert_accident(counts_conn, "near", _north_of_way(ACCIDENT_MATCH_MAX_DISTANCE_M - 10))
@@ -252,6 +250,28 @@ async def test_an_accident_farther_than_the_match_distance_is_not_counted(counts
     await derive_counts.derive(counts_conn)
 
     assert await _accidents(counts_conn) == {(100, 0): 1.0, (300, 0): 1.0}
+
+
+async def test_an_accident_goes_to_the_segment_nearest_on_the_ground(counts_conn):
+    """事故は地上の距離（m）で最も近い区間へ付く。
+
+    道300から北へ11.5m・南北に延びる道400から西へ10mの点は、道400の方が近い。緯度経度の度の
+    まま比べると、東西の10mは南北の11.5mより大きな度になる（経度1度が緯度1度より短い）。
+    """
+    lon, lat = _north_of_way(11.5)
+    east = lon + 10.0 / (km_per_degree_longitude(lat) * 1000.0)
+    south, north = _north_of_way(6.5)[1], _north_of_way(40.0)[1]
+    await counts_conn.execute(
+        "INSERT INTO source_features (source, natural_key, run_id, geom, attrs, payload)"
+        " SELECT 'osm_way', '400', run_id, ST_GeomFromText($1, 4326), '{}'::jsonb, $2"
+        " FROM source_runs WHERE source = 'osm_way'",
+        f"LINESTRING({east} {south}, {east} {north})", struct.pack("<2q", 7, 8))
+    await _insert_accident(counts_conn, "between", (lon, lat))
+
+    await derive_topology.derive(counts_conn)
+    await derive_counts.derive(counts_conn)
+
+    assert await _accidents(counts_conn) == {(100, 0): 1.0, (400, 0): 1.0}
 
 
 async def test_only_a_fatal_accident_is_weighted(counts_conn):
