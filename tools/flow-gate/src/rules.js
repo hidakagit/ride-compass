@@ -42,8 +42,10 @@ export const remaining = (config, issue) => [
 
 // 問いを読む（docs/conventions/flow.md「問い」）: 1行目が「## 問い」、次の行が問いの文、「### 案」の下の箇条書きが案、
 // <details> の中が判断材料。問いの文が無ければ null。
-// 前の形の問い（「### 選択肢」の各行に「→ 行き先 / 次に動く者」）も読む: 行き先を外して案にし、回答フォームが一律に出す
-// 「進める」以外の選択肢（止める・完成・見送り）と同じ行き先のものは落とす。
+// 前の形の問い（「### 選択肢」の各行に「→ 行き先 / 次に動く者」）も読む。読み方は前の形を受け付けていたゲートの規則のまま
+// （行を最初の「 → 」（前後に空白）で分け、前が選択肢の文、後ろが「 / 」で区切った行き先と次に動く者）なので、ユーザーが前の
+// 回答フォームで見ていた文がそのまま案になる。回答フォームが一律に出す「進める」以外の選択肢（止める・完成・見送り）と同じ
+// 行き先のものは落とす。
 export function parseQuestion(config, body) {
   const lines = normalizeBody(body).split("\n");
   if (lines[0].trim() !== "## 問い") return null;
@@ -53,13 +55,14 @@ export function parseQuestion(config, body) {
   const covered = config.answers.map((a) => a.to).filter((s) => s !== go);
   const plans = [];
   const at = lines.findIndex((l) => ["### 案", "### 選択肢"].includes(l.trim()));
+  const old = at >= 0 && lines[at].trim() === "### 選択肢";
   for (const line of at < 0 ? [] : lines.slice(at + 1)) {
     if (!line.startsWith("- ")) {
       if (line.trim() || plans.length) break;
       continue;
     }
-    const [plan, to] = line.slice(2).split("→");
-    if (!covered.includes(to?.split("/")[0].trim())) plans.push(plan.trim());
+    const [label, rest] = old ? line.slice(2).split(" → ") : [line.slice(2)];
+    if (!covered.includes(rest?.split(" / ").map((p) => p.trim()).find((p) => config.statuses.includes(p)))) plans.push(label.trim());
   }
   const material = /<details>\s*<summary>[^<]*<\/summary>([\s\S]*?)<\/details>/.exec(body)?.[1].trim() ?? "";
   return { text, plans: plans.filter(Boolean), material };
