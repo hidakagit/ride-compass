@@ -30,6 +30,7 @@ import { NumberInput } from "@/components/ui/NumberInput/NumberInput";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/Table/Table";
 import { Input, Select } from "@/components/ui/Input/Input";
 import { textVariants } from "@/components/ui/Text/Text";
+import { calloutVariants } from "@/components/ui/Callout/Callout";
 import { cn } from "@/lib/cn";
 import { cardVariants } from "@/components/ui/Card/Card";
 import { fieldClass } from "@/components/ui/Input/Input";
@@ -274,7 +275,7 @@ export function AxisScoringSection({ draft, setDraft, materialOptions, axisTermO
                   description="各軸のスコア(0〜100)に係数(n, m…)を掛けた合計が、そのままスコアになります（nX + mYのように軸同士を重み付きで足し合わせるだけの、純粋な結合です）。"
                 />
                 {axisTermOptions.length === 0 && (
-                  <p className={textVariants({ variant: "error" })}>
+                  <p className={calloutVariants({ tone: "warning" })}>
                     組み合わせられる他の軸がまだありません。先に材料から軸を1つ以上作成してから使えます。
                   </p>
                 )}

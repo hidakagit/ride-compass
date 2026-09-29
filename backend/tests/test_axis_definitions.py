@@ -239,6 +239,7 @@ class TestMaterialExclusivity:
 
 DYNAMIC = next(iter(axis_definitions.REQUEST_DYNAMIC_MATERIAL_IDS))
 KNOWN_AXIS = "ref"
+KNOWN_AXES = {KNOWN_AXIS: linear_axis(KNOWN_AXIS, "num_b")}
 
 
 def shape_over(*materials):
@@ -263,30 +264,30 @@ class TestValuesCheckedAgainstTheCatalogAndTheOtherAxes:
         ("fields", "reason"),
         [
             ({"label": "とても長い名前"}, "文字を超えています"),
-            ({"shape": shape_over(DYNAMIC, "num_a")}, "組み合わせることはできません"),
+            ({"shape": shape_over(DYNAMIC, "num_a")}, "組み合わせられません"),
             (
                 {
                     "shape": shape_over(DYNAMIC),
                     "priority_overrides": [{"material": "bool_a", "equals": "true", "value": 0}],
                 },
-                "組み合わせることはできません",
+                "組み合わせられません",
             ),
-            ({"shape": shape_over("ghost")}, "無い材料・軸を指しています: ['ghost']"),
-            ({"shape": shape_over("cat_a")}, "この計算の形には使えません"),
-            ({"shape": {"kind": "categorical", "material": "num_a", "mapping": {"x": 1}}}, "この計算の形には使えません"),
-            ({"shape": {"kind": "categorical", "material": "bool_a", "mapping": {"x": 1}}}, "値の型が合いません"),
-            ({"shape": {"kind": "categorical", "material": "cat_a", "mapping": {"true": 1}}}, "値の型が合いません"),
+            ({"shape": shape_over("ghost")}, "存在しない材料・軸を指しています（ghost）"),
+            ({"shape": shape_over("cat_a")}, "この点数の決め方には使えません"),
+            ({"shape": {"kind": "categorical", "material": "num_a", "mapping": {"x": 1}}}, "この点数の決め方には使えません"),
+            ({"shape": {"kind": "categorical", "material": "bool_a", "mapping": {"x": 1}}}, "「はい」「いいえ」で書いてください"),
+            ({"shape": {"kind": "categorical", "material": "cat_a", "mapping": {"true": 1}}}, "値の名前で書いてください"),
             (
                 {"priority_overrides": [{"material": "ghost", "equals": "1", "value": 0}]},
-                "優先条件が材料カタログに無い材料・軸を指しています: ['ghost']",
+                "優先条件が存在しない材料・軸を指しています（ghost）",
             ),
             (
                 {"priority_overrides": [{"material": KNOWN_AXIS, "equals": "1", "value": 0}]},
-                "真偽・分類の材料にだけ置けます",
+                "はい・いいえか種類の材料にだけ置けます",
             ),
             (
                 {"priority_overrides": [{"material": "num_a", "equals": "1", "value": 0}]},
-                "真偽・分類の材料にだけ置けます",
+                "はい・いいえか種類の材料にだけ置けます",
             ),
             (
                 {"priority_overrides": [{"material": "bool_a", "equals": "yes", "value": 0}]},
@@ -315,9 +316,29 @@ class TestValuesCheckedAgainstTheCatalogAndTheOtherAxes:
     )
     def test_rejected(self, catalog_with_a_dynamic_material, fields, reason):
         with pytest.raises(ValueError) as excinfo:
-            axis_definitions.check_axis_definition(axis_body(**fields), {KNOWN_AXIS})
+            axis_definitions.check_axis_definition(axis_body(**fields), KNOWN_AXES)
 
         assert reason in str(excinfo.value)
+
+    @pytest.mark.parametrize(
+        ("fields", "name"),
+        [
+            ({"shape": {"kind": "categorical", "material": "num_a", "mapping": {"x": 1}}}, "「数値の材料A」"),
+            ({"priority_overrides": [{"material": KNOWN_AXIS, "equals": "1", "value": 0}]}, "「参照される軸」"),
+        ],
+        ids=["材料", "軸"],
+    )
+    def test_a_rejection_names_materials_and_axes_as_the_screen_does(self, catalog, fields, name):
+        """断りの文は画面の管理者が読む。idは画面に出ないので、材料・軸を表示名で名指す。"""
+        catalog["num_a"] = catalog["num_a"].model_copy(update={"label": "数値の材料A"})
+        axes = {KNOWN_AXIS: linear_axis(KNOWN_AXIS, "num_b").model_copy(update={"label": "参照される軸"})}
+
+        with pytest.raises(ValueError) as excinfo:
+            axis_definitions.check_axis_definition(axis_body(**fields), axes)
+
+        message = str(excinfo.value)
+        assert name in message
+        assert "num_a" not in message and KNOWN_AXIS not in message
 
     @pytest.mark.parametrize(
         "fields",
@@ -341,12 +362,12 @@ class TestValuesCheckedAgainstTheCatalogAndTheOtherAxes:
         ],
     )
     def test_accepted(self, catalog_with_a_dynamic_material, fields):
-        axis_definitions.check_axis_definition(axis_body(**fields), {KNOWN_AXIS})
+        axis_definitions.check_axis_definition(axis_body(**fields), KNOWN_AXES)
 
     def test_an_axis_reference_is_known_only_through_the_axes_passed_in(self, catalog_with_a_dynamic_material):
         """軸の参照を受け入れるのは、渡された軸の集合（読み込みでは同じ読み込み結果）にある軸だけ。"""
         with pytest.raises(ValueError, match=KNOWN_AXIS):
-            axis_definitions.check_axis_definition(axis_body(shape=shape_over(KNOWN_AXIS)), set())
+            axis_definitions.check_axis_definition(axis_body(shape=shape_over(KNOWN_AXIS)), {})
 
 
 class TestAxisDependencies:

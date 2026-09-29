@@ -162,7 +162,7 @@ async def test_create_rejects_axis_reusing_existing_material(road_graph_session)
     service = AxisRegistryAdminService(repository)
     await service.create(axis_definition("first_axis", material="bridge"))
 
-    with pytest.raises(AxisMaterialConflictError, match="bridge"):
+    with pytest.raises(AxisMaterialConflictError, match="「橋・高架」"):
         await service.create(axis_definition("second_axis", material="bridge"))
 
     assert "second_axis" not in AXIS_DEFINITIONS
@@ -185,7 +185,7 @@ async def test_update_rejects_axis_reusing_another_axis_material(road_graph_sess
     await service.create(axis_definition("first_axis", material="motor_vehicle_no"))
     await service.create(axis_definition("second_axis", material="oneway"))
 
-    with pytest.raises(AxisMaterialConflictError, match="motor_vehicle_no"):
+    with pytest.raises(AxisMaterialConflictError, match="「自動車通行不可」"):
         await service.update("second_axis", axis_definition("second_axis", material="motor_vehicle_no"))
 
     assert AXIS_DEFINITIONS["second_axis"].materials == ["oneway"]
@@ -215,7 +215,7 @@ async def test_create_rejects_publishing_axis_referenced_by_another_axis(road_gr
     await service.create(axis_definition("base_axis", material="oneway"))
     await service.create(axis_definition("dependent_axis", material="base_axis"))
 
-    with pytest.raises(AxisInternalAxisPublishError, match="base_axis"):
+    with pytest.raises(AxisInternalAxisPublishError, match="公開できません"):
         await service.update("base_axis", axis_definition("base_axis", material="oneway", is_published=True))
 
     assert AXIS_DEFINITIONS["base_axis"].is_published is False
@@ -281,7 +281,7 @@ async def test_update_rejects_published_axis(road_graph_session):
     service = AxisRegistryAdminService(repository)
     await service.create(axis_definition("test_axis", default_weight=0.1, is_published=True, material=CATALOG_MATERIAL))
 
-    with pytest.raises(AxisPublishedImmutableError, match="test_axis"):
+    with pytest.raises(AxisPublishedImmutableError, match="表示以外は変えられません"):
         await service.update(
             "test_axis", axis_definition("test_axis", default_weight=0.9, is_published=False, material=CATALOG_MATERIAL)
         )
@@ -309,7 +309,7 @@ async def test_delete_rejects_published_axis(road_graph_session):
     await service.create(axis_definition("test_axis", is_published=True, material=CATALOG_MATERIAL))
     await service.create(axis_definition("other_axis", material="wind_drag_ratio"))
 
-    with pytest.raises(AxisPublishedImmutableError, match="test_axis"):
+    with pytest.raises(AxisPublishedImmutableError, match="先に非公開に戻してください"):
         await service.delete("test_axis")
 
     assert "test_axis" in AXIS_DEFINITIONS
@@ -349,7 +349,7 @@ async def test_delete_rejects_removing_the_last_remaining_axis(road_graph_sessio
     service = AxisRegistryAdminService(repository)
     await service.create(axis_definition("test_axis", material=CATALOG_MATERIAL))
 
-    with pytest.raises(ValueError, match="空です"):
+    with pytest.raises(ValueError, match="最後の1本の軸なので削除できません"):
         await service.delete("test_axis")
 
     assert "test_axis" in AXIS_DEFINITIONS  # 削除されず、キャッシュも変わっていない
@@ -360,11 +360,17 @@ async def test_delete_rejects_axis_another_axis_still_refers_to(road_graph_sessi
     # 参照している側を先に消せば、参照されていた軸も消せる。
     repository = AxisDefinitionRepository(road_graph_session)
     service = AxisRegistryAdminService(repository)
-    await service.create(axis_definition("base_axis", material="oneway"))
-    await service.create(axis_definition("dependent_axis", material="base_axis"))
+    await service.create(axis_definition("base_axis", material="oneway", label="路面"))
+    await service.create(axis_definition("dependent_axis", material="base_axis", label="登り"))
 
-    with pytest.raises(ValueError, match="dependent_axis"):
+    with pytest.raises(ValueError) as refusal:
         await service.delete("base_axis")
+
+    # 画面の管理者が読む断り: 軸を表示名で名指し、次の手を添える（idは画面に出ない）。
+    assert str(refusal.value) == (
+        "「路面」は「登り」が組み合わせに使っているため削除できません。"
+        "先に「登り」の組み合わせる軸から「路面」を外すか、「登り」を削除してください。"
+    )
 
     assert await repository.get("base_axis") is not None
     await refresh_axis_definitions(repository)  # 次の起動と同じ読み込みが通る

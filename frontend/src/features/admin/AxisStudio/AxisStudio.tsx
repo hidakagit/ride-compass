@@ -18,6 +18,7 @@ import type { AxisDefinitionPayload, AxisDefinitionResponse, AxisShape } from "@
 import AxisComposer from "./AxisComposer";
 import { Button } from "@/components/ui/Button/Button";
 import { textVariants } from "@/components/ui/Text/Text";
+import { calloutVariants } from "@/components/ui/Callout/Callout";
 import { cn } from "@/lib/cn";
 import { cardVariants } from "@/components/ui/Card/Card";
 import { getQueryClient } from "@/lib/queryClient";
@@ -201,7 +202,7 @@ export default function AxisStudio() {
   return (
     <div className="flex flex-col gap-3">
       {listError && <p className={textVariants({ variant: "error" })}>{listError}</p>}
-      {notice && <p className={textVariants({ variant: "error" })}>{notice}</p>}
+      {notice && <p className={calloutVariants({ tone: "warning" })}>{notice}</p>}
 
       {/* 下書きタブが既定表示。公開済みタブに削除ボタンは出さない（削除は先に
           「非公開に戻す」という導線を残す）。編集ボタンは「表示だけ編集」として、

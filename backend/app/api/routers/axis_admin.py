@@ -29,6 +29,7 @@ from app.domain.axis_definitions import (
     ScorePoint,
     check_axis_definition,
     first_term_points,
+    named_references,
     referenced_materials,
 )
 from app.domain.axis_display import axis_display_for, bands_the_map_keeps, thresholds_the_map_drops
@@ -43,6 +44,14 @@ router = APIRouter(
 )
 
 _T = TypeVar("_T")
+
+
+def _axis_not_found() -> HTTPException:
+    """指された軸が無い。画面から届くのは、開いている間にほかで消された軸なので、読み直しを促す。"""
+    return HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="この軸はもうありません（ほかの画面で削除された可能性があります）。一覧を読み直してください。",
+    )
 
 
 async def _guard_db_errors(awaitable: Awaitable[_T]) -> _T:
@@ -79,7 +88,7 @@ class AxisDefinitionPayload(AxisDefinition):
 
     @model_validator(mode="after")
     def _check_against_the_catalog_and_the_other_axes(self) -> "AxisDefinitionPayload":
-        check_axis_definition(self, AXIS_DEFINITIONS.keys())
+        check_axis_definition(self, AXIS_DEFINITIONS)
         return self
 
     @model_validator(mode="after")
@@ -101,7 +110,7 @@ class AxisDefinitionPayload(AxisDefinition):
         if served_dedicated_way_value_material(materials) is None:
             raise axis_error(
                 "専用配信の軸は、配信の実装がある材料をちょうど1つだけ指す必要があります"
-                f"（この軸が指す材料: {materials}）。"
+                f"（この軸が指す材料: {named_references(materials, AXIS_DEFINITIONS)}）。"
             )
         return self
 
@@ -163,7 +172,7 @@ async def get_axis_definition(
 ) -> AxisDefinitionResponse:
     definition = await _guard_db_errors(service.get(axis_id))
     if definition is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"axis_id={axis_id} が見つかりません")
+        raise _axis_not_found()
     return _to_response(definition, await _all_definitions(service))
 
 
@@ -193,7 +202,7 @@ async def update_axis_definition(
     try:
         await _guard_db_errors(service.update(axis_id, definition))
     except KeyError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"axis_id={axis_id} が見つかりません") from exc
+        raise _axis_not_found() from exc
     except ValueError as exc:
         # 公開済み軸の更新拒否（AxisPublishedImmutableError）と材料の
         # 排他チェック（AxisMaterialConflictError）の両方がここを通る。
@@ -208,7 +217,7 @@ async def delete_axis_definition(
     try:
         await _guard_db_errors(service.delete(axis_id))
     except KeyError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"axis_id={axis_id} が見つかりません") from exc
+        raise _axis_not_found() from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
@@ -224,7 +233,7 @@ async def unpublish_axis_definition(
     try:
         await _guard_db_errors(service.unpublish(axis_id))
     except KeyError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"axis_id={axis_id} が見つかりません") from exc
+        raise _axis_not_found() from exc
     definition = await _guard_db_errors(service.get(axis_id))
     if definition is None:
         # assert文は`python -O`実行時に取り除かれるため使わない（本番起動コマンドが-Oを
