@@ -4,9 +4,11 @@ const personById = (config, id) => Object.keys(config.people).find((k) => config
 export const personByShown = (config, shown) =>
   Object.keys(config.people).find((k) => config.people[k].shown === shown) ?? null;
 
-export function entryFor(config, authorId) {
-  const author = personById(config, authorId);
-  return config.entry.find((e) => e.author === author) ?? config.entry.find((e) => e.author === null);
+// 入口の行: 親のある issue（段階）は「parent」の行、ほかは書いた人の行、無ければ author が null の行。
+export function entryFor(config, issue) {
+  if (issue.parent) return config.entry.find((e) => e.parent);
+  const author = personById(config, issue.author?.databaseId);
+  return config.entry.find((e) => !e.parent && e.author === author) ?? config.entry.find((e) => !e.parent && e.author === null);
 }
 
 export const ruleFor = (config, from, to) =>

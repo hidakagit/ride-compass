@@ -64,10 +64,10 @@ test("入口: hidakagit が書いた issue は未着手で Claude に、ほか�
   assert.equal(gh.issue.body, `<!-- flow-gate -->\n[![回答する](https://gate.test/button.svg)](${form})\n\n**採否待ち**: ${config.adoption.question}\n<!-- /flow-gate -->\n\n本文`);
 });
 
-test("段階（親のある issue）は入口にしない", async () => {
-  const gh = fakeGitHub({ issue: { number: 3, authorId: ME, parent: { number: 1 } } });
+test("入口: 段階（親のある issue）は、書いた人によらず未着手で Claude に割り当てる（採否は親で済んでいる）", async () => {
+  const gh = fakeGitHub({ issue: { number: 3, authorId: BOT, parent: { number: 1 } } });
   await deliver("projects_v2_item", item({ action: "created" }));
-  assert.deepEqual(gh.writes, []);
+  assert.deepEqual([gh.issue.status, gh.issue.assignees], ["未着手", ["hidakagit-bot"]]);
 });
 
 test("表にある移動は通して既定の割り当てを書き、表に無い移動は戻して理由を書く", async () => {
@@ -88,17 +88,13 @@ test("前提が完了で閉じていなければ進行中にできない", async
   assert.match(comments(gh)[0], /前提 #9 が完了/);
 });
 
-test("ボードで完了にしたら見送りで閉じ、完成で閉じて段階が残っていれば最初の段階だけ閉じて未着手に戻す", async () => {
-  let gh = fakeGitHub({ issue: { number: 1, authorId: ME, status: "完了" } });
+test("ボードで完了にしたら見送りで閉じる", async () => {
+  const gh = fakeGitHub({ issue: { number: 1, authorId: ME, status: "完了" } });
   await move("保留", "完了");
   assert.equal(gh.issue.state, "CLOSED");
   assert.deepEqual(gh.writes.find((w) => w.stateInput).stateInput, { value: "CLOSED", stateReason: "NOT_PLANNED" });
-
-  gh = fakeGitHub({ issue: { number: 1, authorId: ME, status: "検証中", state: "CLOSED", subIssues: [{ id: "S", number: 5, state: "OPEN" }] } });
-  await deliver("issues", { action: "closed", issue: { node_id: "I_1", state_reason: "completed" } });
-  assert.deepEqual(gh.writes.filter((w) => w.op === "closeIssue" || w.stateInput).map((w) => [w.issueId ?? w.id, w.stateReason ?? w.stateInput.value]), [["S", "COMPLETED"], ["I_1", "OPEN"]]);
-  assert.deepEqual([gh.issue.status, gh.issue.assignees], [config.nextStage.to, [config.nextStage.assign]]);
 });
+
 
 // bin/ask.js が書いたのと同じ、本文の先頭に画面に出ない形で問いを置いた本文。
 const asked = (q) => `<!-- flow-gate -->\n<!-- 問い\n${q}\n-->\n<!-- /flow-gate -->\n\n本文`;
@@ -179,7 +175,7 @@ test("検証中へ動くと、ユーザーが確かめると決めたタスク�
   assert.deepEqual(gh.issue.assignees, ["hidakagit-bot"]);
 });
 
-const pr = (extra) => ({ number: 3, head: { ref: `${config.code.branchPrefix}8` }, html_url: "https://github.com/pr/3", state: "open", merged_at: null, merge_commit_sha: "M", ...extra });
+const pr = (extra) => ({ number: 3, title: "tasks#8: 題名", head: { ref: `${config.code.branchPrefix}8` }, html_url: "https://github.com/pr/3", state: "open", merged_at: null, merge_commit_sha: "M", ...extra });
 const run = (conclusion, status = "completed") => ({ name: "CI", head_sha: "M", status, conclusion, html_url: "https://github.com/run/1" });
 const verifying = (code, extra) => fakeGitHub({ code, issue: { number: 8, authorId: ME, status: "検証中", assignees: ["hidakagit-bot"], ...extra } });
 const codeEvent = (event, payload) => deliver(event, { repository: { full_name: config.code.repository }, ...payload });
@@ -199,11 +195,40 @@ test("マージしたあと master の CI を待ち、通れば完成として�
   await codeEvent("workflow_run", { action: "completed", workflow_run: { head_branch: config.code.base } });
   assert.deepEqual([gh.issue.status, gh.issue.state], [config.done, "CLOSED"]);
   assert.equal(gh.writes.find((w) => w.stateInput)?.stateInput.stateReason, "COMPLETED");
+  assert.equal(comments(gh)[0], "Pull Request [#3 tasks#8: 題名](https://github.com/pr/3) をマージし、そのあとの master の CI が通りました（[CI](https://github.com/run/1)）。完了にします。",
+    "何をマージして何が通ったかを、開けるリンク（Markdown の形）で書く");
 
   gh = verifying({ prs: [pr({ state: "closed", merged_at: "t" })], runs: [run("success"), run("failure")] });
   await codeEvent("workflow_run", { action: "completed", workflow_run: { head_branch: config.code.base } });
   assert.deepEqual([gh.issue.status, gh.issue.state], [config.verify.back, "OPEN"]);
   assert.match(comments(gh)[0], /CI が通りませんでした[\s\S]*run\/1/);
+});
+
+test("マージのあとの CI が通っても、本文の完了の条件にチェックの無いものが残っていれば閉じず、残りを書いて Claude に戻す", async () => {
+  const gh = verifying({ prs: [pr({ state: "closed", merged_at: "t" })], runs: [run("success")] },
+    { body: "要約\n\n<details><summary>完了の条件</summary>\n\n- [x] 済んだこと\n- [ ] マージのあとの操作\n</details>" });
+  await codeEvent("workflow_run", { action: "completed", workflow_run: { head_branch: config.code.base } });
+  assert.deepEqual([gh.issue.status, gh.issue.state, gh.issue.assignees], [config.verify.back, "OPEN", ["hidakagit-bot"]]);
+  assert.match(comments(gh)[0], /CI が通りました[\s\S]*閉じずに戻します[\s\S]*\n- マージのあとの操作$/);
+});
+
+test("子が閉じても、開いた子が残っていれば親は閉じない。最後の子が閉じると（人が閉じても、マージのあとゲートが閉じても）親を完了で閉じる", async () => {
+  const child = { number: 8, authorId: BOT, status: "検証中", assignees: ["hidakagit-bot"] };
+  const parent = { number: 20, authorId: ME, status: "保留", assignees: ["hidakagit-bot"] };
+  let gh = fakeGitHub({ issue: { ...child, state: "CLOSED" }, parent: { ...parent, siblings: [{ state: "OPEN" }] } });
+  await deliver("issues", { action: "closed", issue: { node_id: "I_1" } });
+  assert.deepEqual([gh.issue.status, gh.parent.state, gh.parent.status], [config.done, "OPEN", "保留"]);
+
+  gh = fakeGitHub({ issue: { ...child, state: "CLOSED" }, parent: { ...parent, siblings: [{ state: "CLOSED" }] } });
+  await deliver("issues", { action: "closed", issue: { node_id: "I_1" } });
+  assert.deepEqual([gh.parent.state, gh.parent.status], ["CLOSED", config.done]);
+  assert.equal(gh.writes.find((w) => w.id === "I_P" && w.stateInput).stateInput.stateReason, "COMPLETED");
+
+  gh = fakeGitHub({ issue: child, parent: { ...parent, siblings: [{ state: "CLOSED" }] },
+    code: { prs: [pr({ state: "closed", merged_at: "t" })], runs: [run("success")] } });
+  await codeEvent("workflow_run", { action: "completed", workflow_run: { head_branch: config.code.base } });
+  assert.deepEqual([gh.issue.state, gh.parent.state, gh.parent.status], ["CLOSED", "CLOSED", config.done]);
+  assert.match(comments(gh).at(-1), /子の issue が全部閉じた/);
 });
 
 test("ユーザーが確かめる番の検証中は、本文の先頭に作業ブランチの Pull Request を開くボタンが出る", async () => {

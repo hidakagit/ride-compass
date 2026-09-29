@@ -44,13 +44,14 @@ export class Gate {
 
   // 1つのタスクへの書き込みを1回の要求で行う。want には変えたい中身だけを渡す。本文の先頭の見せ方も、書いた後の状態に
   // 合わせて同じ要求に入れる。clearQuestion は答えを待つ問いを本文から消す（答えたとき）。
+  // 閉じた子（段階）を書いたあとは、親の子が全部閉じたかを見る（ゲートは自分が閉じた出来事を捨てるので、ここで見る）。
   async write(issue, want = {}) {
     const next = {
       ...issue,
       status: "status" in want ? want.status : issue.status,
       fields: { ...issue.fields, ...(want.fields ?? {}) },
       assignees: want.assign ? { nodes: [{ id: this.config.people[want.assign].node, login: want.assign }] } : issue.assignees,
-      state: want.close ? "CLOSED" : want.reopen ? "OPEN" : issue.state,
+      state: want.close ? "CLOSED" : issue.state,
       body: want.clearQuestion ? splitBody(issue.body).rest : issue.body,
     };
     const m = new Mutations();
@@ -65,7 +66,6 @@ export class Gate {
       m.add("updateProjectV2ItemFieldValue", { projectId: this.project.id, itemId: issue.item, fieldId: field.id, value: { singleSelectOptionId: field.options[value] } });
     }
     for (const body of want.comments ?? []) m.add("addComment", { subjectId: issue.id, body });
-    for (const id of want.closeOthers ?? []) m.add("closeIssue", { issueId: id, stateReason: "COMPLETED" });
 
     // 割り当て・ラベル・本文・開閉は updateIssue の1つにまとめる（GitHub は mutation を1つずつ順に処理し、1つごとに時間がかかる）。
     const update = {};
@@ -80,11 +80,18 @@ export class Gate {
     const body = this.bodyFor(next);
     if (body !== normalize(issue.body)) update.body = body;
     if (want.close) update.stateInput = { value: "CLOSED", stateReason: want.close };
-    if (want.reopen) update.stateInput = { value: "OPEN" };
     if (Object.keys(update).length) m.add("updateIssue", { id: issue.id, ...update });
 
     await m.send(this.gh);
     Object.assign(issue, next, { body, labels: { nodes: (update.labelIds ? labels : have).map((name) => ({ name })) } });
+    if (issue.parent && issue.state === "CLOSED") await this.closeParent(issue.parent.number);
+  }
+
+  // 子が全部閉じた親を完了（completed）で閉じる。子が完成でも見送りでも、全部閉じれば親の仕事は終わっている。
+  async closeParent(number) {
+    const parent = await this.read({ number });
+    if (!parent?.item || parent.state !== "OPEN" || parent.subIssues.nodes.some((s) => s.state === "OPEN")) return;
+    await this.apply(parent, parent.status, this.config.done, { close: "COMPLETED", comments: ["子の issue が全部閉じたので、完了にします。"] });
   }
 
   // 表で照らし、通れば書く。written はステータスがもう GitHub で変わっていること（ボードの移動）。
@@ -113,13 +120,13 @@ export class Gate {
   // 割り当て・本文などの出来事: 見せ方だけを今の状態に合わせる（問いを書いたとき・割り当て直したとき）。
   async touched(nodeId) {
     const issue = await this.read({ nodeId });
-    if (issue?.item && !issue.parent) await this.write(issue);
+    if (issue?.item) await this.write(issue);
   }
 
   async enter(nodeId, projectNodeId) {
     const issue = await this.read({ nodeId });
-    if (this.project.id !== projectNodeId || !issue?.item || issue.parent || issue.status) return;
-    const entry = entryFor(this.config, issue.author.databaseId);
+    if (this.project.id !== projectNodeId || !issue?.item || issue.status) return;
+    const entry = entryFor(this.config, issue);
     // 欄の既定値（優先度など）は、まだ値の無いものにだけ入れる。
     const fields = Object.fromEntries(Object.entries(this.config.project.defaults).filter(([name]) => !issue.fields[name]));
     await this.write(issue, { status: entry.to, assign: entry.assign, fields });
@@ -127,23 +134,21 @@ export class Gate {
 
   async moved(nodeId, projectNodeId, from, to) {
     const issue = await this.read({ nodeId });
-    if (this.project.id !== projectNodeId || !issue?.item || issue.parent || from === to) return;
+    if (this.project.id !== projectNodeId || !issue?.item || from === to) return;
     const r = await this.apply(issue, from, to, { written: true });
     if (!r.ok) await this.write(issue, { status: from, comments: [`${r.reason}「${from ?? "（無し）"}」へ戻しました。`] });
   }
 
-  async closed(nodeId, reason) {
+  async closed(nodeId) {
     const issue = await this.read({ nodeId });
-    if (!issue?.item || issue.parent || issue.status === this.config.done) return;
+    if (!issue?.item || issue.status === this.config.done) return;
     if (!check(this.config, issue.status, this.config.done).ok) return;
-    const stage = reason === "completed" && issue.subIssues.nodes.find((s) => s.state === "OPEN");
-    if (!stage) return this.write(issue, { status: this.config.done });
-    await this.write(issue, { status: this.config.nextStage.to, assign: this.config.nextStage.assign, reopen: true, closeOthers: [stage.id] });
+    await this.write(issue, { status: this.config.done });
   }
 
   async reopened(nodeId) {
     const issue = await this.read({ nodeId });
-    if (!issue?.item || issue.parent || issue.status !== this.config.done) return;
+    if (!issue?.item || issue.status !== this.config.done) return;
     await this.write(issue, {
       close: issue.lastClose.nodes[0]?.stateReason ?? "NOT_PLANNED",
       comments: [`「${this.config.done}」からは戻せません（遷移の表に無い）。閉じ直しました。続きは新しい issue にしてください。`],
@@ -183,7 +188,7 @@ export async function handleEvent(env, config, origin, name, payload) {
   }
   if (name !== "issues") return "対象外の出来事";
   const gate = await Gate.open(env, config, origin);
-  if (payload.action === "closed") return gate.closed(payload.issue.node_id, payload.issue.state_reason);
+  if (payload.action === "closed") return gate.closed(payload.issue.node_id);
   if (payload.action === "reopened") return gate.reopened(payload.issue.node_id);
   return gate.touched(payload.issue.node_id);
 }

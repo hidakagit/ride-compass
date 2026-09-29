@@ -4,6 +4,7 @@
 // Pull Request は作業ブランチ（code.branchPrefix + issue の番号）で引く。コードのリポジトリは読むだけで、env.CODE_TOKEN で読む。
 import { Gate } from "./gate.js";
 import { GitHub } from "./github.js";
+import { splitBody } from "./rules.js";
 
 const PASSED = ["success", "skipped", "neutral"];
 
@@ -32,11 +33,24 @@ async function verifying(gate) {
   return d.organization.projectV2.items.nodes.map((i) => i.content.number);
 }
 
+// リンクは Markdown の形で書く（URL をそのまま書くと、GitHub は直後の全角の文字まで URL に含めて開けないリンクにする）。
+const link = (text, url) => `[${text.replace(/[[\]]/g, "\\$&")}](${url})`;
+const prLink = (pr) => link(`#${pr.number} ${pr.title}`, pr.html_url);
+const merged = (v) => `Pull Request ${prLink(v.pr)} をマージし、そのあとの master の CI が通りました（${v.runs.map((r) => link(r.name, r.html_url)).join("・")}）。`;
 const MESSAGES = {
-  rejected: (v) => `Pull Request ${v.pr.html_url} がマージされずに閉じられました。コメントを読んでやり直してください。`,
-  failed: (v) => `マージのあとの master の CI が通りませんでした。直してください。\n\n${v.runs.map((r) => `- ${r.name}: ${r.html_url}`).join("\n")}`,
-  passed: (v) => `マージのあとの master の CI が通りました（${v.pr.html_url}）。完了にします。`,
+  rejected: (v) => `Pull Request ${prLink(v.pr)} がマージされずに閉じられました。コメントを読んでやり直してください。`,
+  failed: (v) => `Pull Request ${prLink(v.pr)} のマージのあとの master の CI が通りませんでした。直してください。\n\n${v.runs.map((r) => `- ${link(r.name, r.html_url)}`).join("\n")}`,
+  passed: (v) => `${merged(v)}完了にします。`,
+  left: (v, left) =>
+    `${merged(v)}完了の条件にチェックの無いものが残っているので、閉じずに戻します。残りを済ませてチェックを付け、完了（completed）で閉じてください。\n\n${left.map((l) => `- ${l}`).join("\n")}`,
 };
+
+// 本文のチェックの無い項目（`- [ ]`。本文のチェックは完了の条件にだけ使う）。
+const unchecked = (body) =>
+  splitBody(body)
+    .rest.split("\n")
+    .map((l) => /^\s*- \[ \] (.+)$/.exec(l)?.[1])
+    .filter(Boolean);
 
 // numbers を渡さなければ、検証中のタスクをすべて見る。
 export async function reconcile(env, config, origin, numbers) {
@@ -45,19 +59,13 @@ export async function reconcile(env, config, origin, numbers) {
   const done = [];
   for (const number of numbers ?? (await verifying(gate))) {
     const issue = await gate.read({ number });
-    if (!issue?.item || issue.parent || issue.status !== config.verify.status) continue;
+    if (!issue?.item || issue.status !== config.verify.status) continue;
     const v = await verdictFor(code, config, number);
     if (v.kind === "none" || v.kind === "wait") continue;
-    const comments = [MESSAGES[v.kind](v)];
-    if (v.kind !== "passed") {
-      await gate.apply(issue, issue.status, config.verify.back, { comments });
-    } else {
-      // 段階が残っていれば、ゲートが閉じたときと同じく最初の段階だけを閉じて次の段階へ進める。
-      const stage = issue.subIssues.nodes.find((s) => s.state === "OPEN");
-      if (stage) await gate.write(issue, { status: config.nextStage.to, assign: config.nextStage.assign, closeOthers: [stage.id], comments });
-      else await gate.apply(issue, issue.status, config.done, { comments, close: "COMPLETED" });
-    }
-    done.push(`#${number} ${v.kind}`);
+    const left = v.kind === "passed" ? unchecked(issue.body) : [];
+    if (v.kind === "passed" && !left.length) await gate.apply(issue, issue.status, config.done, { comments: [MESSAGES.passed(v)], close: "COMPLETED" });
+    else await gate.apply(issue, issue.status, config.verify.back, { comments: [left.length ? MESSAGES.left(v, left) : MESSAGES[v.kind](v)] });
+    done.push(`#${number} ${left.length ? "left" : v.kind}`);
   }
   return done.join("・") || "動かすものは無い";
 }
