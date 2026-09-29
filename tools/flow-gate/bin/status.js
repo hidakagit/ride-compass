@@ -9,8 +9,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import config from "../flow.config.json" with { type: "json" };
 import { GitHub } from "../src/github.js";
-import { latestPr, verifying } from "../src/review.js";
-import { claude } from "../src/rules.js";
+import { latestPr } from "../src/review.js";
 import { AT_RISK, OFF_TRACK, ON_TRACK, clock, coordinatorUpdate, putUpdate, readUpdates } from "../src/status.js";
 import { botToken, codeToken } from "./token.js";
 
@@ -24,12 +23,11 @@ for (let i = 0; i < args.length; i += 2) {
   found.push(args[i + 1].trim());
 }
 
-const { dropMinutes, mergedMinutes, order } = config.coordinator;
+const { dropMinutes, order } = config.coordinator;
 const here = dirname(fileURLToPath(import.meta.url));
 const json = (script) => JSON.parse(execFileSync(process.execPath, [join(here, script), "--json"], { encoding: "utf8" }));
 const issue = (n) => `[#${n}](https://github.com/${config.repository}/issues/${n})`;
 const now = Date.now();
-const minutesSince = (t) => (now - Date.parse(t)) / 60000;
 const span = (m) => (m >= 60 ? `${Math.floor(m / 60)}時間${m % 60}分` : `${m}分`);
 
 const gh = new GitHub(botToken());
@@ -37,7 +35,7 @@ const code = new GitHub(codeToken());
 const slots = json("slots.js");
 const queue = json("queue.js");
 const { projectId, updates } = await readUpdates(gh, config);
-const me = claude(config);
+const me = config.claude;
 const mine = coordinatorUpdate(config, updates);
 
 const anomalies = [...found];
@@ -49,13 +47,12 @@ for (const s of slots) {
   else if (s.state === "使用中" && s.minutes > dropMinutes)
     anomalies.push(`スロット ${s.slot} の${s.kind}担当（${issue(s.number)}）が、鍵を掛けてから${Math.floor(s.minutes / 60)}時間を超えて動いている`);
 }
-for (const n of await verifying(gh, config)) {
-  const pr = await latestPr(code, config, n);
-  if (!pr) anomalies.push(`${issue(n)} が検証中なのに、Pull Request が無い`);
-  else if (pr.state === "open" || (pr.merged_at && minutesSince(pr.merged_at) < mergedMinutes)) continue;
-  else if (pr.merged_at)
-    anomalies.push(`${issue(n)} が、Pull Request のマージから${mergedMinutes}分を超えても検証中（ゲートが出来事を受け損ねたなら、コードのリポジトリの Webhooks から Redeliver）`);
-  else anomalies.push(`${issue(n)} が、Pull Request が閉じられたのに検証中（ゲートが出来事を受け損ねたなら、コードのリポジトリの Webhooks から Redeliver）`);
+// 検証中は Pull Request が開いたときだけ入り、閉じると出る。開いた Pull Request の無い検証中は、ゲートが出来事を受け損ねたもの。
+const verifying = config.transitions.find((t) => t.on === "PR が開いた").to[0];
+for (const t of queue.filter((t) => t.status === verifying)) {
+  const pr = await latestPr(code, config, t.number);
+  if (pr?.state !== "open")
+    anomalies.push(`${issue(t.number)} が検証中なのに、開いた Pull Request が無い（ゲートが出来事を受け損ねたなら、コードのリポジトリの Webhooks から Redeliver）`);
 }
 // 前回の自分の更新のあとに、ほか（ゲートの失敗・見張りの Off track）が足した At risk・Off track。今回の At risk で一度は見出しに出す。
 for (const u of updates)

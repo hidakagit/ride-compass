@@ -7,11 +7,11 @@ const NAMES = Object.fromEntries(Object.entries(OPTIONS).map(([k, v]) => [v, k])
 const FIELDS = { [config.project.priorityField]: ["高", "中", "低"], [config.project.sizeField]: ["S", "M", "L"] };
 const BY_NODE = Object.fromEntries(Object.entries(config.people).map(([k, p]) => [p.node, k]));
 
-// code はコードのリポジトリの状態（Pull Request の一覧・master の CI の実行）。
+// code はコードのリポジトリの状態（Pull Request の一覧）。
 // parent を渡すと、issue をその子にする（親の子は、parent.siblings の状態と issue の今の状態）。親の id は I_P。
 // markdown を false にすると、Markdown を描く呼び出しが失敗する。fail を渡すと、タスクを読む呼び出しがその文で失敗する。
 // updates は Project の状況の更新（新しいものが先。{ id, status, body, by, updatedAt? }）。トークン bot-token は hidakagit-bot の名義。
-export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel, "規模S", config.verify.label], code = { prs: [], runs: [] }, markdown = true, fail, updates = [] }) {
+export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel, "規模S", config.confirmLabel], code = { prs: [] }, markdown = true, fail, updates = [] }) {
   const blank = { blockedBy: [], subIssues: [], assignees: [], labels: [], lastClose: [], state: "OPEN", fields: {} };
   const state = {
     issue: { ...blank, ...issue },
@@ -45,7 +45,7 @@ export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel
     if (name === "createProjectV2StatusUpdate") state.updates.unshift({ id: `SU_${state.updates.length + 1}`, status: input.status, body: input.body, by: as });
     if (name === "updateProjectV2StatusUpdate") Object.assign(state.updates.find((u) => u.id === input.statusUpdateId), { status: input.status, body: input.body });
     if (name.endsWith("StatusUpdate")) return { clientMutationId: null };
-    const i = byId(input.id ?? input.itemId ?? input.subjectId);
+    const i = byId(input.id ?? input.itemId ?? input.subjectId ?? input.issueId);
     if (name === "updateProjectV2ItemFieldValue" && input.fieldId === "F_1") i.status = NAMES[input.value.singleSelectOptionId];
     else if (name === "updateProjectV2ItemFieldValue") {
       const [field, value] = input.value.singleSelectOptionId.split(":");
@@ -56,13 +56,10 @@ export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel
     if (name === "updateIssue" && "body" in input) i.body = input.body;
     if (name === "updateIssue" && input.labelIds) i.labels = input.labelIds.map((id) => id.slice(2));
     if (name === "updateIssue" && input.stateInput) i.state = input.stateInput.value;
+    if (name === "reopenIssue") i.state = "OPEN";
     return { clientMutationId: null };
   };
   const graphql = ({ query, variables }, as) => {
-    if (query.startsWith("query Verifying")) {
-      const on = state.issue.state === "OPEN" && variables.q.includes(`${config.project.statusField}:"${state.issue.status}"`);
-      return { organization: { projectV2: { items: { nodes: on ? [{ content: { number: state.issue.number } }] : [] } } } };
-    }
     if (query.startsWith("query Updates")) {
       const nodes = state.updates.slice(0, variables.k).map(({ by, ...u }) => ({ createdAt: "t", updatedAt: "t", ...u, creator: { login: by } }));
       return { organization: { projectV2: { id: "PVT_1", statusUpdates: { nodes } } } };
@@ -96,7 +93,6 @@ export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel
     if (path === "/markdown") return markdown ? new Response(`<p>描いた: ${body.text}</p>`) : new Response("失敗", { status: 500 });
     const repo = `/repos/${config.code.repository}`;
     if (path === `${repo}/pulls`) return json(state.code.prs.filter((p) => `${config.code.repository.split("/")[0]}:${p.head.ref}` === new URL(url).searchParams.get("head")));
-    if (path === `${repo}/actions/runs`) return json({ workflow_runs: state.code.runs.filter((r) => r.head_sha === new URL(url).searchParams.get("head_sha")) });
     throw new Error(`テストの GitHub が知らない呼び出し: ${init.method} ${path}`);
   };
   return state;

@@ -1,7 +1,6 @@
 // Project の「状況の更新」（Status updates）。今の状態は最新の1件が持ち、Project の見出しと一覧に出る。
 // 司令塔（bin/status.js）が様子を、ゲート（index.js）が出来事の処理の失敗を、見張り（bin/watch.js）が司令塔の止まりを書く。
 import { GitHub, Mutations } from "./github.js";
-import { claude } from "./rules.js";
 
 export const ON_TRACK = "ON_TRACK";
 export const AT_RISK = "AT_RISK";
@@ -27,7 +26,7 @@ export function putUpdate(gh, projectId, target, status, body) {
 }
 
 // 司令塔の最後の更新。司令塔は On track・At risk だけを書き、Claude の名義の Off track は見張りのもの。
-export const coordinatorUpdate = (config, updates) => updates.find((u) => u.by === claude(config) && u.status !== OFF_TRACK);
+export const coordinatorUpdate = (config, updates) => updates.find((u) => u.by === config.claude && u.status !== OFF_TRACK);
 
 // 司令塔の最後の更新が coordinator.staleMinutes より古ければ、Off track を足す（司令塔が起きなくなると、誰も
 // 書かないので見出しが最後の On track のまま残るため）。最新が見張りの Off track なら、もう知らせてあるので足さない。
@@ -39,7 +38,7 @@ export async function watchCoordinator(gh, config, now = Date.now()) {
   const minutes = Math.floor((now - Date.parse(last.updatedAt)) / 60000);
   const since = `司令塔が最後に起きた時刻: ${clock(new Date(last.updatedAt))}（${Math.floor(minutes / 60)}時間${minutes % 60}分前）`;
   if (minutes <= config.coordinator.staleMinutes) return `止まっていない。${since}`;
-  if (updates[0].by === claude(config) && updates[0].status === OFF_TRACK) return `もう Off track を出してある。${since}`;
+  if (updates[0].by === config.claude && updates[0].status === OFF_TRACK) return `もう Off track を出してある。${since}`;
   const body = [
     `**司令塔が止まっている**（${config.coordinator.staleMinutes / 60}時間を超えて、状況の更新を書いていない）`,
     "",

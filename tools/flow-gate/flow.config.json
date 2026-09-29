@@ -4,47 +4,41 @@
   "gate": "ridecompass-gate[bot]",
   "installation": 165726503,
   "people": {
-    "hidakagit": { "id": 6731891, "node": "MDQ6VXNlcjY3MzE4OTE=", "shown": "hidakagit" },
-    "hidakagit-bot": { "id": 334916358, "node": "U_kgDOE_ZrBg", "shown": "Claude" }
+    "hidakagit": { "id": 6731891, "node": "MDQ6VXNlcjY3MzE4OTE=" },
+    "hidakagit-bot": { "id": 334916358, "node": "U_kgDOE_ZrBg" }
   },
+  "user": "hidakagit",
+  "claude": "hidakagit-bot",
   "statuses": ["回答待ち", "保留", "未着手", "進行中", "検証中", "完了"],
+  "owner": { "回答待ち": "hidakagit", "保留": "hidakagit", "未着手": "hidakagit-bot", "進行中": "hidakagit-bot", "検証中": "hidakagit-bot" },
   "done": "完了",
-  "hold": "保留",
   "entry": [
-    { "parent": true, "to": "未着手", "assign": "hidakagit-bot" },
-    { "author": "hidakagit", "to": "未着手", "assign": "hidakagit-bot" },
-    { "author": null, "to": "回答待ち", "assign": "hidakagit", "adoption": true }
+    { "parent": true, "to": "未着手" },
+    { "author": "hidakagit", "to": "未着手" },
+    { "author": null, "to": "回答待ち", "question": "このタスクをやりますか？" }
   ],
   "transitions": [
-    { "from": ["未着手", "進行中", "検証中"], "to": ["回答待ち"], "assign": "hidakagit" },
-    { "from": ["未着手", "進行中", "検証中", "回答待ち"], "to": ["保留"], "assign": "hidakagit" },
-    { "from": ["回答待ち"], "to": ["未着手", "検証中"], "assign": "hidakagit-bot" },
-    { "from": ["保留"], "to": ["未着手", "検証中"], "assign": "hidakagit-bot" },
-    { "from": ["未着手"], "to": ["進行中"], "when": "blockersCompleted", "assign": null },
-    { "from": ["進行中"], "to": ["検証中"], "assign": "hidakagit-bot" },
-    { "from": ["検証中"], "to": ["未着手"], "assign": "hidakagit-bot" },
-    { "from": ["回答待ち", "保留", "未着手", "進行中", "検証中"], "to": ["完了"], "assign": null }
+    { "on": "振り出し", "by": "claude", "from": ["未着手"], "to": ["進行中"], "when": "blockersClosed" },
+    { "on": "落ちた", "by": "claude", "from": ["進行中"], "to": ["保留"], "reason": true },
+    { "on": "問い", "by": "claude", "from": ["未着手", "進行中", "検証中"], "to": ["回答待ち"] },
+    { "on": "回答", "from": ["回答待ち", "保留"], "to": ["未着手", "保留", "完了"] },
+    { "on": "PR が開いた", "from": ["進行中"], "to": ["検証中"] },
+    { "on": "PR が閉じた", "from": ["検証中"], "to": ["未着手"] },
+    { "on": "マージ", "from": ["検証中"], "to": ["完了", "未着手"] },
+    { "on": "閉じた", "from": ["回答待ち", "保留", "未着手", "進行中", "検証中"], "to": ["完了"] }
   ],
-  "ask": {
-    "status": "回答待ち",
-    "askers": ["hidakagit-bot"],
-    "answerer": "hidakagit"
-  },
-  "verify": { "from": "進行中", "status": "検証中", "label": "ユーザー確認", "back": "未着手" },
+  "answers": [
+    { "text": "進める", "to": "未着手", "plans": true },
+    { "text": "止める（補足に理由）", "to": "保留", "note": true },
+    { "text": "完成", "to": "完了", "close": "COMPLETED" },
+    { "text": "見送り", "to": "完了", "close": "NOT_PLANNED" },
+    { "text": "その他（補足に書く）", "to": "未着手", "note": true }
+  ],
+  "questions": { "保留": "止めてあるこのタスクを、どうしますか？", "default": "このタスクを、どうしますか？" },
+  "confirmLabel": "ユーザー確認",
   "code": { "repository": "hidakagit/ride-compass", "branchPrefix": "orch/tasks-", "base": "master" },
   "coordinator": {
-    "order": ["回答待ち", "検証中", "未着手"], "verifyPrefix": "verify/tasks-", "worktrees": ["w1", "w2", "w3", "w4"],
-    "dropMinutes": 240, "mergedMinutes": 60, "staleMinutes": 120
-  },
-  "adoption": {
-    "question": "このタスクをやりますか？",
-    "options": [
-      { "text": "やる", "to": "未着手", "next": "hidakagit-bot" },
-      { "text": "やらない", "to": "完了" }
-    ]
-  },
-  "formOptions": [
-    { "text": "その他（コメント）", "to": null, "next": "hidakagit-bot", "note": true },
-    { "text": "止める（保留。理由を補足に）", "to": "保留", "next": "hidakagit", "note": true }
-  ]
+    "order": ["検証中", "未着手"], "verifyPrefix": "verify/tasks-", "worktrees": ["w1", "w2", "w3", "w4"],
+    "dropMinutes": 240, "staleMinutes": 120
+  }
 }

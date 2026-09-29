@@ -1,17 +1,13 @@
 // 遷移の表・問いと答えの形。GitHub に触れない純粋な関数だけを置く。
 
 const personById = (config, id) => Object.keys(config.people).find((k) => config.people[k].id === id) ?? null;
-const personByShown = (config, shown) => Object.keys(config.people).find((k) => config.people[k].shown === shown) ?? null;
 
-// Claude（問いを書く側）。Claude の番は、これに割り当たっているもの。
-export const claude = (config) => config.ask.askers[0];
+// 誰の番かはステータスだけで決まる（flow.config.json: owner）。閉じた・ステータスの無いものは誰の番でもない。
+export const ownerOf = (config, issue) => (issue.state === "OPEN" ? (config.owner[issue.status] ?? null) : null);
+export const userTurn = (config, issue) => ownerOf(config, issue) === config.user;
 
-// 答える人（ask.answerer）の番か: 開いていて、答える人に割り当たっている。
-export const answererTurn = (config, issue) =>
-  issue.state === "OPEN" && issue.assignees.nodes.some((a) => a.id === config.people[config.ask.answerer].node);
-
-// 前提のうち、完了（completed）で閉じていないもの。
-export const openBlockers = (blockers) => blockers.filter((b) => !(b.state === "CLOSED" && b.stateReason === "COMPLETED"));
+// 前提のうち、まだ開いているもの。見送りで閉じた前提は待たない（作る担当が読んで、進める前に問う）。
+export const openBlockers = (blockers) => blockers.filter((b) => b.state !== "CLOSED");
 
 // 入口の行: 親のある issue（段階）は「parent」の行、ほかは書いた人の行、無ければ author が null の行。
 export function entryFor(config, issue) {
@@ -20,73 +16,59 @@ export function entryFor(config, issue) {
   return config.entry.find((e) => !e.parent && e.author === author) ?? config.entry.find((e) => !e.parent && e.author === null);
 }
 
-const ruleFor = (config, from, to) => config.transitions.find((t) => t.from.includes(from) && t.to.includes(to)) ?? null;
-
-// 表で照らす。blockers は前提の issue（{ number, state, stateReason }）。
-export function check(config, from, to, blockers = []) {
-  const rule = ruleFor(config, from, to);
+// from から to への遷移を表で照らす。on（出来事）・by（起こす者）を渡すと、その行に限る。blockers は前提の issue。
+export function check(config, from, to, { on, by, blockers = [] } = {}) {
+  const rule = config.transitions.find((t) => t.from.includes(from) && t.to.includes(to) && (!on || t.on === on) && (!by || t.by === by));
   if (!rule) return { ok: false, reason: `「${from ?? "（無し）"}」から「${to ?? "（無し）"}」へは動かせません（遷移の表に無い）。` };
-  if (rule.when === "blockersCompleted") {
+  if (rule.when === "blockersClosed") {
     const open = openBlockers(blockers);
-    if (open.length)
-      return { ok: false, reason: `前提 ${open.map((b) => `#${b.number}`).join("・")} が完了（completed）で閉じていないため、「${to}」にできません。` };
+    if (open.length) return { ok: false, reason: `前提 ${open.map((b) => `#${b.number}`).join("・")} が閉じていないため、「${to}」にできません。` };
   }
   return { ok: true, rule };
 }
 
-// 問いを読む。形（docs/conventions/flow.md「問い」）に合わなければ null。
-export function parseQuestion(config, body) {
-  const lines = body.replace(/\r/g, "").split("\n");
+// 本文のチェックの無い項目（`- [ ]`。本文のチェックは完了の条件にだけ使う）。
+const unchecked = (body) =>
+  splitBody(body)
+    .rest.split("\n")
+    .map((l) => /^\s*- \[ \] (.+)$/.exec(l)?.[1])
+    .filter(Boolean);
+
+// 完成と言える前に残っているもの: チェックの無い完了の条件と、ユーザーの確認（ラベル confirmLabel）。
+export const remaining = (config, issue) => [
+  ...unchecked(issue.body),
+  ...(issue.labels.nodes.some((l) => l.name === config.confirmLabel) ? [`ユーザーの確認（ラベル「${config.confirmLabel}」）`] : []),
+];
+
+// 問いを読む（docs/conventions/flow.md「問い」）: 1行目が「## 問い」、次の行が問いの文、「### 案」の下の箇条書きが案、
+// <details> の中が判断材料。問いの文が無ければ null。
+export function parseQuestion(body) {
+  const lines = normalizeBody(body).split("\n");
   if (lines[0].trim() !== "## 問い") return null;
   const text = lines.slice(1).find((l) => l.trim())?.trim();
-  const at = lines.findIndex((l) => l.trim() === "### 選択肢");
-  if (!text || text.startsWith("#") || at < 0) return null;
-  const options = [];
-  for (const line of lines.slice(at + 1)) {
-    if (!line.trim()) {
-      if (options.length) break;
-      continue;
-    }
-    if (!line.startsWith("- ")) break;
-    const [label, rest] = line.slice(2).split(" → ");
-    const option = { text: label.trim(), to: null, next: null };
-    for (const part of rest ? rest.split(" / ").map((p) => p.trim()) : []) {
-      if (config.statuses.includes(part)) option.to = part;
-      else if (personByShown(config, part)) option.next = personByShown(config, part);
-      else return null;
-    }
-    if (!option.text) return null;
-    options.push(option);
+  if (!text || text.startsWith("#")) return null;
+  const plans = [];
+  const at = lines.findIndex((l) => l.trim() === "### 案");
+  for (const line of at < 0 ? [] : lines.slice(at + 1)) {
+    if (line.startsWith("- ")) plans.push(line.slice(2).trim());
+    else if (line.trim() || plans.length) break;
   }
-  if (options.length < 2) return null;
   const material = /<details>\s*<summary>[^<]*<\/summary>([\s\S]*?)<\/details>/.exec(body)?.[1].trim() ?? "";
-  return { text, options, material };
+  return { text, plans: plans.filter(Boolean), material };
 }
 
-export function adoptionQuestion(config) {
-  const shown = (key) => config.people[key].shown;
-  const options = config.adoption.options.map((o) => `- ${o.text} → ${[o.to, o.next && shown(o.next)].filter(Boolean).join(" / ")}`);
-  return `## 問い\n${config.adoption.question}\n\n### 選択肢\n${options.join("\n")}\n`;
-}
+export const questionBody = (text) => `## 問い\n${text}`;
 
-// フォームに出す選択肢。問いの選択肢とフォームが必ず足す選択肢のうち、今のステータスから表で行けるものだけ。
-// ステータスは選択肢に書いた行き先だけで決まる。行き先を書いていない選択肢（「その他」を含む）は状態を決めず、今のままで
-// 問いを書く側（Claude）の番になる。Claude は補足を読んで問い直すだけで、ステータスを動かさない。
-export function formChoices(config, question, current) {
-  return [...question.options, ...config.formOptions]
-    .map((o) => {
-      const to = o.to ?? current;
-      const fixed = to === current;
-      const rule = fixed ? null : ruleFor(config, current, to);
-      const next = to === config.done ? null : fixed ? claude(config) : (o.next ?? rule?.assign ?? claude(config));
-      return { text: o.text, to, next, fixed, note: Boolean(o.note), ok: fixed || rule };
-    })
-    .filter((c) => c.ok)
-    .map(({ ok, ...c }) => c);
+// 回答フォームの選択肢。問いによらず flow.config.json: answers から、今のステータスから「回答」で行ける先だけを一律に出す。
+// 問いに案があれば、「進める」を案の数だけに分ける（行き先は同じで、選んだ案が答えに残る）。
+export function answerChoices(config, question, current) {
+  return config.answers
+    .filter((a) => a.to !== current && check(config, current, a.to, { on: "回答" }).ok)
+    .flatMap((a) => (a.plans && question.plans.length ? question.plans.map((p) => ({ ...a, text: `「${p}」で${a.text}` })) : [a]));
 }
 
 // 答えのコメント。問いは答えると本文から消えるので、問い・選択肢・判断材料もここに残す（このコメント1つで読める）。
-export function answerBody(config, { question, choices, choice, next, note, added = [], removed = [] }) {
+export function answerBody({ question, choices, choice, note, added = [], removed = [] }) {
   return [
     "## 回答",
     `**${question.text}**`,
@@ -94,7 +76,6 @@ export function answerBody(config, { question, choices, choice, next, note, adde
     ...choices.map((c) => (c === choice ? `● **${c.text}**` : `○ ${c.text}`)),
     "",
     `次のステータス: ${choice.to}`,
-    ...(next ? [`次に動くのは: ${config.people[next].shown}`] : []),
     ...(added.length || removed.length ? [`ラベル: ${[...added.map((n) => `+${n}`), ...removed.map((n) => `−${n}`)].join(" ")}`] : []),
     ...(note ? [`補足: ${note}`] : []),
     ...(question.material ? ["", `<details><summary>判断材料</summary>\n\n${question.material}\n</details>`] : []),
@@ -114,19 +95,17 @@ export function splitBody(body) {
   return { question: (m && QUESTION.exec(m[1])?.[1]) ?? null, rest: m ? text.slice(m[0].length) : text };
 }
 
-// button は { status, text, url, button, alt }。問いもボタンも無ければ印ごと置かない。
+// button は { status, text, url, image }。問いもボタンも無ければ印ごと置かない。
 export function joinBody(rest, question, button) {
   const parts = [
     ...(question ? [`<!-- 問い\n${question}\n-->`] : []),
-    ...(button ? [`[![${button.alt ?? "回答する"}](${button.button})](${button.url})\n\n**${button.status}**: ${button.text}`] : []),
+    ...(button ? [`[![回答する](${button.image})](${button.url})\n\n**${button.status}**: ${button.text}`] : []),
   ];
   return parts.length ? `<!-- flow-gate -->\n${parts.join("\n")}\n<!-- /flow-gate -->\n\n${rest}` : rest;
 }
 
-// 本文の先頭に置くボタンの画像（回答フォーム・Pull Request へ）。GitHub の画面にはボタンを足せないので、本文の先頭にリンク付きの画像として置く。
-const button = (label) =>
+// 本文の先頭に置く回答フォームへのボタンの画像。GitHub の画面にはボタンを足せないので、本文の先頭にリンク付きの画像として置く。
+export const BUTTON_SVG =
   `<svg xmlns="http://www.w3.org/2000/svg" width="152" height="44" viewBox="0 0 152 44"><rect width="152" height="44" rx="8" fill="#1f6feb"/>` +
   `<text x="76" y="28" text-anchor="middle" font-size="17" font-weight="700" fill="#fff" ` +
-  `font-family="system-ui,-apple-system,'Hiragino Sans','Noto Sans JP','Yu Gothic',sans-serif">${label}</text></svg>`;
-export const BUTTON_SVG = button("回答する");
-export const REVIEW_SVG = button("確かめる");
+  `font-family="system-ui,-apple-system,'Hiragino Sans','Noto Sans JP','Yu Gothic',sans-serif">回答する</text></svg>`;
