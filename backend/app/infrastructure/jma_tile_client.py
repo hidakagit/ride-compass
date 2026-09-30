@@ -175,8 +175,8 @@ class JmaTileClient:
 
 
 async def get_target_times(client: JmaTileClient, path: str) -> list[TargetTimesRow] | None:
-    """時刻一覧（`targetTimes*.json`）を`client.get`で引き、行へ解く。取れない・JSONの配列でない
-    ときはNone。コマの時刻を欠く行は読み飛ばす。
+    """時刻一覧（`targetTimes*.json`）を`client.get`で引き、行へ解く（`parse_target_times`）。取れない・JSONでない
+    ときはNone。
 
     画面へは同じ時刻一覧を中継するだけで、解くのはbackendがコマを選ぶ（プリウォーム）ときだけ。"""
     raw = await client.get(path)
@@ -187,6 +187,11 @@ async def get_target_times(client: JmaTileClient, path: str) -> list[TargetTimes
         payload = json.loads(content)
     except (ValueError, TypeError):
         return None
+    return parse_target_times(payload)
+
+
+def parse_target_times(payload: object) -> list[TargetTimesRow] | None:
+    """時刻一覧（JSONを解いた値）を行へ解く。配列でなければNone。コマの時刻を欠く行は読み飛ばす。"""
     if not isinstance(payload, list):
         return None
     return [

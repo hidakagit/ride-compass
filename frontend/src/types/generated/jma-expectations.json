@@ -1,0 +1,683 @@
+{
+  "read_target_times": [
+    {
+      "scene": "別の要素の行が混ざる",
+      "reader": "nowcast",
+      "element_id": "thns",
+      "rows": [
+        {
+          "basetime": "20260924001000",
+          "validtime": "20260924002000",
+          "elements": [
+            "thns",
+            "liden"
+          ]
+        },
+        {
+          "basetime": "20260924001000",
+          "validtime": "20260924001000",
+          "elements": [
+            "thns",
+            "liden"
+          ]
+        },
+        {
+          "basetime": "20260924001500",
+          "validtime": "20260924001500",
+          "elements": [
+            "liden"
+          ]
+        },
+        {
+          "basetime": "20260924001000",
+          "validtime": "20260924003000",
+          "elements": [
+            "thns"
+          ]
+        }
+      ],
+      "frames": [
+        {
+          "basetime": "20260924001000",
+          "member": "none",
+          "validtime": "20260924001000"
+        },
+        {
+          "basetime": "20260924001000",
+          "member": "none",
+          "validtime": "20260924002000"
+        },
+        {
+          "basetime": "20260924001000",
+          "member": "none",
+          "validtime": "20260924003000"
+        }
+      ]
+    },
+    {
+      "scene": "実況が無い",
+      "reader": "nowcast",
+      "element_id": "hrpns",
+      "rows": [
+        {
+          "basetime": "20260924001000",
+          "validtime": "20260924003000",
+          "elements": [
+            "hrpns"
+          ]
+        },
+        {
+          "basetime": "20260924001000",
+          "validtime": "20260924002000",
+          "elements": [
+            "hrpns"
+          ]
+        }
+      ],
+      "frames": [
+        {
+          "basetime": "20260924001000",
+          "member": "none",
+          "validtime": "20260924002000"
+        },
+        {
+          "basetime": "20260924001000",
+          "member": "none",
+          "validtime": "20260924003000"
+        }
+      ]
+    },
+    {
+      "scene": "実況が複数",
+      "reader": "nowcast",
+      "element_id": "hrpns",
+      "rows": [
+        {
+          "basetime": "20260924000000",
+          "validtime": "20260924000000",
+          "elements": [
+            "hrpns"
+          ]
+        },
+        {
+          "basetime": "20260924001000",
+          "validtime": "20260924002000",
+          "elements": [
+            "hrpns"
+          ]
+        },
+        {
+          "basetime": "20260924001000",
+          "validtime": "20260924001000",
+          "elements": [
+            "hrpns"
+          ]
+        },
+        {
+          "basetime": "20260924000500",
+          "validtime": "20260924000500",
+          "elements": [
+            "hrpns"
+          ]
+        }
+      ],
+      "frames": [
+        {
+          "basetime": "20260924001000",
+          "member": "none",
+          "validtime": "20260924001000"
+        },
+        {
+          "basetime": "20260924001000",
+          "member": "none",
+          "validtime": "20260924002000"
+        }
+      ]
+    },
+    {
+      "scene": "その要素の行が0件",
+      "reader": "nowcast",
+      "element_id": "thns",
+      "rows": [
+        {
+          "basetime": "20260924001500",
+          "validtime": "20260924001500",
+          "elements": [
+            "liden"
+          ]
+        }
+      ],
+      "frames": []
+    },
+    {
+      "scene": "中間ランの単発の行",
+      "reader": "latestFullRun",
+      "element_id": "rasrf",
+      "rows": [
+        {
+          "basetime": "20260924000000",
+          "validtime": "20260924010000",
+          "elements": [
+            "rasrf"
+          ],
+          "member": "immed"
+        },
+        {
+          "basetime": "20260924000000",
+          "validtime": "20260924020000",
+          "elements": [
+            "rasrf"
+          ],
+          "member": "immed"
+        },
+        {
+          "basetime": "20260924001000",
+          "validtime": "20260924001000",
+          "elements": [
+            "rasrf"
+          ],
+          "member": "immed"
+        },
+        {
+          "basetime": "20260923230000",
+          "validtime": "20260924000000",
+          "elements": [
+            "rasrf"
+          ],
+          "member": "immed"
+        },
+        {
+          "basetime": "20260923230000",
+          "validtime": "20260924010000",
+          "elements": [
+            "rasrf"
+          ],
+          "member": "immed"
+        }
+      ],
+      "frames": [
+        {
+          "basetime": "20260924000000",
+          "member": "immed",
+          "validtime": "20260924010000"
+        },
+        {
+          "basetime": "20260924000000",
+          "member": "immed",
+          "validtime": "20260924020000"
+        }
+      ]
+    },
+    {
+      "scene": "系列が2つで有効時刻が重なる",
+      "reader": "latestFullRun",
+      "element_id": "rasrf",
+      "rows": [
+        {
+          "basetime": "20260924000000",
+          "validtime": "20260924080000",
+          "elements": [
+            "rasrf"
+          ],
+          "member": "none"
+        },
+        {
+          "basetime": "20260924000000",
+          "validtime": "20260924060000",
+          "elements": [
+            "rasrf"
+          ],
+          "member": "none"
+        },
+        {
+          "basetime": "20260924001000",
+          "validtime": "20260924050000",
+          "elements": [
+            "rasrf"
+          ],
+          "member": "immed"
+        },
+        {
+          "basetime": "20260924001000",
+          "validtime": "20260924060000",
+          "elements": [
+            "rasrf"
+          ],
+          "member": "immed"
+        }
+      ],
+      "frames": [
+        {
+          "basetime": "20260924001000",
+          "member": "immed",
+          "validtime": "20260924050000"
+        },
+        {
+          "basetime": "20260924001000",
+          "member": "immed",
+          "validtime": "20260924060000"
+        },
+        {
+          "basetime": "20260924000000",
+          "member": "none",
+          "validtime": "20260924080000"
+        }
+      ]
+    },
+    {
+      "scene": "別の要素の行が混ざる",
+      "reader": "latestFullRun",
+      "element_id": "rasrf",
+      "rows": [
+        {
+          "basetime": "20260924000000",
+          "validtime": "20260924010000",
+          "elements": [
+            "rasrf",
+            "sjfcstmap"
+          ],
+          "member": "immed"
+        },
+        {
+          "basetime": "20260924000000",
+          "validtime": "20260924020000",
+          "elements": [
+            "rasrf"
+          ],
+          "member": "immed"
+        },
+        {
+          "basetime": "20260924002000",
+          "validtime": "20260924011000",
+          "elements": [
+            "sjfcstmap"
+          ],
+          "member": "immed"
+        },
+        {
+          "basetime": "20260924002000",
+          "validtime": "20260924021000",
+          "elements": [
+            "sjfcstmap"
+          ],
+          "member": "immed"
+        }
+      ],
+      "frames": [
+        {
+          "basetime": "20260924000000",
+          "member": "immed",
+          "validtime": "20260924010000"
+        },
+        {
+          "basetime": "20260924000000",
+          "member": "immed",
+          "validtime": "20260924020000"
+        }
+      ]
+    },
+    {
+      "scene": "その要素の行が0件",
+      "reader": "latestFullRun",
+      "element_id": "rasrf",
+      "rows": [
+        {
+          "basetime": "20260924002000",
+          "validtime": "20260924011000",
+          "elements": [
+            "sjfcstmap"
+          ],
+          "member": "immed"
+        }
+      ],
+      "frames": []
+    },
+    {
+      "scene": "別の要素の行が混ざる",
+      "reader": "latest",
+      "element_id": "land",
+      "rows": [
+        {
+          "basetime": "20260924000000",
+          "validtime": "20260924000000",
+          "elements": [
+            "land",
+            "inund"
+          ],
+          "member": "none"
+        },
+        {
+          "basetime": "20260924001000",
+          "validtime": "20260924001000",
+          "elements": [
+            "land"
+          ],
+          "member": "immed"
+        },
+        {
+          "basetime": "20260924002000",
+          "validtime": "20260924002000",
+          "elements": [
+            "inund"
+          ],
+          "member": "none"
+        }
+      ],
+      "frames": [
+        {
+          "basetime": "20260924001000",
+          "member": "immed",
+          "validtime": "20260924001000"
+        }
+      ]
+    },
+    {
+      "scene": "その要素の行が0件",
+      "reader": "latest",
+      "element_id": "land",
+      "rows": [
+        {
+          "basetime": "20260924002000",
+          "validtime": "20260924002000",
+          "elements": [
+            "inund"
+          ],
+          "member": "none"
+        }
+      ],
+      "frames": []
+    }
+  ],
+  "stage_first_frames": [
+    {
+      "scene": "段が重なる",
+      "stages": [
+        [
+          {
+            "basetime": "20260924000000",
+            "member": "none",
+            "validtime": "20260924000000"
+          },
+          {
+            "basetime": "20260924010000",
+            "member": "none",
+            "validtime": "20260924010000"
+          }
+        ],
+        [
+          {
+            "basetime": "20260924010000",
+            "member": "none",
+            "validtime": "20260924010000"
+          },
+          {
+            "basetime": "20260924020000",
+            "member": "none",
+            "validtime": "20260924020000"
+          },
+          {
+            "basetime": "20260924030000",
+            "member": "none",
+            "validtime": "20260924030000"
+          }
+        ],
+        [
+          {
+            "basetime": "20260924020000",
+            "member": "none",
+            "validtime": "20260924020000"
+          },
+          {
+            "basetime": "20260924040000",
+            "member": "none",
+            "validtime": "20260924040000"
+          }
+        ]
+      ],
+      "first_frames": [
+        {
+          "basetime": "20260924000000",
+          "member": "none",
+          "validtime": "20260924000000"
+        },
+        {
+          "basetime": "20260924020000",
+          "member": "none",
+          "validtime": "20260924020000"
+        },
+        {
+          "basetime": "20260924040000",
+          "member": "none",
+          "validtime": "20260924040000"
+        }
+      ]
+    },
+    {
+      "scene": "後の段が前の段にすべて含まれる",
+      "stages": [
+        [
+          {
+            "basetime": "20260924000000",
+            "member": "none",
+            "validtime": "20260924000000"
+          },
+          {
+            "basetime": "20260924010000",
+            "member": "none",
+            "validtime": "20260924010000"
+          },
+          {
+            "basetime": "20260924020000",
+            "member": "none",
+            "validtime": "20260924020000"
+          }
+        ],
+        [
+          {
+            "basetime": "20260924010000",
+            "member": "none",
+            "validtime": "20260924010000"
+          },
+          {
+            "basetime": "20260924020000",
+            "member": "none",
+            "validtime": "20260924020000"
+          }
+        ]
+      ],
+      "first_frames": [
+        {
+          "basetime": "20260924000000",
+          "member": "none",
+          "validtime": "20260924000000"
+        },
+        null
+      ]
+    },
+    {
+      "scene": "途中の段が空",
+      "stages": [
+        [
+          {
+            "basetime": "20260924000000",
+            "member": "none",
+            "validtime": "20260924000000"
+          }
+        ],
+        [],
+        [
+          {
+            "basetime": "20260924000000",
+            "member": "none",
+            "validtime": "20260924000000"
+          },
+          {
+            "basetime": "20260924010000",
+            "member": "none",
+            "validtime": "20260924010000"
+          }
+        ]
+      ],
+      "first_frames": [
+        {
+          "basetime": "20260924000000",
+          "member": "none",
+          "validtime": "20260924000000"
+        },
+        null,
+        {
+          "basetime": "20260924010000",
+          "member": "none",
+          "validtime": "20260924010000"
+        }
+      ]
+    },
+    {
+      "scene": "先頭の段が空",
+      "stages": [
+        [],
+        [
+          {
+            "basetime": "20260924010000",
+            "member": "none",
+            "validtime": "20260924010000"
+          },
+          {
+            "basetime": "20260924020000",
+            "member": "none",
+            "validtime": "20260924020000"
+          }
+        ]
+      ],
+      "first_frames": [
+        null,
+        {
+          "basetime": "20260924010000",
+          "member": "none",
+          "validtime": "20260924010000"
+        }
+      ]
+    },
+    {
+      "scene": "全段が空",
+      "stages": [
+        [],
+        []
+      ],
+      "first_frames": [
+        null,
+        null
+      ]
+    }
+  ],
+  "tile_path": [
+    {
+      "element_id": "land",
+      "frame": {
+        "basetime": "20260924000000",
+        "member": "immed",
+        "validtime": "20260924010000"
+      },
+      "z": 9,
+      "x": 454,
+      "y": 201,
+      "path": "bosai/jmatile/data/risk/20260924000000/immed/20260924010000/surf/land/9/454/201.png"
+    },
+    {
+      "element_id": "rain_mesh",
+      "frame": {
+        "basetime": "20260924000000",
+        "member": "immed",
+        "validtime": "20260924010000"
+      },
+      "z": 9,
+      "x": 454,
+      "y": 201,
+      "path": "bosai/jmatile/data/risk/20260924000000/immed/20260924010000/surf/rain_mesh/9/454/201.png"
+    },
+    {
+      "element_id": "inund",
+      "frame": {
+        "basetime": "20260924000000",
+        "member": "immed",
+        "validtime": "20260924010000"
+      },
+      "z": 9,
+      "x": 454,
+      "y": 201,
+      "path": "bosai/jmatile/data/risk/20260924000000/immed/20260924010000/surf/inund/9/454/201.png"
+    },
+    {
+      "element_id": "flood",
+      "frame": {
+        "basetime": "20260924000000",
+        "member": "immed",
+        "validtime": "20260924010000"
+      },
+      "z": 9,
+      "x": 454,
+      "y": 201,
+      "path": "bosai/jmatile/data/risk/20260924000000/immed/20260924010000/surf/flood/9/454/201.pbf"
+    },
+    {
+      "element_id": "hrpns",
+      "frame": {
+        "basetime": "20260924000000",
+        "member": "immed",
+        "validtime": "20260924010000"
+      },
+      "z": 9,
+      "x": 454,
+      "y": 201,
+      "path": "bosai/jmatile/data/nowc/20260924000000/immed/20260924010000/surf/hrpns/9/454/201.png"
+    },
+    {
+      "element_id": "rasrf",
+      "frame": {
+        "basetime": "20260924000000",
+        "member": "immed",
+        "validtime": "20260924010000"
+      },
+      "z": 9,
+      "x": 454,
+      "y": 201,
+      "path": "bosai/jmatile/data/rasrf/20260924000000/immed/20260924010000/surf/rasrf/9/454/201.png"
+    },
+    {
+      "element_id": "thns",
+      "frame": {
+        "basetime": "20260924000000",
+        "member": "immed",
+        "validtime": "20260924010000"
+      },
+      "z": 9,
+      "x": 454,
+      "y": 201,
+      "path": "bosai/jmatile/data/nowc/20260924000000/immed/20260924010000/surf/thns/9/454/201.png"
+    },
+    {
+      "element_id": "trns",
+      "frame": {
+        "basetime": "20260924000000",
+        "member": "immed",
+        "validtime": "20260924010000"
+      },
+      "z": 9,
+      "x": 454,
+      "y": 201,
+      "path": "bosai/jmatile/data/nowc/20260924000000/immed/20260924010000/surf/trns/9/454/201.png"
+    },
+    {
+      "element_id": "sjfcstmap",
+      "frame": {
+        "basetime": "20260924000000",
+        "member": "immed",
+        "validtime": "20260924010000"
+      },
+      "z": 9,
+      "x": 454,
+      "y": 201,
+      "path": "bosai/jmatile/data/rasrf/20260924000000/immed/20260924010000/surf/sjfcstmap/9/454/201.png"
+    }
+  ]
+}

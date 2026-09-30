@@ -15,7 +15,8 @@
   タイルで描くものの配信要素すべて。1つのソースが時刻の段ごとに別の配信要素から届く場合
   （降水の`main`）は段ごとに温める。
 - 温めるフレームは、時刻一覧を画面と同じ読み方（`read_target_times`）でコマにし、画面と同じつなぎ方
-  （`stage_first_frames`）で段をつないだときに各段が最初に描くコマ。
+  （`stage_first_frames`）で段をつないだときに各段が最初に描くコマ。画面と同じになることは
+  `scripts/cross_language_expectations.py: jma_expectations`の表を画面のテストが通して確かめる。
 """
 
 import asyncio

@@ -161,8 +161,9 @@ def stage_first_frames(stage_frames: Sequence[Sequence[JmaFrame]]) -> list[JmaFr
     """時刻の段（近い時刻から、各段のコマは`validtime`の順）を1本の時系列へつないだとき、各段が最初に描くコマ。
     時系列に1コマも残らない段はNone。
 
-    つなぎ方は画面（frontend `weatherSources.ts: sourceTimeline`）と同じ: 各段は前の段までの最後のコマより後の
-    時刻だけを継ぎ、途中の段が空なら、その前の段の直後から次の段が継ぐ。"""
+    各段は前の段までの最後のコマより後の時刻だけを継ぎ、途中の段が空なら、その前の段の直後から次の段が継ぐ。
+    画面も同じつなぎ方で時系列を作る。同じコマになることは、場面ごとの段とこの関数の答えを
+    `scripts/cross_language_expectations.py: jma_expectations`が表にして配り、画面のテストが通す。"""
     first_frames: list[JmaFrame | None] = []
     last_validtime = ""
     for frames in stage_frames:

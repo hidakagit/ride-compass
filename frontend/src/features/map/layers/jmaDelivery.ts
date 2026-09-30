@@ -251,7 +251,8 @@ function readLatest(rows: readonly RawTargetTime[], elementId: string): JmaFrame
 }
 
 // backendのプリウォームが同じ読み方で温めるフレームを選ぶ（`domain/jma_tile_specs.py: read_target_times`）。
-// 片方だけ変えると在否インデックスのフレームが画面と一致せず、画面は全タイルを取りに行く。配信の遅れのずらし
+// 片方だけ変えると在否インデックスのフレームが画面と一致せず、画面は全タイルを取りに行く。同じコマになることは、
+// backendが出す表（生成物`jma-expectations.json`）をテストが通して確かめる。配信の遅れのずらし
 // （`delayed`）はプリウォームが持たず、タイルの要素には宣言できない（`domain/jma_tile_specs.py: JmaElement`）。
 const READERS: Record<JmaDelivery["reader"], (rows: readonly RawTargetTime[], elementId: string) => JmaFrame[]> = {
   nowcast: readNowcast,

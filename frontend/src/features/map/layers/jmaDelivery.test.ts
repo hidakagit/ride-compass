@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import jmaExpectations from "@/types/generated/jma-expectations.json";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 
 import {
@@ -28,7 +29,6 @@ const FEATURE_ELEMENT = mapDisplay.weatherElements.find(
   (element) => !isTileElement(element) && element.jmaElements.length > 0,
 )!;
 const FEATURE_DELIVERY: JmaDelivery = FEATURE_ELEMENT.jmaElements[0]!;
-const withReader = (reader: JmaDelivery["reader"]) => DELIVERIES.find((delivery) => delivery.reader === reader)!;
 const fileOf = (delivery: JmaDelivery, index = 0) => `${PROXY}${delivery.targetTimesPaths[index]}`;
 /** 地図ライブラリがタイル座標を埋めたURL。 */
 const tileAt = (template: string, z: number, x: number, y: number) =>
@@ -58,31 +58,15 @@ const row = (basetime: string, validtime: string, elements: string[], member?: s
   ...(member === undefined ? {} : { member }),
 });
 
-describe("読み方: 実況＋予測（nowcast）", () => {
-  const delivery = withReader("nowcast");
-  const read = (entries: ReturnType<typeof row>[]) => jmaFramesOf(delivery, entries);
-
-  it("その要素の行だけを時刻順に並べ、最新の実況より前（過去）を捨てる", () => {
-    expect(
-      read([
-        row("20260924001000", "20260924002000", [delivery.id]),
-        row("20260924001000", "20260924001000", [delivery.id]),
-        row("20260924000000", "20260924000000", [delivery.id]),
-        row("20260924001500", "20260924001500", ["other"]),
-      ]),
-    ).toEqual([
-      { basetime: "20260924001000", member: "none", validtime: "20260924001000" },
-      { basetime: "20260924001000", member: "none", validtime: "20260924002000" },
-    ]);
-  });
-
-  it("実況が1つも無ければ何も捨てない", () => {
-    expect(
-      read([
-        row("20260924001000", "20260924003000", [delivery.id]),
-        row("20260924001000", "20260924002000", [delivery.id]),
-      ]).map((frame) => frame.validtime),
-    ).toEqual(["20260924002000", "20260924003000"]);
+describe("時刻一覧の読み方", () => {
+  // 配信の遅れのずらしは画面だけが持つ（下の「配信の遅れ」）ので、遅れの無い配信要素で当てる。
+  it("backendの表（読み方ごとの、別の要素の行が混ざる・実況が無い・中間ランの単発の行等）と同じコマ", () => {
+    const rows = jmaExpectations.read_target_times;
+    expect(rows.length).toBeGreaterThan(0);
+    for (const { scene, reader, element_id, rows: listing, frames } of rows) {
+      const delivery = { ...DELIVERIES[0]!, id: element_id, reader, dataDelayMinutes: 0 } as JmaDelivery;
+      expect(jmaFramesOf(delivery, listing), `${reader}: ${scene}`).toEqual(frames);
+    }
   });
 });
 
@@ -117,60 +101,6 @@ describe("配信の遅れ", () => {
   });
 });
 
-describe("読み方: 数値予報のラン（latestFullRun）", () => {
-  const delivery = withReader("latestFullRun");
-  const read = (entries: ReturnType<typeof row>[]) => jmaFramesOf(delivery, entries);
-
-  it("系列ごとに、有効時刻を複数持つ最新のランだけを使う——単発の中間ラン・古いラン・別の要素の行は使わない", () => {
-    const frames = read([
-      row("20260924000000", "20260924010000", [delivery.id], "immed"),
-      row("20260924000000", "20260924020000", [delivery.id], "immed"),
-      row("20260924001000", "20260924001000", [delivery.id], "immed"),
-      row("20260923230000", "20260924000000", [delivery.id], "immed"),
-      row("20260923230000", "20260924010000", [delivery.id], "immed"),
-      row("20260924002000", "20260924011000", ["other"], "immed"),
-      row("20260924002000", "20260924021000", ["other"], "immed"),
-    ]);
-    expect(frames).toEqual([
-      { basetime: "20260924000000", member: "immed", validtime: "20260924010000" },
-      { basetime: "20260924000000", member: "immed", validtime: "20260924020000" },
-    ]);
-  });
-
-  it("系列どうしを1本の時刻順につなぎ、同じ有効時刻は新しいランを採る", () => {
-    const frames = read([
-      row("20260924000000", "20260924080000", [delivery.id], "none"),
-      row("20260924000000", "20260924060000", [delivery.id], "none"),
-      row("20260924001000", "20260924050000", [delivery.id], "immed"),
-      row("20260924001000", "20260924060000", [delivery.id], "immed"),
-    ]);
-    expect(frames.map((frame) => [frame.validtime, frame.member])).toEqual([
-      ["20260924050000", "immed"],
-      ["20260924060000", "immed"],
-      ["20260924080000", "none"],
-    ]);
-  });
-
-  it("完全なランが無ければ空", () => {
-    expect(read([row("20260924001000", "20260924001000", [delivery.id], "immed")])).toEqual([]);
-  });
-});
-
-describe("読み方: 現在の単一値（latest）", () => {
-  const delivery = withReader("latest");
-
-  it("その要素の最新の1行だけを、系列付きで1コマにする（無ければ空）", () => {
-    expect(
-      jmaFramesOf(delivery, [
-        row("20260924000000", "20260924000000", [delivery.id, "other"], "none"),
-        row("20260924001000", "20260924001000", [delivery.id], "immed"),
-        row("20260924002000", "20260924002000", ["other"], "none"),
-      ]),
-    ).toEqual([{ basetime: "20260924001000", member: "immed", validtime: "20260924001000" }]);
-    expect(jmaFramesOf(delivery, [row("20260924002000", "20260924002000", ["other"], "none")])).toEqual([]);
-  });
-});
-
 describe("時刻一覧のファイル", () => {
   it("配列でない応答は形式の誤りとして失敗に数える", async () => {
     const delivery = DELIVERIES[0];
@@ -185,29 +115,22 @@ describe("コマのURL", () => {
   const frame = { basetime: "20260924000000", member: "immed", validtime: "20260924010000" };
   const delivery = FEATURE_DELIVERY;
 
-  it("源泉のテンプレートの時刻と系列をコマで埋め、タイル座標は地図ライブラリに残す", () => {
-    const tile = TILE_DELIVERIES[0]!;
-    expect(jmaTilePayload("rasterTile", tile, frame)).toEqual({
-      kind: "rasterTile",
-      tileUrlTemplate: `${PROXY}${tile.urlTemplate}`
-        .replace("{basetime}", frame.basetime)
-        .replace("{member}", frame.member)
-        .replace("{validtime}", frame.validtime),
-    });
-    expect(jmaTilePayload("rasterTile", tile, frame).tileUrlTemplate).toMatch(/\{z\}\/\{x\}\/\{y\}\.png$/);
-  });
-
-  it("タイルのURLは、タイルで描くどの配信要素でも、組み立てたコマとタイル座標に読み戻せる", () => {
-    expect(TILE_DELIVERIES).not.toHaveLength(0);
-    for (const tile of TILE_DELIVERIES) {
-      const { tileUrlTemplate } = jmaTilePayload("rasterTile", tile, frame);
-      expect(readJmaTileUrl(tileAt(tileUrlTemplate, 9, 454, 201)), tile.id).toEqual({
+  it("タイルのURLはbackendの表のパスを指し、同じ配信要素・コマ・タイル座標に読み戻せる", () => {
+    const rows = jmaExpectations.tile_path;
+    expect(rows.length).toBeGreaterThan(0);
+    for (const { element_id, frame: tileFrame, z, x, y, path } of rows) {
+      const tile = TILE_DELIVERIES.find((delivery) => delivery.id === element_id);
+      if (tile === undefined) throw new Error(`タイルで描く配信要素に${element_id}が無い`);
+      const { tileUrlTemplate } = jmaTilePayload("rasterTile", tile, tileFrame);
+      const url = tileAt(tileUrlTemplate, z, x, y);
+      expect(url).toBe(`${PROXY}${path}`);
+      expect(readJmaTileUrl(url), element_id).toEqual({
         delivery: tile,
-        frame,
+        frame: tileFrame,
         frameUrl: tileUrlTemplate,
-        z: 9,
-        x: 454,
-        y: 201,
+        z,
+        x,
+        y,
       });
     }
   });

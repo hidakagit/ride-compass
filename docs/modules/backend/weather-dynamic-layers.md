@@ -275,8 +275,12 @@ URLも変わるため、ブラウザキャッシュ（`api/cache_policy.py`）�
 `validtime`より後の最初のコマになる。前の段が取れなければ、画面と同じく後の段が最初から継ぐ。
 **読み方もつなぎ方も画面と1つでも違えば、在否インデックスのフレームが画面のフレームと一致せず、画面は
 インデックスを使わずに全タイルを取りに行く**（表示は壊れず、黙って遅くなる）。frontend（`jmaDelivery.ts`の
-`READERS`・`weatherSources.ts: sourceTimeline`）とbackendは言語が違うため同じ手順を両方が持つ。読み方の種類を
-足すときは両方に足す（backendは`read_target_times`の`match`が`assert_never`で、足し忘れをmypyが止める）。
+`READERS`・`weatherSources.ts: sourceTimeline`）とbackendは言語が違うため同じ手順を両方が持つ。両方が同じ答えを
+出すことは、場面（別の要素の行が混ざる・実況が無い・中間ランの単発の行・段が重なる・途中の段が空等）ごとの入力と
+backendの答え、タイルで配る要素ごとのタイルのパスを`scripts/cross_language_expectations.py: jma_expectations`が表に
+して配り（生成物`jma-expectations.json`）、画面のテストが全行を通して確かめる（[テスト規約](../../conventions/testing.md)
+「パターン11」）。読み方の種類を足すときは両方と表の場面に足す（backendは`read_target_times`の`match`が`assert_never`で、
+足し忘れをmypyが止める）。
 
 **JMAへの実フェッチの秒間上限**: `jma_tile.py`の300/分（クライアント単位）とは別に、
 `JmaTileClient.fetch`自身が実際にJMAへ問い合わせる直前で、プロセス全体で共有する

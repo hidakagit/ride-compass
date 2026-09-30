@@ -112,6 +112,71 @@ def test_an_element_not_delivered_as_tiles_has_no_tile_spec(monkeypatch):
         specs.jma_tile_path(specs.JmaTile("el", FRAME, 5, 1, 2))
 
 
+# ---- 時刻一覧の行をコマにする ----
+# 時刻は"HHMM"で書く（読み方は時刻の文字列の大小だけを見る）。
+
+
+def _row(basetime: str, validtime: str, member: str = "none", elements: tuple[str, ...] = ("el",)):
+    return specs.TargetTimesRow(specs.JmaFrame(basetime, member, validtime), elements)
+
+
+def test_a_nowcast_starts_at_the_latest_observation_of_the_element():
+    rows = [
+        _row("0900", "0900"),
+        _row("0905", "0915"),
+        _row("0905", "0905"),
+        _row("0910", "0910", elements=("other",)),  # 別の要素の実況は最新の実況に数えない
+        _row("0905", "0910"),
+    ]
+
+    assert specs.read_target_times("nowcast", rows, "el") == [
+        ("0905", "none", "0905"),
+        ("0905", "none", "0910"),
+        ("0905", "none", "0915"),
+    ]
+
+
+def test_a_nowcast_without_an_observation_keeps_every_frame():
+    rows = [_row("0900", "0920"), _row("0900", "0910")]
+
+    assert specs.read_target_times("nowcast", rows, "el") == [("0900", "none", "0910"), ("0900", "none", "0920")]
+
+
+def test_a_full_run_is_the_latest_run_with_several_valid_times_per_member():
+    rows = [
+        _row("0700", "0800", "a"),
+        _row("0700", "0900", "a"),
+        _row("0800", "0900", "a"),
+        _row("0800", "1000", "a"),
+        _row("0810", "0810", "a"),  # 中間ランの単発の行は完全なランではない
+        _row("0805", "1000", "b"),  # 系列どうしで有効時刻が重なれば新しいランを採る
+        _row("0805", "1100", "b"),
+    ]
+
+    assert specs.read_target_times("latestFullRun", rows, "el") == [
+        ("0800", "a", "0900"),
+        ("0805", "b", "1000"),
+        ("0805", "b", "1100"),
+    ]
+
+
+def test_no_full_run_reads_as_no_frames():
+    assert specs.read_target_times("latestFullRun", [_row("0810", "0810", "a")], "el") == []
+
+
+def test_latest_is_the_newest_row_of_the_element():
+    rows = [_row("0900", "0900", "a"), _row("0910", "0910", "b"), _row("0920", "0920", elements=("other",))]
+
+    assert specs.read_target_times("latest", rows, "el") == [("0910", "b", "0910")]
+
+
+@pytest.mark.parametrize("reader", ["nowcast", "latestFullRun", "latest"])
+def test_no_rows_of_the_element_read_as_no_frames(reader):
+    rows = [_row("0900", "0900", elements=("other",)), _row("0900", "1000", elements=("other",))]
+
+    assert specs.read_target_times(reader, rows, "el") == []
+
+
 # ---- コマの配信元のパス ----
 
 FRAME = specs.JmaFrame("20260101000000", "immed0", "20260101003000")

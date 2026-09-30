@@ -142,10 +142,11 @@ class TargetTimesRow(NamedTuple):
 def read_target_times(reader: TargetTimesReader, rows: Sequence[TargetTimesRow], element_id: str) -> list[JmaFrame]:
     """時刻一覧の行を、その要素のコマ（`validtime`の順）にする。
 
-    画面（frontend `jmaDelivery.ts`の`READERS`）と同じ読み方をする——温めるフレームと在否インデックスの
-    フレームは、画面が描くフレームと一致しないと役に立たない（インデックスは一致したフレームにしか使われない）。
+    画面も同じ読み方でコマにする——温めるフレームと在否インデックスのフレームは、画面が描くフレームと一致しないと
+    役に立たない（インデックスは一致したフレームにしか使われない）。同じコマになることは、場面ごとの時刻一覧と
+    この関数の答えを`scripts/cross_language_expectations.py: jma_expectations`が表にして配り、画面のテストが通す。
     1つの時刻一覧には別の要素の行も載るため、先にその要素の行へ絞る。時刻一覧の形は
-    `infrastructure/jma_tile_client.py`が行へ解く。"""
+    `infrastructure/jma_tile_client.py: parse_target_times`が行へ解く。"""
     frames = [row.frame for row in rows if element_id in row.elements]
     match reader:
         case "nowcast":
