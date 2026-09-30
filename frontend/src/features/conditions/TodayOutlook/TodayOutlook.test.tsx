@@ -13,11 +13,12 @@ const EMPTY = {
   twilight: null,
   today_periods: [],
 };
+const TWILIGHT = { sunrise: "2026-09-23T20:30:00Z", sunset: "2026-09-24T08:40:00Z" };
 const weather = (overrides: Partial<WeatherConditions> = {}) => ({ ...EMPTY, ...overrides }) as WeatherConditions;
 
 async function open() {
   await userEvent.click(screen.getByRole("button", { name: "今日のモデルの計算値を表示" }));
-  return screen.findByText("今日のモデルの計算値");
+  return screen.findByRole("dialog");
 }
 
 /** 見出しの付いた1項目の値（見出しの次の文字）。 */
@@ -90,6 +91,21 @@ describe("TodayOutlook 1日の値", () => {
     );
     await open();
     expect(stat("日の出・日没")).toBe("05:30〜--:--");
+  });
+
+  it("日の出・日没は天文計算の値のため、「モデルの計算値」の見出しより上に置く", async () => {
+    render(
+      <TodayOutlook weather={weather({ twilight: TWILIGHT, wind_speed_max_ms: 5 })} loading={false} error={null} />,
+    );
+    await open();
+    const heading = screen.getByText("今日のモデルの計算値");
+    expect(screen.getByText("日の出・日没").compareDocumentPosition(heading)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it("日の出・日没しか無いときは、「モデルの計算値」の見出しを出さない", async () => {
+    render(<TodayOutlook weather={weather({ twilight: TWILIGHT })} loading={false} error={null} />);
+    await open();
+    expect(screen.queryByText("今日のモデルの計算値")).not.toBeInTheDocument();
   });
 });
 

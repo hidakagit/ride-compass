@@ -244,8 +244,10 @@ export default function RouteOutcome({ results, generation, splice, currentWeigh
                   <div className="flex flex-col gap-2">
                     <div className="flex items-baseline justify-between gap-2">
                       <span className="inline-flex items-baseline gap-2 text-[length:var(--font-size-md)] font-medium">
-                        {selectedRouteSegment.segment.cumulative_distance_km.toFixed(1)} km地点
-                        <span className={textVariants({ variant: "hint" })}>
+                        <span className="whitespace-nowrap">
+                          {selectedRouteSegment.segment.cumulative_distance_km.toFixed(1)} km地点
+                        </span>
+                        <span className={cn(textVariants({ variant: "hint" }), "break-keep")}>
                           到達予想 {formatSegmentArrivalTime(selectedRouteSegment.segment.estimated_arrival_time)}
                         </span>
                       </span>
