@@ -22,9 +22,9 @@ from app.infrastructure.source_models import ways_source_sql
 
 logger = logging.getLogger("ridecompass.derive_topology")
 
-#: `payload`はリトルエンディアンの符号付き64bit整数を並べたもの（取込が`struct.pack`で
-#: 書く）。最上位バイトのシフトは桁あふれを折り返すが、それが符号付き64bitの解釈そのもの
-#: なので値は正しい。
+#: `payload`はリトルエンディアンの符号付き64bit整数を並べたもの（取込の
+#: `source_adapters/osm_pbf.py: way_payload`が書く）。最上位バイトのシフトは桁あふれを
+#: 折り返すが、それが符号付き64bitの解釈そのものなので値は正しい。
 _DECODE_WAYS = f"""
 CREATE TEMP TABLE _way ON COMMIT DROP AS
 SELECT w.osm_way_id AS way_id, d.node_ids, w.geom

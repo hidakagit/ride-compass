@@ -8,18 +8,14 @@
 方位であること。数値を固定したい相手は自分の合成データで固定する。
 """
 
-import json
-import struct
-from datetime import UTC, datetime
-
 import asyncpg
 import pytest
 import pytest_asyncio
 
 from app.batch import derive_topology
 from app.batch._common import asyncpg_dsn
-from app.batch.ingest import ensure_partition
 from tests.conftest import postgis_database_url
+from tests.source_ingest import ingest_records, way_record
 
 # road_graph_session（conftest.py）と同じDBを使うため、docs/conventions/testing.mdのパターン2どおり
 # loop_scope="module"・xdist_group="postgis"が必須。
@@ -59,20 +55,10 @@ async def topology_conn(road_graph_engine):
     """
     conn = await asyncpg.connect(asyncpg_dsn(postgis_database_url()))
     try:
-        await ensure_partition(conn, "osm_way")
         await conn.execute("TRUNCATE " + ", ".join(TABLES) + " CASCADE")
-        run_id = await conn.fetchval(
-            "INSERT INTO source_runs (source, status, started_at, origin, profile, counts)"
-            " VALUES ('osm_way', 'succeeded', $1, $2, $2, $2) RETURNING run_id",
-            datetime.now(UTC), json.dumps({}))
-        for way_id, node_ids in WAYS:
-            points = [_point(n, i) for i, n in enumerate(node_ids)]
-            wkt = "LINESTRING(" + ", ".join(f"{lon} {lat}" for lon, lat in points) + ")"
-            await conn.execute(
-                "INSERT INTO source_features (source, natural_key, run_id, geom, attrs, payload)"
-                " VALUES ('osm_way', $1, $2, ST_GeomFromText($3, 4326), '{}'::jsonb, $4)",
-                str(way_id), run_id, wkt,
-                struct.pack(f"<{len(node_ids)}q", *node_ids))
+        await ingest_records("osm_way", [
+            way_record(way_id, [_point(n, i) for i, n in enumerate(node_ids)], node_ids)
+            for way_id, node_ids in WAYS], conn=conn)
         await derive_topology.derive(conn)
         yield conn
     finally:

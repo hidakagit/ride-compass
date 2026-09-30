@@ -1,7 +1,6 @@
 """派生の値の分布（`scripts/derived_distribution.py`）が、列の型ごとに分布を1行で出すこと。"""
 
 import sys
-from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -11,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from derived_distribution import collect, select_targets  # noqa: E402
 from tests.conftest import postgis_database_url  # noqa: E402
+from tests.source_ingest import ingest_records  # noqa: E402
 
 pytestmark = [
     pytest.mark.asyncio(loop_scope="module"),
@@ -23,10 +23,7 @@ NODES = (("signal", 0, True), ("signal", 2, False), (None, 3, False), ("crossing
 
 
 async def _insert_nodes(session) -> None:
-    run_id = (await session.execute(text(
-        "INSERT INTO source_runs (source, status, started_at, origin, profile, counts)"
-        " VALUES ('osm_node', 'succeeded', :at, '{}', '{}', '{}') RETURNING run_id"),
-        {"at": datetime.now(UTC)})).scalar_one()
+    run_id = await ingest_records("osm_node", [])
     for node_id, (kind, branch_count, signals) in enumerate(NODES, start=1):
         await session.execute(text(
             "INSERT INTO node_materials (osm_node_id, kind, branch_count, has_traffic_signals, source_run_id)"
