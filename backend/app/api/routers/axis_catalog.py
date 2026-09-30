@@ -150,8 +150,8 @@ class AxisCatalogEntry(StrictModel):
     # （`map_value_thresholds`の件数+1）と一致する——上書きは人が刻んだ境界の段ごとに付くため、
     # 地図で落ちる境界があるとそのままでは件数が合わない。
     display_band_labels_override: list[str] | None
-    # 「専用のway_id→値配信レイヤー（Redis経由、ルート未確定時から
-    # 地図上で視界内の全道路を線色分け表示できる）を持つか」の宣言（domain/
+    # 「専用のフィーチャー→値配信レイヤー（ルート未確定時から地図上で
+    # 視界内の全道路を線色分け表示できる）を持つか」の宣言（domain/
     # axis_definitions.py: AxisDefinition.dedicated_way_value_layerのdocstring参照）。
     # フロント（axisLayers.ts: dedicatedWayValueAxesFromCatalogAxes）が、axis_idの
     # 文字列比較ではなくこのフィールドで地図レイヤー・フェッチ対象を導出する。
