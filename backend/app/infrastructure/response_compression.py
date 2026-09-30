@@ -14,12 +14,14 @@ from starlette.datastructures import Headers
 from starlette.middleware.gzip import GZipMiddleware, GZipResponder
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from app.infrastructure.media_types import MVT_CONTENT_TYPE
+
 # 圧縮対象のcontent-type（パラメータ部を除いた小文字比較）。`text/`で始まるものは
 # 個別に列挙せず常に対象とする。
 COMPRESSIBLE_CONTENT_TYPES = frozenset(
     {
         "application/json",
-        "application/vnd.mapbox-vector-tile",
+        MVT_CONTENT_TYPE,
         "application/x-protobuf",
         "application/javascript",
     }

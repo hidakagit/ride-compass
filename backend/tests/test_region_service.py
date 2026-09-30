@@ -135,27 +135,6 @@ async def test_axis_inspector_uses_the_direction_dependent_materials_it_is_given
     assert _inspected_axis(result, axis.axis_id).difficulty is not None
 
 
-# --- 材料の実データ値一覧 ---
-
-
-class _MaterialValuesRepository:
-    """材料の値一覧だけを答えるフェイク。"""
-
-    def __init__(self, error: Exception):
-        self._error = error
-
-    async def get_distinct_material_values(self, material_id):
-        raise self._error
-
-
-async def test_material_values_the_db_could_not_read_are_unavailable_not_empty():
-    # 「候補が無い」と「候補を出せなかった」を区別する。両方を空リストへ倒すと、
-    # DBのタイムアウトが「この材料には値が無い」として静かに表示される。
-    service = RegionService(repository=_MaterialValuesRepository(ConnectionRefusedError("db down")))
-
-    assert await service.get_material_values("highway") is None
-
-
 # --- 事故データ収録年数 ---
 
 

@@ -1,4 +1,4 @@
-"""軸スタジオの分布プレビュー。
+"""軸スタジオが実データを見て設定を決めるための読み出し（分布プレビュー・材料の値の一覧）。
 
 折れ点や重みを編集している最中に、**その設定で実データがどう分布するか**を返す。
 軸スタジオは数値の入力欄を並べるだけでは折れ点の妥当性を判断できず、公開して地図と
@@ -24,6 +24,8 @@ from app.domain.axis_definitions import AxisShape, raw_values, referenced_materi
 from app.domain.material_catalog import material_dtype
 from app.domain.region import BoundingBox
 from app.domain.strict_model import StrictModel
+from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
+from app.infrastructure.debug_log import log_external_call, mark_failed
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 
 logger = logging.getLogger("ridecompass.axis_preview")
@@ -169,3 +171,22 @@ async def material_value_distribution(
     ]
     return _distribution(pairs)
 
+
+async def material_values(repository: RoadGraphRepository, material_id: str) -> list[str] | None:
+    """指定した材料についてDBへ実際に取り込まれている値の一覧。軸スタジオの値入力が使う。
+
+    索引の効かない`SELECT DISTINCT`（実質全表走査）なので、`repository`はルート生成用の長い
+    `command_timeout`のセッションで渡す（`api/dependencies.py: get_road_graph_repository`）。
+
+    **取得できなかったとき（DB例外・タイムアウト）はNone**、取得できて値が無いときは空リスト。
+    両方を空リストへ倒すと、画面は「候補が無い」と「候補を出せなかった」を区別できず、
+    DBのタイムアウトが「この材料には値が無い」として静かに表示される。
+    """
+    with log_external_call("axis-preview:material-values", material_id=material_id) as fields:
+        try:
+            values = await repository.get_distinct_material_values(material_id)
+        except DB_UNAVAILABLE_ERRORS as exc:
+            mark_failed(fields, exc)
+            return None
+        fields["value_count"] = len(values)
+        return values

@@ -2,39 +2,11 @@ from fastapi import APIRouter
 
 from app.config import settings
 from app.infrastructure.msm_client import freshness as msm_freshness
-from app.infrastructure.debug_log import get_stats
+from app.infrastructure.debug_log import StatsSnapshot, get_stats
 from app.version import STARTED_AT
 from app.domain.strict_model import StrictModel
 
 router = APIRouter()
-
-
-class LastErrorResponse(StrictModel):
-    """最後の失敗。種類と時刻は失敗のたびに一緒に書かれる。"""
-
-    type: str
-    at: str
-
-
-# `infrastructure/debug_log.py: get_stats()`が組み立てるdictの実際の構造に対応する
-# Pydanticモデル（OpenAPI経由でfrontendの型を生成する）。
-class ExternalCallStatsResponse(StrictModel):
-    calls: int
-    errors: int
-    cache_hits: int
-    cache_misses: int
-    total_ms: int
-    max_ms: int
-    avg_ms: int
-    cache_hit_rate: float | None
-    # 失敗の主な理由を推測するための追加集計。error_typesは
-    # HTTPステータス（"http_429"）か例外クラス名のみの粗いラベルで、メッセージ本文・座標は含まない。
-    error_types: dict[str, int]
-    last_error: LastErrorResponse | None
-    last_success_at: str | None
-    retried_calls: int
-    retry_attempts_total: int
-    stale_fallback_used: int
 
 
 class MsmFreshnessResponse(StrictModel):
@@ -48,14 +20,10 @@ class MsmFreshnessResponse(StrictModel):
     healthy: bool
 
 
-class DebugStatsResponse(StrictModel):
+class DebugStatsResponse(StatsSnapshot):
     commit: str | None
     started_at: str
     debug_mode: bool
-    # カテゴリはinfrastructure/debug_log.pyのlog_external_call呼び出し元
-    # （msm:read・weather:jma-tile・basemap:openfreemap・region:road-surface-tile等）に対応する。
-    external: dict[str, ExternalCallStatsResponse]
-    rate_limit_rejections: dict[str, int]
     msm: MsmFreshnessResponse | None
 
 
@@ -79,12 +47,14 @@ def debug_stats() -> DebugStatsResponse:
     # キャッシュヒット率等を確認するための運用エンドポイント。集計値のみで秘匿情報や個別の
     # 座標を含まないため、debug_modeに関わらず/healthと同様に常時公開する。
     # プロセス再起動でリセットされる点に注意(started_atで起点を判別できる)。
+    stats = get_stats()
     return DebugStatsResponse(
         commit=settings.git_commit,
         started_at=STARTED_AT.isoformat(),
         debug_mode=settings.debug_mode,
         msm=_msm_freshness_response(),
-        **get_stats(),
+        external=stats.external,
+        rate_limit_rejections=stats.rate_limit_rejections,
     )
 
 

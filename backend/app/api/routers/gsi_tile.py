@@ -6,7 +6,8 @@ from app.api.routers._tile_http import validate_tile_coords
 from app.config import settings
 from app.infrastructure.gsi_tile_client import GsiTileClient, GsiTileNotFound
 from app.domain.gsi_tiles import RELIEF_UPSTREAM_PATH, TERRAIN_MAX_ZOOM, TERRAIN_MIN_ZOOM
-from app.services.terrain_tile_service import PNG_CONTENT_TYPE, get_terrain_rgb_tile
+from app.infrastructure.media_types import PNG_CONTENT_TYPE
+from app.services.terrain_tile_service import get_terrain_rgb_tile
 
 router = APIRouter()
 

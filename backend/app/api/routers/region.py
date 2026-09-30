@@ -17,7 +17,8 @@ from app.domain.dynamic_way_values import dedicated_way_value_axes, transform_de
 from app.domain.axis_inspector import AxisInspectorResult
 from app.domain.route_preference import RoutePreference
 from app.domain.landcover import LANDCOVER_TILE_MAX_ZOOM, LANDCOVER_TILE_MIN_ZOOM
-from app.services.landcover_tile_service import PNG_CONTENT_TYPE, get_landcover_tile
+from app.infrastructure.media_types import PNG_CONTENT_TYPE
+from app.services.landcover_tile_service import get_landcover_tile
 from app.services.region_service import RegionService
 from app.domain.strict_model import StrictModel
 

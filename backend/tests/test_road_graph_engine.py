@@ -131,12 +131,8 @@ def test_concat_edge_geometries_of_no_edges_is_an_empty_line():
 # --------------------------------------------------------------------------------------
 
 
-def test_aggregate_elevation_collects_only_present_values(monkeypatch):
-    """欠損は集計の母集団から外す（0として数えると獲得標高が実態より小さく出る）。"""
-    seen = {}
-    monkeypatch.setattr(engine, "sum_or_none", lambda values: seen.setdefault("sum", list(values)))
-    monkeypatch.setattr(engine, "min_or_none", lambda values: seen.setdefault("min", list(values)))
-    monkeypatch.setattr(engine, "max_or_none", lambda values: seen.setdefault("max", list(values)))
+def test_aggregate_elevation_collects_only_present_values():
+    """欠損は集計の母集団から外す（0として数えると獲得標高が実態より小さく、最低標高が0mに出る）。"""
 
     edges = [lean_edge("e1"), lean_edge("e2"), lean_edge("e3"), lean_edge("e4")]
     attributes = {
@@ -145,11 +141,20 @@ def test_aggregate_elevation_collects_only_present_values(monkeypatch):
         "e4": elevation("e4", start_elevation_m=30.0, end_elevation_m=None, elevation_gain_m=2.0),
     }
 
-    result = engine._aggregate_elevation(edges, attributes)
+    assert engine._aggregate_elevation(edges, attributes) == {
+        "elevation_gain_m": 12.0,
+        "min_elevation_m": 5.0,
+        "max_elevation_m": 30.0,
+    }
 
-    assert seen["sum"] == [10.0, 2.0]
-    assert seen["min"] == [10.0, 20.0, 5.0, 30.0]
-    assert set(result) == {"elevation_gain_m", "min_elevation_m", "max_elevation_m"}
+
+def test_aggregate_elevation_without_any_value_is_none_not_zero():
+    """標高が1つも取れなかった経路は、0mではなく「取れなかった」として返す。"""
+    assert engine._aggregate_elevation([lean_edge("e1")], {}) == {
+        "elevation_gain_m": None,
+        "min_elevation_m": None,
+        "max_elevation_m": None,
+    }
 
 
 def test_reverse_elevation_attribute_swaps_climb_and_descent():

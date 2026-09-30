@@ -1169,20 +1169,20 @@ export interface components {
         };
         /** DebugStatsResponse */
         DebugStatsResponse: {
+            /** External */
+            external: {
+                [key: string]: components["schemas"]["ExternalCallStats"];
+            };
+            /** Rate Limit Rejections */
+            rate_limit_rejections: {
+                [key: string]: number;
+            };
             /** Commit */
             commit: string | null;
             /** Started At */
             started_at: string;
             /** Debug Mode */
             debug_mode: boolean;
-            /** External */
-            external: {
-                [key: string]: components["schemas"]["ExternalCallStatsResponse"];
-            };
-            /** Rate Limit Rejections */
-            rate_limit_rejections: {
-                [key: string]: number;
-            };
             msm: components["schemas"]["MsmFreshnessResponse"] | null;
         };
         /** DerivedDataFreshnessReport */
@@ -1221,8 +1221,8 @@ export interface components {
             /** Bands On Map */
             bands_on_map: number[];
         };
-        /** ExternalCallStatsResponse */
-        ExternalCallStatsResponse: {
+        /** ExternalCallStats */
+        ExternalCallStats: {
             /** Calls */
             calls: number;
             /** Errors */
@@ -1243,7 +1243,7 @@ export interface components {
             error_types: {
                 [key: string]: number;
             };
-            last_error: components["schemas"]["LastErrorResponse"] | null;
+            last_error: components["schemas"]["LastError"] | null;
             /** Last Success At */
             last_success_at: string | null;
             /** Retried Calls */
@@ -1319,17 +1319,17 @@ export interface components {
         };
         /** JmaTileIndexAvailable */
         JmaTileIndexAvailable: {
+            coverage: components["schemas"]["JmaTileIndexCoverage"];
+            /** Elements */
+            elements: {
+                [key: string]: components["schemas"]["JmaTileIndexElement"];
+            };
             /**
              * Available
              * @default true
              * @constant
              */
             available: true;
-            coverage: components["schemas"]["JmaTileIndexCoverage"];
-            /** Elements */
-            elements: {
-                [key: string]: components["schemas"]["JmaTileIndexElement"];
-            };
         };
         /** JmaTileIndexCoverage */
         JmaTileIndexCoverage: {
@@ -1391,8 +1391,8 @@ export interface components {
             /** Rangeland Percent */
             rangeland_percent: number;
         };
-        /** LastErrorResponse */
-        LastErrorResponse: {
+        /** LastError */
+        LastError: {
             /** Type */
             type: string;
             /** At */

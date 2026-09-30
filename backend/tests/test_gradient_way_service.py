@@ -109,8 +109,8 @@ async def test_second_call_with_same_bearing_bucket_is_served_from_cache():
     # 2回目はrepositoryを一切呼ばない）。
     assert len(repository.calls) == 1
     # 外した1回と当たった1回が、運用の統計のヒット率に載る。
-    stats = debug_log.get_stats()["external"]["region:gradient-way-values"]
-    assert (stats["cache_misses"], stats["cache_hits"]) == (1, 1)
+    stats = debug_log.get_stats().external["region:gradient-way-values"]
+    assert (stats.cache_misses, stats.cache_hits) == (1, 1)
 
 
 async def test_different_bearing_bucket_recomputes():

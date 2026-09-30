@@ -43,7 +43,7 @@ from app.domain.weather_elements import (
 )
 from app.infrastructure.jma_tile_client import EmptyTile, JmaTileClient, get_target_times
 from app.infrastructure.jma_tile_content import is_empty_tile
-from app.infrastructure.jma_tile_index import set_index
+from app.infrastructure.jma_tile_index import JmaTileIndex, JmaTileIndexCoverage, JmaTileIndexElement, set_index
 from app.infrastructure.jma_tile_interpolation import parse_tile_path
 
 logger = logging.getLogger("ridecompass.jma_tile_prewarm_service")
@@ -137,32 +137,32 @@ async def _store_index(
     """
     if not layer_frames:
         return
-    payload = {
-        "coverage": {
-            "min_longitude": area.min_longitude,
-            "min_latitude": area.min_latitude,
-            "max_longitude": area.max_longitude,
-            "max_latitude": area.max_latitude,
-        },
-        "elements": {
-            element_id: {
-                "basetime": frame.basetime,
-                "validtime": frame.validtime,
-                "member": frame.member,
+    index = JmaTileIndex(
+        coverage=JmaTileIndexCoverage(
+            min_longitude=area.min_longitude,
+            min_latitude=area.min_latitude,
+            max_longitude=area.max_longitude,
+            max_latitude=area.max_latitude,
+        ),
+        elements={
+            element_id: JmaTileIndexElement(
+                basetime=frame.basetime,
+                validtime=frame.validtime,
+                member=frame.member,
                 # ズームは文字列キー（JSONのオブジェクトキーは文字列のため、往復で型が
                 # 変わらないようにここで揃える）。補間で埋めるズームは親から補う
                 # （`_with_interpolated_zooms`参照）。
-                "zooms": {
+                zooms={
                     str(z): coords
                     for z, coords in sorted(
                         _with_interpolated_zooms(element_id, present.get(element_id, {})).items()
                     )
                 },
-            }
+            )
             for element_id, frame in layer_frames.items()
         },
-    }
-    await set_index(payload)
+    )
+    await set_index(index)
 
 
 async def prewarm_jma_tiles(client: JmaTileClient, area: BoundingBox) -> None:

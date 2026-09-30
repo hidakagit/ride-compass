@@ -31,15 +31,15 @@ import re
 import time
 from datetime import datetime
 
+from app.api.dependencies import open_route_generation_setup
 from app.batch._common import asyncpg_dsn
 from app.config import settings
 from app.domain.route import Coordinates
-from app.domain.route_preference import RoutePreference
 from app.domain.time_zone import JST
 from app.services.route_generator import DEFAULT_MAX_ROUTES
 from benchmarks._resources import sample_resources
 from benchmarks._revision import announce_revision
-from benchmarks._route_generation_service import refresh_axis_registry, route_generator_session
+from benchmarks._route_generation_service import refresh_axis_registry
 
 #: 段の所要を出しているロガー。ここが出す`key=value`を拾う。
 STAGE_LOGGERS = ("ridecompass.graph", "ridecompass.route_generator", "ridecompass.generate")
@@ -137,7 +137,8 @@ async def main() -> int:
     records: list[dict[str, object]] = []
 
     await refresh_axis_registry()
-    async with route_generator_session(RoutePreference()) as generator:
+    async with open_route_generation_setup() as setup:
+        generator = setup.generator
         for index in range(runs):
             capture.reset()
             kind = "冷" if index == 0 else "温"

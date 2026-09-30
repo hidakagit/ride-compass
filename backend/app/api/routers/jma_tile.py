@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
-import logging
 from typing import Literal
 
 from app.api.cache_policy import IMMUTABLE_TILE, JMA_NOT_YET_DELIVERED, JMA_TARGET_TIMES, JMA_TILE_NOT_FOUND
@@ -13,18 +12,14 @@ from app.infrastructure.jma_tile_client import (
     JmaTileNotFoundError,
     is_target_times_path,
 )
-from pydantic import ValidationError
-
 from app.infrastructure.debug_log import log_throttled_warning
-from app.infrastructure.jma_tile_index import get_index
+from app.infrastructure.jma_tile_index import JmaTileIndex, get_index
 from app.domain.strict_model import StrictModel
 from app.infrastructure.jma_tile_interpolation import (
     crop_and_upscale,
     crop_and_upscale_mvt,
     parse_tile_path,
 )
-
-logger = logging.getLogger("ridecompass.routers.jma_tile")
 
 router = APIRouter()
 
@@ -76,35 +71,8 @@ async def _interpolated_tile(jma_tile_client: JmaTileClient, path: str) -> tuple
         return None
 
 
-class JmaTileIndexCoverage(StrictModel):
-    """インデックスが網羅している地理範囲（プリウォームの対象bbox）。"""
-
-    min_longitude: float
-    min_latitude: float
-    max_longitude: float
-    max_latitude: float
-
-
-class JmaTileIndexElement(StrictModel):
-    """要素（risk系・nowc系・rasrf系）ごとの在否。
-
-    `basetime`・`validtime`・`member`はクライアントが「自分が描こうとしているフレームと一致するか」を
-    確かめるために使う（要素ごとに更新タイミングが異なり、1つの`basetime`に実況と複数の予測の
-    `validtime`が載る）。
-    """
-
-    basetime: str | None = None
-    validtime: str | None = None
-    member: str = "none"
-    # ズーム（文字列キー）→ 中身のあるタイル座標[x, y]の一覧。JSONのオブジェクトキーは
-    # 文字列のため、生成側（`jma_tile_prewarm_service._store_index`）で揃えてある。
-    zooms: dict[str, list[list[int]]] = {}
-
-
-class JmaTileIndexAvailable(StrictModel):
+class JmaTileIndexAvailable(JmaTileIndex):
     available: Literal[True] = True
-    coverage: JmaTileIndexCoverage
-    elements: dict[str, JmaTileIndexElement]
 
 
 class JmaTileIndexUnavailable(StrictModel):
@@ -130,14 +98,7 @@ async def jma_tile_index() -> JmaTileIndexResponse:
     index = await get_index()
     if index is None:
         return JmaTileIndexUnavailable()
-    try:
-        return JmaTileIndexAvailable(**index)
-    except ValidationError as exc:
-        # Redisに残っているのは**過去のコードが書いた形**で、鍵にも版が無い。今のモデルと
-        # 食い違えば`**index`は例外になる——それを外へ出すと、インデックスが無いときより
-        # 悪い（500で地図が出ない）。fail-openの契約どおり「無い」へ倒す。
-        logger.warning("JMAタイル在否インデックスの形が現在のモデルと一致しません error=%r", exc)
-        return JmaTileIndexUnavailable()
+    return JmaTileIndexAvailable(coverage=index.coverage, elements=index.elements)
 
 
 @router.get("/api/jma-tile/{path:path}")
