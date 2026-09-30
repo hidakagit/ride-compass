@@ -34,7 +34,8 @@ class DerivedDataMetaRow(Base):
     __tablename__ = "derived_data_meta"
     __table_args__ = (CheckConstraint("id = 1", name="derived_data_meta_single_row"),)
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    #: 連番にしない——表ごと入れ替えるので、写しの既定値が元の表の連番を指すと元の表を消せない。
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
     revision: Mapped[int] = mapped_column(Integer, nullable=False)
     #: 今の事故の数（`accident_count`）を数えた事故の取込。事故密度の分母はこのrunの宣言の年から読む。
     #: NULLは事故の取込が無いまま数えたこと（事故の数はどれも0）。
