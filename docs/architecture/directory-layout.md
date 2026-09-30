@@ -112,7 +112,7 @@ VMはデプロイのたびに作業コピー（`~/ridecompass-repo`）をその�
   表示の語彙（段の色・凡例の段・軸カタログから作る地図向けの形）。軸のアイコンは部品なので
   `components/ui/icons/`に置く。
 - **`types/generated/`**: `export_openapi.py`の出力（OpenAPIスキーマと、材料カタログ・
-  タイル世代等の付随生成物）。コミット対象で、CI（`ci.yml`）の`api-contract`ジョブがドリフトを検知する。
+  タイル世代等の付随生成物。backendと画面が同じ計算を持つところの「入力→答え」の表`*-expectations.json`も）。コミット対象で、CI（`ci.yml`）の`api-contract`ジョブがドリフトを検知する。
   OpenAPIスキーマは**契約だけ**を持ち、docstring由来の散文は載せない。
 
 **backendが持つ値の一覧・既定値をfrontendが手書きで複製しないこと**——複製すると片側だけ

@@ -42,6 +42,7 @@ from app.main import app  # noqa: E402
 from app.domain.wind import ASSUMED_SPEED_KMH, MAX_ASSUMED_SPEED_KMH, MIN_ASSUMED_SPEED_KMH  # noqa: E402
 from app.domain.hard_filters import DEFAULT_HARD_FILTERS, HARD_FILTER_LABELS, HARD_FILTER_NAMES  # noqa: E402
 from app.domain.geo import COMPASS_LABELS  # noqa: E402
+from cross_language_expectations import EXPECTATIONS  # noqa: E402
 from app.domain.weather_elements import (  # noqa: E402
     WEATHER_ELEMENTS,
     WEATHER_LAYER_GROUPS,
@@ -491,6 +492,9 @@ def main() -> None:
             for spec in MATERIAL_CATALOG.values()
         ],
     )
+    # backendと画面が同じ計算を持つところの「入力→答え」の表（組ごとに1ファイル）。
+    for name, build in EXPECTATIONS.items():
+        _write_json(GENERATED_DIR / f"{name}-expectations.json", build())
     # **軸そのものはここへ書き出さない。** 軸定義の正本は本番DBで、実行時の
     # `GET /api/axis-catalog`が配る。ビルド時に写しを持つと、API障害時に古い軸で
     # 地図が描かれ、伝播の失敗が見えなくなる。

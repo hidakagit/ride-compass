@@ -1,5 +1,8 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
+
+import geoExpectations from "@/types/generated/geo-expectations.json";
+
 import { cumulativeDistancesKm } from "./geoDistance";
 
 // 緯度0.1度はおよそ11.1km。桁と単位（km）を取り違えていないことを、既知の値で押さえる。
@@ -21,5 +24,18 @@ describe("cumulativeDistancesKm", () => {
 
   it("点が1つ以下なら0だけ", () => {
     expect(cumulativeDistancesKm([[139, 35]])).toEqual([0]);
+  });
+
+  // 表の距離は1mmの桁に丸めてあり、言語ごとの三角関数の差はそれよりずっと小さい。
+  it("2点の距離はbackendの表と1cm未満で一致する", () => {
+    const rows = geoExpectations.distance_km;
+    expect(rows.length).toBeGreaterThan(0);
+    for (const { from, to, km } of rows) {
+      const [, distance] = cumulativeDistancesKm([
+        [from.longitude, from.latitude],
+        [to.longitude, to.latitude],
+      ]);
+      expect(Math.abs(distance - km), JSON.stringify({ from, to })).toBeLessThan(1e-5);
+    }
   });
 });
