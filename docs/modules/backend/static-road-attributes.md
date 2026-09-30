@@ -396,7 +396,8 @@ NULLの意味は列によって違う。「まだ計算していない」と「�
 
 `repository`（`RoadGraphRepository`、必須）から、要求タイルが取込の宣言した範囲に入って
 いれば、MVTエンコードまで含めてPostGIS側（ST_AsMVT）でタイルを丸ごと生成する。範囲外・
-DB障害時は空タイルを返す。
+DB障害時は空タイルを返す。タイル配信用の短い`command_timeout`のセッションで組まれる
+（`api/dependencies.py: get_region_service`）ため、全表走査を伴う読み出しはここへ置かない。
 
 - **カバレッジはマーカーの表ではなく取込の宣言から決まる**（成功した最新の道路の取込の`source_runs.profile`の
   `target.bbox`）。道路網は取込・派生バッチが範囲全体ぶん先に作るため、タイル配信側に
@@ -435,8 +436,6 @@ DB障害時は空タイルを返す。
   交差点付近で実際にクリックされたフィーチャーとは別の道路を拾いうるため採用しない）。
   一次属性→[評価・スコアリング](evaluation-scoring.md)の`axis_inspector_breakdown`で
   二次軸スコア・三次合成コスト（取得可能な軸だけの参考値）を返す。
-- `get_material_values(material_id)`: [軸スタジオ](axis-studio.md)向けの材料値動的列挙
-  （`RoadGraphRepository.get_distinct_material_values`への薄い委譲）。
 - `get_accident_years()`: 事故データの収録年（取込プロファイルの宣言）。[軸スタジオ](axis-studio.md)の
   `GET /api/axis-catalog`がそのまま地図の説明文へ配り、年の数で割る実行時スケール定数も
   ここから組み立てる（読めず空なら定数を配らない）。

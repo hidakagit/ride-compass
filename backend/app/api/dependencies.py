@@ -40,7 +40,6 @@ from app.infrastructure.rate_limiter import check_rate_limit
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.accident_service import AccidentService
 from app.services.axis_registry_service import AxisRegistryAdminService
-from app.services.evaluation_service import load_route_preference
 from app.services.graph_service import GraphService
 from app.services.region_service import RegionService
 from app.domain.wind import ASSUMED_SPEED_KMH
@@ -111,11 +110,12 @@ def get_flood_service():
 
 @dataclass
 class RouteGenerationSetup:
-    """1回のルート生成に使う組み立て済みの部品と、実際に適用された評価条件。
+    """組み立て済みのエンジンと、実際に適用された評価条件。
 
     `route_preference`以降はレスポンスの条件エコーにもそのまま使う。
     """
 
+    engine: RoadGraphEngine
     generator: RouteGenerator
     route_preference: RoutePreference
     # 主観的割増と時間の換算レート（P）。
@@ -133,9 +133,10 @@ async def get_graph_service():
         yield GraphService(repository=RoadGraphRepository(session))
 
 
-def _assemble_route_generation_setup(
+def assemble_route_generation_setup(
     graph_service: GraphService,
     weather_service: WeatherService,
+    *,
     preference_override: RoutePreference | None = None,
     penalty_strength: float | None = None,
     max_average_grade_percent: float | None = None,
@@ -143,23 +144,26 @@ def _assemble_route_generation_setup(
     assumed_speed_kmh: float = ASSUMED_SPEED_KMH,
     lens_axis_id: str | None = None,
 ) -> RouteGenerationSetup:
-    """組み立て済みのサービスと評価条件から`RouteGenerationSetup`を作る。"""
-    preference = preference_override or load_route_preference()
+    """エンジンを組む唯一の入口。ルート生成・区間確認・計測・テストのどれもここを通る。
+
+    省略された評価条件の既定はここで1度だけ決める。以後は解決済みの値だけを回し、
+    レスポンスのconditionsへも同じ値をエコーする（画面が見る値と探索が使う値を分けない）。
+    """
+    preference = preference_override or RoutePreference()
     hard_filters = hard_filters_override if hard_filters_override is not None else DEFAULT_HARD_FILTERS
-    # 省略されたときの値はここで1度だけ決める。以後は解決済みの値だけを回し、
-    # レスポンスのconditionsへも同じ値をエコーする（画面が見る値と探索が使う値を分けない）。
     resolved_penalty_strength = resolve_penalty_strength(penalty_strength)
     engine = RoadGraphEngine(
         graph_service,
         weather_service,
-        preference,
-        resolved_penalty_strength,
-        max_average_grade_percent,
-        hard_filters,
-        assumed_speed_kmh,
+        route_preference=preference,
+        penalty_strength=resolved_penalty_strength,
+        max_average_grade_percent=max_average_grade_percent,
+        hard_filters=hard_filters,
+        assumed_speed_kmh=assumed_speed_kmh,
         lens_axis_id=lens_axis_id,
     )
     return RouteGenerationSetup(
+        engine=engine,
         generator=RouteGenerator(engine),
         route_preference=preference,
         penalty_strength=resolved_penalty_strength,
@@ -171,6 +175,7 @@ def _assemble_route_generation_setup(
 
 @asynccontextmanager
 async def open_route_generation_setup(
+    *,
     preference_override: RoutePreference | None = None,
     penalty_strength: float | None = None,
     max_average_grade_percent: float | None = None,
@@ -188,10 +193,15 @@ async def open_route_generation_setup(
     async with AsyncExitStack() as stack:
         weather_service = get_weather_service()
         graph_service = await stack.enter_async_context(asynccontextmanager(get_graph_service)())
-        yield _assemble_route_generation_setup(
-            graph_service, weather_service,
-            preference_override, penalty_strength,
-            max_average_grade_percent, hard_filters_override, assumed_speed_kmh, lens_axis_id,
+        yield assemble_route_generation_setup(
+            graph_service,
+            weather_service,
+            preference_override=preference_override,
+            penalty_strength=penalty_strength,
+            max_average_grade_percent=max_average_grade_percent,
+            hard_filters_override=hard_filters_override,
+            assumed_speed_kmh=assumed_speed_kmh,
+            lens_axis_id=lens_axis_id,
         )
 
 
@@ -204,22 +214,15 @@ def get_preview_builder(
 ) -> PreviewBuilder:
     """`/api/routes/preview`（単一区間確認）向けのビルダー。
 
-    previewはリクエストボディでの評価重み・換算レート（P）の上書きに対応しないため、
-    どちらもルート生成が省略時に使うのと同じ既定を使う。
+    previewは評価条件のうち想定速度だけを受け取り、それ以外はルート生成が省略時に使うのと
+    同じ既定で探す。
     """
 
     async def preview(
         origin: Coordinates, destination: Coordinates, assumed_speed_kmh: float = ASSUMED_SPEED_KMH
     ) -> RouteSegment:
-        preference = load_route_preference()
-        engine = RoadGraphEngine(
-            graph_service,
-            weather_service,
-            preference,
-            resolve_penalty_strength(None),
-            assumed_speed_kmh=assumed_speed_kmh,
-        )
-        segment = await engine.preview_segment(origin, destination)
+        setup = assemble_route_generation_setup(graph_service, weather_service, assumed_speed_kmh=assumed_speed_kmh)
+        segment = await setup.engine.preview_segment(origin, destination)
         if segment is None:
             raise RoutingError("road_graph: no path found between origin and destination")
         return segment

@@ -19,7 +19,7 @@
 | api | `axis_admin.py`・`axis_catalog.py` |
 | scripts | `measure_axis_saturation.py`・`axis_apply.py` |
 
-## 分布プレビュー（`services/axis_preview_service.py`）
+## 分布プレビュー・材料の値の一覧（`services/axis_preview_service.py`）
 
 軸スタジオが折れ点を編集している最中に、**その設定で実データがどう分布するか**を返す。
 
@@ -46,6 +46,11 @@
 |---|---|---|
 | `POST /api/admin/axis-definitions/preview-distribution` | Basic認証 | 編集中の`shape`の生値の分布 |
 | `GET /api/admin/material-catalog/{material_id}/distribution` | Basic認証 | 材料1件の値の分布（数値材料のみ、それ以外は`available=false`） |
+| `GET /api/admin/material-catalog/{material_id}/values` | Basic認証 | 材料1件のDBに実際にある値の一覧（`material_values`。[評価・スコアリング](evaluation-scoring.md)の材料カタログのAPI） |
+
+どれも実データを全体から読むため、`repository`はルート生成用の長い`command_timeout`の
+セッションで受け取る（`api/dependencies.py: get_road_graph_repository`）。値の一覧は索引の効かない
+`SELECT DISTINCT`で、タイル配信用の短い上限では最後まで走らない。
 
 
 ## 飽和の計測（`scripts/measure_axis_saturation.py`）

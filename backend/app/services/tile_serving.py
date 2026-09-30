@@ -13,11 +13,6 @@ from app.infrastructure import tile_cache
 from app.infrastructure.debug_log import log_external_call
 
 
-# MVT（Mapbox Vector Tile）のMIMEタイプ。タイルを作る側も配る側も同じ値を使う——別々に
-# 持つと、片方だけ変えたときにキャッシュキー（content_type込み）と応答ヘッダがずれる。
-MVT_CONTENT_TYPE = "application/vnd.mapbox-vector-tile"
-
-
 @dataclass(frozen=True)
 class TileResponse:
     """タイル本体と、それをブラウザへ長期キャッシュさせてよいかどうか。

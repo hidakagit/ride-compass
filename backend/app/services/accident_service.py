@@ -5,7 +5,8 @@ from app.infrastructure.accident_repository import ACCIDENT_TILE_SHAPE, Accident
 from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
 from app.infrastructure.vector_tile import encode_empty_accident_tile
 from app.services import derived_data_revision_service
-from app.services.tile_serving import MVT_CONTENT_TYPE, TileResponse, serve_cached_tile
+from app.infrastructure.media_types import MVT_CONTENT_TYPE
+from app.services.tile_serving import TileResponse, serve_cached_tile
 from app.services.tile_version_service import served_tile_version
 
 logger = logging.getLogger("ridecompass.accident")

@@ -3354,6 +3354,20 @@
       },
       "DebugStatsResponse": {
         "properties": {
+          "external": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ExternalCallStats"
+            },
+            "type": "object",
+            "title": "External"
+          },
+          "rate_limit_rejections": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Rate Limit Rejections"
+          },
           "commit": {
             "anyOf": [
               {
@@ -3373,20 +3387,6 @@
             "type": "boolean",
             "title": "Debug Mode"
           },
-          "external": {
-            "additionalProperties": {
-              "$ref": "#/components/schemas/ExternalCallStatsResponse"
-            },
-            "type": "object",
-            "title": "External"
-          },
-          "rate_limit_rejections": {
-            "additionalProperties": {
-              "type": "integer"
-            },
-            "type": "object",
-            "title": "Rate Limit Rejections"
-          },
           "msm": {
             "anyOf": [
               {
@@ -3401,11 +3401,11 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
+          "external",
+          "rate_limit_rejections",
           "commit",
           "started_at",
           "debug_mode",
-          "external",
-          "rate_limit_rejections",
           "msm"
         ],
         "title": "DebugStatsResponse"
@@ -3501,7 +3501,7 @@
         ],
         "title": "DisplayThresholdsPreviewResponse"
       },
-      "ExternalCallStatsResponse": {
+      "ExternalCallStats": {
         "properties": {
           "calls": {
             "type": "integer",
@@ -3614,7 +3614,7 @@
           "retry_attempts_total",
           "stale_fallback_used"
         ],
-        "title": "ExternalCallStatsResponse"
+        "title": "ExternalCallStats"
       },
       "FloodForecasts": {
         "properties": {

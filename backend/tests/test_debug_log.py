@@ -49,8 +49,8 @@ def warnings(caplog):
     return _Warnings()
 
 
-def _external(category: str) -> dict:
-    return debug_log.get_stats()["external"][category]
+def _external(category: str) -> debug_log.ExternalCallStats:
+    return debug_log.get_stats().external[category]
 
 
 def test_errors_carrying_an_http_response_are_labeled_by_status_code():
@@ -151,7 +151,7 @@ def test_rate_limit_rejections_are_counted_and_warned(clock, warnings):
     debug_log.record_rate_limit_rejection("cat", "client-a", "120/min")
     debug_log.record_rate_limit_rejection("cat", "client-a", "120/min")
 
-    assert debug_log.get_stats()["rate_limit_rejections"] == {"cat": 2}
+    assert debug_log.get_stats().rate_limit_rejections == {"cat": 2}
     assert "client=client-a limit=120/min" in warnings.messages()[0]
 
 
@@ -170,9 +170,9 @@ def test_a_successful_call_is_counted_without_any_warning(clock, warnings):
         pass
 
     stats = _external("cat")
-    assert (stats["calls"], stats["errors"]) == (1, 0)
-    assert stats["last_success_at"] is not None
-    assert stats["last_error_at"] is None
+    assert (stats.calls, stats.errors) == (1, 0)
+    assert stats.last_success_at is not None
+    assert stats.last_error_at is None
     assert warnings.messages() == []
 
 
@@ -182,10 +182,10 @@ def test_an_exception_is_counted_warned_and_re_raised(clock, warnings):
             raise ValueError("boom")
 
     stats = _external("cat")
-    assert (stats["calls"], stats["errors"]) == (1, 1)
-    assert stats["error_types"] == {"ValueError": 1}
-    assert stats["last_error_type"] == "ValueError"
-    assert stats["last_error_at"] is not None
+    assert (stats.calls, stats.errors) == (1, 1)
+    assert stats.error_types == {"ValueError": 1}
+    assert stats.last_error_type == "ValueError"
+    assert stats.last_error_at is not None
     assert len(warnings.messages()) == 1
 
 
@@ -196,7 +196,7 @@ def test_a_result_of_error_is_counted_even_though_nothing_was_raised(clock, warn
         fields["error_type"] = "http_500"
 
     stats = _external("cat")
-    assert (stats["errors"], stats["error_types"]) == (1, {"http_500": 1})
+    assert (stats.errors, stats.error_types) == (1, {"http_500": 1})
     assert len(warnings.messages()) == 1
 
 
@@ -205,7 +205,7 @@ def test_a_caller_that_already_warned_is_not_warned_again_but_is_still_counted(c
         fields["result"] = "error"
         fields["warned"] = True
 
-    assert _external("cat")["errors"] == 1
+    assert _external("cat").errors == 1
     assert warnings.messages() == []
 
 
@@ -216,14 +216,14 @@ def test_the_callers_own_error_type_survives_the_exception_path(clock, warnings)
             fields["error_type"] = "http_429"
             raise ValueError("boom")
 
-    assert _external("cat")["error_types"] == {"http_429": 1}
+    assert _external("cat").error_types == {"http_429": 1}
 
 
 def test_an_unclassified_failure_is_counted_as_unknown(clock, warnings):
     with debug_log.log_external_call("cat") as fields:
         fields["result"] = "error"
 
-    assert _external("cat")["error_types"] == {"unknown": 1}
+    assert _external("cat").error_types == {"unknown": 1}
 
 
 def test_the_cache_hit_rate_counts_only_declared_lookups(clock, warnings):
@@ -234,9 +234,9 @@ def test_the_cache_hit_rate_counts_only_declared_lookups(clock, warnings):
         pass
 
     stats = _external("cat")
-    assert (stats["cache_hits"], stats["cache_misses"]) == (2, 1)
-    assert stats["cache_hit_rate"] == 0.667
-    assert _external("nolookup")["cache_hit_rate"] is None
+    assert (stats.cache_hits, stats.cache_misses) == (2, 1)
+    assert stats.cache_hit_rate == 0.667
+    assert _external("nolookup").cache_hit_rate is None
 
 
 def test_retries_are_counted_only_when_the_call_actually_retried(clock, warnings):
@@ -249,7 +249,7 @@ def test_retries_are_counted_only_when_the_call_actually_retried(clock, warnings
         pass
 
     stats = _external("cat")
-    assert (stats["retried_calls"], stats["retry_attempts_total"]) == (1, 2)
+    assert (stats.retried_calls, stats.retry_attempts_total) == (1, 2)
 
 
 def test_only_a_stale_cache_fallback_is_counted_as_one(clock, warnings):
@@ -260,7 +260,7 @@ def test_only_a_stale_cache_fallback_is_counted_as_one(clock, warnings):
     with debug_log.log_external_call("cat", fallback=True):
         pass
 
-    assert _external("cat")["stale_fallback_used"] == 1
+    assert _external("cat").stale_fallback_used == 1
 
 
 def test_durations_accumulate_into_the_total_average_and_peak(clock, warnings):
@@ -270,7 +270,7 @@ def test_durations_accumulate_into_the_total_average_and_peak(clock, warnings):
         clock.advance(0.030)
 
     stats = _external("cat")
-    assert (stats["total_ms"], stats["max_ms"], stats["avg_ms"]) == (42, 30, 21)
+    assert (stats.total_ms, stats.max_ms, stats.avg_ms) == (42, 30, 21)
 
 
 def test_categories_come_back_in_name_order(clock, warnings):
@@ -279,7 +279,7 @@ def test_categories_come_back_in_name_order(clock, warnings):
         with debug_log.log_external_call(category):
             pass
 
-    assert list(debug_log.get_stats()["external"]) == ["aa", "mm", "zz"]
+    assert list(debug_log.get_stats().external) == ["aa", "mm", "zz"]
 
 
 def test_the_snapshot_does_not_alias_the_running_counters(clock, warnings):
@@ -292,11 +292,11 @@ def test_the_snapshot_does_not_alias_the_running_counters(clock, warnings):
     debug_log.record_rate_limit_rejection("cat", "client-a", "120/min")
 
     snapshot = debug_log.get_stats()
-    snapshot["external"]["cat"]["calls"] = 999
-    snapshot["external"]["cat"]["error_types"]["ValueError"] = 999
-    snapshot["rate_limit_rejections"]["cat"] = 999
+    snapshot.external["cat"].calls = 999
+    snapshot.external["cat"].error_types["ValueError"] = 999
+    snapshot.rate_limit_rejections["cat"] = 999
 
     fresh = debug_log.get_stats()
-    assert fresh["external"]["cat"]["calls"] == 1
-    assert fresh["external"]["cat"]["error_types"] == {"ValueError": 1}
-    assert fresh["rate_limit_rejections"] == {"cat": 1}
+    assert fresh.external["cat"].calls == 1
+    assert fresh.external["cat"].error_types == {"ValueError": 1}
+    assert fresh.rate_limit_rejections == {"cat": 1}

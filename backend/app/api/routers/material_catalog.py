@@ -26,11 +26,7 @@ highway/surface/smoothnessのようなOSMタグの生値でオープンエンド
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.api.admin_auth import require_admin_basic_auth
-from app.api.dependencies import (
-    get_material_coverage_service,
-    get_region_service,
-    get_road_graph_repository,
-)
+from app.api.dependencies import get_material_coverage_service, get_road_graph_repository
 from app.domain.material_catalog import MATERIAL_CATALOG, is_known_material
 from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
 from app.infrastructure.road_graph_repository import RoadGraphRepository
@@ -38,9 +34,9 @@ from app.services.axis_preview_service import (
     EMPTY_DISTRIBUTION,
     ValueDistribution,
     material_value_distribution,
+    material_values,
 )
 from app.services.material_coverage_service import MaterialCoverageReport, MaterialCoverageService
-from app.services.region_service import RegionService
 from app.domain.strict_model import StrictModel
 
 router = APIRouter()
@@ -99,23 +95,23 @@ async def get_material_distribution(
 )
 async def get_material_values(
     material_id: str,
-    region_service: RegionService = Depends(get_region_service),
+    repository: RoadGraphRepository = Depends(get_road_graph_repository),
 ) -> MaterialValuesResponse:
     """材料idに対応する実データの値一覧（ソート済み、重複無し）を返す。
     未知の材料idは404（フロントのタイプミス検知用）。値一覧を持たない材料（カテゴリ以外の
     真偽・数値の材料と、値の求め方を持たない材料）は`available=true`の空リスト、
     DB障害・タイムアウトは`available=false`を返す
-    （`RegionService.get_material_values`参照。「候補が無い」と「候補を出せなかった」を
+    （`services/axis_preview_service.py: material_values`参照。「候補が無い」と「候補を出せなかった」を
     画面が区別できるようにするため、両方を空リストへ倒さない）。
 
     利用者は軸スタジオ（`/admin`）だけで、1リクエストにつき索引の効かない
-    `SELECT DISTINCT`（実質全表走査）をタイル配信と同じ接続プール上で1回実行する。
+    `SELECT DISTINCT`（実質全表走査）を1回実行する。
     認可なしで公開すると繰り返し呼ばれるだけでプールを枯渇させられるため、同じ理由で
     Basic認証を課している`/api/admin/material-catalog/coverage`と同じadminパスへ置く。
     """
     if not is_known_material(material_id):
         raise HTTPException(status_code=404, detail=f"unknown material '{material_id}'")
-    values = await region_service.get_material_values(material_id)
+    values = await material_values(repository, material_id)
     if values is None:
         return MaterialValuesResponse(available=False, values=[])
     spec = MATERIAL_CATALOG[material_id]

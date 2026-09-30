@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Awaitable, Callable
 
 from app.domain.axis_inspector import AxisInspectorResult, axis_inspector_breakdown
 from app.domain.route_preference import RoutePreference
@@ -12,10 +13,14 @@ from app.infrastructure.road_graph_repository import (
 )
 from app.infrastructure.vector_tile import encode_empty_poi_tile, encode_empty_road_surface_tile
 from app.services import derived_data_revision_service
-from app.services.tile_serving import MVT_CONTENT_TYPE, TileResponse, serve_cached_tile
+from app.infrastructure.media_types import MVT_CONTENT_TYPE
+from app.services.tile_serving import TileResponse, serve_cached_tile
 from app.services.tile_version_service import current_tile_versions, served_tile_version
 
 logger = logging.getLogger("ridecompass.region")
+
+# z・x・yとその範囲（経度・緯度）から、PostGISが生成したタイル1枚を返す読み出し。
+_TileReader = Callable[[int, int, int, BoundingBox], Awaitable[bytes | None]]
 
 
 class RegionService:
@@ -44,20 +49,17 @@ class RegionService:
         return await current_tile_versions(self._repository)
 
     async def _tile_from_repository(
-        self, repository_method: str, z: int, x: int, y: int, fields: dict, label: str
+        self, read_tile: _TileReader, z: int, x: int, y: int, fields: dict, label: str
     ) -> bytes | None:
         """PostGIS側（ST_AsMVT）でタイル1枚分のMVTを丸ごと生成する。
 
-        `repository_method`が名指すメソッドは「カバレッジ外はNone・カバレッジ内0件は
-        空バイト列」という契約を満たすこと。DB障害もNoneへ倒し、PostGIS停止時も地図表示
-        全体を落とさない。
+        `read_tile`は「カバレッジ外はNone・カバレッジ内0件は空バイト列」という契約を
+        満たすこと。DB障害もNoneへ倒し、PostGIS停止時も地図表示全体を落とさない。
         """
         try:
             # カバレッジ判定（取込の宣言した範囲か）はMVT生成と同じ1クエリへ畳み込まれて
             # いる（DBの往復1回分を節約。repository側のdocstring参照）。
-            tile_bytes = await getattr(self._repository, repository_method)(
-                z, x, y, tile_bounds_lonlat(z, x, y)
-            )
+            tile_bytes = await read_tile(z, x, y, tile_bounds_lonlat(z, x, y))
         except DB_UNAVAILABLE_ERRORS as exc:
             # パン/ズームのたびに大量のタイルリクエストが飛びうる高頻度な経路のため
             # 抑制ヘルパー経由で出す。
@@ -76,7 +78,7 @@ class RegionService:
     async def _get_tile(
         self,
         *,
-        repository_method: str,
+        read_tile: _TileReader,
         layer: str,
         shape: str,
         empty_tile: bytes,
@@ -87,7 +89,7 @@ class RegionService:
         y: int,
     ) -> TileResponse:
         async def fetch_tile(fields: dict) -> bytes | None:
-            postgis_tile = await self._tile_from_repository(repository_method, z, x, y, fields, label)
+            postgis_tile = await self._tile_from_repository(read_tile, z, x, y, fields, label)
             if postgis_tile is None and fields.get("postgis") != "error":
                 # error時に出さないのは、「取込範囲外」という表記がDB障害には当てはまらず、
                 # かつその失敗は_tile_from_repository側が既にWARNINGで出しているため。
@@ -113,7 +115,7 @@ class RegionService:
 
     async def get_road_surface_tile(self, z: int, x: int, y: int) -> TileResponse:
         return await self._get_tile(
-            repository_method="get_road_surface_tile_mvt",
+            read_tile=self._repository.get_road_surface_tile_mvt,
             layer="road-surface",
             shape=ROAD_SURFACE_TILE_SHAPE,
             empty_tile=encode_empty_road_surface_tile(),
@@ -126,7 +128,7 @@ class RegionService:
 
     async def get_poi_tile(self, z: int, x: int, y: int) -> TileResponse:
         return await self._get_tile(
-            repository_method="get_poi_tile_mvt",
+            read_tile=self._repository.get_poi_tile_mvt,
             layer="poi",
             shape=POI_TILE_SHAPE,
             empty_tile=encode_empty_poi_tile(),
@@ -228,27 +230,3 @@ class RegionService:
             if area is None:
                 log_throttled_warning("region:ingested-area", "道路の取込が成功した記録が無く、対象範囲が決まらない")
             return area
-
-    async def get_material_values(self, material_id: str) -> list[str] | None:
-        """指定した材料についてDBへ実際に取り込まれている値の一覧。軸スタジオの値入力が使う。
-
-        **取得できなかったとき（DB例外・タイムアウト）はNone**、
-        取得できて値が無いときは空リストを返す。両方を空リストへ倒すと、画面は
-        「候補が無い」と「候補を出せなかった」を区別できず、DBのタイムアウトが
-        「この材料には値が無い」として静かに表示される
-        （`get_axis_inspector`と同じグレースフルデグレード方針だが、**結果の区別は残す**）。
-        """
-        with log_external_call("region:material-values", material_id=material_id) as fields:
-            try:
-                values = await self._repository.get_distinct_material_values(material_id)
-            except DB_UNAVAILABLE_ERRORS as exc:
-                fields["result"] = "error"
-                fields["warned"] = True
-                fields["error_type"] = error_type_label(exc)
-                log_throttled_warning(
-                    "region:material-values", "材料値一覧のPostGIS読み取りに失敗 material_id=%s error=%r",
-                    material_id, exc,
-                )
-                return None
-            fields["value_count"] = len(values)
-            return values

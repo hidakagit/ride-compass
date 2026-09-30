@@ -12,11 +12,10 @@ from app.config import settings
 from app.domain.landcover import LANDCOVER_CLASSES, raster_set_fingerprint
 from app.infrastructure import landcover_raster
 from app.infrastructure.cache_identity import LANDCOVER_REVISION, cache_identity
+from app.infrastructure.media_types import PNG_CONTENT_TYPE
 from app.services.tile_serving import TileResponse, serve_cached_tile
 
 logger = logging.getLogger("ridecompass.landcover_tile")
-
-PNG_CONTENT_TYPE = "image/png"
 
 #: タイルURLへ入る世代（配色・クラス構成と手書きリビジョンから決まる）。
 #:
