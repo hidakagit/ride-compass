@@ -140,7 +140,7 @@ class RouteGenerateRequest(StrictModel):
     distance_tolerance_km: float = Field(gt=0, le=50, default=DEFAULT_DISTANCE_TOLERANCE_KM)
     route_type: Literal["loop"] = "loop"
     # 評価重みのリクエスト単位の上書き（研究用）。省略時はAXIS_DEFINITIONS由来の既定値
-    # （load_route_preference）を使う。
+    # （`RoutePreference()`）を使う。
     # 実際に適用された値はレスポンスのconditionsへエコーされる。
     route_preference: RoutePreferenceWeights | None = None
     # T12 ADR原則1: 主観的割増と時間の換算レート（P）。**省略が既定**で、そのとき使う値は
@@ -377,12 +377,12 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest) -> None:
 
         job_registry.set_running(job_id)
         async with open_route_generation_setup(
-            preference_override,
-            request.penalty_strength,
-            request.max_average_grade_percent,
-            hard_filters_override,
-            request.assumed_speed_kmh,
-            request.lens_axis_id,
+            preference_override=preference_override,
+            penalty_strength=request.penalty_strength,
+            max_average_grade_percent=request.max_average_grade_percent,
+            hard_filters_override=hard_filters_override,
+            assumed_speed_kmh=request.assumed_speed_kmh,
+            lens_axis_id=request.lens_axis_id,
         ) as setup:
             origin = Coordinates(latitude=request.latitude, longitude=request.longitude)
             start_time = _resolve_start_time(request.start_time)

@@ -3,6 +3,8 @@ from fastapi.testclient import TestClient
 from app.api.dependencies import get_jma_tile_client
 from app.config import settings
 from app.infrastructure import rate_limiter
+from app.infrastructure import redis_json_cache
+from app.infrastructure.jma_tile_index import JmaTileIndex, set_index
 from app.main import app
 import mapbox_vector_tile
 from shapely.geometry import LineString
@@ -412,8 +414,23 @@ def test_index_reports_unavailable_when_nothing_is_stored(monkeypatch):
     assert response.json() == {"available": False}
 
 
-def test_index_returns_what_was_stored(monkeypatch):
-    stored = {
+class _FakeRedis:
+    """在否インデックスの置き場（Redis）の代役。使うコマンドは`get`/`set`だけ。"""
+
+    def __init__(self):
+        self.store: dict[str, str] = {}
+
+    async def get(self, key):
+        return self.store.get(key)
+
+    async def set(self, key, value, ex=None):
+        self.store[key] = value
+
+
+async def test_the_index_the_prewarm_stored_is_what_the_client_receives(monkeypatch):
+    fake_redis = _FakeRedis()
+    monkeypatch.setattr(redis_json_cache, "get_redis_client_or_none", lambda: fake_redis)
+    await set_index(JmaTileIndex.model_validate({
         "coverage": {
             "min_longitude": 138.35,
             "min_latitude": 34.85,
@@ -428,12 +445,7 @@ def test_index_returns_what_was_stored(monkeypatch):
                 "zooms": {"10": [[909, 403]]},
             }
         },
-    }
-
-    async def _stored_index():
-        return stored
-
-    monkeypatch.setattr("app.api.routers.jma_tile.get_index", _stored_index)
+    }))
 
     response = client.get("/api/jma-tile-index")
 
@@ -441,6 +453,7 @@ def test_index_returns_what_was_stored(monkeypatch):
     body = response.json()
     assert body["available"] is True
     assert body["elements"]["rain_mesh"]["zooms"]["10"] == [[909, 403]]
+    assert body["elements"]["rain_mesh"]["member"] == "immed0"
     assert body["coverage"]["min_longitude"] == 138.35
 
 

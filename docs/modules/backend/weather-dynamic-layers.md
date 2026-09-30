@@ -251,11 +251,11 @@ URLも変わるため、ブラウザキャッシュ（`api/cache_policy.py`）�
 | 判定 | ラスタは全画素が透明か（`getchannel("A").getbbox()`）、ベクタは0バイトか |
 | 補間で埋めるズーム | プリウォームは実データのあるズームしか温めないが、**インデックスは「載っていないタイルは空」を意味する**ため、補間対象のズームを載せずにおくとクライアントがそこを一律「空」と見なし補間が一度も動かない。補間結果が空になるのは親が空のときだけなので、中身のある親タイルの4象限を子ズームの中身ありとして載せる（`_with_interpolated_zooms`、追加の取得は発生しない） |
 | 判定不能時 | **「中身あり」に倒す**（誤って空と判定すると危険情報が表示されなくなる） |
-| 保持 | `redis_json_cache`経由、固定キー1つにTTL20分。要素ごとに`basetime`が異なるためキーには含めず、ペイロード側の要素ごとに持たせる |
+| 保持 | `redis_json_cache`経由、キー1つにTTL20分。要素ごとに`basetime`が異なるためキーには含めず、ペイロード側の要素ごとに持たせる。キーには型（`JmaTileIndex`）のJSON Schemaから導いた版を入れる——形を変えたコードは前の形の値を別のキーとして読まず（前のキーはTTLで消える）、読んだ値は常に今の型の検証を通る |
 | フレームの照合 | 要素ごとに温めたフレームの`basetime`・`validtime`・`member`を持たせ、クライアントは3つが要求のタイルと一致するときだけ信用する。**1つの`basetime`に実況と複数の予測の`validtime`が載る**（降水ナウキャストの予測は最新の実況と同じ`basetime`、雷・竜巻も同様）ため、`basetime`だけで照合すると、実況で空だったタイルを予測のフレームでも取りに行かず、予測にだけある雨・雷が地図から消える。中身のあるタイルが1枚も無い要素（平常時の大半）も、照合のためフレームごと載る（座標は空） |
 | `coverage` | インデックスが網羅する地理範囲。**この外は在否が不明**のためクライアントは従来どおり取得する |
 | 未保存時 | `available: false`を返し、クライアントは従来どおり全タイルを取りに行く（インデックスが無いことで表示が欠けてはならない） |
-| 応答の型 | 在る／無いの共用体（`api/routers/jma_tile.py: JmaTileIndexAvailable`・`JmaTileIndexUnavailable`、`available`で判別）。frontendは生成型をそのまま使い構造を手書きしない——組み立て（`_store_index`）と応答が別ファイルのため、構造の変更は「表示は正常なまま間引きだけが黙って効かなくなる」形でしか現れない |
+| 型 | インデックスの形は`infrastructure/jma_tile_index.py: JmaTileIndex`だけが宣言し、組み立て（`_store_index`）・保存・応答が同じ型を使う。応答は在る／無いの共用体（`api/routers/jma_tile.py: JmaTileIndexAvailable`・`JmaTileIndexUnavailable`、`available`で判別）で、在る側は`JmaTileIndex`に判別の項目を足しただけの派生である。frontendは生成型をそのまま使い構造を手書きしない——形がずれても「表示は正常なまま間引きだけが黙って効かなくなる」形でしか現れないため、型の食い違いは型検査で止める |
 
 **定期プリウォーム（`services/jma_tile_prewarm_service.py`）**: `main.py`のAPScheduler
 （アメダスと同じ`interval`トリガー、`jma_tile_prewarm_interval_minutes`＝10分、

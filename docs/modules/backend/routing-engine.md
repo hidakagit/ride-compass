@@ -952,7 +952,7 @@ backendは置き場を読むだけで、読むのは`current()`の1か所であ�
 
 | エンドポイント | 内容 |
 |---|---|
-| `POST /api/routes/preview` | 2点間の単純なルート取得（`get_preview_builder`経由。`RoadGraphEngine.preview_segment`を使う。`RouteGenerator`の周回戦略は使わない。重み・換算レート（P）はリクエストで上書きできず、ルート生成が省略時に使うのと同じ既定で探す。2点を覆う範囲の区間が読み込む量の上限を超えれば422） |
+| `POST /api/routes/preview` | 2点間の単純なルート取得（`get_preview_builder`経由。`RoadGraphEngine.preview_segment`を使う。`RouteGenerator`の周回戦略は使わない。評価条件のうち想定速度だけを受け取り、重み・換算レート（P）・0次フィルタはルート生成が省略時に使うのと同じ既定で探す。2点を覆う範囲の区間が読み込む量の上限を超えれば422） |
 | `POST /api/routes/generate` | 202を即座に返す非同期ジョブ投稿。`asyncio.create_task`でジョブ本体（`_run_generate_job`）を起動し、タスク参照を`_running_generate_tasks`が保持する（`BackgroundTasks`だとレスポンス送出の失敗でジョブが起動せず、投稿時点で取得済みのセマフォが解放されない） |
 | `GET /api/routes/generate/{job_id}` | ジョブの状態・結果を取得（`job_registry`、サーバー再起動で失われる） |
 
@@ -963,8 +963,11 @@ backendは置き場を読むだけで、読むのは`current()`の1か所であ�
 - **バックグラウンドジョブはリクエストスコープのDBセッションを使えない**。
   `api/dependencies.py: open_route_generation_setup`（`@asynccontextmanager`）がDI用の
   ジェネレータをラップして独立したセッションを開く（開閉のロジックを複製しない）。
-  「どのサービスをどう組み立てるか」自体は純粋関数`_assemble_route_generation_setup`へ
-  一本化してあり、DI経由の経路とバックグラウンドジョブの両方が同じ組み立てを通る。
+- **エンジンを組むのは`api/dependencies.py: assemble_route_generation_setup`だけ**。ルート生成の
+  ジョブ・区間確認・計測（`benchmarks/`は`open_route_generation_setup`をそのまま使う）・テストの
+  どれもここを通り、省略された評価条件（重み・換算レート・0次フィルタ）の既定もここで1度だけ決める。
+  エンジンは既定を持たず、解決済みの値だけを受け取る——既定を2か所で持つと、経路ごとに
+  違う条件で探すことになり、しかもどちらも正常に見える。
 - **`RoutePreferenceWeights`/`HardFilterOverride`は「上書きするなら全項目を明示する」
   方針**（`model_validator`でキー集合の完全一致を強制）。`RoutePreferenceWeights`の
   対象は`AXIS_DEFINITIONS`の公開軸のみ（内部軸は含まない）。

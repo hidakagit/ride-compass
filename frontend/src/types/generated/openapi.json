@@ -3469,6 +3469,20 @@
       },
       "DebugStatsResponse": {
         "properties": {
+          "external": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ExternalCallStats"
+            },
+            "type": "object",
+            "title": "External"
+          },
+          "rate_limit_rejections": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Rate Limit Rejections"
+          },
           "commit": {
             "anyOf": [
               {
@@ -3488,20 +3502,6 @@
             "type": "boolean",
             "title": "Debug Mode"
           },
-          "external": {
-            "additionalProperties": {
-              "$ref": "#/components/schemas/ExternalCallStatsResponse"
-            },
-            "type": "object",
-            "title": "External"
-          },
-          "rate_limit_rejections": {
-            "additionalProperties": {
-              "type": "integer"
-            },
-            "type": "object",
-            "title": "Rate Limit Rejections"
-          },
           "msm": {
             "anyOf": [
               {
@@ -3516,11 +3516,11 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
+          "external",
+          "rate_limit_rejections",
           "commit",
           "started_at",
           "debug_mode",
-          "external",
-          "rate_limit_rejections",
           "msm"
         ],
         "title": "DebugStatsResponse"
@@ -3632,7 +3632,7 @@
         ],
         "title": "DisplayThresholdsPreviewResponse"
       },
-      "ExternalCallStatsResponse": {
+      "ExternalCallStats": {
         "properties": {
           "calls": {
             "type": "integer",
@@ -3683,7 +3683,7 @@
           "last_error": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/LastErrorResponse"
+                "$ref": "#/components/schemas/LastError"
               },
               {
                 "type": "null"
@@ -3732,7 +3732,7 @@
           "retry_attempts_total",
           "stale_fallback_used"
         ],
-        "title": "ExternalCallStatsResponse"
+        "title": "ExternalCallStats"
       },
       "FloodForecasts": {
         "properties": {
@@ -3950,12 +3950,6 @@
       },
       "JmaTileIndexAvailable": {
         "properties": {
-          "available": {
-            "type": "boolean",
-            "const": true,
-            "title": "Available",
-            "default": true
-          },
           "coverage": {
             "$ref": "#/components/schemas/JmaTileIndexCoverage"
           },
@@ -3965,14 +3959,20 @@
             },
             "type": "object",
             "title": "Elements"
+          },
+          "available": {
+            "type": "boolean",
+            "const": true,
+            "title": "Available",
+            "default": true
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "available",
           "coverage",
-          "elements"
+          "elements",
+          "available"
         ],
         "title": "JmaTileIndexAvailable"
       },
@@ -4129,7 +4129,7 @@
         ],
         "title": "LandcoverPercentages"
       },
-      "LastErrorResponse": {
+      "LastError": {
         "properties": {
           "type": {
             "type": "string",
@@ -4146,7 +4146,7 @@
           "type",
           "at"
         ],
-        "title": "LastErrorResponse"
+        "title": "LastError"
       },
       "LatestRunEntry": {
         "properties": {

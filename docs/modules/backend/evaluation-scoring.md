@@ -12,7 +12,7 @@
 | レイヤー | ファイル |
 |---|---|
 | domain | `evaluation.py`（Edge Costの算出。探索範囲の静的スコア行列と、コストの合成・逆算）・`hard_filters.py`（0次フィルタ）・`route_preference.py`（重み指定）・`dynamic_materials.py`（風などリクエスト時に決まる材料）・`axis_inspector.py`（区間インスペクタ）・`difficulty.py`（軸の得点の合成と、区間からルートへの集約）・`material_catalog.py`・`material_sql.py`（材料の値をSQLで導出する式。道・ノードの生データを読む副問い合わせは`infrastructure/source_models.py`） |
-| services | `evaluation_service.py`・`material_coverage_service.py` |
+| services | `material_coverage_service.py` |
 | infrastructure | `material_coverage.py`（材料ごとの欠損割合の集計クエリ） |
 | api | `material_catalog.py`（材料カタログ・材料値一覧・欠損割合のエンドポイント） |
 
@@ -400,7 +400,7 @@ way粒度で引くときは、同じ式のまま`w`の行から同じ名前の�
 
 | エンドポイント | 認可 | 内容 |
 |---|---|---|
-| `GET /api/admin/material-catalog/{material_id}/values` | HTTP Basic | categorical材料の実データ値一覧（`RegionService.get_material_values`経由、未知idは404・値一覧を持たない材料は空リスト・DB障害やタイムアウトは`available=false`）。索引の効かない`SELECT DISTINCT`をタイル配信と同じ接続プール上で実行するため、`coverage`と同じく認可を課す |
+| `GET /api/admin/material-catalog/{material_id}/values` | HTTP Basic | categorical材料の実データ値一覧（`services/axis_preview_service.py: material_values`経由、未知idは404・値一覧を持たない材料は空リスト・DB障害やタイムアウトは`available=false`）。索引の効かない`SELECT DISTINCT`をルート生成用の長い`command_timeout`のセッションで実行する。繰り返し呼ばれるだけで接続を占有できるため、`coverage`と同じく認可を課す |
 | `GET /api/admin/material-catalog/coverage` | Basic認証必須 | 材料ごとの欠損割合（下記）。全表走査を伴うため認可なしには公開しない |
 
 ## 材料の欠損割合（`infrastructure/material_coverage.py`・`services/material_coverage_service.py`）
@@ -454,6 +454,8 @@ way粒度で引くときは、同じ式のまま`w`の行から同じ名前の�
 ## RoutePreference（`domain/route_preference.py`）
 
 `weights: dict[str, float]`（axis_id→重み、既定値は`default_axis_weights()`）。
+既定の重みの入口は`RoutePreference()`だけで、組み立てるたびにその時点の公開軸から導く
+（ルート生成・区間確認・区間インスペクタのどれも、重みを省略されたらこれを使う）。
 部分指定を許し、書かれなかった公開軸は`default_weight`で補う。値の不変条件は`check_axis_weights`が持ち、
 組み立てるたびに通す——キーは公開軸（`is_published=True`）のidだけ（内部軸は重み付けの対象外）、値は非負
 （負の重みは合成difficultyの分母と分子の符号を食い違わせる）。ルート生成の要求を通らずに組み立てる書き手
@@ -464,9 +466,3 @@ way粒度で引くときは、同じ式のまま`w`の行から同じ名前の�
 `active_scopes`に含まれないものの重みを0倍にしたコピーを返す（night軸の動的重み
 付けが使う、[routing-engine.md](routing-engine.md)参照）。リクエスト間で共有するインスタンスを
 汚染しないよう、新しい`RoutePreference`インスタンスを返す（`self`を書き換えない）。
-
-## 評価のオーケストレーション（`services/evaluation_service.py`）
-
-`load_route_preference()`が既定の`RoutePreference`（`RoutePreference()`、
-`default_axis_weights()`由来）を返す。このモジュールが持つのはそれだけで、評価そのものは
-domainが行う。状態を持たないためクラスではなくモジュール関数。

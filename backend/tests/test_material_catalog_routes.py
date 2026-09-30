@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import DBAPIError
 
-from app.api.dependencies import get_material_coverage_service, get_region_service
+from app.api.dependencies import get_material_coverage_service, get_road_graph_repository
 from app.domain.material_catalog import MATERIAL_CATALOG
 from app.infrastructure.material_coverage import MATERIAL_COVERAGE_SPECS, MaterialCoverageCounts
 from app.main import app
@@ -17,13 +17,18 @@ client = TestClient(app)
 # --- 材料の実データ値一覧（改善計画T340） ---
 
 
-class FakeRegionServiceForMaterialValues:
-    def __init__(self, values: list[str] | None):
-        self._values = values
+class FakeRepositoryForMaterialValues:
+    """DBの代役。材料の値の一覧（`SELECT DISTINCT`）だけを答え、`error`を渡すとDB障害として送出する。"""
+
+    def __init__(self, values: list[str] | None = None, error: Exception | None = None):
+        self._values = values or []
+        self._error = error
         self.last_material_id: str | None = None
 
-    async def get_material_values(self, material_id: str) -> list[str] | None:
+    async def get_distinct_material_values(self, material_id: str) -> list[str]:
         self.last_material_id = material_id
+        if self._error is not None:
+            raise self._error
         return self._values
 
 
@@ -32,8 +37,8 @@ def values_url(material_id: str) -> str:
 
 
 def test_get_material_values_returns_sorted_distinct_values_from_service(admin_credentials):
-    fake = FakeRegionServiceForMaterialValues(values=["cycleway", "primary", "residential"])
-    app.dependency_overrides[get_region_service] = lambda: fake
+    fake = FakeRepositoryForMaterialValues(values=["cycleway", "primary", "residential"])
+    app.dependency_overrides[get_road_graph_repository] = lambda: fake
 
     try:
         response = client.get(values_url("highway"), headers=AUTH_HEADERS)
@@ -64,8 +69,8 @@ def test_get_material_values_unknown_material_id_is_404(admin_credentials):
 def test_get_material_values_known_material_without_dynamic_support_returns_empty_list(admin_credentials):
     # 改善計画T340: tracktypeのように事前に閉じた値集合を持つ既知の材料は404にせず、
     # available=trueの空リストを返す（フロント側は自由テキスト入力へフォールバックする）。
-    fake = FakeRegionServiceForMaterialValues(values=[])
-    app.dependency_overrides[get_region_service] = lambda: fake
+    fake = FakeRepositoryForMaterialValues(values=[])
+    app.dependency_overrides[get_road_graph_repository] = lambda: fake
 
     try:
         response = client.get(values_url("tracktype"), headers=AUTH_HEADERS)
@@ -77,8 +82,10 @@ def test_get_material_values_known_material_without_dynamic_support_returns_empt
     assert fake.last_material_id == "tracktype"
 
 
-def test_get_material_values_the_service_could_not_read_is_unavailable(admin_credentials):
-    app.dependency_overrides[get_region_service] = lambda: FakeRegionServiceForMaterialValues(values=None)
+def test_get_material_values_the_db_could_not_read_is_unavailable(admin_credentials):
+    app.dependency_overrides[get_road_graph_repository] = lambda: FakeRepositoryForMaterialValues(
+        error=ConnectionRefusedError("db down")
+    )
 
     try:
         response = client.get(values_url("smoothness"), headers=AUTH_HEADERS)

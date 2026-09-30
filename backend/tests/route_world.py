@@ -1,7 +1,7 @@
 """ルート生成を公開の入口から確かめるテストが共有する、小さな道路網とその渡し口。
 
 3×3の格子（1辺約1km）を`RoadNetwork`で組み、プロセス境界（DB・道路網の置き場・天気の予報ファイル）だけを代役にして、
-本物の`GraphService`・エンジン・戦略層を通す。エンジンの入口の形が変わったら、ここ（`engine_for`）だけを直す。
+本物の`GraphService`・エンジンの組み立て（`api/dependencies.py: assemble_route_generation_setup`）・戦略層を通す。
 
 使う側: `test_route_generation_behavior.py`（戦略層の入口）・`test_routes_generate.py`（HTTPの入口）・
 `test_routing.py`（生成の経路がPythonから呼ぶJIT）。
@@ -12,6 +12,7 @@ from dataclasses import replace
 
 import numpy as np
 
+from app.api.dependencies import assemble_route_generation_setup
 from app.domain.geo import bearing_between, haversine_distance_km
 from app.domain.graph import node_key
 from app.domain.hard_filters import hard_filter_columns
@@ -25,7 +26,6 @@ from app.domain.route_preference import RoutePreference
 from app.domain.wind import WindForecastSeries
 from app.infrastructure import road_network_store
 from app.services.graph_service import GraphService
-from app.services.road_graph_engine import RoadGraphEngine
 from tests.axis_system_fixture import axis_definition, replaced_axis_definitions
 
 AVOID_AXIS = "avoid"
@@ -152,11 +152,11 @@ class Weather:
 def engine_for(monkeypatch, network: RoadNetwork, avoid_weight: float, wind: WindForecastSeries | None):
     """道路網を全体の配列として読ませ、本物の`GraphService`とエンジンを組む。"""
     monkeypatch.setattr(road_network_store, "current", lambda: network)
-    return RoadGraphEngine(
+    return assemble_route_generation_setup(
         GraphService(NetworkRepository(network)), Weather(wind),
-        RoutePreference(weights={AVOID_AXIS: avoid_weight}),
+        preference_override=RoutePreference(weights={AVOID_AXIS: avoid_weight}),
         penalty_strength=1.0, assumed_speed_kmh=20.0,
-    )
+    ).engine
 
 
 @contextmanager
