@@ -68,7 +68,7 @@ function makeRouteCandidate(id: string, directionLabel: string, distanceKm: numb
 
 // 戻り値に画面が受け取る生成結果の型を付け、backendの必須フィールド（GenerationConditions等）が
 // 増えたときに、このモックの欠落を型検査が知らせるようにする。
-export function routeGenerateResponseFixture(): NonNullable<RouteGenerateJobStatusResponse["result"]> {
+export function routeGenerateResponseFixture(): Extract<RouteGenerateJobStatusResponse, { status: "done" }>["result"] {
   return {
     routes: [makeRouteCandidate("route-1", "北", 20.3), makeRouteCandidate("route-2", "南", 19.8)],
     no_candidates_reason: null,
@@ -86,6 +86,7 @@ export function routeGenerateResponseFixture(): NonNullable<RouteGenerateJobStat
       start_time: "2026-09-05T09:30:00+09:00",
       waypoints: null,
       destination: null,
+      corrected_destination: null,
       generated_at: new Date().toISOString(),
     },
   };

@@ -25,7 +25,7 @@ from app.infrastructure import rate_limiter
 from app.main import app
 from app.services.flood_service import FloodForecasts
 from app.services.warning_service import WeatherWarnings
-from app.services.wbgt_service import WbgtStatus
+from app.services.wbgt_service import WbgtReading, WbgtStatus
 
 client = TestClient(app)
 
@@ -604,7 +604,9 @@ class FakeWbgtService:
 
 
 def test_get_wbgt_returns_status_on_success():
-    status = WbgtStatus(level="severe_warning", label="厳重警戒", value=30.0, observed_at="2026/08/22 18:00:00")
+    status = WbgtStatus(
+        reading=WbgtReading(level="severe_warning", label="厳重警戒", value=30.0, observed_at="2026/08/22 18:00:00")
+    )
     app.dependency_overrides[get_wbgt_service] = lambda: FakeWbgtService(status)
 
     try:
@@ -614,13 +616,13 @@ def test_get_wbgt_returns_status_on_success():
 
     assert response.status_code == 200
     body = response.json()
-    assert body["level"] == "severe_warning"
-    assert body["value"] == 30.0
+    assert body["reading"]["level"] == "severe_warning"
+    assert body["reading"]["value"] == 30.0
 
 
 def test_no_wbgt_level_is_an_empty_success():
     app.dependency_overrides[get_wbgt_service] = lambda: FakeWbgtService(
-        WbgtStatus(level=None, label=None, value=None, observed_at=None)
+        WbgtStatus(reading=None)
     )
 
     try:
@@ -629,11 +631,11 @@ def test_no_wbgt_level_is_an_empty_success():
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
-    assert response.json() == {"level": None, "label": None, "value": None, "observed_at": None}
+    assert response.json() == {"reading": None}
 
 
 def test_get_wbgt_is_rate_limited_per_client():
-    empty = WbgtStatus(level=None, label=None, value=None, observed_at=None)
+    empty = WbgtStatus(reading=None)
     app.dependency_overrides[get_wbgt_service] = lambda: FakeWbgtService(empty)
     params = {"latitude": 35.6812, "longitude": 139.7671}
 

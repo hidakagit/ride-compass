@@ -14,7 +14,9 @@
 """
 
 from dataclasses import dataclass
-from typing import Literal, cast
+from typing import Annotated, Literal, cast
+
+from pydantic import Field
 
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
@@ -25,14 +27,34 @@ from app.domain.axis_definitions import (
 from app.domain.axis_display import axis_display_for
 from app.domain.axis_templates import evaluate_breakpoint_linear
 from app.domain.material_catalog import MATERIAL_CATALOG
+from app.domain.strict_model import StrictModel
 
 # 地図がその軸について塗る値の種類。`signed_material`は「単一材料の絶対値を評価する軸」
 # （勾配のように向きの符号が意味を持つ）で、地図は難易度ではなく符号付きの材料生値を塗る。
 # それ以外は軸スタジオのbreakpointsで評価済みの難易度（0〜100）を塗る。ルート確定前の
 # 専用way値配信（`transform_dedicated_way_values`）・ルート確定後のルート線色分け（frontend
 # `routeStyleModes.ts`）の両方がこの1つの判定に従うため、同じ軸の色分けはルートの有無で
-# スケールが変わらない。
+# スケールが変わらない。ramp軸（ルート確定前はタイルの重み付き和を塗る軸）は、`axis_display_for`が
+# 符号を畳む形を外すため常に`difficulty`で、その配色で塗る。
 MapValueKind = Literal["difficulty", "signed_material"]
+
+
+class DifficultyMapValue(StrictModel):
+    """地図が軸の難易度（0〜100）を塗る。"""
+
+    kind: Literal["difficulty"] = "difficulty"
+
+
+class SignedMaterialMapValue(StrictModel):
+    """地図が材料1つの符号付きの生値を塗る。"""
+
+    kind: Literal["signed_material"] = "signed_material"
+    #: 生値を塗る材料のid。画面は軸の形から読み直さない。
+    material: str
+
+
+# 塗る値の種類と、種類によって決まる項目を1つにまとめたもの。材料は`signed_material`のときだけ在る。
+MapValue = Annotated[DifficultyMapValue | SignedMaterialMapValue, Field(discriminator="kind")]
 
 
 @dataclass(frozen=True)
@@ -146,18 +168,18 @@ def map_value_thresholds(definition: AxisDefinition) -> list[float] | None:
     ]
 
 
-def map_value_material(definition: AxisDefinition) -> str | None:
-    """`signed_material`の軸が生値を塗る材料のid。難易度を塗る軸はNone。"""
+def map_value(definition: AxisDefinition) -> MapValue:
+    """地図がこの軸について塗る値（種類と、`signed_material`なら生値を塗る材料）。"""
     if map_value_kind(definition) != "signed_material":
-        return None
+        return DifficultyMapValue()
     # `signed_material`は折れ線の軸にしか付かない。
-    return cast(BreakpointLinearShape, definition.shape).terms[0].material
+    return SignedMaterialMapValue(material=cast(BreakpointLinearShape, definition.shape).terms[0].material)
 
 
 def map_value_unit(definition: AxisDefinition) -> str:
     """地図の凡例に添える単位。難易度は無次元（空文字）、符号付き材料は材料カタログの単位。"""
-    material = map_value_material(definition)
-    return "" if material is None else MATERIAL_CATALOG[material].unit
+    value = map_value(definition)
+    return MATERIAL_CATALOG[value.material].unit if isinstance(value, SignedMaterialMapValue) else ""
 
 
 def transform_dedicated_way_values(

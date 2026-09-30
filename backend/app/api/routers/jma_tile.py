@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 import logging
+from typing import Literal
 
 from app.api.cache_policy import IMMUTABLE_TILE, JMA_NOT_YET_DELIVERED, JMA_TARGET_TIMES, JMA_TILE_NOT_FOUND
 from app.api.dependencies import enforce_rate_limit, get_jma_tile_client
@@ -98,16 +99,20 @@ class JmaTileIndexElement(StrictModel):
     zooms: dict[str, list[list[int]]] = {}
 
 
-class JmaTileIndexResponse(StrictModel):
-    """`GET /api/jma-tile-index`の応答。
+class JmaTileIndexAvailable(StrictModel):
+    available: Literal[True] = True
+    coverage: JmaTileIndexCoverage
+    elements: dict[str, JmaTileIndexElement]
 
-    `available=False`（インデックス未保存・Redis障害）のとき`coverage`/`elements`は
-    いずれもNoneで、クライアントは従来どおり全タイルを取りに行く。
-    """
 
-    available: bool
-    coverage: JmaTileIndexCoverage | None = None
-    elements: dict[str, JmaTileIndexElement] | None = None
+class JmaTileIndexUnavailable(StrictModel):
+    """インデックス未保存・Redis障害。クライアントは従来どおり全タイルを取りに行く。"""
+
+    available: Literal[False] = False
+
+
+# `GET /api/jma-tile-index`の応答。範囲と要素は、インデックスが在るときだけ在る。
+JmaTileIndexResponse = JmaTileIndexAvailable | JmaTileIndexUnavailable
 
 
 @router.get("/api/jma-tile-index", response_model=JmaTileIndexResponse)
@@ -122,15 +127,15 @@ async def jma_tile_index() -> JmaTileIndexResponse:
     """
     index = await get_index()
     if index is None:
-        return JmaTileIndexResponse(available=False)
+        return JmaTileIndexUnavailable()
     try:
-        return JmaTileIndexResponse(available=True, **index)
+        return JmaTileIndexAvailable(**index)
     except ValidationError as exc:
         # Redisに残っているのは**過去のコードが書いた形**で、鍵にも版が無い。今のモデルと
         # 食い違えば`**index`は例外になる——それを外へ出すと、インデックスが無いときより
         # 悪い（500で地図が出ない）。fail-openの契約どおり「無い」へ倒す。
         logger.warning("JMAタイル在否インデックスの形が現在のモデルと一致しません error=%r", exc)
-        return JmaTileIndexResponse(available=False)
+        return JmaTileIndexUnavailable()
 
 
 @router.get("/api/jma-tile/{path:path}")

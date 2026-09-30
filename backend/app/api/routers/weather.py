@@ -84,7 +84,7 @@ async def get_wbgt(
     wbgt_service: WbgtService = Depends(get_wbgt_service),
 ) -> WbgtStatus:
     """出発地点近傍の暑さ指数（WBGT）警戒レベルをバッジ用に返す。
-    提供期間外と「ほぼ安全」（21未満）は空（level=None）。地点解決・取得に失敗したか
+    提供期間外と「ほぼ安全」（21未満）は空（reading=None）。地点解決・取得に失敗したか
     今の時刻の値が得られなければ502。"""
     enforce_rate_limit(http_request, "weather-wbgt", settings.weather_wbgt_rate_limit_per_minute)
     status = await wbgt_service.get_status(Coordinates(latitude=latitude, longitude=longitude), datetime.now(JST))

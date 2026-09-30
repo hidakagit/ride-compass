@@ -35,19 +35,30 @@ STATISTICS_WARN_MIN_ROWS = 10_000
 DEAD_TUPLE_WARN_MIN_ROWS = 1_000
 
 
+class LatestRunEntry(StrictModel):
+    id: int
+    status: str
+    #: 走っている間はNone。
+    finished_at: datetime | None
+    #: runを識別する情報（PBF名・対象年・種別など、テーブルごとに中身が違う）。
+    identity: dict[str, str]
+    item_count: int | None
+
+
+class SucceededRunEntry(StrictModel):
+    id: int
+    finished_at: datetime | None
+
+
 class ImportRunEntry(StrictModel):
     """生データ取込1種別の最終実行。派生データの世代比較はこの記録を基準にするため、
     ここが失敗したままだと鮮度の判定そのものが古い基準の上で行われる。"""
 
     label: str
-    latest_id: int | None
-    latest_status: str | None
-    latest_finished_at: datetime | None
-    #: runを識別する情報（PBF名・対象年・種別など、テーブルごとに中身が違う）。
-    latest_identity: dict[str, str]
-    latest_item_count: int | None
-    latest_succeeded_id: int | None
-    latest_succeeded_finished_at: datetime | None
+    #: 最新のrun。記録が1件も無ければNone。
+    latest: LatestRunEntry | None
+    #: 成功した最新のrun。成功が1件も無ければNone。
+    latest_succeeded: SucceededRunEntry | None
     #: 最新runが成功していない（失敗したまま、または記録が1件も無い）。
     needs_attention: bool
     note: str
@@ -87,16 +98,12 @@ class DbStatusReport(StrictModel):
 
 
 def _import_entry(counts) -> ImportRunEntry:
-    if counts.latest_id is None:
+    # 状態は最新のrunの行が持つので、行が在れば在る。
+    if counts.latest_id is None or counts.latest_status is None:
         return ImportRunEntry(
             label=counts.label,
-            latest_id=None,
-            latest_status=None,
-            latest_finished_at=None,
-            latest_identity={},
-            latest_item_count=None,
-            latest_succeeded_id=None,
-            latest_succeeded_finished_at=None,
+            latest=None,
+            latest_succeeded=None,
             needs_attention=True,
             note="取込の記録が1件も無い。派生データの世代比較はこの記録を基準にするため、基準そのものが無い",
         )
@@ -110,13 +117,18 @@ def _import_entry(counts) -> ImportRunEntry:
             note += "成功した取込が1件も無い"
     return ImportRunEntry(
         label=counts.label,
-        latest_id=counts.latest_id,
-        latest_status=counts.latest_status,
-        latest_finished_at=counts.latest_finished_at,
-        latest_identity=dict(counts.latest_identity),
-        latest_item_count=counts.latest_item_count,
-        latest_succeeded_id=counts.latest_succeeded_id,
-        latest_succeeded_finished_at=counts.latest_succeeded_finished_at,
+        latest=LatestRunEntry(
+            id=counts.latest_id,
+            status=counts.latest_status,
+            finished_at=counts.latest_finished_at,
+            identity=dict(counts.latest_identity),
+            item_count=counts.latest_item_count,
+        ),
+        latest_succeeded=(
+            None
+            if counts.latest_succeeded_id is None
+            else SucceededRunEntry(id=counts.latest_succeeded_id, finished_at=counts.latest_succeeded_finished_at)
+        ),
         needs_attention=failed,
         note=note,
     )

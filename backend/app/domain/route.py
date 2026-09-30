@@ -1,12 +1,30 @@
 import math
 from collections import defaultdict
 
-from typing import Callable, Iterable, Mapping
+from typing import Annotated, Any, Callable, Iterable, Mapping
 
-from pydantic import Field
+from pydantic import Field, WithJsonSchema
 
 from app.domain.difficulty import distance_weighted_difficulty, weighted_mean_by_distance
 from app.domain.strict_model import StrictModel
+
+
+# GeoJSONのLineString（座標は[経度, 緯度]）。契約には形を載せるが、検証はしない——数千点の座標を
+# 組み立てのたびにたどることになる。形は組み立てる側（`_concat_segment_geometries`・
+# `services/road_graph_engine.py: _concat_edge_geometries`等）が決める。
+LineStringGeometry = Annotated[
+    dict[str, Any],
+    WithJsonSchema(
+        {
+            "type": "object",
+            "properties": {
+                "type": {"const": "LineString", "type": "string"},
+                "coordinates": {"type": "array", "items": {"type": "array", "items": {"type": "number"}}},
+            },
+            "required": ["type", "coordinates"],
+        }
+    ),
+]
 
 
 class Coordinates(StrictModel):
@@ -17,7 +35,7 @@ class Coordinates(StrictModel):
 class RouteSegment(StrictModel):
     distance_km: float
     duration_minutes: float
-    geometry: dict
+    geometry: LineStringGeometry
 
 
 class SegmentWind(StrictModel):
@@ -45,7 +63,7 @@ class RouteSegmentDetail(StrictModel):
     部分列）。フロントはこれがnullの場合のみ始点・終点の直線で代替描画する。
     """
 
-    geometry: dict | None = None
+    geometry: LineStringGeometry | None = None
     start_latitude: float
     start_longitude: float
     end_latitude: float
@@ -84,7 +102,7 @@ class RouteCandidate(StrictModel):
     id: str
     direction_label: str
     distance_km: float
-    geometry: dict
+    geometry: LineStringGeometry
     elevation_gain_m: float | None = None
     min_elevation_m: float | None = None
     max_elevation_m: float | None = None

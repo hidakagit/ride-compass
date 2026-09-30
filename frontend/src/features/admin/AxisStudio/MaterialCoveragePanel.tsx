@@ -8,9 +8,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { textVariants } from "@/components/ui/Text/Text";
 import { cn } from "@/lib/cn";
 
+type CountedEntry = Extract<MaterialCoverageEntry, { kind: "counted" }>;
+type ExcludedEntry = Extract<MaterialCoverageEntry, { kind: "excluded" }>;
+
 // 母集団の名前と欠損の扱いの見出し・説明は、材料カタログの宣言（backend domain/material_catalog.py）が配る。
 const POPULATION_LABELS = Object.fromEntries(vocabulary.materialPopulations.map((p) => [p.key, p.label])) as Record<
-  NonNullable<MaterialCoverageEntry["population"]>,
+  CountedEntry["population"],
   string
 >;
 
@@ -19,14 +22,14 @@ function formatPercent(ratio: number | null): string {
 }
 
 /** 集計対象の材料を欠損割合の高い順に並べる（同率はカタログ順を維持する安定ソート）。 */
-function sortByMissingRatioDesc(entries: readonly MaterialCoverageEntry[]): MaterialCoverageEntry[] {
+function sortByMissingRatioDesc(entries: readonly CountedEntry[]): CountedEntry[] {
   return [...entries].sort((a, b) => (b.missing_ratio ?? -1) - (a.missing_ratio ?? -1));
 }
 
-type MissingSemantics = NonNullable<MaterialCoverageEntry["missing_semantics"]>;
+type MissingSemantics = CountedEntry["missing_semantics"];
 
-// 「欠損時の扱い」でグループ分けする（見出しと並びはbackendの宣言）。宣言に無い扱い・null（集計対象の材料には
-// 付かないはずの値）の材料は、下の未分類グループが拾う——表から消える材料を作らない。
+// 「欠損時の扱い」でグループ分けする（見出しと並びはbackendの宣言）。宣言に無い扱い（backendを先に出すと、
+// 生成物にまだ無い扱いが届く）の材料は、下の未分類グループが拾う——表から消える材料を作らない。
 const GROUP_BY_SEMANTICS = Object.fromEntries(
   vocabulary.materialMissingSemantics.map((entry) => [
     entry.key,
@@ -39,7 +42,7 @@ const GROUPS = (Object.keys(GROUP_BY_SEMANTICS) as MissingSemantics[]).map((sema
   ...GROUP_BY_SEMANTICS[semantics],
 }));
 
-function CoverageTable({ entries }: { entries: readonly MaterialCoverageEntry[] }) {
+function CoverageTable({ entries }: { entries: readonly CountedEntry[] }) {
   return (
     <Table>
       <TableHead>
@@ -53,14 +56,10 @@ function CoverageTable({ entries }: { entries: readonly MaterialCoverageEntry[] 
         {entries.map((entry) => (
           <TableRow
             key={entry.material_id}
-            data-affects-evaluation={
-              entry.missing_semantics
-                ? String(GROUP_BY_SEMANTICS[entry.missing_semantics]?.affectsEvaluation)
-                : undefined
-            }
+            data-affects-evaluation={String(GROUP_BY_SEMANTICS[entry.missing_semantics]?.affectsEvaluation)}
           >
             <TableCell title={entry.source}>{entry.label}</TableCell>
-            <TableCell>{entry.population ? POPULATION_LABELS[entry.population] : "-"}</TableCell>
+            <TableCell>{POPULATION_LABELS[entry.population]}</TableCell>
             <TableCell>
               <div className="flex min-w-32 flex-col gap-0.5">
                 <div className="flex items-center gap-2">
@@ -116,14 +115,12 @@ export default function MaterialCoveragePanel() {
 }
 
 function CoverageReport({ report }: { report: MaterialCoverageResponse }) {
-  const covered = sortByMissingRatioDesc(report.materials.filter((m) => m.excluded_reason === null));
-  const excluded = report.materials.filter((m) => m.excluded_reason !== null);
-  // 集計対象なのにmissing_semanticsがどのグループにも該当しない材料。本来は起きないが、
-  // 黙って表から消えるとカバレッジ画面が「欠損0件」に見えるため、拾って明示する。
+  const covered = sortByMissingRatioDesc(report.materials.filter((m): m is CountedEntry => m.kind === "counted"));
+  const excluded = report.materials.filter((m): m is ExcludedEntry => m.kind === "excluded");
+  // 集計対象なのにmissing_semanticsがどのグループにも該当しない材料。黙って表から消えると
+  // カバレッジ画面が「欠損0件」に見えるため、拾って明示する。
   const groupedSemantics = new Set<string>(GROUPS.map((group) => group.semantics));
-  const ungrouped = covered.filter(
-    (entry) => entry.missing_semantics === null || !groupedSemantics.has(entry.missing_semantics),
-  );
+  const ungrouped = covered.filter((entry) => !groupedSemantics.has(entry.missing_semantics));
 
   return (
     <>
@@ -142,7 +139,7 @@ function CoverageReport({ report }: { report: MaterialCoverageResponse }) {
         <section className="mt-2 flex flex-col gap-1" aria-label="欠損時の扱いが不明な材料">
           <div className={cn(textVariants({ variant: "body" }), "font-bold")}>欠損時の扱いが不明な材料</div>
           <p className={textVariants({ variant: "hint" })}>
-            集計対象なのにmissing_semanticsが付いていない。backend側の宣言漏れの可能性がある。
+            集計対象なのにmissing_semanticsが画面の知らない扱い。画面の更新が追いついていない可能性がある。
           </p>
           <CoverageTable entries={ungrouped} />
         </section>

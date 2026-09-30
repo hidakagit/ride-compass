@@ -292,8 +292,8 @@ export default function RouteOutcome({ results, generation, splice, currentWeigh
                     materialCategoryShares={route.material_category_shares}
                     distanceKm={route.distance_km}
                     overallDifficulty={route.overall_difficulty}
-                    difficultyLoad={route.difficulty_load ?? null}
-                    estimatedDurationSeconds={route.estimated_duration_seconds ?? null}
+                    difficultyLoad={route.difficulty_load}
+                    estimatedDurationSeconds={route.estimated_duration_seconds}
                     windUnavailable={route.wind_unavailable}
                     missingTravelDataShare={route.missing_travel_data_share}
                     axisColors={axisCatalog.axisColors}

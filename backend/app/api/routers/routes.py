@@ -2,7 +2,7 @@ import asyncio
 import logging
 import math
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import Field, RootModel, model_validator
@@ -287,10 +287,24 @@ class RouteGenerateJobCreatedResponse(StrictModel):
     job_id: str
 
 
-class RouteGenerateJobStatusResponse(StrictModel):
-    status: job_registry.JobStatus
-    result: RouteGenerateResponse | None = None
-    error: str | None = None
+class RouteGenerateJobPending(StrictModel):
+    status: Literal["queued", "running"]
+
+
+class RouteGenerateJobDone(StrictModel):
+    status: Literal["done"] = "done"
+    result: RouteGenerateResponse
+
+
+class RouteGenerateJobFailed(StrictModel):
+    status: Literal["failed"] = "failed"
+    error: str
+
+
+# ジョブの状態。結果は完了のときだけ、失敗の理由は失敗のときだけ在る。
+RouteGenerateJobStatusResponse = Annotated[
+    RouteGenerateJobPending | RouteGenerateJobDone | RouteGenerateJobFailed, Field(discriminator="status")
+]
 
 
 @router.post("/api/routes/generate", response_model=RouteGenerateJobCreatedResponse, status_code=202)
@@ -337,7 +351,12 @@ async def get_generate_job(job_id: str) -> RouteGenerateJobStatusResponse:
             detail="ジョブが見つかりません[完了から時間が経過して破棄された、"
             "またはサーバーが再起動された可能性があります]",
         )
-    return RouteGenerateJobStatusResponse(status=record.status, result=record.result, error=record.error)
+    if record.status == "done":
+        return RouteGenerateJobDone(result=record.result)
+    if record.status == "failed":
+        # `job_registry.set_failed`は理由を必ず受け取る。
+        return RouteGenerateJobFailed(error=cast(str, record.error))
+    return RouteGenerateJobPending(status=record.status)
 
 
 async def _run_generate_job(job_id: str, request: RouteGenerateRequest) -> None:

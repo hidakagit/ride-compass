@@ -85,18 +85,18 @@ export function useWeatherConditions(location: Coordinates, locationReady: boole
         }))
       : [];
     // 暑さ指数は段が無い間（提供期間外・「ほぼ安全」等）は出さない。
-    const wbgtItem: WarningBadgeItem[] =
-      wbgtStatus?.level && wbgtStatus.value != null
-        ? [
-            {
-              id: "wbgt",
-              label: `暑さ指数${wbgtStatus.label ?? ""}`,
-              level: wbgtStatus.level,
-              source: "wbgt",
-              title: `暑さ指数 ${wbgtStatus.value.toFixed(1)}`,
-            },
-          ]
-        : [];
+    const wbgtReading = wbgtStatus?.reading;
+    const wbgtItem: WarningBadgeItem[] = wbgtReading
+      ? [
+          {
+            id: "wbgt",
+            label: `暑さ指数${wbgtReading.label}`,
+            level: wbgtReading.level,
+            source: "wbgt",
+            title: `暑さ指数 ${wbgtReading.value.toFixed(1)}`,
+          },
+        ]
+      : [];
     const floodItems: WarningBadgeItem[] = (floodForecasts?.forecasts ?? []).map((forecast) => ({
       id: `flood-${forecast.river_code}`,
       label: forecast.label,

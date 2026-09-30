@@ -409,7 +409,7 @@ def test_index_reports_unavailable_when_nothing_is_stored(monkeypatch):
 
     assert response.status_code == 200
     # インデックスが無いことで表示が欠けてはならない。クライアントは全タイルを取りに行く。
-    assert response.json() == {"available": False, "coverage": None, "elements": None}
+    assert response.json() == {"available": False}
 
 
 def test_index_returns_what_was_stored(monkeypatch):

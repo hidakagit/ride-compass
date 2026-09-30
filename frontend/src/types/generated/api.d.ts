@@ -744,20 +744,15 @@ export interface components {
             /** Weather Layer Groups */
             weather_layer_groups: string[];
             /** Shape */
-            shape: components["schemas"]["BreakpointLinearShape"] | components["schemas"]["CategoricalShape"];
+            shape: components["schemas"]["BreakpointLinearShape-Output"] | components["schemas"]["CategoricalShape-Output"];
             /** Display Thresholds Override */
             display_thresholds_override: number[] | null;
             /** Display Band Labels Override */
             display_band_labels_override: string[] | null;
             /** Dedicated Way Value Layer */
             dedicated_way_value_layer: boolean;
-            /**
-             * Map Value Kind
-             * @enum {string}
-             */
-            map_value_kind: "difficulty" | "signed_material";
-            /** Map Value Material */
-            map_value_material: string | null;
+            /** Map Value */
+            map_value: components["schemas"]["DifficultyMapValue"] | components["schemas"]["SignedMaterialMapValue"];
             /** Map Value Unit */
             map_value_unit: string;
             /** Map Value Thresholds */
@@ -811,7 +806,7 @@ export interface components {
             /** Axis Id */
             axis_id: string;
             /** Shape */
-            shape: components["schemas"]["BreakpointLinearShape"] | components["schemas"]["CategoricalShape"];
+            shape: components["schemas"]["BreakpointLinearShape-Input"] | components["schemas"]["CategoricalShape-Input"];
             /** Default Weight */
             default_weight: number;
             /** Label */
@@ -881,7 +876,7 @@ export interface components {
             /** Axis Id */
             axis_id: string;
             /** Shape */
-            shape: components["schemas"]["BreakpointLinearShape"] | components["schemas"]["CategoricalShape"];
+            shape: components["schemas"]["BreakpointLinearShape-Output"] | components["schemas"]["CategoricalShape-Output"];
             /** Default Weight */
             default_weight: number;
             /** Label */
@@ -903,13 +898,13 @@ export interface components {
              */
             is_published: boolean;
             /** Priority Overrides */
-            priority_overrides?: components["schemas"]["PriorityCondition"][];
+            priority_overrides: components["schemas"]["PriorityCondition"][];
             /** Icon Id */
-            icon_id?: string | null;
+            icon_id: string | null;
             /** Chip Label */
-            chip_label?: string | null;
+            chip_label: string | null;
             /** Panel Hint */
-            panel_hint?: string | null;
+            panel_hint: string | null;
             /**
              * Show Map Icon
              * @default true
@@ -922,9 +917,9 @@ export interface components {
              */
             time_scope: "always" | "night_only";
             /** Display Thresholds Override */
-            display_thresholds_override?: number[] | null;
+            display_thresholds_override: number[] | null;
             /** Display Band Labels Override */
-            display_band_labels_override?: string[] | null;
+            display_band_labels_override: string[] | null;
             /**
              * Dedicated Way Value Layer
              * @default false
@@ -964,9 +959,9 @@ export interface components {
              */
             category: string;
             /** Tile Inputs */
-            tile_inputs?: components["schemas"]["TileInputSpec"][];
+            tile_inputs: components["schemas"]["TileInputSpec"][];
             /** Thresholds */
-            thresholds?: number[];
+            thresholds: number[];
         };
         /** AxisInspectorAxis */
         AxisInspectorAxis: {
@@ -1015,7 +1010,7 @@ export interface components {
             composite_difficulty: number | null;
             /** Covered Weight Fraction */
             covered_weight_fraction: number | null;
-            landcover?: components["schemas"]["LandcoverPercentages"] | null;
+            landcover: components["schemas"]["LandcoverPercentages"] | null;
         };
         /** AxisMaterialBreakdownEntry */
         AxisMaterialBreakdownEntry: {
@@ -1040,10 +1035,10 @@ export interface components {
         /** AxisPreviewRequest */
         AxisPreviewRequest: {
             /** Shape */
-            shape: components["schemas"]["BreakpointLinearShape"] | components["schemas"]["CategoricalShape"];
+            shape: components["schemas"]["BreakpointLinearShape-Input"] | components["schemas"]["CategoricalShape-Input"];
         };
         /** BreakpointLinearShape */
-        BreakpointLinearShape: {
+        "BreakpointLinearShape-Input": {
             /**
              * Kind
              * @default breakpoint_linear
@@ -1051,7 +1046,29 @@ export interface components {
              */
             kind: "breakpoint_linear";
             /** Terms */
-            terms: components["schemas"]["MaterialTerm"][];
+            terms: components["schemas"]["MaterialTerm-Input"][];
+            /**
+             * Preprocess
+             * @default identity
+             * @enum {string}
+             */
+            preprocess: "identity" | "abs";
+            /** Breakpoints */
+            breakpoints: [
+                number,
+                number
+            ][];
+        };
+        /** BreakpointLinearShape */
+        "BreakpointLinearShape-Output": {
+            /**
+             * Kind
+             * @default breakpoint_linear
+             * @constant
+             */
+            kind: "breakpoint_linear";
+            /** Terms */
+            terms: components["schemas"]["MaterialTerm-Output"][];
             /**
              * Preprocess
              * @default identity
@@ -1065,7 +1082,22 @@ export interface components {
             ][];
         };
         /** CategoricalShape */
-        CategoricalShape: {
+        "CategoricalShape-Input": {
+            /**
+             * Kind
+             * @default categorical
+             * @constant
+             */
+            kind: "categorical";
+            /** Material */
+            material: string;
+            /** Mapping */
+            mapping: {
+                [key: string]: number;
+            };
+        };
+        /** CategoricalShape */
+        "CategoricalShape-Output": {
             /**
              * Kind
              * @default categorical
@@ -1111,6 +1143,15 @@ export interface components {
             latitude: number;
             /** Longitude */
             longitude: number;
+        };
+        /** CoverageEntry */
+        CoverageEntry: {
+            /** Parent */
+            parent: string;
+            /** Parent Row Count */
+            parent_row_count: number;
+            /** Missing Rows */
+            missing_rows: number;
         };
         /** DbStatusReport */
         DbStatusReport: {
@@ -1165,12 +1206,20 @@ export interface components {
             /** Tables */
             tables: components["schemas"]["app__services__derived_data_freshness_service__TableEntry"][];
         };
+        /** DifficultyMapValue */
+        DifficultyMapValue: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "difficulty";
+        };
         /** DisplayThresholdsPreviewRequest */
         DisplayThresholdsPreviewRequest: {
             /** Axis Id */
             axis_id: string;
             /** Shape */
-            shape: components["schemas"]["BreakpointLinearShape"] | components["schemas"]["CategoricalShape"];
+            shape: components["schemas"]["BreakpointLinearShape-Input"] | components["schemas"]["CategoricalShape-Input"];
             /** Priority Overrides */
             priority_overrides?: components["schemas"]["PriorityCondition"][];
             /** Thresholds */
@@ -1251,7 +1300,7 @@ export interface components {
             /** Waypoints */
             waypoints: components["schemas"]["Coordinates"][] | null;
             destination: components["schemas"]["Coordinates"] | null;
-            corrected_destination?: components["schemas"]["Coordinates"] | null;
+            corrected_destination: components["schemas"]["Coordinates"] | null;
             /** Generated At */
             generated_at: string;
         };
@@ -1268,26 +1317,26 @@ export interface components {
         ImportRunEntry: {
             /** Label */
             label: string;
-            /** Latest Id */
-            latest_id: number | null;
-            /** Latest Status */
-            latest_status: string | null;
-            /** Latest Finished At */
-            latest_finished_at: string | null;
-            /** Latest Identity */
-            latest_identity: {
-                [key: string]: string;
-            };
-            /** Latest Item Count */
-            latest_item_count: number | null;
-            /** Latest Succeeded Id */
-            latest_succeeded_id: number | null;
-            /** Latest Succeeded Finished At */
-            latest_succeeded_finished_at: string | null;
+            latest: components["schemas"]["LatestRunEntry"] | null;
+            latest_succeeded: components["schemas"]["SucceededRunEntry"] | null;
             /** Needs Attention */
             needs_attention: boolean;
             /** Note */
             note: string;
+        };
+        /** JmaTileIndexAvailable */
+        JmaTileIndexAvailable: {
+            /**
+             * Available
+             * @default true
+             * @constant
+             */
+            available: true;
+            coverage: components["schemas"]["JmaTileIndexCoverage"];
+            /** Elements */
+            elements: {
+                [key: string]: components["schemas"]["JmaTileIndexElement"];
+            };
         };
         /** JmaTileIndexCoverage */
         JmaTileIndexCoverage: {
@@ -1303,9 +1352,9 @@ export interface components {
         /** JmaTileIndexElement */
         JmaTileIndexElement: {
             /** Basetime */
-            basetime?: string | null;
+            basetime: string | null;
             /** Validtime */
-            validtime?: string | null;
+            validtime: string | null;
             /**
              * Member
              * @default none
@@ -1319,15 +1368,14 @@ export interface components {
                 [key: string]: number[][];
             };
         };
-        /** JmaTileIndexResponse */
-        JmaTileIndexResponse: {
-            /** Available */
-            available: boolean;
-            coverage?: components["schemas"]["JmaTileIndexCoverage"] | null;
-            /** Elements */
-            elements?: {
-                [key: string]: components["schemas"]["JmaTileIndexElement"];
-            } | null;
+        /** JmaTileIndexUnavailable */
+        JmaTileIndexUnavailable: {
+            /**
+             * Available
+             * @default false
+             * @constant
+             */
+            available: false;
         };
         /** LandcoverPercentages */
         LandcoverPercentages: {
@@ -1350,8 +1398,28 @@ export interface components {
             /** Rangeland Percent */
             rangeland_percent: number;
         };
-        /** MaterialCoverageEntry */
-        MaterialCoverageEntry: {
+        /** LatestRunEntry */
+        LatestRunEntry: {
+            /** Id */
+            id: number;
+            /** Status */
+            status: string;
+            /** Finished At */
+            finished_at: string | null;
+            /** Identity */
+            identity: {
+                [key: string]: string;
+            };
+            /** Item Count */
+            item_count: number | null;
+        };
+        /** MaterialCoverageCounted */
+        MaterialCoverageCounted: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "counted";
             /** Material Id */
             material_id: string;
             /** Label */
@@ -1361,20 +1429,43 @@ export interface components {
              * @enum {string}
              */
             dtype: "numeric" | "boolean" | "categorical";
-            /** Population */
-            population: ("way" | "edge") | null;
+            /**
+             * Population
+             * @enum {string}
+             */
+            population: "way" | "edge";
             /** Total */
-            total: number | null;
+            total: number;
             /** Missing */
-            missing: number | null;
+            missing: number;
             /** Missing Ratio */
             missing_ratio: number | null;
             /** Source */
             source: string;
-            /** Missing Semantics */
-            missing_semantics: ("unknown" | "definite") | null;
+            /**
+             * Missing Semantics
+             * @enum {string}
+             */
+            missing_semantics: "unknown" | "definite";
+        };
+        /** MaterialCoverageExcluded */
+        MaterialCoverageExcluded: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "excluded";
+            /** Material Id */
+            material_id: string;
+            /** Label */
+            label: string;
+            /**
+             * Dtype
+             * @enum {string}
+             */
+            dtype: "numeric" | "boolean" | "categorical";
             /** Excluded Reason */
-            excluded_reason: string | null;
+            excluded_reason: string;
         };
         /** MaterialCoverageReport */
         MaterialCoverageReport: {
@@ -1388,7 +1479,7 @@ export interface components {
             /** Edge Total */
             edge_total: number;
             /** Materials */
-            materials: components["schemas"]["MaterialCoverageEntry"][];
+            materials: (components["schemas"]["MaterialCoverageCounted"] | components["schemas"]["MaterialCoverageExcluded"])[];
         };
         /** MaterialDistributionResponse */
         MaterialDistributionResponse: {
@@ -1412,7 +1503,22 @@ export interface components {
             available: boolean;
         };
         /** MaterialTerm */
-        MaterialTerm: {
+        "MaterialTerm-Input": {
+            /** Material */
+            material: string;
+            /**
+             * Weight
+             * @default 1
+             */
+            weight: number;
+            /**
+             * Required
+             * @default true
+             */
+            required: boolean;
+        };
+        /** MaterialTerm */
+        "MaterialTerm-Output": {
             /** Material */
             material: string;
             /**
@@ -1475,73 +1581,91 @@ export interface components {
             distance_km: number;
             /** Geometry */
             geometry: {
-                [key: string]: unknown;
+                /** @constant */
+                type: "LineString";
+                coordinates: number[][];
             };
             /** Elevation Gain M */
-            elevation_gain_m?: number | null;
+            elevation_gain_m: number | null;
             /** Min Elevation M */
-            min_elevation_m?: number | null;
+            min_elevation_m: number | null;
             /** Max Elevation M */
-            max_elevation_m?: number | null;
+            max_elevation_m: number | null;
             /** Segments */
-            segments?: components["schemas"]["RouteSegmentDetail"][] | null;
+            segments: components["schemas"]["RouteSegmentDetail"][] | null;
             /** Overall Difficulty */
-            overall_difficulty?: number | null;
+            overall_difficulty: number | null;
             /** Difficulty Load */
-            difficulty_load?: number | null;
+            difficulty_load: number | null;
             /** Estimated Duration Seconds */
-            estimated_duration_seconds?: number | null;
+            estimated_duration_seconds: number | null;
             /**
              * Wind Unavailable
              * @default false
              */
             wind_unavailable: boolean;
             /** Missing Travel Data Share */
-            missing_travel_data_share?: number | null;
+            missing_travel_data_share: number | null;
             /** Axis Difficulties */
-            axis_difficulties?: {
+            axis_difficulties: {
                 [key: string]: number;
             };
             /** Axis Contributions */
-            axis_contributions?: {
+            axis_contributions: {
                 [key: string]: number;
             };
             /** Axis Raw Values */
-            axis_raw_values?: {
+            axis_raw_values: {
                 [key: string]: number;
             };
             /** Material Values */
-            material_values?: {
+            material_values: {
                 [key: string]: number;
             };
             /** Material Category Shares */
-            material_category_shares?: {
+            material_category_shares: {
                 [key: string]: {
                     [key: string]: number;
                 };
             };
             /** Edge Ids */
-            edge_ids?: string[];
+            edge_ids: string[];
             /** Edge Point Offsets */
-            edge_point_offsets?: number[];
+            edge_point_offsets: number[];
             /** Node Ids */
-            node_ids?: string[];
+            node_ids: string[];
         };
         /** RouteGenerateJobCreatedResponse */
         RouteGenerateJobCreatedResponse: {
             /** Job Id */
             job_id: string;
         };
-        /** RouteGenerateJobStatusResponse */
-        RouteGenerateJobStatusResponse: {
+        /** RouteGenerateJobDone */
+        RouteGenerateJobDone: {
             /**
-             * Status
+             * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
-            status: "queued" | "running" | "done" | "failed";
-            result?: components["schemas"]["RouteGenerateResponse"] | null;
+            status: "done";
+            result: components["schemas"]["RouteGenerateResponse"];
+        };
+        /** RouteGenerateJobFailed */
+        RouteGenerateJobFailed: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            status: "failed";
             /** Error */
-            error?: string | null;
+            error: string;
+        };
+        /** RouteGenerateJobPending */
+        RouteGenerateJobPending: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            status: "queued" | "running";
         };
         /** RouteGenerateRequest */
         RouteGenerateRequest: {
@@ -1594,7 +1718,7 @@ export interface components {
             routes: components["schemas"]["RouteCandidate"][];
             conditions: components["schemas"]["GenerationConditions"];
             /** No Candidates Reason */
-            no_candidates_reason?: string | null;
+            no_candidates_reason: string | null;
         };
         /** RoutePreferenceWeights */
         RoutePreferenceWeights: {
@@ -1618,14 +1742,18 @@ export interface components {
             duration_minutes: number;
             /** Geometry */
             geometry: {
-                [key: string]: unknown;
+                /** @constant */
+                type: "LineString";
+                coordinates: number[][];
             };
         };
         /** RouteSegmentDetail */
         RouteSegmentDetail: {
             /** Geometry */
-            geometry?: {
-                [key: string]: unknown;
+            geometry: {
+                /** @constant */
+                type: "LineString";
+                coordinates: number[][];
             } | null;
             /** Start Latitude */
             start_latitude: number;
@@ -1640,26 +1768,26 @@ export interface components {
             /** Distance Km */
             distance_km: number;
             /** Estimated Arrival Time */
-            estimated_arrival_time?: string | null;
+            estimated_arrival_time: string | null;
             /** Axis Difficulties */
-            axis_difficulties?: {
+            axis_difficulties: {
                 [key: string]: number;
             };
             /** Axis Contributions */
-            axis_contributions?: {
+            axis_contributions: {
                 [key: string]: number;
             };
             /** Material Values */
-            material_values?: {
+            material_values: {
                 [key: string]: number;
             };
             /** Axis Raw Values */
-            axis_raw_values?: {
+            axis_raw_values: {
                 [key: string]: number;
             };
             /** Difficulty */
-            difficulty?: number | null;
-            wind?: components["schemas"]["SegmentWind"] | null;
+            difficulty: number | null;
+            wind: components["schemas"]["SegmentWind"] | null;
         };
         /** ScorePoint */
         ScorePoint: {
@@ -1670,7 +1798,7 @@ export interface components {
         };
         /** ScoresPreviewRequest */
         ScoresPreviewRequest: {
-            shape: components["schemas"]["BreakpointLinearShape"];
+            shape: components["schemas"]["BreakpointLinearShape-Input"];
             /** Xs */
             xs?: number[];
             /** Material Values */
@@ -1690,12 +1818,29 @@ export interface components {
             /** Direction Deg */
             direction_deg: number;
             /** Forecast At */
-            forecast_at?: string | null;
+            forecast_at: string | null;
             /**
              * Extended
              * @default false
              */
             extended: boolean;
+        };
+        /** SignedMaterialMapValue */
+        SignedMaterialMapValue: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "signed_material";
+            /** Material */
+            material: string;
+        };
+        /** SucceededRunEntry */
+        SucceededRunEntry: {
+            /** Id */
+            id: number;
+            /** Finished At */
+            finished_at: string | null;
         };
         /** TileInputSpec */
         TileInputSpec: {
@@ -1727,11 +1872,11 @@ export interface components {
              */
             has_unknown_fallback: boolean;
             /** Categories */
-            categories?: {
+            categories: {
                 [key: string]: number;
             } | null;
             /** Breakpoints */
-            breakpoints?: [
+            breakpoints: [
                 number,
                 number
             ][] | null;
@@ -1799,16 +1944,23 @@ export interface components {
             /** Zero Share */
             zero_share: number;
         };
+        /** WbgtReading */
+        WbgtReading: {
+            /**
+             * Level
+             * @enum {string}
+             */
+            level: "advisory" | "warning" | "severe_warning" | "emergency_warning";
+            /** Label */
+            label: string;
+            /** Value */
+            value: number;
+            /** Observed At */
+            observed_at: string;
+        };
         /** WbgtStatus */
         WbgtStatus: {
-            /** Level */
-            level: ("advisory" | "warning" | "severe_warning" | "emergency_warning") | null;
-            /** Label */
-            label: string | null;
-            /** Value */
-            value: number | null;
-            /** Observed At */
-            observed_at: string | null;
+            reading: components["schemas"]["WbgtReading"] | null;
         };
         /** WeatherConditions */
         WeatherConditions: {
@@ -1910,12 +2062,7 @@ export interface components {
             latest_run_id: number | null;
             /** Is Stale */
             is_stale: boolean;
-            /** Coverage Parent */
-            coverage_parent: string | null;
-            /** Coverage Parent Row Count */
-            coverage_parent_row_count: number | null;
-            /** Missing Rows */
-            missing_rows: number | null;
+            coverage: components["schemas"]["CoverageEntry"] | null;
             /** Columns */
             columns: components["schemas"]["ColumnEntry"][];
             /** Needs Rebuild */
@@ -2055,7 +2202,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RouteGenerateJobStatusResponse"];
+                    "application/json": components["schemas"]["RouteGenerateJobPending"] | components["schemas"]["RouteGenerateJobDone"] | components["schemas"]["RouteGenerateJobFailed"];
                 };
             };
             /** @description Validation Error */
@@ -2557,7 +2704,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["JmaTileIndexResponse"];
+                    "application/json": components["schemas"]["JmaTileIndexAvailable"] | components["schemas"]["JmaTileIndexUnavailable"];
                 };
             };
         };

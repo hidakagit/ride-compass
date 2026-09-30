@@ -191,7 +191,8 @@ def test_レポートは母数と欠けをそのまま渡す():
                 coverage=Coverage(parent="osm_way", parent_row_count=12029, missing_rows=3)),))
     entry = build_freshness_report(freshness, datetime(2026, 1, 1, tzinfo=timezone.utc)).tables[0]
 
-    assert (entry.coverage_parent, entry.coverage_parent_row_count, entry.missing_rows) == (
+    assert entry.coverage is not None
+    assert (entry.coverage.parent, entry.coverage.parent_row_count, entry.coverage.missing_rows) == (
         "osm_way", 12029, 3)
 
 
@@ -216,4 +217,4 @@ def test_覆わない表はNoneのまま渡る():
         DerivedDataFreshness(tables=(_table(1, 1),)),
         datetime(2026, 1, 1, tzinfo=timezone.utc)).tables[0]
 
-    assert (entry.coverage_parent, entry.missing_rows) == (None, None)
+    assert entry.coverage is None

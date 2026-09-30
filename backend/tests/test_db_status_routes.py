@@ -82,7 +82,7 @@ def test_returns_imports_tables_and_connections(admin_credentials):
     body = client.get(STATUS_URL, headers=AUTH_HEADERS).json()
 
     assert body["imports"][0]["label"] == "OSM取込"
-    assert body["imports"][0]["latest_identity"] == {"pbf_name": "kanto-latest.osm.pbf"}
+    assert body["imports"][0]["latest"]["identity"] == {"pbf_name": "kanto-latest.osm.pbf"}
     assert body["imports"][0]["needs_attention"] is False
     assert body["tables"][0]["table_name"] == "road_edges"
     assert body["tables"][0]["row_count"] == 5_047_354

@@ -61,6 +61,13 @@ DB接続・Redis・HTTPクライアント・レート制限・ログ・デバッ
   `backend/tests/structure/test_model_strictness.py`が落とす。
 - 派生側が`frozen=True`等を指定しても`extra`は引き継がれる（Pydantic v2が親子の
   `model_config`をマージする）。
+- **応答の契約（OpenAPIの応答側）では、既定値を持つ項目も必須になる**（`json_schema_serialization_defaults_required`）。
+  書き出すときは既定値の項目も必ず載るため、契約をそれに合わせ、画面が型を補正せずに生成型のまま使えるようにする。
+  要求と応答の両方に現れるモデル（軸の形等）は、FastAPIが`<名前>-Input`と`<名前>-Output`に分けて書き出す。
+- **応答の項目がnullになるかを同じ応答の別の項目が決めるなら、形で表す**——状態ごとのモデルの共用体
+  （例: `api/routers/routes.py: RouteGenerateJobDone`）か、一緒に在る項目を1つのモデルへまとめた任意の項目
+  （例: `services/derived_data_freshness_service.py: CoverageEntry`）。項目ごとの`X | None`で並べると、
+  画面は起きない組み合わせまで分岐と既定値で受けることになる。
 - 環境変数を読む`config.py: Settings`だけは対象外。プロセスの環境変数には無関係なものが
   常に含まれるため`extra="ignore"`でなければ起動しない。
 - 新たに外部ペイロードを直接`model_validate`する経路を作る場合は、そのモデルで

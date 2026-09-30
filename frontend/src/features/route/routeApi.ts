@@ -40,12 +40,10 @@ function sleep(ms: number): Promise<void> {
 
 /** 生成のジョブの状態を1回取る。 */
 async function pollGenerationJob(jobId: string): Promise<RouteGenerateJobStatusResponse> {
-  const status = await requestApi(
+  return requestApi(
     (init) => backendApi.GET("/api/routes/generate/{job_id}", { params: { path: { job_id: jobId } }, ...init }),
     getOptions({ timeoutMs: DEFAULT_API_TIMEOUT_MS, category: "api:route", errorLabel: "ルート生成の状態" }),
   );
-  // 契約の型へ、backendが常に返す項目の必須化とGeoJSONの形を足したもの（`types/route.ts`）。
-  return status as RouteGenerateJobStatusResponse;
 }
 
 /** ルート生成はバックグラウンドジョブ化されている。`POST /api/routes/generate`は
@@ -117,10 +115,6 @@ export async function generateRoutes(
     // 経過時間は応答が返った直後で測る（ループの先頭で測ると、表示が待ちと応答の時間ぶん遅れる）。
     const elapsedMs = performance.now() - startedAt;
     if (status.status === "done") {
-      if (!status.result) {
-        // 型の上では完了でも結果がnullでありうる。黙って進めず失敗にする。
-        throw new Error("ルート生成が完了しましたが結果を取得できませんでした");
-      }
       const result = status.result;
       debugLog("api:route", `候補 ${result.routes.length}件`, { jobId });
       // 候補0件の原因を残す（サーバーのログを見に行かずに分かるように）。
@@ -134,7 +128,7 @@ export async function generateRoutes(
       };
     }
     if (status.status === "failed") {
-      throw new Error(status.error ?? "ルート生成に失敗しました");
+      throw new Error(status.error);
     }
     onProgress?.({ status: status.status, elapsedMs });
   }

@@ -47,9 +47,9 @@ undefinedにする）。パスの`{名前}`へ入る値は呼び出し口が1区
 | `adminApiClient` | 管理API。backendの`/api/admin<X>`を同一オリジンの口`/admin/api<X>`（`app/admin/api/[...path]/route.ts`）経由で呼ぶ。パスは`/api/admin`より後を書く（例: backend `GET /api/admin/db-status`は`adminApiClient.GET("/db-status")`）。型は`paths`から`/api/admin`で始まるものだけを抜いて接頭辞を外したもので、backendのパスが変われば型検査で落ちる——接頭辞を実行時に書き換えないので、要求を作り直す手間が無い |
 | `fetchJson(url)` | 応答の形がbackendの契約に無い口（気象庁の配信をそのまま返す転送`/api/jma-tile/{path}`・フロント自身のroute handler`/api/version`）。応答の型は呼ぶ側の約束で、検査されない |
 
-**backendの応答の形と、フロントが使う型が違う呼び出しは、違いを`types/route.ts`に1か所だけ持つ。** backendが常に返す
-既定値付きの項目は契約では任意（`?`）になり、GeoJSONは契約では自由なオブジェクトになる。これを補った型へ推論した応答を
-当てはめる（`features/route/routeApi.ts`の生成のジョブの状態）。
+**応答の型は生成型をそのまま使い、画面で補正しない。** 既定値付きの項目も契約で必須になり、GeoJSONの線も契約が形を
+持つ（[横断的な基盤](../backend/cross-cutting-infrastructure.md)「Pydanticモデルの基底」）。状態で形の変わる応答（生成の
+ジョブの状態・気象庁タイルの在否インデックス）は共用体のモデルが無いため、`types/route.ts`が口の応答の型を`paths`から引く。
 
 **アプリ自身が呼ばないURL（地図ライブラリへ渡すタイル・スタイル・気象庁の配信のテンプレート）のパスは`apiPath`
 （`lib/apiPath.ts`）で作る。** 引数は`paths`のキーで、`{名前}`の値を渡すと埋める（渡さなかった名前は残る——タイルの

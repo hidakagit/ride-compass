@@ -91,16 +91,9 @@ describe("generateRoutes", () => {
     expect(progress[1].elapsedMs).toBeGreaterThan(progress[0].elapsedMs);
   });
 
-  it("ジョブが失敗したら、backendの文言で失敗する（文言が無ければ既定の文言）", async () => {
+  it("ジョブが失敗したら、backendの文言で失敗する", async () => {
     respond({ json: { job_id: "j" } }, { json: { status: "failed", error: "探索に失敗しました" } });
     await expect(run()).rejects.toThrow("探索に失敗しました");
-    respond({ json: { job_id: "j" } }, { json: { status: "failed", error: null } });
-    await expect(run()).rejects.toThrow("ルート生成に失敗しました");
-  });
-
-  it("完了なのに結果が無ければ失敗する", async () => {
-    respond({ json: { job_id: "j" } }, { json: { status: "done", result: null } });
-    await expect(run()).rejects.toThrow("結果を取得できませんでした");
   });
 
   it("問い合わせの一時的な失敗は4回続いても諦めず、成功すれば数え直す", async () => {

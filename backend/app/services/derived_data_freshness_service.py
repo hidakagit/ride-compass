@@ -18,6 +18,15 @@ from app.infrastructure.derived_data_freshness import (
 logger = logging.getLogger("ridecompass.derived_data_freshness")
 
 
+class CoverageEntry(StrictModel):
+    #: 被覆の母数（生データのソース名か親の表名）。
+    parent: str
+    parent_row_count: int
+    #: 親にあって行が無い件数。覆うはずの表で1件でもあれば作り直しが要る。鮮度・完成度は
+    #: これを見つけられない（行が無ければ古くもなければNULLでもない）。
+    missing_rows: int
+
+
 class ColumnEntry(StrictModel):
     """値の列1本ぶんの完成度。
 
@@ -40,12 +49,8 @@ class TableEntry(StrictModel):
     latest_run_id: int | None
     #: 生データを取り直したのに派生を流し直していない。
     is_stale: bool
-    #: 被覆の母数（生データのソース名か親の表名）。覆うことを宣言していない表はNone。
-    coverage_parent: str | None
-    coverage_parent_row_count: int | None
-    #: 親にあって行が無い件数。覆うはずの表で1件でもあれば作り直しが要る。鮮度・完成度は
-    #: これを見つけられない（行が無ければ古くもなければNULLでもない）。
-    missing_rows: int | None
+    #: 親に対して行が欠けていないか。覆うことを宣言していない表はNone。
+    coverage: CoverageEntry | None
     columns: list[ColumnEntry]
     #: 作り直しが要る（取込より古い・値の列に未計算が残る・親に対して行が欠ける のどれか）。
     #: 画面は理由を問わずこれで表を「作り直しが必要」に数える。
@@ -70,10 +75,15 @@ def build_freshness_report(
                 oldest_run_id=table.oldest_run_id,
                 latest_run_id=table.latest_run_id,
                 is_stale=table.is_stale,
-                coverage_parent=table.coverage.parent if table.coverage else None,
-                coverage_parent_row_count=(
-                    table.coverage.parent_row_count if table.coverage else None),
-                missing_rows=table.coverage.missing_rows if table.coverage else None,
+                coverage=(
+                    CoverageEntry(
+                        parent=table.coverage.parent,
+                        parent_row_count=table.coverage.parent_row_count,
+                        missing_rows=table.coverage.missing_rows,
+                    )
+                    if table.coverage
+                    else None
+                ),
                 columns=[
                     ColumnEntry(
                         column=column.column,
@@ -108,7 +118,7 @@ class DerivedDataFreshnessService:
         stale = sum(1 for table in report.tables if table.is_stale)
         incomplete = sum(1 for table in report.tables
                          for column in table.columns if column.is_incomplete)
-        missing = sum(table.missing_rows or 0 for table in report.tables)
+        missing = sum(table.coverage.missing_rows for table in report.tables if table.coverage)
         logger.info(
             "derived data freshness computed tables=%d stale_tables=%d incomplete_columns=%d "
             "missing_rows=%d elapsed_ms=%d",
