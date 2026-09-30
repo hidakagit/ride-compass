@@ -24,7 +24,11 @@ pg_restore --list "$file" > /dev/null
 
 # 認証はインスタンス・プリンシパル（鍵をVMに置かない）。--forceは上書きの確認（HeadObject）を省くだけで、
 # 上書き・読み出し・削除はバケットの権限（OBJECT_CREATEだけ）が許さない。
-docker run --rm --network=host -v "$work_dir:/backup:ro" ghcr.io/oracle/oci-cli:latest \
+# 公開イメージは空の設定（資格なし）で取る。rootのDockerの設定にghcr.ioの失効した資格が残っていると、
+# ghcr.ioは公開イメージでも拒否する（denied）。
+anon_config="$work_dir/docker-config"
+mkdir -p "$anon_config"
+docker --config "$anon_config" run --rm --network=host -v "$work_dir:/backup:ro" ghcr.io/oracle/oci-cli:latest \
   --auth instance_principal os object put \
   --namespace "$OCI_NAMESPACE" --bucket-name "$BACKUP_BUCKET" \
   --name "$name" --file /backup/backup.dump --force > /dev/null
