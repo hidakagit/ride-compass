@@ -5,6 +5,7 @@ import { catalogEntry } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
 import {
   MOBILE_VIEWPORT,
   axisCatalogFixture,
+  doneJobFixture,
   generateRoutes,
   openMobileApp,
   openMobileSheet,
@@ -40,9 +41,7 @@ test("モバイル: 比較表は、長い行見出しがあっても横スクロ
           ]),
         }),
       );
-      await page.route("**/api/routes/generate/*", (route) =>
-        route.fulfill({ json: { status: "done", result: response, error: null } }),
-      );
+      await page.route("**/api/routes/generate/*", (route) => route.fulfill({ json: doneJobFixture(response) }));
     },
   });
 

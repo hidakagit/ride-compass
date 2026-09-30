@@ -15,8 +15,6 @@ function rowsFromReport(report: DerivedDataFreshnessResponse): StatusRow[] {
   return report.tables.map((table) => {
     const incomplete = table.columns.filter((column) => column.is_incomplete);
     const absent = table.columns.filter((column) => !column.is_incomplete && column.null_count > 0);
-    // 行そのものが無いケース。鮮度（世代）でも完成度（NULL）でも表に出ない。
-    const missing = table.missing_rows ?? 0;
     return {
       name: table.table_name,
       scale: `${formatCount(table.row_count)}行`,
@@ -26,15 +24,16 @@ function rowsFromReport(report: DerivedDataFreshnessResponse): StatusRow[] {
           label: table.source ?? "取込",
           value: `最新 ${formatRunId(table.latest_run_id)} / 反映 ${formatRunId(table.oldest_run_id)}`,
         },
-        ...(table.coverage_parent === null
+        // 行そのものが欠けるケース。鮮度（世代）でも完成度（NULL）でも表に出ない。
+        ...(table.coverage === null
           ? []
           : [
               {
-                label: `${table.coverage_parent} を覆う`,
+                label: `${table.coverage.parent} を覆う`,
                 value:
-                  missing > 0
-                    ? `${formatCount(missing)}件ぶん行が無い（母数 ${formatCount(table.coverage_parent_row_count ?? 0)}）`
-                    : `欠けなし（母数 ${formatCount(table.coverage_parent_row_count ?? 0)}）`,
+                  table.coverage.missing_rows > 0
+                    ? `${formatCount(table.coverage.missing_rows)}件ぶん行が無い（母数 ${formatCount(table.coverage.parent_row_count)}）`
+                    : `欠けなし（母数 ${formatCount(table.coverage.parent_row_count)}）`,
               },
             ]),
         ...incomplete.map((column) => ({

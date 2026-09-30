@@ -72,6 +72,12 @@ function axis(overrides: Partial<AxisDefinitionResponse> = {}): AxisDefinitionRe
     label: "名前",
     description: "",
     weight_share_when_published: null,
+    priority_overrides: [],
+    icon_id: null,
+    chip_label: null,
+    panel_hint: null,
+    display_thresholds_override: null,
+    display_band_labels_override: null,
     category: "推定",
     default_weight: 0.2,
     is_published: false,
@@ -90,7 +96,7 @@ function axis(overrides: Partial<AxisDefinitionResponse> = {}): AxisDefinitionRe
         [10, 100],
       ],
     },
-    display: { kind: "none", label: "", category: "" },
+    display: { kind: "none", label: "", category: "", tile_inputs: [], thresholds: [] },
     ...overrides,
   };
 }

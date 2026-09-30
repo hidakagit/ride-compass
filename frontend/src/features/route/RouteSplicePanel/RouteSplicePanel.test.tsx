@@ -16,8 +16,7 @@ const DISPLAYED = makeRouteCandidate({
   id: "base",
   distance_km: 30,
   estimated_duration_seconds: 90 * 60,
-  overall_difficulty: 40.2,
-  difficulty_load: 1206,
+  overall_difficulty: { average: 40.2, load: 1206 },
   edge_ids: ["e1", "e2"],
   axis_contributions: { wind: 20, slope: 10, stops: 10.2 },
 });
@@ -104,10 +103,10 @@ describe("RouteSplicePanel 操作", () => {
 
 describe("RouteSplicePanel 指標", () => {
   it("評価する前は元の値だけを出す（矢印も出さない）。値が無ければ「—」", () => {
-    renderPanel({ displayed: { ...DISPLAYED, difficulty_load: null } });
+    renderPanel({ displayed: { ...DISPLAYED, overall_difficulty: null } });
     expect(metric("距離").map((cell) => cell.textContent)).toEqual(["30.0", "", "", ""]);
     expect(metric("所要")[0]).toHaveTextContent("1時間30分");
-    expect(metric("総合難易度")[0]).toHaveTextContent(/^40$/);
+    expect(metric("総合難易度")[0]).toHaveTextContent("—");
     expect(metric("負荷")[0]).toHaveTextContent("—");
   });
 
@@ -115,8 +114,7 @@ describe("RouteSplicePanel 指標", () => {
     const preview = makeRouteCandidate({
       distance_km: 31.25,
       estimated_duration_seconds: 85 * 60,
-      overall_difficulty: 40.4,
-      difficulty_load: 1263,
+      overall_difficulty: { average: 40.4, load: 1263 },
       axis_contributions: DISPLAYED.axis_contributions,
     });
     renderPanel({ appliedCount: 1, preview });
@@ -130,8 +128,7 @@ describe("RouteSplicePanel 指標", () => {
     const preview = makeRouteCandidate({
       distance_km: 31.25,
       estimated_duration_seconds: 85 * 60,
-      overall_difficulty: 40.4,
-      difficulty_load: 1263,
+      overall_difficulty: { average: 40.4, load: 1263 },
     });
     renderPanel({ appliedCount: 1, preview });
     expect(metric("距離")[3]).toHaveAttribute("data-worse", "true");

@@ -18,6 +18,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.domain.difficulty import OverallDifficulty
 from app.domain.errors import SearchAreaTooLargeError
 from app.domain.loop_routing import LoopTurnaround, TracedLoop
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
@@ -281,8 +282,7 @@ async def test_candidate_values_are_rebuilt_from_its_segments():
                 material_values={"a": 30.0},
             ),
         ],
-        overall_difficulty=99.0,
-        difficulty_load=99.0,
+        overall_difficulty=OverallDifficulty(average=99.0, load=99.0),
         axis_difficulties=stale,
         axis_contributions=stale,
         axis_raw_values=stale,
@@ -293,8 +293,7 @@ async def test_candidate_values_are_rebuilt_from_its_segments():
 
     (candidate,) = await RouteGenerator(engine).generate_spliced_route(ORIGIN, DESTINATION, 10.0, ["e1"], START)
 
-    assert candidate.overall_difficulty == 20.0
-    assert candidate.difficulty_load == 40.0  # 平均20 × 2km
+    assert candidate.overall_difficulty == OverallDifficulty(average=20.0, load=40.0)  # 総量は平均20 × 2km
     assert candidate.axis_difficulties == {"a": 20.0}
     assert candidate.axis_contributions == {"a": 20.0}
     assert candidate.axis_raw_values == {"a": 20.0}
@@ -303,14 +302,14 @@ async def test_candidate_values_are_rebuilt_from_its_segments():
     assert candidate.material_category_shares == {"surface": {"asphalt": 1.0}}
 
 
-@pytest.mark.parametrize("segments", [None, []])
-async def test_candidate_without_segments_keeps_the_values_the_engine_gave(segments):
-    evaluated = _candidate("e1", segments=segments, overall_difficulty=55.0, axis_difficulties={"a": 1.0})
+async def test_candidate_without_segments_keeps_the_values_the_engine_gave():
+    engine_given = OverallDifficulty(average=55.0, load=550.0)
+    evaluated = _candidate("e1", segments=[], overall_difficulty=engine_given, axis_difficulties={"a": 1.0})
     engine = FakeEngine(candidates={"e1": evaluated})
 
     (candidate,) = await RouteGenerator(engine).generate_spliced_route(ORIGIN, DESTINATION, 10.0, ["e1"], START)
 
-    assert candidate.overall_difficulty == 55.0
+    assert candidate.overall_difficulty == engine_given
     assert candidate.axis_difficulties == {"a": 1.0}
 
 

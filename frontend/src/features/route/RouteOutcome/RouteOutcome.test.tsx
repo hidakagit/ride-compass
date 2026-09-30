@@ -224,7 +224,7 @@ describe("候補の一覧の行", () => {
 
   it("総合難易度は丸めた数値と帯の長さで出し、算出できなかった候補は「—」だけで帯を塗らない", () => {
     renderOutcome();
-    withRoutes([route("scored", { overall_difficulty: 42.6 }), route("missing")]);
+    withRoutes([route("scored", { overall_difficulty: { average: 42.6, load: 426 } }), route("missing")]);
     const [scored, missing] = rows();
     expect(scored).toHaveTextContent(/43$/);
     expect(scored.querySelector('[style*="width: 42.6%"]')).not.toBeNull();
@@ -256,8 +256,7 @@ describe("候補の中身", () => {
     renderOutcome();
     const candidate = route("a", {
       distance_km: 12,
-      overall_difficulty: 30,
-      difficulty_load: 360,
+      overall_difficulty: { average: 30, load: 360 },
       estimated_duration_seconds: 2400,
       wind_unavailable: true,
       missing_travel_data_share: 0.1,
@@ -277,8 +276,7 @@ describe("候補の中身", () => {
       materialValues: candidate.material_values,
       materialCategoryShares: candidate.material_category_shares,
       distanceKm: 12,
-      overallDifficulty: 30,
-      difficultyLoad: 360,
+      overallDifficulty: { average: 30, load: 360 },
       estimatedDurationSeconds: 2400,
       windUnavailable: true,
       missingTravelDataShare: 0.1,
@@ -293,7 +291,10 @@ describe("候補の中身", () => {
   it("道のりのグラフは区間を持つ候補にだけ出し、横軸は一覧で最も長い候補の距離にする。グラフで選んだ区間は結果へ入る", () => {
     renderOutcome();
     const segments = [segment({ cumulative_distance_km: 1 })];
-    withRoutes([route("a", { distance_km: 10, segments, overall_difficulty: 20 }), route("b", { distance_km: 25 })]);
+    withRoutes([
+      route("a", { distance_km: 10, segments, overall_difficulty: { average: 20, load: 200 } }),
+      route("b", { distance_km: 25 }),
+    ]);
     const graph = propsOf<{
       segments: unknown;
       scaleKm: number;

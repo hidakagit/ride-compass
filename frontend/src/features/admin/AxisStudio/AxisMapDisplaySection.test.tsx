@@ -75,6 +75,12 @@ function editingAxis(kind: "ramp" | "none"): AxisDefinitionResponse {
     label: "",
     description: "",
     weight_share_when_published: null,
+    priority_overrides: [],
+    icon_id: null,
+    chip_label: null,
+    panel_hint: null,
+    display_thresholds_override: null,
+    display_band_labels_override: null,
     category: "推定",
     default_weight: 0,
     is_published: false,
@@ -85,7 +91,7 @@ function editingAxis(kind: "ramp" | "none"): AxisDefinitionResponse {
     dynamic_way_value_needs_bearing: false,
     dynamic_way_value_needs_speed: false,
     shape: { kind: "breakpoint_linear", terms: [], preprocess: "identity", breakpoints: [] },
-    display: { kind, label: "", category: "" },
+    display: { kind, label: "", category: "", tile_inputs: [], thresholds: [] },
   };
 }
 

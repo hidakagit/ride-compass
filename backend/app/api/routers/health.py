@@ -9,6 +9,13 @@ from app.domain.strict_model import StrictModel
 router = APIRouter()
 
 
+class LastErrorResponse(StrictModel):
+    """最後の失敗。種類と時刻は失敗のたびに一緒に書かれる。"""
+
+    type: str
+    at: str
+
+
 # `infrastructure/debug_log.py: get_stats()`が組み立てるdictの実際の構造に対応する
 # Pydanticモデル（OpenAPI経由でfrontendの型を生成する）。
 class ExternalCallStatsResponse(StrictModel):
@@ -23,8 +30,7 @@ class ExternalCallStatsResponse(StrictModel):
     # 失敗の主な理由を推測するための追加集計。error_typesは
     # HTTPステータス（"http_429"）か例外クラス名のみの粗いラベルで、メッセージ本文・座標は含まない。
     error_types: dict[str, int]
-    last_error_type: str | None
-    last_error_at: str | None
+    last_error: LastErrorResponse | None
     last_success_at: str | None
     retried_calls: int
     retry_attempts_total: int

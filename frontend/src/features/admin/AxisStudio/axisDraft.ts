@@ -11,7 +11,6 @@
 // 取り出してpayloadへ組み立てる。
 
 import axisPayloadConfig from "@/types/generated/axis-payload-config.json";
-import type { components } from "@/types/generated/api";
 import type { AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
 import type { AxisDefinitionPayload, AxisDefinitionResponse, AxisShape } from "@/types/route";
 
@@ -23,9 +22,7 @@ import type { AxisDefinitionPayload, AxisDefinitionResponse, AxisShape } from "@
  * 状態になる。`recipe_then_breakpoint_linear`だけは**編集画面の区別**で、backendの
  * `breakpoint_linear`1種を「材料を直接使う」「他の軸を組み合わせる」の2つの編集モードへ
  * 割ったもの（送信時は1種へ畳む。下の`buildShape`参照）。 */
-type BackendShapeKind =
-  | NonNullable<components["schemas"]["BreakpointLinearShape"]["kind"]>
-  | NonNullable<components["schemas"]["CategoricalShape"]["kind"]>;
+type BackendShapeKind = NonNullable<AxisShape["kind"]>;
 type ShapeKind = BackendShapeKind | "recipe_then_breakpoint_linear";
 
 function generateAxisId(): string {

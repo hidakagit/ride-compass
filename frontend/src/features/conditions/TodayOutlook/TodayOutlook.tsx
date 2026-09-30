@@ -98,13 +98,12 @@ export default function TodayOutlook({ weather, loading, error }: TodayOutlookPr
   if (loading || !weather) return null;
 
   const hasFlow = weather.today_periods.length > 0;
-  const hasTwilight = weather.sunrise != null || weather.sunset != null;
+  const { twilight, temperature_range: temperatureRange } = weather;
   const hasAnyOutlookStat =
     weather.precipitation_max_mm != null ||
     weather.wind_speed_max_ms != null ||
-    weather.temperature_max_c != null ||
-    weather.temperature_min_c != null ||
-    hasTwilight ||
+    temperatureRange !== null ||
+    twilight !== null ||
     hasFlow;
   // キャッシュ欠落等でdaily側が丸ごと無い場合は、トグル自体を出さない
   // （空のパネルを開けるだけの無意味なボタンを残さない）。
@@ -149,27 +148,26 @@ export default function TodayOutlook({ weather, loading, error }: TodayOutlookPr
               </span>
             </div>
           )}
-          {(weather.temperature_max_c != null || weather.temperature_min_c != null) && (
+          {temperatureRange !== null && (
             <div className="flex items-start gap-1.5 text-[var(--color-accent)] [&_svg]:mt-0.5 [&_svg]:shrink-0">
               <ThermometerIcon size={15} />
               <span>
                 <span className={cn(textVariants({ variant: "note" }), "block")}>気温</span>
                 <span className="block text-[length:var(--font-size-md)] leading-[1.3] font-semibold text-[var(--foreground)]">
-                  {weather.temperature_min_c != null && `${Math.round(weather.temperature_min_c)}℃〜`}
-                  {weather.temperature_max_c != null && `${Math.round(weather.temperature_max_c)}℃`}
+                  {`${Math.round(temperatureRange.min_c)}℃〜${Math.round(temperatureRange.max_c)}℃`}
                 </span>
               </span>
             </div>
           )}
-          {hasTwilight && (
+          {twilight !== null && (
             <div className="flex items-start gap-1.5 text-[var(--color-accent)] [&_svg]:mt-0.5 [&_svg]:shrink-0">
               <ClockIcon size={15} />
               <span>
                 <span className={cn(textVariants({ variant: "note" }), "block")}>日の出・日没</span>
                 <span className="block text-[length:var(--font-size-md)] leading-[1.3] font-semibold text-[var(--foreground)]">
-                  {weather.sunrise != null ? formatClockTime(weather.sunrise) : "--:--"}
+                  {formatClockTime(twilight.sunrise)}
                   <span className="text-[0.75em] font-normal text-[var(--color-muted)]">〜</span>
-                  {weather.sunset != null ? formatClockTime(weather.sunset) : "--:--"}
+                  {formatClockTime(twilight.sunset)}
                 </span>
               </span>
             </div>

@@ -33,8 +33,7 @@ function renderProfile(overrides: Partial<Props> = {}) {
     materialValues: { lit: 0.68 },
     materialCategoryShares: { highway: { residential: 0.62 } },
     distanceKm: 32.4,
-    overallDifficulty: 30.8,
-    difficultyLoad: 997.9,
+    overallDifficulty: { average: 30.8, load: 997.9 },
     estimatedDurationSeconds: 102 * 60,
     windUnavailable: false,
     missingTravelDataShare: 0,
@@ -56,10 +55,9 @@ describe("RouteAxisProfile 見出しの数値", () => {
     expect(screen.getByText("負荷").parentElement).toHaveTextContent("負荷998");
   });
 
-  it("所要・負荷は、値が無ければ出さない", () => {
-    renderProfile({ estimatedDurationSeconds: null, difficultyLoad: null });
+  it("所要は、値が無ければ出さない", () => {
+    renderProfile({ estimatedDurationSeconds: null });
     expect(screen.queryByText("所要")).not.toBeInTheDocument();
-    expect(screen.queryByText("負荷")).not.toBeInTheDocument();
     expect(screen.getByText("総合難易度")).toBeInTheDocument();
   });
 

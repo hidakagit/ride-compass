@@ -122,9 +122,9 @@ export default function RoadInspectorPopup({
           )}
           {result.composite_difficulty !== null && (
             <p className={cn(textVariants({ variant: "hint" }), "m-0")}>
-              {`この道だけで見た合成: ${result.composite_difficulty.toFixed(1)}/100`}
-              {result.covered_weight_fraction !== null && result.covered_weight_fraction < 0.999
-                ? `[重みの約${Math.round(result.covered_weight_fraction * 100)}%ぶんの軸だけ。勾配・風は進む向きが決まらないと出せません]`
+              {`この道だけで見た合成: ${result.composite_difficulty.value.toFixed(1)}/100`}
+              {result.composite_difficulty.covered_weight_fraction < 0.999
+                ? `[重みの約${Math.round(result.composite_difficulty.covered_weight_fraction * 100)}%ぶんの軸だけ。勾配・風は進む向きが決まらないと出せません]`
                 : ""}
             </p>
           )}

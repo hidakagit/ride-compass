@@ -15,7 +15,8 @@ from app.config import settings
 from app.domain.flood_forecast import ActiveFloodForecast
 from app.domain.jma_warning import ActiveWarning
 from app.domain.region import BoundingBox
-from app.domain.weather import WeatherConditions, WeatherPeriodOutlook
+from app.domain.twilight import Twilight
+from app.domain.weather import TemperatureRange, WeatherConditions, WeatherPeriodOutlook
 from app.domain.wind_grid import (
     WIND_GRID_DETAIL_MIN_SPACING_DEG,
     generate_wind_grid_detail_points,
@@ -25,7 +26,7 @@ from app.infrastructure import rate_limiter
 from app.main import app
 from app.services.flood_service import FloodForecasts
 from app.services.warning_service import WeatherWarnings
-from app.services.wbgt_service import WbgtStatus
+from app.services.wbgt_service import WbgtReading, WbgtStatus
 
 client = TestClient(app)
 
@@ -71,12 +72,10 @@ def test_get_weather_returns_conditions_on_success():
         wind_direction_label="東",
         precipitation_mm=0.5,
         observed_at="2026-08-13T21:15",
-        sunrise="2026-08-13T05:12",
-        sunset="2026-08-13T18:41",
+        twilight=Twilight(sunrise="2026-08-13T05:12", sunset="2026-08-13T18:41"),
         wind_speed_max_ms=5.5,
-        temperature_max_c=29.0,
         precipitation_max_mm=None,
-        temperature_min_c=23.0,
+        temperature_range=TemperatureRange(min_c=23.0, max_c=29.0),
         today_periods=[
             WeatherPeriodOutlook(period="12:00", temperature_c=27.0, precipitation_mm=0.4),
         ],
@@ -113,12 +112,10 @@ def test_get_weather_is_rate_limited_per_client():
         wind_direction_label="東",
         precipitation_mm=0.5,
         observed_at="2026-08-13T21:15",
-        sunrise="2026-08-13T05:12",
-        sunset="2026-08-13T18:41",
+        twilight=Twilight(sunrise="2026-08-13T05:12", sunset="2026-08-13T18:41"),
         wind_speed_max_ms=5.5,
-        temperature_max_c=29.0,
         precipitation_max_mm=None,
-        temperature_min_c=23.0,
+        temperature_range=TemperatureRange(min_c=23.0, max_c=29.0),
         today_periods=[
             WeatherPeriodOutlook(period="12:00", temperature_c=27.0, precipitation_mm=0.4),
         ],
@@ -604,7 +601,9 @@ class FakeWbgtService:
 
 
 def test_get_wbgt_returns_status_on_success():
-    status = WbgtStatus(level="severe_warning", label="厳重警戒", value=30.0, observed_at="2026/08/22 18:00:00")
+    status = WbgtStatus(
+        reading=WbgtReading(level="severe_warning", label="厳重警戒", value=30.0, observed_at="2026/08/22 18:00:00")
+    )
     app.dependency_overrides[get_wbgt_service] = lambda: FakeWbgtService(status)
 
     try:
@@ -614,13 +613,13 @@ def test_get_wbgt_returns_status_on_success():
 
     assert response.status_code == 200
     body = response.json()
-    assert body["level"] == "severe_warning"
-    assert body["value"] == 30.0
+    assert body["reading"]["level"] == "severe_warning"
+    assert body["reading"]["value"] == 30.0
 
 
 def test_no_wbgt_level_is_an_empty_success():
     app.dependency_overrides[get_wbgt_service] = lambda: FakeWbgtService(
-        WbgtStatus(level=None, label=None, value=None, observed_at=None)
+        WbgtStatus(reading=None)
     )
 
     try:
@@ -629,11 +628,11 @@ def test_no_wbgt_level_is_an_empty_success():
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
-    assert response.json() == {"level": None, "label": None, "value": None, "observed_at": None}
+    assert response.json() == {"reading": None}
 
 
 def test_get_wbgt_is_rate_limited_per_client():
-    empty = WbgtStatus(level=None, label=None, value=None, observed_at=None)
+    empty = WbgtStatus(reading=None)
     app.dependency_overrides[get_wbgt_service] = lambda: FakeWbgtService(empty)
     params = {"latitude": 35.6812, "longitude": 139.7671}
 

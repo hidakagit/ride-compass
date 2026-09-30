@@ -30,7 +30,7 @@ const tileUrl = ({
 
 const JAPAN = { min_longitude: 122, min_latitude: 24, max_longitude: 146, max_latitude: 46 };
 
-function response(elements: JmaTileIndexResponse["elements"]): JmaTileIndexResponse {
+function response(elements: Extract<JmaTileIndexResponse, { available: true }>["elements"]): JmaTileIndexResponse {
   return { available: true, coverage: JAPAN, elements };
 }
 
@@ -38,11 +38,9 @@ const inundAt = (zooms: Record<string, number[][]>) =>
   response({ inund: { basetime: BASETIME, validtime: VALIDTIME, member: "none", zooms } });
 
 describe("buildJmaTileIndexLookup（在否インデックスの前処理）", () => {
-  it("インデックスが無い・網羅範囲か要素が欠けた応答は、使えるインデックス無し", () => {
+  it("インデックスが無い応答は、使えるインデックス無し", () => {
     expect(buildJmaTileIndexLookup(null)).toBeNull();
     expect(buildJmaTileIndexLookup({ available: false })).toBeNull();
-    expect(buildJmaTileIndexLookup({ available: true, elements: {} })).toBeNull();
-    expect(buildJmaTileIndexLookup({ available: true, coverage: JAPAN })).toBeNull();
   });
 
   it("フレームを照合できない要素（basetime・validtimeの欠け）は載せず、1つも残らなければ無し", () => {

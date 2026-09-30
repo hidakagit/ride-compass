@@ -24,6 +24,11 @@ WARN_BURST_PER_WINDOW = 5
 _ALWAYS_ON_FLOAT_PRECISION = 2
 
 
+class _LastError(TypedDict):
+    type: str
+    at: str
+
+
 class _CategoryStats(TypedDict):
     calls: int
     errors: int
@@ -32,8 +37,7 @@ class _CategoryStats(TypedDict):
     total_ms: int
     max_ms: int
     error_types: dict[str, int]
-    last_error_type: str | None
-    last_error_at: str | None
+    last_error: _LastError | None
     last_success_at: str | None
     retried_calls: int
     retry_attempts_total: int
@@ -109,8 +113,7 @@ def _record(category: str, elapsed_ms: int, fields: dict, error: bool) -> None:
                 "max_ms": 0,
                 # 以下は「失敗の主な理由を推測する」ための追加集計。
                 "error_types": {},
-                "last_error_type": None,
-                "last_error_at": None,
+                "last_error": None,
                 "last_success_at": None,
                 "retried_calls": 0,
                 "retry_attempts_total": 0,
@@ -123,8 +126,7 @@ def _record(category: str, elapsed_ms: int, fields: dict, error: bool) -> None:
             stats["errors"] += 1
             error_type = fields.get("error_type") or "unknown"
             stats["error_types"][error_type] = stats["error_types"].get(error_type, 0) + 1
-            stats["last_error_type"] = error_type
-            stats["last_error_at"] = now_iso
+            stats["last_error"] = {"type": error_type, "at": now_iso}
         else:
             stats["last_success_at"] = now_iso
         cache = fields.get("cache")

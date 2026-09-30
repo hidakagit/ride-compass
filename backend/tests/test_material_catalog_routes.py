@@ -132,6 +132,7 @@ def test_get_material_coverage_returns_all_catalog_materials(admin_credentials):
 
     by_id = {entry["material_id"]: entry for entry in body["materials"]}
     assert by_id["surface"] == {
+        "kind": "counted",
         "material_id": "surface",
         "label": MATERIAL_CATALOG["surface"].full_label(),
         "dtype": "categorical",
@@ -141,12 +142,11 @@ def test_get_material_coverage_returns_all_catalog_materials(admin_credentials):
         "missing_ratio": pytest.approx(0.85),
         "source": MATERIAL_COVERAGE_SPECS["surface"].source,
         "missing_semantics": "unknown",
-        "excluded_reason": None,
     }
     assert by_id["gradient_percent"]["population"] == "edge"
     assert by_id["gradient_percent"]["missing_ratio"] == pytest.approx(0.75)
     assert by_id["lit"]["missing_semantics"] == "definite"
-    assert by_id["wind_drag_ratio"]["population"] is None
+    assert by_id["wind_drag_ratio"]["kind"] == "excluded"
     assert by_id["wind_drag_ratio"]["excluded_reason"]
 
 

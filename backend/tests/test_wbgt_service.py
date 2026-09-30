@@ -51,7 +51,7 @@ async def test_get_status_returns_empty_outside_provision_period(monkeypatch, no
 
     result = await service.get_status(POINT, now=now)
 
-    assert result.level is None
+    assert result is not None and result.reading is None
     assert upstream.requested_urls == []
 
 
@@ -82,8 +82,7 @@ async def test_get_status_returns_empty_when_below_almost_safe_threshold(monkeyp
 
     result = await service.get_status(POINT, now=SUMMER_NOW)  # 15.0、21未満
 
-    assert result.level is None
-    assert result.value is None
+    assert result is not None and result.reading is None
 
 
 async def test_get_status_picks_the_forecast_entry_nearest_to_now(monkeypatch):
@@ -97,10 +96,11 @@ async def test_get_status_picks_the_forecast_entry_nearest_to_now(monkeypatch):
 
     result = await service.get_status(POINT, now=now)
 
-    assert result.level == "severe_warning"
-    assert result.label == "厳重警戒"
-    assert result.value == 30.0
-    assert result.observed_at == "2026/08/22 18:00:00"
+    assert result is not None and result.reading is not None
+    assert result.reading.level == "severe_warning"
+    assert result.reading.label == "厳重警戒"
+    assert result.reading.value == 30.0
+    assert result.reading.observed_at == "2026/08/22 18:00:00"
 
 
 async def test_get_status_uses_only_the_latest_reference_time_when_multiple_are_present(monkeypatch):
@@ -115,8 +115,9 @@ async def test_get_status_uses_only_the_latest_reference_time_when_multiple_are_
 
     result = await service.get_status(POINT, now=datetime(2026, 8, 22, 15, 0, 0))
 
-    assert result.level == "warning"
-    assert result.value == 25.0
+    assert result is not None and result.reading is not None
+    assert result.reading.level == "warning"
+    assert result.reading.value == 25.0
 
 
 async def test_the_nearest_forecast_without_a_value_is_unknown_rather_than_a_farther_one(monkeypatch):

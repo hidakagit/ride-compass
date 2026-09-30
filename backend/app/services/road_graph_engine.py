@@ -1821,8 +1821,6 @@ def _route_composite_difficulty(candidate: RouteCandidate) -> float | None:
     戦略層が最終候補へ付ける`overall_difficulty`と同じ計算だが、あちらは採否が確定した後の
     後処理で、こちらはその採否自体を決めるためにエンジン内で呼ぶ。
     """
-    if not candidate.segments:
-        return None
     return distance_weighted_difficulty([(s.difficulty, s.distance_km) for s in candidate.segments])
 
 

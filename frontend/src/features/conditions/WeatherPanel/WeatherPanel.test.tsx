@@ -12,13 +12,11 @@ const observation = (overrides: Partial<AmedasObservation> = {}) =>
     temperature_c: 21.44,
     apparent_temperature_c: 19.96,
     wind_speed_ms: 3.25,
-    wind_direction_deg: 90,
-    wind_direction_label: "東",
+    wind_direction: { deg: 90, label: "東" },
     precipitation_10min_mm: 0,
     sunshine_10min_minutes: 10,
     weather_code: 0,
-    sunrise: "2026-09-24T05:30:00+09:00",
-    sunset: "2026-09-24T17:40:00+09:00",
+    twilight: { sunrise: "2026-09-24T05:30:00+09:00", sunset: "2026-09-24T17:40:00+09:00" },
     ...overrides,
   }) as AmedasObservation;
 
@@ -66,15 +64,10 @@ describe("WeatherPanel 観測値", () => {
     expect(screen.getByText("降水量:").parentElement).toHaveTextContent("1.3mm");
   });
 
-  it("風向の呼び名が無くても風速は出し、補足は付けない", () => {
-    render(<WeatherPanel amedas={observation({ wind_direction_label: null })} loading={false} error={null} />);
-    const wind = screen.getByText("m/s").closest("[class]")!.parentElement!.parentElement!;
-    expect(wind).toHaveTextContent("3.3m/s");
-    expect(wind).not.toHaveAttribute("title");
-  });
-
   it("風の矢印は、風が吹いていく向き（来る向きの反対）を指す", () => {
-    render(<WeatherPanel amedas={observation({ wind_direction_deg: 90 })} loading={false} error={null} />);
+    render(
+      <WeatherPanel amedas={observation({ wind_direction: { deg: 90, label: "東" } })} loading={false} error={null} />,
+    );
     const arrow = screen.getByText("東の風:").parentElement!.firstElementChild as HTMLElement;
     expect(arrow.style.transform).toBe("rotate(270deg)");
   });
@@ -110,9 +103,7 @@ describe("WeatherPanel 観測値", () => {
 
   it("日の出・日の入りが分からなければ昼として扱う", () => {
     vi.setSystemTime(new Date("2026-09-24T20:00:00+09:00"));
-    const { unmount } = render(
-      <WeatherPanel amedas={observation({ sunrise: null, sunset: null })} loading={false} error={null} />,
-    );
+    const { unmount } = render(<WeatherPanel amedas={observation({ twilight: null })} loading={false} error={null} />);
     const unknown = screen.getByText(/^天気:/).parentElement!.innerHTML;
     unmount();
     vi.setSystemTime(NOW);

@@ -28,7 +28,7 @@
 | `services/axisCatalogApi.ts` | 上記フックが叩くbackend APIの薄いラッパー |
 | `lib/catalogAxis.ts` | 軸カタログの1行を画面が読む形へ移す型（`CatalogAxis`）と唯一の変換（`catalogAxisFromEntry`）。重み一覧の1行はこの型そのもので、ramp軸・専用配信の軸・地図のチップの軸はこれに用途の項目を足した型 |
 | `features/route/DifficultyProfile/DifficultyProfile.tsx`・`profileGeometry.ts` | 候補の中身の先頭に出す、道のりに沿った難易度のグラフ。横が始点からの距離、縦が区間ごとの難易度で、区間ごとの階段を軸の寄与で色分けして下から積む。区間はbackendがEdgeを約500mのビンへ畳んだもの（`aggregate_segments_into_bins`）で、Edge 1本ずつではない。**塗った面積がルートの負荷にほぼ一致する**——値の無い区間はルートの総合難易度の高さで灰色に描く（負荷は「値のある区間の距離加重平均×全長」で、値の無い区間を平均として数えるため）。ほぼなのは、ビンの中で値の無いEdgeがそのビンの平均で数えられるため。横軸の右端は**一覧の中で最も長い候補の距離**で、候補どうしで面積を見比べられる。押したまま動かす（キーボードは矢印・Home・End）と、その距離の区間と、区間の道なりの形の上で距離の割合ぶん進んだ地点を選ぶ——選択は地図で区間を押したときと同じ`selectedRouteSegment`で、地図に印が出て下に区間の詳細が出る。グラフ自体は区間を選んでいる間も残る |
-| `features/route/difficultyLoadBar.ts` | 難易度の帯の高さ（`baselineDistanceKm`・`loadBarHeightRatio`・`LOAD_BAR_MAX_HEIGHT_RATIO`）。帯は長さが総合難易度なので、高さへ距離の倍率を与えると塗られた面積が`difficulty_load`、積み上げの色ごとの面積が軸別の負荷になる。基準（高さ1.0）は**一覧の中で最も短い候補**——目標距離やbackendの値から取ると、周回モードと目的地モードで基準の意味が変わり、同じ高さが別のことを指す。距離の比をそのまま高さにすると行が破綻するため上限で頭打ちにし、そのぶん面積は負荷に厳密比例しなくなるので数値を併記する |
+| `features/route/difficultyLoadBar.ts` | 難易度の帯の高さ（`baselineDistanceKm`・`loadBarHeightRatio`・`LOAD_BAR_MAX_HEIGHT_RATIO`）。帯は長さが総合難易度なので、高さへ距離の倍率を与えると塗られた面積が負荷（`overall_difficulty.load`）、積み上げの色ごとの面積が軸別の負荷になる。基準（高さ1.0）は**一覧の中で最も短い候補**——目標距離やbackendの値から取ると、周回モードと目的地モードで基準の意味が変わり、同じ高さが別のことを指す。距離の比をそのまま高さにすると行が破綻するため上限で頭打ちにし、そのぶん面積は負荷に厳密比例しなくなるので数値を併記する |
 | `lib/geoDistance.ts` | 座標列の距離計算（`cumulativeDistancesKm`）。区間の位置と代替の距離差を出すのに使う |
 | `features/route/routePreferenceSync.ts` | 重みのキー集合を軸カタログの公開軸へ揃える関数（`useGenerationConditions.ts`が読むときに1回だけ通す）と、生成リクエストへ重みを載せるかの判定 |
 | `features/route/hardFilterSync.ts` | 保存された`hard_filters`のキー集合を正本（`routeGenerateConfig.hard_filters`）へ整合させる。backendはキー集合の完全一致を要求するため、デプロイでフィルタが増減しても保存値をまたいで送信が成立するようにする |
@@ -214,7 +214,7 @@ TravelBearingControl.tsx`（`page.tsx`から直接importされ地図上に置か
   更新が要る状態へ戻るため。ラベルはbackendが返す対訳を引き、未登録の値はタグ生値のまま
   出す。**並べ替えはしない**: 受け取った並びをそのまま使う（順序は配る側が決める）。
   値が来ない材料（categorical材料は数値列に載らない）は飛ばす。
-- **負荷（難易度×距離）**: `RouteCandidate.difficulty_load`を総合難易度の隣へ併記する
+- **負荷（難易度×距離）**: `RouteCandidate.overall_difficulty.load`を総合難易度の隣へ併記する
   （(i)で意味を説明する）。総合難易度が距離で正規化された平均であるのに対しこちらは総量で、
   「難所を通っても短いルート」と「遠回りで易しいルート」を見比べるための値
   （[評価・スコアリング](../backend/evaluation-scoring.md)「ルート単位の集約」節参照）。
@@ -224,7 +224,7 @@ TravelBearingControl.tsx`（`page.tsx`から直接importされ地図上に置か
   使えなかったため、無風として所要時間を出しています」、`missing_travel_data_share`（勾配か停止要因の件数の値が無く、
   平地・待ち無しとして数えた区間の距離の割合）が丸めて1%以上なら「データの無い区間が◯%」を出す——黙って短い所要時間を
   見せない。0%は判断の材料にならないため出さない。どちらもbackendがEdge単位で数えた値をそのまま使う。
-- **総合難易度**: `RouteCandidate.overall_difficulty`（絶対基準0-100の軸重み付き合成値）を
+- **総合難易度**: `RouteCandidate.overall_difficulty.average`（絶対基準0-100の軸重み付き合成値）を
   表示する。下記内訳の合計そのものであり、内訳の1項目としては扱わない。候補タブの並び順は
   この値ではなく所要時間の短い順（[ページ全体構成・状態管理](page-composition.md)参照）。数字の隣に(i)説明ポップオーバー
   （このコンポーネント自身が持つ、負荷の説明と同じ形）を置く。

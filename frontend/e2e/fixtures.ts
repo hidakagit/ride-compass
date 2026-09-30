@@ -2,7 +2,13 @@ import { expect, type Locator, type Page } from "@playwright/test";
 import type { AxisCatalogResponse, RouteCandidate, RouteGenerateJobStatusResponse } from "@/types/route";
 import { catalogEntry, tileInput } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
 import { makeRouteCandidate as makeCandidate } from "@/testing/routeFixtures";
-import type { AmedasObservation, WeatherConditions } from "@/types/weather";
+import type {
+  AmedasObservation,
+  FloodForecasts,
+  WbgtStatus,
+  WeatherConditions,
+  WeatherWarnings,
+} from "@/types/weather";
 import nextConfig from "../next.config";
 
 // CIのE2Eスモークテストは「実バックエンド＋実外部API（
@@ -62,13 +68,20 @@ function makeRouteCandidate(id: string, directionLabel: string, distanceKm: numb
         [139.7387, 35.7597],
       ]),
     ],
-    overall_difficulty: 35,
+    overall_difficulty: { average: 35, load: 700 },
   });
+}
+
+type DoneJob = Extract<RouteGenerateJobStatusResponse, { status: "done" }>;
+
+/** 生成のジョブの完了の応答（ポーリングの1回目から完了を返す）。 */
+export function doneJobFixture(result: DoneJob["result"] = routeGenerateResponseFixture()): DoneJob {
+  return { status: "done", result };
 }
 
 // 戻り値に画面が受け取る生成結果の型を付け、backendの必須フィールド（GenerationConditions等）が
 // 増えたときに、このモックの欠落を型検査が知らせるようにする。
-export function routeGenerateResponseFixture(): NonNullable<RouteGenerateJobStatusResponse["result"]> {
+export function routeGenerateResponseFixture(): DoneJob["result"] {
   return {
     routes: [makeRouteCandidate("route-1", "北", 20.3), makeRouteCandidate("route-2", "南", 19.8)],
     no_candidates_reason: null,
@@ -86,6 +99,7 @@ export function routeGenerateResponseFixture(): NonNullable<RouteGenerateJobStat
       start_time: "2026-09-05T09:30:00+09:00",
       waypoints: null,
       destination: null,
+      corrected_destination: null,
       generated_at: new Date().toISOString(),
     },
   };
@@ -107,12 +121,10 @@ function weatherConditionsFixture(): WeatherConditions {
     wind_direction_label: "東",
     precipitation_mm: null,
     observed_at: new Date().toISOString(),
-    sunrise: null,
-    sunset: null,
+    twilight: null,
     precipitation_max_mm: null,
     wind_speed_max_ms: null,
-    temperature_max_c: null,
-    temperature_min_c: null,
+    temperature_range: null,
     today_periods: [],
   };
 }
@@ -133,13 +145,11 @@ function amedasObservationFixture(): AmedasObservation {
     temperature_c: 18.5,
     apparent_temperature_c: null,
     wind_speed_ms: 2.1,
-    wind_direction_deg: 90,
-    wind_direction_label: "東",
+    wind_direction: { deg: 90, label: "東" },
     precipitation_10min_mm: null,
     sunshine_10min_minutes: null,
     weather_code: null,
-    sunrise: null,
-    sunset: null,
+    twilight: null,
   };
 }
 
@@ -175,13 +185,12 @@ export async function installApiMocks(page: Page): Promise<void> {
   // マッチ判定される）で/api/weather/amedasだけこちらを優先させる。
   await page.route(`${API_BASE}/api/weather/amedas*`, (route) => route.fulfill({ json: amedasObservationFixture() }));
   // 警告バッジ3種は「警告なし」の成功応答にする。応答しないと取得失敗の印がヘッダーに出る。
-  await page.route(`${API_BASE}/api/weather/warnings*`, (route) =>
-    route.fulfill({ json: { area_name: null, report_datetime: null, warnings: [] } }),
-  );
-  await page.route(`${API_BASE}/api/weather/wbgt*`, (route) =>
-    route.fulfill({ json: { level: null, label: null, value: null, observed_at: null } }),
-  );
-  await page.route(`${API_BASE}/api/weather/flood-forecast*`, (route) => route.fulfill({ json: { forecasts: [] } }));
+  const noWarnings: WeatherWarnings = { area_name: null, report_datetime: null, warnings: [] };
+  const noWbgt: WbgtStatus = { reading: null };
+  const noFlood: FloodForecasts = { forecasts: [] };
+  await page.route(`${API_BASE}/api/weather/warnings*`, (route) => route.fulfill({ json: noWarnings }));
+  await page.route(`${API_BASE}/api/weather/wbgt*`, (route) => route.fulfill({ json: noWbgt }));
+  await page.route(`${API_BASE}/api/weather/flood-forecast*`, (route) => route.fulfill({ json: noFlood }));
 
   // 改善計画T265: ルート生成はバックグラウンドジョブ化された。POST（ジョブ投稿）は
   // 即座にjob_idを返し、GET .../generate/{job_id}（ポーリング）は1回目から
@@ -190,9 +199,7 @@ export async function installApiMocks(page: Page): Promise<void> {
   await page.route(`${API_BASE}/api/routes/generate`, (route) =>
     route.fulfill({ status: 202, json: { job_id: "e2e-fake-job" } }),
   );
-  await page.route(`${API_BASE}/api/routes/generate/*`, (route) =>
-    route.fulfill({ json: { status: "done", result: routeGenerateResponseFixture(), error: null } }),
-  );
+  await page.route(`${API_BASE}/api/routes/generate/*`, (route) => route.fulfill({ json: doneJobFixture() }));
 
   // 軸カタログ。アプリが軸一覧を引ける最小の1軸だけを持つ。
   await page.route(`${API_BASE}/api/axis-catalog*`, (route) =>

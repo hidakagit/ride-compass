@@ -25,11 +25,9 @@ function formatStartedAt(iso: string): string {
   return formatJstDateTime(new Date(iso));
 }
 
-// last_error_type/last_error_atはバックエンド側で常に一緒に設定される（infrastructure/
-// debug_log.pyの_record）。片方だけnullになる想定はないが、型はそれぞれ独立のためガードする。
-function formatLastError(type: string | null, at: string | null): string {
-  if (!type || !at) return "—";
-  return `${type} (${formatStartedAt(at)})`;
+function formatLastError(error: { type: string; at: string } | null): string {
+  if (error === null) return "—";
+  return `${error.type} (${formatStartedAt(error.at)})`;
 }
 
 // フロント・バックそれぞれの適用バージョン（commit・起動日時）とバックエンドの外部API
@@ -156,7 +154,7 @@ export default function SystemStatusPanel({ open, onClose }: SystemStatusPanelPr
                       <TableCell title={errorTypeParts.length > 0 ? errorTypeParts.join(" / ") : undefined}>
                         {s.errors}
                       </TableCell>
-                      <TableCell>{formatLastError(s.last_error_type, s.last_error_at)}</TableCell>
+                      <TableCell>{formatLastError(s.last_error)}</TableCell>
                       <TableCell>{s.cache_hit_rate != null ? `${Math.round(s.cache_hit_rate * 100)}%` : "—"}</TableCell>
                       <TableCell>{s.avg_ms}ms</TableCell>
                       <TableCell>{s.max_ms}ms</TableCell>

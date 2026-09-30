@@ -53,6 +53,13 @@ WHERE datname = current_database() AND pid <> pg_backend_pid()
 
 
 @dataclass(frozen=True)
+class SucceededRunCounts:
+    id: int
+    #: 成功のrunは、閉じるときに状態と一緒に書かれる（`batch/ingest.py: _close_run`）ので必ずある。
+    finished_at: datetime
+
+
+@dataclass(frozen=True)
 class ImportRunCounts:
     """取込1ソースぶんの生値。`latest`は成否を問わない最新、`latest_succeeded`は成功した最新。"""
 
@@ -63,8 +70,7 @@ class ImportRunCounts:
     #: そのrunが何を取りに行ったか（`source_runs.origin`をそのまま文字列化したもの）。
     latest_identity: dict[str, str]
     latest_item_count: int | None
-    latest_succeeded_id: int | None
-    latest_succeeded_finished_at: datetime | None
+    latest_succeeded: SucceededRunCounts | None
 
 
 @dataclass(frozen=True)
@@ -128,9 +134,9 @@ class DbStatusQuery:
                 latest_identity={key: str(value)
                                  for key, value in (row["latest_origin"] or {}).items()},
                 latest_item_count=(row["latest_counts"] or {}).get("records"),
-                latest_succeeded_id=(None if row["latest_succeeded_id"] is None
-                                     else int(row["latest_succeeded_id"])),
-                latest_succeeded_finished_at=row["latest_succeeded_finished_at"],
+                latest_succeeded=(None if row["latest_succeeded_id"] is None
+                                  else SucceededRunCounts(int(row["latest_succeeded_id"]),
+                                                          row["latest_succeeded_finished_at"])),
             )
             for row in (await self._session.execute(text(_IMPORT_RUNS_SQL))).mappings().all()
         )

@@ -299,7 +299,7 @@ backend `GET /api/admin/material-catalog/coverage`の
 - 母集団の定義・件数ベースであること・判定根拠の見方といった補足は、見出し脇の(i)
   （`components/ui/InfoPopover`、`AxisComposer`の材料説明と
   同じ見た目）へ畳み、常時表示の説明文は各グループ1行だけにする。
-- `excluded_reason`を持つ材料（集計対象外）は表に含めず、`<details>`の折りたたみ一覧へ
+- 集計対象外の材料（`kind: "excluded"`。件数を持たず理由だけを持つ）は表に含めず、`<details>`の折りたたみ一覧へ
   理由つきで出す。
 - 集計のカードは`ReportCard`（下記「集計のカード」）。母数としてWay・Edgeの総数を集計の時刻の前に出す。
 
@@ -425,8 +425,8 @@ backend `POST /api/admin/basemap/refresh`を呼び、
 
 入力した内容は`renderBandPreview`がその場で段階の並びとして描く。段階ラベルの組み立ては
 地図の凡例と同じ`mapColorLegend.ts: buildRangeLegendBands`を通し、色は親（`AxisStudio`）が
-軸カタログの分類から決めて渡す（どちらも地図と同じ`bandColorsFor`で、値の種類はramp軸なら
-`RAMP_AXIS_VALUE_KIND`、専用way値配信軸なら軸カタログの`map_value_kind`。[地図: 軸・ルート色分け](map-axis-coloring.md)参照）。**軸スタジオ側は
+軸カタログの分類から決めて渡す（どちらも地図と同じ`bandColorsFor`で、値の種類は軸カタログの
+`map_value.kind`。[地図: 軸・ルート色分け](map-axis-coloring.md)参照）。**軸スタジオ側は
 「その軸がどちらの経路で地図に出るか」の判定を持たない**——カタログの実際の分類を引くため、
 プレビューの色と地図の色がずれない。地図に出る経路がまだ無い軸（下書き等）は色を持たず、
 その旨を注記する。

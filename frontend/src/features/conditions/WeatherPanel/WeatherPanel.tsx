@@ -20,10 +20,10 @@ interface WeatherPanelProps {
 //
 // 日の出/日没は1日1個の値のため、このバーではなく「今日」パネル（TodayOutlook）が持つ
 // ——バーは走行中に何度も見る瞬間値だけに絞る。
-function isCurrentlyDay(sunrise: string | null, sunset: string | null): boolean {
-  if (sunrise == null || sunset == null) return true;
+function isCurrentlyDay(twilight: { sunrise: string; sunset: string } | null): boolean {
+  if (twilight === null) return true;
   const now = Date.now();
-  return now >= new Date(sunrise).getTime() && now < new Date(sunset).getTime();
+  return now >= new Date(twilight.sunrise).getTime() && now < new Date(twilight.sunset).getTime();
 }
 
 export default function WeatherPanel({ amedas, loading, error }: WeatherPanelProps) {
@@ -44,9 +44,9 @@ export default function WeatherPanel({ amedas, loading, error }: WeatherPanelPro
 
   const temperatureTitle =
     amedas.apparent_temperature_c != null ? `体感 ${amedas.apparent_temperature_c.toFixed(1)}℃` : undefined;
-  const windTitle = amedas.wind_direction_label != null ? `${amedas.wind_direction_label}の風` : undefined;
+  const direction = amedas.wind_direction;
 
-  const weatherDisplay = getAmedasWeatherDisplay(amedas.weather_code, isCurrentlyDay(amedas.sunrise, amedas.sunset));
+  const weatherDisplay = getAmedasWeatherDisplay(amedas.weather_code, isCurrentlyDay(amedas.twilight));
 
   return (
     // 気温・風向風速・降水量・天気アイコンをアイコン+数値だけの統計チップとして1行に並べる
@@ -70,18 +70,18 @@ export default function WeatherPanel({ amedas, loading, error }: WeatherPanelPro
 
       <span className="w-px flex-shrink-0 self-stretch bg-[var(--color-border)]" aria-hidden="true" />
 
-      {amedas.wind_speed_ms != null && amedas.wind_direction_deg != null && (
+      {amedas.wind_speed_ms != null && direction !== null && (
         <span
           className="inline-flex flex-shrink-0 items-center gap-1 whitespace-nowrap text-[length:var(--font-size-md)] font-semibold"
-          title={windTitle}
+          title={`${direction.label}の風`}
         >
           <span
             className="inline-flex transition-transform duration-200"
-            style={{ transform: `rotate(${amedas.wind_direction_deg + 180}deg)` }}
+            style={{ transform: `rotate(${direction.deg + 180}deg)` }}
           >
             <WindDirectionArrowIcon size={16} />
           </span>
-          <span className="sr-only">{amedas.wind_direction_label}の風: </span>
+          <span className="sr-only">{direction.label}の風: </span>
           <span>
             {amedas.wind_speed_ms.toFixed(1)}
             <span className="text-[0.8em] font-normal text-[var(--color-muted)]">m/s</span>

@@ -12,7 +12,7 @@ import {
   unpublishAxisDefinition,
   updateAxisDefinition,
 } from "@/features/admin/adminApi";
-import { bandColorsFor, RAMP_AXIS_VALUE_KIND } from "@/lib/mapDisplay/valueScale";
+import { bandColorsFor } from "@/lib/mapDisplay/valueScale";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
 import type { AxisDefinitionPayload, AxisDefinitionResponse, AxisShape } from "@/types/route";
 import AxisComposer from "./AxisComposer";
@@ -164,8 +164,7 @@ export default function AxisStudio() {
   const catalog = useAxisCatalog();
   const previewAxisId = editingAxisId ?? duplicateFrom?.axis_id ?? null;
   const previewCatalogAxis = catalog.axes.find((axis) => axis.axisId === previewAxisId);
-  const previewIsRamp = catalog.rampAxes.some((axis) => axis.axisId === previewAxisId);
-  const previewMapValueKind = previewIsRamp ? RAMP_AXIS_VALUE_KIND : previewCatalogAxis?.mapValueKind;
+  const previewMapValueKind = previewCatalogAxis?.mapValueKind;
   // 軸カタログの分類をそのまま引くだけの軽い導出のため、参照の安定化はしない
   // （渡し先は節のコンポーネントで、再描画の重さは持たない）。
   const mapBandColors = previewMapValueKind

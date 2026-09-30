@@ -21,15 +21,20 @@ _FORECAST_SEARCH_WINDOW_HOURS = 6
 logger = logging.getLogger("ridecompass.wbgt_service")
 
 
+class WbgtReading(StrictModel):
+    level: WarningBadgeLevel
+    label: str
+    value: float
+    observed_at: str
+
+
 class WbgtStatus(StrictModel):
-    level: WarningBadgeLevel | None
-    label: str | None
-    value: float | None
-    observed_at: str | None
+    #: 警告として出す段の値。提供期間外と、警告として意味を持たない低いレベルのときはNone。
+    reading: WbgtReading | None
 
 
 def _empty_status() -> WbgtStatus:
-    return WbgtStatus(level=None, label=None, value=None, observed_at=None)
+    return WbgtStatus(reading=None)
 
 
 class WbgtService:
@@ -75,7 +80,9 @@ class WbgtService:
         if level_info is None:
             return _empty_status()
         level, label = level_info
-        return WbgtStatus(level=level, label=label, value=forecast.wbgt, observed_at=forecast.forecast_time_text)
+        return WbgtStatus(
+            reading=WbgtReading(level=level, label=label, value=forecast.wbgt, observed_at=forecast.forecast_time_text)
+        )
 
 
 def _pick_nearest_forecast(forecasts: list[WbgtForecast], now: datetime) -> WbgtForecast | None:

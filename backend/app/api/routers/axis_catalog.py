@@ -47,9 +47,8 @@ from app.domain.axis_raw_value import (
     raw_value_unit,
 )
 from app.domain.dynamic_way_values import (
-    MapValueKind,
-    map_value_kind,
-    map_value_material,
+    MapValue,
+    map_value,
     map_value_thresholds,
     map_value_unit,
 )
@@ -157,18 +156,16 @@ class AxisCatalogEntry(StrictModel):
     # フロント（axisLayers.ts: dedicatedWayValueAxesFromCatalogAxes）が、axis_idの
     # 文字列比較ではなくこのフィールドで地図レイヤー・フェッチ対象を導出する。
     dedicated_way_value_layer: bool
-    # 地図がこの軸について塗る値の種類と単位（domain/dynamic_way_values.py: map_value_kind/
-    # map_value_unit）。ルート確定前の専用way値配信・ルート確定後のルート線色分けの両方が
+    # 地図がこの軸について塗る値（種類と、種類で決まる材料）と単位（domain/dynamic_way_values.py:
+    # map_value/map_value_unit）。ルート確定前の塗り・ルート確定後のルート線色分けの両方が
     # これに従う。
-    map_value_kind: MapValueKind
-    # `signed_material`のとき生値を塗る材料のid（それ以外はnull）。画面は軸の形から読み直さない。
-    map_value_material: str | None
+    map_value: MapValue
     map_value_unit: str
-    # 上の`map_value_kind`が示すスケールでの段階境界（domain/dynamic_way_values.py:
+    # 上の`map_value`の種類が示すスケールでの段階境界（domain/dynamic_way_values.py:
     # map_value_thresholds）。地図の色分けはルート前後ともこれを使う——
     # `display_thresholds_override`はramp表示の自動導出値（材料の重み付き和）を上書きする
     # フィールドで、難易度を塗る軸ではスケールが違う。未設定の軸はnullで、読む側が
-    # `map_value_kind`ごとの既定値を使う。
+    # `map_value`の種類ごとの既定値を使う。
     map_value_thresholds: list[float] | None
     # 折れ点を通す前の生値の単位（`domain/axis_raw_value.py: raw_value_unit`）。
     # 定まらない軸はnull。ルート結果は得点の隣にこの単位で生値を出す。
@@ -259,8 +256,7 @@ async def get_axis_catalog(region_service: RegionService = Depends(get_region_se
                 display_thresholds_override=definition.display_thresholds_override,
                 display_band_labels_override=map_band_labels(definition),
                 dedicated_way_value_layer=definition.dedicated_way_value_layer,
-                map_value_kind=map_value_kind(definition),
-                map_value_material=map_value_material(definition),
+                map_value=map_value(definition),
                 map_value_unit=map_value_unit(definition),
                 map_value_thresholds=map_value_thresholds(definition),
                 raw_value_unit=raw_value_unit(definition),

@@ -28,9 +28,7 @@ function table(overrides: Partial<Table>): Table {
     oldest_run_id: null,
     latest_run_id: null,
     is_stale: false,
-    coverage_parent: null,
-    coverage_parent_row_count: null,
-    missing_rows: null,
+    coverage: null,
     columns: [],
     needs_rebuild: false,
     ...overrides,
@@ -88,9 +86,7 @@ describe("DerivedDataFreshnessPanel", () => {
           source: "OSM",
           latest_run_id: 9,
           oldest_run_id: 7,
-          coverage_parent: "road_edges",
-          coverage_parent_row_count: 20000,
-          missing_rows: 1500,
+          coverage: { parent: "road_edges", parent_row_count: 20000, missing_rows: 1500 },
           columns: [
             column({ column: "gradient", null_count: 42, is_incomplete: true }),
             column({ column: "bridge_slope", null_count: 7, is_incomplete: false }),
@@ -119,9 +115,7 @@ describe("DerivedDataFreshnessPanel", () => {
           source: null,
           latest_run_id: null,
           oldest_run_id: null,
-          coverage_parent: "osm_way",
-          coverage_parent_row_count: 3000,
-          missing_rows: 0,
+          coverage: { parent: "osm_way", parent_row_count: 3000, missing_rows: 0 },
         }),
       ]),
     );
@@ -137,7 +131,7 @@ describe("DerivedDataFreshnessPanel", () => {
   });
 
   it("親を覆うことを宣言していない表には、被覆の項目を出さない", async () => {
-    await collect(report([table({ table_name: "plain", coverage_parent: null })]));
+    await collect(report([table({ table_name: "plain", coverage: null })]));
 
     const labels = Array.from(rowOf("plain").querySelectorAll("dt")).map((dt) => dt.textContent);
     expect(labels).toEqual(["取込"]);

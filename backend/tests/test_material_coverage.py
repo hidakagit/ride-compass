@@ -31,7 +31,12 @@ from app.domain.material_sql import (
 )
 from app.infrastructure.road_graph_repository import _ROAD_SURFACE_TILE_MVT_SQL
 from app.services import material_coverage_service
-from app.services.material_coverage_service import MaterialCoverageService, build_material_coverage_report
+from app.services.material_coverage_service import (
+    MaterialCoverageCounted,
+    MaterialCoverageExcluded,
+    MaterialCoverageService,
+    build_material_coverage_report,
+)
 
 COMPUTED_AT = datetime(2026, 9, 4, tzinfo=timezone.utc)
 
@@ -141,15 +146,16 @@ def test_build_report_computes_ratio_against_population_total():
     by_id = {e.material_id: e for e in report.materials}
 
     surface = by_id["surface"]
+    assert isinstance(surface, MaterialCoverageCounted)
     assert surface.population == "way"
     assert (surface.total, surface.missing) == (10, 8)
     assert surface.missing_ratio == pytest.approx(0.8)
     assert surface.label == MATERIAL_CATALOG["surface"].full_label()
     assert surface.dtype == "categorical"
     assert surface.missing_semantics == "unknown"
-    assert surface.excluded_reason is None
 
     gradient = by_id["gradient_percent"]
+    assert isinstance(gradient, MaterialCoverageCounted)
     assert gradient.population == "edge"
     assert (gradient.total, gradient.missing) == (4, 3)
     assert gradient.missing_ratio == pytest.approx(0.75)
@@ -160,16 +166,14 @@ def test_build_report_marks_excluded_materials_with_reason():
     by_id = {e.material_id: e for e in report.materials}
 
     wind = by_id["wind_drag_ratio"]
-    assert wind.population is None
-    assert wind.total is None and wind.missing is None and wind.missing_ratio is None
-    assert wind.missing_semantics is None
+    assert isinstance(wind, MaterialCoverageExcluded)
     assert wind.excluded_reason == MATERIAL_COVERAGE_EXCLUSIONS["wind_drag_ratio"]
 
 
 def test_build_report_returns_none_ratio_when_population_is_empty():
     report = build_material_coverage_report(_counts(way_total=0, edge_total=0), COMPUTED_AT)
 
-    measured = [entry for entry in report.materials if entry.excluded_reason is None]
+    measured = [entry for entry in report.materials if isinstance(entry, MaterialCoverageCounted)]
     assert measured, "測る材料が1つも無い"
     for entry in measured:
         assert entry.total == 0
@@ -206,5 +210,6 @@ async def test_service_builds_report_from_repository_counts():
     assert report.way_total == 100
     assert report.edge_total == 50
     surface = next(e for e in report.materials if e.material_id == "surface")
+    assert isinstance(surface, MaterialCoverageCounted)
     assert surface.missing_ratio == pytest.approx(0.85)
     assert report.computed_at.tzinfo is not None

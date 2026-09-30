@@ -3,7 +3,7 @@
 // 横が始点からの距離、縦が区間ごとの難易度（0〜100）。区間はbackendがEdgeを約500mのビンへ畳んだもの
 // （`domain/route.py: aggregate_segments_into_bins`）で、区間の中では値が一定なので、形は区間ごとの階段になる。
 // **塗った面積がルートの負荷とほぼ一致する**ように、値の無い区間はルートの平均の高さで描く——負荷は
-// 「値のある区間の距離加重平均 × 値の無い区間も含めた全長」（backend `domain/difficulty.py: difficulty_load`）で、
+// 「値のある区間の距離加重平均 × 値の無い区間も含めた全長」（backend `domain/difficulty.py: overall_difficulty`）で、
 // 値の無い区間を平均として数えているため。一致が「ほぼ」なのは、ビンの中で値の無いEdgeがそのビンの平均で数えられるため。
 
 import type { RouteSegmentDetail } from "@/types/route";

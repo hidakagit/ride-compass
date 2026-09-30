@@ -6,6 +6,9 @@
 import logging
 import time
 from datetime import datetime, timezone
+from typing import Annotated, Literal
+
+from pydantic import Field
 
 from app.domain.material_catalog import MATERIAL_CATALOG, MaterialDType, MissingSemantics, Population
 from app.domain.strict_model import StrictModel
@@ -20,21 +23,31 @@ from app.infrastructure.material_coverage import (
 logger = logging.getLogger("ridecompass.material_coverage")
 
 
-class MaterialCoverageEntry(StrictModel):
+class MaterialCoverageCounted(StrictModel):
+    kind: Literal["counted"] = "counted"
     material_id: str
     label: str
     dtype: MaterialDType
-    # 集計対象外の材料は population/total/missing/missing_ratio/missing_semantics がNoneで
-    # excluded_reason が理由を持つ。
-    population: Population | None
-    total: int | None
-    missing: int | None
+    population: Population
+    total: int
+    missing: int
     # 0〜1（total=0の場合はNone）。
     missing_ratio: float | None
     # 欠損判定の根拠（どのテーブル・列・タグの不在を欠損とみなすか）。
     source: str
-    missing_semantics: MissingSemantics | None
-    excluded_reason: str | None
+    missing_semantics: MissingSemantics
+
+
+class MaterialCoverageExcluded(StrictModel):
+    kind: Literal["excluded"] = "excluded"
+    material_id: str
+    label: str
+    dtype: MaterialDType
+    excluded_reason: str
+
+
+# 材料1つぶん。件数と欠損の扱いは集計した材料だけが、理由は集計対象外の材料だけが持つ。
+MaterialCoverageEntry = Annotated[MaterialCoverageCounted | MaterialCoverageExcluded, Field(discriminator="kind")]
 
 
 class MaterialCoverageReport(StrictModel):
@@ -57,7 +70,7 @@ def build_material_coverage_report(counts: MaterialCoverageCounts, computed_at: 
             total = counts.way_total if coverage.population == "way" else counts.edge_total
             missing = counts.missing_by_material[material_id]
             entries.append(
-                MaterialCoverageEntry(
+                MaterialCoverageCounted(
                     material_id=material_id,
                     label=spec.full_label(),
                     dtype=spec.dtype,
@@ -67,7 +80,6 @@ def build_material_coverage_report(counts: MaterialCoverageCounts, computed_at: 
                     missing_ratio=(missing / total) if total > 0 else None,
                     source=coverage.source,
                     missing_semantics=coverage.missing_semantics,
-                    excluded_reason=None,
                 )
             )
             continue
@@ -77,17 +89,8 @@ def build_material_coverage_report(counts: MaterialCoverageCounts, computed_at: 
                 f"材料 '{material_id}' はMATERIAL_COVERAGE_SPECS/MATERIAL_COVERAGE_EXCLUSIONSのどちらにも未登録"
             )
         entries.append(
-            MaterialCoverageEntry(
-                material_id=material_id,
-                label=spec.full_label(),
-                dtype=spec.dtype,
-                population=None,
-                total=None,
-                missing=None,
-                missing_ratio=None,
-                source="",
-                missing_semantics=None,
-                excluded_reason=excluded_reason,
+            MaterialCoverageExcluded(
+                material_id=material_id, label=spec.full_label(), dtype=spec.dtype, excluded_reason=excluded_reason
             )
         )
     return MaterialCoverageReport(

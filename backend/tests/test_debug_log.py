@@ -172,7 +172,7 @@ def test_a_successful_call_is_counted_without_any_warning(clock, warnings):
     stats = _external("cat")
     assert (stats["calls"], stats["errors"]) == (1, 0)
     assert stats["last_success_at"] is not None
-    assert stats["last_error_at"] is None
+    assert stats["last_error"] is None
     assert warnings.messages() == []
 
 
@@ -184,8 +184,7 @@ def test_an_exception_is_counted_warned_and_re_raised(clock, warnings):
     stats = _external("cat")
     assert (stats["calls"], stats["errors"]) == (1, 1)
     assert stats["error_types"] == {"ValueError": 1}
-    assert stats["last_error_type"] == "ValueError"
-    assert stats["last_error_at"] is not None
+    assert stats["last_error"] is not None and stats["last_error"]["type"] == "ValueError"
     assert len(warnings.messages()) == 1
 
 

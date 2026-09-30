@@ -255,7 +255,7 @@ URLも変わるため、ブラウザキャッシュ（`api/cache_policy.py`）�
 | フレームの照合 | 要素ごとに温めたフレームの`basetime`・`validtime`・`member`を持たせ、クライアントは3つが要求のタイルと一致するときだけ信用する。**1つの`basetime`に実況と複数の予測の`validtime`が載る**（降水ナウキャストの予測は最新の実況と同じ`basetime`、雷・竜巻も同様）ため、`basetime`だけで照合すると、実況で空だったタイルを予測のフレームでも取りに行かず、予測にだけある雨・雷が地図から消える。中身のあるタイルが1枚も無い要素（平常時の大半）も、照合のためフレームごと載る（座標は空） |
 | `coverage` | インデックスが網羅する地理範囲。**この外は在否が不明**のためクライアントは従来どおり取得する |
 | 未保存時 | `available: false`を返し、クライアントは従来どおり全タイルを取りに行く（インデックスが無いことで表示が欠けてはならない） |
-| 応答の型 | `JmaTileIndexResponse`（`api/routers/jma_tile.py`のPydanticモデル）。frontendは生成型をそのまま使い構造を手書きしない——組み立て（`_store_index`）と応答が別ファイルのため、構造の変更は「表示は正常なまま間引きだけが黙って効かなくなる」形でしか現れない |
+| 応答の型 | 在る／無いの共用体（`api/routers/jma_tile.py: JmaTileIndexAvailable`・`JmaTileIndexUnavailable`、`available`で判別）。frontendは生成型をそのまま使い構造を手書きしない——組み立て（`_store_index`）と応答が別ファイルのため、構造の変更は「表示は正常なまま間引きだけが黙って効かなくなる」形でしか現れない |
 
 **定期プリウォーム（`services/jma_tile_prewarm_service.py`）**: `main.py`のAPScheduler
 （アメダスと同じ`interval`トリガー、`jma_tile_prewarm_interval_minutes`＝10分、
@@ -293,7 +293,7 @@ URLも変わるため、ブラウザキャッシュ（`api/cache_policy.py`）�
 
 | メソッド | 用途 | 時刻 | 日次の値 |
 |---|---|---|---|
-| `get_conditions(point)` | `/api/weather`エンドポイント・`RoadGraphEngine`の起点判定 | 時系列の先頭（現在時刻の正時） | 同じJST暦日の残りの最大・最小。日の出/日没は`twilight.py`で計算 |
+| `get_conditions(point)` | `/api/weather`エンドポイント・`RoadGraphEngine`の起点判定 | 時系列の先頭（現在時刻の正時） | 同じJST暦日の残りの最大・最小。最低・最高気温は同じ系列から一緒に決まるため1つの任意の項目（`temperature_range`）で持ち、格子の欠損（NaN）を含めば丸ごとNone。日の出/日没は`twilight.py`で計算 |
 | `get_wind_forecast_lattice(bbox)` | `RoadGraphEngine`の探索前コスト合成（Edgeごとの通過予定時刻・最寄りの格子点の風）と、ルートを出す前の地図の風（`WindWayService`） | 範囲を覆う格子点ごとの時別風向・風速の系列（JST）。格子は緯度・経度0度から数えた固定の線に揃う。MSMから読む | 対象外 |
 | `get_wind_grid(points)` | 風グリッド・降水の格子の段の地図レイヤー | 予報期間ぶんの時系列。MSMから読む | 対象外 |
 
@@ -329,7 +329,7 @@ URLも変わるため、ブラウザキャッシュ（`api/cache_policy.py`）�
   `RAIN_HISTORY_MAX_AGE`より古い履歴を配らない——バッチが止まったまま古い雨量を今の値として塗らない・
   ルートの評価に使わないため。
 
-  日の出/日没（`sunrise`/`sunset`）はRedisへ保存せず、`get_nearest_observation`が
+  日の出・日没（`twilight`）はRedisへ保存せず、`get_nearest_observation`が
   クエリ地点（最寄り観測所ではなくリクエストの緯度経度そのもの）に対し都度
   `twilight.py: sunrise_sunset_jst`でローカル計算して埋め込む（地点依存のためバッチ
   時点では決定できない）。

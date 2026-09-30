@@ -1,12 +1,30 @@
 import math
 from collections import defaultdict
 
-from typing import Callable, Iterable, Mapping
+from typing import Annotated, Any, Callable, Iterable, Mapping
 
-from pydantic import Field
+from pydantic import Field, WithJsonSchema
 
-from app.domain.difficulty import distance_weighted_difficulty, weighted_mean_by_distance
+from app.domain.difficulty import OverallDifficulty, distance_weighted_difficulty, weighted_mean_by_distance
 from app.domain.strict_model import StrictModel
+
+
+# GeoJSONのLineString（座標は[経度, 緯度]）。契約には形を載せるが、検証はしない——数千点の座標を
+# 組み立てのたびにたどることになる。形は組み立てる側（`_concat_segment_geometries`・
+# `services/road_graph_engine.py: _concat_edge_geometries`等）が決める。
+LineStringGeometry = Annotated[
+    dict[str, Any],
+    WithJsonSchema(
+        {
+            "type": "object",
+            "properties": {
+                "type": {"const": "LineString", "type": "string"},
+                "coordinates": {"type": "array", "items": {"type": "array", "items": {"type": "number"}}},
+            },
+            "required": ["type", "coordinates"],
+        }
+    ),
+]
 
 
 class Coordinates(StrictModel):
@@ -17,7 +35,7 @@ class Coordinates(StrictModel):
 class RouteSegment(StrictModel):
     distance_km: float
     duration_minutes: float
-    geometry: dict
+    geometry: LineStringGeometry
 
 
 class SegmentWind(StrictModel):
@@ -45,7 +63,7 @@ class RouteSegmentDetail(StrictModel):
     部分列）。フロントはこれがnullの場合のみ始点・終点の直線で代替描画する。
     """
 
-    geometry: dict | None = None
+    geometry: LineStringGeometry | None = None
     start_latitude: float
     start_longitude: float
     end_latitude: float
@@ -73,9 +91,7 @@ class RouteSegmentDetail(StrictModel):
 class RouteCandidate(StrictModel):
     """1本のルート候補。
 
-    `overall_difficulty`はsegmentsの`difficulty`（絶対基準0-100）の距離加重平均で、
-    重み・条件が違う実験の間でも比較できる。生成の応答はこの値の昇順で候補を並べる。
-    segments欠損時・全区間difficulty欠損時はNone。
+    生成の応答は`overall_difficulty`の平均の昇順で候補を並べる。全区間のdifficultyが欠けていればNone。
 
     辞書フィールドは`RouteSegmentDetail`の同名フィールドを候補の全区間へ距離加重平均で
     集約したもので、「データ無しはキーを持たない」規約も引き継ぐ。
@@ -84,16 +100,12 @@ class RouteCandidate(StrictModel):
     id: str
     direction_label: str
     distance_km: float
-    geometry: dict
+    geometry: LineStringGeometry
     elevation_gain_m: float | None = None
     min_elevation_m: float | None = None
     max_elevation_m: float | None = None
-    segments: list[RouteSegmentDetail] | None = None
-    overall_difficulty: float | None = None
-    # 難易度の総量（`overall_difficulty` × 距離km）。平均は距離で正規化されるため
-    # 遠回りするほど下がるのに対し、総量は距離が伸びればそのまま増える。候補の順位付けには
-    # 使わず、「長い分だけ疲れる」を平均と併せて読み取るための判断材料として持つ。
-    difficulty_load: float | None = None
+    segments: list[RouteSegmentDetail] = Field(default_factory=list)
+    overall_difficulty: OverallDifficulty | None = None
     # 所要時間の見積もり（秒）。区間の走行時間（走行モデル: 巡航速度・勾配・風から求めた
     # 速度）＋停止の待ち＋ターンの待ち。経路の選び方には使っておらず、表示のためだけに持つ。
     estimated_duration_seconds: float | None = None

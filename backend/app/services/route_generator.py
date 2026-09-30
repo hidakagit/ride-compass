@@ -16,7 +16,7 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from app.domain.difficulty import difficulty_load, distance_weighted_difficulty
+from app.domain.difficulty import overall_difficulty
 from app.domain.errors import RoutingError, SearchAreaTooLargeError
 from app.domain.loop_routing import TracedLoop
 
@@ -75,11 +75,7 @@ def turnaround_pool_size(max_routes: int) -> int:
 #: 並び順・id等を読まないため、呼び出し側がそれらを付ける前でも後でも結果は変わらない。
 SEGMENT_AGGREGATES: dict[str, Callable[[list[Any]], Any]] = {
     # ルート単位の絶対基準。エンジン非依存のため、engine実装側には持たせない。
-    "overall_difficulty": lambda segments: distance_weighted_difficulty(
-        [(s.difficulty, s.distance_km) for s in segments]),
-    # 難易度の総量。並び順には使わず、「遠回りした分だけ増える」量として平均と併せて示す。
-    "difficulty_load": lambda segments: difficulty_load(
-        [(s.difficulty, s.distance_km) for s in segments]),
+    "overall_difficulty": lambda segments: overall_difficulty([(s.difficulty, s.distance_km) for s in segments]),
     "axis_difficulties": merge_axis_difficulties,
     # 軸単体で経路を判断するための絶対値。
     "axis_raw_values": merge_axis_raw_values,
@@ -97,7 +93,7 @@ def _difficulty_order(candidate: RouteCandidate) -> float:
     最も易しい候補という契約で配る。算出不能の候補は末尾へ回す。"""
     if candidate.overall_difficulty is None:
         return float("inf")
-    return round(candidate.overall_difficulty, 1)
+    return round(candidate.overall_difficulty.average, 1)
 
 
 class RouteGenerator:

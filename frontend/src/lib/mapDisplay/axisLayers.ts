@@ -70,7 +70,7 @@ export function rampAxesFromCatalogAxes(
     .map((axis) => ({
       ...catalogAxisFromEntry(axis),
       category: axis.display.category,
-      tileInputs: (axis.display.tile_inputs ?? []).map((input) => ({
+      tileInputs: axis.display.tile_inputs.map((input) => ({
         property: input.property,
         ...(input.needs_runtime_scale
           ? Object.hasOwn(runtimeScales, input.property)
@@ -84,7 +84,7 @@ export function rampAxesFromCatalogAxes(
         categories: input.categories ?? undefined,
         breakpoints: input.breakpoints ?? undefined,
       })),
-      thresholds: axis.display.thresholds ?? [],
+      thresholds: axis.display.thresholds,
       bandLabelsOverride: axis.display_band_labels_override ?? undefined,
     }));
 }
@@ -121,7 +121,7 @@ export function dedicatedWayValueAxesFromCatalogAxes(axes: readonly AxisCatalogE
       needsBearing: axis.dynamic_way_value_needs_bearing,
       needsSpeed: axis.dynamic_way_value_needs_speed,
       display: {
-        kind: axis.map_value_kind,
+        kind: axis.map_value.kind,
         unit: axis.map_value_unit,
         boundaries: axis.map_value_thresholds ?? undefined,
         bandLabels: axis.display_band_labels_override ?? undefined,

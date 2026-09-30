@@ -7,11 +7,10 @@ import { catalogEntry } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
 // 色分けの組み立てが分岐する3つの形。**その分岐を起こす性質だけ**を載せる
 // （軸idは軸スタジオでユーザーが決める任意の値なので、実物の名前を当てにしない）。
 const signedAxis = catalogEntry({
-  map_value_kind: "signed_material",
+  map_value: { kind: "signed_material", material: "signed_value" },
   map_value_thresholds: [-8, -4, 4, 8],
-  map_value_material: "signed_value",
 });
-const difficultyAxis = catalogEntry({ map_value_kind: "difficulty" });
+const difficultyAxis = catalogEntry({ map_value: { kind: "difficulty" } });
 const categoricalAxis = catalogEntry({
   shape: { kind: "categorical", material: "surface", mapping: { asphalt: 100 } },
 });
@@ -29,8 +28,7 @@ describe("routeStyleModes", () => {
 
   // 改善計画T466: id未検出時のmodes[0]無警告フォールバックへ警告ログを追加した回帰テスト。
 
-  it('gradient(map_value_kind==="signed_material")はgradient_percentを符号付きのまま直接読む——軸idのハードコード分岐ではなくbackendの宣言で判定する', () => {
-    expect(signedAxis.map_value_kind).toBe("signed_material");
+  it("符号付き材料を塗る軸は、backendが名指す材料を符号付きのまま直接読む——軸idのハードコード分岐ではなくbackendの宣言で判定する", () => {
     const mode = modeFor(signedAxis);
     expect(mode.id).toBe(signedAxis.axis_id);
     expect(mode.colorExpression[1]).toEqual(["==", ["get", "signed_value", ["get", "material_values"]], null]);
@@ -47,8 +45,7 @@ describe("routeStyleModes", () => {
     expect(mode.legend.map((e) => e.label)).toEqual(["0未満", "0〜5", "5以上", "データなし"]);
   });
 
-  it('windはmap_value_kind==="difficulty"のため難易度経路を使う（axis_difficulties経由）', () => {
-    expect(difficultyAxis.map_value_kind).toBe("difficulty");
+  it("難易度を塗る軸は難易度経路を使う（axis_difficulties経由）", () => {
     const wind = modeFor(difficultyAxis);
     expect(wind.id).toBe(difficultyAxis.axis_id);
     expect(wind.label).toBe(`${difficultyAxis.label}の影響`);

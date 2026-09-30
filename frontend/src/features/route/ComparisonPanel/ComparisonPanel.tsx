@@ -59,7 +59,7 @@ function buildMaterialValueRows(slots: ExperimentSlot[], materials: readonly Axi
 // 全軸を合成した総合難易度。軸には紐づかないので、表の末尾へ固定する。
 const OVERALL_DIFFICULTY_ROW: MetricRow = {
   label: "総合難易度[絶対基準]",
-  format: (s) => (s.topCandidate.overall_difficulty != null ? `${s.topCandidate.overall_difficulty.toFixed(1)}` : "—"),
+  format: (s) => s.topCandidate.overall_difficulty?.average.toFixed(1) ?? "—",
 };
 
 // 軸ごとの難易度（0〜100の距離加重平均）の行。どれかの回が値を持つ軸だけ、カタログの並びで。

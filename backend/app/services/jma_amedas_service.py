@@ -27,6 +27,7 @@ from app.domain.geo import LatLonPoint, haversine_distance_km
 from app.domain.jma_amedas import (
     AmedasObservation,
     apparent_temperature_from_amedas,
+    WindDirection,
     wind_direction_from_jma_code,
 )
 from app.domain.route import Coordinates
@@ -98,8 +99,7 @@ class JmaAmedasService:
         # 日の出/日没は最寄り観測所ではなく**クエリ地点**に対して計算する（観測所境界
         # 付近でのズレを避ける）。外部への問い合わせを伴わないため都度計算でよい。
         today = datetime.now(JST).date()
-        sunrise, sunset = sunrise_sunset_jst(point, today)
-        return observation.model_copy(update={"sunrise": sunrise, "sunset": sunset})
+        return observation.model_copy(update={"twilight": sunrise_sunset_jst(point, today)})
 
     async def _get_from_redis(self, station_id: str) -> AmedasObservation | None:
         if not redis_available():
@@ -141,13 +141,11 @@ class JmaAmedasService:
             temperature_c=_optional_float(fields.get("temperature_c")),
             apparent_temperature_c=_optional_float(fields.get("apparent_temperature_c")),
             wind_speed_ms=_optional_float(fields.get("wind_speed_ms")),
-            wind_direction_deg=_optional_float(fields.get("wind_direction_deg")),
-            wind_direction_label=fields.get("wind_direction_label") or None,
+            wind_direction=_wind_direction_from_fields(fields),
             precipitation_10min_mm=_optional_float(fields.get("precipitation_10min_mm")),
             sunshine_10min_minutes=_optional_float(fields.get("sunshine_10min_minutes")),
-            # sunrise/sunsetはクエリ地点依存のためRedisに無く、呼び出し側が後から埋める。
-            sunrise=None,
-            sunset=None,
+            # 日の出・日没はクエリ地点依存のためRedisに無く、呼び出し側が後から埋める。
+            twilight=None,
         )
 
     async def refresh_all_stations(self) -> int:
@@ -264,8 +262,10 @@ class JmaAmedasService:
                         "temperature_c": _redis_value(observation.temperature_c),
                         "apparent_temperature_c": _redis_value(observation.apparent_temperature_c),
                         "wind_speed_ms": _redis_value(observation.wind_speed_ms),
-                        "wind_direction_deg": _redis_value(observation.wind_direction_deg),
-                        "wind_direction_label": observation.wind_direction_label or "",
+                        "wind_direction_deg": _redis_value(
+                            None if observation.wind_direction is None else observation.wind_direction.deg
+                        ),
+                        "wind_direction_label": "" if observation.wind_direction is None else observation.wind_direction.label,
                         "precipitation_10min_mm": _redis_value(observation.precipitation_10min_mm),
                         "sunshine_10min_minutes": _redis_value(observation.sunshine_10min_minutes),
                     },
@@ -280,7 +280,6 @@ class JmaAmedasService:
 
 
 def _observation(station_id: str, station: AmedasStation, reading: AmedasReading, observed_at: str) -> AmedasObservation:
-    wind_direction_deg, wind_direction_label = wind_direction_from_jma_code(reading.wind_direction_code) or (None, None)
     return AmedasObservation(
         station_id=station_id,
         station_name=station.name,
@@ -292,13 +291,11 @@ def _observation(station_id: str, station: AmedasStation, reading: AmedasReading
             reading.temperature_c, reading.humidity_percent, reading.wind_speed_ms
         ),
         wind_speed_ms=reading.wind_speed_ms,
-        wind_direction_deg=wind_direction_deg,
-        wind_direction_label=wind_direction_label,
+        wind_direction=wind_direction_from_jma_code(reading.wind_direction_code),
         precipitation_10min_mm=reading.precipitation_10min_mm,
         sunshine_10min_minutes=reading.sunshine_10min_minutes,
         # クエリ地点依存のためバッチ時点では決められない。
-        sunrise=None,
-        sunset=None,
+        twilight=None,
     )
 
 
@@ -308,6 +305,12 @@ def _redis_value(value: float | None) -> str:
 
 def _optional_float(value: str | None) -> float | None:
     return None if not value else float(value)
+
+
+def _wind_direction_from_fields(fields: dict) -> WindDirection | None:
+    """角度とラベルは同じ観測から一緒に書かれるため、角度があればラベルもある。"""
+    deg = _optional_float(fields.get("wind_direction_deg"))
+    return None if deg is None else WindDirection(deg=deg, label=fields["wind_direction_label"])
 
 
 def _hour_key(hour: datetime) -> str:
