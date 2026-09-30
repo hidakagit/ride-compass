@@ -4,7 +4,6 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from app.api.dependencies import (
-    enforce_rate_limit,
     get_amedas_service,
     get_flood_service,
     get_ingested_area,
@@ -12,6 +11,7 @@ from app.api.dependencies import (
     get_wbgt_service,
     get_weather_service,
 )
+from app.api.rate_limit import enforce_rate_limit
 from app.config import settings
 from app.domain.jma_amedas import AmedasObservation
 from app.domain.region import BoundingBox

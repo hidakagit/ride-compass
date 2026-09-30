@@ -27,9 +27,13 @@ CI・フック・開発環境の用意のスクリプト）。
 
 - **`api/`**: HTTPの境界。持つのは、エンドポイントの入出力（パス・クエリ・ステータス・ヘッダー）、
   管理APIの認可、レート制限、`Cache-Control`、HTTPの経路が使う部品の組み立て（DI工場）。
-  `routers/`がエンドポイント、`dependencies.py`がDI工場とレート制限、`admin_auth.py`が管理APIの
+  `routers/`がエンドポイント、`dependencies.py`がDI工場、`rate_limit.py`がレート制限、`admin_auth.py`が管理APIの
   認可境界、`cache_policy.py`が`Cache-Control`を一元管理する。タイル系エンドポイントが共有する
   座標検証と応答組み立ては`_tile_http.py`。
+  - **`dependencies.py`の公開関数は注入の口だけ**。`app`配下のどこかで`Depends(...)`の引数になるか、
+    `main.py`が起動時に呼ぶものに限る。ルーターが普通の関数として呼ぶものは、部品を束ねる・判断を持つなら
+    `services/`、DI工場でないHTTPの共通処理（レート制限等）なら`api/`の別モジュールへ置く。
+    `backend/tests/structure/test_dependency_factories.py`が落とす。
   - **組み立てるものが無い素通しは、`services/`を挟まず`infrastructure/`を直接呼んでよい**
     （例: 外部の地図タイルの中継・稼働状態の読み出し・管理用の操作）。判断を持たない中継役を
     `services/`へ置いても、読む場所が1つ増えるだけで守るものが無い。複数の部品を束ねる・

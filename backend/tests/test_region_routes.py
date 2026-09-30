@@ -5,7 +5,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api import dependencies
-from app.api.dependencies import get_dedicated_way_value_service, get_region_service
+from app.api.dependencies import (
+    get_dedicated_way_value_service,
+    get_directional_material_service,
+    get_region_service,
+)
 from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisDefinition, BreakpointLinearShape, MaterialTerm
 from app.config import settings
 from app.domain.axis_inspector import AxisInspectorAxis, AxisInspectorResult, InspectorComposite
@@ -237,7 +241,7 @@ def test_region_axis_inspector_returns_null_when_service_returns_none():
     assert response.json() is None
 
 
-def test_region_axis_inspector_passes_the_maps_direction_and_time_through(monkeypatch):
+def test_region_axis_inspector_passes_the_maps_direction_and_time_through():
     """地図が指定している走行方位・時刻・想定速度が、方向依存の材料を引く側まで届く。
 
     届かないと、1本の道が往復2方向で違う値を持つ材料（勾配・風）を算出できず、地図が
@@ -247,13 +251,12 @@ def test_region_axis_inspector_passes_the_maps_direction_and_time_through(monkey
     app.dependency_overrides[get_region_service] = lambda: fake
     seen = {}
 
-    async def fake_directional_materials(*args):
-        seen["args"] = args
-        return {"some_material": 4.2}
+    class FakeDirectionalMaterialService:
+        async def materials(self, *args):
+            seen["args"] = args
+            return {"some_material": 4.2}
 
-    monkeypatch.setattr(
-        "app.api.routers.region.directional_materials", fake_directional_materials
-    )
+    app.dependency_overrides[get_directional_material_service] = lambda: FakeDirectionalMaterialService()
     try:
         response = client.post(
             "/api/region/axis-inspector",

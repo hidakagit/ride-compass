@@ -1,7 +1,7 @@
 """`infrastructure/rate_limiter.py`——プロセス内の移動窓レート制限。
 
 ここで見ないもの:
-- 超過をHTTPの429へ翻訳する層とキーの組み立て → `api/dependencies.py`を通る各ルーターのテスト
+- 超過をHTTPの429へ翻訳する層とキーの組み立て → `api/rate_limit.py`を通る各ルーターのテスト
 - レート制限のキーになるクライアントidの決め方 → `test_client_ip_behind_proxy.py`
 - 来なくなった接続元の記録が消えること → cachetoolsの`TTLCache`が持つ（期限は窓の長さ）。
   記録の中身は入口の結果に現れないので見ない

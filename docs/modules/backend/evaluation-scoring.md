@@ -444,7 +444,7 @@ way粒度で引くときは、同じ式のまま`w`の行から同じ名前の�
 算出する。材料値は`RoadGraphRepository.get_way_material_values`が返したものをそのまま受け
 取り、この関数は合成だけを行う。進行方向に依存する材料（勾配%・風ペナルティ）は
 **1本の道が往復2方向で違う値を持つ**ためDBのway単位の値には無く、走行方位・時刻・想定速度を
-指定して呼び出し側（`api/dependencies.py: directional_materials`）が引いたものを
+指定して呼び出し側（`services/dedicated_way_values.py: DirectionalMaterialService`）が引いたものを
 `materials`へ足して渡す。足されなければその軸の`difficulty`はNoneになる。合成
 （`composite_difficulty`）は値と`covered_weight_fraction`（全軸の重み合計に対する取得できた軸の
 重み合計の割合）を1つの任意の項目で持ち、取得できた軸が無ければNone。割合はフロントの

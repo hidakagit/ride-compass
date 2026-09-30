@@ -9,7 +9,7 @@
 別に持つ（`transform_dedicated_way_values`が軸定義の評価へ渡す先）。
 
 軸→サービス実装本体の対応は、軸が参照する材料とサービスの`material_id`の突き合わせで
-決まる（`api/dependencies.py: _DEDICATED_WAY_VALUE_SERVICES`）。材料ごとの計算ロジック
+決まる（`services/dedicated_way_values.py: _DEDICATED_WAY_VALUE_SERVICES`）。材料ごとの計算ロジック
 自体は宣言的に導出できないPythonコードのまま残る。
 """
 
@@ -81,7 +81,7 @@ def dedicated_way_value_axes() -> dict[str, DedicatedWayValueAxis]:
     反映される。
 
     配信できる値があるかは別で、軸が参照する材料の値を組み立てるサービス本体が
-    `api/dependencies.py`の`_DEDICATED_WAY_VALUE_SERVICES`に登録されている必要がある
+    `services/dedicated_way_values.py`の`_DEDICATED_WAY_VALUE_SERVICES`に登録されている必要がある
     （材料ごとに1回のコード変更。軸を増やすたびには要らない）。登録の無い材料だけを
     参照する軸へこのフラグを立てることは書き込み時に拒否される
     （`axis_admin.py: _check_dedicated_layer_is_implemented`）。

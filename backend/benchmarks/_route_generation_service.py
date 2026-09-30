@@ -1,6 +1,6 @@
 """実DB接続が必要な`RouteGenerator`の実測ベンチマークが共有する前準備。
 
-エンジンの組み立ては本番と同じ`api/dependencies.py: open_route_generation_setup`を使う。
+エンジンの組み立ては本番と同じ`api/dependencies.py: get_route_generation_setup_opener`を使う。
 HTTPの経路に無い起動時の読み込み（軸定義）だけをここが持つ。
 """
 

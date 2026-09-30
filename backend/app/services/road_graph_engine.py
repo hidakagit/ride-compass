@@ -274,7 +274,7 @@ class _TurnaroundData:
 
 class RoadGraphEngine:
     """評価条件は解決済みの値だけを受け取る（既定を持たない）。組み立ては
-    `api/dependencies.py: assemble_route_generation_setup`だけが行う。"""
+    `services/route_generation_setup.py: assemble_route_generation_setup`だけが行う。"""
 
     def __init__(
         self,

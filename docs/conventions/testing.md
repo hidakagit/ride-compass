@@ -879,9 +879,9 @@ def test_xxx_is_rate_limited_per_client():
     assert response.status_code == 429
 ```
 
-`TestClient`の接続元`client_id`は常に`"testclient"`（`app/api/dependencies.py: client_id`参照、
-`test_client_ip_behind_proxy.py`で検証済み）。キーのprefixは各routerの
-`check_rate_limit(f"{prefix}:{client_id(request)}", ...)`呼び出しに合わせる。
+`TestClient`の接続元`client_id`は常に`"testclient"`（`app/api/rate_limit.py: client_id`参照、
+`test_client_ip_behind_proxy.py`で検証済み）。キーは`f"{prefix}:{client_id(request)}"`で、prefixは各routerが
+`enforce_rate_limit`へ渡すものに合わせる。
 
 **テストは回数0から始まる。** 回数制限が読む時計は`conftest.py`が止めた時計へ替えてあり、
 autouseの`rate_limit_clock`がテストごとに1窓ぶん進めて前のテストの回数を窓の外へ出す。

@@ -7,7 +7,7 @@
 
 import pytest
 
-from app.api.dependencies import _DEDICATED_WAY_VALUE_SERVICE_FACTORIES, _factories_by_material
+from app.services.dedicated_way_values import _DEDICATED_WAY_VALUE_SERVICE_FACTORIES, _factories_by_material
 from app.domain.material_catalog import is_known_material
 from app.services.weather_service import WeatherService
 

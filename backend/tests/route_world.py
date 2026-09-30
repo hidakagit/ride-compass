@@ -1,7 +1,7 @@
 """ルート生成を公開の入口から確かめるテストが共有する、小さな道路網とその渡し口。
 
 3×3の格子（1辺約1km）を`RoadNetwork`で組み、プロセス境界（DB・道路網の置き場・天気の予報ファイル）だけを代役にして、
-本物の`GraphService`・エンジンの組み立て（`api/dependencies.py: assemble_route_generation_setup`）・戦略層を通す。
+本物の`GraphService`・エンジンの組み立て（`services/route_generation_setup.py: assemble_route_generation_setup`）・戦略層を通す。
 
 使う側: `test_route_generation_behavior.py`（戦略層の入口）・`test_routes_generate.py`（HTTPの入口）・
 `test_routing.py`（生成の経路がPythonから呼ぶJIT）。
@@ -12,7 +12,7 @@ from dataclasses import replace
 
 import numpy as np
 
-from app.api.dependencies import assemble_route_generation_setup
+from app.services.route_generation_setup import assemble_route_generation_setup
 from app.domain.geo import bearing_between, haversine_distance_km
 from app.domain.graph import node_key
 from app.domain.hard_filters import hard_filter_columns
