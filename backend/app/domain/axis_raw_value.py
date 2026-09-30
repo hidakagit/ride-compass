@@ -145,8 +145,7 @@ def displayed_material_ids(weights: Mapping[str, float], lens_axis_id: str | Non
             continue
         material_ids.update(m for m in definition.materials if is_known_material(m))
         # 軸参照を辿った先の材料（合成軸の内訳、`axis_material_shares`）。
-        # `definition.materials`は1段しか見ないため、これが無いと車の圧迫感のように
-        # 内部軸を経由する軸の内訳が1件も運ばれない。
+        # `definition.materials`は1段しか見ないため、これが無いと内部軸を経由する軸の内訳が1件も運ばれない。
         material_ids.update(entry.material_id for entry in axis_material_shares(definition))
     if lens_axis_id is not None:
         lens_definition = AXIS_DEFINITIONS.get(lens_axis_id)

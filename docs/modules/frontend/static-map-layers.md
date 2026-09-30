@@ -453,7 +453,7 @@ ramp軸[`dataNature==="composite"`]）はチップの一覧（`features/map/view
 **束ねる前に1か所で**除く（地図上チップのどこにも出さない。表示はレンズが持つ）。
 
 **暗黙の前提**: `mapOverlayGroupFor`は`category`しか見ないので、軸スタジオ由来のレイヤーを渡すと
-グループへ紛れ込む（例: `car_stress`の`category="trafficSafety"`は`accidents`等と同じ値）。
+グループへ紛れ込む（例: ramp軸の`category`は既定の`"trafficSafety"`[`domain/registry.py: AxisDisplaySpec.category`]で、`accidents`等と同じ値）。
 チップの一覧を通さずにレイヤーを束ねる場所を作るなら、同じ除外を先に通す。
 
 グループは表示上のまとまりだけを表し、**どのレイヤーも複数同時にONにできる**。重なって

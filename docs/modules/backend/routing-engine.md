@@ -886,7 +886,7 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
 
 #### 派生delivery系クエリ（wind/gradient/road surface/POI）
 
-`_ROAD_SURFACE_TILE_MVT_SQL`（路面・道路種別・車ストレス材料タグ等をPostGIS側で
+`_ROAD_SURFACE_TILE_MVT_SQL`（路面・道路種別・制限速度等の材料タグをPostGIS側で
 ST_AsMVT丸ごと生成）・`_FEATURE_MIDPOINTS_IN_TILE_SQL`（wind、道路自身の方位角は使わず鍵ごとに
 中ほど＝両端の平均の緯度経度を返す。区間の中ほどは探索の`mid_lat`/`mid_lon`と同じ点）・`_FEATURE_GRADIENT_INPUTS_IN_TILE_SQL`（gradient。そのフィーチャーに属する
 区間の値を長さで重み付けて平均する——区間単位のズームでは区間1本の値そのもの、way単位の
