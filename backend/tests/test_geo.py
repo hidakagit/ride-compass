@@ -106,6 +106,11 @@ def test_distances_along_great_circles_are_fractions_of_the_circumference(a, b, 
     assert geo.haversine_distance_km(a, b) == pytest.approx(circumference * fraction_of_a_turn)
 
 
+def test_a_degree_along_the_equator_is_about_111_km():
+    # 地球を平均半径6371kmの球とみなしたときの値。半径や単位（km）を取り違えると外れる
+    assert geo.haversine_distance_km(P(0.0, 139.0), P(0.0, 140.0)) == pytest.approx(111.195, abs=0.001)
+
+
 def test_the_rough_length_of_a_degree_of_latitude_is_close_to_the_true_one():
     # 目安の用途（索引の区切り・打ち切り）の値が、正確な距離から1%以上ずれていない
     true_length = geo.haversine_distance_km(P(0.0, 0.0), P(1.0, 0.0))

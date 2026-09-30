@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 
+import geoExpectations from "@/types/generated/geo-expectations.json";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 
 import { cardinalLabel } from "./cardinalLabel";
@@ -15,15 +16,11 @@ describe("cardinalLabel", () => {
     LABELS.forEach((label, i) => expect(cardinalLabel(i * SECTOR)).toBe(label));
   });
 
-  it("境界はbackendと同じ四捨五入（ちょうど半分は次の方位）", () => {
-    expect(cardinalLabel(SECTOR / 2 - 0.1)).toBe(LABELS[0]);
-    expect(cardinalLabel(SECTOR / 2)).toBe(LABELS[1]);
-    expect(cardinalLabel(360 - SECTOR / 2)).toBe(LABELS[0]);
-  });
-
-  it("負の角度・360度以上は一周の中へ畳む", () => {
-    expect(cardinalLabel(-SECTOR)).toBe(LABELS.at(-1));
-    expect(cardinalLabel(360 + SECTOR)).toBe(LABELS[1]);
-    expect(cardinalLabel(360)).toBe(LABELS[0]);
+  it("backendの表（区分の境界・負の角度・一周を超える角度）と同じ呼び名", () => {
+    const rows = geoExpectations.compass_label;
+    expect(rows.length).toBeGreaterThan(0);
+    for (const { bearing_deg, label } of rows) {
+      expect(cardinalLabel(bearing_deg), `${bearing_deg}度`).toBe(label);
+    }
   });
 });

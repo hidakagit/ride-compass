@@ -59,9 +59,9 @@ COMPASS_LABELS = SIXTEEN_POINT_LABELS[::2]
 def compass_label(bearing_deg: float) -> str:
     """任意の角度（0=北、時計回り）を方位の呼び名に変換する。区分の幅は呼び名の数から決まる。
 
-    区分の境界は上の区分へ倒す（half-up）。組み込みの`round`は偶数丸めのため使わない——
-    画面側も同じhalf-upで丸めており、規則が違うと境界だけラベルが食い違う（呼び名の並びは
-    生成物で配るので、そこはずれない）。
+    区分の境界は上の区分へ倒す（half-up）。組み込みの`round`は偶数丸めのため使わない。
+    画面も同じ角度を名付けるので、境界を含む入力とこの関数の答えを
+    `scripts/cross_language_expectations.py: geo_expectations`が表にして配り、画面のテストが通す。
     """
     count = len(COMPASS_LABELS)
     index = math.floor((bearing_deg % 360) / (360 / count) + 0.5) % count
