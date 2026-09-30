@@ -365,10 +365,10 @@ NULLの意味は列によって違う。「まだ計算していない」と「�
 
 戻り値は`TileResponse`（本体＋`cacheable`）で、**取得不可の2種類を区別する**。
 
-| 取得不可の理由 | `fields["postgis"]` | `cacheable` | 応答の`Cache-Control` |
+| 取得不可の理由 | `fetch_tile`が記録するもの | `cacheable` | 応答の`Cache-Control` |
 |---|---|---|---|
-| 取込範囲外（恒久的にデータが無い） | `"uncovered"` | True | `BATCH_TILE`（1時間） |
-| DB障害・混雑（一時的） | `"error"` | **False** | **`no-store`**（ルーターが明示） |
+| 取込範囲外（恒久的にデータが無い） | なし（失敗ではない） | True | `BATCH_TILE`（1時間） |
+| DB障害・混雑（一時的） | `debug_log.py: mark_failed`で失敗 | **False** | **`no-store`**（ルーターが明示） |
 
 一時的な失敗で返した空タイルを長期キャッシュさせると、サーバーが回復した後も利用者の
 ブラウザにはその区画の空白が残り続ける。サーバー側ファイルキャッシュには書かないため

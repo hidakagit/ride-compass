@@ -1,15 +1,11 @@
-import logging
-
 from app.domain.region import tile_bounds_lonlat
 from app.infrastructure.accident_repository import ACCIDENT_TILE_SHAPE, AccidentTileQuery
 from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
+from app.infrastructure.debug_log import mark_failed
 from app.infrastructure.vector_tile import encode_empty_accident_tile
 from app.services import derived_data_revision_service
 from app.services.tile_serving import MVT_CONTENT_TYPE, TileResponse, serve_cached_tile
 from app.services.tile_version_service import served_tile_version
-
-logger = logging.getLogger("ridecompass.accident")
-
 
 class AccidentService:
     """警察庁交通事故統計データをXYZベクタタイルとして配る。
@@ -27,9 +23,7 @@ class AccidentService:
             try:
                 tile_bytes = await self._repository.get_accident_tile_mvt(z, x, y, tile_bounds_lonlat(z, x, y))
             except DB_UNAVAILABLE_ERRORS as exc:
-                logger.warning("事故タイルのPostGIS読み取りに失敗 z=%d x=%d y=%d error=%r", z, x, y, exc)
-                fields["postgis"] = "error"
-                fields["postgis_error"] = repr(exc)
+                mark_failed(fields, exc)
                 return None
             fields["postgis"] = "hit"
             return tile_bytes

@@ -211,16 +211,6 @@ def test_a_caught_exception_is_counted_by_type_and_warned_once_with_the_callers_
     assert "db down" in message
 
 
-def test_the_callers_own_error_type_survives_the_exception_path(clock, warnings):
-    """例外の種別で上書きすると、クライアントが分類した`http_429`等が`HTTPStatusError`一色になる。"""
-    with pytest.raises(ValueError):
-        with debug_log.log_external_call("cat") as fields:
-            fields["error_type"] = "http_429"
-            raise ValueError("boom")
-
-    assert _external("cat")["error_types"] == {"http_429": 1}
-
-
 def test_an_unclassified_failure_is_counted_as_unknown(clock, warnings):
     with debug_log.log_external_call("cat") as fields:
         fields["result"] = "error"

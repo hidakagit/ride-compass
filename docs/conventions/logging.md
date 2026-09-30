@@ -48,13 +48,15 @@ RideCompassのログはRender（本番）のログストリームだけで障害
   （対象のタイル・ID等）と例外を添えて出る。独自のWARNINGを書き足さない——対象を示す値は
   `log_external_call`へ渡す`fields`に入れれば警告に載る。捕まえずに送り出す例外は何も書かなくてよい
   （`log_external_call`が同じことをする）。
-- 呼び出しの失敗ではない劣化（入力の時刻が予報の範囲外・観測の履歴が古い等）を知らせる警告は
-  `debug_log.py: log_throttled_warning`で出す。**`logger.warning`を直接書かない**——タイル単位の口は
-  地図の1画面ぶんのタイルが同時に当たるため、抑制の無い警告は1回の表示で数十行になる。
+- **タイル単位の口**（タイル1枚ごとに呼ばれる処理と、そこから呼ばれるキャッシュ等の下の層）では、
+  呼び出しの失敗ではない劣化（入力の時刻が予報の範囲外・キャッシュを読めず取り直す・補間できない等）を
+  知らせる警告を`debug_log.py: log_throttled_warning`で出し、`logger.warning`を直接書かない——地図の
+  1画面ぶんのタイルが同時に当たるため、抑制の無い警告は1回の表示で数十行になる。1回の操作で1度しか
+  通らない口（ルート生成・定期の同期・起動時の確認等）は、この限りでない。
 - **例外（`log_external_call`を使わないキャッシュ）**: `infrastructure/detour_ratio_cache.py`
   （プロセス内メモリのみのLRU）は、外部I/O自体を持たず失敗しうる経路が無いため対象外。
-  `tile_persistent_cache.py`（ディスクI/O、失敗しうる）は`log_external_call`を経由せず専用loggerで
-  直接「成功DEBUG・失敗WARNING常時」の同じ方針を実装している——`dynamic_way_value_cache.py`を
+  `tile_persistent_cache.py`（ディスクI/O、失敗しうる）は`log_external_call`を経由せず、成功を専用loggerの
+  DEBUG、失敗を`log_throttled_warning`で出す——`dynamic_way_value_cache.py`を
   読む配信サービス（`gradient_way_service.py`等）が`log_external_call`で囲み、そちらがhit/missを
   数えるため、下の層で二重に数えない。
 

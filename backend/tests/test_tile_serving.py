@@ -14,6 +14,7 @@ import threading
 
 import pytest
 
+from app.infrastructure.debug_log import mark_failed
 from app.services import tile_serving
 from tests.bound_fake import bound
 from tests.fake_tile_cache import FakeTileCache
@@ -45,12 +46,13 @@ def records(monkeypatch):
     return calls
 
 
-def _fetch(result, fields_to_set=None):
+def _fetch(result, failure=None):
     calls: list[dict] = []
 
     async def fetch(fields):
         calls.append(fields)
-        fields.update(fields_to_set or {})
+        if failure is not None:
+            mark_failed(fields, failure)
         return result
 
     return fetch, calls
@@ -120,14 +122,14 @@ async def test_a_tile_made_without_knowing_its_generation_is_not_stored(cache, r
 
 
 @pytest.mark.parametrize(
-    ("fields_to_set", "cacheable"),
+    ("failure", "cacheable"),
     [
-        ({}, True),  # 範囲外で恒久的に無い
-        ({"postgis": "error"}, False),  # 一時的に取れなかった——ブラウザに空白を残さない
+        (None, True),  # 範囲外で恒久的に無い
+        (ConnectionRefusedError("db down"), False),  # 一時的に取れなかった——ブラウザに空白を残さない
     ],
 )
-async def test_a_tile_that_cannot_be_made_is_the_empty_tile_and_is_not_stored(cache, records, fields_to_set, cacheable):
-    fetch, _ = _fetch(None, fields_to_set)
+async def test_a_tile_that_cannot_be_made_is_the_empty_tile_and_is_not_stored(cache, records, failure, cacheable):
+    fetch, _ = _fetch(None, failure)
 
     response = await _serve(fetch)
 

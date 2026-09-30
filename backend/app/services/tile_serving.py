@@ -49,7 +49,7 @@ async def serve_cached_tile(
 ) -> TileResponse:
     """キャッシュにあればそれを、無ければ`fetch_tile`で作ったものを返す。
 
-    取得不可が一時的な失敗（`fetch_tile`が`fields["postgis"] = "error"`を立てた場合）
+    取得不可が一時的な失敗（`fetch_tile`が`debug_log.py: mark_failed`で失敗を記録した場合）
     だったときは`cacheable=False`で返す。呼び出し元のルーターはこれを見て
     `Cache-Control: no-store`を明示する（`TileResponse`のdocstring参照）。
 
@@ -68,7 +68,7 @@ async def serve_cached_tile(
         tile_bytes = await fetch_tile(fields)
         if tile_bytes is None:
             fields["source"] = "uncovered_empty"
-            return TileResponse(empty_tile, cacheable=fields.get("postgis") != "error")
+            return TileResponse(empty_tile, cacheable=fields.get("result") != "error")
 
         # どこから作ったか（`source_label`）はタイル種別で違う。/api/debug/statsの内訳が
         # 実際の取得元と食い違わないよう、呼び出し元が名乗る。

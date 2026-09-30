@@ -207,10 +207,7 @@ def log_external_call(category: str, **fields: object) -> Iterator[dict]:
         yield fields
     except Exception as exc:
         elapsed_ms = round((time.monotonic() - started) * 1000)
-        # 呼び出し元が自前でfields["error_type"]を設定済み（例外を握りつぶしてNoneを返す
-        # 系のクライアント）ならそれを優先する。ここまで伝播してきた例外（RoutingError等）は
-        # ここで初めて分類する。
-        fields.setdefault("error_type", error_type_label(exc))
+        fields["error_type"] = error_type_label(exc)
         _record(category, elapsed_ms, fields, error=True)
         _throttled_warning(
             category, "[%s] error after %dms %s error=%r", category, elapsed_ms, _round_floats(fields), exc
