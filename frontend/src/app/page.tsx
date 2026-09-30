@@ -32,6 +32,7 @@ import WeatherPanel from "@/features/conditions/WeatherPanel/WeatherPanel";
 import TodayOutlook from "@/features/conditions/TodayOutlook/TodayOutlook";
 import WarningBadgeList, { type WarningFetchFailure } from "@/features/conditions/WarningBadge/WarningBadge";
 import HeaderMenu from "@/components/HeaderMenu/HeaderMenu";
+import UsageGuide from "@/components/UsageGuide/UsageGuide";
 import RideConditionBar from "@/features/conditions/RideConditionBar/RideConditionBar";
 import TravelBearingControl from "@/features/conditions/TravelBearingControl/TravelBearingControl";
 import { useWeatherConditions } from "@/features/conditions/useWeatherConditions";
@@ -63,6 +64,12 @@ type MobileSheet = "routeSettings" | "routeOutcome" | null;
 
 /** 「ルート結果」をまだ開いていない新着（モバイルのタブの印）。失敗だけは色を変えて見分けられるようにする。 */
 type UnseenOutcome = "failed" | "fresh";
+
+/** モバイルの下部タブの使い方。 */
+const MOBILE_TAB_USAGES = {
+  routeSettings: "ルートを作る条件（距離・地点・重み・除外）と「生成」を開きます。もう一度押すと閉じます。",
+  routeOutcome: "作った候補の一覧と、その難易度の内訳を開きます。点は新しい結果か条件の変更の合図で、赤は失敗です。",
+} as const;
 
 /** モバイルの下部タブ（シートと同じ並び）。 */
 const MOBILE_TABS = [
@@ -115,6 +122,8 @@ export default function Home() {
   const debugEnabled = useDebugEnabled();
   const [debugConsoleOpen, setDebugConsoleOpen] = useState(false);
   const researchEnabled = useResearchEnabled();
+  // 説明を見る状態（ヘッダーのメニューの「使い方を見る」で入る）。
+  const [usageGuideActive, setUsageGuideActive] = useState(false);
 
   const mapView = useMapView({
     hasSelectedRoute: results.selectedCandidate !== null,
@@ -279,9 +288,15 @@ export default function Home() {
   function renderSettingsTabs() {
     return (
       <TabsList className="gap-2 overflow-visible border-b-0" aria-label="ルート設定">
-        <TabsTrigger value="generate">条件</TabsTrigger>
-        <TabsTrigger value="weights">重み</TabsTrigger>
-        <TabsTrigger value="exclusions">除外</TabsTrigger>
+        <TabsTrigger value="generate" usage="周回か目的地か、距離・地点・候補の数を決めます。">
+          条件
+        </TabsTrigger>
+        <TabsTrigger value="weights" usage="道を選ぶときに、どの評価をどれだけ重く見るかを決めます。">
+          重み
+        </TabsTrigger>
+        <TabsTrigger value="exclusions" usage="ルートに使わない道路の種類を選びます。">
+          除外
+        </TabsTrigger>
       </TabsList>
     );
   }
@@ -304,6 +319,7 @@ export default function Home() {
           disabled={generation.running}
           onClick={generation.submit}
           aria-label={generation.running ? (generation.progressLabel ?? "生成中...") : "ルート生成"}
+          usage="いまの条件・重み・除外でルートの候補を作ります。候補は「ルート結果」に並び、地図に線が出ます。"
         >
           <GenerateRoutesIcon size={18} />
           {generation.running ? (generation.queued ? "順番待ち" : "生成中") : "生成"}
@@ -351,7 +367,13 @@ export default function Home() {
   // （見出しに並べると、どれが選んでいる1本だけに効くのか見分けられない）。候補がある間だけ呼ばれる。
   function renderRouteResultHeaderActions() {
     return (
-      <Button size="iconLabel" onClick={handleRoutesClear} aria-label="候補を全消去" title="候補をすべて消す">
+      <Button
+        size="iconLabel"
+        onClick={handleRoutesClear}
+        aria-label="候補を全消去"
+        title="候補をすべて消す"
+        usage="作った候補をすべて消します。地図に置いた地点は残ります。"
+      >
         <ClearRoutesIcon size={18} />
         全消去
       </Button>
@@ -376,6 +398,7 @@ export default function Home() {
               debugEnabled={debugEnabled}
               debugConsoleOpen={debugConsoleOpen}
               onToggleDebugConsole={() => setDebugConsoleOpen((v) => !v)}
+              onStartUsageGuide={() => setUsageGuideActive(true)}
             />
           </div>
         </div>
@@ -390,6 +413,7 @@ export default function Home() {
               onClick={() => setSidebarCollapsed((v) => !v)}
               aria-label={sidebarCollapsed ? "パネルを開く" : "パネルを閉じる"}
               className="self-start"
+              usage="左のパネルを畳んで地図を広く見ます。もう一度押すと開きます。"
             >
               {sidebarCollapsed ? "☰" : "✕"}
             </Button>
@@ -424,6 +448,7 @@ export default function Home() {
                     }
                     open={generateOpen}
                     onOpenChange={setGenerateOpen}
+                    usage="押すと開き・畳みます。ルートを作る条件をここで決め、右の「生成」で作ります。"
                   >
                     {renderRouteSectionBody()}
                   </Disclosure>
@@ -454,6 +479,7 @@ export default function Home() {
                   }
                   open={outcomeOpen}
                   onOpenChange={setOutcomeOpen}
+                  usage="押すと開き・畳みます。作った候補と、その難易度の内訳がここに並びます。"
                 >
                   <RouteOutcome
                     results={results}
@@ -509,6 +535,8 @@ export default function Home() {
 
           <MapOverlayControls {...mapView.overlayControls} />
 
+          {usageGuideActive && <UsageGuide onEnd={() => setUsageGuideActive(false)} />}
+
           {/* 地図の下の中央に「まとめて元に戻す」操作を並べる（レイヤーのON/OFFと凡例の絞り込みは別の状態）。 */}
           <div
             ref={bottomControlRowRef}
@@ -522,6 +550,7 @@ export default function Home() {
               disabled={!mapView.bulk.anyLayerOn}
               aria-label="表示中のレイヤーをすべて非表示にする"
               title="表示中のレイヤーをすべて非表示にする"
+              usage="地図の左のチップでONにした表示を、まとめてOFFにします。"
             >
               <ClearAllLayersIcon size={14} />
             </Button>
@@ -532,6 +561,7 @@ export default function Home() {
               disabled={!mapView.bulk.anyLegendHidden}
               aria-label="絞り込みをすべて解除する"
               title="絞り込みをすべて解除する"
+              usage="凡例のチェックを外して隠した段階を、まとめて地図に戻します。"
             >
               <ClearAllFiltersIcon size={14} />
             </Button>
@@ -542,6 +572,7 @@ export default function Home() {
               onClick={mapView.bulk.redraw}
               aria-label="地図の表示を再描画する"
               title="地図の表示を再描画する"
+              usage="地図の表示が欠けたときに、地図だけを描き直します。作ったルートは消えません。"
             >
               <RedrawMapIcon size={14} />
             </Button>
@@ -572,6 +603,7 @@ export default function Home() {
             {...mapOverlayEdge("right")}
             aria-label="現在地に移動"
             title="現在地に移動"
+            usage="現在地を取り直して地図をそこへ動かし、出発地を現在地にします。"
             className={cn(
               "absolute right-[calc(var(--map-ctrl-margin)+(var(--map-ctrl-column-width)-44px)/2)] bottom-10 z-[var(--z-map-control)] max-mobile:bottom-[max(calc(5rem+var(--mobile-tabbar-height)),calc(var(--space-2)+var(--mobile-tabbar-height)+var(--mobile-sheet-height)))]",
               "size-11 text-[1.3rem]",
@@ -610,6 +642,7 @@ export default function Home() {
                 className="relative min-h-11 flex-1 touch-none flex-col gap-0.5 rounded-none border-0 text-[var(--foreground)] aria-expanded:bg-[var(--color-accent-bg)] aria-expanded:font-bold aria-expanded:text-[var(--color-accent-strong)]"
                 aria-expanded={mobileSheet === sheet}
                 aria-description={sheet === "routeOutcome" ? outcomeTabSignal?.label : undefined}
+                usage={MOBILE_TAB_USAGES[sheet]}
                 onClick={() => handleMobileTabClick(sheet)}
               >
                 <Icon />

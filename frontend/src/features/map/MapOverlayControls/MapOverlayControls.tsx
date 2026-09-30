@@ -175,10 +175,11 @@ function LegendDetails({
                     axis.hiddenKeys.length === 0 ? axis.legend.map((entry) => entry.key) : [],
                   )
                 }
-                aria-label={`${axis.label || "すべての項目"}をまとめて表示/非表示`}
+                aria-label={axis.label ? `${axis.label}をまとめて表示/非表示` : "凡例の全段階をまとめて表示/非表示"}
               />
               <span className="text-[length:var(--font-size-xs)] font-bold text-[var(--color-neutral)]">
-                {axis.label || "すべて"}
+                {/* 軸の名前が無いのはルートの凡例。地図の色分けの凡例と同じ状態なので、同じ名前にする。 */}
+                {axis.label || "凡例"}
               </span>
             </label>
           ) : (
@@ -259,6 +260,9 @@ const CHIP_ROW_OPTIONS = { axis: "y", align: "start", dragFree: true, containScr
 
 const FILTERED_LABEL = "絞り込み中";
 
+const LAYER_CHIP_USAGE =
+  "押すとこの情報を地図に出し、もう一度押すと消します。▶で凡例を開くと、段階ごとに隠せます。左上の漏斗の印は、一部を隠している合図です。";
+
 /** ONのレイヤーが凡例の絞り込みで一部を隠しているか。OFFの間は地図に何も出さないため数えない。 */
 function isLegendFiltered(layer: OverlayLayerChip): boolean {
   return layer.on && !layer.disabled && (layer.legendDetails ?? []).some((axis) => axis.hiddenKeys.length > 0);
@@ -304,6 +308,7 @@ function DetailPopover({
   regionLabel,
   side,
   trigger,
+  usage,
   children,
 }: {
   triggerLabel: string;
@@ -311,6 +316,7 @@ function DetailPopover({
   regionLabel: string;
   side: "right" | "bottom";
   trigger: ReactNode;
+  usage: string;
   children: ReactNode;
 }) {
   return (
@@ -322,6 +328,7 @@ function DetailPopover({
           className={cn("group", ROUND_TOGGLE)}
           aria-label={triggerLabel}
           title={title}
+          usage={usage}
         >
           {trigger}
         </Button>
@@ -353,6 +360,7 @@ function ChipButton({
   dataStatus,
   filtered,
   panel,
+  usage,
 }: {
   Icon: (props: { size?: number }) => ReactElement;
   label: string;
@@ -372,6 +380,7 @@ function ChipButton({
   filtered: boolean;
   /** ▶で開く中身。無ければ▶を出さない。 */
   panel?: ReactNode;
+  usage: string;
 }) {
   const showStatusDot = on && dataStatus != null;
   const titleNotes = [
@@ -391,6 +400,7 @@ function ChipButton({
         disabled={disabled}
         title={chipTitle}
         onClick={onTap}
+        usage={usage}
         style={groupTint ? GROUP_TINTS[groupTint] : undefined}
         className={chipClass({ tinted: groupTint !== undefined, header: expanded !== undefined, on })}
       >
@@ -410,6 +420,7 @@ function ChipButton({
           title="凡例"
           regionLabel={`${label}の内訳`}
           side="right"
+          usage="凡例を開きます。チェックを外した段階は地図から隠れます。"
           trigger={
             <span
               aria-hidden="true"
@@ -503,6 +514,7 @@ export default function MapOverlayControls({
         disabled={member.disabled}
         title={member.title}
         onTap={() => onToggle(member.id, !member.on)}
+        usage={LAYER_CHIP_USAGE}
         groupTint={group}
         dataStatus={member.dataStatus}
         filtered={isLegendFiltered(member)}
@@ -522,6 +534,7 @@ export default function MapOverlayControls({
           regionLabel={`${label}の表示項目`}
           side="bottom"
           trigger={<DisplayItemsIcon size={14} />}
+          usage="このまとまりに並べるチップを選びます。"
         >
           <div className="mb-1 text-[length:var(--font-size-xs)] font-bold text-[var(--color-neutral)]">
             表示する項目
@@ -573,6 +586,7 @@ export default function MapOverlayControls({
           expanded={expanded}
           title={`${label}[${members.length}件をタップで一覧]`}
           onTap={() => toggleGroup(group)}
+          usage="押すと、このまとまりのチップを並べ、もう一度押すと畳みます。並んだチップを押すと、その情報を地図に出します。"
           groupTint={group}
           filtered={!expanded && members.some(isLegendFiltered)}
         />
@@ -598,6 +612,7 @@ export default function MapOverlayControls({
         disabled={layer.disabled}
         title={layer.title}
         onTap={() => onToggle(layer.id, !layer.on)}
+        usage={LAYER_CHIP_USAGE}
         dataStatus={layer.dataStatus}
         filtered={isLegendFiltered(layer)}
         panel={on ? panelContentFor(layer, handlers) : null}

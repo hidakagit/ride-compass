@@ -90,6 +90,7 @@ function WarningFetchFailureMark({ failures }: { failures: readonly WarningFetch
           shape="pill"
           className="bg-transparent"
           aria-label={`${labels}を取得できていません。押すと詳細を表示`}
+          usage="取得できていない情報と、その間に画面で起きていることを開きます。そこから取り直せます。"
         >
           <WarningTriangleIcon size={14} />
           <span>未取得</span>
@@ -136,6 +137,7 @@ function WarningSummary({ items }: { items: WarningBadgeItem[] }) {
           className="border-0 font-bold text-white data-[state=open]:text-white"
           style={{ backgroundColor: levelDisplay(topItem).color }}
           aria-label={`気象警報・注意報あり: ${summaryLabel}。押すと詳細を表示`}
+          usage="いまいる場所に出ている気象警報・注意報の詳細を開きます。"
         >
           {summaryLabel}
         </Button>

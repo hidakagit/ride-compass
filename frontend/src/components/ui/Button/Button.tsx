@@ -36,6 +36,8 @@ export const buttonVariants = cva(
          * 同じ列で色違いにならないよう固定色にする。寸法はglobals.cssの--map-ctrl-*（縦積みの位置計算と共有）。 */
         mapCtrl:
           "pointer-events-auto touch-none rounded-[4px] border-0 bg-white text-[#333] shadow-[0_0_0_2px_rgba(0,0,0,0.1)] data-[state=open]:shadow-[0_0_2px_2px_#0096ff] [&_svg]:size-[var(--map-ctrl-icon-size)]",
+        /** メニューの1行（押すと1回動く。切り替えの行は`Toggle`の`menu`）。 */
+        menu: "justify-start gap-2 border-0 bg-transparent text-left text-[var(--foreground)] hover:enabled:bg-[var(--color-surface-2)]",
         /** 見出し脇の(i)。開いている間はアクセント色。 */
         info: "border-0 bg-transparent text-[var(--color-muted)] aria-expanded:text-[var(--color-accent-strong)]",
       },
@@ -67,13 +69,22 @@ export const buttonVariants = cva(
   },
 );
 
-interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement>, VariantProps<typeof buttonVariants> {}
+interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement>, VariantProps<typeof buttonVariants> {
+  /** 使い方の文。説明を見る状態（`components/UsageGuide/UsageGuide.tsx`）でこの部品を押すと出る。 */
+  usage?: string;
+}
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
-  { className, variant, size, shape, type = "button", ...props },
+  { className, variant, size, shape, type = "button", usage, ...props },
   ref,
 ) {
   return (
-    <button ref={ref} type={type} className={cn(buttonVariants({ variant, size, shape }), className)} {...props} />
+    <button
+      ref={ref}
+      type={type}
+      className={cn(buttonVariants({ variant, size, shape }), className)}
+      data-usage={usage}
+      {...props}
+    />
   );
 });

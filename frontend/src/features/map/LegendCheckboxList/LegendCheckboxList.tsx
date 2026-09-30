@@ -44,7 +44,7 @@ export default function LegendCheckboxList({
   renderSwatch,
 }: LegendCheckboxListProps) {
   return (
-    <div className={listClassName}>
+    <div className={listClassName} data-usage="チェックを外した段階の道・点を地図から隠します（絞り込み）。">
       {legend.map((entry) => {
         const visible = !hiddenKeys.includes(entry.key);
         const className =

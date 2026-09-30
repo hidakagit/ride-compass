@@ -11,6 +11,7 @@ function baseProps(overrides: Partial<Parameters<typeof HeaderMenu>[0]> = {}) {
     debugEnabled: false,
     debugConsoleOpen: false,
     onToggleDebugConsole: vi.fn(),
+    onStartUsageGuide: vi.fn(),
     ...overrides,
   };
 }
@@ -31,6 +32,18 @@ describe("HeaderMenu", () => {
 
     expect(checkbox).toHaveAttribute("aria-checked", "true");
     expect(isResearchEnabled()).toBe(true);
+  });
+
+  it("「使い方を見る」はメニューを閉じてから、説明を見る状態に入る", async () => {
+    const user = userEvent.setup();
+    const onStartUsageGuide = vi.fn();
+    render(<HeaderMenu {...baseProps({ onStartUsageGuide })} />);
+
+    await user.click(screen.getByRole("button", { name: "メニュー" }));
+    await user.click(await screen.findByRole("button", { name: "使い方を見る" }));
+
+    expect(onStartUsageGuide).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "使い方を見る" })).not.toBeInTheDocument();
   });
 
   it("debugEnabled=falseのときはデバッグログ項目を表示しない", async () => {

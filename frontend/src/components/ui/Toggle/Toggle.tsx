@@ -33,11 +33,21 @@ interface ToggleProps
     Omit<React.ComponentPropsWithoutRef<typeof RadixToggle.Root>, "onPressedChange" | "defaultPressed">,
     VariantProps<typeof toggleVariants> {
   pressed: boolean;
+  /** 使い方の文（`Button`の`usage`と同じ）。 */
+  usage?: string;
 }
 
 export const Toggle = forwardRef<HTMLButtonElement, ToggleProps>(function Toggle(
-  { className, variant, type = "button", ...props },
+  { className, variant, type = "button", usage, ...props },
   ref,
 ) {
-  return <RadixToggle.Root ref={ref} type={type} className={cn(toggleVariants({ variant }), className)} {...props} />;
+  return (
+    <RadixToggle.Root
+      ref={ref}
+      type={type}
+      className={cn(toggleVariants({ variant }), className)}
+      data-usage={usage}
+      {...props}
+    />
+  );
 });

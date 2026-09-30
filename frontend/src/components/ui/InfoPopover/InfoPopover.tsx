@@ -55,6 +55,7 @@ export default function InfoPopover({
         size="bare"
         className={triggerClassName}
         aria-label={`${triggerAriaLabel}を${open ? "隠す" : "表示"}`}
+        usage="隣の言葉・数値の意味を開きます。"
       >
         {triggerContent ?? <InfoIcon />}
       </Button>

@@ -42,20 +42,20 @@ function renderLens(props: Partial<Parameters<typeof LensControl>[0]> = {}) {
   );
   return handlers;
 }
-const pill = () => screen.getByRole("button", { name: /^レンズ:/ });
+const pill = () => screen.getByRole("button", { name: /^地図の色分け:/ });
 const open = () => userEvent.click(pill());
 
 describe("LensControl（レンズのピル）", () => {
   it("ピルは今のレンズの名前（固定のレンズは固定の名前）を出し、隠していない段の色見本を並べる", () => {
     renderLens({ hiddenLegendKeys: ["step-1"] });
-    expect(pill()).toHaveAccessibleName("レンズ: usedの軸（タップで変更）");
+    expect(pill()).toHaveAccessibleName("地図の色分け: usedの軸（タップで変更）");
     const swatches = pill().querySelectorAll("[title]");
     expect([...swatches].map((swatch) => swatch.getAttribute("title"))).toEqual(["低い"]);
   });
 
   it("固定のレンズ（なし・総合難易度）は固定の名前", () => {
     renderLens({ lens: LENS_DIFFICULTY_ID });
-    expect(pill()).toHaveAccessibleName(`レンズ: ${FIXED_LENS_LABELS[LENS_DIFFICULTY_ID]}（タップで変更）`);
+    expect(pill()).toHaveAccessibleName(`地図の色分け: ${FIXED_LENS_LABELS[LENS_DIFFICULTY_ID]}（タップで変更）`);
   });
 
   it("取得状態は、ピルのtitleと、開いた先の文で伝える", async () => {
@@ -74,7 +74,7 @@ describe("LensControl（レンズのピル）", () => {
   it("選択肢は「なし」「総合難易度」、評価に使用中の軸、未使用の軸の順で、使用中か未使用かは見出しで分け、ルート後のみの印を付ける", async () => {
     renderLens();
     await open();
-    const group = screen.getByRole("radiogroup", { name: "レンズ" });
+    const group = screen.getByRole("radiogroup", { name: "地図の色分け" });
     const labels = within(group)
       .getAllByRole("radio")
       .map((item) => item.textContent);
@@ -101,7 +101,7 @@ describe("LensControl（レンズのピル）", () => {
     await open();
     await userEvent.click(screen.getByRole("radio", { name: /idleの軸/ }));
     expect(onLensChange).toHaveBeenCalledWith("idle");
-    expect(screen.queryByRole("radiogroup", { name: "レンズ" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("radiogroup", { name: "地図の色分け" })).not.toBeInTheDocument();
   });
 
   it("ルート後も周囲を塗るかを切り替えられる", async () => {

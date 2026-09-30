@@ -43,10 +43,12 @@ interface ToggleGroupProps extends VariantProps<typeof groupVariants> {
   onValueChange: (value: string) => void;
   "aria-label": string;
   className?: string;
+  /** 使い方の文（`Button`の`usage`と同じ）。文を持たない選択肢を押したときも、これを出す。 */
+  usage?: string;
   children: React.ReactNode;
 }
 
-export function ToggleGroup({ variant, value, onValueChange, className, children, ...props }: ToggleGroupProps) {
+export function ToggleGroup({ variant, value, onValueChange, className, usage, children, ...props }: ToggleGroupProps) {
   const v = variant ?? "segmented";
   return (
     <VariantContext.Provider value={v}>
@@ -58,6 +60,7 @@ export function ToggleGroup({ variant, value, onValueChange, className, children
           onValueChange(next);
         }}
         className={cn(groupVariants({ variant: v }), className)}
+        data-usage={usage}
         {...props}
       >
         {children}
@@ -68,9 +71,11 @@ export function ToggleGroup({ variant, value, onValueChange, className, children
 
 interface ToggleGroupItemProps extends React.ComponentPropsWithoutRef<typeof RadixToggleGroup.Item> {
   value: string;
+  /** 使い方の文（`Button`の`usage`と同じ）。 */
+  usage?: string;
 }
 
-export function ToggleGroupItem({ className, ...props }: ToggleGroupItemProps) {
+export function ToggleGroupItem({ className, usage, ...props }: ToggleGroupItemProps) {
   const variant = useContext(VariantContext);
-  return <RadixToggleGroup.Item className={cn(itemVariants({ variant }), className)} {...props} />;
+  return <RadixToggleGroup.Item className={cn(itemVariants({ variant }), className)} data-usage={usage} {...props} />;
 }

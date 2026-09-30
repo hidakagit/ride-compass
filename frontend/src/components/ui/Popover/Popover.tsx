@@ -9,6 +9,8 @@ import { cn } from "@/lib/cn";
 // 中身はdocument.body直下へ描く（呼び出し側がoverflowで切り取る容器の中にあっても欠けない）。
 export const Popover = RadixPopover.Root;
 export const PopoverTrigger = RadixPopover.Trigger;
+/** 押した部品以外の位置へ開くときの目印（`virtualRef`で要素を指す）。 */
+export const PopoverAnchor = RadixPopover.Anchor;
 
 const contentVariants = cva(
   "rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-2 text-[length:var(--font-size-sm)] leading-[1.4] text-[var(--foreground)] shadow-float",
@@ -19,6 +21,8 @@ const contentVariants = cva(
       layer: {
         top: "z-[var(--z-top-popover)]",
         header: "z-[var(--z-header-popover)]",
+        /** 使い方の説明。開いているほかの浮きパネルの上に出す。 */
+        guide: "z-[var(--z-usage-guide)]",
       },
       /** `note`は(i)から開く短い説明。幅を絞り、文字を控えめな色にする。 */
       tone: {

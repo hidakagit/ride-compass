@@ -155,6 +155,7 @@ export default function RouteSettingsPanel({
           className={cn(legendChipBodyClass, "cursor-pointer")}
           pressed={checked}
           aria-label={checked ? `${axis.label}を無効にする` : `${axis.label}を有効にする`}
+          usage="この評価を道選びに使う・使わないを切り替えます。数字は重みの割合で、上の帯の境目を動かして変えます。"
           onClick={() => handleToggle(axis.axisId, !checked)}
         >
           <span aria-hidden="true" className={legendIconClass} style={{ color }}>
@@ -243,6 +244,7 @@ export default function RouteSettingsPanel({
                 aria-valuemax={100}
                 aria-valuenow={Math.round(cumulativePct)}
                 tabIndex={0}
+                data-usage="左右に動かして、両隣の評価の重みの割合を変えます。"
                 onPointerDown={(e) => startBoundaryDrag(e, left.axisId, leftWeight, right.axis.axisId, right.weight)}
                 onKeyDown={(e) => handleBoundaryKeyDown(e, left.axisId, leftWeight, right.axis.axisId, right.weight)}
               />
