@@ -5,6 +5,7 @@
 import type { ReactElement } from "react";
 import {
   ArrowUp,
+  CircleQuestionMark,
   Clock,
   Cloud,
   Copy,
@@ -512,3 +513,4 @@ export const LayersStackIcon = fromLucide(Layers);
 export const MenuIcon = fromLucide(EllipsisVertical);
 export const DownloadIcon = fromLucide(Download);
 export const SpeedGaugeIcon = fromLucide(Gauge);
+export const HelpIcon = fromLucide(CircleQuestionMark);

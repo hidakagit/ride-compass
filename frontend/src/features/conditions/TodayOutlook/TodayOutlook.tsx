@@ -108,7 +108,13 @@ export default function TodayOutlook({ weather, loading, error }: TodayOutlookPr
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button size="xs" shape="pill" className="bg-transparent font-semibold" aria-label="今日のモデルの計算値を表示">
+        <Button
+          size="xs"
+          shape="pill"
+          className="bg-transparent font-semibold"
+          aria-label="今日のモデルの計算値を表示"
+          usage="今日の天気の見込み（気温・雨・風・日の出と日の入り）を開きます。"
+        >
           今日
         </Button>
       </PopoverTrigger>

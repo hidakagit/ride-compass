@@ -47,6 +47,7 @@ export default function HardFilterPanel({ hardFilters, onHardFiltersChange }: Ha
             key={key}
             pressed={hardFilters[key] ?? DEFAULT_HARD_FILTERS[key]}
             aria-label={`${label}を除外`}
+            usage="ONにした種類の道路を通らないルートを作ります。"
             onClick={() =>
               onHardFiltersChange({
                 ...hardFilters,

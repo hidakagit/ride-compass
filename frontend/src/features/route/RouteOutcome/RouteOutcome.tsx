@@ -31,6 +31,9 @@ import type { SpliceSessionView } from "@/features/route/useSpliceSession";
 import type { RouteCandidate, RoutePreferenceWeights } from "@/types/route";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 
+const CANDIDATE_TAB_USAGE =
+  "この候補を地図と内訳に出します。距離のあとに、最も早い候補は所要時間、ほかは最速より余計にかかる時間、右端に総合難易度が並びます。";
+
 // 経由地ルートのid（常に1件、「方位」という概念が無いためタブに順位番号を付けない）。
 const NON_DIRECTIONAL_ROUTE_IDS = new Set([routeGenerateConfig.waypoints_route_id]);
 
@@ -98,12 +101,19 @@ export default function RouteOutcome({ results, generation, splice, currentWeigh
             }}
             aria-label="ルートを合成"
             title="区間を別の候補の道へ乗り換えて、新しいルートを作る"
+            usage="この候補の一部の区間を、ほかの候補が通る道へ乗り換えて新しいルートを作ります。押すと、乗り換えられる道が地図に破線で出ます。"
           >
             <RouteSpliceIcon size={18} />
             合成
           </Button>
         )}
-        <Button size="iconLabel" onClick={() => downloadGpx(route)} aria-label="GPX出力" title="GPXファイルで書き出す">
+        <Button
+          size="iconLabel"
+          onClick={() => downloadGpx(route)}
+          aria-label="GPX出力"
+          title="GPXファイルで書き出す"
+          usage="この候補をGPXファイルで書き出します。サイクルコンピューターやほかの地図アプリに読み込めます。"
+        >
           <DownloadIcon size={18} />
           GPX
         </Button>
@@ -170,7 +180,7 @@ export default function RouteOutcome({ results, generation, splice, currentWeigh
           <div className="flex w-48 flex-none items-stretch border-r border-[var(--color-border)]">
             <TabsList variant="side" className="max-mobile:min-h-0 max-mobile:overflow-y-auto" aria-label="ルート結果">
               {routes.map((route, index) => (
-                <TabsTrigger key={route.id} value={route.id}>
+                <TabsTrigger key={route.id} value={route.id} usage={CANDIDATE_TAB_USAGE}>
                   {/* 見分けるための順位番号（並び順どおり）と距離。経由地のルートは常に1件なので番号の代わりに名前。 */}
                   <span className="truncate">
                     {NON_DIRECTIONAL_ROUTE_IDS.has(route.id) ? route.direction_label : `${index + 1}`}{" "}

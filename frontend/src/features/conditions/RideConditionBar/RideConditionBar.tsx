@@ -81,6 +81,7 @@ export default function RideConditionBar({
             className="h-auto min-h-[var(--map-ctrl-button-size)] flex-col gap-px py-[3px]"
             aria-label={`${departureName}（タップで変更）`}
             title={departureName}
+            usage="出発する日時を決めます。風・雨の表示の時刻と、ルートの風の評価・到達予想の時刻に使います。"
           >
             <ClockIcon />
             {/* 別の日は「9/24 12:40」になるため、列の幅に収まるよう日付と時刻を2行に分ける。 */}
@@ -137,6 +138,7 @@ export default function RideConditionBar({
             className="h-auto min-h-[var(--map-ctrl-button-size)] flex-col gap-px py-[3px]"
             aria-label={`想定速度: ${speedLabel}（タップで変更）`}
             title={`想定速度: ${speedLabel}`}
+            usage="走る速さの見込みを決めます。所要時間と、区間ごとの到達予想の時刻に使います。"
           >
             <SpeedGaugeIcon />
             <span className="flex flex-col items-center text-[10px] leading-[1.1] font-semibold whitespace-nowrap">

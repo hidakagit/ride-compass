@@ -18,7 +18,7 @@
  * - 軸カタログ・天気の取得・ルート生成の通信・位置情報（`navigator.geolocation`）・スマホ幅の判定（`useIsMobile`）:
  *   返す値をテストが決める。
  */
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -778,6 +778,15 @@ describe("画面の枠と地図の周り", () => {
     await waitFor(() => expect(badgeFailures().map((f) => f.id)).toEqual(["warnings", "axis-catalog"]));
     act(() => badgeFailures()[1].onRetry?.());
     expect(stubs.catalogRetries).toBe(1);
+  });
+
+  it("メニューの「使い方を見る」で説明を見る状態に入り、「やめる」で抜ける", () => {
+    renderPage();
+    expect(screen.queryByText("説明を見たい部品を押してください")).not.toBeInTheDocument();
+    act(() => propsOf<typeof HeaderMenu>("HeaderMenu").onStartUsageGuide());
+    expect(screen.getByText("説明を見たい部品を押してください")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "やめる" }));
+    expect(screen.queryByText("説明を見たい部品を押してください")).not.toBeInTheDocument();
   });
 
   it("メニューからデバッグログを開閉し、コンソールの側からも閉じられる", () => {

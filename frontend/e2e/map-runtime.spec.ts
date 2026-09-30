@@ -223,7 +223,7 @@ test("ルートを収めるとき、地図の上の操作部品が覆う所へ�
   const depths = {
     left: (await covers(/の表示項目$/)).map((box) => box.x + box.width - canvas.x),
     right: (await covers(/^(拡大|縮小|走行方位を設定|現在地に移動)$/)).map((box) => canvas.x + canvas.width - box.x),
-    top: (await covers(/^レンズ:/)).map((box) => box.y + box.height - canvas.y),
+    top: (await covers(/^地図の色分け:/)).map((box) => box.y + box.height - canvas.y),
     bottom: (await covers("地図の表示を再描画する")).map((box) => canvas.y + canvas.height - box.y),
   };
   for (const [edge, values] of Object.entries(depths) as [keyof typeof depths, number[]][]) {

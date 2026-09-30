@@ -171,11 +171,16 @@ export default function RouteSplicePanel({
           <div className="ml-auto flex items-center gap-1.5">
             {appliedCount > 0 && (
               <>
-                <Button size="iconLabel" onClick={onUndo} disabled={busy}>
+                <Button size="iconLabel" onClick={onUndo} disabled={busy} usage="直前の乗り換えを1つ取り消します。">
                   <UndoIcon size={18} />
                   1つ戻す
                 </Button>
-                <Button size="iconLabel" onClick={onReset} disabled={busy}>
+                <Button
+                  size="iconLabel"
+                  onClick={onReset}
+                  disabled={busy}
+                  usage="乗り換えをすべて取り消して、元の候補に戻します。"
+                >
                   <UndoAllIcon size={18} />
                   全部戻す
                 </Button>
@@ -187,6 +192,7 @@ export default function RouteSplicePanel({
               disabled={appliedCount === 0 || busy}
               aria-busy={previewing}
               aria-label="差分を見る"
+              usage="いまの乗り換えで、距離・所要時間・難易度が元の候補からどう変わるかを出します。"
             >
               <RouteDiffIcon size={18} />
               差分
@@ -197,6 +203,7 @@ export default function RouteSplicePanel({
               disabled={appliedCount === 0 || busy}
               aria-busy={applying}
               aria-label="新しいルートを作成"
+              usage="いまの乗り換えで作ったルートを、新しい候補として一覧に加えます。元の候補は残ります。"
               title="新しい候補として一覧へ加える"
             >
               <NewRouteIcon size={18} />

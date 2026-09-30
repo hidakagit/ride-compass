@@ -32,6 +32,7 @@ export default function TravelBearingControl({ value, onChange }: TravelBearingC
           size="mapCtrl"
           className="absolute top-[var(--map-ctrl-stack-top)] right-[var(--map-ctrl-margin)] z-[var(--z-map-control)]"
           aria-label="走行方位を設定"
+          usage="風と勾配を評価するときの、走る向きを決めます（地図の色分けとルートの評価に使います）。地図や端末の向きとは連動しません。"
           {...mapOverlayEdge("right")}
         >
           <span

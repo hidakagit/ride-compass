@@ -1,11 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/Popover/Popover";
 import { useResearchEnabled } from "@/hooks/useResearchMode";
 import { setResearchEnabled } from "@/lib/researchMode";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import { Button } from "@/components/ui/Button/Button";
-import { LogIcon, MenuIcon } from "@/components/ui/icons/icons";
+import { HelpIcon, LogIcon, MenuIcon } from "@/components/ui/icons/icons";
 import { Toggle } from "@/components/ui/Toggle/Toggle";
 import { toggleVariants } from "@/components/ui/Toggle/Toggle";
 
@@ -15,6 +16,8 @@ interface HeaderMenuProps {
   debugEnabled: boolean;
   debugConsoleOpen: boolean;
   onToggleDebugConsole: () => void;
+  /** 説明を見る状態に入る（次に押した部品の使い方を出す）。 */
+  onStartUsageGuide: () => void;
 }
 
 // ヘッダーの個別ボタンをこれ以上増やさないよう、常時表示は1個のメニューアイコンに
@@ -27,17 +30,41 @@ interface HeaderMenuProps {
 // DevToolsコンソールからも直接操作できる。「隠すべき機微な機能ではなく、気軽に
 // 試せる比較機能」という位置づけのため、一般利用者向けの正式なON/OFF導線として
 // ここへ配置する。
-export default function HeaderMenu({ debugEnabled, debugConsoleOpen, onToggleDebugConsole }: HeaderMenuProps) {
+export default function HeaderMenu({
+  debugEnabled,
+  debugConsoleOpen,
+  onToggleDebugConsole,
+  onStartUsageGuide,
+}: HeaderMenuProps) {
   const researchEnabled = useResearchEnabled();
+  const [open, setOpen] = useState(false);
 
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="ghost" size="sm" aria-label="メニュー" className="shrink-0">
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label="メニュー"
+          className="shrink-0"
+          usage="使い方の説明・研究モードの切り替えを開きます。"
+        >
           <MenuIcon size={15} />
         </Button>
       </PopoverTrigger>
       <PopoverContent layer="header" className="flex min-w-56 flex-col gap-1 p-1.5" side="bottom" align="end">
+        {/* メニューを閉じてから入る（開いたままだと、次に押す部品の上にメニューが残る）。 */}
+        <Button
+          variant="menu"
+          size="sm"
+          onClick={() => {
+            setOpen(false);
+            onStartUsageGuide();
+          }}
+        >
+          <HelpIcon size={15} />
+          使い方を見る
+        </Button>
         <label className={toggleVariants({ variant: "menu" })}>
           <Checkbox
             checked={researchEnabled}

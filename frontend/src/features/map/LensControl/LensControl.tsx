@@ -51,6 +51,9 @@ interface LensControlProps {
   dataStatus?: LayerDataStatus;
 }
 
+/** 画面の名前。コードの「レンズ」は画面には出さない（利用者が見る名前はこれだけ）。 */
+const LENS_SCREEN_NAME = "地図の色分け";
+
 /** レンズ（地図を何で塗るか）の唯一の入口。地図の上の中央のピルが今のレンズを示し、押すと一覧を開く。 */
 export default function LensControl({
   lens,
@@ -114,8 +117,9 @@ export default function LensControl({
             size="bare"
             shape="pill"
             className="flex-col items-stretch gap-1 border-0 px-2.5 py-1 text-[length:var(--font-size-sm)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-accent-strong)]"
-            aria-label={`レンズ: ${current.label}（タップで変更）`}
+            aria-label={`${LENS_SCREEN_NAME}: ${current.label}（タップで変更）`}
             title={statusLabel}
+            usage="地図の道路（ルートを作った後はルートの線）を何で色分けするかを選びます。下の帯は今の色分けの凡例です。"
           >
             <span className="flex items-center justify-center gap-1.5 whitespace-nowrap">
               <span
@@ -152,7 +156,7 @@ export default function LensControl({
           sideOffset={6}
           collisionPadding={8}
         >
-          <p className="mb-1.5 font-semibold">レンズ</p>
+          <p className="mb-1.5 font-semibold">{LENS_SCREEN_NAME}</p>
           {/* ピルの状態ドットの意味。titleはスマホでは出ないため、開いた先で文として読ませる。 */}
           {statusNotice && (
             <p className="mb-1.5 text-[length:var(--font-size-sm)]" role="status">
@@ -164,7 +168,8 @@ export default function LensControl({
             className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-x-1 p-0"
             value={lens}
             onValueChange={(id) => select(id as LensId)}
-            aria-label="レンズ"
+            aria-label={LENS_SCREEN_NAME}
+            usage="地図をこの評価で色分けします。「評価に使用中」は今の重みで道選びに使っている評価です。「ルート後のみ」は、ルートを作った後だけルートの線に色が付きます。"
           >
             {renderOption(LENS_NONE_ID, FIXED_LENS_LABELS[LENS_NONE_ID], LENS_NEUTRAL_COLOR)}
             {renderOption(LENS_DIFFICULTY_ID, FIXED_LENS_LABELS[LENS_DIFFICULTY_ID], LENS_NEUTRAL_COLOR)}
