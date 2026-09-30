@@ -361,11 +361,11 @@ RAIN_GAUGES = {
 }
 
 
-async def test_each_segment_is_scored_with_the_rain_at_the_gauge_nearest_its_midpoint(engine_over, monkeypatch):
+async def test_each_segment_is_scored_with_the_rain_at_the_gauge_nearest_its_midpoint(engine_over, monkeypatch, fake_redis):
     """雨の材料は区間の中点に最も近い雨量計の今の観測で、道の材料と同じく区間の得点と生値（mm）に載る
     ——雨と道の材料を1つの軸で足すこともできる。南西→南東の最速は道100（西の雨量計）と道101（東の雨量計）で、
     西では1時間1.0mmの雨が続き、東は降っていない。"""
-    rain_history_fake.use_fake_redis(monkeypatch)
+    rain_history_fake.forget_rain_materials(monkeypatch)
     await rain_history_fake.observe(monkeypatch, RAIN_GAUGES, {"west": 1.0, "east": 0.0})
 
     with replaced_axis_definitions({**AXIS_DEFINITIONS, **RAIN_AXES}):
@@ -380,9 +380,9 @@ async def test_each_segment_is_scored_with_the_rain_at_the_gauge_nearest_its_mid
     assert [segment.axis_raw_values["rain"] for segment in fastest.segments] == [3.0, 0.0]
 
 
-async def test_without_an_observation_history_only_the_rain_axis_has_no_data(engine_over, monkeypatch):
+async def test_without_an_observation_history_only_the_rain_axis_has_no_data(engine_over, monkeypatch, fake_redis):
     """履歴が無い（バッチがまだ・Redisが不通）ときもルートは出て、雨を読む軸だけが「データなし」になる。"""
-    rain_history_fake.use_fake_redis(monkeypatch)
+    rain_history_fake.forget_rain_materials(monkeypatch)
 
     with replaced_axis_definitions({**AXIS_DEFINITIONS, **RAIN_AXES}):
         candidates = await engine_over(grid_network()).generate_via_waypoints(

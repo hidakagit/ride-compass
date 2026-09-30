@@ -13,25 +13,6 @@ import shapefile
 
 from app.infrastructure import jma_area_boundaries
 from scripts import fetch_jma_area_boundaries
-from tests.bound_fake import bound
-
-
-class _FakeResponse:
-    def __init__(self, payload: bytes):
-        self._payload = payload
-        self.headers: dict[str, str] = {}
-
-    def raise_for_status(self) -> None:
-        pass
-
-    def iter_bytes(self):
-        yield self._payload
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *_exc):
-        return False
 
 
 def _square(lon: float, lat: float, size: float = 0.1) -> list[list[tuple[float, float]]]:
@@ -58,32 +39,22 @@ def _areas_zip() -> bytes:
 
 
 @pytest.fixture
-def stub_download(tmp_path, monkeypatch):
-    """配布元の応答を差し替え、置き場を`tmp_path`へ移す。返した本文がそのまま取得物になる。"""
-    calls: list[str] = []
-    payload = {"body": b""}
-
-    def fake_stream(_method, url, **_kwargs):
-        calls.append(url)
-        return _FakeResponse(payload["body"])
-
-    monkeypatch.setattr(fetch_jma_area_boundaries.httpx, "stream",
-                        bound(fetch_jma_area_boundaries.httpx.stream, fake_stream))
+def destination(tmp_path, monkeypatch):
+    """境界の置き場を`tmp_path`へ移す。"""
     destination = tmp_path / "jma_area" / "current.json"
     monkeypatch.setattr(jma_area_boundaries, "BOUNDARY_PATH", destination)
-    return calls, payload, destination
+    return destination
 
 
-def test_fetched_boundaries_resolve_points_to_their_areas(stub_download):
-    calls, payload, destination = stub_download
-    payload["body"] = _areas_zip()
+def test_fetched_boundaries_resolve_points_to_their_areas(destination, respx_mock):
+    download = respx_mock.get(jma_area_boundaries.SOURCE_URL).respond(content=_areas_zip())
     old_version = destination.parent / "older.json"
     old_version.parent.mkdir(parents=True)
     old_version.write_text("{}", encoding="utf-8")
 
     assert fetch_jma_area_boundaries.main() == 0
 
-    assert calls == [jma_area_boundaries.SOURCE_URL]
+    assert download.call_count == 1
     boundaries = jma_area_boundaries.load_boundaries(destination)
     assert boundaries.find(35.65, 139.75) == "1310100"
     assert boundaries.find(35.65, 139.95) == "1310200"
@@ -93,24 +64,22 @@ def test_fetched_boundaries_resolve_points_to_their_areas(stub_download):
     assert list(destination.parent.iterdir()) == [destination]
 
 
-def test_keeps_existing_boundaries_untouched(stub_download):
-    calls, _payload, destination = stub_download
+def test_keeps_existing_boundaries_untouched(destination, respx_mock):
     destination.parent.mkdir(parents=True)
     destination.write_text("{}", encoding="utf-8")
 
     assert fetch_jma_area_boundaries.main() == 0
 
     assert destination.read_text(encoding="utf-8") == "{}"
-    assert calls == []
+    assert not respx_mock.calls
 
 
-def test_does_not_leave_boundaries_behind_from_a_broken_download(stub_download):
+def test_does_not_leave_boundaries_behind_from_a_broken_download(destination, respx_mock):
     """zipとして読めない応答（配布元のエラー本文等）から境界を作らない。
 
     作ると次の実行が再取得せず、区域を1つも引けない境界を読み続ける。
     """
-    _calls, payload, destination = stub_download
-    payload["body"] = b"<html>404 Not Found</html>"
+    respx_mock.get(jma_area_boundaries.SOURCE_URL).respond(content=b"<html>404 Not Found</html>")
 
     assert fetch_jma_area_boundaries.main() == 1
 

@@ -3,33 +3,20 @@
 ここで見ないもの:
 - ジョブをHTTPへ出す層（202とjob_id・未知idの404・同時実行の上限） → `test_routes_generate.py`
 
-**実時間を待たない。** 完了したジョブを何秒持つかはモジュールが読む時計だけで決まるため、
-その時計ごと差し替えて進める。
+**実時間を待たない。** 完了したジョブを何秒持つかは時計だけで決まるため、止めた時計（`clock`）を進めて見る。
 """
+
+import time
 
 import pytest
 
 from app.infrastructure import job_registry
 
 
-class FakeClock:
-    def __init__(self, now: float = 1000.0) -> None:
-        self._now = now
-
-    def monotonic(self) -> float:
-        return self._now
-
-    def advance(self, seconds: float) -> None:
-        self._now += seconds
-
-
 @pytest.fixture(autouse=True)
-def clock(monkeypatch):
-    """時計と台帳を差し替える。台帳はモジュール大域なので、戻さないと他のテストへ漏れる。"""
-    fake = FakeClock()
-    monkeypatch.setattr(job_registry, "time", fake)
+def empty_registry(monkeypatch, clock):
+    """時計を止め、台帳を空から始める。台帳はモジュール大域なので、戻さないと他のテストへ漏れる。"""
     monkeypatch.setattr(job_registry, "_JOBS", {})
-    return fake
 
 
 class TestRegisteringAJob:
@@ -54,16 +41,16 @@ class TestRecordingProgress:
 
     def test_a_finished_job_carries_its_result(self, clock):
         job_id = job_registry.create_job()
-        clock.advance(30)
+        clock.tick(30)
 
         job_registry.set_done(job_id, {"routes": 3})
 
         record = job_registry.get_job(job_id)
-        assert (record.status, record.result, record.finished_at) == ("done", {"routes": 3}, clock.monotonic())
+        assert (record.status, record.result, record.finished_at) == ("done", {"routes": 3}, time.monotonic())
 
     def test_a_failed_job_carries_its_message(self, clock):
         job_id = job_registry.create_job()
-        clock.advance(30)
+        clock.tick(30)
 
         job_registry.set_failed(job_id, "ルート生成に失敗しました")
 
@@ -71,7 +58,7 @@ class TestRecordingProgress:
         assert (record.status, record.error, record.finished_at) == (
             "failed",
             "ルート生成に失敗しました",
-            clock.monotonic(),
+            time.monotonic(),
         )
 
     @pytest.mark.parametrize(
@@ -95,7 +82,7 @@ class TestForgettingFinishedJobs:
     def test_a_job_finished_longer_ago_than_the_retention_is_dropped(self, clock):
         job_id = job_registry.create_job()
         job_registry.set_done(job_id, "result")
-        clock.advance(job_registry.JOB_TTL_SECONDS + 1)
+        clock.tick(job_registry.JOB_TTL_SECONDS + 1)
 
         job_registry.create_job()
 
@@ -105,7 +92,7 @@ class TestForgettingFinishedJobs:
         """フロントが取りに来る前に捨てると、出来上がったルートがそのまま404になる。"""
         job_id = job_registry.create_job()
         job_registry.set_done(job_id, "result")
-        clock.advance(job_registry.JOB_TTL_SECONDS)
+        clock.tick(job_registry.JOB_TTL_SECONDS)
 
         job_registry.create_job()
 
@@ -117,7 +104,7 @@ class TestForgettingFinishedJobs:
         """
         job_id = job_registry.create_job()
         job_registry.set_running(job_id)
-        clock.advance(job_registry.JOB_TTL_SECONDS * 10)
+        clock.tick(job_registry.JOB_TTL_SECONDS * 10)
 
         job_registry.create_job()
 

@@ -35,8 +35,8 @@ class FakeMidpointsRepository:
 
 
 @pytest.fixture
-def empty_rain_history(monkeypatch):
-    return rain_history_fake.use_fake_redis(monkeypatch)
+def empty_rain_history(monkeypatch, fake_redis):
+    rain_history_fake.forget_rain_materials(monkeypatch)
 
 
 async def _observe(monkeypatch, rain_mm: dict[str, float | None]):
