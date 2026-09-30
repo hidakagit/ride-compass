@@ -12,7 +12,7 @@ OSM由来の道路データ（PBF取込）・警察庁事故データ・土地�
 |---|---|
 | domain | `road.py`・`attributes.py`・`accident.py`・`traffic.py`（OSMタグの解釈と分類。停止要因・補給POIの種別、通行方向、道の階級）・`landcover.py`（土地被覆クラス別割合の算出と、数える帯の幅。割合の列・焼き込み列の名前の規則。評価軸の材料）・`divided_carriageway.py`（上下線が分かれた道の片側かを判定するしきい値）・`map_display.py`・`display_palette.py`（地図の束ね方・レイヤーごとの種別と情報源と既定表示・常に出す出典・描く寸法と配色。**本番プロセスは読まず**、`scripts/export_openapi.py`の生成物を経由してだけ画面へ届く。読み方は[地図: 静的レイヤー](../frontend/static-map-layers.md)）（[region.py](routing-engine.md)は別モジュール管轄） |
 | services | `tile_serving.py`・`accident_service.py`・`region_service.py`・`landcover_tile_service.py`（土地被覆ラスタタイルの配信）・`derived_data_freshness_service.py`（派生データ鮮度台帳）・`tile_version_service.py`（配信するタイル世代の組み立て。形の署名とDBの派生データ・生データの世代から作る）・`derived_data_revision_service.py`（DBの派生データ・生データの世代をTTL付きで読み直す。別コンテナのバッチが書き直したことにbackendが気づく唯一の経路で、タイル世代の組み立て等の配信側が読む）・`db_status_service.py`（本番DB状態の判定。しきい値と根拠を持つ） |
-| infrastructure | `vector_tile.py`・`tile_cache.py`・`landcover_raster.py`（土地被覆GeoTIFFの読み取り・再投影・着色）・`source_models.py`（外部ソースの生データを、ソースによらない1つの形で持つ。点・線・ラスタのタイルを同じ骨格へ載せ、取込1回ぶんを`source_runs`が記録する。コードが名指すソース名と取込の状態の綴り［`Source`・`SourceRunStatus`］、ソースごとの生データを読む副問い合わせ、ソースの成功した最新の取込を指す副問い合わせ［`latest_succeeded_run_sql`。派生の基準・取込の範囲・事故の収録年はここから読む］、成功した取込の数［`succeeded_run_count`。生データの世代］もここが持つ）・`derived_models.py`（生データから導いたもの。粒度ごとに1表で、バッチが1つ増えても表は増えない）・`orm_base.py`（ORMの基底。どのモデルからも辿れる位置に置き、モデル同士がimportで絡まないようにする。全表を載せたmetadata［`declared_metadata`。importの有無で表が欠けないよう、全表を見る側はここを通す］と、取り直せない表の印［`IRREPLACEABLE`］もここが持つ）・`accident_repository.py`・`derived_data_freshness.py`（派生データ鮮度台帳）・`db_status.py`（本番DBの状態＝取込runの最終実行・テーブルの実数と容量・統計とVACUUMの鮮度・接続）・`proj_data.py`（rasterioが参照するPROJデータをrasterio同梱のものへ固定する。別インストールの`proj.db`を掴むとEPSG解決が失敗するため、rasterioのimport前に呼ぶ） |
+| infrastructure | `vector_tile.py`・`tile_cache.py`・`landcover_raster.py`（土地被覆GeoTIFFの読み取り・再投影・着色）・`source_models.py`（外部ソースの生データを、ソースによらない1つの形で持つ。点・線・ラスタのタイルを同じ骨格へ載せ、取込1回ぶんを`source_runs`が記録する。コードが名指すソース名と取込の状態の綴り［`Source`・`SourceRunStatus`］、ソースごとの生データを読む副問い合わせ、ソースの成功した最新の取込を指す副問い合わせ［`latest_succeeded_run_sql`。派生の基準・取込の範囲はここから読む］、成功した取込の数［`succeeded_run_count`。生データの世代］もここが持つ）・`derived_models.py`（生データから導いたもの。粒度ごとに1表で、バッチが1つ増えても表は増えない）・`orm_base.py`（ORMの基底。どのモデルからも辿れる位置に置き、モデル同士がimportで絡まないようにする。全表を載せたmetadata［`declared_metadata`。importの有無で表が欠けないよう、全表を見る側はここを通す］と、取り直せない表の印［`IRREPLACEABLE`］もここが持つ）・`accident_repository.py`・`derived_data_freshness.py`（派生データ鮮度台帳）・`db_status.py`（本番DBの状態＝取込runの最終実行・テーブルの実数と容量・統計とVACUUMの鮮度・接続）・`proj_data.py`（rasterioが参照するPROJデータをrasterio同梱のものへ固定する。別インストールの`proj.db`を掴むとEPSG解決が失敗するため、rasterioのimport前に呼ぶ） |
 | scripts | `measure_poi_freshness.py`（補給・休憩のPOIの鮮度を、OSMの確認日・最終編集日時から推定する）・`measure_vending_types.py`（自販機が何を売るかの判定を、取り込む前のPBF全体に当てて残る件数・落ちる件数を数える） |
 | api | `region.py`（路面/POI/動的材料/土地被覆タイル・区間インスペクタ）・`accidents.py`（事故タイル）・`_tile_http.py`（両者が共有する座標検証と応答組み立て）・`derived_data_freshness.py`（`GET /api/admin/derived-data/freshness`、Basic認証必須）・`db_status.py`（`GET /api/admin/db-status`、同） |
 | batch | `ingest.py`（外部ソースの共通取込経路。アダプタから受けた1件ずつをステージングへ積み、そのソースのパーティションだけを入れ替え、`source_runs`へ適用した絞り込みごと記録する。runを開く記録と失敗の記録は入れ替えと別のトランザクションで書き、成功の記録は入れ替えと同じトランザクションで書く——失敗した取込は行を元のまま残して`failed`のrunが残り、`succeeded`のrunの行は必ず入っている）・`ingest_cli.py`（その入口）・`source_profile.py`／`source_profile.yaml`（取り込む母集団の宣言。実装には範囲を書かない。読む側が知らない欄があれば取込の前に止める）・`source_adapters/`（外部の形を開いて1件ずつ返すだけの実装。`npa_honhyo.py`は警察庁の本票CSV（配信元は叩かず、手元にあるものを読む。無ければ何を流せばよいかを言って止まる。度分秒をつないだ数字列の緯度・経度を度へ読み、日本の範囲を外れた値は壊れた値として落とす）、`osm_pbf.py`はOSMのPBF（way・node。タグを絞らず全部持つ。PBFの読み取り自体は`pbf_source.py`が持ち、pyosmiumへの依存をそこへ閉じ込める）、`io_lulc_tile.py`は土地被覆ラスタをタイルへ切って、`gsi_dem_tile.py`は地理院の標高タイル——製品×タイル1枚を1行として返し、標高はint32（0.01m単位）で詰める。面のタイルは`_raster_wkb.py`がPostGISの`raster`へ包む。位置・画素の大きさ・型・欠測値をその値自身に持たせ、読み手が属性から形を組み立てなくてよいようにする）・`derive_cli.py`（派生を作り直す入口。段の順番と、どの段がどの較正値を読むかはここだけが持つ。較正値は始めにDBの上書きから読み、段へ値で渡す。作業用のスキーマで作り、道路網の配列まで作ってから`public`の表と入れ替えて世代を進める）・`derive_topology.py`（生データから区間`road_edges`とノードの枝数を導く。切る位置は2本以上の道が通るノード）・`derive_node_materials.py`（ノードの種別・信号の有無・集まる道の最大階級。種別の判断は取込ではなくここで行うため、判断が変わっても生データは取り直さない）・`derive_counts.py`（区間と道に付く数の値。停止要因はまとまり1つを経路上で1回になるよう区間へ割り振り、道の値は区間の和から導くため地図と評価で食い違わない）・`derive_raster_materials.py`（面のタイルを線へ落とす。標高は形状点で測り、土地被覆は中心線の周りの帯に落ちる画素を数える）・`derive_way_materials.py`（道1本の性質。通行方向をタグから決め、上下線分離は逆向きに並走する相方の有無で判定する）・`_common.py`（バッチ間共通ヘルパ。asyncpg用DSN変換・`latest_succeeded_run_id`［派生の基準にする取込。無ければ止める］・`fetch_verified`［配布元のファイルを手元へ写す取得スクリプト共通の手順。読めるものは落とし直さず、一時ファイル経由で置き、落とし終えたら開いてみて開けなければ退ける］・`batch_session_factory`[エンジン生成と破棄。表を先に探すスキーマを指定できる]・`reset_columns_sql`[派生の段が書く列を、値を出す前の状態へ戻す]・`run_batch_cli`[DBを書く入口（例: `ingest_cli.py`・`derive_cli.py`・`scripts/bootstrap_database.py`）の骨格。ログの設定・`--database-url`の読み取りを持ち、入口は自分の引数と本体だけを書く]）・`scripts/fetch_lulc_raster.py`（土地被覆ラスタの取得。デプロイが呼ぶ）・`scripts/fetch_osm_pbf.py`（OSMの抽出ファイルの取得）・`scripts/fetch_accident_csv.py`（警察庁の本票CSVの取得。年ごとに1ファイルで、要る年はプロファイルが持つ）・`scripts/bootstrap_database.py`（まっさらなDBを使える状態まで立ち上げる。スキーマ→取込→派生の順はここだけが持ち、途中から流し直せる） |
@@ -148,8 +148,8 @@ int32の0.01m単位、土地被覆はuint8）で持つ。位置・画素の大�
 （例: ノードの段だけを直しても、面の段まで流れる）。どの段がどの段の値を読むかは宣言されて
 いないので、1段だけを流す入口は置かない——流し忘れた後ろの段に、古い入力から作った値が残る。
 
-**作り直しの途中は読み手に見せない。** 入口は派生の表（`source_run_id`を持つ表）を今の中身ごと
-作業用のスキーマ（`derive_cli.py: WORK_SCHEMA`）へ写し、段はそこを書く。接続の`search_path`を
+**作り直しの途中は読み手に見せない。** 入口は派生の表（`source_run_id`を持つ表）と世代の表
+（`derived_data_meta`）を今の中身ごと作業用のスキーマ（`derive_cli.py: WORK_SCHEMA`）へ写し、段はそこを書く。接続の`search_path`を
 作業用のスキーマ→`public`にするので、段のSQLは表の名前をそのまま書き、生データは`public`から読む
 ——段のSQLへ`public.`を書くと、作り直しの途中の値がそのまま配られる。全段が終わったら、作業用の
 表と生データから道路網の配列（[ルート生成エンジン](routing-engine.md)「道路網全体の配列」）を作り、
@@ -271,7 +271,11 @@ reset_columns_sql`。戻す値は、未計算のNULL・「無い」を表す0や
 **本票CSVの年はファイルの年で、発生年ではない**。各年のファイルは発生日時が前年の事故を約2%含む
 （大半が前年12月）が、前年のファイルには入っていない（2019〜2024年の全ファイルを発生日時・地点・
 警察署で突き合わせ、重なったのは負傷から死亡へ計上し直された1件だけ）。そのためファイルを重複の
-除去なしに足し、ファイルの数（取込の宣言の年数）で割る。本票番号は年ごとに採番し直され、年を
+除去なしに足し、ファイルの数（数えた取込の宣言の年数）で割る。
+
+**分母の年は、今の数を数えた取込から読む**（数の段が`derived_data_meta.accident_run_id`へ記録し、
+世代と一緒に入れ替える）。最新の取込から読むと、取り込み直してから作り直しが入れ替わるまで（本番で
+約1時間）、古い数を新しい年数で割る。本票番号は年ごとに採番し直され、年を
 またいで同じ番号が大量にある（隣の年どうしで約27万〜29万件）ので、生データの鍵にはファイルの年を入れる。
 地図の点も、数えるのと同じ全年を出す（点の説明に発生年が出る）。
 
@@ -458,7 +462,7 @@ DB障害時は空タイルを返す。タイル配信用の短い`command_timeou
   交差点付近で実際にクリックされたフィーチャーとは別の道路を拾いうるため採用しない）。
   一次属性→[評価・スコアリング](evaluation-scoring.md)の`axis_inspector_breakdown`で
   二次軸スコア・三次合成コスト（取得可能な軸だけの参考値）を返す。
-- `get_accident_years()`: 事故データの収録年（取込プロファイルの宣言）。[軸スタジオ](axis-studio.md)の
+- `get_accident_years()`: 事故データの収録年（今の事故の数を数えた取込の宣言。「事故の帰属」）。[軸スタジオ](axis-studio.md)の
   `GET /api/axis-catalog`がそのまま地図の説明文へ配り、年の数で割る実行時スケール定数も
   ここから組み立てる（読めず空なら定数を配らない）。
 - DB障害はいずれも安全側（空タイル/None/0/空リスト）へ倒す一貫した

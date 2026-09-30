@@ -182,7 +182,8 @@ async def _read_tuning(database_url: str) -> dict[str, float]:
 async def run(database_url: str, start_from: str | None) -> int:
     names = [name for name, _ in STAGES]
     begin = names.index(start_from) if start_from else 0
-    tables = [table.name for table in derived_tables()]
+    # 世代の表も写す——数の段がそこへ書く「数えた事故の取込」を、数と同時に読み手へ出すため。
+    tables = [*(table.name for table in derived_tables()), derived_data_meta.DerivedDataMetaRow.__tablename__]
     tuning = await _read_tuning(database_url)
     conn = await asyncpg.connect(asyncpg_dsn(database_url))
     if not await conn.fetchval("SELECT pg_try_advisory_lock(hashtext($1))", WORK_SCHEMA):
