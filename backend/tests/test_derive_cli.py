@@ -9,10 +9,15 @@
 import asyncpg
 import pytest
 import pytest_asyncio
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.batch import derive_cli, derive_topology
 from app.batch._common import asyncpg_dsn
+from app.batch.source_adapters.npa_honhyo import HonhyoRows
+from app.domain.accident import BICYCLE_PARTY_TYPE_CODES
+from app.domain.material_catalog import ACCIDENT_COUNT_PER_KM_YEAR
 from app.infrastructure import road_network_store
+from app.infrastructure.road_graph_repository import RoadGraphRepository
 from tests.conftest import postgis_database_url
 from tests.source_ingest import ingest_records, point_record, way_record
 
@@ -179,3 +184,43 @@ async def test_the_signal_radius_set_on_the_admin_screen_decides_which_nodes_get
     finally:
         await derived_before.execute("DELETE FROM tuning_overrides WHERE param_id = 'signal.match_radius_m'")
     assert await _nodes_with_signal(derived_before) == {1, 2, 3}
+
+
+async def test_the_accident_density_is_divided_by_the_years_of_the_import_that_was_counted(
+        derived_before, road_graph_engine, monkeypatch):
+    """事故密度の分母（収録年数）は、今の数を数えた事故の取込の年から読む。取り込み直しても、作り直しが
+    入れ替わるまでは前の取込の年のまま（数も前のまま）で、入れ替えた後は新しい取込の年になり、その世代の
+    道路網も新しい年数で割っている。"""
+
+    async def accident_years() -> list[int]:
+        async with AsyncSession(road_graph_engine) as session:
+            return await RoadGraphRepository(session).get_accident_years()
+
+    def density_on_way_100() -> float:
+        network = road_network_store.load(road_network_store.latest_directory())
+        column = network.numeric_ids.index(ACCIDENT_COUNT_PER_KM_YEAR)
+        return float(network.numeric_values[network.edge_way_id == 100, column].max())
+
+    # 道100の途中のノード2の上で、自転車の関わった事故が1件。
+    accident = point_record("on-way-100", *_point(2), {
+        "当事者種別（当事者A）": min(BICYCLE_PARTY_TYPE_CODES), "当事者種別（当事者B）": "59", "死者数": "000"})
+    await ingest_records("accident", [accident], conn=derived_before, rows=HonhyoRows(years=[2024]))
+    assert await derive_cli.run(postgis_database_url(), "counts") == 0
+    one_year = density_on_way_100()
+
+    await ingest_records("accident", [accident], conn=derived_before, rows=HonhyoRows(years=[2023, 2024]))
+    seen_while_rebuilding: list[list[int]] = []
+
+    async def observe():
+        seen_while_rebuilding.append(await accident_years())
+
+    _observe_after("counts", monkeypatch, observe)
+    years_before_rebuild = await accident_years()
+
+    assert await derive_cli.run(postgis_database_url(), "counts") == 0
+
+    # 前提: 1年で割った密度が出ている。
+    assert one_year > 0
+    assert (years_before_rebuild, seen_while_rebuilding) == ([2024], [[2024]])
+    assert await accident_years() == [2023, 2024]
+    assert density_on_way_100() == pytest.approx(one_year / 2)
