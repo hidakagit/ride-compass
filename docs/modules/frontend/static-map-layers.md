@@ -672,8 +672,8 @@ E2Eの`e2e/map-runtime.spec.ts`「宣言された地図レイヤーを全部ON�
 | レイヤー | ソース | 独立/共有 |
 |---|---|---|
 | 道路の線（例: 路面の種類・道路の種類・トンネル） | `ROAD_LINE_SOURCE_ID`（同じソースを分け合う） | 独立レイヤー（並列トラック対象） |
-| 停止要因POI・補給休憩POI | `region-poi-tiles`（点データ） | 同一source-layer`stop_poi`を`kind`値集合で分ける（`baseFilter`必須） |
-| 事故 | `region-accidents`（点データ、別ソース） | 独立 |
+| 停止要因POI・補給休憩POI | 系統`poi`のソース（点データ。ソース名は`points.ts: pointSourceId`が系統の名前から作る） | 同一source-layer`stop_poi`を`kind`値集合で分ける（`baseFilter`必須） |
+| 事故 | 系統`accident`のソース（点データ、別ソース） | 独立 |
 
 停止要因POIは**バックエンドで交差点単位にまとめられた点**が届く（[静的道路属性](../backend/static-road-attributes.md)）。
 1つの交差点に立つ複数の信号ノードは1点で、位置は交差点の真ん中になる。届く`kind`は取込時の
@@ -693,6 +693,10 @@ E2Eの`e2e/map-runtime.spec.ts`「宣言された地図レイヤーを全部ON�
 各レイヤーの凡例の行は`scene/legends.ts`が宣言から出し、地図の絞り込み式は同じ宣言から
 各グループ（`scene/groups/*.ts`）が組み立てる。同じタイルを分け合う点（停止要因・補給）は、
 凡例で何も隠していない間も自分の種別だけを通す条件を常に持つ（`points.ts: baseFilter`）。
+**凡例に出す行はどれも、チェックを外すとその行の地物だけが消える**（受け皿の「その他」「データなし」も含む）。
+消せない行や隣の行まで巻き込む行があると凡例のチェックが地図と食い違うため、道の線と点の凡例の全行に対して
+`scene/legends.test.ts`がMapLibreと同じ評価器で確かめる（評価軸の段は実行時のカタログから来るので、段の組み立てを
+`view/lens.test.ts`と`groups/axisLines.test.ts`が見る）。
 ramp軸ぶんの絞り込み軸は`rampAxes`（実行時フェッチ、軸スタジオの公開軸を含む）
 から関数的に組み立てる——ビルド時静的リストの手書き列挙ではない。
 

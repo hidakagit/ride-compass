@@ -1,11 +1,12 @@
 // @vitest-environment node
 /** 凡例の見本が、地図に実際に描かれるものだけを示すこと。 */
+import { featureFilter, type FilterSpecification } from "@maplibre/maplibre-gl-style-spec";
 import { describe, expect, it } from "vitest";
 
-import { pointGroup } from "@/features/map/scene/groups/points";
+import { POINT_LAYERS, pointAxisKey, pointGroup } from "@/features/map/scene/groups/points";
 import { LEGEND_NO_DATA_KEY } from "@/lib/mapDisplay/mapColorLegend";
 
-import { ROAD_OTHER_KEY, ROAD_TRACKS, roadTrackAxis } from "./groups/roadLines";
+import { ROAD_OTHER_KEY, ROAD_TRACKS, roadLineGroup, roadTrackAxis, roadTrackHasMissing } from "./groups/roadLines";
 import { pointLegendAxes, roadLegendAxes } from "./legends";
 
 const TILES = {
@@ -85,4 +86,84 @@ describe("道の線の凡例の受け皿", () => {
       );
     },
   );
+});
+
+/** 絞り込みがその地物を通すか（MapLibreと同じ評価器で評価する）。絞り込みが無ければ全部通る。 */
+function passes(filter: unknown, properties: Record<string, unknown>): boolean {
+  if (filter === undefined) return true;
+  return featureFilter(filter as FilterSpecification, "filter").filter(
+    { zoom: 14 } as never,
+    {
+      type: 1,
+      properties,
+    } as never,
+  );
+}
+
+type LegendAxis = ReturnType<typeof roadLegendAxes>[number];
+
+/** 凡例の鍵ごとの、その行に入る地物。行に入る値を1つずつ持つ地物を作る——行が複数の値を束ねていれば
+ * どの値も確かめる。鍵に地物を作れなければ、その鍵は分類にも受け皿にも当たらない。 */
+function roadSamples(axis: LegendAxis): Map<string, Record<string, unknown>[]> {
+  const track = ROAD_TRACKS.find((candidate) => candidate.attr_id === axis.layerId);
+  if (track === undefined) throw new Error(`${axis.layerId} の線が無い`);
+  const { property, categories } = roadTrackAxis(track);
+  const known = categories[0].values[0];
+  const samples = new Map<string, Record<string, unknown>[]>(
+    categories.map((category) => [category.key, category.values.map((value) => ({ [property]: value }))]),
+  );
+  samples.set(ROAD_OTHER_KEY, [{ [property]: typeof known === "boolean" ? !known : "__outside_every_category__" }]);
+  if (roadTrackHasMissing(track)) samples.set(LEGEND_NO_DATA_KEY, [{}]);
+  return samples;
+}
+
+function pointSamples(axis: LegendAxis): Map<string, Record<string, unknown>[]> {
+  const layer = POINT_LAYERS.find((candidate) => candidate.attr_id === axis.layerId);
+  const own = layer?.display_axes.find((candidate) => pointAxisKey(layer, candidate) === axis.axisId);
+  if (layer === undefined || own === undefined) throw new Error(`${axis.axisId} の点の軸が無い`);
+  // 他の軸は先頭の行の値にしておく（隠すのはこの軸の行だけなので、他の軸では落ちない）。
+  const rest = Object.fromEntries(layer.display_axes.map((other) => [other.property, other.categories[0].values[0]]));
+  return new Map(
+    own.categories.map((category) => [
+      category.key,
+      category.values.map((value) => ({ ...rest, [own.property]: value })),
+    ]),
+  );
+}
+
+function roadFilter(axis: LegendAxis, hidden: readonly string[]): unknown {
+  return roadLineGroup
+    .build({
+      tiles: { urls: ["https://example.test/{z}/{x}/{y}"], sourceLayer: "road", minZoom: 10, maxZoom: 14 },
+      visible: { [axis.layerId]: true },
+      hiddenKeys: { [axis.axisId]: hidden },
+      inspectedWayId: null,
+    })
+    .layers.find((layer) => layer.role === axis.layerId)?.filter;
+}
+
+function pointFilter(axis: LegendAxis, hidden: readonly string[]): unknown {
+  return pointGroup
+    .build({ tiles: TILES, visible: { [axis.layerId]: true }, hiddenKeys: { [axis.axisId]: hidden } })
+    .layers.find((layer) => layer.role === axis.layerId)?.filter;
+}
+
+// 凡例に出す行はどれも、チェックを外すとその行の地物だけが地図から消える。
+describe("凡例の行ごとの絞り込み", () => {
+  const cases = [
+    ...roadLegendAxes().map((axis) => ({ axis, samples: roadSamples(axis), filterOf: roadFilter })),
+    ...pointLegendAxes().map((axis) => ({ axis, samples: pointSamples(axis), filterOf: pointFilter })),
+  ].flatMap(({ axis, samples, filterOf }) =>
+    axis.entries.map((entry) => [axis.axisId, entry.key, { samples, filter: filterOf(axis, [entry.key]) }] as const),
+  );
+
+  it.each(cases)("%s の「%s」を隠すと、その行の地物だけが消える", (_, key, { samples, filter }) => {
+    const own = samples.get(key);
+    if (own === undefined) throw new Error(`「${key}」の行に入る地物を作れない（分類にも受け皿にも当たらない）`);
+    for (const properties of own) expect(passes(filter, properties), JSON.stringify(properties)).toBe(false);
+    for (const [otherKey, others] of samples) {
+      if (otherKey === key) continue;
+      for (const properties of others) expect(passes(filter, properties), JSON.stringify(properties)).toBe(true);
+    }
+  });
 });
