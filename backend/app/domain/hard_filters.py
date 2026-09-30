@@ -100,12 +100,11 @@ def compute_routable_nodes(
 def compute_hard_filter_excluded(
     hard_filter_flags: Mapping[str, np.ndarray],
     gradient_percent: np.ndarray,
-    hard_filters: frozenset[str] | None = None,
-    max_average_grade_percent: float | None = None,
+    hard_filters: frozenset[str],
+    max_average_grade_percent: float | None,
 ) -> np.ndarray:
     """静的スコア行列が持つ生フラグから、リクエスト時点の`hard_filters`/
     `max_average_grade_percent`を反映した0次フィルタ除外の真偽値配列を求める。
-    `hard_filters`省略時は`DEFAULT_HARD_FILTERS`を使う。
 
     `hard_filter_flags`は`HARD_FILTER_NAMES`のフィルタ名→該当フラグ配列で、**キー集合の
     完全一致を要求する**——欠けたフィルタは黙って無効になり、高速道路や`bicycle=no`の道が
@@ -113,18 +112,17 @@ def compute_hard_filter_excluded(
     （綴り間違いが「そのフィルタを切った」と区別できない）。フィルタを1つ増やしても
     この関数は変わらない。
     """
-    active_hard_filters = hard_filters if hard_filters is not None else DEFAULT_HARD_FILTERS
     if set(hard_filter_flags) != HARD_FILTER_NAMES:
         raise ValueError(
             f"0次フィルタの列が宣言と違います 不足={sorted(HARD_FILTER_NAMES - set(hard_filter_flags))} "
             f"未知={sorted(set(hard_filter_flags) - HARD_FILTER_NAMES)}"
         )
-    unknown = active_hard_filters - HARD_FILTER_NAMES
+    unknown = hard_filters - HARD_FILTER_NAMES
     if unknown:
         raise ValueError(f"宣言に無い0次フィルタ名: {sorted(unknown)}")
     excluded = np.zeros(len(gradient_percent), dtype=bool)
     for filter_name, flags in hard_filter_flags.items():
-        if filter_name in active_hard_filters:
+        if filter_name in hard_filters:
             excluded |= flags
     # 勾配の〇次ハードフィルタ（NaNとの比較は常にFalseになるため、勾配不明のEdgeへは
     # 適用されない）。

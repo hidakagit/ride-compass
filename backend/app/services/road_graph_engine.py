@@ -26,7 +26,7 @@ import itertools
 import logging
 import math
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 
@@ -73,7 +73,6 @@ from app.domain.routing import (
     build_search_graph_statics,
     current_turn_cost,
     NodeJunction,
-    TurnCostSpec,
     TurnExpandedStructure,
     TurnExpandedTree,
     build_turn_expanded_structure,
@@ -93,13 +92,11 @@ from app.domain.routing import (
 )
 from app.domain.weather import WeatherConditions
 from app.domain.wind import (
-    ASSUMED_SPEED_KMH,
     ROUTE_DETOUR_RATIO,
     estimate_passage_hours,
     kmh_to_ms,
 )
 from app.infrastructure import detour_ratio_cache
-from app.services.elevation_aggregation import max_or_none, min_or_none, sum_or_none
 from app.services.graph_service import GraphService
 from app.domain.loop_routing import LoopTurnaround, TracedLoop, candidate_identity
 from app.services.weather_service import WeatherService
@@ -276,17 +273,20 @@ class _TurnaroundData:
 
 
 class RoadGraphEngine:
+    """評価条件は解決済みの値だけを受け取る（既定を持たない）。組み立ては
+    `api/dependencies.py: assemble_route_generation_setup`だけが行う。"""
+
     def __init__(
         self,
         graph_service: GraphService,
         weather_service: WeatherService,
+        *,
         route_preference: RoutePreference,
         penalty_strength: float,
-        max_average_grade_percent: float | None = None,
-        hard_filters: frozenset[str] | None = None,
-        assumed_speed_kmh: float = ASSUMED_SPEED_KMH,
-        lens_axis_id: str | None = None,
-        turn_cost: TurnCostSpec | None = None,
+        max_average_grade_percent: float | None,
+        hard_filters: frozenset[str],
+        assumed_speed_kmh: float,
+        lens_axis_id: str | None,
     ):
         self._graph_service = graph_service
         # 地図のレンズが表示を要求している軸id（無ければNone）。区間に載せる材料の集合
@@ -298,16 +298,14 @@ class RoadGraphEngine:
         self._weather_service = weather_service
         self._route_preference = route_preference
         # コスト式`所要時間 × (1 + P × difficulty/100)`のP＝「主観 vs 時間」の換算レート。
-        # 既定を持たない——省略時の値は呼ぶ側が`resolve_penalty_strength`で較正値から読む。
         self._penalty_strength = penalty_strength
-        # 0次ハードフィルタの勾配しきい値（%、既定None＝除外しない）。
+        # 0次ハードフィルタの勾配しきい値（%、None＝除外しない）。
         # `domain/hard_filters.py: compute_hard_filter_excluded`参照。
         self._max_average_grade_percent = max_average_grade_percent
-        # 0次ハードフィルタ名（no_bicycle/motorway/trunk）の個別ON/OFF上書き
-        # （既定None＝DEFAULT_HARD_FILTERS＝全フィルタ有効）。
+        # 有効にする0次ハードフィルタ名の集合。
         self._hard_filters = hard_filters
-        # 交差点でのターンの費用（秒）。較正中はリクエストで上書きして試せる。
-        self._turn_cost = turn_cost if turn_cost is not None else current_turn_cost()
+        # 交差点でのターンの費用（秒）。較正値のため、組み立てた時点の値で1回の生成を通す。
+        self._turn_cost = current_turn_cost()
 
     async def _build_search_graph(
         self, bbox: BoundingBox, wind_and_night_origin: Coordinates, now: datetime
@@ -1886,11 +1884,15 @@ def _aggregate_elevation(edges: list[LeanEdge], elevation_by_edge: dict) -> dict
         if a.end_elevation_m is not None:
             elevations.append(a.end_elevation_m)
 
-    # 最終集約（sum/min/max・空ならNone・小数1桁丸め）はelevation_aggregation.pyへ集約する。
     return {
-        "elevation_gain_m": sum_or_none(gains),
-        "min_elevation_m": min_or_none(elevations),
-        "max_elevation_m": max_or_none(elevations),
+        "elevation_gain_m": _rounded_or_none(sum, gains),
+        "min_elevation_m": _rounded_or_none(min, elevations),
+        "max_elevation_m": _rounded_or_none(max, elevations),
     }
+
+
+def _rounded_or_none(aggregate: Callable[[list[float]], float], values: list[float]) -> float | None:
+    """値が1つも無ければNone（0mと「標高が取れなかった」を分ける）。小数1桁へ丸める。"""
+    return round(aggregate(values), 1) if values else None
 
 

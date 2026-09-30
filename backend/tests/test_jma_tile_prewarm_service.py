@@ -124,11 +124,11 @@ def _tile_parts(path):
 
 @pytest.fixture
 def stored(monkeypatch):
-    """インデックスの書き込み先（Redis）。書かれたペイロードを並べる。"""
+    """インデックスの書き込み先（Redis）。書かれたインデックスを、保存される形（JSON）で並べる。"""
     payloads: list[dict] = []
 
-    async def set_index(payload):
-        payloads.append(payload)
+    async def set_index(index):
+        payloads.append(index.model_dump())
 
     monkeypatch.setattr(prewarm, "set_index", set_index)
     return payloads

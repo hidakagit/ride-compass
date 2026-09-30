@@ -1139,20 +1139,20 @@ export interface components {
         };
         /** DebugStatsResponse */
         DebugStatsResponse: {
+            /** External */
+            external: {
+                [key: string]: components["schemas"]["ExternalCallStats"];
+            };
+            /** Rate Limit Rejections */
+            rate_limit_rejections: {
+                [key: string]: number;
+            };
             /** Commit */
             commit: string | null;
             /** Started At */
             started_at: string;
             /** Debug Mode */
             debug_mode: boolean;
-            /** External */
-            external: {
-                [key: string]: components["schemas"]["ExternalCallStatsResponse"];
-            };
-            /** Rate Limit Rejections */
-            rate_limit_rejections: {
-                [key: string]: number;
-            };
             msm: components["schemas"]["MsmFreshnessResponse"] | null;
         };
         /** DerivedDataFreshnessReport */
@@ -1183,8 +1183,8 @@ export interface components {
             /** Bands On Map */
             bands_on_map: number[];
         };
-        /** ExternalCallStatsResponse */
-        ExternalCallStatsResponse: {
+        /** ExternalCallStats */
+        ExternalCallStats: {
             /** Calls */
             calls: number;
             /** Errors */

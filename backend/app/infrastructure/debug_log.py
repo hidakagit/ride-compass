@@ -12,7 +12,8 @@ import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
-from typing import TypedDict
+
+from app.domain.strict_model import StrictModel
 
 logger = logging.getLogger("ridecompass.external")
 
@@ -24,13 +25,19 @@ WARN_BURST_PER_WINDOW = 5
 _ALWAYS_ON_FLOAT_PRECISION = 2
 
 
-class _CategoryStats(TypedDict):
+class ExternalCallStats(StrictModel):
+    """カテゴリ1つぶんの集計。プロセス内のカウンタそのものであり、`/api/debug/stats`の応答の形でもある。"""
+
     calls: int
     errors: int
     cache_hits: int
     cache_misses: int
     total_ms: int
     max_ms: int
+    avg_ms: int
+    cache_hit_rate: float | None
+    # 失敗の主な理由を推測するための追加集計。error_typesは
+    # HTTPステータス（"http_429"）か例外クラス名のみの粗いラベルで、メッセージ本文・座標は含まない。
     error_types: dict[str, int]
     last_error_type: str | None
     last_error_at: str | None
@@ -40,8 +47,38 @@ class _CategoryStats(TypedDict):
     stale_fallback_used: int
 
 
+class StatsSnapshot(StrictModel):
+    """`get_stats`が返すプロセス内集計の写し。"""
+
+    # カテゴリは`log_external_call`の呼び出し元
+    # （msm:read・weather:jma-tile・basemap:openfreemap・region:road-surface-tile等）に対応する。
+    external: dict[str, ExternalCallStats]
+    # カテゴリ → 429拒否数（`record_rate_limit_rejection`）。
+    rate_limit_rejections: dict[str, int]
+
+
+def _empty_stats() -> ExternalCallStats:
+    return ExternalCallStats(
+        calls=0,
+        errors=0,
+        cache_hits=0,
+        cache_misses=0,
+        total_ms=0,
+        max_ms=0,
+        avg_ms=0,
+        cache_hit_rate=None,
+        error_types={},
+        last_error_type=None,
+        last_error_at=None,
+        last_success_at=None,
+        retried_calls=0,
+        retry_attempts_total=0,
+        stale_fallback_used=0,
+    )
+
+
 _lock = threading.Lock()
-_stats: dict[str, _CategoryStats] = {}
+_stats: dict[str, ExternalCallStats] = {}
 # category -> 429拒否数(record_rate_limit_rejection)
 _rejections: dict[str, int] = {}
 # category -> [window_start(monotonic), emitted_count, suppressed_count]
@@ -98,52 +135,39 @@ def _throttled_warning(category: str, message: str, *args: object) -> None:
 
 def _record(category: str, elapsed_ms: int, fields: dict, error: bool) -> None:
     with _lock:
-        stats = _stats.setdefault(
-            category,
-            {
-                "calls": 0,
-                "errors": 0,
-                "cache_hits": 0,
-                "cache_misses": 0,
-                "total_ms": 0,
-                "max_ms": 0,
-                # 以下は「失敗の主な理由を推測する」ための追加集計。
-                "error_types": {},
-                "last_error_type": None,
-                "last_error_at": None,
-                "last_success_at": None,
-                "retried_calls": 0,
-                "retry_attempts_total": 0,
-                "stale_fallback_used": 0,
-            },
-        )
-        stats["calls"] += 1
+        stats = _stats.get(category)
+        if stats is None:
+            stats = _stats[category] = _empty_stats()
+        stats.calls += 1
         now_iso = datetime.now(UTC).isoformat()
         if error:
-            stats["errors"] += 1
+            stats.errors += 1
             error_type = fields.get("error_type") or "unknown"
-            stats["error_types"][error_type] = stats["error_types"].get(error_type, 0) + 1
-            stats["last_error_type"] = error_type
-            stats["last_error_at"] = now_iso
+            stats.error_types[error_type] = stats.error_types.get(error_type, 0) + 1
+            stats.last_error_type = error_type
+            stats.last_error_at = now_iso
         else:
-            stats["last_success_at"] = now_iso
+            stats.last_success_at = now_iso
         cache = fields.get("cache")
         if cache == "hit":
-            stats["cache_hits"] += 1
+            stats.cache_hits += 1
         elif cache == "miss":
-            stats["cache_misses"] += 1
+            stats.cache_misses += 1
         # 429/ConnectTimeout等で再試行が発生した回数（最終的に成功した呼び出しも含む）。
         # 「まだ成功はしているが上流が混み始めている」兆候を502化する前に把握できる。
         retries = fields.get("retries")
         if retries:
-            stats["retried_calls"] += 1
-            stats["retry_attempts_total"] += retries
+            stats.retried_calls += 1
+            stats.retry_attempts_total += retries
         # 「取得失敗時に古いキャッシュで代用した」回数。
         fallback = fields.get("fallback")
         if isinstance(fallback, str) and fallback.startswith("stale_cache"):
-            stats["stale_fallback_used"] += 1
-        stats["total_ms"] += elapsed_ms
-        stats["max_ms"] = max(stats["max_ms"], elapsed_ms)
+            stats.stale_fallback_used += 1
+        stats.total_ms += elapsed_ms
+        stats.max_ms = max(stats.max_ms, elapsed_ms)
+        stats.avg_ms = round(stats.total_ms / stats.calls)
+        lookups = stats.cache_hits + stats.cache_misses
+        stats.cache_hit_rate = round(stats.cache_hits / lookups, 3) if lookups else None
 
 
 def mark_failed(fields: dict, exc: BaseException) -> None:
@@ -177,18 +201,14 @@ def record_rate_limit_rejection(category: str, client_id: str, limit: str) -> No
     _throttled_warning(f"ratelimit:{category}", "[ratelimit:%s] rejected client=%s limit=%s", category, client_id, limit)
 
 
-def get_stats() -> dict:
-    """/api/debug/stats用のプロセス内集計スナップショット。派生値(平均・ヒット率)もここで計算する。"""
+def get_stats() -> StatsSnapshot:
+    """/api/debug/stats用のプロセス内集計の写し。応答はロックの外で組み立てるため、
+    実行中のカウンタと共有しない複製を返す。"""
     with _lock:
-        external = {}
-        for category, stats in sorted(_stats.items()):
-            entry: dict[str, object] = dict(stats)
-            entry["error_types"] = dict(stats["error_types"])
-            entry["avg_ms"] = round(stats["total_ms"] / stats["calls"]) if stats["calls"] else 0
-            lookups = stats["cache_hits"] + stats["cache_misses"]
-            entry["cache_hit_rate"] = round(stats["cache_hits"] / lookups, 3) if lookups else None
-            external[category] = entry
-        return {"external": external, "rate_limit_rejections": dict(_rejections)}
+        return StatsSnapshot(
+            external={category: stats.model_copy(deep=True) for category, stats in sorted(_stats.items())},
+            rate_limit_rejections=dict(_rejections),
+        )
 
 
 @contextmanager
