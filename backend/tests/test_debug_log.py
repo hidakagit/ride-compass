@@ -5,12 +5,13 @@
 - 各クライアントがどのカテゴリ名・fieldsを設定するか → そのクライアントのテスト
 - ロガー名が`ridecompass.`接頭辞に揃っているか → `tests/structure/test_canonical_definitions.py`
 
-**時刻は差し替えて与える。** 所要時間も抑制窓も`time.monotonic()`だけで決まるため、実時間を
+**時計は止めて進める（`clock`）。** 所要時間も抑制窓も`time.monotonic()`だけで決まるため、実時間を
 待つと窓の境界（60秒）を跨げない。
 """
 
 import logging
 
+import httpx
 import pytest
 
 from app.infrastructure import debug_log
@@ -18,24 +19,6 @@ from app.infrastructure import debug_log
 LOGGER_NAME = "ridecompass.external"
 
 pytestmark = pytest.mark.usefixtures("empty_debug_counters")
-
-
-class _Clock:
-    def __init__(self) -> None:
-        self.seconds = 1000.0
-
-    def monotonic(self) -> float:
-        return self.seconds
-
-    def advance(self, seconds: float) -> None:
-        self.seconds += seconds
-
-
-@pytest.fixture
-def clock(monkeypatch):
-    fake = _Clock()
-    monkeypatch.setattr(debug_log, "time", fake)
-    return fake
 
 
 @pytest.fixture
@@ -54,13 +37,10 @@ def _external(category: str) -> debug_log.ExternalCallStats:
 
 
 def test_errors_carrying_an_http_response_are_labeled_by_status_code():
-    class _Response:
-        status_code = 503
+    request = httpx.Request("GET", "https://example.test/")
+    error = httpx.HTTPStatusError("503", request=request, response=httpx.Response(503, request=request))
 
-    class _HttpStatusError(Exception):
-        response = _Response()
-
-    assert debug_log.error_type_label(_HttpStatusError()) == "http_503"
+    assert debug_log.error_type_label(error) == "http_503"
 
 
 def test_other_errors_are_labeled_by_their_class_name():
@@ -120,7 +100,7 @@ def test_the_suppressed_count_is_reported_once_the_window_turns_over(clock, warn
     """抑制した件数を出さないと、読み手は「警告が5件で収まった」と読んでしまう。"""
     for i in range(debug_log.WARN_BURST_PER_WINDOW + 3):
         debug_log.log_throttled_warning("cat", "boom %d", i)
-    clock.advance(debug_log.WARN_WINDOW_SECONDS)
+    clock.tick(debug_log.WARN_WINDOW_SECONDS)
 
     debug_log.log_throttled_warning("cat", "boom again")
 
@@ -131,7 +111,7 @@ def test_the_suppressed_count_is_reported_once_the_window_turns_over(clock, warn
 
 def test_no_notice_is_emitted_when_the_previous_window_suppressed_nothing(clock, warnings):
     debug_log.log_throttled_warning("cat", "first")
-    clock.advance(debug_log.WARN_WINDOW_SECONDS)
+    clock.tick(debug_log.WARN_WINDOW_SECONDS)
     debug_log.log_throttled_warning("cat", "second")
 
     assert warnings.messages() == ["first", "second"]
@@ -256,9 +236,9 @@ def test_only_a_stale_cache_fallback_is_counted_as_one(clock, warnings):
 
 def test_durations_accumulate_into_the_total_average_and_peak(clock, warnings):
     with debug_log.log_external_call("cat"):
-        clock.advance(0.012)
+        clock.tick(0.012)
     with debug_log.log_external_call("cat"):
-        clock.advance(0.030)
+        clock.tick(0.030)
 
     stats = _external("cat")
     assert (stats.total_ms, stats.max_ms, stats.avg_ms) == (42, 30, 21)

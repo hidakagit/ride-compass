@@ -8,12 +8,14 @@
 （値を書き写すと、ここを変えたときに関係ないテストが落ちる）。
 """
 
+import httpx
+import respx
 from cachetools import TTLCache
 from shapely.geometry import box
 
 from app.domain.route import Coordinates
 from app.infrastructure import flood_client, jma_area_boundaries, jma_warning_client
-from tests.fake_api_http import FakeResponse, RoutingHttpClient
+from tests.fake_http import client_for
 
 CLASS20_CODE = "1310100"
 CLASS10_CODE = "130010"
@@ -40,7 +42,7 @@ def area_lookup_upstream(
     area_data=AREA_DATA,
     warning_documents=None,
     flood_documents=None,
-) -> RoutingHttpClient:
+) -> httpx.AsyncClient:
     """区域の境界を`CHIYODA_POINT`を囲む1区域だけにし、気象庁の代役を返す。
 
     境界はディスクから読む本物を通す（置き場だけを`tmp_path`へ移す）。代役は地域マスタ・
@@ -64,8 +66,10 @@ def area_lookup_upstream(
         flood_client.FLOOD_API_URL: flood_documents,
     }
 
-    def route(url):
-        payload = payloads[url]
-        return None if payload is None else FakeResponse(payload)
-
-    return RoutingHttpClient(route)
+    upstream = respx.Router()
+    for url, payload in payloads.items():
+        if payload is None:
+            upstream.get(url).mock(side_effect=httpx.ConnectError)
+        else:
+            upstream.get(url).respond(json=payload)
+    return client_for(upstream)

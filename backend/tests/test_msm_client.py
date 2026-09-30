@@ -15,7 +15,7 @@
 """
 
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import httpx
@@ -66,14 +66,13 @@ def _om_bytes(tmp_path, chunk_number: int) -> bytes:
 
 
 @pytest.fixture
-def msm_dir(tmp_path, monkeypatch):
+def msm_dir(tmp_path, monkeypatch, clock):
     """同期先のディスクを一時ディレクトリへ、時計を`NOW`へ。"""
     directory = tmp_path / "msm"
     monkeypatch.setattr(msm_client, "MSM_DIR", directory)
     monkeypatch.setattr(msm_client, "_META_FILE", directory / "meta.json")
     monkeypatch.setattr(msm_client, "_ETAGS_FILE", directory / "etags.json")
-    clock = SimpleNamespace(now=NOW)
-    monkeypatch.setattr(msm_client, "time", SimpleNamespace(time=lambda: clock.now))
+    clock.move_to(datetime.fromtimestamp(NOW, UTC))
 
     def forecast_hours(hours: int) -> None:
         monkeypatch.setattr(settings, "msm_forecast_hours", hours)
@@ -181,7 +180,7 @@ class TestSyncing:
         async with source.client() as client:
             msm_dir.forecast_hours(3)
             await msm_client.refresh(client)
-            msm_dir.clock.now = NOW + CHUNK_HOURS * 3600
+            msm_dir.clock.tick(CHUNK_HOURS * 3600)
             msm_dir.forecast_hours(3)
             await msm_client.refresh(client)
 

@@ -9,7 +9,7 @@ import pytest
 
 from app.domain.flood_forecast import FloodBulletin
 from app.infrastructure import flood_client
-from tests.fake_api_http import FakeHttpClient
+from tests.fake_http import answering
 
 #: flood_xml.jsonの1件。項目は実際の応答の形のまま。
 KANDA_RIVER = {
@@ -31,7 +31,7 @@ def _clear_cache():
 
 
 async def test_a_bulletin_is_read_into_its_code_areas_and_texts():
-    bulletins = await flood_client.fetch_flood_documents(FakeHttpClient([KANDA_RIVER]))
+    bulletins = await flood_client.fetch_flood_documents(answering(json=[KANDA_RIVER]))
 
     assert bulletins == [
         FloodBulletin(
@@ -49,7 +49,7 @@ async def test_a_bulletin_is_read_into_its_code_areas_and_texts():
 @pytest.mark.parametrize("status", ["訓練", "試験"])
 async def test_training_and_test_bulletins_are_not_passed_on(status):
     """訓練・試験の電文を渡すと、実際には出ていない氾濫予報が画面に出る。"""
-    bulletins = await flood_client.fetch_flood_documents(FakeHttpClient([{**KANDA_RIVER, "status": status}]))
+    bulletins = await flood_client.fetch_flood_documents(answering(json=[{**KANDA_RIVER, "status": status}]))
 
     assert bulletins == []
 
@@ -64,7 +64,7 @@ async def test_missing_or_null_texts_and_areas_read_as_empty(absent):
     else:
         entry = {**KANDA_RIVER, **dict.fromkeys(keys), "item": {"code": "40", "condition": None}}
 
-    (bulletin,) = await flood_client.fetch_flood_documents(FakeHttpClient([entry]))
+    (bulletin,) = await flood_client.fetch_flood_documents(answering(json=[entry]))
 
     assert bulletin == FloodBulletin(
         code="40", class20_codes=(), class10_codes=(), river_code="", river_name="", condition="", report_datetime=""
@@ -74,13 +74,13 @@ async def test_missing_or_null_texts_and_areas_read_as_empty(absent):
 async def test_a_bulletin_without_an_item_has_no_code():
     entry = {key: value for key, value in KANDA_RIVER.items() if key != "item"}
 
-    (bulletin,) = await flood_client.fetch_flood_documents(FakeHttpClient([entry]))
+    (bulletin,) = await flood_client.fetch_flood_documents(answering(json=[entry]))
 
     assert bulletin.code is None
 
 
 async def test_non_list_response_yields_none():
     """配列でない応答をそのまま通すと、電文を1件ずつ読む呼び出し元が落ちる。"""
-    client = FakeHttpClient({"message": "maintenance"})
+    client = answering(json={"message": "maintenance"})
 
     assert await flood_client.fetch_flood_documents(client) is None
