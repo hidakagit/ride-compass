@@ -7,8 +7,6 @@ import {
   ArrowUp,
   Clock,
   Cloud,
-  CloudFog,
-  CloudLightning,
   Copy,
   Download,
   Droplet,
@@ -496,11 +494,9 @@ export const WindIcon = fromLucide(Wind);
 export const WindDirectionArrowIcon = fromLucide(ArrowUp);
 export const ThermometerIcon = fromLucide(Thermometer);
 export const RaindropIcon = fromLucide(Droplet);
-export const ThunderIcon = fromLucide(CloudLightning);
 export const SunIcon = fromLucide(Sun);
 export const MoonIcon = fromLucide(Moon);
 export const CloudIcon = fromLucide(Cloud);
-export const FogIcon = fromLucide(CloudFog);
 export const SnowflakeIcon = fromLucide(Snowflake);
 export const GenerateRoutesIcon = fromLucide(Play);
 /** 生成した候補を捨てる。バツ印にしない——パネルを閉じる✕の隣に並び、同じ形だと見分けられない。 */

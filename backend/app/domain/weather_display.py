@@ -113,15 +113,14 @@ class WeatherCategory(NamedTuple):
     codes: tuple[int, ...]
 
 
-#: 天気コードの分類。画面はどれにも当たらないコードを天気の分からないコードとして何も出さないので、
-#: 応答が運ぶコード（`domain/weather.py: derive_observed_weather_code`の返す値）はどれかの分類に入っていなければならない。
+#: 天気コードの分類。持つのは応答が運ぶコード（`domain/weather.py: derive_observed_weather_code`の返す値）だけで、
+#: その全部がどれかの分類に入る——画面はどれにも当たらないコードを天気の分からないコードとして何も出さず、
+#: 分類ごとにアイコンを1つ持つので、導かないコードや分類を置くと画面に通らない絵が残る。
 #: 画面は分類ごとに小さいアイコン1つで出すので、コードごとに描き分けず粗く丸める（「晴れ時々くもり」等の
 #: 中間の状態はアイコンでは見分けられない）。
 WEATHER_CATEGORIES: tuple[WeatherCategory, ...] = (
-    WeatherCategory("clear", "晴れ", (0, 1)),
-    WeatherCategory("cloudy", "くもり", (2, 3)),
-    WeatherCategory("fog", "霧", (45, 48)),
-    WeatherCategory("rain", "雨", (51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82)),
-    WeatherCategory("snow", "雪", (71, 73, 75, 77, 85, 86)),
-    WeatherCategory("thunderstorm", "雷雨", (95, 96, 99)),
+    WeatherCategory("clear", "晴れ", (0,)),
+    WeatherCategory("cloudy", "くもり", (3,)),
+    WeatherCategory("rain", "雨", (61, 63, 65)),
+    WeatherCategory("snow", "雪", (71, 73, 75)),
 )
