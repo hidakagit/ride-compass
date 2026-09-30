@@ -4,12 +4,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { setDebugEnabled } from "@/lib/debugLog";
 import { catalogAxisFromEntry, type CatalogAxis } from "@/lib/catalogAxis";
 import { catalogEntry } from "@/testing/catalogAxes";
-import { fetchAxisInspector } from "@/services/regionApi";
+import { fetchAxisInspector } from "@/features/map/regionApi";
 import materialCatalog from "@/types/generated/material-catalog.json";
 import type { AxisInspectorResult } from "@/types/traffic";
 import RoadInspectorPopup from "./RoadInspectorPopup";
 
-vi.mock("@/services/regionApi", () => ({ fetchAxisInspector: vi.fn() }));
+vi.mock("@/features/map/regionApi", () => ({ fetchAxisInspector: vi.fn() }));
 
 const axis = (axisId: string, label: string, description: string): CatalogAxis =>
   catalogAxisFromEntry(catalogEntry({ axis_id: axisId, label, description }));

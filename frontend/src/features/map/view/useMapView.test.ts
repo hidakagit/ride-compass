@@ -1,16 +1,17 @@
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { MapAxisCatalog } from "@/features/map/mapAxisCatalog";
 import type { AxisCatalog } from "@/lib/axisCatalog";
 
 const mocks = vi.hoisted(() => ({
   catalog: { current: undefined as unknown as AxisCatalog },
-  tileVersionsReady: { current: true },
+  mapCatalog: { current: undefined as unknown as MapAxisCatalog },
   useDynamicWeatherLayers: vi.fn(),
   useDedicatedWayValues: vi.fn(),
 }));
 vi.mock("@/hooks/useAxisCatalog", () => ({ useAxisCatalog: () => mocks.catalog.current }));
-vi.mock("@/features/map/useTileVersionsReady", () => ({ useTileVersionsReady: () => mocks.tileVersionsReady.current }));
+vi.mock("@/features/map/useMapAxisCatalog", () => ({ useMapAxisCatalog: () => mocks.mapCatalog.current }));
 vi.mock("@/features/map/useDynamicWeatherLayers", () => ({ useDynamicWeatherLayers: mocks.useDynamicWeatherLayers }));
 vi.mock("@/features/map/useDedicatedWayValues", () => ({ useDedicatedWayValues: mocks.useDedicatedWayValues }));
 // 凡例の絞り込みを地図へ反映するまでの間引きはuseDebouncedValueの持ち物。
@@ -24,14 +25,17 @@ import {
 import { disasterSourceLegendAxis } from "@/features/map/scene/legends";
 import { LENS_DIFFICULTY_ID } from "@/lib/mapDisplay/routeStyleModes";
 
+import { EMPTY_MAP_AXIS_CATALOG } from "@/features/map/mapAxisCatalog";
+import { mapCatalogOf } from "@/testing/mapAxisCatalog";
 import { catalogOf, dedicatedEntry, rampEntry } from "@/testing/catalogAxes";
+import regionTileConfig from "@/types/generated/region-tile-config.json";
 import { useMapView } from "./useMapView";
 
-const CATALOG: AxisCatalog = {
-  ...catalogOf([rampEntry("ramp", [10]), dedicatedEntry("dedicated", [1])]),
-  loaded: true,
-  failed: false,
-};
+const AXES = [rampEntry("ramp", [10]), dedicatedEntry("dedicated", [1])];
+const CATALOG: AxisCatalog = catalogOf(AXES);
+const MAP_CATALOG = mapCatalogOf(AXES, {
+  tile_versions: Object.fromEntries(regionTileConfig.tile_version_kinds.map((kind) => [kind, "v"])),
+});
 const RIDE = { bearingDeg: 90, at: new Date("2026-09-24T00:00:00Z"), speedKmh: 20 };
 const EMPTY_WEATHER = { dynamicWeather: {}, dynamicWeatherDataStatus: {} };
 
@@ -55,7 +59,7 @@ const fetchedAxisIds = () =>
 beforeEach(() => {
   localStorage.clear();
   mocks.catalog.current = CATALOG;
-  mocks.tileVersionsReady.current = true;
+  mocks.mapCatalog.current = MAP_CATALOG;
   mocks.useDynamicWeatherLayers.mockReset().mockReturnValue(EMPTY_WEATHER);
   mocks.useDedicatedWayValues.mockReset().mockReturnValue(new Map());
 });
@@ -94,10 +98,12 @@ describe("レンズ", () => {
 
   it("保存したレンズの軸は、カタログが届いてから読み直す（届く前は読めずに既定）", () => {
     localStorage.setItem("ridecompass:route-style-mode", "ramp");
-    mocks.catalog.current = { ...catalogOf([]), loaded: false, failed: false };
+    mocks.catalog.current = { ...catalogOf([]), loaded: false };
+    mocks.mapCatalog.current = EMPTY_MAP_AXIS_CATALOG;
     const { result, rerender } = render();
     expect(result.current.lens).toBe(LENS_DIFFICULTY_ID);
     mocks.catalog.current = CATALOG;
+    mocks.mapCatalog.current = MAP_CATALOG;
     rerender(INPUTS);
     expect(result.current.lens).toBe("ramp");
   });
@@ -181,7 +187,7 @@ describe("チップの案内", () => {
   });
 
   it("カタログを取り終えてもタイル世代が無ければ、世代が要るレイヤーに出せない理由を出す", () => {
-    mocks.tileVersionsReady.current = false;
+    mocks.mapCatalog.current = { ...MAP_CATALOG, tileVersions: null };
     const { result } = render();
     expect(chip(result.current, "highway")).toMatchObject({
       notice: TILE_VERSIONS_MISSING_NOTICE,

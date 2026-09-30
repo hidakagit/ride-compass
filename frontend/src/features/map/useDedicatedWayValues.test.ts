@@ -2,19 +2,20 @@ import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { fetchDynamicWayValues } = vi.hoisted(() => ({ fetchDynamicWayValues: vi.fn() }));
-vi.mock("@/services/regionApi", async (importOriginal) => ({
+vi.mock("@/features/map/regionApi", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   fetchDynamicWayValues,
 }));
 // 待ち時間の間引き自体はuseDebouncedValueの持ち物。ここは値が届いた後の振る舞いを見る。
 vi.mock("@/hooks/useDebouncedValue", () => ({ MAP_FETCH_DEBOUNCE_MS: 0, useDebouncedValue: <T>(value: T) => value }));
 
-import { catalogOf, dedicatedEntry } from "@/testing/catalogAxes";
+import { mapCatalogOf } from "@/testing/mapAxisCatalog";
+import { dedicatedEntry } from "@/testing/catalogAxes";
 import type { MapViewport } from "@/features/map/layers/windLayer";
 
 import { useDedicatedWayValues } from "./useDedicatedWayValues";
 
-const { dedicatedAxes } = catalogOf([
+const { dedicatedAxes } = mapCatalogOf([
   dedicatedEntry("timed", [1], {
     dynamic_way_value_needs_time: true,
     dynamic_way_value_needs_bearing: true,

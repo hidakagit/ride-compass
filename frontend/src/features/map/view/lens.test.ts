@@ -1,11 +1,11 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 
-import { axisCatalogFromResponse } from "@/lib/axisCatalog";
+import { mapCatalogOf } from "@/testing/mapAxisCatalog";
 import { LEGEND_NO_DATA_KEY } from "@/lib/mapDisplay/mapColorLegend";
 import { DEFAULT_DIFFICULTY_BOUNDARIES } from "@/lib/mapDisplay/valueScale";
 
-import { catalogEntry, catalogOf, dedicatedEntry, rampEntry, tileInput } from "@/testing/catalogAxes";
+import { catalogEntry, dedicatedEntry, rampEntry, tileInput } from "@/testing/catalogAxes";
 import { matchesFilter as matches } from "@/testing/mapExpressions";
 import { isRouteStyleModeId, lensLegend, lensOptions, paintedAxisId } from "./lens";
 
@@ -32,7 +32,7 @@ function valueRamp(
   });
 }
 
-const catalog = catalogOf([
+const catalog = mapCatalogOf([
   valueRamp("ramp", [10, 20], { raw_value_unit: "%" }),
   rampEntry("labelled", [10], { display_band_labels_override: ["平ら", "坂"] }),
   rampEntry("mislabelled", [10], { display_band_labels_override: ["1つだけ"] }),
@@ -94,7 +94,7 @@ describe("lensLegend（レンズの凡例）", () => {
       },
     });
     const hitsFor = (scales: Record<string, number>, properties: Record<string, unknown>) =>
-      lensLegend("scaled", false, axisCatalogFromResponse([scaled], scales, {}, [])).flatMap((entry) =>
+      lensLegend("scaled", false, mapCatalogOf([scaled], { tile_runtime_scales: scales })).flatMap((entry) =>
         matches(entry.filter, properties) ? [entry.key] : [],
       );
     expect(hitsFor({}, { [VALUE]: 5 })).toEqual([LEGEND_NO_DATA_KEY]);
@@ -122,7 +122,7 @@ describe("lensLegend（レンズの凡例）", () => {
 
 describe("同じ軸の同じ段は、ルートを出す前と後で同じ行", () => {
   // 前後の段の数はbackendが揃えて配る（前は重み付き和の目盛り、後は難易度の目盛りで、同じ数の境界）。
-  const sameBands = catalogOf([
+  const sameBands = mapCatalogOf([
     valueRamp("ramp", [1, 2, 3, 4], { map_value_thresholds: [20, 40, 60, 80] }, true),
     dedicatedEntry("dedicated", [20, 40, 60, 80]),
     dedicatedEntry("signed", [-6, -2, 2, 6], { map_value: { kind: "signed_material", material: VALUE } }),
@@ -139,7 +139,7 @@ describe("同じ軸の同じ段は、ルートを出す前と後で同じ行", (
 });
 
 describe("lensOptions（レンズの選択肢）", () => {
-  const { axes } = catalogOf([rampEntry("ramp", [1]), catalogEntry({ axis_id: "route_only" })]);
+  const { axes } = mapCatalogOf([rampEntry("ramp", [1]), catalogEntry({ axis_id: "route_only" })]);
   const paintable = new Set(["ramp"]);
 
   it("全道路を塗れない軸はルートだけの印を持ち、識別色が無ければ中立色", () => {

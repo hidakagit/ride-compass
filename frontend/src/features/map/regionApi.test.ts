@@ -1,33 +1,26 @@
 // @vitest-environment node
 /**
- * `services/regionApi.ts`——地域のデータの口。地図ライブラリへ渡すタイルのURL（世代つき）と、backendを呼ぶ口
+ * `features/map/regionApi.ts`——地域のデータの口。地図ライブラリへ渡すタイルのURL（世代つき）と、backendを呼ぶ口
  * （押した道の内訳・専用配信の軸の道ごとの値）。入口は公開の関数。差し替えるのは網（`fetch`）とタイルのオリジンの
  * 読み取り口（`lib/tileBaseUrl.ts: tileBaseUrl`）で、確かめるのは戻り値・投げるもの・送った要求。
- *
- * タイルの世代はモジュールが持つ状態なので、世代を扱うテストはモジュールを読み直して「まだ届いていない」から始める。
  *
  * ここで見ないもの:
  * - タイルのオリジンの決め方 → `lib/tileBaseUrl.test.ts`
  * - パスの`{名前}`の埋め方 → `lib/apiPath.ts`を通る全URLが同じで、ここでは結果のURLだけを見る
  * - 失敗の文言の組み立て・通信の失敗とタイムアウトの包み直し → `lib/apiClient.test.ts`
- * - 世代が揃うのを待ってから地図を描くこと → `features/map/useTileVersionsReady.ts`を使う側のテスト
+ * - 軸カタログの応答から世代を引き、揃うまで地図を描かないこと → `features/map/useMapAxisCatalog.test.ts`・
+ *   `features/map/view/useMapView.test.ts`
  * - 内訳・道ごとの値を画面へ出すこと → `features/map/MapView/RoadInspectorPopup.test.tsx`・
  *   `features/map/useDedicatedWayValues.test.ts`
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { stubBackend } from "@/testing/backendFetch";
 import regionTileConfig from "@/types/generated/region-tile-config.json";
 
 vi.mock("@/lib/tileBaseUrl", () => ({ tileBaseUrl: () => "https://tiles.example" }));
 
-type RegionApi = typeof import("./regionApi");
-
-/** 世代がまだ届いていない状態のモジュール。 */
-async function freshRegionApi(): Promise<RegionApi> {
-  vi.resetModules();
-  return import("./regionApi");
-}
+import * as api from "./regionApi";
 
 /** 配信される全系統へ、系統名から作った世代を入れた辞書。 */
 function allVersions(): Record<string, string> {
@@ -43,72 +36,36 @@ const TILE_URLS = [
 ] as const;
 
 describe("タイルの世代とURL", () => {
-  it("世代が届く前は「揃っていない」と答え、世代を要るURLは組み立てずに投げる", async () => {
-    const api = await freshRegionApi();
+  it("配信される全系統に空でない世代があるときだけ揃ったとし、揃った世代をそのまま返す", () => {
+    const versions = allVersions();
 
-    expect(api.hasTileVersions()).toBe(false);
-    for (const [name] of TILE_URLS) {
-      expect(() => api[name](), name).toThrow(Error);
+    expect(api.completeTileVersions(versions)).toEqual(versions);
+  });
+
+  it("系統が1つでも欠けているか空なら、または辞書が空なら揃っていない", () => {
+    for (const missing of regionTileConfig.tile_version_kinds) {
+      const without = Object.fromEntries(Object.entries(allVersions()).filter(([kind]) => kind !== missing));
+      expect(api.completeTileVersions(without), missing).toBeNull();
+      expect(api.completeTileVersions({ ...allVersions(), [missing]: "" }), missing).toBeNull();
     }
+    expect(api.completeTileVersions({})).toBeNull();
   });
 
-  it.each(TILE_URLS)(
-    "%sは、オリジン・地図ライブラリが埋める{z}/{x}/{y}・その系統の世代を持つ",
-    async (name, kind, path) => {
-      const api = await freshRegionApi();
-      api.setTileVersions(allVersions());
+  it.each(TILE_URLS)("%sは、オリジン・地図ライブラリが埋める{z}/{x}/{y}・その系統の世代を持つ", (name, kind, path) => {
+    const versions = api.completeTileVersions(allVersions())!;
 
-      expect(api.hasTileVersions()).toBe(true);
-      expect(api[name]()).toBe(`https://tiles.example${path}?v=${kind}-v1`);
-    },
-  );
-
-  it("系統が1つでも欠けているか空なら「揃っていない」で、欠けた系統のURLだけを組み立てない", async () => {
-    const api = await freshRegionApi();
-    const withoutRoad = Object.fromEntries(Object.entries(allVersions()).filter(([kind]) => kind !== "road_surface"));
-
-    api.setTileVersions(withoutRoad);
-    expect(api.hasTileVersions()).toBe(false);
-    expect(() => api.roadSurfaceTileUrl()).toThrow(Error);
-    expect(api.accidentTileUrl()).toContain("?v=accident-v1");
-
-    api.setTileVersions({ ...allVersions(), road_surface: "" });
-    expect(api.hasTileVersions()).toBe(false);
-
-    api.setTileVersions({});
-    expect(api.hasTileVersions()).toBe(false);
+    expect(api[name](versions)).toBe(`https://tiles.example${path}?v=${kind}-v1`);
   });
 
-  it("土地被覆のタイルは実行時の世代を待たず、生成物の世代で組み立てる", async () => {
-    const api = await freshRegionApi();
-
+  it("土地被覆のタイルは実行時の世代を待たず、生成物の世代で組み立てる", () => {
     expect(api.landcoverTileUrl()).toBe(
       `https://tiles.example/api/region/landcover-tiles/{z}/{x}/{y}.png?v=${regionTileConfig.landcover.tile_version}`,
     );
-  });
-
-  it("世代が入れ替わるたびに購読者へ知らせ、購読をやめた者には知らせない", async () => {
-    const api = await freshRegionApi();
-    const kept = vi.fn();
-    const dropped = vi.fn();
-    api.subscribeTileVersions(kept);
-    const unsubscribe = api.subscribeTileVersions(dropped);
-
-    api.setTileVersions(allVersions());
-    unsubscribe();
-    api.setTileVersions({});
-
-    expect(kept).toHaveBeenCalledTimes(2);
-    expect(dropped).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("押した道の内訳（fetchAxisInspector）", () => {
   const CONDITIONS = { z: 15, x: 1, y: 2, bearingDeg: 0 };
-  let api: RegionApi;
-  beforeEach(async () => {
-    api = await freshRegionApi();
-  });
   afterEach(() => {
     vi.unstubAllGlobals();
   });
@@ -164,10 +121,6 @@ describe("押した道の内訳（fetchAxisInspector）", () => {
 });
 
 describe("専用配信の軸の道ごとの値（fetchDynamicWayValues）", () => {
-  let api: RegionApi;
-  beforeEach(async () => {
-    api = await freshRegionApi();
-  });
   afterEach(() => {
     vi.unstubAllGlobals();
   });

@@ -6,7 +6,7 @@
  * 生値の単位と総量の単位等）には互いに違う値を入れ、取り違えて移すと落ちるようにする。
  *
  * ここで見ないもの:
- * - 移した項目を用途ごとに足した型（地図のチップ・ramp軸・専用配信の軸）→ `lib/secondaryAxes.test.ts`・
+ * - 移した項目を用途ごとに足した型（地図のチップ・ramp軸・専用配信の軸）→ `features/map/secondaryAxes.test.ts`・
  *   `lib/mapDisplay/axisLayers.test.ts`
  * - 移した項目をどう描くか → 使う部品（`components/AxisContributionBar`等）
  */

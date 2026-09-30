@@ -14,57 +14,46 @@ const POI_TILE_PATH = apiPath("/api/region/poi-tiles/{z}/{x}/{y}.pbf");
 // `tile_versions`）。ビルド時の生成物に持たないのは、バッチがタイルを作り直してもデプロイは起きないため。
 // 既定値は置かない——届く前にタイルを要求すると、世代の違う中身がブラウザのキャッシュへ載って残る。
 // 既存の属性の意味を変える変更だけはデプロイの順序に注意が要る（docs/architecture/tech-stack.md「デプロイの反映確認」）。
-let tileVersions: Readonly<Record<string, string>> | null = null;
-const tileVersionListeners = new Set<() => void>();
-
-export function setTileVersions(versions: Readonly<Record<string, string>>): void {
-  tileVersions = versions;
-  tileVersionListeners.forEach((listener) => listener());
-}
-
-/** 世代が入れ替わったことを購読する（`useSyncExternalStore`用）。
- *
- * **カタログの到着と同一視しない**。世代を返さない版のbackendが200で応答すると、
- * カタログは「取得済み」なのに世代は揃わない——そこでURLを組み立てると例外になる。
- * 揃ったかどうかは`hasTileVersions()`だけが答えられる。 */
-export function subscribeTileVersions(listener: () => void): () => void {
-  tileVersionListeners.add(listener);
-  return () => {
-    tileVersionListeners.delete(listener);
-  };
-}
 
 /** 配信されるタイルの系統（源泉が配る一覧）。1つでも欠けたら「未取得」。 */
 const TILE_KINDS = regionTileConfig.tile_version_kinds;
 type TileKind = (typeof TILE_KINDS)[number];
 
-export function hasTileVersions(): boolean {
-  // 空の辞書を「取得済み」と見なさない（世代を返さない版のbackendが応答した窓では、URLの組み立てで例外になる）。
-  return TILE_KINDS.every((kind) => Boolean(tileVersions?.[kind]));
+declare const COMPLETE_TILE_VERSIONS: unique symbol;
+/** 全系統の世代が揃ったもの。`completeTileVersions`だけが作る（URLを組み立てる側は、揃ったかを確かめ直さない）。 */
+export type TileVersions = Readonly<Record<string, string>> & { readonly [COMPLETE_TILE_VERSIONS]: true };
+
+/** 配られた世代から、全系統が揃ったものを取り出す。1つでも欠けたら`null`。
+ *
+ * **軸カタログの到着と同一視しない**。世代を返さない版のbackendが200で応答すると、カタログは「取得済み」なのに
+ * 世代は揃わない——そこでURLを組み立てると例外になる。空の辞書も「揃った」と見なさない。 */
+export function completeTileVersions(versions: Readonly<Record<string, string>>): TileVersions | null {
+  return TILE_KINDS.every((kind) => Boolean(versions[kind])) ? (versions as TileVersions) : null;
 }
 
-function tileVersion(kind: TileKind): string {
-  const version = tileVersions?.[kind];
+function tileVersion(versions: TileVersions, kind: TileKind): string {
+  const version = versions[kind];
   if (!version) {
-    // 呼ぶ側の順序が崩れたときだけ起きる（黙って既定値を使うと、世代の違うタイルがキャッシュへ載っても気づけない）。
-    throw new Error(`タイル世代が未取得のまま${kind}のURLを組み立てようとしました`);
+    // 源泉が配る系統の一覧から、URLを組み立てる系統が消えたときだけ起きる（黙って既定値を使うと、世代の違う
+    // タイルがキャッシュへ載っても気づけない）。
+    throw new Error(`タイル世代の系統に${kind}がありません`);
   }
   return version;
 }
 
 // ベクタタイルのURL。MapLibreはWeb Workerの中で取るため相対パスでは解決できず、絶対URLが要る。`window`をSSRで
 // 読まないよう、呼んだとき（クライアントだけ）に組み立てる。
-export function roadSurfaceTileUrl(): string {
-  return `${tileBaseUrl()}${ROAD_SURFACE_TILE_PATH}?v=${tileVersion("road_surface")}`;
+export function roadSurfaceTileUrl(versions: TileVersions): string {
+  return `${tileBaseUrl()}${ROAD_SURFACE_TILE_PATH}?v=${tileVersion(versions, "road_surface")}`;
 }
 
-export function accidentTileUrl(): string {
-  return `${tileBaseUrl()}${ACCIDENT_TILE_PATH}?v=${tileVersion("accident")}`;
+export function accidentTileUrl(versions: TileVersions): string {
+  return `${tileBaseUrl()}${ACCIDENT_TILE_PATH}?v=${tileVersion(versions, "accident")}`;
 }
 
 // 停止要因と補給の点は同じタイルを分け合う（種別の集合で分ける）。
-export function poiTileUrl(): string {
-  return `${tileBaseUrl()}${POI_TILE_PATH}?v=${tileVersion("poi")}`;
+export function poiTileUrl(versions: TileVersions): string {
+  return `${tileBaseUrl()}${POI_TILE_PATH}?v=${tileVersion(versions, "poi")}`;
 }
 
 // 土地被覆のラスタタイル。世代はbackendが生成物で配る。オリジンの決め方は他のタイルと揃える。

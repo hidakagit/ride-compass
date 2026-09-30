@@ -4,45 +4,21 @@
  * 誰と共有するか」だけ。同居させると、導出を確かめたい側がストアごと引き回すことになる。
  */
 import { catalogAxisFromEntry, type CatalogAxis } from "@/lib/catalogAxis";
-import type { AxisCatalogEntry, RoutePreferenceWeights } from "@/types/route";
-import {
-  axisLabelsFromCatalogAxes,
-  dedicatedWayValueAxesFromCatalogAxes,
-  rampAxesFromCatalogAxes,
-  type DedicatedWayValueAxis,
-  type RampAxis,
-} from "@/lib/mapDisplay/axisLayers";
-import { secondaryAxesFromCatalogAxes, type SecondaryAxisSummary } from "@/lib/secondaryAxes";
-import {
-  ROUTE_STYLE_MODES_WITHOUT_AXES,
-  routeStyleModesFromCatalogAxes,
-  type RouteStyleMode,
-} from "@/lib/mapDisplay/routeStyleModes";
+import { axisLabelsFromCatalogAxes } from "@/lib/mapDisplay/axisLayers";
+import type { AxisCatalogResponse, RoutePreferenceWeights } from "@/types/route";
 
-/** 軸カタログ。`GET /api/axis-catalog`の応答から導いた、画面が読む形。 */
+/** 軸カタログ。`GET /api/axis-catalog`の応答から導いた、機能をまたいで読む形。地図だけが読む形（地図の表示・
+ * タイルの世代）は地図の機能が同じ応答から導く。 */
 export interface AxisCatalog {
-  /** 重みを付けられる軸（公開軸すべて、カタログの並び順）。地図のチップの一覧（`secondaryAxes`）からは作らない
+  /** 重みを付けられる軸（公開軸すべて、カタログの並び順）。地図のチップの一覧からは作らない
    * ——チップに出すかと重みを付けられるかは別の判断で、チップを消した軸が重みの一覧から消えてはいけない。 */
   axes: readonly CatalogAxis[];
   /** axis_idから既定重みを引く。未知のaxis_idには0を返す。 */
   defaultWeights: RoutePreferenceWeights;
-  /** 地図のramp表示を持つ軸。 */
-  rampAxes: readonly RampAxis[];
-  /** 専用のフィーチャー→値配信レイヤーを持つ軸。レイヤー登録・カタログ・可視性・フェッチの
-   * 全てがこの一覧から導出される。 */
-  dedicatedAxes: readonly DedicatedWayValueAxis[];
   /** axis_id→表示名の辞書。 */
   axisLabels: Record<string, string>;
   /** axis_id→識別色。どの画面でも同じ軸は同じ色になるよう、ここで1回だけ決める。 */
   axisColors: Readonly<Record<string, string>>;
-  /** 事故データの収録年（backendの取込の宣言そのもの）。地図の説明文が範囲を書くのに使う。
-   * フェッチ完了まで・エラー時は空で、その間は説明文が年に触れない。 */
-  accidentYears: readonly number[];
-  /** 二次軸(推定指標)一覧。地図チップの「推定指標」グループが読む。 */
-  secondaryAxes: readonly SecondaryAxisSummary[];
-  /** ルート地図の色分けモード一覧。公開軸を無条件で含む。取得できるまでは軸に依らない
-   * モードだけ（`ROUTE_STYLE_MODES_WITHOUT_AXES`）。 */
-  routeStyleModes: readonly RouteStyleMode[];
   /** フロントが使う較正値（id → いま効いている値）。backendの`domain/tuning.py`が宣言し、
    * 管理画面から変えた値が再デプロイなしにここへ届く。**取得できるまでは空**——ビルド時生成物の既定で
    * 埋めると、管理画面で較正したのとは別の値で黙って動く。読み手は引けない間その機能を出さない。 */
@@ -89,37 +65,22 @@ export const EMPTY_CATALOG: AxisCatalog = {
   clientTuning: {},
   axes: [],
   defaultWeights: {},
-  rampAxes: [],
-  dedicatedAxes: [],
   axisLabels: {},
   axisColors: {},
-  accidentYears: [],
-  secondaryAxes: [],
-  routeStyleModes: ROUTE_STYLE_MODES_WITHOUT_AXES,
   loaded: false,
   failed: false,
 };
 
-export function axisCatalogFromResponse(
-  entries: readonly AxisCatalogEntry[],
-  tileRuntimeScales: Readonly<Record<string, number>>,
-  clientTuning: Readonly<Record<string, number>>,
-  accidentYears: readonly number[],
-): AxisCatalog {
+export function axisCatalogFromResponse(response: AxisCatalogResponse): AxisCatalog {
   const defaultWeights: RoutePreferenceWeights = {};
-  for (const entry of entries) defaultWeights[entry.axis_id] = entry.default_weight;
-  const axes = entries.map(catalogAxisFromEntry);
+  for (const entry of response.axes) defaultWeights[entry.axis_id] = entry.default_weight;
+  const axes = response.axes.map(catalogAxisFromEntry);
   return {
-    clientTuning,
+    clientTuning: response.client_tuning,
     axes,
     defaultWeights,
-    rampAxes: rampAxesFromCatalogAxes(entries, tileRuntimeScales),
-    dedicatedAxes: dedicatedWayValueAxesFromCatalogAxes(entries),
-    axisLabels: axisLabelsFromCatalogAxes(entries),
+    axisLabels: axisLabelsFromCatalogAxes(response.axes),
     axisColors: axisColorsOf(axes),
-    accidentYears,
-    secondaryAxes: secondaryAxesFromCatalogAxes(entries),
-    routeStyleModes: routeStyleModesFromCatalogAxes(entries),
     loaded: true,
     failed: false,
   };

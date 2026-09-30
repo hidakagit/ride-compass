@@ -2,7 +2,7 @@
 
 import { Fragment } from "react";
 
-import ErrorText from "@/components/ErrorText/ErrorText";
+import ErrorText from "@/features/route/ErrorText/ErrorText";
 import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
 import { NewRouteIcon, RouteDiffIcon, UndoAllIcon, UndoIcon } from "@/components/ui/icons/icons";
 import type { CatalogAxis } from "@/lib/catalogAxis";

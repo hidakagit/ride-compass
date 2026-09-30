@@ -27,7 +27,7 @@ import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useDedicatedWayValues } from "@/features/map/useDedicatedWayValues";
 import { useDynamicWeatherLayers } from "@/features/map/useDynamicWeatherLayers";
 import { useStoredBooleanState, useStoredState } from "@/hooks/useStoredState";
-import { useTileVersionsReady } from "@/features/map/useTileVersionsReady";
+import { useMapAxisCatalog } from "@/features/map/useMapAxisCatalog";
 
 import {
   deserializeHiddenLegendKeys,
@@ -78,7 +78,7 @@ interface MapViewState {
 
 export function useMapView({ hasSelectedRoute, hasDetail, ride, now, routeWeights }: MapViewInputs): MapViewState {
   const catalog = useAxisCatalog();
-  const tileVersionsReady = useTileVersionsReady();
+  const mapCatalog = useMapAxisCatalog();
   const [layerVisibility, setLayerVisibility] = useStoredState<MapLayerVisibility>(
     "ridecompass:layer-visibility",
     buildDefaultLayerVisibility(),
@@ -87,7 +87,7 @@ export function useMapView({ hasSelectedRoute, hasDetail, ride, now, routeWeight
   // 軸を指す保存値はカタログが届いて初めて読めるため、届いた時点で読み直す。
   const [lens, setLens] = useStoredState<LensId>("ridecompass:route-style-mode", DEFAULT_ROUTE_STYLE_MODE_ID, {
     serialize: (value) => value,
-    deserialize: (raw) => (isRouteStyleModeId(catalog.routeStyleModes, raw) ? raw : null),
+    deserialize: (raw) => (isRouteStyleModeId(mapCatalog.routeStyleModes, raw) ? raw : null),
     reloadKey: catalog.loaded,
   });
   const [keepAfterRoute, setKeepAfterRoute] = useStoredBooleanState("ridecompass:lens-keep-after-route", true);
@@ -113,8 +113,8 @@ export function useMapView({ hasSelectedRoute, hasDetail, ride, now, routeWeight
   });
   const painted = paintedAxisId(lens, hasDetail, keepAfterRoute);
   const fetchAxes = useMemo(
-    () => catalog.dedicatedAxes.filter((axis) => axis.axisId === painted),
-    [catalog.dedicatedAxes, painted],
+    () => mapCatalog.dedicatedAxes.filter((axis) => axis.axisId === painted),
+    [mapCatalog.dedicatedAxes, painted],
   );
   const dedicatedWayValues = useDedicatedWayValues(fetchAxes, viewport, ride.bearingDeg, ride.at, ride.speedKmh);
   const debouncedHidden = useDebouncedValue(hidden, LEGEND_FILTER_DEBOUNCE_MS);
@@ -135,18 +135,18 @@ export function useMapView({ hasSelectedRoute, hasDetail, ride, now, routeWeight
     [layerVisibility, weather.dynamicWeather, lens, painted, dedicatedWayValues, debouncedHidden, refreshToken],
   );
 
-  const legend = lensLegend(lens, hasDetail, catalog);
+  const legend = lensLegend(lens, hasDetail, mapCatalog);
   const lensHidden = presentHiddenKeys(legend, hiddenKeysOf(hidden, lens));
   const lensFetch = dedicatedWayValues.get(lens);
   const chips = overlayChips({
-    layers: buildMapLayers(catalog),
+    layers: buildMapLayers({ ...mapCatalog, axes: catalog.axes }),
     visibility: layerVisibility,
     hidden,
     // ルート線の凡例はレンズと同じ保存先なので、どちらで隠しても同じ段が隠れる。
     screenLegends: { [ROUTE_LAYER_ID]: hasDetail ? [{ label: "", legend, axisId: lens }] : [] },
     dataStatus: { ...mapLayerStatus, ...weather.dynamicWeatherDataStatus },
     zoomTooWideLayerIds: viewport ? tileZoomTooWideLayerIds(viewport.zoom) : [],
-    versionMissingLayerIds: tileVersionsReady ? [] : tileVersionGatedLayerIds(catalog.rampAxes),
+    versionMissingLayerIds: mapCatalog.tileVersions ? [] : tileVersionGatedLayerIds(mapCatalog.rampAxes),
     catalogSettled: catalog.loaded || catalog.failed,
     hasSelectedRoute,
   });
@@ -165,7 +165,7 @@ export function useMapView({ hasSelectedRoute, hasDetail, ride, now, routeWeight
       },
       axisOptions: lensOptions(
         catalog.axes,
-        new Set([...catalog.rampAxes, ...catalog.dedicatedAxes].map((axis) => axis.axisId)),
+        new Set([...mapCatalog.rampAxes, ...mapCatalog.dedicatedAxes].map((axis) => axis.axisId)),
         routeWeights,
         catalog.axisColors,
       ),

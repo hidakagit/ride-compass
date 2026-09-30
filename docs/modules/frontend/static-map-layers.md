@@ -27,7 +27,7 @@
 | `lib/mapDisplay/legendFilter.ts` | 凡例の行の型（`LegendEntry`）と、凡例で隠した行を落とす絞り込み式の組み立て（ルート線のモードが使う） |
 | `features/map/layers/landcoverClasses.ts` | 土地被覆のクラス（表示名・色・割合列・地図に塗るか）。backendのレジストリ由来の生成物（`landcover-classes.json`）を読むだけの薄い層で、凡例（レイヤーの記述子）と区間インスペクタ（`RoadInspectorPopup.tsx`）が共有する。色は地図タイルの塗りと同じ値のため、凡例と地図がずれない。**凡例は塗るクラスだけ**（`LANDCOVER_PAINTED_CLASSES`）——塗らないクラスを並べると色見本があるのに地図のどこにも無い表になる。区間インスペクタは数値なので全クラスを出す |
 | `features/map/layers/primaryAttributes.ts` | 一次属性のカタログと、二次軸→一次属性の導出（軸増減時の観測データ連動表示に使用） |
-| `lib/secondaryAxes.ts` | 「推定指標（合成）」チップグループの軸一覧生成。軸の共通の項目（略名・アイコン・パネル説明・材料の一次属性等）は`lib/catalogAxis.ts`から受け、足すのは対応`MapLayerId`。`show_map_icon`による除外を持つ |
+| `features/map/secondaryAxes.ts` | 「推定指標（合成）」チップグループの軸一覧生成。軸の共通の項目（略名・アイコン・パネル説明・材料の一次属性等）は`lib/catalogAxis.ts`から受け、足すのは対応`MapLayerId`。`show_map_icon`による除外を持つ |
 | `features/map/layers/mapLayers.ts` | レイヤーカタログ本体（`MapLayerDescriptor[]`）・地図上チップの最上位グループ（`MAP_OVERLAY_GROUP_ORDER`が正本。現在は道路/環境/スポット）判定・軸スタジオ由来レイヤーの除外判定・`deriveFetchLayerStatus`（MapLibreのソースイベントを経由しないレイヤーのデータ状態判定） |
 | `features/map/scene/mapScene.ts` | 地図に載っているべきものの宣言の型（ソース・レイヤー・feature-state）と、重なりの段（`MAP_SCENE_TIERS`）・押せるレイヤーの引き方 |
 | `features/map/scene/applyMapScene.ts` | 宣言を地図へ当てる唯一の実装（`addSource`/`addLayer`/`setPaintProperty`/`setFilter`/`setFeatureState`）。前回の宣言との差分だけを当て、段の順に差し込む |
@@ -41,8 +41,8 @@
 同じ道を同じ条件・重みで開き直したときは押さずに前の評価を出す。軸ごとの効き方は**ルート結果と同じ`AxisContributionBar`**で出す——同じものを別の見た目で見せると読み方を2つ覚えることになる。寄与度はbackendが返す値をそのまま使い、フロントで重みを掛け直さない。**デバッグログONのときだけ`osm_way_id`を出す**——値がおかしい道を見つけたとき、地図で押した1本をそのままbackendの調査へ渡せるようにする。一般の利用者には読めない値のため常時は出さない |
 | `features/map/MapView/roadFacts.ts` | クリックした道の「事実」（例: 道路名・路面の区分・農道・林道の等級・トンネル）をタイルのプロパティから組み立てる純関数。項目名と値の呼び名、タイルのどの属性を読むか（`tile_property`）は材料カタログ（生成物`material-catalog.json`）から引く。材料の外の列（識別子・道路名）の名前は生成物`region-tile-config.json`の`road_surface.properties`から引き、押した道のway_id・フィーチャーの鍵もここの関数（`roadWayId`・`roadFeatureKey`）で読む。該当しない項目は行ごと出さない（「なし」が並ぶと該当する項目が埋もれる）。路面の区分だけは値が無くても「不明」として出す——どの道でも最初に見たい項目で、行ごと消すと「舗装されていない」と読める |
 | `types/traffic.ts` | 停止要因POI・補給休憩POIの`kind`列挙型定義 |
-| `services/regionApi.ts`（`roadSurfaceTileUrl`/`poiTileUrl`/`accidentTileUrl`とタイル世代の保持） | ベクタタイルのURLテンプレート（`fetchDynamicWayValues`は[地図: 軸・ルート色分け](map-axis-coloring.md)の管轄）。世代はbackendから実行時に届き、**揃うまでURLを組み立てない**（揃ったことは`subscribeTileVersions`で購読できる） |
-| `features/map/useTileVersionsReady.ts` | タイル世代が揃ったかを購読する薄いフック。地図がソースを作れるかの判定と、チップの縮退表示がこれ1つを見る |
+| `features/map/regionApi.ts`（`roadSurfaceTileUrl`/`poiTileUrl`/`accidentTileUrl`とタイル世代の判定） | ベクタタイルのURLテンプレート（`fetchDynamicWayValues`は[地図: 軸・ルート色分け](map-axis-coloring.md)の管轄）。世代はbackendから実行時に届き、**全系統が揃ったもの（`completeTileVersions`だけが作る`TileVersions`）でしかURLを組み立てない** |
+| `features/map/mapAxisCatalog.ts`・`useMapAxisCatalog.ts` | 軸カタログの応答のうち、地図だけが読むもの（ramp軸・専用配信の軸・推定指標のチップ・ルートの色分けモード・事故の収録年・タイルの世代）を導く純関数と、共有の軸カタログと同じ取得（`hooks/useAxisCatalog.ts: useAxisCatalogSelect`）から引くフック。地図がソースを作れるかの判定と、チップの縮退表示は、どちらもここのタイルの世代1つを見る |
 | `lib/tileBaseUrl.ts` | タイル配信元オリジンの決定（既定はフロント自身のオリジン＝rewrites経由、`NEXT_PUBLIC_TILE_BASE_URL`設定時はbackend直接）。路面/POI/事故タイル・基礎地図スタイル（`MapView.tsx: mapStyleUrl`）・国土地理院色別標高図・JMA動的タイル（[動的気象レイヤー](dynamic-weather-layers.md)）が共通に使う |
 | `next.config.ts`（`frontend/`直下） | フロント自身のオリジンへ来たタイル類（基礎地図・路面・POI・事故等）の要求をbackendへ転送するrewritesと、その転送を打ち切るまでの時間（`experimental.proxyTimeout`） |
 | `features/map/MapOverlayControls/` | 地図上チップ（フローティングUI）。グループへの束ね方と並びはレイヤーカタログ（`mapOverlayGroupFor`・`MAP_OVERLAY_GROUP_ORDER`）から導き、開いたグループ（同時に開けるのは`MAP_OVERLAY_MAX_EXPANDED_GROUPS`まで）と「表示する項目を選ぶ」で隠した項目を次の訪問でも保つ。▶（凡例）・つまみの付いた横線（表示する項目を選ぶ、`DisplayItemsIcon`）で開くパネルは`ui/Popover`（Radix）で、位置取り・画面端での縮み・外を押すと閉じる（同時に開くのは1つ）はライブラリが持つ。**ⓘは説明を開く記号にだけ使う**——「表示する項目」の一覧の各行にも説明のⓘが並ぶため、入口までⓘにすると1つのパネルの中で同じ記号が「選ぶ」と「説明」の2つの意味になる。開いた一覧の先頭には「表示する項目」の見出しを出す（押す前のtitleはスマホでは出ない） |
@@ -331,7 +331,7 @@ MSMを配るOpen-MeteoのCC BY 4.0も、リンク付きのクレジット・ラ�
 いるとき」だけ太く半透明な下敷きになる。材料が1つも表示されていなければ通常の太さ・
 不透明度で表示する——常に下敷きにすると、道路網が密な都市部では下敷きの重なりだけで地図
 全体がぼやける。「どの一次属性がどの二次軸の材料か」の解決はsceneの入口
-（`scene/applyToMap.ts`）が、軸カタログの`secondaryAxes`の`primaryAttributeIds`とレイヤーの
+（`scene/applyToMap.ts`）が、地図の軸カタログの`secondaryAxes`の`primaryAttributeIds`とレイヤーの
 ON/OFFから行う（画面の側は下敷きの有無を知らない）。
 
 **見た目の値は、すべて宣言そのものが持つ**。下敷きの太さ・不透明度も、絞り込みも、
@@ -411,7 +411,8 @@ ONにしても何も塗られない。「データが無い地域」と区別で
 
 ## 「配信情報を取得できず表示できません」の案内
 
-タイルの世代は`GET /api/axis-catalog`が運ぶ。**届くまでソースを作らない**——先に作ると
+タイルの世代は`GET /api/axis-catalog`が運び、地図は共有の軸カタログと同じ取得の応答から世代を導く
+（`useMapAxisCatalog.ts`）。**届くまでソースを作らない**——先に作ると
 世代の違う中身がブラウザのキャッシュへ載って以後ずっと残る。したがってカタログの取得が
 失敗した間、道路・POI・事故は地図から**丸ごと消える**。これ自体は正しい挙動で、直すべきは
 「消えた理由が画面のどこにも無い」ことだけである（利用者からは「この地域にデータが無い」と
@@ -426,7 +427,7 @@ ONにしても何も塗られない。「データが無い地域」と区別で
 
 **暗黙の前提**: 「世代が揃ったか」を軸カタログの取得完了で代用しない。世代を返さない版の
 backendが200で応答する窓では、カタログは取得済みなのに世代は無く、そこでURLを組み立てた側が
-例外になる。判定は`hasTileVersions()`だけが答えられる。
+例外になる。判定は`regionApi.ts: completeTileVersions`だけが答え、揃うまで地図の軸カタログの世代は`null`のまま。
 
 宣言は源泉に1つ。タイルで配る情報源は**世代を配るタイルの系統の名前**を名乗る（backendの
 `map_display.py`が一次属性の`tile_kind`から導く）ので、世代を要る情報源は系統の一覧

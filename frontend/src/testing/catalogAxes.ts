@@ -3,7 +3,7 @@
 // **実際の公開軸を入力に使わない。** 軸idは軸スタジオでユーザーが決める任意の値で、公開される集合もDBが持つ。
 // **既定値は型を満たすための空だけ。** 見たい性質（ramp表示を持つ・専用配信を持つ等）は呼び出し側が書く。
 import { axisCatalogFromResponse, type AxisCatalog } from "@/lib/axisCatalog";
-import type { AxisCatalogEntry } from "@/types/route";
+import type { AxisCatalogEntry, AxisCatalogResponse } from "@/types/route";
 
 type TileInput = AxisCatalogEntry["display"]["tile_inputs"][number];
 
@@ -83,7 +83,22 @@ export function dedicatedEntry(axisId: string, thresholds: number[], overrides: 
   });
 }
 
+/** 軸だけを持つ応答。軸以外（較正値・タイルの世代・事故の収録年）は、見たい呼び出し側が上書きする。 */
+export function catalogResponse(
+  entries: readonly AxisCatalogEntry[],
+  overrides: Partial<Omit<AxisCatalogResponse, "axes">> = {},
+): AxisCatalogResponse {
+  return {
+    axes: [...entries],
+    tile_runtime_scales: {},
+    client_tuning: {},
+    tile_versions: {},
+    accident_years: [],
+    ...overrides,
+  };
+}
+
 /** 本番と同じ`axisCatalogFromResponse`を通したカタログ。 */
 export function catalogOf(entries: readonly AxisCatalogEntry[]): AxisCatalog {
-  return axisCatalogFromResponse(entries, {}, {}, []);
+  return axisCatalogFromResponse(catalogResponse(entries));
 }

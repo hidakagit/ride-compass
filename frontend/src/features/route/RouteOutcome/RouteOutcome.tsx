@@ -1,7 +1,7 @@
 "use client";
 
 import AxisContributionBar from "@/components/AxisContributionBar/AxisContributionBar";
-import ErrorText from "@/components/ErrorText/ErrorText";
+import ErrorText from "@/features/route/ErrorText/ErrorText";
 import { Button } from "@/components/ui/Button/Button";
 import { ClockIcon, DownloadIcon, RouteSpliceIcon } from "@/components/ui/icons/icons";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs/Tabs";

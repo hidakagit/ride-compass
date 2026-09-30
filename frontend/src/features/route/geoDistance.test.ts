@@ -1,6 +1,6 @@
 // @vitest-environment node
 /**
- * `lib/geoDistance.ts`——座標列（`[経度, 緯度]`の並び）の各点までの累積距離。
+ * `features/route/geoDistance.ts`——座標列（`[経度, 緯度]`の並び）の各点までの累積距離。
  *
  * 2点の距離の答えはbackendが出す表（生成物`geo-expectations.json`の`distance_km`）が持つ（testing.md「パターン11」）。
  * 表の点は緯度と経度が違う値なので、`[経度, 緯度]`の読み違いも表で落ちる。
@@ -12,7 +12,7 @@
 import { describe, expect, it } from "vitest";
 
 import geoExpectations from "@/types/generated/geo-expectations.json";
-import { cumulativeDistancesKm } from "@/lib/geoDistance";
+import { cumulativeDistancesKm } from "@/features/route/geoDistance";
 
 type Point = { latitude: number; longitude: number };
 

@@ -25,7 +25,7 @@
 | `features/map/scene/groups/routes.ts` | 色分け線そのものを引く側。レンズの配色式・凡例フィルタを受け取ってMapLibreの線レイヤーへ流す |
 | `lib/mapDisplay/axisLayers.ts`（`DedicatedWayValueAxis`関連のみ） | 軸カタログ→専用way値配信軸一覧の変換（`dedicatedWayValueAxesFromCatalogAxes`。表示宣言`display`も同じ行から軸へ載せる） |
 | `features/map/useDedicatedWayValues.ts` | フェッチ・状態管理（viewportデバウンス＋タイル単位取得、全軸を1つのフックで賄う） |
-| `services/regionApi.ts`（`fetchDynamicWayValues`のみ） | backend APIラッパー |
+| `features/map/regionApi.ts`（`fetchDynamicWayValues`のみ） | backend APIラッパー |
 
 **`MapView.tsx`は路面タイル・動的気象（降水/風の矢印/雷/竜巻）・POI等のロジックも持つ
 ファイルで、それらは[地図: 静的レイヤー・道路表示](static-map-layers.md)・
@@ -63,7 +63,7 @@ backend（`domain/dynamic_way_values.py: map_value_thresholds`）が軸の折れ
 
 | 判定 | 使う軸データ属性 | 関数・場所 |
 |---|---|---|
-| 専用のフィーチャー配信レイヤーを持つか | `AxisDefinition.dedicated_way_value_layer` | `axisLayers.ts: dedicatedWayValueAxesFromCatalogAxes`が抽出し、`useAxisCatalog`の`dedicatedAxes`として配る |
+| 専用のフィーチャー配信レイヤーを持つか | `AxisDefinition.dedicated_way_value_layer` | `axisLayers.ts: dedicatedWayValueAxesFromCatalogAxes`が抽出し、地図の軸カタログ（`features/map/useMapAxisCatalog.ts`）の`dedicatedAxes`として配る |
 | 地図レイヤーID（表示ON/OFFのキー） | 軸id（文字列合成） | `mapLayers.ts: dedicatedWayValueMapLayerId`（`${axisId}Axis`）。MapLibreのレイヤーidは宣言が役割（軸id）から決める（[静的レイヤー](static-map-layers.md)「ソース名とレイヤーidの決め方」） |
 | フェッチに時刻／向き／想定速度を載せるか | `AxisCatalogEntry.dynamic_way_value_needs_time` / `_needs_bearing` / `_needs_speed` | `useDedicatedWayValues`（載せない入力は依存キーからも外れるため、その入力が変わっても再フェッチしない） |
 | 符号付き材料を直接読むか／難易度を読むか | `AxisCatalogEntry.map_value`（backend `domain/dynamic_way_values.py: map_value_kind`が`shape`から導出） | `routeStyleModes.ts: routeColorableModeFromAxis`・`dedicatedWayValueLayer.ts`（`DedicatedWayValueDisplay.kind`） |
@@ -372,7 +372,7 @@ isAxisStudioLayer`により地図上チップ（`MapOverlayControls.tsx`）に�
 ## 3件目の軸を公開したときに自動で追従する範囲
 
 `dedicated_way_value_layer=true`の軸を軸スタジオで公開すると、frontend側は
-`useAxisCatalog`の`dedicatedAxes`経由で以下がすべて自動で増える（このモジュールの
+地図の軸カタログ（`features/map/useMapAxisCatalog.ts`）の`dedicatedAxes`経由で以下がすべて自動で増える（このモジュールの
 ファイルを編集する必要は無い）。
 
 | 追従するもの | 導出元 |

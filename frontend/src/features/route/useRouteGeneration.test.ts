@@ -14,7 +14,7 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { axisCatalogFromResponse, EMPTY_CATALOG, type AxisCatalog } from "@/lib/axisCatalog";
-import { catalogEntry } from "@/testing/catalogAxes";
+import { catalogEntry, catalogResponse } from "@/testing/catalogAxes";
 import { LENS_DIFFICULTY_ID, LENS_NONE_ID } from "@/lib/mapDisplay/routeStyleModes";
 import { setResearchEnabled } from "@/lib/researchMode";
 import { makeRouteCandidate } from "@/testing/routeFixtures";
@@ -37,10 +37,7 @@ const CORRECTED: Coordinates = { latitude: 35.1001, longitude: 139.0005 };
 const AT = new Date("2026-09-25T03:00:00Z");
 const LATER = new Date("2026-09-25T03:05:00Z");
 const CATALOG: AxisCatalog = axisCatalogFromResponse(
-  [catalogEntry({ axis_id: "axis_a", default_weight: 1 })],
-  {},
-  {},
-  [],
+  catalogResponse([catalogEntry({ axis_id: "axis_a", default_weight: 1 })]),
 );
 
 interface Props {
