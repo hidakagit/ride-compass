@@ -1,6 +1,6 @@
 // @vitest-environment node
 /**
- * `lib/secondaryAxes.ts`——地図のチップに出す軸の一覧を、軸カタログから作る。
+ * `features/map/secondaryAxes.ts`——地図のチップに出す軸の一覧を、軸カタログから作る。
  *
  * 軸は`testing/catalogAxes.ts`の雛形で組む（実際の公開軸を入力に使わない）。
  *
@@ -12,7 +12,7 @@
 import { describe, expect, it } from "vitest";
 
 import { catalogEntry, rampEntry } from "@/testing/catalogAxes";
-import { secondaryAxesFromCatalogAxes } from "@/lib/secondaryAxes";
+import { secondaryAxesFromCatalogAxes } from "@/features/map/secondaryAxes";
 
 describe("secondaryAxesFromCatalogAxes", () => {
   it("地図のアイコンを出す軸だけを、カタログの並び順のまま返す", () => {

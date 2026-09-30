@@ -32,6 +32,7 @@ import { WIND_SPEED_LEGEND_LEVELS } from "./windLayer";
 import { pointLegendAxes } from "@/features/map/scene/legends";
 import { axisMapLayerId, type AxisMapLayerId, type RampAxis } from "@/lib/mapDisplay/axisLayers";
 import type { AxisCatalog } from "@/lib/axisCatalog";
+import type { MapAxisCatalog } from "@/features/map/mapAxisCatalog";
 import type { CatalogAxis } from "@/lib/catalogAxis";
 import { FIXED_LENS_LABELS, LENS_DIFFICULTY_ID } from "@/lib/mapDisplay/routeStyleModes";
 
@@ -228,7 +229,7 @@ function coverageYearsLabel(years: readonly number[]): string {
 }
 
 /** レイヤーの一覧を組むのに要る軸カタログの項目。 */
-type LayerCatalog = Pick<AxisCatalog, "axes" | "rampAxes" | "dedicatedAxes" | "accidentYears">;
+type LayerCatalog = Pick<AxisCatalog, "axes"> & Pick<MapAxisCatalog, "rampAxes" | "dedicatedAxes" | "accidentYears">;
 
 const NO_AXES: LayerCatalog = { axes: [], rampAxes: [], dedicatedAxes: [], accidentYears: [] };
 

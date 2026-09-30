@@ -54,8 +54,9 @@ export type HardFilterOverride = Schemas["HardFilterOverride"];
 // 保持・比較表・再現性メモの入力になる。
 export type GenerationConditions = Schemas["GenerationConditions"];
 
-// 軸カタログの1軸。GET /api/axis-catalogのレスポンスの要素。軸スタジオが管理API経由でDBへ追加した
+// 軸カタログ。GET /api/axis-catalogのレスポンス。軸スタジオが管理API経由でDBへ追加した
 // 軸も、コード変更・再デプロイなしにここへ反映される。
+export type AxisCatalogResponse = Schemas["AxisCatalogResponse"];
 export type AxisCatalogEntry = Schemas["AxisCatalogEntry"];
 
 // 軸スタジオが使う評価軸定義のCRUD型。/api/admin/axis-definitions。

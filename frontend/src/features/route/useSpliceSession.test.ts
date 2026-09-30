@@ -12,7 +12,7 @@ import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { axisCatalogFromResponse, CLIENT_TUNING_IDS, type AxisCatalog } from "@/lib/axisCatalog";
-import { catalogEntry } from "@/testing/catalogAxes";
+import { catalogEntry, catalogResponse } from "@/testing/catalogAxes";
 import { makeRouteCandidate } from "@/testing/routeFixtures";
 import { buildGenerateRequest, type GenerationInput } from "@/features/route/generationRequest";
 import { SPLICED_ROUTE_ID_PREFIX } from "@/features/route/routeTabLabel";
@@ -26,7 +26,7 @@ import { generateRoutes } from "@/features/route/routeApi";
 import { useSpliceSession, type SpliceSessionInputs } from "./useSpliceSession";
 
 const catalogWith = (clientTuning: Record<string, number>): AxisCatalog =>
-  axisCatalogFromResponse([catalogEntry({ axis_id: "axis_a" })], {}, clientTuning, []);
+  axisCatalogFromResponse(catalogResponse([catalogEntry({ axis_id: "axis_a" })], { client_tuning: clientTuning }));
 const TUNED = catalogWith({ [CLIENT_TUNING_IDS.minStretchKm]: 0.2 });
 
 const INPUT: GenerationInput = {

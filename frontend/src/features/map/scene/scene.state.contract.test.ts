@@ -5,9 +5,8 @@
  * 評価軸・気象・ルートのすべてがここを通る。
  */
 import { latest, validateStyleMin } from "@maplibre/maplibre-gl-style-spec";
-import { beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
-import { setTileVersions } from "@/services/regionApi";
 import { createRecordingMap } from "@/testing/mapTrace/recordingMap";
 import { catalogEntry, tileInput } from "@/testing/catalogAxes";
 import { dedicatedWayValueAxesFromCatalogAxes, rampAxesFromCatalogAxes } from "@/lib/mapDisplay/axisLayers";
@@ -57,8 +56,6 @@ const axisLayerId = (role: string) => sceneLayerId(ROAD_LINE_SOURCE_ID, role);
 const pointLayerId = (role: string) =>
   sceneLayerId(pointSourceId(POINT_LAYERS.find((layer) => layer.attr_id === role)!.tile_kind), role);
 
-const READY_VERSIONS = { road_surface: "1-test", poi: "1-test", accident: "1-test" };
-
 /** 作り直さずに伝える経路（画面の状態が変わるたびに通るのはこちら）。 */
 function show(map: unknown, state: State) {
   applyScene(map as never, buildMapScene(sceneInputsFrom(state)));
@@ -70,10 +67,6 @@ function rebuild(map: unknown, state: State) {
 }
 
 describe("状態を地図へ伝えた結果", () => {
-  beforeEach(() => {
-    setTileVersions(READY_VERSIONS);
-  });
-
   describe("面（標高図・土地被覆・起伏）", () => {
     it("表示ONにしたものだけが見えている", () => {
       const { map, handle } = createRecordingMap();
@@ -97,21 +90,18 @@ describe("状態を地図へ伝えた結果", () => {
 
   describe("道路の線", () => {
     it("タイル世代が無い間は、道路のソースを作らない", () => {
-      setTileVersions({});
       const { map, handle } = createRecordingMap();
 
-      rebuild(map as never, shown({ surface: true }));
+      rebuild(map as never, { ...shown({ surface: true }), tileVersions: null });
 
       expect(handle.sources()).not.toContain(ROAD_LINE_SOURCE_ID);
     });
 
     it("世代が届いた後に同じ状態を伝えると、道路の線が見えている", () => {
-      setTileVersions({});
       const { map, handle } = createRecordingMap();
       const state = shown({ surface: true });
-      rebuild(map as never, state);
+      rebuild(map as never, { ...state, tileVersions: null });
 
-      setTileVersions(READY_VERSIONS);
       rebuild(map as never, state);
 
       expect(handle.sources()).toContain(ROAD_LINE_SOURCE_ID);
@@ -356,13 +346,11 @@ describe("レイヤーを横断する要求", () => {
   it("世代を要るソースは、世代が届くまで1つも作られない", () => {
     const state = everythingVisible();
 
-    setTileVersions(READY_VERSIONS);
     const ready = createRecordingMap();
     rebuild(ready.map as never, state);
 
-    setTileVersions({});
     const pending = createRecordingMap();
-    rebuild(pending.map as never, state);
+    rebuild(pending.map as never, { ...state, tileVersions: null });
 
     const gated = ready.handle.sources().filter((id) => !pending.handle.sources().includes(id));
     // 世代で守られているソースが実際にあること（0件なら、この検査は何も見ていない）。
@@ -371,12 +359,10 @@ describe("レイヤーを横断する要求", () => {
   });
 
   it("世代が届いた後に同じ状態を伝えると、世代を要るソースが揃う", () => {
-    setTileVersions({});
     const { map, handle } = createRecordingMap();
     const state = everythingVisible();
-    rebuild(map as never, state);
+    rebuild(map as never, { ...state, tileVersions: null });
 
-    setTileVersions(READY_VERSIONS);
     rebuild(map as never, state);
 
     expect(handle.sources()).toContain(ROAD_LINE_SOURCE_ID);

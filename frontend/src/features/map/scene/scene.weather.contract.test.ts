@@ -25,7 +25,7 @@ function raster(tileUrlTemplate: string) {
 }
 
 function apply(map: unknown, id: Chip, state: DynamicWeatherGroupState) {
-  const inputs = sceneInputsFrom(sceneState({ tileVersionsReady: false, look: { dynamicWeather: { [id]: state } } }));
+  const inputs = sceneInputsFrom(sceneState({ tileVersions: null, look: { dynamicWeather: { [id]: state } } }));
   applyScene(map as never, buildMapScene(inputs));
 }
 

@@ -3,8 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { getAxisCatalog as GetAxisCatalog } from "@/services/axisCatalogApi";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 
-// 改善計画T308: useAxisCatalogがrampAxes/axisLabels/secondaryAxesを実行時APIから
-// 導出することの回帰テスト。RouteSettingsPanel.test.tsxと同じモック方針。
+// 軸カタログの取得（通信は差し替え）と、機能をまたいで読む形の導出。地図だけが読む形は
+// `features/map/useMapAxisCatalog.test.ts`が見る。
 vi.mock("@/services/axisCatalogApi", () => ({
   getAxisCatalog: vi.fn(),
 }));
@@ -122,36 +122,16 @@ function catalogResponse(): AxisCatalogResponse {
   };
 }
 
-describe("useAxisCatalog（改善計画T308: rampAxes/axisLabels/secondaryAxesの実行時フェッチ）", () => {
-  it("実行時フェッチが完了すると、GUI公開軸を含むrampAxesを返す", async () => {
+describe("useAxisCatalog", () => {
+  it("実行時フェッチが完了すると、軸スタジオで公開したばかりの軸も含めて軸の一覧・名前・既定重みを返す", async () => {
     vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse());
 
     const { result } = renderHook(() => mod.useAxisCatalog());
 
-    await waitFor(() => {
-      expect(result.current.rampAxes.some((axis) => axis.axisId === "gui_published_axis")).toBe(true);
-    });
-
-    const guiAxis = result.current.rampAxes.find((axis) => axis.axisId === "gui_published_axis")!;
-    expect(guiAxis.tileInputs).toEqual([
-      {
-        property: "lanes_count",
-        weight: 1.0,
-        boolean: false,
-        trueValue: 0,
-        falseValue: 0,
-        hasUnknownFallback: false,
-        categories: undefined,
-        breakpoints: undefined,
-      },
-    ]);
-    expect(guiAxis.thresholds).toEqual([10.0]);
-    // kind=noneのsurface_qはrampAxesには含まれないが、axisLabels/secondaryAxesには含まれる。
-    expect(result.current.rampAxes.some((axis) => axis.axisId === "surface_q")).toBe(false);
-    expect(result.current.axisLabels.gui_published_axis).toBe("GUI公開軸テスト");
-    expect(result.current.axisLabels.surface_q).toBe("舗装質");
-    const guiSecondaryAxis = result.current.secondaryAxes.find((axis) => axis.axisId === "gui_published_axis");
-    expect(guiSecondaryAxis?.primaryAttributeIds).toEqual(["lanes"]);
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    expect(result.current.axes.map((axis) => axis.axisId)).toEqual(["surface_q", "gui_published_axis"]);
+    expect(result.current.axisLabels).toEqual({ surface_q: "舗装質", gui_published_axis: "GUI公開軸テスト" });
+    expect(result.current.defaultWeights).toEqual({ surface_q: 0.19, gui_published_axis: 0.1 });
   });
 
   it("取得できるまでは較正値を引けず（ビルド時の既定で埋めない）、取得後はbackendの値を返す", async () => {
@@ -190,10 +170,9 @@ describe("useAxisCatalog（改善計画T308: rampAxes/axisLabels/secondaryAxes�
 
     const { result } = renderHook(() => mod.useAxisCatalog());
 
-    await waitFor(() => expect(result.current.axes).toEqual([]));
-    expect(result.current.rampAxes).toEqual([]);
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    expect(result.current.axes).toEqual([]);
     expect(result.current.axisLabels).toEqual({});
-    expect(result.current.secondaryAxes).toEqual([]);
     expect(result.current.defaultWeights).toEqual({});
   });
 
@@ -265,8 +244,7 @@ describe("useAxisCatalog（改善計画T308: rampAxes/axisLabels/secondaryAxes�
 
     await waitFor(() => expect(second.result.current.axes).toHaveLength(1));
     // firstは自分では再フェッチしていないが、共有のキャッシュ経由で最新の1軸へ追従する。
-    expect(first.result.current.axes).toHaveLength(1);
-    expect(first.result.current.axes).toBe(second.result.current.axes);
+    expect(first.result.current.axes).toEqual(second.result.current.axes);
   });
 
   it("改善計画T527: 後発の呼び出し元の再フェッチが失敗しても、既に取得済みの正常なカタログを巻き戻さない", async () => {

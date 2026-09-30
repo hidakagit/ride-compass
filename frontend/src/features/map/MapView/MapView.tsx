@@ -26,8 +26,8 @@ import type {
   SelectedRouteSegment,
 } from "@/types/route";
 import type { ExperimentSlot } from "@/types/experimentSlot";
-import { ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM } from "@/services/regionApi";
-import type { RideConditions } from "@/services/regionApi";
+import { ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM } from "@/features/map/regionApi";
+import type { RideConditions } from "@/features/map/regionApi";
 import { tileContainingLonLat, type TileXY } from "@/features/map/layers/dynamicWayValues";
 import {
   ORIGIN_MARK_COLOR,
@@ -79,7 +79,7 @@ import { axisMapLayerId } from "@/lib/mapDisplay/axisLayers";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import type { MapLook } from "@/features/map/view/mapLook";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
-import { useTileVersionsReady } from "@/features/map/useTileVersionsReady";
+import { useMapAxisCatalog } from "@/features/map/useMapAxisCatalog";
 import { useLayerDataStatus } from "@/features/map/MapView/useLayerDataStatus";
 import { useJmaTileIndex } from "@/features/map/useJmaTileIndex";
 import { registerJmaTileProtocol } from "@/features/map/layers/jmaTileProtocol";
@@ -375,8 +375,11 @@ export default function MapView({
   // 出発地点の印の器（Markerの要素）と、中身の印の色。
   const [originMark, setOriginMark] = useState<{ element: HTMLDivElement; color: string } | null>(null);
   const catalog = useAxisCatalog();
-  const tileVersionsReady = useTileVersionsReady();
-  const mapLayerCatalog = useMemo(() => buildMapLayers(catalog), [catalog]);
+  const mapCatalog = useMapAxisCatalog();
+  const mapLayerCatalog = useMemo(
+    () => buildMapLayers({ ...mapCatalog, axes: catalog.axes }),
+    [mapCatalog, catalog.axes],
+  );
   const layerDataSources = useMemo(() => buildLayerDataSources(mapLayerCatalog), [mapLayerCatalog]);
   // 詳細を見ている道。強調も scene の一部として当てる。
   const inspectedWayId = roadPopup ? roadWayId(roadPopup.properties) : null;
@@ -385,26 +388,16 @@ export default function MapView({
     () =>
       sceneInputsFrom({
         look,
-        catalog,
+        catalog: mapCatalog,
         routes,
         selectedRouteId,
         spliceStretches,
         splicedRoute,
         experimentSlots,
-        tileVersionsReady,
+        tileVersions: mapCatalog.tileVersions,
         inspectedWayId,
       }),
-    [
-      look,
-      catalog,
-      routes,
-      selectedRouteId,
-      spliceStretches,
-      splicedRoute,
-      experimentSlots,
-      tileVersionsReady,
-      inspectedWayId,
-    ],
+    [look, mapCatalog, routes, selectedRouteId, spliceStretches, splicedRoute, experimentSlots, inspectedWayId],
   );
   const scene = useMemo(() => buildMapScene(sceneInputs), [sceneInputs]);
   // 押せるのは scene が当たり判定を宣言したレイヤーだけ。
@@ -421,10 +414,10 @@ export default function MapView({
     () => ({
       ...look.layerVisibility,
       ...Object.fromEntries(
-        catalog.rampAxes.map((axis) => [axisMapLayerId(axis.axisId), axis.axisId === look.paintedAxisId]),
+        mapCatalog.rampAxes.map((axis) => [axisMapLayerId(axis.axisId), axis.axisId === look.paintedAxisId]),
       ),
     }),
-    [look.layerVisibility, look.paintedAxisId, catalog.rampAxes],
+    [look.layerVisibility, look.paintedAxisId, mapCatalog.rampAxes],
   );
   // 地図のイベント（初期化のeffectで一度だけ登録する）とマーカーの操作が、いまのpropsを読むための参照。
   const latestProps = {

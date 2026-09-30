@@ -7,7 +7,7 @@
  * 期待値が変わる（testing.md「パターン7」）。
  *
  * ここで見ないもの:
- * - オリジンをタイルのURLへ付けること → 使う側（`features/map/layers/jmaDelivery.test.ts`・`services/regionApi.test.ts`）
+ * - オリジンをタイルのURLへ付けること → 使う側（`features/map/layers/jmaDelivery.test.ts`・`features/map/regionApi.test.ts`）
  */
 import { describe, expect, it } from "vitest";
 

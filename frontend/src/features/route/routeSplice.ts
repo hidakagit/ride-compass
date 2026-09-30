@@ -10,7 +10,7 @@
  * 区間を細かく割るときだけ座標（`geometry.coordinates`と`edge_point_offsets`）も読む
  * ——2本が交差・接触する地点はEdge idの一致では分からないため（`splitPairedStretch`）。
  */
-import { cumulativeDistancesKm } from "@/lib/geoDistance";
+import { cumulativeDistancesKm } from "@/features/route/geoDistance";
 
 /** 表示中の候補が、比較相手と別の道を通る区間。`edge_ids`における`[start, end)`。 */
 interface RouteStretch {

@@ -435,7 +435,7 @@ basetime・validtimeを含む）で持つため、フレームが進んで取得
   `vectorTile`（洪水キキクル）はMapLibreがWeb Worker内で取得するため相対パスだと
   `new Request(url)`がWorkerのbase URLに対して解決できず例外になり、`rasterTile`も
   backend直接配信（`NEXT_PUBLIC_TILE_BASE_URL`）ではページと別オリジンになるため絶対URLが
-  要る（`services/regionApi.ts: roadSurfaceTileUrl`等と同じ仕組み、
+  要る（`features/map/regionApi.ts: roadSurfaceTileUrl`等と同じ仕組み、
   [静的レイヤー](static-map-layers.md)「タイルの配信元」参照）。
   時刻一覧・GeoJSONはMapLibreではなくアプリ自身の`fetch()`で読むが、同じく絶対URLにする——
   **タイルURLは時刻一覧が返るまで確定しない**ため、ここでフロントのホスティングを経由すると

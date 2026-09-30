@@ -13,11 +13,10 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { EMPTY_CATALOG, type AxisCatalog } from "@/lib/axisCatalog";
+import { axisCatalogFromResponse } from "@/lib/axisCatalog";
 import { MATERIAL_CATALOG } from "@/lib/axisMaterialsCatalog";
-import { rampAxesFromCatalogAxes, type RampAxis } from "@/lib/mapDisplay/axisLayers";
-import { rampEntry } from "@/testing/catalogAxes";
-import type { AxisDefinitionPayload, AxisDefinitionResponse } from "@/types/route";
+import { catalogResponse, rampEntry } from "@/testing/catalogAxes";
+import type { AxisCatalogEntry, AxisDefinitionPayload, AxisDefinitionResponse } from "@/types/route";
 
 const api = vi.hoisted(() => ({
   listAxisDefinitions: vi.fn(),
@@ -28,10 +27,13 @@ const api = vi.hoisted(() => ({
 }));
 vi.mock("@/features/admin/adminApi", () => api);
 
+// 軸カタログの取得は差し替え、届いた応答（軸の一覧）をテストが決める。応答からの導出は本物を通す。
 const catalogs = vi.hoisted(() => ({
-  axisCatalog: null as unknown,
+  axes: [] as AxisCatalogEntry[],
 }));
-vi.mock("@/hooks/useAxisCatalog", () => ({ useAxisCatalog: () => catalogs.axisCatalog }));
+vi.mock("@/hooks/useAxisCatalog", () => ({
+  useAxisCatalog: () => axisCatalogFromResponse(catalogResponse(catalogs.axes)),
+}));
 
 interface ComposerProps {
   editing: AxisDefinitionResponse | null;
@@ -112,14 +114,6 @@ const PUBLISHED_2 = axis({ axis_id: "axis_pub2", label: "公開の軸2", is_publ
 /** backendの一覧。下書きへ戻すと、次に取る一覧でその軸が下書きになる。 */
 let server: AxisDefinitionResponse[] = [];
 
-function axisCatalog(overrides: Partial<AxisCatalog> = {}): AxisCatalog {
-  return { ...EMPTY_CATALOG, ...overrides };
-}
-
-function rampAxis(axisId: string): RampAxis {
-  return rampAxesFromCatalogAxes([rampEntry(axisId, [])], {})[0];
-}
-
 beforeEach(() => {
   for (const fn of Object.values(api)) fn.mockReset();
   server = [DRAFT, PUBLISHED, PUBLISHED_2];
@@ -130,7 +124,7 @@ beforeEach(() => {
   api.unpublishAxisDefinition.mockImplementation(async (axisId: string) => {
     server = server.map((a) => (a.axis_id === axisId ? { ...a, is_published: false } : a));
   });
-  catalogs.axisCatalog = axisCatalog();
+  catalogs.axes = [];
   composer.props = null;
   composer.saveError = null;
 });
@@ -452,8 +446,7 @@ describe("段階プレビューの配色", () => {
   });
 
   it("複製のときは、複製元の軸の配色を使う", async () => {
-    const ramp = rampAxis(DRAFT.axis_id);
-    catalogs.axisCatalog = axisCatalog({ axes: [ramp], rampAxes: [ramp] });
+    catalogs.axes = [rampEntry(DRAFT.axis_id, [])];
     const user = await renderStudio();
     await screen.findByText("下書きの軸");
     await user.click(within(rowOf("下書きの軸")).getByRole("button", { name: "複製して新規作成" }));
