@@ -40,7 +40,7 @@ class RegionService:
         return await current_tile_versions(self._repository)
 
     async def _tile_from_repository(
-        self, repository_method: str, z: int, x: int, y: int, fields: dict, label: str
+        self, repository_method: str, z: int, x: int, y: int, fields: dict
     ) -> bytes | None:
         """PostGIS側（ST_AsMVT）でタイル1枚分のMVTを丸ごと生成する。
 
@@ -55,13 +55,7 @@ class RegionService:
                 z, x, y, tile_bounds_lonlat(z, x, y)
             )
         except DB_UNAVAILABLE_ERRORS as exc:
-            # パン/ズームのたびに大量のタイルリクエストが飛びうる高頻度な経路のため
-            # 抑制ヘルパー経由で出す。
-            log_throttled_warning(
-                f"region:{label}-error", "%sタイルのPostGIS読み取りに失敗 z=%d x=%d y=%d error=%r", label, z, x, y, exc,
-            )
-            fields["postgis"] = "error"
-            fields["postgis_error"] = repr(exc)
+            mark_failed(fields, exc)
             return None
         if tile_bytes is None:
             fields["postgis"] = "uncovered"
@@ -83,10 +77,10 @@ class RegionService:
         y: int,
     ) -> TileResponse:
         async def fetch_tile(fields: dict) -> bytes | None:
-            postgis_tile = await self._tile_from_repository(repository_method, z, x, y, fields, label)
-            if postgis_tile is None and fields.get("postgis") != "error":
-                # error時に出さないのは、「取込範囲外」という表記がDB障害には当てはまらず、
-                # かつその失敗は_tile_from_repository側が既にWARNINGで出しているため。
+            postgis_tile = await self._tile_from_repository(repository_method, z, x, y, fields)
+            if postgis_tile is None and fields.get("result") != "error":
+                # 失敗のときに出さないのは、「取込範囲外」という表記がDB障害には当てはまらず、
+                # かつその失敗は記録の口が抜けるときにWARNINGで出すため。
                 log_throttled_warning(
                     f"{external_call_name}-uncovered", "[%s] %sタイルがPostGIS取込範囲外 z=%d x=%d y=%d",
                     external_call_name, label, z, x, y,

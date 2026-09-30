@@ -14,6 +14,7 @@ from app.infrastructure.jma_tile_client import (
 )
 from pydantic import ValidationError
 
+from app.infrastructure.debug_log import log_throttled_warning
 from app.infrastructure.jma_tile_index import get_index
 from app.domain.strict_model import StrictModel
 from app.infrastructure.jma_tile_interpolation import (
@@ -64,7 +65,8 @@ async def _interpolated_tile(jma_tile_client: JmaTileClient, path: str) -> tuple
             return crop_and_upscale_mvt(parent_content, coords.quadrant), parent_content_type
         return crop_and_upscale(parent_content, coords.quadrant), parent_content_type
     except Exception as exc:  # noqa: BLE001 補間の失敗で地図表示自体を落とさない
-        logger.warning(
+        log_throttled_warning(
+            "jma:tile-interpolation",
             "JMAタイルの補間に失敗しました path=%s parent=%s error=%r",
             path,
             coords.parent_path(),

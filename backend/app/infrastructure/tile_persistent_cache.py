@@ -14,11 +14,14 @@ from typing import Any
 import diskcache
 
 from app.config import settings
+from app.infrastructure.debug_log import log_throttled_warning
 from app.infrastructure.tile_cache import DATA_DIR
 
 logger = logging.getLogger("ridecompass.tile_persistent_cache")
 
 CACHE_DIR = DATA_DIR / "tile_persistent_cache"
+
+_CATEGORY = "tile-persistent-cache"
 
 _cache: diskcache.Cache | None = None
 
@@ -45,8 +48,10 @@ def get_by_key(key: tuple) -> Any | None:
         started = time.monotonic()
         value = cache().get(key)
         read_ms = (time.monotonic() - started) * 1000
-    except Exception:  # noqa: BLE001 破損エントリ・SQLite障害はいずれも未キャッシュ扱いにする
-        logger.warning("tile persistent cache read failed key=%r, treating as cache miss", key, exc_info=True)
+    except Exception as exc:  # noqa: BLE001 破損エントリ・SQLite障害はいずれも未キャッシュ扱いにする
+        log_throttled_warning(
+            _CATEGORY, "tile persistent cache read failed key=%r, treating as cache miss error=%r", key, exc
+        )
         return None
     if value is not None:
         logger.debug("tile persistent cache hit key=%r read_ms=%.1f", key, read_ms)
@@ -62,5 +67,5 @@ def set_by_key(key: tuple, value: Any, *, expire: float | None = None) -> None:
     try:
         cache().set(key, value, expire=expire)
     except Exception as exc:  # noqa: BLE001 OSError（ディスクフル）・pickle化不能のいずれも吸収する
-        logger.warning("tile persistent cache write failed key=%r error=%r", key, exc, exc_info=True)
+        log_throttled_warning(_CATEGORY, "tile persistent cache write failed key=%r error=%r", key, exc)
 
