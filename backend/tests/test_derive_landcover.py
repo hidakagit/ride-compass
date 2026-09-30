@@ -3,10 +3,7 @@
 割合の出し方そのものは`test_landcover.py`が見る。
 """
 
-import json
 import math
-import struct
-from datetime import UTC, datetime
 
 import asyncpg
 import pytest
@@ -14,8 +11,7 @@ import pytest_asyncio
 
 from app.batch import derive_counts, derive_raster_materials, derive_topology
 from app.batch._common import asyncpg_dsn
-from app.batch.ingest import ensure_partition
-from app.batch.source_adapters._raster_wkb import tile_bbox_wkb, tile_raster_wkb
+from app.batch.source_adapters._raster_wkb import tile_raster_wkb
 from app.domain.landcover import (
     LANDCOVER_RING_INNER_M,
     LANDCOVER_RING_OUTER_M,
@@ -24,6 +20,7 @@ from app.domain.landcover import (
 )
 from app.domain.region import WEB_MERCATOR_HALF_M, tile_bounds_3857, tile_bounds_lonlat
 from tests.conftest import postgis_database_url
+from tests.source_ingest import ingest_records, tile_record, way_record
 
 # road_graph_session（conftest.py）と同じDBを使うため、docs/conventions/testing.mdのパターン2どおり
 # loop_scope="module"・xdist_group="postgis"が必須。
@@ -44,16 +41,15 @@ TABLES = ("edge_materials", "way_materials", "road_edges", "node_materials",
           "source_features", "source_runs")
 
 
-async def _insert_run(conn: asyncpg.Connection, source: str) -> int:
-    return await conn.fetchval(
-        "INSERT INTO source_runs (source, status, started_at, origin, profile, counts)"
-        " VALUES ($1, 'succeeded', $2, $3, $3, $3) RETURNING run_id",
-        source, datetime.now(UTC), json.dumps({}))
-
-
 def _raster(value: int) -> bytes:
     return tile_raster_wkb(bytes([value]) * (SIZE * SIZE), zoom=ZOOM, x=X, y=Y,
                            width=SIZE, height=SIZE, dtype="uint8", nodata=NODATA)
+
+
+async def _ingest_tile(conn: asyncpg.Connection, rast: bytes) -> None:
+    """土地被覆をタイル1枚（画素は`rast`）として取り込み直す。"""
+    await ingest_records("lulc", [tile_record("tile", ZOOM, X, Y, rast,
+                                              {"z": ZOOM, "x": X, "y": Y, "width": SIZE})], conn=conn)
 
 
 def _road() -> tuple[tuple[float, float], tuple[float, float]]:
@@ -104,22 +100,9 @@ async def module_conn(road_graph_engine):
     """`road_graph_engine`に依存するのはスキーマを作らせるため（`test_derive_topology.py`と同じ）。"""
     conn = await asyncpg.connect(asyncpg_dsn(postgis_database_url()))
     try:
-        for source in ("osm_way", "lulc"):
-            await ensure_partition(conn, source)
         await conn.execute("TRUNCATE " + ", ".join(TABLES) + " CASCADE")
-        (lon0, lat0), (lon1, lat1) = ROAD
-        await conn.execute(
-            "INSERT INTO source_features (source, natural_key, run_id, geom, attrs, payload)"
-            " VALUES ('osm_way', $1, $2, ST_MakeLine(ST_SetSRID(ST_MakePoint($3, $4), 4326),"
-            " ST_SetSRID(ST_MakePoint($5, $6), 4326)), '{}'::jsonb, $7)",
-            str(WAY_ID), await _insert_run(conn, "osm_way"), lon0, lat0, lon1, lat1,
-            struct.pack("<2q", 1, 2))
-        await conn.execute(
-            "INSERT INTO source_features (source, natural_key, run_id, geom, attrs, rast)"
-            " VALUES ('lulc', 'tile', $1, ST_SetSRID(ST_GeomFromWKB($2), 4326), $3::jsonb,"
-            " encode($4, 'hex')::raster)",
-            await _insert_run(conn, "lulc"), tile_bbox_wkb(ZOOM, X, Y),
-            json.dumps({"z": ZOOM, "x": X, "y": Y, "width": SIZE}), _raster(PERCENT_CLASSES[0][1]))
+        await ingest_records("osm_way", [way_record(WAY_ID, ROAD, [1, 2])], conn=conn)
+        await _ingest_tile(conn, _raster(PERCENT_CLASSES[0][1]))
         await derive_topology.derive(conn)
         await derive_counts.derive(conn)
         yield conn
@@ -130,10 +113,8 @@ async def module_conn(road_graph_engine):
 
 @pytest_asyncio.fixture(loop_scope="module")
 async def landcover_conn(module_conn):
-    """テストごとにタイルを1クラス一色へ戻す。画素を書き換えるテストがあるため。"""
-    await module_conn.execute(
-        "UPDATE source_features SET rast = encode($1, 'hex')::raster WHERE source = 'lulc'",
-        _raster(PERCENT_CLASSES[0][1]))
+    """テストごとにタイルを1クラス一色へ戻す。画素を変えて取り込み直すテストがあるため。"""
+    await _ingest_tile(module_conn, _raster(PERCENT_CLASSES[0][1]))
     return module_conn
 
 
@@ -150,9 +131,7 @@ async def test_rerun_on_pixels_left_out_keeps_no_share_on_segments_or_ways(landc
 
     await derive_raster_materials.derive(conn)
     before = await shares()
-    await conn.execute(
-        "UPDATE source_features SET rast = encode($1, 'hex')::raster WHERE source = 'lulc'",
-        _raster(NODATA))
+    await _ingest_tile(conn, _raster(NODATA))
     await derive_raster_materials.derive(conn)
 
     # 前提: 1回目は区間にも道にも値が付いている。
@@ -166,9 +145,7 @@ async def test_only_pixels_in_the_band_around_the_road_are_counted(landcover_con
     外径より外側の画素は、区間の割合にも道の割合にも入らない。"""
     conn = landcover_conn
     classes = PERCENT_CLASSES[:3]
-    await conn.execute(
-        "UPDATE source_features SET rast = encode($1, 'hex')::raster WHERE source = 'lulc'",
-        _ring_raster(*(value for _, value in classes)))
+    await _ingest_tile(conn, _ring_raster(*(value for _, value in classes)))
     inside, ring, outside = (landcover_key(name) for name, _ in classes)
 
     await derive_raster_materials.derive(conn)

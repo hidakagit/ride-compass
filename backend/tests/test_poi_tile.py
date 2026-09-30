@@ -4,17 +4,14 @@
 分けて見せている種別は別の点のまま出る（数える側の読み替えは`test_derive_counts.py`）。
 """
 
-import json
-from datetime import UTC, datetime
-
 import mapbox_vector_tile
 import pytest
 from sqlalchemy import text
 
-from app.batch.ingest import ensure_partition
 from app.domain.region import BoundingBox, tile_bounds_lonlat, tiles_covering_bbox
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.infrastructure.vector_tile import STOP_POI_LAYER_NAME
+from tests.source_ingest import ingest_records, point_record
 
 pytestmark = [
     pytest.mark.asyncio(loop_scope="module"),
@@ -47,24 +44,12 @@ NODES = (
 
 
 async def _insert_scene(session) -> None:
-    connection = await session.connection()
-    raw = await connection.get_raw_connection()
-    await ensure_partition(raw.driver_connection, "osm_node")
     lons = [lon for _, lon, _, _, _ in NODES]
     lats = [lat for _, _, lat, _, _ in NODES]
     # 取込範囲の宣言（緯度・経度の順）。タイルはこの範囲に入るときだけ焼く。
-    profile = {"target": {"bbox": [min(lats), min(lons), max(lats), max(lons)]}}
-    run_id = (await session.execute(
-        text("INSERT INTO source_runs (source, status, started_at, origin, profile, counts)"
-             " VALUES ('osm_way', 'succeeded', :at, '{}'::jsonb, CAST(:profile AS jsonb), '{}'::jsonb)"
-             " RETURNING run_id"),
-        {"at": datetime.now(UTC), "profile": json.dumps(profile)},
-    )).scalar_one()
+    await ingest_records("osm_way", [], bbox=(min(lats), min(lons), max(lats), max(lons)))
+    run_id = await ingest_records("osm_node", [point_record(node_id, lon, lat) for node_id, lon, lat, _, _ in NODES])
     for node_id, lon, lat, kind, signals in NODES:
-        await session.execute(
-            text("INSERT INTO source_features (source, natural_key, run_id, geom, attrs)"
-                 " VALUES ('osm_node', :key, :run, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326), '{}'::jsonb)"),
-            {"key": str(node_id), "run": run_id, "lon": lon, "lat": lat})
         await session.execute(
             text("INSERT INTO node_materials (osm_node_id, kind, has_traffic_signals, source_run_id)"
                  " VALUES (:id, :kind, :signals, :run)"),

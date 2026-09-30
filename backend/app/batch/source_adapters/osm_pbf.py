@@ -17,7 +17,7 @@ import logging
 import queue
 import struct
 import threading
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -94,6 +94,11 @@ def _pbf_path(rows: OsmWayRows) -> Path:
         return path.relative_to(Path.cwd())
     except ValueError:
         return path
+
+
+def way_payload(node_ids: Sequence[int]) -> bytes:
+    """wayの`payload`。参照ノードidを、リトルエンディアンの符号付き64bit整数で並べる。"""
+    return struct.pack(f"<{len(node_ids)}q", *node_ids)
 
 
 def _in_bbox(lat: float, lon: float, bbox: tuple[float, float, float, float]) -> bool:
@@ -198,7 +203,7 @@ async def read_osm_ways(spec: SourceSpec, profile: SourceProfile,
                 natural_key=str(way["id"]),
                 geom_wkb=shapely.to_wkb(LineString([(lon, lat) for lat, lon in points])),
                 attrs=way["tags"],
-                payload=struct.pack(f"<{len(node_ids)}q", *node_ids),
+                payload=way_payload(node_ids),
             ))
 
         stream_ways(path, matches, sink)

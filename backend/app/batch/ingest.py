@@ -93,7 +93,7 @@ def partition_table_name(source: str) -> str:
     return f"source_features_{source}"
 
 
-async def ensure_partition(conn: asyncpg.Connection, source: str) -> None:
+async def _ensure_partition(conn: asyncpg.Connection, source: str) -> None:
     """そのソースの子パーティションと、その空間索引を用意する。
 
     どのソースが在るかはデータで決まるため、宣言（ORMモデル）ではなく取込の側が作る。
@@ -162,7 +162,7 @@ async def ingest_source(
     spec = profile.source(source_name)
     adapter = ADAPTERS[spec.adapter].read
 
-    await ensure_partition(conn, spec.name)
+    await _ensure_partition(conn, spec.name)
     origin: dict[str, Any] = {}
     run_id = await _open_run(conn, spec, profile, origin)
     started = time.perf_counter()

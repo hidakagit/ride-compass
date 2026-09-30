@@ -1,19 +1,15 @@
 """ノードに付く値（`batch/derive_node_materials.py`）の信号の近接判定と、流し直したときの値。"""
 
-import json
-import struct
-from datetime import UTC, datetime
-
 import asyncpg
 import pytest
 import pytest_asyncio
 
 from app.batch import derive_node_materials, derive_topology
 from app.batch._common import asyncpg_dsn
-from app.batch.ingest import ensure_partition
 from app.domain.traffic import HIGHWAY_RANK
 from app.domain.tuning import TUNING_PARAMETERS_BY_ID
 from tests.conftest import postgis_database_url
+from tests.source_ingest import ingest_records, point_record, way_record
 
 # road_graph_session（conftest.py）と同じDBを使うため、docs/conventions/testing.mdのパターン2どおり
 # loop_scope="module"・xdist_group="postgis"が必須。
@@ -45,11 +41,17 @@ TABLES = ("edge_materials", "way_materials", "road_edges", "node_materials",
           "source_features", "source_runs")
 
 
-async def _insert_run(conn: asyncpg.Connection, source: str) -> int:
-    return await conn.fetchval(
-        "INSERT INTO source_runs (source, status, started_at, origin, profile, counts)"
-        " VALUES ($1, 'succeeded', $2, $3, $3, $3) RETURNING run_id",
-        source, datetime.now(UTC), json.dumps({}))
+async def _ingest(conn: asyncpg.Connection, *, way_tags: dict[int, dict[str, str]] | None = None,
+                  node_tags: dict[int, dict[str, str]] | None = None) -> None:
+    """`WAYS`と`NODES`を取り込む。`way_tags`・`node_tags`はidごとにタグを差し替える（無ければ宣言のまま）。"""
+    way_tags, node_tags = way_tags or {}, node_tags or {}
+    position = {node_id: (lon, lat) for node_id, lon, lat, _ in NODES}
+    await ingest_records("osm_way", [
+        way_record(way_id, [position[n] for n in node_ids], node_ids, way_tags.get(way_id))
+        for way_id, node_ids in WAYS], conn=conn)
+    await ingest_records("osm_node", [
+        point_record(node_id, lon, lat, node_tags.get(node_id, tags))
+        for node_id, lon, lat, tags in NODES], conn=conn)
 
 
 async def _signals(conn: asyncpg.Connection) -> dict[int, bool]:
@@ -62,8 +64,6 @@ async def module_conn(road_graph_engine):
     """`road_graph_engine`に依存するのはスキーマを作らせるため（`test_derive_topology.py`と同じ）。"""
     conn = await asyncpg.connect(asyncpg_dsn(postgis_database_url()))
     try:
-        for source in ("osm_way", "osm_node"):
-            await ensure_partition(conn, source)
         yield conn
     finally:
         await conn.execute("TRUNCATE " + ", ".join(TABLES) + " CASCADE")
@@ -75,21 +75,7 @@ async def node_conn(module_conn):
     """テストごとに同じ生データから作り直す。生データのタグを書き換えるテストがあるため。"""
     conn = module_conn
     await conn.execute("TRUNCATE " + ", ".join(TABLES) + " CASCADE")
-    way_run = await _insert_run(conn, "osm_way")
-    position = {node_id: (lon, lat) for node_id, lon, lat, _ in NODES}
-    for way_id, node_ids in WAYS:
-        wkt = "LINESTRING(" + ", ".join(
-            "{} {}".format(*position[n]) for n in node_ids) + ")"
-        await conn.execute(
-            "INSERT INTO source_features (source, natural_key, run_id, geom, attrs, payload)"
-            " VALUES ('osm_way', $1, $2, ST_GeomFromText($3, 4326), '{}'::jsonb, $4)",
-            str(way_id), way_run, wkt, struct.pack(f"<{len(node_ids)}q", *node_ids))
-    node_run = await _insert_run(conn, "osm_node")
-    for node_id, lon, lat, tags in NODES:
-        await conn.execute(
-            "INSERT INTO source_features (source, natural_key, run_id, geom, attrs)"
-            " VALUES ('osm_node', $1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5::jsonb)",
-            str(node_id), node_run, lon, lat, json.dumps(tags))
+    await _ingest(conn)
     await derive_topology.derive(conn)
     await derive_node_materials.derive(conn, RADIUS_M)
     return conn
@@ -98,12 +84,6 @@ async def node_conn(module_conn):
 async def test_node_near_a_signal_is_flagged_and_far_one_is_not(node_conn):
     """信号の半径内にあるノードだけが信号付きになる。信号ノード自身も含む。"""
     assert await _signals(node_conn) == {1: False, 3: True, 5: True, 9: True}
-
-
-async def _set_tags(conn: asyncpg.Connection, source: str, key: int, tags: dict[str, str]) -> None:
-    await conn.execute(
-        "UPDATE source_features SET attrs = $3::jsonb WHERE source = $1 AND natural_key = $2",
-        source, str(key), json.dumps(tags))
 
 
 async def _values(conn: asyncpg.Connection) -> dict[int, tuple[bool, bool, int]]:
@@ -119,12 +99,10 @@ async def test_rerun_on_changed_input_keeps_no_value_the_input_no_longer_support
     タグが消えたノードは種別と信号の印を失い、階級の無い道になれば最大階級は0に戻り、
     種別のためだけにあった行（どの道にも属さないノード）は行ごと消える。"""
     primary = HIGHWAY_RANK["primary"]
-    await _set_tags(node_conn, "osm_way", 100, {"highway": "primary"})
+    await _ingest(node_conn, way_tags={100: {"highway": "primary"}})
     await derive_node_materials.derive(node_conn, RADIUS_M)
     before = await _values(node_conn)
-    await _set_tags(node_conn, "osm_way", 100, {})
-    await _set_tags(node_conn, "osm_node", 3, {})
-    await _set_tags(node_conn, "osm_node", 9, {})
+    await _ingest(node_conn, node_tags={3: {}, 9: {}})
     await derive_node_materials.derive(node_conn, RADIUS_M)
     after = await _values(node_conn)
 
