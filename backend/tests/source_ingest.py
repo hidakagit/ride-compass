@@ -50,10 +50,12 @@ def tile_record(key: str, zoom: int, x: int, y: int, rast: bytes,
     return SourceRecord(natural_key=key, geom_wkb=tile_bbox_wkb(zoom, x, y), attrs=attrs, rast=rast)
 
 
-def _profile(source: str, bbox: tuple[float, float, float, float] | None) -> SourceProfile:
+def _profile(source: str, bbox: tuple[float, float, float, float] | None, rows: Any) -> SourceProfile:
     """本物の宣言のまま、`source`のアダプタだけを差し替えたもの。runにはそのソースの本物の絞り込みが残る。"""
     profile = load_source_profile(None)
     spec: SourceSpec = replace(profile.source(source), adapter=_ADAPTER)
+    if rows is not None:
+        spec = replace(spec, rows=rows)
     return replace(
         profile,
         target=profile.target if bbox is None else Target(bbox=bbox),
@@ -63,12 +65,14 @@ def _profile(source: str, bbox: tuple[float, float, float, float] | None) -> Sou
 
 async def ingest_records(source: str, records: Iterable[SourceRecord], *,
                          conn: asyncpg.Connection | None = None,
-                         bbox: tuple[float, float, float, float] | None = None) -> int:
+                         bbox: tuple[float, float, float, float] | None = None,
+                         rows: Any = None) -> int:
     """`records`を`source`の生データとして取り込み、`run_id`を返す。
 
     `conn`はトランザクションの外の接続（取込の入口の求め）。渡さなければ自分で開いて閉じる——SQLAlchemyの
     セッションで書くテストは、取込を先に済ませてからセッションで読み書きする。`bbox`は取込の範囲の宣言
-    （(min_lat, min_lon, max_lat, max_lon)）で、省けば本物の宣言の範囲。
+    （(min_lat, min_lon, max_lat, max_lon)）で、省けば本物の宣言の範囲。`rows`はそのソースの絞り込みの宣言
+    （例: 事故の年`HonhyoRows`）で、省けば本物の宣言。
     """
     async def read(spec: SourceSpec, profile: SourceProfile,
                    origin: dict[str, Any]) -> AsyncIterator[SourceRecord]:
@@ -78,7 +82,7 @@ async def ingest_records(source: str, records: Iterable[SourceRecord], *,
     connection = conn if conn is not None else await asyncpg.connect(asyncpg_dsn(postgis_database_url()))
     ADAPTERS[_ADAPTER] = RegisteredAdapter(read=read, rows=NoFields, grid=NoFields)
     try:
-        return await ingest_source(connection, _profile(source, bbox), source)
+        return await ingest_source(connection, _profile(source, bbox, rows), source)
     finally:
         del ADAPTERS[_ADAPTER]
         if conn is None:
