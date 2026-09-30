@@ -1232,8 +1232,12 @@ DBの制約・取込の順序から**作れない状態**をテストで作ら�
 - **派生行を作るテストは、親を先に入れる**。区間（`road_edges`）は生の道
   （`source_features`の`osm_way`）とノード（`node_materials`、端点はFK）の派生。本番と同じ順
   （生データを入れてから派生バッチを流す）で作り、派生の表へ行を直接書き込まない
-  （`test_derive_topology.py`の`topology_conn`が、`source_features`へ入れてから
+  （`test_derive_topology.py`の`topology_conn`が、生の道を取り込んでから
   `derive_topology.derive`を呼ぶ形）。
+- **生データも取込の入口から入れる**。`source_features`・`source_runs`へ直接書くと、取込では
+  作れない行（成功なのに終わった時刻の無いrun等）ができる。`tests/source_ingest.py: ingest_records`が
+  アダプタだけを差し替えて`ingest_source`を通す。行を変えたいときは、変えた後の全行で取り込み直す
+  （本番の取り直しと同じく、そのソースの行が入れ替わって新しいrunになる）。
 - **値式が必ず値を返すものを「欠損」にしない**。真偽の材料は`COALESCE(条件, false)`で
   閉じるため、「材料が1つも無い区間」は作れない。その前提のテストは前提ごと消す
   （軸が算出できない状況を確かめたいなら、軸の集合を差し替えて表現する。

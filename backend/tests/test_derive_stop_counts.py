@@ -3,18 +3,14 @@
 生データ（道・ノードのタグ）から派生の段を本物のまま通し、区間の値を経路に沿って足す。
 """
 
-import json
-import struct
-from datetime import UTC, datetime
-
 import asyncpg
 import pytest
 import pytest_asyncio
 
 from app.batch import derive_counts, derive_node_materials, derive_topology
 from app.batch._common import asyncpg_dsn
-from app.batch.ingest import ensure_partition
 from tests.conftest import postgis_database_url
+from tests.source_ingest import ingest_records, point_record, way_record
 
 # road_graph_session（conftest.py）と同じDBを使うため、docs/conventions/testing.mdのパターン2どおり
 # loop_scope="module"・xdist_group="postgis"が必須。
@@ -71,36 +67,18 @@ def _point(node_id: int) -> tuple[float, float]:
     return (BASE_LON + dlon, BASE_LAT + dlat)
 
 
-async def _insert_run(conn: asyncpg.Connection, source: str) -> int:
-    return await conn.fetchval(
-        "INSERT INTO source_runs (source, status, started_at, origin, profile, counts)"
-        " VALUES ($1, 'succeeded', $2, $3, $3, $3) RETURNING run_id",
-        source, datetime.now(UTC), json.dumps({}))
-
-
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
 async def stop_conn(road_graph_engine):
     """`road_graph_engine`に依存するのはスキーマを作らせるため（`test_derive_topology.py`と同じ）。"""
     conn = await asyncpg.connect(asyncpg_dsn(postgis_database_url()))
     try:
-        for source in ("osm_way", "osm_node"):
-            await ensure_partition(conn, source)
         await conn.execute("TRUNCATE " + ", ".join(TABLES) + " CASCADE")
-        way_run = await _insert_run(conn, "osm_way")
-        for way_id, node_ids in WAYS.items():
-            wkt = "LINESTRING(" + ", ".join(
-                f"{lon} {lat}" for lon, lat in map(_point, node_ids)) + ")"
-            await conn.execute(
-                "INSERT INTO source_features (source, natural_key, run_id, geom, attrs, payload)"
-                " VALUES ('osm_way', $1, $2, ST_GeomFromText($3, 4326), '{}'::jsonb, $4)",
-                str(way_id), way_run, wkt, struct.pack(f"<{len(node_ids)}q", *node_ids))
-        node_run = await _insert_run(conn, "osm_node")
-        for node_id, (_, _, tags) in NODES.items():
-            lon, lat = _point(node_id)
-            await conn.execute(
-                "INSERT INTO source_features (source, natural_key, run_id, geom, attrs)"
-                " VALUES ('osm_node', $1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5::jsonb)",
-                str(node_id), node_run, lon, lat, json.dumps(tags))
+        await ingest_records("osm_way", [
+            way_record(way_id, [_point(n) for n in node_ids], node_ids)
+            for way_id, node_ids in WAYS.items()], conn=conn)
+        await ingest_records("osm_node", [
+            point_record(node_id, *_point(node_id), tags)
+            for node_id, (_, _, tags) in NODES.items()], conn=conn)
         await derive_topology.derive(conn)
         await derive_node_materials.derive(conn)
         await derive_counts.derive(conn)

@@ -5,19 +5,15 @@
 段は本物を通し、読み手の目で見るための覗き窓だけを段の後ろに挟む。
 """
 
-import json
-import struct
-from datetime import UTC, datetime
-
 import asyncpg
 import pytest
 import pytest_asyncio
 
 from app.batch import derive_cli, derive_topology
 from app.batch._common import asyncpg_dsn
-from app.batch.ingest import ensure_partition
 from app.infrastructure import road_network_store
 from tests.conftest import postgis_database_url
+from tests.source_ingest import ingest_records, point_record, way_record
 
 pytestmark = [
     pytest.mark.asyncio(loop_scope="module"),
@@ -34,6 +30,11 @@ WAYS = (
     (200, [3, 4], {"highway": "residential"}),
 )
 DERIVED = ("edge_materials", "way_materials", "road_edges", "node_materials")
+
+
+def _point(node_id: int) -> tuple[float, float]:
+    return (BASE_LON + STEP * node_id, BASE_LAT + STEP * (node_id % 2))
+
 
 _STRUCTURE_SQL = """
 SELECT 'index' AS kind, tablename AS table_name, indexname AS name, indexdef AS definition
@@ -63,32 +64,15 @@ async def derived_before(road_graph_engine, monkeypatch, tmp_path):
     monkeypatch.setattr(road_network_store, "ROOT", tmp_path / "road_network")
     conn = await asyncpg.connect(_dsn())
     try:
-        for source in ("osm_way", "osm_node"):
-            await ensure_partition(conn, source)
         await conn.execute("TRUNCATE " + ", ".join(DERIVED) + ", source_features, source_runs, derived_data_meta CASCADE")
-        runs = {}
-        for source in ("osm_way", "osm_node"):
-            runs[source] = await conn.fetchval(
-                "INSERT INTO source_runs (source, status, started_at, origin, profile, counts)"
-                " VALUES ($1, 'succeeded', $2, $3, $3, $3) RETURNING run_id",
-                source, datetime.now(UTC), json.dumps({}))
-        for node_id in range(1, 5):
-            await conn.execute(
-                "INSERT INTO source_features (source, natural_key, run_id, geom, attrs)"
-                " VALUES ('osm_node', $1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), '{}'::jsonb)",
-                str(node_id), runs["osm_node"], BASE_LON + STEP * node_id, BASE_LAT + STEP * (node_id % 2))
-        for way_id, node_ids, tags in WAYS:
-            wkt = "LINESTRING(" + ", ".join(
-                f"{BASE_LON + STEP * n} {BASE_LAT + STEP * (n % 2)}" for n in node_ids) + ")"
-            await conn.execute(
-                "INSERT INTO source_features (source, natural_key, run_id, geom, attrs, payload)"
-                " VALUES ('osm_way', $1, $2, ST_GeomFromText($3, 4326), $4::jsonb, $5)",
-                str(way_id), runs["osm_way"], wkt, json.dumps(tags),
-                struct.pack(f"<{len(node_ids)}q", *node_ids))
+        await ingest_records("osm_node", [point_record(n, *_point(n)) for n in range(1, 5)], conn=conn)
+        way_run = await ingest_records("osm_way", [
+            way_record(way_id, [_point(n) for n in node_ids], node_ids, tags)
+            for way_id, node_ids, tags in WAYS], conn=conn)
         await derive_topology.derive(conn)
         await conn.execute(
             "INSERT INTO way_materials (osm_way_id, source_run_id) SELECT DISTINCT osm_way_id, $1::bigint FROM road_edges",
-            runs["osm_way"])
+            way_run)
         await conn.execute("INSERT INTO derived_data_meta (id, revision) VALUES (1, 5)")
         yield conn
     finally:
