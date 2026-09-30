@@ -17,3 +17,20 @@ layers =
     config | version
     domain
 exhaustive = true
+
+# Redis keys, value shapes and the get_json/set_json callers belong to infrastructure
+# (docs/architecture/directory-layout.md "backend", docs/conventions/caching.md).
+# Reaching Redis through an infrastructure module is the intended path, so only
+# direct imports are checked.
+[importlinter:contract:redis-in-infrastructure]
+name = Redis connection is read only by infrastructure
+type = forbidden
+source_modules =
+    app.main
+    app.api
+    app.services
+    app.batch
+forbidden_modules =
+    app.infrastructure.redis_client
+    app.infrastructure.redis_json_cache
+allow_indirect_imports = True

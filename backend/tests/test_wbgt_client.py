@@ -12,6 +12,7 @@ from datetime import datetime
 import pytest
 from cachetools import TTLCache
 
+from app.domain.time_zone import JST
 from app.infrastructure import wbgt_client
 from tests.fake_api_http import FakeHttpClient, HttpStatusErrorHttpClient
 
@@ -20,8 +21,8 @@ _COLUMNS = 18
 _ACTIVE = "9999-99-99"
 
 #: 発表時刻の検索範囲。呼び出し元は「現在時刻を含む直近N時間」を渡す。
-_RANGE_FROM = "20260701000000"
-_RANGE_TO = "20260701090000"
+_RANGE_FROM = datetime(2026, 7, 1, 0, 0, tzinfo=JST)
+_RANGE_TO = datetime(2026, 7, 1, 9, 0, tzinfo=JST)
 
 
 @pytest.fixture(autouse=True)
@@ -232,8 +233,8 @@ async def test_forecast_requests_a_continuous_range():
         "location_type": 1,
         "date_search_type": 1,
         "wbgt_nos": "44132",
-        "range_date_from": _RANGE_FROM,
-        "range_date_to": _RANGE_TO,
+        "range_date_from": "20260701000000",
+        "range_date_to": "20260701090000",
     }
 
 
@@ -254,7 +255,7 @@ async def test_forecast_cache_key_is_the_point_number_only():
     client = _success(_forecast_row())
 
     await wbgt_client.fetch_forecast(client, "44132", _RANGE_FROM, _RANGE_TO)
-    await wbgt_client.fetch_forecast(client, "44132", "20260701030000", "20260701120000")
+    await wbgt_client.fetch_forecast(client, "44132", datetime(2026, 7, 1, 3, tzinfo=JST), datetime(2026, 7, 1, 12, tzinfo=JST))
     assert client.call_count == 1
 
     await wbgt_client.fetch_forecast(client, "44136", _RANGE_FROM, _RANGE_TO)

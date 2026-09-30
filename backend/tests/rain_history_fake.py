@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from cachetools import TTLCache
 
 from app.domain.time_zone import JST
-from app.infrastructure import jma_amedas_client, redis_json_cache
+from app.infrastructure import jma_amedas_client, jma_amedas_store, redis_json_cache
 from app.services import jma_amedas_service
 from app.services.jma_amedas_service import JmaAmedasService
 from tests.fake_api_http import FakeResponse, RoutingHttpClient
@@ -45,7 +45,7 @@ class FakePipeline:
 def use_fake_redis(monkeypatch) -> FakeRedis:
     """履歴の置き場を空のRedisへ替え、観測所ごとの材料の値のプロセス内の保持も空から始める。"""
     fake = FakeRedis()
-    monkeypatch.setattr(jma_amedas_service, "get_redis_client_or_none", lambda: fake)
+    monkeypatch.setattr(jma_amedas_store, "get_redis_client_or_none", lambda: fake)
     monkeypatch.setattr(redis_json_cache, "get_redis_client_or_none", lambda: fake)
     monkeypatch.setattr(jma_amedas_service, "_rain_materials_cache", TTLCache(maxsize=1, ttl=300))
     return fake

@@ -7,10 +7,12 @@
 """
 
 from dataclasses import dataclass
+from datetime import datetime
 
 import httpx
 from cachetools import TTLCache
 
+from app.domain.time_zone import JST
 from app.infrastructure.simple_api_client import UnexpectedShapeError, cached_fetch
 
 # 観測所マスタは`amedastable.json`（`amedas.json`ではない）。最新時刻は`latest_time.txt`
@@ -21,6 +23,9 @@ AMEDAS_LATEST_TIME_URL = "https://www.jma.go.jp/bosai/amedas/data/latest_time.tx
 AMEDAS_OBSERVATION_URL_TEMPLATE = "https://www.jma.go.jp/bosai/amedas/data/map/{timestamp}.json"
 
 REQUEST_TIMEOUT = httpx.Timeout(connect=3.0, read=5.0, write=5.0, pool=5.0)
+
+#: 気象庁アメダスの配信間隔（毎正時から10分おき）。
+AMEDAS_REFRESH_INTERVAL_MINUTES = 10
 
 # 観測所マスタ（緯度経度・名称）は行政区画変更等でしか変わらない静的に近いデータのため、
 # jma_warning_client.pyのarea.jsonと同じ長寿命TTL。
@@ -114,22 +119,27 @@ async def fetch_station_table(client: httpx.AsyncClient) -> dict[str, AmedasStat
     )
 
 
-async def fetch_latest_observation_time(client: httpx.AsyncClient) -> str | None:
-    """最新の観測時刻（ISO時刻文字列1個）を返す。
+async def fetch_latest_observation_time(client: httpx.AsyncClient) -> datetime | None:
+    """最新の観測時刻を返す。
 
     レスポンスはJSON配列ではなく、ISO時刻文字列1個だけのプレーンテキスト
     （例: "2026-08-29T17:00:00+09:00"）。
     """
 
-    async def fetch() -> str:
+    async def fetch() -> datetime:
         response = await client.get(AMEDAS_LATEST_TIME_URL, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
         latest = response.text.strip()
-        if not latest:
-            raise UnexpectedShapeError("latest observation time is empty")
-        return latest
+        try:
+            observed_at = datetime.fromisoformat(latest)
+        except ValueError as exc:
+            raise UnexpectedShapeError(f"latest observation time is not ISO: {latest!r}") from exc
+        if observed_at.tzinfo is None:
+            raise UnexpectedShapeError(f"latest observation time has no offset: {latest!r}")
+        return observed_at
 
-    # 応答はプレーンテキストで`.json()`を呼ばないため、ValueErrorの発生源が無い。
+    # 応答はプレーンテキストで`.json()`を呼ばず、読めない時刻は`UnexpectedShapeError`へ直すため、
+    # ほかにValueErrorの発生源が無い。
     return await cached_fetch(
         "weather:jma-amedas-latest-time",
         fetch,
@@ -139,12 +149,11 @@ async def fetch_latest_observation_time(client: httpx.AsyncClient) -> str | None
     )
 
 
-async def fetch_observation_map(client: httpx.AsyncClient, timestamp: str) -> dict[str, AmedasReading] | None:
-    """指定時刻の全観測所ぶんの観測値（観測所id → 観測値）を取得する。
-
-    URLはYYYYMMDDHHMMSS形式のコンパクトなタイムスタンプを要求するため、呼び出し元
-    （jma_amedas_service.py）がISO文字列から変換して渡す。
-    """
+async def fetch_observation_map(
+    client: httpx.AsyncClient, observed_at: datetime
+) -> dict[str, AmedasReading] | None:
+    """指定時刻の全観測所ぶんの観測値（観測所id → 観測値）を取得する。"""
+    timestamp = observed_at.astimezone(JST).strftime("%Y%m%d%H%M%S")
 
     async def fetch() -> dict[str, AmedasReading]:
         response = await client.get(

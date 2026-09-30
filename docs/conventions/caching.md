@@ -192,6 +192,11 @@ per_second`＝5.0で自主制限しているが、これはプロセス内の制
 `redis_json_cache.py`の`get_json`/`set_json`が内包している。**呼び出し元が持つのは
 キー設計・TTL・値の意味づけだけ**にする。
 
+**呼び出し元は`infrastructure/`のモジュールにする**。鍵・保存する形・TTL・保存した形の検査は
+そのモジュールが持ち、`services/`とは値でやり取りする（例: `infrastructure/jma_amedas_store.py`）。
+上の層がRedisの接続を直にimportすると`lint-imports`が落ちる（[directory-layout.md](../architecture/directory-layout.md)「backend」）。
+`services/`がプロセス内（`cachetools`）に持つ、自分で求めた値のキャッシュはこの規則の外にある。
+
 ```python
 from app.infrastructure.redis_json_cache import get_json, set_json
 

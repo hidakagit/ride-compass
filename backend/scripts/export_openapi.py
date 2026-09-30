@@ -147,7 +147,7 @@ from app.domain.route_preference import MAX_AXIS_WEIGHT  # noqa: E402
 from app.domain.tuning import client_tuning_values  # noqa: E402
 from app.domain.weather import PRECIPITATION_MIN_MM  # noqa: E402
 from app.infrastructure.msm_client import DEFAULT_UPDATE_INTERVAL_SECONDS as MSM_UPDATE_INTERVAL_SECONDS  # noqa: E402
-from app.services.jma_amedas_service import AMEDAS_REFRESH_INTERVAL_MINUTES  # noqa: E402
+from app.infrastructure.jma_amedas_client import AMEDAS_REFRESH_INTERVAL_MINUTES  # noqa: E402
 from app.infrastructure.job_registry import JOB_TTL_SECONDS  # noqa: E402
 from app.services.tile_version_service import TILE_SHAPES  # noqa: E402
 

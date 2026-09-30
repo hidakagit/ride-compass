@@ -27,7 +27,7 @@ SKELETON_SYMBOLS = (
 ALLOWED = {
     "infrastructure/redis_client.py": "骨格が使う接続・サーキットブレーカー本体",
     "infrastructure/redis_json_cache.py": "骨格そのもの",
-    "services/jma_amedas_service.py": "全観測所をpipelineでHashへ一括読み書きする（単一キーのJSON読み書きでは表現できない）",
+    "infrastructure/jma_amedas_store.py": "全観測所をpipelineでHashへ一括読み書きする（単一キーのJSON読み書きでは表現できない）",
 }
 
 
