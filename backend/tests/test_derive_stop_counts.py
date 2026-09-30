@@ -14,6 +14,7 @@ import pytest_asyncio
 from app.batch import derive_counts, derive_node_materials, derive_topology
 from app.batch._common import asyncpg_dsn
 from app.batch.ingest import ensure_partition
+from app.domain.tuning import TUNING_PARAMETERS_BY_ID
 from tests.conftest import postgis_database_url
 
 # road_graph_session（conftest.py）と同じDBを使うため、docs/conventions/testing.mdのパターン2どおり
@@ -102,7 +103,7 @@ async def stop_conn(road_graph_engine):
                 " VALUES ('osm_node', $1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5::jsonb)",
                 str(node_id), node_run, lon, lat, json.dumps(tags))
         await derive_topology.derive(conn)
-        await derive_node_materials.derive(conn)
+        await derive_node_materials.derive(conn, TUNING_PARAMETERS_BY_ID["signal.match_radius_m"].default)
         await derive_counts.derive(conn)
         yield conn
     finally:

@@ -20,6 +20,11 @@
 表と入れ替える**（仕組みと理由は`docs/modules/backend/static-road-attributes.md`「派生」）。
 段のSQLは表の名前をスキーマを付けずに書く——接続の`search_path`が作業用のスキーマを先に探し、
 生データは`public`から読む。
+
+**段が読む較正値は、作り直しを始めるときに1度だけDBの上書きから読み、段の関数へ値で渡す**。
+バッチはwebアプリと別のプロセスで、プロセス内の較正値（`domain/tuning.py: TUNING_VALUES`）へは
+何も読み込まれていない——そこを読むと、管理画面で変えた値ではなく宣言の既定が効く。
+どの段がどの較正値を読むかは`STAGES`が持つ。
 """
 
 import argparse
@@ -28,7 +33,7 @@ import logging
 import shutil
 import sys
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -48,18 +53,23 @@ from app.batch._common import (  # noqa: E402
     format_duration,
     run_batch_cli,
 )
+from app.infrastructure.tuning_overrides import load_tuning_values  # noqa: E402
 from app.infrastructure import derived_data_meta, road_network_store  # noqa: E402
 from app.infrastructure.derived_data_freshness import derived_tables  # noqa: E402
 from app.infrastructure.road_graph_repository import RoadGraphRepository  # noqa: E402
 
 logger = logging.getLogger("ridecompass.derive_cli")
 
-STAGES: tuple[tuple[str, Callable[[asyncpg.Connection], Awaitable[object]]], ...] = (
-    ("topology", derive_topology.derive),
-    ("nodes", derive_node_materials.derive),
-    ("counts", derive_counts.derive),
-    ("raster", derive_raster_materials.derive),
-    ("ways", derive_way_materials.derive),
+#: 段は接続と、いま効くべき較正値（id → 値）を受ける。
+Stage = Callable[[asyncpg.Connection, Mapping[str, float]], Awaitable[object]]
+
+STAGES: tuple[tuple[str, Stage], ...] = (
+    ("topology", lambda conn, tuning: derive_topology.derive(conn)),
+    ("nodes", lambda conn, tuning: derive_node_materials.derive(
+        conn, signal_radius_m=tuning["signal.match_radius_m"])),
+    ("counts", lambda conn, tuning: derive_counts.derive(conn)),
+    ("raster", lambda conn, tuning: derive_raster_materials.derive(conn)),
+    ("ways", lambda conn, tuning: derive_way_materials.derive(conn)),
 )
 
 #: 作り直す間の表を置くスキーマ。同時に2本走ると互いの表を消し合うため、この名前で1本に限る。
@@ -156,10 +166,18 @@ async def _swap(conn: asyncpg.Connection, tables: list[str], revision: int) -> N
     raise RuntimeError("入れ替えられなかった: 派生の表を読み続けている相手がいる")
 
 
+async def _read_tuning(database_url: str) -> dict[str, float]:
+    """DBの上書きを宣言の既定へ重ねた、いま効くべき較正値（webアプリが起動時に読むのと同じ値）。"""
+    async with batch_session_factory(database_url) as session_factory:
+        async with session_factory() as session:
+            return await load_tuning_values(session)
+
+
 async def run(database_url: str, start_from: str | None) -> int:
     names = [name for name, _ in STAGES]
     begin = names.index(start_from) if start_from else 0
     tables = [table.name for table in derived_tables()]
+    tuning = await _read_tuning(database_url)
     conn = await asyncpg.connect(asyncpg_dsn(database_url))
     if not await conn.fetchval("SELECT pg_try_advisory_lock(hashtext($1))", WORK_SCHEMA):
         await conn.close()
@@ -171,7 +189,7 @@ async def run(database_url: str, start_from: str | None) -> int:
         for index, (name, stage) in enumerate(STAGES[begin:], start=1):
             stage_started = time.perf_counter()
             logger.info("段 %s を開始（%d/%d）", name, index, len(STAGES) - begin)
-            await stage(conn)
+            await stage(conn, tuning)
             logger.info("段 %s 完了 / %s", name,
                         format_duration(time.perf_counter() - stage_started))
         revision = (await conn.fetchval("SELECT revision FROM derived_data_meta WHERE id = 1") or 0) + 1

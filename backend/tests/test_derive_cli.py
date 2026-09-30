@@ -1,7 +1,8 @@
 """派生の作り直し（`batch/derive_cli.py`）が、できあがるまで読み手に途中の状態を見せないこと。
 
 段そのものの値の出し方は段ごとのテスト（`test_derive_*.py`）が持つ。ここは入口が負う契約——
-作業用のスキーマで作り、1つのトランザクションで入れ替え、世代を進め、その中身から作った道路網を置く——を見る。
+作業用のスキーマで作り、1つのトランザクションで入れ替え、世代を進め、その中身から作った道路網を置く・
+管理画面で変えた較正値を段へ渡す——を見る。
 段は本物を通し、読み手の目で見るための覗き窓だけを段の後ろに挟む。
 """
 
@@ -101,8 +102,8 @@ def _observe_after(stage_name: str, monkeypatch, observe) -> None:
     """段`stage_name`の後ろに覗き窓を挟む（段そのものは本物を通す）。"""
     real = dict(derive_cli.STAGES)[stage_name]
 
-    async def stage_then_observe(conn):
-        await real(conn)
+    async def stage_then_observe(conn, tuning):
+        await real(conn, tuning)
         await observe()
 
     monkeypatch.setattr(derive_cli, "STAGES", tuple(
@@ -160,3 +161,29 @@ async def test_a_failed_rebuild_changes_nothing_readers_see(derived_before, monk
     assert road_network_store.latest_directory() is None
     assert await derived_before.fetchval(
         "SELECT count(*) FROM pg_namespace WHERE nspname = $1", derive_cli.WORK_SCHEMA) == 0
+
+
+async def _nodes_with_signal(conn: asyncpg.Connection) -> set[int]:
+    return {r["osm_node_id"] for r in await conn.fetch(
+        "SELECT osm_node_id FROM node_materials WHERE has_traffic_signals")}
+
+
+async def test_the_signal_radius_set_on_the_admin_screen_decides_which_nodes_get_the_signal(derived_before):
+    """管理画面で変えた「信号とみなす半径」で、作り直した交差点の信号の判定が変わる。
+
+    信号はノード2だけ。隣のノード1・3は約140m、ノード4は約180m離れている。
+    """
+    await derived_before.execute(
+        "UPDATE source_features SET attrs = $1::jsonb WHERE source = 'osm_node' AND natural_key = '2'",
+        json.dumps({"highway": "traffic_signals"}))
+
+    assert await derive_cli.run(postgis_database_url(), "nodes") == 0
+    assert await _nodes_with_signal(derived_before) == {2}
+
+    await derived_before.execute(
+        "INSERT INTO tuning_overrides (param_id, value) VALUES ('signal.match_radius_m', 150.0)")
+    try:
+        assert await derive_cli.run(postgis_database_url(), "nodes") == 0
+    finally:
+        await derived_before.execute("DELETE FROM tuning_overrides WHERE param_id = 'signal.match_radius_m'")
+    assert await _nodes_with_signal(derived_before) == {1, 2, 3}

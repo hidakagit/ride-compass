@@ -33,8 +33,8 @@ DB接続・Redis・HTTPクライアント・レート制限・ログ・デバッ
 | infrastructure | `debug_control.py` | `debug_mode`のランタイム切替・直近ログの保持 |
 | infrastructure | `job_registry.py` | 汎用の非同期ジョブレジストリ（プロセス内メモリのみ） |
 | infrastructure | `single_process.py` | 起動時にワーカー数を読み、複数なら起動を止める（プロセス内に持つ状態の前提を落ちる形にする） |
-| infrastructure | `tuning_overrides.py` | 較正値の上書き（宣言の既定値から動かしたぶんだけをDBへ持つ）。起動時と管理APIの書き込み直後にプロセス内へ読み込む |
-| services | `tuning_service.py` | 較正値の上書きの取引境界（構造仕様7）。書いた直後にプロセス内の値まで反映するところまでを持つ |
+| infrastructure | `tuning_overrides.py` | 較正値の上書き（宣言の既定値から動かしたぶんだけをDBへ持つ）の読み書きと、宣言の範囲での検算。プロセス内の値へは書かない |
+| services | `tuning_service.py` | 較正値の上書きの取引境界（構造仕様7）と、プロセス内の値への反映（起動時の読み込みと、書いた直後） |
 | api | `tuning_admin.py` | 較正値の一覧・更新（管理画面用、`require_admin_basic_auth`の内側）。並べる項目も、効き方ごとの見出しと並び順も宣言から導く |
 | scripts | `admin_data_dump_args.py` | 取り直せない管理データの表を書き出す`pg_dump`の引数（DB名と表）。表は印（`orm_base.IRREPLACEABLE`）から導く |
 | ops | `admin_data_backup.sh` | 本番VMのホストで、上の引数で`pg_dump`し、Object Storageの非公開バケットへ置く |

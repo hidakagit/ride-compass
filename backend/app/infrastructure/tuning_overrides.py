@@ -4,10 +4,9 @@
 動く**——`axis_definitions`のような「行そのものが定義」の形と違い、fresh bootstrap
 （CI・新規環境・disaster recovery）でスナップショットの投入が要らない。
 
-読み込みは**プロセス内の`TUNING_VALUES`を中身ごと差し替える**（`.clear()`+`.update()`。
-束縛済みの参照先が古いままにならないようにする流儀は`services/axis_registry_service.py`が
-`AXIS_DEFINITIONS`へ採っているのと同じ）。更新のタイミングもそちらと同じく、アプリ起動時と
-管理APIの書き込み直後の2つだけで、ポーリングはしない（単一プロセス前提）。
+ここは行の読み書きと、宣言の範囲での検算までを持ち、**プロセス内の`TUNING_VALUES`へは書かない**。
+プロセスへの反映は`services/tuning_service.py`だけが行う（webアプリ）。派生バッチは同じ値を
+ここから読んで段へ値で渡し、プロセスへは反映しない（`batch/derive_cli.py`）。
 
 **壊れた行の扱いは2通りに分ける。**
 
@@ -26,7 +25,7 @@ from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.domain.tuning import TUNING_PARAMETERS, TUNING_PARAMETERS_BY_ID, TUNING_VALUES
+from app.domain.tuning import TUNING_PARAMETERS, TUNING_PARAMETERS_BY_ID
 from app.infrastructure.orm_base import IRREPLACEABLE, Base
 
 logger = logging.getLogger("ridecompass.tuning")
@@ -98,26 +97,8 @@ async def read_overrides(session: AsyncSession) -> dict[str, float]:
 
 
 async def load_tuning_values(session: AsyncSession) -> dict[str, float]:
-    """DBの上書きを読み、宣言の範囲で検算して、いま効くべき値を作る（プロセスへはまだ反映しない）。"""
+    """DBの上書きを読み、宣言の範囲で検算して、いま効くべき値を作る（プロセスへは反映しない）。"""
     return merge_overrides(await read_overrides(session))
-
-
-def apply_tuning_values(values: dict[str, float]) -> None:
-    """`load_tuning_values`が作った値を、プロセス内の`TUNING_VALUES`へ反映する。
-
-    **中身だけを差し替える**（辞書そのものを作り直すと、import済みの参照が古い辞書を
-    指したままになる）。読み出しも検算も済んだ値を受け取るだけなので失敗しない。
-    """
-    TUNING_VALUES.clear()
-    TUNING_VALUES.update(values)
-    changed = {k: v for k, v in values.items() if v != TUNING_PARAMETERS_BY_ID[k].default}
-    if changed:
-        logger.info("較正値の上書きを読み込みました count=%d ids=%s", len(changed), sorted(changed))
-
-
-async def refresh_tuning_values(session: AsyncSession) -> None:
-    """DBの上書きを読み、プロセス内の`TUNING_VALUES`へ反映する（起動時の読み込み）。"""
-    apply_tuning_values(await load_tuning_values(session))
 
 
 async def set_override(session: AsyncSession, param_id: str, value: float) -> None:

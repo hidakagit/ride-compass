@@ -50,7 +50,8 @@ class TuningEffect(Enum):
     IMMEDIATE = ("immediate", "次のルート生成から効く")
     #: 探索木のプロセス内キャッシュが値で鍵を持つため、作り直しは自動で起きる。
     TURN_STRUCTURE = ("turn_structure", "次のルート生成から効く（1回だけ遅い）")
-    #: `node_materials`を埋める派生バッチ（batch/derive_node_materials.py）をやり直さないと効かない。
+    #: `node_materials`を埋める派生の段（`batch/derive_cli.py`の`nodes`）から作り直さないと効かない。
+    #: 派生バッチは作り直しを始めるときに上書きを読み、段の関数へ値で渡す。
     NODE_ATTRIBUTE_BATCH = ("node_attribute_batch", "交差点の事前計算をやり直すまで効かない")
     #: 画面を読み込み直すと効く（フロントが起動時のカタログ取得で受け取る値）。
     CLIENT_RELOAD = ("client_reload", "画面を読み込み直すと効く")
@@ -161,7 +162,7 @@ TUNING_PARAMETERS: tuple[TuningParameter, ...] = (
     # --- 交差点の信号判定 ---
     TuningParameter(
         "signal.match_radius_m",
-        "信号とみなす半径", "m", 40.0, 1.0, 200.0,
+        "信号とみなす半径", "m", 25.0, 1.0, 200.0,
         TuningEffect.NODE_ATTRIBUTE_BATCH,
         "交差点から何m以内の信号を、その交差点のものとみなすか。"
         "広げるほど横断の費用が付く交差点が減る（頭打ちが無い）。",

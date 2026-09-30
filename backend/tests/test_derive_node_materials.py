@@ -12,6 +12,7 @@ from app.batch import derive_node_materials, derive_topology
 from app.batch._common import asyncpg_dsn
 from app.batch.ingest import ensure_partition
 from app.domain.traffic import HIGHWAY_RANK
+from app.domain.tuning import TUNING_PARAMETERS_BY_ID
 from tests.conftest import postgis_database_url
 
 # road_graph_session（conftest.py）と同じDBを使うため、docs/conventions/testing.mdのパターン2どおり
@@ -23,7 +24,9 @@ pytestmark = [
 ]
 
 BASE_LON, BASE_LAT = 139.70, 35.68
-#: 経度0.001度は約90m。信号とみなす半径（25m）より十分に遠い。
+#: 信号とみなす半径（較正値の既定）。
+RADIUS_M = TUNING_PARAMETERS_BY_ID["signal.match_radius_m"].default
+#: 経度0.001度は約90m。信号とみなす半径より十分に遠い。
 STEP = 0.001
 #: 経度0.0001度は約9m。半径の内側。
 NEAR = 0.0001
@@ -88,7 +91,7 @@ async def node_conn(module_conn):
             " VALUES ('osm_node', $1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5::jsonb)",
             str(node_id), node_run, lon, lat, json.dumps(tags))
     await derive_topology.derive(conn)
-    await derive_node_materials.derive(conn)
+    await derive_node_materials.derive(conn, RADIUS_M)
     return conn
 
 
@@ -117,12 +120,12 @@ async def test_rerun_on_changed_input_keeps_no_value_the_input_no_longer_support
     種別のためだけにあった行（どの道にも属さないノード）は行ごと消える。"""
     primary = HIGHWAY_RANK["primary"]
     await _set_tags(node_conn, "osm_way", 100, {"highway": "primary"})
-    await derive_node_materials.derive(node_conn)
+    await derive_node_materials.derive(node_conn, RADIUS_M)
     before = await _values(node_conn)
     await _set_tags(node_conn, "osm_way", 100, {})
     await _set_tags(node_conn, "osm_node", 3, {})
     await _set_tags(node_conn, "osm_node", 9, {})
-    await derive_node_materials.derive(node_conn)
+    await derive_node_materials.derive(node_conn, RADIUS_M)
     after = await _values(node_conn)
 
     # 前提: 1回目は値が出ている。
