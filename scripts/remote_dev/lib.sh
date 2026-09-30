@@ -28,8 +28,6 @@ rc_timed() {
 
 rc_summary() { sort "$RC_TIMES" | tr '\n' ' '; rm -f "$RC_TIMES"; }
 
-rc_digest() { cat "$@" | sha256sum | cut -c1-16; }
-
 rc_backend_digest() {
   { "$RC_PYTHON" -V; cat "$RC_REPO"/backend/requirements*.txt; } | sha256sum | cut -c1-16
 }
