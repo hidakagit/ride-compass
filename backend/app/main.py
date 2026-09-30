@@ -28,9 +28,9 @@ from app.infrastructure.request_log import (
 )
 from app.infrastructure.response_compression import ContentTypeGZipMiddleware
 from app.infrastructure.single_process import require_single_worker
+from app.infrastructure.jma_amedas_client import AMEDAS_REFRESH_INTERVAL_MINUTES
 from app.services.axis_registry_service import refresh_axis_definitions
 from app.services.tuning_service import refresh_tuning_values
-from app.services.jma_amedas_service import AMEDAS_REFRESH_INTERVAL_MINUTES
 from app.services.jma_tile_prewarm_service import prewarm_jma_tiles
 
 logging.basicConfig(level=logging.DEBUG if settings.debug_mode else logging.INFO)

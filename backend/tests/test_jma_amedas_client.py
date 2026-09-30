@@ -7,8 +7,11 @@
 - 最寄り観測所の選択・観測値の読み替え・雨の履歴 → `test_jma_amedas_service.py`
 """
 
+from datetime import datetime, timezone
+
 import pytest
 
+from app.domain.time_zone import JST
 from app.infrastructure import jma_amedas_client
 from app.infrastructure.jma_amedas_client import AmedasReading, AmedasStation
 from tests.fake_api_http import FailingHttpClient, FakeHttpClient, FakeResponse, RoutingHttpClient
@@ -79,15 +82,16 @@ async def test_a_station_table_that_is_not_an_object_yields_none():
 
 
 async def test_latest_observation_time_drops_surrounding_whitespace():
-    """改行が残ったままだと観測値のURLが組み立てられず、観測値が1つも出なくなる。"""
+    """改行が残ったままだと時刻として読めず、観測値が1つも出なくなる。"""
     client = FakeHttpClient(text=" 2026-08-29T17:00:00+09:00\n")
 
-    assert await jma_amedas_client.fetch_latest_observation_time(client) == "2026-08-29T17:00:00+09:00"
+    assert await jma_amedas_client.fetch_latest_observation_time(client) == datetime(2026, 8, 29, 17, tzinfo=JST)
 
 
-async def test_blank_latest_observation_time_yields_none():
-    """空文字を時刻として返すと、呼び出し元が空のURLを引きに行く。"""
-    client = FakeHttpClient(text="   \n")
+@pytest.mark.parametrize("text", ["   \n", "latest", "2026-08-29T17:00:00"])
+async def test_a_latest_observation_time_that_is_not_an_offset_time_yields_none(text):
+    """読めない・時差の無い時刻を返すと、呼び出し元がどの時刻の観測値を引くか決められない。"""
+    client = FakeHttpClient(text=text)
 
     assert await jma_amedas_client.fetch_latest_observation_time(client) is None
 
@@ -95,7 +99,7 @@ async def test_blank_latest_observation_time_yields_none():
 async def test_an_observation_takes_the_value_of_each_value_and_quality_flag_pair():
     client = FakeHttpClient({"44132": TOKYO_HOURLY_OBSERVATION})
 
-    readings = await jma_amedas_client.fetch_observation_map(client, "20260927050000")
+    readings = await jma_amedas_client.fetch_observation_map(client, datetime(2026, 9, 27, 5, tzinfo=JST))
 
     assert readings == {
         "44132": AmedasReading(
@@ -120,7 +124,7 @@ async def test_missing_sensors_and_missing_values_both_read_as_none_but_only_a_m
         }
     )
 
-    readings = await jma_amedas_client.fetch_observation_map(client, "20260829170000")
+    readings = await jma_amedas_client.fetch_observation_map(client, datetime(2026, 8, 29, 17, tzinfo=JST))
 
     assert readings["no-gauge"].precipitation_1h_mm is None
     assert readings["no-gauge"].reports_precipitation_1h is False
@@ -131,8 +135,8 @@ async def test_missing_sensors_and_missing_values_both_read_as_none_but_only_a_m
     assert readings["gauge-missing"].wind_direction_code is None
 
 
-async def test_observation_map_requests_the_given_timestamp():
-    """要求した時刻がURLへ載らないと、いつまでも同じ（古い）観測値が返る。"""
+async def test_observation_map_requests_the_given_time_in_jst():
+    """要求した時刻がURLへ載らないと、いつまでも同じ（古い）観測値が返る。URLの時刻は日本時間。"""
     template = jma_amedas_client.AMEDAS_OBSERVATION_URL_TEMPLATE
     payloads = {
         template.format(timestamp="20260829170000"): {"44132": {"temp": [30.1, 0]}},
@@ -140,8 +144,8 @@ async def test_observation_map_requests_the_given_timestamp():
     }
     client = RoutingHttpClient(lambda url: FakeResponse(payloads[url]))
 
-    first = await jma_amedas_client.fetch_observation_map(client, "20260829170000")
-    second = await jma_amedas_client.fetch_observation_map(client, "20260829171000")
+    first = await jma_amedas_client.fetch_observation_map(client, datetime(2026, 8, 29, 17, tzinfo=JST))
+    second = await jma_amedas_client.fetch_observation_map(client, datetime(2026, 8, 29, 8, 10, tzinfo=timezone.utc))
 
     assert first["44132"].temperature_c == 30.1
     assert second["44132"].temperature_c == 29.8
@@ -149,8 +153,8 @@ async def test_observation_map_requests_the_given_timestamp():
 
 async def test_observation_map_yields_none_when_upstream_fails():
     """例外を外へ出すと、観測値が欠けただけで天候の応答全体が失敗する。"""
-    assert await jma_amedas_client.fetch_observation_map(FailingHttpClient(), "20260829170000") is None
+    assert await jma_amedas_client.fetch_observation_map(FailingHttpClient(), datetime(2026, 8, 29, 17, tzinfo=JST)) is None
 
 
 async def test_an_observation_map_that_is_not_an_object_yields_none():
-    assert await jma_amedas_client.fetch_observation_map(FakeHttpClient([]), "20260829170000") is None
+    assert await jma_amedas_client.fetch_observation_map(FakeHttpClient([]), datetime(2026, 8, 29, 17, tzinfo=JST)) is None

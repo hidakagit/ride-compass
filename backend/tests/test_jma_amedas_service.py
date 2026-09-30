@@ -8,6 +8,7 @@ JMAの観測値エンドポイントは1地点だけを絞り込めず全国分�
 （リクエスト経路）はRedis読み取り専用である。
 """
 
+import json
 from datetime import datetime, timedelta
 
 import numpy as np
@@ -18,7 +19,7 @@ from app.domain.jma_amedas import apparent_temperature_from_amedas
 from app.domain.rain import HOURS_SINCE_RAIN, RAIN_HISTORY_HOURS, rain_window_material_id
 from app.domain.route import Coordinates
 from app.domain.time_zone import JST
-from app.infrastructure import jma_amedas_client, redis_json_cache
+from app.infrastructure import jma_amedas_client, jma_amedas_store, redis_json_cache
 from app.services import jma_amedas_service
 from app.services.jma_amedas_service import RAIN_HISTORY_MAX_AGE, JmaAmedasService, load_station_rain_materials
 from tests.fake_api_http import FakeResponse, RoutingHttpClient
@@ -111,7 +112,7 @@ def _patch_redis(monkeypatch, redis=None):
     monkeypatch.setattr(jma_amedas_client, "_station_table_cache", TTLCache(maxsize=1, ttl=60))
     monkeypatch.setattr(jma_amedas_client, "_latest_time_cache", TTLCache(maxsize=1, ttl=60))
     fake_redis = redis if redis is not None else FakeRedis()
-    monkeypatch.setattr(jma_amedas_service, "get_redis_client_or_none", lambda: fake_redis)
+    monkeypatch.setattr(jma_amedas_store, "get_redis_client_or_none", lambda: fake_redis)
     monkeypatch.setattr(redis_json_cache, "get_redis_client_or_none", lambda: fake_redis)
     return fake_redis
 
@@ -205,7 +206,7 @@ async def test_get_nearest_observation_fails_open_when_redis_client_unavailable(
     # 設定ミス等でクライアント生成自体が失敗する場合、`get_redis_client_or_none`はNoneを
     # 返す。例外を外へ漏らさず「観測値なし」へ倒すこと。
     _patch_redis(monkeypatch)
-    monkeypatch.setattr(jma_amedas_service, "get_redis_client_or_none", lambda: None)
+    monkeypatch.setattr(jma_amedas_store, "get_redis_client_or_none", lambda: None)
     service = JmaAmedasService(http_client=_upstream())
 
     result = await service.get_nearest_observation(POINT)
@@ -216,7 +217,7 @@ async def test_get_nearest_observation_fails_open_when_redis_client_unavailable(
 async def test_refresh_all_stations_fails_open_when_redis_client_unavailable(monkeypatch, caplog):
     # 書き込み側も同じfail-open契約を守る。書き込みだけをスキップし、バッチは完了する。
     _patch_redis(monkeypatch)
-    monkeypatch.setattr(jma_amedas_service, "get_redis_client_or_none", lambda: None)
+    monkeypatch.setattr(jma_amedas_store, "get_redis_client_or_none", lambda: None)
     service = JmaAmedasService(http_client=_upstream())
 
     count = await service.refresh_all_stations()
@@ -337,3 +338,14 @@ async def test_rain_materials_are_not_served_from_a_stale_history(monkeypatch):
 
     assert await load_station_rain_materials(now) is not None
     assert await load_station_rain_materials(maps.latest_hour + RAIN_HISTORY_MAX_AGE + timedelta(minutes=1)) is None
+
+
+async def test_a_rain_history_stored_in_a_shape_that_cannot_be_read_serves_no_materials(monkeypatch):
+    """保存した形は過去のコードが書いたもの。読めないまま展開すると、地図とルートの生成が500で落ちる。"""
+    now = datetime.now(JST)
+    fake_redis = FakeRedis()
+    await _rain_service(monkeypatch, RainMaps(_latest_hour(now), rain_by_back={}), fake_redis).refresh_all_stations()
+    (key,) = fake_redis.strings
+    fake_redis.strings[key] = json.dumps({"latest_hour": "yesterday", "stations": {"44132": [35.69, 139.76]}, "hours": {}})
+
+    assert await load_station_rain_materials(now) is None

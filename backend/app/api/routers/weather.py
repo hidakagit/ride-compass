@@ -119,7 +119,7 @@ async def get_amedas(
     amedas_service: JmaAmedasService = Depends(get_amedas_service),
 ) -> AmedasObservation:
     """出発地点近傍の最寄りアメダス観測所の直近観測値を返す。
-    観測値本体はRedis Hash（TTL 15分）でキャッシュされる（jma_amedas_service.py参照）。
+    観測値本体はRedis Hash（TTL 15分）でキャッシュされる（infrastructure/jma_amedas_store.py参照）。
     観測所解決・取得のいずれかに失敗した場合は502を返す。"""
     enforce_rate_limit(http_request, "amedas", settings.weather_amedas_rate_limit_per_minute)
     observation = await amedas_service.get_nearest_observation(Coordinates(latitude=latitude, longitude=longitude))

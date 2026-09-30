@@ -59,16 +59,15 @@ class WbgtService:
         if nearest is None:
             return None
 
-        range_to = now.strftime("%Y%m%d%H%M%S")
-        range_from = (now - timedelta(hours=_FORECAST_SEARCH_WINDOW_HOURS)).strftime("%Y%m%d%H%M%S")
-        forecasts = await fetch_forecast(self._http_client, nearest.no, range_from, range_to)
+        range_from = now - timedelta(hours=_FORECAST_SEARCH_WINDOW_HOURS)
+        forecasts = await fetch_forecast(self._http_client, nearest.no, range_from, now)
         if forecasts is None:
             return None
         if not forecasts:
             # 提供期間の中で発表が無いのは配信の止まりで、段なしにすると警戒が要らないと見せる。
             logger.warning(
                 "暑さ指数の検索窓に発表がありません wbgt_no=%s range_from=%s range_to=%s",
-                nearest.no, range_from, range_to,
+                nearest.no, range_from.isoformat(), now.isoformat(),
             )
             return None
 
