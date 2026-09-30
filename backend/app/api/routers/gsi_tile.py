@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from app.api.cache_policy import GSI_TILE_NOT_FOUND
-from app.api.dependencies import enforce_rate_limit, get_gsi_tile_client
+from app.api.dependencies import get_gsi_tile_client
+from app.api.rate_limit import enforce_rate_limit
 from app.api.routers._tile_http import validate_tile_coords
 from app.config import settings
 from app.infrastructure.gsi_tile_client import GsiTileClient, GsiTileNotFound

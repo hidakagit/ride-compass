@@ -18,7 +18,8 @@ DB接続・Redis・HTTPクライアント・レート制限・ログ・デバッ
 | domain | `strict_model.py` | 全Pydanticモデルの基底（`StrictModel`）。未知のフィールドを黙って捨てず例外にする |
 | api | `admin_auth.py` | 管理API共通の認可境界 |
 | api | `cache_policy.py` | 応答の`Cache-Control`（パスとポリシーの対応表・付与ミドルウェア） |
-| api | `dependencies.py`（横断的な部分のみ、他は各モジュール参照） | DI工場・`enforce_rate_limit`集約 |
+| api | `dependencies.py`（横断的な部分のみ、他は各モジュール参照） | DI工場（公開関数は注入の口だけ） |
+| api | `rate_limit.py` | per-IPレート制限（`enforce_rate_limit`集約・`client_id`） |
 | api/routers | `health.py` | `/health`・`/api/debug/stats` |
 | api/routers | `debug_admin.py` | `debug_mode`のランタイム切替・直近ログ取得 |
 | infrastructure | `database.py` | PostGIS接続（SQLAlchemy） |
@@ -206,13 +207,14 @@ None）へ倒す箇所は、`except Exception`ではなくこのタプルだけ�
 - 接続を張る段階ではSQLAlchemyがasyncpgの`connect`を直接呼ぶため、接続数の上限・認証等の
   失敗は`asyncpg.PostgresError`・`asyncpg.InterfaceError`のまま届く（`DBAPIError`にならない）。
 
-## レート制限の集約（`api/dependencies.py: enforce_rate_limit`）
+## レート制限の集約（`api/rate_limit.py: enforce_rate_limit`）
 
 `check_rate_limit`→超過時の記録→`HTTPException(429)`という一連の処理を
 `enforce_rate_limit(request, prefix, limit_per_minute)`へ集約している。`weather.py`・
 `basemap.py`・`jma_tile.py`・`gsi_tile.py`・`accidents.py`・`routes.py`の各routerが
 これを直接呼び、`region.py`は路面・POI・専用way値配信で同じ上限を共有するため
-`_check_tile_rate_limit`という薄いラッパー経由で呼ぶ。`prefix`はレート制限キー・
+`_check_tile_rate_limit`という薄いラッパー経由で呼ぶ。DI工場ではなく、ルーターが要求ごとに`prefix`と上限を
+変えて普通に呼ぶ関数なので、`dependencies.py`（公開関数は注入の口だけ）と分けて置く。`prefix`はレート制限キー・
 rejection集計カテゴリの両方を兼ねる。
 
 ### 回数の記録（`infrastructure/rate_limiter.py`）

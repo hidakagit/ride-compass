@@ -2,7 +2,8 @@ import asyncio
 
 from fastapi import APIRouter, Depends, Request, Response
 
-from app.api.dependencies import enforce_rate_limit, get_accident_service
+from app.api.dependencies import get_accident_service
+from app.api.rate_limit import enforce_rate_limit
 from app.api.routers._tile_http import tile_response, validate_tile_coords
 from app.config import settings
 from app.services.accident_service import AccidentService

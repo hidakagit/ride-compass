@@ -2,7 +2,7 @@
 
 region.py（路面/POI/土地被覆タイル）・accidents.py（事故タイル）・gsi_tile.py（標高タイル）が、
 座標検証と応答の組み立てをそれぞれ個別に実装するのを避けるため共有する。レート制限は地域タイル系に限らず全router
-共通の`app.api.dependencies.enforce_rate_limit`を使う（本モジュールの対象外）。
+共通の`app.api.rate_limit.enforce_rate_limit`を使う（本モジュールの対象外）。
 """
 
 from fastapi import HTTPException, Response

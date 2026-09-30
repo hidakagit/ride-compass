@@ -9,12 +9,11 @@ from pydantic import Field, RootModel, model_validator
 
 from app.domain.time_zone import JST
 from app.api.dependencies import (
-    PreviewBuilder,
-    client_id,
-    enforce_rate_limit,
-    get_preview_builder,
-    open_route_generation_setup,
+    RouteGenerationSetupOpener,
+    get_route_generation_setup_opener,
+    get_route_preview_service,
 )
+from app.api.rate_limit import client_id, enforce_rate_limit
 from app.config import settings
 from app.domain.errors import RoutingError, SearchAreaTooLargeError
 from app.domain.hard_filters import HARD_FILTER_NAMES
@@ -24,6 +23,7 @@ from app.domain.wind import ASSUMED_SPEED_KMH, MAX_ASSUMED_SPEED_KMH, MIN_ASSUME
 from app.domain.route import Coordinates, RouteCandidate, RouteSegment
 from app.infrastructure import job_registry
 from app.infrastructure.debug_log import record_rate_limit_rejection
+from app.services.route_generation_setup import RoutePreviewService
 from app.services.route_generator import DEFAULT_MAX_ROUTES, MAX_ROUTES, applied_max_routes
 from app.domain.strict_model import StrictModel
 
@@ -62,11 +62,11 @@ class RoutePreviewRequest(StrictModel):
 async def preview_route(
     request: RoutePreviewRequest,
     http_request: Request,
-    preview: PreviewBuilder = Depends(get_preview_builder),
+    preview_service: RoutePreviewService = Depends(get_route_preview_service),
 ) -> RouteSegment:
     enforce_rate_limit(http_request, "preview", settings.preview_rate_limit_per_minute)
     try:
-        return await preview(request.origin, request.destination, request.assumed_speed_kmh)
+        return await preview_service.preview(request.origin, request.destination, request.assumed_speed_kmh)
     except RoutingError as exc:
         raise HTTPException(status_code=502, detail=f"ルート取得に失敗しました: {exc}") from exc
     except SearchAreaTooLargeError as exc:
@@ -308,7 +308,11 @@ RouteGenerateJobStatusResponse = Annotated[
 
 
 @router.post("/api/routes/generate", response_model=RouteGenerateJobCreatedResponse, status_code=202)
-async def generate_routes(request: RouteGenerateRequest, http_request: Request) -> RouteGenerateJobCreatedResponse:
+async def generate_routes(
+    request: RouteGenerateRequest,
+    http_request: Request,
+    open_setup: RouteGenerationSetupOpener = Depends(get_route_generation_setup_opener),
+) -> RouteGenerateJobCreatedResponse:
     enforce_rate_limit(http_request, "generate", settings.generate_rate_limit_per_minute)
 
     # 同時実行数の上限に達している場合は待たせず即座に429を返す（外部サービスへの負荷が
@@ -334,7 +338,7 @@ async def generate_routes(request: RouteGenerateRequest, http_request: Request) 
     # ミドルウェアの例外）でジョブが一度も起動せず、上で取得したセマフォを解放する
     # finallyへ到達しない。`generate_max_concurrent`分だけこれが起きるとルート生成が
     # プロセス再起動まで全断する（`/health`は正常を返すため外形監視にもかからない）。
-    task = asyncio.create_task(_run_generate_job(job_id, request))
+    task = asyncio.create_task(_run_generate_job(job_id, request, open_setup))
     # イベントループはタスクへの強参照を持たないため、参照を保持しないとGCが実行中の
     # ジョブごと回収しうる（そのときもセマフォは解放されない）。
     _running_generate_tasks.add(task)
@@ -359,7 +363,7 @@ async def get_generate_job(job_id: str) -> RouteGenerateJobStatusResponse:
     return RouteGenerateJobPending(status=record.status)
 
 
-async def _run_generate_job(job_id: str, request: RouteGenerateRequest) -> None:
+async def _run_generate_job(job_id: str, request: RouteGenerateRequest, open_setup: RouteGenerationSetupOpener) -> None:
     """`generate_routes`が`asyncio.create_task`で起動するジョブ本体。
     例外はここで捕捉してjob_registryへ記録する——切り離されたタスクの例外はどこにも
     伝播せず、素通しするとサーバーログにしか残らずクライアントは永久にポーリングし
@@ -368,7 +372,7 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest) -> None:
     `_generate_semaphore`は投稿時点の`generate_routes`側で既に取得済み（TOCTOUレース
     対応）。ここでは成否によらず必ずfinallyで解放する。"""
     try:
-        # 重みの上書き（省略時はopen_route_generation_setup側で既定値を読む）。
+        # 重みの上書き（省略時はエンジンを組む側で既定値を読む）。
         # 適用された値はconditionsへエコーする。
         preference_override = (
             RoutePreference(weights=dict(request.route_preference.root)) if request.route_preference else None
@@ -376,7 +380,7 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest) -> None:
         hard_filters_override = request.hard_filters.to_frozenset() if request.hard_filters else None
 
         job_registry.set_running(job_id)
-        async with open_route_generation_setup(
+        async with open_setup(
             preference_override=preference_override,
             penalty_strength=request.penalty_strength,
             max_average_grade_percent=request.max_average_grade_percent,
