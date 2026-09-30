@@ -309,16 +309,18 @@ def test_get_axis_catalog_carries_the_calibration_values_the_client_needs(client
     assert body["client_tuning"][param_id] == 9.5
 
 
-def test_get_axis_catalog_includes_map_value_kind_and_unit(client, catalog_axes):
+def test_get_axis_catalog_includes_map_value_and_unit(client, catalog_axes):
     # 地図の色分けがルート前後で同じスケールを使うための宣言（domain/dynamic_way_values.py:
-    # map_value_kind/map_value_unit）。勾配だけが符号付き材料（%）、他は難易度（無次元）。
+    # map_value/map_value_unit）。勾配だけが符号付き材料（%）、他は難易度（無次元）。
+    # 材料は符号付き材料のときだけ項目として在る（nullで埋めない）。
     response = client.get("/api/axis-catalog")
     entries_by_id = {entry["axis_id"]: entry for entry in response.json()["axes"]}
-    assert entries_by_id["axis_way_value_signed"]["map_value_kind"] == "signed_material"
+    assert entries_by_id["axis_way_value_signed"]["map_value"] == {
+        "kind": "signed_material",
+        "material": "gradient_percent",
+    }
     assert entries_by_id["axis_way_value_signed"]["map_value_unit"] == "%"
-    assert entries_by_id["axis_way_value_signed"]["map_value_material"] == "gradient_percent"
-    assert entries_by_id["axis_way_value_scored"]["map_value_material"] is None
-    assert entries_by_id["axis_way_value_scored"]["map_value_kind"] == "difficulty"
+    assert entries_by_id["axis_way_value_scored"]["map_value"] == {"kind": "difficulty"}
     assert entries_by_id["axis_way_value_scored"]["map_value_unit"] == ""
 
 

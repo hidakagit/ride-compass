@@ -5,7 +5,7 @@
 import { axisCatalogFromResponse, type AxisCatalog } from "@/lib/axisCatalog";
 import type { AxisCatalogEntry } from "@/types/route";
 
-type TileInput = NonNullable<AxisCatalogEntry["display"]["tile_inputs"]>[number];
+type TileInput = AxisCatalogEntry["display"]["tile_inputs"][number];
 
 /** 数値の材料をそのまま足すタイルの入力。 */
 export function tileInput(overrides: Partial<TileInput> = {}): TileInput {
@@ -16,6 +16,8 @@ export function tileInput(overrides: Partial<TileInput> = {}): TileInput {
     true_value: 0,
     false_value: 0,
     has_unknown_fallback: false,
+    categories: null,
+    breakpoints: null,
     needs_runtime_scale: false,
     ...overrides,
   };
@@ -48,8 +50,7 @@ export function catalogEntry(
     display_thresholds_override: null,
     display_band_labels_override: null,
     dedicated_way_value_layer: false,
-    map_value_kind: "difficulty",
-    map_value_material: null,
+    map_value: { kind: "difficulty" },
     map_value_unit: "",
     map_value_thresholds: null,
     raw_value_unit: null,

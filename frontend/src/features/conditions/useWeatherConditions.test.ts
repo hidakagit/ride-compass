@@ -17,7 +17,7 @@ const TOKYO = { latitude: 35.68, longitude: 139.76 };
 const YOKOHAMA = { latitude: 35.44, longitude: 139.64 };
 
 const NO_WARNINGS = { warnings: [] };
-const NO_WBGT = { level: null, value: null, label: null };
+const NO_WBGT = { reading: null };
 const NO_FLOOD = { forecasts: [] };
 
 beforeEach(() => {
@@ -138,7 +138,9 @@ describe("useWeatherConditions 警報のバッジ", () => {
         { code: "10", name: "雷注意報", level: "advisory", additions: [] },
       ],
     });
-    api.getWbgtStatus.mockResolvedValue({ level: "warning", value: 29.04, label: "厳重警戒" });
+    api.getWbgtStatus.mockResolvedValue({
+      reading: { level: "warning", value: 29.04, label: "厳重警戒", observed_at: "2026/08/22 18:00:00" },
+    });
     api.getFloodForecasts.mockResolvedValue({
       forecasts: [{ river_code: "r1", label: "多摩川氾濫警戒", badge_level: "warning", condition: "氾濫警戒情報" }],
     });
@@ -156,21 +158,6 @@ describe("useWeatherConditions 警報のバッジ", () => {
       { id: "wbgt", label: "暑さ指数厳重警戒", level: "warning", source: "wbgt", title: "暑さ指数 29.0" },
       { id: "flood-r1", label: "多摩川氾濫警戒", level: "warning", source: "flood", title: "氾濫警戒情報" },
     ]);
-  });
-
-  it("暑さ指数の段階の呼び名が無ければ、「暑さ指数」とだけ出す", async () => {
-    api.getWbgtStatus.mockResolvedValue({ level: "advisory", value: 25, label: null });
-    const { result } = render();
-    await settle();
-    expect(result.current.warningBadgeItems.map((item) => item.label)).toEqual(["暑さ指数"]);
-  });
-
-  it("暑さ指数は、段階と値の両方があるときだけ出す", async () => {
-    api.getWbgtStatus.mockResolvedValue({ level: "warning", value: null, label: "厳重警戒" });
-    const { result } = render();
-    await settle();
-    expect(api.getWbgtStatus).toHaveBeenCalled();
-    expect(result.current.warningBadgeItems).toEqual([]);
   });
 
   it("取得に失敗した出所はバッジを出さず、失敗として名前と理由を渡す（「警告なし」と読ませない）", async () => {

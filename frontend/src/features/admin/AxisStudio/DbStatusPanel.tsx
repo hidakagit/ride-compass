@@ -26,36 +26,37 @@ interface StatusGroup {
 }
 
 /** 取込のrunの状態の呼び名（backendの宣言`SOURCE_RUN_STATUS_LABELS`）。宣言に無い状態は生のまま出す。 */
-function runStatusLabel(status: string | null): string {
-  return vocabulary.sourceRunStatuses.find((entry) => entry.key === status)?.label ?? status ?? "";
+function runStatusLabel(status: string): string {
+  return vocabulary.sourceRunStatuses.find((entry) => entry.key === status)?.label ?? status;
 }
 
 function groupsFromStatus(report: DbStatusResponse): StatusGroup[] {
   const imports: StatusRow[] = report.imports.map((entry) => ({
     name: entry.label,
-    scale: entry.latest_id === null ? "記録なし" : `#${entry.latest_id} ${runStatusLabel(entry.latest_status)}`,
+    scale: entry.latest === null ? "記録なし" : `#${entry.latest.id} ${runStatusLabel(entry.latest.status)}`,
     flagged: entry.needs_attention,
     detail: [
       {
         label: "最終実行",
-        value: `#${entry.latest_id ?? "-"} ・ ${formatMoment(entry.latest_finished_at)}`,
+        value:
+          entry.latest === null ? "#- ・ 記録なし" : `#${entry.latest.id} ・ ${formatMoment(entry.latest.finished_at)}`,
       },
       {
         label: "成功した最新",
         value:
-          entry.latest_succeeded_id === null
+          entry.latest_succeeded === null
             ? "なし"
-            : `#${entry.latest_succeeded_id} ・ ${formatMoment(entry.latest_succeeded_finished_at)}`,
+            : `#${entry.latest_succeeded.id} ・ ${formatMoment(entry.latest_succeeded.finished_at)}`,
       },
-      ...(entry.latest_item_count === null
+      ...(entry.latest?.item_count == null
         ? []
         : [
             {
               label: "取込件数",
-              value: `${formatCount(entry.latest_item_count)}件`,
+              value: `${formatCount(entry.latest.item_count)}件`,
             },
           ]),
-      ...Object.entries(entry.latest_identity).map(([key, value]) => ({
+      ...Object.entries(entry.latest?.identity ?? {}).map(([key, value]) => ({
         label: key,
         value,
       })),

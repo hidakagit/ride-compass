@@ -115,7 +115,7 @@ async def test_weight_on_an_axis_steers_the_route_away_from_what_it_scores_badly
 
     candidates = await generator.generate_via_waypoints(at(SOUTH_WEST), [], 4.0, destination=at(NORTH_EAST), max_routes=3, start_time=DEPARTURE)
 
-    easiest = min(candidates, key=lambda c: c.overall_difficulty)
+    easiest = min(candidates, key=lambda c: c.overall_difficulty.average)
     assert_connected(easiest, SOUTH_WEST, NORTH_EAST)
     assert not set(ways_of(easiest)) & bad
 

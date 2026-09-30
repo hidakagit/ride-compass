@@ -142,7 +142,7 @@ describe("同じ軸の同じ段は、ルートを出す前と後で同じ行", (
   const sameBands = catalogOf([
     valueRamp("ramp", [1, 2, 3, 4], { map_value_thresholds: [20, 40, 60, 80] }, true),
     dedicatedEntry("dedicated", [20, 40, 60, 80]),
-    dedicatedEntry("signed", [-6, -2, 2, 6], { map_value_kind: "signed_material", map_value_material: VALUE }),
+    dedicatedEntry("signed", [-6, -2, 2, 6], { map_value: { kind: "signed_material", material: VALUE } }),
   ]);
   const paintable = [...sameBands.rampAxes, ...sameBands.dedicatedAxes].map((axis) => axis.axisId);
 

@@ -184,12 +184,11 @@ async def test_get_nearest_observation_reads_from_redis_without_fetching(monkeyp
     assert result.temperature_c == 26.5
     assert result.apparent_temperature_c == apparent_temperature_from_amedas(26.5, 70, 3.5)
     assert result.wind_speed_ms == 3.5
-    assert result.wind_direction_label == "南"
+    assert result.wind_direction is not None and result.wind_direction.label == "南"
     assert result.precipitation_10min_mm == 0.0
     assert result.sunshine_10min_minutes == 5.0
-    # sunrise/sunsetはRedisには無く、クエリ地点に対してその場で計算される。
-    assert result.sunrise is not None
-    assert result.sunset is not None
+    # 日の出・日没はRedisには無く、クエリ地点に対してその場で計算される。
+    assert result.twilight is not None
 
 
 async def test_get_nearest_observation_returns_none_when_not_yet_cached(monkeypatch):

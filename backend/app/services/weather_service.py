@@ -6,7 +6,7 @@ from app.domain.geo import compass_label
 from app.domain.msm import wind_speed_and_direction
 from app.domain.route import Coordinates
 from app.domain.twilight import sunrise_sunset_jst
-from app.domain.weather import WeatherConditions, WeatherPeriodOutlook
+from app.domain.weather import TemperatureRange, WeatherConditions, WeatherPeriodOutlook
 from app.domain.region import BoundingBox
 from app.domain.wind import WIND_FORECAST_LAT_STEP_DEG, WIND_FORECAST_LON_STEP_DEG, WindForecastSeries, WindLattice
 from app.domain.wind_grid import WindGridPoint
@@ -110,7 +110,6 @@ class WeatherService:
 
         now = datetime.fromisoformat(times[0])
         today = [index for index, t in enumerate(times) if datetime.fromisoformat(t).date() == now.date()]
-        sunrise, sunset = sunrise_sunset_jst(point, now.date())
 
         return WeatherConditions(
             temperature_c=round(float(temperature[0]), 1),
@@ -119,12 +118,10 @@ class WeatherService:
             wind_direction_label=compass_label(float(direction[0])),
             precipitation_mm=round(float(precipitation[0]), 2),
             observed_at=times[0],
-            sunrise=sunrise,
-            sunset=sunset,
+            twilight=sunrise_sunset_jst(point, now.date()),
             precipitation_max_mm=self._daily_max(precipitation, today),
             wind_speed_max_ms=self._daily_max(speed, today),
-            temperature_max_c=self._daily_max(temperature, today),
-            temperature_min_c=self._daily_min(temperature, today),
+            temperature_range=self._daily_range(temperature, today),
             today_periods=self._period_outlooks(series),
         )
 
@@ -133,8 +130,12 @@ class WeatherService:
         return None if not indices else round(float(np.max(series[indices])), 1)
 
     @staticmethod
-    def _daily_min(series: np.ndarray, indices: list[int]) -> float | None:
-        return None if not indices else round(float(np.min(series[indices])), 1)
+    def _daily_range(series: np.ndarray, indices: list[int]) -> TemperatureRange | None:
+        # 格子の欠損（NaN）は最低・最高の両方を欠く。
+        if not indices or np.isnan(series[indices]).any():
+            return None
+        values = series[indices]
+        return TemperatureRange(min_c=round(float(np.min(values)), 1), max_c=round(float(np.max(values)), 1))
 
     _PERIOD_SLOT_COUNT = 8
     _PERIOD_INTERVAL_HOURS = 2

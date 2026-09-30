@@ -10,11 +10,7 @@ import { bandLabelsForBandCount, buildRangeLegendBands, type MapColorLegendBand 
 
 /** 地図がその軸について塗る値の種類（正本はbackend）。`difficulty`は評価済みの0〜100、`signed_material`は
  * 向きの符号が意味を持つ材料1つの生値（勾配等）。 */
-export type MapValueKind = NonNullable<components["schemas"]["AxisCatalogEntry"]["map_value_kind"]>;
-
-/** ramp軸（タイルへ焼いた材料の重み付き和で塗る軸）の値の種類。重み付き和は向きの符号を持たないので、
- * 難易度と同じ評価の配色で塗る。 */
-export const RAMP_AXIS_VALUE_KIND: MapValueKind = "difficulty";
+export type MapValueKind = components["schemas"]["AxisCatalogEntry"]["map_value"]["kind"];
 
 const COLOR_EASY = palette.semantic.evaluation_good;
 /** 符号付き材料の負側（下り坂等、走行が楽になる側）の色。 */
@@ -158,9 +154,10 @@ export function valueBands(
   }));
 }
 
-/** ramp軸の段。境界は軸の地図表示のしきい値（重み付き和の目盛り）。 */
+/** ramp軸の段。境界は軸の地図表示のしきい値（重み付き和の目盛り）。重み付き和は向きの符号を持たないので、
+ * backendはramp軸の値の種類を難易度として配る。 */
 export function rampAxisBands(axis: RampAxis): ValueBand[] {
-  return valueBands(RAMP_AXIS_VALUE_KIND, axis.thresholds, axis.rawValueUnit ?? "", axis.bandLabelsOverride);
+  return valueBands(axis.mapValueKind, axis.thresholds, axis.rawValueUnit ?? "", axis.bandLabelsOverride);
 }
 
 /** 専用配信の軸の段。境界を宣言していない軸は難易度の既定の境界で切る。 */

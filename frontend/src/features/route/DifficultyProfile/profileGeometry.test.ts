@@ -22,7 +22,7 @@ const area = (boxes: readonly { startKm: number; endKm: number; bottom: number; 
   boxes.reduce((sum, box) => sum + (box.endKm - box.startKm) * (box.top - box.bottom), 0);
 
 describe("道のりに沿った難易度の形", () => {
-  // 負荷は「値のある区間の距離加重平均 × 全長」（backend domain/difficulty.py: difficulty_load）。
+  // 負荷は「値のある区間の距離加重平均 × 全長」（backend domain/difficulty.py: overall_difficulty）。
   it("塗った面積の合計がルートの負荷に一致する（値の無い区間は平均の高さで数える）", () => {
     const segments = [
       segment({ distance_km: 2, difficulty: 30, axis_contributions: { a: 20, b: 10 } }),

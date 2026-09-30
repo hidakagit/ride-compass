@@ -7,7 +7,7 @@ import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
 import { NewRouteIcon, RouteDiffIcon, UndoAllIcon, UndoIcon } from "@/components/ui/icons/icons";
 import type { CatalogAxis } from "@/lib/catalogAxis";
 import { formatDurationShort } from "@/features/route/formatDuration";
-import type { RouteCandidate } from "@/types/route";
+import type { OverallDifficulty, RouteCandidate } from "@/types/route";
 import { Button } from "@/components/ui/Button/Button";
 import { textVariants } from "@/components/ui/Text/Text";
 import { cn } from "@/lib/cn";
@@ -106,6 +106,16 @@ export default function RouteSplicePanel({
 
   const duration = (seconds: number | null | undefined) => (seconds != null ? formatDurationShort(seconds) : null);
   const rounded = (value: number | null | undefined) => (value != null ? `${Math.round(value)}` : null);
+  const difficultyMetric = (label: string, key: keyof OverallDifficulty) => {
+    const base = displayed.overall_difficulty;
+    const after = preview?.overall_difficulty;
+    return {
+      label,
+      base: rounded(base?.[key]),
+      after: rounded(after?.[key]),
+      delta: base != null && after != null ? after[key] - base[key] : null,
+    };
+  };
 
   // 1セルに「元→編集後 差」を収める（列見出しを持たないぶん1行減る）。
   const metrics: { label: string; base: string | null; after: string | null; delta: number | null }[] = [
@@ -124,24 +134,8 @@ export default function RouteSplicePanel({
           ? (preview.estimated_duration_seconds - displayed.estimated_duration_seconds) / 60
           : null,
     },
-    {
-      label: "総合難易度",
-      base: rounded(displayed.overall_difficulty),
-      after: rounded(preview?.overall_difficulty),
-      delta:
-        preview?.overall_difficulty != null && displayed.overall_difficulty != null
-          ? preview.overall_difficulty - displayed.overall_difficulty
-          : null,
-    },
-    {
-      label: "負荷",
-      base: rounded(displayed.difficulty_load),
-      after: rounded(preview?.difficulty_load),
-      delta:
-        preview?.difficulty_load != null && displayed.difficulty_load != null
-          ? preview.difficulty_load - displayed.difficulty_load
-          : null,
-    },
+    difficultyMetric("総合難易度", "average"),
+    difficultyMetric("負荷", "load"),
   ];
   const halves = [metrics.slice(0, 2), metrics.slice(2)];
 

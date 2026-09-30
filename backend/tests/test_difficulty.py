@@ -116,19 +116,23 @@ def test_distance_weighted_difficulty_is_missing_when_no_segment_has_one():
     assert difficulty.distance_weighted_difficulty([(None, 1.0)]) is None
 
 
-def test_difficulty_load_multiplies_the_average_by_the_whole_route_length():
+def test_the_load_multiplies_the_average_by_the_whole_route_length():
     # 平均は値のある区間だけの30.0。掛けるのは値の無い区間も含めた全長4km——
     # 値の無い区間を飛ばすと、データの無い区間が多いルートほど総量が小さく見える
-    assert difficulty.difficulty_load([(10.0, 1.0), (None, 1.0), (40.0, 2.0)]) == 120.0
+    assert difficulty.overall_difficulty([(10.0, 1.0), (None, 1.0), (40.0, 2.0)]) == difficulty.OverallDifficulty(
+        average=30.0, load=120.0
+    )
 
 
-def test_difficulty_load_uses_the_displayed_average():
+def test_the_load_uses_the_displayed_average():
     # 平均は小数1桁（16.7）へ丸めてから掛ける——画面の「平均×距離」と一致させる
-    assert difficulty.difficulty_load([(10.0, 1.0), (20.0, 2.0)]) == 50.1
+    assert difficulty.overall_difficulty([(10.0, 1.0), (20.0, 2.0)]) == difficulty.OverallDifficulty(
+        average=16.7, load=50.1
+    )
 
 
-def test_difficulty_load_is_missing_when_the_average_is():
-    assert difficulty.difficulty_load([(None, 1.0), (None, 2.0)]) is None
+def test_the_overall_difficulty_is_missing_when_no_segment_has_one():
+    assert difficulty.overall_difficulty([(None, 1.0), (None, 2.0)]) is None
 
 
 # ---- 配列版（bbox全体の区間） ----

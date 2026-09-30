@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { debugLog } from "@/lib/debugLog";
+import type { AxisInspectorResult } from "@/types/traffic";
 import regionTileConfig from "@/types/generated/region-tile-config.json";
 
 // 成功・失敗時のdebugLogの呼び出し回数・ラベルを直接アサートするためモックする。
@@ -82,12 +83,12 @@ describe("regionApi", () => {
 
   describe("fetchAxisInspector", () => {
     it("osm_way_idをJSONボディに含めてPOSTし、JSONをそのまま返す", async () => {
-      const result_ = {
+      const result_: AxisInspectorResult = {
         highway: "residential",
         tags: {},
-        axes: [{ axis_id: "axis_sample", difficulty: 25.0, weight: 0.2, available: true }],
-        composite_difficulty: 25.0,
-        covered_weight_fraction: 1.0,
+        axes: [{ axis_id: "axis_sample", difficulty: 25.0, weight: 0.2, contribution: 25.0 }],
+        composite_difficulty: { value: 25.0, covered_weight_fraction: 1.0 },
+        landcover: null,
       };
       const fetchMock = stubFetch(() => Response.json(result_));
 

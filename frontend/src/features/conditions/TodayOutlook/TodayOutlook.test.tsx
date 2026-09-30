@@ -9,10 +9,8 @@ import TodayOutlook from "./TodayOutlook";
 const EMPTY = {
   precipitation_max_mm: null,
   wind_speed_max_ms: null,
-  temperature_max_c: null,
-  temperature_min_c: null,
-  sunrise: null,
-  sunset: null,
+  temperature_range: null,
+  twilight: null,
   today_periods: [],
 };
 const weather = (overrides: Partial<WeatherConditions> = {}) => ({ ...EMPTY, ...overrides }) as WeatherConditions;
@@ -62,8 +60,7 @@ describe("TodayOutlook 1日の値", () => {
         weather={weather({
           precipitation_max_mm: 2.46,
           wind_speed_max_ms: 7.04,
-          temperature_min_c: 17.6,
-          temperature_max_c: 25.4,
+          temperature_range: { min_c: 17.6, max_c: 25.4 },
         })}
         loading={false}
         error={null}
@@ -75,30 +72,24 @@ describe("TodayOutlook 1日の値", () => {
     expect(stat("気温")).toBe("18℃〜25℃");
   });
 
-  it("値の無い項目は出さない。気温は片方だけでも出す", async () => {
-    render(<TodayOutlook weather={weather({ temperature_max_c: 25 })} loading={false} error={null} />);
+  it("値の無い項目は出さない", async () => {
+    render(<TodayOutlook weather={weather({ wind_speed_max_ms: 3 })} loading={false} error={null} />);
     await open();
     expect(screen.queryByText("降水量[最大]")).not.toBeInTheDocument();
+    expect(screen.queryByText("気温")).not.toBeInTheDocument();
     expect(screen.queryByText("日の出・日没")).not.toBeInTheDocument();
-    expect(stat("気温")).toBe("25℃");
   });
 
-  it("日の出・日没は日本時間で出し、片方が無い・読めないときは「--:--」", async () => {
+  it("日の出・日没は日本時間で出し、読めない時刻は「--:--」", async () => {
     render(
       <TodayOutlook
-        weather={weather({ sunrise: "2026-09-23T20:30:00Z", sunset: "壊れた値" })}
+        weather={weather({ twilight: { sunrise: "2026-09-23T20:30:00Z", sunset: "壊れた値" } })}
         loading={false}
         error={null}
       />,
     );
     await open();
     expect(stat("日の出・日没")).toBe("05:30〜--:--");
-  });
-
-  it("日の出だけ無くても、日没は出す", async () => {
-    render(<TodayOutlook weather={weather({ sunset: "2026-09-24T08:40:00Z" })} loading={false} error={null} />);
-    await open();
-    expect(stat("日の出・日没")).toBe("--:--〜17:40");
   });
 });
 

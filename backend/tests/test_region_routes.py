@@ -8,7 +8,7 @@ from app.api import dependencies
 from app.api.dependencies import get_dedicated_way_value_service, get_region_service
 from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisDefinition, BreakpointLinearShape, MaterialTerm
 from app.config import settings
-from app.domain.axis_inspector import AxisInspectorAxis, AxisInspectorResult
+from app.domain.axis_inspector import AxisInspectorAxis, AxisInspectorResult, InspectorComposite
 from app.infrastructure import rate_limiter
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.tile_serving import TileResponse
@@ -188,9 +188,8 @@ def test_region_axis_inspector_returns_result_json():
     result = AxisInspectorResult(
         highway="primary",
         tags={},
-        axes=[AxisInspectorAxis(axis_id="axis_b", difficulty=75.0, weight=0.2, available=True, contribution=75.0)],
-        composite_difficulty=75.0,
-        covered_weight_fraction=1.0,
+        axes=[AxisInspectorAxis(axis_id="axis_b", difficulty=75.0, weight=0.2, contribution=75.0)],
+        composite_difficulty=InspectorComposite(value=75.0, covered_weight_fraction=1.0),
     )
     fake = FakeRegionService(axis_inspector_result=result)
     app.dependency_overrides[get_region_service] = lambda: fake

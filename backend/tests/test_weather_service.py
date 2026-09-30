@@ -7,7 +7,7 @@ import pytest
 
 from app.domain.region import BoundingBox
 from app.domain.route import Coordinates
-from app.domain.weather import derive_observed_weather_code
+from app.domain.weather import TemperatureRange, derive_observed_weather_code
 from app.domain.weather_display import WEATHER_CATEGORIES
 from app.infrastructure import msm_client
 from app.infrastructure.msm_client import MsmSeries, MsmUnavailableError
@@ -80,10 +80,18 @@ async def test_get_conditions_aggregates_today_only(monkeypatch):
 
     conditions = await WeatherService().get_conditions(POINT)
 
-    assert conditions.temperature_max_c == 25.0
-    assert conditions.temperature_min_c == 23.0
+    assert conditions.temperature_range == TemperatureRange(min_c=23.0, max_c=25.0)
     assert conditions.precipitation_max_mm == 1.5
     assert conditions.wind_speed_max_ms == 4.0
+
+
+async def test_a_missing_hour_leaves_the_temperature_range_out(monkeypatch):
+    """格子の欠損（NaN）を含む日の範囲は、片方だけでなく丸ごと無い（応答でnullが混ざった範囲を配らない）。"""
+    _patch_read_series(monkeypatch, times=["2026-09-07T13:00", "2026-09-07T14:00"], temperature=[24.0, float("nan")])
+
+    conditions = await WeatherService().get_conditions(POINT)
+
+    assert conditions.temperature_range is None
 
 
 async def test_get_conditions_builds_two_hourly_periods(monkeypatch):
@@ -120,8 +128,9 @@ async def test_get_conditions_computes_sunrise_and_sunset_locally(monkeypatch):
 
     conditions = await WeatherService().get_conditions(POINT)
 
-    assert conditions.sunrise.startswith("2026-09-07T0")
-    assert conditions.sunset.startswith("2026-09-07T1")
+    assert conditions.twilight is not None
+    assert conditions.twilight.sunrise.startswith("2026-09-07T0")
+    assert conditions.twilight.sunset.startswith("2026-09-07T1")
 
 
 async def test_get_conditions_returns_none_when_msm_unavailable(monkeypatch):

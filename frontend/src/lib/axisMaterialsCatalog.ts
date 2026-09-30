@@ -7,7 +7,7 @@ import materialCatalog from "@/types/generated/material-catalog.json";
 
 /** 材料の値の種類。**正本はbackend**（`domain/material_catalog.py: MaterialDType`）で、
  * ここは契約から引くだけ——写すと、種類が1つ増えたとき片側だけ知っている状態になる。 */
-type AxisMaterialDType = components["schemas"]["MaterialCoverageEntry"]["dtype"];
+type AxisMaterialDType = components["schemas"]["MaterialCoverageCounted"]["dtype"];
 
 /** 軸スタジオの折れ点編集を助ける「値の目安」1点。 */
 interface AxisMaterialReferencePoint {

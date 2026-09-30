@@ -21,10 +21,10 @@ def test_calm_missing_or_out_of_range_has_no_direction(code):
 @pytest.mark.parametrize(
     ("code", "expected"),
     [
-        (4, (90.0, "東")),
-        (8, (180.0, "南")),
-        (12, (270.0, "西")),
-        (16, (0.0, "北")),  # 一周して360度ではなく0度（北）
+        (4, jma_amedas.WindDirection(deg=90.0, label="東")),
+        (8, jma_amedas.WindDirection(deg=180.0, label="南")),
+        (12, jma_amedas.WindDirection(deg=270.0, label="西")),
+        (16, jma_amedas.WindDirection(deg=0.0, label="北")),  # 一周して360度ではなく0度（北）
     ],
 )
 def test_the_cardinal_codes_point_the_way_the_jma_table_says(code, expected):
@@ -33,13 +33,14 @@ def test_the_cardinal_codes_point_the_way_the_jma_table_says(code, expected):
 
 def test_the_sixteen_codes_go_round_clockwise_in_equal_steps_with_distinct_names():
     directions = [jma_amedas.wind_direction_from_jma_code(code) for code in range(1, 17)]
+    assert all(direction is not None for direction in directions)
 
-    angles = [angle for angle, _ in directions]
+    angles = [direction.deg for direction in directions if direction is not None]
     # 1（北北東）から時計回りに等間隔で進み、16で北（0度）へ戻る
     assert angles[:-1] == sorted(angles[:-1])
     assert len({round(b - a, 6) for a, b in zip(angles[:-1], angles[1:-1])}) == 1
     assert angles[-1] == 0.0
-    assert len({label for _, label in directions}) == 16
+    assert len({direction.label for direction in directions if direction is not None}) == 16
 
 
 # ---- 体感温度 ----

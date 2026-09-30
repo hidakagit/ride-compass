@@ -144,7 +144,27 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RouteGenerateJobStatusResponse"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/RouteGenerateJobPending"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RouteGenerateJobDone"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RouteGenerateJobFailed"
+                    }
+                  ],
+                  "discriminator": {
+                    "propertyName": "status",
+                    "mapping": {
+                      "queued": "#/components/schemas/RouteGenerateJobPending",
+                      "running": "#/components/schemas/RouteGenerateJobPending",
+                      "done": "#/components/schemas/RouteGenerateJobDone",
+                      "failed": "#/components/schemas/RouteGenerateJobFailed"
+                    }
+                  },
+                  "title": "Response Get Generate Job Api Routes Generate  Job Id  Get"
                 }
               }
             }
@@ -967,7 +987,15 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JmaTileIndexResponse"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/JmaTileIndexAvailable"
+                    },
+                    {
+                      "$ref": "#/components/schemas/JmaTileIndexUnavailable"
+                    }
+                  ],
+                  "title": "Response Jma Tile Index Api Jma Tile Index Get"
                 }
               }
             }
@@ -2056,27 +2084,15 @@
             ],
             "title": "Wind Speed Ms"
           },
-          "wind_direction_deg": {
+          "wind_direction": {
             "anyOf": [
               {
-                "type": "number"
+                "$ref": "#/components/schemas/WindDirection"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Wind Direction Deg"
-          },
-          "wind_direction_label": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Wind Direction Label"
+            ]
           },
           "precipitation_10min_mm": {
             "anyOf": [
@@ -2100,27 +2116,15 @@
             ],
             "title": "Sunshine 10Min Minutes"
           },
-          "sunrise": {
+          "twilight": {
             "anyOf": [
               {
-                "type": "string"
+                "$ref": "#/components/schemas/Twilight"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Sunrise"
-          },
-          "sunset": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Sunset"
+            ]
           },
           "weather_code": {
             "anyOf": [
@@ -2146,12 +2150,10 @@
           "temperature_c",
           "apparent_temperature_c",
           "wind_speed_ms",
-          "wind_direction_deg",
-          "wind_direction_label",
+          "wind_direction",
           "precipitation_10min_mm",
           "sunshine_10min_minutes",
-          "sunrise",
-          "sunset",
+          "twilight",
           "weather_code"
         ],
         "title": "AmedasObservation"
@@ -2240,10 +2242,10 @@
           "shape": {
             "oneOf": [
               {
-                "$ref": "#/components/schemas/BreakpointLinearShape"
+                "$ref": "#/components/schemas/BreakpointLinearShape-Output"
               },
               {
-                "$ref": "#/components/schemas/CategoricalShape"
+                "$ref": "#/components/schemas/CategoricalShape-Output"
               }
             ],
             "title": "Shape"
@@ -2280,24 +2282,23 @@
             "type": "boolean",
             "title": "Dedicated Way Value Layer"
           },
-          "map_value_kind": {
-            "type": "string",
-            "enum": [
-              "difficulty",
-              "signed_material"
-            ],
-            "title": "Map Value Kind"
-          },
-          "map_value_material": {
-            "anyOf": [
+          "map_value": {
+            "oneOf": [
               {
-                "type": "string"
+                "$ref": "#/components/schemas/DifficultyMapValue"
               },
               {
-                "type": "null"
+                "$ref": "#/components/schemas/SignedMaterialMapValue"
               }
             ],
-            "title": "Map Value Material"
+            "title": "Map Value",
+            "discriminator": {
+              "propertyName": "kind",
+              "mapping": {
+                "difficulty": "#/components/schemas/DifficultyMapValue",
+                "signed_material": "#/components/schemas/SignedMaterialMapValue"
+              }
+            }
           },
           "map_value_unit": {
             "type": "string",
@@ -2378,8 +2379,7 @@
           "display_thresholds_override",
           "display_band_labels_override",
           "dedicated_way_value_layer",
-          "map_value_kind",
-          "map_value_material",
+          "map_value",
           "map_value_unit",
           "map_value_thresholds",
           "raw_value_unit",
@@ -2436,7 +2436,11 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "axes"
+          "axes",
+          "material_runtime_scales",
+          "client_tuning",
+          "tile_versions",
+          "accident_years"
         ],
         "title": "AxisCatalogResponse"
       },
@@ -2450,10 +2454,10 @@
           "shape": {
             "oneOf": [
               {
-                "$ref": "#/components/schemas/BreakpointLinearShape"
+                "$ref": "#/components/schemas/BreakpointLinearShape-Input"
               },
               {
-                "$ref": "#/components/schemas/CategoricalShape"
+                "$ref": "#/components/schemas/CategoricalShape-Input"
               }
             ],
             "title": "Shape"
@@ -2614,10 +2618,10 @@
           "shape": {
             "oneOf": [
               {
-                "$ref": "#/components/schemas/BreakpointLinearShape"
+                "$ref": "#/components/schemas/BreakpointLinearShape-Output"
               },
               {
-                "$ref": "#/components/schemas/CategoricalShape"
+                "$ref": "#/components/schemas/CategoricalShape-Output"
               }
             ],
             "title": "Shape"
@@ -2779,6 +2783,21 @@
           "shape",
           "default_weight",
           "label",
+          "description",
+          "category",
+          "is_published",
+          "priority_overrides",
+          "icon_id",
+          "chip_label",
+          "panel_hint",
+          "show_map_icon",
+          "time_scope",
+          "display_thresholds_override",
+          "display_band_labels_override",
+          "dedicated_way_value_layer",
+          "dynamic_way_value_needs_time",
+          "dynamic_way_value_needs_bearing",
+          "dynamic_way_value_needs_speed",
           "display",
           "weight_share_when_published"
         ],
@@ -2823,7 +2842,10 @@
         "type": "object",
         "required": [
           "kind",
-          "label"
+          "label",
+          "category",
+          "tile_inputs",
+          "thresholds"
         ],
         "title": "AxisDisplaySpec"
       },
@@ -2848,10 +2870,6 @@
             "type": "number",
             "title": "Weight"
           },
-          "available": {
-            "type": "boolean",
-            "title": "Available"
-          },
           "contribution": {
             "anyOf": [
               {
@@ -2870,7 +2888,6 @@
           "axis_id",
           "difficulty",
           "weight",
-          "available",
           "contribution"
         ],
         "title": "AxisInspectorAxis"
@@ -3007,24 +3024,12 @@
           "composite_difficulty": {
             "anyOf": [
               {
-                "type": "number"
+                "$ref": "#/components/schemas/InspectorComposite"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Composite Difficulty"
-          },
-          "covered_weight_fraction": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Covered Weight Fraction"
+            ]
           },
           "landcover": {
             "anyOf": [
@@ -3044,7 +3049,7 @@
           "tags",
           "axes",
           "composite_difficulty",
-          "covered_weight_fraction"
+          "landcover"
         ],
         "title": "AxisInspectorResult"
       },
@@ -3086,7 +3091,8 @@
           "label",
           "dtype",
           "unit",
-          "share"
+          "share",
+          "value_labels"
         ],
         "title": "AxisMaterialBreakdownEntry"
       },
@@ -3095,10 +3101,10 @@
           "shape": {
             "oneOf": [
               {
-                "$ref": "#/components/schemas/BreakpointLinearShape"
+                "$ref": "#/components/schemas/BreakpointLinearShape-Input"
               },
               {
-                "$ref": "#/components/schemas/CategoricalShape"
+                "$ref": "#/components/schemas/CategoricalShape-Input"
               }
             ],
             "title": "Shape"
@@ -3111,7 +3117,7 @@
         ],
         "title": "AxisPreviewRequest"
       },
-      "BreakpointLinearShape": {
+      "BreakpointLinearShape-Input": {
         "properties": {
           "kind": {
             "type": "string",
@@ -3121,7 +3127,7 @@
           },
           "terms": {
             "items": {
-              "$ref": "#/components/schemas/MaterialTerm"
+              "$ref": "#/components/schemas/MaterialTerm-Input"
             },
             "type": "array",
             "minItems": 1,
@@ -3163,7 +3169,61 @@
         ],
         "title": "BreakpointLinearShape"
       },
-      "CategoricalShape": {
+      "BreakpointLinearShape-Output": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "breakpoint_linear",
+            "title": "Kind",
+            "default": "breakpoint_linear"
+          },
+          "terms": {
+            "items": {
+              "$ref": "#/components/schemas/MaterialTerm-Output"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Terms"
+          },
+          "preprocess": {
+            "type": "string",
+            "enum": [
+              "identity",
+              "abs"
+            ],
+            "title": "Preprocess",
+            "default": "identity"
+          },
+          "breakpoints": {
+            "items": {
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array",
+              "maxItems": 2,
+              "minItems": 2
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Breakpoints"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "terms",
+          "preprocess",
+          "breakpoints"
+        ],
+        "title": "BreakpointLinearShape"
+      },
+      "CategoricalShape-Input": {
         "properties": {
           "kind": {
             "type": "string",
@@ -3188,6 +3248,37 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
+          "material",
+          "mapping"
+        ],
+        "title": "CategoricalShape"
+      },
+      "CategoricalShape-Output": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "categorical",
+            "title": "Kind",
+            "default": "categorical"
+          },
+          "material": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Material"
+          },
+          "mapping": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "minProperties": 1,
+            "title": "Mapping"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
           "material",
           "mapping"
         ],
@@ -3283,6 +3374,30 @@
           "longitude"
         ],
         "title": "Coordinates"
+      },
+      "CoverageEntry": {
+        "properties": {
+          "parent": {
+            "type": "string",
+            "title": "Parent"
+          },
+          "parent_row_count": {
+            "type": "integer",
+            "title": "Parent Row Count"
+          },
+          "missing_rows": {
+            "type": "integer",
+            "title": "Missing Rows"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "parent",
+          "parent_row_count",
+          "missing_rows"
+        ],
+        "title": "CoverageEntry"
       },
       "DbStatusReport": {
         "properties": {
@@ -3433,6 +3548,22 @@
         ],
         "title": "DerivedDataFreshnessReport"
       },
+      "DifficultyMapValue": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "difficulty",
+            "title": "Kind",
+            "default": "difficulty"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "title": "DifficultyMapValue"
+      },
       "DisplayThresholdsPreviewRequest": {
         "properties": {
           "axis_id": {
@@ -3443,10 +3574,10 @@
           "shape": {
             "oneOf": [
               {
-                "$ref": "#/components/schemas/BreakpointLinearShape"
+                "$ref": "#/components/schemas/BreakpointLinearShape-Input"
               },
               {
-                "$ref": "#/components/schemas/CategoricalShape"
+                "$ref": "#/components/schemas/CategoricalShape-Input"
               }
             ],
             "title": "Shape"
@@ -3549,27 +3680,15 @@
             "type": "object",
             "title": "Error Types"
           },
-          "last_error_type": {
+          "last_error": {
             "anyOf": [
               {
-                "type": "string"
+                "$ref": "#/components/schemas/LastErrorResponse"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Last Error Type"
-          },
-          "last_error_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Last Error At"
+            ]
           },
           "last_success_at": {
             "anyOf": [
@@ -3607,8 +3726,7 @@
           "avg_ms",
           "cache_hit_rate",
           "error_types",
-          "last_error_type",
-          "last_error_at",
+          "last_error",
           "last_success_at",
           "retried_calls",
           "retry_attempts_total",
@@ -3740,6 +3858,7 @@
           "assumed_speed_kmh",
           "waypoints",
           "destination",
+          "corrected_destination",
           "generated_at"
         ],
         "title": "GenerationConditions"
@@ -3770,80 +3889,25 @@
             "type": "string",
             "title": "Label"
           },
-          "latest_id": {
+          "latest": {
             "anyOf": [
               {
-                "type": "integer"
+                "$ref": "#/components/schemas/LatestRunEntry"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Latest Id"
+            ]
           },
-          "latest_status": {
+          "latest_succeeded": {
             "anyOf": [
               {
-                "type": "string"
+                "$ref": "#/components/schemas/SucceededRunEntry"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Latest Status"
-          },
-          "latest_finished_at": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date-time"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Latest Finished At"
-          },
-          "latest_identity": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "type": "object",
-            "title": "Latest Identity"
-          },
-          "latest_item_count": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Latest Item Count"
-          },
-          "latest_succeeded_id": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Latest Succeeded Id"
-          },
-          "latest_succeeded_finished_at": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date-time"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Latest Succeeded Finished At"
+            ]
           },
           "needs_attention": {
             "type": "boolean",
@@ -3858,17 +3922,59 @@
         "type": "object",
         "required": [
           "label",
-          "latest_id",
-          "latest_status",
-          "latest_finished_at",
-          "latest_identity",
-          "latest_item_count",
-          "latest_succeeded_id",
-          "latest_succeeded_finished_at",
+          "latest",
+          "latest_succeeded",
           "needs_attention",
           "note"
         ],
         "title": "ImportRunEntry"
+      },
+      "InspectorComposite": {
+        "properties": {
+          "value": {
+            "type": "number",
+            "title": "Value"
+          },
+          "covered_weight_fraction": {
+            "type": "number",
+            "title": "Covered Weight Fraction"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "value",
+          "covered_weight_fraction"
+        ],
+        "title": "InspectorComposite"
+      },
+      "JmaTileIndexAvailable": {
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "const": true,
+            "title": "Available",
+            "default": true
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/JmaTileIndexCoverage"
+          },
+          "elements": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JmaTileIndexElement"
+            },
+            "type": "object",
+            "title": "Elements"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "available",
+          "coverage",
+          "elements"
+        ],
+        "title": "JmaTileIndexAvailable"
       },
       "JmaTileIndexCoverage": {
         "properties": {
@@ -3945,37 +4051,21 @@
         },
         "additionalProperties": false,
         "type": "object",
+        "required": [
+          "basetime",
+          "validtime",
+          "member",
+          "zooms"
+        ],
         "title": "JmaTileIndexElement"
       },
-      "JmaTileIndexResponse": {
+      "JmaTileIndexUnavailable": {
         "properties": {
           "available": {
             "type": "boolean",
-            "title": "Available"
-          },
-          "coverage": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/JmaTileIndexCoverage"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "elements": {
-            "anyOf": [
-              {
-                "additionalProperties": {
-                  "$ref": "#/components/schemas/JmaTileIndexElement"
-                },
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Elements"
+            "const": false,
+            "title": "Available",
+            "default": false
           }
         },
         "additionalProperties": false,
@@ -3983,7 +4073,7 @@
         "required": [
           "available"
         ],
-        "title": "JmaTileIndexResponse"
+        "title": "JmaTileIndexUnavailable"
       },
       "LandcoverPercentages": {
         "properties": {
@@ -4039,8 +4129,85 @@
         ],
         "title": "LandcoverPercentages"
       },
-      "MaterialCoverageEntry": {
+      "LastErrorResponse": {
         "properties": {
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "at": {
+            "type": "string",
+            "title": "At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "type",
+          "at"
+        ],
+        "title": "LastErrorResponse"
+      },
+      "LatestRunEntry": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "identity": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Identity"
+          },
+          "item_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Count"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "finished_at",
+          "identity",
+          "item_count"
+        ],
+        "title": "LatestRunEntry"
+      },
+      "MaterialCoverageCounted": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "counted",
+            "title": "Kind",
+            "default": "counted"
+          },
           "material_id": {
             "type": "string",
             "title": "Material Id"
@@ -4059,40 +4226,19 @@
             "title": "Dtype"
           },
           "population": {
-            "anyOf": [
-              {
-                "type": "string",
-                "enum": [
-                  "way",
-                  "edge"
-                ]
-              },
-              {
-                "type": "null"
-              }
+            "type": "string",
+            "enum": [
+              "way",
+              "edge"
             ],
             "title": "Population"
           },
           "total": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "integer",
             "title": "Total"
           },
           "missing": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "integer",
             "title": "Missing"
           },
           "missing_ratio": {
@@ -4111,35 +4257,18 @@
             "title": "Source"
           },
           "missing_semantics": {
-            "anyOf": [
-              {
-                "type": "string",
-                "enum": [
-                  "unknown",
-                  "definite"
-                ]
-              },
-              {
-                "type": "null"
-              }
+            "type": "string",
+            "enum": [
+              "unknown",
+              "definite"
             ],
             "title": "Missing Semantics"
-          },
-          "excluded_reason": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Excluded Reason"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
+          "kind",
           "material_id",
           "label",
           "dtype",
@@ -4148,10 +4277,50 @@
           "missing",
           "missing_ratio",
           "source",
-          "missing_semantics",
+          "missing_semantics"
+        ],
+        "title": "MaterialCoverageCounted"
+      },
+      "MaterialCoverageExcluded": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "excluded",
+            "title": "Kind",
+            "default": "excluded"
+          },
+          "material_id": {
+            "type": "string",
+            "title": "Material Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "dtype": {
+            "type": "string",
+            "enum": [
+              "numeric",
+              "boolean",
+              "categorical"
+            ],
+            "title": "Dtype"
+          },
+          "excluded_reason": {
+            "type": "string",
+            "title": "Excluded Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "material_id",
+          "label",
+          "dtype",
           "excluded_reason"
         ],
-        "title": "MaterialCoverageEntry"
+        "title": "MaterialCoverageExcluded"
       },
       "MaterialCoverageReport": {
         "properties": {
@@ -4170,7 +4339,21 @@
           },
           "materials": {
             "items": {
-              "$ref": "#/components/schemas/MaterialCoverageEntry"
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/MaterialCoverageCounted"
+                },
+                {
+                  "$ref": "#/components/schemas/MaterialCoverageExcluded"
+                }
+              ],
+              "discriminator": {
+                "propertyName": "kind",
+                "mapping": {
+                  "counted": "#/components/schemas/MaterialCoverageCounted",
+                  "excluded": "#/components/schemas/MaterialCoverageExcluded"
+                }
+              }
             },
             "type": "array",
             "title": "Materials"
@@ -4244,7 +4427,7 @@
         ],
         "title": "MaterialDistributionResponse"
       },
-      "MaterialTerm": {
+      "MaterialTerm-Input": {
         "properties": {
           "material": {
             "type": "string",
@@ -4266,6 +4449,33 @@
         "type": "object",
         "required": [
           "material"
+        ],
+        "title": "MaterialTerm"
+      },
+      "MaterialTerm-Output": {
+        "properties": {
+          "material": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Material"
+          },
+          "weight": {
+            "type": "number",
+            "title": "Weight",
+            "default": 1.0
+          },
+          "required": {
+            "type": "boolean",
+            "title": "Required",
+            "default": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "material",
+          "weight",
+          "required"
         ],
         "title": "MaterialTerm"
       },
@@ -4306,6 +4516,7 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
+          "available",
           "values"
         ],
         "title": "MaterialValuesResponse"
@@ -4343,6 +4554,25 @@
           "healthy"
         ],
         "title": "MsmFreshnessResponse"
+      },
+      "OverallDifficulty": {
+        "properties": {
+          "average": {
+            "type": "number",
+            "title": "Average"
+          },
+          "load": {
+            "type": "number",
+            "title": "Load"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "average",
+          "load"
+        ],
+        "title": "OverallDifficulty"
       },
       "PriorityCondition": {
         "properties": {
@@ -4384,8 +4614,26 @@
             "title": "Distance Km"
           },
           "geometry": {
-            "additionalProperties": true,
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "LineString"
+              },
+              "coordinates": {
+                "items": {
+                  "items": {
+                    "type": "number"
+                  },
+                  "type": "array"
+                },
+                "type": "array"
+              }
+            },
             "type": "object",
+            "required": [
+              "type",
+              "coordinates"
+            ],
             "title": "Geometry"
           },
           "elevation_gain_m": {
@@ -4422,40 +4670,21 @@
             "title": "Max Elevation M"
           },
           "segments": {
-            "anyOf": [
-              {
-                "items": {
-                  "$ref": "#/components/schemas/RouteSegmentDetail"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "items": {
+              "$ref": "#/components/schemas/RouteSegmentDetail"
+            },
+            "type": "array",
             "title": "Segments"
           },
           "overall_difficulty": {
             "anyOf": [
               {
-                "type": "number"
+                "$ref": "#/components/schemas/OverallDifficulty"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Overall Difficulty"
-          },
-          "difficulty_load": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Difficulty Load"
+            ]
           },
           "estimated_duration_seconds": {
             "anyOf": [
@@ -4550,7 +4779,23 @@
           "id",
           "direction_label",
           "distance_km",
-          "geometry"
+          "geometry",
+          "elevation_gain_m",
+          "min_elevation_m",
+          "max_elevation_m",
+          "segments",
+          "overall_difficulty",
+          "estimated_duration_seconds",
+          "wind_unavailable",
+          "missing_travel_data_share",
+          "axis_difficulties",
+          "axis_contributions",
+          "axis_raw_values",
+          "material_values",
+          "material_category_shares",
+          "edge_ids",
+          "edge_point_offsets",
+          "node_ids"
         ],
         "title": "RouteCandidate"
       },
@@ -4568,38 +4813,56 @@
         ],
         "title": "RouteGenerateJobCreatedResponse"
       },
-      "RouteGenerateJobStatusResponse": {
+      "RouteGenerateJobDone": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "done",
+            "title": "Status",
+            "default": "done"
+          },
+          "result": {
+            "$ref": "#/components/schemas/RouteGenerateResponse"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status",
+          "result"
+        ],
+        "title": "RouteGenerateJobDone"
+      },
+      "RouteGenerateJobFailed": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "failed",
+            "title": "Status",
+            "default": "failed"
+          },
+          "error": {
+            "type": "string",
+            "title": "Error"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status",
+          "error"
+        ],
+        "title": "RouteGenerateJobFailed"
+      },
+      "RouteGenerateJobPending": {
         "properties": {
           "status": {
             "type": "string",
             "enum": [
               "queued",
-              "running",
-              "done",
-              "failed"
+              "running"
             ],
             "title": "Status"
-          },
-          "result": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/RouteGenerateResponse"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "error": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Error"
           }
         },
         "additionalProperties": false,
@@ -4607,7 +4870,7 @@
         "required": [
           "status"
         ],
-        "title": "RouteGenerateJobStatusResponse"
+        "title": "RouteGenerateJobPending"
       },
       "RouteGenerateRequest": {
         "properties": {
@@ -4808,7 +5071,8 @@
         "type": "object",
         "required": [
           "routes",
-          "conditions"
+          "conditions",
+          "no_candidates_reason"
         ],
         "title": "RouteGenerateResponse"
       },
@@ -4854,8 +5118,26 @@
             "title": "Duration Minutes"
           },
           "geometry": {
-            "additionalProperties": true,
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "LineString"
+              },
+              "coordinates": {
+                "items": {
+                  "items": {
+                    "type": "number"
+                  },
+                  "type": "array"
+                },
+                "type": "array"
+              }
+            },
             "type": "object",
+            "required": [
+              "type",
+              "coordinates"
+            ],
             "title": "Geometry"
           }
         },
@@ -4873,8 +5155,26 @@
           "geometry": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "LineString"
+                  },
+                  "coordinates": {
+                    "items": {
+                      "items": {
+                        "type": "number"
+                      },
+                      "type": "array"
+                    },
+                    "type": "array"
+                  }
+                },
+                "type": "object",
+                "required": [
+                  "type",
+                  "coordinates"
+                ]
               },
               {
                 "type": "null"
@@ -4970,12 +5270,20 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
+          "geometry",
           "start_latitude",
           "start_longitude",
           "end_latitude",
           "end_longitude",
           "cumulative_distance_km",
-          "distance_km"
+          "distance_km",
+          "estimated_arrival_time",
+          "axis_difficulties",
+          "axis_contributions",
+          "material_values",
+          "axis_raw_values",
+          "difficulty",
+          "wind"
         ],
         "title": "RouteSegmentDetail"
       },
@@ -5001,7 +5309,7 @@
       "ScoresPreviewRequest": {
         "properties": {
           "shape": {
-            "$ref": "#/components/schemas/BreakpointLinearShape"
+            "$ref": "#/components/schemas/BreakpointLinearShape-Input"
           },
           "xs": {
             "items": {
@@ -5081,9 +5389,71 @@
         "type": "object",
         "required": [
           "speed_ms",
-          "direction_deg"
+          "direction_deg",
+          "forecast_at",
+          "extended"
         ],
         "title": "SegmentWind"
+      },
+      "SignedMaterialMapValue": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "signed_material",
+            "title": "Kind",
+            "default": "signed_material"
+          },
+          "material": {
+            "type": "string",
+            "title": "Material"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "material"
+        ],
+        "title": "SignedMaterialMapValue"
+      },
+      "SucceededRunEntry": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "finished_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Finished At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "finished_at"
+        ],
+        "title": "SucceededRunEntry"
+      },
+      "TemperatureRange": {
+        "properties": {
+          "min_c": {
+            "type": "number",
+            "title": "Min C"
+          },
+          "max_c": {
+            "type": "number",
+            "title": "Max C"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "min_c",
+          "max_c"
+        ],
+        "title": "TemperatureRange"
       },
       "TileInputSpec": {
         "properties": {
@@ -5164,7 +5534,15 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "property"
+          "property",
+          "weight",
+          "boolean",
+          "true_value",
+          "false_value",
+          "has_unknown_fallback",
+          "categories",
+          "breakpoints",
+          "needs_runtime_scale"
         ],
         "title": "TileInputSpec"
       },
@@ -5249,6 +5627,25 @@
         "additionalProperties": false,
         "type": "object",
         "title": "TuningUpdateRequest"
+      },
+      "Twilight": {
+        "properties": {
+          "sunrise": {
+            "type": "string",
+            "title": "Sunrise"
+          },
+          "sunset": {
+            "type": "string",
+            "title": "Sunset"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "sunrise",
+          "sunset"
+        ],
+        "title": "Twilight"
       },
       "ValidationError": {
         "properties": {
@@ -5336,56 +5733,28 @@
         ],
         "title": "ValueDistribution"
       },
-      "WbgtStatus": {
+      "WbgtReading": {
         "properties": {
           "level": {
-            "anyOf": [
-              {
-                "type": "string",
-                "enum": [
-                  "advisory",
-                  "warning",
-                  "severe_warning",
-                  "emergency_warning"
-                ]
-              },
-              {
-                "type": "null"
-              }
+            "type": "string",
+            "enum": [
+              "advisory",
+              "warning",
+              "severe_warning",
+              "emergency_warning"
             ],
             "title": "Level"
           },
           "label": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "string",
             "title": "Label"
           },
           "value": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "number",
             "title": "Value"
           },
           "observed_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "string",
             "title": "Observed At"
           }
         },
@@ -5396,6 +5765,26 @@
           "label",
           "value",
           "observed_at"
+        ],
+        "title": "WbgtReading"
+      },
+      "WbgtStatus": {
+        "properties": {
+          "reading": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WbgtReading"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "reading"
         ],
         "title": "WbgtStatus"
       },
@@ -5439,27 +5828,15 @@
             "type": "string",
             "title": "Observed At"
           },
-          "sunset": {
+          "twilight": {
             "anyOf": [
               {
-                "type": "string"
+                "$ref": "#/components/schemas/Twilight"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Sunset"
-          },
-          "sunrise": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Sunrise"
+            ]
           },
           "precipitation_max_mm": {
             "anyOf": [
@@ -5483,27 +5860,15 @@
             ],
             "title": "Wind Speed Max Ms"
           },
-          "temperature_max_c": {
+          "temperature_range": {
             "anyOf": [
               {
-                "type": "number"
+                "$ref": "#/components/schemas/TemperatureRange"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Temperature Max C"
-          },
-          "temperature_min_c": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Temperature Min C"
+            ]
           },
           "today_periods": {
             "items": {
@@ -5522,12 +5887,10 @@
           "wind_direction_label",
           "precipitation_mm",
           "observed_at",
-          "sunset",
-          "sunrise",
+          "twilight",
           "precipitation_max_mm",
           "wind_speed_max_ms",
-          "temperature_max_c",
-          "temperature_min_c",
+          "temperature_range",
           "today_periods"
         ],
         "title": "WeatherConditions"
@@ -5610,6 +5973,25 @@
           "warnings"
         ],
         "title": "WeatherWarnings"
+      },
+      "WindDirection": {
+        "properties": {
+          "deg": {
+            "type": "number",
+            "title": "Deg"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "deg",
+          "label"
+        ],
+        "title": "WindDirection"
       },
       "WindGridPoint": {
         "properties": {
@@ -5791,38 +6173,15 @@
             "type": "boolean",
             "title": "Is Stale"
           },
-          "coverage_parent": {
+          "coverage": {
             "anyOf": [
               {
-                "type": "string"
+                "$ref": "#/components/schemas/CoverageEntry"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Coverage Parent"
-          },
-          "coverage_parent_row_count": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Coverage Parent Row Count"
-          },
-          "missing_rows": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Missing Rows"
+            ]
           },
           "columns": {
             "items": {
@@ -5845,9 +6204,7 @@
           "oldest_run_id",
           "latest_run_id",
           "is_stale",
-          "coverage_parent",
-          "coverage_parent_row_count",
-          "missing_rows",
+          "coverage",
           "columns",
           "needs_rebuild"
         ],

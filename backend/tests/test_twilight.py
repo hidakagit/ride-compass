@@ -17,6 +17,12 @@ MIDSUMMER = date(2026, 6, 21)
 MIDWINTER = date(2026, 12, 21)
 
 
+def _sunrise_sunset(coordinates: Coordinates, on_date: date) -> tuple[str, str]:
+    twilight = sunrise_sunset_jst(coordinates, on_date)
+    assert twilight is not None
+    return twilight.sunrise, twilight.sunset
+
+
 def _jst(on_date: date, hour: int, minute: int = 0) -> datetime:
     return datetime(on_date.year, on_date.month, on_date.day, hour, minute, tzinfo=JST)
 
@@ -24,7 +30,7 @@ def _jst(on_date: date, hour: int, minute: int = 0) -> datetime:
 class TestIsNight:
     def test_sunset_itself_is_not_yet_night(self):
         """日の入りを境界にすると、まだ明るい時間帯に街灯の軸が効き始める。"""
-        _, sunset = sunrise_sunset_jst(TOKYO, MIDSUMMER)
+        _, sunset = _sunrise_sunset(TOKYO, MIDSUMMER)
         at_sunset = datetime.fromisoformat(sunset)
 
         assert is_night(TOKYO, at_sunset) is False
@@ -98,29 +104,29 @@ def test_the_judgement_also_holds_in_the_southern_hemisphere_far_east():
 
 class TestSunriseSunsetJst:
     def test_times_are_returned_in_jst(self):
-        sunrise, sunset = sunrise_sunset_jst(TOKYO, MIDSUMMER)
+        sunrise, sunset = _sunrise_sunset(TOKYO, MIDSUMMER)
 
         assert datetime.fromisoformat(sunrise).utcoffset() == timedelta(hours=9)
         assert datetime.fromisoformat(sunset).utcoffset() == timedelta(hours=9)
 
     def test_times_fall_on_the_requested_local_date(self):
-        sunrise, sunset = sunrise_sunset_jst(TOKYO, MIDSUMMER)
+        sunrise, sunset = _sunrise_sunset(TOKYO, MIDSUMMER)
 
         assert datetime.fromisoformat(sunrise).date() == MIDSUMMER
         assert datetime.fromisoformat(sunset).date() == MIDSUMMER
 
     def test_sunrise_comes_before_sunset(self):
-        sunrise, sunset = sunrise_sunset_jst(TOKYO, MIDSUMMER)
+        sunrise, sunset = _sunrise_sunset(TOKYO, MIDSUMMER)
 
         assert datetime.fromisoformat(sunrise) < datetime.fromisoformat(sunset)
 
     def test_winter_days_are_shorter_than_summer_days(self):
         def length(on_date: date) -> timedelta:
-            sunrise, sunset = sunrise_sunset_jst(TOKYO, on_date)
+            sunrise, sunset = _sunrise_sunset(TOKYO, on_date)
             return datetime.fromisoformat(sunset) - datetime.fromisoformat(sunrise)
 
         assert length(MIDWINTER) < length(MIDSUMMER)
 
     def test_a_latitude_without_a_sunrise_returns_nothing(self):
         """定義できない日を既定値で埋めない——「日の出0時」として表示される。"""
-        assert sunrise_sunset_jst(SVALBARD, MIDSUMMER) == (None, None)
+        assert sunrise_sunset_jst(SVALBARD, MIDSUMMER) is None

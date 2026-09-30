@@ -80,7 +80,7 @@ describe("ComparisonPanel 表", () => {
         elevation_gain_m: 312.6,
         material_values: { wind_load: 1.234 },
         axis_difficulties: { wind: 40.25 },
-        overall_difficulty: 35.56,
+        overall_difficulty: { average: 35.56, load: 1068.2 },
       },
       { route_preference: { wind: 0.6, slope: 0.4 } },
     ),

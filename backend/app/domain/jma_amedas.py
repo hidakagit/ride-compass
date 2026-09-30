@@ -6,11 +6,19 @@ from pydantic import computed_field
 
 from app.domain.geo import SIXTEEN_POINT_LABELS
 from app.domain.strict_model import StrictModel
+from app.domain.twilight import Twilight
 from app.domain.weather import derive_observed_weather_code
 
 
-def wind_direction_from_jma_code(code: int | None) -> tuple[float, str] | None:
-    """JMAアメダスのwindDirectionコード（0=静穏、1〜16=16方位）を(角度, 日本語ラベル)へ
+class WindDirection(StrictModel):
+    """風の来る向き。角度は0=北・時計回り。"""
+
+    deg: float
+    label: str
+
+
+def wind_direction_from_jma_code(code: int | None) -> WindDirection | None:
+    """JMAアメダスのwindDirectionコード（0=静穏、1〜16=16方位）を角度と日本語ラベルへ
     変換する。角度は0=北・時計回り（`WeatherConditions.wind_direction_deg`と揃える）で、
     code=16は360度ではなく0度（北）に正規化する。0（静穏、風速がほぼ0で方位不定）・None・
     1〜16の範囲外のコードはNoneを返す（範囲外を別の方位として出すと、向かい風と追い風を取り違えさせる）。
@@ -23,7 +31,7 @@ def wind_direction_from_jma_code(code: int | None) -> tuple[float, str] | None:
     if code is None or not 1 <= code <= 16:
         return None
     index = code % 16
-    return index * 22.5, SIXTEEN_POINT_LABELS[index]
+    return WindDirection(deg=index * 22.5, label=SIXTEEN_POINT_LABELS[index])
 
 
 def apparent_temperature_from_amedas(
@@ -60,15 +68,14 @@ class AmedasObservation(StrictModel):
     temperature_c: float | None
     apparent_temperature_c: float | None
     wind_speed_ms: float | None
-    wind_direction_deg: float | None
-    wind_direction_label: str | None
+    #: 静穏（方位不定）・欠測ならNone。
+    wind_direction: WindDirection | None
     precipitation_10min_mm: float | None
     # 直近10分間の日照時間（分、0〜10）。降水量と組み合わせて`weather_code`を決める。
     sunshine_10min_minutes: float | None
     # 最寄り観測所ではなくリクエストのlatitude/longitudeそのものに対する、当日（JST）の値。
     # 外部には問い合わせず、domain/twilight.py: sunrise_sunset_jstのローカル天文計算で求める。
-    sunrise: str | None
-    sunset: str | None
+    twilight: Twilight | None
 
     @computed_field  # type: ignore[prop-decorator]
     @property

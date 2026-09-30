@@ -188,6 +188,7 @@ function conditionsOf(overrides: Partial<GenerationConditions> = {}): Generation
     assumed_speed_kmh: 0,
     waypoints: null,
     destination: null,
+    corrected_destination: null,
     generated_at: "",
     ...overrides,
   };

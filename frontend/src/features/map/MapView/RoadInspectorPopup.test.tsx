@@ -6,6 +6,7 @@ import { catalogAxisFromEntry, type CatalogAxis } from "@/lib/catalogAxis";
 import { catalogEntry } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
 import { fetchAxisInspector } from "@/services/regionApi";
 import materialCatalog from "@/types/generated/material-catalog.json";
+import type { AxisInspectorResult } from "@/types/traffic";
 import RoadInspectorPopup from "./RoadInspectorPopup";
 
 vi.mock("@/services/regionApi", () => ({ fetchAxisInspector: vi.fn() }));
@@ -20,17 +21,16 @@ const [SURFACE_CLASS_VALUE, SURFACE_CLASS_VALUE_LABEL] = Object.entries(SURFACE_
   (entry): entry is [string, string] => typeof entry[1] === "string",
 )!;
 
-function inspectorResult() {
+function inspectorResult(): AxisInspectorResult {
   return {
     highway: "residential",
     tags: { lit: "yes", name: "明治通り" },
     axes: [
-      { axis_id: "axis_sample", difficulty: 60, weight: 1, available: true, contribution: 30 },
-      { axis_id: "night", difficulty: 20, weight: 1, available: true, contribution: 10 },
-      { axis_id: "gradient", difficulty: null, weight: 1, available: false, contribution: null },
+      { axis_id: "axis_sample", difficulty: 60, weight: 1, contribution: 30 },
+      { axis_id: "night", difficulty: 20, weight: 1, contribution: 10 },
+      { axis_id: "gradient", difficulty: null, weight: 1, contribution: null },
     ],
-    composite_difficulty: 40,
-    covered_weight_fraction: 0.8,
+    composite_difficulty: { value: 40, covered_weight_fraction: 0.8 },
     landcover: {
       valid_pixels: 500,
       water_percent: 0,

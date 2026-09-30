@@ -2,7 +2,8 @@ from fastapi.testclient import TestClient
 
 from app.api.dependencies import get_amedas_service
 from app.config import settings
-from app.domain.jma_amedas import AmedasObservation
+from app.domain.jma_amedas import AmedasObservation, WindDirection
+from app.domain.twilight import Twilight
 from app.infrastructure import rate_limiter
 from app.main import app
 
@@ -26,12 +27,10 @@ SAMPLE = AmedasObservation(
     temperature_c=26.5,
     apparent_temperature_c=27.8,
     wind_speed_ms=3.5,
-    wind_direction_deg=180.0,
-    wind_direction_label="南",
+    wind_direction=WindDirection(deg=180.0, label="南"),
     precipitation_10min_mm=0.0,
     sunshine_10min_minutes=5.0,
-    sunrise="2026-08-29T05:12:00+09:00",
-    sunset="2026-08-29T18:41:00+09:00",
+    twilight=Twilight(sunrise="2026-08-29T05:12:00+09:00", sunset="2026-08-29T18:41:00+09:00"),
 )
 
 
@@ -45,7 +44,7 @@ def test_get_amedas_returns_observation_on_success():
     assert response.status_code == 200
     body = response.json()
     assert body["station_name"] == "東京"
-    assert body["wind_direction_label"] == "南"
+    assert body["wind_direction"] == {"deg": 180.0, "label": "南"}
     # 降水なし・日照ありの実測は、画面が分類を引くWMOコードの「晴れ」で届く
     assert body["weather_code"] == 0
 

@@ -47,7 +47,7 @@
 ```
 
 軸ごとに地図が塗る値の種類はbackendが軸定義から決める（`GET /api/axis-catalog`の
-`map_value_kind`/`map_value_unit`、[動的材料・フィーチャー値配信（backend）](../backend/dynamic-way-values.md)
+`map_value`/`map_value_unit`、[動的材料・フィーチャー値配信（backend）](../backend/dynamic-way-values.md)
 参照）。`difficulty`の軸はルート前（専用way値レイヤー）もルート後（ルート線）も
 軸スタジオのbreakpointsで評価済みの0〜100を塗り、`signed_material`の軸（勾配）は
 どちらも符号付き材料生値を塗る。
@@ -67,7 +67,7 @@ backend（`domain/dynamic_way_values.py: map_value_thresholds`）が軸の折れ
 | 専用のフィーチャー配信レイヤーを持つか | `AxisDefinition.dedicated_way_value_layer` | `axisLayers.ts: dedicatedWayValueAxesFromCatalogAxes`が抽出し、`useAxisCatalog`の`dedicatedAxes`として配る |
 | 地図レイヤーID（表示ON/OFFのキー） | 軸id（文字列合成） | `mapLayers.ts: dedicatedWayValueMapLayerId`（`${axisId}Axis`）。MapLibreのレイヤーidは宣言が役割（軸id）から決める（[静的レイヤー](static-map-layers.md)「ソース名とレイヤーidの決め方」） |
 | フェッチに時刻／向き／想定速度を載せるか | `AxisCatalogEntry.dynamic_way_value_needs_time` / `_needs_bearing` / `_needs_speed` | `useDedicatedWayValues`（載せない入力は依存キーからも外れるため、その入力が変わっても再フェッチしない） |
-| 符号付き材料を直接読むか／難易度を読むか | `AxisCatalogEntry.map_value_kind`（backend `domain/dynamic_way_values.py: map_value_kind`が`shape`から導出） | `routeStyleModes.ts: routeColorableModeFromAxis`・`dedicatedWayValueLayer.ts`（`DedicatedWayValueDisplay.kind`） |
+| 符号付き材料を直接読むか／難易度を読むか | `AxisCatalogEntry.map_value`（backend `domain/dynamic_way_values.py: map_value_kind`が`shape`から導出） | `routeStyleModes.ts: routeColorableModeFromAxis`・`dedicatedWayValueLayer.ts`（`DedicatedWayValueDisplay.kind`） |
 | 凡例の単位 | `AxisCatalogEntry.map_value_unit`（材料カタログの`unit`） | 同上 |
 | ramp軸（タイル焼き込み）の凡例の単位 | `AxisCatalogEntry.raw_value_unit`（段の境界は折れ点を通す前の重み付き和の目盛り。単位が定まらない軸は`null`で、数値だけの段階ラベルになる） | `catalogAxis.ts: catalogAxisFromEntry`が`rawValueUnit`へ載せ（ramp軸もこの項目を持つ）、`valueScale.ts: rampAxisBands`が段階ラベルへ添える |
 
@@ -90,8 +90,8 @@ localStorageキーは`ridecompass:route-style-mode`）。ルート前は全道�
 （backend側は`axis_raw_value.py: displayed_material_ids`、[routing-engine.md](../backend/routing-engine.md)
 参照）。
 
-`map_value_kind==="signed_material"`の場合、値は`axis_difficulties[axis_id]`ではなく
-`material_values`からbackendが名指す材料（軸カタログの`map_value_material`。生材料、例: `gradient_percent`）を
+`map_value.kind==="signed_material"`の場合、値は`axis_difficulties[axis_id]`ではなく
+`material_values`からbackendが名指す材料（軸カタログの`map_value.material`。生材料、例: `gradient_percent`）を
 `["get", material, ["get", "material_values"]]`で直接読む——向き（登り/下り）は
 絶対値化されたdifficultyでは表現できないため。
 
@@ -117,8 +117,8 @@ localStorageキーは`ridecompass:route-style-mode`）。ルート前は全道�
 - `bandColorsFor(kind, boundaries)`: 段階ごとの色。中継点を並べた配色の上をHSL色空間で段の数だけ均等に
   補間する。固定の色配列を持たないため、しきい値の個数が変わっても色が自動追従する。**配色は値の種類ごとに
   1組で、全軸が同じものを使う**——「易しい=緑〜難しい=暗赤」の読み方を1回覚えれば全軸に通用させ、軸ごとの
-  配色を作らない。ramp軸（タイルへ焼いた材料の重み付き和）は向きの符号を持たないので、難易度の配色で塗る
-  （`RAMP_AXIS_VALUE_KIND`）。
+  配色を作らない。ramp軸（タイルへ焼いた材料の重み付き和）は向きの符号を持たないので、backendがramp軸の
+  値の種類を難易度として配り、画面はそれをそのまま引く（`rampAxisBands`）。
   - 難易度: 評価の配色（`EVALUATION_ANCHORS`、緑→黄→赤→暗赤。中継点の色はbackendの`SEMANTIC_COLORS`の
     `evaluation_*`で、順序を持つ評価の配色の中継点はこの1組だけ）の補間。**色相だけでなく明度も動かす**——
     良い・悪いの2色を色相だけで補間すると、易しい側の2段がどちらも緑に見え、段が細かいほど「楽」に見える
@@ -235,7 +235,7 @@ axis_display_for`が前の境界を決め、`domain/dynamic_way_values.py: map_v
 ## dedicatedWayValueLayer.ts（ルート確定前の評価軸グループ線）
 
 - `DedicatedWayValueDisplay`: `{kind, unit, boundaries?, bandLabels?}`。軸カタログの
-  `map_value_kind`/`map_value_unit`/`map_value_thresholds`/`display_band_labels_override`から、
+  `map_value`/`map_value_unit`/`map_value_thresholds`/`display_band_labels_override`から、
   `axisLayers.ts: dedicatedWayValueAxesFromCatalogAxes`が軸と同じ行で組み立てて
   `DedicatedWayValueAxis.display`へ載せる。**軸と表示宣言を別々に配らない**——別々に配ると
   「軸はあるのに表示宣言が無い」状態が生まれ、それを既定値で埋める経路が要る（既定値で

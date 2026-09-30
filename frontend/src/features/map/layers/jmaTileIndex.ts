@@ -12,11 +12,13 @@
  * `available: false`ならインデックス無し（従来どおり全取得）。 */
 export type { JmaTileIndexResponse } from "@/types/route";
 import type { JmaTileIndexResponse as JmaTileIndexResponseType } from "@/types/route";
+
+type AvailableIndex = Extract<JmaTileIndexResponseType, { available: true }>;
 import { readJmaTileUrl, type JmaTileRef } from "@/features/map/layers/jmaDelivery";
 
 /** 判定用に前処理した形。座標の線形探索を避けるためSetへ展開しておく。 */
 export interface JmaTileIndexLookup {
-  coverage: NonNullable<JmaTileIndexResponseType["coverage"]>;
+  coverage: AvailableIndex["coverage"];
   /** 要素id → { その要素のフレーム（`basetime/member/validtime`）, "z/x/y"のSet } */
   elements: Map<string, { frame: string; present: Set<string> }>;
 }
@@ -28,7 +30,7 @@ function frameKey(frame: { basetime: string; member: string; validtime: string }
 }
 
 export function buildJmaTileIndexLookup(response: JmaTileIndexResponseType | null): JmaTileIndexLookup | null {
-  if (!response?.available || !response.coverage || !response.elements) return null;
+  if (!response?.available) return null;
   const elements = new Map<string, { frame: string; present: Set<string> }>();
   for (const [elementId, entry] of Object.entries(response.elements)) {
     // basetime・validtimeが無い要素はフレームを照合できない＝インデックスを信用できないので載せない

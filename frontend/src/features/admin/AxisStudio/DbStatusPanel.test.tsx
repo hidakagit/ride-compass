@@ -25,13 +25,8 @@ const MB = 1024 * 1024;
 function importEntry(overrides: Partial<ImportEntry>): ImportEntry {
   return {
     label: "import_a",
-    latest_id: null,
-    latest_status: null,
-    latest_finished_at: null,
-    latest_identity: {},
-    latest_item_count: null,
-    latest_succeeded_id: null,
-    latest_succeeded_finished_at: null,
+    latest: null,
+    latest_succeeded: null,
     needs_attention: false,
     note: "",
     ...overrides,
@@ -198,15 +193,20 @@ describe("DbStatusPanel", () => {
         imports: [
           importEntry({
             label: "osm",
-            latest_id: 12,
-            latest_status: "succeeded",
-            latest_finished_at: "2026-09-24T01:02:03Z",
-            latest_succeeded_id: 12,
-            latest_succeeded_finished_at: null,
-            latest_item_count: 34567,
-            latest_identity: { pbf: "kanto-latest.osm.pbf" },
+            latest: {
+              id: 12,
+              status: "succeeded",
+              finished_at: "2026-09-24T01:02:03Z",
+              item_count: 34567,
+              identity: { pbf: "kanto-latest.osm.pbf" },
+            },
+            latest_succeeded: { id: 12, finished_at: "2026-09-24T01:02:03Z" },
           }),
-          importEntry({ label: "accidents", latest_id: 5, latest_status: "failed", needs_attention: true }),
+          importEntry({
+            label: "accidents",
+            latest: { id: 5, status: "failed", finished_at: null, item_count: null, identity: {} },
+            needs_attention: true,
+          }),
           importEntry({ label: "never", note: "まだ一度も取り込んでいない" }),
         ],
       }),
@@ -215,7 +215,7 @@ describe("DbStatusPanel", () => {
     expect(screen.getByText("osm").closest("summary")).toHaveTextContent("#12 成功");
     expect(detailOf("osm")).toEqual([
       ["最終実行", "#12 ・ 9/24 10:02"],
-      ["成功した最新", "#12 ・ 記録なし"],
+      ["成功した最新", "#12 ・ 9/24 10:02"],
       ["取込件数", "34,567件"],
       ["pbf", "kanto-latest.osm.pbf"],
     ]);

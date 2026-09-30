@@ -19,25 +19,30 @@ from app.domain.strict_model import StrictModel
 
 class AxisInspectorAxis(StrictModel):
     axis_id: str
+    #: 材料が足りず評価できなければNone。
     difficulty: float | None
     weight: float
-    available: bool
     # この軸が合成スコアへ持ち込んでいる量（重み付き寄与度、`composite_difficulty`と同じ
     # 分母で正規化した値）。ルート結果の`axis_contributions`と同じ読み方にするため、
     # 重みを掛ける計算はサーバー側に置く。
     contribution: float | None
 
 
+class InspectorComposite(StrictModel):
+    """取得できた軸だけの加重平均（`composite_difficulty`と同じ「データ無しは除外し残りの重みで
+    再正規化」方針）と、それが公開軸全体の重み合計のうち何割の軸から出たか（0-1）。フロントは
+    「◯%相当の軸のみで算出」という参考値である旨を示すために割合を使う。"""
+
+    value: float
+    covered_weight_fraction: float
+
+
 class AxisInspectorResult(StrictModel):
     highway: str | None
     tags: dict[str, str]
     axes: list[AxisInspectorAxis]
-    # 取得可能な軸だけの加重平均（`composite_difficulty`と同じ「データ無しは除外し
-    # 残りの重みで再正規化」方針）。1つも取得できなければNone。
-    composite_difficulty: float | None
-    # 公開軸全体の重み合計に対する、取得できた軸の重み合計の割合（0-1）。フロントが
-    # 「◯%相当の軸のみで算出」という参考値である旨を示すために使う。
-    covered_weight_fraction: float | None
+    #: 1つも取得できなければNone。
+    composite_difficulty: InspectorComposite | None
     # 道路周囲リングの土地被覆の内訳。軸の材料に使うのは一部のクラスだけだが、
     # 「この道が何で覆われているか」は軸の点数からは読み取れないため全クラスを返す。
     # 行が無い・割合がNULL（そのラスタ構成では値なし）ならNone。
@@ -73,21 +78,23 @@ def axis_inspector_breakdown(
             axis_id=axis_id,
             difficulty=score,
             weight=weights.get(axis_id, 0.0),
-            available=score is not None,
             contribution=contributions[axis_id],
         )
         for axis_id, score in scores.items()
     ]
 
-    total_weight = sum(weights.values())
-    covered_weight = sum(weights.get(axis_id, 0.0) for axis_id, score in scores.items() if score is not None)
-    covered_fraction = round(covered_weight / total_weight, 3) if total_weight > 0 else None
-
     return AxisInspectorResult(
         highway=highway,
         tags=tags,
         axes=axes,
-        composite_difficulty=composite,
-        covered_weight_fraction=covered_fraction,
+        composite_difficulty=None if composite is None else _composite(composite, scores, weights),
         landcover=landcover,
+    )
+
+
+def _composite(value: float, scores: dict[str, float | None], weights: dict[str, float]) -> InspectorComposite:
+    # 合成が求まるのは得点のある軸の重みの合計が正のときだけなので、全体の重みの合計も正。
+    covered_weight = sum(weights.get(axis_id, 0.0) for axis_id, score in scores.items() if score is not None)
+    return InspectorComposite(
+        value=value, covered_weight_fraction=round(covered_weight / sum(weights.values()), 3)
     )

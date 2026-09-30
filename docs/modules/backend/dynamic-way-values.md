@@ -97,6 +97,7 @@ _check_dedicated_layer_is_implemented`）、既存データ等で万一そうな
 | 関数 | 意味 |
 |---|---|
 | `map_value_kind(definition)` | 0次条件（`priority_overrides`）を持たず、`BreakpointLinearShape`かつ`preprocess="abs"`かつterms単数で、その項が材料（`MATERIAL_CATALOG`にある）を指すなら`signed_material`、それ以外は`difficulty`。項は軸を指すこともあり、その値は参照先の得点で符号にも単位にも材料の意味が無い。0次条件を持つ軸の生値は、条件の当たる道でも生値のままで評価と食い違う |
+| `map_value(definition)` | 種類と、`signed_material`なら生値を塗る材料をまとめた値（`DifficultyMapValue`・`SignedMaterialMapValue`の判別共用体）。材料は`signed_material`のときだけ在る |
 | `map_value_unit(definition)` | `signed_material`なら材料カタログの`unit`、`difficulty`は空文字 |
 | `transform_dedicated_way_values(definition, material_id, values)` | 生値→地図表示値。`difficulty`は`evaluate_axis_values`でタイル内の全道路を1回の配列評価、`signed_material`は素通し。`material_id`以外の材料に0次条件を置いた軸は全道路を落とす——配信はその材料の値しか持たず、条件が当たるかを決められない |
 
@@ -163,9 +164,10 @@ axis_id → dedicated_way_value_axes().get(axis_id)（無ければ404）
   キャッシュは生値のまま持つため、軸スタジオでbreakpointsを変えてもキャッシュを捨てずに
   次の応答から反映される。評価できない値（軸が他の材料も必須にしている等）はその道路を
   結果から除く（地図上は「データなし」）。
-- `GET /api/axis-catalog`は同じ判定を`map_value_kind`・`map_value_unit`（材料カタログの
+- `GET /api/axis-catalog`は同じ判定を`map_value`・`map_value_unit`（材料カタログの
   `MaterialSpec.unit`、難易度は空文字）として公開し、frontendは色式・凡例の単位を
-  これだけから組み立てる（[地図: 軸・ルート色分け](../frontend/map-axis-coloring.md)参照）。
+  これだけから組み立てる。ramp軸は`axis_display.py: axis_display_for`が符号を畳む形を外すため
+  いつも`difficulty`で、画面はramp軸の配色もこれから引く（[地図: 軸・ルート色分け](../frontend/map-axis-coloring.md)参照）。
 
 - ルート確定後は呼ばれない専用エンドポイント（フロントは`axis_difficulties`を使う）。
 - 静的な路面タイル（`/api/region/road-surface-tiles`、MVT）とは別経路——フロントは

@@ -13,6 +13,7 @@ from collections.abc import Iterable, Mapping
 import numpy as np
 
 from app.domain.axis_templates import round1_array
+from app.domain.strict_model import StrictModel
 
 
 def weight_share(weight: float, other_weights: Iterable[float]) -> float | None:
@@ -171,22 +172,32 @@ def distance_weighted_difficulty(segments: list[tuple[float | None, float]]) -> 
     return None if mean is None else round(mean, 1)
 
 
-def difficulty_load(segments: list[tuple[float | None, float]]) -> float | None:
-    """(区間difficulty, 区間distance_km)のリストから難易度の総量を求める。
+class OverallDifficulty(StrictModel):
+    """ルート全体の難易度。
 
-    距離加重平均（`distance_weighted_difficulty`）が距離で正規化されるのに対し、総量は
-    距離が伸びればそのまま増える——「走り切るのにどれだけしんどいか」に近く、遠回りが
-    正直に不利に出る。候補の順位付けには使わず、平均と併せて判断材料として示す。
+    `average`は区間の`difficulty`（絶対基準0-100）の距離加重平均で、重み・条件が違う実験の
+    間でも比較できる。`load`は難易度の総量（平均×距離km）で、平均が距離で正規化されるため
+    遠回りするほど下がるのに対し、総量は距離が伸びればそのまま増える——「走り切るのに
+    どれだけしんどいか」に近く、遠回りが正直に不利に出る。総量は候補の順位付けには使わず、
+    平均と併せて判断材料として示す。
+    """
 
-    difficultyがNoneの区間の扱いは平均と一致させる（平均×全区間の距離合計）。区間ごとに
+    average: float
+    load: float
+
+
+def overall_difficulty(segments: list[tuple[float | None, float]]) -> OverallDifficulty | None:
+    """(区間difficulty, 区間distance_km)のリストからルート全体の難易度を求める。
+    値のある区間が無ければNone。
+
+    difficultyがNoneの区間の扱いは、総量も平均と一致させる（平均×全区間の距離合計）。区間ごとに
     積分して欠損区間を単純に飛ばすと「データが無い区間が多いほど総量が小さい」ことに
-    なり、欠損の多いルートが有利に見えてしまう。平均が出るのは値のある区間の距離の合計が
-    正のときだけで、区間の距離は負にならないため、平均が出れば全区間の距離合計も正になる。
+    なり、欠損の多いルートが有利に見えてしまう。
     """
     average = distance_weighted_difficulty(segments)
     if average is None:
         return None
-    return round(average * sum(distance for _, distance in segments), 1)
+    return OverallDifficulty(average=average, load=round(average * sum(distance for _, distance in segments), 1))
 
 
 def distance_weighted_difficulty_array(difficulty: np.ndarray, distance_m: np.ndarray) -> float | None:

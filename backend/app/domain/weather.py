@@ -1,4 +1,5 @@
 from app.domain.strict_model import StrictModel
+from app.domain.twilight import Twilight
 
 # 天気コードは観測（アメダス）からだけ導く。数値予報モデル（MSM）の値から天気を計算して出すことは、気象業務法の
 # 予報業務の許可の対象と気象庁の公式の説明が書いているため、しない（docs/architecture/data-sources.md「気象業務法の
@@ -45,6 +46,13 @@ class WeatherPeriodOutlook(StrictModel):
     precipitation_mm: float | None
 
 
+class TemperatureRange(StrictModel):
+    """今日（JST暦日）の残り時間の最低・最高気温（℃）。"""
+
+    min_c: float
+    max_c: float
+
+
 class WeatherConditions(StrictModel):
     temperature_c: float | None
     wind_speed_ms: float
@@ -52,15 +60,12 @@ class WeatherConditions(StrictModel):
     wind_direction_label: str
     precipitation_mm: float | None
     observed_at: str
-    # 「今日」のパネル向けの1日1個の値。時刻別の値と違い1日1個。
-    sunset: str | None
-    # 早朝（夜明け前）は遠い日没時刻より近い夜明け時刻の方が有益なため両方持つ。どちらを
-    # 表示するかの判定はfrontend側が現在時刻とsunrise/sunsetを比較して行う。
-    sunrise: str | None
+    # 「今日」のパネル向けの1日1個の値。早朝（夜明け前）は遠い日没時刻より近い夜明け時刻の方が
+    # 有益なため両方持つ。どちらを表示するかの判定はfrontend側が現在時刻と比較して行う。
+    twilight: Twilight | None
     precipitation_max_mm: float | None
     wind_speed_max_ms: float | None
-    temperature_max_c: float | None
-    temperature_min_c: float | None
+    temperature_range: TemperatureRange | None
     # 「今日」のパネルへ並べる2時間おきのコマ。取得失敗時もNoneではなく空リストに
     # なる（フロント側はnullチェック無しで.filter/.mapできる）。
     today_periods: list[WeatherPeriodOutlook]

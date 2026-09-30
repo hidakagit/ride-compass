@@ -3,7 +3,7 @@
 import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
 import type { CatalogAxis } from "@/lib/catalogAxis";
 import { formatDurationShort } from "@/features/route/formatDuration";
-import type { RoutePreferenceWeights } from "@/types/route";
+import type { OverallDifficulty, RoutePreferenceWeights } from "@/types/route";
 import AxisContributionBar, { hasContribution } from "@/components/AxisContributionBar/AxisContributionBar";
 import { formatAxisRawValue, formatCategoryBreakdown, formatMaterialBreakdown } from "./axisRawValue";
 import { textVariants } from "@/components/ui/Text/Text";
@@ -34,12 +34,10 @@ interface RouteAxisProfileProps {
   materialCategoryShares: Record<string, Record<string, number>>;
   /** 経路の走行距離（km）。単位が「◯◯/km」の軸で、生値から経路全体の実数を出すのに使う。 */
   distanceKm: number | null;
-  /** RouteCandidate.overall_difficulty（内訳の合計、絶対基準0-100）。 */
-  overallDifficulty: number | null;
-  /** RouteCandidate.difficulty_load（総合難易度×距離km）。総合難易度が距離で正規化
-   * されるのに対し、こちらは距離が伸びればそのまま増えるため「遠回りした分だけ増える
-   * しんどさ」を表す。候補間の相対比較に使う値で単位を持たない。 */
-  difficultyLoad: number | null;
+  /** RouteCandidate.overall_difficulty。平均は内訳の合計（絶対基準0-100）。総量（平均×距離km）は、平均が距離で
+   * 正規化されるのに対し距離が伸びればそのまま増えるため「遠回りした分だけ増えるしんどさ」を表す。候補間の
+   * 相対比較に使う値で単位を持たない。 */
+  overallDifficulty: OverallDifficulty | null;
   /** RouteCandidate.estimated_duration_seconds（走行＋停止＋ターンの見積もり）。 */
   estimatedDurationSeconds: number | null;
   /** 所要時間を、風の値を使えず無風として出した（RouteCandidate.wind_unavailable）。 */
@@ -63,7 +61,6 @@ export default function RouteAxisProfile({
   axisDifficulties,
   axisContributions,
   overallDifficulty,
-  difficultyLoad,
   estimatedDurationSeconds,
   windUnavailable,
   missingTravelDataShare,
@@ -118,7 +115,7 @@ export default function RouteAxisProfile({
           <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
             <span className="inline-flex flex-shrink-0 items-baseline gap-0.5">
               <span className={textVariants({ variant: "hint" })}>総合難易度</span>
-              <span className="text-[1.05rem] font-semibold">{Math.round(overallDifficulty)}</span>
+              <span className="text-[1.05rem] font-semibold">{Math.round(overallDifficulty.average)}</span>
               <span className={textVariants({ variant: "hint" })}>/100</span>
               <InfoPopover triggerAriaLabel="総合難易度の説明">
                 <p>
@@ -139,26 +136,24 @@ export default function RouteAxisProfile({
                 </InfoPopover>
               </span>
             )}
-            {difficultyLoad != null && (
-              <span className="inline-flex flex-shrink-0 items-baseline gap-0.5">
-                {/* 「難易度×距離」という中身は説明（ⓘ）が持つ。狭い右カラムで折り返す
-                  ぶんだけ縦を食うため、見出しは短い語に留める。 */}
-                <span className={textVariants({ variant: "hint" })}>負荷</span>
-                <span className="text-[1.05rem] font-semibold">{Math.round(difficultyLoad)}</span>
-                <InfoPopover triggerAriaLabel="負荷の説明">
-                  <p>
-                    総合難易度に距離を掛けた総量で、走り切るまでのしんどさの目安です。
-                    平均は遠回りして難所を避けるほど下がりますが、負荷は走った分だけ増えます。
-                    難所を通っても短いルートと、遠回りで易しいルートを見比べるときに使ってください。
-                  </p>
-                  <p>
-                    上のグラフは横が距離、縦が区間ごとの難易度で、塗られた面積がこの負荷にあたります
-                    [色ごとの面積がその軸の負荷]。灰色は値の無い区間で、平均の高さで数えています。
-                    候補一覧の行のバーは、長さが総合難易度・高さが距離で、面積が負荷の目安です。
-                  </p>
-                </InfoPopover>
-              </span>
-            )}
+            <span className="inline-flex flex-shrink-0 items-baseline gap-0.5">
+              {/* 「難易度×距離」という中身は説明（ⓘ）が持つ。狭い右カラムで折り返す
+                ぶんだけ縦を食うため、見出しは短い語に留める。 */}
+              <span className={textVariants({ variant: "hint" })}>負荷</span>
+              <span className="text-[1.05rem] font-semibold">{Math.round(overallDifficulty.load)}</span>
+              <InfoPopover triggerAriaLabel="負荷の説明">
+                <p>
+                  総合難易度に距離を掛けた総量で、走り切るまでのしんどさの目安です。
+                  平均は遠回りして難所を避けるほど下がりますが、負荷は走った分だけ増えます。
+                  難所を通っても短いルートと、遠回りで易しいルートを見比べるときに使ってください。
+                </p>
+                <p>
+                  上のグラフは横が距離、縦が区間ごとの難易度で、塗られた面積がこの負荷にあたります
+                  [色ごとの面積がその軸の負荷]。灰色は値の無い区間で、平均の高さで数えています。
+                  候補一覧の行のバーは、長さが総合難易度・高さが距離で、面積が負荷の目安です。
+                </p>
+              </InfoPopover>
+            </span>
           </div>
           {/* 所要時間の前提が崩れていることは、所要時間のすぐ下で知らせる（黙って短い所要時間を見せない）。
               値の無い区間は丸めて1%以上のときだけ出す——0%を並べても判断の材料にならない。 */}

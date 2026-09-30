@@ -1,19 +1,17 @@
 // APIの型はbackendのOpenAPIスキーマから生成した generated/api.d.ts を正とし、
-// このファイルはその再エクスポート＋フロント専用の補正だけを持つ（手書きの二重管理を
-// しない）。backendのレスポンスモデルを変更したら
+// このファイルはその再エクスポートとフロント専用の型だけを持つ（応答の形を補正しない）。
+// backendのレスポンスモデルを変更したら
 // backend/scripts/export_openapi.py → npm run generate:api で生成物を更新すること
 // （CIのapi-contractジョブがドリフトを検知する）。
-//
-// Required<>で包む理由: pydanticはデフォルトNoneのフィールドもJSONに常に含めて
-// 返すが、OpenAPI上は「必須でない」扱いになりopenapi-typescriptの生成型では
-// optional（`?`）になる。実際のレスポンス形に合わせて必須へ戻す。
-//
-// geometryだけ手動で補正する理由: backend側はGeoJSONを`dict`（自由なオブジェクト）と
-// して扱うためスキーマに構造が現れない。フロントは座標へアクセスするため
-// GeoJSON.LineString（@types/geojson）で具体化する。
-import type { components } from "./generated/api";
+import type { components, paths } from "./generated/api";
 
 type Schemas = components["schemas"];
+/** 応答が1つのモデルではなく、状態で形の変わる共用体の口は、口の応答の型をそのまま引く。 */
+type GetJson<P extends keyof paths> = paths[P] extends {
+  get: { responses: { 200: { content: { "application/json": infer T } } } };
+}
+  ? T
+  : never;
 
 export type Coordinates = Schemas["Coordinates"];
 
@@ -25,16 +23,10 @@ export type PinRole = "origin" | "waypoint" | "destination";
 
 export type LocationSource = "geolocation" | "default" | "manual";
 
-// geometry: 区間の道なり形状（ルートgeometryの部分列）。バックエンドはdict|Noneのため
-// スキーマに構造が現れず、RouteCandidate.geometryと同じ理由で手動補正する（null許容）。
-export type RouteSegmentDetail = Omit<Required<Schemas["RouteSegmentDetail"]>, "geometry"> & {
-  geometry: GeoJSON.LineString | null;
-};
+export type RouteSegmentDetail = Schemas["RouteSegmentDetail"];
 
-export type RouteCandidate = Omit<Required<Schemas["RouteCandidate"]>, "geometry" | "segments"> & {
-  geometry: GeoJSON.LineString;
-  segments: RouteSegmentDetail[] | null;
-};
+export type RouteCandidate = Schemas["RouteCandidate"];
+export type OverallDifficulty = Schemas["OverallDifficulty"];
 
 // フロント専用。APIには現れない。地図上でクリックされた区間
 // （RouteSegmentDetail、geometryはfeature.propertiesから除外済みのためnull）と、実際に
@@ -49,16 +41,10 @@ export interface SelectedRouteSegment {
 
 export type RouteGenerateRequest = Schemas["RouteGenerateRequest"];
 
-type RouteGenerateResponse = Omit<Required<Schemas["RouteGenerateResponse"]>, "routes"> & {
-  routes: RouteCandidate[];
-};
-
 // ルート生成のバックグラウンドジョブ化に伴う型。POST /api/routes/generateは即座に
 // job_idを返し、GET /api/routes/generate/{job_id}をポーリングして結果を得る
 // （frontend features/route/routeApi.ts参照）。
-export type RouteGenerateJobStatusResponse = Omit<Required<Schemas["RouteGenerateJobStatusResponse"]>, "result"> & {
-  result: RouteGenerateResponse | null;
-};
+export type RouteGenerateJobStatusResponse = GetJson<"/api/routes/generate/{job_id}">;
 
 export type RoutePreferenceWeights = Schemas["RoutePreferenceWeights"];
 // 0次ハードフィルタ(自転車通行禁止/高速道路/幹線道路)の個別ON/OFF上書き。
@@ -76,14 +62,16 @@ export type AxisCatalogResponse = Schemas["AxisCatalogResponse"];
 // 軸スタジオが使う評価軸定義のCRUD型。/api/admin/axis-definitions。
 export type AxisDefinitionPayload = Schemas["AxisDefinitionPayload"];
 export type AxisDefinitionResponse = Schemas["AxisDefinitionResponse"];
-type BreakpointLinearShape = Schemas["BreakpointLinearShape"];
-type CategoricalShape = Schemas["CategoricalShape"];
+// 形は要求（保存）にも応答にも現れ、契約は要求側（既定値の項目を省略できる）と応答側（必ず載る）に分かれる。
+// 画面は形を組み立てて送る側なので要求側を使う（応答側の形はそのまま当てはまる）。
+type BreakpointLinearShape = Schemas["BreakpointLinearShape-Input"];
+type CategoricalShape = Schemas["CategoricalShape-Input"];
 export type AxisShape = BreakpointLinearShape | CategoricalShape;
 
 // JMA動的タイルの在否インデックス。GET /api/jma-tile-indexのレスポンス。
 // 平常時に空タイルを取りに行かないための「どのタイルに中身があるか」の一覧
 // （features/map/layers/jmaTileIndex.tsが解釈する）。
-export type JmaTileIndexResponse = Schemas["JmaTileIndexResponse"];
+export type JmaTileIndexResponse = GetJson<"/api/jma-tile-index">;
 
 // 材料の実データ値一覧。GET /api/admin/material-catalog/{material_id}/valuesのレスポンス。
 // highway/surface/smoothnessのようなオープンエンドな多値材料向け。各値に日本語ラベル
@@ -94,8 +82,8 @@ export type MaterialValuesResponse = Schemas["MaterialValuesResponse"];
 
 // 材料ごとの欠損割合。GET /api/admin/material-catalog/coverage（Basic認証必須、
 // 管理画面「材料」タブが同一オリジンのroute handler経由で取得する）のレスポンス。
-export type MaterialCoverageEntry = Schemas["MaterialCoverageEntry"];
 export type MaterialCoverageResponse = Schemas["MaterialCoverageReport"];
+export type MaterialCoverageEntry = MaterialCoverageResponse["materials"][number];
 
 // 派生データ鮮度台帳。GET /api/admin/derived-data/freshness（Basic認証必須、
 // 管理画面「データ保守」タブが同一オリジンのroute handler経由で取得する）のレスポンス。

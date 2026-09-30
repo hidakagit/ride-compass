@@ -67,7 +67,7 @@ export function useRouteResults() {
     selectedRouteId,
     selectedCandidate,
     /** 選んだ候補が区間の内訳を持つか（区間まで確定したか）。 */
-    hasDetail: !!selectedCandidate?.segments && selectedCandidate.segments.length > 0,
+    hasDetail: (selectedCandidate?.segments.length ?? 0) > 0,
     selectedRouteSegment,
     selectSegment: setSelectedRouteSegment,
     comparisonTabActive,

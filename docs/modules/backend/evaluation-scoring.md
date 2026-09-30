@@ -239,8 +239,11 @@ bbox全体ぶんのコストをリクエストにつき1回だけnumpyで合成�
 
 | 指標 | 定義 | 性質 |
 |---|---|---|
-| `overall_difficulty` | 距離加重平均（`distance_weighted_difficulty`） | 距離で正規化されるため、遠回りして難所を避けるほど下がる。候補の並び順はこの昇順 |
-| `difficulty_load` | 平均×距離合計（`difficulty_load`） | 距離が伸びればそのまま増える。「走り切るまでのしんどさ」に近く、遠回りが不利に出る |
+| `overall_difficulty.average` | 距離加重平均（`distance_weighted_difficulty`） | 距離で正規化されるため、遠回りして難所を避けるほど下がる。候補の並び順はこの昇順 |
+| `overall_difficulty.load` | 平均×距離合計（`difficulty.py: overall_difficulty`） | 距離が伸びればそのまま増える。「走り切るまでのしんどさ」に近く、遠回りが不利に出る |
+
+平均と総量は同じ区間から一緒に決まる（平均が出なければ総量も出ない）ため、1つの任意の項目
+`overall_difficulty`にまとめて返す。
 
 距離加重平均は、区間の並び（Pythonの値）を受ける`weighted_mean_by_distance`と、探索範囲全体の
 配列を受ける`distance_weighted_difficulty_array`の2本が同じ規則（値の無い区間は分母からも外す・
@@ -291,7 +294,7 @@ difficulty系（0〜100）は小数1桁、生値・材料値は**有効数字4�
 「値が無い道」と区別できなくなる。frontendの表示（`axisRawValue.ts: formatNumber`）も
 同じ理由で1未満は有効数字2桁を残す。
 
-`difficulty_load`は順位付けには使わず、平均と併せて判断材料として返す。difficultyが
+総量は順位付けには使わず、平均と併せて判断材料として返す。difficultyが
 Noneの区間の扱いは平均と一致させる（区間ごとに積分して欠損を飛ばすと、データの無い区間が
 多いルートほど総量が小さく見えてしまうため、平均×全区間の距離合計で求める）。
 
@@ -442,9 +445,10 @@ way粒度で引くときは、同じ式のまま`w`の行から同じ名前の�
 取り、この関数は合成だけを行う。進行方向に依存する材料（勾配%・風ペナルティ）は
 **1本の道が往復2方向で違う値を持つ**ためDBのway単位の値には無く、走行方位・時刻・想定速度を
 指定して呼び出し側（`api/dependencies.py: directional_materials`）が引いたものを
-`materials`へ足して渡す。足されなければその軸は`available=False`になる。
-`covered_weight_fraction`（全軸の
-重み合計に対する取得できた軸の重み合計の割合）をフロントの「参考値」表示に使う。
+`materials`へ足して渡す。足されなければその軸の`difficulty`はNoneになる。合成
+（`composite_difficulty`）は値と`covered_weight_fraction`（全軸の重み合計に対する取得できた軸の
+重み合計の割合）を1つの任意の項目で持ち、取得できた軸が無ければNone。割合はフロントの
+「参考値」表示に使う。
 
 
 ## RoutePreference（`domain/route_preference.py`）

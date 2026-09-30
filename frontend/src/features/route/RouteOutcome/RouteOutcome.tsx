@@ -210,12 +210,12 @@ export default function RouteOutcome({ results, generation, splice, currentWeigh
                       {route.overall_difficulty !== null && (
                         <span
                           className="block h-full rounded-l-[2px] bg-[var(--color-accent)] opacity-70"
-                          style={{ width: `${route.overall_difficulty}%` }}
+                          style={{ width: `${route.overall_difficulty.average}%` }}
                         />
                       )}
                     </span>
                     <span className="font-normal text-[var(--color-muted-strong)] tabular-nums">
-                      {route.overall_difficulty === null ? "—" : Math.round(route.overall_difficulty)}
+                      {route.overall_difficulty === null ? "—" : Math.round(route.overall_difficulty.average)}
                     </span>
                   </span>
                 </TabsTrigger>
@@ -228,10 +228,10 @@ export default function RouteOutcome({ results, generation, splice, currentWeigh
               <TabsContent key={route.id} className="flex flex-col gap-2 data-[state=inactive]:hidden" value={route.id}>
                 {renderCandidateActions(route)}
                 {/* 道のりに沿った難易度。区間を選んでいる間も残す（動かして地点を選ぶ操作の置き場のため）。 */}
-                {route.segments !== null && route.segments.length > 0 && (
+                {route.segments.length > 0 && (
                   <DifficultyProfile
                     segments={route.segments}
-                    overallDifficulty={route.overall_difficulty}
+                    overallDifficulty={route.overall_difficulty?.average ?? null}
                     axisOrder={axisCatalog.axes.map((axis) => axis.axisId)}
                     axisColors={axisCatalog.axisColors}
                     scaleKm={longestDistanceKm}
@@ -292,8 +292,7 @@ export default function RouteOutcome({ results, generation, splice, currentWeigh
                     materialCategoryShares={route.material_category_shares}
                     distanceKm={route.distance_km}
                     overallDifficulty={route.overall_difficulty}
-                    difficultyLoad={route.difficulty_load ?? null}
-                    estimatedDurationSeconds={route.estimated_duration_seconds ?? null}
+                    estimatedDurationSeconds={route.estimated_duration_seconds}
                     windUnavailable={route.wind_unavailable}
                     missingTravelDataShare={route.missing_travel_data_share}
                     axisColors={axisCatalog.axisColors}

@@ -121,7 +121,7 @@ async def test_axis_inspector_direction_dependent_axis_is_unavailable_without_dy
 
     result = await service.get_axis_inspector(12345)
 
-    assert _inspected_axis(result, axis.axis_id).available is False
+    assert _inspected_axis(result, axis.axis_id).difficulty is None
 
 
 async def test_axis_inspector_uses_the_direction_dependent_materials_it_is_given(direction_dependent_axis):
@@ -132,7 +132,7 @@ async def test_axis_inspector_uses_the_direction_dependent_materials_it_is_given
         12345, dynamic_materials={material: 3.0 for material in axis.materials}
     )
 
-    assert _inspected_axis(result, axis.axis_id).available is True
+    assert _inspected_axis(result, axis.axis_id).difficulty is not None
 
 
 # --- 材料の実データ値一覧 ---

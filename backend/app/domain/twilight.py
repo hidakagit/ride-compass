@@ -24,6 +24,7 @@ from astral.sun import sun
 
 from app.domain.time_zone import JST
 from app.domain.route import Coordinates
+from app.domain.strict_model import StrictModel
 
 
 # at前後の探索範囲（日数）。日付跨ぎの経度ずれ（上記docstring参照）を確実に吸収するため
@@ -60,18 +61,24 @@ def is_night(coordinates: Coordinates, at: datetime) -> bool:
     return not before[-1]
 
 
-def sunrise_sunset_jst(coordinates: Coordinates, on_date: date) -> tuple[str | None, str | None]:
-    """`coordinates`地点の`on_date`（JST基準の暦日）における日の出・日没時刻をJST ISO文字列
-    （例: "2026-08-29T05:12:00+09:00"）で返す。
+class Twilight(StrictModel):
+    """地点の当日（JST）の日の出・日没。JST ISO文字列（例: "2026-08-29T05:12:00+09:00"）。"""
+
+    sunrise: str
+    sunset: str
+
+
+def sunrise_sunset_jst(coordinates: Coordinates, on_date: date) -> Twilight | None:
+    """`coordinates`地点の`on_date`（JST基準の暦日）における日の出・日没。
 
     `is_night`が使う市民薄明ではなく、太陽の中心が地平線と一致する瞬間（大気差を考慮）と
-    いう一般的な定義の日の出・日没を返す。定義できない緯度では(None, None)。"""
+    いう一般的な定義の日の出・日没を返す。定義できない緯度ではNone。"""
     observer = Observer(latitude=coordinates.latitude, longitude=coordinates.longitude)
     try:
         s = sun(observer, date=on_date, tzinfo=JST)
     except ValueError:
-        return None, None
-    return s["sunrise"].isoformat(), s["sunset"].isoformat()
+        return None
+    return Twilight(sunrise=s["sunrise"].isoformat(), sunset=s["sunset"].isoformat())
 
 
 def _civil_dawn_dusk(observer: Observer, day: date) -> tuple[datetime, datetime] | None:

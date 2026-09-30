@@ -18,3 +18,7 @@ export type WindGridResponse = components["schemas"]["WindGridResponse"];
 export type WindGridPoint = components["schemas"]["WindGridPoint"] & { times: string[] };
 // 最寄りアメダス観測所の実測値。常設ヘッダー（WeatherPanel）が使う。
 export type AmedasObservation = components["schemas"]["AmedasObservation"];
+// 警報・注意報、暑さ指数、河川氾濫予報。空の中身は「出ていない」を表す。
+export type WeatherWarnings = components["schemas"]["WeatherWarnings"];
+export type WbgtStatus = components["schemas"]["WbgtStatus"];
+export type FloodForecasts = components["schemas"]["FloodForecasts"];

@@ -105,8 +105,7 @@ class TestMapValueKind:
     def test_a_single_material_scored_by_magnitude_is_painted_as_its_signed_value(self):
         definition = axis("a", linear("grade", preprocess="abs"))
 
-        assert dynamic_way_values.map_value_kind(definition) == "signed_material"
-        assert dynamic_way_values.map_value_material(definition) == "grade"
+        assert dynamic_way_values.map_value(definition) == dynamic_way_values.SignedMaterialMapValue(material="grade")
         assert dynamic_way_values.map_value_unit(definition) == "%"
 
     @pytest.mark.parametrize(
@@ -122,8 +121,7 @@ class TestMapValueKind:
     def test_everything_else_is_painted_as_difficulty_without_a_unit(self, shape):
         definition = axis("a", shape)
 
-        assert dynamic_way_values.map_value_kind(definition) == "difficulty"
-        assert dynamic_way_values.map_value_material(definition) is None
+        assert dynamic_way_values.map_value(definition) == dynamic_way_values.DifficultyMapValue()
         assert dynamic_way_values.map_value_unit(definition) == ""
 
     def test_an_axis_with_a_priority_condition_is_painted_as_difficulty(self):

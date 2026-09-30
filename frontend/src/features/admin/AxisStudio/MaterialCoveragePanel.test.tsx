@@ -17,25 +17,26 @@ vi.mock("@/features/admin/adminApi", () => api);
 
 import MaterialCoveragePanel from "./MaterialCoveragePanel";
 
-type Semantics = NonNullable<MaterialCoverageEntry["missing_semantics"]>;
-type Population = NonNullable<MaterialCoverageEntry["population"]>;
+type CountedEntry = Extract<MaterialCoverageEntry, { kind: "counted" }>;
+type Semantics = CountedEntry["missing_semantics"];
+type Population = CountedEntry["population"];
 
 const semanticsGroups = vocabulary.materialMissingSemantics;
 const [firstGroup, secondGroup] = semanticsGroups;
 const populations = vocabulary.materialPopulations;
 
-function entry(overrides: Partial<MaterialCoverageEntry>): MaterialCoverageEntry {
+function entry(overrides: Partial<CountedEntry>): CountedEntry {
   return {
+    kind: "counted",
     material_id: "material_a",
     label: "材料A",
     dtype: "numeric",
-    population: null,
-    total: null,
-    missing: null,
+    population: populations[0].key as Population,
+    total: 0,
+    missing: 0,
     missing_ratio: null,
     source: "",
     missing_semantics: firstGroup.key as Semantics,
-    excluded_reason: null,
     ...overrides,
   };
 }
@@ -114,11 +115,10 @@ describe("MaterialCoveragePanel", () => {
           total: 5000,
           missing_ratio: 0.2468,
         }),
-        entry({ material_id: "blank", label: "未集計", population: null }),
       ]),
     );
 
-    const [row, blank] = within(screen.getByRole("region", { name: firstGroup.title }))
+    const [row] = within(screen.getByRole("region", { name: firstGroup.title }))
       .getAllByRole("row")
       .slice(1);
     const [name, pop, ratio] = within(row).getAllByRole("cell");
@@ -127,11 +127,6 @@ describe("MaterialCoveragePanel", () => {
     expect(pop).toHaveTextContent(population.label);
     expect(ratio).toHaveTextContent("24.7%");
     expect(ratio).toHaveTextContent("1,234 / 5,000");
-
-    const [, blankPop, blankRatio] = within(blank).getAllByRole("cell");
-    expect(blankPop.textContent).toBe("-");
-    expect(blankRatio).toHaveTextContent("-");
-    expect(blankRatio).toHaveTextContent("- / -");
   });
 
   it("行へ、欠損の扱いが評価に効くかを印として付ける（効かない扱いの棒を薄く塗るため）", async () => {
@@ -151,16 +146,15 @@ describe("MaterialCoveragePanel", () => {
   });
 
   // backendを先に出すと、フロントの生成物にまだ無い扱いが届く。
-  it("欠損時の扱いが無い・宣言に無い材料は、表から消さずに「不明」の群で拾う", async () => {
+  it("宣言に無い扱いの材料は、表から消さずに「不明」の群で拾う", async () => {
     await collect(
       response([
-        entry({ material_id: "null", label: "扱いなし", missing_semantics: null }),
         entry({ material_id: "unknown", label: "宣言に無い扱い", missing_semantics: "not-declared" as Semantics }),
       ]),
     );
 
     const section = screen.getByRole("region", { name: "欠損時の扱いが不明な材料" });
-    expect(rowLabels(section)).toEqual(["扱いなし", "宣言に無い扱い"]);
+    expect(rowLabels(section)).toEqual(["宣言に無い扱い"]);
     for (const group of semanticsGroups) {
       expect(screen.queryByRole("region", { name: group.title })).not.toBeInTheDocument();
     }
@@ -170,7 +164,13 @@ describe("MaterialCoveragePanel", () => {
     await collect(
       response([
         entry({ material_id: "in", label: "対象" }),
-        entry({ material_id: "out", label: "対象外", excluded_reason: "ルート文脈が要る" }),
+        {
+          kind: "excluded",
+          material_id: "out",
+          label: "対象外",
+          dtype: "numeric",
+          excluded_reason: "ルート文脈が要る",
+        },
       ]),
     );
 
