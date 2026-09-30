@@ -183,10 +183,11 @@ async def ingest_source(
 
     try:
         async with conn.transaction():
-            await _replace_rows(conn, spec.name, run_id, rows())
+            locked_at = await _replace_rows(conn, spec.name, run_id, rows())
             elapsed = time.perf_counter() - started
             await _close_run(conn, run_id, SUCCEEDED,
                              {"records": written, "elapsed_seconds": round(elapsed, 1)}, origin)
+        locked = time.perf_counter() - locked_at
     except BaseException:
         elapsed = time.perf_counter() - started
         logger.warning("取込失敗: source=%s run_id=%d records=%d elapsed=%.1fs",
@@ -198,14 +199,17 @@ async def ingest_source(
             logger.warning("取込の失敗をrunへ書けなかった（runは running のまま残る）: run_id=%d",
                            run_id, exc_info=True)
         raise
-    logger.info("取込完了: source=%s run_id=%d records=%d elapsed=%.1fs",
-                spec.name, run_id, written, elapsed)
+    logger.info("取込完了: source=%s run_id=%d records=%d elapsed=%.1fs パーティションの排他ロック（待ちを含む）=%.1fs",
+                spec.name, run_id, written, elapsed, locked)
     return run_id
 
 
 async def _replace_rows(conn: asyncpg.Connection, source: str, run_id: int,
-                        rows: AsyncIterator[tuple[str, bytes, str, bytes | None, bytes | None]]) -> None:
-    """そのソースのパーティションの行を、`rows`で入れ替える。トランザクションの中で呼ぶ。"""
+                        rows: AsyncIterator[tuple[str, bytes, str, bytes | None, bytes | None]]) -> float:
+    """そのソースのパーティションの行を、`rows`で入れ替える。トランザクションの中で呼ぶ。
+
+    パーティションの排他ロックを取りにいった時刻（`time.perf_counter()`）を返す。ロックはコミットまで続く。
+    """
     staging = f"_stage_{source}"
     await conn.execute(f'CREATE TEMP TABLE "{staging}" '
                        "(natural_key text, geom_wkb bytea, attrs jsonb, payload bytea, rast bytea) "
@@ -218,6 +222,7 @@ async def _replace_rows(conn: asyncpg.Connection, source: str, run_id: int,
 
     # そのソースぶんだけを入れ替える。パーティションを切ってあるので他のソースへ触らない。
     partition = partition_table_name(source)
+    locked_at = time.perf_counter()
     await conn.execute(f'TRUNCATE "{partition}"')
     await conn.execute(
         f'INSERT INTO "{partition}" '
@@ -232,3 +237,4 @@ async def _replace_rows(conn: asyncpg.Connection, source: str, run_id: int,
     # 永久に拾わないため、タイルのように枚数の少ないソースは自動では統計を持てない。
     # 統計の無い表を派生が読むと、実行計画が桁で外れる。
     await conn.execute(f'ANALYZE "{partition}"')
+    return locked_at
