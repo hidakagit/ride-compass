@@ -5,16 +5,15 @@
 """
 
 import asyncio
-import logging
-import time
 
 from app.config import settings
 from app.domain.landcover import LANDCOVER_CLASSES, raster_set_fingerprint
 from app.infrastructure import landcover_raster
 from app.infrastructure.cache_identity import LANDCOVER_REVISION, cache_identity
+from app.infrastructure.debug_log import log_throttled_warning
 from app.services.tile_serving import TileResponse, serve_cached_tile
 
-logger = logging.getLogger("ridecompass.landcover_tile")
+_CATEGORY = "landcover-tile"
 
 PNG_CONTENT_TYPE = "image/png"
 
@@ -44,19 +43,7 @@ def _tile_cache_path(z: int, x: int, y: int) -> str:
     return f"region/landcover/v{LANDCOVER_TILE_VERSION}/{raster_set}/{z}/{x}/{y}.png"
 
 
-#: 「配信できない」警告を出す間隔（秒）。タイル1枚ごとに出すと、地図を1画面開くだけで
-#: 数十行・利用者数ぶん積み上がり、他のログが読めなくなる。状態はタイルごとに変わらない
-#: （ラスタが無いのは配信全体の状態）ため、1枚ごとに出す意味が無い。
-_UNAVAILABLE_LOG_INTERVAL_SECONDS = 60.0
-_last_unavailable_log = 0.0
-
-
-def _log_unavailable_once_in_a_while() -> None:
-    global _last_unavailable_log
-    now = time.monotonic()
-    if now - _last_unavailable_log < _UNAVAILABLE_LOG_INTERVAL_SECONDS:
-        return
-    _last_unavailable_log = now
+def _log_unavailable() -> None:
     configured = settings.lulc_raster_paths_list
     # 原因を決め打ちしない。未設定と「設定はあるが開けない」は対処が違う
     # （前者は環境変数、後者はファイルの配置・権限・壊れたGeoTIFF）。
@@ -65,13 +52,13 @@ def _log_unavailable_once_in_a_while() -> None:
         if not configured
         else f"設定された{len(configured)}件のいずれも開けません（配置・権限・ファイルの中身を確認）"
     )
-    logger.warning("土地被覆タイルを配信できません: %s", cause)
+    log_throttled_warning(_CATEGORY, "土地被覆タイルを配信できません: %s", cause)
 
 
 async def get_landcover_tile(z: int, x: int, y: int) -> TileResponse | None:
     """タイル1枚を返す。ラスタが1枚も無ければNone（設定の問題で、範囲外とは区別する）。"""
     if not await asyncio.to_thread(landcover_raster.has_sources):
-        _log_unavailable_once_in_a_while()
+        _log_unavailable()
         return None
 
     async def fetch_tile(_fields: dict) -> bytes | None:
@@ -84,7 +71,7 @@ async def get_landcover_tile(z: int, x: int, y: int) -> TileResponse | None:
         cache_path=_tile_cache_path(z, x, y),
         empty_tile=_EMPTY_TILE,
         content_type=PNG_CONTENT_TYPE,
-        external_call_name="landcover-tile",
+        external_call_name=_CATEGORY,
         fetch_tile=fetch_tile,
         source_label="raster",
     )

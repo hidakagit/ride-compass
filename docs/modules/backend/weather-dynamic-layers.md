@@ -405,8 +405,8 @@ URLも変わるため、ブラウザキャッシュ（`api/cache_policy.py`）�
 `cached_fetch(cache, key, category, fetch, *, catch=..., **log_fields)`が1箇所へ
 まとめている。呼び出し元は`fetch`（実際のhttpx呼び出し＋パース＋必要ならフォーマット
 検証）だけを渡す。フォーマット不正（配列であるべきなのにそうでない等）は
-`UnexpectedShapeError`（`ValueError`のサブクラス）を`fetch`内から送出すると、常に
-固定文字列`error_type="unexpected_shape"`として記録される。呼び出し元によって
+`UnexpectedShapeError`（`ValueError`のサブクラス）を`fetch`内から送出すると、`catch`の指定に
+関わらず常にNoneへ倒れ、失敗として記録される。呼び出し元によって
 捕捉すべき例外の範囲が異なる（例: `.json()`を呼ばないアメダスの最新時刻は`httpx.HTTPError`だけを
 対象にする）ため、`catch`引数で個別に指定できる。`jma_tile_client.py`/
 `basemap_client.py`/`gsi_tile_client.py`（TTLCache以外のキャッシュバックエンド）は

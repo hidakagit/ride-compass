@@ -9,7 +9,7 @@ from cachetools import TTLCache
 from app.config import settings
 from app.domain.jma_tile_specs import JmaFrame, TargetTimesRow, is_final_absence
 from app.infrastructure import jma_tile_redis_cache
-from app.infrastructure.debug_log import error_type_label, log_external_call
+from app.infrastructure.debug_log import log_external_call, mark_failed
 from app.infrastructure.jma_tile_redis_cache import EmptyTile
 
 # JMA bosai のタイル/時刻一覧API（降水ナウキャスト・キキクル等）を透過的にプロキシする。
@@ -128,13 +128,9 @@ class JmaTileClient:
                     elif is_final_absence(path):
                         await jma_tile_redis_cache.set_empty(path)
                 else:
-                    fields["result"] = "error"
-                    fields["error"] = repr(exc)
-                    fields["error_type"] = error_type_label(exc)
+                    mark_failed(fields, exc)
             except httpx.HTTPError as exc:
-                fields["result"] = "error"
-                fields["error"] = repr(exc)
-                fields["error_type"] = error_type_label(exc)
+                mark_failed(fields, exc)
             else:
                 fields["result"] = "ok"
                 fields["status"] = response.status_code
