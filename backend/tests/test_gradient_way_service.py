@@ -10,7 +10,7 @@ from app.infrastructure import debug_log
 from app.infrastructure.derived_data_meta import DataRevisions
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services import gradient_way_service
-from app.services.gradient_way_service import GradientWayService
+from app.services.gradient_way_service import GradientConditions, GradientWayService
 
 Z, X, Y = 14, 14551, 6447
 
@@ -39,19 +39,11 @@ class FakeGradientInputsRepository:
         return self._inputs
 
 
-# 型が`float | None`なのは呼び出し口の形を揃えるためで、Noneのまま計算へ進ませない。
-async def test_bearing_deg_none_raises_value_error():
-    service = GradientWayService(repository=FakeGradientInputsRepository(inputs=None))
-
-    with pytest.raises(ValueError, match="bearing_deg"):
-        await service.get_way_values(Z, X, Y, None, None, None)
-
-
 async def test_uncovered_tile_returns_empty_dict():
     repository = FakeGradientInputsRepository(inputs=None)
     service = GradientWayService(repository=repository)
 
-    result = await service.get_way_values(Z, X, Y, None, 0.0, None)
+    result = await service.get_way_values(Z, X, Y, GradientConditions(0.0))
 
     assert result == {}
 
@@ -60,7 +52,7 @@ async def test_covered_but_no_inputs_returns_empty_dict():
     repository = FakeGradientInputsRepository(inputs={})
     service = GradientWayService(repository=repository)
 
-    result = await service.get_way_values(Z, X, Y, None, 0.0, None)
+    result = await service.get_way_values(Z, X, Y, GradientConditions(0.0))
 
     assert result == {}
 
@@ -73,7 +65,7 @@ async def test_computes_effective_gradient_per_way():
     service = GradientWayService(repository=repository)
     bearing_deg = 90.0
 
-    result = await service.get_way_values(Z, X, Y, None, bearing_deg, None)
+    result = await service.get_way_values(Z, X, Y, GradientConditions(bearing_deg))
 
     expected_1 = round(GradientCalculator.effective_gradient(5.0, 90.0, bearing_deg), 1)
     expected_2 = round(GradientCalculator.effective_gradient(-3.0, 45.0, bearing_deg), 1)
@@ -89,7 +81,7 @@ async def test_perpendicular_way_is_omitted_instead_of_zero():
     repository = FakeGradientInputsRepository(inputs={1: (15.0, 0.0), 2: (15.0, 90.0)})
     service = GradientWayService(repository=repository)
 
-    result = await service.get_way_values(Z, X, Y, None, 90.0, None)
+    result = await service.get_way_values(Z, X, Y, GradientConditions(90.0))
 
     assert 1 not in result
     assert result[2] == 15.0
@@ -101,8 +93,8 @@ async def test_second_call_with_same_bearing_bucket_is_served_from_cache():
     repository = FakeGradientInputsRepository(inputs={1: (5.0, 30.0)})
     service = GradientWayService(repository=repository)
 
-    first = await service.get_way_values(Z, X, Y, None, 0.0, None)
-    second = await service.get_way_values(Z, X, Y, None, 0.0, None)
+    first = await service.get_way_values(Z, X, Y, GradientConditions(0.0))
+    second = await service.get_way_values(Z, X, Y, GradientConditions(0.0))
 
     assert first == second
     # 勾配はキャッシュ確認を先に行い、ヒットすればDB問い合わせ自体をスキップする
@@ -122,8 +114,8 @@ async def test_different_bearing_bucket_recomputes():
 
     # 走行方位は符号を決める（domain/gradient.py）。値が変わる組み合わせにするため、
     # 道路の向きを挟んで反対側の方位を選ぶ。
-    first = await service.get_way_values(Z, X, Y, None, 0.0, None)
-    second = await service.get_way_values(Z, X, Y, None, 180.0, None)
+    first = await service.get_way_values(Z, X, Y, GradientConditions(0.0))
+    second = await service.get_way_values(Z, X, Y, GradientConditions(180.0))
 
     assert first != second
     # 値が違うことだけでなく、向きバケットが違えば実際に作り直していることを見る。
@@ -136,10 +128,10 @@ async def test_a_new_derived_data_revision_recomputes_without_the_catalog(monkey
     monkeypatch.setattr(settings, "derived_data_revision_check_interval_seconds", 0.0)
     repository = FakeGradientInputsRepository(inputs={1: (5.0, 30.0)})
     service = GradientWayService(repository=repository)
-    await service.get_way_values(Z, X, Y, None, 0.0, None)
+    await service.get_way_values(Z, X, Y, GradientConditions(0.0))
 
     repository.revision = 2
-    await service.get_way_values(Z, X, Y, None, 0.0, None)
+    await service.get_way_values(Z, X, Y, GradientConditions(0.0))
 
     assert len(repository.calls) == 2
 
@@ -149,10 +141,10 @@ async def test_a_rebaked_road_surface_tile_recomputes(monkeypatch):
     動かさないため、路面タイルの形が鍵に無いと前の版の値がTTLの間返り続ける——エラーにはならず、色だけが消える。"""
     repository = FakeGradientInputsRepository(inputs={1: (5.0, 30.0)})
     service = GradientWayService(repository=repository)
-    await service.get_way_values(Z, X, Y, None, 0.0, None)
+    await service.get_way_values(Z, X, Y, GradientConditions(0.0))
 
     monkeypatch.setattr(gradient_way_service, "ROAD_SURFACE_TILE_SHAPE", "another-layout")
-    await service.get_way_values(Z, X, Y, None, 0.0, None)
+    await service.get_way_values(Z, X, Y, GradientConditions(0.0))
 
     assert len(repository.calls) == 2
 
@@ -162,10 +154,10 @@ async def test_a_deploy_that_changes_how_gradient_is_computed_recomputes(monkeyp
     動かさない。署名が鍵に届いていないと、前の計算の値がTTL（24時間）の間返り続ける。"""
     repository = FakeGradientInputsRepository(inputs={1: (5.0, 30.0)})
     service = GradientWayService(repository=repository)
-    await service.get_way_values(Z, X, Y, None, 0.0, None)
+    await service.get_way_values(Z, X, Y, GradientConditions(0.0))
 
     monkeypatch.setattr(gradient_way_service, "GRADIENT_VALUE_SHAPE", "another-computation")
-    await service.get_way_values(Z, X, Y, None, 0.0, None)
+    await service.get_way_values(Z, X, Y, GradientConditions(0.0))
 
     assert len(repository.calls) == 2
 
@@ -174,7 +166,7 @@ async def test_repository_error_returns_empty_dict():
     repository = FakeGradientInputsRepository(inputs=None, error=ConnectionRefusedError("db down"))
     service = GradientWayService(repository=repository)
 
-    result = await service.get_way_values(Z, X, Y, None, 0.0, None)
+    result = await service.get_way_values(Z, X, Y, GradientConditions(0.0))
 
     assert result == {}
 
@@ -185,18 +177,4 @@ async def test_an_implementation_error_is_not_turned_into_an_empty_result():
     service = GradientWayService(repository=repository)
 
     with pytest.raises(TypeError):
-        await service.get_way_values(Z, X, Y, None, 0.0, None)
-
-
-async def test_at_argument_is_ignored():
-    # 勾配は時刻に依存しないため、atに何を渡しても結果は変わらない
-    # （router側インターフェース統一のためだけに受け取る引数、gradient_way_service.py参照）。
-    from datetime import datetime
-
-    repository = FakeGradientInputsRepository(inputs={1: (5.0, 0.0)})
-    service = GradientWayService(repository=repository)
-
-    result = await service.get_way_values(Z, X, Y, datetime(2026, 1, 1), 0.0, None)
-
-    expected = round(GradientCalculator.effective_gradient(5.0, 0.0, 0.0), 1)
-    assert result == {1: expected}
+        await service.get_way_values(Z, X, Y, GradientConditions(0.0))

@@ -8,6 +8,7 @@
 制御フローの詳細はdocs/modules/backend/dynamic-way-values.md「`RainWayService`」節参照。
 """
 
+from dataclasses import dataclass
 from datetime import datetime
 
 import numpy as np
@@ -24,9 +25,15 @@ from app.services.weather_service import WeatherService
 _CATEGORY = "region:rain-way-values"
 
 
+@dataclass(frozen=True)
+class RainConditions:
+    """雨の値に要る条件は無い。値は今の観測で、走行方位・時刻・想定速度に依らない。"""
+
+
 class RainWayService:
     #: 担当する材料id。インスタンスはそのうち1つ（`material_id`）の値を返す。
     material_ids = RAIN_MATERIAL_IDS
+    conditions_type = RainConditions
 
     def __init__(self, repository: RoadGraphRepository, material_id: str):
         self._repository = repository
@@ -37,11 +44,8 @@ class RainWayService:
         """登録テーブルから呼ぶための統一シグネチャ。依存の要否はサービスごとに違う。"""
         return cls(repository=repository, material_id=material_id)
 
-    async def get_way_values(
-        self, z: int, x: int, y: int, at: datetime | None, bearing_deg: float | None, speed_kmh: float | None
-    ) -> dict[str, float]:
-        """指定タイル内のフィーチャーごとの雨の材料値を返す。`at`・`bearing_deg`・`speed_kmh`は
-        材料非依存な呼び出し口と形を揃えるためだけに受け取る。
+    async def get_way_values(self, z: int, x: int, y: int, conditions: RainConditions) -> dict[str, float]:
+        """指定タイル内のフィーチャーごとの雨の材料値を返す。
 
         履歴が無い・古い、取込範囲外、観測所の値が欠測の道は結果から除く（地図上は「データなし」）。
         """

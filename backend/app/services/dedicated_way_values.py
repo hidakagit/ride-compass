@@ -10,10 +10,10 @@
 
 from datetime import datetime
 from functools import partial
-from typing import Callable, Iterable, Protocol
+from typing import Any, Callable, Iterable, Protocol, TypeVar
 
 from app.domain.axis_definitions import AXIS_DEFINITIONS
-from app.domain.dynamic_way_values import dedicated_way_value_axes
+from app.domain.dynamic_way_values import MissingConditions, WayValueQuery, assemble_conditions
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.gradient_way_service import GradientWayService
 from app.services.rain_way_service import RainWayService
@@ -21,17 +21,23 @@ from app.services.weather_service import WeatherService
 from app.services.wind_way_service import WindWayService
 
 
-class DedicatedWayValueService(Protocol):
-    """フィーチャー→動的値配信の実装が満たす形（ルーターが使うのはこれだけ）。"""
+_Conditions = TypeVar("_Conditions")
+
+
+class DedicatedWayValueService(Protocol[_Conditions]):
+    """フィーチャー→動的値配信の実装が満たす形（ルーターが使うのはこれだけ）。
+
+    `get_way_values`は`conditions_type`の値だけを受け取る。要求からの組み立ては
+    `domain/dynamic_way_values.py: assemble_conditions`が行い、要る条件が欠けていれば組み立てない。
+    """
 
     material_id: str
+    conditions_type: type[_Conditions]
 
-    async def get_way_values(
-        self, z: int, x: int, y: int, at: datetime | None, bearing_deg: float | None, speed_kmh: float | None
-    ) -> dict[str, float]: ...
+    async def get_way_values(self, z: int, x: int, y: int, conditions: _Conditions) -> dict[str, float]: ...
 
 
-DedicatedWayValueServiceFactory = Callable[[RoadGraphRepository, WeatherService], DedicatedWayValueService]
+DedicatedWayValueServiceFactory = Callable[[RoadGraphRepository, WeatherService], DedicatedWayValueService[Any]]
 
 # 各サービスは担当する材料を`material_ids`で宣言し、`build`は組み立てる材料を`material_id`で受け取る
 # （1つの実装が同じ計算の材料群——雨の窓の長さ違い等——をまとめて担当できる）。
@@ -70,11 +76,17 @@ def served_dedicated_way_value_material(materials: Iterable[str]) -> str | None:
     return next(iter(served)) if len(served) == 1 else None
 
 
+def _served_material_of(axis_id: str) -> str | None:
+    """専用配信を持つ軸（`dedicated_way_value_layer`）が配信を実装した材料を参照していれば、その材料。"""
+    definition = AXIS_DEFINITIONS.get(axis_id)
+    if definition is None or not definition.dedicated_way_value_layer:
+        return None
+    return served_dedicated_way_value_material(definition.materials)
+
+
 def dedicated_way_value_factory(axis_id: str) -> DedicatedWayValueServiceFactory | None:
     """軸の配信を組み立てる工場。専用配信の軸でないか、配信できる材料が無ければNone。"""
-    if axis_id not in dedicated_way_value_axes():
-        return None
-    material = served_dedicated_way_value_material(AXIS_DEFINITIONS[axis_id].materials)
+    material = _served_material_of(axis_id)
     return None if material is None else _DEDICATED_WAY_VALUE_SERVICE_FACTORIES[material]
 
 
@@ -98,33 +110,29 @@ class DirectionalMaterialService:
     ) -> dict[str, float]:
         """専用配信の材料を、指定された条件でまとめて引く。
 
-        進行方向に依存する材料は**1本の道が往復2方向で値が違う**ため、方向が決まらないと算出できない。方向・時刻・
-        想定速度が揃った軸だけを引き、揃わない軸は黙って飛ばす（呼び出し側では「データなし」
-        になる）。
+        進行方向に依存する材料は**1本の道が往復2方向で値が違う**ため、方向が決まらないと算出できない。
+        サービスが要る条件（`assemble_conditions`）が揃った材料だけを引き、揃わない材料は飛ばす
+        （呼び出し側では「データなし」になる）。
 
-        **軸を名指ししない**——`dedicated_way_value_axes()`の宣言を回し、その軸が必要とする
-        ものが揃っているかで判断する。軸が増えてもここは変わらない。同じ材料を参照する軸が
-        複数あっても、材料ごとに1回だけ引く。
+        **軸を名指ししない**——専用配信を持つ軸を回し、それぞれが参照する材料を引く。軸が増えても
+        ここは変わらない。同じ材料を参照する軸が複数あっても、材料ごとに1回だけ引く。
 
         値は地図のレンズが引くのと同じ経路（同じキャッシュ）から取るので、**地図の色と
         内訳が一致する**。
         """
         if z is None or x is None or y is None:
             return {}
-        wanted: dict[str, DedicatedWayValueServiceFactory] = {}
-        for axis_id, axis in dedicated_way_value_axes().items():
-            if (axis.needs_bearing and bearing_deg is None) or (axis.needs_speed and speed_kmh is None):
-                continue
-            material = served_dedicated_way_value_material(AXIS_DEFINITIONS[axis_id].materials)
-            if material is not None:
-                wanted[material] = _DEDICATED_WAY_VALUE_SERVICE_FACTORIES[material]
+        materials = {material for material in map(_served_material_of, AXIS_DEFINITIONS) if material is not None}
+        query = WayValueQuery(at=at, bearing_deg=bearing_deg, speed_kmh=speed_kmh)
 
         key = feature_key or str(osm_way_id)
         found: dict[str, float] = {}
-        for material, factory in wanted.items():
-            values = await factory(self._repository, self._weather_service).get_way_values(
-                z, x, y, at, bearing_deg, speed_kmh
-            )
+        for material in materials:
+            service = _DEDICATED_WAY_VALUE_SERVICE_FACTORIES[material](self._repository, self._weather_service)
+            conditions = assemble_conditions(service.conditions_type, query)
+            if isinstance(conditions, MissingConditions):
+                continue
+            values = await service.get_way_values(z, x, y, conditions)
             if key in values:
                 found[material] = values[key]
         return found

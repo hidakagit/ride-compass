@@ -1,6 +1,6 @@
-"""`domain/dynamic_way_values.py`——ルートを出す前に全道路へ配る軸の宣言と、地図がその軸について塗る値。
+"""`domain/dynamic_way_values.py`——ルートを出す前に全道路へ配る軸について、地図が塗る値。
 
-入口は`dedicated_way_value_axes`（配る軸と、要る問い合わせの項目）・`map_value_kind`／`map_value`／
+入口は`map_value_kind`／`map_value`／
 `map_value_unit`（塗る値の種類・材料・単位）・`map_value_thresholds`（ルート線の段の境界）・
 `map_legend`（凡例が段の境界を書く目盛り）・`transform_dedicated_way_values`（配る材料の生値を塗る値へ）。
 
@@ -12,6 +12,7 @@
 - 地図の段の境界そのもの（どの軸が地図に塗れるか・境界の導出） → `test_axis_display.py`
 - 折れ線の得点・0次条件の評価（`domain/axis_definitions.py: evaluate_axis_values`） → `test_axis_definitions.py`
 - 材料から配るサービスを選ぶこと・配信のAPI → `test_dedicated_way_value_services.py`・`test_region_routes.py`
+- 要求の条件の組み立て（`assemble_conditions`） → `test_region_routes.py`（配信と区間インスペクタの入口で）
 """
 
 import math
@@ -27,11 +28,9 @@ from app.domain.axis_definitions import (
     PriorityCondition,
 )
 from app.domain.dynamic_way_values import (
-    DedicatedWayValueAxis,
     DifficultyMapValue,
     MapLegendScale,
     SignedMaterialMapValue,
-    dedicated_way_value_axes,
     map_legend,
     map_value,
     map_value_kind,
@@ -91,40 +90,6 @@ def _axis(shape, axis_id="axis_a", **fields) -> AxisDefinition:
 
 
 SIGNED = _axis(_line("num_live", breakpoints=((0.0, 0.0), (2.0, 30.0), (6.0, 100.0)), preprocess="abs"))
-
-
-# --- 配る軸 ---
-
-
-def test_only_axes_with_a_dedicated_layer_are_served_with_what_they_ask_for(axes):
-    axes["plain"] = _axis(_line("num_tiled"), axis_id="plain")
-    axes["wind"] = _axis(
-        _line("num_live"),
-        axis_id="wind",
-        dedicated_way_value_layer=True,
-        dynamic_way_value_needs_time=True,
-        dynamic_way_value_needs_bearing=True,
-        dynamic_way_value_needs_speed=True,
-    )
-    axes["rain"] = _axis(_line("num_other"), axis_id="rain", dedicated_way_value_layer=True)
-
-    assert dedicated_way_value_axes() == {
-        "wind": DedicatedWayValueAxis(
-            axis_id="wind", label="軸A", needs_time=True, needs_bearing=True, needs_speed=True
-        ),
-        "rain": DedicatedWayValueAxis(
-            axis_id="rain", label="軸A", needs_time=False, needs_bearing=False, needs_speed=False
-        ),
-    }
-
-
-def test_served_axes_follow_the_saved_axes_after_an_update(axes):
-    """軸スタジオで保存すると軸の集合はその場で書き換わる。次の問い合わせから配る軸に入る。"""
-    assert dedicated_way_value_axes() == {}
-
-    axes["rain"] = _axis(_line("num_other"), axis_id="rain", dedicated_way_value_layer=True)
-
-    assert list(dedicated_way_value_axes()) == ["rain"]
 
 
 # --- 塗る値の種類 ---
