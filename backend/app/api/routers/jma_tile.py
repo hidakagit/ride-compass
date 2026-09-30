@@ -3,7 +3,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from typing import Literal
 
 from app.api.cache_policy import IMMUTABLE_TILE, JMA_NOT_YET_DELIVERED, JMA_TARGET_TIMES, JMA_TILE_NOT_FOUND
-from app.api.dependencies import enforce_rate_limit, get_jma_tile_client
+from app.api.dependencies import get_jma_tile_client
+from app.api.rate_limit import enforce_rate_limit
 from app.config import settings
 from app.domain.jma_tile_specs import is_final_absence, source_zoom_for_interpolation
 from app.infrastructure.jma_tile_client import (

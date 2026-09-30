@@ -18,7 +18,7 @@ from app.api.dependencies import get_road_graph_repository
 from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.axis_preview_service import ValueDistribution, axis_raw_value_distribution
-from app.api.dependencies import get_axis_registry_admin_service, served_dedicated_way_value_material
+from app.api.dependencies import get_axis_registry_admin_service
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
     axis_error,
@@ -33,6 +33,7 @@ from app.domain.axis_display import axis_display_for, bands_the_map_keeps, thres
 from app.domain.difficulty import weight_share
 from app.domain.registry import AxisDisplaySpec
 from app.services.axis_registry_service import AxisRegistryAdminService
+from app.services.dedicated_way_values import served_dedicated_way_value_material
 from app.domain.strict_model import StrictModel
 
 router = APIRouter(
@@ -83,7 +84,7 @@ class AxisDefinitionPayload(AxisDefinition):
     def _check_dedicated_layer_is_implemented(self) -> "AxisDefinitionPayload":
         """`dedicated_way_value_layer`は、配信の実装がある材料をちょうど1つ参照する軸にだけ立てられる。
 
-        way_id→値の配信はPythonのサービス本体（`api/dependencies.py`の
+        way_id→値の配信はPythonのサービス本体（`services/dedicated_way_values.py`の
         `_DEDICATED_WAY_VALUE_SERVICES`、材料ごとに1つ）が必要で、軸スタジオでの宣言だけでは
         配信できる値が無い。宣言だけを通すと、その軸のタイル要求が実装の無いまま
         呼ばれ続ける（配信側は404を返すため表示は壊れないが、地図に出ない軸の宣言が

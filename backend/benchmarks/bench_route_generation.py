@@ -31,7 +31,7 @@ import re
 import time
 from datetime import datetime
 
-from app.api.dependencies import open_route_generation_setup
+from app.api.dependencies import get_route_generation_setup_opener
 from app.batch._common import asyncpg_dsn
 from app.config import settings
 from app.domain.route import Coordinates
@@ -137,7 +137,7 @@ async def main() -> int:
     records: list[dict[str, object]] = []
 
     await refresh_axis_registry()
-    async with open_route_generation_setup() as setup:
+    async with get_route_generation_setup_opener()() as setup:
         generator = setup.generator
         for index in range(runs):
             capture.reset()

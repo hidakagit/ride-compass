@@ -14,7 +14,7 @@
 | レイヤー | ファイル |
 |---|---|
 | domain | `road_network.py`（取込範囲全体の道路網を、有向の区間とノードの番号で引ける列の配列として持つ型。行の並び・分類の材料を語彙への番号で持つことはそのdocstringが持つ）・`routing.py`・`graph.py`・`route.py`・`geo.py`・`errors.py`・`region.py`（矩形（`BoundingBox`）と地点を覆う矩形の組み立て、XYZタイルとの相互変換（緯度経度・Web Mercatorのメートル・同じ式のSQL）。タイル配信・取込・派生バッチもこの変換を共有する）・`cycling_speed.py`（自転車の走行モデル。平地・無風の巡航速度からホイール出力を逆算し、勾配・向かい風・転がり抵抗から区間ごとの速度を走行方程式で解く。速度の逆算は`v`の3次方程式になるため二分法で、numpyでベクトル化してある。候補の所要時間と基準線の探索コストがここから出る）・`tuning.py`（ルーティング評価が読む固定値の宣言。走ってみて決める値［較正値］は既定ごとここが持ち、エンジンが読む値・管理画面が並べる項目・変更が効くために何をやり直す必要があるかをそこから導く。較正値ではない固定値は載せず、使う側のモジュールが持つ）・`loop_routing.py`（周回・目的地ルートの探索結果を運ぶ型。探索の実装と候補を並べる戦略のどちらにも属さない）・`leg_costs.py`（レグごとのコスト配列の合成。静的スコア行列・重み・0次フィルタ・風の予報から、探索のコストと区間の表示が読む配列を時刻ビンごとに作る。外部とやり取りせず配列だけを受け取るので、エンジンの途中状態を組まずに確かめられる。下記「レグ別コスト配列」） |
-| services | `route_generator.py`（戦略層）・`road_graph_engine.py`・`graph_service.py` |
+| services | `route_generator.py`（戦略層）・`road_graph_engine.py`・`graph_service.py`・`route_generation_setup.py`（エンジンの組み立てと評価条件の既定の解決、区間確認） |
 | infrastructure | `road_graph_repository.py`（道路網・材料の読み出し専用）・`road_network_store.py`（道路網全体の配列をDBから作り、ディスクへ置き、読む）・`detour_ratio_cache.py`（探索範囲ごとに学習した迂回率）・`cache_identity.py`（キャッシュ鍵の組み立て方の正本。手で書くリビジョンと、焼き込みSQL・列構成から導く署名を合成する。道路網の置き場の形の署名とタイル配信側の世代も同じ関数を使う）・`container_memory.py`（このプロセスのコンテナのメモリ上限。読み込む量の上限を導く）・`derived_data_meta.py`（派生データの世代。バッチが中身を書き直すたびに進む単調カウンタで、デプロイを伴わない変化を表せる唯一の経路） |
 | api | `routes.py` |
 
@@ -954,7 +954,7 @@ backendは置き場を読むだけで、読むのは`current()`の1か所であ�
 
 | エンドポイント | 内容 |
 |---|---|
-| `POST /api/routes/preview` | 2点間の単純なルート取得（`get_preview_builder`経由。`RoadGraphEngine.preview_segment`を使う。`RouteGenerator`の周回戦略は使わない。評価条件のうち想定速度だけを受け取り、重み・換算レート（P）・0次フィルタはルート生成が省略時に使うのと同じ既定で探す。2点を覆う範囲の区間が読み込む量の上限を超えれば422） |
+| `POST /api/routes/preview` | 2点間の単純なルート取得（`RoutePreviewService`経由。`RoadGraphEngine.preview_segment`を使う。`RouteGenerator`の周回戦略は使わない。評価条件のうち想定速度だけを受け取り、重み・換算レート（P）・0次フィルタはルート生成が省略時に使うのと同じ既定で探す。2点を覆う範囲の区間が読み込む量の上限を超えれば422） |
 | `POST /api/routes/generate` | 202を即座に返す非同期ジョブ投稿。`asyncio.create_task`でジョブ本体（`_run_generate_job`）を起動し、タスク参照を`_running_generate_tasks`が保持する（`BackgroundTasks`だとレスポンス送出の失敗でジョブが起動せず、投稿時点で取得済みのセマフォが解放されない） |
 | `GET /api/routes/generate/{job_id}` | ジョブの状態・結果を取得（`job_registry`、サーバー再起動で失われる） |
 
@@ -963,10 +963,10 @@ backendは置き場を読むだけで、読むのは`current()`の1か所であ�
   acquireすると、複数リクエストが同時に届いた際に上限を超えて受理してしまうため）。
   セマフォの解放は`_run_generate_job`側の`finally`で行う。
 - **バックグラウンドジョブはリクエストスコープのDBセッションを使えない**。
-  `api/dependencies.py: open_route_generation_setup`（`@asynccontextmanager`）がDI用の
-  ジェネレータをラップして独立したセッションを開く（開閉のロジックを複製しない）。
-- **エンジンを組むのは`api/dependencies.py: assemble_route_generation_setup`だけ**。ルート生成の
-  ジョブ・区間確認・計測（`benchmarks/`は`open_route_generation_setup`をそのまま使う）・テストの
+  ハンドラへは開き方（`api/dependencies.py: get_route_generation_setup_opener`）を注入し、ジョブがそれで
+  独立したセッションを開く。開き方はDI用のジェネレータを`@asynccontextmanager`で包む（開閉のロジックを複製しない）。
+- **エンジンを組むのは`services/route_generation_setup.py: assemble_route_generation_setup`だけ**。ルート生成の
+  ジョブ・区間確認・計測（`benchmarks/`は`get_route_generation_setup_opener`の開き方をそのまま使う）・テストの
   どれもここを通り、省略された評価条件（重み・換算レート・0次フィルタ）の既定もここで1度だけ決める。
   エンジンは既定を持たず、解決済みの値だけを受け取る——既定を2か所で持つと、経路ごとに
   違う条件で探すことになり、しかもどちらも正常に見える。

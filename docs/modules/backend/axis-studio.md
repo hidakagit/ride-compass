@@ -454,7 +454,7 @@ idの文字列ではなく宣言そのもので指す。材料が指す要素に
 ### 書き込み時だけの検証（`AxisDefinitionPayload`）
 
 `dedicated_way_value_layer`を立てられるのは、フィーチャー→値配信の実装
-（`api/dependencies.py`の`_DEDICATED_WAY_VALUE_SERVICE_FACTORIES`、材料ごとに登録）がある
+（`services/dedicated_way_values.py`の`_DEDICATED_WAY_VALUE_SERVICE_FACTORIES`、材料ごとに登録）がある
 材料を**ちょうど1つ**参照する軸だけ（軸の名前は問わない）。宣言だけでは配信できる値が無い
 （配信側はそういう軸を未知の`axis_id`と同じく404で返す）。照らす相手はこのプロセスが組み立てた配信の実装で、
 値の不変条件ではないため読み込みでは見ない——実装の無い軸の配信は404で済み、起動を止める理由にならない。
