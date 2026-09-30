@@ -25,9 +25,6 @@ from app.domain.traffic import (
 
 logger = logging.getLogger("ridecompass.derive_node_materials")
 
-#: 信号とみなす半径（m）。交差点そのものではなく流入路ごとに信号ノードが置かれるため、
-#: `osm_node_id`の一致では大半を取りこぼす。
-SIGNAL_RADIUS_M = 25.0
 
 def _source_nodes(extra_columns: str = "") -> str:
     """タグから種別・信号を判定する側が期待する形（`id`・`tags`）へ生データを写す。
@@ -54,6 +51,8 @@ SELECT s.id AS osm_node_id, s.geom FROM ({_source_nodes(", geom")}) s WHERE {TRA
 """
 
 #: 信号の側から近くのノードを探す——索引を引く回数が、全ノード数ではなく信号の数で決まる。
+#: 半径で探すのは、交差点そのものではなく流入路ごとに信号ノードが置かれ、`osm_node_id`の
+#: 一致では大半を取りこぼすため。
 #: `&&`の前置フィルタを先に置くのは、`::geography`へのキャストがgeometryのGiSTを
 #: 使えなくするため。矩形で絞ってから正確な距離を測る。
 _UPDATE_SIGNALS = f"""
@@ -85,7 +84,8 @@ FROM best WHERE best.node_id = nm.osm_node_id
 """
 
 
-async def derive(conn: asyncpg.Connection) -> int:
+async def derive(conn: asyncpg.Connection, signal_radius_m: float) -> int:
+    """`signal_radius_m`は較正値`signal.match_radius_m`（交差点から何m以内の信号をその交差点のものとみなすか）。"""
     run_id = await latest_succeeded_run_id(conn, "osm_node")
     started = time.perf_counter()
 
@@ -98,10 +98,10 @@ async def derive(conn: asyncpg.Connection) -> int:
         signals = await conn.fetchval("SELECT count(*) FROM _signal_nodes")
         await conn.execute("ANALYZE _signal_nodes")
         # 緯度が高いほど1度は短い。取りこぼさないよう余裕を持たせる。
-        await conn.execute(_UPDATE_SIGNALS, SIGNAL_RADIUS_M,
-                           SIGNAL_RADIUS_M / 111_000.0 * 2.0)
+        await conn.execute(_UPDATE_SIGNALS, signal_radius_m,
+                           signal_radius_m / 111_000.0 * 2.0)
         await conn.execute(_UPDATE_MAX_RANK_TEMPLATE.format(values=values))
 
-    logger.info("ノードの値を埋めた: 種別が付いた %d点 / 信号 %d点 / %.1f秒",
-                classified, signals, time.perf_counter() - started)
+    logger.info("ノードの値を埋めた: 種別が付いた %d点 / 信号 %d点（半径 %.1fm） / %.1f秒",
+                classified, signals, signal_radius_m, time.perf_counter() - started)
     return classified

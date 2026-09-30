@@ -5,20 +5,42 @@
 まとめたくなったときに「どこまでが1つの取引か」を決める場所が無くなる——ルーター側で
 書き足すたびに境界が動き、途中まで書けた状態が残りうる。
 
-書き込みの直後にプロセス内の`TUNING_VALUES`まで反映するのもここ。DBへ書いただけでは
-次のリクエストが古い値を読むため、書き込みと反映を離さない（`axis_registry_service`が
+**プロセス内の`TUNING_VALUES`へ書くのはここだけ**（起動時の読み込みと、管理APIの書き込みの直後）。
+DBへ書いただけでは次のリクエストが古い値を読むため、書き込みと反映を離さない（`axis_registry_service`が
 軸定義で採っているのと同じ、同一プロセス内で完結させポーリングしない形）。
 """
 
+import logging
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.domain.tuning import TUNING_PARAMETERS_BY_ID, TUNING_VALUES
 from app.infrastructure.tuning_overrides import (
-    apply_tuning_values,
     clear_override,
     load_tuning_values,
     read_overrides,
     set_override,
 )
+
+logger = logging.getLogger("ridecompass.tuning")
+
+
+def apply_tuning_values(values: dict[str, float]) -> None:
+    """`load_tuning_values`が作った値を、プロセス内の`TUNING_VALUES`へ反映する。
+
+    **中身だけを差し替える**（辞書そのものを作り直すと、import済みの参照が古い辞書を
+    指したままになる）。読み出しも検算も済んだ値を受け取るだけなので失敗しない。
+    """
+    TUNING_VALUES.clear()
+    TUNING_VALUES.update(values)
+    changed = {k: v for k, v in values.items() if v != TUNING_PARAMETERS_BY_ID[k].default}
+    if changed:
+        logger.info("較正値の上書きを読み込みました count=%d ids=%s", len(changed), sorted(changed))
+
+
+async def refresh_tuning_values(session: AsyncSession) -> None:
+    """DBの上書きを読み、プロセス内の`TUNING_VALUES`へ反映する（起動時の読み込み）。"""
+    apply_tuning_values(await load_tuning_values(session))
 
 
 async def overridden_parameter_ids(session: AsyncSession) -> set[str]:

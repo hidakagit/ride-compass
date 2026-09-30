@@ -18,9 +18,9 @@ from app.infrastructure.tuning_overrides import (
     clear_override,
     merge_overrides,
     read_overrides,
-    refresh_tuning_values,
     set_override,
 )
+from app.services.tuning_service import refresh_tuning_values
 
 # 範囲の広いものを選ぶ（値を動かしても宣言の範囲に収まるように）。
 _PARAM = "turn.right_seconds"

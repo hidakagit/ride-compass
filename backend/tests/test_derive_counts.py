@@ -18,6 +18,7 @@ from app.domain.accident import (
 )
 from app.domain.geo import KM_PER_DEGREE_LATITUDE, km_per_degree_longitude
 from app.domain.traffic import POI_COUNT_KINDS, poi_count_column
+from app.domain.tuning import TUNING_PARAMETERS_BY_ID
 from tests.conftest import postgis_database_url
 
 # road_graph_session（conftest.py）と同じDBを使うため、docs/conventions/testing.mdのパターン2どおり
@@ -97,7 +98,7 @@ async def _derive_with_nodes(conn: asyncpg.Connection,
             "INSERT INTO source_features (source, natural_key, run_id, geom, attrs)"
             " VALUES ('osm_node', $1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5::jsonb)",
             str(node_id), run, lon, lat, json.dumps(tags))
-    await derive_node_materials.derive(conn)
+    await derive_node_materials.derive(conn, TUNING_PARAMETERS_BY_ID["signal.match_radius_m"].default)
     await derive_counts.derive(conn)
 
 
