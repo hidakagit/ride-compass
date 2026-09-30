@@ -6,7 +6,7 @@ import AxisContributionBar from "@/components/AxisContributionBar/AxisContributi
 import type { CatalogAxis } from "@/lib/catalogAxis";
 import { isDebugEnabled } from "@/lib/debugLog";
 import { getQueryClient } from "@/lib/queryClient";
-import { fetchAxisInspector, type AxisInspectorConditions } from "@/services/regionApi";
+import { fetchAxisInspector, type AxisInspectorConditions } from "@/features/map/regionApi";
 import type { AxisInspectorResult } from "@/types/traffic";
 import type { RoutePreferenceWeights } from "@/types/route";
 import { LANDCOVER_CLASSES } from "@/features/map/layers/landcoverClasses";

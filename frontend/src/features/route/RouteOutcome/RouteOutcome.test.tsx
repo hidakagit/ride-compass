@@ -19,7 +19,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { axisCatalogFromResponse, type AxisCatalog } from "@/lib/axisCatalog";
 import { MATERIAL_CATALOG } from "@/lib/axisMaterialsCatalog";
-import { catalogEntry } from "@/testing/catalogAxes";
+import { catalogEntry, catalogResponse } from "@/testing/catalogAxes";
 import { setResearchEnabled } from "@/lib/researchMode";
 import { makeRouteCandidate } from "@/testing/routeFixtures";
 import { SPLICED_ROUTE_ID_PREFIX } from "@/features/route/routeTabLabel";
@@ -43,10 +43,11 @@ import { downloadGpx } from "@/features/route/gpxExport";
 import RouteOutcome from "./RouteOutcome";
 
 const CATALOG: AxisCatalog = axisCatalogFromResponse(
-  [catalogEntry({ axis_id: "axis_a" }), catalogEntry({ axis_id: "axis_b" }), catalogEntry({ axis_id: "axis_c" })],
-  {},
-  {},
-  [],
+  catalogResponse([
+    catalogEntry({ axis_id: "axis_a" }),
+    catalogEntry({ axis_id: "axis_b" }),
+    catalogEntry({ axis_id: "axis_c" }),
+  ]),
 );
 
 type Props = Omit<Parameters<typeof RouteOutcome>[0], "results">;

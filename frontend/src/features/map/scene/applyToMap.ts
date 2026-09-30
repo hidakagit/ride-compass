@@ -26,7 +26,7 @@ import { areaLayerAnchor, prepareBasemapForAreaLayers, runWhenStyleReady } from 
 import { primaryAttributeIdsToLayerIds } from "@/features/map/layers/primaryAttributes";
 import { ROUTE_ARROW_ICON_ID, createRouteArrowIcon } from "@/features/map/layers/routeArrowIcon";
 import { LENS_NEUTRAL_COLOR, type LensId, type RouteStyleMode } from "@/lib/mapDisplay/routeStyleModes";
-import type { SecondaryAxisSummary } from "@/lib/secondaryAxes";
+import type { SecondaryAxisSummary } from "@/features/map/secondaryAxes";
 import type { ExperimentSlot } from "@/types/experimentSlot";
 import type { RouteCandidate } from "@/types/route";
 import { dedicatedAxisBands, rampAxisBands, type ValueBand } from "@/lib/mapDisplay/valueScale";
@@ -35,11 +35,11 @@ import {
   ROAD_TILE_MAX_ZOOM,
   ROAD_TILE_MIN_ZOOM,
   accidentTileUrl,
-  hasTileVersions,
   landcoverTileUrl,
   poiTileUrl,
   roadSurfaceTileUrl,
-} from "@/services/regionApi";
+  type TileVersions,
+} from "@/features/map/regionApi";
 import regionTileConfig from "@/types/generated/region-tile-config.json";
 
 /** ベクタタイル内のレイヤー名。源泉が配る値をそのまま使う。 */
@@ -97,8 +97,8 @@ type SceneWiringProps = {
   /** 編集中に「いま作っているルート」として描く座標列（編集していなければnull）。 */
   readonly splicedRoute: readonly GeoJSON.Position[] | null;
   readonly experimentSlots: readonly ExperimentSlot[];
-  /** タイル世代が届いたか。 */
-  readonly tileVersionsReady: boolean;
+  /** タイルの世代。全系統が揃うまで`null`。 */
+  readonly tileVersions: TileVersions | null;
   /** 詳細を見ている道（ポップアップが開いている間だけ非null）。 */
   readonly inspectedWayId: number | null;
 };
@@ -240,7 +240,7 @@ function weatherPayloadFrom(payload: DynamicWeatherRenderPayload): WeatherPayloa
 
 export function sceneInputsFrom(props: SceneWiringProps): SceneInputs {
   // 世代が届く前にタイルのソースを作ると、世代の違う中身がブラウザのキャッシュへ載る。
-  const tilesReady = props.tileVersionsReady && hasTileVersions();
+  const versions = props.tileVersions;
   // 家族はどれも自分の役割の鍵だけを読むため、状態をそのまま渡す。
   const visible = props.look.layerVisibility;
   const hiddenKeys = props.look.hiddenLegendKeys;
@@ -251,9 +251,9 @@ export function sceneInputsFrom(props: SceneWiringProps): SceneInputs {
       landcoverTileUrl: landcoverTileUrl(),
     },
     road: {
-      tiles: tilesReady
+      tiles: versions
         ? {
-            urls: [roadSurfaceTileUrl()],
+            urls: [roadSurfaceTileUrl(versions)],
             sourceLayer: ROAD_TILE_SOURCE_LAYER,
             minZoom: ROAD_TILE_MIN_ZOOM,
             maxZoom: ROAD_TILE_MAX_ZOOM,
@@ -263,12 +263,12 @@ export function sceneInputsFrom(props: SceneWiringProps): SceneInputs {
       hiddenKeys,
       inspectedWayId: props.inspectedWayId,
     },
-    axis: axisStateFrom(props, tilesReady ? ROAD_TILE_SOURCE_LAYER : null),
+    axis: axisStateFrom(props, versions ? ROAD_TILE_SOURCE_LAYER : null),
     point: {
-      tiles: tilesReady
+      tiles: versions
         ? {
-            poi: [poiTileUrl()],
-            accident: [accidentTileUrl()],
+            poi: [poiTileUrl(versions)],
+            accident: [accidentTileUrl(versions)],
             poiSourceLayer: STOP_POI_SOURCE_LAYER,
             accidentSourceLayer: ACCIDENT_TILE_SOURCE_LAYER,
             minZoom: ROAD_TILE_MIN_ZOOM,

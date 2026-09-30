@@ -11,7 +11,7 @@ import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { axisCatalogFromResponse, EMPTY_CATALOG, type AxisCatalog } from "@/lib/axisCatalog";
-import { catalogEntry } from "@/testing/catalogAxes";
+import { catalogEntry, catalogResponse } from "@/testing/catalogAxes";
 import { DEFAULT_HARD_FILTERS } from "@/features/route/RouteSettingsPanel/HardFilterPanel";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import type { Coordinates } from "@/types/route";
@@ -26,10 +26,10 @@ const B: Coordinates = { latitude: 35.1, longitude: 139.1 };
 const C: Coordinates = { latitude: 35.2, longitude: 139.2 };
 
 const CATALOG: AxisCatalog = axisCatalogFromResponse(
-  [catalogEntry({ axis_id: "axis_a", default_weight: 0.3 }), catalogEntry({ axis_id: "axis_b", default_weight: 0.7 })],
-  {},
-  {},
-  [],
+  catalogResponse([
+    catalogEntry({ axis_id: "axis_a", default_weight: 0.3 }),
+    catalogEntry({ axis_id: "axis_b", default_weight: 0.7 }),
+  ]),
 );
 
 const onOriginPlace = vi.fn<(point: Coordinates) => void>();

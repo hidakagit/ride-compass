@@ -1,7 +1,8 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 
-import { catalogEntry, catalogOf, dedicatedEntry, rampEntry } from "@/testing/catalogAxes";
+import { mapCatalogOf } from "@/testing/mapAxisCatalog";
+import { catalogEntry, dedicatedEntry, rampEntry } from "@/testing/catalogAxes";
 import { pointLegendAxes } from "@/features/map/scene/legends";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 
@@ -20,13 +21,13 @@ import {
   type MapLayerDescriptor,
 } from "./mapLayers";
 
-const catalog = catalogOf([
+const catalog = mapCatalogOf([
   rampEntry("ramp_a", [10, 20], { raw_value_unit: "%", chip_label: "勾配" }),
   dedicatedEntry("dedicated_b", [1, 2]),
 ]);
 const withAxes = buildMapLayers({ ...catalog, accidentYears: [2021, 2019, 2020] });
-const withoutAxes = buildMapLayers(catalogOf([]));
-const withYears = (accidentYears: number[]) => buildMapLayers({ ...catalogOf([]), accidentYears });
+const withoutAxes = buildMapLayers(mapCatalogOf([]));
+const withYears = (accidentYears: number[]) => buildMapLayers({ ...mapCatalogOf([]), accidentYears });
 const layer = (layers: readonly MapLayerDescriptor[], id: string) => layers.find((entry) => entry.id === id)!;
 const staticLayerIds: readonly string[] = mapDisplay.layers.map((entry) => entry.id);
 
@@ -74,7 +75,7 @@ describe("buildMapLayers（レイヤーの一覧）", () => {
 
   it("説明は、そのレイヤーの元データを材料に持つ公開中の評価を名前で挙げ、無ければ評価に触れない", () => {
     const axes = buildMapLayers(
-      catalogOf([
+      mapCatalogOf([
         catalogEntry({ axis_id: "night", label: "暗さ", primary_attribute_ids: ["lit", "tunnel"] }),
         catalogEntry({ axis_id: "stops", label: "止まりやすさ", primary_attribute_ids: ["stop_poi"] }),
         catalogEntry({ axis_id: "wind", label: "向かい風", weather_layer_groups: ["windVector"] }),
@@ -90,7 +91,7 @@ describe("buildMapLayers（レイヤーの一覧）", () => {
 
   it("ルートの説明は、レンズで選べる色分け（公開中の評価と総合難易度）を並べる", () => {
     const axes = buildMapLayers(
-      catalogOf([catalogEntry({ axis_id: "a", label: "坂" }), catalogEntry({ axis_id: "b", label: "風" })]),
+      mapCatalogOf([catalogEntry({ axis_id: "a", label: "坂" }), catalogEntry({ axis_id: "b", label: "風" })]),
     );
     expect(layer(axes, "route").description).toContain("[坂・風・総合難易度]");
     expect(layer(withoutAxes, "route").description).toContain("[総合難易度]");

@@ -47,7 +47,7 @@ import type RouteSettingsPanel from "@/features/route/RouteSettingsPanel/RouteSe
 import { generateRoutes } from "@/features/route/routeApi";
 import { SPLICED_ROUTE_ID_PREFIX } from "@/features/route/routeTabLabel";
 import { axisCatalogFromResponse, CLIENT_TUNING_IDS, EMPTY_CATALOG, type AxisCatalog } from "@/lib/axisCatalog";
-import { catalogEntry } from "@/testing/catalogAxes";
+import { catalogEntry, catalogResponse } from "@/testing/catalogAxes";
 import { LENS_DIFFICULTY_ID } from "@/lib/mapDisplay/routeStyleModes";
 import { setResearchEnabled } from "@/lib/researchMode";
 import { makeRouteCandidate } from "@/testing/routeFixtures";
@@ -135,7 +135,9 @@ const HERE: Coordinates = { latitude: 35, longitude: 139 };
 const NEAR: Coordinates = { latitude: 35.1, longitude: 139 };
 
 const catalogWith = (clientTuning: Record<string, number>): AxisCatalog =>
-  axisCatalogFromResponse([catalogEntry({ axis_id: "axis_a", default_weight: 1 })], {}, clientTuning, []);
+  axisCatalogFromResponse(
+    catalogResponse([catalogEntry({ axis_id: "axis_a", default_weight: 1 })], { client_tuning: clientTuning }),
+  );
 const SPLICE_TUNING = { [CLIENT_TUNING_IDS.minStretchKm]: 0.2 };
 
 function conditionsOf(overrides: Partial<GenerationConditions> = {}): GenerationConditions {
