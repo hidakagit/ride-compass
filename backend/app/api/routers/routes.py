@@ -1,11 +1,12 @@
 import asyncio
 import logging
 import math
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Annotated, Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import Field, RootModel, field_validator, model_validator
+from pydantic import Field, PrivateAttr, RootModel, field_validator, model_validator
 
 from app.domain.time_zone import JST
 from app.api.dependencies import (
@@ -14,7 +15,6 @@ from app.api.dependencies import (
 )
 from app.api.rate_limit import client_id, enforce_rate_limit
 from app.config import settings
-from app.domain.errors import RoutingError
 from app.domain.hard_filters import HARD_FILTER_NAMES
 from app.domain.route_preference import RoutePreference, check_axis_weights, published_axis_ids
 from app.domain.route_request import (
@@ -100,11 +100,40 @@ class HardFilterOverride(RootModel[dict[str, bool]]):
         return cls({name: name in active for name in sorted(HARD_FILTER_NAMES)})
 
 
+@dataclass(frozen=True)
+class LoopTarget:
+    """起点へ戻る周回候補を、目標距離で探す。"""
+
+    distance_km: float
+
+
+@dataclass(frozen=True)
+class WaypointsTarget:
+    """経由地・目的地を通る1本を探す。`distance_km`は置いた点から決めた探索の範囲。"""
+
+    distance_km: float
+    waypoints: list[Coordinates]
+    destination: Coordinates | None
+
+
+@dataclass(frozen=True)
+class SplicedTarget:
+    """区間を差し替えて組み立てた経路を、探索せずに評価する。目的地ルートだけが対象。"""
+
+    distance_km: float
+    destination: Coordinates
+    edge_ids: tuple[str, *tuple[str, ...]]
+
+
+# 検証を通った要求が何を生成するか。生成ジョブはこれだけを見て分岐する。
+RouteTarget = LoopTarget | WaypointsTarget | SplicedTarget
+
+
 class RouteGenerateRequest(StrictModel):
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
     # 周回の目標距離。経由地・目的地を置いたときは探索の範囲になり、置いた点からbackendが決める
-    # （`_resolve_distance`。送られた値は使わない）ため省略できる。
+    # （`_resolve_target`。送られた値は使わない）ため省略できる。
     distance_km: float | None = Field(default=None, gt=0, le=MAX_ROUTE_DISTANCE_KM)
     distance_tolerance_km: float = Field(gt=0, le=MAX_DISTANCE_TOLERANCE_KM, default=DEFAULT_DISTANCE_TOLERANCE_KM)
     route_type: Literal["loop"] = "loop"
@@ -170,35 +199,43 @@ class RouteGenerateRequest(StrictModel):
             check_spliced_edge_count(len(value))
         return value
 
-    @model_validator(mode="after")
-    def _check_spliced_route_has_a_destination(self) -> "RouteGenerateRequest":
-        # 合成の対象は目的地ルートだけ（周回は起点へ戻る制約があり、途中で別候補へ
-        # 乗り換えると戻れる保証が無くなる）。
-        if self.spliced_edge_ids and self.destination is None:
-            raise ValueError("spliced_edge_ids requires destination")
-        return self
+    _target: RouteTarget = PrivateAttr()
 
     @model_validator(mode="after")
-    def _resolve_distance(self) -> "RouteGenerateRequest":
+    def _resolve_target(self) -> "RouteGenerateRequest":
         # 経由地・目的地を置いたときの距離は探索の範囲と「点が遠すぎないか」の検査に使う値で、最も遠い点より
         # 必ず長くする。周回では距離が目標そのものなので送られた値が要る。
         points = [*(self.waypoints or []), *([self.destination] if self.destination else [])]
         if not points:
+            if self.spliced_edge_ids:
+                raise ValueError("spliced_edge_ids requires destination")
             if self.distance_km is None:
                 raise ValueError("distance_km is required without waypoints/destination")
+            self._target = LoopTarget(distance_km=self.distance_km)
             return self
         origin = Coordinates(latitude=self.latitude, longitude=self.longitude)
         farthest_km = max(haversine_distance_km(origin, point) for point in points)
         check_point_distance(farthest_km)
-        self.distance_km = min(MAX_ROUTE_DISTANCE_KM, math.ceil(farthest_km) + 1)
+        distance_km = min(MAX_ROUTE_DISTANCE_KM, math.ceil(farthest_km) + 1)
+        if self.spliced_edge_ids:
+            # 合成の対象は目的地ルートだけ（周回は起点へ戻る制約があり、途中で別候補へ
+            # 乗り換えると戻れる保証が無くなる）。
+            if self.destination is None:
+                raise ValueError("spliced_edge_ids requires destination")
+            first, *rest = self.spliced_edge_ids
+            self._target = SplicedTarget(
+                distance_km=distance_km, destination=self.destination, edge_ids=(first, *rest)
+            )
+        else:
+            self._target = WaypointsTarget(
+                distance_km=distance_km, waypoints=self.waypoints or [], destination=self.destination
+            )
         return self
 
     @property
-    def resolved_distance_km(self) -> float:
-        """`_resolve_distance`を通った距離（周回は目標距離、経由地・目的地は探索の範囲）。"""
-        if self.distance_km is None:
-            raise RoutingError("distance_km was not resolved")
-        return self.distance_km
+    def target(self) -> RouteTarget:
+        """検証を通った要求が何を生成するか（周回・経由地と目的地・差し替えた経路）。"""
+        return self._target
 
 
 def _resolve_start_time(value: datetime | None) -> datetime:
@@ -373,30 +410,28 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest, open_set
             origin = Coordinates(latitude=request.latitude, longitude=request.longitude)
             start_time = _resolve_start_time(request.start_time)
             max_routes = applied_max_routes(request.max_routes, has_waypoints=bool(request.waypoints))
-            if request.spliced_edge_ids:
-                if request.destination is None:
-                    # 要求の検証（`_check_spliced_route_has_a_destination`）を通った要求では起きない。
-                    raise RoutingError("spliced_edge_ids requires destination")
+            target = request.target
+            if isinstance(target, SplicedTarget):
                 candidates = await setup.generator.generate_spliced_route(
                     origin=origin,
-                    destination=request.destination,
-                    distance_km=request.resolved_distance_km,
-                    edge_ids=request.spliced_edge_ids,
+                    destination=target.destination,
+                    distance_km=target.distance_km,
+                    edge_ids=target.edge_ids,
                     start_time=start_time,
                 )
-            elif request.waypoints or request.destination:
+            elif isinstance(target, WaypointsTarget):
                 candidates = await setup.generator.generate_via_waypoints(
                     origin=origin,
-                    waypoints=request.waypoints or [],
-                    distance_km=request.resolved_distance_km,
-                    destination=request.destination,
+                    waypoints=target.waypoints,
+                    distance_km=target.distance_km,
+                    destination=target.destination,
                     max_routes=max_routes,
                     start_time=start_time,
                 )
             else:
                 candidates = await setup.generator.generate_loops(
                     origin=origin,
-                    distance_km=request.resolved_distance_km,
+                    distance_km=target.distance_km,
                     distance_tolerance_km=request.distance_tolerance_km,
                     max_routes=max_routes,
                     start_time=start_time,
@@ -407,7 +442,7 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest, open_set
                 conditions=GenerationConditions(
                     latitude=request.latitude,
                     longitude=request.longitude,
-                    distance_km=request.resolved_distance_km,
+                    distance_km=target.distance_km,
                     distance_tolerance_km=request.distance_tolerance_km,
                     route_preference=RoutePreferenceWeights(setup.route_preference.weights),
                     penalty_strength=setup.penalty_strength,

@@ -2,12 +2,20 @@
 
 サービスは自分が担当する材料（`material_ids`）だけを宣言し、軸との対応は軸定義が参照する
 材料から引く。材料idが材料カタログの既知材料であること、組み立てたサービスがその材料の値を
-返すこと、1つの材料を2つのサービスが担当していないことを、登録済みの全サービスに対して確かめる。
+返すこと、受け取る条件を要求から組み立てられること、1つの材料を2つのサービスが担当していないことを、
+登録済みの全サービスに対して確かめる。
 """
+
+from dataclasses import fields
 
 import pytest
 
-from app.services.dedicated_way_values import _DEDICATED_WAY_VALUE_SERVICE_FACTORIES, _factories_by_material
+from app.domain.dynamic_way_values import WayValueQuery
+from app.services.dedicated_way_values import (
+    _DEDICATED_WAY_VALUE_SERVICE_FACTORIES,
+    _DEDICATED_WAY_VALUE_SERVICES,
+    _factories_by_material,
+)
 from app.domain.material_catalog import is_known_material
 from app.services.weather_service import WeatherService
 
@@ -20,6 +28,14 @@ def test_every_service_material_id_is_a_known_material():
         service = factory(object(), weather_service)
         assert service.material_id == material_id
         assert is_known_material(material_id)
+
+
+def test_every_service_takes_only_conditions_the_request_carries():
+    """条件の欄は要求（`WayValueQuery`）の同じ名前の欄から組み立てる（`assemble_conditions`）。
+    要求に無い名前の欄を持つと、その材料の配信は毎回組み立てで落ちる。"""
+    carried = {field.name for field in fields(WayValueQuery)}
+    for service in _DEDICATED_WAY_VALUE_SERVICES:
+        assert {field.name for field in fields(service.conditions_type)} <= carried, service
 
 
 def test_two_services_for_one_material_fail_at_registration():

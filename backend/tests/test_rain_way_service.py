@@ -10,7 +10,7 @@ import pytest
 
 from app.domain.rain import HOURS_SINCE_RAIN, RAIN_HISTORY_HOURS, rain_window_material_id
 from app.infrastructure.road_graph_repository import RoadGraphRepository
-from app.services.rain_way_service import RainWayService
+from app.services.rain_way_service import RainConditions, RainWayService
 from tests import rain_history_fake
 
 Z, X, Y = 14, 14551, 6447
@@ -47,7 +47,7 @@ async def test_each_road_takes_the_value_of_its_nearest_rain_gauge(monkeypatch, 
     await _observe(monkeypatch, {"44132": 2.0, "46106": 0.5})
     repository = FakeMidpointsRepository({"tokyo": (35.68, 139.77), "yokohama": (35.45, 139.64)})
 
-    values = await RainWayService(repository, rain_window_material_id(3)).get_way_values(Z, X, Y, None, None, None)
+    values = await RainWayService(repository, rain_window_material_id(3)).get_way_values(Z, X, Y, RainConditions())
 
     assert values == {"tokyo": 6.0, "yokohama": 1.5}
 
@@ -57,7 +57,7 @@ async def test_a_gauge_with_a_missing_reading_leaves_its_roads_without_a_value(m
     await _observe(monkeypatch, {"44132": None, "46106": 0.0})
     repository = FakeMidpointsRepository({"tokyo": (35.68, 139.77), "yokohama": (35.45, 139.64)})
 
-    values = await RainWayService(repository, HOURS_SINCE_RAIN).get_way_values(Z, X, Y, None, None, None)
+    values = await RainWayService(repository, HOURS_SINCE_RAIN).get_way_values(Z, X, Y, RainConditions())
 
     assert values == {"yokohama": float(RAIN_HISTORY_HOURS)}
 
@@ -65,12 +65,11 @@ async def test_a_gauge_with_a_missing_reading_leaves_its_roads_without_a_value(m
 async def test_no_history_yet_gives_no_values(empty_rain_history):
     repository = FakeMidpointsRepository({"tokyo": (35.68, 139.77)})
 
-    assert await RainWayService(repository, rain_window_material_id(1)).get_way_values(Z, X, Y, None, None, None) == {}
+    assert await RainWayService(repository, rain_window_material_id(1)).get_way_values(Z, X, Y, RainConditions()) == {}
 
 
 async def test_outside_the_imported_area_gives_no_values(monkeypatch, empty_rain_history):
     await _observe(monkeypatch, {"44132": 2.0})
 
-    assert await RainWayService(FakeMidpointsRepository(None), rain_window_material_id(1)).get_way_values(
-        Z, X, Y, None, None, None
-    ) == {}
+    service = RainWayService(FakeMidpointsRepository(None), rain_window_material_id(1))
+    assert await service.get_way_values(Z, X, Y, RainConditions()) == {}

@@ -21,7 +21,7 @@ from app.infrastructure import msm_client
 from app.infrastructure.msm_client import MsmSeries, MsmUnavailableError
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.weather_service import WeatherService
-from app.services.wind_way_service import WindWayService
+from app.services.wind_way_service import WindConditions, WindWayService
 
 # 東京駅付近のz14タイル（緯度35.67〜35.69・経度139.71〜139.74あたり）
 Z, X, Y = 14, 14551, 6447
@@ -86,28 +86,21 @@ def _service(repository) -> WindWayService:
     return WindWayService(repository=repository, weather_service=WeatherService())
 
 
-# 型が`float | None`なのは呼び出し口の形を揃えるためで、Noneのまま計算へ進ませない。
-async def test_bearing_deg_none_raises_value_error():
-    with pytest.raises(ValueError, match="bearing_deg"):
-        await _service(FakeMidpointsRepository(None)).get_way_values(Z, X, Y, AT, None, SPEED_KMH)
-
-
-async def test_speed_kmh_none_raises_value_error():
-    with pytest.raises(ValueError, match="speed_kmh"):
-        await _service(FakeMidpointsRepository(None)).get_way_values(Z, X, Y, AT, 0.0, None)
+def _conditions(bearing_deg: float = 0.0, speed_kmh: float = SPEED_KMH, at: datetime | None = AT) -> WindConditions:
+    return WindConditions(bearing_deg=bearing_deg, speed_kmh=speed_kmh, at=at)
 
 
 async def test_uncovered_tile_returns_empty_dict_without_reading_the_forecast(monkeypatch):
     asked = _patch_msm(monkeypatch)
 
-    assert await _service(FakeMidpointsRepository(None)).get_way_values(Z, X, Y, AT, 0.0, SPEED_KMH) == {}
+    assert await _service(FakeMidpointsRepository(None)).get_way_values(Z, X, Y, _conditions()) == {}
     assert asked == []
 
 
 async def test_covered_but_no_ways_returns_empty_dict(monkeypatch):
     _patch_msm(monkeypatch)
 
-    assert await _service(FakeMidpointsRepository({})).get_way_values(Z, X, Y, AT, 0.0, SPEED_KMH) == {}
+    assert await _service(FakeMidpointsRepository({})).get_way_values(Z, X, Y, _conditions()) == {}
 
 
 async def test_each_way_takes_the_wind_of_the_grid_point_nearest_its_middle(monkeypatch):
@@ -120,7 +113,7 @@ async def test_each_way_takes_the_wind_of_the_grid_point_nearest_its_middle(monk
         "3": (35.60, 139.80),       # タイルの外 → (35.60, 139.8125)
     })
 
-    result = await _service(repository).get_way_values(Z, X, Y, AT, 45.0, 25.0)
+    result = await _service(repository).get_way_values(Z, X, Y, _conditions(bearing_deg=45.0, speed_kmh=25.0))
 
     assert result == {
         "1": _expected(35.65, 139.6875, 1, 45.0, 25.0),
@@ -134,7 +127,7 @@ async def test_the_forecast_hour_nearest_the_chosen_time_is_used(monkeypatch):
     _patch_msm(monkeypatch)
     repository = FakeMidpointsRepository({"1": (35.674, 139.713)})
 
-    result = await _service(repository).get_way_values(Z, X, Y, datetime(2026, 8, 30, 9, 40), 0.0, SPEED_KMH)
+    result = await _service(repository).get_way_values(Z, X, Y, _conditions(at=datetime(2026, 8, 30, 9, 40)))
 
     assert result == {"1": _expected(35.65, 139.6875, 2, 0.0, SPEED_KMH)}
 
@@ -145,7 +138,7 @@ async def test_a_time_outside_the_forecast_is_not_painted(monkeypatch, at):
     _patch_msm(monkeypatch)
     repository = FakeMidpointsRepository({"1": (35.674, 139.713)})
 
-    assert await _service(repository).get_way_values(Z, X, Y, at, 0.0, SPEED_KMH) == {}
+    assert await _service(repository).get_way_values(Z, X, Y, _conditions(at=at)) == {}
 
 
 async def test_utc_aware_at_is_read_as_jst(monkeypatch):
@@ -154,7 +147,7 @@ async def test_utc_aware_at_is_read_as_jst(monkeypatch):
     repository = FakeMidpointsRepository({"1": (35.674, 139.713)})
     at_utc = AT.replace(tzinfo=JST).astimezone(timezone.utc)
 
-    result = await _service(repository).get_way_values(Z, X, Y, at_utc, 0.0, SPEED_KMH)
+    result = await _service(repository).get_way_values(Z, X, Y, _conditions(at=at_utc))
 
     assert result == {"1": _expected(35.65, 139.6875, 1, 0.0, SPEED_KMH)}
 
@@ -165,7 +158,7 @@ async def test_at_none_defaults_to_now(monkeypatch):
     _patch_msm(monkeypatch, times)
     repository = FakeMidpointsRepository({"1": (35.674, 139.713)})
 
-    result = await _service(repository).get_way_values(Z, X, Y, None, 0.0, SPEED_KMH)
+    result = await _service(repository).get_way_values(Z, X, Y, _conditions(at=None))
 
     assert set(result) == {"1"}
 
@@ -176,8 +169,8 @@ async def test_second_call_reads_the_forecast_again(monkeypatch):
     repository = FakeMidpointsRepository({"1": (35.674, 139.713)})
     service = _service(repository)
 
-    first = await service.get_way_values(Z, X, Y, AT, 0.0, SPEED_KMH)
-    second = await service.get_way_values(Z, X, Y, AT, 0.0, SPEED_KMH)
+    first = await service.get_way_values(Z, X, Y, _conditions())
+    second = await service.get_way_values(Z, X, Y, _conditions())
 
     assert first == second
     assert len(repository.calls) == 2 and len(asked) == 2
@@ -190,13 +183,13 @@ async def test_forecast_unavailable_returns_empty_dict(monkeypatch):
     monkeypatch.setattr(msm_client, "read_series", unavailable)
     repository = FakeMidpointsRepository({"1": (35.674, 139.713)})
 
-    assert await _service(repository).get_way_values(Z, X, Y, AT, 0.0, SPEED_KMH) == {}
+    assert await _service(repository).get_way_values(Z, X, Y, _conditions()) == {}
 
 
 async def test_repository_error_returns_empty_dict():
     repository = FakeMidpointsRepository(None, error=ConnectionRefusedError("db down"))
 
-    assert await _service(repository).get_way_values(Z, X, Y, AT, 0.0, SPEED_KMH) == {}
+    assert await _service(repository).get_way_values(Z, X, Y, _conditions()) == {}
 
 
 async def test_an_implementation_error_is_not_turned_into_an_empty_result():
@@ -204,4 +197,4 @@ async def test_an_implementation_error_is_not_turned_into_an_empty_result():
     repository = FakeMidpointsRepository(None, error=TypeError("wrong arguments"))
 
     with pytest.raises(TypeError):
-        await _service(repository).get_way_values(Z, X, Y, AT, 0.0, SPEED_KMH)
+        await _service(repository).get_way_values(Z, X, Y, _conditions())

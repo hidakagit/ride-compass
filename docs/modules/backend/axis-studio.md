@@ -120,7 +120,7 @@
 | `display_thresholds_override` | list[float]\|None | 色分けしきい値の上書き |
 | `display_band_labels_override` | list[str]\|None | 段階ごとの体感ラベルの上書き（例:「強い向かい風」）。設定する場合は`display_thresholds_override`も設定済みで要素数が段階数（しきい値数+1）と一致すること |
 | `dedicated_way_value_layer` | bool | 専用のフィーチャー→値配信レイヤーを持つか |
-| `dynamic_way_value_needs_time`/`dynamic_way_value_needs_bearing`/`dynamic_way_value_needs_speed` | bool | `dedicated_way_value_layer=True`の軸のみ意味を持つ。`GET /api/region/dynamic-way-values/...`の`at`/`bearing_deg`/`speed_kmh`クエリパラメータ必須判定（[dynamic-way-values.md](dynamic-way-values.md)参照） |
+| `dynamic_way_value_needs_time`/`dynamic_way_value_needs_bearing`/`dynamic_way_value_needs_speed` | bool | `dedicated_way_value_layer=True`の軸のみ意味を持つ。地図が`GET /api/region/dynamic-way-values/...`へ`at`/`bearing_deg`/`speed_kmh`クエリパラメータを載せるか。必須かどうかは配信サービスの条件の型が決め、このフラグは見ない（[dynamic-way-values.md](dynamic-way-values.md)参照） |
 
 **表示に関するフィールドは、軸idの分岐をコードへ持たないための宣言**である。
 

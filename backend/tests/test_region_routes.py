@@ -18,6 +18,13 @@ from app.infrastructure.derived_data_meta import DataRevisions
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.tile_serving import TileResponse
 from app.domain.dynamic_way_values import transform_dedicated_way_values
+from app.domain.rain import rain_window_material_id
+from app.services import dedicated_way_values
+from app.services.dedicated_way_values import DirectionalMaterialService
+from app.services.gradient_way_service import GradientConditions
+from app.services.rain_way_service import RainConditions
+from app.services.weather_service import WeatherService
+from app.services.wind_way_service import WindConditions
 from app.main import app
 from app.api.routers import region as region_router
 from app.domain.landcover import LANDCOVER_TILE_MAX_ZOOM, LANDCOVER_TILE_MIN_ZOOM
@@ -292,6 +299,43 @@ def test_region_axis_inspector_passes_the_maps_direction_and_time_through():
     )
 
 
+# 地図の配信なら422になる欠けは、内訳ではその材料だけを「データなし」にする（同じ組み立てで判定する）。
+@pytest.mark.usefixtures("dedicated_axes")
+@pytest.mark.parametrize(
+    ("given", "found"),
+    [
+        ({}, {}),
+        ({"bearing_deg": 90.0}, {"gradient_percent": 2.0}),
+        ({"bearing_deg": 90.0, "speed_kmh": 20.0}, {"gradient_percent": 2.0, "wind_drag_ratio": 1.0}),
+    ],
+)
+def test_region_axis_inspector_leaves_out_materials_whose_conditions_are_missing(monkeypatch, given, found):
+    fake = FakeRegionService(axis_inspector_result=None)
+    app.dependency_overrides[get_region_service] = lambda: fake
+    app.dependency_overrides[get_directional_material_service] = lambda: DirectionalMaterialService(
+        object(), WeatherService()
+    )
+    for service in (
+        FakeDynamicWayValueService({"12345": 1.0}, "wind_drag_ratio", WindConditions),
+        FakeDynamicWayValueService({"12345": 2.0}, "gradient_percent", GradientConditions),
+    ):
+        monkeypatch.setitem(
+            dedicated_way_values._DEDICATED_WAY_VALUE_SERVICE_FACTORIES,
+            service.material_id,
+            lambda repository, weather_service, service=service: service,
+        )
+
+    try:
+        response = client.post(
+            "/api/region/axis-inspector", json={"osm_way_id": 12345, "z": 14, "x": 14551, "y": 6447, **given}
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert fake.last_axis_inspector_request[2] == found
+
+
 def test_region_axis_inspector_rate_limit_is_independent_from_road_surface_tile_rate_limit():
     app.dependency_overrides[get_region_service] = lambda: FakeRegionService()
 
@@ -308,17 +352,17 @@ def test_region_axis_inspector_rate_limit_is_independent_from_road_surface_tile_
 
 
 class FakeDynamicWayValueService:
-    """改善計画T405→T414→T423で材料id駆動へ汎用化: /api/region/dynamic-way-values/
-    {material_id}向けフェイク。風・勾配どちらのテストにも使う（get_way_valuesという
-    統一インターフェース、region.py参照）。"""
+    """DBを読む配信サービスの代役。受け取る条件の型は本物のサービスのものを渡す——要求から
+    何を組み立てるか（`assemble_conditions`）は本物を通したいため。"""
 
-    def __init__(self, values=None, material_id="gradient_percent"):
+    def __init__(self, values=None, material_id="gradient_percent", conditions_type=GradientConditions):
         self._values = values if values is not None else {}
         self.material_id = material_id
+        self.conditions_type = conditions_type
         self.last_request = None
 
-    async def get_way_values(self, z, x, y, at, bearing_deg, speed_kmh):
-        self.last_request = (z, x, y, at, bearing_deg, speed_kmh)
+    async def get_way_values(self, z, x, y, conditions):
+        self.last_request = (z, x, y, conditions)
         return self._values
 
 
@@ -365,16 +409,16 @@ def dedicated_axes():
 # 同じ関数へ通した結果と突き合わせる——見たいのは「エンドポイントがこの写像を通すか」。
 @pytest.mark.usefixtures("dedicated_axes")
 @pytest.mark.parametrize(
-    ("axis_id", "material_id", "speed_kmh"),
+    ("axis_id", "material_id", "speed_kmh", "conditions"),
     [
-        ("axis_way_value_scored", "wind_drag_ratio", 20.0),
-        ("axis_way_value_signed", "gradient_percent", None),
+        ("axis_way_value_scored", "wind_drag_ratio", 20.0, WindConditions(bearing_deg=90.0, speed_kmh=20.0)),
+        ("axis_way_value_signed", "gradient_percent", None, GradientConditions(bearing_deg=90.0)),
     ],
 )
-def test_region_dedicated_way_values_returns_map_values_json(axis_id, material_id, speed_kmh):
+def test_region_dedicated_way_values_returns_map_values_json(axis_id, material_id, speed_kmh, conditions):
     raw = {"1": 2.0, "2": -1.5}
     expected = transform_dedicated_way_values(AXIS_DEFINITIONS[axis_id], material_id, raw)
-    fake = FakeDynamicWayValueService(values=dict(raw), material_id=material_id)
+    fake = FakeDynamicWayValueService(values=dict(raw), material_id=material_id, conditions_type=type(conditions))
     app.dependency_overrides[get_dedicated_way_value_service] = lambda: fake
 
     params = {"bearing_deg": 90}
@@ -388,49 +432,49 @@ def test_region_dedicated_way_values_returns_map_values_json(axis_id, material_i
     assert response.status_code == 200
     # JSONのキーは常に文字列（intキーは自動的にstrへ変換される、Python標準のjson.dumps挙動）。
     assert response.json() == expected
-    assert fake.last_request == (14, 14551, 6447, None, 90.0, speed_kmh)
+    assert fake.last_request == (14, 14551, 6447, conditions)
 
 
 @pytest.mark.usefixtures("dedicated_axes")
-@pytest.mark.parametrize("material_id", ["axis_way_value_scored", "axis_way_value_signed"])
-def test_region_dedicated_way_values_requires_bearing_deg_query_param(material_id):
-    app.dependency_overrides[get_dedicated_way_value_service] = lambda: FakeDynamicWayValueService()
+@pytest.mark.parametrize(
+    ("axis_id", "material_id", "conditions_type"),
+    [
+        ("axis_way_value_scored", "wind_drag_ratio", WindConditions),
+        ("axis_way_value_signed", "gradient_percent", GradientConditions),
+    ],
+)
+def test_region_dedicated_way_values_requires_bearing_deg_query_param(axis_id, material_id, conditions_type):
+    fake = FakeDynamicWayValueService(material_id=material_id, conditions_type=conditions_type)
+    app.dependency_overrides[get_dedicated_way_value_service] = lambda: fake
 
     try:
-        response = client.get(f"/api/region/dynamic-way-values/{material_id}/14/14551/6447")
+        response = client.get(f"/api/region/dynamic-way-values/{axis_id}/14/14551/6447", params={"speed_kmh": 20.0})
     finally:
         app.dependency_overrides.clear()
 
     assert response.status_code == 422
+    assert "bearing_deg" in response.json()["detail"]
+    assert fake.last_request is None
 
 
-# 改善計画T450: needs_bearing=Falseの材料は現状（wind/gradientともTrue）存在しないため、
-# この分岐（bearing_deg省略でも422にならない）が未テストのまま宣言されていた。改善計画
-# T458: dedicated_way_value_axes()はAXIS_DEFINITIONSから毎回導出する関数になった
-# （固定dictではないためmonkeypatch.setitemで直接差し込めない）ため、region.py側が
-# 読むAXIS_DEFINITIONS自体へダミー軸をmonkeypatchで差し込む。
-def test_region_dedicated_way_values_needs_bearing_false_does_not_require_bearing_deg(monkeypatch):
-    dummy_axis = axis_definition(
-        "dummy_no_bearing",
-        material="gradient_percent",
-        dedicated_way_value_layer=True,
-        dynamic_way_value_needs_time=False,
-        dynamic_way_value_needs_bearing=False,
+def test_region_dedicated_way_values_serves_a_material_that_needs_no_conditions_without_query_params(monkeypatch):
+    material = rain_window_material_id(1)
+    monkeypatch.setitem(
+        AXIS_DEFINITIONS, "dummy_rain", axis_definition("dummy_rain", material=material, dedicated_way_value_layer=True)
     )
-    monkeypatch.setitem(AXIS_DEFINITIONS, "dummy_no_bearing", dummy_axis)
-    fake = FakeDynamicWayValueService(values={"1": 1.0})
+    fake = FakeDynamicWayValueService(values={"1": 1.0}, material_id=material, conditions_type=RainConditions)
     app.dependency_overrides[get_dedicated_way_value_service] = lambda: fake
 
     try:
-        response = client.get("/api/region/dynamic-way-values/dummy_no_bearing/14/14551/6447")
+        response = client.get("/api/region/dynamic-way-values/dummy_rain/14/14551/6447")
     finally:
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
-    assert fake.last_request == (14, 14551, 6447, None, None, None)
+    assert fake.last_request == (14, 14551, 6447, RainConditions())
 
 
-def test_region_dedicated_way_values_needs_speed_requires_speed_kmh_and_passes_it(monkeypatch):
+def test_region_dedicated_way_values_requires_speed_kmh_when_the_service_needs_it_and_passes_it(monkeypatch):
     dummy_axis = AxisDefinition(
         axis_id="dummy_needs_speed",
         shape=BreakpointLinearShape(terms=[MaterialTerm(material="wind_drag_ratio")], breakpoints=[(0.0, 0.0), (5.0, 100.0)]),
@@ -441,7 +485,7 @@ def test_region_dedicated_way_values_needs_speed_requires_speed_kmh_and_passes_i
         dynamic_way_value_needs_speed=True,
     )
     monkeypatch.setitem(AXIS_DEFINITIONS, "dummy_needs_speed", dummy_axis)
-    fake = FakeDynamicWayValueService(values={"1": 2.5}, material_id="wind_drag_ratio")
+    fake = FakeDynamicWayValueService(values={"1": 2.5}, material_id="wind_drag_ratio", conditions_type=WindConditions)
     app.dependency_overrides[get_dedicated_way_value_service] = lambda: fake
 
     try:
@@ -453,9 +497,10 @@ def test_region_dedicated_way_values_needs_speed_requires_speed_kmh_and_passes_i
         app.dependency_overrides.clear()
 
     assert missing.status_code == 422
+    assert "speed_kmh" in missing.json()["detail"]
     assert ok.status_code == 200
     assert ok.json() == {"1": 50.0}
-    assert fake.last_request == (14, 14551, 6447, None, 0.0, 25.0)
+    assert fake.last_request == (14, 14551, 6447, WindConditions(bearing_deg=0.0, speed_kmh=25.0))
 
 
 def test_region_dedicated_way_values_unknown_axis_id_returns_404():
@@ -495,7 +540,7 @@ def test_region_dedicated_way_values_resolves_the_service_by_the_axis_material(m
 
 @pytest.mark.usefixtures("dedicated_axes")
 def test_region_dedicated_way_values_wind_passes_at_query_param():
-    fake = FakeDynamicWayValueService()
+    fake = FakeDynamicWayValueService(material_id="wind_drag_ratio", conditions_type=WindConditions)
     app.dependency_overrides[get_dedicated_way_value_service] = lambda: fake
 
     try:
@@ -507,12 +552,12 @@ def test_region_dedicated_way_values_wind_passes_at_query_param():
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
-    assert fake.last_request[3].isoformat() == "2026-08-30T09:00:00"
+    assert fake.last_request[3].at.isoformat() == "2026-08-30T09:00:00"
 
 
 @pytest.mark.usefixtures("dedicated_axes")
 def test_region_dedicated_way_values_gradient_does_not_require_at_query_param():
-    # 勾配は時刻に依存しないため、atを省略しても200（wind同様Noneが渡るだけ）。
+    # 勾配は時刻に依存しないため、atを省略しても200。
     fake = FakeDynamicWayValueService()
     app.dependency_overrides[get_dedicated_way_value_service] = lambda: fake
 
@@ -522,7 +567,7 @@ def test_region_dedicated_way_values_gradient_does_not_require_at_query_param():
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
-    assert fake.last_request == (14, 14551, 6447, None, 0.0, None)
+    assert fake.last_request == (14, 14551, 6447, GradientConditions(bearing_deg=0.0))
 
 
 @pytest.mark.usefixtures("dedicated_axes")

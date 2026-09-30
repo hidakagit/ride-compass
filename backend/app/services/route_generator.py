@@ -374,7 +374,7 @@ class RouteGenerator:
         origin: Coordinates,
         destination: Coordinates,
         distance_km: float,
-        edge_ids: list[str],
+        edge_ids: tuple[str, *tuple[str, ...]],
         start_time: datetime,
     ) -> list[RouteCandidate]:
         """クライアントが区間を差し替えて組み立てた経路を、既存候補と同じ経路で評価し直す。
@@ -401,7 +401,7 @@ class RouteGenerator:
         try:
             traced = self._engine.build_traced_from_edge_ids(context, edge_ids, destination)
         except RoutingError as exc:
-            # 経路の形が受け取れない（空・未知のEdge・つながっていない・起点や終点が違う）。
+            # 経路の形が受け取れない（未知のEdge・つながっていない・起点や終点が違う）。
             # **利用者へ届く理由を捨てない**——ここで素通しすると、呼び出し元の汎用catchが
             # 「ルート生成に失敗しました」に潰し、画面からは原因が分からなくなる。
             # 例外の本文は内部の識別子（node id・edge id）を含むためそのまま出さず、

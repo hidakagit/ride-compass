@@ -1118,7 +1118,7 @@ class RoadGraphEngine:
         return TracedLoop(bearing=turnaround.bearing, distance_km=distance_km, data=path, leg_of_edge=leg_of_edge)
 
     def build_traced_from_edge_ids(
-        self, context: _RoadGraphContext, edge_ids: list[str], destination: Coordinates | None,
+        self, context: _RoadGraphContext, edge_ids: tuple[str, *tuple[str, ...]], destination: Coordinates,
     ) -> TracedLoop:
         """クライアントが組み立てたEdge id列を、評価できる経路として検証して`TracedLoop`にする。
 
@@ -1127,10 +1127,9 @@ class RoadGraphEngine:
         起点から始まり・目的地へ着く**ことをここで確かめる（送られた列をそのまま信じると、
         評価は成功するのに経路として成立しないルートが候補一覧へ並ぶ）。
 
-        終点は`destination`を渡したときだけ見る。起点と同じ`find_nearest_node_indexed`で
-        解くため、比べる相手は元の候補が実際に終わったNodeになる——目的地がメインの
-        道路網から孤立していて補正した場合も、補正後の地点が条件として返っており、合成も
-        その地点で送られてくる。
+        終点は起点と同じ`find_nearest_node_indexed`で解くため、比べる相手は元の候補が
+        実際に終わったNodeになる——目的地がメインの道路網から孤立していて補正した場合も、
+        補正後の地点が条件として返っており、合成もその地点で送られてくる。
 
         レグはこの経路自身の距離の半分で切る。合成経路はvia-nodeを持たないため前向き木・
         後ろ向き木の境目が無く、レグが表す「走り始めの時刻帯／走り終わりの時刻帯」の
@@ -1138,8 +1137,6 @@ class RoadGraphEngine:
         `context.legs`へ用意する**——`prepare`が作るのは往路レグだけで、復路レグは探索
         （折返し点の選定・経由Nodeの選定）が作る。合成経路はどちらの探索も通らない。
         """
-        if not edge_ids:
-            raise RoutingError("経路が空です")
         resolved = [_lazy_index_of(context, edge_id) for edge_id in edge_ids]
         unknown = [edge_id for edge_id, index in zip(edge_ids, resolved, strict=True) if index is None]
         if unknown:
@@ -1161,13 +1158,12 @@ class RoadGraphEngine:
                     f"経路がつながっていません index={index} to_node={_node_key_of(context.road, head)} "
                     f"next_from_node={_node_key_of(context.road, following_tail)}"
                 )
-        if destination is not None:
-            destination_node = find_nearest_node_indexed(context.node_index, destination)
-            if destination_node is not None and heads[-1] != destination_node:
-                raise RoutingError(
-                    f"経路が目的地に着いていません expected={_node_key_of(context.road, destination_node)} "
-                    f"actual={_node_key_of(context.road, heads[-1])}"
-                )
+        destination_node = find_nearest_node_indexed(context.node_index, destination)
+        if destination_node is not None and heads[-1] != destination_node:
+            raise RoutingError(
+                f"経路が目的地に着いていません expected={_node_key_of(context.road, destination_node)} "
+                f"actual={_node_key_of(context.road, heads[-1])}"
+            )
 
         lengths = context.statics.edge_length_m[path].tolist()
         total_m = sum(lengths)

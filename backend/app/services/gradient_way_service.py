@@ -4,7 +4,7 @@
 そのため**鍵ごとに異なる値**を返す——タイル単位のスカラー1個へ縮められない。
 """
 
-from datetime import datetime
+from dataclasses import dataclass
 
 from app.domain.gradient import LENS_PERPENDICULAR_BAND_DEG, GradientCalculator
 from app.domain.material_catalog import GRADIENT_PERCENT
@@ -34,10 +34,18 @@ GRADIENT_VALUE_SHAPE = cache_identity(
 )
 
 
+@dataclass(frozen=True)
+class GradientConditions:
+    """勾配の値に要る条件。勾配は時刻にも速度にも依らない。"""
+
+    bearing_deg: float
+
+
 class GradientWayService:
     #: 返す生値の材料id。この材料を参照する軸の配信を担当し、キャッシュの名前空間にもなる。
     material_id = GRADIENT_PERCENT
     material_ids = (GRADIENT_PERCENT,)
+    conditions_type = GradientConditions
 
     def __init__(self, repository: RoadGraphRepository):
         self._repository = repository
@@ -47,19 +55,12 @@ class GradientWayService:
         """登録テーブルから呼ぶための統一シグネチャ。勾配は天候を要らず、材料は1つだけ。"""
         return cls(repository=repository)
 
-    async def get_way_values(
-        self, z: int, x: int, y: int, at: datetime | None, bearing_deg: float | None, speed_kmh: float | None
-    ) -> dict[str, float]:
+    async def get_way_values(self, z: int, x: int, y: int, conditions: GradientConditions) -> dict[str, float]:
         """指定タイル内のフィーチャーごとの実効勾配（正=登り・負=下り）を返す。
 
         取込範囲外・DB障害はいずれも空dictへ倒す。
-
-        `at`・`speed_kmh`は材料非依存な呼び出し口と形を揃えるためだけに受け取り、勾配の
-        計算には使わない。`bearing_deg`も同じ理由で`float | None`だが、勾配はこれが無いと
-        計算できないため、Noneのまま到達したら即座に失敗させる（無音で進めない）。
         """
-        if bearing_deg is None:
-            raise ValueError("GradientWayService.get_way_valuesにはbearing_degが必須です")
+        bearing_deg = conditions.bearing_deg
         bbox = tile_bounds_lonlat(z, x, y)
 
         with log_external_call("region:gradient-way-values", z=z, x=x, y=y) as fields:

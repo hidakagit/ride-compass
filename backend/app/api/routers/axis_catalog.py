@@ -177,8 +177,8 @@ class AxisCatalogEntry(StrictModel):
     # 絶対の事実を出す。単位が定まる軸（`raw_value_unit`が非null）は分解せず空配列。
     # 並びは正規化重みの降順で、フロントは先頭から順に出す（並べ替えを持たない）。
     material_breakdown: list[AxisMaterialBreakdownEntry]
-    # 専用way値配信（`GET /api/region/dynamic-way-values/{axis_id}`）がこの軸について
-    # 必要とするクエリパラメータの宣言（domain/axis_definitions.py:
+    # 専用way値配信（`GET /api/region/dynamic-way-values/{axis_id}`）へ地図がこの軸について
+    # 載せるクエリパラメータの宣言（domain/axis_definitions.py:
     # AxisDefinition.dynamic_way_value_needs_time / _needs_bearing / _needs_speed）。
     # `dedicated_way_value_layer=false`の軸では意味を持たない。受け取る側が「どの軸の取得に
     # 時刻・向き・想定速度を添えるか」を、axis_idで分岐せずこの宣言から決めるために配る。

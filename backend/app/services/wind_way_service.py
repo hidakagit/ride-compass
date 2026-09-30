@@ -8,6 +8,7 @@
 制御フローの詳細はdocs/modules/backend/dynamic-way-values.md「`WindWayService`」節参照。
 """
 
+from dataclasses import dataclass
 from datetime import datetime
 
 import numpy as np
@@ -25,6 +26,15 @@ from app.services.weather_service import WeatherService
 _CATEGORY = "region:wind-way-penalty"
 
 
+@dataclass(frozen=True)
+class WindConditions:
+    """風の値に要る条件。時刻を省略すると今の風。"""
+
+    bearing_deg: float
+    speed_kmh: float
+    at: datetime | None = None
+
+
 class WindWayService:
     def __init__(self, repository: RoadGraphRepository, weather_service: WeatherService):
         self._repository = repository
@@ -33,30 +43,21 @@ class WindWayService:
     #: 返す生値の材料id。この材料を参照する軸の配信を担当する。
     material_id = WIND_DRAG_RATIO
     material_ids = (WIND_DRAG_RATIO,)
+    conditions_type = WindConditions
 
     @classmethod
     def build(cls, repository: RoadGraphRepository, weather_service: WeatherService, material_id: str) -> "WindWayService":
         """登録テーブルから呼ぶための統一シグネチャ。依存の要否はサービスごとに違い、風の材料は1つだけ。"""
         return cls(repository=repository, weather_service=weather_service)
 
-    async def get_way_values(
-        self, z: int, x: int, y: int, at: datetime | None, bearing_deg: float | None, speed_kmh: float | None
-    ) -> dict[str, float]:
+    async def get_way_values(self, z: int, x: int, y: int, conditions: WindConditions) -> dict[str, float]:
         """指定タイル内のフィーチャーごとの風の材料値を返す。
 
         取込範囲外・風データ取得不能・予報の範囲の外の時刻はいずれも空dictへ倒し、「この道路に
         色が付かない」という劣化で済ませる。
-
-        `bearing_deg`・`speed_kmh`は材料非依存な呼び出し口と形を揃えるため`float | None`だが、
-        風はどちらも無いと計算できない。Noneのまま到達したら即座に失敗させる
-        （router側の検証をすり抜けた場合の防御。無音でNoneを計算へ渡さない）。
         """
-        if bearing_deg is None:
-            raise ValueError("WindWayService.get_way_valuesにはbearing_degが必須です")
-        if speed_kmh is None:
-            raise ValueError("WindWayService.get_way_valuesにはspeed_kmhが必須です")
         # 予報の時刻はJSTのローカル時刻。tz付きの時刻はtzinfoを剥がすだけだと時差ぶんずれる。
-        target = at or datetime.now(JST)
+        target = conditions.at or datetime.now(JST)
         if target.tzinfo is not None:
             target = target.astimezone(JST).replace(tzinfo=None)
         bbox = tile_bounds_lonlat(z, x, y)
@@ -96,9 +97,9 @@ class WindWayService:
                 return {}
 
             context = DynamicAxisRequestContext(
-                bearing_deg=np.full(len(keys), bearing_deg, dtype=float),
+                bearing_deg=np.full(len(keys), conditions.bearing_deg, dtype=float),
                 weather=None,
-                travel_speed_ms=kmh_to_ms(speed_kmh),
+                travel_speed_ms=kmh_to_ms(conditions.speed_kmh),
                 wind_series=series,
                 start=target,
                 passage_hours=passage_hours,
