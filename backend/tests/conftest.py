@@ -11,6 +11,8 @@ from app.infrastructure.proj_data import pin_bundled_proj_data
 pin_bundled_proj_data()
 
 import asyncpg
+import fakeredis
+import freezegun
 import pytest
 import pytest_asyncio
 from sqlalchemy import text
@@ -44,6 +46,42 @@ def _closed_redis_circuit_breaker(monkeypatch):
     「クールダウン中」と誤判定されてしまう。
     """
     monkeypatch.setattr(redis_client, "_last_failure_at", None)
+
+
+@pytest.fixture
+def clock():
+    """時計を止める（freezegun）。`tick(秒)`で進めたぶんだけ進み、`move_to`でその時刻へ飛ぶ。
+
+    `time.time`・`time.monotonic`・`datetime.now`をまとめて止めるので、読む口がどれでも同じ時刻になる。
+    イベントループは実時間のまま（`real_asyncio`）——止めると`asyncio.sleep`が永遠に明けない。
+    止める時刻は秒の端数を持たせない。大きな時刻どうしの差で境界を見るテストが、端数の丸めで1刻み
+    ずれないため。
+
+    `ignore`はpytest自身の計時（`--durations`）を実時間に保つ。freezegunは呼び出し元から数段の
+    フレームのモジュール名で除外を判定するため、`_pytest`全体を除外すると、テスト関数から直接読んだ
+    時計まで（数段上にpytestのフレームがあるので）実時間になる。除外は計時を呼ぶ`_pytest.runner`だけにする。
+    """
+    with freezegun.freeze_time("2026-01-01 00:00:00", real_asyncio=True, ignore=["_pytest.runner"]) as frozen:
+        yield frozen
+
+
+@pytest.fixture
+def redis_server():
+    """Redisの代役（fakeredis）のサーバ。`connected = False`にすると、以後のコマンドが接続の失敗になる。
+
+    テストごとに作る——サーバを渡さずに作ったfakeredisのクライアントは同じ接続先どうしで中身を共有し、
+    前のテストが書いたキーが残る。
+    """
+    return fakeredis.FakeServer()
+
+
+@pytest.fixture
+def fake_redis(monkeypatch, redis_server):
+    """空のRedis。共有クライアント（`app/infrastructure/redis_client.py: _client`）をfakeredisへ差すので、
+    `get_redis_client_or_none`を読むどのモジュールからも同じものが見える。"""
+    fake = fakeredis.FakeAsyncRedis(server=redis_server, decode_responses=True)
+    monkeypatch.setattr(redis_client, "_client", fake)
+    return fake
 
 
 @pytest.fixture(autouse=True)

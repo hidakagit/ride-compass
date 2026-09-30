@@ -6,29 +6,12 @@
 - 障害時に利用側がどう劣化するか → `test_jma_tile_redis_cache.py`等、各利用側
 
 **実Redisへ繋がない。** `redis.from_url()`はクライアントを組み立てるだけで、接続は最初の
-コマンドまで張られない。クールダウンの経過は時計を差し替えて進める（待たない）。
+コマンドまで張られない。クールダウンの経過は止めた時計（`clock`）を進めて見る（待たない）。
 """
 
-import pytest
 
 from app.config import settings
 from app.infrastructure import redis_client
-
-
-class _Clock:
-    def __init__(self, now: float):
-        self.now = now
-
-    def monotonic(self) -> float:
-        return self.now
-
-
-@pytest.fixture
-def clock(monkeypatch):
-    """モジュールが読む時計。`now`へ代入すると、その時刻から見た判定になる。"""
-    fake = _Clock(1000.0)
-    monkeypatch.setattr(redis_client, "time", fake)
-    return fake
 
 
 def test_client_is_built_once_per_process(monkeypatch):
@@ -63,10 +46,10 @@ def test_cooldown_reopens_the_circuit_at_the_boundary(clock):
     redis_client.record_redis_failure()
     cooldown = redis_client._CIRCUIT_COOLDOWN_SECONDS
 
-    clock.now += cooldown - 0.1
+    clock.tick(cooldown - 0.1)
     assert not redis_client.redis_available()
 
-    clock.now += 0.1
+    clock.tick(0.1)
     assert redis_client.redis_available()
 
 

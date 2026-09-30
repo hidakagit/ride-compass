@@ -5,13 +5,15 @@
 
 from datetime import datetime
 
+import httpx
 import pytest
+import respx
 from cachetools import TTLCache
 
 from app.domain.route import Coordinates
 from app.infrastructure import wbgt_client
 from app.services.wbgt_service import WbgtService
-from tests.fake_api_http import FakeResponse, RoutingHttpClient
+from tests.fake_http import client_for
 
 POINT = Coordinates(latitude=35.6812, longitude=139.7671)
 SUMMER_NOW = datetime(2026, 8, 22, 15, 0, 0)
@@ -29,19 +31,23 @@ def _forecast(reference_time, forecast_time, forecast_val):
             "forecast_time": forecast_time, "flag": 0}
 
 
-def _service(monkeypatch, *, point_master=POINT_MASTER_CSV, forecast=None) -> tuple[WbgtService, RoutingHttpClient]:
+def _service(monkeypatch, *, point_master=POINT_MASTER_CSV, forecast=None) -> tuple[WbgtService, respx.Router]:
     """地点マスタはCSVのまま、予測は`{"status": "success", "data": forecast}`で返す（Noneなら接続の失敗）。"""
     monkeypatch.setattr(wbgt_client, "_point_master_cache", TTLCache(maxsize=1, ttl=60))
     monkeypatch.setattr(wbgt_client, "_forecast_cache", TTLCache(maxsize=8, ttl=60))
 
-    def route(url):
-        if url == wbgt_client.WBGT_POINT_MASTER_URL:
-            return None if point_master is None else FakeResponse(text=point_master)
-        assert url == wbgt_client.WBGT_FORECAST_API_URL
-        return None if forecast is None else FakeResponse({"status": "success", "data": forecast})
-
-    upstream = RoutingHttpClient(route)
-    return WbgtService(http_client=upstream), upstream
+    upstream = respx.Router()
+    master = upstream.get(wbgt_client.WBGT_POINT_MASTER_URL)
+    if point_master is None:
+        master.mock(side_effect=httpx.ConnectError)
+    else:
+        master.respond(text=point_master)
+    forecasts = upstream.get(wbgt_client.WBGT_FORECAST_API_URL)
+    if forecast is None:
+        forecasts.mock(side_effect=httpx.ConnectError)
+    else:
+        forecasts.respond(json={"status": "success", "data": forecast})
+    return WbgtService(http_client=client_for(upstream)), upstream
 
 
 @pytest.mark.parametrize("now", [WINTER_NOW, datetime(2026, 4, 10, 12, 0, 0), datetime(2026, 10, 28, 12, 0, 0)])
@@ -52,7 +58,7 @@ async def test_get_status_returns_empty_outside_provision_period(monkeypatch, no
     result = await service.get_status(POINT, now=now)
 
     assert result.level is None
-    assert upstream.requested_urls == []
+    assert not upstream.calls
 
 
 @pytest.mark.parametrize("failure", [

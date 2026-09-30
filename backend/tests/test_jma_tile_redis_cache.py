@@ -5,49 +5,20 @@
 - 時刻一覧とタイルの振り分け・上流フェッチ → `test_jma_tile_client.py`
 - サーキットブレーカーの開閉そのもの → `test_redis_client.py`
 
-Redisへは下の`FakeRedis`を通す（実Redisは使わない）。
+Redisへはfakeredis（`fake_redis`）を通す（実Redisは使わない）。
 """
 
 import io
 
-import pytest
-import redis
 from PIL import Image
 
 from app.infrastructure import jma_tile_redis_cache, redis_client, redis_json_cache
 from app.infrastructure.jma_tile_redis_cache import EMPTY_TILE
 
 
-class FakeRedis:
-    """実装が使うコマンドは`get`/`set`だけのため、フェイクもその2つで足りる。`raise_on_get`/`raise_on_set`には
-    送出させたい例外を渡す（Redis不通時にfail-openすることの検証に使う）。"""
-
-    def __init__(self, raise_on_get=None, raise_on_set=None):
-        self.store: dict[str, str] = {}
-        self._raise_on_get = raise_on_get
-        self._raise_on_set = raise_on_set
-
-    async def get(self, key):
-        if self._raise_on_get:
-            raise self._raise_on_get
-        return self.store.get(key)
-
-    async def set(self, key, value, ex=None):
-        if self._raise_on_set:
-            raise self._raise_on_set
-        self.store[key] = value
-
-
 PNG_PATH = "bosai/jmatile/data/nowc/20260101000000/none/20260101000500/surf/hrpns/6/57/25.png"
 PBF_PATH = "bosai/jmatile/data/kkcr/20260101000000/none/20260101000000/surf/flood/6/57/25.pbf"
 TILE_BYTES = b"\x89PNG\r\n\x1a\n\xff\xfe\x00binary"
-
-
-@pytest.fixture
-def fake_redis(monkeypatch):
-    fake = FakeRedis()
-    monkeypatch.setattr(redis_json_cache, "get_redis_client_or_none", lambda: fake)
-    return fake
 
 
 def _transparent_png() -> bytes:
@@ -90,24 +61,20 @@ async def test_set_empty_records_that_there_is_nothing_to_draw(fake_redis):
 
 async def test_entry_that_cannot_be_decoded_is_treated_as_uncached(fake_redis):
     await jma_tile_redis_cache.set(PNG_PATH, TILE_BYTES, "image/png")
-    (key,) = fake_redis.store
+    (key,) = await fake_redis.keys()
     for broken in ("not json", '{"content_type": "image/png"}', '{"body_b64": 1, "content_type": "image/png"}'):
-        fake_redis.store[key] = broken
+        await fake_redis.set(key, broken)
         assert await jma_tile_redis_cache.get(PNG_PATH) is None
 
 
-async def test_read_failure_falls_back_to_uncached(monkeypatch):
-    monkeypatch.setattr(
-        redis_json_cache, "get_redis_client_or_none", lambda: FakeRedis(raise_on_get=redis.RedisError("down"))
-    )
+async def test_read_failure_falls_back_to_uncached(fake_redis, redis_server):
+    redis_server.connected = False
     assert await jma_tile_redis_cache.get(PNG_PATH) is None
     assert redis_client.redis_available() is False
 
 
-async def test_write_failure_is_not_raised_to_the_caller(monkeypatch):
-    monkeypatch.setattr(
-        redis_json_cache, "get_redis_client_or_none", lambda: FakeRedis(raise_on_set=redis.RedisError("down"))
-    )
+async def test_write_failure_is_not_raised_to_the_caller(fake_redis, redis_server):
+    redis_server.connected = False
     await jma_tile_redis_cache.set(PNG_PATH, TILE_BYTES, "image/png")
     assert redis_client.redis_available() is False
 
@@ -118,7 +85,7 @@ async def test_failure_stops_further_calls_until_the_cooldown_passes(fake_redis)
     await jma_tile_redis_cache.set(PNG_PATH, TILE_BYTES, "image/png")
     redis_client.record_redis_failure()
     await jma_tile_redis_cache.set(PBF_PATH, TILE_BYTES, "application/vnd.mapbox-vector-tile")
-    assert len(fake_redis.store) == 1
+    assert len(await fake_redis.keys()) == 1
     assert await jma_tile_redis_cache.get(PNG_PATH) is None
 
 

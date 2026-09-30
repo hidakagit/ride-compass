@@ -72,9 +72,9 @@ def road_network(monkeypatch):
 
 
 @pytest.fixture
-def empty_rain_history(monkeypatch):
+def empty_rain_history(monkeypatch, fake_redis):
     """雨の観測の履歴は空から始める。"""
-    rain_history_fake.use_fake_redis(monkeypatch)
+    rain_history_fake.forget_rain_materials(monkeypatch)
 
 
 async def test_outside_the_ingested_area_there_is_no_search_range():

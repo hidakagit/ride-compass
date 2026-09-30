@@ -342,10 +342,10 @@ async def test_the_share_of_the_route_timed_without_data_is_reported(engine_over
     assert fastest_of(complete).missing_travel_data_share == 0.0
 
 
-async def test_the_rain_observed_now_is_scored_on_the_segments_and_carried_in_mm(engine_over, monkeypatch):
+async def test_the_rain_observed_now_is_scored_on_the_segments_and_carried_in_mm(engine_over, monkeypatch, fake_redis):
     """雨の材料（最寄りの雨量計の今の観測）は、道の材料と同じく区間の得点と候補の生値（mm）に載る。
     雨量計は格子の中に1つ置き、1時間1.0mmの雨が続いている。"""
-    rain_history_fake.use_fake_redis(monkeypatch)
+    rain_history_fake.forget_rain_materials(monkeypatch)
     gauge = {"gauge": {"lat": [35, 36.6], "lon": [139, 36.6], "kjName": "格子の中"}}
     await rain_history_fake.observe(monkeypatch, gauge, {"gauge": 1.0})
     rain_axis = AxisDefinition(

@@ -10,10 +10,11 @@ import logging
 from datetime import datetime
 
 import pytest
+import respx
 from cachetools import TTLCache
 
 from app.infrastructure import wbgt_client
-from tests.fake_api_http import FakeHttpClient, HttpStatusErrorHttpClient
+from tests.fake_http import answering, client_for
 
 #: 地点マスタCSVの列数（先頭行がヘッダー、使うのは地点番号・観測所名・緯度経度・終了日）。
 _COLUMNS = 18
@@ -54,7 +55,7 @@ def _csv(rows):
 
 
 async def test_point_master_converts_degrees_and_minutes():
-    client = FakeHttpClient(text=_csv([_row("11001", "宗谷岬", "45", "31.2", "141", "56.1", _ACTIVE)]))
+    client = answering(text=_csv([_row("11001", "宗谷岬", "45", "31.2", "141", "56.1", _ACTIVE)]))
 
     points = await wbgt_client.fetch_point_master(client)
 
@@ -66,7 +67,7 @@ async def test_point_master_converts_degrees_and_minutes():
 
 
 async def test_point_master_excludes_retired_points():
-    client = FakeHttpClient(
+    client = answering(
         text=_csv(
             [
                 _row("44132", "東京", "35", "41.4", "139", "45.6", _ACTIVE),
@@ -82,7 +83,7 @@ async def test_point_master_excludes_retired_points():
 
 async def test_point_master_does_not_count_a_trailing_blank_line_as_unreadable(caplog):
     """配布CSVの末尾の空行はデータ行ではない。数えると取得のたびに警告が出て、本物が埋もれる。"""
-    client = FakeHttpClient(
+    client = answering(
         text=_csv([_row("44132", "東京", "35", "41.4", "139", "45.6", _ACTIVE)]) + "\n"
     )
 
@@ -95,7 +96,7 @@ async def test_point_master_does_not_count_a_trailing_blank_line_as_unreadable(c
 
 async def test_point_master_skips_rows_without_the_end_date_column_and_says_so(caplog):
     """列構成が変わると読める行だけが残り、遠い地点の値が何事もなく表示される。"""
-    client = FakeHttpClient(
+    client = answering(
         text=_csv(["44100,列が足りない", _row("44132", "東京", "35", "41.4", "139", "45.6", _ACTIVE)])
     )
 
@@ -107,7 +108,7 @@ async def test_point_master_skips_rows_without_the_end_date_column_and_says_so(c
 
 
 async def test_point_master_skips_rows_with_unparsable_coordinates_and_says_so(caplog):
-    client = FakeHttpClient(
+    client = answering(
         text=_csv(
             [
                 _row("44100", "座標欠損", "", "", "", "", _ACTIVE),
@@ -125,7 +126,7 @@ async def test_point_master_skips_rows_with_unparsable_coordinates_and_says_so(c
 
 async def test_point_master_does_not_count_retired_points_as_unreadable(caplog):
     """運用終了は配布元が宣言した除外で、読めなかったのではない。"""
-    client = FakeHttpClient(text=_csv([_row("44166", "旧地点", "35", "30.0", "139", "30.0", "2025-03-31")]))
+    client = answering(text=_csv([_row("44166", "旧地点", "35", "30.0", "139", "30.0", "2025-03-31")]))
 
     with caplog.at_level(logging.WARNING, logger="ridecompass.wbgt_client"):
         assert await wbgt_client.fetch_point_master(client) == []
@@ -135,7 +136,7 @@ async def test_point_master_does_not_count_retired_points_as_unreadable(caplog):
 
 async def test_point_master_trims_surrounding_whitespace():
     """余白付きの地点番号はそのまま予測値APIのクエリへ載り、その地点の予測が引けなくなる。"""
-    client = FakeHttpClient(
+    client = answering(
         text=_csv([_row(" 44132 ", " 東京 ", " 35 ", " 41.4 ", " 139 ", " 45.6 ", f" {_ACTIVE} ")])
     )
 
@@ -145,23 +146,25 @@ async def test_point_master_trims_surrounding_whitespace():
 
 
 async def test_point_master_with_only_a_header_returns_no_points():
-    client = FakeHttpClient(text=_csv([]))
+    client = answering(text=_csv([]))
 
     assert await wbgt_client.fetch_point_master(client) == []
 
 
 async def test_point_master_is_cached_across_calls():
-    client = FakeHttpClient(text=_csv([_row("44132", "東京", "35", "41.4", "139", "45.6", _ACTIVE)]))
+    upstream = respx.Router()
+    upstream.route().respond(text=_csv([_row("44132", "東京", "35", "41.4", "139", "45.6", _ACTIVE)]))
+    client = client_for(upstream)
 
     first = await wbgt_client.fetch_point_master(client)
     second = await wbgt_client.fetch_point_master(client)
 
-    assert client.call_count == 1
+    assert upstream.calls.call_count == 1
     assert second == first
 
 
 async def test_point_master_http_error_returns_none():
-    assert await wbgt_client.fetch_point_master(HttpStatusErrorHttpClient()) is None
+    assert await wbgt_client.fetch_point_master(answering(500)) is None
 
 
 def _forecast_row(**overrides):
@@ -177,8 +180,14 @@ def _forecast_row(**overrides):
     return row
 
 
+def _success_upstream(*rows) -> respx.Router:
+    upstream = respx.Router()
+    upstream.route().respond(json={"status": "success", "data": list(rows)})
+    return upstream
+
+
 def _success(*rows):
-    return FakeHttpClient({"status": "success", "data": list(rows)})
+    return client_for(_success_upstream(*rows))
 
 
 async def test_a_forecast_is_read_into_its_times_and_the_index_divided_by_ten():
@@ -224,13 +233,13 @@ async def test_a_value_that_cannot_be_read_is_absent(value):
 
 async def test_forecast_requests_a_continuous_range():
     """`date_search_type=3`（特定時刻）は発表が無いと空を返すため、連続期間で引く。"""
-    client = _success(_forecast_row())
+    upstream = _success_upstream(_forecast_row())
 
-    await wbgt_client.fetch_forecast(client, "44132", _RANGE_FROM, _RANGE_TO)
+    await wbgt_client.fetch_forecast(client_for(upstream), "44132", _RANGE_FROM, _RANGE_TO)
 
-    assert client.last_params == {
-        "location_type": 1,
-        "date_search_type": 1,
+    assert dict(upstream.calls.last.request.url.params) == {
+        "location_type": "1",
+        "date_search_type": "1",
         "wbgt_nos": "44132",
         "range_date_from": _RANGE_FROM,
         "range_date_to": _RANGE_TO,
@@ -238,24 +247,25 @@ async def test_forecast_requests_a_continuous_range():
 
 
 async def test_forecast_rejects_unsuccessful_status():
-    client = FakeHttpClient({"status": "error", "data": [_forecast_row()]})
+    client = answering(json={"status": "error", "data": [_forecast_row()]})
 
     assert await wbgt_client.fetch_forecast(client, "44132", _RANGE_FROM, _RANGE_TO) is None
 
 
 async def test_forecast_without_a_data_series_returns_none():
-    client = FakeHttpClient({"status": "success"})
+    client = answering(json={"status": "success"})
 
     assert await wbgt_client.fetch_forecast(client, "44132", _RANGE_FROM, _RANGE_TO) is None
 
 
 async def test_forecast_cache_key_is_the_point_number_only():
     """地点ごとに1時間キャッシュする。検索範囲を変えても、その間は同じ発表が返る。"""
-    client = _success(_forecast_row())
+    upstream = _success_upstream(_forecast_row())
+    client = client_for(upstream)
 
     await wbgt_client.fetch_forecast(client, "44132", _RANGE_FROM, _RANGE_TO)
     await wbgt_client.fetch_forecast(client, "44132", "20260701030000", "20260701120000")
-    assert client.call_count == 1
+    assert upstream.calls.call_count == 1
 
     await wbgt_client.fetch_forecast(client, "44136", _RANGE_FROM, _RANGE_TO)
-    assert client.call_count == 2
+    assert upstream.calls.call_count == 2

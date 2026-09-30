@@ -1130,11 +1130,26 @@ CSSの規則が当たる。開くたびに作り直される部品（ポップ�
 
 `backend/tests/`直下の、`test_`で始まらないモジュール（`conftest.py`を除く）が、複数のテストで
 同じ形になるフェイク・足場を持つ。何を持ち、どの場面で使うかは各モジュールの先頭のdocstringが
-書く（例: `fake_tile_http.py`はタイル・バイナリをそのまま通すクライアントの、`fake_api_http.py`は
-`simple_api_client`経由でJSON/CSVを引くクライアントのフェイク）。新しいフェイクを書く前に、
-この直下を一覧してdocstringを読む。**新しいテストで同じものを書き写さず、ここからimportする**
+書く（例: `fake_tile_cache.py`はディスクキャッシュを、`fake_external_log.py`は`log_external_call`の
+記録を差し替える）。新しいフェイクを書く前に、この直下を一覧してdocstringを読む。
+**新しいテストで同じものを書き写さず、ここからimportする**
 （ファイルごとに書き写すと、上流の契約が変わったときの直し漏れがそのまま残る）。
 複数のテストで要る足場を新しく置くときも、この直下に置き、用途を先頭のdocstringに書く。
+
+**網・時計・Redisの代役は自前で書かず、定番の道具を使う**（どれも`requirements-dev.txt`）。
+応答や時刻の形を自前で写すと、実物の読み方（`raise_for_status`・URLに載ったクエリ・`datetime.now`と
+`time.monotonic`の食い違い）がテストから抜け落ちる。
+
+| 境界 | 道具 | 使い方 |
+|---|---|---|
+| HTTP（クライアントを受け取る実装） | respx | 経路（`respx.Router`）で応答を決め、`tests/fake_http.py: client_for`で本物の`httpx.AsyncClient`にして渡す。どのURLへも同じ応答で足りるなら`answering`。要求は`router.calls`で見る |
+| HTTP（実装が自分で`httpx.stream`等を呼ぶ） | respx | pytestのフィクスチャ`respx_mock`。実装の中で`httpx.Client`が作られ、その証明書の読み込みに開発機で1つ0.5秒かかる。1テストで何度も作らせない |
+| 時計 | freezegun | フィクスチャ`clock`（`tests/conftest.py`）。`tick`・`move_to`で進める |
+| Redis | fakeredis | フィクスチャ`fake_redis`（`tests/conftest.py`）。接続の失敗は`redis_server.connected = False` |
+
+例外は回数制限の時計（`tests/conftest.py: RateLimitClock`）で、セッションを通して1本の時計を
+進め続ける必要がある。freezegunで同じことをするとセッションの間じゅう全テストの時刻が止まるため、
+回数制限のモジュールが読む時計だけを差し替えている。
 
 `admin_credentials`は、認証情報が設定されている前提に立つテストが引数で取る。ファイル内の
 全テストが管理画面APIを叩く場合もautouseで配らない——「誤った認証情報を拒む」は設定が無くても
