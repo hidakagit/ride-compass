@@ -8,7 +8,6 @@
 制御フローの詳細はdocs/modules/backend/dynamic-way-values.md「`WindWayService`」節参照。
 """
 
-import logging
 from datetime import datetime
 
 import numpy as np
@@ -19,11 +18,11 @@ from app.domain.material_catalog import WIND_DRAG_RATIO
 from app.domain.region import BoundingBox, tile_bounds_lonlat
 from app.domain.wind import kmh_to_ms
 from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
-from app.infrastructure.debug_log import log_external_call
+from app.infrastructure.debug_log import log_external_call, log_throttled_warning, mark_failed
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.weather_service import WeatherService
 
-logger = logging.getLogger("ridecompass.wind_way")
+_CATEGORY = "region:wind-way-penalty"
 
 
 class WindWayService:
@@ -62,13 +61,11 @@ class WindWayService:
             target = target.astimezone(JST).replace(tzinfo=None)
         bbox = tile_bounds_lonlat(z, x, y)
 
-        with log_external_call("region:wind-way-penalty", z=z, x=x, y=y) as fields:
+        with log_external_call(_CATEGORY, z=z, x=x, y=y) as fields:
             try:
                 midpoints = await self._repository.get_feature_midpoints_in_tile(z, x, y, bbox)
             except DB_UNAVAILABLE_ERRORS as exc:
-                fields["result"] = "error"
-                fields["warned"] = True
-                logger.warning("風の評価軸配信の鍵取得に失敗 z=%d x=%d y=%d error=%r", z, x, y, exc)
+                mark_failed(fields, exc)
                 return {}
             if not midpoints:
                 fields["postgis"] = "uncovered" if midpoints is None else "empty"
@@ -87,7 +84,7 @@ class WindWayService:
             ))
             if series is None:
                 fields["wind_grid"] = "unavailable"
-                logger.warning("風の評価軸配信の風グリッド取得に失敗 z=%d x=%d y=%d", z, x, y)
+                log_throttled_warning(_CATEGORY, "風の評価軸配信の風グリッド取得に失敗 z=%d x=%d y=%d", z, x, y)
                 return {}
             passage_hours = np.zeros(len(keys))
             # ルートの区間は予報の先を端の値で延ばすが、地図では延ばした値を当てにならない色として
@@ -95,7 +92,7 @@ class WindWayService:
             _, clamped = series.sampled_times(target, passage_hours[:1])
             if clamped[0]:
                 fields["wind_grid"] = "out_of_range"
-                logger.warning("風の評価軸配信の時刻が風グリッド範囲外 z=%d x=%d y=%d", z, x, y)
+                log_throttled_warning(_CATEGORY, "風の評価軸配信の時刻が風グリッド範囲外 z=%d x=%d y=%d", z, x, y)
                 return {}
 
             context = DynamicAxisRequestContext(

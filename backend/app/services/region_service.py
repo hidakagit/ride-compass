@@ -1,10 +1,8 @@
-import logging
-
 from app.domain.axis_inspector import AxisInspectorResult, axis_inspector_breakdown
 from app.domain.route_preference import RoutePreference
 from app.domain.region import BoundingBox, tile_bounds_lonlat
 from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
-from app.infrastructure.debug_log import error_type_label, log_external_call, log_throttled_warning
+from app.infrastructure.debug_log import log_external_call, log_throttled_warning, mark_failed
 from app.infrastructure.road_graph_repository import (
     POI_TILE_SHAPE,
     ROAD_SURFACE_TILE_SHAPE,
@@ -14,8 +12,6 @@ from app.infrastructure.vector_tile import encode_empty_poi_tile, encode_empty_r
 from app.services import derived_data_revision_service
 from app.services.tile_serving import MVT_CONTENT_TYPE, TileResponse, serve_cached_tile
 from app.services.tile_version_service import current_tile_versions, served_tile_version
-
-logger = logging.getLogger("ridecompass.region")
 
 
 class RegionService:
@@ -174,13 +170,7 @@ class RegionService:
                 # 地図が塗っている値と同じ単位で読む（区間が特定できるときは区間単位）。
                 landcover = await self._repository.get_feature_landcover(osm_way_id, edge_id)
             except DB_UNAVAILABLE_ERRORS as exc:
-                fields["result"] = "error"
-                fields["warned"] = True
-                fields["error_type"] = error_type_label(exc)
-                log_throttled_warning(
-                    "region:axis-inspector", "区間インスペクタのPostGIS読み取りに失敗 osm_way_id=%d error=%r",
-                    osm_way_id, exc,
-                )
+                mark_failed(fields, exc)
                 return None
             fields["lookup"] = "ok"
             highway, tags, _surface = way_tags_result
@@ -201,10 +191,7 @@ class RegionService:
             try:
                 years = await self._repository.get_accident_years()
             except DB_UNAVAILABLE_ERRORS as exc:
-                fields["result"] = "error"
-                fields["warned"] = True
-                fields["error_type"] = error_type_label(exc)
-                log_throttled_warning("region:accident-years-covered", "事故データ収録年のPostGIS読み取りに失敗 error=%r", exc)
+                mark_failed(fields, exc)
                 return []
             fields["years_covered"] = len(years)
             return years
@@ -219,10 +206,7 @@ class RegionService:
             try:
                 area = await self._repository.get_ingested_area()
             except DB_UNAVAILABLE_ERRORS as exc:
-                fields["result"] = "error"
-                fields["warned"] = True
-                fields["error_type"] = error_type_label(exc)
-                log_throttled_warning("region:ingested-area", "取込範囲のPostGIS読み取りに失敗 error=%r", exc)
+                mark_failed(fields, exc)
                 return None
             fields["ingested"] = area is not None
             if area is None:
@@ -242,13 +226,7 @@ class RegionService:
             try:
                 values = await self._repository.get_distinct_material_values(material_id)
             except DB_UNAVAILABLE_ERRORS as exc:
-                fields["result"] = "error"
-                fields["warned"] = True
-                fields["error_type"] = error_type_label(exc)
-                log_throttled_warning(
-                    "region:material-values", "材料値一覧のPostGIS読み取りに失敗 material_id=%s error=%r",
-                    material_id, exc,
-                )
+                mark_failed(fields, exc)
                 return None
             fields["value_count"] = len(values)
             return values

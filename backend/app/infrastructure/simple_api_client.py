@@ -11,7 +11,7 @@ from typing import TypeVar
 import httpx
 from cachetools import TTLCache
 
-from app.infrastructure.debug_log import error_type_label, log_external_call
+from app.infrastructure.debug_log import log_external_call, mark_failed
 
 T = TypeVar("T")
 
@@ -23,8 +23,7 @@ _NOT_CACHED = object()
 class UnexpectedShapeError(ValueError):
     """fetchが返した内容の形が想定と異なる場合に送出する。
 
-    ValueErrorのサブクラスだが、`catch`タプルに含まれるかどうかに関わらず常に
-    `error_type="unexpected_shape"`として記録される（except節の順序で先に一致するため）。
+    `catch`の指定に関わらず、常にNoneへ倒して失敗として記録する。
     """
 
 
@@ -48,6 +47,7 @@ async def cached_fetch(
     `expect`を渡すと、`fetch()`の戻り値がその型でなければ`UnexpectedShapeError`として扱う。
     形の検査を呼び出し側が各自で書くと、同じ判定が上流の数だけ並ぶ。
     """
+    caught: tuple[type[BaseException], ...] = (UnexpectedShapeError, *catch)
     with log_external_call(category, **log_fields) as fields:
         if cache is not None:
             cached = cache.get(key, _NOT_CACHED)
@@ -59,14 +59,8 @@ async def cached_fetch(
             data = await fetch()
             if expect is not None and not isinstance(data, expect):
                 raise UnexpectedShapeError(f"{category}: expected {expect}, got {type(data).__name__}")
-        except UnexpectedShapeError:
-            fields["result"] = "error"
-            fields["error_type"] = "unexpected_shape"
-            return None
-        except catch as exc:
-            fields["result"] = "error"
-            fields["error"] = repr(exc)
-            fields["error_type"] = error_type_label(exc)
+        except caught as exc:
+            mark_failed(fields, exc)
             return None
         fields["result"] = "ok"
         if cache is not None:

@@ -7,19 +7,19 @@
 - ラスタ構成の指紋の作り方 → `test_landcover.py`
 
 ラスタ（`landcover_raster`の口）と、キャッシュを通す骨格（`serve_cached_tile`）は代役へ差し替え、
-本物の署名へ当てる（`bound`）。警告を出した時刻はモジュールが持つ状態なので、テストごとに
-時計ごと差し替えて、前のテストの状態を読まない。
+本物の署名へ当てる（`bound`）。警告の抑制の窓は、テストごとに空から始める（`empty_debug_counters`）。
 """
 
 import logging
-from types import SimpleNamespace
-
 import pytest
 
+from app.infrastructure import debug_log
 from app.services import landcover_tile_service as service
 from tests.bound_fake import bound
 
 RASTER = service.landcover_raster
+
+pytestmark = pytest.mark.usefixtures("empty_debug_counters")
 
 
 class Raster:
@@ -38,15 +38,6 @@ class Raster:
     def render_tile(self, z, x, y):
         self.rendered.append((z, x, y))
         return b"png-bytes"
-
-
-@pytest.fixture
-def clock(monkeypatch):
-    """警告の間引きが読む時計。`[秒]`を書き換えると進む。前回の警告時刻もここで初期化する。"""
-    now = [1_000.0]
-    monkeypatch.setattr(service, "time", SimpleNamespace(monotonic=lambda: now[0]))
-    monkeypatch.setattr(service, "_last_unavailable_log", 0.0)
-    return now
 
 
 @pytest.fixture
@@ -74,7 +65,7 @@ def served(monkeypatch):
 # ---- 配信 ----
 
 
-async def test_a_tile_is_drawn_from_the_raster_through_the_cache(clock, raster, served):
+async def test_a_tile_is_drawn_from_the_raster_through_the_cache(raster, served):
     response = await service.get_landcover_tile(10, 905, 403)
 
     assert response == service.TileResponse(content=b"png-bytes")
@@ -87,7 +78,7 @@ async def test_a_tile_is_drawn_from_the_raster_through_the_cache(clock, raster, 
     assert call["empty_tile"] == RASTER.empty_tile_png()
 
 
-async def test_the_cache_key_follows_the_rasters_actually_opened(clock, raster, served):
+async def test_the_cache_key_follows_the_rasters_actually_opened(raster, served):
     await service.get_landcover_tile(10, 905, 403)
     raster.opened = ["/data/zone53.tif", "/data/zone54.tif"]
     await service.get_landcover_tile(10, 905, 403)
@@ -101,7 +92,7 @@ async def test_the_cache_key_follows_the_rasters_actually_opened(clock, raster, 
     assert reordered == added
 
 
-async def test_the_cache_key_carries_the_tile_version(clock, raster, served):
+async def test_the_cache_key_carries_the_tile_version(raster, served):
     await service.get_landcover_tile(10, 905, 403)
 
     assert f"/v{service.LANDCOVER_TILE_VERSION}/" in served[0]["cache_path"]
@@ -118,30 +109,27 @@ async def test_the_cache_key_carries_the_tile_version(clock, raster, served):
     ],
 )
 async def test_without_any_raster_there_is_no_tile_and_the_cause_is_logged(
-    clock, raster, served, monkeypatch, caplog, configured, cause
+    raster, served, monkeypatch, caplog, configured, cause
 ):
     raster.opened = []
     monkeypatch.setattr(service.settings, "lulc_raster_paths", configured)
 
-    with caplog.at_level(logging.WARNING, logger=service.logger.name):
+    with caplog.at_level(logging.WARNING, logger=debug_log.logger.name):
         assert await service.get_landcover_tile(10, 905, 403) is None
 
     # 範囲外の空タイルとは区別する（空を返すと、地図は空なのに正常に見える）
     assert served == []
-    (record,) = [r for r in caplog.records if r.name == service.logger.name]
+    (record,) = [r for r in caplog.records if r.name == debug_log.logger.name]
     assert cause in record.getMessage()
 
 
-async def test_the_missing_raster_warning_is_repeated_only_once_in_a_while(clock, raster, served, caplog):
+async def test_the_missing_raster_warning_is_not_repeated_for_every_tile(raster, served, caplog):
     raster.opened = []
-    interval = service._UNAVAILABLE_LOG_INTERVAL_SECONDS
+    tiles = debug_log.WARN_BURST_PER_WINDOW + 3
 
-    with caplog.at_level(logging.WARNING, logger=service.logger.name):
-        await service.get_landcover_tile(10, 905, 403)
-        clock[0] += interval - 1
-        await service.get_landcover_tile(10, 905, 404)
-        clock[0] += 1
-        await service.get_landcover_tile(10, 905, 405)
+    with caplog.at_level(logging.WARNING, logger=debug_log.logger.name):
+        for y in range(tiles):
+            await service.get_landcover_tile(10, 905, 403 + y)
 
-    # 1枚ごとに出すと地図を1画面開くだけで数十行になる。間隔が過ぎたら1回出す
-    assert len([r for r in caplog.records if r.name == service.logger.name]) == 2
+    # 1枚ごとに出すと地図を1画面開くだけで数十行になる
+    assert len([r for r in caplog.records if r.name == debug_log.logger.name]) < tiles

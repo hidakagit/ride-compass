@@ -8,7 +8,6 @@
 制御フローの詳細はdocs/modules/backend/dynamic-way-values.md「`RainWayService`」節参照。
 """
 
-import logging
 from datetime import datetime
 
 import numpy as np
@@ -17,12 +16,12 @@ from app.domain.rain import RAIN_MATERIAL_IDS, rain_material_columns
 from app.domain.region import tile_bounds_lonlat
 from app.domain.time_zone import JST
 from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
-from app.infrastructure.debug_log import log_external_call, log_throttled_warning
+from app.infrastructure.debug_log import log_external_call, log_throttled_warning, mark_failed
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.jma_amedas_service import load_station_rain_materials
 from app.services.weather_service import WeatherService
 
-logger = logging.getLogger("ridecompass.rain_way")
+_CATEGORY = "region:rain-way-values"
 
 
 class RainWayService:
@@ -47,19 +46,16 @@ class RainWayService:
         履歴が無い・古い、取込範囲外、観測所の値が欠測の道は結果から除く（地図上は「データなし」）。
         """
         bbox = tile_bounds_lonlat(z, x, y)
-        with log_external_call("region:rain-way-values", z=z, x=x, y=y, material=self.material_id) as fields:
+        with log_external_call(_CATEGORY, z=z, x=x, y=y, material=self.material_id) as fields:
             stations = await load_station_rain_materials(datetime.now(JST))
             if stations is None:
                 fields["rain_history"] = "unavailable"
-                # 地図の1画面ぶんのタイルが同時に当たるため、抑制付きで出す。
-                log_throttled_warning("region:rain-way-values", "雨の材料配信の観測履歴が無いか古い z=%d x=%d y=%d", z, x, y)
+                log_throttled_warning(_CATEGORY, "雨の材料配信の観測履歴が無いか古い z=%d x=%d y=%d", z, x, y)
                 return {}
             try:
                 midpoints = await self._repository.get_feature_midpoints_in_tile(z, x, y, bbox)
             except DB_UNAVAILABLE_ERRORS as exc:
-                fields["result"] = "error"
-                fields["warned"] = True
-                logger.warning("雨の材料配信の鍵取得に失敗 z=%d x=%d y=%d error=%r", z, x, y, exc)
+                mark_failed(fields, exc)
                 return {}
             if not midpoints:
                 fields["postgis"] = "uncovered" if midpoints is None else "empty"

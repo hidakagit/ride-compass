@@ -6,7 +6,6 @@
 勾配は時刻に依存しないため、キャッシュキーの時刻バケットは常にNoneで扱う。
 """
 
-import logging
 from datetime import datetime
 
 from app.domain.gradient import LENS_PERPENDICULAR_BAND_DEG, GradientCalculator
@@ -14,12 +13,10 @@ from app.domain.material_catalog import GRADIENT_PERCENT
 from app.domain.region import tile_bounds_lonlat
 from app.infrastructure.cache_identity import cache_identity
 from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
-from app.infrastructure.debug_log import log_external_call
+from app.infrastructure.debug_log import log_external_call, mark_failed
 from app.infrastructure.dynamic_way_value_cache import get_tile_values, set_tile_values
 from app.services import derived_data_revision_service
 from app.infrastructure.road_graph_repository import FEATURE_GRADIENT_INPUTS_SHAPE, RoadGraphRepository
-
-logger = logging.getLogger("ridecompass.gradient_way")
 
 # 勾配の入力は道路の向きと標高で決まりほぼ不変のため、鮮度の制約が無い。長く持って
 # DBへの再問い合わせを抑える。正本を持たないキャッシュで、期限切れ後は再計算されるだけ。
@@ -79,9 +76,7 @@ class GradientWayService:
             try:
                 inputs = await self._repository.get_feature_gradient_inputs_in_tile(z, x, y, bbox)
             except DB_UNAVAILABLE_ERRORS as exc:
-                fields["result"] = "error"
-                fields["warned"] = True
-                logger.warning("勾配の評価軸配信のway入力取得に失敗 z=%d x=%d y=%d error=%r", z, x, y, exc)
+                mark_failed(fields, exc)
                 return {}
             if inputs is None:
                 fields["postgis"] = "uncovered"

@@ -90,11 +90,11 @@ async def test_unexpected_shape_returns_none(monkeypatch):
 
     fields = recorded[0].fields
     assert fields["result"] == "error"
-    assert fields["error_type"] == "unexpected_shape"
+    assert fields["error_type"] == "UnexpectedShapeError"
 
 
 async def test_unexpected_shape_is_swallowed_even_when_catch_is_empty():
-    """形の検査は`catch`の指定に関わらず常にNoneへ倒れる（except節の順序）。"""
+    """形の検査は`catch`の指定に関わらず常にNoneへ倒れる。"""
     fetch, _ = _counting_fetch("s")
 
     assert await simple_api_client.cached_fetch("cat", fetch, expect=dict, catch=()) is None

@@ -450,8 +450,8 @@ push型更新と同じ前提）。`JobStatus = "queued"|"running"|"done"|"failed
 完了ログと`/api/debug/stats`の集計へ反映される。
 
 - 例外発生、または`fields["result"]=="error"`は抑制付きWARNINGで**常時**出力する。
-  呼び出し元が既に詳細な独自WARNINGを出している場合は`fields["warned"]=True`で二重出力
-  だけ抑制できる（エラー集計自体は正しく計上され続ける）。
+  例外を捕まえて既定値へ倒す呼び出し元は`mark_failed(fields, exc)`で失敗を記録する
+  （結果・例外の詳細・種別のラベルをまとめて書く。警告は抜けるときにここが出す）。
 - 成功はDEBUG（`debug_mode`時のみ実質出力）。
 - 集計（`/api/debug/stats`）にはカテゴリ単位で呼び出し数・エラー数・キャッシュhit/miss・
   平均/最大所要時間に加え、`retried_calls`/`retry_attempts_total`（再試行回数）・

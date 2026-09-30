@@ -200,13 +200,15 @@ def test_a_result_of_error_is_counted_even_though_nothing_was_raised(clock, warn
     assert len(warnings.messages()) == 1
 
 
-def test_a_caller_that_already_warned_is_not_warned_again_but_is_still_counted(clock, warnings):
-    with debug_log.log_external_call("cat") as fields:
-        fields["result"] = "error"
-        fields["warned"] = True
+def test_a_caught_exception_is_counted_by_type_and_warned_once_with_the_callers_fields(clock, warnings):
+    """例外を既定値へ倒す呼び出し元の失敗が、種別付きで集計され、対象と例外の添えられた警告が1行出ること。"""
+    with debug_log.log_external_call("cat", z=10, x=905, y=403) as fields:
+        debug_log.mark_failed(fields, TimeoutError("db down"))
 
-    assert _external("cat")["errors"] == 1
-    assert warnings.messages() == []
+    assert _external("cat")["error_types"] == {"TimeoutError": 1}
+    (message,) = warnings.messages()
+    assert "'z': 10" in message
+    assert "db down" in message
 
 
 def test_the_callers_own_error_type_survives_the_exception_path(clock, warnings):

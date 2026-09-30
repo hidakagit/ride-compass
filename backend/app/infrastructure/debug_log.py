@@ -52,9 +52,7 @@ def error_type_label(exc: BaseException) -> str:
     """例外を`/api/debug/stats`へ出しても安全な粗いラベルへ変換する。
 
     例外メッセージ・URL（クエリパラメータに座標が乗りうる）は含めず、クラス名と
-    （httpxのHTTPStatusErrorなら）HTTPステータスコードのみを使う。呼び出し元は
-    `fields["error"] = repr(exc)`（WARNINGログ用の詳細）と併せて
-    `fields["error_type"] = error_type_label(exc)`（集計用の粗いラベル）を設定する。
+    （httpxのHTTPStatusErrorなら）HTTPステータスコードのみを使う。
     """
     status_code = getattr(getattr(exc, "response", None), "status_code", None)
     if status_code is not None:
@@ -148,6 +146,17 @@ def _record(category: str, elapsed_ms: int, fields: dict, error: bool) -> None:
         stats["max_ms"] = max(stats["max_ms"], elapsed_ms)
 
 
+def mark_failed(fields: dict, exc: BaseException) -> None:
+    """`log_external_call`の中で例外を捕まえて既定値へ倒すときの、失敗の記録の入口。
+
+    `log_external_call`を抜けるとき、結果が失敗としてカテゴリの集計（`error_types`）へ入り、
+    抑制付きWARNINGが`fields`（対象のタイル・ID等）と例外を添えて出る。
+    """
+    fields["result"] = "error"
+    fields["error"] = repr(exc)
+    fields["error_type"] = error_type_label(exc)
+
+
 def log_throttled_warning(category: str, message: str, *args: object) -> None:
     """カテゴリ単位の抑制付きWARNING。
 
@@ -189,11 +198,8 @@ def log_external_call(category: str, **fields: object) -> Iterator[dict]:
     `fields`はログ用の付帯情報(座標・パス等)。呼び出し元は`yield`されたdictに
     結果情報(cache="hit"/"miss", result="ok"/"error", status等)を追記してから抜けると、
     完了ログと統計にそれも反映される。失敗(例外、またはresult=="error")はWARNINGで
-    常時出力し、成功はDEBUG(debug_mode時のみ実質出力)に留める。
-
-    呼び出し元が例外を自前でcatchし、より詳細な文脈（対象ID等）付きの独自WARNINGを
-    既に出している場合は、result="error"に加えてfields["warned"]=Trueを設定すると、
-    ここでの二重WARNING出力だけ抑制しつつ、error集計には正しく計上される。
+    常時出力し、成功はDEBUG(debug_mode時のみ実質出力)に留める。例外を捕まえて既定値へ
+    倒す呼び出し元は`mark_failed`で失敗を記録する。
     """
     started = time.monotonic()
     logger.debug("[%s] start %s", category, fields)
@@ -215,9 +221,6 @@ def log_external_call(category: str, **fields: object) -> Iterator[dict]:
         error = fields.get("result") == "error"
         _record(category, elapsed_ms, fields, error=error)
         if error:
-            if not fields.get("warned"):
-                _throttled_warning(
-                    category, "[%s] failed after %dms %s", category, elapsed_ms, _round_floats(fields)
-                )
+            _throttled_warning(category, "[%s] failed after %dms %s", category, elapsed_ms, _round_floats(fields))
         else:
             logger.debug("[%s] done in %dms %s", category, elapsed_ms, fields)

@@ -4,7 +4,7 @@ import httpx
 from cachetools import LRUCache
 
 from app.infrastructure import tile_cache
-from app.infrastructure.debug_log import error_type_label, log_external_call
+from app.infrastructure.debug_log import log_external_call, mark_failed
 
 UPSTREAM_HOST = "https://cyberjapandata.gsi.go.jp"
 
@@ -64,14 +64,10 @@ class GsiTileClient:
                     fields["status"] = 404
                     self._not_found_paths[path] = None
                     return GSI_TILE_NOT_FOUND
-                fields["result"] = "error"
-                fields["error"] = repr(exc)
-                fields["error_type"] = error_type_label(exc)
+                mark_failed(fields, exc)
                 return None
             except httpx.HTTPError as exc:
-                fields["result"] = "error"
-                fields["error"] = repr(exc)
-                fields["error_type"] = error_type_label(exc)
+                mark_failed(fields, exc)
                 return None
 
             fields["result"] = "ok"
