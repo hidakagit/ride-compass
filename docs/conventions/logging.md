@@ -43,12 +43,14 @@ RideCompassのログはRender（本番）のログストリームだけで障害
 - 「取得できないのが正常」なケース（GSIの整備区域外等）は`fields["result"]="ok"`のまま
   理由を別フィールドへ残し（`fields["status"]=404`等）、WARNINGでログを埋めない
   （`gsi_tile_client.py`の404分岐が実例）。
-- 呼び出し元が例外を自前でcatchし、対象ID等より詳細な文脈付きの独自WARNINGを既に
-  出している場合は、`fields["result"]="error"`に加えて`fields["warned"]=True`を設定する。
-  `log_external_call`自身の二重WARNING出力だけ抑制しつつ、`/api/debug/stats`のerror集計には
-  正しく計上される（`fields["lookup"]`等resultを避ける専用フィールド名にして集計自体を
-  諦める必要はない）。あわせて`fields["error_type"] = error_type_label(exc)`も設定し、
-  `error_types`集計が`"unknown"`一色にならないようにする。
+- 例外を捕まえて既定値（空・None）へ倒すときは、`debug_log.py: mark_failed`で失敗を記録する。
+  抜けるときに`/api/debug/stats`のerror集計（例外の種別つき）へ入り、抑制付きWARNINGが`fields`
+  （対象のタイル・ID等）と例外を添えて出る。独自のWARNINGを書き足さない——対象を示す値は
+  `log_external_call`へ渡す`fields`に入れれば警告に載る。捕まえずに送り出す例外は何も書かなくてよい
+  （`log_external_call`が同じことをする）。
+- 呼び出しの失敗ではない劣化（入力の時刻が予報の範囲外・観測の履歴が古い等）を知らせる警告は
+  `debug_log.py: log_throttled_warning`で出す。**`logger.warning`を直接書かない**——タイル単位の口は
+  地図の1画面ぶんのタイルが同時に当たるため、抑制の無い警告は1回の表示で数十行になる。
 - **例外（`log_external_call`を使わないキャッシュ）**: `infrastructure/detour_ratio_cache.py`
   （プロセス内メモリのみのLRU）は、外部I/O自体を持たず失敗しうる経路が無いため対象外。
   `tile_persistent_cache.py`（ディスクI/O、失敗しうる）は`log_external_call`を経由せず専用loggerで

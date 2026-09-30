@@ -26,7 +26,7 @@ from omfiles import OmFileReader
 from app.domain.time_zone import JST
 from app.config import settings
 from app.domain.msm import MsmGrid, MsmWindow, parse_bbox
-from app.infrastructure.debug_log import error_type_label, log_external_call
+from app.infrastructure.debug_log import log_external_call
 
 logger = logging.getLogger("ridecompass.msm_client")
 
@@ -189,15 +189,9 @@ def _chunk_start(chunk_number: int, chunk_hours: int) -> int:
 async def _fetch_meta(client: httpx.AsyncClient) -> dict:
     url = f"{settings.msm_base_url}/static/meta.json"
     with log_external_call("msm:meta") as fields:
-        try:
-            response = await client.get(url)
-            response.raise_for_status()
-            meta = response.json()
-        except (httpx.HTTPError, ValueError) as exc:
-            fields["result"] = "error"
-            fields["error"] = repr(exc)
-            fields["error_type"] = error_type_label(exc)
-            raise
+        response = await client.get(url)
+        response.raise_for_status()
+        meta = response.json()
         fields["result"] = "ok"
         fields["status"] = response.status_code
         return meta
@@ -214,20 +208,14 @@ async def _download_chunk(client: httpx.AsyncClient, variable: str, chunk_number
 
     url = f"{settings.msm_base_url}/{variable}/chunk_{chunk_number}.om"
     with log_external_call("msm:chunk", variable=variable, chunk=chunk_number) as fields:
-        try:
-            response = await client.get(url, headers=headers)
-            if response.status_code == 304:
-                fields["result"] = "ok"
-                fields["status"] = 304
-                fields["cache"] = "hit"
-                return False
-            response.raise_for_status()
-            content = response.content
-        except httpx.HTTPError as exc:
-            fields["result"] = "error"
-            fields["error"] = repr(exc)
-            fields["error_type"] = error_type_label(exc)
-            raise
+        response = await client.get(url, headers=headers)
+        if response.status_code == 304:
+            fields["result"] = "ok"
+            fields["status"] = 304
+            fields["cache"] = "hit"
+            return False
+        response.raise_for_status()
+        content = response.content
         fields["result"] = "ok"
         fields["status"] = response.status_code
         fields["cache"] = "miss"
@@ -365,13 +353,7 @@ async def read_series(latitudes: np.ndarray, longitudes: np.ndarray) -> MsmSerie
     requested = settings.msm_forecast_hours
     with log_external_call("msm:read", locations=len(latitudes), hours=requested) as fields:
         fields["cache"] = "hit"
-        try:
-            result = await asyncio.to_thread(_read_series_sync, latitudes, longitudes, requested, int(time.time()))
-        except (MsmUnavailableError, OSError, ValueError, KeyError) as exc:
-            fields["result"] = "error"
-            fields["error"] = repr(exc)
-            fields["error_type"] = error_type_label(exc)
-            raise
+        result = await asyncio.to_thread(_read_series_sync, latitudes, longitudes, requested, int(time.time()))
         fields["result"] = "ok"
         fields["times"] = len(result.times)
         return result
