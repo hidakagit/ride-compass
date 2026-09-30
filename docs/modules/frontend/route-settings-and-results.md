@@ -279,7 +279,7 @@ handleRouteSegmentClick`がクリック地点の座標とともに設定する�
 クリック地点へ軽量なマーカーを立てるだけでテキストポップアップは出さない
 （[地図: 静的レイヤー・道路表示](static-map-layers.md)参照）。`selectedRouteSegment`が
 non-nullの間、「ルート結果」タブはルート全体の内訳の代わりにその区間の地点・到達予想
-時刻・評価に使った風（`SegmentWind`: 数値予報モデルの計算値の時刻・風向風速、追える時刻の先で延ばして使った区間はその旨。
+時刻・評価に使った風（`SegmentWind`: 数値予報モデルの計算値の時刻・風向風速、追える時刻の先で延ばして使った区間は短い注記、詳しくは(i)。
 「予報」とは呼ばない——[動的気象レイヤー](dynamic-weather-layers.md)「責務」。
 (i)の説明がレグごとに追う時間を生成物`route-generate-config.json`の`wind_forecast_hours_per_leg`から出す）＋
 `AxisContributionBar`（区間の`axis_contributions`）を表示し、×ボタンで
