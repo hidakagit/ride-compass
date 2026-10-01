@@ -49,7 +49,7 @@ CronCreate等）に付随する進捗・ログ・通知メッセージも例外�
 **コードを追加・変更するときは docs/conventions/logging.md のログ方針に従うこと。** 要点:
 
 - エラー・429拒否・候補0件はWARNING以上で**常時**出す（debug_modeはDEBUG詳細の追加スイッチであり、エラー出力の条件にしない）
-- 外部API/キャッシュアクセスは `app/infrastructure/debug_log.py` の `log_external_call` で囲む（cache hit/miss・result・statusをfieldsに設定。ログと /api/debug/stats の統計が自動で付く）
+- 外部API/キャッシュアクセスは `app/infrastructure/debug_log.py: log_external_call` で囲む（cache hit/miss・result・statusをfieldsに設定。ログと /api/debug/stats の統計が自動で付く）
 - 高コスト処理はステージ別所要時間と中間結果の減り方を1行INFOサマリにする（route_generator.py参照）
 - リクエストIDは request_log.py のミドルウェアが全ログへ自動付与する。個別ログに書かない
 - 常時出るログの座標は小数2桁へ丸める。APIキーはどのレベルでも出さない
@@ -203,7 +203,7 @@ CronCreate等）に付随する進捗・ログ・通知メッセージも例外�
 - 保持層は「共有範囲×寿命」の2軸で選ぶ。**Redisへ置くのは外部への負荷を肩代わりするものだけ**
   （失っても自前のPostGISから復元できるものはプロセス内かディスクへ置く）
 - プロセス内キャッシュは`cachetools`（TTLCache/LRUCache）に統一する。追い出しを自前で書かない
-- Redisへ持つときは`redis_json_cache.py`の`get_json`/`set_json`を使う（骨格を写経しない）
+- Redisへ持つときは`redis_json_cache.py: get_json`/`redis_json_cache.py: set_json`を使う（骨格を写経しない）
 - 「判断」（鮮度・真偽値）をキャッシュしてよいのは、入力が全てキーにあり・単調かつ安全側で・
   TTLが許容窓から導かれているときだけ
 - ディスクへ世代番号を使うなら、旧世代を削除する導線をセットで用意する（世代番号はディスクの

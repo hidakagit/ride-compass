@@ -271,8 +271,8 @@ backendの中継は地物の404を覚えず、ブラウザにも覚えさせな�
    `dataDelay`を持つなら配信の遅れ。宣言が無いと生成が落ちる）。
    新しいチップidを名乗ればチップも増える（`WEATHER_LAYER_GROUPS`はこの宣言から導かれ、
    生成物経由で`DynamicWeatherLayerId`・`MapLayerId`になる）。`scripts/export_openapi.py`で
-   生成物（`mapDisplay.ts`の`weatherElements`）を作り直す。自前のMSM格子から描くなら、
-   `wind_grid.py`の`WindGridPoint`へ値フィールドを、`msm_client.py`の`MsmSeries`へ項目を、
+   生成物（`mapDisplay.ts: weatherElements`）を作り直す。自前のMSM格子から描くなら、
+   `wind_grid.py: WindGridPoint`へ値フィールドを、`msm_client.py: MsmSeries`へ項目を、
    `FORECAST_VARIABLES`へMSM変数とその項目の対応を足す（この経路は風・降水の格子の段限定）。MSMから描く要素の
    説明文は「予報」と呼ばない（上の「責務」）
 2. `features/map/scene/groups/weather.ts`: 配信元のラスタ（`rasterTile`）なら何も足さない
@@ -427,7 +427,7 @@ basetime・validtimeを含む）で持つため、フレームが進んで取得
   `vectorTile`（洪水キキクル）はMapLibreがWeb Worker内で取得するため相対パスだと
   `new Request(url)`がWorkerのbase URLに対して解決できず例外になり、`rasterTile`も
   backend直接配信（`NEXT_PUBLIC_TILE_BASE_URL`）ではページと別オリジンになるため絶対URLが
-  要る（`services/regionApi.ts`の`roadSurfaceTileUrl`等と同じ仕組み、
+  要る（`services/regionApi.ts: roadSurfaceTileUrl`等と同じ仕組み、
   [静的レイヤー](static-map-layers.md)「タイルの配信元」参照）。
   時刻一覧・GeoJSONはMapLibreではなくアプリ自身の`fetch()`で読むが、同じく絶対URLにする——
   **タイルURLは時刻一覧が返るまで確定しない**ため、ここでフロントのホスティングを経由すると

@@ -1,7 +1,7 @@
 """Redisキャッシュの骨格が、各所へ写経されていないことの検査。
 
 cache-asideの骨格（可用性チェック→クライアント取得→計測→fail-open→成否記録）は
-`infrastructure/redis_json_cache.py`の`get_json`/`set_json`が内包している。自前で書き直すと、
+`infrastructure/redis_json_cache.py: get_json`/`infrastructure/redis_json_cache.py: set_json`が内包している。自前で書き直すと、
 写経ミス（`record_redis_failure`の呼び忘れ等）でRedis障害の検知だけが静かに欠ける
 ——アプリはfail-openのまま動き続けるため表に出ない。
 
@@ -46,7 +46,7 @@ def test_redis_skeleton_is_not_copied() -> None:
     unexpected = sorted(users - ALLOWED.keys())
     assert unexpected == [], (
         "Redisキャッシュの骨格を自前で書いているファイルがある"
-        "（`redis_json_cache.py`の`get_json`/`set_json`を使うこと。寄せられない事情があるなら"
+        "（`redis_json_cache.py: get_json`/`redis_json_cache.py: set_json`を使うこと。寄せられない事情があるなら"
         "このテストのALLOWEDへ理由とともに足す）:\n  " + "\n  ".join(unexpected)
     )
 

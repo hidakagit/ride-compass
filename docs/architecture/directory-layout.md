@@ -79,7 +79,7 @@ CI・フック・開発環境の用意のスクリプト）。
     受ける層が持つ。
   - 生成物へ出す表示の宣言（地図のレイヤー・凡例の語彙等）はここに置く。レジストリから導く
     （構造仕様17）ため、レジストリと同じ層に要る。本番のプロセスが読まないものは
-    `scripts/deploy_backend_gate.py`の`NOT_DEPLOYED`がデプロイの判定から外す。
+    `scripts/deploy_backend_gate.py: NOT_DEPLOYED`がデプロイの判定から外す。
 
 **管理データ（軸定義・較正値）をプロセス内の辞書（`AXIS_DEFINITIONS`・`TUNING_VALUES`）へ反映する書き手は
 `services/`の1層だけ**で、webアプリが起動時と管理APIの書き込み直後に行う。`batch/`は

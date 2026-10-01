@@ -22,7 +22,7 @@ RideCompassのログはRender（本番）のログストリームだけで障害
 | レベル | 出力条件 | 用途 |
 |---|---|---|
 | ERROR | 常時 | 未処理例外（スタックトレース付き）、想定外の内部エラー |
-| WARNING | 常時 | 外部API失敗、429拒否、候補0件などユーザー影響のある準異常。**同種の警告はカテゴリごとに毎分5件で抑制**（`debug_log.py`の`_throttled_warning`） |
+| WARNING | 常時 | 外部API失敗、429拒否、候補0件などユーザー影響のある準異常。**同種の警告はカテゴリごとに毎分5件で抑制**（`debug_log.py: _throttled_warning`） |
 | INFO | 常時 | リクエスト1件=1行のアクセスサマリ、ルート生成のステージサマリ、起動時の構成スナップショット |
 | DEBUG | debug_mode時のみ | 外部API/キャッシュのイベント単位ログ、方位別のtrace失敗理由、距離フィルタの棄却詳細 |
 
@@ -30,7 +30,7 @@ RideCompassのログはRender（本番）のログストリームだけで障害
 
 ### 外部API・キャッシュアクセス → `log_external_call`
 
-`app/infrastructure/debug_log.py`の`log_external_call(category, **fields)`で囲む。
+`app/infrastructure/debug_log.py: log_external_call(category, **fields)`で囲む。
 成功はDEBUG、失敗（例外 or `fields["result"]="error"`）は抑制付きWARNINGが自動で出て、
 `/api/debug/stats`の統計（呼び出し数・エラー数・キャッシュヒット率・平均/最大所要時間）にも
 自動集計される。

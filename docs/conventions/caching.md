@@ -189,7 +189,7 @@ per_second`＝5.0で自主制限しているが、これはプロセス内の制
 
 「Redisが使えるか確認 → クライアント取得 → `log_external_call`で計測 → 失敗は握り潰して
 未キャッシュ扱い → 成否をサーキットブレーカーへ記録」という14行ほどの定型文は、
-`redis_json_cache.py`の`get_json`/`set_json`が内包している。**呼び出し元が持つのは
+`redis_json_cache.py: get_json`/`redis_json_cache.py: set_json`が内包している。**呼び出し元が持つのは
 キー設計・TTL・値の意味づけだけ**にする。
 
 **呼び出し元は`infrastructure/`のモジュールにする**。鍵・保存する形・TTL・保存した形の検査は
@@ -336,7 +336,7 @@ push型の無効化はfail-openと組み合わさると「伝え漏れても誰�
 ## 直接使ってよい場所
 
 `get_redis_client_or_none`・`record_redis_failure`・`record_redis_success`・`redis_available`を
-直接呼んでよいファイルは`backend/tests/structure/test_redis_skeleton.py`の`ALLOWED`が持つ（骨格そのもの・
+直接呼んでよいファイルは`backend/tests/structure/test_redis_skeleton.py: ALLOWED`が持つ（骨格そのもの・
 その接続本体と、単一キーのJSON読み書きでは表現できないもの）。ここに無いファイルで使うと
 テストが落ちる。寄せられない事情があるなら、理由とともに`ALLOWED`へ足すこと。
 

@@ -289,7 +289,7 @@
 | 例外を握りつぶす`try`/`catch` | 解釈できない応答・走査できない要素が「数えない」に変わり、検査の対象から黙って抜ける | 失敗してよい操作だけを囲み、それ以外の失敗は失敗として記録する |
 | 環境が無いときのスキップ（`pytest.skip`・`skipif`・`test.skip`） | DBに繋がらないとファイルのテストが1件も走らないまま緑になる | 落とす。外すかどうかは実行する側がマーカーで選ぶ（`-m "not postgis"`） |
 | 警告を無視する設定 | 同じ種類の別の警告まで消える | 下の「警告は既定でエラー」の条件（ライブラリ内部・メッセージで絞る）を満たすものだけ |
-| 呼び出しの内容を見ずに値を返すフェイク（`lambda *a: 値`・任意の属性を受ける器） | 本物に合わない引数・必須項目の欠けた組み立てを通す | `tests/bound_fake.py`の`bound(本物, フェイク)`で本物の署名に当てる。組み立てて返す型は本物を使う |
+| 呼び出しの内容を見ずに値を返すフェイク（`lambda *a: 値`・任意の属性を受ける器） | 本物に合わない引数・必須項目の欠けた組み立てを通す | `tests/bound_fake.py: bound(本物, フェイク)`で本物の署名に当てる。組み立てて返す型は本物を使う |
 
 **autouseで配ってよいのは、何も与えないものだけ**（何を「何も与えない」とするかと判定は
 `backend/tests/structure/test_autouse_fixtures_give_nothing.py`が持つ）。
@@ -895,7 +895,7 @@ test_accident_routes.py, test_routes_generate.py
 
 ## パターン2: PostGIS統合テスト（road_graph_session）→ ファイル単位でエンジン・イベントループを共有
 
-`conftest.py`の`road_graph_session`/`road_graph_repository`はテストファイル（モジュール）単位で
+`conftest.py: road_graph_session`/`conftest.py: road_graph_repository`はテストファイル（モジュール）単位で
 1本のDB接続・イベントループを使い回す設計（新規DB接続の確立自体に1〜2秒かかるため、テスト関数
 ごとに新規作成すると規模の大きいファイルでテスト全体の時間を大きく押し上げる。ローカル環境での
 実測、localhost/127.0.0.1どちらでも同程度でDNS起因ではない）。
@@ -1027,7 +1027,7 @@ CSSの規則が当たる。開くたびに作り直される部品（ポップ�
 ものとして扱われ、そのタブの中身が走査から黙って抜ける。localStorageは指紋に入れない——辿る間に
 ページを読み直さないので、保存値はアプリの状態を通してしか画面に効かず、それは開閉の値で読める。
 
-押したあとは、画面が**落ち着く**まで待ってから次を見る（何を見て落ち着いたとするかは`e2e/states.ts`の`settle`）。**Playwrightの
+押したあとは、画面が**落ち着く**まで待ってから次を見る（何を見て落ち着いたとするかは`e2e/states.ts: settle`）。**Playwrightの
 `networkidle`では済ませない**: 公式が試験での使用を勧めていない（「通信が500ms無い」まで待つので押すたびに
 その分かかる）うえ、読み込み状態の待ちなので、文書の読み込み中に一度その状態へ達していれば、押した後に
 呼んでもすぐ返る（`waitForLoadState`の型定義の説明。版は`frontend/package.json`の`@playwright/test`）。
@@ -1056,7 +1056,7 @@ CSSの規則が当たる。開くたびに作り直される部品（ポップ�
   （`npm run start:standalone`。`scripts/prepare-standalone.mjs`がDockerfileのCOPYと同じ
   静的ファイルの配置を作る）。`next start`・`next dev`は使わない——standalone構成に固有の
   配置ずれを捕まえられず、devは初回コンパイルの待ち時間が読めない。
-- `playwright.config.ts`の`webServer`は**起動だけ**を行う。E2E専用のポートを使い、
+- `playwright.config.ts: webServer`は**起動だけ**を行う。E2E専用のポートを使い、
   **既に動いているサーバーを使い回さない**（devサーバーや古いビルドを試してしまうため）。
   同じポートが塞がっていれば起動の時点で失敗する。
 - specだけを直して回し直すときは、直前のビルドを使って
@@ -1067,7 +1067,7 @@ CSSの規則が当たる。開くたびに作り直される部品（ポップ�
 - **実データ・実backendで見る系統は、`frontend/e2e-live/`に置き、`playwright.live.config.ts`で
   走らせる。CIには載せない**（CIのランナーには開発DBも手元のbackendも無い）。モックで決定的に
   回す`frontend/e2e/`とは目的が違うので、同じ場所に混ぜない。
-  - **見るもの**: モック（`e2e/fixtures.ts`の`installApiMocks`）が本物の代わりに返しているもの——
+  - **見るもの**: モック（`e2e/fixtures.ts: installApiMocks`）が本物の代わりに返しているもの——
     基礎地図・タイル・軸カタログ・ルート生成・気象——に本物が来たときにだけ起きる壊れ方（描かれない・
     値が来ない・押すと例外で開かない）。1シナリオ＝1枚のページ＝1本の幹で、重い段取り（開く・生成）を
     1回だけ払い、その先の枝をまとめて見る。枝は見終えたら戻し、戻ったかは`e2e/states.ts`の指紋で
@@ -1147,7 +1147,7 @@ CSSの規則が当たる。開くたびに作り直される部品（ポップ�
 だけで順序が入れ替わる。確かめるには`pytest <対象> --setup-plan`でセットアップ順を出す。
 
 frontendは`frontend/src/testing/`配下が同じ役割を持ち、用途は各ファイルの先頭のコメントが書く
-（例: `routeFixtures.ts`の`makeRouteCandidate()`は、`e2e/fixtures.ts`も含めてルート候補を組み立てる
+（例: `routeFixtures.ts: makeRouteCandidate()`は、`e2e/fixtures.ts`も含めてルート候補を組み立てる
 すべての場所が使う）。
 
 ## パターン6: 絞り込んだ母集団をループするテストは、空でないことを確かめる
@@ -1221,7 +1221,7 @@ vi.mock("@/lib/tileBaseUrl", () => ({ tileBaseUrl: () => "" }));
 `process.env`ごとの差し替えを避ける。**漏れたかどうかは`vitest.setup.ts`が実行時に見る**
 ——テストファイルの終わりに`process.env`が開始時と違えば落ちる（`vi.stubEnv`のように
 復元されるものは通る）。`process.env`ごとの差し替えは束縛を固定して止めてある。自分のテスト対象だけが読む環境変数
-（`app/api/version/route.ts`の`RENDER_GIT_COMMIT`・`lib/adminBasicAuth.ts`の資格情報等）は、他へ波及しないため
+（`app/api/version/route.ts: RENDER_GIT_COMMIT`・`lib/adminBasicAuth.ts`の資格情報等）は、他へ波及しないため
 対象外で、`vi.stubEnv`で立てて公開の入口を呼ぶ（使う側のテストは読み取り口のモジュールをモックして、その値を読まない）。
 
 
@@ -1233,7 +1233,7 @@ DBの制約・取込の順序から**作れない状態**をテストで作ら�
 - **派生行を作るテストは、親を先に入れる**。区間（`road_edges`）は生の道
   （`source_features`の`osm_way`）とノード（`node_materials`、端点はFK）の派生。本番と同じ順
   （生データを入れてから派生バッチを流す）で作り、派生の表へ行を直接書き込まない
-  （`test_derive_topology.py`の`topology_conn`が、生の道を取り込んでから
+  （`test_derive_topology.py: topology_conn`が、生の道を取り込んでから
   `derive_topology.derive`を呼ぶ形）。
 - **生データも取込の入口から入れる**。`source_features`・`source_runs`へ直接書くと、取込では
   作れない行（成功なのに終わった時刻の無いrun等）ができる。`tests/source_ingest.py: ingest_records`が

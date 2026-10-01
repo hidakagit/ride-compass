@@ -88,7 +88,7 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
   ドラッグ・矢印キー操作のみ**。ドラッグ中の値は帯の区間とチップの%がその場で動いて
   示すため、操作の説明文も、同じ調整を別の形で用意した操作（増減ボタン等）も置かない。
   帯の色と凡例チップの色ドットは、どちらも軸カタログが1回だけ導く識別色
-  （`lib/axisCatalog.ts`の`axisColors`、実際の軸数でHSL色相環を等分）を読むため、常に一致する
+  （`lib/axisCatalog.ts: axisColors`、実際の軸数でHSL色相環を等分）を読むため、常に一致する
   （ルート結果・レンズの選択肢も同じ色）。**帯そのものが「重み配分」で
   あり「全体で100%」であることを示すため、タブは見出しも合計の表記も持たない**（言い換えの
   行を置かない、設計原則「冗長なものは削る」）。
@@ -99,7 +99,7 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
   重みを切り替えるだけで、地図の色分けとは無関係（地図の色分け（レンズ）はこのパネルには
   なく、地図上の`LensControl`だけが持つ）。
 - 向きコンパス（`WindBearingSlider`）はこのパネルには存在しない。風・勾配の走行方位は
-  走行条件の単一共有state（`features/conditions/useRideConditions.ts`の`bearingDeg`）を地図上の`TravelBearingControl`
+  走行条件の単一共有state（`features/conditions/useRideConditions.ts: bearingDeg`）を地図上の`TravelBearingControl`
   1箇所からのみ設定する（[ページ全体構成・状態管理](page-composition.md)「動的材料
   （風・勾配）の状態別表現契約」参照）。
 - パネルが受け取る重みは、`useGenerationConditions.ts`がカタログのキー集合へ揃えた値（`routePreferenceSync.ts: alignRoutePreference`。
@@ -135,7 +135,7 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
 結果が変わらない」を実験の差だと取り違えるため、常設ヘッダーの印と`RouteSettingsPanel`が失敗の表示と
 再試行導線（`retryAxisCatalogFetch`、成功済みなら何もしない）を出し、重みを上書きしていたのに送れずに
 作った候補には「ルート結果」の先頭に「重み配分を反映できず、既定の配分で作りました。」を出す
-（`useRouteGeneration.ts`の`weightsNotApplied`）。上書きしていない生成には出さない——元から既定の配分で、
+（`useRouteGeneration.ts: weightsNotApplied`）。上書きしていない生成には出さない——元から既定の配分で、
 反映できなかったものが無い。生成そのものは断らない——既定の配分のルートでも走るには使える。
 
 `lens_axis_id`にも同じガードを掛ける。**存在しない軸idはエラーにならず黙って無視される**
@@ -150,7 +150,7 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
 
 `WindBearingSlider`自体は本コンポーネント表に無い`features/conditions/TravelBearingControl/
 TravelBearingControl.tsx`（`page.tsx`から直接importされ地図上に置かれるアイコンボタン）
-1箇所だけからマウントされる。走行条件の単一共有state（`useRideConditions.ts`の`bearingDeg`。風・勾配で
+1箇所だけからマウントされる。走行条件の単一共有state（`useRideConditions.ts: bearingDeg`。風・勾配で
 共有、[ページ全体構成・状態管理](page-composition.md)「動的材料（風・勾配）の状態別
 表現契約」参照）を`TravelBearingControl`が受け取り、地図右上（MapLibreのズーム+/−・
 回転コントロールの直下）のアイコンボタンをトリガーにしたRadix Popoverの中で
@@ -273,7 +273,7 @@ TravelBearingControl.tsx`（`page.tsx`から直接importされ地図上に置か
 
 ## 区間クリック詳細（selectedRouteSegment）
 
-地図上でルート線の区間をクリックすると、`useRouteResults.ts`の`selectedRouteSegment` state
+地図上でルート線の区間をクリックすると、`useRouteResults.ts: selectedRouteSegment` state
 （`{ segment: RouteSegmentDetail, latitude, longitude }`、`MapView.tsx:
 handleRouteSegmentClick`がクリック地点の座標とともに設定する）が入る。地図側は
 クリック地点へ軽量なマーカーを立てるだけでテキストポップアップは出さない
@@ -385,7 +385,7 @@ DBの`ROUTE_GENERATION_COMMAND_TIMEOUT_SECONDS`はクエリ1本ごとの上限�
 数値の直接入力欄は持たない（原則としてユーザーに数字を直接入力させない方針）。
 distance・maxRoutesはいずれもstring stateのまま`useGenerationConditions.ts`が持ち、数値への変換は送るときに行う。
 **距離・候補数は検証しない**——スライダー・ステッパーはmin/maxで値域を強制するため空文字・範囲外を作れず、
-保存値も読むときに範囲の外を捨てる（`useGenerationConditions.ts`の`useStoredState`の`deserialize`）。`useRouteFormSubmit`が
+保存値も読むときに範囲の外を捨てる（`useGenerationConditions.ts: useStoredState`の`deserialize`）。`useRouteFormSubmit`が
 確かめるのは、出発地が分からないこと（下記）と、目的地モードで地点が1つも無いことだけ。
 
 **出発地が仮の地点のままなら生成しない**（どちらのモードでも）。位置情報を許可しない・取得に失敗した・
@@ -434,7 +434,7 @@ distance・maxRoutesはいずれもstring stateのまま`useGenerationConditions
 - 設定済みの地点から武装しても値は残る。次の地図タップが置き換えになる——生成後に目的地を
   変えたいとき、解除してから指定し直す2段階を踏ませないため。解除は行の✕が担う。
 - 目的地モードへ切り替えた時点で目的地・経由地とも未指定なら、行を押さなくても目的地を
-  置ける状態にする（`useGenerationConditions.ts`の`changeRouteMode`）。既に目的地・経由地がある場合は
+  置ける状態にする（`useGenerationConditions.ts: changeRouteMode`）。既に目的地・経由地がある場合は
   自動で武装しない——次のタップの意図が「経由地の追加」である可能性があり、武装したままだと
   意図せず目的地が上書きされてしまうため。
 - 置ける場所も限る。「ルート設定」区分を見ていて、かつ「条件」タブを開いている間だけ武装が

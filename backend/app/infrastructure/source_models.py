@@ -32,7 +32,7 @@ from app.infrastructure.orm_base import Base
 
 
 class Source(StrEnum):
-    """コードが名指すソース。値は`batch/source_profile.yaml`の`name`と同じ綴り。
+    """コードが名指すソース。値は`batch/source_profile.yaml: name`と同じ綴り。
 
     取込の経路はソースを名指さない（プロファイルが挙げたものをそのまま取り込む）ので、
     ここに在るのは派生・読み手が中身を知って読むソースだけである。
