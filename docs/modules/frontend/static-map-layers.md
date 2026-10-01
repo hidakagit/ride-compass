@@ -372,7 +372,7 @@ ON/OFFから行う（画面の側は下敷きの有無を知らない）。
 出所の異なる2つの`Partial<Record<MapLayerId, LayerDataStatus>>`をマージしたもので、
 内訳は次の2系統:
 
-- **`mapViewLayerDataStatus`**（`MapView.tsx: buildLayerDataSources`）:
+- **`useMapView.ts: mapLayerStatus`**（`MapView.tsx: buildLayerDataSources`）:
   road/POI/事故/標高等、MapLibreが自身のタイル取得として実行するレイヤー。ソースイベント
   （`sourcedata`/`sourcedataloading`/`error`）から算出する。
 - **`dynamicWeatherDataStatus`**（[動的気象レイヤー](dynamic-weather-layers.md)
@@ -452,7 +452,7 @@ ramp軸[`dataNature==="composite"`]）はチップの一覧（`features/map/view
 **束ねる前に1か所で**除く（地図上チップのどこにも出さない。表示はレンズが持つ）。
 
 **暗黙の前提**: `mapOverlayGroupFor`は`category`しか見ないので、軸スタジオ由来のレイヤーを渡すと
-グループへ紛れ込む（例: `car_stress`の`category="trafficSafety"`は`accidents`等と同じ値）。
+グループへ紛れ込む（例: `category`を`trafficSafety`にした軸は、事故・停止要因の層と同じ値になる）。
 チップの一覧を通さずにレイヤーを束ねる場所を作るなら、同じ除外を先に通す。
 
 グループは表示上のまとまりだけを表し、**どのレイヤーも複数同時にONにできる**。重なって
@@ -709,7 +709,7 @@ ramp軸ぶんの絞り込み軸は`rampAxes`（実行時フェッチ、軸スタ
 ## ポップアップへOSMタグの生値を出すときはHTMLとして解釈させない
 
 ポップアップの値はOSMの道・点のタグ由来＝**第三者が編集できるデータ**で、
-対訳表に載らない値は生のまま出る（`SMOOTHNESS_LABELS`の`?? 生値`）。停止要因/補給POIの
+対訳表に載らない値は生のまま出る（`roadFacts.ts: valueLabel`の`?? value`）。停止要因/補給POIの
 `kind`はOSMの生値ではなくbackendの分類器が付ける内部名なので、対訳が無ければ生値ではなく
 「不明」を出す（[design-principles.md](../../architecture/design-principles.md)UI仕様「内部名を画面に出さない」）。
 行き先は2通りあり、**どちらも値をテキストノードとして入れる**。道路の詳細はReactで描く

@@ -150,7 +150,7 @@ describe("配信された値で塗る軸", () => {
   });
 });
 
-describe("buildAxisRampValueExpression（改善計画T292: categories/breakpoints分岐）", () => {
+describe("buildAxisRampValueExpression（categories・breakpointsの分岐）", () => {
   const baseAxis: RampAxis = { ...rampAxesFromCatalogAxes([rampEntry("test", [50])], {})[0], tileInputs: [] };
 
   it("categories入力はmatch式でmapping値×weightを返す", () => {

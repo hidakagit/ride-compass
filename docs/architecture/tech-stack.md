@@ -222,7 +222,7 @@ CIと`docker-compose.yml`も上げる。** CIが本番と違う版で合否を�
   （`libgeos-c1t64`・`libproj25`・`proj-data`）。Ubuntu本体のアーカイブにも同じパッケージ名の
   古い版があり、PGDGの`postgresql-18-postgis-3`はどちらでも入る。**本番でaptを更新すると
   GEOS・PROJも進む**——CIは実行のたびにPGDGの最新を入れるので、本番のaptを長く止めると
-  CIだけが先へ進む。本番の実際の版はCIの注釈`DB`と同じ関数（`postgis_full_version()`）で読める。
+  CIだけが先へ進む。本番の実際のGEOS・PROJの版も`postgis_full_version()`（上）で読める。
 - 開発機（Windows）は別の配布物で、版が揃わない（PostgreSQL 18.6・PostGIS 3.6.2・
   GEOS 3.14.1dev・PROJ 8.2.1。2026-09-23）。GEOS・PROJの挙動差が効く検査（土地被覆の帯の形等）は
   CIで判定する。
