@@ -87,7 +87,7 @@ export default function RouteForm({
   }
 
   // 出発地・経由地・目的地は同じ形の行で並べる（役割が同じ「地点を置く」操作のため）。
-  // 武装は1つだけで、押している行以外は自動的に解除される（`features/route/useGenerationConditions.ts`の`armedPinRole`）。
+  // 武装は1つだけで、押している行以外は自動的に解除される（`features/route/useGenerationConditions.ts: armedPinRole`）。
   function renderPointRow(
     role: PinRole,
     label: string,

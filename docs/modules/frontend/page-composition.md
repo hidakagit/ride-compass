@@ -35,7 +35,7 @@ Next.js route handlerからのサーバー間fetch先を区別する（後者は
 ネットワークのURLになりうるため別変数）。
 
 **backendのAPIは`apiClient.ts`の呼び出し口（openapi-fetch）で呼び、パス・問い合わせの項目・本文・応答の型は
-OpenAPIの生成物（`types/generated/api.d.ts`の`paths`）から推論させる。** 呼ぶ側はパスも応答の型も手で書かない——手で書いた
+OpenAPIの生成物（`types/generated/api.d.ts: paths`）から推論させる。** 呼ぶ側はパスも応答の型も手で書かない——手で書いた
 型はbackendの応答の形が変わっても追従せず、画面から実際に呼ぶまで食い違いに気づけない。宣言に無いパス・問い合わせの項目の
 名前・必須の項目の欠けも型検査で落ちる（FastAPIは宣言に無い問い合わせの項目を既定では黙って無視するので、手で書いた名前が
 古くなると、任意の項目は届かないまま応答が返る）。値がnull・undefinedの項目は付けない（空文字は付く。付けたくない呼ぶ側が
@@ -225,7 +225,7 @@ backendも日本時間で扱う。`domain/time_zone.py`）。暦と時刻の取�
 （走行方位という1つの概念を表す単一state）:
 
 ```
-走行方位（`features/conditions/useRideConditions.ts`の`bearingDeg`、TravelBearingControlで操作）。出発時刻は`features/conditions/useDepartureTime.ts`の`at`、想定速度は`useRideConditions.ts`の`speedKmh`（いずれも地図右上の条件アイコン列`features/conditions/RideConditionBar/RideConditionBar.tsx`で操作し、生成リクエストの`start_time`/`assumed_speed_kmh`とレンズの`speed_kmh`へ同じ値が乗る）
+走行方位（`features/conditions/useRideConditions.ts: bearingDeg`、TravelBearingControlで操作）。出発時刻は`features/conditions/useDepartureTime.ts: at`、想定速度は`useRideConditions.ts: speedKmh`（いずれも地図右上の条件アイコン列`features/conditions/RideConditionBar/RideConditionBar.tsx`で操作し、生成リクエストの`start_time`/`assumed_speed_kmh`とレンズの`speed_kmh`へ同じ値が乗る）
   │
   ├─→ 風:   [時刻]出発時刻（useDepartureTime由来）
   │           │
@@ -253,7 +253,7 @@ backendも日本時間で扱う。`domain/time_zone.py`）。暦と時刻の取�
 一部として**常時表示する**（表示条件を持たない）。中身は`RouteSettingsPanel`と同じ
 `WindBearingSlider`ダイヤルをRadix Popoverで開く。
 
-地図右上は、MapLibreのズーム+/−・回転（`MapView.tsx`の`NavigationControl`）の下へ
+地図右上は、MapLibreのズーム+/−・回転（`MapView.tsx: NavigationControl`）の下へ
 `TravelBearingControl`・`RideConditionBar`を積んだ**1本の列**で、幅・間隔・アイコンの大きさは
 `globals.css`の`--map-ctrl-*`だけが持つ。MapLibre側のボタンの幅もそこで列の幅へ広げ、
 アプリのボタンを積み始める位置はNavigationControlの既定のボタン数（3つ）から導く——
@@ -311,7 +311,7 @@ Reactの外（モジュール評価時に初期値を決めるシングルトン
   決めた重みではなく、取得前は軸が0件のため、そのまま整合させると保存済みの重みを全部消す。
 - 走行条件（走行方位・出発時刻・想定速度）→ 地図の見え方（`useMapView`の入力）・生成リクエスト・
   道の詳細（`MapView`の`rideConditions`）が同じ値を読む（上記「動的材料の状態別表現契約」参照）。
-- 生成に使われた重み（`useRouteResults.ts`の`usedWeights`。backendが生成時に使った値を返し、生成が結果と一緒に渡す）→ レンズの
+- 生成に使われた重み（`useRouteResults.ts: usedWeights`。backendが生成時に使った値を返し、生成が結果と一緒に渡す）→ レンズの
   選択肢の「未使用」。生成前は代わりに今の設定の重み（`useMapView`の`currentWeights`）で分ける——重みタブが薄く出す軸と
   同じ軸が「未使用」に並ぶ。
 - 地図の見え方の値（`useMapView`の`look`）→ `MapView`。レイヤーのON/OFF・レンズ・塗っている軸・
@@ -423,7 +423,7 @@ propでヘッダ右側・閉じるボタンの手前へ要素を差し込める�
 （`RouteForm`で指定する`max_routes`件＋経由地/目的地ルート）がシートの高さを超える場合は
 候補一覧の中だけが縦スクロールする（右の中身はスクロールしない）。`routes`・`selectedRouteId`・
 `comparisonTabActive`・生成に使われた重みに加え、生成の側の作った条件と
-`experimentSlots`（比較タブ・地図重ね描き用の履歴）も同時に空にする（`handleRoutesClear`→`useRouteGeneration.ts`の`clear`）。
+`experimentSlots`（比較タブ・地図重ね描き用の履歴）も同時に空にする（`handleRoutesClear`→`useRouteGeneration.ts: clear`）。
 
 `conditionsDirty`（表示中の候補を作った条件と現在のフォーム値のずれ）は、
 `features/route/generationRequest.ts`が組み立てる比較キーの一致で決まる。**送るpayloadと比較キーを

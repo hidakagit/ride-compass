@@ -2,7 +2,7 @@
 
 走行方位は**ユーザーが指定した単一の値**（全道路共通）で、道路自身のOSM格納方向は使わない
 （ルートを出す前は道を走る向きが決まっていない）。予報の地点と時刻の選び方はルートの区間と
-同じ（`domain/wind.py`の`WindLattice`・`WindForecastSeries`）で、値は同じ評価器
+同じ（`domain/wind.py: WindLattice`・`domain/wind.py: WindForecastSeries`）で、値は同じ評価器
 （`domain/dynamic_materials.py`）を通す。
 
 制御フローの詳細はdocs/modules/backend/dynamic-way-values.md「`WindWayService`」節参照。

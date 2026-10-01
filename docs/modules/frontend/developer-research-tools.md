@@ -61,7 +61,7 @@ localStorage経由で`/`側へ共有される（`HeaderMenu`はデバッグロ�
    デバッグモードON中、`services/`配下のfetchラッパー・`MapView.tsx`のmapイベント
    ハンドラから直接呼ばれるフレームワーク非依存のシングルトン（最大300件、
    `console.debug`/`warn`/`error`にも同時出力）。
-3. **パネルの開閉**（`page.tsx`の`debugConsoleOpen`）: `DebugConsole`自体の表示/非表示。
+3. **パネルの開閉**（`app/page.tsx: debugConsoleOpen`）: `DebugConsole`自体の表示/非表示。
    デバッグモードONでも常時パネルを占有させない、記録の有効/無効とは独立したstate。
 
 ## 研究モード（`HeaderMenu.tsx`でON/OFF、`useResearchEnabled()`で参照）
@@ -74,7 +74,7 @@ ONにすると生成（`features/route/useRouteGeneration.ts`）が生成した�
 機能という位置づけ）。評価軸の重み（`route_preference`）自体は一般向けルート設定画面
 （`RouteSettingsPanel`）が常時編集する状態で、研究モードON/OFFとは独立している。
 
-トグル本体は`page.tsx`の`HeaderMenu`にあり、`/admin`の`ResearchPanel`は同じフラグ
+トグル本体は`app/page.tsx: HeaderMenu`にあり、`/admin`の`ResearchPanel`は同じフラグ
 （`researchMode.ts`）の現在値を読むだけの表示専用コンポーネント。デバッグモード
 （ログ表示専任）とは独立した別のトグル。
 

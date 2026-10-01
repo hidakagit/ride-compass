@@ -1,4 +1,4 @@
-"""上下線が分かれた道の片側か（`batch/derive_way_materials.py`の`way_materials.divided`）。
+"""上下線が分かれた道の片側か（`batch/derive_way_materials.py: way_materials.divided`）。
 
 判定の3条件（`carriageway`の申告・同じ名前の対向一方通行・寄り添う対向一方通行）それぞれに、
 当たる入力と、条件の外にある入力を1組ずつ置く。生データから派生の段を本物のまま通す。

@@ -29,7 +29,7 @@ from pathlib import Path
 
 BACKEND = Path(__file__).resolve().parents[1]
 WORKTREE = BACKEND.parent
-#: E2Eのオリジン（`frontend/playwright.live.config.ts`の`LIVE_ORIGIN`）。
+#: E2Eのオリジン（`frontend/playwright.live.config.ts: LIVE_ORIGIN`）。
 LIVE_ORIGIN = "http://localhost:3200"
 DEFAULT_PORT = 8000
 HEALTH_TIMEOUT_SECONDS = 300
