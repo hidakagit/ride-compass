@@ -12,6 +12,9 @@
 焼き込めないため`TileInputSpec.needs_runtime_scale`で印だけ付ける。係数そのものは
 `GET /api/axis-catalog`が返す`tile_runtime_scales`をフロントの式が掛け合わせる。
 
+地図の式が塗る値が評価と同じになることは、`scripts/cross_language_expectations.py:
+axis_ramp_expectations`が形ごとの入力と評価の答えを表にして配り、画面のテストが通して確かめる。
+
 段の境界は軸の折れ点のx値をそのまま使うため粗くなることがあり、
 `AxisDefinition.display_thresholds_override`で上書きできる。
 """

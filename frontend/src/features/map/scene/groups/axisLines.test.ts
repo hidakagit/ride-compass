@@ -5,11 +5,18 @@ import { LEGEND_NO_DATA_KEY } from "@/lib/mapDisplay/mapColorLegend";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import palette from "@/types/generated/palette.json";
 
-import { rampAxesFromCatalogAxes, type RampAxis } from "@/lib/mapDisplay/axisLayers";
-import { rampEntry } from "@/testing/catalogAxes";
+import { rampAxesFromCatalogAxes } from "@/lib/mapDisplay/axisLayers";
+import { catalogEntry } from "@/testing/catalogAxes";
 import { evaluateExpression as evaluate } from "@/testing/mapExpressions";
+import axisRampExpectations from "@/types/generated/axis-ramp-expectations.json";
+import type { AxisCatalogEntry } from "@/types/route";
 
-import { axisLineGroup, buildAxisRampValueExpression, type AxisLineState } from "./axisLines";
+import {
+  axisLineGroup,
+  buildAxisRampUnknownExpression,
+  buildAxisRampValueExpression,
+  type AxisLineState,
+} from "./axisLines";
 
 // 地図全体の「薄い＝対象外、濃い＝分類あり」という読み方を、レンズの線にも効かせる。
 // 方位を指定すると値を示せない道が街区の半分近くを占めうるため、濃いまま塗ると
@@ -150,89 +157,35 @@ describe("配信された値で塗る軸", () => {
   });
 });
 
-describe("buildAxisRampValueExpression（categories・breakpointsの分岐）", () => {
-  const baseAxis: RampAxis = { ...rampAxesFromCatalogAxes([rampEntry("test", [50])], {})[0], tileInputs: [] };
+// backendの表の値は評価が付ける値で、地図の式は同じ演算を別の順で行うため最下位の桁だけ違いうる。
+const RAMP_VALUE_TOLERANCE = 1e-9;
 
-  it("categories入力はmatch式でmapping値×weightを返す", () => {
-    const axis: RampAxis = {
-      ...baseAxis,
-      tileInputs: [{ property: "highway", weight: 2, categories: { primary: 4, residential: 2 } }],
-    };
-    const expression = buildAxisRampValueExpression(axis);
-    expect(expression).toEqual([
-      "match",
-      ["coalesce", ["get", "highway"], "__unknown__"],
-      "primary",
-      8,
-      "residential",
-      4,
-      0,
-    ]);
+describe("ramp軸の式は、backendの表（形ごとの軸と道）で評価と同じ値・同じ「不明」を出す", () => {
+  const axes = axisRampExpectations.axes;
+
+  it("表が空でない", () => {
+    expect(axes.length).toBeGreaterThan(0);
+    for (const { roads } of axes) expect(roads.length).toBeGreaterThan(0);
   });
 
-  it("breakpoints入力はinterpolate式（weight=1なら素通し）をcaseで包み、タイルプロパティ欠損時は寄与0にする", () => {
-    const axis: RampAxis = {
-      ...baseAxis,
-      tileInputs: [
-        {
-          property: "maxspeed_kmh",
-          weight: 1,
-          breakpoints: [
-            [0, -1],
-            [30, -1],
-            [60, 1],
-          ],
-        },
-      ],
-    };
-    const expression = buildAxisRampValueExpression(axis);
-    expect(expression).toEqual([
-      "case",
-      ["!", ["has", "maxspeed_kmh"]],
-      0,
-      ["interpolate", ["linear"], ["get", "maxspeed_kmh"], 0, -1, 30, -1, 60, 1],
-    ]);
-  });
-
-  it("breakpoints入力はweight≠1のとき乗算で包む（caseの内側）", () => {
-    const axis: RampAxis = {
-      ...baseAxis,
-      tileInputs: [
-        {
-          property: "lanes_count",
-          weight: 0.5,
-          breakpoints: [
-            [0, -1],
-            [4, 1],
-          ],
-        },
-      ],
-    };
-    const expression = buildAxisRampValueExpression(axis);
-    expect(expression[0]).toBe("case");
-    const value = expression[3] as unknown[];
-    expect(value[0]).toBe("*");
-    expect((value[1] as unknown[])[0]).toBe("interpolate");
-    expect(value[2]).toBe(0.5);
-  });
-
-  it("categories/breakpointsを含む複数入力はΣで合成される", () => {
-    const axis: RampAxis = {
-      ...baseAxis,
-      tileInputs: [
-        { property: "highway", weight: 1, categories: { primary: 4 } },
-        {
-          property: "maxspeed_kmh",
-          weight: 1,
-          breakpoints: [
-            [0, -1],
-            [60, 1],
-          ],
-        },
-      ],
-    };
-    const expression = buildAxisRampValueExpression(axis);
-    expect(expression[0]).toBe("+");
-    expect(expression.length).toBe(3);
-  });
+  for (const { axis: name, display, runtime_scales, roads } of axes) {
+    it(name, () => {
+      const [axis] = rampAxesFromCatalogAxes(
+        [catalogEntry({ axis_id: "table", display: display as AxisCatalogEntry["display"] })],
+        runtime_scales,
+      );
+      const unknownExpression = buildAxisRampUnknownExpression(axis);
+      const valueExpression = buildAxisRampValueExpression(axis);
+      for (const { road, properties, unknown } of roads) {
+        const isUnknown = unknownExpression === null ? false : evaluate(unknownExpression, properties);
+        expect(isUnknown, `${road}: 不明か`).toBe(unknown);
+      }
+      const valued = roads.filter((row): row is typeof row & { value: number } => row.value !== null);
+      expect(valued.length).toBeGreaterThan(0);
+      for (const { road, properties, value } of valued) {
+        const painted = evaluate(valueExpression, properties) as number;
+        expect(Math.abs(painted - value), `${road}: ${painted} と ${value}`).toBeLessThan(RAMP_VALUE_TOLERANCE);
+      }
+    });
+  }
 });

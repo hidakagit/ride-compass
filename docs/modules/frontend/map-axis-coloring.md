@@ -137,6 +137,12 @@ localStorageキーは`ridecompass:route-style-mode`）。ルート前は全道�
 専用way値配信軸（配信された値をfeature-stateで載せる）の両方を同じ1つの宣言で描く。
 値の届き方の違いは「値が無い道をどう見分けるか」と「隠した段をどう落とすか」だけに出る。
 
+ramp軸の値と「不明」の式（`buildAxisRampValueExpression`・`buildAxisRampUnknownExpression`）は、backendの評価の
+意味を画面の式に写したもの。形ごとに評価と同じ値・同じ「不明」を出すことは、backendが出す表（生成物
+`axis-ramp-expectations.json`。場面の選び方は[軸スタジオ（backend）](../backend/axis-studio.md)「地図表示ルールの自動導出」）を
+`scene/groups/axisLines.test.ts`が全行、軸カタログからramp軸への変換（`rampAxesFromCatalogAxes`、実行時の係数を含む）から
+通して確かめる。
+
 - **値が無い道は段の色で塗らない。** 配信値ではfeature-stateが未設定（null）の道、ramp軸では
   `hasUnknownFallback`な材料が欠けている（または分類表に無い値を持つ）道
   （`scene/groups/axisLines.ts: buildAxisRampUnknownExpression`）が該当する。タイルの生値を材料の値へ換算する

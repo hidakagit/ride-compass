@@ -6,8 +6,18 @@
 画面のテストが落ちる。backendの関数そのものの正しさは、手で書いたあるべき値のpytestが見る。
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 
+from app.domain.axis_definitions import (
+    AxisDefinition,
+    AxisShape,
+    BreakpointLinearShape,
+    CategoricalShape,
+    MaterialTerm,
+    evaluate_axis_values,
+    raw_values,
+)
+from app.domain.axis_display import axis_display_for
 from app.domain.geo import COMPASS_LABELS, LatLonPoint, compass_label, haversine_distance_km
 from app.domain.jma_tile_specs import (
     JMA_ELEMENTS,
@@ -17,6 +27,8 @@ from app.domain.jma_tile_specs import (
     jma_tile_path,
     read_target_times,
 )
+from app.domain.material_catalog import MATERIAL_CATALOG, tile_runtime_scales
+from app.domain.registry import AxisDisplaySpec, TileInputSpec
 from app.domain.weather_elements import stage_first_frames
 from app.infrastructure.jma_tile_client import parse_target_times
 
@@ -220,8 +232,186 @@ def jma_expectations() -> dict[str, list[dict]]:
     }
 
 
+# 係数（収録年数の逆数）で割り戻したタイルの値も2進で割り切れる年数。
+_ACCIDENT_YEARS = [2019, 2020, 2021, 2022]
+
+#: 道1本の材料の値（材料id → 値。欠損はNone）。
+_Road = Mapping[str, object]
+
+
+def _tile_property(material_id: str) -> str:
+    tile_property = MATERIAL_CATALOG[material_id].tile_property
+    assert tile_property is not None  # 表の材料はタイルへ焼くものから選ぶ
+    return tile_property
+
+
+def _tile_properties(road: _Road, scales: Mapping[str, float]) -> dict[str, object]:
+    """材料の値を、路面タイルへ焼いたときのプロパティにする（`infrastructure/road_graph_repository.py:
+    _ROAD_SURFACE_TILE_MVT_SQL`の形）。欠損・偽・数値の0はキーごと載らない（密度の0はNULLIFで省く）。
+    実行時の係数が要る材料は、材料の値を係数で割り戻したタイルの生値で載る。"""
+    properties: dict[str, object] = {}
+    for material_id, value in road.items():
+        if value is None or value is False or value == 0:
+            continue
+        tile_property = _tile_property(material_id)
+        if tile_property in scales:
+            assert isinstance(value, float)
+            value = value / scales[tile_property]
+        properties[tile_property] = value
+    return properties
+
+
+def _axis(axis_id: str, shape: AxisShape) -> AxisDefinition:
+    return AxisDefinition(axis_id=axis_id, label=axis_id, default_weight=1.0, shape=shape)
+
+
+def _score(shape: AxisShape, road: _Road) -> float | None:
+    """評価がその道に付ける値。折れ点の軸は折れ点を通す前の重み付き和（地図の段はこの目盛りで切る）、
+    分類の軸は点数。評価できなければNone。"""
+    materials = {material_id: [value] for material_id, value in road.items()}
+    if isinstance(shape, BreakpointLinearShape):
+        [value] = raw_values(shape, materials, 1)
+    else:
+        [value] = evaluate_axis_values(_axis("score", shape), materials, 1)
+    return value
+
+
+def _linear(*terms: MaterialTerm, breakpoints: list[tuple[float, float]]) -> BreakpointLinearShape:
+    return BreakpointLinearShape(terms=list(terms), breakpoints=breakpoints)
+
+
+def _axis_rows(
+    name: str, display: AxisDisplaySpec, roads: dict[str, _Road], answer: Callable[[_Road], float | None]
+) -> dict:
+    assert display.kind == "ramp", name  # 表の軸は地図に出る形だけ
+    scales = tile_runtime_scales(_ACCIDENT_YEARS)
+    rows = []
+    for road_name, road in roads.items():
+        value = answer(road)
+        rows.append(
+            {"road": road_name, "properties": _tile_properties(road, scales), "value": value, "unknown": value is None}
+        )
+    return {"axis": name, "display": display.model_dump(mode="json"), "runtime_scales": scales, "roads": rows}
+
+
+def _derived_axis_rows(name: str, shape: AxisShape, roads: dict[str, _Road]) -> dict:
+    """軸の定義から地図の表示を導き、評価の答えと並べる。"""
+    return _axis_rows(name, axis_display_for(_axis(name, shape)), roads, lambda road: _score(shape, road))
+
+
+def _referenced_axis_rows() -> dict:
+    """他の軸を参照する項（地図では`TileInputSpec.breakpoints`）。参照先は`AXIS_DEFINITIONS`（DBから読む）に
+    無いと導出できないため、表示は導出が作るのと同じ形で組む。答えは参照先の点数を材料にした外側の和。"""
+    inner = _linear(MaterialTerm(material="maxspeed_kmh"), breakpoints=[(30.0, 0.0), (60.0, 50.0), (90.0, 100.0)])
+    outer_weight = 0.5
+    outer = _linear(
+        MaterialTerm(material="inner", weight=outer_weight, required=False),
+        MaterialTerm(material="intersection_count_per_km"),
+        breakpoints=[(0.0, 0.0), (60.0, 100.0)],
+    )
+    display = AxisDisplaySpec(
+        kind="ramp",
+        label="referenced",
+        tile_inputs=[
+            TileInputSpec(property=_tile_property("maxspeed_kmh"), breakpoints=inner.breakpoints, weight=outer_weight),
+            TileInputSpec(property=_tile_property("intersection_count_per_km")),
+        ],
+        thresholds=[x for x, _ in outer.breakpoints[1:]],
+    )
+
+    def answer(road: _Road) -> float | None:
+        materials = {material_id: [value] for material_id, value in road.items()}
+        [inner_score] = evaluate_axis_values(_axis("inner", inner), materials, 1)
+        return _score(outer, {**road, "inner": inner_score})
+
+    roads: dict[str, _Road] = {
+        "折れ点の間（点数を小数1桁へ丸める）": {"maxspeed_kmh": 40.0, "intersection_count_per_km": 2.0},
+        "折れ点より下（端の点数）": {"maxspeed_kmh": 20.0, "intersection_count_per_km": 2.0},
+        "折れ点より上（端の点数）": {"maxspeed_kmh": 100.0, "intersection_count_per_km": 2.0},
+        "参照先の材料が欠けた（任意の項は寄与0）": {"maxspeed_kmh": None, "intersection_count_per_km": 2.0},
+    }
+    return _axis_rows("他の軸を参照する項", display, roads, answer)
+
+
+def axis_ramp_expectations() -> dict[str, list[dict]]:
+    """地図のramp軸（タイルの材料で道を塗る軸）が道1本に付ける値と「不明」を、形ごとに評価の答えと並べる。
+
+    必須の材料が欠けた道・全項の材料が欠けた道は入れない——評価は不能、地図は寄与0で、タイルの形では
+    欠損と0を見分けられない（`docs/modules/backend/axis-studio.md`「暗黙の前提」）。"""
+    return {
+        "axes": [
+            _derived_axis_rows(
+                "数値の材料（重み違いの複数項）",
+                _linear(
+                    MaterialTerm(material="built_percent", weight=1.5),
+                    MaterialTerm(material="trees_percent", weight=-0.5),
+                    breakpoints=[(0.0, 0.0), (50.0, 50.0), (100.0, 100.0)],
+                ),
+                {
+                    "両方ある": {"built_percent": 40.0, "trees_percent": 10.0},
+                    "片方が0（タイルに載らない）": {"built_percent": 0.0, "trees_percent": 20.0},
+                },
+            ),
+            _derived_axis_rows(
+                "任意の材料",
+                _linear(
+                    MaterialTerm(material="intersection_count_per_km"),
+                    MaterialTerm(material="poi_signal_per_km", weight=2.0, required=False),
+                    breakpoints=[(0.0, 0.0), (5.0, 50.0), (10.0, 100.0)],
+                ),
+                {
+                    "両方ある": {"intersection_count_per_km": 3.0, "poi_signal_per_km": 1.5},
+                    "任意の材料が欠けた": {"intersection_count_per_km": 3.0, "poi_signal_per_km": None},
+                },
+            ),
+            _derived_axis_rows(
+                "真偽の材料の重み付き和",
+                _linear(
+                    MaterialTerm(material="lit", weight=10.0),
+                    MaterialTerm(material="has_tunnel", weight=5.0),
+                    breakpoints=[(0.0, 0.0), (15.0, 100.0)],
+                ),
+                {
+                    "片方が真": {"lit": True, "has_tunnel": False},
+                    "両方が偽（タイルに載らない）": {"lit": False, "has_tunnel": False},
+                    "両方が真": {"lit": True, "has_tunnel": True},
+                },
+            ),
+            _derived_axis_rows(
+                "真偽の分類",
+                CategoricalShape(material="bridge", mapping={True: 80.0, False: 10.0}),
+                {"真": {"bridge": True}, "偽（タイルに載らない）": {"bridge": False}},
+            ),
+            _derived_axis_rows(
+                "3値以上の分類",
+                CategoricalShape(material="highway", mapping={"primary": 60.0, "residential": 20.0, "cycleway": 0.0}),
+                {
+                    "登録した値": {"highway": "primary"},
+                    "点数0の登録した値": {"highway": "cycleway"},
+                    "未登録の値": {"highway": "service"},
+                    "欠けた": {"highway": None},
+                },
+            ),
+            _derived_axis_rows(
+                "実行時の係数が要る材料",
+                _linear(
+                    MaterialTerm(material="accident_count_per_km_year", weight=2.0),
+                    MaterialTerm(material="built_percent", weight=0.5),
+                    breakpoints=[(0.0, 0.0), (20.0, 100.0)],
+                ),
+                {
+                    "両方ある": {"accident_count_per_km_year": 0.5, "built_percent": 30.0},
+                    "係数の要る材料が0": {"accident_count_per_km_year": 0.0, "built_percent": 30.0},
+                },
+            ),
+            _referenced_axis_rows(),
+        ],
+    }
+
+
 #: 組の名前 → 表を作る関数。組を足すときはここに1行足す（書き出しと置き場の名前はこれから決まる）。
 EXPECTATIONS: dict[str, Callable[[], dict[str, list[dict]]]] = {
     "geo": geo_expectations,
     "jma": jma_expectations,
+    "axis-ramp": axis_ramp_expectations,
 }

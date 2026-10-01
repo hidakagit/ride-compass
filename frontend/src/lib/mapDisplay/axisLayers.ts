@@ -23,11 +23,11 @@ interface AxisTileInput {
    * lit・has_tunnel⟵tunnel）はtrueValue/falseValueへ通常どおり倒す。 */
   hasUnknownFallback?: boolean;
   /** N値文字列材料（例: highway）。タイルプロパティの
-   * 文字列値をこの辞書で引いた点数×weightを寄与値とする。未登録値は0扱い
+   * 文字列値をこの辞書で引いた点数×weightを寄与値とする。未登録値の道は「不明」
    * （registry.py: TileInputSpec.categories参照）。 */
   categories?: Record<string, number>;
   /** 自己変換材料（例: maxspeed_kmh/lanes_count）。材料自身が持つ
-   * 区分線形breakpointsでタイルプロパティの生値をinterpolateした値×weightを
+   * 区分線形breakpointsでタイルプロパティの生値をinterpolateし、小数1桁へ丸めた値×weightを
    * 寄与値とする（registry.py: TileInputSpec.breakpoints参照）。 */
   breakpoints?: readonly (readonly [number, number])[];
   /** true=タイルの生値を材料の値へ換算する係数（`tile_runtime_scales`）が届いていない。どの道でも
