@@ -70,8 +70,9 @@ openapi-fetchのmiddlewareの`onError`で包み直し、本文の解析の失敗
 届いたことを記録する）。HTTPの失敗は呼び出し口が例外にせず`error`として返すので、骨格が`detail`から文言を作って投げる。
 呼び出し口は作った時点の`fetch`を握るので、呼ぶたびに`globalThis.fetch`を引く関数を渡している（テストが差し替えた`fetch`を届けるため）。
 
-`x-request-id`とHTTPステータスは失敗のdebugLogに残し、投げる`Error`の`message`には入れない。
-リクエストIDは開発者向け（debugLog・`BackendLogsPanel`）の情報で、画面へ出す文言に混ぜると
+`x-request-id`とHTTPステータスは失敗のdebugLogに残す。`x-request-id`は投げる`Error`の`message`には入れない。
+HTTPステータスが`message`に入るのは、応答に`detail`が無い（JSONでない本文を含む）ときに`messages.failure`へ
+`[HTTP <状態>]`を添える場合だけで、`detail`があればその文言だけを`message`にする。リクエストIDは開発者向け（debugLog・`BackendLogsPanel`）の情報で、画面へ出す文言に混ぜると
 利用者に意味が無いまま長くなり、狭い幅のレイアウト（常設ヘッダー）を溢れさせる。
 
 **暗黙の前提**: 骨格を各クライアントへ写経すると、片方だけ改良された非対称が静かに生まれる
