@@ -38,7 +38,7 @@ class RainWayService:
         return cls(repository=repository, material_id=material_id)
 
     async def get_way_values(
-        self, z: int, x: int, y: int, at: datetime | None, bearing_deg: float | None, speed_kmh: float | None = None
+        self, z: int, x: int, y: int, at: datetime | None, bearing_deg: float | None, speed_kmh: float | None
     ) -> dict[str, float]:
         """指定タイル内のフィーチャーごとの雨の材料値を返す。`at`・`bearing_deg`・`speed_kmh`は
         材料非依存な呼び出し口と形を揃えるためだけに受け取る。

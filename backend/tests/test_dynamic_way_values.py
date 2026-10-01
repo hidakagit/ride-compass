@@ -43,6 +43,7 @@ def catalog(monkeypatch):
             description=m,
             dtype="numeric",
             unit=unit,
+            tile_property=None,
             coverage=material_catalog.CoverageExcluded(reason="テスト用", missing_semantics="unknown"),
         )
         for m, unit in (("grade", "%"), ("speed", "km/h"))

@@ -225,7 +225,7 @@ class MaterialSpec(StrictModel):
     # 気象の動的取得、レシピ合成値等）で、地図レイヤーのramp自動生成対象になりえない。
     # 欠損を非該当として持つ真偽の材料は、この名前と`value_sql`からタイルの列が組み立てられる
     # （`road_graph_repository.py: _BOOLEAN_TILE_COLUMNS_SQL`）。
-    tile_property: str | None = None
+    tile_property: str | None
     # tile_propertyの生値を材料の値へ換算する係数が実行時にしか決まらないとき、その係数の源
     # （`TileRuntimeScale`）。Noneは生値がそのまま材料の値。係数は`tile_runtime_scales`が
     # この宣言から導き、地図の式がタイルの生値へ掛ける。

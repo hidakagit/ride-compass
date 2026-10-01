@@ -412,7 +412,7 @@ backendの答え、タイルで配る要素ごとのタイルのパスを`script
 再試行を持たない（更新頻度が高くない、または機械アクセスへの
 配慮のためTTLキャッシュで呼び出し頻度自体を抑える設計）。これらが共有する
 「`TTLCache`参照→ミス時のみfetch→エラー処理→キャッシュ書き戻し」という骨格を
-`cached_fetch(cache, key, category, fetch, *, catch=..., **log_fields)`が1箇所へ
+`cached_fetch(category, fetch, *, cache=..., key=..., catch=..., **log_fields)`が1箇所へ
 まとめている。呼び出し元は`fetch`（実際のhttpx呼び出し＋パース＋必要ならフォーマット
 検証）だけを渡す。フォーマット不正（配列であるべきなのにそうでない等）は
 `UnexpectedShapeError`（`ValueError`のサブクラス）を`fetch`内から送出すると、`catch`の指定に

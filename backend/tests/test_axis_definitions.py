@@ -40,6 +40,7 @@ def material(material_id: str, dtype: str = "numeric", primary_attribute_id: str
         label=material_id,
         description=material_id,
         dtype=dtype,
+        tile_property=None,
         primary_attribute=None
         if primary_attribute_id is None
         else PrimaryAttributeSpec(attr_id=primary_attribute_id, label=primary_attribute_id, geometry="line"),

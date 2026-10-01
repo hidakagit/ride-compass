@@ -27,6 +27,7 @@ def spec(material_id, dtype="numeric", value_sql=None, coverage=None, **fields):
         label=f"{material_id}の名前",
         description="説明",
         dtype=dtype,
+        tile_property=None,
         value_sql=value_sql,
         coverage=coverage
         or material_catalog.CoverageExcluded(reason=f"{material_id}は測らない", missing_semantics="unknown"),

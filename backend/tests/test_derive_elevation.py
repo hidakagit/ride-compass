@@ -94,7 +94,7 @@ def _profile(without: str | None = None):
     inset = 1e-6
     bbox = (bounds.min_latitude + inset, bounds.min_longitude + inset,
             bounds.max_latitude - inset, bounds.max_longitude - inset)
-    profile = replace(load_source_profile(), target=Target(bbox=bbox))
+    profile = replace(load_source_profile(None), target=Target(bbox=bbox))
     return replace(profile, sources=tuple(
         replace(s, grid=replace(s.grid, products={
             product: zoom for product, zoom in s.grid.products.items() if product != without}))

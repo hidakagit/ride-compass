@@ -40,15 +40,15 @@ class WindWayService:
         return cls(repository=repository, weather_service=weather_service)
 
     async def get_way_values(
-        self, z: int, x: int, y: int, at: datetime | None, bearing_deg: float | None, speed_kmh: float | None = None
+        self, z: int, x: int, y: int, at: datetime | None, bearing_deg: float | None, speed_kmh: float | None
     ) -> dict[str, float]:
         """指定タイル内のフィーチャーごとの風の材料値を返す。
 
         取込範囲外・風データ取得不能・予報の範囲の外の時刻はいずれも空dictへ倒し、「この道路に
         色が付かない」という劣化で済ませる。
 
-        `bearing_deg`・`speed_kmh`は材料非依存な呼び出し口と形を揃えるため省略可能な形に
-        なっているが、風はどちらも無いと計算できない。Noneのまま到達したら即座に失敗させる
+        `bearing_deg`・`speed_kmh`は材料非依存な呼び出し口と形を揃えるため`float | None`だが、
+        風はどちらも無いと計算できない。Noneのまま到達したら即座に失敗させる
         （router側の検証をすり抜けた場合の防御。無音でNoneを計算へ渡さない）。
         """
         if bearing_deg is None:

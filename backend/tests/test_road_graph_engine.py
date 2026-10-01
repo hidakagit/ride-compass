@@ -52,7 +52,9 @@ def lean_edge(edge_id, from_node_id="n0", to_node_id="n1", *, distance_m=100.0, 
 
 
 def elevation(edge_id, **fields):
-    return ElevationAttribute(edge_id=edge_id, **fields)
+    """テストが名指さない欄は、値が取れなかった（None）として埋める。"""
+    missing = dict.fromkeys(ElevationAttribute.model_fields.keys() - {"edge_id"} - fields.keys())
+    return ElevationAttribute(edge_id=edge_id, **missing, **fields)
 
 
 def turn_tree(state_count, *, node_cost, node_length_m, node_seconds, node_best_state):

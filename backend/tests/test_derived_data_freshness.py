@@ -101,7 +101,7 @@ def test_確定して値が無い列は数えない():
 
 def _table(oldest: int | None, latest: int | None) -> TableFreshness:
     return TableFreshness(table_name="t", row_count=1, oldest_run_id=oldest,
-                          source="osm_way", latest_run_id=latest, columns=())
+                          source="osm_way", latest_run_id=latest, columns=(), coverage=None)
 
 
 @pytest.mark.parametrize(("oldest", "latest", "stale"), [

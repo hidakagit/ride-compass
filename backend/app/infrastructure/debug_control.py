@@ -50,7 +50,7 @@ def set_debug_mode(enabled: bool) -> bool:
     return settings.debug_mode
 
 
-def get_recent_logs(limit: int | None = None, contains: str | None = None, min_level: int | None = None) -> list[str]:
+def get_recent_logs(limit: int | None, contains: str | None, min_level: int | None) -> list[str]:
     """リングバッファから直近ログを取得する（古い順のまま、末尾が最新）。
 
     `min_level`はPython標準の`logging`と同じ「このレベル以上」、`contains`は部分一致。

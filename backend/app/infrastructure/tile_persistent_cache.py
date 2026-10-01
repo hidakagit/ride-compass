@@ -58,8 +58,8 @@ def get_by_key(key: tuple) -> Any | None:
     return value
 
 
-def set_by_key(key: tuple, value: Any, *, expire: float | None = None) -> None:
-    """任意のタプルキーで書く。`expire`（秒）を渡すとその時間で失効する。
+def set_by_key(key: tuple, value: Any, *, expire: float) -> None:
+    """任意のタプルキーで書き、`expire`（秒）で失効させる。
 
     書き込み失敗（ディスクフル・pickle化不能な値等）は握りつぶし、警告ログのみで
     no-opにフォールバックする（キャッシュ書き込みの失敗が応答を止める理由にはならない）。
