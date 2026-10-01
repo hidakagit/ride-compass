@@ -24,7 +24,7 @@ const COARSE_GRID_KEY = ["wind-grid"] as const;
 const DETAIL_GRID_KEY = "wind-grid-detail";
 
 interface UseWeatherGridResult {
-  /** 粗い格子（関東の全域）。取ってから時間が経つと先頭の時刻が過去になる（落とすのは時系列を作る側）。 */
+  /** 粗い格子（対象範囲＝取り込んだ道路の範囲の全域）。取ってから時間が経つと先頭の時刻が過去になる（落とすのは時系列を作る側）。 */
   grid: WindGridPoint[];
   /** 詳細格子（ズームしたときだけ、表示範囲の付近を密に）と、それを取ったときの間隔。無ければnull。間隔も格子と
    * 一緒に持つ（呼ぶ側でズームから計算し直すと、取った後にズームが動いたとき中身と食い違う）。どちらで描くかは

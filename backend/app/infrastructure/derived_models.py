@@ -23,6 +23,7 @@ from sqlalchemy import (
     Boolean,
     ForeignKey,
     ForeignKeyConstraint,
+    Index,
     Integer,
     REAL,
     SmallInteger,
@@ -94,9 +95,6 @@ class RoadEdgeRow(Base):
     しない。地球の丸みを近似しないため）、勾配は符号を反転し、通行の可否は道の属性
     （一方通行）から決まる。有向グラフは探索がメモリ上で組む実行時の構成物で、表が
     両向きの行を持つ必要はない。
-
-    空間の索引は持たない。範囲で絞るときは親の道（`osm_way`）を先に絞り、その区間を
-    主キーの先頭列で引く。
     """
 
     __tablename__ = "road_edges"
@@ -105,6 +103,9 @@ class RoadEdgeRow(Base):
         CheckConstraint("distance_m > 0", name="road_edges_distance_m_positive"),
         CheckConstraint("NOT ST_IsEmpty(geom) AND ST_NumPoints(geom) >= 2",
                         name="road_edges_geom_has_two_points"),
+        # 区間単位のズームの路面タイル・道路網の切り出し・事故の帰属は、区間を形の範囲で
+        # 直接絞る。無いと区間の全件を総なめにする。
+        Index("idx_road_edges_geom", "geom", postgresql_using="gist"),
     )
 
     #: 親の道。区間は道を切って作る派生なので、対応する道が必ずある。
@@ -121,7 +122,8 @@ class RoadEdgeRow(Base):
     to_node_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("node_materials.osm_node_id"), nullable=False)
 
-    geom: Mapped[object] = mapped_column(Geometry("LINESTRING", srid=4326), nullable=False)
+    geom: Mapped[object] = mapped_column(
+        Geometry("LINESTRING", srid=4326, spatial_index=False), nullable=False)
     #: 長さは丸めない。4.8 cmの区間が実在し、0へ落とすと読み出し側が除算を守る羽目になる。
     distance_m: Mapped[float] = mapped_column(REAL, nullable=False)
     #: 順方向の方位。

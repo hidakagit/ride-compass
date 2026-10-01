@@ -1,4 +1,4 @@
-"""way_id→動的値の配信を、軸が参照する材料から選んで組み立てる。
+"""フィーチャー→動的値の配信を、軸が参照する材料から選んで組み立てる。
 
 **軸を名指ししない**——各サービスは自分が返す材料（`material_id`）だけを宣言し、軸との対応は軸定義が参照する
 材料から都度引く。軸はDBの行で増減する（公開済みの軸は複製で改良する）ため、実装が軸の名前を持つと複製した軸が
@@ -22,7 +22,7 @@ from app.services.wind_way_service import WindWayService
 
 
 class DedicatedWayValueService(Protocol):
-    """way_id→動的値配信の実装が満たす形（ルーターが使うのはこれだけ）。"""
+    """フィーチャー→動的値配信の実装が満たす形（ルーターが使うのはこれだけ）。"""
 
     material_id: str
 
@@ -60,7 +60,7 @@ _DEDICATED_WAY_VALUE_SERVICE_FACTORIES = _factories_by_material(_DEDICATED_WAY_V
 
 
 def served_dedicated_way_value_material(materials: Iterable[str]) -> str | None:
-    """軸が参照する材料のうち、way_id→値の配信を実装している材料。ちょうど1つのときだけ返す。
+    """軸が参照する材料のうち、フィーチャー→値の配信を実装している材料。ちょうど1つのときだけ返す。
 
     0件なら配信する値が無い。2件以上は、1つのサービスが1つの材料の値しか返さないため
     その軸を評価しきれない。どちらも「実装が無い」として扱う（書き込み時の検証が拒否し、

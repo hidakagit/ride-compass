@@ -315,22 +315,21 @@ class AxisDefinition(StrictModel):
     段階の数値レンジ表記（例:「2〜6」）のみを凡例に出す。
 
     `display_thresholds_override`と対になる概念（どちらも「地図の色分け段階の見せ方」の
-    軸ごとの好み）で、風・勾配のdedicated_way_value_layer軸だけでなく、通常のramp軸
+    軸ごとの好み）で、dedicated_way_value_layer軸だけでなく、通常のramp軸
     （`buildAxisRampLegend`）の凡例にも同じ仕組みで使える。"""
     dedicated_way_value_layer: bool = False
-    """この軸が専用のway_id→値配信レイヤー（Redis経由、`app/infrastructure/
-    dynamic_way_value_cache.py`）を持つかの宣言。`axis_id`の文字列比較による
+    """この軸が専用のフィーチャー→値配信レイヤー（`services/dedicated_way_values.py`）を
+    持つかの宣言。`axis_id`の文字列比較による
     ハードコード分岐ではなく、性質ベースの宣言的フィールドとして持たせてある。
 
     **ルート確定後**の地図色分け（`axis_difficulties[axis_id]`を
     `routeStyleModes.ts`の3段階色分けモードとして使う機構、公開軸なら自動的に
     対象になりこのフィールドとは無関係）とは別の概念であることに注意。こちらは
     **ルート未確定時**でも地図上の視界内の全道路を線色分け表示できるか、という
-    工学的事実——「専用のway_id配信レイヤーがbackendに実際に実装されているか」は
+    工学的事実——「専用の配信レイヤーがbackendに実際に実装されているか」は
     軸の評価ロジック（shape）自体からは自動導出できないため、他のbool系フィールドと
     同様に明示的に持たせ、軸スタジオの編集画面（管理API）からも設定できるようにする。
-    既定Falseは、この専用レイヤーを持たない大多数の軸の実際の状態と一致する
-    （現状trueなのは`wind`・`gradient`の2軸のみ）。"""
+    既定Falseは、この専用レイヤーを持たない大多数の軸の実際の状態と一致する。"""
     dynamic_way_value_needs_time: bool = False
     """`dedicated_way_value_layer=True`の軸のみ意味を持つ。`GET /api/region/
     dynamic-way-values/{material_id}/...`（`api/routers/region.py`）の`at`クエリ

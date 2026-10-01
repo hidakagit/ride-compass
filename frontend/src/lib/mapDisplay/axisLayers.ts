@@ -96,7 +96,7 @@ export function axisMapLayerId(axisId: string): AxisMapLayerId {
   return `axis:${axisId}`;
 }
 
-/** 専用のway_id→値配信レイヤーを持つ軸（`dedicated_way_value_layer=true`、現状: 風・勾配）。
+/** 専用のフィーチャー→値配信レイヤーを持つ軸（`dedicated_way_value_layer=true`）。
  * ramp軸に対する`RampAxis`と同じ位置付けの、軸カタログ由来の地図向けビュー。
  * この型があることで、レイヤー登録・カタログ・可視性・フェッチのすべてを軸idの
  * ハードコードなしに導出できる（3件目の軸を軸スタジオで公開しただけで

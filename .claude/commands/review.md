@@ -158,8 +158,8 @@ python scripts/review_checks.py docs
 
 #### 差分の問い（読み方: 変更ファイルの全文）
 
-- レイヤーの向き（api → services → domain → infrastructure）。domainにI/Oが漏れていないか、
-  infrastructureがservicesへ依存していないか
+- レイヤーの向き（`backend/.importlinter`の`layers`契約。api → services・batch → infrastructure → domain）。
+  import の向きはCIの`lint-imports`が落とすので、ここではdomainにI/Oが漏れていないかを見る
 - 責務分割が「同じ理由で変更されるもの」の単位になっているか
 - 依存: 直接依存・循環の芽・DI工場（`dependencies.py`）を迂回した構築
 - データフロー: ルート生成と地図レイヤーの一本道が保たれているか。評価軸追加の1本道から

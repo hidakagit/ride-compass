@@ -1,4 +1,4 @@
-// 専用way_id→値配信レイヤー（backend `GET /api/region/dynamic-way-values/{axis_id}/...`、
+// 専用のフィーチャー→値配信レイヤー（backend `GET /api/region/dynamic-way-values/{axis_id}/...`、
 // `dedicated_way_value_layer=true`の軸）の表示宣言。軸ごとのファイル・定数は持たず、
 // 軸スタジオが配信する表示宣言（種類・単位・しきい値・段階ラベル）だけから組み立てる。
 // 地図の線は`features/map/scene/groups/axisLines.ts`、凡例は`features/map/view/lens.ts`が作る。

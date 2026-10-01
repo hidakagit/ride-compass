@@ -58,7 +58,7 @@ export function DistributionPreview({ distribution, binScores, scoresFailed, loa
       ) : (
         <>
           <p className={cn(textVariants({ variant: "hint" }), "mb-2")}>
-            関東の道路を抽選した{distribution.sample_ways.toLocaleString()}本（
+            取り込んだ範囲の道路から抽選した{distribution.sample_ways.toLocaleString()}本（
             {distribution.total_km.toLocaleString()}km）を、走る距離で重み付けた割合です。
           </p>
           {bands === null ? (

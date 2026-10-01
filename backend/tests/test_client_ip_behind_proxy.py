@@ -1,15 +1,14 @@
-"""Renderのようなリバースプロキシ配下でのクライアントIP解決の回帰テスト。
+"""リバースプロキシ配下でのクライアントIP解決の回帰テスト。
 
-Renderは自前のロードバランサーをWebサービスの手前に置くため、コンテナ内のuvicornから
-見ると全リクエストがRenderの内部プロキシから接続してきたように見える。uvicornの
+本番のbackendはVMのリバースプロキシ（TLSを終端する）の後ろで動くため、コンテナ内の
+uvicornから見ると全リクエストがプロキシから接続してきたように見える。uvicornの
 --proxy-headers（既定で有効）はX-Forwarded-Forを見てrequest.client.hostを実際の
 訪問者IPへ書き換えられるが、--forwarded-allow-ips（既定は127.0.0.1のみ）で信頼される
 ピアからの接続でなければヘッダーは無視される。backend/Dockerfileでこのオプションを
 渡し忘れると、api/rate_limit.py: client_id（infrastructure/rate_limiter.pyのキーに使う）が
-「実際の訪問者ごと」ではなく「Renderの内部プロキシ」という単一の値になり、路面タイル/
-basemapタイルのレート制限をデプロイ先の全アクセスが共有してしまい、通常のパン/ズーム
-操作だけで上限に達して429になる不具合が実機で確認された（ローカルはリバースプロキシを
-挟まないため再現しない）。
+「実際の訪問者ごと」ではなく「プロキシ」という単一の値になり、路面タイル/basemapタイルの
+レート制限を全アクセスが共有して、通常のパン/ズーム操作だけで上限に達して429になる
+（ローカルはリバースプロキシを挟まないため再現しない）。
 
 ここではUvicornのProxyHeadersMiddlewareを直接appへ被せることで、backend/Dockerfileの
 `--proxy-headers --forwarded-allow-ips=*`と、それを渡し忘れた場合それぞれを再現し、
@@ -63,8 +62,8 @@ def test_forwarded_for_is_ignored_without_trusted_proxy_config():
 
 
 def test_forwarded_for_is_honored_with_trusted_proxy_config():
-    # backend/Dockerfileの--forwarded-allow-ips=*相当。コンテナへの着信経路はRenderの
-    # プロキシ経由のみのため、この設定で正しくX-Forwarded-Forの先頭（実際の訪問者IP）が
+    # backend/Dockerfileの--forwarded-allow-ips=*相当。前段のプロキシを通った要求は、
+    # この設定で正しくX-Forwarded-Forの先頭（実際の訪問者IP）が
     # request.client.host（＝_client_idの戻り値）へ反映される。
     assert _client_id_seen_by(trusted_hosts="*") == FORWARDED_CLIENT_IP
 
