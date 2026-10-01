@@ -317,14 +317,14 @@ class AxisDefinition(StrictModel):
     軸ごとの好み）で、dedicated_way_value_layer軸だけでなく、通常のramp軸の凡例にも
     同じ仕組みで使える。"""
     dedicated_way_value_layer: bool = False
-    """この軸が専用のway_id→値配信レイヤー（Redis経由、`app/infrastructure/
-    dynamic_way_value_cache.py`）を持つかの宣言。`axis_id`の文字列比較による
+    """この軸が専用のフィーチャー→値配信レイヤー（`services/dedicated_way_values.py`）を
+    持つかの宣言。`axis_id`の文字列比較による
     ハードコード分岐ではなく、性質ベースの宣言的フィールドとして持たせてある。
 
     **ルート確定後**の地図色分け（ルート結果の`axis_difficulties[axis_id]`でルート線を
     段に塗る。公開軸なら自動的に対象になりこのフィールドとは無関係）とは別の概念であることに注意。こちらは
     **ルート未確定時**でも地図上の視界内の全道路を線色分け表示できるか、という
-    工学的事実——「専用のway_id配信レイヤーがbackendに実際に実装されているか」は
+    工学的事実——「専用の配信レイヤーがbackendに実際に実装されているか」は
     軸の評価ロジック（shape）自体からは自動導出できないため、他のbool系フィールドと
     同様に明示的に持たせ、軸スタジオの編集画面（管理API）からも設定できるようにする。
     既定Falseは、この専用レイヤーを持たない大多数の軸の実際の状態と一致する。"""

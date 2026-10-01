@@ -147,7 +147,7 @@ async def get_dedicated_way_value_service(
     axis_id: str,
     weather_service: WeatherService = Depends(get_weather_service),
 ):
-    """way_id→動的値配信層の、軸id駆動な単一の注入点。
+    """フィーチャー→動的値配信層の、軸id駆動な単一の注入点。
 
     `axis_id`はパスパラメータで、ルーター側と同名でなければFastAPIが解決できない。
     router側で軸ごとのサービスをそれぞれ`Depends`するとリクエストごとにDBセッションが

@@ -49,8 +49,8 @@ FROM classified
 """
 
 #: 点が乗る区間。区間の形は道の構成ノードの座標をそのまま頂点に持つので、点と交わる区間が
-#: その点を頂点に持つ区間になる。`road_edges`は空間の索引を持たないため、道を空間で絞ってから
-#: その区間を主キーで引く。点が区間の端点なら`at_end`。
+#: その点を頂点に持つ区間になる。道を空間で絞ってから、その区間を主キーで引く。点が区間の
+#: 端点なら`at_end`。
 _STOP_TOUCHES_SQL = f"""
 CREATE TEMP TABLE _stop_touches ON COMMIT DROP AS
 SELECT s.count_kind, s.cluster_id, s.osm_node_id, e.osm_way_id, e.segment_index,

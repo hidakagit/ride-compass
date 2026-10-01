@@ -15,7 +15,7 @@ export function getAmedasWeatherDisplay(weatherCode: number | null, isDay: boole
   const category = weatherCategoryOf(weatherCode);
   if (category === null) return null;
   const label = WEATHER_CATEGORY_LABEL[category];
-  // 「晴れ」だけは実測のis_dayで昼夜を切り替える（アメダスはコマ単位の昼夜を持つ）。
+  // 「晴れ」だけは昼夜でアイコンを切り替える（昼夜は呼ぶ側が観測地点の日の出・日没から決める）。
   if (category === "clear") {
     return { Icon: isDay ? SunIcon : MoonIcon, label };
   }

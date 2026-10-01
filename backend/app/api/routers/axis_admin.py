@@ -86,7 +86,7 @@ class AxisDefinitionPayload(AxisDefinition):
     def _check_dedicated_layer_is_implemented(self) -> "AxisDefinitionPayload":
         """`dedicated_way_value_layer`は、配信の実装がある材料をちょうど1つ参照する軸にだけ立てられる。
 
-        way_id→値の配信はPythonのサービス本体（`services/dedicated_way_values.py`の
+        フィーチャー→値の配信はPythonのサービス本体（`services/dedicated_way_values.py`の
         `_DEDICATED_WAY_VALUE_SERVICES`、材料ごとに1つ）が必要で、軸スタジオでの宣言だけでは
         配信できる値が無い。宣言だけを通すと、その軸のタイル要求が実装の無いまま
         呼ばれ続ける（配信側は404を返すため表示は壊れないが、地図に出ない軸の宣言が

@@ -18,6 +18,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     LargeBinary,
     String,
     event,
@@ -111,7 +112,13 @@ class SourceFeatureRow(Base):
     """
 
     __tablename__ = "source_features"
-    __table_args__ = {"postgresql_partition_by": "LIST (source)"}
+    __table_args__ = (
+        # 生データは範囲や近さで引かれる（事故を区間へ割り当てる、信号を交差点へ割り当てる）。
+        # パーティションした表の索引なので、取込が作る子パーティションにもPostgreSQLが同じ
+        # 索引を張る。
+        Index("idx_source_features_geom", "geom", postgresql_using="gist"),
+        {"postgresql_partition_by": "LIST (source)"},
+    )
 
     source: Mapped[str] = mapped_column(String, primary_key=True)
     #: 外部が持つ識別子（OSMのid・事故の自然キー・タイルの z/x/y 等）。
@@ -119,7 +126,7 @@ class SourceFeatureRow(Base):
     run_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("source_runs.run_id"), nullable=False
     )
-    geom: Mapped[object] = mapped_column(Geometry(srid=4326), nullable=False)
+    geom: Mapped[object] = mapped_column(Geometry(srid=4326, spatial_index=False), nullable=False)
     attrs: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
     payload: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     #: 面のソースの画素。線・点のソースでは空。
