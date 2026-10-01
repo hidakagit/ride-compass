@@ -34,7 +34,7 @@ from app.infrastructure.orm_base import Base
 # ここの表は`source_runs`への外部キーを持つ。宣言した先が同じメタデータに載っていないと、
 # `Base.metadata.sorted_tables`が解決できずに落ちる——このimportが、それをimport順の
 # 偶然に任せないための担保である。
-from app.infrastructure import source_models  # noqa: F401
+from app.infrastructure.source_models import Source
 from app.domain.landcover import PERCENT_CLASSES, landcover_key
 from app.domain.traffic import POI_COUNT_KINDS, poi_count_column
 
@@ -44,7 +44,7 @@ from app.domain.traffic import POI_COUNT_KINDS, poi_count_column
 ABSENT_OK = {"null_means_absent": True}
 
 
-def covers(source: str) -> dict[str, str]:
+def covers(source: Source) -> dict[str, str]:
     """「この列の値は、その生データのソースを1件残らず覆う」という宣言。
 
     鮮度台帳が母数（`source_features`のそのソースの行数）と突き合わせ、派生の**行が
@@ -109,7 +109,7 @@ class RoadEdgeRow(Base):
 
     #: 親の道。区間は道を切って作る派生なので、対応する道が必ずある。
     osm_way_id: Mapped[int] = mapped_column(
-        BigInteger, primary_key=True, autoincrement=False, info=covers("osm_way"))
+        BigInteger, primary_key=True, autoincrement=False, info=covers(Source.OSM_WAY))
     #: 道の何番目の区間か。
     segment_index: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
 
@@ -207,7 +207,7 @@ class WayMaterialRow(Base):
     __table_args__ = material_value_checks("way_materials")
 
     osm_way_id: Mapped[int] = mapped_column(
-        BigInteger, primary_key=True, autoincrement=False, info=covers("osm_way"))
+        BigInteger, primary_key=True, autoincrement=False, info=covers(Source.OSM_WAY))
 
     accident_count: Mapped[float | None] = mapped_column(REAL, nullable=True)
     intersection_count: Mapped[float | None] = mapped_column(REAL, nullable=True)

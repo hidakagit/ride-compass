@@ -42,7 +42,7 @@ def value_columns(table) -> list[str]:
     return [column.name for column in table.columns if column.name not in keys]
 
 
-def covered_source(table) -> tuple[str, str] | None:
+def covered_source(table) -> tuple[source_models.Source, str] | None:
     """`covers`を宣言した列があれば `(ソース名, 列名)`。無ければNone。"""
     for column in table.columns:
         source = column.info.get(COVERS_SOURCE_KEY)
@@ -83,10 +83,9 @@ def build_coverage_sql(table) -> str | None:
         return (  # noqa: S608 宣言のみ
             "SELECT count(*) AS parent_row_count,"
             f" count(*) FILTER (WHERE d.{key} IS NULL) AS missing_rows"
-            " FROM source_features f"
+            f" FROM {source_models.source_keys_sql(name)} f"
             f" LEFT JOIN (SELECT DISTINCT {key} FROM {table.name}) d"
             f" ON d.{key} = f.natural_key::bigint"
-            " WHERE f.source = :source"
         )
     parent = parent_derived_table(table)
     if parent is None:
@@ -183,7 +182,7 @@ def build_table_sql(table) -> str:
 
 #: その取込runのソースと、同じソースの最新の成功run。
 _RUN_SOURCE_SQL = text(f"""
-SELECT r.source, (SELECT run_id FROM {source_models.latest_succeeded_run_sql("r.source")} l) AS latest_run_id
+SELECT r.source, (SELECT run_id FROM {source_models.latest_succeeded_run_by_column_sql("r.source")} l) AS latest_run_id
 FROM source_runs r WHERE r.run_id = :run_id
 """)
 
@@ -208,9 +207,7 @@ class DerivedDataFreshnessQuery:
             coverage_sql = build_coverage_sql(table)
             parent = coverage_parent(table)
             if coverage_sql is not None and parent is not None:
-                covered = covered_source(table)
-                params = {"source": covered[0]} if covered is not None else {}
-                counts = (await self._session.execute(text(coverage_sql), params)).mappings().one()
+                counts = (await self._session.execute(text(coverage_sql))).mappings().one()
                 coverage = Coverage(
                     parent=parent,
                     parent_row_count=int(counts["parent_row_count"]),

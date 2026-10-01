@@ -62,7 +62,7 @@ def longitude_from_raw(raw: str) -> float | None:
 #
 # 本票の列名（日本語）と判定の規則をここだけが持つ。生データは列を捨てずに`attrs`へ
 # 入れてあるため、読む側は都度これを使う——同じ判定をタイルと集計で別々に書くとずれる。
-# 別名`a`は`source_features`の事故の行を指す。
+# 別名`a`は事故の生データの行（`infrastructure/source_models.py: ACCIDENTS_SOURCE_SQL`）を指す。
 
 #: 死者数の列。ゼロ埋めの数字列で入っている。
 FATAL_SQL = "coalesce((a.attrs->>'死者数')::int, 0) > 0"

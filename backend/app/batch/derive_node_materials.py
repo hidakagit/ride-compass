@@ -16,7 +16,7 @@ import time
 import asyncpg
 
 from app.batch._common import latest_succeeded_run_id, reset_columns_sql
-from app.infrastructure.source_models import NODES_SOURCE_SQL, WAYS_SOURCE_SQL
+from app.infrastructure.source_models import NODES_SOURCE_SQL, WAYS_SOURCE_SQL, Source
 from app.domain.traffic import (
     HIGHWAY_RANK,
     TRAFFIC_SIGNAL_SQL,
@@ -86,7 +86,7 @@ FROM best WHERE best.node_id = nm.osm_node_id
 
 async def derive(conn: asyncpg.Connection, signal_radius_m: float) -> int:
     """`signal_radius_m`は較正値`signal.match_radius_m`（交差点から何m以内の信号をその交差点のものとみなすか）。"""
-    run_id = await latest_succeeded_run_id(conn, "osm_node")
+    run_id = await latest_succeeded_run_id(conn, Source.OSM_NODE)
     started = time.perf_counter()
 
     values = ", ".join(f"('{h}', {r})" for h, r in sorted(HIGHWAY_RANK.items()))

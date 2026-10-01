@@ -22,7 +22,7 @@ from app.domain.accident import (
     bicycle_sql,
 )
 from app.domain.geo import KM_PER_DEGREE_LATITUDE
-from app.infrastructure.source_models import WAYS_SOURCE_SQL, nodes_lookup_sql
+from app.infrastructure.source_models import ACCIDENTS_SOURCE_SQL, WAYS_SOURCE_SQL, nodes_lookup_sql
 from app.domain.traffic import (
     INTERSECTION_DEGREE_THRESHOLD,
     POI_CLUSTER_EPS_M,
@@ -135,14 +135,14 @@ WHERE c.osm_way_id = m.osm_way_id AND c.segment_index = m.segment_index
 _EDGE_ACCIDENTS = f"""
 WITH nearest AS (
     SELECT CASE WHEN {FATAL_SQL} THEN $1 ELSE 1.0 END AS weight, n.osm_way_id, n.segment_index
-    FROM source_features a
+    FROM {ACCIDENTS_SOURCE_SQL} a
     CROSS JOIN LATERAL (
         SELECT e.osm_way_id, e.segment_index FROM road_edges e
         WHERE e.geom && ST_Expand(a.geom, $2)
           AND ST_DWithin(e.geom::geography, a.geom::geography, $3)
         ORDER BY ST_Distance(e.geom::geography, a.geom::geography), e.osm_way_id, e.segment_index
         LIMIT 1) n
-    WHERE a.source = 'accident' AND {bicycle_sql("$4")}
+    WHERE {bicycle_sql("$4")}
 )
 UPDATE edge_materials m SET accident_count = COALESCE(s.total, 0)
 FROM (

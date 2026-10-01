@@ -11,7 +11,7 @@ from datetime import datetime
 from app.domain.strict_model import StrictModel
 from app.infrastructure.db_status import DbStatusCounts, DbStatusQuery
 from app.infrastructure.debug_log import log_external_call
-from app.infrastructure.source_models import SOURCE_RUN_STATUS_LABELS, SUCCEEDED
+from app.infrastructure.source_models import SOURCE_RUN_STATUS_LABELS, SourceRunStatus
 
 logger = logging.getLogger("ridecompass.db_status")
 
@@ -107,7 +107,7 @@ def _import_entry(counts) -> ImportRunEntry:
             needs_attention=True,
             note="取込の記録が1件も無い。派生データの世代比較はこの記録を基準にするため、基準そのものが無い",
         )
-    failed = counts.latest_status != SUCCEEDED
+    failed = counts.latest_status != SourceRunStatus.SUCCEEDED
     note = ""
     if failed:
         note = f"最後の取込が「{SOURCE_RUN_STATUS_LABELS.get(counts.latest_status, counts.latest_status)}」。"

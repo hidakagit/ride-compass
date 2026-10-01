@@ -18,7 +18,7 @@ import time
 import asyncpg
 
 from app.batch._common import latest_succeeded_run_id
-from app.infrastructure.source_models import ways_source_sql
+from app.infrastructure.source_models import Source, ways_source_sql
 
 logger = logging.getLogger("ridecompass.derive_topology")
 
@@ -136,7 +136,7 @@ SELECT osm_way_id, segment_index, source_run_id FROM road_edges
 
 
 async def derive(conn: asyncpg.Connection) -> tuple[int, int]:
-    run_id = await latest_succeeded_run_id(conn, "osm_way")
+    run_id = await latest_succeeded_run_id(conn, Source.OSM_WAY)
     started = time.perf_counter()
 
     async with conn.transaction():
