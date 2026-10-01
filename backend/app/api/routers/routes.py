@@ -281,7 +281,7 @@ class RouteGenerateJobCreatedResponse(StrictModel):
 
     生成は数秒〜数十秒かかる（探索範囲が広いほど長い）ため、ブラウザのfetchを塞がないよう
     バックグラウンドジョブで走らせ、この応答は即座に返る。結果は`GET /api/routes/generate/
-    {job_id}`をポーリングして取得する（frontend `features/route/routeApi.ts`）。
+    {job_id}`をポーリングして取得する。
     """
 
     job_id: str

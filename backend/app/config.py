@@ -18,7 +18,8 @@ class Settings(BaseSettings):
     # 基礎地図プロキシのスタイルJSON内URLを書き換える先。MapLibreは相対URLをスタイルの
     # 取得元ではなくページのオリジンに対して解決するため絶対URLが必須で、かつ**backend自身
     # ではなくフロントエンドのオリジン**にする（タイルの大量リクエストとAPI呼び出しを
-    # ブラウザの同一オリジン接続数上限で競合させない。frontend/next.config.ts参照）。
+    # ブラウザの同一オリジン接続数上限で競合させない。フロントエンドのオリジンは`/api/basemap/*`を
+    # backendへ中継する）。
     basemap_public_base_url: str = f"{_LOCAL_FRONTEND_ORIGIN}/api/basemap"
     debug_mode: bool = False
     # デプロイ先でビルド・起動されたコミットのフルSHA。`GIT_COMMIT`環境変数から渡し、

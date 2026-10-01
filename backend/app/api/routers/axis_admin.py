@@ -117,7 +117,7 @@ class AxisDefinitionResponse(AxisDefinition):
     ——通らなくなった行も見せて直させる。
 
     `display`: `domain/axis_display.py: axis_display_for()`の計算結果
-    （`GET /api/axis-catalog`と同じ関数）。軸スタジオのGUI（AxisComposer.tsx）が
+    （`GET /api/axis-catalog`と同じ関数）。軸スタジオの編集画面が
     「自動導出が失敗している（kind="none"）ので、この軸の材料には地図表示用のデータ取得
     経路がまだ用意されていない」という注記を出すために必要——下書き軸（is_published=False）
     は`GET /api/axis-catalog`に現れないため、編集中に自己診断できる経路がこの管理APIの

@@ -242,8 +242,8 @@ class MaterialSpec(StrictModel):
     # （例: cycleway・maxspeed・intersection）は名前が異なる別の名前空間のため、対応が
     # 自明でない材料には明示的にここへ書く。Noneは「対応する一次属性が無い」（動的データ
     # 由来のwind_drag_ratio、一次属性未登録のbridge/smoothness等）。GET /api/axis-catalogが
-    # 軸ごとにこれを解決して返すことで、frontend側（page.tsx: 軸と観測データレイヤーの連動）が
-    # 軸スタジオ作成軸に対しても同じ仕組みで動く。
+    # 軸ごとにこれを解決して返すことで、画面の軸と一次属性レイヤーの連動が、軸スタジオで作った
+    # 軸にも同じ仕組みで効く。
     primary_attribute: PrimaryAttributeSpec | None = None
     # この材料が読む自前のMSM格子の値（`weather_elements.py: GridValue`）。一次属性を持たない動的な材料の
     # 元データを、同じ格子の値を描く気象のチップ（`WeatherElement.grid_value`）が地図に見せる。
@@ -261,7 +261,7 @@ class MaterialSpec(StrictModel):
     coverage: MaterialCoverage
     # 材料の値（OSMタグ生値）ごとの日本語ラベル対訳表（タグ値→ラベル）。
     # highway/surface/smoothnessのようなオープンエンドな多値材料だけが持つ（他は空dict）。
-    # 軸スタジオ（AxisComposer.tsx）の「値の候補」セレクトが`GET /api/material-catalog/
+    # 軸スタジオの「値の候補」セレクトが`GET /api/material-catalog/
     # {material_id}/values`経由で表示するラベルの単一ソース。値の意味は材料そのものの
     # 定義に属するドメイン知識のため、他のフィールドと同じくここ（MaterialSpec自体）へ
     # 一元化する（material_id文字列をキーにした別の並列辞書にすると、材料の追加・削除の

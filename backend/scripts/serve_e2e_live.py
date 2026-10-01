@@ -29,7 +29,7 @@ from pathlib import Path
 
 BACKEND = Path(__file__).resolve().parents[1]
 WORKTREE = BACKEND.parent
-#: E2Eのオリジン（`frontend/playwright.live.config.ts`の`LIVE_ORIGIN`）。
+#: E2Eのオリジン。E2Eの設定と同じ値でなければCORSで弾かれる（`frontend/playwright.live.config.ts: LIVE_ORIGIN`）。
 LIVE_ORIGIN = "http://localhost:3200"
 DEFAULT_PORT = 8000
 HEALTH_TIMEOUT_SECONDS = 300
@@ -122,7 +122,7 @@ def tile_of(z: int, lat: float, lon: float) -> tuple[int, int]:
 
 
 def roads_in_tile(api: str, lat: float, lon: float) -> int:
-    """`e2e-live/global-setup.ts`と同じ確かめ方: 最大ズームの路面タイルに道が何本出るか。"""
+    """最大ズームの路面タイルに道が何本出るか。0本の起点ではE2Eの前準備が止まる。"""
     import mapbox_vector_tile
 
     config = json.loads((WORKTREE / "frontend/src/types/generated/region-tile-config.json").read_text(encoding="utf-8"))

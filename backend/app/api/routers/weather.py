@@ -48,7 +48,7 @@ async def get_weather(
     longitude: float = Query(ge=-180, le=180),
     weather_service: WeatherService = Depends(get_weather_service),
 ) -> WeatherConditions:
-    """「今日」のパネル（TodayOutlook、1日の最大・最小と2時間おきのコマ）向けの、数値予報モデル（MSM）の計算値。
+    """「今日」のパネル（1日の最大・最小と2時間おきのコマ）向けの、数値予報モデル（MSM）の計算値。
     常設ヘッダー（現在値の気温・体感温度・風速風向）はアメダス実測を使う
     `GET /api/weather/amedas`が担う。"""
     # Queryのge/leで範囲外の値をFastAPI層で弾く（Coordinatesへの委譲だと
