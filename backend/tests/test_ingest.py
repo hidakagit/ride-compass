@@ -62,7 +62,7 @@ async def conn(road_graph_engine):
 async def test_memory_held_while_ingesting_does_not_grow_with_the_rows(conn, monkeypatch):
     monkeypatch.setitem(ADAPTERS, SOURCE,
                         RegisteredAdapter(read=_large_rows, rows=NoFields, grid=NoFields))
-    profile = replace(load_source_profile(), sources=(
+    profile = replace(load_source_profile(None), sources=(
         SourceSpec(name=SOURCE, adapter=SOURCE, rows=NoFields(), grid=NoFields()),))
 
     tracemalloc.start()
@@ -80,7 +80,7 @@ async def test_memory_held_while_ingesting_does_not_grow_with_the_rows(conn, mon
 
 
 def _only(source: str, adapter: str) -> SourceProfile:
-    return replace(load_source_profile(), sources=(
+    return replace(load_source_profile(None), sources=(
         SourceSpec(name=source, adapter=adapter, rows=NoFields(), grid=NoFields()),))
 
 

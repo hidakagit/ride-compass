@@ -57,7 +57,7 @@ def test_default_profile_fetches_the_file_the_ingest_reads(tmp_path, monkeypatch
 
     assert fetch_osm_pbf.main() == 0
 
-    ingested = {spec.rows.file for spec in load_source_profile().sources
+    ingested = {spec.rows.file for spec in load_source_profile(None).sources
                 if isinstance(spec.rows, OsmWayRows)}
     assert ingested
     assert calls == [fetch_osm_pbf.PBF_URL.format(name=name) for name in sorted(ingested)]

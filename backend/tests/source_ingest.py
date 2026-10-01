@@ -52,7 +52,7 @@ def tile_record(key: str, zoom: int, x: int, y: int, rast: bytes,
 
 def _profile(source: str, bbox: tuple[float, float, float, float] | None) -> SourceProfile:
     """本物の宣言のまま、`source`のアダプタだけを差し替えたもの。runにはそのソースの本物の絞り込みが残る。"""
-    profile = load_source_profile()
+    profile = load_source_profile(None)
     spec: SourceSpec = replace(profile.source(source), adapter=_ADAPTER)
     return replace(
         profile,

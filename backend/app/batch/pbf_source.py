@@ -26,8 +26,8 @@ class _WayHandler(osmium.SimpleHandler):
         self,
         tag_filter: Callable[[dict[str, str]], bool],
         sink: _WaySink,
-        node_tag_filter: Callable[[dict[str, str]], bool] = _accept_all,
-        node_sink: _NodeSink | None = None,
+        node_tag_filter: Callable[[dict[str, str]], bool],
+        node_sink: _NodeSink | None,
     ):
         super().__init__()
         self._tag_filter = tag_filter

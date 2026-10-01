@@ -124,7 +124,7 @@ def test_ring_buffer_keeps_only_most_recent_entries(monkeypatch):
     finally:
         logger.removeHandler(small_handler)
 
-    lines = get_recent_logs()
+    lines = get_recent_logs(limit=None, contains=None, min_level=None)
 
     assert len(lines) == 3
     assert "entry 2" in lines[0]

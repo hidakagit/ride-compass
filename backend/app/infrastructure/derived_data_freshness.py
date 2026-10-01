@@ -150,7 +150,7 @@ class TableFreshness:
     latest_run_id: int | None
     columns: tuple[ColumnCompleteness, ...]
     #: 覆うことを宣言していない表（`node_materials`）はNone。
-    coverage: Coverage | None = None
+    coverage: Coverage | None
 
     @property
     def is_stale(self) -> bool:

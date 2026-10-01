@@ -27,7 +27,7 @@ class DedicatedWayValueService(Protocol):
     material_id: str
 
     async def get_way_values(
-        self, z: int, x: int, y: int, at: datetime | None, bearing_deg: float | None, speed_kmh: float | None = None
+        self, z: int, x: int, y: int, at: datetime | None, bearing_deg: float | None, speed_kmh: float | None
     ) -> dict[str, float]: ...
 
 

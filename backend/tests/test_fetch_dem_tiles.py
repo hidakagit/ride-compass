@@ -26,7 +26,7 @@ def _profile():
     inset = 1e-6
     bbox = (bounds.min_latitude + inset, bounds.min_longitude + inset,
             bounds.max_latitude - inset, bounds.max_longitude - inset)
-    return replace(load_source_profile(), target=Target(bbox=bbox))
+    return replace(load_source_profile(None), target=Target(bbox=bbox))
 
 
 def _declared_requests(profile) -> set[tuple[str, int, int, int]]:

@@ -319,7 +319,7 @@ class FakeDynamicWayValueService:
         self.material_id = material_id
         self.last_request = None
 
-    async def get_way_values(self, z, x, y, at, bearing_deg, speed_kmh=None):
+    async def get_way_values(self, z, x, y, at, bearing_deg, speed_kmh):
         self.last_request = (z, x, y, at, bearing_deg, speed_kmh)
         return self._values
 

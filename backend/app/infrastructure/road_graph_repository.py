@@ -881,9 +881,9 @@ class RoadGraphRepository:
     async def sample_way_material_values(
         self,
         accident_years_covered: int,
-        sample_percent: float = 2.0,
-        limit: int = 20_000,
-        bbox: BoundingBox | None = None,
+        sample_percent: float,
+        limit: int,
+        bbox: BoundingBox | None,
     ) -> list[tuple[float, dict[str, object]]]:
         """way標本を`(延長m, 材料値)`の並びで返す（軸スタジオの分布プレビュー）。
 

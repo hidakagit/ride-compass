@@ -45,6 +45,7 @@ def catalog(monkeypatch):
             label=material_id,
             description=material_id,
             dtype="numeric",
+            tile_property=None,
             coverage=material_catalog.CoverageExcluded(reason="テスト用", missing_semantics="unknown"),
         )
         for material_id in ("num_a", "num_b", DYNAMIC)

@@ -1,4 +1,4 @@
-"""`infrastructure/simple_api_client.py`——「キャッシュ参照→fetch→形の検査→エラー処理→
+"""`infrastructure/simple_api_client.py`——「キャッシュ参照→fetch→エラー処理→
 キャッシュ書き戻し」の骨格。
 
 ここで見ないもの:
@@ -76,17 +76,14 @@ async def test_none_from_upstream_is_cached():
     assert len(calls) == 1
 
 
-async def test_expect_passes_matching_type():
-    fetch, _ = _counting_fetch([1])
-
-    assert await simple_api_client.cached_fetch("cat", fetch, expect=list) == [1]
+async def _unexpected_shape():
+    raise simple_api_client.UnexpectedShapeError("list, not dict")
 
 
 async def test_unexpected_shape_returns_none(monkeypatch):
     recorded = record_external_calls(monkeypatch, simple_api_client)
-    fetch, _ = _counting_fetch([1, 2])
 
-    assert await simple_api_client.cached_fetch("cat", fetch, expect=dict) is None
+    assert await simple_api_client.cached_fetch("cat", _unexpected_shape) is None
 
     fields = recorded[0].fields
     assert fields["result"] == "error"
@@ -94,10 +91,8 @@ async def test_unexpected_shape_returns_none(monkeypatch):
 
 
 async def test_unexpected_shape_is_swallowed_even_when_catch_is_empty():
-    """形の検査は`catch`の指定に関わらず常にNoneへ倒れる。"""
-    fetch, _ = _counting_fetch("s")
-
-    assert await simple_api_client.cached_fetch("cat", fetch, expect=dict, catch=()) is None
+    """`UnexpectedShapeError`は`catch`の指定に関わらず常にNoneへ倒れる。"""
+    assert await simple_api_client.cached_fetch("cat", _unexpected_shape, catch=()) is None
 
 
 async def test_caught_exception_returns_none_and_is_not_cached(monkeypatch):

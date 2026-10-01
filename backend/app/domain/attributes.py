@@ -10,18 +10,17 @@ from app.domain.strict_model import StrictModel
 class ElevationAttribute(StrictModel):
     """Edgeへ紐付ける標高属性。Edge本体（domain/graph.py）とは独立して保持する。
 
-    average_grade/max_grade/min_gradeは符号付き（登り=正、下り=負）。
-    有効な標高が2点未満の場合は全フィールドNoneのまま返す。
+    average_grade/max_grade/min_gradeは符号付き（登り=正、下り=負）。値が取れなかった欄はNone。
     """
 
     edge_id: str
-    start_elevation_m: float | None = None
-    end_elevation_m: float | None = None
-    elevation_gain_m: float | None = None
-    elevation_loss_m: float | None = None
-    average_grade: float | None = None
-    max_grade: float | None = None
-    min_grade: float | None = None
+    start_elevation_m: float | None
+    end_elevation_m: float | None
+    elevation_gain_m: float | None
+    elevation_loss_m: float | None
+    average_grade: float | None
+    max_grade: float | None
+    min_grade: float | None
 
     def reversed_as(self, reverse_edge_id: str) -> "ElevationAttribute":
         """同じ地形を逆方向に走った区間（`reverse_edge_id`）の値。標高は進行方向に依存しないため

@@ -94,7 +94,7 @@ async def test_bearing_deg_none_raises_value_error():
 
 async def test_speed_kmh_none_raises_value_error():
     with pytest.raises(ValueError, match="speed_kmh"):
-        await _service(FakeMidpointsRepository(None)).get_way_values(Z, X, Y, AT, 0.0)
+        await _service(FakeMidpointsRepository(None)).get_way_values(Z, X, Y, AT, 0.0, None)
 
 
 async def test_uncovered_tile_returns_empty_dict_without_reading_the_forecast(monkeypatch):

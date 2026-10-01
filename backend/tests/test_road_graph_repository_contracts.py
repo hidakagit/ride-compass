@@ -31,6 +31,7 @@ from app.domain.material_catalog import material_array_columns
 from app.domain.region import BoundingBox
 from app.infrastructure import road_graph_repository
 from app.domain.graph import edge_key, node_key, parse_edge_feature_key
+from app.services.axis_preview_service import SAMPLE_LIMIT, SAMPLE_PERCENT
 from app.infrastructure.road_graph_repository import (
     MATERIAL_ARRAY_COLUMN_ORDER,
     RoadGraphRepository,
@@ -318,8 +319,8 @@ async def test_a_range_replaces_the_sampling():
     """`TABLESAMPLE`は表全体のページから抽選するため、狭い範囲と重ねると標本が数本へ落ちる。"""
     repo, session = _repo([], [])
 
-    await repo.sample_way_material_values(1)
-    await repo.sample_way_material_values(1, bbox=BBOX)
+    await repo.sample_way_material_values(1, SAMPLE_PERCENT, SAMPLE_LIMIT, None)
+    await repo.sample_way_material_values(1, SAMPLE_PERCENT, SAMPLE_LIMIT, BBOX)
 
     assert session.calls[0][0] is _SAMPLE_WAY_MATERIAL_VALUES_SQL
     assert "sample_percent" in session.params[0]
@@ -334,7 +335,7 @@ async def test_sampled_way_without_length_is_dropped(length_m):
     repo, _ = _repo([_Row(length_m=length_m, m_material_a=1.0),
                      _Row(length_m=10.0, m_material_a=2.0)])
 
-    samples = await repo.sample_way_material_values(1)
+    samples = await repo.sample_way_material_values(1, SAMPLE_PERCENT, SAMPLE_LIMIT, None)
 
     assert samples == [(10.0, {"material_a": 2.0})]
 

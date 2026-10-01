@@ -58,7 +58,7 @@ async def test_a_succeeded_ingest_of_any_source_changes_every_tile_version(road_
     await _bump_revision()
     seen = [await _tile_versions(road_graph_session)]
 
-    sources = [spec.name for spec in load_source_profile().sources]
+    sources = [spec.name for spec in load_source_profile(None).sources]
     for source in sources:
         await ingest_records(source, [point_record(1, 139.7, 35.6)])
         seen.append(await _tile_versions(road_graph_session))

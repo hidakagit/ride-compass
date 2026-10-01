@@ -50,7 +50,7 @@ class GradientWayService:
         return cls(repository=repository)
 
     async def get_way_values(
-        self, z: int, x: int, y: int, at: datetime | None, bearing_deg: float | None, speed_kmh: float | None = None
+        self, z: int, x: int, y: int, at: datetime | None, bearing_deg: float | None, speed_kmh: float | None
     ) -> dict[str, float]:
         """指定タイル内のフィーチャーごとの実効勾配（正=登り・負=下り）を返す。
 

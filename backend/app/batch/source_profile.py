@@ -149,7 +149,7 @@ def _registered_adapters() -> dict[str, Any]:
     return ADAPTERS
 
 
-def load_source_profile(path: Path | None = None) -> SourceProfile:
+def load_source_profile(path: Path | None) -> SourceProfile:
     """プロファイルを読む。形式不正は`SourceProfileError`で即座に落とす。"""
     target_path = path or _PROFILE_PATH
     text = target_path.read_text(encoding="utf-8")
