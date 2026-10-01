@@ -1,8 +1,13 @@
-"""配信するタイルの世代を、DBの派生データ世代から実行時に組み立てる。
+"""配信するタイルの世代を、DBの派生データと生データの世代から実行時に組み立てる。
 
 タイルの中身は**焼き込むSQL**（形）と**SQLが読むテーブルの中身**（世代）の2つで決まる。
 形は`cache_identity.shape_digest`が自動で署名するが、中身が作り直されたことを知っているのは
-バッチが進める`derived_data_meta.revision`だけである。この2つを繋ぐのがここ。
+バッチが進める世代（`derived_data_meta.py: get_revisions`）だけである。この2つを繋ぐのがここ。
+
+**生データの世代は、どのソースを取り直しても全系統の鍵を変える。** 系統ごとに「読むソース」を
+宣言して絞ると、その宣言は焼き込むSQLと別に持つ写しになり、SQLが新しいソースを読み始めても
+誰も気づかない。取込は稀で、読まないソースの取込で変わった系統はディスクのキャッシュを
+焼き直すだけで済む。
 
 **手で書く定数を持たない。** 手で書くと、上げ忘れ（古い値を配り続ける）と、バッチ完了後に
 もう一度上げ直す必要（デプロイとバッチの間に配信されたタイルが、新しい鍵のまま古い値で
@@ -27,16 +32,16 @@ from app.infrastructure.road_graph_repository import POI_TILE_SHAPE, ROAD_SURFAC
 from app.services import derived_data_revision_service
 
 async def served_tile_version(repository, shape: str) -> str:
-    """いま配信している世代（`<DBの世代>-<形の署名>`）。TTLが切れていれば世代を読み直してから組む。
+    """いま配信している世代（`cache_identity.tile_version`）。TTLが切れていれば世代を読み直してから組む。
 
     **ブラウザのURLへ入る値と、サーバー側のディスクキャッシュの鍵は同じ文字列にする。**
     形の署名だけを鍵にすると、SQLが同じままバッチが中身を作り直したとき（世代だけが動く）
     に鍵が変わらず、古い中身を配り続ける。
 
-    `repository`はDBの世代を読める口（`get_derived_data_revision`）。
+    `repository`はDBの世代を読める口（`get_data_revisions`）。
     """
-    await derived_data_revision_service.refresh_current_revision(repository)
-    return tile_version(derived_data_revision_service.current_revision(), shape)
+    await derived_data_revision_service.refresh_current_revisions(repository)
+    return tile_version(derived_data_revision_service.current_revisions(), shape)
 
 
 #: 配信するタイルの系統と、その形の署名。フロントが受け取る辞書のキーでもある。
@@ -48,11 +53,11 @@ TILE_SHAPES: dict[str, str] = {
 
 
 async def current_tile_versions(repository) -> dict[str, str]:
-    """系統名→配信する世代（`<DBの世代>-<形の署名>`）。
+    """系統名→配信する世代（`cache_identity.tile_version`）。
 
-    `repository`はDBの世代を読める口（`get_derived_data_revision`）。TTLの内側なら
+    `repository`はDBの世代を読める口（`get_data_revisions`）。TTLの内側なら
     読み直さないため、リクエストごとに呼んでよい。
     """
-    await derived_data_revision_service.refresh_current_revision(repository)
-    revision = derived_data_revision_service.current_revision()
-    return {name: tile_version(revision, shape) for name, shape in TILE_SHAPES.items()}
+    await derived_data_revision_service.refresh_current_revisions(repository)
+    revisions = derived_data_revision_service.current_revisions()
+    return {name: tile_version(revisions, shape) for name, shape in TILE_SHAPES.items()}

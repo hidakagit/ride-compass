@@ -3,6 +3,7 @@ from collections.abc import Awaitable, Callable
 from app.domain.axis_inspector import AxisInspectorResult, axis_inspector_breakdown
 from app.domain.route_preference import RoutePreference
 from app.domain.region import BoundingBox, tile_bounds_lonlat
+from app.infrastructure.cache_identity import is_known_tile_version
 from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
 from app.infrastructure.debug_log import log_external_call, log_throttled_warning, mark_failed
 from app.infrastructure.road_graph_repository import (
@@ -11,7 +12,6 @@ from app.infrastructure.road_graph_repository import (
     RoadGraphRepository,
 )
 from app.infrastructure.vector_tile import encode_empty_poi_tile, encode_empty_road_surface_tile
-from app.services import derived_data_revision_service
 from app.infrastructure.media_types import MVT_CONTENT_TYPE
 from app.services.tile_serving import TileResponse, serve_cached_tile
 from app.services.tile_version_service import current_tile_versions, served_tile_version
@@ -101,7 +101,7 @@ class RegionService:
             external_call_name=external_call_name,
             fetch_tile=fetch_tile,
             # 世代を読めていない間はディスクへ残さない（tile_servingのdocstring参照）。
-            persist=derived_data_revision_service.current_revision() is not None,
+            persist=is_known_tile_version(version),
         )
 
     async def get_road_surface_tile(self, z: int, x: int, y: int) -> TileResponse:

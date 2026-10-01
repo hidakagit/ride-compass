@@ -16,6 +16,7 @@ import pytest
 from app.domain.attributes import CategoricalColumn, EdgeMaterialArrays
 from app.domain.road_network import RoadNetwork
 from app.infrastructure import road_network_store
+from app.infrastructure.derived_data_meta import DataRevisions
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from tests.bound_fake import bound
 
@@ -46,8 +47,8 @@ class FakeRepository:
         self.material_calls = 0
 
     @_repository_method
-    async def get_derived_data_revision(self):
-        return self.revision
+    async def get_data_revisions(self):
+        return DataRevisions(derived=self.revision, imported=1)
 
     @_repository_method
     async def get_accident_years_covered(self):

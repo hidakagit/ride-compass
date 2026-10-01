@@ -10,7 +10,7 @@ const ROAD_SURFACE_TILE_PATH = apiPath("/api/region/road-surface-tiles/{z}/{x}/{
 const ACCIDENT_TILE_PATH = apiPath("/api/region/accident-tiles/{z}/{x}/{y}.pbf");
 const POI_TILE_PATH = apiPath("/api/region/poi-tiles/{z}/{x}/{y}.pbf");
 
-// タイルの世代。**手で上げない**——焼き込むSQLの署名とDBの派生データ世代からbackendが導き、実行時に配る（軸カタログの
+// タイルの世代。**手で上げない**——焼き込むSQLの署名とDBの派生データ・生データの世代からbackendが導き、実行時に配る（軸カタログの
 // `tile_versions`）。ビルド時の生成物に持たないのは、バッチがタイルを作り直してもデプロイは起きないため。
 // 既定値は置かない——届く前にタイルを要求すると、世代の違う中身がブラウザのキャッシュへ載って残る。
 // 既存の属性の意味を変える変更だけはデプロイの順序に注意が要る（docs/architecture/tech-stack.md「デプロイの反映確認」）。

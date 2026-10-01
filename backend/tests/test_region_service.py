@@ -3,6 +3,7 @@ import pytest
 
 from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisDefinition
 from app.domain.route_preference import RoutePreference
+from app.infrastructure.derived_data_meta import DataRevisions
 from app.infrastructure.vector_tile import encode_empty_poi_tile, encode_empty_road_surface_tile
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.region_service import RegionService
@@ -13,15 +14,15 @@ Z, X, Y = 14, 14551, 6447
 
 
 class _TileRepository:
-    """路面・POIのMVTを焼く口と派生データの世代だけを持つフェイク。取込範囲外はNone、DB障害は例外。"""
+    """路面・POIのMVTを焼く口とデータの世代だけを持つフェイク。取込範囲外はNone、DB障害は例外。"""
 
     def __init__(self, tile: bytes | None = None, error: Exception | None = None):
         self._tile = tile
         self._error = error
         self.tile_calls = 0
 
-    async def get_derived_data_revision(self):
-        return 1
+    async def get_data_revisions(self):
+        return DataRevisions(derived=1, imported=1)
 
     async def _answer(self):
         self.tile_calls += 1
