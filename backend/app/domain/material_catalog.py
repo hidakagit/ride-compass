@@ -699,7 +699,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         unit="%",
         # 進行方向で符号が変わる（登りプラス・下りマイナス）ため、1本のWayに往復2つの値を
         # 持ちうる。方向を持たないMVTプロパティ1個には焼き込めないので、地図へは
-        # `services/gradient_way_service.py`のway_id→値配信で乗せる。
+        # `services/gradient_way_service.py`のフィーチャー→値配信で乗せる。
         tile_property=None,
         tile_property_direction_dependent=True,
         primary_attribute=_ATTR_ELEVATION,

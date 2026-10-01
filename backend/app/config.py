@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     # /preview・/weatherはいずれも外部APIを叩かず、/generateほど高コストではない。
     preview_rate_limit_per_minute: int = 20
     weather_rate_limit_per_minute: int = 60
-    # 風の格子点マップは1回で関東本土全域ぶんの応答を組み立てる。値はローカルのMSM
+    # 風の格子点マップは1回で対象範囲（取り込んだ道路の範囲）全域ぶんの応答を組み立てる。値はローカルのMSM
     # ファイルから読むため外部APIは消費しないが、応答サイズ（数百KB）と直列化コストが
     # 地点数に比例するため/weather（1地点）より絞る。
     wind_grid_rate_limit_per_minute: int = 20

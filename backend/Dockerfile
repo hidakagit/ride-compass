@@ -26,7 +26,7 @@ COPY scripts ./scripts
 EXPOSE 8000
 
 
-# --proxy-headers・--forwarded-allow-ips: per-IPのレート制限のキー（app/api/dependencies.py:
+# --proxy-headers・--forwarded-allow-ips: per-IPのレート制限のキー（app/api/rate_limit.py:
 # client_id）はrequest.client.hostで、前段のプロキシを通った要求はX-Forwarded-Forを信頼させないと
 # 全員がプロキシのIP1つへ潰れ、共有した上限に地図の操作だけで当たって429になる。uvicornが既定で
 # 信頼する接続元は127.0.0.1だけ。'*'は接続元を問わずヘッダーを信頼するため、前段を通らずに

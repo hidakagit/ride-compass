@@ -44,7 +44,7 @@ describe("地点を問い合わせる口", () => {
 });
 
 describe("風の格子", () => {
-  it("関東の格子は、応答に1本だけある時刻の列を各点へ持たせて返す", async () => {
+  it("対象範囲の格子は、応答に1本だけある時刻の列を各点へ持たせて返す", async () => {
     stubBackend(() => Response.json(GRID));
 
     expect(await getWindGrid()).toEqual(GRID.points.map((point) => ({ ...point, times: GRID.times })));

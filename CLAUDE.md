@@ -321,7 +321,7 @@ T536でそれを置き換えた`compute_edge_costs_bulk`まで同じ理由で残
   docs/architecture/追従を既定で含める**。docs（「現状」記述）はコード変更と
   同一コミットで更新する。
 - **既存の仕組みと技術的に別方式の新しい配信・レンダリング機構（例: タイル焼き込み済み
-  ramp軸に対する`dedicated_way_value_layer`のようなRedis経由way_id配信）を新設するときは、
+  ramp軸に対する、フィーチャーの鍵で値を配る`dedicated_way_value_layer`）を新設するときは、
   着手前に`docs/architecture/design-principles.md`の構造仕様3・8（1本道の追加点）がこの新しい機構にも
   適用されるかを点検し、適用されるなら軸ごとのファイル・関数・定数・propを新設しない
   汎用設計にする**（新しい種類の機構を作る時にだけ点検が漏れやすい）。

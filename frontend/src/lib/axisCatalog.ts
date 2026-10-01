@@ -28,7 +28,7 @@ export interface AxisCatalog {
   defaultWeights: RoutePreferenceWeights;
   /** 地図のramp表示を持つ軸。 */
   rampAxes: readonly RampAxis[];
-  /** 専用のway_id→値配信レイヤーを持つ軸。レイヤー登録・カタログ・可視性・フェッチの
+  /** 専用のフィーチャー→値配信レイヤーを持つ軸。レイヤー登録・カタログ・可視性・フェッチの
    * 全てがこの一覧から導出される。 */
   dedicatedAxes: readonly DedicatedWayValueAxis[];
   /** axis_id→表示名の辞書。 */

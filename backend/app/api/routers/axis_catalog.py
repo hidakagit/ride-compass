@@ -145,7 +145,7 @@ class AxisCatalogEntry(StrictModel):
     # （`map_value_thresholds`の件数+1）と一致する——上書きは人が刻んだ境界の段ごとに付くため、
     # 地図で落ちる境界があるとそのままでは件数が合わない。
     display_band_labels_override: list[str] | None
-    # 「専用のway_id→値配信レイヤー（Redis経由、ルート未確定時から
+    # 「専用のフィーチャー→値配信レイヤー（ルート未確定時から
     # 地図上で視界内の全道路を線色分け表示できる）を持つか」の宣言（domain/
     # axis_definitions.py: AxisDefinition.dedicated_way_value_layerのdocstring参照）。
     # 受け取る側が、axis_idの文字列比較ではなくこのフィールドで地図レイヤー・取得の対象を決めるための宣言。
