@@ -2400,12 +2400,12 @@
             "type": "array",
             "title": "Axes"
           },
-          "material_runtime_scales": {
+          "tile_runtime_scales": {
             "additionalProperties": {
               "type": "number"
             },
             "type": "object",
-            "title": "Material Runtime Scales",
+            "title": "Tile Runtime Scales",
             "default": {}
           },
           "client_tuning": {
@@ -2437,7 +2437,7 @@
         "type": "object",
         "required": [
           "axes",
-          "material_runtime_scales",
+          "tile_runtime_scales",
           "client_tuning",
           "tile_versions",
           "accident_years"
@@ -5344,7 +5344,14 @@
           },
           "material_points": {
             "items": {
-              "$ref": "#/components/schemas/ScorePoint"
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/ScorePoint"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "type": "array",
             "title": "Material Points"

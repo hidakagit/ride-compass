@@ -92,9 +92,13 @@ export function AxisScoringSection({ draft, setDraft, materialOptions, axisTermO
         }
       : null,
   );
+  // 評価できない参考点（null）は出さない。
   const referencePoints =
     scoresPreview && scoresPreview.material_points.length === primaryMaterialReferencePoints.length
-      ? primaryMaterialReferencePoints.map((p, i) => ({ ...p, ...scoresPreview.material_points[i] }))
+      ? primaryMaterialReferencePoints.flatMap((p, i) => {
+          const point = scoresPreview.material_points[i];
+          return point ? [{ ...p, ...point }] : [];
+        })
       : [];
   // 参考点の値域（曲線エディタの横軸固定に使う）。参考点が無い・届いていなければundefinedのままで、
   // 曲線エディタはbreakpoints自体から自動スケールする。

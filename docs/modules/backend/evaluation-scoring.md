@@ -312,7 +312,7 @@ MaterialSpec]`が単一ソース。
 | `additive` | 同じ単位の他の材料と**足し合わせて意味を持つ量**か（示量／示強の区別）。個数と、それを同じ距離で割った密度はTrue。%・km/h・倍率のような割合・率はFalse。`raw_value_unit`が2項以上の和を見せてよいかの判定に使う |
 | `total_unit` | 生値へ走行距離を掛けた**総量**を出すときの単位（出す意味が無ければ`None`）。`additive`とは別の問い——事故密度（件/[km・年]）は足せるが、総量に比べる尺度が無い。|
 | `tile_property` | MVTタイルへ既に焼き込み済みのプロパティ名。`None`は「タイル非依存」（地図レイヤーのramp自動生成の対象になりえない） |
-| `tile_property_needs_runtime_scale` | タイル側の生値と材料の値がスケール不一致（実行時に変動する係数での変換が必要）か。地図表示の自動導出はこれがTrueの材料を含む軸を拒否する |
+| `tile_property_runtime_scale` | タイル側の生値を材料の値へ換算する係数が実行時にしか決まらないときの、係数の源（例: 事故の収録年数の逆数）。地図表示の自動導出はこの材料のタイル入力に`needs_runtime_scale`の印を付け、係数は`GET /api/axis-catalog`の`tile_runtime_scales`（`domain/material_catalog.py: tile_runtime_scales`が宣言から導く）で配る。ほかの軸が参照する折れ点の軸の材料だと、その参照は地図に畳めない（タイル入力は係数を掛ける前に折れ点を当てる形を表せない） |
 | `tile_property_direction_dependent` | 値が進行方向によって変わる（有向）か。地図のrampレイヤーは単色の線という前提のため、これがTrueの材料を含む軸もramp自動導出を拒否する |
 | `primary_attribute` | 対応する一次属性（`PRIMARY_ATTRIBUTES`の宣言そのもの。idの文字列では指さない。[軸スタジオ](axis-studio.md)「一次属性の語彙」節）。材料idと一次属性id（frontendの`primaryAttributes.ts`が使う名前空間）は名前が異なるため明示的に対応させる |
 | `weather_grid_value` | 材料が読む自前のMSM格子の値（例: 風）。一次属性を持たない動的な材料の元データを、同じ格子の値を描く気象のチップ（`domain/weather_elements.py: WeatherElement.grid_value`）が地図に見せる。`GET /api/axis-catalog`はこれを軸ごとに`weather_layer_groups`へ解決し、地図の説明文がその評価の名前を差し込む |

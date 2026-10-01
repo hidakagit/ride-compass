@@ -16,7 +16,7 @@ async function fetchAxisCatalog(): Promise<AxisCatalog> {
   setTileVersions(response.tile_versions);
   return axisCatalogFromResponse(
     response.axes,
-    response.material_runtime_scales,
+    response.tile_runtime_scales,
     response.client_tuning,
     response.accident_years,
   );

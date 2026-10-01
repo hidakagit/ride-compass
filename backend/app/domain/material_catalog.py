@@ -22,6 +22,7 @@ _ROAD_SURFACE_TILE_MVT_SQL`）に既に焼き込まれているプロパティ�
 """
 
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from typing import Literal, NamedTuple
@@ -173,6 +174,11 @@ _EDGE_COUNTS_SOURCE = "edge_materialsの数の列が埋まっているか"
 
 MaterialDType = Literal["numeric", "boolean", "categorical"]
 
+#: タイルの生値を材料の値へ換算する、実行時にしか決まらない係数の源。
+#: `per_accident_year`は事故の収録年数の逆数（タイルは収録した全年分の件数を持ち、収録年数は
+#: 取り込むたびに増える）。源を足すときは`tile_runtime_scales`にその値の求め方を足す。
+TileRuntimeScale = Literal["per_accident_year"]
+
 
 class MaterialReferencePoint(StrictModel):
     """軸スタジオの折れ点編集を助ける「値の目安」1点。材料の値域が
@@ -220,11 +226,10 @@ class MaterialSpec(StrictModel):
     # 欠損を非該当として持つ真偽の材料は、この名前と`value_sql`からタイルの列が組み立てられる
     # （`road_graph_repository.py: _BOOLEAN_TILE_COLUMNS_SQL`）。
     tile_property: str | None = None
-    # tile_propertyの生値と材料の値がスケール不一致（実行時に変動する係数での
-    # 変換が必要）な場合True。例: accident_count_per_km_yearは収録年数（実行時にDBから
-    # 取得、増え続ける）で正規化済みだが、tile_propertyのaccident_per_kmは年正規化前の生値。
-    # 静的な変換係数を持てないため、地図表示の導出は閾値を安全に流用できない。
-    tile_property_needs_runtime_scale: bool = False
+    # tile_propertyの生値を材料の値へ換算する係数が実行時にしか決まらないとき、その係数の源
+    # （`TileRuntimeScale`）。Noneは生値がそのまま材料の値。係数は`tile_runtime_scales`が
+    # この宣言から導き、地図の式がタイルの生値へ掛ける。
+    tile_property_runtime_scale: TileRuntimeScale | None = None
     # 材料の値が進行方向によって変わる（有向）場合True。地図のrampレイヤーは
     # 1本の線を単色で塗る前提のため、方向依存材料は単純な重み付き和で表現できない
     # （時間依存の風レイヤー・降水ナウキャストと同じく、矢印等の専用表示が別途必要）。
@@ -807,10 +812,8 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         unit="件/(km・年)",
         additive=True,
         # タイル側は年正規化前の"accident_per_km"（収録全年分の重み付き件数/km）。
-        # 収録年数は実行時にDBから取得し増え続けるため静的な変換係数を持てず、地図の
-        # ramp表示は年数での換算を実行時に行う（`tile_property_needs_runtime_scale`）。
         tile_property="accident_per_km",
-        tile_property_needs_runtime_scale=True,
+        tile_property_runtime_scale="per_accident_year",
         primary_attribute=_ATTR_ACCIDENT_POINT,
         reference_points=_ACCIDENT_COUNT_PER_KM_YEAR_REFERENCE_POINTS,
         value_sql="CASE WHEN re.distance_m > 0 AND :accident_years > 0 "
@@ -1221,3 +1224,22 @@ def display_axis_missing_semantics(attr: PrimaryAttributeSpec, tile_property: st
         if spec.primary_attribute is attr and spec.tile_property == tile_property:
             return spec.coverage.missing_semantics
     return None
+
+
+def tile_runtime_scales(accident_years: Sequence[int]) -> dict[str, float]:
+    """タイルのプロパティ名→そのタイルの生値を材料の値へ換算する係数。係数の源
+    （`MaterialSpec.tile_property_runtime_scale`）を宣言した材料ごとに1件。
+
+    源の値が決まらない材料（事故の収録年が0件）は含めない——地図は係数の無い材料を使う軸を
+    どの道でも「データなし」として塗る（寄与0にすると、値が無いのに最良側の色になる）。
+    """
+    values: dict[TileRuntimeScale, float] = {}
+    if accident_years:
+        values["per_accident_year"] = 1 / len(accident_years)
+    return {
+        spec.tile_property: values[spec.tile_property_runtime_scale]
+        for spec in MATERIAL_CATALOG.values()
+        if spec.tile_property is not None
+        and spec.tile_property_runtime_scale is not None
+        and spec.tile_property_runtime_scale in values
+    }
