@@ -85,7 +85,7 @@ class RoutePreviewService:
         self._weather_service = weather_service
 
     async def preview(
-        self, origin: Coordinates, destination: Coordinates, assumed_speed_kmh: float = ASSUMED_SPEED_KMH
+        self, origin: Coordinates, destination: Coordinates, assumed_speed_kmh: float
     ) -> RouteSegment:
         setup = assemble_route_generation_setup(
             self._graph_service, self._weather_service, assumed_speed_kmh=assumed_speed_kmh

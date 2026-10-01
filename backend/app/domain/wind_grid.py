@@ -67,7 +67,7 @@ def _detail_index_ranges(area: BoundingBox, bbox: BoundingBox, spacing_deg: floa
 def count_wind_grid_detail_points(
     area: BoundingBox,
     bbox: BoundingBox,
-    spacing_deg: float = WIND_GRID_DETAIL_SPACING_DEG,
+    spacing_deg: float,
 ) -> int:
     """generate_wind_grid_detail_pointsが返す点の数を、点を作らずに求める。"""
     rows, columns = _detail_index_ranges(area, bbox, spacing_deg)
@@ -77,7 +77,7 @@ def count_wind_grid_detail_points(
 def generate_wind_grid_detail_points(
     area: BoundingBox,
     bbox: BoundingBox,
-    spacing_deg: float = WIND_GRID_DETAIL_SPACING_DEG,
+    spacing_deg: float,
 ) -> list[Coordinates]:
     """bboxに交差する詳細格子の点（範囲は_detail_index_ranges）を返す。点数の上限
     （WIND_GRID_DETAIL_MAX_POINTS）はここでは確かめない——呼び出し元が点を作る前に

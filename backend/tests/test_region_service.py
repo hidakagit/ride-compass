@@ -120,7 +120,7 @@ async def test_axis_inspector_direction_dependent_axis_is_unavailable_without_dy
     axis = direction_dependent_axis
     service = RegionService(repository=_FakeWayRepository())
 
-    result = await service.get_axis_inspector(12345)
+    result = await service.get_axis_inspector(12345, None, None, None)
 
     assert _inspected_axis(result, axis.axis_id).difficulty is None
 
@@ -130,7 +130,7 @@ async def test_axis_inspector_uses_the_direction_dependent_materials_it_is_given
     service = RegionService(repository=_FakeWayRepository())
 
     result = await service.get_axis_inspector(
-        12345, dynamic_materials={material: 3.0 for material in axis.materials}
+        12345, None, {material: 3.0 for material in axis.materials}, None
     )
 
     assert _inspected_axis(result, axis.axis_id).difficulty is not None
@@ -174,10 +174,10 @@ async def test_axis_inspector_combines_with_the_weights_it_is_given(direction_de
     materials = {material: 3.0 for material in axis.materials}
 
     weighted = await service.get_axis_inspector(
-        12345, dynamic_materials=materials, preference=RoutePreference(weights={axis.axis_id: 1.0})
+        12345, None, materials, RoutePreference(weights={axis.axis_id: 1.0})
     )
     ignored = await service.get_axis_inspector(
-        12345, dynamic_materials=materials, preference=RoutePreference(weights={axis.axis_id: 0.0})
+        12345, None, materials, RoutePreference(weights={axis.axis_id: 0.0})
     )
 
     assert _inspected_axis(weighted, axis.axis_id).weight == 1.0

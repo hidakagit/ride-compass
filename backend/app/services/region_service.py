@@ -133,9 +133,9 @@ class RegionService:
     async def get_axis_inspector(
         self,
         osm_way_id: int,
-        edge_id: str | None = None,
-        dynamic_materials: dict[str, float] | None = None,
-        preference: RoutePreference | None = None,
+        edge_id: str | None,
+        dynamic_materials: dict[str, float] | None,
+        preference: RoutePreference | None,
     ) -> AxisInspectorResult | None:
         """区間インスペクタ。クリックされた道路について、一次属性→二次軸スコア→三次合成
         コスト（取得可能な軸だけの参考値）を返す。

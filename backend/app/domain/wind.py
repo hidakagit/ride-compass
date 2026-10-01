@@ -187,7 +187,7 @@ def estimate_passage_hours(
     offset_hours: float,
     direction: int,
     speed_kmh: float,
-    detour_ratio: float = ROUTE_DETOUR_RATIO,
+    detour_ratio: float,
 ) -> np.ndarray:
     """各Edge（中点`mid_lat`/`mid_lon`）の通過予定時刻を、出発からの経過時間（h）として
     基準点`anchor`からの直線距離だけで推定する。`direction=+1`は基準点から離れていく

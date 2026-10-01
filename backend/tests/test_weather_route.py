@@ -19,6 +19,7 @@ from app.domain.twilight import Twilight
 from app.domain.weather import TemperatureRange, WeatherConditions, WeatherPeriodOutlook
 from app.domain.wind_grid import (
     WIND_GRID_DETAIL_MIN_SPACING_DEG,
+    WIND_GRID_DETAIL_SPACING_DEG,
     generate_wind_grid_detail_points,
     generate_wind_grid_points,
 )
@@ -308,7 +309,7 @@ def test_get_wind_grid_detail_omits_none_points(ingested_area):
 def test_get_wind_grid_detail_returns_502_when_all_points_fail(ingested_area):
     # 改善計画T200。wind-gridと同じ全滅ガードがwind-grid-detailにも適用されること。
     bbox = (139.70, 35.60, 139.90, 35.80)
-    point_count = len(generate_wind_grid_detail_points(AREA, _box(*bbox)))
+    point_count = len(generate_wind_grid_detail_points(AREA, _box(*bbox), WIND_GRID_DETAIL_SPACING_DEG))
     app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(None, wind_grid=[None] * point_count)
 
     try:

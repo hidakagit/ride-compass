@@ -125,7 +125,7 @@ def axis_material_shares(definition: AxisDefinition) -> list[AxisMaterialShare]:
     return sorted(shares.values(), key=lambda entry: (-entry.share, entry.depth))
 
 
-def displayed_material_ids(weights: Mapping[str, float], lens_axis_id: str | None = None) -> set[str]:
+def displayed_material_ids(weights: Mapping[str, float], lens_axis_id: str | None) -> set[str]:
     """区間表示へ載せるべき材料id。軸名のハードコードは持たない。
 
     重み>0の公開軸が参照する材料に加え、`lens_axis_id`が符号付き材料の軸を指す場合はその
