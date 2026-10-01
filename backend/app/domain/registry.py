@@ -89,23 +89,22 @@ class PrimaryAttributeSpec(StrictModel):
 
 
 class TileInputSpec(StrictModel):
-    """地図表示（ramp）が読むMVTタイルプロパティ。
+    """地図表示（ramp）が読むMVTタイルプロパティ1つと、その道の値への寄与。軸の値は寄与の和。
 
-    数値材料（既定）: フロントのMapLibre expressionが`Σ(property × weight)`を計算する。
+    数値材料（既定）: `property × weight`。プロパティが無い道は寄与0。
 
     真偽値材料（`boolean=True`）: MVTの真偽値プロパティは真偽比較でしか読めず重み付け
     結合が成立しないため、`true_value`/`false_value`で寄与値を直接指定する（`weight`は
     無視される）。
 
-    N値文字列材料（`categories`）: 文字列値を`categories`で引いた点数×`weight`を寄与値と
-    する。`CategoricalShape`のmappingがbool2値ではなく3値以上（highway/surface等）の
-    場合に使う。
+    N値文字列材料（`categories`）: 文字列値を`categories`で引いた点数×`weight`。
+    `CategoricalShape`のmappingがbool2値ではなく3値以上（highway/surface等）の場合に使う。
 
-    自己変換材料（`breakpoints`）: 区分線形（`BreakpointLinearShape`）で変換される軸の
-    寄与値を、フロントの`interpolate`でタイル生値から直接求める。
+    自己変換材料（`breakpoints`）: 区分線形（`BreakpointLinearShape`）で変換される参照先の軸の
+    点数（小数1桁）×`weight`を、タイル生値から直接求める。プロパティが無い道は寄与0。
 
     `has_unknown_fallback`: 値が引けないときの意味が「true/falseどちらでもない不明」
-    （例: 未分類の路面）ならTrueにし、フロントは灰色「不明」へ倒す。既定Falseは
+    （例: 未分類の路面）ならTrueにし、その道の軸の値を「不明」にする。既定Falseは
     「欠損=falseとみなしてよい」材料（例: lit。タグ不在は「無し」の安全側既定）を表す。
     `categories`材料では**未登録値**も不明に含める——`evaluate_categorical`が未登録値に
     Noneを返し`required=True`の軸全体を評価不能にするため、欠損だけを見ると、実際には
@@ -116,6 +115,9 @@ class TileInputSpec(StrictModel):
     材料（例: 収録年数で正規化する前の事故件数）でTrue。`weight`が静的な変換係数を
     表現できないが、`GET /api/axis-catalog`が配るスケール定数（`tile_runtime_scales`、
     `property`で引く）をフロントのJS式が追加で掛けるため、地図表示の対象には含める。`thresholds`は材料スケールの値のままでよい。
+
+    画面の式が形ごとに評価と同じ値・同じ「不明」を出すことは、`scripts/cross_language_expectations.py:
+    axis_ramp_expectations`が表にして配り、画面のテストが通して確かめる。
     """
 
     property: str = Field(min_length=1)
