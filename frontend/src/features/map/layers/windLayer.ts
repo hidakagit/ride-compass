@@ -86,7 +86,7 @@ export function windArrows(grid: readonly WindGridPoint[], time: string): Dynami
 }
 
 // 格子の間隔（度）。応答は点の並びだけで間隔を持たないので、backendの宣言から取る。
-export const WIND_GRID_SPACING_DEG = windGridConfig.spacing_deg;
+const WIND_GRID_SPACING_DEG = windGridConfig.spacing_deg;
 
 export interface MapViewport {
   west: number;

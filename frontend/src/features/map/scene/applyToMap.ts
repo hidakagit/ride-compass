@@ -92,10 +92,10 @@ type SceneWiringProps = {
   };
   readonly routes: readonly RouteCandidate[];
   readonly selectedRouteId: string | null;
-  /** 比較相手が別の道を通る区間。空/未指定なら帯を出さない。 */
-  readonly spliceStretches?: readonly SpliceStretchInput[];
-  /** 編集中に「いま作っているルート」として描く座標列。 */
-  readonly splicedRoute?: readonly GeoJSON.Position[] | null;
+  /** 比較相手が別の道を通る区間。空なら帯を出さない。 */
+  readonly spliceStretches: readonly SpliceStretchInput[];
+  /** 編集中に「いま作っているルート」として描く座標列（編集していなければnull）。 */
+  readonly splicedRoute: readonly GeoJSON.Position[] | null;
   readonly experimentSlots: readonly ExperimentSlot[];
   /** タイル世代が届いたか。 */
   readonly tileVersionsReady: boolean;
@@ -114,8 +114,8 @@ function routeStateFrom(props: SceneWiringProps): RouteState {
   const modes = props.catalog.routeStyleModes;
   const mode = modes.length > 0 ? getRouteStyleMode(modes, look.lens) : null;
   const segments = visible ? (selected?.segments ?? []) : [];
-  const bands = visible ? (props.spliceStretches ?? []) : [];
-  const composite = visible ? (props.splicedRoute ?? null) : null;
+  const bands = visible ? props.spliceStretches : [];
+  const composite = visible ? props.splicedRoute : null;
   const hiddenBandFilter =
     mode === null
       ? null

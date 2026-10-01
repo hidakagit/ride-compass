@@ -25,7 +25,7 @@ export type SceneLayerEntry = {
   readonly source: SceneSourceId;
   readonly sourceLayer?: string;
   readonly type: LayerSpecification["type"];
-  readonly paint?: Readonly<Record<string, unknown>>;
+  readonly paint: Readonly<Record<string, unknown>>;
   readonly layout?: Readonly<Record<string, unknown>>;
   readonly visible: boolean;
   /** 押したときに拾う対象。空なら押せない。 */
@@ -87,7 +87,7 @@ function toSceneLayer(entry: SceneLayerEntry): MapSceneLayer {
       type: entry.type,
       source: entry.source,
       ...(entry.sourceLayer === undefined ? {} : { sourceLayer: entry.sourceLayer }),
-      ...(entry.paint === undefined ? {} : { paint: entry.paint }),
+      paint: entry.paint,
       ...(entry.layout === undefined ? {} : { layout: entry.layout }),
     }),
     tier: entry.tier,

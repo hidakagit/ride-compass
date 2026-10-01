@@ -115,7 +115,7 @@ export function useDedicatedWayValues(
   mapViewport: MapViewport | null,
   bearingDeg: number,
   at: Date | undefined,
-  speedKmh?: number,
+  speedKmh: number,
 ): ReadonlyMap<string, DedicatedWayValuesResult> {
   const debouncedViewport = useDebouncedValue(mapViewport, MAP_FETCH_DEBOUNCE_MS);
   const debouncedBearingDeg = useDebouncedValue(bearingDeg, MAP_FETCH_DEBOUNCE_MS);

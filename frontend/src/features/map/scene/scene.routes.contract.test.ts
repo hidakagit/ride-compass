@@ -74,7 +74,7 @@ function bindCurrentImplementation(map: unknown) {
   const apply = (next: Partial<RouteState>) => {
     state = { ...state, ...next };
     const scene = composeScene([routeGroup], state);
-    applyMapScene(map as never, { scene, previous });
+    applyMapScene(map as never, { scene, previous, areaLayerBeforeId: undefined });
     previous = scene;
   };
 

@@ -9,18 +9,18 @@ type State = { readonly on: boolean };
 
 const ROAD_SOURCE = { id: sceneSourceId("road"), spec: { type: "vector" as const, tiles: [] }, sourceLayer: "r" };
 
-function line(role: string, tier: SceneLayerEntry["tier"], extra: Partial<SceneLayerEntry> = {}): SceneLayerEntry {
-  return { role, tier, source: sceneSourceId("road"), type: "line", visible: true, ...extra };
+function line(role: string, tier: SceneLayerEntry["tier"], visible = true): SceneLayerEntry {
+  return { role, tier, source: sceneSourceId("road"), type: "line", paint: {}, visible };
 }
 
 const area = declareGroup<State>(() => ({
   sources: [{ id: sceneSourceId("relief"), spec: { type: "raster" }, tiles: ["https://example.test/{z}/{x}/{y}.png"] }],
-  layers: [{ role: "relief", tier: "area", source: sceneSourceId("relief"), type: "raster", visible: true }],
+  layers: [{ role: "relief", tier: "area", source: sceneSourceId("relief"), type: "raster", paint: {}, visible: true }],
 }));
 
 const roadLines = declareGroup<State>((state) => ({
   sources: [{ ...ROAD_SOURCE, featureStates: new Map([["surface", new Map([["w1", 1]])]]) }],
-  layers: [line("surface", "observedLine", { visible: state.on })],
+  layers: [line("surface", "observedLine", state.on)],
 }));
 
 const axes = declareGroup<State>(() => ({

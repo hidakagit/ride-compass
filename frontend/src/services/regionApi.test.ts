@@ -104,23 +104,13 @@ describe("タイルの世代とURL", () => {
 });
 
 describe("押した道の内訳（fetchAxisInspector）", () => {
+  const CONDITIONS = { z: 15, x: 1, y: 2, bearingDeg: 0 };
   let api: RegionApi;
   beforeEach(async () => {
     api = await freshRegionApi();
   });
   afterEach(() => {
     vi.unstubAllGlobals();
-  });
-
-  it("道だけを渡せば、道のidだけを送る（重み・地物・走行の条件はbackendの既定に任せる）", async () => {
-    const result = { composite_difficulty: 42 };
-    const sent = stubBackend(() => Response.json(result));
-
-    await expect(api.fetchAxisInspector(123, null, null, null)).resolves.toEqual(result);
-
-    expect(sent.map(({ method, path, body }) => ({ method, path, body }))).toEqual([
-      { method: "POST", path: "/api/region/axis-inspector", body: { osm_way_id: 123 } },
-    ]);
   });
 
   it("押した地物・重み・タイルと走行の条件を、backendの項目名で送る", async () => {
@@ -146,23 +136,30 @@ describe("押した道の内訳（fetchAxisInspector）", () => {
     });
   });
 
-  it("時刻・速度を持たない条件では、その項目を送らない", async () => {
-    const sent = stubBackend(() => Response.json({}));
+  it("地物・重み・時刻・速度が無ければ、その項目を送らない（重みはbackendの既定に任せる）", async () => {
+    const result = { composite_difficulty: 42 };
+    const sent = stubBackend(() => Response.json(result));
 
-    await api.fetchAxisInspector(123, null, { z: 15, x: 1, y: 2, bearingDeg: 0 });
+    await expect(api.fetchAxisInspector(123, null, CONDITIONS, null)).resolves.toEqual(result);
 
-    expect(sent[0].body).toEqual({ osm_way_id: 123, z: 15, x: 1, y: 2, bearing_deg: 0 });
+    expect(sent.map(({ method, path, body }) => ({ method, path, body }))).toEqual([
+      {
+        method: "POST",
+        path: "/api/region/axis-inspector",
+        body: { osm_way_id: 123, z: 15, x: 1, y: 2, bearing_deg: 0 },
+      },
+    ]);
   });
 
   it("backendが評価を返さなければnullを返し、失敗したら内訳の取得の失敗として投げる", async () => {
     stubBackend(() => Response.json(null));
-    await expect(api.fetchAxisInspector(123)).resolves.toBeNull();
+    await expect(api.fetchAxisInspector(123, null, CONDITIONS, null)).resolves.toBeNull();
 
     stubBackend(() => new Response(null, { status: 500 }));
-    await expect(api.fetchAxisInspector(123)).rejects.toThrow("内訳の取得に失敗しました");
+    await expect(api.fetchAxisInspector(123, null, CONDITIONS, null)).rejects.toThrow("内訳の取得に失敗しました");
 
     stubBackend(() => new Response("{not json", { status: 200 }));
-    await expect(api.fetchAxisInspector(123)).rejects.toThrow("内訳の取得に失敗しました");
+    await expect(api.fetchAxisInspector(123, null, CONDITIONS, null)).rejects.toThrow("内訳の取得に失敗しました");
   });
 });
 
@@ -201,7 +198,7 @@ describe("専用配信の軸の道ごとの値（fetchDynamicWayValues）", () =
   it("渡さなかった条件と、有限でない速度は問い合わせに載せない", async () => {
     const sent = stubBackend(() => Response.json({}));
 
-    await api.fetchDynamicWayValues("axis_a", 15, 1, 2, undefined);
+    await api.fetchDynamicWayValues("axis_a", 15, 1, 2, undefined, undefined, undefined);
     await api.fetchDynamicWayValues("axis_a", 15, 1, 2, 0, undefined, Number.NaN);
     await api.fetchDynamicWayValues("axis_a", 15, 1, 2, 0, undefined, Number.POSITIVE_INFINITY);
 
@@ -211,12 +208,18 @@ describe("専用配信の軸の道ごとの値（fetchDynamicWayValues）", () =
   it("本当に道が無い（空の応答）なら失敗にしない", async () => {
     stubBackend(() => Response.json({}));
 
-    await expect(api.fetchDynamicWayValues("axis_a", 15, 1, 2, 0)).resolves.toEqual({ values: {}, error: false });
+    await expect(api.fetchDynamicWayValues("axis_a", 15, 1, 2, 0, undefined, undefined)).resolves.toEqual({
+      values: {},
+      error: false,
+    });
   });
 
   it("失敗は投げずに、空の値と失敗の印で返す（色分けの失敗で道路や他のレイヤーを止めない）", async () => {
     stubBackend(() => new Response(null, { status: 500 }));
 
-    await expect(api.fetchDynamicWayValues("axis_a", 15, 1, 2, 0)).resolves.toEqual({ values: {}, error: true });
+    await expect(api.fetchDynamicWayValues("axis_a", 15, 1, 2, 0, undefined, undefined)).resolves.toEqual({
+      values: {},
+      error: true,
+    });
   });
 });
