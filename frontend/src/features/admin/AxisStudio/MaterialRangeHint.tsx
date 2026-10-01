@@ -16,7 +16,7 @@ export function MaterialRangeHint({
   className,
 }: {
   materialId: string;
-  unit?: string;
+  unit: string | undefined;
   /** 置き場所（行内での回り込み等）は呼び出し側が足す。この部品は中身だけを持つ。 */
   className?: string;
 }) {

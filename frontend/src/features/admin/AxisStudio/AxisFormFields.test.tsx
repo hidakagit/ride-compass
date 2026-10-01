@@ -29,14 +29,10 @@ describe("MaterialInfoButton", () => {
 });
 
 describe("SectionLabel", () => {
-  it("説明があれば見出しの横に説明の口を置き、無ければ見出しだけ", () => {
-    const { unmount } = render(<SectionLabel label="折れ点" description="説明文" />);
+  it("見出しの横に説明の口を置く", () => {
+    render(<SectionLabel label="折れ点" description="説明文" />);
     expect(screen.getByText("折れ点")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /折れ点の説明/ })).toBeInTheDocument();
-    unmount();
-
-    render(<SectionLabel label="折れ点" />);
-    expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 });
 

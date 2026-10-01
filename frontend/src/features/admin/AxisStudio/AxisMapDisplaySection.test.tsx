@@ -33,7 +33,15 @@ interface HarnessProps {
   mapBands?: MapBandsJudgement;
 }
 
-function Harness({ initial, editing = null, restrictedDisplayOnly = false, mapValueUnit = "", ...rest }: HarnessProps) {
+function Harness({
+  initial,
+  editing = null,
+  restrictedDisplayOnly = false,
+  republishing = false,
+  mapBandColors,
+  mapValueUnit = "",
+  mapBands = { droppedOnMap: [], bandsOnMap: null, failed: false },
+}: HarnessProps) {
   const [draft, setDraft] = useState(initial);
   return (
     <>
@@ -43,9 +51,11 @@ function Harness({ initial, editing = null, restrictedDisplayOnly = false, mapVa
         setDraft={setDraft}
         editing={editing}
         restrictedDisplayOnly={restrictedDisplayOnly}
+        republishing={republishing}
+        mapBandColors={mapBandColors}
         mapValueUnit={mapValueUnit}
+        mapBands={mapBands}
         onThresholdErrorChange={onThresholdErrorChange}
-        {...rest}
       />
     </>
   );

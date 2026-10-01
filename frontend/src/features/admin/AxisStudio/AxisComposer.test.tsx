@@ -115,7 +115,17 @@ function renderComposer(props: ComposerProps = {}) {
   const onCancelEdit = vi.fn();
   const user = userEvent.setup();
   const view = render(
-    <AxisComposer editing={null} duplicateFrom={null} onSave={onSave} onCancelEdit={onCancelEdit} {...props} />,
+    <AxisComposer
+      editing={null}
+      duplicateFrom={null}
+      otherAxes={[]}
+      mapBandColors={undefined}
+      mapValueUnit=""
+      republishing={false}
+      onSave={onSave}
+      onCancelEdit={onCancelEdit}
+      {...props}
+    />,
   );
   return { user, onSave, onCancelEdit, ...view };
 }
@@ -311,14 +321,8 @@ describe("節へ渡すもの", () => {
 });
 
 describe("既定重みの参考表示", () => {
-  it("ほかの軸を渡されていなければ、出さない", () => {
-    renderComposer({ editing: axis({ is_published: false }) });
-    expect(screen.queryByText(/参考:/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/現在非公開のため/)).not.toBeInTheDocument();
-  });
-
   it("下書きの軸には、公開するまで重みが効かないと言う", () => {
-    renderComposer({ editing: axis({ is_published: false }), otherAxes: [] });
+    renderComposer({ editing: axis({ is_published: false }) });
     expect(screen.getByText(/現在非公開のため/)).toBeInTheDocument();
   });
 

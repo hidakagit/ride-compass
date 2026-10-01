@@ -124,12 +124,15 @@ export function insertBreakpointAtLargestGap(breakpoints: readonly [number, numb
   return next;
 }
 
+/** 表示レンジを何個の目盛りに刻むか（`niceStep`の目安）。 */
+const SNAP_DIVISIONS = 20;
+
 /** ドラッグ中のx方向のスナップ刻み幅。軸の表示レンジ（span）に対して「きりのいい」
- * 1/2/5×10^nの中から、span/snapDivisions個の目盛りに最も近いものを選ぶ（グラフの目盛り
+ * 1/2/5×10^nの中から、span/SNAP_DIVISIONS個の目盛りに最も近いものを選ぶ（グラフの目盛り
  * 間隔でよく使われる手法）。 */
-export function niceStep(span: number, snapDivisions = 20): number {
+export function niceStep(span: number): number {
   if (!Number.isFinite(span) || span <= 0) return 1;
-  const roughStep = span / snapDivisions;
+  const roughStep = span / SNAP_DIVISIONS;
   const magnitude = 10 ** Math.floor(Math.log10(roughStep));
   const normalized = roughStep / magnitude;
   const niceNormalized = normalized < 1.5 ? 1 : normalized < 3.5 ? 2 : normalized < 7.5 ? 5 : 10;

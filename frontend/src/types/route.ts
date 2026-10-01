@@ -54,10 +54,9 @@ export type HardFilterOverride = Schemas["HardFilterOverride"];
 // 保持・比較表・再現性メモの入力になる。
 export type GenerationConditions = Schemas["GenerationConditions"];
 
-// 軸カタログ。GET /api/axis-catalogのレスポンス。軸スタジオが管理API経由でDBへ追加した
+// 軸カタログの1軸。GET /api/axis-catalogのレスポンスの要素。軸スタジオが管理API経由でDBへ追加した
 // 軸も、コード変更・再デプロイなしにここへ反映される。
 export type AxisCatalogEntry = Schemas["AxisCatalogEntry"];
-export type AxisCatalogResponse = Schemas["AxisCatalogResponse"];
 
 // 軸スタジオが使う評価軸定義のCRUD型。/api/admin/axis-definitions。
 export type AxisDefinitionPayload = Schemas["AxisDefinitionPayload"];
@@ -73,12 +72,11 @@ export type AxisShape = BreakpointLinearShape | CategoricalShape;
 // （features/map/layers/jmaTileIndex.tsが解釈する）。
 export type JmaTileIndexResponse = GetJson<"/api/jma-tile-index">;
 
-// 材料の実データ値一覧。GET /api/admin/material-catalog/{material_id}/valuesのレスポンス。
+// 材料の実データ値の1件。GET /api/admin/material-catalog/{material_id}/valuesのレスポンスの要素。
 // highway/surface/smoothnessのようなオープンエンドな多値材料向け。各値に日本語ラベル
 // (label)も付く（backend/app/domain/material_catalog.py: MaterialSpec.value_labelsが
 // 単一ソース）。
 export type MaterialValueEntry = Schemas["MaterialValueEntry"];
-export type MaterialValuesResponse = Schemas["MaterialValuesResponse"];
 
 // 材料ごとの欠損割合。GET /api/admin/material-catalog/coverage（Basic認証必須、
 // 管理画面「材料」タブが同一オリジンのroute handler経由で取得する）のレスポンス。

@@ -16,7 +16,7 @@ export interface MapBandsJudgement extends MapBandsOfThresholds {
 }
 
 /** 判定が無い間の値。入力どおりの段で出す（落ちる値なし・全段が残る）。 */
-export const NO_MAP_BANDS_JUDGEMENT: MapBandsJudgement = { droppedOnMap: [], bandsOnMap: null, failed: false };
+const NO_MAP_BANDS_JUDGEMENT: MapBandsJudgement = { droppedOnMap: [], bandsOnMap: null, failed: false };
 
 /** `request`がnull（しきい値を上書きしていない）の間は問い合わせない。取得に失敗したときは印を出さない——判定
  * できないことを「効かない値がある」と取り違えさせないため。失敗したことは`failed`で返す（入力どおりの段が地図の
