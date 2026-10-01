@@ -37,7 +37,7 @@ function fillTaperedRibbon(
   p3: Point2D,
   widthStart: number,
   widthEnd: number,
-  steps = 12,
+  steps: number,
 ) {
   const center = Array.from({ length: steps + 1 }, (_, i) => cubicBezierPoint(p0, p1, p2, p3, i / steps));
   const left: Point2D[] = [];

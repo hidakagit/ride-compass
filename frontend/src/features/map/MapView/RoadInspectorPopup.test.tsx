@@ -15,6 +15,11 @@ const axis = (axisId: string, label: string, description: string): CatalogAxis =
   catalogAxisFromEntry(catalogEntry({ axis_id: axisId, label, description }));
 const AXES = [axis("axis_sample", "見本の軸", "車の通行量の説明"), axis("night", "夜間", "夜間の暗さの説明")];
 const AXIS_COLORS: Record<string, string> = { axis_sample: "#111111", night: "#222222" };
+/** 地図がいつも渡す走行の条件（押した点のタイル込み）と重み（nullは既定の重み）。 */
+const RIDE = {
+  conditions: { bearingDeg: 0, at: new Date("2026-09-24T00:00:00Z"), z: 14, x: 1, y: 2 },
+  routePreference: null,
+};
 /** 路面の区分の項目名と、その値の1つの呼び名（書き写さず材料カタログから引く）。 */
 const SURFACE_CLASS = materialCatalog.find((material) => material.material_id === "surface_class")!;
 const [SURFACE_CLASS_VALUE, SURFACE_CLASS_VALUE_LABEL] = Object.entries(SURFACE_CLASS.value_labels ?? {}).find(
@@ -54,6 +59,7 @@ describe("RoadInspectorPopup", () => {
         properties={{ osm_way_id: 1, surface_class: SURFACE_CLASS_VALUE }}
         axes={AXES}
         axisColors={AXIS_COLORS}
+        {...RIDE}
       />,
     );
 
@@ -82,6 +88,7 @@ describe("RoadInspectorPopup", () => {
         properties={{ osm_way_id: 1, name: "明治通り", surface_class: SURFACE_CLASS_VALUE }}
         axes={AXES}
         axisColors={AXIS_COLORS}
+        {...RIDE}
       />,
     );
 
@@ -99,6 +106,7 @@ describe("RoadInspectorPopup", () => {
         properties={{ osm_way_id: 1, surface_class: SURFACE_CLASS_VALUE }}
         axes={AXES}
         axisColors={AXIS_COLORS}
+        {...RIDE}
       />,
     );
 
@@ -119,6 +127,7 @@ describe("RoadInspectorPopup", () => {
         properties={{ osm_way_id: 1, surface_class: SURFACE_CLASS_VALUE }}
         axes={AXES}
         axisColors={AXIS_COLORS}
+        {...RIDE}
       />,
     );
 
@@ -136,6 +145,7 @@ describe("RoadInspectorPopup", () => {
         properties={{ osm_way_id: 1, surface_class: SURFACE_CLASS_VALUE }}
         axes={AXES}
         axisColors={AXIS_COLORS}
+        {...RIDE}
       />,
     );
 
@@ -159,6 +169,7 @@ describe("RoadInspectorPopup", () => {
         properties={{ osm_way_id: 1, surface_class: SURFACE_CLASS_VALUE }}
         axes={AXES}
         axisColors={AXIS_COLORS}
+        {...RIDE}
       />,
     );
 
@@ -188,6 +199,7 @@ describe("評価の重み", () => {
         properties={{ osm_way_id: 1 }}
         axes={AXES}
         axisColors={AXIS_COLORS}
+        {...RIDE}
         routePreference={WEIGHTS}
       />,
     );
@@ -200,7 +212,7 @@ describe("評価の重み", () => {
   it("重みを変えたら、前の重みで取った評価を見せずに取り直しへ戻る", async () => {
     const user = userEvent.setup();
     vi.mocked(fetchAxisInspector).mockResolvedValue(inspectorResult());
-    const props = { properties: { osm_way_id: 1 }, axes: AXES, axisColors: AXIS_COLORS };
+    const props = { properties: { osm_way_id: 1 }, axes: AXES, axisColors: AXIS_COLORS, ...RIDE };
     const { rerender } = render(<RoadInspectorPopup {...props} routePreference={WEIGHTS} />);
     await user.click(screen.getByRole("button", { name: "この道の評価を見る" }));
     await waitFor(() => expect(screen.getByText(/この道だけで見た合成/)).toBeInTheDocument());
@@ -214,7 +226,7 @@ describe("評価の重み", () => {
 
 describe("評価の走行の条件", () => {
   const CONDITIONS = { bearingDeg: 0, at: new Date("2026-09-24T00:00:00Z"), z: 14, x: 1, y: 2 };
-  const props = { properties: { osm_way_id: 1 }, axes: AXES, axisColors: AXIS_COLORS };
+  const props = { properties: { osm_way_id: 1 }, axes: AXES, axisColors: AXIS_COLORS, ...RIDE };
 
   it("開いている間に出発時刻が進んでも、押したときの条件で取った評価を出し続ける", async () => {
     const user = userEvent.setup();
@@ -248,7 +260,12 @@ describe("OSMの生値", () => {
   it("OSMの生値はタグとして解釈されない（第三者が編集できるデータのため）", () => {
     const attack = '<img src=x onerror="alert(1)">';
     const { container } = render(
-      <RoadInspectorPopup properties={{ osm_way_id: 1, name: attack }} axes={AXES} axisColors={AXIS_COLORS} />,
+      <RoadInspectorPopup
+        properties={{ osm_way_id: 1, name: attack }}
+        axes={AXES}
+        axisColors={AXIS_COLORS}
+        {...RIDE}
+      />,
     );
 
     expect(container.querySelector("img")).toBeNull();
@@ -259,14 +276,14 @@ describe("OSMの生値", () => {
 describe("道の識別子", () => {
   it("デバッグログOFFでは出さない（一般の利用者には読めない値のため）", () => {
     setDebugEnabled(false);
-    render(<RoadInspectorPopup properties={{ osm_way_id: 4242 }} axes={AXES} axisColors={AXIS_COLORS} />);
+    render(<RoadInspectorPopup properties={{ osm_way_id: 4242 }} axes={AXES} axisColors={AXIS_COLORS} {...RIDE} />);
 
     expect(screen.queryByText(/OSM way id/)).not.toBeInTheDocument();
   });
 
   it("デバッグログONなら出す（地図で押した1本を、そのままbackendの調査へ渡せるようにする）", () => {
     setDebugEnabled(true);
-    render(<RoadInspectorPopup properties={{ osm_way_id: 4242 }} axes={AXES} axisColors={AXIS_COLORS} />);
+    render(<RoadInspectorPopup properties={{ osm_way_id: 4242 }} axes={AXES} axisColors={AXIS_COLORS} {...RIDE} />);
 
     expect(screen.getByText("OSM way id: 4242")).toBeInTheDocument();
     setDebugEnabled(false);

@@ -98,9 +98,9 @@ export interface AxisInspectorConditions extends RideConditions {
 /** 地図で押した道（`osm_way_id`）の一次属性・全軸・合成を取る。 */
 export async function fetchAxisInspector(
   osmWayId: number,
-  featureKey?: string | null,
-  conditions?: AxisInspectorConditions | null,
-  routePreference?: RoutePreferenceWeights | null,
+  featureKey: string | null,
+  conditions: AxisInspectorConditions,
+  routePreference: RoutePreferenceWeights | null,
 ): Promise<AxisInspectorResult | null> {
   const body = {
     osm_way_id: osmWayId,
@@ -108,16 +108,12 @@ export async function fetchAxisInspector(
     ...(routePreference != null ? { route_preference: routePreference } : {}),
     // 押した地物の識別子。区間単位のズームで押した道は内訳も区間単位で計算される（地図の色と数字を揃える）。
     ...(featureKey != null ? { feature_key: featureKey } : {}),
-    ...(conditions != null
-      ? {
-          z: conditions.z,
-          x: conditions.x,
-          y: conditions.y,
-          bearing_deg: conditions.bearingDeg,
-          ...(conditions.at != null ? { at: conditions.at.toISOString() } : {}),
-          ...(conditions.speedKmh != null ? { speed_kmh: conditions.speedKmh } : {}),
-        }
-      : {}),
+    z: conditions.z,
+    x: conditions.x,
+    y: conditions.y,
+    bearing_deg: conditions.bearingDeg,
+    ...(conditions.at != null ? { at: conditions.at.toISOString() } : {}),
+    ...(conditions.speedKmh != null ? { speed_kmh: conditions.speedKmh } : {}),
   };
   return requestApi((init) => backendApi.POST("/api/region/axis-inspector", { body, ...init }), {
     timeoutMs: DEFAULT_API_TIMEOUT_MS,
@@ -148,8 +144,8 @@ export async function fetchDynamicWayValues(
   x: number,
   y: number,
   bearingDeg: number | undefined,
-  at?: Date,
-  speedKmh?: number,
+  at: Date | undefined,
+  speedKmh: number | undefined,
 ): Promise<DynamicWayValuesResult> {
   const params = {
     path: { axis_id: axisId, z, x, y },

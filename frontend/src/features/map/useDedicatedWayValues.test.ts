@@ -26,6 +26,7 @@ const [, STATIC] = dedicatedAxes;
 // z14で横2枚×縦1枚のタイルにまたがる範囲
 const VIEWPORT: MapViewport = { west: 139.76, south: 35.68, east: 139.77, north: 35.685, zoom: 14 };
 const AT = new Date("2026-09-24T00:00:00Z");
+const SPEED_KMH = 20;
 
 // 取得の結果は区切り（`setTimeout(0)`）ごとに届くので、偽にしていない時計で数回区切りを待つ。
 async function settle() {
@@ -44,7 +45,8 @@ beforeEach(() => {
 type Props = { axes: typeof dedicatedAxes; viewport: MapViewport | null; bearing: number; at: Date; speed?: number };
 function render(initialProps: Props) {
   return renderHook(
-    ({ axes, viewport, bearing, at, speed }: Props) => useDedicatedWayValues(axes, viewport, bearing, at, speed),
+    ({ axes, viewport, bearing, at, speed }: Props) =>
+      useDedicatedWayValues(axes, viewport, bearing, at, speed ?? SPEED_KMH),
     { initialProps },
   );
 }

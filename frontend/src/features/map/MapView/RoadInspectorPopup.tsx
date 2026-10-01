@@ -23,10 +23,10 @@ interface RoadInspectorPopupProps {
   /** 軸id→色（ルート結果の寄与度バー・凡例チップと同じ配色）。 */
   axisColors: Record<string, string>;
   /** 地図が今指定している走行の条件＋押した点のタイル。**進行方向が決まらないと算出
-   * できない軸（勾配・風）**は、これが無いと「データなし」になる。 */
-  conditions?: AxisInspectorConditions | null;
+   * できない軸（勾配・風）**は、これを送らないと「データなし」になる。 */
+  conditions: AxisInspectorConditions;
   /** 利用者がいま設定している重み（ルート生成へ送るのと同じもの）。nullなら既定の重み。 */
-  routePreference?: RoutePreferenceWeights | null;
+  routePreference: RoutePreferenceWeights | null;
 }
 
 // 地図の道をクリックしたときの中身。答えるのは「この道は何者で、なぜこの評価なのか」。
@@ -40,16 +40,16 @@ export default function RoadInspectorPopup({
   axes,
   axisColors,
   conditions,
-  routePreference = null,
+  routePreference,
 }: RoadInspectorPopupProps) {
   // 評価は道・走行の条件・重みごとに持つ。重みを変えたら、古い重みの評価を見せずに取り直しへ戻す。条件は押したときの
   // ものに留める——出発時刻は「今」へ5分刻みで進むので、今の条件で引き直すと開いている間に評価が消える。
   const weightsKey = JSON.stringify(routePreference);
-  const conditionsKey = JSON.stringify(conditions ?? null);
+  const conditionsKey = JSON.stringify(conditions);
   const [pressed, setPressed] = useState<{
     weightsKey: string;
     conditionsKey: string;
-    conditions: AxisInspectorConditions | null | undefined;
+    conditions: AxisInspectorConditions;
   } | null>(null);
   const pinned = pressed !== null && pressed.weightsKey === weightsKey ? pressed : null;
   const name = roadDisplayName(properties);

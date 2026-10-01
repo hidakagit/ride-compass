@@ -232,7 +232,7 @@ function mergeObscured(a: RouteFitObscuredPx | undefined, b: RouteFitObscuredPx)
 function fitBoundsToRoutes(
   map: MapLibreMap,
   routes: RouteCandidate[],
-  measureObscured?: () => RouteFitObscuredPx | undefined,
+  measureObscured: () => RouteFitObscuredPx | undefined,
 ) {
   if (routes.length === 0) return;
 
@@ -240,7 +240,7 @@ function fitBoundsToRoutes(
 
   runWhenStyleReady(map, () => {
     const canvas = map.getCanvas();
-    const obscured = mergeObscured(measureObscured?.(), measureMapOverlayEdges(canvas.getBoundingClientRect()));
+    const obscured = mergeObscured(measureObscured(), measureMapOverlayEdges(canvas.getBoundingClientRect()));
     const padding = computeRouteFitPadding(obscured, { width: canvas.clientWidth, height: canvas.clientHeight });
     debugLog("map:viewport", "ルートを収める", { padding });
     map.fitBounds(bounds, { padding });
@@ -283,14 +283,14 @@ function nearestPointOnLineString(
 interface MapViewProps {
   routes: RouteCandidate[];
   selectedRouteId: string | null;
-  // 比較相手が別の道を通る区間。空/未指定なら帯を出さない。
-  spliceStretches?: readonly SpliceStretchInput[];
-  /** 編集中に「いま作っているルート」として描く座標列（編集していなければ省略）。 */
-  splicedRoute?: readonly GeoJSON.Position[] | null;
+  // 比較相手が別の道を通る区間。空なら帯を出さない。
+  spliceStretches: readonly SpliceStretchInput[];
+  /** 編集中に「いま作っているルート」として描く座標列（編集していなければnull）。 */
+  splicedRoute: readonly GeoJSON.Position[] | null;
   /** 乗り換えられる区間の帯をタップしたときに呼ばれる（`SpliceStretchInput.index`）。
    * 選ぶ操作の中心を地図へ置くためのもの——パネルの行だけで選ばせると、どの行がどの帯かを
    * 目で対応づける必要がある。 */
-  onSpliceStretchSelect?: (index: number) => void;
+  onSpliceStretchSelect: (index: number) => void;
   location: Coordinates;
   /** 出発地点の色。位置が取れず既定の地点（"default"）のときだけ灰色にする。 */
   locationSource: LocationSource;
@@ -298,9 +298,9 @@ interface MapViewProps {
    * 軸カタログ・タイル世代のような共有の源泉から導けるものはここで読む。 */
   look: MapLook;
   /** 地図を塗るのに使っている走行の条件。道を押したときの内訳にも同じ値を渡す（揃えないと色と数字が食い違う）。 */
-  rideConditions?: RideConditions;
+  rideConditions: RideConditions;
   /** 利用者がいま設定している重み（ルート生成へ送るのと同じもの）。道の詳細の評価に使う。nullなら既定の重み。 */
-  routePreference?: RoutePreferenceWeights | null;
+  routePreference: RoutePreferenceWeights | null;
   /** 実験スロット。デバッグモードOFFの間は空。 */
   experimentSlots: ExperimentSlot[];
   /** 押して選んでいる区間。地図は押した地点に印を立てるだけで、内訳は下部のシートが出す（地図上の
@@ -328,7 +328,7 @@ interface MapViewProps {
   onDestinationClear: () => void;
   /** 地図の上に重なるUIで覆われている辺ごとの高さ(px)をいま測る。ルートを収めるとき、覆われた所へ収めないため。
    * レイアウトを持つ呼び出し側が測る。地図の上に置いた部品は、ここで測らず`mapOverlayEdge`の印を付ければ地図が測る。 */
-  measureRouteFitObscuredPx?: () => RouteFitObscuredPx | undefined;
+  measureRouteFitObscuredPx: () => RouteFitObscuredPx | undefined;
 }
 
 export default function MapView({
@@ -341,7 +341,7 @@ export default function MapView({
   locationSource,
   look,
   rideConditions,
-  routePreference = null,
+  routePreference,
   experimentSlots,
   selectedRouteSegment,
   onRouteSegmentSelect,
@@ -568,7 +568,7 @@ export default function MapView({
       const index = e.features?.[0]?.properties?.index;
       if (typeof index !== "number") return;
       popupRef.current?.remove();
-      latest.current.onSpliceStretchSelect?.(index);
+      latest.current.onSpliceStretchSelect(index);
     }
 
     function handleRouteSegmentClick(e: MapLayerMouseEvent) {
@@ -957,7 +957,7 @@ export default function MapView({
             properties={roadPopup.properties}
             axes={catalog.axes}
             axisColors={catalog.axisColors}
-            conditions={rideConditions != null ? { ...rideConditions, ...roadPopup.tile } : null}
+            conditions={{ ...rideConditions, ...roadPopup.tile }}
             routePreference={routePreference}
           />,
           roadPopupContainer,

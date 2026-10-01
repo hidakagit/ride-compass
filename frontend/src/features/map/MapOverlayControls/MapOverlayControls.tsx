@@ -348,7 +348,7 @@ function ChipButton({
   onTap,
   groupTint,
   dataStatus,
-  filtered = false,
+  filtered,
   panel,
 }: {
   Icon: (props: { size?: number }) => ReactElement;
@@ -360,13 +360,13 @@ function ChipButton({
   pressed?: boolean;
   expanded?: boolean;
   disabled?: boolean;
-  title?: string;
+  title: string | undefined;
   onTap: () => void;
   /** 属するグループ。無ければ（ルート等）無色。 */
   groupTint?: MapOverlayGroup;
   dataStatus?: LayerDataStatus;
   /** 凡例の絞り込みで一部を隠しているか（絞り込みは保存されるため、欠けた地図を「データが無い」と読ませない）。 */
-  filtered?: boolean;
+  filtered: boolean;
   /** ▶で開く中身。無ければ▶を出さない。 */
   panel?: ReactNode;
 }) {
