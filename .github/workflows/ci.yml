@@ -101,12 +101,8 @@ jobs:
             backend/requirements.txt
             backend/requirements-batch.txt
             backend/requirements-dev.txt
-      # requirements-batch.txt（-r requirements.txtを内包、+osmium）を入れる。tests/には
-      # test_import_pbf.py・test_pbf_source.pyというPBF取込バッチ（app/batch/）専用の
-      # テストが存在し無条件でosmiumをimportするため、requirements.txtのみのインストール
-      # だとこの2ファイルの収集自体がModuleNotFoundErrorで失敗する（本番Renderデプロイに
-      # osmiumが不要という理由でrequirements.txtと分離された経緯とは別の関心事。CIの
-      # テスト実行はデプロイ物とは独立なので、ここでosmiumを入れてもRenderへは影響しない）。
+      # 本番のイメージ（backend/Dockerfile）と同じくrequirements-batch.txtを入れる。取込バッチ
+      # （app/batch/）と取得スクリプトのテストが、その追加依存（osmium等）を無条件でimportする。
       - run: pip install -r requirements-batch.txt
       - run: pip install -r requirements-dev.txt
       # lintはテストより先に置く（frontendジョブがeslint→tsc→vitestの順であるのと同じ、
