@@ -19,9 +19,9 @@ import httpx
 import numpy as np
 from cachetools import TTLCache
 
-from app.domain.rain import RAIN_HISTORY_HOURS, StationRainMaterials, rain_material_values
+from app.domain.rain import RAIN_HISTORY_HOURS, StationRainMaterials, is_rain_history_current, rain_material_values
 from app.domain.time_zone import JST
-from app.domain.geo import LatLonPoint, haversine_distance_km
+from app.domain.geo import nearest_point_index
 from app.domain.jma_amedas import (
     AmedasObservation,
     apparent_temperature_from_amedas,
@@ -36,23 +36,9 @@ from app.infrastructure.debug_log import log_throttled_warning
 
 logger = logging.getLogger("ridecompass.jma_amedas_service")
 
-#: 最新の正時がこれより古い履歴は配らない（地図は「データなし」）。正時の地図JSONは次の正時まで
-#: 最新なので平常時でも1時間余りは古く、1本取り損ねても塗り続けられる幅にしてある。
-RAIN_HISTORY_MAX_AGE = timedelta(hours=2, minutes=30)
 _RAIN_MATERIALS_CACHE_TTL_SECONDS = 5 * 60
 _rain_materials_cache: TTLCache = TTLCache(maxsize=1, ttl=_RAIN_MATERIALS_CACHE_TTL_SECONDS)
 _RAIN_MATERIALS_CACHE_KEY = "rain_materials"
-
-
-def _nearest_station(stations: dict[str, AmedasStation], point: Coordinates) -> str | None:
-    best_station_id: str | None = None
-    best_distance = float("inf")
-    for station_id, station in stations.items():
-        distance = haversine_distance_km(point, LatLonPoint(latitude=station.latitude, longitude=station.longitude))
-        if distance < best_distance:
-            best_distance = distance
-            best_station_id = station_id
-    return best_station_id
 
 
 class JmaAmedasService:
@@ -68,9 +54,15 @@ class JmaAmedasService:
         stations = await jma_amedas_client.fetch_station_table(self._http_client)
         if not stations:
             return None
-        station_id = _nearest_station(stations, point)
-        if station_id is None:
+        station_ids = list(stations)
+        nearest_index = nearest_point_index(
+            point.latitude, point.longitude,
+            np.array([stations[station_id].latitude for station_id in station_ids]),
+            np.array([stations[station_id].longitude for station_id in station_ids]),
+        )
+        if nearest_index is None:
             return None
+        station_id = station_ids[nearest_index]
         observation = await jma_amedas_store.read_observation(station_id)
         if observation is None:
             return None
@@ -198,8 +190,8 @@ def _hourly_rain(observation_map: dict[str, AmedasReading]) -> dict[str, float |
 async def load_station_rain_materials(now: datetime) -> StationRainMaterials | None:
     """観測所ごとの雨の材料（`domain/rain.py`）。保存済みの履歴だけを読み、気象庁へは問い合わせない。
 
-    履歴がまだ無い（バッチが一度も成功していない・Redisが不通）・最新の正時が
-    `RAIN_HISTORY_MAX_AGE`より古いときはNone。
+    履歴がまだ無い（バッチが一度も成功していない・Redisが不通）・最新の正時が古い
+    （`domain/rain.py: is_rain_history_current`）ときはNone。
 
     求めた値はプロセス内に`_RAIN_MATERIALS_CACHE_TTL_SECONDS`だけ持つ——地図のタイル1枚ごとに
     全観測所×`RAIN_HISTORY_HOURS`本の履歴を読み直さないため。履歴が新しい正時を得てから
@@ -212,7 +204,7 @@ async def load_station_rain_materials(now: datetime) -> StationRainMaterials | N
             return None
         materials = _station_rain_materials(history)
         _rain_materials_cache[_RAIN_MATERIALS_CACHE_KEY] = materials
-    if now - materials.latest_hour > RAIN_HISTORY_MAX_AGE:
+    if not is_rain_history_current(materials.latest_hour, now):
         log_throttled_warning(
             "weather:jma-amedas-rain-history",
             "アメダスの1時間雨量の履歴が古いため雨の材料を配りません latest_hour=%s",

@@ -1,3 +1,7 @@
+from datetime import datetime
+
+import numpy as np
+
 from app.domain.strict_model import StrictModel
 from app.domain.twilight import Twilight
 
@@ -69,3 +73,52 @@ class WeatherConditions(StrictModel):
     # 「今日」のパネルへ並べる2時間おきのコマ。取得失敗時もNoneではなく空リストに
     # なる（フロント側はnullチェック無しで.filter/.mapできる）。
     today_periods: list[WeatherPeriodOutlook]
+
+
+_PERIOD_SLOT_COUNT = 8
+_PERIOD_INTERVAL_HOURS = 2
+
+
+def today_indices(times: list[str]) -> list[int]:
+    """時系列（JSTのISO形式、先頭が今の正時）のうち、先頭と同じ暦日の時刻の番号。
+
+    MSMは過去の時刻を返さないため、今日の残りの時間になる（朝から見た「今日の最高気温」と
+    夕方から見た値は一致しない——これから走る人向けの見通しとして扱う）。
+    """
+    if not times:
+        return []
+    today = datetime.fromisoformat(times[0]).date()
+    return [index for index, t in enumerate(times) if datetime.fromisoformat(t).date() == today]
+
+
+def daily_max(values: np.ndarray, indices: list[int]) -> float | None:
+    """`indices`の時刻の最大値（小数1桁）。時刻が無ければNone。"""
+    return None if not indices else round(float(np.max(values[indices])), 1)
+
+
+def daily_range(temperature: np.ndarray, indices: list[int]) -> TemperatureRange | None:
+    """`indices`の時刻の最低・最高気温。時刻が無いか、格子の欠損（NaN）を含めば両方を欠く。"""
+    if not indices or np.isnan(temperature[indices]).any():
+        return None
+    values = temperature[indices]
+    return TemperatureRange(min_c=round(float(np.min(values)), 1), max_c=round(float(np.max(values)), 1))
+
+
+def period_outlooks(times: list[str], temperature: np.ndarray, precipitation: np.ndarray) -> list[WeatherPeriodOutlook]:
+    """時系列の先頭（今の正時）を起点に、一定間隔のコマを返す。
+
+    予報の終端に達したらそこで打ち切るため、コマ数はMSMのrunによって変動する。
+    """
+    results = []
+    for slot in range(_PERIOD_SLOT_COUNT):
+        index = slot * _PERIOD_INTERVAL_HOURS
+        if index >= len(times):
+            break
+        results.append(
+            WeatherPeriodOutlook(
+                period=datetime.fromisoformat(times[index]).strftime("%H:%M"),
+                temperature_c=round(float(temperature[index]), 1),
+                precipitation_mm=round(float(precipitation[index]), 2),
+            )
+        )
+    return results

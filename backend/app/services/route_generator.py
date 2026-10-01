@@ -89,11 +89,11 @@ SEGMENT_AGGREGATES: dict[str, Callable[[list[Any]], Any]] = {
 
 
 def _difficulty_order(candidate: RouteCandidate) -> float:
-    """候補を返す並びの鍵。周回・目的地とも総合難易度（小数1桁で比較）の昇順で、先頭が
-    最も易しい候補という契約で配る。算出不能の候補は末尾へ回す。"""
+    """候補を返す並びの鍵。周回・目的地とも総合難易度の昇順で、先頭が最も易しい候補という
+    契約で配る。平均は難易度の桁へ丸めてあるので、その桁で同点になる。算出不能の候補は末尾へ回す。"""
     if candidate.overall_difficulty is None:
         return float("inf")
-    return round(candidate.overall_difficulty.average, 1)
+    return candidate.overall_difficulty.average
 
 
 class RouteGenerator:

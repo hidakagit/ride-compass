@@ -37,7 +37,7 @@ from app.domain.traffic import highway_rank
 from app.domain.tuning import tuning_value
 from app.domain.attributes import ElevationAttribute
 from app.domain.axis_raw_value import displayed_material_ids
-from app.domain.difficulty import distance_weighted_difficulty
+from app.domain.difficulty import DIFFICULTY_QUANTUM, distance_weighted_difficulty, round_difficulty_array
 from app.domain.errors import RoutingError
 from app.domain.evaluation import difficulty_from_cost
 from app.domain.hard_filters import compute_hard_filter_excluded, compute_routable_nodes
@@ -143,12 +143,11 @@ _RING_CENTER_RATIO = (_LOOP_TO_OUTBOUND_RATIO_MIN + _LOOP_TO_OUTBOUND_RATIO_MAX)
 # 一対全探索のコスト上限に掛ける余裕。Edge単位の丸めの積み上がりで上限ぎりぎりのNodeを
 # 取りこぼさないため。
 _COST_LIMIT_SLACK = 1.01
-# 候補選定（`pareto_layer_index`）で「実質同じ」とみなす粒度。距離は往路実距離200m
-# （周回全長では約400m差、体感で選び分ける単位より細かい）、難易度は他の集計値と同じ
-# 小数1桁。細かすぎると互いに非劣解な候補が全件残ってフィルタとして働かず、粗すぎると
-# 候補が減りすぎる。
+# 候補選定（`pareto_layer_index`）で「実質同じ」とみなす距離の粒度。往路実距離200m
+# （周回全長では約400m差、体感で選び分ける単位より細かい）。難易度の粒度は難易度の桁
+# （`DIFFICULTY_QUANTUM`）。細かすぎると互いに非劣解な候補が全件残ってフィルタとして働かず、
+# 粗すぎると候補が減りすぎる。
 _PARETO_DISTANCE_QUANTUM_M = 200.0
-_PARETO_DIFFICULTY_QUANTUM = 0.1
 
 # --- 目的地ルート（via-node方式、経由地無し）の代替経路選定パラメータ ---
 # via-node候補（前向き木＋後ろ向き木の合成経路）の長さが、最も合成コストの低い経路の
@@ -690,7 +689,7 @@ class RoadGraphEngine:
         )
         context.legs = [context.legs[0], inbound]
         difficulty = difficulty_from_cost(tree.node_cost[ring], tree.node_seconds[ring], self._penalty_strength)
-        difficulty_key = np.round(difficulty, 1)
+        difficulty_key = round_difficulty_array(difficulty)
         closeness_key = np.abs(ring_length - ring_center_m)
         # 「リング中心からのずれ」「往路difficulty」の2指標で非優越ソートし、パレート層の
         # 順に並べる。難易度だけで並べると、難易度が距離加重「平均」であるために遠回りして
@@ -702,7 +701,7 @@ class RoadGraphEngine:
         # 短すぎる往路（起点のすぐ近くで折り返す周回）も長すぎる往路も対称に扱われる。
         pareto_layer = pareto_layer_index(
             closeness_key, difficulty,
-            quantum_a=_PARETO_DISTANCE_QUANTUM_M, quantum_b=_PARETO_DIFFICULTY_QUANTUM,
+            quantum_a=_PARETO_DISTANCE_QUANTUM_M, quantum_b=DIFFICULTY_QUANTUM,
             max_items=pool_size,
         )
         # 層に入らなかった候補（-1）は難易度順で最後尾へ回す。
@@ -950,14 +949,14 @@ class RoadGraphEngine:
         candidates = np.flatnonzero(within_stretch)
 
         difficulty = difficulty_from_cost(combined_cost[candidates], combined_seconds[candidates], self._penalty_strength)
-        difficulty_key = np.round(difficulty, 1)
+        difficulty_key = round_difficulty_array(difficulty)
         # 周回の折返し点選定と同じく、経路長・difficultyのパレート非劣解を先に並べる
         # （難易度は距離加重平均のため、遠回りするほど下がる。目的地ルートは目標距離を
         # 持たず_ALTERNATIVE_MAX_STRETCH倍以内という上限だけが効くぶん、難易度単独で
         # 並べると伸び率上限いっぱいの遠回りが上位を占めやすい）。
         pareto_layer = pareto_layer_index(
             combined_length[candidates], difficulty,
-            quantum_a=_PARETO_DISTANCE_QUANTUM_M, quantum_b=_PARETO_DIFFICULTY_QUANTUM,
+            quantum_a=_PARETO_DISTANCE_QUANTUM_M, quantum_b=DIFFICULTY_QUANTUM,
             max_items=max_routes,
         )
         layer_key = np.where(pareto_layer >= 0, pareto_layer, np.iinfo(np.int32).max)
@@ -1776,26 +1775,6 @@ def _reverse_traced_edges(
     return reverse_edges, reverse_path
 
 
-def _reverse_elevation_attribute(forward: ElevationAttribute, reverse_edge_id: str) -> ElevationAttribute:
-    """順方向のElevationAttributeから、同じ物理的な地形を逆方向に走った場合の値を
-    代数的に導出する。標高は地形の物理量で進行方向に依存しないため、
-    この変換は厳密に正しい: 獲得標高↔喪失標高の入れ替え、始点/終点標高の入れ替え、
-    平均勾配の符号反転、最大/最小勾配の符号反転＋入れ替え（domain/attributes.py:
-    elevation_values_sqlが区間の頂点列を進行方向の順で積算するため、逆順に
-    辿ると各区間のdiff＝勾配の符号がすべて反転し、max/minも入れ替わる）。
-    """
-    return ElevationAttribute(
-        edge_id=reverse_edge_id,
-        start_elevation_m=forward.end_elevation_m,
-        end_elevation_m=forward.start_elevation_m,
-        elevation_gain_m=forward.elevation_loss_m,
-        elevation_loss_m=forward.elevation_gain_m,
-        average_grade=-forward.average_grade if forward.average_grade is not None else None,
-        max_grade=-forward.min_grade if forward.min_grade is not None else None,
-        min_grade=-forward.max_grade if forward.max_grade is not None else None,
-    )
-
-
 def _reverse_elevation_by_edge(
     edges_in_path: list[LeanEdge],
     reverse_edges: list[LeanEdge],
@@ -1809,7 +1788,7 @@ def _reverse_elevation_by_edge(
     for forward_edge, reverse_edge in zip(reversed(edges_in_path), reverse_edges):
         forward_attribute = elevation_by_edge.get(forward_edge.edge_id)
         if forward_attribute is not None:
-            result[reverse_edge.edge_id] = _reverse_elevation_attribute(forward_attribute, reverse_edge.edge_id)
+            result[reverse_edge.edge_id] = forward_attribute.reversed_as(reverse_edge.edge_id)
     return result
 
 

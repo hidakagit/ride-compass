@@ -373,11 +373,11 @@ import済みの参照が古い辞書を指したままになる）。差し替�
 ## 応答の候補の並び順
 
 `generate_loops`・`generate_via_waypoints`（経由地の無い目的地ルートを含む）とも、
-返す`RouteCandidate`一覧を`overall_difficulty`（絶対基準0-100の総合難易度、小数1桁で
-比較）昇順（易しい候補が先頭）で並べる（`route_generator.py: _difficulty_order`）。算出不能（`None`）の候補は末尾へ回す。
+返す`RouteCandidate`一覧を`overall_difficulty`（絶対基準0-100の総合難易度、難易度の桁
+`domain/difficulty.py: DIFFICULTY_DECIMALS`で丸めた値で比較）昇順（易しい候補が先頭）で並べる（`route_generator.py: _difficulty_order`）。算出不能（`None`）の候補は末尾へ回す。
 画面の候補一覧は所要時間の順に並べ直すため、この並びは一覧の順ではなく「先頭が最も易しい
 候補」という契約として配る。
-`generate_loops`は同点（小数1桁が一致）の候補を、評価前に付けた「目標距離に近い順」を
+`generate_loops`は同点（難易度の桁で一致）の候補を、評価前に付けた「目標距離に近い順」を
 安定ソートで引き継いで並べる——周囲に重みを振った軸のデータが無く全候補のdifficultyが
 同じ値になる場合、結果は実質的に目標距離に近い順になる。異なるリクエスト間でも同じ
 絶対基準で比較できる。
@@ -614,7 +614,7 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
 周回候補（waypoints指定でない場合）は、順方向の探索結果から逆方向候補を
 **追加のDB/API呼び出し無しに代数的に導出**する: 標高の獲得/喪失を入れ替え、勾配の符号を
 反転し、既にhydrate済みのgeometryを再利用する（`_reverse_traced_edges`/
-`_reverse_elevation_attribute`・`_reverse_elevation_by_edge`）。両方向の`distance_weighted_difficulty`を比較し、
+`domain/attributes.py: ElevationAttribute.reversed_as`・`_reverse_elevation_by_edge`）。両方向の`distance_weighted_difficulty`を比較し、
 小さい方を採用する（`_pick_better_candidate`）。`TracedLoop.bearing is None`
 （waypoints指定ルート）ではこの逆回り合成をスキップする——ユーザーが指定した訪問順序を
 尊重する必要があるため。
@@ -849,7 +849,7 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
 ### `domain/geo.py`・`domain/errors.py`
 
 `geo.py`は球面三角法の地理計算——2地点の球面距離と初期方位角、それを多数の地点へまとめて求める配列版、
-角度から方位の呼び名への変換（例: `haversine_distance_km`・`compass_label`）——を持つ。方位の呼び名は
+角度から方位の呼び名への変換（例: `haversine_distance_km`・`compass_label`）——と、多数の地点それぞれに最も近い点を球面の距離で選ぶ`nearest_point_indices`（1地点の口`nearest_point_index`。雨の材料・アメダス・暑さ指数の最寄りがすべてここを通る）を持つ。方位の呼び名は
 16方位の並び（`SIXTEEN_POINT_LABELS`）1つだけを持ち、8方位（`COMPASS_LABELS`）はその1つおきとして導く——アメダスの
 16方位の風向（`domain/jma_amedas.py`）もこの並びを引くので、同じ向きが画面の場所によって違う名前にならない。`LatLon`（`Protocol`）・
 `LatLonPoint`（`NamedTuple`）は`Coordinates`（Pydantic、API境界の入力検証用）を経由

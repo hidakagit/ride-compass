@@ -126,6 +126,22 @@ class AreaWarningKind:
     additions: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class WarningBulletin:
+    """警報・注意報の電文1件。地域のコード→その地域の種別。電文が地域の項目を持たない
+    （例: 高潮の電文は対象外の地域の区域を載せないことがある）なら、その地域のキーが無い。"""
+
+    report_datetime: str | None
+    class20_kinds: dict[str, tuple[AreaWarningKind, ...]]
+    class10_kinds: dict[str, tuple[AreaWarningKind, ...]]
+
+    def kinds_for(self, class20_code: str, class10_code: str) -> tuple[AreaWarningKind, ...] | None:
+        """区域（`class20_code`）の種別。区域の項目がある電文はその中身（「なし」でも）を使い、
+        区域の項目が無い電文だけを二次細分区域（`class10_code`）で探す。どちらも無ければNone。"""
+        kinds = self.class20_kinds.get(class20_code)
+        return kinds if kinds is not None else self.class10_kinds.get(class10_code)
+
+
 def extract_active_warnings(kinds: Iterable[AreaWarningKind]) -> list[ActiveWarning]:
     """電文の1地域ぶんの種別から、サイクリングに関連し現在発表中の警報・注意報だけを取り出す。"""
     result: list[ActiveWarning] = []

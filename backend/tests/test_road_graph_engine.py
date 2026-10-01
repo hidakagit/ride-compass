@@ -157,13 +157,13 @@ def test_aggregate_elevation_without_any_value_is_none_not_zero():
     }
 
 
-def test_reverse_elevation_attribute_swaps_climb_and_descent():
+def test_reversed_elevation_swaps_climb_and_descent():
     forward = elevation(
         "fwd", start_elevation_m=10.0, end_elevation_m=50.0,
         elevation_gain_m=40.0, elevation_loss_m=0.0,
         average_grade=4.0, max_grade=9.0, min_grade=-1.0,
     )
-    reverse = engine._reverse_elevation_attribute(forward, "rev")
+    reverse = forward.reversed_as("rev")
 
     assert reverse.edge_id == "rev"
     assert (reverse.start_elevation_m, reverse.end_elevation_m) == (50.0, 10.0)
@@ -173,9 +173,9 @@ def test_reverse_elevation_attribute_swaps_climb_and_descent():
     assert reverse.min_grade == -9.0
 
 
-def test_reverse_elevation_attribute_keeps_missing_grades_missing():
+def test_reversed_elevation_keeps_missing_grades_missing():
     forward = elevation("fwd", average_grade=None, max_grade=None, min_grade=None)
-    reverse = engine._reverse_elevation_attribute(forward, "rev")
+    reverse = forward.reversed_as("rev")
     assert reverse.average_grade is None
     assert reverse.max_grade is None
     assert reverse.min_grade is None

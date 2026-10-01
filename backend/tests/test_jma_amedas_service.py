@@ -16,12 +16,12 @@ import pytest
 from cachetools import TTLCache
 
 from app.domain.jma_amedas import apparent_temperature_from_amedas
-from app.domain.rain import HOURS_SINCE_RAIN, RAIN_HISTORY_HOURS, rain_window_material_id
+from app.domain.rain import HOURS_SINCE_RAIN, RAIN_HISTORY_HOURS, RAIN_HISTORY_MAX_AGE, rain_window_material_id
 from app.domain.route import Coordinates
 from app.domain.time_zone import JST
 from app.infrastructure import jma_amedas_client, jma_amedas_store, redis_json_cache
 from app.services import jma_amedas_service
-from app.services.jma_amedas_service import RAIN_HISTORY_MAX_AGE, JmaAmedasService, load_station_rain_materials
+from app.services.jma_amedas_service import JmaAmedasService, load_station_rain_materials
 from tests.fake_api_http import FakeResponse, RoutingHttpClient
 
 POINT = Coordinates(latitude=35.68, longitude=139.76)

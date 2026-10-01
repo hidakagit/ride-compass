@@ -26,6 +26,7 @@ from app.domain.axis_definitions import (
 )
 from app.domain.axis_display import axis_display_for
 from app.domain.axis_templates import evaluate_breakpoint_linear
+from app.domain.difficulty import round_difficulty
 from app.domain.material_catalog import MATERIAL_CATALOG
 from app.domain.strict_model import StrictModel
 
@@ -163,7 +164,7 @@ def map_value_thresholds(definition: AxisDefinition) -> list[float] | None:
             f"(preprocess={shape.preprocess!r}); its thresholds cannot be mapped"
         )
     return [
-        round(evaluate_breakpoint_linear(threshold, shape.breakpoints), 1)
+        round_difficulty(evaluate_breakpoint_linear(threshold, shape.breakpoints))
         for threshold in display.thresholds
     ]
 

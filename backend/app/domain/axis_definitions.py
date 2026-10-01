@@ -23,7 +23,7 @@
   unpublish→再publish）で行う**。
 
 欠損値の表現はPythonの値で持つ入口がNone、配列がNaN。丸めは区分線形補間系のみ小数1桁で、
-Pythonの`round()`と同じ値へ丸める（`round1_array`。2進の実際の値で丸める）。
+Pythonの`round()`と同じ値へ丸める（`difficulty.py: round_difficulty_array`。2進の実際の値で丸める）。
 """
 
 import math
@@ -46,11 +46,8 @@ from pydantic import (
 from pydantic_core import PydanticCustomError
 
 from app.domain.attributes import CategoricalColumn, MaterialColumn
-from app.domain.axis_templates import (
-    evaluate_breakpoint_linear,
-    evaluate_categorical,
-    round1_array,
-)
+from app.domain.axis_templates import evaluate_breakpoint_linear, evaluate_categorical
+from app.domain.difficulty import round_difficulty, round_difficulty_array
 from app.domain import material_catalog
 from app.domain.material_catalog import WIND_DRAG_RATIO
 from app.domain.strict_model import StrictModel
@@ -115,7 +112,7 @@ class BreakpointLinearShape(StrictModel):
 
     def score_at(self, x: float) -> float:
         """横軸の値`x`の点数（評価と同じく小数1桁）。"""
-        return round(evaluate_breakpoint_linear(x, self.breakpoints), 1)
+        return round_difficulty(evaluate_breakpoint_linear(x, self.breakpoints))
 
 
 _FLAG_KEYS = {"true": True, "false": False}
@@ -1116,7 +1113,7 @@ def evaluate_axis_array(definition: AxisDefinition, materials: Mapping[str, Mate
     shape = definition.shape
     if isinstance(shape, BreakpointLinearShape):
         total, all_missing = _breakpoint_raw_total_array(shape, materials)
-        result = round1_array(evaluate_breakpoint_linear(total, shape.breakpoints))
+        result = round_difficulty_array(evaluate_breakpoint_linear(total, shape.breakpoints))
         result = np.where(all_missing, np.nan, result)
     else:
         # CategoricalShape。真偽の材料は真偽の配列でも1.0/0.0の数値配列でも、真偽のキーとの
