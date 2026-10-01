@@ -34,7 +34,7 @@ from app.domain.evaluation import AxisComposition, StaticEdgeScoreMatrix, compos
 from app.domain.route import Coordinates, SegmentWind
 from app.domain.traffic import POI_COUNT_KINDS, stop_count_material_ids, stop_seconds
 from app.domain.weather import WeatherConditions
-from app.domain.wind import ROUTE_DETOUR_RATIO, WindForecastSeries, kmh_to_ms
+from app.domain.wind import WindForecastSeries, kmh_to_ms
 
 
 # レグの中を時刻で区切るビンの幅（h）と本数の上限。**風の予報が1時間刻みのため、幅もそれに
@@ -167,7 +167,7 @@ class LegCostComposer:
         start: datetime,
         speed_kmh: float,
         lazy_row_index: np.ndarray,
-        detour_ratio: float = ROUTE_DETOUR_RATIO,
+        detour_ratio: float,
     ) -> None:
         self._score_matrix = score_matrix
         self._axis_raw_arrays = {
@@ -254,7 +254,7 @@ class LegCostComposer:
         return model, stops
 
     def _travel_time_seconds(
-        self, headwind_ms: np.ndarray, crosswind_ms: np.ndarray, rows: np.ndarray | None = None
+        self, headwind_ms: np.ndarray, crosswind_ms: np.ndarray, rows: np.ndarray | None
     ) -> np.ndarray:
         """区間ごとの所要時間（秒）を切り出した区間の順で返す。
 

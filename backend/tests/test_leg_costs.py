@@ -30,7 +30,7 @@ from app.domain.evaluation import StaticEdgeScoreMatrix
 from app.domain.road import SURFACE_ESTIMATES
 from app.domain.route import Coordinates
 from app.domain.tuning import TUNING_VALUES
-from app.domain.wind import WindForecastSeries, WindLattice
+from app.domain.wind import ROUTE_DETOUR_RATIO, WindForecastSeries, WindLattice
 from tests.axis_system_fixture import replaced_axis_definitions
 
 
@@ -155,6 +155,7 @@ def make_composer(score_matrix=None, *, weights=None, excluded=None, lazy_row_in
         datetime(2026, 9, 22, 8, 0),
         speed_kmh,
         np.arange(count, dtype=np.int64) if lazy_row_index is None else np.asarray(lazy_row_index, dtype=np.int64),
+        detour_ratio=ROUTE_DETOUR_RATIO,
         **kwargs,
     )
 

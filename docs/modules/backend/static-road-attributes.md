@@ -446,7 +446,7 @@ DB障害時は空タイルを返す。タイル配信用の短い`command_timeou
   OSMタグのまま焼き込む。前後空白を落とし、空になればキーごと省く（名前を持たないwayが
   大多数のためタイルが軽くなる、密度の`NULLIF`と同じ流儀）。**対訳表を持たない第三者編集
   データ**のため、埋め込む側は必ずエスケープする（[静的レイヤー・道路表示](../frontend/static-map-layers.md)）。
-- `get_axis_inspector(osm_way_id)`（区間インスペクタ）: クリックされたフィーチャーの
+- `get_axis_inspector(osm_way_id, edge_id, dynamic_materials, preference)`（区間インスペクタ）: クリックされたフィーチャーの
   `osm_way_id`で該当行を完全一致で引き直す（緯度経度からの空間マッチ最近傍だと、
   交差点付近で実際にクリックされたフィーチャーとは別の道路を拾いうるため採用しない）。
   一次属性→[評価・スコアリング](evaluation-scoring.md)の`axis_inspector_breakdown`で

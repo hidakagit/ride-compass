@@ -442,7 +442,7 @@ class RoadGraphEngine:
         origin: Coordinates,
         radius_km: float,
         now: datetime,
-        waypoints: list[Coordinates] | None = None,
+        waypoints: list[Coordinates] | None,
     ) -> _RoadGraphContext | None:
         # nowは出発時刻。night軸判定にも使う（wind同様、探索中は到達時刻が未確定のため
         # 出発時刻を近似として使う簡略化、詳細は_build_search_graph参照）。
@@ -1146,7 +1146,7 @@ class RoadGraphEngine:
         return TracedLoop(bearing=turnaround.bearing, distance_km=distance_km, data=path, leg_of_edge=leg_of_edge)
 
     def build_traced_from_edge_ids(
-        self, context: _RoadGraphContext, edge_ids: list[str], destination: Coordinates | None = None,
+        self, context: _RoadGraphContext, edge_ids: list[str], destination: Coordinates | None,
     ) -> TracedLoop:
         """クライアントが組み立てたEdge id列を、評価できる経路として検証して`TracedLoop`にする。
 

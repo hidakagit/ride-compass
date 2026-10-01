@@ -400,7 +400,7 @@ _NEIGHBOR_CELL_TOLERANCE = 1
 def build_node_spatial_index(
     latitude: np.ndarray,
     longitude: np.ndarray,
-    candidates: np.ndarray | None = None,
+    candidates: np.ndarray | None,
     cell_size_deg: float = _DEFAULT_NODE_INDEX_CELL_SIZE_DEG,
 ) -> NodeSpatialIndex:
     """ノードの座標からグリッドバケット索引を構築する。ノードが1つも無くても空の

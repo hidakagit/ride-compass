@@ -253,17 +253,20 @@ class TestEstimatePassageHours:
 
     def test_the_anchor_itself_is_reached_at_the_offset(self):
         hours = estimate_passage_hours(
-            np.array([35.0]), np.array([139.0]), self.ANCHOR, offset_hours=2.0, direction=1, speed_kmh=20.0
+            np.array([35.0]), np.array([139.0]), self.ANCHOR, offset_hours=2.0, direction=1, speed_kmh=20.0,
+            detour_ratio=ROUTE_DETOUR_RATIO,
         )
 
         assert hours.tolist() == pytest.approx([2.0])
 
     def test_an_outbound_leg_gets_later_with_distance(self):
         near = estimate_passage_hours(
-            np.array([35.01]), np.array([139.0]), self.ANCHOR, offset_hours=0.0, direction=1, speed_kmh=20.0
+            np.array([35.01]), np.array([139.0]), self.ANCHOR, offset_hours=0.0, direction=1, speed_kmh=20.0,
+            detour_ratio=ROUTE_DETOUR_RATIO,
         )
         far = estimate_passage_hours(
-            np.array([35.1]), np.array([139.0]), self.ANCHOR, offset_hours=0.0, direction=1, speed_kmh=20.0
+            np.array([35.1]), np.array([139.0]), self.ANCHOR, offset_hours=0.0, direction=1, speed_kmh=20.0,
+            detour_ratio=ROUTE_DETOUR_RATIO,
         )
 
         assert far[0] > near[0] > 0
@@ -271,17 +274,20 @@ class TestEstimatePassageHours:
     def test_an_inbound_leg_gets_earlier_with_distance(self):
         """遠い区間ほど先に通る。"""
         hours = estimate_passage_hours(
-            np.array([35.1]), np.array([139.0]), self.ANCHOR, offset_hours=3.0, direction=-1, speed_kmh=20.0
+            np.array([35.1]), np.array([139.0]), self.ANCHOR, offset_hours=3.0, direction=-1, speed_kmh=20.0,
+            detour_ratio=ROUTE_DETOUR_RATIO,
         )
 
         assert hours[0] < 3.0
 
     def test_a_faster_rider_reaches_the_same_point_sooner(self):
         slow = estimate_passage_hours(
-            np.array([35.1]), np.array([139.0]), self.ANCHOR, offset_hours=0.0, direction=1, speed_kmh=10.0
+            np.array([35.1]), np.array([139.0]), self.ANCHOR, offset_hours=0.0, direction=1, speed_kmh=10.0,
+            detour_ratio=ROUTE_DETOUR_RATIO,
         )
         fast = estimate_passage_hours(
-            np.array([35.1]), np.array([139.0]), self.ANCHOR, offset_hours=0.0, direction=1, speed_kmh=30.0
+            np.array([35.1]), np.array([139.0]), self.ANCHOR, offset_hours=0.0, direction=1, speed_kmh=30.0,
+            detour_ratio=ROUTE_DETOUR_RATIO,
         )
 
         assert fast[0] < slow[0]
@@ -299,4 +305,4 @@ class TestEstimatePassageHours:
 
     def test_a_rider_who_is_not_moving_is_rejected(self):
         with pytest.raises(ValueError):
-            estimate_passage_hours(np.array([35.0]), np.array([139.0]), self.ANCHOR, 0.0, 1, 0.0)
+            estimate_passage_hours(np.array([35.0]), np.array([139.0]), self.ANCHOR, 0.0, 1, 0.0, ROUTE_DETOUR_RATIO)

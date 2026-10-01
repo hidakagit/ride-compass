@@ -15,7 +15,6 @@ from fastapi import Depends
 from app.config import settings
 from app.domain.region import BoundingBox
 from app.domain.route_preference import RoutePreference
-from app.domain.wind import ASSUMED_SPEED_KMH
 from app.infrastructure.accident_repository import AccidentTileQuery
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
 from app.infrastructure.basemap_client import BasemapClient
@@ -77,12 +76,12 @@ async def get_graph_service():
 @asynccontextmanager
 async def _open_route_generation_setup(
     *,
-    preference_override: RoutePreference | None = None,
-    penalty_strength: float | None = None,
-    max_average_grade_percent: float | None = None,
-    hard_filters_override: frozenset[str] | None = None,
-    assumed_speed_kmh: float = ASSUMED_SPEED_KMH,
-    lens_axis_id: str | None = None,
+    preference_override: RoutePreference | None,
+    penalty_strength: float | None,
+    max_average_grade_percent: float | None,
+    hard_filters_override: frozenset[str] | None,
+    assumed_speed_kmh: float,
+    lens_axis_id: str | None,
 ) -> AsyncIterator[RouteGenerationSetup]:
     """ルート生成ジョブが使う`RouteGenerationSetup`を組み立てる非同期コンテキストマネージャ。
 
