@@ -1,70 +1,72 @@
 // @vitest-environment node
 /**
- * 大文字小文字だけが違うパス（モジュール名・ディレクトリ）を見つける検査。
+ * `frontend/src`に、大文字小文字だけが違う2つの名前が並んでいないかを見る。
  *
  * 大文字小文字を区別しないファイルシステム（開発機のWindows）では、`Foo.tsx`と`foo.ts`の
- * `./Foo`・`./foo`が同じファイルへ解決され、`tsc --noEmit`と`next build`が落ちる。区別する
- * ファイルシステム（CIのLinux）では別のファイルとして解決されて通るため、型検査もビルドも
- * これを見られない。
+ * `./Foo`・`./foo`が同じファイルへ解決され、ディレクトリ`Foo/`と`foo/`は1つに重なる。区別する
+ * ファイルシステム（CIのLinux）では別物として解決されて通るので、CIの型検査もビルドも落ちない。
  *
- * 母集団はソースから導く（`frontend/src`配下の全ファイルと全ディレクトリ）。ファイルは
- * モジュールとして解決される名前（`.ts`・`.tsx`等の拡張子を外したもの）で比べる。
+ * 違反: 拡張子を書かずにimportできるファイル（`.ts`・`.tsx`等）は拡張子を外した名前、
+ * ディレクトリはその名前、ほかのファイルは拡張子までの名前で比べ、大文字小文字を畳むと同じで
+ * 綴りが違う組。
+ * 違反でない: 綴りまで同じ名前どうし（`foo.ts`と`foo.css`、`foo.ts`と`foo/`）。
+ *
+ * 見ないもの: importの綴りとファイルの綴りの食い違い（CIのLinuxで`tsc --noEmit`が解決できずに落ちる）。
+ * `forceConsistentCasingInFileNames`は同じファイルを別の綴りで読んだときだけ落とし、別々の
+ * 2ファイルは見ないので、この検査の代わりにならない。
  */
-import { readdirSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 
-import { describe, expect, it } from "vitest";
+import { removeTree, SRC_ROOT, type TreeEntry, walkTree, writeTree } from "./sourceTree";
 
-const SRC = join(__dirname, "..");
-const MODULE_EXTENSION = /(\.d\.ts|\.[cm]?[jt]sx?)$/;
+const EXTENSIONLESS_IMPORT = /\.(d\.ts|ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
 
-/** `root`からの相対パス。ディレクトリは末尾に`/`を付ける。 */
-function walk(root: string, dir = root): string[] {
-  return readdirSync(dir).flatMap((name) => {
-    const full = join(dir, name);
-    const path = relative(root, full).replaceAll("\\", "/");
-    return statSync(full).isDirectory() ? [`${path}/`, ...walk(root, full)] : [path];
-  });
-}
-
-export function caseOnlyPaths(paths: readonly string[]): string[][] {
+/** 大文字小文字だけが違う綴りの組（それぞれ綴りの昇順）。 */
+function caseOnlyPaths(entries: readonly TreeEntry[]): string[][] {
   const spellings = new Map<string, Set<string>>();
-  for (const path of paths) {
-    const name = path.replace(MODULE_EXTENSION, "");
+  for (const { path, isDirectory } of entries) {
+    const name = isDirectory ? path : path.replace(EXTENSIONLESS_IMPORT, "");
     const key = name.toLowerCase();
     spellings.set(key, (spellings.get(key) ?? new Set()).add(name));
   }
   return [...spellings.values()].filter((names) => names.size > 1).map((names) => [...names].sort());
 }
 
-describe("大文字小文字だけが違うパス", () => {
-  it("frontend/src に無い", () => {
-    const paths = walk(SRC);
-    expect(paths).not.toHaveLength(0);
-    expect(
-      caseOnlyPaths(paths),
-      "大文字小文字を区別しない開発機で同じものへ解決される。どちらかを別の名前にする",
-    ).toEqual([]);
+describe("大文字小文字だけが違う名前", () => {
+  it("frontend/srcに無い", () => {
+    const entries = walkTree(SRC_ROOT);
+    expect(entries.map((e) => e.path)).toContain("structure/caseOnlyPaths.test.ts");
+    expect(caseOnlyPaths(entries)).toEqual([]);
   });
 
-  it("拡張子の違うモジュール名とディレクトリの衝突を捕まえ、同じ綴りは通す", () => {
-    expect(
-      caseOnlyPaths([
-        "Profile/",
-        "Profile/Profile.tsx",
-        "Profile/profile.ts",
-        "Profile/profile.module.css",
-        "lib/",
-        "lib/a.ts",
-        "Lib/",
-        "Lib/b.ts",
-        "same.ts",
-        "same.tsx",
-        "same.d.ts",
-      ]),
-    ).toEqual([
-      ["Profile/Profile", "Profile/profile"],
-      ["Lib/", "lib/"],
-    ]);
+  describe("わざと作った木で", () => {
+    let root = "";
+    afterEach(() => removeTree(root));
+
+    it("拡張子を書かずにimportできる2ファイルの組を出す", () => {
+      root = writeTree({ "a/Foo.tsx": "", "a/foo.ts": "", "b/bar.d.ts": "", "b/Bar.js": "" });
+      expect(caseOnlyPaths(walkTree(root))).toEqual([
+        ["a/Foo", "a/foo"],
+        ["b/Bar", "b/bar"],
+      ]);
+    });
+
+    it("ディレクトリとファイルの組を出す", () => {
+      root = writeTree({ "Map/index.ts": "", "map.ts": "" });
+      expect(caseOnlyPaths(walkTree(root))).toEqual([["Map", "map"]]);
+    });
+
+    it("拡張子を書いて読むファイルは拡張子まで比べる", () => {
+      root = writeTree({ "a/Foo.css": "", "a/foo.json": "", "b/Logo.svg": "", "b/logo.ts": "" });
+      expect(caseOnlyPaths(walkTree(root))).toEqual([]);
+      // 大文字小文字を区別しないファイルシステムには書けない組なので、木を作らずに渡す
+      const files = ["c/Logo.svg", "c/logo.SVG"].map((path) => ({ path, isDirectory: false }));
+      expect(caseOnlyPaths(files)).toEqual([["c/Logo.svg", "c/logo.SVG"]]);
+    });
+
+    it("綴りまで同じ名前どうしは出さない", () => {
+      root = writeTree({ "foo.ts": "", "foo.css": "", "foo/index.ts": "", "Bar.tsx": "", "Bar.test.tsx": "" });
+      expect(caseOnlyPaths(walkTree(root))).toEqual([]);
+    });
   });
 });
