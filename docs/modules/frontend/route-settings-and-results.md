@@ -415,7 +415,7 @@ distance・maxRoutesはいずれもstring stateのまま`useGenerationConditions
   文字は`components/PinMark/PinMark.tsx: pinMarkText`を要素の文字として入れる）——同じものを2箇所で描くと、片方だけ直したときに
   行とピンが違う見た目になる。動かした直後のclickは読み飛ばす（`bindDragAwareClick`）——同じ操作の
   終わりにclickが飛ぶため、動かしただけで削除・解除が起きてしまう。
-- **行そのものが押下領域**（`pointMain`）。押す場所を探させず、行の幅も詰まる。解除（✕）と
+- **行そのものが押下領域**（`RouteForm.tsx: renderPointRow`）。押す場所を探させず、行の幅も詰まる。解除（✕）と
   「現在地に戻す」は別の操作のため、入れ子にせず行の外側へ並べる。
 - **地図でできることは、いま見ているパネルが持つ操作だけにする**。「ルート設定」の条件タブ＝
   地点を置く・つかんで動かす・消す（`pointEditingEnabled`）、「ルート結果」＝候補の切り替えと

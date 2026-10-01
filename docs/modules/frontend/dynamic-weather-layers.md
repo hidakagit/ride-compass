@@ -63,8 +63,8 @@
    それより先（利用者が出発時刻を選んだ等）を指していれば描かない
    （遅れの幅は源泉が規則の`window_minutes`で宣言する）。
    **利用者が出発時刻を選ぶまでは「今」へ張り付き、時間の経過とともに進む**（`steppedNow`、
-   5分刻み）。選んだ後はその時刻を保ち、「今」ボタンで張り付きへ戻る（`handleDynamicLayerNow`。
-   **現在時刻を`setDynamicLayerTargetTime`へ渡すのでは代用にならない**——その値でピン留め
+   5分刻み）。選んだ後はその時刻を保ち、「今」ボタンで張り付きへ戻る（`useDepartureTime.ts: followNow`。
+   **現在時刻を`useDepartureTime.ts: setAt`へ渡すのでは代用にならない**——その値でピン留め
    され、以後は追従しない）。張り付かせないと、
    実況由来のフレーム列は先頭が更新のたび前進するのに共有時刻だけが取り残され、
    `frameIndexForTime`が範囲外を返して降水・雷・竜巻・雷放電が黙って描画を止める
@@ -190,8 +190,8 @@ JMAタイル系ソースの`minzoom`/`maxzoom`・ベクタのレイヤー名は�
 走行方位への依存を含む向かい風/追い風の強さは[地図: 軸・ルート色分け](map-axis-coloring.md)の
 専用way値配信軸が担う。
 
-`disaster`（災害）は源泉がチップ`disaster`として宣言したソース（`dynamicWeather.ts: DisasterSourceKey`）を1チップへまとめたグループで、全ソースが1つの`showDisaster`に
-連動する。同じ段（描き方ごとに決まる。`scene/groups/weather.ts: TIER_OF`）の中では源泉の宣言
+`disaster`（災害）は源泉がチップ`disaster`として宣言したソース（`dynamicWeather.ts: DisasterSourceKey`）を1チップへまとめたグループで、全ソースがそのチップ1つの入/切に
+連動する（凡例で個別に隠したソースだけは描かない。`useDynamicWeatherLayers.ts: isShown`）。同じ段（描き方ごとに決まる。`scene/groups/weather.ts: TIER_OF`）の中では源泉の宣言
 （backendの`domain/weather_elements.py: WEATHER_ELEMENTS`）の並び順が重なり順になるため、面（キキクル3種・雷・竜巻のラスタ）を下に、局所的で見落としやすい線（洪水）・点
 （落雷）を上に置く。面同士が重なった領域は混色し危険度5段階を読み取れなくなるが、危険度
 ゼロの領域は配信元のタイルが透明のため平常時の地図の見た目は変わらない。**この並び順が

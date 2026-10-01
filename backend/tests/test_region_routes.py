@@ -188,8 +188,6 @@ def test_region_poi_tile_rate_limit_is_independent_from_road_surface_tile_rate_l
 
 
 def test_region_axis_inspector_returns_result_json():
-    # 改善計画T292: 車ストレス専用の内訳エンドポイント（旧/api/region/car-stress-breakdown）は
-    # 廃止し、軸別の汎用内訳エンドポイント（本エンドポイント）へ統合した。
     result = AxisInspectorResult(
         highway="primary",
         tags={},
