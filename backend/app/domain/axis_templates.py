@@ -11,9 +11,8 @@
 材料id・他軸のaxis_idのどちらも区別なく指せることから生じる（`axis_definitions.py:
 topological_axis_order`が依存順の評価を担う）。
 
-軸の評価（`axis_definitions.py: evaluate_axis_array`）は配列で呼ぶ（欠損値はNaNで表現・伝播する）。
-`evaluate_breakpoint_linear`だけはスカラーも受け付ける——軸スタジオの折れ点のプレビューと地図の段の
-しきい値が、1点の得点を求めるのに使う。
+どちらも配列で受ける（欠損値はNaNで表現・伝播する）。1点の得点も1要素の配列で求める
+（`axis_definitions.py: BreakpointLinearShape.score_at`）。
 """
 
 from __future__ import annotations
@@ -23,19 +22,17 @@ import numpy as np
 from app.domain.attributes import CategoricalColumn, MaterialColumn
 
 
-def evaluate_breakpoint_linear(value, breakpoints: list[tuple[float, float]]):
+def evaluate_breakpoint_linear(value: np.ndarray, breakpoints: list[tuple[float, float]]) -> np.ndarray:
     """区分線形補間（breakpointsはx昇順の(x, y)組、両端でクランプ）。
 
-    numpyの`np.interp`（既定でx範囲外はfp[0]/fp[-1]にクランプ）をそのまま使う。配列入力で
+    numpyの`np.interp`（既定でx範囲外はfp[0]/fp[-1]にクランプ）をそのまま使う。
     NaN（欠損値）が混じる要素は、`np.interp`がNaNを正しく伝播しない（内部の探索がNaNを
     0番目の区間として扱ってしまう）ため、`np.isnan`でマスクして明示的にNaNへ戻す。
     """
     xp = [p[0] for p in breakpoints]
     fp = [p[1] for p in breakpoints]
-    if isinstance(value, np.ndarray):
-        result = np.interp(value, xp, fp)
-        return np.where(np.isnan(value), np.nan, result)
-    return float(np.interp(value, xp, fp))
+    result = np.interp(value, xp, fp)
+    return np.where(np.isnan(value), np.nan, result)
 
 
 def evaluate_categorical(value: MaterialColumn, mapping: dict) -> np.ndarray:
