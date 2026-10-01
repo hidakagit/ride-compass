@@ -1,6 +1,6 @@
 """一次属性と、地図表示の宣言の型。
 
-一次属性の語彙そのものは`domain/material_catalog.py`の`PRIMARY_ATTRIBUTES`が宣言する
+一次属性の語彙そのものは`domain/material_catalog.py: PRIMARY_ATTRIBUTES`が宣言する
 （ビルド時生成物`primaryAttributes.ts`の元）。
 
 `AxisDisplaySpec`/`TileInputSpec`は地図が軸をどう塗るかの宣言の型で、

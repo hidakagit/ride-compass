@@ -68,7 +68,7 @@ def dedicated_way_value_axes() -> dict[str, DedicatedWayValueAxis]:
 `dynamic_way_value_needs_bearing`）はこの関数の戻り値へ自動的に反映される。
 
 ただし**配信できる値があるかは別**で、軸が参照する材料の値を組み立てるサービス本体が
-`services/dedicated_way_values.py`の`_DEDICATED_WAY_VALUE_SERVICE_FACTORIES`に登録されている必要がある
+`services/dedicated_way_values.py: _DEDICATED_WAY_VALUE_SERVICE_FACTORIES`に登録されている必要がある
 （材料ごとに1回のコード変更）。軸が参照する材料のうち、登録済みのものが**ちょうど1つ**
 （`served_dedicated_way_value_material`）でなければ配信できない——0件なら値が無く、2件以上は
 1つのサービスが1つの材料の値しか返さないため軸を評価しきれない。そういう軸へ
@@ -101,7 +101,7 @@ _check_dedicated_layer_is_implemented`）、既存データ等で万一そうな
 | `map_value_unit(definition)` | `signed_material`なら材料カタログの`unit`、`difficulty`は空文字 |
 | `transform_dedicated_way_values(definition, material_id, values)` | 生値→地図表示値。`difficulty`は`evaluate_axis_values`でタイル内の全道路を1回の配列評価、`signed_material`は素通し。`material_id`以外の材料に0次条件を置いた軸は全道路を落とす——配信はその材料の値しか持たず、条件が当たるかを決められない |
 
-`services/dedicated_way_values.py`の`_DEDICATED_WAY_VALUE_SERVICE_FACTORIES`は、材料id→サービス実装本体
+`services/dedicated_way_values.py: _DEDICATED_WAY_VALUE_SERVICE_FACTORIES`は、材料id→サービス実装本体
 （`WindWayService`/`GradientWayService`/`RainWayService`）の組み立てを担うdict。こちらはPython実装本体
 （コンストラクタ）の登録のため軸スタジオの宣言だけでは代替できず、**新しい計算の材料**の配信には
 コード変更が要る（同じ材料を参照する軸を増やすのには要らない）。実装は担当する材料のクラス属性
@@ -315,7 +315,7 @@ get_way_values(z, x, y, ...)
 各サービスとも`get_way_values(z, x, y, at, bearing_deg, speed_kmh) -> dict[str, float]`という
 同じシグネチャで`region.py`から材料非依存に呼ばれる（勾配は`at`・`speed_kmh`を、雨はどれも無視する）。
 
-各サービスが例外を空dictへ倒すのは**DB障害だけ**（`database.py`の`DB_UNAVAILABLE_ERRORS`。
+各サービスが例外を空dictへ倒すのは**DB障害だけ**（`database.py: DB_UNAVAILABLE_ERRORS`。
 [横断インフラ](cross-cutting-infrastructure.md)「DB障害として扱う例外」節）。リポジトリとの
 引数の食い違いのような実装の誤りまで空へ倒すと、応答は200・空のままになり、地図では
 「データなし」と見分けがつかない。

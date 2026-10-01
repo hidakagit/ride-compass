@@ -206,7 +206,7 @@ DOM/MapLibreを一切知らない。`MapView.tsx`は画面の状態をsceneの�
 
 分類に当てはまらない道は2種類を分ける。**タグが無い道は「データなし」**（値が無い。薄い灰の破線、刻みは
 `mapDisplay.noDataDash`）、**タグはあるが分類の外の値の道は「その他」**（値はある。薄い灰の実線）。
-どちらが現れうるかは源泉が属性ごとに配る（生成物`primaryAttributes.ts`の`missing_semantics`。その値を
+どちらが現れうるかは源泉が属性ごとに配る（生成物`types/generated/primaryAttributes.ts: missing_semantics`。その値を
 タイルへ載せる材料の欠け方の宣言、`domain/material_catalog.py: display_axis_missing_semantics`）——
 トンネル・一方通行のようにタグの不在も「該当しない」という確定した値として載る属性（`definite`）には
 値の無い道が現れないので、「データなし」の行も破線も持たず、分類の外の行を「該当なし」と呼ぶ。
@@ -216,7 +216,7 @@ DOM/MapLibreを一切知らない。`MapView.tsx`は画面の状態をsceneの�
 MapLibreはソースへ渡した`attribution`を**そのソースが地図に載っている間だけ**出す。評価軸・
 ルートの計算・常設の表示（ヘッダーの天気・警戒度バッジ）へ常時使っているデータ（道路網・標高・事故・土地被覆・
 気象庁の観測と警報・風のMSM・暑さ指数等）の出典をソース側へ付けると、
-そのレイヤーを消した瞬間に出典も消える。常時使うデータの出典はbackendが一覧として宣言し（生成物`mapDisplay.ts`の`alwaysShownAttributions`）、`MapView`が
+そのレイヤーを消した瞬間に出典も消える。常時使うデータの出典はbackendが一覧として宣言し（生成物`mapDisplay.ts: alwaysShownAttributions`）、`MapView`が
 AttributionControlの`customAttribution`へ渡して、どのレイヤーを出しているかと関係なく出す。データ源を足す人は
 backendの同じ場所で出典も足す。ソース側の`attribution`に
 残すのは、そのレイヤーを表示している間だけ関係する外部データ（色別標高図等）。気象レイヤーはソース側に出典を
@@ -273,7 +273,7 @@ MSMを配るOpen-MeteoのCC BY 4.0も、リンク付きのクレジット・ラ�
 **暗黙の前提**: 宣言から辿れない描画は作り直されず、そのレイヤーは押した人の地図から
 消えたまま戻らない（次にそのpropが変わるまで復旧しない）。**対象はsource/layerの追加に
 限らず、filter・feature-state・visibilityで持つ表示状態も同じ**——たとえば詳細を見ている
-道の強調（`scene/groups/roadLines.ts`の`inspected`）はレイヤーのfilterとvisibilityだけで表され、ポップアップは
+道の強調（`scene/groups/roadLines.ts: inspected`）はレイヤーのfilterとvisibilityだけで表され、ポップアップは
 開いたままなので、復元しないと「どの線の話か」だけが失われる。そのため
 詳細を見ている道（コンポーネントのstate由来）も宣言の入力に含める。**再描画で失われる
 副作用を持つもの**（source/layerの追加・filter・feature-state・visibilityの設定）は、
@@ -325,7 +325,7 @@ MSMを配るOpen-MeteoのCC BY 4.0も、リンク付きのクレジット・ラ�
 どれかをOFFにすると残りが自動で中央（実際の道路の位置）へ寄り直す。間隔は線の太さより
 狭くして隣どうしをわずかに重ねる（離すと1本の道が複数に見える）。
 
-## 二次軸の下敷き表現（`scene/groups/axisLines.ts`の`underlay`）
+## 二次軸の下敷き表現（`scene/groups/axisLines.ts: underlay`）
 
 二次(ramp)軸は「その材料（対応する一次属性の表示レイヤー）が1つでも同時に表示されて
 いるとき」だけ太く半透明な下敷きになる。材料が1つも表示されていなければ通常の太さ・
@@ -509,7 +509,7 @@ ramp軸[`dataNature==="composite"`]）はチップの一覧（`features/map/view
 
 ## 地図下部のまとめて操作する行
 
-地図の下部中央に、次の3つのボタンを並べる（`features/map/view/useMapView.ts`の`bulk`）。
+地図の下部中央に、次の3つのボタンを並べる（`features/map/view/useMapView.ts: bulk`）。
 
 - **表示中のレイヤーをすべて非表示にする**: ONのチップを全部OFFにする（既定へ戻すのではない）。
   ONのものが1つも無い間は押せない。
@@ -648,7 +648,7 @@ E2Eの`e2e/map-runtime.spec.ts`「宣言された地図レイヤーを全部ON�
 分類値の一覧はbackendが正で、フロントは色とラベルを与えるだけ。**backendが種別を1つ足した
 のにフロントが古いままだと、その地物は`baseFilter`に弾かれて地図から完全に消える**（凡例にも
 出ないため「データが無い」としか見えない）ため、分ける条件は源泉の表示の行（生成物
-`primaryAttributes.ts`の`display_axes`の値）から導き、行と種別の一覧が一致することはbackendの
+`types/generated/primaryAttributes.ts: display_axes`の値）から導き、行と種別の一覧が一致することはbackendの
 テスト（`test_primary_attribute_display.py`）が全種別で確かめる。凡例の行は種別と1対1ではない——利用者から見て区別する意味の無い種別（車道用の踏切と
 歩道・自転車道用の踏切）は1行へまとめる。色分け式には各種別がそのまま載るため、地図の
 見た目とポップアップの語彙は種別ごとに正しく出る。

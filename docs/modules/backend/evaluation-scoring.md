@@ -348,8 +348,8 @@ MaterialSpec]`が単一ソース。
   列指向テーブル・集計SQL・読み出し・タイルの焼き込み列は、そこからクラス値の昇順で
   導いた`PERCENT_CLASSES`を読む。材料もクラスの宣言から1クラス1材料で生成する（材料idは割合列の名前、
   表示名はクラスの表示名から作る）ため、クラスを足せば材料も揃って増える。列・焼き込みの名前の規則
-  （`lc_<鍵>`・材料の`tile_property`＝焼き込み列の名前）は`landcover.py`の`landcover_key`・
-  `landcover_tile_property`だけが持つ——材料の`tile_property`と焼き込み列の名前がずれると、地図は黙って塗らない。
+  （`lc_<鍵>`・材料の`tile_property`＝焼き込み列の名前）は`landcover.py: landcover_key`・
+  `landcover.py: landcover_tile_property`だけが持つ——材料の`tile_property`と焼き込み列の名前がずれると、地図は黙って塗らない。
   **材料の値式は`em.lc_*`だけを読み、区間の値が無いときに道1本の値へ落とさない**——区間の値は全区間ぶん
   計算されており、落とす先は同じ道の平均でしかない。道1本を単位に値を求める文脈
   （`road_graph_repository.py: _WAY_ALIAS_CLAUSES`が`em`を道1本の行へ読み替える）では道の値になる。

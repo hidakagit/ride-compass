@@ -77,7 +77,7 @@ backend（`domain/dynamic_way_values.py: map_value_thresholds`）が軸の折れ
 同じ。`features/map/view/lens.ts: lensOptions`）——重みを変えずに生成すれば、前後で並びが変わらない。ルート前に塗る手段（ramp・専用配信）を
 持たない軸は「ルート後のみ」バッジ付きで選べるが、ルート前は何も塗らない。
 
-**レンズ状態は1つ**（`features/map/view/useMapView.ts`の`lens`、`"none" | "difficulty" | axis_id`。
+**レンズ状態は1つ**（`features/map/view/useMapView.ts: lens`、`"none" | "difficulty" | axis_id`。
 localStorageキーは`ridecompass:route-style-mode`）。ルート前は全道路、ルート後はルート線を
 この1つの値から導く——地図へは「全道路を塗っている軸」（`paintedAxisId`）1つを渡し、ramp軸・
 専用配信軸のどちらのレイヤーを出すかは地図側（`scene/applyToMap.ts`）が導く（軸ごとの値を
