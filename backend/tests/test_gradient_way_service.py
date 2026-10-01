@@ -7,6 +7,7 @@ import pytest
 from app.config import settings
 from app.domain.gradient import GradientCalculator
 from app.infrastructure import debug_log
+from app.infrastructure.derived_data_meta import DataRevisions
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services import gradient_way_service
 from app.services.gradient_way_service import GradientWayService
@@ -27,8 +28,8 @@ class FakeGradientInputsRepository:
         self.calls: list[tuple] = []
         self.revision = 1
 
-    async def get_derived_data_revision(self):
-        return self.revision
+    async def get_data_revisions(self):
+        return DataRevisions(derived=self.revision, imported=1)
 
     async def get_feature_gradient_inputs_in_tile(self, *args, **kwargs):
         inspect.signature(RoadGraphRepository.get_feature_gradient_inputs_in_tile).bind(self, *args, **kwargs)
@@ -130,7 +131,7 @@ async def test_different_bearing_bucket_recomputes():
 
 
 async def test_a_new_derived_data_revision_recomputes_without_the_catalog(monkeypatch):
-    """勾配の鍵は派生データの世代を持つ。世代はこの経路が自分で読み直すため、バッチが世代を進めれば、
+    """勾配の鍵は路面タイルの世代を持つ。世代はこの経路が自分で読み直すため、バッチが世代を進めれば、
     カタログを誰も取らなくてもTTLの後から作り直す（前の世代の値は路面タイルの鍵と一致しない）。"""
     monkeypatch.setattr(settings, "derived_data_revision_check_interval_seconds", 0.0)
     repository = FakeGradientInputsRepository(inputs={1: (5.0, 30.0)})
@@ -138,6 +139,19 @@ async def test_a_new_derived_data_revision_recomputes_without_the_catalog(monkey
     await service.get_way_values(Z, X, Y, None, 0.0)
 
     repository.revision = 2
+    await service.get_way_values(Z, X, Y, None, 0.0)
+
+    assert len(repository.calls) == 2
+
+
+async def test_a_rebaked_road_surface_tile_recomputes(monkeypatch):
+    """鍵は路面タイルの`feature_key`と一致して初めて意味を持つ。焼き方を変えただけのデプロイはDBの世代を
+    動かさないため、路面タイルの形が鍵に無いと前の版の値がTTLの間返り続ける——エラーにはならず、色だけが消える。"""
+    repository = FakeGradientInputsRepository(inputs={1: (5.0, 30.0)})
+    service = GradientWayService(repository=repository)
+    await service.get_way_values(Z, X, Y, None, 0.0)
+
+    monkeypatch.setattr(gradient_way_service, "ROAD_SURFACE_TILE_SHAPE", "another-layout")
     await service.get_way_values(Z, X, Y, None, 0.0)
 
     assert len(repository.calls) == 2

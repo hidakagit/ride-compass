@@ -189,7 +189,7 @@ async def ensure_current(session_factory: async_sessionmaker[AsyncSession]) -> P
     """今の派生データの世代・今の形の置き場を用意する。既にあれば作らない。"""
     async with session_factory() as session:
         repository = RoadGraphRepository(session)
-        revision = await repository.get_derived_data_revision()
+        revision = (await repository.get_data_revisions()).derived
         target = ROOT / directory_name(revision)
         if target.exists():
             logger.info("道路網の置き場は作成済みです %s", target.name)

@@ -1,9 +1,9 @@
 from app.domain.region import tile_bounds_lonlat
 from app.infrastructure.accident_repository import ACCIDENT_TILE_SHAPE, AccidentTileQuery
+from app.infrastructure.cache_identity import is_known_tile_version
 from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
 from app.infrastructure.debug_log import mark_failed
 from app.infrastructure.vector_tile import encode_empty_accident_tile
-from app.services import derived_data_revision_service
 from app.infrastructure.media_types import MVT_CONTENT_TYPE
 from app.services.tile_serving import TileResponse, serve_cached_tile
 from app.services.tile_version_service import served_tile_version
@@ -40,5 +40,5 @@ class AccidentService:
             external_call_name="accident:tile",
             fetch_tile=fetch_tile,
             # 世代を読めていない間はディスクへ残さない（tile_servingのdocstring参照）。
-            persist=derived_data_revision_service.current_revision() is not None,
+            persist=is_known_tile_version(version),
         )

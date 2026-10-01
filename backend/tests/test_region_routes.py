@@ -14,6 +14,7 @@ from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisDefinition, Breakp
 from app.config import settings
 from app.domain.axis_inspector import AxisInspectorAxis, AxisInspectorResult, InspectorComposite
 from app.infrastructure import rate_limiter
+from app.infrastructure.derived_data_meta import DataRevisions
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.tile_serving import TileResponse
 from app.domain.dynamic_way_values import transform_dedicated_way_values
@@ -470,8 +471,8 @@ def test_region_dedicated_way_values_unknown_axis_id_returns_404():
 class UncoveredRepository:
     """どのタイルも取込範囲外と答えるDBの代役。"""
 
-    async def get_derived_data_revision(self):
-        return 1
+    async def get_data_revisions(self):
+        return DataRevisions(derived=1, imported=1)
 
     async def get_feature_gradient_inputs_in_tile(self, *args, **kwargs):
         inspect.signature(RoadGraphRepository.get_feature_gradient_inputs_in_tile).bind(self, *args, **kwargs)

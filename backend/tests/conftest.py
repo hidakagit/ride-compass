@@ -48,11 +48,11 @@ def _closed_redis_circuit_breaker(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _unread_derived_data_revision(monkeypatch):
-    """派生データの世代はまだ読んでいない状態から始める。読んだ世代とTTLはプロセス内のモジュール変数に
+    """データの世代はまだ読んでいない状態から始める。読んだ世代とTTLはプロセス内のモジュール変数に
     残り、前のテストが読んだ世代のままTTLの内側に入ると、後のテストのリポジトリは世代を聞かれず、鍵も
     ディスクへ残すかも前のテストで決まる。"""
     monkeypatch.setattr(derived_data_revision_service, "_next_check_at", 0.0)
-    monkeypatch.setattr(derived_data_revision_service, "_current_revision", None)
+    monkeypatch.setattr(derived_data_revision_service, "_current_revisions", None)
 
 
 @pytest.fixture

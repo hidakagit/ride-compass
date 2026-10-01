@@ -15,8 +15,12 @@ from app.infrastructure.cache_identity import cache_identity
 from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
 from app.infrastructure.debug_log import log_external_call, mark_failed
 from app.infrastructure.dynamic_way_value_cache import get_tile_values, set_tile_values
-from app.services import derived_data_revision_service
-from app.infrastructure.road_graph_repository import FEATURE_GRADIENT_INPUTS_SHAPE, RoadGraphRepository
+from app.infrastructure.road_graph_repository import (
+    FEATURE_GRADIENT_INPUTS_SHAPE,
+    ROAD_SURFACE_TILE_SHAPE,
+    RoadGraphRepository,
+)
+from app.services.tile_version_service import served_tile_version
 
 # 勾配の入力は道路の向きと標高で決まりほぼ不変のため、鮮度の制約が無い。長く持って
 # DBへの再問い合わせを抑える。正本を持たないキャッシュで、期限切れ後は再計算されるだけ。
@@ -61,11 +65,11 @@ class GradientWayService:
         bbox = tile_bounds_lonlat(z, x, y)
 
         with log_external_call("region:gradient-way-values", z=z, x=x, y=y) as fields:
-            # 世代は鍵の一部。渡し忘れると世代をまたいだ値を配る。
-            await derived_data_revision_service.refresh_current_revision(self._repository)
-            revision = derived_data_revision_service.current_revision()
+            # 路面タイルの世代は鍵の一部。渡し忘れると世代をまたいだ値を配る。
+            surface_tile_version = await served_tile_version(self._repository, ROAD_SURFACE_TILE_SHAPE)
             cached = await get_tile_values(
-                self.material_id, z, x, y, None, bearing_deg, revision=revision, value_shape=GRADIENT_VALUE_SHAPE
+                self.material_id, z, x, y, None, bearing_deg,
+                surface_tile_version=surface_tile_version, value_shape=GRADIENT_VALUE_SHAPE,
             )
             if cached is not None:
                 fields["cache"] = "hit"
@@ -101,7 +105,7 @@ class GradientWayService:
             }
             await set_tile_values(
                 self.material_id, z, x, y, None, bearing_deg, values, GRADIENT_TILE_VALUES_TTL_SECONDS,
-                revision=revision, value_shape=GRADIENT_VALUE_SHAPE,
+                surface_tile_version=surface_tile_version, value_shape=GRADIENT_VALUE_SHAPE,
             )
             fields["computed"] = len(values)
             return values
