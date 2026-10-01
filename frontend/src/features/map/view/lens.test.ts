@@ -6,13 +6,7 @@ import { axisCatalogFromResponse } from "@/lib/axisCatalog";
 import { LEGEND_NO_DATA_KEY } from "@/lib/mapDisplay/mapColorLegend";
 import { DEFAULT_DIFFICULTY_BOUNDARIES } from "@/lib/mapDisplay/valueScale";
 
-import {
-  catalogEntry,
-  catalogOf,
-  dedicatedEntry,
-  rampEntry,
-  tileInput,
-} from "@/lib/mapDisplay/__fixtures__/catalogAxes";
+import { catalogEntry, catalogOf, dedicatedEntry, rampEntry, tileInput } from "@/testing/catalogAxes";
 import { isRouteStyleModeId, lensLegend, lensOptions, paintedAxisId } from "./lens";
 
 /** 道の値として読む材料。 */

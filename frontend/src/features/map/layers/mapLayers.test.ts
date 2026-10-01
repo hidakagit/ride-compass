@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 
-import { catalogEntry, catalogOf, dedicatedEntry, rampEntry } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
+import { catalogEntry, catalogOf, dedicatedEntry, rampEntry } from "@/testing/catalogAxes";
 import { pointLegendAxes } from "@/features/map/scene/legends";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 

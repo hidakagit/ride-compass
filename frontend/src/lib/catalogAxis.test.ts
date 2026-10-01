@@ -3,11 +3,11 @@
  * `catalogAxis.ts`——軸カタログの1行を、画面が読む軸の形へ移すこと。重み一覧・ramp軸・専用配信の軸・地図のチップの軸は
  * どれもこの変換を通るので、共通の項目の移し方はここで確かめる。
  *
- * 軸は架空のもの（`mapDisplay/__fixtures__/catalogAxes.ts`）。
+ * 軸は架空のもの（`testing/catalogAxes.ts`）。
  */
 import { describe, expect, it } from "vitest";
 
-import { catalogEntry } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
+import { catalogEntry } from "@/testing/catalogAxes";
 
 import { catalogAxisFromEntry } from "./catalogAxis";
 

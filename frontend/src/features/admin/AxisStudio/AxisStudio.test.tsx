@@ -16,7 +16,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EMPTY_CATALOG, type AxisCatalog } from "@/lib/axisCatalog";
 import { MATERIAL_CATALOG } from "@/lib/axisMaterialsCatalog";
 import { rampAxesFromCatalogAxes, type RampAxis } from "@/lib/mapDisplay/axisLayers";
-import { rampEntry } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
+import { rampEntry } from "@/testing/catalogAxes";
 import type { AxisDefinitionPayload, AxisDefinitionResponse } from "@/types/route";
 
 const api = vi.hoisted(() => ({

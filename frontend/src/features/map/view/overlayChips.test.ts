@@ -9,7 +9,7 @@ import {
 } from "@/features/map/layers/mapLayers";
 import { disasterSourceLegendAxis, roadLegendAxes } from "@/features/map/scene/legends";
 
-import { catalogOf, dedicatedEntry, rampEntry } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
+import { catalogOf, dedicatedEntry, rampEntry } from "@/testing/catalogAxes";
 import { deserializeLayerVisibility, overlayChips } from "./overlayChips";
 
 const catalog = catalogOf([rampEntry("ramp_a", [1]), dedicatedEntry("dedicated_b", [1])]);

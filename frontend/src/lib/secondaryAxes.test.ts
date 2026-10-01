@@ -4,11 +4,11 @@
  * 一覧から外すのは`show_map_icon`だけで、ramp軸だけが専用のレイヤーを持つ。軸の共通の項目（略名・単位等）の移し方は
  * `catalogAxis.test.ts`が見る。
  *
- * 軸は架空のもの（`mapDisplay/__fixtures__/catalogAxes.ts`）。
+ * 軸は架空のもの（`testing/catalogAxes.ts`）。
  */
 import { describe, expect, it } from "vitest";
 
-import { catalogEntry } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
+import { catalogEntry } from "@/testing/catalogAxes";
 import { axisMapLayerId } from "@/lib/mapDisplay/axisLayers";
 
 import { secondaryAxesFromCatalogAxes } from "./secondaryAxes";

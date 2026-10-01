@@ -12,7 +12,7 @@ import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { axisCatalogFromResponse, CLIENT_TUNING_IDS, type AxisCatalog } from "@/lib/axisCatalog";
-import { catalogEntry } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
+import { catalogEntry } from "@/testing/catalogAxes";
 import { makeRouteCandidate } from "@/testing/routeFixtures";
 import { buildGenerateRequest, type GenerationInput } from "@/features/route/generationRequest";
 import { SPLICED_ROUTE_ID_PREFIX } from "@/features/route/routeTabLabel";

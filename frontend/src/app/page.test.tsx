@@ -46,47 +46,20 @@ import type RouteSettingsPanel from "@/features/route/RouteSettingsPanel/RouteSe
 import { generateRoutes } from "@/features/route/routeApi";
 import { SPLICED_ROUTE_ID_PREFIX } from "@/features/route/routeTabLabel";
 import { axisCatalogFromResponse, CLIENT_TUNING_IDS, EMPTY_CATALOG, type AxisCatalog } from "@/lib/axisCatalog";
-import { catalogEntry } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
+import { catalogEntry } from "@/testing/catalogAxes";
 import { LENS_DIFFICULTY_ID } from "@/lib/mapDisplay/routeStyleModes";
 import { setResearchEnabled } from "@/lib/researchMode";
 import { makeRouteCandidate } from "@/testing/routeFixtures";
 import type { Coordinates, GenerationConditions, RouteCandidate, RouteSegmentDetail } from "@/types/route";
 
-// 差し替えた部品は、描かれている間の最新のpropsを名前で引けるようにする（外れたら引けなくなる）。
-const stubs = vi.hoisted(() => {
-  const mounted = new Map<string, { token: object; props: Record<string, unknown> }>();
-  return {
-    mounted,
-    catalog: null as unknown,
-    catalogRetries: 0,
-    isMobile: false,
-    mapView: null as unknown,
-    mapViewInputs: null as unknown,
-    component(
-      react: typeof import("react"),
-      nameOf: (props: Record<string, unknown>) => string,
-      draw: (props: Record<string, unknown>) => ReactNode = () => null,
-    ) {
-      return function Stub(props: Record<string, unknown>) {
-        const [token] = react.useState(() => ({}));
-        const name = nameOf(props);
-        react.useLayoutEffect(() => {
-          mounted.set(name, { token, props });
-        });
-        react.useLayoutEffect(
-          () => () => {
-            if (mounted.get(name)?.token === token) mounted.delete(name);
-          },
-          [name, token],
-        );
-        return draw(props);
-      };
-    },
-  };
-});
-function stubModule(name: string) {
-  return async () => ({ default: stubs.component(await import("react"), () => name) });
-}
+const { stubComponent, stubModule, stubProps } = await vi.hoisted(() => import("@/testing/componentStubs"));
+const stubs = vi.hoisted(() => ({
+  catalog: null as unknown,
+  catalogRetries: 0,
+  isMobile: false,
+  mapView: null as unknown,
+  mapViewInputs: null as unknown,
+}));
 
 vi.mock("@/features/map/MapView/MapView", stubModule("MapView"));
 vi.mock("@/features/map/LensControl/LensControl", stubModule("LensControl"));
@@ -97,18 +70,15 @@ vi.mock("@/features/route/RouteForm/RouteForm", async (importOriginal) => {
   return {
     ...(await importOriginal<typeof import("@/features/route/RouteForm/RouteForm")>()),
     // 重みと除外のパネルは入力欄の中身として渡るので、描いて受け渡しを見られるようにする。
-    default: stubs.component(
-      react,
-      () => "RouteForm",
-      (props) =>
-        react.createElement(react.Fragment, null, props.weightsPanel as ReactNode, props.exclusionsPanel as ReactNode),
+    default: stubComponent("RouteForm", (props) =>
+      react.createElement(react.Fragment, null, props.weightsPanel as ReactNode, props.exclusionsPanel as ReactNode),
     ),
   };
 });
 vi.mock("@/features/route/RouteSettingsPanel/RouteSettingsPanel", stubModule("RouteSettingsPanel"));
 vi.mock("@/features/route/RouteSettingsPanel/HardFilterPanel", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/features/route/RouteSettingsPanel/HardFilterPanel")>()),
-  default: stubs.component(await import("react"), () => "HardFilterPanel"),
+  default: stubComponent("HardFilterPanel"),
 }));
 vi.mock("@/features/conditions/TravelBearingControl/TravelBearingControl", stubModule("TravelBearingControl"));
 vi.mock("@/features/conditions/RideConditionBar/RideConditionBar", stubModule("RideConditionBar"));
@@ -121,8 +91,7 @@ vi.mock("@/components/BottomSheet/BottomSheet", async (importOriginal) => {
   const react = await import("react");
   return {
     ...(await importOriginal<typeof import("@/components/BottomSheet/BottomSheet")>()),
-    default: stubs.component(
-      react,
+    default: stubComponent(
       (props) => `BottomSheet:${String(props.title)}`,
       (props) =>
         props.open
@@ -154,9 +123,7 @@ vi.mock("@/features/conditions/useWeatherConditions", () => ({ useWeatherConditi
 vi.mock("@/features/route/routeApi", () => ({ generateRoutes: vi.fn() }));
 
 function propsOf<C extends (props: never) => unknown>(name: string): Parameters<C>[0] {
-  const entry = stubs.mounted.get(name);
-  if (!entry) throw new Error(`${name}が描かれていない`);
-  return entry.props as Parameters<C>[0];
+  return stubProps<Parameters<C>[0]>(name);
 }
 const map = () => propsOf<typeof MapView>("MapView");
 const form = () => propsOf<typeof RouteForm>("RouteForm");

@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { routeStyleModesFromCatalogAxes } from "./routeStyleModes";
 import type { AxisCatalogEntry } from "@/types/route";
-import { catalogEntry } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
+import { catalogEntry } from "@/testing/catalogAxes";
 
 // 色分けの組み立てが分岐する3つの形。**その分岐を起こす性質だけ**を載せる
 // （軸idは軸スタジオでユーザーが決める任意の値なので、実物の名前を当てにしない）。

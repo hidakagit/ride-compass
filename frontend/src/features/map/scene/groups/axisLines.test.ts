@@ -7,7 +7,7 @@ import { mapDisplay } from "@/types/generated/mapDisplay";
 import palette from "@/types/generated/palette.json";
 
 import { rampAxesFromCatalogAxes, type RampAxis } from "@/lib/mapDisplay/axisLayers";
-import { rampEntry } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
+import { rampEntry } from "@/testing/catalogAxes";
 
 import { axisLineGroup, buildAxisRampValueExpression, type AxisLineState } from "./axisLines";
 

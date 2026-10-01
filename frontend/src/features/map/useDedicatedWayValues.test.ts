@@ -9,7 +9,7 @@ vi.mock("@/services/regionApi", async (importOriginal) => ({
 // 待ち時間の間引き自体はuseDebouncedValueの持ち物。ここは値が届いた後の振る舞いを見る。
 vi.mock("@/hooks/useDebouncedValue", () => ({ MAP_FETCH_DEBOUNCE_MS: 0, useDebouncedValue: <T>(value: T) => value }));
 
-import { catalogOf, dedicatedEntry } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
+import { catalogOf, dedicatedEntry } from "@/testing/catalogAxes";
 import type { MapViewport } from "@/features/map/layers/windLayer";
 
 import { useDedicatedWayValues } from "./useDedicatedWayValues";

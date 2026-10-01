@@ -1,6 +1,6 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 import type { AxisCatalogResponse, RouteCandidate, RouteGenerateJobStatusResponse } from "@/types/route";
-import { catalogEntry, tileInput } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
+import { catalogEntry, tileInput } from "@/testing/catalogAxes";
 import { makeRouteCandidate as makeCandidate } from "@/testing/routeFixtures";
 import type {
   AmedasObservation,

@@ -14,12 +14,12 @@
  */
 import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useLayoutEffect, type ReactNode } from "react";
+import { useLayoutEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { axisCatalogFromResponse, type AxisCatalog } from "@/lib/axisCatalog";
 import { MATERIAL_CATALOG } from "@/lib/axisMaterialsCatalog";
-import { catalogEntry } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
+import { catalogEntry } from "@/testing/catalogAxes";
 import { setResearchEnabled } from "@/lib/researchMode";
 import { makeRouteCandidate } from "@/testing/routeFixtures";
 import { SPLICED_ROUTE_ID_PREFIX } from "@/features/route/routeTabLabel";
@@ -28,26 +28,8 @@ import type { ExperimentSlot } from "@/types/experimentSlot";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import type { GenerationConditions, RouteCandidate, RouteSegmentDetail } from "@/types/route";
 
-const stubs = vi.hoisted(() => {
-  const mounted = new Map<string, Record<string, unknown>>();
-  return { mounted, catalog: undefined as unknown };
-});
-function stubModule(name: string) {
-  return async () => {
-    const react = await import("react");
-    return {
-      default: function Stub(props: Record<string, unknown>) {
-        react.useLayoutEffect(() => {
-          stubs.mounted.set(name, props);
-          return () => {
-            stubs.mounted.delete(name);
-          };
-        });
-        return react.createElement("div", { "data-stub": name }, props.children as ReactNode);
-      },
-    };
-  };
-}
+const { isStubMounted, stubModule, stubProps } = await vi.hoisted(() => import("@/testing/componentStubs"));
+const stubs = vi.hoisted(() => ({ catalog: undefined as unknown }));
 vi.mock("@/features/route/RouteAxisProfile/RouteAxisProfile", stubModule("RouteAxisProfile"));
 vi.mock("@/features/route/DifficultyProfile/DifficultyProfile", stubModule("DifficultyProfile"));
 vi.mock("@/components/AxisContributionBar/AxisContributionBar", stubModule("AxisContributionBar"));
@@ -103,11 +85,6 @@ function renderOutcome(
 function withRoutes(routes: RouteCandidate[], usedWeights = { axis_b: 1 }) {
   act(() => resultsRef.current.replaceWithGenerated(routes, usedWeights));
 }
-function propsOf<T = Record<string, unknown>>(name: string): T {
-  const props = stubs.mounted.get(name);
-  if (!props) throw new Error(`${name}が描かれていない`);
-  return props as T;
-}
 const rows = () => within(screen.getByRole("tablist", { name: "ルート結果" })).getAllByRole("tab");
 const row = (name: RegExp | string) =>
   within(screen.getByRole("tablist", { name: "ルート結果" })).getByRole("tab", { name });
@@ -134,7 +111,6 @@ function segment(overrides: Partial<RouteSegmentDetail> = {}): RouteSegmentDetai
 const route = (id: string, overrides: Partial<RouteCandidate> = {}) => makeRouteCandidate({ id, ...overrides });
 
 beforeEach(() => {
-  stubs.mounted.clear();
   stubs.catalog = CATALOG;
   vi.mocked(downloadGpx).mockReset();
   setResearchEnabled(false);
@@ -267,7 +243,7 @@ describe("候補の中身", () => {
       material_category_shares: { m: { x: 1 } },
     });
     withRoutes([candidate], { axis_b: 1 });
-    expect(propsOf("RouteAxisProfile")).toEqual({
+    expect(stubProps("RouteAxisProfile")).toEqual({
       axes: CATALOG.axes,
       weights: { axis_b: 1 },
       axisDifficulties: candidate.axis_difficulties,
@@ -285,7 +261,7 @@ describe("候補の中身", () => {
 
     act(() => resultsRef.current.clear());
     act(() => resultsRef.current.replaceAndSelect([candidate], "a"));
-    expect(propsOf<{ weights: unknown }>("RouteAxisProfile").weights).toEqual(CURRENT_WEIGHTS);
+    expect(stubProps<{ weights: unknown }>("RouteAxisProfile").weights).toEqual(CURRENT_WEIGHTS);
   });
 
   it("道のりのグラフは区間を持つ候補にだけ出し、横軸は一覧で最も長い候補の距離にする。グラフで選んだ区間は結果へ入る", () => {
@@ -295,7 +271,7 @@ describe("候補の中身", () => {
       route("a", { distance_km: 10, segments, overall_difficulty: { average: 20, load: 200 } }),
       route("b", { distance_km: 25 }),
     ]);
-    const graph = propsOf<{
+    const graph = stubProps<{
       segments: unknown;
       scaleKm: number;
       axisOrder: string[];
@@ -317,7 +293,7 @@ describe("候補の中身", () => {
   it("区間を持たない候補にはグラフを出さない", () => {
     renderOutcome();
     withRoutes([route("a", { segments: [] })]);
-    expect(stubs.mounted.has("DifficultyProfile")).toBe(false);
+    expect(isStubMounted("DifficultyProfile")).toBe(false);
   });
 });
 
@@ -337,17 +313,17 @@ describe("押した区間の詳細", () => {
     act(() => resultsRef.current.selectSegment({ segment: detail, latitude: 35, longitude: 139 }));
     expect(screen.getByText(/12\.3 km地点/)).toBeInTheDocument();
     expect(screen.getByText("到達予想 12:40")).toBeInTheDocument();
-    expect(propsOf("SegmentWind")).toEqual({ wind: WIND });
-    expect(propsOf("AxisContributionBar")).toEqual({
+    expect(stubProps("SegmentWind")).toEqual({ wind: WIND });
+    expect(stubProps("AxisContributionBar")).toEqual({
       axes: CATALOG.axes,
       contributions: { axis_a: 4 },
       axisColors: CATALOG.axisColors,
     });
-    expect(stubs.mounted.has("RouteAxisProfile")).toBe(false);
+    expect(isStubMounted("RouteAxisProfile")).toBe(false);
 
     await user.click(screen.getByRole("button", { name: "区間の選択を解除" }));
     expect(resultsRef.current.selectedRouteSegment).toBeNull();
-    expect(stubs.mounted.has("RouteAxisProfile")).toBe(true);
+    expect(isStubMounted("RouteAxisProfile")).toBe(true);
   });
 
   it.each([
@@ -409,7 +385,7 @@ describe("候補の操作", () => {
     const panel = { marker: "編集面" } as unknown as NonNullable<Props["splice"]["panel"]>;
     renderOutcome({ splice: { panel }, generation: { failure: "混み合っています" } });
     withRoutes([route("a")]);
-    expect(propsOf("RouteSplicePanel")).toEqual(panel);
+    expect(stubProps("RouteSplicePanel")).toEqual(panel);
     expect(screen.queryByRole("tablist", { name: "ルート結果" })).not.toBeInTheDocument();
     expect(screen.getByRole("alert")).toHaveTextContent("作り直せませんでした。混み合っています");
   });
@@ -436,7 +412,7 @@ describe("比較", () => {
     renderOutcome({ generation: { experimentSlots: slots } });
     withRoutes([route("a")]);
     expect(rows().at(-1)).toHaveTextContent("比較");
-    expect(propsOf("ComparisonPanel")).toEqual({
+    expect(stubProps("ComparisonPanel")).toEqual({
       slots,
       axisLabels: CATALOG.axisLabels,
       axes: CATALOG.axes.filter((axis) => axis.axisId !== "axis_b"),

@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
 import { catalogAxisFromEntry, type CatalogAxis } from "@/lib/catalogAxis";
-import { catalogEntry } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
+import { catalogEntry } from "@/testing/catalogAxes";
 
 import RouteAxisProfile from "./RouteAxisProfile";
 
