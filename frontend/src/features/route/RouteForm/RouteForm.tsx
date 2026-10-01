@@ -94,7 +94,7 @@ export default function RouteForm({
     markLabel: string | undefined,
     value: string,
     armLabel: string,
-    extra?: React.ReactNode,
+    extra: React.ReactNode,
     /** 武装中に値の代わりに出す文言。置いた数を隠さないため、経由地は件数を添える。 */
     armedHint: string = "地図をタップ",
   ) {

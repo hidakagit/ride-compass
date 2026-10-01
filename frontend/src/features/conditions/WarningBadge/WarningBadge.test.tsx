@@ -20,12 +20,12 @@ const item = (id: string, source: WarningBadgeItem["source"], level: WarningBadg
 
 describe("WarningBadgeList", () => {
   it("警告も失敗も無ければ何も出さない", () => {
-    const { container } = render(<WarningBadgeList items={[]} />);
+    const { container } = render(<WarningBadgeList items={[]} failures={[]} />);
     expect(container).toBeEmptyDOMElement();
   });
 
   it("1件なら、その段階の出所の呼び名を、その色で1つのボタンにする", () => {
-    render(<WarningBadgeList items={[item("a", "wbgt", "warning")]} />);
+    render(<WarningBadgeList items={[item("a", "wbgt", "warning")]} failures={[]} />);
     const expected = display("wbgt", "warning");
     const button = screen.getByRole("button", { name: `気象警報・注意報あり: ${expected.label}。押すと詳細を表示` });
     expect(button).toHaveTextContent(expected.label);
@@ -36,6 +36,7 @@ describe("WarningBadgeList", () => {
     render(
       <WarningBadgeList
         items={[item("a", "jma", "advisory"), item("b", "flood", "warning"), item("c", "jma", "warning")]}
+        failures={[]}
       />,
     );
     expect(screen.getByRole("button", { name: /^気象警報・注意報あり/ })).toHaveTextContent(
@@ -45,7 +46,10 @@ describe("WarningBadgeList", () => {
 
   it("押すと全件を、それぞれの段階の色の札と補足で出す", async () => {
     render(
-      <WarningBadgeList items={[item("a", "jma", "warning", "付随事項: 土砂災害"), item("b", "wbgt", "advisory")]} />,
+      <WarningBadgeList
+        items={[item("a", "jma", "warning", "付随事項: 土砂災害"), item("b", "wbgt", "advisory")]}
+        failures={[]}
+      />,
     );
     await userEvent.click(screen.getByRole("button", { name: /^気象警報・注意報あり/ }));
     const list = await screen.findByRole("list", { name: "気象警報・注意報の詳細" });

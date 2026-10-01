@@ -159,7 +159,6 @@ export function useSpliceSession({
         ? stretchAlternativeGroups(
             splicedShape.edgeIds,
             candidateShapes.filter((item) => item.id !== editingRouteId),
-            // 座標も渡すと、2本が交わる地点でも区間を割れる（Edge idだけでは丸ごとの入れ替えにしかならない）。
             { baseShape: splicedShape, minSplitLengthKm: minStretchKm },
           )
         : [],

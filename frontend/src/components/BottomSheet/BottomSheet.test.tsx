@@ -17,6 +17,8 @@ function renderSheet(onClose: () => void) {
         heightVh={50}
         onHeightChange={() => {}}
         onHeightCommit={() => {}}
+        headerAction={null}
+        autoFitHeight
       >
         <p>シートの中身がここに長く続く想定のテキスト</p>
       </BottomSheet>
@@ -161,6 +163,8 @@ describe("BottomSheet 高さ調整", () => {
         heightVh={heightVh}
         onHeightChange={onHeightChange}
         onHeightCommit={onHeightCommit}
+        headerAction={null}
+        autoFitHeight
       >
         <p>本文</p>
       </BottomSheet>,
@@ -314,7 +318,7 @@ describe("BottomSheet（開いたときに中身の高さへ合わせる）", ()
 
   function renderWithHeight(
     onHeightChange: (vh: number) => void,
-    options: { autoFitHeight?: boolean; fitKey?: string } = {},
+    options: { autoFitHeight: boolean; fitKey?: string } = { autoFitHeight: true },
   ) {
     return render(
       <BottomSheet
@@ -325,6 +329,7 @@ describe("BottomSheet（開いたときに中身の高さへ合わせる）", ()
         heightVh={50}
         onHeightChange={onHeightChange}
         onHeightCommit={() => {}}
+        headerAction={null}
         autoFitHeight={options.autoFitHeight}
         fitKey={options.fitKey}
       >
@@ -376,7 +381,7 @@ describe("BottomSheet（開いたときに中身の高さへ合わせる）", ()
     window.innerHeight = 812;
 
     withStubbedMetrics(302, () => {
-      const { rerender } = renderWithHeight(onHeightChange, { fitKey: "generate" });
+      const { rerender } = renderWithHeight(onHeightChange, { autoFitHeight: true, fitKey: "generate" });
       expect(onHeightChange).toHaveBeenCalledTimes(1);
       rerender(
         <BottomSheet
@@ -387,6 +392,8 @@ describe("BottomSheet（開いたときに中身の高さへ合わせる）", ()
           heightVh={50}
           onHeightChange={onHeightChange}
           onHeightCommit={() => {}}
+          headerAction={null}
+          autoFitHeight
           fitKey="weights"
         >
           <p>中身</p>

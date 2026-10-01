@@ -24,14 +24,14 @@ describe("rampAxesFromCatalogAxes", () => {
       rampEntry("ramp_a", [1]),
     ];
 
-    expect(rampAxesFromCatalogAxes(axes).map((axis) => axis.axisId)).toEqual(["ramp_b", "ramp_a"]);
+    expect(rampAxesFromCatalogAxes(axes, {}).map((axis) => axis.axisId)).toEqual(["ramp_b", "ramp_a"]);
   });
 
   it("地図の分類・段の境界・体感ラベルを表示の宣言から移し、体感ラベルが無ければ持たない", () => {
-    const [labelled, plain] = rampAxesFromCatalogAxes([
-      rampEntry("labelled", [10, 20], { display_band_labels_override: ["低", "中", "高"] }),
-      rampEntry("plain", [5]),
-    ]);
+    const [labelled, plain] = rampAxesFromCatalogAxes(
+      [rampEntry("labelled", [10, 20], { display_band_labels_override: ["低", "中", "高"] }), rampEntry("plain", [5])],
+      {},
+    );
 
     expect(labelled).toMatchObject({
       category: "roadCondition",
@@ -64,7 +64,7 @@ describe("rampAxesFromCatalogAxes", () => {
       },
     });
 
-    expect(rampAxesFromCatalogAxes([entry])[0].tileInputs).toEqual([
+    expect(rampAxesFromCatalogAxes([entry], {})[0].tileInputs).toEqual([
       { property: "num", weight: 2, boolean: false, trueValue: 0, falseValue: 0, hasUnknownFallback: false },
       { property: "flag", weight: 0, boolean: true, trueValue: 3, falseValue: 1, hasUnknownFallback: true },
       {

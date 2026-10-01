@@ -16,7 +16,7 @@ const COLORS = ["#000001", "#000002", "#000003"];
 
 describe("buildRangeLegendBands", () => {
   it("色1つにつき段を1つ作り、境界を「未満」「〜」「以上」（境界ちょうどは上の段）の範囲にする", () => {
-    expect(buildRangeLegendBands([-2, 2], COLORS, "%")).toEqual([
+    expect(buildRangeLegendBands([-2, 2], COLORS, "%", undefined)).toEqual([
       { key: "step-0", label: "-2%未満", color: "#000001" },
       { key: "step-1", label: "-2〜2%", color: "#000002" },
       { key: "step-2", label: "2%以上", color: "#000003" },
@@ -33,13 +33,15 @@ describe("buildRangeLegendBands", () => {
     const keys = (bands: { key: string }[]) => bands.map((band) => band.key);
 
     expect(keys(buildRangeLegendBands([10, 20], COLORS, "", ["a", "b", "c"]))).toEqual(
-      keys(buildRangeLegendBands([-5, 0], COLORS, "%")),
+      keys(buildRangeLegendBands([-5, 0], COLORS, "%", undefined)),
     );
-    expect(new Set(keys(buildRangeLegendBands([10, 20], COLORS, ""))).size).toBe(COLORS.length);
+    expect(new Set(keys(buildRangeLegendBands([10, 20], COLORS, "", undefined))).size).toBe(COLORS.length);
   });
 
   it("境界が無く段が1つなら、範囲の文字を空にする", () => {
-    expect(buildRangeLegendBands([], ["#000001"], "%")).toEqual([{ key: "step-0", label: "", color: "#000001" }]);
+    expect(buildRangeLegendBands([], ["#000001"], "%", undefined)).toEqual([
+      { key: "step-0", label: "", color: "#000001" },
+    ]);
   });
 });
 

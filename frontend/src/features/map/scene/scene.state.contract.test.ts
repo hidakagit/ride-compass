@@ -23,16 +23,19 @@ import { buildMapScene } from "@/features/map/scene/buildScene";
 import { sceneLayerId } from "@/features/map/scene/sceneBuilders";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 
-const RAMP_AXES = rampAxesFromCatalogAxes([
-  catalogEntry({
-    axis_id: "ramp",
-    display: {
-      kind: "ramp",
-      tile_inputs: [tileInput({ property: "v", has_unknown_fallback: true })],
-      thresholds: [50],
-    },
-  }),
-]);
+const RAMP_AXES = rampAxesFromCatalogAxes(
+  [
+    catalogEntry({
+      axis_id: "ramp",
+      display: {
+        kind: "ramp",
+        tile_inputs: [tileInput({ property: "v", has_unknown_fallback: true })],
+        thresholds: [50],
+      },
+    }),
+  ],
+  {},
+);
 const DEDICATED_AXES = dedicatedWayValueAxesFromCatalogAxes([
   catalogEntry({ axis_id: "ded1", dedicated_way_value_layer: true }),
   catalogEntry({ axis_id: "ded2", dedicated_way_value_layer: true }),

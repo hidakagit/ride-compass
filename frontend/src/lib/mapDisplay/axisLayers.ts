@@ -63,7 +63,7 @@ export function axisLabelsFromCatalogAxes(axes: readonly AxisCatalogEntry[]): Re
  * 最良側の色で塗る。 */
 export function rampAxesFromCatalogAxes(
   axes: readonly AxisCatalogEntry[],
-  runtimeScales: Readonly<Record<string, number>> = {},
+  runtimeScales: Readonly<Record<string, number>>,
 ): RampAxis[] {
   return axes
     .filter((axis) => axis.display.kind === "ramp")

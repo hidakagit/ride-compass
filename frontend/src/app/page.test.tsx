@@ -130,7 +130,7 @@ const form = () => propsOf<typeof RouteForm>("RouteForm");
 const outcome = () => propsOf<typeof RouteOutcome>("RouteOutcome");
 const sheet = (title: string) => propsOf<typeof BottomSheet>(`BottomSheet:${title}`);
 const mapViewInputs = () => stubs.mapViewInputs as Parameters<typeof useMapView>[0];
-const badgeFailures = () => propsOf<typeof WarningBadgeList>("WarningBadgeList").failures ?? [];
+const badgeFailures = () => propsOf<typeof WarningBadgeList>("WarningBadgeList").failures;
 
 const NOW = new Date("2026-09-25T03:02:00Z");
 const HERE: Coordinates = { latitude: 35, longitude: 139 };

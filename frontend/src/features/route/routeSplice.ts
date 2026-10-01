@@ -217,37 +217,30 @@ function createsRevisit(
  */
 export function stretchAlternativeGroups(
   baseEdgeIds: readonly string[],
-  candidates: readonly { id: string; edgeIds: readonly string[]; shape?: RouteGeometryShape }[],
+  candidates: readonly { id: string; edgeIds: readonly string[]; shape: RouteGeometryShape }[],
   // 割る下限（km）は**省略できない**。backendの較正値（`domain/tuning.py`が宣言し、
   // 起動時のカタログ取得で届く）で、ここに既定を持つと**届かなかったときに下限なし＝
   // 共有地点すべてで区間を割る**という、較正したのとは別の切り方で黙って動く。
   // backend側の`tuning_value`は宣言に無いidをその場で落とす。受ける側も同じにする。
-  options: { baseShape?: RouteGeometryShape; minSplitLengthKm: number },
+  options: { baseShape: RouteGeometryShape; minSplitLengthKm: number },
 ): StretchGroup[] {
   const alternatives: StretchAlternative[] = [];
   const seen = new Set<string>();
-  const baseShape = options.baseShape;
-  const minSplitLengthKm = options.minSplitLengthKm;
+  const { baseShape, minSplitLengthKm } = options;
   // 区間を割るために元ルートの累積距離を1回だけ求める（候補ごとに作り直さない）。
-  const baseCumulativeKm = baseShape ? cumulativeDistancesKm(baseShape.coordinates) : [];
+  const baseCumulativeKm = cumulativeDistancesKm(baseShape.coordinates);
   // 折り返しの判定に使う元ルートのNode集合。候補ごとに作り直さない。
-  const baseNodeSet = new Set(baseShape?.nodeIds ?? []);
+  const baseNodeSet = new Set(baseShape.nodeIds);
   for (const candidate of candidates) {
     const pairs = pairedStretches(baseEdgeIds, candidate.edgeIds).flatMap((pair) =>
-      baseShape && candidate.shape
-        ? splitPairedStretch(baseShape, candidate.shape, pair, minSplitLengthKm, baseCumulativeKm)
-        : [pair],
+      splitPairedStretch(baseShape, candidate.shape, pair, minSplitLengthKm, baseCumulativeKm),
     );
     for (const pair of pairs) {
       // 差し替え後に通るEdgeは相手側の範囲そのもの。両端の共有Edgeを目印に切り出す形には
       // できない——共有**地点**で割った区間は、両端に共有Edgeを持たない。
       const edgeIds = candidate.edgeIds.slice(pair.target.start, pair.target.end);
       if (edgeIds.length === 0) continue;
-      if (
-        baseShape &&
-        candidate.shape &&
-        createsRevisit(baseShape.nodeIds, baseNodeSet, candidate.shape.nodeIds, pair.displayed, pair.target)
-      ) {
+      if (createsRevisit(baseShape.nodeIds, baseNodeSet, candidate.shape.nodeIds, pair.displayed, pair.target)) {
         continue;
       }
       // 同じ区間を同じ道へ差し替える代替は、候補が違っても選択肢としては同じもの。

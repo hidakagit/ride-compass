@@ -63,7 +63,7 @@ export default function RideConditionBar({
     () => true,
     () => false,
   );
-  const departureLabel = hydrated ? formatDepartureLabel(departureTime) : null;
+  const departureLabel = hydrated ? formatDepartureLabel(departureTime, new Date()) : null;
   const departureName = departureLabel ? `出発時刻: ${departureLabel}` : "出発時刻";
   const speedLabel = `${speedKmh}km/h`;
 
