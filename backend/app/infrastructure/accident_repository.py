@@ -20,6 +20,7 @@ from app.domain.accident import (
 from app.domain.region import BoundingBox
 from app.infrastructure import derived_data_meta
 from app.infrastructure.cache_identity import shape_digest
+from app.infrastructure.source_models import ACCIDENTS_SOURCE_SQL
 from app.infrastructure.vector_tile import ACCIDENT_LAYER_NAME, TILE_EXTENT
 
 # ST_AsMVTは集約関数のため、対象0行でもクエリ自体は1行（値NULL）を返す。
@@ -33,9 +34,8 @@ _ACCIDENT_TILE_MVT_SQL = text(
             {bicycle_sql(":bicycle_party_types")} AS involves_bicycle,
             {FATAL_SQL} AS fatal,
             {OCCURRED_YEAR_SQL} AS occurred_year
-        FROM source_features a
-        WHERE a.source = 'accident'
-          AND ST_Intersects(a.geom, ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326))
+        FROM {ACCIDENTS_SOURCE_SQL} a
+        WHERE ST_Intersects(a.geom, ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326))
     ) mvt
     WHERE mvt.geom IS NOT NULL
     """

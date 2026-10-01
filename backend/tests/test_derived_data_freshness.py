@@ -24,6 +24,7 @@ from app.infrastructure.derived_data_freshness import (
     parent_derived_table,
     value_columns,
 )
+from app.infrastructure.source_models import source_keys_sql
 from app.services.derived_data_freshness_service import build_freshness_report
 
 from datetime import datetime, timezone
@@ -160,7 +161,7 @@ def test_生データの母数はソース名で絞る():
     """絞らないと`source_features`の全ソース（標高タイル・事故点）まで母数に入る。"""
     table = next(t for t in DERIVED if covered_source(t))
     sql = build_coverage_sql(table)
-    assert "WHERE f.source = :source" in sql
+    assert source_keys_sql(covered_source(table)[0]) in sql
 
 
 @pytest.mark.parametrize("table", DERIVED, ids=lambda t: t.name)

@@ -37,6 +37,7 @@ from app.domain.material_sql import LANES_COUNT_CASE_SQL, MAXSPEED_KMH_CASE_SQL
 from app.infrastructure.source_models import (
     NODES_SOURCE_SQL,
     WAYS_SOURCE_SQL,
+    Source,
     latest_succeeded_run_sql,
     nodes_lookup_sql,
     ways_lookup_sql,
@@ -110,7 +111,7 @@ _INGESTED_BBOX_SQL = f"""
         (profile->'target'->'bbox'->>1)::double precision AS min_lon,
         (profile->'target'->'bbox'->>2)::double precision AS max_lat,
         (profile->'target'->'bbox'->>3)::double precision AS max_lon
-    FROM {latest_succeeded_run_sql("'osm_way'")} latest
+    FROM {latest_succeeded_run_sql(Source.OSM_WAY)} latest
 """
 
 _COVERAGE_SQL = f"""
@@ -743,7 +744,7 @@ class RoadGraphRepository:
         事故が1件も無かった年が落ちる。年数は`accident_count_per_km_year`の分母に、年そのものは
         地図の説明文に使う。どちらもここが正本で、**表示側は年を自分で持たない**。
         """
-        latest = latest_succeeded_run_sql("'accident'")
+        latest = latest_succeeded_run_sql(Source.ACCIDENT)
         row = await self._session.execute(
             text(f"SELECT profile->'source'->'rows'->'years' AS years FROM {latest} latest"))
         value = row.scalar()

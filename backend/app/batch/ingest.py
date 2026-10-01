@@ -24,7 +24,7 @@ import asyncpg
 
 from app.batch._common import PROGRESS_INTERVAL_SECONDS, format_progress
 from app.batch.source_profile import NoFields, SourceProfile, SourceSpec
-from app.infrastructure.source_models import SUCCEEDED
+from app.infrastructure.source_models import SourceRunStatus
 
 logger = logging.getLogger("ridecompass.ingest")
 
@@ -114,8 +114,9 @@ async def _open_run(conn: asyncpg.Connection, spec: SourceSpec, profile: SourceP
                     origin: dict[str, Any]) -> int:
     return await conn.fetchval(
         "INSERT INTO source_runs (source, status, started_at, origin, profile, counts) "
-        "VALUES ($1, 'running', $2, $3, $4, $5) RETURNING run_id",
+        "VALUES ($1, $2, $3, $4, $5, $6) RETURNING run_id",
         spec.name,
+        SourceRunStatus.RUNNING,
         datetime.now(timezone.utc),
         _json(origin),
         _json({"profile_hash": profile.profile_hash, "target": asdict(profile.target),
@@ -124,7 +125,7 @@ async def _open_run(conn: asyncpg.Connection, spec: SourceSpec, profile: SourceP
     )
 
 
-async def _close_run(conn: asyncpg.Connection, run_id: int, status: str,
+async def _close_run(conn: asyncpg.Connection, run_id: int, status: SourceRunStatus,
                      counts: dict[str, Any], origin: dict[str, Any]) -> None:
     """runを閉じる。`origin`はアダプタが走り終わってからでないと確定しないため、
     開くときではなくここで書く（ファイルの実体・配信元のタイムスタンプは、読みに
@@ -185,7 +186,7 @@ async def ingest_source(
         async with conn.transaction():
             locked_at = await _replace_rows(conn, spec.name, run_id, rows())
             elapsed = time.perf_counter() - started
-            await _close_run(conn, run_id, SUCCEEDED,
+            await _close_run(conn, run_id, SourceRunStatus.SUCCEEDED,
                              {"records": written, "elapsed_seconds": round(elapsed, 1)}, origin)
         locked = time.perf_counter() - locked_at
     except BaseException:
@@ -193,7 +194,7 @@ async def ingest_source(
         logger.warning("取込失敗: source=%s run_id=%d records=%d elapsed=%.1fs",
                        spec.name, run_id, written, elapsed)
         try:
-            await _close_run(conn, run_id, "failed",
+            await _close_run(conn, run_id, SourceRunStatus.FAILED,
                              {"records": written, "elapsed_seconds": round(elapsed, 1)}, origin)
         except Exception:
             logger.warning("取込の失敗をrunへ書けなかった（runは running のまま残る）: run_id=%d",

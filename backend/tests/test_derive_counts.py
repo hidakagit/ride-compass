@@ -14,6 +14,7 @@ from app.domain.accident import (
 from app.domain.geo import KM_PER_DEGREE_LATITUDE, km_per_degree_longitude
 from app.domain.traffic import POI_COUNT_KINDS, poi_count_column
 from app.domain.tuning import TUNING_PARAMETERS_BY_ID
+from app.infrastructure.source_models import ACCIDENTS_SOURCE_SQL
 from tests.conftest import postgis_database_url
 from tests.source_ingest import ingest_records, point_record, way_record
 
@@ -130,8 +131,7 @@ async def test_equidistant_accident_goes_to_exactly_one_existing_segment(counts_
     """
     assert await _accidents(counts_conn) == {(100, 0): 1.0}
     distances = await counts_conn.fetch(
-        "SELECT DISTINCT e.geom <-> a.geom AS d FROM road_edges e, source_features a"
-        " WHERE a.source = 'accident'")
+        f"SELECT DISTINCT e.geom <-> a.geom AS d FROM road_edges e, {ACCIDENTS_SOURCE_SQL} a")
     # 前提: 3区間とも本当に等距離（タイを作れている）。
     assert [r["d"] for r in distances] == [0.0]
 
