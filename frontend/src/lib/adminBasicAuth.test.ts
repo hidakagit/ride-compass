@@ -1,36 +1,41 @@
 // @vitest-environment node
+/**
+ * `lib/adminBasicAuth.ts`——管理画面の資格情報を環境変数から読む口。
+ *
+ * 資格情報の環境変数を読むのはこの口だけなので、`vi.stubEnv`で立てて呼ぶ（testing.md「パターン7」）。
+ *
+ * ここで見ないもの:
+ * - 資格情報で画面を守ること → `proxy.test.ts`
+ * - 資格情報を転送へ付けること → `app/admin/api/[...path]/route.test.ts`
+ */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { adminBasicAuthCredentials } from "./adminBasicAuth";
 
-// 「環境変数がどう揃っていれば資格情報として成立するか」の唯一の検証場所。この環境変数を読むのは
-// このモジュールだけで、使う側のテストはモジュールごとモックするため、環境変数を立てても
-// 他のファイルの期待値は変わらない（docs/conventions/testing.md「環境変数に依存する挙動のテスト」）。
+import { adminBasicAuthCredentials } from "@/lib/adminBasicAuth";
+
 afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-function credentialsWith(username: string | undefined, password: string | undefined) {
+function stubCredentials(username: string | undefined, password: string | undefined): void {
   vi.stubEnv("ADMIN_BASIC_AUTH_USERNAME", username);
   vi.stubEnv("ADMIN_BASIC_AUTH_PASSWORD", password);
-  return adminBasicAuthCredentials();
 }
 
 describe("adminBasicAuthCredentials", () => {
-  it("両方揃っていれば資格情報になる", () => {
-    expect(credentialsWith("admin", "s3cret")).toEqual({ username: "admin", password: "s3cret" });
+  it("両方が設定されていれば、その組を返す", () => {
+    stubCredentials("admin", "secret");
+
+    expect(adminBasicAuthCredentials()).toEqual({ username: "admin", password: "secret" });
   });
 
-  it("両方未設定なら成立しない", () => {
-    expect(credentialsWith(undefined, undefined)).toBeNull();
-  });
+  it.each([
+    ["ユーザー名が無い", undefined, "secret"],
+    ["ユーザー名が空", "", "secret"],
+    ["パスワードが無い", "admin", undefined],
+    ["パスワードが空", "admin", ""],
+  ])("%sなら、認証を成立させない（null）", (_scene, username, password) => {
+    stubCredentials(username, password);
 
-  it("ユーザー名だけ設定されていても成立しない（空パスワードで認証を通さない）", () => {
-    expect(credentialsWith("admin", undefined)).toBeNull();
-    expect(credentialsWith("admin", "")).toBeNull();
-  });
-
-  it("パスワードだけ設定されていても成立しない", () => {
-    expect(credentialsWith(undefined, "s3cret")).toBeNull();
-    expect(credentialsWith("", "s3cret")).toBeNull();
+    expect(adminBasicAuthCredentials()).toBeNull();
   });
 });

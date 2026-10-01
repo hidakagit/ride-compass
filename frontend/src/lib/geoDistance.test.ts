@@ -1,41 +1,50 @@
 // @vitest-environment node
+/**
+ * `lib/geoDistance.ts`——座標列（`[経度, 緯度]`の並び）の各点までの累積距離。
+ *
+ * 2点の距離の答えはbackendが出す表（生成物`geo-expectations.json`の`distance_km`）が持つ（testing.md「パターン11」）。
+ * 表の点は緯度と経度が違う値なので、`[経度, 緯度]`の読み違いも表で落ちる。
+ *
+ * ここで見ないもの:
+ * - 表の答えが正しいこと → backendのテスト（`domain/geo.py`）
+ * - 累積距離から区間の位置を引くこと → `features/route/routeSplice.test.ts`
+ */
 import { describe, expect, it } from "vitest";
 
 import geoExpectations from "@/types/generated/geo-expectations.json";
+import { cumulativeDistancesKm } from "@/lib/geoDistance";
 
-import { cumulativeDistancesKm } from "./geoDistance";
+type Point = { latitude: number; longitude: number };
 
-// 緯度0.1度はおよそ11.1km。桁と単位（km）を取り違えていないことを、既知の値で押さえる。
+function position(point: Point): GeoJSON.Position {
+  return [point.longitude, point.latitude];
+}
+
+const rows = geoExpectations.distance_km;
+
 describe("cumulativeDistancesKm", () => {
-  const line: GeoJSON.Position[] = [
-    [139, 35],
-    [139, 35.1],
-    [139, 35.2],
-  ];
-
-  it("座標と同じ長さで、先頭は0・末尾は各辺の和", () => {
-    const cumulative = cumulativeDistancesKm(line);
-
-    expect(cumulative).toHaveLength(line.length);
-    expect(cumulative[0]).toBe(0);
-    expect(cumulative.at(-1)).toBeGreaterThan(22);
-    expect(cumulative.at(-1)).toBeLessThan(23);
+  it("1点だけなら、その点までの距離0だけを返す", () => {
+    expect(cumulativeDistancesKm([[139.77, 35.68]])).toEqual([0]);
   });
 
-  it("点が1つ以下なら0だけ", () => {
-    expect(cumulativeDistancesKm([[139, 35]])).toEqual([0]);
-  });
-
-  // 表の距離は1mmの桁に丸めてあり、言語ごとの三角関数の差はそれよりずっと小さい。
-  it("2点の距離はbackendの表と1cm未満で一致する", () => {
-    const rows = geoExpectations.distance_km;
+  it("2点の距離が、backendが出す表の全行でbackendと合う", () => {
     expect(rows.length).toBeGreaterThan(0);
-    for (const { from, to, km } of rows) {
-      const [, distance] = cumulativeDistancesKm([
-        [from.longitude, from.latitude],
-        [to.longitude, to.latitude],
-      ]);
-      expect(Math.abs(distance - km), JSON.stringify({ from, to })).toBeLessThan(1e-5);
+    for (const row of rows) {
+      const [start, end] = cumulativeDistancesKm([position(row.from), position(row.to)]);
+      expect(start).toBe(0);
+      expect(end, JSON.stringify(row)).toBeCloseTo(row.km, 5);
     }
+  });
+
+  it("3点以上では、各点までの区間の距離を足していく", () => {
+    const row = rows.find((candidate) => candidate.km > 0);
+    expect(row).toBeDefined();
+    const { from, to, km } = row!;
+
+    const cumulative = cumulativeDistancesKm([position(from), position(to), position(from)]);
+
+    expect(cumulative).toHaveLength(3);
+    expect(cumulative[1]).toBeCloseTo(km, 5);
+    expect(cumulative[2]).toBeCloseTo(2 * km, 5);
   });
 });

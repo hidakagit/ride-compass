@@ -1,26 +1,26 @@
 // @vitest-environment node
+/**
+ * `lib/cardinalLabel.ts`——角度を方位の呼び名へ丸める。
+ *
+ * 呼び名と丸めの答えはbackendが出す表（生成物`geo-expectations.json`の`compass_label`）が持つ。表の入力は区分の
+ * 境界ちょうどとその少し手前・負の角度・一周を超える角度で、丸めの向き・正規化・呼び名の並びはこの表で決まる
+ * （testing.md「パターン11」）。
+ *
+ * ここで見ないもの:
+ * - 表の答えが正しいこと → backendのテスト（`domain/geo.py`）
+ * - 呼び名をどこに出すか → 使う部品（`features/conditions/WindBearingSlider`等）
+ */
 import { describe, expect, it } from "vitest";
 
 import geoExpectations from "@/types/generated/geo-expectations.json";
-import { mapDisplay } from "@/types/generated/mapDisplay";
-
-import { cardinalLabel } from "./cardinalLabel";
-
-// 方位の呼び名は源泉（domain/geo.py）が北から時計回りに配り、区分の幅はその数で決まる。
-const LABELS = mapDisplay.compassLabels;
-const SECTOR = 360 / LABELS.length;
+import { cardinalLabel } from "@/lib/cardinalLabel";
 
 describe("cardinalLabel", () => {
-  it("区分の中心の角度は、その区分の呼び名", () => {
-    expect(LABELS).not.toHaveLength(0);
-    LABELS.forEach((label, i) => expect(cardinalLabel(i * SECTOR)).toBe(label));
-  });
-
-  it("backendの表（区分の境界・負の角度・一周を超える角度）と同じ呼び名", () => {
+  it("backendが出す表の全行で、backendと同じ呼び名になる", () => {
     const rows = geoExpectations.compass_label;
     expect(rows.length).toBeGreaterThan(0);
-    for (const { bearing_deg, label } of rows) {
-      expect(cardinalLabel(bearing_deg), `${bearing_deg}度`).toBe(label);
+    for (const row of rows) {
+      expect(cardinalLabel(row.bearing_deg), `${row.bearing_deg}度`).toBe(row.label);
     }
   });
 });
