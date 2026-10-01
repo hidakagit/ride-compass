@@ -1,95 +1,180 @@
 // @vitest-environment node
+/**
+ * `lib/mapDisplay/routeStyleModes.ts`——ルートの線の色分けのモード（レンズ）の一覧と、モードごとの色・凡例・破線の式。
+ * 入口は`routeStyleModesFromCatalogAxes`。式はMapLibreと同じ評価器で区間1本へ当て（`testing/mapExpressions.ts`）、
+ * その区間が何色に塗られ、凡例のどの行に入り、破線になるかを見る。軸は`testing/catalogAxes.ts`の雛形で組む。
+ *
+ * ここで見ないもの:
+ * - 段の色・範囲の文字・体感ラベルの決め方 → `valueScale.test.ts`・`mapColorLegend.test.ts`
+ * - 区間が持つ値（総合難易度・軸ごとの難易度・材料の値）を作ること → backendのルート生成のテスト
+ * - モードを選ぶ画面と、選んだモードの式を地図へ渡すこと → `features/map/LensControl/LensControl.test.tsx`・
+ *   `features/map/view/lens.test.ts`
+ */
+import { Color } from "@maplibre/maplibre-gl-style-spec";
 import { describe, expect, it } from "vitest";
-import { routeStyleModesFromCatalogAxes } from "./routeStyleModes";
-import type { AxisCatalogEntry } from "@/types/route";
+
 import { catalogEntry } from "@/testing/catalogAxes";
+import { evaluateExpression, matchesFilter } from "@/testing/mapExpressions";
+import palette from "@/types/generated/palette.json";
 
-// 色分けの組み立てが分岐する3つの形。**その分岐を起こす性質だけ**を載せる
-// （軸idは軸スタジオでユーザーが決める任意の値なので、実物の名前を当てにしない）。
-const signedAxis = catalogEntry({
-  map_value: { kind: "signed_material", material: "signed_value" },
-  map_value_thresholds: [-8, -4, 4, 8],
-});
-const difficultyAxis = catalogEntry({ map_value: { kind: "difficulty" } });
-const categoricalAxis = catalogEntry({
-  shape: { kind: "categorical", material: "surface", mapping: { asphalt: 100 } },
-});
+import { LEGEND_NO_DATA_KEY } from "./mapColorLegend";
+import {
+  LENS_DIFFICULTY_ID,
+  LENS_NEUTRAL_COLOR,
+  LENS_NONE_ID,
+  routeStyleModesFromCatalogAxes,
+  type RouteStyleMode,
+} from "./routeStyleModes";
+import { DEFAULT_DIFFICULTY_BOUNDARIES } from "./valueScale";
 
-/** 軸1本ぶんのモード。入口（軸カタログ→モード一覧）を通し、その軸のidで引く。 */
-function modeFor(axis: AxisCatalogEntry) {
-  const mode = routeStyleModesFromCatalogAxes([axis]).find((candidate) => candidate.id === axis.axis_id);
-  if (mode === undefined) throw new Error(`${axis.axis_id}のモードが無い`);
+function modeOf(axes: Parameters<typeof routeStyleModesFromCatalogAxes>[0], id: string): RouteStyleMode {
+  const mode = routeStyleModesFromCatalogAxes(axes).find((candidate) => candidate.id === id);
+  if (mode === undefined) throw new Error(`モード${id}が無い`);
   return mode;
 }
 
-describe("routeStyleModes", () => {
-  // 軸idを名指しせずカタログ順をそのまま期待するのは、公開軸の集合が軸スタジオ（DB）で
-  // 決まり生成物の再取り込みで変わるため（GUI作成軸のidは固定値ですらない）。
+/** 区間1本の描かれ方: 塗る色・当てはまる凡例の行の鍵・破線か。 */
+function drawn(mode: RouteStyleMode, segment: Record<string, unknown>) {
+  return {
+    color: evaluateExpression(mode.colorExpression, segment),
+    rows: mode.legend.filter((row) => matchesFilter(row.filter, segment)).map((row) => row.key),
+    dashed: mode.noDataExpression === undefined ? false : evaluateExpression(mode.noDataExpression, segment),
+  };
+}
 
-  // 改善計画T466: id未検出時のmodes[0]無警告フォールバックへ警告ログを追加した回帰テスト。
+/** 境界の手前・ちょうど・先と、両端の外の値。 */
+function probeValues(boundaries: readonly number[]): number[] {
+  expect(boundaries.length).toBeGreaterThan(0);
+  return [boundaries[0] - 1000, ...boundaries.flatMap((b) => [b - 0.01, b, b + 0.01]), boundaries.at(-1)! + 1000];
+}
 
-  it("符号付き材料を塗る軸は、backendが名指す材料を符号付きのまま直接読む——軸idのハードコード分岐ではなくbackendの宣言で判定する", () => {
-    const mode = modeFor(signedAxis);
-    expect(mode.id).toBe(signedAxis.axis_id);
-    expect(mode.colorExpression[1]).toEqual(["==", ["get", "signed_value", ["get", "material_values"]], null]);
+/** どの値の区間も、塗った色の凡例の行1つだけに当てはまり、境界ちょうどの値は上の段に入る。 */
+function expectColorsMatchLegend(
+  mode: RouteStyleMode,
+  boundaries: readonly number[],
+  segmentOf: (v: number) => object,
+) {
+  const bandRows = mode.legend.filter((row) => row.key !== LEGEND_NO_DATA_KEY);
+  expect(bandRows).toHaveLength(boundaries.length + 1);
+  for (const value of probeValues(boundaries)) {
+    const { color, rows, dashed } = drawn(mode, segmentOf(value) as Record<string, unknown>);
+    const band = boundaries.filter((boundary) => value >= boundary).length;
+    expect({ value, rows, color, dashed }).toEqual({
+      value,
+      rows: [bandRows[band].key],
+      color: bandRows[band].color,
+      dashed: false,
+    });
+  }
+}
+
+describe("モードの一覧", () => {
+  it("公開軸ごとのモードをカタログの順に並べ、そのあとに総合難易度と「なし」を置く", () => {
+    const modes = routeStyleModesFromCatalogAxes([catalogEntry({ axis_id: "b" }), catalogEntry({ axis_id: "a" })]);
+
+    expect(modes.map((mode) => mode.id)).toEqual(["b", "a", LENS_DIFFICULTY_ID, LENS_NONE_ID]);
   });
 
-  it("改善計画T440: 境界値が2個(3段階)しか無い場合でもクラッシュせず、その数に応じたラベル・色を生成する", () => {
-    const axis: AxisCatalogEntry = {
-      ...signedAxis,
-      axis_id: "gradient_test",
-      map_value_thresholds: [0, 5],
-    };
-    const mode = modeFor(axis);
-    expect(mode.legend.map((e) => e.key)).toEqual(["step-0", "step-1", "step-2", "nodata"]);
-    expect(mode.legend.map((e) => e.label)).toEqual(["0未満", "0〜5", "5以上", "データなし"]);
-  });
-
-  it("難易度を塗る軸は難易度経路を使う（axis_difficulties経由）", () => {
-    const wind = modeFor(difficultyAxis);
-    expect(wind.id).toBe(difficultyAxis.axis_id);
-    expect(wind.label).toBe(`${difficultyAxis.label}の影響`);
-    expect(wind.colorExpression[1]).toEqual([
-      "==",
-      ["get", difficultyAxis.axis_id, ["get", "axis_difficulties"]],
-      null,
+  it("軸カタログが無くても、総合難易度と「なし」は選べる", () => {
+    expect(routeStyleModesFromCatalogAxes([]).map((mode) => [mode.id, mode.label])).toEqual([
+      [LENS_DIFFICULTY_ID, "総合難易度"],
+      [LENS_NONE_ID, "なし"],
     ]);
-  });
-
-  it("surface_q（shape.kind==='categorical'）も通常の絶対値差難易度経路を使い、ラベルは他の動的モードと同じ汎用形式になる（roadという専用名は無い）", () => {
-    expect(categoricalAxis.shape?.kind).toBe("categorical");
-    const surfaceQ = modeFor(categoricalAxis);
-    expect(surfaceQ.id).toBe(categoricalAxis.axis_id);
-    expect(surfaceQ.label).toBe(`${categoricalAxis.label}の影響`);
-    expect(surfaceQ.colorExpression[1]).toEqual([
-      "==",
-      ["get", categoricalAxis.axis_id, ["get", "axis_difficulties"]],
-      null,
-    ]);
-  });
-
-  it("軸がカタログから消える（軸スタジオでunpublish）と、対応するモードも一覧から消える", () => {
-    const kept = catalogEntry({ axis_id: "kept" });
-    const dropped = catalogEntry({ axis_id: "dropped" });
-
-    const modes = routeStyleModesFromCatalogAxes([kept]);
-
-    expect(modes.map((m) => m.id)).toEqual(["kept", "difficulty", "none"]);
-    expect(modes.some((m) => m.id === dropped.axis_id)).toBe(false);
-  });
-
-  it("改善計画T440: difficultyはどの軸にも対応しないため、軸が0件でも一覧から消えない", () => {
-    const modes = routeStyleModesFromCatalogAxes([]);
-    expect(modes.map((m) => m.id)).toEqual(["difficulty", "none"]);
   });
 });
 
-// 値が無い区間を破線にするには、色の式と同じ「値が無い」の判定が要る。値という考えを持たない「なし」だけが持たない。
-describe("値が無い区間の判定", () => {
-  it("凡例を持つモードはすべて判定の式を持ち、「なし」は持たない", () => {
-    const modes = routeStyleModesFromCatalogAxes([signedAxis, difficultyAxis, categoricalAxis]);
-    for (const mode of modes) {
-      expect(mode.noDataExpression !== undefined).toBe(mode.legend.length > 0);
+describe("難易度で塗る軸のモード", () => {
+  const axis = catalogEntry({
+    axis_id: "ax",
+    map_value_thresholds: [20, 50],
+    label: "風",
+    map_value_unit: "点",
+    display_band_labels_override: ["弱", "中", "強"],
+  });
+  const mode = modeOf([axis], "ax");
+  const segmentOf = (value: unknown) => ({ axis_difficulties: { ax: value, other: 99 } });
+
+  it("名前は「<軸の名前>の影響」で、凡例は段ごとの行（単位・体感ラベルつき）と値が無い行", () => {
+    expect(mode.label).toBe("風の影響");
+    expect(mode.legend.map((row) => row.label)).toEqual(["弱[20点未満]", "中[20〜50点]", "強[50点以上]", "データなし"]);
+  });
+
+  it("区間のその軸の難易度で塗り、塗った色の行だけに当てはまる", () => {
+    expectColorsMatchLegend(mode, [20, 50], segmentOf);
+  });
+
+  it("難易度0の区間は最も易しい段で、値が無い（null・その軸の値を持たない）区間だけが「データなし」の色の破線になる", () => {
+    const lowest = mode.legend[0];
+    expect(drawn(mode, segmentOf(0))).toEqual({ color: lowest.color, rows: [lowest.key], dashed: false });
+
+    for (const segment of [segmentOf(null), { axis_difficulties: { other: 10 } }]) {
+      expect(drawn(mode, segment)).toEqual({
+        color: palette.semantic.no_data,
+        rows: [LEGEND_NO_DATA_KEY],
+        dashed: true,
+      });
+    }
+  });
+
+  it("段の境界を宣言していない軸は、難易度の既定の境界で切る", () => {
+    const fallback = modeOf([catalogEntry({ axis_id: "ax", map_value_thresholds: null })], "ax");
+
+    expectColorsMatchLegend(fallback, DEFAULT_DIFFICULTY_BOUNDARIES, segmentOf);
+  });
+});
+
+describe("材料の値をそのまま塗る軸のモード（符号付き材料）", () => {
+  const axis = catalogEntry({
+    axis_id: "slope",
+    map_value_thresholds: [-2, 2],
+    label: "勾配",
+    map_value: { kind: "signed_material", material: "grade" },
+    map_value_unit: "%",
+  });
+  const mode = modeOf([axis], "slope");
+  const segmentOf = (value: unknown) => ({ material_values: { grade: value }, axis_difficulties: { slope: 99 } });
+
+  it("名前は軸の名前のままで、凡例の範囲は材料の単位で書く", () => {
+    expect(mode.label).toBe("勾配");
+    expect(mode.legend.map((row) => row.label)).toEqual(["-2%未満", "-2〜2%", "2%以上", "データなし"]);
+  });
+
+  it("軸の難易度ではなく、区間の材料の値で塗る（負の値は下りの色）", () => {
+    expectColorsMatchLegend(mode, [-2, 2], segmentOf);
+    expect(drawn(mode, segmentOf(-5)).color).toBe(palette.semantic.signed_descent);
+  });
+
+  it("材料の値が無い区間は「データなし」の破線になる", () => {
+    expect(drawn(mode, segmentOf(null))).toEqual({
+      color: palette.semantic.no_data,
+      rows: [LEGEND_NO_DATA_KEY],
+      dashed: true,
+    });
+  });
+});
+
+describe("総合難易度のモード", () => {
+  const mode = modeOf([], LENS_DIFFICULTY_ID);
+
+  it("区間の総合難易度を、難易度の既定の境界で塗る", () => {
+    expectColorsMatchLegend(mode, DEFAULT_DIFFICULTY_BOUNDARIES, (difficulty) => ({ difficulty }));
+  });
+
+  it("総合難易度が無い区間は「データなし」の破線になる", () => {
+    expect(drawn(mode, { difficulty: null })).toEqual({
+      color: palette.semantic.no_data,
+      rows: [LEGEND_NO_DATA_KEY],
+      dashed: true,
+    });
+  });
+});
+
+describe("「なし」のモード", () => {
+  it("どの区間も中立の1色で塗り、凡例も破線も持たない", () => {
+    const mode = modeOf([], LENS_NONE_ID);
+
+    for (const segment of [{}, { difficulty: 90 }, { difficulty: null }]) {
+      expect(drawn(mode, segment)).toEqual({ color: Color.parse(LENS_NEUTRAL_COLOR), rows: [], dashed: false });
     }
   });
 });

@@ -59,9 +59,8 @@ export function buildRangeLegendBands(
   labels?: readonly string[],
 ): MapColorLegendBand[] {
   return colors.map((color, index) => {
-    // 境界が段の数に足りなくても、無い端は「無い」として扱う（「undefined〜」を出さない）。
-    const lower = index === 0 ? null : (boundaries[index - 1] ?? null);
-    const upper = index >= boundaries.length ? null : (boundaries[index] ?? null);
+    const lower = index === 0 ? null : boundaries[index - 1];
+    const upper = index === boundaries.length ? null : boundaries[index];
     const rangeLabel = rangeStepLabel(lower, upper, unit);
     const label = labels ? `${labels[index]}[${rangeLabel}]` : rangeLabel;
     return { key: legendBandKey(index), label, color };

@@ -1,70 +1,82 @@
 // @vitest-environment node
 /**
- * `weatherApi.ts`——地点を渡す取得は緯度経度をクエリに付けて応答をそのまま返し、風の格子は応答の時刻の列を各点へ
- * 配り直すこと。失敗の扱いは共通の骨格が持つ（`lib/apiClient.test.ts`）。
+ * `services/weatherApi.ts`——気象（天候・アメダス・警報・暑さ指数・河川氾濫・風の格子・気象庁タイルの在否）をbackendから
+ * 取る口。入口は公開の関数、差し替えるのは網（`fetch`）で、確かめるのは送った要求と戻り値。
+ *
+ * ここで見ないもの:
+ * - 口ごとのパスと応答の型の組 → OpenAPIの生成物から型で決まり、取り違えると型検査が落ちる
+ * - 失敗の文言の組み立て（口ごとの主語は宣言）・通信の失敗とタイムアウトの包み直し → `lib/apiClient.test.ts`
+ * - 取った値を画面の状態へ載せること → `features/conditions/useWeatherConditions.test.ts`・
+ *   `features/map/useWeatherGrid.test.ts`・`features/map/useJmaTileIndex.test.ts`
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { stubBackend } from "@/testing/backendFetch";
+
 import * as weatherApi from "./weatherApi";
+import { getCurrentWeather, getWindGrid, getWindGridDetail } from "./weatherApi";
+
+const POINT = { latitude: 35.68, longitude: 139.76 };
+
+/** 時刻の列を1本だけ持つ、backendの風の格子の応答。 */
+const GRID = {
+  times: ["2026-10-01T09:00:00+09:00", "2026-10-01T10:00:00+09:00"],
+  points: [
+    { latitude: 35.5, longitude: 139.5, speeds: [1, 2], directions: [90, 180] },
+    { latitude: 35.6, longitude: 139.7, speeds: [3, 4], directions: [0, 270] },
+  ],
+};
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function stubFetch(body: unknown) {
-  const fetchMock = vi.fn<(request: Request) => Promise<Response>>(async () => Response.json(body));
-  vi.stubGlobal("fetch", fetchMock);
-  return () => new URL(fetchMock.mock.calls[0][0].url);
-}
+describe("地点を問い合わせる口", () => {
+  it("地点の緯度・経度をそれぞれの項目へ載せ、届いた本文を返す", async () => {
+    const weather = { precipitation_mm: 0.5 };
+    const sent = stubBackend(() => Response.json(weather));
 
-const POINT_GETTERS = [
-  weatherApi.getCurrentWeather,
-  weatherApi.getAmedasObservation,
-  weatherApi.getWeatherWarnings,
-  weatherApi.getWbgtStatus,
-  weatherApi.getFloodForecasts,
-];
-
-describe("地点を渡す取得", () => {
-  it.each(POINT_GETTERS.map((get) => [get.name, get] as const))(
-    "%s は緯度経度をクエリに付けて取り、応答をそのまま返す",
-    async (_name, get) => {
-      const body = { precipitation_mm: 0, marker: "応答" };
-      const url = stubFetch(body);
-      await expect(get({ latitude: 35.1234, longitude: 139.5678 })).resolves.toEqual(body);
-      expect(url().searchParams.get("latitude")).toBe("35.1234");
-      expect(url().searchParams.get("longitude")).toBe("139.5678");
-    },
-  );
+    await expect(getCurrentWeather(POINT)).resolves.toEqual(weather);
+    expect(sent).toEqual([
+      { method: "GET", path: "/api/weather", query: { latitude: "35.68", longitude: "139.76" }, body: undefined },
+    ]);
+  });
 });
 
 describe("風の格子", () => {
-  const response = {
-    times: ["2026-08-20T12:00", "2026-08-20T13:00"],
-    points: [
-      { latitude: 35.68, longitude: 139.77, wind_speed_ms: [2.5, 3], wind_direction_deg: [90, 95] },
-      { latitude: 35.7, longitude: 139.8, wind_speed_ms: [1, 1.5], wind_direction_deg: [180, 170] },
-    ],
-  };
-  const expected = response.points.map((point) => ({ ...point, times: response.times }));
+  it("関東の格子は、応答に1本だけある時刻の列を各点へ持たせて返す", async () => {
+    stubBackend(() => Response.json(GRID));
 
-  it("固定の格子も詳細の格子も、応答の時刻の列を各点へ配り直す", async () => {
-    stubFetch(response);
-    await expect(weatherApi.getWindGrid()).resolves.toEqual(expected);
-    stubFetch(response);
-    await expect(weatherApi.getWindGridDetail({ minLon: 0, minLat: 0, maxLon: 1, maxLat: 1 }, 0.01)).resolves.toEqual(
-      expected,
-    );
+    expect(await getWindGrid()).toEqual(GRID.points.map((point) => ({ ...point, times: GRID.times })));
   });
 
-  it("詳細の格子は表示範囲と間隔をクエリに付ける", async () => {
-    const url = stubFetch(response);
-    await weatherApi.getWindGridDetail({ minLon: 139.7, minLat: 35.6, maxLon: 139.8, maxLat: 35.7 }, 0.02);
-    expect(Object.fromEntries(url().searchParams)).toEqual({
-      min_lon: "139.7",
-      min_lat: "35.6",
-      max_lon: "139.8",
-      max_lat: "35.7",
-      spacing_deg: "0.02",
-    });
+  it("表示範囲の格子は、範囲の四辺と間隔を問い合わせへ載せ、時刻の列を各点へ持たせて返す", async () => {
+    const sent = stubBackend(() => Response.json(GRID));
+
+    const points = await getWindGridDetail({ minLon: 139.1, minLat: 35.2, maxLon: 139.9, maxLat: 35.8 }, 0.05);
+
+    expect(points).toEqual(GRID.points.map((point) => ({ ...point, times: GRID.times })));
+    expect(sent.map(({ path, query }) => ({ path, query }))).toEqual([
+      {
+        path: "/api/weather/wind-grid-detail",
+        query: { min_lon: "139.1", min_lat: "35.2", max_lon: "139.9", max_lat: "35.8", spacing_deg: "0.05" },
+      },
+    ]);
+  });
+});
+
+describe("失敗", () => {
+  it("どの口も、backendの失敗を空の値で返さずに投げる（呼ぶ側は失敗を画面に出す）", async () => {
+    stubBackend(() => Response.json({}, { status: 502 }));
+    // 口の引数は地点・範囲・無しのどれかで、どれに地点を渡しても要求は出る（失敗の扱いは引数によらない）。
+    const endpoints = Object.entries(weatherApi).map(([name, call]) => ({
+      name,
+      call: call as (point: typeof POINT) => Promise<unknown>,
+    }));
+    expect(endpoints.length).toBeGreaterThan(0);
+
+    for (const { name, call } of endpoints) {
+      await expect(call(POINT), name).rejects.toThrow(Error);
+    }
   });
 });
