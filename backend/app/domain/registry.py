@@ -111,8 +111,8 @@ class TileInputSpec(StrictModel):
 
     `needs_runtime_scale`: タイル生値が実行時にしか決まらない係数でのスケール変換を要する
     材料（例: 収録年数で正規化する前の事故件数）でTrue。`weight`が静的な変換係数を
-    表現できないが、`GET /api/axis-catalog`が配るスケール定数をフロントのJS式が追加で
-    掛けるため、地図表示の対象には含める。`thresholds`は材料スケールの値のままでよい。
+    表現できないが、`GET /api/axis-catalog`が配るスケール定数（`tile_runtime_scales`、
+    `property`で引く）をフロントのJS式が追加で掛けるため、地図表示の対象には含める。`thresholds`は材料スケールの値のままでよい。
     """
 
     property: str = Field(min_length=1)

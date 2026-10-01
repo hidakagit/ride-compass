@@ -43,7 +43,7 @@ def catalog(monkeypatch):
     specs = {
         "num_a": material("num_a", tile_property="p_num_a"),
         "num_b": material("num_b", tile_property="p_num_b"),
-        "num_scaled": material("num_scaled", tile_property="p_scaled", tile_property_needs_runtime_scale=True),
+        "num_scaled": material("num_scaled", tile_property="p_scaled", tile_property_runtime_scale="per_accident_year"),
         "num_dir": material("num_dir", tile_property="p_dir", tile_property_direction_dependent=True),
         "num_notile": material("num_notile"),
         "bool_unknown": material("bool_unknown", dtype="boolean", tile_property="p_bu"),

@@ -163,7 +163,7 @@ function emptyMapStyleFixture() {
 /** `GET /api/axis-catalog`の応答。軸以外（世代・尺度・調整値・事故の収録年）は空で返す。型は契約のもので、
  * 項目を欠いた応答を作れない（欠けると、本物のbackendなら必ず来る値が画面で`undefined`になる）。 */
 export function axisCatalogFixture(axes: ReturnType<typeof catalogEntry>[]): AxisCatalogResponse {
-  return { axes, tile_versions: {}, material_runtime_scales: {}, client_tuning: {}, accident_years: [] };
+  return { axes, tile_versions: {}, tile_runtime_scales: {}, client_tuning: {}, accident_years: [] };
 }
 
 /**

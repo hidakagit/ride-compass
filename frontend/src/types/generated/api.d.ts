@@ -769,10 +769,10 @@ export interface components {
             /** Axes */
             axes: components["schemas"]["AxisCatalogEntry"][];
             /**
-             * Material Runtime Scales
+             * Tile Runtime Scales
              * @default {}
              */
-            material_runtime_scales: {
+            tile_runtime_scales: {
                 [key: string]: number;
             };
             /**
@@ -1813,7 +1813,7 @@ export interface components {
             /** Scores */
             scores: number[];
             /** Material Points */
-            material_points: components["schemas"]["ScorePoint"][];
+            material_points: (components["schemas"]["ScorePoint"] | null)[];
         };
         /** SegmentWind */
         SegmentWind: {

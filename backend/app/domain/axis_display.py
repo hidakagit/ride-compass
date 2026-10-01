@@ -10,7 +10,7 @@
 
 タイルの生値と材料のスケールが実行時にしか決まらない材料は、変換係数を`weight`へ静的に
 焼き込めないため`TileInputSpec.needs_runtime_scale`で印だけ付ける。係数そのものは
-`GET /api/axis-catalog`が返す`material_runtime_scales`をフロントの式が掛け合わせる。
+`GET /api/axis-catalog`が返す`tile_runtime_scales`をフロントの式が掛け合わせる。
 
 段の境界は軸の折れ点のx値をそのまま使うため粗くなることがあり、
 `AxisDefinition.display_thresholds_override`で上書きできる。
@@ -135,7 +135,7 @@ def _resolve_referenced_axis_tile_input(axis_id: str, weight: float) -> TileInpu
     if (
         inner_spec.tile_property is None
         or inner_spec.tile_property_direction_dependent
-        or inner_spec.tile_property_needs_runtime_scale
+        or inner_spec.tile_property_runtime_scale is not None
         or inner_spec.dtype == "boolean"
     ):
         return None
@@ -219,7 +219,7 @@ def _derive_ramp_inputs(
                 TileInputSpec(
                     property=spec.tile_property,
                     weight=term.weight,
-                    needs_runtime_scale=spec.tile_property_needs_runtime_scale,
+                    needs_runtime_scale=spec.tile_property_runtime_scale is not None,
                 )
             )
 

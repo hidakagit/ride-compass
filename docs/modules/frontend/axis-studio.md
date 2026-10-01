@@ -74,7 +74,7 @@ listAxisDefinitions() ──→ definitions（全軸）
 ヒストグラムを返す。DBから抽選して集計する重い問い合わせなので、取得のキー（`useAxisValueDistribution`の
 `termsKey`）に折れ点を含めず、折れ点を動かしても取り直さない。各階級の代表値（中央、`binMidpoints`）の
 点数は、DBを読まない軽い口（`preview-scores`）へ折れ点が落ち着くたびに問い合わせる（`useScoresPreview`）。
-点数の計算は評価と同じ1か所（`BreakpointLinearShape.score_at`）で、画面は届いた点数を帯へまとめる
+点数の計算は評価と同じ1か所（`domain/axis_definitions.py: BreakpointLinearShape.score_at`）で、画面は届いた点数を帯へまとめる
 （`scoreDistribution.ts: scoreBands`）だけ——画面で計算し直すと、同じ折れ点に評価と画面で別の点数が付きうる。
 
 抽選した道が1本も値を持たない（`sample_ways=0`）ときは、全帯0%のバーではなく理由を言葉で
