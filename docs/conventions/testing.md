@@ -59,7 +59,7 @@
 | backendとの通信 | backendを呼ぶ口のモジュール（`services/*Api.ts`・`features/**/*Api.ts`）を`vi.mock`する。通信を包む自前のフック（`hooks/useAxisCatalog.ts: useAxisCatalog`等）は差し替えず、口を差し替えてフックは本物を通す（取得のキャッシュは`vitest.setup.ts`がテストごとに空にする） |
 | 時計 | `vi.useFakeTimers()`で進める。待ち時間の定数や、待つフック（`hooks/useDebouncedValue.ts: useDebouncedValue`）を差し替えない |
 | 環境変数 | 値を**使う側**は、読み取り口のモジュール（`lib/tileBaseUrl.ts: tileBaseUrl`・`lib/adminBasicAuth.ts: adminBasicAuthCredentials`等）を`vi.mock`して値を固定する。`process.env`はテストファイルをまたいで共有されるので、使う側のテストで立てない。立ててよいのは読み取り口そのもののテストだけ（下の「パターン7」） |
-| テスト環境に無いブラウザの機能 | WebGL（`maplibre-gl`）・レイアウトの実寸（`embla-carousel-*`）等。テスト環境が持つもの（`localStorage`・`navigator`の値等。環境変数は上の行）は、それを読むフックを差し替えず、環境に値を置く |
+| テスト環境に無いブラウザの機能 | WebGL（`maplibre-gl`）・レイアウトの実寸（`embla-carousel-*`）等。テスト環境が持つもの（`localStorage`・`navigator`の値等。環境変数は上の行）は、それを読むフックを差し替えず、環境に値を置く。`localStorage`が投げる場面を作るときは`window`のゲッター（`vi.spyOn(window, "localStorage", "get")`）を差し替える——テスト環境（jsdom）の`localStorage`はProxy越しで、`getItem`/`setItem`へ張ったスパイは`vi.restoreAllMocks()`で戻らず、後のテストへ残る |
 | ファイルを落とす | GPXの書き出し等、ブラウザにファイルを保存させる関数 |
 | 子の部品 | 下の条件を満たすときだけ |
 
