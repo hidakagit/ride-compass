@@ -1,24 +1,15 @@
 // @vitest-environment node
 /** 道の線の「不明」（タグが無い）と、分類の外の値（その他・該当なし）の描き分けと隠し方。
  * 式はMapLibreと同じ評価器で評価し、1本の道がどう描かれるか・残るかを見る。 */
-import { createExpression } from "@maplibre/maplibre-gl-style-spec";
 import { describe, expect, it } from "vitest";
 
 import { LEGEND_NO_DATA_KEY } from "@/lib/mapDisplay/mapColorLegend";
+import { evaluateExpression as evaluate } from "@/testing/mapExpressions";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 
 import { ROAD_OTHER_KEY, ROAD_TRACKS, roadLineGroup, roadTrackAxis } from "./roadLines";
 
-const GLOBALS = { zoom: 14 } as never;
 const SOLID = [1, 0];
-
-function evaluate(expression: unknown, properties: Record<string, unknown>) {
-  const compiled = createExpression(expression, "paint");
-  if (compiled.result !== "success") {
-    throw new Error(compiled.value.map((error) => `${error.key}: ${error.message}`).join("; "));
-  }
-  return compiled.value.evaluateWithoutErrorHandling(GLOBALS, { type: 2, properties } as never, {});
-}
 
 type Track = (typeof ROAD_TRACKS)[number];
 

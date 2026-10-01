@@ -1,5 +1,4 @@
 // @vitest-environment node
-import { createExpression } from "@maplibre/maplibre-gl-style-spec";
 import { describe, expect, it } from "vitest";
 
 import { LEGEND_NO_DATA_KEY } from "@/lib/mapDisplay/mapColorLegend";
@@ -8,6 +7,7 @@ import palette from "@/types/generated/palette.json";
 
 import { rampAxesFromCatalogAxes, type RampAxis } from "@/lib/mapDisplay/axisLayers";
 import { rampEntry } from "@/testing/catalogAxes";
+import { evaluateExpression as evaluate } from "@/testing/mapExpressions";
 
 import { axisLineGroup, buildAxisRampValueExpression, type AxisLineState } from "./axisLines";
 
@@ -50,7 +50,6 @@ describe("レンズの線の濃さ", () => {
 
 // 以下は式をMapLibreと同じ評価器（docs/architecture/tech-stack.md）で実際に評価し、
 // 1本の道がどの色になるか・残るかを見る。式の形を見ると、同じ意味の別の書き方で落ちる。
-const GLOBALS = { zoom: 14 } as never;
 const TRANSPARENT = "rgba(0,0,0,0)";
 
 /** 上の段から並べた3段（applyToMapが渡す順）。 */
@@ -73,14 +72,6 @@ function layerFor(value: AxisLineState["axes"][number]["value"], hiddenBandKeys:
     axes: [{ axisId: "ax", visible: true, bands: THREE_BANDS, value, hiddenBandKeys, underlay: false }],
   };
   return axisLineGroup.build(state).layers[0];
-}
-
-function evaluate(expression: unknown, properties: Record<string, unknown>, state: Record<string, unknown> = {}) {
-  const compiled = createExpression(expression, "paint");
-  if (compiled.result !== "success") {
-    throw new Error(compiled.value.map((error) => `${error.key}: ${error.message}`).join("; "));
-  }
-  return compiled.value.evaluateWithoutErrorHandling(GLOBALS, { type: 2, properties } as never, state);
 }
 
 describe("レンズの線の線種", () => {

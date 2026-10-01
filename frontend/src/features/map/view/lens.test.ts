@@ -1,5 +1,4 @@
 // @vitest-environment node
-import { featureFilter, type FilterSpecification } from "@maplibre/maplibre-gl-style-spec";
 import { describe, expect, it } from "vitest";
 
 import { axisCatalogFromResponse } from "@/lib/axisCatalog";
@@ -7,6 +6,7 @@ import { LEGEND_NO_DATA_KEY } from "@/lib/mapDisplay/mapColorLegend";
 import { DEFAULT_DIFFICULTY_BOUNDARIES } from "@/lib/mapDisplay/valueScale";
 
 import { catalogEntry, catalogOf, dedicatedEntry, rampEntry, tileInput } from "@/testing/catalogAxes";
+import { matchesFilter as matches } from "@/testing/mapExpressions";
 import { isRouteStyleModeId, lensLegend, lensOptions, paintedAxisId } from "./lens";
 
 /** 道の値として読む材料。 */
@@ -40,17 +40,6 @@ const catalog = catalogOf([
   dedicatedEntry("dedicated", [1, 3], { map_value_unit: "m/s" }),
   dedicatedEntry("defaults", [], { map_value_thresholds: null }),
 ]);
-
-/** 凡例の行の述語が、その値の道に当てはまるか（MapLibreと同じ評価器で評価する）。 */
-function matches(filter: unknown, properties: Record<string, unknown>): boolean {
-  return featureFilter(filter as FilterSpecification, "filter").filter(
-    { zoom: 14 } as never,
-    {
-      type: 2,
-      properties,
-    } as never,
-  );
-}
 
 describe("paintedAxisId（全道路を塗る軸）", () => {
   it("ルートを確定するまではレンズの軸、確定後は周囲も塗り続ける設定の間だけ", () => {
