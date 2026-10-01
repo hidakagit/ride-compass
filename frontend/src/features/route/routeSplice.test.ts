@@ -27,7 +27,11 @@ function path(nodes: string) {
   };
 }
 
-const noSplit = { minSplitLengthKm: Number.POSITIVE_INFINITY };
+/** 元の経路の形`baseShape`に対して、区間を割らずに代替を集めるときの指定。 */
+const noSplit = (baseShape: Parameters<typeof stretchAlternativeGroups>[2]["baseShape"]) => ({
+  baseShape,
+  minSplitLengthKm: Number.POSITIVE_INFINITY,
+});
 
 describe("stretchCoordinateRange（区間が座標列のどこにあたるか）", () => {
   it("区間の始まりと終わりのEdgeの始点の位置", () => {
@@ -46,7 +50,7 @@ describe("stretchAlternativeGroups（区間ごとに、差し替えられる道�
   const base = path("ABCDE");
 
   it("元と別の道を通る区間を、相手側の範囲と差し替え後のEdgeとともに返す", () => {
-    const groups = stretchAlternativeGroups(base.edgeIds, [{ id: "t", ...path("ABXDE") }], noSplit);
+    const groups = stretchAlternativeGroups(base.edgeIds, [{ id: "t", ...path("ABXDE") }], noSplit(base.shape));
     expect(groups).toEqual([
       {
         stretch: { start: 1, end: 3 },
@@ -63,7 +67,8 @@ describe("stretchAlternativeGroups（区間ごとに、差し替えられる道�
   });
 
   it("別の道を通る区間が複数あれば、起点に近い順に1つずつの選択単位になる", () => {
-    const groups = stretchAlternativeGroups(path("ABCDEF").edgeIds, [{ id: "t", ...path("AXCDYF") }], noSplit);
+    const longer = path("ABCDEF");
+    const groups = stretchAlternativeGroups(longer.edgeIds, [{ id: "t", ...path("AXCDYF") }], noSplit(longer.shape));
     expect(groups.map((group) => group.stretch)).toEqual([
       { start: 0, end: 2 },
       { start: 3, end: 5 },
@@ -71,16 +76,17 @@ describe("stretchAlternativeGroups（区間ごとに、差し替えられる道�
   });
 
   it("末尾まで分かれたままの区間も1つの区間になる", () => {
-    const groups = stretchAlternativeGroups(base.edgeIds, [{ id: "t", ...path("ABCDY") }], noSplit);
+    const groups = stretchAlternativeGroups(base.edgeIds, [{ id: "t", ...path("ABCDY") }], noSplit(base.shape));
     expect(groups.map((group) => group.options.map((option) => option.edgeIds))).toEqual([[["DY"]]]);
     expect(groups[0].stretch).toEqual({ start: 3, end: 4 });
   });
 
   it("元と同じ道の候補・区間の数が食い違う候補からは、何も出さない", () => {
-    expect(stretchAlternativeGroups(base.edgeIds, [{ id: "same", ...path("ABCDE") }], noSplit)).toEqual([]);
-    // 元はQQの1か所で分かれるが、相手はBCの前後の2か所で分かれる（Edgeの並びが対応しない）。
-    const mismatched = { id: "m", edgeIds: ["AB", "XY", "BC", "ZW", "CD"] };
-    expect(stretchAlternativeGroups(["AB", "BC", "QQ", "CD"], [mismatched], noSplit)).toEqual([]);
+    expect(stretchAlternativeGroups(base.edgeIds, [{ id: "same", ...path("ABCDE") }], noSplit(base.shape))).toEqual([]);
+    // 元はQQの1か所で分かれるが、相手はBCの前後の2か所で分かれる（Edgeの並びが対応しない）。形は区間の対応が
+    // 取れた後にだけ読まれるので、Edgeの数に長さを合わせた形を添える。
+    const mismatched = { id: "m", edgeIds: ["AB", "XY", "BC", "ZW", "CD"], shape: path("ABXCYD").shape };
+    expect(stretchAlternativeGroups(["AB", "BC", "QQ", "CD"], [mismatched], noSplit(base.shape))).toEqual([]);
   });
 
   it("同じ区間を同じ道へ差し替える代替は、候補が違っても1つにまとめる（先に来た候補を残す）", () => {
@@ -90,7 +96,7 @@ describe("stretchAlternativeGroups（区間ごとに、差し替えられる道�
         { id: "t1", ...path("ABXDE") },
         { id: "t2", ...path("ABXDE") },
       ],
-      noSplit,
+      noSplit(base.shape),
     );
     expect(groups.flatMap((group) => group.options.map((option) => option.candidateId))).toEqual(["t1"]);
   });
@@ -102,14 +108,14 @@ describe("stretchAlternativeGroups（区間ごとに、差し替えられる道�
         { id: "t1", ...path("ABXDE") },
         { id: "t2", ...path("ABCYE") },
       ],
-      noSplit,
+      noSplit(base.shape),
     );
     expect(groups).toHaveLength(1);
     expect(groups[0].stretch).toEqual({ start: 1, end: 4 });
     expect(groups[0].options.map((option) => option.candidateId)).toEqual(["t1", "t2"]);
   });
 
-  describe("形（座標・Node）を持つとき", () => {
+  describe("形（座標・Node）で区間を割る・折り返しを除く", () => {
     // 元 A→E（真っすぐ）と、相手 A→X→C→Y→E。2本はCで接するが、同じEdgeは通らない。
     const target = { id: "t", ...path("AXCYE") };
 
@@ -134,21 +140,8 @@ describe("stretchAlternativeGroups（区間ごとに、差し替えられる道�
       expect(groups.map((group) => group.options.map((option) => option.edgeIds))).toEqual([[["BX", "XD"]]]);
     });
 
-    it("元か相手の形が無ければ割らない", () => {
-      const withoutTargetShape = stretchAlternativeGroups(base.edgeIds, [{ id: "t", edgeIds: target.edgeIds }], {
-        baseShape: base.shape,
-        minSplitLengthKm: 1,
-      });
-      const withoutBaseShape = stretchAlternativeGroups(base.edgeIds, [target], { minSplitLengthKm: 1 });
-      expect(withoutTargetShape).toHaveLength(1);
-      expect(withoutBaseShape).toHaveLength(1);
-    });
-
     it("差し替えても元の別の地点へ触れない代替は出す", () => {
-      const groups = stretchAlternativeGroups(base.edgeIds, [{ id: "t", ...path("ABXDE") }], {
-        baseShape: base.shape,
-        ...noSplit,
-      });
+      const groups = stretchAlternativeGroups(base.edgeIds, [{ id: "t", ...path("ABXDE") }], noSplit(base.shape));
       expect(groups).toHaveLength(1);
     });
 
@@ -158,11 +151,7 @@ describe("stretchAlternativeGroups（区間ごとに、差し替えられる道�
       // 相手はB→X→Z→X→Dと、自分の中で同じ地点を2度通る。
       const loopsItself = { id: "loop", ...path("ABXZXDE") };
       for (const candidate of [touchesAhead, loopsItself]) {
-        expect(stretchAlternativeGroups(base.edgeIds, [candidate], { baseShape: base.shape, ...noSplit })).toEqual([]);
-        // 形が無ければ見分けられず、代替として出る（判定は形があるときだけ）。
-        expect(
-          stretchAlternativeGroups(base.edgeIds, [{ id: candidate.id, edgeIds: candidate.edgeIds }], noSplit),
-        ).not.toEqual([]);
+        expect(stretchAlternativeGroups(base.edgeIds, [candidate], noSplit(base.shape))).toEqual([]);
       }
     });
   });
@@ -185,11 +174,8 @@ describe("buildSplicedShape（選んだ乗り換えを順に当てた経路の�
   }
 
   it("区間を相手の道へ差し替え、継ぎ目の点を重ねずに座標とEdgeの境界をつなぐ", () => {
-    const [option] = stretchAlternativeGroups(
-      base.edgeIds,
-      [{ id: "short", edgeIds: path("ABXDE").edgeIds }],
-      noSplit,
-    )[0].options;
+    const [option] = stretchAlternativeGroups(base.edgeIds, [{ id: "short", ...path("ABXDE") }], noSplit(base.shape))[0]
+      .options;
     const spliced = buildSplicedShape(baseShape, [option], shapeOf);
     expect(spliced.edgeIds).toEqual(["AB", "BX", "XD", "DE"]);
     expect(spliced.nodeIds).toEqual([..."ABXDE"]);
@@ -200,8 +186,8 @@ describe("buildSplicedShape（選んだ乗り換えを順に当てた経路の�
   it("差し替えた道のほうが長くても、後ろのEdgeの境界がずれない", () => {
     const [option] = stretchAlternativeGroups(
       base.edgeIds,
-      [{ id: "long", edgeIds: path("ABXZYDE").edgeIds }],
-      noSplit,
+      [{ id: "long", ...path("ABXZYDE") }],
+      noSplit(base.shape),
     )[0].options;
     const spliced = buildSplicedShape(baseShape, [option], shapeOf);
     expect(spliced.nodeIds).toEqual([..."ABXZYDE"]);
@@ -209,13 +195,13 @@ describe("buildSplicedShape（選んだ乗り換えを順に当てた経路の�
   });
 
   it("乗り換えは順に積み上げる（2手目は1手目を当てた後の形に対する位置）", () => {
-    const first = stretchAlternativeGroups(base.edgeIds, [{ id: "short", edgeIds: path("ABXDE").edgeIds }], noSplit)[0]
+    const first = stretchAlternativeGroups(base.edgeIds, [{ id: "short", ...path("ABXDE") }], noSplit(base.shape))[0]
       .options[0];
     const afterFirst = buildSplicedShape(baseShape, [first], shapeOf);
     const second = stretchAlternativeGroups(
       afterFirst.edgeIds,
-      [{ id: "long", edgeIds: path("ABXZYDE").edgeIds }],
-      noSplit,
+      [{ id: "long", ...path("ABXZYDE") }],
+      noSplit(afterFirst),
     )[0].options[0];
     const spliced = buildSplicedShape(baseShape, [first, second], shapeOf);
     expect(spliced.nodeIds).toEqual([..."ABXZYDE"]);

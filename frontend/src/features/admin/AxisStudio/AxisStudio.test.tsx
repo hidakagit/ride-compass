@@ -117,7 +117,7 @@ function axisCatalog(overrides: Partial<AxisCatalog> = {}): AxisCatalog {
 }
 
 function rampAxis(axisId: string): RampAxis {
-  return rampAxesFromCatalogAxes([rampEntry(axisId, [])])[0];
+  return rampAxesFromCatalogAxes([rampEntry(axisId, [])], {})[0];
 }
 
 beforeEach(() => {

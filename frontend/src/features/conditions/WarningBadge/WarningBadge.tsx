@@ -43,7 +43,7 @@ export interface WarningFetchFailure {
 
 interface WarningBadgeListProps {
   items: WarningBadgeItem[];
-  failures?: readonly WarningFetchFailure[];
+  failures: readonly WarningFetchFailure[];
 }
 
 // 段階の並び（軽い→重い）と、出所ごとの呼び名・色は、backendの宣言（domain/warning_display.py）が配る。
@@ -67,7 +67,7 @@ function highestLevelItem(items: readonly WarningBadgeItem[]): WarningBadgeItem 
 // 方針自体は変えず（警報の存在に気づけないことを避ける）、ボタンの文言・色だけで
 // 「今の最高警戒度」が常に分かり、内訳は開かないと見えないぶん、常時全件表示より
 // 一歩踏み込む操作が要るという妥当なトレードオフ。
-export default function WarningBadgeList({ items, failures = [] }: WarningBadgeListProps) {
+export default function WarningBadgeList({ items, failures }: WarningBadgeListProps) {
   return (
     <>
       {items.length > 0 && <WarningSummary items={items} />}

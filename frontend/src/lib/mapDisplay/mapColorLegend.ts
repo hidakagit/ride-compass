@@ -50,13 +50,13 @@ function rangeStepLabel(lower: number | null, upper: number | null, unit: string
   return `${lower}〜${upper}${unit}`;
 }
 
-/** 境界（昇順、段の数−1件）と色（段の数ぶん）から凡例の段を組む。`labels`（段の数ぶん）を渡すと、範囲の前に体感ラベル
+/** 境界（昇順、段の数−1件）と色（段の数ぶん）から凡例の段を組む。`labels`（段の数ぶん）があれば、範囲の前に体感ラベル
  * を添える（例:「強い向かい風（2〜6m/s）」）。 */
 export function buildRangeLegendBands(
   boundaries: readonly number[],
   colors: readonly string[],
   unit: string,
-  labels?: readonly string[],
+  labels: readonly string[] | undefined,
 ): MapColorLegendBand[] {
   return colors.map((color, index) => {
     const lower = index === 0 ? null : boundaries[index - 1];

@@ -60,8 +60,8 @@ export default function SystemStatusPanel({ open, onClose }: SystemStatusPanelPr
       open={open}
       onClose={onClose}
       title="システム状況"
-      // デバッグログパネル（topRem既定4.25）と同時に開いても両方のヘッダーが見える位置まで
-      // 下へずらす（同じ既定位置だと後から開いた方が完全に覆い隠してしまうため）。
+      // デバッグログパネル（`components/DebugConsole/DebugConsole.tsx: DebugConsole`）と同時に開いても
+      // 両方のヘッダーが見えるよう、それより下に置く（同じ位置だと後から開いた方が完全に覆い隠す）。
       // ドラッグで動かせるので、重なった場合はどちらかを移動すればよい。
       topRem={8.5}
       widthRem={24}

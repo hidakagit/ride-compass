@@ -89,7 +89,7 @@ describe("符号付き材料の配色（0を境に分ける）", () => {
 
 describe("valueBands", () => {
   it("段ごとに下限（最下段は-∞）を持ち、色は値の種類の配色に従う", () => {
-    const bands = valueBands("signed_material", [-2, 2], "%");
+    const bands = valueBands("signed_material", [-2, 2], "%", undefined);
 
     expect(bands.map(({ lowerBound, color, label }) => ({ lowerBound, color, label }))).toEqual([
       { lowerBound: Number.NEGATIVE_INFINITY, color: DESCENT, label: "-2%未満" },

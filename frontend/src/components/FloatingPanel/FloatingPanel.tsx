@@ -9,13 +9,13 @@ interface FloatingPanelProps {
   onClose: () => void;
   title: string;
   /** 閉じるボタンの手前に置くパネルごとのボタン。 */
-  headerButtons?: ReactNode;
+  headerButtons: ReactNode;
   children: ReactNode;
-  /** 開いたときの上端（rem）。既定は天候ヘッダのすぐ下。 */
-  topRem?: number;
-  widthRem?: number;
+  /** 開いたときの上端（rem）。 */
+  topRem: number;
+  widthRem: number;
   /** 本文の最大の高さ（px）。超えたぶんは本文の中でスクロールする。 */
-  maxHeightPx?: number;
+  maxHeightPx: number;
 }
 
 /** 開発者向けのパネル（デバッグログ・システム状況）の共通の殻。画面に浮かべ、見出しのつまみで動かせる（画面の外へは
@@ -26,9 +26,9 @@ export default function FloatingPanel({
   title,
   headerButtons,
   children,
-  topRem = 4.25,
-  widthRem = 22,
-  maxHeightPx = 420,
+  topRem,
+  widthRem,
+  maxHeightPx,
 }: FloatingPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const rndRef = useRef<Rnd>(null);

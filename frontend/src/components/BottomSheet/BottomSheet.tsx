@@ -12,7 +12,7 @@ interface BottomSheetProps {
   title: string;
   titleId: string;
   /** 見出しの行の右、閉じるボタンの手前に置く操作。 */
-  headerAction?: React.ReactNode;
+  headerAction: React.ReactNode;
   /** 見出しのすぐ右に置くもの（中身を切り替えるタブ等、右の操作と役割が違うもの）。 */
   headerLead?: React.ReactNode;
   children: React.ReactNode;
@@ -22,8 +22,8 @@ interface BottomSheetProps {
   onHeightChange: (vh: number) => void;
   /** 操作を終えたときだけ呼ばれる（保存用）。 */
   onHeightCommit: (vh: number) => void;
-  /** 中身に合わせて高さを決めるか（既定true）。利用者が高さを決めた後はfalseにし、その高さを保つ。 */
-  autoFitHeight?: boolean;
+  /** 中身に合わせて高さを決めるか。利用者が高さを決めた後はfalseにし、その高さを保つ。 */
+  autoFitHeight: boolean;
   /** 変わったら中身が別物になったとみなして高さを合わせ直す（タブの切り替え等）。 */
   fitKey?: string;
 }
@@ -63,7 +63,7 @@ export default function BottomSheet({
   heightVh,
   onHeightChange,
   onHeightCommit,
-  autoFitHeight = true,
+  autoFitHeight,
   fitKey,
 }: BottomSheetProps) {
   const sheetRef = useRef<HTMLDivElement>(null);

@@ -2,10 +2,12 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import FloatingPanel from "./FloatingPanel";
 
+const PLACEMENT = { topRem: 4, widthRem: 20, maxHeightPx: 400 };
+
 describe("FloatingPanel", () => {
   it("open:falseのときは何も描画しない", () => {
     const { container } = render(
-      <FloatingPanel open={false} onClose={() => {}} title="テストパネル">
+      <FloatingPanel open={false} onClose={() => {}} title="テストパネル" headerButtons={null} {...PLACEMENT}>
         本文
       </FloatingPanel>,
     );
@@ -14,7 +16,7 @@ describe("FloatingPanel", () => {
 
   it("open:trueのときタイトル・本文・headerButtonsを描画する", () => {
     render(
-      <FloatingPanel open onClose={() => {}} title="テストパネル" headerButtons={<button>更新</button>}>
+      <FloatingPanel open onClose={() => {}} title="テストパネル" headerButtons={<button>更新</button>} {...PLACEMENT}>
         本文テキスト
       </FloatingPanel>,
     );
@@ -26,7 +28,7 @@ describe("FloatingPanel", () => {
   it("閉じるボタンでonCloseが呼ばれる", () => {
     const onClose = vi.fn();
     render(
-      <FloatingPanel open onClose={onClose} title="テストパネル">
+      <FloatingPanel open onClose={onClose} title="テストパネル" headerButtons={null} {...PLACEMENT}>
         本文
       </FloatingPanel>,
     );

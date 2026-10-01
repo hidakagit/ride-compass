@@ -144,7 +144,7 @@ export function valueBands(
   kind: MapValueKind,
   boundaries: readonly number[],
   unit: string,
-  bandLabels?: readonly string[] | null,
+  bandLabels: readonly string[] | null | undefined,
 ): ValueBand[] {
   const colors = bandColorsFor(kind, boundaries);
   const labels = bandLabelsForBandCount(bandLabels, colors.length);
