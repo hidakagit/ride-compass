@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 
 import { createRecordingMap } from "@/testing/mapTrace/recordingMap";
 import { applyScene, sceneInputsFrom } from "@/features/map/scene/applyToMap";
-import { sceneState } from "@/features/map/scene/__fixtures__/sceneState";
+import { sceneState } from "@/testing/sceneState";
 import { buildMapScene } from "@/features/map/scene/buildScene";
 import type { DynamicWeatherGroupState } from "@/features/map/layers/dynamicWeather";
 

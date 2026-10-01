@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { setTileVersions } from "@/services/regionApi";
 import { createRecordingMap } from "@/testing/mapTrace/recordingMap";
-import { catalogEntry, tileInput } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
+import { catalogEntry, tileInput } from "@/testing/catalogAxes";
 import { dedicatedWayValueAxesFromCatalogAxes, rampAxesFromCatalogAxes } from "@/lib/mapDisplay/axisLayers";
 import { AREA_SOURCE_ID } from "@/features/map/scene/groups/areaRasters";
 import { POINT_LAYERS, pointSourceId } from "@/features/map/scene/groups/points";
@@ -18,7 +18,7 @@ import { pointLegendAxes, roadLegendAxes } from "@/features/map/scene/legends";
 import { LEGEND_NO_DATA_KEY } from "@/lib/mapDisplay/mapColorLegend";
 import { dedicatedAxisBands, rampAxisBands } from "@/lib/mapDisplay/valueScale";
 import { applyScene, sceneInputsFrom } from "@/features/map/scene/applyToMap";
-import { sceneState, type SceneState, type SceneStateOverrides } from "@/features/map/scene/__fixtures__/sceneState";
+import { sceneState, type SceneState, type SceneStateOverrides } from "@/testing/sceneState";
 import { buildMapScene } from "@/features/map/scene/buildScene";
 import { sceneLayerId } from "@/features/map/scene/sceneBuilders";
 import { mapDisplay } from "@/types/generated/mapDisplay";

@@ -14,7 +14,7 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { axisCatalogFromResponse, EMPTY_CATALOG, type AxisCatalog } from "@/lib/axisCatalog";
-import { catalogEntry } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
+import { catalogEntry } from "@/testing/catalogAxes";
 import { LENS_DIFFICULTY_ID, LENS_NONE_ID } from "@/lib/mapDisplay/routeStyleModes";
 import { setResearchEnabled } from "@/lib/researchMode";
 import { makeRouteCandidate } from "@/testing/routeFixtures";

@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { setDebugEnabled } from "@/lib/debugLog";
 import { catalogAxisFromEntry, type CatalogAxis } from "@/lib/catalogAxis";
-import { catalogEntry } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
+import { catalogEntry } from "@/testing/catalogAxes";
 import { fetchAxisInspector } from "@/services/regionApi";
 import materialCatalog from "@/types/generated/material-catalog.json";
 import type { AxisInspectorResult } from "@/types/traffic";

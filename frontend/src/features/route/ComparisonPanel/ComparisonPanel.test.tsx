@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import type { AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
 import { catalogAxisFromEntry, type CatalogAxis } from "@/lib/catalogAxis";
-import { catalogEntry } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
+import { catalogEntry } from "@/testing/catalogAxes";
 import { makeRouteCandidate } from "@/testing/routeFixtures";
 import type { ExperimentSlot } from "@/types/experimentSlot";
 import type { GenerationConditions, RouteCandidate } from "@/types/route";

@@ -2,13 +2,13 @@
 /**
  * `axisLayers.ts`——軸カタログの軸から、タイルの材料で塗るramp軸と軸の名前の辞書を作ること。
  *
- * 軸は架空のもの（`__fixtures__/catalogAxes.ts`）。
+ * 軸は架空のもの（`testing/catalogAxes.ts`）。
  */
 import { describe, expect, it } from "vitest";
 
 import { catalogAxisFromEntry } from "@/lib/catalogAxis";
 
-import { catalogEntry, tileInput } from "./__fixtures__/catalogAxes";
+import { catalogEntry, tileInput } from "@/testing/catalogAxes";
 import { axisLabelsFromCatalogAxes, rampAxesFromCatalogAxes } from "./axisLayers";
 
 describe("rampAxesFromCatalogAxes", () => {
