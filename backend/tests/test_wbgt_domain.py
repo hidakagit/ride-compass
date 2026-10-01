@@ -1,6 +1,6 @@
 """`domain/wbgt.py`——暑さ指数から警戒レベルを決める。
 
-取得・キャッシュは`test_wbgt_service.py`、地点の解決は`test_wbgt_points.py`が持つ。
+取得・キャッシュは`test_wbgt_service.py`、地点の解決は`test_geo.py`（最寄りの点）が持つ。
 """
 
 from datetime import date, datetime

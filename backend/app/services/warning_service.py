@@ -5,10 +5,10 @@ from __future__ import annotations
 import httpx
 
 from app.domain.jma_area import ResolvedArea, resolve_area
-from app.domain.jma_warning import ActiveWarning, extract_active_warnings
+from app.domain.jma_warning import ActiveWarning, WarningBulletin, extract_active_warnings
 from app.domain.route import Coordinates
 from app.infrastructure.jma_area_boundaries import AreaBoundariesUnavailableError, find_class20_code
-from app.infrastructure.jma_warning_client import WarningBulletin, fetch_area_data, fetch_warning_documents
+from app.infrastructure.jma_warning_client import fetch_area_data, fetch_warning_documents
 from app.domain.strict_model import StrictModel
 
 
@@ -64,11 +64,7 @@ def _build_warnings(bulletins: list[WarningBulletin], resolved: ResolvedArea) ->
     latest_report_datetime: str | None = None
 
     for bulletin in bulletins:
-        kinds = bulletin.class20_kinds.get(resolved.class20_code)
-        if kinds is None:
-            # 一部の電文（例: 高潮）は対象外の地域だと区域の項目を持たないことがあるため、
-            # 二次細分区域でも探す。
-            kinds = bulletin.class10_kinds.get(resolved.class10_code)
+        kinds = bulletin.kinds_for(resolved.class20_code, resolved.class10_code)
         if kinds is None:
             continue
 

@@ -14,7 +14,7 @@ from cachetools import TTLCache
 from app.domain.jma_area import AreaEntry, AreaMaster
 from app.domain.jma_warning import AreaWarningKind
 from app.infrastructure import jma_warning_client
-from app.infrastructure.jma_warning_client import WarningBulletin
+from app.domain.jma_warning import WarningBulletin
 from tests.fake_api_http import FakeHttpClient, HttpStatusErrorHttpClient
 
 #: 地域マスタの千代田区から府県予報区までの行（実際の応答の形のまま。`children`等は使わない）。

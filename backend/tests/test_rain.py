@@ -7,7 +7,6 @@ from app.domain.rain import (
     RAIN_HISTORY_HOURS,
     RAIN_MATERIAL_IDS,
     RAIN_WINDOW_HOURS,
-    nearest_point_indices,
     rain_material_values,
     rain_window_material_id,
 )
@@ -56,21 +55,3 @@ def test_every_rain_material_gets_a_value_per_station():
     values = rain_material_values(np.vstack([_history(1.0), _history(0.0)]))
     assert set(values) == set(RAIN_MATERIAL_IDS)
     assert all(len(array) == 2 for array in values.values())
-
-
-def test_nearest_point_matches_the_great_circle_nearest():
-    """格子で候補を絞っても、全点と比べた球面の最寄りと同じ点になる。地点を密に撒き、候補が2つ以上
-    残る格子（最寄りの境目の近く）にも多く当てる。"""
-    rng = np.random.default_rng(0)
-    station_lat = rng.uniform(34.0, 37.0, 300)
-    station_lon = rng.uniform(138.0, 141.0, 300)
-    lat = rng.uniform(34.5, 36.5, 20000)
-    lon = rng.uniform(138.5, 140.5, 20000)
-
-    phi1, phi2 = np.radians(lat)[:, None], np.radians(station_lat)[None, :]
-    dphi = phi2 - phi1
-    dlmb = np.radians(station_lon)[None, :] - np.radians(lon)[:, None]
-    haversine = np.sin(dphi / 2) ** 2 + np.cos(phi1) * np.cos(phi2) * np.sin(dlmb / 2) ** 2
-    expected = np.argmin(haversine, axis=1)
-
-    assert (nearest_point_indices(lat, lon, station_lat, station_lon) == expected).all()

@@ -1,7 +1,7 @@
 """`domain/geo.py`——球面上の距離・方位角と、方位の呼び名。
 
 ここで見ないもの:
-- 距離・方位を使う側（最近傍探索・A*のヒューリスティック・風の向かい風成分）→ それぞれの持ち主のテスト
+- 距離・方位を使う側（A*のヒューリスティック・風の向かい風成分）→ それぞれの持ち主のテスト
 
 地点は`LatLonPoint`（このモジュールが持つ最小の緯度経度の型）で与える。期待値は球面幾何の事実
 （赤道上の東西・子午線上の南北・4分の1周・対蹠点）から作り、式を書き写さない。
@@ -10,6 +10,7 @@
 import math
 from typing import NamedTuple
 
+import numpy as np
 import pytest
 
 from app.domain import geo
@@ -132,3 +133,52 @@ def test_anything_with_a_latitude_and_a_longitude_can_be_measured():
         geo.haversine_distance_km(P(0.0, 0.0), P(0.0, 1.0))
     )
     assert geo.bearing_between(_Node(1, 0.0, 0.0), _Node(2, 0.0, 1.0)) == pytest.approx(90.0)
+
+
+# ---- 最寄りの点 ----
+
+
+def test_nearest_point_matches_the_great_circle_nearest():
+    """格子で候補を絞っても、全点と比べた球面の最寄りと同じ点になる。地点を密に撒き、候補が2つ以上
+    残る格子（最寄りの境目の近く）にも多く当てる。"""
+    rng = np.random.default_rng(0)
+    station_lat = rng.uniform(34.0, 37.0, 300)
+    station_lon = rng.uniform(138.0, 141.0, 300)
+    lat = rng.uniform(34.5, 36.5, 20000)
+    lon = rng.uniform(138.5, 140.5, 20000)
+
+    phi1, phi2 = np.radians(lat)[:, None], np.radians(station_lat)[None, :]
+    dphi = phi2 - phi1
+    dlmb = np.radians(station_lon)[None, :] - np.radians(lon)[:, None]
+    haversine = np.sin(dphi / 2) ** 2 + np.cos(phi1) * np.cos(phi2) * np.sin(dlmb / 2) ** 2
+    expected = np.argmin(haversine, axis=1)
+
+    assert (geo.nearest_point_indices(lat, lon, station_lat, station_lon) == expected).all()
+
+
+def _nearest(latitude, longitude, points):
+    return geo.nearest_point_index(
+        latitude, longitude, np.array([p.latitude for p in points]), np.array([p.longitude for p in points])
+    )
+
+
+def test_the_closest_point_is_chosen():
+    assert _nearest(35.1, 139.1, [P(40.0, 145.0), P(35.0, 139.0)]) == 1
+
+
+def test_an_empty_list_has_no_nearest_point():
+    """既定の点へ倒さない——無関係な土地の観測値が出る。"""
+    assert _nearest(35.0, 139.0, []) is None
+
+
+def test_longitude_differences_shrink_with_latitude():
+    """緯度45度では経度1度は緯度1度の約0.71倍の距離しかない。緯度経度の差をそのまま比べると
+    両者は同距離に見え、先に並んでいる北の点が選ばれてしまう。
+    """
+    assert _nearest(45.0, 140.0, [P(46.0, 140.0), P(45.0, 141.0)]) == 1
+
+
+def test_points_at_the_same_distance_go_to_the_one_listed_first():
+    """赤道では経度1度と緯度1度が同じ距離になる。"""
+    assert _nearest(0.0, 0.0, [P(1.0, 0.0), P(0.0, 1.0)]) == 0
+    assert _nearest(0.0, 0.0, [P(0.0, 1.0), P(1.0, 0.0)]) == 0

@@ -6,13 +6,11 @@
 `AreaMaster`・`WarningBulletin`で渡す。
 """
 
-from dataclasses import dataclass
-
 import httpx
 from cachetools import TTLCache
 
 from app.domain.jma_area import AreaEntry, AreaMaster
-from app.domain.jma_warning import AreaWarningKind
+from app.domain.jma_warning import AreaWarningKind, WarningBulletin
 from app.infrastructure.simple_api_client import UnexpectedShapeError, cached_fetch
 
 JMA_AREA_JSON_URL = "https://www.jma.go.jp/bosai/common/const/area.json"
@@ -31,16 +29,6 @@ REQUEST_TIMEOUT = httpx.Timeout(connect=3.0, read=5.0, write=5.0, pool=5.0)
 _area_data_cache: TTLCache = TTLCache(maxsize=1, ttl=_AREA_DATA_CACHE_TTL_SECONDS)
 _warning_cache: TTLCache = TTLCache(maxsize=256, ttl=_WARNING_CACHE_TTL_SECONDS)
 _AREA_DATA_CACHE_KEY = "area"
-
-
-@dataclass(frozen=True)
-class WarningBulletin:
-    """警報・注意報の電文1件。地域のコード→その地域の種別。電文が地域の項目を持たない
-    （例: 高潮の電文は対象外の地域の区域を載せないことがある）なら、その地域のキーが無い。"""
-
-    report_datetime: str | None
-    class20_kinds: dict[str, tuple[AreaWarningKind, ...]]
-    class10_kinds: dict[str, tuple[AreaWarningKind, ...]]
 
 
 def _parse_area_entries(section: object) -> dict[str, AreaEntry]:

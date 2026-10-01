@@ -205,8 +205,8 @@ Pythonの値、ルート選びは材料の型ごとの配列で、分類の材�
 | `evaluate_axes_inputs(materials, length)` | 同じ入力から、公開軸ごとに得点へ写す前の値（折れ点の軸は生値、対応表の軸は引く材料の値）を返す。他の軸を読む軸の生値は、読んだ軸の得点から求める。飽和の計測が使う |
 | `raw_values(shape, materials, length)` | 折れ点を通す前の生値をPythonの値の並びから求める。保存前の`shape`を受け取れるため分布プレビューが使う |
 
-折れ線の得点は小数1桁へ丸め、Pythonの`round()`と同じ値へ丸める
-（`axis_templates.round1_array`。2進の実際の値で丸める）——`np.round`は×10の丸め誤差で、端数がちょうど`.x5`の値を別の側へ丸める。
+折れ線の得点は難易度の桁へ丸め、Pythonの`round()`と同じ値へ丸める
+（`domain/difficulty.py: round_difficulty_array`。2進の実際の値で丸める）——`np.round`は×10の丸め誤差で、端数がちょうど`.x5`の値を別の側へ丸める。
 
 `topological_axis_order`は深さ優先探索でトポロジカルソートし、結果を内容ベースの
 キー（各軸の`materials`）でメモ化する（件数上限つきの`cachetools.LRUCache`。軸スタジオの

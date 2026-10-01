@@ -14,7 +14,7 @@
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `wind.py`・`wind_grid.py`・`gradient.py`・`rain.py`（雨の材料の宣言——窓の長さの一覧——と、1時間雨量の履歴から材料の値を求める計算・最寄りの観測所の選び方）・`dynamic_way_values.py` |
+| domain | `wind.py`・`wind_grid.py`・`gradient.py`・`rain.py`（雨の材料の宣言——窓の長さの一覧——と、1時間雨量の履歴から材料の値を求める計算・配ってよい履歴の古さ）・`dynamic_way_values.py` |
 | services | `wind_way_service.py`・`gradient_way_service.py`・`rain_way_service.py`・`dedicated_way_values.py`（材料→配信の実装の表、軸の材料から実装を選ぶこと、区間インスペクタが足す材料をまとめて引くこと） |
 | infrastructure | `dynamic_way_value_cache.py`（勾配のみ。ディスク経由）・`tile_persistent_cache.py`（呼び出し元が設計したタプルの鍵でPythonオブジェクトを置く汎用のディスクキャッシュ。`diskcache`の包み） |
 | api | `region.py`（`GET /api/region/dynamic-way-values/{axis_id}/...`）・`dependencies.py`（`get_dedicated_way_value_service`・`get_directional_material_service`） |
@@ -300,7 +300,7 @@ get_way_values(z, x, y, ...)
 - **候補は雨量計を持つ観測所だけ**（正時の地図JSONに1時間雨量の項目がある観測所）。気温だけの観測所が
   近くにあっても、その値は無い。**最寄りの雨量計が欠測なら、次に近い雨量計で埋めない**——近さの順に
   埋めると、同じ道が欠測の有無で別の雨量計の値へ静かに切り替わる。
-- 最寄りは球面の距離で決める（`domain/rain.py: nearest_point_indices`）。ルートの探索範囲は数百万区間になるため、
+- 最寄りは球面の距離で決める（`domain/geo.py: nearest_point_indices`。アメダス・暑さ指数の1地点の最寄りも同じ関数）。ルートの探索範囲は数百万区間になるため、
   全区間×全観測所の距離は作らず、緯度・経度の格子ごとに最寄りになりうる観測所だけを候補に残して比べる
   （粗い格子で絞ってから細かい格子で絞る。どちらも三角不等式で、最寄りを落とさない）。
 - **ルートの区間も同じ関数で、区間の中点の値を引く**（[ルーティングエンジン](routing-engine.md)

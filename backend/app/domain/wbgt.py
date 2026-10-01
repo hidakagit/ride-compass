@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
 from app.domain.warning_levels import WarningBadgeLevel
@@ -58,3 +59,50 @@ def is_within_provision_period(at: datetime) -> bool:
     """`at`（JST）の日が提供期間に入るか。"""
     start, end = provision_period(at.year)
     return start <= at.date() <= end
+
+
+@dataclass(frozen=True)
+class WbgtPoint:
+    """暑さ指数の情報提供地点。地点は行政区画ではなくアメダス観測所に置かれているため、
+    区域の親子関係ではなく最寄りの地点で引く。"""
+
+    no: str
+    name: str
+    latitude: float
+    longitude: float
+
+
+@dataclass(frozen=True)
+class WbgtForecast:
+    """暑さ指数の予測値1件。発表時刻の無い行は載せない。"""
+
+    #: 発表時刻（配信元の表記。同じ表記どうしの大小がそのまま時刻の前後になる）。
+    reference_time: str
+    #: 予測の対象時刻（JSTの素の時刻）。読めない行はNone。
+    forecast_time: datetime | None
+    #: 対象時刻の配信元の表記（応答へそのまま出す）。
+    forecast_time_text: str | None
+    #: 暑さ指数。値が無い・読めない行はNone。
+    wbgt: float | None
+
+
+def current_forecast(forecasts: list[WbgtForecast], now: datetime) -> WbgtForecast | None:
+    """最新の発表回に絞ったうえで、現在時刻に最も近い対象時刻の予測を選ぶ。
+
+    検索窓を広げて取得したレスポンスには発表回（reference_time）が複数混ざる。絞らずに
+    「現在時刻に最も近い」を選ぶと、新しい発表回で既に置き換わっている値を拾いうる。
+    """
+    if not forecasts:
+        return None
+    latest_reference_time = max(forecast.reference_time for forecast in forecasts)
+
+    now_naive = now.replace(tzinfo=None)
+    best: WbgtForecast | None = None
+    best_diff: float | None = None
+    for forecast in forecasts:
+        if forecast.reference_time != latest_reference_time or forecast.forecast_time is None:
+            continue
+        diff = abs((forecast.forecast_time - now_naive).total_seconds())
+        if best_diff is None or diff < best_diff:
+            best, best_diff = forecast, diff
+    return best

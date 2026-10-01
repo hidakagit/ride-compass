@@ -1,4 +1,4 @@
-"""`domain/axis_templates.py`——軸の得点を作る2つの変換と、配列版の丸め。
+"""`domain/axis_templates.py`——軸の得点を作る2つの変換。
 
 ここで見ないもの:
 - どの材料をどの変換へ通すか（軸の宣言と評価） → `test_axis_definitions.py`
@@ -60,29 +60,4 @@ class TestEvaluateCategorical:
         result = axis_templates.evaluate_categorical(np.array([1.0, 0.0, np.nan]), {False: 0.0, True: 30.0})
 
         assert result[:2].tolist() == [30.0, 0.0]
-        assert math.isnan(result[2])
-
-
-class TestRound1Array:
-    def test_agrees_with_python_round_on_values_that_sit_on_a_half(self):
-        """`np.round`は0.15・0.35を0.2・0.4へ上げるが、10進の正しい丸めは0.1・0.3
-        （2進では0.1499…・0.3499…のため）。0.45は2進で0.4500…1のため上へ。0.25・0.75は2進で
-        正確に表せるので偶数へ丸める。負の値も絶対値で同じ規則に従う。"""
-        result = axis_templates.round1_array(np.array([0.15, 0.25, 0.35, 0.45, 0.75, -0.25, -0.45]))
-
-        assert result.tolist() == [0.1, 0.2, 0.3, 0.5, 0.8, -0.2, -0.5]
-
-    def test_agrees_with_python_round_on_halves_of_sums_of_one_decimal_scores(self):
-        """小数1桁の得点を重み0.5ずつ足した値は、半数近くが×10でちょうど.5に乗る。"""
-        scores = np.arange(0, 1001) / 10.0
-        values = (scores[:, None] * 0.5 + scores[None, ::7] * 0.5).ravel()
-
-        result = axis_templates.round1_array(values)
-
-        assert result.tolist() == [round(value, 1) for value in values.tolist()]
-
-    def test_rounds_ordinary_values_and_keeps_missing_values_missing(self):
-        result = axis_templates.round1_array(np.array([1.04, 2.26, np.nan]))
-
-        assert result[:2].tolist() == [1.0, 2.3]
         assert math.isnan(result[2])

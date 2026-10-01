@@ -11,14 +11,13 @@
 import csv
 import io
 import logging
-from dataclasses import dataclass
 from datetime import datetime
 
 import httpx
 from cachetools import TTLCache
 
 from app.domain.time_zone import JST
-from app.domain.wbgt_points import WbgtPoint
+from app.domain.wbgt import WbgtForecast, WbgtPoint
 from app.infrastructure.simple_api_client import UnexpectedShapeError, cached_fetch
 
 # ファイル名に更新日が埋め込まれた命名規則（環境省サイト側の運用）のため、地点構成が
@@ -103,20 +102,6 @@ def _parse_point_master(csv_text: str) -> list[WbgtPoint]:
             unreadable, len(rows), len(points),
         )
     return points
-
-
-@dataclass(frozen=True)
-class WbgtForecast:
-    """暑さ指数の予測値1件。発表時刻の無い行は載せない。"""
-
-    #: 発表時刻（配信元の表記。同じ表記どうしの大小がそのまま時刻の前後になる）。
-    reference_time: str
-    #: 予測の対象時刻（JSTの素の時刻）。読めない行はNone。
-    forecast_time: datetime | None
-    #: 対象時刻の配信元の表記（応答へそのまま出す）。
-    forecast_time_text: str | None
-    #: 暑さ指数。値が無い・読めない行はNone。
-    wbgt: float | None
 
 
 def _parse_forecast(entry: dict) -> WbgtForecast | None:

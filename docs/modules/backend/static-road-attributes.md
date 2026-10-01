@@ -542,7 +542,7 @@ PBF取込時にしか変わらないため、再訪時の同一タイル再取�
 | ファイル | 役割 |
 |---|---|
 | `road.py` | 路面を表すタグの読み方の正準定義（surfaceの区分`SURFACE_CLASSES`、tracktypeの等級`TRACK_GRADES`と、2つを合成した路面の見込み`SURFACE_ESTIMATES`）。材料の値式・PostGIS側MVT生成SQL・地図の表示行・値の呼び名・走行モデルの転がり抵抗が共有する単一ソース |
-| `attributes.py` | `ElevationAttribute`・探索が読む材料の配列（`EdgeMaterialArrays`）と標高計算のSQL（[elevation.md](elevation.md)が主に扱う） |
+| `attributes.py` | `ElevationAttribute`（同じ地形を逆方向に走った値も自分で導く`reversed_as`）・探索が読む材料の配列（`EdgeMaterialArrays`）と標高計算のSQL（[elevation.md](elevation.md)が主に扱う） |
 | `accident.py` | 警察庁データ取込の純関数群（度分秒座標の読み取り）と、生データの列から判定を組み立てるSQL断片・重み付けの定数 |
 | `traffic.py` | OSMタグの解釈。停止要因POI・補給休憩POIの種別の引き当て（`TAG_KIND_RULES`・`tag_kind_sql`）、信号の判定（`TRAFFIC_SIGNAL_SQL`）、停止要因の数える種別への畳み方と信号の読み替え（`COUNT_KIND_OF`・`count_kind_sql`・`stop_kind_sql`）、通行方向の解決（`DIRECTION_RULES`・`direction_sql`）、交差点判定の次数しきい値、交差点の階級（`HIGHWAY_RANK`）。いずれも派生バッチへSQLとして渡す表と式で、タグを読むためだけに行を取り出さない |
 | `divided_carriageway.py` | 上下線が分かれた道の片側かを判定するしきい値 |

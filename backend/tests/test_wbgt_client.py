@@ -3,7 +3,7 @@
 
 ここで見ないもの:
 - キャッシュ参照・形の検査・例外をNoneへ倒す骨格 → `test_simple_api_client.py`
-- 最寄り地点の選び方・最新発表回の選択 → `domain/wbgt_points.py`・`test_wbgt_service.py`
+- 最寄り地点の選び方・最新発表回の選択 → `test_geo.py`・`test_wbgt_service.py`
 """
 
 import logging
