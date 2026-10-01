@@ -277,7 +277,7 @@ def main() -> None:
             # （環境ごとに違う値をビルド機の設定で固定してしまうため）。
             # 実行時に世代が配られる系統の名前。**frontendはこの一覧を手で持たず、
             # ここから照合する**——片側だけ系統を足すと、足りない側は「世代が揃った」と
-            # 判定したまま配られない世代を待ち続ける（`regionApi.ts: TILE_KINDS`）。
+            # 判定したまま配られない世代を待ち続ける。
             "tile_version_kinds": sorted(TILE_SHAPES),
             "road_surface": {"layer_name": ROAD_SURFACE_LAYER_NAME, "properties": ROAD_FEATURE_PROPERTIES},
             "accident": {"layer_name": ACCIDENT_LAYER_NAME},
@@ -519,7 +519,7 @@ def main() -> None:
         ],
     )
     # 風・降水延長予報の粗い格子の間隔と、詳細格子の問い合わせが受け付ける範囲（domain/wind_grid.py）。
-    # APIレスポンスは間隔を含まないため、frontend（windLayer.ts）はこのJSONから読む以外に値を知る手段がない。
+    # APIレスポンスは間隔を含まないため、画面はこのJSONから読む以外に値を知る手段がない。
     _write_json(
         WIND_GRID_CONFIG_PATH,
         {

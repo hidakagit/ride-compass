@@ -231,7 +231,7 @@ class AxisDefinition(StrictModel):
     `default_weight`はAPIリクエストで上書きされなかった場合の既定の合成重み
     （`RoutePreference`の既定値の単一ソース）。
 
-    `label`/`description`/`category`は一般向けルート設定画面（`RouteSettingsPanel`）が
+    `label`/`description`/`category`は一般向けのルート設定画面が
     `GET /api/axis-catalog`経由で表示する（`registry.py`側の表示レジストリ
     [地図レイヤー専用]とは別物——あちらはPython宣言のみでDB化されておらず、GUIで作った
     軸を表現できないため、ルーティング計算を駆動するこちら側に単一ソースを置く）。
@@ -279,15 +279,14 @@ class AxisDefinition(StrictModel):
     # 地図チップ表示要素。軸自身のデータとして持たせる。全て未設定＝Noneが既定で、
     # フロント側は未設定を「汎用フォールバックを使う」の意味で扱う（機能は壊れない）。
     icon_id: str | None = None
-    """地図チップのアイコン（frontend/src/components/Map/axisIconPalette.tsxの固定
-    パレットからidを選ぶ。未知/未設定のidは汎用アイコン[AxisRampIcon]へフォールバック）。
-    パレットへ形状を足すにはコード変更が要る。"""
+    """地図チップのアイコンのid。画面が持つ固定のパレットから選び、画面の知らないid・未設定は
+    汎用のアイコンで出る。パレットへ形を足すには画面のコード変更が要る。"""
     chip_label: str | None = Field(default=None, min_length=1, max_length=MAP_CHIP_LABEL_MAX_LENGTH)
     """地図チップの略称。地図チップは固定サイズのタイルで、5文字以上はレイアウトが崩れる。
     未設定はlabelをそのまま使う——labelには長さの制約が無いため、地図チップに出す軸を
     作るときはこちらを明示する（`check_axis_definition`が要求する）。"""
     panel_hint: str | None = None
-    """地図の「表示する項目を選ぶ」設定パネル（MapOverlayControls）向けの噛み砕いた
+    """地図の「表示する項目を選ぶ」設定パネル向けの噛み砕いた
     説明文。未設定はdescriptionをそのまま使う（開発者向けの技術説明のため読みにくい場合がある）。"""
     show_map_icon: bool = True
     """falseなら地図上チップの一覧からこの軸を丸ごと除外する（`GET /api/axis-catalog`の
@@ -315,22 +314,20 @@ class AxisDefinition(StrictModel):
     段階の数値レンジ表記（例:「2〜6」）のみを凡例に出す。
 
     `display_thresholds_override`と対になる概念（どちらも「地図の色分け段階の見せ方」の
-    軸ごとの好み）で、風・勾配のdedicated_way_value_layer軸だけでなく、通常のramp軸
-    （`buildAxisRampLegend`）の凡例にも同じ仕組みで使える。"""
+    軸ごとの好み）で、dedicated_way_value_layer軸だけでなく、通常のramp軸の凡例にも
+    同じ仕組みで使える。"""
     dedicated_way_value_layer: bool = False
     """この軸が専用のway_id→値配信レイヤー（Redis経由、`app/infrastructure/
     dynamic_way_value_cache.py`）を持つかの宣言。`axis_id`の文字列比較による
     ハードコード分岐ではなく、性質ベースの宣言的フィールドとして持たせてある。
 
-    **ルート確定後**の地図色分け（`axis_difficulties[axis_id]`を
-    `routeStyleModes.ts`の3段階色分けモードとして使う機構、公開軸なら自動的に
-    対象になりこのフィールドとは無関係）とは別の概念であることに注意。こちらは
+    **ルート確定後**の地図色分け（ルート結果の`axis_difficulties[axis_id]`でルート線を
+    段に塗る。公開軸なら自動的に対象になりこのフィールドとは無関係）とは別の概念であることに注意。こちらは
     **ルート未確定時**でも地図上の視界内の全道路を線色分け表示できるか、という
     工学的事実——「専用のway_id配信レイヤーがbackendに実際に実装されているか」は
     軸の評価ロジック（shape）自体からは自動導出できないため、他のbool系フィールドと
     同様に明示的に持たせ、軸スタジオの編集画面（管理API）からも設定できるようにする。
-    既定Falseは、この専用レイヤーを持たない大多数の軸の実際の状態と一致する
-    （現状trueなのは`wind`・`gradient`の2軸のみ）。"""
+    既定Falseは、この専用レイヤーを持たない大多数の軸の実際の状態と一致する。"""
     dynamic_way_value_needs_time: bool = False
     """`dedicated_way_value_layer=True`の軸のみ意味を持つ。`GET /api/region/
     dynamic-way-values/{material_id}/...`（`api/routers/region.py`）の`at`クエリ
@@ -371,8 +368,8 @@ class AxisDefinition(StrictModel):
 
     @staticmethod
     def check_display_thresholds_ascending(value: list[float]) -> list[float]:
-        """段の境界を塗るのはMapLibreの`step` expression（`axisLayers.ts`）で、昇順を
-        前提にする。降順・同値が混じると、地図とルート線が別の段で塗られる。
+        """受け取る側は段の境界を昇順の前提で読む（地図はMapLibreの`step` expressionで塗り、
+        そのstopは昇順でなければならない）。降順・同値が混じると、地図とルート線が別の段で塗られる。
         """
         if any(b <= a for a, b in zip(value, value[1:])):
             raise axis_error(f"色分けのしきい値は小さい順に並べてください（同じ値は使えません）: {value}")

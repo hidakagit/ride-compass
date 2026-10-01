@@ -31,8 +31,8 @@ from app.domain.strict_model import StrictModel
 # 地図がその軸について塗る値の種類。`signed_material`は「単一材料の絶対値を評価する軸」
 # （勾配のように向きの符号が意味を持つ）で、地図は難易度ではなく符号付きの材料生値を塗る。
 # それ以外は軸スタジオのbreakpointsで評価済みの難易度（0〜100）を塗る。ルート確定前の
-# 専用way値配信（`transform_dedicated_way_values`）・ルート確定後のルート線色分け（frontend
-# `routeStyleModes.ts`）の両方がこの1つの判定に従うため、同じ軸の色分けはルートの有無で
+# 専用way値配信（`transform_dedicated_way_values`）・ルート確定後のルート線色分けの
+# 両方がこの1つの判定に従うため、同じ軸の色分けはルートの有無で
 # スケールが変わらない。ramp軸（ルート確定前はタイルの重み付き和を塗る軸）は、`axis_display_for`が
 # 符号を畳む形を外すため常に`difficulty`で、その配色で塗る。
 MapValueKind = Literal["difficulty", "signed_material"]

@@ -1,6 +1,6 @@
 """軸カタログの公開読み取りAPI。
 
-一般向けルート設定画面（RouteSettingsPanel）・研究モードのフロントが、評価軸の一覧
+一般向けのルート設定画面・研究モードの画面が、評価軸の一覧
 （label/description/category/default_weight）を取得するための読み取り専用・認可不要の
 エンドポイント。書き込みは`api/routers/axis_admin.py`（認可必須）が担う。
 
@@ -122,7 +122,7 @@ class AxisCatalogEntry(StrictModel):
     # （domain/axis_definitions.py: AxisDefinition.show_map_iconのdocstring参照）。
     show_map_icon: bool
     # この軸が参照する材料を、対応する一次属性id（domain/registry.py:
-    # PrimaryAttributeSpec.attr_id、frontend側はprimaryAttributes.tsのキーと同じ名前空間）へ
+    # PrimaryAttributeSpec.attr_id。ビルド時の生成物が配る一次属性と同じ名前空間）へ
     # 解決したもの（重複除去、対応が無い材料[動的気象・未登録一次属性]・他の軸を参照する
     # 材料[階層構造]は除く）。軸と一次属性レイヤーの対応を、軸idで分岐せずに引けるよう
     # 軸スタジオの公開軸にも同じ形で配る。
@@ -132,12 +132,7 @@ class AxisCatalogEntry(StrictModel):
     weather_layer_groups: list[str]
     # 「軸スタジオで決められること」（AxisDefinitionが実際に持つ未公開の
     # フィールド）を個別に選んでフィールド追加するのではなく、まとめて返す方針。
-    # shapeはルート結果の色分け（frontend routeStyleModes.ts）が、
-    # 「符号付き値を直接読むべきか（shape.kind==="breakpoint_linear" &&
-    # shape.preprocess==="abs"）」「その場合どの材料id（≒RouteSegmentDetailのフィールド名）
-    # を読むか（shape.terms[0].material）」を、axis_idのハードコード分岐ではなく軸データ
-    # から導出するために必要（gradientの実データ: kind="breakpoint_linear"、
-    # preprocess="abs"、terms=[{material:"gradient_percent"}]）。
+    # 地図・ルート線が何を塗るかは`shape`から読ませず、下の`map_value`が配る。
     shape: AxisShape
     # `display`（axis_display_for()がkind="ramp"軸向けに導出した値、kind="none"の軸
     # [gradient等]では常に空配列）経由では生の上書き値を読み取れないため、生の値をそのまま
@@ -153,8 +148,7 @@ class AxisCatalogEntry(StrictModel):
     # 「専用のway_id→値配信レイヤー（Redis経由、ルート未確定時から
     # 地図上で視界内の全道路を線色分け表示できる）を持つか」の宣言（domain/
     # axis_definitions.py: AxisDefinition.dedicated_way_value_layerのdocstring参照）。
-    # フロント（axisLayers.ts: dedicatedWayValueAxesFromCatalogAxes）が、axis_idの
-    # 文字列比較ではなくこのフィールドで地図レイヤー・フェッチ対象を導出する。
+    # 受け取る側が、axis_idの文字列比較ではなくこのフィールドで地図レイヤー・取得の対象を決めるための宣言。
     dedicated_way_value_layer: bool
     # 地図がこの軸について塗る値（種類と、種類で決まる材料）と単位（domain/dynamic_way_values.py:
     # map_value/map_value_unit）。ルート確定前の塗り・ルート確定後のルート線色分けの両方が
@@ -182,9 +176,8 @@ class AxisCatalogEntry(StrictModel):
     # 専用way値配信（`GET /api/region/dynamic-way-values/{axis_id}`）がこの軸について
     # 必要とするクエリパラメータの宣言（domain/axis_definitions.py:
     # AxisDefinition.dynamic_way_value_needs_time / _needs_bearing / _needs_speed）。
-    # `dedicated_way_value_layer=false`の軸では意味を持たない。フロント
-    # （hooks/useDedicatedWayValues.ts）が「どの軸のフェッチに時刻・想定速度を添えるか」を
-    # axis_idのハードコード分岐ではなくこの宣言から導出するために必要。
+    # `dedicated_way_value_layer=false`の軸では意味を持たない。受け取る側が「どの軸の取得に
+    # 時刻・向き・想定速度を添えるか」を、axis_idで分岐せずこの宣言から決めるために配る。
     dynamic_way_value_needs_time: bool
     dynamic_way_value_needs_bearing: bool
     dynamic_way_value_needs_speed: bool

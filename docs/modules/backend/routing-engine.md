@@ -810,7 +810,7 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
 
 - `Coordinates`・`RouteSegment`・`RouteSegmentDetail`（**material_valuesに入る
   符号付き材料（`gradient_percent`等）は符号付きが正準契約**——絶対値ではない。
-  frontend`routeStyleModes.ts`がこの契約に依存する）・`RouteCandidate`。
+  ルート線の色分けがこの符号を読む）・`RouteCandidate`。
 - `aggregate_segments_into_bins`（500m区間ビニング）・`merge_axis_difficulties`・
   `merge_axis_contributions`・`merge_axis_raw_values`・`merge_material_values`・
   `merge_material_category_shares`・`_merge_segment_bin`。**`RouteSegmentDetail`の

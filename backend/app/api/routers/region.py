@@ -138,8 +138,7 @@ async def region_dedicated_way_values(
     その軸が走行速度に依存する場合（`needs_speed`）のみ必須で、それ以外は無視される。
 
     静的な路面タイル（`/api/region/road-surface-tiles`、MVT、本エンドポイントとは無関係）
-    とは別経路——フロントは同じz/x/yに対して両方を取得し、MapLibreの`setFeatureState`で
-    合成する（`frontend/src/components/Map/dedicatedWayValueLayer.ts`参照）。
+    とは別経路——受け取る側は同じz/x/yについて両方を取り、way_idで突き合わせて重ねる。
     勾配はタイル単位の値を地図表示専用のディスクキャッシュ（`dynamic_way_value_cache.py`）に
     持つため、パン・ズームで同じタイルが再び視界に入っても、同じ向きバケットの範囲内では
     DBへの再問い合わせは発生しない（風は計算が軽いためキャッシュしない）。
