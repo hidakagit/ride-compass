@@ -18,25 +18,28 @@ from app.infrastructure.dynamic_way_value_cache import BEARING_BUCKET_DEG, beari
 MATERIAL = "material_a"
 TILE = (14, 1000, 2000)
 BEARING = 90.0
-REVISION = 7
+SURFACE_TILE_VERSION = "7.3-surface"
 VALUE_SHAPE = "shape-1"
 TTL_SECONDS = 60
 VALUES = {"edge-1": 3.2, "edge-2": -1.5}
 
 
 async def _put(
-    *, material=MATERIAL, tile=TILE, bearing=BEARING, revision=REVISION, value_shape=VALUE_SHAPE, values=VALUES
+    *, material=MATERIAL, tile=TILE, bearing=BEARING, version=SURFACE_TILE_VERSION, value_shape=VALUE_SHAPE,
+    values=VALUES,
 ):
     z, x, y = tile
     await dynamic_way_value_cache.set_tile_values(
-        material, z, x, y, None, bearing, values, TTL_SECONDS, revision=revision, value_shape=value_shape
+        material, z, x, y, None, bearing, values, TTL_SECONDS, surface_tile_version=version, value_shape=value_shape
     )
 
 
-async def _get(*, material=MATERIAL, tile=TILE, bearing=BEARING, revision=REVISION, value_shape=VALUE_SHAPE):
+async def _get(
+    *, material=MATERIAL, tile=TILE, bearing=BEARING, version=SURFACE_TILE_VERSION, value_shape=VALUE_SHAPE
+):
     z, x, y = tile
     return await dynamic_way_value_cache.get_tile_values(
-        material, z, x, y, None, bearing, revision=revision, value_shape=value_shape
+        material, z, x, y, None, bearing, surface_tile_version=version, value_shape=value_shape
     )
 
 
@@ -57,25 +60,16 @@ class TestRoundTrip:
 
 
 class TestWhatMakesEntriesDifferent:
-    @pytest.mark.parametrize(("stored", "asked"), [(7, 8), (None, 7), (7, None)])
-    async def test_another_generation_does_not_read_this_one(self, stored, asked):
-        """鍵の中身はバッチが作り直すたびに変わる`feature_key`で、世代をまたぐとどの地物にも
-        一致しない。フロントは色を当てる先を失い、TTLが切れるまで静かに塗られないままになる。
-        世代がまだ読めていない（None）間に書いたものも同じ。
+    @pytest.mark.parametrize(("stored", "asked"), [("7.3-surface", "8.3-surface"), ("x-surface", "7.3-surface"),
+                                                   ("7.3-surface", "7.3-rebaked")])
+    async def test_another_surface_tile_version_does_not_read_this_one(self, stored, asked):
+        """鍵の中身は路面タイルの`feature_key`で、路面タイルの世代をまたぐとどの地物にも一致しない
+        （バッチの作り直し・焼き方を変えたデプロイのどちらでも）。フロントは色を当てる先を失い、
+        TTLが切れるまで静かに塗られないままになる。世代がまだ読めていない間に書いたものも同じ。
         """
-        await _put(revision=stored)
+        await _put(version=stored)
 
-        assert await _get(revision=asked) is None
-
-    async def test_a_rebaked_tile_layout_does_not_read_the_earlier_one(self, monkeypatch):
-        """鍵は路面タイルの`feature_key`と一致して初めて意味を持つ。焼き方を変えただけの
-        デプロイはDBの世代を動かさないため、形の署名が鍵に無いと前の版のエントリがTTLの間
-        返り続ける——エラーにはならず、色だけが消える。
-        """
-        await _put()
-        monkeypatch.setattr(dynamic_way_value_cache, "ROAD_SURFACE_TILE_SHAPE", "another-shape")
-
-        assert await _get() is None
+        assert await _get(version=asked) is None
 
     async def test_changing_how_one_material_is_computed_drops_only_that_materials_entries(self):
         """材料の計算を変えたデプロイの後、その材料は前の計算の値を配らず、他の材料は作り直さない。

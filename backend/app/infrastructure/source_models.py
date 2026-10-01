@@ -20,7 +20,10 @@ from sqlalchemy import (
     LargeBinary,
     String,
     event,
+    func,
+    select,
 )
+from sqlalchemy.sql.selectable import ScalarSelect
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -110,6 +113,17 @@ def latest_succeeded_run_sql(source_sql: str) -> str:
     """
     return (f"(SELECT * FROM {SourceRunRow.__tablename__} WHERE source = {source_sql}"
             f" AND status = '{SUCCEEDED}' ORDER BY run_id DESC LIMIT 1)")
+
+
+def succeeded_run_count() -> ScalarSelect[int]:
+    """成功した取込の数（全ソース通し）を出す副問い合わせ。生データの世代として使う。
+
+    どのソースの取込が成功しても1つ増え、失敗した取込では動かない（runの行は消さず、成功は
+    別の状態へ戻らない）。成功した`run_id`の最大では代用できない——`run_id`は開いた順に振られる
+    ため、先に開いた取込が後に開いた取込より遅れて成功すると、最大は動かない。
+    """
+    return (select(func.count()).select_from(SourceRunRow)
+            .where(SourceRunRow.status == SUCCEEDED).scalar_subquery())
 
 
 # --- 道とノードの生データを読む副問い合わせ ---

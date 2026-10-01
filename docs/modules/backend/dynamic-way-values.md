@@ -190,7 +190,7 @@ axis_id → dedicated_way_value_axes().get(axis_id)（無ければ404）
 (タイル×向き×速度×時刻)の組み合わせで増えるためプロセス内メモリにも置かない。
 
 キーは`_key(material_id, z, x, y, hour_bucket, bearing_deg, speed_kmh)`のタプルへ**路面タイルの
-形の署名**（`ROAD_SURFACE_TILE_SHAPE`）と派生データの世代と**材料の値の作り方の署名**（`value_shape`）を
+世代**（配信している路面タイルと同じ文字列。形の署名とDBの世代を含む）と**材料の値の作り方の署名**（`value_shape`）を
 加えたもの（`material_id`は各サービスの`material_id`属性がそのまま入る）。値は材料の生値で軸に依存しないため、
 同じ材料を参照する軸が複数あってもキャッシュを共有する。
 

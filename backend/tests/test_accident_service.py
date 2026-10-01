@@ -1,3 +1,4 @@
+from app.infrastructure.derived_data_meta import DataRevisions
 from app.infrastructure.vector_tile import encode_empty_accident_tile
 from app.services.accident_service import AccidentService
 
@@ -6,15 +7,15 @@ Z, X, Y = 14, 14551, 6447
 
 
 class FakeAccidentRepository:
-    """AccidentTileQueryのフェイク（MVT生成と派生データの世代、カバレッジ判定は無い）。"""
+    """AccidentTileQueryのフェイク（MVT生成とデータの世代、カバレッジ判定は無い）。"""
 
     def __init__(self, tile: bytes = b"fake-accident-tile", error: Exception | None = None):
         self._tile = tile
         self._error = error
         self.mvt_calls: list[tuple[int, int, int]] = []
 
-    async def get_derived_data_revision(self):
-        return 1
+    async def get_data_revisions(self):
+        return DataRevisions(derived=1, imported=1)
 
     async def get_accident_tile_mvt(self, z, x, y, bbox):
         self.mvt_calls.append((z, x, y))

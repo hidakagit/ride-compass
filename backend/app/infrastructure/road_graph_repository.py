@@ -731,10 +731,10 @@ class RoadGraphRepository:
 
     # --- 世代・カバレッジ ----------------------------------------------------
 
-    async def get_derived_data_revision(self) -> int | None:
-        """派生データの世代。バッチが中身を書き直すたびに進む。道路網全体の配列の置き場の
-        名前と、配信する地図タイルの世代に入る。"""
-        return await derived_data_meta.get_revision(self._session)
+    async def get_data_revisions(self) -> derived_data_meta.DataRevisions:
+        """派生データと生データの世代。派生の世代は道路網全体の配列の置き場の名前に、
+        両方が配信する地図タイルの世代に入る。"""
+        return await derived_data_meta.get_revisions(self._session)
 
     async def get_accident_years(self) -> list[int]:
         """事故データの収録年。

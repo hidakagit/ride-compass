@@ -12,6 +12,7 @@ from app.domain.axis_definitions import (
 )
 from app.domain.material_catalog import MATERIAL_CATALOG, SURFACE_ESTIMATE
 from app.domain.tuning import TUNING_PARAMETERS, TuningEffect
+from app.infrastructure.derived_data_meta import DataRevisions
 from app.main import app
 from app.services.region_service import RegionService
 from tests.axis_system_fixture import axis_definition, replaced_axis_definitions
@@ -115,13 +116,13 @@ def catalog_axes():
 
 
 class _CatalogRepository:
-    """`/api/axis-catalog`が`RegionService`越しに読むDBの口（派生データの世代・事故の収録年）の代役。"""
+    """`/api/axis-catalog`が`RegionService`越しに読むDBの口（データの世代・事故の収録年）の代役。"""
 
-    def __init__(self, revision: int | None = None):
-        self._revision = revision
+    def __init__(self, revision: int | None = None, imported: int = 0):
+        self._revisions = DataRevisions(derived=revision, imported=imported)
 
-    async def get_derived_data_revision(self):
-        return self._revision
+    async def get_data_revisions(self):
+        return self._revisions
 
     async def get_accident_years(self):
         return []
@@ -353,16 +354,16 @@ def test_get_axis_catalog_includes_material_breakdown(client, catalog_axes):
     assert lit["value_labels"] == {}
 
 
-def test_タイル世代はDBの派生データ世代を前置きして配る(client):
+def test_タイル世代はDBの派生データと生データの世代を前置きして配る(client):
     """フロントはこの世代でブラウザのキャッシュを分ける。
 
     カタログは起動直後に取られるため、**カタログ側が自分で読み直しを促さないと**
     「まだ誰も読んでいない」印（`x-`）のまま配ってしまう。
     """
-    app.dependency_overrides[get_region_service] = lambda: RegionService(repository=_CatalogRepository(revision=42))
+    app.dependency_overrides[get_region_service] = lambda: RegionService(repository=_CatalogRepository(revision=42, imported=5))
 
     versions = client.get("/api/axis-catalog").json()["tile_versions"]
 
     assert versions, "タイル世代が配られていない"
     for name, version in versions.items():
-        assert version.startswith("42-"), f"{name}がDBの世代を前置きしていない: {version}"
+        assert version.startswith("42.5-"), f"{name}がDBの世代を前置きしていない: {version}"
