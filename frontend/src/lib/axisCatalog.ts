@@ -102,7 +102,7 @@ export const EMPTY_CATALOG: AxisCatalog = {
 
 export function axisCatalogFromResponse(
   entries: readonly AxisCatalogEntry[],
-  materialRuntimeScales: Readonly<Record<string, number>>,
+  tileRuntimeScales: Readonly<Record<string, number>>,
   clientTuning: Readonly<Record<string, number>>,
   accidentYears: readonly number[],
 ): AxisCatalog {
@@ -113,7 +113,7 @@ export function axisCatalogFromResponse(
     clientTuning,
     axes,
     defaultWeights,
-    rampAxes: rampAxesFromCatalogAxes(entries, materialRuntimeScales),
+    rampAxes: rampAxesFromCatalogAxes(entries, tileRuntimeScales),
     dedicatedAxes: dedicatedWayValueAxesFromCatalogAxes(entries),
     axisLabels: axisLabelsFromCatalogAxes(entries),
     axisColors: axisColorsOf(axes),

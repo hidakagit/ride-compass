@@ -111,9 +111,9 @@ function catalogResponse(): AxisCatalogResponse {
         material_breakdown: [],
       },
     ],
-    // 改善計画T404: material_runtime_scalesはAxisCatalogResponseの必須フィールド
+    // tile_runtime_scalesはAxisCatalogResponseの必須フィールド
     // （既定{}だがopenapi-typescriptはdefault付きフィールドをoptionalにしない）。
-    material_runtime_scales: {},
+    tile_runtime_scales: {},
     client_tuning: {},
     accident_years: [],
     tile_versions: {},
@@ -180,7 +180,7 @@ describe("useAxisCatalog（改善計画T308: rampAxes/axisLabels/secondaryAxes�
   it("改善計画T318フォローアップ: 全軸非公開でaxesが0件のレスポンスは、そのまま空を返す", async () => {
     vi.mocked(getAxisCatalog).mockResolvedValue({
       axes: [],
-      material_runtime_scales: {},
+      tile_runtime_scales: {},
       client_tuning: {},
       accident_years: [],
       tile_versions: {},
@@ -241,7 +241,7 @@ describe("useAxisCatalog（改善計画T308: rampAxes/axisLabels/secondaryAxes�
     // 軸スタジオでgui_published_axisが非公開になり、以後のフェッチは1軸だけ返す想定。
     vi.mocked(getAxisCatalog).mockResolvedValueOnce({
       axes: [catalogResponse().axes[0]],
-      material_runtime_scales: {},
+      tile_runtime_scales: {},
       client_tuning: {},
       accident_years: [],
       tile_versions: {},

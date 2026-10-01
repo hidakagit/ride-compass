@@ -20,12 +20,12 @@
 軸スタジオでの公開操作（is_publishedの切替）が、地図レイヤーのramp表示へ**再デプロイ
 なしに即座に**反映される（docs/records/decisions/t308-axis-map-display-auto-derivation.md参照）。
 
-**`material_runtime_scales`**: 地図表示の導出は実行時にしか
-決まらないスケール変換が必要な材料（`tile_property_needs_runtime_scale=True`、例:
-`accident_count_per_km_year`）も自動導出の対象に含めるが、その変換係数
-（収録年数の逆数）自体は`domain/axis_display.py`のような純粋関数では計算できないため
-（DBアクセスが要る）、本エンドポイントがリクエスト毎に1回だけ`RegionService`経由で
-解決しレスポンスへ含める。フロントのJS式ビルダーがこれを取得しタイル生値に掛け合わせる。
+**`tile_runtime_scales`**: 地図表示の導出は、タイルの生値を材料の値へ換算する係数が実行時に
+しか決まらない材料（`MaterialSpec.tile_property_runtime_scale`）も対象に含めるが、係数の源
+（事故の収録年）はDBにしか無いため、`domain/axis_display.py`の純粋関数では求められない。
+本エンドポイントがリクエスト毎に1回だけ`RegionService`経由で収録年を読み、係数は
+`domain/material_catalog.py: tile_runtime_scales`が材料の宣言から導く。フロントのJS式ビルダーが
+これを取得しタイル生値に掛け合わせる。
 """
 
 from fastapi import APIRouter, Depends
@@ -39,7 +39,7 @@ from app.domain.axis_definitions import (
     primary_attribute_ids_for,
     weather_layer_groups_for,
 )
-from app.domain.material_catalog import ACCIDENT_COUNT_PER_KM_YEAR, MATERIAL_CATALOG
+from app.domain.material_catalog import MATERIAL_CATALOG, tile_runtime_scales
 from app.domain.axis_display import axis_display_for, map_band_labels
 from app.domain.axis_raw_value import (
     axis_material_shares,
@@ -192,15 +192,10 @@ class AxisCatalogEntry(StrictModel):
 
 class AxisCatalogResponse(StrictModel):
     axes: list[AxisCatalogEntry]
-    # 実行時にしか決まらないスケール定数（`GET /api/axis-catalog`が
-    # リクエスト毎に1回だけDBから解決する「たまにしか変わらないグローバル定数」）。
-    # `tile_property_needs_runtime_scale=True`な材料（material_catalog.py参照）の
-    # material_id→スケール係数（タイル生値に掛けると材料スケールへ変換できる倍率）。
-    # `TileInputSpec.needs_runtime_scale=True`なtile_inputのタイル生値へ、受け取る側が
-    # この係数を掛ける。値が解決できない材料（現状はaccident_count_per_km_year、収録年数が
-    # 0件のとき）はキー自体を含めない——フロント側はキーが無い場合、その材料を使う軸を
-    # どの道でも「データなし」として塗る（寄与0にすると、値が無いのに最良側の色になる）。
-    material_runtime_scales: dict[str, float] = {}
+    # タイルのプロパティ名→実行時にしか決まらない換算係数（タイル生値に掛けると材料の値になる倍率、
+    # `domain/material_catalog.py: tile_runtime_scales`）。`TileInputSpec.needs_runtime_scale=True`な
+    # tile_inputのタイル生値へ、受け取る側が`property`で引いて掛ける。
+    tile_runtime_scales: dict[str, float] = {}
     # フロントが使う較正値（id → いま効いている値、`domain/tuning.py`が宣言）。管理画面から
     # 変えた値を**再デプロイなしに**画面へ届けるため、起動時に1回取るこのカタログへ相乗り
     # させる（ビルド時生成物のroute-generate-config.jsonは取得できるまでの既定値を持つ）。
@@ -221,18 +216,8 @@ async def get_axis_catalog(region_service: RegionService = Depends(get_region_se
     # services/axis_registry_service.py参照）のため、DBへは触れずプロセス内の値を
     # そのまま返す（評価ホットパスと同じ同期アクセス方式）。axis_display_for()・
     # primary_attribute_ids_for()も同様にプロセス内メモリだけを見る純粋関数のため、
-    # リクエスト毎に呼んでもコストは無視できる。
-    #
-    # material_runtime_scalesだけが例外的にDB（accident_years）を
-    # 見る。現時点でtile_property_needs_runtime_scale=Trueな材料は
-    # accident_count_per_km_year 1件のみのため、ここでは決め打ちで解決する
-    # （将来2件目が増えたら、材料ごとのスケール源をどう解決するかも合わせて設計し
-    # 直す必要がある——「material_idごとに任意のスケール源を宣言できる」汎用機構は
-    # 現時点で利用者が1件しかいないため、過剰な抽象化を避けてYAGNI原則に従った）。
-    material_runtime_scales: dict[str, float] = {}
+    # リクエスト毎に呼んでもコストは無視できる。事故の収録年と、それから導く換算係数だけがDBを見る。
     accident_years = await region_service.get_accident_years()
-    if accident_years:
-        material_runtime_scales[ACCIDENT_COUNT_PER_KM_YEAR] = 1 / len(accident_years)
 
     return AxisCatalogResponse(
         client_tuning=client_tuning_values(),
@@ -269,5 +254,5 @@ async def get_axis_catalog(region_service: RegionService = Depends(get_region_se
             for definition in AXIS_DEFINITIONS.values()
             if definition.is_published
         ],
-        material_runtime_scales=material_runtime_scales,
+        tile_runtime_scales=tile_runtime_scales(accident_years),
     )

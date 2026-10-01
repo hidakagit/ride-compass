@@ -109,13 +109,9 @@ class BreakpointLinearShape(StrictModel):
             raise axis_error(f"折れ点は横軸の値が小さい順に並べてください（同じ値は使えません）: {xs}")
         return value
 
-    def preprocessed(self, total: float) -> float:
-        """項を合成した値に前処理を当てた、折れ点の横軸の値。"""
-        return abs(total) if self.preprocess == "abs" else total
-
     def score_at(self, x: float) -> float:
-        """横軸の値`x`の点数（評価と同じく小数1桁）。"""
-        return round(evaluate_breakpoint_linear(x, self.breakpoints), 1)
+        """横軸の値`x`の点数（評価と同じ折れ線と丸め）。"""
+        return float(_breakpoint_score_array(self, np.array([x], dtype=float), np.zeros(1, dtype=bool))[0])
 
 
 _FLAG_KEYS = {"true": True, "false": False}
@@ -1079,6 +1075,34 @@ def _breakpoint_raw_value_array(shape: BreakpointLinearShape, materials: Mapping
     return np.where(all_missing, np.nan, total)
 
 
+def _breakpoint_score_array(shape: BreakpointLinearShape, total: np.ndarray, all_missing: np.ndarray) -> np.ndarray:
+    """折れ点の横軸の値（`_breakpoint_raw_total_array`）から得点（小数1桁、`all_missing`の要素はNaN）。"""
+    return np.where(all_missing, np.nan, round1_array(evaluate_breakpoint_linear(total, shape.breakpoints)))
+
+
+class ScorePoint(StrictModel):
+    """材料の値が、折れ点の横軸でどこに当たり何点になるか。"""
+
+    x: float
+    score: float
+
+
+def first_term_points(shape: BreakpointLinearShape, values: Sequence[float]) -> list[ScorePoint | None]:
+    """1つ目の項の材料がそれぞれの値を持ち、ほかの項の材料が無い道の、横軸の値と得点。
+
+    評価と同じ計算（項の合成・欠損の扱い・前処理・折れ線・丸め）で出す。ほかの項に必須の材料が
+    あると、評価はその道を欠損にするため、ここもNoneを返す。
+    """
+    term_ids = [term.material for term in shape.terms]
+    columns = _python_value_columns({shape.terms[0].material: values}, term_ids, term_ids, len(values))
+    total, all_missing = _breakpoint_raw_total_array(shape, columns)
+    xs = _scores_or_none(np.where(all_missing, np.nan, total))
+    scores = _scores_or_none(_breakpoint_score_array(shape, total, all_missing))
+    return [
+        None if x is None or score is None else ScorePoint(x=x, score=score) for x, score in zip(xs, scores)
+    ]
+
+
 def raw_values(shape: "AxisShape", materials: Mapping[str, Sequence[object]], length: int) -> list[float | None]:
     """`axis_raw_value_array`をPythonの値の並び（`evaluate_axis_values`と同じ形）から求める。
     保存前の`shape`も渡せるよう軸の定義ではなく形を受け取る。`CategoricalShape`は全要素None。"""
@@ -1115,9 +1139,7 @@ def evaluate_axis_array(definition: AxisDefinition, materials: Mapping[str, Mate
     """
     shape = definition.shape
     if isinstance(shape, BreakpointLinearShape):
-        total, all_missing = _breakpoint_raw_total_array(shape, materials)
-        result = round1_array(evaluate_breakpoint_linear(total, shape.breakpoints))
-        result = np.where(all_missing, np.nan, result)
+        result = _breakpoint_score_array(shape, *_breakpoint_raw_total_array(shape, materials))
     else:
         # CategoricalShape。真偽の材料は真偽の配列でも1.0/0.0の数値配列でも、真偽のキーとの
         # 一致が同じ答えになるため、キーをfloatへ変えない。

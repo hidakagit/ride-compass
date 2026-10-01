@@ -26,7 +26,9 @@ from app.domain.axis_definitions import (
     AxisShape,
     BreakpointLinearShape,
     PriorityCondition,
+    ScorePoint,
     check_axis_definition,
+    first_term_points,
     referenced_materials,
 )
 from app.domain.axis_display import axis_display_for, bands_the_map_keeps, thresholds_the_map_drops
@@ -260,20 +262,15 @@ class ScoresPreviewRequest(StrictModel):
     shape: BreakpointLinearShape
     #: 折れ点の横軸の値（項の合成・前処理の後）。分布の階級の代表値など。
     xs: list[float] = Field(default_factory=list)
-    #: 1つ目の項の材料の値。その項の重みと前処理を当てて横軸の値にしてから点数にする（材料の参考点の効き目）。
+    #: 1つ目の項の材料の値（材料の参考点の効き目）。ほかの項の材料は無い道として、評価と同じ計算で点数にする。
     material_values: list[float] = Field(default_factory=list)
-
-
-class ScorePoint(StrictModel):
-    x: float
-    score: float
 
 
 class ScoresPreviewResponse(StrictModel):
     #: `xs`の順の点数。
     scores: list[float]
-    #: `material_values`の順の、横軸の値と点数。
-    material_points: list[ScorePoint]
+    #: `material_values`の順の、横軸の値と点数。評価がその道を欠損にする値（ほかの項に必須の材料がある）はnull。
+    material_points: list[ScorePoint | None]
 
 
 @router.post("/preview-scores")
@@ -283,13 +280,10 @@ async def preview_scores(payload: ScoresPreviewRequest) -> ScoresPreviewResponse
     軸スタジオは折れ点を動かすたびにこれを問い合わせ、分布の帯の割合と効き目の表を出す。点数の計算を
     画面で作り直すと、評価と画面で同じ折れ点に別の点数が付きうる（同じxの点が並ぶところ等）。
     """
-    shape = payload.shape
-    weight = shape.terms[0].weight
-    points = []
-    for value in payload.material_values:
-        x = shape.preprocessed(value * weight)
-        points.append(ScorePoint(x=x, score=shape.score_at(x)))
-    return ScoresPreviewResponse(scores=[shape.score_at(x) for x in payload.xs], material_points=points)
+    return ScoresPreviewResponse(
+        scores=[payload.shape.score_at(x) for x in payload.xs],
+        material_points=first_term_points(payload.shape, payload.material_values),
+    )
 
 
 class DisplayThresholdsPreviewRequest(StrictModel):

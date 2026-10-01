@@ -385,14 +385,18 @@ idの文字列ではなく宣言そのもので指す。材料が指す要素に
 | `DELETE /api/admin/axis-definitions/{axis_id}` | Basic認証必須 | 削除 |
 | `POST /api/admin/axis-definitions/{axis_id}/unpublish` | Basic認証必須 | 公開済み軸を下書きへ戻す（`is_published`以外は変更しない） |
 | `POST /api/admin/axis-definitions/preview-display-thresholds` | Basic認証必須 | 編集中の軸で、上書きしたしきい値のうち地図が段にしないものと、地図の各段に当たる入力の段（DBを読まない） |
-| `POST /api/admin/axis-definitions/preview-scores` | Basic認証必須 | 編集中の折れ点で、横軸の値の並び（分布の階級の代表値）と1つ目の項の材料の値の並び（参考点）がそれぞれ何点になるか。参考点は横軸の値（重みと前処理を当てた値）も返す。点数は評価と同じ`BreakpointLinearShape.score_at`（DBを読まない） |
+| `POST /api/admin/axis-definitions/preview-scores` | Basic認証必須 | 編集中の折れ点で、横軸の値の並び（分布の階級の代表値）と1つ目の項の材料の値の並び（参考点）がそれぞれ何点になるか。参考点は横軸の値も返す。どちらも評価と同じ配列の計算（`domain/axis_definitions.py: BreakpointLinearShape.score_at`・`first_term_points`）で出し、参考点は「ほかの項の材料が無い道」として評価する——ほかの項に必須の材料があれば評価と同じく欠損（null）になる（DBを読まない） |
 | `GET /api/axis-catalog` | 不要（公開） | `is_published=True`の軸のみ返す。`AxisDefinition`のほぼ全フィールドをそのまま返す |
 
 管理API（`/api/admin/axis-definitions`）のBasic認証はルーターの`dependencies`で1か所に宣言し、
 口ごとには付けない——口を足しても認証の付け忘れが起きない。
 
-`GET /api/axis-catalog`の`material_runtime_scales`（実行時にしか決まらないスケール係数）
-のみ、リクエストごとにDBを直接見る例外（現状`accident_count_per_km_year`のみ対象）。
+`GET /api/axis-catalog`の`tile_runtime_scales`（タイルのプロパティ名→実行時にしか決まらない換算係数）
+だけが、リクエストごとにDBを見る（係数の源の事故の収録年）。どの材料に係数が要るかは材料の宣言
+（`MaterialSpec.tile_property_runtime_scale`）だけが持ち、ルーターは材料名を持たない。印を付けた材料が
+増えると、同じ源なら宣言だけでその材料のタイルの値にも係数が届く。新しい源（収録年数以外）を足すときは
+`domain/material_catalog.py: tile_runtime_scales`にその値の求め方を足す——足すまではその材料の係数が
+配られず、地図はその材料を使う軸をどの道も「データなし」で塗る（最良側の色にはならない）。
 
 ### 軸そのものの不変条件（`domain/axis_definitions.py`のモデル）
 
