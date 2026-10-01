@@ -12,7 +12,7 @@ import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import { FieldLabel } from "@/components/ui/FieldLabel/FieldLabel";
 import type { AxisDefinitionResponse } from "@/types/route";
 import { InfoPopoverButton, SectionLabel } from "./AxisFormFields";
-import { NO_MAP_BANDS_JUDGEMENT, type MapBandsJudgement } from "@/features/admin/useMapBandsOfThresholds";
+import type { MapBandsJudgement } from "@/features/admin/useMapBandsOfThresholds";
 import {
   bandLabelsOnMap,
   formatThresholdList,
@@ -40,12 +40,12 @@ interface AxisMapDisplaySectionProps {
   restrictedDisplayOnly: boolean;
   /** 「調整する」で一時的に下書きへ戻した軸か。保存が必ず公開へ戻すため、
    * 切り替えの代わりにその事実を出す。 */
-  republishing?: boolean;
+  republishing: boolean;
   /** 段階プレビューの配色・単位（親が軸カタログから渡す）。 */
-  mapBandColors?: (boundaries: readonly number[]) => readonly string[];
+  mapBandColors: ((boundaries: readonly number[]) => readonly string[]) | undefined;
   mapValueUnit: string;
   /** 入力したしきい値が地図でどの段になるか（判定はbackend、親が取得して渡す）。 */
-  mapBands?: MapBandsJudgement;
+  mapBands: MapBandsJudgement;
   /** まとめ入力が読めない間は保存させないため、親の検証へ伝える。 */
   onThresholdErrorChange: (error: string | null) => void;
 }
@@ -55,10 +55,10 @@ export function AxisMapDisplaySection({
   setDraft,
   editing,
   restrictedDisplayOnly,
-  republishing = false,
+  republishing,
   mapBandColors,
   mapValueUnit,
-  mapBands = NO_MAP_BANDS_JUDGEMENT,
+  mapBands,
   onThresholdErrorChange,
 }: AxisMapDisplaySectionProps) {
   const thresholdsDroppedOnMap = mapBands.droppedOnMap;

@@ -37,7 +37,7 @@ interface ComposerProps {
   editing: AxisDefinitionResponse | null;
   duplicateFrom: AxisDefinitionResponse | null;
   otherAxes: readonly AxisDefinitionResponse[];
-  mapBandColors?: (boundaries: readonly number[]) => readonly string[];
+  mapBandColors: ((boundaries: readonly number[]) => readonly string[]) | undefined;
   mapValueUnit: string;
   republishing: boolean;
   onCancelEdit: () => void;

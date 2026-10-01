@@ -187,7 +187,7 @@ type LogsQuery = NonNullable<paths["/api/admin/debug/logs"]["get"]["parameters"]
 export type LogLevelName = NonNullable<LogsQuery["min_level"]>;
 
 /** 直近のログ行（プロセス内リングバッファ）。debug_modeがOFFの間もWARNING以上は常に含まれる。 */
-export function getRecentLogs(query: LogsQuery = {}) {
+export function getRecentLogs(query: LogsQuery) {
   return requestApi(
     (init) => adminApiClient.GET("/debug/logs", { params: { query }, ...init }),
     adminOptions("ログの取得"),
@@ -195,8 +195,6 @@ export function getRecentLogs(query: LogsQuery = {}) {
 }
 
 // 稼働状況（認証の要らない口）
-
-export type DebugStats = Schemas["DebugStatsResponse"];
 
 export function getDebugStats() {
   return requestApi(

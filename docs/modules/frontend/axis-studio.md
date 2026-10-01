@@ -260,8 +260,8 @@ default_weight等）は`draftFromExisting`が読み込んだ既存値のまま�
 - `BreakpointCurveEditor`（`BreakpointCurveEditor.tsx`）: SVGでbreakpointsをドラッグ・
   矢印キー調整できる曲線プレビュー。
   同じ`draft.breakpoints` stateを数値入力行と共有し、常に同期する。`referenceRange`
-  （参考点の値域）を渡すとその範囲＋10%余白へ横軸を固定する——参考点が無い材料は
-  従来どおりbreakpoints自体の値から自動スケールする。目盛り線・ドラッグ中の値ラベル
+  （参考点の値域）があればその範囲＋10%余白へ横軸を固定する——参考点が無い材料
+  （`referenceRange`がundefined）はbreakpoints自体の値から自動スケールする。目盛り線・ドラッグ中の値ラベル
   （フォーカス中の点の上に表示）・矢印キーでの微調整（Shift併用で10倍刻み）を持つ。
 - `SliderNumberField`（`AxisFormFields.tsx`）: 係数・スコアをスライダー（大まかな目安）＋数値入力（正確な値）の
   組み合わせで編集する。スライダーの範囲は材料ごとに大きく異なる値の目安にすぎず、

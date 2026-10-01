@@ -16,7 +16,7 @@ const api = vi.hoisted(() => ({ fetchMapBandsOfThresholds: vi.fn() }));
 vi.mock("@/features/admin/adminApi", () => api);
 vi.mock("@/hooks/useDebouncedValue", () => ({ MAP_FETCH_DEBOUNCE_MS: 0, useDebouncedValue: <T>(value: T) => value }));
 
-import { NO_MAP_BANDS_JUDGEMENT, useMapBandsOfThresholds } from "./useMapBandsOfThresholds";
+import { useMapBandsOfThresholds } from "./useMapBandsOfThresholds";
 
 function request(thresholds: number[]): DisplayThresholdsPreviewRequest {
   return { axis_id: "axis_a", shape: { kind: "categorical", material: "m", mapping: {} }, thresholds };
@@ -24,6 +24,8 @@ function request(thresholds: number[]): DisplayThresholdsPreviewRequest {
 
 const judged: MapBandsOfThresholds = { droppedOnMap: [2], bandsOnMap: [0, 2] };
 const judgedOk = { ...judged, failed: false };
+/** 判定が無い間: 落ちる値なし・全段が残る（入力どおりの段で出す）。 */
+const noJudgement = { droppedOnMap: [], bandsOnMap: null, failed: false };
 
 beforeEach(() => {
   api.fetchMapBandsOfThresholds.mockReset();
@@ -34,7 +36,7 @@ describe("useMapBandsOfThresholds", () => {
     const { result } = renderHook(() => useMapBandsOfThresholds(null));
     await act(async () => {});
     expect(api.fetchMapBandsOfThresholds).not.toHaveBeenCalled();
-    expect(result.current).toEqual(NO_MAP_BANDS_JUDGEMENT);
+    expect(result.current).toEqual(noJudgement);
   });
 
   it("下書きの形・しきい値をそのまま問い、答えを返す", async () => {
@@ -50,7 +52,7 @@ describe("useMapBandsOfThresholds", () => {
     const { result } = renderHook(() => useMapBandsOfThresholds(request([1])));
     await waitFor(() => expect(api.fetchMapBandsOfThresholds).toHaveBeenCalledTimes(1));
     await act(async () => {});
-    expect(result.current).toEqual({ ...NO_MAP_BANDS_JUDGEMENT, failed: true });
+    expect(result.current).toEqual({ ...noJudgement, failed: true });
   });
 
   it("入力を変えた直後は、前の入力の答えを返さない", async () => {
@@ -64,7 +66,7 @@ describe("useMapBandsOfThresholds", () => {
     await waitFor(() => expect(result.current).toEqual(judgedOk));
 
     rerender({ thresholds: [1, 3] });
-    expect(result.current).toEqual(NO_MAP_BANDS_JUDGEMENT);
+    expect(result.current).toEqual(noJudgement);
     answerSecond({ droppedOnMap: [], bandsOnMap: [0, 1, 2] });
     await waitFor(() => expect(result.current.bandsOnMap).toEqual([0, 1, 2]));
   });

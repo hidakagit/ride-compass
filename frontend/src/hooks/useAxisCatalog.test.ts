@@ -1,6 +1,6 @@
 import { renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { AxisCatalogResponse } from "@/types/route";
+import type { getAxisCatalog as GetAxisCatalog } from "@/services/axisCatalogApi";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 
 // 改善計画T308: useAxisCatalogがrampAxes/axisLabels/secondaryAxesを実行時APIから
@@ -24,6 +24,8 @@ beforeEach(async () => {
   });
   mod = await import("./useAxisCatalog");
 });
+
+type AxisCatalogResponse = Awaited<ReturnType<typeof GetAxisCatalog>>;
 
 function catalogResponse(): AxisCatalogResponse {
   return {

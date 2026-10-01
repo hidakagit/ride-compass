@@ -1,5 +1,6 @@
 import { expect, type Locator, type Page } from "@playwright/test";
-import type { AxisCatalogResponse, RouteCandidate, RouteGenerateJobStatusResponse } from "@/types/route";
+import type { components } from "@/types/generated/api";
+import type { RouteCandidate, RouteGenerateJobStatusResponse } from "@/types/route";
 import { catalogEntry, tileInput } from "@/testing/catalogAxes";
 import { makeRouteCandidate as makeCandidate } from "@/testing/routeFixtures";
 import type {
@@ -162,7 +163,9 @@ function emptyMapStyleFixture() {
 
 /** `GET /api/axis-catalog`の応答。軸以外（世代・尺度・調整値・事故の収録年）は空で返す。型は契約のもので、
  * 項目を欠いた応答を作れない（欠けると、本物のbackendなら必ず来る値が画面で`undefined`になる）。 */
-export function axisCatalogFixture(axes: ReturnType<typeof catalogEntry>[]): AxisCatalogResponse {
+export function axisCatalogFixture(
+  axes: ReturnType<typeof catalogEntry>[],
+): components["schemas"]["AxisCatalogResponse"] {
   return { axes, tile_versions: {}, tile_runtime_scales: {}, client_tuning: {}, accident_years: [] };
 }
 

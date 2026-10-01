@@ -182,10 +182,6 @@ describe("niceStep", () => {
     expect(niceStep(span)).toBeCloseTo(step, 12);
   });
 
-  it("目盛りの数を変えれば、刻みも変わる", () => {
-    expect(niceStep(100, 10)).toBe(10);
-  });
-
   it.each([[0], [-3], [Number.NaN], [Number.POSITIVE_INFINITY]])("幅が %d なら刻みは1", (span) => {
     expect(niceStep(span)).toBe(1);
   });

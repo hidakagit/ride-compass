@@ -166,8 +166,7 @@ describe("getRecentLogs", () => {
 
   it("絞り込みが無ければ問い合わせを付けない（backendの既定＝保持している全件）", async () => {
     answer([]);
-    await adminApi.getRecentLogs();
-    await adminApi.getRecentLogs({ contains: undefined });
+    await adminApi.getRecentLogs({ contains: undefined, min_level: undefined, limit: undefined });
     expect(recorded.map((r) => r.url).filter((url) => url.includes("?"))).toEqual([]);
   });
 });
