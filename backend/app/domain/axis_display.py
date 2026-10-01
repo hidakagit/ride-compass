@@ -29,8 +29,6 @@ from app.domain.axis_definitions import (
     PriorityCondition,
     referenced_materials,
 )
-from app.domain.axis_templates import evaluate_breakpoint_linear
-from app.domain.difficulty import round_difficulty
 from app.domain.material_catalog import MATERIAL_CATALOG, MaterialSpec
 from app.domain.registry import AxisDisplaySpec, TileInputSpec
 from app.domain.strict_model import StrictModel
@@ -58,7 +56,7 @@ def _drop_thresholds_that_share_a_score(
     kept: list[float] = []
     seen: list[float] = []
     for threshold in thresholds:
-        score = round_difficulty(evaluate_breakpoint_linear(threshold, shape.breakpoints))
+        score = shape.score_at(threshold)
         if seen and score <= seen[-1]:
             continue
         seen.append(score)

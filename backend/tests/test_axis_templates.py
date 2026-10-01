@@ -8,7 +8,6 @@
 import math
 
 import numpy as np
-import pytest
 
 from app.domain import axis_templates
 from app.domain.attributes import CategoricalColumn
@@ -17,9 +16,10 @@ BREAKPOINTS = [(0.0, 0.0), (10.0, 100.0)]
 
 
 class TestEvaluateBreakpointLinear:
-    @pytest.mark.parametrize(("value", "expected"), [(5.0, 50.0), (-5.0, 0.0), (15.0, 100.0)])
-    def test_scalar_interpolates_and_clamps_at_both_ends(self, value, expected):
-        assert axis_templates.evaluate_breakpoint_linear(value, BREAKPOINTS) == expected
+    def test_interpolates_and_clamps_at_both_ends(self):
+        result = axis_templates.evaluate_breakpoint_linear(np.array([5.0, -5.0, 15.0]), BREAKPOINTS)
+
+        assert result.tolist() == [50.0, 0.0, 100.0]
 
     def test_array_keeps_missing_values_missing(self):
         result = axis_templates.evaluate_breakpoint_linear(np.array([np.nan, 5.0, 20.0]), BREAKPOINTS)
