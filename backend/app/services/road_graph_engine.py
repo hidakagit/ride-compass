@@ -39,7 +39,7 @@ from app.domain.attributes import ElevationAttribute
 from app.domain.axis_raw_value import displayed_material_ids
 from app.domain.difficulty import DIFFICULTY_QUANTUM, distance_weighted_difficulty, round_difficulty_array
 from app.domain.errors import RoutingError
-from app.domain.evaluation import difficulty_from_cost
+from app.domain.evaluation import StaticEdgeScoreMatrix, build_static_edge_score_matrix, difficulty_from_cost
 from app.domain.hard_filters import compute_hard_filter_excluded, compute_routable_nodes
 from app.domain.leg_costs import LegCostArrays, LegCostComposer, RowValues, material_value_at
 from app.domain.material_catalog import GRADIENT_PERCENT
@@ -54,7 +54,8 @@ from app.domain.geo import (
 )
 from app.domain.graph import LeanEdge, edge_key, node_key, parse_edge_key
 from app.domain.region import BoundingBox, bbox_covering_points
-from app.domain.road_network import RoadSlice, edge_row_of, elevation_attribute
+from app.domain.rain import StationRainMaterials, rain_material_columns
+from app.domain.road_network import RoadSlice, edge_row_of, elevation_attribute, material_arrays_of
 from app.domain.route import (
     Coordinates,
     RouteCandidate,
@@ -97,8 +98,10 @@ from app.domain.wind import (
     kmh_to_ms,
 )
 from app.infrastructure import detour_ratio_cache
+from app.infrastructure.debug_log import log_throttled_warning
 from app.services.graph_service import GraphService
 from app.domain.loop_routing import LoopTurnaround, TracedLoop, candidate_identity
+from app.services.jma_amedas_service import load_station_rain_materials
 from app.services.weather_service import WeatherService
 
 # Road Graphを取得するbboxは、起点・経由地2点の外接矩形にこのマージンを足したもの。
@@ -237,6 +240,16 @@ class _RoadGraphContext:
     no_candidates_side: str | None = None
 
 
+def _static_score_matrix(road: RoadSlice, rain: StationRainMaterials | None) -> tuple[StaticEdgeScoreMatrix, int]:
+    """切り出した区間の材料に、区間の中点に最も近い雨量計の観測（雨の材料）を足して静的スコア行列を組む。
+    戻り値の2つ目は雨の材料を引くのにかかった時間（ms）。"""
+    materials = material_arrays_of(road)
+    started = time.monotonic()
+    observed = {} if rain is None else rain_material_columns(rain, materials.mid_lat, materials.mid_lon)
+    rain_ms = round((time.monotonic() - started) * 1000)
+    return build_static_edge_score_matrix(materials, observed), rain_ms
+
+
 @dataclass
 class _SearchGraph:
     """`prepare`・`preview_segment`共通の「bboxに対する探索用グラフ＋材料一式」。
@@ -315,17 +328,20 @@ class RoadGraphEngine:
         ——探索中は到達時刻が未確定のため出発時刻の近似として使う簡略化はどちらの用途でも
         変わらない（モジュールdocstring参照）。時別予報は`bbox`を覆う格子点ごとに引く。
 
-        `GraphService.get_search_slice`が返す`StaticEdgeScoreMatrix`（切り出した区間の静的
-        Edge×公開軸スコア行列）に対し、動的軸（風、`evaluate_dynamic_axis_arrays`）と重み
+        雨の材料は、出発時刻ではなく今の観測（地図の雨と同じ値）。観測の履歴が無い・古いときは欠損のまま組み、
+        雨の材料を読む軸はその生成で「データなし」になる。
+
+        `GraphService.get_search_slice`が切り出した区間の材料と雨の観測から`StaticEdgeScoreMatrix`
+        （静的Edge×公開軸スコア行列）を組み、動的軸（風、`evaluate_dynamic_axis_arrays`）と重み
         ベクトルを適用してコスト配列を**bbox全体ぶん1回だけ**numpyで合成する。探索本体へは
         合成済みのnumpy配列をそのまま渡すだけにする。
         """
         stage_started = time.monotonic()
         built = await self._graph_service.get_search_slice(bbox)
-        materials_ms = round((time.monotonic() - stage_started) * 1000)
+        slice_ms = round((time.monotonic() - stage_started) * 1000)
         if built is None:
             return None
-        road, score_matrix, tile_set = built
+        road, tile_set = built
         if road.edge_count == 0:
             return None
 
@@ -333,7 +349,14 @@ class RoadGraphEngine:
         weather = await self._weather_service.get_conditions(wind_and_night_origin)
         # 探索範囲を覆う格子点ごとの時別風予報（MSMのローカルファイルから読む。外部API呼び出しは無い）。
         wind_series = await self._weather_service.get_wind_forecast_lattice(bbox)
+        rain = await load_station_rain_materials(datetime.now(JST))
         weather_ms = round((time.monotonic() - weather_started) * 1000)
+        if rain is None:
+            log_throttled_warning("engine:rain-materials", "雨の観測の履歴が無いか古いため、雨の材料を欠損として探索範囲を組む")
+
+        materials_started = time.monotonic()
+        score_matrix, rain_ms = await asyncio.to_thread(_static_score_matrix, road, rain)
+        materials_ms = round((time.monotonic() - materials_started) * 1000)
         # 通過予定時刻の基準（出発時刻）。時別系列はJSTのローカル時刻のため揃える。
         start = now.astimezone(JST).replace(tzinfo=None)
         # 時間帯依存軸（time_scope="night_only"）の動的化。区間ごとの到達時刻は探索中は未確定の
@@ -375,10 +398,11 @@ class RoadGraphEngine:
 
         total_ms = round((time.monotonic() - stage_started) * 1000)
         logger.info(
-            "_build_search_graph edges=%d nodes=%d materials_ms=%d weather_ms=%d cost_ms=%d graph_ms=%d "
-            "total_ms=%d wind_time_varying=%s speed_kmh=%.1f detour_ratio=%.2f(%s) "
+            "_build_search_graph edges=%d nodes=%d slice_ms=%d weather_ms=%d materials_ms=%d rain_ms=%d cost_ms=%d "
+            "graph_ms=%d total_ms=%d rain_hour=%s wind_time_varying=%s speed_kmh=%.1f detour_ratio=%.2f(%s) "
             "missing_axis_edges=%d missing_axis_distance_ratio=%.3f",
-            road.edge_count, road.node_count, materials_ms, weather_ms, cost_ms, graph_ms, total_ms,
+            road.edge_count, road.node_count, slice_ms, weather_ms, materials_ms, rain_ms, cost_ms, graph_ms, total_ms,
+            "none" if rain is None else rain.latest_hour.strftime("%Y-%m-%dT%H"),
             composer.time_varying, self._assumed_speed_kmh, composer.detour_ratio,
             "learned" if learned_detour_ratio is not None else "default",
             int(missing_axis_mask.sum()), missing_axis_distance_ratio,

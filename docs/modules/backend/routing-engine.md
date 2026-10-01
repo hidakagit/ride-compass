@@ -411,14 +411,21 @@ idを`route-destination-00..`へ振り直すが、
 - **waypoints指定（経由地・目的地）**: `bbox_covering_points([origin, *waypoints], 固定マージン)`
   （起点＋全経由地＋目的地を包含する矩形）。
 
-`GraphService.get_search_slice`で探索範囲の区間（`domain/road_network.py: RoadSlice`）と、
-その材料から求めた「Edge×公開軸」静的スコア行列（`StaticEdgeScoreMatrix`、行は切り出した区間の順）を
-受け取り、`_build_search_graph`が探索用グラフ（`domain/routing.py: LazyRoadGraph`）とbbox全体ぶんの
-コスト配列を、`_build_search_structures`が最寄りNodeの索引（`NodeSpatialIndex`）・CSR・ターン構造を
+`GraphService.get_search_slice`で探索範囲の区間（`domain/road_network.py: RoadSlice`）を受け取り、
+`_build_search_graph`がその材料から「Edge×公開軸」静的スコア行列（`StaticEdgeScoreMatrix`、行は切り出した
+区間の順）・探索用グラフ（`domain/routing.py: LazyRoadGraph`）・bbox全体ぶんのコスト配列を、`_build_search_structures`が最寄りNodeの索引（`NodeSpatialIndex`）・CSR・ターン構造を
 リクエストごとに組む。データ未整備（取込の宣言した範囲の外）ならNoneを返し、呼び出し元
 （`RouteGenerator`）が候補0件として扱う。
 
-`_build_search_graph`は0次フィルタの除外（`compute_hard_filter_excluded`）と夜間の重みを決めて
+`_build_search_graph`は、まず気象の段で生成の時点の外部の観測と予報をまとめて読む（出発時点の天候・
+時別の風の予報・雨の観測の履歴。ログの`weather_ms`がこの段）。静的スコア行列は、切り出した区間の材料
+（`material_arrays_of`、分類の材料は語彙への番号のまま）に、区間の中点に最も近い雨量計の今の観測
+（雨の材料、`domain/rain.py: rain_material_columns`。地図の雨と同じ関数・同じ観測）を足して
+`build_static_edge_score_matrix`で求める。雨は出発時刻ではなく今の観測で、履歴は`load_station_rain_materials`が
+Redisから読み（プロセス内に5分持つ）、無い・古ければ雨の材料は欠損のまま組む（WARNINGを抑制付きで出し、
+INFOサマリの`rain_hour=none`で分かる。雨を読む軸だけがその生成で「データなし」になる）。行列はキャッシュしない
+——軸定義の編集と雨の観測がそのまま次の生成に効き、軸定義の世代を突き合わせる仕組みが要らない。
+続けて0次フィルタの除外（`compute_hard_filter_excluded`）と夜間の重みを決めて
 `LegCostComposer`を組む。合成器は`StaticEdgeScoreMatrix`（風などリクエストごとに変わる動的軸の列は
 NaN）へ動的軸（風、`domain/dynamic_materials.py: evaluate_dynamic_axis_arrays`。材料id→evaluator
 関数の登録制`DYNAMIC_MATERIAL_EVALUATORS`で軸名をハードコードしない汎用実装）と重み
@@ -662,14 +669,9 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
    外で動くため、枠いっぱいの生成と重なったときは取り置きから使う。
    戦略層（`RouteGenerator._prepare`）はこの例外を「探索範囲の道路が多すぎる」理由付きの候補0件に、
    区間確認APIは422にする。
-4. **静的スコア行列**: 切り出した区間の材料（`material_arrays_of`、分類の材料は語彙への番号のまま）に、
-   区間の中点に最も近い雨量計の今の観測（雨の材料、`domain/rain.py: rain_material_columns`。地図の雨と同じ関数・
-   同じ観測）を足し、`build_static_edge_score_matrix`で求める。観測の履歴は`load_station_rain_materials`が
-   Redisから読み（プロセス内に5分持つ）、無い・古ければ雨の材料は欠損のまま組む（WARNINGを抑制付きで出し、
-   INFOサマリの`rain_hour=none`で分かる）。キャッシュしない——軸定義の編集と雨の観測がそのまま次の生成に効き、
-   軸定義の世代を突き合わせる仕組みが要らない。
 
-戻り値は`(RoadSlice, StaticEdgeScoreMatrix, タイル集合)`。スコア行列の行は切り出した区間の順。
+戻り値は`(RoadSlice, タイル集合)`。材料を読むだけで、観測を引くこともスコアを組むこともしない
+（`RoadGraphEngine`の`prepare`節）。
 
 `get_edges_with_geometry`は確定した経路の区間へ形を後付けする（リポジトリへそのまま委ねる）。
 `RoadGraphEngine.evaluate_loops`が距離フィルタ通過候補ぶんの区間をまとめて1回・

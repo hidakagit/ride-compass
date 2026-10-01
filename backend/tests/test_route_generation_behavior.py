@@ -31,6 +31,7 @@ from tests import rain_history_fake
 from tests.axis_system_fixture import replaced_axis_definitions
 from tests.route_world import (
     AVOID_AXIS,
+    BAD_MATERIAL,
     BASE_LAT,
     BASE_LON,
     CENTER,
@@ -342,24 +343,54 @@ async def test_the_share_of_the_route_timed_without_data_is_reported(engine_over
     assert fastest_of(complete).missing_travel_data_share == 0.0
 
 
-async def test_the_rain_observed_now_is_scored_on_the_segments_and_carried_in_mm(engine_over, monkeypatch):
-    """雨の材料（最寄りの雨量計の今の観測）は、道の材料と同じく区間の得点と候補の生値（mm）に載る。
-    雨量計は格子の中に1つ置き、1時間1.0mmの雨が続いている。"""
-    rain_history_fake.use_fake_redis(monkeypatch)
-    gauge = {"gauge": {"lat": [35, 36.6], "lon": [139, 36.6], "kjName": "格子の中"}}
-    await rain_history_fake.observe(monkeypatch, gauge, {"gauge": 1.0})
-    rain_axis = AxisDefinition(
-        axis_id="rain", label="雨", default_weight=0.0, is_published=True,
-        shape=BreakpointLinearShape(terms=[MaterialTerm(material=rain_window_material_id(3))], breakpoints=[(0.0, 0.0), (10.0, 100.0)]),
+def _rain_axis(axis_id: str, *materials: str) -> AxisDefinition:
+    terms = [MaterialTerm(material=rain_window_material_id(3)), *(MaterialTerm(material=m) for m in materials)]
+    return AxisDefinition(
+        axis_id=axis_id, label="雨", default_weight=0.0, is_published=True,
+        shape=BreakpointLinearShape(terms=terms, breakpoints=[(0.0, 0.0), (10.0, 100.0)]),
     )
 
-    with replaced_axis_definitions({**AXIS_DEFINITIONS, "rain": rain_axis}):
-        candidates = await engine_over(grid_network()).generate_via_waypoints(
-            at(SOUTH_WEST), [], 4.0, destination=at(NORTH_EAST), max_routes=3, start_time=DEPARTURE)
+
+#: 雨の材料だけを読む軸と、雨と道の材料（避けたい材料）を足して読む軸。
+RAIN_AXES = {"rain": _rain_axis("rain"), "rain_and_bad": _rain_axis("rain_and_bad", BAD_MATERIAL)}
+
+#: 南の道の西半分（道100、中点139.6055E）の近くと、東半分（道101、中点139.6165E）の近くの雨量計。
+RAIN_GAUGES = {
+    "west": {"lat": [35, 36.0], "lon": [139, 36.0], "kjName": "西"},
+    "east": {"lat": [35, 36.0], "lon": [139, 37.32], "kjName": "東"},
+}
+
+
+async def test_each_segment_is_scored_with_the_rain_at_the_gauge_nearest_its_midpoint(engine_over, monkeypatch):
+    """雨の材料は区間の中点に最も近い雨量計の今の観測で、道の材料と同じく区間の得点と生値（mm）に載る
+    ——雨と道の材料を1つの軸で足すこともできる。南西→南東の最速は道100（西の雨量計）と道101（東の雨量計）で、
+    西では1時間1.0mmの雨が続き、東は降っていない。"""
+    rain_history_fake.use_fake_redis(monkeypatch)
+    await rain_history_fake.observe(monkeypatch, RAIN_GAUGES, {"west": 1.0, "east": 0.0})
+
+    with replaced_axis_definitions({**AXIS_DEFINITIONS, **RAIN_AXES}):
+        candidates = await engine_over(grid_network(bad_ways={101})).generate_via_waypoints(
+            at(SOUTH_WEST), [], 3.0, destination=at(SOUTH_EAST), max_routes=3, start_time=DEPARTURE)
 
     fastest = fastest_of(candidates)
-    assert [segment.axis_difficulties["rain"] for segment in fastest.segments] == [30.0] * len(fastest.segments)
-    assert fastest.axis_raw_values["rain"] == 3.0
+    assert ways_of(fastest) == [100, 101]
+    # 3時間の雨量は1時間1.0mmの3本ぶん。道101の避けたい材料1は、雨の0mmに足されて10点になる。
+    assert [segment.axis_difficulties["rain"] for segment in fastest.segments] == [30.0, 0.0]
+    assert [segment.axis_difficulties["rain_and_bad"] for segment in fastest.segments] == [30.0, 10.0]
+    assert [segment.axis_raw_values["rain"] for segment in fastest.segments] == [3.0, 0.0]
+
+
+async def test_without_an_observation_history_only_the_rain_axis_has_no_data(engine_over, monkeypatch):
+    """履歴が無い（バッチがまだ・Redisが不通）ときもルートは出て、雨を読む軸だけが「データなし」になる。"""
+    rain_history_fake.use_fake_redis(monkeypatch)
+
+    with replaced_axis_definitions({**AXIS_DEFINITIONS, **RAIN_AXES}):
+        candidates = await engine_over(grid_network()).generate_via_waypoints(
+            at(SOUTH_WEST), [], 3.0, destination=at(SOUTH_EAST), max_routes=3, start_time=DEPARTURE)
+
+    fastest = fastest_of(candidates)
+    assert all("rain" not in segment.axis_difficulties for segment in fastest.segments)
+    assert all(segment.axis_difficulties[AVOID_AXIS] == 0.0 for segment in fastest.segments)
 
 
 def _wind(times: list[datetime], speed_by_point: list[float]) -> WindForecastSeries:
