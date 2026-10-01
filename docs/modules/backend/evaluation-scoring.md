@@ -109,7 +109,7 @@ way粒度の経路も**区間向けと同じ式**を使う。`_way_from_clause`�
 ```
 一次: 材料の値（DBが`MaterialSpec.value_sql`で導出、`EdgeMaterialArrays`）
         │  観測を引く材料（雨）は探索範囲を組むときに区間の中点に最も近い雨量計の今の観測を
-        │  列として足す（`GraphService.get_search_slice`→`domain/rain.py: rain_material_columns`）
+        │  列として足す（`RoadGraphEngine`の気象の段が観測を読み→`domain/rain.py: rain_material_columns`）
         │  動的材料（風）だけはリクエスト時に`evaluate_dynamic_material_arrays`が
         │  bearing配列・天候・走行速度から求める
         ▼
@@ -179,7 +179,7 @@ bbox全体ぶんのコストをリクエストにつき1回だけnumpyで合成�
 `list.__getitem__`だけを渡す。
 
 - **`build_static_edge_score_matrix`**: 生成のたびに、切り出した探索範囲の材料
-  （`GraphService.get_search_slice`）から`StaticEdgeScoreMatrix`（Edge×公開軸の静的スコア行列＋distance_m・
+  （`GraphService.get_search_slice`）と雨の観測（`RoadGraphEngine`の気象の段）から`StaticEdgeScoreMatrix`（Edge×公開軸の静的スコア行列＋distance_m・
   bearing_deg・0次フィルタ判定用の生配列、行は切り出した区間の順）を構築する。キャッシュしない——
   軸定義の編集がそのまま次の生成に効く。
   分類の材料（`highway`・路面の見込み等）は、道路網の置き場が持つ語彙への番号の列
