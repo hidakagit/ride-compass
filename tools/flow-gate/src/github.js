@@ -102,7 +102,7 @@ export function setField(m, project, item, name, value) {
 
 const TASK = `fragment Task on Issue { id number title body url state author { ... on User { databaseId } }
   parent { number } assignees(first: 5) { nodes { id login } } labels(first: 20) { nodes { name } }
-  blockedBy(first: 50) { nodes { number state stateReason } } subIssues(first: 50) { nodes { state } }
+  blockedBy(first: 50) { nodes { number state stateReason } }
   lastClose: timelineItems(last: 1, itemTypes: [CLOSED_EVENT]) { nodes { ... on ClosedEvent { stateReason } } }
   comments(last: $c) @include(if: $wc) { nodes { author { login } createdAt url bodyHTML } }
   projectItems(first: 10) { nodes { id project { id } fieldValues(first: 30) { nodes {

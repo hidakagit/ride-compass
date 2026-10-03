@@ -2,7 +2,7 @@
 // ステータス・ラベルはゲートの遷移の処理（Gate.apply）がゲートの名義で書く（担当者はステータスから決まる）。
 import { Gate, currentQuestion } from "./gate.js";
 import { GitHub, Mutations } from "./github.js";
-import { answerBody, answerChoices, splitBody, userTurn } from "./rules.js";
+import { answerBody, answerChoices, judge, splitBody, userTurn } from "./rules.js";
 
 // 材料に載せる最近のコメントの件数。保留の理由・確かめる担当の結果・前の答えは、どれも最近のコメントにある。
 const RECENT = 5;
@@ -133,14 +133,14 @@ async function submit(gate, env, data) {
   const chosen = data.getAll("label").map(String).filter((n) => labels.includes(n));
   const added = chosen.filter((n) => !had.includes(n));
   const removed = had.filter((n) => !chosen.includes(n));
-  const want = { close: choice.close, labels: added, unlabels: removed, clearQuestion: true };
-  const precheck = await gate.apply(issue, choice.to, { ...want, dryRun: true });
+  // 断る答えは記録も書かないので、先に照らす（書くのは gate.apply。同じ照らし）。
+  const precheck = judge(gate.config, issue.status, choice.to, { close: choice.close, issue });
   if (!precheck.ok) return { error: precheck.reason };
 
   // 答えの記録（ユーザーの名義）を先に書き、決定と見せ方（ゲートの名義。本文の問いとボタンを消す）を書いてから返す。
   const body = answerBody({ question: q.parsed, choices, choice, note, added, removed });
   await new Mutations().add("addComment", { subjectId: issue.id, body }).send(new GitHub(env.FORM_TOKEN));
-  const r = await gate.apply(issue, choice.to, want);
+  const r = await gate.apply(issue, choice.to, { close: choice.close, labels: added, unlabels: removed, clearQuestion: true });
   if (!r.ok) return { error: r.reason };
   return { url: issue.url, label: choice.text };
 }
