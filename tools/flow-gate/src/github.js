@@ -106,7 +106,7 @@ const TASK = `fragment Task on Issue { id number title body url state author { .
   lastClose: timelineItems(last: 1, itemTypes: [CLOSED_EVENT]) { nodes { ... on ClosedEvent { stateReason } } }
   comments(last: $c) @include(if: $wc) { nodes { author { login } createdAt url bodyHTML } }
   projectItems(first: 10) { nodes { id project { id } fieldValues(first: 30) { nodes {
-    ... on ProjectV2ItemFieldSingleSelectValue { name field { ... on ProjectV2SingleSelectField { name } } }
+    ... on ProjectV2ItemFieldSingleSelectValue { name updatedAt field { ... on ProjectV2SingleSelectField { name } } }
     ... on ProjectV2ItemFieldDateValue { date field { ... on ProjectV2Field { name } } } } } } }
   repository { nameWithOwner } }`;
 const COMMON = `organization(login: $po) { projectV2(number: $pn) { id fields(first: 50) { nodes { ... on ProjectV2SingleSelectField { id name options { id name } } ... on ProjectV2Field { id name dataType } } } } }
@@ -114,7 +114,7 @@ const COMMON = `organization(login: $po) { projectV2(number: $pn) { id fields(fi
 
 // タスクを、判断と書き込みに要るだけ1回の問い合わせで読む（Project の単一選択と日付の欄・置き場のラベル・issue）。
 // project.fields は欄の名前 → 単一選択なら { id, options: 選択肢の名前 → id, order: 選択肢の並び }、日付なら { id, date: true }。
-// issue.fields は欄の名前 → 今の値（選択肢の名前か YYYY-MM-DD）。
+// issue.fields は欄の名前 → 今の値（選択肢の名前か YYYY-MM-DD）。issue.statusAt は Status の値を最後に書いた時刻。
 // Project の件は設定の Project のものだけを見る。issue が置き場のものでなければ issue は null。
 // comments を渡すと、新しいコメントをその件数まで、GitHub が描いた形（bodyHTML）で一緒に読む（issue.comments.nodes。古い順）。
 export async function readTask(gh, config, ref, { comments = 0 } = {}) {
@@ -134,6 +134,8 @@ export async function readTask(gh, config, ref, { comments = 0 } = {}) {
   const issue = ref.nodeId ? d.node : d.repository.issue;
   if (!issue || issue.repository?.nameWithOwner !== config.repository) return { project, labels, issue: null };
   const item = issue.projectItems.nodes.find((i) => i.project.id === project.id);
-  const values = Object.fromEntries((item?.fieldValues.nodes ?? []).filter((x) => x.field).map((x) => [x.field.name, x.name ?? x.date]));
-  return { project, labels, issue: { ...issue, item: item?.id ?? null, status: values[config.project.statusField] ?? null, fields: values } };
+  const set = (item?.fieldValues.nodes ?? []).filter((x) => x.field);
+  const values = Object.fromEntries(set.map((x) => [x.field.name, x.name ?? x.date]));
+  const statusAt = set.find((x) => x.field.name === config.project.statusField)?.updatedAt ?? null;
+  return { project, labels, issue: { ...issue, item: item?.id ?? null, status: values[config.project.statusField] ?? null, statusAt, fields: values } };
 }

@@ -10,12 +10,14 @@ const BY_NODE = Object.fromEntries(Object.entries(config.people).map(([k, p]) =>
 // code はコードのリポジトリの状態（Pull Request の一覧）。
 // parent を渡すと、issue をその子にする（親の子は、parent.siblings の状態と issue の今の状態）。親の id は I_P。
 // issue.comments は今あるコメント（古い順。{ author, body, createdAt }）。読むときは GitHub が描いた形（bodyHTML）で返す。
+// REST の書き込み（POST）・読み（GET）・消す（DELETE）のコメントは、番号の若い順に issue.comments に並ぶ。
+// issue.statusAt は Status の値を最後に書いた時刻で、Status を書くたびに1秒進む。
 // markdown を false にすると、Markdown を描く呼び出しが失敗する。
 // updates は Project の状況の更新（新しいものが先。{ id, status, body, by, updatedAt? }）。トークン bot-token は hidakagit-bot の名義。
 // race を渡すと、担当者を書く最初の updateIssue の直前に、並んで動く別の書き込みがその担当者（login の並び）を入れ、
 // その updateIssue は GitHub と同じく「Assignments is invalid」で断られて何も書かない。
 export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel, "規模S", config.confirmLabel], code = { prs: [] }, markdown = true, updates = [], race = null }) {
-  const blank = { blockedBy: [], subIssues: [], assignees: [], labels: [], lastClose: [], state: "OPEN", fields: {}, comments: [] };
+  const blank = { blockedBy: [], subIssues: [], assignees: [], labels: [], lastClose: [], state: "OPEN", fields: {}, comments: [], statusAt: "2026-10-03T00:00:00Z" };
   const state = {
     issue: { ...blank, ...issue },
     parent: parent && { ...blank, siblings: [], ...parent },
@@ -42,7 +44,7 @@ export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel
       subIssues: { nodes: main ? i.subIssues : [...i.siblings, { state: state.issue.state }] },
       lastClose: { nodes: i.lastClose }, repository: { nameWithOwner: config.repository },
       projectItems: { nodes: [{ id: main ? "PVTI_1" : "PVTI_P", project: { id: "PVT_1" }, fieldValues: { nodes: [
-        ...(i.status ? [{ name: i.status, field: { name: config.project.statusField } }] : []),
+        ...(i.status ? [{ name: i.status, updatedAt: i.statusAt, field: { name: config.project.statusField } }] : []),
         ...Object.entries(i.fields).map(([name, value]) => (name === config.project.startField ? { date: value, field: { name } } : { name: value, field: { name } })),
       ] } }] },
     };
@@ -58,7 +60,10 @@ export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel
     if (name === "updateProjectV2StatusUpdate") Object.assign(state.updates.find((u) => u.id === input.statusUpdateId), { status: input.status, body: input.body });
     if (name.endsWith("StatusUpdate")) return { clientMutationId: null };
     const i = byId(input.id ?? input.itemId ?? input.subjectId ?? input.issueId);
-    if (name === "updateProjectV2ItemFieldValue" && input.fieldId === "F_1") i.status = NAMES[input.value.singleSelectOptionId];
+    if (name === "updateProjectV2ItemFieldValue" && input.fieldId === "F_1") {
+      i.status = NAMES[input.value.singleSelectOptionId];
+      i.statusAt = new Date(Date.parse(i.statusAt) + 1000).toISOString();
+    }
     else if (name === "updateProjectV2ItemFieldValue" && input.value.date) i.fields = { ...i.fields, [config.project.startField]: input.value.date };
     else if (name === "updateProjectV2ItemFieldValue") {
       const [field, value] = input.value.singleSelectOptionId.split(":");
@@ -112,6 +117,18 @@ export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel
     if (path.endsWith("/access_tokens")) return json({ token: "app-token" });
     if (path === "/graphql") return json(graphql(body, as));
     if (path === "/markdown") return markdown ? new Response(`<p>描いた: ${body.text}</p>`) : new Response("失敗", { status: 500 });
+    const comments = `/repos/${config.repository}/issues/${state.issue.number}/comments`;
+    if (path === comments && init.method === "POST") {
+      const c = { id: (state.issue.comments.at(-1)?.id ?? 0) + 1, author: as, body: body.body, createdAt: state.issue.statusAt };
+      state.issue.comments.push(c);
+      return json({ id: c.id, body: c.body, html_url: `https://github.com/${config.repository}/issues/${state.issue.number}#issuecomment-${c.id}` }, 201);
+    }
+    if (path === comments) return json(state.issue.comments.map(({ id, body }) => ({ id, body })));
+    const removed = path.match(new RegExp(`^/repos/${config.repository}/issues/comments/(\\d+)$`));
+    if (removed && init.method === "DELETE") {
+      state.issue.comments = state.issue.comments.filter((c) => c.id !== Number(removed[1]));
+      return new Response(null, { status: 204 });
+    }
     const repo = `/repos/${config.code.repository}`;
     if (path === `${repo}/pulls`) return json(state.code.prs.filter((p) => `${config.code.repository.split("/")[0]}:${p.head.ref}` === new URL(url).searchParams.get("head")));
     throw new Error(`テストの GitHub が知らない呼び出し: ${init.method} ${path}`);
