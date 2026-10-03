@@ -16,3 +16,44 @@ export function classify(messages) {
   if (transient) return { outside: true, pause: false, reason: `Claude のサーバーの一時の失敗で止まった（${transient}）` };
   return { outside: false, pause: false, reason: "" };
 }
+
+// 担当の最後の発言。result の result（担当が最後に返した文）、無ければ最後の担当の発言の文。長ければ頭から limit 字で切る。
+export function lastWords(messages, limit = 2000) {
+  if (!Array.isArray(messages)) return null;
+  const result = messages.findLast((m) => m?.type === "result");
+  const said = messages
+    .filter((m) => m?.type === "assistant")
+    .map((m) => (m.message?.content ?? []).filter((c) => c?.type === "text").map((c) => c.text).join("\n").trim())
+    .findLast((t) => t);
+  const text = (typeof result?.result === "string" && result.result.trim()) || said;
+  if (!text) return null;
+  return text.length > limit ? `${text.slice(0, limit)}…（${text.length}字のうち頭の${limit}字）` : text;
+}
+
+const minutes = (ms) => `${Math.floor(ms / 60000)}分${Math.round((ms % 60000) / 1000)}秒`;
+
+// 後始末が issue へ書く「終わり」のコメント。置き場は非公開なので担当の発言を書いてよい（公開の Actions の記録には出さない）。
+// done は後始末がしたことの行、status は終わったときのステータス、elapsedMs は実行の開始からの時間（分からなければ null）。
+export function endReport({ kind, url, jobStatus, messages, done, status, elapsedMs }) {
+  const result = Array.isArray(messages) ? messages.findLast((m) => m?.type === "result") : null;
+  const words = lastWords(messages);
+  return [
+    `### ${kind}担当の終わり`,
+    "",
+    "| | |",
+    "|---|---|",
+    `| 終わったときのステータス | ${status ?? "不明"} |`,
+    `| 後始末がしたこと | ${done.length ? done.map((d) => d.replaceAll("|", "\\|")).join("<br>") : "なし"} |`,
+    `| ジョブの結果 | ${jobStatus} |`,
+    `| かかった時間（実行の開始から） | ${elapsedMs == null ? "不明" : minutes(elapsedMs)} |`,
+    `| 手数 | ${result?.num_turns ?? "不明（実行のファイルに result が無い）"} |`,
+    `| 実行 | ${url} |`,
+    "",
+    "担当の最後の発言:",
+    "",
+    words ? words.split("\n").map((l) => `> ${l}`).join("\n") : "（無い）",
+  ].join("\n");
+}
+
+// 担当のワークフローが引き受けたとき issue へ書く「着手」のコメント。
+export const startReport = ({ kind, url }) => `### ${kind}担当の着手\n\n実行: ${url}`;
