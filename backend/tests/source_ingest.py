@@ -24,6 +24,7 @@ from app.batch.ingest import ADAPTERS, RegisteredAdapter, SourceRecord, ingest_s
 from app.batch.source_adapters._raster_wkb import tile_bbox_wkb
 from app.batch.source_adapters.osm_pbf import way_payload
 from app.batch.source_profile import NoFields, SourceProfile, SourceSpec, Target, load_source_profile
+from app.infrastructure.source_models import WAY_KIND_TAG
 from tests.conftest import postgis_database_url
 
 #: テストが渡した行を返すアダプタの名前。取込の間だけ`ADAPTERS`に置く。
@@ -32,9 +33,12 @@ _ADAPTER = "given_records"
 
 def way_record(way_id: int, points: Sequence[tuple[float, float]], node_ids: Sequence[int],
                tags: dict[str, str] | None = None) -> SourceRecord:
-    """道（`osm_way`）の1件。`points`は頂点の (経度, 緯度) の列で、`node_ids`と1対1に対応する。"""
+    """道（`osm_way`）の1件。`points`は頂点の (経度, 緯度) の列で、`node_ids`と1対1に対応する。
+
+    道は種別を持たないと表に入らない。`tags`が種別を書かなければ、階級の付かない種別（自転車道）を補う。
+    """
     return SourceRecord(natural_key=str(way_id), geom_wkb=shapely.to_wkb(LineString(points)),
-                        attrs=tags or {}, payload=way_payload(node_ids))
+                        attrs={WAY_KIND_TAG: "cycleway", **(tags or {})}, payload=way_payload(node_ids))
 
 
 def point_record(key: int | str, lon: float, lat: float,

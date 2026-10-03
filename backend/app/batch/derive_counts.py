@@ -152,23 +152,17 @@ FROM (
 WHERE s.osm_way_id = m.osm_way_id AND s.segment_index = m.segment_index
 """
 
-_WAY_ORPHANS = """
-DELETE FROM way_materials w
-WHERE NOT EXISTS (SELECT 1 FROM road_edges e WHERE e.osm_way_id = w.osm_way_id)
-"""
-
 #: 道1本へ区間の和として写す列。
 _WAY_SUMMED_COLUMNS = ("accident_count", "intersection_count", *_STOP_COLUMNS.values())
 
+#: 道の行は区間と一緒に`derive_topology`が作っているので、値を書くだけでよい。
 _WAY_FROM_EDGES = f"""
-INSERT INTO way_materials (osm_way_id, {", ".join(_WAY_SUMMED_COLUMNS)}, source_run_id)
-SELECT m.osm_way_id, {", ".join(f"sum(m.{c})" for c in _WAY_SUMMED_COLUMNS)}, max(e.source_run_id)
-FROM edge_materials m JOIN road_edges e
-  ON e.osm_way_id = m.osm_way_id AND e.segment_index = m.segment_index
-GROUP BY m.osm_way_id
-ON CONFLICT (osm_way_id) DO UPDATE SET
-    {", ".join(f"{c} = EXCLUDED.{c}" for c in _WAY_SUMMED_COLUMNS)},
-    source_run_id = EXCLUDED.source_run_id
+UPDATE way_materials w SET {", ".join(f"{c} = s.{c}" for c in _WAY_SUMMED_COLUMNS)}
+FROM (
+    SELECT osm_way_id, {", ".join(f"sum({c}) AS {c}" for c in _WAY_SUMMED_COLUMNS)}
+    FROM edge_materials GROUP BY osm_way_id
+) s
+WHERE s.osm_way_id = w.osm_way_id
 """
 
 
@@ -193,7 +187,6 @@ async def derive(conn: asyncpg.Connection) -> None:
         await conn.execute(_EDGE_INTERSECTIONS, INTERSECTION_DEGREE_THRESHOLD)
         await conn.execute(_EDGE_ACCIDENTS, ACCIDENT_FATAL_WEIGHT, degrees,
                            ACCIDENT_MATCH_MAX_DISTANCE_M, sorted(BICYCLE_PARTY_TYPE_CODES))
-        await conn.execute(_WAY_ORPHANS)
         await conn.execute(_WAY_FROM_EDGES)
         await conn.execute("ANALYZE way_materials")
 

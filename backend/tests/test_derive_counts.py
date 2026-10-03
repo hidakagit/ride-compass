@@ -137,10 +137,7 @@ async def test_equidistant_accident_goes_to_exactly_one_existing_segment(counts_
 
 
 async def test_way_values_of_a_way_gone_from_the_raw_data_do_not_survive(counts_conn):
-    """生データから道が消えたら、作り直した後にその道の値は残らない。残る道の値は
-    後ろの段が埋めたものを保ったまま、世代だけ新しくなる。"""
-    await counts_conn.execute(
-        "UPDATE way_materials SET direction = 'forward' WHERE osm_way_id = 100")
+    """生データから道が消えたら、作り直した後にその道の値は残らない。残る道の行は新しい世代で作り直される。"""
     new_run = await ingest_records(
         "osm_way", [_road(way_id, node_ids) for way_id, node_ids in WAYS if way_id != 200], conn=counts_conn)
 
@@ -148,9 +145,8 @@ async def test_way_values_of_a_way_gone_from_the_raw_data_do_not_survive(counts_
     await derive_counts.derive(counts_conn)
 
     rows = await counts_conn.fetch(
-        "SELECT osm_way_id, direction, source_run_id FROM way_materials ORDER BY osm_way_id")
-    assert [(r["osm_way_id"], r["direction"], r["source_run_id"]) for r in rows] == [
-        (100, "forward", new_run), (300, "both", new_run)]
+        "SELECT osm_way_id, source_run_id FROM way_materials ORDER BY osm_way_id")
+    assert [(r["osm_way_id"], r["source_run_id"]) for r in rows] == [(100, new_run), (300, new_run)]
 
 
 async def test_a_crossing_near_a_signal_is_counted_as_a_signal(counts_conn):

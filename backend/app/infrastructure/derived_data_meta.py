@@ -17,7 +17,7 @@
 from dataclasses import dataclass
 
 import asyncpg
-from sqlalchemy import Integer, select
+from sqlalchemy import CheckConstraint, Integer, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -27,6 +27,7 @@ from app.infrastructure.source_models import succeeded_run_count
 
 class DerivedDataMetaRow(Base):
     __tablename__ = "derived_data_meta"
+    __table_args__ = (CheckConstraint("id = 1", name="derived_data_meta_single_row"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     revision: Mapped[int] = mapped_column(Integer, nullable=False)

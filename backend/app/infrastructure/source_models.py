@@ -57,6 +57,11 @@ class SourceRunStatus(StrEnum):
     SUCCEEDED = "succeeded"
 
 
+#: 道の種別を持つタグ。道の生データはかならずこのタグを持つ——道路網の階級・優先関係・材料の多くが
+#: この値から決まり、無い道をどう読むかを読み手ごとに決めさせないため。取込の条件（`osm_pbf.py: OsmWayRows`）と
+#: 表の検査制約の両方がここを読む。
+WAY_KIND_TAG = "highway"
+
 #: 取込のrunの状態と、管理画面に出す呼び名。`running`は中断したrunも指すので、呼び名はその両方を言う。
 SOURCE_RUN_STATUS_LABELS: dict[str, str] = {
     SourceRunStatus.RUNNING: "実行中か中断",
@@ -117,6 +122,8 @@ class SourceFeatureRow(Base):
         # パーティションした表の索引なので、取込が作る子パーティションにもPostgreSQLが同じ
         # 索引を張る。
         Index("idx_source_features_geom", "geom", postgresql_using="gist"),
+        CheckConstraint(f"source <> '{Source.OSM_WAY}' OR attrs->>'{WAY_KIND_TAG}' IS NOT NULL",
+                        name="source_features_way_has_kind"),
         {"postgresql_partition_by": "LIST (source)"},
     )
 
@@ -173,7 +180,7 @@ _TABLE = SourceFeatureRow.__tablename__
 
 def _ways_select(extra_columns: tuple[str, ...]) -> str:
     columns = ("natural_key::bigint AS osm_way_id", "geom", "attrs AS tags",
-               "attrs->>'highway' AS highway", "attrs->>'surface' AS surface", *extra_columns)
+               f"attrs->>'{WAY_KIND_TAG}' AS highway", "attrs->>'surface' AS surface", *extra_columns)
     return "SELECT " + ", ".join(columns) + f" FROM {_TABLE}"
 
 
