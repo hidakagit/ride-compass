@@ -166,8 +166,9 @@
 4. `tasks#<番号>:` の件名でコミットする。本文の「増減」は `python scripts/review_checks.py change` の出力の行を写す（コミットの前に
    作業ツリーで打つ。出た規模の札で Project の欄も付け直す）。コミットしたら、`git push origin orch/tasks-<番号>` で push する（載せ直した・前のコミットへまとめたなど、
    作業ブランチを書き換えたときは `git push --force-with-lease origin orch/tasks-<番号>`）。CI は、push したコミットの実行の id を
-   `gh run list -R hidakagit/ride-compass --commit <コミット> --workflow ci.yml --json databaseId` で引き（出ていなければ少しおいて
-   引き直す）、`gh run watch <id> --compact -i 30 -R hidakagit/ride-compass --exit-status` で終わるまで前に出したまま待つ（Bash の
+   `gh run list -R hidakagit/ride-compass --commit <コミットの40桁の ID> --workflow ci.yml --json databaseId` で引き（出ていなければ少しおいて
+   引き直す。ID は git rev-parse HEAD が出す40桁を渡す——`--commit` は短い ID や後ろを補った ID に一致せず、実行があっても0件になり、
+   まだ出ていないのと見分けられない）、`gh run watch <id> --compact -i 30 -R hidakagit/ride-compass --exit-status` で終わるまで前に出したまま待つ（Bash の
    `timeout` を上限の 600000 にして打つ。上限で止まったら同じコマンドを打ち直す。裏へ回して知らせを待つと、そこで担当の実行が終わる。
    端末でない出力では見回りのたびに全部のジョブを書き直すので、`--compact -i 30` で出力を絞る）。
 5. CI が通ったら、`node tools/flow-gate/bin/permissions.js --added origin/master` で担当の権限が広がるかを見る（「許可の一覧に合わせて打つ」）。
@@ -194,8 +195,8 @@
    - 派生の値か軸の難易度を変える変更なら、列・軸ごとの分布の前後（下の「分布の前後」）
    前の Pull Request が開いたまま残っていれば、新しく出さずに push し、撮り直したキャプチャを `gh pr comment --attach` で足す。
    出したら（push したら）、Pull Request の実行（master と合わせた版）を
-   `gh run list -R hidakagit/ride-compass --commit <コミット> --workflow ci.yml --event pull_request --json databaseId` で引き
-   （出ていなければ少しおいて引き直す）、4 と同じく `gh run watch <id> --compact -i 30 -R hidakagit/ride-compass --exit-status` で
+   `gh run list -R hidakagit/ride-compass --commit <コミットの40桁の ID> --workflow ci.yml --event pull_request --json databaseId` で引き
+   （ID は 4 と同じく40桁。出ていなければ少しおいて引き直す）、4 と同じく `gh run watch <id> --compact -i 30 -R hidakagit/ride-compass --exit-status` で
    終わるまで前に出したまま待つ。4 の push の実行は作業ブランチ単体の版なので、合流点の後に master へ入った変更との意味の競合（文字の競合なしに載せ直せて、合わせると
    落ちる）を見ていない。Pull Request の必須のチェックは名前で照らすので、Pull Request の実行が出る前は push の実行の `ci-ok` だけで
    通ってしまう。待つのはこの実行にする。落ちたら `git rebase origin/master` で載せ直して直し、4 から続ける。
