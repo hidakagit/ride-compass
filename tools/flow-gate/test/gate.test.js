@@ -148,8 +148,8 @@ test("回答フォームの選択肢は問いによらず表から一律で、�
   const gh = fakeGitHub({ issue: { number: 4, authorId: ME, status: "回答待ち", assignees: [config.user], body: asked(q) } });
   const html = await open(4);
   assert.deepEqual(choicesOf(html), ["「飛ばす」で進める", "「飛ばさない」で進める", ...config.answers.filter((a) => !a.plans).map((a) => a.text)]);
-  assert.match(html, /<div class="cols"><details><summary>判断材料<\/summary><div class="md"><p>描いた: 材料の文<\/p><\/div><\/details><form>/,
-    "判断材料は GitHub の描き方で出し、PC の幅で左右に並べる箱に入れる");
+  assert.match(html, /<\/form><div class="mats"><details open><summary>判断材料<\/summary><div class="md"><p>描いた: 材料の文<\/p><\/div><\/details>/,
+    "判断材料は GitHub の描き方で、選択肢と送信の後ろに最初から開いて出す");
 
   const before = gh.requests.length;
   const r = await answer(4, html, "「飛ばす」で進める");
@@ -194,6 +194,28 @@ test("保留は本文に問いが無くても決まった問いで答えられ�
   assert.equal(gh.issue.body, `<!-- flow-gate -->\n<!-- 問い\n${q}\n-->\n[![回答する](${config.urls.gate}/button.svg)](${config.urls.form}/answer?issue=5)\n\n**回答待ち**: 新しい問い？\n<!-- /flow-gate -->\n\n本文`);
   await deliver("issues", { action: "labeled", issue: { node_id: "I_1" } });
   assert.equal(gh.writes.filter((w) => w.op === "updateIssue" && "body" in w).length, 1, "本文の先頭が今の状態と同じなら書き直さない");
+});
+
+test("どの道で来た問いでも、材料に本文（印の間を除く）と最近のコメント（新しいものが上）が畳んで載り、issue へのリンクが付く", async () => {
+  const comments = Array.from({ length: 7 }, (_, k) => ({ author: "hidakagit-bot", body: `コメント${k + 1}`, createdAt: `2026-10-0${k + 1}T03:04:00Z` }));
+  fakeGitHub({ issue: { number: 6, authorId: ME, status: "保留", assignees: [config.user], comments, body: "要約の行\n\n- [ ] 完了の条件" } });
+  let html = await open(6);
+  const mats = html.slice(html.indexOf("</form>"));
+  assert.match(mats, /<details><summary>本文<\/summary><div class="md"><p>描いた: 要約の行\n\n- \[ \] 完了の条件<\/p><\/div><\/details>/);
+  const shown = [...mats.matchAll(/描いたコメント: (コメント\d)/g)].map((m) => m[1]);
+  assert.deepEqual(shown, ["コメント7", "コメント6", "コメント5", "コメント4", "コメント3"], "最近の5件を新しい順に");
+  assert.match(mats, /hidakagit-bot ・ 2026-10-07 12:04/, "書いた人と時刻（日本時間）を添える");
+  assert.match(mats, /<details><summary>最近のコメント（新しい順）<\/summary>/);
+  assert.match(mats, new RegExp(`<a class="open" href="https://github.com/${config.repository}/issues/6">issue を開く</a>`));
+  assert.doesNotMatch(mats, /<details open>|判断材料/, "判断材料の無い問いでは、本文とコメントは畳んだまま出す");
+
+  // Claude の起票は、ゲートが本文の先頭に採否の問いとボタンを置いている。材料の本文はその印の間を除く。
+  const adoption = config.entry.find((e) => e.question).question;
+  fakeGitHub({ issue: { number: 7, authorId: BOT, status: "回答待ち", assignees: [config.user],
+    body: `<!-- flow-gate -->\n<!-- 問い\n${questionBody(adoption)}\n-->\n[![回答する](b)](u)\n\n**回答待ち**: ${adoption}\n<!-- /flow-gate -->\n\n起票の本文` } });
+  html = await open(7);
+  assert.match(html, /<summary>本文<\/summary><div class="md"><p>描いた: 起票の本文<\/p>/);
+  assert.doesNotMatch(html, /回答する|最近のコメント/);
 });
 
 test("判断材料を GitHub で描けないときは、判断材料の文字をそのまま出す", async () => {
