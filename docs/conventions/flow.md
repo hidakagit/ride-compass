@@ -77,6 +77,8 @@ Claude が起こす出来事は、表の `by: claude` の行だけ。問いは `
 - **担当**: 起動役が、スロットを作業ディレクトリにして `claude -p "<担当への指示>" --permission-mode auto --permission-prompts none`
   を起こし、終わるまで待つ。起動役は司令塔から切り離されているので、司令塔が終わっても動き続ける。担当と起動役の出力は
   `.claude/dispatch-logs/` に残る。CLI のログインが切れると担当が起きないので、切れたら PC のターミナルで `claude` → `/login`。
+- **Actions で起こす（試し）**: 確かめる担当は、GitHub Actions のランナーでも起こせる（`.github/workflows/claude-verify.yml`。
+  `gh workflow run claude-verify.yml -R hidakagit/ride-compass -f issue=<番号>`）。スロットと鍵は使わない。公開のリポジトリなので記録は誰でも読める。
 - **止める**: 置き場の開いた issue のどれかにラベル「停止」（`coordinator.stopLabel`）を付けると、司令塔は振り出さない
   （スマホからでも付けられる。外すと次の起動から戻る）。動いている担当は止まらないので、止めるならその担当の起動役の
   プロセスを、担当ごと止める（`taskkill /PID <鍵の理由の pid> /T /F`）。止めた担当の後始末（落ちたとみなして保留・鍵を外す）は、
