@@ -67,10 +67,14 @@ class SignedMaterialMapValue(StrictModel):
 MapValue = Annotated[DifficultyMapValue | SignedMaterialMapValue, Field(discriminator="kind")]
 
 
+#: 専用配信の要求が運ぶ条件の名前。`WayValueQuery`の欄の名前で、配信のクエリパラメータの名前でもある。
+WayValueConditionName = Literal["at", "bearing_deg", "speed_kmh"]
+
+
 @dataclass(frozen=True)
 class WayValueQuery:
     """専用配信の要求が運ぶ条件。どれも省略されうる——どれが要るかは、値を返すサービスが
-    受け取る条件の型（`assemble_conditions`の`kind`）が決める。"""
+    受け取る条件の型（`assemble_conditions`の`kind`）が決める。欄の名前は`WayValueConditionName`。"""
 
     at: datetime | None
     bearing_deg: float | None

@@ -742,12 +742,8 @@ export interface components {
             raw_value_total_unit: string | null;
             /** Material Breakdown */
             material_breakdown: components["schemas"]["AxisMaterialBreakdownEntry"][];
-            /** Dynamic Way Value Needs Time */
-            dynamic_way_value_needs_time: boolean;
-            /** Dynamic Way Value Needs Bearing */
-            dynamic_way_value_needs_bearing: boolean;
-            /** Dynamic Way Value Needs Speed */
-            dynamic_way_value_needs_speed: boolean;
+            /** Dynamic Way Value Conditions */
+            dynamic_way_value_conditions: ("at" | "bearing_deg" | "speed_kmh")[];
         };
         /** AxisCatalogResponse */
         AxisCatalogResponse: {
@@ -834,21 +830,6 @@ export interface components {
              * @default false
              */
             dedicated_way_value_layer: boolean;
-            /**
-             * Dynamic Way Value Needs Time
-             * @default false
-             */
-            dynamic_way_value_needs_time: boolean;
-            /**
-             * Dynamic Way Value Needs Bearing
-             * @default false
-             */
-            dynamic_way_value_needs_bearing: boolean;
-            /**
-             * Dynamic Way Value Needs Speed
-             * @default false
-             */
-            dynamic_way_value_needs_speed: boolean;
         };
         /** AxisDefinitionResponse */
         AxisDefinitionResponse: {
@@ -904,21 +885,6 @@ export interface components {
              * @default false
              */
             dedicated_way_value_layer: boolean;
-            /**
-             * Dynamic Way Value Needs Time
-             * @default false
-             */
-            dynamic_way_value_needs_time: boolean;
-            /**
-             * Dynamic Way Value Needs Bearing
-             * @default false
-             */
-            dynamic_way_value_needs_bearing: boolean;
-            /**
-             * Dynamic Way Value Needs Speed
-             * @default false
-             */
-            dynamic_way_value_needs_speed: boolean;
             display: components["schemas"]["AxisDisplaySpec"];
             /** Weight Share When Published */
             weight_share_when_published: number | null;

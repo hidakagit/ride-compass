@@ -85,7 +85,7 @@ function bySource(tiles: Watch["jmaTiles"]): Map<string, { even: Buffer[]; odd: 
 
 test("S3 時刻で変わる入力", async ({ page }) => {
   const catalog = await fetchCatalog();
-  const timed = catalog.axes.filter((axis) => axis.dedicated_way_value_layer && axis.dynamic_way_value_needs_time);
+  const timed = catalog.axes.filter((axis) => axis.dynamic_way_value_conditions.includes("at"));
   const statsBefore = await externalErrors();
   const watch = await openLive(page, { storedState: allLayersOn() });
   // 地図のタイルをブラウザのキャッシュから出さず、ズームごとに取り直させる（取り直した応答の中身を見る）。

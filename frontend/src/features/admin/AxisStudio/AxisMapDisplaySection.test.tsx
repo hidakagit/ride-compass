@@ -97,9 +97,6 @@ function editingAxis(kind: "ramp" | "none"): AxisDefinitionResponse {
     show_map_icon: true,
     time_scope: "always",
     dedicated_way_value_layer: false,
-    dynamic_way_value_needs_time: false,
-    dynamic_way_value_needs_bearing: false,
-    dynamic_way_value_needs_speed: false,
     shape: { kind: "breakpoint_linear", terms: [], preprocess: "identity", breakpoints: [] },
     display: { kind, label: "", category: "", tile_inputs: [], thresholds: [] },
   };

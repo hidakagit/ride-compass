@@ -2306,17 +2306,17 @@
             "type": "array",
             "title": "Material Breakdown"
           },
-          "dynamic_way_value_needs_time": {
-            "type": "boolean",
-            "title": "Dynamic Way Value Needs Time"
-          },
-          "dynamic_way_value_needs_bearing": {
-            "type": "boolean",
-            "title": "Dynamic Way Value Needs Bearing"
-          },
-          "dynamic_way_value_needs_speed": {
-            "type": "boolean",
-            "title": "Dynamic Way Value Needs Speed"
+          "dynamic_way_value_conditions": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "at",
+                "bearing_deg",
+                "speed_kmh"
+              ]
+            },
+            "type": "array",
+            "title": "Dynamic Way Value Conditions"
           }
         },
         "additionalProperties": false,
@@ -2345,9 +2345,7 @@
           "raw_value_unit",
           "raw_value_total_unit",
           "material_breakdown",
-          "dynamic_way_value_needs_time",
-          "dynamic_way_value_needs_bearing",
-          "dynamic_way_value_needs_speed"
+          "dynamic_way_value_conditions"
         ],
         "title": "AxisCatalogEntry"
       },
@@ -2541,21 +2539,6 @@
             "type": "boolean",
             "title": "Dedicated Way Value Layer",
             "default": false
-          },
-          "dynamic_way_value_needs_time": {
-            "type": "boolean",
-            "title": "Dynamic Way Value Needs Time",
-            "default": false
-          },
-          "dynamic_way_value_needs_bearing": {
-            "type": "boolean",
-            "title": "Dynamic Way Value Needs Bearing",
-            "default": false
-          },
-          "dynamic_way_value_needs_speed": {
-            "type": "boolean",
-            "title": "Dynamic Way Value Needs Speed",
-            "default": false
           }
         },
         "additionalProperties": false,
@@ -2706,21 +2689,6 @@
             "title": "Dedicated Way Value Layer",
             "default": false
           },
-          "dynamic_way_value_needs_time": {
-            "type": "boolean",
-            "title": "Dynamic Way Value Needs Time",
-            "default": false
-          },
-          "dynamic_way_value_needs_bearing": {
-            "type": "boolean",
-            "title": "Dynamic Way Value Needs Bearing",
-            "default": false
-          },
-          "dynamic_way_value_needs_speed": {
-            "type": "boolean",
-            "title": "Dynamic Way Value Needs Speed",
-            "default": false
-          },
           "display": {
             "$ref": "#/components/schemas/AxisDisplaySpec"
           },
@@ -2755,9 +2723,6 @@
           "display_thresholds_override",
           "display_band_labels_override",
           "dedicated_way_value_layer",
-          "dynamic_way_value_needs_time",
-          "dynamic_way_value_needs_bearing",
-          "dynamic_way_value_needs_speed",
           "display",
           "weight_share_when_published"
         ],
