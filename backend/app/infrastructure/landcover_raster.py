@@ -13,6 +13,7 @@
 """
 
 import logging
+import math
 import threading
 import time
 from dataclasses import dataclass
@@ -113,7 +114,16 @@ def _read_decimated(source: _RasterSource, bounds: tuple[float, float, float, fl
     # 同じDatasetReaderの状態を読むため直列化にならない（docstringが宣言しているのは
     # 「読み取りの直列化」で、1行だけではそれを満たさない）。
     with source.lock:
-        window = dataset.window(*bounds).round_offsets().round_lengths()
+        exact = dataset.window(*bounds)
+        # 始まりは切り捨て・終わりは切り上げる。長さを丸めると、始まりを下げた分だけ終わりの端が
+        # 範囲の手前で止まり、タイルの東と南の縁が読み取りから落ちる。
+        col_off, row_off = math.floor(exact.col_off), math.floor(exact.row_off)
+        window = Window(
+            col_off,
+            row_off,
+            math.ceil(exact.col_off + exact.width) - col_off,
+            math.ceil(exact.row_off + exact.height) - row_off,
+        )
         try:
             window = window.intersection(Window(0, 0, dataset.width, dataset.height))
         except rasterio.errors.WindowError:

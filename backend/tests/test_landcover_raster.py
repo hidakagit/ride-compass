@@ -100,8 +100,8 @@ def test_reprojecting_a_utm_raster_keeps_class_numbers_and_invents_none(tmp_path
     classes = landcover_raster.tile_classes(*TOKYO)
 
     assert classes.shape == (SIZE, SIZE)
-    # 東と南の縁は、読み取りの窓が終わりの端数を切り詰めるため0（値なし）になりうる。
-    assert set(np.unique(classes)) - {0} == {5, 7}
+    # タイルはラスタの内側にあるので、縁まで全画素がクラスを持つ。
+    assert set(np.unique(classes)) == {5, 7}
 
 
 def test_a_tile_no_raster_reaches_has_no_classes_and_no_image(tmp_path, configure):
