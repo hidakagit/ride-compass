@@ -275,6 +275,7 @@ export async function seedStoredState(page: Page, entries: Record<string, string
  * `routes`は既定のモックの後・goto前に呼ばれる——テストが判定に使う応答はここで上書きする。
  * 呼んだ直後は、まだクリックが効かない（ハイドレーション前の）可能性がある——
  * 操作はopenMobileSheet等のヘルパー経由で行う。
+ * 初回の案内（地図の上に重なる）は閉じた状態で開く。
  */
 export async function openMobileApp(
   page: Page,
@@ -283,7 +284,7 @@ export async function openMobileApp(
   await installApiMocks(page);
   if (routes) await routes(page);
   await page.setViewportSize(MOBILE_VIEWPORT);
-  if (storedState) await seedStoredState(page, storedState);
+  await seedStoredState(page, { "ridecompass:first-visit-intro-closed": "true", ...storedState });
   await page.goto("/");
 }
 

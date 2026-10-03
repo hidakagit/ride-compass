@@ -33,6 +33,7 @@ import TodayOutlook from "@/features/conditions/TodayOutlook/TodayOutlook";
 import WarningBadgeList, { type WarningFetchFailure } from "@/features/conditions/WarningBadge/WarningBadge";
 import HeaderMenu from "@/components/HeaderMenu/HeaderMenu";
 import UsageGuide from "@/components/UsageGuide/UsageGuide";
+import FirstVisitIntro from "@/components/FirstVisitIntro/FirstVisitIntro";
 import RideConditionBar from "@/features/conditions/RideConditionBar/RideConditionBar";
 import TravelBearingControl from "@/features/conditions/TravelBearingControl/TravelBearingControl";
 import { useWeatherConditions } from "@/features/conditions/useWeatherConditions";
@@ -534,6 +535,8 @@ export default function Home() {
           <LensControl {...mapView.lensControl} />
 
           <MapOverlayControls {...mapView.overlayControls} />
+
+          <FirstVisitIntro isMobile={isMobile} />
 
           {usageGuideActive && <UsageGuide onEnd={() => setUsageGuideActive(false)} />}
 
