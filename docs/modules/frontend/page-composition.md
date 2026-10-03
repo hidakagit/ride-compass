@@ -274,7 +274,7 @@ backendも日本時間で扱う。`domain/time_zone.py`）。暦と時刻の取�
   評価軸（線）の共通経路（軸ごとの分岐を持たない）:
     塗っている軸 paintedAxisId = lens（ルート確定後は周囲も塗る設定の間だけ。それ以外はnull）
     useDedicatedWayValues([塗っている専用way値配信軸], 表示範囲, 走行方位, 出発時刻, 想定速度)
-      （useMapViewの中。時刻・想定速度は軸カタログのneedsTime/needsSpeedが立つ軸のリクエストにだけ載る）
+      （useMapViewの中。時刻・向き・想定速度は、軸カタログのdynamic_way_value_conditionsがその名前を含む軸のリクエストにだけ載る）
     軸のレイヤーを出すか = 軸id === paintedAxisId（地図側のsceneが導く）
 ```
 

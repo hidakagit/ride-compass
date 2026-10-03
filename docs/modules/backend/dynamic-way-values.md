@@ -32,7 +32,7 @@ get_feature_gradient_inputs_in_tile`・`get_feature_midpoints_in_tile`は
 | id | 何を指すか | 実体 | 出てくる場所 |
 |---|---|---|---|
 | **軸id** (`axis_id`) | 評価軸そのもの。軸スタジオでDBの行として増減する | `axis_definitions.axis_id` | APIのパスパラメータ、`AXIS_DEFINITIONS`のキー |
-| **材料id** (`material_id`) | サービスが返す生値が軸定義のどの材料か。例: `wind_drag_ratio`・`gradient_percent`・`rain_24h_mm` | `material_catalog.py`のキー | 各サービスの`material_ids`クラス属性（担当する材料）と組み立てたインスタンスの`material_id`、`_DEDICATED_WAY_VALUE_SERVICE_FACTORIES`のキー、キャッシュの名前空間、`transform_dedicated_way_values`の第2引数 |
+| **材料id** (`material_id`) | サービスが返す生値が軸定義のどの材料か。例: `wind_drag_ratio`・`gradient_percent`・`rain_24h_mm` | `material_catalog.py`のキー | 各サービスの`material_ids`クラス属性（担当する材料）と組み立てたインスタンスの`material_id`、`_DEDICATED_WAY_VALUE_SERVICES_BY_MATERIAL`のキー、キャッシュの名前空間、`transform_dedicated_way_values`の第2引数 |
 
 **実装は軸idを持たない。** 軸とサービスは、軸定義が参照する材料（`AxisDefinition.materials`）と
 サービスの`material_id`の突き合わせで結ばれる。材料はコードが正本（GUIから増減しない）なので、
@@ -51,7 +51,7 @@ get_feature_gradient_inputs_in_tile`・`get_feature_midpoints_in_tile`は
 次の要求から効く。
 
 ただし**配信できる値があるかは別**で、軸が参照する材料の値を組み立てるサービス本体が
-`services/dedicated_way_values.py: _DEDICATED_WAY_VALUE_SERVICE_FACTORIES`に登録されている必要がある
+`services/dedicated_way_values.py: _DEDICATED_WAY_VALUE_SERVICES`に登録されている必要がある
 （材料ごとに1回のコード変更）。軸が参照する材料のうち、登録済みのものが**ちょうど1つ**
 （`served_dedicated_way_value_material`）でなければ配信できない——0件なら値が無く、2件以上は
 1つのサービスが1つの材料の値しか返さないため軸を評価しきれない。そういう軸へ
@@ -69,19 +69,18 @@ _check_dedicated_layer_is_implemented`）、既存データ等で万一そうな
 返す——地図の配信は422に、区間インスペクタは「データなし」にする。サービスの
 `get_way_values`は組み立て済みの値だけを受け取るので、要る欄は`None`を許さない型のまま届く。
 
-軸の`dynamic_way_value_needs_time`/`_needs_bearing`/`_needs_speed`（軸スタジオで立てるフラグ）は、
-`GET /api/axis-catalog`がそのまま公開し、frontendはどのクエリパラメータをどの軸のリクエストへ
-載せるかをこれだけから決める（軸idの分岐を持たない。
-[map-axis-coloring.md](../frontend/map-axis-coloring.md)参照）。backendはこのフラグで必須を判定しない。
-フラグがサービスの要る条件より少ないと、地図はその条件を載せずに送り、配信は422（地図では
-「データなし」）になる。
+**地図が載せる条件**も同じ条件の型から導き、軸は宣言を持たない。`GET /api/axis-catalog`の
+`dynamic_way_value_conditions`は、軸が参照する材料のサービスの条件の型の欄の名前の並び
+（`services/dedicated_way_values.py: dedicated_way_value_conditions`）で、欄の名前
+（`domain/dynamic_way_values.py: WayValueConditionName`）はそのままクエリパラメータの名前になる。
+frontendはどのクエリパラメータをどの軸のリクエストへ載せるかをこれだけから決める（軸idの分岐を
+持たない。[map-axis-coloring.md](../frontend/map-axis-coloring.md)参照）。
 
-- `needs_time`: 風=Yes（気象予報）、勾配=No（標高・道路の向きは時刻で変わらない）、
-  雨=No（今の観測を示し、出発時刻では変わらない）。
-- `needs_bearing`: 風・勾配とも
-  Yes（向きの*出所*が異なるだけで、パラメータとしては両方ともユーザー指定の走行方位を
-  必要とする）、雨=No。
-- `needs_speed`: 走行速度依存の材料`wind_drag_ratio`を参照する風軸で立てる（勾配=No）。
+- **「要る」と「載せる」は別**: 載せるのは欄すべてで、要るのはそのうち既定値の無い欄。風の時刻は
+  省略すると今の風になるので要らないが、地図は利用者が選んだ時刻の風を塗るので載せる。
+- 載せない条件は、地図でその入力を変えても再取得しない（勾配は時刻スライダーで取り直さない）。
+- 例: 風は時刻・走行方位・想定速度、勾配は走行方位だけ（標高・道路の向きは時刻で変わらない）、雨は
+  何も載せない（今の観測を示し、出発時刻・方位では変わらない）。
 - `dedicated_way_value_layer=True`は軸スタジオで立てられるフラグで、配信を実装した材料を
   参照する軸なら、名前が何であってもコード変更なしにこの配信経路へ載る。
 
@@ -96,12 +95,12 @@ _check_dedicated_layer_is_implemented`）、既存データ等で万一そうな
 | `displayed_material_ids(weights, lens_axis_id)` | 区間表示へ載せる材料（[routing-engine.md](routing-engine.md)） |
 | `transform_dedicated_way_values(definition, material_id, values)` | 生値→地図表示値。`difficulty`は`evaluate_axis_values`でタイル内の全道路を1回の配列評価、`signed_material`は素通し。`material_id`以外の材料に0次条件を置いた軸は全道路を落とす——配信はその材料の値しか持たず、条件が当たるかを決められない |
 
-`services/dedicated_way_values.py: _DEDICATED_WAY_VALUE_SERVICE_FACTORIES`は、材料id→サービス実装本体
-（`WindWayService`/`GradientWayService`/`RainWayService`）の組み立てを担うdict。こちらはPython実装本体
+`services/dedicated_way_values.py: _DEDICATED_WAY_VALUE_SERVICES_BY_MATERIAL`は、材料id→担当するサービス実装本体
+（`WindWayService`/`GradientWayService`/`RainWayService`）のdictで、配信の組み立てと地図が載せる条件の導出がここから引く。こちらはPython実装本体
 （コンストラクタ）の登録のため軸スタジオの宣言だけでは代替できず、**新しい計算の材料**の配信には
 コード変更が要る（同じ材料を参照する軸を増やすのには要らない）。実装は担当する材料のクラス属性
 `material_ids`・受け取る条件の型`conditions_type`と、組み立てる材料を`material_id`で受け取る統一シグネチャの
-`build`を持ち、インスタンスが`DedicatedWayValueService`（`material_id`・`conditions_type`・`get_way_values`）の
+`build`を持ち、クラスが`DedicatedWayValueServiceType`、インスタンスが`DedicatedWayValueService`（`material_id`・`conditions_type`・`get_way_values`）の
 形を満たせば、`_DEDICATED_WAY_VALUE_SERVICES`へ
 1行足すだけで登録される（キーは`material_ids`から取るため、名前を2箇所に書かない）。
 1つの実装が同じ計算の材料群を担当できる——雨は窓の長さの一覧（`domain/rain.py: RAIN_WINDOW_HOURS`）へ

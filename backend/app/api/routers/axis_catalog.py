@@ -49,6 +49,7 @@ from app.domain.axis_raw_value import (
 from app.domain.dynamic_way_values import (
     MapLegendScale,
     MapValue,
+    WayValueConditionName,
     map_legend,
     map_value,
     map_value_thresholds,
@@ -56,6 +57,7 @@ from app.domain.dynamic_way_values import (
 )
 from app.domain.registry import AxisDisplaySpec
 from app.domain.tuning import client_tuning_values
+from app.services.dedicated_way_values import dedicated_way_value_conditions
 from app.services.region_service import RegionService
 from app.domain.strict_model import StrictModel
 
@@ -178,13 +180,10 @@ class AxisCatalogEntry(StrictModel):
     # 並びは正規化重みの降順で、フロントは先頭から順に出す（並べ替えを持たない）。
     material_breakdown: list[AxisMaterialBreakdownEntry]
     # 専用way値配信（`GET /api/region/dynamic-way-values/{axis_id}`）へ地図がこの軸について
-    # 載せるクエリパラメータの宣言（domain/axis_definitions.py:
-    # AxisDefinition.dynamic_way_value_needs_time / _needs_bearing / _needs_speed）。
-    # `dedicated_way_value_layer=false`の軸では意味を持たない。受け取る側が「どの軸の取得に
-    # 時刻・向き・想定速度を添えるか」を、axis_idで分岐せずこの宣言から決めるために配る。
-    dynamic_way_value_needs_time: bool
-    dynamic_way_value_needs_bearing: bool
-    dynamic_way_value_needs_speed: bool
+    # 載せるクエリパラメータの名前（`services/dedicated_way_values.py: dedicated_way_value_conditions`。
+    # 配信サービスが受け取る条件の型から導く）。専用配信を持たない軸は空。受け取る側が
+    # 「どの軸の取得に時刻・向き・想定速度を添えるか」を、axis_idで分岐せずここから決めるために配る。
+    dynamic_way_value_conditions: list[WayValueConditionName]
 
 
 class AxisCatalogResponse(StrictModel):
@@ -245,9 +244,7 @@ async def get_axis_catalog(region_service: RegionService = Depends(get_region_se
                 raw_value_unit=raw_value_unit(definition),
                 raw_value_total_unit=raw_value_total_unit(definition),
                 material_breakdown=_material_breakdown(definition),
-                dynamic_way_value_needs_time=definition.dynamic_way_value_needs_time,
-                dynamic_way_value_needs_bearing=definition.dynamic_way_value_needs_bearing,
-                dynamic_way_value_needs_speed=definition.dynamic_way_value_needs_speed,
+                dynamic_way_value_conditions=dedicated_way_value_conditions(definition.axis_id),
             )
             for definition in AXIS_DEFINITIONS.values()
             if definition.is_published

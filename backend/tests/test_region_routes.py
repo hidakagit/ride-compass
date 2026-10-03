@@ -1,5 +1,6 @@
 import inspect
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -320,9 +321,12 @@ def test_region_axis_inspector_leaves_out_materials_whose_conditions_are_missing
         FakeDynamicWayValueService({"12345": 2.0}, "gradient_percent", GradientConditions),
     ):
         monkeypatch.setitem(
-            dedicated_way_values._DEDICATED_WAY_VALUE_SERVICE_FACTORIES,
+            dedicated_way_values._DEDICATED_WAY_VALUE_SERVICES_BY_MATERIAL,
             service.material_id,
-            lambda repository, weather_service, service=service: service,
+            SimpleNamespace(
+                conditions_type=service.conditions_type,
+                build=lambda repository, weather_service, material_id, service=service: service,
+            ),
         )
 
     try:
@@ -378,9 +382,6 @@ DEDICATED_AXES = {
         default_weight=0.2,
         label="軸ウ",
         dedicated_way_value_layer=True,
-        dynamic_way_value_needs_time=True,
-        dynamic_way_value_needs_bearing=True,
-        dynamic_way_value_needs_speed=True,
     ),
     "axis_way_value_signed": AxisDefinition(
         axis_id="axis_way_value_signed",
@@ -392,7 +393,6 @@ DEDICATED_AXES = {
         default_weight=0.2,
         label="軸グ",
         dedicated_way_value_layer=True,
-        dynamic_way_value_needs_bearing=True,
     ),
 }
 
@@ -481,8 +481,6 @@ def test_region_dedicated_way_values_requires_speed_kmh_when_the_service_needs_i
         default_weight=0.1,
         label="ダミー",
         dedicated_way_value_layer=True,
-        dynamic_way_value_needs_bearing=True,
-        dynamic_way_value_needs_speed=True,
     )
     monkeypatch.setitem(AXIS_DEFINITIONS, "dummy_needs_speed", dummy_axis)
     fake = FakeDynamicWayValueService(values={"1": 2.5}, material_id="wind_drag_ratio", conditions_type=WindConditions)
@@ -527,9 +525,7 @@ class UncoveredRepository:
 # 配信の実装が無い材料だけを参照する軸は404になることを見る。
 @pytest.mark.parametrize(("material", "status"), [("gradient_percent", 200), ("maxspeed_kmh", 404)])
 def test_region_dedicated_way_values_resolves_the_service_by_the_axis_material(monkeypatch, material, status):
-    axis = axis_definition(
-        "axis_new_name", material=material, dedicated_way_value_layer=True, dynamic_way_value_needs_bearing=True
-    )
+    axis = axis_definition("axis_new_name", material=material, dedicated_way_value_layer=True)
     monkeypatch.setitem(AXIS_DEFINITIONS, "axis_new_name", axis)
     monkeypatch.setattr(dependencies, "RoadGraphRepository", lambda session: UncoveredRepository())
 

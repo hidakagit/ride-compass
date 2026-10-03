@@ -62,9 +62,7 @@ export function catalogEntry(
     raw_value_unit: null,
     raw_value_total_unit: null,
     material_breakdown: [],
-    dynamic_way_value_needs_time: false,
-    dynamic_way_value_needs_bearing: false,
-    dynamic_way_value_needs_speed: false,
+    dynamic_way_value_conditions: [],
     ...rest,
     display: { kind: "none", label: axisId, category: "roadCondition", tile_inputs: [], thresholds: [], ...display },
   };

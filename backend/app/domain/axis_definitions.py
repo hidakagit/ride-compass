@@ -353,24 +353,6 @@ class AxisDefinition(StrictModel):
     軸の評価ロジック（shape）自体からは自動導出できないため、他のbool系フィールドと
     同様に明示的に持たせ、軸スタジオの編集画面（管理API）からも設定できるようにする。
     既定Falseは、この専用レイヤーを持たない大多数の軸の実際の状態と一致する。"""
-    dynamic_way_value_needs_time: bool = False
-    """`dedicated_way_value_layer=True`の軸のみ意味を持つ。地図がこの軸の`GET /api/region/
-    dynamic-way-values/{axis_id}/...`（`api/routers/region.py`）へ`at`クエリパラメータを
-    載せるかの宣言（風=True、気象予報が時々刻々変わる。勾配=False、標高・道路の向きは
-    時刻で変わらない）。軸カタログで地図へ配る。backendがどの条件を必須とするかはこの
-    フラグではなく、材料の配信サービスが受け取る条件の型が決める
-    （`domain/dynamic_way_values.py: assemble_conditions`）。"""
-    dynamic_way_value_needs_bearing: bool = False
-    """`dedicated_way_value_layer=True`の軸のみ意味を持つ。地図が同エンドポイントへ
-    `bearing_deg`クエリパラメータを載せるかの宣言（風・勾配どちらもTrue——
-    向きの*出所*（外部データ/道路自身に内在）が異なるだけで、パラメータとしては両方とも
-    ユーザー指定の走行方位を必要とする）。必須の判定は`dynamic_way_value_needs_time`と同じく
-    配信サービスの条件の型が持つ。"""
-    dynamic_way_value_needs_speed: bool = False
-    """`dedicated_way_value_layer=True`の軸のみ意味を持つ。地図が同エンドポイントへ
-    `speed_kmh`クエリパラメータ（想定速度）を載せるかの宣言。走行速度に依存する材料
-    （`wind_drag_ratio`）を参照する軸で立てる。必須の判定は`dynamic_way_value_needs_time`と
-    同じく配信サービスの条件の型が持つ。"""
 
     @field_validator("display_thresholds_override")
     @classmethod

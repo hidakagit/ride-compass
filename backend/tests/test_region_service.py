@@ -105,7 +105,6 @@ def direction_dependent_axis(monkeypatch) -> AxisDefinition:
         material="wind_drag_ratio",
         is_published=True,
         dedicated_way_value_layer=True,
-        dynamic_way_value_needs_bearing=True,
     )
     monkeypatch.setitem(AXIS_DEFINITIONS, axis.axis_id, axis)
     return axis

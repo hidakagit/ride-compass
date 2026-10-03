@@ -24,7 +24,7 @@ interface CatalogAxis {
   label: string;
   display: { kind: string; tile_inputs: { property: string }[] };
   dedicated_way_value_layer: boolean;
-  dynamic_way_value_needs_time: boolean;
+  dynamic_way_value_conditions: string[];
 }
 
 export interface Catalog {
