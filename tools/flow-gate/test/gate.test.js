@@ -56,7 +56,7 @@ test("出来事の処理に失敗すると At risk の状況の更新を足し�
   const gh = fakeGitHub({
     issue: { number: 1, authorId: ME, status: "未着手" },
     fail: "鍵が切れた",
-    updates: [{ id: "SU_0", status: "ON_TRACK", body: "司令塔の様子", by: "hidakagit-bot" }],
+    updates: [{ id: "SU_0", status: "ON_TRACK", body: "前の様子", by: "hidakagit-bot" }],
   });
   assert.equal((await move("未着手", "進行中")).status, 202, "受付は先に返す");
   assert.deepEqual(gh.updates.map((u) => [u.status, u.by]), [["AT_RISK", "gate"], ["ON_TRACK", "hidakagit-bot"]]);
