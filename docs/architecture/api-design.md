@@ -17,7 +17,7 @@ backendが公開するHTTP APIの**全体の形**と、エンドポイントを�
 | 群 | 例 | 認可 | 失敗時 |
 |---|---|---|---|
 | 運用 | `/health`・`/api/debug/stats` | 不要（集計値のみ） | — |
-| ルート生成 | `/api/routes/generate`・`/api/routes/preview` | 不要 | ジョブの`error`／502 |
+| ルート生成 | `/api/routes/generate` | 不要 | ジョブの`error` |
 | 天候・防災バッジ | `/api/weather/*` | 不要 | 502（警報系の空応答は「出ていない」だけ） |
 | 地図タイル | `/api/region/*-tiles`・`/api/basemap/*`・`/api/jma-tile/*`・`/api/gsi-*-tile/*` | 不要 | 空タイル／502 |
 | 軸カタログ | `/api/axis-catalog` | 不要（読み取り専用） | 502 |

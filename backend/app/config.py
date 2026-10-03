@@ -29,8 +29,7 @@ class Settings(BaseSettings):
     # --- 認証なしエンドポイントのper-IPレート制限・同時実行上限 ---
     # 環境（本番/ローカル/負荷試験）ごとに調整したい運用値のため.envで上書きできる。
     #
-    # /preview・/weatherはいずれも外部APIを叩かず、/generateほど高コストではない。
-    preview_rate_limit_per_minute: int = 20
+    # /weatherは外部APIを叩かず、/generateほど高コストではない。
     weather_rate_limit_per_minute: int = 60
     # 風の格子点マップは1回で対象範囲（取り込んだ道路の範囲）全域ぶんの応答を組み立てる。値はローカルのMSM
     # ファイルから読むため外部APIは消費しないが、応答サイズ（数百KB）と直列化コストが

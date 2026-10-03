@@ -36,22 +36,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/routes/preview": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["preview_route_api_routes_preview_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/routes/generate": {
         parameters: {
             query?: never;
@@ -1728,29 +1712,6 @@ export interface components {
         RoutePreferenceWeights: {
             [key: string]: number;
         };
-        /** RoutePreviewRequest */
-        RoutePreviewRequest: {
-            origin: components["schemas"]["Coordinates"];
-            destination: components["schemas"]["Coordinates"];
-            /**
-             * Assumed Speed Kmh
-             * @default 20
-             */
-            assumed_speed_kmh: number;
-        };
-        /** RouteSegment */
-        RouteSegment: {
-            /** Distance Km */
-            distance_km: number;
-            /** Duration Minutes */
-            duration_minutes: number;
-            /** Geometry */
-            geometry: {
-                /** @constant */
-                type: "LineString";
-                coordinates: number[][];
-            };
-        };
         /** RouteSegmentDetail */
         RouteSegmentDetail: {
             /** Geometry */
@@ -2137,39 +2098,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DebugStatsResponse"];
-                };
-            };
-        };
-    };
-    preview_route_api_routes_preview_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RoutePreviewRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RouteSegment"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

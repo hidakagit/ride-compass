@@ -37,12 +37,6 @@ class Coordinates(StrictModel):
     longitude: float = Field(ge=-180, le=180)
 
 
-class RouteSegment(StrictModel):
-    distance_km: float
-    duration_minutes: float
-    geometry: LineStringGeometry
-
-
 class SegmentWind(StrictModel):
     """区間の評価に使った風。
 

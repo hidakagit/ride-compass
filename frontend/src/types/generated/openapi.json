@@ -50,43 +50,6 @@
         }
       }
     },
-    "/api/routes/preview": {
-      "post": {
-        "operationId": "preview_route_api_routes_preview_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RoutePreviewRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RouteSegment"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/routes/generate": {
       "post": {
         "operationId": "generate_routes_api_routes_generate_post",
@@ -5082,73 +5045,6 @@
         },
         "type": "object",
         "title": "RoutePreferenceWeights"
-      },
-      "RoutePreviewRequest": {
-        "properties": {
-          "origin": {
-            "$ref": "#/components/schemas/Coordinates"
-          },
-          "destination": {
-            "$ref": "#/components/schemas/Coordinates"
-          },
-          "assumed_speed_kmh": {
-            "type": "number",
-            "maximum": 60.0,
-            "minimum": 5.0,
-            "title": "Assumed Speed Kmh",
-            "default": 20.0
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "origin",
-          "destination"
-        ],
-        "title": "RoutePreviewRequest"
-      },
-      "RouteSegment": {
-        "properties": {
-          "distance_km": {
-            "type": "number",
-            "title": "Distance Km"
-          },
-          "duration_minutes": {
-            "type": "number",
-            "title": "Duration Minutes"
-          },
-          "geometry": {
-            "properties": {
-              "type": {
-                "type": "string",
-                "const": "LineString"
-              },
-              "coordinates": {
-                "items": {
-                  "items": {
-                    "type": "number"
-                  },
-                  "type": "array"
-                },
-                "type": "array"
-              }
-            },
-            "type": "object",
-            "required": [
-              "type",
-              "coordinates"
-            ],
-            "title": "Geometry"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "distance_km",
-          "duration_minutes",
-          "geometry"
-        ],
-        "title": "RouteSegment"
       },
       "RouteSegmentDetail": {
         "properties": {

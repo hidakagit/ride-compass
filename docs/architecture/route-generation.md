@@ -5,7 +5,7 @@
 
 ## 単一構成であること
 
-`/api/routes/generate`・`/api/routes/preview`はどちらも**自前のRoad Graph1本**で動く。
+`/api/routes/generate`は**自前のRoad Graph1本**で動く。
 エンジンを切り替える仕組み（設定・レスポンスの識別フィールド・外部ルーティングAPIの
 クライアント）は実装に無い。
 

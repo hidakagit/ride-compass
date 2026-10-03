@@ -49,11 +49,11 @@ logging.getLogger("ridecompass.startup").info(
     settings.debug_mode,
 )
 
-# DATABASE_URLへ実際に接続できない構成では/api/routes/generate・/api/routes/previewが
+# DATABASE_URLへ実際に接続できない構成では/api/routes/generateが
 # 常に失敗する。起動自体は妨げないため、「起動するが全リクエスト失敗」という分かりにくい
 # 状態をログから読み解けるよう接続先を残す（接続確認はイベントループ起動前のため行わない）。
 logging.getLogger("ridecompass.startup").info(
-    "ルート生成・プレビューにはDATABASE_URL(%s)への実接続が必須です。",
+    "ルート生成にはDATABASE_URL(%s)への実接続が必須です。",
     settings.database_url.split("@")[-1] if "@" in settings.database_url else "設定値",
 )
 

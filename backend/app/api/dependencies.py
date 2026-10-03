@@ -6,7 +6,7 @@
 MSMの同期）だけは`main.py`が組み立てる。
 """
 
-from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import AsyncIterator, Callable
 
 from cachetools import LRUCache
@@ -38,7 +38,6 @@ from app.services.material_coverage_service import MaterialCoverageService
 from app.services.region_service import RegionService
 from app.services.route_generation_setup import (
     RouteGenerationSetup,
-    RoutePreviewService,
     assemble_route_generation_setup,
 )
 from app.services.warning_service import WarningService
@@ -68,7 +67,8 @@ def get_flood_service():
     return FloodService(get_http_client(10.0))
 
 
-async def get_graph_service():
+@asynccontextmanager
+async def _open_graph_service() -> AsyncIterator[GraphService]:
     async with get_route_generation_session_factory()() as session:
         yield GraphService(repository=RoadGraphRepository(session))
 
@@ -83,17 +83,11 @@ async def _open_route_generation_setup(
     assumed_speed_kmh: float,
     lens_axis_id: str | None,
 ) -> AsyncIterator[RouteGenerationSetup]:
-    """ルート生成ジョブが使う`RouteGenerationSetup`を組み立てる非同期コンテキストマネージャ。
-
-    セッション開閉を複製しないよう、DI用ジェネレータ関数をそのまま
-    `asynccontextmanager()`で包んで`AsyncExitStack`へ載せる。
-    """
-    async with AsyncExitStack() as stack:
-        weather_service = get_weather_service()
-        graph_service = await stack.enter_async_context(asynccontextmanager(get_graph_service)())
+    """ルート生成ジョブが使う`RouteGenerationSetup`を組み立てる非同期コンテキストマネージャ。"""
+    async with _open_graph_service() as graph_service:
         yield assemble_route_generation_setup(
             graph_service,
-            weather_service,
+            get_weather_service(),
             preference_override=preference_override,
             penalty_strength=penalty_strength,
             max_average_grade_percent=max_average_grade_percent,
@@ -113,13 +107,6 @@ def get_route_generation_setup_opener() -> RouteGenerationSetupOpener:
     DBセッションはハンドラ関数が返った時点で閉じられるため、ジョブが自分でセッションを開いて閉じる。
     """
     return _open_route_generation_setup
-
-
-def get_route_preview_service(
-    graph_service: GraphService = Depends(get_graph_service),
-    weather_service: WeatherService = Depends(get_weather_service),
-) -> RoutePreviewService:
-    return RoutePreviewService(graph_service, weather_service)
 
 
 async def get_road_graph_repository():
