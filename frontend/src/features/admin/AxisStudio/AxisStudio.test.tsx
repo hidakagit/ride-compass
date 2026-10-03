@@ -372,22 +372,38 @@ describe("非公開に戻す", () => {
   });
 });
 
+async function deleteDraft(user: ReturnType<typeof userEvent.setup>) {
+  await screen.findByText("下書きの軸");
+  await user.click(within(rowOf("下書きの軸")).getByRole("button", { name: "削除" }));
+  const dialog = screen.getByRole("dialog", { name: "「下書きの軸」を削除します" });
+  await user.click(within(dialog).getByRole("button", { name: "削除する" }));
+}
+
 describe("削除", () => {
-  it("削除して一覧を取り直す", async () => {
+  it("確認で「削除する」を押すと消して一覧を取り直す", async () => {
     const user = await renderStudio();
-    await screen.findByText("下書きの軸");
-    await user.click(within(rowOf("下書きの軸")).getByRole("button", { name: "削除" }));
+    await deleteDraft(user);
 
     await waitFor(() => expect(api.listAxisDefinitions).toHaveBeenCalledTimes(2));
     expect(api.deleteAxisDefinition).toHaveBeenCalledWith(DRAFT.axis_id);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("確認を取り消すと消さない", async () => {
+    const user = await renderStudio();
+    await screen.findByText("下書きの軸");
+    await user.click(within(rowOf("下書きの軸")).getByRole("button", { name: "削除" }));
+    await user.click(screen.getByRole("button", { name: "キャンセル" }));
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(api.deleteAxisDefinition).not.toHaveBeenCalled();
   });
 
   it("削除している間はその軸の削除を押せず、失敗したら理由を出す", async () => {
     let fail!: (reason: unknown) => void;
     api.deleteAxisDefinition.mockReturnValue(new Promise((_resolve, reject) => (fail = reject)));
     const user = await renderStudio();
-    await screen.findByText("下書きの軸");
-    await user.click(within(rowOf("下書きの軸")).getByRole("button", { name: "削除" }));
+    await deleteDraft(user);
     expect(within(rowOf("下書きの軸")).getByRole("button", { name: "削除" })).toBeDisabled();
 
     fail(new Error("削除できません"));
@@ -417,8 +433,7 @@ describe("Error以外の失敗", () => {
   it("削除が失敗したとき", async () => {
     api.deleteAxisDefinition.mockRejectedValue("conflict");
     const user = await renderStudio();
-    await screen.findByText("下書きの軸");
-    await user.click(within(rowOf("下書きの軸")).getByRole("button", { name: "削除" }));
+    await deleteDraft(user);
     expect(await screen.findByText("conflict")).toBeInTheDocument();
   });
 });
