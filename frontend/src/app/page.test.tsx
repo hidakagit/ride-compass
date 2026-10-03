@@ -466,11 +466,15 @@ describe("地図で扱える操作（デスクトップ）", () => {
     expect(map()).toMatchObject({ armedPinRole: null, pointEditingEnabled: false });
   });
 
-  it("周回の間は置く役割を選んでいても地図のタップを置く操作にしない", () => {
+  it("周回の間に地図のタップで置けるのは出発地だけ。経由地を選んでいてもタップを置く操作にしない", () => {
     renderPage();
     act(() => form().onArmPinRole("waypoint"));
     expect(map().armedPinRole).toBeNull();
     expect(form().armedPinRole).toBe("waypoint");
+    act(() => form().onArmPinRole("origin"));
+    expect(map().armedPinRole).toBe("origin");
+    act(() => map().onPinPlace("origin", NEAR));
+    expect(form()).toMatchObject({ originManual: true, armedPinRole: null });
   });
 
   it("区間を選べるのは「ルート結果」が見えている間だけ", async () => {
@@ -636,6 +640,24 @@ describe("モバイルの下部タブとシート", () => {
     expect(sheet("ルート結果").headerAction).toBeUndefined();
     await user.click(within(settings).getByRole("button", { name: "ルート生成" }));
     await waitFor(() => expect(sheet("ルート結果").headerAction).toBeDefined());
+  });
+
+  it("現在地が分からないまま押した「生成」の案内は、「ルート設定」シートの中にも出し、出発地を置くと次の生成で消える", async () => {
+    geolocation.getCurrentPosition.mockImplementation((_ok, onError) => onError?.({} as GeolocationPositionError));
+    const user = renderPage();
+    await user.click(tab("ルート設定"));
+    const settings = () => screen.getByRole("region", { name: "ルート設定" });
+    await user.click(within(settings()).getByRole("button", { name: "ルート生成" }));
+    expect(within(settings()).getByRole("alert")).toHaveTextContent(
+      "現在地が分かりません。位置情報を許可するか、出発地の「地図で選ぶ」を押して地図をタップしてください。",
+    );
+    expect(generateRoutes).not.toHaveBeenCalled();
+
+    act(() => form().onArmPinRole("origin"));
+    act(() => map().onPinPlace("origin", NEAR));
+    await generate(user);
+    expect(within(settings()).queryByRole("alert")).not.toBeInTheDocument();
+    expect(lastRequest()).toMatchObject({ latitude: NEAR.latitude, longitude: NEAR.longitude });
   });
 
   it("新しい結果・失敗・条件の変更を「ルート結果」タブの印で知らせ、失敗だけ色を変える。タブを開くと新着の印は消える", async () => {
