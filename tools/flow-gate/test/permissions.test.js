@@ -1,6 +1,9 @@
 // 担当へ渡す許可が、flow.md に書いた操作から組み立てられ、決して許さない操作を許可にしないこと。
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { DENY, permissionsOf } from "../src/permissions.js";
 
@@ -42,5 +45,43 @@ test("本物の flow.md から組み立てた許可は、どれも頭の語が *
   }
   for (const head of ["Bash(git push origin orch/tasks-", "Bash(gh pr merge ", "Bash(gh run watch "]) {
     assert.ok(allow.some((r) => r.startsWith(head)), `${head} で始まる許可が無い`);
+  }
+});
+
+// 道具を持たない古い版から切った作業ブランチを、道具のある master と比べる。作業ツリーは master（担当が取り出す前）に置く。
+test("--added に比べる版を渡すと、その版を基の版と合わせた flow.md で増える行を、作業ツリーの版によらず出す", () => {
+  const dir = mkdtempSync(join(tmpdir(), "permissions-"));
+  const sh = (...rest) => execFileSync("git", rest, { cwd: dir, encoding: "utf8", stdio: "pipe" });
+  const write = (path, text) => {
+    mkdirSync(dirname(join(dir, path)), { recursive: true });
+    writeFileSync(join(dir, path), text);
+  };
+  const commit = (message) => {
+    sh("add", "-A");
+    sh("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", message);
+  };
+  try {
+    sh("init", "-q", "-b", "master");
+    write("docs/conventions/flow.md", "a\n`git status`\nz\n");
+    commit("道具の無い版");
+    sh("checkout", "-q", "-b", "old");
+    write("docs/conventions/flow.md", "a\n`git status`\nz\n`gh issue list <番号>`\n");
+    commit("許可が増える");
+    sh("checkout", "-q", "-b", "clash", "master");
+    write("docs/conventions/flow.md", "c\n`git status`\nz\n");
+    commit("master と同じ行を変える");
+    sh("checkout", "-q", "master");
+    for (const path of ["tools/flow-gate/bin/permissions.js", "tools/flow-gate/src/permissions.js"]) {
+      write(path, readFileSync(new URL(`../../../${path}`, import.meta.url), "utf8"));
+    }
+    write("docs/conventions/flow.md", "b\n`git status`\nz\n");
+    commit("道具を足す");
+    const run = (...rest) =>
+      execFileSync(process.execPath, ["tools/flow-gate/bin/permissions.js", "--added", ...rest], { cwd: dir, encoding: "utf8", stdio: "pipe" });
+    assert.equal(run("master", "old"), "Bash(gh issue list *)\n");
+    assert.equal(run("master"), "");
+    assert.throws(() => run("master", "clash"), /競合/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });

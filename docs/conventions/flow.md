@@ -165,7 +165,7 @@
    引き直す）、`gh run watch <id> --compact -i 30 -R hidakagit/ride-compass --exit-status` で終わるまで前に出したまま待つ（Bash の
    `timeout` を上限の 600000 にして打つ。上限で止まったら同じコマンドを打ち直す。裏へ回して知らせを待つと、そこで担当の実行が終わる。
    端末でない出力では見回りのたびに全部のジョブを書き直すので、`--compact -i 30` で出力を絞る）。
-5. CI が通ったら、`node tools/flow-gate/bin/permissions.js --added origin/master` で許可が増えるかを見る（「許可の一覧に合わせて打つ」）。
+5. CI が通ったら、`node tools/flow-gate/bin/permissions.js --added origin/master origin/orch/tasks-<番号>` で許可が増えるかを見る（「許可の一覧に合わせて打つ」）。
    増える行が出たら、Pull Request を出す前に、増える行を全部判断材料に写して、担当に打たせてよいかを問い（「問い」）、そこで終える。
    答えが「進める」なら、同じ行が今も出ることを見て次へ進む（行が変わっていれば問い直す）。
    コードのリポジトリに Pull Request を出す（`gh pr create --base master --head orch/tasks-<番号>`。
@@ -224,14 +224,16 @@
 
 **確かめる担当**（検証中。作った担当とは別）
 1. 作業ブランチを取る（`git fetch origin` と
-   `git checkout -B orch/tasks-<番号> origin/orch/tasks-<番号>`）。依存のファイルが master と違えば、作る担当の2のとおり入れ直す。Pull Request（`gh pr view <番号> -R hidakagit/ride-compass --comments`。本文のキャプチャ・差分）・作業ブランチの CI・issue の完了の条件・変更が届く範囲（要るなら画面）を
+   `git checkout -B orch/tasks-<番号> origin/orch/tasks-<番号>`）。取り出す前（作業ツリーが担当のワークフローの取り出した master のうち）に、
+   作る担当の5と同じ `node tools/flow-gate/bin/permissions.js --added origin/master origin/orch/tasks-<番号>` で増える許可の行を控える
+   （合流点が古い作業ブランチは道具を持たないので、取り出したあとでは打てない）。依存のファイルが master と違えば、作る担当の2のとおり入れ直す。Pull Request（`gh pr view <番号> -R hidakagit/ride-compass --comments`。本文のキャプチャ・差分）・作業ブランチの CI・issue の完了の条件・変更が届く範囲（要るなら画面）を
    確かめる。作る担当の報告を読み写さず、自分で見る（画面なら自分で撮る。地図の画面は作る担当の5と同じ道具で撮る）。Pull Request が無ければ（手順が変わる前に
    検証中になったもの）、作る担当の5のとおりに出してから確かめる。CI は作業ブランチ単体（push の実行）に加えて、Pull Request の
    実行（master と合わせた版。作る担当の5と同じく `--event pull_request` で引く）が通っていることを見る。Pull Request の実行だけが
    落ちていれば、合流点の後に master へ入った変更との意味の競合なので、満たしていないとして 4 のとおり「意味の競合」と落ちた
    テストを書いて閉じる（作る担当が載せ直して直す）。`lost_constraints.py` と `review_checks.py leftovers` も自分で回し、
    「消えた」・候補の1件ずつに本文の処置があるかを見る（処置の無いものが1件でもあれば満たしていない）。
-   `node tools/flow-gate/bin/permissions.js --added origin/master` も自分で回し、増える行が出たら、その行が全部、判断材料にあって「進める」を
+   控えた増える許可の行が出ていたら、その行が全部、判断材料にあって「進める」を
    選んだ答えのコメントが issue にあるかを見る（無い行が1件でもあれば満たしていない）。「分布の前後」の対象なら、
    列・軸ごとの前後の行が本文にあるかを見て、本番で測れる側（派生は本番の今、軸は後）を自分で測り直す。
    **設計書の条件を1つ当てる**: 作り直しで落ちた条件（絞り込み・不変条件・制約）は、差分にも作る担当の報告にも1行も出ないので、
@@ -274,8 +276,9 @@
 操作（`tools/flow-gate/src/permissions.js: DENY`。master への push・強制の push・GitHub の API での書き込み・ワークフローの起動等）は、ここに書いても
 許可にならず、拒否として渡る（拒否は許可より常に勝つ）。そのため、手順の push・枝の削除・マージ・CI の待ちは、ここに書いた形のまま、
 1回に1つずつ（`&&`・`;`・`|` でつながずに）打つ。手順に操作を足すと、その変更が master に入った次の担当から許可が効く。
-- **許可が増える変更**: 作業ブランチの変更で許可の行が増えるか（増える行）は、`node tools/flow-gate/bin/permissions.js --added origin/master` が
-  1行ずつ出す（何も出なければ増えない）。増える行のある変更は、ユーザーが見て許したものだけをマージする（作る担当の5・確かめる担当の1）。
+- **許可が増える変更**: 作業ブランチの変更で許可の行が増えるか（増える行）は、`node tools/flow-gate/bin/permissions.js --added origin/master origin/orch/tasks-<番号>` が
+  1行ずつ出す（何も出なければ増えない）。比べるのは作業ブランチを master と合わせた版の flow.md で、両側とも master の版の規則
+  （`permissionsOf`）で組み立てるので、作業ツリーや作業ブランチの道具の版によらない。増える行のある変更は、ユーザーが見て許したものだけをマージする（作る担当の5・確かめる担当の1）。
   CI も Pull Request ごとに増える行を実行の要約に出す。
 - 開発機の対話のセッションは、この組み立てを通らず、`.claude/settings.json` の `permissions` を読む。
 
