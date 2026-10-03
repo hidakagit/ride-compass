@@ -20,7 +20,7 @@ import RouteSplicePanel from "@/features/route/RouteSplicePanel/RouteSplicePanel
 import SegmentWind from "@/features/route/SegmentWind/SegmentWind";
 import { baselineDistanceKm, loadBarHeightRatio } from "@/features/route/difficultyLoadBar";
 import { formatDurationShort } from "@/features/route/formatDuration";
-import { downloadGpx } from "@/features/route/gpxExport";
+import { downloadGpx, MAX_GPX_TRACK_POINTS } from "@/features/route/gpxExport";
 import EditDifference from "@/features/route/EditDifference/EditDifference";
 import {
   extraDurationLabel,
@@ -112,7 +112,7 @@ export default function RouteOutcome({ results, generation, splice, routeWeights
           onClick={() => downloadGpx(route)}
           aria-label="GPX出力"
           title="GPXファイルで書き出す"
-          usage="この候補をGPXファイルで書き出します。サイクルコンピューターやほかの地図アプリに読み込めます。"
+          usage={`この候補をGPXファイルで書き出します。サイクルコンピューターやほかの地図アプリに読み込めます。点の数は${MAX_GPX_TRACK_POINTS}点に収まるように間引きます。`}
         >
           <DownloadIcon size={18} />
           GPX
