@@ -7,7 +7,7 @@
 
 ここで見ないもの:
 - ブレーカーが開いている間にRedisを呼ばずに未キャッシュへ進むこと・失敗と成功を記録する時機
-  → 呼び出し元のテスト（例: `test_jma_tile_redis_cache.py`・`test_jma_amedas_service.py`）
+  → `test_redis_json_cache.py`（`jma_amedas_store.py`が自前で持つ骨格の分は、そのモジュールの入口のテスト）
 """
 
 import asyncio
