@@ -50,17 +50,11 @@ jobs:
           node-version-file: frontend/package.json
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      # 作るなら振り出しの遷移（未着手 → 進行中）が通ったときだけ、確かめるなら検証中のときだけ進む。
+      # 作るなら振り出しの遷移（未着手 → 進行中）が通ったときだけ、確かめるなら検証中のときだけ進み、issue に着手を書く。
       - name: 引き受ける
         id: claim
         run: |
-          if [ "$KIND" = "作る" ]; then
-            if node tools/flow-gate/bin/move.js "$ISSUE" 振り出し; then echo "go=true" >> "$GITHUB_OUTPUT"; else echo "未着手ではないので、作らずに終わる"; fi
-          elif node tools/flow-gate/bin/queue.js --json | node -e 'let t="";process.stdin.on("data",d=>t+=d).on("end",()=>process.exit(JSON.parse(t).some(q=>q.number===Number(process.env.ISSUE)&&q.status==="検証中")?0:1))'; then
-            echo "go=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "検証中ではないので、確かめずに終わる"
-          fi
+          if node tools/flow-gate/bin/claim.js "$ISSUE" "$KIND" "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"; then echo "go=true" >> "$GITHUB_OUTPUT"; fi
       - name: PostgreSQL + PostGIS（ci.yml の backend と同じ）
         if: steps.claim.outputs.go == 'true'
         run: |
@@ -124,6 +118,7 @@ jobs:
           fi
       # 担当の外の失敗（利用の上限・認証・サーバー）ならタスクを未着手へ戻し、上限・認証なら振り出しをしばらく止める。
       # それ以外で作る担当のタスクが進行中のままなら、落ちたとして保留にする（tools/flow-gate/bin/after.js）。
+      # 最後に issue へ終わり（担当の最後の発言を含む）を書く。発言は非公開の置き場にだけ書き、この記録には出さない。
       - name: 後始末
         if: always() && steps.claim.outputs.go == 'true'
         run: node tools/flow-gate/bin/after.js "$ISSUE" "$KIND" "${{ steps.claude.outputs.execution_file || format('{0}/claude-execution-output.json', runner.temp) }}" "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" "${{ job.status }}"
