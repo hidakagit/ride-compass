@@ -34,7 +34,6 @@
     { "text": "その他（補足に書く）", "to": "未着手", "note": true }
   ],
   "questions": { "保留": "保留にしてあるこのタスクを、どうしますか？", "default": "このタスクを、どうしますか？" },
-  "confirmLabel": "ユーザー確認",
   "code": { "repository": "hidakagit/ride-compass", "branchPrefix": "orch/tasks-", "base": "master" },
   "coordinator": {
     "order": ["検証中", "未着手"], "stopLabel": "停止", "devLabel": "開発機が要る", "workflow": "claude-task.yml", "parallel": 6,

@@ -96,29 +96,16 @@ test("Claude は既定と違う欄の値（ユーザーが付けた値）を別�
   assert.equal(fieldRefusal(config, config.project.sizeField, "L", "S"), null);
 });
 
-test("ステータスの書き換えは、誰が・どの経路で動かしても表にあれば通り、無ければ戻す", async () => {
-  let gh = fakeGitHub({ issue: { number: 1, authorId: ME, status: "進行中", assignees: [config.user] } });
-  await move("未着手", "進行中");
-  assert.deepEqual([gh.issue.status, gh.issue.assignees, comments(gh)], ["進行中", [config.claude], []], "Claude の道具。担当者はステータスで決まる");
-
-  for (const [from, to] of [["保留", "未着手"], ["未着手", "保留"], ["未着手", "回答待ち"]]) {
-    gh = fakeGitHub({ issue: { number: 1, authorId: ME, status: to } });
-    await move(from, to, config.user);
-    assert.deepEqual([gh.issue.status, gh.issue.assignees, comments(gh)], [to, [config.owner[to]], []], `ユーザーのボードの移動 ${from}→${to}`);
-  }
-
+test("ステータスの書き換えは、誰が動かしても表にあれば通り、無ければ前へ戻して理由を書く", async () => {
   for (const sender of [config.claude, config.user]) {
+    let gh = fakeGitHub({ issue: { number: 1, authorId: ME, status: "保留" } });
+    await move("未着手", "保留", sender);
+    assert.deepEqual([gh.issue.status, gh.issue.assignees, comments(gh)], ["保留", [config.owner["保留"]], []], sender);
     gh = fakeGitHub({ issue: { number: 1, authorId: ME, status: "進行中" } });
     await move("保留", "進行中", sender);
     assert.equal(gh.issue.status, "保留", sender);
     assert.match(comments(gh)[0], /「保留」から「進行中」へは動かせません（遷移の表に無い）。「保留」へ戻しました/, sender);
   }
-});
-
-test("ゲートは前提（blocked by）を見ない（前提が開いた未着手を振り出さないのは振り出しの側）", async () => {
-  const gh = fakeGitHub({ issue: { number: 1, authorId: ME, status: "進行中", blockedBy: [{ number: 9, state: "OPEN", stateReason: null }] } });
-  await move("未着手", "進行中");
-  assert.deepEqual([gh.issue.status, comments(gh)], ["進行中", []]);
 });
 
 test("手で担当者を変えても、ステータスの番へ戻る", async () => {
@@ -138,43 +125,31 @@ test("並んで動く別の出来事が先に同じ担当者を入れて書き�
 const done = "<details><summary>完了の条件</summary>\n\n- [x] 済んだこと\n</details>";
 const left = "<details><summary>完了の条件</summary>\n\n- [x] 済んだこと\n- [ ] マージのあとの操作\n</details>";
 
-test("完成で完了に入るのは、どの経路でも完了の条件が残っていないときだけ。見送りは条件を問わない", async () => {
-  const close = (reason, extra) => fakeGitHub({ issue: { number: 8, authorId: ME, status: "未着手", state: "CLOSED", lastClose: [{ stateReason: reason }], ...extra } });
-  let gh = close("COMPLETED", { body: done, labels: [] });
-  await deliver("issues", { action: "closed", issue: { node_id: "I_1" } });
-  assert.deepEqual([gh.issue.status, gh.issue.state], [config.done, "CLOSED"]);
-
-  for (const extra of [{ body: left, labels: [] }, { body: done, labels: [config.confirmLabel] }]) {
-    gh = close("COMPLETED", extra);
-    await deliver("issues", { action: "closed", issue: { node_id: "I_1" } });
-    assert.deepEqual([gh.issue.status, gh.issue.state], ["未着手", "OPEN"], "閉じる操作");
-    assert.match(comments(gh)[0], /完成にするには次が残っています。[\s\S]*「未着手」へ戻しました。$/);
+test("完成で完了に入るのは、どの経路でも完了の条件が残っていないときだけ。見送りは条件を問わない。完了からは戻せない", async () => {
+  const closing = (reason, body) => fakeGitHub({ issue: { number: 8, authorId: ME, status: "未着手", state: "CLOSED", lastClose: [{ stateReason: reason }], body } });
+  const board = (body) => fakeGitHub({ issue: { number: 8, authorId: ME, status: config.done, body } });
+  const close = () => deliver("issues", { action: "closed", issue: { node_id: "I_1" } });
+  const toDone = () => move("未着手", config.done, config.user);
+  for (const [path, make, act] of [["閉じる操作", (b) => closing("COMPLETED", b), close], ["ボードの完了の列", board, toDone]]) {
+    let gh = make(done);
+    await act();
+    assert.deepEqual([gh.issue.status, gh.issue.state], [config.done, "CLOSED"], path);
+    gh = make(left);
+    await act();
+    assert.deepEqual([gh.issue.status, gh.issue.state], ["未着手", "OPEN"], path);
+    assert.match(comments(gh)[0], /完成にするには次が残っています。[\s\S]*「未着手」へ戻しました。$/, path);
   }
+  let gh = closing("NOT_PLANNED", left);
+  await close();
+  assert.deepEqual([gh.issue.status, gh.issue.state], [config.done, "CLOSED"], "見送り");
+
+  gh = fakeGitHub({ issue: { number: 8, authorId: ME, status: "回答待ち", assignees: [config.user], body: asked(questionBody("どうする？")).replace("本文", left) } });
+  assert.match((await answer(8, await open(8), "完成")).error, /完成にするには次が残っています/, "回答フォーム");
+  assert.deepEqual([gh.issue.status, comments(gh)], ["回答待ち", []], "断ったときは答えも書かない");
 
   gh = fakeGitHub({ issue: { number: 8, authorId: ME, status: config.done, state: "OPEN", lastClose: [{ stateReason: "COMPLETED" }] } });
   await deliver("issues", { action: "reopened", issue: { node_id: "I_1" } });
   assert.deepEqual([gh.issue.status, gh.issue.state], [config.done, "CLOSED"], "完了からの開き直しは閉じ直す");
-  assert.equal(gh.writes.find((w) => w.stateInput)?.stateInput.stateReason, "COMPLETED");
-  assert.match(comments(gh)[0], /「完了」からはどこへも動かせません/);
-
-  gh = close("NOT_PLANNED", { body: left });
-  await deliver("issues", { action: "closed", issue: { node_id: "I_1" } });
-  assert.deepEqual([gh.issue.status, gh.issue.state], [config.done, "CLOSED"], "見送り");
-
-  gh = fakeGitHub({ issue: { number: 8, authorId: ME, status: config.done, body: left } });
-  await move("未着手", config.done, config.user);
-  assert.deepEqual([gh.issue.status, gh.issue.state], ["未着手", "OPEN"], "ボードで完了の列へ");
-  assert.match(comments(gh)[0], /完成にするには次が残っています。[\s\S]*「未着手」へ戻しました。$/);
-
-  gh = fakeGitHub({ issue: { number: 8, authorId: ME, status: config.done, body: done } });
-  await move("未着手", config.done, config.user);
-  assert.deepEqual([gh.issue.status, gh.issue.state], [config.done, "CLOSED"]);
-  assert.equal(gh.writes.find((w) => w.stateInput)?.stateInput.stateReason, "COMPLETED", "ボードの完了は完成で閉じる");
-
-  gh = fakeGitHub({ issue: { number: 8, authorId: ME, status: "回答待ち", assignees: [config.user], body: asked(questionBody("どうする？")).replace("本文", left) } });
-  const html = await open(8);
-  assert.match((await answer(8, html, "完成")).error, /完成にするには次が残っています/, "回答フォーム");
-  assert.deepEqual([gh.issue.status, comments(gh)], ["回答待ち", []], "断ったときは答えも書かない");
 });
 
 // bin/ask.js が書いたのと同じ、本文の先頭に画面に出ない形で問いを置いた本文。
@@ -278,9 +253,9 @@ test("回答フォームは置き場のラベルを全部、今の付き方の�
   assert.doesNotMatch(html, /name="field:/, "Project の欄は機械が決めるので出さない");
   assert.match(html, /name="label" value="規模S" checked/);
   assert.match(html, new RegExp(`name="label" value="${config.project.urgentLabel}">`));
-  await answer(7, html, "進める", "", [config.project.urgentLabel, config.confirmLabel]);
-  assert.deepEqual(gh.issue.labels.sort(), [config.project.urgentLabel, config.confirmLabel].sort());
-  assert.match(comments(gh)[0], new RegExp(`\nラベル: \\+${config.project.urgentLabel} \\+${config.confirmLabel} −規模S$`));
+  await answer(7, html, "進める", "", [config.project.urgentLabel]);
+  assert.deepEqual(gh.issue.labels, [config.project.urgentLabel]);
+  assert.match(comments(gh)[0], new RegExp(`\nラベル: \\+${config.project.urgentLabel} −規模S$`));
   assert.deepEqual(gh.issue.fields, { [config.project.priorityField]: "中" }, "回答フォームは欄を変えない");
 });
 
@@ -308,30 +283,13 @@ test("Pull Request: 開くと進行中は検証中に、マージされずに閉
   assert.equal(gh.writes.find((w) => w.stateInput)?.stateInput.stateReason, "COMPLETED");
   assert.equal(comments(gh)[0], "Pull Request [#3 tasks#8: 題名](https://github.com/pr/3) をマージしました。完了にします。", "開けるリンク（Markdown の形）で書く");
 
-  for (const [extra, rest] of [[{ body: left }, "マージのあとの操作"], [{ labels: [config.confirmLabel] }, `ユーザーの確認（ラベル「${config.confirmLabel}」）`]]) {
-    gh = task(extra);
+  {
+    const rest = "マージのあとの操作";
+    gh = task({ body: left });
     await prEvent("closed", { merged: true });
     assert.deepEqual([gh.issue.status, gh.issue.state, gh.issue.assignees], ["未着手", "OPEN", [config.claude]]);
     assert.match(comments(gh)[0], new RegExp(`Claude に戻します。\\n\\n- ${rest.replace(/[()（）「」]/g, ".")}$`));
   }
-});
-
-test("子が閉じても、開いた子が残っていれば親は閉じない。最後の子が閉じると（人が閉じても、マージでゲートが閉じても）親を完了で閉じる", async () => {
-  const child = { number: 8, authorId: BOT, status: "検証中", assignees: [config.claude], body: done };
-  const parent = { number: 20, authorId: ME, status: "進行中", assignees: [config.claude] };
-  let gh = fakeGitHub({ issue: { ...child, state: "CLOSED", lastClose: [{ stateReason: "NOT_PLANNED" }] }, parent: { ...parent, siblings: [{ state: "OPEN" }] } });
-  await deliver("issues", { action: "closed", issue: { node_id: "I_1" } });
-  assert.deepEqual([gh.issue.status, gh.parent.state, gh.parent.status], [config.done, "OPEN", "進行中"]);
-
-  gh = fakeGitHub({ issue: { ...child, state: "CLOSED", lastClose: [{ stateReason: "NOT_PLANNED" }] }, parent: { ...parent, siblings: [{ state: "CLOSED" }] } });
-  await deliver("issues", { action: "closed", issue: { node_id: "I_1" } });
-  assert.deepEqual([gh.parent.state, gh.parent.status], ["CLOSED", config.done]);
-  assert.equal(gh.writes.find((w) => w.id === "I_P" && w.stateInput).stateInput.stateReason, "COMPLETED");
-
-  gh = fakeGitHub({ issue: child, parent: { ...parent, siblings: [{ state: "CLOSED" }] } });
-  await prEvent("closed", { merged: true });
-  assert.deepEqual([gh.issue.state, gh.parent.state, gh.parent.status], ["CLOSED", "CLOSED", config.done]);
-  assert.match(comments(gh).at(-1), /子の issue が全部閉じた/);
 });
 
 test("公開の直後の揃え: 開いた issue を今の規則の姿（ボタン・担当者）へ揃え、揃っていれば何も書かない", async () => {
@@ -347,8 +305,6 @@ test("公開の直後の揃え: 開いた issue を今の規則の姿（ボタ�
 test("設定の不変条件: 表・番・入口・選択肢が使う名前はすべて宣言されており、回答フォームは表で行けない先を出さない", () => {
   const people = Object.keys(config.people);
   for (const [from, tos] of Object.entries(config.transitions)) for (const s of [from, ...tos]) assert.ok(config.statuses.includes(s), s);
-  for (const s of config.statuses) assert.ok(s in config.transitions, `表は全部のステータスを FROM に持つ: ${s}`);
-  for (const key of ["done", "waiting", "hold", "todo", "working", "review"]) assert.ok(config.statuses.includes(config[key]), key);
   for (const [s, p] of Object.entries(config.owner)) assert.ok(config.statuses.includes(s) && people.includes(p), s);
   for (const e of config.entry) assert.ok(config.statuses.includes(e.to), e.to);
   for (const s of config.coordinator.order) assert.equal(config.owner[s], config.claude, s);

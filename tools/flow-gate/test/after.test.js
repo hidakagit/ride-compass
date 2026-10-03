@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { test } from "node:test";
 import config from "../flow.config.json" with { type: "json" };
-import { classify, endReport, lastWords, refusal, settle } from "../src/after.js";
+import { classify, endReport, lastWords, settle } from "../src/after.js";
 
 const said = (error) => ({ type: "assistant", message: { content: [] }, ...(error ? { error } : {}) });
 
@@ -30,13 +30,9 @@ test("担当の発言に失敗が無ければ担当の側の終わり方（落�
 
 const done = { outside: false, pause: false, reason: "" };
 
-test("作る担当が開いた子の段階を残して終えたら、親は進行中のまま置く（落ちたにしない）", () => {
-  assert.equal(settle(config, { verdict: done, children: [{ state: "OPEN" }, { state: "CLOSED" }], url: "u", jobStatus: "success" }), null);
-});
-
-test("子が無い・子が全部閉じたタスクで PR も問いも出さずに終わったら、落ちたで保留にする", () => {
-  for (const children of [[], [{ state: "CLOSED" }]]) {
-    const step = settle(config, { verdict: done, children, url: "u", jobStatus: "cancelled" });
+test("PR も問いも出さずに終わったら、落ちたとして保留にする", () => {
+  {
+    const step = settle(config, { verdict: done, url: "u", jobStatus: "cancelled" });
     assert.equal(step.to, config.hold);
     assert.ok(step.reason.includes("Cancel された"), step.reason);
   }
@@ -44,14 +40,14 @@ test("子が無い・子が全部閉じたタスクで PR も問いも出さず�
 
 test("着手可能日を先の日へ入れて終えたら、落ちたにせず未着手へ戻す。今日（日本時間）以前の日なら落ちた", () => {
   const now = new Date("2026-10-03T15:30:00Z");
-  const step = settle(config, { verdict: done, children: [], startOn: "2026-10-05", url: "u", jobStatus: "success", now });
+  const step = settle(config, { verdict: done, startOn: "2026-10-05", url: "u", jobStatus: "success", now });
   assert.equal(step.to, config.todo);
   assert.ok(step.reason.includes("2026-10-05"), step.reason);
-  assert.equal(settle(config, { verdict: done, children: [], startOn: "2026-10-04", url: "u", jobStatus: "success", now }).to, config.hold);
+  assert.equal(settle(config, { verdict: done, startOn: "2026-10-04", url: "u", jobStatus: "success", now }).to, config.hold);
 });
 
-test("担当の外の失敗なら、開いた子があっても未着手へ戻す", () => {
-  assert.equal(settle(config, { verdict: classify([said("overloaded")]), children: [{ state: "OPEN" }], url: "u", jobStatus: "failure" }).to, config.todo);
+test("担当の外の失敗なら未着手へ戻す", () => {
+  assert.equal(settle(config, { verdict: classify([said("overloaded")]), url: "u", jobStatus: "failure" }).to, config.todo);
 });
 
 const text = (t) => ({ type: "assistant", message: { content: [{ type: "text", text: t }] } });
@@ -101,23 +97,4 @@ test("かかった時間は秒で丸めてから分と秒に分け、60秒を繰
   const time = (elapsedMs) => endReport({ kind: "作る", url: "u", jobStatus: "success", messages: null, done: [], status: "検証中", elapsedMs }).match(/かかった時間[^|]*\| ([^|]+) \|/)[1];
   assert.equal(time(119600), "2分0秒");
   assert.equal(time(119400), "1分59秒");
-});
-
-// 子の node が断ったときの出力は Node.js が組み立てるので、本物の子を走らせて採る。
-const failed = (code) => {
-  try {
-    execFileSync(process.execPath, ["--input-type=module", "-e", code], { encoding: "utf8", stdio: "pipe" });
-  } catch (e) {
-    return e;
-  }
-  throw new Error("子が断らなかった");
-};
-
-test("子が例外で断ったら、積み跡と版の行ではなく例外の文を理由に採る", () => {
-  assert.equal(refusal(failed('throw new Error("「検証中」から「保留」へは動かせません")')), "「検証中」から「保留」へは動かせません");
-  assert.equal(refusal(failed('throw new TypeError("fetch failed")')), "TypeError: fetch failed");
-});
-
-test("例外の行が無い断り（使い方の誤り等）は最後の行を理由に採る", () => {
-  assert.equal(refusal(failed('console.error("使い方: move.js <番号> <出来事>"); process.exit(2)')), "使い方: move.js <番号> <出来事>");
 });

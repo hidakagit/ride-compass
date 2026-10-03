@@ -1,18 +1,16 @@
 // 担当のワークフロー（.github/workflows/claude-task.yml）の後始末。担当が落ちても止められても走る。
 // 担当の外の失敗（src/after.js: classify）なら、作る担当のタスクを未着手へ戻し（戻す）、利用の上限・認証なら振り出しを
 // coordinator.pauseMinutes の間止める（リポジトリの変数 coordinator.pauseVariable に止める時刻を置く。振り出しが読む）。
-// それ以外で作る担当のタスクが進行中のまま（PR も問いも出さずに終わった）なら、落ちたとみなして保留にする。ただし開いた子の
-// 段階があれば、段階に分けて終えたので進行中のまま置き、着手可能日が先なら、その日まで待つので未着手へ戻す（src/after.js: settle）。
+// それ以外で作る担当のタスクが進行中のまま（PR も問いも出さずに終わった）なら、落ちたとみなして保留にする。ただし着手可能日が
+// 先なら、その日まで待つので未着手へ戻す（src/after.js: settle）。
 // 最後に、終わり方・かかった時間・手数・担当の最後の発言を issue へ書く（src/after.js: endReport）。発言は記録に出さない。
 // （--dry-run は本物の GitHub を読み、止める時刻・動かす遷移・書くはずのコメントを出すだけで、書かない）
 // 使い方: node tools/flow-gate/bin/after.js [--dry-run] <issue の番号> <作る|確かめる> <実行のファイル（無ければ空）> <実行の URL> <ジョブの結果>
-import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import config from "../flow.config.json" with { type: "json" };
-import { classify, endReport, refusal, settle } from "../src/after.js";
+import { classify, endReport, settle } from "../src/after.js";
 import { GitHub, readTask } from "../src/github.js";
+import { moveTask } from "../src/move.js";
 import { botToken, codeToken } from "./token.js";
 
 const dry = process.argv[2] === "--dry-run";
@@ -21,7 +19,6 @@ if (!/^\d+$/.test(number ?? "") || !["作る", "確かめる"].includes(kind) ||
   console.error("使い方: node tools/flow-gate/bin/after.js [--dry-run] <issue の番号> <作る|確かめる> <実行のファイル> <実行の URL> <ジョブの結果>");
   process.exit(2);
 }
-const here = dirname(fileURLToPath(import.meta.url));
 const messages = file && existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : null;
 // 持ち時間を超えた・手で Cancel された（ジョブの結果 cancelled）は担当の側の止まりなので、上限と見分けて落ちたとして扱う。
 const verdict = status === "cancelled" ? { outside: false, pause: false, reason: "" } : classify(messages);
@@ -30,11 +27,11 @@ const note = (line) => {
   console.log(dry && !line.startsWith("（試し）") ? `（試し）${line}` : line);
   done.push(line);
 };
-const move = (to, reason) => {
+const move = async (gh, to, reason) => {
   try {
-    note(execFileSync(process.execPath, [join(here, "move.js"), ...(dry ? ["--dry-run"] : []), number, to, reason], { encoding: "utf8" }).trim());
+    note(await moveTask(gh, config, Number(number), to, reason, { dry }));
   } catch (e) {
-    note(`${to}へ動かさなかった（${refusal(e)}）`);
+    note(`${to}へ動かさなかった（${e.message}）`);
   }
 };
 const code = new GitHub(codeToken());
@@ -55,11 +52,9 @@ if (verdict.pause) {
 const bot = new GitHub(botToken());
 if (kind === "作る") {
   const { issue: task } = await readTask(bot, config, { number: Number(number) });
-  const step = task?.status === config.working
-    ? settle(config, { verdict, children: task.subIssues.nodes, startOn: task.fields[config.project.startField] ?? null, url, jobStatus: status })
-    : null;
-  if (step) move(step.to, step.reason);
-  else note(task?.status === config.working ? "開いた子の段階があるので、進行中のまま置いた（段階に分けて終えた）" : `${task?.status ?? "置き場に無い"}なので動かさなかった（担当が PR か問いを出した）`);
+  const step = task?.status === config.working ? settle(config, { verdict, startOn: task.fields[config.project.startField] ?? null, url, jobStatus: status }) : null;
+  if (step) await move(bot, step.to, step.reason);
+  else note(`${task?.status ?? "置き場に無い"}なので動かさなかった（担当が PR か問いを出した・段階に分けた）`);
 }
 
 const { issue } = await readTask(bot, config, { number: Number(number) });
