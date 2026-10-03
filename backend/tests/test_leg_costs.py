@@ -1,23 +1,18 @@
-"""`domain/leg_costs.py`——レグごとのコスト配列の合成を、配列を直接与えて確かめる。
+"""`domain/leg_costs.py`——探索範囲の静的スコア行列・重み・0次フィルタ・風から、レグ（時刻・向き）ごとに区間の所要時間と
+探索のコスト、区間の表示が読む値を合成する`LegCostComposer`。
 
-時刻ビンの本数・代表ビン・除外区間のinf化・所要時間の下地・動的材料の扱い・時刻で変わる軸の入り方・
-材料値の読み出し。
+入口は`LegCostComposer`（`compose`・`values_at_rows`・`winds_at`・`missing_travel_data_share`・`to_full_row_order`・
+`lazy_row`・`wind_unavailable`）と、`LegCostArrays`/`RowValues`の`axis_contributions_at`、`material_value_at`。
+静的スコア行列は架空の軸・材料で組み、風に依る軸だけは軸の宣言（本番はDBが正本）を架空の1本へ差し替える。
 
-ここでは見ないもの:
-
-- 合成した配列を探索と区間の表示がどう読むか（周回・目的地・経由地の経路と区間の値）
-  → `test_route_generation_behavior.py`（公開の入口`RouteGenerator`から、小さな道路網で確かめる）。
-- 走行モデル（`domain/cycling_speed.py`）・評価軸（`domain/evaluation.py`）・風（`domain/wind.py`）
-  → それぞれの持ち主のテストが持つ。
-
-**合成器が呼ぶ相手（走行モデル・停止の待ち・動的材料と動的軸の評価・軸の合成）は本物を通す。** 期待値は
-本物の値そのものではなく、入力を1つだけ変えたときの関係（向かい風が強いほど遅い・待ちの件数ぶん長い）で書く。
-軸の集合は、風の材料を読む架空の軸を1本だけ宣言する（`wind_axis`）。材料idと路面の値は合成器が読む宣言から取る。
-このファイルが組み立てて渡し、読むデータ型（`StaticEdgeScoreMatrix`等）は本物で作る——代役にしても
-何も切り離せず、本物が変わったときに黙ってずれるだけになる。
+ここで見ないもの:
+- 勾配・風・路面から速度を解く走行モデルそのもの → `test_cycling_speed.py`
+- 軸の得点の重み付き平均と、データの無い区間の扱い → `test_difficulty.py`・`test_axis_definitions.py`
+- 風を進行方向の成分へ分けることと、予報の格子点の引き当て → `test_wind.py`・`test_wind_grid.py`
+- 合成した配列で探索し、経路の区間を組み立てること → `test_road_graph_engine.py`
 """
 
-import math
+import logging
 from datetime import datetime, timedelta
 
 import numpy as np
@@ -25,347 +20,382 @@ import pytest
 
 from app.domain import leg_costs
 from app.domain.attributes import CategoricalColumn
-from app.domain.axis_definitions import AxisDefinition, BreakpointLinearShape, MaterialTerm
 from app.domain.evaluation import StaticEdgeScoreMatrix
-from app.domain.road import SURFACE_ESTIMATES
-from app.domain.route import Coordinates
-from app.domain.tuning import TUNING_VALUES
-from app.domain.wind import ROUTE_DETOUR_RATIO, WindForecastSeries, WindLattice
-from tests.axis_system_fixture import replaced_axis_definitions
+from app.domain.leg_costs import LegCostComposer
+from app.domain.weather import WeatherConditions
+from app.domain.wind import WindForecastSeries, WindLattice
+from tests.axis_system_fixture import axis_definition, replaced_axis_definitions
 
-
-def coords(latitude, longitude):
-    return Coordinates(latitude=latitude, longitude=longitude)
-
-
-def wind_series(hours=24, speed_ms=3.0, direction_deg=5.0):
-    """時別の風の予報（2026-09-22 0時から）。`speed_ms`は全時刻で同じ値か、時刻ごとの並び。
-
-    格子点は1つだけで、どの区間もその格子点の風を引く（格子の外の地点は端の格子点へ寄る）。"""
-    start = datetime(2026, 9, 22, 0, 0)
-    return WindForecastSeries(
-        times=[start + timedelta(hours=h) for h in range(hours)],
-        speed_ms=np.broadcast_to(np.asarray(speed_ms, dtype=float), (1, hours)).copy(),
-        direction_deg=np.full((1, hours), direction_deg),
-        lattice=WindLattice(south=0.0, west=0.0, lat_step=1.0, lon_step=1.0, rows=1, cols=1),
-    )
-
-
-# --------------------------------------------------------------------------------------
-# 代表ビンの選び方
-# --------------------------------------------------------------------------------------
-
-
-def test_representative_bin_is_the_bin_containing_the_middle_of_the_leg():
-    """表示と、時刻ラベルを持てない探索が読むビン。中間地点がどのビンに入るかで決まる。
-
-    組み合わせは`_bin_count`が作れるものに限る（見込み3時間なら3本、5時間なら上限の4本）。
-    """
-    assert leg_costs._representative_bin(4, 5.0) == 2
-    assert leg_costs._representative_bin(3, 3.0) == 1
-
-
-def test_representative_bin_is_zero_when_the_leg_is_a_single_bin():
-    """風の系列が無いレグは1本のスナップショット。見込み時間があっても代表は唯一のビン。"""
-    assert leg_costs._representative_bin(1, 5.0) == 0
-
-
-def test_representative_bin_clamps_to_the_last_bin():
-    """ビンは上限4本で頭打ちになる。12時間のレグの中間は6本目に当たるが、存在しない。"""
-    assert leg_costs._representative_bin(4, 12.0) == 3
-
-
-# --------------------------------------------------------------------------------------
-# 材料値の読み出し
-# --------------------------------------------------------------------------------------
-
-
-def test_material_value_at_distinguishes_absent_from_missing_from_present():
-    leg = leg_costs.LegCostArrays(
-        cost_lazy=np.zeros(2), difficulty_array=np.zeros(2),
-        axis_arrays={}, weight_sums=np.zeros(2), weights={},
-        axis_raw_arrays={}, material_arrays={"mat_a": np.array([1.5, np.nan])},
-        categorical_material_arrays={}, travel_seconds_full=np.zeros(2),
-        travel_seconds_lazy=np.zeros(2), cost_bins_lazy=np.zeros((1, 2)),
-        travel_bins_lazy=np.zeros((1, 2)), bin_seconds=np.inf,
-    )
-
-    assert leg_costs.material_value_at(leg, "mat_a", 0) == 1.5
-    assert leg_costs.material_value_at(leg, "mat_a", 1) is None
-    assert leg_costs.material_value_at(leg, "mat_absent", 0) is None
-
-
-# --------------------------------------------------------------------------------------
-# レグごとのコスト配列の合成（LegCostComposer）
-# --------------------------------------------------------------------------------------
-
-
-AXIS_STATIC = "axis_static"
-AXIS_WIND = "axis_wind"
-#: 停止要因の種別と、その件数の材料（合成器が読む宣言から取る）。
-STOP_KIND = next(iter(leg_costs.POI_COUNT_KINDS))
-STOP_MATERIAL = leg_costs.stop_count_material_ids()[0]
-PAVED, ROUGH = SURFACE_ESTIMATES[0], SURFACE_ESTIMATES[2]
+START = datetime(2026, 10, 3, 9, 0)
+CRUISE_KMH = 20.0
+SURFACE = leg_costs.ROLLING_RESISTANCE_MATERIAL_ID
+WIND_DRAG = next(iter(leg_costs.REQUEST_DYNAMIC_MATERIAL_IDS))
+STOP_DENSITY = dict(zip(leg_costs.POI_COUNT_KINDS, leg_costs.stop_count_material_ids(), strict=True))
+WIND_AXIS = "axis_wind"
+NORTH, SOUTH = 0.0, 180.0
 
 
 @pytest.fixture
 def wind_axis():
-    """風の抵抗比（動的材料）を読む軸`axis_wind`だけを宣言する。0で得点0、2で100。"""
-    wind_material = next(iter(leg_costs.REQUEST_DYNAMIC_MATERIAL_IDS))
-    axis = AxisDefinition(
-        axis_id=AXIS_WIND, label="風", default_weight=0.0,
-        shape=BreakpointLinearShape(terms=[MaterialTerm(material=wind_material)], breakpoints=[(0.0, 0.0), (2.0, 100.0)]),
-    )
-    with replaced_axis_definitions({AXIS_WIND: axis}):
+    """風の追加負荷（0で0点・1で100点）を読む公開軸。"""
+    with replaced_axis_definitions({WIND_AXIS: axis_definition(WIND_AXIS, material=WIND_DRAG, is_published=True)}):
         yield
 
 
-def make_score_matrix(count=3, **overrides):
-    defaults = dict(
-        distance_m=np.full(count, 1000.0),
-        bearing_deg=np.zeros(count),
-        gradient_percent=np.zeros(count),
-        mid_lat=np.zeros(count),
-        mid_lon=np.zeros(count),
-        hard_filter_flags={},
-        axis_ids=[AXIS_STATIC, AXIS_WIND],
-        axis_scores=np.column_stack([np.full(count, 1.0), np.full(count, np.nan)]),
-        raw_axis_ids=[AXIS_STATIC],
-        axis_raw_values=np.arange(count, dtype=float).reshape(count, 1),
-        material_ids=[STOP_MATERIAL],
-        material_values=np.full((count, 1), 2.0),
-        categorical_material_ids=[leg_costs.ROLLING_RESISTANCE_MATERIAL_ID],
-        categorical_material_columns=[CategoricalColumn.encode([PAVED.key] * count)],
-    )
-    defaults.update(overrides)
-    return StaticEdgeScoreMatrix(**defaults)
+def _column(values, n: int) -> np.ndarray:
+    return np.asarray(values if isinstance(values, (list, tuple, np.ndarray)) else [values] * n, dtype=float)
 
 
-def make_composer(score_matrix=None, *, weights=None, excluded=None, lazy_row_index=None,
-                  wind_series=None, penalty=1.0, speed_kmh=20.0, **kwargs):
-    score_matrix = score_matrix if score_matrix is not None else make_score_matrix()
-    count = len(score_matrix.distance_m)
-    return leg_costs.LegCostComposer(
-        score_matrix,
-        {AXIS_STATIC: 1.0, AXIS_WIND: 2.0} if weights is None else weights,
-        penalty,
-        np.zeros(count, dtype=bool) if excluded is None else np.asarray(excluded, dtype=bool),
-        None,
-        wind_series,
-        datetime(2026, 9, 22, 8, 0),
-        speed_kmh,
-        np.arange(count, dtype=np.int64) if lazy_row_index is None else np.asarray(lazy_row_index, dtype=np.int64),
-        detour_ratio=ROUTE_DETOUR_RATIO,
-        **kwargs,
+def _matrix(n: int, *, distance=1000.0, gradient=0.0, bearing=NORTH, surface="paved",
+            axes: dict | None = None, raw_axes: dict | None = None, materials: dict | None = None,
+            categories: dict | None = None) -> StaticEdgeScoreMatrix:
+    """`n`区間の静的スコア行列。引数は全区間に同じ値か、区間ごとの並び。"""
+    axes, raw_axes, materials = axes or {}, raw_axes or {}, materials or {}
+    categories = {SURFACE: [surface] * n if isinstance(surface, str) else surface, **(categories or {})}
+
+    def stacked(columns: dict) -> np.ndarray:
+        return np.stack([_column(v, n) for v in columns.values()], axis=1) if columns else np.empty((n, 0))
+
+    return StaticEdgeScoreMatrix(
+        axis_ids=list(axes), axis_scores=stacked(axes),
+        distance_m=_column(distance, n), bearing_deg=_column(bearing, n), hard_filter_flags={},
+        gradient_percent=_column(gradient, n), mid_lat=np.full(n, 35.0), mid_lon=np.full(n, 139.0),
+        raw_axis_ids=list(raw_axes), axis_raw_values=stacked(raw_axes),
+        material_ids=list(materials), material_values=stacked(materials),
+        categorical_material_ids=list(categories),
+        categorical_material_columns=[CategoricalColumn.encode(v) for v in categories.values()],
     )
 
 
-def rising_wind():
-    """h時に向かい風0.25×h m/s（風向0。区間の方位は0なので正面から）。出発の8時は2m/sで、1時間ごとに強まる。"""
-    return wind_series(speed_ms=np.arange(24.0) * 0.25, direction_deg=0.0)
+def _weather(speed_ms: float, from_deg: float = NORTH) -> WeatherConditions:
+    return WeatherConditions(
+        temperature_c=None, wind_speed_ms=speed_ms, wind_direction_deg=from_deg, wind_direction_label="北",
+        precipitation_mm=None, observed_at=START.isoformat(), twilight=None, precipitation_max_mm=None,
+        wind_speed_max_ms=None, temperature_range=None, today_periods=[],
+    )
 
 
-def test_composer_is_time_varying_only_when_an_hourly_wind_series_exists(wind_axis):
-    assert make_composer().time_varying is False
-    assert make_composer(wind_series=wind_series()).time_varying is True
+def _series(speeds_by_hour: list[float], from_deg: float = NORTH) -> WindForecastSeries:
+    """格子点1つの、`START`から1時間刻みの予報。"""
+    return WindForecastSeries(
+        times=[START + timedelta(hours=h) for h in range(len(speeds_by_hour))],
+        speed_ms=np.array([speeds_by_hour], dtype=float),
+        direction_deg=np.full((1, len(speeds_by_hour)), from_deg),
+        lattice=WindLattice(south=35.0, west=139.0, lat_step=0.05, lon_step=0.0625, rows=1, cols=1),
+    )
 
 
-def test_to_full_row_order_marks_edges_absent_from_the_search_graph(wind_axis):
-    """並行Edgeの採られなかった方は探索に載らない。別Edgeの値で埋めると通過時刻がずれる。"""
-    composer = make_composer(make_score_matrix(count=3), lazy_row_index=[2, 0])
-
-    restored = composer.to_full_row_order(np.array([10.0, 20.0]))
-
-    assert restored[2] == 10.0
-    assert restored[0] == 20.0
-    assert math.isnan(restored[1])
-
-
-def test_bin_count_is_one_without_a_duration_or_without_wind(wind_axis):
-    with_wind = make_composer(wind_series=wind_series())
-    assert with_wind._bin_count(None) == 1
-    assert make_composer()._bin_count(5.0) == 1
+def _composer(matrix: StaticEdgeScoreMatrix, *, weights=None, penalty=0.0, excluded=None, weather=None,
+              series=None, lazy=None) -> LegCostComposer:
+    n = len(matrix.distance_m)
+    return LegCostComposer(
+        matrix, weights or {}, penalty,
+        np.zeros(n, dtype=bool) if excluded is None else np.asarray(excluded, dtype=bool),
+        weather, series, START, CRUISE_KMH,
+        np.arange(n) if lazy is None else np.asarray(lazy), detour_ratio=1.3,
+    )
 
 
-def test_bin_count_covers_the_duration_up_to_the_ceiling(wind_axis):
-    """ビン1本ごとにbbox全体の合成が1回走るため、長いレグでも上限で頭打ちにする。"""
-    composer = make_composer(wind_series=wind_series())
-
-    assert composer._bin_count(0.1) == 1
-    assert composer._bin_count(leg_costs.TIME_BIN_HOURS * 2 + 0.01) == 3
-    assert composer._bin_count(leg_costs.TIME_BIN_HOURS * 100) == leg_costs.MAX_TIME_BINS
+def _snapshot(matrix, **kwargs):
+    return _composer(matrix, **kwargs).compose("leg", None, 0.0, +1)
 
 
-def test_compose_without_wind_series_makes_one_snapshot_shared_by_every_leg(wind_axis):
-    """風の系列が無ければ時刻で変えようがない。レグごとに合成し直す理由が無い。"""
-    composer = make_composer()
+# --- 所要時間 -------------------------------------------------------------
 
-    outbound = composer.compose("outbound", coords(35.0, 139.0), 0.0, +1, duration_hours=3.0)
-    inbound = composer.compose("inbound", coords(35.0, 139.0), 3.0, -1, duration_hours=3.0)
+
+def test_a_flat_paved_segment_without_wind_or_stops_is_ridden_at_the_cruise_speed():
+    leg = _snapshot(_matrix(1, distance=1000.0))
+
+    assert leg.travel_seconds_full[0] == pytest.approx(1000.0 / (CRUISE_KMH / 3.6), rel=2e-3)
+
+
+def test_the_gradient_in_percent_slows_the_rider_as_that_grade_and_a_missing_one_counts_as_flat():
+    """勾配の材料は%で、走行モデルは割合で読む。20km/hの人は5%の登りで時速10km前後になり、平地の倍ほどかかる
+    （500%として読めば押して歩く速度で4倍超、0.05%として読めば平地とほぼ同じ）。"""
+    leg = _snapshot(_matrix(3, gradient=[5.0, np.nan, 0.0]))
+    climb, missing, flat = leg.travel_seconds_full
+
+    assert 1.5 * flat < climb < 3.0 * flat
+    assert missing == flat
+
+
+def test_a_rougher_surface_takes_longer():
+    leg = _snapshot(_matrix(2, surface=["paved", "gravel"]))
+
+    assert leg.travel_seconds_full[1] > leg.travel_seconds_full[0]
+
+
+def test_each_stop_on_a_segment_adds_its_wait():
+    """2回/kmの信号がある500mの区間は、信号1回ぶん待つ。密度の値が無い区間は待たない。"""
+    leg = _snapshot(_matrix(3, distance=500.0, materials={STOP_DENSITY["signal"]: [2.0, 0.0, np.nan]}))
+
+    assert leg.travel_seconds_full[0] - leg.travel_seconds_full[1] == pytest.approx(leg_costs.stop_seconds("signal"))
+    assert leg.travel_seconds_full[2] == leg.travel_seconds_full[1]
+
+
+def test_an_excluded_segment_cannot_be_passed():
+    leg = _snapshot(_matrix(2, axes={"axis_a": 10.0}), weights={"axis_a": 1.0}, penalty=0.5, excluded=[True, False])
+
+    assert np.isinf(leg.travel_seconds_full[0]) and np.isinf(leg.cost_lazy[0])
+    assert np.isfinite(leg.cost_lazy[1])
+
+
+def test_the_wind_at_departure_slows_a_segment_against_it_and_helps_one_with_it():
+    calm = _snapshot(_matrix(1)).travel_seconds_full[0]
+
+    leg = _snapshot(_matrix(2, bearing=[NORTH, SOUTH]), weather=_weather(5.0, from_deg=NORTH))
+
+    assert leg.travel_seconds_full[0] > calm > leg.travel_seconds_full[1]
+
+
+@pytest.mark.parametrize(
+    ("weather", "series", "unavailable"),
+    [(None, None, True), (_weather(0.0), None, False), (None, _series([0.0, 0.0]), False)],
+)
+def test_the_travel_time_is_marked_when_no_wind_was_available(weather, series, unavailable):
+    assert _composer(_matrix(1), weather=weather, series=series).wind_unavailable is unavailable
+
+
+# --- コストと表示の値 ---------------------------------------------------------
+
+
+def test_without_weights_the_cost_is_the_travel_time():
+    """好みの重みをすべて0にすると素の所要時間になり、最速の基準線と同じ物差しになる。"""
+    leg = _snapshot(_matrix(2, axes={"axis_a": [100.0, 0.0]}), weights={"axis_a": 0.0}, penalty=0.7)
+
+    assert leg.cost_lazy.tolist() == leg.travel_seconds_lazy.tolist()
+
+
+@pytest.mark.parametrize(("wind_weight", "difficulty"), [(0.0, 65.0), (1.0, 52.0)])
+def test_the_cost_is_the_travel_time_raised_by_the_weighted_difficulty(wind_axis, wind_weight, difficulty):
+    """コスト＝所要時間×(1＋換算レート×difficulty/100)。風に依る軸に重みがあるときも無いときも同じ式で合成する。
+
+    得点は区間ごとに軸a=20（重み1）・軸b=80（重み3）、風の軸は無風で0点。
+    """
+    matrix = _matrix(2, axes={"axis_a": 20.0, "axis_b": 80.0, WIND_AXIS: np.nan})
+    weights = {"axis_a": 1.0, "axis_b": 3.0, WIND_AXIS: wind_weight}
+
+    leg = _composer(matrix, weights=weights, penalty=0.5, series=_series([0.0, 0.0])).compose("leg", None, 0.0, +1)
+
+    assert leg.difficulty_array.tolist() == [difficulty, difficulty]
+    assert leg.cost_lazy == pytest.approx(leg.travel_seconds_lazy * (1 + 0.5 * difficulty / 100))
+
+
+def test_the_contributions_of_the_axes_add_up_to_the_difficulty():
+    leg = _snapshot(_matrix(1, axes={"axis_a": 20.0, "axis_b": 85.0}), weights={"axis_a": 1.0, "axis_b": 2.0})
+
+    contributions = leg.axis_contributions_at(0)
+
+    assert set(contributions) == {"axis_a", "axis_b"}
+    assert sum(contributions.values()) == pytest.approx(leg.difficulty_array[0], abs=0.05)
+
+
+def test_an_axis_that_reads_the_wind_scores_a_headwind_above_a_tailwind(wind_axis):
+    matrix = _matrix(2, bearing=[NORTH, SOUTH], axes={WIND_AXIS: np.nan})
+
+    leg = _snapshot(matrix, weights={WIND_AXIS: 1.0}, weather=_weather(5.0, from_deg=NORTH))
+
+    assert leg.axis_arrays[WIND_AXIS][0] > leg.axis_arrays[WIND_AXIS][1]
+    assert leg_costs.material_value_at(leg, WIND_DRAG, 0) > 0 > leg_costs.material_value_at(leg, WIND_DRAG, 1)
+
+
+def test_without_any_wind_the_wind_has_no_value_on_a_segment(wind_axis):
+    leg = _snapshot(_matrix(1, axes={WIND_AXIS: np.nan}), weights={WIND_AXIS: 1.0})
+
+    assert WIND_DRAG not in leg.material_arrays
+    assert leg_costs.material_value_at(leg, WIND_DRAG, 0) is None
+    assert np.isnan(leg.axis_arrays[WIND_AXIS][0])
+
+
+def test_the_values_shown_on_a_segment_are_the_columns_of_their_own_ids():
+    leg = _snapshot(_matrix(
+        2,
+        raw_axes={"axis_a": [1.0, 2.0], "axis_b": [3.0, 4.0]},
+        materials={"material_a": [5.0, np.nan], "material_b": [7.0, 8.0]},
+        categories={"category_a": ["x", "y"]},
+    ))
+
+    assert leg.axis_raw_arrays["axis_b"].tolist() == [3.0, 4.0]
+    assert leg.material_arrays["material_b"].tolist() == [7.0, 8.0]
+    assert leg.categorical_material_arrays["category_a"].value_at(1) == "y"
+    assert leg_costs.material_value_at(leg, "material_a", 0) == 5.0
+    # 欠損と、合成に無い材料は値を持たない。
+    assert leg_costs.material_value_at(leg, "material_a", 1) is None
+    assert leg_costs.material_value_at(leg, "material_z", 0) is None
+
+
+# --- 探索の行順 ---------------------------------------------------------------
+
+
+def test_the_search_order_holds_only_the_segments_on_the_search_graph():
+    """同じ2点を結ぶ区間が2本あると、探索のグラフには1本しか載らない（載らない区間は-1・NaN）。"""
+    composer = _composer(_matrix(3, distance=[1000.0, 2000.0, 3000.0]), lazy=[2, 0])
+
+    leg = composer.compose("leg", None, 0.0, +1)
+
+    assert leg.travel_seconds_lazy.tolist() == leg.travel_seconds_full[[2, 0]].tolist()
+    assert [composer.lazy_row(row) for row in range(3)] == [1, -1, 0]
+    restored = composer.to_full_row_order(leg.travel_seconds_lazy)
+    assert restored[[0, 2]].tolist() == leg.travel_seconds_full[[0, 2]].tolist()
+    assert np.isnan(restored[1])
+
+
+# --- 時刻ビン -----------------------------------------------------------------
+
+
+def test_without_an_hourly_forecast_every_leg_shares_one_composition():
+    composer = _composer(_matrix(1), weather=_weather(3.0))
+
+    outbound = composer.compose("outbound", None, 0.0, +1, duration_hours=3.0)
+    inbound = composer.compose("inbound", None, 2.0, -1, duration_hours=3.0)
 
     assert inbound is outbound
-    assert outbound.cost_bins_lazy.shape[0] == 1
-    assert outbound.bin_seconds == np.inf
-    assert outbound.bin_start_hours == ()
+    assert (len(outbound.cost_bins_lazy), outbound.bin_seconds, outbound.bin_start_hours) == (1, np.inf, ())
 
 
-def test_compose_splits_a_long_leg_into_hourly_bins_each_at_its_own_time(wind_axis):
-    """ビンはそれぞれの開始時刻の風で合成する。向かい風が1時間ごとに強まるので、後のビンほど遅い。"""
-    composer = make_composer(wind_series=rising_wind())
+@pytest.mark.parametrize(
+    ("duration_hours", "bin_starts"),
+    [
+        (None, (1.0,)),  # 見込み時間が無ければ、レグ全体を開始時刻で1本
+        (0.0, (1.0,)),
+        (2.5, (1.0, 2.0, 3.0)),
+        (10.0, tuple(1.0 + k for k in range(leg_costs.MAX_TIME_BINS))),  # 上限で打ち切る
+    ],
+)
+def test_a_leg_is_cut_into_hourly_bins_over_its_expected_duration(duration_hours, bin_starts):
+    leg = _composer(_matrix(1), series=_series([0.0] * 12)).compose("leg", None, 1.0, +1, duration_hours=duration_hours)
 
-    leg = composer.compose("outbound", coords(35.0, 139.0), 0.0, +1, duration_hours=3.0)
-
-    assert leg.cost_bins_lazy.shape == (3, 3)
-    assert leg.travel_bins_lazy.shape == (3, 3)
-    assert leg.bin_seconds == leg_costs.TIME_BIN_HOURS * 3600.0
-    assert leg.bin_start_hours == (0.0, 1.0, 2.0)
-    assert (np.diff(leg.travel_bins_lazy, axis=0) > 0).all()
+    assert leg.bin_start_hours == bin_starts
+    assert len(leg.cost_bins_lazy) == len(leg.travel_bins_lazy) == len(bin_starts)
+    assert leg.bin_seconds == (np.inf if len(bin_starts) == 1 else leg_costs.TIME_BIN_HOURS * 3600.0)
 
 
-def test_compose_of_an_inbound_leg_counts_time_from_the_start_of_that_leg(wind_axis):
-    """`direction=-1`の`offset_hours`はレグの終了時刻。開始時刻へ直さないと風が2時間ずれる。"""
-    composer = make_composer(wind_series=wind_series())
-
-    leg = composer.compose("inbound", coords(35.0, 139.0), 5.0, -1, duration_hours=2.0)
+def test_a_leg_toward_the_anchor_ends_at_its_offset():
+    leg = _composer(_matrix(1), series=_series([0.0] * 12)).compose("leg", None, 5.0, -1, duration_hours=2.0)
 
     assert leg.bin_start_hours == (3.0, 4.0)
 
 
-def test_compose_representative_arrays_come_from_the_middle_bin(wind_axis):
-    """表示と、時刻ラベルを持てない探索が読む値。端のビンだと実際に走る時刻と合わない。"""
-    composer = make_composer(wind_series=rising_wind())
+def test_each_bin_uses_the_wind_forecast_for_its_hour():
+    """風が1時間ごとに強まる予報で、北へ向かう区間は後のビンほど時間がかかる。"""
+    leg = _composer(_matrix(1), series=_series([0.0, 4.0, 8.0])).compose("leg", None, 0.0, +1, duration_hours=3.0)
 
-    leg = composer.compose("outbound", coords(35.0, 139.0), 0.0, +1, duration_hours=3.0)
-
-    assert leg.cost_lazy.tolist() == leg.cost_bins_lazy[1].tolist()
-    assert leg.cost_lazy.tolist() != leg.cost_bins_lazy[0].tolist()
-    assert leg.cost_lazy.tolist() != leg.cost_bins_lazy[2].tolist()
+    first, second, third = leg.travel_bins_lazy[:, 0]
+    assert first < second < third
 
 
-def test_compose_reuses_a_leg_composed_for_the_same_start_and_bins(wind_axis):
-    composer = make_composer(wind_series=wind_series())
+@pytest.mark.parametrize(
+    ("duration_hours", "representative"),
+    [
+        (1.5, 0),  # 2本のうち、中間の0.75時間が入るのは最初のビン
+        (3.0, 1),
+        (4.0, 2),  # 上限の4本で、中間の2時間が入る3本目
+        (7.0, 3),  # 同じ4本でも、中間が上限より先なら最後のビン
+    ],
+)
+def test_the_search_without_a_clock_and_the_display_read_the_bin_at_the_middle_of_the_leg(duration_hours, representative):
+    composer = _composer(_matrix(1), series=_series([float(h) for h in range(12)]))
 
-    first = composer.compose("outbound", coords(35.0, 139.0), 1.0, +1, duration_hours=2.0)
-    again = composer.compose("leg1", coords(36.0, 140.0), 1.0, +1, duration_hours=2.0)
+    leg = composer.compose("leg", None, 0.0, +1, duration_hours=duration_hours)
+
+    assert leg.cost_lazy.tolist() == leg.cost_bins_lazy[representative].tolist()
+    assert leg.travel_seconds_lazy.tolist() == leg.travel_bins_lazy[representative].tolist()
+
+
+def test_legs_with_the_same_bins_but_a_different_middle_are_not_mixed_up():
+    """同じ開始時刻・同じ本数でも、見込み時間が違えば代表のビンは変わる。"""
+    composer = _composer(_matrix(1), series=_series([float(h) for h in range(12)]))
+
+    shorter = composer.compose("a", None, 0.0, +1, duration_hours=4.0)
+    longer = composer.compose("b", None, 0.0, +1, duration_hours=7.0)
+
+    assert shorter.cost_lazy.tolist() == shorter.cost_bins_lazy[2].tolist()
+    assert longer.cost_lazy.tolist() == longer.cost_bins_lazy[3].tolist()
+
+
+def test_a_bin_already_composed_for_its_hour_is_composed_only_once(caplog):
+    """周回の往路の先頭のビンは、見込み時間なしで先に合成した1本と同じ時刻から始まる。"""
+    composer = _composer(_matrix(1), series=_series([0.0, 4.0, 8.0]))
+    first = composer.compose("prepare", None, 0.0, +1)
+
+    with caplog.at_level(logging.INFO, logger="ridecompass.graph"):
+        again = composer.compose("prepare", None, 0.0, +1)
+        binned = composer.compose("outbound", None, 0.0, +1, duration_hours=2.0)
 
     assert again is first
+    assert binned.cost_bins_lazy[0].tolist() == first.cost_lazy.tolist()
+    assert "mode=reused" in caplog.messages[0]
+    assert "reused_bins=1" in caplog.messages[1]
 
 
-def test_compose_takes_a_bin_from_a_single_bin_leg_of_the_same_time(wind_axis):
-    """周回の往路は、見込み時間なしで先に合成した1本と同じ時刻から始まる。"""
-    composer = make_composer(wind_series=rising_wind())
+def test_a_tree_without_a_clock_reads_the_wind_at_each_segment_s_own_passage():
+    """目的地から遡る木は時刻ビンを使えず、区間ごとの通過時刻で1本に合成する。"""
+    composer = _composer(_matrix(2), series=_series([0.0, 8.0]))
+    passage = np.array([0.0, 1.0])
 
-    single = composer.compose("outbound", coords(35.0, 139.0), 0.0, +1)
-    binned = composer.compose("outbound", coords(35.0, 139.0), 0.0, +1, duration_hours=2.0)
+    leg = composer.compose("inbound", None, 3.0, -1, passage_hours=passage)
 
-    assert binned.cost_bins_lazy[0].tolist() == single.cost_lazy.tolist()
-    assert binned.cost_bins_lazy[1].tolist() != single.cost_lazy.tolist()
-
-
-def test_compose_with_measured_passage_hours_is_a_single_bin(wind_axis):
-    """後ろ向き木は時刻ラベルを持てない。前向き木の実到達時間を区間ごとに渡し、区間ごとにその時刻の風で合成する。"""
-    composer = make_composer(wind_series=rising_wind())
-    passage = np.array([0.0, 1.0, 2.0])
-
-    leg = composer.compose("inbound", coords(35.0, 139.0), 4.0, -1, passage_hours=passage)
-
-    assert leg.cost_bins_lazy.shape[0] == 1
-    assert leg.bin_seconds == np.inf
-    assert leg.passage_hours.tolist() == [0.0, 1.0, 2.0]
-    # 同じ長さの区間で、後に通る区間ほど向かい風が強い
-    assert (np.diff(leg.travel_seconds_full) > 0).all()
+    assert leg.travel_seconds_full[1] > leg.travel_seconds_full[0]
+    assert (len(leg.cost_bins_lazy), leg.bin_start_hours) == (1, ())
+    assert leg.passage_hours is passage
 
 
-def test_compose_keeps_composing_by_time_even_without_an_anchor(wind_axis):
-    """風は軸である前に走行モデルの入力。系列があれば基準点の有無に関わらず時刻で引く。"""
-    composer = make_composer(wind_series=wind_series())
-
-    leg = composer.compose("outbound", None, 0.0, +1, duration_hours=3.0)
-
-    assert leg.cost_bins_lazy.shape[0] == 3
-
-
-def test_composed_costs_are_infinite_where_the_zeroth_filter_excludes(wind_axis):
-    """探索から見た通行可否はコスト配列だけが表す。有限のまま残すと除外区間を通る。"""
-    composer = make_composer(make_score_matrix(count=3), excluded=[False, True, False])
-
-    leg = composer.compose("outbound", coords(35.0, 139.0), 0.0, +1)
-
-    assert np.isinf(leg.cost_lazy[1])
-    assert np.isinf(leg.travel_seconds_full[1])
-    assert np.isfinite(leg.cost_lazy[0])
-
-
-def test_composed_materials_drop_dynamic_ones_with_no_data_at_all(wind_axis):
-    """全行NaNの動的材料をキーごと持つと、表示が「値0」と「データ無し」を取り違える。風が無ければ風の材料は無い。"""
-    calm = make_composer().compose("outbound", coords(35.0, 139.0), 0.0, +1)
-    windy = make_composer(wind_series=wind_series()).compose("outbound", coords(35.0, 139.0), 0.0, +1)
-
-    for material_id in leg_costs.REQUEST_DYNAMIC_MATERIAL_IDS:
-        assert material_id not in calm.material_arrays
-        assert material_id in windy.material_arrays
-    assert STOP_MATERIAL in calm.material_arrays
-
-
-def test_travel_time_adds_the_stop_waits_of_the_materials_that_exist(wind_axis):
-    """停止要因の材料が引けないと、全区間の待ちが無言で0秒になる。欠損は0件として扱う（NaNを伝播させない）。"""
-    matrix = make_score_matrix(material_values=np.array([[2.0], [np.nan], [0.0]]))
-
-    leg = make_composer(matrix).compose("outbound", coords(35.0, 139.0), 0.0, +1)
-
-    with_stops, missing, without_stops = leg.travel_seconds_full.tolist()
-    # 1kmの区間に2件ぶんの待ち
-    assert with_stops - without_stops == pytest.approx(2 * leg_costs.stop_seconds(STOP_KIND))
-    assert missing == without_stops
-
-
-def test_travel_time_reads_rolling_resistance_from_the_material_arrays(wind_axis, monkeypatch):
-    """転がり抵抗の材料が引けないと、路面の違いが速度に反映されないまま所要時間が出る。"""
-    monkeypatch.setitem(TUNING_VALUES, PAVED.rolling_resistance, 0.004)
-    monkeypatch.setitem(TUNING_VALUES, ROUGH.rolling_resistance, 0.012)
-    matrix = make_score_matrix(count=2, categorical_material_columns=[CategoricalColumn.encode([PAVED.key, ROUGH.key])])
-
-    leg = make_composer(matrix).compose("outbound", coords(35.0, 139.0), 0.0, +1)
-
-    paved, rough = leg.travel_seconds_full.tolist()
-    assert rough > paved
-
-
-def hourly_wind_composer(wind_weight):
-    """時刻ごとに向かい風が強まる世界（`rising_wind`）。区間は1km・2kmで、時刻で変わらない軸の得点は40・80。"""
-    matrix = make_score_matrix(
-        count=2,
-        distance_m=np.array([1000.0, 2000.0]),
-        axis_scores=np.column_stack([np.array([40.0, 80.0]), np.full(2, np.nan)]),
-        axis_raw_values=np.zeros((2, 1)),
+@pytest.mark.parametrize("wind_weight", [0.0, 1.0])
+def test_values_recomposed_for_the_rows_on_the_route_match_the_composition_used_by_the_search(wind_axis, wind_weight):
+    """表示は経路上の行だけをその時刻で合成し直す。探索が使った合成と同じ値になる（探索コストと表示の一致）。"""
+    matrix = _matrix(
+        3, bearing=[NORTH, SOUTH, 90.0], axes={"axis_a": [10.0, 50.0, 90.0], WIND_AXIS: np.nan},
+        materials={"material_a": [1.0, 2.0, 3.0]},
     )
-    return make_composer(
-        matrix, weights={AXIS_STATIC: 1.0, AXIS_WIND: wind_weight}, penalty=0.5, wind_series=rising_wind(),
-    )
+    weights = {"axis_a": 1.0, WIND_AXIS: wind_weight}
+    composer = _composer(matrix, weights=weights, penalty=0.5, series=_series([0.0, 6.0]))
+    leg = composer.compose("leg", None, 0.0, +1, passage_hours=np.full(3, 1.0))
+
+    values = composer.values_at_rows(np.array([2, 0]), np.array([1.0, 1.0]))
+
+    assert values.difficulty_array.tolist() == leg.difficulty_array[[2, 0]].tolist()
+    assert values.weight_sums.tolist() == leg.weight_sums[[2, 0]].tolist()
+    assert {a: v.tolist() for a, v in values.axis_arrays.items()} == {
+        a: v[[2, 0]].tolist() for a, v in leg.axis_arrays.items()}
+    assert {m: v.tolist() for m, v in values.material_arrays.items()} == {
+        m: v[[2, 0]].tolist() for m, v in leg.material_arrays.items()}
+    assert values.axis_contributions_at(0) == leg.axis_contributions_at(2)
 
 
-def test_each_bin_costs_its_own_travel_time_times_the_fixed_penalty(wind_axis):
-    """時刻で変わる軸の重みが0なら、割増の倍率は時刻に依らない。風は走行時間を通してだけビンごとに効く。"""
-    composer = hourly_wind_composer(wind_weight=0.0)
-
-    leg = composer.compose("outbound", coords(35.0, 139.0), 0.0, +1, duration_hours=2.0)
-
-    assert (leg.travel_bins_lazy[1] > leg.travel_bins_lazy[0]).all()
-    # 倍率は 1 + 0.5 × 得点/100
-    assert leg.cost_bins_lazy.ravel().tolist() == pytest.approx((leg.travel_bins_lazy * [1.2, 1.4]).ravel().tolist())
-    assert leg.difficulty_array.tolist() == [40.0, 80.0]
+# --- 所要時間の欠け・区間の風 ---------------------------------------------------
 
 
-def test_a_weighted_time_varying_axis_enters_each_bin_at_its_own_time(wind_axis):
-    """時刻で変わる軸に重みがあれば、各ビンの合成にそのビンの時刻の値が入る。"""
-    composer = hourly_wind_composer(wind_weight=1.0)
+def test_the_share_of_distance_timed_without_gradient_or_stop_data():
+    composer = _composer(_matrix(
+        3, distance=[1000.0, 3000.0, 6000.0], gradient=[np.nan, 0.0, 0.0],
+        materials={STOP_DENSITY["signal"]: [0.0, np.nan, 0.0]},
+    ))
 
-    leg = composer.compose("outbound", coords(35.0, 139.0), 0.0, +1, duration_hours=2.0)
+    assert composer.missing_travel_data_share(np.array([0, 1, 2])) == 0.4
+    assert composer.missing_travel_data_share(np.array([2])) == 0.0
+    assert composer.missing_travel_data_share(np.array([], dtype=np.int64)) is None
 
-    # 向かい風が強い後のビンほど風の軸の得点が高く、割増の倍率が大きい
-    multiplier = leg.cost_bins_lazy / leg.travel_bins_lazy
-    assert (multiplier[1] > multiplier[0]).all()
-    # 経路上の行を時刻で合成し直した難易度は、時刻で変わらない軸と、その時刻の風の軸の重み付き平均
-    rows = composer.values_at_rows(np.array([1]), np.array([1.0]))
-    assert rows.difficulty_array[0] == pytest.approx((80.0 + rows.axis_arrays[AXIS_WIND][0]) / 2, abs=0.05)
-    assert rows.axis_arrays[AXIS_WIND][0] > composer.values_at_rows(np.array([1]), np.array([0.0])).axis_arrays[AXIS_WIND][0]
+
+def test_the_wind_of_a_segment_is_the_forecast_at_its_passage():
+    composer = _composer(_matrix(3), series=_series([1.04, 2.0, 3.0], from_deg=90.0))
+
+    winds = composer.winds_at([0, 1, 2], [0.2, 1.0, 9.0], [False, True, False])
+
+    assert [(w.speed_ms, w.direction_deg, w.forecast_at) for w in winds] == [
+        (1.0, 90.0, "2026-10-03T09:00"), (2.0, 90.0, "2026-10-03T10:00"), (3.0, 90.0, "2026-10-03T11:00")]
+    # 時刻ビンの範囲の先・予報の期間の先は、最後に追った予報を延ばして使っている。
+    assert [w.extended for w in winds] == [False, True, True]
+
+
+def test_a_segment_without_a_passage_shows_the_wind_at_departure():
+    composer = _composer(_matrix(2), weather=_weather(3.04, from_deg=271.06))
+
+    winds = composer.winds_at([0, 1], [None, 0.5], [False, False])
+
+    assert winds[0] == leg_costs.SegmentWind(speed_ms=3.0, direction_deg=271.1)
+    # 時別の予報が無いと、通過時刻の風は引けない。
+    assert winds[1] is None
+
+
+def test_a_segment_has_no_wind_when_no_wind_was_available():
+    assert _composer(_matrix(1)).winds_at([0], [None], [False]) == [None]
