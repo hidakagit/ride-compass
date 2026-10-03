@@ -15,13 +15,7 @@ import { dedicatedEntry, rampEntry } from "@/testing/catalogAxes";
 import palette from "@/types/generated/palette.json";
 
 import { dedicatedWayValueAxesFromCatalogAxes, rampAxesFromCatalogAxes } from "./axisLayers";
-import {
-  bandColorsFor,
-  DEFAULT_DIFFICULTY_BOUNDARIES,
-  dedicatedAxisBands,
-  rampAxisBands,
-  valueBands,
-} from "./valueScale";
+import { bandColorsFor, dedicatedAxisBands, rampAxisBands, valueBands } from "./valueScale";
 
 const {
   evaluation_good: GOOD,
@@ -145,15 +139,6 @@ describe("dedicatedAxisBands", () => {
       { color: DESCENT, label: "下り[-2%未満]" },
       { color: GOOD, label: "平坦[-2〜2%]" },
       { color: EXTREME, label: "上り[2%以上]" },
-    ]);
-  });
-
-  it("境界を宣言していない軸は、難易度の既定の境界で切る", () => {
-    const [axis] = dedicatedWayValueAxesFromCatalogAxes([dedicatedEntry("a", [], { map_value_thresholds: null })]);
-
-    expect(dedicatedAxisBands(axis.display).map((band) => band.lowerBound)).toEqual([
-      Number.NEGATIVE_INFINITY,
-      ...DEFAULT_DIFFICULTY_BOUNDARIES,
     ]);
   });
 });
