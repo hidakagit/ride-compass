@@ -1,8 +1,8 @@
 # 振り出しの見回り（tools/flow-gate/bin/dispatch.js --watch）。1つの実行の中で決まった間隔ごとに、担当のワークフロー
 # （claude-task.yml）を動いている数が上限になるまでキューの上から起こし、全体の様子を Project の状況の更新に書く。
 # 見回りの持ち時間（flow.config.json: coordinator.watchForMinutes）が過ぎたら、次の実行を起こしてから終える。
-# 止めるときは、置き場の開いた issue のどれかにラベル「停止」を付ける（見回りは続くが振り出さない）。見回りそのものを止めるなら、
-# このワークフローを Actions の画面で無効にし（Disable workflow）、動いている実行を Cancel する。
+# 止めるときは、このワークフローを Actions の画面で無効にする（Disable workflow）。動いている実行は次の見回りで無効と読み、
+# 振り出さずに終えて次を起こさない。戻すときは Enable workflow のあと Run workflow。
 name: Claude Dispatch
 
 on:
@@ -34,6 +34,9 @@ jobs:
       # 止まらずに続く。成功して終えたときだけ起こす（Cancel・失敗で途切れたら、状況の更新が書き換わらなくなる）。
       - name: 次の見回りを起こす
         if: ${{ success() }}
-        run: gh workflow run claude-dispatch.yml -R "$GITHUB_REPOSITORY" --ref master
+        run: |
+          if [ "$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/claude-dispatch.yml" --jq .state)" = active ]; then
+            gh workflow run claude-dispatch.yml -R "$GITHUB_REPOSITORY" --ref master
+          fi
         env:
           GH_TOKEN: ${{ secrets.CODE_TOKEN }}

@@ -98,10 +98,10 @@ test("状況の更新の中身: 止まっているものがあれば At risk、�
   const later = summary(config, { ...base, dated: ["2026-10-09", "2026-10-05"] });
   assert.equal(later.status, "ON_TRACK", "着手可能日を待つものは止まっているものに数えない");
   assert.match(later.body, /着手可能日を待つ仕事: 2件（最も近い日 2026-10-05）/);
-  const risk = summary(config, { ...base, stuck: [{ number: 8, reason: "進行中なのに、担当が動いていない" }], stop: 12, pause: "2026-10-03T01:00:00Z" });
+  const risk = summary(config, { ...base, stuck: [{ number: 8, reason: "進行中なのに、担当が動いていない" }], stop: true, pause: "2026-10-03T01:00:00Z" });
   assert.equal(risk.status, "AT_RISK");
   assert.match(risk.body, /#8 進行中なのに/);
-  assert.match(risk.body, new RegExp(`#12 にラベル「${config.coordinator.stopLabel}」`));
+  assert.match(risk.body, /見回りのワークフローが無効/);
   assert.match(risk.body, /10-03 10:00 まで/);
 });
 

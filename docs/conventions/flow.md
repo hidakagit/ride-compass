@@ -66,7 +66,7 @@
 | 役 | 持つもの・すること |
 |---|---|
 | GitHub（issue・Project・ゲート） | タスクの状態（ステータス）。遷移はゲートが表で守る |
-| 振り出しの見回り（`.github/workflows/claude-dispatch.yml` が `tools/flow-gate/bin/dispatch.js --watch` を起こす） | 決まった間隔ごとに、止めの印を見て、動いている担当の数が上限（`flow.config.json: coordinator.parallel`）になるまでキューの上から担当のワークフローを起こし、全体の様子を Project の状況の更新に書く |
+| 振り出しの見回り（`.github/workflows/claude-dispatch.yml` が `tools/flow-gate/bin/dispatch.js --watch` を起こす） | 決まった間隔ごとに、自分のワークフローが有効か・止める時刻を見て、動いている担当の数が上限（`flow.config.json: coordinator.parallel`）になるまでキューの上から担当のワークフローを起こし、全体の様子を Project の状況の更新に書く |
 | 担当のワークフロー（`.github/workflows/claude-task.yml`） | 1件を引き受け、準備をして担当を起こし、終わったら後始末をする |
 | 作る担当・確かめる担当（Claude Code。`anthropics/claude-code-action`） | タスクの遂行と報告（PR・問い・issue へのコメント）。次の担当を起こすことには触れない |
 
@@ -109,11 +109,11 @@
   `GITHUB_TOKEN` で打ったマージは master の CI とデプロイを起こさないため）、Claude は契約のトークン（secret `CLAUDE_CODE_OAUTH_TOKEN`）。
 - **記録**: Actions の実行の記録に、「#<番号> <種類>」の名前で並ぶ。コードのリポジトリは公開なので、記録は誰でも読める。
   担当の出力の全文と報告は記録に出さない（出るのは指示文と、手数・費用の目安）。担当の最後の発言は、非公開の置き場の issue にだけ書く（4）。
-- **止める**: 置き場の開いた issue のどれかにラベル「停止」（`coordinator.stopLabel`）を付けると、見回りは続くが振り出さない
-  （スマホからでも付けられる。外すと次の見回りから戻る）。利用の上限で後始末が止めた時刻（変数 `coordinator.pauseVariable`）を早く
-  解くなら、コードのリポジトリの Settings → Secrets and variables → Actions → Variables で消す。動いている担当は止まらないので、止めるなら Actions の画面で
-  その実行を Cancel する（後始末の段は走る）。見回りそのものを止めるなら、Actions の画面で Claude Dispatch を無効にし
-  （Disable workflow。次の実行が起きなくなる）、動いている Claude Dispatch の実行を Cancel する（Cancel された実行は次を起こさない）。
+- **止める**: Actions の画面で Claude Dispatch を無効にする（Disable workflow）。動いている見回りは次の1回で無効と読み、状況の更新に
+  止めていると書いて、振り出さずに終える（次の見回りも起こさない）。戻すときは Enable workflow のあと Run workflow。
+  利用の上限で後始末が止めた時刻（変数 `coordinator.pauseVariable`）を早く解くなら、コードのリポジトリの Settings → Secrets and
+  variables → Actions → Variables で消す。動いている担当は止まらないので、止めるなら Actions の画面でその実行を Cancel する
+  （後始末の段は走る）。1つのタスクだけを止めるなら、ボードで保留へ動かす。
 - **開発機が要る**: 開発機にしか無いもの（本番への調べ `run_probe.py` の SSH の鍵・開発 DB の実データ）が要るタスクは、Actions では
   進めない。担当は、それが要ると分かったところで作業を止め（途中の変更は作業ブランチへ push してから）、issue にラベル
   「開発機が要る」（`coordinator.devLabel`）を付け、何がなぜ要るかをコメントに書いて終える。ユーザーが最初から付けてもよい。
@@ -355,7 +355,7 @@ push に含まれ、同じ権限で断られるため。
 - **動いている担当**: コードのリポジトリの Actions の画面（Claude Task の実行。名前は「#<番号> <種類>」）。GitHub のスマホアプリの
   Actions からも見られる。振り出しが何を起こしたかは Claude Dispatch の実行の記録に出る。
 - **全体の様子**（`tools/flow-gate/src/dispatch.js: summary`）: 見回りが Project の「状況の更新」（Status updates）に、動いている担当
-  （どのタスク・いつから・実行へのリンク）・振り出しを待つ仕事の数・止めの印と止める時刻・止まっているもの（進行中なのに担当が動いて
+  （どのタスク・いつから・実行へのリンク）・振り出しを待つ仕事の数・止めている理由（見回りのワークフローが無効・止める時刻）・止まっているもの（進行中なのに担当が動いて
   いない・検証中なのに開いた Pull Request が無い。2回続けて見えたものだけ）を書く。止まっているものが1つでもあれば At risk、無ければ
   On track。中身が変わったときだけ書き、状態が同じなら最新の更新を書き換え、変わったら新しく足す（履歴には状態の移り変わりだけが残る）。
   最新の1件の状態が Project の見出しと Projects の一覧に出る（公式の文書「Sharing project updates」）。

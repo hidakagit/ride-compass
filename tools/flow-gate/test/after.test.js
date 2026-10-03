@@ -13,13 +13,8 @@ test("利用の上限・認証で止まったら担当の外の失敗で、振�
   }
 });
 
-test("実行のファイルが無い（担当が動けなかった）ときも、担当の外の失敗で振り出しを止める", () => {
-  assert.deepEqual([classify(null).outside, classify(null).pause], [true, true]);
-});
-
-test("サーバーの混雑は担当の外の失敗だが、一時のものなので振り出しは止めない", () => {
-  const v = classify([said("overloaded")]);
-  assert.deepEqual([v.outside, v.pause], [true, false]);
+test("サーバーの混雑・実行のファイルが無い（Claude が起きる前に落ちた）は担当の外の失敗だが、一時のものなので振り出しは止めない", () => {
+  for (const v of [classify([said("overloaded")]), classify(null)]) assert.deepEqual([v.outside, v.pause], [true, false]);
 });
 
 test("担当の発言に失敗が無ければ担当の側の終わり方（落ちたかは後始末がステータスで決める）", () => {
