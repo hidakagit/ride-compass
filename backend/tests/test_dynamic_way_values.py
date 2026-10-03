@@ -169,10 +169,16 @@ def test_an_override_on_an_axis_the_tiles_cannot_paint_is_used_as_is():
 
 
 def test_a_difficulty_axis_the_tiles_cannot_paint_is_cut_at_the_default_difficulty_bands():
-    """既定をここで解くので、読む側は既定を持たない。"""
     assert map_value_thresholds(_axis(_line("num_live", "num_other", preprocess="abs"))) == list(
         dynamic_way_values.DEFAULT_DIFFICULTY_BOUNDARIES
     )
+
+
+def test_the_default_difficulty_boundaries_are_strictly_ascending():
+    """地図の式（MapLibreの`step`）は段の境界が厳密に昇順でないと式ごと失敗し、レイヤーが黙って消える。"""
+    boundaries = list(dynamic_way_values.DEFAULT_DIFFICULTY_BOUNDARIES)
+
+    assert boundaries == sorted(set(boundaries))
 
 
 @pytest.mark.parametrize(
