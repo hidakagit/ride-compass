@@ -110,6 +110,14 @@ test("手で担当者を変えても、ステータスの番へ戻る", async ()
   assert.deepEqual(gh.issue.assignees, [config.claude]);
 });
 
+test("並んで動く別の出来事が先に同じ担当者を入れて書き込みが断られても、読み直して残り（本文）を書き、コメントは重ねない", async () => {
+  const gh = fakeGitHub({ issue: { number: 1, authorId: ME, status: "未着手", assignees: [config.claude] }, race: [config.user] });
+  await move("保留", "未着手", config.user);
+  assert.deepEqual([gh.issue.status, gh.issue.assignees], ["保留", [config.user]]);
+  assert.match(gh.issue.body, /回答する.*\n\n\*\*保留\*\*/, "ユーザーの番のボタンが本文の先頭に入る");
+  assert.equal(comments(gh).length, 1);
+});
+
 const done = "<details><summary>完了の条件</summary>\n\n- [x] 済んだこと\n</details>";
 const left = "<details><summary>完了の条件</summary>\n\n- [x] 済んだこと\n- [ ] マージのあとの操作\n</details>";
 
