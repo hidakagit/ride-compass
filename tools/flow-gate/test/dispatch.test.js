@@ -56,11 +56,13 @@ test("止まっているもの: 進行中なのに担当が動いていない（
   assert.deepEqual(found.map((s) => s.number), [1, 4]);
 });
 
-test("状況の更新の中身: 止まっているものがあれば At risk、無ければ On track。止めの印と止める時刻を書く", () => {
-  const base = { watcher: "https://run/1", runs: [{ number: 7, title: "#7 作る", url: "https://run/7", startedAt: "2026-10-03T00:00:00Z" }], waiting: 2, held: 3, stuck: [], stop: null, pause: null };
+test("状況の更新の中身: 止まっているものがあれば At risk、無ければ On track。止めの印と止める時刻を書く。この周で起こした仕事も動いている担当に数える", () => {
+  const base = { watcher: "https://run/1", runs: [{ number: 7, title: "#7 作る", url: "https://run/7", startedAt: "2026-10-03T00:00:00Z" }], started: [{ number: 9, kind: "確かめる" }], waiting: 2, held: 3, stuck: [], stop: null, pause: null };
   const calm = summary(config, base);
   assert.equal(calm.status, "ON_TRACK");
   assert.match(calm.body, /#7 作る（10-03 09:00 から）\[実行\]\(https:\/\/run\/7\)/);
+  assert.match(calm.body, /#9 確かめる（いま起こした）/);
+  assert.match(calm.body, new RegExp(`動いている担当（2/${config.coordinator.parallel}）`));
   const risk = summary(config, { ...base, stuck: [{ number: 8, reason: "進行中なのに、担当が動いていない" }], stop: 12, pause: "2026-10-03T01:00:00Z" });
   assert.equal(risk.status, "AT_RISK");
   assert.match(risk.body, /#8 進行中なのに/);
@@ -71,7 +73,7 @@ test("状況の更新の中身: 止まっているものがあれば At risk、�
 test("状況の更新は、中身が同じなら書かず、状態が同じなら書き換え、状態が変わるかほかの者の更新が最新なら足す", async () => {
   const gh = fakeGitHub({ issue: { number: 1 }, updates: [{ id: "SU_0", status: "AT_RISK", body: "ほかの者の更新", by: "gate" }] });
   const bot = new GitHub("bot-token");
-  const calm = summary(config, { watcher: null, runs: [], waiting: 0, held: 0, stuck: [], stop: null, pause: null });
+  const calm = summary(config, { watcher: null, runs: [], started: [], waiting: 0, held: 0, stuck: [], stop: null, pause: null });
   assert.equal(await putStatus(bot, config, calm), "created");
   assert.equal(await putStatus(bot, config, calm), null);
   assert.equal(await putStatus(bot, config, { ...calm, body: `${calm.body}\n変わった` }), "updated");
