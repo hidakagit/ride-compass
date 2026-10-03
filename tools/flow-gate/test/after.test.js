@@ -69,7 +69,18 @@ test("終わりのコメントに、ステータス・後始末がしたこと�
     status: "保留",
     elapsedMs: 520000,
   });
-  for (const s of ["| 保留 |", "| #9: 落ちた 進行中 → 保留 |", "| 8分40秒 |", "| 74 |", "https://example.test/runs/1", "> 1行目\n> 2行目"]) assert.ok(body.includes(s), s);
+  for (const s of ["| 保留 |", "| #9: 落ちた 進行中 → 保留 |", "| 8分40秒 |", "| 74 |", "| 判定に断られた操作 | 0件 |", "https://example.test/runs/1", "> 1行目\n> 2行目"])
+    assert.ok(body.includes(s), s);
+});
+
+test("終わりのコメントに、判定に断られた操作の数と、道具・打とうとしたものが出る（表を壊す縦線と改行は残さない）", () => {
+  const permission_denials = [
+    { tool_name: "Edit", tool_input: { file_path: ".claude/settings.json", old_string: "a" } },
+    { tool_name: "Bash", tool_input: { command: "gh pr merge 3 | tee x\n  --rebase" } },
+  ];
+  const body = endReport({ kind: "作る", url: "u", jobStatus: "success", messages: [{ type: "result", num_turns: 3, permission_denials }], done: [], status: "進行中", elapsedMs: 1000 });
+  const row = body.split("\n").find((l) => l.startsWith("| 判定に断られた操作 |"));
+  assert.equal(row, "| 判定に断られた操作 | 2件<br>Edit: .claude/settings.json<br>Bash: gh pr merge 3 \\| tee x --rebase |");
 });
 
 test("実行のファイルが無いときも、分からない欄を不明として書ける", () => {
