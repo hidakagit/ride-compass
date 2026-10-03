@@ -91,7 +91,7 @@ export default function LensControl({
           className={cn("size-2.5 flex-shrink-0 rounded-full", LEGEND_SWATCH_RING_CLASS)}
           style={{ background: color }}
         />
-        <span className="flex-auto">{label}</span>
+        {label}
         {badges.map((badge) => (
           <span key={badge} className={badgeVariants({ variant: "warning" })}>
             {badge}
@@ -164,8 +164,7 @@ export default function LensControl({
             </p>
           )}
           <ToggleGroup
-            variant="list"
-            className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-x-1 p-0"
+            variant="chips"
             value={lens}
             onValueChange={(id) => select(id as LensId)}
             aria-label={LENS_SCREEN_NAME}
@@ -174,15 +173,13 @@ export default function LensControl({
             {renderOption(LENS_NONE_ID, FIXED_LENS_LABELS[LENS_NONE_ID], LENS_NEUTRAL_COLOR)}
             {renderOption(LENS_DIFFICULTY_ID, FIXED_LENS_LABELS[LENS_DIFFICULTY_ID], LENS_NEUTRAL_COLOR)}
             {used.length > 0 && (
-              <span className={cn(textVariants({ variant: "note" }), "col-span-full mt-1.5 py-0.5 tracking-wide")}>
+              <span className={cn(textVariants({ variant: "note" }), "basis-full pt-0.5 tracking-wide")}>
                 評価に使用中
               </span>
             )}
             {used.map(renderAxis)}
             {unused.length > 0 && (
-              <span className={cn(textVariants({ variant: "note" }), "col-span-full mt-1.5 py-0.5 tracking-wide")}>
-                未使用
-              </span>
+              <span className={cn(textVariants({ variant: "note" }), "basis-full pt-0.5 tracking-wide")}>未使用</span>
             )}
             {unused.map(renderAxis)}
           </ToggleGroup>
@@ -210,10 +207,8 @@ export default function LensControl({
                 legend={legend}
                 hiddenKeys={hiddenLegendKeys}
                 onToggle={onToggleLegendKey}
-                listClassName={
-                  "m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-x-2 gap-y-0.5 p-0"
-                }
-                rowClassName={"flex items-center gap-1 tabular-nums [overflow-wrap:anywhere]"}
+                listClassName="flex flex-wrap gap-x-3 gap-y-0.5"
+                rowClassName="flex items-center gap-1 whitespace-nowrap tabular-nums"
                 swatchClassName={"inline-block h-1.5 w-2.5 flex-shrink-0 rounded-[1px]"}
               />
             </div>
