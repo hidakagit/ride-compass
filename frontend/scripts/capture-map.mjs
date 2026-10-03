@@ -9,17 +9,13 @@
 // --replace は、URL が glob に当たる応答の本文を差し替える。.json はファイルの中身で、.mjs は default export の関数（本物の JSON を
 // 受け取って返す）で替える。撮る前に Playwright の Chromium と、Linux なら日本語のフォント（無いと文字が豆腐になる）を入れる。
 
-import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+import { LOCAL_PORT, fail, parseSize, prepareBrowser, run, runCapture } from "./capture-common.mjs";
 
-const frontendRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PRODUCTION_FRONTEND = "https://ride-compass-frontend.onrender.com";
-/** frontend/e2e（3100）・e2e-live（3200）・devサーバー（3000）と取り合わないポート。 */
-const LOCAL_PORT = "3300";
 
 const { values } = parseArgs({
   options: {
@@ -37,13 +33,7 @@ const { values } = parseArgs({
   },
 });
 
-function fail(message) {
-  console.error(`[capture] ${message}`);
-  process.exit(1);
-}
-
-const [width, height] = values.size.split("x").map(Number);
-if (!(width > 0 && height > 0)) fail(`--size は <幅>x<高さ>（例: 390x812）: ${values.size}`);
+const { width, height } = parseSize(values.size);
 if (values.theme && !["light", "dark"].includes(values.theme)) fail(`--theme は light か dark: ${values.theme}`);
 if (values.local && !values.api) {
   fail("--local には --api <backend のオリジン> が要る（本番の宛先は docs/architecture/tech-stack.md「本番の宛先」）");
@@ -56,40 +46,16 @@ const replace = values.replace.map((entry) => {
 const out = path.resolve(values.out);
 mkdirSync(out, { recursive: true });
 
-function run(command, args, env = {}) {
-  const result = spawnSync(command, args, {
-    cwd: frontendRoot,
-    stdio: "inherit",
-    env: { ...process.env, ...env },
-    shell: process.platform === "win32",
-  });
-  return result.status ?? 1;
-}
-
-const playwright = path.join(frontendRoot, "node_modules", "@playwright", "test", "cli.js");
-if (run(process.execPath, [playwright, "install", "chromium"]) !== 0) fail("Chromium を入れられない");
-
-if (process.platform === "linux") {
-  const japanese = () => {
-    try {
-      return execFileSync("fc-list", [":lang=ja"], { encoding: "utf-8" }).trim().length > 0;
-    } catch {
-      return false;
-    }
-  };
-  if (!japanese()) {
-    console.log("[capture] 日本語のフォントが無いので fonts-noto-cjk を入れる");
-    run("sudo", ["-n", "apt-get", "install", "-y", "-q", "fonts-noto-cjk"]);
-    if (!japanese()) fail("日本語のフォントを入れられない（fonts-noto-cjk 等を入れてから打ち直す）");
-  }
-}
+prepareBrowser();
 
 if (values.local && !values["no-build"]) {
   const api = values.api.replace(/\/+$/, "");
-  if (run("npm", ["run", "build"], { NEXT_PUBLIC_API_URL: api, BACKEND_INTERNAL_URL: api }) !== 0) fail("ビルドに失敗");
+  if (run("npm", ["run", "build"], { env: { NEXT_PUBLIC_API_URL: api, BACKEND_INTERNAL_URL: api } }) !== 0) {
+    fail("ビルドに失敗");
+  }
 }
 
-const status = run(process.execPath, [playwright, "test", "-c", "playwright.capture.config.ts"], {
+const status = runCapture("capture/map.spec.ts", {
   CAPTURE_BASE_URL: values.local ? `http://localhost:${LOCAL_PORT}` : values.url,
   ...(values.local ? { CAPTURE_LOCAL_PORT: LOCAL_PORT } : {}),
   ...(values.point ? { E2E_LIVE_POINT: values.point } : {}),

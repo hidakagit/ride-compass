@@ -1,7 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
 
-// 地図の画面を撮る段（frontend/capture/）。テストではなく、CI にも載せない。入口と引数は scripts/capture-map.mjs が持ち、
-// 宛先を環境変数で渡す: CAPTURE_BASE_URL（撮る画面のオリジン）と、手元のビルドを撮るときの CAPTURE_LOCAL_PORT。
+// 画面を撮る段（frontend/capture/）。テストではなく、CI にも載せない。入口と引数は scripts/capture-map.mjs・scripts/capture-screen.mjs が
+// 持ち、宛先を環境変数で渡す: CAPTURE_BASE_URL（撮る画面のオリジン）と、手元のビルドを撮るときの CAPTURE_LOCAL_PORT・
+// CAPTURE_SERVER_DIR（ビルドのある frontend。既定はこの作業ツリー）。
 
 const localPort = process.env.CAPTURE_LOCAL_PORT;
 
@@ -23,6 +24,7 @@ export default defineConfig({
   webServer: localPort
     ? {
         command: "npm run start:standalone",
+        cwd: process.env.CAPTURE_SERVER_DIR,
         url: `http://localhost:${localPort}`,
         // Git Bash は HOSTNAME へ機械名を入れて export する。standalone のサーバーは HOSTNAME で待ち受けるので、localhost へ固定する。
         env: { PORT: localPort, HOSTNAME: "localhost" },

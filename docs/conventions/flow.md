@@ -182,7 +182,10 @@
      `node frontend/scripts/capture-map.mjs` で撮る（位置・幅・レンズを引数で選ぶ。使い方はスクリプトの先頭）。前は本番の画面（既定）、
      後は `--local --api <本番の backend>` で作業ツリーの版を手元でビルドし、本番の backend へ向けて撮る（宛先は
      docs/architecture/tech-stack.md「本番の宛先」。地図の塗りに要る道路タイルは backend が持つ）。backend の応答も変わる変更は、
-     変わる応答を `--replace` で差し替えて撮る
+     変わる応答を `--replace` で差し替えて撮る。地図の塗り以外の画面（ルート結果・パネル・管理画面等）は
+     `node frontend/scripts/capture-screen.mjs --script <脚本>` で撮る（e2e のモックの応答で作業ツリーの版を開き、脚本で進めた状態を撮る。
+     脚本の形はスクリプトの先頭、例は `frontend/capture/examples/`）。前は同じ脚本の打ち方に `--ref origin/master` を
+     足して撮る（作業ツリーは切り替えない）
    - 画面に出ない変更は、確かめ方と根拠（実行したコマンドと出た値・読んだ公式の文書）
    - `backend/scripts/lost_constraints.py`（master との合流点からの、ORM の宣言から消えた制約）が出した「消えた」の
      1件ずつに、処置（移した先・意図して外した理由）。書き直しで落ちた制約は差分に1行も出ないため
@@ -231,7 +234,7 @@
 **確かめる担当**（検証中。作った担当とは別）
 1. 作業ブランチを取る（`git fetch origin` と
    `git checkout -B orch/tasks-<番号> origin/orch/tasks-<番号>`）。依存のファイルが master と違えば、作る担当の2のとおり入れ直す。Pull Request（`gh pr view <番号> -R hidakagit/ride-compass --comments`。本文のキャプチャ・差分）・作業ブランチの CI・issue の完了の条件・変更が届く範囲（要るなら画面）を
-   確かめる。作る担当の報告を読み写さず、自分で見る（画面なら自分で撮る。地図の画面は作る担当の5と同じ道具で撮る）。Pull Request が無ければ（手順が変わる前に
+   確かめる。作る担当の報告を読み写さず、自分で見る（画面なら自分で撮る。作る担当の5と同じ道具で撮る）。Pull Request が無ければ（手順が変わる前に
    検証中になったもの）、作る担当の5のとおりに出してから確かめる。CI は作業ブランチ単体（push の実行）に加えて、Pull Request の
    実行（master と合わせた版。作る担当の5と同じく `--event pull_request` で引く）が通っていることを見る。Pull Request の実行だけが
    落ちていれば、合流点の後に master へ入った変更との意味の競合なので、満たしていないとして 4 のとおり「意味の競合」と落ちた
