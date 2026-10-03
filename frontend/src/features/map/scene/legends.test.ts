@@ -3,8 +3,9 @@
 import { featureFilter, type FilterSpecification } from "@maplibre/maplibre-gl-style-spec";
 import { describe, expect, it } from "vitest";
 
-import { POINT_LAYERS, pointAxisKey, pointGroup } from "@/features/map/scene/groups/points";
+import { POINT_ICONS, POINT_LAYERS, pointAxisKey, pointGroup } from "@/features/map/scene/groups/points";
 import { LEGEND_NO_DATA_KEY } from "@/lib/mapDisplay/mapColorLegend";
+import { evaluateExpression as evaluate } from "@/testing/mapExpressions";
 
 import { ROAD_OTHER_KEY, ROAD_TRACKS, roadLineGroup, roadTrackAxis, roadTrackHasMissing } from "./groups/roadLines";
 import { disasterSourceLegendAxis, pointLegendAxes, roadLegendAxes } from "./legends";
@@ -18,10 +19,14 @@ const TILES = {
   maxZoom: 14,
 };
 
-function paintOf(role: string) {
+function layerOf(role: string) {
   const layer = pointGroup.build({ tiles: TILES, visible: {}, hiddenKeys: {} }).layers.find((l) => l.role === role);
   if (layer === undefined) throw new Error(`${role} の層が無い`);
-  return layer.paint as Record<string, unknown>;
+  return layer;
+}
+
+function paintOf(role: string) {
+  return layerOf(role).paint as Record<string, unknown>;
 }
 
 /** 式の中に現れる値をすべて拾う（`case`の枝も既定値も）。 */
@@ -45,13 +50,43 @@ describe("点の凡例", () => {
   it.each(axes.map((axis) => [axis.axisId, axis] as const))("%s の見本は地図の点に現れる", (_, axis) => {
     const paint = paintOf(axis.layerId);
     for (const entry of axis.entries) {
-      if (entry.diameterPx === undefined) {
+      if (entry.glyph !== undefined) {
+        expect(POINT_ICONS).toContainEqual(expect.objectContaining({ color: entry.color, glyph: entry.glyph }));
+      } else if (entry.diameterPx === undefined) {
         expect(valuesIn(paint["circle-color"])).toContain(entry.color);
       } else {
         expect(valuesIn(paint["circle-radius"])).toContain(entry.diameterPx / 2);
       }
     }
   });
+
+  // 地図は行の値ごとに登録した絵を引く。見本と違う色・絵記号の絵を引くと、凡例と地図の点が食い違う。
+  const glyphAxes = axes.filter((axis) => axis.entries.some((entry) => entry.glyph !== undefined));
+
+  it("絵記号で描く点のレイヤーがある", () => {
+    expect(glyphAxes.length).toBeGreaterThan(0);
+  });
+
+  it.each(glyphAxes.map((axis) => [axis.axisId, axis] as const))(
+    "%s: 行の値の点は、見本と同じ色・同じ絵記号の絵で描かれ、行ごとに違う絵になる",
+    (_, axis) => {
+      const layer = layerOf(axis.layerId);
+      const [pointLayer] = POINT_LAYERS.filter((candidate) => candidate.attr_id === axis.layerId);
+      const [colorAxis] = pointLayer.display_axes;
+      const iconImage = (layer.layout as Record<string, unknown>)["icon-image"];
+      const drawn = colorAxis.categories.map((category) => {
+        const entry = axis.entries.find((candidate) => candidate.key === category.key);
+        const images = category.values.map((value) =>
+          POINT_ICONS.find((icon) => icon.id === evaluate(iconImage, { [colorAxis.property]: value })),
+        );
+        for (const image of images) {
+          expect({ color: image?.color, glyph: image?.glyph }).toEqual({ color: entry?.color, glyph: entry?.glyph });
+        }
+        return images[0]?.id;
+      });
+      expect(new Set(drawn).size).toBe(drawn.length);
+    },
+  );
 
   it("大きさで示す行は、行ごとに違う大きさを持つ", () => {
     for (const axis of axes) {

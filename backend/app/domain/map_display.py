@@ -306,6 +306,8 @@ POINT_RADIUS_PX = 4
 POINT_FATAL_RADIUS_PX = 6
 POINT_NON_FATAL_RADIUS_PX = 3
 POINT_STROKE_WIDTH_PX = 1
+#: 絵記号で描く点（行が`glyph`を持つ軸）の一辺。丸い点より大きくし、中の絵を読める大きさにする。
+POINT_ICON_SIZE_PX = 20
 POINT_OPACITY = 0.9
 #: 事故は面的に多く、同じ濃さだと停止要因の点が埋もれる。
 ACCIDENT_POINT_OPACITY = 0.75
