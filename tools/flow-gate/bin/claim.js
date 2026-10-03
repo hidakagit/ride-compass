@@ -1,4 +1,4 @@
-// 担当のワークフロー（.github/workflows/claude-task.yml）の最初の段。作るなら振り出し（未着手 → 進行中）が通ったときだけ、
+// 担当のワークフロー（.github/workflows/claude-task.yml）の最初の段。作るなら未着手 → 進行中が通ったときだけ、
 // 確かめるなら検証中のときだけ引き受け、issue に着手を書く（src/after.js: startReport）。引き受けたら 0、引き受けなければ 1 で終わる。
 // 使い方: node tools/flow-gate/bin/claim.js <issue の番号> <作る|確かめる> <実行の URL>
 import { execFileSync } from "node:child_process";
@@ -17,7 +17,7 @@ if (!/^\d+$/.test(number ?? "") || !["作る", "確かめる"].includes(kind) ||
 const gh = new GitHub(botToken());
 if (kind === "作る") {
   try {
-    console.log(execFileSync(process.execPath, [join(dirname(fileURLToPath(import.meta.url)), "move.js"), number, "振り出し"], { encoding: "utf8" }).trim());
+    console.log(execFileSync(process.execPath, [join(dirname(fileURLToPath(import.meta.url)), "move.js"), number, config.working], { encoding: "utf8" }).trim());
   } catch (e) {
     console.log(`未着手ではないので、作らずに終わる（${refusal(e)}）`);
     process.exit(1);

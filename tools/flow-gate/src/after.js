@@ -19,16 +19,16 @@ export function classify(messages) {
   return { outside: false, pause: false, reason: "" };
 }
 
-// 作る担当のタスクをどう動かすか（move.js の出来事と理由。動かさないなら null）。verdict は classify の結果、children は
-// タスクの子（段階）、startOn は着手可能日。担当の外の失敗なら戻す。開いた子があれば、担当は段階に分けて終えたので、親は進行中のまま置く。
-// 着手可能日が先なら、担当はその日まで待つと決めて終えたので戻す（未着手のまま、見回りがその日まで振り出さない）。
-// それ以外は落ちたとみなす（PR や問いを出して進行中でなくなっていれば、move.js が断って何も動かない）。
-export function settle({ verdict, children, startOn = null, url, jobStatus, now = new Date() }) {
-  if (verdict.outside) return { on: "戻す", reason: `Actions の作る担当（実行 ${url}）が${verdict.reason}。担当の仕事の外の失敗なので未着手へ戻す` };
+// 作る担当のタスクをどう動かすか（move.js の行き先と理由。動かさないなら null）。進行中のタスクにだけ使う。verdict は classify の結果、
+// children はタスクの子（段階）、startOn は着手可能日。担当の外の失敗なら戻す。開いた子があれば、担当は段階に分けて終えたので、
+// 親は進行中のまま置く。着手可能日が先なら、担当はその日まで待つと決めて終えたので戻す（未着手のまま、見回りがその日まで振り出さない）。
+// それ以外は落ちたとみなして保留にする。
+export function settle(config, { verdict, children, startOn = null, url, jobStatus, now = new Date() }) {
+  if (verdict.outside) return { to: config.todo, reason: `Actions の作る担当（実行 ${url}）が${verdict.reason}。担当の仕事の外の失敗なので未着手へ戻す` };
   if (openChildren(children).length) return null;
   const until = waitsUntil(startOn, now);
-  if (until) return { on: "戻す", reason: `Actions の作る担当（実行 ${url}）が、着手可能日 ${until} を入れて終えた。その日まで待つので未着手へ戻す` };
-  return { on: "落ちた", reason: `Actions の作る担当（実行 ${url}）が、Pull Request も問いも出さずに終わった（結果: ${jobStatus}${jobStatus === "cancelled" ? "。持ち時間を超えたか、Cancel された" : ""}）` };
+  if (until) return { to: config.todo, reason: `Actions の作る担当（実行 ${url}）が、着手可能日 ${until} を入れて終えた。その日まで待つので未着手へ戻す` };
+  return { to: config.hold, reason: `Actions の作る担当（実行 ${url}）が、Pull Request も問いも出さずに終わった（結果: ${jobStatus}${jobStatus === "cancelled" ? "。持ち時間を超えたか、Cancel された" : ""}）` };
 }
 
 // 担当の最後の発言。result の result（担当が最後に返した文）、無ければ最後の担当の発言の文。長ければ頭から limit 字で切る。

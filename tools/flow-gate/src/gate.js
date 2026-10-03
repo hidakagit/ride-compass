@@ -2,7 +2,7 @@
 // 1つの出来事では、タスクを1回読み（read）、書き込みを1回にまとめて書く（write）。
 import { GitHub, Mutations, readTask, setField } from "./github.js";
 import { pullRequest } from "./review.js";
-import { check, entryFor, joinBody, normalizeBody, openChildren, ownerOf, parseQuestion, questionBody, remaining, splitBody, userTurn } from "./rules.js";
+import { entryFor, joinBody, judge, normalizeBody, openChildren, ownerOf, parseQuestion, questionBody, splitBody, userTurn } from "./rules.js";
 
 export class Gate {
   // env.GITHUB_TOKEN があればその名義で読み書きする（手元・CI で開いた issue を揃える道具。src/refresh.js）。無ければ App の名義。
@@ -96,21 +96,21 @@ export class Gate {
   async closeParent(number) {
     const parent = await this.read({ number });
     if (!parent?.item || parent.state !== "OPEN" || openChildren(parent.subIssues.nodes).length) return;
-    await this.apply(parent, parent.status, this.config.done, { on: "閉じた", close: "COMPLETED", comments: ["子の issue が全部閉じたので、完了にします。"] });
+    await this.write(parent, { status: this.config.done, close: "COMPLETED", comments: ["子の issue が全部閉じたので、完了にします。"] });
   }
 
-  // 出来事 on で表を照らし、通れば書く。written はステータスがもう GitHub で変わっていること（Claude の道具の書き込み）。
-  // dryRun は照らすだけで書かない。
-  async apply(issue, from, to, { on, labels = [], unlabels = [], written = false, dryRun = false, comments = [], close, clearQuestion } = {}) {
-    const verdict = check(this.config, from, to, { on, blockers: issue.blockedBy.nodes });
-    if (!verdict.ok) return verdict;
-    if (dryRun) return { ok: true };
-    const want = { labels, unlabels, comments };
+  // ゲートが今のステータスから to へ動かす（回答フォーム・Pull Request・親を閉じる）。照らし（judge）を通れば書く。完了へは
+  // close（無ければ見送り）で閉じる。ラベルの付け外しは、付け外したあとのラベルで残りを照らす。dryRun は照らすだけで書かない。
+  async apply(issue, to, { labels = [], unlabels = [], dryRun = false, comments = [], close, clearQuestion } = {}) {
+    const closing = to === this.config.done ? (close ?? "NOT_PLANNED") : undefined;
+    const after = [...issue.labels.nodes.map((l) => l.name).filter((n) => !unlabels.includes(n)), ...labels];
+    const verdict = judge(this.config, issue.status, to, { close: closing, issue: { ...issue, labels: { nodes: after.map((name) => ({ name })) } } });
+    if (!verdict.ok || dryRun) return verdict;
+    const want = { status: to, labels, unlabels, comments };
     if (clearQuestion) want.question = null;
-    if (!written) want.status = to;
-    if (to === this.config.done && issue.state === "OPEN") want.close = close ?? "NOT_PLANNED";
+    if (closing && issue.state === "OPEN") want.close = closing;
     await this.write(issue, want);
-    return { ok: true };
+    return verdict;
   }
 
   // 割り当て・本文・ラベルなどの出来事: 担当者と見せ方だけを今の状態に合わせる（手で担当者を変えても、ステータスの番へ戻る）。
@@ -135,41 +135,24 @@ export class Gate {
     await this.write(issue, want);
   }
 
-  // ステータスが書き換わった: Claude の出来事（道具の書き込み）で表にあるものだけを通し、ほか（ボードの手での移動など）は
-  // 戻す。ユーザーの判断は回答フォームで届く。入った直後の「無し」からの変化は入口が決めるので見ない。
-  async moved(nodeId, projectNodeId, from, to, sender) {
+  // ステータスか開き閉じが変わった（ボードの移動・Claude の道具・閉じる操作・開き直す操作）。誰が動かしても同じ照らし（judge）で、
+  // 通れば開き閉じとステータスを行き先に揃え、通らなければ変化の前へ戻して理由をコメントする。move はボードの移動のときだけ渡す
+  // （{ project, from, to }）。閉じる・開き直すは、開き閉じとステータスが食い違ったときだけが変化（完了へは閉じた理由で照らす）。
+  async changed(nodeId, move) {
     const issue = await this.read({ nodeId });
-    if (this.project.id !== projectNodeId || !issue?.item || from === to || from === null) return;
-    const by = sender === this.config.claude ? "claude" : null;
-    const verdict = by ? check(this.config, from, to, { by, blockers: issue.blockedBy.nodes }) : { ok: false, reason: "ステータスは回答フォームで答えて動かします。" };
-    if (verdict.ok && verdict.rule.on === "問い" && !parseQuestion(splitBody(issue.body).question ?? "")) {
-      verdict.ok = false;
-      verdict.reason = "問いが本文の先頭に無いため、回答待ちにできません（bin/ask.js で問います）。";
-    }
-    if (verdict.ok) await this.write(issue);
-    else await this.write(issue, { status: from, comments: [`${verdict.reason}「${from}」へ戻しました。`] });
-  }
-
-  // 閉じた: 完成（completed）で閉じるなら、完了の条件が全部チェック済みでユーザーの確認が残っていないときだけ通す。
-  // 残っていれば開き直す（ユーザーが完成を決めるのは回答フォームの「完成」）。見送りで閉じたものはそのまま完了にする。
-  async closed(nodeId) {
-    const issue = await this.read({ nodeId });
-    if (!issue?.item || issue.status === this.config.done || !check(this.config, issue.status, this.config.done, { on: "閉じた" }).ok) return;
-    const left = issue.lastClose.nodes[0]?.stateReason === "COMPLETED" ? remaining(this.config, issue) : [];
-    if (!left.length) return this.write(issue, { status: this.config.done });
-    await this.write(issue, {
-      reopen: true,
-      comments: [`完成として閉じるには、次が残っています。開き直しました。\n\n${left.map((l) => `- ${l}`).join("\n")}`],
-    });
-  }
-
-  async reopened(nodeId) {
-    const issue = await this.read({ nodeId });
-    if (!issue?.item || issue.status !== this.config.done) return;
-    await this.write(issue, {
-      close: issue.lastClose.nodes[0]?.stateReason ?? "NOT_PLANNED",
-      comments: [`「${this.config.done}」からは戻せません（遷移の表に無い）。閉じ直しました。続きは新しい issue にしてください。`],
-    });
+    if (!issue?.item || !issue.status || (move && (move.project !== this.project.id || move.from === null || move.from === move.to))) return;
+    const { done } = this.config;
+    const closed = issue.state === "CLOSED";
+    const reason = issue.lastClose.nodes[0]?.stateReason === "COMPLETED" ? "COMPLETED" : "NOT_PLANNED";
+    const [from, to, wasClosed] = move ? [move.from, move.to, closed]
+      : closed && issue.status !== done ? [issue.status, done, false]
+      : !closed && issue.status === done ? [done, null, true] : [];
+    if (!from) return;
+    const close = to === done ? (move ? "COMPLETED" : reason) : undefined;
+    const verdict = judge(this.config, from, to, { close, issue });
+    if (verdict.ok) return this.write(issue, { status: to, ...(to === done && !closed ? { close } : {}) });
+    const back = wasClosed === closed ? {} : wasClosed ? { close: reason } : { reopen: true };
+    await this.write(issue, { status: from, ...back, comments: [`${verdict.reason}「${from}」へ戻しました。`] });
   }
 }
 
@@ -201,12 +184,11 @@ export async function handleEvent(env, config, name, payload) {
     if (item.content_type !== "Issue") return "対象外の件";
     if (payload.action === "created") return (await Gate.open(env, config)).enter(item.content_node_id, item.project_node_id);
     if (payload.action === "edited" && change?.field_name === config.project.statusField)
-      return (await Gate.open(env, config)).moved(item.content_node_id, item.project_node_id, change.from?.name ?? null, change.to?.name ?? null, payload.sender?.login);
+      return (await Gate.open(env, config)).changed(item.content_node_id, { project: item.project_node_id, from: change.from?.name ?? null, to: change.to?.name ?? null });
     return "対象外の欄";
   }
   if (name !== "issues") return "対象外の出来事";
   const gate = await Gate.open(env, config);
-  if (payload.action === "closed") return gate.closed(payload.issue.node_id);
-  if (payload.action === "reopened") return gate.reopened(payload.issue.node_id);
+  if (payload.action === "closed" || payload.action === "reopened") return gate.changed(payload.issue.node_id);
   return gate.touched(payload.issue.node_id);
 }
