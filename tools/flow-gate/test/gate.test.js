@@ -4,7 +4,7 @@ import { before, test } from "node:test";
 import config from "../flow.config.json" with { type: "json" };
 import worker from "../src/index.js";
 import { refreshAll } from "../src/refresh.js";
-import { answerChoices, check, parseQuestion, questionBody } from "../src/rules.js";
+import { answerChoices, check, fieldRefusal, parseQuestion, questionBody } from "../src/rules.js";
 import { fakeGitHub } from "./fake-github.js";
 
 const env = { APP_ID: "1", WEBHOOK_SECRET: "secret", FORM_TOKEN: "form-token", CODE_TOKEN: "code-token" };
@@ -71,6 +71,29 @@ test("入口: ユーザーが書いた issue と段階は未着手で Claude の
   assert.deepEqual([gh.issue.status, gh.issue.assignees, comments(gh)], ["回答待ち", [config.user], []]);
   assert.equal(gh.issue.body, `<!-- flow-gate -->\n<!-- 問い\n${questionBody(adoption)}\n-->\n` +
     `[![回答する](${config.urls.gate}/button.svg)](${config.urls.form}/answer?issue=2)\n\n**回答待ち**: ${adoption}\n<!-- /flow-gate -->\n\n本文`);
+});
+
+test("入口: 段階の優先度は親の優先度を継ぎ、親に優先度が無ければ既定値が入る（規模など、ほかの欄は継がない）", async () => {
+  const priority = config.project.priorityField;
+  const parent = { number: 20, authorId: ME, status: "進行中", fields: { [priority]: "高", [config.project.sizeField]: "L" } };
+  let gh = fakeGitHub({ issue: { number: 21, authorId: BOT }, parent });
+  await deliver("projects_v2_item", item({ action: "created" }));
+  assert.deepEqual([gh.issue.status, gh.issue.fields], ["未着手", { [priority]: "高" }]);
+
+  gh = fakeGitHub({ issue: { number: 21, authorId: BOT }, parent: { ...parent, fields: {} } });
+  await deliver("projects_v2_item", item({ action: "created" }));
+  assert.deepEqual(gh.issue.fields, config.project.defaults);
+});
+
+test("Claude は既定と違う欄の値（ユーザーが付けた値）を別の値へ書き換えず、既定の値・値の無い欄・既定を持たない欄は書き換える", () => {
+  const priority = config.project.priorityField;
+  const fallback = config.project.defaults[priority];
+  const other = ["高", "中", "低"].filter((v) => v !== fallback);
+  assert.match(fieldRefusal(config, priority, other[0], other[1]), /書き換えません/);
+  assert.equal(fieldRefusal(config, priority, other[0], other[0]), null, "同じ値は書き換えにならない");
+  assert.equal(fieldRefusal(config, priority, fallback, other[0]), null);
+  assert.equal(fieldRefusal(config, priority, undefined, other[0]), null);
+  assert.equal(fieldRefusal(config, config.project.sizeField, "L", "S"), null);
 });
 
 test("ステータスの書き換えは、Claude の道具の出来事で表にあるものだけが通り、ボードの手での移動と表に無いものは戻す", async () => {

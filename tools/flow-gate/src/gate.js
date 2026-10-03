@@ -124,8 +124,11 @@ export class Gate {
     const issue = await this.read({ nodeId });
     if (this.project.id !== projectNodeId || !issue?.item || issue.state !== "OPEN") return;
     const entry = entryFor(this.config, issue);
-    // 欄の既定値（優先度など）は、まだ値の無いものにだけ入れる。
-    const fields = Object.fromEntries(Object.entries(this.config.project.defaults).filter(([name]) => !issue.fields[name]));
+    // 欄の既定値（優先度など）は、まだ値の無いものにだけ入れる。段階は同じ仕事を分けたものなので、優先度は親の値を継ぐ。
+    const priority = this.config.project.priorityField;
+    const inherited = issue.parent ? (await this.read({ number: issue.parent.number }))?.fields[priority] : null;
+    const defaults = { ...this.config.project.defaults, ...(inherited ? { [priority]: inherited } : {}) };
+    const fields = Object.fromEntries(Object.entries(defaults).filter(([name]) => !issue.fields[name]));
     const want = { status: entry.to, fields };
     // Claude の起票は、採否の問いを本文の先頭に置いて回答待ちにする（問いは bin/ask.js と同じ置き場）。
     if (entry.question) want.question = questionBody(entry.question);
