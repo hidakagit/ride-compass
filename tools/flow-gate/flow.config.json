@@ -41,6 +41,7 @@
   "code": { "repository": "hidakagit/ride-compass", "branchPrefix": "orch/tasks-", "base": "master" },
   "coordinator": {
     "order": ["検証中", "未着手"], "stopLabel": "停止", "devLabel": "開発機が要る", "workflow": "claude-task.yml", "parallel": 4,
-    "pauseVariable": "CLAUDE_PAUSE_UNTIL", "pauseMinutes": 60
+    "pauseVariable": "CLAUDE_PAUSE_UNTIL", "pauseMinutes": 60,
+    "watchEveryMinutes": 3, "watchForMinutes": 350
   }
 }
