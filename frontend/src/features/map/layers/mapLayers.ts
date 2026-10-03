@@ -83,6 +83,51 @@ function windowHoursOf(source: string): number {
 
 const LINEAR_RAINBAND_HOURS = windowHoursOf("linearRainband");
 
+type WeatherElementDeclaration = (typeof mapDisplay.weatherElements)[number];
+
+const DISASTER_ELEMENTS = mapDisplay.weatherElements.filter((element) => element.group === "disaster");
+
+/** 名前の並び。同じ名前を名乗る要素（描き方違いの同じ名前付きソース）は1つにする。 */
+function labelList(elements: readonly WeatherElementDeclaration[]): string {
+  return [...new Set(elements.map((element) => element.label))].join("・");
+}
+
+/** 災害の要素を、描くコマの規則ごとに言う語（短い説明・長い説明）。並びが説明の並びになる。 */
+const DISASTER_FRAME_RULE_WORDING: Record<
+  WeatherElementDeclaration["frameRule"]["kind"],
+  { readonly brief: string; readonly detail: string }
+> = {
+  nearest: {
+    brief: "時刻に連動",
+    detail: "は時刻スライダーに連動し、実況[直近]から60分先までを切り替えて確認できます。",
+  },
+  latestObservation: {
+    brief: "直近の観測",
+    detail: "は観測だけのため、最新の観測より先の時刻には出ません。",
+  },
+  current: {
+    brief: "現在の危険度のみ",
+    detail: "は色分けした現在の危険度で、「現在の危険度」単一値のみの配信のため時刻スライダーには連動しません。",
+  },
+};
+
+/** 災害の要素の名前を、描くコマの規則ごとにまとめた並び（要素の無い規則は出さない）。 */
+const DISASTER_BY_FRAME_RULE = Object.entries(DISASTER_FRAME_RULE_WORDING)
+  .map(([kind, wording]) => ({
+    wording,
+    labels: labelList(DISASTER_ELEMENTS.filter((element) => element.frameRule.kind === kind)),
+  }))
+  .filter((group) => group.labels !== "");
+
+/** 災害の凡例。同じ段で塗る要素の名前を見出しにして、段を並べる（並びは要素が最初に現れた順）。 */
+function disasterLegendBlocks(): ReadOnlyLegendBlock[] {
+  const scales = [...new Set(DISASTER_ELEMENTS.flatMap((element) => element.levelScale ?? []))];
+  return scales.map((scale) => ({
+    label: labelList(DISASTER_ELEMENTS.filter((element) => element.levelScale === scale)),
+    legend: readOnlyEntries(weatherScales[scale]),
+  }));
+}
+
 /** そのレイヤーの絵がどこから来るか。取得状態はここから導く（同じタイルを読むレイヤーは同時に空・失敗になる）。
  * `ownFetch`はMapLibreのソースを経由せず自前で取るもので、取得状態はそのフェッチ自身が出す。 */
 export type MapLayerDataSource = (typeof mapDisplay.layerDataSources)[number]["key"];
@@ -434,24 +479,17 @@ export function buildMapLayers({
       ...staticLayer("disaster"),
       icon: ShieldIcon,
       chipLabel: "災害",
+      // 要素の名前と、時刻に対する振る舞いは要素の宣言から組み立てる。段の数と名前は凡例に並ぶので文に書かない。
       description:
-        "気象庁の雷・竜巻・落雷とキキクル4種[土砂災害・大雨・浸水・洪水]をまとめて表示" +
-        "[雷・竜巻は実況〜60分先、落雷は直近の観測、キキクルは現在の危険度のみ]",
+        `気象庁の${DISASTER_BY_FRAME_RULE.map((group) => group.labels).join("・")}をまとめて表示` +
+        `[${DISASTER_BY_FRAME_RULE.map((group) => `${group.labels}は${group.wording.brief}`).join("、")}]`,
       panelHint:
-        "気象庁の防災情報をまとめて表示します。雷ナウキャスト[活動度1〜4]・竜巻発生確度" +
-        "ナウキャスト[発生確度1・2]は時刻スライダーに連動し、実況[直近]から60分先までを" +
-        "切り替えて確認できます。雷放電位置データ[実際の落雷地点]は観測だけのため、最新の観測より" +
-        "先の時刻には出ません。キキクル4種[土砂災害・" +
-        "大雨・浸水・洪水]は5段階[注意・警戒・危険・災害切迫、平常時は表示なし]で色分け" +
-        "した現在の危険度で、「現在の危険度」単一値のみの配信のため時刻スライダーには連動" +
-        "しません。平常時は危険度ゼロの領域が透明のため、ONのままでも地図の見た目は" +
+        "気象庁の防災情報をまとめて表示します。" +
+        DISASTER_BY_FRAME_RULE.map((group) => group.labels + group.wording.detail).join("") +
+        "平常時は危険度ゼロの領域が透明のため、ONのままでも地図の見た目は" +
         "変わりません。非公式の内部APIを利用しているため、取得に失敗することがあります。",
       // 配信元が色を焼き込んだ画像なので絞り込めない。
-      readOnlyLegend: [
-        { label: "キキクル[土砂災害・大雨・浸水・洪水]", legend: readOnlyEntries(weatherScales.risk_levels) },
-        { label: "雷ナウキャスト[活動度]", legend: readOnlyEntries(weatherScales.thunder_activity) },
-        { label: "竜巻発生確度ナウキャスト", legend: readOnlyEntries(weatherScales.tornado_potential) },
-      ],
+      readOnlyLegend: disasterLegendBlocks(),
     },
     {
       ...staticLayer("route"),

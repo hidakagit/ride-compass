@@ -31,6 +31,10 @@ FrameRuleKind = Literal["nearest", "latestObservation", "current"]
 #: 自前のMSM格子から描く要素が読む値。
 GridValue = Literal["precipitation", "wind"]
 
+#: 配信元が値の段ごとに色を焼き込んで配る要素の、その段の宣言（`domain/weather_display.py`。生成物
+#: `weather-scales.json`の同じ名前の鍵）。
+LevelScale = Literal["risk_levels", "thunder_activity", "tornado_potential"]
+
 
 class FrameRule(NamedTuple):
     kind: FrameRuleKind
@@ -62,6 +66,9 @@ class WeatherElement(NamedTuple):
     frame_rule: FrameRule
     #: 自前のMSM格子から描く要素が読む値。配信元から取る要素はNone。
     grid_value: GridValue | None = None
+    #: 地図がこの要素を塗る段。災害のチップは、同じ段で塗る要素の名前を見出しにして段を凡例に並べる。
+    #: 段を持たない要素（記号・格子の塗り・輪郭線）と、凡例を別に持つ降水の要素はNone。
+    level_scale: LevelScale | None = None
 
 
 #: 並びが同じ段（面・線・記号）の中の重なり順になる。災害は面を下に、見落としやすい線（洪水）・
@@ -94,16 +101,50 @@ WEATHER_ELEMENTS: tuple[WeatherElement, ...] = (
     ),
     WeatherElement("windVector", "arrow", "gridMark", (), "風", _NEAREST, "wind"),
     # キキクルは「現在の危険度」だけを配るので、選んだ時刻によらず描く。
-    WeatherElement("disaster", "heavyRain", "rasterTile", ("rain_mesh",), "大雨キキクル", FrameRule("current")),
-    WeatherElement("disaster", "landslide", "rasterTile", ("land",), "土砂災害キキクル", FrameRule("current")),
-    WeatherElement("disaster", "inundation", "rasterTile", ("inund",), "浸水キキクル", FrameRule("current")),
-    WeatherElement("disaster", "thunder", "rasterTile", ("thns",), "雷ナウキャスト", _NEAREST),
-    WeatherElement("disaster", "tornado", "rasterTile", ("trns",), "竜巻発生確度", _NEAREST),
-    WeatherElement("disaster", "flood", "vectorTile", ("flood",), "洪水キキクル[河川]", FrameRule("current")),
-    # 落雷は予測を持たない。遅れの幅は配信の遅れの実績値へ余裕を足した上限。
     WeatherElement(
-        "disaster", "liden", "gridMark", ("liden",), "落雷[発生地点]", FrameRule("latestObservation", 20)
+        "disaster",
+        "heavyRain",
+        "rasterTile",
+        ("rain_mesh",),
+        "大雨キキクル",
+        FrameRule("current"),
+        level_scale="risk_levels",
     ),
+    WeatherElement(
+        "disaster",
+        "landslide",
+        "rasterTile",
+        ("land",),
+        "土砂災害キキクル",
+        FrameRule("current"),
+        level_scale="risk_levels",
+    ),
+    WeatherElement(
+        "disaster",
+        "inundation",
+        "rasterTile",
+        ("inund",),
+        "浸水キキクル",
+        FrameRule("current"),
+        level_scale="risk_levels",
+    ),
+    WeatherElement(
+        "disaster", "thunder", "rasterTile", ("thns",), "雷ナウキャスト", _NEAREST, level_scale="thunder_activity"
+    ),
+    WeatherElement(
+        "disaster", "tornado", "rasterTile", ("trns",), "竜巻発生確度", _NEAREST, level_scale="tornado_potential"
+    ),
+    WeatherElement(
+        "disaster",
+        "flood",
+        "vectorTile",
+        ("flood",),
+        "洪水キキクル[河川]",
+        FrameRule("current"),
+        level_scale="risk_levels",
+    ),
+    # 落雷は予測を持たない。遅れの幅は配信の遅れの実績値へ余裕を足した上限。
+    WeatherElement("disaster", "liden", "gridMark", ("liden",), "落雷[発生地点]", FrameRule("latestObservation", 20)),
 )
 
 

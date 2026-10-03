@@ -248,6 +248,7 @@ export const mapDisplay = {
         "windowMinutes": null
       },
       "gridValue": null,
+      "levelScale": null,
       "jmaElements": [
         {
           "id": "hrpns",
@@ -287,6 +288,7 @@ export const mapDisplay = {
         "windowMinutes": null
       },
       "gridValue": "precipitation",
+      "levelScale": null,
       "jmaElements": [],
       "tile": null
     },
@@ -300,6 +302,7 @@ export const mapDisplay = {
         "windowMinutes": 180
       },
       "gridValue": null,
+      "levelScale": null,
       "jmaElements": [
         {
           "id": "sjfcstmap",
@@ -328,6 +331,7 @@ export const mapDisplay = {
         "windowMinutes": null
       },
       "gridValue": null,
+      "levelScale": null,
       "jmaElements": [
         {
           "id": "slmcs_unify",
@@ -352,6 +356,7 @@ export const mapDisplay = {
         "windowMinutes": null
       },
       "gridValue": null,
+      "levelScale": null,
       "jmaElements": [
         {
           "id": "slmcs_unifyfcst",
@@ -376,6 +381,7 @@ export const mapDisplay = {
         "windowMinutes": null
       },
       "gridValue": "wind",
+      "levelScale": null,
       "jmaElements": [],
       "tile": null
     },
@@ -389,6 +395,7 @@ export const mapDisplay = {
         "windowMinutes": null
       },
       "gridValue": null,
+      "levelScale": "risk_levels",
       "jmaElements": [
         {
           "id": "rain_mesh",
@@ -417,6 +424,7 @@ export const mapDisplay = {
         "windowMinutes": null
       },
       "gridValue": null,
+      "levelScale": "risk_levels",
       "jmaElements": [
         {
           "id": "land",
@@ -445,6 +453,7 @@ export const mapDisplay = {
         "windowMinutes": null
       },
       "gridValue": null,
+      "levelScale": "risk_levels",
       "jmaElements": [
         {
           "id": "inund",
@@ -473,6 +482,7 @@ export const mapDisplay = {
         "windowMinutes": null
       },
       "gridValue": null,
+      "levelScale": "thunder_activity",
       "jmaElements": [
         {
           "id": "thns",
@@ -501,6 +511,7 @@ export const mapDisplay = {
         "windowMinutes": null
       },
       "gridValue": null,
+      "levelScale": "tornado_potential",
       "jmaElements": [
         {
           "id": "trns",
@@ -529,6 +540,7 @@ export const mapDisplay = {
         "windowMinutes": null
       },
       "gridValue": null,
+      "levelScale": "risk_levels",
       "jmaElements": [
         {
           "id": "flood",
@@ -557,6 +569,7 @@ export const mapDisplay = {
         "windowMinutes": 20
       },
       "gridValue": null,
+      "levelScale": null,
       "jmaElements": [
         {
           "id": "liden",

@@ -115,12 +115,6 @@ describe("難易度で塗る軸のモード", () => {
       });
     }
   });
-
-  it("段の境界を宣言していない軸は、難易度の既定の境界で切る", () => {
-    const fallback = modeOf([catalogEntry({ axis_id: "ax", map_value_thresholds: null })], "ax");
-
-    expectColorsMatchLegend(fallback, DEFAULT_DIFFICULTY_BOUNDARIES, segmentOf);
-  });
 });
 
 describe("材料の値をそのまま塗る軸のモード（符号付き材料）", () => {

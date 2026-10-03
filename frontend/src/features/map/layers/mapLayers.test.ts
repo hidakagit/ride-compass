@@ -6,6 +6,7 @@ import { pointLegendAxes } from "@/features/map/scene/legends";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 
 import regionTileConfig from "@/types/generated/region-tile-config.json";
+import weatherScales from "@/types/generated/weather-scales.json";
 
 import { LANDCOVER_CLASSES, LANDCOVER_PAINTED_CLASSES } from "./landcoverClasses";
 import {
@@ -109,6 +110,28 @@ describe("buildMapLayers（レイヤーの一覧）", () => {
       expect(landcover.panelHint).toContain(`${cls.label}は塗りません`);
     }
     expect(landcover.panelHint).toContain(`周囲${regionTileConfig.landcover.ring_outer_m}m`);
+  });
+
+  it("災害の説明は、源泉が災害のチップに宣言した要素の名前を全部挙げる", () => {
+    const disaster = layer(withoutAxes, "disaster");
+    const elements = mapDisplay.weatherElements.filter((element) => element.group === "disaster");
+    expect(elements.length).toBeGreaterThan(0);
+    for (const element of elements) {
+      expect(disaster.description).toContain(element.label);
+      expect(disaster.panelHint).toContain(element.label);
+    }
+  });
+
+  it("災害の凡例は、要素が塗る段ごとに1つ並び、見出しにその段で塗る要素の名前が入る", () => {
+    const blocks = layer(withoutAxes, "disaster").readOnlyLegend ?? [];
+    const scaled = mapDisplay.weatherElements.filter((element) => element.group === "disaster" && element.levelScale);
+    expect(scaled.length).toBeGreaterThan(0);
+    expect(blocks).toHaveLength(new Set(scaled.map((element) => element.levelScale)).size);
+    for (const element of scaled) {
+      const keys = weatherScales[element.levelScale!].map((level) => level.key);
+      const block = blocks.find((candidate) => candidate.legend.map((entry) => entry.key).join() === keys.join());
+      expect(block?.label).toContain(element.label);
+    }
   });
 });
 
