@@ -229,6 +229,8 @@ export function useRouteGeneration({
         : progress?.status === "running"
           ? `生成中...(${Math.round(progress.elapsedMs / 1000)}秒経過)`
           : undefined,
+    /** 押した「生成」が入力の誤りで通らなかった理由。直す場所は「ルート設定」なので、そこにも出す。 */
+    inputError: routeFormSubmit.error,
     /** 押した「生成」が通らなかった理由（入力の誤り・生成の失敗）。候補がある間も、前の候補の上に出す。 */
     failure:
       routeFormSubmit.error ??
