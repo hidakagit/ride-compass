@@ -358,7 +358,8 @@ Reactの外（モジュール評価時に初期値を決めるシングルトン
 ## モバイル/デスクトップのレイアウト分岐
 
 `useIsMobile()`で分岐する。幅のしきい値はCSSだけが持ち（`globals.css`の`@media`が立てる
-`--is-mobile`）、JSはその旗を読むだけで数値を写さない:
+`--is-mobile`。メディアクエリの中で立てなくなると`frontend/src/structure/isMobileFlag.test.ts`が落とす）、
+JSはその旗を読むだけで数値を写さない:
 
 - デスクトップ: サイドバー（`aside.app-sidebar`）にモバイルの下部タブと同じ2区分
   「ルート設定 / ルート結果」を同じ順序で縦積み。各区分は独立した`Disclosure`折りたたみで、

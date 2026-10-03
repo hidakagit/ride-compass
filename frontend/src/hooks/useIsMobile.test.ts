@@ -1,43 +1,59 @@
-import { renderHook } from "@testing-library/react";
-import { readFileSync } from "node:fs";
-import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+/**
+ * スマホ幅かどうか（`hooks/useIsMobile.ts: useIsMobile`）——CSS が根の要素に置く印（`--is-mobile`）を読み、
+ * 窓の大きさが変わるたびに読み直す。
+ *
+ * ここで見ないもの:
+ * - どの幅で印が立つか → `app/globals.css` のメディアクエリ（テスト環境はメディアクエリで印を切り替えない）
+ * - スマホ幅でどう描き分けるか → 呼び出し側の部品
+ *
+ * 差し替えたものは無い。印はテスト環境の根の要素へ直接置く。
+ */
+import { act, renderHook } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
+
 import { useIsMobile } from "./useIsMobile";
 
-/** CSSが立てる旗を差し替える。**幅の数値はここに書かない**——数値はCSSだけが持つ。 */
-function mockIsMobileFlag(value: "0" | "1") {
-  vi.spyOn(window, "getComputedStyle").mockReturnValue({
-    getPropertyValue: (name: string) => (name === "--is-mobile" ? value : ""),
-  } as unknown as CSSStyleDeclaration);
+function setMobileFlag(value: string) {
+  document.documentElement.style.setProperty("--is-mobile", value);
 }
 
-describe("useIsMobile", () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
+function resizeWindow() {
+  act(() => {
+    window.dispatchEvent(new Event("resize"));
   });
+}
 
-  it("CSSの旗が立っていればモバイル判定になる", () => {
-    mockIsMobileFlag("1");
-
-    expect(renderHook(() => useIsMobile()).result.current).toBe(true);
-  });
-
-  it("立っていなければデスクトップ判定になる", () => {
-    mockIsMobileFlag("0");
-
-    expect(renderHook(() => useIsMobile()).result.current).toBe(false);
-  });
+afterEach(() => {
+  document.documentElement.style.removeProperty("--is-mobile");
 });
 
-// 旗が無ければフックは常にfalseを返し、モバイルのドロワーが開かないまま黙って動く。
-// **値は照合しない**（数値はCSSにしか無い）。旗が幅の分岐の中で立っていることだけを見る。
-describe("CSSとの取り決め", () => {
-  it("globals.cssは幅のメディアクエリの中で`--is-mobile`を立てる", () => {
-    const css = readFileSync(path.resolve(process.cwd(), "src/app/globals.css"), "utf-8");
-    const mediaBlock = css.match(/@media \(max-width:[\s\S]*?\)\s*\{[\s\S]*?\n\}/);
+describe("useIsMobile", () => {
+  it("印が 1 なら、描いた時点でスマホ幅と答える（前後の空白は見ない）", () => {
+    setMobileFlag(" 1 ");
 
-    expect(mediaBlock).not.toBeNull();
-    expect(mediaBlock![0]).toContain("--is-mobile: 1");
-    expect(css).toContain("--is-mobile: 0");
+    const { result } = renderHook(() => useIsMobile());
+
+    expect(result.current).toBe(true);
+  });
+
+  it("印が 1 でない・無いなら、スマホ幅でないと答える", () => {
+    setMobileFlag("0");
+    expect(renderHook(() => useIsMobile()).result.current).toBe(false);
+
+    document.documentElement.style.removeProperty("--is-mobile");
+    expect(renderHook(() => useIsMobile()).result.current).toBe(false);
+  });
+
+  it("窓の大きさが変わるたびに印を読み直す", () => {
+    setMobileFlag("0");
+    const { result } = renderHook(() => useIsMobile());
+
+    setMobileFlag("1");
+    resizeWindow();
+    expect(result.current).toBe(true);
+
+    setMobileFlag("0");
+    resizeWindow();
+    expect(result.current).toBe(false);
   });
 });
