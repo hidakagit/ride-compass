@@ -1,5 +1,5 @@
 // 振り出しの見回り（bin/dispatch.js）の1周の判断。GitHub から読んだものを受け取り、何を起こすかと状況の更新の中身を決める。
-import { openBlockers, openChildren, waitsUntil } from "./rules.js";
+import { openBlockers, waitsUntil } from "./rules.js";
 
 const BOARD = `query Board($o: String!, $n: Int!, $field: String!, $p: String!, $s: String!, $c: String) { organization(login: $o) { projectV2(number: $n) {
   field(name: $p) { ... on ProjectV2SingleSelectField { options { name } } }
@@ -8,7 +8,7 @@ const BOARD = `query Board($o: String!, $n: Int!, $field: String!, $p: String!, 
     priority: fieldValueByName(name: $p) { ... on ProjectV2ItemFieldSingleSelectValue { name } }
     start: fieldValueByName(name: $s) { ... on ProjectV2ItemFieldDateValue { date } }
     content { ... on Issue { number title url labels(first: 20) { nodes { name } }
-      blockedBy(first: 50) { nodes { number state stateReason } } subIssues(first: 50) { nodes { number state } } } } } } } } }`;
+      blockedBy(first: 50) { nodes { number state stateReason } } } } } } } } }`;
 
 // Project の開いたタスクを全部読む。閉じた項目は読まない（query の is:open。ページ数が閉じた項目の数で増えないように）。
 // ranks は優先度の欄の選択肢の並び。startOn は着手可能日（YYYY-MM-DD。無ければ null。Project に欄が無くても null）。
@@ -36,7 +36,6 @@ export async function readBoard(gh, config) {
       priority: t.priority,
       startOn: t.startOn,
       waitingFor: openBlockers(t.blockedBy.nodes).map((b) => b.number),
-      openChildren: openChildren(t.subIssues.nodes).map((c) => c.number),
     }));
   return { tasks, ranks };
 }
@@ -59,7 +58,7 @@ export const dated = (queue, running, now = new Date()) => queue.filter((t) => !
 // 開発機で扱うタスク（ラベル coordinator.devLabel）・着手可能日を待つものは飛ばす。
 export const ready = (config, queue, running, now = new Date()) =>
   queue.filter(
-    (t) => !running.has(t.number) && !t.waitingFor.length && !t.openChildren.length && !t.labels.includes(config.coordinator.devLabel) && !waitsUntil(t.startOn, now),
+    (t) => !running.has(t.number) && !t.waitingFor.length && !t.labels.includes(config.coordinator.devLabel) && !waitsUntil(t.startOn, now),
   );
 
 // 振り出す仕事を、動いているものと合わせて coordinator.parallel を超えない数だけ上から選ぶ。
@@ -78,7 +77,7 @@ export const runIssue = (title) => Number(/^#(\d+) /.exec(title ?? "")?.[1]) || 
 export function stuck(config, tasks, running, openBranches, now = new Date()) {
   const { working, review } = config;
   return tasks
-    .filter((t) => (t.status === working && !running.has(t.number) && !t.openChildren.length && !waitsUntil(t.startOn, now)) || (t.status === review && !openBranches.has(`${config.code.branchPrefix}${t.number}`)))
+    .filter((t) => (t.status === working && !running.has(t.number) && !waitsUntil(t.startOn, now)) || (t.status === review && !openBranches.has(`${config.code.branchPrefix}${t.number}`)))
     .map((t) => ({ number: t.number, reason: t.status === working ? `${working}なのに、担当が動いていない` : `${review}なのに、開いた Pull Request が無い` }))
     .sort((a, b) => a.number - b.number);
 }
