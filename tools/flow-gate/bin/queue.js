@@ -20,7 +20,7 @@ const q = `query Queue($o: String!, $n: Int!, $field: String!, $p: String!, $c: 
     fieldValueByName(name: $field) { ... on ProjectV2ItemFieldSingleSelectValue { name } }
     priority: fieldValueByName(name: $p) { ... on ProjectV2ItemFieldSingleSelectValue { name } }
     content { ... on Issue { number title url state labels(first: 20) { nodes { name } }
-      blockedBy(first: 50) { nodes { number state stateReason } } } } } } } } }`;
+      blockedBy(first: 50) { nodes { number state stateReason } } subIssues(first: 50) { nodes { number state } } } } } } } } }`;
 const items = [];
 let ranks = [];
 for (let c = null; ; ) {
@@ -44,6 +44,7 @@ const tasks = items
     urgent: t.labels.nodes.some((l) => l.name === config.project.urgentLabel),
     priority: t.priority,
     waitingFor: openBlockers(t.blockedBy.nodes).map((b) => b.number),
+    openChildren: t.subIssues.nodes.filter((c) => c.state === "OPEN").map((c) => c.number),
   }))
   .sort((a, b) => ORDER.indexOf(a.status) - ORDER.indexOf(b.status) || b.urgent - a.urgent || rank(a.priority) - rank(b.priority) || a.number - b.number);
 
@@ -53,5 +54,5 @@ else
   for (const t of tasks)
     console.log(
       `#${t.number} ${t.status}${t.urgent ? ` ${config.project.urgentLabel}` : ""}${t.priority ? ` ${config.project.priorityField}:${t.priority}` : ""}` +
-        `${t.waitingFor.length ? ` 前提待ち（${t.waitingFor.map((n) => `#${n}`).join("・")}）` : ""} ${t.title}`,
+        `${t.waitingFor.length ? ` 前提待ち（${t.waitingFor.map((n) => `#${n}`).join("・")}）` : ""}${t.openChildren.length ? ` 段階待ち（${t.openChildren.length}件）` : ""} ${t.title}`,
     );

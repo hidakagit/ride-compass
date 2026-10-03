@@ -4,7 +4,7 @@ import { test } from "node:test";
 import config from "../flow.config.json" with { type: "json" };
 import { pick, runIssue } from "../src/dispatch.js";
 
-const task = (number, status, extra = {}) => ({ number, status, waitingFor: [], labels: [], ...extra });
+const task = (number, status, extra = {}) => ({ number, status, waitingFor: [], openChildren: [], labels: [], ...extra });
 
 test("動いている担当と合わせて上限まで、キューの上から選び、未着手は作る・検証中は確かめる担当にする", () => {
   const { parallel } = config.coordinator;
@@ -18,11 +18,12 @@ test("動いている担当と合わせて上限まで、キューの上から�
   assert.deepEqual(pick(config, queue, new Set(Array.from({ length: parallel }, (_, i) => 100 + i))), [], "上限まで動いていれば選ばない");
 });
 
-test("動いている番号・前提が開いたままのもの・開発機で扱うものは飛ばす", () => {
+test("動いている番号・前提が開いたままのもの・子の段階が開いている親・開発機で扱うものは飛ばす", () => {
   const queue = [
     task(1, "検証中"),
     task(2, "未着手", { waitingFor: [9] }),
     task(3, "未着手", { labels: [config.coordinator.devLabel] }),
+    task(5, "未着手", { openChildren: [6] }),
     task(4, "未着手"),
   ];
   assert.deepEqual(pick(config, queue, new Set([1])).map((t) => t.number), [4]);
