@@ -10,7 +10,7 @@ const TRANSIENT = ["overloaded", "server_error"];
 
 // 返すのは { outside: 担当の外の失敗か, pause: 振り出しを止めるか, reason: 1行 }。
 export function classify(messages) {
-  if (!Array.isArray(messages)) return { outside: true, pause: true, reason: "担当が動けなかった（実行のファイルが無い）" };
+  if (!Array.isArray(messages)) return { outside: true, pause: false, reason: "担当が動けなかった（実行のファイルが無い）" };
   const errors = messages.filter((m) => m?.type === "assistant" && m.error).map((m) => m.error);
   const quota = errors.find((e) => QUOTA.includes(e));
   if (quota) return { outside: true, pause: true, reason: `Claude の利用の上限か認証で止まった（${quota}）` };

@@ -2,8 +2,8 @@
 // --watch では、1つの実行の中で coordinator.watchEveryMinutes ごとに振り出しを繰り返し（見回り）、全体の様子を Project の
 // 状況の更新に書く。coordinator.watchForMinutes が過ぎたら終える（次の見回りは .github/workflows/claude-dispatch.yml が起こす）。
 // 何か所から同時に起きても、担当のワークフローの最初の段（作るなら振り出しの遷移が通るか、確かめるなら検証中か）が二重の作業を止める。
-// 止めの印（ラベル coordinator.stopLabel）が置き場の開いた issue にあるか、利用の上限などで止めた時刻（coordinator.pauseVariable）
-// までは、何も起こさない（見回りは続ける）。
+// 利用の上限などで止める時刻（coordinator.pauseVariable）が先なら振り出さない。見回りのワークフローが無効（Actions の画面の
+// Disable workflow）なら、状況の更新に止めていると書いて見回りを終える。
 // 使い方: node tools/flow-gate/bin/dispatch.js [--dry-run] [--watch]（--dry-run は何を起こすか・何を書くかを出すだけで、何も起こさない）
 import { setTimeout as sleep } from "node:timers/promises";
 import config from "../flow.config.json" with { type: "json" };
@@ -20,9 +20,8 @@ if (args.some((a) => !["--dry-run", "--watch"].includes(a))) {
 const dry = args.includes("--dry-run");
 const watch = args.includes("--watch");
 const say = (line) => console.log(`${dry ? "（試し）" : ""}${line}`);
-const { stopLabel, workflow, pauseVariable, watchEveryMinutes, watchForMinutes } = config.coordinator;
+const { workflow, pauseVariable, watchEveryMinutes, watchForMinutes } = config.coordinator;
 const { repository, base, branchPrefix } = config.code;
-const [o, n] = config.repository.split("/");
 const bot = new GitHub(botToken());
 const code = new GitHub(codeToken());
 const env = process.env;
@@ -31,11 +30,9 @@ const watcher = env.GITHUB_RUN_ID ? `${env.GITHUB_SERVER_URL}/${env.GITHUB_REPOS
 // 1周。seen は前の周で止まっているように見えた番号。止まっているものは、2周続けて見えたものだけを書く（Pull Request を出した直後など、
 // 担当が終わってからゲートがステータスを動かすまでの間を、止まっていると見ないため）。今の周で見えた番号を返す。
 async function round(seen) {
-  const s = await bot.gql(
-    `query Stop($o: String!, $n: String!, $l: [String!]) { repository(owner: $o, name: $n) { issues(states: OPEN, labels: $l, first: 1) { nodes { number } } } }`,
-    { o, n, l: [stopLabel] },
-  );
-  const stop = s.repository.issues.nodes[0]?.number ?? null;
+  // 見回り自身のワークフロー（Actions の中で動いているときだけ分かる）が無効なら、止める。
+  const self = process.env.GITHUB_WORKFLOW_REF?.match(/\.github\/workflows\/([^@]+)@/)?.[1];
+  const stop = self ? (await code.rest("GET", `/repos/${repository}/actions/workflows/${self}`)).state !== "active" : false;
   // 止める時刻は後始末（bin/after.js）がリポジトリの変数に置く。
   const variable = await code.rest("GET", `/repos/${repository}/actions/variables/${pauseVariable}`).catch(() => null);
   const pause = variable && Date.parse(variable.value) > Date.now() ? variable.value : null;
@@ -50,7 +47,7 @@ async function round(seen) {
   const queue = queueOf(config, board);
 
   const chosen = stop || pause ? [] : pick(config, queue, running);
-  if (stop) say(`#${stop} にラベル「${stopLabel}」が付いているので、振り出さない`);
+  if (stop) say("見回りのワークフローが無効なので、振り出さずに見回りを終える");
   else if (pause) say(`${pause} まで振り出しを止めている（リポジトリの変数 ${pauseVariable}）`);
   else if (!chosen.length) say(`振り出すものは無い（動いている担当 ${running.size}）`);
   for (const t of chosen) {
@@ -80,7 +77,8 @@ async function round(seen) {
     const wrote = await putStatus(bot, config, status);
     if (wrote) say(`状況の更新を${wrote === "created" ? "足した" : "書き換えた"}（${status.status}）`);
   }
-  return new Set(now.map((t) => t.number));
+  // 止めたら null を返し、見回りを終える。
+  return stop ? null : new Set(now.map((t) => t.number));
 }
 
 if (!watch) await round(new Set());
@@ -89,7 +87,9 @@ else {
   let seen = new Set();
   while (Date.now() < end) {
     try {
-      seen = await round(seen);
+      const next = await round(seen);
+      if (next === null) break;
+      seen = next;
     } catch (e) {
       // 1周の失敗（GitHub の一時の失敗など）で見回りを止めない。
       console.error(`見回りの1周に失敗: ${e.message}`);
