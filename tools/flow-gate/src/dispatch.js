@@ -7,11 +7,12 @@ const BOARD = `query Board($o: String!, $n: Int!, $field: String!, $p: String!, 
     fieldValueByName(name: $field) { ... on ProjectV2ItemFieldSingleSelectValue { name } }
     priority: fieldValueByName(name: $p) { ... on ProjectV2ItemFieldSingleSelectValue { name } }
     start: fieldValueByName(name: $s) { ... on ProjectV2ItemFieldDateValue { date } }
-    content { ... on Issue { number title url labels(first: 20) { nodes { name } }
+    content { ... on Issue { number title url updatedAt labels(first: 20) { nodes { name } }
       blockedBy(first: 50) { nodes { number state stateReason } } } } } } } } }`;
 
 // Project の開いたタスクを全部読む。閉じた項目は読まない（query の is:open。ページ数が閉じた項目の数で増えないように）。
 // ranks は優先度の欄の選択肢の並び。startOn は着手可能日（YYYY-MM-DD。無ければ null。Project に欄が無くても null）。
+// updatedAt は issue の最後の更新（本文・コメント・ラベル・担当者等。Project の欄の変更は含まない）。
 export async function readBoard(gh, config) {
   const items = [];
   let ranks = [];
@@ -31,6 +32,7 @@ export async function readBoard(gh, config) {
       status: t.status,
       title: t.title,
       url: t.url,
+      updatedAt: t.updatedAt,
       labels: t.labels.nodes.map((l) => l.name),
       urgent: t.labels.nodes.some((l) => l.name === config.project.urgentLabel),
       priority: t.priority,
@@ -50,35 +52,54 @@ export function queueOf(config, { tasks, ranks }) {
     .sort((a, b) => order.indexOf(a.status) - order.indexOf(b.status) || b.urgent - a.urgent || rank(a.priority) - rank(b.priority) || a.number - b.number);
 }
 
-// 着手可能日が今日（日本時間）より先で、その日を待っているもの（動いている番号は除く）。
-export const dated = (queue, running, now = new Date()) => queue.filter((t) => !running.has(t.number) && waitsUntil(t.startOn, now));
+// 担当の種類はステータスで決まる（未着手は作る、検証中は確かめる）。
+export const kindOf = (config, status) => (status === config.todo ? "作る" : "確かめる");
+
+// 作り始めの条件で飛ばす未着手: 前提が開いたまま（段階に分けた親も段階に blocked by されてここで待つ）・開発機で扱うタスク
+// （ラベル coordinator.devLabel）・着手可能日を待つもの。検証中は飛ばさない（Pull Request を出したものはいつでも確かめに回す）。
+const held = (config, t, now) =>
+  t.status === config.todo && (t.waitingFor.length > 0 || t.labels.includes(config.coordinator.devLabel) || Boolean(waitsUntil(t.startOn, now)));
+
+// 着手可能日が今日（日本時間）より先で、その日を待っている未着手（動いている番号は除く）。
+export const dated = (config, queue, running, now = new Date()) =>
+  queue.filter((t) => t.status === config.todo && !running.has(t.number) && waitsUntil(t.startOn, now));
 
 // 枠が空けば振り出せるもの。running は担当のワークフローで動いている（待っているものを含む）issue の番号。
-// 動いている番号・前提が開いたままの未着手（段階に分けた親も段階に blocked by されてここで待つ）・開発機で扱うタスク（ラベル coordinator.devLabel）・着手可能日を待つものは飛ばす。
-export const ready = (config, queue, running, now = new Date()) =>
-  queue.filter(
-    (t) => !running.has(t.number) && !t.waitingFor.length && !t.labels.includes(config.coordinator.devLabel) && !waitsUntil(t.startOn, now),
-  );
+export const ready = (config, queue, running, now = new Date()) => queue.filter((t) => !running.has(t.number) && !held(config, t, now));
 
-// 振り出す仕事を、動いているものと合わせて coordinator.parallel を超えない数だけ上から選ぶ。
-// 担当の種類はステータスで決まる（未着手は作る、検証中は確かめる）。
-export function pick(config, queue, running, now = new Date()) {
-  return ready(config, queue, running, now)
-    .slice(0, Math.max(0, config.coordinator.parallel - running.size))
-    .map((t) => ({ number: t.number, status: t.status, kind: t.status === config.todo ? "作る" : "確かめる" }));
+// 種類ごとの空いた枠の数。runs は動いている担当の実行（{ number, kind }）。
+export const free = (config, runs) =>
+  Object.fromEntries(Object.entries(config.coordinator.parallel).map(([kind, n]) => [kind, Math.max(0, n - runs.filter((r) => r.kind === kind).length)]));
+
+// 振り出す仕事を、種類ごとに空いた枠の数だけキューの上から選ぶ（ほかの種類の枠は使わない）。
+export function pick(config, queue, runs, now = new Date()) {
+  const left = free(config, runs);
+  return ready(config, queue, new Set(runs.map((r) => r.number)), now)
+    .map((t) => ({ number: t.number, status: t.status, kind: kindOf(config, t.status) }))
+    .filter((t) => left[t.kind]-- > 0);
 }
 
 // 担当のワークフローの実行の名前（run-name）は「#<番号> <種類>」。名前から番号を読む。
 export const runIssue = (title) => Number(/^#(\d+) /.exec(title ?? "")?.[1]) || null;
 
-// 止まっているもの: 進行中なのに担当が動いていない（着手可能日を待つものは除く）・検証中なのに開いた Pull Request が無い。
-// openBranches はコードのリポジトリの開いた Pull Request の枝の名前。
-export function stuck(config, tasks, running, openBranches, now = new Date()) {
+// 止まっているもの（どれかがあれば At risk）。
+// - 長く動いていないタスク: 進行中・検証中のまま、最後の更新から担当の持ち時間（timeoutMinutes）を超えたもの。誰が進めているかは
+//   見ない（どの担当の1回も持ち時間より長くは続かない）。着手可能日を待つものは除く。
+// - 空いた枠: 止めている（stop・pause）間に、振り出せる仕事がある種類の空いた枠（waiting は振り出せるのに起こしていない仕事、left は空いた枠）。
+// - 落ちた実行: failed（前の周の後に失敗で終わった担当の実行。{ number, kind, url }）。
+export function stuck(config, { tasks, timeoutMinutes, waiting, left, failed, stop, pause, now = new Date() }) {
   const { working, review } = config;
-  return tasks
-    .filter((t) => (t.status === working && !running.has(t.number) && !waitsUntil(t.startOn, now)) || (t.status === review && !openBranches.has(`${config.code.branchPrefix}${t.number}`)))
-    .map((t) => ({ number: t.number, reason: t.status === working ? `${working}なのに、担当が動いていない` : `${review}なのに、開いた Pull Request が無い` }))
-    .sort((a, b) => a.number - b.number);
+  const stale = tasks
+    .filter((t) => [working, review].includes(t.status) && now - Date.parse(t.updatedAt) > timeoutMinutes * 60000 && !waitsUntil(t.startOn, now))
+    .sort((a, b) => a.number - b.number)
+    .map((t) => `#${t.number} ${t.status}のまま、${timeoutMinutes}分を超えて動きが無い（最後の動き ${clock(t.updatedAt)}）`);
+  const why = stop ? "見回りのワークフローが無効" : `${clock(pause)} まで止めている`;
+  const idle = !(stop || pause) ? [] : Object.entries(left)
+    .map(([kind, n]) => [kind, n, waiting.filter((t) => kindOf(config, t.status) === kind).length])
+    .filter(([, n, w]) => n > 0 && w > 0)
+    .map(([kind, n, w]) => `${kind}担当の枠が${n}つ空いているのに、振り出せる仕事${w}件を起こしていない（${why}）`);
+  const fell = failed.toSorted((a, b) => a.number - b.number).map((r) => `#${r.number} ${r.kind}担当の実行が失敗で終わった [実行](${r.url})`);
+  return [...stale, ...idle, ...fell];
 }
 
 const clock = (iso) =>
@@ -86,20 +107,23 @@ const clock = (iso) =>
     .format(new Date(iso))
     .replace(/\//g, "-");
 
-// 状況の更新の中身。stuck が1件でもあれば At risk。時刻の経過では変わらない中身にする（変わったときだけ書き換えるため）。
-// runs は動いている担当の実行（{ number, title, url, startedAt }）、started はこの周で起こした仕事（pick の結果。実行の一覧に出るのは次の周から）、
-// dated は着手可能日を待つ仕事の着手可能日の並び、stop は見回りのワークフローが無効か、pause は止める時刻。
+// 状況の更新の中身。stuck（止まっているものの行）が1件でもあれば At risk。時刻の経過では変わらない中身にする（変わったときだけ書き換えるため）。
+// runs は動いている担当の実行（{ number, kind, url, startedAt }）、started はこの周で起こした仕事（pick の結果。実行の一覧に出るのは次の周から）、
+// waiting は振り出せるのに起こしていない仕事、held はほかに前提・段階・開発機を待つ数、dated は着手可能日を待つ仕事の着手可能日の並び、
+// stop は見回りのワークフローが無効か、pause は止める時刻。
 export function summary(config, { watcher, runs, started, waiting, held, dated, stuck, stop, pause }) {
-  const { parallel } = config.coordinator;
+  const kinds = Object.keys(config.coordinator.parallel);
+  const count = (list, kind) => list.filter((x) => x.kind === kind).length;
   const lines = [`振り出しの見回り（[実行](${watcher})）が書く。中身が変わったときだけ書き換える。`, "", "### 止まっているもの"];
-  lines.push(...(stuck.length ? stuck.map((s) => `- #${s.number} ${s.reason}`) : ["無し"]));
-  lines.push("", `### 動いている担当（${runs.length + started.length}/${parallel}）`);
+  lines.push(...(stuck.length ? stuck.map((s) => `- ${s}`) : ["無し"]));
+  lines.push("", `### 動いている担当（${kinds.map((k) => `${k} ${count(runs, k) + count(started, k)}/${config.coordinator.parallel[k]}`).join("・")}）`);
   const rows = [
-    ...runs.map((r) => `- #${r.number} ${r.title.replace(/^#\d+ /, "")}（${clock(r.startedAt)} から）[実行](${r.url})`),
+    ...runs.map((r) => `- #${r.number} ${r.kind}（${clock(r.startedAt)} から）[実行](${r.url})`),
     ...started.map((t) => `- #${t.number} ${t.kind}（いま起こした）`),
   ];
   lines.push(...(rows.length ? rows : ["無し"]));
-  lines.push("", "### 振り出し", `- 振り出しを待つ仕事: ${waiting}件（ほかに前提・段階・開発機を待つもの ${held}件）`);
+  const by = kinds.map((k) => `${k} ${waiting.filter((t) => kindOf(config, t.status) === k).length}件`).join("・");
+  lines.push("", "### 振り出し", `- 振り出しを待つ仕事: ${by}（ほかに前提・段階・開発機を待つもの ${held}件）`);
   if (dated.length) lines.push(`- 着手可能日を待つ仕事: ${dated.length}件（最も近い日 ${dated.toSorted()[0]}）`);
   if (stop) lines.push("- 止めている: 見回りのワークフローが無効（Actions の画面で Enable workflow のあと Run workflow で戻す）");
   if (pause) lines.push(`- 止めている: ${clock(pause)} まで（利用の上限など）`);

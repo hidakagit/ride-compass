@@ -66,25 +66,28 @@
 | 役 | 持つもの・すること |
 |---|---|
 | GitHub（issue・Project・ゲート） | タスクの状態（ステータス）。遷移はゲートが表で守る |
-| 振り出しの見回り（`.github/workflows/claude-dispatch.yml` が `tools/flow-gate/bin/dispatch.js --watch` を起こす） | 決まった間隔ごとに、自分のワークフローが有効か・止める時刻を見て、動いている担当の数が上限（`flow.config.json: coordinator.parallel`）になるまでキューの上から担当のワークフローを起こし、全体の様子を Project の状況の更新に書く |
+| 振り出しの見回り（`.github/workflows/claude-dispatch.yml` が周ごとに `tools/flow-gate/bin/dispatch.js` を打つ） | 決まった間隔ごとに、自分のワークフローが有効か・止める時刻を見て、種類ごとに動いている担当の数が上限（`flow.config.json: coordinator.parallel`）になるまでキューの上から担当のワークフローを起こし、全体の様子を Project の状況の更新に書く |
 | 担当のワークフロー（`.github/workflows/claude-task.yml`） | 1件を引き受け、準備をして担当を起こし、終わったら後始末をする |
 | 作る担当・確かめる担当（Claude Code。`anthropics/claude-code-action`） | タスクの遂行と報告（PR・問い・issue へのコメント）。次の担当を起こすことには触れない |
 
 **キュー**（仕事の並び）は GitHub のステータスから毎回導くもので、どこにも別に持たない（並びはステータスの順
 `coordinator.order`（検証中 → 未着手）、中はラベル「急ぎ」（ユーザーの依頼。優先度の欄より上。`project.urgentLabel`）→ Project の
 優先度の欄の選択肢の順 → 番号の若い順）。作る担当が PR を出すとゲートが検証中にし、それが確かめる依頼としてキューに載る。
+**枠**は担当の種類（未着手は作る、検証中は確かめる）ごとに上限（`coordinator.parallel`）を持ち、ほかの種類の枠は使わない。作る担当が
+枠を全部埋めていても、確かめる担当は確かめる枠で起きる。
 
-- **見回り**: 振り出しは GitHub Actions のランナーで常駐し、1つの実行の中で `coordinator.watchEveryMinutes` ごとに GitHub の状態を
-  見回って、空いた枠に担当を起こす（開発機は要らない）。答え・前提が閉じた・ラベルを外した・止める時刻が過ぎた、のどれも、次の
+- **見回り**: 振り出しは GitHub Actions のランナーで常駐し、1つの実行の中で `coordinator.watchEveryMinutes` ごとに master を取り出し直して
+  `dispatch.js` を1回打ち（1周）、GitHub の状態を見回って、空いた枠に担当を起こす（開発機は要らない）。答え・前提が閉じた・ラベルを外した・止める時刻が過ぎた、のどれも、次の
   見回りで拾われる（出来事ごとのきっかけは持たない）。実行の持ち時間（`coordinator.watchForMinutes`。GitHub のジョブの上限6時間より短い）が
   過ぎたら、次の実行を `workflow_dispatch` で起こしてから終える（同じ組で1本ずつ動くので、次は今のが終わってから始まる）。
   次を起こすのは成功して終えたときだけで、Cancel されたり失敗したりして途切れたら、状況の更新が書き換わらなくなる。そのときは
   手で `gh workflow run claude-dispatch.yml -R hidakagit/ride-compass`（Actions の画面の Run workflow でもよい）で起こし直す。
   定期の起動（`schedule`）は使わない——GitHub の公式の文書（Events that trigger workflows の schedule）のとおり、混む時間には
   遅れ、落とされることもあり、このリポジトリでは 2026-10-03 に約3時間で一度も動かなかった。
-  道具や設定の変更は次の実行から効く（すぐ効かせるなら、動いている実行を Cancel して手で `gh workflow run claude-dispatch.yml -R hidakagit/ride-compass` で起こす）。
-  振り出しは、動いている担当（担当のワークフローの終わっていない実行）の番号・前提が開いたままの未着手（段階に分けた親も、段階に blocked by されてここで待つ）・ラベル「開発機が要る」の
-  付いたもの・着手可能日（下の「ラベルと種類と欄」）が今日（日本時間）より先のものを飛ばす。`node tools/flow-gate/bin/dispatch.js --dry-run`（`--watch` を足すと状況の更新の中身も）で、何を起こすか・何を書くかを見られる。
+  master に入った道具と設定の変更は次の周から効く。`claude-dispatch.yml` 自身の変更は次の実行から効く（すぐ効かせるなら、動いている実行を Cancel して手で `gh workflow run claude-dispatch.yml -R hidakagit/ride-compass` で起こす）。
+  1周の失敗（GitHub の一時の失敗など）では止まらず、持ち時間のあいだ1周も通らなかったときだけ、実行を失敗にして次を起こさない。
+  振り出しは、動いている担当（担当のワークフローの終わっていない実行）の番号を飛ばす。未着手（作り始めの条件）は、さらに前提が開いたまま（段階に分けた親も、段階に blocked by されてここで待つ）・ラベル「開発機が要る」の
+  付いたもの・着手可能日（下の「ラベルと種類と欄」）が今日（日本時間）より先のものを飛ばす。検証中は飛ばさず、いつでも確かめに回す。`node tools/flow-gate/bin/dispatch.js --dry-run` で、1周ぶんの何を起こすか・状況の更新に何を書くかを見られる。
 - **担当のワークフローの1回**:
   1. 引き受ける（`tools/flow-gate/bin/claim.js`）: 作るなら未着手 → 進行中の引き受け（上の「Claude がステータスを動かす」）が
      通ったときだけ、確かめるなら検証中のときだけ進み、issue に着手（担当の種類・実行へのリンク）を書く（作るなら着手が引き受けの印）。同じ issue のジョブは1本ずつ動き、重ねて起こされた
@@ -109,7 +112,7 @@
   `GITHUB_TOKEN` で打ったマージは master の CI とデプロイを起こさないため）、Claude は契約のトークン（secret `CLAUDE_CODE_OAUTH_TOKEN`）。
 - **記録**: Actions の実行の記録に、「#<番号> <種類>」の名前で並ぶ。コードのリポジトリは公開なので、記録は誰でも読める。
   担当の出力の全文と報告は記録に出さない（出るのは指示文と、手数・費用の目安）。担当の最後の発言は、非公開の置き場の issue にだけ書く（4）。
-- **止める**: Actions の画面で Claude Dispatch を無効にする（Disable workflow）。動いている見回りは次の1回で無効と読み、状況の更新に
+- **止める**: Actions の画面で Claude Dispatch を無効にする（Disable workflow）。動いている見回りは次の周で無効と読み、状況の更新に
   止めていると書いて、振り出さずに終える（次の見回りも起こさない）。戻すときは Enable workflow のあと Run workflow。
   利用の上限で後始末が止めた時刻（変数 `coordinator.pauseVariable`）を早く解くなら、コードのリポジトリの Settings → Secrets and
   variables → Actions → Variables で消す。動いている担当は止まらないので、止めるなら Actions の画面でその実行を Cancel する
@@ -362,12 +365,15 @@ push に含まれ、同じ権限で断られるため。
 
 - **動いている担当**: コードのリポジトリの Actions の画面（Claude Task の実行。名前は「#<番号> <種類>」）。GitHub のスマホアプリの
   Actions からも見られる。振り出しが何を起こしたかは Claude Dispatch の実行の記録に出る。
-- **全体の様子**（`tools/flow-gate/src/dispatch.js: summary`）: 見回りが Project の「状況の更新」（Status updates）に、動いている担当
-  （どのタスク・いつから・実行へのリンク）・振り出しを待つ仕事の数・止めている理由（見回りのワークフローが無効・止める時刻）・止まっているもの（進行中なのに担当が動いて
-  いない・検証中なのに開いた Pull Request が無い。2回続けて見えたものだけ）を書く。止まっているものが1つでもあれば At risk、無ければ
-  On track。中身が変わったときだけ書き、状態が同じなら最新の更新を書き換え、変わったら新しく足す（履歴には状態の移り変わりだけが残る）。
+- **全体の様子**（`tools/flow-gate/src/dispatch.js: summary`）: 見回りが Project の「状況の更新」（Status updates）に、種類ごとの動いている担当
+  （どのタスク・いつから・実行へのリンク）・種類ごとの振り出しを待つ仕事の数・止めている理由（見回りのワークフローが無効・止める時刻）・止まっているもの
+  （`tools/flow-gate/src/dispatch.js: stuck`）を書く。止まっているものは次の3つで、1つでもあれば At risk、無ければ On track。
+  - 長く動いていないタスク: 進行中・検証中のまま、issue の最後の更新から担当の持ち時間（`claude-task.yml` の `timeout-minutes`）を超えて動きが無いもの。
+    誰が進めているかは見ない（どの担当の1回も持ち時間より長くは続かないので、対話のセッションが進めている件は持ち時間のうちは出ない）。着手可能日を待つものは除く。
+  - 空いた枠: 止めている間に、振り出せる仕事がある種類の枠が空いているとき（止めている理由を添える）。
+  - 落ちた実行: 前の周の後に失敗で終わった担当の実行（番号と実行へのリンク）。出るのはその周だけで、At risk の更新として履歴に残る。中身が変わったときだけ書き、状態が同じなら最新の更新を書き換え、変わったら新しく足す（履歴には状態の移り変わりだけが残る）。
   最新の1件の状態が Project の見出しと Projects の一覧に出る（公式の文書「Sharing project updates」）。
-  着手可能日を待つ仕事は、件数と最も近い日を振り出しの節に出し、止まっているものには数えない（進行中でも同じ）。
+  着手可能日を待つ未着手は、件数と最も近い日を振り出しの節に出す。
 - **ゲートの失敗**: ゲートは状態を守ることだけをし、出来事の処理の例外は Cloudflare の記録（Workers の Logs）にだけ残す。受け損ねた
   結果（状態の食い違い）は、見回りが止まっているものとして見つける。
 - 異常の処置は issue に書く（保留の理由など）。
