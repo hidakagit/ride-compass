@@ -1,174 +1,138 @@
+/**
+ * `components/AxisContributionBar/AxisContributionBar.tsx`——重み付きの寄与の内訳（積み上げの帯1本と凡例）と、
+ * 寄与があるかの判定（`hasContribution`）。
+ *
+ * 見るもの: 寄与のある軸だけを`axes`の順に帯へ積むこと、帯の長さと添える値（0〜100へ寄せる）、軸の色と
+ * 色の無い軸の色、凡例に並ぶ軸（既定・`legendAxes`・`renderDetail`がnullを返した軸）とチップに出す値、
+ * 詳細のある軸のチップを押すと詳細が出ること、寄与が1つも無ければ何も描かないこと。
+ *
+ * ここで見ないもの: 軸のアイコンの引き方 → `components/ui/icons/axisIconPalette.tsx`。詳細の中身 → 呼び出し側
+ * （`features/route/RouteOutcome`等）。
+ *
+ * 軸は架空のもの（`axis_a`等）を`src/testing/catalogAxes.ts`の雛形から作る。
+ */
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { catalogAxisFromEntry, type CatalogAxis } from "@/lib/catalogAxis";
+
+import { catalogAxisFromEntry } from "@/lib/catalogAxis";
 import { catalogEntry } from "@/testing/catalogAxes";
-import palette from "@/types/generated/palette.json";
-import AxisContributionBar from "./AxisContributionBar";
+import AxisContributionBar, { hasContribution } from "./AxisContributionBar";
 
-const axis = (axisId: string, label: string, dedicated = false): CatalogAxis =>
-  catalogAxisFromEntry(
-    catalogEntry({ axis_id: axisId, label, description: "説明", dedicated_way_value_layer: dedicated }),
-  );
-const AXES = [axis("axis_sample", "見本の軸"), axis("wind", "風", true), axis("night", "夜間")];
+const A = catalogAxisFromEntry(catalogEntry({ axis_id: "axis_a", label: "軸A" }));
+const B = catalogAxisFromEntry(catalogEntry({ axis_id: "axis_b", label: "軸B" }));
+const C = catalogAxisFromEntry(catalogEntry({ axis_id: "axis_c", label: "軸C" }));
+const COLORS = { axis_a: "rgb(10, 20, 30)", axis_b: "rgb(40, 50, 60)", axis_c: "rgb(70, 80, 90)" };
 
-const AXIS_COLORS: Record<string, string> = { axis_sample: "#111111", wind: "#222222", night: "#333333" };
+type Props = React.ComponentProps<typeof AxisContributionBar>;
+
+function renderBar(props: Partial<Props> = {}) {
+  return render(<AxisContributionBar axes={[A, B, C]} contributions={{}} axisColors={COLORS} {...props} />);
+}
+
+/** 帯の一片（名前と値を`title`に持つ）を、帯に積まれた順に。 */
+function segments(): HTMLElement[] {
+  return Array.from(screen.getByRole("img", { name: "難易度の内訳" }).children) as HTMLElement[];
+}
+
+/** 凡例のチップに付いた軸の色。 */
+function chipColor(chip: HTMLElement): string {
+  const icon = chip.querySelector<HTMLElement>('[aria-hidden="true"]');
+  if (!icon) throw new Error("チップのアイコンが無い");
+  return icon.style.color;
+}
+
+describe("hasContribution", () => {
+  it.each([
+    ["キーが無い", {}, false],
+    ["0", { axis_a: 0 }, false],
+    ["正の値", { axis_a: 0.4 }, true],
+    ["負の値", { axis_a: -2 }, true],
+  ])("寄与が%sなら%s", (_, contributions, expected) => {
+    expect(hasContribution(contributions, "axis_a")).toBe(expected);
+  });
+});
 
 describe("AxisContributionBar", () => {
-  it("contributionsにキーが無い軸は表示しない（呼び出し側で絞り込まなくてよい）", () => {
-    render(<AxisContributionBar axes={AXES} contributions={{ axis_sample: 30, night: 5 }} axisColors={AXIS_COLORS} />);
+  it("寄与のある軸が無ければ、凡例の軸や詳細があっても何も描かない", () => {
+    const { container } = renderBar({
+      contributions: { axis_a: 0 },
+      legendAxes: [A, B],
+      renderDetail: () => "詳細",
+    });
 
-    const items = screen.getAllByRole("listitem");
-    expect(items).toHaveLength(2);
-    // 軸の名前はチップの文字ではなくアクセシブル名が持つ（チップはアイコンと値だけ）。
-    expect(screen.queryByLabelText("風")).not.toBeInTheDocument();
+    expect(container).toBeEmptyDOMElement();
   });
 
-  it("値が0の軸は表示しない（backendは重み0の軸もキー付きで値0.0を返すため、キーの有無だけでは絞り込めない）", () => {
-    render(
-      <AxisContributionBar
-        axes={AXES}
-        contributions={{ axis_sample: 30, wind: 0, night: 5 }}
-        axisColors={AXIS_COLORS}
-      />,
-    );
+  it("寄与のある軸だけを`axes`の順に帯へ積み、長さと名前・値を添える", () => {
+    renderBar({ contributions: { axis_c: 12.34, axis_b: 0, axis_a: 30 } });
 
-    const items = screen.getAllByRole("listitem");
-    expect(items).toHaveLength(2);
-    expect(screen.queryByText("風")).not.toBeInTheDocument();
+    expect(segments().map((segment) => [segment.title, segment.style.width])).toEqual([
+      ["軸A 30.0", "30%"],
+      ["軸C 12.3", "12.34%"],
+    ]);
   });
 
-  it("負の値（クランプ前）は0ではないため除外しない", () => {
-    render(<AxisContributionBar axes={AXES} contributions={{ axis_sample: -10, night: 5 }} axisColors={AXIS_COLORS} />);
+  it("帯の長さと添える値は0〜100へ寄せ、凡例の値は寄せずに出す", () => {
+    renderBar({ contributions: { axis_a: 120, axis_b: -5 } });
 
-    const items = screen.getAllByRole("listitem");
-    expect(items).toHaveLength(2);
-    expect(screen.getByLabelText("見本の軸")).toBeInTheDocument();
+    expect(segments().map((segment) => [segment.title, segment.style.width])).toEqual([
+      ["軸A 100.0", "100%"],
+      ["軸B 0.0", "0%"],
+    ]);
+    expect(screen.getByRole("img", { name: "軸A" })).toHaveTextContent("120.0");
+    expect(screen.getByRole("img", { name: "軸B" })).toHaveTextContent("-5.0");
   });
 
-  it("軸カタログの並び順で凡例を表示し、値をそのまま(小数1桁)表示する", () => {
-    render(
-      <AxisContributionBar axes={AXES} contributions={{ night: 5.25, axis_sample: 30.1 }} axisColors={AXIS_COLORS} />,
-    );
+  it("帯と凡例は軸の色で塗り、色の無い軸はどれも同じ色にする", () => {
+    renderBar({ contributions: { axis_a: 10, axis_b: 20, axis_c: 30 }, axisColors: { axis_a: COLORS.axis_a } });
 
-    const items = screen.getAllByRole("listitem");
-    expect(within(items[0]).getByLabelText("見本の軸")).toBeInTheDocument();
-    expect(items[0]).toHaveTextContent("30.1");
-    expect(within(items[1]).getByLabelText("夜間")).toBeInTheDocument();
-    expect(items[1]).toHaveTextContent("5.3");
+    const [a, b, c] = segments();
+    expect(a.style.background).toBe(COLORS.axis_a);
+    expect(chipColor(screen.getByRole("img", { name: "軸A" }))).toBe(COLORS.axis_a);
+    expect(b.style.background).not.toBe("");
+    expect(b.style.background).not.toBe(COLORS.axis_a);
+    expect(c.style.background).toBe(b.style.background);
+    expect(chipColor(screen.getByRole("img", { name: "軸B" }))).toBe(b.style.background);
   });
 
-  it("各セグメントの幅はcontributionsの値そのもの（%）、色はaxisColorsを使う", () => {
-    render(<AxisContributionBar axes={AXES} contributions={{ axis_sample: 30, night: 5 }} axisColors={AXIS_COLORS} />);
+  it("凡例の軸を渡さなければ、帯に積んだ軸だけを名前の付いたチップにして値を出す", () => {
+    renderBar({ contributions: { axis_a: 30, axis_c: 12.34 } });
 
-    const segments = Array.from(screen.getByRole("img", { name: "難易度の内訳" }).children) as HTMLElement[];
-    expect(segments).toHaveLength(2);
-    expect(segments[0].style.width).toBe("30%");
-    expect(segments[0].style.background).toBe("#111111");
-    expect(segments[1].style.width).toBe("5%");
+    const chips = within(screen.getByRole("list")).getAllByRole("listitem");
+    expect(chips.map((chip) => [within(chip).getByRole("img").getAttribute("aria-label"), chip.textContent])).toEqual([
+      ["軸A", "30.0"],
+      ["軸C", "12.3"],
+    ]);
   });
 
-  it("contributionsが空なら何も描画しない（呼び出し側の空状態文言に委ねる）", () => {
-    const { container } = render(<AxisContributionBar axes={AXES} contributions={{}} axisColors={AXIS_COLORS} />);
+  it("凡例の軸を渡すと、その順にすべて並べ、寄与の無い軸は値を出さない", () => {
+    renderBar({ contributions: { axis_a: 30 }, legendAxes: [C, A, B] });
 
-    expect(container.firstChild).toBeNull();
+    const chips = within(screen.getByRole("list")).getAllByRole("listitem");
+    expect(chips.map((chip) => [within(chip).getByRole("img").getAttribute("aria-label"), chip.textContent])).toEqual([
+      ["軸C", ""],
+      ["軸A", "30.0"],
+      ["軸B", ""],
+    ]);
   });
 
-  it("renderDetailを渡すと凡例チップが押せる詳細の入口になる", async () => {
-    const user = userEvent.setup();
-    render(
-      <AxisContributionBar
-        axes={AXES}
-        contributions={{ axis_sample: 30, night: 5 }}
-        axisColors={AXIS_COLORS}
-        renderDetail={(axis) => <span>{`${axis.label}の詳細本文`}</span>}
-      />,
-    );
+  it("詳細を渡すと、詳細がnullの軸は凡例から落とし、ほかのチップは押すと詳細が出る", async () => {
+    renderBar({
+      contributions: { axis_a: 30, axis_b: 5 },
+      legendAxes: [A, B, C],
+      renderDetail: (axis) => (axis.axisId === "axis_b" ? null : `${axis.label}の中身`),
+    });
 
-    await user.click(screen.getByRole("button", { name: "見本の軸の詳細を表示" }));
+    const chips = within(screen.getByRole("list")).getAllByRole("listitem");
+    expect(chips.map((chip) => within(chip).getByRole("button").getAttribute("aria-label"))).toEqual([
+      "軸Aの詳細を表示",
+      "軸Cの詳細を表示",
+    ]);
+    expect(chips.map((chip) => chip.textContent)).toEqual(["30.0", ""]);
 
-    expect(await screen.findByText("見本の軸の詳細本文")).toBeInTheDocument();
-  });
+    await userEvent.click(screen.getByRole("button", { name: "軸Cの詳細を表示" }));
 
-  it("renderDetailを渡さない呼び出し側（軸ごとの詳細を持たない区間詳細）では押せる要素を作らない", () => {
-    render(<AxisContributionBar axes={AXES} contributions={{ axis_sample: 30, night: 5 }} axisColors={AXIS_COLORS} />);
-
-    expect(screen.queryAllByRole("button")).toHaveLength(0);
-    expect(screen.getByLabelText("見本の軸")).toBeInTheDocument();
-  });
-
-  it("renderDetailを渡さない呼び出しでは、チップを「押せない印」にしない", () => {
-    // 押せる／押せないの区別が無い場面で全チップへ印を付けると、凡例全体が薄く描かれる。
-    const { container } = render(
-      <AxisContributionBar axes={AXES} contributions={{ axis_sample: 30, night: 5 }} axisColors={AXIS_COLORS} />,
-    );
-
-    expect(container.querySelectorAll('[data-checked="false"]')).toHaveLength(0);
-  });
-
-  it("legendAxesを渡すと、帯グラフに出ない軸も凡例に残る", () => {
-    // 帯グラフ（axes）は寄与のある軸だけ、凡例（legendAxes）は詳細を持つ軸すべて。
-    // このpropが無いと「効くはずの軸が効かなかった」ことが画面から消える。
-    render(
-      <AxisContributionBar
-        axes={[AXES[0]]}
-        legendAxes={AXES}
-        contributions={{ axis_sample: 30 }}
-        axisColors={AXIS_COLORS}
-        renderDetail={(axis) => <span>{axis.label}</span>}
-      />,
-    );
-
-    expect(screen.getByRole("button", { name: "夜間の詳細を表示" })).toBeInTheDocument();
-  });
-
-  it("renderDetailがnullを返した軸は、凡例から落ちる", () => {
-    render(
-      <AxisContributionBar
-        axes={AXES}
-        contributions={{ axis_sample: 30, night: 5 }}
-        axisColors={AXIS_COLORS}
-        renderDetail={(axis) => (axis.axisId === "night" ? null : <span>{axis.label}</span>)}
-      />,
-    );
-
-    expect(screen.getByRole("button", { name: "見本の軸の詳細を表示" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "夜間の詳細を表示" })).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("夜間")).not.toBeInTheDocument();
-  });
-
-  it("色の指定が無い軸は、中立の色で描く", () => {
-    render(<AxisContributionBar axes={[AXES[0]]} contributions={{ axis_sample: 30 }} axisColors={{}} />);
-
-    const segment = screen.getByRole("img", { name: "難易度の内訳" }).firstElementChild as HTMLElement;
-    expect(segment.style.background).toBe(palette.semantic.neutral);
-  });
-
-  it("renderDetailは軸あたり1回だけ呼ぶ", () => {
-    // 絞り込みと本体で別々に呼ぶと、片方で組み立てたJSXがそのまま捨てられる。
-    const calls: string[] = [];
-    render(
-      <AxisContributionBar
-        axes={AXES}
-        contributions={{ axis_sample: 30, night: 5 }}
-        axisColors={AXIS_COLORS}
-        renderDetail={(axis) => {
-          calls.push(axis.axisId);
-          return <span>{axis.label}</span>;
-        }}
-      />,
-    );
-
-    expect(calls).toEqual([...new Set(calls)]);
-  });
-
-  it("値が0-100の範囲外でもクランプする", () => {
-    render(
-      <AxisContributionBar axes={AXES} contributions={{ axis_sample: -10, night: 150 }} axisColors={AXIS_COLORS} />,
-    );
-
-    const segments = Array.from(screen.getByRole("img", { name: "難易度の内訳" }).children) as HTMLElement[];
-    expect(segments[0].style.width).toBe("0%");
-    expect(segments[1].style.width).toBe("100%");
+    expect(await screen.findByText("軸Cの中身")).toBeInTheDocument();
   });
 });
