@@ -196,7 +196,7 @@ test("回答フォームの選択肢は問いによらず表から一律で、�
 
 test("選択肢ごとの行き先: 補足が要るものは補足が無ければ断り、完成と見送りは閉じる理由を分ける", async () => {
   const q = questionBody("どうする？");
-  const cases = { 進める: ["未着手", "OPEN"], "止める（補足に理由）": ["保留", "OPEN"], 完成: [config.done, "CLOSED", "COMPLETED"], 見送り: [config.done, "CLOSED", "NOT_PLANNED"], "その他（補足に書く）": ["未着手", "OPEN"] };
+  const cases = { 進める: ["未着手", "OPEN"], "保留にする（あとで再開できる。補足に理由）": ["保留", "OPEN"], 完成: [config.done, "CLOSED", "COMPLETED"], "見送る（閉じて、再開しない）": [config.done, "CLOSED", "NOT_PLANNED"], "その他（補足に書く）": ["未着手", "OPEN"] };
   for (const [text, [status, state, reason]] of Object.entries(cases)) {
     const gh = fakeGitHub({ issue: { number: 4, authorId: ME, status: "回答待ち", assignees: [config.user], body: asked(q) } });
     const html = await open(4);
@@ -206,9 +206,11 @@ test("選択肢ごとの行き先: 補足が要るものは補足が無ければ
     assert.deepEqual([gh.issue.status, gh.issue.state, gh.issue.assignees], [status, state, state === "OPEN" ? [config.owner[status]] : [config.user]], text);
     if (reason) assert.equal(gh.writes.find((w) => w.stateInput).stateInput.stateReason, reason, text);
   }
+  for (const a of config.answers)
+    assert.equal(a.text.includes("補足"), Boolean(a.note), `補足の欄の案内は、文言に「補足」とある選択肢を必須と書く: ${a.text}`);
 });
 
-test("保留は本文に問いが無くても決まった問いで答えられ、「止める」は出ない。Claude の番なら回答フォームは開かない", async () => {
+test("保留は本文に問いが無くても決まった問いで答えられ、「保留にする」は出ない。Claude の番なら回答フォームは開かない", async () => {
   let gh = fakeGitHub({ issue: { number: 5, authorId: ME, status: "保留", assignees: [config.user] } });
   const html = await open(5);
   assert.match(html, new RegExp(config.questions["保留"]));

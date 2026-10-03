@@ -31,12 +31,12 @@
   ],
   "answers": [
     { "text": "進める", "to": "未着手", "plans": true },
-    { "text": "止める（補足に理由）", "to": "保留", "note": true },
+    { "text": "保留にする（あとで再開できる。補足に理由）", "to": "保留", "note": true },
     { "text": "完成", "to": "完了", "close": "COMPLETED" },
-    { "text": "見送り", "to": "完了", "close": "NOT_PLANNED" },
+    { "text": "見送る（閉じて、再開しない）", "to": "完了", "close": "NOT_PLANNED" },
     { "text": "その他（補足に書く）", "to": "未着手", "note": true }
   ],
-  "questions": { "保留": "止めてあるこのタスクを、どうしますか？", "default": "このタスクを、どうしますか？" },
+  "questions": { "保留": "保留にしてあるこのタスクを、どうしますか？", "default": "このタスクを、どうしますか？" },
   "confirmLabel": "ユーザー確認",
   "code": { "repository": "hidakagit/ride-compass", "branchPrefix": "orch/tasks-", "base": "master" },
   "coordinator": {
