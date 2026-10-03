@@ -66,6 +66,7 @@ async function round(seen) {
   const status = summary(config, {
     watcher,
     runs,
+    started: chosen,
     waiting: waiting - chosen.length,
     held: queue.filter((t) => !running.has(t.number)).length - waiting,
     stuck: now.filter((t) => seen.has(t.number)),

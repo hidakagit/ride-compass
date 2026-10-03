@@ -83,13 +83,18 @@ const clock = (iso) =>
     .replace(/\//g, "-");
 
 // 状況の更新の中身。stuck が1件でもあれば At risk。時刻の経過では変わらない中身にする（変わったときだけ書き換えるため）。
-// runs は動いている担当の実行（{ number, title, url, startedAt }）、stop は止めの印の付いた issue の番号、pause は止める時刻。
-export function summary(config, { watcher, runs, waiting, held, stuck, stop, pause }) {
+// runs は動いている担当の実行（{ number, title, url, startedAt }）、started はこの周で起こした仕事（pick の結果。実行の一覧に出るのは次の周から）、
+// stop は止めの印の付いた issue の番号、pause は止める時刻。
+export function summary(config, { watcher, runs, started, waiting, held, stuck, stop, pause }) {
   const { parallel, stopLabel } = config.coordinator;
   const lines = [`振り出しの見回り（[実行](${watcher})）が書く。中身が変わったときだけ書き換える。`, "", "### 止まっているもの"];
   lines.push(...(stuck.length ? stuck.map((s) => `- #${s.number} ${s.reason}`) : ["無し"]));
-  lines.push("", `### 動いている担当（${runs.length}/${parallel}）`);
-  lines.push(...(runs.length ? runs.map((r) => `- #${r.number} ${r.title.replace(/^#\d+ /, "")}（${clock(r.startedAt)} から）[実行](${r.url})`) : ["無し"]));
+  lines.push("", `### 動いている担当（${runs.length + started.length}/${parallel}）`);
+  const rows = [
+    ...runs.map((r) => `- #${r.number} ${r.title.replace(/^#\d+ /, "")}（${clock(r.startedAt)} から）[実行](${r.url})`),
+    ...started.map((t) => `- #${t.number} ${t.kind}（いま起こした）`),
+  ];
+  lines.push(...(rows.length ? rows : ["無し"]));
   lines.push("", "### 振り出し", `- 振り出しを待つ仕事: ${waiting}件（ほかに前提・段階・開発機を待つもの ${held}件）`);
   if (stop) lines.push(`- 止めている: #${stop} にラベル「${stopLabel}」が付いている`);
   if (pause) lines.push(`- 止めている: ${clock(pause)} まで（利用の上限など）`);
