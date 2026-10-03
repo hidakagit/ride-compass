@@ -3,13 +3,14 @@ import { openBlockers } from "./rules.js";
 
 const BOARD = `query Board($o: String!, $n: Int!, $field: String!, $p: String!, $c: String) { organization(login: $o) { projectV2(number: $n) {
   field(name: $p) { ... on ProjectV2SingleSelectField { options { name } } }
-  items(first: 100, after: $c) { pageInfo { hasNextPage endCursor } nodes {
+  items(first: 100, after: $c, query: "is:open") { pageInfo { hasNextPage endCursor } nodes {
     fieldValueByName(name: $field) { ... on ProjectV2ItemFieldSingleSelectValue { name } }
     priority: fieldValueByName(name: $p) { ... on ProjectV2ItemFieldSingleSelectValue { name } }
-    content { ... on Issue { number title url state labels(first: 20) { nodes { name } }
+    content { ... on Issue { number title url labels(first: 20) { nodes { name } }
       blockedBy(first: 50) { nodes { number state stateReason } } subIssues(first: 50) { nodes { number state } } } } } } } } }`;
 
-// Project の開いたタスクを全部読む。ranks は優先度の欄の選択肢の並び。
+// Project の開いたタスクを全部読む。閉じた項目は読まない（query の is:open。ページ数が閉じた項目の数で増えないように）。
+// ranks は優先度の欄の選択肢の並び。
 export async function readBoard(gh, config) {
   const items = [];
   let ranks = [];
@@ -23,7 +24,7 @@ export async function readBoard(gh, config) {
   }
   const tasks = items
     .map((i) => ({ ...i.content, status: i.fieldValueByName?.name, priority: i.priority?.name ?? null }))
-    .filter((t) => t.number && t.state === "OPEN")
+    .filter((t) => t.number)
     .map((t) => ({
       number: t.number,
       status: t.status,
