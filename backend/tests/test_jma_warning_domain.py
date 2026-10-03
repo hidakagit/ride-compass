@@ -1,12 +1,12 @@
-"""`domain/jma_warning.py`——警報・注意報のコードの段と、1地域ぶんの発表中の警報の取り出し。
+"""`domain/jma_warning.py`——警報・注意報の電文の1地域ぶんから、サイクリングに関わる発表中のものを取り出す。
+
+入口は`extract_active_warnings`（種別→発表中の警報と、その警戒の段）・`WarningBulletin.kinds_for`
+（電文から地点の種別を引く）。コード表`WARNING_KINDS`は配信元の資料の写し
+（本番の正本を持つ宣言のデータ）なので中身に踏み込まず、架空のコードを足して与える。
 
 ここで見ないもの:
-- 電文を種別へ解く → `test_jma_warning_client.py`
-- 地点の区域の解決と電文をまたいだ集約 → `test_warning_service.py`
-- 段の色・呼び名 → `domain/warning_display.py`
-
-段の期待値は、コードの表を読み直して作らない（名称に「特別警報」を含むか、と同じ規則で期待値を
-作ると恒真になる）。気象庁の別表3が決めている段を、代表のコードで突き合わせる。
+- 電文の形を`WarningBulletin`へ解くこと → `test_jma_warning_client.py`
+- 地点から区域を引くこと・電文を全件走査して集めること → `test_warning_service.py`
 """
 
 import logging
@@ -14,82 +14,94 @@ import logging
 import pytest
 
 from app.domain import jma_warning
+from app.domain.jma_warning import AreaWarningKind, WarningBulletin, WarningKind, extract_active_warnings
+
+CODES = {
+    "t_advisory": WarningKind("架空注意報"),
+    "t_warning": WarningKind("架空警報"),
+    "t_danger": WarningKind("架空危険警報"),
+    "t_emergency": WarningKind("架空特別警報"),
+    "t_irrelevant": WarningKind("架空の関わらない警報", relevant_to_cycling=False),
+}
 
 
-# ---- コードの段（気象庁の別表3） ----
+@pytest.fixture
+def _codes(monkeypatch):
+    for code, kind in CODES.items():
+        monkeypatch.setitem(jma_warning.WARNING_KINDS, code, kind)
 
 
+def _kind(code: str | None, status: str | None = "発表", additions: tuple[str, ...] = ()) -> AreaWarningKind:
+    return AreaWarningKind(code=code, status=status, additions=additions)
+
+
+@pytest.mark.usefixtures("_codes")
 @pytest.mark.parametrize(
     ("code", "level"),
     [
-        ("33", "emergency_warning"),  # 大雨特別警報（警戒レベル5）
-        ("43", "severe_warning"),  # 大雨危険警報（警戒レベル4）
-        ("49", "severe_warning"),  # 土砂災害危険警報（警戒レベル4）
-        ("03", "warning"),  # 大雨警報
-        ("10", "advisory"),  # 大雨注意報
-        ("14", "advisory"),  # 雷注意報
+        ("t_advisory", "advisory"),
+        ("t_warning", "warning"),
+        ("t_danger", "severe_warning"),
+        ("t_emergency", "emergency_warning"),
     ],
 )
-def test_the_badge_level_follows_the_official_code_table(code, level):
-    assert jma_warning.warning_level(code) == level
+def test_the_level_is_read_from_the_name(code, level):
+    """危険警報（警戒レベル4）は警報と特別警報の間。どちらの名称も「警報」を含む。"""
+    assert [warning.level for warning in extract_active_warnings([_kind(code)])] == [level]
 
 
-def test_a_code_not_in_the_table_is_an_error():
-    with pytest.raises(KeyError):
-        jma_warning.warning_level("no_such_code")
+@pytest.mark.usefixtures("_codes")
+def test_issued_and_continuing_warnings_come_out_in_order_with_their_name_level_and_additions():
+    warnings = extract_active_warnings([_kind("t_emergency", "継続", ("土砂災害",)), _kind("t_advisory", "発表")])
+
+    assert [warning.model_dump() for warning in warnings] == [
+        {"code": "t_emergency", "name": "架空特別警報", "level": "emergency_warning", "additions": ["土砂災害"]},
+        {"code": "t_advisory", "name": "架空注意報", "level": "advisory", "additions": []},
+    ]
 
 
-# ---- 発表中の警報の取り出し ----
+@pytest.mark.usefixtures("_codes")
+@pytest.mark.parametrize(
+    "kind",
+    [
+        _kind("t_warning", "解除"),
+        _kind(None, "発表警報・注意報はなし"),
+        _kind("t_warning", None),
+        _kind("t_irrelevant", "発表"),
+    ],
+    ids=["lifted", "nothing_issued", "no_status", "not_relevant_to_cycling"],
+)
+def test_lifted_absent_and_irrelevant_kinds_are_left_out(kind):
+    assert extract_active_warnings([kind]) == []
 
 
-def _relevant_code() -> str:
-    return next(code for code, kind in jma_warning.WARNING_KINDS.items() if kind.relevant_to_cycling)
-
-
-def _kind(code: str | None, status: str | None = "発表", additions: tuple[str, ...] = ()) -> jma_warning.AreaWarningKind:
-    return jma_warning.AreaWarningKind(code=code, status=status, additions=additions)
-
-
-@pytest.mark.parametrize("status", sorted(jma_warning.ACTIVE_STATUSES))
-def test_an_issued_or_continuing_warning_is_taken_with_its_name_level_and_additions(status):
-    code = _relevant_code()
-
-    (warning,) = jma_warning.extract_active_warnings([_kind(code, status, ("土砂災害",))])
-
-    assert warning == jma_warning.ActiveWarning(
-        code=code,
-        name=jma_warning.WARNING_KINDS[code].name,
-        level=jma_warning.warning_level(code),
-        additions=["土砂災害"],
-    )
-
-
-@pytest.mark.parametrize("status", ["解除", "発表警報・注意報はなし", None])
-def test_a_warning_that_is_not_in_force_is_left_out(status):
-    assert jma_warning.extract_active_warnings([_kind(_relevant_code(), status)]) == []
-
-
-def test_an_area_with_nothing_issued_has_no_code_and_gives_nothing():
-    assert jma_warning.extract_active_warnings([_kind(None, "発表警報・注意報はなし")]) == []
-
-
-def test_an_issued_code_not_in_the_table_is_left_out_and_reported(caplog):
-    # 表が配信元より古くなったことに気付けるよう、黙って捨てない
+@pytest.mark.usefixtures("_codes")
+def test_an_issued_code_missing_from_the_table_is_left_out_with_a_warning(caplog):
+    """表が配信元より古くなった印として、運用者に見えるように出す。"""
     with caplog.at_level(logging.WARNING, logger="ridecompass.jma_warning"):
-        assert jma_warning.extract_active_warnings([_kind("no_such_code")]) == []
+        warnings = extract_active_warnings([_kind("t_unknown"), _kind("t_warning")])
 
-    assert "no_such_code" in caplog.text
-
-
-def test_every_kind_not_relevant_to_cycling_is_left_out():
-    hidden = [code for code, kind in jma_warning.WARNING_KINDS.items() if not kind.relevant_to_cycling]
-    assert hidden, "出さない種別が1つも無い"
-
-    assert jma_warning.extract_active_warnings([_kind(code) for code in hidden]) == []
+    assert [warning.code for warning in warnings] == ["t_warning"]
+    assert any("t_unknown" in record.getMessage() for record in caplog.records)
 
 
-def test_warnings_keep_the_order_they_came_in():
-    shown = [code for code, kind in jma_warning.WARNING_KINDS.items() if kind.relevant_to_cycling][:3]
-    kinds = [_kind(code) for code in reversed(shown)]
+AREA = (_kind("t_warning"),)
+SUBDIVISION = (_kind("t_advisory"),)
+NOTHING = (_kind(None, "発表警報・注意報はなし"),)
 
-    assert [w.code for w in jma_warning.extract_active_warnings(kinds)] == list(reversed(shown))
+
+@pytest.mark.parametrize(
+    ("class20_kinds", "class10_kinds", "expected"),
+    [
+        ({"1310100": AREA}, {"130010": SUBDIVISION}, AREA),
+        ({"1310100": NOTHING}, {"130010": SUBDIVISION}, NOTHING),
+        ({}, {"130010": SUBDIVISION}, SUBDIVISION),
+        ({"1310200": AREA}, {"130020": SUBDIVISION}, None),
+    ],
+    ids=["area_first", "area_saying_nothing_still_wins", "subdivision_when_no_area_item", "neither"],
+)
+def test_the_area_item_is_used_and_the_subdivision_only_when_the_bulletin_has_no_area_item(
+    class20_kinds, class10_kinds, expected
+):
+    bulletin = WarningBulletin(report_datetime=None, class20_kinds=class20_kinds, class10_kinds=class10_kinds)
+    assert bulletin.kinds_for("1310100", "130010") == expected
