@@ -6,7 +6,7 @@ import { Mutations } from "./github.js";
 const HEAD = "振り出しの見回り";
 
 // 最新の更新が見回りのもので、状態も本文も同じなら何もしない。状態が同じなら本文だけ書き換え、状態が変わったか最新が
-// 見回りのものでなければ新しく足す（3分ごとの見回りで履歴を増やさず、履歴には状態の移り変わりだけが残る）。
+// 見回りのものでなければ新しく足す（見回りのたびに履歴を増やさず、履歴には状態の移り変わりだけが残る）。
 // 書いたら "created"・"updated"、書かなければ null を返す。
 export async function putStatus(gh, config, { status, body }) {
   if (!body.startsWith(HEAD)) throw new Error(`見回りの状況の更新は「${HEAD}」で始める`);
