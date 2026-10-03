@@ -144,34 +144,40 @@ describe("useLocation", () => {
     });
   });
 
-  // locationReady（実機フィードバック「天候がすぐ出てその後リフレッシュされる」対応、
-  // page.tsxの天候・警報等フェッチがこのフラグで「DEFAULT_LOCATIONぶんの使い捨て
-  // リクエスト」を発行しないよう待ち合わせる）。
-  describe("locationReady", () => {
-    it("マウント直後はfalseで、Geolocation成功で確定するとtrueになる", () => {
+  describe("位置が分かっているかと、分からないことの印", () => {
+    it("自動取得が決着するまでは、分かっていないが印も出さない。取れたら分かっている", () => {
       const { result } = renderHook(() => useLocation());
-      expect(result.current.locationReady).toBe(false);
+      expect(result.current.locationKnown).toBe(false);
+      expect(result.current.locationFailure).toBeNull();
 
       act(() => {
         calls[0].success(makePosition(34.6937, 135.5023));
       });
 
-      expect(result.current.locationReady).toBe(true);
-      expect(result.current.location).toEqual({ latitude: 34.6937, longitude: 135.5023 });
+      expect(result.current.locationKnown).toBe(true);
+      expect(result.current.locationFailure).toBeNull();
     });
 
-    it("Geolocationが失敗してもtrueになる（デフォルト座標のまま確定）", () => {
+    it("自動取得に失敗したら印を出し、印から取り直して取れたら消える", () => {
       const { result } = renderHook(() => useLocation());
 
       act(() => {
         calls[0].error({ code: 1, message: "denied" } as GeolocationPositionError);
       });
 
-      expect(result.current.locationReady).toBe(true);
-      expect(result.current.locationSource).toBe("default");
+      expect(result.current.locationKnown).toBe(false);
+      expect(result.current.locationFailure).toMatchObject({ id: "location", label: "現在地" });
+
+      act(() => result.current.locationFailure?.onRetry?.());
+      act(() => {
+        calls[1].success(makePosition(34.6937, 135.5023));
+      });
+
+      expect(result.current.locationKnown).toBe(true);
+      expect(result.current.locationFailure).toBeNull();
     });
 
-    it("位置情報APIが無い端末では（マイクロタスク経由で）待たせずtrueになる", async () => {
+    it("位置情報APIが無い端末では（マイクロタスク経由で）待たせず印を出す", async () => {
       Object.defineProperty(global.navigator, "geolocation", { value: undefined, configurable: true });
       const { result } = renderHook(() => useLocation());
 
@@ -179,7 +185,16 @@ describe("useLocation", () => {
         await Promise.resolve();
       });
 
-      expect(result.current.locationReady).toBe(true);
+      expect(result.current.locationFailure).toMatchObject({ id: "location" });
+    });
+
+    it("自動取得の決着より先に手で置いた位置は、分かっている位置になる", () => {
+      const { result } = renderHook(() => useLocation());
+
+      act(() => result.current.setManualLocation({ latitude: 34.6937, longitude: 135.5023 }));
+
+      expect(result.current.locationKnown).toBe(true);
+      expect(result.current.locationFailure).toBeNull();
     });
   });
 });
