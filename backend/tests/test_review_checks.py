@@ -149,6 +149,40 @@ def test_leftovers_names_private_constants_and_attributes_dropped_from_a_class(r
     assert "local_value" not in out
 
 
+def test_leftovers_names_a_removed_definition_even_when_another_file_defines_the_same_name(repo, monkeypatch, capsys):
+    base = _commit(
+        repo,
+        {
+            "tools/flow-gate/src/rules.js": "export function check(event) {}\nexport function judge() {}\n",
+            "frontend/src/form.ts": "function check() {}\n",
+            "frontend/src/loops.test.ts": "const check = () => 1;\n",
+        },
+    )
+    head = _commit(
+        repo,
+        {
+            "tools/flow-gate/src/rules.js": "export function judge() {}\n",
+            "tools/flow-gate/bin/move.js": 'import { check } from "../src/rules.js";\n',
+        },
+    )
+    monkeypatch.setattr(rc, "read_tasks_repo", lambda name: (None, None))
+
+    out = _run(monkeypatch, capsys, "leftovers", "--base", base, "--head", head)
+
+    assert "定義 tools/flow-gate/src/rules.js: check（探した語: check）" in out
+    assert "tools/flow-gate/bin/move.js:1: 「check」" in out
+
+
+def test_leftovers_does_not_name_a_definition_rewritten_in_the_same_file(repo, monkeypatch, capsys):
+    base = _commit(repo, {"tools/flow-gate/src/rules.js": "export function check(event) {}\n"})
+    head = _commit(repo, {"tools/flow-gate/src/rules.js": "const check = (event) => event;\nexport { check };\n"})
+    monkeypatch.setattr(rc, "read_tasks_repo", lambda name: (None, None))
+
+    out = _run(monkeypatch, capsys, "leftovers", "--base", base, "--head", head)
+
+    assert "消した・名前を変えた名前: 0件" in out
+
+
 def test_leftovers_says_when_the_tasks_repository_could_not_be_read(repo, monkeypatch, capsys):
     base = _commit(repo, {"tools/flow-gate/flow.config.json": _config(), "a.py": "def gone():\n    pass\n"})
     head = _commit(repo, {"a.py": "x = 1\n", "b.py": "gone()\n"})
