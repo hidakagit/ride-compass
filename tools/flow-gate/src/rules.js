@@ -12,6 +12,12 @@ export const openBlockers = (blockers) => blockers.filter((b) => b.state !== "CL
 // 子（段階）のうち、まだ開いているもの。開いた子のある親の仕事は子で進み、子が全部閉じるとゲートが親を閉じる。
 export const openChildren = (children) => children.filter((c) => c.state === "OPEN");
 
+// 今日（日本時間）の日付。Project の日付の欄と同じ YYYY-MM-DD の形。
+export const today = (now = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo" }).format(now);
+
+// 着手可能日（Project の日付の欄 project.startField）が今日より先なら、その日。今日以前か無ければ null（振り出してよい）。
+export const waitsUntil = (date, now = new Date()) => (date && date > today(now) ? date : null);
+
 // 入口の行: 親のある issue（段階）は「parent」の行、ほかは書いた人の行、無ければ author が null の行。
 export function entryFor(config, issue) {
   if (issue.parent) return config.entry.find((e) => e.parent);

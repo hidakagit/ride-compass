@@ -7,7 +7,7 @@
 // 使い方: node tools/flow-gate/bin/dispatch.js [--dry-run] [--watch]（--dry-run は何を起こすか・何を書くかを出すだけで、何も起こさない）
 import { setTimeout as sleep } from "node:timers/promises";
 import config from "../flow.config.json" with { type: "json" };
-import { pick, queueOf, readBoard, ready, runIssue, stuck, summary } from "../src/dispatch.js";
+import { dated, pick, queueOf, readBoard, ready, runIssue, stuck, summary } from "../src/dispatch.js";
 import { GitHub } from "../src/github.js";
 import { putStatus } from "../src/status.js";
 import { botToken, codeToken } from "./token.js";
@@ -63,12 +63,14 @@ async function round(seen) {
   const open = new Set(prs.map((p) => p.head.ref).filter((ref) => ref.startsWith(branchPrefix)));
   const now = stuck(config, board.tasks, running, open);
   const waiting = ready(config, queue, running).length;
+  const later = dated(queue, running).map((t) => t.startOn);
   const status = summary(config, {
     watcher,
     runs,
     started: chosen,
     waiting: waiting - chosen.length,
-    held: queue.filter((t) => !running.has(t.number)).length - waiting,
+    held: queue.filter((t) => !running.has(t.number)).length - waiting - later.length,
+    dated: later,
     stuck: now.filter((t) => seen.has(t.number)),
     stop,
     pause,

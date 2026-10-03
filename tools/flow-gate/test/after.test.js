@@ -41,6 +41,14 @@ test("子が無い・子が全部閉じたタスクで PR も問いも出さず�
   }
 });
 
+test("着手可能日を先の日へ入れて終えたら、落ちたにせず未着手へ戻す。今日（日本時間）以前の日なら落ちた", () => {
+  const now = new Date("2026-10-03T15:30:00Z");
+  const step = settle({ verdict: done, children: [], startOn: "2026-10-05", url: "u", jobStatus: "success", now });
+  assert.equal(step.on, "戻す");
+  assert.ok(step.reason.includes("2026-10-05"), step.reason);
+  assert.equal(settle({ verdict: done, children: [], startOn: "2026-10-04", url: "u", jobStatus: "success", now }).on, "落ちた");
+});
+
 test("担当の外の失敗なら、開いた子があっても未着手へ戻す", () => {
   assert.equal(settle({ verdict: classify([said("overloaded")]), children: [{ state: "OPEN" }], url: "u", jobStatus: "failure" }).on, "戻す");
 });
