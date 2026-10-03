@@ -34,6 +34,10 @@
 
 `leftovers`と`change`は検知器ではなく、作業者が自分の差分に対してその場で打つ報告である
 （差分の起点を選ぶので、上の設計要件の外にある）。
+
+`size`・`metrics`・`trigger`はプロジェクトの今の姿を HEAD から測るので、HEAD が origin/master より
+遅れていれば止まる（`scripts/checkout_freshness.py`）。`docs`は手元の作業ツリーそのものを検査し、
+`leftovers`と`change`は origin/master との差分を報告するので、遅れに左右されない。
 """
 
 from __future__ import annotations
@@ -709,25 +713,28 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
-    for name, help_text, func in (
-        ("docs", "文書の整合（常に全件）", cmd_docs),
-        ("metrics", "定量メトリクスと総量の前回比", cmd_metrics),
-        ("trigger", "周期レビューの発火判定", cmd_trigger),
+    for name, help_text, func, measures_head in (
+        ("docs", "文書の整合（常に全件）", cmd_docs, False),
+        ("metrics", "定量メトリクスと総量の前回比", cmd_metrics, True),
+        ("trigger", "周期レビューの発火判定", cmd_trigger, True),
     ):
         p = sub.add_parser(name, help=help_text)
-        p.set_defaults(func=func)
+        p.set_defaults(func=func, measures_head=measures_head)
     p = sub.add_parser("leftovers", help="撤去・改名の取り残しの候補")
     p.add_argument("--base", default="origin/master", help="比べる相手（合流点から見る）")
     p.add_argument("--head", default="HEAD", help="見る版")
-    p.set_defaults(func=cmd_leftovers)
+    p.set_defaults(func=cmd_leftovers, measures_head=False)
     p = sub.add_parser("change", help="変更の増減と規模の札")
     p.add_argument("--base", default="origin/master", help="比べる相手（合流点から見る）")
     p.add_argument("--head", help="見る版（省くと作業ツリー）")
-    p.set_defaults(func=cmd_change)
+    p.set_defaults(func=cmd_change, measures_head=False)
     p = sub.add_parser("size", help="規模と前回比")
     p.add_argument("--top", type=int, default=5, help="領域ごとに見る上位件数")
-    p.set_defaults(func=cmd_size)
+    p.set_defaults(func=cmd_size, measures_head=True)
     args = parser.parse_args()
+    if args.measures_head:
+        from checkout_freshness import require_current
+        require_current(REPO_ROOT)
     return args.func(args)
 
 

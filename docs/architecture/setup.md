@@ -152,6 +152,26 @@ PostGIS統合テスト（`road_graph_session`フィクスチャを使うもの�
 落ちる（スキップにはしない。`backend/tests/conftest.py`）。DBの無い環境では
 `-m "not postgis"`で除外して回す。
 
+## 開発機の本体のチェックアウトの遅れ
+
+担当は GitHub Actions のランナーで動くので、開発機の本体のチェックアウトを早送りする人はいない。遅れた
+本体で打った道具は古いコードで判定し、本番へ古いコードを流す。結果がコードの版に左右される道具は、
+実行口で`scripts/checkout_freshness.py`を呼び、HEAD が origin/master を含まなければ、何コミット遅れかと
+追いつくコマンドを出して止まる。作業ブランチでも、origin/master の上に載っていれば止まらない。
+作業ツリーの変更は遅れに数えない。
+
+| 道具 | 呼ぶところ | 版に左右される理由 |
+|---|---|---|
+| 本番へつなぐ道具（例: `backend/scripts/run_probe.py`・`backend/scripts/axis_apply.py`） | `backend/scripts/_prod_env.py: read_prod_env`（接続情報を渡す前） | 本番へ流すのがこのチェックアウトのコード（プローブが読む`app`・管理APIへ送る形） |
+| `scripts/review_checks.py`の`size`・`metrics`・`trigger` | `scripts/review_checks.py: main` | 前回のレビューから HEAD までを測るので、HEAD が古いと変更を数え漏らす |
+
+開発機の手元のスクリプト（リポジトリに入れないもの）で本体のコードを流すものは、上の道具を経由するか、
+頭で`python <本体>/scripts/checkout_freshness.py`を打って終了コードを見る。
+
+`python scripts/checkout_freshness.py --sync`は、master にいて追跡しているファイルに変更が無いときだけ
+早送りし、結果を1行出す（ほかの枝・変更のある作業ツリーには触らない。並行のセッションが作業中かもしれない
+ため）。Claude Code の SessionStart フックから打つ形にしてある。
+
 ## Windowsの開発機でのBashの長さの上限
 
 Claude CodeのBashツールのコマンドは、実行環境の包みごと`bash.exe -c`の1引数で渡り、MSYS2ランタイムが

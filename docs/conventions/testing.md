@@ -700,6 +700,7 @@ backendの型検査は、関数が受け取ると宣言した型と、呼び出�
 - `scripts/`は`mypy_path`に入れる。スクリプトは`python scripts/<名前>.py`で実行され、
   `scripts/`自身が`sys.path`の先頭に入るため、同じ場所のモジュール（`_stdio.py`等）を
   `from _stdio import …`で読む。mypyにも同じ解決をさせないと読めない。
+  backendの道具が読むリポジトリ直下の`scripts/`のモジュール（`checkout_freshness.py`）も同じ理由で入れる。
 - **`mypy.ini`はASCIIだけで書く。** mypyは設定ファイルをOSの既定の文字コードで読み、日本語の
   Windows（cp932）では非ASCIIの1文字で起動に失敗する。設定の理由はここに書く。
 - 解析結果は`backend/.mypy_cache/`に残り、2回目以降は変わったファイルだけを見直す。
