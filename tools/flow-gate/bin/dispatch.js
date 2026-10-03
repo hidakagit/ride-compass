@@ -2,6 +2,7 @@
 // 起きるのは、担当のワークフローが終わったとき・定期・手で（.github/workflows/claude-dispatch.yml）。何か所から同時に起きても、
 // 担当のワークフローの最初の段（作るなら振り出しの遷移が通るか、確かめるなら検証中か）が二重の作業を止める。
 // 止めの印（ラベル coordinator.stopLabel）が置き場の開いた issue にあれば、何も起こさない（スマホからでも付けられる）。
+// 利用の上限などで止めた時刻（coordinator.pauseVariable）までも起こさない。
 // 使い方: node tools/flow-gate/bin/dispatch.js [--dry-run]（--dry-run は何を起こすかを出すだけで、何も起こさない）
 import { execFileSync } from "node:child_process";
 import { dirname, join } from "node:path";
@@ -32,8 +33,16 @@ if (stop.repository.issues.nodes[0]) {
   process.exit(0);
 }
 
-// 動いている担当: 担当のワークフローの実行のうち、終わっていないもの（待っているものを含む）。
+// 利用の上限などで止める時刻（後始末 bin/after.js がリポジトリの変数に置く）を過ぎるまでは起こさない。
 const code = new GitHub(codeToken());
+const { pauseVariable } = config.coordinator;
+const pause = await code.rest("GET", `/repos/${repository}/actions/variables/${pauseVariable}`).catch(() => null);
+if (pause && Date.parse(pause.value) > Date.now()) {
+  say(`${pause.value} まで振り出しを止めている（リポジトリの変数 ${pauseVariable}）`);
+  process.exit(0);
+}
+
+// 動いている担当: 担当のワークフローの実行のうち、終わっていないもの（待っているものを含む）。
 const runs = await code.rest("GET", `/repos/${repository}/actions/workflows/${workflow}/runs?per_page=100`);
 const running = new Set(runs.workflow_runs.filter((r) => r.status !== "completed").map((r) => runIssue(r.display_title)).filter(Boolean));
 const queue = JSON.parse(execFileSync(process.execPath, [join(here, "queue.js"), "--json"], { encoding: "utf8" }));
