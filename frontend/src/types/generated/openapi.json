@@ -3850,14 +3850,7 @@
             "title": "Label"
           },
           "latest": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/LatestRunEntry"
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "$ref": "#/components/schemas/LatestRunEntry"
           },
           "latest_succeeded": {
             "anyOf": [

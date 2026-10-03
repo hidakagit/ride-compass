@@ -25,7 +25,7 @@ const MB = 1024 * 1024;
 function importEntry(overrides: Partial<ImportEntry>): ImportEntry {
   return {
     label: "import_a",
-    latest: null,
+    latest: { id: 1, status: "succeeded", finished_at: null, item_count: null, identity: {} },
     latest_succeeded: null,
     needs_attention: false,
     note: "",
@@ -207,7 +207,6 @@ describe("DbStatusPanel", () => {
             latest: { id: 5, status: "failed", finished_at: null, item_count: null, identity: {} },
             needs_attention: true,
           }),
-          importEntry({ label: "never", note: "まだ一度も取り込んでいない" }),
         ],
       }),
     );
@@ -223,13 +222,6 @@ describe("DbStatusPanel", () => {
     const failed = screen.getByText("accidents").closest("summary")!;
     expect(failed).toHaveTextContent("#5 失敗");
     expect(within(failed).getByText("注意が要る")).toBeInTheDocument();
-
-    expect(screen.getByText("never").closest("summary")).toHaveTextContent("記録なし");
-    expect(detailOf("never")).toEqual([
-      ["最終実行", "#- ・ 記録なし"],
-      ["成功した最新", "なし"],
-    ]);
-    expect(screen.getByText("まだ一度も取り込んでいない")).toBeInTheDocument();
   });
 
   it("接続の行は、接続数と、放置されたトランザクション・実行中の最長を秒か分で出す", async () => {

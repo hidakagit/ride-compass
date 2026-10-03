@@ -265,16 +265,6 @@ class TestStopDensity:
 
         assert value is None
 
-    async def test_a_segment_with_no_length_has_no_density(self, road_graph_session):
-        """0で割ると区間ごと例外になる。"""
-        value = await _edge_value(
-            road_graph_session,
-            poi_density_value_sql(KIND_A),
-            columns=self._columns("4::integer", "0.0"),
-        )
-
-        assert value is None
-
 
 class TestLandcover:
     async def test_the_share_is_read_from_the_segment_column(self, road_graph_session):

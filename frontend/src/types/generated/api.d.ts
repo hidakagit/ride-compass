@@ -1288,7 +1288,7 @@ export interface components {
         ImportRunEntry: {
             /** Label */
             label: string;
-            latest: components["schemas"]["LatestRunEntry"] | null;
+            latest: components["schemas"]["LatestRunEntry"];
             latest_succeeded: components["schemas"]["SucceededRunEntry"] | null;
             /** Needs Attention */
             needs_attention: boolean;
