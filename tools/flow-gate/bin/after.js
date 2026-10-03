@@ -2,7 +2,7 @@
 // 担当の外の失敗（src/after.js: classify）なら、作る担当のタスクを未着手へ戻し（戻す）、利用の上限・認証なら振り出しを
 // coordinator.pauseMinutes の間止める（リポジトリの変数 coordinator.pauseVariable に止める時刻を置く。振り出しが読む）。
 // それ以外で作る担当のタスクが進行中のまま（PR も問いも出さずに終わった）なら、落ちたとみなして保留にする。ただし開いた子の
-// 段階があれば、段階に分けて終えたので進行中のまま置く（src/after.js: settle）。
+// 段階があれば、段階に分けて終えたので進行中のまま置き、着手可能日が先なら、その日まで待つので未着手へ戻す（src/after.js: settle）。
 // 最後に、終わり方・かかった時間・手数・担当の最後の発言を issue へ書く（src/after.js: endReport）。発言は記録に出さない。
 // （--dry-run は本物の GitHub を読み、止める時刻・動かす遷移・書くはずのコメントを出すだけで、書かない）
 // 使い方: node tools/flow-gate/bin/after.js [--dry-run] <issue の番号> <作る|確かめる> <実行のファイル（無ければ空）> <実行の URL> <ジョブの結果>
@@ -55,7 +55,7 @@ if (verdict.pause) {
 const bot = new GitHub(botToken());
 if (kind === "作る") {
   const { issue: task } = await readTask(bot, config, { number: Number(number) });
-  const step = settle({ verdict, children: task?.subIssues.nodes ?? [], url, jobStatus: status });
+  const step = settle({ verdict, children: task?.subIssues.nodes ?? [], startOn: task?.fields[config.project.startField] ?? null, url, jobStatus: status });
   if (step) move(step.on, step.reason);
   else note("開いた子の段階があるので、進行中のまま置いた（段階に分けて終えた）");
 }

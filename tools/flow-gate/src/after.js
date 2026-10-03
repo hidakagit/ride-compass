@@ -1,4 +1,4 @@
-import { openChildren } from "./rules.js";
+import { openChildren, waitsUntil } from "./rules.js";
 
 // 担当のワークフローの後始末で、担当がどう終わったかを見分ける。messages は連携（anthropics/claude-code-action）が書き出す
 // 実行のファイル（Agent SDK のメッセージの並び）。担当の発言のメッセージの error（Agent SDK の SDKAssistantMessageError）が
@@ -20,11 +20,14 @@ export function classify(messages) {
 }
 
 // 作る担当のタスクをどう動かすか（move.js の出来事と理由。動かさないなら null）。verdict は classify の結果、children は
-// タスクの子（段階）。担当の外の失敗なら戻す。開いた子があれば、担当は段階に分けて終えたので、親は進行中のまま置く。
+// タスクの子（段階）、startOn は着手可能日。担当の外の失敗なら戻す。開いた子があれば、担当は段階に分けて終えたので、親は進行中のまま置く。
+// 着手可能日が先なら、担当はその日まで待つと決めて終えたので戻す（未着手のまま、見回りがその日まで振り出さない）。
 // それ以外は落ちたとみなす（PR や問いを出して進行中でなくなっていれば、move.js が断って何も動かない）。
-export function settle({ verdict, children, url, jobStatus }) {
+export function settle({ verdict, children, startOn = null, url, jobStatus, now = new Date() }) {
   if (verdict.outside) return { on: "戻す", reason: `Actions の作る担当（実行 ${url}）が${verdict.reason}。担当の仕事の外の失敗なので未着手へ戻す` };
   if (openChildren(children).length) return null;
+  const until = waitsUntil(startOn, now);
+  if (until) return { on: "戻す", reason: `Actions の作る担当（実行 ${url}）が、着手可能日 ${until} を入れて終えた。その日まで待つので未着手へ戻す` };
   return { on: "落ちた", reason: `Actions の作る担当（実行 ${url}）が、Pull Request も問いも出さずに終わった（結果: ${jobStatus}${jobStatus === "cancelled" ? "。持ち時間を超えたか、Cancel された" : ""}）` };
 }
 

@@ -3,7 +3,7 @@ import config from "../flow.config.json" with { type: "json" };
 
 const OPTIONS = Object.fromEntries(config.statuses.map((s, i) => [s, `opt${i}`]));
 const NAMES = Object.fromEntries(Object.entries(OPTIONS).map(([k, v]) => [v, k]));
-// Status のほかの単一選択の欄（Project に足してあるもの）。選択肢の id は「欄の名前:選択肢」。
+// Status のほかの単一選択の欄（Project に足してあるもの）。選択肢の id は「欄の名前:選択肢」。日付の欄は着手可能日（id は「F_欄の名前」）。
 const FIELDS = { [config.project.priorityField]: ["高", "中", "低"], [config.project.sizeField]: ["S", "M", "L"] };
 const BY_NODE = Object.fromEntries(Object.entries(config.people).map(([k, p]) => [p.node, k]));
 
@@ -43,7 +43,7 @@ export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel
       lastClose: { nodes: i.lastClose }, repository: { nameWithOwner: config.repository },
       projectItems: { nodes: [{ id: main ? "PVTI_1" : "PVTI_P", project: { id: "PVT_1" }, fieldValues: { nodes: [
         ...(i.status ? [{ name: i.status, field: { name: config.project.statusField } }] : []),
-        ...Object.entries(i.fields).map(([name, value]) => ({ name: value, field: { name } })),
+        ...Object.entries(i.fields).map(([name, value]) => (name === config.project.startField ? { date: value, field: { name } } : { name: value, field: { name } })),
       ] } }] },
     };
   };
@@ -59,11 +59,13 @@ export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel
     if (name.endsWith("StatusUpdate")) return { clientMutationId: null };
     const i = byId(input.id ?? input.itemId ?? input.subjectId ?? input.issueId);
     if (name === "updateProjectV2ItemFieldValue" && input.fieldId === "F_1") i.status = NAMES[input.value.singleSelectOptionId];
+    else if (name === "updateProjectV2ItemFieldValue" && input.value.date) i.fields = { ...i.fields, [config.project.startField]: input.value.date };
     else if (name === "updateProjectV2ItemFieldValue") {
       const [field, value] = input.value.singleSelectOptionId.split(":");
       i.fields = { ...i.fields, [field]: value };
     }
-    if (name === "clearProjectV2ItemFieldValue") i.status = null;
+    if (name === "clearProjectV2ItemFieldValue" && input.fieldId === "F_1") i.status = null;
+    else if (name === "clearProjectV2ItemFieldValue") i.fields = Object.fromEntries(Object.entries(i.fields).filter(([k]) => `F_${k}` !== input.fieldId));
     if (name === "updateIssue" && input.assigneeIds) i.assignees = input.assigneeIds.map((id) => BY_NODE[id]);
     if (name === "updateIssue" && "body" in input) i.body = input.body;
     if (name === "updateIssue" && input.labelIds) i.labels = input.labelIds.map((id) => id.slice(2));
@@ -83,7 +85,8 @@ export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel
         organization: { projectV2: { id: "PVT_1", fields: { nodes: [
           { id: "F_1", name: config.project.statusField, options: Object.entries(OPTIONS).map(([name, id]) => ({ id, name })) },
           ...Object.entries(FIELDS).map(([field, options]) => ({ id: `F_${field}`, name: field, options: options.map((o) => ({ id: `${field}:${o}`, name: o })) })),
-          { id: "F_title", name: "Title" },
+          { id: `F_${config.project.startField}`, name: config.project.startField, dataType: "DATE" },
+          { id: "F_title", name: "Title", dataType: "TITLE" },
         ] } } },
         repository: { labels: { nodes: labels.map((name) => ({ id: `L:${name}`, name })) }, issue: node(i, variables) },
         node: node(i, variables),
