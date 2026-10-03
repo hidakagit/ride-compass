@@ -1,6 +1,11 @@
 {
   "permissions": {
     "allow": [
+      "Bash(node tools/flow-gate/bin/after.js --dry-run *)",
+      "PowerShell(node tools/flow-gate/bin/after.js --dry-run *)",
+      "Bash(node tools/flow-gate/bin/dispatch.js --dry-run)",
+      "PowerShell(node tools/flow-gate/bin/dispatch.js --dry-run)",
+      "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(git checkout -B orch/tasks-*)",
       "PowerShell(git checkout -B orch/tasks-*)",
       "Bash(git rebase origin/master)",
