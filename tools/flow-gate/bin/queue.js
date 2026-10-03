@@ -40,6 +40,7 @@ const tasks = items
     status: t.status,
     title: t.title,
     url: t.url,
+    labels: t.labels.nodes.map((l) => l.name),
     urgent: t.labels.nodes.some((l) => l.name === config.project.urgentLabel),
     priority: t.priority,
     waitingFor: openBlockers(t.blockedBy.nodes).map((b) => b.number),

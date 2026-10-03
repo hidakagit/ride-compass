@@ -1,0 +1,33 @@
+# 振り出し（tools/flow-gate/bin/dispatch.js）。担当のワークフロー（claude-task.yml）を、動いている数が上限になるまで
+# キューの上から起こす。担当が終わったとき・定期（取りこぼしを拾う）・手で起きる。止めるときは、置き場の開いた issue のどれかに
+# ラベル「停止」を付けるか、このワークフローを Actions の画面で無効にする（Disable workflow）。
+name: Claude Dispatch
+
+on:
+  workflow_run:
+    workflows: [Claude Task]
+    types: [completed]
+  schedule:
+    - cron: "7,22,37,52 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# 振り出しは1本ずつ（同時に起きた2本目は、1本目のあとに動く）。
+concurrency:
+  group: claude-dispatch
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: node tools/flow-gate/bin/dispatch.js
+        env:
+          FLOW_BOT_TOKEN: ${{ secrets.FLOW_BOT_TOKEN }}
+          GH_TOKEN: ${{ secrets.CODE_TOKEN }}
