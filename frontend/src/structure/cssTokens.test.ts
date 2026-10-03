@@ -76,7 +76,8 @@ function scanTokens(root: string): Scan {
       local.set(path, declared);
       if (path === GLOBAL_STYLESHEET) declared.forEach((name) => global.add(name));
     } else if (/\.(ts|tsx|mts)$/.test(path)) {
-      texts = stringTexts(path, text);
+      // 参照も名前だけの定義も「--」を含むので、含まないファイルは構文木を作らずに飛ばす（作るのが所要の大半を占める）。
+      texts = text.includes("--") ? stringTexts(path, text) : [];
       for (const t of texts) if (BARE_NAME.test(t)) global.add(t);
     } else {
       continue;
