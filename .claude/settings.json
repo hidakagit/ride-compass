@@ -1,4 +1,5 @@
 {
+  "language": "japanese",
   "permissions": {
     "allow": [
       "Bash(node tools/flow-gate/bin/after.js --dry-run *)",
