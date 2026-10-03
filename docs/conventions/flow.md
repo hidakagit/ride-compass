@@ -165,8 +165,8 @@
    引き直す）、`gh run watch <id> --compact -i 30 -R hidakagit/ride-compass --exit-status` で終わるまで前に出したまま待つ（Bash の
    `timeout` を上限の 600000 にして打つ。上限で止まったら同じコマンドを打ち直す。裏へ回して知らせを待つと、そこで担当の実行が終わる。
    端末でない出力では見回りのたびに全部のジョブを書き直すので、`--compact -i 30` で出力を絞る）。
-5. CI が通ったら、`node tools/flow-gate/bin/permissions.js --added origin/master` で許可が増えるかを見る（「許可の一覧に合わせて打つ」）。
-   増える行が出たら、Pull Request を出す前に、増える行を全部判断材料に写して、担当に打たせてよいかを問い（「問い」）、そこで終える。
+5. CI が通ったら、`node tools/flow-gate/bin/permissions.js --added origin/master` で担当の権限が広がるかを見る（「許可の一覧に合わせて打つ」）。
+   広がる行が出たら、Pull Request を出す前に、広がる行を全部判断材料に写して、担当の権限を広げてよいかを問い（「問い」）、そこで終える。
    答えが「進める」なら、同じ行が今も出ることを見て次へ進む（行が変わっていれば問い直す）。
    コードのリポジトリに Pull Request を出す（`gh pr create --base master --head orch/tasks-<番号>`。
    コードのリポジトリは hidakagit のものなので、`GH_TOKEN` に hidakagit のトークン（ユーザー環境変数 `GH_TOKEN`）を渡す）。
@@ -234,7 +234,7 @@
    落ちていれば、合流点の後に master へ入った変更との意味の競合なので、満たしていないとして 4 のとおり「意味の競合」と落ちた
    テストを書いて閉じる（作る担当が載せ直して直す）。`lost_constraints.py` と `review_checks.py leftovers` も自分で回し、
    「消えた」・候補の1件ずつに本文の処置があるかを見る（処置の無いものが1件でもあれば満たしていない）。
-   `node tools/flow-gate/bin/permissions.js --added origin/master` も自分で回し、増える行が出たら、その行が全部、判断材料にあって「進める」を
+   `node tools/flow-gate/bin/permissions.js --added origin/master` も自分で回し、広がる行が出たら、その行が全部、判断材料にあって「進める」を
    選んだ答えのコメントが issue にあるかを見る（無い行が1件でもあれば満たしていない）。「分布の前後」の対象なら、
    列・軸ごとの前後の行が本文にあるかを見て、本番で測れる側（派生は本番の今、軸は後）を自分で測り直す。
    **設計書の条件を1つ当てる**: 作り直しで落ちた条件（絞り込み・不変条件・制約）は、差分にも作る担当の報告にも1行も出ないので、
@@ -284,9 +284,11 @@
 操作（`tools/flow-gate/src/permissions.js: DENY`。master への push・強制の push・GitHub の API での書き込み・ワークフローの起動等）は、ここに書いても
 許可にならず、拒否として渡る（拒否は許可より常に勝つ）。そのため、手順の push・枝の削除・マージ・CI の待ちは、ここに書いた形のまま、
 1回に1つずつ（`&&`・`;`・`|` でつながずに）打つ。手順に操作を足すと、その変更が master に入った次の担当から許可が効く。
-- **許可が増える変更**: 作業ブランチの変更で許可の行が増えるか（増える行）は、`node tools/flow-gate/bin/permissions.js --added origin/master` が
-  1行ずつ出す（何も出なければ増えない）。増える行のある変更は、ユーザーが見て許したものだけをマージする（作る担当の5・確かめる担当の1）。
-  CI も Pull Request ごとに増える行を実行の要約に出す。
+- **権限が広がる変更**: 作業ブランチの変更で担当の権限が広がるか（広がる行）は、`node tools/flow-gate/bin/permissions.js --added origin/master` が
+  1行ずつ出す（何も出なければ広がらない）。広がるのは、増えた許可の行・消えた拒否の行・判定役に教える `autoMode` の変わった文
+  （足した・消した・書き換えたのどれも。`$defaults` を消したことも含む）。前の版の設定は前の版の道具で組み立てるので、flow.md の
+  操作を足した変更だけでなく、`DENY` や `automode.json` だけを変えた変更も出る。広がる行のある変更は、ユーザーが見て許したものだけを
+  マージする（作る担当の5・確かめる担当の1）。CI も Pull Request ごとに広がる行を実行の要約に出す。
 - **判定役に教える環境**: 許可の一覧に合わない操作を判定役が見るとき、担当の置かれた環境（2つのリポジトリがユーザーのもの・担当は
   使い捨てのランナーの無人の作業役・作業ブランチで設定や道具を直すのは日常の作業 等）を `tools/flow-gate/automode.json` の `autoMode` で
   教える（公式「Configure auto mode」）。判定役はリポジトリの `.claude/settings.json` の `autoMode` を読まないので、許可と同じく
