@@ -189,6 +189,9 @@
      自分で決めると狭まるため
    - 派生の値か軸の難易度を変える変更なら、列・軸ごとの分布の前後（下の「分布の前後」）
    前の Pull Request が開いたまま残っていれば、新しく出さずに push し、撮り直したキャプチャを `gh pr comment --attach` で足す。
+   出したあとで本文を直すときは `gh issue edit <番号> -R hidakagit/ride-compass --body-file <ファイル>` で書き換える（issue の編集は
+   Pull Request の番号も受け、本文だけを変えるときは本文の欄しか問い合わせない。Pull Request の編集（`pr edit`）はレビューを頼んだチームの名前を必ず
+   問い合わせ、それには hidakagit のトークンに無い `read:org` が要るため断られる）。
    出したら（push したら）、Pull Request の実行（master と合わせた版）を
    `gh run list -R hidakagit/ride-compass --commit <コミット> --workflow ci.yml --event pull_request --json databaseId` で引き
    （出ていなければ少しおいて引き直す）、4 と同じく `gh run watch <id> --compact -i 30 -R hidakagit/ride-compass --exit-status` で
@@ -227,7 +230,7 @@
 
 **確かめる担当**（検証中。作った担当とは別）
 1. 作業ブランチを取る（`git fetch origin` と
-   `git checkout -B orch/tasks-<番号> origin/orch/tasks-<番号>`）。依存のファイルが master と違えば、作る担当の2のとおり入れ直す。Pull Request（`gh pr view <番号> -R hidakagit/ride-compass --comments`。本文のキャプチャ・差分）・作業ブランチの CI・issue の完了の条件・変更が届く範囲（要るなら画面）を
+   `git checkout -B orch/tasks-<番号> origin/orch/tasks-<番号>`）。依存のファイルが master と違えば、作る担当の2のとおり入れ直す。Pull Request（`gh pr view <番号> -R hidakagit/ride-compass --json title,body,comments,reviews`。本文のキャプチャ・差分。`--comments` と既定の出力は Pull Request の編集と同じくレビューを頼んだチームの名前を問い合わせて断られるので、欄を `--json` で選ぶ）・作業ブランチの CI・issue の完了の条件・変更が届く範囲（要るなら画面）を
    確かめる。作る担当の報告を読み写さず、自分で見る（画面なら自分で撮る。地図の画面は作る担当の5と同じ道具で撮る）。Pull Request が無ければ（手順が変わる前に
    検証中になったもの）、作る担当の5のとおりに出してから確かめる。CI は作業ブランチ単体（push の実行）に加えて、Pull Request の
    実行（master と合わせた版。作る担当の5と同じく `--event pull_request` で引く）が通っていることを見る。Pull Request の実行だけが
