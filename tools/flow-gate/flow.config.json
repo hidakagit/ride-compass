@@ -21,6 +21,7 @@
   "transitions": [
     { "on": "振り出し", "by": "claude", "from": ["未着手"], "to": ["進行中"], "when": "blockersClosed" },
     { "on": "落ちた", "by": "claude", "from": ["進行中"], "to": ["保留"], "reason": true },
+    { "on": "戻す", "by": "claude", "from": ["進行中"], "to": ["未着手"], "reason": true },
     { "on": "問い", "by": "claude", "from": ["未着手", "進行中", "検証中"], "to": ["回答待ち"] },
     { "on": "回答", "from": ["回答待ち", "保留"], "to": ["未着手", "保留", "完了"] },
     { "on": "PR が開いた", "from": ["進行中"], "to": ["検証中"] },
@@ -39,6 +40,7 @@
   "confirmLabel": "ユーザー確認",
   "code": { "repository": "hidakagit/ride-compass", "branchPrefix": "orch/tasks-", "base": "master" },
   "coordinator": {
-    "order": ["検証中", "未着手"], "stopLabel": "停止", "devLabel": "開発機が要る", "workflow": "claude-task.yml", "parallel": 4
+    "order": ["検証中", "未着手"], "stopLabel": "停止", "devLabel": "開発機が要る", "workflow": "claude-task.yml", "parallel": 4,
+    "pauseVariable": "CLAUDE_PAUSE_UNTIL", "pauseMinutes": 60
   }
 }
