@@ -1,7 +1,10 @@
-"""`domain/strict_model.py`——未知のフィールドを黙って捨てないモデルの基底。
+"""`domain/strict_model.py`——未知のフィールドを捨てずに断るPydanticモデルの基底。
 
-この基底をapp配下の全モデルが使っているかは`tests/structure/test_model_strictness.py`が持つ。
-ここで見るのは基底そのものの挙動。
+入口は基底を継承したモデルの検証（`model_validate`）とJSONスキーマの生成。基底はフィールドを持たないので、
+本番と同じく継承したモデルで確かめる。
+
+ここで見ないもの:
+- `app/`のモデルが素の`BaseModel`を継承せず未知のフィールドの扱いを宣言していること → `structure/test_model_strictness.py`
 """
 
 import pytest
@@ -10,23 +13,25 @@ from pydantic import ConfigDict, ValidationError
 from app.domain.strict_model import StrictModel
 
 
-class _Known(StrictModel):
-    known: int
+class _FrozenRequest(StrictModel):
+    """本番の軸の宣言と同じく、自分の設定（凍結）を足したモデル。"""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    speed_kmh: float = 20.0
 
 
-def test_unknown_field_is_rejected_instead_of_dropped():
-    with pytest.raises(ValidationError):
-        _Known(known=1, unknown=2)
+def test_an_unknown_field_is_refused_even_when_the_subclass_adds_its_own_config():
+    """綴りを誤ったフィールドが黙って捨てられると、指定したのに効かないという形で利用者に出る。"""
+    with pytest.raises(ValidationError, match="speed_kph"):
+        _FrozenRequest.model_validate({"name": "a", "speed_kph": 25.0})
 
 
-def test_subclasses_keep_the_rejection_while_adding_their_own_config():
-    """上書きだと思って別の設定を書くと、その派生だけが黙って値を捨てる。"""
+def test_a_field_with_a_default_is_required_in_the_response_schema_but_not_in_the_request_schema():
+    """応答には既定値のフィールドも必ず載る。スキーマがそう言わないと、生成した画面の型が欠けうる値として扱う。"""
+    serialization = _FrozenRequest.model_json_schema(mode="serialization")
+    validation = _FrozenRequest.model_json_schema(mode="validation")
 
-    class _Frozen(StrictModel):
-        model_config = ConfigDict(frozen=True)
-
-        known: int
-
-    assert _Frozen(known=1).model_config["frozen"] is True
-    with pytest.raises(ValidationError):
-        _Frozen(known=1, unknown=2)
+    assert set(serialization["required"]) == {"name", "speed_kmh"}
+    assert validation["required"] == ["name"]
