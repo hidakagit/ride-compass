@@ -88,8 +88,8 @@ Claude が起こす出来事は、表の `by: claude` の行だけ。問いは `
     （`node tools/flow-gate/bin/slots.js take <スロット> <番号> <作る|確かめる>`。理由に番号・担当の種類・掛けた時刻が入る）。
     鍵の掛かったスロットには二人目が掛けられず（道具が失敗で返す）、同じ番号がほかのスロットで鍵を持っているとき・鍵が無いのに
     枝か未コミットの変更が残っているときも、道具は鍵を外して失敗で返す。空きを読んでから担当が動き出すまでの間に、ほかの振り出しが同じスロット・同じ issue を取れないため。
-  - 担当は始めるときに自分の枝（作る担当は `orch/tasks-<番号>`、確かめる担当は `verify/tasks-<番号>`（`coordinator.verifyPrefix`））を
-    まっさらに取り、終わるときに push する。枝を手放す（`git checkout --detach`）・鍵を外す（`git worktree unlock <スロット>`）のは起動役。
+  - 担当はどちらも始めるときに作業ブランチ `orch/tasks-<番号>` を取り、終わるときに push する（確かめる担当は、競合を解いたときだけ
+    push する）。枝を手放す（`git checkout --detach`）・鍵を外す（`git worktree unlock <スロット>`）のは起動役。
     スロットには何も残さず、担当から担当へ渡すのは GitHub の作業ブランチと issue だけ。
   - `node tools/flow-gate/bin/slots.js` が、鍵の掛かったスロット＝使用中（その番号の担当が動いている）と鍵を掛けてからの時間、
     鍵の無いスロット＝空きを出す（鍵が無いのに枝や未コミットの変更が残っていれば、それも出す）。担当を一度に動かすのは、スロットの数まで。
@@ -130,9 +130,10 @@ Claude が起こす出来事は、表の `by: claude` の行だけ。問いは `
 1. 渡されたスロットで、未コミットの変更が無いことを確かめてから `git fetch origin`。変更が残っていれば、何もせず
    issue にコメントでそのことを書いて終える。作業ブランチ `orch/tasks-<番号>` が GitHub にあれば（Pull Request が閉じられて戻った・答えをもらって
    戻ったタスク）、`git checkout -B orch/tasks-<番号> origin/orch/tasks-<番号>` のあと
-   `git rebase origin/master` で前の作業を master の上へ載せ直す（競合したら直して続け、直せなければ issue にコメントで書いて終える）。
-   無ければ `git checkout -B orch/tasks-<番号> origin/master`。前の担当の残り（`wip/tasks-<番号>-*` の枝。起動役の後始末の3）が
-   あれば読んで要るものを取り込み、取り込んだら枝を消す（`git push origin --delete <枝>`）。
+   `git rebase origin/master` で前の作業を master の上へ載せ直す（競合したら「競合を解く」のとおりに直して続け、直せなければ
+   issue にコメントで書いて終える）。無ければ `git checkout -B orch/tasks-<番号> origin/master`。前の担当の残り
+   （`wip/tasks-<番号>-*` の枝。起動役の後始末の3）があれば読んで要るものを取り込み、取り込んだら枝を消す
+   （`git push origin --delete wip/tasks-<番号>-<時刻>`）。
 2. `frontend/package-lock.json` が前の回と違えば、`frontend` で `python ../scripts/heavy.py -- npm ci`。backend は
    作業ツリーに `.venv` を持たず、本体の `backend/.venv` の Python を使う（依存は共有してよい）。
 3. issue の本文とコメント（答えのコメント・やり直しなら前の Pull Request のコメントも）を読み、CLAUDE.md と規約のとおりに作る。
@@ -146,8 +147,10 @@ Claude が起こす出来事は、表の `by: claude` の行だけ。問いは `
      `gh issue close <番号> --reason completed` で閉じる（ゲートが、残りが無いことを照らしてから完了にする）。
    - コードを変えないタスク（調査・見積もり・計測）は、結果を本文に書いて自分の分の完了の条件にチェックを付け、結果を確かめてほしいと
      問う（Pull Request が無いので、完了はユーザーの答えで決まる）。
-4. `tasks#<番号>:` の件名でコミットし、`orch/tasks-<番号>` へ push して CI を待つ（競合で作り直すときは master の上へ
-   rebase して push し直す。作業ブランチは書き換えてよい）。
+4. `tasks#<番号>:` の件名でコミットし、`git push origin orch/tasks-<番号>` で push する（載せ直した・前のコミットへまとめたなど、
+   作業ブランチを書き換えたときは `git push --force-with-lease origin orch/tasks-<番号>`）。CI は、push したコミットの実行の id を
+   `gh run list -R hidakagit/ride-compass --commit <コミット> --workflow ci.yml --json databaseId` で引き（出ていなければ少しおいて
+   引き直す）、`gh run watch <id> -R hidakagit/ride-compass --exit-status` で終わるまで待つ。
 5. CI が通ったら、コードのリポジトリに Pull Request を出す（`gh pr create --base master --head orch/tasks-<番号>`。
    コードのリポジトリは hidakagit のものなので、`GH_TOKEN` に hidakagit のトークン（ユーザー環境変数 `GH_TOKEN`）を渡す）。
    件名はコミットと同じ、本文は次の順に書く:
@@ -188,8 +191,8 @@ Claude が起こす出来事は、表の `by: claude` の行だけ。問いは `
   Webhooks → Recent Deliveries から Redeliver する（3日分まで。状況の更新の異常に出る）。
 
 **確かめる担当**（検証中。作った担当とは別）
-1. 渡されたスロットで、未コミットの変更が無いことを確かめてから、作業ブランチを確かめる枝として取る（`git fetch origin orch/tasks-<番号>` と
-   `git checkout -B verify/tasks-<番号> origin/orch/tasks-<番号>`）。Pull Request（本文のキャプチャ・差分）・作業ブランチの CI・issue の完了の条件・変更が届く範囲（要るなら画面）を
+1. 渡されたスロットで、未コミットの変更が無いことを確かめてから、作業ブランチを取る（`git fetch origin` と
+   `git checkout -B orch/tasks-<番号> origin/orch/tasks-<番号>`）。Pull Request（本文のキャプチャ・差分）・作業ブランチの CI・issue の完了の条件・変更が届く範囲（要るなら画面）を
    確かめる。作る担当の報告を読み写さず、自分で見る（画面なら自分で撮る）。Pull Request が無ければ（手順が変わる前に
    検証中になったもの）、作る担当の5のとおりに出してから確かめる。`lost_constraints.py` も自分で回し、「消えた」の
    1件ずつに本文の処置があるかを見る（処置の無いものが1件でもあれば満たしていない）。「分布の前後」の対象なら、
@@ -208,10 +211,22 @@ Claude が起こす出来事は、表の `by: claude` の行だけ。問いは `
    付け、理由を書く。マージは確認を待たない（マージのあとに残りとして未着手へ戻り、作る担当が問う）。「分布の前後」の対象は
    いつもそうし、理由に前後の行を写す（値の偏りが意図どおりかは、完了の条件にもテストにも出ない）。
 4. 満たしていなければ、足りないことを書いて Pull Request を閉じる（`gh pr close <番号> --comment <理由>`）。ゲートが未着手へ戻す。
-5. 満たしていれば Pull Request をマージする（`gh pr merge <番号> -R hidakagit/ride-compass --rebase`。Claude Code の許可の
-   規則 `gh pr merge *` に合う形なので、この書き方のまま打つ。ほかの書き方や API の呼び出しは許可の判定で止まる）。
-   CI は 1 で通ったのを見ているので、待たずに打つ。master の CI も待たない（ゲートが閉じる）。master と競合して
-   マージできなければ、「競合」と書いて閉じる（4 と同じ。作る担当が作業ブランチを載せ直して出し直す）。
+5. 満たしていれば Pull Request をマージする（`gh pr merge <番号> -R hidakagit/ride-compass --rebase`）。CI は 1 で通ったのを
+   見ているので、待たずに打つ。master の CI も待たない（ゲートが閉じる）。
+6. master と競合してマージできなければ、`git rebase origin/master` で載せ直し、「競合を解く」のとおりに解く。どの競合も
+   片側を採るだけで解けたら、`git push --force-with-lease origin orch/tasks-<番号>` で push し、
+   `gh pr checks <番号> -R hidakagit/ride-compass --watch --required` で必須のチェックを待ってから、5 のとおりマージする
+   （片側を採るだけなら、確かめた中身と master のどちらかがそのまま残るので、確かめ直さない）。新しい行を書かないと解けない
+   競合が1つでもあれば、`git rebase --abort` で戻し、どのファイルのどこが重なったかを書いて「競合」として閉じる（4 と同じ。
+   作る担当が載せ直して出し直す）。
+
+**競合を解く**（作る担当の 1・確かめる担当の 6）: 競合したファイルを開き、`<<<<<<<`・`=======`・`>>>>>>>` の印と採らない側の行を
+編集で消してから `git add <ファイル>` と `git rebase --continue`。`git checkout --ours`・`--theirs` は使わない（許可の判定で止まる）。
+
+**許可の一覧に合わせて打つ**: 担当は無人で動き、許可の一覧（`.claude/settings.json` の `permissions.allow`）に合わない操作は、
+自動モードの判定役が1回ずつ可否を決める（同じ操作が通る回と断られる回に分かれる）。そのため、この節の手順の push・枝の削除・
+マージ・CI の待ちは、一覧の行に合う形でここに書いてある。書いてある形のまま、1回に1つずつ（`&&`・`;`・`|` でつながずに）打つ。
+手順に新しい操作を足すときは、一覧の行も同じコミットで足す。
 
 **自動で進めないもの**: 本番 DB へ書く・本番のデータや設定を消す・取り消せない操作は、担当が自分でしない。
 ユーザーに頼む問いを `ask.js` で問う。問いの文の頭に「PC での操作:」と書き（スマホで本文の先頭の1行を見て、PC が要ると

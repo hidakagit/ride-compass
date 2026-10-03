@@ -39,7 +39,7 @@
   "confirmLabel": "ユーザー確認",
   "code": { "repository": "hidakagit/ride-compass", "branchPrefix": "orch/tasks-", "base": "master" },
   "coordinator": {
-    "order": ["検証中", "未着手"], "verifyPrefix": "verify/tasks-", "worktrees": ["w1", "w2", "w3", "w4"], "stopLabel": "停止",
+    "order": ["検証中", "未着手"], "worktrees": ["w1", "w2", "w3", "w4"], "stopLabel": "停止",
     "dropMinutes": 240, "abandonMinutes": 270, "staleMinutes": 120
   }
 }
