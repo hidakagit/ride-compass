@@ -13,6 +13,7 @@
 自体は宣言的に導出できないPythonコードのまま残る。
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Annotated, Literal, cast
 
@@ -25,7 +26,8 @@ from app.domain.axis_definitions import (
     evaluate_axis_values,
 )
 from app.domain.axis_display import axis_display_for
-from app.domain.material_catalog import MATERIAL_CATALOG
+from app.domain.axis_raw_value import axis_material_shares, raw_value_unit
+from app.domain.material_catalog import MATERIAL_CATALOG, is_known_material
 from app.domain.strict_model import StrictModel
 
 #: 難易度（0〜100）の段の境界。軸が宣言していないときに使う。**値ではなく等分の規則**
@@ -134,6 +136,42 @@ def _signed_thresholds_from_breakpoints(shape: BreakpointLinearShape) -> list[fl
     return [-x for x in reversed(knots)] + knots
 
 
+def _quantity_boundaries(definition: AxisDefinition) -> tuple[list[float], str] | None:
+    """難易度の段の境界を、得点を作る前の量（単位つき）で書けるなら、その量と単位。
+
+    書けるのは、得点が単位のある量（`raw_value_unit`）から作られ、その量について狭く増えるときだけ。
+    そのときに限り「得点 f(a)以上 f(b)未満」の道と「量 a以上 b未満」の道が一致する——平らな区間や
+    下りのある折れ線では、量で書いた段が実際と違う道を指す。境界は折れ線の下端より上・上端以下に
+    限る。その外では得点が端に張り付き、量の段と得点の段が一致しない。
+
+    量の境界は、ramp表示の軸ならその境界（初めから量の目盛り）、上書きの無い専用配信の軸なら
+    折れ線の節（軸が「どの量から効きが変わるか」を宣言したもの）。専用配信の軸の上書きは得点で
+    刻まれているので、量へ戻さない。
+    """
+    unit = raw_value_unit(definition)
+    shape = definition.shape
+    if (
+        unit is None
+        or definition.priority_overrides
+        or not isinstance(shape, BreakpointLinearShape)
+        or shape.preprocess != "identity"
+    ):
+        return None
+    knots = sorted(shape.breakpoints)
+    if any(lower[1] >= upper[1] for lower, upper in zip(knots, knots[1:])):
+        return None
+    display = axis_display_for(definition)
+    if display.kind == "ramp":
+        boundaries = list(display.thresholds)
+    elif definition.display_thresholds_override is None:
+        boundaries = [x for x, _ in knots[1:]]
+    else:
+        return None
+    if not all(knots[0][0] < boundary <= knots[-1][0] for boundary in boundaries):
+        return None
+    return boundaries, unit
+
+
 def map_value_thresholds(definition: AxisDefinition) -> list[float]:
     """`map_value_kind`が示すスケールでの段階境界。境界を宣言していない難易度の軸は既定の境界
     （`DEFAULT_DIFFICULTY_BOUNDARIES`）——既定をここで解くので、読む側は既定を持たない。
@@ -146,6 +184,8 @@ def map_value_thresholds(definition: AxisDefinition) -> list[float]:
 
     `CategoricalShape`の値は初めからスコアと同じスケールのため写さない。ramp表示を持たない
     軸（専用way値配信）の上書きも、地図が塗る値そのものに対する境界なのでそのまま返す。
+    上書きの無い専用配信の軸のうち、得点を単位のある量から作る軸は、折れ線の節で切る
+    （`_quantity_boundaries`。凡例が段を量で書けるように）。
     """
     display = axis_display_for(definition)
     if display.kind != "ramp":
@@ -155,6 +195,11 @@ def map_value_thresholds(definition: AxisDefinition) -> list[float]:
         if map_value_kind(definition) == "signed_material":
             # `signed_material`は折れ線の軸にしか付かない。
             return _signed_thresholds_from_breakpoints(cast(BreakpointLinearShape, definition.shape))
+        quantity = _quantity_boundaries(definition)
+        if quantity is not None:
+            # 量で書ける軸は折れ線の軸に限る（`_quantity_boundaries`）。
+            line = cast(BreakpointLinearShape, definition.shape)
+            return [line.score_at(boundary) for boundary in quantity[0]]
         return list(DEFAULT_DIFFICULTY_BOUNDARIES)
     shape = definition.shape
     if not isinstance(shape, BreakpointLinearShape):
@@ -184,6 +229,28 @@ def map_value_unit(definition: AxisDefinition) -> str:
     return MATERIAL_CATALOG[value.material].unit if isinstance(value, SignedMaterialMapValue) else ""
 
 
+class MapLegendScale(StrictModel):
+    """地図の凡例が段の境界を書く目盛り。塗る値の目盛りと同じとは限らない——量から得点を作る軸は、
+    塗るのは得点でも段は量で書く（「66」だけでは雨の量か得点か読めない）。"""
+
+    #: `map_value_thresholds`と同じ件数・同じ順で、各境界をこの目盛りで書いた値。
+    boundaries: list[float]
+    #: 境界の単位。Noneは、境界が軸の得点（0〜100）であること（単位の無い量の空文字とは別）。
+    unit: str | None
+
+
+def map_legend(definition: AxisDefinition) -> MapLegendScale:
+    """地図の凡例が段の境界を書く目盛り。ルート確定の前と後で同じ段を同じ文字で書く。"""
+    thresholds = map_value_thresholds(definition)
+    if map_value_kind(definition) == "signed_material":
+        return MapLegendScale(boundaries=thresholds, unit=map_value_unit(definition))
+    quantity = _quantity_boundaries(definition)
+    if quantity is None:
+        return MapLegendScale(boundaries=thresholds, unit=None)
+    boundaries, unit = quantity
+    return MapLegendScale(boundaries=boundaries, unit=unit)
+
+
 def transform_dedicated_way_values(
     definition: AxisDefinition, material_id: str, values: dict[str, float]
 ) -> dict[str, float]:
@@ -204,3 +271,32 @@ def transform_dedicated_way_values(
     )
     return {key: difficulty for key, difficulty in zip(feature_keys, difficulties) if difficulty is not None}
 
+
+def displayed_material_ids(weights: Mapping[str, float], lens_axis_id: str | None) -> set[str]:
+    """区間表示へ載せるべき材料id。軸名のハードコードは持たない。
+
+    重み>0の公開軸が参照する材料に加え、`lens_axis_id`が符号付き材料の軸を指す場合はその
+    材料も**重みに関わらず**含める。符号付き材料は難易度0-100へ変換すると符号（登り/下り）が
+    失われるため、地図のレンズは難易度ではなく生値の側を塗る。含めないと、重み0の軸を
+    レンズに選んだときだけ表示が欠ける。
+
+    `evaluation.py: route_facing_material_ids`（スコア行列が運ぶ列の既定）とは別物で、
+    こちらはそのうちリクエストの好みとレンズに応じて実際に見せる部分集合を決める。
+    """
+    material_ids: set[str] = set()
+    for axis_id, weight in weights.items():
+        if weight <= 0:
+            continue
+        definition = AXIS_DEFINITIONS.get(axis_id)
+        if definition is None:
+            continue
+        material_ids.update(m for m in definition.materials if is_known_material(m))
+        # 軸参照を辿った先の材料（合成軸の内訳、`axis_material_shares`）。
+        # `definition.materials`は1段しか見ないため、これが無いと車の圧迫感のように
+        # 内部軸を経由する軸の内訳が1件も運ばれない。
+        material_ids.update(entry.material_id for entry in axis_material_shares(definition))
+    if lens_axis_id is not None:
+        lens_definition = AXIS_DEFINITIONS.get(lens_axis_id)
+        if lens_definition is not None and map_value_kind(lens_definition) == "signed_material":
+            material_ids.update(m for m in lens_definition.materials if is_known_material(m))
+    return material_ids

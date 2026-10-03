@@ -36,7 +36,7 @@ from app.domain.time_zone import JST
 from app.domain.traffic import highway_rank
 from app.domain.tuning import tuning_value
 from app.domain.attributes import ElevationAttribute
-from app.domain.axis_raw_value import displayed_material_ids
+from app.domain.dynamic_way_values import displayed_material_ids
 from app.domain.difficulty import DIFFICULTY_QUANTUM, distance_weighted_difficulty, round_difficulty_array
 from app.domain.errors import RoutingError
 from app.domain.evaluation import StaticEdgeScoreMatrix, build_static_edge_score_matrix, difficulty_from_cost

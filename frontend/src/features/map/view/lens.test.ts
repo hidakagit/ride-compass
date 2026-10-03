@@ -32,11 +32,11 @@ function valueRamp(
 }
 
 const catalog = mapCatalogOf([
-  valueRamp("ramp", [10, 20], { raw_value_unit: "%" }),
+  valueRamp("ramp", [10, 20], { map_legend: { boundaries: [10, 20], unit: "%" } }),
   rampEntry("labelled", [10], { display_band_labels_override: ["平ら", "坂"] }),
   rampEntry("mislabelled", [10], { display_band_labels_override: ["1つだけ"] }),
   valueRamp("unknown", [10], {}, true),
-  dedicatedEntry("dedicated", [1, 3], { map_value_unit: "m/s" }),
+  dedicatedEntry("dedicated", [1, 3], { map_legend: { boundaries: [1, 3], unit: "m/s" } }),
 ]);
 
 describe("paintedAxisId（全道路を塗る軸）", () => {
@@ -67,8 +67,14 @@ describe("lensLegend（レンズの凡例）", () => {
   });
 
   it("体感ラベルは段数と一致するときだけ添える", () => {
-    expect(lensLegend("labelled", false, catalog).map((entry) => entry.label)).toEqual(["平ら[10未満]", "坂[10以上]"]);
-    expect(lensLegend("mislabelled", false, catalog).map((entry) => entry.label)).toEqual(["10未満", "10以上"]);
+    expect(lensLegend("labelled", false, catalog).map((entry) => entry.label)).toEqual([
+      "平ら[10点未満]",
+      "坂[10点以上]",
+    ]);
+    expect(lensLegend("mislabelled", false, catalog).map((entry) => entry.label)).toEqual([
+      "影響 10点未満",
+      "影響 10点以上",
+    ]);
   });
 
   it("材料が欠けて評価できない道は、数値の段ではなく末尾の「データなし」だけに当てはまる", () => {
@@ -117,17 +123,30 @@ describe("lensLegend（レンズの凡例）", () => {
 describe("同じ軸の同じ段は、ルートを出す前と後で同じ行", () => {
   // 前後の段の数はbackendが揃えて配る（前は重み付き和の目盛り、後は難易度の目盛りで、同じ数の境界）。
   const sameBands = mapCatalogOf([
-    valueRamp("ramp", [1, 2, 3, 4], { map_value_thresholds: [20, 40, 60, 80] }, true),
+    valueRamp(
+      "ramp",
+      [1, 2, 3, 4],
+      { map_value_thresholds: [20, 40, 60, 80], map_legend: { boundaries: [20, 40, 60, 80], unit: null } },
+      true,
+    ),
+    valueRamp(
+      "quantity",
+      [10],
+      { map_value_thresholds: [100], map_legend: { boundaries: [10], unit: "件/(km・年)" } },
+      true,
+    ),
     dedicatedEntry("dedicated", [20, 40, 60, 80]),
-    dedicatedEntry("signed", [-6, -2, 2, 6], { map_value: { kind: "signed_material", material: VALUE } }),
+    dedicatedEntry("rain", [30, 70], { map_legend: { boundaries: [5, 20], unit: "mm" } }),
+    dedicatedEntry("signed", [-6, -2, 2, 6], {
+      map_value: { kind: "signed_material", material: VALUE },
+      map_legend: { boundaries: [-6, -2, 2, 6], unit: "%" },
+    }),
   ]);
   const paintable = [...sameBands.rampAxes, ...sameBands.dedicatedAxes].map((axis) => axis.axisId);
 
-  it.each(paintable)("%s: 段の鍵・色と、値が無い行の呼び方・色が前後で同じ", (axisId) => {
+  it.each(paintable)("%s: 段の鍵・色・呼び方が前後で同じ", (axisId) => {
     const shape = (hasDetail: boolean) =>
-      lensLegend(axisId, hasDetail, sameBands).map(({ key, color, isFallback, label }) =>
-        isFallback ? { key, color, label } : { key, color },
-      );
+      lensLegend(axisId, hasDetail, sameBands).map(({ key, color, label }) => ({ key, color, label }));
     expect(shape(false)).toEqual(shape(true));
   });
 });

@@ -735,6 +735,7 @@ export interface components {
             map_value_unit: string;
             /** Map Value Thresholds */
             map_value_thresholds: number[];
+            map_legend: components["schemas"]["MapLegendScale"];
             /** Raw Value Unit */
             raw_value_unit: string | null;
             /** Raw Value Total Unit */
@@ -1396,6 +1397,13 @@ export interface components {
             };
             /** Item Count */
             item_count: number | null;
+        };
+        /** MapLegendScale */
+        MapLegendScale: {
+            /** Boundaries */
+            boundaries: number[];
+            /** Unit */
+            unit: string | null;
         };
         /** MaterialCoverageCounted */
         MaterialCoverageCounted: {

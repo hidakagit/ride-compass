@@ -83,7 +83,7 @@ describe("符号付き材料の配色（0を境に分ける）", () => {
 
 describe("valueBands", () => {
   it("段ごとに下限（最下段は-∞）を持ち、色は値の種類の配色に従う", () => {
-    const bands = valueBands("signed_material", [-2, 2], "%", undefined);
+    const bands = valueBands("signed_material", [-2, 2], { boundaries: [-2, 2], unit: "%" }, undefined);
 
     expect(bands.map(({ lowerBound, color, label }) => ({ lowerBound, color, label }))).toEqual([
       { lowerBound: Number.NEGATIVE_INFINITY, color: DESCENT, label: "-2%未満" },
@@ -92,22 +92,38 @@ describe("valueBands", () => {
     ]);
   });
 
-  it("体感ラベルは段の数と合うときだけ添える", () => {
-    expect(valueBands("difficulty", [33], "", ["低", "高"]).map((band) => band.label)).toEqual([
-      "低[33未満]",
-      "高[33以上]",
+  it("得点で書く段は点を添え、体感ラベルは段の数と合うときだけ添える（無ければ影響の点と名乗る）", () => {
+    const score = { boundaries: [33], unit: null };
+    expect(valueBands("difficulty", [33], score, ["低", "高"]).map((band) => band.label)).toEqual([
+      "低[33点未満]",
+      "高[33点以上]",
     ]);
-    expect(valueBands("difficulty", [33], "", ["低", "中", "高"]).map((band) => band.label)).toEqual([
-      "33未満",
-      "33以上",
+    expect(valueBands("difficulty", [33], score, ["低", "中", "高"]).map((band) => band.label)).toEqual([
+      "影響 33点未満",
+      "影響 33点以上",
+    ]);
+  });
+
+  it("塗る境界と書く境界が違う軸は、範囲を書く境界の量で名乗り、下限は塗る境界", () => {
+    const bands = valueBands("difficulty", [30, 70], { boundaries: [5, 20], unit: "mm" }, undefined);
+
+    expect(bands.map(({ lowerBound, label }) => ({ lowerBound, label }))).toEqual([
+      { lowerBound: Number.NEGATIVE_INFINITY, label: "5mm未満" },
+      { lowerBound: 30, label: "5〜20mm" },
+      { lowerBound: 70, label: "20mm以上" },
     ]);
   });
 });
 
 describe("rampAxisBands", () => {
-  it("軸の地図表示の境界で切り、生値の単位と体感ラベルを添える", () => {
+  it("軸の地図表示の境界で切り、凡例の目盛りの単位と体感ラベルを添える", () => {
     const [axis] = rampAxesFromCatalogAxes(
-      [rampEntry("a", [10, 20], { raw_value_unit: "台/日", display_band_labels_override: ["少", "中", "多"] })],
+      [
+        rampEntry("a", [10, 20], {
+          map_legend: { boundaries: [10, 20], unit: "台/日" },
+          display_band_labels_override: ["少", "中", "多"],
+        }),
+      ],
       {},
     );
 
@@ -118,10 +134,16 @@ describe("rampAxisBands", () => {
     ]);
   });
 
-  it("生値の単位が定まらない軸は、単位を添えない", () => {
-    const [axis] = rampAxesFromCatalogAxes([rampEntry("a", [10], { raw_value_unit: null })], {});
+  it("量で書けない軸は、塗る境界で切り、ルート後の線と同じ得点で名乗る", () => {
+    const [axis] = rampAxesFromCatalogAxes(
+      [rampEntry("a", [-25], { map_legend: { boundaries: [25], unit: null } })],
+      {},
+    );
 
-    expect(rampAxisBands(axis).map((band) => band.label)).toEqual(["10未満", "10以上"]);
+    expect(rampAxisBands(axis).map(({ lowerBound, label }) => ({ lowerBound, label }))).toEqual([
+      { lowerBound: Number.NEGATIVE_INFINITY, label: "影響 25点未満" },
+      { lowerBound: -25, label: "影響 25点以上" },
+    ]);
   });
 });
 
@@ -130,7 +152,7 @@ describe("dedicatedAxisBands", () => {
     const [axis] = dedicatedWayValueAxesFromCatalogAxes([
       dedicatedEntry("a", [-2, 2], {
         map_value: { kind: "signed_material", material: "m" },
-        map_value_unit: "%",
+        map_legend: { boundaries: [-2, 2], unit: "%" },
         display_band_labels_override: ["下り", "平坦", "上り"],
       }),
     ]);

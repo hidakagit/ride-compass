@@ -2274,6 +2274,9 @@
             "type": "array",
             "title": "Map Value Thresholds"
           },
+          "map_legend": {
+            "$ref": "#/components/schemas/MapLegendScale"
+          },
           "raw_value_unit": {
             "anyOf": [
               {
@@ -2338,6 +2341,7 @@
           "map_value",
           "map_value_unit",
           "map_value_thresholds",
+          "map_legend",
           "raw_value_unit",
           "raw_value_total_unit",
           "material_breakdown",
@@ -4155,6 +4159,35 @@
           "item_count"
         ],
         "title": "LatestRunEntry"
+      },
+      "MapLegendScale": {
+        "properties": {
+          "boundaries": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Boundaries"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "boundaries",
+          "unit"
+        ],
+        "title": "MapLegendScale"
       },
       "MaterialCoverageCounted": {
         "properties": {

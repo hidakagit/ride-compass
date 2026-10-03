@@ -88,7 +88,6 @@ describe("難易度で塗る軸のモード", () => {
     axis_id: "ax",
     map_value_thresholds: [20, 50],
     label: "風",
-    map_value_unit: "点",
     display_band_labels_override: ["弱", "中", "強"],
   });
   const mode = modeOf([axis], "ax");
@@ -123,7 +122,7 @@ describe("材料の値をそのまま塗る軸のモード（符号付き材料�
     map_value_thresholds: [-2, 2],
     label: "勾配",
     map_value: { kind: "signed_material", material: "grade" },
-    map_value_unit: "%",
+    map_legend: { boundaries: [-2, 2], unit: "%" },
   });
   const mode = modeOf([axis], "slope");
   const segmentOf = (value: unknown) => ({ material_values: { grade: value }, axis_difficulties: { slope: 99 } });

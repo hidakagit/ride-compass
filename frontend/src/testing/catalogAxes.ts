@@ -31,6 +31,8 @@ export function catalogEntry(
 ): AxisCatalogEntry {
   const { display, ...rest } = overrides;
   const axisId = rest.axis_id ?? "";
+  // 境界を宣言していない軸にbackendが入れる既定の境界（空の境界は塗りの式にならない）。
+  const mapValueThresholds = rest.map_value_thresholds ?? [...mapDisplay.valueScale.difficultyBoundaries];
   return {
     axis_id: axisId,
     label: axisId,
@@ -54,8 +56,9 @@ export function catalogEntry(
     dedicated_way_value_layer: false,
     map_value: { kind: "difficulty" },
     map_value_unit: "",
-    // 境界を宣言していない軸にbackendが入れる既定の境界（空の境界は塗りの式にならない）。
-    map_value_thresholds: [...mapDisplay.valueScale.difficultyBoundaries],
+    map_value_thresholds: mapValueThresholds,
+    // 凡例は塗る値の境界を得点として書く（量で書く軸は呼び出し側が上書きする）。
+    map_legend: { boundaries: mapValueThresholds, unit: null },
     raw_value_unit: null,
     raw_value_total_unit: null,
     material_breakdown: [],
@@ -72,6 +75,7 @@ export function rampEntry(axisId: string, thresholds: number[], overrides: Parti
   return catalogEntry({
     axis_id: axisId,
     display: { kind: "ramp", label: axisId, category: "roadCondition", tile_inputs: [tileInput()], thresholds },
+    map_legend: { boundaries: thresholds, unit: null },
     ...overrides,
   });
 }
