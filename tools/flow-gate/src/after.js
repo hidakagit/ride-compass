@@ -3,8 +3,8 @@ import { waitsUntil } from "./rules.js";
 // 担当のワークフローの後始末で、担当がどう終わったかを見分ける。messages は連携（anthropics/claude-code-action）が書き出す
 // 実行のファイル（Agent SDK のメッセージの並び）。担当の発言のメッセージの error（Agent SDK の SDKAssistantMessageError）が
 // 担当の仕事の外の失敗なら、タスクは保留にせず未着手へ戻す。利用の上限・認証・課金の失敗は、待つか人が直すまで続くので、
-// 振り出しもしばらく止める。混雑・サーバーの失敗は一時のものなので、戻すだけにする。実行のファイルが無い（担当が動けなかった）
-// ときも、上限・認証と同じに扱う。
+// 振り出しもしばらく止める。混雑・サーバーの失敗と、実行のファイルが無い（Claude が起きる前に落ちた）ときは、一時のものなので
+// 戻すだけにする。
 const QUOTA = ["rate_limit", "billing_error", "authentication_failed", "oauth_org_not_allowed", "account_on_hold"];
 const TRANSIENT = ["overloaded", "server_error"];
 

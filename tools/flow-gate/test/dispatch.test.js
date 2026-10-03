@@ -87,7 +87,7 @@ test("止まっているもの: 進行中なのに担当が動いていない・
   assert.deepEqual(found.map((s) => s.number), [1, 4]);
 });
 
-test("状況の更新の中身: 止まっているものがあれば At risk、無ければ On track。止めの印と止める時刻を書く。この周で起こした仕事も動いている担当に数える", () => {
+test("状況の更新の中身: 止まっているものがあれば At risk、無ければ On track。止めている理由（見回りのワークフローが無効・止める時刻）を書く。この周で起こした仕事も動いている担当に数える", () => {
   const base = { watcher: "https://run/1", runs: [{ number: 7, title: "#7 作る", url: "https://run/7", startedAt: "2026-10-03T00:00:00Z" }], started: [{ number: 9, kind: "確かめる" }], waiting: 2, held: 3, dated: [], stuck: [], stop: null, pause: null };
   const calm = summary(config, base);
   assert.equal(calm.status, "ON_TRACK");
