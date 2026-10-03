@@ -1,5 +1,5 @@
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import settings
 
@@ -9,29 +9,19 @@ from app.config import settings
 # - OSError: 接続の拒否・切断と、command_timeoutのTimeoutError（実行中のasyncpgのタイムアウトは訳されない）
 DB_UNAVAILABLE_ERRORS: tuple[type[Exception], ...] = (SQLAlchemyError, OSError)
 
-# エンジンはアプリ全体で1つだけ生成する（SQLAlchemyの標準的な使い方。内部でコネクション
-# プールを管理するため、リクエストごとに新規接続を作る必要はない）。
+# エンジン（コネクションプール）は系統ごとにアプリ全体で1つだけ生成し、セッションファクトリが持つ。
 # create_async_engineは遅延接続のため、DBが実際に起動していなくてもこの時点では失敗しない。
-_engine: AsyncEngine | None = None
 _session_factory: async_sessionmaker[AsyncSession] | None = None
-
-
-def get_engine() -> AsyncEngine:
-    global _engine
-    if _engine is None:
-        # command_timeout: 路面タイルのバースト（短時間の連続パン/ズーム）でDB側が混雑すると
-        # クエリが数分返らないことがあり、上限が無いとリクエストが無期限にハングする。
-        # ここで出るTimeoutErrorはDB_UNAVAILABLE_ERRORSに入るため、タイル配信は空タイルへ劣化する。
-        _engine = create_async_engine(
-            settings.database_url, pool_pre_ping=True, connect_args={"command_timeout": 20}
-        )
-    return _engine
 
 
 def get_session_factory() -> async_sessionmaker[AsyncSession]:
     global _session_factory
     if _session_factory is None:
-        _session_factory = async_sessionmaker(get_engine(), expire_on_commit=False)
+        # command_timeout: 路面タイルのバースト（短時間の連続パン/ズーム）でDB側が混雑すると
+        # クエリが数分返らないことがあり、上限が無いとリクエストが無期限にハングする。
+        # ここで出るTimeoutErrorはDB_UNAVAILABLE_ERRORSに入るため、タイル配信は空タイルへ劣化する。
+        engine = create_async_engine(settings.database_url, pool_pre_ping=True, connect_args={"command_timeout": 20})
+        _session_factory = async_sessionmaker(engine, expire_on_commit=False)
     return _session_factory
 
 
@@ -40,25 +30,16 @@ def get_session_factory() -> async_sessionmaker[AsyncSession]:
 # ためで、生成のクエリ（取込範囲の判定・確定した経路の形の取り直し）はこの上限に近づかない。
 ROUTE_GENERATION_COMMAND_TIMEOUT_SECONDS = 180
 
-_route_generation_engine: AsyncEngine | None = None
 _route_generation_session_factory: async_sessionmaker[AsyncSession] | None = None
-
-
-def get_route_generation_engine() -> AsyncEngine:
-    global _route_generation_engine
-    if _route_generation_engine is None:
-        _route_generation_engine = create_async_engine(
-            settings.database_url,
-            pool_pre_ping=True,
-            connect_args={"command_timeout": ROUTE_GENERATION_COMMAND_TIMEOUT_SECONDS},
-        )
-    return _route_generation_engine
 
 
 def get_route_generation_session_factory() -> async_sessionmaker[AsyncSession]:
     global _route_generation_session_factory
     if _route_generation_session_factory is None:
-        _route_generation_session_factory = async_sessionmaker(
-            get_route_generation_engine(), expire_on_commit=False
+        engine = create_async_engine(
+            settings.database_url,
+            pool_pre_ping=True,
+            connect_args={"command_timeout": ROUTE_GENERATION_COMMAND_TIMEOUT_SECONDS},
         )
+        _route_generation_session_factory = async_sessionmaker(engine, expire_on_commit=False)
     return _route_generation_session_factory
