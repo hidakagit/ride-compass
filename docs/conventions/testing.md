@@ -906,10 +906,11 @@ test_accident_routes.py, test_routes_generate.py
    （同期テストが同じファイルに混在していても影響しない）。
 2. ファイル内で自前の追加async fixtureを定義してroad_graph_session/road_graph_repositoryに
    依存させる場合は、その自前fixtureにも明示的に`loop_scope="module"`を付ける
-   （`@pytest_asyncio.fixture(loop_scope="module")`）。省略すると
-   `MultipleEventLoopsRequestedError`になる。
-3. 素の`@pytest.fixture`でasync generatorを書かない。`@pytest_asyncio.fixture`を明示的に使う
-   （前者は互換用の内部変換パスを通り、モジュールスコープのイベントループと衝突する）。
+   （`@pytest_asyncio.fixture(loop_scope="module")`）。省略するとそのfixtureは
+   `pytest.ini`の`asyncio_default_fixture_loop_scope`（関数ごとのループ）で動き、モジュールの
+   ループに束縛された接続へ触れた時点で`RuntimeError: ... attached to a different loop`で落ちる。
+3. 素の`@pytest.fixture`でasync fixtureを書かない。`@pytest_asyncio.fixture`を明示的に使う
+   （前者は`loop_scope`を受け取れず、2の省略と同じく関数ごとのループで動く）。
 4. ファイル単位で共有するのは接続とスキーマまでにする。**テストが書き換える行（生データ・派生の表）は、
    関数スコープのfixtureで各テストの前に作り直す。** 共有した行を書き換えて後片付けで戻す形は、戻し
    漏れが次のテストの前提を静かに変え、実行順が変わった回にだけ落ちる（実行順は毎回混ぜている。
