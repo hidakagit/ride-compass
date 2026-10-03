@@ -3,12 +3,13 @@
  * 編集面を、結果（本物の`useRouteResults`）・生成・乗り換えの値から描き、上がった操作を結果へ返す。
  *
  * ここで見ないもの:
- * - 最速の印・「+N分」・負荷の帯の高さの決め方 → `routeTabLabel.ts`・`difficultyLoadBar.ts`
+ * - 最速の印・「+N分」・見出しの分け方と名前・負荷の帯の高さの決め方 → `routeTabLabel.ts`・`difficultyLoadBar.ts`
  * - 生成の案内・条件のずれの決め方 → `useRouteGeneration.ts`、乗り換えの状態 → `useSpliceSession.ts`
  *
  * 差し替えた部品と、それで見えなくなるもの:
  * - 候補の中身（`RouteAxisProfile`）・道のりのグラフ（`DifficultyProfile`）・区間の内訳の帯（`AxisContributionBar`）・
- *   区間の風（`SegmentWind`）・比較表（`ComparisonPanel`）・編集面（`RouteSplicePanel`）: 渡す値と、上がる操作だけを見る。
+ *   区間の風（`SegmentWind`）・比較表（`ComparisonPanel`）・編集面（`RouteSplicePanel`）・元との違い（`EditDifference`）:
+ *   渡す値と、上がる操作だけを見る。
  *   部品自身の表示は各部品のテストが見る。
  * - 軸カタログ（`useAxisCatalog`）: 返す値をテストが決める。GPXの書き出し（`gpxExport.downloadGpx`）: ファイルを落とす境界。
  */
@@ -22,7 +23,6 @@ import { MATERIAL_CATALOG } from "@/lib/axisMaterialsCatalog";
 import { catalogEntry, catalogResponse } from "@/testing/catalogAxes";
 import { setResearchEnabled } from "@/lib/researchMode";
 import { makeRouteCandidate } from "@/testing/routeFixtures";
-import { SPLICED_ROUTE_ID_PREFIX } from "@/features/route/routeTabLabel";
 import { useRouteResults, type RouteResults } from "@/features/route/useRouteResults";
 import type { ExperimentSlot } from "@/types/experimentSlot";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
@@ -36,6 +36,7 @@ vi.mock("@/components/AxisContributionBar/AxisContributionBar", stubModule("Axis
 vi.mock("@/features/route/SegmentWind/SegmentWind", stubModule("SegmentWind"));
 vi.mock("@/features/route/ComparisonPanel/ComparisonPanel", stubModule("ComparisonPanel"));
 vi.mock("@/features/route/RouteSplicePanel/RouteSplicePanel", stubModule("RouteSplicePanel"));
+vi.mock("@/features/route/EditDifference/EditDifference", stubModule("EditDifference"));
 vi.mock("@/hooks/useAxisCatalog", () => ({ useAxisCatalog: () => stubs.catalog }));
 vi.mock("@/features/route/gpxExport", () => ({ downloadGpx: vi.fn() }));
 
@@ -60,6 +61,22 @@ const GENERATION: Props["generation"] = {
   weightsNotApplied: false,
   destinationCorrected: false,
   experimentSlots: [],
+  generatedInput: null,
+};
+// 経由地の無い目的地ルートの生成（所要時間だけで選んだ1本を必ず含む）。
+const DESTINATION_INPUT: Props["generation"]["generatedInput"] = {
+  origin: { latitude: 35, longitude: 139 },
+  distanceKm: null,
+  distanceToleranceKm: 5,
+  maxRoutes: 3,
+  assumedSpeedKmh: 20,
+  startTime: new Date("2026-09-25T03:00:00Z"),
+  startTimePinned: false,
+  hardFilters: {},
+  lensAxisId: null,
+  routePreference: null,
+  waypoints: [],
+  destination: { latitude: 35.1, longitude: 139 },
 };
 const SPLICE: Props["splice"] = { canStart: false, start: vi.fn(), panel: null };
 const ROUTE_WEIGHTS = { axis_a: 0.2 };
@@ -188,15 +205,32 @@ describe("候補の一覧の行", () => {
     expect(screen.queryByRole("img", { name: "最速" })).not.toBeInTheDocument();
   });
 
-  it("経由地を通るルートは順位の代わりに名前を出し、乗り換えで作った候補には「合成」を添える", () => {
+  it("経由地を通るルートは順位の代わりに名前を出す", () => {
     renderOutcome();
+    withRoutes([route(routeGenerateConfig.waypoints_route_id, { direction_label: "経由地ルート", distance_km: 5 })]);
+    expect(rows()[0]).toHaveTextContent(/^経由地ルート 5\.0km/);
+  });
+
+  it("経由地の無い目的地ルートでは、最速を「採用ルート」の先頭に、編集で作ったルートをその後に、残りを「生成した候補」に並べる", () => {
+    renderOutcome({ generation: { generatedInput: DESTINATION_INPUT } });
     withRoutes([
-      route(routeGenerateConfig.waypoints_route_id, { direction_label: "経由地ルート", distance_km: 5 }),
-      route(`${SPLICED_ROUTE_ID_PREFIX}-1`, { distance_km: 6 }),
+      route("fast", { distance_km: 14.2, estimated_duration_seconds: 2880 }),
+      route("slow", { distance_km: 15.1, estimated_duration_seconds: 2880 + 4 * 60 }),
     ]);
-    const [waypoints, spliced] = rows();
-    expect(waypoints).toHaveTextContent(/^経由地ルート 5\.0km/);
-    expect(spliced).toHaveTextContent(/^2 6\.0km合成/);
+    act(() =>
+      resultsRef.current.addEdit(route("made", { distance_km: 15.6, estimated_duration_seconds: 3180 }), "slow"),
+    );
+    const list = screen.getByRole("tablist", { name: "ルート結果" });
+    expect(list).toHaveTextContent(/^採用ルート14\.2km48分.*編集1 15\.6km\+5分.*生成した候補1 15\.1km\+4分/);
+    expect(within(rows()[0]).getByRole("img", { name: "最速" })).toBeInTheDocument();
+    expect(rows().map((tab) => tab.getAttribute("aria-selected"))).toEqual(["false", "true", "false"]);
+  });
+
+  it("周回の生成では見出しを分けない", () => {
+    renderOutcome();
+    withRoutes([route("a", { estimated_duration_seconds: 600 }), route("b", { estimated_duration_seconds: 700 })]);
+    expect(screen.queryByText("採用ルート")).not.toBeInTheDocument();
+    expect(screen.queryByText("生成した候補")).not.toBeInTheDocument();
   });
 
   it("総合難易度は丸めた数値と帯の長さで出し、算出できなかった候補は「—」だけで帯を塗らない", () => {
@@ -376,6 +410,32 @@ describe("候補の操作", () => {
     await user.click(screen.getByRole("button", { name: "ルートを合成" }));
     expect(start).toHaveBeenCalledWith("a");
     expect(resultsRef.current.selectedRouteSegment).toBeNull();
+  });
+
+  it("編集で作ったルートの中身の先頭に、元の名前と元・編集後を渡して元との違いを出し、「元を見る」で元を選ぶ", () => {
+    renderOutcome({ generation: { generatedInput: DESTINATION_INPUT } });
+    const generated = [
+      route("fast", { estimated_duration_seconds: 600 }),
+      route("slow", { estimated_duration_seconds: 700 }),
+    ];
+    withRoutes(generated);
+    expect(isStubMounted("EditDifference")).toBe(false);
+    const made = route("made", { estimated_duration_seconds: 650 });
+    act(() => resultsRef.current.addEdit(made, "slow"));
+    const shown = stubProps<{
+      originName: string;
+      origin: RouteCandidate;
+      edited: RouteCandidate;
+      onShowOrigin: () => void;
+    }>("EditDifference");
+    expect(shown).toMatchObject({
+      originName: "1",
+      origin: generated[1],
+      edited: { ...made, id: resultsRef.current.selectedRouteId },
+    });
+    act(() => shown.onShowOrigin());
+    expect(resultsRef.current.selectedRouteId).toBe("slow");
+    expect(isStubMounted("EditDifference")).toBe(false);
   });
 
   it("編集中は一覧の代わりに編集面を出し、編集面の値をそのまま渡す（作り直しの失敗は上に残す）", () => {
