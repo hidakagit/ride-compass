@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 
 import { useRouteGeneration, type RouteOutcomeKind } from "@/features/route/useRouteGeneration";
 import { useRouteResults } from "@/features/route/useRouteResults";
@@ -26,7 +26,7 @@ interface RoutePlannerInputs {
  */
 export function useRoutePlanner({ conditions, onOutcome, ...generationInputs }: RoutePlannerInputs) {
   const results = useRouteResults();
-  const { replaceWithGenerated, replaceAndSelect, clear: clearResults } = results;
+  const { replaceWithGenerated, addEdit, selectTab, clear: clearResults } = results;
 
   const generation = useRouteGeneration({
     conditions,
@@ -42,8 +42,9 @@ export function useRoutePlanner({ conditions, onOutcome, ...generationInputs }: 
     generatedInput: generation.generatedInput,
     hasSelectedRoute: results.selectedCandidate !== null,
     onApplyStart: clearNotice,
-    onApplied: ({ routes, selectedRouteId }) => {
-      replaceAndSelect(routes, selectedRouteId);
+    onApplied: (applied) => {
+      if ("created" in applied) addEdit(applied.created, applied.originId);
+      else selectTab(applied.existingRouteId);
       onOutcome("fresh");
     },
   });
@@ -55,11 +56,22 @@ export function useRoutePlanner({ conditions, onOutcome, ...generationInputs }: 
     clearGeneration();
   }, [clearResults, clearGeneration]);
 
+  // 編集で作ったルートを選んでいる間、地図には元のルートだけを参考線として重ねる（ほかの候補まで並ぶと、変えた区間が
+  // どれとの差か読めない）。編集している間は乗り換え先を探すので全部を出す。
+  const { selectedEdit } = results;
+  const mapRoutes = useMemo(
+    () =>
+      splice.editingRoute === null && selectedEdit?.origin ? [selectedEdit.origin, selectedEdit.route] : results.routes,
+    [splice.editingRoute, selectedEdit, results.routes],
+  );
+
   return {
     results,
     generation,
     splice,
     clear,
+    /** 地図に描くルート。 */
+    mapRoutes,
     /** 軸を「未使用」と分ける重み。生成に使われた重みで、生成前は今の設定の重み（重みタブが薄く出す軸と同じ軸になる）。 */
     routeWeights: results.usedWeights ?? conditions.routePreference,
   };

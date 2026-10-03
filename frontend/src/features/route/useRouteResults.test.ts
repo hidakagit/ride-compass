@@ -1,9 +1,10 @@
 /**
- * 「ルート結果」の状態（`useRouteResults`）——候補・選んだ候補・地図で押した区間・比較タブ・生成に使われた重み。
+ * 「ルート結果」の状態（`useRouteResults`）——候補・編集で作ったルート・選んだ候補・地図で押した区間・比較タブ・生成に使われた重み。
  */
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { SPLICED_ROUTE_ID_PREFIX } from "@/features/route/routeTabLabel";
 import { makeRouteCandidate } from "@/testing/routeFixtures";
 import type { RouteSegmentDetail, SelectedRouteSegment } from "@/types/route";
 
@@ -23,12 +24,14 @@ function withSegmentAndComparison() {
 }
 
 describe("生成の結果", () => {
-  it("一覧を入れ替えて先頭を選び、使われた重みを持つ。比較タブと押した区間は外す", () => {
+  it("一覧を入れ替えて先頭を選び、使われた重みを持つ。編集で作ったルート・比較タブ・押した区間は外す", () => {
     const hook = withSegmentAndComparison();
     act(() => hook.result.current.selectSegment(SEGMENT));
+    act(() => hook.result.current.addEdit(DETAILED, "a"));
     act(() => hook.result.current.replaceWithGenerated([B, A], { axis_b: 1 }));
     expect(hook.result.current).toMatchObject({
       routes: [B, A],
+      edits: [],
       selectedRouteId: "b",
       selectedCandidate: B,
       comparisonTabActive: false,
@@ -69,27 +72,46 @@ describe("選ぶ", () => {
     expect(hook.result.current.hasDetail).toBe(true);
   });
 
-  it("乗り換えで作った経路へ一覧を替え、指定の候補を選んで押した区間を外す（比較タブと使われた重みは変えない）", () => {
+  it("乗り換えで作ったルートを作った順の番号と元のidで足して選び、押した区間を外す（比較タブと使われた重みは変えない）", () => {
     const hook = withSegmentAndComparison();
     act(() => hook.result.current.selectSegment(SEGMENT));
-    act(() => hook.result.current.replaceAndSelect([A, DETAILED, B], "d"));
+    act(() => hook.result.current.addEdit(DETAILED, "a"));
+    const first = `${SPLICED_ROUTE_ID_PREFIX}-1`;
     expect(hook.result.current).toMatchObject({
-      routes: [A, DETAILED, B],
-      selectedRouteId: "d",
+      generated: [A, B],
+      edits: [{ route: { ...DETAILED, id: first }, originId: "a", number: 1 }],
+      routes: [A, B, { ...DETAILED, id: first }],
+      selectedRouteId: first,
+      selectedEdit: { originId: "a", origin: A },
       selectedRouteSegment: null,
       comparisonTabActive: true,
       usedWeights: { axis_a: 1 },
     });
+
+    act(() => hook.result.current.addEdit(B, first));
+    expect(hook.result.current.edits.map((edit) => [edit.route.id, edit.originId, edit.number])).toEqual([
+      [first, "a", 1],
+      [`${SPLICED_ROUTE_ID_PREFIX}-2`, first, 2],
+    ]);
+  });
+
+  it("生成したルートを選んでいる間は、編集で作ったものとして返さない", () => {
+    const hook = withSegmentAndComparison();
+    act(() => hook.result.current.addEdit(DETAILED, "a"));
+    act(() => hook.result.current.selectTab("a"));
+    expect(hook.result.current.selectedEdit).toBeNull();
   });
 });
 
 describe("消す", () => {
-  it("候補・選択・押した区間・比較タブ・使われた重みを消す", () => {
+  it("候補・編集で作ったルート・選択・押した区間・比較タブ・使われた重みを消す", () => {
     const hook = withSegmentAndComparison();
+    act(() => hook.result.current.addEdit(DETAILED, "a"));
     act(() => hook.result.current.selectSegment(SEGMENT));
     act(() => hook.result.current.clear());
     expect(hook.result.current).toMatchObject({
       routes: [],
+      edits: [],
       selectedRouteId: null,
       selectedCandidate: null,
       hasDetail: false,

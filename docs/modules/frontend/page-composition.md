@@ -22,7 +22,7 @@
 | features/map/view | `useMapView.ts`（地図の見え方の状態と、地図・操作部品へ渡す値）・`mapLook.ts`（地図へ渡す見え方の値の型）・`lens.ts`（レンズから塗る軸・凡例・選択肢を導く）・`overlayChips.ts`（地図上チップの状態とレイヤー表示の保存形式）・`legendFilters.ts`（凡例で隠した行の保存先の読み書き） |
 | features/map/MapView | `useLayerDataStatus.ts`（MapLibreのソースイベントからレイヤーごとの取得状態を算出して渡す） |
 | lib | `apiBaseUrl.ts`・`apiClient.ts`（backendのAPIを呼ぶ口と、全呼び出しが共有する骨格。下記）・`apiPath.ts`（アプリ自身が呼ばないURL［地図ライブラリへ渡すタイル・スタイル］のパスをOpenAPIの宣言と型で照合して作る）・`apiError.ts`・`backendInternalUrl.ts`・`queryClient.ts`（画面のデータ取得が共有するTanStack Queryのキャッシュ。下記「データ取得の骨格」）・`apiTimeouts.ts`（APIリクエストのタイムアウト。呼び出しの性質ごとの名前付き定数）・`safeStorage.ts`（localStorageの読み書きで例外を外へ出さない薄いラッパ）・`paletteCssVariables.ts`（地図に塗る色と同じ色をUIにも出す箇所へ、配信された値をCSS変数として流す。`layout.tsx`がサーバー側で`:root`へ入れる。CSSが値を持つのはライト/ダークで2値を持つものだけ）・`mapOverlayEdges.ts`（地図の上に重ねる部品へ付ける「どの辺を覆うか」の印と、印の付いた部品が覆う幅の実測。印を付ける部品は地図の機能の外にもあるので共有の層に置く。下記「`MapView`との境界」） |
-| features/route | `routeApi.ts`（ルート生成・プレビューAPI）・`formatDuration.ts`（秒を「102分」の形にする。1時間を超えても分で書き、候補の一覧・候補の中身・差し替えの比較で同じ単位で見比べる）・`generationRequest.ts`（生成リクエストのpayloadと`conditionsDirty`の比較キーを同じ入力から導出する純関数）・`routeSplice.ts`（候補どうしが別々の道を通る区間を`edge_ids`の集合演算で求め、表示中の側と相手側を対応づけ、選んだ区間を差し替えた経路を組み立て純関数。差し替えた経路の評価はbackendが行うため計算式は持たない。合成結果も生成候補と同じ並び（所要時間の短い順、`routeTabLabel.ts: orderByDuration`）へ入れる。区間を割る下限は持たず呼び出し側から受け取る［backendの較正値で、管理画面から変えられる］） |
+| features/route | `routeApi.ts`（ルート生成・プレビューAPI）・`formatDuration.ts`（秒を「102分」の形にする。1時間を超えても分で書き、候補の一覧・候補の中身・差し替えの比較で同じ単位で見比べる）・`generationRequest.ts`（生成リクエストのpayloadと`conditionsDirty`の比較キーを同じ入力から導出する純関数）・`routeSplice.ts`（候補どうしが別々の道を通る区間を`edge_ids`の集合演算で求め、表示中の側と相手側を対応づけ、選んだ区間を差し替えた経路を組み立て純関数。差し替えた経路の評価はbackendが行うため計算式は持たない。区間を割る下限は持たず呼び出し側から受け取る［backendの較正値で、管理画面から変えられる］） |
 | features/conditions | `useRideConditions.ts`（走行条件: 走行方位・出発時刻・想定速度。想定速度だけを保存し、保存値は画面の範囲内の整数だけを受け入れる）・`useDepartureTime.ts`（出発時刻。選ぶまでは5分刻みの「今」へ追従し、選んだ時刻は動かさない）・`rideConditions.ts`（走行条件の出発時刻ラベルと想定速度の丸め。速度の上下限はbackendの`routeGenerateConfig`から読む） |
 | types | `types/route.ts`（`RouteCandidate`等の生成APIレスポンス型）・`types/fetchFailure.ts`（常設ヘッダーの「未取得」の印に並ぶ項目の型。下記「失敗・空・待ちの伝え方」） |
 | components（特定モジュールの責務ではない共通部品） | `BottomSheet/BottomSheet.tsx`（モバイル下部シート、下記「モバイル/デスクトップのレイアウト分岐」節参照）・`Disclosure/Disclosure.tsx`（折りたたみ表示、[ルート設定・結果パネル](route-settings-and-results.md)等が使う）・`UsageGuide/UsageGuide.tsx`（説明を見る状態。下記「使い方の説明」）・`UsageGuide/usageTarget.ts`（押された要素から説明する部品・名前・使い方の文を引く）・`FirstVisitIntro/FirstVisitIntro.tsx`（初めて開いたときだけ出す案内。下記「初回の案内」） |
@@ -400,8 +400,9 @@ JSはその旗を読むだけで数値を写さない:
   持たない——別の置き場にすると、どのルートを編集しているのかを編集側で選び直す形になる。
   入口は候補のタブの中身の先頭にある「合成」（`RouteOutcome.tsx`の候補の操作）で、
   乗り換えできない生成（周回・候補1件）と編集中、区間を割る下限（軸カタログが運ぶ較正値）を
-  引けない間には出さない——押しても何もできない入口・較正と違う切り方で動く入口を残さない。編集の元は押した候補に固定し、作ったら同じ場所が一覧へ戻る
-  （[route-settings-and-results.md](route-settings-and-results.md)参照）。
+  引けない間には出さない——押しても何もできない入口・較正と違う切り方で動く入口を残さない。編集の元は押した候補に固定し、作ったら同じ場所が一覧へ戻って
+  作ったルートを「採用ルート」に別の1本として並べる（元を上書きしない。下記「ルート結果の中身」、
+  [route-settings-and-results.md](route-settings-and-results.md)参照）。
 - モバイル: 下部タブバー（ルート設定/ルート結果）+`BottomSheet`（2枚が`mobileSheet`で
   排他表示、高さ`mobileSheetHeightVh`を共有）。「ルート結果」タブの点は、まだ開いていない結果
   （`unseenOutcome`）か条件の変更（`conditionsDirty`）で点き、**失敗のときだけ赤、それ以外は橙**
@@ -444,16 +445,20 @@ propでヘッダ右側・閉じるボタンの手前へ要素を差し込む（�
 
 候補が無い間は上の空の状態（生成前・生成中・失敗）を出す。見出しは描画しない
 （デスクトップは`Disclosure`の見出し、モバイルはBottomSheetの`title`が担う）。1件以上
-生成された後は、Radix Tabs（`@radix-ui/react-tabs`）1段のフラットなタブ列を描画する。タブの並び順は
+生成された後は、Radix Tabs（`@radix-ui/react-tabs`）1段のフラットなタブ列を描画する。生成した候補の並び順は
 **所要時間の短い順**（`routeTabLabel.ts: orderByDuration`。同着は受け取った並び＝backendの総合難易度の昇順を保つ）。
-生成の結果を受け取ったときと、区間を乗り換えて作った候補を足したときに並べ直してから`routes`へ入れるので、一覧・最初に
+生成の結果を受け取ったときに並べ直してから`useRouteResults.ts: generated`へ入れるので、一覧・最初に
 選ぶ候補（先頭＝最も早く着く候補）・行の番号が同じ並びになる。研究モードの実験スロットの代表だけは、backendの並びの
-先頭（総合難易度が最小）を使う。タブは
-**候補ごと**（`routes`の件数ぶん、「順位番号（1始まり） 距離km」に加えて総合難易度を
+先頭（総合難易度が最小）を使う。
+**一覧の見出しと名前は`routeTabLabel.ts: routeListSections`が決める**。経由地の無い目的地ルートの生成（backendが所要時間だけで
+選んだ1本を必ず含める）か、区間の乗り換えで作ったルートがあるときは、「採用ルート」と「生成した候補」の見出しで分ける。
+採用ルートの先頭は生成した候補のうち最も早く着く1本（名前は出さない）で、比べる基準の1本が編集の前後で動かずに一番上にある。
+その後に編集で作ったルートが作った順に「編集N」で続く（`useRouteResults.ts: edits`。生成し直す・全消去で一緒に消える）。
+残りの生成した候補は1から番号を振る。周回など見出しを分けない生成では、生成した候補に1から番号を振る。タブは
+**候補ごと**（名前と距離kmに加えて総合難易度を
 数値と長さの両方で表示する——タブを開かずに候補どうしを見比べられるようにするため。経由地
-ルート（id: `route-waypoints`）は常に1件で順位の概念が無いため、`NON_DIRECTIONAL_ROUTE_IDS`
-の判定でdirection_label[固定文言]をそのまま表示する。
-基準線（一覧の中で所要時間が最小の候補。`fastestRouteId`）には順位番号に加えて
+ルート（id: `route-waypoints`）は常に1件で順位の概念が無いため、番号の代わりにdirection_label[固定文言]をそのまま表示する。
+基準線（一覧の中で所要時間が最小の候補。編集で作ったルートも含めて決める。`fastestRouteId`）には
 その所要時間と最速の印を添え、他の候補には距離の後ろへ基準線からの超過時間[`+12分`]を添える
 [`features/route/routeTabLabel.ts`]——軸設定に沿ったルートを走る対価であり、候補を見比べる
 タブ列に無いと比較のたびにタブを開き直すことになるため）＋「比較」
@@ -495,6 +500,9 @@ backendが最寄りのアクセス可能な地点へ補正した場合のヒン�
 繰り返し表示される。デスクトップは「ルート結果」`Disclosure`の`trailing`、モバイルは
 BottomSheetの`headerAction`propとして同じヘルパーを渡す（`routes.length > 0`の間のみ）。
 候補タブ列のvalue体系はroute idと`features/route/useRouteResults.ts: COMPARISON_TAB`。
+編集で作ったルートを選んでいる間は、中身の先頭に「元との違い」（`features/route/EditDifference/EditDifference.tsx`）を出し、
+地図には元のルートだけを参考線として重ねる（`useRoutePlanner.ts: mapRoutes`。ほかの候補まで並ぶと、変えた区間がどれとの差か
+読めない）。編集している間は乗り換え先を探すため、全部の候補を参考線にする。
 
 外側タブの選択値は`selectedRouteId`（候補タブ選択時）と`comparisonTabActive`
 （比較タブ選択時）を組み合わせて求める。`selectedRouteId`自体は比較タブを見ている間も

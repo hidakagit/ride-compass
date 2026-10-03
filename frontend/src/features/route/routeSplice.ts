@@ -73,7 +73,7 @@ interface PairedStretch {
  * 現れる。本数が食い違ったら対応づけを諦める（片側だけ描くと、地図上の帯と実際に
  * 差し替わる道がずれる）。
  */
-function pairedStretches(displayed: readonly string[], target: readonly string[]): PairedStretch[] {
+export function pairedStretches(displayed: readonly string[], target: readonly string[]): PairedStretch[] {
   const onDisplayed = differingStretches(displayed, target);
   const onTarget = differingStretches(target, displayed);
   if (onDisplayed.length !== onTarget.length) return [];

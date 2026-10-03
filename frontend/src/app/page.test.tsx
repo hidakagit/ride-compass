@@ -577,7 +577,7 @@ describe("区間の乗り換えの受け渡し", () => {
     expect(map().pointEditingEnabled).toBe(true);
   });
 
-  it("作ると一覧へ入れて選び、閉じていた「ルート結果」を開く。直前の生成の失敗の文言は消す", async () => {
+  it("作ると採用ルートへ入れて選び、閉じていた「ルート結果」を開く。地図には元だけを重ねる。直前の生成の失敗の文言は消す", async () => {
     const user = renderPage();
     await generateToDestination(user, ROUTES);
     vi.mocked(generateRoutes).mockRejectedValueOnce(new Error("混み合っています"));
@@ -592,8 +592,10 @@ describe("区間の乗り換えの受け渡し", () => {
     await user.click(outcomeSection());
     respond([route("made", { edge_ids: ["e1", "x", "e2"], estimated_duration_seconds: 700 })]);
     await act(async () => apply?.());
-    expect(outcome().results.routes.map((r) => r.id)).toEqual(["route-0", `${SPLICED_ROUTE_ID_PREFIX}-2`, "route-1"]);
-    expect(map().selectedRouteId).toBe(`${SPLICED_ROUTE_ID_PREFIX}-2`);
+    const madeId = `${SPLICED_ROUTE_ID_PREFIX}-1`;
+    expect(outcome().results.edits).toMatchObject([{ route: { id: madeId }, originId: "route-0", number: 1 }]);
+    expect(map().selectedRouteId).toBe(madeId);
+    expect(map().routes?.map((r) => r.id)).toEqual(["route-0", madeId]);
     expect(outcomeSection()).toHaveAttribute("aria-expanded", "true");
     expect(outcome().generation.failure).toBeNull();
   });
