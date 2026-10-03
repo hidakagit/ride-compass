@@ -9,6 +9,9 @@ export const userTurn = (config, issue) => ownerOf(config, issue) === config.use
 // 前提のうち、まだ開いているもの。見送りで閉じた前提は待たない（作る担当が読んで、進める前に問う）。
 export const openBlockers = (blockers) => blockers.filter((b) => b.state !== "CLOSED");
 
+// 子（段階）のうち、まだ開いているもの。開いた子のある親の仕事は子で進み、子が全部閉じるとゲートが親を閉じる。
+export const openChildren = (children) => children.filter((c) => c.state === "OPEN");
+
 // 入口の行: 親のある issue（段階）は「parent」の行、ほかは書いた人の行、無ければ author が null の行。
 export function entryFor(config, issue) {
   if (issue.parent) return config.entry.find((e) => e.parent);

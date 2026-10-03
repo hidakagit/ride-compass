@@ -1,3 +1,5 @@
+import { openChildren } from "./rules.js";
+
 // 担当のワークフローの後始末で、担当がどう終わったかを見分ける。messages は連携（anthropics/claude-code-action）が書き出す
 // 実行のファイル（Agent SDK のメッセージの並び）。担当の発言のメッセージの error（Agent SDK の SDKAssistantMessageError）が
 // 担当の仕事の外の失敗なら、タスクは保留にせず未着手へ戻す。利用の上限・認証・課金の失敗は、待つか人が直すまで続くので、
@@ -15,6 +17,15 @@ export function classify(messages) {
   const transient = errors.find((e) => TRANSIENT.includes(e));
   if (transient) return { outside: true, pause: false, reason: `Claude のサーバーの一時の失敗で止まった（${transient}）` };
   return { outside: false, pause: false, reason: "" };
+}
+
+// 作る担当のタスクをどう動かすか（move.js の出来事と理由。動かさないなら null）。verdict は classify の結果、children は
+// タスクの子（段階）。担当の外の失敗なら戻す。開いた子があれば、担当は段階に分けて終えたので、親は進行中のまま置く。
+// それ以外は落ちたとみなす（PR や問いを出して進行中でなくなっていれば、move.js が断って何も動かない）。
+export function settle({ verdict, children, url, jobStatus }) {
+  if (verdict.outside) return { on: "戻す", reason: `Actions の作る担当（実行 ${url}）が${verdict.reason}。担当の仕事の外の失敗なので未着手へ戻す` };
+  if (openChildren(children).length) return null;
+  return { on: "落ちた", reason: `Actions の作る担当（実行 ${url}）が、Pull Request も問いも出さずに終わった（結果: ${jobStatus}${jobStatus === "cancelled" ? "。持ち時間を超えたか、Cancel された" : ""}）` };
 }
 
 // 担当の最後の発言。result の result（担当が最後に返した文）、無ければ最後の担当の発言の文。長ければ頭から limit 字で切る。

@@ -1,7 +1,8 @@
 // 担当のワークフロー（.github/workflows/claude-task.yml）の後始末。担当が落ちても止められても走る。
 // 担当の外の失敗（src/after.js: classify）なら、作る担当のタスクを未着手へ戻し（戻す）、利用の上限・認証なら振り出しを
 // coordinator.pauseMinutes の間止める（リポジトリの変数 coordinator.pauseVariable に止める時刻を置く。振り出しが読む）。
-// それ以外で作る担当のタスクが進行中のまま（PR も問いも出さずに終わった）なら、落ちたとみなして保留にする。
+// それ以外で作る担当のタスクが進行中のまま（PR も問いも出さずに終わった）なら、落ちたとみなして保留にする。ただし開いた子の
+// 段階があれば、段階に分けて終えたので進行中のまま置く（src/after.js: settle）。
 // 最後に、終わり方・かかった時間・手数・担当の最後の発言を issue へ書く（src/after.js: endReport）。発言は記録に出さない。
 // 使い方: node tools/flow-gate/bin/after.js <issue の番号> <作る|確かめる> <実行のファイル（無ければ空）> <実行の URL> <ジョブの結果>
 import { execFileSync } from "node:child_process";
@@ -9,7 +10,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import config from "../flow.config.json" with { type: "json" };
-import { classify, endReport, refusal } from "../src/after.js";
+import { classify, endReport, refusal, settle } from "../src/after.js";
 import { GitHub, readTask } from "../src/github.js";
 import { botToken, codeToken } from "./token.js";
 
@@ -47,12 +48,14 @@ if (verdict.pause) {
   }
   note(`振り出しを ${until} まで止めた（${verdict.reason}）`);
 }
+const bot = new GitHub(botToken());
 if (kind === "作る") {
-  if (verdict.outside) move("戻す", `Actions の作る担当（実行 ${url}）が${verdict.reason}。担当の仕事の外の失敗なので未着手へ戻す`);
-  else move("落ちた", `Actions の作る担当（実行 ${url}）が、Pull Request も問いも出さずに終わった（結果: ${status}${status === "cancelled" ? "。持ち時間を超えたか、Cancel された" : ""}）`);
+  const { issue: task } = await readTask(bot, config, { number: Number(number) });
+  const step = settle({ verdict, children: task?.subIssues.nodes ?? [], url, jobStatus: status });
+  if (step) move(step.on, step.reason);
+  else note("開いた子の段階があるので、進行中のまま置いた（段階に分けて終えた）");
 }
 
-const bot = new GitHub(botToken());
 const { issue } = await readTask(bot, config, { number: Number(number) });
 const run = await code.rest("GET", `/repos/${config.code.repository}/actions/runs/${url.split("/").at(-1)}`).catch(() => null);
 const elapsedMs = run?.run_started_at ? Date.now() - Date.parse(run.run_started_at) : null;
