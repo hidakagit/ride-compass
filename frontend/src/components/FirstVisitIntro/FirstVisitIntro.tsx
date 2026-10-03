@@ -10,7 +10,7 @@ import { useStoredBooleanState } from "@/hooks/useStoredState";
 import { useIsomorphicLayoutEffect } from "@/hooks/useIsomorphicLayoutEffect";
 import { cn } from "@/lib/cn";
 
-export const FIRST_VISIT_INTRO_STORAGE_KEY = "ridecompass:first-visit-intro-closed";
+const FIRST_VISIT_INTRO_STORAGE_KEY = "ridecompass:first-visit-intro-closed";
 
 const TITLE_ID = "first-visit-intro-title";
 

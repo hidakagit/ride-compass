@@ -4,8 +4,8 @@ import { cn } from "@/lib/cn";
 // 汎用チェックボックス。Radix Checkbox（Disclosure等と同じ既存のRadix採用
 // パターンを踏襲）はindeterminate状態をネイティブのinputより表現しやすいため採用する。
 interface CheckboxProps {
-  checked?: boolean;
-  onCheckedChange?: (checked: boolean) => void;
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
   "aria-label"?: string;
 }
 
@@ -13,7 +13,7 @@ export function Checkbox({ checked, onCheckedChange, ...props }: CheckboxProps) 
   return (
     <RadixCheckbox.Root
       checked={checked}
-      onCheckedChange={(state) => onCheckedChange?.(state === true)}
+      onCheckedChange={(state) => onCheckedChange(state === true)}
       className={cn(
         // p-0/min-h-0: globals.cssの@layer baseにあるbuttonの既定paddingはTailwindの
         // utilitiesレイヤーより弱い(層として負ける)ため通常は無視できるが、padding自体は

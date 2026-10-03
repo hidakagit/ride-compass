@@ -1,126 +1,183 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+/**
+ * `components/DebugConsole/DebugConsole.tsx`——デバッグモードの間だけ浮かべる、記録したログの一覧。
+ *
+ * 見るもの: デバッグモードでないときは何も出さないこと、見出しの件数（出している数/全数）、記録が無いとき・
+ * 絞って0件のときの案内、レベルの下限での絞り込み、1行の中身、コピーで渡る文字（出している行だけ）と
+ * コピーの結果・失敗の表示、クリア、閉じる操作。
+ *
+ * ここで見ないもの:
+ * - 記録の上限・記録の時刻の書式・デバッグモードの保存 → `lib/debugLog.ts`
+ * - コピー済みの表示が戻るまでの時間・失敗の文言の組み立て → `hooks/useCopyToClipboard.ts`
+ * - パネルの置き方と閉じるボタン → `components/FloatingPanel/FloatingPanel.tsx`（本物を描く）
+ * - 新しい行が来たら一番下まで送ること——送り先の高さはテスト環境に無いレイアウトの実寸で、常に0になる
+ *
+ * 記録は本物の`lib/debugLog.ts`へ書く。状態はモジュールが持つので、テストごとに空にしてデバッグモードを戻す。
+ * 記録の時刻を決めるため、時計（`Date`）だけを止める。クリップボードはテスト環境のものを使う。
+ */
+import { act, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { clearDebugLog, debugLog, setDebugEnabled } from "@/lib/debugLog";
 import DebugConsole from "./DebugConsole";
 
+const AT = new Date(2026, 9, 1, 9, 5, 7, 42);
+const TIME = "09:05:07.042";
+
+function renderConsole(open = true) {
+  const onClose = vi.fn();
+  const view = render(<DebugConsole open={open} onClose={onClose} />);
+  return { onClose, view };
+}
+
+function logThree() {
+  debugLog("map", "タイルを読んだ", { z: 12 });
+  debugLog("api", "応答が遅い", undefined, "warn");
+  debugLog("api", "生成に失敗", null, "error");
+}
+
+function heading(): string {
+  return screen.getByText(/^デバッグログ\[/).textContent ?? "";
+}
+
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(AT);
+  vi.spyOn(console, "debug").mockImplementation(() => {});
+  vi.spyOn(console, "warn").mockImplementation(() => {});
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  setDebugEnabled(true);
+});
+
+afterEach(() => {
+  setDebugEnabled(false);
+  clearDebugLog();
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
+
 describe("DebugConsole", () => {
-  beforeEach(() => {
+  it("デバッグモードでなければ、開いていても何も出さない", () => {
     setDebugEnabled(false);
-    clearDebugLog();
+
+    const { view } = renderConsole();
+
+    expect(view.container).toBeEmptyDOMElement();
   });
 
-  it("デバッグモードOFFのときは何も描画しない", () => {
-    setDebugEnabled(true); // ログを積めるようにしてから記録し、その後OFFにする
-    act(() => debugLog("test", "イベント"));
-    setDebugEnabled(false);
-    const { container } = render(<DebugConsole open onClose={() => {}} />);
-    expect(container).toBeEmptyDOMElement();
+  it("閉じている間は何も出さない", () => {
+    const { view } = renderConsole(false);
+
+    expect(view.container).toBeEmptyDOMElement();
   });
 
-  it("open:falseのときは何も描画しない", () => {
-    setDebugEnabled(true);
-    const { container } = render(<DebugConsole open={false} onClose={() => {}} />);
-    expect(container).toBeEmptyDOMElement();
-  });
+  it("記録が無いときは待っている旨を出し、コピーは押せない", () => {
+    renderConsole();
 
-  it("記録済みのログを、見出しに表示中と全体の件数を添えて出す", () => {
-    setDebugEnabled(true);
-    act(() => debugLog("map", "タイル要求", { z: 14 }));
-
-    render(<DebugConsole open onClose={() => {}} />);
-
-    expect(screen.getByText("デバッグログ[1/1件]")).toBeInTheDocument();
-    expect(screen.getByText("タイル要求")).toBeInTheDocument();
-  });
-
-  it("ログが1件も無い間は、待っていることを出し、コピーは押せない", () => {
-    setDebugEnabled(true);
-    render(<DebugConsole open onClose={() => {}} />);
-
-    expect(screen.getByText(/イベント待機中/)).toBeInTheDocument();
+    expect(heading()).toBe("デバッグログ[0/0件]");
+    expect(screen.getByText("イベント待機中...[地図を操作するかAPIを呼び出してください]")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "表示中のログをコピー" })).toBeDisabled();
   });
 
-  it("絞り込みで1件も見えなくなったら、戻せば見える件数を添えて知らせ、コピーは押せない", () => {
-    setDebugEnabled(true);
-    act(() => debugLog("map", "通常イベント", undefined, "info"));
-    render(<DebugConsole open onClose={() => {}} />);
+  it("1行に時刻・分類・文言と、詳細があればその中身を出す", () => {
+    logThree();
 
-    fireEvent.change(screen.getByLabelText("表示するログレベルの下限"), { target: { value: "error" } });
+    renderConsole();
 
-    expect(screen.getByText(/条件に一致するログがありません.*1件表示されます/)).toBeInTheDocument();
+    expect(heading()).toBe("デバッグログ[3/3件]");
+    expect(screen.getByText("タイルを読んだ").parentElement?.textContent).toBe(`${TIME} [map] タイルを読んだ {"z":12}`);
+    expect(screen.getByText("応答が遅い").parentElement?.textContent).toBe(`${TIME} [api] 応答が遅い`);
+    expect(screen.getByText("生成に失敗").parentElement?.textContent).toBe(`${TIME} [api] 生成に失敗`);
+  });
+
+  it("開いている間に記録された行も出す", () => {
+    renderConsole();
+
+    act(() => debugLog("map", "移動した"));
+
+    expect(screen.getByText("移動した")).toBeInTheDocument();
+    expect(heading()).toBe("デバッグログ[1/1件]");
+  });
+
+  it.each([
+    ["警告以上", ["応答が遅い", "生成に失敗"], "デバッグログ[2/3件]"],
+    ["エラーのみ", ["生成に失敗"], "デバッグログ[1/3件]"],
+  ])("下限を「%s」にすると、そのレベル以上の行だけを出す", async (option, shown, title) => {
+    logThree();
+    renderConsole();
+
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "表示するログレベルの下限" }), option);
+
+    for (const message of ["タイルを読んだ", "応答が遅い", "生成に失敗"]) {
+      if (shown.includes(message)) expect(screen.getByText(message)).toBeInTheDocument();
+      else expect(screen.queryByText(message)).not.toBeInTheDocument();
+    }
+    expect(heading()).toBe(title);
+  });
+
+  it("絞って1行も残らなければ、全数を添えて戻し方を出し、コピーは押せない", async () => {
+    debugLog("map", "タイルを読んだ");
+    debugLog("map", "移動した");
+    renderConsole();
+
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "表示するログレベルの下限" }), "エラーのみ");
+
+    expect(
+      screen.getByText("条件に一致するログがありません[フィルタを「すべて」に戻すと2件表示されます]"),
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "表示中のログをコピー" })).toBeDisabled();
   });
 
-  it("表示中のログを、行の形そのままでクリップボードへ渡す", async () => {
-    setDebugEnabled(true);
-    act(() => debugLog("map", "タイル要求", { z: 14 }));
-    act(() => debugLog("api", "失敗", undefined, "error"));
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+  it("コピーすると出している行だけを1行ずつ渡し、コピーしたことを名前で出す", async () => {
+    logThree();
+    renderConsole();
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "表示するログレベルの下限" }), "警告以上");
 
-    render(<DebugConsole open onClose={() => {}} />);
-    fireEvent.click(screen.getByRole("button", { name: "表示中のログをコピー" }));
+    await userEvent.click(screen.getByRole("button", { name: "表示中のログをコピー" }));
 
-    expect(writeText).toHaveBeenCalledTimes(1);
-    const text = writeText.mock.calls[0][0] as string;
-    expect(text.split("\n")).toHaveLength(2);
-    expect(text).toContain('[map] タイル要求 {"z":14}');
-    expect(text).toContain("[api] 失敗");
-    expect(await screen.findByRole("button", { name: "表示中のログをコピーしました" })).toBeInTheDocument();
+    expect(await navigator.clipboard.readText()).toBe(`${TIME} [api] 応答が遅い\n${TIME} [api] 生成に失敗`);
+    expect(await screen.findByRole("button", { name: "表示中のログをコピーしました" })).toHaveAttribute(
+      "title",
+      "コピーしました",
+    );
   });
 
-  it("絞り込み中は、見えている行だけを渡す（絞って見つけた数行を渡せるようにする）", () => {
-    setDebugEnabled(true);
-    act(() => debugLog("map", "ふつうの行"));
-    act(() => debugLog("api", "エラーの行", undefined, "error"));
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+  it("コピーの詳細は中身をJSONで渡す", async () => {
+    debugLog("map", "タイルを読んだ", { z: 12, ok: true });
+    renderConsole();
 
-    render(<DebugConsole open onClose={() => {}} />);
-    fireEvent.change(screen.getByLabelText("表示するログレベルの下限"), { target: { value: "error" } });
-    fireEvent.click(screen.getByRole("button", { name: "表示中のログをコピー" }));
+    await userEvent.click(screen.getByRole("button", { name: "表示中のログをコピー" }));
 
-    const text = writeText.mock.calls[0][0] as string;
-    expect(text).toContain("エラーの行");
-    expect(text).not.toContain("ふつうの行");
+    await waitFor(async () =>
+      expect(await navigator.clipboard.readText()).toBe(`${TIME} [map] タイルを読んだ {"z":12,"ok":true}`),
+    );
   });
 
-  it("クリアボタンでログが消える", () => {
-    setDebugEnabled(true);
-    act(() => debugLog("map", "タイル要求"));
-    render(<DebugConsole open onClose={() => {}} />);
-    expect(screen.getByText("デバッグログ[1/1件]")).toBeInTheDocument();
+  it("コピーに失敗すると、その理由を出す", async () => {
+    debugLog("map", "タイルを読んだ");
+    vi.spyOn(navigator.clipboard, "writeText").mockRejectedValue(new Error("書き込みを拒否"));
+    renderConsole();
 
-    act(() => screen.getByRole("button", { name: "クリア" }).click());
+    await userEvent.click(screen.getByRole("button", { name: "表示中のログをコピー" }));
 
-    expect(screen.getByText("デバッグログ[0/0件]")).toBeInTheDocument();
+    expect(await screen.findByText(/書き込みを拒否/)).toBeInTheDocument();
   });
 
-  it("ログレベルの下限でフィルタできる", () => {
-    setDebugEnabled(true);
-    act(() => {
-      debugLog("map", "通常イベント", undefined, "info");
-      debugLog("weather", "警告イベント", undefined, "warn");
-      debugLog("weather", "失敗イベント", undefined, "error");
-    });
-    render(<DebugConsole open onClose={() => {}} />);
-    expect(screen.getByText("デバッグログ[3/3件]")).toBeInTheDocument();
-    expect(screen.getByText("通常イベント")).toBeInTheDocument();
+  it("クリアを押すと記録が空になり、待っている旨に戻る", async () => {
+    logThree();
+    renderConsole();
 
-    fireEvent.change(screen.getByLabelText("表示するログレベルの下限"), { target: { value: "error" } });
+    await userEvent.click(screen.getByRole("button", { name: "クリア" }));
 
-    expect(screen.getByText("デバッグログ[1/3件]")).toBeInTheDocument();
-    expect(screen.queryByText("通常イベント")).not.toBeInTheDocument();
-    expect(screen.queryByText("警告イベント")).not.toBeInTheDocument();
-    expect(screen.getByText("失敗イベント")).toBeInTheDocument();
+    expect(heading()).toBe("デバッグログ[0/0件]");
+    expect(screen.getByText("イベント待機中...[地図を操作するかAPIを呼び出してください]")).toBeInTheDocument();
   });
 
-  it("閉じるボタンでonCloseが呼ばれる", () => {
-    setDebugEnabled(true);
-    const onClose = vi.fn();
-    render(<DebugConsole open onClose={onClose} />);
-    screen.getByRole("button", { name: /デバッグログ.*件.*を閉じる/ }).click();
-    expect(onClose).toHaveBeenCalledOnce();
+  it("閉じるボタンを押すと、閉じる操作が上がる", async () => {
+    const { onClose } = renderConsole();
+
+    await userEvent.click(screen.getByRole("button", { name: /を閉じる$/ }));
+
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
