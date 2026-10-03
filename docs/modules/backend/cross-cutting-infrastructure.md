@@ -24,7 +24,7 @@ DB接続・Redis・HTTPクライアント・レート制限・ログ・デバッ
 | api/routers | `debug_admin.py` | `debug_mode`のランタイム切替・直近ログ取得 |
 | infrastructure | `database.py` | PostGIS接続（SQLAlchemy） |
 | infrastructure | `redis_client.py` | Redis共有クライアント |
-| infrastructure | `redis_json_cache.py` | RedisへJSONで持つcache-asideの共通骨格 |
+| infrastructure | `redis_json_cache.py` | Redisへ持つcache-asideの共通骨格（JSONと生のバイト列） |
 | infrastructure | `http_client.py` | 外部API向け共有HTTPクライアント |
 | infrastructure | `rate_limiter.py` | プロセス内メモリのみの移動窓レート制限 |
 | infrastructure | `request_log.py` | 1リクエスト=1行のHTTPアクセスサマリログ、ログ1行の書式（リクエストIDの差し込みとJSTでの時刻整形）、500応答へのリクエストIDの付与 |
@@ -280,14 +280,15 @@ frontend側（`src/proxy.ts`）も同じ資格情報を別のBasic認証チェ�
 のタプルで保持し、`min_level`フィルタは整形済み文字列を`[LEVELNAME]`のような
 部分文字列でパースせずこの数値で判定する。
 
-## RedisのJSON cache-aside（`redis_json_cache.py`）
+## Redisのcache-aside（`redis_json_cache.py`）
 
 どの層に持つか・TTLをどう決めるか・無効化の手段といった方針は[docs/conventions/caching.md](../../conventions/caching.md)が
 正本で、ここは実装の説明に絞る。
 
 「Redisが使えるか確認→クライアント取得→`log_external_call`で計測→失敗は握り潰して
-未キャッシュ扱い→成否をサーキットブレーカーへ記録」という定型文を`get_json`/`set_json`の
-2関数へまとめたもの。呼び出し元はキー設計・TTL・値の意味づけだけを持つ。
+未キャッシュ扱い→成否をサーキットブレーカーへ記録」という定型文を1本にまとめたもの。値の形で入口が分かれる——
+JSONは`get_json`/`set_json`、バイナリは文字列へデコードしない接続（`redis_client.py: get_redis_binary_client_or_none`）を
+通す`get_bytes`/`set_bytes`。`get_bytes`は呼び出し元の解釈関数へ生のバイト列を渡し、解釈できない値は未キャッシュ（miss）として扱う。呼び出し元はキー設計・TTL・値の意味づけだけを持つ。
 `simple_api_client.py: cached_fetch`がプロセス内`TTLCache`側で担っている役割の、Redis版。
 
 **fail-openが前提**: 扱うのはいずれも正本を持たないキャッシュのため、Redis障害・接続不能・
@@ -295,12 +296,13 @@ frontend側（`src/proxy.ts`）も同じ資格情報を別のBasic認証チェ�
 経路へ進めるようにする。キャッシュの不調でアプリの機能を止めない。
 
 新しくRedisへ持つキャッシュはこれを使う（例: 気象庁タイル本体の`jma_tile_redis_cache`・在否インデックスの
-`jma_tile_index`）。タイル本体は値がバイナリ（PNG/PBF）だが、base64の文字列をJSONへ包んでこの2関数に乗せている。
+`jma_tile_index`）。タイル本体は値がバイナリ（PNG/PBF）なので`get_bytes`/`set_bytes`に乗せている。
 自前の骨格を持ってよい場合はdocs/conventions/caching.md「自前で骨格を書いてよい例外」が決める。
 
 ## Redisクライアント（`redis_client.py`、サーキットブレーカー）
 
-JMA気象データの短命キャッシュが使う共有接続。**接続/ソケットタイムアウトを明示的に0.2秒へ短縮**している（既定タイムアウトの
+JMA気象データの短命キャッシュが使う共有接続。値を文字列で読み書きする接続と生のバイト列で読み書きする接続を
+1つずつ持ち、接続先とサーキットブレーカーは共有する。**接続/ソケットタイムアウトを明示的に0.2秒へ短縮**している（既定タイムアウトの
 ままだと疎通不能環境で1回の接続試行に数秒かかりうるため。ルート生成の
 ホットパスに乗ると「PostGIS往復を減らす」という本来の目的に反する遅延になる）。
 

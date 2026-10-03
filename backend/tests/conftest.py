@@ -83,10 +83,13 @@ def redis_server():
 
 @pytest.fixture
 def fake_redis(monkeypatch, redis_server):
-    """空のRedis。共有クライアント（`app/infrastructure/redis_client.py: _client`）をfakeredisへ差すので、
-    `get_redis_client_or_none`を読むどのモジュールからも同じものが見える。"""
+    """空のRedis。共有クライアント（`app/infrastructure/redis_client.py: _client`・
+    `app/infrastructure/redis_client.py: _binary_client`）を同じサーバのfakeredisへ差すので、
+    `get_redis_client_or_none`・`get_redis_binary_client_or_none`を読むどのモジュールからも同じものが見える。
+    返すのは文字列側のクライアント。"""
     fake = fakeredis.FakeAsyncRedis(server=redis_server, decode_responses=True)
     monkeypatch.setattr(redis_client, "_client", fake)
+    monkeypatch.setattr(redis_client, "_binary_client", fakeredis.FakeAsyncRedis(server=redis_server))
     return fake
 
 

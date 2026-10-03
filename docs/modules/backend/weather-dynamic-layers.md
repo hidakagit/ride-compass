@@ -149,7 +149,7 @@ MSMは数値予報モデルの出力で観測値・公式発表の代わりに�
 **「得るものが無い」の持ち方**: 上流は、データの無いタイルを404で返すことも、200で
 全画素が透明なタイル（334バイトのRGBA PNG）・0バイトのMVTで返すこともある。**どちらも
 利用者から見れば同じ**ため、サーバーは区別せず1つの事実として持つ——
-`jma_tile_redis_cache.set_empty`が実際のタイルと同じキー・TTLで`{"empty": true}`を保存し、
+`jma_tile_redis_cache.set_empty`が実際のタイルと同じキー・TTLで0バイトの値を保存し、
 `get`は`EMPTY_TILE`センチネルを返す。空だと分かったタイルは`set`も実体を保存せずこの
 フラグへ倒す（空の判定は`jma_tile_content.py: is_empty_tile`が唯一持ち、在否インデックスも
 同じ判定を使う）。`targetTimes*.json`はプロセス内`TTLCache`へ直接`EMPTY_TILE`を積む。

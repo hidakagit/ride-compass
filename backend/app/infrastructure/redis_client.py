@@ -11,6 +11,7 @@ import redis.asyncio as redis
 from app.config import settings
 
 _client: redis.Redis | None = None
+_binary_client: redis.Redis | None = None
 
 # 接続確立・コマンド応答の待ち上限。既定値のままだと疎通不能時の1回の失敗検知に数秒かかる。
 # Redisは常に同一ホスト（本番は`--network=host`）にあるため、正常時は決して到達しない
@@ -22,28 +23,40 @@ _CIRCUIT_COOLDOWN_SECONDS = 10.0
 _last_failure_at: float | None = None
 
 
-def _get_redis_client() -> redis.Redis:
-    global _client
-    if _client is None:
-        _client = redis.from_url(
-            settings.redis_url,
-            decode_responses=True,
-            socket_connect_timeout=_CONNECT_TIMEOUT_SECONDS,
-            socket_timeout=_SOCKET_TIMEOUT_SECONDS,
-            retry_on_timeout=False,
-        )
-    return _client
+def _connect(*, decode_responses: bool) -> redis.Redis:
+    return redis.from_url(
+        settings.redis_url,
+        decode_responses=decode_responses,
+        socket_connect_timeout=_CONNECT_TIMEOUT_SECONDS,
+        socket_timeout=_SOCKET_TIMEOUT_SECONDS,
+        retry_on_timeout=False,
+    )
 
 
 def get_redis_client_or_none() -> redis.Redis | None:
-    """共有クライアント。取得できなければNone（呼び出し元は未キャッシュ扱いで進む）。
+    """共有クライアント（値を文字列で読み書きする）。取得できなければNone（呼び出し元は未キャッシュ扱いで進む）。
 
     `redis.from_url()`はURLスキーム不正（`settings.redis_url`の設定ミス）等で同期的に
     例外を送出する。呼び出し元のtry/exceptはRedisコマンドの周りにあり、クライアント生成
     自体の例外はその外で起きるため、ここで捕まえないとタイル配信・ルート生成ごと落ちる。
     """
+    global _client
     try:
-        return _get_redis_client()
+        if _client is None:
+            _client = _connect(decode_responses=True)
+        return _client
+    except Exception:
+        record_redis_failure()
+        return None
+
+
+def get_redis_binary_client_or_none() -> redis.Redis | None:
+    """値を生のバイト列で読み書きする共有クライアント。接続先とサーキットブレーカーは文字列側と共有する。"""
+    global _binary_client
+    try:
+        if _binary_client is None:
+            _binary_client = _connect(decode_responses=False)
+        return _binary_client
     except Exception:
         record_redis_failure()
         return None
