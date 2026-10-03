@@ -1,6 +1,7 @@
 // 地図の色分けの凡例の段（ラベル・色・安定キーだけ）と、段の範囲の書き方。専用配信の軸の値はfeature-stateで入り、
 // MapLibreのfilterはfeature-stateを読めないため、段の表示ON/OFFは色の式の側で透明にする——そのため述語を持たない。
 
+import { mapDisplay } from "@/types/generated/mapDisplay";
 import palette from "@/types/generated/palette.json";
 
 export interface MapColorLegendBand {
@@ -8,6 +9,7 @@ export interface MapColorLegendBand {
   key: string;
   label: string;
   color: string;
+  description?: string;
   /** 「データなし」の受け皿段階（数値レンジを持たない）。 */
   isFallback?: boolean;
 }
@@ -26,7 +28,7 @@ export const LEGEND_NO_DATA_KEY = "nodata";
  * ——同じ鍵の行が凡例ごとに違う名前で出ると、ルートを出す前と後で同じ行が別物に見える。 */
 export const NO_DATA_LEGEND_BAND: MapColorLegendBand = {
   key: LEGEND_NO_DATA_KEY,
-  label: "データなし",
+  ...mapDisplay.legendSharedRows.noData,
   color: palette.semantic.no_data,
   isFallback: true,
 };

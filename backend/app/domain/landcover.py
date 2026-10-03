@@ -9,7 +9,7 @@ Esri×Impact Observatory Sentinel-2 10m Annual LULCの画素値ヒストグラ�
 """
 
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -62,6 +62,9 @@ class LandcoverClass:
     #: 常時その色で覆われると他の赤の意味が薄れる。色相は自然な連想（水=青・樹木=緑）を
     #: 保ちつつ、下の道路・地名が読める彩度に落とす。
     color: str
+    #: 地図の凡例の行が開く説明。配信元のクラスの定義を利用者の言葉にしたもの。塗りに効かないので、タイルの世代を
+    #: 導く署名（このクラスの`repr`）に入れない。
+    description: str = field(repr=False)
     #: 地図の面レイヤーで塗るか。Falseでも区間インスペクタの割合には出る（数値は他の
     #: クラスに薄められない）。塗らないのは、**そのクラスが広い範囲を単色で覆ってしまい、
     #: 基礎地図を隠すわりに何も足さない**場合に限る。
@@ -75,14 +78,39 @@ LANDCOVER_CLASSES: tuple[LandcoverClass, ...] = (
     # 全体が単色で覆われ基礎地図が濁るだけになる（関東本土全体では中央値3%で、都心だけが
     # 極端に偏る）。建物があることは基礎地図から分かる。色は区間インスペクタの内訳が使う
     # ——他のクラスと違って無彩色なのは、数値の表でも「地」として読ませるため。
-    LandcoverClass(LULC_BUILT, "built_percent", "建物", "#9AA0A6", painted=False),
-    LandcoverClass(LULC_TREES, "trees_percent", "樹木", "#4C8C4A"),
-    LandcoverClass(LULC_CROPS, "crops_percent", "農地", "#E0C066"),
-    LandcoverClass(LULC_RANGELAND, "rangeland_percent", "草地", "#C3B78F"),
-    LandcoverClass(LULC_WATER, "water_percent", "水面", "#4A7FB5"),
-    LandcoverClass(LULC_FLOODED_VEG, "flooded_veg_percent", "湿地", "#7FB99B"),
-    LandcoverClass(LULC_BARE, "bare_percent", "裸地", "#C4B4A3"),
-    LandcoverClass(LULC_SNOW_ICE, "snow_ice_percent", "雪氷", "#D8E6F0"),
+    LandcoverClass(
+        LULC_BUILT, "built_percent", "建物", "#9AA0A6",
+        "建物・大きな道路や線路・駐車場など、人が作った固い地面。",
+        painted=False,
+    ),
+    LandcoverClass(
+        LULC_TREES, "trees_percent", "樹木", "#4C8C4A",
+        "背の高い木がまとまって茂る所（森林・林など）。",
+    ),
+    LandcoverClass(
+        LULC_CROPS, "crops_percent", "農地", "#E0C066",
+        "人が植えた作物の畑（木の高さにならないもの。休耕地を含む）。",
+    ),
+    LandcoverClass(
+        LULC_RANGELAND, "rangeland_percent", "草地", "#C3B78F",
+        "高い木がほとんど無く、草に覆われた開けた所。",
+    ),
+    LandcoverClass(
+        LULC_WATER, "water_percent", "水面", "#4A7FB5",
+        "一年の大半に水がある所（川・湖・海など）。",
+    ),
+    LandcoverClass(
+        LULC_FLOODED_VEG, "flooded_veg_percent", "湿地", "#7FB99B",
+        "一年の大半、植物と水が混じっている所（冠水した草地など）。",
+    ),
+    LandcoverClass(
+        LULC_BARE, "bare_percent", "裸地", "#C4B4A3",
+        "一年を通して植物がほとんど無い岩や土・砂の所（河川敷・造成地など）。",
+    ),
+    LandcoverClass(
+        LULC_SNOW_ICE, "snow_ice_percent", "雪氷", "#D8E6F0",
+        "一年中、雪か氷に覆われた所。",
+    ),
 )
 
 #: (割合列の名前, クラス値)。割合を出す対象は`LANDCOVER_CLASSES`が決め、ここはそれを

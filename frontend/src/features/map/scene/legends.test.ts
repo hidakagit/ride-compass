@@ -7,7 +7,7 @@ import { POINT_LAYERS, pointAxisKey, pointGroup } from "@/features/map/scene/gro
 import { LEGEND_NO_DATA_KEY } from "@/lib/mapDisplay/mapColorLegend";
 
 import { ROAD_OTHER_KEY, ROAD_TRACKS, roadLineGroup, roadTrackAxis, roadTrackHasMissing } from "./groups/roadLines";
-import { pointLegendAxes, roadLegendAxes } from "./legends";
+import { disasterSourceLegendAxis, pointLegendAxes, roadLegendAxes } from "./legends";
 
 const TILES = {
   poi: ["https://example.test/poi/{z}/{x}/{y}"],
@@ -28,6 +28,16 @@ function paintOf(role: string) {
 function valuesIn(expression: unknown): unknown[] {
   return Array.isArray(expression) ? expression.flatMap(valuesIn) : [expression];
 }
+
+describe("凡例の行の説明", () => {
+  const rows = [...roadLegendAxes(), ...pointLegendAxes(), disasterSourceLegendAxis()].flatMap((axis) =>
+    axis.entries.map((entry) => [axis.axisId, entry.label, entry] as const),
+  );
+
+  it.each(rows)("%s の「%s」は（i）から開く説明を持つ", (_, __, entry) => {
+    expect(entry.description?.trim()).toBeTruthy();
+  });
+});
 
 describe("点の凡例", () => {
   const axes = pointLegendAxes();
