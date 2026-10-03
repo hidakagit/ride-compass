@@ -73,8 +73,10 @@ Claude が起こす出来事は、表の `by: claude` の行だけ。問いは `
   見回って、空いた枠に担当を起こす（開発機は要らない）。答え・前提が閉じた・ラベルを外した・止める時刻が過ぎた、のどれも、次の
   見回りで拾われる（出来事ごとのきっかけは持たない）。実行の持ち時間（`coordinator.watchForMinutes`。GitHub のジョブの上限6時間より短い）が
   過ぎたら、次の実行を `workflow_dispatch` で起こしてから終える（同じ組で1本ずつ動くので、次は今のが終わってから始まる）。
-  定期の起動（`schedule`）は、常駐が途切れたときに起こし直す保険にだけ使う——GitHub の公式の文書（Events that trigger
-  workflows の schedule）のとおり、混む時間（毎時0分ごろ）には遅れ、落とされることもあり、間隔を当てにできない。
+  次を起こすのは成功して終えたときだけで、Cancel されたり失敗したりして途切れたら、状況の更新が書き換わらなくなる。そのときは
+  手で `gh workflow run claude-dispatch.yml -R hidakagit/ride-compass`（Actions の画面の Run workflow でもよい）で起こし直す。
+  定期の起動（`schedule`）は使わない——GitHub の公式の文書（Events that trigger workflows の schedule）のとおり、混む時間には
+  遅れ、落とされることもあり、このリポジトリでは 2026-10-03 に約3時間で一度も動かなかった。
   道具や設定の変更は次の実行から効く（すぐ効かせるなら、動いている実行を Cancel して手で `gh workflow run claude-dispatch.yml -R hidakagit/ride-compass` で起こす）。
   振り出しは、動いている担当（担当のワークフローの終わっていない実行）の番号・前提が開いたままの未着手・子の段階が開いている親（親の仕事は子で進み、子が全部閉じるとゲートが閉じる）・ラベル「開発機が要る」の
   付いたものを飛ばす。`node tools/flow-gate/bin/dispatch.js --dry-run`（`--watch` を足すと状況の更新の中身も）で、何を起こすか・何を書くかを見られる。

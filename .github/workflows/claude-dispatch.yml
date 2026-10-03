@@ -1,33 +1,39 @@
-# 振り出し（tools/flow-gate/bin/dispatch.js）。担当のワークフロー（claude-task.yml）を、動いている数が上限になるまで
-# キューの上から起こす。担当が終わったとき・定期（取りこぼしを拾う）・手で起きる。止めるときは、置き場の開いた issue のどれかに
-# ラベル「停止」を付けるか、このワークフローを Actions の画面で無効にする（Disable workflow）。
+# 振り出しの見回り（tools/flow-gate/bin/dispatch.js --watch）。1つの実行の中で決まった間隔ごとに、担当のワークフロー
+# （claude-task.yml）を動いている数が上限になるまでキューの上から起こし、全体の様子を Project の状況の更新に書く。
+# 見回りの持ち時間（flow.config.json: coordinator.watchForMinutes）が過ぎたら、次の実行を起こしてから終える。
+# 止めるときは、置き場の開いた issue のどれかにラベル「停止」を付ける（見回りは続くが振り出さない）。見回りそのものを止めるなら、
+# このワークフローを Actions の画面で無効にし（Disable workflow）、動いている実行を Cancel する。
 name: Claude Dispatch
 
 on:
-  workflow_run:
-    workflows: [Claude Task]
-    types: [completed]
-  schedule:
-    - cron: "7,22,37,52 * * * *"
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# 振り出しは1本ずつ（同時に起きた2本目は、1本目のあとに動く）。
+# 見回りは1本ずつ。動いている間に起きたものは待ち、待っているものは1つだけ残る（新しいものが前のものを取り消す）。
 concurrency:
   group: claude-dispatch
 
 jobs:
   dispatch:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # 見回りの持ち時間より長く、GitHub のジョブの上限（6時間）を超えない。
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-      - run: node tools/flow-gate/bin/dispatch.js
+      - run: node tools/flow-gate/bin/dispatch.js --watch
         env:
           FLOW_BOT_TOKEN: ${{ secrets.FLOW_BOT_TOKEN }}
+          GH_TOKEN: ${{ secrets.CODE_TOKEN }}
+      # GITHUB_TOKEN で起こした実行は新しい実行を作らないので、hidakagit のトークンで起こす。見回りの1回ごとの失敗は
+      # dispatch.js が受け止めるので、ジョブごと失敗するのは続く不具合のときだけで、そこで次を起こすと失敗の実行が
+      # 止まらずに続く。成功して終えたときだけ起こす（Cancel・失敗で途切れたら、状況の更新が書き換わらなくなる）。
+      - name: 次の見回りを起こす
+        if: ${{ success() }}
+        run: gh workflow run claude-dispatch.yml -R "$GITHUB_REPOSITORY" --ref master
+        env:
           GH_TOKEN: ${{ secrets.CODE_TOKEN }}
