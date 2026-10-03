@@ -1,6 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "entry": ["scripts/capture-map.mjs"],
+  "entry": ["scripts/capture-map.mjs", "scripts/capture-screen.mjs", "capture/examples/*.ts"],
   "ignoreBinaries": ["fc-list"],
   "playwright": { "config": ["playwright.config.ts", "playwright.live.config.ts", "playwright.capture.config.ts"] }
 }

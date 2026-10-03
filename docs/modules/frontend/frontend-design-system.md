@@ -178,7 +178,8 @@ Tailwindのユーティリティで書く。CSS Modulesは使わない（CSSの�
 既知の制約があり CSS の実描画確認に使えない。Playwright headless chromium を直接使う
 （`frontend/node_modules/.bin/playwright`。`npx`は付けない）。ライト/ダーク確認は
 `chromium.newPage({ colorScheme: "light" | "dark" })`で行う。地図の画面を位置・幅・レンズ・ライト/ダークを選んで撮るなら
-`frontend/scripts/capture-map.mjs`を使う（置き場と走らせ方は[testing.md](../../conventions/testing.md)「走らせ方」）。
+`frontend/scripts/capture-map.mjs`、地図の塗り以外の画面をモックの応答で脚本どおりに進めて撮るなら
+`frontend/scripts/capture-screen.mjs`を使う（置き場と走らせ方は[testing.md](../../conventions/testing.md)「走らせ方」）。
 
 ## 8. globals.cssのグローバルルールに関する方針
 

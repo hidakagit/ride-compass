@@ -1125,8 +1125,11 @@ CSSの規則が当たる。開くたびに作り直される部品（ポップ�
     `e2e-live`の語を添えてコミットメッセージへ書く。触らない変更では回さない。門にはしない（CIに載せない）。
 
 - **画面を撮る道具は`frontend/capture/`に置き、`playwright.capture.config.ts`で走らせる。テストではなく、CIに載せない**
-  （判定を持たず、画像を出すだけ。Pull Requestの修正前後のキャプチャに使う）。入口は`node scripts/capture-map.mjs`で、引数と
-  使い方はスクリプトの先頭にある。地図を開く・レンズを選ぶ・読み終わりを待つ段取りは`e2e-live/live.ts`を使い、書き直さない。
+  （判定を持たず、画像を出すだけ。Pull Requestの修正前後のキャプチャに使う）。入口は2つで、引数と使い方はそれぞれのスクリプトの
+  先頭にある。地図の塗りを本番かその backend へ向けて撮るのは`node scripts/capture-map.mjs`、それ以外の画面を
+  e2e のモックの応答（`frontend/e2e/fixtures.ts: installApiMocks`）で開き、脚本（`frontend/capture/screen.ts: ScreenScript`）で進めて撮るのは
+  `node scripts/capture-screen.mjs`（`--ref`で別の版の「前」を、作業ツリーを切り替えずに撮る）。地図を開く・レンズを選ぶ・
+  読み終わりを待つ段取りは`e2e-live/live.ts`、画面を進める段取りは`e2e/fixtures.ts`を使い、書き直さない。
   撮る前にPlaywrightのChromiumと、Linuxなら日本語のフォント（無いと文字が豆腐になる）を入口が入れる。
 
 ### 書き方
