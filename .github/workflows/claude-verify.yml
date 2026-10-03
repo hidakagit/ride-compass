@@ -63,11 +63,16 @@ jobs:
         run: |
           git config --global user.name hidakagit
           git config --global user.email 6731891+hidakagit@users.noreply.github.com
+      # 許可の行（.claude/settings.json の permissions）だけを渡す。連携は settings をユーザー設定へ混ぜて書き、ユーザー設定は
+      # フォルダの信頼に関係なく読まれる（プロジェクトの設定は、信頼していないフォルダでは許可の行が読み飛ばされる）。
+      - name: 許可の行
+        run: node -e 'const s=require("./.claude/settings.json"); require("fs").writeFileSync(process.env.RUNNER_TEMP+"/permissions.json", JSON.stringify({permissions:s.permissions}))'
       - uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.CODE_TOKEN }}
-          claude_args: --permission-mode auto
+          settings: ${{ runner.temp }}/permissions.json
+          claude_args: --permission-mode auto --model claude-opus-5-5
           prompt: |
             あなたは RideCompass の確かめる担当です。作業ツリー ${{ github.workspace }} で、置き場 ridecompass/ride-compass-tasks の issue #${{ inputs.issue }} を扱います。
             まず CLAUDE.md と docs/conventions/flow.md の「司令塔と担当」「確かめる担当」「問い」「issue の形」を読み、その手順のとおりに進めてください。
