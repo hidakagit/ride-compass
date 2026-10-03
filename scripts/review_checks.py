@@ -39,6 +39,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import datetime as dt
 import json
 import re
@@ -389,7 +390,7 @@ HEADING_SPLIT_RE = re.compile(r"[（）()・、]|と")
 DEFINITION_RES = (
     re.compile(r"^\s*(?:async\s+)?def\s+(\w+)"),
     re.compile(r"^\s*class\s+(\w+)"),
-    re.compile(r"^([A-Z][A-Z0-9_]{2,})\s*(?::[^=]*)?="),
+    re.compile(r"^(_*[A-Z][A-Z0-9_]{2,})\s*(?::[^=]*)?="),
     re.compile(r"^\s*export\s+(?:default\s+)?(?:async\s+)?"
                r"(?:function\*?|const|let|var|class|type|interface|enum)\s+(\w+)"),
     re.compile(r"^\s*(?:async\s+)?function\*?\s+(\w+)"),
@@ -454,6 +455,19 @@ def json_keys(value: object, prefix: tuple[str, ...] = ()) -> set[tuple[str, ...
     return keys
 
 
+def class_attributes(text: str | None) -> dict[str, set[str]]:
+    """クラスごとの本体で宣言した属性（設定の項目・モデルのフィールド等）。字下げした行は形だけでは関数の中の変数と見分けられない。"""
+    try:
+        tree = ast.parse(text or "")
+    except SyntaxError:
+        return {}
+    return {node.name: {target.id for stmt in node.body
+                        for target in ([stmt.target] if isinstance(stmt, ast.AnnAssign)
+                                       else stmt.targets if isinstance(stmt, ast.Assign) else [])
+                        if isinstance(target, ast.Name) and not target.id.startswith("__")}
+            for node in ast.walk(tree) if isinstance(node, ast.ClassDef)}
+
+
 def removed_names(mb: str, head: str, diff: dict[str, tuple[list[str], list[str]]]
                   ) -> list[tuple[str, str, list[str]]]:
     """消した・名前を変えた名前を (種類, 名前, 探す語) で。"""
@@ -498,6 +512,13 @@ def removed_names(mb: str, head: str, diff: dict[str, tuple[list[str], list[str]
     defined = {path: ({m.group(1) for line in removed for r in DEFINITION_RES if (m := r.match(line))},
                       {m.group(1) for line in added for r in DEFINITION_RES if (m := r.match(line))})
                for path, (removed, added) in diff.items() if path.endswith(CODE_SUFFIXES + (".js", ".mjs"))}
+    for path, (removed_defs, added_defs) in defined.items():
+        if path.endswith(".py"):
+            old_classes, new_classes = class_attributes(show(mb, path)), class_attributes(show(head, path))
+            # 消したクラスの属性は、クラスの名前が候補に出るので数えない。
+            removed_defs.update(*(attrs - new_classes[name] for name, attrs in old_classes.items()
+                                  if name in new_classes))
+            added_defs.update(*(attrs - old_classes.get(name, set()) for name, attrs in new_classes.items()))
     added_anywhere = set().union(*(a for _, a in defined.values()))
     candidates = {name: path for path, (r, _) in defined.items() for name in r - added_anywhere}
     if candidates:

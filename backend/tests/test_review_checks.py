@@ -116,6 +116,39 @@ def test_leftovers_names_what_still_points_at_removed_names(repo, monkeypatch, c
     assert ": A（" not in out
 
 
+def test_leftovers_names_private_constants_and_attributes_dropped_from_a_class(repo, monkeypatch, capsys):
+    base = _commit(
+        repo,
+        {
+            "config.py": (
+                "_MARGIN_KM = 1\n\n"
+                "class Settings:\n    kept: int = 1\n    gone_limit: int = 2\n\n"
+                "    def f(self):\n        local_value: int = 3\n        return local_value\n\n"
+                "class Dropped:\n    dropped_field: int = 4\n"
+            ),
+        },
+    )
+    head = _commit(
+        repo,
+        {
+            "config.py": "class Settings:\n    kept: int = 1\n\n    def f(self):\n        return 3\n",
+            "use.py": "settings.gone_limit\n_MARGIN_KM\ndropped_field\nlocal_value\n",
+        },
+    )
+    monkeypatch.setattr(rc, "read_tasks_repo", lambda name: (None, None))
+
+    out = _run(monkeypatch, capsys, "leftovers", "--base", base, "--head", head)
+
+    assert "定義 config.py: _MARGIN_KM" in out
+    assert "定義 config.py: gone_limit" in out
+    assert "use.py:1: 「gone_limit」" in out
+    assert "use.py:2: 「_MARGIN_KM」" in out
+    # 消したクラスはクラスの名前で探すので属性を数えず、関数の中の変数も数えない。
+    assert "定義 config.py: Dropped" in out
+    assert "dropped_field" not in out
+    assert "local_value" not in out
+
+
 def test_leftovers_says_when_the_tasks_repository_could_not_be_read(repo, monkeypatch, capsys):
     base = _commit(repo, {"tools/flow-gate/flow.config.json": _config(), "a.py": "def gone():\n    pass\n"})
     head = _commit(repo, {"a.py": "x = 1\n", "b.py": "gone()\n"})
