@@ -8,7 +8,7 @@
 import asyncio
 
 from app.domain.gsi_tiles import TERRAIN_UPSTREAM_PATH
-from app.domain.terrain_rgb import gsi_dem_png_to_terrain_rgb
+from app.infrastructure.gsi_dem_png import gsi_dem_png_to_terrain_rgb
 from app.infrastructure.gsi_tile_client import GsiTileClient, GsiTileNotFound
 
 

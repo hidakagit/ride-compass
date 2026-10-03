@@ -709,7 +709,9 @@ backendの型検査は、関数が受け取ると宣言した型と、呼び出�
 
 backendの層（[directory-layout.md](../architecture/directory-layout.md)「backend」）の向きを、
 下の層が上の層を読んだ時点で止める。設定は`backend/.importlinter`、実行は`backend/`で`lint-imports`
-（引数なし）。
+（引数なし）。同じ設定に、`domain/`が外部の書式を読む道具を読んだら止める`forbidden`契約も置く
+（禁じる先に標準ライブラリの`io`を書けるのは`include_external_packages = True`のため。grimpは
+これが真のとき標準ライブラリも外部のパッケージとして数える。禁じられるのは最上位の名前だけ）。
 
 - **契約を緩める指定（`ignore_imports`）を足さない**——足すと、その向きの新しい越境も一緒に止まらなく
   なる。越境は、読む側を正しい層へ移すか、共有したいものを下の層へ下ろして解く。

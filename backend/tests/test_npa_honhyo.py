@@ -1,18 +1,18 @@
-"""`domain/accident.py`——警察庁の本票の緯度・経度の列（度分秒を連結した数字列）を10進の度へ読む。
+"""`batch/source_adapters/npa_honhyo.py`——警察庁の本票の緯度・経度の列（度分秒を連結した数字列）を10進の度へ読む。
 
 入口は`latitude_from_raw`・`longitude_from_raw`。読めない列と、日本の範囲を外れた値はNoneになる。
 
 ここで見ないもの:
 - 生データの列から判定するSQL（自転車の関与・死亡・発生年）と帰属の半径・重み → 実行して数える
   `test_derive_counts.py`・`test_accident_service.py`
-- CSVの行から列を取り出して読み込むこと → 取込のアダプタのテスト
+- 本票CSVの取得と保存 → `test_fetch_accident_csv.py`
 """
 
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from app.domain.accident import latitude_from_raw, longitude_from_raw
+from app.batch.source_adapters.npa_honhyo import latitude_from_raw, longitude_from_raw
 
 
 def encode(degrees: int, minutes: int, milliseconds: int) -> str:
