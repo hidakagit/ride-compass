@@ -2,7 +2,7 @@
 // 1つの出来事では、タスクを1回読み（read）、書き込みを1回にまとめて書く（write）。
 import { GitHub, Mutations, readTask, setField } from "./github.js";
 import { pullRequest } from "./review.js";
-import { check, entryFor, joinBody, normalizeBody, ownerOf, parseQuestion, questionBody, remaining, splitBody, userTurn } from "./rules.js";
+import { check, entryFor, joinBody, normalizeBody, openChildren, ownerOf, parseQuestion, questionBody, remaining, splitBody, userTurn } from "./rules.js";
 
 export class Gate {
   // env.GITHUB_TOKEN があればその名義で読み書きする（手元・CI で開いた issue を揃える道具。src/refresh.js）。無ければ App の名義。
@@ -95,7 +95,7 @@ export class Gate {
   // 子が全部閉じた親を完了（completed）で閉じる。子が完成でも見送りでも、全部閉じれば親の仕事は終わっている。
   async closeParent(number) {
     const parent = await this.read({ number });
-    if (!parent?.item || parent.state !== "OPEN" || parent.subIssues.nodes.some((s) => s.state === "OPEN")) return;
+    if (!parent?.item || parent.state !== "OPEN" || openChildren(parent.subIssues.nodes).length) return;
     await this.apply(parent, parent.status, this.config.done, { on: "閉じた", close: "COMPLETED", comments: ["子の issue が全部閉じたので、完了にします。"] });
   }
 

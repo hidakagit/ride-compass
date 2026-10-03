@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { test } from "node:test";
-import { classify, endReport, lastWords, refusal } from "../src/after.js";
+import { classify, endReport, lastWords, refusal, settle } from "../src/after.js";
 
 const said = (error) => ({ type: "assistant", message: { content: [] }, ...(error ? { error } : {}) });
 
@@ -25,6 +25,24 @@ test("サーバーの混雑は担当の外の失敗だが、一時のものな�
 test("担当の発言に失敗が無ければ担当の側の終わり方（落ちたかは後始末がステータスで決める）", () => {
   const v = classify([said(), { type: "result", is_error: false }]);
   assert.deepEqual([v.outside, v.pause], [false, false]);
+});
+
+const done = { outside: false, pause: false, reason: "" };
+
+test("作る担当が開いた子の段階を残して終えたら、親は進行中のまま置く（落ちたにしない）", () => {
+  assert.equal(settle({ verdict: done, children: [{ state: "OPEN" }, { state: "CLOSED" }], url: "u", jobStatus: "success" }), null);
+});
+
+test("子が無い・子が全部閉じたタスクで PR も問いも出さずに終わったら、落ちたで保留にする", () => {
+  for (const children of [[], [{ state: "CLOSED" }]]) {
+    const step = settle({ verdict: done, children, url: "u", jobStatus: "cancelled" });
+    assert.equal(step.on, "落ちた");
+    assert.ok(step.reason.includes("Cancel された"), step.reason);
+  }
+});
+
+test("担当の外の失敗なら、開いた子があっても未着手へ戻す", () => {
+  assert.equal(settle({ verdict: classify([said("overloaded")]), children: [{ state: "OPEN" }], url: "u", jobStatus: "failure" }).on, "戻す");
 });
 
 const text = (t) => ({ type: "assistant", message: { content: [{ type: "text", text: t }] } });

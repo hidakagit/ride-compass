@@ -1,5 +1,5 @@
 // 振り出しの見回り（bin/dispatch.js）の1周の判断。GitHub から読んだものを受け取り、何を起こすかと状況の更新の中身を決める。
-import { openBlockers } from "./rules.js";
+import { openBlockers, openChildren } from "./rules.js";
 
 const BOARD = `query Board($o: String!, $n: Int!, $field: String!, $p: String!, $c: String) { organization(login: $o) { projectV2(number: $n) {
   field(name: $p) { ... on ProjectV2SingleSelectField { options { name } } }
@@ -34,7 +34,7 @@ export async function readBoard(gh, config) {
       urgent: t.labels.nodes.some((l) => l.name === config.project.urgentLabel),
       priority: t.priority,
       waitingFor: openBlockers(t.blockedBy.nodes).map((b) => b.number),
-      openChildren: t.subIssues.nodes.filter((c) => c.state === "OPEN").map((c) => c.number),
+      openChildren: openChildren(t.subIssues.nodes).map((c) => c.number),
     }));
   return { tasks, ranks };
 }
