@@ -9,10 +9,11 @@ const BY_NODE = Object.fromEntries(Object.entries(config.people).map(([k, p]) =>
 
 // code はコードのリポジトリの状態（Pull Request の一覧）。
 // parent を渡すと、issue をその子にする（親の子は、parent.siblings の状態と issue の今の状態）。親の id は I_P。
+// issue.comments は今あるコメント（古い順。{ author, body, createdAt }）。読むときは GitHub が描いた形（bodyHTML）で返す。
 // markdown を false にすると、Markdown を描く呼び出しが失敗する。
 // updates は Project の状況の更新（新しいものが先。{ id, status, body, by, updatedAt? }）。トークン bot-token は hidakagit-bot の名義。
 export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel, "規模S", config.confirmLabel], code = { prs: [] }, markdown = true, updates = [] }) {
-  const blank = { blockedBy: [], subIssues: [], assignees: [], labels: [], lastClose: [], state: "OPEN", fields: {} };
+  const blank = { blockedBy: [], subIssues: [], assignees: [], labels: [], lastClose: [], state: "OPEN", fields: {}, comments: [] };
   const state = {
     issue: { ...blank, ...issue },
     parent: parent && { ...blank, siblings: [], ...parent },
@@ -24,9 +25,12 @@ export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel
   };
   const byId = (id) => (id === "I_P" || id === "PVTI_P" ? state.parent : state.issue);
   const json = (body, status = 200) => new Response(JSON.stringify(body), { status });
-  const node = (i) => {
+  const node = (i, v) => {
     const main = i === state.issue;
+    const comments = v.wc ? { comments: { nodes: i.comments.slice(-v.c).map(({ author, body, createdAt }, k) =>
+      ({ author: { login: author }, createdAt, url: `${config.repository}#c${k}`, bodyHTML: `<p>描いたコメント: ${body}</p>` })) } } : {};
     return {
+      ...comments,
       id: main ? "I_1" : "I_P", number: i.number, title: "題名", body: i.body ?? "本文", url: `https://github.com/${config.repository}/issues/${i.number}`,
       state: i.state, author: { databaseId: i.authorId },
       parent: main && state.parent ? { number: state.parent.number } : (i.parent ?? null),
@@ -73,8 +77,8 @@ export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel
           ...Object.entries(FIELDS).map(([field, options]) => ({ id: `F_${field}`, name: field, options: options.map((o) => ({ id: `${field}:${o}`, name: o })) })),
           { id: "F_title", name: "Title" },
         ] } } },
-        repository: { labels: { nodes: labels.map((name) => ({ id: `L:${name}`, name })) }, issue: node(i) },
-        node: node(i),
+        repository: { labels: { nodes: labels.map((name) => ({ id: `L:${name}`, name })) }, issue: node(i, variables) },
+        node: node(i, variables),
       };
     }
     const data = {};

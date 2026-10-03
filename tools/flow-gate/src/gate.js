@@ -13,8 +13,8 @@ export class Gate {
     return gate;
   }
 
-  async read(ref) {
-    const r = await readTask(this.gh, this.config, ref);
+  async read(ref, options) {
+    const r = await readTask(this.gh, this.config, ref, options);
     this.project = r.project;
     this.labelIds = r.labels;
     return r.issue;

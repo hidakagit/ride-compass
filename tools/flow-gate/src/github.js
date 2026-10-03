@@ -98,6 +98,7 @@ const TASK = `fragment Task on Issue { id number title body url state author { .
   parent { number } assignees(first: 5) { nodes { id login } } labels(first: 20) { nodes { name } }
   blockedBy(first: 50) { nodes { number state stateReason } } subIssues(first: 50) { nodes { state } }
   lastClose: timelineItems(last: 1, itemTypes: [CLOSED_EVENT]) { nodes { ... on ClosedEvent { stateReason } } }
+  comments(last: $c) @include(if: $wc) { nodes { author { login } createdAt url bodyHTML } }
   projectItems(first: 10) { nodes { id project { id } fieldValues(first: 30) { nodes {
     ... on ProjectV2ItemFieldSingleSelectValue { name field { ... on ProjectV2SingleSelectField { name } } } } } } }
   repository { nameWithOwner } }`;
@@ -107,10 +108,11 @@ const COMMON = `organization(login: $po) { projectV2(number: $pn) { id fields(fi
 // タスクを、判断と書き込みに要るだけ1回の問い合わせで読む（Project の単一選択の欄・置き場のラベル・issue）。
 // project.fields は欄の名前 → { id, options: 選択肢の名前 → id, order: 選択肢の並び }、issue.fields は欄の名前 → 今の値。
 // Project の件は設定の Project のものだけを見る。issue が置き場のものでなければ issue は null。
-export async function readTask(gh, config, ref) {
+// comments を渡すと、新しいコメントをその件数まで、GitHub が描いた形（bodyHTML）で一緒に読む（issue.comments.nodes。古い順）。
+export async function readTask(gh, config, ref, { comments = 0 } = {}) {
   const [o, n] = config.repository.split("/");
-  const v = { po: config.project.owner, pn: config.project.number, o, n };
-  const head = "$po: String!, $pn: Int!, $o: String!, $n: String!";
+  const v = { po: config.project.owner, pn: config.project.number, o, n, c: comments || 1, wc: comments > 0 };
+  const head = "$po: String!, $pn: Int!, $o: String!, $n: String!, $c: Int!, $wc: Boolean!";
   const d = ref.nodeId
     ? await gh.gql(`query Task(${head}, $id: ID!) { ${COMMON} } node(id: $id) { ...Task } } ${TASK}`, { ...v, id: ref.nodeId })
     : await gh.gql(`query Task(${head}, $k: Int!) { ${COMMON} issue(number: $k) { ...Task } } } ${TASK}`, { ...v, k: ref.number });
