@@ -161,9 +161,8 @@ describe("凡例の行ごとの絞り込み", () => {
     const own = samples.get(key);
     if (own === undefined) throw new Error(`「${key}」の行に入る地物を作れない（分類にも受け皿にも当たらない）`);
     for (const properties of own) expect(passes(filter, properties), JSON.stringify(properties)).toBe(false);
-    for (const [otherKey, others] of samples) {
-      if (otherKey === key) continue;
-      for (const properties of others) expect(passes(filter, properties), JSON.stringify(properties)).toBe(true);
-    }
+    const others = [...samples].flatMap(([otherKey, properties]) => (otherKey === key ? [] : properties));
+    expect(others.length).toBeGreaterThan(0);
+    for (const properties of others) expect(passes(filter, properties), JSON.stringify(properties)).toBe(true);
   });
 });
