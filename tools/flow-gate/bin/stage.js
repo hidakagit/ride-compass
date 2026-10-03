@@ -1,9 +1,11 @@
 // Claude がタスクを段階に分ける（hidakagit-bot の名義）。段階は親を付けたまま作る（作ってから親を付けると、Project に入った
 // 時点で段階と分からず、入口で採否の問いが付く）。Project へは「Auto-add sub-issues to project」が入れ、ゲートが入口で未着手にする。
+// 親はその段階に blocked by され、進行中なら未着手へ戻る（段階が全部閉じると前提が閉じ、見回りが親を作る担当へ渡す）。
 // 使い方: node tools/flow-gate/bin/stage.js <親の番号> <題名> <本文のファイル> [前の段階の番号...]（前の段階は blocked by になる）
 import { readFileSync } from "node:fs";
 import config from "../flow.config.json" with { type: "json" };
-import { GitHub, Mutations } from "../src/github.js";
+import { GitHub, Mutations, readTask } from "../src/github.js";
+import { moveTask } from "../src/move.js";
 import { botToken } from "./token.js";
 
 const args = process.argv.slice(2);
@@ -29,5 +31,8 @@ const created = await new Mutations()
 const stage = created.m0.issue;
 const m = new Mutations();
 for (const blocking of issues.slice(1)) m.add("addBlockedBy", { issueId: stage.id, blockingIssueId: blocking.id });
+m.add("addBlockedBy", { issueId: issues[0].id, blockingIssueId: stage.id });
 await m.send(gh);
+const { issue: owner } = await readTask(gh, config, { number: Number(parent) });
+if (owner?.status === config.working) console.log(await moveTask(gh, config, Number(parent), config.todo, { comment: `${config.todo}にする理由: 段階 #${stage.number} に分けた。段階が全部閉じるまで、段階に blocked by されて待つ` }));
 console.log(`#${stage.number} ${stage.url}（親 #${parent}${after.length ? `・前の段階 ${after.map((k) => `#${k}`).join("・")}` : ""}）`);

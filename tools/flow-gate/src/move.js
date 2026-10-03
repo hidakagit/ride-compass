@@ -1,4 +1,4 @@
-// Claude がステータスを動かす（bin/move.js・bin/claim.js）。行き先を、ほかの経路と同じ照らし（rules.js: judge）で見て、通れば書く。
+// Claude の道具がステータスを動かす。行き先を、ほかの経路と同じ照らし（rules.js: judge）で見て、通れば書く。
 import { Mutations, readTask, setField } from "./github.js";
 import { judge } from "./rules.js";
 

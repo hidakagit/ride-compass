@@ -7,7 +7,7 @@ import { GitHub, Mutations, readTask, setField } from "../src/github.js";
 import { putStatus } from "../src/status.js";
 import { fakeGitHub } from "./fake-github.js";
 
-const task = (number, status, extra = {}) => ({ number, status, waitingFor: [], openChildren: [], labels: [], urgent: false, priority: null, startOn: null, ...extra });
+const task = (number, status, extra = {}) => ({ number, status, waitingFor: [], labels: [], urgent: false, priority: null, startOn: null, ...extra });
 
 test("動いている担当と合わせて上限まで、キューの上から選び、未着手は作る・検証中は確かめる担当にする", () => {
   const { parallel } = config.coordinator;
@@ -21,12 +21,11 @@ test("動いている担当と合わせて上限まで、キューの上から�
   assert.deepEqual(pick(config, queue, new Set(Array.from({ length: parallel }, (_, i) => 100 + i))), [], "上限まで動いていれば選ばない");
 });
 
-test("動いている番号・前提が開いたままのもの・子の段階が開いている親・開発機で扱うものは飛ばす", () => {
+test("動いている番号・前提が開いたままのもの・開発機で扱うものは飛ばす", () => {
   const queue = [
     task(1, "検証中"),
     task(2, "未着手", { waitingFor: [9] }),
     task(3, "未着手", { labels: [config.coordinator.devLabel] }),
-    task(5, "未着手", { openChildren: [6] }),
     task(4, "未着手"),
   ];
   assert.deepEqual(pick(config, queue, new Set([1])).map((t) => t.number), [4]);
@@ -82,8 +81,8 @@ test("キューは振り出すステータスのものだけを、ステータ�
   assert.deepEqual(queueOf(config, { tasks, ranks: ["高", "中", "低"] }).map((t) => t.number), [4, 3, 2, 1, 6]);
 });
 
-test("止まっているもの: 進行中なのに担当が動いていない（段階の開いた親は除く）・検証中なのに開いた Pull Request が無い", () => {
-  const tasks = [task(1, "進行中"), task(2, "進行中"), task(3, "進行中", { openChildren: [9] }), task(4, "検証中"), task(5, "検証中"), task(6, "未着手")];
+test("止まっているもの: 進行中なのに担当が動いていない・検証中なのに開いた Pull Request が無い", () => {
+  const tasks = [task(1, "進行中"), task(2, "進行中"), task(4, "検証中"), task(5, "検証中"), task(6, "未着手")];
   const found = stuck(config, tasks, new Set([2]), new Set([`${config.code.branchPrefix}5`]));
   assert.deepEqual(found.map((s) => s.number), [1, 4]);
 });

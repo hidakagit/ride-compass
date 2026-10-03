@@ -2,7 +2,7 @@
 // 1つの出来事では、タスクを1回読み（read）、書き込みを1回にまとめて書く（write）。
 import { GitHub, Mutations, readTask, setField } from "./github.js";
 import { pullRequest } from "./review.js";
-import { entryFor, joinBody, judge, normalizeBody, openChildren, ownerOf, parseQuestion, questionBody, splitBody, userTurn } from "./rules.js";
+import { entryFor, joinBody, judge, normalizeBody, ownerOf, parseQuestion, questionBody, splitBody, userTurn } from "./rules.js";
 
 export class Gate {
   // env.GITHUB_TOKEN があればその名義で読み書きする（手元・CI で開いた issue を揃える道具。src/refresh.js）。無ければ App の名義。
@@ -33,7 +33,6 @@ export class Gate {
 
   // 1つのタスクへの書き込みを1回の要求で行う。want には変えたい中身だけを渡す。担当者はステータスから決め（ownerOf）、
   // 本文の先頭の見せ方も書いた後の状態に合わせて同じ要求に入れる。question は答えを待つ問いを本文の先頭に置く（null なら消す）。
-  // 閉じた子（段階）を書いたあとは、親の子が全部閉じたかを見る（ゲートは自分が閉じた出来事を捨てるので、ここで見る）。
   async write(issue, want = {}, reread = true) {
     const next = {
       ...issue,
@@ -44,11 +43,7 @@ export class Gate {
     };
     const m = new Mutations();
     const statusField = this.config.project.statusField;
-    if (next.status !== issue.status) {
-      if (next.status === null)
-        m.add("clearProjectV2ItemFieldValue", { projectId: this.project.id, itemId: issue.item, fieldId: this.project.fields[statusField].id });
-      else setField(m, this.project, issue.item, statusField, next.status);
-    }
+    if (next.status !== issue.status) setField(m, this.project, issue.item, statusField, next.status);
     // 欄の既定値など: Project に無い欄・選択肢は書かずに飛ばす。
     for (const [name, value] of Object.entries(want.fields ?? {}))
       if (issue.fields[name] !== value && this.project.fields[name]?.options[value]) setField(m, this.project, issue.item, name, value);
@@ -81,31 +76,14 @@ export class Gate {
       const fresh = await this.read({ nodeId: issue.id });
       const { labels, unlabels, close } = want;
       await this.write(fresh, { labels, unlabels, close, ...("question" in want ? { question: want.question } : {}) }, false);
-      Object.assign(issue, fresh);
-      return;
     }
-    Object.assign(issue, next, {
-      body,
-      labels: { nodes: (update.labelIds ? labels : have).map((name) => ({ name })) },
-      assignees: update.assigneeIds ? { nodes: [{ id: update.assigneeIds[0], login: owner }] } : issue.assignees,
-    });
-    if (issue.parent && issue.state === "CLOSED") await this.closeParent(issue.parent.number);
   }
 
-  // 子が全部閉じた親を完了（completed）で閉じる。子が完成でも見送りでも、全部閉じれば親の仕事は終わっている。
-  async closeParent(number) {
-    const parent = await this.read({ number });
-    if (!parent?.item || parent.state !== "OPEN" || openChildren(parent.subIssues.nodes).length) return;
-    await this.write(parent, { status: this.config.done, close: "COMPLETED", comments: ["子の issue が全部閉じたので、完了にします。"] });
-  }
-
-  // ゲートが今のステータスから to へ動かす（回答フォーム・Pull Request・親を閉じる）。照らし（judge）を通れば書く。完了へは
-  // close（無ければ見送り）で閉じる。ラベルの付け外しは、付け外したあとのラベルで残りを照らす。dryRun は照らすだけで書かない。
-  async apply(issue, to, { labels = [], unlabels = [], dryRun = false, comments = [], close, clearQuestion } = {}) {
+  // ゲートが今のステータスから to へ動かす（回答フォーム・Pull Request）。照らし（judge）を通れば書く。完了へは close（無ければ見送り）で閉じる。
+  async apply(issue, to, { labels = [], unlabels = [], comments = [], close, clearQuestion } = {}) {
     const closing = to === this.config.done ? (close ?? "NOT_PLANNED") : undefined;
-    const after = [...issue.labels.nodes.map((l) => l.name).filter((n) => !unlabels.includes(n)), ...labels];
-    const verdict = judge(this.config, issue.status, to, { close: closing, issue: { ...issue, labels: { nodes: after.map((name) => ({ name })) } } });
-    if (!verdict.ok || dryRun) return verdict;
+    const verdict = judge(this.config, issue.status, to, { close: closing, issue });
+    if (!verdict.ok) return verdict;
     const want = { status: to, labels, unlabels, comments };
     if (clearQuestion) want.question = null;
     if (closing && issue.state === "OPEN") want.close = closing;

@@ -1,4 +1,4 @@
-import { openChildren, waitsUntil } from "./rules.js";
+import { waitsUntil } from "./rules.js";
 
 // 担当のワークフローの後始末で、担当がどう終わったかを見分ける。messages は連携（anthropics/claude-code-action）が書き出す
 // 実行のファイル（Agent SDK のメッセージの並び）。担当の発言のメッセージの error（Agent SDK の SDKAssistantMessageError）が
@@ -19,13 +19,11 @@ export function classify(messages) {
   return { outside: false, pause: false, reason: "" };
 }
 
-// 作る担当のタスクをどう動かすか（move.js の行き先と理由。動かさないなら null）。進行中のタスクにだけ使う。verdict は classify の結果、
-// children はタスクの子（段階）、startOn は着手可能日。担当の外の失敗なら戻す。開いた子があれば、担当は段階に分けて終えたので、
-// 親は進行中のまま置く。着手可能日が先なら、担当はその日まで待つと決めて終えたので戻す（未着手のまま、見回りがその日まで振り出さない）。
-// それ以外は落ちたとみなして保留にする。
-export function settle(config, { verdict, children, startOn = null, url, jobStatus, now = new Date() }) {
+// 作る担当のタスクをどう動かすか（move.js の行き先と理由）。進行中のタスクにだけ使う。verdict は classify の結果、startOn は
+// 着手可能日。担当の外の失敗なら戻す。着手可能日が先なら、担当はその日まで待つと決めて終えたので戻す（未着手のまま、見回りが
+// その日まで振り出さない）。それ以外は落ちたとみなして保留にする。
+export function settle(config, { verdict, startOn = null, url, jobStatus, now = new Date() }) {
   if (verdict.outside) return { to: config.todo, reason: `Actions の作る担当（実行 ${url}）が${verdict.reason}。担当の仕事の外の失敗なので未着手へ戻す` };
-  if (openChildren(children).length) return null;
   const until = waitsUntil(startOn, now);
   if (until) return { to: config.todo, reason: `Actions の作る担当（実行 ${url}）が、着手可能日 ${until} を入れて終えた。その日まで待つので未着手へ戻す` };
   return { to: config.hold, reason: `Actions の作る担当（実行 ${url}）が、Pull Request も問いも出さずに終わった（結果: ${jobStatus}${jobStatus === "cancelled" ? "。持ち時間を超えたか、Cancel された" : ""}）` };
@@ -48,15 +46,6 @@ const minutes = (ms) => {
   const s = Math.round(ms / 1000);
   return `${Math.floor(s / 60)}分${s % 60}秒`;
 };
-
-// 子の node（move.js 等）が断ったときの理由の1行。捕まえない例外の出力は、例外の行のあとに積み跡と Node.js の版の行が続くので、
-// 行頭の「<名前>Error: 」の行を採る（Error はその後ろの文だけ）。その行が無い（process.exit で終えた使い方の誤り等）なら、最後の行を採る。
-export function refusal(e) {
-  const lines = String(e?.stderr || e?.message || e).trim().split("\n");
-  const thrown = lines.map((l) => l.match(/^(\w*Error): (.+)$/)).find(Boolean);
-  if (thrown) return thrown[1] === "Error" ? thrown[2] : thrown[0];
-  return lines.at(-1);
-}
 
 // 後始末が issue へ書く「終わり」のコメント。置き場は非公開なので担当の発言を書いてよい（公開の Actions の記録には出さない）。
 // done は後始末がしたことの行、status は終わったときのステータス、elapsedMs は実行の開始からの時間（分からなければ null）。

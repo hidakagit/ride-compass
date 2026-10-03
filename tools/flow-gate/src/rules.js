@@ -9,9 +9,6 @@ export const userTurn = (config, issue) => ownerOf(config, issue) === config.use
 // 前提のうち、まだ開いているもの。見送りで閉じた前提は待たない（作る担当が読んで、進める前に問う）。
 export const openBlockers = (blockers) => blockers.filter((b) => b.state !== "CLOSED");
 
-// 子（段階）のうち、まだ開いているもの。開いた子のある親の仕事は子で進み、子が全部閉じるとゲートが親を閉じる。
-export const openChildren = (children) => children.filter((c) => c.state === "OPEN");
-
 // 今日（日本時間）の日付。Project の日付の欄と同じ YYYY-MM-DD の形。
 export const today = (now = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo" }).format(now);
 
@@ -52,11 +49,8 @@ const unchecked = (body) =>
     .map((l) => /^\s*- \[ \] (.+)$/.exec(l)?.[1])
     .filter(Boolean);
 
-// 完成と言える前に残っているもの: チェックの無い完了の条件と、ユーザーの確認（ラベル confirmLabel）。
-export const remaining = (config, issue) => [
-  ...unchecked(issue.body),
-  ...(issue.labels.nodes.some((l) => l.name === config.confirmLabel) ? [`ユーザーの確認（ラベル「${config.confirmLabel}」）`] : []),
-];
+// 完成と言える前に残っているもの: チェックの無い完了の条件。
+export const remaining = (config, issue) => unchecked(issue.body);
 
 // 問いを読む（docs/conventions/flow.md「問い」）。最初の <details> から後ろは判断材料で、中身を解釈しない。それより前に
 // 置けるのは、1行目の「## 問い」・問いの文（1行）・「### 案」とその下の「- 」の行（1行に1案、書いたとおり）・空行だけで、
