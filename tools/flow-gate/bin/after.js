@@ -30,11 +30,11 @@ const note = (line) => {
   console.log(dry && !line.startsWith("（試し）") ? `（試し）${line}` : line);
   done.push(line);
 };
-const move = (on, reason) => {
+const move = (to, reason) => {
   try {
-    note(execFileSync(process.execPath, [join(here, "move.js"), ...(dry ? ["--dry-run"] : []), number, on, reason], { encoding: "utf8" }).trim());
+    note(execFileSync(process.execPath, [join(here, "move.js"), ...(dry ? ["--dry-run"] : []), number, to, reason], { encoding: "utf8" }).trim());
   } catch (e) {
-    note(`${on}で動かさなかった（${refusal(e)}）`);
+    note(`${to}へ動かさなかった（${refusal(e)}）`);
   }
 };
 const code = new GitHub(codeToken());
@@ -55,9 +55,11 @@ if (verdict.pause) {
 const bot = new GitHub(botToken());
 if (kind === "作る") {
   const { issue: task } = await readTask(bot, config, { number: Number(number) });
-  const step = settle({ verdict, children: task?.subIssues.nodes ?? [], startOn: task?.fields[config.project.startField] ?? null, url, jobStatus: status });
-  if (step) move(step.on, step.reason);
-  else note("開いた子の段階があるので、進行中のまま置いた（段階に分けて終えた）");
+  const step = task?.status === config.working
+    ? settle(config, { verdict, children: task.subIssues.nodes, startOn: task.fields[config.project.startField] ?? null, url, jobStatus: status })
+    : null;
+  if (step) move(step.to, step.reason);
+  else note(task?.status === config.working ? "開いた子の段階があるので、進行中のまま置いた（段階に分けて終えた）" : `${task?.status ?? "置き場に無い"}なので動かさなかった（担当が PR か問いを出した）`);
 }
 
 const { issue } = await readTask(bot, config, { number: Number(number) });
