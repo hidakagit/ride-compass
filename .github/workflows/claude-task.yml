@@ -40,6 +40,9 @@ jobs:
       GH_TOKEN: ${{ secrets.CODE_TOKEN }}
       ISSUE: ${{ inputs.issue }}
       KIND: ${{ inputs.kind }}
+      # 担当の実行は最初の結果で終わり、裏の処理の知らせで起こし直されない。Bash の run_in_background と裏の subagent を外す
+      # （Monitor・ScheduleWakeup 等は claude_args の --disallowedTools で外す）。
+      CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"
     steps:
       - uses: actions/checkout@v5
         with:
@@ -96,11 +99,12 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.CODE_TOKEN }}
           settings: ${{ runner.temp }}/permissions.json
-          claude_args: --permission-mode auto --model claude-opus-5-5
+          claude_args: --permission-mode auto --model claude-opus-5-5 --disallowedTools Monitor,ScheduleWakeup,CronCreate,CronDelete,CronList,Workflow
           prompt: |
             あなたは RideCompass の${{ inputs.kind }}担当です。作業ツリー ${{ github.workspace }} で、置き場 ridecompass/ride-compass-tasks の issue #${{ inputs.issue }} を扱います。
             まず CLAUDE.md と docs/conventions/flow.md の「担当」「${{ inputs.kind }}担当」「問い」「issue の形」を読み、その手順のとおりに進めてください。
             ここは GitHub Actions のランナーです。backend の依存は `python` に、frontend の依存は frontend/node_modules に入っていて、PostgreSQL + PostGIS のテスト用 DB（TEST_DATABASE_URL）も動いています。開発 DB の実データと本番への調べ（run_probe.py）は無いので、それが要ると分かったら flow.md「開発機が要る」のとおりにしてください。
+            この実行は、あなたが手番を終えた最初の発言で終わり、裏の処理の終わりの知らせで起こし直されることはありません。CI などを待つときは `gh run watch` 等を前に出したまま、終わるまで待ってください。
             作業はこの作業ツリーの中だけで行い、終わるときは手順のとおり push と issue への報告をして終えてください。次の担当を起こすことには触れないでください。すべて日本語で書いてください。
       # 作る担当の GitHub に無い変更は、マシンと一緒に消えないよう wip の枝へ残す（作業ブランチは書き換えない）。
       - name: 残った変更
