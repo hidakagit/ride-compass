@@ -4,7 +4,6 @@
  * `NO_DATA_LEGEND_BAND`から引く——凡例が別に色を持つと、地図とチップの色が静かに食い違う。
  * 評価軸の凡例はここではなく`features/map/view/lens.ts`が、地図の線と同じ段の関数から作る。
  */
-import type { DisasterSourceKey } from "@/features/map/layers/dynamicWeather";
 import type { LegendEntry } from "@/lib/mapDisplay/legendFilter";
 import { NO_DATA_LEGEND_BAND } from "@/lib/mapDisplay/mapColorLegend";
 
@@ -78,7 +77,7 @@ export function pointLegendAxes(): readonly SceneLegendAxis[] {
   );
 }
 
-const DISASTER_LAYER_ID = "disaster";
+const DISASTER_LAYER_ID = "disaster" as const;
 
 /** 段の並びから鍵で1段の色を引く。位置で引くと、源泉が段を足した・並べ替えたときに別の段を指す。 */
 function levelColor(levels: readonly { key: string; color: string }[], key: string): string {
@@ -87,31 +86,40 @@ function levelColor(levels: readonly { key: string; color: string }[], key: stri
   return level.color;
 }
 
-/** 災害の要素ごとの色見本。地図がその要素を塗る段のうち、注意を促す段の色（平常時の色を
- * 見本にすると、どの要素も同じに見える）。鍵は源泉が配る災害のソースで、要素が増えれば
- * 型検査が落ちる。 */
-const DISASTER_SOURCE_SWATCH: Record<DisasterSourceKey, string> = {
-  heavyRain: levelColor(weatherScales.risk_levels, "level2"),
-  landslide: levelColor(weatherScales.risk_levels, "level2"),
-  inundation: levelColor(weatherScales.risk_levels, "level2"),
-  flood: levelColor(weatherScales.risk_levels, "level2"),
-  thunder: levelColor(weatherScales.thunder_activity, "level2"),
-  tornado: levelColor(weatherScales.tornado_potential, "potential1"),
+type DisasterElement = Extract<(typeof mapDisplay.weatherElements)[number], { group: typeof DISASTER_LAYER_ID }>;
+
+/** 段で塗る災害の要素の色見本にする段。注意を促す段の色（平常時の色を見本にすると、どの要素も同じに見える）。 */
+const SWATCH_LEVEL_KEY: Record<NonNullable<DisasterElement["levelScale"]>, string> = {
+  risk_levels: "level2",
+  thunder_activity: "level2",
+  tornado_potential: "potential1",
+};
+
+/** 段で塗らない災害の要素の色見本。鍵は源泉が段を宣言していないソースで、要素が増えれば型検査が落ちる。 */
+const UNSCALED_SOURCE_SWATCH: Record<Extract<DisasterElement, { levelScale: null }>["source"], string> = {
   liden: palette.semantic.lightning,
 };
+
+function disasterSwatch(element: DisasterElement): string {
+  return element.levelScale === null
+    ? UNSCALED_SOURCE_SWATCH[element.source]
+    : levelColor(weatherScales[element.levelScale], SWATCH_LEVEL_KEY[element.levelScale]);
+}
 
 /** 災害チップの要素ごとの表示切替。隠した要素は取りに行かない（地図の絞り込みではなく取得を止める）。
  * 行の並びと名前は源泉の要素の宣言のまま。 */
 export function disasterSourceLegendAxis(): SceneLegendAxis {
-  const sources = mapDisplay.weatherElements.filter((element) => element.group === DISASTER_LAYER_ID);
+  const sources = mapDisplay.weatherElements.filter(
+    (element): element is DisasterElement => element.group === DISASTER_LAYER_ID,
+  );
   return {
     layerId: DISASTER_LAYER_ID,
     axisId: DISASTER_LAYER_ID,
     label: "表示する情報",
-    entries: [...new Map(sources.map((element) => [element.source, element.label]))].map(([source, label]) => ({
+    entries: [...new Map(sources.map((element) => [element.source, element]))].map(([source, element]) => ({
       key: source,
-      label,
-      color: DISASTER_SOURCE_SWATCH[source as DisasterSourceKey],
+      label: element.label,
+      color: disasterSwatch(element),
     })),
   };
 }
