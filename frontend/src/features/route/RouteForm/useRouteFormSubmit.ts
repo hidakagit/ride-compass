@@ -44,7 +44,7 @@ export function useRouteFormSubmit({
 
   function check() {
     if (!originKnown) {
-      setError("現在地が分かりません。位置情報を許可するか、地図で出発地を選んでください。");
+      setError("現在地が分かりません。位置情報を許可するか、出発地の「地図で選ぶ」を押して地図をタップしてください。");
       return null;
     }
     if (routeMode === "destination" && waypointCount === 0 && !destinationSet) {

@@ -3,6 +3,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/Tabs/Tabs";
 import Disclosure from "@/components/Disclosure/Disclosure";
+import ErrorText from "@/components/ErrorText/ErrorText";
 import { Button } from "@/components/ui/Button/Button";
 import { cn } from "@/lib/cn";
 import MapView from "@/features/map/MapView/MapView";
@@ -163,8 +164,11 @@ export default function Home() {
   const routeOutcomeActive = isMobile ? mobileSheet === "routeOutcome" : !sidebarCollapsed && outcomeOpen;
   const pointEditingEnabled = routeSettingsActive && settingsTab === "generate" && editingRoute === null;
   const routeInspectionEnabled = routeOutcomeActive && editingRoute === null;
+  // 周回で置けるのは出発地だけ（経由地・目的地は周回の間は地図に出さず送らない）。
   const pinPlacementArmedRole =
-    conditions.routeMode === "destination" && pointEditingEnabled ? conditions.armedPinRole : null;
+    pointEditingEnabled && (conditions.routeMode === "destination" || conditions.armedPinRole === "origin")
+      ? conditions.armedPinRole
+      : null;
 
   // 地図のチップ列は、下部の行（時刻スライダー等）の高さを知らない。地図の枠へ実測の高さをCSS変数で渡す。
   const mapPaneRef = useRef<HTMLDivElement>(null);
@@ -220,7 +224,7 @@ export default function Home() {
               id: "location",
               label: "現在地",
               effect:
-                "現在地が分からないため、天候・警報を出していません。位置情報を許可するか、地図で出発地を選んでください。",
+                "現在地が分からないため、天候・警報を出していません。位置情報を許可するか、「ルート設定」の出発地の「地図で選ぶ」を押して地図をタップしてください。",
               onRetry: handleLocateMe,
             },
           ]
@@ -297,7 +301,7 @@ export default function Home() {
   }
 
   // 「ルート設定」の中身（デスクトップの区分・モバイルのシートの両方）。生成の結果・誤りはここに出さない（ボタンは
-  // 本文を畳んだままでも押せるため）。出し先は「ルート結果」に1つにする。
+  // 本文を畳んだままでも押せるため）。出し先は「ルート結果」で、モバイルのシートだけは入力の誤りも添える（シートの側）。
   function renderRouteSectionBody() {
     return (
       <RouteForm
@@ -641,6 +645,8 @@ export default function Home() {
               autoFitHeight={!sheetHeightChosen}
               fitKey={`${settingsTab}:${conditions.routeMode}`}
             >
+              {/* シートは1枚ずつしか開かず「ルート結果」の誤りは見えないため、直す場所であるここにも出す。 */}
+              {generation.inputError && <ErrorText>{generation.inputError}</ErrorText>}
               {renderRouteSectionBody()}
             </BottomSheet>
           </Tabs>

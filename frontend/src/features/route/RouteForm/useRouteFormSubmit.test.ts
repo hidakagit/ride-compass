@@ -50,7 +50,9 @@ describe("useRouteFormSubmit 出発地", () => {
     "出発地が仮の地点のままなら（%s）、生成せずに位置情報の許可か地図での指定を促す",
     (routeMode) => {
       const { error, distanceKm } = submit({ routeMode, destinationSet: true, originKnown: false });
-      expect(error).toBe("現在地が分かりません。位置情報を許可するか、地図で出発地を選んでください。");
+      expect(error).toBe(
+        "現在地が分かりません。位置情報を許可するか、出発地の「地図で選ぶ」を押して地図をタップしてください。",
+      );
       expect(distanceKm).toBeNull();
     },
   );

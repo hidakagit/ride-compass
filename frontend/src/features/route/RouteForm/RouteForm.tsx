@@ -156,6 +156,27 @@ export default function RouteForm({
     );
   }
 
+  // 出発地はどちらのモードでも置ける（現在地が取れないときの案内が指す入口）。
+  const originRow = renderPointRow(
+    "origin",
+    "出発地",
+    undefined,
+    originManual ? "地図で指定" : originLocated ? "現在地" : "現在地を取得できていません",
+    "地図で選ぶ",
+    originManual ? (
+      <Button
+        size="xs"
+        aria-label="出発地を現在地に戻す"
+        onClick={onOriginReset}
+        usage="地図で置いた出発地をやめて、現在地から出発します。"
+      >
+        現在地に戻す
+      </Button>
+    ) : undefined,
+    undefined,
+    "押してから地図をタップすると、そこを出発地にします。もう一度押すとやめます。",
+  );
+
   return (
     <div>
       {/* forceMount+data-stateでの表示切替（ルート結果のタブと同じ方式）。
@@ -221,44 +242,29 @@ export default function RouteForm({
 
         <div className="flex flex-col gap-2">
           {routeMode === "loop" ? (
-            <div className="flex items-center gap-2">
-              <label htmlFor="route-form-distance" className={cn(textVariants({ variant: "hint" }), "flex-shrink-0")}>
-                距離
-              </label>
-              <input
-                id="route-form-distance"
-                type="range"
-                min={1}
-                max={MAX_DISTANCE_KM}
-                step={1}
-                value={distance}
-                onChange={(e) => onDistanceChange(e.target.value)}
-                className="min-w-0 flex-1"
-                data-usage="周回するルートの長さを決めます。作る候補はこの距離の前後になります。"
-              />
-              <span className="min-w-[3.5em] flex-shrink-0 text-right tabular-nums">{distance}km</span>
-            </div>
+            <>
+              {originRow}
+              <div className="flex items-center gap-2">
+                <label htmlFor="route-form-distance" className={cn(textVariants({ variant: "hint" }), "flex-shrink-0")}>
+                  距離
+                </label>
+                <input
+                  id="route-form-distance"
+                  type="range"
+                  min={1}
+                  max={MAX_DISTANCE_KM}
+                  step={1}
+                  value={distance}
+                  onChange={(e) => onDistanceChange(e.target.value)}
+                  className="min-w-0 flex-1"
+                  data-usage="周回するルートの長さを決めます。作る候補はこの距離の前後になります。"
+                />
+                <span className="min-w-[3.5em] flex-shrink-0 text-right tabular-nums">{distance}km</span>
+              </div>
+            </>
           ) : (
             <div className="flex flex-col gap-1">
-              {renderPointRow(
-                "origin",
-                "出発地",
-                undefined,
-                originManual ? "地図で指定" : originLocated ? "現在地" : "現在地を取得できていません",
-                "地図で選ぶ",
-                originManual ? (
-                  <Button
-                    size="xs"
-                    aria-label="出発地を現在地に戻す"
-                    onClick={onOriginReset}
-                    usage="地図で置いた出発地をやめて、現在地から出発します。"
-                  >
-                    現在地に戻す
-                  </Button>
-                ) : undefined,
-                undefined,
-                "押してから地図をタップすると、そこを出発地にします。もう一度押すとやめます。",
-              )}
+              {originRow}
               {renderPointRow(
                 "waypoint",
                 "経由地",

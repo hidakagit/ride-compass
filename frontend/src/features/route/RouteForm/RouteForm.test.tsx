@@ -102,10 +102,26 @@ describe("RouteForm 周回の距離", () => {
     expect(slider).toHaveAttribute("max", String(MAX_DISTANCE_KM));
     expect(slider).toHaveAttribute("step", "1");
     expect(screen.getByText("20km")).toBeInTheDocument();
-    // 周回では地点の行を出さない（目的地モードで出る行が、ここには無い）。
+    // 周回では経由地・目的地の行を出さない（目的地モードで出る行が、ここには無い）。
     expect(screen.queryByRole("button", { name: "目的地を地図で選ぶ" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "経由地を追加" })).not.toBeInTheDocument();
     fireEvent.change(slider, { target: { value: "21" } });
     expect(props.onDistanceChange).toHaveBeenCalledWith("21");
+  });
+
+  it("現在地を取れていない間も、周回で出発地の行を出し、押すと出発地を地図のタップで待つ", async () => {
+    const props = renderForm({ originLocated: false });
+    const row = screen.getByRole("button", { name: "出発地を地図で選ぶ" });
+    expect(row).toHaveTextContent("現在地を取得できていません");
+    await userEvent.click(row);
+    expect(props.onArmPinRole).toHaveBeenCalledWith("origin");
+  });
+
+  it("周回でも、地図で置いた出発地は現在地へ戻せる", async () => {
+    const props = renderForm({ originManual: true });
+    expect(screen.getByRole("button", { name: "出発地を地図で選ぶ" })).toHaveTextContent("地図で指定");
+    await userEvent.click(screen.getByRole("button", { name: "出発地を現在地に戻す" }));
+    expect(props.onOriginReset).toHaveBeenCalled();
   });
 });
 
