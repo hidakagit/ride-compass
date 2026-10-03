@@ -1,4 +1,4 @@
-"""`domain/terrain_rgb.py`——国土地理院の標高タイル（dem_png）を、MapLibreが読むTerrain-RGBのPNGへ移す。
+"""`infrastructure/gsi_dem_png.py`——国土地理院の標高タイル（dem_png）を、MapLibreが読むTerrain-RGBのPNGへ移す。
 
 入口は`gsi_dem_png_to_terrain_rgb`。期待値は実装の定数からではなく、両方式の公開の仕様から書く:
 - 地理院（「標高タイルの詳細仕様」）: x = 2^16R + 2^8G + B。x < 2^23 なら x×0.01m、x > 2^23 なら (x − 2^24)×0.01m、
@@ -14,7 +14,7 @@ import io
 import numpy as np
 from PIL import Image
 
-from app.domain.terrain_rgb import gsi_dem_png_to_terrain_rgb
+from app.infrastructure.gsi_dem_png import gsi_dem_png_to_terrain_rgb
 
 
 def gsi_png(heights_cm: list[list[int | None]]) -> bytes:

@@ -7,7 +7,7 @@
 `.om`ファイルは本物のライブラリ（omfiles）で書く。
 
 ここで見ないもの:
-- 格子の幾何と双一次補間そのもの → `test_msm.py`
+- 範囲と形状から導いた格子の幾何と、双一次補間そのもの → `test_msm.py`
 - 予報を天候・風へ組み立てる側 → `test_weather_service.py`
 
 予報の値は「格子点(i, j)・チャンク内の時刻tで 100i + 10j + t（チャンクごとに1000ずつ足す）」にしてある。
@@ -256,6 +256,21 @@ class TestReading:
 
         # 05:00はチャンクの先頭から2時間目（t=2）。
         assert series.temperature_c == pytest.approx(np.array([[2.0, 3.0], [52.0, 53.0]]))
+
+    async def test_the_grid_is_read_from_the_bbox_in_the_meta_information(self, tmp_path, msm_dir):
+        """範囲はメタ情報のWKTのBBOX（南・西・北・東の順）から読む。空白の入り方と入れ子の深さに依らない。"""
+        wkt = 'GEOGCRS["x", USAGE[SCOPE["y"], BBOX[ 35.0 , 139.0 ,35.1, 139.1 ]]]'
+        await _synced(tmp_path, msm_dir, _meta(crs_wkt=wkt))
+
+        series = await _read(msm_dir, _points(SOUTH_WEST, HALF_NORTH), 1)
+
+        assert series.temperature_c == pytest.approx(np.array([[2.0], [52.0]]))
+
+    async def test_meta_information_without_a_bbox_cannot_be_read(self, tmp_path, msm_dir):
+        await _synced(tmp_path, msm_dir, _meta(crs_wkt='GEOGCRS["x"]'))
+
+        with pytest.raises(ValueError):
+            await _read(msm_dir, _points(SOUTH_WEST), 3)
 
     async def test_a_series_crossing_into_the_next_chunk_continues_from_it(self, tmp_path, msm_dir):
         await _synced(tmp_path, msm_dir)

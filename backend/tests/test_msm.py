@@ -1,11 +1,11 @@
-"""`domain/msm.py`——MSM格子の幾何（範囲の読み取り・切り出す窓）と双一次補間・風の成分から風速と風向。
+"""`domain/msm.py`——MSM格子の幾何（範囲と形状から導く格子・切り出す窓）と双一次補間・風の成分から風速と風向。
 
-入口は`parse_bbox`・`MsmGrid.from_bbox_and_shape`・`MsmGrid.window`と、窓の`lat_slice`/`lon_slice`で切り出した
+入口は`MsmGrid.from_bbox_and_shape`・`MsmGrid.window`と、窓の`lat_slice`/`lon_slice`で切り出した
 部分ブロックを渡す`MsmWindow.interpolate`、`wind_speed_and_direction`。格子はMSMの公表値（緯度0.05度・
 経度0.0625度、北緯22.4〜47.6度・東経120〜150度）で作る。
 
 ここで見ないもの:
-- 配信元の同期・メタ情報と実データの読み出し → `test_msm_client.py`
+- 配信元の同期・メタ情報（範囲の読み取りを含む）と実データの読み出し → `test_msm_client.py`
 - 補間した風をルートの道へ配ること → `test_wind_way_service.py`
 """
 
@@ -16,7 +16,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from app.domain.msm import MsmGrid, parse_bbox, wind_speed_and_direction
+from app.domain.msm import MsmGrid, wind_speed_and_direction
 
 MSM_BBOX = (22.4, 120.0, 47.6, 150.0)
 GRID = MsmGrid.from_bbox_and_shape(MSM_BBOX, 505, 481)
@@ -31,17 +31,6 @@ def _bilinear(lat, lon):
 
 
 FIELD = _bilinear(_LATITUDES[:, None], _LONGITUDES[None, :])
-
-
-def test_the_bbox_is_read_south_west_north_east_from_the_wkt():
-    """WKT2のBBOXは南・西・北・東の順。"""
-    wkt = 'GEOGCRS["WGS 84",DATUM["World Geodetic System 1984"],USAGE[SCOPE["unknown"],BBOX[ 22.4, 120.0 ,47.6,150.0]]]'
-    assert parse_bbox(wkt) == MSM_BBOX
-
-
-def test_a_wkt_without_a_bbox_is_refused():
-    with pytest.raises(ValueError):
-        parse_bbox('GEOGCRS["WGS 84"]')
 
 
 def test_the_published_msm_spacing_follows_from_the_bbox_and_the_shape():
