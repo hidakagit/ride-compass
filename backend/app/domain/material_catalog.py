@@ -559,6 +559,7 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
                 property="kind",
                 palette="nominal",
                 hue_slot=3,
+                tone="dark",
                 categories=(
                     DisplayCategorySpec(key="traffic_signals", label="信号", values=("traffic_signals",)),
                     DisplayCategorySpec(key="crossing", label="横断歩道", values=("crossing",)),
@@ -591,6 +592,7 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
                 property="involves_bicycle",
                 palette="nominal",
                 hue_slot=0,
+                tone="light",
                 categories=(
                     # 自転車関連だけが事故密度の材料になる。
                     DisplayCategorySpec(key="bicycle", label="自転車関連", values=(True,)),
@@ -621,6 +623,7 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
                 property="kind",
                 palette="nominal",
                 hue_slot=1,
+                tone="light",
                 categories=(
                     DisplayCategorySpec(key="convenience", label="コンビニ", values=("convenience",)),
                     # 自販機は「ここで飲み物が買える」という約束として読まれる。中身が

@@ -292,7 +292,7 @@ export const primaryAttributes = [
             "values": [
               "traffic_signals"
             ],
-            "color": "#a36b89"
+            "color": "#885270"
           },
           {
             "key": "crossing",
@@ -300,7 +300,7 @@ export const primaryAttributes = [
             "values": [
               "crossing"
             ],
-            "color": "#a96d61"
+            "color": "#8d5449"
           },
           {
             "key": "stop",
@@ -308,7 +308,7 @@ export const primaryAttributes = [
             "values": [
               "stop"
             ],
-            "color": "#8e7a4c"
+            "color": "#736134"
           },
           {
             "key": "give_way",
@@ -316,7 +316,7 @@ export const primaryAttributes = [
             "values": [
               "give_way"
             ],
-            "color": "#61855c"
+            "color": "#496c44"
           },
           {
             "key": "level_crossing",
@@ -325,7 +325,7 @@ export const primaryAttributes = [
               "level_crossing",
               "railway_crossing"
             ],
-            "color": "#2e8984"
+            "color": "#016f6b"
           },
           {
             "key": "barrier",
@@ -333,7 +333,7 @@ export const primaryAttributes = [
             "values": [
               "barrier"
             ],
-            "color": "#3684a6"
+            "color": "#0c6b8b"
           },
           {
             "key": "traffic_calming",
@@ -341,7 +341,7 @@ export const primaryAttributes = [
             "values": [
               "traffic_calming"
             ],
-            "color": "#7878a8"
+            "color": "#5e5f8d"
           }
         ],
         "missing_semantics": null
@@ -365,7 +365,7 @@ export const primaryAttributes = [
             "values": [
               true
             ],
-            "color": "#4682aa"
+            "color": "#5791ba"
           },
           {
             "key": "other",
@@ -373,7 +373,7 @@ export const primaryAttributes = [
             "values": [
               false
             ],
-            "color": "#97764e"
+            "color": "#a7865c"
           }
         ],
         "missing_semantics": null
@@ -433,7 +433,7 @@ export const primaryAttributes = [
             "values": [
               "convenience"
             ],
-            "color": "#6d7aaa"
+            "color": "#7d89ba"
           },
           {
             "key": "vending_drinks",
@@ -441,7 +441,7 @@ export const primaryAttributes = [
             "values": [
               "vending_drinks"
             ],
-            "color": "#a36b89"
+            "color": "#b47a99"
           },
           {
             "key": "vending_unknown",
@@ -449,7 +449,7 @@ export const primaryAttributes = [
             "values": [
               "vending_unknown"
             ],
-            "color": "#a66e5b"
+            "color": "#b77e6a"
           },
           {
             "key": "toilets",
@@ -457,7 +457,7 @@ export const primaryAttributes = [
             "values": [
               "toilets"
             ],
-            "color": "#807e4d"
+            "color": "#908e5c"
           },
           {
             "key": "drinking_water",
@@ -465,7 +465,7 @@ export const primaryAttributes = [
             "values": [
               "drinking_water"
             ],
-            "color": "#48886f"
+            "color": "#57987e"
           },
           {
             "key": "bicycle_parking",
@@ -473,7 +473,7 @@ export const primaryAttributes = [
             "values": [
               "bicycle_parking"
             ],
-            "color": "#25879d"
+            "color": "#3b97ad"
           }
         ],
         "missing_semantics": null

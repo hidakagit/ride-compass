@@ -81,12 +81,13 @@ def test_色を持つのは先頭の軸だけ(attr) -> None:
 
 
 @pytest.mark.parametrize("attr", DISPLAYED, ids=lambda a: a.attr_id)
-def test_列挙の軸だけが色相の起点を持つ(attr) -> None:
+def test_列挙の軸だけが色相の起点と明度の段を持つ(attr) -> None:
     for axis in attr.display_axes:
         if axis.palette == "nominal":
             assert axis.hue_slot is not None, f"{attr.attr_id}:{axis.key} に色相の起点が無い"
         else:
             assert axis.hue_slot is None, f"{attr.attr_id}:{axis.key} は列挙ではないので起点を持たない"
+            assert axis.tone is None, f"{attr.attr_id}:{axis.key} は列挙ではないので明度の段を持たない"
 
 
 def test_色相の起点は軸をまたいで重複しない() -> None:
@@ -144,6 +145,20 @@ def test_軸の中の色は互いに見分けられる(where, palette, colors) -
         threshold = 10.0
     for a, b in pairs:
         assert _delta_e76(a, b) >= threshold, f"{where} の {a} と {b} が近い"
+
+
+def test_同時に出る点のレイヤーの間で色が近すぎない() -> None:
+    """点のレイヤーはどれも同時にONにでき、同じ画面に並ぶ。別のレイヤーの点が近い色だと、凡例を
+    開いてもどちらの点か読めない。軸の中の20までは色だけでは離せない（色相環へ等分した列挙を
+    重ねると、レイヤーをまたいで色相の近い行が必ず残る）ので、下限は順序の隣どうしと同じ10にする。"""
+    point_axes = {f"{attr.attr_id}:{axis.key}" for attr in DISPLAYED if attr.geometry == "point" for axis in attr.display_axes}
+    points = [(where, colors) for where, _palette, colors in _resolved_colors() if where in point_axes]
+    assert len(points) >= 2, "色を持つ点のレイヤーが2つ未満"
+    for i, (where_a, colors_a) in enumerate(points):
+        for where_b, colors_b in points[i + 1 :]:
+            for a in colors_a:
+                for b in colors_b:
+                    assert _delta_e76(a, b) >= 10.0, f"{where_a} の {a} と {where_b} の {b} が近い"
 
 
 @pytest.mark.parametrize("attr", DISPLAYED, ids=lambda a: a.attr_id)
