@@ -18,6 +18,7 @@ APP_ROOT = Path(__file__).resolve().parent.parent.parent / "app"
 
 SKELETON_SYMBOLS = (
     "get_redis_client_or_none",
+    "get_redis_binary_client_or_none",
     "record_redis_failure",
     "record_redis_success",
     "redis_available",

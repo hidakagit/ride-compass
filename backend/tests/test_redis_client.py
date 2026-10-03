@@ -17,20 +17,25 @@ from app.infrastructure import redis_client
 def test_client_is_built_once_per_process(monkeypatch):
     """呼ぶたびに作ると、タイル1枚ごとに接続プールが増える。"""
     monkeypatch.setattr(redis_client, "_client", None)
+    monkeypatch.setattr(redis_client, "_binary_client", None)
 
-    client = redis_client.get_redis_client_or_none()
-    assert client is not None
-    assert redis_client.get_redis_client_or_none() is client
+    for get in (redis_client.get_redis_client_or_none, redis_client.get_redis_binary_client_or_none):
+        client = get()
+        assert client is not None
+        assert get() is client
 
 
 def test_unusable_url_yields_none_instead_of_raising(monkeypatch):
     """設定ミスで送出される例外をここで止める。素通しすると、キャッシュを引こうとした
     タイル配信・ルート生成ごと落ちる（利用側のtry/exceptはコマンドの周りにしか無い）。"""
     monkeypatch.setattr(redis_client, "_client", None)
+    monkeypatch.setattr(redis_client, "_binary_client", None)
     monkeypatch.setattr(settings, "redis_url", "not-a-url")
 
-    assert redis_client.get_redis_client_or_none() is None
-    assert not redis_client.redis_available()
+    for get in (redis_client.get_redis_client_or_none, redis_client.get_redis_binary_client_or_none):
+        redis_client.record_redis_success()
+        assert get() is None
+        assert not redis_client.redis_available()
 
 
 def test_available_until_a_failure_is_recorded(clock):

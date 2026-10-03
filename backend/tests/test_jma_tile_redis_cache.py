@@ -28,9 +28,16 @@ def _transparent_png() -> bytes:
 
 
 async def test_stored_tile_comes_back_with_its_content_type(fake_redis):
-    """バイト列をそのまま置けないRedisへ回すため、非テキストのバイト列で往復を見る。"""
+    """文字列として読めない・区切りのNULを含むバイト列で往復を見る。"""
     await jma_tile_redis_cache.set(PNG_PATH, TILE_BYTES, "image/png")
     assert await jma_tile_redis_cache.get(PNG_PATH) == (TILE_BYTES, "image/png")
+
+
+async def test_tile_is_stored_as_raw_bytes(fake_redis):
+    """ヒットのたびにデコードを払わないよう、本体は符号化せずそのまま置く。"""
+    await jma_tile_redis_cache.set(PNG_PATH, TILE_BYTES, "image/png")
+    (key,) = await fake_redis.keys()
+    assert TILE_BYTES in (await redis_client.get_redis_binary_client_or_none().get(key))
 
 
 async def test_uncached_path_is_a_miss(fake_redis):
@@ -59,10 +66,11 @@ async def test_set_empty_records_that_there_is_nothing_to_draw(fake_redis):
     assert await jma_tile_redis_cache.get(PNG_PATH) is EMPTY_TILE
 
 
-async def test_entry_that_cannot_be_decoded_is_treated_as_uncached(fake_redis):
+async def test_entry_without_the_separator_is_treated_as_uncached(fake_redis):
+    """区切りの無い値は本体とContent-Typeに分けられない（JSONで包んだ値もこれに当たる）。"""
     await jma_tile_redis_cache.set(PNG_PATH, TILE_BYTES, "image/png")
     (key,) = await fake_redis.keys()
-    for broken in ("not json", '{"content_type": "image/png"}', '{"body_b64": 1, "content_type": "image/png"}'):
+    for broken in ("not a tile", '{"empty": true}'):
         await fake_redis.set(key, broken)
         assert await jma_tile_redis_cache.get(PNG_PATH) is None
 
@@ -90,6 +98,6 @@ async def test_failure_stops_further_calls_until_the_cooldown_passes(fake_redis)
 
 
 async def test_missing_client_is_treated_as_no_cache(monkeypatch):
-    monkeypatch.setattr(redis_json_cache, "get_redis_client_or_none", lambda: None)
+    monkeypatch.setattr(redis_json_cache, "get_redis_binary_client_or_none", lambda: None)
     await jma_tile_redis_cache.set(PNG_PATH, TILE_BYTES, "image/png")
     assert await jma_tile_redis_cache.get(PNG_PATH) is None
