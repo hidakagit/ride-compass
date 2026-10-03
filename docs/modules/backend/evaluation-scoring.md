@@ -462,7 +462,6 @@ way粒度で引くときは、同じ式のまま`w`の行から同じ名前の�
 （研究のスクリプト・テスト）も同じ検査を通る。「上書きするなら公開軸を全部書く」は要求の形で、
 `api/routers/routes.py: RoutePreferenceWeights`が持ち、値の検査は同じ`check_axis_weights`を呼ぶ。
 
-`with_time_scope(active_scopes)`は、`time_scope`が`"always"`以外の軸のうち
-`active_scopes`に含まれないものの重みを0倍にしたコピーを返す（night軸の動的重み
-付けが使う、[routing-engine.md](routing-engine.md)参照）。リクエスト間で共有するインスタンスを
-汚染しないよう、新しい`RoutePreference`インスタンスを返す（`self`を書き換えない）。
+時間帯を持つ軸（`time_scope`が`"always"`以外）の重みは`RoutePreference`では切り替えない——区間を通る時刻で
+区間ごとに決まるため、合成器が`domain/axis_definitions.py: time_scoped_weights`で区間ごとの配列にする
+（[routing-engine.md](routing-engine.md)「夜間軸の動的重み付け」）。

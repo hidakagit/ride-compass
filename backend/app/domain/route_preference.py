@@ -8,11 +8,7 @@ from collections.abc import Mapping
 
 from pydantic import Field, model_validator
 
-from app.domain.axis_definitions import (
-    AXIS_DEFINITIONS,
-    default_axis_weights,
-    time_scoped_weights,
-)
+from app.domain.axis_definitions import AXIS_DEFINITIONS, default_axis_weights
 from app.domain.strict_model import StrictModel
 
 #: 重みの配分を画面で調整するとき、1軸へ寄せられる上限。要求の検証には使わない——既定の重みや
@@ -60,15 +56,3 @@ class RoutePreference(StrictModel):
         # キー順をAXIS_DEFINITIONSの定義順（＝合成の加算順）へ正規化する。
         self.weights = {axis_id: merged[axis_id] for axis_id in AXIS_DEFINITIONS if axis_id in published}
         return self
-
-    def with_time_scope(self, active_scopes: frozenset[str]) -> "RoutePreference":
-        """time_scopeが"always"以外の軸のうち、`active_scopes`に含まれないものの重みを
-        0倍にしたコピーを返す。
-
-        既定値を持たせない——空集合を省略できると、渡し忘れた呼び出しが「どの時間帯にも
-        当たらない」として夜間軸等を黙って0倍にする。
-        """
-        overridden = time_scoped_weights(self.weights, active_scopes)
-        if overridden == self.weights:
-            return self
-        return RoutePreference(weights=overridden)
