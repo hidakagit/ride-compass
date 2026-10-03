@@ -86,7 +86,7 @@ OSMは**行だけを絞り、タグは絞らない**。タグは容量の1.9%し
 |---|---|---|---|
 | 取込 | `batch/source_profile.yaml` | DBへ入れるか | データ容量と、表示/探索の少なくとも一方で使うか |
 | 探索可否（0次フィルタ） | `domain/hard_filters.py: HARD_FILTER_HIGHWAY_TYPES` | 探索グラフへ入れるか | 法規・実務判断（[評価・スコアリング](evaluation-scoring.md)「0次ハードフィルタ」） |
-| 表示グルーピング | `domain/material_catalog.py`（一次属性の`display_axes`。フロントは生成物`primaryAttributes.ts`で受け取る） | 地図でどの行に束ねるか | 地図の見やすさ |
+| 表示グルーピング | `domain/material_catalog.py`（一次属性の`display_axes`。フロントは生成物`primaryAttributes.ts`で受け取る） | 地図でどの行に束ねるか・行の名前と、凡例の（i）から開く行の説明 | 地図の見やすさ |
 
 **取込スコープと探索スコープは意図的に食い違う**（幹線国道は幹線道路の把握・回避判断の
 ために取り込むが、探索からは外す）。**表示グルーピングを取込プロファイルへ機械的に

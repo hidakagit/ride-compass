@@ -82,8 +82,8 @@ CLASSES = (
 GRADE_GOOD = "grade_good"
 GRADE_BAD = "grade_bad"
 GRADES = (
-    TrackGrade(GRADE_GOOD, "良い等級", "class_good"),
-    TrackGrade(GRADE_BAD, "悪い等級", "class_bad"),
+    TrackGrade(GRADE_GOOD, "良い等級", "class_good", "良い等級の道"),
+    TrackGrade(GRADE_BAD, "悪い等級", "class_bad", "悪い等級の道"),
 )
 OTHER_HIGHWAY = "kind_other"
 

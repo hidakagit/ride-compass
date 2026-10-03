@@ -54,6 +54,7 @@ from app.domain.dynamic_way_values import DEFAULT_DIFFICULTY_BOUNDARIES  # noqa:
 from app.domain.map_display import (  # noqa: E402
     ALWAYS_SHOWN_ATTRIBUTIONS,
     AXIS_LAYER_SPECS,
+    LEGEND_SHARED_ROWS,
     MAP_LAYER_CATEGORIES,
     MAP_LAYERS,
     map_layer_label,
@@ -238,6 +239,7 @@ def _weather_element_entry(element: WeatherElement) -> dict:
         "frameRule": {"kind": element.frame_rule.kind, "windowMinutes": element.frame_rule.window_minutes},
         "gridValue": element.grid_value,
         "levelScale": element.level_scale,
+        "description": element.description,
         # 時刻の段の順（近い時刻から）。画面のデータ層は、時刻一覧をそのパスから取り、行を読み方に従って
         # コマにし、コマの時刻と系列でパスのテンプレートを埋めて取りに行く。
         "jmaElements": [
@@ -339,6 +341,8 @@ def main() -> None:
         "mapDisplay",
         {
             "overlayGroups": [g._asdict() for g in MAP_OVERLAY_GROUPS],
+            # 凡例の受け皿の行の名前と説明。
+            "legendSharedRows": {key: row._asdict() for key, row in LEGEND_SHARED_ROWS.items()},
             "layerCategories": [c._asdict() for c in MAP_LAYER_CATEGORIES],
             "layerDataSources": [
                 {"key": source.key, "minZoom": source.min_zoom} for source in MAP_LAYER_DATA_SOURCES
@@ -471,6 +475,7 @@ def main() -> None:
                 "percent_field": cls.percent_field,
                 "label": cls.label,
                 "color": cls.color,
+                "description": cls.description,
                 "painted": cls.painted,
             }
             for cls in LANDCOVER_CLASSES

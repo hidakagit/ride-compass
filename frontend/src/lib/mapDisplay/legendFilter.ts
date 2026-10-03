@@ -6,6 +6,9 @@ export interface LegendEntry {
   key: string;
   color: string;
   label: string;
+  /** 行の（i）から開く、この行に何が入るかの説明。行を宣言しているbackendの宣言が持ち、画面は書かない。
+   * 持たない行（数の範囲の段・名前が説明そのものの行）には（i）を出さない。 */
+  description?: string;
   /** 大きさで意味を示す行の見本の直径。持つ行は色ではなく大きさを見せる（地図の点と同じ大きさ）。 */
   diameterPx?: number;
   /** 地図で線として描く行か。見本を地図と同じ線の形で見せる（持たない行は点の形）。 */

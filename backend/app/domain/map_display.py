@@ -31,6 +31,31 @@ MAP_OVERLAY_GROUPS: tuple[OverlayGroup, ...] = (
     OverlayGroup("spot", "スポット"),
 )
 
+
+class LegendSharedRow(NamedTuple):
+    label: str
+    #: 凡例の行の（i）から開く説明。
+    description: str
+
+
+#: 行の宣言に当てはまらない道の受け皿の行。道の属性・評価軸・ルートのどの凡例でも同じ意味なので、名前と説明を
+#: ここだけが持つ（鍵は画面が引く名前）。
+LEGEND_SHARED_ROWS: dict[str, LegendSharedRow] = {
+    "other": LegendSharedRow(
+        "その他",
+        "値は書かれているが、上のどの行にも当てはまらない道（まれな種類など）。",
+    ),
+    "notApplicable": LegendSharedRow(
+        "該当なし",
+        "この種類に当たらない道（例: トンネルの凡例では、トンネルでない道）。",
+    ),
+    "noData": LegendSharedRow(
+        "データなし",
+        "元にする地図のデータに値が無く、どの行にも分けられない道。道が無いのではなく、値が分からないことを"
+        "破線で示す。",
+    ),
+}
+
 class MapLayerDataSource(NamedTuple):
     key: str
     #: このズーム未満では配信されない（ONにしても地図には何も出ない）。無いものはNone。

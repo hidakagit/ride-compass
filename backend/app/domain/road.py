@@ -96,6 +96,11 @@ def _check_each_tag_in_one_class(classes: tuple[SurfaceClass, ...]) -> None:
 _check_each_tag_in_one_class(SURFACE_CLASSES)
 
 
+def surface_class_description(surface_class: SurfaceClass) -> str:
+    """地図の凡例の行が開く説明。区分に属するタグの値の呼び名から組むので、区分へタグを足すと説明にも出る。"""
+    return f"路面が{'・'.join(surface_class.tags.values())}の道[OSM の surface タグ]。"
+
+
 class TrackGrade(NamedTuple):
     """tracktypeタグの等級。値はOSMの語彙そのもので、並びは固い路面から柔らかい路面への順。
 
@@ -104,16 +109,33 @@ class TrackGrade(NamedTuple):
     value: str
     label: str
     surface_class: str
+    #: 地図の凡例の行が開く説明。OSMの定義（Key:tracktype）の中身を利用者の言葉にしたもの。
+    description: str
 
 
 #: 呼び名はOSMの定義（Key:tracktype）の路面の中身から付ける。並びが地図の凡例の並び。
 #: 見込む区分は、surfaceタグも付いた道でその等級に最も多い路面から決める。
 TRACK_GRADES: tuple[TrackGrade, ...] = (
-    TrackGrade("grade1", "1 舗装・固く締まる", "paved"),
-    TrackGrade("grade2", "2 砂利[未舗装]", "gravel"),
-    TrackGrade("grade3", "3 砂利と土が半々", "gravel"),
-    TrackGrade("grade4", "4 土・草が主", "soil"),
-    TrackGrade("grade5", "5 土・草・砂", "soil"),
+    TrackGrade(
+        "grade1", "1 舗装・固く締まる", "paved",
+        "固い路面の農道・林道。多くは舗装されている[OSM の tracktype=grade1]。",
+    ),
+    TrackGrade(
+        "grade2", "2 砂利[未舗装]", "gravel",
+        "おおむね固い未舗装の農道・林道。砂や土の混じった砂利道が多い[OSM の tracktype=grade2]。",
+    ),
+    TrackGrade(
+        "grade3", "3 砂利と土が半々", "gravel",
+        "固い部分と柔らかい部分が半々の未舗装の農道・林道[OSM の tracktype=grade3]。",
+    ),
+    TrackGrade(
+        "grade4", "4 土・草が主", "soil",
+        "土・砂・草が主で、固い部分が少し混じる未舗装の農道・林道[OSM の tracktype=grade4]。",
+    ),
+    TrackGrade(
+        "grade5", "5 土・草・砂", "soil",
+        "固い材料が無く、締まっていない土・砂・草の農道・林道[OSM の tracktype=grade5]。",
+    ),
 )
 
 

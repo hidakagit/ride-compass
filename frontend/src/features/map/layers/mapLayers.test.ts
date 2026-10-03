@@ -102,6 +102,11 @@ describe("buildMapLayers（レイヤーの一覧）", () => {
     expect(block.legend.map((entry) => entry.label)).toEqual(LANDCOVER_PAINTED_CLASSES.map((cls) => cls.label));
   });
 
+  it("土地被覆の凡例の行は、どれも（i）から開く説明を持つ", () => {
+    const [block] = layer(withoutAxes, "landcover").readOnlyLegend ?? [];
+    for (const entry of block.legend) expect(entry.description?.trim()).toBeTruthy();
+  });
+
   it("土地被覆の説明は、塗らない分類と、評価が土地被覆を数える帯の幅を源泉から出す", () => {
     const landcover = layer(withoutAxes, "landcover");
     const unpainted = LANDCOVER_CLASSES.filter((entry) => !entry.painted);

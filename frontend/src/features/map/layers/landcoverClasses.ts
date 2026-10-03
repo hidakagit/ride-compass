@@ -13,6 +13,8 @@ interface LandcoverClass {
   percentField: string;
   label: string;
   color: string;
+  /** 凡例の行の（i）から開く説明。 */
+  description: string;
   /** 地図の面レイヤーで塗るか。falseでも区間インスペクタの割合には出る。 */
   painted: boolean;
 }
@@ -22,6 +24,7 @@ export const LANDCOVER_CLASSES: readonly LandcoverClass[] = landcoverClassesJson
   percentField: cls.percent_field,
   label: cls.label,
   color: cls.color,
+  description: cls.description,
   painted: cls.painted,
 }));
 

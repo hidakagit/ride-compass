@@ -80,7 +80,7 @@ def axis(key: str, count: int, **fields) -> DisplayAxisSpec:
     return DisplayAxisSpec(
         key=key,
         property=key,
-        categories=tuple(DisplayCategorySpec(key=f"{key}{i}", label=f"行{i}", values=(f"v{i}",)) for i in range(count)),
+        categories=tuple(DisplayCategorySpec(key=f"{key}{i}", label=f"行{i}", values=(f"v{i}",), description=f"行{i}の道") for i in range(count)),
         **fields,
     )
 

@@ -20,6 +20,7 @@ import {
 import { LEGEND_SWATCH_RING_CLASS, legendSwatchBackground, type LegendEntry } from "@/lib/mapDisplay/legendFilter";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import LegendCheckboxList from "@/features/map/LegendCheckboxList/LegendCheckboxList";
+import LegendRow from "@/features/map/LegendCheckboxList/LegendRow";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
 import { mapOverlayEdge } from "@/lib/mapOverlayEdges";
@@ -207,15 +208,22 @@ function LegendDetails({
                   <li
                     key={entry.key}
                     className={cn(
-                      "flex items-center gap-1.5 text-[length:var(--font-size-sm)]",
-                      hidden && "opacity-50",
                       // 「不明・他」等の受け皿は他の項目と同列の判定値ではないため区切る。
                       entry.isFallback && "mt-1 border-t border-dashed border-[var(--color-border)] pt-1",
                     )}
                   >
-                    {renderSwatch(entry)}
-                    <span className="min-w-0 flex-1">{entry.label}</span>
-                    {hidden && <span className={badgeVariants({ variant: "outline" })}>非表示</span>}
+                    <LegendRow entry={entry}>
+                      <div
+                        className={cn(
+                          "flex items-center gap-1.5 text-[length:var(--font-size-sm)]",
+                          hidden && "opacity-50",
+                        )}
+                      >
+                        {renderSwatch(entry)}
+                        <span className="min-w-0 flex-1">{entry.label}</span>
+                        {hidden && <span className={badgeVariants({ variant: "outline" })}>非表示</span>}
+                      </div>
+                    </LegendRow>
                   </li>
                 );
               })}

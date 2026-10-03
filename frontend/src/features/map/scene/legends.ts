@@ -28,7 +28,8 @@ type SceneLegendAxis = {
 /** 分類に当てはまらない値の道。値はあるので実線で出す。タグの不在も確定した値として載る属性（トンネル等）では、
  * それが「該当しない」ことそのものなので呼び方を変える。 */
 function otherEntry(hasMissing: boolean): LegendEntry {
-  return { key: ROAD_OTHER_KEY, label: hasMissing ? "その他" : "該当なし", color: palette.semantic.no_data };
+  const row = hasMissing ? mapDisplay.legendSharedRows.other : mapDisplay.legendSharedRows.notApplicable;
+  return { key: ROAD_OTHER_KEY, ...row, color: palette.semantic.no_data };
 }
 
 export function roadLegendAxes(): readonly SceneLegendAxis[] {
@@ -41,6 +42,7 @@ export function roadLegendAxes(): readonly SceneLegendAxis[] {
       ...roadTrackAxis(track).categories.map((category) => ({
         key: category.key,
         label: category.label,
+        description: category.description,
         color: category.color,
         line: true as const,
       })),
@@ -60,10 +62,11 @@ function pointAxisLegend(layer: (typeof POINT_LAYERS)[number], axis: PointAxis, 
     label: axis.label,
     entries: axis.categories.map((category) =>
       index === 0 && "color" in category
-        ? { key: category.key, label: category.label, color: category.color }
+        ? { key: category.key, label: category.label, description: category.description, color: category.color }
         : {
             key: category.key,
             label: category.label,
+            description: category.description,
             color: palette.semantic.legend_size_only,
             diameterPx: 2 * pointCategoryRadiusPx(layer, axis, category),
           },
@@ -119,6 +122,7 @@ export function disasterSourceLegendAxis(): SceneLegendAxis {
     entries: [...new Map(sources.map((element) => [element.source, element]))].map(([source, element]) => ({
       key: source,
       label: element.label,
+      description: element.description ?? undefined,
       color: disasterSwatch(element),
     })),
   };

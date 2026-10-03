@@ -279,6 +279,7 @@ export function buildMapLayers({
           legend: LANDCOVER_PAINTED_CLASSES.map((cls) => ({
             key: cls.percentField,
             label: cls.label,
+            description: cls.description,
             color: cls.color,
             filter: UNUSED_LEGEND_FILTER,
           })),

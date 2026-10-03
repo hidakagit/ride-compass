@@ -48,6 +48,7 @@
 | `features/map/MapOverlayControls/` | 地図上チップ（フローティングUI）。グループへの束ね方と並びはレイヤーカタログ（`mapOverlayGroupFor`・`MAP_OVERLAY_GROUP_ORDER`）から導き、開いたグループ（同時に開けるのは`MAP_OVERLAY_MAX_EXPANDED_GROUPS`まで）と「表示する項目を選ぶ」で隠した項目を次の訪問でも保つ。▶（凡例）・つまみの付いた横線（表示する項目を選ぶ、`DisplayItemsIcon`）で開くパネルは`ui/Popover`（Radix）で、位置取り・画面端での縮み・外を押すと閉じる（同時に開くのは1つ）はライブラリが持つ。**ⓘは説明を開く記号にだけ使う**——「表示する項目」の一覧の各行にも説明のⓘが並ぶため、入口までⓘにすると1つのパネルの中で同じ記号が「選ぶ」と「説明」の2つの意味になる。開いた一覧の先頭には「表示する項目」の見出しを出す（押す前のtitleはスマホでは出ない） |
 | `components/ui/InfoPopover/InfoPopover.tsx` | 見出し脇の(i)アイコン→ポップオーバーという外枠の共通部品（開閉state・開閉に追随するアクセシブル名「◯◯を表示/隠す」・任意の見出し文言を含む）。中身はchildrenで呼び出し側が渡す。(i)→Popoverを出す箇所（例: `RouteSettingsPanel`・`ui/FieldLabel/FieldLabel.tsx: FieldLabel`・軸スタジオの材料説明）はこれを使い、組み立てを自前で持たない |
 | `features/map/LegendCheckboxList/LegendCheckboxList.tsx` | 凡例のチェックボックス一覧（チェックボックス+色スウォッチ+ラベル）の共通部品。リスト/行の見た目（class名）は呼び出し側が指定する（`LensControl`・`MapOverlayControls`の▶パネルで共用） |
+| `features/map/LegendCheckboxList/LegendRow.tsx` | 凡例の1行と、行の右端の（i）から行のすぐ下に開く説明（`LegendEntry.description`）。絞り込める凡例（`LegendCheckboxList`）と表示専用の凡例（▶パネル）が同じ部品を通る。浮きパネルにしないのは、凡例が▶の浮きパネルの中にあるため |
 
 ## タイルの配信元（`lib/tileBaseUrl.ts`）
 
@@ -130,6 +131,18 @@ backendから取り、タイル本体はrewrites経由に戻る。
 画面の状態からしか作れない凡例（選択中の候補とレンズで変わるルート線の段）だけは
 `features/map/view/useMapView.ts`が組み立てる。災害の要素ごとの表示切替は絞り込める凡例と
 同じく`scene/legends.ts`が宣言から作る。
+
+## 凡例の行の説明（（i））
+
+凡例の行が「何がこの行に入るか」の説明を持つと、行の右端に（i）が出て、押すと行のすぐ下に説明が開く。
+**説明は行を宣言している所が持ち、画面は説明の文を持たない**——道・点の行は一次属性の表示の行
+（backend `domain/registry.py: DisplayCategorySpec.description`。路面は区分のタグの呼び名から組む）、
+土地被覆はクラスの宣言（`domain/landcover.py: LandcoverClass.description`）、災害の要素は要素の宣言
+（`domain/weather_elements.py: WeatherElement.description`）、受け皿の行（その他・該当なし・データなし）は
+名前ごと`domain/map_display.py: LEGEND_SHARED_ROWS`が持ち、生成物で画面へ届く。受け皿の行は評価軸・ルートの凡例の
+「データなし」も同じ行なので、レンズの凡例にも（i）が出る。数の範囲の段（降水・風・評価の段）と、名前が説明そのものの
+行（災害の段・線状降水帯）は説明を持たず、（i）を出さない。`scene/legends.ts`が出す凡例の全行と土地被覆の凡例の
+全行が空でない説明を持つことは、テスト（`scene/legends.test.ts`・`layers/mapLayers.test.ts`）が確かめる。
 
 ## 表示層の実装（`scene/applyMapScene.ts`）
 
