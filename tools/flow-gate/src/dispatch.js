@@ -58,10 +58,9 @@ export const ready = (config, queue, running) =>
 // 振り出す仕事を、動いているものと合わせて coordinator.parallel を超えない数だけ上から選ぶ。
 // 担当の種類はステータスで決まる（未着手は作る、検証中は確かめる）。
 export function pick(config, queue, running) {
-  const todo = config.transitions.find((t) => t.on === "振り出し").from[0];
   return ready(config, queue, running)
     .slice(0, Math.max(0, config.coordinator.parallel - running.size))
-    .map((t) => ({ number: t.number, status: t.status, kind: t.status === todo ? "作る" : "確かめる" }));
+    .map((t) => ({ number: t.number, status: t.status, kind: t.status === config.todo ? "作る" : "確かめる" }));
 }
 
 // 担当のワークフローの実行の名前（run-name）は「#<番号> <種類>」。名前から番号を読む。
@@ -70,8 +69,7 @@ export const runIssue = (title) => Number(/^#(\d+) /.exec(title ?? "")?.[1]) || 
 // 止まっているもの: 進行中なのに担当が動いていない（子の段階が開いている親は除く）・検証中なのに開いた Pull Request が無い。
 // openBranches はコードのリポジトリの開いた Pull Request の枝の名前。
 export function stuck(config, tasks, running, openBranches) {
-  const working = config.transitions.find((t) => t.on === "振り出し").to[0];
-  const review = config.coordinator.order[0];
+  const { working, review } = config;
   return tasks
     .filter((t) => (t.status === working && !running.has(t.number) && !t.openChildren.length) || (t.status === review && !openBranches.has(`${config.code.branchPrefix}${t.number}`)))
     .map((t) => ({ number: t.number, reason: t.status === working ? `${working}なのに、担当が動いていない` : `${review}なのに、開いた Pull Request が無い` }))

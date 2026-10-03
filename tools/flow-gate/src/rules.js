@@ -27,15 +27,16 @@ export function fieldRefusal(config, name, current, value) {
   return `欄「${name}」の今の値「${current}」は既定（${fallback}）と違う、決めてある値なので書き換えません。変えるならユーザーに問います。`;
 }
 
-// from から to への遷移を表で照らす。on（出来事）・by（起こす者）を渡すと、その行に限る。blockers は前提の issue。
-export function check(config, from, to, { on, by, blockers = [] } = {}) {
-  const rule = config.transitions.find((t) => t.from.includes(from) && t.to.includes(to) && (!on || t.on === on) && (!by || t.by === by));
-  if (!rule) return { ok: false, reason: `「${from ?? "（無し）"}」から「${to ?? "（無し）"}」へは動かせません（遷移の表に無い）。` };
-  if (rule.when === "blockersClosed") {
-    const open = openBlockers(blockers);
-    if (open.length) return { ok: false, reason: `前提 ${open.map((b) => `#${b.number}`).join("・")} が閉じていないため、「${to}」にできません。` };
-  }
-  return { ok: true, rule };
+// from から to への遷移を照らす。誰が・どの経路で動かしても、ここだけで決める。表（flow.config.json: transitions。FROM ごとに
+// 行ける TO の並び）に無ければ断る。表のほかのルールは1つだけで、完了へ完成（close が COMPLETED）で入るときに完了の条件の
+// 残り（remaining）があれば断る。見送り（NOT_PLANNED）は条件を問わない。issue は残りを読むためのタスク。
+export function judge(config, from, to, { close, issue } = {}) {
+  const tos = config.transitions[from] ?? [];
+  if (!tos.includes(to))
+    return { ok: false, reason: tos.length ? `「${from}」から「${to}」へは動かせません（遷移の表に無い）。` : `「${from ?? "（無し）"}」からはどこへも動かせません（遷移の表に無い）。` };
+  const left = to === config.done && close === "COMPLETED" && issue ? remaining(config, issue) : [];
+  if (left.length) return { ok: false, reason: `完成にするには次が残っています。\n\n${left.map((l) => `- ${l}`).join("\n")}\n\n` };
+  return { ok: true };
 }
 
 // 本文のチェックの無い項目（`- [ ]`。本文のチェックは完了の条件にだけ使う）。
@@ -72,7 +73,7 @@ export const questionBody = (text) => `## 問い\n${text}`;
 // 問いに案があれば、「進める」を案の数だけに分ける（行き先は同じで、選んだ案が答えに残る）。
 export function answerChoices(config, question, current) {
   return config.answers
-    .filter((a) => a.to !== current && check(config, current, a.to, { on: "回答" }).ok)
+    .filter((a) => a.to !== current && judge(config, current, a.to).ok)
     .flatMap((a) => (a.plans && question.plans.length ? question.plans.map((p) => ({ ...a, text: `「${p}」で${a.text}` })) : [a]));
 }
 

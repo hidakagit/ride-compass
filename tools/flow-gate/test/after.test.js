@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { test } from "node:test";
+import config from "../flow.config.json" with { type: "json" };
 import { classify, endReport, lastWords, refusal, settle } from "../src/after.js";
 
 const said = (error) => ({ type: "assistant", message: { content: [] }, ...(error ? { error } : {}) });
@@ -30,19 +31,19 @@ test("担当の発言に失敗が無ければ担当の側の終わり方（落�
 const done = { outside: false, pause: false, reason: "" };
 
 test("作る担当が開いた子の段階を残して終えたら、親は進行中のまま置く（落ちたにしない）", () => {
-  assert.equal(settle({ verdict: done, children: [{ state: "OPEN" }, { state: "CLOSED" }], url: "u", jobStatus: "success" }), null);
+  assert.equal(settle(config, { verdict: done, children: [{ state: "OPEN" }, { state: "CLOSED" }], url: "u", jobStatus: "success" }), null);
 });
 
 test("子が無い・子が全部閉じたタスクで PR も問いも出さずに終わったら、落ちたで保留にする", () => {
   for (const children of [[], [{ state: "CLOSED" }]]) {
-    const step = settle({ verdict: done, children, url: "u", jobStatus: "cancelled" });
-    assert.equal(step.on, "落ちた");
+    const step = settle(config, { verdict: done, children, url: "u", jobStatus: "cancelled" });
+    assert.equal(step.to, config.hold);
     assert.ok(step.reason.includes("Cancel された"), step.reason);
   }
 });
 
 test("担当の外の失敗なら、開いた子があっても未着手へ戻す", () => {
-  assert.equal(settle({ verdict: classify([said("overloaded")]), children: [{ state: "OPEN" }], url: "u", jobStatus: "failure" }).on, "戻す");
+  assert.equal(settle(config, { verdict: classify([said("overloaded")]), children: [{ state: "OPEN" }], url: "u", jobStatus: "failure" }).to, config.todo);
 });
 
 const text = (t) => ({ type: "assistant", message: { content: [{ type: "text", text: t }] } });
