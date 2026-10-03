@@ -1,10 +1,10 @@
 /**
- * 区間の乗り換え（`useSpliceSession`）——候補を元に、区間を別の候補の道へ差し替えた経路を組み、backendで評価して一覧へ入れる。
+ * 区間の乗り換え（`useSpliceSession`）——候補を元に、区間を別の候補の道へ差し替えた経路を組み、backendで評価して呼び出し側へ渡す。
  *
  * ここで見ないもの:
  * - 乗り換え先の区間の求め方・経路の継ぎ方 → `routeSplice.ts`
  * - 入力からpayloadを作る規則 → `generationRequest.ts`
- * - 所要時間の並べ方 → `routeTabLabel.ts`
+ * - 作った経路の名前と一覧での置き場 → `useRouteResults.ts`・`routeTabLabel.ts`
  *
  * 差し替えた部品: 生成の通信（`routeApi.generateRoutes`）と軸カタログ（`useAxisCatalog`）は返す値をテストが決める。
  */
@@ -15,7 +15,6 @@ import { axisCatalogFromResponse, CLIENT_TUNING_IDS, type AxisCatalog } from "@/
 import { catalogEntry, catalogResponse } from "@/testing/catalogAxes";
 import { makeRouteCandidate } from "@/testing/routeFixtures";
 import { buildGenerateRequest, type GenerationInput } from "@/features/route/generationRequest";
-import { SPLICED_ROUTE_ID_PREFIX } from "@/features/route/routeTabLabel";
 import type { RouteCandidate } from "@/types/route";
 
 const catalog = vi.hoisted(() => ({ current: undefined as unknown }));
@@ -312,30 +311,26 @@ describe("差分を見る", () => {
 });
 
 describe("作成", () => {
-  it("評価した経路を、合成の印のidで一覧へ所要時間の順に加えて選び、編集を終える。作る直前に知らせる", async () => {
+  it("評価した経路を元の候補と一緒に渡し、編集を終える。作る直前に知らせる", async () => {
     const hook = startEditing();
     choose(hook, B_FIRST);
     respond([evaluated("backend-id", ["e1", "b1", "e2", "a2", "e3"], 700)]);
     await act(async () => panel(hook).onApply());
     expect(onApplyStart).toHaveBeenCalledTimes(1);
-    const created = {
-      ...evaluated("backend-id", ["e1", "b1", "e2", "a2", "e3"], 700),
-      id: `${SPLICED_ROUTE_ID_PREFIX}-3`,
-    };
     expect(onApplied).toHaveBeenCalledWith({
-      routes: [ROUTE_A, created, ROUTE_B, ROUTE_C],
-      selectedRouteId: created.id,
+      created: evaluated("backend-id", ["e1", "b1", "e2", "a2", "e3"], 700),
+      originId: ROUTE_A.id,
     });
     expect(hook.result.current.panel).toBeNull();
   });
 
-  it("作った経路が既にある候補と同じ道なら、一覧を変えずにその候補を選ぶ", async () => {
+  it("作った経路が既にある候補と同じ道なら、作らずにその候補を渡す", async () => {
     const hook = startEditing();
     choose(hook, B_FIRST);
     choose(hook, B_SECOND);
     respond([evaluated("backend-id", ROUTE_B.edge_ids)]);
     await act(async () => panel(hook).onApply());
-    expect(onApplied).toHaveBeenCalledWith({ routes: ROUTES, selectedRouteId: ROUTE_B.id });
+    expect(onApplied).toHaveBeenCalledWith({ existingRouteId: ROUTE_B.id });
   });
 
   it("評価済みの組み合わせは作るときに投げ直さない", async () => {

@@ -463,7 +463,7 @@ export default function Home() {
           }
         >
           <MapView
-            routes={results.routes}
+            routes={route.mapRoutes}
             {...splice.map}
             selectedRouteId={results.selectedRouteId}
             location={location}

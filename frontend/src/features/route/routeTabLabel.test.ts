@@ -1,23 +1,18 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 
+import routeGenerateConfig from "@/types/generated/route-generate-config.json";
+
 import {
-  SPLICED_ROUTE_ID_PREFIX,
+  FASTEST_ROUTE_NAME,
   extraDurationLabel,
   fastestDurationSeconds,
   fastestRouteId,
-  isSplicedRoute,
   orderByDuration,
+  routeListSections,
 } from "./routeTabLabel";
 
 const route = (id: string, seconds?: number | null) => ({ id, estimated_duration_seconds: seconds });
-
-describe("isSplicedRoute（区間を乗り換えて作った候補か）", () => {
-  it("backendが付ける接頭辞で始まるidだけが該当する", () => {
-    expect(isSplicedRoute({ id: `${SPLICED_ROUTE_ID_PREFIX}2` })).toBe(true);
-    expect(isSplicedRoute({ id: "route-1" })).toBe(false);
-  });
-});
 
 describe("fastestRouteId（一覧の中の基準線）", () => {
   it("所要時間が最も短い候補。同着は先に来た方", () => {
@@ -78,5 +73,55 @@ describe("orderByDuration（候補一覧の並び）", () => {
     const routes = [candidate("easy", 3600), candidate("hard", 3600), candidate("fast", 3000)];
     expect(ids(orderByDuration(routes))).toEqual(["fast", "easy", "hard"]);
     expect(ids(routes)).toEqual(["easy", "hard", "fast"]);
+  });
+});
+
+describe("routeListSections（一覧の見出しと名前）", () => {
+  const listed = (id: string, seconds: number | null, direction_label = "") => ({
+    id,
+    direction_label,
+    estimated_duration_seconds: seconds,
+  });
+  const generated = [listed("g0", 600), listed("g1", 700), listed("g2", 800)];
+  const shape = (sections: ReturnType<typeof routeListSections<ReturnType<typeof listed>>>) =>
+    sections.map((section) => ({
+      title: section.title,
+      entries: section.entries.map(
+        (entry) => `${entry.route.id}:${entry.name}:${entry.nameShown ? "出す" : "出さない"}`,
+      ),
+    }));
+
+  it("最速の1本を含む生成なら、最速を採用ルートの先頭に名前を出さずに置き、残りの生成候補に1から番号を振る", () => {
+    expect(shape(routeListSections(generated, [], true))).toEqual([
+      { title: "採用ルート", entries: [`g0:${FASTEST_ROUTE_NAME}:出さない`] },
+      { title: "生成した候補", entries: ["g1:1:出す", "g2:2:出す"] },
+    ]);
+  });
+
+  it("編集で作ったルートは採用ルートの最速の後へ作った順に「編集N」で並ぶ", () => {
+    const edits = [
+      { route: listed("e1", 500), number: 1 },
+      { route: listed("e2", 900), number: 2 },
+    ];
+    expect(shape(routeListSections(generated, edits, true))[0].entries).toEqual([
+      `g0:${FASTEST_ROUTE_NAME}:出さない`,
+      "e1:編集1:出す",
+      "e2:編集2:出す",
+    ]);
+  });
+
+  it("最速の1本を含まない生成（周回等）で編集も無ければ、見出しを持たずに1から番号を振る", () => {
+    expect(shape(routeListSections(generated, [], false))).toEqual([
+      { title: null, entries: ["g0:1:出す", "g1:2:出す", "g2:3:出す"] },
+    ]);
+  });
+
+  it("比べる相手の無い1件だけの生成は、最速の1本を含む生成でも見出しを分けない", () => {
+    expect(shape(routeListSections([listed("g0", 600)], [], true))).toEqual([{ title: null, entries: ["g0:1:出す"] }]);
+  });
+
+  it("経由地を通るルートは番号の代わりに名前を出す", () => {
+    const waypoints = listed(routeGenerateConfig.waypoints_route_id, 600, "経由地ルート");
+    expect(shape(routeListSections([waypoints], [], false))[0].entries).toEqual([`${waypoints.id}:経由地ルート:出す`]);
   });
 });
