@@ -67,16 +67,6 @@ def engine_over(monkeypatch, avoid_axis):
     return build
 
 
-@pytest.fixture
-def preview_over(monkeypatch, avoid_axis):
-    """道路網から、2点間の区間確認（`/api/routes/preview`の入口）を組む。軸は`avoid_axis`の1本。"""
-
-    def build(network: RoadNetwork):
-        return engine_for(monkeypatch, network, 0.0, None).preview_segment
-
-    return build
-
-
 # ---------------------------------------------------------------------------------------
 
 
@@ -107,6 +97,8 @@ async def test_destination_route_runs_from_origin_to_destination(engine_over):
     # 格子の対角は最短で4区間（約4km）。基準線（時間最短）はそれより遠回りしない。
     fastest = fastest_of(candidates)
     assert len(fastest.edge_ids) == 4
+    # 探索用の区間は形を持たない。取り直した形で、4区間ぶんの折れ線になる。
+    assert len(fastest.geometry["coordinates"]) == 5
 
 
 async def test_weight_on_an_axis_steers_the_route_away_from_what_it_scores_badly(engine_over):
@@ -444,25 +436,3 @@ async def test_a_route_timed_without_the_wind_forecast_says_so(engine_over):
 
     assert all(c.wind_unavailable for c in without)
     assert not any(c.wind_unavailable for c in with_wind)
-
-
-# --- 2点間の区間確認 ---
-
-
-async def test_preview_follows_the_roads_between_two_points(preview_over):
-    preview = preview_over(grid_network())
-
-    segment = await preview(at(SOUTH_WEST), at(NORTH_EAST))
-
-    assert segment is not None
-    assert math.isclose(segment.distance_km, 4.0, abs_tol=0.1)
-    # 探索用の区間は形を持たない。取り直した形で、4区間ぶんの折れ線になる。
-    assert len(segment.geometry["coordinates"]) == 5
-
-
-async def test_preview_is_none_when_an_end_is_far_from_every_road(preview_over):
-    preview = preview_over(grid_network())
-
-    far = Coordinates(latitude=BASE_LAT + 0.3, longitude=BASE_LON + 0.3)
-
-    assert await preview(at(SOUTH_WEST), far) is None

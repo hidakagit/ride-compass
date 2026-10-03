@@ -2,10 +2,8 @@
 
 from dataclasses import dataclass
 
-from app.domain.errors import RoutingError
 from app.domain.evaluation import resolve_penalty_strength
 from app.domain.hard_filters import DEFAULT_HARD_FILTERS
-from app.domain.route import Coordinates, RouteSegment
 from app.domain.route_preference import RoutePreference
 from app.domain.wind import ASSUMED_SPEED_KMH
 from app.services.graph_service import GraphService
@@ -45,7 +43,7 @@ def assemble_route_generation_setup(
     assumed_speed_kmh: float = ASSUMED_SPEED_KMH,
     lens_axis_id: str | None = None,
 ) -> RouteGenerationSetup:
-    """エンジンを組む唯一の入口。ルート生成・区間確認・計測・テストのどれもここを通る。
+    """エンジンを組む唯一の入口。ルート生成・計測・テストのどれもここを通る。
 
     省略された評価条件の既定はここで1度だけ決める。以後は解決済みの値だけを回し、
     レスポンスのconditionsへも同じ値をエコーする（画面が見る値と探索が使う値を分けない）。
@@ -72,25 +70,3 @@ def assemble_route_generation_setup(
         max_average_grade_percent=max_average_grade_percent,
         hard_filters=hard_filters,
     )
-
-
-class RoutePreviewService:
-    """`/api/routes/preview`（単一区間確認）。
-
-    評価条件のうち想定速度だけを受け取り、それ以外はルート生成が省略時に使うのと同じ既定で探す。
-    """
-
-    def __init__(self, graph_service: GraphService, weather_service: WeatherService):
-        self._graph_service = graph_service
-        self._weather_service = weather_service
-
-    async def preview(
-        self, origin: Coordinates, destination: Coordinates, assumed_speed_kmh: float
-    ) -> RouteSegment:
-        setup = assemble_route_generation_setup(
-            self._graph_service, self._weather_service, assumed_speed_kmh=assumed_speed_kmh
-        )
-        segment = await setup.engine.preview_segment(origin, destination)
-        if segment is None:
-            raise RoutingError("road_graph: no path found between origin and destination")
-        return segment

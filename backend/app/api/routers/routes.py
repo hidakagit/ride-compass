@@ -11,19 +11,17 @@ from app.domain.time_zone import JST
 from app.api.dependencies import (
     RouteGenerationSetupOpener,
     get_route_generation_setup_opener,
-    get_route_preview_service,
 )
 from app.api.rate_limit import client_id, enforce_rate_limit
 from app.config import settings
-from app.domain.errors import RoutingError, SearchAreaTooLargeError
+from app.domain.errors import RoutingError
 from app.domain.hard_filters import HARD_FILTER_NAMES
 from app.domain.route_preference import RoutePreference, check_axis_weights, published_axis_ids
 from app.domain.geo import haversine_distance_km
 from app.domain.wind import ASSUMED_SPEED_KMH, MAX_ASSUMED_SPEED_KMH, MIN_ASSUMED_SPEED_KMH
-from app.domain.route import Coordinates, RouteCandidate, RouteSegment
+from app.domain.route import Coordinates, RouteCandidate
 from app.infrastructure import job_registry
 from app.infrastructure.debug_log import record_rate_limit_rejection
-from app.services.route_generation_setup import RoutePreviewService
 from app.services.route_generator import DEFAULT_MAX_ROUTES, MAX_ROUTES, applied_max_routes
 from app.domain.strict_model import StrictModel
 
@@ -49,29 +47,6 @@ _generate_semaphore = asyncio.Semaphore(settings.generate_max_concurrent)
 # 実行中のルート生成ジョブ（`create_task`の戻り値）。イベントループはタスクへの強参照を
 # 持たないため、ここで保持しないとGCが実行中のジョブごと回収しうる。
 _running_generate_tasks: set[asyncio.Task] = set()
-
-
-class RoutePreviewRequest(StrictModel):
-    origin: Coordinates
-    destination: Coordinates
-    # 仮定巡航速度（km/h、所要時間の算出に使う）。省略時は既定値。
-    assumed_speed_kmh: float = Field(ge=MIN_ASSUMED_SPEED_KMH, le=MAX_ASSUMED_SPEED_KMH, default=ASSUMED_SPEED_KMH)
-
-
-@router.post("/api/routes/preview", response_model=RouteSegment)
-async def preview_route(
-    request: RoutePreviewRequest,
-    http_request: Request,
-    preview_service: RoutePreviewService = Depends(get_route_preview_service),
-) -> RouteSegment:
-    enforce_rate_limit(http_request, "preview", settings.preview_rate_limit_per_minute)
-    try:
-        return await preview_service.preview(request.origin, request.destination, request.assumed_speed_kmh)
-    except RoutingError as exc:
-        raise HTTPException(status_code=502, detail=f"ルート取得に失敗しました: {exc}") from exc
-    except SearchAreaTooLargeError as exc:
-        raise HTTPException(
-            status_code=422, detail="2点が離れすぎていて、間の道路が多すぎるため確認できません。") from exc
 
 
 class RoutePreferenceWeights(RootModel[dict[str, float]]):

@@ -28,7 +28,7 @@ import math
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 import numpy as np
 
@@ -59,7 +59,6 @@ from app.domain.road_network import RoadSlice, edge_row_of, elevation_attribute,
 from app.domain.route import (
     Coordinates,
     RouteCandidate,
-    RouteSegment,
     RouteSegmentDetail,
     aggregate_segments_into_bins,
     merge_material_category_shares,
@@ -110,10 +109,9 @@ from app.services.weather_service import WeatherService
 _BBOX_MARGIN_RATIO = 0.3
 _BBOX_MARGIN_MIN_KM = 2.0
 
-# preview_segment（起点・終点2点間の単発経路確認）が使うbboxマージン。
-# ループ探索の_BBOX_MARGIN_MIN_KMと同じ「道なりが直線外接矩形からはみ出る余裕」を
-# 単純な固定値で持たせる（previewは距離が事前に分からないため半径比例のロジックは使えない）。
-_PREVIEW_BBOX_MARGIN_KM = 2.0
+# 経由地ルートのbboxマージン。ループ探索の_BBOX_MARGIN_MIN_KMと同じ「道なりが直線外接矩形から
+# はみ出る余裕」を固定値で持たせる（経由地は起点からの半径に収まるとは限らないため半径比例は使えない）。
+_WAYPOINT_BBOX_MARGIN_KM = 2.0
 
 # --- フロンティア方式の折返し点選定・復路探索のパラメータ ---
 # 復路探索の間、往路Edge（＋同一Node対の逆方向Edge）のコストへ掛ける倍率。infにはしない
@@ -199,7 +197,7 @@ class _RoadGraphContext:
     # 起点のノード番号（`road`の切り出しの番号）。
     origin_node: int
     # 1リクエスト内で繰り返す最寄りNodeの探索（prepareの起点・trace_loopの
-    # 各経由地と目的地・preview_segmentの両端）を都度線形探索せず使い回すための索引
+    # 各経由地と目的地）を都度線形探索せず使い回すための索引
     # （domain/routing.py参照）。
     node_index: NodeSpatialIndex
     # 探索用グラフ（区間は番号、domain/routing.py: LazyRoadGraph参照）。
@@ -252,9 +250,8 @@ def _static_score_matrix(road: RoadSlice, rain: StationRainMaterials | None) -> 
 
 @dataclass
 class _SearchGraph:
-    """`prepare`・`preview_segment`共通の「bboxに対する探索用グラフ＋材料一式」。
-    wind/night軸・0次ハードフィルタ等の探索コスト算出ロジックを
-    `_build_search_graph`1箇所にまとめ、ループ探索・単発区間確認の両方で重複させない。
+    """`prepare`が組む「bboxに対する探索用グラフ＋材料一式」。
+    wind/night軸・0次ハードフィルタ等の探索コスト算出ロジックは`_build_search_graph`1箇所にある。
     """
 
     road: RoadSlice
@@ -322,11 +319,10 @@ class RoadGraphEngine:
     async def _build_search_graph(
         self, bbox: BoundingBox, wind_and_night_origin: Coordinates, now: datetime
     ) -> _SearchGraph | None:
-        """bboxに対する探索用グラフ（lazy_graph）＋bbox全体ぶんのコスト配列を構築する
-        （`prepare`・`preview_segment`共通）。夜間の判定と、風の時別予報が無いときの風（出発時点の値）は
-        `wind_and_night_origin`（周回ならその起点、区間確認なら起点側の座標）を基準にする
-        ——探索中は到達時刻が未確定のため出発時刻の近似として使う簡略化はどちらの用途でも
-        変わらない（モジュールdocstring参照）。時別予報は`bbox`を覆う格子点ごとに引く。
+        """bboxに対する探索用グラフ（lazy_graph）＋bbox全体ぶんのコスト配列を構築する。
+        夜間の判定と、風の時別予報が無いときの風（出発時点の値）は`wind_and_night_origin`（起点）を
+        基準にする——探索中は到達時刻が未確定のため出発時刻の近似として使う簡略化
+        （モジュールdocstring参照）。時別予報は`bbox`を覆う格子点ごとに引く。
 
         雨の材料は、出発時刻ではなく今の観測（地図の雨と同じ値）。観測の履歴が無い・古いときは欠損のまま組み、
         雨の材料を読む軸はその生成で「データなし」になる。
@@ -424,7 +420,7 @@ class RoadGraphEngine:
     async def _build_search_structures(
         self, search: _SearchGraph
     ) -> tuple[NodeSpatialIndex, SearchGraphStatics, TurnExpandedStructure]:
-        """最寄りNodeの索引・CSR・ターン構造を組む（`prepare`・`preview_segment`共通）。
+        """最寄りNodeの索引・CSR・ターン構造を組む。
 
         索引の候補は実際に経路探索可能な（Hard Constraint通過後も区間が1本以上残る）Nodeに
         絞る。絞らないと、幹線道路（highway=trunk等）にしか接続していない地理的最近傍Node
@@ -472,9 +468,8 @@ class RoadGraphEngine:
         # 出発時刻を近似として使う簡略化、詳細は_build_search_graph参照）。
         if waypoints:
             # ユーザー指定の経由地は起点から半径radius_km以内とは限らない
-            # ため、周回探索の円を覆う矩形ではなく、preview_segmentと
-            # 同じ「複数点の外接矩形+固定マージン」を使う。
-            bbox = bbox_covering_points([origin, *waypoints], _PREVIEW_BBOX_MARGIN_KM)
+            # ため、周回探索の円を覆う矩形ではなく、複数点の外接矩形+固定マージンを使う。
+            bbox = bbox_covering_points([origin, *waypoints], _WAYPOINT_BBOX_MARGIN_KM)
         else:
             # 起点を中心とした円を覆う矩形。折返し点がどの方位に選ばれても、この1回の取得で足りる。
             margin_km = max(_BBOX_MARGIN_MIN_KM, radius_km * _BBOX_MARGIN_RATIO)
@@ -504,53 +499,6 @@ class RoadGraphEngine:
             turn_structure=turn_structure,
             tile_set=search.tile_set,
         )
-
-    async def preview_segment(
-        self, origin: Coordinates, destination: Coordinates, now: datetime | None = None
-    ) -> RouteSegment | None:
-        """起点・終点2点間の単発区間確認（`/api/routes/preview`）。
-
-        1回の最短経路探索のみを行う。探索コストは生成と同じ評価軸重み付きを使う——単純
-        最短距離にすると、ここで見える経路と生成が返す経路が食い違う。
-
-        経路が見つからない場合はNone。
-        """
-        now = now or datetime.now(timezone.utc)
-        bbox = bbox_covering_points([origin, destination], _PREVIEW_BBOX_MARGIN_KM)
-
-        search = await self._build_search_graph(bbox, origin, now)
-        if search is None:
-            return None
-        node_index, statics, turn_structure = await self._build_search_structures(search)
-        origin_node = find_nearest_node_indexed(node_index, origin)
-        destination_node = find_nearest_node_indexed(node_index, destination)
-        if origin_node is None or destination_node is None:
-            return None
-
-        edges = await asyncio.to_thread(
-            turn_expanded_shortest_path,
-            turn_structure, search.outbound.cost_lazy,
-            _heuristic_seconds(_estimate_distances_m(search.node_lat, search.node_lon, destination_node)),
-            _origin_states(statics, origin_node),
-            destination_node,
-            search.outbound.travel_seconds_lazy,
-        )
-        if not edges:
-            return None
-
-        # 探索用グラフの区間は形を持たないため、この経路ぶんだけ取り直す。
-        # 渡すのはidではなく枝そのもの——取り直しは道と区間の番号で引くため。
-        topology = [_lean_edge(search.road, search.lazy_graph, index) for index in edges]
-        hydrated = await self._graph_service.get_edges_with_geometry(topology)
-        edges_in_path: list[LeanEdge] = [hydrated[edge.edge_id] for edge in topology]
-
-        distance_km = round(sum(edge.distance_m for edge in edges_in_path) / 1000, 2)
-        geometry, _ = _concat_edge_geometries(edges_in_path)
-        # ここだけは走行モデル（勾配・風・路面で速度が変わる）を通さず、仮定巡航速度の
-        # ままで概算する。区間の疎通確認が用途で、探索を経ずEdge列の長さしか持たないため。
-        duration_minutes = round(distance_km / self._assumed_speed_kmh * 60, 1)
-
-        return RouteSegment(distance_km=distance_km, duration_minutes=duration_minutes, geometry=geometry)
 
     async def trace_loop(
         self,
