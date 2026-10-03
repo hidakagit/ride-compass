@@ -1,12 +1,12 @@
-"""`infrastructure/debug_log.py`——外部I/Oイベントの抑制付きWARNINGとプロセス内集計。
+"""`infrastructure/debug_log.py`——外部I/Oの記録（`log_external_call`・`mark_failed`）、カテゴリごとに抑える警告
+（`log_throttled_warning`）、429の記録（`record_rate_limit_rejection`）と、それらの集計（`get_stats`）。
+
+集計と警告の窓はプロセス大域にあるので`empty_debug_counters`で空から始め、時計は`clock`で止めて進める。
+ログは`caplog`で読む。
 
 ここで見ないもの:
-- `/api/debug/stats`の応答の形・公開範囲 → `test_debug_stats_route.py`
-- 各クライアントがどのカテゴリ名・fieldsを設定するか → そのクライアントのテスト
-- ロガー名が`ridecompass.`接頭辞に揃っているか → `tests/structure/test_canonical_definitions.py`
-
-**時計は止めて進める（`clock`）。** 所要時間も抑制窓も`time.monotonic()`だけで決まるため、実時間を
-待つと窓の境界（60秒）を跨げない。
+- 集計が`/api/debug/stats`の応答へどう出るか → `test_debug_stats_route.py`
+- どの呼び出し元がどのカテゴリ・cache・retries・fallbackを書くか → 呼び出し元のテスト（例: `test_simple_api_client.py`）
 """
 
 import logging
@@ -14,260 +14,247 @@ import logging
 import httpx
 import pytest
 
-from app.infrastructure import debug_log
-
-LOGGER_NAME = "ridecompass.external"
+from app.infrastructure.debug_log import (
+    WARN_BURST_PER_WINDOW,
+    WARN_WINDOW_SECONDS,
+    get_stats,
+    log_external_call,
+    log_throttled_warning,
+    mark_failed,
+    record_rate_limit_rejection,
+)
 
 pytestmark = pytest.mark.usefixtures("empty_debug_counters")
 
+FROZEN_AT = "2026-01-01T00:00:00+00:00"
+
 
 @pytest.fixture
-def warnings(caplog):
-    caplog.set_level(logging.WARNING, logger=LOGGER_NAME)
+def logs(caplog):
+    caplog.set_level(logging.DEBUG, logger="ridecompass.external")
+    return caplog
 
-    class _Warnings:
-        def messages(self) -> list[str]:
-            return [r.getMessage() for r in caplog.records if r.name == LOGGER_NAME]
 
-    return _Warnings()
+def warnings_of(logs) -> list[str]:
+    return [record.getMessage() for record in logs.records if record.levelno == logging.WARNING]
 
 
-def _external(category: str) -> debug_log.ExternalCallStats:
-    return debug_log.get_stats().external[category]
+def http_error(status_code: int) -> httpx.HTTPStatusError:
+    request = httpx.Request("GET", "https://example.test/tile?lat=35.681236&lon=139.767125")
+    return httpx.HTTPStatusError("failed", request=request, response=httpx.Response(status_code, request=request))
 
 
-def test_errors_carrying_an_http_response_are_labeled_by_status_code():
-    request = httpx.Request("GET", "https://example.test/")
-    error = httpx.HTTPStatusError("503", request=request, response=httpx.Response(503, request=request))
+def call(category: str, elapsed_seconds: float = 0.0, clock=None, **result: object) -> None:
+    """`category`の呼び出しを1回記録する。`result`は呼び出し元が書き足す結果。"""
+    with log_external_call(category) as fields:
+        if clock is not None:
+            clock.tick(elapsed_seconds)
+        fields.update(result)
 
-    assert debug_log.error_type_label(error) == "http_503"
 
+class TestCounting:
+    def test_a_successful_call_is_counted_with_its_time(self, clock):
+        call("cat", 0.1, clock)
+        call("cat", 0.3, clock)
 
-def test_other_errors_are_labeled_by_their_class_name():
-    class _Unreachable(Exception):
-        response = None
+        stats = get_stats().external["cat"]
+        assert (stats.calls, stats.errors) == (2, 0)
+        assert (stats.total_ms, stats.max_ms, stats.avg_ms) == (400, 300, 200)
+        assert stats.last_success_at == "2026-01-01T00:00:00.400000+00:00"
+        assert stats.last_error is None
 
-    assert debug_log.error_type_label(TimeoutError()) == "TimeoutError"
-    assert debug_log.error_type_label(_Unreachable()) == "_Unreachable"
+    def test_cache_hits_and_misses_give_the_hit_rate(self):
+        for cache in ("hit", "hit", "miss"):
+            call("cat", cache=cache)
 
+        stats = get_stats().external["cat"]
+        assert (stats.cache_hits, stats.cache_misses, stats.cache_hit_rate) == (2, 1, 0.667)
 
-def test_the_label_carries_neither_the_message_nor_the_url():
-    """`/api/debug/stats`は常時公開で、例外メッセージにはユーザーの現在地を載せたURLが
-    入りうる。ラベルへ混ぜると座標がそのまま外から読める。
-    """
-    label = debug_log.error_type_label(RuntimeError("GET https://example.test/?lat=35.681236 failed"))
+    def test_calls_that_never_looked_at_a_cache_have_no_hit_rate(self):
+        call("cat")
 
-    assert label == "RuntimeError"
+        assert get_stats().external["cat"].cache_hit_rate is None
 
+    def test_only_calls_that_retried_count_as_retried(self):
+        call("cat", retries=2)
+        call("cat", retries=0)
+        call("cat")
 
-def test_coordinates_in_the_always_on_warning_are_coarsened(clock, warnings):
-    """常時出るWARNINGは本番のログストリームへ残り続ける。丸めないと、利用者の現在地が
-    1m精度でログに溜まる。
-    """
-    with pytest.raises(ValueError):
-        with debug_log.log_external_call(
-            "cat",
-            lat=35.123456,
-            span=(12.3456, 78.9012),
-            box=[1.23456],
-            meta={"lon": 139.987654},
-            zoom=12,
-            note="abc",
-        ):
-            raise ValueError("boom")
+        stats = get_stats().external["cat"]
+        assert (stats.retried_calls, stats.retry_attempts_total) == (1, 2)
 
-    (message,) = warnings.messages()
-    assert "35.123456" not in message
-    assert "1.23456" not in message
-    assert "139.987654" not in message
-    assert "35.12" in message
-    assert "(12.35, 78.9)" in message
-    assert "[1.23]" in message
-    assert "139.99" in message
-    assert "12" in message
-    assert "abc" in message
+    @pytest.mark.parametrize(
+        ("fallback", "counted"),
+        [("stale_cache", 1), ("stale_cache:redis", 1), ("default_value", 0), (True, 0)],
+    )
+    def test_only_a_stale_cache_fallback_counts_as_one(self, fallback, counted):
+        call("cat", fallback=fallback)
 
+        assert get_stats().external["cat"].stale_fallback_used == counted
 
-def test_only_the_first_few_warnings_of_a_category_are_emitted(clock, warnings):
-    """外部サービスが落ちている間、1件ずつ出すとログが同じ警告で埋まり、他の障害が読めなくなる。"""
-    for i in range(debug_log.WARN_BURST_PER_WINDOW + 3):
-        debug_log.log_throttled_warning("cat", "boom %d", i)
+    def test_categories_are_counted_apart_and_listed_in_name_order(self):
+        call("weather:b")
+        call("basemap:a")
+        call("weather:b")
 
-    assert len(warnings.messages()) == debug_log.WARN_BURST_PER_WINDOW
+        external = get_stats().external
+        assert list(external) == ["basemap:a", "weather:b"]
+        assert (external["basemap:a"].calls, external["weather:b"].calls) == (1, 2)
 
+    def test_a_snapshot_does_not_move_with_later_calls(self):
+        call("cat")
+        snapshot = get_stats()
 
-def test_the_suppressed_count_is_reported_once_the_window_turns_over(clock, warnings):
-    """抑制した件数を出さないと、読み手は「警告が5件で収まった」と読んでしまう。"""
-    for i in range(debug_log.WARN_BURST_PER_WINDOW + 3):
-        debug_log.log_throttled_warning("cat", "boom %d", i)
-    clock.tick(debug_log.WARN_WINDOW_SECONDS)
+        call("cat", cache="hit")
+        record_rate_limit_rejection("tiles", "client", "120/min")
 
-    debug_log.log_throttled_warning("cat", "boom again")
+        assert snapshot.external["cat"].calls == 1
+        assert snapshot.external["cat"].cache_hits == 0
+        assert snapshot.rate_limit_rejections == {}
 
-    emitted = warnings.messages()[debug_log.WARN_BURST_PER_WINDOW :]
-    assert "suppressed 3 similar warnings" in emitted[0]
-    assert emitted[1] == "boom again"
 
+class TestFailures:
+    def test_an_exception_is_counted_by_its_class_and_raised_again(self, logs, clock):
+        with pytest.raises(ValueError):
+            with log_external_call("cat"):
+                raise ValueError("lat=35.681236")
 
-def test_no_notice_is_emitted_when_the_previous_window_suppressed_nothing(clock, warnings):
-    debug_log.log_throttled_warning("cat", "first")
-    clock.tick(debug_log.WARN_WINDOW_SECONDS)
-    debug_log.log_throttled_warning("cat", "second")
+        stats = get_stats().external["cat"]
+        assert (stats.calls, stats.errors, stats.error_types) == (1, 1, {"ValueError": 1})
+        assert (stats.last_error.type, stats.last_error.at) == ("ValueError", FROZEN_AT)
+        assert stats.last_success_at is None
+        assert any("error after" in message for message in warnings_of(logs))
 
-    assert warnings.messages() == ["first", "second"]
+    def test_an_http_error_is_counted_by_its_status_without_the_url(self):
+        with pytest.raises(httpx.HTTPStatusError):
+            with log_external_call("cat"):
+                raise http_error(429)
 
+        assert get_stats().external["cat"].error_types == {"http_429": 1}
 
-def test_each_category_gets_its_own_budget(clock, warnings):
-    """1つの外部サービスの障害が、他のサービスの警告まで黙らせてはならない。"""
-    for i in range(debug_log.WARN_BURST_PER_WINDOW + 3):
-        debug_log.log_throttled_warning("noisy", "boom %d", i)
+    def test_a_failure_caught_by_the_caller_is_counted_and_warned_with_the_exception(self, logs):
+        with log_external_call("cat", tile="14/1/2") as fields:
+            mark_failed(fields, http_error(503))
 
-    debug_log.log_throttled_warning("quiet", "still heard")
+        stats = get_stats().external["cat"]
+        assert (stats.errors, stats.error_types) == (1, {"http_503": 1})
+        [warning] = warnings_of(logs)
+        assert "failed after" in warning
+        assert "14/1/2" in warning
+        assert "HTTPStatusError" in warning
 
-    assert "still heard" in warnings.messages()
+    def test_a_result_marked_as_error_without_a_reason_is_counted_as_unknown(self, logs):
+        call("cat", result="error")
 
+        assert get_stats().external["cat"].error_types == {"unknown": 1}
+        assert len(warnings_of(logs)) == 1
 
-def test_rate_limit_rejections_are_counted_and_warned(clock, warnings):
-    debug_log.record_rate_limit_rejection("cat", "client-a", "120/min")
-    debug_log.record_rate_limit_rejection("cat", "client-a", "120/min")
+    def test_a_later_success_keeps_the_last_error(self, clock):
+        call("cat", result="error")
+        clock.tick(60)
+        call("cat")
 
-    assert debug_log.get_stats().rate_limit_rejections == {"cat": 2}
-    assert "client=client-a limit=120/min" in warnings.messages()[0]
+        stats = get_stats().external["cat"]
+        assert stats.last_error.at == FROZEN_AT
+        assert stats.last_success_at == "2026-01-01T00:01:00+00:00"
 
 
-def test_rate_limit_warnings_do_not_spend_the_external_categorys_budget(clock, warnings):
-    """同名の外部カテゴリと窓を共有すると、429が続いた瞬間にその外部APIの失敗警告が消える。"""
-    for i in range(debug_log.WARN_BURST_PER_WINDOW + 3):
-        debug_log.log_throttled_warning("cat", "boom %d", i)
+class TestLogLines:
+    def test_a_success_is_logged_only_at_debug_with_the_coordinates_as_given(self, logs):
+        call("cat", lat=35.681236)
 
-    debug_log.record_rate_limit_rejection("cat", "client-a", "120/min")
+        assert warnings_of(logs) == []
+        debug = [record.getMessage() for record in logs.records if record.levelno == logging.DEBUG]
+        assert any("done in" in message and "35.681236" in message for message in debug)
 
-    assert any("rejected client=client-a" in m for m in warnings.messages())
+    def test_a_warning_rounds_every_coordinate_to_two_decimals(self, logs):
+        """WARNINGは常時出るので、利用者の現在地を1km程度より細かく残さない。"""
+        with log_external_call(
+            "cat", lat=35.681236, bbox=(139.767125, 35.681236), points=[139.767125], area={"lat": 35.681236}
+        ) as fields:
+            fields["result"] = "error"
 
+        [warning] = warnings_of(logs)
+        assert "35.681236" not in warning
+        assert "139.767125" not in warning
+        assert "'lat': 35.68" in warning
+        assert "(139.77, 35.68)" in warning
+        assert "[139.77]" in warning
+        assert "{'lat': 35.68}" in warning
 
-def test_a_successful_call_is_counted_without_any_warning(clock, warnings):
-    with debug_log.log_external_call("cat", result="ok"):
-        pass
 
-    stats = _external("cat")
-    assert (stats.calls, stats.errors) == (1, 0)
-    assert stats.last_success_at is not None
-    assert stats.last_error is None
-    assert warnings.messages() == []
+class TestWarningThrottle:
+    def warn(self, category: str = "cat", times: int = 1) -> None:
+        for _ in range(times):
+            log_throttled_warning(category, "trouble in %s", category)
 
+    def test_warnings_beyond_the_burst_are_held_back_within_a_window(self, logs, clock):
+        self.warn(times=WARN_BURST_PER_WINDOW + 3)
 
-def test_an_exception_is_counted_warned_and_re_raised(clock, warnings):
-    with pytest.raises(ValueError):
-        with debug_log.log_external_call("cat"):
-            raise ValueError("boom")
+        assert warnings_of(logs) == ["trouble in cat"] * WARN_BURST_PER_WINDOW
 
-    stats = _external("cat")
-    assert (stats.calls, stats.errors) == (1, 1)
-    assert stats.error_types == {"ValueError": 1}
-    assert stats.last_error is not None and stats.last_error.type == "ValueError"
-    assert len(warnings.messages()) == 1
+    def test_the_next_window_reports_how_many_were_held_back(self, logs, clock):
+        self.warn(times=WARN_BURST_PER_WINDOW + 3)
+        logs.clear()
 
+        clock.tick(WARN_WINDOW_SECONDS)
+        self.warn()
 
-def test_a_result_of_error_is_counted_even_though_nothing_was_raised(clock, warnings):
-    """例外を握りつぶして既定値を返すクライアントの失敗が、集計から消えてしまわないこと。"""
-    with debug_log.log_external_call("cat") as fields:
-        fields["result"] = "error"
-        fields["error_type"] = "http_500"
+        assert warnings_of(logs) == [
+            f"[cat] suppressed 3 similar warnings in last {int(WARN_WINDOW_SECONDS)}s",
+            "trouble in cat",
+        ]
 
-    stats = _external("cat")
-    assert (stats.errors, stats.error_types) == (1, {"http_500": 1})
-    assert len(warnings.messages()) == 1
+    def test_the_window_does_not_end_before_its_full_length(self, logs, clock):
+        self.warn(times=WARN_BURST_PER_WINDOW)
+        logs.clear()
 
+        clock.tick(WARN_WINDOW_SECONDS - 1)
+        self.warn()
 
-def test_a_caught_exception_is_counted_by_type_and_warned_once_with_the_callers_fields(clock, warnings):
-    """例外を既定値へ倒す呼び出し元の失敗が、種別付きで集計され、対象と例外の添えられた警告が1行出ること。"""
-    with debug_log.log_external_call("cat", z=10, x=905, y=403) as fields:
-        debug_log.mark_failed(fields, TimeoutError("db down"))
+        assert warnings_of(logs) == []
 
-    assert _external("cat").error_types == {"TimeoutError": 1}
-    (message,) = warnings.messages()
-    assert "'z': 10" in message
-    assert "db down" in message
+    def test_a_new_window_without_anything_held_back_reports_nothing_extra(self, logs, clock):
+        self.warn()
+        logs.clear()
 
+        clock.tick(WARN_WINDOW_SECONDS)
+        self.warn()
 
-def test_an_unclassified_failure_is_counted_as_unknown(clock, warnings):
-    with debug_log.log_external_call("cat") as fields:
-        fields["result"] = "error"
+        assert warnings_of(logs) == ["trouble in cat"]
 
-    assert _external("cat").error_types == {"unknown": 1}
+    def test_each_category_has_its_own_window(self, logs, clock):
+        self.warn("cat-a", times=WARN_BURST_PER_WINDOW)
+        logs.clear()
 
+        self.warn("cat-b")
 
-def test_the_cache_hit_rate_counts_only_declared_lookups(clock, warnings):
-    for cache in ("hit", "hit", "miss", None):
-        with debug_log.log_external_call("cat", cache=cache):
-            pass
-    with debug_log.log_external_call("nolookup"):
-        pass
+        assert warnings_of(logs) == ["trouble in cat-b"]
 
-    stats = _external("cat")
-    assert (stats.cache_hits, stats.cache_misses) == (2, 1)
-    assert stats.cache_hit_rate == 0.667
-    assert _external("nolookup").cache_hit_rate is None
+    def test_failed_calls_share_the_window_of_their_category(self, logs, clock):
+        self.warn(times=WARN_BURST_PER_WINDOW)
+        logs.clear()
 
+        call("cat", result="error")
 
-def test_retries_are_counted_only_when_the_call_actually_retried(clock, warnings):
-    """「まだ成功しているが上流が混み始めている」兆候。0回を数えると常時1件に見える。"""
-    with debug_log.log_external_call("cat", retries=2):
-        pass
-    with debug_log.log_external_call("cat", retries=0):
-        pass
-    with debug_log.log_external_call("cat"):
-        pass
+        assert warnings_of(logs) == []
+        assert get_stats().external["cat"].errors == 1
 
-    stats = _external("cat")
-    assert (stats.retried_calls, stats.retry_attempts_total) == (1, 2)
 
+class TestRateLimitRejections:
+    def test_rejections_are_counted_per_category_and_warned_with_the_client_and_limit(self, logs):
+        record_rate_limit_rejection("tiles", "203.0.113.5", "120/min")
+        record_rate_limit_rejection("tiles", "203.0.113.5", "120/min")
+        record_rate_limit_rejection("generate", "203.0.113.6", "concurrent=2")
 
-def test_only_a_stale_cache_fallback_is_counted_as_one(clock, warnings):
-    with debug_log.log_external_call("cat", fallback="stale_cache:redis"):
-        pass
-    with debug_log.log_external_call("cat", fallback="default"):
-        pass
-    with debug_log.log_external_call("cat", fallback=True):
-        pass
+        assert get_stats().rate_limit_rejections == {"tiles": 2, "generate": 1}
+        assert warnings_of(logs)[0] == "[ratelimit:tiles] rejected client=203.0.113.5 limit=120/min"
 
-    assert _external("cat").stale_fallback_used == 1
+    def test_rejection_warnings_are_held_back_apart_from_failures_of_the_same_name(self, logs, clock):
+        for _ in range(WARN_BURST_PER_WINDOW):
+            call("tiles", result="error")
+        logs.clear()
 
+        record_rate_limit_rejection("tiles", "203.0.113.5", "120/min")
 
-def test_durations_accumulate_into_the_total_average_and_peak(clock, warnings):
-    with debug_log.log_external_call("cat"):
-        clock.tick(0.012)
-    with debug_log.log_external_call("cat"):
-        clock.tick(0.030)
-
-    stats = _external("cat")
-    assert (stats.total_ms, stats.max_ms, stats.avg_ms) == (42, 30, 21)
-
-
-def test_categories_come_back_in_name_order(clock, warnings):
-    """呼ばれた順のままだと、読み直すたびに同じカテゴリが別の位置へ動く。"""
-    for category in ("zz", "aa", "mm"):
-        with debug_log.log_external_call(category):
-            pass
-
-    assert list(debug_log.get_stats().external) == ["aa", "mm", "zz"]
-
-
-def test_the_snapshot_does_not_alias_the_running_counters(clock, warnings):
-    """応答を組み立てるのはロックの外。内部dictを共有していると、別リクエストの更新が
-    反復の最中に割り込む。
-    """
-    with pytest.raises(ValueError):
-        with debug_log.log_external_call("cat"):
-            raise ValueError("boom")
-    debug_log.record_rate_limit_rejection("cat", "client-a", "120/min")
-
-    snapshot = debug_log.get_stats()
-    snapshot.external["cat"].calls = 999
-    snapshot.external["cat"].error_types["ValueError"] = 999
-    snapshot.rate_limit_rejections["cat"] = 999
-
-    fresh = debug_log.get_stats()
-    assert fresh.external["cat"].calls == 1
-    assert fresh.external["cat"].error_types == {"ValueError": 1}
-    assert fresh.rate_limit_rejections == {"cat": 1}
+        assert warnings_of(logs) == ["[ratelimit:tiles] rejected client=203.0.113.5 limit=120/min"]
