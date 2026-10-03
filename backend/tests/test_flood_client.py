@@ -1,86 +1,105 @@
-"""`infrastructure/flood_client.py`——指定河川洪水予報の電文一覧を引き、電文の形を解く。
+"""`infrastructure/flood_client.py`——指定河川洪水予報の全国の電文一覧を引き、電文の形を解く。
+
+入口は`fetch_flood_documents`。網は respx の経路（`tests/fake_http.py: client_for`）で通す。
+一覧はプロセス内のTTLキャッシュに残るので、テストごとに空から始める。
 
 ここで見ないもの:
-- TTLキャッシュの引き当てと、失敗をNoneへ倒す骨格 → `test_simple_api_client.py`
-- 電文の解釈（発表か解除か・対象の区域か） → `test_flood_forecast_domain.py`
+- コードの意味（発表・解除の区別）と出発地点への該当 → `test_flood_forecast_domain.py`
+- キャッシュの期限切れ・失敗の記録の骨格 → `simple_api_client.py: cached_fetch`の持ち物で、
+  期限そのものは`cachetools`が持つ
 """
 
+import logging
+
+import httpx
 import pytest
+import respx
 
-from app.domain.flood_forecast import FloodBulletin
 from app.infrastructure import flood_client
-from tests.fake_http import answering
+from tests.fake_http import client_for
 
-#: flood_xml.jsonの1件。項目は実際の応答の形のまま。
-KANDA_RIVER = {
+URL = "https://www.jma.go.jp/bosai/flood/data/r8/flood_xml.json"
+
+KANDA = {
     "status": "通常",
-    "reportDatetime": "2026-08-22T17:50:00+09:00",
-    "item": {"name": "レベル４氾濫危険警報", "code": "40", "condition": "レベル４氾濫危険警報（発表）"},
-    "riverCode": "830304004400",
+    "reportDatetime": "2026-07-01T10:00:00+09:00",
+    "riverCode": "8030100001",
     "riverName": "神田川",
-    "class20Codes": ["1310100", "1310400"],
-    "class10Codes": ["130010"],
+    "class20Codes": ["1310100", "1310200"],
+    "class10Codes": ["130011"],
+    "item": {"code": "52", "condition": "氾濫危険情報"},
 }
 
 
 @pytest.fixture(autouse=True)
-def _clear_cache():
+def _empty_bulletin_cache():
     flood_client._flood_cache.clear()
     yield
     flood_client._flood_cache.clear()
 
 
-async def test_a_bulletin_is_read_into_its_code_areas_and_texts():
-    bulletins = await flood_client.fetch_flood_documents(answering(json=[KANDA_RIVER]))
-
-    assert bulletins == [
-        FloodBulletin(
-            code="40",
-            class20_codes=("1310100", "1310400"),
-            class10_codes=("130010",),
-            river_code="830304004400",
-            river_name="神田川",
-            condition="レベル４氾濫危険警報（発表）",
-            report_datetime="2026-08-22T17:50:00+09:00",
-        )
-    ]
+def answering(**response) -> tuple[httpx.AsyncClient, respx.Route]:
+    router = respx.Router()
+    route = router.get(URL).respond(**response)
+    return client_for(router), route
 
 
-@pytest.mark.parametrize("status", ["訓練", "試験"])
-async def test_training_and_test_bulletins_are_not_passed_on(status):
-    """訓練・試験の電文を渡すと、実際には出ていない氾濫予報が画面に出る。"""
-    bulletins = await flood_client.fetch_flood_documents(answering(json=[{**KANDA_RIVER, "status": status}]))
+async def test_an_operational_bulletin_is_read_into_its_fields():
+    client, _ = answering(json=[KANDA])
 
-    assert bulletins == []
+    (bulletin,) = await flood_client.fetch_flood_documents(client)
 
-
-@pytest.mark.parametrize("absent", ["missing", "null"])
-async def test_missing_or_null_texts_and_areas_read_as_empty(absent):
-    """1件の欠けで取り出しごと落とさない。"""
-    keys = ("riverCode", "riverName", "reportDatetime", "class20Codes", "class10Codes")
-    if absent == "missing":
-        entry = {key: value for key, value in KANDA_RIVER.items() if key not in keys}
-        entry["item"] = {"code": "40"}
-    else:
-        entry = {**KANDA_RIVER, **dict.fromkeys(keys), "item": {"code": "40", "condition": None}}
-
-    (bulletin,) = await flood_client.fetch_flood_documents(answering(json=[entry]))
-
-    assert bulletin == FloodBulletin(
-        code="40", class20_codes=(), class10_codes=(), river_code="", river_name="", condition="", report_datetime=""
-    )
+    assert bulletin.code == "52"
+    assert bulletin.condition == "氾濫危険情報"
+    assert bulletin.class20_codes == ("1310100", "1310200")
+    assert bulletin.class10_codes == ("130011",)
+    assert bulletin.river_code == "8030100001"
+    assert bulletin.river_name == "神田川"
+    assert bulletin.report_datetime == "2026-07-01T10:00:00+09:00"
 
 
-async def test_a_bulletin_without_an_item_has_no_code():
-    entry = {key: value for key, value in KANDA_RIVER.items() if key != "item"}
+async def test_drills_tests_and_entries_that_are_not_objects_are_left_out():
+    client, _ = answering(json=[{**KANDA, "status": "訓練"}, {**KANDA, "status": "試験"}, "broken", KANDA])
 
-    (bulletin,) = await flood_client.fetch_flood_documents(answering(json=[entry]))
+    bulletins = await flood_client.fetch_flood_documents(client)
 
-    assert bulletin.code is None
+    assert [b.river_name for b in bulletins] == ["神田川"]
 
 
-async def test_non_list_response_yields_none():
-    """配列でない応答をそのまま通すと、電文を1件ずつ読む呼び出し元が落ちる。"""
-    client = answering(json={"message": "maintenance"})
+@pytest.mark.parametrize("missing", ["absent", "null"])
+async def test_a_bulletin_missing_its_fields_is_still_read_with_empty_values(missing):
+    """1件の欠けで、全国の一覧の取り出しごと落とさない。"""
+    fields = ("reportDatetime", "riverCode", "riverName", "class20Codes", "class10Codes", "item")
+    entry = {"status": "通常"} if missing == "absent" else {"status": "通常", **dict.fromkeys(fields)}
+    client, _ = answering(json=[entry, KANDA])
 
-    assert await flood_client.fetch_flood_documents(client) is None
+    sparse, full = await flood_client.fetch_flood_documents(client)
+
+    assert sparse.code is None
+    assert sparse.class20_codes == sparse.class10_codes == ()
+    assert sparse.river_code == sparse.river_name == sparse.condition == sparse.report_datetime == ""
+    assert full.river_name == "神田川"
+
+
+async def test_the_national_list_is_fetched_once_and_reused():
+    client, route = answering(json=[KANDA])
+
+    first = await flood_client.fetch_flood_documents(client)
+    second = await flood_client.fetch_flood_documents(client)
+
+    assert first == second
+    assert route.call_count == 1
+
+
+@pytest.mark.parametrize(
+    "response",
+    [{"status_code": 500}, {"json": {"rivers": []}}, {"text": "<html>maintenance</html>"}],
+    ids=["server-error", "not-a-list", "not-json"],
+)
+async def test_an_unusable_answer_gives_nothing_and_is_logged(response, caplog, empty_debug_counters):
+    client, _ = answering(**response)
+
+    with caplog.at_level(logging.WARNING):
+        assert await flood_client.fetch_flood_documents(client) is None
+
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING and "weather:jma-flood" in r.getMessage()]

@@ -1,65 +1,62 @@
-"""`infrastructure/gsi_dem_png.py`——国土地理院の標高タイル（dem_png）を、MapLibreが読むTerrain-RGBのPNGへ移す。
+"""`infrastructure/gsi_dem_png.py`——地理院の標高タイル（dem_png）をTerrain-RGBのPNGへ移す。
 
-入口は`gsi_dem_png_to_terrain_rgb`。期待値は実装の定数からではなく、両方式の公開の仕様から書く:
-- 地理院（「標高タイルの詳細仕様」）: x = 2^16R + 2^8G + B。x < 2^23 なら x×0.01m、x > 2^23 なら (x − 2^24)×0.01m、
-  x = 2^23 は標高なし
-- Terrain-RGB（Mapbox）: 標高 = −10000 + (R×256×256 + G×256 + B)×0.1m
+入口は`gsi_dem_png_to_terrain_rgb`。期待値は実装の定数から作らず、2つの公開の仕様から作る:
+- 地理院の標高タイル: x = 2^16·R + 2^8·G + B、x < 2^23 なら x·0.01m、x = 2^23 は標高なし、
+  x > 2^23 なら (x − 2^24)·0.01m
+- Terrain-RGB（MapLibreの`raster-dem`の`mapbox`の書式）: −10000 + (R·256·256 + G·256 + B)·0.1m
 
 ここで見ないもの:
-- 地理院からの取得・中継の応答（404・502） → `test_gsi_tile_routes.py`
+- Terrain-RGBの原点と刻みを画面へ渡すこと → `domain/terrain_rgb.py`（生成物へ書き出す側）
+- 地理院からの取得とズームの上限 → `test_gsi_tile_client.py`・`test_gsi_tile_routes.py`
+- −10000mを下回る標高の扱い → 地理院の値の範囲（日本の陸地と湖底）では起きない
 """
 
 import io
 
 import numpy as np
+from hypothesis import given
+from hypothesis import strategies as st
+from hypothesis.extra.numpy import arrays
 from PIL import Image
 
 from app.infrastructure.gsi_dem_png import gsi_dem_png_to_terrain_rgb
 
+GSI_NO_DATA = (128, 0, 0)
 
-def gsi_png(heights_cm: list[list[int | None]]) -> bytes:
-    """地理院の符号化で、センチメートル単位の標高（Noneは標高なし）を並べたPNG。"""
-    pixels = np.zeros((len(heights_cm), len(heights_cm[0]), 3), dtype=np.uint8)
-    for row, line in enumerate(heights_cm):
-        for column, height in enumerate(line):
-            x = 1 << 23 if height is None else height % (1 << 24)
-            pixels[row, column] = (x >> 16, (x >> 8) & 0xFF, x & 0xFF)
+
+def gsi_png(centimeters: np.ndarray) -> bytes:
+    """センチメートルの標高を、地理院の書式（24ビットの2の補数）のPNGにする。"""
+    x = centimeters.astype(np.int64) % (1 << 24)
+    rgb = np.stack([(x >> 16) & 0xFF, (x >> 8) & 0xFF, x & 0xFF], axis=-1).astype(np.uint8)
+    return png_of(rgb)
+
+
+def png_of(rgb: np.ndarray) -> bytes:
     buffer = io.BytesIO()
-    Image.fromarray(pixels, mode="RGB").save(buffer, format="PNG")
+    Image.fromarray(rgb, mode="RGB").save(buffer, format="PNG")
     return buffer.getvalue()
 
 
-def converted_heights(heights_cm: list[list[int | None]]) -> np.ndarray:
-    """地理院の符号化のPNGを変換し、Terrain-RGBとして読み戻した標高（m）。"""
-    with Image.open(io.BytesIO(gsi_dem_png_to_terrain_rgb(gsi_png(heights_cm)))) as image:
-        assert image.format == "PNG"
+def terrain_rgb_meters(png: bytes) -> np.ndarray:
+    with Image.open(io.BytesIO(png)) as image:
         assert image.mode == "RGB"
         rgb = np.asarray(image, dtype=np.int64)
     return -10000 + (rgb[:, :, 0] * 256 * 256 + rgb[:, :, 1] * 256 + rgb[:, :, 2]) * 0.1
 
 
-def test_heights_above_and_below_sea_level_keep_their_value():
-    heights = converted_heights([[377600, 0, -500]])
+# 日本の湖底（−400m程度）から富士山頂（3776m）までを余裕を持って覆う。
+@given(arrays(np.int64, (3, 4), elements=st.integers(min_value=-100_000, max_value=500_000)))
+def test_every_elevation_reads_back_to_the_nearest_tenth_of_a_metre(centimeters):
+    meters = terrain_rgb_meters(gsi_dem_png_to_terrain_rgb(gsi_png(centimeters)))
 
-    np.testing.assert_allclose(heights, [[3776.0, 0.0, -5.0]], atol=1e-6)
-
-
-def test_a_pixel_without_height_becomes_sea_level():
-    """Terrain-RGBに「値なし」は無い。大きな数のまま渡すと、標高のある画素との境が崖になる。"""
-    heights = converted_heights([[None, 1234]])
-
-    np.testing.assert_allclose(heights, [[0.0, 12.3]], atol=1e-6)
+    assert meters.shape == centimeters.shape
+    np.testing.assert_allclose(meters, centimeters / 100, atol=0.05 + 1e-6)
 
 
-def test_centimeters_round_to_the_nearest_tenth_of_a_meter():
-    heights = converted_heights([[1234, 1236, -1234, -1236]])
+def test_a_pixel_without_elevation_becomes_sea_level_not_a_cliff():
+    rgb = np.array([[GSI_NO_DATA, (0, 0, 100)]], dtype=np.uint8)
 
-    np.testing.assert_allclose(heights, [[12.3, 12.4, -12.3, -12.4]], atol=1e-6)
+    meters = terrain_rgb_meters(gsi_dem_png_to_terrain_rgb(png_of(rgb)))
 
+    np.testing.assert_allclose(meters, [[0.0, 1.0]], atol=1e-6)
 
-def test_the_tile_keeps_its_size_and_pixel_positions():
-    source = [[100 * (row * 3 + column) for column in range(3)] for row in range(2)]
-
-    heights = converted_heights(source)
-
-    np.testing.assert_allclose(heights, np.array(source) / 100, atol=1e-6)

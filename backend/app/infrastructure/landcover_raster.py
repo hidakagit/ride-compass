@@ -117,9 +117,8 @@ def _read_decimated(source: _RasterSource, bounds: tuple[float, float, float, fl
         try:
             window = window.intersection(Window(0, 0, dataset.width, dataset.height))
         except rasterio.errors.WindowError:
-            # 重なりが空。ゾーン単位のラスタに対しては、覆っていないタイルの方が普通に多い。
-            return None
-        if window.width <= 0 or window.height <= 0:
+            # 重なりが空（rasterioは幅か高さが0の重なりも空として送出する）。ゾーン単位のラスタに
+            # 対しては、覆っていないタイルの方が普通に多い。
             return None
         scale = max(window.width, window.height) / _MAX_SOURCE_READ_SIDE
         if scale > 1:
