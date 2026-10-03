@@ -3,7 +3,7 @@
 ここで見ないもの:
 - 点のタグから停止要因・補給休憩の種別を引き当てるSQL → `test_tag_classification.py`
 - 道の通行方向を決めるSQL → `test_resolve_direction.py`
-- 停止要因の種別を画面の見出しへ写すこと → `test_primary_attribute_display.py`
+- 停止要因の種別を地図の凡例の行へ写すこと → `test_material_catalog.py`
 - 階級を交差点の待ちへ使うこと（待ちの要る階級の下限を含む） → `test_routing.py`
 
 階級の値そのものに意味は無く、比較の結果だけが使われる。表の中身は書き写さず、表から導いた

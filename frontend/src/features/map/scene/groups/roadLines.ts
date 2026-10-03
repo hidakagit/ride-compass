@@ -47,7 +47,7 @@ export const ROAD_TRACKS = primaryAttributes.filter(
 type RoadTrack = (typeof ROAD_TRACKS)[number];
 
 /** 線は軸を1本しか持たない（プロパティ＝属性そのもの）。**軸を持つものだけを線にする**のは
- * 源泉の側で、そこが保証する（`tests/test_primary_attribute_display.py`）。 */
+ * 源泉の側で、そこが保証する（`tests/test_material_catalog.py`）。 */
 export function roadTrackAxis(track: RoadTrack): RoadTrack["display_axes"][number] {
   return track.display_axes[0];
 }
