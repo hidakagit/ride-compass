@@ -186,6 +186,14 @@ Claude CodeのBashツールのコマンドは、実行環境の包みごと`bash
 長いスクリプト・ヒアドキュメントはWriteツールでファイルに書いてから実行する（実測と出典は
 [T1041](../records/tasks/T1041.md)）。
 
+## 作業ツリーどうしで node_modules を共有しない
+
+`git worktree`で作った作業ツリーどうしで、`node_modules`をジャンクション等で共有しない。
+
+- `next dev`が「プロジェクトルート外を指すリンク」として拒否する。
+- 一方の作業ツリーを`git worktree remove --force`すると、再帰削除がリンクの中へ入り共有元を壊す
+  （[T768](../records/tasks/T768.md)）。
+
 ## リポジトリの構成
 
 ```
