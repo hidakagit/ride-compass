@@ -4,7 +4,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/Popover
 import { useState } from "react";
 import LegendCheckboxList from "@/features/map/LegendCheckboxList/LegendCheckboxList";
 import { mapOverlayEdge } from "@/lib/mapOverlayEdges";
-import { legendSwatchBackground, type LegendEntry } from "@/lib/mapDisplay/legendFilter";
+import { LEGEND_SWATCH_RING_CLASS, legendSwatchBackground, type LegendEntry } from "@/lib/mapDisplay/legendFilter";
 import { LAYER_DATA_STATUS_LABELS, layerDataStatusNotice, type LayerDataStatus } from "@/features/map/layers/mapLayers";
 import {
   FIXED_LENS_LABELS,
@@ -83,7 +83,11 @@ export default function LensControl({
   function renderOption(id: LensId, label: string, color: string, badges: string[] = []) {
     return (
       <ToggleGroupItem key={id} value={id}>
-        <span aria-hidden="true" className="size-2.5 flex-shrink-0 rounded-full" style={{ background: color }} />
+        <span
+          aria-hidden="true"
+          className={cn("size-2.5 flex-shrink-0 rounded-full", LEGEND_SWATCH_RING_CLASS)}
+          style={{ background: color }}
+        />
         <span className="flex-auto">{label}</span>
         {badges.map((badge) => (
           <span key={badge} className={badgeVariants({ variant: "warning" })}>
@@ -116,7 +120,7 @@ export default function LensControl({
             <span className="flex items-center justify-center gap-1.5 whitespace-nowrap">
               <span
                 aria-hidden="true"
-                className="size-2.5 flex-shrink-0 rounded-full"
+                className={cn("size-2.5 flex-shrink-0 rounded-full", LEGEND_SWATCH_RING_CLASS)}
                 style={{ background: current.color }}
               />
               <span className="font-semibold">{current.label}</span>
@@ -132,7 +136,7 @@ export default function LensControl({
                   .map((entry) => (
                     <span
                       key={entry.key}
-                      className="inline-block h-1.5 w-2.5 flex-shrink-0 rounded-[1px]"
+                      className={cn("inline-block h-1.5 w-2.5 flex-shrink-0 rounded-[1px]", LEGEND_SWATCH_RING_CLASS)}
                       style={{ background: legendSwatchBackground(entry) }}
                       title={entry.label}
                     />

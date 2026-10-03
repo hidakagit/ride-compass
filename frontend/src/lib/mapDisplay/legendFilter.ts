@@ -20,6 +20,9 @@ export interface LegendEntry {
   isFallback?: boolean;
 }
 
+/** 凡例の色見本の縁取り（className）。見本を描くところはどれもこれを付ける。 */
+export const LEGEND_SWATCH_RING_CLASS = "ring-1 ring-[var(--foreground)]";
+
 /** 凡例の色見本の塗り。値が無い行は、地図の破線と同じく途切れた見本にする。 */
 export function legendSwatchBackground(entry: LegendEntry): string {
   if (entry.isFallback !== true) return entry.color;

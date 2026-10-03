@@ -3,7 +3,8 @@
 import type { CSSProperties, ReactNode } from "react";
 
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
-import { legendSwatchBackground, type LegendEntry } from "@/lib/mapDisplay/legendFilter";
+import { cn } from "@/lib/cn";
+import { LEGEND_SWATCH_RING_CLASS, legendSwatchBackground, type LegendEntry } from "@/lib/mapDisplay/legendFilter";
 
 interface LegendCheckboxListProps {
   legend: readonly LegendEntry[];
@@ -54,7 +55,11 @@ export default function LegendCheckboxList({
             {renderSwatch ? (
               renderSwatch(entry)
             ) : (
-              <span aria-hidden="true" className={swatchClassName} style={legendSwatchStyle(entry)} />
+              <span
+                aria-hidden="true"
+                className={cn(LEGEND_SWATCH_RING_CLASS, swatchClassName)}
+                style={legendSwatchStyle(entry)}
+              />
             )}
             {entry.label}
           </label>

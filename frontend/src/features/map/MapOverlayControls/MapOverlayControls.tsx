@@ -17,7 +17,7 @@ import {
   type MapLayerId,
   type MapOverlayGroup,
 } from "@/features/map/layers/mapLayers";
-import { legendSwatchBackground, type LegendEntry } from "@/lib/mapDisplay/legendFilter";
+import { LEGEND_SWATCH_RING_CLASS, legendSwatchBackground, type LegendEntry } from "@/lib/mapDisplay/legendFilter";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import LegendCheckboxList from "@/features/map/LegendCheckboxList/LegendCheckboxList";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
@@ -142,7 +142,10 @@ function renderSwatch(entry: LegendEntry) {
       : { width: SWATCH_DOT_PX, height: SWATCH_DOT_PX };
   return (
     <span aria-hidden="true" className="inline-flex w-6 flex-shrink-0 items-center justify-center">
-      <span className="rounded-full" style={{ background: legendSwatchBackground(entry), ...size }} />
+      <span
+        className={cn("rounded-full", LEGEND_SWATCH_RING_CLASS)}
+        style={{ background: legendSwatchBackground(entry), ...size }}
+      />
     </span>
   );
 }
