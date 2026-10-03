@@ -194,7 +194,7 @@ class AxisComposition(NamedTuple):
 def compose_costs_from_axis_matrix(
     distance_m: np.ndarray,
     axis_arrays: Mapping[str, np.ndarray],
-    weights: dict[str, float],
+    weights: Mapping[str, float | np.ndarray],
     penalty_strength: float,
     *,
     base: np.ndarray,

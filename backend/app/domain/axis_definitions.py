@@ -318,9 +318,8 @@ class AxisDefinition(StrictModel):
     `show_map_icon`として配り、絞り込むのは受け取る側）。"""
     time_scope: Literal["always", "night_only"] = "always"
     """この軸の重みが常に有効か、特定の時間帯でのみ有効かの宣言。
-    「`time_scope != "always"`な軸のうち、現在の`active_scopes`に含まれないものの
-    重みを0倍にする」という汎用ロジック（`RoutePreference.with_time_scope`、
-    `domain/axis_definitions.py: time_scoped_weights`参照）が、このフィールドだけを
+    「`time_scope != "always"`な軸の重みを、その時間帯に区間を通るときだけ残し、ほかは0倍にする」
+    という汎用ロジック（`domain/axis_definitions.py: time_scoped_weights`参照）が、このフィールドだけを
     見て判定する。別の時間帯を足すときもこのLiteralへ値を1つ増やすだけで、エンジン側の
     コード変更は要らない。"""
     display_thresholds_override: list[float] | None = Field(default=None, min_length=1)
@@ -880,24 +879,25 @@ def default_axis_weights() -> dict[str, float]:
     }
 
 
-def time_scoped_weights(weights: Mapping[str, float], active_scopes: frozenset[str]) -> dict[str, float]:
-    """`weights`のうち、`time_scope`が"always"以外（AXIS_DEFINITIONS参照）かつ
-    `active_scopes`に含まれない軸の重みを0.0にした新しい辞書を返す
-    （`weights`自体は変更しない）。
+def time_scoped_weights(
+    weights: Mapping[str, float], active_scopes: Mapping[str, np.ndarray]
+) -> dict[str, float | np.ndarray]:
+    """`weights`のうち、`time_scope`が"always"以外（AXIS_DEFINITIONS参照）の軸の重みを、
+    その時間帯に当たる区間（`active_scopes`の真偽の配列。区間の並び）でだけ残し、ほかの区間では
+    0.0にした配列へ置き換えた新しい辞書を返す（`weights`自体は変更しない）。`active_scopes`に無い
+    時間帯は、どの区間も当たらないとして扱う。
 
     エンジン側は「この性質を持つ軸を探して掛け替える」という汎用ロジックだけを持つため、
     軸を足すときに要るのはその軸の`time_scope`を設定することだけになる。
 
     `weights`に無いaxis_id（内部軸・非公開化された軸等）は重みを持たないため、キーを足さずに
     無視する。"""
-    overrides = {
-        axis_id: 0.0
-        for axis_id, definition in AXIS_DEFINITIONS.items()
-        if axis_id in weights and definition.time_scope != "always" and definition.time_scope not in active_scopes
-    }
-    if not overrides:
-        return dict(weights)
-    return {**weights, **overrides}
+    scoped: dict[str, float | np.ndarray] = dict(weights)
+    for axis_id, definition in AXIS_DEFINITIONS.items():
+        if axis_id in weights and definition.time_scope != "always":
+            active = active_scopes.get(definition.time_scope)
+            scoped[axis_id] = 0.0 if active is None else np.where(active, weights[axis_id], 0.0)
+    return scoped
 
 
 def _priority_override_mask(values: MaterialColumn, equals: str) -> np.ndarray:
