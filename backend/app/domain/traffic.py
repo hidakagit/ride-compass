@@ -205,6 +205,9 @@ SupplyPoiKind = Literal[
     "convenience", "vending_drinks", "vending_unknown", "toilets", "drinking_water", "bicycle_parking"
 ]
 
+#: `node_materials.kind`の語彙。`tag_kind_sql`が付けうる種別で、表の検査制約もここから作る。
+NODE_KINDS: frozenset[str] = STOP_POI_KINDS | frozenset(get_args(SupplyPoiKind))
+
 _AMENITY_SUPPLY_KINDS: dict[str, SupplyPoiKind] = {
     "toilets": "toilets",
     "drinking_water": "drinking_water",
@@ -317,6 +320,10 @@ DIRECTION_RULES: tuple[tuple[str, str, str, int], ...] = tuple(
 
 #: どの規則にも当たらない道は両方向。
 DIRECTION_DEFAULT = "both"
+
+#: `way_materials.direction`の語彙。表の検査制約もここから作る。
+DIRECTIONS: frozenset[str] = frozenset(
+    direction for _key, _value, direction, _priority in DIRECTION_RULES) | {DIRECTION_DEFAULT}
 
 
 def _quote(value: str) -> str:

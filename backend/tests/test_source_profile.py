@@ -40,3 +40,15 @@ def test_unread_key_stops_loading_and_names_where_it_is(tmp_path: Path, add_typo
         load_source_profile(path)
 
     assert str(excinfo.value).startswith(f"{where} に知らない欄があります: ['{key}']")
+
+
+def test_way_condition_without_road_kind_stops_loading(tmp_path: Path):
+    """種別を問わない条件は種別の無い道を採りうるので、取込を始める前に止める。"""
+    profile = _profile()
+    profile["sources"].append({"name": "osm_way", "adapter": "osm_pbf_way", "rows": {"any_of": [
+        {"highway": ["cycleway"]}, {"bicycle": ["designated"]}]}})
+    path = tmp_path / "profile.yaml"
+    path.write_text(yaml.safe_dump(profile, allow_unicode=True), encoding="utf-8")
+
+    with pytest.raises(SourceProfileError, match="highway を含む必要があります.*'bicycle'"):
+        load_source_profile(path)

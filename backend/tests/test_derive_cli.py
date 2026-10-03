@@ -67,13 +67,10 @@ async def derived_before(road_graph_engine, monkeypatch, tmp_path):
     try:
         await conn.execute("TRUNCATE " + ", ".join(DERIVED) + ", source_features, source_runs, derived_data_meta CASCADE")
         await ingest_records("osm_node", [point_record(n, *_point(n)) for n in range(1, 5)], conn=conn)
-        way_run = await ingest_records("osm_way", [
+        await ingest_records("osm_way", [
             way_record(way_id, [_point(n) for n in node_ids], node_ids, tags)
             for way_id, node_ids, tags in WAYS], conn=conn)
         await derive_topology.derive(conn)
-        await conn.execute(
-            "INSERT INTO way_materials (osm_way_id, source_run_id) SELECT DISTINCT osm_way_id, $1::bigint FROM road_edges",
-            way_run)
         await conn.execute("INSERT INTO derived_data_meta (id, revision) VALUES (1, 5)")
         yield conn
     finally:
@@ -126,6 +123,17 @@ async def test_readers_see_the_previous_tables_until_the_swap_and_the_rebuilt_on
     assert await derived_before.fetch(_STRUCTURE_SQL, list(DERIVED)) == structure_before
     assert await derived_before.fetchval(
         "SELECT count(*) FROM pg_namespace WHERE nspname = $1", derive_cli.WORK_SCHEMA) == 0
+
+
+async def test_rebuilding_from_the_first_stage_keeps_the_tables_and_their_constraints(derived_before):
+    """最初の段から流しても、区間・ノード・道の行を外部キーごと作り直して入れ替えられる。"""
+    structure_before = await derived_before.fetch(_STRUCTURE_SQL, list(DERIVED))
+
+    assert await derive_cli.run(postgis_database_url(), None) == 0
+
+    rows = await derived_before.fetch("SELECT osm_way_id, direction FROM way_materials ORDER BY osm_way_id")
+    assert [(r["osm_way_id"], r["direction"]) for r in rows] == [(100, "forward"), (200, "both")]
+    assert await derived_before.fetch(_STRUCTURE_SQL, list(DERIVED)) == structure_before
 
 
 async def test_a_failed_rebuild_changes_nothing_readers_see(derived_before, monkeypatch):

@@ -26,7 +26,8 @@ import shapely
 from shapely.geometry import LineString, Point
 
 from app.batch.ingest import SourceRecord, file_origin, register_adapter
-from app.batch.source_profile import SourceProfile, SourceSpec
+from app.batch.source_profile import SourceProfile, SourceProfileError, SourceSpec
+from app.infrastructure.source_models import WAY_KIND_TAG
 
 logger = logging.getLogger("ridecompass.ingest.osm_pbf")
 
@@ -45,9 +46,16 @@ class OsmWayRows:
     """`osm_pbf_way`の`rows`。"""
 
     #: 採るwayの条件。どれか1つに合えば採る。1つの条件はタグ名→許容値（`*`は値を問わない）のAND。
+    #: どの条件も道の種別（`WAY_KIND_TAG`）を含む——含まない条件は種別の無い道を採りうる。
     any_of: list[dict[str, Any]] = field(default_factory=list)
     #: 読むPBF（`data/pbf/`の下）。
     file: str = "kanto-latest.osm.pbf"
+
+    def __post_init__(self) -> None:
+        lacking = [rule for rule in self.any_of if WAY_KIND_TAG not in rule]
+        if lacking:
+            raise SourceProfileError(
+                f"rows.any_of の条件はどれも {WAY_KIND_TAG} を含む必要があります（含まない条件: {lacking}）")
 
 
 @dataclass(frozen=True)
