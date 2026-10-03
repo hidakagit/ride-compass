@@ -1,6 +1,7 @@
 """本番の調査の道具（`scripts/run_probe.py`）が手元実行のプローブへ渡す接続情報で、本物のDBへ繋がるか。
 
-差し替えるのは接続情報の置き場（ディスクの`.env.oracle.local`）だけで、接続先はテストDB、
+差し替えるのは接続情報の置き場（ディスクの`.env.oracle.local`）と、チェックアウトの遅れの確かめ（網と
+このチェックアウトの履歴を読む。`test_checkout_freshness.py`が見る）だけで、接続先はテストDB、
 プローブは別プロセスのPythonとして本当に走らせる。
 """
 
@@ -16,6 +17,11 @@ import run_probe  # noqa: E402
 from tests.conftest import postgis_database_url  # noqa: E402
 
 pytestmark = [pytest.mark.postgis, pytest.mark.xdist_group(name="postgis")]
+
+
+@pytest.fixture(autouse=True)
+def _checkout_is_current(monkeypatch):
+    monkeypatch.setattr(_prod_env, "require_current_checkout", lambda: None)
 
 _PROBE = """
 import asyncio
