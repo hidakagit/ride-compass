@@ -249,8 +249,10 @@ Claude が起こす出来事は、表の `by: claude` の行だけ。問いは `
    いつもそうし、理由に前後の行を写す（値の偏りが意図どおりかは、完了の条件にもテストにも出ない）。
 4. 満たしていなければ、足りないことを書いて Pull Request を閉じる（`gh pr close <番号> --comment <理由>`）。ゲートが未着手へ戻す。
 5. 満たしていれば Pull Request をマージする（`gh pr merge <番号> -R hidakagit/ride-compass --rebase`）。CI は 1 で通ったのを
-   見ているので、待たずに打つ。master の CI も待たない（ゲートが閉じる）。
-6. master と競合してマージできなければ、`git rebase origin/master` で載せ直し、「競合を解く」のとおりに解く。どの競合も
+   見ているので、待たずに打つ。master の CI も待たない（ゲートが閉じる）。マージの道具は通っても何も出さないことがあるので、
+   通ったかは `gh pr view <番号> -R hidakagit/ride-compass --json state` で `MERGED` が出るかで見る。
+6. master と競合してマージできなければ、`git fetch origin` で今の master を取ってから `git rebase origin/master` で載せ直し
+   （1 で取った master は古く、その上では競合しないことがある）、「競合を解く」のとおりに解く。どの競合も
    片側を採るだけで解けたら、`git push --force-with-lease origin orch/tasks-<番号>` で push し、
    `gh pr checks <番号> -R hidakagit/ride-compass --watch --required` で必須のチェックを待ってから、5 のとおりマージする
    （片側を採るだけなら、確かめた中身と master のどちらかがそのまま残るので、確かめ直さない）。新しい行を書かないと解けない
