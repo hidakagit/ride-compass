@@ -27,23 +27,21 @@
     python scripts/review_checks.py size      # 規模と前回比
     python scripts/review_checks.py metrics   # 定量メトリクスと総量の前回比
     python scripts/review_checks.py trigger   # 周期レビューの発火判定
-    python scripts/review_checks.py leftovers # 撤去・改名の取り残しの候補（master との差分から）
     python scripts/review_checks.py change    # 変更の増減と規模の札（master との差分から）
 
 終了コード: `docs`は違反があれば1。それ以外は表示のみで常に0。
 
-`leftovers`と`change`は検知器ではなく、作業者が自分の差分に対してその場で打つ報告である
+`change`は検知器ではなく、作業者が自分の差分に対してその場で打つ報告である
 （差分の起点を選ぶので、上の設計要件の外にある）。
 
 `size`・`metrics`・`trigger`はプロジェクトの今の姿を HEAD から測るので、HEAD が origin/master より
 遅れていれば止まる（`scripts/checkout_freshness.py`）。`docs`は手元の作業ツリーそのものを検査し、
-`leftovers`と`change`は origin/master との差分を報告するので、遅れに左右されない。
+`change`は origin/master との差分を報告するので、遅れに左右されない。
 """
 
 from __future__ import annotations
 
 import argparse
-import ast
 import datetime as dt
 import json
 import re
@@ -384,24 +382,6 @@ def cmd_trigger(args: argparse.Namespace) -> int:
 
 # --- 差分の報告（作業者が自分の差分に対して打つ。検査ではない） -----------------
 
-#: 置き場のリポジトリの名前と、流れが使うラベルの名前を持つ設定。
-TASKS_CONFIG = "tools/flow-gate/flow.config.json"
-COMMENT_SUFFIXES = (".py", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".sh", ".yml", ".yaml", ".toml")
-COMMENT_RE = re.compile(r"^\s*(#(?!!)|//|/\*|\*)")
-HEADING_RE = re.compile(r"^#{1,6}\s+(.+?)\s*#*\s*$")
-#: 見出しを語に分ける区切り。文書は見出しを「司令塔と担当」のように一部だけで名指すことが多い。
-HEADING_SPLIT_RE = re.compile(r"[（）()・、]|と")
-DEFINITION_RES = (
-    re.compile(r"^\s*(?:async\s+)?def\s+(\w+)"),
-    re.compile(r"^\s*class\s+(\w+)"),
-    re.compile(r"^(_*[A-Z][A-Z0-9_]{2,})\s*(?::[^=]*)?="),
-    re.compile(r"^\s*export\s+(?:default\s+)?(?:async\s+)?"
-               r"(?:function\*?|const|let|var|class|type|interface|enum)\s+(\w+)"),
-    re.compile(r"^\s*(?:async\s+)?function\*?\s+(\w+)"),
-    re.compile(r"^const\s+([A-Z][A-Z0-9_]{2,})\s*="),
-)
-LABEL_MENTION_RE = re.compile(r"ラベル\s*[「`]([^」`]+)[」`]")
-IDENTIFIER_RE = re.compile(r"^\w+$", re.ASCII)
 #: docs/conventions/flow.md「規模の札」の閾値（実装＋テストの変更行の上限）。
 SIZE_LABELS = ((200, "S"), (1000, "M"))
 GENERATED_NAMES = ("package-lock.json",)
@@ -409,255 +389,6 @@ GENERATED_NAMES = ("package-lock.json",)
 
 def merge_base(base: str, head: str) -> str:
     return git("merge-base", base, head).strip()
-
-
-def diff_lines(mb: str, head: str) -> dict[str, tuple[list[str], list[str]]]:
-    """ファイルごとの (消した行, 足した行)。記録は維持しないので見ない。"""
-    out = git("diff", "-M", "-U0", "--no-color", mb, head, "--", ".", ":(exclude)docs/records")
-    files: dict[str, tuple[list[str], list[str]]] = {}
-    old = new = None
-    for line in out.splitlines():
-        if line.startswith("--- "):
-            old = line[6:] if line.startswith("--- a/") else None
-        elif line.startswith("+++ "):
-            new = line[6:] if line.startswith("+++ b/") else None
-        elif line.startswith(("-", "+")) and (path := new or old):
-            removed, added = files.setdefault(path, ([], []))
-            (removed if line[0] == "-" else added).append(line[1:])
-    return files
-
-
-def show(rev: str, path: str) -> str | None:
-    result = subprocess.run(["git", "show", f"{rev}:{path}"], cwd=str(REPO_ROOT),
-                            capture_output=True, text=True, encoding="utf-8",
-                            errors="replace", check=False)
-    return result.stdout if result.returncode == 0 else None
-
-
-def search_key(path: str, surviving: list[str]) -> str:
-    """消したパスを探す語。今あるファイルと紛れない一番短い後ろの部分（例: `bin/status.js`）。"""
-    parts = path.split("/")
-    for i in range(len(parts) - 1, -1, -1):
-        suffix = "/".join(parts[i:])
-        if not any(f == suffix or f.endswith("/" + suffix) for f in surviving):
-            return suffix
-    return path
-
-
-def heading_terms(text: str) -> list[str]:
-    terms = [text, re.split(r"[（(]", text)[0].strip()]
-    terms += [part.strip() for part in HEADING_SPLIT_RE.split(text)]
-    return list(dict.fromkeys(t for t in terms if len(t) >= 2))
-
-
-def json_keys(value: object, prefix: tuple[str, ...] = ()) -> set[tuple[str, ...]]:
-    keys: set[tuple[str, ...]] = set()
-    if isinstance(value, dict):
-        for k, v in value.items():
-            keys.add(prefix + (k,))
-            keys |= json_keys(v, prefix + (k,))
-    return keys
-
-
-def class_attributes(text: str | None) -> dict[str, set[str]]:
-    """クラスごとの本体で宣言した属性（設定の項目・モデルのフィールド等）。字下げした行は形だけでは関数の中の変数と見分けられない。"""
-    try:
-        tree = ast.parse(text or "")
-    except SyntaxError:
-        return {}
-    return {node.name: {target.id for stmt in node.body
-                        for target in ([stmt.target] if isinstance(stmt, ast.AnnAssign)
-                                       else stmt.targets if isinstance(stmt, ast.Assign) else [])
-                        if isinstance(target, ast.Name) and not target.id.startswith("__")}
-            for node in ast.walk(tree) if isinstance(node, ast.ClassDef)}
-
-
-def removed_names(mb: str, head: str, diff: dict[str, tuple[list[str], list[str]]]
-                  ) -> list[tuple[str, str, list[str]]]:
-    """消した・名前を変えた名前を (種類, 名前, 探す語) で。"""
-    names: list[tuple[str, str, list[str]]] = []
-    surviving = files_at(head)
-    status = git("diff", "-M", "--name-status", mb, head, "--", ".", ":(exclude)docs/records")
-    for line in status.splitlines():
-        cols = line.split("\t")
-        if cols[0].startswith(("D", "R")):
-            names.append(("ファイル", cols[1], [search_key(cols[1], surviving)]))
-
-    head_headings = [m.group(1) for line in git(
-        "grep", "-h", "-E", "^#{1,6} ", head, "--", "*.md", ":(exclude)docs/records",
-        check=False).splitlines() if (m := HEADING_RE.match(line))]
-    added_headings = {m.group(1) for removed, added in diff.values() for line in added
-                      if (m := HEADING_RE.match(line))}
-    for path, (removed, _) in diff.items():
-        if not path.endswith(".md"):
-            continue
-        for line in removed:
-            m = HEADING_RE.match(line)
-            if not m or m.group(1) in added_headings:
-                continue
-            terms = [t for t in heading_terms(m.group(1))
-                     if not any(t in h for h in head_headings)]
-            if terms:
-                names.append(("見出し", f"{path}「{m.group(1)}」", terms))
-
-    for path in diff:
-        if not path.endswith(".json") or path.startswith(GENERATED_PREFIXES) \
-                or path.endswith(GENERATED_NAMES):
-            continue
-        try:
-            before = json_keys(json.loads(show(mb, path) or "null"))
-            after = json_keys(json.loads(show(head, path) or "null"))
-        except json.JSONDecodeError:
-            continue
-        gone = before - after
-        for key in sorted(k for k in gone if k[:-1] not in gone):
-            names.append(("設定の項目", f"{path}: {'.'.join(key)}", [key[-1]]))
-
-    defined = {path: ({m.group(1) for line in removed for r in DEFINITION_RES if (m := r.match(line))},
-                      {m.group(1) for line in added for r in DEFINITION_RES if (m := r.match(line))})
-               for path, (removed, added) in diff.items() if path.endswith(CODE_SUFFIXES + (".js", ".mjs"))}
-    for path, (removed_defs, added_defs) in defined.items():
-        if path.endswith(".py"):
-            old_classes, new_classes = class_attributes(show(mb, path)), class_attributes(show(head, path))
-            # 消したクラスの属性は、クラスの名前が候補に出るので数えない。
-            removed_defs.update(*(attrs - new_classes[name] for name, attrs in old_classes.items()
-                                  if name in new_classes))
-            added_defs.update(*(attrs - old_classes.get(name, set()) for name, attrs in new_classes.items()))
-    added_anywhere = set().union(*(a for _, a in defined.values()))
-    candidates = {name: path for path, (r, _) in defined.items() for name in r - added_anywhere}
-    # 別のファイルにある同じ名前は別の定義なので、残っているかは消したファイルの今の版だけで見る。
-    head_texts = {path: show(head, path) or "" for path in set(candidates.values())}
-    for name, path in sorted(candidates.items()):
-        if not re.search(rf"\b(?:def|class|function|const|let|var|type|interface|enum)\s+{name}\b"
-                         rf"|^{name}\s*[:=]", head_texts[path], re.MULTILINE):
-            names.append(("定義", f"{path}: {name}", [name]))
-    return names
-
-
-def grep_terms(head: str, terms: set[str]) -> list[tuple[str, str]]:
-    """語を含む行を (場所, 行)。識別子は語の切れ目で、ほかは部分一致で探す。"""
-    hits: list[tuple[str, str]] = []
-    for words, flags in ((sorted(t for t in terms if IDENTIFIER_RE.match(t)), ["-w"]),
-                         (sorted(t for t in terms if not IDENTIFIER_RE.match(t)), [])):
-        if not words:
-            continue
-        args = ["grep", "-n", "-I", "-F", *flags]
-        for w in words:
-            args += ["-e", w]
-        out = git(*args, head, "--", ".", ":(exclude)docs/records", check=False)
-        for line in out.splitlines():
-            _, path, lineno, text = line.split(":", 3)
-            hits.append((f"{path}:{lineno}", text))
-    return hits
-
-
-def read_tasks_repo(repo: str) -> tuple[list[dict] | None, list[dict] | None]:
-    """置き場のラベルと開いた issue（本文とコメント）。読めなければ None（`GH_TOKEN`が要る）。"""
-    def gh(*args: str) -> list[dict] | None:
-        result = subprocess.run(["gh", *args, "-R", repo], capture_output=True, text=True,
-                                encoding="utf-8", errors="replace", check=False)
-        return json.loads(result.stdout) if result.returncode == 0 else None
-    try:
-        return (gh("label", "list", "--json", "name,description", "--limit", "500"),
-                gh("issue", "list", "--state", "open", "--json", "number,title,body,comments", "--limit", "500"))
-    except (OSError, json.JSONDecodeError):
-        return None, None
-
-
-def term_matches(term: str, text: str) -> bool:
-    if IDENTIFIER_RE.match(term):
-        return re.search(rf"(?<!\w){re.escape(term)}(?!\w)", text) is not None
-    return term in text
-
-
-def excerpt(text: str, term: str, width: int = 60) -> str:
-    i = max(text.find(term), 0)
-    start = max(i - width // 2, 0)
-    return ("…" if start else "") + text[start:start + width + len(term)].strip() + \
-        ("…" if start + width + len(term) < len(text) else "")
-
-
-def cmd_leftovers(args: argparse.Namespace) -> int:
-    head = git("rev-parse", args.head).strip()
-    mb = merge_base(args.base, head)
-    diff = diff_lines(mb, head)
-    names = removed_names(mb, head, diff)
-    terms = {t for _, _, ts in names for t in ts}
-
-    print(f"## 撤去・改名の取り残し（{mb[:8]}..{head[:8]}）")
-    print("出たものは候補で、判定ではない。1件ずつ「直した」か「別の意味なので残す」かを決める。\n")
-    print(f"### 消した・名前を変えた名前: {len(names)}件")
-    for kind, name, ts in names:
-        print(f"- {kind} {name}（探した語: {'・'.join(ts)}）")
-
-    found: list[str] = []
-    for where, text in grep_terms(head, terms):
-        matched = [t for t in sorted(terms, key=len, reverse=True) if term_matches(t, text)]
-        if matched:
-            found.append(f"{where}: 「{matched[0]}」 {excerpt(text, matched[0])}")
-
-    config_text = show(head, TASKS_CONFIG)
-    config = json.loads(config_text) if config_text else {}
-    repo = config.get("repository") if isinstance(config, dict) else None
-    labels, issues = read_tasks_repo(repo) if repo else (None, None)
-    unread = []
-    if labels is None:
-        unread.append("ラベル")
-    if issues is None:
-        unread.append("開いた issue")
-    for label in labels or []:
-        for t in sorted(terms, key=len, reverse=True):
-            if term_matches(t, label.get("description") or ""):
-                found.append(f"置き場のラベル「{label['name']}」の説明: 「{t}」 "
-                             f"{excerpt(label['description'], t)}")
-                break
-    for issue in issues or []:
-        texts = [("本文", issue.get("body"))] + [
-            (f"コメント {c.get('url', '')}", c.get("body")) for c in issue.get("comments") or []]
-        for where, body in texts:
-            for lineno, text in enumerate((body or "").splitlines(), 1):
-                matched = [t for t in sorted(terms, key=len, reverse=True) if term_matches(t, text)]
-                if matched:
-                    found.append(f"置き場 #{issue['number']} の{where} {lineno}行目: 「{matched[0]}」 "
-                                 f"{excerpt(text, matched[0])}")
-
-    print(f"\n### 名前が当たった所: {len(found)}件")
-    for line in found:
-        print(f"- {line}")
-
-    added_text = {line.strip() for _, added in diff.values() for line in added}
-    comments = [f"{path}: {line.strip()}" for path, (removed, _) in diff.items()
-                if path.endswith(COMMENT_SUFFIXES) and not path.startswith(GENERATED_PREFIXES)
-                for line in removed
-                if COMMENT_RE.match(line) and line.strip() not in added_text
-                and line.strip() not in ("#", "//", "*", "/*", "*/")]
-    print(f"\n### 消したコメント行（docs/conventions/comments.md の判定木に通す）: {len(comments)}件")
-    for line in comments:
-        print(f"- {line}")
-
-    mentioned: dict[str, str] = {}
-    def config_labels(value: object, path: str) -> None:
-        if isinstance(value, dict):
-            for k, v in value.items():
-                if k.endswith("Label") and isinstance(v, str):
-                    mentioned.setdefault(v, f"{TASKS_CONFIG}: {path}{k}")
-                config_labels(v, f"{path}{k}.")
-    config_labels(config, "")
-    for line in git("grep", "-n", "-E", "ラベル", head, "--", "*.md", ":(exclude)docs/records",
-                    check=False).splitlines():
-        _, md, at, text = line.split(":", 3)
-        for name in LABEL_MENTION_RE.findall(text):
-            if not PLACEHOLDER_RE.search(name):
-                mentioned.setdefault(name, f"{md}:{at}")
-    if labels is not None:
-        existing = {label["name"] for label in labels}
-        missing = [f"「{name}」（{where}）" for name, where in mentioned.items() if name not in existing]
-        print(f"\n### 名指しているのに置き場（{repo}）に無いラベル: {len(missing)}件")
-        for line in missing:
-            print(f"- {line}")
-    if unread:
-        print(f"\n（置き場の{'・'.join(unread)}を読めなかった。`GH_TOKEN`に置き場を読めるトークンを渡して打ち直す）")
-    return 0
 
 
 def change_kind(path: str) -> str:
@@ -717,10 +448,6 @@ def main() -> int:
     ):
         p = sub.add_parser(name, help=help_text)
         p.set_defaults(func=func, measures_head=measures_head)
-    p = sub.add_parser("leftovers", help="撤去・改名の取り残しの候補")
-    p.add_argument("--base", default="origin/master", help="比べる相手（合流点から見る）")
-    p.add_argument("--head", default="HEAD", help="見る版")
-    p.set_defaults(func=cmd_leftovers, measures_head=False)
     p = sub.add_parser("change", help="変更の増減と規模の札")
     p.add_argument("--base", default="origin/master", help="比べる相手（合流点から見る）")
     p.add_argument("--head", help="見る版（省くと作業ツリー）")
