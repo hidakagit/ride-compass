@@ -158,7 +158,7 @@ export function useRouteGeneration({
       if (candidates.length === 0) {
         notice = {
           kind: "empty",
-          message: noCandidatesReason ?? "条件に合うルート候補が見つかりませんでした。距離を変えて試してください。",
+          message: noCandidatesReason ?? "条件に合うルート候補が見つかりませんでした。条件を変えて試してください。",
         };
       } else if (researchEnabled) {
         // 研究モードの生成だけを実験スロットへ残す。代表は難易度が最小の候補（backendの並びの先頭。一覧の並びとは別で、

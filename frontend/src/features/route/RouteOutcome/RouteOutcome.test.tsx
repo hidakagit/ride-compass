@@ -138,7 +138,7 @@ afterEach(() => setResearchEnabled(false));
 describe("候補が無い間", () => {
   it("生成前は、押せば候補が並ぶことを案内する", () => {
     renderOutcome();
-    expect(screen.getByText("「生成」を押すと候補がここに並びます")).toBeInTheDocument();
+    expect(screen.getByText("「ルート設定」の「生成」を押すと候補がここに並びます")).toBeInTheDocument();
   });
 
   it("生成中は進み方を出し、進み方がまだ無ければ「生成中...」を出す", () => {

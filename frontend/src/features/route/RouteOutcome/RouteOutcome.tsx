@@ -83,7 +83,7 @@ export default function RouteOutcome({ results, generation, splice, routeWeights
     if (generation.lastMessage) {
       return <ErrorText>{generation.lastMessage}</ErrorText>;
     }
-    return <p className={textVariants({ variant: "hint" })}>「生成」を押すと候補がここに並びます</p>;
+    return <p className={textVariants({ variant: "hint" })}>「ルート設定」の「生成」を押すと候補がここに並びます</p>;
   }
 
   // 候補1本への操作（合成・GPX出力）。その候補のタブの中身の先頭に置く。

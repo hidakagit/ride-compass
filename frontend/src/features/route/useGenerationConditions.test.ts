@@ -65,6 +65,14 @@ describe("周回か目的地か", () => {
     expect(result.current.armedPinRole).toBeNull();
   });
 
+  it("目的地モードで開き直したときも、何も置いていなければ次のタップで目的地を置ける", () => {
+    localStorage.setItem("ridecompass:route-mode", "destination");
+    const { result } = render();
+    expect(result.current.armedPinRole).toBe("destination");
+    act(() => result.current.placePin("destination", A));
+    expect(result.current).toMatchObject({ destination: A, armedPinRole: null });
+  });
+
   it.each([
     ["目的地", "destination" as const],
     ["経由地", "waypoint" as const],
