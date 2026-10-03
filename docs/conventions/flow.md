@@ -190,6 +190,8 @@
      1件ずつに、処置（移した先・意図して外した理由）。書き直しで落ちた制約は差分に1行も出ないため
    - 派生の値か軸の難易度を変える変更なら、列・軸ごとの分布の前後（下の「分布の前後」）
    前の Pull Request が開いたまま残っていれば、新しく出さずに push し、撮り直したキャプチャを `gh pr comment --attach` で足す。
+   本文を直すときは `gh issue edit <番号> -R hidakagit/ride-compass --body-file <ファイル>` で書き換える（`gh pr edit` と、欄を選ばない
+   `gh pr view` は、レビューを頼んだチームの名前を問い合わせるため、組織を読む権限の無いトークンでは断られる）。
    出したら（push したら）、Pull Request の実行（master と合わせた版）を
    `gh run list -R hidakagit/ride-compass --commit <コミットの40桁の ID> --workflow ci.yml --event pull_request --json databaseId` で引き
    （ID は 4 と同じく40桁。出ていなければ少しおいて引き直す）、4 と同じく `gh run watch <id> --compact -i 30 -R hidakagit/ride-compass --exit-status` で
@@ -229,7 +231,7 @@
 
 **確かめる担当**（検証中。作った担当とは別）
 1. 作業ブランチを取る（`git fetch origin` と
-   `git checkout -B orch/tasks-<番号> origin/orch/tasks-<番号>`）。依存のファイルが master と違えば、作る担当の2のとおり入れ直す。Pull Request（`gh pr view <番号> -R hidakagit/ride-compass --comments`。本文のキャプチャ・差分）・作業ブランチの CI・issue の完了の条件・変更が届く範囲（要るなら画面）を
+   `git checkout -B orch/tasks-<番号> origin/orch/tasks-<番号>`）。依存のファイルが master と違えば、作る担当の2のとおり入れ直す。Pull Request（`gh pr view <番号> -R hidakagit/ride-compass --json title,body,comments,reviews`。本文のキャプチャ・差分）・作業ブランチの CI・issue の完了の条件・変更が届く範囲（要るなら画面）を
    確かめる。作る担当の報告を読み写さず、自分で見る（画面なら自分で撮る。作る担当の5と同じ道具で撮る）。Pull Request が無ければ（手順が変わる前に
    検証中になったもの）、作る担当の5のとおりに出してから確かめる。CI は作業ブランチ単体（push の実行）に加えて、Pull Request の
    実行（master と合わせた版。作る担当の5と同じく `--event pull_request` で引く）が通っていることを見る。Pull Request の実行だけが
@@ -268,8 +270,10 @@
 4. 1 で「満たしていない」とした条件のどれかに当たれば、足りないことを書いて Pull Request を閉じる（`gh pr close <番号> --comment <理由>`）。
    ゲートが未着手へ戻す。それ以外の気づき（本文の数字の誤り・書き漏れ・使われない import 等）は閉じる理由にせず、2 の結果に書いて 5 へ進む。
 5. 満たしていれば Pull Request をマージする（`gh pr merge <番号> -R hidakagit/ride-compass --rebase`）。CI は 1 で通ったのを
-   見ているので、待たずに打つ。master の CI も待たない（ゲートが閉じる）。
-6. master と競合してマージできなければ、`git rebase origin/master` で載せ直し、「競合を解く」のとおりに解く。どの競合も
+   見ているので、待たずに打つ。master の CI も待たない（ゲートが閉じる）。マージの道具は通っても何も出さないことがあるので、
+   通ったかは `gh pr view <番号> -R hidakagit/ride-compass --json state` で `MERGED` が出るかで見る。
+6. master と競合してマージできなければ、`git fetch origin` で今の master を取ってから `git rebase origin/master` で載せ直し
+   （1 で取った master は古く、その上では競合しないことがある）、「競合を解く」のとおりに解く。どの競合も
    片側を採るだけで解けたら、`git push --force-with-lease origin orch/tasks-<番号>` で push し、
    `gh pr checks <番号> -R hidakagit/ride-compass --watch --required` で必須のチェックを待ってから、5 のとおりマージする
    （片側を採るだけなら、確かめた中身と master のどちらかがそのまま残るので、確かめ直さない）。新しい行を書かないと解けない
