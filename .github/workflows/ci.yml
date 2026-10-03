@@ -249,6 +249,17 @@ jobs:
         with:
           node-version: 22
       - run: node --test tools/flow-gate/test/*.test.js
+      # 担当の許可が増える Pull Request は、ユーザーが許したものだけをマージする（docs/conventions/flow.md「許可の一覧に合わせて打つ」）。
+      - if: github.event_name == 'pull_request'
+        env:
+          BASE: ${{ github.base_ref }}
+        run: |
+          git fetch -q --depth=1 origin "$BASE"
+          added="$(node tools/flow-gate/bin/permissions.js --added FETCH_HEAD)"
+          if [ -n "$added" ]; then
+            { echo "### 担当の許可が増える行"; echo; echo '```'; echo "$added"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::担当の許可が増える行が $(echo "$added" | wc -l) 行ある。ユーザーが許した答えが issue にあるかを確かめる"
+          fi
   ci-ok:
     needs: [changes, backend, api-contract, frontend, e2e, e2e-scan, flow-gate]
     if: always()

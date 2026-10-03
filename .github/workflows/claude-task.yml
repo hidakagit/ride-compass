@@ -87,11 +87,11 @@ jobs:
         run: |
           git config --global user.name hidakagit
           git config --global user.email 6731891+hidakagit@users.noreply.github.com
-      # 許可の行（.claude/settings.json の permissions）だけを渡す。連携は settings をユーザー設定へ混ぜて書き、ユーザー設定は
+      # 許可は master の docs/conventions/flow.md から組み立てて渡す。連携は settings をユーザー設定へ混ぜて書き、ユーザー設定は
       # フォルダの信頼に関係なく読まれる（プロジェクトの設定は、信頼していないフォルダでは許可の行が読み飛ばされる）。
       - name: 許可の行
         if: steps.claim.outputs.go == 'true'
-        run: node -e 'const s=require("./.claude/settings.json"); require("fs").writeFileSync(process.env.RUNNER_TEMP+"/permissions.json", JSON.stringify({permissions:s.permissions}))'
+        run: node tools/flow-gate/bin/permissions.js > "$RUNNER_TEMP/permissions.json"
       - uses: anthropics/claude-code-action@v1
         id: claude
         if: steps.claim.outputs.go == 'true'
