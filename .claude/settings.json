@@ -22,7 +22,13 @@
       "Bash(gh pr checks * -R hidakagit/ride-compass --watch --required)",
       "PowerShell(gh pr checks * -R hidakagit/ride-compass --watch --required)",
       "Bash(gh pr merge * -R hidakagit/ride-compass --rebase)",
-      "PowerShell(gh pr merge * -R hidakagit/ride-compass --rebase)"
+      "PowerShell(gh pr merge * -R hidakagit/ride-compass --rebase)",
+      "Bash(gh pr view *)",
+      "PowerShell(gh pr view *)",
+      "Bash(gh issue list *)",
+      "PowerShell(gh issue list *)",
+      "Bash(gh issue view *)",
+      "PowerShell(gh issue view *)"
     ]
   },
   "hooks": {
