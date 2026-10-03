@@ -402,7 +402,7 @@ DEFINITION_RES = (
 )
 LABEL_MENTION_RE = re.compile(r"ラベル\s*[「`]([^」`]+)[」`]")
 IDENTIFIER_RE = re.compile(r"^\w+$", re.ASCII)
-#: CLAUDE.md「規模の札」の閾値（実装＋テストの変更行の上限）。
+#: docs/conventions/flow.md「規模の札」の閾値（実装＋テストの変更行の上限）。
 SIZE_LABELS = ((200, "S"), (1000, "M"))
 GENERATED_NAMES = ("package-lock.json",)
 
@@ -661,7 +661,7 @@ def cmd_leftovers(args: argparse.Namespace) -> int:
 
 
 def change_kind(path: str) -> str:
-    """変更の行数を分ける種別。規模の札は実装とテストだけで決まる（CLAUDE.md「規模の札」）。"""
+    """変更の行数を分ける種別。規模の札は実装とテストだけで決まる（docs/conventions/flow.md「規模の札」）。"""
     if path.startswith(GENERATED_PREFIXES) or path.endswith(GENERATED_NAMES):
         return "生成物"
     if path.endswith(".md"):
