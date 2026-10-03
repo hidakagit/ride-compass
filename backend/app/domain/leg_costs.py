@@ -212,7 +212,7 @@ class LegCostComposer:
         self._full_row_index = np.full(len(score_matrix.distance_m), -1, dtype=np.int64)
         self._full_row_index[lazy_row_index] = np.arange(len(lazy_row_index))
         # 通過予定時刻の推定に使う迂回率（道なり距離÷直線距離）。探索範囲ごとの学習値が
-        # あればそれ、無ければ`ROUTE_DETOUR_RATIO`。`compose`の引数で個別に上書きできる。
+        # あればそれ、無ければ`ROUTE_DETOUR_RATIO`。合成には使わず、レグの時刻を置く探索の側が読む。
         self.detour_ratio = detour_ratio
         # 風の時別系列があれば常に時変化合成する。風は軸（主観的な避けたさ）である前に
         # **走行モデルの入力**（向かい風で実際に遅くなる）のため、軸の重みが0でも時刻で
