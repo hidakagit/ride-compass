@@ -177,6 +177,18 @@ describe("useLocation", () => {
       expect(result.current.locationFailure).toBeNull();
     });
 
+    it("自動取得の決着より先に押した取り直しが失敗したら、自動取得の結果を待たずに印を出す", () => {
+      const { result } = renderHook(() => useLocation());
+
+      act(() => result.current.handleLocateMe());
+      act(() => {
+        calls[1].error({ code: 1, message: "denied" } as GeolocationPositionError);
+      });
+
+      expect(result.current.locationKnown).toBe(false);
+      expect(result.current.locationFailure).toMatchObject({ id: "location", label: "現在地" });
+    });
+
     it("位置情報APIが無い端末では（マイクロタスク経由で）待たせず印を出す", async () => {
       Object.defineProperty(global.navigator, "geolocation", { value: undefined, configurable: true });
       const { result } = renderHook(() => useLocation());

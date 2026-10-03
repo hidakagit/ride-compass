@@ -13,8 +13,8 @@ interface UseLocationResult {
   locationSource: LocationSource;
   /** 位置が分かっているか（取れたか、手で置いたか）。分からない間の`location`は初期地点で、利用者のいる場所と関係が無い。 */
   locationKnown: boolean;
-  /** 位置が分からないことの常設ヘッダーの印の項目。マウント時の自動取得が決着するまでは出さない（許可ダイアログへの応答は
-   * どんな長さの待ちも超えうるので、時間で待たない）。 */
+  /** 位置が分からないことの常設ヘッダーの印の項目。最初の取得（自動取得か、それを追い越した取り直し）が決着するまでは
+   * 出さない（許可ダイアログへの応答はどんな長さの待ちも超えうるので、時間で待たない）。 */
   locationFailure: FetchFailure | null;
   locating: boolean;
   locateError: string | null;
@@ -34,6 +34,7 @@ export function useLocation(): UseLocationResult {
 
   const latestRequestId = useRef(0);
 
+  // 追い越された要求の結果は捨てるので、決着は自動取得か取り直しかによらず、最後の要求で立てる。
   const requestPosition = useCallback((onSettled: (ok: boolean) => void) => {
     const requestId = ++latestRequestId.current;
     navigator.geolocation.getCurrentPosition(
@@ -41,10 +42,12 @@ export function useLocation(): UseLocationResult {
         if (requestId !== latestRequestId.current) return;
         setLocation({ latitude: position.coords.latitude, longitude: position.coords.longitude });
         setLocationSource("geolocation");
+        setLocationReady(true);
         onSettled(true);
       },
       () => {
         if (requestId !== latestRequestId.current) return;
+        setLocationReady(true);
         onSettled(false);
       },
       { timeout: GEOLOCATION_TIMEOUT_MS },
@@ -58,7 +61,7 @@ export function useLocation(): UseLocationResult {
       Promise.resolve().then(() => setLocationReady(true));
       return;
     }
-    requestPosition(() => setLocationReady(true));
+    requestPosition(() => {});
   }, [requestPosition]);
 
   // 利用者が押した取り直しには、失敗を知らせる。
