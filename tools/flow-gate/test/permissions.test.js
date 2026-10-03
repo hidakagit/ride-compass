@@ -44,3 +44,9 @@ test("本物の flow.md から組み立てた許可は、どれも頭の語が *
     assert.ok(allow.some((r) => r.startsWith(head)), `${head} で始まる許可が無い`);
   }
 });
+
+test("判定役に渡す autoMode の一覧は、どれも既定の規則（$defaults）を残す（書かないと、その一覧の既定の守りを全部捨てる）", async () => {
+  const autoMode = JSON.parse(readFileSync(new URL("../automode.json", import.meta.url), "utf8"));
+  assert.ok(Object.keys(autoMode).length > 0);
+  for (const [name, list] of Object.entries(autoMode)) assert.ok(Array.isArray(list) && list.includes("$defaults"), name);
+});
