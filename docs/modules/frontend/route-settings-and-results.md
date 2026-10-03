@@ -10,7 +10,7 @@
 | ファイル | 責務 |
 |---|---|
 | `features/route/RouteForm/RouteForm.tsx` | 距離スライダー・候補数ステッパー・周回/目的地モード切替の入力欄。「ルート設定」区分の各タブの中身を`Tabs.Content`として並べる（タブ列と選択状態は`page.tsx`、下記参照） |
-| `features/route/RouteForm/useRouteFormSubmit.ts` | 上記の検証・送信ロジック（`{error, handleSubmit}`）。「ルート生成」ボタン自体は`RouteForm`の外（`page.tsx`の見出し行）にあるため分離している（下記参照） |
+| `features/route/RouteForm/useRouteFormSubmit.ts` | 上記の検証（`{error, check}`。通れば送る距離を返す）。「ルート生成」ボタン自体は`RouteForm`の外（`page.tsx`の見出し行）にあるため分離している（下記参照） |
 | `features/route/RouteSettingsPanel/RouteSettingsPanel.tsx` | 一般向け軸重み設定（「重み」タブの中身。地図の色分けはここになく`LensControl`のみが持つ、下記参照） |
 | `features/route/RouteSettingsPanel/HardFilterPanel.tsx` | 0次ハードフィルタ（「除外」タブの中身）。キー・画面に出す名前・既定値はすべて生成物`route-generate-config.json`（backend `domain/hard_filters.py`）が正で、名前をフロントに持たない——キーと名前を別々に持つと、足したフィルタに名前が無く内部名が出る。重みづけとの違い（通らない）は見出し脇の(i)の奥に置く |
 | `features/route/routeWeightShare.ts` | 重み配分の純関数（帯グラフの境界ドラッグ`clampBoundaryDrag`・刻みと上下限） |
@@ -38,7 +38,8 @@
 | `features/route/useRouteResults.ts` | 「ルート結果」の状態: 候補の一覧・選んだ候補・地図で押した区間・比較タブを見ているか・生成に使われた重み。生成の結果で入れ替えると先頭を選び、比較タブと押した区間を外す。タブを選び替えると押した区間を外す。比較を見ている間も選んだ候補は保つ |
 | `features/route/RouteOutcome/RouteOutcome.tsx` | 「ルート結果」の中身: 生成前・生成中・失敗の案内、候補の一覧（縦のタブ。順位・距離・所要時間・総合難易度の帯）、候補の操作（合成・GPX）、選んだ候補の中身（道のりのグラフ・`RouteAxisProfile`）と地図で押した区間の詳細、研究モードの比較、編集中は`RouteSplicePanel`（[ページ全体構成・状態管理](page-composition.md)「ルート結果の中身」） |
 | `features/route/useGenerationConditions.ts` | 生成の条件（「ルート設定」の入力）: 周回か目的地か・距離・候補数・経由地と目的地・地図のタップで置ける役割・重み・除外。保存する値は読むときに今の画面が受け付ける範囲・今の項目へ揃え、重みは軸カタログの公開軸へ揃えた値だけを返す（下記「RouteSettingsPanel.tsx」）。出発地は位置の取得と同じ持ち主（`hooks/useLocation.ts`）が持ち、地図で置いた出発地は呼び出し側へ渡す |
-| `features/route/useRouteGeneration.ts` | ルート生成: 検証と送信（`useRouteFormSubmit`）・実行中の進み方・直近の案内（候補0件の理由・失敗の文言）・表示中の候補を作った条件といまのフォームのずれ（`conditionsDirty`）・研究モードの実験スロット。生成の入力は生成と「条件が変わったか」の判定が同じ関数で組み立て、目的地が補正されたら補正後の地点で組み直す。候補の一覧と選択は持たず、結果を`onGenerated`で呼び出し側へ渡す |
+| `features/route/useRouteGeneration.ts` | ルート生成: 検証と送信（`useRouteFormSubmit`）・実行中の進み方・直近の案内（候補0件の理由・失敗の文言）・表示中の候補を作った条件といまのフォームのずれ（`conditionsDirty`）・研究モードの実験スロット。生成の入力は生成と「条件が変わったか」の判定が同じ関数で組み立て、目的地が補正されたら補正後の地点で組み直す。候補の一覧と選択は持たず、結果を`onGenerated`で呼び出し側へ渡す。押した「生成」1回ごとに結果の種類（新しい結果か失敗か）を`onOutcome`で1度だけ知らせる——候補が出たときも、候補0件・失敗・入力の誤りと同じく知らせる |
+| `features/route/useRoutePlanner.ts` | ルートを作る機能の入口。結果・生成・区間の乗り換えをつなぐ: 生成と乗り換えが作った候補を結果へ入れ、全消去は結果と生成を一緒に消し（乗り換えの編集は生成に結びつくので一緒に終わる）、乗り換えで作り始めると直前の生成の失敗の文言を消す。生成と乗り換えの結果は1本の`onOutcome`で呼び出し側へ知らせる。軸を「未使用」と分ける重み（`routeWeights`。生成に使われた重み、生成前は今の設定の重み）も1か所でここが決め、地図のレンズの選択肢と候補の中身が同じ値を読む |
 | `features/route/useSpliceSession.ts` | 区間の乗り換えの編集1回ぶんの状態（編集の元の候補・適用した乗り換え・評価結果の控え・処理状態）と操作。**抜けると中身ごと消え、次の編集へ持ち込まない**。編集は始めたときの生成に結びつき、作り直す・消すと効かなくなる（候補のidは作り直しでも同じ値が振られうる）。組み合わせた経路は**表示中の候補を作った生成の入力**で評価する——いまのフォームで評価すると、生成後に重みを変えた1本だけが別の条件で並ぶ。評価は組み合わせ（適用した順を含む）ごとに覚え、「差分を見る」と「作成」で投げ直さない（生成APIには回数の上限がある）。「作成」は連打の2回目を同じタスクの中で止め、作った経路が既にある候補と同じ道ならその候補を選ぶだけにする。区間を割る下限（軸カタログの較正値）を引けない間は乗り換え先を作らず入口も出さない。返すのは地図へ渡す値（乗り換え先の帯・いま作っているルート・帯のタップ）と`RouteSplicePanel`へ渡す値で、候補の一覧を入れ替えるのは呼び出し側（`onApplied`） |
 | `features/map/scene/groups/routes.ts`（乗り換え帯の箇所） | 他の候補が別の道を通る区間を地図へ帯で描き、**タップでその道を選べる**（`onSpliceStretchSelect`。選ぶ操作の中心を地図へ置く——パネルの行だけで選ばせると、どの行がどの帯かを目で対応づける必要がある。帯と当たり判定は役割`spliceBandLine`・`spliceBandHit`として宣言する）。帯はどれも破線で描く。タップして乗り換えた先は帯ではなく、いま作っているルート（太い実線）の一部として描かれる。破線の刻みは配列で持つ（feature式に依存しない） |
 | `features/map/scene/groups/routes.ts` | ルート候補・選択中ルート・区間色分け・乗り換え帯・比較スロットの宣言。状態から載るべきレイヤーの並びを返すだけで、地図を直接は触らない |
@@ -375,8 +376,9 @@ DBの`ROUTE_GENERATION_COMMAND_TIMEOUT_SECONDS`はクエリ1本ごとの上限�
 「ルート結果」欄へ出す（[page-composition.md](page-composition.md)の「生成に関する
 フィードバックの置き場」参照）。同じ見出し行には、生成条件が表示中の候補とずれている間だけ
 印（`conditionsDirty`）を出す——条件を変えている本人は設定側を見ているため。検証・送信ロジック自体は
-`useRouteFormSubmit`（`{error, handleSubmit}`を返す）へ切り出し、生成（`useRouteGeneration.ts`）が
-包んだ送信を`page.tsx`がヘッダーのボタンから直接呼ぶ。候補数の指定が効くか（効かないならbackendの決まった数）は
+`useRouteFormSubmit`（`{error, check}`を返す）へ切り出し、生成（`useRouteGeneration.ts: submit`）が検証して送る。
+`page.tsx`はヘッダーのボタンからその送信を、地図のレンズを引数にして呼ぶ（塗る軸は押した時点のレンズで決まり、
+「条件が変わったか」の比較には入らないので、生成のフックは地図の見え方を読まない）。候補数の指定が効くか（効かないならbackendの決まった数）は
 `useRouteFormSubmit.ts: fixedRouteCount`が1か所で決め、`RouteForm`（候補数ステッパーの表示）・
 `useRouteGeneration.ts`（送る値と「条件が変わった」の比較）が読む。
 

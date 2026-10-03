@@ -61,15 +61,15 @@ interface RouteOutcomeProps {
     | "experimentSlots"
   >;
   splice: Pick<SpliceSessionView, "canStart" | "start" | "panel">;
-  /** いまの重み。生成に使われた重みがまだ無いときの「未使用」の判定に使う。 */
-  currentWeights: RoutePreferenceWeights;
+  /** 軸を「未使用」と分ける重み（`useRoutePlanner.ts: routeWeights`）。 */
+  routeWeights: RoutePreferenceWeights;
 }
 
 /**
  * 「ルート結果」の中身（デスクトップの区分・モバイルのシートの両方）: 生成前・生成中・失敗の案内、候補の一覧（縦のタブ）と
  * 選んだ候補の中身・地図で押した区間の詳細、研究モードの比較、編集中は区間の乗り換えの編集面。
  */
-export default function RouteOutcome({ results, generation, splice, currentWeights }: RouteOutcomeProps) {
+export default function RouteOutcome({ results, generation, splice, routeWeights }: RouteOutcomeProps) {
   const axisCatalog = useAxisCatalog();
   const researchEnabled = useResearchEnabled();
   const { routes, selectedRouteId, comparisonTabActive, selectedRouteSegment } = results;
@@ -147,8 +147,6 @@ export default function RouteOutcome({ results, generation, splice, currentWeigh
     const loadBarBaselineKm = baselineDistanceKm(routes);
     // 道のりのグラフの横軸の右端。候補どうしで同じ物差しにし、面積（負荷）を見比べられるようにする。
     const longestDistanceKm = Math.max(0, ...routes.map((route) => route.distance_km));
-    // 重みが0の軸を「未使用」と出す判定に使う（生成に使った重み）。
-    const routeWeights = results.usedWeights ?? currentWeights;
 
     return (
       <>

@@ -9,7 +9,8 @@
  * - 「ルート結果」の中身 → `features/route/RouteOutcome/RouteOutcome.tsx`
  * - 走行条件 → `features/conditions/useRideConditions.ts`、位置の取得 → `hooks/useLocation.ts`
  *
- * 機能のフックは本物を通す（ページの仕事はフックの間の受け渡しで、それはフックを通さないと見えない）。
+ * 機能のフックは本物を通す（ページの仕事はフックの間の受け渡しで、それはフックを通さないと見えない）。結果・生成・乗り換えの
+ * つなぎ（`features/route/useRoutePlanner.ts`）も、地図と「ルート結果」へ出た値で受け渡しとして見る。
  * 差し替えた部品と、それで見えなくなるもの:
  * - 地図（`MapView`）・地図の見え方（`useMapView`）・レンズ・地図上チップ・「ルート結果」の中身（`RouteOutcome`）・
  *   入力欄（`RouteForm`）・重みと除外のパネル・走行方位と走行条件の部品・ヘッダーの天気と警報とメニュー・
@@ -337,9 +338,10 @@ describe("走行条件の受け渡し", () => {
 });
 
 describe("生成と結果の受け渡し", () => {
-  it("「ルート結果」の中身へ結果・生成・乗り換えといまの重みを渡す", () => {
+  it("「ルート結果」の中身へ結果・生成・乗り換えと「未使用」を分ける重み（生成前はいまの重み）を渡す", () => {
     renderPage();
-    expect(outcome()).toMatchObject({ currentWeights: { axis_a: 1 } });
+    expect(outcome()).toMatchObject({ routeWeights: { axis_a: 1 } });
+    expect(mapViewInputs()).toMatchObject({ routeWeights: { axis_a: 1 } });
     expect(outcome().results.routes).toEqual([]);
     expect(outcome().generation.running).toBe(false);
     expect(outcome().splice.panel).toBeNull();
@@ -353,7 +355,8 @@ describe("生成と結果の受け渡し", () => {
     expect(map().routes).toEqual([detailed]);
     expect(map().selectedRouteId).toBe("route-0");
     expect(outcome().results.routes).toEqual([detailed]);
-    expect(mapViewInputs()).toMatchObject({ hasSelectedRoute: true, hasDetail: true, usedWeights: { axis_a: 0.4 } });
+    expect(mapViewInputs()).toMatchObject({ hasSelectedRoute: true, hasDetail: true, routeWeights: { axis_a: 0.4 } });
+    expect(outcome().routeWeights).toEqual({ axis_a: 0.4 });
     expect(map().routePreference).toBeNull();
   });
 
@@ -398,9 +401,10 @@ describe("生成と結果の受け渡し", () => {
   });
 
   it.each([
+    ["候補", () => respond([route("route-0")])],
     ["候補0件", () => respond([])],
     ["生成の失敗", () => vi.mocked(generateRoutes).mockRejectedValueOnce(new Error("混み合っています"))],
-  ])("%sは「ルート結果」でしか見えないので、閉じていても開く", async (_c, arrange) => {
+  ])("%sは「ルート結果」でしか中身が見えないので、閉じていても開く", async (_c, arrange) => {
     localStorage.setItem("ridecompass:outcome-open", "false");
     const user = renderPage();
     expect(outcomeSection()).toHaveAttribute("aria-expanded", "false");

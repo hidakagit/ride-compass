@@ -61,7 +61,7 @@ const GENERATION: Props["generation"] = {
   experimentSlots: [],
 };
 const SPLICE: Props["splice"] = { canStart: false, start: vi.fn(), panel: null };
-const CURRENT_WEIGHTS = { axis_a: 0.2 };
+const ROUTE_WEIGHTS = { axis_a: 0.2 };
 
 const resultsRef = { current: undefined as unknown as RouteResults };
 function Harness(props: Props) {
@@ -77,7 +77,7 @@ function renderOutcome(
   const props: Props = {
     generation: { ...GENERATION, ...overrides.generation },
     splice: { ...SPLICE, ...overrides.splice },
-    currentWeights: CURRENT_WEIGHTS,
+    routeWeights: ROUTE_WEIGHTS,
   };
   const view = render(<Harness {...props} />);
   return { ...view, props };
@@ -228,7 +228,7 @@ describe("候補の一覧の行", () => {
 });
 
 describe("候補の中身", () => {
-  it("区間を押していない間は、候補の値と生成に使われた重みを中身へ渡す（まだ無ければいまの重み）", () => {
+  it("区間を押していない間は、候補の値と「未使用」を分ける重みを中身へ渡す", () => {
     renderOutcome();
     const candidate = route("a", {
       distance_km: 12,
@@ -245,7 +245,7 @@ describe("候補の中身", () => {
     withRoutes([candidate], { axis_b: 1 });
     expect(stubProps("RouteAxisProfile")).toEqual({
       axes: CATALOG.axes,
-      weights: { axis_b: 1 },
+      weights: ROUTE_WEIGHTS,
       axisDifficulties: candidate.axis_difficulties,
       axisContributions: candidate.axis_contributions,
       axisRawValues: candidate.axis_raw_values,
@@ -258,10 +258,6 @@ describe("候補の中身", () => {
       missingTravelDataShare: 0.1,
       axisColors: CATALOG.axisColors,
     });
-
-    act(() => resultsRef.current.clear());
-    act(() => resultsRef.current.replaceAndSelect([candidate], "a"));
-    expect(stubProps<{ weights: unknown }>("RouteAxisProfile").weights).toEqual(CURRENT_WEIGHTS);
   });
 
   it("道のりのグラフは区間を持つ候補にだけ出し、横軸は一覧で最も長い候補の距離にする。グラフで選んだ区間は結果へ入る", () => {
