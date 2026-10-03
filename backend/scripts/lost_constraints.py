@@ -15,7 +15,7 @@ NOT NULL・表に付けた生のDDL（`event.listen(..., DDL(...))`）。制約�
 表の宣言は、`backend/app`の下で`__tablename__`か`Table(`を含むモジュールを全部importして
 集める。版によって全表を集める入口（`orm_base.declared_metadata`）が無いため。
 
-実行方法（作業ツリーの根から）:
+実行方法（作業ツリーの根からでも`backend`からでも同じ結果になる）:
     backend\.venv\Scripts\python.exe backend\scripts\lost_constraints.py             # master との合流点 → HEAD
     backend\.venv\Scripts\python.exe backend\scripts\lost_constraints.py BASE HEAD   # 任意の2つの版
 
@@ -91,7 +91,8 @@ def _dump(backend_dir: Path) -> None:
 
 
 def _items_at(rev: str) -> set[Item]:
-    archive = subprocess.run(["git", "archive", rev, "backend/app"], capture_output=True, check=True).stdout
+    archive = subprocess.run(["git", "archive", rev, "backend/app"], cwd=_git("rev-parse", "--show-toplevel"),
+                             capture_output=True, check=True).stdout
     with tempfile.TemporaryDirectory() as tmp:
         with tarfile.open(fileobj=BytesIO(archive)) as tar:
             tar.extractall(tmp, filter="data")
