@@ -1,5 +1,5 @@
 import { act, renderHook } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 
@@ -12,7 +12,6 @@ function submit(options: {
   destinationSet?: boolean;
   originKnown?: boolean;
 }) {
-  const onGenerate = vi.fn();
   const { result } = renderHook(() =>
     useRouteFormSubmit({
       distance: "20",
@@ -21,11 +20,13 @@ function submit(options: {
       destinationSet: false,
       originKnown: true,
       ...options,
-      onGenerate,
     }),
   );
-  act(() => result.current.handleSubmit());
-  return { error: result.current.error, onGenerate, result };
+  let distanceKm: number | null = null;
+  act(() => {
+    distanceKm = result.current.check();
+  });
+  return { error: result.current.error, distanceKm, result };
 }
 
 describe("fixedRouteCount（候補数の指定を使わない生成の、決まった候補数）", () => {
@@ -38,9 +39,9 @@ describe("fixedRouteCount（候補数の指定を使わない生成の、決ま�
 
 describe("useRouteFormSubmit 周回", () => {
   it("入力の距離で生成する", () => {
-    const { error, onGenerate } = submit({ distance: "25.5" });
+    const { error, distanceKm } = submit({ distance: "25.5" });
     expect(error).toBeNull();
-    expect(onGenerate).toHaveBeenCalledWith(25.5);
+    expect(distanceKm).toBe(25.5);
   });
 });
 
@@ -48,27 +49,26 @@ describe("useRouteFormSubmit 出発地", () => {
   it.each(["loop", "destination"] as const)(
     "出発地が仮の地点のままなら（%s）、生成せずに位置情報の許可か地図での指定を促す",
     (routeMode) => {
-      const { error, onGenerate } = submit({ routeMode, destinationSet: true, originKnown: false });
+      const { error, distanceKm } = submit({ routeMode, destinationSet: true, originKnown: false });
       expect(error).toBe("現在地が分かりません。位置情報を許可するか、地図で出発地を選んでください。");
-      expect(onGenerate).not.toHaveBeenCalled();
+      expect(distanceKm).toBeNull();
     },
   );
 });
 
 describe("useRouteFormSubmit 目的地", () => {
   it("目的地も経由地も無ければ生成せず、地図で指定するよう促す", () => {
-    const { error, onGenerate } = submit({ routeMode: "destination" });
+    const { error, distanceKm } = submit({ routeMode: "destination" });
     expect(error).toBe("地図をタップして目的地か経由地を指定してください。");
-    expect(onGenerate).not.toHaveBeenCalled();
+    expect(distanceKm).toBeNull();
   });
 
   it("目的地か経由地があれば、距離を見ずに生成する（距離は地図の点から画面側が決める）", () => {
-    expect(submit({ routeMode: "destination", destinationSet: true, distance: "" }).onGenerate).toHaveBeenCalledWith(0);
-    expect(submit({ routeMode: "destination", waypointCount: 1, distance: "" }).onGenerate).toHaveBeenCalledWith(0);
+    expect(submit({ routeMode: "destination", destinationSet: true, distance: "" }).distanceKm).toBe(0);
+    expect(submit({ routeMode: "destination", waypointCount: 1, distance: "" }).distanceKm).toBe(0);
   });
 
   it("地点を置いて押し直すと、文言が消えて生成する", () => {
-    const onGenerate = vi.fn();
     let destinationSet = false;
     const { result, rerender } = renderHook(() =>
       useRouteFormSubmit({
@@ -77,15 +77,17 @@ describe("useRouteFormSubmit 目的地", () => {
         waypointCount: 0,
         destinationSet,
         originKnown: true,
-        onGenerate,
       }),
     );
-    act(() => result.current.handleSubmit());
+    act(() => void result.current.check());
     expect(result.current.error).not.toBeNull();
     destinationSet = true;
     rerender();
-    act(() => result.current.handleSubmit());
+    let distanceKm: number | null = null;
+    act(() => {
+      distanceKm = result.current.check();
+    });
     expect(result.current.error).toBeNull();
-    expect(onGenerate).toHaveBeenCalledWith(0);
+    expect(distanceKm).toBe(0);
   });
 });

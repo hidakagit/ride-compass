@@ -47,14 +47,12 @@ interface Props {
   originKnown: boolean;
   departure: { at: Date; pinned: boolean };
   assumedSpeedKmh: number;
-  lens: string;
   hasRoutes: boolean;
 }
 const PROPS: Props = {
   originKnown: true,
   departure: { at: AT, pinned: false },
   assumedSpeedKmh: 18,
-  lens: LENS_DIFFICULTY_ID,
   hasRoutes: false,
 };
 
@@ -103,8 +101,8 @@ function respond(routes: RouteCandidate[], conditions: Partial<GenerationConditi
 const route = (id: string, seconds: number | null = null) =>
   makeRouteCandidate({ id, estimated_duration_seconds: seconds });
 
-async function submit(hook: Rendered) {
-  await act(async () => hook.result.current.generation.submit());
+async function submit(hook: Rendered, lens: string = LENS_DIFFICULTY_ID) {
+  await act(async () => hook.result.current.generation.submit(lens));
 }
 function lastRequest() {
   const call = vi.mocked(generateRoutes).mock.lastCall;
@@ -181,22 +179,21 @@ describe("送る入力", () => {
   });
 
   it("レンズが軸を指し、軸カタログが届いているときだけ塗る軸を送る", async () => {
-    const hook = render({ lens: "axis_a" });
+    const hook = render();
     respond([route("r")]);
-    await submit(hook);
+    await submit(hook, "axis_a");
     expect(lastRequest()).toHaveProperty("lens_axis_id", "axis_a");
 
     for (const lens of [LENS_NONE_ID, LENS_DIFFICULTY_ID]) {
-      hook.rerender({ ...PROPS, lens });
       respond([route("r")]);
-      await submit(hook);
+      await submit(hook, lens);
       expect(lastRequest()).not.toHaveProperty("lens_axis_id");
     }
 
     catalog.current = EMPTY_CATALOG;
-    hook.rerender({ ...PROPS, lens: "axis_a" });
+    hook.rerender({ ...PROPS });
     respond([route("r")]);
-    await submit(hook);
+    await submit(hook, "axis_a");
     expect(lastRequest()).not.toHaveProperty("lens_axis_id");
   });
 
@@ -238,7 +235,7 @@ describe("進み方", () => {
       return new Promise((done) => (resolve = done));
     });
     const hook = render();
-    act(() => hook.result.current.generation.submit());
+    act(() => void hook.result.current.generation.submit(LENS_DIFFICULTY_ID));
     expect(hook.result.current.generation.running).toBe(true);
     expect(hook.result.current.generation.progressLabel).toBeUndefined();
 
@@ -255,15 +252,12 @@ describe("進み方", () => {
 });
 
 describe("生成の結果", () => {
-  it("候補を所要時間の短い順に並べ、生成に使われた重みと一緒に渡す。候補があれば案内も失敗の知らせも出さない", async () => {
+  it("候補を所要時間の短い順に並べ、生成に使われた重みと一緒に渡して新しい結果として知らせる。案内は出さない", async () => {
     const hook = render();
     respond([route("slow", 900), route("fast", 600), route("none")], { route_preference: { axis_a: 0.5 } });
     await submit(hook);
-    expect(onGenerated).toHaveBeenCalledWith({
-      routes: [route("fast", 600), route("slow", 900), route("none")],
-      routePreference: { axis_a: 0.5 },
-    });
-    expect(onOutcome).not.toHaveBeenCalled();
+    expect(onGenerated).toHaveBeenCalledWith([route("fast", 600), route("slow", 900), route("none")], { axis_a: 0.5 });
+    expect(onOutcome).toHaveBeenCalledExactlyOnceWith("fresh");
     expect(hook.result.current.generation.lastMessage).toBeUndefined();
     expect(hook.result.current.generation.failure).toBeNull();
   });
@@ -277,8 +271,8 @@ describe("生成の結果", () => {
       const hook = render();
       respond([], {}, reason);
       await submit(hook);
-      expect(onGenerated).toHaveBeenCalledWith({ routes: [], routePreference: {} });
-      expect(onOutcome).toHaveBeenCalledWith("fresh");
+      expect(onGenerated).toHaveBeenCalledWith([], {});
+      expect(onOutcome).toHaveBeenCalledExactlyOnceWith("fresh");
       expect(hook.result.current.generation.lastMessage).toBe(shown);
       expect(hook.result.current.generation.failure).toBeNull();
     },
@@ -292,7 +286,7 @@ describe("生成の結果", () => {
     vi.mocked(generateRoutes).mockRejectedValueOnce(thrown);
     await submit(hook);
     expect(hook.result.current.generation.failure).toBe(shown);
-    expect(onOutcome).toHaveBeenCalledWith("failed");
+    expect(onOutcome).toHaveBeenCalledExactlyOnceWith("failed");
     expect(onGenerated).not.toHaveBeenCalled();
 
     respond([route("r")]);
@@ -326,10 +320,10 @@ describe("生成の結果", () => {
   });
 
   it("作った入力（塗る軸を含む）を、乗り換えの評価に使えるよう返す", async () => {
-    const hook = render({ lens: "axis_a" });
+    const hook = render();
     expect(hook.result.current.generation.generatedInput).toBeNull();
     respond([route("r")]);
-    await submit(hook);
+    await submit(hook, "axis_a");
     expect(hook.result.current.generation.generatedInput).toMatchObject({ lensAxisId: "axis_a", origin: HERE });
   });
 });
@@ -355,8 +349,8 @@ describe("条件のずれ", () => {
   it("出発時刻は選んだときだけ比べ（「今」への追従では変わったとしない）、塗る軸は比べない", async () => {
     const hook = render({ hasRoutes: true });
     respond([route("r")]);
-    await submit(hook);
-    hook.rerender({ ...PROPS, hasRoutes: true, departure: { at: LATER, pinned: false }, lens: "axis_a" });
+    await submit(hook, "axis_a");
+    hook.rerender({ ...PROPS, hasRoutes: true, departure: { at: LATER, pinned: false } });
     expect(hook.result.current.generation.conditionsDirty).toBe(false);
     hook.rerender({ ...PROPS, hasRoutes: true, departure: { at: LATER, pinned: true } });
     expect(hook.result.current.generation.conditionsDirty).toBe(true);
@@ -420,7 +414,7 @@ describe("消す", () => {
     expect(hook.result.current.generation.failure).toBeNull();
 
     vi.mocked(generateRoutes).mockImplementationOnce(() => new Promise(() => {}));
-    act(() => hook.result.current.generation.submit());
+    act(() => void hook.result.current.generation.submit(LENS_DIFFICULTY_ID));
     act(() => hook.result.current.generation.clearNotice());
     expect(hook.result.current.generation.running).toBe(true);
   });

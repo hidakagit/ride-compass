@@ -47,15 +47,16 @@ interface RouteGenerationInputs {
   originKnown: boolean;
   departure: { at: Date; pinned: boolean };
   assumedSpeedKmh: number;
-  /** 地図のレンズ（塗る軸）。 */
-  lens: string;
   /** 候補が並んでいるか（「条件が変わった」は比べる候補があるときだけ出す）。 */
   hasRoutes: boolean;
   /** 生成の結果（所要時間の短い順に並べた候補と、backendが生成に使った重み）。候補0件でも呼ぶ。 */
-  onGenerated: (result: { routes: RouteCandidate[]; routePreference: RoutePreferenceWeights }) => void;
-  /** 「ルート結果」でしか見えない結果（候補0件・失敗・入力の誤り）を知らせる。 */
-  onOutcome: (outcome: "fresh" | "failed") => void;
+  onGenerated: (routes: RouteCandidate[], routePreference: RoutePreferenceWeights) => void;
+  /** 押した「生成」の結果（候補・候補0件・失敗・入力の誤り）。どれも「ルート結果」でしか中身が見えない。 */
+  onOutcome: (outcome: RouteOutcomeKind) => void;
 }
+
+/** 押した「生成」・「作成」の結果の種類。失敗だけを見分ける。 */
+export type RouteOutcomeKind = "fresh" | "failed";
 
 /**
  * ルート生成: 検証と送信、実行中の進み方、直近の案内（候補0件の理由・失敗の文言）、表示中の候補を作った条件と
@@ -67,7 +68,6 @@ export function useRouteGeneration({
   originKnown,
   departure,
   assumedSpeedKmh,
-  lens,
   hasRoutes,
   onGenerated,
   onOutcome,
@@ -81,9 +81,9 @@ export function useRouteGeneration({
   const [experimentSlots, setExperimentSlots] = useState<ExperimentSlot[]>([]);
 
   const { routeMode, waypoints, destination, maxRoutesInput, hardFilters, routePreferenceToSend } = conditions;
-  // いまのフォームから生成の入力を組み立てる。`destinationOverride`はbackendが補正した目的地。
+  // いまのフォームから生成の入力を組み立てる。`lens`は地図のレンズ、`destinationOverride`はbackendが補正した目的地。
   const buildCurrentGenerationInput = useCallback(
-    (distanceKm: number, destinationOverride?: Coordinates): GenerationInput => {
+    (distanceKm: number, lens: string, destinationOverride?: Coordinates): GenerationInput => {
       const effectiveDestination = destinationOverride ?? destination;
       const destinationModePoints =
         routeMode === "destination" ? [...waypoints, ...(effectiveDestination ? [effectiveDestination] : [])] : [];
@@ -114,23 +114,24 @@ export function useRouteGeneration({
       departure.at,
       departure.pinned,
       hardFilters,
-      lens,
       axisCatalog.loaded,
       routePreferenceToSend,
     ],
   );
 
-  // 表示中の候補を作った条件と、いまのフォームがずれているか（変えただけでは何も起きないことを知らせる）。
+  // 表示中の候補を作った条件と、いまのフォームがずれているか（変えただけでは何も起きないことを知らせる）。塗る軸は
+  // 比べない（`generationRequest.ts: IGNORED_WHEN_COMPARING`）ので、レンズは無しで組み立てる。
   const conditionsDirty =
     generatedConditions != null &&
     hasRoutes &&
-    generationConditionsKey(buildCurrentGenerationInput(Number(conditions.distanceInput))) !== generatedConditions.key;
+    generationConditionsKey(buildCurrentGenerationInput(Number(conditions.distanceInput), LENS_NONE_ID)) !==
+      generatedConditions.key;
 
-  async function generate(distanceKm: number) {
+  async function generate(distanceKm: number, lens: string) {
     setGeneration({ status: "running", progress: null });
     let notice: GenerationNotice | null = null;
     try {
-      const generationInput = buildCurrentGenerationInput(distanceKm);
+      const generationInput = buildCurrentGenerationInput(distanceKm, lens);
       const {
         routes: candidates,
         conditions: used,
@@ -143,10 +144,10 @@ export function useRouteGeneration({
         conditions.setDestination(used.corrected_destination);
       }
       // 一覧は所要時間の短い順。
-      onGenerated({ routes: orderByDuration(candidates), routePreference: used.route_preference });
+      onGenerated(orderByDuration(candidates), used.route_preference);
       // 補正があったら補正後の地点で入力を組み直す（ピンも動かしたので、直後に「条件が変わった」にならない）。
       const generatedInput = used.corrected_destination
-        ? buildCurrentGenerationInput(distanceKm, used.corrected_destination)
+        ? buildCurrentGenerationInput(distanceKm, lens, used.corrected_destination)
         : generationInput;
       setGeneratedConditions({
         key: generationConditionsKey(generatedInput),
@@ -159,7 +160,6 @@ export function useRouteGeneration({
           kind: "empty",
           message: noCandidatesReason ?? "条件に合うルート候補が見つかりませんでした。距離を変えて試してください。",
         };
-        onOutcome("fresh");
       } else if (researchEnabled) {
         // 研究モードの生成だけを実験スロットへ残す。代表は難易度が最小の候補（backendの並びの先頭。一覧の並びとは別で、
         // 後で選び直しても変えない）。
@@ -176,6 +176,7 @@ export function useRouteGeneration({
             .map((slot, i) => ({ ...slot, color: EXPERIMENT_SLOT_COLORS[i % EXPERIMENT_SLOT_COLORS.length] }));
         });
       }
+      onOutcome("fresh");
     } catch (error) {
       const message = error instanceof Error ? error.message : "不明なエラーが発生しました";
       notice = { kind: "failed", message };
@@ -192,8 +193,13 @@ export function useRouteGeneration({
     waypointCount: waypoints.length,
     destinationSet: destination !== null,
     originKnown,
-    onGenerate: generate,
   });
+
+  /** 検証して生成する。`lens`は地図のレンズ（塗る軸を送るかはここから決める）。 */
+  async function submit(lens: string) {
+    const distanceKm = routeFormSubmit.check();
+    if (distanceKm !== null) await generate(distanceKm, lens);
+  }
 
   // 入力の検証の誤りも「ルート生成」を押した結果として同じく知らせる。
   useEffect(() => {
@@ -218,7 +224,7 @@ export function useRouteGeneration({
   const progress = generation.status === "running" ? generation.progress : null;
 
   return {
-    submit: routeFormSubmit.handleSubmit,
+    submit,
     running,
     /** 順番待ちか（実行中のうち）。 */
     queued: progress?.status === "queued",

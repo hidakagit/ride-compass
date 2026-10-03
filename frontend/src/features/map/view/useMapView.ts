@@ -56,10 +56,8 @@ interface MapViewInputs {
   ride: { bearingDeg: number; at: Date; speedKmh: number };
   /** 刻みへ丸めた現在時刻（`useDepartureTime`）。 */
   now: Date;
-  /** 生成に実際に使われた重み。生成前はnull。 */
-  usedWeights: Readonly<Record<string, number>> | null;
-  /** 今の設定の重み（重みタブが出すもの）。生成前のレンズの「未使用」はこれで分ける。 */
-  currentWeights: Readonly<Record<string, number>>;
+  /** レンズの選択肢を「未使用」と分ける重み。 */
+  routeWeights: Readonly<Record<string, number>>;
 }
 
 interface MapViewState {
@@ -78,14 +76,7 @@ interface MapViewState {
   lens: LensId;
 }
 
-export function useMapView({
-  hasSelectedRoute,
-  hasDetail,
-  ride,
-  now,
-  usedWeights,
-  currentWeights,
-}: MapViewInputs): MapViewState {
+export function useMapView({ hasSelectedRoute, hasDetail, ride, now, routeWeights }: MapViewInputs): MapViewState {
   const catalog = useAxisCatalog();
   const tileVersionsReady = useTileVersionsReady();
   const [layerVisibility, setLayerVisibility] = useStoredState<MapLayerVisibility>(
@@ -175,7 +166,7 @@ export function useMapView({
       axisOptions: lensOptions(
         catalog.axes,
         new Set([...catalog.rampAxes, ...catalog.dedicatedAxes].map((axis) => axis.axisId)),
-        usedWeights ?? currentWeights,
+        routeWeights,
         catalog.axisColors,
       ),
       legend,

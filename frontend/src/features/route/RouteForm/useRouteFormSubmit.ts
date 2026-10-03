@@ -20,17 +20,17 @@ interface UseRouteFormSubmitOptions {
   /** 出発地が実際の位置か（現在地を取れたか、地図で置いたか）。偽の間の出発地は決まった仮の地点で、そこから
    * 作ったルートは利用者のいる場所と関係が無い。 */
   originKnown: boolean;
-  onGenerate: (distanceKm: number) => void;
 }
 
 interface UseRouteFormSubmitResult {
   /** 生成できない理由（出発地が分からない・目的地モードで地点が1つも無い）。生成結果の失敗と同じ場所
    * （「ルート結果」欄）へ出す——押した場所とは別のどこかに出ると見落とすため。 */
   error: string | null;
-  handleSubmit: () => void;
+  /** 検証し、通れば送る距離（km）を返す。通らなければ理由を`error`に置いてnullを返す。 */
+  check: () => number | null;
 }
 
-/** 「ルート生成」ボタン（page.tsxの「ルート設定」見出し行）から呼ぶ検証と送信。距離・候補数は確かめない——
+/** 「ルート生成」ボタン（page.tsxの「ルート設定」見出し行）から呼ぶ検証。距離・候補数は確かめない——
  * 入力がスライダー・ステッパーで、保存値も読むときに範囲の外を捨てる（`features/route/useGenerationConditions.ts`）ので、
  * 範囲の外の値は作れない。 */
 export function useRouteFormSubmit({
@@ -39,23 +39,22 @@ export function useRouteFormSubmit({
   waypointCount,
   destinationSet,
   originKnown,
-  onGenerate,
 }: UseRouteFormSubmitOptions): UseRouteFormSubmitResult {
   const [error, setError] = useState<string | null>(null);
 
-  function handleSubmit() {
+  function check() {
     if (!originKnown) {
       setError("現在地が分かりません。位置情報を許可するか、地図で出発地を選んでください。");
-      return;
+      return null;
     }
     if (routeMode === "destination" && waypointCount === 0 && !destinationSet) {
       setError("地図をタップして目的地か経由地を指定してください。");
-      return;
+      return null;
     }
     setError(null);
     // 目的地モードの距離は送らない（探索の範囲はbackendが置いた点から決める。`features/route/useRouteGeneration.ts`）。
-    onGenerate(routeMode === "destination" ? 0 : Number(distance));
+    return routeMode === "destination" ? 0 : Number(distance);
   }
 
-  return { error, handleSubmit };
+  return { error, check };
 }

@@ -23,10 +23,9 @@ import LensControl from "@/features/map/LensControl/LensControl";
 import RouteForm, { type SettingsTab } from "@/features/route/RouteForm/RouteForm";
 import RouteSettingsPanel from "@/features/route/RouteSettingsPanel/RouteSettingsPanel";
 import HardFilterPanel from "@/features/route/RouteSettingsPanel/HardFilterPanel";
-import { useSpliceSession } from "@/features/route/useSpliceSession";
 import { useGenerationConditions } from "@/features/route/useGenerationConditions";
-import { useRouteGeneration } from "@/features/route/useRouteGeneration";
-import { useRouteResults } from "@/features/route/useRouteResults";
+import type { RouteOutcomeKind } from "@/features/route/useRouteGeneration";
+import { useRoutePlanner } from "@/features/route/useRoutePlanner";
 import RouteOutcome from "@/features/route/RouteOutcome/RouteOutcome";
 import WeatherPanel from "@/features/conditions/WeatherPanel/WeatherPanel";
 import TodayOutlook from "@/features/conditions/TodayOutlook/TodayOutlook";
@@ -63,9 +62,6 @@ const ROUTE_OUTCOME_SHEET_TITLE_ID = "route-outcome-sheet-title";
 
 type MobileSheet = "routeSettings" | "routeOutcome" | null;
 
-/** 「ルート結果」をまだ開いていない新着（モバイルのタブの印）。失敗だけは色を変えて見分けられるようにする。 */
-type UnseenOutcome = "failed" | "fresh";
-
 /** モバイルの下部タブの使い方。 */
 const MOBILE_TAB_USAGES = {
   routeSettings: "ルートを作る条件（距離・地点・重み・除外）と「生成」を開きます。もう一度押すと閉じます。",
@@ -84,10 +80,8 @@ export default function Home() {
 
   const axisCatalog = useAxisCatalog();
 
-  // 「ルート結果」の状態（候補・選択・押した区間・比較タブ・生成に使われた重み）。
-  const results = useRouteResults();
-  // 生成の結果が出て、まだ「ルート結果」を開いていない（モバイルのタブの合図）。
-  const [unseenOutcome, setUnseenOutcome] = useState<UnseenOutcome | null>(null);
+  // 生成の結果が出て、まだ「ルート結果」を開いていない（モバイルのタブの合図）。失敗だけは色を変えて見分けられるようにする。
+  const [unseenOutcome, setUnseenOutcome] = useState<RouteOutcomeKind | null>(null);
 
   // 生成の条件（「ルート設定」の入力）と走行条件。
   const conditions = useGenerationConditions({ onOriginPlace: setManualLocation });
@@ -126,62 +120,35 @@ export default function Home() {
   // 説明を見る状態（ヘッダーのメニューの「使い方を見る」で入る）。
   const [usageGuideActive, setUsageGuideActive] = useState(false);
 
-  const mapView = useMapView({
-    hasSelectedRoute: results.selectedCandidate !== null,
-    hasDetail: results.hasDetail,
-    ride: ride.ride,
-    now: ride.departure.now,
-    usedWeights: results.usedWeights,
-    currentWeights: conditions.routePreference,
-  });
-
-  // 生成の結果（候補も失敗も）は「ルート結果」でしか見えないので知らせる。デスクトップは区分を開き、モバイルは
-  // タブのドットで知らせる（シートは勝手に開かない）。
+  // 生成と乗り換えの結果（候補も失敗も）は「ルート結果」でしか中身が見えないので知らせる。デスクトップは区分を開き、
+  // モバイルはタブのドットで知らせる（シートは勝手に開かない）。
   const notifyRouteOutcome = useCallback(
-    (outcome: UnseenOutcome) => {
+    (outcome: RouteOutcomeKind) => {
       setOutcomeOpen(true);
       setUnseenOutcome(outcome);
     },
     [setOutcomeOpen],
   );
 
-  const generation = useRouteGeneration({
+  // ルートを作る機能（結果・生成・区間の乗り換え）。
+  const route = useRoutePlanner({
     conditions,
     origin: location,
     originKnown: locationSource !== "default",
     departure: ride.departure,
     assumedSpeedKmh: ride.speedKmh,
-    lens: mapView.lens,
-    hasRoutes: results.routes.length > 0,
-    onGenerated: ({ routes: generated, routePreference }) => {
-      results.replaceWithGenerated(generated, routePreference);
-      setUnseenOutcome(generated.length > 0 ? "fresh" : null);
-    },
     onOutcome: notifyRouteOutcome,
   });
-
-  // 生成したルート（候補・選択）だけを消す。地点のピンは消さない。実験スロットも地図へ重ね描きされるので一緒に消す
-  // （押した見た目どおり地図が空になる）。
-  const clearResults = results.clear;
-  const clearGeneration = generation.clear;
-  const handleRoutesClear = useCallback(() => {
-    clearResults();
-    clearGeneration();
-  }, [clearResults, clearGeneration]);
-
-  // 区間の乗り換え。あれば「ルート結果」の同じ場所が編集面になる。
-  const splice = useSpliceSession({
-    routes: results.routes,
-    generatedInput: generation.generatedInput,
-    hasSelectedRoute: results.selectedCandidate !== null,
-    // 作ると、直前の生成の失敗の文言を残さない。
-    onApplyStart: generation.clearNotice,
-    onApplied: ({ routes: nextRoutes, selectedRouteId: nextSelectedRouteId }) => {
-      results.replaceAndSelect(nextRoutes, nextSelectedRouteId);
-      notifyRouteOutcome("fresh");
-    },
-  });
+  const { results, generation, splice } = route;
   const editingRoute = splice.editingRoute;
+
+  const mapView = useMapView({
+    hasSelectedRoute: results.selectedCandidate !== null,
+    hasDetail: results.hasDetail,
+    ride: ride.ride,
+    now: ride.departure.now,
+    routeWeights: route.routeWeights,
+  });
 
   const isMobile = useIsMobile();
 
@@ -318,7 +285,7 @@ export default function Home() {
           variant="primary"
           size="iconLabel"
           disabled={generation.running}
-          onClick={generation.submit}
+          onClick={() => void generation.submit(mapView.lens)}
           aria-label={generation.running ? (generation.progressLabel ?? "生成中...") : "ルート生成"}
           usage="いまの条件・重み・除外でルートの候補を作ります。候補は「ルート結果」に並び、地図に線が出ます。"
         >
@@ -370,7 +337,7 @@ export default function Home() {
     return (
       <Button
         size="iconLabel"
-        onClick={handleRoutesClear}
+        onClick={route.clear}
         aria-label="候補を全消去"
         title="候補をすべて消す"
         usage="作った候補をすべて消します。地図に置いた地点は残ります。"
@@ -486,7 +453,7 @@ export default function Home() {
                     results={results}
                     generation={generation}
                     splice={splice}
-                    currentWeights={conditions.routePreference}
+                    routeWeights={route.routeWeights}
                   />
                 </Disclosure>
               </>
@@ -689,12 +656,7 @@ export default function Home() {
             onHeightCommit={handleMobileSheetHeightCommit}
             autoFitHeight={!sheetHeightChosen}
           >
-            <RouteOutcome
-              results={results}
-              generation={generation}
-              splice={splice}
-              currentWeights={conditions.routePreference}
-            />
+            <RouteOutcome results={results} generation={generation} splice={splice} routeWeights={route.routeWeights} />
           </BottomSheet>
         </>
       )}
