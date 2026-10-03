@@ -53,7 +53,7 @@ jobs:
           node-version-file: frontend/package.json
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      # 作るなら振り出しの遷移（未着手 → 進行中）が通ったときだけ、確かめるなら検証中のときだけ進み、issue に着手を書く。
+      # 作るなら未着手で前提が閉じていて未着手 → 進行中が通ったときだけ、確かめるなら検証中のときだけ進み、issue に着手を書く。
       - name: 引き受ける
         id: claim
         run: |
