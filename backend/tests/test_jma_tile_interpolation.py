@@ -1,194 +1,221 @@
-"""`infrastructure/jma_tile_interpolation.py`——1段上のタイルから欠けたズームを作る。
+"""`infrastructure/jma_tile_interpolation.py`——配信元が持たないズームのタイルを、1段上のタイルから切り出す。
+
+入口は`parse_tile_path`（子のタイルの座標と、親のパス・象限）と、`crop_and_upscale`（ラスタ）・
+`crop_and_upscale_mvt`（ベクタ）。親のタイルは画像・ベクタタイルをテストの中で作る。
 
 ここで見ないもの:
-- どの要素のどのズームに実データがあるか（配信元の仕様） → `test_jma_tile_specs.py`
-- 補間を呼ぶ・結果をキャッシュへ書き戻す導線 → `test_jma_tile_routes.py`
-
-ベクタの座標はMVTのタイル内座標（extent基準の整数、y軸は上向き）で書く。
+- どのズームを補間するか（`domain/jma_tile_specs.py: source_zoom_for_interpolation`）・パスの形の読み書き
+  → `test_jma_tile_specs.py`。ここでは宣言にあるラスタ（降水ナウキャスト）とベクタ（洪水キキクル）のパスを使う
+- 親を取りに行く・取れないときに上流へ回す段取り → `test_jma_tile_routes.py`
 """
 
 import io
 
 import mapbox_vector_tile
+import numpy as np
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 from PIL import Image
-from shapely.geometry import LineString, MultiLineString, Point, Polygon
+from shapely.geometry import LineString, Point, Polygon, shape
 
-from app.infrastructure.jma_tile_interpolation import (
-    crop_and_upscale,
-    crop_and_upscale_mvt,
-    parse_tile_path,
-)
+from app.infrastructure.jma_tile_interpolation import crop_and_upscale, crop_and_upscale_mvt, parse_tile_path
 
-ELEMENT_DIR = "bosai/jmatile/data/nowc/20260101000000/none/20260101000500/surf/hrpns"
-TILE_PATH = f"{ELEMENT_DIR}/10/909/403.png"
-
-_QUADRANT_COLORS = {
-    (0, 0): (220, 20, 20, 255),
-    (1, 0): (20, 220, 20, 255),
-    (0, 1): (20, 20, 220, 255),
-    (1, 1): (220, 220, 20, 255),
-}
-_SIZE = 64
-_EXTENT = 4096
-_LAYER = "flood"
-#: 象限の中心にあたるタイル内座標（左上・右上・左下・右下の順にタイルXYの象限と対応）。
-_QUADRANT_POINTS = {
-    (0, 0): Point(1024, 3072),
-    (1, 0): Point(3072, 3072),
-    (0, 1): Point(1024, 1024),
-    (1, 1): Point(3072, 1024),
-}
+FRAME = "bosai/jmatile/data/nowc/20260101000000/none/20260101000500/surf"
+RISK_FRAME = "bosai/jmatile/data/risk/20260101000000/none/20260101000000/surf"
+EXTENT = 4096
+HALF = EXTENT // 2
+SIZE = 256
 
 
-def _png(image: Image.Image) -> bytes:
-    buffer = io.BytesIO()
-    image.save(buffer, format="PNG")
-    return buffer.getvalue()
+def raster(z: int, x: int, y: int) -> str:
+    return f"{FRAME}/hrpns/{z}/{x}/{y}.png"
 
 
-def _quadrant_painted(mode: str = "RGBA") -> bytes:
-    image = Image.new("RGBA", (_SIZE, _SIZE))
-    half = _SIZE // 2
-    for (quadrant_x, quadrant_y), color in _QUADRANT_COLORS.items():
-        left, top = quadrant_x * half, quadrant_y * half
-        image.paste(color, (left, top, left + half, top + half))
-    return _png(image.convert(mode))
+def test_a_raster_tile_path_reads_as_its_coordinates():
+    coords = parse_tile_path(raster(7, 113, 50))
+
+    assert (coords.element, coords.z, coords.x, coords.y, coords.ext) == ("hrpns", 7, 113, 50, "png")
 
 
-def _colors(png: bytes) -> set[tuple[int, int, int, int]]:
-    with Image.open(io.BytesIO(png)) as image:
-        rgba = image.convert("RGBA")
-        return {color for _, color in rgba.getcolors(rgba.width * rgba.height)}
+def test_a_vector_tile_is_cropped_as_a_vector():
+    coords = parse_tile_path(f"{RISK_FRAME}/flood/9/454/201.pbf")
 
-
-def _encode(features: list[dict], extent: int = _EXTENT, name: str = _LAYER) -> bytes:
-    return mapbox_vector_tile.encode(
-        [{"name": name, "features": features}], per_layer_options={name: {"extents": extent}}
-    )
-
-
-def _features(pbf: bytes, name: str = _LAYER) -> list[dict]:
-    return mapbox_vector_tile.decode(pbf)[name]["features"]
-
-
-def test_tile_path_yields_the_element_and_coordinates():
-    coords = parse_tile_path(TILE_PATH)
-    assert (coords.element, coords.z, coords.x, coords.y, coords.ext) == ("hrpns", 10, 909, 403, "png")
+    assert (coords.element, coords.ext) == ("flood", "pbf")
+    assert coords.parent_path() == f"{RISK_FRAME}/flood/8/227/100.pbf"
 
 
 @pytest.mark.parametrize(
     "path",
     [
         "bosai/jmatile/data/nowc/targetTimes_N1.json",
-        f"{TILE_PATH}?t=20260101000000",
-        TILE_PATH.replace(".png", ".jpg"),
-        TILE_PATH.replace("/surf/hrpns/", "/surf/HRPNS/"),
+        f"{FRAME}/liden/data.geojson?id=liden",
+        f"{FRAME}/undeclared/7/113/50.png",
     ],
+    ids=["time_listing", "features", "undeclared_element"],
 )
-def test_paths_that_are_not_tiles_are_not_parsed(path):
+def test_paths_that_are_not_a_declared_tile_have_nothing_to_interpolate(path):
     assert parse_tile_path(path) is None
 
 
-@pytest.mark.parametrize(
-    ("x", "y", "quadrant"),
-    [(908, 402, (0, 0)), (909, 402, (1, 0)), (908, 403, (0, 1)), (909, 403, (1, 1))],
-)
-def test_parent_tile_halves_the_coordinates_and_keeps_the_quadrant(x, y, quadrant):
-    coords = parse_tile_path(f"{ELEMENT_DIR}/10/{x}/{y}.png")
-    assert coords.parent_path() == f"{ELEMENT_DIR}/9/454/201.png"
-    assert coords.quadrant == quadrant
+@given(z=st.integers(5, 12), data=st.data())
+def test_the_parent_is_the_tile_one_zoom_up_whose_quadrant_covers_the_child(z, data):
+    """親のタイルを象限で4つに割ると、そのうち1つがちょうど子のタイルに当たる。"""
+    x = data.draw(st.integers(0, 2**z - 1))
+    y = data.draw(st.integers(0, 2**z - 1))
+    coords = parse_tile_path(raster(z, x, y))
+
+    parent = parse_tile_path(coords.parent_path())
+    quadrant_x, quadrant_y = coords.quadrant
+
+    assert parent.z == z - 1
+    assert (2 * parent.x + quadrant_x, 2 * parent.y + quadrant_y) == (x, y)
+    assert coords.parent_path().startswith(f"{FRAME}/hrpns/")
 
 
-@pytest.mark.parametrize("quadrant", list(_QUADRANT_COLORS))
-def test_raster_quadrant_fills_the_whole_tile(quadrant):
-    result = crop_and_upscale(_quadrant_painted(), quadrant)
-    with Image.open(io.BytesIO(result)) as image:
-        assert image.size == (_SIZE, _SIZE)
-    assert _colors(result) == {_QUADRANT_COLORS[quadrant]}
+def png_bytes(image: Image.Image) -> bytes:
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
 
 
-def test_upscaling_carries_pixel_values_through_unchanged():
-    """拡大で中間色が生まれず、透明の領域も透明のまま残ることを一度に見る。"""
-    image = Image.new("RGBA", (_SIZE, _SIZE), (0, 0, 0, 0))
-    image.paste((220, 20, 20, 255), (0, 0, _SIZE // 4, _SIZE // 4))
-    image.paste((20, 220, 20, 128), (_SIZE // 4, 0, _SIZE // 2, _SIZE // 4))
-    assert _colors(crop_and_upscale(_png(image), (0, 0))) == {
-        (220, 20, 20, 255),
-        (20, 220, 20, 128),
-        (0, 0, 0, 0),
-    }
+def pixels(content: bytes) -> np.ndarray:
+    with Image.open(io.BytesIO(content)) as image:
+        return np.asarray(image.convert("RGBA"))
 
 
-def test_palette_encoded_parent_is_handled():
-    assert _colors(crop_and_upscale(_quadrant_painted(mode="P"), (1, 1))) == {_QUADRANT_COLORS[(1, 1)]}
+@pytest.mark.parametrize("quadrant", [(0, 0), (1, 0), (0, 1), (1, 1)])
+def test_a_raster_quadrant_is_doubled_pixel_for_pixel(quadrant):
+    """凡例の色と1対1で読む画像なので、拡大で中間の色を作らない（1画素を2×2へ写すだけ）。"""
+    rng = np.random.default_rng(0)
+    parent = rng.integers(0, 256, size=(SIZE, SIZE, 4), dtype=np.uint8)
+    left, top = quadrant[0] * SIZE // 2, quadrant[1] * SIZE // 2
+
+    child = pixels(crop_and_upscale(png_bytes(Image.fromarray(parent, "RGBA")), quadrant))
+
+    part = parent[top : top + SIZE // 2, left : left + SIZE // 2]
+    assert np.array_equal(child, part.repeat(2, axis=0).repeat(2, axis=1))
 
 
-@pytest.mark.parametrize("quadrant", list(_QUADRANT_POINTS))
-def test_vector_quadrant_is_cut_out_and_rescaled(quadrant):
-    parent = _encode(
-        [{"geometry": point, "properties": {"level": index}} for index, point in enumerate(_QUADRANT_POINTS.values())]
+def test_a_palette_raster_keeps_its_transparent_entry_transparent():
+    """配信元の実データのタイルはパレット形式で、0番が透明。透明を不透明の黒に変えると地図が塗りつぶされる。"""
+    parent = Image.new("P", (SIZE, SIZE), 0)
+    parent.putpalette([0, 0, 0, 255, 40, 0] + [0, 0, 0] * 254)
+    parent.info["transparency"] = 0
+    parent.putpixel((0, 0), 1)
+
+    child = pixels(crop_and_upscale(png_bytes(parent), (0, 0)))
+
+    assert child[0:2, 0:2].tolist() == [[[255, 40, 0, 255]] * 2] * 2
+    assert child[2:, 2:, 3].max() == 0
+
+
+def mvt(*features, layer="flood", extent=EXTENT) -> bytes:
+    """座標はy軸が上向き（MVTを解いた形と同じ）。"""
+    return mapbox_vector_tile.encode(
+        [{"name": layer, "features": list(features)}], per_layer_options={layer: {"extents": extent}}
     )
-    features = _features(crop_and_upscale_mvt(parent, quadrant))
-    assert len(features) == 1
-    assert features[0]["geometry"]["coordinates"] == [_EXTENT // 2, _EXTENT // 2]
-    assert features[0]["properties"] == {"level": list(_QUADRANT_POINTS).index(quadrant)}
 
 
-def test_vector_features_keep_their_identity():
-    parent = _encode([{"geometry": _QUADRANT_POINTS[(0, 0)], "properties": {"level": 3}, "id": 7}])
-    assert _features(crop_and_upscale_mvt(parent, (0, 0)))[0]["id"] == 7
+def feature(geometry, **properties):
+    return {"geometry": geometry, "properties": properties}
 
 
-def test_vector_tile_with_nothing_in_the_quadrant_is_zero_bytes():
-    parent = _encode([{"geometry": _QUADRANT_POINTS[(1, 1)], "properties": {}}])
-    assert crop_and_upscale_mvt(parent, (0, 0)) == b""
+def decoded(content: bytes) -> dict:
+    return mapbox_vector_tile.decode(content)
 
 
-def test_features_just_outside_the_quadrant_are_kept_as_a_margin():
-    """タイルの継ぎ目で線が途切れて見えないよう、境界の外側も少し残す。"""
-    parent = _encode([{"geometry": Point(_EXTENT // 2 + 12, 3072), "properties": {}}])
-    assert _features(crop_and_upscale_mvt(parent, (0, 0)))[0]["geometry"]["coordinates"] == [_EXTENT + 24, 2048]
+@given(
+    x=st.integers(40, HALF - 40) | st.integers(HALF + 40, EXTENT - 40),
+    y=st.integers(40, HALF - 40) | st.integers(HALF + 40, EXTENT - 40),
+)
+def test_a_point_lands_only_in_the_quadrant_it_lies_in_at_twice_its_offset(x, y):
+    """象限はタイルの行と同じく北が0。解いた座標はy軸が上向きなので、北の象限はyの大きい側にある。"""
+    parent = mvt(feature(Point(x, y), level=3))
+    lies_in = (int(x >= HALF), int(y < HALF))
+
+    for quadrant in [(0, 0), (1, 0), (0, 1), (1, 1)]:
+        child = crop_and_upscale_mvt(parent, quadrant)
+        if quadrant != lies_in:
+            assert child == b""
+            continue
+        left, bottom = quadrant[0] * HALF, (1 - quadrant[1]) * HALF
+        [only] = decoded(child)["flood"]["features"]
+        assert only["geometry"]["coordinates"] == [2 * (x - left), 2 * (y - bottom)]
 
 
-def test_each_layer_keeps_its_own_extent():
+def test_attributes_and_ids_are_carried_over():
+    """危険度は地物の属性で塗るので、切り出しで落とすと色が消える。"""
+    parent = mapbox_vector_tile.encode(
+        [{"name": "flood", "features": [{"geometry": Point(100, 3000), "properties": {"level": 4}, "id": 7}]}]
+    )
+
+    [only] = decoded(crop_and_upscale_mvt(parent, (0, 0)))["flood"]["features"]
+
+    assert (only["properties"], only["id"]) == ({"level": 4}, 7)
+
+
+def test_a_line_crossing_into_the_next_quadrant_is_kept_a_little_past_the_edge():
+    """線をちょうど縁で切ると、隣のタイルとの継ぎ目で途切れて見える。余白は縁の外へ短く残すだけにする。"""
+    parent = mvt(feature(LineString([(1000, 3000), (4000, 3000)])))
+
+    [line] = decoded(crop_and_upscale_mvt(parent, (0, 0)))["flood"]["features"]
+
+    xs = [point[0] for point in line["geometry"]["coordinates"]]
+    assert min(xs) == 2000
+    assert EXTENT < max(xs) <= EXTENT * 1.05
+
+
+def test_a_polygon_is_clipped_to_the_quadrant_as_a_polygon():
+    parent = mvt(feature(Polygon([(1000, 1000), (3000, 1000), (3000, 3000), (1000, 3000)])))
+
+    [area] = decoded(crop_and_upscale_mvt(parent, (1, 1)))["flood"]["features"]
+
+    clipped = shape(area["geometry"])
+    assert clipped.geom_type == "Polygon"
+    west, south, east, north = clipped.bounds
+    assert west < 0 and east == 2 * (3000 - HALF)
+    assert south == 2 * 1000 and north > EXTENT
+
+
+def test_a_line_keeps_only_its_line_parts_when_it_also_touches_the_edge_at_a_point():
+    """縁に1点だけ触れる線は、切り出すと線と点が混ざる。点は線の層で描けないので落とす。"""
+    margin = EXTENT // 128
+    touch = (HALF + margin, 3000)
+    line = LineString([(100, 3000), (100, 1000), (3000, 1000), touch, (3000, 3500)])
+    only_touching = LineString([(3000, 1000), touch, (3000, 3500)])
+    parent = mvt(feature(line, name="crossing"), feature(only_touching, name="touching"))
+
+    features = decoded(crop_and_upscale_mvt(parent, (0, 0)))["flood"]["features"]
+
+    assert [(f["properties"]["name"], f["geometry"]["type"]) for f in features] == [("crossing", "LineString")]
+
+
+def test_a_line_split_into_several_pieces_keeps_every_piece():
+    line = LineString([(100, 3000), (100, 1000), (1500, 1000), (1500, 3000)])
+    parent = mvt(feature(line))
+
+    [piece] = decoded(crop_and_upscale_mvt(parent, (0, 0)))["flood"]["features"]
+
+    assert piece["geometry"]["type"] == "MultiLineString"
+    assert len(piece["geometry"]["coordinates"]) == 2
+
+
+def test_a_layer_with_its_own_extent_is_split_at_its_own_middle():
+    parent = mvt(feature(Point(100, 400)), layer="small", extent=512)
+
+    child = decoded(crop_and_upscale_mvt(parent, (0, 0)))["small"]
+
+    assert child["extent"] == 512
+    assert child["features"][0]["geometry"]["coordinates"] == [200, 288]
+
+
+def test_only_layers_with_something_in_the_quadrant_are_kept():
     parent = mapbox_vector_tile.encode(
         [
-            {"name": "coarse", "features": [{"geometry": Point(1024, 3072), "properties": {}}]},
-            {"name": "fine", "features": [{"geometry": Point(256, 768), "properties": {}}]},
-        ],
-        per_layer_options={"coarse": {"extents": 4096}, "fine": {"extents": 1024}},
-    )
-    decoded = mapbox_vector_tile.decode(crop_and_upscale_mvt(parent, (0, 0)))
-    assert {name: layer["extent"] for name, layer in decoded.items()} == {"coarse": 4096, "fine": 1024}
-    assert decoded["fine"]["features"][0]["geometry"]["coordinates"] == [512, 512]
-
-
-def test_parts_of_another_kind_are_dropped_from_the_cut():
-    """線を矩形で切ると接点が点として混ざる。点はMVTの同じレイヤーへ混ぜられない。"""
-    inside = [(100, 3000), (500, 3000)]
-    touching = [(_EXTENT // 2 + 32, 2500), (3000, 2500)]
-    parent = _encode([{"geometry": MultiLineString([inside, touching]), "properties": {}}])
-    geometry = _features(crop_and_upscale_mvt(parent, (0, 0)))[0]["geometry"]
-    assert geometry["type"] == "LineString"
-    assert geometry["coordinates"] == [[200, 1904], [1000, 1904]]
-
-
-def test_feature_left_with_no_part_of_its_own_kind_is_dropped():
-    edge = _EXTENT // 2 + 32
-    parent = _encode(
-        [
-            {
-                "geometry": Polygon(
-                    [(edge, 2500), (edge, 2600), (2200, 2620), (edge, 2700), (2200, 2750), (3000, 2750), (3000, 2500)]
-                ),
-                "properties": {},
-            }
+            {"name": "north", "features": [feature(Point(100, 3000))]},
+            {"name": "south", "features": [feature(Point(100, 1000))]},
         ]
     )
-    assert crop_and_upscale_mvt(parent, (0, 0)) == b""
 
-
-def test_line_touching_the_quadrant_at_a_single_point_is_dropped():
-    parent = _encode([{"geometry": LineString([(_EXTENT // 2 + 32, 3072), (3000, 3072)]), "properties": {}}])
-    assert crop_and_upscale_mvt(parent, (0, 0)) == b""
+    assert list(decoded(crop_and_upscale_mvt(parent, (0, 0)))) == ["north"]

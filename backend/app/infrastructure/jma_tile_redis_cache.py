@@ -43,13 +43,10 @@ def _key(path: str) -> str:
     return f"{_KEY_PREFIX}:{hashlib.sha256(path.encode('utf-8')).hexdigest()}"
 
 
-def _decode(raw: bytes) -> tuple[bytes, str] | EmptyTile | None:
+def _decode(raw: bytes) -> tuple[bytes, str] | EmptyTile:
     if raw == b"":
         return EMPTY_TILE
-    content_type, separator, content = raw.partition(b"\0")
-    if not separator:
-        # 区切りの無い値は今の形で書かれていないので、未キャッシュ扱いにする。
-        return None
+    content_type, _separator, content = raw.partition(b"\0")
     return content, content_type.decode("latin-1")
 
 
