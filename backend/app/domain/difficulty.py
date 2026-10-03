@@ -238,6 +238,7 @@ def overall_difficulty(segments: list[tuple[float | None, float]]) -> OverallDif
     """(区間difficulty, 区間distance_km)のリストからルート全体の難易度を求める。
     値のある区間が無ければNone。
 
+    総量は丸めた平均（応答の`average`）に掛ける。
     difficultyがNoneの区間の扱いは、総量も平均と一致させる（平均×全区間の距離合計）。区間ごとに
     積分して欠損区間を単純に飛ばすと「データが無い区間が多いほど総量が小さい」ことに
     なり、欠損の多いルートが有利に見えてしまう。
