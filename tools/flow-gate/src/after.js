@@ -73,12 +73,22 @@ export function endReport({ kind, url, jobStatus, messages, done, status, elapse
     `| ジョブの結果 | ${jobStatus} |`,
     `| かかった時間（実行の開始から） | ${elapsedMs == null ? "不明" : minutes(elapsedMs)} |`,
     `| 手数 | ${result?.num_turns ?? "不明（実行のファイルに result が無い）"} |`,
+    `| 判定に断られた操作 | ${result ? denied(result.permission_denials ?? []) : "不明（実行のファイルに result が無い）"} |`,
     `| 実行 | ${url} |`,
     "",
     "担当の最後の発言:",
     "",
     words ? words.split("\n").map((l) => `> ${l}`).join("\n") : "（無い）",
   ].join("\n");
+}
+
+// 自動モードの判定役（か許可の拒否）に断られた操作。result の permission_denials（{ tool_name, tool_input }）の数と、1件ずつの
+// 道具の名前と打とうとしたもの（コマンド・ファイル）を短くした行。
+function denied(list) {
+  if (!list.length) return "0件";
+  const what = (d) => String(d.tool_input?.command ?? d.tool_input?.file_path ?? d.tool_input?.url ?? JSON.stringify(d.tool_input ?? {}));
+  const rows = list.map((d) => `${d.tool_name}: ${what(d).replace(/\s+/g, " ").slice(0, 100)}`.replaceAll("|", "\\|"));
+  return `${list.length}件<br>${rows.join("<br>")}`;
 }
 
 // 担当のワークフローが引き受けたとき issue へ書く「着手」のコメント。
