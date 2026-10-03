@@ -281,7 +281,7 @@ test("子が閉じても、開いた子が残っていれば親は閉じない�
   assert.match(comments(gh).at(-1), /子の issue が全部閉じた/);
 });
 
-test("公開の直後の揃え: 開いた issue を今の規則の姿（ボタン・担当者・今の形の問い）へ揃え、揃っていれば何も書かない", async () => {
+test("公開の直後の揃え: 開いた issue を今の規則の姿（ボタン・担当者）へ揃え、揃っていれば何も書かない", async () => {
   const button = (n, status, text) => `[![回答する](${config.urls.gate}/button.svg)](${config.urls.form}/answer?issue=${n})\n\n**${status}**: ${text}`;
   let gh = fakeGitHub({ issue: { number: 3, authorId: ME, status: "保留", assignees: [config.claude] } });
   assert.deepEqual(await refreshAll({ GITHUB_TOKEN: "bot-token" }, config), [{ number: 3, why: ["本文の先頭", "担当者"] }]);
@@ -289,13 +289,6 @@ test("公開の直後の揃え: 開いた issue を今の規則の姿（ボタ�
   const writes = gh.writes.length;
   assert.deepEqual(await refreshAll({ GITHUB_TOKEN: "bot-token" }, config), [], "揃っていれば何も書かない");
   assert.equal(gh.writes.length, writes);
-
-  const old = "## 問い\nどうする？\n\n### 選択肢\n- A（0→0） → 未着手 / Claude\n- B（0→0）→ 未着手\n- やらない → 完了\n\n<details><summary>判断材料</summary>\n材料\n</details>";
-  gh = fakeGitHub({ issue: { number: 4, authorId: ME, status: "回答待ち", assignees: [config.user], body: asked(old) } });
-  assert.deepEqual((await refreshAll({ GITHUB_TOKEN: "bot-token" }, config))[0].why, ["前の形の問い", "本文の先頭"]);
-  const now = "## 問い\nどうする？\n\n### 案\n- A（0→0）\n- B（0→0）→ 未着手\n\n<details><summary>判断材料</summary>\n材料\n</details>";
-  assert.equal(gh.issue.body, `<!-- flow-gate -->\n<!-- 問い\n${now}\n-->\n${button(4, "回答待ち", "どうする？")}\n<!-- /flow-gate -->\n\n本文`,
-    "前の形は前のゲートの規則（前後に空白のある「 → 」だけが区切り）で読み、止める・完成・見送りで選べる行き先の選択肢は落とす");
 });
 
 test("設定の不変条件: 表・番・入口・選択肢が使う名前はすべて宣言されており、回答フォームは表で行けない先を出さない", () => {
