@@ -30,14 +30,14 @@ import { useRoutePlanner } from "@/features/route/useRoutePlanner";
 import RouteOutcome from "@/features/route/RouteOutcome/RouteOutcome";
 import WeatherPanel from "@/features/conditions/WeatherPanel/WeatherPanel";
 import TodayOutlook from "@/features/conditions/TodayOutlook/TodayOutlook";
-import WarningBadgeList, { type WarningFetchFailure } from "@/features/conditions/WarningBadge/WarningBadge";
+import WarningBadgeList from "@/features/conditions/WarningBadge/WarningBadge";
 import HeaderMenu from "@/components/HeaderMenu/HeaderMenu";
 import UsageGuide from "@/components/UsageGuide/UsageGuide";
 import FirstVisitIntro from "@/components/FirstVisitIntro/FirstVisitIntro";
 import RideConditionBar from "@/features/conditions/RideConditionBar/RideConditionBar";
 import TravelBearingControl from "@/features/conditions/TravelBearingControl/TravelBearingControl";
 import { useWeatherConditions } from "@/features/conditions/useWeatherConditions";
-import { retryAxisCatalogFetch, useAxisCatalog } from "@/hooks/useAxisCatalog";
+import { axisCatalogFetchFailure, useAxisCatalog } from "@/hooks/useAxisCatalog";
 import DebugConsole from "@/components/DebugConsole/DebugConsole";
 import { useDebugEnabled } from "@/hooks/useDebugLog";
 import { useResearchEnabled } from "@/hooks/useResearchMode";
@@ -76,8 +76,16 @@ const MOBILE_TABS = [
 ] as const;
 
 export default function Home() {
-  const { location, locationSource, locationReady, locating, locateError, handleLocateMe, setManualLocation } =
-    useLocation();
+  const {
+    location,
+    locationSource,
+    locationKnown,
+    locationFailure,
+    locating,
+    locateError,
+    handleLocateMe,
+    setManualLocation,
+  } = useLocation();
 
   const axisCatalog = useAxisCatalog();
 
@@ -135,7 +143,7 @@ export default function Home() {
   const route = useRoutePlanner({
     conditions,
     origin: location,
-    originKnown: locationSource !== "default",
+    originKnown: locationKnown,
     departure: ride.departure,
     assumedSpeedKmh: ride.speedKmh,
     onOutcome: notifyRouteOutcome,
@@ -202,8 +210,7 @@ export default function Home() {
     [setChosenSheetHeightVh, setWorkingSheetHeightVh],
   );
 
-  // 「今日」のパネル・最寄りの実測・警報の類（位置が決まってから、位置が変わるたびに取る。仮の地点では取らない）。
-  const locationUnknown = locationReady && locationSource === "default";
+  // 「今日」のパネル・最寄りの実測・警報の類（位置が分かってから、位置が変わるたびに取る。仮の地点では取らない）。
   const {
     weather,
     weatherLoading,
@@ -213,36 +220,15 @@ export default function Home() {
     amedasError,
     warningBadgeItems,
     warningFetchFailures,
-  } = useWeatherConditions(location, locationReady && !locationUnknown);
-  // 取れていない前提のデータは、警報の取得失敗と同じ常設ヘッダーの印で知らせる。軸一覧が無いと、地図は道路・スポット・
-  // 事故を描けず、生成は重みを送れず、合成は区間を割れない——どれも画面の中では「無い」ように見えるだけになる。
-  const headerFetchFailures = useMemo<WarningFetchFailure[]>(
+  } = useWeatherConditions(location, locationKnown);
+  const axisCatalogFailure = axisCatalogFetchFailure(axisCatalog);
+  const headerFetchFailures = useMemo(
     () => [
-      ...(locationUnknown
-        ? [
-            {
-              id: "location",
-              label: "現在地",
-              effect:
-                "現在地が分からないため、天候・警報を出していません。位置情報を許可するか、「ルート設定」の出発地の「地図で選ぶ」を押して地図をタップしてください。",
-              onRetry: handleLocateMe,
-            },
-          ]
-        : []),
+      ...(locationFailure ? [locationFailure] : []),
       ...warningFetchFailures,
-      ...(axisCatalog.failed
-        ? [
-            {
-              id: "axis-catalog",
-              label: "軸一覧",
-              effect:
-                "地図の道路・スポット・事故を表示できません。ルートは重み配分を変えていても反映できず、既定の配分で作ります。ルートの合成も使えません。",
-              onRetry: retryAxisCatalogFetch,
-            },
-          ]
-        : []),
+      ...(axisCatalogFailure ? [axisCatalogFailure] : []),
     ],
-    [locationUnknown, handleLocateMe, axisCatalog.failed, warningFetchFailures],
+    [locationFailure, warningFetchFailures, axisCatalogFailure],
   );
 
   // モバイルの「ルート結果」タブの印。失敗だけ色を変える（条件の変更と新しい結果は、開けば新しいものがある点で同じ）。
@@ -316,7 +302,7 @@ export default function Home() {
         destinationSet={conditions.destination !== null}
         onDestinationClear={conditions.clearDestination}
         originManual={locationSource === "manual"}
-        originLocated={locationSource !== "default"}
+        originLocated={locationKnown}
         onOriginReset={handleLocateMe}
         armedPinRole={conditions.armedPinRole}
         onArmPinRole={conditions.armPinRole}

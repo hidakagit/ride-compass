@@ -219,6 +219,19 @@ describe("useAxisCatalog（改善計画T308: rampAxes/axisLabels/secondaryAxes�
     expect(result.current.axes).toHaveLength(2);
   });
 
+  it("取れていない間だけヘッダーの印の項目があり、その再試行で取れたら項目が消える", async () => {
+    vi.mocked(getAxisCatalog).mockRejectedValueOnce(new Error("network error"));
+    const { result } = renderHook(() => mod.useAxisCatalog());
+    expect(mod.axisCatalogFetchFailure(result.current)).toBeNull();
+    await waitFor(() => expect(mod.axisCatalogFetchFailure(result.current)).toMatchObject({ id: "axis-catalog" }));
+
+    vi.mocked(getAxisCatalog).mockResolvedValueOnce(catalogResponse());
+    mod.axisCatalogFetchFailure(result.current)?.onRetry?.();
+
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    expect(mod.axisCatalogFetchFailure(result.current)).toBeNull();
+  });
+
   it("取得成功後のretryAxisCatalogFetchは再取得しない（既に確定しているため）", async () => {
     vi.mocked(getAxisCatalog).mockResolvedValueOnce(catalogResponse());
     const { result } = renderHook(() => mod.useAxisCatalog());

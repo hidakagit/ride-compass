@@ -5,6 +5,7 @@ import { getAxisCatalog } from "@/services/axisCatalogApi";
 import { setTileVersions } from "@/services/regionApi";
 import { axisCatalogFromResponse, EMPTY_CATALOG, type AxisCatalog } from "@/lib/axisCatalog";
 import { getQueryClient } from "@/lib/queryClient";
+import type { FetchFailure } from "@/types/fetchFailure";
 
 const AXIS_CATALOG_QUERY_KEY = ["axis-catalog"] as const;
 
@@ -28,6 +29,19 @@ export function retryAxisCatalogFetch(): void {
   const client = getQueryClient();
   if (client.getQueryData(AXIS_CATALOG_QUERY_KEY) !== undefined) return;
   void client.refetchQueries({ queryKey: AXIS_CATALOG_QUERY_KEY });
+}
+
+const AXIS_CATALOG_FETCH_FAILURE: FetchFailure = {
+  id: "axis-catalog",
+  label: "軸一覧",
+  effect:
+    "地図の道路・スポット・事故を表示できません。ルートは重み配分を変えていても反映できず、既定の配分で作ります。ルートの合成も使えません。",
+  onRetry: retryAxisCatalogFetch,
+};
+
+/** 軸カタログが取れていないことの常設ヘッダーの印の項目（取れていれば・取得中なら無い）。 */
+export function axisCatalogFetchFailure(catalog: AxisCatalog): FetchFailure | null {
+  return catalog.failed ? AXIS_CATALOG_FETCH_FAILURE : null;
 }
 
 /** 軸カタログ。マウントのたびに取り、軸スタジオで公開した軸を再デプロイなしに反映する。届くまで・失敗したときは

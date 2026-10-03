@@ -13,7 +13,8 @@ import {
 import refreshIntervals from "@/types/generated/refresh-intervals.json";
 import type { Coordinates } from "@/types/route";
 import type { AmedasObservation, WeatherConditions } from "@/types/weather";
-import type { WarningBadgeItem, WarningFetchFailure } from "@/features/conditions/WarningBadge/WarningBadge";
+import type { WarningBadgeItem } from "@/features/conditions/WarningBadge/WarningBadge";
+import type { FetchFailure } from "@/types/fetchFailure";
 
 interface UseWeatherConditionsResult {
   /** 「今日」のパネル（数値予報モデルの計算値）。常設のヘッダーは読まない（ヘッダーは実測）。 */
@@ -27,7 +28,7 @@ interface UseWeatherConditionsResult {
   /** 警報・注意報・暑さ指数・河川氾濫予報のバッジ。 */
   warningBadgeItems: WarningBadgeItem[];
   /** 警告の取得に失敗した出所。 */
-  warningFetchFailures: WarningFetchFailure[];
+  warningFetchFailures: FetchFailure[];
 }
 
 interface LocationFetchState<T> {
@@ -46,13 +47,13 @@ function useLocationFetch<T>(
   key: string,
   fetcher: (location: Coordinates) => Promise<T>,
   location: Coordinates,
-  locationReady: boolean,
+  locationKnown: boolean,
 ): LocationFetchState<T> {
   const { data, error, isFetching } = useQuery(
     {
       queryKey: ["location-weather", key, location.latitude, location.longitude],
       queryFn: () => fetcher(location),
-      enabled: locationReady,
+      enabled: locationKnown,
       placeholderData: keepPreviousData,
       refetchInterval: WEATHER_REFRESH_INTERVAL_MS,
     },
@@ -61,15 +62,15 @@ function useLocationFetch<T>(
   return { data: data ?? null, loading: isFetching, error: error?.message ?? null };
 }
 
-export function useWeatherConditions(location: Coordinates, locationReady: boolean): UseWeatherConditionsResult {
-  const weather = useLocationFetch("forecast", getCurrentWeather, location, locationReady);
-  const amedas = useLocationFetch("amedas", getAmedasObservation, location, locationReady);
+export function useWeatherConditions(location: Coordinates, locationKnown: boolean): UseWeatherConditionsResult {
+  const weather = useLocationFetch("forecast", getCurrentWeather, location, locationKnown);
+  const amedas = useLocationFetch("amedas", getAmedasObservation, location, locationKnown);
 
   // 警告は、取れない間その出所のバッジを出さず、失敗した出所を別に渡す（バッジが無いのを「警告なし」と読ませない）。
   // 空の応答は「出ていない」だけを表し、backendが配信元から取れなかったときも失敗（502）で届く。
-  const warnings = useLocationFetch("warnings", getWeatherWarnings, location, locationReady);
-  const wbgt = useLocationFetch("wbgt", getWbgtStatus, location, locationReady);
-  const flood = useLocationFetch("flood", getFloodForecasts, location, locationReady);
+  const warnings = useLocationFetch("warnings", getWeatherWarnings, location, locationKnown);
+  const wbgt = useLocationFetch("wbgt", getWbgtStatus, location, locationKnown);
+  const flood = useLocationFetch("flood", getFloodForecasts, location, locationKnown);
   const weatherWarnings = warnings.error ? null : warnings.data;
   const wbgtStatus = wbgt.error ? null : wbgt.data;
   const floodForecasts = flood.error ? null : flood.data;
@@ -107,7 +108,7 @@ export function useWeatherConditions(location: Coordinates, locationReady: boole
     return [...jmaItems, ...wbgtItem, ...floodItems];
   }, [weatherWarnings, wbgtStatus, floodForecasts]);
 
-  const warningFetchFailures = useMemo<WarningFetchFailure[]>(
+  const warningFetchFailures = useMemo<FetchFailure[]>(
     () =>
       [
         { id: "jma", label: "警報・注意報", error: warnings.error },

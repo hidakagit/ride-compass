@@ -56,7 +56,6 @@ import type { Coordinates, GenerationConditions, RouteCandidate, RouteSegmentDet
 const { stubComponent, stubModule, stubProps } = await vi.hoisted(() => import("@/testing/componentStubs"));
 const stubs = vi.hoisted(() => ({
   catalog: null as unknown,
-  catalogRetries: 0,
   isMobile: false,
   mapView: null as unknown,
   mapViewInputs: null as unknown,
@@ -107,11 +106,9 @@ vi.mock("@/components/BottomSheet/BottomSheet", async (importOriginal) => {
     ),
   };
 });
-vi.mock("@/hooks/useAxisCatalog", () => ({
+vi.mock("@/hooks/useAxisCatalog", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/hooks/useAxisCatalog")>()),
   useAxisCatalog: () => stubs.catalog,
-  retryAxisCatalogFetch: () => {
-    stubs.catalogRetries += 1;
-  },
 }));
 vi.mock("@/hooks/useIsMobile", () => ({ useIsMobile: () => stubs.isMobile }));
 vi.mock("@/features/map/view/useMapView", () => ({
@@ -215,7 +212,6 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(NOW);
   stubs.catalog = catalogWith(SPLICE_TUNING);
-  stubs.catalogRetries = 0;
   stubs.isMobile = false;
   stubs.mapView = {
     look: { marker: "見え方" },
@@ -794,7 +790,7 @@ describe("画面の枠と地図の周り", () => {
     await waitFor(() => expect(badgeFailures()).toEqual([]));
   });
 
-  it("警報の取得失敗と、軸一覧を取得できないことをヘッダーの印に並べ、軸一覧はそこから取り直せる", async () => {
+  it("警報の取得失敗と、軸一覧を取得できないことをヘッダーの印に並べる", async () => {
     stubs.catalog = { ...EMPTY_CATALOG, failed: true };
     vi.mocked(useWeatherConditions).mockReturnValue({
       ...EMPTY_WEATHER,
@@ -802,8 +798,6 @@ describe("画面の枠と地図の周り", () => {
     } as never);
     renderPage();
     await waitFor(() => expect(badgeFailures().map((f) => f.id)).toEqual(["warnings", "axis-catalog"]));
-    act(() => badgeFailures()[1].onRetry?.());
-    expect(stubs.catalogRetries).toBe(1);
   });
 
   it("メニューの「使い方を見る」で説明を見る状態に入り、「やめる」で抜ける", () => {
