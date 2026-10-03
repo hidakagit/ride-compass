@@ -21,6 +21,7 @@ import { LEGEND_SWATCH_RING_CLASS, legendSwatchBackground, type LegendEntry } fr
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import LegendCheckboxList from "@/features/map/LegendCheckboxList/LegendCheckboxList";
 import LegendRow from "@/features/map/LegendCheckboxList/LegendRow";
+import { PointIconSwatch } from "@/features/map/layers/pointIcon";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
 import { mapOverlayEdge } from "@/lib/mapOverlayEdges";
@@ -132,10 +133,21 @@ function readStringArray(raw: string): string[] | null {
   }
 }
 
-/** 色見本。パネルへ直に、地図と同じ形（線なら線、点なら点）で置く——明るい台に載せると、暗いパネルの上では台の
+/** 色見本。パネルへ直に、地図と同じ形（線なら線、点なら点、絵記号の点なら絵記号）で置く——明るい台に載せると、暗いパネルの上では台の
  * 白が色より目立ち、明るい色は台に溶ける。線の行は地図と同じ太さ、大きさで意味を示す行は地図の点と同じ直径で出す。
  * 見本の枠の幅はそろえ、ラベルの位置を行ごとにずらさない。 */
 function renderSwatch(entry: LegendEntry) {
+  if (entry.glyph !== undefined) {
+    return (
+      <span aria-hidden="true" className="inline-flex w-6 flex-shrink-0 items-center justify-center">
+        <PointIconSwatch
+          color={entry.color}
+          glyph={entry.glyph}
+          className={cn("rounded-[4px]", LEGEND_SWATCH_RING_CLASS)}
+        />
+      </span>
+    );
+  }
   const size = entry.line
     ? { width: SWATCH_LINE_LENGTH_PX, height: mapDisplay.road.lineWidthPx }
     : entry.diameterPx !== undefined

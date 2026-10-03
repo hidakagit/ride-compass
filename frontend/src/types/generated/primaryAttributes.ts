@@ -462,6 +462,7 @@ export const primaryAttributes = [
               "convenience"
             ],
             "description": "コンビニエンスストア[OSM の shop=convenience]。",
+            "glyph": "bag",
             "color": "#7d89ba"
           },
           {
@@ -471,6 +472,7 @@ export const primaryAttributes = [
               "vending_drinks"
             ],
             "description": "飲み物か食べ物を売ると書かれた自動販売機[OSM の amenity=vending_machine と vending タグ]。",
+            "glyph": "bottle",
             "color": "#b47a99"
           },
           {
@@ -480,6 +482,7 @@ export const primaryAttributes = [
               "vending_unknown"
             ],
             "description": "何を売るかが書かれていない自動販売機。飲み物が買えるとは限らない。",
+            "glyph": "question",
             "color": "#b77e6a"
           },
           {
@@ -489,6 +492,7 @@ export const primaryAttributes = [
               "toilets"
             ],
             "description": "公衆トイレなど、地図のデータにトイレとして載っている所[OSM の amenity=toilets]。",
+            "glyph": "toilet",
             "color": "#908e5c"
           },
           {
@@ -498,6 +502,7 @@ export const primaryAttributes = [
               "drinking_water"
             ],
             "description": "水飲み場など、飲み水をくめる所[OSM の amenity=drinking_water]。",
+            "glyph": "drop",
             "color": "#57987e"
           },
           {
@@ -507,6 +512,7 @@ export const primaryAttributes = [
               "bicycle_parking"
             ],
             "description": "自転車を止められる所[OSM の amenity=bicycle_parking]。",
+            "glyph": "parking",
             "color": "#3b97ad"
           }
         ],

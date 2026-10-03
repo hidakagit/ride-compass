@@ -106,6 +106,28 @@ def test_only_the_first_axis_with_a_palette_gets_colors():
     assert "palette" not in main and "hue_slot" not in main
 
 
+def test_a_glyph_reaches_the_screen_only_on_rows_that_declare_one():
+    """画面は行が`glyph`の鍵を持つかで絵記号の点か丸い点かを分ける。持たない行に空の値を配ると、丸い点の行まで絵記号になる。"""
+    with_glyphs = DisplayAxisSpec(
+        key="main",
+        property="main",
+        palette="nominal",
+        hue_slot=4,
+        categories=(
+            DisplayCategorySpec(key="a", label="行a", values=("a",), description="行aの点", glyph="bag"),
+            DisplayCategorySpec(key="b", label="行b", values=("b",), description="行bの点", glyph="drop"),
+        ),
+    )
+    attribute = PrimaryAttributeSpec(
+        attr_id="attr_a", label="属性A", geometry="point", display_axes=(with_glyphs, axis("size", 2))
+    )
+
+    main, size = resolved_display_axes(attribute)
+
+    assert [c["glyph"] for c in main["categories"]] == ["bag", "drop"]
+    assert all("glyph" not in c for c in size["categories"])
+
+
 def test_an_ordered_axis_is_colored_by_position():
     attribute = PrimaryAttributeSpec(
         attr_id="attr_a", label="属性A", geometry="line", display_axes=(axis("main", 4, palette="ordered"),)
@@ -188,6 +210,20 @@ def test_colors_of_point_layers_shown_together_are_not_too_close():
     for (id_a, colors_a), (id_b, colors_b) in itertools.combinations(points, 2):
         for a, b in itertools.product(colors_a, colors_b):
             assert delta_e(a, b) >= POINT_LAYERS_DELTA_E, (id_a, a, id_b, b)
+
+
+def test_a_glyph_stands_out_from_the_color_of_its_row():
+    """絵記号は行の色の角丸四角に載る。下地に溶けると、形で分けるはずの点が同じ四角に見える。"""
+    rows = [
+        (attr.attr_id, category["color"])
+        for attr in DISPLAYED
+        for category in resolved_display_axes(attr)[0]["categories"]
+        if "glyph" in category
+    ]
+
+    assert rows
+    for attr_id, color in rows:
+        assert contrast(SEMANTIC_COLORS["mark_glyph"], color) >= CLASS_COLOR_CONTRAST, (attr_id, color)
 
 
 def test_a_road_without_a_value_is_still_visible_on_the_ground():

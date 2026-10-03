@@ -648,6 +648,7 @@ export const mapDisplay = {
     "fatalRadiusPx": 6,
     "nonFatalRadiusPx": 3,
     "strokeWidthPx": 1,
+    "iconSizePx": 20,
     "opacity": 0.9,
     "accidentOpacity": 0.75
   },

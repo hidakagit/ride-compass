@@ -10,6 +10,9 @@
  * backendのテスト（`test_material_catalog.py`）が全種別で確かめる。
  * 事故は配信の系統が違うため別のソース。
  *
+ * 点の形も源泉が決める。先頭の軸の行が絵記号（`glyph`）を持つレイヤーは、行の色の角丸四角に絵記号を載せた
+ * 記号で描き、持たないレイヤーは丸い点で描く。
+ *
  * **タイルの世代が届くまでソースを作らない**。先に作ると、世代の違う中身がブラウザの
  * キャッシュへ載って以後ずっと残る。
  */
@@ -18,6 +21,7 @@ import { mapDisplay } from "@/types/generated/mapDisplay";
 import palette from "@/types/generated/palette.json";
 import type { FilterSpecification } from "maplibre-gl";
 
+import type { PointGlyph } from "@/lib/mapDisplay/legendFilter";
 import { primaryAttributes } from "@/types/generated/primaryAttributes";
 
 import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "@/features/map/scene/mapSceneGroups";
@@ -106,6 +110,37 @@ function layerFilter(layer: PointLayer, hiddenKeys: PointState["hiddenKeys"]): F
   return ["all", ...clauses] as unknown as FilterSpecification;
 }
 
+type GlyphCategory = Extract<PointAxis["categories"][number], { glyph: string; color: string }>;
+
+/** 絵記号で描くレイヤーの行。源泉は先頭の軸の行の全部に付けるか、どれにも付けない。 */
+function glyphCategories(layer: PointLayer): readonly GlyphCategory[] {
+  const categories: readonly PointAxis["categories"][number][] = layer.display_axes[0]?.categories ?? [];
+  return categories.filter((category): category is GlyphCategory => "glyph" in category && "color" in category);
+}
+
+/** 地図へ登録する絵の名前。**登録側と参照側が同じ1つを使う**（綴りがずれると点が出ない）。 */
+function pointIconId(layer: PointLayer, category: GlyphCategory): string {
+  return `point-icon:${layer.attr_id}:${category.key}`;
+}
+
+/** 絵記号で描く点の絵（名前・下地の色・絵記号）。**出す前に地図へ登録しないと点が描かれない。** */
+export const POINT_ICONS: readonly { id: string; color: string; glyph: PointGlyph }[] = POINT_LAYERS.flatMap((layer) =>
+  glyphCategories(layer).map((category) => ({
+    id: pointIconId(layer, category),
+    color: category.color,
+    glyph: category.glyph,
+  })),
+);
+
+function iconImageExpression(layer: PointLayer, categories: readonly GlyphCategory[]): unknown {
+  const axis = layer.display_axes[0];
+  const cases = categories.flatMap((category) => [
+    ["in", valueOf(axis), ["literal", [...category.values]]],
+    pointIconId(layer, category),
+  ]);
+  return ["case", ...cases, ""];
+}
+
 /** 大きさで示す軸。色は先頭の軸が持つので、重大度は大きさだけで示す（色を取り合わない）。 */
 function sizeAxis(layer: PointLayer): PointAxis | undefined {
   return layer.display_axes.find((axis) => axis.key === "severity");
@@ -153,23 +188,41 @@ export const pointGroup = declareGroup<PointState>((state) => {
     },
   ];
 
-  const layers: readonly SceneLayerEntry[] = POINT_LAYERS.map((layer) => ({
-    role: layer.attr_id,
-    tier: "point",
-    source: pointSourceId(layer.tile_kind),
-    sourceLayer: layer.tile_kind === "accident" ? tiles.accidentSourceLayer : tiles.poiSourceLayer,
-    type: "circle",
-    paint: {
-      "circle-color": colorExpression(layer),
-      "circle-radius": radiusExpression(layer),
-      "circle-stroke-width": POINT.strokeWidthPx,
-      "circle-stroke-color": palette.semantic.mark_stroke,
-      "circle-opacity": layer.tile_kind === "accident" ? POINT.accidentOpacity : POINT.opacity,
-    },
-    visible: state.visible[layer.attr_id] === true,
-    hitTargets: [POINT_HIT_TARGET, `${POINT_HIT_TARGET}:${layer.attr_id}`],
-    ...(layerFilter(layer, state.hiddenKeys) === undefined ? {} : { filter: layerFilter(layer, state.hiddenKeys) }),
-  }));
+  const layers: readonly SceneLayerEntry[] = POINT_LAYERS.map((layer) => {
+    const glyphs = glyphCategories(layer);
+    const opacity = layer.tile_kind === "accident" ? POINT.accidentOpacity : POINT.opacity;
+    const filter = layerFilter(layer, state.hiddenKeys);
+    return {
+      role: layer.attr_id,
+      tier: "point",
+      source: pointSourceId(layer.tile_kind),
+      sourceLayer: layer.tile_kind === "accident" ? tiles.accidentSourceLayer : tiles.poiSourceLayer,
+      ...(glyphs.length === 0
+        ? {
+            type: "circle" as const,
+            paint: {
+              "circle-color": colorExpression(layer),
+              "circle-radius": radiusExpression(layer),
+              "circle-stroke-width": POINT.strokeWidthPx,
+              "circle-stroke-color": palette.semantic.mark_stroke,
+              "circle-opacity": opacity,
+            },
+          }
+        : {
+            type: "symbol" as const,
+            paint: { "icon-opacity": opacity },
+            // 点を間引かない。丸い点と同じく、重なっても全部描く。
+            layout: {
+              "icon-image": iconImageExpression(layer, glyphs),
+              "icon-allow-overlap": true,
+              "icon-ignore-placement": true,
+            },
+          }),
+      visible: state.visible[layer.attr_id] === true,
+      hitTargets: [POINT_HIT_TARGET, `${POINT_HIT_TARGET}:${layer.attr_id}`],
+      ...(filter === undefined ? {} : { filter }),
+    };
+  });
 
   return { sources, layers };
 });

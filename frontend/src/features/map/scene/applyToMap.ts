@@ -53,6 +53,8 @@ import { buildLegendFilterExpression } from "./sceneBuilders";
 import type { SceneInputs } from "./buildScene";
 import type { AxisBand, AxisLineState } from "@/features/map/scene/groups/axisLines";
 import type { RoutePath, RouteState } from "@/features/map/scene/groups/routes";
+import { drawPointIcon } from "@/features/map/layers/pointIcon";
+import { POINT_ICONS } from "@/features/map/scene/groups/points";
 import { WEATHER_ICONS, type WeatherPayload, type WeatherState } from "@/features/map/scene/groups/weather";
 import { EMPTY_MAP_SCENE, type MapScene } from "./mapScene";
 
@@ -283,7 +285,7 @@ export function sceneInputsFrom(props: SceneWiringProps): SceneInputs {
   };
 }
 
-/** 記号に要る絵。**出す前に登録しないと記号が描かれない。** */
+/** 記号に要る単色の絵（色は記号の側で付ける）。**出す前に登録しないと記号が描かれない。** 色を焼き込んだ点の絵は`POINT_ICONS`。 */
 const SCENE_ICONS: readonly { id: string; create: () => ImageData }[] = [
   ...WEATHER_ICONS,
   { id: ROUTE_ARROW_ICON_ID, create: createRouteArrowIcon },
@@ -296,6 +298,11 @@ export function applyScene(map: MapLibreMap, scene: MapScene, options: { reset?:
   runWhenStyleReady(map, () => {
     for (const icon of SCENE_ICONS) {
       if (!map.hasImage(icon.id)) map.addImage(icon.id, icon.create(), { sdf: true });
+    }
+    for (const icon of POINT_ICONS) {
+      if (map.hasImage(icon.id)) continue;
+      const { data, pixelRatio } = drawPointIcon(icon.color, icon.glyph);
+      map.addImage(icon.id, data, { pixelRatio });
     }
     prepareBasemapForAreaLayers(map);
     applyMapScene(map, {

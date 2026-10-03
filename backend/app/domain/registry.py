@@ -35,6 +35,10 @@ class DisplayCategorySpec(StrictModel):
     values: tuple[str | bool, ...]
     #: 凡例の行の（i）から開く、この行に何が入るかの説明。利用者の言葉で書き、OSMのタグは括弧で添える程度にする。
     description: str = Field(min_length=1)
+    #: 点を、行の色の角丸四角に白い絵記号を載せた形で描くときの絵の名前（`None`は丸い点）。絵の描き方は画面が持つ。
+    #: 色だけでは、同時に出る点のレイヤーどうしを軸の中ほど離せないので、形でも分けるレイヤーに付ける。
+    #: 付けるのは点の先頭の軸で、その軸の行の全部に付ける（一部の行だけ形が違うと、形が分類の意味を持ってしまう）。
+    glyph: str | None = None
 
 
 class DisplayAxisSpec(StrictModel):
