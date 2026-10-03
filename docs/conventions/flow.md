@@ -127,6 +127,9 @@ Claude が起こす出来事は、表の `by: claude` の行だけ。問いは `
    （`wip/tasks-<番号>-*` の枝。担当のワークフローの後始末の4）があれば読んで要るものを取り込み、取り込んだら枝を消す
    （`git push origin --delete wip/tasks-<番号>-<時刻>`）。
 2. backend と frontend の依存とテスト用の DB は、担当のワークフローが入れてある（backend は `python`、frontend は `frontend/node_modules`）。
+   入れたのは master の版の依存のファイルからなので、1 のあと `git diff --name-only origin/master -- backend/requirements*.txt frontend/package-lock.json`
+   で作業ブランチとの違いを見る。backend のファイルが出たら `python -m pip install -q -r backend/requirements-batch.txt -r backend/requirements-dev.txt`、
+   `frontend/package-lock.json` が出たら `npm ci --prefix frontend` で入れ直す（作業の途中で依存のファイルを変えたときも同じ）。
 3. issue の本文とコメント（`gh issue view <番号> -R ridecompass/ride-compass-tasks --comments`。答えのコメント・やり直しなら前の Pull Request のコメントも）を読み、CLAUDE.md と規約のとおりに作る。
    - ユーザーの判断が要るところは「問い」の形で書いて `ask.js` で問い、そこで終える（答えは次の起動で拾われる）。
      作る前に、答えの無い判断（方針・見た目の案・本番への書き込み等）が残っていないかを見て、残っていれば問いに要る分だけを
@@ -211,7 +214,7 @@ Claude が起こす出来事は、表の `by: claude` の行だけ。問いは `
 
 **確かめる担当**（検証中。作った担当とは別）
 1. 作業ブランチを取る（`git fetch origin` と
-   `git checkout -B orch/tasks-<番号> origin/orch/tasks-<番号>`）。Pull Request（`gh pr view <番号> -R hidakagit/ride-compass --comments`。本文のキャプチャ・差分）・作業ブランチの CI・issue の完了の条件・変更が届く範囲（要るなら画面）を
+   `git checkout -B orch/tasks-<番号> origin/orch/tasks-<番号>`）。依存のファイルが master と違えば、作る担当の2のとおり入れ直す。Pull Request（`gh pr view <番号> -R hidakagit/ride-compass --comments`。本文のキャプチャ・差分）・作業ブランチの CI・issue の完了の条件・変更が届く範囲（要るなら画面）を
    確かめる。作る担当の報告を読み写さず、自分で見る（画面なら自分で撮る。地図の画面は作る担当の5と同じ道具で撮る）。Pull Request が無ければ（手順が変わる前に
    検証中になったもの）、作る担当の5のとおりに出してから確かめる。CI は作業ブランチ単体（push の実行）に加えて、Pull Request の
    実行（master と合わせた版。作る担当の5と同じく `--event pull_request` で引く）が通っていることを見る。Pull Request の実行だけが
