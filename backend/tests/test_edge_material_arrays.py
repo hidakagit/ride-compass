@@ -51,7 +51,7 @@ class TestTheColumns:
 
 class TestCategoricalColumn:
     """分類の材料の列は語彙への番号で持つ。値での引き当て・一致の判定は、軸の評価の入口で確かめる
-    （`test_axis_templates.py`・`test_axis_hierarchy.py`）。"""
+    （`test_axis_templates.py`・`test_axis_definitions.py`）。"""
 
     COLUMN = CategoricalColumn.encode(["b", None, "a", "b", "z"])
 

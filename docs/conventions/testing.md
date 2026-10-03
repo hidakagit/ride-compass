@@ -432,7 +432,7 @@ hypothesisの`@given`）。向くのは幾何・座標変換・補間のよう�
 """`domain/axis_definitions.py`——軸の宣言と、その評価。
 
 ここで見ないもの:
-- 依存順の並べ替え・0次条件の短絡 → `test_axis_hierarchy.py`
+- 軸が軸を読むときの並べ替え・軸の集合の評価 → `test_axis_hierarchy.py`
 - 地図表示（ramp）の導出 → `test_axis_display.py`
 
 **材料カタログの中身には踏み込まない。** どの材料がどの一次属性に属するかはカタログ側の

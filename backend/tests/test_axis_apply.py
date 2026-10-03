@@ -1,11 +1,16 @@
-"""`scripts/axis_apply.py`——軸の定義1本を、差を見てから管理APIで入れる道具。
+"""`scripts/axis_apply.py`——軸の定義1本を、本番の今の定義との差を見てから管理APIで入れる道具。
 
-管理APIは網の境界で差し替える（`httpx.MockTransport`の上の代役）。代役が真似るのは道具の操作の順を決める
-性質だけ: 公開済みの軸は更新も削除も拒む、取り消しは公開の印だけを外す、軸カタログは公開済みの軸だけを返す。
+入口は`run(parse_args(引数), client)`で、見るのは画面に出す文・終了コードと、本番の管理APIへ何を書いたか。
+
+ここで見ないもの:
+- 宛先と認証情報をファイルから読んで`run`へ渡す結線（`main`） → 見ない（読み取りは`_prod_env.py`の持ち物）
+- 管理APIそのもののガード（公開済みの軸を拒む等） → `test_axis_admin_routes.py`・`test_axis_registry_service.py`
+
+**本番の管理APIと軸カタログは代役にする**（網の境界）。代役は、公開済みの軸の更新・削除を409で拒み、
+単体取得の応答に算出項目を足し、軸カタログは公開の軸だけを体感ラベルを引き直して返す——道具が前提にする管理APIの約束だけを持つ。
 """
 
 import json
-import re
 import sys
 from pathlib import Path
 
@@ -15,225 +20,323 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 import axis_apply  # noqa: E402
-from app.domain.axis_definitions import AxisDefinition  # noqa: E402
 
-ADMIN = axis_apply.ADMIN_PATH
+ADMIN = "/api/admin/axis-definitions"
 
 
-def definition(axis_id="a", **fields):
-    body = {
-        "axis_id": axis_id,
-        "label": "軸A",
+def definition(**fields) -> dict:
+    return {
+        "axis_id": "axis_a",
+        "label": "軸",
         "default_weight": 1.0,
-        "is_published": True,
-        "shape": {"kind": "categorical", "material": "mat_old", "mapping": {"good": 0.0, "bad": 80.0}},
+        "shape": {"kind": "breakpoint_linear", "terms": [{"material": "m"}], "breakpoints": [[0.0, 0.0], [1.0, 100.0]]},
+        **fields,
     }
-    body.update(fields)
-    return AxisDefinition.model_validate(body).model_dump(mode="json")
 
 
-class FakeAdminApi:
-    def __init__(self, *axes):
-        self.axes = {axis["axis_id"]: axis for axis in axes}
+class AdminApi:
+    """本番の管理APIと軸カタログの代役。書いた操作（GET以外）を順に`writes`へ残す。"""
+
+    def __init__(self, *axes: dict) -> None:
+        self.axes = {a["axis_id"]: dict(a) for a in axes}
         self.writes: list[tuple[str, str]] = []
-        #: (method, path) → 返す状態コード。`once`に入れたものは1回だけ失敗する。
-        self.fail: dict[tuple[str, str], int] = {}
-        self.once: set[tuple[str, str]] = set()
-        self.frozen_catalog: list[dict] | None = None
+        self.failures: list[dict] = []
+        self.catalog_overrides: dict[str, dict] = {}
+        self.catalog_listing: dict[str, bool] = {}
+        self.stored_as = lambda body: body
 
-    def catalog(self) -> list[dict]:
-        hidden = {"is_published", "priority_overrides", "time_scope"}
-        return [
-            {**{k: v for k, v in axis.items() if k not in hidden}, "display": {"kind": "none"}}
-            for axis in self.axes.values()
-            if axis["is_published"]
-        ]
+    def fail(self, method: str, path: str, status: int = 422, body: object = None, *, after: bool = False) -> None:
+        """次に`method path`が来たら1回だけ`status`で断る。`after`なら書いてから断る（書いた後の応答が届かない）。"""
+        self.failures.append({"method": method, "path": path, "status": status, "body": body, "after": after})
 
     def handle(self, request: httpx.Request) -> httpx.Response:
         method, path = request.method, request.url.path
         if method != "GET":
             self.writes.append((method, path))
-        if (method, path) in self.fail:
-            status = self.fail[(method, path)]
-            if (method, path) in self.once:
-                del self.fail[(method, path)]
-            return httpx.Response(status, json={"detail": "代役が拒否"})
-        if path == axis_apply.CATALOG_PATH:
-            return httpx.Response(200, json={"axes": self.frozen_catalog if self.frozen_catalog is not None else self.catalog()})
-        rest = path.removeprefix(ADMIN).strip("/")
-        axis_id, _, action = rest.partition("/")
-        stored = self.axes.get(axis_id)
-        if method == "POST" and not rest:
-            body = json.loads(request.content)
-            self.axes[body["axis_id"]] = body
+        failure = next((f for f in self.failures if (f["method"], f["path"]) == (method, path)), None)
+        if failure is not None:
+            self.failures.remove(failure)
+            if failure["after"]:
+                self._serve(method, path, request)
+            body = failure["body"]
+            return httpx.Response(failure["status"], **({"text": body} if isinstance(body, str) else {"json": body}))
+        return self._serve(method, path, request)
+
+    def _serve(self, method: str, path: str, request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content) if request.content else None
+        axis_id = path.removeprefix(ADMIN + "/").removesuffix("/unpublish")
+        current = self.axes.get(axis_id)
+        if path == "/api/axis-catalog":
+            return httpx.Response(200, json={"axes": [self._catalog_entry(a) for a in self.axes.values() if self._listed(a)]})
+        if method == "POST" and path == ADMIN:
+            self.axes[body["axis_id"]] = self.stored_as(body)
             return httpx.Response(201, json=body)
-        if stored is None:
-            return httpx.Response(404, json={"detail": "見つかりません"})
+        if current is None:
+            return httpx.Response(404, json={"detail": "Not Found"})
         if method == "GET":
-            return httpx.Response(200, json={**stored, "display": {"kind": "none"}, "weight_share_when_published": 0.5})
-        if action == "unpublish":
-            self.axes[axis_id] = {**stored, "is_published": False}
-            return httpx.Response(200, json=self.axes[axis_id])
-        if stored["is_published"]:
-            return httpx.Response(409, json={"detail": "公開済みの軸は変えられません"})
+            return httpx.Response(200, json={**current, "display": {"kind": "none"}, "weight_share_when_published": 0.5})
+        if path.endswith("/unpublish"):
+            current["is_published"] = False
+            return httpx.Response(200, json=current)
+        if current.get("is_published"):
+            return httpx.Response(409, json={"detail": "公開中の軸です"})
         if method == "PUT":
-            self.axes[axis_id] = json.loads(request.content)
-            return httpx.Response(200, json=self.axes[axis_id])
+            self.axes[axis_id] = self.stored_as(body)
+            return httpx.Response(200, json=body)
         del self.axes[axis_id]
         return httpx.Response(204)
 
+    def _listed(self, axis: dict) -> bool:
+        return self.catalog_listing.get(axis["axis_id"], bool(axis.get("is_published")))
 
-def run(api: FakeAdminApi, *argv: str) -> int:
-    client = httpx.Client(base_url="https://backend.test", transport=httpx.MockTransport(api.handle))
-    with client:
-        return axis_apply.run(axis_apply.parse_args(list(argv)), client)
-
-
-def change_file(tmp_path: Path, body: dict) -> str:
-    path = tmp_path / "change.json"
-    path.write_text(json.dumps(body, ensure_ascii=False), encoding="utf-8", newline="\n")
-    return str(path)
+    def _catalog_entry(self, axis: dict) -> dict:
+        labels = axis.get("display_band_labels_override")
+        reshaped = None if labels is None else labels[:1]
+        return {**axis, "display_band_labels_override": reshaped, "raw_value_unit": None, **self.catalog_overrides.get(axis["axis_id"], {})}
 
 
-def dry_run(api: FakeAdminApi, capsys, *argv: str) -> tuple[str, str]:
-    """差の表示（書かない）を通し、出力と指紋を返す。"""
-    assert run(api, *argv) == 0
-    out = capsys.readouterr().out
-    match = re.search(r"指紋: (\w+)", out)
-    assert match
-    return out, match.group(1)
+@pytest.fixture
+def run(tmp_path, capsys):
+    def run(api: AdminApi, *argv: str, desired: dict | None = None) -> tuple[int, str, str]:
+        args = list(argv)
+        if desired is not None:
+            path = tmp_path / "axis.json"
+            path.write_text(json.dumps(desired, ensure_ascii=False), encoding="utf-8")
+            args.insert(0, str(path))
+        with httpx.Client(transport=httpx.MockTransport(api.handle), base_url="http://backend") as client:
+            code = axis_apply.run(axis_apply.parse_args(args), client)
+        out, err = capsys.readouterr()
+        return code, out, err
+
+    return run
 
 
-def dry_run_mark(api: FakeAdminApi, capsys, *argv: str) -> str:
-    return dry_run(api, capsys, *argv)[1]
+def fingerprint(out: str) -> str:
+    return next(line.removeprefix("指紋: ") for line in out.splitlines() if line.startswith("指紋: "))
 
 
-NEW_SHAPE = {"kind": "categorical", "material": "mat_new", "mapping": {"good": 0.0, "bad": 100.0, "unknown": 40.0}}
+def apply(run, api: AdminApi, *argv: str, desired: dict | None = None) -> tuple[int, str, str]:
+    """差を出して、そのとき出た指紋で書く（使う人の手順どおり）。"""
+    _, out, _ = run(api, *argv, desired=desired)
+    return run(api, *argv, "--apply", fingerprint(out), desired=desired)
 
 
-def test_dry_run_shows_each_changed_leaf_before_and_after_and_writes_nothing(tmp_path, capsys):
-    api = FakeAdminApi(definition())
-    file = change_file(tmp_path, definition(shape=NEW_SHAPE))
+class TestShowingTheChange:
+    def test_a_dry_run_shows_the_change_and_how_to_write_it_and_writes_nothing(self, run):
+        api = AdminApi(definition())
 
-    assert run(api, file) == 0
+        code, out, _ = run(api, desired=definition(default_weight=2.0))
 
-    out = capsys.readouterr().out
-    assert (
-        '  shape.material: "mat_old" → "mat_new"\n'
-        "  shape.mapping.bad: 80.0 → 100.0\n"
-        "  shape.mapping.unknown: （なし） → 40.0\n"
-    ) in out
-    assert "shape.mapping.good" not in out
-    assert "書く操作: 公開を取り消す → 定義を書き換える（公開にする）" in out
-    assert api.writes == []
+        assert code == 0
+        assert "軸 axis_a: 下書き → 下書き" in out
+        assert "  default_weight: 1.0 → 2.0" in out
+        assert "書く操作: 定義を書き換える" in out
+        assert f"--apply {fingerprint(out)}" in out
+        assert api.writes == []
 
+    def test_a_nested_change_is_shown_leaf_by_leaf_grouped_by_field_with_vanishing_leaves_first(self, run):
+        api = AdminApi(definition())
+        desired = definition(shape={"kind": "categorical", "material": "c", "mapping": {"x": 10.0}}, label="新しい名前")
 
-def test_apply_with_the_dry_run_mark_rewrites_a_published_axis_and_confirms_it_in_the_catalog(tmp_path, capsys):
-    desired = definition(shape=NEW_SHAPE)
-    api = FakeAdminApi(definition())
-    file = change_file(tmp_path, desired)
-    mark = dry_run_mark(api, capsys, file)
+        _, out, _ = run(api, desired=desired)
 
-    assert run(api, file, "--apply", mark) == 0
+        assert [line.strip() for line in out.splitlines() if line.startswith("  ")] == [
+            'shape.kind: "breakpoint_linear" → "categorical"',
+            'shape.terms: [{"material": "m", "weight": 1.0, "required": true}] → （なし）',
+            'shape.preprocess: "identity" → （なし）',
+            "shape.breakpoints: [[0.0, 0.0], [1.0, 100.0]] → （なし）",
+            'shape.material: （なし） → "c"',
+            "shape.mapping.x: （なし） → 10.0",
+            'label: "軸" → "新しい名前"',
+        ]
 
-    assert api.writes == [("POST", f"{ADMIN}/a/unpublish"), ("PUT", f"{ADMIN}/a")]
-    assert api.axes["a"] == desired
-    assert "反映を確かめました" in capsys.readouterr().out
+    def test_the_same_definition_needs_no_writing(self, run):
+        api = AdminApi(definition())
 
+        code, out, _ = run(api, desired=definition())
 
-def test_apply_writes_nothing_when_production_changed_after_the_dry_run(tmp_path, capsys):
-    api = FakeAdminApi(definition())
-    file = change_file(tmp_path, definition(shape=NEW_SHAPE))
-    mark = dry_run_mark(api, capsys, file)
-    api.axes["a"] = definition(label="別の人が変えた")
+        assert code == 0
+        assert "差はありません" in out
+        assert api.writes == []
 
-    assert run(api, file, "--apply", mark) == 1
+    @pytest.mark.parametrize("content", ["{not json", json.dumps({"axis_id": "axis_a"})])
+    def test_a_file_that_is_not_a_definition_is_refused_before_asking_production(self, run, tmp_path, content):
+        path = tmp_path / "broken.json"
+        path.write_text(content, encoding="utf-8")
+        api = AdminApi()
 
-    assert api.writes == []
-    assert "指紋が一致しません" in capsys.readouterr().err
+        code, _, err = run(api, str(path))
 
-
-def test_failure_after_unpublishing_puts_the_original_definition_back_on_public(tmp_path, capsys):
-    original = definition()
-    api = FakeAdminApi(original)
-    file = change_file(tmp_path, definition(shape=NEW_SHAPE))
-    mark = dry_run_mark(api, capsys, file)
-    api.fail[("PUT", f"{ADMIN}/a")] = 422
-    api.once.add(("PUT", f"{ADMIN}/a"))
-
-    assert run(api, file, "--apply", mark) == 1
-
-    assert api.axes["a"] == original
-    err = capsys.readouterr().err
-    assert "422" in err and "元の定義（公開）へ戻しました" in err
+        assert code == 1
+        assert "軸の定義として読めません" in err
+        assert api.writes == []
 
 
-def test_when_the_original_cannot_be_put_back_it_prints_the_original_for_a_manual_restore(tmp_path, capsys):
-    original = definition()
-    api = FakeAdminApi(original)
-    file = change_file(tmp_path, definition(shape=NEW_SHAPE))
-    mark = dry_run_mark(api, capsys, file)
-    api.fail[("PUT", f"{ADMIN}/a")] = 503
+class TestWriting:
+    @pytest.mark.parametrize(
+        ("current", "writes"),
+        [
+            (None, [("POST", ADMIN)]),
+            (definition(), [("PUT", f"{ADMIN}/axis_a")]),
+            (definition(is_published=True), [("POST", f"{ADMIN}/axis_a/unpublish"), ("PUT", f"{ADMIN}/axis_a")]),
+        ],
+    )
+    def test_the_operations_follow_the_current_state(self, run, current, writes):
+        api = AdminApi(*([current] if current else []))
+        desired = definition(default_weight=2.0, is_published=True, display_thresholds_override=[0.5], display_band_labels_override=["弱", "強"])
 
-    assert run(api, file, "--apply", mark) == 1
+        code, out, _ = apply(run, api, desired=desired)
 
-    err = capsys.readouterr().err
-    assert "元の定義へ戻せませんでした" in err
-    assert json.dumps(original, ensure_ascii=False, indent=2) in err
+        assert code == 0
+        assert "書きました" in out
+        assert api.writes == writes
+        assert api.axes["axis_a"]["default_weight"] == 2.0
+        assert api.axes["axis_a"]["is_published"] is True
 
+    @pytest.mark.parametrize(
+        ("current", "writes"),
+        [
+            (definition(), [("DELETE", f"{ADMIN}/axis_a")]),
+            (definition(is_published=True), [("POST", f"{ADMIN}/axis_a/unpublish"), ("DELETE", f"{ADMIN}/axis_a")]),
+        ],
+    )
+    def test_deleting_unpublishes_a_published_axis_first(self, run, current, writes):
+        api = AdminApi(current)
 
-def test_a_draft_is_updated_with_one_write_and_a_missing_axis_is_added(tmp_path, capsys):
-    desired = definition(shape=NEW_SHAPE)
-    api = FakeAdminApi(definition(is_published=False), definition("b"))
-    file = change_file(tmp_path, desired)
-    assert run(api, file, "--apply", dry_run_mark(api, capsys, file)) == 0
+        code, out, _ = apply(run, api, "--delete", "axis_a")
 
-    new_axis = definition("c", is_published=False)
-    new_file = change_file(tmp_path, new_axis)
-    out, mark = dry_run(api, capsys, new_file)
-    assert run(api, new_file, "--apply", mark) == 0
+        assert code == 0
+        assert "軸 axis_a: " in out and " → 削除" in out
+        assert api.writes == writes
+        assert api.axes == {}
 
-    assert 'label: （なし） → "軸A"' in out and "\n  : " not in out
-    assert api.writes == [("PUT", f"{ADMIN}/a"), ("POST", ADMIN)]
-    assert api.axes["a"] == desired and api.axes["c"] == new_axis
+    def test_deleting_an_axis_production_lacks_is_refused(self, run):
+        code, _, err = run(AdminApi(), "--delete", "axis_a")
 
+        assert code == 1
+        assert "本番にありません" in err
 
-def test_delete_unpublishes_a_published_axis_first(capsys):
-    api = FakeAdminApi(definition(), definition("b"))
+    def test_nothing_is_written_when_production_changed_after_the_change_was_shown(self, run):
+        api = AdminApi(definition())
+        desired = definition(default_weight=2.0)
+        _, out, _ = run(api, desired=desired)
+        api.axes["axis_a"]["label"] = "別の人が変えた"
 
-    assert run(api, "--delete", "a", "--apply", dry_run_mark(api, capsys, "--delete", "a")) == 0
+        code, _, err = run(api, "--apply", fingerprint(out), desired=desired)
 
-    assert api.writes == [("POST", f"{ADMIN}/a/unpublish"), ("DELETE", f"{ADMIN}/a")]
-    assert "a" not in api.axes
-
-
-def test_no_difference_means_no_mark_and_no_writes(tmp_path, capsys):
-    api = FakeAdminApi(definition())
-
-    assert run(api, change_file(tmp_path, definition())) == 0
-
-    out = capsys.readouterr().out
-    assert "差はありません" in out and "指紋" not in out
-    assert api.writes == []
-
-
-def test_a_catalog_that_does_not_reflect_the_write_fails_the_run(tmp_path, capsys):
-    api = FakeAdminApi(definition())
-    api.frozen_catalog = api.catalog()
-    file = change_file(tmp_path, definition(shape=NEW_SHAPE))
-    mark = dry_run_mark(api, capsys, file)
-
-    assert run(api, file, "--apply", mark) == 1
-
-    assert "軸カタログの軸 a の ['shape'] が書いた定義と一致しません" in capsys.readouterr().err
+        assert code == 1
+        assert "指紋が一致しません" in err
+        assert api.writes == []
 
 
-@pytest.mark.parametrize("body", ["{", json.dumps({"axis_id": "a", "label": "軸A", "unknown_field": 1})])
-def test_a_file_that_is_not_an_axis_definition_stops_before_reading_production(tmp_path, capsys, body):
-    path = tmp_path / "change.json"
-    path.write_text(body, encoding="utf-8", newline="\n")
-    api = FakeAdminApi(definition())
+class TestFailures:
+    @pytest.mark.parametrize(("body", "shown"), [({"detail": "材料が足りません"}, "材料が足りません"), ("壊れた応答", "壊れた応答")])
+    def test_a_refused_write_reports_what_production_said(self, run, body, shown):
+        api = AdminApi(definition())
+        api.fail("PUT", f"{ADMIN}/axis_a", body=body)
 
-    assert run(api, str(path)) == 1
+        code, _, err = apply(run, api, desired=definition(default_weight=2.0))
 
-    assert "軸の定義として読めません" in capsys.readouterr().err
+        assert code == 1
+        assert f"PUT {ADMIN}/axis_a が422を返しました: {shown}" in err
+        assert api.axes["axis_a"] == definition()
+
+    def test_a_refused_unpublishing_changed_nothing_and_is_not_put_back(self, run):
+        api = AdminApi(definition(is_published=True))
+        api.fail("POST", f"{ADMIN}/axis_a/unpublish", status=500, body={"detail": "取り消せません"})
+
+        code, _, err = apply(run, api, desired=definition(default_weight=2.0, is_published=True))
+
+        assert code == 1
+        assert "取り消せません" in err and "戻しました" not in err
+        assert api.writes == [("POST", f"{ADMIN}/axis_a/unpublish")]
+
+    def test_a_failure_after_unpublishing_puts_the_published_original_back(self, run):
+        original = definition(is_published=True)
+        api = AdminApi(original)
+        api.fail("PUT", f"{ADMIN}/axis_a")
+
+        code, _, err = apply(run, api, desired=definition(default_weight=2.0, is_published=True))
+
+        assert code == 1
+        assert "元の定義（公開）へ戻しました" in err
+        assert api.axes["axis_a"]["is_published"] is True
+        assert api.axes["axis_a"]["default_weight"] == 1.0
+
+    def test_an_axis_gone_after_a_failed_answer_is_added_back(self, run):
+        api = AdminApi(definition(is_published=True))
+        api.fail("DELETE", f"{ADMIN}/axis_a", status=500, body={"detail": "応答できませんでした"}, after=True)
+
+        code, _, err = apply(run, api, "--delete", "axis_a")
+
+        assert code == 1
+        assert "元の定義（公開）へ戻しました" in err
+        assert api.axes["axis_a"]["is_published"] is True
+
+    def test_an_update_written_before_a_failed_answer_is_unpublished_and_put_back(self, run):
+        api = AdminApi(definition(is_published=True))
+        api.fail("PUT", f"{ADMIN}/axis_a", status=500, body={"detail": "応答できませんでした"}, after=True)
+
+        code, _, err = apply(run, api, desired=definition(default_weight=2.0, is_published=True))
+
+        assert code == 1
+        assert "元の定義（公開）へ戻しました" in err
+        assert api.axes["axis_a"]["default_weight"] == 1.0
+        assert api.axes["axis_a"]["is_published"] is True
+
+    def test_when_the_original_cannot_be_put_back_it_is_shown_for_restoring_by_hand(self, run):
+        api = AdminApi(definition(is_published=True))
+        api.fail("PUT", f"{ADMIN}/axis_a")
+        api.fail("PUT", f"{ADMIN}/axis_a")
+
+        code, _, err = apply(run, api, desired=definition(default_weight=2.0, is_published=True))
+
+        assert code == 1
+        assert "手で戻してください" in err
+        assert '"default_weight": 1.0' in err
+
+    def test_an_unreachable_production_is_reported(self, run):
+        def unreachable(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("接続できません", request=request)
+
+        api = AdminApi()
+        api.handle = unreachable
+
+        code, _, err = run(api, desired=definition())
+
+        assert code == 1
+        assert f"GET {ADMIN}/axis_a が届きませんでした" in err
+
+
+class TestVerifying:
+    def test_a_definition_production_did_not_keep_as_written_is_reported(self, run):
+        api = AdminApi(definition())
+        api.stored_as = lambda body: {**body, "label": "書き換わった"}
+
+        code, _, err = apply(run, api, desired=definition(default_weight=2.0))
+
+        assert code == 1
+        assert "書いた定義と一致しません" in err
+        assert '  label: "軸" → "書き換わった"' in err
+
+    def test_a_published_axis_the_catalog_serves_differently_is_reported(self, run):
+        api = AdminApi()
+        api.catalog_overrides["axis_a"] = {"label": "古い名前"}
+
+        code, _, err = apply(run, api, desired=definition(is_published=True))
+
+        assert code == 1
+        assert "['label']" in err
+
+    @pytest.mark.parametrize(
+        ("desired", "listed", "shown"),
+        [(definition(is_published=True), False, "ありません"), (definition(), True, "残っています")],
+    )
+    def test_the_catalog_must_list_an_axis_exactly_when_it_is_published(self, run, desired, listed, shown):
+        api = AdminApi()
+        api.catalog_listing["axis_a"] = listed
+
+        code, _, err = apply(run, api, desired=desired)
+
+        assert code == 1
+        assert f"軸カタログに軸 axis_a が{shown}" in err
