@@ -1,158 +1,147 @@
-"""`domain/landcover.py`——土地被覆クラスの宣言と、画素数を割合へ畳むSQL・ラスタ構成の指紋。
+"""`domain/landcover.py`——道の周りの土地被覆の画素数を、クラスごとの割合へ変える。
+
+入口は次のとおり。
+- `class_percentages_sql`: 区間ごとのクラス別の画素数から割合の行を返すSQL（PostGISで実行して確かめる）
+- `LandcoverPercentages`: その行を受け取るモデル
+- `landcover_key`・`landcover_tile_property`: 割合列の名前から、材料の列と焼き込み列の名前を導く規則
+- `raster_set_fingerprint`: 開いているラスタの構成の指紋
+- `LANDCOVER_CLASSES`: クラスの宣言（凡例・区間インスペクタ・集計が読む）。型でも導出でも保証できない不変条件だけを見る
 
 ここで見ないもの:
-- タイルの塗り（ラスタの読み取り・再投影） → `test_landcover_raster.py`
-- タイルの配信とキャッシュの鍵 → `test_landcover_tile.py`
-- 割合を区間・道へ書き込むこと → `batch/derive_raster_materials.py`の責務（ここでは見ない）
-
-割合のSQLはDB側で動くため、DBへ通して確かめる（`postgis`）。期待値の画素数は
-`MIN_VALID_PIXELS`とクラス値の宣言から作り、数字を書き写さない。
+- 道の周りの帯から画素を数えること → `test_derive_landcover.py`
+- ラスタを読んでタイルを塗ること → `test_landcover_raster.py`
+- どのクラスが難易度に効くか（評価軸の項）→ 軸の宣言のテスト
 """
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 from sqlalchemy import text
 
 from app.domain import landcover
 
-# ---- クラスの宣言（本番のデータそのものに対する不変条件） ----
 
 
-def test_every_class_has_its_own_pixel_value_and_percent_column():
-    values = [c.value for c in landcover.LANDCOVER_CLASSES]
-    fields = [c.percent_field for c in landcover.LANDCOVER_CLASSES]
+def on_postgis(test):
+    """SQLを実行するテストにだけ付ける。純関数のテストはDBの無い環境でも走る。"""
+    for mark in (pytest.mark.asyncio(loop_scope="module"), pytest.mark.xdist_group(name="postgis"), pytest.mark.postgis):
+        test = mark(test)
+    return test
 
-    assert values, "土地被覆クラスが1つも宣言されていない"
-    assert len(set(values)) == len(values)
-    assert len(set(fields)) == len(fields)
+# 配布元の画素値のうち、どのクラスでもないもの（No Data と Clouds）。
+NO_DATA = 0
+CLOUDS = 10
 
-
-def test_every_class_can_be_told_apart_in_the_legend_and_the_inspector():
-    # 凡例と区間インスペクタは表示名と色でクラスを見分ける
-    labels = [c.label for c in landcover.LANDCOVER_CLASSES]
-    colors = [c.color.lower() for c in landcover.LANDCOVER_CLASSES]
-
-    assert len(set(labels)) == len(labels)
-    assert len(set(colors)) == len(colors)
+CLASS_VALUES = [value for _, value in landcover.PERCENT_CLASSES]
+FIRST, SECOND = CLASS_VALUES[0], CLASS_VALUES[1]
 
 
-def test_no_class_is_one_of_the_pixel_values_left_out_of_the_denominator():
-    assert not {c.value for c in landcover.LANDCOVER_CLASSES} & landcover.LULC_INVALID_VALUES
+def field_of(value: int) -> str:
+    return next(cls.percent_field for cls in landcover.LANDCOVER_CLASSES if cls.value == value)
 
 
-def test_every_percent_column_is_named_so_that_its_count_column_can_be_derived():
-    # 割合のSQLは`_percent`を外した名前で画素数の列を作る。外れない名前だと両方が同じ列名になる
-    assert all(c.percent_field.endswith("_percent") for c in landcover.LANDCOVER_CLASSES)
+async def percentages(session, counts: list[tuple[int, int, int, int]]) -> list[dict]:
+    """`(osm_way_id, segment_index, cls, n)`の行を関係として渡し、返った行を辞書で返す。"""
+    rows = ", ".join(f"({way}, {segment}, {cls}, {n})" for way, segment, cls, n in counts)
+    relation = f"SELECT * FROM (VALUES {rows}) AS c(osm_way_id, segment_index, cls, n)"
+    result = await session.execute(text(landcover.class_percentages_sql(relation)))
+    return [dict(row._mapping) for row in result]
 
 
-def test_sql_column_order_follows_the_pixel_value_not_the_display_order():
-    # 表示順を変えても焼き込み済みの列順が動かない
-    values = [value for _, value in landcover.PERCENT_CLASSES]
+@on_postgis
+async def test_each_class_gets_its_share_of_the_valid_pixels(road_graph_session):
+    [row] = await percentages(road_graph_session, [(1, 0, FIRST, 30), (1, 0, SECOND, 10)])
 
-    assert values == sorted(values)
+    assert row["valid_pixels"] == 40
+    assert row[field_of(FIRST)] == pytest.approx(75.0)
+    assert row[field_of(SECOND)] == pytest.approx(25.0)
+    assert all(row[field_of(value)] == 0 for value in CLASS_VALUES[2:])
 
 
-# ---- ラスタ構成の指紋 ----
+@on_postgis
+async def test_no_data_and_clouds_are_left_out_of_the_denominator(road_graph_session):
+    [row] = await percentages(
+        road_graph_session, [(1, 0, FIRST, 30), (1, 0, NO_DATA, 500), (1, 0, CLOUDS, 500)]
+    )
+
+    assert row["valid_pixels"] == 30
+    assert row[field_of(FIRST)] == pytest.approx(100.0)
 
 
-def test_fingerprint_does_not_depend_on_the_order_or_the_directory():
-    assert landcover.raster_set_fingerprint(["/a/zone53.tif", "/a/zone54.tif"]) == landcover.raster_set_fingerprint(
-        ["/b/zone54.tif", "/c/zone53.tif"]
+@on_postgis
+async def test_a_segment_with_too_few_valid_pixels_has_no_row(road_graph_session):
+    enough = landcover.MIN_VALID_PIXELS
+    rows = await percentages(
+        road_graph_session,
+        [
+            (1, 0, FIRST, enough),  # ちょうど下限は行を持つ
+            (2, 0, FIRST, enough - 1),
+            (3, 0, FIRST, enough - 1),  # 雲に覆われた画素は足しても数えない
+            (3, 0, CLOUDS, 100),
+        ],
+    )
+
+    assert [row["osm_way_id"] for row in rows] == [1]
+
+
+@on_postgis
+async def test_segments_are_counted_separately(road_graph_session):
+    rows = await percentages(
+        road_graph_session,
+        [(1, 0, FIRST, 20), (1, 1, SECOND, 20), (2, 0, FIRST, 10), (2, 0, SECOND, 30)],
+    )
+
+    by_segment = {(row["osm_way_id"], row["segment_index"]): row for row in rows}
+    assert by_segment[(1, 0)][field_of(FIRST)] == pytest.approx(100.0)
+    assert by_segment[(1, 1)][field_of(SECOND)] == pytest.approx(100.0)
+    assert by_segment[(2, 0)][field_of(FIRST)] == pytest.approx(25.0)
+
+
+@on_postgis
+async def test_every_class_in_the_declaration_is_counted_and_the_row_fits_the_model(road_graph_session):
+    """クラスごとに違う画素数を与え、どのクラスの数もそのクラスの列にだけ入ることを見る。"""
+    counts = {value: 10 * (position + 1) for position, value in enumerate(CLASS_VALUES)}
+    [row] = await percentages(road_graph_session, [(1, 0, value, n) for value, n in counts.items()])
+    total = sum(counts.values())
+
+    percentages_row = landcover.LandcoverPercentages(
+        **{name: value for name, value in row.items() if name not in ("osm_way_id", "segment_index")}
+    )
+
+    for cls in landcover.LANDCOVER_CLASSES:
+        assert getattr(percentages_row, cls.percent_field) == pytest.approx(100.0 * counts[cls.value] / total)
+
+
+def test_the_material_column_and_the_tile_property_come_from_the_percent_field():
+    assert landcover.landcover_key("crops_percent") == "crops"
+    assert landcover.landcover_tile_property("crops_percent") == "crops_pct"
+
+
+def test_the_class_declaration_can_be_told_apart_everywhere_it_is_read():
+    """画素値が重なると1つの画素が2クラスに数えられ、割合列の名前が重なると材料の列と焼き込み列がぶつかる。
+    表示名・色が重なると凡例と区間インスペクタで見分けられない。"""
+    classes = landcover.LANDCOVER_CLASSES
+    for attribute in ("value", "percent_field", "label", "color"):
+        values = [getattr(cls, attribute) for cls in classes]
+        assert len(set(values)) == len(values), attribute
+    assert all(cls.percent_field.endswith("_percent") for cls in classes)
+    assert not {cls.value for cls in classes} & {NO_DATA, CLOUDS}
+
+
+def test_the_fingerprint_reads_only_the_file_names():
+    assert landcover.raster_set_fingerprint(["/data/a/10N.tif", "/data/b/11N.tif"]) == (
+        landcover.raster_set_fingerprint(["other/10N.tif", "11N.tif"])
     )
 
 
-def test_fingerprint_changes_when_a_raster_is_added():
-    assert landcover.raster_set_fingerprint(["/a/zone53.tif"]) != landcover.raster_set_fingerprint(
-        ["/a/zone53.tif", "/a/zone54.tif"]
+def test_adding_a_raster_changes_the_fingerprint():
+    assert landcover.raster_set_fingerprint(["10N.tif"]) != landcover.raster_set_fingerprint(
+        ["10N.tif", "11N.tif"]
     )
 
 
-# ---- 画素数から割合へ（DB） ----
+@given(names=st.lists(st.from_regex(r"[0-9A-Z]{2,4}\.tif", fullmatch=True), min_size=1, unique=True), data=st.data())
+def test_the_order_of_the_rasters_does_not_change_the_fingerprint(names, data):
+    shuffled = data.draw(st.permutations(names))
 
-
-def _counts(rows: list[tuple[int, int, int, int]]) -> str:
-    values = ", ".join(f"({way}::bigint, {seg}, {cls}, {n}::bigint)" for way, seg, cls, n in rows)
-    return f"SELECT * FROM (VALUES {values}) AS c(osm_way_id, segment_index, cls, n)"
-
-
-async def _percentages(session, rows: list[tuple[int, int, int, int]]) -> dict[tuple[int, int], dict]:
-    result = await session.execute(text(landcover.class_percentages_sql(_counts(rows))))
-    return {(r.osm_way_id, r.segment_index): dict(r._mapping) for r in result.all()}
-
-
-def _field(value: int) -> str:
-    return next(c.percent_field for c in landcover.LANDCOVER_CLASSES if c.value == value)
-
-
-@pytest.mark.asyncio(loop_scope="module")
-@pytest.mark.xdist_group(name="postgis")
-@pytest.mark.postgis
-class TestClassPercentages:
-    async def test_each_class_gets_its_share_of_the_valid_pixels(self, road_graph_session):
-        n = landcover.MIN_VALID_PIXELS
-        rows = await _percentages(
-            road_graph_session, [(1, 0, landcover.LULC_TREES, 3 * n), (1, 0, landcover.LULC_BUILT, n)]
-        )
-
-        row = rows[(1, 0)]
-        assert row["valid_pixels"] == 4 * n
-        assert float(row[_field(landcover.LULC_TREES)]) == pytest.approx(75.0)
-        assert float(row[_field(landcover.LULC_BUILT)]) == pytest.approx(25.0)
-
-    @pytest.mark.parametrize("cls", landcover.LANDCOVER_CLASSES, ids=lambda c: c.percent_field)
-    async def test_every_class_lands_in_its_own_column(self, road_graph_session, cls):
-        rows = await _percentages(road_graph_session, [(1, 0, cls.value, landcover.MIN_VALID_PIXELS)])
-
-        assert float(rows[(1, 0)][cls.percent_field]) == pytest.approx(100.0)
-
-    async def test_a_segment_with_only_no_data_and_cloud_pixels_has_no_row(self, road_graph_session):
-        invalid = [(1, 0, value, 10 * landcover.MIN_VALID_PIXELS) for value in sorted(landcover.LULC_INVALID_VALUES)]
-
-        assert await _percentages(road_graph_session, invalid) == {}
-
-    async def test_a_class_with_no_pixels_is_zero_not_missing(self, road_graph_session):
-        rows = await _percentages(road_graph_session, [(1, 0, landcover.LULC_TREES, landcover.MIN_VALID_PIXELS)])
-
-        absent = [c.percent_field for c in landcover.LANDCOVER_CLASSES if c.value != landcover.LULC_TREES]
-        assert absent, "樹木以外のクラスが無い"
-        assert all(rows[(1, 0)][field] == 0 for field in absent)
-
-    async def test_no_data_and_cloud_pixels_leave_the_denominator(self, road_graph_session):
-        n = landcover.MIN_VALID_PIXELS
-        invalid = [(1, 0, value, 5 * n) for value in sorted(landcover.LULC_INVALID_VALUES)]
-
-        rows = await _percentages(road_graph_session, [(1, 0, landcover.LULC_WATER, n), *invalid])
-
-        assert rows[(1, 0)]["valid_pixels"] == n
-        assert float(rows[(1, 0)][_field(landcover.LULC_WATER)]) == pytest.approx(100.0)
-
-    async def test_a_segment_with_too_few_valid_pixels_has_no_row(self, road_graph_session):
-        n = landcover.MIN_VALID_PIXELS
-        rows = await _percentages(
-            road_graph_session,
-            [
-                (1, 0, landcover.LULC_TREES, n),  # ちょうど下限は返る
-                (2, 0, landcover.LULC_TREES, n - 1),
-                # 無効画素が多くても、有効画素が足りなければ返らない
-                (3, 0, landcover.LULC_TREES, n - 1),
-                (3, 0, max(landcover.LULC_INVALID_VALUES), 10 * n),
-            ],
-        )
-
-        assert set(rows) == {(1, 0)}
-
-    async def test_segments_of_the_same_way_are_counted_separately(self, road_graph_session):
-        n = landcover.MIN_VALID_PIXELS
-        rows = await _percentages(
-            road_graph_session, [(1, 0, landcover.LULC_TREES, n), (1, 1, landcover.LULC_CROPS, n)]
-        )
-
-        assert float(rows[(1, 0)][_field(landcover.LULC_TREES)]) == pytest.approx(100.0)
-        assert float(rows[(1, 1)][_field(landcover.LULC_CROPS)]) == pytest.approx(100.0)
-
-    async def test_a_row_reads_straight_into_the_percentages_model(self, road_graph_session):
-        # 集計SQLが吐く列と、それを受けるモデルの項目は同じ宣言から作る——食い違えば受け取れない
-        rows = await _percentages(road_graph_session, [(1, 0, landcover.LULC_TREES, landcover.MIN_VALID_PIXELS)])
-
-        row = {k: v for k, v in rows[(1, 0)].items() if k not in ("osm_way_id", "segment_index")}
-        model = landcover.LandcoverPercentages(**row)
-        assert model.valid_pixels == landcover.MIN_VALID_PIXELS
+    assert landcover.raster_set_fingerprint(shuffled) == landcover.raster_set_fingerprint(names)
