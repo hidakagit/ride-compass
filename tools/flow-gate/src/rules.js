@@ -16,6 +16,14 @@ export function entryFor(config, issue) {
   return config.entry.find((e) => !e.parent && e.author === author) ?? config.entry.find((e) => !e.parent && e.author === null);
 }
 
+// Claude が欄を書き換えてよいか。既定値（flow.config.json: project.defaults）を持つ欄で、今の値が既定と違えば
+// 誰かが決めた値（ユーザーが付けた・起票で見積もった・親から継いだ）なので、別の値へは書き換えない。断るなら理由、通すなら null。
+export function fieldRefusal(config, name, current, value) {
+  const fallback = config.project.defaults[name];
+  if (!fallback || !current || current === fallback || current === value) return null;
+  return `欄「${name}」の今の値「${current}」は既定（${fallback}）と違う、決めてある値なので書き換えません。変えるならユーザーに問います。`;
+}
+
 // from から to への遷移を表で照らす。on（出来事）・by（起こす者）を渡すと、その行に限る。blockers は前提の issue。
 export function check(config, from, to, { on, by, blockers = [] } = {}) {
   const rule = config.transitions.find((t) => t.from.includes(from) && t.to.includes(to) && (!on || t.on === on) && (!by || t.by === by));
