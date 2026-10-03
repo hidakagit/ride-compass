@@ -24,3 +24,6 @@ pytest-timeout==2.4.0
 respx==0.23.1
 freezegun==1.5.5
 fakeredis==2.38.0
+# 性質（任意の入力で成り立つこと）を確かめるテストの入力を作る。使い方はdocs/conventions/testing.md「性質で確かめる（hypothesis）」。
+# 開発・CIでだけ使い、本番のイメージには入らない（MPL-2.0。依存のsortedcontainersはApache-2.0）。
+hypothesis==6.168.3

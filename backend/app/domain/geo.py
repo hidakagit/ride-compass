@@ -134,6 +134,7 @@ def nearest_point_indices(
     全地点×全点の距離は作らない: 地点を緯度・経度の格子に分け、格子ごとに「格子の中のどこから見ても
     最寄りになりうる点」だけを候補に残してから、地点ごとに候補の中で比べる。候補は、粗い格子で全点から
     絞ったものを、細かい格子でさらに絞る（どちらの段でも、最寄りの点は候補から落ちない）。
+    内積は1の近くで浮動小数の刻みが粗く、約10cmより近い差は区別しない（同じ距離として先に並んだ点を選ぶ）。
     """
     latitudes = np.asarray(latitudes, dtype=float)
     longitudes = np.asarray(longitudes, dtype=float)

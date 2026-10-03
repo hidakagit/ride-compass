@@ -15,6 +15,7 @@ import fakeredis
 import freezegun
 import pytest
 import pytest_asyncio
+from hypothesis import settings as hypothesis_settings
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
@@ -29,6 +30,11 @@ from app.infrastructure.road_graph_repository import (
 from app.config import settings
 from app.services import derived_data_revision_service
 from tests.admin_auth import ADMIN_PASSWORD, ADMIN_USERNAME
+
+# hypothesisは1例ごとに壁時計の締め切り（既定200ms）を持ち、超えると落とす。共有のランナーでは同じ例の所要時間が
+# 実行ごとに揺れて別のテストが落ちるため外す。止まったテストはpytest-timeoutが落とす。
+hypothesis_settings.register_profile("ridecompass", deadline=None)
+hypothesis_settings.load_profile("ridecompass")
 
 
 @pytest.fixture
