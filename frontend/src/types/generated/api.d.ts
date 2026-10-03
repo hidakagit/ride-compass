@@ -687,11 +687,9 @@ export interface components {
             wind_direction: components["schemas"]["WindDirection"] | null;
             /** Precipitation 10Min Mm */
             precipitation_10min_mm: number | null;
-            /** Sunshine 10Min Minutes */
-            sunshine_10min_minutes: number | null;
             twilight: components["schemas"]["Twilight"] | null;
             /** Weather Code */
-            readonly weather_code: number | null;
+            weather_code: number | null;
         };
         /** AxisCatalogEntry */
         AxisCatalogEntry: {

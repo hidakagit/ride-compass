@@ -396,7 +396,7 @@ basetime・validtimeを含む）で持つため、フレームが進んで取得
 
 ## 常設ヘッダーの天候表示（`WeatherPanel`）との違い
 
-`WeatherPanel`（常設ヘッダー）は**アメダス実測値**のみで構成し（天気はbackendが実測から導いたWMOコードで届き、
+`WeatherPanel`（常設ヘッダー）は**観測**（アメダス実測値。天気の晴れ・くもりだけは地点の推計気象分布）のみで構成し（天気はbackendが観測から導いたWMOコードで届き、
 `weatherCode.ts`がコードを分類し——分類と名前はbackendの宣言〔`domain/weather_display.py: WEATHER_CATEGORIES`〕が
 生成物`vocabulary.ts`で配り、画面が持つのは分類ごとのアイコンだけ——`amedasWeatherIcon.ts`は「晴れ」を昼夜で
 描き分けるだけ）、MSMとは独立にフェッチする。`TodayOutlook`（「今日」のパネル）は**MSMの計算値**（今日の最大降水量・
