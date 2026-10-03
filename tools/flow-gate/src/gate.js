@@ -34,7 +34,7 @@ export class Gate {
   // 1つのタスクへの書き込みを1回の要求で行う。want には変えたい中身だけを渡す。担当者はステータスから決め（ownerOf）、
   // 本文の先頭の見せ方も書いた後の状態に合わせて同じ要求に入れる。question は答えを待つ問いを本文の先頭に置く（null なら消す）。
   // 閉じた子（段階）を書いたあとは、親の子が全部閉じたかを見る（ゲートは自分が閉じた出来事を捨てるので、ここで見る）。
-  async write(issue, want = {}) {
+  async write(issue, want = {}, reread = true) {
     const next = {
       ...issue,
       status: "status" in want ? want.status : issue.status,
@@ -71,7 +71,19 @@ export class Gate {
     if (want.close) update.stateInput = { value: "CLOSED", stateReason: want.close };
     if (Object.keys(update).length) m.add("updateIssue", { id: issue.id, ...update });
 
-    await m.send(this.gh);
+    try {
+      await m.send(this.gh);
+    } catch (e) {
+      // 同じ issue の出来事（例: bin/ask.js の本文とステータスの書き込み）は別々に並んで処理され、先に同じ担当者を入れた
+      // 書き込みがあると GitHub は updateIssue を丸ごと断る。updateIssue より前の書き込みは通っているので、読み直して
+      // updateIssue に入れる分だけを今の状態から書き直す。
+      if (!reread || !update.assigneeIds || !/Assignments is invalid/.test(e.message)) throw e;
+      const fresh = await this.read({ nodeId: issue.id });
+      const { labels, unlabels, close } = want;
+      await this.write(fresh, { labels, unlabels, close, ...("question" in want ? { question: want.question } : {}) }, false);
+      Object.assign(issue, fresh);
+      return;
+    }
     Object.assign(issue, next, {
       body,
       labels: { nodes: (update.labelIds ? labels : have).map((name) => ({ name })) },

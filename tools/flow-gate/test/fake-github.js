@@ -12,7 +12,9 @@ const BY_NODE = Object.fromEntries(Object.entries(config.people).map(([k, p]) =>
 // issue.comments は今あるコメント（古い順。{ author, body, createdAt }）。読むときは GitHub が描いた形（bodyHTML）で返す。
 // markdown を false にすると、Markdown を描く呼び出しが失敗する。
 // updates は Project の状況の更新（新しいものが先。{ id, status, body, by, updatedAt? }）。トークン bot-token は hidakagit-bot の名義。
-export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel, "規模S", config.confirmLabel], code = { prs: [] }, markdown = true, updates = [] }) {
+// race を渡すと、担当者を書く最初の updateIssue の直前に、並んで動く別の書き込みがその担当者（login の並び）を入れ、
+// その updateIssue は GitHub と同じく「Assignments is invalid」で断られて何も書かない。
+export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel, "規模S", config.confirmLabel], code = { prs: [] }, markdown = true, updates = [], race = null }) {
   const blank = { blockedBy: [], subIssues: [], assignees: [], labels: [], lastClose: [], state: "OPEN", fields: {}, comments: [] };
   const state = {
     issue: { ...blank, ...issue },
@@ -22,6 +24,7 @@ export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel
     calls: 0,
     code,
     updates,
+    race,
   };
   const byId = (id) => (id === "I_P" || id === "PVTI_P" ? state.parent : state.issue);
   const json = (body, status = 200) => new Response(JSON.stringify(body), { status });
@@ -45,6 +48,11 @@ export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel
     };
   };
   const apply = (name, input, as) => {
+    if (name === "updateIssue" && input.assigneeIds && state.race) {
+      byId(input.id).assignees = state.race;
+      state.race = null;
+      return { error: "Assignments is invalid" };
+    }
     state.writes.push({ op: name, as, ...input });
     if (name === "createProjectV2StatusUpdate") state.updates.unshift({ id: `SU_${state.updates.length + 1}`, status: input.status, body: input.body, by: as });
     if (name === "updateProjectV2StatusUpdate") Object.assign(state.updates.find((u) => u.id === input.statusUpdateId), { status: input.status, body: input.body });
@@ -64,14 +72,14 @@ export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel
     return { clientMutationId: null };
   };
   const graphql = ({ query, variables }, as) => {
-    if (query.startsWith("query Open")) return { repository: { issues: { pageInfo: { hasNextPage: false }, nodes: [{ number: state.issue.number }] } } };
+    if (query.startsWith("query Open")) return { data: { repository: { issues: { pageInfo: { hasNextPage: false }, nodes: [{ number: state.issue.number }] } } } };
     if (query.startsWith("query Updates")) {
       const nodes = state.updates.slice(0, variables.k).map(({ by, ...u }) => ({ createdAt: "t", updatedAt: "t", ...u, creator: { login: by } }));
-      return { organization: { projectV2: { id: "PVT_1", statusUpdates: { nodes } } } };
+      return { data: { organization: { projectV2: { id: "PVT_1", statusUpdates: { nodes } } } } };
     }
     if (query.startsWith("query Task") && state.requests.push("読む")) {
       const i = state.parent && (variables.id === "I_P" || variables.k === state.parent.number) ? state.parent : state.issue;
-      return {
+      return { data: {
         organization: { projectV2: { id: "PVT_1", fields: { nodes: [
           { id: "F_1", name: config.project.statusField, options: Object.entries(OPTIONS).map(([name, id]) => ({ id, name })) },
           ...Object.entries(FIELDS).map(([field, options]) => ({ id: `F_${field}`, name: field, options: options.map((o) => ({ id: `${field}:${o}`, name: o })) })),
@@ -79,13 +87,19 @@ export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel
         ] } } },
         repository: { labels: { nodes: labels.map((name) => ({ id: `L:${name}`, name })) }, issue: node(i, variables) },
         node: node(i, variables),
-      };
+      } };
     }
+    // GitHub は mutation を並べた順に1つずつ処理し、断られたものは null にして残りを続ける。
     const data = {};
+    const errors = [];
     const ops = [...query.matchAll(/(m\d+): (\w+)\(input: \$m\d+\)/g)];
     state.requests.push(ops.map(([, , name]) => name).join("+"));
-    for (const [, key, name] of ops) data[key] = apply(name, variables[key], as);
-    return data;
+    for (const [, key, name] of ops) {
+      const r = apply(name, variables[key], as);
+      data[key] = r.error ? null : r;
+      if (r.error) errors.push({ path: [key], message: r.error });
+    }
+    return errors.length ? { data, errors } : { data };
   };
   globalThis.fetch = async (url, init = {}) => {
     state.calls++;
@@ -93,7 +107,7 @@ export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel
     const body = init.body ? JSON.parse(init.body) : null;
     const as = { "Bearer form-token": "hidakagit", "Bearer bot-token": "hidakagit-bot" }[init.headers.authorization] ?? "gate";
     if (path.endsWith("/access_tokens")) return json({ token: "app-token" });
-    if (path === "/graphql") return json({ data: graphql(body, as) });
+    if (path === "/graphql") return json(graphql(body, as));
     if (path === "/markdown") return markdown ? new Response(`<p>描いた: ${body.text}</p>`) : new Response("失敗", { status: 500 });
     const repo = `/repos/${config.code.repository}`;
     if (path === `${repo}/pulls`) return json(state.code.prs.filter((p) => `${config.code.repository.split("/")[0]}:${p.head.ref}` === new URL(url).searchParams.get("head")));
