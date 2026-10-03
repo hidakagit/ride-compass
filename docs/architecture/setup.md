@@ -136,15 +136,35 @@ npm run dev
 
 ```bash
 cd backend && pytest tests/test_road_graph_engine.py -q
-cd frontend && npx vitest run <対象ファイル> --pool=threads
-cd frontend && npx tsc --noEmit
+cd frontend && ./node_modules/.bin/vitest run <対象ファイル> --pool=threads
+cd frontend && ./node_modules/.bin/tsc --noEmit
 ```
+
+frontendのツールはすべて`node_modules`に入っているので、`npx`を付けずに`./node_modules/.bin/`から
+直接起こす。`npx`は起動のたびにパッケージ解決をやり直し、`npx tsc --version`だけで13.6秒かかる
+（開発機での実測、2026-09-22）。`tsc --noEmit`は型の波及を1ファイルへ絞れないためプロジェクト全体で
+1回通し、開発機で27秒かかる。Next.jsの生成型が未作成なら`./node_modules/.bin/next typegen`を先に流す。
+backendのフルスイートは開発機で5〜10分かかる（CIは`-n auto`で並列に回す）。
 
 PostGIS統合テスト（`road_graph_session`フィクスチャを使うもの。`postgis`マーカー付き）は、
 テスト専用DB（既定は作業ツリーごとのDB、`TEST_DATABASE_URL`で上書き可。
 [testing.md](../conventions/testing.md)「テストDBは作業ツリーごとに分かれる」）へ接続できないと
 落ちる（スキップにはしない。`backend/tests/conftest.py`）。DBの無い環境では
 `-m "not postgis"`で除外して回す。
+
+## Windowsの開発機でのBashの長さの上限
+
+Claude CodeのBashツールのコマンドは、実行環境の包みごと`bash.exe -c`の1引数で渡り、MSYS2ランタイムが
+その引数を8,186文字で**黙って切る**。自分のコマンドに使えるのは約7,950文字（単一引用符は包みの中で
+1個5文字に膨らむ）。
+
+- 超えると、引用符の壊れに見えるエラー（`unexpected EOF while looking for matching`）で1行も実行されない。
+- わずかに超えた範囲では実行はされるが、作業ディレクトリの記録先が切れて、ホーム直下に断片名のファイルができる。
+- `\\`は長さに関係なく`\`へ半減する。
+- 閾値はcmd.exeの上限（8,191文字）に近いが、プロセスを辿るとcmd.exeは経由していない。
+
+長いスクリプト・ヒアドキュメントはWriteツールでファイルに書いてから実行する（実測と出典は
+[T1041](../records/tasks/T1041.md)）。
 
 ## リポジトリの構成
 
