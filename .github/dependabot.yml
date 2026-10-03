@@ -7,6 +7,12 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    groups:
+      # vitest と @vitest/* は peer で同じ版を求め合い、片方だけ上げると npm ci が止まる
+      vitest:
+        patterns:
+          - "vitest"
+          - "@vitest/*"
 
   - package-ecosystem: pip
     directory: /backend
