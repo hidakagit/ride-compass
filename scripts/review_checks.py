@@ -525,15 +525,12 @@ def removed_names(mb: str, head: str, diff: dict[str, tuple[list[str], list[str]
             added_defs.update(*(attrs - old_classes.get(name, set()) for name, attrs in new_classes.items()))
     added_anywhere = set().union(*(a for _, a in defined.values()))
     candidates = {name: path for path, (r, _) in defined.items() for name in r - added_anywhere}
-    if candidates:
-        alternation = "|".join(sorted(candidates))
-        still = git("grep", "-h", "-o", "-E", "-e",
-                    rf"(def|class|function|const|let|var|type|interface|enum)\s+({alternation})\b",
-                    "-e", rf"^({alternation})\s*[:=]", head, "--", ".", check=False)
-        still_defined = {w for line in still.splitlines() for w in re.findall(r"\w+", line)}
-        for name, path in sorted(candidates.items()):
-            if name not in still_defined:
-                names.append(("定義", f"{path}: {name}", [name]))
+    # 別のファイルにある同じ名前は別の定義なので、残っているかは消したファイルの今の版だけで見る。
+    head_texts = {path: show(head, path) or "" for path in set(candidates.values())}
+    for name, path in sorted(candidates.items()):
+        if not re.search(rf"\b(?:def|class|function|const|let|var|type|interface|enum)\s+{name}\b"
+                         rf"|^{name}\s*[:=]", head_texts[path], re.MULTILINE):
+            names.append(("定義", f"{path}: {name}", [name]))
     return names
 
 
