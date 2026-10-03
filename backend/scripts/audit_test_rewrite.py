@@ -193,6 +193,11 @@ def main() -> int:
     parser.add_argument("--no-jit", action="store_true", help="NUMBA_DISABLE_JIT=1で測る")
     args = parser.parse_args()
 
+    not_python = [test for test in args.tests if not test.endswith(".py")]
+    if not_python:
+        print(f".py でないテスト: {' '.join(not_python)}", file=sys.stderr)
+        print("母集団は grep に --include='*.py' を付けて出し直す", file=sys.stderr)
+        return 1
     backend = Path(args.backend).resolve()
     impl_path = backend / args.implementation
     for path in (impl_path, *(backend / test for test in args.tests)):
