@@ -9,9 +9,10 @@ import hashlib
 
 from app.infrastructure.derived_data_meta import DataRevisions
 
-# 土地被覆ラスタタイル。同じ配色のまま元のGeoTIFFを別の年次・別の版へ差し替えたときに
-# 上げる（画素が変わるのにURLが変わらないため）。
-LANDCOVER_REVISION = "1"
+# 土地被覆ラスタタイル。同じ配色のまま、元のGeoTIFFを別の年次・別の版へ差し替えたときと、
+# ラスタの読み方・描き方（`landcover_raster.py`）を変えたときに上げる（画素が変わるのに
+# URLもディスクキャッシュの鍵も変わらないため）。
+LANDCOVER_REVISION = "2"
 
 def bound_values(source: object) -> list[tuple[str, str]]:
     """SQLのバインドパラメータのうち、定義時点で値が決まっているもの（名前と値）。
