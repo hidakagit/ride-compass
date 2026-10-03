@@ -86,7 +86,11 @@ Claude が起こす出来事は、表の `by: claude` の行だけ。問いは `
      2本目はここで何もせず終わる。
   2. 準備: `ci.yml` の backend と同じ PostgreSQL + PostGIS、backend と frontend の依存を入れ、許可の行（`.claude/settings.json` の
      `permissions`）を担当へ渡す。
-  3. 担当を起こす。持ち時間はジョブの `timeout-minutes` で、超えると Actions がジョブを止める。
+  3. 担当を起こす。持ち時間はジョブの `timeout-minutes` で、超えると Actions がジョブを止める。担当の実行は、担当が手番を終えた
+     最初の発言で終わる（連携 `anthropics/claude-code-action` は SDK の最初の結果で抜け、裏で動かしたシェルはその数秒後に止まる）。
+     裏の処理の知らせで起こし直されることは無いので、裏で動かす道具（Bash の `run_in_background`・Monitor・ScheduleWakeup・
+     cron の道具・Workflow）は担当のワークフローが外してある（`claude_args` の `--disallowedTools` と環境変数
+     `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS`）。担当が待つときは、終わるまで前に出したまま待つ。
   4. 後始末（担当が落ちても止められても走る）: 作る担当の GitHub に無い変更（未コミットの変更・push していないコミット）は
      `wip/tasks-<番号>-<時刻>` の枝へ残す（作業ブランチは書き換えない）。そのあと `tools/flow-gate/bin/after.js` が、連携の書き出す
      実行のファイルで終わり方を見分ける。Claude の利用の上限・認証・サーバーの失敗（担当の発言の `error`）か、担当が動けなかった
@@ -139,7 +143,9 @@ Claude が起こす出来事は、表の `by: claude` の行だけ。問いは `
    作業ツリーで打つ。出た規模の札で Project の欄も付け直す）。コミットしたら、`git push origin orch/tasks-<番号>` で push する（載せ直した・前のコミットへまとめたなど、
    作業ブランチを書き換えたときは `git push --force-with-lease origin orch/tasks-<番号>`）。CI は、push したコミットの実行の id を
    `gh run list -R hidakagit/ride-compass --commit <コミット> --workflow ci.yml --json databaseId` で引き（出ていなければ少しおいて
-   引き直す）、`gh run watch <id> -R hidakagit/ride-compass --exit-status` で終わるまで待つ。
+   引き直す）、`gh run watch <id> --compact -i 30 -R hidakagit/ride-compass --exit-status` で終わるまで前に出したまま待つ（Bash の
+   `timeout` を上限の 600000 にして打つ。上限で止まったら同じコマンドを打ち直す。裏へ回して知らせを待つと、そこで担当の実行が終わる。
+   端末でない出力では見回りのたびに全部のジョブを書き直すので、`--compact -i 30` で出力を絞る）。
 5. CI が通ったら、コードのリポジトリに Pull Request を出す（`gh pr create --base master --head orch/tasks-<番号>`。
    コードのリポジトリは hidakagit のものなので、`GH_TOKEN` に hidakagit のトークン（ユーザー環境変数 `GH_TOKEN`）を渡す）。
    件名はコミットと同じ、本文は次の順に書く:
