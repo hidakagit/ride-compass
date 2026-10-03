@@ -1,29 +1,46 @@
-import { useState } from "react";
+/**
+ * `components/ui/Dialog/Dialog.tsx`——見出しの付いたモーダルの枠。
+ *
+ * 見るもの: 開いている間だけ、見出しを名前に持つダイアログとして中身を出すこと、✕で閉じる操作が上がること。
+ *
+ * ここで見ないもの: Escや外側の押下で閉じる・フォーカスを閉じ込める——Radix Dialogの振る舞い。
+ */
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
 import { DialogContent, DialogRoot } from "./Dialog";
 
-function ControlledDialog() {
-  const [open, setOpen] = useState(false);
-  return (
-    <>
-      <button onClick={() => setOpen(true)}>開く</button>
-      <DialogRoot open={open} onOpenChange={setOpen}>
-        <DialogContent title="設定">中身</DialogContent>
-      </DialogRoot>
-    </>
+function renderDialog(open: boolean) {
+  const onOpenChange = vi.fn();
+  render(
+    <DialogRoot open={open} onOpenChange={onOpenChange}>
+      <DialogContent title="軸を合成">中身の文</DialogContent>
+    </DialogRoot>,
   );
+  return onOpenChange;
 }
 
-describe("Dialog", () => {
-  it("閉じるボタンを押すとContentが閉じる", async () => {
-    const user = userEvent.setup();
-    render(<ControlledDialog />);
+describe("DialogContent", () => {
+  it("開いている間は、見出しを名前に持つダイアログに中身を出す", () => {
+    renderDialog(true);
 
-    await user.click(screen.getByRole("button", { name: "開く" }));
-    await user.click(screen.getByRole("button", { name: "閉じる" }));
+    const dialog = screen.getByRole("dialog", { name: "軸を合成" });
+    expect(dialog).toHaveTextContent("中身の文");
+  });
 
-    expect(screen.queryByText("中身")).not.toBeInTheDocument();
+  it("閉じている間は何も出さない", () => {
+    renderDialog(false);
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByText("中身の文")).not.toBeInTheDocument();
+  });
+
+  it("✕を押すと、閉じる操作が上がる", async () => {
+    const onOpenChange = renderDialog(true);
+
+    await userEvent.click(screen.getByRole("button", { name: "閉じる" }));
+
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 });
