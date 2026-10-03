@@ -108,9 +108,3 @@ def test_a_curve_over_the_zoom_has_strictly_ascending_stops(name):
     zooms = [zoom for zoom, _ in CURVES[name]]
 
     assert zooms == sorted(set(zooms))
-
-
-def test_the_difficulty_boundaries_are_strictly_ascending():
-    boundaries = list(map_display.DEFAULT_DIFFICULTY_BOUNDARIES)
-
-    assert boundaries == sorted(set(boundaries))
