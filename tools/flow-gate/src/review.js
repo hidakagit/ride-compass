@@ -4,19 +4,11 @@
 import { Gate } from "./gate.js";
 import { remaining } from "./rules.js";
 
-// タスクの作業ブランチの、いちばん新しい Pull Request（閉じたもの・マージしたものも含む）。無ければ undefined。
-export async function latestPr(code, config, number) {
-  const { repository, branchPrefix } = config.code;
-  const owner = repository.split("/")[0];
-  const [pr] = await code.rest("GET", `/repos/${repository}/pulls?head=${owner}:${branchPrefix}${number}&state=all&sort=created&direction=desc&per_page=1`);
-  return pr;
-}
-
 // リンクは Markdown の形で書く（URL をそのまま書くと、GitHub は直後の全角の文字まで URL に含めて開けないリンクにする）。
 const prLink = (pr) => `[#${pr.number} ${pr.title.replace(/[[\]]/g, "\\$&")}](${pr.html_url})`;
 
 // 開いた（開き直された）→ 検証中へ（表で行けるのは進行中からだけ）。マージされずに閉じた → 未着手へ。マージされた → 残り（チェックの
-// 無い完了の条件・ユーザーの確認）が無ければ完了、あれば未着手へ（Claude が残りを済ませる）。閉じたときは検証中のタスクだけを動かす
+// 無い完了の条件）が無ければ完了、あれば未着手へ（Claude が残りを済ませる）。閉じたときは検証中のタスクだけを動かす
 // （先に問いを置いて回答待ちになっていれば、答えを待つ）。行けるかは、ほかの経路と同じ照らし（gate.apply → judge）で決まる。
 export async function pullRequest(env, config, action, pr) {
   const { branchPrefix } = config.code;

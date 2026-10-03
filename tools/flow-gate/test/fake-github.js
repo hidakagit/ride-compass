@@ -8,7 +8,7 @@ const FIELDS = { [config.project.priorityField]: ["高", "中", "低"], [config.
 const BY_NODE = Object.fromEntries(Object.entries(config.people).map(([k, p]) => [p.node, k]));
 
 // code はコードのリポジトリの状態（Pull Request の一覧）。
-// parent を渡すと、issue をその子にする（親の子は、parent.siblings の状態と issue の今の状態）。親の id は I_P。
+// parent を渡すと、issue をその子にする。親の id は I_P。
 // issue.comments は今あるコメント（古い順。{ author, body, createdAt }）。読むときは GitHub が描いた形（bodyHTML）で返す。
 // REST の書き込み（POST）・読み（GET）・消す（DELETE）のコメントは、番号の若い順に issue.comments に並ぶ。
 // issue.statusAt は Status の値を最後に書いた時刻で、Status を書くたびに1秒進む。
@@ -16,11 +16,11 @@ const BY_NODE = Object.fromEntries(Object.entries(config.people).map(([k, p]) =>
 // updates は Project の状況の更新（新しいものが先。{ id, status, body, by, updatedAt? }）。トークン bot-token は hidakagit-bot の名義。
 // race を渡すと、担当者を書く最初の updateIssue の直前に、並んで動く別の書き込みがその担当者（login の並び）を入れ、
 // その updateIssue は GitHub と同じく「Assignments is invalid」で断られて何も書かない。
-export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel, "規模S", config.confirmLabel], code = { prs: [] }, markdown = true, updates = [], race = null }) {
-  const blank = { blockedBy: [], subIssues: [], assignees: [], labels: [], lastClose: [], state: "OPEN", fields: {}, comments: [], statusAt: "2026-10-03T00:00:00Z" };
+export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel, "規模S"], code = { prs: [] }, markdown = true, updates = [], race = null }) {
+  const blank = { blockedBy: [], assignees: [], labels: [], lastClose: [], state: "OPEN", fields: {}, comments: [], statusAt: "2026-10-03T00:00:00Z" };
   const state = {
     issue: { ...blank, ...issue },
-    parent: parent && { ...blank, siblings: [], ...parent },
+    parent: parent && { ...blank, ...parent },
     writes: [],
     requests: [],
     calls: 0,
@@ -41,7 +41,6 @@ export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel
       parent: main && state.parent ? { number: state.parent.number } : (i.parent ?? null),
       assignees: { nodes: i.assignees.map((login) => ({ id: config.people[login]?.node, login })) },
       labels: { nodes: i.labels.map((name) => ({ name })) }, blockedBy: { nodes: i.blockedBy },
-      subIssues: { nodes: main ? i.subIssues : [...i.siblings, { state: state.issue.state }] },
       lastClose: { nodes: i.lastClose }, repository: { nameWithOwner: config.repository },
       projectItems: { nodes: [{ id: main ? "PVTI_1" : "PVTI_P", project: { id: "PVT_1" }, fieldValues: { nodes: [
         ...(i.status ? [{ name: i.status, updatedAt: i.statusAt, field: { name: config.project.statusField } }] : []),
