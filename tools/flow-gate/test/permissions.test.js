@@ -1,46 +1,46 @@
-// 担当は無人で動き、許可の一覧に合わない操作は自動モードの判定役が1回ずつ可否を決める。flow.md に書いた形のまま打てば
-// 一覧の行に合うことを、本物の flow.md と .claude/settings.json で確かめる。
+// 担当へ渡す許可が、flow.md に書いた操作から組み立てられ、決して許さない操作を許可にしないこと。
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import { DENY, permissionsOf } from "../src/permissions.js";
 
-const root = new URL("../../../", import.meta.url);
-const flow = readFileSync(new URL("docs/conventions/flow.md", root), "utf8");
-const settings = JSON.parse(readFileSync(new URL(".claude/settings.json", root), "utf8"));
+const flow = readFileSync(new URL("../../../docs/conventions/flow.md", import.meta.url), "utf8");
 
-// 行の頭（何の操作か）は、gh なら3語・ほかは2語（例: `git push`・`gh pr merge`・`node tools/flow-gate/bin/after.js`）。
-const head = (command) => command.split(/\s+/).slice(0, command.startsWith("gh ") ? 3 : 2).join(" ");
-const rows = settings.permissions.allow.map((row) => {
-  const [, shell, pattern] = row.match(/^(\w+)\((.*)\)$/);
-  // WebFetch の行は宛先（domain:<宛先>）で合わせる。操作は `WebFetch <URL>` の形で書く。
-  if (shell === "WebFetch") {
-    const host = pattern.replace(/^domain:/, "");
-    return { row, shell, head: null, matches: (command) => command.startsWith("WebFetch ") && new URL(command.slice(9)).host === host };
-  }
-  const glob = new RegExp(`^${pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*")}$`);
-  return { row, shell, head: head(pattern), matches: (command) => glob.test(command) };
-});
-// flow.md の `…` のうち、許可の一覧がその種類の操作を持つもの（WebFetch は頭で絞らず全部）。<番号> 等の置き場所には値を入れて照らす。
-const fill = (command) => command.replace(/<[^>]+>/g, "1");
-const commands = [
-  ...[...flow.matchAll(/`((?:git|gh|node) [^`]+)`/g)].map((m) => fill(m[1])).filter((command) => rows.some((r) => r.head === head(command))),
-  ...[...flow.matchAll(/`(WebFetch https:\/\/[^`]+)`/g)].map((m) => fill(m[1])),
-];
-
-test("flow.md に書いた操作は、Bash と PowerShell の両方で（WebFetch は宛先で）許可の行に合う", () => {
-  assert.ok(commands.length > 0);
-  for (const command of commands) {
-    for (const shell of command.startsWith("WebFetch ") ? ["WebFetch"] : ["Bash", "PowerShell"]) {
-      assert.ok(
-        rows.some((r) => r.shell === shell && r.matches(command)),
-        `flow.md の \`${command}\` に合う ${shell} の許可の行が無い`,
-      );
-    }
-  }
+test("操作の置き場所は * になり、WebFetch は宛先の行になる", () => {
+  const { allow, deny } = permissionsOf(
+    "`git push origin orch/tasks-<番号>` と `gh run watch <id> -R o/r --exit-status`、`WebFetch https://raw.githubusercontent.com/<所有者>/<パス>`。`npm test` は拾わない",
+  );
+  assert.deepEqual(allow, [
+    "Bash(gh run watch * -R o/r --exit-status)",
+    "Bash(git push origin orch/tasks-*)",
+    "WebFetch(domain:raw.githubusercontent.com)",
+  ]);
+  assert.deepEqual(deny, DENY);
 });
 
-test("許可の行は、どれも flow.md に書いた操作に使われている", () => {
-  for (const r of rows) {
-    assert.ok(commands.some((command) => r.matches(command)), `${r.row} を使う操作が flow.md に無い`);
+test("決して許さない操作は、flow.md に書いてあっても許可にならない", () => {
+  const forbidden = [
+    "git push origin master",
+    "git push origin HEAD:master",
+    "git push --force origin orch/tasks-<番号>",
+    "git push origin orch/tasks-<番号> -f",
+    "gh api repos/o/r/issues/<番号> -X PATCH",
+    "gh api repos/o/r/actions/variables --method POST",
+    "gh workflow run claude-dispatch.yml -R o/r",
+    "gh secret set X",
+    "gh pr merge <番号> -R o/r --rebase --admin",
+  ];
+  const kept = "git push --force-with-lease origin orch/tasks-<番号>";
+  const { allow } = permissionsOf([...forbidden, kept].map((c) => `\`${c}\``).join(" "));
+  assert.deepEqual(allow, ["Bash(git push --force-with-lease origin orch/tasks-*)"]);
+});
+
+test("本物の flow.md から組み立てた許可は、どれも頭の語が * でなく、push・マージ・CI の待ちを持つ", () => {
+  const { allow } = permissionsOf(flow);
+  for (const row of allow.filter((r) => r.startsWith("Bash("))) {
+    assert.ok(!/^Bash\(\S+ \*/.test(row), `${row} は * が操作の頭の語より前にある`);
+  }
+  for (const head of ["Bash(git push origin orch/tasks-", "Bash(gh pr merge ", "Bash(gh run watch "]) {
+    assert.ok(allow.some((r) => r.startsWith(head)), `${head} で始まる許可が無い`);
   }
 });
