@@ -96,6 +96,7 @@ jobs:
         if: steps.claim.outputs.go == 'true'
         run: node -e 'const s=require("./.claude/settings.json"); require("fs").writeFileSync(process.env.RUNNER_TEMP+"/permissions.json", JSON.stringify({permissions:s.permissions}))'
       - uses: anthropics/claude-code-action@v1
+        id: claude
         if: steps.claim.outputs.go == 'true'
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -107,9 +108,8 @@ jobs:
             まず CLAUDE.md と docs/conventions/flow.md の「担当」「${{ inputs.kind }}担当」「問い」「issue の形」を読み、その手順のとおりに進めてください。
             ここは GitHub Actions のランナーです。backend の依存は `python` に、frontend の依存は frontend/node_modules に入っていて、PostgreSQL + PostGIS のテスト用 DB（TEST_DATABASE_URL）も動いています。開発 DB の実データと本番への調べ（run_probe.py）は無いので、それが要ると分かったら flow.md「開発機が要る」のとおりにしてください。
             作業はこの作業ツリーの中だけで行い、終わるときは手順のとおり push と issue への報告をして終えてください。次の担当を起こすことには触れないでください。すべて日本語で書いてください。
-      # 作る担当が PR も問いも出さずに終わった（issue が進行中のまま）なら、落ちたとみなして保留にする（作業ブランチに push 済みの
-      # 分から続けられる）。GitHub に無い変更は、マシンと一緒に消えないよう wip の枝へ残す（作業ブランチは書き換えない）。
-      - name: 後始末
+      # 作る担当の GitHub に無い変更は、マシンと一緒に消えないよう wip の枝へ残す（作業ブランチは書き換えない）。
+      - name: 残った変更
         if: always() && steps.claim.outputs.go == 'true' && inputs.kind == '作る'
         run: |
           if [ -n "$(git status --porcelain)" ]; then
@@ -122,5 +122,8 @@ jobs:
             git push -q origin "HEAD:refs/heads/${wip}"
             echo "GitHub に無い変更を ${wip} へ残した"
           fi
-          node tools/flow-gate/bin/move.js "$ISSUE" 落ちた "Actions の作る担当（実行 ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}）が、Pull Request も問いも出さずに終わった（結果: ${{ job.status }}）" \
-            || echo "進行中ではないので、保留にしない"
+      # 担当の外の失敗（利用の上限・認証・サーバー）ならタスクを未着手へ戻し、上限・認証なら振り出しをしばらく止める。
+      # それ以外で作る担当のタスクが進行中のままなら、落ちたとして保留にする（tools/flow-gate/bin/after.js）。
+      - name: 後始末
+        if: always() && steps.claim.outputs.go == 'true'
+        run: node tools/flow-gate/bin/after.js "$ISSUE" "$KIND" "${{ steps.claude.outputs.execution_file || format('{0}/claude-execution-output.json', runner.temp) }}" "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" "${{ job.status }}"
