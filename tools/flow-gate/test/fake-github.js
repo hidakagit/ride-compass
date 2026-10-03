@@ -9,9 +9,9 @@ const BY_NODE = Object.fromEntries(Object.entries(config.people).map(([k, p]) =>
 
 // code はコードのリポジトリの状態（Pull Request の一覧）。
 // parent を渡すと、issue をその子にする（親の子は、parent.siblings の状態と issue の今の状態）。親の id は I_P。
-// markdown を false にすると、Markdown を描く呼び出しが失敗する。fail を渡すと、タスクを読む呼び出しがその文で失敗する。
+// markdown を false にすると、Markdown を描く呼び出しが失敗する。
 // updates は Project の状況の更新（新しいものが先。{ id, status, body, by, updatedAt? }）。トークン bot-token は hidakagit-bot の名義。
-export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel, "規模S", config.confirmLabel], code = { prs: [] }, markdown = true, fail, updates = [] }) {
+export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel, "規模S", config.confirmLabel], code = { prs: [] }, markdown = true, updates = [] }) {
   const blank = { blockedBy: [], subIssues: [], assignees: [], labels: [], lastClose: [], state: "OPEN", fields: {} };
   const state = {
     issue: { ...blank, ...issue },
@@ -89,7 +89,6 @@ export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel
     const body = init.body ? JSON.parse(init.body) : null;
     const as = { "Bearer form-token": "hidakagit", "Bearer bot-token": "hidakagit-bot" }[init.headers.authorization] ?? "gate";
     if (path.endsWith("/access_tokens")) return json({ token: "app-token" });
-    if (path === "/graphql" && fail && body.query.startsWith("query Task")) return json({ errors: [{ message: fail }] });
     if (path === "/graphql") return json({ data: graphql(body, as) });
     if (path === "/markdown") return markdown ? new Response(`<p>描いた: ${body.text}</p>`) : new Response("失敗", { status: 500 });
     const repo = `/repos/${config.code.repository}`;
