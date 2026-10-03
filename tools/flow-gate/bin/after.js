@@ -3,7 +3,8 @@
 // coordinator.pauseMinutes の間止める（リポジトリの変数 coordinator.pauseVariable に止める時刻を置く。振り出しが読む）。
 // それ以外で作る担当のタスクが進行中のまま（PR も問いも出さずに終わった）なら、落ちたとみなして保留にする。
 // 最後に、終わり方・かかった時間・手数・担当の最後の発言を issue へ書く（src/after.js: endReport）。発言は記録に出さない。
-// 使い方: node tools/flow-gate/bin/after.js <issue の番号> <作る|確かめる> <実行のファイル（無ければ空）> <実行の URL> <ジョブの結果>
+// （--dry-run は本物の GitHub を読み、止める時刻・動かす遷移・書くはずのコメントを出すだけで、書かない）
+// 使い方: node tools/flow-gate/bin/after.js [--dry-run] <issue の番号> <作る|確かめる> <実行のファイル（無ければ空）> <実行の URL> <ジョブの結果>
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -13,9 +14,10 @@ import { classify, endReport, refusal } from "../src/after.js";
 import { GitHub, readTask } from "../src/github.js";
 import { botToken, codeToken } from "./token.js";
 
-const [number, kind, file, url, status, ...rest] = process.argv.slice(2);
+const dry = process.argv[2] === "--dry-run";
+const [number, kind, file, url, status, ...rest] = process.argv.slice(dry ? 3 : 2);
 if (!/^\d+$/.test(number ?? "") || !["作る", "確かめる"].includes(kind) || rest.length) {
-  console.error("使い方: node tools/flow-gate/bin/after.js <issue の番号> <作る|確かめる> <実行のファイル> <実行の URL> <ジョブの結果>");
+  console.error("使い方: node tools/flow-gate/bin/after.js [--dry-run] <issue の番号> <作る|確かめる> <実行のファイル> <実行の URL> <ジョブの結果>");
   process.exit(2);
 }
 const here = dirname(fileURLToPath(import.meta.url));
@@ -24,12 +26,12 @@ const messages = file && existsSync(file) ? JSON.parse(readFileSync(file, "utf8"
 const verdict = status === "cancelled" ? { outside: false, pause: false, reason: "" } : classify(messages);
 const done = [];
 const note = (line) => {
-  console.log(line);
+  console.log(dry && !line.startsWith("（試し）") ? `（試し）${line}` : line);
   done.push(line);
 };
 const move = (on, reason) => {
   try {
-    note(execFileSync(process.execPath, [join(here, "move.js"), number, on, reason], { encoding: "utf8" }).trim());
+    note(execFileSync(process.execPath, [join(here, "move.js"), ...(dry ? ["--dry-run"] : []), number, on, reason], { encoding: "utf8" }).trim());
   } catch (e) {
     note(`${on}で動かさなかった（${refusal(e)}）`);
   }
@@ -40,10 +42,12 @@ if (verdict.pause) {
   const { pauseVariable, pauseMinutes } = config.coordinator;
   const until = new Date(Date.now() + pauseMinutes * 60000).toISOString();
   const path = `/repos/${config.code.repository}/actions/variables`;
-  try {
-    await code.rest("PATCH", `${path}/${pauseVariable}`, { name: pauseVariable, value: until });
-  } catch {
-    await code.rest("POST", path, { name: pauseVariable, value: until });
+  if (!dry) {
+    try {
+      await code.rest("PATCH", `${path}/${pauseVariable}`, { name: pauseVariable, value: until });
+    } catch {
+      await code.rest("POST", path, { name: pauseVariable, value: until });
+    }
   }
   note(`振り出しを ${until} まで止めた（${verdict.reason}）`);
 }
@@ -57,5 +61,9 @@ const { issue } = await readTask(bot, config, { number: Number(number) });
 const run = await code.rest("GET", `/repos/${config.code.repository}/actions/runs/${url.split("/").at(-1)}`).catch(() => null);
 const elapsedMs = run?.run_started_at ? Date.now() - Date.parse(run.run_started_at) : null;
 const body = endReport({ kind, url, jobStatus: status, messages, done, status: issue?.status, elapsedMs });
-await bot.rest("POST", `/repos/${config.repository}/issues/${number}/comments`, { body });
-console.log(`#${number} へ終わりを書いた（担当の発言は記録に出さない）`);
+if (dry) console.log(`（試し）#${number} へ書く終わり（ステータスは今のもの）:
+${body}`);
+else {
+  await bot.rest("POST", `/repos/${config.repository}/issues/${number}/comments`, { body });
+  console.log(`#${number} へ終わりを書いた（担当の発言は記録に出さない）`);
+}
