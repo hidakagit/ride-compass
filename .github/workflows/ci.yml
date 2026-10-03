@@ -58,7 +58,7 @@ jobs:
           while IFS= read -r f; do
             case "$f" in
               frontend/src/*) heavy=true ;;
-              docs/*|*.md|.claude/*|scripts/review_checks.py|scripts/size_thresholds.json|scripts/remote_dev/*) ;;
+              docs/*|*.md|.claude/*|scripts/size_thresholds.json|scripts/remote_dev/*) ;;
               *) heavy=true ;;
             esac
           done < <(git diff --name-only "$BASE" "$GITHUB_SHA")
