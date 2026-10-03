@@ -1,4 +1,3 @@
-import asyncpg
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
@@ -6,13 +5,9 @@ from app.config import settings
 
 # DBへ届かない・DBが答えないときに出る例外。読み取りを空へ倒す箇所はこれだけを捕まえ、
 # 実装の誤り（TypeError・AttributeError等）は捕まえずに500で表へ出す。
-# - SQLAlchemyError: 実行中の失敗（asyncpgの例外はDBAPIErrorへ訳される）とプールの待ち切れ
+# - SQLAlchemyError: 接続を張る段階と実行中の失敗（asyncpgの例外はDBAPIErrorへ訳される）とプールの待ち切れ
 # - OSError: 接続の拒否・切断と、command_timeoutのTimeoutError（実行中のasyncpgのタイムアウトは訳されない）
-# - asyncpg.PostgresError・InterfaceError: 接続を張る段階の失敗（接続数の上限・認証等）。
-#   SQLAlchemyは接続時にasyncpgを直接呼ぶため、DBAPIErrorへ訳されずに届く
-DB_UNAVAILABLE_ERRORS: tuple[type[Exception], ...] = (
-    SQLAlchemyError, OSError, asyncpg.PostgresError, asyncpg.InterfaceError,
-)
+DB_UNAVAILABLE_ERRORS: tuple[type[Exception], ...] = (SQLAlchemyError, OSError)
 
 # エンジンはアプリ全体で1つだけ生成する（SQLAlchemyの標準的な使い方。内部でコネクション
 # プールを管理するため、リクエストごとに新規接続を作る必要はない）。

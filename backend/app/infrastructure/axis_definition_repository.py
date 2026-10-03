@@ -143,8 +143,9 @@ class AxisDefinitionRepository:
         await self._session.execute(stmt)
 
     async def delete(self, axis_id: str) -> bool:
-        result = await self._session.execute(delete(AxisDefinitionRow).where(AxisDefinitionRow.axis_id == axis_id))
-        return bool(result.rowcount)
+        result = await self._session.execute(
+            delete(AxisDefinitionRow).where(AxisDefinitionRow.axis_id == axis_id).returning(AxisDefinitionRow.axis_id))
+        return result.first() is not None
 
     async def commit(self) -> None:
         await self._session.commit()

@@ -87,7 +87,7 @@ async def create_tables(engine: AsyncEngine) -> None:
     権限がありません」とだけ出て、何をすればよいかが伝わらない。
     """
     async with engine.begin() as conn:
-        installed = set(
+        installed: set[str] = set(
             (await conn.execute(text("SELECT extname FROM pg_extension"))).scalars())
         missing = [name for name in REQUIRED_EXTENSIONS if name not in installed]
         if missing:

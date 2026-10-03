@@ -73,5 +73,5 @@ class AccidentTileQuery:
                 "ymax": bbox.max_latitude,
             },
         )
-        tile = result.scalar_one()
+        tile: bytes | None = result.scalar_one()
         return bytes(tile) if tile is not None else b""

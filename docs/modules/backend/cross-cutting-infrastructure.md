@@ -203,14 +203,13 @@ None）へ倒す箇所は、`except Exception`ではなくこのタプルだけ�
 形のまま「データなし」に見え、誰も気づかない。
 空へ倒さずに503で知らせる口（管理APIの集計・軸の編集）も、捕まえるのは同じタプルである。
 
-中身はSQLAlchemy 2.0＋asyncpgで例外がどう届くかから決まっている（ソースで確認）:
+中身はSQLAlchemy 2.1＋asyncpgで例外がどう届くかから決まっている（ソースで確認）:
 
-- 実行中の失敗はasyncpgの例外が`DBAPIError`へ訳される。プールの待ち切れは
-  `sqlalchemy.exc.TimeoutError`。どちらも`SQLAlchemyError`。
+- 接続を張る段階（接続数の上限・認証等）と実行中の失敗は、asyncpgの例外（`asyncpg.PostgresError`・
+  `asyncpg.InterfaceError`）が`DBAPIError`へ訳される（方言の`_asyncpg_error_translate`）。プールの待ち切れは
+  `sqlalchemy.exc.TimeoutError`。どれも`SQLAlchemyError`。
 - `command_timeout`の`TimeoutError`は訳されずに届く（Python 3.11以降は`OSError`の派生）。
   接続の拒否・切断も`OSError`。
-- 接続を張る段階ではSQLAlchemyがasyncpgの`connect`を直接呼ぶため、接続数の上限・認証等の
-  失敗は`asyncpg.PostgresError`・`asyncpg.InterfaceError`のまま届く（`DBAPIError`にならない）。
 
 ## レート制限の集約（`api/rate_limit.py: enforce_rate_limit`）
 
