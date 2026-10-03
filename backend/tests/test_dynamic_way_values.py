@@ -2,10 +2,11 @@
 
 入口は`dedicated_way_value_axes`（配る軸と、要る問い合わせの項目）・`map_value_kind`／`map_value`／
 `map_value_unit`（塗る値の種類・材料・単位）・`map_value_thresholds`（ルート線の段の境界）・
-`transform_dedicated_way_values`（配る材料の生値を塗る値へ）。
+`map_legend`（凡例が段の境界を書く目盛り）・`transform_dedicated_way_values`（配る材料の生値を塗る値へ）。
 
 材料カタログと軸の集合は本番の正本を読まず、性質だけを持つ架空の材料・軸へ差し替える（`MATERIAL_CATALOG`・
-`AXIS_DEFINITIONS`。段の境界は`domain/axis_display.py`を通るので、そちらの名前空間も差し替える）。
+`AXIS_DEFINITIONS`。段の境界は`domain/axis_display.py`を、量の単位は`domain/axis_raw_value.py`を通るので、
+そちらの名前空間も差し替える）。
 
 ここで見ないもの:
 - 地図の段の境界そのもの（どの軸が地図に塗れるか・境界の導出） → `test_axis_display.py`
@@ -17,7 +18,7 @@ import math
 
 import pytest
 
-from app.domain import axis_display, dynamic_way_values
+from app.domain import axis_display, axis_raw_value, dynamic_way_values
 from app.domain.axis_definitions import (
     AxisDefinition,
     BreakpointLinearShape,
@@ -28,8 +29,10 @@ from app.domain.axis_definitions import (
 from app.domain.dynamic_way_values import (
     DedicatedWayValueAxis,
     DifficultyMapValue,
+    MapLegendScale,
     SignedMaterialMapValue,
     dedicated_way_value_axes,
+    map_legend,
     map_value,
     map_value_kind,
     map_value_thresholds,
@@ -55,6 +58,8 @@ CATALOG = {
     spec.material_id: spec
     for spec in [
         _material("num_tiled"),
+        _material("count_tiled", unit="件"),
+        _material("rain_live", tile=False, unit="mm"),
         _material("num_live", tile=False, unit="%"),
         _material("num_other", tile=False),
         _material("kind", "categorical"),
@@ -66,7 +71,7 @@ CATALOG = {
 def axes(monkeypatch) -> dict[str, AxisDefinition]:
     """保存済みの軸の集合（空から）。"""
     saved: dict[str, AxisDefinition] = {}
-    for module in (dynamic_way_values, axis_display):
+    for module in (dynamic_way_values, axis_display, axis_raw_value):
         monkeypatch.setattr(module, "MATERIAL_CATALOG", CATALOG)
         monkeypatch.setattr(module, "AXIS_DEFINITIONS", saved)
     return saved
@@ -200,6 +205,58 @@ def test_route_line_bands_of_a_categorical_axis_are_the_map_bands():
     definition = _axis(CategoricalShape(material="kind", mapping={"x": 0.0, "y": 40.0, "z": 100.0}))
 
     assert map_value_thresholds(definition) == [20.0, 70.0]
+
+
+# --- 凡例の目盛り ---
+
+RAIN_LINE = ((0.0, 0.0), (5.0, 30.0), (20.0, 70.0), (50.0, 100.0))
+
+
+def test_an_axis_scoring_a_quantity_is_cut_at_its_knots_and_written_in_that_quantity():
+    """雨のように単位のある量1つから得点を作る軸は、軸が効きの変わり目とした節で段を切り、凡例はその量で書く。"""
+    definition = _axis(_line("rain_live", breakpoints=RAIN_LINE), dedicated_way_value_layer=True)
+
+    assert map_value_thresholds(definition) == [30.0, 70.0, 100.0]
+    assert map_legend(definition) == MapLegendScale(boundaries=[5.0, 20.0, 50.0], unit="mm")
+
+
+def test_a_tile_painted_axis_scoring_a_quantity_is_written_at_its_map_bands_in_that_quantity():
+    """タイルで塗る軸の地図の段は初めから量の目盛りなので、凡例はそれをそのまま量で書き、ルート線は得点へ写す。"""
+    definition = _axis(
+        _line("count_tiled", breakpoints=((0.0, 0.0), (4.0, 20.0), (10.0, 80.0))), display_thresholds_override=[2.0, 7.0]
+    )
+
+    assert map_value_thresholds(definition) == pytest.approx([10.0, 50.0])
+    assert map_legend(definition) == MapLegendScale(boundaries=[2.0, 7.0], unit="件")
+
+
+SCORE_LEGEND_AXES = {
+    "量に単位が無い": _axis(_line("num_live", "num_other")),
+    "得点が量について増えない区間がある": _axis(
+        _line("rain_live", breakpoints=((0.0, 0.0), (5.0, 50.0), (20.0, 50.0), (50.0, 100.0)))
+    ),
+    "得点で刻んだ上書き": _axis(_line("rain_live", breakpoints=RAIN_LINE), display_thresholds_override=[40.0]),
+    "量の重みが1でない": _axis(
+        BreakpointLinearShape(
+            terms=[MaterialTerm(material="rain_live", weight=2.0)], breakpoints=list(RAIN_LINE), preprocess="identity"
+        )
+    ),
+    "0次条件を持つ": _axis(
+        _line("rain_live", breakpoints=RAIN_LINE),
+        priority_overrides=[PriorityCondition(material="rain_live", equals="x", value=0.0)],
+    ),
+    "分類の軸": _axis(CategoricalShape(material="kind", mapping={"x": 0.0, "y": 40.0, "z": 100.0})),
+}
+
+
+@pytest.mark.parametrize("definition", SCORE_LEGEND_AXES.values(), ids=SCORE_LEGEND_AXES.keys())
+def test_bands_that_cannot_be_written_as_a_quantity_are_written_as_scores(definition):
+    """量で書いた段が得点の段と同じ道を指すと言えない軸は、塗る得点の境界をそのまま得点として書く。"""
+    assert map_legend(definition) == MapLegendScale(boundaries=map_value_thresholds(definition), unit=None)
+
+
+def test_a_signed_material_axis_is_written_in_the_material_unit():
+    assert map_legend(SIGNED) == MapLegendScale(boundaries=[-6.0, -2.0, 2.0, 6.0], unit="%")
 
 
 # --- 生値から塗る値へ ---

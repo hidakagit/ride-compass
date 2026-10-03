@@ -51,18 +51,19 @@ function rangeStepLabel(lower: number | null, upper: number | null, unit: string
 }
 
 /** 境界（昇順、段の数−1件）と色（段の数ぶん）から凡例の段を組む。`labels`（段の数ぶん）があれば、範囲の前に体感ラベル
- * を添える（例:「強い向かい風（2〜6m/s）」）。 */
+ * を添える（例:「強い向かい風[2〜6m/s]」）。無ければ範囲の前に`rangePrefix`を置く。 */
 export function buildRangeLegendBands(
   boundaries: readonly number[],
   colors: readonly string[],
   unit: string,
   labels: readonly string[] | undefined,
+  rangePrefix = "",
 ): MapColorLegendBand[] {
   return colors.map((color, index) => {
     const lower = index === 0 ? null : boundaries[index - 1];
     const upper = index === boundaries.length ? null : boundaries[index];
     const rangeLabel = rangeStepLabel(lower, upper, unit);
-    const label = labels ? `${labels[index]}[${rangeLabel}]` : rangeLabel;
+    const label = labels ? `${labels[index]}[${rangeLabel}]` : `${rangePrefix}${rangeLabel}`;
     return { key: legendBandKey(index), label, color };
   });
 }

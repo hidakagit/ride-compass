@@ -30,8 +30,18 @@ const EVALUATION_ANCHORS: readonly string[] = [
 /** 符号付き材料は0（平坦）を境に2方向の配色へ分ける（2色の補間1本だと0付近の段が端の色に寄る）。 */
 const SIGNED_DESCENT_ANCHORS: readonly string[] = [COLOR_SIGNED_LOW, COLOR_SIGNED_FLAT];
 
+/** 凡例が段の境界を書く目盛り（正本はbackend）。`unit`がnullなら境界は得点（0〜100）。 */
+export type MapLegendScale = components["schemas"]["MapLegendScale"];
+
 /** 総合難易度（軸ではない）の段の境界。backendが配る。軸の段は宣言の無い軸の既定もbackendが解いて軸ごとに返す。 */
 export const DEFAULT_DIFFICULTY_BOUNDARIES: readonly number[] = mapDisplay.valueScale.difficultyBoundaries;
+
+/** 総合難易度の凡例の目盛り（得点）。 */
+export const DIFFICULTY_LEGEND: MapLegendScale = { boundaries: [...DEFAULT_DIFFICULTY_BOUNDARIES], unit: null };
+
+/** 得点の境界に添える単位と、体感ラベルが無い段で範囲の前に置く語。数字だけでは量か得点か読めない。 */
+const SCORE_UNIT = "点";
+const SCORE_RANGE_PREFIX = "影響 ";
 
 function hexToRgb(hex: string): [number, number, number] {
   const n = parseInt(hex.slice(1), 16);
@@ -137,29 +147,33 @@ export interface ValueBand extends MapColorLegendBand {
   lowerBound: number;
 }
 
-/** 軸を塗る段の並び（低い段から）。鍵・範囲の文字・体感ラベル・色をここで一度に決める。体感ラベルは件数が段の数と
- * 合うときだけ添える（`bandLabelsForBandCount`）。 */
+/** 軸を塗る段の並び（低い段から）。鍵・範囲の文字・体感ラベル・色をここで一度に決める。`boundaries`は塗る値の目盛りの
+ * 境界で、範囲の文字は`legend`の同じ番号の境界で書く（雨は得点で塗り、量で書く）。体感ラベルは件数が段の数と合うときだけ
+ * 添える（`bandLabelsForBandCount`）。 */
 export function valueBands(
   kind: MapValueKind,
   boundaries: readonly number[],
-  unit: string,
+  legend: MapLegendScale,
   bandLabels: readonly string[] | null | undefined,
 ): ValueBand[] {
   const colors = bandColorsFor(kind, boundaries);
   const labels = bandLabelsForBandCount(bandLabels, colors.length);
-  return buildRangeLegendBands(boundaries, colors, unit, labels).map((band, index) => ({
+  const isScore = legend.unit === null;
+  const unit = legend.unit ?? SCORE_UNIT;
+  const prefix = isScore ? SCORE_RANGE_PREFIX : "";
+  return buildRangeLegendBands(legend.boundaries, colors, unit, labels, prefix).map((band, index) => ({
     ...band,
     lowerBound: index === 0 ? Number.NEGATIVE_INFINITY : (boundaries[index - 1] as number),
   }));
 }
 
 /** ramp軸の段。境界は軸の地図表示のしきい値（重み付き和の目盛り）。重み付き和は向きの符号を持たないので、
- * backendはramp軸の値の種類を難易度として配る。 */
+ * backendはramp軸の値の種類を難易度として配る。範囲の文字はルート後の線と同じ目盛り（`legend`）で書く。 */
 export function rampAxisBands(axis: RampAxis): ValueBand[] {
-  return valueBands(axis.mapValueKind, axis.thresholds, axis.rawValueUnit ?? "", axis.bandLabelsOverride);
+  return valueBands(axis.mapValueKind, axis.thresholds, axis.legend, axis.bandLabelsOverride);
 }
 
 /** 専用配信の軸の段。 */
 export function dedicatedAxisBands(display: DedicatedWayValueDisplay): ValueBand[] {
-  return valueBands(display.kind, display.boundaries, display.unit, display.bandLabels);
+  return valueBands(display.kind, display.boundaries, display.legend, display.bandLabels);
 }

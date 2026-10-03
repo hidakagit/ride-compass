@@ -47,7 +47,9 @@ from app.domain.axis_raw_value import (
     raw_value_unit,
 )
 from app.domain.dynamic_way_values import (
+    MapLegendScale,
     MapValue,
+    map_legend,
     map_value,
     map_value_thresholds,
     map_value_unit,
@@ -160,6 +162,9 @@ class AxisCatalogEntry(StrictModel):
     # `display_thresholds_override`はramp表示の自動導出値（材料の重み付き和）を上書きする
     # フィールドで、難易度を塗る軸ではスケールが違う。境界を宣言していない軸には既定の境界が入る。
     map_value_thresholds: list[float]
+    # 凡例が上の境界を書く目盛り（domain/dynamic_way_values.py: map_legend）。塗る値が得点でも、
+    # 得点を単位のある量から作る軸は境界を量と単位で書く。ルート前後の凡例ともこれで段の範囲を書く。
+    map_legend: MapLegendScale
     # 折れ点を通す前の生値の単位（`domain/axis_raw_value.py: raw_value_unit`）。
     # 定まらない軸はnull。ルート結果は得点の隣にこの単位で生値を出す。
     raw_value_unit: str | None
@@ -236,6 +241,7 @@ async def get_axis_catalog(region_service: RegionService = Depends(get_region_se
                 map_value=map_value(definition),
                 map_value_unit=map_value_unit(definition),
                 map_value_thresholds=map_value_thresholds(definition),
+                map_legend=map_legend(definition),
                 raw_value_unit=raw_value_unit(definition),
                 raw_value_total_unit=raw_value_total_unit(definition),
                 material_breakdown=_material_breakdown(definition),

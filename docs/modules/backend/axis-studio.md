@@ -336,8 +336,9 @@ DB側の値が変わっても追従しない。軸の中身が主題でないテ
 `GET /api/axis-catalog`が`raw_value_unit`として配信し、
 [ルート設定・ルート結果（frontend）](../frontend/route-settings-and-results.md)が
 得点の隣へ生値を添えるのに使う。単位の無い数字は読み手が意味を取れないため出さない。
-地図のramp軸の凡例も同じ単位を段階ラベルへ添える——rampの段の境界は折れ点のx値
-（＝生値の目盛り）で、単位が定まる軸では生値と同じ量を塗っている（`axis_display.py`）。
+地図の凡例も、得点が単位の定まる生値について狭く増える軸では、段を生値の量と単位で書く
+（`dynamic_way_values.py: map_legend`。[dynamic-way-values.md](dynamic-way-values.md)）——rampの段の境界は
+折れ点のx値（＝生値の目盛り）で、単位が定まる軸では生値と同じ量を塗っている（`axis_display.py`）。
 
 ### 材料単位への分解（`material_breakdown`）
 

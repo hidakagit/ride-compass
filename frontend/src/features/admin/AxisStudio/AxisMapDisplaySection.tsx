@@ -114,8 +114,9 @@ export function AxisMapDisplaySection({
 
   /** いま入力されているしきい値が地図でどう見えるか（段階のレンジ・体感ラベル・色）を
    * そのまま描く。段は地図が作るものだけ（地図では効かない値は除く）で数え、凡例の組み立ては
-   * 地図と同じ`buildRangeLegendBands`を通すため、ここで見えているものと地図の凡例がずれる
-   * ことがない。色は親から渡された軸の配色（`mapBandColors`）で、地図に出る経路がまだ
+   * 地図と同じ`buildRangeLegendBands`を通すため、段の数・体感ラベル・色は地図の凡例とずれない。
+   * レンジの数字は入力した目盛りで書く——地図の凡例は軸カタログの凡例の目盛り（得点か量）で書くため、
+   * 得点で書く軸では数字が違う。色は親から渡された軸の配色（`mapBandColors`）で、地図に出る経路がまだ
    * 決まっていない軸では色を持たない。 */
   function renderBandPreview() {
     const entered = draft.displayThresholdsOverride ?? [];

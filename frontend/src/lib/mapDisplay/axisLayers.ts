@@ -7,6 +7,7 @@
 // 材料がタイルにある限り再デプロイなしに地図のレイヤーとして現れる。
 
 import type { DedicatedWayValueDisplay } from "./dedicatedWayValueLayer";
+import type { MapLegendScale } from "./valueScale";
 import { catalogAxisFromEntry, type CatalogAxis } from "@/lib/catalogAxis";
 import type { AxisCatalogEntry } from "@/types/route";
 
@@ -36,12 +37,14 @@ interface AxisTileInput {
   scaleMissing?: boolean;
 }
 
-/** 地図のramp表示を持つ軸。凡例の範囲に添える単位は`rawValueUnit`（定まらない軸はnull）。 */
+/** 地図のramp表示を持つ軸。 */
 export interface RampAxis extends CatalogAxis {
   category: string;
   tileInputs: readonly AxisTileInput[];
   /** 昇順の色段階境界値。値 < thresholds[0] が最も低い段階 */
   thresholds: readonly number[];
+  /** 凡例が`thresholds`を書く目盛り（同じ件数・同じ順。ルート後の線の凡例と同じ文字になる）。 */
+  legend: MapLegendScale;
   /** 段階ごとの体感ラベル（軸自身のデータ、display_band_labels_override由来）。要素数が
    * thresholds.length+1と一致する間だけ、凡例（`features/map/view/lens.ts: buildAxisRampLegend`）が
    * 数値レンジの前に添える。 */
@@ -85,6 +88,7 @@ export function rampAxesFromCatalogAxes(
         breakpoints: input.breakpoints ?? undefined,
       })),
       thresholds: axis.display.thresholds,
+      legend: axis.map_legend,
       bandLabelsOverride: axis.display_band_labels_override ?? undefined,
     }));
 }
@@ -122,8 +126,8 @@ export function dedicatedWayValueAxesFromCatalogAxes(axes: readonly AxisCatalogE
       needsSpeed: axis.dynamic_way_value_needs_speed,
       display: {
         kind: axis.map_value.kind,
-        unit: axis.map_value_unit,
         boundaries: axis.map_value_thresholds,
+        legend: axis.map_legend,
         bandLabels: axis.display_band_labels_override ?? undefined,
       },
     }));

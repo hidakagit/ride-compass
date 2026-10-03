@@ -138,11 +138,11 @@ describe("dedicatedWayValueAxesFromCatalogAxes", () => {
     expect(bearingAndSpeed).toMatchObject({ needsTime: false, needsBearing: true, needsSpeed: true });
   });
 
-  it("塗るときの表示の宣言（値の種類・単位・境界・体感ラベル）を同じ行から作り、宣言の無い体感ラベルは持たない", () => {
+  it("塗るときの表示の宣言（値の種類・境界・凡例の目盛り・体感ラベル）を同じ行から作り、宣言の無い体感ラベルは持たない", () => {
     const [declared, bare] = dedicatedWayValueAxesFromCatalogAxes([
       dedicatedEntry("declared", [-2, 2], {
         map_value: { kind: "signed_material", material: "m" },
-        map_value_unit: "%",
+        map_legend: { boundaries: [-2, 2], unit: "%" },
         display_band_labels_override: ["下り", "平坦", "上り"],
       }),
       dedicatedEntry("bare", [33, 66]),
@@ -150,11 +150,16 @@ describe("dedicatedWayValueAxesFromCatalogAxes", () => {
 
     expect(declared.display).toEqual({
       kind: "signed_material",
-      unit: "%",
       boundaries: [-2, 2],
+      legend: { boundaries: [-2, 2], unit: "%" },
       bandLabels: ["下り", "平坦", "上り"],
     });
-    expect(bare.display).toEqual({ kind: "difficulty", unit: "", boundaries: [33, 66], bandLabels: undefined });
+    expect(bare.display).toEqual({
+      kind: "difficulty",
+      boundaries: [33, 66],
+      legend: { boundaries: [33, 66], unit: null },
+      bandLabels: undefined,
+    });
   });
 });
 

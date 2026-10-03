@@ -122,7 +122,7 @@ Edgeコストは「探索範囲の静的Edge×公開軸スコア行列＋リク�
 そのレグの配列から値を読む（探索と表示の一致、[設計原則](../../architecture/design-principles.md)10）。
 `RouteSegmentDetail.material_values`/`RouteCandidate.material_values`（重み>0の公開軸が
 参照する材料id→値、`AXIS_DEFINITIONS`の`materials`プロパティから導出、
-`axis_raw_value.py: displayed_material_ids`が集合を決める）は、動的材料（風等）は`material_arrays`から
+`dynamic_way_values.py: displayed_material_ids`が集合を決める）は、動的材料（風等）は`material_arrays`から
 （`material_value_at`）、静的材料（`gradient_percent`）はEdgeごとに計算済みの値を
 そのまま読む。`displayed_material_ids`はリクエストの`lens_axis_id`（地図のレンズが表示を
 要求している軸）が符号付き材料の軸（`map_value_kind`が`signed_material`）を指す場合、
