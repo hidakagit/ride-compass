@@ -168,6 +168,12 @@ Claude が起こす出来事は、表の `by: claude` の行だけ。問いは `
      自分で決めると狭まるため
    - 派生の値か軸の難易度を変える変更なら、列・軸ごとの分布の前後（下の「分布の前後」）
    前の Pull Request が開いたまま残っていれば、新しく出さずに push し、撮り直したキャプチャを `gh pr comment --attach` で足す。
+   出したら（push したら）、Pull Request の実行（master と合わせた版）を
+   `gh run list -R hidakagit/ride-compass --commit <コミット> --workflow ci.yml --event pull_request --json databaseId` で引き
+   （出ていなければ少しおいて引き直す）、4 と同じく `gh run watch <id> --compact -i 30 -R hidakagit/ride-compass --exit-status` で
+   終わるまで前に出したまま待つ。4 の push の実行は作業ブランチ単体の版なので、合流点の後に master へ入った変更との意味の競合（文字の競合なしに載せ直せて、合わせると
+   落ちる）を見ていない。Pull Request の必須のチェックは名前で照らすので、Pull Request の実行が出る前は push の実行の `ci-ok` だけで
+   通ってしまう。待つのはこの実行にする。落ちたら `git rebase origin/master` で載せ直して直し、4 から続ける。
 6. issue の本文を直し（経緯・完了の条件のチェック。マージのあとでないとできない条件だけをチェックの無いまま残す）、
    Pull Request へのリンクをコメントに書いて報告する。Pull Request を出すと、ゲートが検証中へ動かし、確かめる担当に渡る。
 
@@ -202,7 +208,10 @@ Claude が起こす出来事は、表の `by: claude` の行だけ。問いは `
 1. 作業ブランチを取る（`git fetch origin` と
    `git checkout -B orch/tasks-<番号> origin/orch/tasks-<番号>`）。Pull Request（`gh pr view <番号> -R hidakagit/ride-compass --comments`。本文のキャプチャ・差分）・作業ブランチの CI・issue の完了の条件・変更が届く範囲（要るなら画面）を
    確かめる。作る担当の報告を読み写さず、自分で見る（画面なら自分で撮る）。Pull Request が無ければ（手順が変わる前に
-   検証中になったもの）、作る担当の5のとおりに出してから確かめる。`lost_constraints.py` と `review_checks.py leftovers` も自分で回し、
+   検証中になったもの）、作る担当の5のとおりに出してから確かめる。CI は作業ブランチ単体（push の実行）に加えて、Pull Request の
+   実行（master と合わせた版。作る担当の5と同じく `--event pull_request` で引く）が通っていることを見る。Pull Request の実行だけが
+   落ちていれば、合流点の後に master へ入った変更との意味の競合なので、満たしていないとして 4 のとおり「意味の競合」と落ちた
+   テストを書いて閉じる（作る担当が載せ直して直す）。`lost_constraints.py` と `review_checks.py leftovers` も自分で回し、
    「消えた」・候補の1件ずつに本文の処置があるかを見る（処置の無いものが1件でもあれば満たしていない）。「分布の前後」の対象なら、
    列・軸ごとの前後の行が本文にあるかを見て、本番で測れる側（派生は本番の今、軸は後）を自分で測り直す。
    **設計書の条件を1つ当てる**: 作り直しで落ちた条件（絞り込み・不変条件・制約）は、差分にも作る担当の報告にも1行も出ないので、
