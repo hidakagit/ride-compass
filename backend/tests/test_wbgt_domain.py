@@ -1,71 +1,110 @@
-"""`domain/wbgt.py`——暑さ指数から警戒レベルを決める。
+"""`domain/wbgt.py`——暑さ指数の警戒の段・提供期間・今の予測の選び方。
 
-取得・キャッシュは`test_wbgt_service.py`、地点の解決は`test_geo.py`（最寄りの点）が持つ。
+入口は`wbgt_level`（値→段と呼び名）・`provision_period`と`is_within_provision_period`（取りに行く日か）・
+`current_forecast`（取得した予測から今の1件を選ぶ）。
+
+ここで見ないもの:
+- 配信元の応答を`WbgtForecast`へ解くこと・発表時刻の無い行を載せないこと → `test_wbgt_client.py`
+- 最寄りの地点の選び方・提供期間外に取りに行かないこと → `test_wbgt_service.py`
+- 段階ごとの呼び名`WBGT_LEVEL_LABELS`——段と同じ並びから導き、全段がそろっていることは
+  `domain/warning_display.py`がimportの時点で全段を引いて確かめる
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
-from app.domain.wbgt import is_within_provision_period, provision_period, wbgt_level
+from app.domain.wbgt import WbgtForecast, current_forecast, is_within_provision_period, provision_period, wbgt_level
+
+JST = timezone(timedelta(hours=9))
 
 
-class TestWbgtLevel:
-    @pytest.mark.parametrize(
-        ("value", "expected"),
-        [
-            (31.0, ("emergency_warning", "危険")),
-            (28.0, ("severe_warning", "厳重警戒")),
-            (25.0, ("warning", "警戒")),
-            (21.0, ("advisory", "注意")),
-        ],
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (20.9, None),
+        (21.0, ("advisory", "注意")),
+        (24.9, ("advisory", "注意")),
+        (25.0, ("warning", "警戒")),
+        (27.9, ("warning", "警戒")),
+        (28.0, ("severe_warning", "厳重警戒")),
+        (30.9, ("severe_warning", "厳重警戒")),
+        (31.0, ("emergency_warning", "危険")),
+        (35.0, ("emergency_warning", "危険")),
+    ],
+)
+def test_the_level_follows_the_exercise_guideline_thresholds(value, expected):
+    """熱中症予防運動指針の区分（21・25・28・31以上）。21未満の「ほぼ安全」はバッジを出さない。"""
+    assert wbgt_level(value) == expected
+
+
+def test_the_published_provision_period_of_2026():
+    """環境省の公表（令和8年度は4月22日（水）から10月21日（水）まで）と一致する。"""
+    assert provision_period(2026) == (date(2026, 4, 22), date(2026, 10, 21))
+
+
+@pytest.mark.parametrize("year", range(2000, 2101))
+def test_the_period_runs_from_the_fourth_april_wednesday_for_26_weeks(year):
+    start, end = provision_period(year)
+    assert start.month == 4 and start.weekday() == 2 and 22 <= start.day <= 28
+    assert end - start == timedelta(weeks=26)
+
+
+@pytest.mark.parametrize(
+    ("at", "within"),
+    [
+        (datetime(2026, 4, 21, 23, 59, tzinfo=JST), False),
+        (datetime(2026, 4, 22, 0, 0, tzinfo=JST), True),
+        (datetime(2026, 10, 21, 23, 59, tzinfo=JST), True),
+        (datetime(2026, 10, 22, 0, 0, tzinfo=JST), False),
+    ],
+)
+def test_both_the_first_and_the_last_day_are_within_the_period(at, within):
+    assert is_within_provision_period(at) is within
+
+
+def _forecast(reference_time: str, forecast_time: datetime | None, wbgt: float | None = 26.0) -> WbgtForecast:
+    return WbgtForecast(
+        reference_time=reference_time,
+        forecast_time=forecast_time,
+        forecast_time_text=None if forecast_time is None else forecast_time.isoformat(),
+        wbgt=wbgt,
     )
-    def test_each_threshold_is_inclusive(self, value, expected):
-        """境界を超過で切ると、区分がまるごと1段軽く出る。"""
-        assert wbgt_level(value) == expected
-
-    @pytest.mark.parametrize("value", [30.9, 27.9, 24.9, 20.9])
-    def test_just_below_a_threshold_falls_to_the_lighter_band(self, value):
-        level = wbgt_level(value)
-
-        assert level != wbgt_level(value + 0.2)
-
-    def test_the_mildest_band_is_not_a_warning(self):
-        """返すと、涼しい日も常に何かが表示され続ける。"""
-        assert wbgt_level(20.9) is None
-        assert wbgt_level(0.0) is None
-
-    def test_an_extreme_value_stays_in_the_heaviest_band(self):
-        assert wbgt_level(99.0) == wbgt_level(31.0)
 
 
-class TestProvisionPeriod:
+NOW = datetime(2026, 7, 1, 13, 20, tzinfo=JST)
 
-    @pytest.mark.parametrize(
-        ("year", "announced"),
-        [
-            # 環境省の報道発表（熱中症特別警戒アラート等の運用開始）が載せた運用期間。
-            (2024, (date(2024, 4, 24), date(2024, 10, 23))),
-            (2025, (date(2025, 4, 23), date(2025, 10, 22))),
-            (2026, (date(2026, 4, 22), date(2026, 10, 21))),
-        ],
-    )
-    def test_the_period_matches_the_announced_one(self, year, announced):
-        """ずれると、期間の端で配信元の値が無いのに「取得できませんでした」が出るか、値があるのに出さない。"""
-        assert provision_period(year) == announced
 
-    @pytest.mark.parametrize(
-        ("at", "expected"),
-        [
-            (datetime(2026, 4, 21, 23, 59), False),
-            (datetime(2026, 4, 22, 0, 0), True),
-            (datetime(2026, 10, 21, 23, 59), True),
-            (datetime(2026, 10, 22, 0, 0), False),
-        ],
-    )
-    def test_both_end_days_are_inside(self, at, expected):
-        assert is_within_provision_period(at) is expected
+def test_no_forecasts_select_nothing():
+    assert current_forecast([], NOW) is None
 
-    @pytest.mark.parametrize("month", [1, 2, 3, 11, 12])
-    def test_the_other_months_are_outside(self, month):
-        assert is_within_provision_period(datetime(2026, month, 15)) is False
+
+def test_the_forecast_nearest_to_now_is_selected_whether_before_or_after():
+    """今は時刻を持つが、対象時刻はJSTの素の時刻。比べる前に揃える。"""
+    before = _forecast("2026070112", datetime(2026, 7, 1, 13, 0))
+    after = _forecast("2026070112", datetime(2026, 7, 1, 14, 0))
+    far = _forecast("2026070112", datetime(2026, 7, 1, 18, 0))
+    assert current_forecast([after, before, far], NOW) is before
+
+    later_now = datetime(2026, 7, 1, 13, 40, tzinfo=JST)
+    assert current_forecast([before, after], later_now) is after
+
+
+def test_only_the_latest_issue_is_considered_even_if_an_older_one_is_nearer():
+    older_but_nearer = _forecast("2026070109", datetime(2026, 7, 1, 13, 20))
+    latest = _forecast("2026070112", datetime(2026, 7, 1, 15, 0))
+    assert current_forecast([older_but_nearer, latest], NOW) is latest
+
+
+def test_a_forecast_without_a_readable_target_time_is_never_selected():
+    unreadable = _forecast("2026070112", None)
+    readable = _forecast("2026070112", datetime(2026, 7, 1, 18, 0))
+    assert current_forecast([unreadable, readable], NOW) is readable
+    assert current_forecast([unreadable], NOW) is None
+
+
+def test_a_latest_issue_with_no_readable_target_time_does_not_fall_back_to_an_older_issue():
+    """読めない行も発表回を決めるのには数える。古い発表回の値は、新しい発表回で既に置き換わっている。"""
+    older = _forecast("2026070109", datetime(2026, 7, 1, 13, 0))
+    latest_unreadable = _forecast("2026070112", None)
+    assert current_forecast([older, latest_unreadable], NOW) is None

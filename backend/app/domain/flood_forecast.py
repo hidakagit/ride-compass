@@ -20,7 +20,9 @@ from app.domain.strict_model import StrictModel
 
 
 class FloodLevel(NamedTuple):
-    """氾濫の段。バッジの見た目の語彙はJMA警報と共有するが、軸は別。"""
+    """氾濫の段。バッジの見た目の語彙はJMA警報と共有するが、軸は別。
+
+    `level`と`badge_level`は別々に書くため、段が上がるほどバッジが重いという並びは型では守られない。"""
 
     level: int
     badge_level: WarningBadgeLevel
