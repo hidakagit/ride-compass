@@ -1,5 +1,5 @@
 """取込の共通経路（`ingest.ingest_source`）が、行の多さ・大きさに比例してメモリを抱えないこと。
-途中で落ちた取込が、行を元のまま残して失敗のrunを記録すること。
+途中で落ちた取込が、行を元のまま残して失敗のrunを記録すること。取込の間は派生の作り直しが止まること。
 
 本番の取込は上限つきの使い捨てコンテナで走り、標高のタイルは1件が約0.26MB（256×256画素のint32）ある。
 ここでは同じ大きさの行を数百件、本物の入口へ流し、取込の間のPythonの確保の最大が、流した総量より
@@ -15,6 +15,7 @@ import pytest_asyncio
 import shapely
 from shapely.geometry import Point
 
+from app.batch import derive_cli
 from app.batch._common import asyncpg_dsn
 from app.batch.ingest import (
     ADAPTERS,
@@ -113,3 +114,13 @@ async def test_ingesting_inside_a_transaction_is_refused(conn, monkeypatch):
     async with conn.transaction():
         with pytest.raises(RuntimeError, match="トランザクションの外"):
             await ingest_source(conn, _only(SOURCE, "breaks"), SOURCE)
+
+
+async def test_a_rebuild_is_refused_while_an_import_runs(conn, monkeypatch):
+    async def rebuild_meanwhile(spec, profile, origin):
+        with pytest.raises(RuntimeError, match="取込が走っている"):
+            await derive_cli.run(postgis_database_url(), None)
+        yield SourceRecord(natural_key="new", geom_wkb=POINT_WKB, attrs={})
+
+    monkeypatch.setitem(ADAPTERS, "rebuild", RegisteredAdapter(read=rebuild_meanwhile, rows=NoFields, grid=NoFields))
+    await ingest_source(conn, _only(SOURCE, "rebuild"), SOURCE)
