@@ -12,26 +12,20 @@
  */
 import { describe, expect, it } from "vitest";
 
+import { makeRouteSegment } from "@/testing/routeFixtures";
 import type { RouteSegmentDetail } from "@/types/route";
 
 import { columnAtKm, pointAlongSegment, profileBoxes, profileColumns } from "./profileGeometry";
 
-type Segment = Parameters<typeof profileColumns>[0][number];
-
 /** 区間。難易度は、指定しなければ軸の寄与の合計（backendが区間の難易度を寄与へ分けるのと同じ関係）。 */
-function segment(overrides: Partial<Segment> = {}): Segment {
+function segment(overrides: Partial<RouteSegmentDetail> = {}): RouteSegmentDetail {
   const contributions = overrides.axis_contributions ?? {};
-  return {
+  return makeRouteSegment({
     distance_km: 1,
     difficulty: Object.values(contributions).reduce((sum, value) => sum + value, 0),
-    axis_contributions: contributions,
-    geometry: null,
-    start_latitude: 0,
-    start_longitude: 0,
-    end_latitude: 0,
     end_longitude: 1,
     ...overrides,
-  };
+  });
 }
 
 function line(coordinates: number[][]): RouteSegmentDetail["geometry"] {

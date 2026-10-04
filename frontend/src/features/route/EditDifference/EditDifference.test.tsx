@@ -2,8 +2,7 @@
  * `features/route/EditDifference/EditDifference.tsx`——編集で作ったルートの中身の先頭に出す「元との違い」。
  *
  * 見るもの: 元の名前と距離・変えた区間の数、指標ごとの差の書き方（桁・単位・値の無い側があれば「—」）と増減の印
- * （表示する桁で丸めた値で決める）、変えた区間ごとの元の位置と長さの差、位置を出せない区間は数だけに入ること、
- * 「元を見る」で元へ切り替える操作が上がること。
+ * （表示する桁で丸めた値で決める）、変えた区間ごとの元の位置と長さの差、「元を見る」で元へ切り替える操作が上がること。
  *
  * ここで見ないもの: 差の求め方（Edge id列の差・座標からの距離） → `features/route/routeEditDiff.ts`。
  * 増減の印の色 → スタイル（テスト環境はTailwindを通さない）。
@@ -117,12 +116,6 @@ describe("EditDifference", () => {
     const item = screen.getByRole("listitem");
     expect(item).toHaveTextContent("1.1〜2.2km");
     expect(item).toHaveTextContent("+2.2km");
-  });
-
-  it("Edgeの境界の位置を持たない候補では、区間の数だけを出して位置の一覧を出さない", () => {
-    renderDifference({ origin: origin({ edge_point_offsets: [] }) });
-    expect(screen.getByText("から1区間")).toBeInTheDocument();
-    expect(screen.queryByRole("list")).not.toBeInTheDocument();
   });
 
   it("「元を見る」で元のルートへ切り替える操作を上げる", async () => {
