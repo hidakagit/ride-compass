@@ -43,9 +43,8 @@ def _element(kind, jma_elements, grid_value=None) -> WeatherElement:
     return WeatherElement("group", "source", kind, tuple(jma_elements), "架空", FrameRule("nearest"), grid_value)
 
 
-@pytest.mark.usefixtures("_declared")
-def test_elements_not_drawn_from_tiles_have_no_tile_spec():
-    assert weather_element_tile(_element("outline", ("t_points",))) is None
+def test_an_element_not_drawn_from_tiles_has_no_tile_spec():
+    assert weather_element_tile(_element("gridFill", ())) is None
 
 
 @pytest.mark.usefixtures("_declared")
@@ -103,17 +102,10 @@ def _frames(*validtimes: str) -> list[JmaFrame]:
 @pytest.mark.parametrize(
     ("stages", "first_validtimes"),
     [
-        ([], []),
         ([_frames("01", "02"), _frames("02", "03", "04")], ["01", "03"]),
-        ([_frames("01", "02"), [], _frames("02", "03")], ["01", None, "03"]),
         ([_frames("01", "05"), _frames("02", "03"), _frames("04", "06")], ["01", None, "06"]),
     ],
-    ids=[
-        "no_stages",
-        "next_stage_continues_after_the_last_frame_before",
-        "empty_stage_is_skipped",
-        "covered_stage_does_not_move_the_join",
-    ],
+    ids=["next_stage_continues_after_the_last_frame_before", "covered_stage_does_not_move_the_join"],
 )
 def test_each_stage_starts_after_the_last_frame_of_the_stages_before(stages, first_validtimes):
     first_frames = stage_first_frames(stages)

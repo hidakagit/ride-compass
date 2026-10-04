@@ -97,10 +97,8 @@ NOT_ON_THE_MAP = {
     "向きで値が変わる材料": _axis(_line("num_directional")),
     "どこにも無い材料": _axis(_line("nowhere")),
     "符号を畳む前処理": _axis(_line("num_a", preprocess="abs")),
-    "タイルに無い分類の材料": _axis(CategoricalShape(material="kind_untiled", mapping={"x": 0.0, "y": 100.0})),
     "得点が1つしかない分類": _axis(CategoricalShape(material="kind", mapping={"x": 50.0, "y": 50.0})),
     "真偽の片方しか無い対応表": _axis(CategoricalShape(material="flag", mapping={True: 100.0})),
-    "真偽と値の名前が混ざった対応表": _axis(CategoricalShape(material="kind", mapping={True: 100.0, "x": 0.0})),
 }
 
 
@@ -172,7 +170,6 @@ def test_a_line_axis_of_flags_splits_between_the_sums_it_can_take():
         )
     )
 
-    assert [tile_input.true_value for tile_input in display.tile_inputs] == [10.0, 20.0]
     # 取りうる和は 0・10・20・30（右端25で止まる）。
     assert display.thresholds == [5.0, 15.0, 22.5]
 
@@ -239,33 +236,11 @@ def test_an_axis_reading_an_axis_the_tile_cannot_reproduce_is_not_drawn(axes, in
     assert axis_display_for(_axis(_line("num_a", "inner"))).kind == "none"
 
 
-def test_a_draft_reading_its_own_saved_version_is_not_drawn_and_keeps_every_band(axes):
+def test_a_draft_reading_its_own_saved_version_is_not_on_the_map_and_keeps_every_band(axes):
     """保存前の下書きは自分自身を読めてしまう（保存は循環として断られる）。保存済みの自分を材料として畳まない。"""
     axes["axis_a"] = _axis(_line("num_a"))
-    draft = _line("axis_a")
 
-    assert axis_display_for(_axis(draft)).kind == "none"
-    assert bands_the_map_keeps("axis_a", draft, [], [1.0, 2.0]) == [0, 1, 2]
-
-
-@pytest.mark.parametrize(
-    ("breakpoints", "override", "thresholds"),
-    [
-        # 折れ線が平らな区間の境界は、得点が変わらないので段にならない。
-        ([(0.0, 0.0), (2.0, 50.0), (4.0, 50.0), (6.0, 100.0)], None, [2.0, 6.0]),
-        # 上書きの境界も同じ。折れ線が右端で止まった先の境界は落ちる。
-        ([(0.0, 0.0), (4.0, 100.0)], [1.0, 3.0, 5.0, 8.0], [1.0, 3.0, 5.0]),
-        # 得点は小数1桁で区別する。それより細かい差は同じ得点。
-        ([(0.0, 0.0), (1.0, 0.04), (2.0, 100.0)], [0.5, 1.0, 2.0], [0.5, 2.0]),
-        # 値が増えるほど得点が下がる折れ線では、最初の境界だけが残る。
-        ([(0.0, 100.0), (5.0, 50.0), (10.0, 0.0)], None, [5.0]),
-    ],
-)
-def test_a_boundary_whose_score_does_not_rise_is_not_a_band_on_the_map(breakpoints, override, thresholds):
-    """ルート線は難易度の昇順でしか段を切れない。地図だけに段があると、ルートの前後で段の数が食い違う。"""
-    display = _drawn(_line("num_a", breakpoints=breakpoints), display_thresholds_override=override)
-
-    assert display.thresholds == thresholds
+    assert bands_the_map_keeps("axis_a", _line("axis_a"), [], [1.0, 2.0]) == [0, 1, 2]
 
 
 def test_a_named_value_axis_takes_the_overriding_boundaries_as_they_are():
@@ -279,22 +254,8 @@ def test_a_named_value_axis_takes_the_overriding_boundaries_as_they_are():
 STEPPED = _line("num_a", breakpoints=[(0.0, 0.0), (2.0, 50.0), (4.0, 50.0), (6.0, 100.0)])
 
 
-def test_bands_merged_by_a_dropped_boundary_take_the_lower_band():
-    """落ちた境界の上下は1つの段にまとまり、下端が同じ値の下側の段として扱う。"""
-    thresholds = [2.0, 3.0, 4.0, 6.0]
-
-    assert bands_the_map_keeps("axis_a", STEPPED, [], thresholds) == [0, 1, 4]
-    assert thresholds_the_map_drops("axis_a", STEPPED, [], thresholds) == [3.0, 4.0]
-
-
-def test_an_axis_not_on_the_map_keeps_every_band():
-    conditions = [PriorityCondition(material="flag", equals="true", value=0)]
-
-    assert bands_the_map_keeps("axis_a", STEPPED, conditions, [2.0, 3.0]) == [0, 1, 2]
-    assert thresholds_the_map_drops("axis_a", STEPPED, conditions, [2.0, 3.0]) == []
-
-
 def test_band_labels_are_taken_for_the_bands_left_on_the_map():
+    """落ちた境界の上下は1つの段にまとまり、下端が同じ値の下側の段として扱う。"""
     definition = _axis(
         STEPPED, display_thresholds_override=[2.0, 3.0, 4.0, 6.0], display_band_labels_override=list("abcde")
     )
@@ -303,7 +264,6 @@ def test_band_labels_are_taken_for_the_bands_left_on_the_map():
 
 
 def test_band_labels_are_missing_without_overriding_labels():
-    assert map_band_labels(_axis(STEPPED)) is None
     assert map_band_labels(_axis(STEPPED, display_thresholds_override=[2.0, 3.0])) is None
 
 

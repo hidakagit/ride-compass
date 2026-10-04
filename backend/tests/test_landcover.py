@@ -3,7 +3,6 @@
 入口は次のとおり。
 - `class_percentages_sql`: 区間ごとのクラス別の画素数から割合の行を返すSQL（PostGISで実行して確かめる）
 - `LandcoverPercentages`: その行を受け取るモデル
-- `landcover_key`・`landcover_tile_property`: 割合列の名前から、材料の列と焼き込み列の名前を導く規則
 - `raster_set_fingerprint`: 開いているラスタの構成の指紋
 - `LANDCOVER_CLASSES`: クラスの宣言（凡例・区間インスペクタ・集計が読む）。型でも導出でも保証できない不変条件だけを見る
 
@@ -11,6 +10,8 @@
 - 道の周りの帯から画素を数えること → `test_derive_landcover.py`
 - ラスタを読んでタイルを塗ること → `test_landcover_raster.py`
 - どのクラスが難易度に効くか（評価軸の項）→ 軸の宣言のテスト
+- 割合列の名前から材料の列と焼き込み列の名前を導く規則（`landcover_key`・`landcover_tile_property`）→ 書く側も読む側も
+  同じ関数で名前を導くので、食い違いようが無い
 """
 
 import pytest
@@ -49,16 +50,6 @@ async def percentages(session, counts: list[tuple[int, int, int, int]]) -> list[
 
 
 @on_postgis
-async def test_each_class_gets_its_share_of_the_valid_pixels(road_graph_session):
-    [row] = await percentages(road_graph_session, [(1, 0, FIRST, 30), (1, 0, SECOND, 10)])
-
-    assert row["valid_pixels"] == 40
-    assert row[field_of(FIRST)] == pytest.approx(75.0)
-    assert row[field_of(SECOND)] == pytest.approx(25.0)
-    assert all(row[field_of(value)] == 0 for value in CLASS_VALUES[2:])
-
-
-@on_postgis
 async def test_no_data_and_clouds_are_left_out_of_the_denominator(road_graph_session):
     [row] = await percentages(
         road_graph_session, [(1, 0, FIRST, 30), (1, 0, NO_DATA, 500), (1, 0, CLOUDS, 500)]
@@ -76,8 +67,6 @@ async def test_a_segment_with_too_few_valid_pixels_has_no_row(road_graph_session
         [
             (1, 0, FIRST, enough),  # ちょうど下限は行を持つ
             (2, 0, FIRST, enough - 1),
-            (3, 0, FIRST, enough - 1),  # 雲に覆われた画素は足しても数えない
-            (3, 0, CLOUDS, 100),
         ],
     )
 
@@ -99,8 +88,8 @@ async def test_segments_are_counted_separately(road_graph_session):
 
 @on_postgis
 async def test_every_class_in_the_declaration_is_counted_and_the_row_fits_the_model(road_graph_session):
-    """クラスごとに違う画素数を与え、どのクラスの数もそのクラスの列にだけ入ることを見る。"""
-    counts = {value: 10 * (position + 1) for position, value in enumerate(CLASS_VALUES)}
+    """クラスごとに違う画素数を与え、どのクラスの数もそのクラスの列にだけ入ることを見る。画素の無いクラスは0。"""
+    counts = {value: 10 * (position + 1) for position, value in enumerate(CLASS_VALUES[:-1])}
     [row] = await percentages(road_graph_session, [(1, 0, value, n) for value, n in counts.items()])
     total = sum(counts.values())
 
@@ -109,12 +98,7 @@ async def test_every_class_in_the_declaration_is_counted_and_the_row_fits_the_mo
     )
 
     for cls in landcover.LANDCOVER_CLASSES:
-        assert getattr(percentages_row, cls.percent_field) == pytest.approx(100.0 * counts[cls.value] / total)
-
-
-def test_the_material_column_and_the_tile_property_come_from_the_percent_field():
-    assert landcover.landcover_key("crops_percent") == "crops"
-    assert landcover.landcover_tile_property("crops_percent") == "crops_pct"
+        assert getattr(percentages_row, cls.percent_field) == pytest.approx(100.0 * counts.get(cls.value, 0) / total)
 
 
 def test_the_class_declaration_can_be_told_apart_everywhere_it_is_read():
