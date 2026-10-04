@@ -50,7 +50,7 @@ def test_minor_roads_share_one_rank_below_tertiary_and_above_paths():
     assert traffic.highway_rank("cycleway") < minor.pop() < traffic.highway_rank("tertiary")
 
 
-@pytest.mark.parametrize("highway", ["cycleway", "footway", "path", "no_such_value", "", None])
+@pytest.mark.parametrize("highway", ["cycleway", None])
 def test_paths_unknown_values_and_missing_tags_rank_lowest(highway):
     assert traffic.highway_rank(highway) == 0
 

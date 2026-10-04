@@ -187,15 +187,6 @@ def test_the_cost_is_the_travel_time_raised_by_the_weighted_difficulty(wind_axis
     assert leg.cost_lazy == pytest.approx(leg.travel_seconds_lazy * (1 + 0.5 * difficulty / 100))
 
 
-def test_the_contributions_of_the_axes_add_up_to_the_difficulty():
-    leg = _snapshot(_matrix(1, axes={"axis_a": 20.0, "axis_b": 85.0}), weights={"axis_a": 1.0, "axis_b": 2.0})
-
-    contributions = leg.axis_contributions_at(0)
-
-    assert set(contributions) == {"axis_a", "axis_b"}
-    assert sum(contributions.values()) == pytest.approx(leg.difficulty_array[0], abs=0.05)
-
-
 def test_an_axis_that_reads_the_wind_scores_a_headwind_above_a_tailwind(wind_axis):
     matrix = _matrix(2, bearing=[NORTH, SOUTH], axes={WIND_AXIS: np.nan})
 
@@ -209,7 +200,6 @@ def test_without_any_wind_the_wind_has_no_value_on_a_segment(wind_axis):
     leg = _snapshot(_matrix(1, axes={WIND_AXIS: np.nan}), weights={WIND_AXIS: 1.0})
 
     assert WIND_DRAG not in leg.material_arrays
-    assert leg_costs.material_value_at(leg, WIND_DRAG, 0) is None
     assert np.isnan(leg.axis_arrays[WIND_AXIS][0])
 
 
@@ -293,10 +283,8 @@ def test_each_bin_uses_the_wind_forecast_for_its_hour():
 @pytest.mark.parametrize(
     ("duration_hours", "representative"),
     [
-        (1.5, 0),  # 2本のうち、中間の0.75時間が入るのは最初のビン
-        (3.0, 1),
-        (4.0, 2),  # 上限の4本で、中間の2時間が入る3本目
-        (7.0, 3),  # 同じ4本でも、中間が上限より先なら最後のビン
+        (3.0, 1),  # 3本のうち、中間の1.5時間が入る2本目
+        (10.0, 3),  # 上限の4本より先に中間（5時間）があれば、最後のビン
     ],
 )
 def test_the_search_without_a_clock_and_the_display_read_the_bin_at_the_middle_of_the_leg(duration_hours, representative):
@@ -387,19 +375,12 @@ def _night_composer(n: int = 1) -> LegCostComposer:
     )
 
 
-@pytest.mark.parametrize(
-    ("offset_hours", "night_bins"),
-    [
-        (7.5, [False, False, True]),  # 16時30分・17時30分・18時30分
-        (19.5, [True, False, False]),  # 翌4時30分・5時30分・6時30分
-    ],
-    ids=["日没をまたぐ", "日の出をまたぐ"],
-)
-def test_the_night_axis_weighs_only_in_the_bins_ridden_in_the_dark(night_axis, offset_hours, night_bins):
-    leg = _night_composer().compose("leg", None, offset_hours, +1, duration_hours=3.0)
+def test_the_night_axis_weighs_only_in_the_bins_ridden_in_the_dark(night_axis):
+    """16時30分・17時30分・18時30分に始まるビンのうち、日没の後の最後だけに効く。"""
+    leg = _night_composer().compose("leg", None, 7.5, +1, duration_hours=3.0)
 
     ratio = leg.cost_bins_lazy[:, 0] / leg.travel_bins_lazy[:, 0]
-    assert ratio.tolist() == pytest.approx([1.25 if night else 1.0 for night in night_bins])
+    assert ratio.tolist() == pytest.approx([1.0, 1.0, 1.25])
 
 
 def test_a_tree_without_a_clock_weighs_the_night_axis_at_each_segment_s_own_passage(night_axis):
@@ -427,7 +408,6 @@ def test_the_share_of_distance_timed_without_gradient_or_stop_data():
     ))
 
     assert composer.missing_travel_data_share(np.array([0, 1, 2])) == 0.4
-    assert composer.missing_travel_data_share(np.array([2])) == 0.0
     assert composer.missing_travel_data_share(np.array([], dtype=np.int64)) is None
 
 

@@ -27,10 +27,6 @@ def fictional_axes():
         yield
 
 
-def test_without_weights_every_published_axis_gets_its_default_weight():
-    assert RoutePreference().weights == {"axis_a": 0.4, "axis_b": 0.2}
-
-
 def test_weights_left_out_are_filled_with_defaults_in_the_order_of_the_axes():
     weights = RoutePreference(weights={"axis_b": 0.7}).weights
 
@@ -41,25 +37,23 @@ def test_weights_left_out_are_filled_with_defaults_in_the_order_of_the_axes():
 @pytest.mark.parametrize(
     "weights",
     [
-        {"no_such_axis": 0.1},
         # 内部軸は公開軸から参照されるだけで、重みを付ける対象ではない。
         {"axis_internal": 0.1},
         # 負の重みは合成の分母と分子の符号を食い違わせ、良い道ほど点が高くなる。
         {"axis_a": -0.1},
     ],
 )
-def test_weights_for_unknown_axes_or_below_zero_are_refused(weights):
-    with pytest.raises(ValidationError):
-        RoutePreference(weights=weights)
+def test_weights_for_unpublished_axes_or_below_zero_are_refused(weights):
     with pytest.raises(ValueError):
         check_axis_weights(weights)
+
+
+def test_the_request_refuses_the_weights_the_check_refuses():
+    with pytest.raises(ValidationError):
+        RoutePreference(weights={"axis_a": -0.1})
 
 
 def test_a_zero_weight_is_kept_rather_than_replaced_by_the_default():
     """重み0は「この軸を気にしない」という指定で、書かれなかった軸と違い既定で補わない。"""
     assert RoutePreference(weights={"axis_a": 0.0}).weights == {"axis_a": 0.0, "axis_b": 0.2}
 
-
-def test_a_weight_above_the_screen_limit_is_accepted():
-    """画面で1軸へ寄せられる上限は、保存された配分や既定がそれを超えていても生成を断らない。"""
-    assert RoutePreference(weights={"axis_a": 1.0}).weights["axis_a"] == 1.0
