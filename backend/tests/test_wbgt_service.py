@@ -50,15 +50,14 @@ def _service(monkeypatch, *, point_master=POINT_MASTER_CSV, forecast=None) -> tu
     return WbgtService(http_client=client_for(upstream)), upstream
 
 
-@pytest.mark.parametrize("now", [WINTER_NOW, datetime(2026, 4, 10, 12, 0, 0), datetime(2026, 10, 28, 12, 0, 0)])
-async def test_get_status_returns_empty_outside_provision_period(monkeypatch, now):
-    """4月・10月でも期間の外なら配信元は値を返さないので、取りに行くと「取得できませんでした」になる。"""
-    service, upstream = _service(monkeypatch, forecast=[])
+async def test_a_value_outside_the_provision_period_is_shown(monkeypatch):
+    """配信元は発表の期間の外でも値を返す年があり、その日の段を隠さない。"""
+    service, _ = _service(monkeypatch, forecast=[_forecast("2026/10/28 08:00:00", "2026/10/28 09:00:00", "230")])
 
-    result = await service.get_status(POINT, now=now)
+    result = await service.get_status(POINT, now=datetime(2026, 10, 28, 9, 0, 0))
 
-    assert result is not None and result.reading is None
-    assert not upstream.calls
+    assert result is not None and result.reading is not None
+    assert result.reading.level == "advisory"
 
 
 @pytest.mark.parametrize("failure", [
@@ -67,20 +66,30 @@ async def test_get_status_returns_empty_outside_provision_period(monkeypatch, no
     {"forecast": None},
     {"forecast": []},  # 検索窓に発表が無い
 ])
-async def test_get_status_is_unknown_rather_than_empty_when_no_current_value_is_obtained(monkeypatch, failure):
-    """取れなかったことを段なし（「ほぼ安全」・期間外と同じ空）で返すと、画面は警戒が要らないと見せる。"""
+@pytest.mark.parametrize(("now", "within_period"), [(SUMMER_NOW, True), (WINTER_NOW, False)])
+async def test_without_a_current_value_only_inside_the_period_is_unknown(monkeypatch, failure, now, within_period):
+    """期間の中で取れなかったことを段なしで返すと、画面は警戒が要らないと見せる。期間の外は値が無いのが常で、
+    失敗と出すと提供していない時期に「取得できませんでした」が出る。"""
     service, _ = _service(monkeypatch, **failure)
-    assert await service.get_status(POINT, now=SUMMER_NOW) is None
+
+    result = await service.get_status(POINT, now=now)
+
+    if within_period:
+        assert result is None
+    else:
+        assert result is not None and result.reading is None
 
 
-async def test_no_issuance_inside_the_period_is_logged(monkeypatch, caplog):
-    """配信元の失敗はクライアントが出すが、発表の無い成功はここで出さないと502の理由がどこにも残らない。"""
+@pytest.mark.parametrize(("now", "logged"), [(SUMMER_NOW, True), (WINTER_NOW, False)])
+async def test_no_issuance_is_logged_only_inside_the_period(monkeypatch, caplog, now, logged):
+    """配信元の失敗はクライアントが出すが、発表の無い成功はここで出さないと502の理由がどこにも残らない。
+    期間の外の発表の無い成功は正常で、出すと冬のあいだ出続ける。"""
     service, _ = _service(monkeypatch, forecast=[])
 
     with caplog.at_level("WARNING", logger="ridecompass.wbgt_service"):
-        await service.get_status(POINT, now=SUMMER_NOW)
+        await service.get_status(POINT, now=now)
 
-    assert any("発表がありません" in record.getMessage() for record in caplog.records)
+    assert any("発表がありません" in record.getMessage() for record in caplog.records) is logged
 
 
 async def test_get_status_returns_empty_when_below_almost_safe_threshold(monkeypatch):
