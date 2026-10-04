@@ -1,4 +1,4 @@
-"""派生データの世代と、数えた事故の取込（1行のみ、id=1固定）。今の派生の表を作った取込（`derived_source_runs`）。
+"""派生データの世代（1行のみ、id=1固定）と、今の派生の表を作った取込（`derived_source_runs`）。
 
 派生の作り直し（`app/batch/derive_cli.py`）が作り直した表を入れ替えるたびにインクリメントする単調カウンタ。
 道路網全体の配列の置き場の名前（`road_network_store.py`）と、配信する地図タイルの世代
@@ -10,12 +10,7 @@
 系譜は変わらないためである。「中身を書き直した」という事実を
 表せるのは書いた側が進めるカウンタだけである。
 
-**この表も派生の表と一緒に作業用のスキーマへ写して入れ替える**（`derive_cli.py`）。
-`accident_run_id`は事故の数の分母（収録年数）を決めるので、数と同じ時点で変わらないと、
-取り込み直してから作り直しが入れ替わるまでの間、分母だけが新しい取込の年数になる。
-
-行は最初に世代を進めたとき（`bump_revision`）か、数の段が数えた事故の取込を記録したとき
-（`record_accident_run`）に作られる。行が無い間は`get_revisions()`の
+行は最初に世代を進めたとき（`bump_revision`）に作られる。行が無い間は`get_revisions()`の
 派生の世代がNoneになる。
 """
 
@@ -34,20 +29,17 @@ class DerivedDataMetaRow(Base):
     __tablename__ = "derived_data_meta"
     __table_args__ = (CheckConstraint("id = 1", name="derived_data_meta_single_row"),)
 
-    #: 連番にしない——表ごと入れ替えるので、写しの既定値が元の表の連番を指すと元の表を消せない。
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
     revision: Mapped[int] = mapped_column(Integer, nullable=False)
-    #: 今の事故の数（`accident_count`）を数えた事故の取込。事故密度の分母はこのrunの宣言の年から読む。
-    #: NULLは事故の取込が無いまま数えたこと（事故の数はどれも0）。
-    accident_run_id: Mapped[int | None] = mapped_column(
-        BigInteger, ForeignKey("source_runs.run_id"), nullable=True)
 
 
 class DerivedSourceRunRow(Base):
     """今の`public`の派生の表を作った取込。ソースごとに1行。
 
-    作り直しを始めた時点の、全ソースの成功した最新の取込を、表を入れ替えるのと同じトランザクションで
-    書く（`derive_cli.py`）。段がどのソースを読むかは宣言していないので、全ソースを記録する。段が読んだ
+    作り直しを始めた時点の、全ソースの成功した最新の取込を書く。段がどのソースを読むかは宣言していないので、
+    全ソースを記録する。派生の表と一緒に作業用のスキーマへ写して書き、表ごと入れ替える（`derive_cli.py`）——
+    事故密度の分母がこの記録の事故の取込の年から読まれる（`road_graph_repository.py: get_accident_years`）ので、
+    入れ替えの前に作業用のスキーマから作る道路網の配列も、入れ替えの後の読み手も、数と同じ取込の年を読む。段が読んだ
     生データがこの記録と一致するのは、取込と作り直しが同時に走らず、`--from`が記録から生データの
     変わっていないときだけ流れるためである。
     """
@@ -89,17 +81,6 @@ async def bump_revision(conn: asyncpg.Connection) -> int:
     return revision
 
 
-async def record_accident_run(conn: asyncpg.Connection, run_id: int | None) -> None:
-    """数えた事故の取込を記録する。行が無ければ世代0（まだ一度も入れ替えていない）で作る。
-
-    数の段が作業用のスキーマの写しへ書き、入れ替えで数と一緒に読み手へ出る。
-    """
-    await conn.execute(
-        "INSERT INTO derived_data_meta (id, revision, accident_run_id) VALUES (1, 0, $1)"
-        " ON CONFLICT (id) DO UPDATE SET accident_run_id = EXCLUDED.accident_run_id",
-        run_id)
-
-
 async def read_source_runs(conn: asyncpg.Connection) -> dict[str, int]:
     """今の派生の表を作った取込（ソース → `run_id`）。"""
     return {row["source"]: row["run_id"] for row in await conn.fetch(
@@ -107,8 +88,7 @@ async def read_source_runs(conn: asyncpg.Connection) -> dict[str, int]:
 
 
 async def replace_source_runs(conn: asyncpg.Connection, runs: dict[str, int]) -> None:
-    """今の派生の表を作った取込を`runs`へ置き換える。派生の表を入れ替えるトランザクションの中で呼ぶ
-    （`bump_revision`と同じ理由）。"""
+    """派生の表を作った取込を`runs`へ置き換える。"""
     await conn.execute(f"DELETE FROM {DerivedSourceRunRow.__tablename__}")
     await conn.executemany(
         f"INSERT INTO {DerivedSourceRunRow.__tablename__} (source, run_id) VALUES ($1, $2)", runs.items())
