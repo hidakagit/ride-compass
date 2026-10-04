@@ -234,9 +234,13 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    本文を直すときは `gh issue edit <番号> -R hidakagit/ride-compass --body-file <ファイル>` で書き換える（`gh pr edit` と、欄を選ばない
    `gh pr view` は、レビューを頼んだチームの名前を問い合わせるため、組織を読む権限の無いトークンでは断られる）。
    出したら（push したら）、Pull Request の CI の実行（master と合わせた版）の id を
-   `gh run list -R hidakagit/ride-compass --commit <コミットの40桁の ID> --workflow ci.yml --event pull_request --json databaseId` で引き
-   （出ていなければ少しおいて引き直す。ID は git rev-parse HEAD が出す40桁を渡す——`--commit` は短い ID や後ろを補った ID に一致せず、
-   実行があっても0件になり、まだ出ていないのと見分けられない）、`gh run watch <id> --compact -i 30 -R hidakagit/ride-compass --exit-status`
+   `gh run list -R hidakagit/ride-compass --commit "$(git rev-parse HEAD)" --workflow ci.yml --event pull_request --json databaseId` で引き
+   （ID は手で写さずにこの形で渡す——`--commit` は短い ID や後ろを補った ID に一致せず、実行があっても0件になり、まだ出ていないのと
+   見分けられない）。0件なら `gh pr view <番号> -R hidakagit/ride-compass --json mergeable` を見て、`CONFLICTING` なら待たずに下の
+   「落ちたら」と同じく master を取り込んで push する（master と競合した Pull Request には `pull_request` の実行が起きない。GitHub の公式の
+   文書 Events that trigger workflows の `pull_request`）。それ以外（`MERGEABLE`・まだ決まっていない `UNKNOWN`）なら、同じ2つを打ち直す。
+   打ち直しの前に `sleep` を置かない（`sleep 30; gh run list …` の形は、Claude Code 本体が担当の環境に無い道具（Monitor・裏で動かす Bash）を
+   案内して断ることがあり、断る条件は公式の文書に無い）。id が出たら、`gh run watch <id> --compact -i 30 -R hidakagit/ride-compass --exit-status`
    で終わるまで前に出したまま待つ（Bash の `timeout` を上限の 600000 にして打つ。上限で止まったら同じコマンドを打ち直す。裏へ回して
    知らせを待つと、そこで担当の実行が終わる。端末でない出力では見回りのたびに全部のジョブを書き直すので、`--compact -i 30` で出力を絞る）。
    Pull Request の実行は master と合わせた版を検査するので、作業ブランチの変更の誤りも、合流点の後に master へ入った変更との意味の
