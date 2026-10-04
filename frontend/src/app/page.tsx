@@ -68,7 +68,7 @@ type MobileSheet = "routeSettings" | "routeOutcome" | null;
 /** モバイルの下部タブの使い方。 */
 const MOBILE_TAB_USAGES = {
   routeSettings:
-    "ルートを作る条件[距離・地点・重み・除外・保存した条件]と「ルート生成」を開きます。もう一度押すと閉じます。",
+    "ルートを作る条件[距離・地点・重み・除外・保存した設定]と「ルート生成」を開きます。もう一度押すと閉じます。",
   routeOutcome: "作った候補の一覧と、その難易度の内訳を開きます。点は新しい結果か条件の変更の合図で、赤は失敗です。",
 } as const;
 
@@ -101,7 +101,8 @@ export default function Home() {
   // 名前を付けて保存した生成の条件（「保存」タブ）。
   const savedConditions = useSavedConditions({
     conditions,
-    manualOrigin: locationSource === "manual" ? location : null,
+    origin: locationKnown ? location : null,
+    originManual: locationSource === "manual",
     onOriginPlace: setManualLocation,
     onOriginFollowCurrent: handleLocateMe,
   });
@@ -265,7 +266,7 @@ export default function Home() {
         <TabsTrigger value="exclusions" usage="ルートに使わない道路の種類を選びます。">
           除外
         </TabsTrigger>
-        <TabsTrigger value="saved" usage="いまの条件に名前を付けて保存し、保存した条件を呼び出します。">
+        <TabsTrigger value="saved" usage="いまの設定に名前を付けて保存し、保存した設定を呼び出します。">
           保存
         </TabsTrigger>
       </TabsList>
@@ -332,7 +333,10 @@ export default function Home() {
         savedPanel={
           <SavedConditionsPanel
             saved={savedConditions.saved}
+            current={savedConditions.current}
             suggestedName={savedConditions.suggestedName}
+            originManual={locationSource === "manual"}
+            originKnown={locationKnown}
             onSave={savedConditions.save}
             onRecall={savedConditions.recall}
             onRemove={savedConditions.remove}
