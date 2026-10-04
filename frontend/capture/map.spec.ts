@@ -2,6 +2,7 @@ import { test, type Page, type Route } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { mapDisplay } from "@/types/generated/mapDisplay";
 import { chooseLens, openLive, settleMap } from "../e2e-live/live";
 
 // 地図の画面を撮る段。入口は scripts/capture-map.mjs で、引数はそこが CAPTURE_OPTIONS に詰めて渡す。
@@ -9,6 +10,7 @@ import { chooseLens, openLive, settleMap } from "../e2e-live/live";
 
 interface CaptureOptions {
   lenses: string[];
+  layers: string[];
   out: string;
   viewport: { width: number; height: number };
   zoom: number | null;
@@ -43,8 +45,14 @@ async function lensLabels(page: Page): Promise<string[]> {
 test("地図を撮る", async ({ page }) => {
   test.skip(!options, "CAPTURE_OPTIONS が無い（scripts/capture-map.mjs から起こす）");
   for (const { glob, file } of options.replace) await page.route(glob, (route) => replace(route, file));
+  const layerIds: string[] = mapDisplay.layers.map(({ id }) => id);
+  const unknown = options.layers.filter((id) => !layerIds.includes(id));
+  if (unknown.length > 0) {
+    throw new Error(`知らないレイヤー: ${unknown.join(" / ")}。選べるレイヤー: ${layerIds.join(" / ")}`);
+  }
   if (options.theme) await page.emulateMedia({ colorScheme: options.theme });
-  await openLive(page, { viewport: options.viewport });
+  const visibility = JSON.stringify(Object.fromEntries(options.layers.map((id) => [id, true])));
+  await openLive(page, { storedState: { "ridecompass:layer-visibility": visibility }, viewport: options.viewport });
   if (options.zoom !== null) {
     await page.evaluate((zoom) => window.__liveMap().jumpTo({ zoom }), options.zoom);
     await settleMap(page);
