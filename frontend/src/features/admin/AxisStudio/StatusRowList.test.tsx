@@ -4,19 +4,10 @@
  *
  * ここで見ないもの:
  * - どの点検からどの行を作るか → `DerivedDataFreshnessPanel.test.tsx`・`DbStatusPanel.test.tsx`
- * - 目立たせ方の見た目 → `components/ui/Callout`
  */
 import { render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
-
-vi.mock("@/components/ui/Callout/Callout", () => ({
-  Callout: ({ tone, children }: { tone: string; children: React.ReactNode }) => (
-    <div data-testid="verdict" data-tone={tone}>
-      {children}
-    </div>
-  ),
-}));
-
+import { describe, expect, it } from "vitest";
+import { calloutVariants } from "@/components/ui/Callout/Callout";
 import { type StatusRow, StatusRowList, StatusVerdict } from "./StatusRowList";
 
 function row(overrides: Partial<StatusRow>): StatusRow {
@@ -73,9 +64,8 @@ describe("StatusVerdict", () => {
   it.each([
     [true, "danger"],
     [false, "neutral"],
-  ])("手当てが要る（%s）かで目立たせ方を変える", (flagged, tone) => {
+  ] as const)("手当てが要る（%s）かで目立たせ方を変える", (flagged, tone) => {
     render(<StatusVerdict flagged={flagged}>結果</StatusVerdict>);
-    expect(screen.getByTestId("verdict")).toHaveAttribute("data-tone", tone);
-    expect(screen.getByTestId("verdict")).toHaveTextContent("結果");
+    expect(screen.getByText("結果")).toHaveClass(calloutVariants({ tone }));
   });
 });
