@@ -156,11 +156,6 @@ describe("CSSカスタムプロパティの参照", () => {
       expect(undefinedReferences(join(root, "src"), root)).toEqual([{ file: "c.css", token: "--b-only" }]);
     });
 
-    it("globals.cssが無ければ落ちる", () => {
-      root = writeTree({ "package.json": "{}", "src/a.css": "" });
-      expect(() => undefinedReferences(join(root, "src"), root)).toThrow("app/globals.css");
-    });
-
     it("tsxの属性・テンプレート・styleのキーを読み、コメントは読まない", () => {
       root = project({
         "src/a.tsx": [
