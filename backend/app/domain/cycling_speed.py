@@ -35,8 +35,8 @@ GRAVITY_M_S2 = 9.80665
 # `domain/tuning.py`が宣言し、ここでは読むだけにする。定数として持つと、宣言と二重に
 # なったうえ管理画面からの変更が効かない。
 
-# 速度を挟み込む二分法の反復回数。初期区間は押して歩く速度〜下りの上限（約11m/s）で、
-# 12回で幅は0.003m/s（0.01km/h）まで縮む。粗くすると平地・無風で巡航速度に一致しなくなる
+# 速度を挟み込む二分法の反復回数。初期区間は押して歩く速度〜速度の上限（`top_speed_kmh`。
+# 巡航速度の上限60km/hでも約17m/s）で、12回で幅は0.004m/s（0.01km/h）まで縮む。粗くすると平地・無風で巡航速度に一致しなくなる
 # 一方、反復の中で配列を確保し直さないため回数を減らしても速くならない（実測）。
 SPEED_SOLVE_ITERATIONS = 12
 
@@ -83,16 +83,25 @@ def wheel_power_w(profile: RiderProfile) -> float:
     return (drag + rolling) * speed
 
 
-def climb_power_ratio(grade: np.ndarray) -> np.ndarray:
-    """登りで出力を何倍にするか。勾配に比例して増え、上限で止まる（下り・平地は1.0）。
+def climb_power_w(flat_power_w: float, grade: np.ndarray) -> np.ndarray:
+    """区間ごとに踏む出力（W）。登りでは勾配1%ごとに決まったWを足し、平地の出力の上限倍率で止まる
+    （下り・平地は平地の出力のまま）。
 
     一定出力で計算すると平地20km/hの人が勾配5%で時速4.6km＝押して歩く速度になり現実と
-    合わないため、勾配に比例して踏む量を増やす。
+    合わないため、勾配に比例して踏む量を増やす。足す量を平地の出力に比例させない——比例させると
+    巡航が速い人ほど登りで踏み増し、坂でも平地並みの速度を保って所要時間が短く出る。
     """
-    per_grade = tuning_value("speed.climb_power_per_grade")
-    return np.clip(
-        1.0 + per_grade * np.maximum(grade, 0.0), 1.0, tuning_value("speed.max_climb_power_ratio")
-    )
+    extra = tuning_value("speed.climb_power_per_grade") * np.maximum(grade, 0.0) * 100.0
+    return np.minimum(flat_power_w + extra, flat_power_w * tuning_value("speed.max_climb_power_ratio"))
+
+
+def top_speed_kmh(cruise_speed_kmh: float) -> float:
+    """区間の速度の上限。下りの上限か、それより速ければ巡航速度。
+
+    下りの上限だけで止めると、それより速い巡航速度を入れた人が平地・無風でも上限で頭打ちになり、
+    入れた速度が所要時間に効かない。
+    """
+    return max(tuning_value("speed.max_descent_kmh"), cruise_speed_kmh)
 
 
 class SegmentSpeedModel:
@@ -111,14 +120,14 @@ class SegmentSpeedModel:
         if rolling_crr.shape != grade.shape:
             raise ValueError(f"区間の配列の長さが揃っていません grade={grade.shape} crr={rolling_crr.shape}")
         self._shape = grade.shape
-        self._power = (wheel_power_w(profile) * climb_power_ratio(grade)).astype(np.float32)
+        self._power = climb_power_w(wheel_power_w(profile), grade).astype(np.float32)
         self._constant_force = (
             rolling_crr * np.float32(profile.mass_kg * GRAVITY_M_S2)
             + np.float32(profile.mass_kg * GRAVITY_M_S2) * grade
         )
         self._drag_coefficient = np.float32(0.5 * AIR_DENSITY_KG_M3 * profile.cda_m2)
         self._lowest_ms = tuning_value("speed.walking_kmh") / 3.6
-        self._highest_ms = tuning_value("speed.max_descent_kmh") / 3.6
+        self._highest_ms = top_speed_kmh(profile.cruise_speed_kmh) / 3.6
 
     def speed_ms(self, headwind_ms: np.ndarray, crosswind_ms: np.ndarray) -> np.ndarray:
         """区間ごとの走行速度（m/s）。`headwind_ms`は進行方向への向かい風成分（正が向かい風）、
