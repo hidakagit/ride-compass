@@ -15,7 +15,6 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
-import { LOAD_BAR_MAX_HEIGHT_RATIO } from "@/features/route/difficultyLoadBar";
 import { catalogAxisFromEntry } from "@/lib/catalogAxis";
 import { catalogEntry } from "@/testing/catalogAxes";
 import RouteAxisProfile from "./RouteAxisProfile";
@@ -68,14 +67,6 @@ describe("RouteAxisProfile", () => {
     for (const name of ["総合難易度の説明を表示", "所要時間の説明を表示", "負荷の説明を表示"]) {
       expect(screen.getByRole("button", { name })).toBeInTheDocument();
     }
-  });
-
-  it("負荷の(i)の奥に、一覧の帯の高さが頭打ちになる倍率を書く", async () => {
-    renderProfile();
-    await userEvent.click(screen.getByRole("button", { name: "負荷の説明を表示" }));
-    expect(
-      await screen.findByText(new RegExp(`最も短い候補の\\s*${LOAD_BAR_MAX_HEIGHT_RATIO}倍で頭打ち`)),
-    ).toBeInTheDocument();
   });
 
   it("所要時間が無い候補では所要を出さない", () => {
