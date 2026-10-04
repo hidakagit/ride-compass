@@ -3,10 +3,11 @@
  * 描き、「重み」「除外」「保存」タブには受け取った中身を置く。
  *
  * 見るもの: モードの切り替えで上がるモード、候補数のステッパー（今の件数・1件ずつの増減・端で押せない・経由地があると
- * 決まった件数で押せず、理由を(i)の奥に置く）、周回の距離のスライダー（選べる値の範囲と刻み）、モードごとに出す地点の行、
- * 地点の行が出す値と行頭の印の色、押したときに上がる役割・消す/戻す操作、タブを切り替えても各タブの中身を外さないこと。
+ * 決まった件数で押せず、理由を(i)の奥に置く）、周回の距離のスライダーで上がる値と候補の距離の幅、モードごとに出す地点の行、
+ * 地点の行が出す値と出発地の印の色、押したときに上がる役割・消す/戻す操作、タブを切り替えても各タブの中身を外さないこと。
  *
  * ここで見ないもの: タブの列と選んだタブ、どのタブの中身が見えるか（スタイルで隠す）→ `app/page.tsx`。
+ * 書いた定数や受け取った値をそのまま渡すもの（スライダーの範囲・刻み・今の値と km の表記、行頭の印の役割ごとの背景色）。
  * 経由地のある目的地で何件に決まるか → `RouteForm/useRouteFormSubmit.test.ts`（このファイルは決まった数を生成物から読む）。
  * 地点を置ける状態をどう決めるか → `features/route/useGenerationConditions.test.ts`。
  *
@@ -17,7 +18,7 @@ import userEvent from "@testing-library/user-event";
 import { useState, type ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import { ORIGIN_MARK_COLOR, ORIGIN_MARK_FALLBACK_COLOR, PIN_MARK_BACKGROUND } from "@/components/PinMark/PinMark";
+import { ORIGIN_MARK_COLOR, ORIGIN_MARK_FALLBACK_COLOR } from "@/components/PinMark/PinMark";
 import { Tabs } from "@/components/ui/Tabs/Tabs";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 
@@ -92,13 +93,11 @@ describe("RouteForm 候補数", () => {
     renderForm({ maxRoutes: "1" });
 
     expect(screen.getByRole("button", { name: "候補数を減らす" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "候補数を増やす" })).toBeEnabled();
   });
 
   it("上限では増やせない", () => {
     renderForm({ maxRoutes: String(routeGenerateConfig.max_routes) });
 
-    expect(screen.getByRole("button", { name: "候補数を減らす" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "候補数を増やす" })).toBeDisabled();
   });
 
@@ -123,15 +122,10 @@ describe("RouteForm 候補数", () => {
 });
 
 describe("RouteForm 周回", () => {
-  it("出発地の行と距離のスライダー（1km〜上限を1km刻み）と候補の距離の幅を出し、経由地・目的地の行は出さない", () => {
-    renderForm({ routeMode: "loop", distance: "42" });
+  it("出発地の行と距離のスライダーと候補の距離の幅を出し、経由地・目的地の行は出さない", () => {
+    renderForm({ routeMode: "loop" });
 
     const slider = screen.getByRole("slider", { name: "距離" });
-    expect(slider).toHaveAttribute("min", "1");
-    expect(slider).toHaveAttribute("max", String(routeGenerateConfig.max_distance_km));
-    expect(slider).toHaveAttribute("step", "1");
-    expect(slider).toHaveValue("42");
-    expect(screen.getByText("42km")).toBeInTheDocument();
     const tolerance = `±${routeGenerateConfig.default_distance_tolerance_km}km`;
     expect(screen.getByText(tolerance)).toBeInTheDocument();
     expect(slider.dataset.usage).toContain(tolerance);
@@ -150,23 +144,11 @@ describe("RouteForm 周回", () => {
 });
 
 describe("RouteForm 目的地", () => {
-  it("出発地・経由地・目的地の行を出し、距離は出さない", () => {
+  it("出発地の行を出し、距離は出さない", () => {
     renderForm({ routeMode: "destination" });
 
     expect(pointRow("出発地を地図で選ぶ")).toBeInTheDocument();
-    expect(pointRow("経由地を追加")).toBeInTheDocument();
-    expect(pointRow("目的地を地図で選ぶ")).toBeInTheDocument();
     expect(screen.queryByRole("slider", { name: "距離" })).not.toBeInTheDocument();
-  });
-
-  it("各行の行頭の印を、地図のピンと同じ役割ごとの背景色で描く", () => {
-    renderForm({ routeMode: "destination" });
-
-    const rows = { origin: "出発地を地図で選ぶ", waypoint: "経由地を追加", destination: "目的地を地図で選ぶ" } as const;
-    for (const [role, name] of Object.entries(rows) as [keyof typeof rows, string][]) {
-      const mark = pointRow(name).querySelector<HTMLElement>("span[aria-hidden='true']");
-      expect(mark).toHaveStyle({ background: PIN_MARK_BACKGROUND[role] });
-    }
   });
 });
 

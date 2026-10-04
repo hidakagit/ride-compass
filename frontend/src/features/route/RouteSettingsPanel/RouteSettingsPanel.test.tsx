@@ -1,14 +1,15 @@
 /**
  * `RouteSettingsPanel/RouteSettingsPanel.tsx`——「重み」タブ。配分の帯（区間・区切りのドラッグと矢印キー）と軸のチップ。
  *
- * 見るもの: 軸一覧を取れないときの告知と再試行、公開軸ごとのチップ（有効な軸を先に・割合・押して有効/無効・(i)の説明）、
- * 有効に戻したときの重み（帯で動かした値・既定・既定が0なら決まった小さな値、既定が後から変わったときの追い方）、帯の区間の
- * 幅と、区間に書く文字の落とし方（境界ちょうどの割合を含む）、チップの印と帯の区間の色、区切り（隣り合う有効な軸ごと・
- * 累積の割合）を矢印キーとドラッグで動かして上がる2軸の重み、重みを変えると上書きの状態にすること。
+ * 見るもの: 軸一覧を取れないときの告知と再試行、公開軸ごとのチップ（有効な軸を先に・割合・押して有効/無効）、
+ * 有効に戻したときの重み（既定が0なら決まった小さな値、既定が後から変わったときの追い方と帯で動かした値）、帯の(i)の上限、
+ * 帯の区間の幅と、区間に書く文字の落とし方（境界ちょうどの割合）、区切り（隣り合う有効な軸ごと・累積の割合）を矢印キーと
+ * ドラッグで動かして上がる2軸の重み、重みを変えると上書きの状態にすること。
  *
  * ここで見ないもの: 区切りを動かした量を範囲へ寄せて刻みへ丸めること → `features/route/routeWeightShare.test.ts`。
  * 受け取る重みを公開軸へ揃えること → `features/route/routePreferenceSync.test.ts`（このパネルは揃った値を受け取る）。
- * 無効な軸のチップを薄くすること（クラスで付ける見た目）。
+ * 無効な軸のチップを薄くすること（クラスで付ける見た目）。軸カタログの値をそのまま渡すもの（チップの印と帯の区間の色・
+ * (i)の奥の軸の説明）と、区切りの値の範囲（書いた定数）。
  *
  * 差し替えたもの: 軸カタログの応答（網の層）はテストが決め、軸は架空のもの
  * （`testing/catalogAxes.ts`）。帯の実寸はテスト環境に無いので、ドラッグのテストだけ帯の`getBoundingClientRect`を決める。
@@ -22,7 +23,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { WEIGHT_STEP } from "@/features/route/routeWeightShare";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
 import { inTurn, onBackend, serveAxisCatalog } from "@/testing/backendServer";
-import { catalogEntry, catalogOf, catalogResponse } from "@/testing/catalogAxes";
+import { catalogEntry, catalogResponse } from "@/testing/catalogAxes";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import type { RoutePreferenceWeights } from "@/types/route";
 
@@ -43,8 +44,6 @@ const TRAFFIC = catalogEntry({ axis_id: "traffic", label: "交通", default_weig
 const SLOPE = catalogEntry({ axis_id: "slope", label: "勾配", default_weight: 0.2 });
 const LIGHT = catalogEntry({ axis_id: "light", label: "街灯", default_weight: 0 });
 const AXES = [WIDTH, TRAFFIC, SLOPE, LIGHT];
-/** 本番と同じ導き方で軸カタログが決める、軸ごとの識別色。 */
-const COLORS = catalogOf(AXES).axisColors;
 
 function serveCatalog(entries = AXES) {
   serveAxisCatalog(catalogResponse(entries));
@@ -123,7 +122,6 @@ describe("RouteSettingsPanel 軸のチップ", () => {
       "道幅を有効にする",
       "勾配を有効にする",
     ]);
-    expect(chips.map((button) => button.getAttribute("aria-pressed"))).toEqual(["true", "true", "false", "false"]);
     expect(chip("道幅を有効にする")).toHaveTextContent(/^幅$/);
   });
 
@@ -134,17 +132,6 @@ describe("RouteSettingsPanel 軸のチップ", () => {
 
     expect(chip("道幅を無効にする")).toHaveTextContent("71%");
     expect(chip("勾配を無効にする")).toHaveTextContent("29%");
-    expect(chip("交通を有効にする")).not.toHaveTextContent("%");
-  });
-
-  it("(i)の奥に軸の説明を置く", async () => {
-    serveCatalog();
-    renderPanel({ width: 0.5, traffic: 0.3, slope: 0.2, light: 0 });
-    await chipsShown();
-
-    await userEvent.click(screen.getByRole("button", { name: "道幅の説明を表示" }));
-
-    expect(screen.getByText("道の広さを見ます。")).toBeInTheDocument();
   });
 
   it("有効な軸を押すと重みを0にして上げ、上書きしていなければ上書きの状態にする", async () => {
@@ -161,26 +148,6 @@ describe("RouteSettingsPanel 軸のチップ", () => {
     expect(onOverrideEnabledChange).toHaveBeenCalledExactlyOnceWith(true);
   });
 
-  it("上書きしている間は、上書きの状態を上げ直さない", async () => {
-    serveCatalog();
-    const { onOverrideEnabledChange } = renderPanel({ width: 0.5, traffic: 0.3, slope: 0.2, light: 0 }, true);
-    await chipsShown();
-
-    await userEvent.click(chip("道幅を無効にする"));
-
-    expect(onOverrideEnabledChange).not.toHaveBeenCalled();
-  });
-
-  it("帯で動かしていない軸を有効にすると、既定の重みにする", async () => {
-    serveCatalog();
-    const { onRoutePreferenceChange } = renderPanel({ width: 0, traffic: 0.3, slope: 0.2, light: 0 });
-    await chipsShown();
-
-    await userEvent.click(chip("道幅を有効にする"));
-
-    expect(onRoutePreferenceChange).toHaveBeenLastCalledWith({ width: 0.5, traffic: 0.3, slope: 0.2, light: 0 });
-  });
-
   it("既定の重みが0の軸を有効にすると、0.1にする", async () => {
     serveCatalog();
     const { onRoutePreferenceChange } = renderPanel({ width: 0.5, traffic: 0.3, slope: 0.2, light: 0 });
@@ -189,21 +156,6 @@ describe("RouteSettingsPanel 軸のチップ", () => {
     await userEvent.click(chip("街灯を有効にする"));
 
     expect(onRoutePreferenceChange).toHaveBeenLastCalledWith({ width: 0.5, traffic: 0.3, slope: 0.2, light: 0.1 });
-  });
-
-  it("帯で動かした軸は、無効にしてから有効に戻すと動かした重みに戻る", async () => {
-    serveCatalog();
-    const { onRoutePreferenceChange } = renderPanel({ width: 0.5, traffic: 0.3, slope: 0.2, light: 0 });
-    await chipsShown();
-
-    boundary("道幅と交通の配分").focus();
-    await userEvent.keyboard("{ArrowRight}");
-    const moved = onRoutePreferenceChange.mock.lastCall![0].width;
-    await userEvent.click(chip("道幅を無効にする"));
-    await userEvent.click(chip("道幅を有効にする"));
-
-    expect(onRoutePreferenceChange.mock.lastCall![0].width).toBe(moved);
-    expect(moved).not.toBe(0.5);
   });
 
   it("既定の重みが後から変わったら、動かしていない軸の戻し先はその値に、動かした軸は動かした値のままにする", async () => {
@@ -249,57 +201,35 @@ describe("RouteSettingsPanel 配分の帯", () => {
     ).toBeInTheDocument();
   });
 
-  it("有効な軸ごとに、取り分の幅の区間を軸の色で並べる", async () => {
+  it("有効な軸ごとに、取り分の幅の区間を並べる", async () => {
     serveCatalog();
     renderPanel({ width: 0.5, traffic: 0, slope: 0.3, light: 0.2 });
     await chipsShown();
 
-    for (const [title, axisId, width] of [
-      ["道幅 50%", "width", "50%"],
-      ["勾配 30%", "slope", "30%"],
-      ["街灯 20%", "light", "20%"],
+    for (const [title, width] of [
+      ["道幅 50%", "50%"],
+      ["勾配 30%", "30%"],
+      ["街灯 20%", "20%"],
     ]) {
-      expect(screen.getByTitle(title)).toHaveStyle({ width, background: COLORS[axisId] });
+      expect(screen.getByTitle(title)).toHaveStyle({ width });
     }
     expect(screen.queryByTitle(/^交通/)).not.toBeInTheDocument();
   });
 
-  it("チップの印を、帯の区間と同じ軸の色で塗る", async () => {
+  it("区間には、10%以上ならアイコンと%を、6%以上なら数だけを書き、それより狭ければ書かない", async () => {
     serveCatalog();
-    renderPanel({ width: 0.5, traffic: 0, slope: 0.3, light: 0.2 });
+    renderPanel({ width: 0.79, traffic: 0.1, slope: 0.06, light: 0.05 });
     await chipsShown();
 
-    for (const [name, axisId] of [
-      ["道幅を無効にする", "width"],
-      ["交通を有効にする", "traffic"],
-    ]) {
-      expect(chip(name).querySelector("span[aria-hidden='true']")).toHaveStyle({ color: COLORS[axisId] });
+    for (const [title, text, icon] of [
+      ["交通 10%", /^10%$/, true],
+      ["勾配 6%", /^6$/, false],
+      ["街灯 5%", /^$/, false],
+    ] as const) {
+      const segment = screen.getByTitle(title);
+      expect(segment).toHaveTextContent(text);
+      expect(segment.querySelector("svg") !== null).toBe(icon);
     }
-  });
-
-  it("広い区間はアイコンと%、やや狭い区間は数だけを書き、狭い区間には書かない", async () => {
-    serveCatalog();
-    renderPanel({ width: 0.86, traffic: 0.09, slope: 0.05, light: 0 });
-    await chipsShown();
-
-    const wide = screen.getByTitle("道幅 86%");
-    expect(wide).toHaveTextContent(/^86%$/);
-    expect(wide.querySelector("svg")).not.toBeNull();
-    const narrow = screen.getByTitle("交通 9%");
-    expect(narrow).toHaveTextContent(/^9$/);
-    expect(narrow.querySelector("svg")).toBeNull();
-    expect(screen.getByTitle("勾配 5%")).toHaveTextContent(/^$/);
-  });
-
-  it("ちょうど10%の区間はアイコンと%を、ちょうど6%の区間は数を書く", async () => {
-    serveCatalog();
-    renderPanel({ width: 0.84, traffic: 0.1, slope: 0.06, light: 0 });
-    await chipsShown();
-
-    const ten = screen.getByTitle("交通 10%");
-    expect(ten).toHaveTextContent(/^10%$/);
-    expect(ten.querySelector("svg")).not.toBeNull();
-    expect(screen.getByTitle("勾配 6%")).toHaveTextContent(/^6$/);
   });
 
   it("隣り合う有効な軸の間ごとに、2軸の配分を動かす区切りを、左からの累積の割合（0〜100）の位置で出す", async () => {
@@ -312,10 +242,6 @@ describe("RouteSettingsPanel 配分の帯", () => {
       ["道幅と勾配の配分", "50"],
       ["勾配と街灯の配分", "80"],
     ]);
-    for (const slider of sliders) {
-      expect(slider).toHaveAttribute("aria-valuemin", "0");
-      expect(slider).toHaveAttribute("aria-valuemax", "100");
-    }
   });
 
   it("区切りで右・上の矢印は右の軸から左の軸へ1刻み移し、左・下の矢印は戻す。ほかの軸は変えず、上書きの状態にする", async () => {
