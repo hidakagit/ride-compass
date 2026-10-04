@@ -58,8 +58,8 @@ function collectPopulation(ref) {
     `(from|import)[[:space:]]*\\(?[[:space:]]*["'][.@]`,
     ...(ref ? [ref] : []),
     "--",
-    "src/**/*.test.ts",
-    "src/**/*.test.tsx",
+    ":(glob)src/**/*.test.ts",
+    ":(glob)src/**/*.test.tsx",
   ];
   const result = spawnSync("git", args, { cwd: frontendRoot, encoding: "utf-8", maxBuffer: 1 << 30 });
   if (result.status !== 0 && result.status !== 1) fail(`母集団を集められない: ${result.stderr}`);
