@@ -65,7 +65,7 @@ type MobileSheet = "routeSettings" | "routeOutcome" | null;
 
 /** モバイルの下部タブの使い方。 */
 const MOBILE_TAB_USAGES = {
-  routeSettings: "ルートを作る条件[距離・地点・重み・除外]と「生成」を開きます。もう一度押すと閉じます。",
+  routeSettings: "ルートを作る条件[距離・地点・重み・除外]と「ルート生成」を開きます。もう一度押すと閉じます。",
   routeOutcome: "作った候補の一覧と、その難易度の内訳を開きます。点は新しい結果か条件の変更の合図で、赤は失敗です。",
 } as const;
 
@@ -273,14 +273,13 @@ export default function Home() {
         )}
         <Button
           variant="primary"
-          size="iconLabel"
+          size="panelIcon"
           disabled={generation.running}
           onClick={() => void generation.submit(mapView.lens)}
           aria-label={generation.running ? (generation.progressLabel ?? "生成中...") : "ルート生成"}
           usage="いまの条件・重み・除外でルートの候補を作ります。候補は「ルート結果」に並び、地図に線が出ます。"
         >
           <GenerateRoutesIcon size={18} />
-          {generation.running ? (generation.queued ? "順番待ち" : "生成中") : "生成"}
         </Button>
       </div>
     );
@@ -326,14 +325,12 @@ export default function Home() {
   function renderRouteResultHeaderActions() {
     return (
       <Button
-        size="iconLabel"
+        size="panelIcon"
         onClick={route.clear}
         aria-label="候補を全消去"
-        title="候補をすべて消す"
         usage="作った候補をすべて消します。地図に置いた地点は残ります。"
       >
         <ClearRoutesIcon size={18} />
-        全消去
       </Button>
     );
   }
@@ -406,7 +403,7 @@ export default function Home() {
                     }
                     open={generateOpen}
                     onOpenChange={setGenerateOpen}
-                    usage="押すと開き・畳みます。ルートを作る条件をここで決め、右の「生成」で作ります。"
+                    usage="押すと開き・畳みます。ルートを作る条件をここで決め、右の「ルート生成」で作ります。"
                   >
                     {renderRouteSectionBody()}
                   </Disclosure>

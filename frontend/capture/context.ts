@@ -3,7 +3,7 @@ import path from "node:path";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import * as fixtures from "../e2e/fixtures";
 import { installPageHelpers } from "../e2e/states";
-import { LIVE_POINT, chooseLens, installMapFinder, settleMap } from "../e2e-live/live";
+import { LIVE_POINT, chooseLens, settleMap } from "../e2e-live/live";
 
 // 脚本（scripts/capture.mjs の --script）が受け取る口。脚本はこの口だけを使い、何も読み込まない（型の読み込みは実行時に
 // 消えるのでよい）。そのため作業ツリーの外に置いても、読み込みの解決に頼らずに動く。
@@ -91,7 +91,7 @@ export function captureContext(page: Page, { out, mocked }: { out: string; mocke
       }
       if (routes) await routes(page);
       await page.addInitScript(installPageHelpers);
-      await page.addInitScript(installMapFinder);
+      await page.addInitScript(fixtures.installMapFinder);
       await fixtures.seedStoredState(page, {
         "ridecompass:first-visit-intro-closed": "true",
         ...(layers.length > 0
@@ -147,21 +147,7 @@ export function captureContext(page: Page, { out, mocked }: { out: string; mocke
       return panel;
     },
     async clickMap(lngLat) {
-      const point = await page.evaluate((at) => {
-        const map = window.__liveMap();
-        const projected = map.project(at);
-        const box = map.getCanvas().getBoundingClientRect();
-        const x = box.left + projected.x;
-        const y = box.top + projected.y;
-        const inside = x >= 0 && y >= 0 && x < window.innerWidth && y < window.innerHeight;
-        return { x, y, onMap: inside && document.elementFromPoint(x, y) === map.getCanvas() };
-      }, lngLat);
-      if (!point.onMap) {
-        throw new Error(
-          `地図の点 ${lngLat.join(",")}（画面の ${Math.round(point.x)},${Math.round(point.y)}）は押せない`,
-        );
-      }
-      await page.mouse.click(point.x, point.y);
+      await fixtures.clickMap(page, lngLat);
     },
     async patch(glob, transform) {
       await page.route(glob, async (route) => {
