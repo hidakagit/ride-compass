@@ -1,117 +1,55 @@
-// 振り出しの見回りの判断（src/dispatch.js）と状況の更新の書き方（src/status.js）を、本物の設定で確かめる。差し替えるのは GitHub（網）だけ。
+// 振り出しの見回りの判断と状況の更新（src/dispatch.js）を、本物の設定で確かめる。
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import config from "../flow.config.json" with { type: "json" };
-import { dated, pick, queueOf, runIssue, stuck, summary } from "../src/dispatch.js";
-import { GitHub, Mutations, readTask, setField } from "../src/github.js";
-import { putStatus } from "../src/status.js";
+import { claudeHours, expected, pick, putStatus, ready, summary } from "../src/dispatch.js";
+import { GitHub } from "../src/github.js";
 import { fakeGitHub } from "./fake-github.js";
 
-const task = (number, status, extra = {}) => ({ number, status, waitingFor: [], labels: [], urgent: false, priority: null, startOn: null, ...extra });
-
-test("動いている担当と合わせて上限まで、キューの上から選び、未着手は作る・検証中は確かめる担当にする", () => {
-  const { parallel } = config.coordinator;
-  const queue = Array.from({ length: parallel + 2 }, (_, i) => task(i + 1, i % 2 ? "未着手" : "検証中"));
-  const chosen = pick(config, queue, new Set([99]));
-  assert.equal(chosen.length, parallel - 1);
-  assert.deepEqual(chosen.slice(0, 2), [
-    { number: 1, status: "検証中", kind: "確かめる" },
-    { number: 2, status: "未着手", kind: "作る" },
-  ]);
-  assert.deepEqual(pick(config, queue, new Set(Array.from({ length: parallel }, (_, i) => 100 + i))), [], "上限まで動いていれば選ばない");
-});
-
-test("動いている番号・前提が開いたままのもの・開発機で扱うものは飛ばす", () => {
-  const queue = [
-    task(1, "検証中"),
-    task(2, "未着手", { waitingFor: [9] }),
-    task(3, "未着手", { labels: [config.coordinator.devLabel] }),
-    task(4, "未着手"),
-  ];
-  assert.deepEqual(pick(config, queue, new Set([1])).map((t) => t.number), [4]);
-});
-
-// 2026-10-03T15:30Z は日本時間で 10-04 の 00:30。日付の境目を日本時間で取ることを確かめる時刻。
+const task = (number, status, extra = {}) => ({ number, status, blocked: false, labels: [], urgent: false, priority: null, size: null, startOn: null, claudeHours: 0, ...extra });
+const board = (...tasks) => ({ tasks, ranks: ["高", "中", "低"] });
 const now = new Date("2026-10-03T15:30:00Z");
 
-test("着手可能日が今日（日本時間）より先のものは振り出さず、今日・過ぎた日・無いものは振り出す", () => {
-  const queue = [task(1, "未着手", { startOn: "2026-10-05" }), task(2, "未着手", { startOn: "2026-10-04" }), task(3, "未着手", { startOn: "2026-10-03" }), task(4, "未着手")];
-  assert.deepEqual(pick(config, queue, new Set(), now).map((t) => t.number), [2, 3, 4]);
-  assert.deepEqual(dated(queue, new Set(), now).map((t) => t.number), [1]);
-  assert.deepEqual(pick(config, queue, new Set(), new Date("2026-10-04T15:00:00Z")).map((t) => t.number), [1, 2, 3, 4], "その日（日本時間）になれば振り出す");
+test("枠は種類ごと: 上限から動いている数を引いた分だけ上から起こし、貸し借りしない", () => {
+  const { 作る: make, 確かめる: check } = config.coordinator.slots;
+  const tasks = [...Array.from({ length: make + 2 }, (_, k) => task(100 + k, "未着手")), ...Array.from({ length: check + 2 }, (_, k) => task(200 + k, "検証中"))];
+  const running = [{ number: 1, kind: "確かめる" }];
+  const kinds = pick(config, ready(config, board(...tasks), running, now), running).map((t) => t.kind);
+  assert.deepEqual([kinds.filter((k) => k === "作る").length, kinds.filter((k) => k === "確かめる").length], [make, check - 1]);
 });
 
-test("着手可能日を待つ進行中は、担当が動いていなくても止まっているものに数えない", () => {
-  const tasks = [task(1, "進行中", { startOn: "2026-10-05" }), task(2, "進行中", { startOn: "2026-10-04" })];
-  assert.deepEqual(stuck(config, tasks, new Set(), new Set(), now).map((s) => s.number), [2]);
+test("確かめるは検証中を全部、作るは前提が閉じ・開発機のラベルが無く・着手可能日が今日以前の未着手。並びは急ぎ・優先度・番号", () => {
+  const dev = config.coordinator.devLabel;
+  const tasks = [task(1, "未着手", { blocked: true }), task(2, "未着手", { labels: [dev] }), task(3, "未着手", { startOn: "2026-10-05" }), task(4, "未着手", { startOn: "2026-10-04" }),
+    task(5, "未着手", { priority: "低" }), task(6, "未着手", { priority: "高" }), task(7, "未着手", { urgent: true }), task(8, "検証中", { blocked: true, labels: [dev] }), task(9, "進行中"), task(10, "未着手")];
+  assert.deepEqual(ready(config, board(...tasks), [{ number: 10, kind: "作る" }], now).map((t) => t.number), [7, 6, 5, 4, 8]);
 });
 
-test("着手可能日の欄を日付で書き、「消す」にあたる null で消す。日付の形でない値は断る", async () => {
-  const gh = fakeGitHub({ issue: { number: 3, status: "未着手" } });
-  const bot = new GitHub("bot-token");
-  const name = config.project.startField;
-  const read = () => readTask(bot, config, { number: 3 });
-  let { project, issue } = await read();
-  await setField(new Mutations(), project, issue.item, name, "2026-10-05").send(bot);
-  ({ project, issue } = await read());
-  assert.equal(issue.fields[name], "2026-10-05");
-  assert.equal(issue.status, "未着手");
-  assert.throws(() => setField(new Mutations(), project, issue.item, name, "明日"), /YYYY-MM-DD/);
-  await setField(new Mutations(), project, issue.item, name, null).send(bot);
-  ({ issue } = await read());
-  assert.equal(issue.fields[name], undefined);
-  assert.equal(gh.issue.status, "未着手", "日付の欄を消してもステータスは消えない");
+test("想定は、Claude の番の時間（ユーザーの番を除く）の、同じ規模で完成した直近の件の p90", () => {
+  const turn = (type, login, at) => ({ __typename: type, assignee: { login }, createdAt: `2026-10-01T${at}:00:00Z` });
+  const events = [turn("AssignedEvent", config.claude, "00"), turn("UnassignedEvent", config.claude, "02"), turn("AssignedEvent", config.user, "02"),
+    turn("UnassignedEvent", config.user, "10"), turn("AssignedEvent", config.claude, "10")];
+  assert.equal(claudeHours(config, events, "2026-10-01T13:00:00Z"), 5);
+  const { recent } = config.coordinator;
+  const done = Array.from({ length: recent + 10 }, (_, k) => ({ size: "S", closedAt: `2026-08-${String(k + 1).padStart(2, "0")}`, claudeHours: k + 1 }));
+  assert.deepEqual(expected(config, [...done, { size: "M", closedAt: "2026-09-01", claudeHours: 7 }]), { S: 11 + Math.floor(0.9 * recent), M: 7 });
 });
 
-test("担当のワークフローの実行の名前から issue の番号を読む", () => {
-  assert.equal(runIssue("#58 確かめる"), 58);
-  assert.equal(runIssue("Claude Task"), null);
-});
-
-test("キューは振り出すステータスのものだけを、ステータスの順・急ぎ・優先度の欄の選択肢の順・番号の順に並べる", () => {
-  const [review, todo] = config.coordinator.order;
-  const tasks = [
-    task(1, todo, { priority: "低" }),
-    task(2, todo, { priority: "高" }),
-    task(3, todo, { priority: "低", urgent: true }),
-    task(4, review),
-    task(5, "保留"),
-    task(6, todo),
-  ];
-  assert.deepEqual(queueOf(config, { tasks, ranks: ["高", "中", "低"] }).map((t) => t.number), [4, 3, 2, 1, 6]);
-});
-
-test("止まっているもの: 進行中なのに担当が動いていない・検証中なのに開いた Pull Request が無い", () => {
-  const tasks = [task(1, "進行中"), task(2, "進行中"), task(4, "検証中"), task(5, "検証中"), task(6, "未着手")];
-  const found = stuck(config, tasks, new Set([2]), new Set([`${config.code.branchPrefix}5`]));
-  assert.deepEqual(found.map((s) => s.number), [1, 4]);
-});
-
-test("状況の更新の中身: 止まっているものがあれば At risk、無ければ On track。止めている理由（見回りのワークフローが無効・止める時刻）を書く。この周で起こした仕事も動いている担当に数える", () => {
-  const base = { watcher: "https://run/1", runs: [{ number: 7, title: "#7 作る", url: "https://run/7", startedAt: "2026-10-03T00:00:00Z" }], started: [{ number: 9, kind: "確かめる" }], waiting: 2, held: 3, dated: [], stuck: [], stop: null, pause: null };
-  const calm = summary(config, base);
-  assert.equal(calm.status, "ON_TRACK");
-  assert.match(calm.body, /#7 作る（10-03 09:00 から）\[実行\]\(https:\/\/run\/7\)/);
-  assert.match(calm.body, /#9 確かめる（いま起こした）/);
-  assert.match(calm.body, new RegExp(`動いている担当（2/${config.coordinator.parallel}）`));
-  assert.doesNotMatch(calm.body, /着手可能日/);
-  const later = summary(config, { ...base, dated: ["2026-10-09", "2026-10-05"] });
-  assert.equal(later.status, "ON_TRACK", "着手可能日を待つものは止まっているものに数えない");
-  assert.match(later.body, /着手可能日を待つ仕事: 2件（最も近い日 2026-10-05）/);
-  const risk = summary(config, { ...base, stuck: [{ number: 8, reason: "進行中なのに、担当が動いていない" }], stop: true, pause: "2026-10-03T01:00:00Z" });
-  assert.equal(risk.status, "AT_RISK");
-  assert.match(risk.body, /#8 進行中なのに/);
-  assert.match(risk.body, /見回りのワークフローが無効/);
-  assert.match(risk.body, /10-03 10:00 まで/);
+test("状況の更新: 想定を超えた Claude の番のタスク・空いた枠の理由・一番新しい実行が失敗したタスクがあれば At risk", () => {
+  const base = { watcher: "w", tasks: [task(3, "進行中", { size: "S", claudeHours: 2 })], expected: { S: 4 }, runs: [], started: [], waiting: 0, idle: null };
+  assert.equal(summary(config, base).status, "ON_TRACK");
+  const late = summary(config, { ...base, tasks: [task(3, "進行中", { size: "S", claudeHours: 5 }), task(4, "回答待ち", { size: "S", claudeHours: 9 })] });
+  assert.deepEqual([late.status, /#3（S）が想定を超えている: Claude の番の累計 5時間 ／ 想定 4時間/.test(late.body), /#4/.test(late.body)], ["AT_RISK", true, false]);
+  assert.match(summary(config, { ...base, idle: "止めている" }).body, /振り出せる仕事があるのに枠が空いている: 止めている/);
+  const runs = [{ number: 3, kind: "作る", conclusion: "failure", url: "u2" }, { number: 3, kind: "作る", conclusion: "success", url: "u1" }];
+  assert.match(summary(config, { ...base, runs }).body, /#3 の作る担当の実行が失敗で終わった \[実行\]\(u2\)/);
+  assert.equal(summary(config, { ...base, runs: runs.toReversed() }).status, "ON_TRACK", "失敗の後に成功していれば出さない");
 });
 
 test("状況の更新は、中身が同じなら書かず、状態が同じなら書き換え、状態が変わるかほかの者の更新が最新なら足す", async () => {
-  const gh = fakeGitHub({ issue: { number: 1 }, updates: [{ id: "SU_0", status: "AT_RISK", body: "ほかの者の更新", by: "gate" }] });
+  const gh = fakeGitHub({ issue: { number: 1 }, updates: [{ id: "U0", status: "AT_RISK", body: "ほかの者", by: "gate" }] });
   const bot = new GitHub("bot-token");
-  const calm = summary(config, { watcher: null, runs: [], started: [], waiting: 0, held: 0, dated: [], stuck: [], stop: null, pause: null });
-  assert.equal(await putStatus(bot, config, calm), "created");
-  assert.equal(await putStatus(bot, config, calm), null);
-  assert.equal(await putStatus(bot, config, { ...calm, body: `${calm.body}\n変わった` }), "updated");
-  assert.equal(await putStatus(bot, config, { ...calm, status: "AT_RISK" }), "created");
+  const calm = summary(config, { watcher: "w", tasks: [], expected: {}, runs: [], started: [], waiting: 0, idle: null });
+  assert.deepEqual([await putStatus(bot, config, calm), await putStatus(bot, config, calm), await putStatus(bot, config, { ...calm, body: `${calm.body}!` }), await putStatus(bot, config, { ...calm, status: "AT_RISK" })], [true, false, true, true]);
   assert.deepEqual(gh.updates.map((u) => [u.status, u.by]), [["AT_RISK", config.claude], ["ON_TRACK", config.claude], ["AT_RISK", "gate"]]);
 });
