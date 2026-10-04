@@ -8,9 +8,11 @@
 import hashlib
 
 from app.infrastructure.jma_tile_content import is_empty_tile
+from app.infrastructure.jma_tile_recolor import RECOLOR_VERSION
 from app.infrastructure.redis_json_cache import get_bytes, set_bytes
 
-_KEY_PREFIX = "jma:tile"
+# 保存するのは中継が塗り替えたあとのタイルなので、塗り替えの版を鍵に入れる。
+_KEY_PREFIX = f"jma:tile:{RECOLOR_VERSION}"
 _CATEGORY = "cache:jma-tile-redis"
 # プリウォーム間隔（jma_tile_prewarm_service.py、10分）より余裕を持たせ、1回のプリウォーム
 # 失敗・遅延で即座に空にならないようにする。

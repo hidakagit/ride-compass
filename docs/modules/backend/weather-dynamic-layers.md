@@ -33,9 +33,9 @@ MSMは数値予報モデルの出力で観測値・公式発表の代わりに�
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `msm.py`（MSM格子の幾何・双一次補間）・`jma_tile_specs.py`（配信元の要素ごとの宣言`JMA_ELEMENTS`。要素1件がパスの系統・時刻一覧のファイルと読み方・タイルで配るならズームとベクタのレイヤー名・配信の遅れを持つ（遅れは画面だけが読み、プリウォームの読み方は持たないので、タイルで配る要素には宣言できない）。ほかに系統ごとの時刻一覧の更新間隔。読み方に従って時刻一覧の行をコマにする`read_target_times`と、配信元のパスの形——時刻一覧のパス・コマのパスのテンプレート`jma_url_template`・タイルのパスの組み立て`jma_tile_path`と読み戻し`read_jma_tile_path`——も持つ）・`weather_elements.py`（動的気象で地図に描くものの宣言。要素ごとに、選んだ時刻に描くコマの規則と、自前の格子から描くなら読む値、配信元が段の色を焼き込むなら塗る段（`weather_display.py`の段の名前。画面の凡例と説明文がこれでまとめる）も持つ。時刻の段をつないだとき各段が最初に描くコマを求める`stage_first_frames`も持つ。画面へは生成物で届き、本番プロセスではプリウォームが温める要素をここから導く。**本番が読むため**、本番が読まない表示値の宣言`map_display.py`とは別のファイルに置く——デプロイの要否はファイル単位で決まる）・`weather.py`・`jma_amedas.py`・`jma_suikei.py`（推計気象分布（天気）の時刻一覧とタイルのパス・地点を含むタイルと画素・凡例の色から空の区分への読み替え。地図に重ねる`JMA_ELEMENTS`のタイルとは画素数と座標の数え方が違うので、宣言に入れずに持つ）・`jma_area.py`・`jma_warning.py`・`wbgt.py`・`twilight.py`・`flood_forecast.py`・`terrain_rgb.py`（Terrain-RGBの刻みと原点。画面が標高を読み戻す係数として生成物へ出る）・`gsi_tiles.py`（国土地理院タイルの製品ごとの事実——実データを持つズーム範囲・上流のパス・出典表記。中継ルートと画面へ配るURLは受ける層の`api/routers/gsi_tile.py`が上流のパスから導く）・`weather_display.py`（気象の値を色へ写す段と、天気コードの分類と名前。段は値の昇順でなければ読み込んだ時点で落とす——画面はこの順のまま塗り分けの式を組み、MapLibreの`step`式は昇順でないと式ごと失敗してレイヤーが黙って消える。**本番プロセスは読まず**、`scripts/export_openapi.py`の生成物を経由してだけ画面へ届く）・`warning_display.py`（警戒度バッジの出所ごとの段階の呼び名と色。暑さ指数・氾濫の呼び名はそれぞれの段階の宣言から読む。本番プロセスは読まず、生成物`vocabulary.ts`だけが届く） |
+| domain | `msm.py`（MSM格子の幾何・双一次補間）・`jma_tile_specs.py`（配信元の要素ごとの宣言`JMA_ELEMENTS`。要素1件がパスの系統・時刻一覧のファイルと読み方・タイルで配るならズームとベクタのレイヤー名と降水の段の色で塗った画像か・配信の遅れを持つ（遅れは画面だけが読み、プリウォームの読み方は持たないので、タイルで配る要素には宣言できない）。ほかに系統ごとの時刻一覧の更新間隔。読み方に従って時刻一覧の行をコマにする`read_target_times`と、配信元のパスの形——時刻一覧のパス・コマのパスのテンプレート`jma_url_template`・タイルのパスの組み立て`jma_tile_path`と読み戻し`read_jma_tile_path`——も持つ）・`weather_elements.py`（動的気象で地図に描くものの宣言。要素ごとに、選んだ時刻に描くコマの規則と、自前の格子から描くなら読む値、配信元が段の色を焼き込むなら塗る段（`weather_display.py`の段の名前。画面の凡例と説明文がこれでまとめる）も持つ。時刻の段をつないだとき各段が最初に描くコマを求める`stage_first_frames`も持つ。画面へは生成物で届き、本番プロセスではプリウォームが温める要素をここから導く。**本番が読むため**、本番が読まない表示値の宣言`map_display.py`とは別のファイルに置く——デプロイの要否はファイル単位で決まる）・`weather.py`・`jma_amedas.py`・`jma_suikei.py`（推計気象分布（天気）の時刻一覧とタイルのパス・地点を含むタイルと画素・凡例の色から空の区分への読み替え。地図に重ねる`JMA_ELEMENTS`のタイルとは画素数と座標の数え方が違うので、宣言に入れずに持つ）・`jma_area.py`・`jma_warning.py`・`wbgt.py`・`twilight.py`・`flood_forecast.py`・`terrain_rgb.py`（Terrain-RGBの刻みと原点。画面が標高を読み戻す係数として生成物へ出る）・`gsi_tiles.py`（国土地理院タイルの製品ごとの事実——実データを持つズーム範囲・上流のパス・出典表記。中継ルートと画面へ配るURLは受ける層の`api/routers/gsi_tile.py`が上流のパスから導く）・`weather_display.py`（気象の値を色へ写す段と、天気コードの分類と名前。段は値の昇順でなければ読み込んだ時点で落とす——画面はこの順のまま塗り分けの式を組み、MapLibreの`step`式は昇順でないと式ごと失敗してレイヤーが黙って消える。画面へは`scripts/export_openapi.py`の生成物で届き、本番プロセスは気象庁の降水のタイルの塗り替え（`jma_tile_recolor.py`）で降水の段と気象庁の色を読む）・`warning_display.py`（警戒度バッジの出所ごとの段階の呼び名と色。暑さ指数・氾濫の呼び名はそれぞれの段階の宣言から読む。本番プロセスは読まず、生成物`vocabulary.ts`だけが届く） |
 | services | `weather_service.py`・`jma_amedas_service.py`・`wbgt_service.py`・`warning_service.py`・`flood_service.py`・`jma_tile_prewarm_service.py`（定期プリウォームバッチ）・`jma_tile_interpolation_service.py`（配信元が持たないズームの補間の段取り）・`terrain_tile_service.py`（地理院の標高タイルをTerrain-RGBへ変換して配信） |
-| infrastructure | `msm_client.py`（MSMの同期・読み出し）・`jma_tile_client.py`・`jma_tile_redis_cache.py`（タイル本体のRedis cache-aside）・`jma_tile_interpolation.py`（配信元が持たないズームの補間）・`jma_tile_index.py`（在否インデックス）・`jma_tile_content.py`（タイルが空かどうかの判定。キャッシュと在否インデックスが共有する）・`jma_amedas_client.py`・`jma_suikei_client.py`（推計気象分布（天気）の地点の画素の色。時刻一覧とタイルは`JmaTileClient`を通る）・`jma_amedas_store.py`（アメダスの観測値と1時間雨量の履歴のRedisの置き場。鍵・項目名・TTL・保存した形の検査を持ち、サービスとは値でやり取りする）・`jma_warning_client.py`・`wbgt_client.py`・`flood_client.py`・`basemap_client.py`・`gsi_tile_client.py`・`simple_api_client.py`（TTLキャッシュで持つクライアントが共有する定型文、後述）・`gsi_dem_png.py`（地理院の標高タイルをTerrain-RGBのPNGへ詰め直す、後述）・`jma_area_boundaries.py`（地点→区域のコード。気象庁の区域の境界をディスクから読む、後述） |
+| infrastructure | `msm_client.py`（MSMの同期・読み出し）・`jma_tile_client.py`・`jma_tile_redis_cache.py`（タイル本体のRedis cache-aside）・`jma_tile_interpolation.py`（配信元が持たないズームの補間）・`jma_tile_index.py`（在否インデックス）・`jma_tile_content.py`（タイルが空かどうかの判定。キャッシュと在否インデックスが共有する）・`jma_tile_recolor.py`（気象庁の降水のタイルの色をアプリの降水の段の色へ塗り替える、後述）・`jma_amedas_client.py`・`jma_suikei_client.py`（推計気象分布（天気）の地点の画素の色。時刻一覧とタイルは`JmaTileClient`を通る）・`jma_amedas_store.py`（アメダスの観測値と1時間雨量の履歴のRedisの置き場。鍵・項目名・TTL・保存した形の検査を持ち、サービスとは値でやり取りする）・`jma_warning_client.py`・`wbgt_client.py`・`flood_client.py`・`basemap_client.py`・`gsi_tile_client.py`・`simple_api_client.py`（TTLキャッシュで持つクライアントが共有する定型文、後述）・`gsi_dem_png.py`（地理院の標高タイルをTerrain-RGBのPNGへ詰め直す、後述）・`jma_area_boundaries.py`（地点→区域のコード。気象庁の区域の境界をディスクから読む、後述） |
 | api | `weather.py`・`jma_tile.py`・`basemap.py`・`gsi_tile.py` |
 | scripts | `fetch_jma_area_boundaries.py`（気象庁の区域の境界を取得し、`jma_area_boundaries.py`が読む形で置く。デプロイが呼ぶ） |
 
@@ -117,7 +117,7 @@ MSMは数値予報モデルの出力で観測値・公式発表の代わりに�
 | 対象 | サーバー側キャッシュ方式 | TTL | 応答の`Cache-Control` |
 |---|---|---|---|
 | `targetTimes*.json`（`jma_tile_client.py: is_target_times_path`で判定） | プロセス内メモリ`TTLCache`（maxsize=16） | 2分 | `public, max-age=60` |
-| タイル本体（ラスタPNG・洪水キキクルのベクタPBF） | `jma_tile_redis_cache.py`（Redis cache-aside、正本を持たない） | 20分 | `public, max-age=1200, immutable` |
+| タイル本体（ラスタPNG・洪水キキクルのベクタPBF。降水は塗り替えたあと） | `jma_tile_redis_cache.py`（Redis cache-aside、正本を持たない。鍵に塗り替えの版`jma_tile_recolor.py: RECOLOR_VERSION`を入れる） | 20分 | `public, max-age=1200, immutable` |
 | 描くものが無いタイル（`EmptyTile`。上流の404、または200で返った空タイル） | 上記と同じキー・TTL（実体ではなくフラグ） | 20分 | `public, max-age=600` |
 | 配信前のコマの地物（GeoJSON）の404 | 保存しない | — | `no-store` |
 | 502（上流障害） | 保存しない | — | 付けない |
@@ -131,6 +131,14 @@ MSMは数値予報モデルの出力で観測値・公式発表の代わりに�
 ブラウザに再検証させない。MapLibreはズームレベルの跨ぎ・画面外へのパン・`setTiles`による
 ソース更新のたびに同じURLを引き直すため、この差が実リクエスト数に直結する。時刻一覧だけは
 同じURLのまま内容が更新されるため`immutable`にできない。
+
+**降水のタイルの塗り替え（`infrastructure/jma_tile_recolor.py`）**: 降水ナウキャストと降水短時間予報（宣言の
+`JmaTileSpec.precipitation_colors`）のタイルは、配信元が降水の強さの段ごとに決まった色で塗ったパレット形式のPNGで、
+段の区切りはアプリの降水の段（`domain/weather_display.py: PRECIPITATION_COLOR_STOPS`）と同じである。`JmaTileClient.fetch`が
+上流から取ったタイルのパレットの色を、気象庁の色の並び（`JMA_PRECIPITATION_TILE_COLORS`）から同じ段のアプリの色へ
+1対1で替えてからキャッシュへ書き、応答する。地図の色が凡例（同じ段から組み立てる）の行のどれかと一致し、自前の格子の
+塗りとも同じ色で続く。補間（後述）は塗り替えたあとの親を切り出すので、補間したタイルも同じ色になる。段に無い色の画素は
+替えずに残してWARNINGを出し（配信元が配色を変えた印）、読めない画像はWARNINGを出してそのまま配る。
 
 **レート制限（300/分）の適用順序**: `jma_tile.py`は`JmaTileClient.get_cached(path)`で
 まずキャッシュのみを参照し、ヒットすればレート制限を一切経由せず返す。ミスのときだけ

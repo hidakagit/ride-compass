@@ -17,8 +17,8 @@ import type { WindGridPoint } from "@/types/weather";
 
 // 降水強度→色の段（帯の下限）と段の呼び名。値・色・呼び名は源泉（backend
 // `domain/weather_display.py`）が持ち、格子の塗り（`features/map/scene/groups/weather.ts`）と
-// 地図チップの凡例の両方がこの並びを使う。気象庁はタイル配色のカラーコードを公開していないため、
-// 色はナウキャスト等のタイル画像の色と厳密には一致しない（凡例としての目安）。
+// 地図チップの凡例の両方がこの並びを使う。気象庁の降水のタイルも中継がこの段の色へ塗り替えて配るため、
+// 時系列のどの段の地図の色も凡例の行と一致する。
 export const PRECIPITATION_COLOR_STOPS: readonly { mmPerHour: number; color: string; name: string }[] =
   weatherScales.precipitation.map((stop) => ({ mmPerHour: stop.value, color: stop.color, name: stop.name }));
 

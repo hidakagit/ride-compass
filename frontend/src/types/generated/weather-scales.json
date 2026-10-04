@@ -6,24 +6,19 @@
       "name": "ごく弱い雨"
     },
     {
-      "value": 0.4,
-      "color": "#93dafc",
-      "name": "ポツポツ"
-    },
-    {
-      "value": 2,
+      "value": 1,
       "color": "#68ccfb",
-      "name": "パラパラ"
+      "name": "弱い雨"
     },
     {
-      "value": 4,
+      "value": 5,
       "color": "#38bdf8",
       "name": "ザーッ"
     },
     {
       "value": 10,
       "color": "#3b82f6",
-      "name": "ザーザー"
+      "name": "やや強い雨"
     },
     {
       "value": 20,

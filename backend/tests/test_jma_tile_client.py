@@ -6,7 +6,8 @@
 ここで見ないもの:
 - 中身が空のタイルをフラグで持つこと・Redisの値の形 → `test_jma_tile_redis_cache.py`
 - どのパスが「配信前に404が返る地物」か（`domain/jma_tile_specs.py: is_final_absence`） → `test_jma_tile_specs.py`。
-  ここでは宣言にある地物（落雷）とタイル（降水ナウキャスト）のパスを1つずつ入力に使う
+  ここでは宣言にある地物（落雷）とタイル（土砂キキクル）のパスを1つずつ入力に使う
+- 降水のタイルの色の塗り替え → `test_jma_tile_recolor.py`。ここでは取得したタイルに塗り替えが当たることだけを見る
 - 404・502・`Cache-Control`への振り分け、レート制限を当てる順序 → `test_jma_tile_routes.py`
 - 解いた行をコマにする読み方 → `test_jma_tile_specs.py`
 """
@@ -18,13 +19,16 @@ import pytest
 import respx
 
 from app.domain.jma_tile_specs import JmaFrame, TargetTimesRow
+from app.domain.weather_display import JMA_PRECIPITATION_TILE_COLORS, PRECIPITATION_COLOR_STOPS
 from app.infrastructure import jma_tile_client
 from app.infrastructure.jma_tile_client import EmptyTile, JmaTileClient, JmaTileNotFoundError
 from tests.fake_external_log import record_external_calls
 from tests.fake_http import client_for
+from tests.test_jma_tile_recolor import palette_tile, pixels, rgba
 
-TILE = "bosai/jmatile/data/nowc/20260101000000/none/20260101000000/surf/hrpns/6/57/25.png"
-OTHER_TILE = "bosai/jmatile/data/nowc/20260101000000/none/20260101000000/surf/hrpns/6/57/26.png"
+TILE = "bosai/jmatile/data/risk/20260101000000/none/20260101000000/surf/land/6/57/25.png"
+OTHER_TILE = "bosai/jmatile/data/risk/20260101000000/none/20260101000000/surf/land/6/57/26.png"
+PRECIPITATION_TILE = "bosai/jmatile/data/nowc/20260101000000/none/20260101000000/surf/hrpns/6/57/25.png"
 LISTING = "bosai/jmatile/data/nowc/targetTimes_N1.json"
 FEATURES = "bosai/jmatile/data/nowc/20260101000000/none/20260101000000/surf/liden/data.geojson?id=liden"
 OPAQUE = b"\x89PNG not decoded by the client"
@@ -107,6 +111,18 @@ async def test_a_fetched_tile_is_returned_and_then_served_from_the_cache(monkeyp
     assert upstream.calls.call_count == 1
     assert recorded[0].fields | {"path": TILE} == {"path": TILE, "cache": "miss", "result": "ok", "status": 200}
     assert recorded[1].fields["cache"] == "hit"
+
+
+async def test_a_fetched_precipitation_tile_is_served_and_cached_in_the_legend_colors(upstream, fake_redis):
+    upstream.get(f"/{PRECIPITATION_TILE}").respond(
+        content=palette_tile(list(JMA_PRECIPITATION_TILE_COLORS)), content_type="image/png"
+    )
+
+    fetched = await client(upstream).fetch(PRECIPITATION_TILE)
+    cached = await client(upstream).get_cached(PRECIPITATION_TILE)
+
+    assert fetched == cached
+    assert pixels(fetched[0])[1:] == [rgba(stop.color) for stop in PRECIPITATION_COLOR_STOPS]
 
 
 async def test_a_fetch_without_a_content_type_is_served_as_generic_bytes(upstream, fake_redis):
