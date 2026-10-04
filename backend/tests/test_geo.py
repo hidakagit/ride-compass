@@ -79,18 +79,15 @@ def test_every_sixteen_point_name_is_different():
 # --- bearing_between ---
 
 
-def tangent_plane_bearing(origin: Point, destination: Point) -> float | None:
+def tangent_plane_direction(origin: Point, destination: Point) -> tuple[float, float]:
     """方位を球面三角法の式とは別の道で求める: 目的地の位置ベクトルを、出発地で地面に接する平面の北向き・東向きの
-    単位ベクトルへ射影した向き。目的地が出発地か対蹠点に近く、向きが定まらないときはNone。"""
+    単位ベクトルへ射影した成分（北, 東）。長さは2点の中心角の正弦で、向きが定まらない出発地・対蹠点の近くでは0へ縮む。"""
     lat, lon = np.radians(origin.latitude), np.radians(origin.longitude)
     north = np.array([-np.sin(lat) * np.cos(lon), -np.sin(lat) * np.sin(lon), np.cos(lat)])
     east = np.array([-np.sin(lon), np.cos(lon), 0.0])
     to_lat, to_lon = np.radians(destination.latitude), np.radians(destination.longitude)
     target = np.array([np.cos(to_lat) * np.cos(to_lon), np.cos(to_lat) * np.sin(to_lon), np.sin(to_lat)])
-    toward_north, toward_east = target @ north, target @ east
-    if np.hypot(toward_north, toward_east) < 1e-6:
-        return None
-    return float(np.degrees(np.arctan2(toward_east, toward_north)))
+    return float(target @ north), float(target @ east)
 
 
 @given(origin=points, destinations=st.lists(points, min_size=1, max_size=10))
@@ -98,16 +95,17 @@ def tangent_plane_bearing(origin: Point, destination: Point) -> float | None:
 @example(origin=Point(35.0, 139.0), destinations=[Point(36.0, 140.0), Point(34.0, 138.0), Point(35.0, 149.0)])
 def test_the_bearing_agrees_with_the_direction_on_the_tangent_plane(origin, destinations):
     """向かい風・追い風の分け方は、走る向きの方位で決まる。斜めの向き・緯度の違う2点でも、北から時計回りの角度が
-    別の道で求めた向きと合う。"""
+    別の道で求めた向きと合う（向きの定まらない2点は、比べる成分がどちらも0へ縮むので外さずに比べる）。"""
     bearings = geo.bearing_between_array(
         origin, np.array([p.latitude for p in destinations]), np.array([p.longitude for p in destinations])
     )
 
     assert bearings.shape == (len(destinations),)
     for destination, bearing in zip(destinations, bearings, strict=True):
-        expected = tangent_plane_bearing(origin, destination)
-        if expected is not None:
-            assert (bearing - expected + 180.0) % 360.0 - 180.0 == pytest.approx(0.0, abs=1e-6)
+        toward_north, toward_east = tangent_plane_direction(origin, destination)
+        length = np.hypot(toward_north, toward_east)
+        angle = np.radians(bearing)
+        assert (length * np.cos(angle), length * np.sin(angle)) == pytest.approx((toward_north, toward_east), abs=1e-9)
 
 
 def test_bearing_between_the_same_point_is_north():
