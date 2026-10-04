@@ -194,9 +194,14 @@ async def test_rerun_without_a_product_keeps_no_value_only_that_product_gave(ele
 VALLEY_PIXELS = ((40, 40), (40, 200), (40, 44))
 
 
-@pytest.mark.parametrize("structure", [{"bridge": "yes"}, {"tunnel": "yes"}])
-async def test_a_bridge_or_tunnel_does_not_climb_the_terrain_under_it(elevation_conn, structure):
-    """橋・トンネルの区間は、下の地表の起伏を上り下りに数えない。同じ形のタグの無い道は数える。"""
+@pytest.mark.parametrize(("structure", "climb"), [
+    ({"bridge": "viaduct"}, (0.0, 0.0)),
+    ({"tunnel": "yes"}, (0.0, 0.0)),
+    ({"tunnel": "building_passage"}, (10.0, 10.0)),
+])
+async def test_a_bridge_or_tunnel_does_not_climb_the_terrain_under_it(elevation_conn, structure, climb):
+    """浮いた橋・地中のトンネルの区間は、下の地表の起伏を上り下りに数えない。同じ形のタグの無い道と、
+    地表を通る値（建物の下の通路等）の道は数える。"""
     conn = elevation_conn
     await ingest_records("osm_way", [
         *(_way(way_id, pixels) for way_id, pixels, _ in CASES),
@@ -209,4 +214,4 @@ async def test_a_bridge_or_tunnel_does_not_climb_the_terrain_under_it(elevation_
         "SELECT osm_way_id, elevation_gain_m, elevation_loss_m FROM edge_materials"
         " WHERE osm_way_id IN (11, 12)")
     assert {r["osm_way_id"]: (r["elevation_gain_m"], r["elevation_loss_m"]) for r in rows} == {
-        11: (10.0, 10.0), 12: (0.0, 0.0)}
+        11: (10.0, 10.0), 12: climb}

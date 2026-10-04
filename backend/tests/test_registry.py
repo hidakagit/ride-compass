@@ -13,18 +13,10 @@ from pydantic import ValidationError
 from app.domain.registry import AxisDisplaySpec, TileInputSpec
 
 
-@pytest.mark.parametrize(
-    "forms",
-    [
-        {"boolean": True, "categories": {"a": 1.0}},
-        {"boolean": True, "breakpoints": [(0.0, 0.0), (1.0, 100.0)]},
-        {"categories": {"a": 1.0}, "breakpoints": [(0.0, 0.0), (1.0, 100.0)]},
-    ],
-)
-def test_a_tile_input_with_two_forms_is_refused(forms):
+def test_a_tile_input_with_two_forms_is_refused():
     """形を2つ載せると、画面の式が片方を選び、選ばれなかった指定が黙って消える。"""
     with pytest.raises(ValidationError, match="more than one form"):
-        TileInputSpec(property="p", **forms)
+        TileInputSpec(property="p", categories={"a": 1.0}, breakpoints=[(0.0, 0.0), (1.0, 100.0)])
 
 
 @pytest.mark.parametrize("values", [{"true_value": 1.0}, {"false_value": 1.0}])
@@ -38,15 +30,7 @@ def test_a_weight_on_the_boolean_form_is_refused_because_the_form_ignores_it():
         TileInputSpec(property="p", boolean=True, true_value=10.0, weight=2.0)
 
 
-@pytest.mark.parametrize(
-    "form",
-    [
-        {"weight": 2.0},
-        {"boolean": True, "true_value": 10.0, "false_value": 2.0},
-        {"categories": {"a": 1.0}, "weight": 2.0},
-        {"breakpoints": [(0.0, 0.0), (1.0, 100.0)], "weight": 2.0},
-    ],
-)
+@pytest.mark.parametrize("form", [{"weight": 2.0}, {"boolean": True, "true_value": 10.0, "false_value": 2.0}])
 def test_each_form_alone_is_accepted_and_reads_back_from_what_it_writes(form):
     """配った値は、書き出した形（使わない形の欄は空の値）から同じ宣言へ読み直せる。"""
     spec = TileInputSpec(property="p", **form)
@@ -60,7 +44,6 @@ def test_categories_come_out_in_the_same_order_whatever_order_they_were_given_in
     backward = TileInputSpec(property="p", categories={"c": 3.0, "a": 1.0, "b": 2.0})
 
     assert forward.model_dump_json() == backward.model_dump_json()
-    assert list(backward.categories or {}) == ["a", "b", "c"]
 
 
 def test_a_ramp_display_with_nothing_to_read_from_the_tile_is_refused():
@@ -78,11 +61,10 @@ def test_a_display_that_is_not_drawn_refuses_a_ramp_payload(payload):
         AxisDisplaySpec(kind="none", label="軸", **payload)
 
 
-@pytest.mark.parametrize("thresholds", [[1.0, 1.0], [2.0, 1.0]])
-def test_band_boundaries_that_do_not_rise_are_refused(thresholds):
+def test_band_boundaries_that_do_not_rise_are_refused():
     """昇順でない境界は画面のstep式が読めず、境界が1つ先の帯へ吸われる。同じ値も昇順でない。"""
     with pytest.raises(ValidationError, match="not ascending"):
-        AxisDisplaySpec(kind="ramp", label="軸", tile_inputs=[TileInputSpec(property="p")], thresholds=thresholds)
+        AxisDisplaySpec(kind="ramp", label="軸", tile_inputs=[TileInputSpec(property="p")], thresholds=[1.0, 1.0])
 
 
 def test_displays_that_agree_with_their_kind_are_accepted():

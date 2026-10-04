@@ -1,5 +1,5 @@
 // 約束 18（担当の後始末の行き先。src/after.js: settle）を確かめる。設定は架空のもの（fake-github.js: config）を渡す。
-// ここで見ないもの: 終わりのコメントの中身（目的を決め直すまで確かめない）・ステータスを動かす道具（src/move.js）は表の照らし
+// ここで見ないもの: 終わりのコメントの中身（文言で、`bin/after.js --dry-run` が出す姿で見る）・ステータスを動かす道具（src/move.js）は表の照らし
 // （rules.js: judge）を呼ぶだけなので、照らしは gate.test.js が見る。
 import assert from "node:assert/strict";
 import { test } from "node:test";

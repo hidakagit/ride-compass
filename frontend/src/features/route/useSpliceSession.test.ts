@@ -12,7 +12,8 @@
  * - 地図の帯の描き方とタップ → `features/map/scene/groups/routes.test.ts`
  * - 作った経路を結果へ足す・既存の候補を選ぶ → `useRouteResults.test.ts`・`app/page.test.tsx`
  *
- * 差し替えたもの: backendを呼ぶ口（`routeApi.ts: generateRoutes`・`services/axisCatalogApi.ts: getAxisCatalog`）。
+ * 差し替えたもの: 評価（生成のジョブ）と軸カタログの応答（網の層。`testing/generationJobs.ts`）。評価はジョブを作り
+ * backendの回数制限に数えられるので、出した要求の数と中身を確かめる。
  *
  * 通さない分岐（どれも入口から作れない）:
  * - 生成の入力が無いときの`start`: 始められるのは目的地の生成があるときだけで、入口（`canStart`）が出ない
@@ -25,20 +26,14 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { GenerationInput } from "@/features/route/generationRequest";
-import { generateRoutes } from "@/features/route/routeApi";
 import { CLIENT_TUNING_IDS } from "@/lib/axisCatalog";
-import { getAxisCatalog } from "@/services/axisCatalogApi";
+import { heldReplies, serveAxisCatalog } from "@/testing/backendServer";
 import { catalogEntry, catalogResponse } from "@/testing/catalogAxes";
+import { serveGenerationJobs } from "@/testing/generationJobs";
 import { makeRouteCandidate } from "@/testing/routeFixtures";
 import type { GenerationConditions, RouteCandidate } from "@/types/route";
 
 import { useSpliceSession } from "./useSpliceSession";
-
-vi.mock("@/features/route/routeApi", () => ({ generateRoutes: vi.fn() }));
-vi.mock("@/services/axisCatalogApi", () => ({ getAxisCatalog: vi.fn() }));
-
-const generate = vi.mocked(generateRoutes);
-const fetchCatalog = vi.mocked(getAxisCatalog);
 
 const CATALOG = catalogResponse([catalogEntry({ axis_id: "axis_a", default_weight: 1 })], {
   client_tuning: { [CLIENT_TUNING_IDS.minStretchKm]: 0.1 },
@@ -172,21 +167,23 @@ function evaluated(edgeIds: string[], id = "spliced"): RouteCandidate {
   return makeRouteCandidate({ id, edge_ids: edgeIds, distance_km: 12.3 });
 }
 
+let jobs: ReturnType<typeof serveGenerationJobs>;
+
 /** 決着させるまで待つ評価。 */
 function deferredEvaluation() {
-  const handle: { resolve: (routes: RouteCandidate[]) => void } = { resolve: () => {} };
-  generate.mockImplementationOnce(
-    () =>
-      new Promise((resolve) => {
-        handle.resolve = (routes) => resolve({ routes, conditions: CONDITIONS });
-      }),
-  );
-  return handle;
+  const job = heldReplies();
+  jobs.answerWith(job.reply);
+  return {
+    resolve: (routes: RouteCandidate[]) =>
+      job.answer(0, Response.json({ status: "done", result: { routes, conditions: CONDITIONS } })),
+  };
 }
 
 function respond(routes: RouteCandidate[]) {
-  generate.mockResolvedValueOnce({ routes, conditions: CONDITIONS });
+  jobs.respond(routes, CONDITIONS);
 }
+
+const failRequest = () => jobs.fail("リクエストに失敗しました");
 
 /** 編集面の操作を押し、終わるまで待つ（編集面の型は戻り値を持たないが、実体は評価を待つ）。 */
 async function press(action: (() => unknown) | undefined) {
@@ -196,9 +193,8 @@ async function press(action: (() => unknown) | undefined) {
 }
 
 beforeEach(() => {
-  generate.mockReset();
-  fetchCatalog.mockReset();
-  fetchCatalog.mockResolvedValue(CATALOG);
+  jobs = serveGenerationJobs();
+  serveAxisCatalog(CATALOG);
 });
 
 describe("入口", () => {
@@ -219,7 +215,7 @@ describe("入口", () => {
   });
 
   it("区間を割る下限を引けない間は始められず、始めても乗り換え先を作らない（較正と別の切り方で出さない）", async () => {
-    fetchCatalog.mockResolvedValue(CATALOG_WITHOUT_MIN_STRETCH);
+    serveAxisCatalog(CATALOG_WITHOUT_MIN_STRETCH);
     const rendered = renderSplice();
 
     await startWithCatalog(rendered);
@@ -353,14 +349,14 @@ describe("差分を見る", () => {
 
     await press(rendered.result.current.panel?.onPreview);
 
-    expect(generate).toHaveBeenCalledTimes(1);
-    expect(generate.mock.calls[0][0]).toMatchObject({
+    expect(jobs.submitted).toHaveLength(1);
+    expect(jobs.submitted[0].body).toMatchObject({
       latitude: BASIS.origin.latitude,
       longitude: BASIS.origin.longitude,
       max_routes: BASIS.maxRoutes,
       assumed_speed_kmh: BASIS.assumedSpeedKmh,
       route_preference: BASIS.routePreference,
-      destination: BASIS.destination,
+      destination: { ...BASIS.destination },
       spliced_edge_ids: ["e1", "q1", "q2", "e3"],
     });
     expect(rendered.result.current.panel?.preview).toEqual(result);
@@ -371,7 +367,7 @@ describe("差分を見る", () => {
     tapStretch(rendered);
     expect(rendered.result.current.panel?.preview).toEqual(result);
     await press(rendered.result.current.panel?.onPreview);
-    expect(generate).toHaveBeenCalledTimes(1);
+    expect(jobs.submitted).toHaveLength(1);
   });
 
   it("乗り換えていない間は評価しない", async () => {
@@ -380,7 +376,7 @@ describe("差分を見る", () => {
 
     await press(rendered.result.current.panel?.onPreview);
 
-    expect(generate).not.toHaveBeenCalled();
+    expect(jobs.submitted).toEqual([]);
   });
 
   it("評価を待っている間は待っていると返し、選び直しても続ける。待っている間に押しても投げ直さない", async () => {
@@ -397,10 +393,10 @@ describe("差分を見る", () => {
     await press(rendered.result.current.panel?.onPreview);
     tapStretch(rendered);
     expect(rendered.result.current.panel?.previewing).toBe(true);
-    expect(generate).toHaveBeenCalledTimes(1);
+    expect(jobs.submitted).toHaveLength(1);
 
     await act(async () => {
-      pending.resolve([evaluated(["e1", "q1", "q2", "e3"])]);
+      await pending.resolve([evaluated(["e1", "q1", "q2", "e3"])]);
       await first;
     });
     expect(rendered.result.current.panel?.previewing).toBe(false);
@@ -408,16 +404,7 @@ describe("差分を見る", () => {
 
   it.each([
     { label: "評価が空で返る", outcome: () => respond([]), message: "組み合わせたルートを評価できませんでした" },
-    {
-      label: "通信が失敗する",
-      outcome: () => generate.mockRejectedValueOnce(new Error("リクエストに失敗しました")),
-      message: "リクエストに失敗しました",
-    },
-    {
-      label: "Error以外で失敗する",
-      outcome: () => generate.mockRejectedValueOnce("boom"),
-      message: "組み合わせたルートの評価に失敗しました",
-    },
+    { label: "評価に失敗する", outcome: failRequest, message: "リクエストに失敗しました" },
   ])("「$label」と、理由を編集面に出す。次に乗り換え先を選ぶ・戻すと消す", async ({ outcome, message }) => {
     const rendered = renderSplice({ routes: [BASE, VIA_Q, VIA_Q_R] });
     await startEditing(rendered);
@@ -451,7 +438,7 @@ describe("差分を見る", () => {
 
     act(() => rendered.result.current.panel?.onCancel());
     await act(async () => {
-      pending.resolve([evaluated(["e1", "q1", "q2", "e3"])]);
+      await pending.resolve([evaluated(["e1", "q1", "q2", "e3"])]);
       await first;
     });
     expect(rendered.result.current.editingRoute).toBeNull();
@@ -479,7 +466,7 @@ describe("作成", () => {
     expect(rendered.result.current.panel?.applying).toBe(true);
 
     await act(async () => {
-      pending.resolve([created]);
+      await pending.resolve([created]);
       await applying;
     });
 
@@ -508,7 +495,7 @@ describe("作成", () => {
 
     await press(rendered.result.current.panel?.onApply);
 
-    expect(generate).toHaveBeenCalledTimes(1);
+    expect(jobs.submitted).toHaveLength(1);
     expect(rendered.onApplied).toHaveBeenCalledWith({ created, originId: "base" });
   });
 
@@ -523,7 +510,7 @@ describe("作成", () => {
       await Promise.all([apply?.(), apply?.()]);
     });
 
-    expect(generate).toHaveBeenCalledTimes(1);
+    expect(jobs.submitted).toHaveLength(1);
     expect(rendered.onApplyStart).toHaveBeenCalledTimes(1);
     expect(rendered.onApplied).toHaveBeenCalledTimes(1);
   });
@@ -535,16 +522,12 @@ describe("作成", () => {
     await press(rendered.result.current.panel?.onApply);
 
     expect(rendered.onApplyStart).not.toHaveBeenCalled();
-    expect(generate).not.toHaveBeenCalled();
+    expect(jobs.submitted).toEqual([]);
   });
 
   it.each([
     { label: "評価が空で返る", outcome: () => respond([]), message: "組み合わせたルートを評価できませんでした" },
-    {
-      label: "通信が失敗する",
-      outcome: () => generate.mockRejectedValueOnce(new Error("リクエストに失敗しました")),
-      message: "リクエストに失敗しました",
-    },
+    { label: "評価に失敗する", outcome: failRequest, message: "リクエストに失敗しました" },
   ])("「$label」と、編集を続けたまま理由を出し、もう一度作れる", async ({ outcome, message }) => {
     const rendered = renderSplice();
     await startEditing(rendered);

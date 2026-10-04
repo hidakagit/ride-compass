@@ -5,6 +5,7 @@
  * ✕と「はじめる」のどちらで閉じても消え、この端末では次に開いても出ないこと。
  *
  * ここで見ないもの:
+ * - 目的・出発地の印・使い方の場所の文言——部品の宣言で、書き写して突き合わせるだけになる
  * - 保存値の読み書きと、読めない値を既定へ戻すこと → `hooks/useStoredState.ts`
  * - マウントするまで出さないこと（サーバーで描いたHTMLに載せない）——テスト環境の`render`はマウントまで同期で進み、
  *   マウント前の描画を取り出せない
@@ -26,23 +27,19 @@ afterEach(() => {
 });
 
 describe("FirstVisitIntro", () => {
-  it("閉じたことが無ければ、見出しを名前に持つ案内に、目的・出発地の印・使い方の場所を出す", () => {
+  it("閉じたことが無ければ、見出しを名前に持つ案内を出す", () => {
     render(<FirstVisitIntro isMobile={false} />);
 
-    const region = intro();
-    expect(region).toHaveTextContent("ロードバイクで走る周回ルートを、道の走りやすさを評価して作ります。");
-    expect(region).toHaveTextContent("この印が出発地です（はじめは現在地）。地図の上でつかんで動かせます。");
-    expect(region).toHaveTextContent("右上のメニュー（）の「使い方を見る」から、部品を押して見られます。");
-    expect(screen.getByRole("img", { name: "メニュー" })).toBeInTheDocument();
+    expect(intro()).toBeInTheDocument();
   });
 
   it.each([
-    [true, "下の「ルート設定」を開いて距離を決め、「生成」を押すと、ルートの候補が地図に出ます。"],
-    [false, "左の「ルート設定」で距離を決め、「生成」を押すと、ルートの候補が地図に出ます。"],
+    [true, "下の「ルート設定」を開いて距離を決め、ルート生成を押すと、ルートの候補が地図に出ます。"],
+    [false, "左の「ルート設定」で距離を決め、ルート生成を押すと、ルートの候補が地図に出ます。"],
   ])("スマホ（%s）かで、最初の一手の場所を言い分ける", (isMobile, firstStep) => {
     render(<FirstVisitIntro isMobile={isMobile} />);
 
-    expect(screen.getByText(firstStep)).toBeInTheDocument();
+    expect(screen.getByText(/ルートの候補が地図に出ます/)).toHaveTextContent(firstStep);
   });
 
   it.each(["案内を閉じる", "はじめる"])("「%s」を押すと消え、次に開いても出ない", async (name) => {

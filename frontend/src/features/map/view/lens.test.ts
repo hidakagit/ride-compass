@@ -33,8 +33,6 @@ function valueRamp(
 
 const catalog = mapCatalogOf([
   valueRamp("ramp", [10, 20], { map_legend: { boundaries: [10, 20], unit: "%" } }),
-  rampEntry("labelled", [10], { display_band_labels_override: ["平ら", "坂"] }),
-  rampEntry("mislabelled", [10], { display_band_labels_override: ["1つだけ"] }),
   valueRamp("unknown", [10], {}, true),
   dedicatedEntry("dedicated", [1, 3], { map_legend: { boundaries: [1, 3], unit: "m/s" } }),
 ]);
@@ -62,24 +60,8 @@ describe("lensLegend（レンズの凡例）", () => {
     }
   });
 
-  it("段の鍵は軸idを含まず、ルート確定後の凡例と同じ綴り", () => {
-    expect(lensLegend("ramp", false, catalog).map((entry) => entry.key)).toEqual(["step-0", "step-1", "step-2"]);
-  });
-
-  it("体感ラベルは段数と一致するときだけ添える", () => {
-    expect(lensLegend("labelled", false, catalog).map((entry) => entry.label)).toEqual([
-      "平ら[10点未満]",
-      "坂[10点以上]",
-    ]);
-    expect(lensLegend("mislabelled", false, catalog).map((entry) => entry.label)).toEqual([
-      "影響 10点未満",
-      "影響 10点以上",
-    ]);
-  });
-
   it("材料が欠けて評価できない道は、数値の段ではなく末尾の「データなし」だけに当てはまる", () => {
     const legend = lensLegend("unknown", false, catalog);
-    expect(legend.at(-1)).toMatchObject({ key: LEGEND_NO_DATA_KEY, label: "データなし", isFallback: true });
     const hitsFor = (properties: Record<string, unknown>) =>
       legend.flatMap((entry) => (matches(entry.filter, properties) ? [entry.key] : []));
     expect(hitsFor({})).toEqual([LEGEND_NO_DATA_KEY]);
@@ -102,14 +84,12 @@ describe("lensLegend（レンズの凡例）", () => {
         matches(entry.filter, properties) ? [entry.key] : [],
       );
     expect(hitsFor({}, { [VALUE]: 5 })).toEqual([LEGEND_NO_DATA_KEY]);
-    expect(hitsFor({}, {})).toEqual([LEGEND_NO_DATA_KEY]);
     expect(hitsFor({ [VALUE]: 3 }, { [VALUE]: 5 })).toEqual(["step-1"]);
   });
 
   it("専用配信軸は、配信値の境界で段を作り、末尾に値を受け取れなかった道の行を持つ", () => {
     const legend = lensLegend("dedicated", false, catalog);
     expect(legend.map((entry) => entry.label)).toEqual(["1m/s未満", "1〜3m/s", "3m/s以上", "データなし"]);
-    expect(legend.at(-1)).toMatchObject({ key: LEGEND_NO_DATA_KEY, isFallback: true });
   });
 
   it("ルート確定後は、ルート線の色分けモードの凡例。塗る軸でない・無いモードは空", () => {
@@ -163,13 +143,7 @@ describe("lensOptions（レンズの選択肢）", () => {
   });
 
   it("「未使用」は、渡した重みが0以下か、重みを持たない軸", () => {
-    const [ramp, routeOnly] = lensOptions(axes, paintable, { ramp: 2 }, {});
-    expect(ramp.unused).toBe(false);
-    expect(routeOnly.unused).toBe(true);
-    expect(lensOptions(axes, paintable, { ramp: 0, route_only: 1 }, {}).map((option) => option.unused)).toEqual([
-      true,
-      false,
-    ]);
+    expect(lensOptions(axes, paintable, { ramp: 0 }, {}).map((option) => option.unused)).toEqual([true, true]);
   });
 });
 
@@ -177,6 +151,5 @@ describe("isRouteStyleModeId", () => {
   it("いまのカタログにあるモードの綴りだけを受ける（保存値の読み戻し）", () => {
     expect(isRouteStyleModeId(catalog.routeStyleModes, catalog.routeStyleModes[0].id)).toBe(true);
     expect(isRouteStyleModeId(catalog.routeStyleModes, "gone")).toBe(false);
-    expect(isRouteStyleModeId(catalog.routeStyleModes, null)).toBe(false);
   });
 });

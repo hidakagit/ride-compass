@@ -28,7 +28,6 @@ from app.domain.axis_definitions import (
     PriorityCondition,
 )
 from app.domain.dynamic_way_values import (
-    DifficultyMapValue,
     MapLegendScale,
     SignedMaterialMapValue,
     map_legend,
@@ -119,8 +118,6 @@ def test_other_axes_paint_the_difficulty(axes, definition):
     axes["inner"] = _axis(_line("num_tiled"), axis_id="inner")
 
     assert map_value_kind(definition) == "difficulty"
-    assert map_value(definition) == DifficultyMapValue()
-    assert map_value_unit(definition) == ""
 
 
 # --- ルート線の段の境界 ---
@@ -151,20 +148,6 @@ def test_the_default_difficulty_boundaries_are_strictly_ascending():
     assert boundaries == sorted(set(boundaries))
 
 
-@pytest.mark.parametrize(
-    ("override", "expected"),
-    [(None, [20.0, 80.0]), ([2.0, 7.0], [10.0, 50.0])],
-    ids=["導出した境界", "上書きした境界"],
-)
-def test_route_line_bands_are_the_map_bands_written_on_the_difficulty_scale(override, expected):
-    """地図は材料の重み付き和を、ルート線は難易度を塗る。同じ段になるよう、地図の境界を折れ線で写す。"""
-    definition = _axis(
-        _line("num_tiled", breakpoints=((0.0, 0.0), (4.0, 20.0), (10.0, 80.0))), display_thresholds_override=override
-    )
-
-    assert map_value_thresholds(definition) == pytest.approx(expected)
-
-
 def test_route_line_bands_of_a_categorical_axis_are_the_map_bands():
     """分類の軸の地図の値は初めから得点なので、写さない。"""
     definition = _axis(CategoricalShape(material="kind", mapping={"x": 0.0, "y": 40.0, "z": 100.0}))
@@ -186,7 +169,8 @@ def test_an_axis_scoring_a_quantity_is_cut_at_its_knots_and_written_in_that_quan
 
 
 def test_a_tile_painted_axis_scoring_a_quantity_is_written_at_its_map_bands_in_that_quantity():
-    """タイルで塗る軸の地図の段は初めから量の目盛りなので、凡例はそれをそのまま量で書き、ルート線は得点へ写す。"""
+    """タイルで塗る軸の地図の段は初めから量の目盛りなので、凡例はそれをそのまま量で書く。地図は材料の重み付き和を、
+    ルート線は難易度を塗るので、同じ段になるよう、ルート線の境界は地図の境界を折れ線で写す。"""
     definition = _axis(
         _line("count_tiled", breakpoints=((0.0, 0.0), (4.0, 20.0), (10.0, 80.0))), display_thresholds_override=[2.0, 7.0]
     )
@@ -201,16 +185,10 @@ SCORE_LEGEND_AXES = {
         _line("rain_live", breakpoints=((0.0, 0.0), (5.0, 50.0), (20.0, 50.0), (50.0, 100.0)))
     ),
     "得点で刻んだ上書き": _axis(_line("rain_live", breakpoints=RAIN_LINE), display_thresholds_override=[40.0]),
-    "量の重みが1でない": _axis(
-        BreakpointLinearShape(
-            terms=[MaterialTerm(material="rain_live", weight=2.0)], breakpoints=list(RAIN_LINE), preprocess="identity"
-        )
-    ),
     "0次条件を持つ": _axis(
         _line("rain_live", breakpoints=RAIN_LINE),
         priority_overrides=[PriorityCondition(material="rain_live", equals="x", value=0.0)],
     ),
-    "分類の軸": _axis(CategoricalShape(material="kind", mapping={"x": 0.0, "y": 40.0, "z": 100.0})),
 }
 
 

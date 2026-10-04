@@ -16,7 +16,7 @@
  * `features/route/difficultyLoadBar.ts`。結果の状態の移り変わり → `features/route/useRouteResults.ts`。
  *
  * 差し替えたもの: 子の部品（比較表・道のりのグラフ・内訳・寄与の帯・元との違い・区間の風・編集面）は受け取った値と
- * 上げる操作だけを見る（表示は各部品のテストが見る）。軸カタログの通信（`services/axisCatalogApi.ts: getAxisCatalog`）と
+ * 上げる操作だけを見る（表示は各部品のテストが見る）。軸カタログの応答（網の層）と
  * GPXのファイルを落とす関数（`features/route/gpxExport.ts: downloadGpx`）。
  *
  * 軸は架空のもの（`axis_a`等）を`src/testing/catalogAxes.ts`の雛形から作る。
@@ -33,14 +33,14 @@ import type EditDifference from "@/features/route/EditDifference/EditDifference"
 import type RouteAxisProfile from "@/features/route/RouteAxisProfile/RouteAxisProfile";
 import type RouteSplicePanel from "@/features/route/RouteSplicePanel/RouteSplicePanel";
 import type SegmentWind from "@/features/route/SegmentWind/SegmentWind";
-import { downloadGpx } from "@/features/route/gpxExport";
+import { downloadGpx, MAX_GPX_TRACK_POINTS } from "@/features/route/gpxExport";
 import type { GenerationInput } from "@/features/route/generationRequest";
 import { SPLICED_ROUTE_ID_PREFIX } from "@/features/route/routeTabLabel";
 import { COMPARISON_TAB, type EditedRoute, type RouteResults } from "@/features/route/useRouteResults";
 import { MATERIAL_CATALOG } from "@/lib/axisMaterialsCatalog";
 import { catalogAxisFromEntry } from "@/lib/catalogAxis";
 import { setResearchEnabled } from "@/lib/researchMode";
-import { getAxisCatalog } from "@/services/axisCatalogApi";
+import { serveAxisCatalog } from "@/testing/backendServer";
 import { catalogEntry, catalogOf, catalogResponse } from "@/testing/catalogAxes";
 import { makeGenerationConditions, makeRouteCandidate, makeRouteSegment } from "@/testing/routeFixtures";
 import type { ExperimentSlot } from "@/types/experimentSlot";
@@ -55,8 +55,10 @@ vi.mock("@/components/AxisContributionBar/AxisContributionBar", stubModule("Axis
 vi.mock("@/features/route/EditDifference/EditDifference", stubModule("EditDifference"));
 vi.mock("@/features/route/SegmentWind/SegmentWind", stubModule("SegmentWind"));
 vi.mock("@/features/route/RouteSplicePanel/RouteSplicePanel", stubModule("RouteSplicePanel"));
-vi.mock("@/features/route/gpxExport", () => ({ downloadGpx: vi.fn() }));
-vi.mock("@/services/axisCatalogApi", () => ({ getAxisCatalog: vi.fn() }));
+vi.mock("@/features/route/gpxExport", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/features/route/gpxExport")>()),
+  downloadGpx: vi.fn(),
+}));
 
 const ENTRIES = [
   catalogEntry({ axis_id: "axis_a", label: "軸A" }),
@@ -66,7 +68,7 @@ const ENTRIES = [
 const CATALOG = catalogOf(ENTRIES);
 
 beforeEach(() => {
-  vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse(ENTRIES));
+  serveAxisCatalog(catalogResponse(ENTRIES));
 });
 
 afterEach(() => {
@@ -214,7 +216,9 @@ describe("候補が無い間", () => {
 
   it("案内が無ければ、生成を押すと候補が並ぶことを案内する", () => {
     renderOutcome();
-    expect(screen.getByText("「ルート設定」の「生成」を押すと候補がここに並びます")).toBeInTheDocument();
+    expect(screen.getByText(/候補がここに並びます/)).toHaveTextContent(
+      "「ルート設定」のルート生成を押すと候補がここに並びます",
+    );
     expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
   });
 });
@@ -352,6 +356,13 @@ describe("選んだ候補の中身", () => {
     renderOutcome({ results: resultsOf({ generated: [FAST, SLOW], selectedRouteId: "slow" }) });
     await userEvent.click(screen.getByRole("button", { name: "GPX出力" }));
     expect(downloadGpx).toHaveBeenCalledWith(SLOW);
+  });
+
+  it("GPX出力の使い方に、書き出す点の上限まで間引くことを書く", () => {
+    renderOutcome({ results: resultsOf({ generated: [FAST] }) });
+    expect(screen.getByRole("button", { name: "GPX出力" }).dataset.usage).toContain(
+      `${MAX_GPX_TRACK_POINTS}点に収まるように間引きます`,
+    );
   });
 
   it("編集で作ったルートには、元とその一覧での名前を「元との違い」へ渡し、「元を見る」で元のタブを選ぶ", () => {

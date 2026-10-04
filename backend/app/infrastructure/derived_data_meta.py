@@ -1,4 +1,4 @@
-"""派生データの世代と、数えた事故の取込（1行のみ、id=1固定）。
+"""派生データの世代と、数えた事故の取込（1行のみ、id=1固定）。今の派生の表を作った取込（`derived_source_runs`）。
 
 派生の作り直し（`app/batch/derive_cli.py`）が作り直した表を入れ替えるたびにインクリメントする単調カウンタ。
 道路網全体の配列の置き場の名前（`road_network_store.py`）と、配信する地図タイルの世代
@@ -22,7 +22,7 @@
 from dataclasses import dataclass
 
 import asyncpg
-from sqlalchemy import BigInteger, CheckConstraint, ForeignKey, Integer, select
+from sqlalchemy import BigInteger, CheckConstraint, ForeignKey, Integer, String, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -41,6 +41,21 @@ class DerivedDataMetaRow(Base):
     #: NULLは事故の取込が無いまま数えたこと（事故の数はどれも0）。
     accident_run_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("source_runs.run_id"), nullable=True)
+
+
+class DerivedSourceRunRow(Base):
+    """今の`public`の派生の表を作った取込。ソースごとに1行。
+
+    作り直しを始めた時点の、全ソースの成功した最新の取込を、表を入れ替えるのと同じトランザクションで
+    書く（`derive_cli.py`）。段がどのソースを読むかは宣言していないので、全ソースを記録する。段が読んだ
+    生データがこの記録と一致するのは、取込と作り直しが同時に走らず、`--from`が記録から生データの
+    変わっていないときだけ流れるためである。
+    """
+
+    __tablename__ = "derived_source_runs"
+
+    source: Mapped[str] = mapped_column(String, primary_key=True)
+    run_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("source_runs.run_id"), nullable=False)
 
 
 @dataclass(frozen=True)
@@ -83,3 +98,17 @@ async def record_accident_run(conn: asyncpg.Connection, run_id: int | None) -> N
         "INSERT INTO derived_data_meta (id, revision, accident_run_id) VALUES (1, 0, $1)"
         " ON CONFLICT (id) DO UPDATE SET accident_run_id = EXCLUDED.accident_run_id",
         run_id)
+
+
+async def read_source_runs(conn: asyncpg.Connection) -> dict[str, int]:
+    """今の派生の表を作った取込（ソース → `run_id`）。"""
+    return {row["source"]: row["run_id"] for row in await conn.fetch(
+        f"SELECT source, run_id FROM {DerivedSourceRunRow.__tablename__}")}
+
+
+async def replace_source_runs(conn: asyncpg.Connection, runs: dict[str, int]) -> None:
+    """今の派生の表を作った取込を`runs`へ置き換える。派生の表を入れ替えるトランザクションの中で呼ぶ
+    （`bump_revision`と同じ理由）。"""
+    await conn.execute(f"DELETE FROM {DerivedSourceRunRow.__tablename__}")
+    await conn.executemany(
+        f"INSERT INTO {DerivedSourceRunRow.__tablename__} (source, run_id) VALUES ($1, $2)", runs.items())

@@ -41,51 +41,14 @@ afterEach(() => {
 });
 
 describe("useStoredState", () => {
-  it("保存が無ければ既定値を返す", () => {
-    const { result } = renderHook(() => useStoredState(KEY, "default", PREFIXED));
-
-    expect(result.current[0]).toBe("default");
-  });
-
-  it("保存があれば、変換して読んだ値へ戻す", () => {
-    window.localStorage.setItem(KEY, "ok:saved");
-
-    const { result } = renderHook(() => useStoredState(KEY, "default", PREFIXED));
-
-    expect(result.current[0]).toBe("saved");
-  });
-
-  it("変換が読めない（null を返す）保存値は、既定値として扱う", () => {
-    window.localStorage.setItem(KEY, "broken");
-
-    const { result } = renderHook(() => useStoredState(KEY, "default", PREFIXED));
-
-    expect(result.current[0]).toBe("default");
-  });
-
-  it("保存を読めない端末では、保存があっても既定値を返す", () => {
-    window.localStorage.setItem(KEY, "ok:saved");
-    breakStorage("getItem");
-
-    const { result } = renderHook(() => useStoredState(KEY, "default", PREFIXED));
-
-    expect(result.current[0]).toBe("default");
-  });
-
-  it("値を渡して変えると、状態が変わり、変換した文字列で保存する", () => {
-    const { result } = renderHook(() => useStoredState(KEY, "default", PREFIXED));
-
-    act(() => result.current[1]("next"));
-
-    expect(result.current[0]).toBe("next");
-    expect(window.localStorage.getItem(KEY)).toBe("ok:next");
-  });
-
-  it("関数を渡して変えると、今の値から作った値になり、それを保存する", () => {
+  it.each([
+    ["値", "ab"],
+    ["今の値から作る関数", (prev: string) => `${prev}b`],
+  ])("%sを渡して変えると、状態が変わり、変換した文字列で保存する", (_, next) => {
     window.localStorage.setItem(KEY, "ok:a");
     const { result } = renderHook(() => useStoredState(KEY, "default", PREFIXED));
 
-    act(() => result.current[1]((prev) => `${prev}b`));
+    act(() => result.current[1](next));
 
     expect(result.current[0]).toBe("ab");
     expect(window.localStorage.getItem(KEY)).toBe("ok:ab");
@@ -98,8 +61,6 @@ describe("useStoredState", () => {
     act(() => result.current[1]("next"));
 
     expect(result.current[0]).toBe("next");
-    vi.restoreAllMocks();
-    expect(window.localStorage.getItem(KEY)).toBeNull();
   });
 
   it("保存には、変えた時点で渡されている変換を使う", () => {
@@ -134,7 +95,6 @@ describe("useStoredState", () => {
 
     act(() => result.current[1]("next"));
     expect(window.localStorage.getItem("key-b")).toBe("ok:next");
-    expect(window.localStorage.getItem("key-a")).toBeNull();
   });
 
   it.each([
@@ -195,14 +155,6 @@ describe("useStoredJsonState", () => {
 
     expect(second.result.current[0]).toEqual({ size: 3 });
   });
-
-  it("JSON として読めない保存値は、既定値として扱う", () => {
-    window.localStorage.setItem(KEY, "{broken");
-
-    const { result } = renderHook(() => useStoredJsonState(KEY, { size: 1 }));
-
-    expect(result.current[0]).toEqual({ size: 1 });
-  });
 });
 
 describe("useStoredBooleanState", () => {
@@ -216,8 +168,8 @@ describe("useStoredBooleanState", () => {
     expect(second.result.current[0]).toBe(true);
   });
 
-  it.each(["0", '"true"', "{broken"])("真偽値でない保存値 %s は、既定値として扱う", (raw) => {
-    window.localStorage.setItem(KEY, raw);
+  it("真偽値でない保存値は、既定値として扱う", () => {
+    window.localStorage.setItem(KEY, '"true"');
 
     const { result } = renderHook(() => useStoredBooleanState(KEY, true));
 

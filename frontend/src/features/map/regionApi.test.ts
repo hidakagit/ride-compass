@@ -1,7 +1,7 @@
 // @vitest-environment node
 /**
  * `features/map/regionApi.ts`——地域のデータの口。地図ライブラリへ渡すタイルのURL（世代つき）と、backendを呼ぶ口
- * （押した道の内訳・専用配信の軸の道ごとの値）。入口は公開の関数。差し替えるのは網（`fetch`）とタイルのオリジンの
+ * （押した道の内訳・専用配信の軸の道ごとの値）。入口は公開の関数。差し替えるのは網（msw）とタイルのオリジンの
  * 読み取り口（`lib/tileBaseUrl.ts: tileBaseUrl`）で、確かめるのは戻り値・投げるもの・送った要求。
  *
  * ここで見ないもの:
@@ -13,9 +13,9 @@
  * - 内訳・道ごとの値を画面へ出すこと → `features/map/MapView/RoadInspectorPopup.test.tsx`・
  *   `features/map/useDedicatedWayValues.test.ts`
  */
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { stubBackend } from "@/testing/backendFetch";
+import { onBackend } from "@/testing/backendServer";
 import regionTileConfig from "@/types/generated/region-tile-config.json";
 
 vi.mock("@/lib/tileBaseUrl", () => ({ tileBaseUrl: () => "https://tiles.example" }));
@@ -74,12 +74,9 @@ describe("タイルの世代とURL", () => {
 
 describe("押した道の内訳（fetchAxisInspector）", () => {
   const CONDITIONS = { z: 15, x: 1, y: 2, bearingDeg: 0 };
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
 
   it("押した地物・重み・タイルと走行の条件を、backendの項目名で送る", async () => {
-    const sent = stubBackend(() => Response.json({}));
+    const sent = onBackend("POST", "/api/region/axis-inspector", () => Response.json({}));
 
     await api.fetchAxisInspector(
       123,
@@ -103,7 +100,7 @@ describe("押した道の内訳（fetchAxisInspector）", () => {
 
   it("地物・重み・時刻・速度が無ければ、その項目を送らない（重みはbackendの既定に任せる）", async () => {
     const result = { composite_difficulty: 42 };
-    const sent = stubBackend(() => Response.json(result));
+    const sent = onBackend("POST", "/api/region/axis-inspector", () => Response.json(result));
 
     await expect(api.fetchAxisInspector(123, null, CONDITIONS, null)).resolves.toEqual(result);
 
@@ -117,24 +114,22 @@ describe("押した道の内訳（fetchAxisInspector）", () => {
   });
 
   it("backendが評価を返さなければnullを返し、失敗したら内訳の取得の失敗として投げる", async () => {
-    stubBackend(() => Response.json(null));
+    onBackend("POST", "/api/region/axis-inspector", () => Response.json(null));
     await expect(api.fetchAxisInspector(123, null, CONDITIONS, null)).resolves.toBeNull();
 
-    stubBackend(() => new Response(null, { status: 500 }));
+    onBackend("POST", "/api/region/axis-inspector", () => new Response(null, { status: 500 }));
     await expect(api.fetchAxisInspector(123, null, CONDITIONS, null)).rejects.toThrow("内訳の取得に失敗しました");
 
-    stubBackend(() => new Response("{not json", { status: 200 }));
+    onBackend("POST", "/api/region/axis-inspector", () => new Response("{not json", { status: 200 }));
     await expect(api.fetchAxisInspector(123, null, CONDITIONS, null)).rejects.toThrow("内訳の取得に失敗しました");
   });
 });
 
 describe("専用配信の軸の道ごとの値（fetchDynamicWayValues）", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
   it("軸とタイルをパスへ、方位・時刻・速度を問い合わせへ載せ、道ごとの値を返す", async () => {
-    const sent = stubBackend(() => Response.json({ "101": 3.5, "102": -1 }));
+    const sent = onBackend("GET", "/api/region/dynamic-way-values/:axisId/:z/:x/:y", () =>
+      Response.json({ "101": 3.5, "102": -1 }),
+    );
 
     const result = await api.fetchDynamicWayValues(
       "axis_a",
@@ -157,7 +152,7 @@ describe("専用配信の軸の道ごとの値（fetchDynamicWayValues）", () =
   });
 
   it("渡さなかった条件と、有限でない速度は問い合わせに載せない", async () => {
-    const sent = stubBackend(() => Response.json({}));
+    const sent = onBackend("GET", "/api/region/dynamic-way-values/:axisId/:z/:x/:y", () => Response.json({}));
 
     await api.fetchDynamicWayValues("axis_a", 15, 1, 2, undefined, undefined, undefined);
     await api.fetchDynamicWayValues("axis_a", 15, 1, 2, 0, undefined, Number.NaN);
@@ -167,7 +162,7 @@ describe("専用配信の軸の道ごとの値（fetchDynamicWayValues）", () =
   });
 
   it("本当に道が無い（空の応答）なら失敗にしない", async () => {
-    stubBackend(() => Response.json({}));
+    onBackend("GET", "/api/region/dynamic-way-values/:axisId/:z/:x/:y", () => Response.json({}));
 
     await expect(api.fetchDynamicWayValues("axis_a", 15, 1, 2, 0, undefined, undefined)).resolves.toEqual({
       values: {},
@@ -176,7 +171,7 @@ describe("専用配信の軸の道ごとの値（fetchDynamicWayValues）", () =
   });
 
   it("失敗は投げずに、空の値と失敗の印で返す（色分けの失敗で道路や他のレイヤーを止めない）", async () => {
-    stubBackend(() => new Response(null, { status: 500 }));
+    onBackend("GET", "/api/region/dynamic-way-values/:axisId/:z/:x/:y", () => new Response(null, { status: 500 }));
 
     await expect(api.fetchDynamicWayValues("axis_a", 15, 1, 2, 0, undefined, undefined)).resolves.toEqual({
       values: {},

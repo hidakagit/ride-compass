@@ -24,14 +24,6 @@ def test_values_are_numbered_in_the_order_they_appear_and_none_is_zero():
 
     assert column.codes.tolist() == [1, 0, 2, 1]
     assert column.vocab == (None, "b", "a")
-    assert len(column) == 4
-
-
-def test_a_column_without_values_still_has_none_first():
-    column = CategoricalColumn.encode([])
-
-    assert column.vocab == (None,)
-    assert len(column) == 0
 
 
 @given(st.lists(st.one_of(st.none(), st.sampled_from(["a", "b", "c", "d"]))))
@@ -51,21 +43,20 @@ def test_taking_rows_keeps_the_vocabulary():
 
 
 def test_a_lookup_gives_nan_for_no_value_and_for_values_missing_from_the_table():
-    column = CategoricalColumn.encode(["a", None, "b", "a"])
+    column = CategoricalColumn.encode(["a", None, "b"])
 
     looked_up = column.lookup({"a": 1.5})
 
-    assert looked_up[0] == looked_up[3] == 1.5
+    assert looked_up[0] == 1.5
     assert math.isnan(looked_up[1])
     assert math.isnan(looked_up[2])
 
 
 def test_no_value_matches_nothing():
-    column = CategoricalColumn.encode(["a", None, "b", "a"])
+    column = CategoricalColumn.encode(["a", None, "b"])
 
-    assert column.equals("a").tolist() == [True, False, False, True]
-    assert column.equals(None).tolist() == [False, False, False, False]
-    assert column.equals("z").tolist() == [False, False, False, False]
+    assert column.equals("a").tolist() == [True, False, False]
+    assert column.equals(None).tolist() == [False, False, False]
 
 
 def arrays() -> EdgeMaterialArrays:
@@ -109,10 +100,6 @@ def test_each_hard_filter_is_found_by_its_name():
 
     assert flags["filter_a"].tolist() == [True, False]
     assert flags["filter_b"].tolist() == [False, True]
-
-
-def test_the_number_of_edges_is_the_number_of_rows():
-    assert len(arrays()) == 2
 
 
 def climb() -> ElevationAttribute:

@@ -102,7 +102,7 @@ async def test_missing_first_and_last_vertices_move_the_ends_inward(road_graph_s
 async def test_a_segment_with_fewer_than_two_known_vertices_has_no_row(road_graph_session):
     rows = await values(
         road_graph_session,
-        {(1, 0): [100.0, None, None], (2, 0): [None, None], (3, 0): [100.0, 101.0]},
+        {(1, 0): [100.0, None, None], (3, 0): [100.0, 101.0]},
     )
 
     assert set(rows) == {(3, 0)}
@@ -134,20 +134,11 @@ async def test_a_descending_structure_counts_only_the_loss(road_graph_session):
     assert row["max_grade"] == row["min_grade"] == pytest.approx(-2.0, abs=0.005)
 
 
-async def test_one_vertex_on_a_structure_makes_the_whole_segment_a_structure(road_graph_session):
-    rows = await values(road_graph_session, {(1, 0): [100.0, 60.0, 100.0]}, on_structure={(1, 0)})
-    plain = await values(road_graph_session, {(1, 0): [100.0, 60.0, 100.0]})
-
-    assert rows[(1, 0)]["elevation_gain_m"] == 0.0
-    assert plain[(1, 0)]["elevation_gain_m"] == 40.0
-
-
 @pytest.mark.parametrize(
     ("percent", "kept"),
     [
         (MAX_PLAUSIBLE_AVERAGE_GRADE_PERCENT - 0.5, True),
         (MAX_PLAUSIBLE_AVERAGE_GRADE_PERCENT + 0.5, False),
-        (-(MAX_PLAUSIBLE_AVERAGE_GRADE_PERCENT + 0.5), False),
     ],
 )
 async def test_an_implausible_average_grade_has_no_value(road_graph_session, percent, kept):

@@ -5,6 +5,7 @@ import { Fragment } from "react";
 import AxisContributionBar from "@/components/AxisContributionBar/AxisContributionBar";
 import ErrorText from "@/features/route/ErrorText/ErrorText";
 import { Button } from "@/components/ui/Button/Button";
+import { GuideText } from "@/components/ui/GuideText/GuideText";
 import { ClockIcon, DownloadIcon, RouteSpliceIcon } from "@/components/ui/icons/icons";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs/Tabs";
 import { textVariants } from "@/components/ui/Text/Text";
@@ -21,7 +22,7 @@ import RouteSplicePanel from "@/features/route/RouteSplicePanel/RouteSplicePanel
 import SegmentWind from "@/features/route/SegmentWind/SegmentWind";
 import { baselineDistanceKm, loadBarHeightRatio } from "@/features/route/difficultyLoadBar";
 import { formatDurationShort } from "@/features/route/formatDuration";
-import { downloadGpx } from "@/features/route/gpxExport";
+import { downloadGpx, MAX_GPX_TRACK_POINTS } from "@/features/route/gpxExport";
 import EditDifference from "@/features/route/EditDifference/EditDifference";
 import {
   extraDurationLabel,
@@ -84,7 +85,11 @@ export default function RouteOutcome({ results, generation, splice, routeWeights
     if (generation.lastMessage) {
       return <ErrorText>{generation.lastMessage}</ErrorText>;
     }
-    return <p className={textVariants({ variant: "hint" })}>「ルート設定」の「生成」を押すと候補がここに並びます</p>;
+    return (
+      <p className={textVariants({ variant: "hint" })}>
+        <GuideText text="「ルート設定」の「ルート生成」を押すと候補がここに並びます" />
+      </p>
+    );
   }
 
   // 候補1本への操作（合成・GPX出力）。その候補のタブの中身の先頭に置く。
@@ -94,29 +99,25 @@ export default function RouteOutcome({ results, generation, splice, routeWeights
         {/* 合成（区間の乗り換え）の入口。乗り換えできない生成（周回・候補1件）では出さない。 */}
         {splice.canStart && (
           <Button
-            size="iconLabel"
+            size="panelIcon"
             onClick={() => {
               splice.start(route.id);
               // 区間の詳細の置き場は編集面に置き換わるため、選択を外す（地図に印だけが残らない）。
               results.selectSegment(null);
             }}
             aria-label="ルートを合成"
-            title="区間を別の候補の道へ乗り換えて、新しいルートを作る"
             usage="この候補の一部の区間を、ほかの候補が通る道へ乗り換えて新しいルートを作ります。押すと、乗り換えられる道が地図に破線で出ます。"
           >
             <RouteSpliceIcon size={18} />
-            合成
           </Button>
         )}
         <Button
-          size="iconLabel"
+          size="panelIcon"
           onClick={() => downloadGpx(route)}
           aria-label="GPX出力"
-          title="GPXファイルで書き出す"
-          usage="この候補をGPXファイルで書き出します。サイクルコンピューターやほかの地図アプリに読み込めます。"
+          usage={`この候補をGPXファイルで書き出します。サイクルコンピューターやほかの地図アプリに読み込めます。点の数は${MAX_GPX_TRACK_POINTS}点に収まるように間引きます。`}
         >
           <DownloadIcon size={18} />
-          GPX
         </Button>
       </div>
     );

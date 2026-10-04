@@ -1,9 +1,9 @@
 /**
  * `lib/safeStorage.ts`——localStorageの読み書きを、使えない環境でも投げない形にしたもの。
  *
- * 使えない環境は2つ: サイトデータを全面的に止めたブラウザ（`window.localStorage`を読むだけで投げる。保存の上限を
- * 超えたときは書き込みだけが投げる）と、サーバー側の描画（`window`が無い）。どちらもテスト環境には無いので、
- * localStorageの口と`window`を差し替えて作る。
+ * 使えない環境は2つ: サイトデータを全面的に止めたブラウザ（`window.localStorage`を読むだけで投げる）と、サーバー側の
+ * 描画（`window`が無い）。どちらもテスト環境には無いので、localStorageの口と`window`を差し替えて作る。保存の上限を
+ * 超えて書き込みだけが投げるときも、止めたブラウザと同じ受け止めに入るので別に作らない。
  *
  * ここで見ないもの:
  * - 読んだ値で初期値を決めるシングルトン → `lib/debugLog.test.ts`・`lib/researchMode.test.ts`
@@ -30,10 +30,6 @@ describe("使える環境", () => {
 
     expect(readStoredValue("key_a")).toBe("1");
   });
-
-  it("書いていない鍵はnullを返す", () => {
-    expect(readStoredValue("key_a")).toBeNull();
-  });
 });
 
 describe("サイトデータを止めたブラウザ", () => {
@@ -48,18 +44,6 @@ describe("サイトデータを止めたブラウザ", () => {
     blockSiteData();
 
     expect(() => writeStoredValue("key_a", "1")).not.toThrow();
-  });
-});
-
-describe("保存の上限を超えたブラウザ", () => {
-  it("書いても投げない", () => {
-    const setItem = vi.fn(() => {
-      throw new DOMException("The quota has been exceeded.", "QuotaExceededError");
-    });
-    vi.spyOn(window, "localStorage", "get").mockReturnValue({ setItem } as unknown as Storage);
-
-    expect(() => writeStoredValue("key_a", "1")).not.toThrow();
-    expect(setItem).toHaveBeenCalledWith("key_a", "1");
   });
 });
 

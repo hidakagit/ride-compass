@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
 import { axisIconFor } from "@/components/ui/icons/axisIconPalette";
-import { WEIGHT_STEP, clampBoundaryDrag, totalWeight } from "@/features/route/routeWeightShare";
+import { MAX_AXIS_WEIGHT, WEIGHT_STEP, clampBoundaryDrag, totalWeight } from "@/features/route/routeWeightShare";
 import { retryAxisCatalogFetch, useAxisCatalog } from "@/hooks/useAxisCatalog";
 import type { CatalogAxis } from "@/lib/catalogAxis";
 import type { RoutePreferenceWeights } from "@/types/route";
@@ -12,6 +12,7 @@ import { Toggle } from "@/components/ui/Toggle/Toggle";
 import { cn } from "@/lib/cn";
 import { legendChipBodyClass, legendChipClass, legendIconClass } from "@/components/ui/AxisLegend/axisLegend";
 import { calloutVariants } from "@/components/ui/Callout/Callout";
+import { textVariants } from "@/components/ui/Text/Text";
 
 // 帯の区間へ文字を入れられる最小の取り分（%）。狭い区間はアイコン＋%→%だけ→何も出さない、の順に落とす
 // （どの軸の%もチップでは必ず読める）。
@@ -199,7 +200,14 @@ export default function RouteSettingsPanel({
           </Button>
         </p>
       )}
-      <div className="flex flex-col">
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center gap-1">
+          <p className={textVariants({ variant: "hint" })}>評価の重みの配分</p>
+          <InfoPopover triggerAriaLabel="重みの配分の説明">
+            帯の境目を動かして、評価ごとの重みの割合を変えます。1つの評価に置ける重みは
+            {Math.round(MAX_AXIS_WEIGHT * 100)}%までで、境目はそこで止まります。
+          </InfoPopover>
+        </div>
         <div className="relative" ref={stackBarRef}>
           <div className="flex h-7.5 gap-px overflow-hidden rounded-sm bg-[var(--color-surface-2)]">
             {enabledAxes.map(({ axis, weight }) => {

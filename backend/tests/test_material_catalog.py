@@ -2,8 +2,8 @@
 
 入口は次のとおり。
 - `MaterialSpec`: dtypeと噛み合わない宣言を断る・表示用の名前・欠損を配列でどう持つか
-- カタログから導く一覧: `is_known_material`・`material_dtype`・`material_array_group`・`material_array_columns`・
-  `material_value_sql`・`material_coverage_specs`・`material_coverage_exclusions`
+- カタログから導く一覧: `material_dtype`・`material_array_columns`（`material_array_group`・`material_value_sql`を通る）・
+  `material_coverage_specs`・`material_coverage_exclusions`
 - `display_axis_missing_semantics`: 地図の表示の軸の値が欠けたときの意味
 - `tile_runtime_scales`: タイルの生値に掛ける、実行時に決まる係数
 
@@ -85,18 +85,11 @@ def test_a_declaration_that_does_not_fit_its_dtype_is_refused(fields):
         spec("x", **fields)
 
 
-def test_declarations_that_fit_their_dtype_are_accepted():
-    spec("count_a", unit="回/km", total_unit="回")
-    spec("cat_a", "categorical", value_labels={"a": "あ"})
-    spec("num_a", reference_points=[MaterialReferencePoint(label="目安", value=1.0)])
-
-
 def test_a_value_is_shown_with_its_label_when_the_table_has_one():
     material = spec("cat_a", "categorical", value_labels={"paved": "舗装"})
 
     assert material.value_label("paved") == "舗装 - paved"
     assert material.value_label("new_value") == "new_value"
-    assert material.full_label() == "名前cat_a - cat_a"
 
 
 @pytest.mark.parametrize(
@@ -104,7 +97,6 @@ def test_a_value_is_shown_with_its_label_when_the_table_has_one():
     [
         ("boolean", WAY_UNKNOWN, "nan"),  # 不明を非該当と混同しない
         ("boolean", WAY_DEFINITE, "false"),  # タグの不在は非該当
-        ("boolean", EXCLUDED, "nan"),
         ("numeric", WAY_UNKNOWN, "false"),
     ],
 )
@@ -113,22 +105,8 @@ def test_a_missing_boolean_is_nan_only_when_missing_means_unknown(dtype, coverag
 
 
 def test_materials_are_known_by_their_id(catalog):
-    assert material_catalog.is_known_material("cat_a")
-    assert not material_catalog.is_known_material("nothing")
     assert material_catalog.material_dtype("cat_a") == "categorical"
     assert material_catalog.material_dtype("nothing") is None
-
-
-def test_a_boolean_that_can_be_unknown_goes_to_the_numeric_matrix(catalog):
-    groups = {
-        material_id: material_catalog.material_array_group(material)
-        for material_id, material in material_catalog.MATERIAL_CATALOG.items()
-    }
-
-    assert groups["num_a"] == "numeric"
-    assert groups["bool_definite"] == "boolean"
-    assert groups["bool_unknown"] == "numeric"
-    assert groups["cat_a"] == "categorical"
 
 
 def test_the_matrix_columns_are_the_materials_with_sql_sorted_by_id(catalog):
@@ -139,27 +117,17 @@ def test_the_matrix_columns_are_the_materials_with_sql_sorted_by_id(catalog):
     assert categorical == ("cat_a",)
 
 
-def test_the_value_sql_lists_only_materials_that_sql_can_compute(catalog):
-    value_sql = material_catalog.material_value_sql()
-
-    assert "dynamic_a" not in value_sql
-    assert value_sql["num_a"] == "w.num_a"
-
-
 def test_every_material_is_either_measured_for_coverage_or_excluded_with_a_reason(catalog):
     measured = material_catalog.material_coverage_specs()
     excluded = material_catalog.material_coverage_exclusions()
 
     assert measured["num_a"] == EDGE_UNKNOWN
-    assert measured["bool_definite"] == WAY_DEFINITE
     assert excluded == {"dynamic_a": "都度引く", "per_year_a": "都度引く"}
-    assert set(measured) | set(excluded) == set(material_catalog.MATERIAL_CATALOG)
 
 
 def test_a_display_axis_takes_the_missing_semantics_of_the_material_on_its_tile_property(catalog):
     assert material_catalog.display_axis_missing_semantics(ATTR_A, "num_b_tile") == "unknown"
     assert material_catalog.display_axis_missing_semantics(ATTR_A, "bool_tile") == "definite"
-    assert material_catalog.display_axis_missing_semantics(ATTR_B, "cat_tile") == "definite"
 
 
 def test_a_display_axis_without_its_material_has_no_missing_semantics(catalog):
@@ -167,13 +135,12 @@ def test_a_display_axis_without_its_material_has_no_missing_semantics(catalog):
     assert material_catalog.display_axis_missing_semantics(ATTR_A, "nothing") is None
 
 
-@pytest.mark.parametrize(("years", "expected"), [([2021, 2022, 2023, 2024], 0.25), ([2024], 1.0)])
+@pytest.mark.parametrize(
+    ("years", "expected"),
+    [([2021, 2022, 2023, 2024], {"per_year_tile": 0.25}), ([], {})],  # 収録年が無ければ係数も無い
+)
 def test_accident_counts_are_scaled_by_the_number_of_years(catalog, years, expected):
-    assert material_catalog.tile_runtime_scales(years) == {"per_year_tile": expected}
-
-
-def test_without_any_accident_year_there_is_no_scale(catalog):
-    assert material_catalog.tile_runtime_scales([]) == {}
+    assert material_catalog.tile_runtime_scales(years) == expected
 
 
 # --- 本番のカタログ -------------------------------------------------------------

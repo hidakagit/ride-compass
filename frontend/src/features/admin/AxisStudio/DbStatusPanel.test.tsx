@@ -7,12 +7,11 @@
  */
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
+
+import { onSameOrigin } from "@/testing/backendServer";
 
 import type { DbStatusResponse } from "@/types/route";
-
-const api = vi.hoisted(() => ({ getDbStatus: vi.fn() }));
-vi.mock("@/features/admin/adminApi", () => api);
 
 import DbStatusPanel from "./DbStatusPanel";
 
@@ -71,12 +70,8 @@ function status(overrides: Partial<DbStatusResponse> = {}): DbStatusResponse {
   };
 }
 
-beforeEach(() => {
-  api.getDbStatus.mockReset();
-});
-
 async function collect(response: DbStatusResponse) {
-  api.getDbStatus.mockResolvedValue(response);
+  onSameOrigin("GET", "/admin/api/db-status", () => Response.json(response));
   const user = userEvent.setup();
   render(<DbStatusPanel />);
   await user.click(screen.getByRole("button", { name: "集計する" }));

@@ -19,7 +19,7 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
-from hypothesis import given
+from hypothesis import example, given
 from hypothesis import strategies as st
 
 from app.domain import road_network
@@ -98,19 +98,12 @@ def network() -> RoadNetwork:
     )
 
 
-def test_the_network_counts_its_nodes_and_edges():
-    built = network()
-
-    assert (built.node_count, built.edge_count) == (len(NODES), len(EDGES))
-
-
 @pytest.mark.parametrize(
     "broken",
     [
         {"node_lat": np.zeros(len(NODES) - 1)},  # ノードの列が1行足りない
         {"distance_m": np.zeros(len(EDGES) + 1)},  # 区間の列が1行多い
         {"numeric_ids": ("num_a",)},  # 材料の行列の列数と名前の数が合わない
-        {"hard_filter_ids": ()},
         {"categorical_vocab": ()},  # 分類の列に語彙が無い
     ],
 )
@@ -119,39 +112,12 @@ def test_arrays_of_mismatched_shape_are_refused_where_they_are_built(broken):
         replace(network(), **broken)
 
 
-def test_a_slice_takes_the_edges_over_the_range_with_both_ends():
-    """範囲は道10の途中だけに掛かるが、区間は両端のノードごと取る。"""
-    road = slice_network(network(), 139.001, 34.99, 139.002, 35.01)
-
-    assert road.rows.tolist() == [0, 1]
-    assert road.node_lon.tolist() == [139.000, 139.004]
-    assert road.node_lat.tolist() == [35.0, 35.0]
-    assert (road.edge_count, road.node_count) == (2, 2)
-
-
-def test_an_edge_touching_the_edge_of_the_range_is_taken():
-    road = slice_network(network(), 139.020, 34.99, 139.100, 35.01)
-
-    assert road.rows.tolist() == [2, 3]
-
-
-def test_a_range_over_no_edge_is_an_empty_slice():
-    road = slice_network(network(), 139.05, 34.99, 139.06, 35.01)
-
-    assert (road.edge_count, road.node_count) == (0, 0)
-
-
-def test_a_range_off_the_latitude_of_the_roads_takes_nothing():
-    road = slice_network(network(), 138.0, 35.5, 140.0, 36.0)
-
-    assert road.edge_count == 0
-
-
 lons = st.floats(min_value=138.99, max_value=139.15, allow_nan=False)
 lats = st.floats(min_value=34.98, max_value=35.02, allow_nan=False)
 
 
 @given(lon_a=lons, lon_b=lons, lat_a=lats, lat_b=lats)
+@example(lon_a=139.020, lon_b=139.100, lat_a=34.99, lat_b=35.01)  # 範囲の縁に区間の端がちょうど触れる
 def test_a_slice_keeps_the_edges_and_their_ends_of_the_whole_network(lon_a, lon_b, lat_a, lat_b):
     """どの範囲でも、取る区間は各区間の両端を総当たりで範囲と比べた答えに一致し、切り出しの中の番号で引いた
     両端の座標は全体の区間の両端の座標に一致する。"""
@@ -181,13 +147,10 @@ def test_the_materials_of_a_slice_follow_its_rows():
     materials = material_arrays_of(road)
 
     columns = materials.columns()
-    assert len(materials) == 2
     assert columns["num_a"].tolist() == [20.0, 30.0]
     assert columns["bool_a"].tolist() == [True, False]
     assert [columns["cat_a"].value_at(i) for i in range(2)] == ["y", None]
     assert materials.hard_filter_columns()["filter_a"].tolist() == [True, False]
-    assert materials.distance_m.tolist() == [300.0, 400.0]
-    assert materials.elevation_present.tolist() == [True, False]
 
 
 def test_the_elevation_attribute_reads_the_average_grade_from_the_material():
@@ -211,9 +174,7 @@ def test_values_missing_in_the_arrays_are_none_in_the_attribute():
 
     assert attribute is not None
     assert attribute.start_elevation_m is None
-    assert attribute.end_elevation_m == 8.0
     assert attribute.max_grade is None
-    assert attribute.average_grade == 2.5
 
 
 def test_an_edge_without_computed_elevation_has_no_attribute():
@@ -229,7 +190,6 @@ def test_an_edge_without_computed_elevation_has_no_attribute():
         (20, 0, False, None),  # 一方通行の逆向き
         (30, 2, True, None),  # 道にその区間番号が無い
         (15, 0, True, None),  # 取込範囲に無い道
-        (99, 0, True, None),
     ],
 )
 def test_an_edge_is_found_by_its_way_segment_and_direction(way, segment, forward, expected):

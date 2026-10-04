@@ -3,6 +3,7 @@ import { VectorTile } from "@mapbox/vector-tile";
 import { PbfReader } from "pbf";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import regionTileConfig from "@/types/generated/region-tile-config.json";
+import { installMapFinder } from "../e2e/fixtures";
 import { installPageHelpers } from "../e2e/states";
 
 // 実backend・開発DBへ向けて回すe2eの共通の段取りと観測（docs/conventions/testing.md パターン4「走らせ方」）。
@@ -155,38 +156,6 @@ export function allLayersOn(): Record<string, string> {
   return {
     "ridecompass:debug-enabled": "1",
     "ridecompass:layer-visibility": JSON.stringify(Object.fromEntries(mapDisplay.layers.map(({ id }) => [id, true]))),
-  };
-}
-
-declare global {
-  interface Window {
-    __liveMap(): import("maplibre-gl").Map;
-  }
-}
-
-/**
- * 地図のインスタンスを、描画しているReactの部品の参照（useRef）から探す関数をページへ入れる。
- * アプリは地図を外へ公開していないので、テストのために入口を足さず、Reactが要素へ付ける内部の印（`__reactFiber$`）から
- * 祖先の部品のフックを辿る。Reactの内部の形が変わると見つからず、そのときは例外で止まる（黙って空を返さない）。
- */
-export function installMapFinder(): void {
-  window.__liveMap = () => {
-    const container = document.querySelector(".maplibregl-map");
-    const key = container && Object.keys(container).find((k) => k.startsWith("__reactFiber$"));
-    type Hook = { memoizedState: unknown; next: Hook | null };
-    type Fiber = { memoizedState: unknown; return: Fiber | null };
-    let fiber = key ? ((container as unknown as Record<string, Fiber>)[key] ?? null) : null;
-    for (; fiber; fiber = fiber.return) {
-      let hook = fiber.memoizedState as Hook | null;
-      while (hook && typeof hook === "object" && "next" in hook) {
-        const state = hook.memoizedState as { current?: { queryRenderedFeatures?: unknown } } | null;
-        if (state && typeof state === "object" && typeof state.current?.queryRenderedFeatures === "function") {
-          return state.current as unknown as import("maplibre-gl").Map;
-        }
-        hook = hook.next;
-      }
-    }
-    throw new Error("地図のインスタンスが見つからない（Reactの内部の形が変わった可能性）");
   };
 }
 

@@ -10,15 +10,10 @@
  */
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import type { FrontendVersion, getDebugStats } from "@/features/admin/adminApi";
-
-const api = vi.hoisted(() => ({ getDebugStats: vi.fn(), getFrontendVersion: vi.fn() }));
-vi.mock("@/features/admin/adminApi", () => ({
-  getDebugStats: api.getDebugStats,
-  getFrontendVersion: api.getFrontendVersion,
-}));
+import { heldReplies, inTurn, onBackend, onSameOrigin } from "@/testing/backendServer";
 
 import SystemStatusPanel from "./SystemStatusPanel";
 
@@ -59,16 +54,14 @@ function debugStats(overrides: Partial<DebugStats> = {}): DebugStats {
 
 const frontendVersion: FrontendVersion = { commit: null, started_at: "2026-09-24T00:00:00Z" };
 
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((res) => (resolve = res));
-  return { promise, resolve };
-}
+const STATS = "/api/debug/stats";
+const VERSION = "/api/version";
 
-beforeEach(() => {
-  api.getDebugStats.mockReset();
-  api.getFrontendVersion.mockReset();
-});
+/** backendの稼働状況の取得に、届いた順に`stats`を返す（尽きたら最後のものを返し続ける）。 */
+const serveStats = (...stats: DebugStats[]) =>
+  onBackend("GET", STATS, inTurn(...stats.map((value) => Response.json(value))));
+const serveVersion = (version: FrontendVersion) => onSameOrigin("GET", VERSION, () => Response.json(version));
+const failure = (detail: string) => Response.json({ detail }, { status: 500 });
 
 function section(heading: string): HTMLElement {
   return screen.getByText(heading).parentElement!;
@@ -77,41 +70,37 @@ function section(heading: string): HTMLElement {
 describe("SystemStatusPanel", () => {
   it("閉じている間は取りに行かない", () => {
     render(<SystemStatusPanel open={false} onClose={() => {}} />);
-    expect(api.getDebugStats).not.toHaveBeenCalled();
-    expect(api.getFrontendVersion).not.toHaveBeenCalled();
+    expect(screen.queryByText("取得中…")).not.toBeInTheDocument();
   });
 
-  it("開くと両方を取り、どちらも届くまでは取得中と出す", async () => {
-    api.getDebugStats.mockReturnValue(new Promise(() => {}));
-    api.getFrontendVersion.mockReturnValue(new Promise(() => {}));
+  it("開くと両方を取り、どちらも届くまでは取得中と出す", () => {
+    onBackend("GET", STATS, heldReplies().reply);
+    onSameOrigin("GET", VERSION, heldReplies().reply);
     render(<SystemStatusPanel open onClose={() => {}} />);
 
     expect(screen.getByText("取得中…")).toBeInTheDocument();
-    await waitFor(() => expect(api.getDebugStats).toHaveBeenCalledTimes(1));
-    expect(api.getFrontendVersion).toHaveBeenCalledTimes(1);
   });
 
   it("「更新」は、遅い方（backend）が届くまで押せないままにする", async () => {
-    const backend = deferred<DebugStats>();
-    api.getDebugStats.mockReturnValue(backend.promise);
-    api.getFrontendVersion.mockResolvedValue(frontendVersion);
+    const backend = heldReplies();
+    onBackend("GET", STATS, backend.reply);
+    serveVersion(frontendVersion);
     render(<SystemStatusPanel open onClose={() => {}} />);
 
     expect(await screen.findByText("(ローカル)")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "更新中…" })).toBeDisabled();
 
-    backend.resolve(debugStats());
+    await backend.answer(0, Response.json(debugStats()));
     expect(await screen.findByRole("button", { name: "更新" })).toBeEnabled();
   });
 
   it("「更新」で取り直し、新しい値に置き換える", async () => {
-    api.getDebugStats.mockResolvedValueOnce(debugStats({ commit: "aaa111" }));
-    api.getFrontendVersion.mockResolvedValue(frontendVersion);
+    serveStats(debugStats({ commit: "aaa111" }), debugStats({ commit: "bbb222" }));
+    serveVersion(frontendVersion);
     const user = userEvent.setup();
     render(<SystemStatusPanel open onClose={() => {}} />);
     expect(await screen.findByText("aaa111")).toBeInTheDocument();
 
-    api.getDebugStats.mockResolvedValueOnce(debugStats({ commit: "bbb222" }));
     await user.click(screen.getByRole("button", { name: "更新" }));
 
     expect(await screen.findByText("bbb222")).toBeInTheDocument();
@@ -119,8 +108,8 @@ describe("SystemStatusPanel", () => {
   });
 
   it("版はcommitを出し、無ければローカルと出す。backendはdebug_modeの状態も出す", async () => {
-    api.getDebugStats.mockResolvedValue(debugStats({ commit: "backend-sha", debug_mode: true }));
-    api.getFrontendVersion.mockResolvedValue({ ...frontendVersion, commit: null });
+    serveStats(debugStats({ commit: "backend-sha", debug_mode: true }));
+    serveVersion({ ...frontendVersion, commit: null });
     render(<SystemStatusPanel open onClose={() => {}} />);
 
     const backend = await waitFor(() => section("バックエンド"));
@@ -130,8 +119,8 @@ describe("SystemStatusPanel", () => {
   });
 
   it("片方だけ失敗したら、その側にだけ理由を出し、もう片方は出す。取り直して成功すれば理由は消える", async () => {
-    api.getDebugStats.mockRejectedValueOnce(new Error("システム状況の取得に失敗しました"));
-    api.getFrontendVersion.mockResolvedValue({ ...frontendVersion, commit: "front-sha" });
+    onBackend("GET", STATS, inTurn(failure("システム状況の取得に失敗しました"), Response.json(debugStats())));
+    serveVersion({ ...frontendVersion, commit: "front-sha" });
     const user = userEvent.setup();
     render(<SystemStatusPanel open onClose={() => {}} />);
 
@@ -140,52 +129,39 @@ describe("SystemStatusPanel", () => {
     expect(within(section("フロントエンド")).getByText("front-sha")).toBeInTheDocument();
     expect(screen.queryByText("取得中…")).not.toBeInTheDocument();
 
-    api.getDebugStats.mockResolvedValueOnce(debugStats());
     await user.click(await screen.findByRole("button", { name: "更新" }));
     await waitFor(() => expect(screen.queryByText(/取得失敗/)).not.toBeInTheDocument());
   });
 
-  it.each([
-    ["Error以外の値", "offline", "offline"],
-    [
-      "Error",
-      new Error("フロントエンドのバージョンの取得に失敗しました"),
-      "フロントエンドのバージョンの取得に失敗しました",
-    ],
-  ])("フロント側が%sで失敗したら、その理由をフロント側に出す", async (_kind, reason, shown) => {
-    api.getDebugStats.mockResolvedValue(debugStats());
-    api.getFrontendVersion.mockRejectedValue(reason);
+  it("フロント側が失敗したら、その理由をフロント側に出す", async () => {
+    serveStats(debugStats());
+    onSameOrigin("GET", VERSION, () => failure("フロントエンドのバージョンの取得に失敗しました"));
     render(<SystemStatusPanel open onClose={() => {}} />);
 
-    expect(await screen.findByText(`取得失敗: ${shown}`)).toBeInTheDocument();
-    expect(within(section("フロントエンド")).getByText(`取得失敗: ${shown}`)).toBeInTheDocument();
-  });
-
-  it("backend側がError以外の値で失敗しても、その値を理由に出す", async () => {
-    api.getDebugStats.mockRejectedValue("timeout");
-    api.getFrontendVersion.mockResolvedValue(frontendVersion);
-    render(<SystemStatusPanel open onClose={() => {}} />);
-
-    expect(await screen.findByText("取得失敗: timeout")).toBeInTheDocument();
-    expect(within(section("バックエンド")).getByText("取得失敗: timeout")).toBeInTheDocument();
+    const shown = "取得失敗: フロントエンドのバージョンの取得に失敗しました";
+    expect(await screen.findByText(shown)).toBeInTheDocument();
+    expect(within(section("フロントエンド")).getByText(shown)).toBeInTheDocument();
   });
 
   it("予報の同期は、backendが鮮度を返したときだけ出し、滞っていれば警告する", async () => {
-    api.getFrontendVersion.mockResolvedValue(frontendVersion);
-    api.getDebugStats.mockResolvedValueOnce(debugStats({ msm: null }));
-    const user = userEvent.setup();
-    render(<SystemStatusPanel open onClose={() => {}} />);
-    await screen.findByText("バックエンド");
-    await waitFor(() => expect(screen.getByRole("button", { name: "更新" })).toBeEnabled());
-    expect(screen.queryByText("予報（MSM）")).not.toBeInTheDocument();
-
     const msm = {
       last_run_at: "2026-09-24T00:00:00Z",
       data_end_at: "2026-09-26T00:00:00Z",
       run_age_hours: 3,
       remaining_hours: 45,
     };
-    api.getDebugStats.mockResolvedValueOnce(debugStats({ msm: { ...msm, healthy: true } }));
+    serveVersion(frontendVersion);
+    serveStats(
+      debugStats({ msm: null }),
+      debugStats({ msm: { ...msm, healthy: true } }),
+      debugStats({ msm: { ...msm, healthy: false } }),
+    );
+    const user = userEvent.setup();
+    render(<SystemStatusPanel open onClose={() => {}} />);
+    await screen.findByText("バックエンド");
+    await waitFor(() => expect(screen.getByRole("button", { name: "更新" })).toBeEnabled());
+    expect(screen.queryByText("予報（MSM）")).not.toBeInTheDocument();
+
     await user.click(screen.getByRole("button", { name: "更新" }));
     const healthy = (await screen.findByText("予報（MSM）")).parentElement!;
     expect(healthy).toHaveAttribute("data-healthy", "true");
@@ -193,21 +169,15 @@ describe("SystemStatusPanel", () => {
     expect(healthy).toHaveTextContent("予報の残り 45時間");
     expect(screen.queryByText(/配信が滞っています/)).not.toBeInTheDocument();
 
-    api.getDebugStats.mockResolvedValueOnce(debugStats({ msm: { ...msm, healthy: false } }));
     await user.click(screen.getByRole("button", { name: "更新" }));
     expect(await screen.findByText(/配信が滞っています/)).toBeInTheDocument();
     expect(screen.getByText("予報（MSM）").parentElement).toHaveAttribute("data-healthy", "false");
   });
 
   it("外部サービスの集計は、呼び出しのあったカテゴリごとに1行で出し、無ければ表を出さない", async () => {
-    api.getFrontendVersion.mockResolvedValue(frontendVersion);
-    api.getDebugStats.mockResolvedValueOnce(debugStats({ external: {} }));
-    const user = userEvent.setup();
-    render(<SystemStatusPanel open onClose={() => {}} />);
-    await waitFor(() => expect(screen.getByRole("button", { name: "更新" })).toBeEnabled());
-    expect(screen.queryByRole("table")).not.toBeInTheDocument();
-
-    api.getDebugStats.mockResolvedValueOnce(
+    serveVersion(frontendVersion);
+    serveStats(
+      debugStats({ external: {} }),
       debugStats({
         external: {
           "jma-tile": externalStats({ calls: 12, errors: 0, cache_hit_rate: 0.456, avg_ms: 30, max_ms: 120 }),
@@ -215,6 +185,11 @@ describe("SystemStatusPanel", () => {
         },
       }),
     );
+    const user = userEvent.setup();
+    render(<SystemStatusPanel open onClose={() => {}} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "更新" })).toBeEnabled());
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+
     await user.click(screen.getByRole("button", { name: "更新" }));
 
     const rows = within(await screen.findByRole("table"))
@@ -231,8 +206,8 @@ describe("SystemStatusPanel", () => {
   });
 
   it("失敗のあったカテゴリの行はエラーとして目立たせ、失敗の内訳・再試行・古いキャッシュでの代用をエラー件数に添える", async () => {
-    api.getFrontendVersion.mockResolvedValue(frontendVersion);
-    api.getDebugStats.mockResolvedValue(
+    serveVersion(frontendVersion);
+    serveStats(
       debugStats({
         external: {
           failing: externalStats({
@@ -265,8 +240,8 @@ describe("SystemStatusPanel", () => {
   });
 
   it("429で拒否した件数を、カテゴリごとに出す", async () => {
-    api.getFrontendVersion.mockResolvedValue(frontendVersion);
-    api.getDebugStats.mockResolvedValue(debugStats({ rate_limit_rejections: { "route-generate": 4, weather: 1 } }));
+    serveVersion(frontendVersion);
+    serveStats(debugStats({ rate_limit_rejections: { "route-generate": 4, weather: 1 } }));
     render(<SystemStatusPanel open onClose={() => {}} />);
 
     expect(await screen.findByText("429拒否: route-generate 4件")).toBeInTheDocument();

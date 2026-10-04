@@ -19,8 +19,8 @@
  * - 位置の取得の並走と決着 → `hooks/useLocation.test.ts`
  *
  * 差し替えたもの:
- * - backendを呼ぶ口（軸カタログ・天気・ルート生成）。地図の見え方が気象庁の配信を取る口は口のモジュールを持たないので、
- *   網（`fetch`）を失敗で答える（地図の見え方の中身はここで見ない）
+ * - backendとの通信（軸カタログ・天気・道ごとの値・ルート生成のジョブ）は網の層で応える。地図の見え方が取る気象の
+ *   格子・配信は失敗で答える（地図の見え方の中身はここで見ない）
  * - 位置情報（`navigator.geolocation`。テスト環境に無いブラウザの機能）。スマホ幅の印は根の要素の`--is-mobile`へ置く
  * - 子の部品（`@/testing/componentStubs`の代役）。地図はWebGLを要し、ほかは入口のテストを持つ機能の部品。
  *   区分の開閉（`Disclosure`）・タブ・ボタンは描く
@@ -31,22 +31,13 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_SHEET_HEIGHT_VH } from "@/components/BottomSheet/BottomSheet";
-import { fetchDynamicWayValues } from "@/features/map/regionApi";
 import type { MapLook } from "@/features/map/view/mapLook";
-import { generateRoutes, type GenerationProgress } from "@/features/route/routeApi";
 import { CLIENT_TUNING_IDS } from "@/lib/axisCatalog";
 import { setDebugEnabled } from "@/lib/debugLog";
 import { setResearchEnabled } from "@/lib/researchMode";
-import { getAxisCatalog } from "@/services/axisCatalogApi";
-import {
-  getAmedasObservation,
-  getCurrentWeather,
-  getFloodForecasts,
-  getWbgtStatus,
-  getWeatherWarnings,
-} from "@/services/weatherApi";
-import { stubBackend } from "@/testing/backendFetch";
+import { heldReplies, onBackend, onSameOrigin, type SentRequest, serveAxisCatalog } from "@/testing/backendServer";
 import { catalogEntry, catalogResponse, dedicatedEntry, rampEntry } from "@/testing/catalogAxes";
+import { serveGenerationJobs } from "@/testing/generationJobs";
 import { makeRouteCandidate } from "@/testing/routeFixtures";
 import type { FetchFailure } from "@/types/fetchFailure";
 import type {
@@ -62,24 +53,6 @@ import Home from "./page";
 const { stubComponent, stubModule, stubProps, isStubMounted } = await vi.hoisted(
   () => import("@/testing/componentStubs"),
 );
-
-vi.mock("@/services/axisCatalogApi", () => ({ getAxisCatalog: vi.fn() }));
-vi.mock("@/services/weatherApi", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/services/weatherApi")>()),
-  getCurrentWeather: vi.fn(),
-  getAmedasObservation: vi.fn(),
-  getWeatherWarnings: vi.fn(),
-  getWbgtStatus: vi.fn(),
-  getFloodForecasts: vi.fn(),
-}));
-vi.mock("@/features/map/regionApi", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/features/map/regionApi")>()),
-  fetchDynamicWayValues: vi.fn(),
-}));
-vi.mock("@/features/route/routeApi", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/features/route/routeApi")>()),
-  generateRoutes: vi.fn(),
-}));
 
 vi.mock("@/features/map/MapView/MapView", stubModule("MapView"));
 vi.mock("@/features/map/LensControl/LensControl", stubModule("LensControl"));
@@ -291,33 +264,41 @@ const SPLICEABLE_CATALOG = catalogResponse([catalogEntry({ axis_id: AXIS, defaul
   client_tuning: { [CLIENT_TUNING_IDS.minStretchKm]: 0.2 },
 });
 
+let jobs: ReturnType<typeof serveGenerationJobs>;
+
 /** 次の生成を、渡した候補で答える。 */
 function answerGeneration(routes: RouteCandidate[], conditions = usedConditions()) {
-  vi.mocked(generateRoutes).mockResolvedValueOnce({ routes, conditions });
+  jobs.respond(routes, conditions);
 }
 
-/** 次の生成を、テストが決めるまで終えない。進み方を送ってから、候補か失敗で終える。 */
+/** 次の生成を、`message`で失敗させる。 */
+function failGeneration(message: string) {
+  jobs.fail(message);
+}
+
+/** 次の生成の状態の問い合わせに、テストが決めるまで答えない。届いた順に、待ち・実行中か、候補で答える。 */
 function holdGeneration() {
-  let onProgress: ((progress: GenerationProgress) => void) | undefined;
-  let settle!: { resolve: (routes: RouteCandidate[]) => void; reject: (error: Error) => void };
-  const pending = new Promise<Awaited<ReturnType<typeof generateRoutes>>>((resolve, reject) => {
-    settle = { resolve: (routes) => resolve({ routes, conditions: usedConditions() }), reject };
-  });
-  vi.mocked(generateRoutes).mockImplementationOnce((_request, progress) => {
-    onProgress = progress;
-    return pending;
-  });
+  const polls = heldReplies();
+  jobs.answerWith(polls.reply);
+  let answered = 0;
+  const answer = (response: Response) => act(() => polls.answer(answered++, response));
   return {
-    progress: (progress: GenerationProgress) => act(async () => onProgress?.(progress)),
-    finish: (routes: RouteCandidate[]) => act(async () => settle.resolve(routes)),
+    progress: (status: "queued" | "running") => answer(Response.json({ status })),
+    finish: (routes: RouteCandidate[]) =>
+      answer(Response.json({ status: "done", result: { routes, conditions: usedConditions() } })),
   };
 }
 
 function lastRequest(): RouteGenerateRequest {
-  const call = vi.mocked(generateRoutes).mock.lastCall;
-  if (!call) throw new Error("生成を頼んでいない");
-  return call[0];
+  const request = jobs.submitted.at(-1);
+  if (!request) throw new Error("生成を頼んでいない");
+  return request.body as RouteGenerateRequest;
 }
+
+const WAY_VALUES = "/api/region/dynamic-way-values/:axisId/:z/:x/:y";
+/** 地図の見え方が取る気象庁の配信（フロントの中継の口）。 */
+const JMA_DELIVERY = "/api/jma-tile/*";
+const failure = (detail: string) => () => Response.json({ detail }, { status: 502 });
 
 // ---- 描く ----
 
@@ -325,41 +306,50 @@ function setMobile(mobile: boolean) {
   document.documentElement.style.setProperty("--is-mobile", mobile ? "1" : "0");
 }
 
-/** 描いて、位置の決着と軸カタログの到着を待つ。 */
+/** 網を通った応答が届くだけの間をおく。 */
+const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+
+/** 描いて、位置の決着と軸カタログ・天候の到着を待つ。 */
 async function renderHome() {
   const view = render(<Home />);
-  await waitFor(() => expect(getAxisCatalog).toHaveBeenCalled());
-  await act(async () => {});
+  await settle();
   return view;
 }
 
+/** 「ルート生成」を押し、生成が終わって押せる状態へ戻るまで待つ。 */
 async function generate(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("button", { name: "ルート生成" }));
+  await screen.findByRole("button", { name: "ルート生成" });
+  await settle();
 }
 
 // 待つ act は async の関数で渡す。同期の関数の act を待つと、Testing Library が act の環境の印を先に戻し、
 // React が残りを流す間に届いた更新が「act の環境ではない」と警告される。
 const call = <A extends unknown[]>(fn: (...args: A) => void, ...args: A) => act(async () => fn(...args));
 
+/** 天候の5つの口。どれも問い合わせた緯度・経度を返す値に添える（その位置で取ったかを、渡った値で読む）。 */
+let weatherRequests: Record<"weather" | "amedas" | "warnings" | "wbgt" | "flood", SentRequest[]>;
+
 beforeEach(() => {
-  stubBackend(() => new Response(null, { status: 503 }));
   localStorage.clear();
   positionAnswer = "here";
   installGeolocation();
   setMobile(false);
-  vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse([catalogEntry({ axis_id: AXIS, default_weight: 1 })]));
-  vi.mocked(getCurrentWeather).mockResolvedValue({ temperature_c: 20 } as never);
-  vi.mocked(getAmedasObservation).mockResolvedValue({ station_name: "東京" } as never);
-  vi.mocked(getWeatherWarnings).mockResolvedValue({ warnings: [] } as never);
-  vi.mocked(getWbgtStatus).mockResolvedValue({ reading: null } as never);
-  vi.mocked(getFloodForecasts).mockResolvedValue({ forecasts: [] } as never);
-  vi.mocked(fetchDynamicWayValues).mockResolvedValue({ values: {}, error: false });
+  serveAxisCatalog(catalogResponse([catalogEntry({ axis_id: AXIS, default_weight: 1 })]));
+  weatherRequests = {
+    weather: onBackend("GET", "/api/weather", () => Response.json({ temperature_c: 20 })),
+    amedas: onBackend("GET", "/api/weather/amedas", () => Response.json({ station_name: "東京" })),
+    warnings: onBackend("GET", "/api/weather/warnings", () => Response.json({ warnings: [] })),
+    wbgt: onBackend("GET", "/api/weather/wbgt", () => Response.json({ reading: null })),
+    flood: onBackend("GET", "/api/weather/flood-forecast", () => Response.json({ forecasts: [] })),
+  };
+  onBackend("GET", WAY_VALUES, () => Response.json({}));
+  onSameOrigin("GET", JMA_DELIVERY, () => new Response(null, { status: 503 }));
+  jobs = serveGenerationJobs();
 });
 
 afterEach(() => {
-  vi.unstubAllGlobals();
   vi.clearAllMocks();
-  vi.mocked(generateRoutes).mockReset();
   setDebugEnabled(false);
   setResearchEnabled(false);
   document.documentElement.style.removeProperty("--is-mobile");
@@ -428,26 +418,24 @@ describe("生成", () => {
     });
   });
 
-  it("実行中は押せず、順番待ちか経過時間をボタンに出す", async () => {
+  it("実行中は押せず、順番待ちか経過時間をボタンの名前に出す", async () => {
     const user = userEvent.setup();
     await renderHome();
     const held = holdGeneration();
 
-    await generate(user);
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
     const button = () => screen.getByRole("button", { name: /^(生成中|順番待ち)/ });
     expect(button()).toBeDisabled();
     expect(button()).toHaveAccessibleName("生成中...");
-    expect(button()).toHaveTextContent("生成中");
 
-    await held.progress({ status: "queued", elapsedMs: 1000 });
-    expect(button()).toHaveAccessibleName("順番待ち...");
-    expect(button()).toHaveTextContent("順番待ち");
+    await held.progress("queued");
+    await waitFor(() => expect(button()).toHaveAccessibleName("順番待ち..."));
 
-    await held.progress({ status: "running", elapsedMs: 12_400 });
-    expect(button()).toHaveAccessibleName("生成中...(12秒経過)");
+    await held.progress("running");
+    await waitFor(() => expect(button()).toHaveAccessibleName(/^生成中\.\.\.\(\d+秒経過\)$/));
 
     await held.finish([route("a")]);
-    expect(screen.getByRole("button", { name: "ルート生成" })).toBeEnabled();
+    expect(await screen.findByRole("button", { name: "ルート生成" })).toBeEnabled();
   });
 
   it("候補・失敗・入力の誤りのどれが出ても、閉じていた「ルート結果」を開く", async () => {
@@ -462,7 +450,7 @@ describe("生成", () => {
 
     await call(mapView().onPinPlace, "origin", PICKED);
     await user.click(outcomeSection());
-    vi.mocked(generateRoutes).mockRejectedValueOnce(new Error("混雑しています"));
+    failGeneration("混雑しています");
     await generate(user);
     expect(outcomeSection()).toHaveAttribute("aria-expanded", "true");
 
@@ -527,7 +515,6 @@ describe("生成", () => {
     await generate(user);
 
     const clear = screen.getByRole("button", { name: "候補を全消去" });
-    expect(clear).toHaveTextContent("全消去");
     expect(clear.querySelector("svg")).not.toBeNull();
 
     await user.click(clear);
@@ -566,11 +553,11 @@ describe("結果・生成・区間の乗り換えのつなぎ", () => {
 
   it("編集で地図の帯を選んで作ると、作ったルートを足して選び、閉じていた「ルート結果」を開く。地図には元と作ったものだけを描き、直前の生成の失敗の文言は消す", async () => {
     const user = userEvent.setup();
-    vi.mocked(getAxisCatalog).mockResolvedValue(SPLICEABLE_CATALOG);
+    serveAxisCatalog(SPLICEABLE_CATALOG);
     await renderHome();
     answerGeneration([ROUTE_A, ROUTE_B]);
     await generate(user);
-    vi.mocked(generateRoutes).mockRejectedValueOnce(new Error("混雑しています"));
+    failGeneration("混雑しています");
     await generate(user);
     expect(outcome().generation.failure).toBe("混雑しています");
 
@@ -729,11 +716,15 @@ describe("走行条件の受け渡し", () => {
   });
 
   it("地図の見え方も同じ走行条件で道の色分けを取る", async () => {
-    vi.mocked(getAxisCatalog).mockResolvedValue(
+    serveAxisCatalog(
       catalogResponse([
         dedicatedEntry(WIND_AXIS, [1, 2], { dynamic_way_value_conditions: ["at", "bearing_deg", "speed_kmh"] }),
       ]),
     );
+    onBackend("GET", WAY_VALUES, ({ path, query }) => {
+      const axisId = path.split("/").at(-4);
+      return Response.json({ [`${axisId}@${query.bearing_deg}|${query.at}|${query.speed_kmh}`]: 1 });
+    });
     await renderHome();
     const departure = new Date("2026-10-05T06:00:00+09:00");
     await call(stubProps<{ onChange: (deg: number) => void }>("TravelBearingControl").onChange, 90);
@@ -752,14 +743,12 @@ describe("走行条件の受け渡し", () => {
       zoom: 14,
     });
 
-    await waitFor(() => expect(fetchDynamicWayValues).toHaveBeenCalled());
-    const [axisId, , , , bearingDeg, at, speedKmh] = vi.mocked(fetchDynamicWayValues).mock.lastCall!;
-    expect({ axisId, bearingDeg, at, speedKmh }).toEqual({
-      axisId: WIND_AXIS,
-      bearingDeg: 90,
-      at: departure,
-      speedKmh: 28,
-    });
+    // 道ごとの値は、問われた軸と条件（向き|時刻|速度）を道の鍵に書いて返す。
+    await waitFor(() =>
+      expect([
+        ...(stubProps<{ look: MapLook }>("MapView").look.dedicatedWayValues.get(WIND_AXIS)?.values.keys() ?? []),
+      ]).toEqual([`${WIND_AXIS}@90|${departure.toISOString()}|28`]),
+    );
   });
 
   it("出発時刻を「今」へ戻すと、地図は選んでいた時刻を離れる", async () => {
@@ -952,7 +941,7 @@ describe("地図の見え方", () => {
 
   it("凡例で隠した段が無い間は「絞り込みを解除」を押せず、あれば押すと全部を戻す", async () => {
     const user = userEvent.setup();
-    vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse([rampEntry(AXIS, [1, 2])]));
+    serveAxisCatalog(catalogResponse([rampEntry(AXIS, [1, 2])]));
     await renderHome();
     await call(stubProps<{ onLensChange: (lens: string) => void }>("LensControl").onLensChange, AXIS);
     const showAll = () => screen.getByRole("button", { name: "絞り込みをすべて解除する" });
@@ -984,12 +973,11 @@ describe("地図の見え方", () => {
 describe("ヘッダーとメニュー", () => {
   it("現在地が分かってから、その位置で天気・実測・警報を取り、取れた値をヘッダーへ渡す", async () => {
     positionAnswer = "wait";
-    vi.mocked(getWeatherWarnings).mockResolvedValue({
-      warnings: [{ code: "03", name: "大雨警報", level: "warning", additions: [] }],
-    } as never);
+    onBackend("GET", "/api/weather/warnings", () =>
+      Response.json({ warnings: [{ code: "03", name: "大雨警報", level: "warning", additions: [] }] }),
+    );
     await renderHome();
-    expect(getCurrentWeather).not.toHaveBeenCalled();
-    expect(getWeatherWarnings).not.toHaveBeenCalled();
+    expect(stubProps<{ weather: unknown }>("TodayOutlook").weather).toBeNull();
 
     await act(async () => positionRequests[0].succeed(HERE));
 
@@ -1002,14 +990,8 @@ describe("ヘッダーとメニュー", () => {
         "大雨警報",
       ]),
     );
-    for (const fetcher of [
-      getCurrentWeather,
-      getAmedasObservation,
-      getWeatherWarnings,
-      getWbgtStatus,
-      getFloodForecasts,
-    ]) {
-      expect(fetcher).toHaveBeenCalledWith(HERE);
+    for (const sent of [weatherRequests.weather, weatherRequests.amedas, weatherRequests.wbgt, weatherRequests.flood]) {
+      expect(sent.at(-1)?.query).toEqual({ latitude: String(HERE.latitude), longitude: String(HERE.longitude) });
     }
   });
 
@@ -1019,19 +1001,19 @@ describe("ヘッダーとメニュー", () => {
     const failures = () => stubProps<{ failures: FetchFailure[] }>("WarningBadgeList").failures;
 
     expect(failures().map((failure) => failure.label)).toEqual(["現在地"]);
-    expect(getCurrentWeather).not.toHaveBeenCalled();
+    expect(stubProps<{ weather: unknown }>("TodayOutlook").weather).toBeNull();
 
     positionAnswer = "here";
     await call(failures()[0].onRetry!);
-    await waitFor(() => expect(getCurrentWeather).toHaveBeenCalledWith(HERE));
+    await waitFor(() => expect(stubProps<{ weather: unknown }>("TodayOutlook").weather).toEqual({ temperature_c: 20 }));
     expect(failures()).toEqual([]);
   });
 
   it("天気・実測の取得の失敗はそれぞれの欄へ、警報の取得の失敗と軸一覧を取得できないことはヘッダーの印に並べる", async () => {
-    vi.mocked(getCurrentWeather).mockRejectedValue(new Error("予報を取れませんでした"));
-    vi.mocked(getAmedasObservation).mockRejectedValue(new Error("実測を取れませんでした"));
-    vi.mocked(getWeatherWarnings).mockRejectedValue(new Error("警報を取れませんでした"));
-    vi.mocked(getAxisCatalog).mockRejectedValue(new Error("軸一覧を取れませんでした"));
+    onBackend("GET", "/api/weather", failure("予報を取れませんでした"));
+    onBackend("GET", "/api/weather/amedas", failure("実測を取れませんでした"));
+    onBackend("GET", "/api/weather/warnings", failure("警報を取れませんでした"));
+    onBackend("GET", "/api/axis-catalog", failure("軸一覧を取れませんでした"));
     await renderHome();
 
     await waitFor(() =>
@@ -1059,8 +1041,8 @@ describe("ヘッダーとメニュー", () => {
   });
 
   it("メニューからデバッグログを開閉し、コンソールの側からも閉じられる", async () => {
-    // デバッグログは取得の失敗を console.error へ出すので、網の取得を通しておく。
-    stubBackend(() => Response.json([]));
+    // デバッグログは取得の失敗を console.error へ出すので、気象庁の配信の取得も通しておく。
+    onSameOrigin("GET", JMA_DELIVERY, () => Response.json([]));
     setDebugEnabled(true);
     await renderHome();
     const menu = () =>
@@ -1166,7 +1148,7 @@ describe("モバイルの下部タブとシート", () => {
     const signal = () => tab("ルート結果").getAttribute("aria-description");
     expect(signal()).toBeNull();
 
-    vi.mocked(generateRoutes).mockRejectedValueOnce(new Error("混雑しています"));
+    failGeneration("混雑しています");
     await user.click(settings.getByRole("button", { name: "ルート生成" }));
     expect(signal()).toBe("生成に失敗しました");
 

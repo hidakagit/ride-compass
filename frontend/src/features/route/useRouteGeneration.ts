@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
 import { useResearchEnabled } from "@/hooks/useResearchMode";
@@ -195,16 +195,12 @@ export function useRouteGeneration({
     originKnown,
   });
 
-  /** 検証して生成する。`lens`は地図のレンズ（塗る軸を送るかはここから決める）。 */
+  /** 検証して生成する。`lens`は地図のレンズ（塗る軸を送るかはここから決める）。入力の誤りも押した結果として知らせる。 */
   async function submit(lens: string) {
     const distanceKm = routeFormSubmit.check();
-    if (distanceKm !== null) await generate(distanceKm, lens);
+    if (distanceKm === null) onOutcome("failed");
+    else await generate(distanceKm, lens);
   }
-
-  // 入力の検証の誤りも「ルート生成」を押した結果として同じく知らせる。
-  useEffect(() => {
-    if (routeFormSubmit.error) onOutcome("failed");
-  }, [routeFormSubmit.error, onOutcome]);
 
   /** 直近の案内を消す（実行中なら何もしない）。 */
   const clearNotice = useCallback(

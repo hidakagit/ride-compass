@@ -13,7 +13,7 @@ import osmium
 #: 位置が判明しているものの座標（node_id -> (lat, lon)）。
 _WaySink = Callable[[dict, dict[int, tuple[float, float]]], None]
 
-#: node1件ぶんの生データ（id・タグ・座標・最終編集日時）。
+#: node1件ぶんの生データ（id・タグ・座標）。
 _NodeSink = Callable[[dict], None]
 
 
@@ -61,11 +61,7 @@ class _WayHandler(osmium.SimpleHandler):
         location = n.location
         if not location.valid():
             return
-        # timestampはOSM要素の最終編集日時（tz-aware datetime）。check_date/survey:dateを
-        # 持たない要素の鮮度代理指標として使う。
-        self._node_sink(
-            {"id": n.id, "tags": tags, "lat": location.lat, "lon": location.lon, "timestamp": n.timestamp}
-        )
+        self._node_sink({"id": n.id, "tags": tags, "lat": location.lat, "lon": location.lon})
 
 
 def stream_ways(

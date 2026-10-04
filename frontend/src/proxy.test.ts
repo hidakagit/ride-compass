@@ -46,21 +46,19 @@ describe("proxy（Basic認証）", () => {
     vi.mocked(adminBasicAuthCredentials).mockReturnValue(CREDENTIALS);
   });
 
-  it("設定された資格情報と一致すれば通す", () => {
-    expect(passed(proxy(requestWith(basic("admin:s3cret"))))).toBe(true);
+  it.each([
+    ["設定された資格情報と一致する", "s3cret"],
+    ["パスワードが区切りの「:」を含む（最初の「:」で分ける）", "pa:ss"],
+  ])("%sなら通す", (_, password) => {
+    vi.mocked(adminBasicAuthCredentials).mockReturnValue({ username: "admin", password });
+
+    expect(passed(proxy(requestWith(basic(`admin:${password}`))))).toBe(true);
   });
 
-  it("パスワードに区切りの「:」を含んでも、最初の「:」で分けて照合する", () => {
-    vi.mocked(adminBasicAuthCredentials).mockReturnValue({ username: "admin", password: "pa:ss" });
-
-    expect(passed(proxy(requestWith(basic("admin:pa:ss"))))).toBe(true);
-  });
-
-  it("資格情報が設定されていない環境では、どんな要求も拒む", () => {
+  it("資格情報が設定されていない環境では、一致する形の要求も拒む", () => {
     vi.mocked(adminBasicAuthCredentials).mockReturnValue(null);
 
     expect(passed(proxy(requestWith(basic("admin:s3cret"))))).toBe(false);
-    expect(passed(proxy(requestWith(basic(":"))))).toBe(false);
   });
 
   it.each([

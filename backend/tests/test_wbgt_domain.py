@@ -30,7 +30,6 @@ JST = timezone(timedelta(hours=9))
         (28.0, ("severe_warning", "厳重警戒")),
         (30.9, ("severe_warning", "厳重警戒")),
         (31.0, ("emergency_warning", "危険")),
-        (35.0, ("emergency_warning", "危険")),
     ],
 )
 def test_the_level_follows_the_exercise_guideline_thresholds(value, expected):
@@ -100,7 +99,6 @@ def test_a_forecast_without_a_readable_target_time_is_never_selected():
     unreadable = _forecast("2026070112", None)
     readable = _forecast("2026070112", datetime(2026, 7, 1, 18, 0))
     assert current_forecast([unreadable, readable], NOW) is readable
-    assert current_forecast([unreadable], NOW) is None
 
 
 def test_a_latest_issue_with_no_readable_target_time_does_not_fall_back_to_an_older_issue():

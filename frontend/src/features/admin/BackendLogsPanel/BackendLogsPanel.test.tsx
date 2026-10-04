@@ -9,46 +9,41 @@
  */
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-const api = vi.hoisted(() => ({ getRecentLogs: vi.fn() }));
-vi.mock("@/features/admin/adminApi", () => api);
+import { heldReplies, inTurn, onSameOrigin } from "@/testing/backendServer";
 
 import { LogLine } from "@/components/ui/LogLine/LogLine";
 import BackendLogsPanel from "./BackendLogsPanel";
 
-beforeEach(() => {
-  api.getRecentLogs.mockReset();
-});
+const LOGS = "/admin/api/debug/logs";
+const serveLogs = (lines: string[]) => onSameOrigin("GET", LOGS, () => Response.json(lines));
 
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  let reject!: (reason: unknown) => void;
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
+/** 届いた問い合わせの項目を1行のログとして返し、画面が送った絞り込みを出た行から読む。 */
+function echoQuery() {
+  onSameOrigin("GET", LOGS, ({ query }) => Response.json([JSON.stringify(query)]));
+  return async () => JSON.parse((await screen.findByText(/^\{.*\}$/)).textContent ?? "");
 }
 
 describe("BackendLogsPanel", () => {
   it("開いただけでは取りに行かない", () => {
+    serveLogs(["[INFO] 1行目"]);
     render(<BackendLogsPanel />);
-    expect(api.getRecentLogs).not.toHaveBeenCalled();
+    expect(screen.queryByText("[INFO] 1行目")).not.toBeInTheDocument();
   });
 
   it("既定はWARNING以上・200件・絞り込みなしで取る", async () => {
-    api.getRecentLogs.mockResolvedValue([]);
+    const sentQuery = echoQuery();
     const user = userEvent.setup();
     render(<BackendLogsPanel />);
 
     await user.click(screen.getByRole("button", { name: "取得" }));
 
-    expect(api.getRecentLogs).toHaveBeenCalledWith({ contains: undefined, min_level: "WARNING", limit: 200 });
+    expect(await sentQuery()).toEqual({ min_level: "WARNING", limit: "200" });
   });
 
   it("部分一致は前後の空白を落とし、すべてのレベルを選ぶとレベルで絞らない", async () => {
-    api.getRecentLogs.mockResolvedValue([]);
+    const sentQuery = echoQuery();
     const user = userEvent.setup();
     render(<BackendLogsPanel />);
 
@@ -56,34 +51,32 @@ describe("BackendLogsPanel", () => {
     await user.selectOptions(screen.getByRole("combobox", { name: "最小レベル" }), "すべてのレベル");
     await user.click(screen.getByRole("button", { name: "取得" }));
 
-    expect(api.getRecentLogs).toHaveBeenCalledWith(
-      expect.objectContaining({ contains: "jma-tile", min_level: undefined }),
-    );
+    expect(await sentQuery()).toEqual({ contains: "jma-tile", limit: "200" });
   });
 
   it("空白だけの部分一致は、絞り込みなしとして送る", async () => {
-    api.getRecentLogs.mockResolvedValue([]);
+    const sentQuery = echoQuery();
     const user = userEvent.setup();
     render(<BackendLogsPanel />);
 
     await user.type(screen.getByPlaceholderText(/絞り込み/), "   ");
     await user.click(screen.getByRole("button", { name: "取得" }));
 
-    expect(api.getRecentLogs).toHaveBeenCalledWith(expect.objectContaining({ contains: undefined }));
+    expect(await sentQuery()).not.toHaveProperty("contains");
   });
 
   it("選んだレベル以上で取る", async () => {
-    api.getRecentLogs.mockResolvedValue([]);
+    const sentQuery = echoQuery();
     const user = userEvent.setup();
     render(<BackendLogsPanel />);
 
     await user.selectOptions(screen.getByRole("combobox", { name: "最小レベル" }), "ERROR以上");
     await user.click(screen.getByRole("button", { name: "取得" }));
-    expect(api.getRecentLogs).toHaveBeenCalledWith(expect.objectContaining({ min_level: "ERROR" }));
+    expect(await sentQuery()).toMatchObject({ min_level: "ERROR" });
   });
 
   it.each([["0"], [""], ["-5"]])("件数が正の数でない（%j）ときは件数で絞らない", async (typed) => {
-    api.getRecentLogs.mockResolvedValue([]);
+    const sentQuery = echoQuery();
     const user = userEvent.setup();
     render(<BackendLogsPanel />);
 
@@ -92,24 +85,24 @@ describe("BackendLogsPanel", () => {
     if (typed) await user.type(limit, typed);
     await user.click(screen.getByRole("button", { name: "取得" }));
 
-    expect(api.getRecentLogs).toHaveBeenCalledWith(expect.objectContaining({ limit: undefined }));
+    expect(await sentQuery()).not.toHaveProperty("limit");
   });
 
   it("取得中はボタンを押せず、終わると戻る", async () => {
-    const pending = deferred<string[]>();
-    api.getRecentLogs.mockReturnValue(pending.promise);
+    const held = heldReplies();
+    onSameOrigin("GET", LOGS, held.reply);
     const user = userEvent.setup();
     render(<BackendLogsPanel />);
 
     await user.click(screen.getByRole("button", { name: "取得" }));
     expect(screen.getByRole("button", { name: "取得中…" })).toBeDisabled();
 
-    pending.resolve([]);
+    await held.answer(0, Response.json([]));
     expect(await screen.findByRole("button", { name: "取得" })).toBeEnabled();
   });
 
   it("行ごとに、行の中の[LEVEL]から重さを決める（ERROR・CRITICALはエラー、WARNINGは警告、それ以外は通常）", async () => {
-    api.getRecentLogs.mockResolvedValue([
+    serveLogs([
       "2026-09-24 [ERROR] a",
       "2026-09-24 [CRITICAL] b",
       "2026-09-24 [WARNING] c",
@@ -136,7 +129,7 @@ describe("BackendLogsPanel", () => {
   });
 
   it("該当が0件なら、そう言う", async () => {
-    api.getRecentLogs.mockResolvedValue([]);
+    serveLogs([]);
     const user = userEvent.setup();
     render(<BackendLogsPanel />);
 
@@ -147,7 +140,11 @@ describe("BackendLogsPanel", () => {
   });
 
   it("取得に失敗したら理由を出し、0件の案内は出さない。取り直して成功すれば理由は消える", async () => {
-    api.getRecentLogs.mockRejectedValueOnce(new Error("backendへの接続に失敗しました"));
+    onSameOrigin(
+      "GET",
+      LOGS,
+      inTurn(Response.json({ detail: "backendへの接続に失敗しました" }, { status: 502 }), Response.json(["[INFO] ok"])),
+    );
     const user = userEvent.setup();
     render(<BackendLogsPanel />);
 
@@ -155,23 +152,13 @@ describe("BackendLogsPanel", () => {
     expect(await screen.findByText("取得失敗: backendへの接続に失敗しました")).toBeInTheDocument();
     expect(screen.queryByText("該当するログはありません。")).not.toBeInTheDocument();
 
-    api.getRecentLogs.mockResolvedValueOnce(["[INFO] ok"]);
     await user.click(screen.getByRole("button", { name: "取得" }));
     expect(await screen.findByText("[INFO] ok")).toBeInTheDocument();
     expect(screen.queryByText(/取得失敗/)).not.toBeInTheDocument();
   });
 
-  it("Error以外で失敗しても、その値を理由として出す", async () => {
-    api.getRecentLogs.mockRejectedValue("timeout");
-    const user = userEvent.setup();
-    render(<BackendLogsPanel />);
-
-    await user.click(screen.getByRole("button", { name: "取得" }));
-    expect(await screen.findByText("取得失敗: timeout")).toBeInTheDocument();
-  });
-
   it("表示中の全行を改行でつないでコピーし、コピーしたことをボタンの名前で示す", async () => {
-    api.getRecentLogs.mockResolvedValue(["[INFO] 1行目", "[ERROR] 2行目"]);
+    serveLogs(["[INFO] 1行目", "[ERROR] 2行目"]);
     const user = userEvent.setup();
     render(<BackendLogsPanel />);
 
@@ -183,7 +170,7 @@ describe("BackendLogsPanel", () => {
   });
 
   it("コピーに失敗したら、取得の失敗とは別の行で理由を出す", async () => {
-    api.getRecentLogs.mockResolvedValue(["[INFO] 1行目"]);
+    serveLogs(["[INFO] 1行目"]);
     const user = userEvent.setup();
     vi.spyOn(navigator.clipboard, "writeText").mockRejectedValue(new Error("denied"));
     render(<BackendLogsPanel />);

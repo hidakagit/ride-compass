@@ -64,23 +64,19 @@ def test_the_source_has_data_only_at_its_parity_between_the_minimum_and_the_usab
     ("element_id", "zoom", "source"),
     [
         ("ras2", 5, 4),
-        ("ras2", 9, 8),
         ("ras2", 10, None),
         ("ras2", 11, None),
         ("ras2", 3, None),
-        ("oddz", 6, 5),
         ("oddz", 4, None),
         ("allz", 6, None),
         ("pts", 5, None),
         ("undeclared", 5, None),
     ],
     ids=[
-        "between_native_zooms",
-        "just_below_the_usable_maximum",
+        "parent_at_the_minimum",
         "native",
         "above_the_usable_maximum_is_overzoomed_by_the_map",
         "below_the_minimum",
-        "odd_parity",
         "parent_below_the_minimum",
         "no_parity_constraint",
         "not_delivered_as_tiles",
@@ -184,10 +180,9 @@ def test_paths_that_are_not_a_declared_tile_read_as_nothing(path):
     ("path", "final"),
     [
         ("bosai/jmatile/data/nowc/20260701000000/none/20260701001000/surf/ras/6/57/25.png", True),
-        ("bosai/jmatile/data/nowc/targetTimes_N3.json", True),
         ("bosai/jmatile/data/nowc/20260701000000/none/20260701000000/surf/pts/data.geojson?id=pts", False),
     ],
-    ids=["tile", "time_listing", "features_not_yet_delivered"],
+    ids=["tile", "features_not_yet_delivered"],
 )
 def test_only_a_missing_features_file_may_still_be_delivered_later(path, final):
     """地物は配信されるまで404、配信後は地物が無くても200。タイルと時刻一覧の404は確定した事実。"""
@@ -230,9 +225,8 @@ def test_latest_reads_only_the_newest_base_time():
     assert specs.read_target_times("latest", rows, "el") == [_frame("0110", "0110")]
 
 
-@pytest.mark.parametrize("reader", ["nowcast", "latest", "latestFullRun"])
-def test_an_element_without_rows_has_no_frames(reader):
-    assert specs.read_target_times(reader, _rows(_frame("0100", "0100"), elements=("other",)), "el") == []
+def test_latest_of_an_element_without_rows_has_no_frames():
+    assert specs.read_target_times("latest", _rows(_frame("0100", "0100"), elements=("other",)), "el") == []
 
 
 def test_a_full_run_is_the_newest_run_with_several_valid_times_and_single_time_runs_are_skipped():

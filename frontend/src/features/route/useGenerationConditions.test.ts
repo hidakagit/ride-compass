@@ -11,7 +11,7 @@
  * - 置ける役割が効く場所（「条件」タブを開いている間だけ・周回の間は出発地だけ） → `app/page.test.tsx`
  * - 条件を生成へ送る形 → `useRouteGeneration.test.ts`
  *
- * 差し替えたもの: backendを呼ぶ口（`services/axisCatalogApi.ts: getAxisCatalog`）。保存はテスト環境の`localStorage`を
+ * 差し替えたもの: 軸カタログの応答（網の層）。保存はテスト環境の`localStorage`を
  * 本物のまま使い、開き直しは同じ保存の上でフックを描き直して作る。
  *
  * 経由地の上限を超えて置かせない分岐（`placePin`の`prev.length >= max_waypoints`）は通さない: 上限に達すると置ける
@@ -21,16 +21,12 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_HARD_FILTERS } from "@/features/route/RouteSettingsPanel/HardFilterPanel";
-import { getAxisCatalog } from "@/services/axisCatalogApi";
+import { heldReplies, onBackend, serveAxisCatalog } from "@/testing/backendServer";
 import { catalogEntry, catalogResponse } from "@/testing/catalogAxes";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import type { Coordinates } from "@/types/route";
 
 import { useGenerationConditions } from "./useGenerationConditions";
-
-vi.mock("@/services/axisCatalogApi", () => ({ getAxisCatalog: vi.fn() }));
-
-const fetchCatalog = vi.mocked(getAxisCatalog);
 
 const A: Coordinates = { latitude: 35.1, longitude: 139.1 };
 const B: Coordinates = { latitude: 35.2, longitude: 139.2 };
@@ -59,9 +55,8 @@ function point(index: number): Coordinates {
 
 beforeEach(() => {
   window.localStorage.clear();
-  fetchCatalog.mockReset();
   // 既定は届かないまま（重みを見るテストだけが届ける）。
-  fetchCatalog.mockReturnValue(new Promise(() => {}));
+  onBackend("GET", "/api/axis-catalog", heldReplies().reply);
 });
 
 describe("周回か目的地か", () => {
@@ -254,7 +249,7 @@ describe("距離と候補数", () => {
 
 describe("重み", () => {
   it("カタログが届くと公開軸へ揃えた重みを返し、上書きを有効にするまでは送らない", async () => {
-    fetchCatalog.mockResolvedValue(CATALOG);
+    serveAxisCatalog(CATALOG);
     const { result } = renderConditions();
 
     await waitFor(() => expect(result.current.routePreference).toEqual({ axis_a: 0.4, axis_b: 0.6 }));
@@ -276,11 +271,11 @@ describe("重み", () => {
 
   it("揃えても保存した重みは書き換えず、公開を取り下げた軸が戻ればその重みも戻る", async () => {
     window.localStorage.setItem("ridecompass:route-preference", JSON.stringify({ axis_a: 0.7, axis_c: 0.2 }));
-    fetchCatalog.mockResolvedValue(CATALOG);
+    serveAxisCatalog(CATALOG);
     const first = renderConditions();
     await waitFor(() => expect(first.result.current.routePreference).toEqual({ axis_a: 0.7, axis_b: 0.6 }));
 
-    fetchCatalog.mockResolvedValue(
+    serveAxisCatalog(
       catalogResponse([
         catalogEntry({ axis_id: "axis_a", default_weight: 0.4 }),
         catalogEntry({ axis_id: "axis_c", default_weight: 0.6 }),
@@ -292,7 +287,7 @@ describe("重み", () => {
   });
 
   it("動かした重みと上書きの有効は開き直しても残る", async () => {
-    fetchCatalog.mockResolvedValue(CATALOG);
+    serveAxisCatalog(CATALOG);
     const first = renderConditions();
     act(() => first.result.current.setRoutePreference({ axis_a: 0.7, axis_b: 0.3 }));
     act(() => first.result.current.setWeightOverrideEnabled(true));

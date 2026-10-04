@@ -8,16 +8,12 @@
  * - localStorageが使えない環境での読み書き → `lib/safeStorage.test.ts`
  * - 状態を画面へ届けること（`useSyncExternalStore`）と、研究モードで出るもの → `hooks/useResearchMode.ts`を使う部品のテスト
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 async function loadResearchMode() {
   vi.resetModules();
   return import("@/lib/researchMode");
 }
-
-beforeEach(() => {
-  window.localStorage.clear();
-});
 
 afterEach(() => {
   window.localStorage.clear();

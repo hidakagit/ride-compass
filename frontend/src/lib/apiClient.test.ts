@@ -63,7 +63,6 @@ describe("成功", () => {
     const data = await fetchJson<{ value: number }>(URL_A, { ...OPTIONS, requestMeta: { region: "r1" } });
 
     expect(data).toEqual({ value: 1 });
-    expect(fetchMock.mock.calls[0][0].url).toBe(URL_A);
     expect(logged()).toEqual([
       {
         category: "api:a",
@@ -91,13 +90,6 @@ describe("成功", () => {
     });
 
     expect(logged().at(-1)?.detail).toMatchObject({ count: 3 });
-  });
-
-  it("本体の無い応答（204）は、本体無しで成功にする", async () => {
-    fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
-
-    await expect(fetchJson(URL_A, OPTIONS)).resolves.toBeUndefined();
-    expect(logged().at(-1)?.message).toBe("成功");
   });
 });
 

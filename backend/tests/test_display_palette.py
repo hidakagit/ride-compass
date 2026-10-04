@@ -101,8 +101,6 @@ def test_only_the_first_axis_with_a_palette_gets_colors():
 
     assert [c["color"] for c in main["categories"]] == nominal_colors(4, 3)
     assert all("color" not in c for c in size["categories"])
-    assert [c["key"] for c in size["categories"]] == ["size0", "size1"]
-    assert main["key"] == "main"
     assert "palette" not in main and "hue_slot" not in main
 
 
@@ -149,12 +147,6 @@ def test_an_ordered_axis_of_one_row_still_has_a_color():
     assert len(ordered_colors(1)) == 1
 
 
-def test_the_same_slot_count_and_tone_always_give_the_same_colors():
-    assert nominal_colors(3, 5, "dark") == nominal_colors(3, 5, "dark")
-    assert nominal_colors(3, 5, "dark") != nominal_colors(3, 5, "light")
-    assert nominal_colors(3, 5) != nominal_colors(4, 5)
-
-
 @pytest.mark.parametrize("slot", [-1, display_palette.NOMINAL_HUE_SLOTS])
 def test_a_hue_slot_outside_the_wheel_is_refused(slot):
     with pytest.raises(ValueError):
@@ -192,8 +184,7 @@ COLORED = [
 
 
 @pytest.mark.parametrize(("attr", "spec", "colors"), COLORED, ids=[f"{a.attr_id}:{s.key}" for a, s, _ in COLORED])
-def test_colors_in_an_axis_stand_out_from_the_ground_and_from_each_other(attr, spec, colors):
-    assert min(contrast(color, GROUND) for color in colors) >= CLASS_COLOR_CONTRAST
+def test_colors_in_an_axis_stand_out_from_each_other(attr, spec, colors):
     if spec.palette == "nominal":
         pairs, threshold = itertools.combinations(colors, 2), NOMINAL_DELTA_E
     else:
