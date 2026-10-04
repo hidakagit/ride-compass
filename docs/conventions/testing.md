@@ -953,7 +953,7 @@ autouseの`rate_limit_clock`がテストごとに1窓ぶん進めて前のテス
 （`test_rate_limiter.py`）。
 
 実例: test_region_routes.py, test_weather_route.py, test_basemap_routes.py,
-test_accident_routes.py, test_routes_generate.py
+test_routes_generate.py
 
 ## パターン2: PostGIS統合テスト（road_graph_session）→ ファイル単位でエンジン・イベントループを共有
 

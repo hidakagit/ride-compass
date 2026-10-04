@@ -57,7 +57,7 @@ const spliceFeatureIndex = (groupIndex: number, optionIndex: number) => {
   return groupIndex * SPLICE_OPTIONS_PER_GROUP + optionIndex;
 };
 
-export interface SpliceSessionInputs {
+interface SpliceSessionInputs {
   /** 候補の一覧（編集の元と乗り換え先はここから引く）。 */
   routes: RouteCandidate[];
   /** 表示中の候補を作った生成の入力。合成した経路も同じ条件で評価する（同じ並びへ入るため、条件が違うと

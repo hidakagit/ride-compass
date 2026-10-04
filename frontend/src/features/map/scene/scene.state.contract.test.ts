@@ -11,7 +11,7 @@ import { createRecordingMap } from "@/testing/mapTrace/recordingMap";
 import { catalogEntry, tileInput } from "@/testing/catalogAxes";
 import { dedicatedWayValueAxesFromCatalogAxes, rampAxesFromCatalogAxes } from "@/lib/mapDisplay/axisLayers";
 import { AREA_SOURCE_ID } from "@/features/map/scene/groups/areaRasters";
-import { POINT_LAYERS, pointSourceId } from "@/features/map/scene/groups/points";
+import { POINT_LAYERS, POINT_TILE_SOURCES } from "@/features/map/scene/groups/points";
 import { ROAD_LINE_SOURCE_ID, ROAD_TRACKS } from "@/features/map/scene/groups/roadLines";
 import { pointLegendAxes, roadLegendAxes } from "@/features/map/scene/legends";
 import { LEGEND_NO_DATA_KEY } from "@/lib/mapDisplay/mapColorLegend";
@@ -54,7 +54,7 @@ const areaLayerId = (role: keyof typeof AREA_SOURCE_ID) => sceneLayerId(AREA_SOU
 const roadLayerId = (role: string) => sceneLayerId(ROAD_LINE_SOURCE_ID, role);
 const axisLayerId = (role: string) => sceneLayerId(ROAD_LINE_SOURCE_ID, role);
 const pointLayerId = (role: string) =>
-  sceneLayerId(pointSourceId(POINT_LAYERS.find((layer) => layer.attr_id === role)!.tile_kind), role);
+  sceneLayerId(POINT_TILE_SOURCES[POINT_LAYERS.find((layer) => layer.attr_id === role)!.tile_kind].sourceId, role);
 
 /** 作り直さずに伝える経路（画面の状態が変わるたびに通るのはこちら）。 */
 function show(map: unknown, state: State) {

@@ -4,11 +4,11 @@
  * `geometry="point"`）が持ち、そのうちどれを出すかは画面の判断——分類と色を宣言したものが
  * 出る（交差点は道路網を見れば分かるので出さない）。
  *
- * 停止要因と補給は**同じソース・同じsource-layerを共有し、種別の集合で分ける**——
- * 分ける条件を持たないと互いの点が混ざる。その集合は源泉の表示の行（`display_axes`の値）から
+ * 点のソースは、配信される点のタイルの一覧（生成物`region-tile-config.json`の`point_layers`）から1つずつ作り、
+ * レイヤーは自分の`tile_kind`のソースを読む。**同じタイルを2つ以上のレイヤーが分け合うときは、種別の集合で分ける**
+ * ——分ける条件を持たないと互いの点が混ざる。その集合は源泉の表示の行（`display_axes`の値）から
  * 取る。行が種別を取りこぼすと、その種別の点は地図から消える——行と種別の一覧が一致することは
  * backendのテスト（`test_material_catalog.py`）が全種別で確かめる。
- * 事故は配信の系統が違うため別のソース。
  *
  * 点の形も源泉が決める。先頭の軸の行が絵記号（`glyph`）を持つレイヤーは、行の色の角丸四角に絵記号を載せた
  * 記号で描き、持たないレイヤーは丸い点で描く。
@@ -16,9 +16,11 @@
  * **タイルの世代が届くまでソースを作らない**。先に作ると、世代の違う中身がブラウザの
  * キャッシュへ載って以後ずっと残る。
  */
+import type { PointTileLayer } from "@/features/map/regionApi";
 import { sceneSourceId, type SceneSourceId } from "@/features/map/scene/sceneBuilders";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import palette from "@/types/generated/palette.json";
+import regionTileConfig from "@/types/generated/region-tile-config.json";
 import type { FilterSpecification } from "maplibre-gl";
 
 import type { PointGlyph } from "@/lib/mapDisplay/legendFilter";
@@ -28,20 +30,38 @@ import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "@/fea
 
 const POINT = mapDisplay.point;
 
+/** 配信される点のタイルの名前 → source-layer。 */
+const POINT_TILE_SOURCE_LAYERS: Readonly<Record<PointTileLayer, string>> = regionTileConfig.point_layers;
+
+function isPointTileLayer(name: string | null): name is PointTileLayer {
+  return name !== null && Object.hasOwn(POINT_TILE_SOURCE_LAYERS, name);
+}
+
+const POINT_TILE_LAYERS = Object.keys(POINT_TILE_SOURCE_LAYERS).filter(isPointTileLayer);
+
+/** 点のタイルごとの地図のソースとsource-layer。 */
+export const POINT_TILE_SOURCES = Object.fromEntries(
+  POINT_TILE_LAYERS.map((name) => [
+    name,
+    { sourceId: sceneSourceId(`point-${name}`), sourceLayer: POINT_TILE_SOURCE_LAYERS[name] },
+  ]),
+) as Readonly<Record<PointTileLayer, { readonly sourceId: SceneSourceId; readonly sourceLayer: string }>>;
+
 /** 点で描くもの。**源泉が「点の幾何を持ち、表示の定義がある」と言ったものが出る。**
- * 軸・束ね方・行の名前・色・どのタイルに載るかは、すべて源泉が決める。 */
+ * 軸・束ね方・行の名前・色・どのタイルに載るかは、すべて源泉が決める。点の属性の`tile_kind`が配信される
+ * 点のタイルを指すことは、backendのテスト（`test_point_tile_layers.py`）が確かめる。 */
 export const POINT_LAYERS = primaryAttributes.filter(
-  (attr): attr is typeof attr & { tile_kind: string } =>
-    attr.geometry === "point" && attr.display_axes.length > 0 && attr.tile_kind !== null,
+  (attr): attr is typeof attr & { tile_kind: PointTileLayer } =>
+    attr.geometry === "point" && attr.display_axes.length > 0 && isPointTileLayer(attr.tile_kind),
 );
 
 type PointLayer = (typeof POINT_LAYERS)[number];
 export type PointAxis = PointLayer["display_axes"][number];
 
-/** 常に効く絞り込み。停止要因と補給は同じタイル・同じsource-layerを分け合うので、
+/** 常に効く絞り込み。同じタイル・同じsource-layerを2つ以上のレイヤーが分け合うときは、
  * 自分の行に属する値だけを通す（持たないと互いの点が混ざる）。 */
 function baseFilter(layer: PointLayer): FilterSpecification | undefined {
-  if (layer.tile_kind !== "poi") return undefined;
+  if (POINT_LAYERS.filter((other) => other.tile_kind === layer.tile_kind).length < 2) return undefined;
   const axis = layer.display_axes[0];
   const values: (string | boolean)[] = axis.categories.flatMap((category) => [...category.values]);
   return ["in", ["get", axis.property], ["literal", values]] as unknown as FilterSpecification;
@@ -50,10 +70,7 @@ function baseFilter(layer: PointLayer): FilterSpecification | undefined {
 export type PointState = {
   /** タイルの配信先。**世代が届くまでは null**——その間は何も作らない。 */
   readonly tiles: {
-    readonly poi: readonly string[];
-    readonly accident: readonly string[];
-    readonly poiSourceLayer: string;
-    readonly accidentSourceLayer: string;
+    readonly urls: Readonly<Record<PointTileLayer, readonly string[]>>;
     readonly minZoom: number;
     readonly maxZoom: number;
   } | null;
@@ -62,11 +79,6 @@ export type PointState = {
   /** 軸の鍵ごとの、凡例で隠した行の鍵。 */
   readonly hiddenKeys: Readonly<Record<string, readonly string[]>>;
 };
-
-/** ソースのidは系統の名前から決まる（対応表を持たない）。 */
-export function pointSourceId(tileKind: string): SceneSourceId {
-  return sceneSourceId(`point-${tileKind}`);
-}
 
 /** 押したときに拾う対象。**どの点も共通の`point`を名乗る**ので、点を1枚足しても
  * 拾う側の判定は変わらない。 */
@@ -173,30 +185,22 @@ export const pointGroup = declareGroup<PointState>((state) => {
   if (state.tiles === null) return { sources: [], layers: [] };
   const tiles = state.tiles;
 
-  const sources: readonly SceneSourceEntry[] = [
-    {
-      id: pointSourceId("poi"),
-      spec: { type: "vector", minzoom: tiles.minZoom, maxzoom: tiles.maxZoom },
-      sourceLayer: tiles.poiSourceLayer,
-      tiles: tiles.poi,
-    },
-    {
-      id: pointSourceId("accident"),
-      spec: { type: "vector", minzoom: tiles.minZoom, maxzoom: tiles.maxZoom },
-      sourceLayer: tiles.accidentSourceLayer,
-      tiles: tiles.accident,
-    },
-  ];
+  const sources: readonly SceneSourceEntry[] = POINT_TILE_LAYERS.map((name) => ({
+    id: POINT_TILE_SOURCES[name].sourceId,
+    spec: { type: "vector", minzoom: tiles.minZoom, maxzoom: tiles.maxZoom },
+    sourceLayer: POINT_TILE_SOURCES[name].sourceLayer,
+    tiles: tiles.urls[name],
+  }));
 
   const layers: readonly SceneLayerEntry[] = POINT_LAYERS.map((layer) => {
     const glyphs = glyphCategories(layer);
-    const opacity = layer.tile_kind === "accident" ? POINT.accidentOpacity : POINT.opacity;
+    const opacity = POINT.opacityByLayer[layer.attr_id];
     const filter = layerFilter(layer, state.hiddenKeys);
     return {
       role: layer.attr_id,
       tier: "point",
-      source: pointSourceId(layer.tile_kind),
-      sourceLayer: layer.tile_kind === "accident" ? tiles.accidentSourceLayer : tiles.poiSourceLayer,
+      source: POINT_TILE_SOURCES[layer.tile_kind].sourceId,
+      sourceLayer: POINT_TILE_SOURCES[layer.tile_kind].sourceLayer,
       ...(glyphs.length === 0
         ? {
             type: "circle" as const,
