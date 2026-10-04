@@ -74,6 +74,9 @@ class TuningParameter:
     effect: TuningEffect
     #: 何を決める値か。管理画面のⓘへ出す。
     description: str
+    #: 利用者の画面の説明文に値を出すか。出すものは効き方によらずカタログ取得でフロントへ配る
+    #: （`client_tuning_values`）——文に数を直書きすると、管理画面で変えたときに文が嘘になる。
+    shown_to_users: bool = False
 
     def __post_init__(self) -> None:
         if not self.id or not self.label or not self.description:
@@ -172,6 +175,7 @@ TUNING_PARAMETERS: tuple[TuningParameter, ...] = (
         "speed.cda_m2",
         "空気抵抗 CdA", "m²", 0.32, 0.1, 1.0, TuningEffect.IMMEDIATE,
         "ロードバイクのブラケットポジションの標準値。",
+        shown_to_users=True,
     ),
     TuningParameter(
         "speed.crr",
@@ -210,17 +214,20 @@ TUNING_PARAMETERS: tuple[TuningParameter, ...] = (
         "speed.mass_kg",
         "総質量", "kg", 80.0, 30.0, 200.0, TuningEffect.IMMEDIATE,
         "体重＋車体＋装備。",
+        shown_to_users=True,
     ),
     TuningParameter(
         "speed.max_descent_kmh",
         "下りの速度上限", "km/h", 45.0, 10.0, 100.0,
         TuningEffect.IMMEDIATE,
         "入れないと急勾配で所要時間が発散する。",
+        shown_to_users=True,
     ),
     TuningParameter(
         "speed.walking_kmh",
         "押して歩く速度", "km/h", 4.5, 1.0, 10.0, TuningEffect.IMMEDIATE,
         "登りでこれ以下になったら押して歩くとみなす。",
+        shown_to_users=True,
     ),
     TuningParameter(
         "speed.climb_power_per_grade",
@@ -279,13 +286,13 @@ def tuning_value(param_id: str) -> float:
 def client_tuning_values() -> dict[str, float]:
     """フロントへ配る較正値（id → いま効いている値）。
 
-    **配る対象は宣言から導く**（効き方が`CLIENT_RELOAD`のもの）。配信側とフロント側で
-    別々に並べると、1つ足したときに片方だけが古くなる。
+    **配る対象は宣言から導く**（効き方が`CLIENT_RELOAD`のものと、画面の説明文に値を出すもの）。
+    配信側とフロント側で別々に並べると、1つ足したときに片方だけが古くなる。
     """
     return {
         p.id: tuning_value(p.id)
         for p in TUNING_PARAMETERS
-        if p.effect is TuningEffect.CLIENT_RELOAD
+        if p.effect is TuningEffect.CLIENT_RELOAD or p.shown_to_users
     }
 
 

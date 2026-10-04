@@ -4,7 +4,7 @@ import type { RouteCandidate } from "@/types/route";
 // （長い周回・目的地ルートのOSM道なり形状は数千点になりうる）。GarminはGarmin Connect側で
 // 取り込み時に自動間引きするため直接の上限は無いが、経路の視覚的な形状はある程度の間引きで
 // 実用上損なわれない密度（数十m間隔）を持つため、両方に安全な同じ閾値で揃える。
-const MAX_GPX_TRACK_POINTS = 1000;
+export const MAX_GPX_TRACK_POINTS = 1000;
 
 // 間引きで元の折れ線からずれてよい距離（m）。読み込んだ側のナビが描く線として、この程度の
 // ずれは道の形として見分けられない。上限点数に収まらない場合はこの値を倍にして再試行する。

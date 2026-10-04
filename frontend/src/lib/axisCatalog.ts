@@ -46,6 +46,11 @@ type ClientTuningId = keyof (typeof import("@/types/generated/route-generate-con
 export const CLIENT_TUNING_IDS = {
   /** 区間を割る下限（km）。これ未満の共有区間では割らない（`features/route/routeSplice.ts`）。 */
   minStretchKm: "splice.min_stretch_km",
+  /** 走行モデルの標準値。想定速度の説明文に出す（`features/conditions/RideConditionBar`）。 */
+  massKg: "speed.mass_kg",
+  cdaM2: "speed.cda_m2",
+  maxDescentKmh: "speed.max_descent_kmh",
+  walkingKmh: "speed.walking_kmh",
 } as const satisfies Record<string, ClientTuningId>;
 
 /** 較正値を1つ引く。**引けなければ`undefined`**——ここで既定を作らない。既定を作ると、

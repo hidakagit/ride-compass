@@ -341,10 +341,10 @@ def test_get_axis_catalog_carries_the_calibration_values_the_client_needs(client
     """フロントが使う較正値は、このカタログが**いま効いている値**で運ぶ。
 
     ビルド時生成物（route-generate-config.json）だけで配ると、管理画面から変えても
-    次のデプロイまで画面に届かない。運ぶ対象は宣言（効き方がCLIENT_RELOAD）から導く。
+    次のデプロイまで画面に届かない。運ぶ対象は宣言（効き方がCLIENT_RELOADか、画面の説明文に値を出すもの）から導く。
     """
     expected = {
-        p.id for p in TUNING_PARAMETERS if p.effect is TuningEffect.CLIENT_RELOAD
+        p.id for p in TUNING_PARAMETERS if p.effect is TuningEffect.CLIENT_RELOAD or p.shown_to_users
     }
     assert expected, "画面へ配る較正値が宣言に1件も無い"
     param_id = sorted(expected)[0]
