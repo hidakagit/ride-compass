@@ -164,7 +164,7 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    入れたのは master の版の依存のファイルからなので、1 のあと `git diff --name-only origin/master -- backend/requirements*.txt frontend/package-lock.json`
    で作業ブランチとの違いを見る。backend のファイルが出たら `python -m pip install -q -r backend/requirements-batch.txt -r backend/requirements-dev.txt`、
    `frontend/package-lock.json` が出たら `npm ci --prefix frontend` で入れ直す（作業の途中で依存のファイルを変えたときも同じ）。
-3. issue の本文とコメント（`gh issue view <番号> -R ridecompass/ride-compass-tasks --json title,body,comments --jq '.title, .body, (.comments[] | "--- \(.author.login) \(.createdAt)", .body)'`。
+3. issue の本文とコメント（`GH_TOKEN=$FLOW_BOT_TOKEN gh issue view <番号> -R ridecompass/ride-compass-tasks --json title,body,comments --jq '.title, .body, (.comments[] | "--- \(.author.login) \(.createdAt)", .body)'`。
    `--comments` は端末でない出力ではコメントだけを出し、本文を出さない。答えのコメント・やり直しなら前の Pull Request のコメントも）を読み、CLAUDE.md と規約のとおりに作る。
    - ユーザーの判断が要るところは「問い」の形で書いて `ask.js` で問い、そこで終える（答えは次の起動で拾われる）。
      作る前に、答えの無い判断（方針・見た目の案・本番への書き込み等）が残っていないかを見て、残っていれば問いに要る分だけを
@@ -195,14 +195,14 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
      デプロイのジョブが取り消しで終わったのは後のコミットのデプロイに順番を譲ったときで、そのときは master の先頭の CI を同じく待つ）。それでも出ていなければ、そのことを判断材料に書いて問う。判断材料には、ユーザーが自分で版を見分ける方法
      として、開く URL と、見た時点の `commit`・`started_at` を書く（出ていれば「`started_at` がこの時刻以降なら修正を含む版」、
      出ていなければ「`commit` がこの値から変わっていれば修正を含む版」。本番へはマージの後の master しか出ないため）。残りが無くなれば
-     `gh issue close <番号> --reason completed` で閉じる（ゲートが、残りが無いことを照らしてから完了にする）。
+     `GH_TOKEN=$FLOW_BOT_TOKEN gh issue close <番号> -R ridecompass/ride-compass-tasks --reason completed` で閉じる（ゲートが、残りが無いことを照らしてから完了にする）。
    - 段階に分けた親が、段階が全部閉じて振り出されたら、段階でまだ確かめていない親の完了の条件を確かめ、残りが無ければ
-     `gh issue close <番号> --reason completed` で閉じる。
+     `GH_TOKEN=$FLOW_BOT_TOKEN gh issue close <番号> -R ridecompass/ride-compass-tasks --reason completed` で閉じる。
    - コードを変えないタスク（調査・見積もり・計測）は、結果を本文に書いて自分の分の完了の条件にチェックを付け、結果を確かめてほしいと
      問う（Pull Request が無いので、完了はユーザーの答えで決まる）。
    - 確かめの問い（確かめの行だけが残ったとき・コードを変えないタスクの結果）に未着手の答えが返ったら、確かめが済んだと読み、
      問い直さない。確かめの行（コードを変えないタスクなら残りの行）にチェックを付け、経緯に答えを1行足して、残りが無ければ
-     `gh issue close <番号> --reason completed` で閉じる。補足に直してほしい点が書かれていたときだけ、それを残りとして済ませてから閉じる。
+     `GH_TOKEN=$FLOW_BOT_TOKEN gh issue close <番号> -R ridecompass/ride-compass-tasks --reason completed` で閉じる。補足に直してほしい点が書かれていたときだけ、それを残りとして済ませてから閉じる。
 4. `tasks#<番号>:` の件名でコミットし、`git push origin orch/tasks-<番号>` で push する。静的検査とテストを手元で回す場面と範囲は
    testing.md「手元の検査の回し方」だけが決め、全体は CI に任せる。作業ブランチの強制 push は
    コードのリポジトリの規則で断られる（一度 push したコミットは、ほかの者のものも消せない）ので、直しは足すコミットにする。
@@ -327,7 +327,7 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    閉じる操作は GitHub の API の失敗で通らないことがあるので、閉じたかは `gh pr view <番号> -R hidakagit/ride-compass --json state` で
    `CLOSED` が出るかで見て、`OPEN` のままなら閉じ直す。ゲートが未着手へ戻す。それ以外の気づき（本文の数字の誤り・書き漏れ・使われない import 等）は閉じる理由にせず、2 の結果に書いて 5 へ進む。
 5. 満たしていれば、マージの前に、1 で確かめて満たしていた完了の条件へ issue の本文でチェックを付ける（本文をファイルに書いて
-   `gh issue edit <番号> -R ridecompass/ride-compass-tasks --body-file <ファイル>` で書き戻す）。作る担当が付け漏らした条件・
+   `GH_TOKEN=$FLOW_BOT_TOKEN gh issue edit <番号> -R ridecompass/ride-compass-tasks --body-file <ファイル>` で書き戻す）。作る担当が付け漏らした条件・
    開発機の対話のセッションで出た Pull Request の条件は、ここで付けないと本文に届かず、マージでゲートが残りありとして未着手へ戻す。
    付けないのは、確かめの行（`- [ ] ユーザーが確かめる: …`）・マージのあとでないとできない条件・3 で足した行。4 で閉じるときは
    どの行にも付けない。
@@ -401,7 +401,7 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    入れる——中の差分に3つのバッククォートの行があっても囲みが閉じない。コメントは `--body-file` で書く（`gh issue comment` が出す URL の末尾がコメントの id）。
 3. 確かめる: 置いたコメントから取り出して、当てる先の版に当たるかを見る。
 
-       gh api repos/ridecompass/ride-compass-tasks/issues/comments/<コメントの id> --jq .body | sed -n '/^````diff$/,/^````$/p' | sed '1d;$d' | git apply --check
+       GH_TOKEN=$FLOW_BOT_TOKEN gh api repos/ridecompass/ride-compass-tasks/issues/comments/<コメントの id> --jq .body | sed -n '/^````diff$/,/^````$/p' | sed '1d;$d' | git apply --check
 
 4. 問う: 上の「自動で進めないもの」の形（「PC での操作:」）で問う。判断材料に、何の変更か・パッチのコメントへのリンク・手順・確かめ方を書く。
    手順は、作業ブランチなら `git fetch origin` → `git checkout -B orch/tasks-<番号> origin/orch/tasks-<番号>` → 3 のコマンドから
@@ -619,7 +619,7 @@ Claude は、タスクの issue のコメントに残った答えだけを判断
 dependencies」）。前提が開いている未着手は、見回りが飛ばす（`dispatch.js --dry-run` で見られる。ゲートは前提を見ない。「ステータスと割り当て」）。
 
 - **前後関係**（先が終わらないと後の作業が意味を持たない・後の判断の材料が狂う）: 後の issue に先を blocked by で張る
-  （`gh issue edit <後> -R ridecompass/ride-compass-tasks --add-blocked-by <先>`。起こすときは `gh issue create --blocked-by <先>`）。
+  （`GH_TOKEN=$FLOW_BOT_TOKEN gh issue edit <後> -R ridecompass/ride-compass-tasks --add-blocked-by <先>`。起こすときは `GH_TOKEN=$FLOW_BOT_TOKEN gh issue create -R ridecompass/ride-compass-tasks --blocked-by <先>`）。
   - **向き**: 片方の結果しだいで他方の成果が要らなくなる・作り直しになるなら、要らなくする側を先（前提）にする。同じ所を触るので
     ぶつからない順に並べたくなる場面でも、この向きを優先する（逆にすると、要らなくなる側を先に仕上げてしまう）。どちらも相手の
     成果を要らなくしないなら、向きはどちらでもよい（張ることで、同じ直す場所を2つの担当が同時に書き換えなくなる）。ただし相手が
@@ -636,7 +636,7 @@ dependencies」）。前提が開いている未着手は、見回りが飛ば�
   条件）は書き換えない。本文はそのタスクを進める担当が書き直す（作る担当の6・確かめる担当の3）ので、ほかの者が同時に書くと片方の
   書き込みが消える。相手の作る担当が着手する前なら着手のときに読まれ、着手より後に届いたものは確かめる担当が完了の条件へ足す
   （「確かめる担当」の3）。
-  - **検証中に張られた側**: 作る担当は、報告（作る担当の6）の前に `gh issue view <番号> -R ridecompass/ride-compass-tasks --json blockedBy,blocking`
+  - **検証中に張られた側**: 作る担当は、報告（作る担当の6）の前に `GH_TOKEN=$FLOW_BOT_TOKEN gh issue view <番号> -R ridecompass/ride-compass-tasks --json blockedBy,blocking`
     で、Pull Request を出したあとに自分と前後関係を張られていないかを見る。張られていれば、どちらの向きでも問わず（検証中から出すのは
     Pull Request の出来事に任せる。「Claude がステータスを動かす」）、張った側の issue へ申し送りとして、自分の Pull Request の番号と、
     それがどのファイルのどこを変えたかを書く。張った側の作る担当は、それを読んで同じ所の書き換えをマージのあとの master に合わせる
@@ -646,7 +646,7 @@ dependencies」）。前提が開いている未着手は、見回りが飛ば�
   （パス・道具名・節の名前）と題名の語で開いた issue を探す（本文のやること・背景がパスや節を名指すので、題名より当たる）。
   当たったものは題名と本文を読んで判じ、同じ直す場所に触るものがあれば前後関係か組を張り、張った関係を起票の本文か自分のタスクの issue への報告に書く。何も無かったときも、探した鍵
   （直す場所と検索した語）を報告に1行書く（探したかが後から読めるように）。
-  - **打ち方**: 語1つにつき1回、`gh issue list -R ridecompass/ride-compass-tasks --state open --limit 1000 --search '"<語>" in:title,body'`
+  - **打ち方**: 語1つにつき1回、`GH_TOKEN=$FLOW_BOT_TOKEN gh issue list -R ridecompass/ride-compass-tasks --state open --limit 1000 --search '"<語>" in:title,body'`
     を Bash で打つ（Windows PowerShell 5.1 は引数の中の `"` を落として、囲まない語として届ける。公式の文書 about_Parsing
     「Passing arguments that contain quote characters」）。
     - **語を `"` で囲む**: 囲まない `lost_constraints` は、その名前を題名・本文に持つ issue の多くに当たらない。囲むと `_`・`/`・`.` 等で
