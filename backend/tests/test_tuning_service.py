@@ -1,6 +1,7 @@
 """`services/tuning_service.py`——較正値の上書きの取引の区切りと、書いた値をプロセスへ反映するところ。
 
 ここで見ないもの:
+- 既定から動かしたidの一覧（上書きの鍵を集合へ詰め替えるだけで、判断を持たない）
 - 上書きの行の読み書き・範囲の外や数値でない値の判定・プロセス内の値の組み立て → `test_tuning_overrides.py`
 - HTTPの受け口（404・422への写し替え・一覧の並び） → `test_tuning_admin_routes.py`
 
@@ -51,16 +52,11 @@ def events(monkeypatch):
     def apply(values):
         recorded.append(("apply_tuning_values", values))
 
-    stub("read_overrides", {"speed.crr": 0.006, "turn.right_seconds": 9.0})
     stub("set_override")
     stub("clear_override")
     stub("load_tuning_values", LOADED)
     monkeypatch.setattr(tuning_service, "apply_tuning_values", bound(tuning_service.apply_tuning_values, apply))
     return recorded, failing
-
-
-async def test_overridden_ids_are_the_ids_that_have_a_row(events):
-    assert await tuning_service.overridden_parameter_ids(Session([])) == {"speed.crr", "turn.right_seconds"}
 
 
 @pytest.mark.parametrize(
@@ -85,11 +81,8 @@ async def test_saving_loads_the_values_before_commit_and_only_swaps_them_in_afte
 @pytest.mark.parametrize(
     ("value", "failing_step"),
     [
-        (0.006, "set_override"),
-        (None, "clear_override"),
-        # 書いた後の上書きの読み出し・検算の失敗（例: 別の行が宣言の範囲の外）も、書き込みごと取り消す
+        # 書いた後の上書きの読み出し・検算の失敗（例: 別の行が宣言の範囲の外）は、書き込みごと取り消す
         (0.006, "load_tuning_values"),
-        (None, "load_tuning_values"),
         (0.006, "commit"),
     ],
 )

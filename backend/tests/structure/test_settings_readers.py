@@ -10,6 +10,9 @@ ASTで読んで数える。読みとして数えるのは、同じ名前の属�
 名前の文字列（`getattr(settings, "x")`・`Settings.model_fields["x"]`）。プロパティ
 （`cors_allowed_origins_list`等）が読まれていれば、そのプロパティが`self`から読む項目も
 読まれているとみなす。
+
+ここで見ないもの:
+- 項目の値の組み立て（環境変数・プロパティ） → `tests/test_config.py`
 """
 
 from __future__ import annotations

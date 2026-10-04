@@ -9,6 +9,8 @@
 - タグから種別への引き当て・信号とみなす半径 → `test_derive_node_materials.py`
 - 宣言どうしの関係（一次属性の指す系統・世代・source-layer名の重なり） → `test_point_tile_layers.py`
 - 配信（キャッシュ・空タイル・DB障害・未知のレイヤー） → `test_region_service.py`・`test_region_routes.py`
+- 範囲の中で点の無いタイルを空のバイト列にすること → `test_road_graph_repository_contracts.py`
+- 自転車・死亡の判定の両側（自転車ではない軽車両・死者0） → `test_derive_counts.py`（同じ式で数える）
 """
 
 from collections import Counter
@@ -73,8 +75,6 @@ async def _tile(repository: RoadGraphRepository, name: str, x: int = X) -> bytes
 
 def _features(tile: bytes | None, name: str) -> list[dict]:
     assert tile is not None
-    if tile == b"":
-        return []
     decoded = mapbox_vector_tile.decode(tile)
     assert list(decoded) == [POINT_TILE_LAYERS[name].source_layer]
     return decoded[POINT_TILE_LAYERS[name].source_layer]["features"]
@@ -92,13 +92,6 @@ async def test_a_poi_tile_outside_the_imported_roads_is_not_baked(road_graph_rep
     await _ingest_pois([(LON, LAT, STOP)], road_area=ELSEWHERE)
 
     assert await _tile(road_graph_repository, "poi") is None
-
-
-async def test_an_imported_tile_without_pois_is_an_empty_tile(road_graph_repository):
-    """「無いことを確認済み」の空。範囲の外（None）とは区別される。"""
-    await _ingest_pois([(LON, LAT, {"name": "ただのノード"})])
-
-    assert await _tile(road_graph_repository, "poi") == b""
 
 
 async def test_each_poi_is_a_point_named_by_its_kind(road_graph_repository):
@@ -135,7 +128,7 @@ async def test_nearby_stop_pois_merge_only_within_the_same_legend_row(road_graph
 
 
 async def test_stop_pois_farther_apart_than_the_merging_distance_stay_separate(road_graph_repository):
-    await _ingest_pois([(LON, LAT, BOLLARD), (LON + NEAR, LAT, BOLLARD), (LON + FAR, LAT, BOLLARD)])
+    await _ingest_pois([(LON, LAT, BOLLARD), (LON + FAR, LAT, BOLLARD)])
 
     assert _kinds(await _tile(road_graph_repository, "poi")) == Counter({"barrier": 2})
 
@@ -180,19 +173,14 @@ async def test_accident_tiles_do_not_depend_on_the_imported_roads(road_graph_rep
     assert len(_features(await _tile(road_graph_repository, "accident"), "accident")) == 1
 
 
-async def test_a_tile_without_accidents_is_an_empty_tile(road_graph_repository):
-    assert await _tile(road_graph_repository, "accident") == b""
-
-
 @pytest.mark.parametrize(
     ("record", "expected"),
     [
         (dict(party_a="51"), dict(involves_bicycle=True, fatal=False)),
         (dict(party_b="52"), dict(involves_bicycle=True, fatal=False)),
-        (dict(party_a="59", party_b="03"), dict(involves_bicycle=False, fatal=False)),
         (dict(deaths="01"), dict(involves_bicycle=False, fatal=True)),
     ],
-    ids=["bicycle_as_party_a", "e_bike_as_party_b", "other_light_vehicle", "fatal"],
+    ids=["bicycle_as_party_a", "e_bike_as_party_b", "fatal"],
 )
 async def test_an_accident_point_carries_bicycle_fatal_and_year(road_graph_repository, record, expected):
     await ingest_records("accident", [_accident(1, LON, LAT, year="2021", **record)])

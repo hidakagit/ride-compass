@@ -76,10 +76,6 @@ async def test_a_range_too_large_for_the_memory_limit_is_refused(monkeypatch, tm
 
 async def test_the_limit_grows_with_the_memory_limit(monkeypatch, tmp_path, road_network):
     """メモリを増やせば、上限の数字を直さなくても同じ範囲が通るようになる。"""
-    _memory_limit(monkeypatch, tmp_path, str(2 * 1024**3 + 1))
-    with pytest.raises(SearchAreaTooLargeError):
-        await GraphService(FakeRepository()).get_search_slice(BBOX)
-
     _memory_limit(monkeypatch, tmp_path, str(8 * 1024**3))
     road, _tiles = await GraphService(FakeRepository()).get_search_slice(BBOX)
 

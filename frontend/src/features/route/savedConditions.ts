@@ -1,6 +1,9 @@
 import { DEFAULT_HARD_FILTERS } from "@/features/route/RouteSettingsPanel/HardFilterPanel";
 import type { RouteMode } from "@/features/route/RouteForm/useRouteFormSubmit";
 import { syncHardFilterKeys } from "@/features/route/hardFilterSync";
+import { alignRoutePreference } from "@/features/route/routePreferenceSync";
+import { totalWeight } from "@/features/route/routeWeightShare";
+import type { AxisCatalog } from "@/lib/axisCatalog";
 import type { Coordinates, HardFilterOverride, RoutePreferenceWeights } from "@/types/route";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 
@@ -103,20 +106,65 @@ export function readSavedConditions(raw: string): SavedCondition[] {
 }
 
 /** 名前の欄に最初から入れておく仮の名前。 */
-export function suggestedConditionName(conditions: GenerationConditionsSnapshot): string {
+export function suggestedConditionName(conditions: Omit<GenerationConditionsSnapshot, "origin">): string {
   if (conditions.routeMode === "loop") return `周回 ${conditions.distance}km`;
   return conditions.waypoints.length > 0 ? `目的地 経由${conditions.waypoints.length}地点` : "目的地";
 }
 
-/** 一覧の行に名前と並べる、何が入っているかの短い説明。 */
-export function savedConditionSummary(entry: SavedCondition): string {
+/** 保存の前と一覧の行に並べる、何が保存されるかの説明（出発地は`originDescription`）。 */
+interface ConditionsDescription {
+  /** 周回か目的地か・距離・経由地・候補数。 */
+  route: string;
+  /** 配分の種類と、使う軸ごとの割合（重みの合計に占める%。「重み」タブのチップと同じ数）。 */
+  weights: string;
+  /** 除外する道路の名前。 */
+  exclusions: string;
+}
+
+function routeDescription(conditions: Omit<GenerationConditionsSnapshot, "origin">): string {
   const route =
-    entry.routeMode === "loop"
-      ? `周回 ${entry.distance}km`
-      : entry.waypoints.length > 0
-        ? `目的地・経由${entry.waypoints.length}地点`
-        : "目的地";
-  return `${route}・${entry.origin === null ? "現在地から" : "地図で置いた出発地から"}`;
+    conditions.routeMode === "loop"
+      ? `周回 ${conditions.distance}km`
+      : conditions.waypoints.length > 0
+        ? `目的地へ・経由 ${conditions.waypoints.length}地点`
+        : "目的地へ";
+  return `${route}・候補 ${conditions.maxRoutes}本`;
+}
+
+// 上書きしない重みは、生成のときbackendの既定の配分で探すので、軸カタログが配る既定の重みを割合にして見せる。
+// 上書きした重みは、呼び出して送るときと同じく公開軸へ揃えてから割合にする。
+function weightsDescription(routePreference: RoutePreferenceWeights | null, catalog: AxisCatalog): string {
+  const kind = routePreference === null ? "おすすめの配分" : "自分で変えた配分";
+  const weights = alignRoutePreference(routePreference ?? catalog.defaultWeights, catalog);
+  const total = totalWeight(weights);
+  const shares = catalog.axes
+    .filter((axis) => weights[axis.axisId] > 0)
+    .map((axis) => ({ label: axis.chipLabel, pct: Math.round((weights[axis.axisId] / total) * 100) }))
+    .sort((a, b) => b.pct - a.pct);
+  return shares.length === 0 ? kind : `${kind}（${shares.map(({ label, pct }) => `${label} ${pct}%`).join("・")}）`;
+}
+
+function exclusionsDescription(hardFilters: HardFilterOverride): string {
+  const labels = routeGenerateConfig.hard_filters.filters
+    .filter(({ key }) => hardFilters[key])
+    .map(({ label }) => label);
+  return labels.length === 0 ? "なし" : labels.join("・");
+}
+
+export function describeConditions(
+  conditions: Omit<GenerationConditionsSnapshot, "origin">,
+  catalog: AxisCatalog,
+): ConditionsDescription {
+  return {
+    route: routeDescription(conditions),
+    weights: weightsDescription(conditions.routePreference, catalog),
+    exclusions: exclusionsDescription(conditions.hardFilters),
+  };
+}
+
+/** 出発地の扱いの名前（`fixed`は保存した地点から作る）。 */
+export function originDescription(fixed: boolean): string {
+  return fixed ? "保存した地点に固定" : "呼び出した時の現在地";
 }
 
 /** 保存した一覧へ1件を入れる。同じ名前の件は上書きし、入れた件を先頭に置く（最近保存したものほど上）。 */

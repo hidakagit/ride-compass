@@ -4,9 +4,10 @@
 外で`'accident'`のように書くと、綴りの食い違いはエラーにならず、0件を読む問い合わせとして
 静かに通る。
 
-見るのはSQLの文字列の形（単引用符で囲んだ値）だけ。同じ綴りがソース名ではない意味
-（タイルの系統名・ファイルの置き場）で使われるのは、Pythonの値としてであってSQLの文字列ではない。
-母集団は`source_models.py`の2つの`StrEnum`の値から導く。
+見るのはSQLの文字列の形（単引用符で囲んだ値）だけ。母集団は`source_models.py`の2つの`StrEnum`の値。
+
+ここで見ないもの:
+- Pythonの値としての同じ綴り（タイルの系統名・ファイルの置き場など、ソース名ではない意味で使われる）
 """
 
 from __future__ import annotations
@@ -14,21 +15,11 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from app.infrastructure import source_models
+from app.infrastructure.source_models import Source, SourceRunStatus
+
 BACKEND = Path(__file__).resolve().parent.parent.parent
-SOURCE_MODELS = BACKEND / "app" / "infrastructure" / "source_models.py"
-ENUMS = ("Source", "SourceRunStatus")
-
-
-def enum_values(path: Path, class_names: tuple[str, ...]) -> dict[str, list[str]]:
-    """クラスの本体に並ぶ`名前 = "値"`の値。"""
-    out: dict[str, list[str]] = {}
-    for node in ast.parse(path.read_text(encoding="utf-8")).body:
-        if isinstance(node, ast.ClassDef) and node.name in class_names:
-            out[node.name] = [
-                stmt.value.value for stmt in node.body
-                if isinstance(stmt, ast.Assign)
-                and isinstance(stmt.value, ast.Constant) and isinstance(stmt.value.value, str)]
-    return out
+SOURCE_MODELS = Path(source_models.__file__).resolve()
 
 
 def quoted_literals(root: Path, values: list[str], skip: Path) -> list[str]:
@@ -47,10 +38,7 @@ def quoted_literals(root: Path, values: list[str], skip: Path) -> list[str]:
 
 
 def test_ソース名と取込の状態をSQLの文字列でsource_modelsの外に書かない() -> None:
-    declared = enum_values(SOURCE_MODELS, ENUMS)
-    assert sorted(declared) == sorted(ENUMS) and all(declared.values()), (
-        f"{SOURCE_MODELS.name}に{ENUMS}の値が見つからない（読み方がクラスの形と合っていない）: {declared}")
-    values = [value for values in declared.values() for value in values]
+    values = [member.value for enum in (Source, SourceRunStatus) for member in enum]
 
     hits = [hit for package in ("app", "scripts")
             for hit in quoted_literals(BACKEND / package, values, SOURCE_MODELS)]

@@ -20,8 +20,8 @@ CI・フック・開発環境の用意のスクリプト）。
 モジュールを足すと、どの段か契約へ書くまで落ちる。
 
 別に、webアプリが起動時に読む層は`app.batch`をモジュール直下でimportしない（バッチ専用の重い
-依存を、それを入れていない本番のwebが連鎖で引き込むため）。`backend/tests/structure/test_layer_imports.py`
-が落とす。
+依存を、それを入れていない本番のwebが連鎖で引き込むため）。`backend/ruff.toml`の`TID253`
+（`banned-module-level-imports`）が、CIの`ruff check`で落とす。
 
 各層が持つもの・持たないもの（持たないものの行き先は、書いてある層が持つ）:
 
