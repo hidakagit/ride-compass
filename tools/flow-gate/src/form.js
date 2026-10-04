@@ -4,7 +4,7 @@ import { GitHub } from "./github.js";
 import { answerBody, bodyRest, checkAll, judge, nextChoices, normalize, parseQuestion, remaining } from "./rules.js";
 
 const SCAN = 30; // 問いを探すために読むコメントの件数
-const RECENT = 5; // 材料に載せる最近のコメントの件数
+const RECENT = 5; // 材料に載せる最近のコメントの件数（上に出した問いのコメントは数えない）
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
 // 「確認へ」で入力を固め（完成なのに条件が残っていれば止める）、「送信」で送る。送ったあとは結果と「GitHub に戻る」だけ。
@@ -66,7 +66,7 @@ function render({ issue, asked, question, labels, choices, left, html }) {
   const fold = (title, inner, open = false) => `<details${open ? " open" : ""}><summary>${title}</summary><div>${inner}</div></details>`;
   const box = (type, name, value, text, extra = "", cls = "opt") => `<label class="${cls}"><input type="${type}" name="${name}" value="${esc(value)}"${extra}><span>${esc(text)}</span></label>`;
   const when = (t) => new Date(Date.parse(t) + 9 * 3600e3).toISOString().slice(0, 16).replace("T", " ");
-  const recent = issue.comments.nodes.slice(-RECENT).reverse().map((c) => `<p class="note"><a href="${esc(c.url)}">${esc(c.author?.login ?? "ghost")} ・ ${when(c.createdAt)}</a></p>${c.bodyHTML}`);
+  const recent = issue.comments.nodes.filter((c) => c !== asked).slice(-RECENT).reverse().map((c) => `<p class="note"><a href="${esc(c.url)}">${esc(c.author?.login ?? "ghost")} ・ ${when(c.createdAt)}</a></p>${c.bodyHTML}`);
   const have = new Set(issue.labels.nodes.map((l) => l.name));
   return page(
     `<p class="num">#${issue.number}</p><p class="title">${esc(issue.title)}</p><p>${esc(question.text)}</p>` +
