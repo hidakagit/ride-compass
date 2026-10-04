@@ -66,7 +66,7 @@ def get_flood_service():
 
 
 @asynccontextmanager
-async def open_graph_service() -> AsyncIterator[GraphService]:
+async def _open_graph_service() -> AsyncIterator[GraphService]:
     async with get_route_generation_session_factory()() as session:
         yield GraphService(repository=RoadGraphRepository(session))
 
@@ -82,7 +82,7 @@ async def _open_route_generation_setup(
     lens_axis_id: str | None,
 ) -> AsyncIterator[RouteGenerationSetup]:
     """ルート生成ジョブが使う`RouteGenerationSetup`を組み立てる非同期コンテキストマネージャ。"""
-    async with open_graph_service() as graph_service:
+    async with _open_graph_service() as graph_service:
         yield assemble_route_generation_setup(
             graph_service,
             get_weather_service(),
