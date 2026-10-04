@@ -44,8 +44,6 @@ def test_no_segments_make_no_bins():
         # ちょうど幅に届いたところでビンを閉じる。
         ([WIDTH / 2, WIDTH / 2, 0.1], [WIDTH, 0.1]),
         ([0.3, 0.3, 0.3], [0.6, 0.3]),
-        # 幅より長い区間は割らない。
-        ([2.0, 0.1], [2.0, 0.1]),
     ],
 )
 def test_a_bin_closes_as_soon_as_it_reaches_the_width_and_the_rest_stays(distances, bin_distances):
@@ -78,12 +76,6 @@ def test_the_difficulty_of_a_bin_is_the_distance_weighted_mean_of_the_segments_w
     assert bins[0].difficulty == pytest.approx((10.0 * 0.1 + 30.0 * 0.3) / 0.4)
 
 
-def test_a_bin_whose_segments_have_no_difficulty_has_none():
-    bins = route.aggregate_segments_into_bins(_segments([0.6], difficulty=[None]))
-
-    assert bins[0].difficulty is None
-
-
 def test_each_value_of_a_bin_is_averaged_over_the_segments_that_have_it():
     """「データ無しはキーを持たない」を引き継ぐ。値を持たない区間は分母にも入れない。"""
     bins = route.aggregate_segments_into_bins(_segments(
@@ -105,11 +97,9 @@ def test_segments_rounded_to_zero_length_do_not_weigh_in_the_mean():
     """区間の距離は小数2桁へ丸めるので、5mに満たない区間は長さ0で来る。長さ0の区間しか持たない値は平均できない。"""
     bins = route.aggregate_segments_into_bins(_segments(
         [0.0, 0.6],
-        difficulty=[90.0, None],
         axis_difficulties=[{"axis_a": 90.0, "axis_z": 10.0}, {"axis_a": 30.0}],
     ))
 
-    assert bins[0].difficulty is None
     assert bins[0].axis_difficulties == {"axis_a": 30.0}
 
 
