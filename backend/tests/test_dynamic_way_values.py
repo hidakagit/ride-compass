@@ -11,7 +11,7 @@
 ここで見ないもの:
 - 地図の段の境界そのもの（どの軸が地図に塗れるか・境界の導出） → `test_axis_display.py`
 - 折れ線の得点・0次条件の評価（`domain/axis_definitions.py: evaluate_axis_values`） → `test_axis_definitions.py`
-- 材料から配るサービスを選ぶこと・配信のAPI → `test_dedicated_way_value_services.py`・`test_region_routes.py`
+- 材料から配るサービスを選ぶこと・配信のAPI → `test_dedicated_way_values.py`・`test_region_routes.py`
 - 要求の条件の組み立て（`assemble_conditions`） → `test_region_routes.py`（配信と区間インスペクタの入口で）
 """
 

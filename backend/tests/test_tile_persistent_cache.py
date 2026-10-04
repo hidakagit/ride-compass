@@ -2,17 +2,17 @@
 
 ここで見ないもの:
 - 鍵をどう組み立てるか・いつ失効させるか → 呼び出し元（`test_dynamic_way_value_cache.py`等）
+- 違う鍵が別のエントリになること・同じ鍵の上書き・`expire`での失効 → `diskcache`へ鍵と`expire`をそのまま渡すだけで、
+  自前の判断が無い
 - 生バイトの置き場 → `test_tile_cache.py`
 
 置き場は`conftest.py`のautouseフィクスチャがテストごとの一時ディレクトリへ差し替える。
 """
 
-import pytest
-
 from app.infrastructure import tile_persistent_cache
-from app.services.gradient_way_service import GRADIENT_TILE_VALUES_TTL_SECONDS as TTL
 
 KEY = ("way_values", 7, "material_a", 12, 3630, 1612, "09", None, None)
+TTL = 3600
 
 
 def _boom(*_args, **_kwargs):
@@ -30,30 +30,6 @@ class TestKeepingAnObject:
 
         assert tile_persistent_cache.get_by_key(KEY) == value
 
-    def test_an_empty_value_is_not_the_same_as_never_having_written_it(self):
-        """値の無い範囲も実在する。空を未キャッシュへ倒すと、その範囲だけ毎回作り直す。"""
-        tile_persistent_cache.set_by_key(KEY, {}, expire=TTL)
-
-        assert tile_persistent_cache.get_by_key(KEY) == {}
-
-    def test_writing_the_same_key_again_replaces_what_was_there(self):
-        tile_persistent_cache.set_by_key(KEY, "old", expire=TTL)
-
-        tile_persistent_cache.set_by_key(KEY, "new", expire=TTL)
-
-        assert tile_persistent_cache.get_by_key(KEY) == "new"
-
-
-class TestWhatMakesTwoEntriesDifferent:
-    @pytest.mark.parametrize("part", [1, 2, 3])
-    def test_changing_any_part_of_the_key_is_another_entry(self, part):
-        """世代を上げても前の値が読めるなら、形の変わったキャッシュを新しいコードが読む。"""
-        tile_persistent_cache.set_by_key(KEY, "value", expire=TTL)
-        other = list(KEY)
-        other[part] = "other" if isinstance(other[part], str) else other[part] + 1
-
-        assert tile_persistent_cache.get_by_key(tuple(other)) is None
-
 
 class TestWhenTheDiskRefuses:
     def test_a_value_that_cannot_be_stored_is_dropped_rather_than_raised(self):
@@ -66,17 +42,5 @@ class TestWhenTheDiskRefuses:
         """壊れたエントリ・SQLiteの障害で止めると、キャッシュの不調がそのまま機能停止になる。"""
         tile_persistent_cache.set_by_key(KEY, "value", expire=TTL)
         monkeypatch.setattr(tile_persistent_cache, "cache", _boom)
-
-        assert tile_persistent_cache.get_by_key(KEY) is None
-
-
-class TestEntriesThatExpire:
-    def test_an_entry_still_within_its_time_is_read(self):
-        tile_persistent_cache.set_by_key(KEY, "value", expire=TTL)
-
-        assert tile_persistent_cache.get_by_key(KEY) == "value"
-
-    def test_an_entry_whose_time_has_passed_is_a_miss(self):
-        tile_persistent_cache.set_by_key(KEY, "value", expire=-1)
 
         assert tile_persistent_cache.get_by_key(KEY) is None

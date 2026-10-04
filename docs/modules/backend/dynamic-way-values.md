@@ -39,7 +39,7 @@ get_feature_gradient_inputs_in_tile`・`get_feature_midpoints_in_tile`は
 実装が材料の名前を知るのは、DBの行で増減する軸の名前を知るのとは違う。公開済みの軸は直さずに
 複製して改良するため、軸の名前で結ぶと複製した軸が配信されない。
 
-`tests/test_dedicated_way_value_services.py`が、登録キーで組み立てたサービスの`material_id`が
+`tests/test_dedicated_way_values.py`が、登録キーで組み立てたサービスの`material_id`が
 そのキーであること・材料カタログの既知材料であること・1つの材料を2つのサービスが担当すると
 登録時に落ちることを検査する。
 
