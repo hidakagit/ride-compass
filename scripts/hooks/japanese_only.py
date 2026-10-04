@@ -56,7 +56,9 @@ def main() -> int:
         lines = english_lines(hook.get("last_assistant_message") or "")
         if lines:
             print(json.dumps({"decision": "block", "reason": reason(lines)}, ensure_ascii=False))
-    elif event == "PreToolUse" and hook.get("transcript_path"):
+    # 裏の作業役（agent_id がある）の中では、transcript_path が呼び出し元のセッションの記録を指し、作業役の文を読めない。
+    # 作業役の文は、作業役が終わるときの SubagentStop で見る。
+    elif event == "PreToolUse" and hook.get("transcript_path") and not hook.get("agent_id"):
         lines = english_lines(last_text_before_tool(hook["transcript_path"]))
         if lines:
             print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
