@@ -1,9 +1,9 @@
-import type { ScreenScript } from "../screen";
+import type { CaptureScript } from "../context";
 
-// 脚本の例: スマホの幅で生成して、ルート結果のシートを撮る。
-//   node frontend/scripts/capture-screen.mjs --script frontend/capture/examples/route-result.ts
+// 脚本の例: スマホの幅で生成して、ルート結果のシートを撮る（モックの応答）。
+//   node frontend/scripts/capture.mjs --script frontend/capture/examples/route-result.ts
 
-const script: ScreenScript = async ({ page, fixtures, open, shot }) => {
+const script: CaptureScript = async ({ page, fixtures, open, shot }) => {
   await open();
   await fixtures.generateRoutes(page);
   const sheet = await fixtures.openMobileSheet(page, "ルート結果");

@@ -47,11 +47,9 @@ import { apiPath } from "@/lib/apiPath";
 import { tileBaseUrl } from "@/lib/tileBaseUrl";
 import { resetBasemapAreaLayerPreparation, runWhenStyleReady } from "@/features/map/layers/mapStyleOps";
 import {
-  ACCIDENT_TILE_SOURCE_LAYER,
   applyScene,
   ROAD_TILE_SOURCE_LAYER,
   sceneInputsFrom,
-  STOP_POI_SOURCE_LAYER,
   type SpliceStretchInput,
 } from "@/features/map/scene/applyToMap";
 import { interactiveSceneLayerIds, sceneLayerIdsForHitTarget, type MapScene } from "@/features/map/scene/mapScene";
@@ -61,14 +59,14 @@ import {
   ROUTE_HIT_TARGET_SPLICE_BAND,
 } from "@/features/map/scene/groups/routes";
 import { buildMapScene, type SceneInputs } from "@/features/map/scene/buildScene";
-import { POINT_LAYERS, pointSourceId } from "@/features/map/scene/groups/points";
+import { POINT_LAYERS, POINT_TILE_SOURCES } from "@/features/map/scene/groups/points";
 import { AREA_SOURCE_ID } from "@/features/map/scene/groups/areaRasters";
 import { ROAD_LINE_SOURCE_ID } from "@/features/map/scene/groups/roadLines";
 import { sceneLayerId } from "@/features/map/scene/sceneBuilders";
 
 /** 押された点のレイヤーidから、その点の宣言を引く。idは役割から決まるので写しではない。 */
 const POINT_LAYER_BY_SCENE_ID = new Map(
-  POINT_LAYERS.map((layer) => [sceneLayerId(pointSourceId(layer.tile_kind), layer.attr_id), layer]),
+  POINT_LAYERS.map((layer) => [sceneLayerId(POINT_TILE_SOURCES[layer.tile_kind].sourceId, layer.attr_id), layer]),
 );
 
 /** ルート線の当たり判定レイヤー。**idは scene が決める**ので、当たり判定の名前で引く。 */
@@ -145,14 +143,14 @@ type LayerDataSource = { key: MapLayerId; sourceId: string; sourceLayer?: string
 const INITIAL_TILES_OVERLAY_MAX_MS = 6000;
 
 /** 情報源の名前→MapLibreの(source, source-layer)。レイヤーごとではなく情報源ごとの表で、配信元を増やしたときだけ
- * 伸びる。source-layerを持たないラスタは取得失敗だけを見て、空かどうかは判定しない。 */
+ * 伸びる。点のタイルの情報源は点のタイルと同じ名前で、行はその一覧から来る。source-layerを持たないラスタは
+ * 取得失敗だけを見て、空かどうかは判定しない。 */
 const TILE_SOURCE_BY_DATA_SOURCE: Record<
   Exclude<MapLayerDataSource, "ownFetch">,
   { sourceId: string; sourceLayer?: string }
 > = {
   road_surface: { sourceId: ROAD_LINE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
-  accident: { sourceId: pointSourceId("accident"), sourceLayer: ACCIDENT_TILE_SOURCE_LAYER },
-  poi: { sourceId: pointSourceId("poi"), sourceLayer: STOP_POI_SOURCE_LAYER },
+  ...POINT_TILE_SOURCES,
   gsiRelief: { sourceId: AREA_SOURCE_ID.elevation },
   gsiTerrain: { sourceId: AREA_SOURCE_ID.hillshade },
   landcoverRaster: { sourceId: AREA_SOURCE_ID.landcover },

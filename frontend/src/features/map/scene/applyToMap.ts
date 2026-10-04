@@ -34,18 +34,16 @@ import { tileBaseUrl } from "@/lib/tileBaseUrl";
 import {
   ROAD_TILE_MAX_ZOOM,
   ROAD_TILE_MIN_ZOOM,
-  accidentTileUrl,
   landcoverTileUrl,
-  poiTileUrl,
+  pointTileUrl,
   roadSurfaceTileUrl,
+  type PointTileLayer,
   type TileVersions,
 } from "@/features/map/regionApi";
 import regionTileConfig from "@/types/generated/region-tile-config.json";
 
 /** ベクタタイル内のレイヤー名。源泉が配る値をそのまま使う。 */
 export const ROAD_TILE_SOURCE_LAYER = regionTileConfig.road_surface.layer_name;
-export const ACCIDENT_TILE_SOURCE_LAYER = regionTileConfig.accident.layer_name;
-export const STOP_POI_SOURCE_LAYER = regionTileConfig.poi.stop_poi_layer_name;
 
 import { applyMapScene } from "./applyMapScene";
 import { buildAxisRampUnknownExpression, buildAxisRampValueExpression } from "./groups/axisLines";
@@ -54,7 +52,7 @@ import type { SceneInputs } from "./buildScene";
 import type { AxisBand, AxisLineState } from "@/features/map/scene/groups/axisLines";
 import type { RoutePath, RouteState } from "@/features/map/scene/groups/routes";
 import { drawPointIcon } from "@/features/map/layers/pointIcon";
-import { POINT_ICONS } from "@/features/map/scene/groups/points";
+import { POINT_ICONS, POINT_TILE_SOURCES } from "@/features/map/scene/groups/points";
 import { WEATHER_ICONS, type WeatherPayload, type WeatherState } from "@/features/map/scene/groups/weather";
 import { EMPTY_MAP_SCENE, type MapScene } from "./mapScene";
 
@@ -240,6 +238,13 @@ function weatherPayloadFrom(payload: DynamicWeatherRenderPayload): WeatherPayloa
   }
 }
 
+/** 点のタイルごとのURL。 */
+function pointTileUrls(versions: TileVersions): Record<PointTileLayer, readonly string[]> {
+  const urls = {} as Record<PointTileLayer, readonly string[]>;
+  for (const name of Object.keys(POINT_TILE_SOURCES) as PointTileLayer[]) urls[name] = [pointTileUrl(versions, name)];
+  return urls;
+}
+
 export function sceneInputsFrom(props: SceneWiringProps): SceneInputs {
   // 世代が届く前にタイルのソースを作ると、世代の違う中身がブラウザのキャッシュへ載る。
   const versions = props.tileVersions;
@@ -269,10 +274,7 @@ export function sceneInputsFrom(props: SceneWiringProps): SceneInputs {
     point: {
       tiles: versions
         ? {
-            poi: [poiTileUrl(versions)],
-            accident: [accidentTileUrl(versions)],
-            poiSourceLayer: STOP_POI_SOURCE_LAYER,
-            accidentSourceLayer: ACCIDENT_TILE_SOURCE_LAYER,
+            urls: pointTileUrls(versions),
             minZoom: ROAD_TILE_MIN_ZOOM,
             maxZoom: ROAD_TILE_MAX_ZOOM,
           }

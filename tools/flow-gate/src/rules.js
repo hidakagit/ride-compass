@@ -1,6 +1,7 @@
 // 遷移の表・問いと答えの形。GitHub に触れない純粋な関数だけを置く。
 
-export const normalize = (text) => (text ?? "").replace(/\r\n/g, "\n");
+// 画面や Windows から書かれた本文は改行の前に \r が重なって届くことがある。
+export const normalize = (text) => (text ?? "").replace(/\r+\n/g, "\n");
 
 // 誰の番かはステータスだけで決まる（flow.config.json: owner）。閉じたものは誰の番でもない。
 export const ownerOf = (config, issue) => (issue.state === "OPEN" ? (config.owner[issue.status] ?? null) : null);
@@ -44,7 +45,7 @@ export function parseQuestion(text) {
 // 回答フォームの次のステータス: 表で今のステータスから行ける先。完了は完成と見送りに分ける。最初のものが既定。
 export const nextChoices = (config, from) =>
   config.transitions[from].flatMap((to) =>
-    to === config.done ? [{ to, close: "COMPLETED", text: `${to}（完成）` }, { to, close: "NOT_PLANNED", text: `${to}（見送り）` }] : [{ to, text: to }]);
+    to === config.done ? [{ to, close: "COMPLETED", text: "完成" }, { to, close: "NOT_PLANNED", text: "見送り" }] : [{ to, text: to }]);
 
 // 答えのコメント（問いのコメントの後ろに続く）。
 export const answerBody = ({ question, plan, choice, checked, added, removed, note }) =>

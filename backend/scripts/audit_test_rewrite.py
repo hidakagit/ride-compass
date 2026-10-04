@@ -7,7 +7,8 @@ r"""起こし直したテストを機械で監査する。報告の自己申告�
 - ① 実装を変えていないか（テストの起こし直しで実装が変わったら、それは別の作業）
 - ② テストからの`app.*`直接import（対象モジュールと、対象の公開シグネチャが要求する型だけ）
 - ③ テストが触る`<対象>.X`の内訳（自ファイル定義／他モジュール由来）。他モジュール由来は
-  1件ずつ「差し替えのseamか、責務外か」を人が言う
+  1件ずつ「差し替えのseamか、責務外か」を人が言う。`scripts/`の道具はテストが`sys.path`へ足して
+  素で`import <道具名>`するので、その名前も対象として読む
 - ④ 実装へ1行も入らないテスト（`--cov-context=test`で実測する。**静的解析は誤検知する**
   ——`setattr(mod, ...)`の形やヘルパ経由を数え落とした実績が2回ある）
 - ⑤ 行・分岐カバレッジ
@@ -28,18 +29,25 @@ JITを通る対象はこれを付けないと⑤が実態より低く出る。
 カバレッジは対象の親ディレクトリを`--cov`に渡して測り、報告と④を対象ファイルへ絞る。
 ドット記法の`--cov`はcoverage.pyが対象の親パッケージを収集より前にimportするため、
 api層の対象ではconftestのimportでnumpyが2度読み込まれて収集ごと落ちる。ファイルのパスを
-渡すと何も報告されない。測るのは`-m "not postgis"`のテストだけ。
+渡すと何も報告されない。`postgis`の印のテストは、テスト用DBのサーバーへ繋がるときだけ
+含めて測り、繋がらなければ外したことを出す。
 """
 
 import argparse
 import ast
+import asyncio
 import os
 import subprocess
 import sys
 from collections import defaultdict
 from pathlib import Path
 
+import asyncpg
 from coverage import CoverageData
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from app.batch._common import asyncpg_dsn  # noqa: E402  sys.pathを通した後に読む
 
 
 def module_symbols(path: Path) -> tuple[set[str], dict[str, str]]:
@@ -73,6 +81,16 @@ def app_imports(tree: ast.AST) -> list[tuple[str, str]]:
                 if a.name.startswith("app"):
                     out.append((f"import {a.name}", a.asname or a.name.split(".")[0]))
     return out
+
+
+def bare_import_alias(tree: ast.AST, name: str) -> str | None:
+    """`sys.path`へ足したディレクトリから素で`import <name>`したときの束縛名（`scripts/`の道具を読む形）。"""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for a in node.names:
+                if a.name == name:
+                    return a.asname or a.name
+    return None
 
 
 def touched_attributes(tree: ast.AST, alias: str) -> dict[str, int]:
@@ -185,6 +203,29 @@ def tests_that_never_enter_the_implementation(
     return sorted(executed - entered), len(executed)
 
 
+def test_database_unreachable(backend: Path) -> str | None:
+    """PostGISのテストが繋ぐDBのサーバーへ繋がらない理由。繋がればNone。
+
+    行き先はテストと同じ規則（`tests/conftest.py: postgis_database_url`）から取る。作業ツリー
+    専用のDBは最初のpytestの実行が作るため、`TEST_DATABASE_URL`が無ければサーバーの管理DBで確かめる。
+    conftestは子プロセスで読む（このファイルからimportすると、型検査の対象外のtestsをmypyが辿る）。
+    """
+    url = os.environ.get("TEST_DATABASE_URL") or subprocess.run(
+        [sys.executable, "-c", "from tests.conftest import TEST_DATABASE_MAINTENANCE as url; print(url)"],
+        cwd=backend, capture_output=True, text=True, check=True,
+    ).stdout.strip()
+
+    async def connect() -> None:
+        conn = await asyncpg.connect(asyncpg_dsn(url), timeout=5)
+        await conn.close()
+
+    try:
+        asyncio.run(connect())
+    except Exception as exc:  # noqa: BLE001 繋がらない理由はそのまま出す
+        return f"{type(exc).__name__}: {exc}"
+    return None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="起こし直したテストを機械で監査する")
     parser.add_argument("implementation", help="実装ファイル（backendディレクトリからの相対パス）")
@@ -211,6 +252,11 @@ def main() -> int:
     print(f"対象:     {args.implementation}")
     print(f"テスト:   {' '.join(args.tests)}")
     print(f"--cov:    {cov_dir}（親ディレクトリで測り、対象ファイルへ絞る）")
+    unreachable = test_database_unreachable(backend)
+    if unreachable:
+        print(f"postgis:  **外す**（テスト用DBに繋がらない: {unreachable}）")
+    else:
+        print("postgis:  含める（テスト用DBに繋がる）")
     print("=" * 78)
 
     # --- ① 実装を変えていないか ---
@@ -233,11 +279,14 @@ def main() -> int:
         print(f"② テストからの app.* 直接import: {len(imports)}本")
         for line, _ in imports:
             print(f"     {line}")
-        print("     ← 許されるのは対象モジュールと、対象の公開シグネチャが要求する型だけ。")
-        print("       他モジュールの関数・サービス・例外・定数は対象の名前空間経由で触ること")
+        if imports:
+            print("     ← 許されるのは対象モジュールと、対象の公開シグネチャが要求する型だけ。")
+            print("       他モジュールの関数・サービス・例外・定数は対象の名前空間経由で触ること")
 
         # --- ③ <対象>.X の内訳 ---
-        alias = next((name for _, name in imports if module.endswith(name)), None)
+        alias = next((name for _, name in imports if module.endswith(name)), None) or bare_import_alias(
+            tree, module.rsplit(".", 1)[-1]
+        )
         if alias is None and imports:
             alias = imports[0][1]
         if alias is None:
@@ -268,7 +317,8 @@ def main() -> int:
     if args.no_jit:
         env["NUMBA_DISABLE_JIT"] = "1"
     result = subprocess.run(
-        [sys.executable, "-m", "pytest", *args.tests, "-q", "-rA", "-m", "not postgis", "-p", "no:randomly",
+        [sys.executable, "-m", "pytest", *args.tests, "-q", "-rA", *(["-m", "not postgis"] if unreachable else []),
+         "-p", "no:randomly",
          f"--cov={cov_dir}", "--cov-branch", "--cov-context=test", "--cov-report=term-missing"],
         cwd=backend, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace",
     )

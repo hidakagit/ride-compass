@@ -88,6 +88,7 @@ export default function DifficultyProfile({
       : null;
 
   function selectAt(km: number) {
+    // 横軸が候補より長いとき、候補の終わりより右は終点として選び、線も終点に引く。
     const clamped = Math.min(routeKm, Math.max(0, km));
     const hit = columnAtKm(columns, clamped);
     if (hit === null) return;

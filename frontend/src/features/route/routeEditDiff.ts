@@ -24,18 +24,15 @@ export interface EditDifference {
   durationSeconds: number | null;
   difficulty: number | null;
   load: number | null;
-  /** 起点に近い順。座標とEdgeの境界を持たない候補では、位置を出せない区間を落とす。 */
+  /** 起点に近い順。 */
   stretches: ChangedStretch[];
-  /** 変えた区間の数（位置を出せない区間も数える）。 */
-  stretchCount: number;
 }
 
 type Shape = Pick<RouteCandidate, "edge_ids" | "edge_point_offsets" | "geometry">;
 
 /** `edge_ids`の`index`番目のEdgeの始点までの距離（km）。 */
-function kmAtEdge(shape: Shape, cumulativeKm: readonly number[], index: number): number | undefined {
-  const offset = shape.edge_point_offsets[index];
-  return offset === undefined ? undefined : cumulativeKm[offset];
+function kmAtEdge(shape: Shape, cumulativeKm: readonly number[], index: number): number {
+  return cumulativeKm[shape.edge_point_offsets[index]];
 }
 
 function diffOf(after: number | null | undefined, before: number | null | undefined): number | null {
@@ -46,15 +43,12 @@ export function editDifference(origin: RouteCandidate, edited: RouteCandidate): 
   const pairs = pairedStretches(origin.edge_ids, edited.edge_ids);
   const originKm = cumulativeDistancesKm(origin.geometry.coordinates);
   const editedKm = cumulativeDistancesKm(edited.geometry.coordinates);
-  const stretches = pairs.flatMap((pair) => {
+  const stretches = pairs.map((pair) => {
     const startKm = kmAtEdge(origin, originKm, pair.displayed.start);
     const endKm = kmAtEdge(origin, originKm, pair.displayed.end);
     const editedStartKm = kmAtEdge(edited, editedKm, pair.target.start);
     const editedEndKm = kmAtEdge(edited, editedKm, pair.target.end);
-    if (startKm === undefined || endKm === undefined || editedStartKm === undefined || editedEndKm === undefined) {
-      return [];
-    }
-    return [{ startKm, endKm, lengthDiffKm: editedEndKm - editedStartKm - (endKm - startKm) }];
+    return { startKm, endKm, lengthDiffKm: editedEndKm - editedStartKm - (endKm - startKm) };
   });
   return {
     distanceKm: edited.distance_km - origin.distance_km,
@@ -62,7 +56,6 @@ export function editDifference(origin: RouteCandidate, edited: RouteCandidate): 
     difficulty: diffOf(edited.overall_difficulty?.average, origin.overall_difficulty?.average),
     load: diffOf(edited.overall_difficulty?.load, origin.overall_difficulty?.load),
     stretches,
-    stretchCount: pairs.length,
   };
 }
 

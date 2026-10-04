@@ -52,7 +52,7 @@ export default function EditDifference({ originName, origin, edited, onShowOrigi
         <span className="whitespace-nowrap">
           元: {originName} {origin.distance_km.toFixed(1)}km
         </span>{" "}
-        <span className="whitespace-nowrap">から{difference.stretchCount}区間</span>
+        <span className="whitespace-nowrap">から{difference.stretches.length}区間</span>
       </p>
       <dl className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-0.5">
         {metrics.map((metric) => {

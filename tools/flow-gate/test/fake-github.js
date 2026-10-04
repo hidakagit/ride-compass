@@ -1,15 +1,33 @@
-// テスト用の GitHub。網（fetch）だけを差し替え、1件の issue と Project・コメント・状況の更新を持って、書き込みを記録する。
-import config from "../flow.config.json" with { type: "json" };
+// テスト用の設定と GitHub。設定は本物（flow.config.json）を読まず、性質だけを表す架空の値で与える（本物の遷移の表やステータスの名前を
+// 変えても、テストの意味は変わらない）。GitHub は網（fetch）だけを差し替え、1件の issue と Project・コメント・状況の更新を持って、
+// 書き込みを記録する。
+export const config = {
+  repository: "o/tasks",
+  project: { owner: "o", number: 1, statusField: "状態", priorityField: "重さ", urgentLabel: "急", sizeField: "大きさ", startField: "開始日", defaults: { 重さ: "並" } },
+  gate: "gate[bot]",
+  urls: { gate: "https://gate.example", form: "https://form.example" },
+  installation: 1,
+  people: { u: { id: 1, node: "N_U" }, c: { id: 2, node: "N_C" } },
+  user: "u",
+  claude: "c",
+  statuses: ["答え待ち", "置き", "前", "中", "検", "済"],
+  owner: { 答え待ち: "u", 置き: "u", 前: "c", 中: "c", 検: "c" },
+  done: "済", waiting: "答え待ち", hold: "置き", todo: "前", working: "中", review: "検",
+  adoption: "やる？",
+  transitions: { 答え待ち: ["前", "置き", "済"], 置き: ["前", "済"], 前: ["中", "答え待ち", "置き", "済"], 中: ["検", "前", "置き", "答え待ち", "済"], 検: ["済", "前", "答え待ち"], 済: [] },
+  code: { repository: "o/code", branchPrefix: "work/t-", base: "main" },
+  coordinator: { slots: { 作る: 2, 確かめる: 1 }, devLabel: "機", recent: 20 },
+};
 
 const OPTIONS = Object.fromEntries(config.statuses.map((s) => [s, `S:${s}`]));
-const FIELDS = { [config.project.priorityField]: ["高", "中", "低"], [config.project.sizeField]: ["S", "M", "L"] };
+const FIELDS = { [config.project.priorityField]: ["上", "並", "下"], [config.project.sizeField]: ["S", "M", "L"] };
 const LOGIN = Object.fromEntries(Object.entries(config.people).map(([k, p]) => [p.node, k]));
 const AS = { "Bearer form-token": config.user, "Bearer bot-token": config.claude };
 
 // issue: { number, author（login）, status, body, labels, assignees（login）, fields, comments（{ author, body }）, parent, lastClose }
-// parent を渡すと issue をその子にし、親の優先度は parent.fields から読む。markdown を false にすると Markdown の描き方が失敗する。
-export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel, "規模S"], markdown = true, updates = [] }) {
-  const blank = { state: "OPEN", body: "本文", labels: [], assignees: [], fields: {}, comments: [], lastClose: [], statusAt: "2026-10-03T00:00:00Z" };
+// parent を渡すと issue をその子にし、親の優先度は parent.fields から読む。
+export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel, "札"], updates = [] }) {
+  const blank = { state: "OPEN", body: "本文", labels: [], assignees: [], fields: {}, comments: [], lastClose: [] };
   const s = { issue: { ...blank, ...issue }, parent: parent && { ...blank, ...parent }, writes: [], updates };
   const node = (i) => ({
     id: i === s.parent ? "I_P" : "I_1", number: i.number, title: "題名", body: i.body, url: `https://github.com/${config.repository}/issues/${i.number}`, state: i.state,
@@ -18,7 +36,7 @@ export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel
     lastClose: { nodes: i.lastClose }, repository: { nameWithOwner: config.repository },
     comments: { nodes: i.comments.map((c, k) => ({ author: { login: c.author }, createdAt: "2026-10-04T00:00:00Z", url: `c${k}`, body: c.body, bodyHTML: `<p>描いた: ${c.body}</p>` })) },
     projectItems: { nodes: [{ id: "PVTI", project: { id: "PVT" }, fieldValues: { nodes: [
-      { name: i.status, updatedAt: i.statusAt, field: { name: config.project.statusField } },
+      { name: i.status, field: { name: config.project.statusField } },
       ...Object.entries(i.fields).map(([name, v]) => (name === config.project.startField ? { date: v, field: { name } } : { name: v, field: { name } }))] } }] },
   });
   const apply = (name, input, as) => {
@@ -26,10 +44,9 @@ export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel
     const i = input.id === "I_P" ? s.parent : s.issue;
     if (name === "updateProjectV2ItemFieldValue") {
       const v = input.value.singleSelectOptionId ?? input.value.date;
-      if (input.fieldId === "F") Object.assign(i, { status: v.slice(2), statusAt: new Date(Date.parse(i.statusAt) + 1000).toISOString() });
+      if (input.fieldId === "F") i.status = v.slice(2);
       else i.fields = { ...i.fields, [input.fieldId]: v.includes(":") ? v.split(":")[1] : v };
     }
-    if (name === "clearProjectV2ItemFieldValue") delete i.fields[input.fieldId];
     if (name === "addComment") i.comments.push({ author: as, body: input.body });
     if (name === "updateIssue") {
       if (input.assigneeIds) i.assignees = input.assigneeIds.map((id) => LOGIN[id]);
@@ -63,13 +80,7 @@ export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel
     const json = (b, status = 200) => new Response(JSON.stringify(b), { status });
     if (path.endsWith("/access_tokens")) return json({ token: "app-token", expires_at: "2099-01-01T00:00:00Z" });
     if (path === "/graphql") return json(graphql(body, as));
-    if (path === "/markdown") return markdown ? new Response(`<p>描いた: ${body.text}</p>`) : new Response("失敗", { status: 500 });
-    const comments = `/repos/${config.repository}/issues/${s.issue.number}/comments`;
-    const ids = () => s.issue.comments.map((c, k) => ({ id: k + 1, body: c.body, html_url: `c${k}` })).filter((c) => s.issue.comments[c.id - 1].body !== null);
-    if (path === comments && init.method === "POST") return (apply("addComment", { subjectId: "I_1", body: body.body }, as), json(ids().at(-1), 201));
-    if (path === comments) return json(ids());
-    const gone = /\/issues\/comments\/(\d+)$/.exec(path);
-    if (gone && init.method === "DELETE") return (s.issue.comments[gone[1] - 1].body = null, new Response(null, { status: 204 }));
+    if (path === "/markdown") return new Response(`<p>描いた: ${body.text}</p>`);
     throw new Error(`テストの GitHub が知らない呼び出し: ${init.method} ${path}`);
   };
   return s;
