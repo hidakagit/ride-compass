@@ -1,4 +1,7 @@
-"""`GET /api/admin/db-status`のルートテスト（レスポンス形・DB例外の扱い）。"""
+"""`GET /api/admin/db-status`のルートテスト: レポートを応答へ受け渡す・DB例外だけを503にする。
+
+ここで見ないもの: 認可 → `test_admin_route_authorization.py`、どの例外をDB障害に数えるか → `test_database.py`
+"""
 
 from datetime import datetime, timezone
 
@@ -76,31 +79,17 @@ def teardown_function() -> None:
     app.dependency_overrides.clear()
 
 
-def test_returns_imports_tables_and_connections(admin_credentials):
+def test_returns_the_report(admin_credentials):
     _override(_StubService(_counts()))
 
     body = client.get(STATUS_URL, headers=AUTH_HEADERS).json()
 
-    assert body["imports"][0]["label"] == "OSM取込"
-    assert body["imports"][0]["latest"]["identity"] == {"pbf_name": "kanto-latest.osm.pbf"}
-    assert body["imports"][0]["needs_attention"] is False
-    assert body["tables"][0]["table_name"] == "road_edges"
-    assert body["tables"][0]["row_count"] == 5_047_354
-    assert body["connections"]["max_connections"] == 100
-    assert body["database_bytes"] == 675 * 1024 * 1024
+    assert body == build_db_status_report(_counts(), COMPUTED_AT).model_dump(mode="json")
 
 
-@pytest.mark.parametrize(
-    "error",
-    [
-        DBAPIError("stmt", {}, Exception("boom")),
-        # command_timeoutはSQLAlchemyの例外へ訳されずに届く。
-        TimeoutError(),
-    ],
-)
-def test_db_error_becomes_503_instead_of_an_empty_report(admin_credentials, error):
+def test_db_error_becomes_503_instead_of_an_empty_report(admin_credentials):
     # 診断用APIのため、空のレポートへ倒すと「問題なし」に見えてしまう。
-    _override(_StubService(error=error))
+    _override(_StubService(error=DBAPIError("stmt", {}, Exception("boom"))))
 
     response = client.get(STATUS_URL, headers=AUTH_HEADERS)
 

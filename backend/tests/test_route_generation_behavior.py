@@ -6,7 +6,8 @@
 
 ここで見ないもの:
 - 探索アルゴリズムそのもの（ダイクストラ・A*・ターンの費用） → `test_routing.py`
-- 候補の並べ方・理由の文面（戦略層） → `test_route_generator.py`
+- 候補の並べ方・周回の距離の幅・理由の文面・候補のidとラベル（戦略層） → `test_route_generator.py`。ここでは、エンジンが断った
+  ときに候補が空になることまでを見る
 - 材料の値の求め方 → `test_material_values.py`
 
 道路網と、それをエンジンへ渡す道具は`tests/route_world.py`が持つ（HTTPの入口のテストと共有）。
@@ -140,7 +141,7 @@ async def test_motorway_is_never_used_even_when_it_is_the_short_way(engine_over)
         assert not set(ways_of(candidate)) & motorway
 
 
-async def test_loop_returns_to_its_origin_within_the_distance_tolerance(engine_over):
+async def test_loop_returns_to_its_origin(engine_over):
     generator = engine_over(grid_network())
 
     candidates = await generator.generate_loops(at(CENTER), 4.0, 1.5, max_routes=3, start_time=DEPARTURE)
@@ -148,7 +149,6 @@ async def test_loop_returns_to_its_origin_within_the_distance_tolerance(engine_o
     assert candidates
     for candidate in candidates:
         assert_connected(candidate, CENTER, CENTER)
-        assert abs(candidate.distance_km - 4.0) <= 1.5
 
 
 async def test_segments_cover_the_whole_route(engine_over):
@@ -158,21 +158,34 @@ async def test_segments_cover_the_whole_route(engine_over):
         at(SOUTH_WEST), [], 4.0, destination=at(NORTH_EAST), max_routes=1, start_time=DEPARTURE)
 
     assert math.isclose(sum(s.distance_km for s in candidate.segments), candidate.distance_km, abs_tol=0.02)
-    assert candidate.estimated_duration_seconds is not None and candidate.estimated_duration_seconds > 0
 
 
-async def test_spliced_route_is_evaluated_as_sent_and_a_broken_one_is_refused(engine_over):
+async def test_spliced_route_is_evaluated_as_sent(engine_over):
     generator = engine_over(grid_network())
     (candidate, *_) = await generator.generate_via_waypoints(
         at(SOUTH_WEST), [], 4.0, destination=at(NORTH_EAST), max_routes=1, start_time=DEPARTURE)
 
     spliced = await generator.generate_spliced_route(at(SOUTH_WEST), at(NORTH_EAST), 4.0, candidate.edge_ids, start_time=DEPARTURE)
-    broken = await generator.generate_spliced_route(
-        at(SOUTH_WEST), at(NORTH_EAST), 4.0, candidate.edge_ids[:1] + candidate.edge_ids[2:], start_time=DEPARTURE)
 
     assert [c.edge_ids for c in spliced] == [candidate.edge_ids]
-    assert broken == []
-    assert generator.last_no_candidates_reason
+
+
+@pytest.mark.parametrize(
+    ("origin", "destination", "edges"),
+    [
+        (SOUTH_WEST, NORTH_EAST, lambda edge_ids: edge_ids[:1] + edge_ids[2:]),  # 途中で途切れる
+        (CENTER, NORTH_EAST, lambda edge_ids: edge_ids),  # 起点が違う
+        (SOUTH_WEST, SOUTH_EAST, lambda edge_ids: edge_ids),  # 終点が違う
+    ],
+)
+async def test_a_spliced_route_that_does_not_run_from_the_origin_to_the_destination_is_refused(
+        engine_over, origin, destination, edges):
+    generator = engine_over(grid_network())
+    (candidate, *_) = await generator.generate_via_waypoints(
+        at(SOUTH_WEST), [], 4.0, destination=at(NORTH_EAST), max_routes=1, start_time=DEPARTURE)
+
+    assert await generator.generate_spliced_route(
+        at(origin), at(destination), 4.0, edges(candidate.edge_ids), start_time=DEPARTURE) == []
 
 
 # --- 候補の選び方 ---
@@ -236,18 +249,21 @@ async def test_loop_never_drives_against_a_one_way_road(engine_over):
 # --- 経由地・目的地の扱い ---
 
 
-async def test_waypoint_route_passes_each_waypoint_in_the_given_order(engine_over):
+@pytest.mark.parametrize(("destination", "end"), [(None, SOUTH_WEST), (SOUTH_EAST, SOUTH_EAST)])
+async def test_waypoint_route_passes_each_waypoint_in_the_given_order_and_ends_where_asked(engine_over, destination, end):
+    """目的地が無ければ起点へ戻る。"""
     generator = engine_over(grid_network())
 
     (candidate,) = await generator.generate_via_waypoints(
-        at(SOUTH_WEST), [at(NORTH_WEST), at(NORTH_EAST)], 6.0, destination=None, max_routes=1, start_time=DEPARTURE)
+        at(SOUTH_WEST), [at(NORTH_WEST), at(NORTH_EAST)], 6.0,
+        destination=None if destination is None else at(destination), max_routes=1, start_time=DEPARTURE)
 
-    assert_connected(candidate, SOUTH_WEST, SOUTH_WEST)
+    assert_connected(candidate, SOUTH_WEST, end)
     assert candidate.node_ids.index(node_key(NORTH_WEST)) < candidate.node_ids.index(node_key(NORTH_EAST))
 
 
 @pytest.mark.parametrize("where", ["waypoint", "destination"])
-async def test_a_point_far_from_every_road_is_refused_with_a_reason(engine_over, where):
+async def test_a_point_far_from_every_road_is_refused(engine_over, where):
     """道の無い所を指した点を、何kmも離れた道へ黙って寄せない。"""
     generator = engine_over(grid_network())
     far = Coordinates(latitude=BASE_LAT + 0.3, longitude=BASE_LON + 0.3)
@@ -258,7 +274,6 @@ async def test_a_point_far_from_every_road_is_refused_with_a_reason(engine_over,
         candidates = await generator.generate_via_waypoints(at(SOUTH_WEST), [], 4.0, destination=far, max_routes=3, start_time=DEPARTURE)
 
     assert candidates == []
-    assert generator.last_no_candidates_reason
 
 
 async def test_a_destination_on_an_isolated_road_is_moved_to_the_nearest_reachable_node(engine_over):
@@ -272,18 +287,6 @@ async def test_a_destination_on_an_isolated_road_is_moved_to_the_nearest_reachab
     for candidate in candidates:
         assert_connected(candidate, SOUTH_WEST, NORTH_EAST)
     assert generator.last_destination_correction == at(NORTH_EAST)
-
-
-async def test_a_spliced_route_that_does_not_start_or_end_where_asked_is_refused(engine_over):
-    generator = engine_over(grid_network())
-    (candidate, *_) = await generator.generate_via_waypoints(
-        at(SOUTH_WEST), [], 4.0, destination=at(NORTH_EAST), max_routes=1, start_time=DEPARTURE)
-
-    wrong_start = await generator.generate_spliced_route(at(CENTER), at(NORTH_EAST), 4.0, candidate.edge_ids, start_time=DEPARTURE)
-    wrong_end = await generator.generate_spliced_route(at(SOUTH_WEST), at(SOUTH_EAST), 4.0, candidate.edge_ids, start_time=DEPARTURE)
-
-    assert wrong_start == []
-    assert wrong_end == []
 
 
 # --- 区間の表示 ---

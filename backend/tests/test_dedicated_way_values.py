@@ -1,9 +1,12 @@
-"""専用way値配信サービス（WindWayService/GradientWayService/RainWayService）の登録規約のテスト。
+"""`services/dedicated_way_values.py`の登録表——材料→配信サービスの対応を、登録済みの全サービスに対して確かめる。
 
-サービスは自分が担当する材料（`material_ids`）だけを宣言し、軸との対応は軸定義が参照する
-材料から引く。材料idが材料カタログの既知材料であること、組み立てたサービスがその材料の値を
-返すこと、受け取る条件を要求から組み立てられること、1つの材料を2つのサービスが担当していないことを、
-登録済みの全サービスに対して確かめる。
+材料idが材料カタログの既知材料であること、組み立てたサービスがその材料の値を返すこと、受け取る条件を
+要求から組み立てられること、1つの材料を2つのサービスが担当していないことを見る。
+
+ここで見ないもの:
+- 軸から配信を選ぶこと・区間インスペクタが足す材料（`DirectionalMaterialService`） → `test_region_routes.py`
+- 地図が載せる条件の名前（`dedicated_way_value_conditions`） → `test_axis_catalog_routes.py`
+- 各サービスが返す値 → `test_gradient_way_service.py`・`test_rain_way_service.py`・`test_wind_way_service.py`
 """
 
 from dataclasses import fields
@@ -32,11 +35,10 @@ def test_every_service_material_id_is_a_known_material():
 
 
 def test_every_service_takes_only_conditions_the_request_carries():
-    """条件の欄は要求（`WayValueQuery`）の同じ名前の欄から組み立てる（`assemble_conditions`）。
-    要求に無い名前の欄を持つと、その材料の配信は毎回組み立てで落ちる。軸カタログは欄の名前を
-    `WayValueConditionName`として地図へ配るので、その名前の並びも要求の欄と一致する。"""
-    carried = {field.name for field in fields(WayValueQuery)}
-    assert set(get_args(WayValueConditionName)) == carried
+    """条件の欄は要求（`WayValueQuery`）の同じ名前の欄から組み立て（`assemble_conditions`）、欄の名前は
+    `WayValueConditionName`として地図へ配る。どちらかに無い名前の欄を持つと、その材料の配信は毎回組み立てで
+    落ちるか、地図がその条件を載せない。"""
+    carried = set(get_args(WayValueConditionName)) & {field.name for field in fields(WayValueQuery)}
     for service in DEDICATED_WAY_VALUE_SERVICES:
         assert {field.name for field in fields(service.conditions_type)} <= carried, service
 

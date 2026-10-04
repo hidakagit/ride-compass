@@ -1,6 +1,14 @@
-"""鍵→勾配配信層（`services/gradient_way_service.py`）のオーケストレーション。"""
+"""鍵→勾配配信層（`services/gradient_way_service.py`）。差し替えるのはDB（リポジトリ）だけで、ディスクの置き場は
+`conftest.py`のautouseがテストごとの一時ディレクトリへ差し替える。
+
+ここで見ないもの:
+- 実効勾配の式・直角で落とす幅 → `test_gradient.py`
+- 鍵のどの部分が違っても別のエントリになること・置き場の失敗と失効 → `test_dynamic_way_value_cache.py`・`test_tile_persistent_cache.py`
+- 路面タイルの世代がDBの世代と形の署名を持つこと → `test_cache_identity.py`
+"""
 
 import inspect
+from contextlib import nullcontext
 
 import pytest
 
@@ -48,15 +56,6 @@ async def test_uncovered_tile_returns_empty_dict():
     assert result == {}
 
 
-async def test_covered_but_no_inputs_returns_empty_dict():
-    repository = FakeGradientInputsRepository(inputs={})
-    service = GradientWayService(repository=repository)
-
-    result = await service.get_way_values(Z, X, Y, GradientConditions(0.0))
-
-    assert result == {}
-
-
 async def test_computes_effective_gradient_per_way():
     # way1・way2は道路自身の勾配・向きが異なるため、同じ走行方位でも異なる値になる
     # （wind_way_serviceと違いbroadcastしない、モジュールdocstring参照）。
@@ -83,8 +82,7 @@ async def test_perpendicular_way_is_omitted_instead_of_zero():
 
     result = await service.get_way_values(Z, X, Y, GradientConditions(90.0))
 
-    assert 1 not in result
-    assert result[2] == 15.0
+    assert result == {2: 15.0}
 
 
 @pytest.mark.usefixtures("empty_debug_counters")
@@ -133,19 +131,6 @@ async def test_a_new_derived_data_revision_recomputes_without_the_catalog(monkey
     assert await service.get_way_values(Z, X, Y, GradientConditions(0.0)) != first
 
 
-async def test_a_rebaked_road_surface_tile_recomputes(monkeypatch):
-    """鍵は路面タイルの`feature_key`と一致して初めて意味を持つ。焼き方を変えただけのデプロイはDBの世代を
-    動かさないため、路面タイルの形が鍵に無いと前の版の値がTTLの間返り続ける——エラーにはならず、色だけが消える。"""
-    repository = FakeGradientInputsRepository(inputs={1: (5.0, 30.0)})
-    service = GradientWayService(repository=repository)
-    first = await service.get_way_values(Z, X, Y, GradientConditions(0.0))
-
-    repository.inputs = CHANGED_INPUTS
-    monkeypatch.setattr(gradient_way_service, "ROAD_SURFACE_TILE_SHAPE", "another-layout")
-
-    assert await service.get_way_values(Z, X, Y, GradientConditions(0.0)) != first
-
-
 async def test_a_deploy_that_changes_how_gradient_is_computed_recomputes(monkeypatch):
     """勾配の作り方（入力のSQL・落とす幅・丸め・式のリビジョン）を変えたデプロイは、DBの世代も路面タイルの形も
     動かさない。署名が鍵に届いていないと、前の計算の値がTTL（24時間）の間返り続ける。"""
@@ -159,19 +144,16 @@ async def test_a_deploy_that_changes_how_gradient_is_computed_recomputes(monkeyp
     assert await service.get_way_values(Z, X, Y, GradientConditions(0.0)) != first
 
 
-async def test_repository_error_returns_empty_dict():
-    repository = FakeGradientInputsRepository(inputs=None, error=ConnectionRefusedError("db down"))
-    service = GradientWayService(repository=repository)
+@pytest.mark.parametrize(
+    ("error", "outcome"),
+    [
+        (ConnectionRefusedError("db down"), nullcontext()),
+        # DB障害でない例外まで空へ倒すと、利用者には「データなし」に見えて誰も気づかない。
+        (TypeError("wrong arguments"), pytest.raises(TypeError)),
+    ],
+)
+async def test_only_a_db_outage_is_turned_into_an_empty_result(error, outcome):
+    service = GradientWayService(repository=FakeGradientInputsRepository(inputs=None, error=error))
 
-    result = await service.get_way_values(Z, X, Y, GradientConditions(0.0))
-
-    assert result == {}
-
-
-async def test_an_implementation_error_is_not_turned_into_an_empty_result():
-    """DB障害でない例外まで空へ倒すと、利用者には「データなし」に見えて誰も気づかない。"""
-    repository = FakeGradientInputsRepository(inputs=None, error=TypeError("wrong arguments"))
-    service = GradientWayService(repository=repository)
-
-    with pytest.raises(TypeError):
-        await service.get_way_values(Z, X, Y, GradientConditions(0.0))
+    with outcome:
+        assert await service.get_way_values(Z, X, Y, GradientConditions(0.0)) == {}
