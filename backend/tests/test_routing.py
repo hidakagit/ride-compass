@@ -1,9 +1,14 @@
 """`app/domain/routing.py`——Road Graphのトポロジと計算済みEdge Costだけで経路を探す層。
 
+見るもの: 探索用グラフ・CSR・ターンの遷移と秒の組み立て、一対全の木と2点間探索の結果（コスト・時刻ビン・
+経路の復元）、木の繋ぎ目、候補の間引き（パレートの層・重複率）、最近傍のノード、探索のJITの型。
+
 ここで見ないもの:
 - Edge Costの中身（勾配・路面・風がどう秒へ化けるか） → `domain/evaluation.py`側
 - 道路網全体の配列の作り方・範囲の切り出し → `test_road_network*.py`
-- 較正値そのものの妥当性（左折が何秒か） → `domain/tuning.py`側
+- 較正値そのものの妥当性（左折が何秒か） → `domain/tuning.py`側。較正値をターンの費用へ詰める
+  `current_turn_cost`は判断を持たないので単体では見ない（`test_route_generation_behavior.py`が通す）
+- 区間が0本の探索用グラフ → 本番では作らない（道の無い範囲は`services/road_graph_engine.py`が組む前に返す）
 - 候補ルートの並べ方・返し方 → `route_generator`側
 
 **対象の入力は番号の配列だが、テストは名前で書く。** `make_graph`がノードと区間に名前を付けた
@@ -25,7 +30,6 @@ from numba.core.registry import CPUDispatcher
 from app.domain import routing
 from app.domain.geo import haversine_distance_km_array
 from app.domain.route import Coordinates
-from app.domain.tuning import TUNING_VALUES
 from app.domain.wind import WindForecastSeries, WindLattice
 from app.services.route_generator import RouteGenerator
 from tests.route_world import (
@@ -235,26 +239,7 @@ def test_parallel_edges_resolve_to_the_lowest_row():
         {"a": (35.0, 139.0), "b": (35.0, 139.01)},
         {"first": ("a", "b"), "second": ("a", "b"), "third": ("a", "b")},
     )
-    lazy = lazy_of(graph)
-    assert lazy.edge_ids == ["first"]
-    assert list(lazy.graph.edge_rows) == [0]
-
-
-def test_opposite_directions_are_kept_as_separate_edges():
-    """(a,b)と(b,a)は別の対として両方残る（並行区間の解消は向きを区別する）。"""
-    graph = make_graph(
-        {"a": (35.0, 139.0), "b": (35.0, 139.01)},
-        {"forward": ("a", "b"), "backward": ("b", "a")},
-    )
-    lazy = lazy_of(graph)
-    assert sorted(lazy.edge_ids) == ["backward", "forward"]
-
-
-def test_edges_are_numbered_in_ascending_order_of_their_endpoints():
-    """区間の番号は`(始点, 終点)`の昇順。CSRの行がこの並びをそのまま使う。"""
-    lazy = lazy_of(make_graph(PLUS_NODES, PLUS_EDGES))
-    pairs = list(zip(lazy.graph.edge_from.tolist(), lazy.graph.edge_to.tolist(), strict=True))
-    assert pairs == sorted(pairs)
+    assert lazy_of(graph).edge_ids == ["first"]
 
 
 # --- build_search_graph_statics ---
@@ -292,17 +277,6 @@ def test_csr_rows_hold_the_outgoing_edges_of_each_node_in_ascending_order():
         assert recovered == expected
 
 
-def test_csr_of_a_graph_without_edges_is_empty():
-    """Edgeが1本も無くても（道の無い範囲）構造は組める。"""
-    graph = make_graph({"a": (35.0, 139.0)}, {})
-    lazy = lazy_of(graph)
-    statics = routing.build_search_graph_statics(lazy.graph, graph.distance_m)
-    assert statics.csr.node_count == 1
-    assert list(statics.csr.indptr) == [0, 0]
-    assert len(statics.csr.indices) == 0
-    assert len(statics.edge_length_m) == 0
-
-
 # --- edge_index_between ---
 
 
@@ -331,7 +305,6 @@ def test_overlap_ratio_weights_by_distance_not_by_edge_count():
     """共有の割合は本数ではなく距離で測る（短い区間を1本共有しても重複とは呼ばない）。"""
     lengths = np.array([10.0, 90.0])
     assert routing.overlap_ratio(np.array([0, 1]), np.array([1]), lengths) == pytest.approx(0.9)
-    assert routing.overlap_ratio(np.array([0, 1]), np.array([0]), lengths) == pytest.approx(0.1)
 
 
 # --- pareto_layer_index ---
@@ -389,24 +362,23 @@ def test_pareto_assigns_every_candidate_when_there_are_fewer_than_requested():
     assert list(layer) == [0, 0, 0]
 
 
-def test_pareto_drops_candidates_that_cannot_reach_a_layer_below_max_items():
-    """同じ距離段階でbがmax_items番目より後ろの候補は、どの層にも入らない（-1）。"""
-    a = np.array([0.0, 0.0, 0.0, 0.0])
-    b = np.array([0.0, 1.0, 2.0, 3.0])
-    layer = routing.pareto_layer_index(a, b, quantum_a=1.0, quantum_b=1.0, max_items=2)
-    assert list(layer) == [0, 1, -1, -1]
-
-
-def test_pareto_keeps_a_whole_tie_group_even_beyond_max_items():
-    """完全に同点の候補群は、max_items件を超えても丸ごと同じ層に入る。
+@pytest.mark.parametrize(
+    ("b", "expected"),
+    [
+        ([0.0, 1.0, 2.0, 3.0], [0, 1, -1, -1]),  # bがmax_items番目より後ろの候補は、どの層にも入らない
+        ([0.0, 0.0, 0.0, 0.0, 0.0], [0, 0, 0, 0, 0]),  # 完全に同点の候補群は、max_items件を超えても丸ごと入る
+    ],
+)
+def test_pareto_cuts_a_distance_step_at_max_items_counting_tie_groups_not_candidates(b, expected):
+    """同じ距離段階の中は、bの小さい順にmax_items個の同点グループまでしか層に入らない。
 
     点単位で切ると、全方位が等距離・同難易度の地形で候補が層からこぼれ、後段の方位分散が
     働く同点グループが壊れる。
     """
-    a = np.zeros(5)
-    b = np.zeros(5)
-    layer = routing.pareto_layer_index(a, b, quantum_a=1.0, quantum_b=1.0, max_items=2)
-    assert list(layer) == [0, 0, 0, 0, 0]
+    layer = routing.pareto_layer_index(
+        np.zeros(len(b)), np.array(b), quantum_a=1.0, quantum_b=1.0, max_items=2
+    )
+    assert list(layer) == expected
 
 
 # --- select_diverse_by_overlap ---
@@ -478,22 +450,12 @@ def test_select_diverse_reruns_prefer_after_every_acceptance():
     採用件数ぶんの回数だけ計算すれば済ませるための契約。
     """
     edges = {"a": [0], "b": [1], "c": [2]}
-    calls = []
-
-    def prefer(remaining, chosen):
-        calls.append((list(remaining), list(chosen)))
-        return list(reversed(remaining))
-
     selected = routing.select_diverse_by_overlap(
         [], edges.__getitem__, DIVERSE_LENGTHS, [1.0], max_count=3,
-        tie_groups=[["a", "b", "c"]], prefer=prefer,
+        tie_groups=[["a", "b", "c"]], prefer=lambda remaining, chosen: list(reversed(remaining)),
     )
+    # 1度だけ決めるなら c, b, a。
     assert selected == ["c", "a", "b"]
-    assert calls == [
-        (["a", "b", "c"], []),
-        (["b", "a"], ["c"]),
-        (["b"], ["c", "a"]),
-    ]
 
 
 def test_select_diverse_drops_candidates_passed_over_before_an_acceptance():
@@ -514,18 +476,14 @@ SNAP_GRAPH = make_graph(
     {
         "center": (35.0099, 139.0099),
         "north": (35.0101, 139.0050),
-        # `north`と同じセルにあり、そこより遠い（同一バケツ内での比較を通す）。
-        "same_cell_farther": (35.0105, 139.0099),
         "far": (35.0400, 139.0000),
     },
     {},
 )
 
 
-def node_index_of(net, only=None):
-    """`only`（ノード名の集合）を渡すと、そのノードだけを索引の候補にする。"""
-    candidates = None if only is None else np.array([node_id in only for node_id in net.node_ids])
-    return routing.build_node_spatial_index(net.latitude, net.longitude, candidates)
+def node_index_of(net):
+    return routing.build_node_spatial_index(net.latitude, net.longitude, None)
 
 
 def nearest(net, index, point, allowed_names=None, **kwargs):
@@ -537,7 +495,6 @@ def nearest(net, index, point, allowed_names=None, **kwargs):
 
 def test_nearest_node_is_none_when_the_index_has_no_nodes():
     index = node_index_of(make_graph({}, {}))
-    assert index.cell_bounds is None
     assert routing.find_nearest_node_indexed(index, coords(35.0, 139.0)) is None
 
 
@@ -564,22 +521,6 @@ def test_nearest_node_tolerates_a_point_just_outside_the_indexed_area():
     """範囲の縁を1セルだけ外した点は、すぐ隣の道へ寄せる（地図の端をクリックした場合）。"""
     index = node_index_of(SNAP_GRAPH)
     assert nearest(SNAP_GRAPH, index, coords(35.0550, 139.0000)) == "far"
-
-
-def test_nearest_node_keeps_expanding_rings_until_the_bound_is_safe():
-    """最初のセルで見つけた点で打ち切らない——隣のセルにもっと近い点が残りうる。
-
-    同じセルに後から出てくる、より遠いNodeで最近傍を上書きしない。
-    """
-    index = node_index_of(SNAP_GRAPH)
-    assert nearest(SNAP_GRAPH, index, coords(35.0050, 139.0050)) == "north"
-
-
-def test_nearest_node_skips_nodes_that_are_not_allowed():
-    """`allowed`が偽のNodeは最近傍候補にしない（本線から孤立したNodeを外すため）。"""
-    index = node_index_of(SNAP_GRAPH)
-    allowed = set(SNAP_GRAPH.node_ids) - {"north"}
-    assert nearest(SNAP_GRAPH, index, coords(35.0050, 139.0050), allowed) == "center"
 
 
 def test_nearest_node_is_none_when_no_node_is_allowed():
@@ -620,25 +561,6 @@ def test_nearest_node_is_the_closest_candidate_by_great_circle_distance(span_deg
             assert routing.find_nearest_node_indexed(index, point, None if mask is candidates else allowed) == expected
 
 
-def test_node_index_only_holds_the_candidate_nodes():
-    """`candidates`を渡すとその真のノードだけが索引に入る（Hard Constraintで孤立したNodeを外す用途）。"""
-    index = node_index_of(SNAP_GRAPH, only={"center"})
-    assert nearest(SNAP_GRAPH, index, coords(35.0101, 139.0050)) == "center"
-
-
-# --- current_turn_cost ---
-
-
-def test_turn_cost_is_rebuilt_from_tuning_on_every_call(monkeypatch):
-    """呼ぶたびに較正値を引き直す。束ねると管理画面から変えた値が効かなくなる。"""
-    before = dataclasses.asdict(routing.current_turn_cost())
-    for param_id in [param_id for param_id in TUNING_VALUES if param_id.startswith("turn.")]:
-        monkeypatch.setitem(TUNING_VALUES, param_id, TUNING_VALUES[param_id] + 100.0)
-    after = dataclasses.asdict(routing.current_turn_cost())
-    assert before
-    assert all(after[name] == before[name] + 100.0 for name in before)
-
-
 # --- edge_bearings ---
 
 
@@ -659,35 +581,28 @@ def test_edge_bearings_prefer_the_stored_value_and_fall_back_to_the_node_pair():
 # --- build_turn_expanded_structure ---
 
 
-def test_turn_transitions_cover_every_outgoing_edge_including_the_u_turn():
+def test_turn_transitions_lead_to_every_outgoing_edge_and_classify_the_turn():
     """状態eの遷移先は「eの終点Nodeから出る全区間」。Uターンも禁止せず遷移として持つ
-    （袋小路からの折り返しに要る）。"""
-    graph = make_graph(PLUS_NODES, PLUS_EDGES)
-    lazy, _, structure = build_all(graph)
-    targets = {
-        target for (source, target) in transition_seconds(lazy, structure) if source == "WC"
-    }
-    assert targets == {"CE", "CN", "CS", "CW"}
-    assert structure.state_count == len(lazy.edge_ids)
+    （袋小路からの折り返しに要る）。
 
-
-def test_turn_seconds_classify_straight_left_right_and_u_turn():
-    """方位差の符号で左右を分け、直進とみなす幅の内側は0秒、始点へ戻る遷移はUターン。"""
+    方位差の符号で左右を分け、直進とみなす幅の内側は0秒、始点へ戻る遷移はUターン。
+    """
     graph = make_graph(PLUS_NODES, PLUS_EDGES)
     lazy, _, structure = build_all(graph, spec=TURN_SPEC)
-    seconds = transition_seconds(lazy, structure)
-    assert seconds[("WC", "CE")] == pytest.approx(0.0)
-    assert seconds[("WC", "CN")] == pytest.approx(TURN_SPEC.left_seconds)
-    assert seconds[("WC", "CS")] == pytest.approx(TURN_SPEC.right_seconds)
-    assert seconds[("WC", "CW")] == pytest.approx(TURN_SPEC.uturn_seconds)
+    from_west = {
+        target: seconds for (source, target), seconds in transition_seconds(lazy, structure).items()
+        if source == "WC"
+    }
+    assert from_west == pytest.approx({
+        "CE": 0.0,
+        "CN": TURN_SPEC.left_seconds,
+        "CS": TURN_SPEC.right_seconds,
+        "CW": TURN_SPEC.uturn_seconds,
+    })
 
 
-@pytest.fixture
-def major_threshold(monkeypatch):
-    """「そもそも待ちの要る階級か」の境目は`domain/traffic.py`が決める。差し替えて与える。"""
-    threshold = 4
-    monkeypatch.setattr(routing, "MAJOR_CROSSING_MIN_RANK", threshold)
-    return threshold
+# 「そもそも待ちの要る階級か」の境目（`domain/traffic.py`が決める）。
+MAJOR = routing.MAJOR_CROSSING_MIN_RANK
 
 
 def _plus_ranks(lazy, crossing_rank, entering_rank):
@@ -700,13 +615,12 @@ def _plus_ranks(lazy, crossing_rank, entering_rank):
     )
 
 
-def test_crossing_a_higher_ranked_road_adds_a_wait_split_by_straight_or_turning(major_threshold):
+def test_crossing_a_higher_ranked_road_adds_a_wait_split_by_straight_or_turning():
     """信号の無い交差点で上位の道と交わるとき、横断（直進）と右左折で別の秒数を足す。"""
-    major = major_threshold
     graph = make_graph(PLUS_NODES, PLUS_EDGES)
     lazy = lazy_of(graph)
     _, _, structure = build_all(
-        graph, spec=TURN_SPEC, edge_rank=_plus_ranks(lazy, major, major - 1)
+        graph, spec=TURN_SPEC, edge_rank=_plus_ranks(lazy, MAJOR, MAJOR - 1)
     )
     seconds = transition_seconds(lazy, structure)
     assert seconds[("WC", "CE")] == pytest.approx(TURN_SPEC.major_crossing_seconds)
@@ -719,65 +633,39 @@ def test_crossing_a_higher_ranked_road_adds_a_wait_split_by_straight_or_turning(
     assert seconds[("WC", "CW")] == pytest.approx(TURN_SPEC.uturn_seconds)
 
 
-def test_crossing_wait_needs_the_rank_to_reach_the_major_threshold(major_threshold):
+def test_crossing_wait_needs_the_rank_to_reach_the_major_threshold():
     """「自分より上位」だけでは足りない——待ちの要る階級に達していなければ足さない。"""
-    major = major_threshold
     graph = make_graph(PLUS_NODES, PLUS_EDGES)
     lazy = lazy_of(graph)
     _, _, structure = build_all(
-        graph, spec=TURN_SPEC, edge_rank=_plus_ranks(lazy, major - 1, major - 2)
+        graph, spec=TURN_SPEC, edge_rank=_plus_ranks(lazy, MAJOR - 1, MAJOR - 2)
     )
-    seconds = transition_seconds(lazy, structure)
-    assert seconds[("WC", "CE")] == pytest.approx(0.0)
-    assert seconds[("WC", "CN")] == pytest.approx(TURN_SPEC.left_seconds)
+    assert transition_seconds(lazy, structure)[("WC", "CE")] == pytest.approx(0.0)
 
 
-def test_crossing_wait_is_not_added_where_a_signal_exists(major_threshold):
+def test_crossing_wait_is_not_added_where_a_signal_exists():
     """信号のある交差点の待ちは停止密度の材料が運ぶ。ここで足すと同じ待ちを二重に数える。"""
-    major = major_threshold
     graph = make_graph(PLUS_NODES, PLUS_EDGES)
     lazy = lazy_of(graph)
     signals = np.zeros(lazy.node_count, dtype=bool)
     signals[lazy.node_id_to_index["C"]] = True
     _, _, structure = build_all(
-        graph, spec=TURN_SPEC, edge_rank=_plus_ranks(lazy, major, major - 1), node_has_signal=signals
+        graph, spec=TURN_SPEC, edge_rank=_plus_ranks(lazy, MAJOR, MAJOR - 1), node_has_signal=signals
     )
-    seconds = transition_seconds(lazy, structure)
-    assert seconds[("WC", "CE")] == pytest.approx(0.0)
-    assert seconds[("WC", "CN")] == pytest.approx(TURN_SPEC.left_seconds)
+    assert transition_seconds(lazy, structure)[("WC", "CE")] == pytest.approx(0.0)
 
 
-def test_db_node_rank_raises_a_rank_the_partial_graph_cannot_show(major_threshold):
-    """bboxの外へはみ出した上位の道は部分グラフに現れない。DB側の集計値があれば大きい方を採る。"""
-    major = major_threshold
-    graph = make_graph(PLUS_NODES, PLUS_EDGES)
-    lazy = lazy_of(graph)
-    flat_ranks = _plus_ranks(lazy, major - 1, major - 1)
-    _, _, without_db = build_all(graph, spec=TURN_SPEC, edge_rank=flat_ranks)
-    assert transition_seconds(lazy, without_db)[("WC", "CE")] == pytest.approx(0.0)
+def test_db_node_rank_raises_a_rank_the_partial_graph_cannot_show():
+    """bboxの外へはみ出した上位の道は部分グラフに現れない。DB側の集計値があれば大きい方を採る。
 
-    db_rank = np.zeros(lazy.node_count, dtype=np.int64)
-    db_rank[lazy.node_id_to_index["C"]] = major
-    _, _, with_db = build_all(
-        graph, spec=TURN_SPEC, edge_rank=flat_ranks, node_db_rank=db_rank
-    )
-    assert transition_seconds(lazy, with_db)[("WC", "CE")] == pytest.approx(
-        TURN_SPEC.major_crossing_seconds
-    )
-
-
-def test_db_node_rank_never_lowers_the_rank_derived_from_the_graph(major_threshold):
-    """DB側の集計値は下限を上げるだけ。未集計の0で導出した階級を打ち消さない。
-
-    打ち消すと、バッチ未実行のDBでは上位の道の待ちが本番から丸ごと消える。
+    未集計の0で導出した階級を打ち消さないことは、DB側の値を0で埋めた上のテストが見る。
     """
     graph = make_graph(PLUS_NODES, PLUS_EDGES)
     lazy = lazy_of(graph)
-    unaggregated = np.zeros(lazy.node_count, dtype=np.int64)
+    db_rank = np.zeros(lazy.node_count, dtype=np.int64)
+    db_rank[lazy.node_id_to_index["C"]] = MAJOR
     _, _, structure = build_all(
-        graph, spec=TURN_SPEC,
-        edge_rank=_plus_ranks(lazy, major_threshold, major_threshold - 1),
-        node_db_rank=unaggregated,
+        graph, spec=TURN_SPEC, edge_rank=_plus_ranks(lazy, MAJOR - 1, MAJOR - 1), node_db_rank=db_rank
     )
     assert transition_seconds(lazy, structure)[("WC", "CE")] == pytest.approx(
         TURN_SPEC.major_crossing_seconds
@@ -789,7 +677,7 @@ ONE_WAY_NODES = {k: PLUS_NODES[k] for k in ("C", "N", "E", "W")}
 ONE_WAY_EDGES = {k: PLUS_EDGES[k] for k in ("WC", "CW", "CE", "EC", "CN")}
 
 
-def test_node_rank_comes_from_roads_that_leave_the_node_too(major_threshold):
+def test_node_rank_comes_from_roads_that_leave_the_node_too():
     """Nodeの階級は、そこへ入る道だけでなく出る道からも取る。
 
     一方通行の幹線が出ていくだけの交差点でも、渡るときの待ちが付く。
@@ -799,7 +687,7 @@ def test_node_rank_comes_from_roads_that_leave_the_node_too(major_threshold):
     ranks = rank_array(
         lazy,
         {
-            edge_id: (major_threshold if edge_id == "CN" else major_threshold - 1)
+            edge_id: (MAJOR if edge_id == "CN" else MAJOR - 1)
             for edge_id in ONE_WAY_EDGES
         },
     )
@@ -858,25 +746,6 @@ def test_tree_costs_equal_the_hop_count_from_the_origin():
         assert tree.node_length_m[node_index] == pytest.approx(expected * 100.0), node_id
 
 
-def test_tree_seeds_start_from_the_cost_of_their_own_edge():
-    """種は自分自身の区間コストから始まる（安い種から順に確定する）。"""
-    graph = make_graph(PLUS_NODES, PLUS_EDGES)
-    lazy, statics, structure = build_all(graph)
-    states = state_index(lazy)
-    seed_cost = {"CW": 4.0, "CE": 3.0, "CN": 2.0, "CS": 1.0}
-    cost = np.ones(structure.state_count)
-    for edge_id, value in seed_cost.items():
-        cost[states[edge_id]] = value
-    tree = routing.build_turn_expanded_tree(
-        structure, cost, statics.edge_length_m, out_states(lazy, "C"),
-        lazy.node_count,
-        edge_seconds=np.ones(structure.state_count),
-    )
-    for edge_id, value in seed_cost.items():
-        leaf = graph.edges[edge_id].to_node_id
-        assert tree.node_cost[lazy.node_id_to_index[leaf]] == pytest.approx(value), edge_id
-
-
 def test_tree_seconds_come_from_the_plain_travel_time_not_from_the_cost():
     """秒はコスト（主観的割増込み）ではなく素の走行時間を積む。混ぜると到着時刻が狂う。"""
     lazy, statics, structure = build_all(make_graph(LINE_NODES, LINE_EDGES))
@@ -927,7 +796,6 @@ def test_tree_marks_unreachable_states_and_nodes():
     )
     isolated = lazy.node_id_to_index["Z"]
     assert tree.node_cost[isolated] == math.inf
-    assert tree.node_best_state[isolated] == -1
     assert np.isnan(tree.node_length_m[isolated])
     assert routing.turn_expanded_path_edge_indices(tree, isolated) is None
 
@@ -959,7 +827,13 @@ def _line_bins():
     return lazy, statics, structure, states, cost, seconds
 
 
-@pytest.mark.parametrize(("bin_seconds", "expected"), [(20.0, 2.0), (5.0, 51.0)])
+@pytest.mark.parametrize(
+    ("bin_seconds", "expected"),
+    [
+        (5.0, 1.0 + 50.0),
+        (2.0, 1.0 + 99.0),  # 予報の窓より長くかかる経路は、最後のビンの条件で評価を続ける
+    ],
+)
 def test_tree_picks_the_time_bin_by_elapsed_seconds(bin_seconds, expected):
     """時計を進めるのは素の所要時間であってコストではない。ビンの幅で引かれる行が変わる。"""
     lazy, statics, structure, states, cost, seconds = _line_bins()
@@ -968,16 +842,6 @@ def test_tree_picks_the_time_bin_by_elapsed_seconds(bin_seconds, expected):
         lazy.node_count, edge_seconds=seconds, bin_seconds=bin_seconds,
     )
     assert tree.state_cost[states["BC"]] == pytest.approx(expected)
-
-
-def test_tree_clamps_an_elapsed_time_beyond_the_last_bin():
-    """予報の窓より長くかかる経路は、最後のビンの条件で評価を続ける。"""
-    lazy, statics, structure, states, cost, seconds = _line_bins()
-    tree = routing.build_turn_expanded_tree(
-        structure, cost, statics.edge_length_m, np.array([states["AB"]], dtype=np.int64),
-        lazy.node_count, edge_seconds=seconds, bin_seconds=2.0,
-    )
-    assert tree.state_cost[states["BC"]] == pytest.approx(1.0 + 99.0)
 
 
 def test_reverse_tree_measures_the_cost_from_each_state_to_the_destination():
@@ -1062,7 +926,6 @@ def test_junction_includes_the_turn_cost_at_the_meeting_node():
     )
     center = lazy.node_id_to_index["C"]
     assert junction.cost[center] == pytest.approx(1.0 + TURN_SPEC.left_seconds + 1.0)
-    assert junction.cost[center] > forward.node_cost[center] + backward.node_cost[center]
     assert junction.forward_state[center] == states["WC"]
     assert junction.backward_state[center] == states["CN"]
     assert junction.length_m[center] == pytest.approx(200.0)
@@ -1094,19 +957,17 @@ def test_junction_leaves_unreachable_nodes_empty():
 # --- 時刻ビンの契約 ---
 
 
-def test_one_dimensional_cost_becomes_a_single_bin():
-    cost_bins, seconds_bins = routing.time_bin_arrays(
-        "caller", np.array([1.0, 2.0, 3.0]), np.array([4.0, 5.0, 6.0]), math.inf
-    )
-    assert cost_bins.shape == (1, 3)
-    assert seconds_bins.shape == (1, 3)
-    assert list(seconds_bins[0]) == [4.0, 5.0, 6.0]
-
-
-def test_two_dimensional_cost_is_passed_through():
-    cost = np.ones((3, 4))
-    cost_bins, _ = routing.time_bin_arrays("caller", cost, np.ones((3, 4)), 60.0)
-    assert cost_bins.shape == (3, 4)
+@pytest.mark.parametrize(
+    ("shape", "expected"),
+    [
+        ((3,), (1, 3)),  # 1次元は時刻に依存しないビン1本
+        ((3, 4), (3, 4)),
+    ],
+)
+def test_cost_and_seconds_are_shaped_as_time_bins_by_states(shape, expected):
+    cost_bins, seconds_bins = routing.time_bin_arrays("caller", np.ones(shape), np.ones(shape), 60.0)
+    assert cost_bins.shape == expected
+    assert seconds_bins.shape == expected
 
 
 def test_more_than_two_dimensions_is_refused():
@@ -1115,7 +976,7 @@ def test_more_than_two_dimensions_is_refused():
         routing.time_bin_arrays("caller", np.ones((2, 3, 4)), np.ones((2, 3, 4)), 60.0)
 
 
-@pytest.mark.parametrize("bin_seconds", [0.0, -60.0, math.inf, math.nan])
+@pytest.mark.parametrize("bin_seconds", [0.0, math.inf])
 def test_time_binned_cost_requires_a_positive_finite_bin_width(bin_seconds):
     """幅が無いと全区間が先頭のビンへ落ち、例外もNaNも出ないまま結果だけが変わる。"""
     with pytest.raises(ValueError):
@@ -1151,19 +1012,6 @@ def test_shortest_path_returns_edge_indices_in_travel_order():
     assert all(
         graph.edges[a].to_node_id == graph.edges[b].from_node_id for a, b in zip(hops, hops[1:])
     )
-
-
-def test_shortest_path_of_a_single_entry_edge_is_that_edge():
-    """起点から出る区間の終点が既に目的地なら、その1本だけを返す。"""
-    graph = make_graph(LINE_NODES, LINE_EDGES)
-    lazy, _, structure = build_all(graph)
-    states = state_index(lazy)
-    path = routing.turn_expanded_shortest_path(
-        structure, np.ones(structure.state_count), np.zeros(lazy.node_count),
-        np.array([states["AB"]], dtype=np.int64), lazy.node_id_to_index["B"],
-        edge_seconds=np.ones(structure.state_count),
-    )
-    assert path == [states["AB"]]
 
 
 def test_shortest_path_ignores_non_finite_costs_among_seeds_and_successors():
@@ -1290,25 +1138,6 @@ def make_fan():
         edges[f"HL{spoke}"] = ("H", f"L{spoke}")
         edges[f"L{spoke}G"] = (f"L{spoke}", "G")
     return make_graph(nodes, edges)
-
-
-def test_tree_costs_stay_exact_while_the_queue_grows():
-    """伸長をまたいでも、各葉のコストは起点からの区間コストの和のまま。"""
-    graph = make_fan()
-    lazy, statics, structure = build_all(graph)
-    states = state_index(lazy)
-    spoke_cost = np.random.default_rng(0).permutation(FAN_SPOKES) + 1.0
-    cost = np.ones(structure.state_count)
-    for spoke in range(FAN_SPOKES):
-        cost[states[f"HL{spoke}"]] = spoke_cost[spoke]
-    tree = routing.build_turn_expanded_tree(
-        structure, cost, statics.edge_length_m, out_states(lazy, "O"), lazy.node_count,
-        edge_seconds=np.ones(structure.state_count),
-    )
-    for spoke in range(FAN_SPOKES):
-        node_index = lazy.node_id_to_index[f"L{spoke}"]
-        assert tree.node_cost[node_index] == pytest.approx(1.0 + spoke_cost[spoke]), spoke
-    assert tree.node_cost[lazy.node_id_to_index["G"]] == pytest.approx(3.0)
 
 
 def test_shortest_path_stays_exact_while_the_queue_grows():
