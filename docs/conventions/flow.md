@@ -213,7 +213,9 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    画面の変更は、修正前後のキャプチャを Pull Request のコメントに貼る（`gh pr comment <番号> --attach <前の画像> --attach <後の画像>`。
    画面・幅など、何を撮ったかを添える。画像はコミットに残さない）。画面は `node frontend/scripts/capture.mjs --script <脚本>` で撮る
      （開く版を `--app`、応答を `--api` で選び、見せたい状態までは脚本で進める。脚本の口と使い方はスクリプトの先頭、例は
-     `frontend/capture/examples/`。脚本は作業ツリーの外に置いてよい）。前は本番を撮り（`--app production`。ビルドしない）、後は
+     `frontend/capture/examples/`。脚本は作業ツリーの外に置いてよい。外に置いた脚本は確かめる担当に届かないので、キャプチャと同じ
+     コメントに、`<details>` で畳んだコードの囲みで脚本の全文と打った `capture.mjs` の引数を貼る。脚本は何も読み込まないので、モックへ
+     足した応答も脚本の `patch` ごと貼れる）。前は本番を撮り（`--app production`。ビルドしない）、後は
      `--api <本番の backend>`（作業ツリーの版を手元でビルドし、本番の backend へ向ける。宛先は docs/architecture/tech-stack.md「本番の宛先」）で、
      前と同じ脚本で撮る。前後が同じ backend を使うので、地図の塗り（道路タイルを持つ本物の backend でしか出ない）も、それ以外の画面
      （ルート結果・パネル等）も、作業ツリーの変更の差だけが写る。backend の応答も変わる変更は、変わる応答を脚本の `patch` で差し替えて後を撮る。
@@ -272,7 +274,7 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
 1. 作業ブランチを取る（`git fetch origin` と
    `git checkout -B orch/tasks-<番号> origin/orch/tasks-<番号>`）。依存のファイルが master と違えば、作る担当の2のとおり入れ直す。Pull Request（`gh pr view <番号> -R hidakagit/ride-compass --json title,body,comments,reviews`。本文のキャプチャ・差分）・Pull Request の CI・issue の完了の条件・変更が届く範囲（要るなら画面）を
    確かめる。作る担当の報告を読み写さず、自分で見る（画面なら変更後を自分で撮る。作る担当の5と同じ道具・脚本・応答で撮り、
-   変更前は撮り直さずに作る担当が貼った画像と比べる）。Pull Request が無ければ（手順が変わる前に
+   変更前は撮り直さずに作る担当が貼った画像と比べる。作る担当がコメントに脚本を貼っていれば、作業ツリーの外へ写して同じ引数で撮る）。Pull Request が無ければ（手順が変わる前に
    検証中になったもの）、作る担当の5のとおりに出してから確かめる。CI は Pull Request の実行（master と合わせた版。作る担当の5と
    同じく `--event pull_request` で引く）が通っていることを見る。落ちていれば満たしていないとして 4 のとおり落ちたテストを書いて
    閉じる（落ちたのが作業ブランチの変更か master との意味の競合かは見分けない。作る担当はどちらも master を取り込んでから直す）。`lost_constraints.py` も自分で回し、
