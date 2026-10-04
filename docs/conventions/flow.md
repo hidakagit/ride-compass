@@ -640,4 +640,6 @@ dependencies」）。前提が開いている未着手は、見回りが飛ば�
 `CLOUDFLARE_ACCOUNT_ID` を使う）。公開の直後に、`tools/flow-gate/bin/refresh.js` が開いた issue を全部、今の規則が書くはずの姿
 （担当者・本文の先頭のボタン）へ揃える（ゲートは出来事が届いた issue しか書き直さないため。揃っていれば何も書かない）。
 手で公開するときは `tools/flow-gate` で同じコマンドを打ち、続けて `refresh.js` を流す（`--dry-run` で揃える件数を先に見られる）。秘密の値の名前は `tools/flow-gate/wrangler.toml` の先頭にある。
-テストは `node --test tools/flow-gate/test/*.test.js`（CI の `flow-gate` も同じ）。
+テストは `node --test tools/flow-gate/test/*.test.js`。構文と import の解決（無いファイル・無い名前）は、`tools/flow-gate` で
+`npm ci` のあと `npm run lint` が動かさずに見る（ESLint と eslint-plugin-import の `errors` の組。`tools/flow-gate/eslint.config.js`）。
+テストは道具（`bin/`）を起動しないので、道具の静的な誤りは lint だけが落とす。CI の `flow-gate` も同じ2つを流す。
