@@ -40,6 +40,9 @@ class JmaTileSpec:
     min_zoom: int = 4
     #: ベクタタイル（.pbf）の中のレイヤー名。ラスタの要素はNone。
     vector_layer: str | None = None
+    #: 降水の段の色（`domain/weather_display.py: JMA_PRECIPITATION_TILE_COLORS`）で塗った画像で、中継がアプリの降水の段の
+    #: 色へ塗り替えて配る（`infrastructure/jma_tile_recolor.py`）。
+    precipitation_colors: bool = False
 
 
 def effective_max_zoom(spec: JmaTileSpec) -> int:
@@ -77,6 +80,9 @@ class JmaElement:
             raise ValueError("タイルで配る要素に配信の遅れを宣言するなら、プリウォームの読み方にも同じずらしが要る")
 
 
+#: 降水ナウキャストと降水短時間予報のタイルの仕様（同じズームで、同じ降水の段の色で塗る）。
+_PRECIPITATION_TILE = JmaTileSpec("even", 10, precipitation_colors=True)
+
 # 出典は各要素を表示する公式ページが読み込む設定ファイル（系統・時刻一覧のファイル・ズーム）:
 #   キキクル4種 … `bosai/risk/table/risk.properties__<hash>.xml`
 #   降水/雷/竜巻/線状降水帯の雨域 … `bosai/nowc/table/nowc.properties__<hash>.xml`
@@ -94,8 +100,8 @@ JMA_ELEMENTS: dict[str, JmaElement] = {
     # 同じ11として扱う——z10に実データがありz11・z12が空という実測とも一致する。
     "flood": JmaElement("risk", ("targetTimes.json",), "latest", JmaTileSpec("even", 11, vector_layer="flood")),
     # 降水ナウキャスト（60分先まで）と降水短時間予報（その先15時間先まで）。
-    "hrpns": JmaElement("nowc", ("targetTimes_N1.json", "targetTimes_N2.json"), "nowcast", JmaTileSpec("even", 10)),
-    "rasrf": JmaElement("rasrf", ("targetTimes.json",), "latestFullRun", JmaTileSpec("even", 10)),
+    "hrpns": JmaElement("nowc", ("targetTimes_N1.json", "targetTimes_N2.json"), "nowcast", _PRECIPITATION_TILE),
+    "rasrf": JmaElement("rasrf", ("targetTimes.json",), "latestFullRun", _PRECIPITATION_TILE),
     # 雷・竜巻ナウキャストはmaxNativeZoomが9で、他のJMAタイルより1段粗い。
     "thns": JmaElement("nowc", ("targetTimes_N3.json",), "nowcast", JmaTileSpec("even", 9)),
     "trns": JmaElement("nowc", ("targetTimes_N3.json",), "nowcast", JmaTileSpec("even", 9)),

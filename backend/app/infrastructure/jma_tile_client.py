@@ -10,6 +10,7 @@ from app.config import settings
 from app.domain.jma_tile_specs import JmaFrame, TargetTimesRow, is_final_absence
 from app.infrastructure import jma_tile_redis_cache
 from app.infrastructure.debug_log import log_external_call, mark_failed
+from app.infrastructure.jma_tile_recolor import recolored
 from app.infrastructure.jma_tile_redis_cache import EmptyTile
 
 # JMA bosai のタイル/時刻一覧API（降水ナウキャスト・キキクル等）を透過的にプロキシする。
@@ -135,7 +136,7 @@ class JmaTileClient:
                 fields["result"] = "ok"
                 fields["status"] = response.status_code
                 content_type = response.headers.get("content-type", "application/octet-stream")
-                content = response.content
+                content = recolored(path, response.content)
                 result = (content, content_type)
                 if is_target_times:
                     target_times_cache[path] = result

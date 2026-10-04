@@ -120,7 +120,9 @@ scene/applyMapScene.ts  … 前回の宣言との差だけを地図へ当てる
 PRECIPITATION_COLOR_STOPS`）の色の段は**帯の下限＋色**で、地図はこの配列をそのまま
 `step`式へ組み立てて塗る（`features/map/scene/groups/weather.ts`）。凡例
 （`WIND_SPEED_LEGEND_LEVELS`・`PRECIPITATION_INTENSITY_LEVELS`）も同じ配列から帯の範囲を
-書き出すため、地図に出る色と凡例の行は1対1で対応する。
+書き出すため、地図に出る色と凡例の行は1対1で対応する。降水の時系列のうち気象庁のタイルで描く段
+（降水ナウキャスト・降水短時間予報）は、backendの中継が同じ段の色へ塗り替えて配る
+（[気象・動的レイヤー](../backend/weather-dynamic-layers.md)「降水のタイルの塗り替え」）ので、凡例の行と一致する。
 
 **連続補間（`interpolate`）で塗ってはいけない。** 凡例が並べられるのは帯ごとの色見本1つ
 だけで、それは帯の端の色でしかない。帯の中ほどの値はどの見本とも違う色になり、「この色は

@@ -51,7 +51,6 @@ NOT_DEPLOYED = (
     "backend/scripts/export_openapi.py",
     "backend/app/domain/map_display.py",
     "backend/app/domain/display_palette.py",
-    "backend/app/domain/weather_display.py",
     "backend/app/domain/warning_display.py",
 )
 
