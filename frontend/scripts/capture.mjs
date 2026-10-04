@@ -35,12 +35,16 @@ function fail(message) {
   process.exit(1);
 }
 
+/**
+ * Windows の npm は .cmd で、.cmd はシェル越しでしか起こせない。シェル越しの引数は引用されず、空白を含むパス（例: process.execPath）は
+ * 切れるので、絶対パスで渡す実行ファイルはシェルを通さない。
+ */
 function run(command, args, { cwd = frontendRoot, env = {} } = {}) {
   const result = spawnSync(command, args, {
     cwd,
     stdio: "inherit",
     env: { ...process.env, ...env },
-    shell: process.platform === "win32",
+    shell: process.platform === "win32" && !path.isAbsolute(command),
   });
   return result.status ?? 1;
 }
