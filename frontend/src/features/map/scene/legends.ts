@@ -4,7 +4,6 @@
  * `NO_DATA_LEGEND_BAND`から引く——凡例が別に色を持つと、地図とチップの色が静かに食い違う。
  * 評価軸の凡例はここではなく`features/map/view/lens.ts`が、地図の線と同じ段の関数から作る。
  */
-import type { DisasterSourceKey } from "@/features/map/layers/dynamicWeather";
 import type { LegendEntry } from "@/lib/mapDisplay/legendFilter";
 import { NO_DATA_LEGEND_BAND } from "@/lib/mapDisplay/mapColorLegend";
 
@@ -29,7 +28,8 @@ type SceneLegendAxis = {
 /** 分類に当てはまらない値の道。値はあるので実線で出す。タグの不在も確定した値として載る属性（トンネル等）では、
  * それが「該当しない」ことそのものなので呼び方を変える。 */
 function otherEntry(hasMissing: boolean): LegendEntry {
-  return { key: ROAD_OTHER_KEY, label: hasMissing ? "その他" : "該当なし", color: palette.semantic.no_data };
+  const row = hasMissing ? mapDisplay.legendSharedRows.other : mapDisplay.legendSharedRows.notApplicable;
+  return { key: ROAD_OTHER_KEY, ...row, color: palette.semantic.no_data };
 }
 
 export function roadLegendAxes(): readonly SceneLegendAxis[] {
@@ -42,6 +42,7 @@ export function roadLegendAxes(): readonly SceneLegendAxis[] {
       ...roadTrackAxis(track).categories.map((category) => ({
         key: category.key,
         label: category.label,
+        description: category.description,
         color: category.color,
         line: true as const,
       })),
@@ -53,7 +54,7 @@ export function roadLegendAxes(): readonly SceneLegendAxis[] {
 }
 
 /** 点の凡例。**色見本を出すのは、地図の色式が読む先頭の軸だけ**——2本目以降（重大度）は
- * 地図では大きさだけで表れるので、見本も色を持たない灰で、地図と同じ大きさにする。 */
+ * 地図では大きさだけで表れるので、見本も色を持たない灰で、地図と同じ大きさにする。絵記号で描く行は見本も絵記号にする。 */
 function pointAxisLegend(layer: (typeof POINT_LAYERS)[number], axis: PointAxis, index: number): SceneLegendAxis {
   return {
     layerId: layer.attr_id,
@@ -61,10 +62,17 @@ function pointAxisLegend(layer: (typeof POINT_LAYERS)[number], axis: PointAxis, 
     label: axis.label,
     entries: axis.categories.map((category) =>
       index === 0 && "color" in category
-        ? { key: category.key, label: category.label, color: category.color }
+        ? {
+            key: category.key,
+            label: category.label,
+            description: category.description,
+            color: category.color,
+            ...("glyph" in category ? { glyph: category.glyph } : {}),
+          }
         : {
             key: category.key,
             label: category.label,
+            description: category.description,
             color: palette.semantic.legend_size_only,
             diameterPx: 2 * pointCategoryRadiusPx(layer, axis, category),
           },
@@ -78,33 +86,50 @@ export function pointLegendAxes(): readonly SceneLegendAxis[] {
   );
 }
 
-const DISASTER_LAYER_ID = "disaster";
+const DISASTER_LAYER_ID = "disaster" as const;
 
-/** 災害の要素ごとの色見本。地図がその要素を塗る段のうち、注意を促す段の色（平常時の色を
- * 見本にすると、どの要素も同じに見える）。鍵は源泉が配る災害のソースで、要素が増えれば
- * 型検査が落ちる。 */
-const DISASTER_SOURCE_SWATCH: Record<DisasterSourceKey, string> = {
-  heavyRain: weatherScales.risk_levels[2].color,
-  landslide: weatherScales.risk_levels[2].color,
-  inundation: weatherScales.risk_levels[2].color,
-  flood: weatherScales.risk_levels[2].color,
-  thunder: weatherScales.thunder_activity[1].color,
-  tornado: weatherScales.tornado_potential[0].color,
+/** 段の並びから鍵で1段の色を引く。位置で引くと、源泉が段を足した・並べ替えたときに別の段を指す。 */
+function levelColor(levels: readonly { key: string; color: string }[], key: string): string {
+  const level = levels.find((candidate) => candidate.key === key);
+  if (!level) throw new Error(`気象の段に鍵が無い: ${key}`);
+  return level.color;
+}
+
+type DisasterElement = Extract<(typeof mapDisplay.weatherElements)[number], { group: typeof DISASTER_LAYER_ID }>;
+
+/** 段で塗る災害の要素の色見本にする段。注意を促す段の色（平常時の色を見本にすると、どの要素も同じに見える）。 */
+const SWATCH_LEVEL_KEY: Record<NonNullable<DisasterElement["levelScale"]>, string> = {
+  risk_levels: "level2",
+  thunder_activity: "level2",
+  tornado_potential: "potential1",
+};
+
+/** 段で塗らない災害の要素の色見本。鍵は源泉が段を宣言していないソースで、要素が増えれば型検査が落ちる。 */
+const UNSCALED_SOURCE_SWATCH: Record<Extract<DisasterElement, { levelScale: null }>["source"], string> = {
   liden: palette.semantic.lightning,
 };
+
+function disasterSwatch(element: DisasterElement): string {
+  return element.levelScale === null
+    ? UNSCALED_SOURCE_SWATCH[element.source]
+    : levelColor(weatherScales[element.levelScale], SWATCH_LEVEL_KEY[element.levelScale]);
+}
 
 /** 災害チップの要素ごとの表示切替。隠した要素は取りに行かない（地図の絞り込みではなく取得を止める）。
  * 行の並びと名前は源泉の要素の宣言のまま。 */
 export function disasterSourceLegendAxis(): SceneLegendAxis {
-  const sources = mapDisplay.weatherElements.filter((element) => element.group === DISASTER_LAYER_ID);
+  const sources = mapDisplay.weatherElements.filter(
+    (element): element is DisasterElement => element.group === DISASTER_LAYER_ID,
+  );
   return {
     layerId: DISASTER_LAYER_ID,
     axisId: DISASTER_LAYER_ID,
     label: "表示する情報",
-    entries: [...new Map(sources.map((element) => [element.source, element.label]))].map(([source, label]) => ({
+    entries: [...new Map(sources.map((element) => [element.source, element]))].map(([source, element]) => ({
       key: source,
-      label,
-      color: DISASTER_SOURCE_SWATCH[source as DisasterSourceKey],
+      label: element.label,
+      description: element.description ?? undefined,
+      color: disasterSwatch(element),
     })),
   };
 }

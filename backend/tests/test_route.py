@@ -1,38 +1,37 @@
-"""`domain/route.py`——区間を約500m単位のビンへ畳む集約と、候補全体への集約関数。
+"""`domain/route.py`——区間（交差点の間）を`SEGMENT_BIN_DISTANCE_KM`ごとのビンへ束ねる`aggregate_segments_into_bins`と、
+区間の値を候補全体へ畳む`merge_*`。
+
+入口は`aggregate_segments_into_bins`・`merge_axis_difficulties`・`merge_axis_contributions`・`merge_axis_raw_values`・
+`merge_material_values`・`merge_material_category_shares`。応答の型（`RouteCandidate`等）の検証はPydanticが持つ。
 
 ここで見ないもの:
-- 区間から候補単位へ集約する配線（どのフィールドをどの関数で作るか） → `test_route_generator.py`
-- 距離加重平均そのもの（欠損の除外・再正規化の計算） → `domain/difficulty.py`のテスト
-- モデルのフィールド制約（緯度経度の範囲・未知フィールドの拒否） → 型が保証する
-
-区間の長さはビンの幅の宣言（`SEGMENT_BIN_DISTANCE_KM`）に対する割合で組み立てる。
+- 区間の値をコスト配列から読んで区間を組み立てること → `test_road_graph_engine.py`
+- 候補全体へ畳んだ値を候補へ載せること → `test_route_generator.py`
 """
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from app.domain import route
-from app.domain.route import SEGMENT_BIN_DISTANCE_KM as WIDTH
 from app.domain.route import RouteSegmentDetail
 
-
-def _segment(distance_km: float, difficulty: float | None = None, **fields) -> RouteSegmentDetail:
-    return RouteSegmentDetail(
-        start_latitude=0.0,
-        start_longitude=0.0,
-        end_latitude=0.0,
-        end_longitude=0.0,
-        cumulative_distance_km=0.0,
-        distance_km=distance_km,
-        difficulty=difficulty,
-        **fields,
-    )
+WIDTH = route.SEGMENT_BIN_DISTANCE_KM
 
 
-def _line(*points: tuple[float, float]) -> dict:
-    return {"type": "LineString", "coordinates": [list(p) for p in points]}
-
-
-# ---- ビンの切り方 ----
+def _segments(distances: list[float], **fields_per_segment) -> list[RouteSegmentDetail]:
+    """東へ一直線に連なる区間。`fields_per_segment`は名前 → 区間ごとの値の並び。"""
+    segments = []
+    cumulative = 0.0
+    for i, distance in enumerate(distances):
+        segments.append(RouteSegmentDetail(
+            start_latitude=35.0, start_longitude=139.0 + i * 0.01,
+            end_latitude=35.0, end_longitude=139.0 + (i + 1) * 0.01,
+            cumulative_distance_km=cumulative, distance_km=distance,
+            **{name: values[i] for name, values in fields_per_segment.items()},
+        ))
+        cumulative += distance
+    return segments
 
 
 def test_no_segments_make_no_bins():
@@ -40,210 +39,161 @@ def test_no_segments_make_no_bins():
 
 
 @pytest.mark.parametrize(
-    ("distances", "expected_bin_distances"),
+    ("distances", "bin_distances"),
     [
-        # 累積がちょうど幅に届いた時点で閉じ、残りは幅に満たなくても最後のビンとして残す
-        ([0.4, 0.6, 0.4], [1.0, 0.4]),
-        # 最後の区間でちょうど閉じたときは、空のビンを足さない
-        ([1.0, 1.0], [1.0, 1.0]),
-        # 幅に届かないまま終わった区間も1つのビンになる（経路全体の距離が合うため）
-        ([0.2, 0.2], [0.4]),
+        # ちょうど幅に届いたところでビンを閉じる。
+        ([WIDTH / 2, WIDTH / 2, 0.1], [WIDTH, 0.1]),
+        ([0.3, 0.3, 0.3], [0.6, 0.3]),
+        # 幅より長い区間は割らない。
+        ([2.0, 0.1], [2.0, 0.1]),
     ],
 )
-def test_bins_close_when_accumulated_distance_reaches_bin_width(distances, expected_bin_distances):
-    # 距離はビンの幅に対する割合
-    bins = route.aggregate_segments_into_bins([_segment(d * WIDTH) for d in distances])
+def test_a_bin_closes_as_soon_as_it_reaches_the_width_and_the_rest_stays(distances, bin_distances):
+    bins = route.aggregate_segments_into_bins(_segments(distances))
 
-    assert [b.distance_km for b in bins] == pytest.approx([d * WIDTH for d in expected_bin_distances])
-
-
-def test_bin_takes_its_start_from_first_segment_and_end_from_last():
-    first = _segment(0.246 * WIDTH).model_copy(
-        update={
-            "start_latitude": 35.1,
-            "start_longitude": 139.1,
-            "cumulative_distance_km": 4.0,
-            "estimated_arrival_time": "09:00",
-            "end_latitude": 35.2,
-            "end_longitude": 139.2,
-        }
-    )
-    last = _segment(0.912 * WIDTH).model_copy(
-        update={
-            "start_latitude": 35.2,
-            "start_longitude": 139.2,
-            "cumulative_distance_km": 4.123,
-            "estimated_arrival_time": "09:01",
-            "end_latitude": 35.3,
-            "end_longitude": 139.3,
-        }
-    )
-
-    (merged,) = route.aggregate_segments_into_bins([first, last])
-
-    assert (merged.start_latitude, merged.start_longitude) == (35.1, 139.1)
-    assert (merged.end_latitude, merged.end_longitude) == (35.3, 139.3)
-    assert merged.cumulative_distance_km == 4.0
-    assert merged.estimated_arrival_time == "09:00"
-    assert merged.distance_km == round(first.distance_km + last.distance_km, 2)  # 小数2桁へ
+    assert [b.distance_km for b in bins] == bin_distances
 
 
-# ---- ビンの値 ----
+@given(distances=st.lists(st.floats(min_value=0.001, max_value=1.5), min_size=1, max_size=40))
+def test_bins_cover_the_route_without_gaps_or_overlaps(distances):
+    segments = _segments(distances)
+
+    bins = route.aggregate_segments_into_bins(segments)
+
+    # 経路全体の距離が合う（ビンの距離は小数2桁へ丸める）。
+    assert sum(b.distance_km for b in bins) == pytest.approx(sum(distances), abs=0.005 * len(bins))
+    # 最後のビンのほかは幅に届いている。
+    assert all(b.distance_km >= WIDTH for b in bins[:-1])
+    # ビンは途切れずに連なり、最初と最後は経路の両端。
+    assert (bins[0].start_longitude, bins[-1].end_longitude) == (segments[0].start_longitude, segments[-1].end_longitude)
+    for before, after in zip(bins, bins[1:]):
+        assert (before.end_latitude, before.end_longitude) == (after.start_latitude, after.start_longitude)
+        assert after.cumulative_distance_km == pytest.approx(
+            before.cumulative_distance_km + before.distance_km, abs=0.006)
 
 
-def test_bin_difficulty_is_distance_weighted_over_segments_with_a_value():
-    segments = [_segment(WIDTH / 4, 10.0), _segment(WIDTH / 4, None), _segment(WIDTH / 2, 40.0)]
+def test_the_difficulty_of_a_bin_is_the_distance_weighted_mean_of_the_segments_with_one():
+    bins = route.aggregate_segments_into_bins(_segments([0.1, 0.3, 0.2], difficulty=[10.0, 30.0, None]))
 
-    (merged,) = route.aggregate_segments_into_bins(segments)
-
-    assert merged.difficulty == 30.0  # (10×1 + 40×2) / 3。値の無い区間は分母にも入れない
+    assert bins[0].difficulty == pytest.approx((10.0 * 0.1 + 30.0 * 0.3) / 0.4)
 
 
-def test_bin_difficulty_is_missing_when_no_segment_has_one():
-    (merged,) = route.aggregate_segments_into_bins([_segment(WIDTH / 4, None), _segment(WIDTH / 4, None)])
+def test_a_bin_whose_segments_have_no_difficulty_has_none():
+    bins = route.aggregate_segments_into_bins(_segments([0.6], difficulty=[None]))
 
-    assert merged.difficulty is None
-
-
-@pytest.mark.parametrize("field", sorted(route.BIN_DICT_FIELD_MERGERS))
-def test_every_declared_dict_field_is_carried_into_bins_per_key(field):
-    # 母集団は宣言から取る: ビンへ引き継ぐと宣言したフィールドはすべて、キーごとの距離加重平均で残る
-    segments = [
-        _segment(WIDTH / 4, **{field: {"a": 10.0}}),
-        _segment(WIDTH / 2, **{field: {"a": 40.0, "b": 7.0}}),
-    ]
-
-    (merged,) = route.aggregate_segments_into_bins(segments)
-
-    # "b"は2つ目の区間にしか無い——キーを持たない区間は、そのキーの分母に入れない
-    assert getattr(merged, field) == {"a": 30.0, "b": 7.0}
+    assert bins[0].difficulty is None
 
 
-def test_bin_geometry_joins_segments_without_repeating_the_shared_point():
-    segments = [
-        _segment(WIDTH / 5, geometry=_line((0, 0), (1, 1))),
-        _segment(WIDTH / 5, geometry=_line((1, 1), (2, 2))),
-    ]
+def test_each_value_of_a_bin_is_averaged_over_the_segments_that_have_it():
+    """「データ無しはキーを持たない」を引き継ぐ。値を持たない区間は分母にも入れない。"""
+    bins = route.aggregate_segments_into_bins(_segments(
+        [0.1, 0.3, 0.2],
+        axis_difficulties=[{"axis_a": 10.0}, {"axis_a": 30.0, "axis_b": 50.0}, {}],
+        axis_contributions=[{"axis_a": 4.0}, {"axis_a": 8.0}, {}],
+        axis_raw_values=[{"axis_a": 1.0}, {}, {"axis_a": 2.0}],
+        material_values=[{}, {}, {"material_a": 7.0}],
+    ))
 
-    (merged,) = route.aggregate_segments_into_bins(segments)
-
-    assert merged.geometry == _line((0, 0), (1, 1), (2, 2))
-
-
-def test_bin_geometry_keeps_both_points_where_segments_do_not_touch():
-    segments = [
-        _segment(WIDTH / 5, geometry=_line((0, 0), (1, 1))),
-        _segment(WIDTH / 5, geometry=_line((5, 5), (6, 6))),
-    ]
-
-    (merged,) = route.aggregate_segments_into_bins(segments)
-
-    assert merged.geometry == _line((0, 0), (1, 1), (5, 5), (6, 6))
+    merged = bins[0]
+    assert merged.axis_difficulties == {"axis_a": 25.0, "axis_b": 50.0}
+    assert merged.axis_contributions == {"axis_a": 7.0}
+    assert merged.axis_raw_values == {"axis_a": pytest.approx(1.667, abs=1e-3)}
+    assert merged.material_values == {"material_a": 7.0}
 
 
-def test_bin_geometry_skips_segments_without_a_shape():
-    segments = [_segment(WIDTH / 5), _segment(WIDTH / 5, geometry=_line((1, 1), (2, 2)))]
+def test_segments_rounded_to_zero_length_do_not_weigh_in_the_mean():
+    """区間の距離は小数2桁へ丸めるので、5mに満たない区間は長さ0で来る。長さ0の区間しか持たない値は平均できない。"""
+    bins = route.aggregate_segments_into_bins(_segments(
+        [0.0, 0.6],
+        difficulty=[90.0, None],
+        axis_difficulties=[{"axis_a": 90.0, "axis_z": 10.0}, {"axis_a": 30.0}],
+    ))
 
-    (merged,) = route.aggregate_segments_into_bins(segments)
-
-    assert merged.geometry == _line((1, 1), (2, 2))
-
-
-@pytest.mark.parametrize(
-    "geometries",
-    [
-        [None, None],
-        # 形を持つ区間が1点しか無ければ線にならない
-        [None, _line((1, 1))],
-    ],
-)
-def test_bin_has_no_geometry_when_fewer_than_two_points_remain(geometries):
-    segments = [_segment(WIDTH / 5, geometry=g) for g in geometries]
-
-    (merged,) = route.aggregate_segments_into_bins(segments)
-
-    assert merged.geometry is None
+    assert bins[0].difficulty is None
+    assert bins[0].axis_difficulties == {"axis_a": 30.0}
 
 
-# ---- 候補全体への集約関数（丸め方） ----
-
-
-@pytest.mark.parametrize(
-    ("merge", "field", "expected"),
-    [
-        # 0〜100の得点は小数1桁
-        (route.merge_axis_difficulties, "axis_difficulties", 0.0),
-        (route.merge_axis_contributions, "axis_contributions", 0.0),
-        # 単位が軸ごとに違う物理量は、桁の小さい軸で値が潰れないよう有効数字4桁
-        (route.merge_axis_raw_values, "axis_raw_values", 0.001235),
-        (route.merge_material_values, "material_values", 0.001235),
-    ],
-)
-def test_merge_rounds_scores_to_one_decimal_and_physical_values_to_significant_digits(merge, field, expected):
-    assert merge([_segment(1.0, **{field: {"a": 0.00123456}})]) == {"a": expected}
-
-
-@pytest.mark.parametrize(
-    ("value", "expected"),
-    [
-        (12345.6, 12350.0),
-        (-0.00123456, -0.001235),  # 符号付きの材料（下りの勾配等）も同じ桁で残る
-        (0.0, 0.0),
-    ],
-)
-def test_significant_digit_rounding_does_not_depend_on_scale(value, expected):
-    assert route.merge_material_values([_segment(1.0, material_values={"m": value})]) == {"m": expected}
-
-
-def test_key_seen_only_on_zero_length_segments_is_left_out():
-    assert route.merge_material_values([_segment(0.0, material_values={"m": 5.0})]) == {}
-
-
-# ---- categorical材料の延長割合 ----
-
-
-def test_category_shares_are_fractions_of_distance_largest_first():
-    shares = route.merge_material_category_shares([(1.0, {"surface": "asphalt"}), (3.0, {"surface": "gravel"})])
-
-    assert shares == {"surface": {"gravel": 0.75, "asphalt": 0.25}}
-    assert list(shares["surface"]) == ["gravel", "asphalt"]
-
-
-def test_category_shares_with_equal_distance_are_ordered_by_value_name():
-    shares = route.merge_material_category_shares([(1.0, {"surface": "b"}), (1.0, {"surface": "a"})])
-
-    assert list(shares["surface"]) == ["a", "b"]
-
-
-def test_category_share_denominator_is_only_the_distance_where_that_material_has_a_value():
-    shares = route.merge_material_category_shares(
-        [(1.0, {"surface": "asphalt", "smoothness": "good"}), (3.0, {"surface": "gravel"})]
+def test_difficulties_keep_one_decimal_and_physical_values_keep_four_significant_digits():
+    """物理量はスケールが軸ごとに違う。小数の桁で丸めると、桁の小さい値がまるごと潰れる。"""
+    segments = _segments(
+        [0.1, 0.2],
+        axis_difficulties=[{"axis_a": 10.0}, {"axis_a": 20.0}],
+        axis_contributions=[{"axis_a": 10.0}, {"axis_a": 20.0}],
+        axis_raw_values=[{"axis_a": 0.000123}, {"axis_a": 0.000456}],
+        material_values=[{"material_a": 1000.0}, {"material_a": 2000.0}],
     )
 
-    assert shares["smoothness"] == {"good": 1.0}
+    assert route.merge_axis_difficulties(segments) == {"axis_a": 16.7}
+    assert route.merge_axis_contributions(segments) == {"axis_a": 16.7}
+    assert route.merge_axis_raw_values(segments) == {"axis_a": 0.0003450}
+    assert route.merge_material_values(segments) == {"material_a": 1667.0}
 
 
-def test_category_shares_are_rounded_to_four_decimals():
-    shares = route.merge_material_category_shares([(1.0, {"surface": "a"}), (2.0, {"surface": "b"})])
+def test_a_value_of_zero_stays_zero():
+    """有効数字で丸めるのに桁を対数で求めるので、0は別に扱う（停止の密度0の道はふつうにある）。"""
+    segments = _segments([0.1, 0.2], material_values=[{"material_a": 0.0}, {"material_a": 0.0}])
 
-    assert shares == {"surface": {"b": 0.6667, "a": 0.3333}}
-
-
-def test_zero_length_segments_do_not_count_toward_category_shares():
-    shares = route.merge_material_category_shares(
-        [(0.0, {"surface": "gravel", "tracktype": "grade1"}), (2.0, {"surface": "asphalt"})]
-    )
-
-    # 距離0の区間にしか無い材料は、結果に現れない
-    assert shares == {"surface": {"asphalt": 1.0}}
+    assert route.merge_material_values(segments) == {"material_a": 0.0}
 
 
-# ---- 畳み方の宣言漏れの検出 ----
+def test_the_shape_of_a_bin_joins_the_segment_shapes_without_repeating_shared_points():
+    bins = route.aggregate_segments_into_bins(_segments(
+        [0.1, 0.1, 0.1, 0.3],
+        geometry=[
+            {"type": "LineString", "coordinates": [[0.0, 0.0], [1.0, 0.0]]},
+            None,  # 形の無い区間は飛ばす
+            {"type": "LineString", "coordinates": [[1.0, 0.0], [2.0, 0.0]]},
+            {"type": "LineString", "coordinates": [[3.0, 0.0], [4.0, 0.0]]},  # 前と離れた区間はそのまま続ける
+        ],
+    ))
+
+    assert bins[0].geometry == {"type": "LineString", "coordinates": [[0.0, 0.0], [1.0, 0.0], [2.0, 0.0], [3.0, 0.0], [4.0, 0.0]]}
 
 
-@pytest.mark.parametrize("field", sorted(RouteSegmentDetail.model_fields))
-def test_a_field_without_a_declared_merger_is_reported_whatever_its_type(monkeypatch, field):
-    """畳み方の無いフィールドは、ビンで既定値に化ける（値が無いこともある辞書・既定値つきの数値や文字も）。"""
-    monkeypatch.delitem(route.BIN_FIELD_MERGERS, field)
+def test_a_bin_with_fewer_than_two_points_has_no_shape():
+    """形が無ければ画面は始点と終点を直線で結ぶ。"""
+    bins = route.aggregate_segments_into_bins(_segments(
+        [0.6], geometry=[{"type": "LineString", "coordinates": [[0.0, 0.0]]}],
+    ))
 
-    assert route._undeclared_fields() == [field]
+    assert bins[0].geometry is None
+
+
+def test_a_bin_shows_the_arrival_and_the_wind_of_its_first_segment():
+    """ビンの中で予報の時刻が変わっても、ビンへ入るときの値を出す。"""
+    winds = [route.SegmentWind(speed_ms=float(i), direction_deg=0.0) for i in range(2)]
+
+    bins = route.aggregate_segments_into_bins(_segments(
+        [0.3, 0.3], estimated_arrival_time=["09:00", "09:01"], wind=winds,
+    ))
+
+    assert (bins[0].estimated_arrival_time, bins[0].wind) == ("09:00", winds[0])
+
+
+def test_category_shares_are_the_share_of_distance_among_segments_that_have_the_material():
+    shares = route.merge_material_category_shares([
+        (0.2, {"surface": "gravel"}),
+        (0.6, {"surface": "paved", "lit": "yes"}),
+        (0.2, {"surface": "gravel"}),
+        (0.5, {}),
+        (0.0, {"surface": "soil"}),  # 長さの無い区間は数えない
+    ])
+
+    assert shares == {"surface": {"paved": 0.6, "gravel": 0.4}, "lit": {"yes": 1.0}}
+
+
+def test_category_shares_are_listed_from_the_largest_and_ties_by_name():
+    shares = route.merge_material_category_shares([
+        (0.1, {"surface": "soil"}), (0.3, {"surface": "gravel"}), (0.3, {"surface": "compacted"}),
+    ])
+
+    assert list(shares["surface"]) == ["compacted", "gravel", "soil"]
+
+
+@given(st.lists(
+    st.tuples(st.floats(min_value=0.001, max_value=5.0), st.sampled_from(["v1", "v2", "v3"])), min_size=1, max_size=30,
+))
+def test_the_shares_of_a_material_add_up_to_one(rows):
+    shares = route.merge_material_category_shares([(distance, {"m": value}) for distance, value in rows])
+
+    assert sum(shares["m"].values()) == pytest.approx(1.0, abs=5e-4)

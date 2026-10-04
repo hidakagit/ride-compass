@@ -1,246 +1,332 @@
 /**
- * 生成の条件（`useGenerationConditions`）——「ルート設定」の入力を持ち、保存する値を読むときに今の範囲・今の項目へ揃える。
+ * 生成の条件（`useGenerationConditions.ts`）——周回か目的地か・距離・候補数・地点（出発地以外）・重み・除外と、地図の
+ * タップで置ける地点の役割を返す。保存する値（地点以外）は開き直しても残り、読むときに今の画面が受け付ける範囲・
+ * 今の項目へ揃える。重みは軸カタログの公開軸へ揃えた値を返し、送るのは上書きを有効にしてカタログが届いた後だけ。
  *
  * ここで見ないもの:
- * - 重み・除外を揃える規則そのもの → `routePreferenceSync.ts`・`hardFilterSync.ts`
- * - 入力から生成リクエストを組み立てること → `useRouteGeneration.ts`
+ * - 重み・除外の揃え方の細部（増えた軸を既定の重みで補う・消えた軸を外す・取得が決まるまで揃えない） →
+ *   `routePreferenceSync.test.ts`・`hardFilterSync.test.ts`。ここでは揃えた値を返すことを1件ずつ見る
+ * - 保存の読み書きそのもの（読めない・書けない端末で既定値になる） → `hooks/useStoredState.test.ts`
+ * - 地図で置いた出発地を位置の持ち主が受け取ったあと → `hooks/useLocation.test.ts`
+ * - 置ける役割が効く場所（「条件」タブを開いている間だけ・周回の間は出発地だけ） → `app/page.test.tsx`
+ * - 条件を生成へ送る形 → `useRouteGeneration.test.ts`
  *
- * 差し替えた部品: 軸カタログ（`useAxisCatalog`）は返す値をテストが決める（取得の通信は`useAxisCatalog`の持ち物）。
+ * 差し替えたもの: backendを呼ぶ口（`services/axisCatalogApi.ts: getAxisCatalog`）。保存はテスト環境の`localStorage`を
+ * 本物のまま使い、開き直しは同じ保存の上でフックを描き直して作る。
+ *
+ * 経由地の上限を超えて置かせない分岐（`placePin`の`prev.length >= max_waypoints`）は通さない: 上限に達すると置ける
+ * 役割を解き、経由地の行も押せなくなる（`RouteForm/RouteForm.test.tsx`）ので、上限のあとに経由地を置く操作は作れない。
  */
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { axisCatalogFromResponse, EMPTY_CATALOG, type AxisCatalog } from "@/lib/axisCatalog";
-import { catalogEntry } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
 import { DEFAULT_HARD_FILTERS } from "@/features/route/RouteSettingsPanel/HardFilterPanel";
+import { getAxisCatalog } from "@/services/axisCatalogApi";
+import { catalogEntry, catalogResponse } from "@/testing/catalogAxes";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import type { Coordinates } from "@/types/route";
 
-const catalog = vi.hoisted(() => ({ current: undefined as unknown }));
-vi.mock("@/hooks/useAxisCatalog", () => ({ useAxisCatalog: () => catalog.current }));
-
 import { useGenerationConditions } from "./useGenerationConditions";
 
-const A: Coordinates = { latitude: 35, longitude: 139 };
-const B: Coordinates = { latitude: 35.1, longitude: 139.1 };
-const C: Coordinates = { latitude: 35.2, longitude: 139.2 };
+vi.mock("@/services/axisCatalogApi", () => ({ getAxisCatalog: vi.fn() }));
 
-const CATALOG: AxisCatalog = axisCatalogFromResponse(
-  [catalogEntry({ axis_id: "axis_a", default_weight: 0.3 }), catalogEntry({ axis_id: "axis_b", default_weight: 0.7 })],
-  {},
-  {},
-  [],
-);
+const fetchCatalog = vi.mocked(getAxisCatalog);
 
-const onOriginPlace = vi.fn<(point: Coordinates) => void>();
-function render() {
-  return renderHook(() => useGenerationConditions({ onOriginPlace }));
+const A: Coordinates = { latitude: 35.1, longitude: 139.1 };
+const B: Coordinates = { latitude: 35.2, longitude: 139.2 };
+const C: Coordinates = { latitude: 35.3, longitude: 139.3 };
+
+const CATALOG = catalogResponse([
+  catalogEntry({ axis_id: "axis_a", default_weight: 0.4 }),
+  catalogEntry({ axis_id: "axis_b", default_weight: 0.6 }),
+]);
+
+function renderConditions() {
+  const onOriginPlace = vi.fn();
+  const rendered = renderHook(() => useGenerationConditions({ onOriginPlace }));
+  return { ...rendered, onOriginPlace };
+}
+
+/** 同じ保存の上で開き直す。 */
+function reopen(rendered: { unmount: () => void }) {
+  rendered.unmount();
+  return renderConditions();
+}
+
+function point(index: number): Coordinates {
+  return { latitude: 35 + index / 100, longitude: 139 };
 }
 
 beforeEach(() => {
-  localStorage.clear();
-  catalog.current = CATALOG;
-  onOriginPlace.mockReset();
+  window.localStorage.clear();
+  fetchCatalog.mockReset();
+  // 既定は届かないまま（重みを見るテストだけが届ける）。
+  fetchCatalog.mockReturnValue(new Promise(() => {}));
 });
 
 describe("周回か目的地か", () => {
-  it("既定は周回で、選んだモードは開き直しても残る", () => {
-    const first = render();
+  it("既定は周回で何も置けず、選んだモードは開き直しても残る", () => {
+    const first = renderConditions();
     expect(first.result.current.routeMode).toBe("loop");
+    expect(first.result.current.armedPinRole).toBeNull();
+
     act(() => first.result.current.changeRouteMode("destination"));
-    first.unmount();
-    expect(render().result.current.routeMode).toBe("destination");
+
+    expect(reopen(first).result.current.routeMode).toBe("destination");
   });
 
   it("知らない値の保存値は捨てて周回で始める", () => {
-    localStorage.setItem("ridecompass:route-mode", "round-trip");
-    expect(render().result.current.routeMode).toBe("loop");
+    window.localStorage.setItem("ridecompass:route-mode", "zigzag");
+
+    expect(renderConditions().result.current.routeMode).toBe("loop");
   });
 
-  it("目的地へ切り替えたとき、何も置いていなければ次のタップで目的地を置けるようにし、周回へ戻すとやめる", () => {
-    const { result } = render();
+  it("目的地へ切り替えたとき、何も置いていなければ次のタップで目的地を置け、周回へ戻すとやめる", () => {
+    const { result } = renderConditions();
+
     act(() => result.current.changeRouteMode("destination"));
     expect(result.current.armedPinRole).toBe("destination");
+
     act(() => result.current.changeRouteMode("loop"));
+    expect(result.current.armedPinRole).toBeNull();
+  });
+
+  it("目的地モードで開き直したとき、何も置いていなければ目的地を置け、役割を選び直せばそれに従う", () => {
+    window.localStorage.setItem("ridecompass:route-mode", "destination");
+    const { result } = renderConditions();
+    expect(result.current.armedPinRole).toBe("destination");
+
+    act(() => result.current.armPinRole(null));
     expect(result.current.armedPinRole).toBeNull();
   });
 
   it.each([
-    ["目的地", "destination" as const],
-    ["経由地", "waypoint" as const],
-  ])("%sが既に置いてあれば、目的地へ切り替えても自動では置けるようにしない", (_case, role) => {
-    const { result } = render();
-    act(() => result.current.placePin(role, A));
+    { label: "目的地", place: (r: ReturnType<typeof useGenerationConditions>) => r.setDestination(A) },
+    { label: "経由地", place: (r: ReturnType<typeof useGenerationConditions>) => r.placePin("waypoint", A) },
+  ])("「$label」が既に置いてあれば、目的地へ切り替えても自動では置けるようにしない", ({ place }) => {
+    const { result } = renderConditions();
+    act(() => place(result.current));
     act(() => result.current.armPinRole(null));
+
     act(() => result.current.changeRouteMode("destination"));
+
     expect(result.current.armedPinRole).toBeNull();
   });
 
-  it("周回へ切り替えても置いた地点は消さない", () => {
-    const { result } = render();
+  it("モードを切り替えても置いた地点は消さない", () => {
+    const { result } = renderConditions();
     act(() => result.current.changeRouteMode("destination"));
     act(() => result.current.placePin("destination", A));
+    act(() => result.current.placePin("waypoint", B));
+
     act(() => result.current.changeRouteMode("loop"));
+
     expect(result.current.destination).toEqual(A);
+    expect(result.current.waypoints).toEqual([B]);
   });
 });
 
-describe("地点の指定", () => {
-  it("出発地は位置の持ち主へ渡して置く状態をやめる。目的地は置き換えて置く状態をやめる", () => {
-    const { result } = render();
+describe("地点", () => {
+  it("出発地は位置の持ち主へ渡し、置ける役割を解く。自分では持たない", () => {
+    const { result, onOriginPlace } = renderConditions();
     act(() => result.current.armPinRole("origin"));
+
     act(() => result.current.placePin("origin", A));
+
     expect(onOriginPlace).toHaveBeenCalledWith(A);
     expect(result.current.armedPinRole).toBeNull();
+    expect(result.current.destination).toBeNull();
+    expect(result.current.waypoints).toEqual([]);
+  });
 
+  it("目的地は置いてあっても置き直せば置き換わり、置ける役割を解く", () => {
+    const { result } = renderConditions();
+    act(() => result.current.placePin("destination", A));
     act(() => result.current.armPinRole("destination"));
+    expect(result.current.destination).toEqual(A);
+
     act(() => result.current.placePin("destination", B));
-    act(() => result.current.armPinRole("destination"));
-    act(() => result.current.placePin("destination", C));
-    expect(result.current.destination).toEqual(C);
+
+    expect(result.current.destination).toEqual(B);
     expect(result.current.armedPinRole).toBeNull();
   });
 
   it("経由地は置いた順に足し、置いたあとも続けて置ける", () => {
-    const { result } = render();
+    const { result } = renderConditions();
     act(() => result.current.armPinRole("waypoint"));
+
     act(() => result.current.placePin("waypoint", A));
     act(() => result.current.placePin("waypoint", B));
+
     expect(result.current.waypoints).toEqual([A, B]);
     expect(result.current.armedPinRole).toBe("waypoint");
   });
 
-  it("経由地は位置を指して動かす・消す・まとめて消すことができ、目的地も消せる", () => {
-    const { result } = render();
+  it("経由地は生成が受け付ける数まで置け、達したところで置ける役割を解く", () => {
+    const max = routeGenerateConfig.max_waypoints;
+    const { result } = renderConditions();
+    act(() => result.current.armPinRole("waypoint"));
+
+    for (let i = 0; i < max - 1; i++) act(() => result.current.placePin("waypoint", point(i)));
+    expect(result.current.armedPinRole).toBe("waypoint");
+
+    act(() => result.current.placePin("waypoint", point(max - 1)));
+
+    expect(result.current.waypoints).toHaveLength(max);
+    expect(result.current.armedPinRole).toBeNull();
+  });
+
+  it("経由地は位置を指して動かす・消す・まとめて消せ、目的地も消せる", () => {
+    const { result } = renderConditions();
     act(() => result.current.placePin("waypoint", A));
     act(() => result.current.placePin("waypoint", B));
-    act(() => result.current.moveWaypoint(0, C));
-    expect(result.current.waypoints).toEqual([C, B]);
-    act(() => result.current.removeWaypoint(1));
-    expect(result.current.waypoints).toEqual([C]);
-    act(() => result.current.clearWaypoints());
-    expect(result.current.waypoints).toEqual([]);
+    act(() => result.current.setDestination(A));
 
-    act(() => result.current.placePin("destination", A));
+    act(() => result.current.moveWaypoint(1, C));
+    expect(result.current.waypoints).toEqual([A, C]);
+
+    act(() => result.current.removeWaypoint(0));
+    expect(result.current.waypoints).toEqual([C]);
+
+    act(() => result.current.clearWaypoints());
     act(() => result.current.clearDestination());
+    expect(result.current.waypoints).toEqual([]);
     expect(result.current.destination).toBeNull();
   });
 
-  it("地点は保存しない（開き直すと置いていない状態から始まる）", () => {
-    const first = render();
+  it("地点は保存せず、開き直すと置いていない状態から始まる", () => {
+    const first = renderConditions();
     act(() => first.result.current.placePin("waypoint", A));
-    act(() => first.result.current.placePin("destination", B));
-    first.unmount();
-    const second = render();
-    expect(second.result.current.waypoints).toEqual([]);
-    expect(second.result.current.destination).toBeNull();
+    act(() => first.result.current.setDestination(B));
+
+    const { result } = reopen(first);
+
+    expect(result.current.waypoints).toEqual([]);
+    expect(result.current.destination).toBeNull();
   });
 });
 
 describe("距離と候補数", () => {
-  it("入力した値は文字列のまま持ち、開き直しても残る", () => {
-    const first = render();
-    act(() => first.result.current.setDistanceInput("45"));
-    act(() => first.result.current.setMaxRoutesInput("3"));
-    first.unmount();
-    const second = render();
-    expect(second.result.current.distanceInput).toBe("45");
-    expect(second.result.current.maxRoutesInput).toBe("3");
-  });
-
   it("保存値が無ければ距離30km・候補数は既定の数で始める", () => {
-    const { result } = render();
+    const { result } = renderConditions();
+
     expect(result.current.distanceInput).toBe("30");
     expect(result.current.maxRoutesInput).toBe(String(routeGenerateConfig.default_max_routes));
   });
 
-  it.each([
-    ["1kmより短い", "0.5"],
-    ["上限より長い", String(routeGenerateConfig.max_distance_km + 1)],
-    ["数でない", "far"],
-  ])("距離の保存値が%sなら捨てる", (_case, stored) => {
-    localStorage.setItem("ridecompass:distance-km", stored);
-    expect(render().result.current.distanceInput).toBe("30");
-  });
+  it("入力した値は文字列のまま持ち、開き直しても残る", () => {
+    const first = renderConditions();
+    act(() => first.result.current.setDistanceInput("55"));
+    act(() => first.result.current.setMaxRoutesInput("3"));
 
-  it("距離の保存値は範囲の端ちょうどなら受け入れる", () => {
-    localStorage.setItem("ridecompass:distance-km", String(routeGenerateConfig.max_distance_km));
-    expect(render().result.current.distanceInput).toBe(String(routeGenerateConfig.max_distance_km));
+    const { result } = reopen(first);
+
+    expect(result.current.distanceInput).toBe("55");
+    expect(result.current.maxRoutesInput).toBe("3");
   });
 
   it.each([
-    ["0件", "0"],
-    ["上限より多い", String(routeGenerateConfig.max_routes + 1)],
-    ["整数でない", "2.5"],
-  ])("候補数の保存値が%sなら捨てる", (_case, stored) => {
-    localStorage.setItem("ridecompass:max-routes", stored);
-    expect(render().result.current.maxRoutesInput).toBe(String(routeGenerateConfig.default_max_routes));
+    { label: "1kmちょうど", saved: "1", accepted: true },
+    { label: "上限ちょうど", saved: String(routeGenerateConfig.max_distance_km), accepted: true },
+    { label: "1kmより短い", saved: "0.9", accepted: false },
+    { label: "上限より長い", saved: String(routeGenerateConfig.max_distance_km + 1), accepted: false },
+    { label: "数でない", saved: "abc", accepted: false },
+  ])("距離の保存値は範囲の中だけを受け入れる（$label）", ({ saved, accepted }) => {
+    window.localStorage.setItem("ridecompass:distance-km", saved);
+
+    expect(renderConditions().result.current.distanceInput).toBe(accepted ? saved : "30");
+  });
+
+  it.each([
+    { label: "1件ちょうど", saved: "1", accepted: true },
+    { label: "上限ちょうど", saved: String(routeGenerateConfig.max_routes), accepted: true },
+    { label: "0件", saved: "0", accepted: false },
+    { label: "上限より多い", saved: String(routeGenerateConfig.max_routes + 1), accepted: false },
+    { label: "整数でない", saved: "2.5", accepted: false },
+  ])("候補数の保存値は範囲の中の整数だけを受け入れる（$label）", ({ saved, accepted }) => {
+    window.localStorage.setItem("ridecompass:max-routes", saved);
+
+    expect(renderConditions().result.current.maxRoutesInput).toBe(
+      accepted ? saved : String(routeGenerateConfig.default_max_routes),
+    );
   });
 });
 
 describe("重み", () => {
-  it("画面が読む重みは公開軸へ揃えた値（増えた軸は既定で補い、消えた軸は外す）で、保存値は書き換えない", () => {
-    localStorage.setItem("ridecompass:route-preference", JSON.stringify({ axis_a: 0.9, retired_axis: 0.1 }));
-    const { result } = render();
-    expect(result.current.routePreference).toEqual({ axis_a: 0.9, axis_b: 0.7 });
-    expect(JSON.parse(localStorage.getItem("ridecompass:route-preference")!)).toEqual({
-      axis_a: 0.9,
-      retired_axis: 0.1,
-    });
-  });
+  it("カタログが届くと公開軸へ揃えた重みを返し、上書きを有効にするまでは送らない", async () => {
+    fetchCatalog.mockResolvedValue(CATALOG);
+    const { result } = renderConditions();
 
-  it("軸カタログが届くまでは揃えない（届いていない間に揃えると、保存した重みを全部消す）", () => {
-    catalog.current = EMPTY_CATALOG;
-    localStorage.setItem("ridecompass:route-preference", JSON.stringify({ axis_a: 0.9 }));
-    expect(render().result.current.routePreference).toEqual({ axis_a: 0.9 });
-  });
-
-  it("送る重みは、上書きを有効にしていて軸カタログが届いているときだけ揃えた値で、それ以外はnull", () => {
-    const { result, rerender } = render();
+    await waitFor(() => expect(result.current.routePreference).toEqual({ axis_a: 0.4, axis_b: 0.6 }));
+    expect(result.current.weightOverrideEnabled).toBe(false);
     expect(result.current.routePreferenceToSend).toBeNull();
+
     act(() => result.current.setWeightOverrideEnabled(true));
-    expect(result.current.routePreferenceToSend).toEqual({ axis_a: 0.3, axis_b: 0.7 });
-    catalog.current = EMPTY_CATALOG;
-    rerender();
+
+    expect(result.current.routePreferenceToSend).toEqual({ axis_a: 0.4, axis_b: 0.6 });
+  });
+
+  it("カタログが届かない間は、上書きを有効にしていても送らない", () => {
+    const { result } = renderConditions();
+
+    act(() => result.current.setWeightOverrideEnabled(true));
+
     expect(result.current.routePreferenceToSend).toBeNull();
   });
 
-  it("動かした重みと上書きの有無は開き直しても残る", () => {
-    const first = render();
+  it("揃えても保存した重みは書き換えず、公開を取り下げた軸が戻ればその重みも戻る", async () => {
+    window.localStorage.setItem("ridecompass:route-preference", JSON.stringify({ axis_a: 0.7, axis_c: 0.2 }));
+    fetchCatalog.mockResolvedValue(CATALOG);
+    const first = renderConditions();
+    await waitFor(() => expect(first.result.current.routePreference).toEqual({ axis_a: 0.7, axis_b: 0.6 }));
+
+    fetchCatalog.mockResolvedValue(
+      catalogResponse([
+        catalogEntry({ axis_id: "axis_a", default_weight: 0.4 }),
+        catalogEntry({ axis_id: "axis_c", default_weight: 0.6 }),
+      ]),
+    );
+    const { result } = reopen(first);
+
+    await waitFor(() => expect(result.current.routePreference).toEqual({ axis_a: 0.7, axis_c: 0.2 }));
+  });
+
+  it("動かした重みと上書きの有効は開き直しても残る", async () => {
+    fetchCatalog.mockResolvedValue(CATALOG);
+    const first = renderConditions();
+    act(() => first.result.current.setRoutePreference({ axis_a: 0.7, axis_b: 0.3 }));
     act(() => first.result.current.setWeightOverrideEnabled(true));
-    act(() => first.result.current.setRoutePreference({ axis_a: 1, axis_b: 0 }));
-    first.unmount();
-    const second = render();
-    expect(second.result.current.weightOverrideEnabled).toBe(true);
-    expect(second.result.current.routePreference).toEqual({ axis_a: 1, axis_b: 0 });
+
+    const { result } = reopen(first);
+
+    await waitFor(() => expect(result.current.routePreferenceToSend).toEqual({ axis_a: 0.7, axis_b: 0.3 }));
   });
 });
 
 describe("除外", () => {
-  const [FIRST] = Object.keys(DEFAULT_HARD_FILTERS);
-
-  it("保存値が無ければ既定の除外で始め、変えた除外は開き直しても残る", () => {
-    const first = render();
+  it("保存値が無ければ既定の除外で始め、変えた値は開き直しても残る", () => {
+    const first = renderConditions();
     expect(first.result.current.hardFilters).toEqual(DEFAULT_HARD_FILTERS);
-    const flipped = { ...DEFAULT_HARD_FILTERS, [FIRST]: !DEFAULT_HARD_FILTERS[FIRST] };
-    act(() => first.result.current.setHardFilters(flipped));
-    first.unmount();
-    expect(render().result.current.hardFilters).toEqual(flipped);
+    const [key] = Object.keys(DEFAULT_HARD_FILTERS);
+    const changed = { ...DEFAULT_HARD_FILTERS, [key]: !DEFAULT_HARD_FILTERS[key] };
+
+    act(() => first.result.current.setHardFilters(changed));
+
+    expect(reopen(first).result.current.hardFilters).toEqual(changed);
   });
 
-  it("保存値に今は無い項目が混じっていても、今の項目へ揃えて読む", () => {
-    localStorage.setItem(
+  it("保存値に今は無い項目があっても今の項目へ揃え、読めない保存値は既定に戻す", () => {
+    const [key] = Object.keys(DEFAULT_HARD_FILTERS);
+    window.localStorage.setItem(
       "ridecompass:hard-filters",
-      JSON.stringify({ [FIRST]: !DEFAULT_HARD_FILTERS[FIRST], retired_filter: true }),
+      JSON.stringify({ [key]: !DEFAULT_HARD_FILTERS[key], retired_filter: true }),
     );
-    expect(render().result.current.hardFilters).toEqual({
+    expect(renderConditions().result.current.hardFilters).toEqual({
       ...DEFAULT_HARD_FILTERS,
-      [FIRST]: !DEFAULT_HARD_FILTERS[FIRST],
+      [key]: !DEFAULT_HARD_FILTERS[key],
     });
-  });
 
-  it("読めない保存値は捨てて既定の除外で始める", () => {
-    localStorage.setItem("ridecompass:hard-filters", "{broken");
-    expect(render().result.current.hardFilters).toEqual(DEFAULT_HARD_FILTERS);
+    window.localStorage.setItem("ridecompass:hard-filters", "{broken");
+    expect(renderConditions().result.current.hardFilters).toEqual(DEFAULT_HARD_FILTERS);
   });
 });

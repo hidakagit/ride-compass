@@ -2,11 +2,9 @@
 
 `gradient_percent`は道路の始点→終点方向を基準にした符号付き値で、道路自身の向きが要る。
 そのため**鍵ごとに異なる値**を返す——タイル単位のスカラー1個へ縮められない。
-
-勾配は時刻に依存しないため、キャッシュキーの時刻バケットは常にNoneで扱う。
 """
 
-from datetime import datetime
+from dataclasses import dataclass
 
 from app.domain.gradient import LENS_PERPENDICULAR_BAND_DEG, GradientCalculator
 from app.domain.material_catalog import GRADIENT_PERCENT
@@ -15,8 +13,12 @@ from app.infrastructure.cache_identity import cache_identity
 from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
 from app.infrastructure.debug_log import log_external_call, mark_failed
 from app.infrastructure.dynamic_way_value_cache import get_tile_values, set_tile_values
-from app.services import derived_data_revision_service
-from app.infrastructure.road_graph_repository import FEATURE_GRADIENT_INPUTS_SHAPE, RoadGraphRepository
+from app.infrastructure.road_graph_repository import (
+    FEATURE_GRADIENT_INPUTS_SHAPE,
+    ROAD_SURFACE_TILE_SHAPE,
+    RoadGraphRepository,
+)
+from app.services.tile_version_service import served_tile_version
 
 # 勾配の入力は道路の向きと標高で決まりほぼ不変のため、鮮度の制約が無い。長く持って
 # DBへの再問い合わせを抑える。正本を持たないキャッシュで、期限切れ後は再計算されるだけ。
@@ -32,10 +34,18 @@ GRADIENT_VALUE_SHAPE = cache_identity(
 )
 
 
+@dataclass(frozen=True)
+class GradientConditions:
+    """勾配の値に要る条件。勾配は時刻にも速度にも依らない。"""
+
+    bearing_deg: float
+
+
 class GradientWayService:
     #: 返す生値の材料id。この材料を参照する軸の配信を担当し、キャッシュの名前空間にもなる。
     material_id = GRADIENT_PERCENT
     material_ids = (GRADIENT_PERCENT,)
+    conditions_type = GradientConditions
 
     def __init__(self, repository: RoadGraphRepository):
         self._repository = repository
@@ -45,27 +55,20 @@ class GradientWayService:
         """登録テーブルから呼ぶための統一シグネチャ。勾配は天候を要らず、材料は1つだけ。"""
         return cls(repository=repository)
 
-    async def get_way_values(
-        self, z: int, x: int, y: int, at: datetime | None, bearing_deg: float | None, speed_kmh: float | None = None
-    ) -> dict[str, float]:
+    async def get_way_values(self, z: int, x: int, y: int, conditions: GradientConditions) -> dict[str, float]:
         """指定タイル内のフィーチャーごとの実効勾配（正=登り・負=下り）を返す。
 
         取込範囲外・DB障害はいずれも空dictへ倒す。
-
-        `at`・`speed_kmh`は材料非依存な呼び出し口と形を揃えるためだけに受け取り、勾配の
-        計算には使わない。`bearing_deg`も同じ理由で`float | None`だが、勾配はこれが無いと
-        計算できないため、Noneのまま到達したら即座に失敗させる（無音で進めない）。
         """
-        if bearing_deg is None:
-            raise ValueError("GradientWayService.get_way_valuesにはbearing_degが必須です")
+        bearing_deg = conditions.bearing_deg
         bbox = tile_bounds_lonlat(z, x, y)
 
         with log_external_call("region:gradient-way-values", z=z, x=x, y=y) as fields:
-            # 世代は鍵の一部。渡し忘れると世代をまたいだ値を配る。
-            await derived_data_revision_service.refresh_current_revision(self._repository)
-            revision = derived_data_revision_service.current_revision()
+            # 路面タイルの世代は鍵の一部。渡し忘れると世代をまたいだ値を配る。
+            surface_tile_version = await served_tile_version(self._repository, ROAD_SURFACE_TILE_SHAPE)
             cached = await get_tile_values(
-                self.material_id, z, x, y, None, bearing_deg, revision=revision, value_shape=GRADIENT_VALUE_SHAPE
+                self.material_id, z, x, y, bearing_deg,
+                surface_tile_version=surface_tile_version, value_shape=GRADIENT_VALUE_SHAPE,
             )
             if cached is not None:
                 fields["cache"] = "hit"
@@ -100,8 +103,8 @@ class GradientWayService:
                 if value is not None
             }
             await set_tile_values(
-                self.material_id, z, x, y, None, bearing_deg, values, GRADIENT_TILE_VALUES_TTL_SECONDS,
-                revision=revision, value_shape=GRADIENT_VALUE_SHAPE,
+                self.material_id, z, x, y, bearing_deg, values, GRADIENT_TILE_VALUES_TTL_SECONDS,
+                surface_tile_version=surface_tile_version, value_shape=GRADIENT_VALUE_SHAPE,
             )
             fields["computed"] = len(values)
             return values

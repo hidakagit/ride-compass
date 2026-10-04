@@ -10,6 +10,7 @@
 import pytest
 
 from app.infrastructure import tile_persistent_cache
+from app.services.gradient_way_service import GRADIENT_TILE_VALUES_TTL_SECONDS as TTL
 
 KEY = ("way_values", 7, "material_a", 12, 3630, 1612, "09", None, None)
 
@@ -25,20 +26,20 @@ class TestKeepingAnObject:
     def test_an_object_comes_back_as_it_went_in(self):
         value = {"w1": (1, 2.5), "missing": None}
 
-        tile_persistent_cache.set_by_key(KEY, value)
+        tile_persistent_cache.set_by_key(KEY, value, expire=TTL)
 
         assert tile_persistent_cache.get_by_key(KEY) == value
 
     def test_an_empty_value_is_not_the_same_as_never_having_written_it(self):
         """値の無い範囲も実在する。空を未キャッシュへ倒すと、その範囲だけ毎回作り直す。"""
-        tile_persistent_cache.set_by_key(KEY, {})
+        tile_persistent_cache.set_by_key(KEY, {}, expire=TTL)
 
         assert tile_persistent_cache.get_by_key(KEY) == {}
 
     def test_writing_the_same_key_again_replaces_what_was_there(self):
-        tile_persistent_cache.set_by_key(KEY, "old")
+        tile_persistent_cache.set_by_key(KEY, "old", expire=TTL)
 
-        tile_persistent_cache.set_by_key(KEY, "new")
+        tile_persistent_cache.set_by_key(KEY, "new", expire=TTL)
 
         assert tile_persistent_cache.get_by_key(KEY) == "new"
 
@@ -47,7 +48,7 @@ class TestWhatMakesTwoEntriesDifferent:
     @pytest.mark.parametrize("part", [1, 2, 3])
     def test_changing_any_part_of_the_key_is_another_entry(self, part):
         """世代を上げても前の値が読めるなら、形の変わったキャッシュを新しいコードが読む。"""
-        tile_persistent_cache.set_by_key(KEY, "value")
+        tile_persistent_cache.set_by_key(KEY, "value", expire=TTL)
         other = list(KEY)
         other[part] = "other" if isinstance(other[part], str) else other[part] + 1
 
@@ -57,13 +58,13 @@ class TestWhatMakesTwoEntriesDifferent:
 class TestWhenTheDiskRefuses:
     def test_a_value_that_cannot_be_stored_is_dropped_rather_than_raised(self):
         """書き込みの失敗で応答を止めない。読み手からは未キャッシュと同じに見える。"""
-        tile_persistent_cache.set_by_key(KEY, lambda: None)
+        tile_persistent_cache.set_by_key(KEY, lambda: None, expire=TTL)
 
         assert tile_persistent_cache.get_by_key(KEY) is None
 
     def test_a_read_that_blows_up_is_a_miss(self, monkeypatch):
         """壊れたエントリ・SQLiteの障害で止めると、キャッシュの不調がそのまま機能停止になる。"""
-        tile_persistent_cache.set_by_key(KEY, "value")
+        tile_persistent_cache.set_by_key(KEY, "value", expire=TTL)
         monkeypatch.setattr(tile_persistent_cache, "cache", _boom)
 
         assert tile_persistent_cache.get_by_key(KEY) is None
@@ -71,7 +72,7 @@ class TestWhenTheDiskRefuses:
 
 class TestEntriesThatExpire:
     def test_an_entry_still_within_its_time_is_read(self):
-        tile_persistent_cache.set_by_key(KEY, "value", expire=600)
+        tile_persistent_cache.set_by_key(KEY, "value", expire=TTL)
 
         assert tile_persistent_cache.get_by_key(KEY) == "value"
 

@@ -38,7 +38,7 @@ const { feature_key: FEATURE_KEY_PROPERTY, way_id: WAY_ID_PROPERTY } = regionTil
 
 /** 線で描くもの。**源泉が「線の幾何を持ち、表示の定義がある」と言ったものが出る。**
  * 束ね方・行の名前・並び・色はすべて源泉が決め、ここは受け取って塗るだけ
- * （`backend/app/domain/material_catalog.py`の`display_axes`、色は`display_palette.py`）。 */
+ * （`backend/app/domain/material_catalog.py: display_axes`、色は`display_palette.py`）。 */
 export const ROAD_TRACKS = primaryAttributes.filter(
   (attr): attr is Extract<typeof attr, { geometry: "line"; tile_kind: string }> =>
     attr.geometry === "line" && attr.display_axes.length > 0,
@@ -47,7 +47,7 @@ export const ROAD_TRACKS = primaryAttributes.filter(
 type RoadTrack = (typeof ROAD_TRACKS)[number];
 
 /** 線は軸を1本しか持たない（プロパティ＝属性そのもの）。**軸を持つものだけを線にする**のは
- * 源泉の側で、そこが保証する（`tests/test_primary_attribute_display.py`）。 */
+ * 源泉の側で、そこが保証する（`tests/test_material_catalog.py`）。 */
 export function roadTrackAxis(track: RoadTrack): RoadTrack["display_axes"][number] {
   return track.display_axes[0];
 }

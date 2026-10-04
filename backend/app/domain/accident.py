@@ -1,4 +1,4 @@
-"""警察庁交通事故統計オープンデータの取込で使う純関数群。
+"""警察庁交通事故統計オープンデータの事故を道路へ帰属させ、数えるときの判断。
 
 本票CSV（honhyo_YYYY.csv）の列定義・コード値の典拠は警察庁が公開するコード表CSV
 （https://www.npa.go.jp/publications/statistics/koutsuu/opendata/koudohyou/）。
@@ -21,48 +21,11 @@ ACCIDENT_FATAL_WEIGHT = 3.0
 BICYCLE_PARTY_TYPE_CODES: frozenset[str] = frozenset({"51", "52"})
 
 
-def _dms_to_decimal(raw: str) -> float | None:
-    """本票の緯度・経度列（度分秒を1つの数値へ連結した表記。右5桁=秒×1000、
-    次の2桁=分、残り=度）を10進の度へ変換する。欠損（空・非数値）や
-    分/秒が60以上になる不正値はNone（根拠のない推測はしない）。
-
-    全て0の列は0度として通す。日本の範囲外として落とすのは`latitude_from_raw`／
-    `longitude_from_raw`の側で、ここは表記の解釈だけを負う。"""
-    value = raw.strip()
-    if not value.isdigit() or len(value) < 8:
-        return None
-    seconds = int(value[-5:]) / 1000.0
-    minutes = int(value[-7:-5])
-    degrees = int(value[:-7])
-    if minutes >= 60 or seconds >= 60:
-        return None
-    return degrees + minutes / 60.0 + seconds / 3600.0
-
-
-# 日本の緯度・経度のおおよその範囲（南鳥島・沖ノ鳥島等の離島を含む広めの値）。
-# 度分秒からの変換結果が壊れていないかを見るためだけのもので、対象地域の絞り込みではない。
-_JAPAN_LATITUDE_RANGE = (20.0, 46.0)
-_JAPAN_LONGITUDE_RANGE = (122.0, 154.0)
-
-
-def latitude_from_raw(raw: str) -> float | None:
-    value = _dms_to_decimal(raw)
-    if value is None or not (_JAPAN_LATITUDE_RANGE[0] <= value <= _JAPAN_LATITUDE_RANGE[1]):
-        return None
-    return value
-
-
-def longitude_from_raw(raw: str) -> float | None:
-    value = _dms_to_decimal(raw)
-    if value is None or not (_JAPAN_LONGITUDE_RANGE[0] <= value <= _JAPAN_LONGITUDE_RANGE[1]):
-        return None
-    return value
-
 # --- 生データの列から判定する式 -----------------------------------------------
 #
 # 本票の列名（日本語）と判定の規則をここだけが持つ。生データは列を捨てずに`attrs`へ
 # 入れてあるため、読む側は都度これを使う——同じ判定をタイルと集計で別々に書くとずれる。
-# 別名`a`は`source_features`の事故の行を指す。
+# 別名`a`は事故の生データの行（`infrastructure/source_models.py: ACCIDENTS_SOURCE_SQL`）を指す。
 
 #: 死者数の列。ゼロ埋めの数字列で入っている。
 FATAL_SQL = "coalesce((a.attrs->>'死者数')::int, 0) > 0"

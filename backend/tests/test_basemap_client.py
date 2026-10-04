@@ -1,187 +1,139 @@
-"""`infrastructure/basemap_client.py`——OpenFreeMapのプロキシと、自分自身へのURL書き換え。
+"""`infrastructure/basemap_client.py`——OpenFreeMapの部品をパスで中継し、ディスクに残す。
+
+入口は`BasemapClient.get`。網は respx の経路（`tests/fake_http.py: client_for`）で、ディスクは
+本物の`tile_cache`（置き場は`tests/conftest.py`がテストごとの一時ディレクトリへ向ける）で通す。
+前の世代がディスクに残した内容は、`tile_cache`へ直接書いて作る（再起動をまたいで残るのはディスクだけ）。
 
 ここで見ないもの:
-- ディスクキャッシュそのものの読み書き → `test_tile_cache.py`
-- プロキシ先のURLを決める設定と、キャッシュを捨てる導線 → `api/routers/basemap.py`側
-
-ディスクキャッシュと上流HTTPは差し替えて与える。上流の応答は
-`tests/fake_tile_http.py`の共有フェイクから取る。
+- HTTPの状態コードへの読み替え（404・502）とレート制限 → `test_basemap_routes.py`
+- ディスクの読み書きの失敗 → `test_tile_cache.py`（このクライアントには未キャッシュとして届く）
+- 読み書きをイベントループの外で行うこと → 結果に現れない順序の約束で、理由は実装の隣のコメントが持つ
 """
 
-import threading
+import json
+import logging
 
+import httpx
 import pytest
+import respx
 
 from app.infrastructure import basemap_client
-from tests.fake_external_log import record_external_calls
-from tests.fake_tile_cache import FakeTileCache
-from tests.fake_tile_http import FakeHttpClient
+from tests.fake_http import client_for
 
-STYLE_PATH = "styles/bright"
-TILE_PATH = "planet/14/14552/6451.pbf"
 PROXY = "http://localhost:8000/api/basemap"
-OTHER_PROXY = "https://ridecompass.example/api/basemap"
+UPSTREAM = "https://tiles.openfreemap.org"
+STYLE = "styles/liberty"
+TILE = "planet/20250101_001001_pt/14/14552/6451.pbf"
 
 
-def install_fakes(monkeypatch, cache=None):
-    """ディスクキャッシュと`log_external_call`を差し替え、記録先を返す。"""
-    cache = cache or FakeTileCache()
-    monkeypatch.setattr(basemap_client, "tile_cache", cache)
-    return cache, record_external_calls(monkeypatch, basemap_client)
+def style_json() -> bytes:
+    return json.dumps(
+        {
+            "sources": {"openmaptiles": {"url": f"{UPSTREAM}/planet"}},
+            "sprite": f"{UPSTREAM}/sprites/ofm_f384/ofm",
+            "glyphs": f"{UPSTREAM}/fonts/{{fontstack}}/{{range}}.pbf",
+            "metadata": {"attribution": f"OpenFreeMap {UPSTREAM} © OpenMapTiles"},
+        }
+    ).encode()
 
 
-def http_status_error(status_code: int):
-    httpx = basemap_client.httpx
-    request = httpx.Request("GET", f"{basemap_client.UPSTREAM_HOST}/{STYLE_PATH}")
-    return httpx.HTTPStatusError(
-        "upstream returned an error", request=request, response=httpx.Response(status_code, request=request)
+def client(router: respx.Router, proxy: str = PROXY) -> basemap_client.BasemapClient:
+    return basemap_client.BasemapClient(client_for(router), proxy)
+
+
+def unreachable() -> respx.Router:
+    """どのURLへの問い合わせも落とす（キャッシュから返るはずの場面で、上流へ出ていないことを見る）。"""
+    router = respx.Router()
+    router.route().mock(side_effect=AssertionError("上流へ問い合わせた"))
+    return router
+
+
+@pytest.fixture
+def warnings(caplog, empty_debug_counters):
+    caplog.set_level(logging.WARNING)
+    return lambda: [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+
+async def test_a_binary_part_is_relayed_untouched_and_served_from_disk_afterwards():
+    router = respx.Router()
+    route = router.get(f"{UPSTREAM}/{TILE}").respond(
+        content=b"\x1a\x02tile", headers={"content-type": "application/x-protobuf"}
     )
 
+    first = await client(router).get(TILE)
+    later = await client(unreachable()).get(TILE)
 
-def style_json(host: str) -> bytes:
-    return ('{"sprite":"%s/sprites/ofm","glyphs":"%s/fonts/{fontstack}/{range}.pbf"}' % (host, host)).encode()
+    assert first == later == (b"\x1a\x02tile", "application/x-protobuf")
+    assert route.call_count == 1
 
 
-async def test_cached_resource_is_returned_without_asking_upstream(monkeypatch):
-    cache, recorded = install_fakes(monkeypatch, FakeTileCache({TILE_PATH: (b"cached-tile", "application/x-protobuf")}))
-    http_client = FakeHttpClient(b"fresh-tile", "application/x-protobuf")
+async def test_a_part_without_a_content_type_is_relayed_as_binary():
+    router = respx.Router()
+    router.get(f"{UPSTREAM}/{TILE}").respond(content=b"raw")
 
-    result = await basemap_client.BasemapClient(http_client, PROXY).get(TILE_PATH)
-
-    assert result == (b"cached-tile", "application/x-protobuf")
-    assert http_client.requested_urls == []
-    assert recorded[0].fields["cache"] == "hit"
+    assert await client(router).get(TILE) == (b"raw", "application/octet-stream")
 
 
 @pytest.mark.parametrize("content_type", ["application/json", "application/json; charset=utf-8"])
-async def test_style_json_is_cached_as_received_and_served_pointing_at_this_server(monkeypatch, content_type):
-    """スタイルJSONは上流のURLのまま保存し、返す直前に自分自身のURLへ書き換える。
+async def test_json_points_its_urls_at_this_server_but_keeps_upstream_names_in_text(content_type):
+    """MapLibreは相対URLをページのオリジンへ解決するため、上流のURLは自分への絶対URLへ置き換える。"""
+    router = respx.Router()
+    router.get(f"{UPSTREAM}/{STYLE}").respond(content=style_json(), headers={"content-type": content_type})
 
-    MapLibreは相対URLをスタイルの取得元ではなくページのオリジンへ解決するため、
-    絶対URLでなければならない。文字コードを添えた名乗り方をされても同じ扱いにする。
-    """
-    cache, recorded = install_fakes(monkeypatch)
-    upstream_json = style_json(basemap_client.UPSTREAM_HOST)
-    http_client = FakeHttpClient(upstream_json, content_type)
+    content, served_type = await client(router).get(STYLE)
 
-    result = await basemap_client.BasemapClient(http_client, PROXY).get(STYLE_PATH)
-
-    assert result == (style_json(PROXY), content_type)
-    assert http_client.requested_urls == [f"{basemap_client.UPSTREAM_HOST}/{STYLE_PATH}"]
-    assert cache.entries == {basemap_client._RAW_JSON_CACHE_PREFIX + STYLE_PATH: (upstream_json, content_type)}
-    assert recorded[0].fields["cache"] == "miss"
-    assert recorded[0].fields["result"] == "ok"
-    assert recorded[0].fields["status"] == 200
+    style = json.loads(content)
+    assert served_type == content_type
+    assert style["sources"]["openmaptiles"]["url"] == f"{PROXY}/planet"
+    assert style["sprite"] == f"{PROXY}/sprites/ofm_f384/ofm"
+    assert style["glyphs"] == f"{PROXY}/fonts/{{fontstack}}/{{range}}.pbf"
+    assert style["metadata"]["attribution"] == f"OpenFreeMap {UPSTREAM} © OpenMapTiles"
 
 
-async def test_the_upstream_name_in_running_text_is_left_alone(monkeypatch):
-    """地の文に現れる上流の名前まで書き換えると、誰が作った地図なのかの表示が嘘になる。"""
-    install_fakes(monkeypatch)
-    host = basemap_client.UPSTREAM_HOST
-    upstream_json = ('{"sprite":"%s/sprites/ofm","attribution":"© %s contributors"}' % (host, host)).encode()
-    http_client = FakeHttpClient(upstream_json, "application/json")
+async def test_changing_the_public_address_takes_effect_on_cached_json_without_asking_upstream():
+    router = respx.Router()
+    router.get(f"{UPSTREAM}/{STYLE}").respond(content=style_json(), headers={"content-type": "application/json"})
+    await client(router).get(STYLE)
 
-    content, _ = await basemap_client.BasemapClient(http_client, PROXY).get(STYLE_PATH)
+    content, _ = await client(unreachable(), proxy="https://ridecompass.example/api/basemap").get(STYLE)
 
-    assert f'"{PROXY}/sprites/ofm"'.encode() in content
-    assert f"© {host} contributors".encode() in content
+    assert json.loads(content)["sprite"] == "https://ridecompass.example/api/basemap/sprites/ofm_f384/ofm"
 
 
-async def test_changing_the_proxy_url_takes_effect_without_discarding_the_cache(monkeypatch):
-    """配信元のURLを変えたら、キャッシュを消さなくても次の取得からその値で配る。"""
-    cache, recorded = install_fakes(monkeypatch)
-    upstream_json = style_json(basemap_client.UPSTREAM_HOST)
-    http_client = FakeHttpClient(upstream_json, "application/json")
-    await basemap_client.BasemapClient(http_client, PROXY).get(STYLE_PATH)
+async def test_json_left_under_the_plain_path_by_an_older_version_is_not_served():
+    """素のパスに残ったJSONは、当時の配信先が焼き付いた書き換え済みの内容である。"""
+    stale = style_json().replace(UPSTREAM.encode(), b"http://old-host/api/basemap")
+    basemap_client.tile_cache.set(STYLE, stale, "application/json")
+    router = respx.Router()
+    route = router.get(f"{UPSTREAM}/{STYLE}").respond(content=style_json(), headers={"content-type": "application/json"})
 
-    result = await basemap_client.BasemapClient(http_client, OTHER_PROXY).get(STYLE_PATH)
+    content, _ = await client(router).get(STYLE)
+    again, _ = await client(unreachable()).get(STYLE)
 
-    assert result == (style_json(OTHER_PROXY), "application/json")
-    assert len(http_client.requested_urls) == 1
-    assert recorded[1].fields["cache"] == "hit"
-
-
-async def test_binary_resource_is_passed_through_untouched(monkeypatch):
-    """JSON以外は書き換えの対象外——上流のホスト名がバイト列に現れても触らない。"""
-    cache, _ = install_fakes(monkeypatch)
-    payload = f"{basemap_client.UPSTREAM_HOST}".encode() + b"\x00\x01binary"
-    http_client = FakeHttpClient(payload, "application/x-protobuf")
-
-    result = await basemap_client.BasemapClient(http_client, PROXY).get(TILE_PATH)
-
-    assert result == (payload, "application/x-protobuf")
-    assert cache.entries == {TILE_PATH: (payload, "application/x-protobuf")}
+    assert json.loads(content)["sprite"] == json.loads(again)["sprite"] == f"{PROXY}/sprites/ofm_f384/ofm"
+    assert route.call_count == 1
 
 
-async def test_resource_without_a_content_type_header_is_treated_as_binary(monkeypatch):
-    cache, _ = install_fakes(monkeypatch)
-    http_client = FakeHttpClient(b"\x00\x01binary", None)
+async def test_a_part_the_upstream_does_not_have_is_reported_as_missing_not_as_a_failure(warnings):
+    router = respx.Router()
+    router.get(f"{UPSTREAM}/fonts/Noto Sans Bold/65024-65279.pbf").respond(404)
 
-    result = await basemap_client.BasemapClient(http_client, PROXY).get(TILE_PATH)
+    result = await client(router).get("fonts/Noto Sans Bold/65024-65279.pbf")
 
-    assert result == (b"\x00\x01binary", "application/octet-stream")
-    assert cache.entries == {TILE_PATH: (b"\x00\x01binary", "application/octet-stream")}
-
-
-async def test_a_rewritten_style_left_at_the_plain_key_is_not_served(monkeypatch):
-    """素の鍵にJSONが残っているのは、生の内容を別の鍵へ分ける前の世代が書いたもの。
-    当時の配信先が焼き付いているため、採用すると配信先を変えても古いものが配られ続ける。"""
-    cache, recorded = install_fakes(
-        monkeypatch, FakeTileCache({STYLE_PATH: (style_json(OTHER_PROXY), "application/json")})
-    )
-    http_client = FakeHttpClient(style_json(basemap_client.UPSTREAM_HOST), "application/json")
-
-    content, _ = await basemap_client.BasemapClient(http_client, PROXY).get(STYLE_PATH)
-
-    assert content == style_json(PROXY)
-    assert http_client.requested_urls == [f"{basemap_client.UPSTREAM_HOST}/{STYLE_PATH}"]
-    assert recorded[0].fields["stale"] == "rewritten-json"
+    assert result is basemap_client.BASEMAP_NOT_FOUND
+    assert warnings() == []
 
 
-async def test_a_resource_the_upstream_does_not_have_is_not_a_failure(monkeypatch):
-    """用意されていない書体の範囲などは平常運転の一部で、上流の障害ではない。"""
-    cache, recorded = install_fakes(monkeypatch)
-    http_client = FakeHttpClient(b"", None, raises=http_status_error(404))
+@pytest.mark.parametrize(
+    "answer",
+    [httpx.Response(503), httpx.ConnectTimeout("timed out")],
+    ids=["server-error", "transport-error"],
+)
+async def test_an_upstream_failure_gives_nothing_and_is_logged(answer, warnings):
+    router = respx.Router()
+    route = router.get(f"{UPSTREAM}/{TILE}")
+    route.side_effect = [answer, httpx.Response(200, content=b"tile")]
 
-    result = await basemap_client.BasemapClient(http_client, PROXY).get("fonts/NotoSans/40000-40255.pbf")
-
-    assert isinstance(result, basemap_client.BasemapNotFound)
-    assert cache.entries == {}
-    assert recorded[0].fields["result"] == "ok"
-    assert recorded[0].fields["status"] == 404
-
-
-async def test_upstream_server_error_is_reported_as_a_failure(monkeypatch):
-    cache, recorded = install_fakes(monkeypatch)
-    http_client = FakeHttpClient(b"", None, raises=http_status_error(500))
-
-    result = await basemap_client.BasemapClient(http_client, PROXY).get(TILE_PATH)
-
-    assert result is None
-    assert cache.entries == {}
-    assert recorded[0].fields["result"] == "error"
-    assert recorded[0].fields["error_type"]
-
-
-async def test_upstream_failure_is_reported_as_a_failure(monkeypatch):
-    cache, recorded = install_fakes(monkeypatch)
-    http_client = FakeHttpClient(b"", None, raises=basemap_client.httpx.ConnectTimeout("timed out"))
-
-    result = await basemap_client.BasemapClient(http_client, PROXY).get(TILE_PATH)
-
-    assert result is None
-    assert cache.entries == {}
-    assert recorded[0].fields["result"] == "error"
-    assert recorded[0].fields["error_type"]
-
-
-async def test_disk_cache_access_stays_off_the_event_loop(monkeypatch):
-    """基礎地図の読み込みでは数十件の要求が同時に来るため、ディスクI/Oがループを塞ぐと
-    同時に処理中の他のリクエストが止まる。"""
-    cache, _ = install_fakes(monkeypatch)
-    http_client = FakeHttpClient(b"\x00\x01binary", "application/x-protobuf")
-
-    await basemap_client.BasemapClient(http_client, PROXY).get(TILE_PATH)
-
-    assert cache.thread_idents, "読みと書きの両方が記録されていない"
-    assert threading.get_ident() not in cache.thread_idents
+    assert await client(router).get(TILE) is None
+    assert [r for r in warnings() if "basemap:openfreemap" in r.getMessage()]
+    assert await client(router).get(TILE) == (b"tile", "application/octet-stream")

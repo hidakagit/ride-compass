@@ -6,19 +6,20 @@
 段は本物を通し、読み手の目で見るための覗き窓だけを段の後ろに挟む。
 """
 
-import json
-import struct
-from datetime import UTC, datetime
-
 import asyncpg
 import pytest
 import pytest_asyncio
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.batch import derive_cli, derive_topology
 from app.batch._common import asyncpg_dsn
-from app.batch.ingest import ensure_partition
+from app.batch.source_adapters.npa_honhyo import HonhyoRows
+from app.domain.accident import BICYCLE_PARTY_TYPE_CODES
+from app.domain.material_catalog import ACCIDENT_COUNT_PER_KM_YEAR
 from app.infrastructure import road_network_store
+from app.infrastructure.road_graph_repository import RoadGraphRepository
 from tests.conftest import postgis_database_url
+from tests.source_ingest import ingest_records, point_record, way_record
 
 pytestmark = [
     pytest.mark.asyncio(loop_scope="module"),
@@ -35,6 +36,11 @@ WAYS = (
     (200, [3, 4], {"highway": "residential"}),
 )
 DERIVED = ("edge_materials", "way_materials", "road_edges", "node_materials")
+
+
+def _point(node_id: int) -> tuple[float, float]:
+    return (BASE_LON + STEP * node_id, BASE_LAT + STEP * (node_id % 2))
+
 
 _STRUCTURE_SQL = """
 SELECT 'index' AS kind, tablename AS table_name, indexname AS name, indexdef AS definition
@@ -64,32 +70,12 @@ async def derived_before(road_graph_engine, monkeypatch, tmp_path):
     monkeypatch.setattr(road_network_store, "ROOT", tmp_path / "road_network")
     conn = await asyncpg.connect(_dsn())
     try:
-        for source in ("osm_way", "osm_node"):
-            await ensure_partition(conn, source)
         await conn.execute("TRUNCATE " + ", ".join(DERIVED) + ", source_features, source_runs, derived_data_meta CASCADE")
-        runs = {}
-        for source in ("osm_way", "osm_node"):
-            runs[source] = await conn.fetchval(
-                "INSERT INTO source_runs (source, status, started_at, origin, profile, counts)"
-                " VALUES ($1, 'succeeded', $2, $3, $3, $3) RETURNING run_id",
-                source, datetime.now(UTC), json.dumps({}))
-        for node_id in range(1, 5):
-            await conn.execute(
-                "INSERT INTO source_features (source, natural_key, run_id, geom, attrs)"
-                " VALUES ('osm_node', $1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), '{}'::jsonb)",
-                str(node_id), runs["osm_node"], BASE_LON + STEP * node_id, BASE_LAT + STEP * (node_id % 2))
-        for way_id, node_ids, tags in WAYS:
-            wkt = "LINESTRING(" + ", ".join(
-                f"{BASE_LON + STEP * n} {BASE_LAT + STEP * (n % 2)}" for n in node_ids) + ")"
-            await conn.execute(
-                "INSERT INTO source_features (source, natural_key, run_id, geom, attrs, payload)"
-                " VALUES ('osm_way', $1, $2, ST_GeomFromText($3, 4326), $4::jsonb, $5)",
-                str(way_id), runs["osm_way"], wkt, json.dumps(tags),
-                struct.pack(f"<{len(node_ids)}q", *node_ids))
+        await ingest_records("osm_node", [point_record(n, *_point(n)) for n in range(1, 5)], conn=conn)
+        await ingest_records("osm_way", [
+            way_record(way_id, [_point(n) for n in node_ids], node_ids, tags)
+            for way_id, node_ids, tags in WAYS], conn=conn)
         await derive_topology.derive(conn)
-        await conn.execute(
-            "INSERT INTO way_materials (osm_way_id, source_run_id) SELECT DISTINCT osm_way_id, $1::bigint FROM road_edges",
-            runs["osm_way"])
         await conn.execute("INSERT INTO derived_data_meta (id, revision) VALUES (1, 5)")
         yield conn
     finally:
@@ -144,6 +130,17 @@ async def test_readers_see_the_previous_tables_until_the_swap_and_the_rebuilt_on
         "SELECT count(*) FROM pg_namespace WHERE nspname = $1", derive_cli.WORK_SCHEMA) == 0
 
 
+async def test_rebuilding_from_the_first_stage_keeps_the_tables_and_their_constraints(derived_before):
+    """最初の段から流しても、区間・ノード・道の行を外部キーごと作り直して入れ替えられる。"""
+    structure_before = await derived_before.fetch(_STRUCTURE_SQL, list(DERIVED))
+
+    assert await derive_cli.run(postgis_database_url(), None) == 0
+
+    rows = await derived_before.fetch("SELECT osm_way_id, direction FROM way_materials ORDER BY osm_way_id")
+    assert [(r["osm_way_id"], r["direction"]) for r in rows] == [(100, "forward"), (200, "both")]
+    assert await derived_before.fetch(_STRUCTURE_SQL, list(DERIVED)) == structure_before
+
+
 async def test_a_failed_rebuild_changes_nothing_readers_see(derived_before, monkeypatch):
     """途中で落ちたら、表も世代も道路網の置き場も前のまま。作業用のスキーマは残らない。"""
 
@@ -173,9 +170,9 @@ async def test_the_signal_radius_set_on_the_admin_screen_decides_which_nodes_get
 
     信号はノード2だけ。隣のノード1・3は約140m、ノード4は約180m離れている。
     """
-    await derived_before.execute(
-        "UPDATE source_features SET attrs = $1::jsonb WHERE source = 'osm_node' AND natural_key = '2'",
-        json.dumps({"highway": "traffic_signals"}))
+    await ingest_records("osm_node", [
+        point_record(n, *_point(n), {"highway": "traffic_signals"} if n == 2 else None) for n in range(1, 5)],
+        conn=derived_before)
 
     assert await derive_cli.run(postgis_database_url(), "nodes") == 0
     assert await _nodes_with_signal(derived_before) == {2}
@@ -187,3 +184,43 @@ async def test_the_signal_radius_set_on_the_admin_screen_decides_which_nodes_get
     finally:
         await derived_before.execute("DELETE FROM tuning_overrides WHERE param_id = 'signal.match_radius_m'")
     assert await _nodes_with_signal(derived_before) == {1, 2, 3}
+
+
+async def test_the_accident_density_is_divided_by_the_years_of_the_import_that_was_counted(
+        derived_before, road_graph_engine, monkeypatch):
+    """事故密度の分母（収録年数）は、今の数を数えた事故の取込の年から読む。取り込み直しても、作り直しが
+    入れ替わるまでは前の取込の年のまま（数も前のまま）で、入れ替えた後は新しい取込の年になり、その世代の
+    道路網も新しい年数で割っている。"""
+
+    async def accident_years() -> list[int]:
+        async with AsyncSession(road_graph_engine) as session:
+            return await RoadGraphRepository(session).get_accident_years()
+
+    def density_on_way_100() -> float:
+        network = road_network_store.load(road_network_store.latest_directory())
+        column = network.numeric_ids.index(ACCIDENT_COUNT_PER_KM_YEAR)
+        return float(network.numeric_values[network.edge_way_id == 100, column].max())
+
+    # 道100の途中のノード2の上で、自転車の関わった事故が1件。
+    accident = point_record("on-way-100", *_point(2), {
+        "当事者種別（当事者A）": min(BICYCLE_PARTY_TYPE_CODES), "当事者種別（当事者B）": "59", "死者数": "000"})
+    await ingest_records("accident", [accident], conn=derived_before, rows=HonhyoRows(years=[2024]))
+    assert await derive_cli.run(postgis_database_url(), "counts") == 0
+    one_year = density_on_way_100()
+
+    await ingest_records("accident", [accident], conn=derived_before, rows=HonhyoRows(years=[2023, 2024]))
+    seen_while_rebuilding: list[list[int]] = []
+
+    async def observe():
+        seen_while_rebuilding.append(await accident_years())
+
+    _observe_after("counts", monkeypatch, observe)
+    years_before_rebuild = await accident_years()
+
+    assert await derive_cli.run(postgis_database_url(), "counts") == 0
+
+    # 前提: 1年で割った密度が出ている。
+    assert one_year > 0
+    assert (years_before_rebuild, seen_while_rebuilding) == ([2024], [[2024]])
+    assert await accident_years() == [2023, 2024]
+    assert density_on_way_100() == pytest.approx(one_year / 2)

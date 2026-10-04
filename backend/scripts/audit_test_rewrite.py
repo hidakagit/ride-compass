@@ -7,7 +7,8 @@ r"""起こし直したテストを機械で監査する。報告の自己申告�
 - ① 実装を変えていないか（テストの起こし直しで実装が変わったら、それは別の作業）
 - ② テストからの`app.*`直接import（対象モジュールと、対象の公開シグネチャが要求する型だけ）
 - ③ テストが触る`<対象>.X`の内訳（自ファイル定義／他モジュール由来）。他モジュール由来は
-  1件ずつ「差し替えのseamか、責務外か」を人が言う
+  1件ずつ「差し替えのseamか、責務外か」を人が言う。`scripts/`の道具はテストが`sys.path`へ足して
+  素で`import <道具名>`するので、その名前も対象として読む
 - ④ 実装へ1行も入らないテスト（`--cov-context=test`で実測する。**静的解析は誤検知する**
   ——`setattr(mod, ...)`の形やヘルパ経由を数え落とした実績が2回ある）
 - ⑤ 行・分岐カバレッジ
@@ -15,8 +16,9 @@ r"""起こし直したテストを機械で監査する。報告の自己申告�
 **機械化できないものは残る。** 「そのテストは要るか」の3問と、「本番で作れない入力を
 使っていないか」の突き合わせは、対象ごとに値域の導出が要るため人が読む。
 
-実行方法（backendディレクトリから）:
+実行方法（backendディレクトリから。テストは母集団——対象のモジュール名を書くテスト全部——を並べて渡す）:
     .venv\Scripts\python.exe scripts\audit_test_rewrite.py app/domain/routing.py tests/test_routing.py
+    .venv\Scripts\python.exe scripts\audit_test_rewrite.py app/domain/geo.py tests/test_geo.py tests/test_region.py
     .venv\Scripts\python.exe scripts\audit_test_rewrite.py --no-jit app/domain/routing.py tests/test_routing.py
     .venv\Scripts\python.exe scripts\audit_test_rewrite.py --backend ../.claude/worktrees/agent-x/backend \
         app/infrastructure/wbgt_client.py tests/test_wbgt_client.py
@@ -27,18 +29,25 @@ JITを通る対象はこれを付けないと⑤が実態より低く出る。
 カバレッジは対象の親ディレクトリを`--cov`に渡して測り、報告と④を対象ファイルへ絞る。
 ドット記法の`--cov`はcoverage.pyが対象の親パッケージを収集より前にimportするため、
 api層の対象ではconftestのimportでnumpyが2度読み込まれて収集ごと落ちる。ファイルのパスを
-渡すと何も報告されない。測るのは`-m "not postgis"`のテストだけ。
+渡すと何も報告されない。`postgis`の印のテストは、テスト用DBのサーバーへ繋がるときだけ
+含めて測り、繋がらなければ外したことを出す。
 """
 
 import argparse
 import ast
+import asyncio
 import os
 import subprocess
 import sys
 from collections import defaultdict
 from pathlib import Path
 
+import asyncpg
 from coverage import CoverageData
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from app.batch._common import asyncpg_dsn  # noqa: E402  sys.pathを通した後に読む
 
 
 def module_symbols(path: Path) -> tuple[set[str], dict[str, str]]:
@@ -74,6 +83,16 @@ def app_imports(tree: ast.AST) -> list[tuple[str, str]]:
     return out
 
 
+def bare_import_alias(tree: ast.AST, name: str) -> str | None:
+    """`sys.path`へ足したディレクトリから素で`import <name>`したときの束縛名（`scripts/`の道具を読む形）。"""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for a in node.names:
+                if a.name == name:
+                    return a.asname or a.name
+    return None
+
+
 def touched_attributes(tree: ast.AST, alias: str) -> dict[str, int]:
     """テストが`alias.X`として触った属性。
 
@@ -96,6 +115,22 @@ def touched_attributes(tree: ast.AST, alias: str) -> dict[str, int]:
                 ):
                     touched[attr.value] += 1
     return dict(touched)
+
+
+def monkeypatch_seams(tree: ast.AST) -> set[str]:
+    """`monkeypatch.setattr`の第2引数の文字列（差し替えた属性の名前）。testing.mdの seams 数はこのユニーク数。"""
+    return {
+        node.args[1].value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "setattr"
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "monkeypatch"
+        and len(node.args) >= 2
+        and isinstance(node.args[1], ast.Constant)
+        and isinstance(node.args[1].value, str)
+    }
 
 
 def unresolved_attribute_calls(tree: ast.AST, alias: str) -> list[int]:
@@ -168,18 +203,45 @@ def tests_that_never_enter_the_implementation(
     return sorted(executed - entered), len(executed)
 
 
+def test_database_unreachable(backend: Path) -> str | None:
+    """PostGISのテストが繋ぐDBのサーバーへ繋がらない理由。繋がればNone。
+
+    行き先はテストと同じ規則（`tests/conftest.py: postgis_database_url`）から取る。作業ツリー
+    専用のDBは最初のpytestの実行が作るため、`TEST_DATABASE_URL`が無ければサーバーの管理DBで確かめる。
+    conftestは子プロセスで読む（このファイルからimportすると、型検査の対象外のtestsをmypyが辿る）。
+    """
+    url = os.environ.get("TEST_DATABASE_URL") or subprocess.run(
+        [sys.executable, "-c", "from tests.conftest import TEST_DATABASE_MAINTENANCE as url; print(url)"],
+        cwd=backend, capture_output=True, text=True, check=True,
+    ).stdout.strip()
+
+    async def connect() -> None:
+        conn = await asyncpg.connect(asyncpg_dsn(url), timeout=5)
+        await conn.close()
+
+    try:
+        asyncio.run(connect())
+    except Exception as exc:  # noqa: BLE001 繋がらない理由はそのまま出す
+        return f"{type(exc).__name__}: {exc}"
+    return None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="起こし直したテストを機械で監査する")
     parser.add_argument("implementation", help="実装ファイル（backendディレクトリからの相対パス）")
-    parser.add_argument("test", help="テストファイル（同上）")
+    parser.add_argument("tests", nargs="+", help="テストファイル（同上）。母集団を並べて渡す")
     parser.add_argument("--backend", default=".", help="別の作業ツリーのbackendディレクトリ（既定: .）")
     parser.add_argument("--no-jit", action="store_true", help="NUMBA_DISABLE_JIT=1で測る")
     args = parser.parse_args()
 
+    not_python = [test for test in args.tests if not test.endswith(".py")]
+    if not_python:
+        print(f".py でないテスト: {' '.join(not_python)}", file=sys.stderr)
+        print("母集団は grep に --include='*.py' を付けて出し直す", file=sys.stderr)
+        return 1
     backend = Path(args.backend).resolve()
     impl_path = backend / args.implementation
-    test_path = backend / args.test
-    for path in (impl_path, test_path):
+    for path in (impl_path, *(backend / test for test in args.tests)):
         if not path.exists():
             print(f"見つからない: {path}", file=sys.stderr)
             return 1
@@ -188,8 +250,13 @@ def main() -> int:
     cov_dir = implementation.rsplit("/", 1)[0]
 
     print(f"対象:     {args.implementation}")
-    print(f"テスト:   {args.test}")
+    print(f"テスト:   {' '.join(args.tests)}")
     print(f"--cov:    {cov_dir}（親ディレクトリで測り、対象ファイルへ絞る）")
+    unreachable = test_database_unreachable(backend)
+    if unreachable:
+        print(f"postgis:  **外す**（テスト用DBに繋がらない: {unreachable}）")
+    else:
+        print("postgis:  含める（テスト用DBに繋がる）")
     print("=" * 78)
 
     # --- ① 実装を変えていないか ---
@@ -199,30 +266,38 @@ def main() -> int:
     ).stdout.strip()
     print(f"\n① 実装の変更: {'**あり** → ' + status if status else 'なし'}")
 
-    tree = ast.parse(test_path.read_text(encoding="utf-8"))
+    defined, imported = module_symbols(impl_path)
+    for test in args.tests:
+        tree = ast.parse((backend / test).read_text(encoding="utf-8"))
+        print(f"\n--- {test}")
+        seams = monkeypatch_seams(tree)
+        print(f"   seams（monkeypatch.setattrの第2引数のユニーク数）: {len(seams)}"
+              + (f"（{', '.join(sorted(seams))}）" if seams else ""))
 
-    # --- ② app.* 直接import ---
-    imports = app_imports(tree)
-    print(f"\n② テストからの app.* 直接import: {len(imports)}本")
-    for line, _ in imports:
-        print(f"     {line}")
-    print("     ← 許されるのは対象モジュールと、対象の公開シグネチャが要求する型だけ。")
-    print("       他モジュールの関数・サービス・例外・定数は対象の名前空間経由で触ること")
+        # --- ② app.* 直接import ---
+        imports = app_imports(tree)
+        print(f"② テストからの app.* 直接import: {len(imports)}本")
+        for line, _ in imports:
+            print(f"     {line}")
+        if imports:
+            print("     ← 許されるのは対象モジュールと、対象の公開シグネチャが要求する型だけ。")
+            print("       他モジュールの関数・サービス・例外・定数は対象の名前空間経由で触ること")
 
-    # --- ③ <対象>.X の内訳 ---
-    alias = next((name for _, name in imports if module.endswith(name)), None)
-    if alias is None and imports:
-        alias = imports[0][1]
-    if alias is None:
-        print("\n③ 対象モジュールをimportしていない"
-              "（ファイル名が指すモジュールを検証していない可能性）")
-    else:
-        defined, imported = module_symbols(impl_path)
+        # --- ③ <対象>.X の内訳 ---
+        alias = next((name for _, name in imports if module.endswith(name)), None) or bare_import_alias(
+            tree, module.rsplit(".", 1)[-1]
+        )
+        if alias is None and imports:
+            alias = imports[0][1]
+        if alias is None:
+            print("③ 対象モジュールをimportしていない"
+                  "（ファイル名が指すモジュールを検証していない可能性）")
+            continue
         touched = touched_attributes(tree, alias)
         own = sorted(a for a in touched if a in defined)
         foreign = sorted((a, imported[a]) for a in touched if a in imported and a not in defined)
         unknown = sorted(a for a in touched if a not in defined and a not in imported)
-        print(f"\n③ テストが触る {alias}.X: 自ファイル定義 {len(own)}種"
+        print(f"③ テストが触る {alias}.X: 自ファイル定義 {len(own)}種"
               f" / 他モジュール由来 {len(foreign)}種 / 判定不能 {len(unknown)}種")
         for name, source in foreign:
             print(f"     {alias}.{name:<32} <- {source}  ({touched[name]}回)"
@@ -242,7 +317,8 @@ def main() -> int:
     if args.no_jit:
         env["NUMBA_DISABLE_JIT"] = "1"
     result = subprocess.run(
-        [sys.executable, "-m", "pytest", args.test, "-q", "-rA", "-m", "not postgis", "-p", "no:randomly",
+        [sys.executable, "-m", "pytest", *args.tests, "-q", "-rA", *(["-m", "not postgis"] if unreachable else []),
+         "-p", "no:randomly",
          f"--cov={cov_dir}", "--cov-branch", "--cov-context=test", "--cov-report=term-missing"],
         cwd=backend, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
@@ -263,7 +339,7 @@ def main() -> int:
     )
     print(f"\n④ 実装へ1行も入らないテスト: {len(dead)} / {total}")
     for name in dead:
-        print("     " + name.split("::", 1)[1])
+        print("     " + (name if len(args.tests) > 1 else name.split("::", 1)[1]))
 
     print("\n" + "=" * 78)
     print("機械化できないもの（人が読む）:"

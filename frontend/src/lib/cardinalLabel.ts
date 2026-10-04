@@ -1,7 +1,8 @@
 /** 角度を方位の呼び名へ。**画面部品ではなくここに置く**（描くものの持ち物ではない）。
  *
  * 呼び名の並びは源泉が配り（`domain/geo.py: COMPASS_LABELS`）、区分の幅はその数から決まる。
- * 丸め方だけが画面側にあり、**backendと同じhalf-up**でなければ区分の境界でラベルが食い違う。
+ * 丸め方だけが画面側にあり、区分の境界を含む角度でbackendと同じ呼び名になることは、backendが出す
+ * 表（生成物`geo-expectations.json`）をテストが通して確かめる。
  */
 import { mapDisplay } from "@/types/generated/mapDisplay";
 

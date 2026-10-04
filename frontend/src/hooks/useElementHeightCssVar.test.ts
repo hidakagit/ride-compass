@@ -1,65 +1,127 @@
+/**
+ * 要素の高さを祖先の CSS 変数へ書き続けるフック（`hooks/useElementHeightCssVar.ts: useElementHeightCssVar`）——
+ * 書き始めた時点の高さを書き、大きさが変わるたびに書き直し、外れたら変数を消す。
+ *
+ * ここで見ないもの:
+ * - 変数を読んで位置をずらす CSS → 呼び出し側の部品（実寸はテスト環境に無い）
+ *
+ * 差し替えたもの: テスト環境に無いレイアウトの実寸——要素の高さ（`getBoundingClientRect`）と、大きさの変化を
+ * 知らせる `ResizeObserver`。代役は観察中の要素へだけ知らせ、`disconnect` のあとは知らせない（本物と同じ約束）。
+ */
 import { renderHook } from "@testing-library/react";
-import { useRef } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { useElementHeightCssVar } from "./useElementHeightCssVar";
 
-// jsdomはResizeObserverを実装しない（AxisStudio.test.tsxと
-// 同じ既知の欠落への対処、同じ最小モックを使う）。
-class ResizeObserverMock {
-  callback: ResizeObserverCallback;
-  observed: Element[] = [];
-  constructor(callback: ResizeObserverCallback) {
-    this.callback = callback;
+const VAR = "--measured-height";
+
+/** 観察中の要素と、その知らせ先。 */
+const observing = new Map<Element, Set<ResizeObserverCallback>>();
+
+class FakeResizeObserver {
+  private readonly targets = new Set<Element>();
+  constructor(private readonly callback: ResizeObserverCallback) {}
+  observe(target: Element) {
+    this.targets.add(target);
+    if (!observing.has(target)) observing.set(target, new Set());
+    observing.get(target)!.add(this.callback);
   }
-  observe = vi.fn((el: Element) => {
-    this.observed.push(el);
-  });
-  unobserve = vi.fn();
-  disconnect = vi.fn();
+  unobserve(target: Element) {
+    this.targets.delete(target);
+    observing.get(target)?.delete(this.callback);
+  }
+  disconnect() {
+    for (const target of [...this.targets]) this.unobserve(target);
+  }
 }
 
-describe("useElementHeightCssVar", () => {
-  beforeEach(() => {
-    window.ResizeObserver = ResizeObserverMock as unknown as typeof ResizeObserver;
-  });
-
-  function renderWithRefs() {
-    return renderHook(() => {
-      const measureRef = useRef<HTMLDivElement>(null);
-      const targetRef = useRef<HTMLDivElement>(null);
-      if (!measureRef.current) {
-        measureRef.current = document.createElement("div");
-      }
-      if (!targetRef.current) {
-        targetRef.current = document.createElement("div");
-      }
-      useElementHeightCssVar(measureRef, targetRef, "--test-height");
-      return { measureRef, targetRef };
-    });
+/** 要素の大きさが変わったことを、観察している側へ知らせる。 */
+function resize(element: Element, entries: Partial<ResizeObserverEntry>[]) {
+  for (const callback of observing.get(element) ?? []) {
+    callback(entries as ResizeObserverEntry[], {} as ResizeObserver);
   }
+}
 
-  it("マウント時にtargetRefへCSS変数を初期値でセットする", () => {
-    const { result } = renderWithRefs();
+function elementOfHeight(height: number): HTMLElement {
+  const element = document.createElement("div");
+  element.getBoundingClientRect = () => ({ height }) as DOMRect;
+  return element;
+}
 
-    expect(result.current.targetRef.current?.style.getPropertyValue("--test-height")).toBe("0px");
+function mount(measure: HTMLElement | null, target: HTMLElement | null, varName = VAR) {
+  return renderHook(({ varName }) => useElementHeightCssVar({ current: measure }, { current: target }, varName), {
+    initialProps: { varName },
+  });
+}
+
+beforeEach(() => {
+  vi.stubGlobal("ResizeObserver", FakeResizeObserver);
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  observing.clear();
+});
+
+describe("useElementHeightCssVar", () => {
+  it("書き始めた時点の高さを、祖先の変数へ px で書く", () => {
+    const target = document.createElement("div");
+
+    mount(elementOfHeight(42), target);
+
+    expect(target.style.getPropertyValue(VAR)).toBe("42px");
   });
 
-  it("アンマウント時にtargetRefからCSS変数を削除する", () => {
-    const { result, unmount } = renderWithRefs();
-    expect(result.current.targetRef.current?.style.getPropertyValue("--test-height")).toBe("0px");
+  it("大きさが変わるたびに、知らされた高さで書き直す", () => {
+    const measure = elementOfHeight(42);
+    const target = document.createElement("div");
+    mount(measure, target);
+
+    resize(measure, [{ contentRect: { height: 64 } as DOMRectReadOnly }]);
+
+    expect(target.style.getPropertyValue(VAR)).toBe("64px");
+  });
+
+  it("中身の無い知らせでは書き換えない", () => {
+    const measure = elementOfHeight(42);
+    const target = document.createElement("div");
+    mount(measure, target);
+
+    resize(measure, []);
+
+    expect(target.style.getPropertyValue(VAR)).toBe("42px");
+  });
+
+  it("外れると変数を消し、そのあと大きさが変わっても書かない", () => {
+    const measure = elementOfHeight(42);
+    const target = document.createElement("div");
+    const { unmount } = mount(measure, target);
 
     unmount();
+    resize(measure, [{ contentRect: { height: 64 } as DOMRectReadOnly }]);
 
-    expect(result.current.targetRef.current?.style.getPropertyValue("--test-height")).toBe("");
+    expect(target.style.getPropertyValue(VAR)).toBe("");
   });
 
-  it("measureRefまたはtargetRefが無い場合は何もせず例外を投げない", () => {
-    expect(() =>
-      renderHook(() => {
-        const measureRef = useRef<HTMLDivElement>(null);
-        const targetRef = useRef<HTMLDivElement>(null);
-        useElementHeightCssVar(measureRef, targetRef, "--test-height");
-      }),
-    ).not.toThrow();
+  it("変数の名前が変わると、前の名前を消して新しい名前へ書く", () => {
+    const target = document.createElement("div");
+    const { rerender } = mount(elementOfHeight(42), target);
+
+    rerender({ varName: "--other-height" });
+
+    expect(target.style.getPropertyValue(VAR)).toBe("");
+    expect(target.style.getPropertyValue("--other-height")).toBe("42px");
+  });
+
+  it("測る要素がまだ無ければ、何も書かない", () => {
+    const target = document.createElement("div");
+
+    mount(null, target);
+
+    expect(target.style.getPropertyValue(VAR)).toBe("");
+  });
+
+  it("書く先がまだ無くても落ちない（描き分けで祖先が後から出る）", () => {
+    expect(() => mount(elementOfHeight(42), null)).not.toThrow();
   });
 });

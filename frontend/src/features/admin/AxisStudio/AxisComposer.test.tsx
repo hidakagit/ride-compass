@@ -84,9 +84,6 @@ function axis(overrides: Partial<AxisDefinitionResponse> = {}): AxisDefinitionRe
     show_map_icon: true,
     time_scope: "always",
     dedicated_way_value_layer: false,
-    dynamic_way_value_needs_time: false,
-    dynamic_way_value_needs_bearing: false,
-    dynamic_way_value_needs_speed: false,
     shape: {
       kind: "breakpoint_linear",
       terms: [{ material: NUM.id, weight: 1, required: true }],
@@ -115,7 +112,17 @@ function renderComposer(props: ComposerProps = {}) {
   const onCancelEdit = vi.fn();
   const user = userEvent.setup();
   const view = render(
-    <AxisComposer editing={null} duplicateFrom={null} onSave={onSave} onCancelEdit={onCancelEdit} {...props} />,
+    <AxisComposer
+      editing={null}
+      duplicateFrom={null}
+      otherAxes={[]}
+      mapBandColors={undefined}
+      mapValueUnit=""
+      republishing={false}
+      onSave={onSave}
+      onCancelEdit={onCancelEdit}
+      {...props}
+    />,
   );
   return { user, onSave, onCancelEdit, ...view };
 }
@@ -141,9 +148,6 @@ describe("保存するpayload", () => {
       priority_overrides: [{ material: CAT.id, equals: "x", value: 1 }],
       time_scope: "night_only",
       dedicated_way_value_layer: true,
-      dynamic_way_value_needs_time: true,
-      dynamic_way_value_needs_bearing: true,
-      dynamic_way_value_needs_speed: true,
       icon_id: "icon_a",
       chip_label: "略",
       panel_hint: "補足",
@@ -311,14 +315,8 @@ describe("節へ渡すもの", () => {
 });
 
 describe("既定重みの参考表示", () => {
-  it("ほかの軸を渡されていなければ、出さない", () => {
-    renderComposer({ editing: axis({ is_published: false }) });
-    expect(screen.queryByText(/参考:/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/現在非公開のため/)).not.toBeInTheDocument();
-  });
-
   it("下書きの軸には、公開するまで重みが効かないと言う", () => {
-    renderComposer({ editing: axis({ is_published: false }), otherAxes: [] });
+    renderComposer({ editing: axis({ is_published: false }) });
     expect(screen.getByText(/現在非公開のため/)).toBeInTheDocument();
   });
 

@@ -24,7 +24,7 @@ import asyncpg
 
 from app.batch._common import PROGRESS_INTERVAL_SECONDS, format_progress
 from app.batch.source_profile import NoFields, SourceProfile, SourceSpec
-from app.infrastructure.source_models import SUCCEEDED
+from app.infrastructure.source_models import SourceRunStatus
 
 logger = logging.getLogger("ridecompass.ingest")
 
@@ -93,29 +93,27 @@ def partition_table_name(source: str) -> str:
     return f"source_features_{source}"
 
 
-async def ensure_partition(conn: asyncpg.Connection, source: str) -> None:
-    """そのソースの子パーティションと、その空間索引を用意する。
+async def _ensure_partition(conn: asyncpg.Connection, source: str) -> None:
+    """そのソースの子パーティションを用意する。
 
     どのソースが在るかはデータで決まるため、宣言（ORMモデル）ではなく取込の側が作る。
-
-    生データは範囲や近さで引かれる（事故を区間へ割り当てる、信号を交差点へ割り当てる）。
-    索引が無いと総なめになるため、パーティションと一緒に張る。
+    空間の索引は親の表の宣言（`infrastructure/source_models.py: SourceFeatureRow`）にあり、PostgreSQLが
+    子パーティションへ張る。
     """
     table = partition_table_name(source)
     await conn.execute(
         f'CREATE TABLE IF NOT EXISTS "{table}" '
         f"PARTITION OF source_features FOR VALUES IN ($tag${source}$tag$)"
     )
-    await conn.execute(f'CREATE INDEX IF NOT EXISTS "{table}_geom_idx" '
-                       f'ON "{table}" USING GIST (geom)')
 
 
 async def _open_run(conn: asyncpg.Connection, spec: SourceSpec, profile: SourceProfile,
                     origin: dict[str, Any]) -> int:
     return await conn.fetchval(
         "INSERT INTO source_runs (source, status, started_at, origin, profile, counts) "
-        "VALUES ($1, 'running', $2, $3, $4, $5) RETURNING run_id",
+        "VALUES ($1, $2, $3, $4, $5, $6) RETURNING run_id",
         spec.name,
+        SourceRunStatus.RUNNING,
         datetime.now(timezone.utc),
         _json(origin),
         _json({"profile_hash": profile.profile_hash, "target": asdict(profile.target),
@@ -124,7 +122,7 @@ async def _open_run(conn: asyncpg.Connection, spec: SourceSpec, profile: SourceP
     )
 
 
-async def _close_run(conn: asyncpg.Connection, run_id: int, status: str,
+async def _close_run(conn: asyncpg.Connection, run_id: int, status: SourceRunStatus,
                      counts: dict[str, Any], origin: dict[str, Any]) -> None:
     """runを閉じる。`origin`はアダプタが走り終わってからでないと確定しないため、
     開くときではなくここで書く（ファイルの実体・配信元のタイムスタンプは、読みに
@@ -162,7 +160,7 @@ async def ingest_source(
     spec = profile.source(source_name)
     adapter = ADAPTERS[spec.adapter].read
 
-    await ensure_partition(conn, spec.name)
+    await _ensure_partition(conn, spec.name)
     origin: dict[str, Any] = {}
     run_id = await _open_run(conn, spec, profile, origin)
     started = time.perf_counter()
@@ -183,29 +181,33 @@ async def ingest_source(
 
     try:
         async with conn.transaction():
-            await _replace_rows(conn, spec.name, run_id, rows())
+            locked_at = await _replace_rows(conn, spec.name, run_id, rows())
             elapsed = time.perf_counter() - started
-            await _close_run(conn, run_id, SUCCEEDED,
+            await _close_run(conn, run_id, SourceRunStatus.SUCCEEDED,
                              {"records": written, "elapsed_seconds": round(elapsed, 1)}, origin)
+        locked = time.perf_counter() - locked_at
     except BaseException:
         elapsed = time.perf_counter() - started
         logger.warning("取込失敗: source=%s run_id=%d records=%d elapsed=%.1fs",
                        spec.name, run_id, written, elapsed)
         try:
-            await _close_run(conn, run_id, "failed",
+            await _close_run(conn, run_id, SourceRunStatus.FAILED,
                              {"records": written, "elapsed_seconds": round(elapsed, 1)}, origin)
         except Exception:
             logger.warning("取込の失敗をrunへ書けなかった（runは running のまま残る）: run_id=%d",
                            run_id, exc_info=True)
         raise
-    logger.info("取込完了: source=%s run_id=%d records=%d elapsed=%.1fs",
-                spec.name, run_id, written, elapsed)
+    logger.info("取込完了: source=%s run_id=%d records=%d elapsed=%.1fs パーティションの排他ロック（待ちを含む）=%.1fs",
+                spec.name, run_id, written, elapsed, locked)
     return run_id
 
 
 async def _replace_rows(conn: asyncpg.Connection, source: str, run_id: int,
-                        rows: AsyncIterator[tuple[str, bytes, str, bytes | None, bytes | None]]) -> None:
-    """そのソースのパーティションの行を、`rows`で入れ替える。トランザクションの中で呼ぶ。"""
+                        rows: AsyncIterator[tuple[str, bytes, str, bytes | None, bytes | None]]) -> float:
+    """そのソースのパーティションの行を、`rows`で入れ替える。トランザクションの中で呼ぶ。
+
+    パーティションの排他ロックを取りにいった時刻（`time.perf_counter()`）を返す。ロックはコミットまで続く。
+    """
     staging = f"_stage_{source}"
     await conn.execute(f'CREATE TEMP TABLE "{staging}" '
                        "(natural_key text, geom_wkb bytea, attrs jsonb, payload bytea, rast bytea) "
@@ -218,6 +220,7 @@ async def _replace_rows(conn: asyncpg.Connection, source: str, run_id: int,
 
     # そのソースぶんだけを入れ替える。パーティションを切ってあるので他のソースへ触らない。
     partition = partition_table_name(source)
+    locked_at = time.perf_counter()
     await conn.execute(f'TRUNCATE "{partition}"')
     await conn.execute(
         f'INSERT INTO "{partition}" '
@@ -232,3 +235,4 @@ async def _replace_rows(conn: asyncpg.Connection, source: str, run_id: int,
     # 永久に拾わないため、タイルのように枚数の少ないソースは自動では統計を持てない。
     # 統計の無い表を派生が読むと、実行計画が桁で外れる。
     await conn.execute(f'ANALYZE "{partition}"')
+    return locked_at

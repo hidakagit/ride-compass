@@ -1,388 +1,473 @@
 // @vitest-environment node
 /**
- * 要素ごとに検査するテストが、空の母集団で何も確かめずに通らないことの検査
- * （規約は docs/conventions/testing.md パターン6。backend側は`tests/structure/test_vacuous_loops.py`）。
+ * 要素ごとに確かめるテストが、母集団が空のとき何も確かめずに通る形になっていないかを見る
+ * （規約は docs/conventions/testing.md パターン6。backend の同じ検査は
+ * `backend/tests/structure/test_vacuous_loops.py`）。
  *
- * 母集団が0件になると、要素ごとの`expect`は1回も走らずテストは緑になる。
+ * 母集団は`frontend/src`配下の全`*.test.ts(x)`で、TypeScriptの構文木で読む。
  *
- * 性質は「絞り込んだ後の要素にしか届かないアサーション」で、絞り込みの書き方によらない。
- * 母集団はソースから導く——`frontend/src`配下の全`*.test.ts(x)`をTypeScriptの構文木で読み、
- * `it`/`test`のコールバックの中の要素ごとの検査を数える:
+ * 要素ごとの確かめ:
+ * - 本体に`expect(...)`・`assert(...)`がある`for...of`・`for...in`・`.forEach(...)`
+ * - 空なら真になる量化（`expect(xs.every(...)).toBe(true)`・`expect(xs.some(...)).toBe(false)`と、
+ *   `toBeTruthy`・`toBeFalsy`・`.not`で同じ意味になるもの）
  *
- * - 本体に`expect(...)`がある`for...of`・`.forEach(...)`と、空なら真になる量化
- *   （`expect(xs.every(...)).toBe(true)`・`expect(xs.some(...)).toBe(false)`等）
- * - 絞り込みがその場にある: 反復対象が`.filter(...)`を経ている、またはループ本体の条件
- *   （`if`の片側だけに`expect`がある・`continue`等で抜ける）を通らないと`expect`へ届かない。
- *   絞り込んだ後の母集団に名前が無く、空でないことを主張できないため常に違反になる
- * - 絞り込みが名前の宣言にある: 反復対象が名前（か、引数の無いその呼び出し）なら、同じ
- *   コールバック（無ければファイル直下）でのその名前の`const`/`let`宣言を見る。
- *   `Object.entries/values/keys(...)`・`.entries()/.values()/.keys()`は件数を変えないので剥がして読む。
- *   同じコールバックに、その名前が空でないことの主張
- *   （`expect(xs).not.toHaveLength(0)`・`expect(xs).toHaveLength(3)`・
- *   `expect(xs.length).toBeGreaterThan(0)`・`toBeGreaterThanOrEqual(1)`・`toBe(3)`）が無ければ違反
+ * 違反（どれか1つ）:
+ * 1. 反復対象がその場で`.filter(...)`を経ている（絞った後の母集団に名前が無く、空でないことを主張できない）
+ * 2. ループ本体の条件を通らないと確かめに届かない——片側にだけ確かめがある`if`・三項・`catch`・
+ *    `&&`/`||`/`??`の右側、または本体の`continue`・`break`（`.forEach`ではコールバック直下の`return`）
+ * 3. 反復対象の名前が`.filter(...)`で束ねられていて、同じ関数（テストのコールバック）に、その名前か、
+ *    件数を変えずにそれを写した名前が空でないことの主張が無い。主張として読む形:
+ *    `expect(xs).toHaveLength(n)`（n>0）・`expect(xs).not.toHaveLength(0)`・
+ *    `expect(xs.length).toBeGreaterThan(n)`（n>=0）・`toBeGreaterThanOrEqual(n)`（n>=1）・`toBe(n)`（n>0）・
+ *    `.not.toBe(0)`
+ *
+ * 件数を変えない写し（`.map`・`.sort`・`.toSorted`・`.reverse`・`.entries()`等・`Object.entries/values/keys`・
+ * `Array.from`・`[...xs]`）は剥がして読み、名前は引数の無い呼び出し（`xs()`）も含めて、外側の
+ * スコープの`const`/`let`/`function`宣言へ辿る。
+ *
+ * 見ないもの: 反復対象が関数の引数のループ（母集団は呼び出し側が決める）。量化のコールバックの中の
+ * 条件（`xs.every((x) => !cond || ok)`）。上に無い形の空でないことの主張（`expect(xs).toEqual([...])`等）は
+ * 読まないので、そのときは上の形の主張を1行足す。
  */
-import { mkdtempSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join, relative } from "node:path";
-
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
-const SRC = join(__dirname, "..");
-const TEST_FILE = /\.test\.tsx?$/;
-const SIZE_PRESERVING = new Set(["entries", "values", "keys"]);
+import { SRC_ROOT, walkTree } from "./sourceTree";
 
-type Flow = "asserts" | "exits" | "falls";
-type Callback = ts.ArrowFunction | ts.FunctionExpression;
+type Finding = { file: string; line: number; reason: string };
 
-function walk(dir: string): string[] {
-  return readdirSync(dir).flatMap((name) => {
-    const full = join(dir, name);
-    if (statSync(full).isDirectory()) return walk(full);
-    return TEST_FILE.test(name) ? [full] : [];
+const FILTERED_HERE = "反復対象がその場で絞り込まれている";
+const GATED = "本体の条件を通らないと確かめに届かない";
+const NOT_ASSERTED = "絞り込んだ名前が空でないことの主張が同じ関数に無い";
+
+const ASSERTION_ROOTS = new Set(["expect", "assert"]);
+const SAME_COUNT_METHODS = new Set(["map", "sort", "toSorted", "reverse", "toReversed", "entries", "values", "keys"]);
+const SAME_COUNT_FUNCTIONS = new Set(["Object.entries", "Object.values", "Object.keys", "Array.from"]);
+
+function unwrap(node: ts.Expression): ts.Expression {
+  let current = node;
+  while (
+    ts.isParenthesizedExpression(current) ||
+    ts.isAsExpression(current) ||
+    ts.isNonNullExpression(current) ||
+    ts.isSatisfiesExpression(current)
+  ) {
+    current = current.expression;
+  }
+  return current;
+}
+
+function calleeName(call: ts.CallExpression): string {
+  const callee = call.expression;
+  if (ts.isIdentifier(callee)) return callee.text;
+  if (ts.isPropertyAccessExpression(callee) && ts.isIdentifier(callee.expression)) {
+    return `${callee.expression.text}.${callee.name.text}`;
+  }
+  return "";
+}
+
+function isAssertionCall(node: ts.Node): boolean {
+  if (!ts.isCallExpression(node)) return false;
+  let root: ts.Expression = node.expression;
+  while (ts.isPropertyAccessExpression(root) || ts.isCallExpression(root)) root = root.expression;
+  return ts.isIdentifier(root) && ASSERTION_ROOTS.has(root.text);
+}
+
+const isFunctionLike = (node: ts.Node) =>
+  ts.isArrowFunction(node) ||
+  ts.isFunctionExpression(node) ||
+  ts.isFunctionDeclaration(node) ||
+  ts.isMethodDeclaration(node);
+const isLoop = (node: ts.Node) =>
+  ts.isForOfStatement(node) ||
+  ts.isForInStatement(node) ||
+  ts.isForStatement(node) ||
+  ts.isWhileStatement(node) ||
+  ts.isDoStatement(node);
+
+/** 入れ子の関数・ループへは入らずに、`node`の下を辿る。 */
+function forEachOwn(node: ts.Node, visit: (child: ts.Node) => void): void {
+  ts.forEachChild(node, (child) => {
+    visit(child);
+    if (!isFunctionLike(child) && !isLoop(child)) forEachOwn(child, visit);
   });
 }
 
-function some(node: ts.Node, predicate: (n: ts.Node) => boolean): boolean {
-  if (predicate(node)) return true;
-  return ts.forEachChild(node, (child) => (some(child, predicate) ? true : undefined)) ?? false;
-}
-
-function isExpectCall(node: ts.Node): node is ts.CallExpression {
-  return ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "expect";
-}
-
-function containsExpect(node: ts.Node): boolean {
-  return some(node, isExpectCall);
-}
-
-function isNarrowing(node: ts.Node): boolean {
-  return some(
-    node,
-    (n) => ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && n.expression.name.text === "filter",
-  );
-}
-
-function stripSizePreserving(node: ts.Expression): ts.Expression {
-  if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
-    const callee = node.expression;
-    if (!SIZE_PRESERVING.has(callee.name.text)) return node;
-    if (node.arguments.length === 0) return callee.expression;
-    if (ts.isIdentifier(callee.expression) && callee.expression.text === "Object" && node.arguments.length === 1) {
-      return node.arguments[0];
-    }
-  }
-  return node;
-}
-
-/** 1つの要素が文の並びを通ったとき、`expect`へ必ず届くか。
- *
- * 入れ子のループは、その中身を自分の母集団として別に数えるため、`expect`を含めば届くとみなす。 */
-function flow(statements: readonly ts.Statement[]): Flow {
-  for (const statement of statements) {
-    if (ts.isIfStatement(statement)) {
-      const branches = [
-        flow([statement.thenStatement]),
-        statement.elseStatement ? flow([statement.elseStatement]) : "falls",
-      ];
-      if (branches.includes("exits")) return "exits";
-      if (branches.every((branch) => branch === "asserts")) return "asserts";
-      continue;
-    }
-    if (ts.isContinueStatement(statement) || ts.isBreakStatement(statement) || ts.isReturnStatement(statement)) {
-      return "exits";
-    }
-    const inner = ts.isBlock(statement) ? statement : ts.isTryStatement(statement) ? statement.tryBlock : undefined;
-    if (inner !== undefined) {
-      const result = flow(inner.statements);
-      if (result !== "falls") return result;
-      continue;
-    }
-    if (containsExpect(statement)) return "asserts";
-  }
-  return "falls";
-}
-
-function bodyFlow(body: ts.Statement | ts.ConciseBody): Flow {
-  if (ts.isBlock(body)) return flow(body.statements);
-  return ts.isExpression(body) ? (containsExpect(body) ? "asserts" : "falls") : flow([body as ts.Statement]);
-}
-
-function isTestCallback(node: ts.Node): node is Callback {
-  if (!(ts.isArrowFunction(node) || ts.isFunctionExpression(node))) return false;
-  const call = node.parent;
-  if (!ts.isCallExpression(call) || !call.arguments.includes(node)) return false;
-  let callee: ts.Expression = call.expression;
-  while (ts.isPropertyAccessExpression(callee) || ts.isCallExpression(callee)) callee = callee.expression;
-  return ts.isIdentifier(callee) && (callee.text === "it" || callee.text === "test");
-}
-
-function declarations(scope: ts.Node, name: string, before: number, direct: boolean): ts.Expression[] {
-  const out: ts.Expression[] = [];
-  const visit = (node: ts.Node) => {
-    if (node.getStart() >= before) return;
-    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === name && node.initializer) {
-      out.push(node.initializer);
-    }
-    if (!direct) ts.forEachChild(node, visit);
+function containsAssertion(node: ts.Node): boolean {
+  let found = false;
+  const visit = (child: ts.Node) => {
+    if (found) return;
+    if (isAssertionCall(child)) found = true;
+    else ts.forEachChild(child, visit);
   };
-  if (direct && ts.isSourceFile(scope)) {
-    for (const statement of scope.statements) {
-      if (ts.isVariableStatement(statement)) statement.declarationList.declarations.forEach(visit);
-    }
-  } else {
-    ts.forEachChild(scope, visit);
-  }
-  return out;
+  visit(node);
+  return found;
 }
 
-/** 母集団を名指す名前。名前そのものか、母集団を返す引数の無い呼び出し（`rows()`）。 */
-function populationName(node: ts.Expression): string | undefined {
-  if (ts.isIdentifier(node)) return node.text;
-  if (ts.isCallExpression(node) && node.arguments.length === 0 && ts.isIdentifier(node.expression)) {
-    return node.expression.text;
+/** 反復対象を、件数を変えない写しを剥がしながら辿る。途中に`.filter`があれば`filtered`。 */
+function strip(expression: ts.Expression): { base: ts.Expression; filtered: boolean } {
+  let current = unwrap(expression);
+  for (;;) {
+    if (
+      ts.isArrayLiteralExpression(current) &&
+      current.elements.length === 1 &&
+      ts.isSpreadElement(current.elements[0])
+    ) {
+      current = unwrap(current.elements[0].expression);
+    } else if (
+      ts.isCallExpression(current) &&
+      SAME_COUNT_FUNCTIONS.has(calleeName(current)) &&
+      current.arguments.length > 0
+    ) {
+      current = unwrap(current.arguments[0]);
+    } else if (ts.isCallExpression(current) && ts.isPropertyAccessExpression(current.expression)) {
+      const method = current.expression.name.text;
+      if (method === "filter") return { base: current, filtered: true };
+      if (!SAME_COUNT_METHODS.has(method)) return { base: current, filtered: false };
+      current = unwrap(current.expression.expression);
+    } else {
+      return { base: current, filtered: false };
+    }
+  }
+}
+
+/** `xs`・`xs()`の名前。 */
+function referencedName(expression: ts.Expression): string | undefined {
+  if (ts.isIdentifier(expression)) return expression.text;
+  if (ts.isCallExpression(expression) && expression.arguments.length === 0 && ts.isIdentifier(expression.expression)) {
+    return expression.expression.text;
   }
   return undefined;
 }
 
-function isSubject(node: ts.Expression, name: string, viaLength: boolean): boolean {
-  if (viaLength) {
-    return (
-      ts.isPropertyAccessExpression(node) && node.name.text === "length" && populationName(node.expression) === name
-    );
-  }
-  return populationName(node) === name;
-}
-
-function positiveNumber(node: ts.Expression | undefined, min: number): boolean {
-  return node !== undefined && ts.isNumericLiteral(node) && Number(node.text) >= min;
-}
-
-function assertsNonempty(callback: ts.Node, name: string): boolean {
-  return some(callback, (n) => {
-    if (!ts.isCallExpression(n) || !ts.isPropertyAccessExpression(n.expression)) return false;
-    const matcher = n.expression.name.text;
-    let target = n.expression.expression;
-    let negated = false;
-    if (ts.isPropertyAccessExpression(target) && target.name.text === "not") {
-      negated = true;
-      target = target.expression;
-    }
-    if (!isExpectCall(target)) return false;
-    const subject = target.arguments[0];
-    if (subject === undefined) return false;
-    const [argument] = n.arguments;
-    if (isSubject(subject, name, false)) {
-      if (matcher !== "toHaveLength") return false;
-      return negated
-        ? argument !== undefined && ts.isNumericLiteral(argument) && argument.text === "0"
-        : positiveNumber(argument, 1);
-    }
-    if (isSubject(subject, name, true) && !negated) {
-      if (matcher === "toBeGreaterThan") return positiveNumber(argument, 0);
-      if (matcher === "toBeGreaterThanOrEqual" || matcher === "toBe") return positiveNumber(argument, 1);
-    }
-    return false;
-  });
-}
-
-/** `expect(x)`の後ろの照合が、`x`を真と主張するなら true・偽と主張するなら false。 */
-function expectedTruth(expectCall: ts.CallExpression): boolean | undefined {
-  let access = expectCall.parent;
-  let negated = false;
-  if (ts.isPropertyAccessExpression(access) && access.name.text === "not") {
-    negated = true;
-    access = access.parent;
-  }
-  if (!ts.isPropertyAccessExpression(access) || !ts.isCallExpression(access.parent)) return undefined;
-  const matcher = access.name.text;
-  const [argument] = access.parent.arguments;
-  let truth: boolean | undefined;
-  if (matcher === "toBeTruthy") truth = true;
-  else if (matcher === "toBeFalsy") truth = false;
-  else if (["toBe", "toEqual", "toStrictEqual"].includes(matcher) && argument !== undefined) {
-    if (argument.kind === ts.SyntaxKind.TrueKeyword) truth = true;
-    if (argument.kind === ts.SyntaxKind.FalseKeyword) truth = false;
-  }
-  return truth === undefined ? undefined : truth !== negated;
-}
-
-/** 空なら真になる量化（`every`を真・`some`を偽と主張する）の反復対象。 */
-function quantified(expectCall: ts.CallExpression): ts.Expression | undefined {
-  const [subject] = expectCall.arguments;
-  if (subject === undefined || !ts.isCallExpression(subject) || !ts.isPropertyAccessExpression(subject.expression)) {
-    return undefined;
-  }
-  const quantifier = subject.expression.name.text;
-  const truth = expectedTruth(expectCall);
-  if ((quantifier === "every" && truth === true) || (quantifier === "some" && truth === false)) {
-    return subject.expression.expression;
-  }
-  return undefined;
-}
-
-/** `.forEach(cb)`の反復対象とコールバック。 */
-function forEachLoop(node: ts.Node): { iterable: ts.Expression; body: ts.ConciseBody } | undefined {
-  if (!ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression)) return undefined;
-  if (node.expression.name.text !== "forEach") return undefined;
-  const [callback] = node.arguments;
-  if (callback === undefined || !(ts.isArrowFunction(callback) || ts.isFunctionExpression(callback))) return undefined;
-  return { iterable: node.expression.expression, body: callback.body };
-}
-
-function parameterNames(callback: Callback): Set<string> {
-  const names = new Set<string>();
-  for (const parameter of callback.parameters) {
-    some(parameter.name, (n) => {
-      if (ts.isIdentifier(n)) names.add(n.text);
-      return false;
-    });
-  }
-  return names;
-}
-
-export function vacuousLoops(root: string): string[] {
-  const out: string[] = [];
-  for (const file of walk(root).sort()) {
-    const source = ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true);
-    const where = (node: ts.Node) =>
-      `${relative(root, file).replaceAll("\\", "/")}:${source.getLineAndCharacterOfPosition(node.getStart()).line + 1}`;
-    const check = (callback: Callback, node: ts.Node, iterable: ts.Expression, guarded: boolean) => {
-      const population = stripSizePreserving(iterable);
-      if (isNarrowing(population)) {
-        out.push(`${where(node)}: その場で絞り込んだ母集団を検査している（名前へ束ねて空でないことを確かめる）`);
-        return;
-      }
-      if (guarded) {
-        out.push(
-          `${where(node)}: ループの中の条件を通った要素にしか届かないアサーションがある（絞り込みを名前へ束ねて空でないことを確かめる）`,
-        );
-        return;
-      }
-      const name = populationName(population);
-      if (name === undefined || parameterNames(callback).has(name)) return;
-      const local = declarations(callback, name, node.getStart(), false);
-      const bound = local.length > 0 ? local : declarations(source, name, node.getStart(), true);
-      if (bound.some(isNarrowing) && !assertsNonempty(callback, name)) {
-        out.push(`${where(node)}: 絞り込んだ母集団 \`${name}\` が空でも通る（空でないことを同じテストで確かめる）`);
-      }
-    };
-    const inspect = (callback: Callback) => {
-      const visit = (node: ts.Node): void => {
-        if (node !== callback && isTestCallback(node)) return;
-        const each = forEachLoop(node);
-        if (ts.isForOfStatement(node) && containsExpect(node.statement)) {
-          check(callback, node, node.expression, bodyFlow(node.statement) !== "asserts");
-        } else if (each !== undefined && containsExpect(each.body)) {
-          check(callback, node, each.iterable, bodyFlow(each.body) !== "asserts");
-        } else if (isExpectCall(node)) {
-          const iterable = quantified(node);
-          if (iterable !== undefined) check(callback, node, iterable, false);
+/** `from`から外側へ、`name`を宣言した式（関数なら返す式）を探す。 */
+function declaredValue(name: string, from: ts.Node): ts.Expression | undefined {
+  for (let scope: ts.Node | undefined = from.parent; scope; scope = scope.parent) {
+    const statements = ts.isBlock(scope) || ts.isSourceFile(scope) ? scope.statements : undefined;
+    for (const statement of statements ?? []) {
+      if (ts.isVariableStatement(statement)) {
+        for (const declaration of statement.declarationList.declarations) {
+          if (ts.isIdentifier(declaration.name) && declaration.name.text === name && declaration.initializer) {
+            return returnedValue(unwrap(declaration.initializer));
+          }
         }
-        ts.forEachChild(node, visit);
-      };
-      ts.forEachChild(callback, visit);
-    };
-    const find = (node: ts.Node): void => {
-      if (isTestCallback(node)) inspect(node);
-      ts.forEachChild(node, find);
-    };
-    find(source);
+      }
+      if (ts.isFunctionDeclaration(statement) && statement.name?.text === name && statement.body) {
+        return singleReturn(statement.body);
+      }
+    }
   }
-  return out;
+  return undefined;
 }
 
-describe("要素ごとの検査の母集団", () => {
-  it("テストは空でないことを確かめてから要素ごとに検査する", () => {
-    const violations = vacuousLoops(SRC);
-    expect(violations, `docs/conventions/testing.md パターン6:\n  ${violations.join("\n  ")}`).toEqual([]);
+function returnedValue(expression: ts.Expression): ts.Expression | undefined {
+  if (!ts.isArrowFunction(expression) && !ts.isFunctionExpression(expression)) return expression;
+  return ts.isBlock(expression.body) ? singleReturn(expression.body) : expression.body;
+}
+
+function singleReturn(body: ts.Block): ts.Expression | undefined {
+  const returns = body.statements.filter(ts.isReturnStatement);
+  return returns.length === 1 ? returns[0].expression : undefined;
+}
+
+/** 反復対象の名前を宣言へ辿り、`.filter`で束ねられていれば、その途中の名前を全部返す。 */
+function filteredNames(iterable: ts.Expression, at: ts.Node): string[] | undefined {
+  const names: string[] = [];
+  let expression: ts.Expression | undefined = iterable;
+  while (expression) {
+    const { base, filtered } = strip(expression);
+    if (filtered) return names;
+    const name = referencedName(base);
+    if (!name || names.includes(name)) return undefined;
+    names.push(name);
+    expression = declaredValue(name, at);
+  }
+  return undefined;
+}
+
+function numberLiteral(node: ts.Expression | undefined): number | undefined {
+  return node && ts.isNumericLiteral(unwrap(node)) ? Number((unwrap(node) as ts.NumericLiteral).text) : undefined;
+}
+
+/** `expect(<subject>)[.not].<matcher>(<argument>)`を分解する。 */
+function matcherCall(
+  node: ts.Node,
+): { subject: ts.Expression; negated: boolean; matcher: string; argument?: ts.Expression } | undefined {
+  if (!ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression)) return undefined;
+  let target = node.expression.expression;
+  let negated = false;
+  if (ts.isPropertyAccessExpression(target) && target.name.text === "not") {
+    negated = true;
+    target = target.expression;
+  }
+  if (!ts.isCallExpression(target) || calleeName(target) !== "expect" || target.arguments.length !== 1)
+    return undefined;
+  return {
+    subject: unwrap(target.arguments[0]),
+    negated,
+    matcher: node.expression.name.text,
+    argument: node.arguments[0],
+  };
+}
+
+function assertsNonEmpty(node: ts.Node, names: readonly string[]): boolean {
+  const call = matcherCall(node);
+  if (!call) return false;
+  const { subject, negated, matcher } = call;
+  const n = numberLiteral(call.argument);
+  if (n === undefined) return false;
+  const named = (expression: ts.Expression) => {
+    const name = referencedName(unwrap(expression));
+    return name !== undefined && names.includes(name);
+  };
+  if (named(subject) && matcher === "toHaveLength") return negated ? n === 0 : n > 0;
+  if (!ts.isPropertyAccessExpression(subject) || subject.name.text !== "length" || !named(subject.expression))
+    return false;
+  if (negated) return matcher === "toBe" && n === 0;
+  if (matcher === "toBeGreaterThan") return n >= 0;
+  if (matcher === "toBeGreaterThanOrEqual") return n >= 1;
+  return matcher === "toBe" && n > 0;
+}
+
+function enclosingFunction(node: ts.Node): ts.Node {
+  let current = node.parent;
+  while (current && !isFunctionLike(current) && !ts.isSourceFile(current)) current = current.parent;
+  return current;
+}
+
+function hasNonEmptyAssertion(scope: ts.Node, names: readonly string[]): boolean {
+  let found = false;
+  const visit = (node: ts.Node) => {
+    if (found) return;
+    if (assertsNonEmpty(node, names)) found = true;
+    else ts.forEachChild(node, visit);
+  };
+  visit(scope);
+  return found;
+}
+
+/** 確かめから本体まで遡り、片側にだけ確かめのある分岐を経るか。入れ子の関数・ループに入っていれば、その確かめは数えない。 */
+function gatedOnOneSide(assertion: ts.Node, body: ts.Node): boolean {
+  let child = assertion;
+  for (let node = assertion.parent; node && node !== body; child = node, node = node.parent) {
+    if (isFunctionLike(node) || isLoop(node)) return false;
+    if (ts.isIfStatement(node) && child !== node.expression) {
+      const other = child === node.thenStatement ? node.elseStatement : node.thenStatement;
+      if (!other || !containsAssertion(other)) return true;
+    }
+    if (ts.isConditionalExpression(node) && child !== node.condition) {
+      if (!containsAssertion(child === node.whenTrue ? node.whenFalse : node.whenTrue)) return true;
+    }
+    if (ts.isCatchClause(node)) return true;
+    if (ts.isBinaryExpression(node) && child === node.right) {
+      const kind = node.operatorToken.kind;
+      if (
+        kind === ts.SyntaxKind.AmpersandAmpersandToken ||
+        kind === ts.SyntaxKind.BarBarToken ||
+        kind === ts.SyntaxKind.QuestionQuestionToken
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function isGated(body: ts.Node, isCallback: boolean): boolean {
+  let gated = false;
+  const visit = (node: ts.Node) => {
+    if (ts.isContinueStatement(node) || ts.isBreakStatement(node)) gated = true;
+    if (isCallback && ts.isReturnStatement(node)) gated = true;
+    if (isAssertionCall(node) && gatedOnOneSide(node, body)) gated = true;
+  };
+  visit(body);
+  forEachOwn(body, visit);
+  return gated;
+}
+
+/** 真偽値を主張する matcher なら、主張した値（`.not`の前）。 */
+function assertedTruth(matcher: string, argument: ts.Expression | undefined): boolean | undefined {
+  if (matcher === "toBeTruthy") return true;
+  if (matcher === "toBeFalsy") return false;
+  if (!["toBe", "toEqual", "toStrictEqual"].includes(matcher) || !argument) return undefined;
+  if (argument.kind === ts.SyntaxKind.TrueKeyword) return true;
+  if (argument.kind === ts.SyntaxKind.FalseKeyword) return false;
+  return undefined;
+}
+
+type ElementCheck = { iterable: ts.Expression; body?: ts.Node; isCallback: boolean };
+
+function elementCheck(node: ts.Node): ElementCheck | undefined {
+  if ((ts.isForOfStatement(node) || ts.isForInStatement(node)) && containsAssertion(node.statement)) {
+    return { iterable: node.expression, body: node.statement, isCallback: false };
+  }
+  if (
+    ts.isCallExpression(node) &&
+    ts.isPropertyAccessExpression(node.expression) &&
+    node.expression.name.text === "forEach"
+  ) {
+    const callback = node.arguments[0];
+    if (
+      callback &&
+      (ts.isArrowFunction(callback) || ts.isFunctionExpression(callback)) &&
+      containsAssertion(callback.body)
+    ) {
+      return { iterable: node.expression.expression, body: callback.body, isCallback: true };
+    }
+  }
+  const call = matcherCall(node);
+  if (!call || !ts.isCallExpression(call.subject) || !ts.isPropertyAccessExpression(call.subject.expression))
+    return undefined;
+  const quantifier = call.subject.expression.name.text;
+  const truthy = assertedTruth(call.matcher, call.argument);
+  if ((quantifier !== "every" && quantifier !== "some") || truthy === undefined) return undefined;
+  // 空の配列では every が真・some が偽になるので、その向きを主張していれば空で素通りする
+  if ((quantifier === "every") === (truthy !== call.negated)) {
+    return { iterable: call.subject.expression.expression, isCallback: false };
+  }
+  return undefined;
+}
+
+function findVacuousLoops(file: string, text: string): Finding[] {
+  const source = ts.createSourceFile(
+    file,
+    text,
+    ts.ScriptTarget.Latest,
+    true,
+    file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
+  const findings: Finding[] = [];
+  const report = (node: ts.Node, reason: string) =>
+    findings.push({ file, line: source.getLineAndCharacterOfPosition(node.getStart()).line + 1, reason });
+  const visit = (node: ts.Node) => {
+    const check = elementCheck(node);
+    if (check) {
+      if (strip(check.iterable).filtered) report(node, FILTERED_HERE);
+      else {
+        const names = filteredNames(check.iterable, node);
+        if (names && !hasNonEmptyAssertion(enclosingFunction(node), names)) report(node, NOT_ASSERTED);
+      }
+      if (check.body && isGated(check.body, check.isCallback)) report(node, GATED);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return findings;
+}
+
+function findInTree(root: string): { files: string[]; findings: Finding[] } {
+  const files = walkTree(root)
+    .map(({ path }) => path)
+    .filter((path) => /\.test\.tsx?$/.test(path));
+  return { files, findings: files.flatMap((file) => findVacuousLoops(file, readFileSync(join(root, file), "utf8"))) };
+}
+
+/** 本文を1つのテストに包み、見つかった理由だけを返す。 */
+const reasons = (body: string) =>
+  findVacuousLoops("case.test.ts", `it("t", () => {\n${body}\n});`).map((f) => f.reason);
+
+describe("要素ごとの確かめが空の母集団で素通りしない", () => {
+  it("frontend/srcのテストに違反が無い", () => {
+    const { files, findings } = findInTree(SRC_ROOT);
+    expect(files).toContain("structure/vacuousLoops.test.ts");
+    expect(findings).toEqual([]);
   });
 
-  it("空になりうる母集団を、絞り込みの書き方によらず捕まえる", () => {
-    const root = mkdtempSync(join(tmpdir(), "vacuous-"));
-    mkdirSync(join(root, "lib"));
-    writeFileSync(
-      join(root, "lib", "sample.test.ts"),
-      [
-        'import { expect, it } from "vitest";',
-        "const ALL = [1, 2, 3];",
-        'it("picked", () => {',
-        "  const picked = ALL.filter((v) => v > 5);",
-        "  for (const v of picked) {",
-        "    expect(v).toBeGreaterThan(0);",
-        "  }",
-        "});",
-        'it("inline", () => {',
-        "  for (const v of ALL.filter((v) => v > 5)) expect(v).toBe(1);",
-        "});",
-        'it("guarded", () => {',
-        "  for (const v of ALL) {",
-        "    if (v > 5) expect(v).toBe(1);",
-        "  }",
-        "  ALL.forEach((v) => {",
-        "    if (v <= 5) return;",
-        "    expect(v).toBe(1);",
-        "  });",
-        "});",
-        'it("quantified", () => {',
-        "  expect(ALL.filter((v) => v > 5).every((v) => v > 0)).toBe(true);",
-        "  expect(ALL.filter((v) => v > 5).some((v) => v < 0)).toBe(false);",
-        "  const rows = () => ALL.filter((v) => v > 5);",
-        "  expect(rows().every((v) => v > 0)).toBeTruthy();",
-        "});",
-        "",
-      ].join("\n"),
-    );
+  describe("その場の絞り込み", () => {
+    it("for...of・forEach・量化の反復対象が.filterを経ていれば落とす", () => {
+      expect(reasons(`for (const x of xs.filter(f)) expect(x).toBe(1);`)).toEqual([FILTERED_HERE]);
+      expect(reasons(`Object.entries(xs.filter(f)).forEach(([k]) => { expect(k).toBe(1); });`)).toEqual([
+        FILTERED_HERE,
+      ]);
+      expect(reasons(`expect(xs.filter(f).map(g).every(h)).toBe(true);`)).toEqual([FILTERED_HERE]);
+      expect(reasons(`expect(xs.filter(f).some(h)).not.toBeTruthy();`)).toEqual([FILTERED_HERE]);
+    });
 
-    expect(vacuousLoops(root)).toEqual([
-      "lib/sample.test.ts:5: 絞り込んだ母集団 `picked` が空でも通る（空でないことを同じテストで確かめる）",
-      "lib/sample.test.ts:10: その場で絞り込んだ母集団を検査している（名前へ束ねて空でないことを確かめる）",
-      "lib/sample.test.ts:13: ループの中の条件を通った要素にしか届かないアサーションがある（絞り込みを名前へ束ねて空でないことを確かめる）",
-      "lib/sample.test.ts:16: ループの中の条件を通った要素にしか届かないアサーションがある（絞り込みを名前へ束ねて空でないことを確かめる）",
-      "lib/sample.test.ts:22: その場で絞り込んだ母集団を検査している（名前へ束ねて空でないことを確かめる）",
-      "lib/sample.test.ts:23: その場で絞り込んだ母集団を検査している（名前へ束ねて空でないことを確かめる）",
-      "lib/sample.test.ts:25: 絞り込んだ母集団 `rows` が空でも通る（空でないことを同じテストで確かめる）",
-    ]);
+    it("空でも偽にならない量化と、確かめの無いループは見ない", () => {
+      expect(reasons(`expect(xs.filter(f).every(h)).toBe(false);`)).toEqual([]);
+      expect(reasons(`expect(xs.filter(f).some(h)).toBe(true);`)).toEqual([]);
+      expect(reasons(`for (const x of xs.filter(f)) total += x;`)).toEqual([]);
+    });
   });
 
-  it("空でないことを確かめた母集団と、全要素がexpectへ届くループは通す", () => {
-    const root = mkdtempSync(join(tmpdir(), "vacuous-"));
-    writeFileSync(
-      join(root, "ok.test.ts"),
-      [
-        'import { expect, it } from "vitest";',
-        "const ALL = [1, 2, 3];",
-        "const BIG = ALL.filter((v) => v > 1);",
-        'it("length", () => {',
-        "  const picked = ALL.filter((v) => v > 0);",
-        "  expect(picked.length).toBeGreaterThan(0);",
-        "  for (const v of picked) expect(v).toBeGreaterThan(0);",
-        "  expect(picked.every((v) => v > 0)).toBe(true);",
-        "});",
-        'it("module level", () => {',
-        "  expect(BIG).not.toHaveLength(0);",
-        "  for (const [i, v] of BIG.entries()) expect(v).toBeGreaterThan(i);",
-        "});",
-        'it("function returning the population", () => {',
-        "  const rows = () => ALL.filter((v) => v > 0);",
-        "  expect(rows()).not.toHaveLength(0);",
-        "  expect(rows().every((v) => v > 0)).toBe(true);",
-        "});",
-        'it("every element reaches expect", () => {',
-        "  for (const v of ALL) {",
-        "    if (v > 1) expect(v).toBeGreaterThan(1);",
-        "    else expect(v).toBe(1);",
-        "  }",
-        "  ALL.forEach((v) => expect(v).toBeGreaterThan(0));",
-        "  expect(ALL.filter((v) => v > 5).some((v) => v > 0)).toBe(true);",
-        "});",
-        'it.each([[1]])("given by the caller", (picked) => {',
-        "  for (const v of picked) expect(v).toBe(1);",
-        "});",
-        "",
-      ].join("\n"),
-    );
+  describe("本体の条件", () => {
+    it("片側にだけ確かめのある分岐と、要素を飛ばす文を落とす", () => {
+      expect(reasons(`for (const x of xs) { if (x.a) expect(x).toBe(1); }`)).toEqual([GATED]);
+      expect(reasons(`for (const x of xs) { if (x.a) {} else { expect(x).toBe(1); } }`)).toEqual([GATED]);
+      expect(reasons(`for (const x of xs) { x.a && expect(x).toBe(1); }`)).toEqual([GATED]);
+      expect(reasons(`for (const x of xs) { x.a ? expect(x).toBe(1) : null; }`)).toEqual([GATED]);
+      expect(reasons(`for (const x of xs) { try { run(x); } catch { expect(x).toBe(1); } }`)).toEqual([GATED]);
+      expect(reasons(`for (const x of xs) { if (!x.a) continue; expect(x).toBe(1); }`)).toEqual([GATED]);
+      expect(reasons(`for (const x of xs) { if (!x.a) break; expect(x).toBe(1); }`)).toEqual([GATED]);
+      expect(reasons(`xs.forEach((x) => { if (!x.a) return; expect(x).toBe(1); });`)).toEqual([GATED]);
+    });
 
-    expect(vacuousLoops(root)).toEqual([]);
+    it("両側に確かめがある分岐・条件の中の確かめ・入れ子のループの中の分岐は、外のループの違反にしない", () => {
+      expect(reasons(`for (const x of xs) { if (x.a) expect(x).toBe(1); else expect(x).toBe(2); }`)).toEqual([]);
+      expect(reasons(`for (const x of xs) { if (expect(x).toBe(1)) {} }`)).toEqual([]);
+      expect(reasons(`for (const x of xs) { expect(x).toBe(1); ys.forEach((y) => { if (y) return; }); }`)).toEqual([]);
+      expect(reasons(`for (const x of xs) { for (const y of x.ys) { if (y) expect(y).toBe(1); } }`)).toEqual([GATED]);
+    });
+  });
+
+  describe("名前で束ねた絞り込み", () => {
+    it("同じ関数に空でないことの主張が無ければ落とす", () => {
+      expect(reasons(`const ys = xs.filter(f);\nfor (const y of ys) expect(y).toBe(1);`)).toEqual([NOT_ASSERTED]);
+      expect(reasons(`const ys = () => xs.filter(f);\nys().forEach((y) => { expect(y).toBe(1); });`)).toEqual([
+        NOT_ASSERTED,
+      ]);
+      expect(reasons(`function ys() { return xs.filter(f); }\nexpect(ys().every(g)).toBe(true);`)).toEqual([
+        NOT_ASSERTED,
+      ]);
+      expect(
+        reasons(
+          `const ys = xs.filter(f);\nconst zs = ys.map(g);\nfor (const z of Object.values(zs)) expect(z).toBe(1);`,
+        ),
+      ).toEqual([NOT_ASSERTED]);
+    });
+
+    it("外側のスコープの宣言へ辿り、主張は同じテストの中にだけ探す", () => {
+      const source = [
+        `const ys = xs.filter(f);`,
+        `it("a", () => { expect(ys.length).toBeGreaterThan(0); });`,
+        `it("b", () => { for (const y of ys) expect(y).toBe(1); });`,
+      ].join("\n");
+      expect(findVacuousLoops("case.test.ts", source)).toEqual([
+        { file: "case.test.ts", line: 3, reason: NOT_ASSERTED },
+      ]);
+    });
+
+    it("読める形の主張があれば通す", () => {
+      const loop = `for (const z of zs) expect(z).toBe(1);`;
+      const declared = `const ys = xs.filter(f);\nconst zs = ys.map(g);`;
+      for (const assertion of [
+        `expect(ys).toHaveLength(2);`,
+        `expect(zs).not.toHaveLength(0);`,
+        `expect(ys.length).toBeGreaterThan(0);`,
+        `expect(zs.length).toBeGreaterThanOrEqual(1);`,
+        `expect(ys.length).toBe(3);`,
+        `expect(ys.length).not.toBe(0);`,
+      ]) {
+        expect(reasons(`${declared}\n${assertion}\n${loop}`)).toEqual([]);
+      }
+    });
+
+    it("空でないことにならない主張・絞り込みの無い名前・関数の引数は、違反の有無を変えない", () => {
+      const declared = `const ys = xs.filter(f);`;
+      const loop = `for (const y of ys) expect(y).toBe(1);`;
+      for (const assertion of [
+        `expect(ys).toHaveLength(0);`,
+        `expect(ys.length).toBeGreaterThanOrEqual(0);`,
+        `expect(ys).toEqual([1]);`,
+      ]) {
+        expect(reasons(`${declared}\n${assertion}\n${loop}`)).toEqual([NOT_ASSERTED]);
+      }
+      expect(reasons(`const ys = xs.map(f);\nfor (const y of ys) expect(y).toBe(1);`)).toEqual([]);
+      expect(findVacuousLoops("case.test.ts", `function check(ys) { for (const y of ys) expect(y).toBe(1); }`)).toEqual(
+        [],
+      );
+    });
   });
 });

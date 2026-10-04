@@ -21,17 +21,13 @@ export const DEFAULT_HARD_FILTERS: HardFilterOverride = Object.fromEntries(
 );
 
 interface HardFilterPanelProps {
+  /** 今の項目を全部持つ値（保存値は`features/route/useGenerationConditions.ts`が読むときに今の項目へ揃える）。 */
   hardFilters: HardFilterOverride;
   onHardFiltersChange: (next: HardFilterOverride) => void;
 }
 
 export default function HardFilterPanel({ hardFilters, onHardFiltersChange }: HardFilterPanelProps) {
-  // 未設定キーの既定値はDEFAULT_HARD_FILTERS（生成物由来）から引く。`?? true`で埋めると、
-  // backendが既定OFFのフィルタを足した瞬間、何も操作していないのに「変更あり」になり、
-  // チップも押していないのにONで表示される。
-  const customized = HARD_FILTER_CHIPS.some(
-    ({ key }) => (hardFilters[key] ?? DEFAULT_HARD_FILTERS[key]) !== DEFAULT_HARD_FILTERS[key],
-  );
+  const customized = HARD_FILTER_CHIPS.some(({ key }) => hardFilters[key] !== DEFAULT_HARD_FILTERS[key]);
 
   return (
     <div className="flex flex-col gap-3">
@@ -45,12 +41,13 @@ export default function HardFilterPanel({ hardFilters, onHardFiltersChange }: Ha
         {HARD_FILTER_CHIPS.map(({ key, label }) => (
           <Toggle
             key={key}
-            pressed={hardFilters[key] ?? DEFAULT_HARD_FILTERS[key]}
+            pressed={hardFilters[key]}
             aria-label={`${label}を除外`}
+            usage="ONにした種類の道路を通らないルートを作ります。"
             onClick={() =>
               onHardFiltersChange({
                 ...hardFilters,
-                [key]: !(hardFilters[key] ?? DEFAULT_HARD_FILTERS[key]),
+                [key]: !hardFilters[key],
               })
             }
           >

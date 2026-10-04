@@ -25,7 +25,7 @@ class GsiTileClient:
     ファイルシステムにキャッシュする。
 
     製品ごとの解釈は持たない——標高タイルをMapLibreが読む形へ移す変換は
-    `services/terrain_tile_service.py`が担う。地理院タイルは時刻依存パラメータを持たない
+    `gsi_dem_png.py`が担う。地理院タイルは時刻依存パラメータを持たない
     静的データのため、キャッシュにTTLは要らない。
     """
 

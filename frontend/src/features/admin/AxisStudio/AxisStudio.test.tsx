@@ -13,11 +13,10 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { EMPTY_CATALOG, type AxisCatalog } from "@/lib/axisCatalog";
+import { axisCatalogFromResponse } from "@/lib/axisCatalog";
 import { MATERIAL_CATALOG } from "@/lib/axisMaterialsCatalog";
-import { rampAxesFromCatalogAxes, type RampAxis } from "@/lib/mapDisplay/axisLayers";
-import { rampEntry } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
-import type { AxisDefinitionPayload, AxisDefinitionResponse } from "@/types/route";
+import { catalogResponse, rampEntry } from "@/testing/catalogAxes";
+import type { AxisCatalogEntry, AxisDefinitionPayload, AxisDefinitionResponse } from "@/types/route";
 
 const api = vi.hoisted(() => ({
   listAxisDefinitions: vi.fn(),
@@ -28,16 +27,19 @@ const api = vi.hoisted(() => ({
 }));
 vi.mock("@/features/admin/adminApi", () => api);
 
+// 軸カタログの取得は差し替え、届いた応答（軸の一覧）をテストが決める。応答からの導出は本物を通す。
 const catalogs = vi.hoisted(() => ({
-  axisCatalog: null as unknown,
+  axes: [] as AxisCatalogEntry[],
 }));
-vi.mock("@/hooks/useAxisCatalog", () => ({ useAxisCatalog: () => catalogs.axisCatalog }));
+vi.mock("@/hooks/useAxisCatalog", () => ({
+  useAxisCatalog: () => axisCatalogFromResponse(catalogResponse(catalogs.axes)),
+}));
 
 interface ComposerProps {
   editing: AxisDefinitionResponse | null;
   duplicateFrom: AxisDefinitionResponse | null;
   otherAxes: readonly AxisDefinitionResponse[];
-  mapBandColors?: (boundaries: readonly number[]) => readonly string[];
+  mapBandColors: ((boundaries: readonly number[]) => readonly string[]) | undefined;
   mapValueUnit: string;
   republishing: boolean;
   onCancelEdit: () => void;
@@ -87,9 +89,6 @@ function axis(overrides: Partial<AxisDefinitionResponse> = {}): AxisDefinitionRe
     show_map_icon: true,
     time_scope: "always",
     dedicated_way_value_layer: false,
-    dynamic_way_value_needs_time: false,
-    dynamic_way_value_needs_bearing: false,
-    dynamic_way_value_needs_speed: false,
     shape: { kind: "breakpoint_linear", terms: [], preprocess: "identity", breakpoints: [] },
     display: { kind: "none", label: "", category: "", tile_inputs: [], thresholds: [] },
     ...overrides,
@@ -112,14 +111,6 @@ const PUBLISHED_2 = axis({ axis_id: "axis_pub2", label: "公開の軸2", is_publ
 /** backendの一覧。下書きへ戻すと、次に取る一覧でその軸が下書きになる。 */
 let server: AxisDefinitionResponse[] = [];
 
-function axisCatalog(overrides: Partial<AxisCatalog> = {}): AxisCatalog {
-  return { ...EMPTY_CATALOG, ...overrides };
-}
-
-function rampAxis(axisId: string): RampAxis {
-  return rampAxesFromCatalogAxes([rampEntry(axisId, [])])[0];
-}
-
 beforeEach(() => {
   for (const fn of Object.values(api)) fn.mockReset();
   server = [DRAFT, PUBLISHED, PUBLISHED_2];
@@ -130,7 +121,7 @@ beforeEach(() => {
   api.unpublishAxisDefinition.mockImplementation(async (axisId: string) => {
     server = server.map((a) => (a.axis_id === axisId ? { ...a, is_published: false } : a));
   });
-  catalogs.axisCatalog = axisCatalog();
+  catalogs.axes = [];
   composer.props = null;
   composer.saveError = null;
 });
@@ -372,22 +363,38 @@ describe("非公開に戻す", () => {
   });
 });
 
+async function deleteDraft(user: ReturnType<typeof userEvent.setup>) {
+  await screen.findByText("下書きの軸");
+  await user.click(within(rowOf("下書きの軸")).getByRole("button", { name: "削除" }));
+  const dialog = screen.getByRole("dialog", { name: "「下書きの軸」を削除します" });
+  await user.click(within(dialog).getByRole("button", { name: "削除する" }));
+}
+
 describe("削除", () => {
-  it("削除して一覧を取り直す", async () => {
+  it("確認で「削除する」を押すと消して一覧を取り直す", async () => {
     const user = await renderStudio();
-    await screen.findByText("下書きの軸");
-    await user.click(within(rowOf("下書きの軸")).getByRole("button", { name: "削除" }));
+    await deleteDraft(user);
 
     await waitFor(() => expect(api.listAxisDefinitions).toHaveBeenCalledTimes(2));
     expect(api.deleteAxisDefinition).toHaveBeenCalledWith(DRAFT.axis_id);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("確認を取り消すと消さない", async () => {
+    const user = await renderStudio();
+    await screen.findByText("下書きの軸");
+    await user.click(within(rowOf("下書きの軸")).getByRole("button", { name: "削除" }));
+    await user.click(screen.getByRole("button", { name: "キャンセル" }));
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(api.deleteAxisDefinition).not.toHaveBeenCalled();
   });
 
   it("削除している間はその軸の削除を押せず、失敗したら理由を出す", async () => {
     let fail!: (reason: unknown) => void;
     api.deleteAxisDefinition.mockReturnValue(new Promise((_resolve, reject) => (fail = reject)));
     const user = await renderStudio();
-    await screen.findByText("下書きの軸");
-    await user.click(within(rowOf("下書きの軸")).getByRole("button", { name: "削除" }));
+    await deleteDraft(user);
     expect(within(rowOf("下書きの軸")).getByRole("button", { name: "削除" })).toBeDisabled();
 
     fail(new Error("削除できません"));
@@ -417,8 +424,7 @@ describe("Error以外の失敗", () => {
   it("削除が失敗したとき", async () => {
     api.deleteAxisDefinition.mockRejectedValue("conflict");
     const user = await renderStudio();
-    await screen.findByText("下書きの軸");
-    await user.click(within(rowOf("下書きの軸")).getByRole("button", { name: "削除" }));
+    await deleteDraft(user);
     expect(await screen.findByText("conflict")).toBeInTheDocument();
   });
 });
@@ -437,8 +443,7 @@ describe("段階プレビューの配色", () => {
   });
 
   it("複製のときは、複製元の軸の配色を使う", async () => {
-    const ramp = rampAxis(DRAFT.axis_id);
-    catalogs.axisCatalog = axisCatalog({ axes: [ramp], rampAxes: [ramp] });
+    catalogs.axes = [rampEntry(DRAFT.axis_id, [])];
     const user = await renderStudio();
     await screen.findByText("下書きの軸");
     await user.click(within(rowOf("下書きの軸")).getByRole("button", { name: "複製して新規作成" }));

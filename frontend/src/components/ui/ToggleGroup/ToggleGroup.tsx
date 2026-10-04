@@ -14,8 +14,8 @@ const groupVariants = cva("inline-flex", {
     variant: {
       /** 横に並ぶ切り替え（周回／目的地）。 */
       segmented: "overflow-hidden rounded-full border border-[var(--color-border)]",
-      /** 縦の一覧から選ぶ（レンズの軸）。 */
-      list: "w-full flex-col gap-0.5",
+      /** 札を横へ流して選ぶ（レンズの軸）。 */
+      chips: "w-full flex-wrap gap-1",
     },
   },
   defaultVariants: { variant: "segmented" },
@@ -28,7 +28,8 @@ const itemVariants = cva(
       variant: {
         segmented:
           "bg-transparent px-3 py-1.5 text-[length:var(--font-size-xs)] text-[var(--foreground)] data-[state=on]:bg-[var(--color-accent)] data-[state=on]:text-white",
-        list: "w-full justify-start gap-2 rounded-sm bg-transparent px-1.5 py-1.5 text-left text-inherit hover:bg-[var(--color-surface-hover)] data-[state=on]:bg-[var(--color-accent-soft)] data-[state=on]:font-semibold",
+        chips:
+          "gap-1 rounded-full border border-[var(--color-border)] bg-transparent px-2 py-0.5 text-inherit hover:bg-[var(--color-surface-hover)] data-[state=on]:border-[var(--color-accent)] data-[state=on]:bg-[var(--color-accent-soft)] data-[state=on]:font-semibold",
       },
     },
     defaultVariants: { variant: "segmented" },
@@ -43,10 +44,12 @@ interface ToggleGroupProps extends VariantProps<typeof groupVariants> {
   onValueChange: (value: string) => void;
   "aria-label": string;
   className?: string;
+  /** 使い方の文（`Button`の`usage`と同じ）。文を持たない選択肢を押したときも、これを出す。 */
+  usage?: string;
   children: React.ReactNode;
 }
 
-export function ToggleGroup({ variant, value, onValueChange, className, children, ...props }: ToggleGroupProps) {
+export function ToggleGroup({ variant, value, onValueChange, className, usage, children, ...props }: ToggleGroupProps) {
   const v = variant ?? "segmented";
   return (
     <VariantContext.Provider value={v}>
@@ -58,6 +61,7 @@ export function ToggleGroup({ variant, value, onValueChange, className, children
           onValueChange(next);
         }}
         className={cn(groupVariants({ variant: v }), className)}
+        data-usage={usage}
         {...props}
       >
         {children}
@@ -68,9 +72,11 @@ export function ToggleGroup({ variant, value, onValueChange, className, children
 
 interface ToggleGroupItemProps extends React.ComponentPropsWithoutRef<typeof RadixToggleGroup.Item> {
   value: string;
+  /** 使い方の文（`Button`の`usage`と同じ）。 */
+  usage?: string;
 }
 
-export function ToggleGroupItem({ className, ...props }: ToggleGroupItemProps) {
+export function ToggleGroupItem({ className, usage, ...props }: ToggleGroupItemProps) {
   const variant = useContext(VariantContext);
-  return <RadixToggleGroup.Item className={cn(itemVariants({ variant }), className)} {...props} />;
+  return <RadixToggleGroup.Item className={cn(itemVariants({ variant }), className)} data-usage={usage} {...props} />;
 }

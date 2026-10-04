@@ -18,7 +18,8 @@ class Settings(BaseSettings):
     # 基礎地図プロキシのスタイルJSON内URLを書き換える先。MapLibreは相対URLをスタイルの
     # 取得元ではなくページのオリジンに対して解決するため絶対URLが必須で、かつ**backend自身
     # ではなくフロントエンドのオリジン**にする（タイルの大量リクエストとAPI呼び出しを
-    # ブラウザの同一オリジン接続数上限で競合させない。frontend/next.config.ts参照）。
+    # ブラウザの同一オリジン接続数上限で競合させない。フロントエンドのオリジンは`/api/basemap/*`を
+    # backendへ中継する）。
     basemap_public_base_url: str = f"{_LOCAL_FRONTEND_ORIGIN}/api/basemap"
     debug_mode: bool = False
     # デプロイ先でビルド・起動されたコミットのフルSHA。`GIT_COMMIT`環境変数から渡し、
@@ -28,10 +29,9 @@ class Settings(BaseSettings):
     # --- 認証なしエンドポイントのper-IPレート制限・同時実行上限 ---
     # 環境（本番/ローカル/負荷試験）ごとに調整したい運用値のため.envで上書きできる。
     #
-    # /preview・/weatherはいずれも外部APIを叩かず、/generateほど高コストではない。
-    preview_rate_limit_per_minute: int = 20
+    # /weatherは外部APIを叩かず、/generateほど高コストではない。
     weather_rate_limit_per_minute: int = 60
-    # 風の格子点マップは1回で関東本土全域ぶんの応答を組み立てる。値はローカルのMSM
+    # 風の格子点マップは1回で対象範囲（取り込んだ道路の範囲）全域ぶんの応答を組み立てる。値はローカルのMSM
     # ファイルから読むため外部APIは消費しないが、応答サイズ（数百KB）と直列化コストが
     # 地点数に比例するため/weather（1地点）より絞る。
     wind_grid_rate_limit_per_minute: int = 20
@@ -49,15 +49,13 @@ class Settings(BaseSettings):
     generate_rate_limit_per_minute: int = 10
     generate_max_concurrent: int = 2
     # タイル処理の律速はDB側の同時クエリ負荷とSQLAlchemyの接続プール
-    # （既定pool_size=5+max_overflow=10=最大15接続）。路面・事故の同時実行上限の和が
-    # このプール上限に収まるようにする（ルート生成は別エンジン・別プールで取り合わない）。
+    # （既定pool_size=5+max_overflow=10=最大15接続）。地域タイル（路面・点）は1つの同時実行上限を
+    # 共有し、それがこのプール上限に収まるようにする（ルート生成は別エンジン・別プールで取り合わない）。
     road_tile_rate_limit_per_minute: int = 120
     road_tile_max_concurrent: int = 6
     # 区間インスペクタは座標を持たない単発リクエストで、パン/ズームのたびに多数のz/x/y
     # タイルを連続要求するroad_tileとは負荷特性が異なるため別の上限を持つ。
     axis_inspector_rate_limit_per_minute: int = 120
-    accident_tile_rate_limit_per_minute: int = 120
-    accident_tile_max_concurrent: int = 6
     # 土地被覆ラスタタイルはDBを読まず、GeoTIFFの読み取り・再投影（GDAL）をスレッドプールで
     # 行う。律速がCPUとディスクI/Oになるため、DB向けのタイル上限とは別に持つ。
     # `asyncio.to_thread`の既定スレッドプールを1画面ぶんのタイルで埋めないための値。
@@ -104,9 +102,9 @@ class Settings(BaseSettings):
     # 伸び続けたときの頭打ちとして置いている。
     tile_cache_size_limit_mb: int = 512
 
-    # ディスクキャッシュをDBの派生データ世代へ追随させる確認の間隔（秒）。派生バッチは
+    # ディスクキャッシュをDBの派生データ・生データの世代へ追随させる確認の間隔（秒）。バッチは
     # backendを再起動させないため、材料を使う経路からこの間隔で読み直す。バッチ自体が
-    # 数十分かかるためこの程度の遅れは運用上の差にならず、読むのは1行テーブルの1列だけ。
+    # 数十分かかるためこの程度の遅れは運用上の差にならず、読むのは1行テーブルの1列と取込の記録の件数だけ。
     derived_data_revision_check_interval_seconds: float = 300.0
 
     # Esri×Impact Observatory LULCのGeoTIFFファイルパス（カンマ区切り、複数ゾーン対応）。

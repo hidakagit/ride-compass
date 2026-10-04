@@ -8,12 +8,14 @@
 import { renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { MaterialValuesResponse } from "@/types/route";
+import type { getMaterialValues } from "@/features/admin/adminApi";
 
 const api = vi.hoisted(() => ({ getMaterialValues: vi.fn() }));
 vi.mock("@/features/admin/adminApi", () => ({ getMaterialValues: api.getMaterialValues }));
 
 import { useMaterialValues } from "./useMaterialValues";
+
+type MaterialValuesResponse = Awaited<ReturnType<typeof getMaterialValues>>;
 
 function response(values: string[], available = true): MaterialValuesResponse {
   return { available, values: values.map((value) => ({ value, label: value })) };

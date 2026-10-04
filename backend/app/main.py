@@ -28,9 +28,9 @@ from app.infrastructure.request_log import (
 )
 from app.infrastructure.response_compression import ContentTypeGZipMiddleware
 from app.infrastructure.single_process import require_single_worker
+from app.infrastructure.jma_amedas_client import AMEDAS_REFRESH_INTERVAL_MINUTES
 from app.services.axis_registry_service import refresh_axis_definitions
 from app.services.tuning_service import refresh_tuning_values
-from app.services.jma_amedas_service import AMEDAS_REFRESH_INTERVAL_MINUTES
 from app.services.jma_tile_prewarm_service import prewarm_jma_tiles
 
 logging.basicConfig(level=logging.DEBUG if settings.debug_mode else logging.INFO)
@@ -49,11 +49,11 @@ logging.getLogger("ridecompass.startup").info(
     settings.debug_mode,
 )
 
-# DATABASE_URLへ実際に接続できない構成では/api/routes/generate・/api/routes/previewが
+# DATABASE_URLへ実際に接続できない構成では/api/routes/generateが
 # 常に失敗する。起動自体は妨げないため、「起動するが全リクエスト失敗」という分かりにくい
 # 状態をログから読み解けるよう接続先を残す（接続確認はイベントループ起動前のため行わない）。
 logging.getLogger("ridecompass.startup").info(
-    "ルート生成・プレビューにはDATABASE_URL(%s)への実接続が必須です。",
+    "ルート生成にはDATABASE_URL(%s)への実接続が必須です。",
     settings.database_url.split("@")[-1] if "@" in settings.database_url else "設定値",
 )
 

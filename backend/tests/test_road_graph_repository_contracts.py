@@ -22,6 +22,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 import shapely
+from sqlalchemy import text
 
 from app.domain.attributes import CategoricalColumn
 from app.domain.graph import LeanEdge
@@ -31,6 +32,7 @@ from app.domain.material_catalog import material_array_columns
 from app.domain.region import BoundingBox
 from app.infrastructure import road_graph_repository
 from app.domain.graph import edge_key, node_key, parse_edge_feature_key
+from app.services.axis_preview_service import SAMPLE_LIMIT, SAMPLE_PERCENT
 from app.infrastructure.road_graph_repository import (
     MATERIAL_ARRAY_COLUMN_ORDER,
     RoadGraphRepository,
@@ -318,8 +320,8 @@ async def test_a_range_replaces_the_sampling():
     """`TABLESAMPLE`は表全体のページから抽選するため、狭い範囲と重ねると標本が数本へ落ちる。"""
     repo, session = _repo([], [])
 
-    await repo.sample_way_material_values(1)
-    await repo.sample_way_material_values(1, bbox=BBOX)
+    await repo.sample_way_material_values(1, SAMPLE_PERCENT, SAMPLE_LIMIT, None)
+    await repo.sample_way_material_values(1, SAMPLE_PERCENT, SAMPLE_LIMIT, BBOX)
 
     assert session.calls[0][0] is _SAMPLE_WAY_MATERIAL_VALUES_SQL
     assert "sample_percent" in session.params[0]
@@ -334,7 +336,7 @@ async def test_sampled_way_without_length_is_dropped(length_m):
     repo, _ = _repo([_Row(length_m=length_m, m_material_a=1.0),
                      _Row(length_m=10.0, m_material_a=2.0)])
 
-    samples = await repo.sample_way_material_values(1)
+    samples = await repo.sample_way_material_values(1, SAMPLE_PERCENT, SAMPLE_LIMIT, None)
 
     assert samples == [(10.0, {"material_a": 2.0})]
 
@@ -413,31 +415,39 @@ async def test_incomplete_landcover_is_not_reported(row):
 
 # --- タイル -------------------------------------------------------------------
 
-_TILE_METHODS = ("get_road_surface_tile_mvt", "get_poi_tile_mvt",
-                 "get_feature_midpoints_in_tile", "get_feature_gradient_inputs_in_tile")
+# タイル1枚を焼く口（路面と、SQLを受け取る点の口）。点の口のSQLはフェイクのセッションが実行しない。
+_MVT_READERS = {
+    "road_surface": lambda repo: repo.get_road_surface_tile_mvt(14, 1, 2, BBOX),
+    "point": lambda repo: repo.get_tile_mvt(text("SELECT 1"), "layer", 14, 1, 2, BBOX),
+}
+_TILE_READERS = {
+    **_MVT_READERS,
+    "midpoints": lambda repo: repo.get_feature_midpoints_in_tile(14, 1, 2, BBOX),
+    "gradient_inputs": lambda repo: repo.get_feature_gradient_inputs_in_tile(14, 1, 2, BBOX),
+}
 
 
-@pytest.mark.parametrize("method", _TILE_METHODS)
-async def test_outside_the_imported_area_nothing_is_returned(method):
+@pytest.mark.parametrize("read", _TILE_READERS.values(), ids=_TILE_READERS)
+async def test_outside_the_imported_area_nothing_is_returned(read):
     """取込範囲外（None）と、範囲内で対象0件（空）を区別する。利用側の見せ方が変わる。"""
     repo, _ = _repo([_Row(covered=False, payload=None)])
 
-    assert await getattr(repo, method)(14, 1, 2, BBOX) is None
+    assert await read(repo) is None
 
 
-@pytest.mark.parametrize("method", ("get_road_surface_tile_mvt", "get_poi_tile_mvt"))
-async def test_tile_without_features_is_an_empty_but_valid_tile(method):
+@pytest.mark.parametrize("read", _MVT_READERS.values(), ids=_MVT_READERS)
+async def test_tile_without_features_is_an_empty_but_valid_tile(read):
     """長さ0のバイト列は「featureが1つも無い有効なMVT」として地図がそのまま受理する。"""
     repo, _ = _repo([_Row(covered=True, tile=None)])
 
-    assert await getattr(repo, method)(14, 1, 2, BBOX) == b""
+    assert await read(repo) == b""
 
 
-@pytest.mark.parametrize("method", ("get_road_surface_tile_mvt", "get_poi_tile_mvt"))
-async def test_tile_payload_is_returned_as_bytes(method):
+@pytest.mark.parametrize("read", _MVT_READERS.values(), ids=_MVT_READERS)
+async def test_tile_payload_is_returned_as_bytes(read):
     repo, _ = _repo([_Row(covered=True, tile=memoryview(b"tile_a"))])
 
-    assert await getattr(repo, method)(14, 1, 2, BBOX) == b"tile_a"
+    assert await read(repo) == b"tile_a"
 
 
 async def test_feature_keys_are_returned_as_text():

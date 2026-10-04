@@ -17,9 +17,10 @@ import {
   type MapLayerId,
   type MapOverlayGroup,
 } from "@/features/map/layers/mapLayers";
-import { legendSwatchBackground, type LegendEntry } from "@/lib/mapDisplay/legendFilter";
-import { mapDisplay } from "@/types/generated/mapDisplay";
+import { LEGEND_SWATCH_RING_CLASS, legendSwatchBackground, type LegendEntry } from "@/lib/mapDisplay/legendFilter";
 import LegendCheckboxList from "@/features/map/LegendCheckboxList/LegendCheckboxList";
+import LegendRow from "@/features/map/LegendCheckboxList/LegendRow";
+import { PointIconSwatch } from "@/features/map/layers/pointIcon";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
 import { mapOverlayEdge } from "@/lib/mapOverlayEdges";
@@ -37,9 +38,10 @@ import { Dot } from "@/components/ui/Dot/Dot";
 import { cardVariants } from "@/components/ui/Card/Card";
 import { badgeVariants } from "@/components/ui/Badge/Badge";
 
-/** 色見本の点の直径と、線の見本の長さ（px）。点は色が読める大きさにする。 */
+/** 色見本の点の直径と、線の見本の長さと太さ（px）。点は色が読める大きさにする。 */
 const SWATCH_DOT_PX = 12;
 const SWATCH_LINE_LENGTH_PX = 20;
+const SWATCH_LINE_WIDTH_PX = 7;
 
 /** 地図上のチップ1つ分の凡例（1軸ぶん）。 */
 export interface LegendFilterSummaryAxis {
@@ -131,18 +133,32 @@ function readStringArray(raw: string): string[] | null {
   }
 }
 
-/** 色見本。パネルへ直に、地図と同じ形（線なら線、点なら点）で置く——明るい台に載せると、暗いパネルの上では台の
- * 白が色より目立ち、明るい色は台に溶ける。線の行は地図と同じ太さ、大きさで意味を示す行は地図の点と同じ直径で出す。
+/** 色見本。パネルへ直に、地図と同じ形（線なら線、点なら点、絵記号の点なら絵記号）で置く——明るい台に載せると、暗いパネルの上では台の
+ * 白が色より目立ち、明るい色は台に溶ける。線の行は地図の線より太く、大きさで意味を示す行は地図の点と同じ直径で出す。
  * 見本の枠の幅はそろえ、ラベルの位置を行ごとにずらさない。 */
 function renderSwatch(entry: LegendEntry) {
+  if (entry.glyph !== undefined) {
+    return (
+      <span aria-hidden="true" className="inline-flex w-6 flex-shrink-0 items-center justify-center">
+        <PointIconSwatch
+          color={entry.color}
+          glyph={entry.glyph}
+          className={cn("rounded-[4px]", LEGEND_SWATCH_RING_CLASS)}
+        />
+      </span>
+    );
+  }
   const size = entry.line
-    ? { width: SWATCH_LINE_LENGTH_PX, height: mapDisplay.road.lineWidthPx }
+    ? { width: SWATCH_LINE_LENGTH_PX, height: SWATCH_LINE_WIDTH_PX }
     : entry.diameterPx !== undefined
       ? { width: entry.diameterPx, height: entry.diameterPx }
       : { width: SWATCH_DOT_PX, height: SWATCH_DOT_PX };
   return (
     <span aria-hidden="true" className="inline-flex w-6 flex-shrink-0 items-center justify-center">
-      <span className="rounded-full" style={{ background: legendSwatchBackground(entry), ...size }} />
+      <span
+        className={cn("rounded-full", LEGEND_SWATCH_RING_CLASS)}
+        style={{ background: legendSwatchBackground(entry), ...size }}
+      />
     </span>
   );
 }
@@ -172,10 +188,11 @@ function LegendDetails({
                     axis.hiddenKeys.length === 0 ? axis.legend.map((entry) => entry.key) : [],
                   )
                 }
-                aria-label={`${axis.label || "すべての項目"}をまとめて表示/非表示`}
+                aria-label={axis.label ? `${axis.label}をまとめて表示/非表示` : "凡例の全段階をまとめて表示/非表示"}
               />
               <span className="text-[length:var(--font-size-xs)] font-bold text-[var(--color-neutral)]">
-                {axis.label || "すべて"}
+                {/* 軸の名前が無いのはルートの凡例。地図の色分けの凡例と同じ状態なので、同じ名前にする。 */}
+                {axis.label || "凡例"}
               </span>
             </label>
           ) : (
@@ -203,15 +220,22 @@ function LegendDetails({
                   <li
                     key={entry.key}
                     className={cn(
-                      "flex items-center gap-1.5 text-[length:var(--font-size-sm)]",
-                      hidden && "opacity-50",
                       // 「不明・他」等の受け皿は他の項目と同列の判定値ではないため区切る。
                       entry.isFallback && "mt-1 border-t border-dashed border-[var(--color-border)] pt-1",
                     )}
                   >
-                    {renderSwatch(entry)}
-                    <span className="min-w-0 flex-1">{entry.label}</span>
-                    {hidden && <span className={badgeVariants({ variant: "outline" })}>非表示</span>}
+                    <LegendRow entry={entry}>
+                      <div
+                        className={cn(
+                          "flex items-center gap-1.5 text-[length:var(--font-size-sm)]",
+                          hidden && "opacity-50",
+                        )}
+                      >
+                        {renderSwatch(entry)}
+                        <span className="min-w-0 flex-1">{entry.label}</span>
+                        {hidden && <span className={badgeVariants({ variant: "outline" })}>非表示</span>}
+                      </div>
+                    </LegendRow>
                   </li>
                 );
               })}
@@ -255,6 +279,9 @@ const DETAIL_PANEL_CLASS = cn(
 const CHIP_ROW_OPTIONS = { axis: "y", align: "start", dragFree: true, containScroll: "trimSnaps" } as const;
 
 const FILTERED_LABEL = "絞り込み中";
+
+const LAYER_CHIP_USAGE =
+  "押すとこの情報を地図に出し、もう一度押すと消します。▶で凡例を開くと、段階ごとに隠せます。左上の漏斗の印は、一部を隠している合図です。";
 
 /** ONのレイヤーが凡例の絞り込みで一部を隠しているか。OFFの間は地図に何も出さないため数えない。 */
 function isLegendFiltered(layer: OverlayLayerChip): boolean {
@@ -301,6 +328,7 @@ function DetailPopover({
   regionLabel,
   side,
   trigger,
+  usage,
   children,
 }: {
   triggerLabel: string;
@@ -308,6 +336,7 @@ function DetailPopover({
   regionLabel: string;
   side: "right" | "bottom";
   trigger: ReactNode;
+  usage: string;
   children: ReactNode;
 }) {
   return (
@@ -319,6 +348,7 @@ function DetailPopover({
           className={cn("group", ROUND_TOGGLE)}
           aria-label={triggerLabel}
           title={title}
+          usage={usage}
         >
           {trigger}
         </Button>
@@ -348,8 +378,9 @@ function ChipButton({
   onTap,
   groupTint,
   dataStatus,
-  filtered = false,
+  filtered,
   panel,
+  usage,
 }: {
   Icon: (props: { size?: number }) => ReactElement;
   label: string;
@@ -360,15 +391,16 @@ function ChipButton({
   pressed?: boolean;
   expanded?: boolean;
   disabled?: boolean;
-  title?: string;
+  title: string | undefined;
   onTap: () => void;
   /** 属するグループ。無ければ（ルート等）無色。 */
   groupTint?: MapOverlayGroup;
   dataStatus?: LayerDataStatus;
   /** 凡例の絞り込みで一部を隠しているか（絞り込みは保存されるため、欠けた地図を「データが無い」と読ませない）。 */
-  filtered?: boolean;
+  filtered: boolean;
   /** ▶で開く中身。無ければ▶を出さない。 */
   panel?: ReactNode;
+  usage: string;
 }) {
   const showStatusDot = on && dataStatus != null;
   const titleNotes = [
@@ -388,6 +420,7 @@ function ChipButton({
         disabled={disabled}
         title={chipTitle}
         onClick={onTap}
+        usage={usage}
         style={groupTint ? GROUP_TINTS[groupTint] : undefined}
         className={chipClass({ tinted: groupTint !== undefined, header: expanded !== undefined, on })}
       >
@@ -407,6 +440,7 @@ function ChipButton({
           title="凡例"
           regionLabel={`${label}の内訳`}
           side="right"
+          usage="凡例を開きます。チェックを外した段階は地図から隠れます。"
           trigger={
             <span
               aria-hidden="true"
@@ -500,6 +534,7 @@ export default function MapOverlayControls({
         disabled={member.disabled}
         title={member.title}
         onTap={() => onToggle(member.id, !member.on)}
+        usage={LAYER_CHIP_USAGE}
         groupTint={group}
         dataStatus={member.dataStatus}
         filtered={isLegendFiltered(member)}
@@ -519,6 +554,7 @@ export default function MapOverlayControls({
           regionLabel={`${label}の表示項目`}
           side="bottom"
           trigger={<DisplayItemsIcon size={14} />}
+          usage="このまとまりに並べるチップを選びます。"
         >
           <div className="mb-1 text-[length:var(--font-size-xs)] font-bold text-[var(--color-neutral)]">
             表示する項目
@@ -570,6 +606,7 @@ export default function MapOverlayControls({
           expanded={expanded}
           title={`${label}[${members.length}件をタップで一覧]`}
           onTap={() => toggleGroup(group)}
+          usage="押すと、このまとまりのチップを並べ、もう一度押すと畳みます。並んだチップを押すと、その情報を地図に出します。"
           groupTint={group}
           filtered={!expanded && members.some(isLegendFiltered)}
         />
@@ -595,6 +632,7 @@ export default function MapOverlayControls({
         disabled={layer.disabled}
         title={layer.title}
         onTap={() => onToggle(layer.id, !layer.on)}
+        usage={LAYER_CHIP_USAGE}
         dataStatus={layer.dataStatus}
         filtered={isLegendFiltered(layer)}
         panel={on ? panelContentFor(layer, handlers) : null}

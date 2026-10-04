@@ -1,234 +1,341 @@
-"""`infrastructure/road_network_store.py`——道路網全体の配列を組み、ディスクへ置き、読み戻す。
+"""`infrastructure/road_network_store.py`——取込範囲全体の道路網をDBから組み、ディスクの置き場へ置き、読む。
+
+入口は`ensure_current`（DBから組んで置く）・`write_pending`と`publish`（派生の作り直しが置く2段）・`save`・
+`current`（読む）・`prune_other_shapes`（起動後の片付け）。置き場（`ROOT`）はテストごとの一時ディレクトリへ差し替える。
+
+DBから組むテストは、道とノードを取込の入口から入れ、派生の作り直し（`batch/derive_cli.py: run`）で区間と材料まで
+作ってから組む（本番で作れる行だけを使う。docs/conventions/testing.md パターン8）。置き場を読み書きするテストは、
+形だけを持つ小さな`RoadNetwork`を組んで渡す。
 
 ここで見ないもの:
-- 読み出しのSQLそのもの（区間・ノード・材料の式） → PostGISが要る。材料の式は`test_material_values.py`
-- 範囲を切り出して探索に使う側 → `RoadGraphEngine`のテスト
+- 区間の切り方・通行方向・信号の導出（派生の段） → `test_derive_topology.py`・`test_derive_way_materials.py`・
+  `test_derive_node_materials.py`
+- 材料の値そのもの → `test_material_values.py`
+- 置いた道路網から探索範囲を切り出すこと → `test_road_network.py`
+- 形の署名の組み立て → `test_cache_identity.py`
 
-リポジトリは代役で、各メソッドを`RoadGraphRepository`の同名メソッドの署名へ当ててから呼ぶ（`bound`）。
-代役が返す行は、道のid・区間番号・向きから決まる値を持つ——行の並びがずれれば値がずれて見える。
+材料を束（`_MATERIAL_BATCH`区間）に分けて引くとき、束をまたいで分類の語彙を1つへ付け替えることは見ない
+——束の大きさは本物の定数のまま通し、その数の区間をテストのDBに作らない。
 """
 
-from types import SimpleNamespace
+import json
+import logging
+import shutil
+from dataclasses import fields
 
 import numpy as np
 import pytest
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.domain.attributes import CategoricalColumn, EdgeMaterialArrays
+from app.batch import derive_cli
 from app.domain.road_network import RoadNetwork
 from app.infrastructure import road_network_store
 from app.infrastructure.road_graph_repository import RoadGraphRepository
-from tests.bound_fake import bound
+from tests.conftest import postgis_database_url
+from tests.source_ingest import ingest_records, point_record, way_record
 
-#: (osm_node_id, 緯度, 経度)。昇順で返すのはSQLの`ORDER BY`の約束。
-NODES = [(1, 35.0, 139.0), (2, 35.1, 139.1), (3, 35.2, 139.2), (4, 35.3, 139.3)]
-#: (道, 区間, 始点, 終点, 一方通行の向き, highway)。道30の終点99はノードに無い。
-EDGES = [
-    (10, 0, 1, 2, None, "primary"),
-    (10, 1, 2, 3, "forward", "primary"),
-    (20, 0, 3, 4, "backward", None),
-    (30, 0, 4, 99, None, "residential"),
-]
-#: (道, 区間)ごとの分類の材料の値（Noneは値なし）。束ごとに現れる値の順が違う（束の中の番号が全体の番号と違う）。
-CATEGORY = {(10, 0): "asphalt", (10, 1): "gravel", (20, 0): None}
+#: DBから組むテストの印（テスト用DBへ繋ぎ、接続とイベントループをファイルで共有する。testing.md パターン2）。
+_ON_TEST_DB = (pytest.mark.asyncio(loop_scope="module"), pytest.mark.xdist_group(name="postgis"), pytest.mark.postgis,
+               pytest.mark.usefixtures("road_graph_session"))
 
 
-def _numeric(way: int, segment: int, forward: bool) -> float:
-    return way * 10 + segment + (0.0 if forward else 0.5)
-
-
-def _repository_method(fake):
-    return bound(getattr(RoadGraphRepository, fake.__name__), fake)
-
-
-class FakeRepository:
-    def __init__(self, revision: int | None = 7):
-        self.revision = revision
-        self.material_calls = 0
-
-    @_repository_method
-    async def get_derived_data_revision(self):
-        return self.revision
-
-    @_repository_method
-    async def get_accident_years_covered(self):
-        return 5
-
-    @_repository_method
-    async def stream_network_nodes(self, chunk_size):
-        rows = [SimpleNamespace(osm_node_id=i, latitude=lat, longitude=lon,
-                                has_traffic_signals=i == 2, max_highway_rank=i) for i, lat, lon in NODES]
-        for start in range(0, len(rows), chunk_size):
-            yield rows[start:start + chunk_size]
-
-    @_repository_method
-    async def stream_network_edges(self, chunk_size):
-        rows = [SimpleNamespace(osm_way_id=w, segment_index=s, from_node_id=a, to_node_id=b, direction=d,
-                                highway=h, min_lon=float(a), min_lat=float(s), max_lon=float(b), max_lat=float(w))
-                for w, s, a, b, d, h in EDGES]
-        for start in range(0, len(rows), chunk_size):
-            yield rows[start:start + chunk_size]
-
-    @_repository_method
-    async def get_edge_material_arrays(self, way_ids, segment_indexes, forwards, accident_years_covered):
-        self.material_calls += 1
-        edges = list(zip(way_ids, segment_indexes, forwards, strict=True))
-        numeric = np.array([[_numeric(w, s, f)] for w, s, f in edges])
-        column = np.array([w * 1.0 for w, _, _ in edges])
-        return EdgeMaterialArrays(
-            numeric_ids=("m_num",), numeric_values=numeric,
-            boolean_ids=("m_bool",), boolean_values=np.array([[f] for _, _, f in edges]),
-            categorical_ids=("m_cat",),
-            categorical_columns=(CategoricalColumn.encode(CATEGORY[w, s] for w, s, _ in edges),),
-            hard_filter_ids=("hf",), hard_filter_flags=np.array([[s == 0] for _, s, _ in edges]),
-            distance_m=column, bearing_deg=column, mid_lat=column, mid_lon=column,
-            elevation_present=np.array([f for _, _, f in edges]),
-            elevation_start_m=column, elevation_end_m=column, elevation_gain_m=column,
-            elevation_loss_m=column, elevation_max_grade=column, elevation_min_grade=column,
-        )
+def _on_test_db(test):
+    for mark in _ON_TEST_DB:
+        test = mark(test)
+    return test
 
 
 @pytest.fixture(autouse=True)
-def _tmp_root(monkeypatch, tmp_path):
-    """置き場はテストごとの一時ディレクトリ。"""
+def store(monkeypatch, tmp_path):
+    """置き場を空の一時ディレクトリにし、読み込み済みの道路網を持たない状態から始める。"""
     monkeypatch.setattr(road_network_store, "ROOT", tmp_path / "road_network")
+    monkeypatch.setattr(road_network_store, "_loaded", None)
+    return tmp_path / "road_network"
 
 
-@pytest.fixture
-def small_batches(monkeypatch):
-    """束の境目をまたぐよう、流す単位と材料の束を小さくする。"""
-    monkeypatch.setattr(road_network_store, "_STREAM_CHUNK", 3)
-    monkeypatch.setattr(road_network_store, "_MATERIAL_BATCH", 2)
+# --- 置き場の読み書き（DBを使わない） -------------------------------------------------
 
 
-def _directed(network: RoadNetwork) -> list[tuple[int, int, bool, int, int]]:
-    osm = network.node_osm_id
-    return [
-        (int(w), int(s), bool(f), int(osm[a]), int(osm[b]))
-        for w, s, f, a, b in zip(network.edge_way_id, network.edge_segment, network.edge_forward,
-                                 network.edge_from, network.edge_to, strict=True)
-    ]
+def _network(revision: int | None, distance_m: float = 100.0) -> RoadNetwork:
+    """ノード2つ・有向の区間2本（同じ区間の両向き）の道路網。材料の名前は架空。"""
+    return RoadNetwork(
+        revision=revision,
+        node_osm_id=np.array([1, 2], dtype=np.int64),
+        node_lat=np.array([35.0, 35.001]),
+        node_lon=np.array([139.0, 139.001]),
+        node_has_signals=np.array([False, True]),
+        node_max_rank=np.array([0, 3], dtype=np.int64),
+        edge_way_id=np.array([10, 10], dtype=np.int64),
+        edge_segment=np.array([0, 0], dtype=np.int32),
+        edge_forward=np.array([True, False]),
+        edge_from=np.array([0, 1], dtype=np.int32),
+        edge_to=np.array([1, 0], dtype=np.int32),
+        edge_highway=np.array([1, 1], dtype=np.int16),
+        highway_vocab=(None, "residential"),
+        edge_min_lon=np.array([139.0, 139.0]),
+        edge_min_lat=np.array([35.0, 35.0]),
+        edge_max_lon=np.array([139.001, 139.001]),
+        edge_max_lat=np.array([35.001, 35.001]),
+        numeric_ids=("num_a",),
+        numeric_values=np.array([[1.5], [np.nan]]),
+        boolean_ids=("bool_a",),
+        boolean_values=np.array([[True], [False]]),
+        categorical_ids=("cat_a", "cat_b"),
+        categorical_codes=np.array([[1, 0], [2, 1]], dtype=np.int16),
+        categorical_vocab=((None, "x", "y"), (None, "z")),
+        hard_filter_ids=("filter_a",),
+        hard_filter_flags=np.array([[False], [True]]),
+        distance_m=np.array([distance_m, distance_m]),
+        bearing_deg=np.array([45.0, np.nan]),
+        mid_lat=np.array([35.0005, 35.0005]),
+        mid_lon=np.array([139.0005, 139.0005]),
+        elevation_present=np.array([True, False]),
+        elevation_start_m=np.array([10.0, np.nan]),
+        elevation_end_m=np.array([12.0, np.nan]),
+        elevation_gain_m=np.array([2.0, np.nan]),
+        elevation_loss_m=np.array([0.0, np.nan]),
+        elevation_max_grade=np.array([2.0, np.nan]),
+        elevation_min_grade=np.array([1.0, np.nan]),
+    )
 
 
-async def test_edges_become_directed_rows_in_way_and_segment_order(caplog, small_batches):
-    """区間は順方向・逆方向の行になる。一方通行は走れる向きだけ、端点のノードが無い区間は落ち、落とした数をログに出す。"""
-    with caplog.at_level("INFO", logger=road_network_store.logger.name):
-        network = await road_network_store.build(FakeRepository(), 7)
-
-    assert _directed(network) == [
-        (10, 0, True, 1, 2),
-        (10, 0, False, 2, 1),
-        (10, 1, True, 2, 3),
-        (20, 0, False, 4, 3),
-    ]
-    # 道30（双方向）の終点99はノードに無いので、両向きの2行を落とす。
-    assert "端点のノードが無く落とした有向の区間=2" in caplog.text
-
-
-async def test_materials_follow_the_directed_rows(small_batches):
-    network = await road_network_store.build(FakeRepository(), 7)
-
-    expected = [_numeric(w, s, f) for w, s, f, _a, _b in _directed(network)]
-    assert network.numeric_values[:, 0].tolist() == expected
-    assert network.boolean_values[:, 0].tolist() == network.edge_forward.tolist()
-    assert network.hard_filter_flags[:, 0].tolist() == (network.edge_segment == 0).tolist()
-
-
-async def test_categorical_values_are_codes_into_a_vocabulary_that_starts_with_none(small_batches):
-    network = await road_network_store.build(FakeRepository(), 7)
-
-    (vocab,) = network.categorical_vocab
-    assert vocab[0] is None
-    decoded = [vocab[code] for code in network.categorical_codes[:, 0]]
-    assert decoded == [CATEGORY[int(way), int(segment)] for way, segment in zip(
-        network.edge_way_id, network.edge_segment, strict=True)]
-
-
-async def test_highway_is_a_code_into_its_vocabulary(small_batches):
-    network = await road_network_store.build(FakeRepository(), 7)
-
-    highway_of_way = {w: h for w, _s, _a, _b, _d, h in EDGES}
-    assert [network.highway_vocab[code] for code in network.edge_highway] == [
-        highway_of_way[int(way)] for way in network.edge_way_id
-    ]
-
-
-async def test_saved_network_reads_back_the_same(small_batches):
-    network = await road_network_store.build(FakeRepository(), 7)
-
-    loaded = road_network_store.load(road_network_store.save(network))
-
-    for name, value in vars(network).items():
-        restored = getattr(loaded, name)
-        if isinstance(value, np.ndarray):
-            assert np.array_equal(np.asarray(restored), value, equal_nan=value.dtype.kind == "f"), name
+def _assert_same(actual: RoadNetwork, expected: RoadNetwork) -> None:
+    for f in fields(RoadNetwork):
+        got, want = getattr(actual, f.name), getattr(expected, f.name)
+        if isinstance(want, np.ndarray):
+            assert got.dtype == want.dtype, f.name
+            np.testing.assert_array_equal(got, want, err_msg=f.name)
         else:
-            assert restored == value, name
+            assert got == want, f.name
 
 
-async def test_current_network_is_built_once_and_older_revisions_are_removed(monkeypatch):
-    """同じ世代の置き場があれば作らない。作ったら、同じ形で世代の古い置き場を消す。
-
-    形の署名が違う置き場（旧コードのもの）は消さない——入れ替え前の旧コンテナが読んでいる。
-    """
-    repository = FakeRepository(revision=7)
-    monkeypatch.setattr(road_network_store, "RoadGraphRepository", lambda session: repository)
-    root = road_network_store.ROOT
-    old = root / road_network_store.directory_name(6)
-    other_shape = root / "0123456789ab-r9"
-    for path in (old, other_shape):
-        path.mkdir(parents=True)
-
-    first = await road_network_store.ensure_current(_session_factory)
-    calls_after_first = repository.material_calls
-    second = await road_network_store.ensure_current(_session_factory)
-
-    assert first == second == root / road_network_store.directory_name(7)
-    assert repository.material_calls == calls_after_first
-    assert not old.exists()
-    assert other_shape.exists()
-    assert road_network_store.latest_directory() == first
+def _other_shape(revision: int) -> str:
+    shape = "0" * 12 if road_network_store.NETWORK_SHAPE != "0" * 12 else "1" * 12
+    return f"{shape}-r{revision}"
 
 
-def _session_factory():
-    class _Session:
-        async def __aenter__(self):
-            return None
-
-        async def __aexit__(self, *exc):
-            return False
-
-    return _Session()
+def _place(store, name: str, size: int = 0) -> None:
+    (store / name).mkdir(parents=True)
+    (store / name / "a.npy").write_bytes(b"\0" * size)
 
 
-async def test_current_reads_the_newest_revision_and_follows_a_newer_one(monkeypatch):
-    """バッチが新しい世代の置き場を作ったら、次の読み出しからそちらを使う。"""
-    monkeypatch.setattr(road_network_store, "_loaded", None)
-    road_network_store.save(await road_network_store.build(FakeRepository(), 7))
-    assert road_network_store.current().revision == 7
-
-    road_network_store.save(await road_network_store.build(FakeRepository(), 8))
-
-    assert road_network_store.current().revision == 8
-
-
-def test_no_network_for_the_current_code_is_an_error_not_an_empty_network(monkeypatch):
-    """空の道路網として振る舞うと、ルート生成が「道路データが未整備」と誤って答える。"""
-    monkeypatch.setattr(road_network_store, "_loaded", None)
-    (road_network_store.ROOT / "0123456789ab-r9").mkdir(parents=True)
-
+def test_without_any_placed_network_reading_is_refused():
     with pytest.raises(road_network_store.RoadNetworkUnavailableError):
         road_network_store.current()
 
 
-async def test_directories_of_other_shapes_are_removed_after_startup():
-    """材料の式を変えたデプロイで古い形の置き場が残り続けないよう、起動後に消す。今の形は残す。"""
-    current = road_network_store.save(await road_network_store.build(FakeRepository(), 7))
-    other_shape = road_network_store.ROOT / "0123456789ab-r9"
-    other_shape.mkdir()
-    (other_shape / "manifest.json").write_text("{}", encoding="utf-8")
+def test_a_published_network_reads_back_as_it_was_built():
+    road_network_store.publish(road_network_store.write_pending(_network(revision=4)))
+
+    network = road_network_store.current()
+
+    _assert_same(network, _network(revision=4))
+    # 読むのはメモリマップを開くだけ（全リクエストが1つを共有し、常に要る列だけがメモリに載る）。
+    assert isinstance(network.distance_m, np.memmap)
+
+
+def test_a_network_being_written_is_not_read_until_it_is_published(store):
+    pending = road_network_store.write_pending(_network(revision=4))
+
+    with pytest.raises(road_network_store.RoadNetworkUnavailableError):
+        road_network_store.current()
+    road_network_store.publish(pending)
+    assert road_network_store.current().revision == 4
+    assert [path.name for path in store.iterdir()] == [road_network_store.directory_name(4)]
+
+
+def test_publishing_removes_older_revisions_of_the_same_shape_but_not_other_shapes(store):
+    road_network_store.publish(road_network_store.write_pending(_network(revision=3)))
+    _place(store, _other_shape(1))
+
+    road_network_store.publish(road_network_store.write_pending(_network(revision=4)))
+
+    assert sorted(path.name for path in store.iterdir()) == sorted(
+        [road_network_store.directory_name(4), _other_shape(1)])
+
+
+def test_publishing_a_revision_that_another_process_published_first_keeps_the_first(store):
+    road_network_store.publish(road_network_store.write_pending(_network(revision=4, distance_m=100.0)))
+    late = road_network_store.write_pending(_network(revision=4, distance_m=999.0))
+
+    placed = road_network_store.publish(late)
+
+    assert placed == store / road_network_store.directory_name(4)
+    assert not late.exists()
+    assert road_network_store.current().distance_m[0] == 100.0
+
+
+def test_saving_a_revision_that_is_already_placed_writes_nothing():
+    first = road_network_store.save(_network(revision=4, distance_m=100.0))
+
+    again = road_network_store.save(_network(revision=4, distance_m=999.0))
+
+    assert again == first
+    assert road_network_store.current().distance_m[0] == 100.0
+
+
+@pytest.mark.parametrize(("revisions", "expected"), [
+    ((None, 1), 1),  # 世代が読めなかったDBで作ったものは、世代のあるものより古い
+    ((2, None, 1), 2),
+])
+def test_the_newest_revision_of_the_current_shape_is_read(store, revisions, expected):
+    """付け替えたあと古い世代を消す前に落ちた置き場が残っていても、最も新しい世代を読む。"""
+    store.mkdir()
+    for revision in revisions:
+        road_network_store.write_pending(_network(revision)).rename(store / road_network_store.directory_name(revision))
+    _place(store, _other_shape(9))
+    (store / "not-a-network").mkdir()
+    (store / f"{road_network_store.NETWORK_SHAPE}-r99").write_text("ディレクトリではない")
+
+    assert road_network_store.current().revision == expected
+
+
+def test_a_newer_revision_placed_by_the_batch_is_read_on_the_next_call():
+    road_network_store.save(_network(revision=2))
+    first = road_network_store.current()
+    assert road_network_store.current() is first
+
+    road_network_store.save(_network(revision=3, distance_m=250.0))
+
+    assert road_network_store.current().revision == 3
+    assert road_network_store.current().distance_m[0] == 250.0
+
+
+def test_cleaning_up_after_start_removes_only_networks_of_other_shapes(store):
+    road_network_store.save(_network(revision=2))
+    _place(store, _other_shape(1), size=10)
+    _place(store, _other_shape(2), size=5)
+    (store / "not-a-network").mkdir()
+    (store / _other_shape(3)).write_text("ディレクトリではない")
 
     freed = road_network_store.prune_other_shapes()
 
-    assert freed > 0
-    assert not other_shape.exists()
-    assert current.exists()
+    assert freed == 15
+    assert sorted(path.name for path in store.iterdir()) == sorted(
+        [road_network_store.directory_name(2), "not-a-network", _other_shape(3)])
+    assert road_network_store.current().revision == 2
+
+
+# --- DBから組む ---------------------------------------------------------------------
+
+_BASE_LON, _BASE_LAT, _STEP = 139.70, 35.68, 0.001
+
+#: ノード → (経度, 緯度)。ノード9は道が参照するのに取り込まれていない。
+_NODES = {n: (_BASE_LON + _STEP * n, _BASE_LAT + _STEP * (n % 2)) for n in (1, 2, 3, 4, 5, 6, 9)}
+_INGESTED_NODES = (1, 2, 3, 4, 5, 6)
+_SIGNAL_NODE = 3
+
+#: (道, 参照ノード列, タグ)。道500が道100とノード2で交わり、道100は2区間に切れる。
+_WAYS = (
+    (100, [1, 2, 3], {"highway": "residential"}),
+    (200, [3, 4], {"highway": "primary", "oneway": "yes"}),
+    (300, [4, 5], {"highway": "residential", "oneway": "-1"}),
+    (400, [5, 9], {"highway": "residential"}),
+    (500, [2, 6], {"highway": "tertiary"}),
+)
+
+
+async def _derive(ways=_WAYS, nodes=_INGESTED_NODES) -> None:
+    """取込の入口から道とノードを入れ、派生の作り直しで区間と材料まで作る。作り直しが置いた道路網は消す。"""
+    await ingest_records("osm_node", [
+        point_record(n, *_NODES[n], {"highway": "traffic_signals"} if n == _SIGNAL_NODE else None) for n in nodes])
+    await ingest_records("osm_way", [
+        way_record(way_id, [_NODES[n] for n in node_ids], node_ids, tags) for way_id, node_ids, tags in ways])
+    assert await derive_cli.run(postgis_database_url(), None) == 0
+    shutil.rmtree(road_network_store.ROOT)
+
+
+@_on_test_db
+async def test_the_network_is_built_from_the_derived_tables_with_one_row_per_drivable_direction(
+        road_graph_engine, caplog):
+    await _derive()
+    session_factory = async_sessionmaker(road_graph_engine)
+
+    with caplog.at_level(logging.INFO, logger="ridecompass.road_network"):
+        placed = await road_network_store.ensure_current(session_factory)
+    network = road_network_store.current()
+
+    async with session_factory() as session:
+        repository = RoadGraphRepository(session)
+        revision = (await repository.get_data_revisions()).derived
+        assert placed.name == road_network_store.directory_name(revision)
+        assert network.revision == revision
+
+        # ノードは取り込まれた座標を持つものだけ、番号の昇順。
+        assert network.node_osm_id.tolist() == list(_INGESTED_NODES)
+        assert network.node_lon.tolist() == pytest.approx([_NODES[n][0] for n in _INGESTED_NODES])
+        assert network.node_lat.tolist() == pytest.approx([_NODES[n][1] for n in _INGESTED_NODES])
+        assert network.node_has_signals.tolist() == [n == _SIGNAL_NODE for n in _INGESTED_NODES]
+
+        # 区間ごとに走れる向きだけ、道・区間の番号順に順方向が先。端点のノードが無い道400の区間は落ちる。
+        osm = network.node_osm_id
+        directed = [
+            (int(w), int(s), bool(f), int(osm[a]), int(osm[b]))
+            for w, s, f, a, b in zip(network.edge_way_id, network.edge_segment, network.edge_forward,
+                                     network.edge_from, network.edge_to)
+        ]
+        assert directed == [
+            (100, 0, True, 1, 2), (100, 0, False, 2, 1),
+            (100, 1, True, 2, 3), (100, 1, False, 3, 2),
+            (200, 0, True, 3, 4),
+            (300, 0, False, 5, 4),
+            (500, 0, True, 2, 6), (500, 0, False, 6, 2),
+        ]
+        assert "端点のノードが無く落とした有向の区間=2" in caplog.text
+
+        # 道路の種別は語彙への番号で、番号0は値なし。
+        assert network.highway_vocab[0] is None
+        assert [network.highway_vocab[code] for code in network.edge_highway] == [
+            "residential"] * 4 + ["primary", "residential", "tertiary", "tertiary"]
+
+        # 区間の外接矩形は区間の両端を囲む。
+        for row, (_, _, _, a, b) in enumerate(directed):
+            lons, lats = (_NODES[a][0], _NODES[b][0]), (_NODES[a][1], _NODES[b][1])
+            assert network.edge_min_lon[row] == pytest.approx(min(lons))
+            assert network.edge_max_lon[row] == pytest.approx(max(lons))
+            assert network.edge_min_lat[row] == pytest.approx(min(lats))
+            assert network.edge_max_lat[row] == pytest.approx(max(lats))
+
+        # 材料は、同じ有向の区間をリポジトリから引いた値と行ごとに揃う。
+        materials = await repository.get_edge_material_arrays(
+            network.edge_way_id.tolist(), network.edge_segment.tolist(), network.edge_forward.tolist(),
+            await repository.get_accident_years_covered())
+    assert network.categorical_ids == materials.categorical_ids
+    assert materials.categorical_columns
+    for column, (expected, vocab) in enumerate(zip(materials.categorical_columns, network.categorical_vocab)):
+        assert vocab[0] is None
+        assert [vocab[code] for code in network.categorical_codes[:, column]] == [
+            expected.vocab[code] for code in expected.codes]
+    # 分類の材料は語彙ごとの番号なので上で読み比べ、ほかの列は値をそのまま比べる。
+    copied = [f.name for f in fields(materials) if f.name != "categorical_columns"]
+    assert copied
+    for name in copied:
+        np.testing.assert_array_equal(getattr(network, name), getattr(materials, name), err_msg=name)
+
+
+@_on_test_db
+async def test_a_network_already_placed_for_the_current_revision_is_not_built_again(road_graph_engine):
+    await _derive()
+    session_factory = async_sessionmaker(road_graph_engine)
+    placed = await road_network_store.ensure_current(session_factory)
+    manifest = json.loads((placed / "manifest.json").read_text(encoding="utf-8"))
+    (placed / "manifest.json").write_text(json.dumps({**manifest, "highway_vocab": [None, "置いたまま"]}),
+                                          encoding="utf-8")
+
+    assert await road_network_store.ensure_current(session_factory) == placed
+    assert road_network_store.current().highway_vocab == (None, "置いたまま")
+
+
+@_on_test_db
+async def test_a_network_without_any_edge_is_refused_rather_than_placed(road_graph_engine, store):
+    with pytest.raises(ValueError, match="区間が1本もありません"):
+        await road_network_store.ensure_current(async_sessionmaker(road_graph_engine))
+    assert not store.exists() or not any(store.iterdir())
+
+
+@_on_test_db
+async def test_edges_whose_ends_were_not_ingested_leave_no_network_to_place(store):
+    """道だけがありノードを1つも取り込んでいなければ、区間は全部落ちて組み立てが断る（作り直しも止まる）。"""
+    with pytest.raises(ValueError, match="区間が1本もありません"):
+        await _derive(nodes=())
+    assert not store.exists() or not any(store.iterdir())

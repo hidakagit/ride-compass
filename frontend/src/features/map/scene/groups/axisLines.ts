@@ -154,8 +154,7 @@ export const axisLineGroup = declareGroup<AxisLineState>((state) => {
  * （`scaleMissing`）は、どの道でも不明にする。
  *
  * 分類材料（N値文字列、例: highway）は、プロパティの欠損に加えて**値はあるが分類表に
- * 無い**ときも不明に含める。backendの評価（`domain/axis_templates.py:
- * evaluate_categorical`）は未登録値を評価不能として扱うため、地図だけ「寄与0（最良側）」で
+ * 無い**ときも不明に含める。評価は未登録値を評価不能として扱うため、地図だけ「寄与0（最良側）」で
  * 塗ると評価と食い違う。真偽値材料には「未登録値」という状態が無いので欠損だけで判定する。
  *
  * 欠損は`null`のままにせず、同じ型の番兵へ倒してから式へ入れる（文字列なら
@@ -176,7 +175,8 @@ export function buildAxisRampUnknownExpression(axis: RampAxis): unknown[] | true
   return checks.length === 1 ? checks[0] : ["any", ...checks];
 }
 
-/** ramp軸の値を組み立てるMapLibre expression。
+/** ramp軸の値を組み立てるMapLibre expression。この式と`buildAxisRampUnknownExpression`が形ごとに評価と
+ * 同じ値・同じ「不明」を出すことは、backendが出す表（生成物`axis-ramp-expectations.json`）をテストが通して確かめる。
  *
  * 数値材料はΣ property×weight。重みは軸定義が持ちカタログ経由で届く（フロントに係数を書かない）。
  * プロパティの欠損はタイル側が「0をNULLIFでキー省略」した結果なので0へ倒す。
@@ -199,10 +199,11 @@ export function buildAxisRampValueExpression(axis: RampAxis): unknown[] {
       return value;
     }
     if (input.breakpoints) {
-      // 欠損はbackendのrequired=False材料と同じく寄与0にする。coalesceで端へ倒すとinterpolateが
-      // 端の値（例: -1）を返し、寄与0にならない。
+      // 欠損は寄与0にする。coalesceで端へ倒すとinterpolateが端の値（例: -1）を返し、寄与0にならない。
+      // 点数は小数1桁へ丸める（ちょうど半分の丸めの向きは、2進の値で丸める評価と違いうる）。
       const interpolated = ["interpolate", ["linear"], ["get", input.property], ...input.breakpoints.flat()];
-      const value = input.weight === 1 ? interpolated : ["*", interpolated, input.weight];
+      const score = ["/", ["round", ["*", interpolated, 10]], 10];
+      const value = input.weight === 1 ? score : ["*", score, input.weight];
       return ["case", ["!", ["has", input.property]], 0, value];
     }
     return ["*", ["coalesce", ["get", input.property], 0], input.weight];

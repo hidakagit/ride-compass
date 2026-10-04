@@ -12,8 +12,56 @@ from collections.abc import Iterable, Mapping
 
 import numpy as np
 
-from app.domain.axis_templates import round1_array
 from app.domain.strict_model import StrictModel
+
+#: 難易度（0〜100）を区別する桁。これより細かい差は区別しない——軸の得点・合成・内訳・ルートの平均を
+#: この桁へ丸め、候補を並べるときもこの桁で同点とみなす。
+DIFFICULTY_DECIMALS = 1
+_DIFFICULTY_SCALE = 10**DIFFICULTY_DECIMALS
+#: 難易度の区別できる最小の差。
+DIFFICULTY_QUANTUM = 1.0 / _DIFFICULTY_SCALE
+
+
+def round_difficulty(value: float) -> float:
+    """難易度を`DIFFICULTY_DECIMALS`の桁へ丸める。"""
+    return round(value, DIFFICULTY_DECIMALS)
+
+
+def round_difficulty_array(values: np.ndarray) -> np.ndarray:
+    """`round_difficulty`の配列版。要素ごとに`round_difficulty`とビット単位で一致する。
+
+    `np.round`は内部で「×10→rint→÷10」という段階を踏むため、その掛け算で丸め誤差が混入し、
+    値がちょうど.X5の境界にあると`round()`と結果が食い違うことがある。NaNはNaNのまま返す。
+    """
+    values = np.asarray(values, dtype=float)
+    scaled = values * float(_DIFFICULTY_SCALE)
+    out = np.rint(scaled) / _DIFFICULTY_SCALE
+    # 掛け算の丸め誤差で判定が変わりうるのは、計算後の値がちょうど.5に乗った要素だけ
+    # （真の積が.5境界の反対側にあれば、float64の積は必ずちょうど.5へ丸まる）。
+    # その要素だけ決め直す。NaNはそのまま伝播する。
+    tie = (scaled - np.floor(scaled)) == 0.5
+    if tie.any():
+        out[tie] = _round_difficulty_on_half(values[tie], np.floor(scaled[tie]))
+    return out
+
+
+def _round_difficulty_on_half(values: np.ndarray, lower: np.ndarray) -> np.ndarray:
+    """×`_DIFFICULTY_SCALE`がちょうど`lower + 0.5`になった値を、`round_difficulty`と同じ値へ丸める。
+
+    重み0.5ずつの和のように、丸めた得点を半分にした値は半数近くの要素がここへ来るため、
+    要素ごとにPythonの`round()`を呼ばず配列のまま決める。値と10進の中点`(2*lower + 1)/(2*scale)`の大小を
+    整数で正確に比べる——値は`仮数 × 2**-shift`と正確に書けるので、`2*scale × 仮数`と
+    `(2*lower + 1) × 2**shift`の比較になる。中点に等しい（中点が2進で正確に表せる、例: 0.25）ときは
+    `round()`と同じく偶数の側へ丸める。桁が1のとき、×10がちょうど.5に乗るのは|値|が0.05以上で×10が2**52未満の
+    ときだけなので、shiftは57以下で、両辺は2**59未満に収まりint64であふれない（桁を増やすときはこの見積もりを直す）。
+    """
+    mantissa, exponent = np.frexp(values)
+    significand = np.ldexp(mantissa, 53).astype(np.int64)
+    scale = np.left_shift(np.int64(1), 53 - exponent.astype(np.int64))
+    midpoint = (2.0 * lower + 1.0).astype(np.int64)
+    difference = 2 * _DIFFICULTY_SCALE * significand - midpoint * scale
+    round_up = (difference > 0) | ((difference == 0) & (np.mod(lower, 2.0) == 1.0))
+    return np.copysign((lower + round_up) / _DIFFICULTY_SCALE, values)
 
 
 def weight_share(weight: float, other_weights: Iterable[float]) -> float | None:
@@ -42,9 +90,10 @@ def _neumaier_accumulate(terms: list[np.ndarray]) -> np.ndarray:
 
 
 def _axis_terms(
-    axis_arrays: Mapping[str, np.ndarray], weights: Mapping[str, float]
+    axis_arrays: Mapping[str, np.ndarray], weights: Mapping[str, float | np.ndarray]
 ) -> tuple[list[np.ndarray], list[np.ndarray]]:
-    """軸ごとの「重み付きスコアの項」「重みの項」。
+    """軸ごとの「重み付きスコアの項」「重みの項」。重みは軸1つに1つの値か、区間ごとの配列
+    （`axis_arrays`と同じ並び。時間帯を持つ軸、`domain/axis_definitions.py: time_scoped_weights`）。
 
     データ欠損（NaN）の軸はその区間だけ項を0にする＝和から外す（「データ無しは除外し
     残りの重みで再正規化」）。**この式を2箇所に書かない**——先に和だけ求める経路と合成の
@@ -61,7 +110,7 @@ def _axis_terms(
 
 
 def axis_weighted_sums(
-    axis_arrays: Mapping[str, np.ndarray], weights: Mapping[str, float], length: int
+    axis_arrays: Mapping[str, np.ndarray], weights: Mapping[str, float | np.ndarray], length: int
 ) -> tuple[np.ndarray, np.ndarray]:
     """`composite_difficulty_array`の`static_sums`へ渡す`(重み付きスコアの和, 重みの和)`。
 
@@ -75,7 +124,7 @@ def axis_weighted_sums(
 
 def composite_difficulty_array(
     axis_arrays: Mapping[str, np.ndarray],
-    weights: Mapping[str, float],
+    weights: Mapping[str, float | np.ndarray],
     length: int,
     static_sums: tuple[np.ndarray, np.ndarray] | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -98,12 +147,12 @@ def composite_difficulty_array(
     with np.errstate(invalid="ignore", divide="ignore"):
         composite = weighted_scores / weight_sums
     composite = np.where(weight_sums == 0, np.nan, composite)
-    return round1_array(composite), weight_sums
+    return round_difficulty_array(composite), weight_sums
 
 
 def axis_contributions_at_row(
     axis_arrays: Mapping[str, np.ndarray],
-    weights: Mapping[str, float],
+    weights: Mapping[str, float | np.ndarray],
     weight_sums: np.ndarray,
     row: int,
 ) -> dict[str, float]:
@@ -120,7 +169,8 @@ def axis_contributions_at_row(
         value = arr[row]
         if math.isnan(value):
             continue
-        values[axis_id] = float(value) * weights.get(axis_id, 0.0) / total
+        weight = weights.get(axis_id, 0.0)
+        values[axis_id] = float(value) * float(weight[row] if isinstance(weight, np.ndarray) else weight) / total
     return values
 
 
@@ -140,7 +190,7 @@ def composite_difficulty(
     composite, weight_sums = composite_difficulty_array(axis_arrays, weights, 1)
     at_row = axis_contributions_at_row(axis_arrays, weights, weight_sums, 0)
     value = float(composite[0])
-    contributions = {axis_id: None if axis_id not in at_row else round(at_row[axis_id], 1) for axis_id in scores}
+    contributions = {axis_id: None if axis_id not in at_row else round_difficulty(at_row[axis_id]) for axis_id in scores}
     return (None if math.isnan(value) else value), contributions
 
 
@@ -169,7 +219,7 @@ def distance_weighted_difficulty(segments: list[tuple[float | None, float]]) -> 
     """(区間difficulty, 区間distance_km)のリストから距離加重平均を求める。
     0〜100のdifficulty向けに小数1桁へ丸める。"""
     mean = weighted_mean_by_distance(segments)
-    return None if mean is None else round(mean, 1)
+    return None if mean is None else round_difficulty(mean)
 
 
 class OverallDifficulty(StrictModel):
@@ -190,6 +240,7 @@ def overall_difficulty(segments: list[tuple[float | None, float]]) -> OverallDif
     """(区間difficulty, 区間distance_km)のリストからルート全体の難易度を求める。
     値のある区間が無ければNone。
 
+    総量は丸めた平均（応答の`average`）に掛ける。
     difficultyがNoneの区間の扱いは、総量も平均と一致させる（平均×全区間の距離合計）。区間ごとに
     積分して欠損区間を単純に飛ばすと「データが無い区間が多いほど総量が小さい」ことに
     なり、欠損の多いルートが有利に見えてしまう。
@@ -209,4 +260,4 @@ def distance_weighted_difficulty_array(difficulty: np.ndarray, distance_m: np.nd
     distance_sum = float(distance_m[valid].sum())
     if not valid.any() or distance_sum <= 0:
         return None
-    return round(float(np.sum(difficulty[valid] * distance_m[valid]) / distance_sum), 1)
+    return round_difficulty(float(np.sum(difficulty[valid] * distance_m[valid]) / distance_sum))

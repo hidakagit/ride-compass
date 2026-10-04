@@ -5,7 +5,13 @@ import palette from "@/types/generated/palette.json";
 import type { LegendEntry } from "./legendFilter";
 import { NO_DATA_LEGEND_BAND } from "./mapColorLegend";
 import type { AxisCatalogEntry } from "@/types/route";
-import { DEFAULT_DIFFICULTY_BOUNDARIES, valueBands, type MapValueKind } from "./valueScale";
+import {
+  DEFAULT_DIFFICULTY_BOUNDARIES,
+  DIFFICULTY_LEGEND,
+  valueBands,
+  type MapLegendScale,
+  type MapValueKind,
+} from "./valueScale";
 
 type RouteStyleModeId = "difficulty" | "none" | (string & {});
 
@@ -61,18 +67,19 @@ function buildSteppedMode(
   };
 }
 
-// 段の数は境界（軸カタログの`map_value_thresholds`）の数で決まり、ラベルは境界の数字から作る（しきい値を変えても一致する）。
+// 段の数は境界（軸カタログの`map_value_thresholds`）の数で決まり、ラベルは凡例の目盛り（`map_legend`）の境界の数字から作る
+// （しきい値を変えても一致する）。
 function buildRangeSteppedMode(options: {
   id: string;
   label: string;
   valueExpression: unknown[];
   kind: MapValueKind;
   boundaries: readonly number[];
-  unit: string;
+  legend: MapLegendScale;
   bandLabels?: readonly string[] | null;
 }): RouteStyleMode {
-  const { id, label, valueExpression, kind, boundaries, unit, bandLabels } = options;
-  const steps = valueBands(kind, boundaries, unit, bandLabels);
+  const { id, label, valueExpression, kind, boundaries, legend, bandLabels } = options;
+  const steps = valueBands(kind, boundaries, legend, bandLabels);
   return {
     id,
     label,
@@ -83,7 +90,7 @@ function buildRangeSteppedMode(options: {
 // 公開軸1本のモード。塗る値の種類・単位・しきい値はbackendが決め、ルート前の専用配信の塗りと同じ尺度・配色になる。
 function routeColorableModeFromAxis(axis: AxisCatalogEntry): RouteStyleMode {
   const mapValue = axis.map_value;
-  const boundaries = axis.map_value_thresholds ?? DEFAULT_DIFFICULTY_BOUNDARIES;
+  const boundaries = axis.map_value_thresholds;
   // 生値を塗る材料はbackendが名指す（`map_value.material`）。
   if (mapValue.kind === "signed_material") {
     return buildRangeSteppedMode({
@@ -92,7 +99,7 @@ function routeColorableModeFromAxis(axis: AxisCatalogEntry): RouteStyleMode {
       valueExpression: ["get", mapValue.material, ["get", "material_values"]],
       kind: mapValue.kind,
       boundaries,
-      unit: axis.map_value_unit,
+      legend: axis.map_legend,
       bandLabels: axis.display_band_labels_override,
     });
   }
@@ -102,7 +109,7 @@ function routeColorableModeFromAxis(axis: AxisCatalogEntry): RouteStyleMode {
     valueExpression: ["get", axis.axis_id, ["get", "axis_difficulties"]],
     kind: "difficulty",
     boundaries,
-    unit: axis.map_value_unit,
+    legend: axis.map_legend,
     bandLabels: axis.display_band_labels_override,
   });
 }
@@ -114,7 +121,7 @@ const DIFFICULTY_MODE: RouteStyleMode = buildRangeSteppedMode({
   valueExpression: ["get", "difficulty"],
   kind: "difficulty",
   boundaries: DEFAULT_DIFFICULTY_BOUNDARIES,
-  unit: "",
+  legend: DIFFICULTY_LEGEND,
 });
 
 // レンズ「なし」: ルート線を単色（候補線の非選択色と同じ中立グレー）で描き、凡例を持たない。

@@ -159,6 +159,29 @@ export async function scanLayout(
 }
 
 /**
+ * 観点1（配置の検査）: 省略記号で切られている文字が無いこと。対象は見えている要素のうち、計算後の
+ * `text-overflow`が`ellipsis`で、中身が箱より広い（`scrollWidth > clientWidth`）もの。切られた文字は
+ * 画面のどこにも出ないので、値でも題名でも読めなくなる。
+ */
+export async function scanTruncatedText(page: Page): Promise<{ checked: number; problems: string[] }> {
+  return page.evaluate(() => {
+    let checked = 0;
+    const problems: string[] = [];
+    for (const element of document.querySelectorAll<HTMLElement>("body *")) {
+      if (getComputedStyle(element).textOverflow !== "ellipsis") continue;
+      if (element.clientWidth === 0 || !element.checkVisibility({ visibilityProperty: true })) continue;
+      checked += 1;
+      if (element.scrollWidth <= element.clientWidth) continue;
+      const text = (element.textContent ?? "").trim().slice(0, 30);
+      problems.push(
+        `${element.tagName.toLowerCase()} "${text}" が省略されている（中身${element.scrollWidth}px > 箱${element.clientWidth}px）`,
+      );
+    }
+    return { checked, problems };
+  });
+}
+
+/**
  * Tailwindの余白ユーティリティ（`p-2`・`px-[0.9rem]`・`-mt-1`等）。変種付き（`sm:`・`hover:`）は、今の画面で
  * その条件が成り立つかを判定しないので対象外。
  */

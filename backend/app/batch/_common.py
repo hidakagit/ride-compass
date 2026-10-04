@@ -17,7 +17,7 @@ import httpx
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.config import settings
-from app.infrastructure.source_models import latest_succeeded_run_sql
+from app.infrastructure.source_models import Source, latest_succeeded_run_sql
 
 _T = TypeVar("_T")
 
@@ -77,9 +77,9 @@ def asyncpg_dsn(sqlalchemy_url: str) -> str:
 
 
 
-async def latest_succeeded_run_id(conn: asyncpg.Connection, source: str) -> int:
+async def latest_succeeded_run_id(conn: asyncpg.Connection, source: Source) -> int:
     """派生の基準にする取込（そのソースの成功した最新のrun）。無ければ止める。"""
-    run_id = await conn.fetchval(f"SELECT run_id FROM {latest_succeeded_run_sql('$1')} latest", source)
+    run_id = await conn.fetchval(f"SELECT run_id FROM {latest_succeeded_run_sql(source)} latest")
     if run_id is None:
         raise RuntimeError(f"'{source}' の取込が成功していません")
     return run_id

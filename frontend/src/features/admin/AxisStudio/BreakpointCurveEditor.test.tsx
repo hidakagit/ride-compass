@@ -27,7 +27,15 @@ function distribution(overrides: Partial<ValueDistribution> = {}): ValueDistribu
 
 function renderEditor(props: Partial<Parameters<typeof BreakpointCurveEditor>[0]> = {}) {
   const onChangePoint = vi.fn();
-  const view = render(<BreakpointCurveEditor breakpoints={POINTS} onChangePoint={onChangePoint} {...props} />);
+  const view = render(
+    <BreakpointCurveEditor
+      breakpoints={POINTS}
+      onChangePoint={onChangePoint}
+      referenceRange={undefined}
+      distribution={null}
+      {...props}
+    />,
+  );
   return { onChangePoint, svg: screen.getByRole("img"), ...view };
 }
 

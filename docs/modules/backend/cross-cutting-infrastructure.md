@@ -18,12 +18,13 @@ DB接続・Redis・HTTPクライアント・レート制限・ログ・デバッ
 | domain | `strict_model.py` | 全Pydanticモデルの基底（`StrictModel`）。未知のフィールドを黙って捨てず例外にする |
 | api | `admin_auth.py` | 管理API共通の認可境界 |
 | api | `cache_policy.py` | 応答の`Cache-Control`（パスとポリシーの対応表・付与ミドルウェア） |
-| api | `dependencies.py`（横断的な部分のみ、他は各モジュール参照） | DI工場・`enforce_rate_limit`集約 |
+| api | `dependencies.py`（横断的な部分のみ、他は各モジュール参照） | DI工場（公開関数は注入の口だけ） |
+| api | `rate_limit.py` | per-IPレート制限（`enforce_rate_limit`集約・`client_id`） |
 | api/routers | `health.py` | `/health`・`/api/debug/stats` |
 | api/routers | `debug_admin.py` | `debug_mode`のランタイム切替・直近ログ取得 |
 | infrastructure | `database.py` | PostGIS接続（SQLAlchemy） |
 | infrastructure | `redis_client.py` | Redis共有クライアント |
-| infrastructure | `redis_json_cache.py` | RedisへJSONで持つcache-asideの共通骨格 |
+| infrastructure | `redis_json_cache.py` | Redisへ持つcache-asideの共通骨格（JSONと生のバイト列） |
 | infrastructure | `http_client.py` | 外部API向け共有HTTPクライアント |
 | infrastructure | `rate_limiter.py` | プロセス内メモリのみの移動窓レート制限 |
 | infrastructure | `request_log.py` | 1リクエスト=1行のHTTPアクセスサマリログ、ログ1行の書式（リクエストIDの差し込みとJSTでの時刻整形）、500応答へのリクエストIDの付与 |
@@ -44,7 +45,12 @@ DB接続・Redis・HTTPクライアント・レート制限・ログ・デバッ
 | scripts | `_stdio.py` | `scripts/`の実行口が共通で使う、標準出力・標準エラーのUTF-8化 |
 | scripts | `run_probe.py` | 調査用のスクリプトを本番DBに対して走らせる（手元のPythonから本番DBを引くか、本番のbackendコンテナの中で走らせる）。手元実行では接続文字列をSQLAlchemy用と素のasyncpg用の両方の形で環境変数へ渡す。プローブの後ろに書いた引数はそのままプローブへ渡す |
 | scripts | `derived_distribution.py` | 派生の表の値の列ごとに、値のある割合と、型に応じた分布（数: 0でない割合・合計・分位・最大、真偽: 真の割合、文字: 種類の数）を1列1行で出す。表と列は`infrastructure/derived_data_freshness.py: derived_tables`・`value_columns`から導く。派生の値を変える変更の前後を並べるための道具（[flow.md](../../conventions/flow.md)「分布の前後」）。本番DBへは`run_probe.py`で当てる |
-| scripts | `_prod_env.py` | 本番へつなぐ道具（`run_probe.py`・`axis_apply.py`等）が共有する、手元の接続情報（`backend/.env.oracle.local`）の読み方。worktreeから打ったときは本体のチェックアウト側のファイルを読む（gitignore対象のファイルはworktreeへ写らない） |
+| scripts | `_prod_env.py` | 本番へつなぐ道具（`run_probe.py`・`axis_apply.py`等）が共有する、手元の接続情報（`backend/.env.oracle.local`）の読み方。worktreeから打ったときは本体のチェックアウト側のファイルを読む（gitignore対象のファイルはworktreeへ写らない）。接続情報を渡す前に、このチェックアウトがorigin/masterより遅れていれば止まる（[setup.md](../../architecture/setup.md)「開発機の本体のチェックアウトの遅れ」） |
+| scripts | `check_db_connection.py` | `DATABASE_URL`（既定は`.env`）へつながるかだけを確かめる |
+| scripts | `drop_orphan_test_databases.py` | 作業ツリーごとに作られるPostGIS統合テストのDBのうち、作業ツリーが無くなったものを出し、`--drop`で落とす。どの作業ツリーのものかはDB自身のコメントから読む（名前から推測しない） |
+| scripts | `serve_e2e_live.py` | e2e-live（`frontend/e2e-live/`）のために、この作業ツリーのbackendを開発DBへ向けて空いたポートで起動し、路面タイルに道が出る起点を開発DBの区間から選んで、ビルドと実行のコマンドを出す（手順の正本は[testing.md](../../conventions/testing.md)） |
+| scripts | `dead_code_survey.py` | 本番の入力の源流（`scripts/`・`benchmarks/`・`main.py`とアプリの起動・ルートハンドラ等の入口）から参照をたどり、たどり着かない`app/`の定義を出す。テストは源流に含めない。曖昧な参照は生きている側へ倒す |
+| scripts | `audit_test_rewrite.py` | 実装から起こし直したテストを外から測る（実装を変えていないか・テストが読む`app.*`・対象の属性の出どころ・seams 数・実装へ1行も入らないテスト・カバレッジ。テストは対象を読む母集団を並べて渡す。PostGISのテストはテスト用DBへ繋がるときだけ含める）。起こし直しの手順は[testing.md](../../conventions/testing.md) |
 
 ## Pydanticモデルの基底（`domain/strict_model.py`）
 
@@ -164,7 +170,7 @@ uvicorn以外からの起動（テスト・スクリプト）は1とみなす。
 
 **既定値はこのクラスだけが持つ。** `.env`の雛形（`backend/.env.example`・リポジトリ直下の`.env.example`）は項目と
 上書きの仕方だけを書き、値を写さない——写した値は`.env`へコピーされた時点で固定され、既定値を直しても手元では
-古い値が効き続ける。`docker-compose.yml`の`environment:`がCORSの許可元・基礎地図の書き換え先を書くのは写しではない:
+古い値が効き続ける。`docker-compose.yml: environment`がCORSの許可元・基礎地図の書き換え先を書くのは写しではない:
 composeのfrontendの公開先に従う値で、既定値（手元で`next dev`を起動したときのオリジン）を変えても変わらない。
 
 **暗黙の前提**: DBの口（repository）を受け取るサービスは、口が無い状態を持たない。
@@ -180,7 +186,7 @@ composeのfrontendの公開先に従う値で、既定値（手元で`next dev`�
 | ファクトリ | command_timeout | 用途 |
 |---|---|---|
 | `get_session_factory()` | 20秒 | タイル配信（路面/POI/事故）・軸スタジオCRUD等、通常のリクエスト |
-| `get_route_generation_session_factory()` | 180秒 | ルート生成（`get_graph_service`）と、全表走査を伴う管理APIの集計（DBの状態・材料の欠損率等） |
+| `get_route_generation_session_factory()` | 180秒 | ルート生成（`api/dependencies.py: _open_graph_service`）と、全表走査を伴う管理APIの集計（DBの状態・材料の欠損率等） |
 
 ルート生成は取込範囲の判定（`is_covered`）で接続を取り、確定した経路の形の取り直し
 （`get_edges_with_geometry`）を終えるまで、1件の生成の間（本番で数秒〜数十秒）その接続を持ち続ける。
@@ -197,22 +203,22 @@ None）へ倒す箇所は、`except Exception`ではなくこのタプルだけ�
 形のまま「データなし」に見え、誰も気づかない。
 空へ倒さずに503で知らせる口（管理APIの集計・軸の編集）も、捕まえるのは同じタプルである。
 
-中身はSQLAlchemy 2.0＋asyncpgで例外がどう届くかから決まっている（ソースで確認）:
+中身はSQLAlchemy 2.1＋asyncpgで例外がどう届くかから決まっている（ソースで確認）:
 
-- 実行中の失敗はasyncpgの例外が`DBAPIError`へ訳される。プールの待ち切れは
-  `sqlalchemy.exc.TimeoutError`。どちらも`SQLAlchemyError`。
+- 接続を張る段階（接続数の上限・認証等）と実行中の失敗は、asyncpgの例外（`asyncpg.PostgresError`・
+  `asyncpg.InterfaceError`）が`DBAPIError`へ訳される（方言の`_asyncpg_error_translate`）。プールの待ち切れは
+  `sqlalchemy.exc.TimeoutError`。どれも`SQLAlchemyError`。
 - `command_timeout`の`TimeoutError`は訳されずに届く（Python 3.11以降は`OSError`の派生）。
   接続の拒否・切断も`OSError`。
-- 接続を張る段階ではSQLAlchemyがasyncpgの`connect`を直接呼ぶため、接続数の上限・認証等の
-  失敗は`asyncpg.PostgresError`・`asyncpg.InterfaceError`のまま届く（`DBAPIError`にならない）。
 
-## レート制限の集約（`api/dependencies.py: enforce_rate_limit`）
+## レート制限の集約（`api/rate_limit.py: enforce_rate_limit`）
 
 `check_rate_limit`→超過時の記録→`HTTPException(429)`という一連の処理を
 `enforce_rate_limit(request, prefix, limit_per_minute)`へ集約している。`weather.py`・
 `basemap.py`・`jma_tile.py`・`gsi_tile.py`・`accidents.py`・`routes.py`の各routerが
 これを直接呼び、`region.py`は路面・POI・専用way値配信で同じ上限を共有するため
-`_check_tile_rate_limit`という薄いラッパー経由で呼ぶ。`prefix`はレート制限キー・
+`_check_tile_rate_limit`という薄いラッパー経由で呼ぶ。DI工場ではなく、ルーターが要求ごとに`prefix`と上限を
+変えて普通に呼ぶ関数なので、`dependencies.py`（公開関数は注入の口だけ）と分けて置く。`prefix`はレート制限キー・
 rejection集計カテゴリの両方を兼ねる。
 
 ### 回数の記録（`infrastructure/rate_limiter.py`）
@@ -273,14 +279,15 @@ frontend側（`src/proxy.ts`）も同じ資格情報を別のBasic認証チェ�
 のタプルで保持し、`min_level`フィルタは整形済み文字列を`[LEVELNAME]`のような
 部分文字列でパースせずこの数値で判定する。
 
-## RedisのJSON cache-aside（`redis_json_cache.py`）
+## Redisのcache-aside（`redis_json_cache.py`）
 
 どの層に持つか・TTLをどう決めるか・無効化の手段といった方針は[docs/conventions/caching.md](../../conventions/caching.md)が
 正本で、ここは実装の説明に絞る。
 
 「Redisが使えるか確認→クライアント取得→`log_external_call`で計測→失敗は握り潰して
-未キャッシュ扱い→成否をサーキットブレーカーへ記録」という定型文を`get_json`/`set_json`の
-2関数へまとめたもの。呼び出し元はキー設計・TTL・値の意味づけだけを持つ。
+未キャッシュ扱い→成否をサーキットブレーカーへ記録」という定型文を1本にまとめたもの。値の形で入口が分かれる——
+JSONは`get_json`/`set_json`、バイナリは文字列へデコードしない接続（`redis_client.py: get_redis_binary_client_or_none`）を
+通す`get_bytes`/`set_bytes`。`get_bytes`は呼び出し元の解釈関数へ生のバイト列を渡し、解釈できない値は未キャッシュ（miss）として扱う。呼び出し元はキー設計・TTL・値の意味づけだけを持つ。
 `simple_api_client.py: cached_fetch`がプロセス内`TTLCache`側で担っている役割の、Redis版。
 
 **fail-openが前提**: 扱うのはいずれも正本を持たないキャッシュのため、Redis障害・接続不能・
@@ -288,12 +295,13 @@ frontend側（`src/proxy.ts`）も同じ資格情報を別のBasic認証チェ�
 経路へ進めるようにする。キャッシュの不調でアプリの機能を止めない。
 
 新しくRedisへ持つキャッシュはこれを使う（例: 気象庁タイル本体の`jma_tile_redis_cache`・在否インデックスの
-`jma_tile_index`）。タイル本体は値がバイナリ（PNG/PBF）だが、base64の文字列をJSONへ包んでこの2関数に乗せている。
+`jma_tile_index`）。タイル本体は値がバイナリ（PNG/PBF）なので`get_bytes`/`set_bytes`に乗せている。
 自前の骨格を持ってよい場合はdocs/conventions/caching.md「自前で骨格を書いてよい例外」が決める。
 
 ## Redisクライアント（`redis_client.py`、サーキットブレーカー）
 
-JMA気象データの短命キャッシュが使う共有接続。**接続/ソケットタイムアウトを明示的に0.2秒へ短縮**している（既定タイムアウトの
+JMA気象データの短命キャッシュが使う共有接続。値を文字列で読み書きする接続と生のバイト列で読み書きする接続を
+1つずつ持ち、接続先とサーキットブレーカーは共有する。**接続/ソケットタイムアウトを明示的に0.2秒へ短縮**している（既定タイムアウトの
 ままだと疎通不能環境で1回の接続試行に数秒かかりうるため。ルート生成の
 ホットパスに乗ると「PostGIS往復を減らす」という本来の目的に反する遅延になる）。
 

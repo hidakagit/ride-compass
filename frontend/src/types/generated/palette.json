@@ -16,6 +16,7 @@
     "route_arrow_halo": "#111827",
     "mark_halo": "rgba(31, 41, 55, 0.85)",
     "mark_stroke": "#ffffff",
+    "mark_glyph": "#ffffff",
     "lightning": "#facc15",
     "basemap_ground": "#f8f4f0",
     "legend_size_only": "#6b7280",

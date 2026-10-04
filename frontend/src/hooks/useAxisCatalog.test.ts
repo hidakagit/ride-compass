@@ -1,275 +1,211 @@
-import { renderHook, waitFor } from "@testing-library/react";
+/**
+ * 軸カタログの取得と共有（`hooks/useAxisCatalog.ts`）——読み手の間で1つの取得を共有し、届くまで・失敗の間は
+ * 軸0件のカタログを返し（`loaded`・`failed`で見分ける）、一度届いた応答は後の取得の失敗で巻き戻さない。
+ * 取れていない間だけヘッダーの印の項目を出し、その再試行は取れていないときだけ取り直す。
+ *
+ * ここで見ないもの:
+ * - 応答からカタログの各欄（軸・既定重み・表示名・色）を導く中身 → `lib/axisCatalog.ts: axisCatalogFromResponse` を読む側のテスト
+ * - backendへの問い合わせの形（宛先・待ち時間） → `services/axisCatalogApi.test.ts`
+ * - 地図だけが読む形（`useAxisCatalogSelect` の読み手） → `features/map/useMapAxisCatalog.test.ts`
+ *
+ * 差し替えたもの: backendを呼ぶ口（`services/axisCatalogApi.ts: getAxisCatalog`）。取得のキャッシュは
+ * `vitest.setup.ts` がテストごとに空にする。
+ */
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { AxisCatalogResponse } from "@/types/route";
-import routeGenerateConfig from "@/types/generated/route-generate-config.json";
-
-// 改善計画T308: useAxisCatalogがrampAxes/axisLabels/secondaryAxesを実行時APIから
-// 導出することの回帰テスト。RouteSettingsPanel.test.tsxと同じモック方針。
-vi.mock("@/services/axisCatalogApi", () => ({
-  getAxisCatalog: vi.fn(),
-}));
 
 import { CLIENT_TUNING_IDS, clientTuningValue } from "@/lib/axisCatalog";
+import { getAxisCatalog } from "@/services/axisCatalogApi";
+import { catalogEntry, catalogResponse } from "@/testing/catalogAxes";
+import type { AxisCatalogResponse } from "@/types/route";
 
-// 届いたカタログは共有のキャッシュ（`lib/queryClient.ts`）に残る。**テストごとに読み込み直して
-// 空のキャッシュから始める**——本番へ「テストのために戻す」口を置かないため（設計原則 構造仕様15）。
-// 取得のモックも読み込み直しで作り直されるので、毎回こちらも取り直す。
-let mod: typeof import("./useAxisCatalog");
-let getAxisCatalog: ReturnType<typeof vi.fn>;
+import { axisCatalogFetchFailure, retryAxisCatalogFetch, useAxisCatalog, useAxisCatalogSelect } from "./useAxisCatalog";
 
-beforeEach(async () => {
-  vi.resetModules();
-  ({ getAxisCatalog } = (await import("@/services/axisCatalogApi")) as unknown as {
-    getAxisCatalog: ReturnType<typeof vi.fn>;
-  });
-  mod = await import("./useAxisCatalog");
+vi.mock("@/services/axisCatalogApi", () => ({ getAxisCatalog: vi.fn() }));
+
+const fetchCatalog = vi.mocked(getAxisCatalog);
+
+const RESPONSE_A = catalogResponse([catalogEntry({ axis_id: "axis_a", default_weight: 0.4 })], {
+  client_tuning: { [CLIENT_TUNING_IDS.minStretchKm]: 0.5 },
 });
+const RESPONSE_B = catalogResponse([
+  catalogEntry({ axis_id: "axis_a", default_weight: 0.4 }),
+  catalogEntry({ axis_id: "axis_b", default_weight: 0.6 }),
+]);
 
-function catalogResponse(): AxisCatalogResponse {
-  return {
-    axes: [
-      {
-        axis_id: "surface_q",
-        label: "舗装質",
-        description: "",
-        category: "観測",
-        default_weight: 0.19,
-        display: { kind: "none", label: "舗装質", category: "trafficSafety", tile_inputs: [], thresholds: [] },
-        primary_attribute_ids: ["surface"],
-        weather_layer_groups: [],
-        icon_id: "wave",
-        chip_label: "舗装",
-        panel_hint: null,
-        show_map_icon: true,
-        shape: { kind: "categorical", material: "surface_estimate", mapping: { paved: 0, gravel: 80 } },
-        display_thresholds_override: null,
-        display_band_labels_override: null,
-        dedicated_way_value_layer: false,
-        map_value: { kind: "difficulty" },
-        map_value_unit: "",
-        map_value_thresholds: null,
-        dynamic_way_value_needs_time: false,
-        dynamic_way_value_needs_bearing: false,
-        dynamic_way_value_needs_speed: false,
-        raw_value_unit: null,
-        raw_value_total_unit: null,
-        material_breakdown: [],
-      },
-      // 軸スタジオで公開されたばかりの新規GUI軸（複数材料の重み付き結合、kind=ramp）。
-      // 軸は実行時APIだけが配る（ビルド時の生成物は軸の写しを持たない）。
-      {
-        axis_id: "gui_published_axis",
-        label: "GUI公開軸テスト",
-        description: "",
-        category: "推定",
-        default_weight: 0.1,
-        display: {
-          kind: "ramp",
-          label: "GUI公開軸テスト",
-          category: "trafficSafety",
-          tile_inputs: [
-            {
-              property: "lanes_count",
-              weight: 1.0,
-              boolean: false,
-              true_value: 0,
-              false_value: 0,
-              has_unknown_fallback: false,
-              categories: null,
-              breakpoints: null,
-              needs_runtime_scale: false,
-            },
-          ],
-          thresholds: [10.0],
-        },
-        primary_attribute_ids: ["lanes"],
-        weather_layer_groups: [],
-        icon_id: null,
-        chip_label: null,
-        panel_hint: null,
-        show_map_icon: true,
-        shape: {
-          kind: "breakpoint_linear",
-          terms: [{ material: "lanes_count", weight: 1.0, required: true }],
-          preprocess: "identity",
-          breakpoints: [
-            [0, 0],
-            [10, 100],
-          ],
-        },
-        display_thresholds_override: null,
-        display_band_labels_override: null,
-        dedicated_way_value_layer: false,
-        map_value: { kind: "difficulty" },
-        map_value_unit: "",
-        map_value_thresholds: null,
-        dynamic_way_value_needs_time: false,
-        dynamic_way_value_needs_bearing: false,
-        dynamic_way_value_needs_speed: false,
-        raw_value_unit: null,
-        raw_value_total_unit: null,
-        material_breakdown: [],
-      },
-    ],
-    // 改善計画T404: material_runtime_scalesはAxisCatalogResponseの必須フィールド
-    // （既定{}だがopenapi-typescriptはdefault付きフィールドをoptionalにしない）。
-    material_runtime_scales: {},
-    client_tuning: {},
-    accident_years: [],
-    tile_versions: {},
-  };
+/** 呼ばれた順に、渡した結果で決着する問い合わせを返す。決着させるまで待つ。 */
+function deferredFetches() {
+  const pending: { resolve: (value: AxisCatalogResponse) => void; reject: (error: Error) => void }[] = [];
+  fetchCatalog.mockImplementation(
+    () =>
+      new Promise<AxisCatalogResponse>((resolve, reject) => {
+        pending.push({ resolve, reject });
+      }),
+  );
+  return pending;
 }
 
-describe("useAxisCatalog（改善計画T308: rampAxes/axisLabels/secondaryAxesの実行時フェッチ）", () => {
-  it("実行時フェッチが完了すると、GUI公開軸を含むrampAxesを返す", async () => {
-    vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse());
+function axisIds(catalog: ReturnType<typeof useAxisCatalog>) {
+  return catalog.axes.map((axis) => axis.axisId);
+}
 
-    const { result } = renderHook(() => mod.useAxisCatalog());
+beforeEach(() => {
+  fetchCatalog.mockReset();
+});
 
-    await waitFor(() => {
-      expect(result.current.rampAxes.some((axis) => axis.axisId === "gui_published_axis")).toBe(true);
-    });
+describe("useAxisCatalog", () => {
+  it("届くまでは軸0件で、取れても失敗してもいない。較正値も引けない", () => {
+    deferredFetches();
 
-    const guiAxis = result.current.rampAxes.find((axis) => axis.axisId === "gui_published_axis")!;
-    expect(guiAxis.tileInputs).toEqual([
-      {
-        property: "lanes_count",
-        weight: 1.0,
-        boolean: false,
-        trueValue: 0,
-        falseValue: 0,
-        hasUnknownFallback: false,
-        categories: undefined,
-        breakpoints: undefined,
-      },
-    ]);
-    expect(guiAxis.thresholds).toEqual([10.0]);
-    // kind=noneのsurface_qはrampAxesには含まれないが、axisLabels/secondaryAxesには含まれる。
-    expect(result.current.rampAxes.some((axis) => axis.axisId === "surface_q")).toBe(false);
-    expect(result.current.axisLabels.gui_published_axis).toBe("GUI公開軸テスト");
-    expect(result.current.axisLabels.surface_q).toBe("舗装質");
-    const guiSecondaryAxis = result.current.secondaryAxes.find((axis) => axis.axisId === "gui_published_axis");
-    expect(guiSecondaryAxis?.primaryAttributeIds).toEqual(["lanes"]);
-  });
+    const { result } = renderHook(() => useAxisCatalog());
 
-  it("取得できるまでは較正値を引けず（ビルド時の既定で埋めない）、取得後はbackendの値を返す", async () => {
-    // 管理画面から変えた値を再デプロイなしに画面へ届けるための経路。
-    vi.mocked(getAxisCatalog).mockResolvedValue({
-      ...catalogResponse(),
-      client_tuning: { [CLIENT_TUNING_IDS.minStretchKm]: 0.5 },
-    });
-
-    const { result } = renderHook(() => mod.useAxisCatalog());
-
-    expect(clientTuningValue(result.current, CLIENT_TUNING_IDS.minStretchKm)).toBeUndefined();
-    await waitFor(() => expect(clientTuningValue(result.current, CLIENT_TUNING_IDS.minStretchKm)).toBe(0.5));
-  });
-
-  it("フロントが読む較正値は、どれもビルド時生成物に在る", () => {
-    // backendの宣言（domain/tuning.py）から消す・綴りを変えると、フロントは引けないまま
-    // その値を使う機能を黙って出さなくなる。生成物はexport_openapi.pyが宣言から作るため、ここで突き合わせると
-    // その変更がフロント側のCIで落ちる。
-    const ids = Object.values(CLIENT_TUNING_IDS);
-
-    expect(ids.length).toBeGreaterThan(0);
-    for (const id of ids) {
-      expect(Object.hasOwn(routeGenerateConfig.client_tuning, id)).toBe(true);
-    }
-  });
-
-  it("改善計画T318フォローアップ: 全軸非公開でaxesが0件のレスポンスは、そのまま空を返す", async () => {
-    vi.mocked(getAxisCatalog).mockResolvedValue({
-      axes: [],
-      material_runtime_scales: {},
-      client_tuning: {},
-      accident_years: [],
-      tile_versions: {},
-    });
-
-    const { result } = renderHook(() => mod.useAxisCatalog());
-
-    await waitFor(() => expect(result.current.axes).toEqual([]));
-    expect(result.current.rampAxes).toEqual([]);
-    expect(result.current.axisLabels).toEqual({});
-    expect(result.current.secondaryAxes).toEqual([]);
-    expect(result.current.defaultWeights).toEqual({});
-  });
-
-  it("フェッチ失敗はfailed=trueとして表面化する（未取得[両方false]と区別できる）", async () => {
-    vi.mocked(getAxisCatalog).mockRejectedValue(new Error("network error"));
-
-    const { result } = renderHook(() => mod.useAxisCatalog());
-
-    await waitFor(() => expect(result.current.failed).toBe(true));
+    expect(result.current.axes).toEqual([]);
     expect(result.current.loaded).toBe(false);
+    expect(result.current.failed).toBe(false);
+    expect(clientTuningValue(result.current, CLIENT_TUNING_IDS.minStretchKm)).toBeUndefined();
+    expect(axisCatalogFetchFailure(result.current)).toBeNull();
   });
 
-  it("retryAxisCatalogFetchは再取得し、成功すればfailedが下りてカタログが入れ替わる", async () => {
-    vi.mocked(getAxisCatalog).mockRejectedValueOnce(new Error("network error"));
-    const { result } = renderHook(() => mod.useAxisCatalog());
-    await waitFor(() => expect(result.current.failed).toBe(true));
+  it("届いたら、応答の軸・既定重み・較正値を持つ取れたカタログになり、印の項目は無い", async () => {
+    fetchCatalog.mockResolvedValue(RESPONSE_A);
 
-    vi.mocked(getAxisCatalog).mockResolvedValueOnce(catalogResponse());
-    mod.retryAxisCatalogFetch();
+    const { result } = renderHook(() => useAxisCatalog());
 
     await waitFor(() => expect(result.current.loaded).toBe(true));
     expect(result.current.failed).toBe(false);
-    expect(result.current.axes).toHaveLength(2);
+    expect(axisIds(result.current)).toEqual(["axis_a"]);
+    expect(result.current.defaultWeights).toEqual({ axis_a: 0.4 });
+    expect(clientTuningValue(result.current, CLIENT_TUNING_IDS.minStretchKm)).toBe(0.5);
+    expect(axisCatalogFetchFailure(result.current)).toBeNull();
   });
 
-  it("取得成功後のretryAxisCatalogFetchは再取得しない（既に確定しているため）", async () => {
-    vi.mocked(getAxisCatalog).mockResolvedValueOnce(catalogResponse());
-    const { result } = renderHook(() => mod.useAxisCatalog());
+  it("軸が0件の応答も、取れたカタログになる", async () => {
+    fetchCatalog.mockResolvedValue(catalogResponse([]));
+
+    const { result } = renderHook(() => useAxisCatalog());
+
     await waitFor(() => expect(result.current.loaded).toBe(true));
-    const callsBefore = vi.mocked(getAxisCatalog).mock.calls.length;
-
-    mod.retryAxisCatalogFetch();
-
-    expect(vi.mocked(getAxisCatalog).mock.calls.length).toBe(callsBefore);
+    expect(result.current.axes).toEqual([]);
+    expect(result.current.failed).toBe(false);
   });
 
-  it("改善計画T527: 先にマウント済みの呼び出し元は、別の呼び出し元が後から再フェッチした結果も共有する", async () => {
-    // page.tsxが先にマウントしてフェッチ完了した後、RouteSettingsPanel.tsxが再マウント
-    // （モバイルのBottomSheetでタブを開き直す等）して再フェッチするシナリオ。以前は
-    // 呼び出し元ごとに独立したuseStateだったため、firstは古いカタログのまま取り残され
-    // secondとの間でaxes配列が食い違っていた。
-    vi.mocked(getAxisCatalog).mockResolvedValueOnce(catalogResponse());
-    const first = renderHook(() => mod.useAxisCatalog());
-    await waitFor(() => expect(first.result.current.loaded).toBe(true));
-    expect(first.result.current.axes).toHaveLength(2);
+  it("失敗したら軸0件の失敗したカタログになり、ヘッダーの印の項目が再試行を持って出る", async () => {
+    fetchCatalog.mockRejectedValue(new Error("network"));
 
-    // 軸スタジオでgui_published_axisが非公開になり、以後のフェッチは1軸だけ返す想定。
-    vi.mocked(getAxisCatalog).mockResolvedValueOnce({
-      axes: [catalogResponse().axes[0]],
-      material_runtime_scales: {},
-      client_tuning: {},
-      accident_years: [],
-      tile_versions: {},
-    });
-    const second = renderHook(() => mod.useAxisCatalog());
+    const { result } = renderHook(() => useAxisCatalog());
 
-    await waitFor(() => expect(second.result.current.axes).toHaveLength(1));
-    // firstは自分では再フェッチしていないが、共有のキャッシュ経由で最新の1軸へ追従する。
-    expect(first.result.current.axes).toHaveLength(1);
-    expect(first.result.current.axes).toBe(second.result.current.axes);
+    await waitFor(() => expect(result.current.failed).toBe(true));
+    expect(result.current.loaded).toBe(false);
+    expect(result.current.axes).toEqual([]);
+    const failure = axisCatalogFetchFailure(result.current);
+    expect(failure).toMatchObject({ id: "axis-catalog", label: "軸一覧" });
+    expect(failure?.onRetry).toBe(retryAxisCatalogFetch);
   });
 
-  it("改善計画T527: 後発の呼び出し元の再フェッチが失敗しても、既に取得済みの正常なカタログを巻き戻さない", async () => {
-    // 呼び出し回数はテストファイル内で共有されるため、このテスト内での増分だけを見る。
-    vi.mocked(getAxisCatalog).mockResolvedValueOnce(catalogResponse());
-    const first = renderHook(() => mod.useAxisCatalog());
+  it("失敗の後の再試行は取り直し、取り直している間は失敗を下ろし、取れたら印の項目が消える", async () => {
+    const pending = deferredFetches();
+    const { result } = renderHook(() => useAxisCatalog());
+    await act(async () => pending[0].reject(new Error("network")));
+    await waitFor(() => expect(result.current.failed).toBe(true));
+
+    act(() => retryAxisCatalogFetch());
+
+    await waitFor(() => expect(fetchCatalog).toHaveBeenCalledTimes(2));
+    expect(result.current.failed).toBe(false);
+    expect(result.current.loaded).toBe(false);
+
+    await act(async () => pending[1].resolve(RESPONSE_A));
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    expect(axisIds(result.current)).toEqual(["axis_a"]);
+    expect(axisCatalogFetchFailure(result.current)).toBeNull();
+  });
+
+  it("取れた後の再試行は取り直さない", async () => {
+    fetchCatalog.mockResolvedValue(RESPONSE_A);
+    const { result } = renderHook(() => useAxisCatalog());
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+
+    act(() => retryAxisCatalogFetch());
+
+    await act(async () => {});
+    expect(fetchCatalog).toHaveBeenCalledTimes(1);
+  });
+
+  it("後から描いた読み手は取り直し、その結果は先にいる読み手にも届く", async () => {
+    const pending = deferredFetches();
+    const first = renderHook(() => useAxisCatalog());
+    await act(async () => pending[0].resolve(RESPONSE_A));
     await waitFor(() => expect(first.result.current.loaded).toBe(true));
-    const callsBefore = vi.mocked(getAxisCatalog).mock.calls.length;
 
-    vi.mocked(getAxisCatalog).mockRejectedValueOnce(new Error("network error"));
-    const second = renderHook(() => mod.useAxisCatalog());
-    await waitFor(() => expect(vi.mocked(getAxisCatalog).mock.calls.length - callsBefore).toBe(1));
+    const second = renderHook(() => useAxisCatalog());
 
-    // secondの再フェッチが失敗しても、firstが既に取得していた2軸のカタログのまま
-    // （取得前の空へ巻き戻らない）。
-    expect(first.result.current.loaded).toBe(true);
-    expect(first.result.current.failed).toBe(false);
-    expect(first.result.current.axes).toHaveLength(2);
-    expect(second.result.current.axes).toHaveLength(2);
+    await waitFor(() => expect(fetchCatalog).toHaveBeenCalledTimes(2));
+    expect(axisIds(second.result.current)).toEqual(["axis_a"]);
+    await act(async () => pending[1].resolve(RESPONSE_B));
+    await waitFor(() => expect(axisIds(first.result.current)).toEqual(["axis_a", "axis_b"]));
+    expect(axisIds(second.result.current)).toEqual(["axis_a", "axis_b"]);
+  });
+
+  it("一度届いた後の取り直しが失敗しても、届いたカタログのまま失敗にならない", async () => {
+    const pending = deferredFetches();
+    const first = renderHook(() => useAxisCatalog());
+    await act(async () => pending[0].resolve(RESPONSE_A));
+    await waitFor(() => expect(first.result.current.loaded).toBe(true));
+
+    const second = renderHook(() => useAxisCatalog());
+    await waitFor(() => expect(fetchCatalog).toHaveBeenCalledTimes(2));
+    await act(async () => pending[1].reject(new Error("network")));
+
+    for (const reader of [first, second]) {
+      expect(reader.result.current.loaded).toBe(true);
+      expect(reader.result.current.failed).toBe(false);
+      expect(axisIds(reader.result.current)).toEqual(["axis_a"]);
+    }
+  });
+
+  it("読み手が一度いなくなっても、次の読み手は届いたカタログから始まる", async () => {
+    const pending = deferredFetches();
+    const first = renderHook(() => useAxisCatalog());
+    await act(async () => pending[0].resolve(RESPONSE_A));
+    await waitFor(() => expect(first.result.current.loaded).toBe(true));
+    first.unmount();
+
+    const next = renderHook(() => useAxisCatalog());
+
+    expect(next.result.current.loaded).toBe(true);
+    expect(axisIds(next.result.current)).toEqual(["axis_a"]);
+  });
+});
+
+describe("useAxisCatalogSelect", () => {
+  const countAxes = (response: AxisCatalogResponse) => response.axes.length;
+
+  it("届くまでは値が無く、届いたら読み手の導いた形を返す", async () => {
+    const pending = deferredFetches();
+
+    const { result } = renderHook(() => useAxisCatalogSelect(countAxes));
+
+    expect(result.current).toEqual({ data: undefined, failed: false });
+    await act(async () => pending[0].resolve(RESPONSE_B));
+    await waitFor(() => expect(result.current).toEqual({ data: 2, failed: false }));
+  });
+
+  it("失敗したら値が無く失敗になる", async () => {
+    fetchCatalog.mockRejectedValue(new Error("network"));
+
+    const { result } = renderHook(() => useAxisCatalogSelect(countAxes));
+
+    await waitFor(() => expect(result.current).toEqual({ data: undefined, failed: true }));
+  });
+
+  it("形の異なる読み手どうしも、取得は1つを共有する", async () => {
+    fetchCatalog.mockResolvedValue(RESPONSE_B);
+
+    const counted = renderHook(() => useAxisCatalogSelect(countAxes));
+    const catalog = renderHook(() => useAxisCatalog());
+
+    await waitFor(() => expect(counted.result.current.data).toBe(2));
+    await waitFor(() => expect(catalog.result.current.loaded).toBe(true));
+    expect(fetchCatalog).toHaveBeenCalledTimes(1);
   });
 });

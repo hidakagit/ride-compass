@@ -3,7 +3,10 @@
 import type { CSSProperties, ReactNode } from "react";
 
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
-import { legendSwatchBackground, type LegendEntry } from "@/lib/mapDisplay/legendFilter";
+import { cn } from "@/lib/cn";
+import { LEGEND_SWATCH_RING_CLASS, legendSwatchBackground, type LegendEntry } from "@/lib/mapDisplay/legendFilter";
+
+import LegendRow from "./LegendRow";
 
 interface LegendCheckboxListProps {
   legend: readonly LegendEntry[];
@@ -28,7 +31,7 @@ function legendSwatchStyle(entry: LegendEntry): CSSProperties {
 }
 
 // 凡例をチェックボックス一覧として描画する共通部品（MapOverlayControls.tsx・
-// LensControl.tsxで共用）。行の中身（チェックボックス+スウォッチ+ラベル）
+// LensControl.tsxで共用）。行の中身（チェックボックス+スウォッチ+ラベルと、行の説明の（i）は`LegendRow`）
 // だけを担い、リスト/行自体の見た目
 // （レンズの一覧か、▶パネル内の単列か等）は呼び出し側がclassNameで
 // 指定する——文脈で項目数・レイアウトが異なるため。
@@ -43,21 +46,25 @@ export default function LegendCheckboxList({
   renderSwatch,
 }: LegendCheckboxListProps) {
   return (
-    <div className={listClassName}>
+    <div className={listClassName} data-usage="チェックを外した段階の道・点を地図から隠します（絞り込み）。">
       {legend.map((entry) => {
         const visible = !hiddenKeys.includes(entry.key);
-        const className =
-          entry.isFallback && rowFallbackClassName ? `${rowClassName} ${rowFallbackClassName}` : rowClassName;
         return (
-          <label key={entry.key} className={className}>
-            <Checkbox checked={visible} onCheckedChange={() => onToggle(entry.key)} aria-label={entry.label} />
-            {renderSwatch ? (
-              renderSwatch(entry)
-            ) : (
-              <span aria-hidden="true" className={swatchClassName} style={legendSwatchStyle(entry)} />
-            )}
-            {entry.label}
-          </label>
+          <LegendRow key={entry.key} entry={entry} className={entry.isFallback ? rowFallbackClassName : undefined}>
+            <label className={rowClassName}>
+              <Checkbox checked={visible} onCheckedChange={() => onToggle(entry.key)} aria-label={entry.label} />
+              {renderSwatch ? (
+                renderSwatch(entry)
+              ) : (
+                <span
+                  aria-hidden="true"
+                  className={cn(LEGEND_SWATCH_RING_CLASS, swatchClassName)}
+                  style={legendSwatchStyle(entry)}
+                />
+              )}
+              {entry.label}
+            </label>
+          </LegendRow>
         );
       })}
     </div>

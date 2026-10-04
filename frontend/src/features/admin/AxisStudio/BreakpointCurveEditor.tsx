@@ -35,7 +35,7 @@ function niceTicks(min: number, max: number): number[] {
 /** 折れ点(breakpoints)をドラッグ・矢印キーで調整できる曲線エディタ。既存の数値入力行
  * （正確な値の入力・行の追加削除）はそのまま残し、この曲線はその可視化＋補助的な操作手段
  * として上に添える（両者は同じdraft.breakpoints stateを指すため常に同期する）。
- * `referenceRange`（材料の参考点の値域）を渡すと横軸をその範囲に固定し、ドラッグ中に
+ * `referenceRange`（材料の参考点の値域）があれば横軸をその範囲に固定し、ドラッグ中に
  * 見た目のスケールが動かないようにする（材料の参考点が無い場合は現在のbreakpointsの
  * 値から自動スケールする）。 */
 export function BreakpointCurveEditor({
@@ -46,9 +46,9 @@ export function BreakpointCurveEditor({
 }: {
   breakpoints: [number, number][];
   onChangePoint: (index: number, pos: 0 | 1, value: number) => void;
-  referenceRange?: { min: number; max: number };
+  referenceRange: { min: number; max: number } | undefined;
   /** 折れ点を通す前の生値の分布。背景へ薄く重ねる。未取得・取得不可ならnull。 */
-  distribution?: ValueDistribution | null;
+  distribution: ValueDistribution | null;
 }) {
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
   const width = 400;
@@ -57,7 +57,7 @@ export function BreakpointCurveEditor({
   const xs = breakpoints.map((bp) => bp[0]);
   const ys = breakpoints.map((bp) => bp[1]);
   // referenceRangeがあれば10%の余白を持たせて横軸を固定し、無ければ現在のbreakpoints
-  // から自動スケールする（従来どおり）。
+  // から自動スケールする。
   const xMin = referenceRange ? referenceRange.min - (referenceRange.max - referenceRange.min) * 0.1 : Math.min(...xs);
   const xMax = referenceRange ? referenceRange.max + (referenceRange.max - referenceRange.min) * 0.1 : Math.max(...xs);
   const yMin = Math.min(0, ...ys);
@@ -78,10 +78,10 @@ export function BreakpointCurveEditor({
     return [snapToStep(x, xSnapStep), Math.round(y)];
   }
 
-  const bars = visibleBars(distribution ?? null, xMin, xMax);
+  const bars = visibleBars(distribution, xMin, xMax);
   const barScale = maxBarShare(bars);
-  const markers = quantileMarkers(distribution ?? null, xMin, xMax);
-  const offRange = offRangeShare(distribution ?? null, xMin, xMax);
+  const markers = quantileMarkers(distribution, xMin, xMax);
+  const offRange = offRangeShare(distribution, xMin, xMax);
 
   const points = breakpoints.map(toScreen);
   const polyline = points.map(([x, y]) => `${x},${y}`).join(" ");

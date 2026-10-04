@@ -13,9 +13,9 @@
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `road_network.py`（取込範囲全体の道路網を、有向の区間とノードの番号で引ける列の配列として持つ型。行の並び・分類の材料を語彙への番号で持つことはそのdocstringが持つ）・`routing.py`・`graph.py`・`route.py`・`geo.py`・`errors.py`・`region.py`（矩形（`BoundingBox`）と地点を覆う矩形の組み立て、XYZタイルとの相互変換（緯度経度・Web Mercatorのメートル・同じ式のSQL）。タイル配信・取込・派生バッチもこの変換を共有する）・`cycling_speed.py`（自転車の走行モデル。平地・無風の巡航速度からホイール出力を逆算し、勾配・向かい風・転がり抵抗から区間ごとの速度を走行方程式で解く。速度の逆算は`v`の3次方程式になるため二分法で、numpyでベクトル化してある。候補の所要時間と基準線の探索コストがここから出る）・`tuning.py`（ルーティング評価が読む固定値の宣言。走ってみて決める値［較正値］は既定ごとここが持ち、エンジンが読む値・管理画面が並べる項目・変更が効くために何をやり直す必要があるかをそこから導く。較正値ではない固定値は載せず、使う側のモジュールが持つ）・`loop_routing.py`（周回・目的地ルートの探索結果を運ぶ型。探索の実装と候補を並べる戦略のどちらにも属さない）・`leg_costs.py`（レグごとのコスト配列の合成。静的スコア行列・重み・0次フィルタ・風の予報から、探索のコストと区間の表示が読む配列を時刻ビンごとに作る。外部とやり取りせず配列だけを受け取るので、エンジンの途中状態を組まずに確かめられる。下記「レグ別コスト配列」） |
-| services | `route_generator.py`（戦略層）・`road_graph_engine.py`・`graph_service.py` |
-| infrastructure | `road_graph_repository.py`（道路網・材料の読み出し専用）・`road_network_store.py`（道路網全体の配列をDBから作り、ディスクへ置き、読む）・`detour_ratio_cache.py`（探索範囲ごとに学習した迂回率）・`cache_identity.py`（キャッシュ鍵の組み立て方の正本。手で書くリビジョンと、焼き込みSQL・列構成から導く署名を合成する。道路網の置き場の形の署名とタイル配信側の世代も同じ関数を使う）・`container_memory.py`（このプロセスのコンテナのメモリ上限。読み込む量の上限を導く）・`derived_data_meta.py`（派生データの世代。バッチが中身を書き直すたびに進む単調カウンタで、デプロイを伴わない変化を表せる唯一の経路） |
+| domain | `road_network.py`（取込範囲全体の道路網を、有向の区間とノードの番号で引ける列の配列として持つ型。行の並び・分類の材料を語彙への番号で持つことはそのdocstringが持つ）・`routing.py`・`graph.py`・`route.py`・`geo.py`・`errors.py`・`region.py`（矩形（`BoundingBox`）と地点を覆う矩形の組み立て、XYZタイルとの相互変換（緯度経度・Web Mercatorのメートル・同じ式のSQL）。タイル配信・取込・派生バッチもこの変換を共有する）・`cycling_speed.py`（自転車の走行モデル。平地・無風の巡航速度からホイール出力を逆算し、勾配・向かい風・転がり抵抗から区間ごとの速度を走行方程式で解く。速度の逆算は`v`の3次方程式になるため二分法で、numpyでベクトル化してある。候補の所要時間と基準線の探索コストがここから出る）・`tuning.py`（ルーティング評価が読む固定値の宣言。走ってみて決める値［較正値］は既定ごとここが持ち、エンジンが読む値・管理画面が並べる項目・変更が効くために何をやり直す必要があるかをそこから導く。較正値ではない固定値は載せず、使う側のモジュールが持つ）・`loop_routing.py`（周回・目的地ルートの探索結果を運ぶ型。探索の実装と候補を並べる戦略のどちらにも属さない）・`route_request.py`（ルート生成の要求が受け付ける値の範囲と、その外れを知らせる文。要求の検証と、画面が操作を止める上限の生成物が同じ宣言を読む）・`leg_costs.py`（レグごとのコスト配列の合成。静的スコア行列・重み・0次フィルタ・風の予報から、探索のコストと区間の表示が読む配列を時刻ビンごとに作る。外部とやり取りせず配列だけを受け取るので、エンジンの途中状態を組まずに確かめられる。下記「レグ別コスト配列」） |
+| services | `route_generator.py`（戦略層）・`road_graph_engine.py`・`graph_service.py`・`route_generation_setup.py`（エンジンの組み立てと評価条件の既定の解決） |
+| infrastructure | `road_graph_repository.py`（道路網・材料の読み出し専用）・`road_network_store.py`（道路網全体の配列をDBから作り、ディスクへ置き、読む）・`detour_ratio_cache.py`（探索範囲ごとに学習した迂回率）・`cache_identity.py`（キャッシュ鍵の組み立て方の正本。手で書くリビジョンと、焼き込みSQL・列構成から導く署名を合成する。道路網の置き場の形の署名とタイル配信側の世代も同じ関数を使う）・`container_memory.py`（このプロセスのコンテナのメモリ上限。読み込む量の上限を導く）・`derived_data_meta.py`（派生データの世代と、今の事故の数を数えた取込。世代はバッチが中身を書き直すたびに進む単調カウンタで、デプロイを伴わない変化を表せる唯一の経路。配信するタイルのために生データの世代も一緒に読む） |
 | api | `routes.py` |
 
 探索が読む`road_edges`と材料のテーブル（ORMの宣言）・それを作るバッチは
@@ -35,11 +35,11 @@ road_graphエンジンは自前Road Graph（DB由来のノード/Edge）で経�
 
 Edgeコストは「探索範囲の静的Edge×公開軸スコア行列＋リクエスト時ベクトル計算」方式で
 算出する——探索が実際に訪れたEdgeに対してPythonのコスト計算コールバックを都度呼ぶのでは
-なく、`prepare`/`preview_segment`が対象bbox全体ぶんの
+なく、`prepare`が対象bbox全体ぶんの
 コスト配列を1回だけnumpyで合成し、探索へは合成済みの配列をそのまま渡す（探索中にPythonの
 関数フレームを作らない）。
 標高（勾配）は派生済みの`edge_materials`を材料として読むだけで組み込み済み
-（探索中にGSI API呼び出しは発生しない）。風は**到達時刻ごと**に効く——レグを時刻ビンへ
+（探索中にGSI API呼び出しは発生しない）。風と昼夜は**到達時刻ごと**に効く——レグを時刻ビンへ
 刻み、ビンごとのコスト配列を探索前に合成しておいて、探索が到達時刻をラベルとして運ぶ
 （下記「レグ内の時刻ビン」）。
 
@@ -60,7 +60,7 @@ Edgeコストは「探索範囲の静的Edge×公開軸スコア行列＋リク�
 
 レグは、見込み所要時間（`compose(duration_hours=...)`）ぶんを`TIME_BIN_HOURS`ごとのビンへ
 分けて合成する。到達時刻をラベルとして持ち回れる探索はビンを引き、**経過時間の推定ではなく
-実際の経過時間**で風を評価する。ビンの幅は風の予報の刻みより細かくしても元データの解像度を
+実際の経過時間**で風と昼夜を評価する。ビンの幅は風の予報の刻みより細かくしても元データの解像度を
 超えないことから決まり、本数の上限（`MAX_TIME_BINS`）はビン1本ごとにbbox全体のコスト合成が
 1回走ることとのトレードオフ。
 
@@ -86,7 +86,8 @@ Edgeコストは「探索範囲の静的Edge×公開軸スコア行列＋リク�
 復路が前向きA*で、どちらも実際の経過時間を持ち回る。
 
 風の時別系列があれば、**風に依存する軸の重みが0でも**時刻で引き直す。風は「避けたい度合い」
-である前に走行モデルの入力（向かい風で実際に遅くなる）のため。
+である前に走行モデルの入力（向かい風で実際に遅くなる）のため。時別系列が無くても、時間帯を持つ軸
+（下記「夜間軸の動的重み付け」）に重みがあれば時刻で引き直す。
 
 ### レグ別コスト配列（`domain/leg_costs.py`: `LegCostComposer`・`LegCostArrays`）
 
@@ -99,9 +100,9 @@ Edgeコストは「探索範囲の静的Edge×公開軸スコア行列＋リク�
 区間ごとの通過時刻（`passage_hours`。前向き木の実際の到達時間、届かない区間だけ
 `domain/wind.py: estimate_passage_hours`の直線距離からの推定）で1本に合成する。
 
-**時刻ビンごとに行うのは、その時刻の風に依る計算だけ**。風に依らない計算——走行モデルの出力と速度に
+**時刻ビンごとに行うのは、その時刻の風と昼夜に依る計算だけ**。時刻に依らない計算——走行モデルの出力と速度に
 依らない抵抗（`domain/cycling_speed.py: SegmentSpeedModel`）・停止の待ち——はリクエストに1回だけ求めて
-使い回す。時刻で変わる公開軸（風に依存する軸）の重みがすべて0なら、合成の難易度と割増の倍率も時刻に依らないので
+使い回す。時刻で変わる公開軸（風に依存する軸と時間帯を持つ軸）の重みがすべて0なら、合成の難易度と割増の倍率も時刻に依らないので
 1回だけ求め、ビンのコストは所要時間にその倍率を掛けるだけになる（重みが0の軸は合成に何も足さない）。重みが
 あれば、時刻で変わらない軸の重み付き和を1回だけ求め、時刻で変わる軸だけをビンごとに足す。1ビンの中でも、
 予報の引き当てと風の分解（方位との差の三角関数）は、風の材料と走行モデルが同じ値を読む
@@ -117,13 +118,12 @@ Edgeコストは「探索範囲の静的Edge×公開軸スコア行列＋リク�
 | 周回 | 往路（基準点=起点、`offset=0`、`+1`） | 復路（基準点=起点、`offset=目標距離÷速度`、`-1`）——`select_loop_turnarounds`が合成 |
 | 目的地ルート（via-node） | 前向き木（同上） | 後ろ向き木（基準点=目的地、`offset=直線距離×迂回率÷速度`、`-1`）——`select_via_nodes`が合成 |
 | 経由地ルート（`trace_loop`） | レグ0 | レグk（基準点=レグ起点、`offset=累積実距離÷速度`、`+1`）を逐次合成 |
-| `preview_segment` | 往路のみ | — |
 
 `TracedLoop.leg_of_edge`が経路上の各Edgeのレグ添字を運び、`_build_segment_details`は
 そのレグの配列から値を読む（探索と表示の一致、[設計原則](../../architecture/design-principles.md)10）。
 `RouteSegmentDetail.material_values`/`RouteCandidate.material_values`（重み>0の公開軸が
 参照する材料id→値、`AXIS_DEFINITIONS`の`materials`プロパティから導出、
-`axis_raw_value.py: displayed_material_ids`が集合を決める）は、動的材料（風等）は`material_arrays`から
+`dynamic_way_values.py: displayed_material_ids`が集合を決める）は、動的材料（風等）は`material_arrays`から
 （`material_value_at`）、静的材料（`gradient_percent`）はEdgeごとに計算済みの値を
 そのまま読む。`displayed_material_ids`はリクエストの`lens_axis_id`（地図のレンズが表示を
 要求している軸）が符号付き材料の軸（`map_value_kind`が`signed_material`）を指す場合、
@@ -132,8 +132,8 @@ Edgeコストは「探索範囲の静的Edge×公開軸スコア行列＋リク�
 （`WeatherService.get_wind_forecast_lattice`。格子はMSMと同じ細かさ、`domain/wind.py: WindLattice`・
 `WIND_FORECAST_LAT_STEP_DEG`/`WIND_FORECAST_LON_STEP_DEG`。格子は緯度・経度0度から数えた固定の線に揃い、
 探索範囲に依らない。各Edgeは中点に最も近い格子点の風を引く——ルートを出す前の地図も同じ点を引く、
-`LegCostComposer`の`_wind_points`）が無い場合は、出発時点のスナップショットで合成した1本を全レグで共有する（追加コスト
-ゼロ）。**重みが0でも時刻ビンは畳まない**——走行モデル（向かい風は速度そのものを落とす）が
+`LegCostComposer`の`_wind_points`）が無く、時間帯を持つ軸にも重みが無い場合は、出発時点のスナップショットで
+合成した1本を全レグで共有する（追加コストゼロ）。**重みが0でも時刻ビンは畳まない**——走行モデル（向かい風は速度そのものを落とす）が
 時刻で変わるため、重み0を理由に時刻固定へ落とすと所要時間が狂う。時別系列があれば重みにもレンズにも依らず
 時刻で合成し、`lens_axis_id`が効くのは区間に載せる材料の集合（`displayed_material_ids`）だけである。
 仮定巡航速度は`RouteGenerateRequest.assumed_speed_kmh`（既定`ASSUMED_SPEED_KMH`）で
@@ -146,7 +146,7 @@ Edgeコストは「探索範囲の静的Edge×公開軸スコア行列＋リク�
 `_learn_detour_ratio`）、目的地ルートの後ろ向きレグはその場で測った値で到着予定時刻を置く。
 **周回の復路レグは迂回率を読まない**——総所要時間は目標距離÷仮定速度で決まる（距離
 フィルタが目標±許容を強制する）。運用時は`_build_search_graph`のINFOサマリ
-（`wind_time_varying`・`speed_kmh`・`detour_ratio=値(learned|default)`）、
+（`time_varying`・`speed_kmh`・`detour_ratio=値(learned|default)`）、
 `compose_leg_costs`ログ（`leg`・`mode`・`bins`・`reused_bins`・`compose_ms`）、
 `select_turnarounds`/`select_via_nodes`の`detour_ratio_median`で確認できる。
 
@@ -342,7 +342,7 @@ import済みの参照が古い辞書を指したままになる）。差し替�
 
 `generate_loops`の折返し点選定・距離フィルタとは独立した経路生成。
 `destination`省略時は起点に戻る周回（常に1件）。
-距離（`distance_km`）はここでは探索の範囲で、要求の検証（`api/routers/routes.py: RouteGenerateRequest._resolve_distance`）が
+距離（`distance_km`）はここでは探索の範囲で、要求の検証（`api/routers/routes.py: RouteGenerateRequest._resolve_target`）が
 置いた点のうち最も遠いものより必ず長く決める——画面は送らず、送られても使わない。
 
 `destination`指定時は、経由地の有無で分岐する:
@@ -373,11 +373,11 @@ import済みの参照が古い辞書を指したままになる）。差し替�
 ## 応答の候補の並び順
 
 `generate_loops`・`generate_via_waypoints`（経由地の無い目的地ルートを含む）とも、
-返す`RouteCandidate`一覧を`overall_difficulty`（絶対基準0-100の総合難易度、小数1桁で
-比較）昇順（易しい候補が先頭）で並べる（`route_generator.py: _difficulty_order`）。算出不能（`None`）の候補は末尾へ回す。
+返す`RouteCandidate`一覧を`overall_difficulty`（絶対基準0-100の総合難易度、難易度の桁
+`domain/difficulty.py: DIFFICULTY_DECIMALS`で丸めた値で比較）昇順（易しい候補が先頭）で並べる（`route_generator.py: _difficulty_order`）。算出不能（`None`）の候補は末尾へ回す。
 画面の候補一覧は所要時間の順に並べ直すため、この並びは一覧の順ではなく「先頭が最も易しい
 候補」という契約として配る。
-`generate_loops`は同点（小数1桁が一致）の候補を、評価前に付けた「目標距離に近い順」を
+`generate_loops`は同点（難易度の桁で一致）の候補を、評価前に付けた「目標距離に近い順」を
 安定ソートで引き継いで並べる——周囲に重みを振った軸のデータが無く全候補のdifficultyが
 同じ値になる場合、結果は実質的に目標距離に近い順になる。異なるリクエスト間でも同じ
 絶対基準で比較できる。
@@ -411,14 +411,21 @@ idを`route-destination-00..`へ振り直すが、
 - **waypoints指定（経由地・目的地）**: `bbox_covering_points([origin, *waypoints], 固定マージン)`
   （起点＋全経由地＋目的地を包含する矩形）。
 
-`GraphService.get_search_slice`で探索範囲の区間（`domain/road_network.py: RoadSlice`）と、
-その材料から求めた「Edge×公開軸」静的スコア行列（`StaticEdgeScoreMatrix`、行は切り出した区間の順）を
-受け取り、`_build_search_graph`が探索用グラフ（`domain/routing.py: LazyRoadGraph`）とbbox全体ぶんの
-コスト配列を、`_build_search_structures`が最寄りNodeの索引（`NodeSpatialIndex`）・CSR・ターン構造を
+`GraphService.get_search_slice`で探索範囲の区間（`domain/road_network.py: RoadSlice`）を受け取り、
+`_build_search_graph`がその材料から「Edge×公開軸」静的スコア行列（`StaticEdgeScoreMatrix`、行は切り出した
+区間の順）・探索用グラフ（`domain/routing.py: LazyRoadGraph`）・bbox全体ぶんのコスト配列を、`_build_search_structures`が最寄りNodeの索引（`NodeSpatialIndex`）・CSR・ターン構造を
 リクエストごとに組む。データ未整備（取込の宣言した範囲の外）ならNoneを返し、呼び出し元
 （`RouteGenerator`）が候補0件として扱う。
 
-`_build_search_graph`は0次フィルタの除外（`compute_hard_filter_excluded`）と夜間の重みを決めて
+`_build_search_graph`は、まず気象の段で生成の時点の外部の観測と予報をまとめて読む（出発時点の天候・
+時別の風の予報・雨の観測の履歴。ログの`weather_ms`がこの段）。静的スコア行列は、切り出した区間の材料
+（`material_arrays_of`、分類の材料は語彙への番号のまま）に、区間の中点に最も近い雨量計の今の観測
+（雨の材料、`domain/rain.py: rain_material_columns`。地図の雨と同じ関数・同じ観測）を足して
+`build_static_edge_score_matrix`で求める。雨は出発時刻ではなく今の観測で、履歴は`load_station_rain_materials`が
+Redisから読み（プロセス内に5分持つ）、無い・古ければ雨の材料は欠損のまま組む（WARNINGを抑制付きで出し、
+INFOサマリの`rain_hour=none`で分かる。雨を読む軸だけがその生成で「データなし」になる）。行列はキャッシュしない
+——軸定義の編集と雨の観測がそのまま次の生成に効き、軸定義の世代を突き合わせる仕組みが要らない。
+続けて0次フィルタの除外（`compute_hard_filter_excluded`）を決めて
 `LegCostComposer`を組む。合成器は`StaticEdgeScoreMatrix`（風などリクエストごとに変わる動的軸の列は
 NaN）へ動的軸（風、`domain/dynamic_materials.py: evaluate_dynamic_axis_arrays`。材料id→evaluator
 関数の登録制`DYNAMIC_MATERIAL_EVALUATORS`で軸名をハードコードしない汎用実装）と重み
@@ -467,8 +474,7 @@ NaN）へ動的軸（風、`domain/dynamic_materials.py: evaluate_dynamic_axis_a
 自体は教科書どおりのDijkstra/A*で、独自のものは作らない。コスト配列は1次元（時刻に
 依存しない）か`(時刻ビン, 状態)`の2次元で渡し、2次元のときは素の所要時間とビンの幅も
 一緒に渡す。**状態ごとに保つラベルはコスト最小の1本だけ**（1ラベル法）で、「コストは高いが
-早く着く」経路を捨てる近似になる。`preview_segment`もこの探索を通るため、2点間だけの経路
-でも遷移を導くCSR構造（`SearchGraphStatics`）を構築する。
+早く着く」経路を捨てる近似になる。
 
 Nodeごとのコストは、そのNodeへ入る区間の最小を採る（木を作るときに畳む）。
 **起点Nodeだけは「起点へ戻ってくるコスト」になる**——状態の空間に「まだ走っていない」が
@@ -614,20 +620,24 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
 周回候補（waypoints指定でない場合）は、順方向の探索結果から逆方向候補を
 **追加のDB/API呼び出し無しに代数的に導出**する: 標高の獲得/喪失を入れ替え、勾配の符号を
 反転し、既にhydrate済みのgeometryを再利用する（`_reverse_traced_edges`/
-`_reverse_elevation_attribute`・`_reverse_elevation_by_edge`）。両方向の`distance_weighted_difficulty`を比較し、
+`domain/attributes.py: ElevationAttribute.reversed_as`・`_reverse_elevation_by_edge`）。両方向の`distance_weighted_difficulty`を比較し、
 小さい方を採用する（`_pick_better_candidate`）。`TracedLoop.bearing is None`
 （waypoints指定ルート）ではこの逆回り合成をスキップする——ユーザーが指定した訪問順序を
 尊重する必要があるため。
 
 ### 夜間軸の動的重み付け
 
-**出発地点・出発時刻の1点**（`prepare`の時点、`is_night(wind_and_night_origin, now)`）で
-昼夜を判定し、その結果をルート全体へ一様に適用する——市民薄明の外（夜間）なら夜間軸の
-重みをそのまま、日中なら0倍にした`RoutePreference`のコピーを探索コストへ渡す
-（`RoutePreference.with_time_scope`。`domain/axis_definitions.py: time_scoped_weights`が
-`AxisDefinition.time_scope="night_only"`を持つ軸を汎用的に判定するため、軸idの
-ハードコードは無い）。風がEdgeごとの通過予定時刻で引く（下記「レグ別コスト配列」）のとは
-異なる粒度である点に注意（末尾「暗黙の前提のまとめ」参照）。
+**区間を通る時刻**で昼夜を判定し、夜間軸の重みを区間ごとに決める——市民薄明の外（夜間）に通る区間では
+重みをそのまま、日中に通る区間では0倍にする。通る時刻は風と同じもの（上記「レグ内の時刻ビン」: ビンの
+開始時刻、目的地から遡る木は区間ごとの通過時刻、スナップショットは出発時刻）で、合成器が
+`_evaluate`の中で`domain/twilight.py: night_mask`と`domain/axis_definitions.py: time_scoped_weights`から
+区間ごとの重みの配列を作る。`time_scoped_weights`が`AxisDefinition.time_scope`を持つ軸を汎用的に判定するため、
+軸idのハードコードは無い。探索のコストと区間の表示（合成difficulty・寄与度）は同じ重みの配列を読むので、
+日没をまたぐルートでは日没前の区間には夜間軸が寄与せず、日没後の区間には寄与する。
+
+昼夜は起点の地点の薄明で決め、区間の位置では引き直さない——探索範囲の中の位置の違いで薄明の時刻が
+ずれるのは数分で、区間ごとに天文計算を回すと探索範囲の数万区間ぶんかかるため。`night_mask`は判定する
+時刻の範囲を覆う日数ぶんの薄明の出来事を1回求め、各時刻を直前の出来事の種別で決める。
 
 ## GraphService（`services/graph_service.py`）
 
@@ -658,22 +668,14 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
    1本あたりの値は、本番と同じ上限の使い捨てコンテナで都心の40・60・80kmを2件同時に流し、cgroupの退避できない
    メモリ（anon）の最大を切り出した区間の合計で割った値の最大（約1.0KB）から決めてある。探索・評価の
    配列の持ち方を変えたら測り直す。取り置きは本番の常駐分（地図タイルの配信を含む）に余裕を見た値。
-   上限が付いていない環境（開発機）では断らない。区間確認API（`/api/routes/preview`）は生成の同時実行の枠の
-   外で動くため、枠いっぱいの生成と重なったときは取り置きから使う。
-   戦略層（`RouteGenerator._prepare`）はこの例外を「探索範囲の道路が多すぎる」理由付きの候補0件に、
-   区間確認APIは422にする。
-4. **静的スコア行列**: 切り出した区間の材料（`material_arrays_of`、分類の材料は語彙への番号のまま）に、
-   区間の中点に最も近い雨量計の今の観測（雨の材料、`domain/rain.py: rain_material_columns`。地図の雨と同じ関数・
-   同じ観測）を足し、`build_static_edge_score_matrix`で求める。観測の履歴は`load_station_rain_materials`が
-   Redisから読み（プロセス内に5分持つ）、無い・古ければ雨の材料は欠損のまま組む（WARNINGを抑制付きで出し、
-   INFOサマリの`rain_hour=none`で分かる）。キャッシュしない——軸定義の編集と雨の観測がそのまま次の生成に効き、
-   軸定義の世代を突き合わせる仕組みが要らない。
+   上限が付いていない環境（開発機）では断らない。
+   戦略層（`RouteGenerator._prepare`）はこの例外を「探索範囲の道路が多すぎる」理由付きの候補0件にする。
 
-戻り値は`(RoadSlice, StaticEdgeScoreMatrix, タイル集合)`。スコア行列の行は切り出した区間の順。
+戻り値は`(RoadSlice, タイル集合)`。材料を読むだけで、観測を引くこともスコアを組むこともしない
+（`RoadGraphEngine`の`prepare`節）。
 
 `get_edges_with_geometry`は確定した経路の区間へ形を後付けする（リポジトリへそのまま委ねる）。
-`RoadGraphEngine.evaluate_loops`が距離フィルタ通過候補ぶんの区間をまとめて1回・
-`preview_segment`が1回、いずれも逐次に呼ぶ。
+`RoadGraphEngine.evaluate_loops`が距離フィルタ通過候補ぶんの区間をまとめて1回呼ぶ。
 
 ## domain層
 
@@ -808,9 +810,9 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
 
 ### `domain/route.py`
 
-- `Coordinates`・`RouteSegment`・`RouteSegmentDetail`（**material_valuesに入る
+- `Coordinates`・`RouteSegmentDetail`（**material_valuesに入る
   符号付き材料（`gradient_percent`等）は符号付きが正準契約**——絶対値ではない。
-  frontend`routeStyleModes.ts`がこの契約に依存する）・`RouteCandidate`。
+  ルート線の色分けがこの符号を読む）・`RouteCandidate`。
 - `aggregate_segments_into_bins`（500m区間ビニング）・`merge_axis_difficulties`・
   `merge_axis_contributions`・`merge_axis_raw_values`・`merge_material_values`・
   `merge_material_category_shares`・`_merge_segment_bin`。**`RouteSegmentDetail`の
@@ -849,12 +851,15 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
 ### `domain/geo.py`・`domain/errors.py`
 
 `geo.py`は球面三角法の地理計算——2地点の球面距離と初期方位角、それを多数の地点へまとめて求める配列版、
-角度から方位の呼び名への変換（例: `haversine_distance_km`・`compass_label`）——を持つ。方位の呼び名は
+角度から方位の呼び名への変換（例: `haversine_distance_km`・`compass_label`）——と、多数の地点それぞれに最も近い点を球面の距離で選ぶ`nearest_point_indices`（1地点の口`nearest_point_index`。雨の材料・アメダス・暑さ指数の最寄りがすべてここを通る）を持つ。方位の呼び名は
 16方位の並び（`SIXTEEN_POINT_LABELS`）1つだけを持ち、8方位（`COMPASS_LABELS`）はその1つおきとして導く——アメダスの
 16方位の風向（`domain/jma_amedas.py`）もこの並びを引くので、同じ向きが画面の場所によって違う名前にならない。`LatLon`（`Protocol`）・
 `LatLonPoint`（`NamedTuple`）は`Coordinates`（Pydantic、API境界の入力検証用）を経由
 せずに緯度経度を扱うための軽量な構造的型で、最近傍ノード探索のような
-ホットパスがバリデーションコストを避けるために使う。
+ホットパスがバリデーションコストを避けるために使う。方位の呼び名と2地点の距離は画面も同じ計算を
+持つので、境界を含む入力とこのモジュールの答えを`scripts/cross_language_expectations.py: geo_expectations`が
+表にして生成物へ出し、画面のテストが全行を通す（置き場と作り方は[testing.md](../../conventions/testing.md)
+「パターン11」）。
 
 `errors.py`は`RoutingError`と`SearchAreaTooLargeError`を持つ。`RoutingError`は
 `RoadGraphEngine`・`RouteGenerator`が経路探索の失敗を表すのに共通で使う。
@@ -884,7 +889,7 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
 **道を結合して区間を範囲で絞るSQLは、区間の空間索引だけで絞る**——道の側からも範囲で絞ると、
 プランナが道を外側にした入れ子ループを選んで遅くなる。
 
-#### 派生delivery系クエリ（wind/gradient/road surface/POI）
+#### 派生delivery系クエリ（wind/gradient/road surface）
 
 `_ROAD_SURFACE_TILE_MVT_SQL`（路面・道路種別・制限速度等の材料タグをPostGIS側で
 ST_AsMVT丸ごと生成）・`_FEATURE_MIDPOINTS_IN_TILE_SQL`（wind、道路自身の方位角は使わず鍵ごとに
@@ -892,8 +897,8 @@ ST_AsMVT丸ごと生成）・`_FEATURE_MIDPOINTS_IN_TILE_SQL`（wind、道路自
 区間の値を長さで重み付けて平均する——区間単位のズームでは区間1本の値そのもの、way単位の
 ズームではwayの全区間をならした値になる。区間の勾配はジオメトリの始点→終点を正とするため、
 フィーチャーの基準方位とのcosの符号で向きを揃えてから平均する）は、いずれも
-`_COVERAGE_SQL`（取込の宣言した範囲か）をMVT生成と同じ1クエリへ畳み込み、1タイル1DB往復に
-まとめる設計を共有する。カバレッジ外はNone、カバレッジ内で0件なら空、という契約で呼び出し側
+`COVERAGE_SQL`（取込の宣言した範囲か）をMVT生成と同じ1クエリへ畳み込み、1タイル1DB往復に
+まとめる設計を共有する（点のタイルのSQLも同じ判定を読む。[静的道路属性](static-road-attributes.md)「点のタイル」）。カバレッジ外はNone、カバレッジ内で0件なら空、という契約で呼び出し側
 （`RegionService`）が空タイルと区別する。いずれも**同じ`_TILE_FEATURE_SOURCE_SQL`から
 フィーチャーを引く**——別々に組み立てると、代表の選び方がタイルとずれた瞬間に鍵が噛み合わず
 色が一切付かない。詳細は[dynamic-way-values.md](dynamic-way-values.md)参照。
@@ -954,7 +959,6 @@ backendは置き場を読むだけで、読むのは`current()`の1か所であ�
 
 | エンドポイント | 内容 |
 |---|---|
-| `POST /api/routes/preview` | 2点間の単純なルート取得（`get_preview_builder`経由。`RoadGraphEngine.preview_segment`を使う。`RouteGenerator`の周回戦略は使わない。評価条件のうち想定速度だけを受け取り、重み・換算レート（P）・0次フィルタはルート生成が省略時に使うのと同じ既定で探す。2点を覆う範囲の区間が読み込む量の上限を超えれば422） |
 | `POST /api/routes/generate` | 202を即座に返す非同期ジョブ投稿。`asyncio.create_task`でジョブ本体（`_run_generate_job`）を起動し、タスク参照を`_running_generate_tasks`が保持する（`BackgroundTasks`だとレスポンス送出の失敗でジョブが起動せず、投稿時点で取得済みのセマフォが解放されない） |
 | `GET /api/routes/generate/{job_id}` | ジョブの状態・結果を取得（`job_registry`、サーバー再起動で失われる） |
 
@@ -963,16 +967,21 @@ backendは置き場を読むだけで、読むのは`current()`の1か所であ�
   acquireすると、複数リクエストが同時に届いた際に上限を超えて受理してしまうため）。
   セマフォの解放は`_run_generate_job`側の`finally`で行う。
 - **バックグラウンドジョブはリクエストスコープのDBセッションを使えない**。
-  `api/dependencies.py: open_route_generation_setup`（`@asynccontextmanager`）がDI用の
-  ジェネレータをラップして独立したセッションを開く（開閉のロジックを複製しない）。
-- **エンジンを組むのは`api/dependencies.py: assemble_route_generation_setup`だけ**。ルート生成の
-  ジョブ・区間確認・計測（`benchmarks/`は`open_route_generation_setup`をそのまま使う）・テストの
+  ハンドラへは開き方（`api/dependencies.py: get_route_generation_setup_opener`）を注入し、ジョブがそれで
+  独立したセッションを開く。
+- **エンジンを組むのは`services/route_generation_setup.py: assemble_route_generation_setup`だけ**。ルート生成の
+  ジョブ・計測（`benchmarks/`は`get_route_generation_setup_opener`の開き方をそのまま使う）・テストの
   どれもここを通り、省略された評価条件（重み・換算レート・0次フィルタ）の既定もここで1度だけ決める。
   エンジンは既定を持たず、解決済みの値だけを受け取る——既定を2か所で持つと、経路ごとに
   違う条件で探すことになり、しかもどちらも正常に見える。
 - **`RoutePreferenceWeights`/`HardFilterOverride`は「上書きするなら全項目を明示する」
   方針**（`model_validator`でキー集合の完全一致を強制）。`RoutePreferenceWeights`の
   対象は`AXIS_DEFINITIONS`の公開軸のみ（内部軸は含まない）。
+- **画面の操作で届く上限の外れは、日本語の文で断る**（`domain/route_request.py: request_error`）。
+  例: 経由地の数・経由地と目的地の遠さ・乗り換えで組んだ経路の長さ。画面は422の文を結果欄へ
+  そのまま出すため、組み込みの制約の英語の文（`ValueError`なら「Value error, 」の前置き）が利用者に見える。
+  件数の制約は契約（OpenAPI）に載せるため残し、制約より先に動く検証（`mode="before"`）で日本語にする。
+  画面から届かない値（目標距離からの許容差等。画面は既定値をそのまま送る）は組み込みの文のままにする。
 - ジョブ失敗時、クライアントへは汎用メッセージのみ返す: 例外の生メッセージ
   （PostGIS/内部処理のエラー詳細を含みうる）は`logger.exception`でサーバーログに
   のみ残す。
@@ -1006,8 +1015,9 @@ DB側の値は**その下限を上げるためだけ**に使う（bboxの外へ�
 
 ## 暗黙の前提のまとめ
 
-- **夜間の判定は出発時点1点で決まる**: 出発地点・出発時刻の昼夜判定をルート全体へ
-  一様適用する。風は上記「レグ別コスト配列」のとおりEdgeごとの通過予定時刻で引くが、
+- **昼夜は起点の地点で決まる**: 夜間軸の重みは区間を通る時刻で区間ごとに決まるが、薄明の時刻は起点の
+  地点のものを探索範囲全体へ使う。時刻は風と同じビンの粒度（1時間）で、ビンの途中で日が暮れても
+  そのビンの開始時刻の昼夜で扱う。風は上記「レグ別コスト配列」のとおりEdgeごとの通過予定時刻で引くが、
   風の場所の違いは予報の格子（MSMと同じ細かさ）までで、それより細かい差（谷筋・ビル風）は入らない。時刻はレグごとに
   最大`MAX_TIME_BINS`本のビン（1時間刻み）までしか追わず、その先の区間は最後のビンの予報を使う
   （区間の風の`extended`）。

@@ -1,14 +1,14 @@
 """JMA動的タイル（ラスタPNG・洪水ベクタPBF）本体のRedis cache-aside。
 
-`redis_client.py`は`decode_responses=True`（文字列前提）で生バイト列をそのまま保存
-できないので、base64エンコードした文字列をJSONへ包んで1キーに保存する。
+値はContent-Type・NULバイト・本体をこの順につないだ生のバイト列で1キーに持ち、ヒットのたびにデコードを払わない。
+0バイトの値は「描くものが無い」（`EMPTY_TILE`）を表す——中身が空のタイルは実体を保存しないため、
+本物のタイルと重ならない。
 """
 
-import base64
 import hashlib
 
 from app.infrastructure.jma_tile_content import is_empty_tile
-from app.infrastructure.redis_json_cache import get_json, set_json
+from app.infrastructure.redis_json_cache import get_bytes, set_bytes
 
 _KEY_PREFIX = "jma:tile"
 _CATEGORY = "cache:jma-tile-redis"
@@ -22,8 +22,7 @@ class EmptyTile:
 
     上流の返し方には2通りある——404（タイル自体が存在しない）と、200で返るが全画素が
     透明・0バイト。降水・浸水想定区域等の疎な格子状タイルではどちらも珍しくない正常系で、
-    **利用者から見れば同じ「得るものが無い」**である（クライアント側の
-    `jmaTileProtocol.ts`も両方を透明タイルへ倒している）。そのため区別せずこの1つの事実
+    **利用者から見れば同じ「得るものが無い」**である。そのため区別せずこの1つの事実
     として持つ。
 
     配信された一時点に対する結果のため、再フェッチしても変わらない。実際のタイル内容と同じキー・TTLで
@@ -44,20 +43,18 @@ def _key(path: str) -> str:
     return f"{_KEY_PREFIX}:{hashlib.sha256(path.encode('utf-8')).hexdigest()}"
 
 
+def _decode(raw: bytes) -> tuple[bytes, str] | EmptyTile:
+    if raw == b"":
+        return EMPTY_TILE
+    content_type, _separator, content = raw.partition(b"\0")
+    return content, content_type.decode("latin-1")
+
+
 async def get(path: str) -> tuple[bytes, str] | EmptyTile | None:
     """Redisキャッシュ済みなら(内容, Content-Type)または`EMPTY_TILE`を返す。
     未キャッシュ・Redis障害時はNone（呼び出し元は通常のオンデマンドフェッチへ
     フォールバックする）。"""
-    payload = await get_json(_key(path), category=_CATEGORY, path=path)
-    if payload is None:
-        return None
-    try:
-        if payload.get("empty"):
-            return EMPTY_TILE
-        return base64.b64decode(payload["body_b64"]), payload["content_type"]
-    except (AttributeError, KeyError, TypeError, ValueError):
-        # JSONとしては読めるが形の違うエントリは未キャッシュ扱いにする。
-        return None
+    return await get_bytes(_key(path), decode=_decode, category=_CATEGORY, path=path)
 
 
 async def set(path: str, content: bytes, content_type: str) -> None:
@@ -70,10 +67,10 @@ async def set(path: str, content: bytes, content_type: str) -> None:
     if is_empty_tile(content, _extension(path)):
         await set_empty(path)
         return
-    payload = {"content_type": content_type, "body_b64": base64.b64encode(content).decode("ascii")}
-    await set_json(_key(path), payload, ttl_seconds=_TTL_SECONDS, category=_CATEGORY, path=path)
+    value = content_type.encode("latin-1", errors="replace") + b"\0" + content
+    await set_bytes(_key(path), value, ttl_seconds=_TTL_SECONDS, category=_CATEGORY, path=path)
 
 
 async def set_empty(path: str) -> None:
     """このパスに描くものが無いと確認したときに呼ぶ（上流の確定した404、または200で返った空タイル）。"""
-    await set_json(_key(path), {"empty": True}, ttl_seconds=_TTL_SECONDS, category=_CATEGORY, path=path)
+    await set_bytes(_key(path), b"", ttl_seconds=_TTL_SECONDS, category=_CATEGORY, path=path)

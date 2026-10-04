@@ -1,29 +1,10 @@
-// Claude がユーザーに問う（hidakagit-bot の名義）。問いを本文の先頭（ゲートの印の間）に画面に出ない形で書き、表の「問い」で
-// 回答待ちへ動かす。ボタンと担当者はゲートが書く。
-// 使い方: node tools/flow-gate/bin/ask.js <issue の番号> <問いのファイル（docs/conventions/flow.md「問い」の形）>
+// Claude がユーザーに問う。問いの形（docs/conventions/flow.md「問い」）を確かめてコメントに書き、回答待ちへ動かす。
 import { readFileSync } from "node:fs";
-import config from "../flow.config.json" with { type: "json" };
-import { GitHub, Mutations, readTask, setField } from "../src/github.js";
-import { joinBody, normalizeBody, parseQuestion, splitBody } from "../src/rules.js";
-import { botToken } from "./token.js";
+import { moveTask } from "../src/move.js";
+import { normalize, parseQuestion } from "../src/rules.js";
+import { args, bot, config, isNumber } from "./cli.js";
 
-const args = process.argv.slice(2);
-const [number, file] = args;
-if (args.length !== 2 || !/^\d+$/.test(number)) {
-  console.error("使い方: node tools/flow-gate/bin/ask.js <issue の番号> <問いのファイル>");
-  process.exit(2);
-}
-const question = normalizeBody(readFileSync(file, "utf8")).trim();
-if (question.includes("-->")) throw new Error("問いに「-->」を含められません（本文の中で問いを隠す HTML のコメントが途中で閉じるため）。");
+const { rest: [number, file] } = args("node tools/flow-gate/bin/ask.js <issue の番号> <問いのファイル>", (a) => a.length === 2 && isNumber(a[0]));
+const question = normalize(readFileSync(file, "utf8")).trim();
 if (!parseQuestion(question)) throw new Error("問いが形（docs/conventions/flow.md「問い」）に合いません。");
-
-const gh = new GitHub(botToken());
-const { project, issue } = await readTask(gh, config, { number: Number(number) });
-if (!issue?.item || issue.state !== "OPEN") throw new Error(`#${number} は ${config.repository} の Project の開いた件ではありません。`);
-const rule = config.transitions.find((t) => t.on === "問い" && t.from.includes(issue.status));
-if (!rule) throw new Error(`「${issue.status}」からは問えません（遷移の表の「問い」に無い）。`);
-
-// 本文を先に書く（ステータスが動いた出来事を受けたゲートが、本文の問いを読んで照らすため）。
-const m = new Mutations().add("updateIssue", { id: issue.id, body: joinBody(splitBody(issue.body).rest, question, null) });
-await setField(m, project, issue.item, config.project.statusField, rule.to[0]).send(gh);
-console.log(`#${number}: 問いを書き、${issue.status} → ${rule.to[0]}`);
+console.log(await moveTask(bot(), config, Number(number), config.waiting, { comment: question }));

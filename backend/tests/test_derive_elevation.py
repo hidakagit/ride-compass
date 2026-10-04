@@ -18,10 +18,7 @@ z15のタイルTを4つの区画に分け、製品ごとに値のある区画を
 | 下・右の右寄り | e | e | e | 無し（どの製品にも無い） |
 """
 
-import json
-import struct
 from dataclasses import replace
-from datetime import UTC, datetime
 
 import asyncpg
 import pytest
@@ -29,10 +26,11 @@ import pytest_asyncio
 
 from app.batch import dem_tile_store, derive_raster_materials, derive_topology
 from app.batch._common import asyncpg_dsn
-from app.batch.ingest import ensure_partition, ingest_source
+from app.batch.ingest import ingest_source
 from app.batch.source_profile import Target, load_source_profile
 from app.domain.region import tile_bounds_lonlat
 from tests.conftest import postgis_database_url
+from tests.source_ingest import ingest_records, way_record
 
 # road_graph_session（conftest.py）と同じDBを使うため、docs/conventions/testing.mdのパターン2どおり
 # loop_scope="module"・xdist_group="postgis"が必須。
@@ -90,12 +88,30 @@ def _pixel_center(r: int, c: int) -> tuple[float, float]:
     return ((b.min_longitude + b.max_longitude) / 2, (b.min_latitude + b.max_latitude) / 2)
 
 
-def _profile():
+def _profile(without: str | None = None):
+    """範囲をタイルTの内側に絞った宣言。`without`を渡すと、標高のソースからその製品を抜く。"""
     bounds = tile_bounds_lonlat(ZOOM, X, Y)
     inset = 1e-6
     bbox = (bounds.min_latitude + inset, bounds.min_longitude + inset,
             bounds.max_latitude - inset, bounds.max_longitude - inset)
-    return replace(load_source_profile(), target=Target(bbox=bbox))
+    profile = replace(load_source_profile(None), target=Target(bbox=bbox))
+    return replace(profile, sources=tuple(
+        replace(s, grid=replace(s.grid, products={
+            product: zoom for product, zoom in s.grid.products.items() if product != without}))
+        if s.name == "dem" else s for s in profile.sources))
+
+
+async def _ingest_dem(conn: asyncpg.Connection, tile_root, without: str | None = None) -> None:
+    """手元へ写したタイルを、標高の取込の入口から取り込む。"""
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(dem_tile_store, "TILE_ROOT", tile_root)
+        await ingest_source(conn, _profile(without), "dem")
+
+
+def _way(way_id: int, pixels, tags: dict[str, str] | None = None):
+    """Tの画素`pixels`の中心を頂点に通る道。"""
+    return way_record(way_id, [_pixel_center(r, c) for r, c in pixels],
+                      [way_id * 10 + i for i in range(len(pixels))], tags)
 
 
 @pytest.fixture(scope="module")
@@ -114,7 +130,6 @@ async def module_conn(road_graph_engine):
     """`road_graph_engine`に依存するのはスキーマを作らせるため（`test_derive_topology.py`と同じ）。"""
     conn = await asyncpg.connect(asyncpg_dsn(postgis_database_url()))
     try:
-        await ensure_partition(conn, "osm_way")
         yield conn
     finally:
         await conn.execute("TRUNCATE " + ", ".join(TABLES) + " CASCADE")
@@ -123,25 +138,11 @@ async def module_conn(road_graph_engine):
 
 @pytest_asyncio.fixture(loop_scope="module")
 async def elevation_conn(module_conn, tile_root):
-    """テストごとに同じタイルから取り込み直す。取り込んだ製品を消して流し直すテストがあるため。"""
+    """テストごとに同じタイルから取り込み直す。製品を抜いて取り込み直すテストがあるため。"""
     conn = module_conn
     await conn.execute("TRUNCATE " + ", ".join(TABLES) + " CASCADE")
-    with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(dem_tile_store, "TILE_ROOT", tile_root)
-        await ingest_source(conn, _profile(), "dem")
-
-    run = await conn.fetchval(
-        "INSERT INTO source_runs (source, status, started_at, origin, profile, counts)"
-        " VALUES ('osm_way', 'succeeded', $1, $2, $2, $2) RETURNING run_id",
-        datetime.now(UTC), json.dumps({}))
-    for way_id, pixels, _expected in CASES:
-        node_ids = [way_id * 10 + i for i in range(len(pixels))]
-        wkt = "LINESTRING(" + ", ".join(
-            "{} {}".format(*_pixel_center(r, c)) for r, c in pixels) + ")"
-        await conn.execute(
-            "INSERT INTO source_features (source, natural_key, run_id, geom, attrs, payload)"
-            " VALUES ('osm_way', $1, $2, ST_GeomFromText($3, 4326), '{}'::jsonb, $4)",
-            str(way_id), run, wkt, struct.pack(f"<{len(node_ids)}q", *node_ids))
+    await _ingest_dem(conn, tile_root)
+    await ingest_records("osm_way", [_way(way_id, pixels) for way_id, pixels, _ in CASES], conn=conn)
     async with conn.transaction():
         await derive_topology.derive(conn)
         await derive_raster_materials.derive_elevation(conn)
@@ -164,7 +165,7 @@ async def test_each_pixel_takes_the_most_accurate_product_that_has_a_value(eleva
     assert got == {way_id: (expected, expected) for way_id, _pixels, expected in CASES}
 
 
-async def test_rerun_without_a_product_keeps_no_value_only_that_product_gave(elevation_conn):
+async def test_rerun_without_a_product_keeps_no_value_only_that_product_gave(elevation_conn, tile_root):
     """製品を抜いて流し直すと、その製品だけが値を持っていた区間は値を失い、ほかは変わらない。
     製品が1つも無くなれば、どの区間も値を持たない。"""
     conn = elevation_conn
@@ -179,10 +180,9 @@ async def test_rerun_without_a_product_keeps_no_value_only_that_product_gave(ele
             await derive_raster_materials.derive_elevation(conn)
         return await elevations()
 
-    await conn.execute(
-        "DELETE FROM source_features WHERE source = 'dem' AND attrs->>'product' = 'dem'")
+    await _ingest_dem(conn, tile_root, without="dem")
     without_dem = await rerun()
-    await conn.execute("DELETE FROM source_features WHERE source = 'dem'")
+    await ingest_records("dem", [], conn=conn)
     without_any = await rerun()
 
     assert without_dem == {way_id: None if way_id == 4 else expected
@@ -198,15 +198,9 @@ VALLEY_PIXELS = ((40, 40), (40, 200), (40, 44))
 async def test_a_bridge_or_tunnel_does_not_climb_the_terrain_under_it(elevation_conn, structure):
     """橋・トンネルの区間は、下の地表の起伏を上り下りに数えない。同じ形のタグの無い道は数える。"""
     conn = elevation_conn
-    run = await conn.fetchval("SELECT max(run_id) FROM source_runs WHERE source = 'osm_way'")
-    wkt = "LINESTRING(" + ", ".join(
-        "{} {}".format(*_pixel_center(r, c)) for r, c in VALLEY_PIXELS) + ")"
-    for way_id, tags in ((11, {}), (12, structure)):
-        node_ids = [way_id * 10 + i for i in range(len(VALLEY_PIXELS))]
-        await conn.execute(
-            "INSERT INTO source_features (source, natural_key, run_id, geom, attrs, payload)"
-            " VALUES ('osm_way', $1, $2, ST_GeomFromText($3, 4326), $4::jsonb, $5)",
-            str(way_id), run, wkt, json.dumps(tags), struct.pack(f"<{len(node_ids)}q", *node_ids))
+    await ingest_records("osm_way", [
+        *(_way(way_id, pixels) for way_id, pixels, _ in CASES),
+        _way(11, VALLEY_PIXELS), _way(12, VALLEY_PIXELS, structure)], conn=conn)
     async with conn.transaction():
         await derive_topology.derive(conn)
         await derive_raster_materials.derive_elevation(conn)

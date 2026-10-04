@@ -19,9 +19,12 @@ describe("getAmedasWeatherDisplay", () => {
     );
     expect(codes).not.toHaveLength(0);
     for (const { category, code } of codes) {
-      const display = getAmedasWeatherDisplay(code, true);
-      expect(display?.label).toBe(category.label);
-      if (category.key !== "clear") expect(display?.Icon).toBe(WEATHER_CATEGORY_ICON[category.key]);
+      expect(getAmedasWeatherDisplay(code, true)?.label).toBe(category.label);
+    }
+    const notClear = codes.filter(({ category }) => category.key !== "clear");
+    expect(notClear).not.toHaveLength(0);
+    for (const { category, code } of notClear) {
+      expect(getAmedasWeatherDisplay(code, true)?.Icon).toBe(WEATHER_CATEGORY_ICON[category.key]);
     }
   });
 

@@ -3,7 +3,7 @@ r"""2つの版のORM宣言を突き合わせ、消えた制約を出す。
 表を宣言し直す・別のファイルへ書き直す変更では、落ちた制約が差分に1行も出ない（古いファイルを
 消し、新しいファイルを足す形になる）。ここでは両方の版の`backend/app`を取り出し、宣言された
 表の制約を同じ形の文字列へ揃えて差を取る。消えたものは、1件ずつ処置（移した先・意図して
-外した理由）を付けてから取り込む（docs/conventions/flow.md「司令塔と担当」）。
+外した理由）を付けてから取り込む（docs/conventions/flow.md「作る担当」の5・「確かめる担当」の1）。
 
 見るもの: 表・主キー・外部キー（ON DELETE込み）・一意（一意インデックスを含む）・CHECK・
 NOT NULL・表に付けた生のDDL（`event.listen(..., DDL(...))`）。制約の名前は見ない——書き直しで
@@ -15,7 +15,7 @@ NOT NULL・表に付けた生のDDL（`event.listen(..., DDL(...))`）。制約�
 表の宣言は、`backend/app`の下で`__tablename__`か`Table(`を含むモジュールを全部importして
 集める。版によって全表を集める入口（`orm_base.declared_metadata`）が無いため。
 
-実行方法（作業ツリーの根から）:
+実行方法（作業ツリーの根からでも`backend`からでも同じ結果になる）:
     backend\.venv\Scripts\python.exe backend\scripts\lost_constraints.py             # master との合流点 → HEAD
     backend\.venv\Scripts\python.exe backend\scripts\lost_constraints.py BASE HEAD   # 任意の2つの版
 
@@ -91,7 +91,8 @@ def _dump(backend_dir: Path) -> None:
 
 
 def _items_at(rev: str) -> set[Item]:
-    archive = subprocess.run(["git", "archive", rev, "backend/app"], capture_output=True, check=True).stdout
+    archive = subprocess.run(["git", "archive", rev, "backend/app"], cwd=_git("rev-parse", "--show-toplevel"),
+                             capture_output=True, check=True).stdout
     with tempfile.TemporaryDirectory() as tmp:
         with tarfile.open(fileobj=BytesIO(archive)) as tar:
             tar.extractall(tmp, filter="data")

@@ -98,6 +98,7 @@
   --z-header-popover: 46;
   --z-floating-panel: 50;
   --z-top-popover: 60;
+  --z-usage-guide: 70;
 
   /* MapLibre自身のコントロール（ズーム+/−・回転）の実寸。アプリが地図右上へ足す
    * ボタンは、テーマトークンではなくこの値へ揃えることで「MapLibreのボタン列の続き」

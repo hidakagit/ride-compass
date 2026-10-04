@@ -73,43 +73,23 @@ export const vocabulary = {
       "key": "clear",
       "label": "晴れ",
       "codes": [
-        0,
-        1
+        0
       ]
     },
     {
       "key": "cloudy",
       "label": "くもり",
       "codes": [
-        2,
         3
-      ]
-    },
-    {
-      "key": "fog",
-      "label": "霧",
-      "codes": [
-        45,
-        48
       ]
     },
     {
       "key": "rain",
       "label": "雨",
       "codes": [
-        51,
-        53,
-        55,
-        56,
-        57,
         61,
         63,
-        65,
-        66,
-        67,
-        80,
-        81,
-        82
+        65
       ]
     },
     {
@@ -118,19 +98,7 @@ export const vocabulary = {
       "codes": [
         71,
         73,
-        75,
-        77,
-        85,
-        86
-      ]
-    },
-    {
-      "key": "thunderstorm",
-      "label": "雷雨",
-      "codes": [
-        95,
-        96,
-        99
+        75
       ]
     }
   ],

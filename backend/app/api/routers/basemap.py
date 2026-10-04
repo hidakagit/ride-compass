@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from app.api.admin_auth import require_admin_basic_auth
-from app.api.dependencies import enforce_rate_limit, get_basemap_client
+from app.api.dependencies import get_basemap_client
+from app.api.rate_limit import enforce_rate_limit
 from app.config import settings
 from app.infrastructure import tile_cache
 from app.infrastructure.basemap_client import BasemapClient, BasemapNotFound

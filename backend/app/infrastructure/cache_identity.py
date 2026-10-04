@@ -7,10 +7,12 @@
 import dataclasses
 import hashlib
 
+from app.infrastructure.derived_data_meta import DataRevisions
 
-# 土地被覆ラスタタイル。同じ配色のまま元のGeoTIFFを別の年次・別の版へ差し替えたときに
-# 上げる（画素が変わるのにURLが変わらないため）。
-LANDCOVER_REVISION = "1"
+# 土地被覆ラスタタイル。同じ配色のまま、元のGeoTIFFを別の年次・別の版へ差し替えたときと、
+# ラスタの読み方・描き方（`landcover_raster.py`）を変えたときに上げる（画素が変わるのに
+# URLもディスクキャッシュの鍵も変わらないため）。
+LANDCOVER_REVISION = "2"
 
 def bound_values(source: object) -> list[tuple[str, str]]:
     """SQLのバインドパラメータのうち、定義時点で値が決まっているもの（名前と値）。
@@ -52,10 +54,17 @@ def cache_identity(revision: str, *shape_sources: object) -> str:
 UNKNOWN_REVISION = "x"
 
 
-def tile_version(revision: int | None, shape: str) -> str:
-    """配信するタイルの世代。`<DBの世代>-<形の署名>`。
+def tile_version(revisions: DataRevisions | None, shape: str) -> str:
+    """配信するタイルの世代。`<派生の世代>.<生データの世代>-<形の署名>`。
 
-    `revision`は`derived_data_meta.get_revision()`の値。Noneは世代を読めない状態
-    （世代の行が無いDB等）で、`UNKNOWN_REVISION`を使う。
+    `revisions`は`derived_data_meta.get_revisions()`の値。Noneはまだ読めていない状態で、
+    派生の世代の行が無いDBと同じく`UNKNOWN_REVISION`を使う。
     """
-    return f"{UNKNOWN_REVISION if revision is None else revision}-{shape}"
+    if revisions is None or revisions.derived is None:
+        return f"{UNKNOWN_REVISION}-{shape}"
+    return f"{revisions.derived}.{revisions.imported}-{shape}"
+
+
+def is_known_tile_version(version: str) -> bool:
+    """`tile_version`が世代を読めて組んだものか。違えばディスクへ残さない。"""
+    return not version.startswith(f"{UNKNOWN_REVISION}-")

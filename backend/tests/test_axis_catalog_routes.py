@@ -10,8 +10,10 @@ from app.domain.axis_definitions import (
     CategoricalShape,
     MaterialTerm,
 )
-from app.domain.material_catalog import MATERIAL_CATALOG, SURFACE_ESTIMATE
+from app.domain.rain import rain_window_material_id
+from app.domain.material_catalog import MATERIAL_CATALOG, SURFACE_ESTIMATE, CoverageExcluded, MaterialSpec
 from app.domain.tuning import TUNING_PARAMETERS, TuningEffect
+from app.infrastructure.derived_data_meta import DataRevisions
 from app.main import app
 from app.services.region_service import RegionService
 from tests.axis_system_fixture import axis_definition, replaced_axis_definitions
@@ -115,23 +117,24 @@ def catalog_axes():
 
 
 class _CatalogRepository:
-    """`/api/axis-catalog`が`RegionService`越しに読むDBの口（派生データの世代・事故の収録年）の代役。"""
+    """`/api/axis-catalog`が`RegionService`越しに読むDBの口（データの世代・事故の収録年）の代役。"""
 
-    def __init__(self, revision: int | None = None):
-        self._revision = revision
+    def __init__(self, revision: int | None = None, imported: int = 0, accident_years: list[int] | None = None):
+        self._revisions = DataRevisions(derived=revision, imported=imported)
+        self._accident_years = accident_years or []
 
-    async def get_derived_data_revision(self):
-        return self._revision
+    async def get_data_revisions(self):
+        return self._revisions
 
     async def get_accident_years(self):
-        return []
+        return self._accident_years
 
 
 @pytest.fixture
 def client():
     """`/api/axis-catalog`を叩く口。このファイルの検証対象は軸カタログの内容で、DBの値は見ない。
 
-    `/api/axis-catalog`は`material_runtime_scales`（事故の収録年数）とタイル世代を出すためだけに
+    `/api/axis-catalog`は`tile_runtime_scales`（事故の収録年数）とタイル世代を出すためだけに
     `RegionService`を経由する。実DBが繋がる環境ではリクエストごとに接続を開き、
     `TestClient`のイベントループをまたいだasyncpg接続がGCされる際にキャンセル用の
     コルーチンが未awaitのまま残る（`RuntimeWarning: coroutine 'Connection._cancel' was
@@ -272,22 +275,66 @@ def test_get_axis_catalog_names_the_weather_chip_that_shows_a_dynamic_material(c
     assert entries_by_id["axis_categorical"]["weather_layer_groups"] == []
 
 
-def test_get_axis_catalog_marks_accident_tile_input_as_needing_runtime_scale(client, catalog_axes):
-    # 実行時スケールが要る材料は印だけ付け、係数はmaterial_runtime_scalesで別途返す。
-    response = client.get("/api/axis-catalog")
-    body = response.json()
-    entries_by_id = {entry["axis_id"]: entry for entry in body["axes"]}
+def _runtime_scaled_tile_properties(body) -> set[str]:
+    return {
+        tile_input["property"]
+        for entry in body["axes"]
+        for tile_input in entry["display"]["tile_inputs"]
+        if tile_input["needs_runtime_scale"]
+    }
 
-    accident_tile_inputs = entries_by_id["axis_runtime_scaled"]["display"]["tile_inputs"]
-    assert len(accident_tile_inputs) == 1
-    assert accident_tile_inputs[0]["property"] == "accident_per_km"
-    assert accident_tile_inputs[0]["needs_runtime_scale"] is True
 
-    # material_runtime_scalesは常にレスポンスへ含まれる（テスト環境はroad_graph_use_
-    # repository=Falseのためrepository未注入、RegionService.get_accident_yearsが
-    # 空を返し、0除算を避けてキー自体を含めない安全側の挙動になる）。
-    assert "material_runtime_scales" in body
-    assert isinstance(body["material_runtime_scales"], dict)
+@pytest.fixture
+def second_runtime_scaled_material(monkeypatch):
+    """実行時の換算係数の印を付けた、事故密度とは別の材料と、それを塗る公開軸。"""
+    monkeypatch.setitem(
+        MATERIAL_CATALOG,
+        "second_scaled",
+        MaterialSpec(
+            material_id="second_scaled",
+            label="二つ目",
+            description="二つ目",
+            dtype="numeric",
+            tile_property="second_per_km",
+            tile_property_runtime_scale="per_accident_year",
+            coverage=CoverageExcluded(reason="テスト用", missing_semantics="unknown"),
+        ),
+    )
+    axis = AxisDefinition(
+        axis_id="axis_second_scaled",
+        shape=BreakpointLinearShape(
+            terms=[MaterialTerm(material="second_scaled")], breakpoints=[(0.0, 0.0), (1.0, 100.0)]
+        ),
+        default_weight=0.1,
+        label="軸二",
+        is_published=True,
+    )
+    with replaced_axis_definitions({**CATALOG_AXES, axis.axis_id: axis}):
+        yield
+
+
+def test_every_runtime_scaled_tile_input_finds_its_scale_by_its_tile_property(
+    client, second_runtime_scaled_material
+):
+    """換算係数は材料の宣言から導かれ、地図が塗る値の式はタイルのプロパティ名でそれを引く。
+    印を付けた材料が増えれば、その材料のタイルの値にも係数が届く。"""
+    app.dependency_overrides[get_region_service] = lambda: RegionService(
+        repository=_CatalogRepository(accident_years=[2019, 2020, 2021, 2022, 2023, 2024])
+    )
+
+    body = client.get("/api/axis-catalog").json()
+
+    scaled = _runtime_scaled_tile_properties(body)
+    assert {"accident_per_km", "second_per_km"} <= scaled
+    assert {p: body["tile_runtime_scales"].get(p) for p in scaled} == {p: pytest.approx(1 / 6) for p in scaled}
+
+
+def test_no_runtime_scale_is_sent_while_the_accident_years_are_unknown(client, catalog_axes):
+    """収録年が読めないと係数は決まらない。係数の無い材料は、画面がどの道も「データなし」で塗る。"""
+    body = client.get("/api/axis-catalog").json()
+
+    assert _runtime_scaled_tile_properties(body)
+    assert body["tile_runtime_scales"] == {}
 
 
 def test_get_axis_catalog_carries_the_calibration_values_the_client_needs(client, monkeypatch):
@@ -324,6 +371,28 @@ def test_get_axis_catalog_includes_map_value_and_unit(client, catalog_axes):
     assert entries_by_id["axis_way_value_scored"]["map_value_unit"] == ""
 
 
+# 地図が専用配信の要求へ載せるクエリパラメータは、軸が参照する材料の配信サービスが受け取る条件から決まる。
+# 風は時刻を省略できても載せる（利用者が選んだ時刻の風を塗る）。専用配信を持たない軸には何も載せない。
+@pytest.mark.parametrize(
+    ("material", "dedicated", "conditions"),
+    [
+        ("wind_drag_ratio", True, {"at", "bearing_deg", "speed_kmh"}),
+        ("gradient_percent", True, {"bearing_deg"}),
+        (rain_window_material_id(24), True, set()),
+        ("wind_drag_ratio", False, set()),
+    ],
+)
+def test_get_axis_catalog_names_the_query_params_the_map_sends_for_a_dedicated_axis(
+    client, material, dedicated, conditions
+):
+    axis = axis_definition("axis_any_name", material=material, is_published=True, dedicated_way_value_layer=dedicated)
+    with replaced_axis_definitions({axis.axis_id: axis}):
+        response = client.get("/api/axis-catalog")
+
+    (entry,) = response.json()["axes"]
+    assert set(entry["dynamic_way_value_conditions"]) == conditions
+
+
 def test_get_axis_catalog_includes_raw_value_unit(client, catalog_axes):
     # 得点の隣へ生値を出すための単位（domain/axis_raw_value.py: raw_value_unit）。
     # 勾配は単一材料をそのまま使うので%、内部軸を合成する軸は単位が定まらずnull。
@@ -353,16 +422,16 @@ def test_get_axis_catalog_includes_material_breakdown(client, catalog_axes):
     assert lit["value_labels"] == {}
 
 
-def test_タイル世代はDBの派生データ世代を前置きして配る(client):
+def test_タイル世代はDBの派生データと生データの世代を前置きして配る(client):
     """フロントはこの世代でブラウザのキャッシュを分ける。
 
     カタログは起動直後に取られるため、**カタログ側が自分で読み直しを促さないと**
     「まだ誰も読んでいない」印（`x-`）のまま配ってしまう。
     """
-    app.dependency_overrides[get_region_service] = lambda: RegionService(repository=_CatalogRepository(revision=42))
+    app.dependency_overrides[get_region_service] = lambda: RegionService(repository=_CatalogRepository(revision=42, imported=5))
 
     versions = client.get("/api/axis-catalog").json()["tile_versions"]
 
     assert versions, "タイル世代が配られていない"
     for name, version in versions.items():
-        assert version.startswith("42-"), f"{name}がDBの世代を前置きしていない: {version}"
+        assert version.startswith("42.5-"), f"{name}がDBの世代を前置きしていない: {version}"

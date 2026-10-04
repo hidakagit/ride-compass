@@ -68,8 +68,9 @@ export default function RouteSettingsPanel({
     });
   }, [catalog.defaultWeights]);
 
+  // 覚えた重みは既定か、帯で動かした値（下限より上）なので、0になるのは既定の重みが0の軸だけ。
   function handleToggle(axisId: string, checked: boolean) {
-    const restored = checked ? lastWeights[axisId] || catalog.defaultWeights[axisId] || 0.1 : 0;
+    const restored = checked ? lastWeights[axisId] || 0.1 : 0;
     handlePreferenceChange({ ...routePreference, [axisId]: restored });
   }
 
@@ -86,7 +87,7 @@ export default function RouteSettingsPanel({
   // 有効な軸を先に並べる（スクロールせずに今の%を読める）。
   const axesWithWeight = catalog.axes.map((axis) => ({
     axis,
-    weight: routePreference[axis.axisId] ?? 0,
+    weight: routePreference[axis.axisId],
   }));
   const enabledAxes = axesWithWeight.filter(({ weight }) => weight > 0);
   const orderedAxes = [...enabledAxes, ...axesWithWeight.filter(({ weight }) => weight <= 0)];
@@ -108,10 +109,8 @@ export default function RouteSettingsPanel({
   ) {
     const bar = stackBarRef.current;
     if (!bar) return;
-    const barWidthPx = bar.getBoundingClientRect().width;
-    if (barWidthPx <= 0) return;
     const startClientX = e.clientX;
-    const pixelsPerUnit = barWidthPx / total;
+    const pixelsPerUnit = bar.getBoundingClientRect().width / total;
     const handleWindowPointerMove = (moveEvent: PointerEvent) => {
       const rawDelta = (moveEvent.clientX - startClientX) / pixelsPerUnit;
       const { weightA, weightB } = clampBoundaryDrag(startWeightA, startWeightB, rawDelta);
@@ -155,6 +154,7 @@ export default function RouteSettingsPanel({
           className={cn(legendChipBodyClass, "cursor-pointer")}
           pressed={checked}
           aria-label={checked ? `${axis.label}を無効にする` : `${axis.label}を有効にする`}
+          usage="この評価を道選びに使う・使わないを切り替えます。数字は重みの割合で、上の帯の境目を動かして変えます。"
           onClick={() => handleToggle(axis.axisId, !checked)}
         >
           <span aria-hidden="true" className={legendIconClass} style={{ color }}>
@@ -243,6 +243,7 @@ export default function RouteSettingsPanel({
                 aria-valuemax={100}
                 aria-valuenow={Math.round(cumulativePct)}
                 tabIndex={0}
+                data-usage="左右に動かして、両隣の評価の重みの割合を変えます。"
                 onPointerDown={(e) => startBoundaryDrag(e, left.axisId, leftWeight, right.axis.axisId, right.weight)}
                 onKeyDown={(e) => handleBoundaryKeyDown(e, left.axisId, leftWeight, right.axis.axisId, right.weight)}
               />

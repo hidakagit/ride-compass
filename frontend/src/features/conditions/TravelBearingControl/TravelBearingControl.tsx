@@ -11,7 +11,7 @@ interface TravelBearingControlProps {
   onChange: (bearingDeg: number) => void;
 }
 
-// 風・勾配で共有する走行方位（`features/conditions/useRideConditions.ts`の`bearingDeg`）を設定する唯一の入り口。
+// 風・勾配で共有する走行方位（`features/conditions/useRideConditions.ts: bearingDeg`）を設定する唯一の入り口。
 // MapLibreのズーム+/−・回転コントロール（地図右上、既定でmap.addControlされる）の
 // すぐ下に置くことで、「地図の向き」と「走行方位（風・勾配の評価に使う向き）」という
 // 別概念を並べて示す。幅・高さ・アイコンの大きさは右上の列の共通値
@@ -32,6 +32,7 @@ export default function TravelBearingControl({ value, onChange }: TravelBearingC
           size="mapCtrl"
           className="absolute top-[var(--map-ctrl-stack-top)] right-[var(--map-ctrl-margin)] z-[var(--z-map-control)]"
           aria-label="走行方位を設定"
+          usage="風と勾配を評価するときの、走る向きを決めます（地図の色分けとルートの評価に使います）。地図や端末の向きとは連動しません。"
           {...mapOverlayEdge("right")}
         >
           <span

@@ -1,106 +1,77 @@
 // @vitest-environment node
-// /admin配下を保護するBasic認証ミドルウェア（proxy.ts）のテスト。DOM操作は不要なため
-// node環境で実行する（vitest.config.mts参照）。
+/**
+ * `proxy.ts`——管理画面（`/admin`配下。画面と、管理APIへの転送の口）の手前のBasic認証。入口はNext.jsが呼ぶ`proxy`
+ * （要求を受けて応答を返す）で、確かめるのは応答（通すか、401で資格情報を求めるか）。
+ *
+ * ここで見ないもの:
+ * - どの道で`proxy`が呼ばれるか（`config.matcher`）→ Next.jsの規約の宣言で、判定はフレームワークが持つ。公式の判定の
+ *   道具（`next/experimental/testing/server`）はNext.jsのビルドの部品まで読み込み、このテストの実行方式（vmThreads）では
+ *   読み込めない
+ * - 資格情報を環境変数から読むこと・片方だけ設定された状態を未設定とみなすこと → `lib/adminBasicAuth.test.ts`。
+ *   ここでは読み取り口を差し替えて、設定済み・未設定を与える
+ * - 比較が定数時間であること → 応答に現れない（理由は実装の隣のコメントが持つ）
+ * - 転送の先でbackendが同じ資格情報を確かめること → backendのテスト
+ */
 import { NextRequest } from "next/server";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { adminBasicAuthCredentials } from "@/lib/adminBasicAuth";
+
 import { proxy } from "./proxy";
 
-const ADMIN_URL = "https://example.com/admin";
+vi.mock("@/lib/adminBasicAuth", () => ({ adminBasicAuthCredentials: vi.fn() }));
 
-function basicAuthHeader(username: string, password: string): string {
-  return `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`;
-}
+const CREDENTIALS = { username: "admin", password: "s3cret" };
 
-function requestWithAuth(authorization?: string): NextRequest {
-  return new NextRequest(ADMIN_URL, {
-    headers: authorization === undefined ? undefined : { authorization },
+function requestWith(authorization?: string) {
+  return new NextRequest("https://ridecompass.test/admin", {
+    headers: authorization === undefined ? {} : { authorization },
   });
 }
 
-// 資格情報は`@/lib/adminBasicAuth`が唯一の読み取り口で、その環境変数依存は
-// `src/lib/adminBasicAuth.test.ts`が環境変数を立てて検証する。ここでモックするのは、
-// `process.env`がテストファイルをまたいで共有されるため（pool: vmThreads）、並行実行中の
-// その検証が立てた値をここが読まないようにするため
-// （docs/conventions/testing.md「環境変数に依存する挙動のテスト」参照）。
-let credentials: { username: string; password: string } | null = null;
-vi.mock("@/lib/adminBasicAuth", () => ({ adminBasicAuthCredentials: () => credentials }));
+const basic = (userAndPassword: string) => `Basic ${btoa(userAndPassword)}`;
 
-afterEach(() => {
-  credentials = null;
-});
+/** 通したなら真。拒んだなら、ブラウザに資格情報のダイアログを出させる応答であることも確かめる。 */
+function passed(response: Response): boolean {
+  if (response.status === 401) {
+    expect(response.headers.get("WWW-Authenticate")).toMatch(/^Basic realm="[^"]+"$/);
+    return false;
+  }
+  expect(response.headers.get("x-middleware-next")).toBe("1");
+  return true;
+}
 
-describe("proxy", () => {
-  describe("資格情報が未設定（安全側デフォルト）", () => {
-    beforeEach(() => {
-      credentials = null;
-    });
-
-    it("資格情報が無いときは、正しく見える認証ヘッダが来ても401を返す", () => {
-      const response = proxy(requestWithAuth(basicAuthHeader("admin", "secret")));
-      expect(response.status).toBe(401);
-    });
-
-    it("401レスポンスにはWWW-Authenticateヘッダ（Basic realm）が付く", () => {
-      const response = proxy(requestWithAuth(basicAuthHeader("admin", "secret")));
-      expect(response.headers.get("WWW-Authenticate")).toBe('Basic realm="RideCompass admin"');
-    });
+describe("proxy（Basic認証）", () => {
+  beforeEach(() => {
+    vi.mocked(adminBasicAuthCredentials).mockReturnValue(CREDENTIALS);
   });
 
-  describe("資格情報設定済みでの認証チェック", () => {
-    beforeEach(() => {
-      credentials = { username: "admin", password: "s3cret" };
-    });
+  it("設定された資格情報と一致すれば通す", () => {
+    expect(passed(proxy(requestWith(basic("admin:s3cret"))))).toBe(true);
+  });
 
-    it("Authorizationヘッダが無い場合401", () => {
-      const response = proxy(requestWithAuth(undefined));
-      expect(response.status).toBe(401);
-    });
+  it("パスワードに区切りの「:」を含んでも、最初の「:」で分けて照合する", () => {
+    vi.mocked(adminBasicAuthCredentials).mockReturnValue({ username: "admin", password: "pa:ss" });
 
-    it("Authorizationヘッダが'Basic 'で始まらない場合401", () => {
-      const response = proxy(requestWithAuth("Bearer abcdef"));
-      expect(response.status).toBe(401);
-    });
+    expect(passed(proxy(requestWith(basic("admin:pa:ss"))))).toBe(true);
+  });
 
-    it("Base64デコード失敗（不正な値）でも例外を投げず401を返す", () => {
-      expect(() => proxy(requestWithAuth("Basic ***not-valid-base64***"))).not.toThrow();
-      const response = proxy(requestWithAuth("Basic ***not-valid-base64***"));
-      expect(response.status).toBe(401);
-    });
+  it("資格情報が設定されていない環境では、どんな要求も拒む", () => {
+    vi.mocked(adminBasicAuthCredentials).mockReturnValue(null);
 
-    it("デコード後の値に':'区切りが無い場合401", () => {
-      const noColon = Buffer.from("adminsecretwithoutcolon").toString("base64");
-      const response = proxy(requestWithAuth(`Basic ${noColon}`));
-      expect(response.status).toBe(401);
-    });
+    expect(passed(proxy(requestWith(basic("admin:s3cret"))))).toBe(false);
+    expect(passed(proxy(requestWith(basic(":"))))).toBe(false);
+  });
 
-    it("ユーザー名は正しいがパスワードが違う場合401", () => {
-      const response = proxy(requestWithAuth(basicAuthHeader("admin", "wrong-password")));
-      expect(response.status).toBe(401);
-    });
-
-    it("パスワードは正しいがユーザー名が違う場合401", () => {
-      const response = proxy(requestWithAuth(basicAuthHeader("wrong-user", "s3cret")));
-      expect(response.status).toBe(401);
-    });
-
-    it("長さの異なるユーザー名/パスワード（safeEqualのtimingSafeEqualラッパー経由）でも例外を投げず401を返す", () => {
-      // 期待値("admin"/"s3cret")よりずっと短い・長い値を与え、safeEqual内のtimingSafeEqualが
-      // 長さ不一致のバッファに対して例外を投げないこと（事前の長さチェックで弾かれること）を
-      // 間接的に確認する。
-      expect(() => proxy(requestWithAuth(basicAuthHeader("a", "s")))).not.toThrow();
-      expect(proxy(requestWithAuth(basicAuthHeader("a", "s"))).status).toBe(401);
-
-      const veryLongUsername = "admin".repeat(50);
-      const veryLongPassword = "s3cret".repeat(50);
-      expect(() => proxy(requestWithAuth(basicAuthHeader(veryLongUsername, veryLongPassword)))).not.toThrow();
-      expect(proxy(requestWithAuth(basicAuthHeader(veryLongUsername, veryLongPassword))).status).toBe(401);
-    });
-
-    it("正しい資格情報のときのみNextResponse.next()相当（x-middleware-nextヘッダ付き・200）を返す", () => {
-      const response = proxy(requestWithAuth(basicAuthHeader("admin", "s3cret")));
-      expect(response.status).toBe(200);
-      expect(response.headers.get("x-middleware-next")).toBe("1");
-      expect(response.headers.get("WWW-Authenticate")).toBeNull();
-    });
+  it.each([
+    ["資格情報が無い", undefined],
+    ["Basic以外の方式", "Bearer admin:s3cret"],
+    ["Base64として読めない", "Basic %%%"],
+    ["ユーザー名とパスワードの区切りが無い", basic("admins3cret")],
+    ["ユーザー名が違う", basic("Admin:s3cret")],
+    ["パスワードが違う（同じ長さ）", basic("admin:s3creT")],
+    ["パスワードが違う（長さが違う）", basic("admin:s3cret!")],
+  ])("%sなら拒む", (_, authorization) => {
+    expect(passed(proxy(requestWith(authorization)))).toBe(false);
   });
 });

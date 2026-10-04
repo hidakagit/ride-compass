@@ -1,27 +1,35 @@
 import asyncio
 import logging
 import math
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Annotated, Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import Field, RootModel, model_validator
+from pydantic import Field, PrivateAttr, RootModel, field_validator, model_validator
 
 from app.domain.time_zone import JST
 from app.api.dependencies import (
-    PreviewBuilder,
-    client_id,
-    enforce_rate_limit,
-    get_preview_builder,
-    open_route_generation_setup,
+    RouteGenerationSetupOpener,
+    get_route_generation_setup_opener,
 )
+from app.api.rate_limit import client_id, enforce_rate_limit
 from app.config import settings
-from app.domain.errors import RoutingError, SearchAreaTooLargeError
 from app.domain.hard_filters import HARD_FILTER_NAMES
 from app.domain.route_preference import RoutePreference, check_axis_weights, published_axis_ids
+from app.domain.route_request import (
+    DEFAULT_DISTANCE_TOLERANCE_KM,
+    MAX_DISTANCE_TOLERANCE_KM,
+    MAX_ROUTE_DISTANCE_KM,
+    MAX_SPLICED_EDGES,
+    MAX_WAYPOINTS,
+    check_point_distance,
+    check_spliced_edge_count,
+    check_waypoint_count,
+)
 from app.domain.geo import haversine_distance_km
 from app.domain.wind import ASSUMED_SPEED_KMH, MAX_ASSUMED_SPEED_KMH, MIN_ASSUMED_SPEED_KMH
-from app.domain.route import Coordinates, RouteCandidate, RouteSegment
+from app.domain.route import Coordinates, RouteCandidate
 from app.infrastructure import job_registry
 from app.infrastructure.debug_log import record_rate_limit_rejection
 from app.services.route_generator import DEFAULT_MAX_ROUTES, MAX_ROUTES, applied_max_routes
@@ -29,17 +37,6 @@ from app.domain.strict_model import StrictModel
 
 router = APIRouter()
 logger = logging.getLogger("ridecompass.generate")
-
-# ルート生成距離の上限（km）。上限が無いとbboxが際限なく広がりタイル問い合わせが長時間
-# ハングしうる。30km規模までの検証実績を踏まえ、余裕を見つつも無制限は避ける値として
-# 100kmとする。この値はOpenAPI生成物経由でフロントへ渡す唯一の情報源にする
-# （design-principles.md構造仕様1「フロントエンドとバックエンドの境界」: 上限値はbackendが
-#   唯一の正として持ち、frontendはOpenAPI生成物から読む。export_openapi.py:
-# ROUTE_GENERATE_CONFIG_PATH参照）。
-MAX_ROUTE_DISTANCE_KM = 100
-# 目標距離からの許容差（km）。frontendは`route-generate-config.json`経由で受け取る
-# ——手書きで複製すると、片方だけ変えたときに画面の見込みと探索の範囲がずれる。
-DEFAULT_DISTANCE_TOLERANCE_KM = 5.0
 
 # ルート生成の同時実行上限（settings.generate_max_concurrent、config.pyのコメント参照）。
 # 上限を超えた分は待たせず429で即座に返し、ブラウザのリトライや連打で外部サービスへの
@@ -49,29 +46,6 @@ _generate_semaphore = asyncio.Semaphore(settings.generate_max_concurrent)
 # 実行中のルート生成ジョブ（`create_task`の戻り値）。イベントループはタスクへの強参照を
 # 持たないため、ここで保持しないとGCが実行中のジョブごと回収しうる。
 _running_generate_tasks: set[asyncio.Task] = set()
-
-
-class RoutePreviewRequest(StrictModel):
-    origin: Coordinates
-    destination: Coordinates
-    # 仮定巡航速度（km/h、所要時間の算出に使う）。省略時は既定値。
-    assumed_speed_kmh: float = Field(ge=MIN_ASSUMED_SPEED_KMH, le=MAX_ASSUMED_SPEED_KMH, default=ASSUMED_SPEED_KMH)
-
-
-@router.post("/api/routes/preview", response_model=RouteSegment)
-async def preview_route(
-    request: RoutePreviewRequest,
-    http_request: Request,
-    preview: PreviewBuilder = Depends(get_preview_builder),
-) -> RouteSegment:
-    enforce_rate_limit(http_request, "preview", settings.preview_rate_limit_per_minute)
-    try:
-        return await preview(request.origin, request.destination, request.assumed_speed_kmh)
-    except RoutingError as exc:
-        raise HTTPException(status_code=502, detail=f"ルート取得に失敗しました: {exc}") from exc
-    except SearchAreaTooLargeError as exc:
-        raise HTTPException(
-            status_code=422, detail="2点が離れすぎていて、間の道路が多すぎるため確認できません。") from exc
 
 
 class RoutePreferenceWeights(RootModel[dict[str, float]]):
@@ -126,18 +100,42 @@ class HardFilterOverride(RootModel[dict[str, bool]]):
         return cls({name: name in active for name in sorted(HARD_FILTER_NAMES)})
 
 
-# 合成ルートで受け取るEdge idの上限。1本の候補が数百Edgeで、区間を差し替えても
-# 2本ぶんの長さを超えることはない。
-MAX_SPLICED_EDGES = 5000
+@dataclass(frozen=True)
+class LoopTarget:
+    """起点へ戻る周回候補を、目標距離で探す。"""
+
+    distance_km: float
+
+
+@dataclass(frozen=True)
+class WaypointsTarget:
+    """経由地・目的地を通る1本を探す。`distance_km`は置いた点から決めた探索の範囲。"""
+
+    distance_km: float
+    waypoints: list[Coordinates]
+    destination: Coordinates | None
+
+
+@dataclass(frozen=True)
+class SplicedTarget:
+    """区間を差し替えて組み立てた経路を、探索せずに評価する。目的地ルートだけが対象。"""
+
+    distance_km: float
+    destination: Coordinates
+    edge_ids: tuple[str, *tuple[str, ...]]
+
+
+# 検証を通った要求が何を生成するか。生成ジョブはこれだけを見て分岐する。
+RouteTarget = LoopTarget | WaypointsTarget | SplicedTarget
 
 
 class RouteGenerateRequest(StrictModel):
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
     # 周回の目標距離。経由地・目的地を置いたときは探索の範囲になり、置いた点からbackendが決める
-    # （`_resolve_distance`。送られた値は使わない）ため省略できる。
+    # （`_resolve_target`。送られた値は使わない）ため省略できる。
     distance_km: float | None = Field(default=None, gt=0, le=MAX_ROUTE_DISTANCE_KM)
-    distance_tolerance_km: float = Field(gt=0, le=50, default=DEFAULT_DISTANCE_TOLERANCE_KM)
+    distance_tolerance_km: float = Field(gt=0, le=MAX_DISTANCE_TOLERANCE_KM, default=DEFAULT_DISTANCE_TOLERANCE_KM)
     route_type: Literal["loop"] = "loop"
     # 評価重みのリクエスト単位の上書き（研究用）。省略時はAXIS_DEFINITIONS由来の既定値
     # （`RoutePreference()`）を使う。
@@ -158,8 +156,7 @@ class RouteGenerateRequest(StrictModel):
     # （destination指定・waypoints未指定）はvia-node方式の代替経路にも同じ値が効く。
     # 経由地を1つ以上伴う経由地・目的地指定ルートでは無視される（常に1件、経由地が
     # あるとレグごとに代替案が組合せで増えるため）。上限・既定値はOpenAPI生成物
-    # （route-generate-config.json）経由でフロントへ渡す唯一の情報源にする
-    # （MAX_ROUTE_DISTANCE_KMと同じ設計原則）。
+    # （route-generate-config.json）経由でフロントへ渡す唯一の情報源にする。
     max_routes: int = Field(ge=1, le=MAX_ROUTES, default=DEFAULT_MAX_ROUTES)
     # 仮定巡航速度（km/h）。各区間の通過予定時刻（探索時の風の時刻選択）・到達予想時刻の
     # 算出に使う。範囲・既定値はOpenAPI生成物（route-generate-config.json）経由でフロントへ
@@ -169,7 +166,7 @@ class RouteGenerateRequest(StrictModel):
     # 生成する）。指定時は周回候補の生成を行わない。bboxが際限なく広がらないよう、
     # 起点からdistance_km以内という緩いガードのみ課す（詳細な妥当性はルーティング自体の
     # 成否に委ねる）。
-    waypoints: list[Coordinates] | None = Field(default=None, max_length=8)
+    waypoints: list[Coordinates] | None = Field(default=None, max_length=MAX_WAYPOINTS)
     # 指定時は起点に戻らず目的地で終わる片道ルートにする（経由地のみの場合は起点で
     # 終わる周回）。
     destination: Coordinates | None = None
@@ -187,36 +184,58 @@ class RouteGenerateRequest(StrictModel):
     # ジョブ機構へ載せる。
     spliced_edge_ids: list[str] | None = Field(default=None, min_length=1, max_length=MAX_SPLICED_EDGES)
 
-    @model_validator(mode="after")
-    def _check_spliced_route_has_a_destination(self) -> "RouteGenerateRequest":
-        # 合成の対象は目的地ルートだけ（周回は起点へ戻る制約があり、途中で別候補へ
-        # 乗り換えると戻れる保証が無くなる）。
-        if self.spliced_edge_ids and self.destination is None:
-            raise ValueError("spliced_edge_ids requires destination")
-        return self
+    # 画面の操作で届く上限は、制約（英語の文を返す）より先に日本語で止める。制約は契約に載せるため残す。
+    @field_validator("waypoints", mode="before")
+    @classmethod
+    def _check_waypoint_count(cls, value: object) -> object:
+        if isinstance(value, list):
+            check_waypoint_count(len(value))
+        return value
+
+    @field_validator("spliced_edge_ids", mode="before")
+    @classmethod
+    def _check_spliced_edge_count(cls, value: object) -> object:
+        if isinstance(value, list):
+            check_spliced_edge_count(len(value))
+        return value
+
+    _target: RouteTarget = PrivateAttr()
 
     @model_validator(mode="after")
-    def _resolve_distance(self) -> "RouteGenerateRequest":
+    def _resolve_target(self) -> "RouteGenerateRequest":
         # 経由地・目的地を置いたときの距離は探索の範囲と「点が遠すぎないか」の検査に使う値で、最も遠い点より
         # 必ず長くする。周回では距離が目標そのものなので送られた値が要る。
         points = [*(self.waypoints or []), *([self.destination] if self.destination else [])]
         if not points:
+            if self.spliced_edge_ids:
+                raise ValueError("spliced_edge_ids requires destination")
             if self.distance_km is None:
                 raise ValueError("distance_km is required without waypoints/destination")
+            self._target = LoopTarget(distance_km=self.distance_km)
             return self
         origin = Coordinates(latitude=self.latitude, longitude=self.longitude)
         farthest_km = max(haversine_distance_km(origin, point) for point in points)
-        if farthest_km > MAX_ROUTE_DISTANCE_KM:
-            raise ValueError("waypoints/destination must be within the maximum distance of the origin")
-        self.distance_km = min(MAX_ROUTE_DISTANCE_KM, math.ceil(farthest_km) + 1)
+        check_point_distance(farthest_km)
+        distance_km = min(MAX_ROUTE_DISTANCE_KM, math.ceil(farthest_km) + 1)
+        if self.spliced_edge_ids:
+            # 合成の対象は目的地ルートだけ（周回は起点へ戻る制約があり、途中で別候補へ
+            # 乗り換えると戻れる保証が無くなる）。
+            if self.destination is None:
+                raise ValueError("spliced_edge_ids requires destination")
+            first, *rest = self.spliced_edge_ids
+            self._target = SplicedTarget(
+                distance_km=distance_km, destination=self.destination, edge_ids=(first, *rest)
+            )
+        else:
+            self._target = WaypointsTarget(
+                distance_km=distance_km, waypoints=self.waypoints or [], destination=self.destination
+            )
         return self
 
     @property
-    def resolved_distance_km(self) -> float:
-        """`_resolve_distance`を通った距離（周回は目標距離、経由地・目的地は探索の範囲）。"""
-        if self.distance_km is None:
-            raise RoutingError("distance_km was not resolved")
-        return self.distance_km
+    def target(self) -> RouteTarget:
+        """検証を通った要求が何を生成するか（周回・経由地と目的地・差し替えた経路）。"""
+        return self._target
 
 
 def _resolve_start_time(value: datetime | None) -> datetime:
@@ -281,7 +300,7 @@ class RouteGenerateJobCreatedResponse(StrictModel):
 
     生成は数秒〜数十秒かかる（探索範囲が広いほど長い）ため、ブラウザのfetchを塞がないよう
     バックグラウンドジョブで走らせ、この応答は即座に返る。結果は`GET /api/routes/generate/
-    {job_id}`をポーリングして取得する（frontend `features/route/routeApi.ts`）。
+    {job_id}`をポーリングして取得する。
     """
 
     job_id: str
@@ -308,7 +327,11 @@ RouteGenerateJobStatusResponse = Annotated[
 
 
 @router.post("/api/routes/generate", response_model=RouteGenerateJobCreatedResponse, status_code=202)
-async def generate_routes(request: RouteGenerateRequest, http_request: Request) -> RouteGenerateJobCreatedResponse:
+async def generate_routes(
+    request: RouteGenerateRequest,
+    http_request: Request,
+    open_setup: RouteGenerationSetupOpener = Depends(get_route_generation_setup_opener),
+) -> RouteGenerateJobCreatedResponse:
     enforce_rate_limit(http_request, "generate", settings.generate_rate_limit_per_minute)
 
     # 同時実行数の上限に達している場合は待たせず即座に429を返す（外部サービスへの負荷が
@@ -334,7 +357,7 @@ async def generate_routes(request: RouteGenerateRequest, http_request: Request) 
     # ミドルウェアの例外）でジョブが一度も起動せず、上で取得したセマフォを解放する
     # finallyへ到達しない。`generate_max_concurrent`分だけこれが起きるとルート生成が
     # プロセス再起動まで全断する（`/health`は正常を返すため外形監視にもかからない）。
-    task = asyncio.create_task(_run_generate_job(job_id, request))
+    task = asyncio.create_task(_run_generate_job(job_id, request, open_setup))
     # イベントループはタスクへの強参照を持たないため、参照を保持しないとGCが実行中の
     # ジョブごと回収しうる（そのときもセマフォは解放されない）。
     _running_generate_tasks.add(task)
@@ -359,7 +382,7 @@ async def get_generate_job(job_id: str) -> RouteGenerateJobStatusResponse:
     return RouteGenerateJobPending(status=record.status)
 
 
-async def _run_generate_job(job_id: str, request: RouteGenerateRequest) -> None:
+async def _run_generate_job(job_id: str, request: RouteGenerateRequest, open_setup: RouteGenerationSetupOpener) -> None:
     """`generate_routes`が`asyncio.create_task`で起動するジョブ本体。
     例外はここで捕捉してjob_registryへ記録する——切り離されたタスクの例外はどこにも
     伝播せず、素通しするとサーバーログにしか残らずクライアントは永久にポーリングし
@@ -368,7 +391,7 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest) -> None:
     `_generate_semaphore`は投稿時点の`generate_routes`側で既に取得済み（TOCTOUレース
     対応）。ここでは成否によらず必ずfinallyで解放する。"""
     try:
-        # 重みの上書き（省略時はopen_route_generation_setup側で既定値を読む）。
+        # 重みの上書き（省略時はエンジンを組む側で既定値を読む）。
         # 適用された値はconditionsへエコーする。
         preference_override = (
             RoutePreference(weights=dict(request.route_preference.root)) if request.route_preference else None
@@ -376,7 +399,7 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest) -> None:
         hard_filters_override = request.hard_filters.to_frozenset() if request.hard_filters else None
 
         job_registry.set_running(job_id)
-        async with open_route_generation_setup(
+        async with open_setup(
             preference_override=preference_override,
             penalty_strength=request.penalty_strength,
             max_average_grade_percent=request.max_average_grade_percent,
@@ -387,30 +410,28 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest) -> None:
             origin = Coordinates(latitude=request.latitude, longitude=request.longitude)
             start_time = _resolve_start_time(request.start_time)
             max_routes = applied_max_routes(request.max_routes, has_waypoints=bool(request.waypoints))
-            if request.spliced_edge_ids:
-                if request.destination is None:
-                    # 要求の検証（`_check_spliced_route_has_a_destination`）を通った要求では起きない。
-                    raise RoutingError("spliced_edge_ids requires destination")
+            target = request.target
+            if isinstance(target, SplicedTarget):
                 candidates = await setup.generator.generate_spliced_route(
                     origin=origin,
-                    destination=request.destination,
-                    distance_km=request.resolved_distance_km,
-                    edge_ids=request.spliced_edge_ids,
+                    destination=target.destination,
+                    distance_km=target.distance_km,
+                    edge_ids=target.edge_ids,
                     start_time=start_time,
                 )
-            elif request.waypoints or request.destination:
+            elif isinstance(target, WaypointsTarget):
                 candidates = await setup.generator.generate_via_waypoints(
                     origin=origin,
-                    waypoints=request.waypoints or [],
-                    distance_km=request.resolved_distance_km,
-                    destination=request.destination,
+                    waypoints=target.waypoints,
+                    distance_km=target.distance_km,
+                    destination=target.destination,
                     max_routes=max_routes,
                     start_time=start_time,
                 )
             else:
                 candidates = await setup.generator.generate_loops(
                     origin=origin,
-                    distance_km=request.resolved_distance_km,
+                    distance_km=target.distance_km,
                     distance_tolerance_km=request.distance_tolerance_km,
                     max_routes=max_routes,
                     start_time=start_time,
@@ -421,7 +442,7 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest) -> None:
                 conditions=GenerationConditions(
                     latitude=request.latitude,
                     longitude=request.longitude,
-                    distance_km=request.resolved_distance_km,
+                    distance_km=target.distance_km,
                     distance_tolerance_km=request.distance_tolerance_km,
                     route_preference=RoutePreferenceWeights(setup.route_preference.weights),
                     penalty_strength=setup.penalty_strength,

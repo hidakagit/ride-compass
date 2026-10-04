@@ -1,29 +1,15 @@
 """気象庁MSM（メソ数値予報モデル）格子の幾何と補間。
 
-外部I/Oを持たない純関数のみを置く。実データの同期・読み出しは
-`infrastructure/msm_client.py`が担う。
+外部I/Oを持たない純関数のみを置く。実データの同期・読み出しと、配信元のメタ情報（格子の範囲の
+表記等）の解釈は`infrastructure/msm_client.py`が担う。
 
 MSMは緯度・経度方向で間隔の異なる等間隔格子（緯度0.05度・経度0.0625度）のため、
 任意地点の値は周囲4格子点からの双一次補間で求める。
 """
 
-import re
 from dataclasses import dataclass
 
 import numpy as np
-
-# 配信元メタ情報のcrs_wktが持つ範囲指定。WKTのBBOXは南・西・北・東の順に並ぶ。
-_BBOX_PATTERN = re.compile(r"BBOX\[\s*([-\d.]+)\s*,\s*([-\d.]+)\s*,\s*([-\d.]+)\s*,\s*([-\d.]+)\s*\]")
-
-
-def parse_bbox(crs_wkt: str) -> tuple[float, float, float, float]:
-    """crs_wktから(南緯, 西経, 北緯, 東経)を取り出す。見つからなければValueError。"""
-    match = _BBOX_PATTERN.search(crs_wkt)
-    if match is None:
-        raise ValueError("crs_wktにBBOXがありません")
-    south, west, north, east = (float(value) for value in match.groups())
-    return south, west, north, east
-
 
 @dataclass(frozen=True)
 class MsmGrid:

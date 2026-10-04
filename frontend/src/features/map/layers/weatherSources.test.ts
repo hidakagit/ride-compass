@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 
+import jmaExpectations from "@/types/generated/jma-expectations.json";
 import type { WindGridPoint } from "@/types/weather";
 
 import { gridStageFrames, jmaStageFrames, selectFrame, sourceTimeline, type FrameRule } from "./weatherSources";
@@ -62,17 +63,17 @@ describe("sourceTimeline（段を1本の時系列へつなぐ）", () => {
     expect(timeline[3].ref).toEqual({ stage: 2, time: "2026-09-24T12:00" });
   });
 
-  it("途中の段が取れていなければ、その前の段の直後から次の段を継ぐ", () => {
-    const timeline = sourceTimeline([
-      jmaStageFrames(0, [frame("20260924000000")]),
-      jmaStageFrames(1, []),
-      gridStageFrames(2, grid(["2026-09-24T09:00", "2026-09-24T10:00"]), BEFORE_GRID),
-    ]);
-    expect(timeline.map(({ ref }) => ref.stage)).toEqual([0, 2]);
-  });
-
-  it("どの段も無ければ空", () => {
-    expect(sourceTimeline([jmaStageFrames(0, []), gridStageFrames(1, [], BEFORE_GRID)])).toEqual([]);
+  it("各段が最初に描くコマはbackendの表（段が重なる・途中の段が空・全段が空等）と同じ", () => {
+    const rows = jmaExpectations.stage_first_frames;
+    expect(rows.length).toBeGreaterThan(0);
+    for (const { scene, stages, first_frames } of rows) {
+      const timeline = sourceTimeline(stages.map((frames, stage) => jmaStageFrames(stage, frames)));
+      const firsts = stages.map((_, stage) => {
+        const ref = timeline.find((each) => each.ref.stage === stage)?.ref;
+        return ref !== undefined && "frame" in ref ? ref.frame : null;
+      });
+      expect(firsts, scene).toEqual(first_frames);
+    }
   });
 });
 

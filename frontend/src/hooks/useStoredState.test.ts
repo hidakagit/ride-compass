@@ -1,152 +1,226 @@
+/**
+ * 端末に保存して、開き直しても戻る状態（`hooks/useStoredState.ts`）——保存値を読んで復元し、変えるたびに保存する。
+ * 読めない・壊れた保存値は既定値として扱い、保存できない端末でも状態は変わる。
+ * JSON で保存する形（`useStoredJsonState`）と、真偽値だけを受け入れる形（`useStoredBooleanState`）も、ここで見る。
+ *
+ * ここで見ないもの:
+ * - どのキーに何を保存するか・どう復元するか（変換の中身） → 呼び出し側
+ *
+ * 差し替えたもの: 保存の読み書きが例外を投げる端末（`window.localStorage` のゲッターを、読むか書くかが例外を投げる
+ * 保存へ）。それ以外の保存はテスト環境の `localStorage` を本物のまま使う。
+ */
 import { act, renderHook } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { useStoredState } from "./useStoredState";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-const jsonOptions = {
-  serialize: (v: number) => JSON.stringify(v),
-  deserialize: (raw: string): number | null => {
-    try {
-      const parsed = JSON.parse(raw);
-      return typeof parsed === "number" ? parsed : null;
-    } catch {
-      return null;
-    }
-  },
+import { useStoredBooleanState, useStoredJsonState, useStoredState } from "./useStoredState";
+
+const KEY = "stored-state-test";
+
+/** 文字列をそのまま保存し、`ok:` で始まるものだけを読む変換。 */
+const PREFIXED = {
+  serialize: (value: string) => `ok:${value}`,
+  deserialize: (raw: string) => (raw.startsWith("ok:") ? raw.slice(3) : null),
 };
 
+/** 読むか書くかが例外を投げる端末にする。もう片方はテスト環境の保存へ渡す。 */
+function breakStorage(method: "getItem" | "setItem") {
+  const real = window.localStorage;
+  const storage = {
+    getItem: (key: string) => real.getItem(key),
+    setItem: (key: string, value: string) => real.setItem(key, value),
+    [method]: () => {
+      throw new Error("storage unavailable");
+    },
+  };
+  vi.spyOn(window, "localStorage", "get").mockReturnValue(storage as unknown as Storage);
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  window.localStorage.clear();
+});
+
 describe("useStoredState", () => {
-  beforeEach(() => {
-    window.localStorage.clear();
-  });
-  afterEach(() => {
-    window.localStorage.clear();
-  });
+  it("保存が無ければ既定値を返す", () => {
+    const { result } = renderHook(() => useStoredState(KEY, "default", PREFIXED));
 
-  it("保存値が無ければデフォルト値のまま", () => {
-    const { result } = renderHook(() => useStoredState("k", 1, jsonOptions));
-    expect(result.current[0]).toBe(1);
+    expect(result.current[0]).toBe("default");
   });
 
-  it("マウント後に保存値を復元する", () => {
-    window.localStorage.setItem("k", "42");
-    const { result } = renderHook(() => useStoredState("k", 1, jsonOptions));
-    expect(result.current[0]).toBe(42);
+  it("保存があれば、変換して読んだ値へ戻す", () => {
+    window.localStorage.setItem(KEY, "ok:saved");
+
+    const { result } = renderHook(() => useStoredState(KEY, "default", PREFIXED));
+
+    expect(result.current[0]).toBe("saved");
   });
 
-  it("壊れた保存値はデフォルト値のまま(例外を投げない)", () => {
-    window.localStorage.setItem("k", "not json");
-    const { result } = renderHook(() => useStoredState("k", 1, jsonOptions));
-    expect(result.current[0]).toBe(1);
+  it("変換が読めない（null を返す）保存値は、既定値として扱う", () => {
+    window.localStorage.setItem(KEY, "broken");
+
+    const { result } = renderHook(() => useStoredState(KEY, "default", PREFIXED));
+
+    expect(result.current[0]).toBe("default");
   });
 
-  it("setterはstateを更新しlocalStorageへ即保存する", () => {
-    const { result } = renderHook(() => useStoredState("k", 1, jsonOptions));
-    act(() => result.current[1](5));
-    expect(result.current[0]).toBe(5);
-    expect(window.localStorage.getItem("k")).toBe("5");
+  it("保存を読めない端末では、保存があっても既定値を返す", () => {
+    window.localStorage.setItem(KEY, "ok:saved");
+    breakStorage("getItem");
+
+    const { result } = renderHook(() => useStoredState(KEY, "default", PREFIXED));
+
+    expect(result.current[0]).toBe("default");
   });
 
-  it("生文字列(JSON化しない)形式のキーも保存・復元できる(route-style-mode等と同じ形式)", () => {
-    const rawOptions = {
-      serialize: (v: string) => v,
-      deserialize: (raw: string): string | null => (raw === "a" || raw === "b" ? raw : null),
-    };
-    window.localStorage.setItem("k2", "b");
-    const { result } = renderHook(() => useStoredState("k2", "a", rawOptions));
-    expect(result.current[0]).toBe("b");
+  it("値を渡して変えると、状態が変わり、変換した文字列で保存する", () => {
+    const { result } = renderHook(() => useStoredState(KEY, "default", PREFIXED));
 
-    act(() => result.current[1]("a"));
-    expect(window.localStorage.getItem("k2")).toBe("a");
+    act(() => result.current[1]("next"));
+
+    expect(result.current[0]).toBe("next");
+    expect(window.localStorage.getItem(KEY)).toBe("ok:next");
   });
 
-  // 実バグ修正の回帰テスト（デッドコード監査、2026-08-25）: app/page.tsxのlayerVisibility
-  // 永続化ホワイトリスト静的固定バグ。復元対象キー集合が実行時カタログ（axisCatalog.
-  // rampAxes等）に依存するとき、そのカタログのフェッチが完了する前（マウント直後）にしか
-  // 復元処理が走らないと、フェッチ完了後に初めて存在が分かる動的キー（軸スタジオ公開軸等）の
-  // 保存値が黙って無視される。reloadKeyに「カタログがフェッチ済みか」を渡すことで、
-  // フェッチ完了時に復元処理を再実行し、その時点の最新のdeserializeクロージャ
-  // （動的キー集合を認識できる）で再度localStorageから読み直せることを確認する。
-  it("reloadKeyが変化すると、その時点の最新のdeserializeで復元処理を再実行する", () => {
-    window.localStorage.setItem("k3", JSON.stringify({ fixed: true, dynamic: true }));
+  it("関数を渡して変えると、今の値から作った値になり、それを保存する", () => {
+    window.localStorage.setItem(KEY, "ok:a");
+    const { result } = renderHook(() => useStoredState(KEY, "default", PREFIXED));
 
-    let loaded = false;
-    const deserialize = (raw: string): Record<string, boolean> | null => {
-      try {
-        const parsed = JSON.parse(raw) as Record<string, unknown>;
-        // 未フェッチ時は固定キーのみ、フェッチ完了後は動的キーも走査する。
-        const keys = loaded ? ["fixed", "dynamic"] : ["fixed"];
-        const next: Record<string, boolean> = { fixed: false, dynamic: false };
-        for (const key of keys) {
-          if (typeof parsed[key] === "boolean") next[key] = parsed[key];
-        }
-        return next;
-      } catch {
-        return null;
-      }
-    };
+    act(() => result.current[1]((prev) => `${prev}b`));
 
+    expect(result.current[0]).toBe("ab");
+    expect(window.localStorage.getItem(KEY)).toBe("ok:ab");
+  });
+
+  it("保存できない端末でも、状態は変わる", () => {
+    breakStorage("setItem");
+    const { result } = renderHook(() => useStoredState(KEY, "default", PREFIXED));
+
+    act(() => result.current[1]("next"));
+
+    expect(result.current[0]).toBe("next");
+    vi.restoreAllMocks();
+    expect(window.localStorage.getItem(KEY)).toBeNull();
+  });
+
+  it("保存には、変えた時点で渡されている変換を使う", () => {
     const { result, rerender } = renderHook(
-      ({ reloadKey }: { reloadKey: boolean }) =>
-        useStoredState(
-          "k3",
-          { fixed: false, dynamic: false },
-          {
-            serialize: (v) => JSON.stringify(v),
-            deserialize,
-            reloadKey,
-          },
-        ),
-      { initialProps: { reloadKey: false } },
+      ({ serialize }) => useStoredState(KEY, "default", { ...PREFIXED, serialize }),
+      { initialProps: { serialize: PREFIXED.serialize } },
     );
 
-    // マウント時点（reloadKey=false・loaded=false相当）ではdynamicキーは復元されない。
-    expect(result.current[0]).toEqual({ fixed: true, dynamic: false });
+    rerender({ serialize: (value: string) => `v2:${value}` });
+    act(() => result.current[1]("next"));
 
-    // カタログ取得完了に相当する変化（reloadKeyの値を変える）。
-    loaded = true;
-    rerender({ reloadKey: true });
-
-    expect(result.current[0]).toEqual({ fixed: true, dynamic: true });
+    expect(window.localStorage.getItem(KEY)).toBe("v2:next");
   });
 
-  // 改善計画T470: keyが動的に変わるケース（現状の呼び出し側はいずれも静的keyのため
-  // 未発生だが、将来追加されうる）で、新しいkeyに保存値が無いと前のkeyで復元した値が
-  // 残り続けてしまう不整合の回帰テスト。
-  it("keyが変化し、新しいkeyに保存値が無い場合はdefaultValueへ戻る（前のkeyの値を引きずらない）", () => {
-    window.localStorage.setItem("k5-a", "42");
+  it("変える関数は、描き直しても同じものを返す（読み手が依存に使える）", () => {
+    const { result, rerender } = renderHook(() => useStoredState(KEY, "default", { ...PREFIXED }));
+    const first = result.current[1];
 
-    const { result, rerender } = renderHook(({ key }: { key: string }) => useStoredState(key, 1, jsonOptions), {
-      initialProps: { key: "k5-a" },
-    });
-    expect(result.current[0]).toBe(42);
-
-    rerender({ key: "k5-b" }); // k5-bには保存値が無い
-
-    expect(result.current[0]).toBe(1);
-  });
-
-  it("keyが変化し、新しいkeyにも保存値がある場合はそちらを復元する", () => {
-    window.localStorage.setItem("k6-a", "42");
-    window.localStorage.setItem("k6-b", "99");
-
-    const { result, rerender } = renderHook(({ key }: { key: string }) => useStoredState(key, 1, jsonOptions), {
-      initialProps: { key: "k6-a" },
-    });
-    expect(result.current[0]).toBe(42);
-
-    rerender({ key: "k6-b" });
-
-    expect(result.current[0]).toBe(99);
-  });
-
-  it("reloadKeyを渡さない場合は従来どおり初回マウント時の1回だけ復元する", () => {
-    window.localStorage.setItem("k4", "42");
-    const { result, rerender } = renderHook(() => useStoredState("k4", 1, jsonOptions));
-    expect(result.current[0]).toBe(42);
-
-    // マウント後に保存値を書き換えても、reloadKey省略時は再復元されない（元の挙動）。
-    window.localStorage.setItem("k4", "100");
     rerender();
-    expect(result.current[0]).toBe(42);
+
+    expect(result.current[1]).toBe(first);
+  });
+
+  it("キーが変わると、新しいキーの保存を読み、以後はそのキーへ保存する", () => {
+    window.localStorage.setItem("key-b", "ok:b");
+    const { result, rerender } = renderHook(({ key }) => useStoredState(key, "default", PREFIXED), {
+      initialProps: { key: "key-a" },
+    });
+
+    rerender({ key: "key-b" });
+    expect(result.current[0]).toBe("b");
+
+    act(() => result.current[1]("next"));
+    expect(window.localStorage.getItem("key-b")).toBe("ok:next");
+    expect(window.localStorage.getItem("key-a")).toBeNull();
+  });
+
+  it.each([
+    ["保存が無い", () => {}],
+    ["保存が読めない", () => window.localStorage.setItem("key-b", "broken")],
+    ["保存を読めない端末", () => breakStorage("getItem")],
+  ])("キーが変わって新しいキーの%sときは、前のキーの値を引きずらず既定値へ戻る", (_, arrange) => {
+    window.localStorage.setItem("key-a", "ok:a");
+    const { result, rerender } = renderHook(({ key }) => useStoredState(key, "default", PREFIXED), {
+      initialProps: { key: "key-a" },
+    });
+    expect(result.current[0]).toBe("a");
+
+    arrange();
+    rerender({ key: "key-b" });
+
+    expect(result.current[0]).toBe("default");
+  });
+
+  it("読み直しの合図が変わると、その時点の変換で読み直す", () => {
+    window.localStorage.setItem(KEY, "axis_b");
+    const knownOf = (known: string[]) => ({
+      serialize: (value: string) => value,
+      deserialize: (raw: string) => (known.includes(raw) ? raw : null),
+    });
+    const { result, rerender } = renderHook(
+      ({ known }) => useStoredState(KEY, "default", { ...knownOf(known), reloadKey: known.length }),
+      { initialProps: { known: ["axis_a"] } },
+    );
+    expect(result.current[0]).toBe("default");
+
+    rerender({ known: ["axis_a", "axis_b"] });
+
+    expect(result.current[0]).toBe("axis_b");
+  });
+
+  it("読み直しの合図が同じなら、描き直しのたびに変換や既定値が新しく渡されても読み直さない", () => {
+    window.localStorage.setItem(KEY, "ok:saved");
+    let renders = 0;
+    const { result, rerender } = renderHook(() =>
+      useStoredState(KEY, `default-${++renders}`, { ...PREFIXED, deserialize: (raw) => PREFIXED.deserialize(raw) }),
+    );
+    window.localStorage.setItem(KEY, "ok:written-elsewhere");
+
+    rerender();
+
+    expect(result.current[0]).toBe("saved");
+  });
+});
+
+describe("useStoredJsonState", () => {
+  it("JSON で保存し、開き直すと同じ値へ戻る", () => {
+    const first = renderHook(() => useStoredJsonState(KEY, { size: 1 }));
+    act(() => first.result.current[1]({ size: 3 }));
+    first.unmount();
+
+    const second = renderHook(() => useStoredJsonState(KEY, { size: 1 }));
+
+    expect(second.result.current[0]).toEqual({ size: 3 });
+  });
+
+  it("JSON として読めない保存値は、既定値として扱う", () => {
+    window.localStorage.setItem(KEY, "{broken");
+
+    const { result } = renderHook(() => useStoredJsonState(KEY, { size: 1 }));
+
+    expect(result.current[0]).toEqual({ size: 1 });
+  });
+});
+
+describe("useStoredBooleanState", () => {
+  it("真偽値で保存し、開き直すと同じ値へ戻る", () => {
+    const first = renderHook(() => useStoredBooleanState(KEY, false));
+    act(() => first.result.current[1](true));
+    first.unmount();
+
+    const second = renderHook(() => useStoredBooleanState(KEY, false));
+
+    expect(second.result.current[0]).toBe(true);
+  });
+
+  it.each(["0", '"true"', "{broken"])("真偽値でない保存値 %s は、既定値として扱う", (raw) => {
+    window.localStorage.setItem(KEY, raw);
+
+    const { result } = renderHook(() => useStoredBooleanState(KEY, true));
+
+    expect(result.current[0]).toBe(true);
   });
 });

@@ -151,18 +151,15 @@ def _as_tuples(value: object) -> object:
 
 
 def prune(keep: Path) -> list[Path]:
-    """`keep`と同じ形の署名で世代が古い置き場を消す（消したものを返す）。
+    """今の形の署名で、`keep`でない世代の置き場を消す（消したものを返す）。
 
     形の署名が違う置き場は消さない——デプロイの前処理が新しい署名の置き場を作る間も、
     古いコンテナは古い署名の置き場を読んでいる。
     """
-    keep_match = _DIRECTORY_PATTERN.match(keep.name)
-    if keep_match is None:
-        return []
     removed = []
     for path in ROOT.glob("*"):
         match = _DIRECTORY_PATTERN.match(path.name)
-        if path == keep or not path.is_dir() or match is None or match["shape"] != keep_match["shape"]:
+        if path == keep or not path.is_dir() or match is None or match["shape"] != NETWORK_SHAPE:
             continue
         shutil.rmtree(path, ignore_errors=True)
         removed.append(path)
@@ -189,7 +186,7 @@ async def ensure_current(session_factory: async_sessionmaker[AsyncSession]) -> P
     """今の派生データの世代・今の形の置き場を用意する。既にあれば作らない。"""
     async with session_factory() as session:
         repository = RoadGraphRepository(session)
-        revision = await repository.get_derived_data_revision()
+        revision = (await repository.get_data_revisions()).derived
         target = ROOT / directory_name(revision)
         if target.exists():
             logger.info("道路網の置き場は作成済みです %s", target.name)

@@ -34,10 +34,10 @@ type ApplyMapSceneOptions = {
   readonly previous: MapScene;
   /**
    * 面の段をこのレイヤーの直下へ差し込む。基礎地図のどこから道路網が始まるかは
-   * 呼び出し側が決め、この関数は地図を調べない。省略すると面も他の段と同じく
+   * 呼び出し側が決め、この関数は地図を調べない。undefinedなら面も他の段と同じく
    * 基礎地図の上へ載る（段どうしの前後だけは保たれる）。
    */
-  readonly areaLayerBeforeId?: string;
+  readonly areaLayerBeforeId: string | undefined;
 };
 
 const NO_FEATURE_STATES: MapSceneFeatureStates = new Map();

@@ -7,6 +7,7 @@ import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import type { RouteSegmentDetail } from "@/types/route";
 
 const HOURS_PER_LEG = routeGenerateConfig.wind_forecast_hours_per_leg;
+const HOURS_PER_BIN = routeGenerateConfig.wind_time_bin_hours;
 
 /** 区間の評価に使った風。どの時刻の値を使ったかと、追える時刻の先で延ばして使ったかを出す——出さないと、
  * 地図の矢印（選んだ時刻の地点ごとの値）やヘッダーの風（今の観測）と見比べて食い違って見える。
@@ -21,15 +22,15 @@ export default function SegmentWind({ wind }: { wind: RouteSegmentDetail["wind"]
   return (
     <p className={cn(textVariants({ variant: "hint" }), "m-0 inline-flex flex-wrap items-baseline gap-x-1")}>
       <span>
-        風 {when}・{cardinalLabel(wind.direction_deg)}の風 {wind.speed_ms.toFixed(1)}m/s
+        {when}: {cardinalLabel(wind.direction_deg)} {wind.speed_ms.toFixed(1)}m/s
       </span>
-      {wind.extended && <span>[追える時刻の先へ延ばして使用]</span>}
+      {wind.extended && <span>[延長]</span>}
       <InfoPopover triggerAriaLabel="区間の風の説明">
         <p>
-          この区間を通る見込みの時刻の、その場所に最も近い格子点の風[気象庁の数値予報モデルMSMの計算値、1時間刻み]で評価しています。
-          予報ではなく、誤差を含みえます。往路・復路それぞれ、走り始めてから
+          この区間を通る見込みの時刻の、その場所に最も近い格子点の風[気象庁の数値予報モデルMSMの計算値、{HOURS_PER_BIN}
+          時間刻み]で評価しています。 予報ではなく、誤差を含みえます。往路・復路それぞれ、走り始めてから
           {HOURS_PER_LEG}
-          時間先までを追い、その先の区間は最後に追った時刻の値をそのまま使います[「追える時刻の先へ延ばして使用」と出ます]。
+          時間先までを追い、その先の区間は最後に追った時刻の値をそのまま使います[「延長」と出ます]。
         </p>
       </InfoPopover>
     </p>

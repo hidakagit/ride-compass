@@ -1,49 +1,50 @@
-"""`infrastructure/single_process.py`——ワーカーを複数にした起動を止める。
+"""`infrastructure/single_process.py`——ワーカーが複数になる起動を止める（`require_single_worker`）。
 
-ワーカーは親の`sys.argv`を受け継ぐため、ここではワーカーの中から見える`argv`と環境変数を
-そのまま渡して判定を見る。
+入力は起動したプロセスの`argv`と環境変数で、どちらも値として与える。
+
+ここで見ないもの:
+- lifespanの最初でこれを呼ぶこと → `main.py`（結線のみ）
 """
-
-from pathlib import Path
 
 import pytest
 
-from app.infrastructure.single_process import require_single_worker, uvicorn_worker_count
+from app.infrastructure.single_process import require_single_worker
 
-_UVICORN = "/usr/local/bin/uvicorn"
+# 本番のコンテナが起動するコマンド（`backend/Dockerfile`の`CMD`）と同じ形。
+PRODUCTION_ARGV = [
+    "/usr/local/bin/uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000",
+    "--proxy-headers", "--forwarded-allow-ips=*", "--no-access-log",
+]
 
 
 @pytest.mark.parametrize(
-    ("argv", "environ", "expected"),
+    ("argv", "environ"),
     [
-        pytest.param([_UVICORN, "app.main:app", "--port", "8000"], {}, 1, id="指定なし"),
-        pytest.param([_UVICORN, "app.main:app", "--workers", "2"], {}, 2, id="引数で2"),
-        pytest.param([_UVICORN, "app.main:app", "--workers=4"], {}, 4, id="等号つき"),
-        pytest.param([_UVICORN, "app.main:app"], {"WEB_CONCURRENCY": "3"}, 3, id="環境変数"),
-        pytest.param(
-            [_UVICORN, "app.main:app", "--workers", "1"], {"WEB_CONCURRENCY": "3"}, 1, id="引数が環境変数に勝つ"
-        ),
-        pytest.param([_UVICORN, "app.main:app", "--reload", "--workers", "2"], {}, 1, id="reloadはワーカー指定を無視"),
-        pytest.param(
-            ["/usr/lib/python3/site-packages/uvicorn/__main__.py", "app.main:app", "--workers", "2"],
-            {},
-            2,
-            id="python -m uvicorn",
-        ),
-        pytest.param(
-            [str(Path("venv") / "Scripts" / "uvicorn.exe"), "app.main:app", "--workers", "2"], {}, 2, id="拡張子つき"
-        ),
-        pytest.param(["/usr/bin/pytest", "-q", "--workers", "2"], {"WEB_CONCURRENCY": "3"}, 1, id="uvicorn以外"),
+        pytest.param(PRODUCTION_ARGV, {}, id="production-command"),
+        pytest.param([*PRODUCTION_ARGV, "--workers", "1"], {}, id="one-worker"),
+        pytest.param(["/usr/local/bin/uvicorn", "app.main:app", "--reload", "--workers", "4"], {}, id="reload"),
+        pytest.param(["/usr/local/bin/uvicorn", "app.main:app", "--reload"], {"WEB_CONCURRENCY": "4"},
+                     id="reload-with-env"),
+        pytest.param([*PRODUCTION_ARGV, "--workers", "1"], {"WEB_CONCURRENCY": "4"}, id="flag-wins-over-env"),
+        pytest.param(["/usr/local/bin/pytest", "--workers", "4"], {"WEB_CONCURRENCY": "4"}, id="not-uvicorn"),
+        pytest.param(["/srv/other/__main__.py", "--workers", "4"], {}, id="another-package-run-with-m"),
+        pytest.param([], {"WEB_CONCURRENCY": "4"}, id="no-argv"),
     ],
 )
-def test_worker_count_follows_how_uvicorn_reads_its_arguments(argv, environ, expected):
-    assert uvicorn_worker_count(argv, environ) == expected
+def test_a_single_process_start_is_allowed(argv, environ):
+    require_single_worker(argv, environ)
 
 
-def test_more_than_one_worker_stops_the_startup():
-    with pytest.raises(RuntimeError, match="workers=2"):
-        require_single_worker([_UVICORN, "app.main:app", "--workers", "2"], {})
-
-
-def test_a_single_worker_starts():
-    require_single_worker([_UVICORN, "app.main:app"], {})
+@pytest.mark.parametrize(
+    ("argv", "environ", "workers"),
+    [
+        pytest.param([*PRODUCTION_ARGV, "--workers", "2"], {}, 2, id="workers-flag"),
+        pytest.param(PRODUCTION_ARGV, {"WEB_CONCURRENCY": "3"}, 3, id="web-concurrency"),
+        pytest.param(["/usr/lib/python3/site-packages/uvicorn/__main__.py", "app.main:app", "--workers", "2"], {}, 2,
+                     id="python-m-uvicorn"),
+        pytest.param(["C:/venv/Scripts/uvicorn.exe", "app.main:app", "--workers", "2"], {}, 2, id="windows-launcher"),
+    ],
+)
+def test_a_start_with_several_workers_is_stopped(argv, environ, workers):
+    with pytest.raises(RuntimeError, match=f"workers={workers}"):
+        require_single_worker(argv, environ)

@@ -18,6 +18,7 @@ import type { AxisDefinitionPayload, AxisDefinitionResponse, AxisShape } from "@
 import AxisComposer from "./AxisComposer";
 import { Button } from "@/components/ui/Button/Button";
 import { textVariants } from "@/components/ui/Text/Text";
+import { calloutVariants } from "@/components/ui/Callout/Callout";
 import { cn } from "@/lib/cn";
 import { cardVariants } from "@/components/ui/Card/Card";
 import { getQueryClient } from "@/lib/queryClient";
@@ -53,6 +54,8 @@ export default function AxisStudio() {
       : null);
   const [editingAxisId, setEditingAxisId] = useState<string | null>(null);
   const [deletingAxisId, setDeletingAxisId] = useState<string | null>(null);
+  // 「削除」を押した軸。確認で「削除する」を押すまで消さない（消した軸を戻す手段が無いため）。
+  const [confirmingDelete, setConfirmingDelete] = useState<AxisDefinitionResponse | null>(null);
   const [unpublishingAxisId, setUnpublishingAxisId] = useState<string | null>(null);
   // 「調整する」で一時的に下書きへ戻した軸。保存時に公開へ戻す。編集を中断した場合は
   // 下書きのまま残るため、その事実を`notice`で必ず知らせる（黙って非公開になると
@@ -201,7 +204,7 @@ export default function AxisStudio() {
   return (
     <div className="flex flex-col gap-3">
       {listError && <p className={textVariants({ variant: "error" })}>{listError}</p>}
-      {notice && <p className={textVariants({ variant: "error" })}>{notice}</p>}
+      {notice && <p className={calloutVariants({ tone: "warning" })}>{notice}</p>}
 
       {/* 下書きタブが既定表示。公開済みタブに削除ボタンは出さない（削除は先に
           「非公開に戻す」という導線を残す）。編集ボタンは「表示だけ編集」として、
@@ -233,7 +236,7 @@ export default function AxisStudio() {
                 <Button
                   variant="danger"
                   size="sm"
-                  onClick={() => handleDelete(def.axis_id)}
+                  onClick={() => setConfirmingDelete(def)}
                   disabled={deletingAxisId === def.axis_id}
                 >
                   削除
@@ -319,6 +322,33 @@ export default function AxisStudio() {
             onCancelEdit={() => closeComposer()}
             onSave={handleSave}
           />
+        </DialogContent>
+      </DialogRoot>
+
+      <DialogRoot
+        open={confirmingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirmingDelete(null);
+        }}
+      >
+        <DialogContent title={`「${confirmingDelete?.label ?? ""}」を削除します`}>
+          <p className={textVariants({ variant: "hint" })}>削除した軸は元に戻せません。</p>
+          <div className="mt-3 flex justify-end gap-2">
+            <Button size="sm" onClick={() => setConfirmingDelete(null)}>
+              キャンセル
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={() => {
+                if (confirmingDelete === null) return;
+                setConfirmingDelete(null);
+                void handleDelete(confirmingDelete.axis_id);
+              }}
+            >
+              削除する
+            </Button>
+          </div>
         </DialogContent>
       </DialogRoot>
     </div>

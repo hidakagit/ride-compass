@@ -22,6 +22,7 @@ _ROAD_SURFACE_TILE_MVT_SQL`）に既に焼き込まれているプロパティ�
 """
 
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from typing import Literal, NamedTuple
@@ -72,6 +73,7 @@ from app.domain.road import (
     SURFACE_OTHER_KEY,
     SURFACE_OTHER_LABEL,
     TRACK_GRADES,
+    surface_class_description,
 )
 from app.domain.rain import HOURS_SINCE_RAIN, RAIN_HISTORY_HOURS, RAIN_WINDOW_HOURS, rain_window_material_id
 from app.domain.weather import PRECIPITATION_MIN_MM
@@ -173,6 +175,11 @@ _EDGE_COUNTS_SOURCE = "edge_materialsの数の列が埋まっているか"
 
 MaterialDType = Literal["numeric", "boolean", "categorical"]
 
+#: タイルの生値を材料の値へ換算する、実行時にしか決まらない係数の源。
+#: `per_accident_year`は事故の収録年数の逆数（タイルは収録した全年分の件数を持ち、収録年数は
+#: 取り込むたびに増える）。源を足すときは`tile_runtime_scales`にその値の求め方を足す。
+TileRuntimeScale = Literal["per_accident_year"]
+
 
 class MaterialReferencePoint(StrictModel):
     """軸スタジオの折れ点編集を助ける「値の目安」1点。材料の値域が
@@ -219,12 +226,11 @@ class MaterialSpec(StrictModel):
     # 気象の動的取得、レシピ合成値等）で、地図レイヤーのramp自動生成対象になりえない。
     # 欠損を非該当として持つ真偽の材料は、この名前と`value_sql`からタイルの列が組み立てられる
     # （`road_graph_repository.py: _BOOLEAN_TILE_COLUMNS_SQL`）。
-    tile_property: str | None = None
-    # tile_propertyの生値と材料の値がスケール不一致（実行時に変動する係数での
-    # 変換が必要）な場合True。例: accident_count_per_km_yearは収録年数（実行時にDBから
-    # 取得、増え続ける）で正規化済みだが、tile_propertyのaccident_per_kmは年正規化前の生値。
-    # 静的な変換係数を持てないため、地図表示の導出は閾値を安全に流用できない。
-    tile_property_needs_runtime_scale: bool = False
+    tile_property: str | None
+    # tile_propertyの生値を材料の値へ換算する係数が実行時にしか決まらないとき、その係数の源
+    # （`TileRuntimeScale`）。Noneは生値がそのまま材料の値。係数は`tile_runtime_scales`が
+    # この宣言から導き、地図の式がタイルの生値へ掛ける。
+    tile_property_runtime_scale: TileRuntimeScale | None = None
     # 材料の値が進行方向によって変わる（有向）場合True。地図のrampレイヤーは
     # 1本の線を単色で塗る前提のため、方向依存材料は単純な重み付き和で表現できない
     # （時間依存の風レイヤー・降水ナウキャストと同じく、矢印等の専用表示が別途必要）。
@@ -237,8 +243,8 @@ class MaterialSpec(StrictModel):
     # （例: cycleway・maxspeed・intersection）は名前が異なる別の名前空間のため、対応が
     # 自明でない材料には明示的にここへ書く。Noneは「対応する一次属性が無い」（動的データ
     # 由来のwind_drag_ratio、一次属性未登録のbridge/smoothness等）。GET /api/axis-catalogが
-    # 軸ごとにこれを解決して返すことで、frontend側（page.tsx: 軸と観測データレイヤーの連動）が
-    # 軸スタジオ作成軸に対しても同じ仕組みで動く。
+    # 軸ごとにこれを解決して返すことで、画面の軸と一次属性レイヤーの連動が、軸スタジオで作った
+    # 軸にも同じ仕組みで効く。
     primary_attribute: PrimaryAttributeSpec | None = None
     # この材料が読む自前のMSM格子の値（`weather_elements.py: GridValue`）。一次属性を持たない動的な材料の
     # 元データを、同じ格子の値を描く気象のチップ（`WeatherElement.grid_value`）が地図に見せる。
@@ -256,7 +262,7 @@ class MaterialSpec(StrictModel):
     coverage: MaterialCoverage
     # 材料の値（OSMタグ生値）ごとの日本語ラベル対訳表（タグ値→ラベル）。
     # highway/surface/smoothnessのようなオープンエンドな多値材料だけが持つ（他は空dict）。
-    # 軸スタジオ（AxisComposer.tsx）の「値の候補」セレクトが`GET /api/material-catalog/
+    # 軸スタジオの「値の候補」セレクトが`GET /api/material-catalog/
     # {material_id}/values`経由で表示するラベルの単一ソース。値の意味は材料そのものの
     # 定義に属するドメイン知識のため、他のフィールドと同じくここ（MaterialSpec自体）へ
     # 一元化する（material_id文字列をキーにした別の並列辞書にすると、材料の追加・削除の
@@ -448,23 +454,44 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
                         key="arterial",
                         label="幹線道路",
                         values=("motorway", "motorway_link", "trunk", "trunk_link", "primary", "primary_link"),
+                        description=(
+                            "高速道路・国道・主要な県道など、車が遠くへ行くための太い通り"
+                            "[OSM の highway=motorway・trunk・primary とその連絡路]。"
+                        ),
                     ),
                     DisplayCategorySpec(
                         key="secondary",
                         label="主要道",
                         values=("secondary", "secondary_link", "tertiary", "tertiary_link"),
+                        description=(
+                            "県道・市町村の主な道など、地域の中を結ぶ通り"
+                            "[OSM の highway=secondary・tertiary とその連絡路]。"
+                        ),
                     ),
                     DisplayCategorySpec(
                         key="local",
                         label="生活道路",
                         values=("residential", "unclassified", "living_street", "service", "road"),
+                        description=(
+                            "住宅街の道・名前の付かない細い道・施設の中の通路など、主に近くへ行くための道"
+                            "[OSM の highway=residential・unclassified・living_street・service・road]。"
+                        ),
                     ),
                     DisplayCategorySpec(
                         key="cycleway",
                         label="自転車・歩行者道",
                         values=("cycleway", "path", "footway", "pedestrian", "bridleway", "steps"),
+                        description=(
+                            "自転車道・歩道・遊歩道・歩行者専用の道・階段など、車が通らない道"
+                            "[OSM の highway=cycleway・path・footway・pedestrian・bridleway・steps]。"
+                        ),
                     ),
-                    DisplayCategorySpec(key="track", label="農道・林道", values=("track",)),
+                    DisplayCategorySpec(
+                        key="track",
+                        label="農道・林道",
+                        values=("track",),
+                        description="田畑や山林へ入るための道。舗装も未舗装もある[OSM の highway=track]。",
+                    ),
                 ),
             ),
         ),
@@ -486,7 +513,10 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
                 palette="nominal",
                 hue_slot=9,
                 categories=tuple(
-                    DisplayCategorySpec(key=c.key, label=c.label, values=(c.key,)) for c in SURFACE_CLASSES
+                    DisplayCategorySpec(
+                        key=c.key, label=c.label, values=(c.key,), description=surface_class_description(c)
+                    )
+                    for c in SURFACE_CLASSES
                 ),
             ),
         ),
@@ -503,7 +533,8 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
                 property="tracktype",
                 palette="ordered",
                 categories=tuple(
-                    DisplayCategorySpec(key=g.value, label=g.label, values=(g.value,)) for g in TRACK_GRADES
+                    DisplayCategorySpec(key=g.value, label=g.label, values=(g.value,), description=g.description)
+                    for g in TRACK_GRADES
                 ),
             ),
         ),
@@ -521,7 +552,14 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
                 property="tunnel",
                 palette="nominal",
                 hue_slot=2,
-                categories=(DisplayCategorySpec(key="tunnel", label="トンネル", values=(True,)),),
+                categories=(
+                    DisplayCategorySpec(
+                        key="tunnel",
+                        label="トンネル",
+                        values=(True,),
+                        description="トンネルの中を通る区間[OSM の tunnel タグ]。",
+                    ),
+                ),
             ),
         ),
     ),
@@ -536,7 +574,17 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
                 property="oneway",
                 palette="nominal",
                 hue_slot=5,
-                categories=(DisplayCategorySpec(key="oneway", label="一方通行", values=(True,)),),
+                categories=(
+                    DisplayCategorySpec(
+                        key="oneway",
+                        label="一方通行",
+                        values=(True,),
+                        description=(
+                            "一方向にしか進めない道。環状交差点も含み、自転車だけ両方向に通れる道は含まない"
+                            "[OSM の oneway・oneway:bicycle・junction タグ]。"
+                        ),
+                    ),
+                ),
             ),
         ),
     ),
@@ -554,19 +602,50 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
                 property="kind",
                 palette="nominal",
                 hue_slot=3,
+                tone="dark",
                 categories=(
-                    DisplayCategorySpec(key="traffic_signals", label="信号", values=("traffic_signals",)),
-                    DisplayCategorySpec(key="crossing", label="横断歩道", values=("crossing",)),
-                    DisplayCategorySpec(key="stop", label="一時停止", values=("stop",)),
-                    DisplayCategorySpec(key="give_way", label="徐行", values=("give_way",)),
+                    DisplayCategorySpec(
+                        key="traffic_signals",
+                        label="信号",
+                        values=("traffic_signals",),
+                        description="信号機。信号付きの横断歩道もここに入る[OSM の highway=traffic_signals など]。",
+                    ),
+                    DisplayCategorySpec(
+                        key="crossing",
+                        label="横断歩道",
+                        values=("crossing",),
+                        description="信号の無い横断歩道[OSM の highway=crossing]。",
+                    ),
+                    DisplayCategorySpec(
+                        key="stop",
+                        label="一時停止",
+                        values=("stop",),
+                        description="一時停止の標識がある所[OSM の highway=stop]。",
+                    ),
+                    DisplayCategorySpec(
+                        key="give_way",
+                        label="徐行",
+                        values=("give_way",),
+                        description="相手に道を譲る（徐行する）標識がある所[OSM の highway=give_way]。",
+                    ),
                     # 車道用と歩道・自転車道用の踏切は、利用者から見れば同じ「線路を渡る点」。
                     DisplayCategorySpec(
-                        key="level_crossing", label="踏切",
+                        key="level_crossing",
+                        label="踏切",
                         values=("level_crossing", "railway_crossing"),
+                        description="線路（路面電車を含む）を渡る所。車道の踏切も歩道・自転車道の踏切も入る[OSM の railway タグ]。",
                     ),
-                    DisplayCategorySpec(key="barrier", label="車止め・ゲート", values=("barrier",)),
                     DisplayCategorySpec(
-                        key="traffic_calming", label="ハンプ・狭さく", values=("traffic_calming",)
+                        key="barrier",
+                        label="車止め・ゲート",
+                        values=("barrier",),
+                        description="車止めの柱・ゲート・柵など、道をふさいで止まるか押して通る所[OSM の barrier タグ]。",
+                    ),
+                    DisplayCategorySpec(
+                        key="traffic_calming",
+                        label="ハンプ・狭さく",
+                        values=("traffic_calming",),
+                        description="車の速度を落とさせる段差（ハンプ）や道幅の絞り込み[OSM の traffic_calming タグ]。",
                     ),
                 ),
             ),
@@ -586,10 +665,21 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
                 property="involves_bicycle",
                 palette="nominal",
                 hue_slot=0,
+                tone="light",
                 categories=(
                     # 自転車関連だけが事故密度の材料になる。
-                    DisplayCategorySpec(key="bicycle", label="自転車関連", values=(True,)),
-                    DisplayCategorySpec(key="other", label="その他", values=(False,)),
+                    DisplayCategorySpec(
+                        key="bicycle",
+                        label="自転車関連",
+                        values=(True,),
+                        description="当事者に自転車が含まれる事故[警察庁の交通事故統計の当事者種別]。",
+                    ),
+                    DisplayCategorySpec(
+                        key="other",
+                        label="その他",
+                        values=(False,),
+                        description="当事者に自転車が含まれない事故（車どうし・車と歩行者など）。",
+                    ),
                 ),
             ),
             DisplayAxisSpec(
@@ -597,8 +687,18 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
                 label="重大度",
                 property="fatal",
                 categories=(
-                    DisplayCategorySpec(key="fatal", label="死亡事故", values=(True,)),
-                    DisplayCategorySpec(key="non_fatal", label="死亡以外", values=(False,)),
+                    DisplayCategorySpec(
+                        key="fatal",
+                        label="死亡事故",
+                        values=(True,),
+                        description="死者が1人以上記録された事故[警察庁の交通事故統計の死者数]。",
+                    ),
+                    DisplayCategorySpec(
+                        key="non_fatal",
+                        label="死亡以外",
+                        values=(False,),
+                        description="死者の記録が無い事故（負傷事故）。",
+                    ),
                 ),
             ),
         ),
@@ -616,20 +716,51 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
                 property="kind",
                 palette="nominal",
                 hue_slot=1,
+                tone="light",
                 categories=(
-                    DisplayCategorySpec(key="convenience", label="コンビニ", values=("convenience",)),
+                    DisplayCategorySpec(
+                        key="convenience",
+                        label="コンビニ",
+                        values=("convenience",),
+                        glyph="bag",
+                        description="コンビニエンスストア[OSM の shop=convenience]。",
+                    ),
                     # 自販機は「ここで飲み物が買える」という約束として読まれる。中身が
                     # 分からないものを同じ確からしさに見せない。
                     DisplayCategorySpec(
-                        key="vending_drinks", label="飲料自販機", values=("vending_drinks",)
+                        key="vending_drinks",
+                        label="飲料自販機",
+                        values=("vending_drinks",),
+                        glyph="bottle",
+                        description="飲み物か食べ物を売ると書かれた自動販売機[OSM の amenity=vending_machine と vending タグ]。",
                     ),
                     DisplayCategorySpec(
-                        key="vending_unknown", label="自販機(中身不明)", values=("vending_unknown",)
+                        key="vending_unknown",
+                        label="自販機(中身不明)",
+                        values=("vending_unknown",),
+                        glyph="question",
+                        description="何を売るかが書かれていない自動販売機。飲み物が買えるとは限らない。",
                     ),
-                    DisplayCategorySpec(key="toilets", label="トイレ", values=("toilets",)),
-                    DisplayCategorySpec(key="drinking_water", label="給水", values=("drinking_water",)),
                     DisplayCategorySpec(
-                        key="bicycle_parking", label="駐輪場", values=("bicycle_parking",)
+                        key="toilets",
+                        label="トイレ",
+                        values=("toilets",),
+                        glyph="toilet",
+                        description="公衆トイレなど、地図のデータにトイレとして載っている所[OSM の amenity=toilets]。",
+                    ),
+                    DisplayCategorySpec(
+                        key="drinking_water",
+                        label="給水",
+                        values=("drinking_water",),
+                        glyph="drop",
+                        description="水飲み場など、飲み水をくめる所[OSM の amenity=drinking_water]。",
+                    ),
+                    DisplayCategorySpec(
+                        key="bicycle_parking",
+                        label="駐輪場",
+                        values=("bicycle_parking",),
+                        glyph="parking",
+                        description="自転車を止められる所[OSM の amenity=bicycle_parking]。",
                     ),
                 ),
             ),
@@ -694,7 +825,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         unit="%",
         # 進行方向で符号が変わる（登りプラス・下りマイナス）ため、1本のWayに往復2つの値を
         # 持ちうる。方向を持たないMVTプロパティ1個には焼き込めないので、地図へは
-        # `services/gradient_way_service.py`のway_id→値配信で乗せる。
+        # `services/gradient_way_service.py`のフィーチャー→値配信で乗せる。
         tile_property=None,
         tile_property_direction_dependent=True,
         primary_attribute=_ATTR_ELEVATION,
@@ -807,10 +938,8 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         unit="件/(km・年)",
         additive=True,
         # タイル側は年正規化前の"accident_per_km"（収録全年分の重み付き件数/km）。
-        # 収録年数は実行時にDBから取得し増え続けるため静的な変換係数を持てず、地図の
-        # ramp表示は年数での換算を実行時に行う（`tile_property_needs_runtime_scale`）。
         tile_property="accident_per_km",
-        tile_property_needs_runtime_scale=True,
+        tile_property_runtime_scale="per_accident_year",
         primary_attribute=_ATTR_ACCIDENT_POINT,
         reference_points=_ACCIDENT_COUNT_PER_KM_YEAR_REFERENCE_POINTS,
         value_sql="CASE WHEN re.distance_m > 0 AND :accident_years > 0 "
@@ -934,7 +1063,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         dtype="categorical",
         # OSMのhighwayタグ生値（motorway/trunk/primary/secondary/tertiary/residential/
         # living_street/unclassified/track/cycleway/path/footway等）。取込プロファイル
-        # （batch/source_profile.yamlの`osm_way`の`rows`）で許可された値のみ実際に現れる。
+        # （`batch/source_profile.yaml: osm_way.rows`）で許可された値のみ実際に現れる。
         # 正準の閉じた値集合はこのプロジェクトで管理していない（OSMタグの生値のため）。
         tile_property="highway",
         primary_attribute=_ATTR_HIGHWAY,
@@ -1221,3 +1350,22 @@ def display_axis_missing_semantics(attr: PrimaryAttributeSpec, tile_property: st
         if spec.primary_attribute is attr and spec.tile_property == tile_property:
             return spec.coverage.missing_semantics
     return None
+
+
+def tile_runtime_scales(accident_years: Sequence[int]) -> dict[str, float]:
+    """タイルのプロパティ名→そのタイルの生値を材料の値へ換算する係数。係数の源
+    （`MaterialSpec.tile_property_runtime_scale`）を宣言した材料ごとに1件。
+
+    源の値が決まらない材料（事故の収録年が0件）は含めない——地図は係数の無い材料を使う軸を
+    どの道でも「データなし」として塗る（寄与0にすると、値が無いのに最良側の色になる）。
+    """
+    values: dict[TileRuntimeScale, float] = {}
+    if accident_years:
+        values["per_accident_year"] = 1 / len(accident_years)
+    return {
+        spec.tile_property: values[spec.tile_property_runtime_scale]
+        for spec in MATERIAL_CATALOG.values()
+        if spec.tile_property is not None
+        and spec.tile_property_runtime_scale is not None
+        and spec.tile_property_runtime_scale in values
+    }

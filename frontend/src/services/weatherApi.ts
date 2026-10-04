@@ -54,7 +54,7 @@ function withTimes(data: WindGridResponse, category: string): WindGridPoint[] {
   return points;
 }
 
-/** 風の格子点（関東の固定の格子）。取れなかった点はbackendが除いてある。 */
+/** 風の格子点（対象範囲＝取り込んだ道路の範囲に敷いた固定の格子）。取れなかった点はbackendが除いてある。 */
 export async function getWindGrid(): Promise<WindGridPoint[]> {
   const category = "api:windGrid";
   const data = await requestApi(

@@ -1,11 +1,11 @@
-"""`api/routers/routes.py`——ルート生成・区間確認のHTTPの入口。
+"""`api/routers/routes.py`——ルート生成のHTTPの入口。
 
 確かめるのは、HTTPから見える振る舞いだけ: 要求の検証（422）、ジョブの投稿と取得（202・404）、生成の種類
 （周回・目的地・経由地・区間の乗り換え）の振り分け、実際に使った条件のエコー、候補0件の理由、失敗の伝え方、
-同時実行とレート制限（429）、区間確認（502）。
+同時実行とレート制限（429）。
 
 裏の生成は本物の`RouteGenerator`とエンジンを、小さな格子の道路網（`tests/route_world.py`）の上で通す。
-差し替えるのはプロセス境界だけ——DBのセッション（`get_graph_service`）・天気の予報ファイル（`get_weather_service`）・
+差し替えるのはプロセス境界だけ——DBのセッション（`_open_graph_service`）・天気の予報ファイル（`get_weather_service`）・
 道路網の置き場・レート制限の記録。
 
 ここで見ないもの:
@@ -16,6 +16,8 @@
 
 import asyncio
 import math
+import re
+from contextlib import asynccontextmanager
 from datetime import datetime
 
 import httpx
@@ -26,6 +28,7 @@ from app.api.routers import routes
 from app.config import settings
 from app.domain.geo import haversine_distance_km
 from app.domain.hard_filters import DEFAULT_HARD_FILTERS, HARD_FILTER_NAMES
+from app.domain.route_request import MAX_SPLICED_EDGES, MAX_WAYPOINTS
 from app.domain.tuning import TUNING_VALUES
 from app.infrastructure import rate_limiter, road_network_store
 from app.infrastructure.road_network_store import RoadNetworkUnavailableError
@@ -47,6 +50,7 @@ from tests.route_world import (
 CLIENT_HOST = "127.0.0.1"
 FAR_AWAY = {"latitude": 35.80, "longitude": 139.80}  # 格子から約25km。道が無い
 BEYOND_REACH = {"latitude": 37.0, "longitude": 139.8}  # 格子から100km超
+JAPANESE = re.compile(r"[぀-ヿ一-鿿]")  # かな・漢字
 
 
 def _point(osm_node_id):
@@ -84,19 +88,16 @@ class GatedWeather(Weather):
 def world(monkeypatch):
     """格子の道路網・天気の代役と、避けたい材料を読む公開軸1本（`avoid_axis_declared`）。"""
     world = World()
-    real_graph_service, real_weather_service = dependencies.get_graph_service, dependencies.get_weather_service
 
+    @asynccontextmanager
     async def graph_service():
         yield GraphService(NetworkRepository(world.network))
 
     monkeypatch.setattr(road_network_store, "current", world.current)
-    monkeypatch.setattr(dependencies, "get_graph_service", graph_service)
+    monkeypatch.setattr(dependencies, "_open_graph_service", graph_service)
     monkeypatch.setattr(dependencies, "get_weather_service", lambda: world.weather)
-    app.dependency_overrides[real_graph_service] = graph_service
-    app.dependency_overrides[real_weather_service] = lambda: world.weather
     with avoid_axis_declared():
         yield world
-    app.dependency_overrides.clear()
 
 
 @pytest.fixture
@@ -270,12 +271,26 @@ async def test_a_destination_moved_to_the_nearest_reachable_road_is_echoed(clien
     {"spliced_edge_ids": ["way-100-seg0-fwd"]},                       # 目的地が無い
     {"destination": BEYOND_REACH},                                   # 起点から生成できる距離より遠い
     {"distance_km": None},                                           # 周回なのに目標距離が無い
-    {"waypoints": [_point(CENTER)] * 9},
+    {"waypoints": [_point(CENTER)] * (MAX_WAYPOINTS + 1)},
 ])
 async def test_a_request_outside_what_can_be_generated_is_refused_before_any_job(client, body):
     response = await _post(client, **body)
 
     assert response.status_code == 422
+
+
+@pytest.mark.parametrize("body", [
+    {"waypoints": [_point(CENTER)] * (MAX_WAYPOINTS + 1)},
+    {"destination": BEYOND_REACH},
+    {"destination": _point(NORTH_EAST), "spliced_edge_ids": ["way-100-seg0-fwd"] * (MAX_SPLICED_EDGES + 1)},
+])
+async def test_a_limit_reached_by_placing_points_is_refused_in_words_the_rider_reads(client, body):
+    """画面は誤りの文をそのまま結果欄へ出す。前置き（「Value error, 」）の付かない日本語の文だけが返る。"""
+    response = await _post(client, **body)
+
+    messages = [error["msg"] for error in response.json()["detail"]]
+    assert response.status_code == 422
+    assert messages and all(JAPANESE.search(m) and not m.startswith("Value error") for m in messages)
 
 
 # --- ジョブ ---
@@ -317,38 +332,3 @@ async def test_too_many_requests_from_one_client_are_refused(client):
 
     assert (await _generate(client))["status"] == "done"
     assert (await _post(client)).status_code == 429
-
-
-# --- 区間確認 ---
-
-
-async def test_preview_returns_the_road_between_two_points(client):
-    response = await client.post("/api/routes/preview", json={"origin": _point(SOUTH_WEST), "destination": _point(NORTH_EAST)})
-
-    assert response.status_code == 200
-    assert response.json()["distance_km"] == pytest.approx(4.0, abs=0.1)
-    assert len(response.json()["geometry"]["coordinates"]) == 5
-
-
-async def test_preview_without_a_road_between_the_points_is_502(client):
-    response = await client.post("/api/routes/preview", json={"origin": _point(SOUTH_WEST), "destination": FAR_AWAY})
-
-    assert response.status_code == 502
-    assert response.json()["detail"].startswith("ルート取得に失敗しました")
-
-
-async def test_preview_refuses_a_speed_outside_the_model(client):
-    response = await client.post("/api/routes/preview", json={
-        "origin": _point(SOUTH_WEST), "destination": _point(NORTH_EAST), "assumed_speed_kmh": 1000.0,
-    })
-
-    assert response.status_code == 422
-
-
-async def test_preview_has_its_own_rate_limit(client):
-    for _ in range(settings.preview_rate_limit_per_minute):
-        rate_limiter.check_rate_limit(f"preview:{CLIENT_HOST}", settings.preview_rate_limit_per_minute)
-
-    response = await client.post("/api/routes/preview", json={"origin": _point(SOUTH_WEST), "destination": _point(NORTH_EAST)})
-
-    assert response.status_code == 429

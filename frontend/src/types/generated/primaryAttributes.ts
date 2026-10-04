@@ -22,6 +22,7 @@ export const primaryAttributes = [
               "primary",
               "primary_link"
             ],
+            "description": "高速道路・国道・主要な県道など、車が遠くへ行くための太い通り[OSM の highway=motorway・trunk・primary とその連絡路]。",
             "color": "#433176"
           },
           {
@@ -33,6 +34,7 @@ export const primaryAttributes = [
               "tertiary",
               "tertiary_link"
             ],
+            "description": "県道・市町村の主な道など、地域の中を結ぶ通り[OSM の highway=secondary・tertiary とその連絡路]。",
             "color": "#064f94"
           },
           {
@@ -45,6 +47,7 @@ export const primaryAttributes = [
               "service",
               "road"
             ],
+            "description": "住宅街の道・名前の付かない細い道・施設の中の通路など、主に近くへ行くための道[OSM の highway=residential・unclassified・living_street・service・road]。",
             "color": "#036793"
           },
           {
@@ -58,6 +61,7 @@ export const primaryAttributes = [
               "bridleway",
               "steps"
             ],
+            "description": "自転車道・歩道・遊歩道・歩行者専用の道・階段など、車が通らない道[OSM の highway=cycleway・path・footway・pedestrian・bridleway・steps]。",
             "color": "#0e7e98"
           },
           {
@@ -66,6 +70,7 @@ export const primaryAttributes = [
             "values": [
               "track"
             ],
+            "description": "田畑や山林へ入るための道。舗装も未舗装もある[OSM の highway=track]。",
             "color": "#0d959d"
           }
         ],
@@ -111,6 +116,7 @@ export const primaryAttributes = [
             "values": [
               "paved"
             ],
+            "description": "路面がアスファルト・舗装[種別不明]・チップシール舗装・コンクリート・コンクリート版・コンクリート帯[轍部のみ舗装]・石畳[切石]・レンガ舗装の道[OSM の surface タグ]。",
             "color": "#48886f"
           },
           {
@@ -119,6 +125,7 @@ export const primaryAttributes = [
             "values": [
               "compacted"
             ],
+            "description": "路面が締固め砂利・細砂利の道[OSM の surface タグ]。",
             "color": "#3085a4"
           },
           {
@@ -127,6 +134,7 @@ export const primaryAttributes = [
             "values": [
               "gravel"
             ],
+            "description": "路面が砂利・小石敷き・岩盤・未舗装[種別不明]の道[OSM の surface タグ]。",
             "color": "#8873a1"
           },
           {
@@ -135,6 +143,7 @@ export const primaryAttributes = [
             "values": [
               "soil"
             ],
+            "description": "路面が土・地面[土・砂利混合]・土[地表面]・泥・砂・芝・草地・ウッドチップの道[OSM の surface タグ]。",
             "color": "#ab6a6c"
           },
           {
@@ -143,6 +152,7 @@ export const primaryAttributes = [
             "values": [
               "cobblestone"
             ],
+            "description": "路面が石畳[玉石]・玉石舗装・玉石舗装[未加工]の道[OSM の surface タグ]。",
             "color": "#8a7b4c"
           }
         ],
@@ -167,6 +177,7 @@ export const primaryAttributes = [
             "values": [
               "grade1"
             ],
+            "description": "固い路面の農道・林道。多くは舗装されている[OSM の tracktype=grade1]。",
             "color": "#433176"
           },
           {
@@ -175,6 +186,7 @@ export const primaryAttributes = [
             "values": [
               "grade2"
             ],
+            "description": "おおむね固い未舗装の農道・林道。砂や土の混じった砂利道が多い[OSM の tracktype=grade2]。",
             "color": "#064f94"
           },
           {
@@ -183,6 +195,7 @@ export const primaryAttributes = [
             "values": [
               "grade3"
             ],
+            "description": "固い部分と柔らかい部分が半々の未舗装の農道・林道[OSM の tracktype=grade3]。",
             "color": "#036793"
           },
           {
@@ -191,6 +204,7 @@ export const primaryAttributes = [
             "values": [
               "grade4"
             ],
+            "description": "土・砂・草が主で、固い部分が少し混じる未舗装の農道・林道[OSM の tracktype=grade4]。",
             "color": "#0e7e98"
           },
           {
@@ -199,6 +213,7 @@ export const primaryAttributes = [
             "values": [
               "grade5"
             ],
+            "description": "固い材料が無く、締まっていない土・砂・草の農道・林道[OSM の tracktype=grade5]。",
             "color": "#0d959d"
           }
         ],
@@ -237,6 +252,7 @@ export const primaryAttributes = [
             "values": [
               true
             ],
+            "description": "トンネルの中を通る区間[OSM の tunnel タグ]。",
             "color": "#8e729e"
           }
         ],
@@ -261,6 +277,7 @@ export const primaryAttributes = [
             "values": [
               true
             ],
+            "description": "一方向にしか進めない道。環状交差点も含み、自転車だけ両方向に通れる道は含まない[OSM の oneway・oneway:bicycle・junction タグ]。",
             "color": "#a66e5b"
           }
         ],
@@ -292,7 +309,8 @@ export const primaryAttributes = [
             "values": [
               "traffic_signals"
             ],
-            "color": "#a36b89"
+            "description": "信号機。信号付きの横断歩道もここに入る[OSM の highway=traffic_signals など]。",
+            "color": "#885270"
           },
           {
             "key": "crossing",
@@ -300,7 +318,8 @@ export const primaryAttributes = [
             "values": [
               "crossing"
             ],
-            "color": "#a96d61"
+            "description": "信号の無い横断歩道[OSM の highway=crossing]。",
+            "color": "#8d5449"
           },
           {
             "key": "stop",
@@ -308,7 +327,8 @@ export const primaryAttributes = [
             "values": [
               "stop"
             ],
-            "color": "#8e7a4c"
+            "description": "一時停止の標識がある所[OSM の highway=stop]。",
+            "color": "#736134"
           },
           {
             "key": "give_way",
@@ -316,7 +336,8 @@ export const primaryAttributes = [
             "values": [
               "give_way"
             ],
-            "color": "#61855c"
+            "description": "相手に道を譲る（徐行する）標識がある所[OSM の highway=give_way]。",
+            "color": "#496c44"
           },
           {
             "key": "level_crossing",
@@ -325,7 +346,8 @@ export const primaryAttributes = [
               "level_crossing",
               "railway_crossing"
             ],
-            "color": "#2e8984"
+            "description": "線路（路面電車を含む）を渡る所。車道の踏切も歩道・自転車道の踏切も入る[OSM の railway タグ]。",
+            "color": "#016f6b"
           },
           {
             "key": "barrier",
@@ -333,7 +355,8 @@ export const primaryAttributes = [
             "values": [
               "barrier"
             ],
-            "color": "#3684a6"
+            "description": "車止めの柱・ゲート・柵など、道をふさいで止まるか押して通る所[OSM の barrier タグ]。",
+            "color": "#0c6b8b"
           },
           {
             "key": "traffic_calming",
@@ -341,7 +364,8 @@ export const primaryAttributes = [
             "values": [
               "traffic_calming"
             ],
-            "color": "#7878a8"
+            "description": "車の速度を落とさせる段差（ハンプ）や道幅の絞り込み[OSM の traffic_calming タグ]。",
+            "color": "#5e5f8d"
           }
         ],
         "missing_semantics": null
@@ -365,7 +389,8 @@ export const primaryAttributes = [
             "values": [
               true
             ],
-            "color": "#4682aa"
+            "description": "当事者に自転車が含まれる事故[警察庁の交通事故統計の当事者種別]。",
+            "color": "#5791ba"
           },
           {
             "key": "other",
@@ -373,7 +398,8 @@ export const primaryAttributes = [
             "values": [
               false
             ],
-            "color": "#97764e"
+            "description": "当事者に自転車が含まれない事故（車どうし・車と歩行者など）。",
+            "color": "#a7865c"
           }
         ],
         "missing_semantics": null
@@ -388,14 +414,16 @@ export const primaryAttributes = [
             "label": "死亡事故",
             "values": [
               true
-            ]
+            ],
+            "description": "死者が1人以上記録された事故[警察庁の交通事故統計の死者数]。"
           },
           {
             "key": "non_fatal",
             "label": "死亡以外",
             "values": [
               false
-            ]
+            ],
+            "description": "死者の記録が無い事故（負傷事故）。"
           }
         ],
         "missing_semantics": null
@@ -433,7 +461,9 @@ export const primaryAttributes = [
             "values": [
               "convenience"
             ],
-            "color": "#6d7aaa"
+            "description": "コンビニエンスストア[OSM の shop=convenience]。",
+            "glyph": "bag",
+            "color": "#7d89ba"
           },
           {
             "key": "vending_drinks",
@@ -441,7 +471,9 @@ export const primaryAttributes = [
             "values": [
               "vending_drinks"
             ],
-            "color": "#a36b89"
+            "description": "飲み物か食べ物を売ると書かれた自動販売機[OSM の amenity=vending_machine と vending タグ]。",
+            "glyph": "bottle",
+            "color": "#b47a99"
           },
           {
             "key": "vending_unknown",
@@ -449,7 +481,9 @@ export const primaryAttributes = [
             "values": [
               "vending_unknown"
             ],
-            "color": "#a66e5b"
+            "description": "何を売るかが書かれていない自動販売機。飲み物が買えるとは限らない。",
+            "glyph": "question",
+            "color": "#b77e6a"
           },
           {
             "key": "toilets",
@@ -457,7 +491,9 @@ export const primaryAttributes = [
             "values": [
               "toilets"
             ],
-            "color": "#807e4d"
+            "description": "公衆トイレなど、地図のデータにトイレとして載っている所[OSM の amenity=toilets]。",
+            "glyph": "toilet",
+            "color": "#908e5c"
           },
           {
             "key": "drinking_water",
@@ -465,7 +501,9 @@ export const primaryAttributes = [
             "values": [
               "drinking_water"
             ],
-            "color": "#48886f"
+            "description": "水飲み場など、飲み水をくめる所[OSM の amenity=drinking_water]。",
+            "glyph": "drop",
+            "color": "#57987e"
           },
           {
             "key": "bicycle_parking",
@@ -473,7 +511,9 @@ export const primaryAttributes = [
             "values": [
               "bicycle_parking"
             ],
-            "color": "#25879d"
+            "description": "自転車を止められる所[OSM の amenity=bicycle_parking]。",
+            "glyph": "parking",
+            "color": "#3b97ad"
           }
         ],
         "missing_semantics": null

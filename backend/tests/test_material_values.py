@@ -1,46 +1,38 @@
-"""`domain/material_sql.py`——材料の値をDBから求める式。
+"""材料の値を求めるSQLの式が、入力に対して返す値。
 
-どの材料がどの式を使うかは宣言（`MaterialSpec.value_sql`）が持ち、そこから下流を導く部分は
-`test_material_catalog.py`が持つ。欠損率の測り方は`test_material_coverage.py`、区間の標高と
-勾配は`test_elevation_values.py`。
+式の部品は`domain/material_sql.py`、材料ごとの式はカタログ（`domain/material_catalog.py: material_value_sql`）が持つ。
+SQLの中の条件はPythonのカバレッジに現れないので、式をテスト用DBで評価して値を見る。
 
-**実在の材料id・タグ名・列名を並べない。** 式の振る舞いはidごとに違わないため、性質ごとに
-架空の名前で1件通せば足りる。宣言を1件ずつ当てる形は、宣言から作った足場へ同じ宣言を
-当てているだけになる（列を自分で用意して「その列が読める」ことを確かめる形）。
-**宣言した列が実在するかは別の問い**で、末尾で実テーブルへ式を通して確かめる。
+入力の作り方:
+- 道（別名`w`）: 道を取込の入口（`tests/source_ingest.py`）から入れ、読み手と同じ副問い合わせ
+  （`infrastructure/source_models.py: WAYS_SOURCE_SQL`）で読む。
+- 区間（`re`）・区間の値（`em`）: 派生の段が書く表の行の型（`road_edges`・`edge_materials`）で値を与える。
+  値そのものの出し方（件数を数える等）は派生の段の責務なので、ここでは作らない。
 
-**判定はDB側で行うため、DBへ通して確かめる。**式はテーブルの別名を固定で参照し、FROM句は
-読み出し側が組み立てる。各検査ではその別名を副問い合わせで与える。
+部品の節は架空のタグ・路面の区分で確かめる。カタログの節だけは、カタログに直に書かれた式（部品を使わないもの）を
+本物の材料のidで引く——そこでは、その材料が何を返すかがテストの関心である。
+
+カタログの全部の式が、読み出しの各経路（`infrastructure/road_graph_repository.py: RoadGraphRepository`の区間の材料・
+道1本・道の標本・値の一覧・路面タイル）の中で実在の列だけを読むことも見る。上の節は別名を値で与えるので、
+綴りの合わない列や、経路に無い別名を読む式を見つけられない。
+
+ここで見ないもの:
+- 読み出しの経路が結果をどの形に並べるか（列と材料の対応・取込範囲の外のタイル） → `test_road_graph_repository_contracts.py`
+- 欠損率の集計 → `test_material_coverage.py`
+- 部品をどの材料がどのタグで使うか（カタログの宣言） → 宣言そのもので、テストに書き写さない
 """
 
 import json
 
 import pytest
-from sqlalchemy import bindparam, text
+from sqlalchemy import text
 
-from app.domain.material_catalog import material_value_sql
-from app.domain.material_sql import (
-    cycleway_has_value_sql,
-    landcover_value_sql,
-    normalized_tag_sql,
-    poi_density_value_sql,
-    positive_integer_tag_sql,
-    surface_class_sql,
-    surface_estimate_sql,
-    tag_absent_is_false_sql,
-    tag_is_value_sql,
-)
-from app.infrastructure.source_models import ways_lookup_sql, ways_source_sql
+from app.domain import material_sql
+from app.domain.material_catalog import ACCIDENT_COUNT_PER_KM_YEAR, material_value_sql
 from app.domain.region import BoundingBox
-from app.domain.road import (
-    SURFACE_OTHER_KEY,
-    TRACK_HIGHWAY,
-    UNKNOWN_ROAD_SURFACE,
-    UNKNOWN_TRACK_SURFACE,
-    SurfaceClass,
-    TrackGrade,
-)
-from app.infrastructure.road_graph_repository import RoadGraphRepository
+from app.domain.road import SurfaceClass, TrackGrade
+from app.infrastructure.source_models import WAYS_SOURCE_SQL
+from tests.source_ingest import ingest_records, way_record
 
 pytestmark = [
     pytest.mark.asyncio(loop_scope="module"),
@@ -48,284 +40,198 @@ pytestmark = [
     pytest.mark.postgis,
 ]
 
-TAG_A = "tag_a"
-KIND_A = "kind_a"
-LC_A = "class_a"
+
+async def _way_values(session, expression: str, tags_by_way: dict[int, dict[str, str]]) -> dict[int, object]:
+    """道ごとのタグで道を取り込み、式を道ごとに評価する。"""
+    await ingest_records("osm_way", [
+        way_record(way_id, [(139.70, 35.68 + 0.001 * way_id), (139.701, 35.68 + 0.001 * way_id)],
+                   [way_id * 10, way_id * 10 + 1], tags)
+        for way_id, tags in tags_by_way.items()])
+    rows = await session.execute(text(f"SELECT w.osm_way_id, ({expression}) FROM {WAYS_SOURCE_SQL} w"))
+    return dict(rows.all())
 
 
-def _way_alias(tags: dict[str, str], *, surface: str | None = None) -> str:
-    """`w`の別名を副問い合わせで与える（`ways_source_sql`が出す列と同じ形）。"""
-    literal = json.dumps(tags, ensure_ascii=False).replace("'", "''")
-    surface_sql = "NULL::text" if surface is None else "'" + surface.replace("'", "''") + "'"
-    return (
-        "SELECT 1::bigint AS osm_way_id,"
-        f" '{literal}'::jsonb AS tags,"
-        f" ('{literal}'::jsonb)->>'highway' AS highway,"
-        f" {surface_sql} AS surface"
-    )
+async def _edge_value(session, expression: str, *, distance_m: float, accident_years: int = 1,
+                      **edge_materials: float | None) -> object:
+    """区間の長さと区間の値を与えて、式を1区間ぶん評価する。"""
+    row = await session.execute(
+        text(f"SELECT ({expression})"
+             " FROM json_populate_record(NULL::road_edges, CAST(:re AS json)) re,"
+             " json_populate_record(NULL::edge_materials, CAST(:em AS json)) em"),
+        {"re": json.dumps({"distance_m": distance_m}), "em": json.dumps(edge_materials),
+         "accident_years": accident_years})
+    return row.scalar_one()
 
 
-async def _way_value(session, expr: str, tags: dict[str, str], *, surface=None, **params):
-    query = text(f"SELECT {expr} AS v FROM ({_way_alias(tags, surface=surface)}) w")
-    if params:
-        query = query.bindparams(**params)
-    return (await session.execute(query)).scalar()
+# --- 部品（domain/material_sql.py） ---------------------------------------------------
 
 
-GOOD_A = "good_a"
-BAD_A = "bad_a"
-#: 区分と等級は架空のもので与える。実在の区分・等級が正しいかは`road.py`側の話。
-CLASSES = (
-    SurfaceClass("class_good", "良", {GOOD_A: "良A"}, "crr_good"),
-    SurfaceClass("class_bad", "悪", {BAD_A: "悪A"}, "crr_bad"),
+async def test_a_tag_is_read_in_lower_case_without_surrounding_spaces(road_graph_session):
+    values = await _way_values(road_graph_session, material_sql.normalized_tag_sql("tag_a"),
+                               {1: {"tag_a": "  Mixed Case "}, 2: {}})
+
+    assert values == {1: "mixed case", 2: None}
+
+
+@pytest.mark.parametrize(("tag", "expected"), [
+    ("50", 50),
+    (" 60 ", 60),
+    ("40.7", 40),  # 小数は切り捨てる
+    ("1.0", 1),
+    ("0", None),
+    ("0.5", None),  # 切り捨てると0
+    ("-30", None),
+    ("50 mph", None),
+    ("signals", None),
+    (None, None),
+])
+async def test_a_number_tag_has_a_value_only_when_it_is_a_positive_number(road_graph_session, tag, expected):
+    values = await _way_values(road_graph_session, material_sql.positive_integer_tag_sql("tag_a"),
+                               {1: {} if tag is None else {"tag_a": tag}})
+
+    assert values == {1: expected}
+
+
+_CLASSES = (
+    SurfaceClass("class_a", "区分A", {"value_a": "A", "o'quoted": "引用符"}, "speed.crr"),
+    SurfaceClass("class_b", "区分B", {"value_b": "B"}, "speed.crr"),
+    SurfaceClass("class_empty", "タグの無い区分", {}, "speed.crr"),
 )
-GRADE_GOOD = "grade_good"
-GRADE_BAD = "grade_bad"
-GRADES = (
-    TrackGrade(GRADE_GOOD, "良い等級", "class_good"),
-    TrackGrade(GRADE_BAD, "悪い等級", "class_bad"),
+_GRADES = (
+    TrackGrade("grade_a", "等級A", "class_b", "説明"),
 )
-OTHER_HIGHWAY = "kind_other"
 
 
-def _road_tags(highway: str = OTHER_HIGHWAY, grade: str | None = None) -> dict[str, str]:
-    return {"highway": highway, **({"tracktype": grade} if grade is not None else {})}
+async def test_a_surface_falls_in_the_class_that_lists_it_and_other_values_in_other(road_graph_session):
+    values = await _way_values(road_graph_session, material_sql.surface_class_sql(_CLASSES), {
+        1: {"surface": " VALUE_A "},
+        2: {"surface": "o'quoted"},
+        3: {"surface": "value_b"},
+        4: {"surface": "unlisted"},
+        5: {},
+    })
 
+    assert values == {1: "class_a", 2: "class_a", 3: "class_b", 4: material_sql.SURFACE_OTHER_KEY, 5: None}
 
-async def _surface_class(session, surface: str | None):
-    return await _way_value(session, surface_class_sql(CLASSES), {}, surface=surface)
 
+async def test_the_surface_estimate_gives_every_road_a_value(road_graph_session):
+    unknown_track = material_sql.UNKNOWN_TRACK_SURFACE.key
+    unknown_road = material_sql.UNKNOWN_ROAD_SURFACE.key
+    track = {"highway": material_sql.TRACK_HIGHWAY}
 
-async def _surface_estimate(session, surface: str | None, **road):
-    return await _way_value(session, surface_estimate_sql(CLASSES, GRADES), _road_tags(**road), surface=surface)
+    values = await _way_values(road_graph_session, material_sql.surface_estimate_sql(_CLASSES, _GRADES), {
+        # surfaceの区分が等級に先立つ。
+        1: {**track, "surface": "value_a", "tracktype": "grade_a"},
+        # 区分に無いsurfaceは、等級があれば等級から写す。
+        2: {**track, "surface": "unlisted", "tracktype": "grade_a"},
+        3: {"surface": "unlisted"},
+        4: {**track, "tracktype": " GRADE_A "},
+        5: {**track, "tracktype": "unlisted"},
+        6: track,
+        7: {"highway": "residential"},
+    })
 
+    assert values == {1: "class_a", 2: "class_b", 3: unknown_road, 4: "class_b", 5: unknown_track, 6: unknown_track,
+                      7: unknown_road}
 
-async def _edge_value(session, expr: str, *, columns: str):
-    """`em`・`re`の別名を副問い合わせで与える。"""
-    query = f"SELECT {expr} AS v FROM (SELECT {columns}) em, (SELECT {columns}) re"
-    return (await session.execute(text(query))).scalar()
 
+async def test_a_tag_with_the_value_is_true_and_an_absent_tag_is_false(road_graph_session):
+    values = await _way_values(road_graph_session, material_sql.tag_is_value_sql("tag_a", "yes"),
+                               {1: {"tag_a": " Yes "}, 2: {"tag_a": "no"}, 3: {}})
 
-class TestReadingATag:
-    @pytest.mark.parametrize("written", ["Value", " value ", "VALUE"])
-    async def test_the_case_and_spacing_a_contributor_used_do_not_matter(
-        self, road_graph_session, written
-    ):
-        """生値をそのまま比べると、大文字で書かれた道だけが不明として扱われる。"""
-        value = await _way_value(road_graph_session, normalized_tag_sql(TAG_A), {TAG_A: written})
+    assert values == {1: True, 2: False, 3: False}
 
-        assert value == "value"
 
-    async def test_a_tag_nobody_wrote_reads_as_nothing(self, road_graph_session):
-        assert await _way_value(road_graph_session, normalized_tag_sql(TAG_A), {}) is None
+async def test_a_cycleway_value_on_any_side_counts(road_graph_session):
+    expression = material_sql.cycleway_has_value_sql("value_a", "value_b")
+    sides = {way_id: {tag: " Value_A "} for way_id, tag in enumerate(material_sql.CYCLEWAY_TAG_NAMES, start=1)}
 
+    values = await _way_values(road_graph_session, expression, {
+        **sides,
+        10: {"cycleway:both": "value_b"},
+        11: {"cycleway": "no", "cycleway:left": "other"},
+        12: {},
+    })
 
-class TestTagAbsentMeansNo:
-    async def test_a_matching_tag_is_true(self, road_graph_session):
-        expr = tag_is_value_sql(TAG_A, "x")
+    assert values == {**{way_id: True for way_id in sides}, 10: True, 11: False, 12: False}
 
-        assert await _way_value(road_graph_session, expr, {TAG_A: "X"}) is True
 
-    async def test_a_different_value_is_false(self, road_graph_session):
-        expr = tag_is_value_sql(TAG_A, "x")
+# 停止要因の種別は区間の値の表の列名を決めるだけで、どの種別でも式は同じ。
+_POI_KIND = "signal"
 
-        assert await _way_value(road_graph_session, expr, {TAG_A: "y"}) is False
 
-    async def test_no_tag_at_all_is_false_rather_than_unknown(self, road_graph_session):
-        """不明へ倒すと、そのタグを書いていない道を使う軸がすべて評価不能になる。"""
-        expr = tag_is_value_sql(TAG_A, "x")
+@pytest.mark.parametrize(("count", "distance_m", "expected"), [
+    (3.0, 500.0, 6.0),
+    (0.0, 500.0, 0.0),
+    (None, 500.0, None),  # 未計算
+    (3.0, 0.0, None),
+])
+async def test_a_poi_density_is_per_km_and_missing_until_counted(road_graph_session, count, distance_m, expected):
+    value = await _edge_value(road_graph_session, material_sql.poi_density_value_sql(_POI_KIND),
+                              distance_m=distance_m, **{f"poi_{_POI_KIND}": count})
 
-        assert await _way_value(road_graph_session, expr, {}) is False
+    assert value == (None if expected is None else pytest.approx(expected))
 
-    async def test_the_wrapper_turns_any_null_condition_into_false(self, road_graph_session):
-        expr = tag_absent_is_false_sql(f"{normalized_tag_sql(TAG_A)} = 'x'")
 
-        assert await _way_value(road_graph_session, expr, {}) is False
+# --- カタログに直に書かれた式（domain/material_catalog.py） -----------------------------
 
 
-class TestNumericTags:
-    @pytest.mark.parametrize(("written", "expected"), [("50", 50), (" 60 ", 60), ("49.9", 49)])
-    async def test_a_number_a_contributor_wrote_is_read_as_an_integer(
-        self, road_graph_session, written, expected
-    ):
-        """切り上げると、`"49.5"`が上の区分へ入る。"""
-        expr = positive_integer_tag_sql(TAG_A)
+@pytest.mark.parametrize(("count", "distance_m", "expected"), [
+    (2.0, 250.0, 8.0),
+    (None, 250.0, None),
+    (2.0, 0.0, None),
+])
+async def test_the_intersection_density_is_per_km(road_graph_session, count, distance_m, expected):
+    value = await _edge_value(road_graph_session, material_value_sql()["intersection_count_per_km"],
+                              distance_m=distance_m, intersection_count=count)
 
-        assert await _way_value(road_graph_session, expr, {TAG_A: written}) == expected
+    assert value == (None if expected is None else pytest.approx(expected))
 
-    @pytest.mark.parametrize("written", ["0", "-10", "walk", "50 mph", "", "none"])
-    async def test_a_value_that_is_not_a_positive_number_has_no_value(
-        self, road_graph_session, written
-    ):
-        """`"walk"`・`"none"`は実データに現れる。0へ倒すと制限速度0km/hの道ができ、
-        速度の軸がその道を最良と判断する。
-        """
-        expr = positive_integer_tag_sql(TAG_A)
 
-        assert await _way_value(road_graph_session, expr, {TAG_A: written}) is None
+@pytest.mark.parametrize(("count", "distance_m", "years", "expected"), [
+    (3.0, 500.0, 2, 3.0),
+    (None, 500.0, 2, None),
+    (3.0, 0.0, 2, None),
+    (3.0, 500.0, 0, None),  # 収録年の無い取込
+])
+async def test_the_accident_density_is_per_km_and_per_year_covered(road_graph_session, count, distance_m, years,
+                                                                    expected):
+    value = await _edge_value(road_graph_session, material_value_sql()[ACCIDENT_COUNT_PER_KM_YEAR],
+                              distance_m=distance_m, accident_years=years, accident_count=count)
 
+    assert value == (None if expected is None else pytest.approx(expected))
 
-class TestSurfaceClass:
-    async def test_a_surface_falls_into_the_class_that_lists_it(self, road_graph_session):
-        assert await _surface_class(road_graph_session, f" {BAD_A.upper()} ") == "class_bad"
 
-    async def test_a_surface_no_class_lists_is_other_rather_than_missing(self, road_graph_session):
-        """タグはあるのでタグの無い道とは分ける。地図はこれを「その他」、タグの無い道を「データなし」で出す。"""
-        assert await _surface_class(road_graph_session, "no_such_surface") == SURFACE_OTHER_KEY
+async def test_a_road_is_a_cycleway_by_its_own_kind(road_graph_session):
+    values = await _way_values(road_graph_session, material_value_sql()["highway_is_cycleway"],
+                               {1: {"highway": "cycleway"}, 2: {"highway": "residential", "cycleway": "track"}})
 
-    async def test_no_surface_tag_has_no_class(self, road_graph_session):
-        assert await _surface_class(road_graph_session, None) is None
+    assert values == {1: True, 2: False}
 
 
-class TestSurfaceEstimate:
-    async def test_the_surface_class_wins_over_the_grade(self, road_graph_session):
-        """surfaceタグは路面そのものを書いたもので、等級からの見込みより確か。"""
-        value = await _surface_estimate(road_graph_session, BAD_A, grade=GRADE_GOOD)
+async def test_a_shared_pedestrian_path_is_a_footway_or_path_that_lets_bicycles_in(road_graph_session):
+    values = await _way_values(road_graph_session, material_value_sql()["shared_pedestrian_path"], {
+        1: {"highway": "footway", "bicycle": "yes"},
+        2: {"highway": "path", "bicycle": " Designated "},
+        3: {"highway": "footway", "bicycle": "no"},
+        4: {"highway": "path"},
+        5: {"highway": "residential", "bicycle": "yes"},
+    })
 
-        assert value == "class_bad"
+    assert values == {1: True, 2: True, 3: False, 4: False, 5: False}
 
-    async def test_without_a_surface_class_the_grade_decides(self, road_graph_session):
-        assert await _surface_estimate(road_graph_session, None, grade=f" {GRADE_BAD.upper()} ") == "class_bad"
 
-    async def test_a_surface_no_class_lists_falls_back_to_the_grade(self, road_graph_session):
-        assert await _surface_estimate(road_graph_session, "no_such_surface", grade=GRADE_GOOD) == "class_good"
+async def test_every_declared_expression_reads_only_what_each_reading_path_provides(road_graph_repository):
+    """読む列が無い式が1つでもあると、その経路の読み出しは材料ぶん丸ごと落ちる。列はPostgreSQLが実行の前に
+    解決するので、行が無くても確かめられる。"""
+    area = BoundingBox(min_latitude=35.0, min_longitude=139.0, max_latitude=35.01, max_longitude=139.01)
 
-    async def test_a_track_with_neither_is_an_unknown_track(self, road_graph_session):
-        value = await _surface_estimate(road_graph_session, None, highway=TRACK_HIGHWAY)
-
-        assert value == UNKNOWN_TRACK_SURFACE.key
-
-    @pytest.mark.parametrize("surface", [None, "no_such_surface"])
-    async def test_any_other_road_with_neither_is_an_unknown_road(self, road_graph_session, surface):
-        """値を持たないままにすると、走行モデルが値なしの読み方を別に持つことになる。"""
-        assert await _surface_estimate(road_graph_session, surface) == UNKNOWN_ROAD_SURFACE.key
-
-
-class TestCyclewayTags:
-    async def test_a_tag_other_than_the_base_one_counts(self, road_graph_session):
-        """自転車インフラは左右・両側にも書かれる。`cycleway`本体だけを見ると、片側だけに
-        車線がある道を「無し」として扱う。
-        """
-        expr = cycleway_has_value_sql("x")
-
-        assert await _way_value(road_graph_session, expr, {"cycleway:left": "x"}) is True
-
-    async def test_a_value_that_is_not_asked_for_does_not_count(self, road_graph_session):
-        expr = cycleway_has_value_sql("x")
-
-        assert await _way_value(road_graph_session, expr, {"cycleway": "y"}) is False
-
-    async def test_several_wanted_values_are_all_accepted(self, road_graph_session):
-        expr = cycleway_has_value_sql("x", "y")
-
-        assert await _way_value(road_graph_session, expr, {"cycleway": "y"}) is True
-
-    async def test_none_of_the_tags_is_false(self, road_graph_session):
-        expr = cycleway_has_value_sql("x")
-
-        assert await _way_value(road_graph_session, expr, {TAG_A: "x"}) is False
-
-    async def test_the_value_is_read_past_its_case(self, road_graph_session):
-        expr = cycleway_has_value_sql("x")
-
-        assert await _way_value(road_graph_session, expr, {"cycleway": " X "}) is True
-
-
-class TestStopDensity:
-    @staticmethod
-    def _columns(count: str, distance: str) -> str:
-        return f"{count} AS poi_{KIND_A}, {distance} AS distance_m"
-
-    async def test_the_count_is_divided_by_the_distance_in_kilometres(self, road_graph_session):
-        value = await _edge_value(
-            road_graph_session,
-            poi_density_value_sql(KIND_A),
-            columns=self._columns("4::integer", "500.0"),
-        )
-
-        assert value == pytest.approx(8.0)
-
-    async def test_a_count_of_zero_is_a_density_of_zero(self, road_graph_session):
-        """未計算と取り違えると、数え終わった区間が評価対象から外れる。"""
-        value = await _edge_value(
-            road_graph_session,
-            poi_density_value_sql(KIND_A),
-            columns=self._columns("0::integer", "500.0"),
-        )
-
-        assert value == 0.0
-
-    async def test_a_count_that_has_not_been_computed_has_no_density(self, road_graph_session):
-        """0として配ると、まだ数えていない区間が「停止要因なし」の最良として塗られる。"""
-        value = await _edge_value(
-            road_graph_session,
-            poi_density_value_sql(KIND_A),
-            columns=self._columns("NULL::integer", "500.0"),
-        )
-
-        assert value is None
-
-    async def test_a_segment_with_no_length_has_no_density(self, road_graph_session):
-        """0で割ると区間ごと例外になる。"""
-        value = await _edge_value(
-            road_graph_session,
-            poi_density_value_sql(KIND_A),
-            columns=self._columns("4::integer", "0.0"),
-        )
-
-        assert value is None
-
-
-class TestLandcover:
-    async def test_the_share_is_read_from_the_segment_column(self, road_graph_session):
-        """道1本の値へ落とさない——区間の値は全区間ぶん計算されており、落とす先は
-        「同じ道の平均」でしかない。
-        """
-        value = await _edge_value(
-            road_graph_session, landcover_value_sql(LC_A), columns=f"12.5 AS lc_{LC_A}"
-        )
-
-        assert value == pytest.approx(12.5)
-
-
-class TestAgainstTheRealTables:
-    """上の各検査は別名を副問い合わせで与えるため、**綴りの合わない列を見つけられない**。
-    宣言されている式を実テーブルへ通して、その1点だけを確かめる。行は0件でよい——
-    列の参照はPostgreSQLが構文解析の時点で検証する。
-    """
-
-    async def test_every_declared_expression_resolves_against_the_schema(self, road_graph_session):
-        """式が参照する列が実在しないと、その材料を含む読み出しが区間ぶん丸ごと落ちる。
-        材料idも期待値も名指ししない——値の正しさは上の各検査が持つ。
-        """
-        expressions = material_value_sql()
-        assert expressions, "宣言された式が1つも無ければ、このクエリは何も確かめていない"
-
-        query = text(
-            "SELECT " + ", ".join(f"({expr})" for expr in sorted(expressions.values()))
-            + f" FROM {ways_source_sql()} w, road_edges re, edge_materials em"
-        ).bindparams(bindparam("accident_years", value=1))
-
-        assert (await road_graph_session.execute(query)).all() == []
-
-    async def test_the_road_surface_tile_resolves_too(self, road_graph_session):
-        """タイルは材料の式を自分のFROM句の中で読む。タイルに無い別名を読む式が混ざると、
-        路面タイルが1枚も焼けなくなる。取込範囲外なのでNoneが返る——列の参照は実行前に
-        検証されるため、焼く分岐を通らなくても確かめられる。"""
-        bbox = BoundingBox(min_latitude=35.0, min_longitude=139.0,
-                           max_latitude=35.01, max_longitude=139.01)
-
-        assert await RoadGraphRepository(road_graph_session).get_road_surface_tile_mvt(
-            14, 1, 2, bbox) is None
-
-    async def test_the_single_way_lookup_resolves_too(self, road_graph_session):
-        """区間ごとに1本だけ引く経路。別名の中身が違うと、こちらだけが落ちる。"""
-        query = f"SELECT count(*) FROM {ways_lookup_sql('42')} w"
-
-        assert (await road_graph_session.execute(text(query))).scalar() == 0
-
-    async def test_the_sampling_clause_is_accepted(self, road_graph_session):
-        """抽選を外へ付ける形にすると、欠損率を測るバッチが構文エラーで止まる。"""
-        query = f"SELECT count(*) FROM {ways_source_sql('TABLESAMPLE SYSTEM (100)')} w"
-
-        assert (await road_graph_session.execute(text(query))).scalar() is not None
+    arrays = await road_graph_repository.get_edge_material_arrays([1], [0], [True], 1)
+    assert len(arrays.distance_m) == 1
+    assert await road_graph_repository.get_way_material_values(1, 1) is None
+    assert await road_graph_repository.sample_way_material_values(1, 100.0, 10, None) == []
+    assert await road_graph_repository.sample_way_material_values(1, 100.0, 10, area) == []
+    for material_id in material_value_sql():
+        assert await road_graph_repository.get_distinct_material_values(material_id) == []
+    # 取込範囲の外なので焼かずにNoneを返すが、タイルの列は先に解決される。
+    assert await road_graph_repository.get_road_surface_tile_mvt(14, 14552, 6451, area) is None

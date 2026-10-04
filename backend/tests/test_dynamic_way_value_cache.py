@@ -1,131 +1,112 @@
-"""`infrastructure/dynamic_way_value_cache.py`——動的かつ向きに依存する材料の、タイル単位の
-値を配るディスクキャッシュ。
+"""`infrastructure/dynamic_way_value_cache.py`——路面タイルのフィーチャーごとの値のディスクキャッシュ
+（`set_tile_values`・`get_tile_values`）と、向きの丸め（`bearing_bucket`）。
+
+置き場は`tests/conftest.py`のautouseがテストごとの空の一時ディレクトリへ差し替える。
 
 ここで見ないもの:
-- ディスクへの読み書き・容量上限・世代の掃除 → `test_tile_persistent_cache.py`
-- 勾配の値そのものの作り方と、キャッシュを挟む制御フロー → `test_gradient_way_service.py`
-
-**鍵は外から見えないため、書いてから読んで確かめる。** 観測できるのは「同じ鍵なら戻る／
-違う鍵なら戻らない」だけで、鍵のタプルを並べて突き合わせるのは宣言の書き写しになる。
-保存先はテストごとのtmpディレクトリ（`conftest.py`のautouseフィクスチャ）。
+- 置き場の読み書きに失敗したときに未キャッシュへ倒すこと・失効の境界 → `test_tile_persistent_cache.py`
+- どの材料をキャッシュし、どの世代・署名・TTLを渡すか → 材料のサービスのテスト（例: `test_gradient_way_service.py`）
 """
 
+import asyncio
+
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
-from app.infrastructure import dynamic_way_value_cache
-from app.infrastructure.dynamic_way_value_cache import BEARING_BUCKET_DEG, bearing_bucket
+from app.infrastructure.dynamic_way_value_cache import (
+    BEARING_BUCKET_DEG,
+    bearing_bucket,
+    get_tile_values,
+    set_tile_values,
+)
 
-MATERIAL = "material_a"
-TILE = (14, 1000, 2000)
-BEARING = 90.0
-REVISION = 7
-VALUE_SHAPE = "shape-1"
-TTL_SECONDS = 60
-VALUES = {"edge-1": 3.2, "edge-2": -1.5}
-
-
-async def _put(
-    *, material=MATERIAL, tile=TILE, bearing=BEARING, revision=REVISION, value_shape=VALUE_SHAPE, values=VALUES
-):
-    z, x, y = tile
-    await dynamic_way_value_cache.set_tile_values(
-        material, z, x, y, None, bearing, values, TTL_SECONDS, revision=revision, value_shape=value_shape
-    )
+VALUES = {"way-1": 3.5, "way-2": -1.0}
+KEY = {"material_id": "material_a", "z": 14, "x": 14550, "y": 6451}
+VERSIONS = {"surface_tile_version": "tiles-1", "value_shape": "shape-1"}
+HALF_BUCKET = BEARING_BUCKET_DEG / 2
 
 
-async def _get(*, material=MATERIAL, tile=TILE, bearing=BEARING, revision=REVISION, value_shape=VALUE_SHAPE):
-    z, x, y = tile
-    return await dynamic_way_value_cache.get_tile_values(
-        material, z, x, y, None, bearing, revision=revision, value_shape=value_shape
-    )
+async def store(bearing_deg: float = 0.0, ttl_seconds: int = 3600) -> None:
+    await set_tile_values(**KEY, bearing_deg=bearing_deg, values=VALUES, ttl_seconds=ttl_seconds, **VERSIONS)
 
 
-class TestRoundTrip:
-    async def test_what_was_stored_comes_back(self):
-        await _put()
+async def test_values_stored_for_a_tile_are_read_back():
+    await store()
 
-        assert await _get() == VALUES
-
-    async def test_a_tile_nobody_computed_reads_as_nothing(self):
-        assert await _get() is None
-
-    async def test_a_tile_whose_features_all_came_out_valueless_is_remembered_as_empty(self):
-        """未計算と同じ「なし」へ畳むと、値を持たないタイルだけがパンのたびにDBを引き直す。"""
-        await _put(values={})
-
-        assert await _get() == {}
+    assert await get_tile_values(**KEY, bearing_deg=0.0, **VERSIONS) == VALUES
 
 
-class TestWhatMakesEntriesDifferent:
-    @pytest.mark.parametrize(("stored", "asked"), [(7, 8), (None, 7), (7, None)])
-    async def test_another_generation_does_not_read_this_one(self, stored, asked):
-        """鍵の中身はバッチが作り直すたびに変わる`feature_key`で、世代をまたぐとどの地物にも
-        一致しない。フロントは色を当てる先を失い、TTLが切れるまで静かに塗られないままになる。
-        世代がまだ読めていない（None）間に書いたものも同じ。
-        """
-        await _put(revision=stored)
-
-        assert await _get(revision=asked) is None
-
-    async def test_a_rebaked_tile_layout_does_not_read_the_earlier_one(self, monkeypatch):
-        """鍵は路面タイルの`feature_key`と一致して初めて意味を持つ。焼き方を変えただけの
-        デプロイはDBの世代を動かさないため、形の署名が鍵に無いと前の版のエントリがTTLの間
-        返り続ける——エラーにはならず、色だけが消える。
-        """
-        await _put()
-        monkeypatch.setattr(dynamic_way_value_cache, "ROAD_SURFACE_TILE_SHAPE", "another-shape")
-
-        assert await _get() is None
-
-    async def test_changing_how_one_material_is_computed_drops_only_that_materials_entries(self):
-        """材料の計算を変えたデプロイの後、その材料は前の計算の値を配らず、他の材料は作り直さない。
-        作り方の署名が鍵に無いと、DBの世代もタイルの形も動かないため、前の計算の値がTTLの間返り続ける。
-        """
-        await _put(material="material_a", value_shape="a-1")
-        await _put(material="material_b", value_shape="b-1", values={"edge-9": 0.5})
-
-        assert await _get(material="material_a", value_shape="a-2") is None
-        assert await _get(material="material_b", value_shape="b-1") == {"edge-9": 0.5}
-
-    async def test_another_material_does_not_read_this_one(self):
-        await _put()
-
-        assert await _get(material="material_b") is None
-
-    @pytest.mark.parametrize("tile", [(15, 1000, 2000), (14, 1001, 2000), (14, 1000, 2001)])
-    async def test_another_tile_does_not_read_this_one(self, tile):
-        await _put()
-
-        assert await _get(tile=tile) is None
-
-    async def test_a_bearing_in_the_same_bucket_reads_the_same_entry(self):
-        """生の方位を鍵にすると、コンパスを1度動かすたびに引き直しになりヒット率がほぼ0になる。"""
-        await _put(bearing=BEARING)
-
-        assert await _get(bearing=BEARING + BEARING_BUCKET_DEG / 4) == VALUES
-
-    async def test_a_bearing_in_another_bucket_does_not(self):
-        """勾配は進行方向で符号が変わる。別の向きの値を配ると、下りの道が登りの色で出る。"""
-        await _put(bearing=BEARING)
-
-        assert await _get(bearing=BEARING + BEARING_BUCKET_DEG) is None
+async def test_a_tile_never_stored_reads_as_not_cached():
+    assert await get_tile_values(**KEY, bearing_deg=0.0, **VERSIONS) is None
 
 
-class TestBearingBuckets:
-    @pytest.mark.parametrize(("bearing", "same_as"), [(360.0, 0.0), (-10.0, 350.0), (710.0, 350.0)])
-    def test_a_bearing_outside_one_turn_reads_as_the_same_direction(self, bearing, same_as):
-        """地図が渡す方位は一周を越えることも負になることもある。別のバケットへ落ちると、
-        同じ向きを向いているのに値を取り直す。
-        """
-        assert bearing_bucket(bearing) == bearing_bucket(same_as)
+async def test_a_tile_whose_features_all_came_out_without_a_value_is_remembered_as_empty():
+    """空も計算の結果で、未キャッシュと取り違えると値の無いタイルを毎回計算し直す。"""
+    await set_tile_values(**KEY, bearing_deg=0.0, values={}, ttl_seconds=3600, **VERSIONS)
 
-    def test_the_last_half_bucket_wraps_round_to_the_first(self):
-        """丸めた先が一周を越えるため、折り返さないと北向きだけ鍵が2つに割れる。"""
-        assert bearing_bucket(360 - BEARING_BUCKET_DEG / 2) == bearing_bucket(0.0)
+    assert await get_tile_values(**KEY, bearing_deg=0.0, **VERSIONS) == {}
 
-    def test_the_bucket_boundary_rounds_a_half_upwards(self):
-        """半分を偶数側へ倒すと、バケットの幅が5度と10度で交互になる。"""
-        half = BEARING_BUCKET_DEG / 2
 
-        assert bearing_bucket(half) == 1
-        assert bearing_bucket(half - 0.1) == 0
+@pytest.mark.parametrize(
+    "other",
+    [
+        {"material_id": "material_b"},
+        {"z": 15},
+        {"x": 14551},
+        {"y": 6452},
+        # 路面タイルを作り直すとフィーチャーの鍵が変わり、前の世代の値はどの地物にも一致しない。
+        {"surface_tile_version": "tiles-2"},
+        # 材料の計算を変えたデプロイの後は、前の作り方の値を読まない。
+        {"value_shape": "shape-2"},
+        {"bearing_deg": BEARING_BUCKET_DEG},
+    ],
+)
+async def test_a_read_that_differs_in_any_part_of_the_key_does_not_see_the_stored_values(other):
+    await store()
+
+    request = {**KEY, "bearing_deg": 0.0, **VERSIONS, **other}
+
+    assert await get_tile_values(**request) is None
+
+
+@pytest.mark.parametrize("bearing_deg", [HALF_BUCKET - 0.01, -(HALF_BUCKET - 0.01), 360.0, 360.0 * 3 + 1.0])
+async def test_a_nearby_heading_reads_the_values_stored_for_the_same_bucket(bearing_deg):
+    """コンパスを少し回しただけでは、同じタイルを計算し直さない。"""
+    await store(bearing_deg=0.0)
+
+    assert await get_tile_values(**KEY, bearing_deg=bearing_deg, **VERSIONS) == VALUES
+
+
+async def test_stored_values_expire_after_their_ttl():
+    """置き場はスレッドの中で時計を読み、止めた時計（freezegun）はスレッドの中では効かないので、実時間で待つ。"""
+    await store(ttl_seconds=1)
+    assert await get_tile_values(**KEY, bearing_deg=0.0, **VERSIONS) == VALUES
+
+    await asyncio.sleep(1.1)
+
+    assert await get_tile_values(**KEY, bearing_deg=0.0, **VERSIONS) is None
+
+
+@pytest.mark.parametrize(
+    ("bearing_deg", "bucket"),
+    [
+        (HALF_BUCKET - 0.01, 0),
+        # 境界ちょうどは上のバケットへ。偶数への丸めだと、境界ごとに上下が入れ替わり幅が揃わない。
+        (HALF_BUCKET, 1),
+        (HALF_BUCKET + 2 * BEARING_BUCKET_DEG, 3),
+        (360.0 - HALF_BUCKET, 0),
+        (-HALF_BUCKET, 0),
+    ],
+)
+def test_a_heading_on_a_bucket_edge_goes_to_the_bucket_above(bearing_deg, bucket):
+    assert bearing_bucket(bearing_deg) == bucket
+
+
+@given(st.floats(min_value=-720.0, max_value=720.0))
+def test_a_heading_is_never_further_than_half_a_bucket_from_its_bucket(bearing_deg):
+    """キャッシュから返る値は、要求した向きと最大で半バケットずれた向きで計算したもの。"""
+    center = bearing_bucket(bearing_deg) * BEARING_BUCKET_DEG
+    gap = abs((bearing_deg - center + 180.0) % 360.0 - 180.0)
+
+    assert gap <= HALF_BUCKET + 1e-9

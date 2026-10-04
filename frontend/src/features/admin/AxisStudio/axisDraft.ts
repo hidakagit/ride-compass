@@ -78,9 +78,6 @@ const PASSTHROUGH_PAYLOAD_KEYS = [
   "priority_overrides",
   "time_scope",
   "dedicated_way_value_layer",
-  "dynamic_way_value_needs_time",
-  "dynamic_way_value_needs_bearing",
-  "dynamic_way_value_needs_speed",
 ] as const satisfies readonly (keyof AxisDefinitionPayload)[];
 
 type PassthroughPayloadKey = (typeof PASSTHROUGH_PAYLOAD_KEYS)[number];

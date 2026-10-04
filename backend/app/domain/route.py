@@ -5,7 +5,12 @@ from typing import Annotated, Any, Callable, Iterable, Mapping
 
 from pydantic import Field, WithJsonSchema
 
-from app.domain.difficulty import OverallDifficulty, distance_weighted_difficulty, weighted_mean_by_distance
+from app.domain.difficulty import (
+    OverallDifficulty,
+    distance_weighted_difficulty,
+    round_difficulty,
+    weighted_mean_by_distance,
+)
 from app.domain.strict_model import StrictModel
 
 
@@ -30,12 +35,6 @@ LineStringGeometry = Annotated[
 class Coordinates(StrictModel):
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
-
-
-class RouteSegment(StrictModel):
-    distance_km: float
-    duration_minutes: float
-    geometry: LineStringGeometry
 
 
 class SegmentWind(StrictModel):
@@ -206,7 +205,7 @@ def _round_significant(value: float, digits: int = 4) -> float:
 def _merge_axis_value_dict(
     segments: list[RouteSegmentDetail],
     field_getter: Callable[[RouteSegmentDetail], dict[str, float]],
-    round_value: Callable[[float], float] = lambda v: round(v, 1),
+    round_value: Callable[[float], float] = round_difficulty,
 ) -> dict[str, float]:
     """複数の`RouteSegmentDetail`が持つキー→float辞書（`field_getter`で指定）を、
     キーごとに距離加重平均へ集約する共通ロジック（`merge_axis_difficulties`/

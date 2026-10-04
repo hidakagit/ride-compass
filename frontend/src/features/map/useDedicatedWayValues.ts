@@ -16,7 +16,7 @@ import { useMemo } from "react";
 import { mergeDynamicWayValues, tilesCoveringViewport, type TileXY } from "@/features/map/layers/dynamicWayValues";
 import type { DedicatedWayValueAxis } from "@/lib/mapDisplay/axisLayers";
 import type { MapViewport } from "@/features/map/layers/windLayer";
-import { fetchDynamicWayValues, ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM } from "@/services/regionApi";
+import { fetchDynamicWayValues, ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM } from "@/features/map/regionApi";
 import { MAP_FETCH_DEBOUNCE_MS, useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { getQueryClient } from "@/lib/queryClient";
 
@@ -115,7 +115,7 @@ export function useDedicatedWayValues(
   mapViewport: MapViewport | null,
   bearingDeg: number,
   at: Date | undefined,
-  speedKmh?: number,
+  speedKmh: number,
 ): ReadonlyMap<string, DedicatedWayValuesResult> {
   const debouncedViewport = useDebouncedValue(mapViewport, MAP_FETCH_DEBOUNCE_MS);
   const debouncedBearingDeg = useDebouncedValue(bearingDeg, MAP_FETCH_DEBOUNCE_MS);

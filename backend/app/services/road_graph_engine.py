@@ -28,7 +28,7 @@ import math
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 import numpy as np
 
@@ -36,10 +36,10 @@ from app.domain.time_zone import JST
 from app.domain.traffic import highway_rank
 from app.domain.tuning import tuning_value
 from app.domain.attributes import ElevationAttribute
-from app.domain.axis_raw_value import displayed_material_ids
-from app.domain.difficulty import distance_weighted_difficulty
+from app.domain.dynamic_way_values import displayed_material_ids
+from app.domain.difficulty import DIFFICULTY_QUANTUM, distance_weighted_difficulty, round_difficulty_array
 from app.domain.errors import RoutingError
-from app.domain.evaluation import difficulty_from_cost
+from app.domain.evaluation import StaticEdgeScoreMatrix, build_static_edge_score_matrix, difficulty_from_cost
 from app.domain.hard_filters import compute_hard_filter_excluded, compute_routable_nodes
 from app.domain.leg_costs import LegCostArrays, LegCostComposer, RowValues, material_value_at
 from app.domain.material_catalog import GRADIENT_PERCENT
@@ -54,16 +54,15 @@ from app.domain.geo import (
 )
 from app.domain.graph import LeanEdge, edge_key, node_key, parse_edge_key
 from app.domain.region import BoundingBox, bbox_covering_points
-from app.domain.road_network import RoadSlice, edge_row_of, elevation_attribute
+from app.domain.rain import StationRainMaterials, rain_material_columns
+from app.domain.road_network import RoadSlice, edge_row_of, elevation_attribute, material_arrays_of
 from app.domain.route import (
     Coordinates,
     RouteCandidate,
-    RouteSegment,
     RouteSegmentDetail,
     aggregate_segments_into_bins,
     merge_material_category_shares,
 )
-from app.domain.twilight import is_night
 from app.domain.routing import (
     LazyRoadGraph,
     NodeSpatialIndex,
@@ -97,8 +96,10 @@ from app.domain.wind import (
     kmh_to_ms,
 )
 from app.infrastructure import detour_ratio_cache
+from app.infrastructure.debug_log import log_throttled_warning
 from app.services.graph_service import GraphService
 from app.domain.loop_routing import LoopTurnaround, TracedLoop, candidate_identity
+from app.services.jma_amedas_service import load_station_rain_materials
 from app.services.weather_service import WeatherService
 
 # Road Graphを取得するbboxは、起点・経由地2点の外接矩形にこのマージンを足したもの。
@@ -107,10 +108,9 @@ from app.services.weather_service import WeatherService
 _BBOX_MARGIN_RATIO = 0.3
 _BBOX_MARGIN_MIN_KM = 2.0
 
-# preview_segment（起点・終点2点間の単発経路確認）が使うbboxマージン。
-# ループ探索の_BBOX_MARGIN_MIN_KMと同じ「道なりが直線外接矩形からはみ出る余裕」を
-# 単純な固定値で持たせる（previewは距離が事前に分からないため半径比例のロジックは使えない）。
-_PREVIEW_BBOX_MARGIN_KM = 2.0
+# 経由地ルートのbboxマージン。ループ探索の_BBOX_MARGIN_MIN_KMと同じ「道なりが直線外接矩形から
+# はみ出る余裕」を固定値で持たせる（経由地は起点からの半径に収まるとは限らないため半径比例は使えない）。
+_WAYPOINT_BBOX_MARGIN_KM = 2.0
 
 # --- フロンティア方式の折返し点選定・復路探索のパラメータ ---
 # 復路探索の間、往路Edge（＋同一Node対の逆方向Edge）のコストへ掛ける倍率。infにはしない
@@ -143,12 +143,11 @@ _RING_CENTER_RATIO = (_LOOP_TO_OUTBOUND_RATIO_MIN + _LOOP_TO_OUTBOUND_RATIO_MAX)
 # 一対全探索のコスト上限に掛ける余裕。Edge単位の丸めの積み上がりで上限ぎりぎりのNodeを
 # 取りこぼさないため。
 _COST_LIMIT_SLACK = 1.01
-# 候補選定（`pareto_layer_index`）で「実質同じ」とみなす粒度。距離は往路実距離200m
-# （周回全長では約400m差、体感で選び分ける単位より細かい）、難易度は他の集計値と同じ
-# 小数1桁。細かすぎると互いに非劣解な候補が全件残ってフィルタとして働かず、粗すぎると
-# 候補が減りすぎる。
+# 候補選定（`pareto_layer_index`）で「実質同じ」とみなす距離の粒度。往路実距離200m
+# （周回全長では約400m差、体感で選び分ける単位より細かい）。難易度の粒度は難易度の桁
+# （`DIFFICULTY_QUANTUM`）。細かすぎると互いに非劣解な候補が全件残ってフィルタとして働かず、
+# 粗すぎると候補が減りすぎる。
 _PARETO_DISTANCE_QUANTUM_M = 200.0
-_PARETO_DIFFICULTY_QUANTUM = 0.1
 
 # --- 目的地ルート（via-node方式、経由地無し）の代替経路選定パラメータ ---
 # via-node候補（前向き木＋後ろ向き木の合成経路）の長さが、最も合成コストの低い経路の
@@ -197,7 +196,7 @@ class _RoadGraphContext:
     # 起点のノード番号（`road`の切り出しの番号）。
     origin_node: int
     # 1リクエスト内で繰り返す最寄りNodeの探索（prepareの起点・trace_loopの
-    # 各経由地と目的地・preview_segmentの両端）を都度線形探索せず使い回すための索引
+    # 各経由地と目的地）を都度線形探索せず使い回すための索引
     # （domain/routing.py参照）。
     node_index: NodeSpatialIndex
     # 探索用グラフ（区間は番号、domain/routing.py: LazyRoadGraph参照）。
@@ -213,10 +212,6 @@ class _RoadGraphContext:
     # numpyで1回だけベクトル計算するための、ノード番号順の緯度・経度配列。
     node_lat: np.ndarray
     node_lon: np.ndarray
-    # prepare実行時点で起点が市民薄明の外（夜間）だったかどうか。レグのコスト配列の
-    # 構築時に使った値と同じものを_build_segment_details（表示用difficulty）でも使い、探索コストと
-    # 表示を一致させる（詳細はprepare()参照）。
-    night_active: bool
     # 一対全最短経路木用のCSR構造＋Edge実距離配列（domain/routing.py: SearchGraphStatics参照）。
     statics: SearchGraphStatics
     # 状態＝有向Edge・辺＝ターンの遷移構造（`statics.csr`から導く。起点にもコストにも
@@ -238,11 +233,20 @@ class _RoadGraphContext:
     no_candidates_side: str | None = None
 
 
+def _static_score_matrix(road: RoadSlice, rain: StationRainMaterials | None) -> tuple[StaticEdgeScoreMatrix, int]:
+    """切り出した区間の材料に、区間の中点に最も近い雨量計の観測（雨の材料）を足して静的スコア行列を組む。
+    戻り値の2つ目は雨の材料を引くのにかかった時間（ms）。"""
+    materials = material_arrays_of(road)
+    started = time.monotonic()
+    observed = {} if rain is None else rain_material_columns(rain, materials.mid_lat, materials.mid_lon)
+    rain_ms = round((time.monotonic() - started) * 1000)
+    return build_static_edge_score_matrix(materials, observed), rain_ms
+
+
 @dataclass
 class _SearchGraph:
-    """`prepare`・`preview_segment`共通の「bboxに対する探索用グラフ＋材料一式」。
-    wind/night軸・0次ハードフィルタ等の探索コスト算出ロジックを
-    `_build_search_graph`1箇所にまとめ、ループ探索・単発区間確認の両方で重複させない。
+    """`prepare`が組む「bboxに対する探索用グラフ＋材料一式」。
+    0次ハードフィルタ等の探索コスト算出の組み立ては`_build_search_graph`1箇所にある。
     """
 
     road: RoadSlice
@@ -250,7 +254,6 @@ class _SearchGraph:
     # bboxを覆うタイル集合（学習した迂回率の鍵）。
     tile_set: frozenset[tuple[int, int, int]]
     weather: WeatherConditions | None
-    night_active: bool
     # _RoadGraphContextと同じ意味（フィールドdocstring参照）。`outbound`は基準点（起点側の
     # 座標）から離れていくレグとして合成済みの配列。
     composer: LegCostComposer
@@ -274,7 +277,7 @@ class _TurnaroundData:
 
 class RoadGraphEngine:
     """評価条件は解決済みの値だけを受け取る（既定を持たない）。組み立ては
-    `api/dependencies.py: assemble_route_generation_setup`だけが行う。"""
+    `services/route_generation_setup.py: assemble_route_generation_setup`だけが行う。"""
 
     def __init__(
         self,
@@ -308,47 +311,46 @@ class RoadGraphEngine:
         self._turn_cost = current_turn_cost()
 
     async def _build_search_graph(
-        self, bbox: BoundingBox, wind_and_night_origin: Coordinates, now: datetime
+        self, bbox: BoundingBox, origin: Coordinates, now: datetime
     ) -> _SearchGraph | None:
-        """bboxに対する探索用グラフ（lazy_graph）＋bbox全体ぶんのコスト配列を構築する
-        （`prepare`・`preview_segment`共通）。夜間の判定と、風の時別予報が無いときの風（出発時点の値）は
-        `wind_and_night_origin`（周回ならその起点、区間確認なら起点側の座標）を基準にする
-        ——探索中は到達時刻が未確定のため出発時刻の近似として使う簡略化はどちらの用途でも
-        変わらない（モジュールdocstring参照）。時別予報は`bbox`を覆う格子点ごとに引く。
+        """bboxに対する探索用グラフ（lazy_graph）＋bbox全体ぶんのコスト配列を構築する。
+        風の時別予報が無いときの風（出発時点の値）と、区間を通る時刻の昼夜は`origin`（起点）の地点で決める。
+        時別予報は`bbox`を覆う格子点ごとに引く。
 
-        `GraphService.get_search_slice`が返す`StaticEdgeScoreMatrix`（切り出した区間の静的
-        Edge×公開軸スコア行列）に対し、動的軸（風、`evaluate_dynamic_axis_arrays`）と重み
+        雨の材料は、出発時刻ではなく今の観測（地図の雨と同じ値）。観測の履歴が無い・古いときは欠損のまま組み、
+        雨の材料を読む軸はその生成で「データなし」になる。
+
+        `GraphService.get_search_slice`が切り出した区間の材料と雨の観測から`StaticEdgeScoreMatrix`
+        （静的Edge×公開軸スコア行列）を組み、動的軸（風、`evaluate_dynamic_axis_arrays`）と重み
         ベクトルを適用してコスト配列を**bbox全体ぶん1回だけ**numpyで合成する。探索本体へは
         合成済みのnumpy配列をそのまま渡すだけにする。
         """
         stage_started = time.monotonic()
         built = await self._graph_service.get_search_slice(bbox)
-        materials_ms = round((time.monotonic() - stage_started) * 1000)
+        slice_ms = round((time.monotonic() - stage_started) * 1000)
         if built is None:
             return None
-        road, score_matrix, tile_set = built
+        road, tile_set = built
         if road.edge_count == 0:
             return None
 
         weather_started = time.monotonic()
-        weather = await self._weather_service.get_conditions(wind_and_night_origin)
+        weather = await self._weather_service.get_conditions(origin)
         # 探索範囲を覆う格子点ごとの時別風予報（MSMのローカルファイルから読む。外部API呼び出しは無い）。
         wind_series = await self._weather_service.get_wind_forecast_lattice(bbox)
+        rain = await load_station_rain_materials(datetime.now(JST))
         weather_ms = round((time.monotonic() - weather_started) * 1000)
+        if rain is None:
+            log_throttled_warning("engine:rain-materials", "雨の観測の履歴が無いか古いため、雨の材料を欠損として探索範囲を組む")
+
+        materials_started = time.monotonic()
+        score_matrix, rain_ms = await asyncio.to_thread(_static_score_matrix, road, rain)
+        materials_ms = round((time.monotonic() - materials_started) * 1000)
         # 通過予定時刻の基準（出発時刻）。時別系列はJSTのローカル時刻のため揃える。
         start = now.astimezone(JST).replace(tzinfo=None)
-        # 時間帯依存軸（time_scope="night_only"）の動的化。区間ごとの到達時刻は探索中は未確定の
-        # ため（風と同じモジュールdocstringの制約）、出発地点の座標・呼び出し時点を出発時刻の
-        # 近似として採用し、起点が市民薄明の外（夜間）ならnight_only軸の重みをそのまま、日中なら
-        # 0倍にしたRoutePreferenceのコピーを探索コストへ渡す（self._route_preference自体は
-        # 書き換えない、リクエスト間で共有される状態のため）。
-        night_active = is_night(wind_and_night_origin, now)
 
         # --- bbox全体ぶんのコスト配列の合成（レグごと。まず起点から離れる往路レグ） ---
         cost_started = time.monotonic()
-        active_scopes = frozenset({"night_only"}) if night_active else frozenset()
-        preference = self._route_preference.with_time_scope(active_scopes)
-        weights = preference.weights
         hard_filter_excluded = compute_hard_filter_excluded(
             score_matrix.hard_filter_flags,
             score_matrix.gradient_percent, self._hard_filters, self._max_average_grade_percent,
@@ -361,11 +363,12 @@ class RoadGraphEngine:
         # 迂回率は同じ探索範囲で前回の往路木から学習した値があればそれを使う（無ければ既定値）。
         learned_detour_ratio = detour_ratio_cache.get_detour_ratio(tile_set)
         composer = LegCostComposer(
-            score_matrix, weights, self._penalty_strength, hard_filter_excluded, weather, wind_series,
-            start, self._assumed_speed_kmh, lazy_graph.edge_rows,
+            score_matrix, self._route_preference.weights, self._penalty_strength, hard_filter_excluded, weather,
+            wind_series, start, self._assumed_speed_kmh, lazy_graph.edge_rows,
             detour_ratio=learned_detour_ratio if learned_detour_ratio is not None else ROUTE_DETOUR_RATIO,
+            twilight_origin=origin,
         )
-        outbound = composer.compose("outbound", wind_and_night_origin, 0.0, +1)
+        outbound = composer.compose("outbound", origin, 0.0, +1)
         cost_ms = round((time.monotonic() - cost_started) * 1000) - graph_ms
         # 重み付き軸がすべてNaNのEdge比率（探索コストはbbox内平均difficultyで補完される。
         # 実際の発生頻度を把握するためのサマリ）。
@@ -376,10 +379,11 @@ class RoadGraphEngine:
 
         total_ms = round((time.monotonic() - stage_started) * 1000)
         logger.info(
-            "_build_search_graph edges=%d nodes=%d materials_ms=%d weather_ms=%d cost_ms=%d graph_ms=%d "
-            "total_ms=%d wind_time_varying=%s speed_kmh=%.1f detour_ratio=%.2f(%s) "
+            "_build_search_graph edges=%d nodes=%d slice_ms=%d weather_ms=%d materials_ms=%d rain_ms=%d cost_ms=%d "
+            "graph_ms=%d total_ms=%d rain_hour=%s time_varying=%s speed_kmh=%.1f detour_ratio=%.2f(%s) "
             "missing_axis_edges=%d missing_axis_distance_ratio=%.3f",
-            road.edge_count, road.node_count, materials_ms, weather_ms, cost_ms, graph_ms, total_ms,
+            road.edge_count, road.node_count, slice_ms, weather_ms, materials_ms, rain_ms, cost_ms, graph_ms, total_ms,
+            "none" if rain is None else rain.latest_hour.strftime("%Y-%m-%dT%H"),
             composer.time_varying, self._assumed_speed_kmh, composer.detour_ratio,
             "learned" if learned_detour_ratio is not None else "default",
             int(missing_axis_mask.sum()), missing_axis_distance_ratio,
@@ -390,7 +394,6 @@ class RoadGraphEngine:
             lazy_graph=lazy_graph,
             tile_set=tile_set,
             weather=weather,
-            night_active=night_active,
             composer=composer,
             outbound=outbound,
             node_lat=road.node_lat,
@@ -401,7 +404,7 @@ class RoadGraphEngine:
     async def _build_search_structures(
         self, search: _SearchGraph
     ) -> tuple[NodeSpatialIndex, SearchGraphStatics, TurnExpandedStructure]:
-        """最寄りNodeの索引・CSR・ターン構造を組む（`prepare`・`preview_segment`共通）。
+        """最寄りNodeの索引・CSR・ターン構造を組む。
 
         索引の候補は実際に経路探索可能な（Hard Constraint通過後も区間が1本以上残る）Nodeに
         絞る。絞らないと、幹線道路（highway=trunk等）にしか接続していない地理的最近傍Node
@@ -443,15 +446,13 @@ class RoadGraphEngine:
         origin: Coordinates,
         radius_km: float,
         now: datetime,
-        waypoints: list[Coordinates] | None = None,
+        waypoints: list[Coordinates] | None,
     ) -> _RoadGraphContext | None:
-        # nowは出発時刻。night軸判定にも使う（wind同様、探索中は到達時刻が未確定のため
-        # 出発時刻を近似として使う簡略化、詳細は_build_search_graph参照）。
+        # nowは出発時刻。区間ごとの通過時刻（風・昼夜）はここからの経過で決まる。
         if waypoints:
             # ユーザー指定の経由地は起点から半径radius_km以内とは限らない
-            # ため、周回探索の円を覆う矩形ではなく、preview_segmentと
-            # 同じ「複数点の外接矩形+固定マージン」を使う。
-            bbox = bbox_covering_points([origin, *waypoints], _PREVIEW_BBOX_MARGIN_KM)
+            # ため、周回探索の円を覆う矩形ではなく、複数点の外接矩形+固定マージンを使う。
+            bbox = bbox_covering_points([origin, *waypoints], _WAYPOINT_BBOX_MARGIN_KM)
         else:
             # 起点を中心とした円を覆う矩形。折返し点がどの方位に選ばれても、この1回の取得で足りる。
             margin_km = max(_BBOX_MARGIN_MIN_KM, radius_km * _BBOX_MARGIN_RATIO)
@@ -476,58 +477,10 @@ class RoadGraphEngine:
             origin=origin,
             node_lat=search.node_lat,
             node_lon=search.node_lon,
-            night_active=search.night_active,
             statics=statics,
             turn_structure=turn_structure,
             tile_set=search.tile_set,
         )
-
-    async def preview_segment(
-        self, origin: Coordinates, destination: Coordinates, now: datetime | None = None
-    ) -> RouteSegment | None:
-        """起点・終点2点間の単発区間確認（`/api/routes/preview`）。
-
-        1回の最短経路探索のみを行う。探索コストは生成と同じ評価軸重み付きを使う——単純
-        最短距離にすると、ここで見える経路と生成が返す経路が食い違う。
-
-        経路が見つからない場合はNone。
-        """
-        now = now or datetime.now(timezone.utc)
-        bbox = bbox_covering_points([origin, destination], _PREVIEW_BBOX_MARGIN_KM)
-
-        search = await self._build_search_graph(bbox, origin, now)
-        if search is None:
-            return None
-        node_index, statics, turn_structure = await self._build_search_structures(search)
-        origin_node = find_nearest_node_indexed(node_index, origin)
-        destination_node = find_nearest_node_indexed(node_index, destination)
-        if origin_node is None or destination_node is None:
-            return None
-
-        edges = await asyncio.to_thread(
-            turn_expanded_shortest_path,
-            turn_structure, search.outbound.cost_lazy,
-            _heuristic_seconds(_estimate_distances_m(search.node_lat, search.node_lon, destination_node)),
-            _origin_states(statics, origin_node),
-            destination_node,
-            search.outbound.travel_seconds_lazy,
-        )
-        if not edges:
-            return None
-
-        # 探索用グラフの区間は形を持たないため、この経路ぶんだけ取り直す。
-        # 渡すのはidではなく枝そのもの——取り直しは道と区間の番号で引くため。
-        topology = [_lean_edge(search.road, search.lazy_graph, index) for index in edges]
-        hydrated = await self._graph_service.get_edges_with_geometry(topology)
-        edges_in_path: list[LeanEdge] = [hydrated[edge.edge_id] for edge in topology]
-
-        distance_km = round(sum(edge.distance_m for edge in edges_in_path) / 1000, 2)
-        geometry, _ = _concat_edge_geometries(edges_in_path)
-        # ここだけは走行モデル（勾配・風・路面で速度が変わる）を通さず、仮定巡航速度の
-        # ままで概算する。区間の疎通確認が用途で、探索を経ずEdge列の長さしか持たないため。
-        duration_minutes = round(distance_km / self._assumed_speed_kmh * 60, 1)
-
-        return RouteSegment(distance_km=distance_km, duration_minutes=duration_minutes, geometry=geometry)
 
     async def trace_loop(
         self,
@@ -690,7 +643,7 @@ class RoadGraphEngine:
         )
         context.legs = [context.legs[0], inbound]
         difficulty = difficulty_from_cost(tree.node_cost[ring], tree.node_seconds[ring], self._penalty_strength)
-        difficulty_key = np.round(difficulty, 1)
+        difficulty_key = round_difficulty_array(difficulty)
         closeness_key = np.abs(ring_length - ring_center_m)
         # 「リング中心からのずれ」「往路difficulty」の2指標で非優越ソートし、パレート層の
         # 順に並べる。難易度だけで並べると、難易度が距離加重「平均」であるために遠回りして
@@ -702,7 +655,7 @@ class RoadGraphEngine:
         # 短すぎる往路（起点のすぐ近くで折り返す周回）も長すぎる往路も対称に扱われる。
         pareto_layer = pareto_layer_index(
             closeness_key, difficulty,
-            quantum_a=_PARETO_DISTANCE_QUANTUM_M, quantum_b=_PARETO_DIFFICULTY_QUANTUM,
+            quantum_a=_PARETO_DISTANCE_QUANTUM_M, quantum_b=DIFFICULTY_QUANTUM,
             max_items=pool_size,
         )
         # 層に入らなかった候補（-1）は難易度順で最後尾へ回す。
@@ -950,14 +903,14 @@ class RoadGraphEngine:
         candidates = np.flatnonzero(within_stretch)
 
         difficulty = difficulty_from_cost(combined_cost[candidates], combined_seconds[candidates], self._penalty_strength)
-        difficulty_key = np.round(difficulty, 1)
+        difficulty_key = round_difficulty_array(difficulty)
         # 周回の折返し点選定と同じく、経路長・difficultyのパレート非劣解を先に並べる
         # （難易度は距離加重平均のため、遠回りするほど下がる。目的地ルートは目標距離を
         # 持たず_ALTERNATIVE_MAX_STRETCH倍以内という上限だけが効くぶん、難易度単独で
         # 並べると伸び率上限いっぱいの遠回りが上位を占めやすい）。
         pareto_layer = pareto_layer_index(
             combined_length[candidates], difficulty,
-            quantum_a=_PARETO_DISTANCE_QUANTUM_M, quantum_b=_PARETO_DIFFICULTY_QUANTUM,
+            quantum_a=_PARETO_DISTANCE_QUANTUM_M, quantum_b=DIFFICULTY_QUANTUM,
             max_items=max_routes,
         )
         layer_key = np.where(pareto_layer >= 0, pareto_layer, np.iinfo(np.int32).max)
@@ -1147,7 +1100,7 @@ class RoadGraphEngine:
         return TracedLoop(bearing=turnaround.bearing, distance_km=distance_km, data=path, leg_of_edge=leg_of_edge)
 
     def build_traced_from_edge_ids(
-        self, context: _RoadGraphContext, edge_ids: list[str], destination: Coordinates | None = None,
+        self, context: _RoadGraphContext, edge_ids: tuple[str, *tuple[str, ...]], destination: Coordinates,
     ) -> TracedLoop:
         """クライアントが組み立てたEdge id列を、評価できる経路として検証して`TracedLoop`にする。
 
@@ -1156,10 +1109,9 @@ class RoadGraphEngine:
         起点から始まり・目的地へ着く**ことをここで確かめる（送られた列をそのまま信じると、
         評価は成功するのに経路として成立しないルートが候補一覧へ並ぶ）。
 
-        終点は`destination`を渡したときだけ見る。起点と同じ`find_nearest_node_indexed`で
-        解くため、比べる相手は元の候補が実際に終わったNodeになる——目的地がメインの
-        道路網から孤立していて補正した場合も、補正後の地点が条件として返っており、合成も
-        その地点で送られてくる。
+        終点は起点と同じ`find_nearest_node_indexed`で解くため、比べる相手は元の候補が
+        実際に終わったNodeになる——目的地がメインの道路網から孤立していて補正した場合も、
+        補正後の地点が条件として返っており、合成もその地点で送られてくる。
 
         レグはこの経路自身の距離の半分で切る。合成経路はvia-nodeを持たないため前向き木・
         後ろ向き木の境目が無く、レグが表す「走り始めの時刻帯／走り終わりの時刻帯」の
@@ -1167,8 +1119,6 @@ class RoadGraphEngine:
         `context.legs`へ用意する**——`prepare`が作るのは往路レグだけで、復路レグは探索
         （折返し点の選定・経由Nodeの選定）が作る。合成経路はどちらの探索も通らない。
         """
-        if not edge_ids:
-            raise RoutingError("経路が空です")
         resolved = [_lazy_index_of(context, edge_id) for edge_id in edge_ids]
         unknown = [edge_id for edge_id, index in zip(edge_ids, resolved, strict=True) if index is None]
         if unknown:
@@ -1190,13 +1140,12 @@ class RoadGraphEngine:
                     f"経路がつながっていません index={index} to_node={_node_key_of(context.road, head)} "
                     f"next_from_node={_node_key_of(context.road, following_tail)}"
                 )
-        if destination is not None:
-            destination_node = find_nearest_node_indexed(context.node_index, destination)
-            if destination_node is not None and heads[-1] != destination_node:
-                raise RoutingError(
-                    f"経路が目的地に着いていません expected={_node_key_of(context.road, destination_node)} "
-                    f"actual={_node_key_of(context.road, heads[-1])}"
-                )
+        destination_node = find_nearest_node_indexed(context.node_index, destination)
+        if destination_node is not None and heads[-1] != destination_node:
+            raise RoutingError(
+                f"経路が目的地に着いていません expected={_node_key_of(context.road, destination_node)} "
+                f"actual={_node_key_of(context.road, heads[-1])}"
+            )
 
         lengths = context.statics.edge_length_m[path].tolist()
         total_m = sum(lengths)
@@ -1776,26 +1725,6 @@ def _reverse_traced_edges(
     return reverse_edges, reverse_path
 
 
-def _reverse_elevation_attribute(forward: ElevationAttribute, reverse_edge_id: str) -> ElevationAttribute:
-    """順方向のElevationAttributeから、同じ物理的な地形を逆方向に走った場合の値を
-    代数的に導出する。標高は地形の物理量で進行方向に依存しないため、
-    この変換は厳密に正しい: 獲得標高↔喪失標高の入れ替え、始点/終点標高の入れ替え、
-    平均勾配の符号反転、最大/最小勾配の符号反転＋入れ替え（domain/attributes.py:
-    elevation_values_sqlが区間の頂点列を進行方向の順で積算するため、逆順に
-    辿ると各区間のdiff＝勾配の符号がすべて反転し、max/minも入れ替わる）。
-    """
-    return ElevationAttribute(
-        edge_id=reverse_edge_id,
-        start_elevation_m=forward.end_elevation_m,
-        end_elevation_m=forward.start_elevation_m,
-        elevation_gain_m=forward.elevation_loss_m,
-        elevation_loss_m=forward.elevation_gain_m,
-        average_grade=-forward.average_grade if forward.average_grade is not None else None,
-        max_grade=-forward.min_grade if forward.min_grade is not None else None,
-        min_grade=-forward.max_grade if forward.max_grade is not None else None,
-    )
-
-
 def _reverse_elevation_by_edge(
     edges_in_path: list[LeanEdge],
     reverse_edges: list[LeanEdge],
@@ -1809,7 +1738,7 @@ def _reverse_elevation_by_edge(
     for forward_edge, reverse_edge in zip(reversed(edges_in_path), reverse_edges):
         forward_attribute = elevation_by_edge.get(forward_edge.edge_id)
         if forward_attribute is not None:
-            result[reverse_edge.edge_id] = _reverse_elevation_attribute(forward_attribute, reverse_edge.edge_id)
+            result[reverse_edge.edge_id] = forward_attribute.reversed_as(reverse_edge.edge_id)
     return result
 
 

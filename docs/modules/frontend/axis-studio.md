@@ -29,13 +29,15 @@ APIを呼ぶ）・「データ保守」タブ（派生データ鮮度台帳の�
 | `features/admin/AxisStudio/MaterialRangeHint.tsx` | 材料選択行の下に、その材料が実データで取る値の分位（p50/p75/p90）を出す1行表示 |
 | `features/admin/adminApi.ts` | 管理画面のAPIクライアントをまとめたもの。管理API（backend `/api/admin/**`）は`lib/apiClient.ts: adminApiClient`で同一オリジンの口`/admin/api/**`へ投げ、backendのパスの`/api/admin`より後をそのまま使う（例: backend `GET /api/admin/db-status`は`/admin/api/db-status`）。パス・本文・応答の型は管理APIの宣言から決まり、宣言に無いパスは型検査で落ちる（[ページ全体構成](page-composition.md)）。待ち時間は呼び出しごとに決める（全表走査の集計は`HEAVY_ADMIN_API_TIMEOUT_MS`、分布は`DISTRIBUTION_API_TIMEOUT_MS`）。稼働状況の口（`/health`・`/api/debug/stats`・`/api/version`）も同じファイルに置く |
 | `app/admin/api/[...path]/route.ts` | 管理APIの転送の口。`/admin/api/<X>`への要求を、サーバーの環境変数から組み立てたBasic認証を付けてbackendの`/api/admin/<X>`へ、メソッド・クエリ・本文・応答の状態と本文ごとそのまま渡す。転送の待ち時間はどのクライアントよりも長く取り（`ADMIN_PROXY_TIMEOUT_MS`）、打ち切りはクライアントに任せる |
+| `proxy.ts` | `/admin`配下（画面と管理APIへの転送の口）の手前のBasic認証。ファイル名と`config.matcher`はNext.jsの規約で、`matcher`が認証を求める道を決める。資格情報が未設定なら、どの要求も拒む |
+| `lib/adminBasicAuth.ts` | Basic認証の資格情報を環境変数から読む口。片方でも空なら未設定（`null`）とし、`proxy.ts`と転送の口が同じ結果を見る |
 | `features/admin/useSettledDraftQuery.ts` | 下書きから組んだ問い合わせの骨格（入力をJSONにして取得の鍵にし、落ち着いてから問い合わせ、今の入力と違う答えは出さない）。答えと一緒に、今の入力の問い合わせが失敗したかを返す（届く前と失敗はどちらも答えが無いため、呼ぶ側が分けて出せるように）。backendが判定・計算を持ち、画面は下書きを送るだけの取得（例: `useScoresPreview`・`useMapBandsOfThresholds`）が使う |
 | `features/admin/useScoresPreview.ts` | 下書きの折れ点で、分布の階級の代表値と材料の参考点がそれぞれ何点になるか（参考点は折れ点の横軸の値も）を取得する（下書きが落ち着いてから問い合わせる。入力を変えた直後・失敗時は点数なしで、失敗したことも返す） |
 | `features/admin/useMapBandsOfThresholds.ts` | 下書きのしきい値が地図でどの段になるか（段にならない値・地図の各段に当たる入力の段）を取得する（下書きが落ち着いてから問い合わせる。失敗時は判定なしで、失敗したことも返す） |
 | `features/admin/useAxisValueDistribution.ts` | 編集中のshapeの生値分布を取得。取得キーに折れ点を含めないため、折れ点のドラッグ中は通信しない。取り直している間は前の分布を出したまま読み込み中にする |
 | `features/admin/useMaterialDistribution.ts` | 材料1件の値の分布を取得。同じ材料を複数行が選んでも、画面を開いている間に取りに行くのは1回（取れなかったことも覚える） |
 | `features/admin/AxisStudio/breakpointTools.ts` | 折れ点の自動生成・区分線形補間・追加位置決定・ドラッグスナップ刻み幅算出（DOM非依存の純粋関数、`AxisComposer.tsx`が使う） |
-| `features/admin/AxisStudio/MaterialCoveragePanel.tsx` | 「材料」タブ本体。材料ごとの欠損割合を「欠損時の扱い」でグループに分けた表（各グループ内は欠損割合降順）と集計対象外材料の理由一覧。グループの見出し・説明と母集団の名前はbackendの宣言（`material_catalog.py`の`MISSING_SEMANTICS_DISPLAY`・`POPULATION_LABELS`）が生成物`vocabulary.ts`で配る |
+| `features/admin/AxisStudio/MaterialCoveragePanel.tsx` | 「材料」タブ本体。材料ごとの欠損割合を「欠損時の扱い」でグループに分けた表（各グループ内は欠損割合降順）と集計対象外材料の理由一覧。グループの見出し・説明と母集団の名前はbackendの宣言（`domain/material_catalog.py: MISSING_SEMANTICS_DISPLAY`・`domain/material_catalog.py: POPULATION_LABELS`）が生成物`vocabulary.ts`で配る |
 | `features/admin/AxisStudio/DerivedDataFreshnessPanel.tsx` | 「データ保守」タブ本体。派生テーブルごとに、鮮度（最新取込runと反映済み最古run）・被覆（親に対して行が無い件数）・完成度（値の列の未計算件数）を1行へまとめて表示。対象の表・列はbackendが宣言から導く（`source_run_id`を持つ表が派生データ）。作り直しが要るかもbackendが決め（`needs_rebuild`）、画面は理由を問わずそれで数える |
 | `features/admin/AxisStudio/DbStatusPanel.tsx` | 「データ保守」タブ・本番DBの状態。取込runの最終実行・テーブルの実数と容量・統計とVACUUMの鮮度・接続を1件1行で出す |
 | `features/admin/AxisStudio/StatusRowList.tsx` | 上記2パネルが共有する点検の行の一覧（状態の丸・名前・規模、開くと項目と値）と、結果の一言（手当てが要れば目立たせる） |
@@ -74,7 +76,7 @@ listAxisDefinitions() ──→ definitions（全軸）
 ヒストグラムを返す。DBから抽選して集計する重い問い合わせなので、取得のキー（`useAxisValueDistribution`の
 `termsKey`）に折れ点を含めず、折れ点を動かしても取り直さない。各階級の代表値（中央、`binMidpoints`）の
 点数は、DBを読まない軽い口（`preview-scores`）へ折れ点が落ち着くたびに問い合わせる（`useScoresPreview`）。
-点数の計算は評価と同じ1か所（`BreakpointLinearShape.score_at`）で、画面は届いた点数を帯へまとめる
+点数の計算は評価と同じ1か所（`domain/axis_definitions.py: BreakpointLinearShape.score_at`）で、画面は届いた点数を帯へまとめる
 （`scoreDistribution.ts: scoreBands`）だけ——画面で計算し直すと、同じ折れ点に評価と画面で別の点数が付きうる。
 
 抽選した道が1本も値を持たない（`sample_ways=0`）ときは、全帯0%のバーではなく理由を言葉で
@@ -102,6 +104,10 @@ listAxisDefinitions() ──→ definitions（全軸）
 一度下書きへ戻す必要がある。「調整する」ボタンはその手順（非公開化→編集→保存時に再公開）を
 1操作に畳む。編集を中断した場合は下書きのまま残るため、**その事実を必ず知らせる**
 （黙って非公開になると一般ユーザー向けの軸カタログから消えたことに気づけない）。
+
+**赤（誤りの色）は、操作・保存・取得が失敗したときだけに使う。** 失敗ではない知らせ（例: 中断して下書きのまま
+残った・地図では効かない値がある）は、注意の色（`ui/Callout`の`warning`。
+得点分布の警告と同じ）で出す——赤で出すと、操作が通ったのに失敗したと読める。
 材料・計算式を変えない表示専用の編集は従来どおり「表示だけ編集」を使う。
 
 **暗黙の前提**: 中断の通知を出すかは`closeComposer(republished)`の**引数**で決める。
@@ -116,6 +122,10 @@ listAxisDefinitions() ──→ definitions（全軸）
 - 削除できるか（ほかの軸が参照している軸・最後の1軸は消せない）は画面で判定しない。backendが
   起動時の読み込みと同じ判定で断り（[軸スタジオ（backend）](../backend/axis-studio.md)「書き込み時のガード」）、
   画面はその理由を一覧の上の誤りとしてそのまま出す。
+- 「削除」は押しただけでは消さず、確認（`components/ui/Dialog`）で「削除する」を押したときだけ
+  削除のAPIを呼ぶ。消した軸を戻す手段が無く、下書きには折れ点を実データで調整した手間が入って
+  いるため、同じ行に並ぶ「編集」「複製して新規作成」との押し間違いで失わせない。確認は消せるかを
+  判定しない（判定は上のとおりbackendが持ち、断られたら確認を閉じたあと一覧の上に理由が出る）。
 - 一覧サマリ行（`renderRowMain`）は各軸が使う材料id/軸idの両方を`labelForMaterialOrAxis`で
   人間向けラベルへ解決する。まずこの軸一覧内に該当する軸id（内部軸階層、他axis_idを
   材料として参照するケース）が無いか探し、あればその`label`を優先する。無ければ
@@ -258,8 +268,8 @@ default_weight等）は`draftFromExisting`が読み込んだ既存値のまま�
 - `BreakpointCurveEditor`（`BreakpointCurveEditor.tsx`）: SVGでbreakpointsをドラッグ・
   矢印キー調整できる曲線プレビュー。
   同じ`draft.breakpoints` stateを数値入力行と共有し、常に同期する。`referenceRange`
-  （参考点の値域）を渡すとその範囲＋10%余白へ横軸を固定する——参考点が無い材料は
-  従来どおりbreakpoints自体の値から自動スケールする。目盛り線・ドラッグ中の値ラベル
+  （参考点の値域）があればその範囲＋10%余白へ横軸を固定する——参考点が無い材料
+  （`referenceRange`がundefined）はbreakpoints自体の値から自動スケールする。目盛り線・ドラッグ中の値ラベル
   （フォーカス中の点の上に表示）・矢印キーでの微調整（Shift併用で10倍刻み）を持つ。
 - `SliderNumberField`（`AxisFormFields.tsx`）: 係数・スコアをスライダー（大まかな目安）＋数値入力（正確な値）の
   組み合わせで編集する。スライダーの範囲は材料ごとに大きく異なる値の目安にすぎず、
@@ -325,7 +335,7 @@ backend `GET /api/admin/derived-data/freshness`の
   「派生データの作り直し」）を置く。**行ごとにバッチ名を散らさない**——古い理由がどれであっても利用者が
   打つのは同じ1コマンドのため。本番で打つ形（本番VMのパス・コンテナ名）は運用の知識なので画面に持たない。
 - 一覧は鮮度（世代比較）・被覆・完成度を**同じ見た目の1行**へ揃える
-  （`rowsFromReport`が表ごとの`tables`を`FreshnessRow`へ写す）。読み手が知りたいのは「作り直しが要るか」で
+  （`rowsFromReport`が表ごとの`tables`を`StatusRowList.tsx: StatusRow`へ写す）。読み手が知りたいのは「作り直しが要るか」で
   あり、判定方式の違いは開いた先に書けばよい。run番号・版数・担当バッチ・判定の但し書きは
   `<details>`の中で、タップしたときだけ出す。
 - **表（`<table>`）を使わない。** 列を横に並べるとモバイルでは横スクロールの中へ数字が隠れ、
@@ -365,7 +375,8 @@ backend `POST /api/admin/basemap/refresh`を呼び、
 入口を持たないことが、`/`側の「地図の表示を再描画」ボタン（押した人の地図インスタンス
 だけを組み直す純粋なクライアント操作）と分かれている理由。押しても管理者自身の画面は
 変わらない（この画面は地図を持たない）ため、消したこと自体と、各利用者へ反映されるのが
-既存タイルの`Cache-Control`（基礎地図は10分）が切れた後であることを結果表示で伝える。
+既存タイルの`Cache-Control`が切れた後であることを結果表示で伝える（基礎地図の時間は生成物`refresh-intervals.json`の
+`basemap_browser_cache_seconds`。backendの`api/cache_policy.py: BASEMAP`から出る）。
 
 ## 材料説明ポップオーバー
 
@@ -424,7 +435,8 @@ backend `POST /api/admin/basemap/refresh`を呼び、
 下書きの値が黙って保存されることはない。
 
 入力した内容は`renderBandPreview`がその場で段階の並びとして描く。段階ラベルの組み立ては
-地図の凡例と同じ`mapColorLegend.ts: buildRangeLegendBands`を通し、色は親（`AxisStudio`）が
+地図の凡例と同じ`mapColorLegend.ts: buildRangeLegendBands`を通し（レンジの数字は入力した目盛りで書く。
+地図の凡例は軸カタログの`map_legend`の目盛りで書くため、得点で書く軸では数字が違う）、色は親（`AxisStudio`）が
 軸カタログの分類から決めて渡す（どちらも地図と同じ`bandColorsFor`で、値の種類は軸カタログの
 `map_value.kind`。[地図: 軸・ルート色分け](map-axis-coloring.md)参照）。**軸スタジオ側は
 「その軸がどちらの経路で地図に出るか」の判定を持たない**——カタログの実際の分類を引くため、

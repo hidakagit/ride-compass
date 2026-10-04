@@ -23,13 +23,16 @@ _ORDERED_LIGHTNESS_RANGE = (26.0, 56.0)
 #: 目標の彩度。暗い側の色相によってはsRGBに収まらないので、収まるところまで下げる（`_fit_chroma`）。
 _ORDERED_CHROMA = 45.0
 
-#: 順序を持たない列挙。明度と彩度は1つに固定し、**軸の行へ色相環を等分して配る**——連番の
+#: 順序を持たない列挙。明度と彩度は軸の中で1つに固定し、**軸の行へ色相環を等分して配る**——連番の
 #: 色相を当てると、同じ軸の行どうしが最も見分けにくい隣の色相になる。起点は軸が
-#: `hue_slot`（12分割の枠）で宣言する。この明度・彩度はどの色相でもsRGBに収まる。
+#: `hue_slot`（12分割の枠）で宣言する。
 NOMINAL_HUE_SLOTS = 12
 _NOMINAL_START_HUE_DEG = 255.0
-_NOMINAL_LIGHTNESS = 52.0
 _NOMINAL_CHROMA = 28.0
+#: 明度の段（軸の`tone`）。同時に出る点のレイヤーどうしは色相の起点を変えても色相環の上で
+#: 近い色が残るので、レイヤーごとに明度を変えて離す。暗い段は色相によってsRGBに収まらない
+#: （水色〜青）ので、そこだけ収まるところまで彩度を下げる（`_fit_chroma`）。
+_NOMINAL_LIGHTNESS: dict[str | None, float] = {None: 52.0, "dark": 42.0, "light": _MAX_LIGHTNESS}
 
 
 def _lch_hex(lightness: float, chroma: float, hue_deg: float) -> str:
@@ -75,13 +78,14 @@ def ordered_colors(count: int) -> list[str]:
     ]
 
 
-def nominal_colors(hue_slot: int, count: int) -> list[str]:
-    """順序を持たない列挙の1軸ぶん。起点から色相環を行数で等分する。**同じ起点・同じ行数なら
+def nominal_colors(hue_slot: int, count: int, tone: str | None = None) -> list[str]:
+    """順序を持たない列挙の1軸ぶん。起点から色相環を行数で等分する。**同じ起点・同じ行数・同じ段なら
     常に同じ色**（行を足すと、その軸の色は配り直される）。"""
     if not 0 <= hue_slot < NOMINAL_HUE_SLOTS:
         raise ValueError(f"色相の起点は0〜{NOMINAL_HUE_SLOTS - 1}: {hue_slot}")
     start = _NOMINAL_START_HUE_DEG + (360.0 / NOMINAL_HUE_SLOTS) * hue_slot
-    return [_lch_hex(_NOMINAL_LIGHTNESS, _NOMINAL_CHROMA, start + 360.0 * i / count) for i in range(count)]
+    lightness = _NOMINAL_LIGHTNESS[tone]
+    return [_fit_chroma(lightness, _NOMINAL_CHROMA, start + 360.0 * i / count) for i in range(count)]
 
 
 #: 役割ごとの色。名前は「どこで使うか」ではなく「何を意味するか」で付ける——使い場所で
@@ -110,6 +114,8 @@ SEMANTIC_COLORS: dict[str, str] = {
     # 記号の縁取りと、雷。
     "mark_halo": "rgba(31, 41, 55, 0.85)",
     "mark_stroke": "#ffffff",
+    # 点の角丸四角に載せる絵記号。下地の行の色に対してコントラスト比3:1を割らない。
+    "mark_glyph": "#ffffff",
     "lightning": "#facc15",
     # 基礎地図（OpenFreeMap liberty）の背景色。配信元のスタイルが持つ値の写しで、分類色の
     # 明度の上限（`_MAX_LIGHTNESS`）はこれを基準にする——分類色は地図の上では常にこの地に載る。
@@ -145,14 +151,14 @@ def resolved_display_axes(attr: PrimaryAttributeSpec) -> list[dict]:
         if axis.palette == "ordered":
             colors: list[str | None] = list(ordered_colors(count))
         elif axis.palette == "nominal":
-            colors = list(nominal_colors(axis.hue_slot or 0, count))
+            colors = list(nominal_colors(axis.hue_slot or 0, count, axis.tone))
         else:
             colors = [None] * count
         axes.append(
             {
-                **axis.model_dump(exclude={"categories", "palette", "hue_slot"}),
+                **axis.model_dump(exclude={"categories", "palette", "hue_slot", "tone"}),
                 "categories": [
-                    c.model_dump() if color is None else {**c.model_dump(), "color": color}
+                    c.model_dump(exclude_none=True) if color is None else {**c.model_dump(exclude_none=True), "color": color}
                     for c, color in zip(axis.categories, colors, strict=True)
                 ],
             }

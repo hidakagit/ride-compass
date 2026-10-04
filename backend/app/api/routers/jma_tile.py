@@ -3,23 +3,19 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from typing import Literal
 
 from app.api.cache_policy import IMMUTABLE_TILE, JMA_NOT_YET_DELIVERED, JMA_TARGET_TIMES, JMA_TILE_NOT_FOUND
-from app.api.dependencies import enforce_rate_limit, get_jma_tile_client
+from app.api.dependencies import get_jma_tile_client
+from app.api.rate_limit import enforce_rate_limit
 from app.config import settings
-from app.domain.jma_tile_specs import is_final_absence, source_zoom_for_interpolation
+from app.domain.jma_tile_specs import is_final_absence
 from app.infrastructure.jma_tile_client import (
     EmptyTile,
     JmaTileClient,
     JmaTileNotFoundError,
     is_target_times_path,
 )
-from app.infrastructure.debug_log import log_throttled_warning
 from app.infrastructure.jma_tile_index import JmaTileIndex, get_index
 from app.domain.strict_model import StrictModel
-from app.infrastructure.jma_tile_interpolation import (
-    crop_and_upscale,
-    crop_and_upscale_mvt,
-    parse_tile_path,
-)
+from app.services.jma_tile_interpolation_service import interpolated_tile
 
 router = APIRouter()
 
@@ -32,43 +28,6 @@ router = APIRouter()
 def _cache_control(path: str) -> str:
     policy = JMA_TARGET_TIMES if is_target_times_path(path) else IMMUTABLE_TILE
     return policy.header()
-
-
-async def _interpolated_tile(jma_tile_client: JmaTileClient, path: str) -> tuple[bytes, str] | None:
-    """配信元が実データを持たないズームの要求に対し、親タイルから補間したタイルを返す。
-
-    ラスタ（画像の拡大）・ベクタ（座標の変換）のどちらも対象で、戻り値は内容とContent-Type。
-    対象外（実データがあるズーム・タイル以外のパス）はNone。親タイルの取得は
-    `JmaTileClient.get()`を通すため、Redisキャッシュ・レート制限・上流への秒間上限が
-    そのまま効く。補間した結果は呼び出し元が元のパスのキーでキャッシュへ書き戻す。
-
-    Content-Typeは親タイルのものをそのまま使う（配信元が返す値と揃え、拡張子から
-    推測しない）。
-    """
-    coords = parse_tile_path(path)
-    if coords is None:
-        return None
-    if source_zoom_for_interpolation(coords.element, coords.z) is None:
-        return None
-    parent = await jma_tile_client.get(coords.parent_path())
-    if parent is None or isinstance(parent, EmptyTile):
-        # 親が空なら拡大しても空にしかならない。呼び出し元は上流フェッチへ進み、
-        # そこでも空・404なら404を返す。
-        return None
-    parent_content, parent_content_type = parent
-    try:
-        if coords.ext == "pbf":
-            return crop_and_upscale_mvt(parent_content, coords.quadrant), parent_content_type
-        return crop_and_upscale(parent_content, coords.quadrant), parent_content_type
-    except Exception as exc:  # noqa: BLE001 補間の失敗で地図表示自体を落とさない
-        log_throttled_warning(
-            "jma:tile-interpolation",
-            "JMAタイルの補間に失敗しました path=%s parent=%s error=%r",
-            path,
-            coords.parent_path(),
-            exc,
-        )
-        return None
 
 
 class JmaTileIndexAvailable(JmaTileIndex):
@@ -128,8 +87,9 @@ async def jma_tile_proxy(
         )
     enforce_rate_limit(request, "jma-tile", settings.jma_tile_rate_limit_per_minute)
     # 配信元が実データを持たないズームは、上流へ問い合わせても空タイルしか返らない。
-    # 親タイルから補間したものを、元のパスのキーでキャッシュへ書き戻して返す。
-    interpolated = await _interpolated_tile(jma_tile_client, path)
+    # 親タイルから補間したものを、元のパスのキーでキャッシュへ書き戻して返す。補間できなければ
+    # 上流フェッチへ進み、そこでも空・404なら404を返す。
+    interpolated = await interpolated_tile(jma_tile_client, path)
     if interpolated is not None:
         content, content_type = interpolated
         await jma_tile_client.store(path, content, content_type)

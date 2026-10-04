@@ -2,25 +2,14 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { getAxisCatalog } from "@/services/axisCatalogApi";
-import { setTileVersions } from "@/services/regionApi";
 import { axisCatalogFromResponse, EMPTY_CATALOG, type AxisCatalog } from "@/lib/axisCatalog";
 import { getQueryClient } from "@/lib/queryClient";
+import type { FetchFailure } from "@/types/fetchFailure";
+import type { AxisCatalogResponse } from "@/types/route";
 
 const AXIS_CATALOG_QUERY_KEY = ["axis-catalog"] as const;
 
 const FAILED_CATALOG: AxisCatalog = { ...EMPTY_CATALOG, failed: true };
-
-async function fetchAxisCatalog(): Promise<AxisCatalog> {
-  const response = await getAxisCatalog();
-  // タイルの世代は地図のソースのURLに入るため、カタログより先に渡す。
-  setTileVersions(response.tile_versions);
-  return axisCatalogFromResponse(
-    response.axes,
-    response.material_runtime_scales,
-    response.client_tuning,
-    response.accident_years,
-  );
-}
 
 /** 軸カタログの取得をやり直す（`failed`状態からの明示的な再試行導線用）。
  * 既に成功していれば何もしない。再取得中は`failed`を下ろし、UIが「取得中」へ戻る。 */
@@ -30,16 +19,42 @@ export function retryAxisCatalogFetch(): void {
   void client.refetchQueries({ queryKey: AXIS_CATALOG_QUERY_KEY });
 }
 
-/** 軸カタログ。マウントのたびに取り、軸スタジオで公開した軸を再デプロイなしに反映する。届くまで・失敗したときは
- * 軸0件のカタログを返す（`loaded`・`failed`で見分ける）。一度届いたカタログは、後の取得の失敗で巻き戻さない。
+const AXIS_CATALOG_FETCH_FAILURE: FetchFailure = {
+  id: "axis-catalog",
+  label: "軸一覧",
+  effect:
+    "地図の道路・スポット・事故を表示できません。ルートは重み配分を変えていても反映できず、既定の配分で作ります。ルートの合成も使えません。",
+  onRetry: retryAxisCatalogFetch,
+};
+
+/** 軸カタログが取れていないことの常設ヘッダーの印の項目（取れていれば・取得中なら無い）。 */
+export function axisCatalogFetchFailure(catalog: AxisCatalog): FetchFailure | null {
+  return catalog.failed ? AXIS_CATALOG_FETCH_FAILURE : null;
+}
+
+/** 軸カタログの応答から、読み手の用途の形を導いて返す。取得は読み手の間で1つを共有し、形は読み手が決める
+ * （1つの機能だけが読む形は、その機能が`select`を持つ）。マウントのたびに取り、軸スタジオで公開した軸を再デプロイ
+ * なしに反映する。一度届いた応答は、後の取得の失敗で巻き戻さない。
+ *
+ * `select`はモジュールの関数を渡す——参照が変わるたびに導き直す。届くまで・失敗の間は`data`が`undefined`で、
+ * `failed`は取得を試みて失敗し、まだ一度も成功していないことを表す。 */
+export function useAxisCatalogSelect<T>(select: (response: AxisCatalogResponse) => T): {
+  data: T | undefined;
+  failed: boolean;
+} {
+  const { data, isError, isFetching } = useQuery(
+    // 読み手が一時いなくなっても捨てない（捨てると、次にマウントした部品が軸0件から始まる）。
+    { queryKey: AXIS_CATALOG_QUERY_KEY, queryFn: getAxisCatalog, gcTime: Infinity, select },
+    getQueryClient(),
+  );
+  return { data, failed: data === undefined && isError && !isFetching };
+}
+
+/** 軸カタログ。届くまで・失敗したときは軸0件のカタログを返す（`loaded`・`failed`で見分ける）。
  * **重みを送るような「今の公開軸と一致していなければならない」処理は`loaded`を確かめる**——届く前の空の一覧で
  * 送ると、公開軸と食い違う重みになる。 */
 export function useAxisCatalog(): AxisCatalog {
-  const { data, isError, isFetching } = useQuery(
-    // 読み手が一時いなくなっても捨てない（捨てると、次にマウントした部品が軸0件から始まる）。
-    { queryKey: AXIS_CATALOG_QUERY_KEY, queryFn: fetchAxisCatalog, gcTime: Infinity },
-    getQueryClient(),
-  );
+  const { data, failed } = useAxisCatalogSelect(axisCatalogFromResponse);
   if (data !== undefined) return data;
-  return isError && !isFetching ? FAILED_CATALOG : EMPTY_CATALOG;
+  return failed ? FAILED_CATALOG : EMPTY_CATALOG;
 }

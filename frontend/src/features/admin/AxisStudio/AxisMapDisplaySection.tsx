@@ -12,7 +12,7 @@ import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import { FieldLabel } from "@/components/ui/FieldLabel/FieldLabel";
 import type { AxisDefinitionResponse } from "@/types/route";
 import { InfoPopoverButton, SectionLabel } from "./AxisFormFields";
-import { NO_MAP_BANDS_JUDGEMENT, type MapBandsJudgement } from "@/features/admin/useMapBandsOfThresholds";
+import type { MapBandsJudgement } from "@/features/admin/useMapBandsOfThresholds";
 import {
   bandLabelsOnMap,
   formatThresholdList,
@@ -24,6 +24,7 @@ import {
 import { Button } from "@/components/ui/Button/Button";
 import { Input, Select, Textarea } from "@/components/ui/Input/Input";
 import { textVariants } from "@/components/ui/Text/Text";
+import { calloutVariants } from "@/components/ui/Callout/Callout";
 import { cn } from "@/lib/cn";
 import { cardVariants } from "@/components/ui/Card/Card";
 import { fieldClass } from "@/components/ui/Input/Input";
@@ -40,12 +41,12 @@ interface AxisMapDisplaySectionProps {
   restrictedDisplayOnly: boolean;
   /** 「調整する」で一時的に下書きへ戻した軸か。保存が必ず公開へ戻すため、
    * 切り替えの代わりにその事実を出す。 */
-  republishing?: boolean;
+  republishing: boolean;
   /** 段階プレビューの配色・単位（親が軸カタログから渡す）。 */
-  mapBandColors?: (boundaries: readonly number[]) => readonly string[];
+  mapBandColors: ((boundaries: readonly number[]) => readonly string[]) | undefined;
   mapValueUnit: string;
   /** 入力したしきい値が地図でどの段になるか（判定はbackend、親が取得して渡す）。 */
-  mapBands?: MapBandsJudgement;
+  mapBands: MapBandsJudgement;
   /** まとめ入力が読めない間は保存させないため、親の検証へ伝える。 */
   onThresholdErrorChange: (error: string | null) => void;
 }
@@ -55,10 +56,10 @@ export function AxisMapDisplaySection({
   setDraft,
   editing,
   restrictedDisplayOnly,
-  republishing = false,
+  republishing,
   mapBandColors,
   mapValueUnit,
-  mapBands = NO_MAP_BANDS_JUDGEMENT,
+  mapBands,
   onThresholdErrorChange,
 }: AxisMapDisplaySectionProps) {
   const thresholdsDroppedOnMap = mapBands.droppedOnMap;
@@ -113,8 +114,9 @@ export function AxisMapDisplaySection({
 
   /** いま入力されているしきい値が地図でどう見えるか（段階のレンジ・体感ラベル・色）を
    * そのまま描く。段は地図が作るものだけ（地図では効かない値は除く）で数え、凡例の組み立ては
-   * 地図と同じ`buildRangeLegendBands`を通すため、ここで見えているものと地図の凡例がずれる
-   * ことがない。色は親から渡された軸の配色（`mapBandColors`）で、地図に出る経路がまだ
+   * 地図と同じ`buildRangeLegendBands`を通すため、段の数・体感ラベル・色は地図の凡例とずれない。
+   * レンジの数字は入力した目盛りで書く——地図の凡例は軸カタログの凡例の目盛り（得点か量）で書くため、
+   * 得点で書く軸では数字が違う。色は親から渡された軸の配色（`mapBandColors`）で、地図に出る経路がまだ
    * 決まっていない軸では色を持たない。 */
   function renderBandPreview() {
     const entered = draft.displayThresholdsOverride ?? [];
@@ -214,10 +216,8 @@ export function AxisMapDisplaySection({
               />
               {thresholdError && <p className={cn(textVariants({ variant: "error" }), "mt-1")}>{thresholdError}</p>}
               {!thresholdError && thresholdsDroppedOnMap.length > 0 && (
-                <div className="flex items-center gap-1">
-                  <p className={cn(textVariants({ variant: "error" }), "mt-1")}>
-                    地図では効かない: {formatThresholdList(thresholdsDroppedOnMap)}
-                  </p>
+                <div className={cn(calloutVariants({ tone: "warning" }), "mt-1 flex items-center gap-1")}>
+                  <p className="m-0">地図では効かない: {formatThresholdList(thresholdsDroppedOnMap)}</p>
                   <InfoPopoverButton
                     ariaLabel="地図では効かない値の説明"
                     description="点数の決め方で、この値は1つ手前の境界と同じ点数になります。地図は点数が変わらない所に段を作らないため、下の段階はこの値を除いた地図の段で出しています。刻みたい場合は、点数の決め方（0点・100点にする値や折れ点）を先に広げてください。"

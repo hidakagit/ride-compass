@@ -58,6 +58,7 @@ interface RouteFormProps {
 
 const MAX_DISTANCE_KM = routeGenerateConfig.max_distance_km;
 const MAX_ROUTES = routeGenerateConfig.max_routes;
+const MAX_WAYPOINTS = routeGenerateConfig.max_waypoints;
 
 export default function RouteForm({
   distance,
@@ -81,22 +82,25 @@ export default function RouteForm({
   const fixedCount = fixedRouteCount(routeMode, waypointCount);
   const maxRoutesRelevant = fixedCount === null;
 
+  // 範囲の端ではボタンを押せなくするので、足した値は範囲を出ない。
   function stepMaxRoutes(delta: number) {
-    const next = Math.min(MAX_ROUTES, Math.max(1, Number(maxRoutes) + delta));
-    onMaxRoutesChange(String(next));
+    onMaxRoutesChange(String(Number(maxRoutes) + delta));
   }
 
   // 出発地・経由地・目的地は同じ形の行で並べる（役割が同じ「地点を置く」操作のため）。
-  // 武装は1つだけで、押している行以外は自動的に解除される（`features/route/useGenerationConditions.ts`の`armedPinRole`）。
+  // 武装は1つだけで、押している行以外は自動的に解除される（`features/route/useGenerationConditions.ts: armedPinRole`）。
   function renderPointRow(
     role: PinRole,
     label: string,
     markLabel: string | undefined,
     value: string,
     armLabel: string,
-    extra?: React.ReactNode,
+    extra: React.ReactNode,
     /** 武装中に値の代わりに出す文言。置いた数を隠さないため、経由地は件数を添える。 */
     armedHint: string = "地図をタップ",
+    usage?: string,
+    /** 上限まで置いてあり、これ以上置けない（武装できない）。 */
+    full: boolean = false,
   ) {
     const armed = armedPinRole === role;
     return (
@@ -110,8 +114,12 @@ export default function RouteForm({
           variant="plain"
           className="flex min-w-0 flex-auto items-center gap-2 rounded-sm px-1.5 py-1"
           pressed={armed}
-          aria-label={armed ? `${label}の指定をやめる` : `${label}を${armLabel}`}
+          disabled={full}
+          aria-label={
+            full ? `${label}は上限まで置いてあります` : armed ? `${label}の指定をやめる` : `${label}を${armLabel}`
+          }
           onClick={() => onArmPinRole(armed ? null : role)}
+          usage={usage}
         >
           {/* 地図のピンと同じ図形を出す。同じものを2度描くと、片方だけ直したときに行とピンが
               違う見た目になる。 */}
@@ -146,13 +154,34 @@ export default function RouteForm({
                 : "flex-none text-[length:var(--font-size-sm)] text-[var(--color-accent-strong)]"
             }
           >
-            {armed ? "やめる" : armLabel}
+            {armed ? "やめる" : full ? "上限" : armLabel}
           </span>
         </Toggle>
         {extra}
       </div>
     );
   }
+
+  // 出発地はどちらのモードでも置ける（現在地が取れないときの案内が指す入口）。
+  const originRow = renderPointRow(
+    "origin",
+    "出発地",
+    undefined,
+    originManual ? "地図で指定" : originLocated ? "現在地" : "現在地を取得できていません",
+    "地図で選ぶ",
+    originManual ? (
+      <Button
+        size="xs"
+        aria-label="出発地を現在地に戻す"
+        onClick={onOriginReset}
+        usage="地図で置いた出発地をやめて、現在地から出発します。"
+      >
+        現在地に戻す
+      </Button>
+    ) : undefined,
+    undefined,
+    "押してから地図をタップすると、そこを出発地にします。もう一度押すとやめます。",
+  );
 
   return (
     <div>
@@ -170,8 +199,15 @@ export default function RouteForm({
             onValueChange={(mode) => onRouteModeChange(mode as RouteMode)}
             aria-label="ルート生成モード"
           >
-            <ToggleGroupItem value="loop">周回</ToggleGroupItem>
-            <ToggleGroupItem value="destination">目的地</ToggleGroupItem>
+            <ToggleGroupItem value="loop" usage="出発地から出て出発地へ戻る、指定した距離のルートを作ります。">
+              周回
+            </ToggleGroupItem>
+            <ToggleGroupItem
+              value="destination"
+              usage="地図で置いた目的地へ向かうルートを作ります。経由地を置くと、そこを通ります。"
+            >
+              目的地
+            </ToggleGroupItem>
           </ToggleGroup>
           {/* 経由地があるとbackendは決まった数へ固定する（route_generator.py:
               applied_max_routes）。押せない状態で残す——消えると壊れて見えるうえ、
@@ -191,6 +227,7 @@ export default function RouteForm({
                 onClick={() => stepMaxRoutes(-1)}
                 disabled={!maxRoutesRelevant || Number(maxRoutes) <= 1}
                 aria-label="候補数を減らす"
+                usage="一度に作る候補の数を減らします。経由地を置いている間は変えられません。"
               >
                 ‹
               </Button>
@@ -201,6 +238,7 @@ export default function RouteForm({
                 onClick={() => stepMaxRoutes(1)}
                 disabled={!maxRoutesRelevant || Number(maxRoutes) >= MAX_ROUTES}
                 aria-label="候補数を増やす"
+                usage="一度に作る候補の数を増やします。経由地を置いている間は変えられません。"
               >
                 ›
               </Button>
@@ -210,36 +248,29 @@ export default function RouteForm({
 
         <div className="flex flex-col gap-2">
           {routeMode === "loop" ? (
-            <div className="flex items-center gap-2">
-              <label htmlFor="route-form-distance" className={cn(textVariants({ variant: "hint" }), "flex-shrink-0")}>
-                距離
-              </label>
-              <input
-                id="route-form-distance"
-                type="range"
-                min={1}
-                max={MAX_DISTANCE_KM}
-                step={1}
-                value={distance}
-                onChange={(e) => onDistanceChange(e.target.value)}
-                className="min-w-0 flex-1"
-              />
-              <span className="min-w-[3.5em] flex-shrink-0 text-right tabular-nums">{distance}km</span>
-            </div>
+            <>
+              {originRow}
+              <div className="flex items-center gap-2">
+                <label htmlFor="route-form-distance" className={cn(textVariants({ variant: "hint" }), "flex-shrink-0")}>
+                  距離
+                </label>
+                <input
+                  id="route-form-distance"
+                  type="range"
+                  min={1}
+                  max={MAX_DISTANCE_KM}
+                  step={1}
+                  value={distance}
+                  onChange={(e) => onDistanceChange(e.target.value)}
+                  className="min-w-0 flex-1"
+                  data-usage="周回するルートの長さを決めます。作る候補はこの距離の前後になります。"
+                />
+                <span className="min-w-[3.5em] flex-shrink-0 text-right tabular-nums">{distance}km</span>
+              </div>
+            </>
           ) : (
             <div className="flex flex-col gap-1">
-              {renderPointRow(
-                "origin",
-                "出発地",
-                undefined,
-                originManual ? "地図で指定" : originLocated ? "現在地" : "現在地を取得できていません",
-                "地図で選ぶ",
-                originManual ? (
-                  <Button size="xs" aria-label="出発地を現在地に戻す" onClick={onOriginReset}>
-                    現在地に戻す
-                  </Button>
-                ) : undefined,
-              )}
+              {originRow}
               {renderPointRow(
                 "waypoint",
                 "経由地",
@@ -258,6 +289,8 @@ export default function RouteForm({
                   </Button>
                 ) : undefined,
                 waypointCount > 0 ? `地図をタップ[${waypointCount}地点]` : "地図をタップ",
+                "押してから地図をタップするたびに、そこを通る経由地を足します。もう一度押すとやめます。",
+                waypointCount >= MAX_WAYPOINTS,
               )}
               {renderPointRow(
                 "destination",
@@ -276,6 +309,8 @@ export default function RouteForm({
                     ✕
                   </Button>
                 ) : undefined,
+                undefined,
+                "押してから地図をタップすると、そこを目的地にします。もう一度押すとやめます。",
               )}
             </div>
           )}

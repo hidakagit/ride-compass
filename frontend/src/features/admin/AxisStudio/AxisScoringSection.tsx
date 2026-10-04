@@ -30,6 +30,7 @@ import { NumberInput } from "@/components/ui/NumberInput/NumberInput";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/Table/Table";
 import { Input, Select } from "@/components/ui/Input/Input";
 import { textVariants } from "@/components/ui/Text/Text";
+import { calloutVariants } from "@/components/ui/Callout/Callout";
 import { cn } from "@/lib/cn";
 import { cardVariants } from "@/components/ui/Card/Card";
 import { fieldClass } from "@/components/ui/Input/Input";
@@ -43,9 +44,6 @@ interface AxisScoringSectionProps {
   axisTermOptions: readonly AxisMaterialOption[];
 }
 
-/** 材料の生値を折れ点の横軸(x)の値へ変換する。backend: domain/axis_definitions.py:
- * _breakpoint_raw_total_arrayの`values * term.weight`→`abs()`（preprocess="abs"の場合）と
- * 同じ変換（`terms`が1件のbreakpoint_linear軸限定、複数termの合計は対応しない）。 */
 export function AxisScoringSection({ draft, setDraft, materialOptions, axisTermOptions }: AxisScoringSectionProps) {
   const selectedCategoricalDtype = materialOptions.find((m) => m.id === draft.categoricalMaterial)?.dtype;
   const { values: categoricalMaterialValues, unavailable: categoricalValuesUnavailable } = useMaterialValues(
@@ -92,9 +90,13 @@ export function AxisScoringSection({ draft, setDraft, materialOptions, axisTermO
         }
       : null,
   );
+  // 評価できない参考点（null）は出さない。
   const referencePoints =
     scoresPreview && scoresPreview.material_points.length === primaryMaterialReferencePoints.length
-      ? primaryMaterialReferencePoints.map((p, i) => ({ ...p, ...scoresPreview.material_points[i] }))
+      ? primaryMaterialReferencePoints.flatMap((p, i) => {
+          const point = scoresPreview.material_points[i];
+          return point ? [{ ...p, ...point }] : [];
+        })
       : [];
   // 参考点の値域（曲線エディタの横軸固定に使う）。参考点が無い・届いていなければundefinedのままで、
   // 曲線エディタはbreakpoints自体から自動スケールする。
@@ -273,7 +275,7 @@ export function AxisScoringSection({ draft, setDraft, materialOptions, axisTermO
                   description="各軸のスコア(0〜100)に係数(n, m…)を掛けた合計が、そのままスコアになります（nX + mYのように軸同士を重み付きで足し合わせるだけの、純粋な結合です）。"
                 />
                 {axisTermOptions.length === 0 && (
-                  <p className={textVariants({ variant: "error" })}>
+                  <p className={calloutVariants({ tone: "warning" })}>
                     組み合わせられる他の軸がまだありません。先に材料から軸を1つ以上作成してから使えます。
                   </p>
                 )}

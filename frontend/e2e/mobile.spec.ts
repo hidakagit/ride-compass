@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { catalogEntry, tileInput } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
+import { catalogEntry, tileInput } from "@/testing/catalogAxes";
 import { MOBILE_VIEWPORT, axisCatalogFixture, openMobileApp } from "./fixtures";
 
 // モバイル（390px）で、要素が幅に収まり押せること（パターン4 観点1）。要素は画面外へ
@@ -68,9 +68,9 @@ test("モバイル: レンズの凡例が、段階の細かい軸でも幅に収
       ),
   });
 
-  await page.getByRole("button", { name: /^レンズ:/ }).click();
+  await page.getByRole("button", { name: /^地図の色分け:/ }).click();
   await page.getByRole("radio", { name: FINE_STEP_AXIS_LABEL }).click();
-  await page.getByRole("button", { name: /^レンズ:/ }).click();
+  await page.getByRole("button", { name: /^地図の色分け:/ }).click();
   await expect(page.getByLabel("凡例の全段階をまとめて表示/非表示")).toBeVisible();
 
   const rows = await page.evaluate(() => {

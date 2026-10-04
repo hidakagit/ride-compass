@@ -18,7 +18,7 @@ from app.api.dependencies import get_road_graph_repository
 from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.axis_preview_service import ValueDistribution, axis_raw_value_distribution
-from app.api.dependencies import get_axis_registry_admin_service, served_dedicated_way_value_material
+from app.api.dependencies import get_axis_registry_admin_service
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
     axis_error,
@@ -26,13 +26,17 @@ from app.domain.axis_definitions import (
     AxisShape,
     BreakpointLinearShape,
     PriorityCondition,
+    ScorePoint,
     check_axis_definition,
+    first_term_points,
+    named_references,
     referenced_materials,
 )
 from app.domain.axis_display import axis_display_for, bands_the_map_keeps, thresholds_the_map_drops
 from app.domain.difficulty import weight_share
 from app.domain.registry import AxisDisplaySpec
 from app.services.axis_registry_service import AxisRegistryAdminService
+from app.services.dedicated_way_values import served_dedicated_way_value_material
 from app.domain.strict_model import StrictModel
 
 router = APIRouter(
@@ -40,6 +44,14 @@ router = APIRouter(
 )
 
 _T = TypeVar("_T")
+
+
+def _axis_not_found() -> HTTPException:
+    """指された軸が無い。画面から届くのは、開いている間にほかで消された軸なので、読み直しを促す。"""
+    return HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="この軸はもうありません（ほかの画面で削除された可能性があります）。一覧を読み直してください。",
+    )
 
 
 async def _guard_db_errors(awaitable: Awaitable[_T]) -> _T:
@@ -76,14 +88,14 @@ class AxisDefinitionPayload(AxisDefinition):
 
     @model_validator(mode="after")
     def _check_against_the_catalog_and_the_other_axes(self) -> "AxisDefinitionPayload":
-        check_axis_definition(self, AXIS_DEFINITIONS.keys())
+        check_axis_definition(self, AXIS_DEFINITIONS)
         return self
 
     @model_validator(mode="after")
     def _check_dedicated_layer_is_implemented(self) -> "AxisDefinitionPayload":
         """`dedicated_way_value_layer`は、配信の実装がある材料をちょうど1つ参照する軸にだけ立てられる。
 
-        way_id→値の配信はPythonのサービス本体（`api/dependencies.py`の
+        フィーチャー→値の配信はPythonのサービス本体（`services/dedicated_way_values.py`の
         `_DEDICATED_WAY_VALUE_SERVICES`、材料ごとに1つ）が必要で、軸スタジオでの宣言だけでは
         配信できる値が無い。宣言だけを通すと、その軸のタイル要求が実装の無いまま
         呼ばれ続ける（配信側は404を返すため表示は壊れないが、地図に出ない軸の宣言が
@@ -98,7 +110,7 @@ class AxisDefinitionPayload(AxisDefinition):
         if served_dedicated_way_value_material(materials) is None:
             raise axis_error(
                 "専用配信の軸は、配信の実装がある材料をちょうど1つだけ指す必要があります"
-                f"（この軸が指す材料: {materials}）。"
+                f"（この軸が指す材料: {named_references(materials, AXIS_DEFINITIONS)}）。"
             )
         return self
 
@@ -114,7 +126,7 @@ class AxisDefinitionResponse(AxisDefinition):
     ——通らなくなった行も見せて直させる。
 
     `display`: `domain/axis_display.py: axis_display_for()`の計算結果
-    （`GET /api/axis-catalog`と同じ関数）。軸スタジオのGUI（AxisComposer.tsx）が
+    （`GET /api/axis-catalog`と同じ関数）。軸スタジオの編集画面が
     「自動導出が失敗している（kind="none"）ので、この軸の材料には地図表示用のデータ取得
     経路がまだ用意されていない」という注記を出すために必要——下書き軸（is_published=False）
     は`GET /api/axis-catalog`に現れないため、編集中に自己診断できる経路がこの管理APIの
@@ -160,7 +172,7 @@ async def get_axis_definition(
 ) -> AxisDefinitionResponse:
     definition = await _guard_db_errors(service.get(axis_id))
     if definition is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"axis_id={axis_id} が見つかりません")
+        raise _axis_not_found()
     return _to_response(definition, await _all_definitions(service))
 
 
@@ -190,7 +202,7 @@ async def update_axis_definition(
     try:
         await _guard_db_errors(service.update(axis_id, definition))
     except KeyError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"axis_id={axis_id} が見つかりません") from exc
+        raise _axis_not_found() from exc
     except ValueError as exc:
         # 公開済み軸の更新拒否（AxisPublishedImmutableError）と材料の
         # 排他チェック（AxisMaterialConflictError）の両方がここを通る。
@@ -205,7 +217,7 @@ async def delete_axis_definition(
     try:
         await _guard_db_errors(service.delete(axis_id))
     except KeyError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"axis_id={axis_id} が見つかりません") from exc
+        raise _axis_not_found() from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
@@ -219,16 +231,9 @@ async def unpublish_axis_definition(
     フィールドは一切変更しない、「公開済みは編集不可」原則を保ったまま公開フラグの
     反転だけに穴を開ける）。下書きへ戻った軸は通常のPUTで再編集・再公開できる。"""
     try:
-        await _guard_db_errors(service.unpublish(axis_id))
+        definition = await _guard_db_errors(service.unpublish(axis_id))
     except KeyError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"axis_id={axis_id} が見つかりません") from exc
-    definition = await _guard_db_errors(service.get(axis_id))
-    if definition is None:
-        # assert文は`python -O`実行時に取り除かれるため使わない（本番起動コマンドが-Oを
-        # 使っていなくても、将来変更されると不変条件チェックごと消える不安定な保護に
-        # なる）。unpublishが例外なく返った直後のため通常は必ず存在するが、その不変条件を
-        # 常に有効な形で守る。
-        raise RuntimeError(f"axis_id={axis_id} のunpublish直後にgetが空を返しました（不変条件違反）")
+        raise _axis_not_found() from exc
     return _to_response(definition, await _all_definitions(service))
 
 
@@ -259,20 +264,15 @@ class ScoresPreviewRequest(StrictModel):
     shape: BreakpointLinearShape
     #: 折れ点の横軸の値（項の合成・前処理の後）。分布の階級の代表値など。
     xs: list[float] = Field(default_factory=list)
-    #: 1つ目の項の材料の値。その項の重みと前処理を当てて横軸の値にしてから点数にする（材料の参考点の効き目）。
+    #: 1つ目の項の材料の値（材料の参考点の効き目）。ほかの項の材料は無い道として、評価と同じ計算で点数にする。
     material_values: list[float] = Field(default_factory=list)
-
-
-class ScorePoint(StrictModel):
-    x: float
-    score: float
 
 
 class ScoresPreviewResponse(StrictModel):
     #: `xs`の順の点数。
     scores: list[float]
-    #: `material_values`の順の、横軸の値と点数。
-    material_points: list[ScorePoint]
+    #: `material_values`の順の、横軸の値と点数。評価がその道を欠損にする値（ほかの項に必須の材料がある）はnull。
+    material_points: list[ScorePoint | None]
 
 
 @router.post("/preview-scores")
@@ -282,13 +282,10 @@ async def preview_scores(payload: ScoresPreviewRequest) -> ScoresPreviewResponse
     軸スタジオは折れ点を動かすたびにこれを問い合わせ、分布の帯の割合と効き目の表を出す。点数の計算を
     画面で作り直すと、評価と画面で同じ折れ点に別の点数が付きうる（同じxの点が並ぶところ等）。
     """
-    shape = payload.shape
-    weight = shape.terms[0].weight
-    points = []
-    for value in payload.material_values:
-        x = shape.preprocessed(value * weight)
-        points.append(ScorePoint(x=x, score=shape.score_at(x)))
-    return ScoresPreviewResponse(scores=[shape.score_at(x) for x in payload.xs], material_points=points)
+    return ScoresPreviewResponse(
+        scores=[payload.shape.score_at(x) for x in payload.xs],
+        material_points=first_term_points(payload.shape, payload.material_values),
+    )
 
 
 class DisplayThresholdsPreviewRequest(StrictModel):

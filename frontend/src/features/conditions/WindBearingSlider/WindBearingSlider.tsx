@@ -9,7 +9,7 @@
 //
 // 勾配（時刻非依存・向きのみ依存）も本コンポーネントを再利用する。value/onChange/
 // ariaLabelのみを扱う汎用コンポーネントで、風・勾配で個別にダイヤルを持たず、
-// 走行条件の単一共有state（`features/conditions/useRideConditions.ts`の`bearingDeg`）を本コンポーネント1個
+// 走行条件の単一共有state（`features/conditions/useRideConditions.ts: bearingDeg`）を本コンポーネント1個
 // （TravelBearingControl経由でマウント）で扱う。
 //
 // 外部ライブラリを使わない自前実装のコンパス型UIで、中心から伸びる矢印を直接つかんで

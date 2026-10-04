@@ -88,12 +88,7 @@ export default function AxisContributionBar({
               </>
             );
             return (
-              // 押せる／押せないの印は詳細を出す呼び出しにだけ付ける（無い呼び出しで全部を「押せない」にすると凡例全体が薄くなる）。
-              <li
-                key={axis.axisId}
-                className={legendChipClass}
-                data-checked={renderDetail == null ? undefined : detail !== null}
-              >
+              <li key={axis.axisId} className={legendChipClass}>
                 {detail === null ? (
                   <span className={legendChipBodyClass} title={axis.label} aria-label={axis.label} role="img">
                     {body}

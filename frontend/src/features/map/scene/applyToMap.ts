@@ -26,7 +26,7 @@ import { areaLayerAnchor, prepareBasemapForAreaLayers, runWhenStyleReady } from 
 import { primaryAttributeIdsToLayerIds } from "@/features/map/layers/primaryAttributes";
 import { ROUTE_ARROW_ICON_ID, createRouteArrowIcon } from "@/features/map/layers/routeArrowIcon";
 import { LENS_NEUTRAL_COLOR, type LensId, type RouteStyleMode } from "@/lib/mapDisplay/routeStyleModes";
-import type { SecondaryAxisSummary } from "@/lib/secondaryAxes";
+import type { SecondaryAxisSummary } from "@/features/map/secondaryAxes";
 import type { ExperimentSlot } from "@/types/experimentSlot";
 import type { RouteCandidate } from "@/types/route";
 import { dedicatedAxisBands, rampAxisBands, type ValueBand } from "@/lib/mapDisplay/valueScale";
@@ -34,18 +34,16 @@ import { tileBaseUrl } from "@/lib/tileBaseUrl";
 import {
   ROAD_TILE_MAX_ZOOM,
   ROAD_TILE_MIN_ZOOM,
-  accidentTileUrl,
-  hasTileVersions,
   landcoverTileUrl,
-  poiTileUrl,
+  pointTileUrl,
   roadSurfaceTileUrl,
-} from "@/services/regionApi";
+  type PointTileLayer,
+  type TileVersions,
+} from "@/features/map/regionApi";
 import regionTileConfig from "@/types/generated/region-tile-config.json";
 
 /** ベクタタイル内のレイヤー名。源泉が配る値をそのまま使う。 */
 export const ROAD_TILE_SOURCE_LAYER = regionTileConfig.road_surface.layer_name;
-export const ACCIDENT_TILE_SOURCE_LAYER = regionTileConfig.accident.layer_name;
-export const STOP_POI_SOURCE_LAYER = regionTileConfig.poi.stop_poi_layer_name;
 
 import { applyMapScene } from "./applyMapScene";
 import { buildAxisRampUnknownExpression, buildAxisRampValueExpression } from "./groups/axisLines";
@@ -53,6 +51,8 @@ import { buildLegendFilterExpression } from "./sceneBuilders";
 import type { SceneInputs } from "./buildScene";
 import type { AxisBand, AxisLineState } from "@/features/map/scene/groups/axisLines";
 import type { RoutePath, RouteState } from "@/features/map/scene/groups/routes";
+import { drawPointIcon } from "@/features/map/layers/pointIcon";
+import { POINT_ICONS, POINT_TILE_SOURCES } from "@/features/map/scene/groups/points";
 import { WEATHER_ICONS, type WeatherPayload, type WeatherState } from "@/features/map/scene/groups/weather";
 import { EMPTY_MAP_SCENE, type MapScene } from "./mapScene";
 
@@ -92,13 +92,13 @@ type SceneWiringProps = {
   };
   readonly routes: readonly RouteCandidate[];
   readonly selectedRouteId: string | null;
-  /** 比較相手が別の道を通る区間。空/未指定なら帯を出さない。 */
-  readonly spliceStretches?: readonly SpliceStretchInput[];
-  /** 編集中に「いま作っているルート」として描く座標列。 */
-  readonly splicedRoute?: readonly GeoJSON.Position[] | null;
+  /** 比較相手が別の道を通る区間。空なら帯を出さない。 */
+  readonly spliceStretches: readonly SpliceStretchInput[];
+  /** 編集中に「いま作っているルート」として描く座標列（編集していなければnull）。 */
+  readonly splicedRoute: readonly GeoJSON.Position[] | null;
   readonly experimentSlots: readonly ExperimentSlot[];
-  /** タイル世代が届いたか。 */
-  readonly tileVersionsReady: boolean;
+  /** タイルの世代。全系統が揃うまで`null`。 */
+  readonly tileVersions: TileVersions | null;
   /** 詳細を見ている道（ポップアップが開いている間だけ非null）。 */
   readonly inspectedWayId: number | null;
 };
@@ -114,8 +114,8 @@ function routeStateFrom(props: SceneWiringProps): RouteState {
   const modes = props.catalog.routeStyleModes;
   const mode = modes.length > 0 ? getRouteStyleMode(modes, look.lens) : null;
   const segments = visible ? (selected?.segments ?? []) : [];
-  const bands = visible ? (props.spliceStretches ?? []) : [];
-  const composite = visible ? (props.splicedRoute ?? null) : null;
+  const bands = visible ? props.spliceStretches : [];
+  const composite = visible ? props.splicedRoute : null;
   const hiddenBandFilter =
     mode === null
       ? null
@@ -238,9 +238,16 @@ function weatherPayloadFrom(payload: DynamicWeatherRenderPayload): WeatherPayloa
   }
 }
 
+/** 点のタイルごとのURL。 */
+function pointTileUrls(versions: TileVersions): Record<PointTileLayer, readonly string[]> {
+  const urls = {} as Record<PointTileLayer, readonly string[]>;
+  for (const name of Object.keys(POINT_TILE_SOURCES) as PointTileLayer[]) urls[name] = [pointTileUrl(versions, name)];
+  return urls;
+}
+
 export function sceneInputsFrom(props: SceneWiringProps): SceneInputs {
   // 世代が届く前にタイルのソースを作ると、世代の違う中身がブラウザのキャッシュへ載る。
-  const tilesReady = props.tileVersionsReady && hasTileVersions();
+  const versions = props.tileVersions;
   // 家族はどれも自分の役割の鍵だけを読むため、状態をそのまま渡す。
   const visible = props.look.layerVisibility;
   const hiddenKeys = props.look.hiddenLegendKeys;
@@ -251,9 +258,9 @@ export function sceneInputsFrom(props: SceneWiringProps): SceneInputs {
       landcoverTileUrl: landcoverTileUrl(),
     },
     road: {
-      tiles: tilesReady
+      tiles: versions
         ? {
-            urls: [roadSurfaceTileUrl()],
+            urls: [roadSurfaceTileUrl(versions)],
             sourceLayer: ROAD_TILE_SOURCE_LAYER,
             minZoom: ROAD_TILE_MIN_ZOOM,
             maxZoom: ROAD_TILE_MAX_ZOOM,
@@ -263,14 +270,11 @@ export function sceneInputsFrom(props: SceneWiringProps): SceneInputs {
       hiddenKeys,
       inspectedWayId: props.inspectedWayId,
     },
-    axis: axisStateFrom(props, tilesReady ? ROAD_TILE_SOURCE_LAYER : null),
+    axis: axisStateFrom(props, versions ? ROAD_TILE_SOURCE_LAYER : null),
     point: {
-      tiles: tilesReady
+      tiles: versions
         ? {
-            poi: [poiTileUrl()],
-            accident: [accidentTileUrl()],
-            poiSourceLayer: STOP_POI_SOURCE_LAYER,
-            accidentSourceLayer: ACCIDENT_TILE_SOURCE_LAYER,
+            urls: pointTileUrls(versions),
             minZoom: ROAD_TILE_MIN_ZOOM,
             maxZoom: ROAD_TILE_MAX_ZOOM,
           }
@@ -283,7 +287,7 @@ export function sceneInputsFrom(props: SceneWiringProps): SceneInputs {
   };
 }
 
-/** 記号に要る絵。**出す前に登録しないと記号が描かれない。** */
+/** 記号に要る単色の絵（色は記号の側で付ける）。**出す前に登録しないと記号が描かれない。** 色を焼き込んだ点の絵は`POINT_ICONS`。 */
 const SCENE_ICONS: readonly { id: string; create: () => ImageData }[] = [
   ...WEATHER_ICONS,
   { id: ROUTE_ARROW_ICON_ID, create: createRouteArrowIcon },
@@ -296,6 +300,11 @@ export function applyScene(map: MapLibreMap, scene: MapScene, options: { reset?:
   runWhenStyleReady(map, () => {
     for (const icon of SCENE_ICONS) {
       if (!map.hasImage(icon.id)) map.addImage(icon.id, icon.create(), { sdf: true });
+    }
+    for (const icon of POINT_ICONS) {
+      if (map.hasImage(icon.id)) continue;
+      const { data, pixelRatio } = drawPointIcon(icon.color, icon.glyph);
+      map.addImage(icon.id, data, { pixelRatio });
     }
     prepareBasemapForAreaLayers(map);
     applyMapScene(map, {

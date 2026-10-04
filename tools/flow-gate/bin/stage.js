@@ -1,33 +1,20 @@
-// Claude がタスクを段階に分ける（hidakagit-bot の名義）。段階は親を付けたまま作る（作ってから親を付けると、Project に入った
-// 時点で段階と分からず、入口で採否の問いが付く）。Project へは「Auto-add sub-issues to project」が入れ、ゲートが入口で未着手にする。
-// 使い方: node tools/flow-gate/bin/stage.js <親の番号> <題名> <本文のファイル> [前の段階の番号...]（前の段階は blocked by になる）
+// Claude がタスクを段階に分ける。段階は親の子（GitHub の sub-issue）として作る（Project へは「Auto-add sub-issues to project」が
+// 入れ、ゲートが入口で未着手にして親の優先度を継ぐ）。前の段階は段階の前提（blocked by）に、段階は親の前提に張り、親が進行中なら
+// 未着手へ戻す（段階が全部閉じるまで、親は前提待ちで振り出されない）。
 import { readFileSync } from "node:fs";
-import config from "../flow.config.json" with { type: "json" };
-import { GitHub, Mutations } from "../src/github.js";
-import { botToken } from "./token.js";
+import { readTask } from "../src/github.js";
+import { moveTask } from "../src/move.js";
+import { args, bot, config, isNumber } from "./cli.js";
 
-const args = process.argv.slice(2);
-const [parent, title, file, ...after] = args;
-if (args.some((a) => a.startsWith("--")) || !/^\d+$/.test(parent ?? "") || !title || !file || after.some((n) => !/^\d+$/.test(n))) {
-  console.error("使い方: node tools/flow-gate/bin/stage.js <親の番号> <題名> <本文のファイル> [前の段階の番号...]");
-  process.exit(2);
-}
-const gh = new GitHub(botToken());
+const { rest: [parent, title, file, ...before] } = args("node tools/flow-gate/bin/stage.js <親の番号> <題名> <本文のファイル> [前の段階の番号...]",
+  (a) => a.length >= 3 && isNumber(a[0]) && a.slice(3).every(isNumber));
+const gh = bot();
 const [o, n] = config.repository.split("/");
-const numbers = [Number(parent), ...after.map(Number)];
-const d = await gh.gql(
-  `query Ids($o: String!, $n: String!) { repository(owner: $o, name: $n) { id ${numbers.map((k, i) => `i${i}: issue(number: ${k}) { id state }`).join(" ")} } }`,
-  { o, n },
-);
-const issues = numbers.map((_, i) => d.repository[`i${i}`]);
-if (!issues[0] || issues[0].state !== "OPEN") throw new Error(`親 #${parent} は ${config.repository} の開いた issue ではありません。`);
-if (issues.some((i) => !i)) throw new Error("前の段階に、置き場に無い番号があります。");
-
-const created = await new Mutations()
-  .add("createIssue", { repositoryId: d.repository.id, parentIssueId: issues[0].id, title, body: readFileSync(file, "utf8") }, "issue { id number url }")
-  .send(gh);
-const stage = created.m0.issue;
-const m = new Mutations();
-for (const blocking of issues.slice(1)) m.add("addBlockedBy", { issueId: stage.id, blockingIssueId: blocking.id });
-await m.send(gh);
-console.log(`#${stage.number} ${stage.url}（親 #${parent}${after.length ? `・前の段階 ${after.map((k) => `#${k}`).join("・")}` : ""}）`);
+const ids = await Promise.all([parent, ...before].map(async (k) => (await readTask(gh, config, { number: Number(k) })).issue.id));
+const repo = (await gh.gql("query R($o: String!, $n: String!) { repository(owner: $o, name: $n) { id } }", { o, n })).repository.id;
+const stage = (await gh.gql(`mutation C($i: CreateIssueInput!) { createIssue(input: $i) { issue { id number url } } }`,
+  { i: { repositoryId: repo, parentIssueId: ids[0], title, body: readFileSync(file, "utf8") } })).createIssue.issue;
+await gh.write([...ids.slice(1).map((b) => ["addBlockedBy", { issueId: stage.id, blockingIssueId: b }]), ["addBlockedBy", { issueId: ids[0], blockingIssueId: stage.id }]]);
+console.log(`段階 #${stage.number} ${stage.url}`);
+if ((await readTask(gh, config, { number: Number(parent) })).issue.status === config.working)
+  console.log(await moveTask(gh, config, Number(parent), config.todo, { comment: `${config.todo}にする理由: 段階 #${stage.number} に分けた。段階が全部閉じるまで、段階に blocked by されて待つ` }));

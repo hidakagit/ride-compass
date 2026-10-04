@@ -33,7 +33,7 @@ from app.domain.landcover import (
 )
 from app.domain.region import tile_position_sql
 from app.domain.material_sql import BRIDGE_NORMALIZED_SQL, TUNNEL_NORMALIZED_SQL
-from app.infrastructure.source_models import WAYS_SOURCE_SQL
+from app.infrastructure.source_models import DEM_TILES_SQL, LANDCOVER_TILES_SQL, WAYS_SOURCE_SQL
 
 logger = logging.getLogger("ridecompass.derive_raster_materials")
 
@@ -43,11 +43,6 @@ SELECT e.osm_way_id, e.segment_index, e.geom,
         OR coalesce({BRIDGE_NORMALIZED_SQL}, '') NOT IN ('', 'no')) AS on_structure
 FROM road_edges e JOIN {WAYS_SOURCE_SQL} w ON w.osm_way_id = e.osm_way_id
 """
-
-
-def _tiles(source: str) -> str:
-    return (f"(SELECT natural_key, rast, attrs, geom FROM source_features"
-            f" WHERE source = '{source}') t")
 
 
 # --- 標高 -------------------------------------------------------------------
@@ -94,7 +89,7 @@ SELECT vid, elev FROM (
         FROM _vertex v
         CROSS JOIN LATERAL (SELECT {_VERTEX_TILE_X} AS fx, {_VERTEX_TILE_Y} AS fy) p
         WHERE NOT EXISTS (SELECT 1 FROM _vertex_elev e WHERE e.vid = v.vid)) a
-  JOIN {_tiles("dem")}
+  JOIN {DEM_TILES_SQL} t
     ON t.attrs->>'product' = $1
    AND (t.attrs->>'x')::int = a.tx AND (t.attrs->>'y')::int = a.ty
   CROSS JOIN LATERAL (SELECT (t.attrs->>'width')::int AS n) w
@@ -127,7 +122,7 @@ async def _products_in_priority(conn: asyncpg.Connection) -> list[tuple[str, int
     """
     rows = await conn.fetch(
         "SELECT attrs->>'product' AS product, array_agg(DISTINCT (attrs->>'z')::int) AS zooms"
-        " FROM source_features WHERE source = 'dem' GROUP BY 1")
+        f" FROM {DEM_TILES_SQL} t GROUP BY 1")
     zooms = {r["product"]: r["zooms"] for r in rows}
     unknown = sorted(set(zooms) - set(PRODUCT_PRIORITY))
     mixed = sorted(p for p, z in zooms.items() if len(z) != 1)
@@ -185,7 +180,7 @@ FROM (SELECT osm_way_id, segment_index,
 _COUNT_CLASSES = f"""
 SELECT r.osm_way_id, r.segment_index, (vc).value::int AS cls, sum((vc).count)::bigint AS n
 FROM _rings r
-JOIN {_tiles("lulc")} ON t.geom && r.ring4326
+JOIN {LANDCOVER_TILES_SQL} t ON t.geom && r.ring4326
 CROSS JOIN LATERAL ST_ValueCount(ST_Clip(t.rast, 1, r.ring, true)) AS vc
 GROUP BY r.osm_way_id, r.segment_index, (vc).value
 """
@@ -213,8 +208,7 @@ WHERE p.osm_way_id = m.osm_way_id AND p.segment_index = m.segment_index
 async def derive_landcover(conn: asyncpg.Connection) -> int:
     started = time.perf_counter()
     await conn.execute(_reset_landcover_sql("edge_materials"))
-    tiles = await conn.fetchval(
-        "SELECT count(*) FROM source_features WHERE source = 'lulc'")
+    tiles = await conn.fetchval(f"SELECT count(*) FROM {LANDCOVER_TILES_SQL} t")
     if not tiles:
         logger.warning("土地被覆タイルが1枚も取り込まれていません")
         return 0

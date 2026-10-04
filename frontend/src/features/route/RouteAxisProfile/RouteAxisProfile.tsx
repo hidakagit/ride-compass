@@ -12,7 +12,7 @@ import { cn } from "@/lib/cn";
 interface RouteAxisProfileProps {
   /** 公開軸すべて（軸カタログの順序・ラベルの正本）。重みによる絞り込みは行わない。 */
   axes: readonly CatalogAxis[];
-  /** この候補を実際に評価した重み（生成時点のroute_preference）。0の軸は畳んだ1行へまとめる。 */
+  /** この候補を実際に評価した重み（生成時点のroute_preference）。0の軸と重みの無い軸は凡例に出さない。 */
   weights: RoutePreferenceWeights;
   /** RouteCandidate.axis_difficulties（axis_id→距離加重平均の難易度0-100）。評価できなかった
    * 軸はキー自体を持たない。 */
@@ -110,7 +110,7 @@ export default function RouteAxisProfile({
     <div className="flex flex-col">
       {overallDifficulty != null && (
         <div className="mx-0.5 mt-0.5 mb-1 flex flex-col gap-1">
-          {/* 数値の行と内訳のバーを分ける——同じ折り返しの行へ入れると、数値の文字数（所要の「58分」と「1時間5分」等）で
+          {/* 数値の行と内訳のバーを分ける——同じ折り返しの行へ入れると、数値の文字数（所要の「58分」と「125分」等）で
               バーが数値の横へ入るか次の行へ落ちるかが変わり、候補ごとにバーの長さが揃わない。 */}
           <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
             <span className="inline-flex flex-shrink-0 items-baseline gap-0.5">

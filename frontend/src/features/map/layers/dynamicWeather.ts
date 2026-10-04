@@ -23,9 +23,6 @@ export type DynamicWeatherRenderPayload =
   // 配信元のベクタタイルをそのまま渡す（色分けに使うプロパティ名等は描き方の宣言が持つ）。
   | { kind: "vectorTile"; tileUrlTemplate: string };
 
-/** 災害のチップの名前付きソース。 */
-export type DisasterSourceKey = Extract<(typeof mapDisplay.weatherElements)[number], { group: "disaster" }>["source"];
-
 /** グループの中の名前付きソースのキー。ソースが1つのグループも1キーを持つ（特例を作らない）。 */
 type DynamicWeatherSourceId = string;
 

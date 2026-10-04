@@ -12,7 +12,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { DebugStats, FrontendVersion } from "@/features/admin/adminApi";
+import type { FrontendVersion, getDebugStats } from "@/features/admin/adminApi";
 
 const api = vi.hoisted(() => ({ getDebugStats: vi.fn(), getFrontendVersion: vi.fn() }));
 vi.mock("@/features/admin/adminApi", () => ({
@@ -22,6 +22,7 @@ vi.mock("@/features/admin/adminApi", () => ({
 
 import SystemStatusPanel from "./SystemStatusPanel";
 
+type DebugStats = Awaited<ReturnType<typeof getDebugStats>>;
 type ExternalStats = DebugStats["external"][string];
 
 function externalStats(overrides: Partial<ExternalStats> = {}): ExternalStats {

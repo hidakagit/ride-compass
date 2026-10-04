@@ -57,9 +57,22 @@ export const TabsList = forwardRef<HTMLDivElement, TabsListProps>(function TabsL
   );
 });
 
-export const TabsTrigger = forwardRef<HTMLButtonElement, React.ComponentPropsWithoutRef<typeof RadixTabs.Trigger>>(
-  function TabsTrigger({ className, ...props }, ref) {
-    const variant = useContext(VariantContext);
-    return <RadixTabs.Trigger ref={ref} className={cn(triggerVariants({ variant }), className)} {...props} />;
-  },
-);
+interface TabsTriggerProps extends React.ComponentPropsWithoutRef<typeof RadixTabs.Trigger> {
+  /** 使い方の文（`Button`の`usage`と同じ）。 */
+  usage?: string;
+}
+
+export const TabsTrigger = forwardRef<HTMLButtonElement, TabsTriggerProps>(function TabsTrigger(
+  { className, usage, ...props },
+  ref,
+) {
+  const variant = useContext(VariantContext);
+  return (
+    <RadixTabs.Trigger
+      ref={ref}
+      className={cn(triggerVariants({ variant }), className)}
+      data-usage={usage}
+      {...props}
+    />
+  );
+});

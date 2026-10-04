@@ -1,5 +1,6 @@
 {
   "amedas_seconds": 600,
   "jma_tile_index_seconds": 600,
-  "msm_seconds": 10800
+  "msm_seconds": 10800,
+  "basemap_browser_cache_seconds": 600
 }

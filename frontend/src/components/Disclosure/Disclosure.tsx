@@ -25,6 +25,8 @@ interface DisclosureProps {
   /** 渡すと呼ぶ側が開閉の状態を持つ（onOpenChangeと対で使う）。 */
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  /** 見出し（開閉のトリガー）の使い方の文（`Button`の`usage`と同じ）。 */
+  usage?: string;
 }
 
 const ITEM_VALUE = "content";
@@ -41,6 +43,7 @@ export default function Disclosure({
   defaultOpen,
   open,
   onOpenChange,
+  usage,
 }: DisclosureProps) {
   const handleValueChange = onOpenChange ? (value: string) => onOpenChange(value === ITEM_VALUE) : undefined;
   const controlledProps =
@@ -50,7 +53,7 @@ export default function Disclosure({
 
   const trigger = (
     <Accordion.Header className={cn("m-0 [font:inherit]", !trailing && headerClassName)}>
-      <Accordion.Trigger className={cn("block w-full cursor-pointer text-left", triggerClassName)}>
+      <Accordion.Trigger className={cn("block w-full cursor-pointer text-left", triggerClassName)} data-usage={usage}>
         {summary}
       </Accordion.Trigger>
     </Accordion.Header>

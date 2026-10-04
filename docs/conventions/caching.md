@@ -189,8 +189,15 @@ per_second`＝5.0で自主制限しているが、これはプロセス内の制
 
 「Redisが使えるか確認 → クライアント取得 → `log_external_call`で計測 → 失敗は握り潰して
 未キャッシュ扱い → 成否をサーキットブレーカーへ記録」という14行ほどの定型文は、
-`redis_json_cache.py`の`get_json`/`set_json`が内包している。**呼び出し元が持つのは
+`redis_json_cache.py: get_json`/`redis_json_cache.py: set_json`が内包している。値がバイナリなら、同じ骨格を
+文字列へデコードしない接続で通す`redis_json_cache.py: get_bytes`/`redis_json_cache.py: set_bytes`を使う
+（base64にしてJSONへ包むと、ヒットのたびにデコードのCPUと約1.33倍の容量を払う）。**呼び出し元が持つのは
 キー設計・TTL・値の意味づけだけ**にする。
+
+**呼び出し元は`infrastructure/`のモジュールにする**。鍵・保存する形・TTL・保存した形の検査は
+そのモジュールが持ち、`services/`とは値でやり取りする（例: `infrastructure/jma_amedas_store.py`）。
+上の層がRedisの接続を直にimportすると`lint-imports`が落ちる（[directory-layout.md](../architecture/directory-layout.md)「backend」）。
+`services/`がプロセス内（`cachetools`）に持つ、自分で求めた値のキャッシュはこの規則の外にある。
 
 ```python
 from app.infrastructure.redis_json_cache import get_json, set_json
@@ -202,15 +209,9 @@ await set_json(key, payload, ttl_seconds=TTL, category="cache:xxx")
 **自前で骨格を書いてよい例外**（該当する場合はその理由をモジュールのdocstringへ書く）:
 
 - `mget`/`pipeline`による一括読み書きが必要（1リクエストで数百キーを引く等）
-- 値がバイナリで、JSON化すると容量・CPUの無駄が無視できない
 - キーの生存期間を個別に操作する必要がある（`ex`以外のRedis機能を使う）
 
 例外に当たる場合も、原則3（失敗の記録）と原則2（fail-open）は必ず満たす。
-
-**バイナリでも、base64にしてJSONへ包むなら例外に当たらない**: 気象庁タイル本体
-（`jma_tile_redis_cache`、PNG/PBF）はbase64の文字列をJSONへ包み、`get_json`/`set_json`で読み書きしている。
-例外に当たるのは、生のバイト列で持ってデコードと容量の無駄を実際に省くときだけである
-（タイルでそうするかは[T636](../records/tasks/T636.md)）。
 
 ## TTLの決め方
 
@@ -285,7 +286,11 @@ push型の無効化はfail-openと組み合わさると「伝え漏れても誰�
 独立に走り、コードを書き換えない。手で上げる運用にすると、上げ忘れた分だけ古い値が
 ディスクから復元され続け、しかも未訪問のキーだけが新しくなるため症状が局所的で気づきにくい。
 この種の変化は**DBを正にする**——書いた側が単調カウンタを進め、読み手はディスクへ最後に
-書いた時点の記録と突き合わせて、違えば捨てる（派生データは`derived_data_meta.revision`）。
+書いた時点の記録と突き合わせて、違えば捨てる（派生データは`derived_data_meta.revision`、生データは
+成功した取込の数`source_models.py: succeeded_run_count`）。**鍵に入れる世代は、キャッシュする値が読む表の
+すべてを覆う**——配信するタイルは派生の表と生データの両方を読むため、両方の世代を持つ。生データの世代は
+どのソースの取込でも進み、系統ごとに読むソースを宣言して絞らない。宣言は値を作るSQLの写しになり、SQLが
+新しいソースを読み始めても誰も気づかない。取込は稀で、過剰な無効化はディスクのタイルを焼き直すだけで済む。
 再起動を待たずに気づけるよう、読み手はTTL付きで読み直す（`services/derived_data_revision_service.py`、
 配信するタイルの世代）。**読み直しは、そのキャッシュを実際に読む経路の入口へ置く**——別のメソッドへ
 置くと、キャッシュから直接復元できる定常状態では一度も通らず、冷えているときにしか発火しない。
@@ -326,8 +331,8 @@ push型の無効化はfail-openと組み合わさると「伝え漏れても誰�
 
 ## 直接使ってよい場所
 
-`get_redis_client_or_none`・`record_redis_failure`・`record_redis_success`・`redis_available`を
-直接呼んでよいファイルは`backend/tests/structure/test_redis_skeleton.py`の`ALLOWED`が持つ（骨格そのもの・
+`get_redis_client_or_none`・`get_redis_binary_client_or_none`・`record_redis_failure`・`record_redis_success`・`redis_available`を
+直接呼んでよいファイルは`backend/tests/structure/test_redis_skeleton.py: ALLOWED`が持つ（骨格そのもの・
 その接続本体と、単一キーのJSON読み書きでは表現できないもの）。ここに無いファイルで使うと
 テストが落ちる。寄せられない事情があるなら、理由とともに`ALLOWED`へ足すこと。
 

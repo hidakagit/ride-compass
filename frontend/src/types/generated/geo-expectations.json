@@ -1,0 +1,171 @@
+{
+  "compass_label": [
+    {
+      "bearing_deg": 0.0,
+      "label": "北"
+    },
+    {
+      "bearing_deg": 22.5,
+      "label": "北東"
+    },
+    {
+      "bearing_deg": 22.499999,
+      "label": "北"
+    },
+    {
+      "bearing_deg": 67.5,
+      "label": "東"
+    },
+    {
+      "bearing_deg": 67.499999,
+      "label": "北東"
+    },
+    {
+      "bearing_deg": 112.5,
+      "label": "南東"
+    },
+    {
+      "bearing_deg": 112.499999,
+      "label": "東"
+    },
+    {
+      "bearing_deg": 157.5,
+      "label": "南"
+    },
+    {
+      "bearing_deg": 157.499999,
+      "label": "南東"
+    },
+    {
+      "bearing_deg": 202.5,
+      "label": "南西"
+    },
+    {
+      "bearing_deg": 202.499999,
+      "label": "南"
+    },
+    {
+      "bearing_deg": 247.5,
+      "label": "西"
+    },
+    {
+      "bearing_deg": 247.499999,
+      "label": "南西"
+    },
+    {
+      "bearing_deg": 292.5,
+      "label": "北西"
+    },
+    {
+      "bearing_deg": 292.499999,
+      "label": "西"
+    },
+    {
+      "bearing_deg": 337.5,
+      "label": "北"
+    },
+    {
+      "bearing_deg": 337.499999,
+      "label": "北西"
+    },
+    {
+      "bearing_deg": -45.0,
+      "label": "北西"
+    },
+    {
+      "bearing_deg": -22.5,
+      "label": "北"
+    },
+    {
+      "bearing_deg": 360.0,
+      "label": "北"
+    },
+    {
+      "bearing_deg": 382.5,
+      "label": "北東"
+    },
+    {
+      "bearing_deg": 765.0,
+      "label": "北東"
+    }
+  ],
+  "distance_km": [
+    {
+      "from": {
+        "latitude": 35.68,
+        "longitude": 139.77
+      },
+      "to": {
+        "latitude": 35.68,
+        "longitude": 139.77
+      },
+      "km": 0.0
+    },
+    {
+      "from": {
+        "latitude": 0.0,
+        "longitude": 139.0
+      },
+      "to": {
+        "latitude": 0.0,
+        "longitude": 140.0
+      },
+      "km": 111.194927
+    },
+    {
+      "from": {
+        "latitude": 35.0,
+        "longitude": 139.0
+      },
+      "to": {
+        "latitude": 35.0,
+        "longitude": 139.1
+      },
+      "km": 9.108555
+    },
+    {
+      "from": {
+        "latitude": 35.0,
+        "longitude": 139.0
+      },
+      "to": {
+        "latitude": 35.1,
+        "longitude": 139.0
+      },
+      "km": 11.119493
+    },
+    {
+      "from": {
+        "latitude": 35.68,
+        "longitude": 139.77
+      },
+      "to": {
+        "latitude": 34.69,
+        "longitude": 135.5
+      },
+      "km": 403.32573
+    },
+    {
+      "from": {
+        "latitude": 43.06,
+        "longitude": 141.35
+      },
+      "to": {
+        "latitude": 26.21,
+        "longitude": 127.68
+      },
+      "km": 2246.043703
+    },
+    {
+      "from": {
+        "latitude": 10.0,
+        "longitude": 179.5
+      },
+      "to": {
+        "latitude": 10.5,
+        "longitude": -179.5
+      },
+      "km": 122.734649
+    }
+  ]
+}

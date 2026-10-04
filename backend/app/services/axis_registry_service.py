@@ -18,6 +18,7 @@ from app.domain.axis_definitions import (
     check_internal_axis_not_published,
     check_material_exclusivity,
     check_publish_immutability,
+    named_references,
     topological_axis_order,
 )
 from app.domain.material_catalog import is_known_material
@@ -45,17 +46,17 @@ def _rejected_axes(definitions: dict[str, AxisDefinition]) -> dict[str, str]:
     rejected: dict[str, str] = {}
     for axis_id, definition in definitions.items():
         try:
-            check_axis_definition(definition, definitions.keys())
+            check_axis_definition(definition, definitions)
         except ValueError as error:
             rejected[axis_id] = str(error)
     return rejected
 
 
 def _loading_problem(definitions: dict[str, AxisDefinition]) -> str | None:
-    """起動時の読み込みがこの軸の集合を受け入れない理由。受け入れるならNone。
+    """起動時の読み込みがこの軸の集合を受け入れない理由。受け入れるならNone。運用者が読む文で、軸はidで名指す。
 
-    管理APIの書き込みも確定する前の状態をここへ通す——確定した後で通らないと分かっても、
-    行は既にDBにあり、次の起動が止まる。
+    管理APIの書き込みも確定する前の状態を同じ判定（0行と`_rejected_axes`）へ通すが、断りの文は画面に出るため
+    書き込みの側で書く（`_check_loadable_after_write`・`AxisRegistryAdminService.delete`）。
     """
     if not definitions:
         return (
@@ -88,9 +89,34 @@ async def refresh_axis_definitions(repository: AxisDefinitionRepository) -> None
 
 
 def _check_loadable_after_write(after: dict[str, AxisDefinition]) -> None:
-    problem = _loading_problem(after)
-    if problem is not None:
-        raise ValueError(f"この変更を確定すると次の起動で軸定義を読み込めなくなるため、確定しません: {problem}")
+    """作成・更新の後の全軸が起動時の読み込みを通るか。軸を足す・差し替える書き込みなので、0行にはならない。"""
+    rejected = _rejected_axes(after)
+    if rejected:
+        reasons = "／".join(f"{named_references([axis_id], after)}: {reason}" for axis_id, reason in rejected.items())
+        raise ValueError(f"この変更を確定すると、次の起動で読み込めない軸ができるため確定しません（{reasons}）")
+
+
+def _check_deletable(axis_id: str, existing: dict[str, AxisDefinition]) -> None:
+    """消した後の全軸を起動時の読み込みが受け入れるか。受け入れないのは、最後の1軸を消すときと、
+    ほかの軸が組み合わせに使っている軸を消すとき。
+
+    消す前の全軸は読み込みを通っている（起動と書き込みのたびに確かめている）。読み込みの判定のうち軸の集合に
+    よって答えが変わるのは参照先の実在だけなので、消した後に通らなくなる軸は、消す軸を指している軸である。
+    """
+    name = named_references([axis_id], existing)
+    after = {aid: d for aid, d in existing.items() if aid != axis_id}
+    if not after:
+        raise ValueError(
+            f"{name}は最後の1本の軸なので削除できません（軸が1本も無いとアプリが起動できません）。"
+            "先に別の軸を作ってから削除してください。"
+        )
+    rejected = _rejected_axes(after)
+    if rejected:
+        users = named_references(rejected, existing)
+        raise ValueError(
+            f"{name}は{users}が組み合わせに使っているため削除できません。"
+            f"先に{users}の組み合わせる軸から{name}を外すか、{users}を削除してください。"
+        )
 
 
 class AxisRegistryAdminService:
@@ -98,7 +124,7 @@ class AxisRegistryAdminService:
 
     書き込みは1操作=1トランザクションで確定し、直後に`refresh_axis_definitions`で
     プロセス内へ反映する。作成・更新・削除は、確定する前に書いた後の全軸を起動時の読み込みと
-    同じ判定（`_loading_problem`）へ通す。
+    同じ判定（0行と`_rejected_axes`）へ通す。
 
     書き込む操作はいずれも「読む→Python側で検証する→書く」の形のため、先頭で
     `acquire_write_lock`を取ってその全体を直列化する（取らないとTOCTOUで検証をすり抜ける。
@@ -161,8 +187,7 @@ class AxisRegistryAdminService:
         existing = await self._repository.list_all()
         if axis_id in existing:
             check_publish_immutability(existing[axis_id], "deleted")
-            # 他の軸が参照している軸・最後の1軸を消した状態は、起動時の読み込みが受け入れない。
-            _check_loadable_after_write({aid: d for aid, d in existing.items() if aid != axis_id})
+            _check_deletable(axis_id, existing)
         # 削除できるのは常に下書き軸だけ（公開済みは上のガードで止まる）で、下書きは
         # `GET /api/axis-catalog`に出ない。そのため「利用者の保存済み設定がこのaxis_idを
         # 重みキーとして参照したまま残る」状況は起こらず、その整合性検査を持たない。
@@ -172,8 +197,8 @@ class AxisRegistryAdminService:
         await self._repository.commit()
         await refresh_axis_definitions(self._repository)
 
-    async def unpublish(self, axis_id: str) -> None:
-        """公開済み軸を下書きへ戻す。`update()`が公開済み軸を一律拒否するための逃げ道。
+    async def unpublish(self, axis_id: str) -> AxisDefinition:
+        """公開済み軸を下書きへ戻し、戻した後の定義を返す。`update()`が公開済み軸を一律拒否するための逃げ道。
 
         **フロント側が公開軸集合の変化に合わせてroutePreferenceのキーを自己修復すること**が
         前提。それが無いと、旧設定を保持したブラウザは次のルート生成で
@@ -185,7 +210,9 @@ class AxisRegistryAdminService:
             raise KeyError(axis_id)
         definition, sort_order = existing[axis_id]
         if not definition.is_published:
-            return  # 既に下書きなら何もしない（べき等）
-        await self._repository.upsert(definition.model_copy(update={"is_published": False}), sort_order)
+            return definition  # 既に下書きなら何もしない（べき等）
+        unpublished = definition.model_copy(update={"is_published": False})
+        await self._repository.upsert(unpublished, sort_order)
         await self._repository.commit()
         await refresh_axis_definitions(self._repository)
+        return unpublished

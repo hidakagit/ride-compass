@@ -27,8 +27,16 @@
     python scripts/review_checks.py size      # 規模と前回比
     python scripts/review_checks.py metrics   # 定量メトリクスと総量の前回比
     python scripts/review_checks.py trigger   # 周期レビューの発火判定
+    python scripts/review_checks.py change    # 変更の増減と規模の札（master との差分から）
 
 終了コード: `docs`は違反があれば1。それ以外は表示のみで常に0。
+
+`change`は検知器ではなく、作業者が自分の差分に対してその場で打つ報告である
+（差分の起点を選ぶので、上の設計要件の外にある）。
+
+`size`・`metrics`・`trigger`はプロジェクトの今の姿を HEAD から測るので、HEAD が origin/master より
+遅れていれば止まる（`scripts/checkout_freshness.py`）。`docs`は手元の作業ツリーそのものを検査し、
+`change`は origin/master との差分を報告するので、遅れに左右されない。
 """
 
 from __future__ import annotations
@@ -372,21 +380,85 @@ def cmd_trigger(args: argparse.Namespace) -> int:
     return 0
 
 
+# --- 差分の報告（作業者が自分の差分に対して打つ。検査ではない） -----------------
+
+#: docs/conventions/flow.md「規模の札」の閾値（実装＋テストの変更行の上限）。
+SIZE_LABELS = ((200, "S"), (1000, "M"))
+GENERATED_NAMES = ("package-lock.json",)
+
+
+def merge_base(base: str, head: str) -> str:
+    return git("merge-base", base, head).strip()
+
+
+def change_kind(path: str) -> str:
+    """変更の行数を分ける種別。規模の札は実装とテストだけで決まる（docs/conventions/flow.md「規模の札」）。"""
+    if path.startswith(GENERATED_PREFIXES) or path.endswith(GENERATED_NAMES):
+        return "生成物"
+    if path.endswith(".md"):
+        return "文書"
+    if is_test(path):
+        return "テスト"
+    if path.startswith((".github/", ".claude/")):
+        return "設定"
+    return "実装"
+
+
+def cmd_change(args: argparse.Namespace) -> int:
+    target = args.head or "HEAD"
+    mb = merge_base(args.base, target)
+    # -z では、移したファイルの行が「追加\t削除\t」のあと移す前と後のパスを別の欄に持つ。
+    fields = git("diff", "-M", "--numstat", "-z", mb, *([args.head] if args.head else [])).split("\0")
+    rows = []
+    i = 0
+    while i < len(fields) - 1:
+        plus, minus, path = fields[i].split("\t", 2)
+        i += 1
+        if not path:
+            path = fields[i + 1]
+            i += 2
+        if plus != "-":
+            rows.append((path, int(plus), int(minus)))
+    if not args.head:
+        for path in git("ls-files", "--others", "--exclude-standard").splitlines():
+            rows.append((path, len(read(REPO_ROOT / path).splitlines()), 0))
+    totals = {kind: [0, 0] for kind in ("実装", "テスト", "文書", "設定", "生成物")}
+    for path, added, deleted in rows:
+        totals[change_kind(path)][0] += added
+        totals[change_kind(path)][1] += deleted
+    measured = sum(totals["実装"]) + sum(totals["テスト"])
+    label = next((name for limit, name in SIZE_LABELS if measured <= limit), "L")
+    shown = git("rev-parse", "--short", args.head).strip() if args.head else "作業ツリー（未追跡のファイルを含む）"
+    print(f"## 変更の増減（{mb[:8]}..{shown}）")
+    print("増減: " + "・".join(f"{kind} +{a:,}/−{d:,}" for kind, (a, d) in totals.items()
+                             if kind in ("実装", "テスト", "文書") or a or d))
+    print(f"規模: {label}（実装＋テスト {measured:,}行。{SIZE_LABELS[0][0]}以下 S・"
+          f"{SIZE_LABELS[1][0]}以下 M・超えると L。本番DBへ書くタスクは行数によらず L）")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
-    for name, help_text, func in (
-        ("docs", "文書の整合（常に全件）", cmd_docs),
-        ("metrics", "定量メトリクスと総量の前回比", cmd_metrics),
-        ("trigger", "周期レビューの発火判定", cmd_trigger),
+    for name, help_text, func, measures_head in (
+        ("docs", "文書の整合（常に全件）", cmd_docs, False),
+        ("metrics", "定量メトリクスと総量の前回比", cmd_metrics, True),
+        ("trigger", "周期レビューの発火判定", cmd_trigger, True),
     ):
         p = sub.add_parser(name, help=help_text)
-        p.set_defaults(func=func)
+        p.set_defaults(func=func, measures_head=measures_head)
+    p = sub.add_parser("change", help="変更の増減と規模の札")
+    p.add_argument("--base", default="origin/master", help="比べる相手（合流点から見る）")
+    p.add_argument("--head", help="見る版（省くと作業ツリー）")
+    p.set_defaults(func=cmd_change, measures_head=False)
     p = sub.add_parser("size", help="規模と前回比")
     p.add_argument("--top", type=int, default=5, help="領域ごとに見る上位件数")
-    p.set_defaults(func=cmd_size)
+    p.set_defaults(func=cmd_size, measures_head=True)
     args = parser.parse_args()
+    if args.measures_head:
+        from checkout_freshness import require_current
+        require_current(REPO_ROOT)
     return args.func(args)
 
 

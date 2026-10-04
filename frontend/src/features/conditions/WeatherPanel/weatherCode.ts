@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
 import { vocabulary } from "@/types/generated/vocabulary";
-import { CloudIcon, FogIcon, RaindropIcon, SnowflakeIcon, SunIcon, ThunderIcon } from "@/components/ui/icons/icons";
+import { CloudIcon, RaindropIcon, SnowflakeIcon, SunIcon } from "@/components/ui/icons/icons";
 
 // WMO天気コード（weather_code。backendがアメダスの観測から導く）の分類ごとの天気アイコン。
 // 天気コードの分類と名前はbackendの宣言（domain/weather_display.py: WEATHER_CATEGORIES）が配る。
@@ -19,10 +19,8 @@ export const WEATHER_CATEGORY_LABEL = Object.fromEntries(
 export const WEATHER_CATEGORY_ICON: Record<WeatherCodeCategory, (props: { size?: number }) => ReactElement> = {
   clear: SunIcon,
   cloudy: CloudIcon,
-  fog: FogIcon,
   rain: RaindropIcon,
   snow: SnowflakeIcon,
-  thunderstorm: ThunderIcon,
 };
 
 /** 分類に無いコードはnull（天気の分からないコードで、別の天気に見せない）。 */

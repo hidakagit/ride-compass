@@ -22,7 +22,7 @@ import {
 type AxisIconComponent = MapIconComponent;
 
 interface AxisIconPaletteEntry {
-  /** パレット選択UI（AxisComposer.tsx）に出す短い名前。 */
+  /** パレットから形を選ぶ画面（`features/admin/AxisStudio/AxisMapDisplaySection.tsx`）に出す短い名前。 */
   label: string;
   Icon: AxisIconComponent;
 }

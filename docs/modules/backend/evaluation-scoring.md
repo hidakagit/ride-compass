@@ -28,7 +28,9 @@ APIが受け取る重みの形を変えるとき、`dynamic_materials.py`は動�
 
 **材料の導出は`MaterialSpec.value_sql`1本**。評価・地図タイル配信・欠損率の集計・
 軸スタジオの値列挙は、すべて同じ式を読む。入力に対するあるべき値は
-`tests/test_material_values.py`が期待値の表で固定する。
+`tests/test_material_values.py`が期待値の表で固定する。式が実在の列と、読み出しの経路ごとのFROM句に
+ある別名だけを読むことも同じファイルが見る——値の表は別名を値で与えるため、綴りの合わない列や、
+経路に無い別名（路面タイルの`re`等）を読む式は、値の表だけでは見つからない。
 
 **タイルへ焼く式だけは符号化が違う**。`CASE WHEN 条件 THEN true END`で「該当しない」を
 NULLへ畳み、フィーチャーからキーを省いてタイルを軽くする。材料の値を求める式は
@@ -109,7 +111,7 @@ way粒度の経路も**区間向けと同じ式**を使う。`_way_from_clause`�
 ```
 一次: 材料の値（DBが`MaterialSpec.value_sql`で導出、`EdgeMaterialArrays`）
         │  観測を引く材料（雨）は探索範囲を組むときに区間の中点に最も近い雨量計の今の観測を
-        │  列として足す（`GraphService.get_search_slice`→`domain/rain.py: rain_material_columns`）
+        │  列として足す（`RoadGraphEngine`の気象の段が観測を読み→`domain/rain.py: rain_material_columns`）
         │  動的材料（風）だけはリクエスト時に`evaluate_dynamic_material_arrays`が
         │  bearing配列・天候・走行速度から求める
         ▼
@@ -157,13 +159,13 @@ way1本を指す区間インスペクタも同じ評価・合成を長さ1の配
 
 **暗黙の前提（浮動小数点の丸め）**: 合成の和は補償加算（`difficulty.py: _neumaier_accumulate`）で
 求める。単純な逐次`+=`では誤差が項の数だけ積み上がり、真の値がちょうど.X5境界にある合成値の
-最終丸めが誤差の向きしだいで別の側へ倒れる。最終丸めは`round(x, 1)`と同じ値へ丸める
-（`round1_array`）。`×10→np.rint→÷10`を配列全体で
+最終丸めが誤差の向きしだいで別の側へ倒れる。最終丸めは難易度の桁（`difficulty.py: DIFFICULTY_DECIMALS`）の`round()`と同じ値へ丸める
+（`round_difficulty_array`）。`×10→np.rint→÷10`を配列全体で
 まとめて計算し、計算後の値がちょうど`.5`に乗った要素だけ、元の値と10進の中点の大小を
 仮数の整数で正確に比べて決め直す（配列のまま。要素ごとにPythonの`round()`を呼ぶと、
 小数1桁の得点を重み0.5ずつ足した軸・同じ重みの2軸の合成のように半数近くの要素が`.5`に乗る入力で、
 時刻のビンごとに評価し直す動的軸の合成が1回あたり数十ms重くなる）。軸1本の得点
-（`evaluate_axis_array`）も同じ`round1_array`で丸める。
+（`evaluate_axis_array`）も同じ`round_difficulty_array`で丸める。
 
 **暗黙の前提**: 軸が読む材料の配列は`MATERIAL_CATALOG`の全材料ぶん確保する
 （`value_sql`を持たない材料も既定値[NaN/False/値なし]で確保）。確保しないと、値式が無い材料を
@@ -179,7 +181,7 @@ bbox全体ぶんのコストをリクエストにつき1回だけnumpyで合成�
 `list.__getitem__`だけを渡す。
 
 - **`build_static_edge_score_matrix`**: 生成のたびに、切り出した探索範囲の材料
-  （`GraphService.get_search_slice`）から`StaticEdgeScoreMatrix`（Edge×公開軸の静的スコア行列＋distance_m・
+  （`GraphService.get_search_slice`）と雨の観測（`RoadGraphEngine`の気象の段）から`StaticEdgeScoreMatrix`（Edge×公開軸の静的スコア行列＋distance_m・
   bearing_deg・0次フィルタ判定用の生配列、行は切り出した区間の順）を構築する。キャッシュしない——
   軸定義の編集がそのまま次の生成に効く。
   分類の材料（`highway`・路面の見込み等）は、道路網の置き場が持つ語彙への番号の列
@@ -288,7 +290,7 @@ categorical材料は数値列に載せられないため、対になる別の列
 
 **丸めは値の種類で分ける**。距離加重平均そのものは`weighted_mean_by_distance`
 （`domain/difficulty.py`、丸めない）が求め、丸め方は呼び出し側が決める——
-difficulty系（0〜100）は小数1桁、生値・材料値は**有効数字4桁**。
+difficulty系（0〜100）は難易度の桁（`difficulty.py: round_difficulty`。候補の並びの同点もこの桁で決まる）、生値・材料値は**有効数字4桁**。
 生値のスケールは軸ごとに違い（勾配は`%`で0〜15程度、事故密度は`件/(km・年)`で
 有効域0〜0.5）、固定の小数桁で丸めると桁の小さい軸で値がまるごと潰れて
 「値が無い道」と区別できなくなる。frontendの表示（`axisRawValue.ts: formatNumber`）も
@@ -312,7 +314,7 @@ MaterialSpec]`が単一ソース。
 | `additive` | 同じ単位の他の材料と**足し合わせて意味を持つ量**か（示量／示強の区別）。個数と、それを同じ距離で割った密度はTrue。%・km/h・倍率のような割合・率はFalse。`raw_value_unit`が2項以上の和を見せてよいかの判定に使う |
 | `total_unit` | 生値へ走行距離を掛けた**総量**を出すときの単位（出す意味が無ければ`None`）。`additive`とは別の問い——事故密度（件/[km・年]）は足せるが、総量に比べる尺度が無い。|
 | `tile_property` | MVTタイルへ既に焼き込み済みのプロパティ名。`None`は「タイル非依存」（地図レイヤーのramp自動生成の対象になりえない） |
-| `tile_property_needs_runtime_scale` | タイル側の生値と材料の値がスケール不一致（実行時に変動する係数での変換が必要）か。地図表示の自動導出はこれがTrueの材料を含む軸を拒否する |
+| `tile_property_runtime_scale` | タイル側の生値を材料の値へ換算する係数が実行時にしか決まらないときの、係数の源（例: 事故の収録年数の逆数）。地図表示の自動導出はこの材料のタイル入力に`needs_runtime_scale`の印を付け、係数は`GET /api/axis-catalog`の`tile_runtime_scales`（`domain/material_catalog.py: tile_runtime_scales`が宣言から導く）で配る。ほかの軸が参照する折れ点の軸の材料だと、その参照は地図に畳めない（タイル入力は係数を掛ける前に折れ点を当てる形を表せない） |
 | `tile_property_direction_dependent` | 値が進行方向によって変わる（有向）か。地図のrampレイヤーは単色の線という前提のため、これがTrueの材料を含む軸もramp自動導出を拒否する |
 | `primary_attribute` | 対応する一次属性（`PRIMARY_ATTRIBUTES`の宣言そのもの。idの文字列では指さない。[軸スタジオ](axis-studio.md)「一次属性の語彙」節）。材料idと一次属性id（frontendの`primaryAttributes.ts`が使う名前空間）は名前が異なるため明示的に対応させる |
 | `weather_grid_value` | 材料が読む自前のMSM格子の値（例: 風）。一次属性を持たない動的な材料の元データを、同じ格子の値を描く気象のチップ（`domain/weather_elements.py: WeatherElement.grid_value`）が地図に見せる。`GET /api/axis-catalog`はこれを軸ごとに`weather_layer_groups`へ解決し、地図の説明文がその評価の名前を差し込む |
@@ -348,8 +350,8 @@ MaterialSpec]`が単一ソース。
   列指向テーブル・集計SQL・読み出し・タイルの焼き込み列は、そこからクラス値の昇順で
   導いた`PERCENT_CLASSES`を読む。材料もクラスの宣言から1クラス1材料で生成する（材料idは割合列の名前、
   表示名はクラスの表示名から作る）ため、クラスを足せば材料も揃って増える。列・焼き込みの名前の規則
-  （`lc_<鍵>`・材料の`tile_property`＝焼き込み列の名前）は`landcover.py`の`landcover_key`・
-  `landcover_tile_property`だけが持つ——材料の`tile_property`と焼き込み列の名前がずれると、地図は黙って塗らない。
+  （`lc_<鍵>`・材料の`tile_property`＝焼き込み列の名前）は`landcover.py: landcover_key`・
+  `landcover.py: landcover_tile_property`だけが持つ——材料の`tile_property`と焼き込み列の名前がずれると、地図は黙って塗らない。
   **材料の値式は`em.lc_*`だけを読み、区間の値が無いときに道1本の値へ落とさない**——区間の値は全区間ぶん
   計算されており、落とす先は同じ道の平均でしかない。道1本を単位に値を求める文脈
   （`road_graph_repository.py: _WAY_ALIAS_CLAUSES`が`em`を道1本の行へ読み替える）では道の値になる。
@@ -444,7 +446,7 @@ way粒度で引くときは、同じ式のまま`w`の行から同じ名前の�
 算出する。材料値は`RoadGraphRepository.get_way_material_values`が返したものをそのまま受け
 取り、この関数は合成だけを行う。進行方向に依存する材料（勾配%・風ペナルティ）は
 **1本の道が往復2方向で違う値を持つ**ためDBのway単位の値には無く、走行方位・時刻・想定速度を
-指定して呼び出し側（`api/dependencies.py: directional_materials`）が引いたものを
+指定して呼び出し側（`services/dedicated_way_values.py: DirectionalMaterialService`）が引いたものを
 `materials`へ足して渡す。足されなければその軸の`difficulty`はNoneになる。合成
 （`composite_difficulty`）は値と`covered_weight_fraction`（全軸の重み合計に対する取得できた軸の
 重み合計の割合）を1つの任意の項目で持ち、取得できた軸が無ければNone。割合はフロントの
@@ -455,14 +457,13 @@ way粒度で引くときは、同じ式のまま`w`の行から同じ名前の�
 
 `weights: dict[str, float]`（axis_id→重み、既定値は`default_axis_weights()`）。
 既定の重みの入口は`RoutePreference()`だけで、組み立てるたびにその時点の公開軸から導く
-（ルート生成・区間確認・区間インスペクタのどれも、重みを省略されたらこれを使う）。
+（ルート生成・区間インスペクタのどちらも、重みを省略されたらこれを使う）。
 部分指定を許し、書かれなかった公開軸は`default_weight`で補う。値の不変条件は`check_axis_weights`が持ち、
 組み立てるたびに通す——キーは公開軸（`is_published=True`）のidだけ（内部軸は重み付けの対象外）、値は非負
 （負の重みは合成difficultyの分母と分子の符号を食い違わせる）。ルート生成の要求を通らずに組み立てる書き手
 （研究のスクリプト・テスト）も同じ検査を通る。「上書きするなら公開軸を全部書く」は要求の形で、
 `api/routers/routes.py: RoutePreferenceWeights`が持ち、値の検査は同じ`check_axis_weights`を呼ぶ。
 
-`with_time_scope(active_scopes)`は、`time_scope`が`"always"`以外の軸のうち
-`active_scopes`に含まれないものの重みを0倍にしたコピーを返す（night軸の動的重み
-付けが使う、[routing-engine.md](routing-engine.md)参照）。リクエスト間で共有するインスタンスを
-汚染しないよう、新しい`RoutePreference`インスタンスを返す（`self`を書き換えない）。
+時間帯を持つ軸（`time_scope`が`"always"`以外）の重みは`RoutePreference`では切り替えない——区間を通る時刻で
+区間ごとに決まるため、合成器が`domain/axis_definitions.py: time_scoped_weights`で区間ごとの配列にする
+（[routing-engine.md](routing-engine.md)「夜間軸の動的重み付け」）。

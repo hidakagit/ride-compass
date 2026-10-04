@@ -14,7 +14,7 @@ import { textVariants } from "@/components/ui/Text/Text";
 
 const DEFAULT_LIMIT = 200;
 // 選択肢は軽い順に並べる。キーの過不足はbackendの契約から引いた型が検査する。
-/** 選べるレベル（軽い順）。**backendの宣言の並びそのもの**（生成物`vocabulary.ts`の`logLevels`）。 */
+/** 選べるレベル（軽い順）。**backendの宣言の並びそのもの**（生成物`vocabulary.ts: logLevels`）。 */
 const LOG_LEVEL_OPTIONS: readonly LogLevelName[] = vocabulary.logLevels;
 
 // フロントのDebugConsole（lib/debugLog.ts、entry.level="info"/"warn"/"error"）と同じ

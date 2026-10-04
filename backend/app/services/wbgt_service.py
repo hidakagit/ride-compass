@@ -6,12 +6,13 @@ import logging
 from datetime import datetime, timedelta
 
 import httpx
+import numpy as np
 
 from app.domain.warning_levels import WarningBadgeLevel
 from app.domain.route import Coordinates
-from app.domain.wbgt import is_within_provision_period, wbgt_level
-from app.domain.wbgt_points import nearest_point
-from app.infrastructure.wbgt_client import WbgtForecast, fetch_forecast, fetch_point_master
+from app.domain.geo import nearest_point_index
+from app.domain.wbgt import current_forecast, is_within_provision_period, wbgt_level
+from app.infrastructure.wbgt_client import fetch_forecast, fetch_point_master
 from app.domain.strict_model import StrictModel
 
 # 発表（reference_time）は概ね毎時だが遅延もありうるため、直近この時間幅で発表時刻を
@@ -55,24 +56,27 @@ class WbgtService:
         if not points:
             return None
 
-        nearest = nearest_point(point.latitude, point.longitude, points)
-        if nearest is None:
+        nearest_index = nearest_point_index(
+            point.latitude, point.longitude,
+            np.array([p.latitude for p in points]), np.array([p.longitude for p in points]),
+        )
+        if nearest_index is None:
             return None
+        nearest = points[nearest_index]
 
-        range_to = now.strftime("%Y%m%d%H%M%S")
-        range_from = (now - timedelta(hours=_FORECAST_SEARCH_WINDOW_HOURS)).strftime("%Y%m%d%H%M%S")
-        forecasts = await fetch_forecast(self._http_client, nearest.no, range_from, range_to)
+        range_from = now - timedelta(hours=_FORECAST_SEARCH_WINDOW_HOURS)
+        forecasts = await fetch_forecast(self._http_client, nearest.no, range_from, now)
         if forecasts is None:
             return None
         if not forecasts:
             # 提供期間の中で発表が無いのは配信の止まりで、段なしにすると警戒が要らないと見せる。
             logger.warning(
                 "暑さ指数の検索窓に発表がありません wbgt_no=%s range_from=%s range_to=%s",
-                nearest.no, range_from, range_to,
+                nearest.no, range_from.isoformat(), now.isoformat(),
             )
             return None
 
-        forecast = _pick_nearest_forecast(forecasts, now)
+        forecast = current_forecast(forecasts, now)
         if forecast is None or forecast.wbgt is None:
             return None
 
@@ -83,25 +87,3 @@ class WbgtService:
         return WbgtStatus(
             reading=WbgtReading(level=level, label=label, value=forecast.wbgt, observed_at=forecast.forecast_time_text)
         )
-
-
-def _pick_nearest_forecast(forecasts: list[WbgtForecast], now: datetime) -> WbgtForecast | None:
-    """最新の発表回に絞ったうえで、現在時刻に最も近い対象時刻の予測を選ぶ。
-
-    検索窓を広げて取得したレスポンスには発表回（reference_time）が複数混ざる。絞らずに
-    「現在時刻に最も近い」を選ぶと、新しい発表回で既に置き換わっている値を拾いうる。
-    """
-    if not forecasts:
-        return None
-    latest_reference_time = max(forecast.reference_time for forecast in forecasts)
-
-    now_naive = now.replace(tzinfo=None)
-    best: WbgtForecast | None = None
-    best_diff: float | None = None
-    for forecast in forecasts:
-        if forecast.reference_time != latest_reference_time or forecast.forecast_time is None:
-            continue
-        diff = abs((forecast.forecast_time - now_naive).total_seconds())
-        if best_diff is None or diff < best_diff:
-            best, best_diff = forecast, diff
-    return best

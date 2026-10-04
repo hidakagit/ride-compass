@@ -1,7 +1,7 @@
 """動的材料（`REQUEST_DYNAMIC_MATERIAL_IDS`）のリクエスト時評価。
 
 Edgeへ永続保存せず、リクエストのたびに風・走行速度・通過予定時刻から求める材料を
-扱う。静的材料（`domain/material_catalog.py`の`value_sql`でDBが求める値）とは値の出どころも
+扱う。静的材料（`domain/material_catalog.py: value_sql`でDBが求める値）とは値の出どころも
 更新の頻度も違うため、評価本体（`domain/evaluation.py`）から分けてある。
 """
 
@@ -40,10 +40,10 @@ class DynamicAxisRequestContext:
     # 時刻依存の材料向け: 格子点ごとの時別予報系列と、各Edgeの通過予定時刻（`start`からの経過
     # 時間[h]、`bearing_deg`と同じ行順）と、各Edgeに最も近い格子点の番号（同じ行順）。4つとも揃っていれば
     # Edgeごとに通過予定時刻の値を引き、揃っていなければ`weather`（出発時点のスナップショット）を全Edgeへ一様に使う。
-    wind_series: WindForecastSeries | None = None
-    start: datetime | None = None
-    passage_hours: np.ndarray | None = None
-    wind_points: np.ndarray | None = None
+    wind_series: WindForecastSeries | None
+    start: datetime | None
+    passage_hours: np.ndarray | None
+    wind_points: np.ndarray | None
 
     @cached_property
     def wind_components_ms(self) -> tuple[np.ndarray, np.ndarray] | None:

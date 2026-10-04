@@ -63,8 +63,8 @@
    それより先（利用者が出発時刻を選んだ等）を指していれば描かない
    （遅れの幅は源泉が規則の`window_minutes`で宣言する）。
    **利用者が出発時刻を選ぶまでは「今」へ張り付き、時間の経過とともに進む**（`steppedNow`、
-   5分刻み）。選んだ後はその時刻を保ち、「今」ボタンで張り付きへ戻る（`handleDynamicLayerNow`。
-   **現在時刻を`setDynamicLayerTargetTime`へ渡すのでは代用にならない**——その値でピン留め
+   5分刻み）。選んだ後はその時刻を保ち、「今」ボタンで張り付きへ戻る（`useDepartureTime.ts: followNow`。
+   **現在時刻を`useDepartureTime.ts: setAt`へ渡すのでは代用にならない**——その値でピン留め
    され、以後は追従しない）。張り付かせないと、
    実況由来のフレーム列は先頭が更新のたび前進するのに共有時刻だけが取り残され、
    `frameIndexForTime`が範囲外を返して降水・雷・竜巻・雷放電が黙って描画を止める
@@ -190,8 +190,8 @@ JMAタイル系ソースの`minzoom`/`maxzoom`・ベクタのレイヤー名は�
 走行方位への依存を含む向かい風/追い風の強さは[地図: 軸・ルート色分け](map-axis-coloring.md)の
 専用way値配信軸が担う。
 
-`disaster`（災害）は源泉がチップ`disaster`として宣言したソース（`dynamicWeather.ts: DisasterSourceKey`）を1チップへまとめたグループで、全ソースが1つの`showDisaster`に
-連動する。同じ段（描き方ごとに決まる。`scene/groups/weather.ts: TIER_OF`）の中では源泉の宣言
+`disaster`（災害）は源泉がチップ`disaster`として宣言したソースを1チップへまとめたグループで、全ソースがそのチップ1つの入/切に
+連動する（凡例で個別に隠したソースだけは描かない。`useDynamicWeatherLayers.ts: isShown`）。同じ段（描き方ごとに決まる。`scene/groups/weather.ts: TIER_OF`）の中では源泉の宣言
 （backendの`domain/weather_elements.py: WEATHER_ELEMENTS`）の並び順が重なり順になるため、面（キキクル3種・雷・竜巻のラスタ）を下に、局所的で見落としやすい線（洪水）・点
 （落雷）を上に置く。面同士が重なった領域は混色し危険度5段階を読み取れなくなるが、危険度
 ゼロの領域は配信元のタイルが透明のため平常時の地図の見た目は変わらない。**この並び順が
@@ -208,6 +208,13 @@ disasterSourceLegendAxis`が作り、隠したソースは他の凡例絞り込�
 ソースが無ければ取りに行かない（「表示中のものだけ叩く」方針）。取りに行く単位は配信要素
 そのもので、画面は単位の対応表を持たない。時刻一覧を取る単位はファイルで、同じファイルを読む
 配信要素どうしは1つの取得を共有する（下記）。
+
+チップの説明文と表示専用の凡例も要素の宣言から組み立てる（`mapLayers.ts`）。説明は要素の`label`を、描くコマの規則
+（`frameRule.kind`）ごとにまとめて並べ、規則ごとの言い回し（時刻に連動・直近の観測・現在の危険度のみ）だけを画面が持つ。
+凡例は要素が宣言する塗る段（`levelScale`。生成物`weather-scales.json`の鍵）ごとに1ブロックで、見出しはその段で塗る要素の
+`label`の並び。段の数と名前は凡例に並ぶので説明文に書かない——要素を足す・名前や規則を変えると説明と凡例が追従し、
+文だけが古くなることは無い。「表示する情報」の色見本も同じ`levelScale`の注意を促す段から引き、段を持たない要素
+（落雷の地点）だけをソースの鍵で持つ（`scene/legends.ts`）。
 
 **配信元の要素id・パスの系統・時刻一覧の在り処と読み方はデータ層も源泉から引く**（`jmaDelivery.ts`）。
 データ層は要素を名指さず、配信元のパスの形も持たない。コマのURLは`mapDisplay.weatherElements`の
@@ -266,13 +273,13 @@ backendの中継は地物の404を覚えず、ブラウザにも覚えさせな�
 
 1. backend: `domain/weather_elements.py: WEATHER_ELEMENTS`へ宣言を1件足す（チップid・名前付き
    ソース・描き方の種類・気象庁の配信要素id・選んだ時刻に描くコマの規則、自前の格子から描くなら
-   読む値）。配信元から取るなら`domain/jma_tile_specs.py: JMA_ELEMENTS`へ配信要素の宣言を1件足す
+   読む値、配信元が段の色を焼き込むなら塗る段`level_scale`）。配信元から取るなら`domain/jma_tile_specs.py: JMA_ELEMENTS`へ配信要素の宣言を1件足す
    （パスの系統・時刻一覧のファイルと読み方、タイルで描くならズームとベクタのレイヤー名、公式の画面の設定が
    `dataDelay`を持つなら配信の遅れ。宣言が無いと生成が落ちる）。
    新しいチップidを名乗ればチップも増える（`WEATHER_LAYER_GROUPS`はこの宣言から導かれ、
    生成物経由で`DynamicWeatherLayerId`・`MapLayerId`になる）。`scripts/export_openapi.py`で
-   生成物（`mapDisplay.ts`の`weatherElements`）を作り直す。自前のMSM格子から描くなら、
-   `wind_grid.py`の`WindGridPoint`へ値フィールドを、`msm_client.py`の`MsmSeries`へ項目を、
+   生成物（`mapDisplay.ts: weatherElements`）を作り直す。自前のMSM格子から描くなら、
+   `wind_grid.py: WindGridPoint`へ値フィールドを、`msm_client.py: MsmSeries`へ項目を、
    `FORECAST_VARIABLES`へMSM変数とその項目の対応を足す（この経路は風・降水の格子の段限定）。MSMから描く要素の
    説明文は「予報」と呼ばない（上の「責務」）
 2. `features/map/scene/groups/weather.ts`: 配信元のラスタ（`rasterTile`）なら何も足さない
@@ -283,7 +290,7 @@ backendの中継は地物の404を覚えず、ブラウザにも覚えさせな�
    性質（`dynamic`）を1行、`mapLayers.ts`へ記述子（アイコン・凡例）を1エントリ足す
 4. 新しい種類を足したときだけ: 時刻一覧の読み方なら`jmaDelivery.ts`の読み方の表と、同じ読み方でプリウォームの
    フレームを選ぶbackendの`jma_tile_specs.py: read_target_times`（[動的気象レイヤー（backend）](../backend/weather-dynamic-layers.md)
-   「定期プリウォーム」）、コマの規則なら
+   「定期プリウォーム」）と、両方が同じコマを出すことを確かめる表の場面（`scripts/cross_language_expectations.py: jma_expectations`）、コマの規則なら
    `weatherSources.ts: selectFrame`、格子の値なら`useDynamicWeatherLayers.ts: GRID_PAYLOAD`へ1つ足す
    （種類の集合は生成物から導くため、足し忘れは型検査が落ちる）。取得・時系列・描画内容・取得状態は
    宣言の一覧をループして作るため、要素を足すだけならフロントの手書き作業は無い。
@@ -393,7 +400,8 @@ basetime・validtimeを含む）で持つため、フレームが進んで取得
 `weatherCode.ts`がコードを分類し——分類と名前はbackendの宣言〔`domain/weather_display.py: WEATHER_CATEGORIES`〕が
 生成物`vocabulary.ts`で配り、画面が持つのは分類ごとのアイコンだけ——`amedasWeatherIcon.ts`は「晴れ」を昼夜で
 描き分けるだけ）、MSMとは独立にフェッチする。`TodayOutlook`（「今日」のパネル）は**MSMの計算値**（今日の最大降水量・
-最大風速・気温レンジと2時間ごとの気温・降水量）と日の出日没を扱い、見出しの下に計算値であって予報ではない旨を出す。
+最大風速・気温レンジと一定間隔のコマの気温・降水量。間隔は応答の`today_period_interval_hours`）と日の出日没を扱い、見出しの下に計算値であって予報ではない旨を出す。
+日の出日没は天文計算の値のため、その見出しの外（上）に置く。
 天気のアイコンは出さない（上の「責務」の、MSMから天気を計算して出さない制約）。両者は別APIに依存する独立
 コンポーネントで、本モジュールの動的地図レイヤーとは別のフェッチ経路を持つ。
 
@@ -427,7 +435,7 @@ basetime・validtimeを含む）で持つため、フレームが進んで取得
   `vectorTile`（洪水キキクル）はMapLibreがWeb Worker内で取得するため相対パスだと
   `new Request(url)`がWorkerのbase URLに対して解決できず例外になり、`rasterTile`も
   backend直接配信（`NEXT_PUBLIC_TILE_BASE_URL`）ではページと別オリジンになるため絶対URLが
-  要る（`services/regionApi.ts`の`roadSurfaceTileUrl`等と同じ仕組み、
+  要る（`features/map/regionApi.ts: roadSurfaceTileUrl`等と同じ仕組み、
   [静的レイヤー](static-map-layers.md)「タイルの配信元」参照）。
   時刻一覧・GeoJSONはMapLibreではなくアプリ自身の`fetch()`で読むが、同じく絶対URLにする——
   **タイルURLは時刻一覧が返るまで確定しない**ため、ここでフロントのホスティングを経由すると

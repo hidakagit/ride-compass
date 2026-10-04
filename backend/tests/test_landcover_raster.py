@@ -1,109 +1,206 @@
-"""`infrastructure/landcover_raster.py`——土地被覆ラスタからタイル1枚を描く。
+"""`infrastructure/landcover_raster.py`——土地被覆のGeoTIFFから、XYZタイル1枚ぶんのクラスと絵を作る。
 
-実ラスタ（配布元のGeoTIFF）はリポジトリに無いため、東京付近へ置いた小さな合成ラスタを
-UTM 54N（配布元と同じCRS）で作り、再投影を含む実際の経路をそのまま通す。
+入口は`tile_classes`・`render_tile`・`empty_tile_png`・`has_sources`・`opened_raster_paths`。
+ラスタは一時ディレクトリに本物のGeoTIFFを書き、設定（`settings.lulc_raster_paths`）でその置き場を
+渡す。開いたラスタはプロセスに残るので、テストごとに開く前の状態から始めて、後で閉じる。
+タイルの範囲はXYZの公開の定義（Web Mercatorの全幅を2^z等分し、yは北から数える）から作る。
+
+ここで見ないもの:
+- 配色の中身（どのクラスを塗り、何色か） → `domain/landcover.py: LANDCOVER_CLASSES`の宣言。
+  ここではクラスを「塗る」「塗らない」の性質で選び、色は宣言から読む
+- 空のタイルを返すか503にするか・キャッシュの鍵 → `test_landcover_tile.py`
+- 取込がタイルのクラスをDBへ入れること → 取込のアダプタ（`batch/source_adapters/io_lulc_tile.py`）の持ち物
 """
 
-from io import BytesIO
+import io
+import logging
+import math
 
 import numpy as np
 import pytest
 import rasterio
 from PIL import Image
 from rasterio.transform import from_origin
+from rasterio.warp import transform as transform_points
 
-from app.config import settings
-from app.domain.landcover import LANDCOVER_CLASSES, LULC_BUILT, LULC_TREES
 from app.infrastructure import landcover_raster
 
-# 合成ラスタの位置（東京付近、UTM 54N）。1辺1kmで、下のz14タイル（地上でおよそ2km四方）
-# より小さくしてある——タイルの一部だけが覆われる状態にして、覆わない部分が透明のまま
-# 残ることも同じ1枚で確かめる。
-_ORIGIN_EASTING = 380000.0
-_ORIGIN_NORTHING = 3950000.0
-_PIXEL_M = 10.0
-_SIZE_PX = 100
-# 上のラスタの中心（経度139.679度・緯度35.682度）を含むz14タイル。
-_TILE_Z, _TILE_X, _TILE_Y = 14, 14548, 6451
+HALF_WORLD_M = 20037508.342789244
+TOKYO = (14, 14552, 6451)
+SIZE = landcover_raster.TILE_SIZE
+
+
+def tile_bounds(z: int, x: int, y: int) -> tuple[float, float, float, float]:
+    size = 2 * HALF_WORLD_M / 2**z
+    west = -HALF_WORLD_M + x * size
+    north = HALF_WORLD_M - y * size
+    return west, north - size, west + size, north
+
+
+def tile_center_lonlat(z: int, x: int, y: int) -> tuple[float, float]:
+    n = 2**z
+    lon = (x + 0.5) / n * 360 - 180
+    lat = math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * (y + 0.5) / n))))
+    return lon, lat
+
+
+def write_raster(path, classes: np.ndarray, crs: str, west: float, north: float, pixel_m: float) -> str:
+    height, width = classes.shape
+    with rasterio.open(
+        path, "w", driver="GTiff", width=width, height=height, count=1, dtype="uint8", crs=crs,
+        transform=from_origin(west, north, pixel_m, pixel_m), compress="deflate",
+    ) as dataset:
+        dataset.write(classes.astype(np.uint8), 1)
+    return str(path)
+
+
+def over_tile(path, classes: np.ndarray, z: int, x: int, y: int) -> str:
+    """タイルの範囲をちょうど覆うWeb Mercatorのラスタ（1画素がタイルの1画素に揃う大きさなら、画素がそのまま写る）。"""
+    west, _, east, north = tile_bounds(z, x, y)
+    return write_raster(path, classes, "EPSG:3857", west, north, (east - west) / classes.shape[1])
 
 
 @pytest.fixture
-def unopened_sources(monkeypatch):
-    """開いたラスタはプロセス内のモジュール変数に残り、以後は設定を読み直さない。設定したラスタを
-    読ませるため、まだ開いていない状態から始め、テストが開いたものは閉じる。"""
+def configure(monkeypatch):
+    """設定するラスタの置き場を渡し、ラスタをまだ開いていない状態から始める。"""
     monkeypatch.setattr(landcover_raster, "_sources", None)
-    yield
+    monkeypatch.setattr(landcover_raster, "_last_open_attempt", 0.0)
+
+    def configure(*paths: str) -> None:
+        monkeypatch.setattr(landcover_raster.settings, "lulc_raster_paths", ",".join(paths))
+
+    yield configure
     for source in landcover_raster._sources or []:
         source.dataset.close()
 
 
-@pytest.fixture
-def synthetic_raster(tmp_path, monkeypatch, unopened_sources):
-    """左半分が樹木・右半分が建物の合成ラスタを設定へ差し込む。"""
-    path = tmp_path / "54S_synthetic.tif"
-    data = np.full((_SIZE_PX, _SIZE_PX), LULC_TREES, dtype=np.uint8)
-    data[:, _SIZE_PX // 2 :] = LULC_BUILT
-    with rasterio.open(
-        path,
-        "w",
-        driver="GTiff",
-        width=_SIZE_PX,
-        height=_SIZE_PX,
-        count=1,
-        dtype="uint8",
-        crs="EPSG:32654",
-        transform=from_origin(_ORIGIN_EASTING, _ORIGIN_NORTHING, _PIXEL_M, _PIXEL_M),
-        nodata=0,
-    ) as dataset:
-        dataset.write(data, 1)
-
-    monkeypatch.setattr(settings, "lulc_raster_paths", str(path))
-    return path
+def stripes(*values: int, size: int = SIZE) -> np.ndarray:
+    """西から東へ、等しい幅の縦縞に値を並べる。"""
+    columns = np.array_split(np.arange(size), len(values))
+    out = np.zeros((size, size), dtype=np.uint8)
+    for value, cols in zip(values, columns, strict=True):
+        out[:, cols] = value
+    return out
 
 
-def _colors(png: bytes) -> set[tuple[int, int, int, int]]:
-    with Image.open(BytesIO(png)) as image:
-        assert image.size == (256, 256)
-        return {color for _count, color in image.convert("RGBA").getcolors(maxcolors=256 * 256)}
+def decoded(png: bytes) -> np.ndarray:
+    with Image.open(io.BytesIO(png)) as image:
+        assert image.mode == "RGBA"
+        return np.asarray(image)
 
 
-def _rgba(color: str) -> tuple[int, int, int, int]:
-    return (int(color[1:3], 16), int(color[3:5], 16), int(color[5:7], 16), 255)
+def test_reprojecting_a_utm_raster_keeps_class_numbers_and_invents_none(tmp_path, configure):
+    """画素値はクラス番号なので、隣り合う2クラスの間に別のクラスが生まれてはいけない。"""
+    lon, lat = tile_center_lonlat(*TOKYO)
+    (easting,), (northing,) = transform_points("EPSG:4326", "EPSG:32654", [lon], [lat])
+    half_m = 3000
+    configure(write_raster(tmp_path / "54S.tif", stripes(5, 7, size=600), "EPSG:32654",
+                           easting - half_m, northing + half_m, 10))
+
+    classes = landcover_raster.tile_classes(*TOKYO)
+
+    assert classes.shape == (SIZE, SIZE)
+    # タイルはラスタの内側にあるので、縁まで全画素がクラスを持つ。
+    assert set(np.unique(classes)) == {5, 7}
 
 
-def test_render_tile_paints_classes_with_their_own_colors(synthetic_raster):
-    png = landcover_raster.render_tile(_TILE_Z, _TILE_X, _TILE_Y)
-    assert png is not None
-    colors = _colors(png)
-    by_key = {cls.percent_field: cls for cls in LANDCOVER_CLASSES}
-    assert _rgba(by_key["trees_percent"].color) in colors
-    # ラスタが覆わない部分は透明のまま残る（合成ラスタはタイルより小さい）。
-    assert (0, 0, 0, 0) in colors
-    # 混色は作らない。塗られている色はクラスの色そのものだけ。
-    assert colors <= {(0, 0, 0, 0)} | {_rgba(cls.color) for cls in LANDCOVER_CLASSES}
+def test_a_tile_no_raster_reaches_has_no_classes_and_no_image(tmp_path, configure):
+    configure(over_tile(tmp_path / "a.tif", stripes(2), *TOKYO))
+    z, x, y = TOKYO
+
+    assert landcover_raster.tile_classes(z, x + 2, y) is None
+    assert landcover_raster.render_tile(z, x + 2, y) is None
 
 
-def test_render_tile_leaves_unpainted_classes_transparent(synthetic_raster):
-    """塗らないと宣言したクラスの画素は透明のまま残る。
+def test_where_rasters_overlap_the_first_configured_wins_and_the_next_fills_its_gaps(tmp_path, configure):
+    """値0（範囲外・No Data）は、先のラスタが描いた画素を消さず、後のラスタに埋めさせる。"""
+    west_only = over_tile(tmp_path / "west.tif", stripes(2, 0), *TOKYO)
+    everywhere = over_tile(tmp_path / "all.tif", stripes(5), *TOKYO)
 
-    建物は市街地で画素の大半を占め、塗ると地図が単色で覆われるだけになる
-    （docs/records/tasks/T902.md）。合成ラスタは建物の画素を含むが、色は出ない。
-    """
-    png = landcover_raster.render_tile(_TILE_Z, _TILE_X, _TILE_Y)
-    assert png is not None
-    colors = _colors(png)
-    unpainted = {_rgba(cls.color) for cls in LANDCOVER_CLASSES if not cls.painted}
+    configure(west_only, everywhere)
+    classes = landcover_raster.tile_classes(*TOKYO)
 
-    assert unpainted, "塗らないクラスが1つも無いなら、このテストは何も確かめていない"
-    assert not (colors & unpainted)
+    assert (classes[:, : SIZE // 2] == 2).all()
+    assert (classes[:, SIZE // 2 :] == 5).all()
 
 
-def test_render_tile_outside_raster_returns_none(synthetic_raster):
-    """ラスタが覆わない範囲は「値なし」。空タイルを作るのは呼び出し側の役目。"""
-    assert landcover_raster.render_tile(_TILE_Z, 0, 0) is None
+def test_the_raster_listed_first_is_not_overwritten_by_a_later_one(tmp_path, configure):
+    west_only = over_tile(tmp_path / "west.tif", stripes(2, 0), *TOKYO)
+    everywhere = over_tile(tmp_path / "all.tif", stripes(5), *TOKYO)
+
+    configure(everywhere, west_only)
+
+    assert (landcover_raster.tile_classes(*TOKYO) == 5).all()
 
 
-def test_render_tile_without_raster_configured(monkeypatch, unopened_sources):
-    monkeypatch.setattr(settings, "lulc_raster_paths", "")
+def test_a_raster_finer_than_the_read_limit_still_fills_the_whole_tile(tmp_path, configure):
+    """低いズームでは間引いて読む。間引いた分の画素の大きさを合わせないと、タイルの一部しか埋まらない。"""
+    z, x, y = 12, TOKYO[1] // 4, TOKYO[2] // 4
+    configure(over_tile(tmp_path / "fine.tif", stripes(2, 5, size=2048), z, x, y))
 
-    assert landcover_raster.has_sources() is False
+    classes = landcover_raster.tile_classes(z, x, y)
+
+    assert (classes[:, : SIZE // 2] == 2).all()
+    assert (classes[:, SIZE // 2 :] == 5).all()
+
+
+def test_the_image_paints_painted_classes_in_their_colour_and_leaves_the_rest_clear(tmp_path, configure):
+    classes = landcover_raster.LANDCOVER_CLASSES
+    painted = [c for c in classes if c.painted]
+    unpainted = [c for c in classes if not c.painted]
+    assert painted, "塗るクラスが1つも無い"
+    assert unpainted, "塗らないクラスが1つも無い"
+    unknown = next(v for v in range(1, 256) if v not in {c.value for c in classes})
+    configure(over_tile(tmp_path / "a.tif", stripes(painted[0].value, unpainted[0].value, unknown), *TOKYO))
+
+    image = decoded(landcover_raster.render_tile(*TOKYO))
+
+    assert image.shape == (SIZE, SIZE, 4)
+    hex_colour = painted[0].color.lstrip("#")
+    assert tuple(image[SIZE // 2, 10]) == (*bytes.fromhex(hex_colour), 255)
+    assert image[SIZE // 2, SIZE // 2, 3] == 0
+    assert image[SIZE // 2, SIZE - 10, 3] == 0
+
+
+def test_the_empty_tile_is_a_fully_clear_image_of_tile_size():
+    image = decoded(landcover_raster.empty_tile_png())
+
+    assert image.shape == (SIZE, SIZE, 4)
+    assert (image[:, :, 3] == 0).all()
+
+
+def test_a_configured_raster_that_cannot_be_opened_is_skipped_and_logged(tmp_path, configure, caplog):
+    present = over_tile(tmp_path / "present.tif", stripes(2), *TOKYO)
+    configure(str(tmp_path / "missing.tif"), present)
+
+    with caplog.at_level(logging.WARNING, logger="ridecompass.landcover_raster"):
+        assert landcover_raster.has_sources()
+
+    assert landcover_raster.opened_raster_paths() == [present]
+    assert "missing.tif" in caplog.text
+
+
+def test_once_a_raster_is_open_the_set_of_rasters_stays_until_restart(tmp_path, configure):
+    first = over_tile(tmp_path / "first.tif", stripes(2), *TOKYO)
+    configure(first)
+    assert landcover_raster.opened_raster_paths() == [first]
+
+    configure(first, over_tile(tmp_path / "second.tif", stripes(5), *TOKYO))
+
+    assert landcover_raster.opened_raster_paths() == [first]
+
+
+def test_a_raster_that_appears_after_start_is_picked_up_after_the_retry_interval(tmp_path, configure, clock, caplog):
+    """デプロイはラスタの取得とコンテナの入れ替えを別に行うので、起動時に無くても後から現れる。"""
+    path = tmp_path / "late.tif"
+    configure(str(path))
+    with caplog.at_level(logging.WARNING, logger="ridecompass.landcover_raster"):
+        assert not landcover_raster.has_sources()
+        over_tile(path, stripes(2), *TOKYO)
+        clock.tick(59)
+        assert not landcover_raster.has_sources()
+
+    assert len([r for r in caplog.records if "late.tif" in r.getMessage()]) == 1
+    clock.tick(1)
+    assert landcover_raster.has_sources()
+    assert landcover_raster.opened_raster_paths() == [str(path)]

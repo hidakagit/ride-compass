@@ -67,10 +67,6 @@ def crop_and_upscale(parent_png: bytes, quadrant: tuple[int, int]) -> bytes:
     return buffer.getvalue()
 
 
-#: MVTのタイル内座標の既定extent（配信元のタイルもこの値を使う。デコード結果が
-#: extentを持たない場合のフォールバック）。
-_DEFAULT_MVT_EXTENT = 4096
-
 #: 切り出し時にタイル境界の外側へ残す余白（extentに対する割合）。線がタイルの継ぎ目で
 #: 途切れて見えないよう、MVTの慣習どおり少しはみ出させたまま持つ。
 _MVT_CLIP_BUFFER_RATIO = 1 / 64
@@ -107,6 +103,8 @@ def crop_and_upscale_mvt(parent_pbf: bytes, quadrant: tuple[int, int]) -> bytes:
     どの地物も象限に掛からなければ0バイト（＝地物なし）を返す。これは配信元がその
     ズームで404を返すのと同じ意味で、呼び出し側がキャッシュへ書き戻すことで次回以降の
     上流問い合わせを省ける。
+
+    デコード結果は層ごとの`extent`と地物ごとの`id`・`properties`を必ず持つ（タイルに無い項目はMVTの既定値で埋まる）。
     """
     decoded = mapbox_vector_tile.decode(parent_pbf)
     quadrant_x, quadrant_y = quadrant
@@ -114,7 +112,7 @@ def crop_and_upscale_mvt(parent_pbf: bytes, quadrant: tuple[int, int]) -> bytes:
     # extentはレイヤーごとに違いうるため、エンコード時も層ごとに指定する。
     layer_options: dict[str, dict[str, int]] = {}
     for name, layer in decoded.items():
-        extent = layer.get("extent") or _DEFAULT_MVT_EXTENT
+        extent = layer["extent"]
         half = extent / 2
         left = quadrant_x * half
         # タイルXYのy=0（北半分）は、y軸が上向きの座標系では上半分＝[half, extent]。
@@ -130,10 +128,7 @@ def crop_and_upscale_mvt(parent_pbf: bytes, quadrant: tuple[int, int]) -> bytes:
             moved = scale(
                 translate(clipped, xoff=-left, yoff=-bottom), xfact=2, yfact=2, origin=(0, 0)
             )
-            entry = {"geometry": moved, "properties": feature.get("properties", {})}
-            if feature.get("id") is not None:
-                entry["id"] = feature["id"]
-            features.append(entry)
+            features.append({"geometry": moved, "properties": feature["properties"], "id": feature["id"]})
         if features:
             layers.append({"name": name, "features": features})
             layer_options[name] = {"extents": int(extent)}

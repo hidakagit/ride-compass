@@ -1,66 +1,115 @@
+/**
+ * `components/HeaderMenu/HeaderMenu.tsx`——ヘッダーのメニュー（使い方を見る・研究モードの切り替え・デバッグログの開閉）。
+ *
+ * 見るもの: メニューを開くと出る項目、「使い方を見る」を押すとメニューが閉じて説明を見る状態に入る操作が上がること、
+ * 研究モードのチェックが今の状態を出し押すと切り替わること、
+ * デバッグログの項目がデバッグモードの間だけ出て、開閉の状態を出し、押すと開閉の操作が上がること。
+ *
+ * ここで見ないもの: 研究モードの保存（`localStorage`）と、ほかの画面への知らせ → `lib/researchMode.ts`。
+ * デバッグモードそのもののON/OFF → `features/admin/DebugPanel/DebugPanel.tsx`（このメニューは呼び出し側から受け取るだけ）。
+ * 説明を見る状態で部品の使い方が出ること → `components/UsageGuide/UsageGuide.test.tsx`（メニューのボタンの使い方の文は宣言）。
+ *
+ * 研究モードは本物の`lib/researchMode.ts`を通す。状態はモジュールが持つので、テストごとにOFFへ戻す。
+ */
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { isResearchEnabled, setResearchEnabled } from "@/lib/researchMode";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { setResearchEnabled } from "@/lib/researchMode";
 import HeaderMenu from "./HeaderMenu";
 
-// 研究モードの切り替えは、公開ページのヘッダーのメニューから直接できる（管理画面を経由しない）。
+const RESEARCH = "研究モード[実験スロット・比較・材料値]";
 
-function baseProps(overrides: Partial<Parameters<typeof HeaderMenu>[0]> = {}) {
-  return {
-    debugEnabled: false,
-    debugConsoleOpen: false,
-    onToggleDebugConsole: vi.fn(),
-    ...overrides,
-  };
+async function openMenu(props: Partial<React.ComponentProps<typeof HeaderMenu>> = {}) {
+  const onToggleDebugConsole = vi.fn();
+  const onStartUsageGuide = vi.fn();
+  render(
+    <HeaderMenu
+      debugEnabled={false}
+      debugConsoleOpen={false}
+      onToggleDebugConsole={onToggleDebugConsole}
+      onStartUsageGuide={onStartUsageGuide}
+      {...props}
+    />,
+  );
+  await userEvent.click(screen.getByRole("button", { name: "メニュー" }));
+  return { onToggleDebugConsole, onStartUsageGuide };
 }
 
+afterEach(() => {
+  setResearchEnabled(false);
+});
+
 describe("HeaderMenu", () => {
-  beforeEach(() => {
-    setResearchEnabled(false);
+  it("押すまで項目を出さない", () => {
+    render(
+      <HeaderMenu debugEnabled debugConsoleOpen={false} onToggleDebugConsole={vi.fn()} onStartUsageGuide={vi.fn()} />,
+    );
+
+    expect(screen.queryByRole("checkbox", { name: RESEARCH })).not.toBeInTheDocument();
   });
 
-  it("研究モードのチェックボックスは今の研究モードを映し、押すと研究モードを切り替える", async () => {
-    const user = userEvent.setup();
-    render(<HeaderMenu {...baseProps()} />);
+  it("「使い方を見る」を押すと、メニューが閉じて説明を見る状態に入る操作が上がる", async () => {
+    const { onStartUsageGuide } = await openMenu();
 
-    await user.click(screen.getByRole("button", { name: "メニュー" }));
-    const checkbox = await screen.findByRole("checkbox", { name: /研究モード/ });
-    expect(checkbox).toHaveAttribute("aria-checked", "false");
-    await user.click(checkbox);
+    await userEvent.click(screen.getByRole("button", { name: "使い方を見る" }));
 
-    expect(checkbox).toHaveAttribute("aria-checked", "true");
-    expect(isResearchEnabled()).toBe(true);
+    expect(onStartUsageGuide).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "使い方を見る" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: RESEARCH })).not.toBeInTheDocument();
   });
 
-  it("debugEnabled=falseのときはデバッグログ項目を表示しない", async () => {
-    const user = userEvent.setup();
-    render(<HeaderMenu {...baseProps({ debugEnabled: false })} />);
+  describe("研究モード", () => {
+    it("研究モードが入っていれば、チェックの入った状態で出す", async () => {
+      setResearchEnabled(true);
 
-    await user.click(screen.getByRole("button", { name: "メニュー" }));
-    await screen.findByRole("checkbox", { name: /研究モード/ });
+      await openMenu();
 
-    expect(screen.queryByText("デバッグログを表示")).not.toBeInTheDocument();
+      expect(screen.getByRole("checkbox", { name: RESEARCH })).toHaveAttribute("aria-checked", "true");
+    });
+
+    it("チェックを押すと切り替わり、もう一度押すと戻る", async () => {
+      await openMenu();
+      const checkbox = screen.getByRole("checkbox", { name: RESEARCH });
+
+      await userEvent.click(checkbox);
+      expect(checkbox).toHaveAttribute("aria-checked", "true");
+      await userEvent.click(checkbox);
+
+      expect(checkbox).toHaveAttribute("aria-checked", "false");
+    });
+
+    it("項目の文言を押しても切り替わる", async () => {
+      await openMenu();
+
+      await userEvent.click(screen.getByText(RESEARCH));
+
+      expect(screen.getByRole("checkbox", { name: RESEARCH })).toHaveAttribute("aria-checked", "true");
+    });
   });
 
-  it("debugEnabled=trueのときはデバッグログ項目を表示し、クリックでonToggleDebugConsoleが呼ばれる", async () => {
-    const user = userEvent.setup();
-    const onToggleDebugConsole = vi.fn();
-    render(<HeaderMenu {...baseProps({ debugEnabled: true, onToggleDebugConsole })} />);
+  describe("デバッグログ", () => {
+    it("デバッグモードでなければ項目を出さない", async () => {
+      await openMenu({ debugEnabled: false });
 
-    await user.click(screen.getByRole("button", { name: "メニュー" }));
-    const debugItem = await screen.findByText("デバッグログを表示");
-    await user.click(debugItem);
+      expect(screen.queryByRole("button", { name: /デバッグログ/ })).not.toBeInTheDocument();
+    });
 
-    expect(onToggleDebugConsole).toHaveBeenCalledTimes(1);
-  });
+    it.each([
+      [false, "デバッグログを表示", "false"],
+      [true, "デバッグログを隠す", "true"],
+    ])("開いている（%s）かを、名前と押下の状態で出す", async (open, name, pressed) => {
+      await openMenu({ debugEnabled: true, debugConsoleOpen: open });
 
-  it("debugConsoleOpen=trueのときは「デバッグログを隠す」表示になる", async () => {
-    const user = userEvent.setup();
-    render(<HeaderMenu {...baseProps({ debugEnabled: true, debugConsoleOpen: true })} />);
+      expect(screen.getByRole("button", { name })).toHaveAttribute("aria-pressed", pressed);
+    });
 
-    await user.click(screen.getByRole("button", { name: "メニュー" }));
+    it("押すと、開閉の操作が上がる", async () => {
+      const { onToggleDebugConsole } = await openMenu({ debugEnabled: true });
 
-    expect(await screen.findByText("デバッグログを隠す")).toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: "デバッグログを表示" }));
+
+      expect(onToggleDebugConsole).toHaveBeenCalledTimes(1);
+    });
   });
 });

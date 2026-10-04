@@ -1,6 +1,7 @@
 import { expect, type Locator, type Page } from "@playwright/test";
-import type { AxisCatalogResponse, RouteCandidate, RouteGenerateJobStatusResponse } from "@/types/route";
-import { catalogEntry, tileInput } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
+import type { components } from "@/types/generated/api";
+import type { RouteCandidate, RouteGenerateJobStatusResponse } from "@/types/route";
+import { catalogEntry, tileInput } from "@/testing/catalogAxes";
 import { makeRouteCandidate as makeCandidate } from "@/testing/routeFixtures";
 import type {
   AmedasObservation,
@@ -9,6 +10,7 @@ import type {
   WeatherConditions,
   WeatherWarnings,
 } from "@/types/weather";
+import regionTileConfig from "@/types/generated/region-tile-config.json";
 import nextConfig from "../next.config";
 
 // CIのE2Eスモークテストは「実バックエンド＋実外部API（
@@ -40,11 +42,18 @@ function makeSegment(index: number, coordinates: [number, number][]) {
 }
 
 // geometryは往復可能な閉じたループの体裁のみ整える（実座標としての精度は問わない）。
-function makeRouteCandidate(id: string, directionLabel: string, distanceKm: number): RouteCandidate {
+// 所要時間は本物の生成が必ず付ける（無いと候補の行の所要時間が描かれず、走査がその配置を見ない）。
+function makeRouteCandidate(
+  id: string,
+  directionLabel: string,
+  distanceKm: number,
+  durationSeconds: number,
+): RouteCandidate {
   return makeCandidate({
     id,
     direction_label: directionLabel,
     distance_km: distanceKm,
+    estimated_duration_seconds: durationSeconds,
     geometry: {
       type: "LineString",
       coordinates: [
@@ -83,7 +92,7 @@ export function doneJobFixture(result: DoneJob["result"] = routeGenerateResponse
 // 増えたときに、このモックの欠落を型検査が知らせるようにする。
 export function routeGenerateResponseFixture(): DoneJob["result"] {
   return {
-    routes: [makeRouteCandidate("route-1", "北", 20.3), makeRouteCandidate("route-2", "南", 19.8)],
+    routes: [makeRouteCandidate("route-1", "北", 20.3, 66 * 60), makeRouteCandidate("route-2", "南", 19.8, 60 * 60)],
     no_candidates_reason: null,
     conditions: {
       latitude: 35.7597,
@@ -126,6 +135,7 @@ function weatherConditionsFixture(): WeatherConditions {
     wind_speed_max_ms: null,
     temperature_range: null,
     today_periods: [],
+    today_period_interval_hours: 2,
   };
 }
 
@@ -160,10 +170,14 @@ function emptyMapStyleFixture() {
   return { version: 8, sources: {}, layers: [] };
 }
 
-/** `GET /api/axis-catalog`の応答。軸以外（世代・尺度・調整値・事故の収録年）は空で返す。型は契約のもので、
- * 項目を欠いた応答を作れない（欠けると、本物のbackendなら必ず来る値が画面で`undefined`になる）。 */
-export function axisCatalogFixture(axes: ReturnType<typeof catalogEntry>[]): AxisCatalogResponse {
-  return { axes, tile_versions: {}, material_runtime_scales: {}, client_tuning: {}, accident_years: [] };
+/** `GET /api/axis-catalog`の応答。世代は本物のbackendと同じく全種類を返し（無いと凡例が配信情報を取得できない表示になる）、
+ * 軸と世代以外（尺度・調整値・事故の収録年）は空で返す。型は契約のもので、項目を欠いた応答を作れない（欠けると、
+ * 本物のbackendなら必ず来る値が画面で`undefined`になる）。 */
+export function axisCatalogFixture(
+  axes: ReturnType<typeof catalogEntry>[],
+): components["schemas"]["AxisCatalogResponse"] {
+  const tile_versions = Object.fromEntries(regionTileConfig.tile_version_kinds.map((kind) => [kind, "e2e"]));
+  return { axes, tile_versions, tile_runtime_scales: {}, client_tuning: {}, accident_years: [] };
 }
 
 /**
@@ -272,6 +286,7 @@ export async function seedStoredState(page: Page, entries: Record<string, string
  * `routes`は既定のモックの後・goto前に呼ばれる——テストが判定に使う応答はここで上書きする。
  * 呼んだ直後は、まだクリックが効かない（ハイドレーション前の）可能性がある——
  * 操作はopenMobileSheet等のヘルパー経由で行う。
+ * 初回の案内（地図の上に重なる）は閉じた状態で開く。
  */
 export async function openMobileApp(
   page: Page,
@@ -280,7 +295,7 @@ export async function openMobileApp(
   await installApiMocks(page);
   if (routes) await routes(page);
   await page.setViewportSize(MOBILE_VIEWPORT);
-  if (storedState) await seedStoredState(page, storedState);
+  await seedStoredState(page, { "ridecompass:first-visit-intro-closed": "true", ...storedState });
   await page.goto("/");
 }
 

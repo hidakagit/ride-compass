@@ -1,18 +1,11 @@
 // @vitest-environment node
-import { featureFilter, type FilterSpecification } from "@maplibre/maplibre-gl-style-spec";
 import { describe, expect, it } from "vitest";
 
-import { axisCatalogFromResponse } from "@/lib/axisCatalog";
+import { mapCatalogOf } from "@/testing/mapAxisCatalog";
 import { LEGEND_NO_DATA_KEY } from "@/lib/mapDisplay/mapColorLegend";
-import { DEFAULT_DIFFICULTY_BOUNDARIES } from "@/lib/mapDisplay/valueScale";
 
-import {
-  catalogEntry,
-  catalogOf,
-  dedicatedEntry,
-  rampEntry,
-  tileInput,
-} from "@/lib/mapDisplay/__fixtures__/catalogAxes";
+import { catalogEntry, dedicatedEntry, rampEntry, tileInput } from "@/testing/catalogAxes";
+import { matchesFilter as matches } from "@/testing/mapExpressions";
 import { isRouteStyleModeId, lensLegend, lensOptions, paintedAxisId } from "./lens";
 
 /** 道の値として読む材料。 */
@@ -38,25 +31,13 @@ function valueRamp(
   });
 }
 
-const catalog = catalogOf([
-  valueRamp("ramp", [10, 20], { raw_value_unit: "%" }),
+const catalog = mapCatalogOf([
+  valueRamp("ramp", [10, 20], { map_legend: { boundaries: [10, 20], unit: "%" } }),
   rampEntry("labelled", [10], { display_band_labels_override: ["平ら", "坂"] }),
   rampEntry("mislabelled", [10], { display_band_labels_override: ["1つだけ"] }),
   valueRamp("unknown", [10], {}, true),
-  dedicatedEntry("dedicated", [1, 3], { map_value_unit: "m/s" }),
-  dedicatedEntry("defaults", [], { map_value_thresholds: null }),
+  dedicatedEntry("dedicated", [1, 3], { map_legend: { boundaries: [1, 3], unit: "m/s" } }),
 ]);
-
-/** 凡例の行の述語が、その値の道に当てはまるか（MapLibreと同じ評価器で評価する）。 */
-function matches(filter: unknown, properties: Record<string, unknown>): boolean {
-  return featureFilter(filter as FilterSpecification, "filter").filter(
-    { zoom: 14 } as never,
-    {
-      type: 2,
-      properties,
-    } as never,
-  );
-}
 
 describe("paintedAxisId（全道路を塗る軸）", () => {
   it("ルートを確定するまではレンズの軸、確定後は周囲も塗り続ける設定の間だけ", () => {
@@ -86,8 +67,14 @@ describe("lensLegend（レンズの凡例）", () => {
   });
 
   it("体感ラベルは段数と一致するときだけ添える", () => {
-    expect(lensLegend("labelled", false, catalog).map((entry) => entry.label)).toEqual(["平ら[10未満]", "坂[10以上]"]);
-    expect(lensLegend("mislabelled", false, catalog).map((entry) => entry.label)).toEqual(["10未満", "10以上"]);
+    expect(lensLegend("labelled", false, catalog).map((entry) => entry.label)).toEqual([
+      "平ら[10点未満]",
+      "坂[10点以上]",
+    ]);
+    expect(lensLegend("mislabelled", false, catalog).map((entry) => entry.label)).toEqual([
+      "影響 10点未満",
+      "影響 10点以上",
+    ]);
   });
 
   it("材料が欠けて評価できない道は、数値の段ではなく末尾の「データなし」だけに当てはまる", () => {
@@ -111,7 +98,7 @@ describe("lensLegend（レンズの凡例）", () => {
       },
     });
     const hitsFor = (scales: Record<string, number>, properties: Record<string, unknown>) =>
-      lensLegend("scaled", false, axisCatalogFromResponse([scaled], scales, {}, [])).flatMap((entry) =>
+      lensLegend("scaled", false, mapCatalogOf([scaled], { tile_runtime_scales: scales })).flatMap((entry) =>
         matches(entry.filter, properties) ? [entry.key] : [],
       );
     expect(hitsFor({}, { [VALUE]: 5 })).toEqual([LEGEND_NO_DATA_KEY]);
@@ -125,10 +112,6 @@ describe("lensLegend（レンズの凡例）", () => {
     expect(legend.at(-1)).toMatchObject({ key: LEGEND_NO_DATA_KEY, isFallback: true });
   });
 
-  it("専用配信軸が境界を持たなければ、難易度の既定の境界で段を作る", () => {
-    expect(lensLegend("defaults", false, catalog)).toHaveLength(DEFAULT_DIFFICULTY_BOUNDARIES.length + 2);
-  });
-
   it("ルート確定後は、ルート線の色分けモードの凡例。塗る軸でない・無いモードは空", () => {
     const mode = catalog.routeStyleModes.find((entry) => entry.legend.length > 0)!;
     expect(lensLegend(mode.id, true, catalog)).toBe(mode.legend);
@@ -139,24 +122,37 @@ describe("lensLegend（レンズの凡例）", () => {
 
 describe("同じ軸の同じ段は、ルートを出す前と後で同じ行", () => {
   // 前後の段の数はbackendが揃えて配る（前は重み付き和の目盛り、後は難易度の目盛りで、同じ数の境界）。
-  const sameBands = catalogOf([
-    valueRamp("ramp", [1, 2, 3, 4], { map_value_thresholds: [20, 40, 60, 80] }, true),
+  const sameBands = mapCatalogOf([
+    valueRamp(
+      "ramp",
+      [1, 2, 3, 4],
+      { map_value_thresholds: [20, 40, 60, 80], map_legend: { boundaries: [20, 40, 60, 80], unit: null } },
+      true,
+    ),
+    valueRamp(
+      "quantity",
+      [10],
+      { map_value_thresholds: [100], map_legend: { boundaries: [10], unit: "件/(km・年)" } },
+      true,
+    ),
     dedicatedEntry("dedicated", [20, 40, 60, 80]),
-    dedicatedEntry("signed", [-6, -2, 2, 6], { map_value: { kind: "signed_material", material: VALUE } }),
+    dedicatedEntry("rain", [30, 70], { map_legend: { boundaries: [5, 20], unit: "mm" } }),
+    dedicatedEntry("signed", [-6, -2, 2, 6], {
+      map_value: { kind: "signed_material", material: VALUE },
+      map_legend: { boundaries: [-6, -2, 2, 6], unit: "%" },
+    }),
   ]);
   const paintable = [...sameBands.rampAxes, ...sameBands.dedicatedAxes].map((axis) => axis.axisId);
 
-  it.each(paintable)("%s: 段の鍵・色と、値が無い行の呼び方・色が前後で同じ", (axisId) => {
+  it.each(paintable)("%s: 段の鍵・色・呼び方が前後で同じ", (axisId) => {
     const shape = (hasDetail: boolean) =>
-      lensLegend(axisId, hasDetail, sameBands).map(({ key, color, isFallback, label }) =>
-        isFallback ? { key, color, label } : { key, color },
-      );
+      lensLegend(axisId, hasDetail, sameBands).map(({ key, color, label }) => ({ key, color, label }));
     expect(shape(false)).toEqual(shape(true));
   });
 });
 
 describe("lensOptions（レンズの選択肢）", () => {
-  const { axes } = catalogOf([rampEntry("ramp", [1]), catalogEntry({ axis_id: "route_only" })]);
+  const { axes } = mapCatalogOf([rampEntry("ramp", [1]), catalogEntry({ axis_id: "route_only" })]);
   const paintable = new Set(["ramp"]);
 
   it("全道路を塗れない軸はルートだけの印を持ち、識別色が無ければ中立色", () => {

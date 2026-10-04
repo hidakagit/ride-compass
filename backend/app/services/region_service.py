@@ -1,17 +1,15 @@
 from collections.abc import Awaitable, Callable
+from functools import partial
 
 from app.domain.axis_inspector import AxisInspectorResult, axis_inspector_breakdown
 from app.domain.route_preference import RoutePreference
 from app.domain.region import BoundingBox, tile_bounds_lonlat
+from app.infrastructure.cache_identity import is_known_tile_version
 from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
 from app.infrastructure.debug_log import log_external_call, log_throttled_warning, mark_failed
-from app.infrastructure.road_graph_repository import (
-    POI_TILE_SHAPE,
-    ROAD_SURFACE_TILE_SHAPE,
-    RoadGraphRepository,
-)
-from app.infrastructure.vector_tile import encode_empty_poi_tile, encode_empty_road_surface_tile
-from app.services import derived_data_revision_service
+from app.infrastructure.point_tile_layers import PointTileLayer
+from app.infrastructure.road_graph_repository import ROAD_SURFACE_TILE_SHAPE, RoadGraphRepository
+from app.infrastructure.vector_tile import ROAD_SURFACE_LAYER_NAME, encode_empty_tile
 from app.infrastructure.media_types import MVT_CONTENT_TYPE
 from app.services.tile_serving import TileResponse, serve_cached_tile
 from app.services.tile_version_service import current_tile_versions, served_tile_version
@@ -101,7 +99,7 @@ class RegionService:
             external_call_name=external_call_name,
             fetch_tile=fetch_tile,
             # 世代を読めていない間はディスクへ残さない（tile_servingのdocstring参照）。
-            persist=derived_data_revision_service.current_revision() is not None,
+            persist=is_known_tile_version(version),
         )
 
     async def get_road_surface_tile(self, z: int, x: int, y: int) -> TileResponse:
@@ -109,7 +107,7 @@ class RegionService:
             read_tile=self._repository.get_road_surface_tile_mvt,
             layer="road-surface",
             shape=ROAD_SURFACE_TILE_SHAPE,
-            empty_tile=encode_empty_road_surface_tile(),
+            empty_tile=encode_empty_tile(ROAD_SURFACE_LAYER_NAME),
             external_call_name="region:road-surface-tile",
             label="路面",
             z=z,
@@ -117,14 +115,15 @@ class RegionService:
             y=y,
         )
 
-    async def get_poi_tile(self, z: int, x: int, y: int) -> TileResponse:
+    async def get_point_tile(self, layer: PointTileLayer, z: int, x: int, y: int) -> TileResponse:
+        """点のレイヤー（`infrastructure/point_tile_layers.py`）のタイル。どのレイヤーも同じ道で配る。"""
         return await self._get_tile(
-            read_tile=self._repository.get_poi_tile_mvt,
-            layer="poi",
-            shape=POI_TILE_SHAPE,
-            empty_tile=encode_empty_poi_tile(),
-            external_call_name="region:poi-tile",
-            label="POI",
+            read_tile=partial(self._repository.get_tile_mvt, layer.sql, layer.source_layer),
+            layer=layer.name,
+            shape=layer.shape,
+            empty_tile=encode_empty_tile(layer.source_layer),
+            external_call_name=f"region:{layer.name}-tile",
+            label=layer.name,
             z=z,
             x=x,
             y=y,
@@ -133,9 +132,9 @@ class RegionService:
     async def get_axis_inspector(
         self,
         osm_way_id: int,
-        edge_id: str | None = None,
-        dynamic_materials: dict[str, float] | None = None,
-        preference: RoutePreference | None = None,
+        edge_id: str | None,
+        dynamic_materials: dict[str, float] | None,
+        preference: RoutePreference | None,
     ) -> AxisInspectorResult | None:
         """区間インスペクタ。クリックされた道路について、一次属性→二次軸スコア→三次合成
         コスト（取得可能な軸だけの参考値）を返す。
@@ -180,7 +179,7 @@ class RegionService:
         """事故データの収録年。地図の説明文へ配る。
 
         表示側が年を文字列で持つと、取り込み直したときに黙って食い違う。年の正本は
-        取込プロファイルの宣言（`source_runs.profile`）だけにする。
+        今の事故の数を数えた取込の宣言（`source_runs.profile`）だけにする。
 
         DB例外は空へ倒す。
         """

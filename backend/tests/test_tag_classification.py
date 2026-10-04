@@ -1,10 +1,11 @@
-"""`domain/traffic.py: tag_kind_sql`——OSMの点のタグから、停止要因・補給休憩の種別を決める。
+"""`domain/traffic.py`のうち、点の種別を決めるSQL——タグからの引き当て（`tag_kind_sql`）・信号の判定
+（`TRAFFIC_SIGNAL_SQL`）・地図へ出す種別と数える種別への読み替え（`stop_kind_sql`・`count_kind_sql`・`kind_map_sql`）。
 
-規則表（`TAG_KIND_RULES`）は書き写さず、**引き当ての順序・意図的に外した値・自販機の式**を見る。
-集計キーへの畳み込みは`batch/derive_counts.py`、停止密度の材料は`test_material_values.py`が持つ。
+式はどれも派生の段がDBで実行するので、ここでもDBで実行して答えを見る。入力は`VALUES`で与え、表は使わない。
 
-結果は`node_materials`（`batch/derive_node_materials.py`）に入る。判定はDB側で行うため、
-DBへ通して確かめる。タグの値はDBへ入った生の文字列で、表記は投稿者任せ。
+ここで見ないもの:
+- 道の通行方向を決めるSQL → `test_resolve_direction.py`
+- 派生の段が引き当てた種別を表へ書き、近い点をまとめて数えること → `test_derive_node_materials.py`・`test_derive_counts.py`
 """
 
 import json
@@ -12,7 +13,7 @@ import json
 import pytest
 from sqlalchemy import text
 
-from app.domain.traffic import tag_kind_sql
+from app.domain import traffic
 
 pytestmark = [
     pytest.mark.asyncio(loop_scope="module"),
@@ -21,139 +22,137 @@ pytestmark = [
 ]
 
 
-def _source(tag_sets: list[dict[str, str]]) -> str:
-    rows = ", ".join(
-        f"({i}, '{json.dumps(tags, ensure_ascii=False)}'::jsonb)" for i, tags in enumerate(tag_sets)
-    )
-    return f"SELECT * FROM (VALUES {rows}) AS t(id, tags)"
+async def _kinds(engine, tags_by_id: dict[int, dict[str, str]]) -> dict[int, str]:
+    """点（id → タグ）を`tag_kind_sql`へ通し、id → 種別を返す。当たらない点はキーを持たない。"""
+    rows = ", ".join(f"(CAST(:id{i} AS bigint), CAST(:tags{i} AS jsonb))" for i in range(len(tags_by_id)))
+    params = {}
+    for i, (node_id, tags) in enumerate(tags_by_id.items()):
+        params[f"id{i}"] = node_id
+        params[f"tags{i}"] = json.dumps(tags)
+    source = f"SELECT * FROM (VALUES {rows}) AS t(id, tags)"
+    async with engine.connect() as conn:
+        result = (await conn.execute(text(traffic.tag_kind_sql(source)), params)).all()
+    kinds = {row.id: row.kind for row in result}
+    assert len(kinds) == len(result), "1つの点に種別が2つ付いた"
+    return kinds
 
 
-async def _kinds(session, *tag_sets: dict[str, str]) -> dict[int, str]:
-    """当たった行だけの {行番号: kind}。返らなかった行は入らない。"""
-    result = await session.execute(text(tag_kind_sql(_source(list(tag_sets)))))
-    return {row.id: row.kind for row in result.all()}
+async def _kind(engine, tags: dict[str, str]) -> str | None:
+    return (await _kinds(engine, {1: tags})).get(1)
 
 
-async def _kind(session, tags: dict[str, str]) -> str | None:
-    return (await _kinds(session, tags)).get(0)
+async def test_a_tag_in_the_rules_gives_its_kind(road_graph_engine):
+    """種別は値で決まる。同じ`crossing`でも、線路の上なら踏切として数える側の種別になる。"""
+    assert await _kinds(road_graph_engine, {
+        1: {"highway": "crossing"},
+        2: {"railway": "crossing"},
+        3: {"amenity": "toilets"},
+    }) == {1: "crossing", 2: "railway_crossing", 3: "toilets"}
 
 
-class TestWhatComesBack:
-    async def test_a_point_matching_nothing_is_not_returned(self, road_graph_session):
-        """すべての点へ種別を付けると、街の全POIが停止要因か補給POIとして数えられる。"""
-        assert await _kinds(road_graph_session, {"amenity": "bench"}, {}) == {}
-
-    async def test_only_the_matching_rows_come_back(self, road_graph_session):
-        kinds = await _kinds(
-            road_graph_session, {"amenity": "bench"}, {"highway": "traffic_signals"}
-        )
-
-        assert kinds == {1: "traffic_signals"}
-
-    async def test_a_point_gets_exactly_one_kind(self, road_graph_session):
-        """1つの点が2度数えられると、停止密度がその分だけ増える。"""
-        result = await road_graph_session.execute(
-            text(tag_kind_sql(_source([{"railway": "crossing", "highway": "crossing"}])))
-        )
-
-        assert len(result.all()) == 1
+async def test_values_are_matched_ignoring_case_and_surrounding_spaces(road_graph_engine):
+    assert await _kind(road_graph_engine, {"highway": " Give_Way "}) == "give_way"
 
 
-class TestWhichRuleWins:
-    async def test_a_railway_crossing_is_not_counted_as_a_plain_crossing(self, road_graph_session):
-        """歩道・自転車道が線路を渡る点は`railway=crossing`と`highway=crossing`の両方で
-        書かれる。`highway`側が勝つと、線路を渡る点が信号なし横断歩道（ほぼ停止しない）へ
-        落ちて、踏切の待ちが所要時間から消える。
-        """
-        tags = {"railway": "crossing", "highway": "crossing"}
-
-        assert await _kind(road_graph_session, tags) == "railway_crossing"
-
-    async def test_a_stop_factor_beats_a_supply_point_on_the_same_node(self, road_graph_session):
-        """止まる理由と買える場所が同じ点に書かれていたら、止まる側で数える。補給が勝つと、
-        その信号が停止密度から消える（逆は補給の候補が1つ減るだけ）。
-        """
-        tags = {"highway": "traffic_signals", "shop": "convenience"}
-
-        assert await _kind(road_graph_session, tags) == "traffic_signals"
-
-    async def test_the_value_is_read_past_its_spacing_and_case(self, road_graph_session):
-        assert await _kind(road_graph_session, {"highway": " Traffic_Signals "}) == "traffic_signals"
+@pytest.mark.parametrize(
+    ("tags", "expected"),
+    [
+        # 道路の横断歩道でもあり線路の踏切でもある点は、線路を渡る点として数える。
+        ({"highway": "crossing", "railway": "crossing"}, "railway_crossing"),
+        # 停止要因は補給・休憩より先に当たる。信号のあるコンビニの角は信号として数える。
+        ({"highway": "traffic_signals", "shop": "convenience"}, "traffic_signals"),
+        ({"barrier": "bollard", "amenity": "drinking_water"}, "barrier"),
+        ({"traffic_calming": "hump", "amenity": "vending_machine", "vending": "drinks"}, "traffic_calming"),
+    ],
+)
+async def test_a_point_with_two_meanings_gets_the_one_that_stops_the_rider(road_graph_engine, tags, expected):
+    assert await _kind(road_graph_engine, tags) == expected
 
 
-class TestLevelCrossings:
-    async def test_a_road_crossing_the_tracks_is_a_level_crossing(self, road_graph_session):
-        assert await _kind(road_graph_session, {"railway": "level_crossing"}) == "level_crossing"
-
-    async def test_a_tramway_crossing_is_the_same_kind_of_stop(self, road_graph_session):
-        """外すと、併用軌道のある街の停止が数えられない。"""
-        assert await _kind(road_graph_session, {"railway": "tram_level_crossing"}) == "level_crossing"
-
-
-class TestBarriersAndCalming:
-    async def test_a_gate_is_a_stop(self, road_graph_session):
-        assert await _kind(road_graph_session, {"barrier": "gate"}) == "barrier"
-
-    async def test_a_kerb_is_not_a_stop(self, road_graph_session):
-        """拾うと、歩道の縁石の数が停止密度になる。"""
-        assert await _kind(road_graph_session, {"barrier": "kerb"}) is None
-
-    async def test_a_structure_alongside_the_road_is_not_a_stop(self, road_graph_session):
-        """柵・ガードレールは道に沿う構造物で、**渡る点ではない**。"""
-        assert await _kind(road_graph_session, {"barrier": "fence"}) is None
-
-    async def test_a_hump_is_a_slowdown_of_its_own_kind(self, road_graph_session):
-        assert await _kind(road_graph_session, {"traffic_calming": "hump"}) == "traffic_calming"
-
-    async def test_a_central_island_does_not_slow_anyone(self, road_graph_session):
-        assert await _kind(road_graph_session, {"traffic_calming": "island"}) is None
+async def test_points_that_neither_stop_nor_supply_are_not_returned(road_graph_engine):
+    assert await _kinds(road_graph_engine, {
+        1: {},
+        2: {"highway": "residential"},
+        3: {"amenity": "vending_machine", "vending": "cigarettes"},
+    }) == {}
 
 
-class TestSupplyPoints:
-    async def test_a_convenience_store_is_a_supply_point(self, road_graph_session):
-        assert await _kind(road_graph_session, {"shop": "convenience"}) == "convenience"
+@pytest.mark.parametrize(
+    ("vending", "expected"),
+    [
+        ("drinks", "vending_drinks"),
+        # `;`で連なる値は、要素のどれかが飲食物なら飲料の自販機。
+        ("cigarettes;coffee", "vending_drinks"),
+        (" Coffee ", "vending_drinks"),
+        # 何を売るか書かれていない自販機は、飲めるかどうか分からない自販機として残す。
+        (None, "vending_unknown"),
+        (" ; ", "vending_unknown"),
+    ],
+)
+async def test_a_vending_machine_is_told_apart_by_what_it_sells(road_graph_engine, vending, expected):
+    tags = {"amenity": " Vending_Machine "} | ({} if vending is None else {"vending": vending})
 
-    async def test_a_toilet_is_a_rest_point(self, road_graph_session):
-        assert await _kind(road_graph_session, {"amenity": "toilets"}) == "toilets"
-
-    async def test_a_shop_with_a_similar_range_is_still_not_one(self, road_graph_session):
-        """補給に数えるのは`shop=convenience`だけ。品揃えの近い`supermarket`まで広げると、
-        営業時間の限られた店が「いつでも寄れる」前提の補給地点として案内される。
-        """
-        assert await _kind(road_graph_session, {"shop": "supermarket"}) is None
+    assert await _kind(road_graph_engine, tags) == expected
 
 
-class TestVendingMachines:
-    async def test_a_machine_selling_drinks_is_a_supply_point(self, road_graph_session):
-        tags = {"amenity": "vending_machine", "vending": "drinks"}
+async def _is_signal(engine, tags: dict[str, str]) -> bool:
+    """派生の段と同じく、点を絞り込む条件として使って選ばれるか。"""
+    async with engine.connect() as conn:
+        return (await conn.execute(
+            text(f"SELECT count(*) FROM (VALUES (CAST(:tags AS jsonb))) AS s(tags) WHERE {traffic.TRAFFIC_SIGNAL_SQL}"),
+            {"tags": json.dumps(tags)},
+        )).scalar_one() == 1
 
-        assert await _kind(road_graph_session, tags) == "vending_drinks"
 
-    async def test_one_edible_value_among_several_is_enough(self, road_graph_session):
-        tags = {"amenity": "vending_machine", "vending": "cigarettes;drinks"}
+@pytest.mark.parametrize(
+    ("tags", "expected"),
+    [
+        ({"highway": "traffic_signals"}, True),
+        # 横断歩道の位置に描かれた信号。`crossing`の値に`signals`を含むものを信号とする。
+        ({"highway": "crossing", "crossing": "traffic_signals"}, True),
+        ({"highway": "crossing", "crossing": "traffic_signals;marked"}, True),
+        ({"highway": "crossing", "crossing": "uncontrolled"}, False),
+        ({"highway": "crossing"}, False),
+        # `crossing`の値だけでは、道路の横断歩道とは限らない。
+        ({"railway": "crossing", "crossing": "traffic_signals"}, False),
+    ],
+)
+async def test_a_signal_is_a_signal_node_or_a_crossing_controlled_by_signals(road_graph_engine, tags, expected):
+    assert await _is_signal(road_graph_engine, tags) is expected
 
-        assert await _kind(road_graph_session, tags) == "vending_drinks"
 
-    async def test_a_machine_with_nothing_written_is_unknown_not_dropped(self, road_graph_session):
-        """`vending`が無い自販機は日本のOSMで多数を占める。落とすと補給地点の候補が
-        大きく減るため、「中身が分からない機械」として別kindで残す。
-        """
-        assert await _kind(road_graph_session, {"amenity": "vending_machine"}) == "vending_unknown"
+async def _read_kinds(engine, expression, kind: str, has_traffic_signals: bool):
+    async with engine.connect() as conn:
+        return (await conn.execute(
+            text(f"SELECT {expression('nm')} FROM (VALUES (CAST(:kind AS text), CAST(:signals AS boolean)))"
+                 " AS nm(kind, has_traffic_signals)"),
+            {"kind": kind, "signals": has_traffic_signals},
+        )).scalar_one()
 
-    async def test_a_value_that_is_only_separators_is_also_unknown(self, road_graph_session):
-        tags = {"amenity": "vending_machine", "vending": ";;"}
 
-        assert await _kind(road_graph_session, tags) == "vending_unknown"
+@pytest.mark.parametrize(
+    ("kind", "has_traffic_signals", "on_map", "counted_as"),
+    [
+        # 信号のある交差点の横断歩道は、利用者から見れば信号で、信号として1回数える。
+        ("crossing", True, "traffic_signals", "signal"),
+        ("crossing", False, "crossing", "crossing"),
+        ("traffic_signals", False, "traffic_signals", "signal"),
+        # 読み替えるのは信号と横断歩道だけ。近くに信号があっても一時停止は一時停止。
+        ("stop", True, "stop", "stop"),
+        # 取込時に分けた種別を、数えるときは1つにまとめる。
+        ("traffic_calming", False, "traffic_calming", "barrier"),
+        # 補給・休憩は地図には出るが、停止の回数には入らない。
+        ("convenience", True, "convenience", None),
+    ],
+)
+async def test_the_map_and_the_count_read_the_same_signal(road_graph_engine, kind, has_traffic_signals, on_map, counted_as):
+    """地図へ出す種別と数える種別は同じ読み替えから導く。別々だと、見えている信号の数と停止の回数が合わない。"""
+    assert await _read_kinds(road_graph_engine, traffic.stop_kind_sql, kind, has_traffic_signals) == on_map
+    assert await _read_kinds(road_graph_engine, traffic.count_kind_sql, kind, has_traffic_signals) == counted_as
 
-    async def test_a_machine_selling_nothing_edible_is_dropped(self, road_graph_session):
-        """中身が分かっていて飲食物でないなら、補給の候補にしてはいけない——「分からない」
-        側へ倒すと、たばこ・切符の機械が補給地点として案内される。
-        """
-        tags = {"amenity": "vending_machine", "vending": "cigarettes"}
 
-        assert await _kind(road_graph_session, tags) is None
+async def test_a_kind_missing_from_the_map_falls_back_to_the_given_expression(road_graph_engine):
+    expression = traffic.kind_map_sql("'barrier'", {"crossing": "横断"}, otherwise="'その他'")
 
-    async def test_the_values_are_read_past_their_spacing_and_case(self, road_graph_session):
-        tags = {"amenity": "vending_machine", "vending": " Drinks ; "}
-
-        assert await _kind(road_graph_session, tags) == "vending_drinks"
+    async with road_graph_engine.connect() as conn:
+        assert (await conn.execute(text(f"SELECT {expression}"))).scalar_one() == "その他"

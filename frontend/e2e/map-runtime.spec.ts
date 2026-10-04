@@ -1,10 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
-import { catalogEntry, tileInput } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
 import { mapDisplay } from "@/types/generated/mapDisplay";
-import regionTileConfig from "@/types/generated/region-tile-config.json";
 import {
   MOBILE_VIEWPORT,
-  axisCatalogFixture,
   installApiMocks,
   openMobileApp,
   openMobileSheet,
@@ -170,26 +167,11 @@ test("宣言された地図レイヤーを全部ONにしても、スタイル検
   });
 
   await installApiMocks(page);
-  const rampAxis = {
-    ...catalogEntry({
-      axis_id: "ramp",
-      show_map_icon: true,
-      display: { kind: "ramp", tile_inputs: [tileInput({ property: "v", weight: 1 })], thresholds: [50] },
-    }),
-    default_weight: 0,
-  };
-  await page.route("**/api/axis-catalog*", (route) =>
-    route.fulfill({
-      json: {
-        ...axisCatalogFixture([rampAxis]),
-        tile_versions: Object.fromEntries(regionTileConfig.tile_version_kinds.map((kind) => [kind, "e2e"])),
-      },
-    }),
-  );
   await seedStoredState(page, {
     "ridecompass:debug-enabled": "1",
     "ridecompass:layer-visibility": JSON.stringify(Object.fromEntries(mapDisplay.layers.map(({ id }) => [id, true]))),
-    "ridecompass:route-style-mode": rampAxis.axis_id,
+    // installApiMocks の軸カタログが持つ軸。
+    "ridecompass:route-style-mode": "ramp",
   });
   await page.goto("/");
   await expect(page.getByText("地図を読み込み中…")).toBeHidden({ timeout: 15_000 });
@@ -223,7 +205,7 @@ test("ルートを収めるとき、地図の上の操作部品が覆う所へ�
   const depths = {
     left: (await covers(/の表示項目$/)).map((box) => box.x + box.width - canvas.x),
     right: (await covers(/^(拡大|縮小|走行方位を設定|現在地に移動)$/)).map((box) => canvas.x + canvas.width - box.x),
-    top: (await covers(/^レンズ:/)).map((box) => box.y + box.height - canvas.y),
+    top: (await covers(/^地図の色分け:/)).map((box) => box.y + box.height - canvas.y),
     bottom: (await covers("地図の表示を再描画する")).map((box) => canvas.y + canvas.height - box.y),
   };
   for (const [edge, values] of Object.entries(depths) as [keyof typeof depths, number[]][]) {

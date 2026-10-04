@@ -3,6 +3,9 @@
 # (import-linter reads it with the OS default encoding, cp932 on Japanese Windows).
 [importlinter]
 root_package = app
+# Needed by the forbidden contract below to name PIL and io (grimp includes the
+# standard library among external packages).
+include_external_packages = True
 
 [importlinter:contract:layers]
 name = backend layers (docs/architecture/directory-layout.md)
@@ -17,3 +20,29 @@ layers =
     config | version
     domain
 exhaustive = true
+
+# Redis keys, value shapes and the get_json/set_json callers belong to infrastructure
+# (docs/architecture/directory-layout.md "backend", docs/conventions/caching.md).
+# Reaching Redis through an infrastructure module is the intended path, so only
+# direct imports are checked.
+[importlinter:contract:redis-in-infrastructure]
+name = Redis connection is read only by infrastructure
+type = forbidden
+source_modules =
+    app.main
+    app.api
+    app.services
+    app.batch
+forbidden_modules =
+    app.infrastructure.redis_client
+    app.infrastructure.redis_json_cache
+allow_indirect_imports = True
+
+[importlinter:contract:domain-formats]
+name = domain does not read external formats (docs/architecture/directory-layout.md)
+type = forbidden
+source_modules =
+    app.domain
+forbidden_modules =
+    PIL
+    io

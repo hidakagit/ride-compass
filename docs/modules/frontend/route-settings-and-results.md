@@ -9,37 +9,41 @@
 
 | ファイル | 責務 |
 |---|---|
-| `features/route/RouteForm/RouteForm.tsx` | 距離スライダー・候補数ステッパー・周回/目的地モード切替の入力欄。「ルート設定」区分の各タブの中身を`Tabs.Content`として並べる（タブ列と選択状態は`page.tsx`、下記参照） |
-| `features/route/RouteForm/useRouteFormSubmit.ts` | 上記の検証・送信ロジック（`{error, handleSubmit}`）。「ルート生成」ボタン自体は`RouteForm`の外（`page.tsx`の見出し行）にあるため分離している（下記参照） |
+| `features/route/RouteForm/RouteForm.tsx` | 距離スライダー・候補数ステッパー・周回/目的地モード切替・地点（出発地・経由地・目的地）の行の入力欄。「ルート設定」区分の各タブの中身を`Tabs.Content`として並べる（タブ列と選択状態は`page.tsx`、下記参照） |
+| `features/route/RouteForm/useRouteFormSubmit.ts` | 上記の検証（`{error, check}`。通れば送る距離を返す）。「ルート生成」ボタン自体は`RouteForm`の外（`page.tsx`の見出し行）にあるため分離している（下記参照） |
 | `features/route/RouteSettingsPanel/RouteSettingsPanel.tsx` | 一般向け軸重み設定（「重み」タブの中身。地図の色分けはここになく`LensControl`のみが持つ、下記参照） |
 | `features/route/RouteSettingsPanel/HardFilterPanel.tsx` | 0次ハードフィルタ（「除外」タブの中身）。キー・画面に出す名前・既定値はすべて生成物`route-generate-config.json`（backend `domain/hard_filters.py`）が正で、名前をフロントに持たない——キーと名前を別々に持つと、足したフィルタに名前が無く内部名が出る。重みづけとの違い（通らない）は見出し脇の(i)の奥に置く |
 | `features/route/routeWeightShare.ts` | 重み配分の純関数（帯グラフの境界ドラッグ`clampBoundaryDrag`・刻みと上下限） |
 | `features/conditions/WindBearingSlider/WindBearingSlider.tsx` | 走行方位の指定コンパスダイヤル（`TravelBearingControl`から使われる。単体としての設置場所は[ページ全体構成・状態管理](page-composition.md)参照） |
-| `lib/cardinalLabel.ts` | 角度を方位の呼び名へ（走行方位のダイヤルと区間の風の両方が使う）。呼び名の並びはbackend（`domain/geo.py: COMPASS_LABELS`）が配り、丸めはbackendと同じhalf-up——違うと境界の角度でラベルが食い違う |
+| `lib/cardinalLabel.ts` | 角度を方位の呼び名へ（走行方位のダイヤルと区間の風の両方が使う）。呼び名の並びはbackend（`domain/geo.py: COMPASS_LABELS`）が配り、丸めは画面が持つ。区分の境界を含む角度でbackendと同じ呼び名になることは、backendが出す表（生成物`geo-expectations.json`）をテストが通して確かめる |
 | `features/route/RouteAxisProfile/RouteAxisProfile.tsx` | 候補ごとのタブの中身（公開軸すべての軸別難易度一覧＋「重み付き寄与度」内訳）。地図の色分けを選ぶ操作はここには無い（`LensControl`）。候補一覧のタブ自体は`RouteOutcome.tsx`が組み立てる |
-| `features/route/routeTabLabel.ts` | 候補タブの「基準線からの超過時間」を組み立てる純関数（`fastestDurationSeconds`・`extraDurationLabel`）と、区間を乗り換えて作った候補の判定（`isSplicedRoute`・`SPLICED_ROUTE_ID_PREFIX`）。**合成も素の結果と本質的に区別せず**、並び順は生成候補と同じ（所要時間の短い順、`orderByDuration`）、見分けだけをタブの名前（「合成」）で付ける。**接頭辞はbackendが付ける値で、判定と組み立ての両方がこの1つを使う**——別々に書くと片方だけ変えたときに合成ルートが一覧で見分けられなくなる（型でも例外でも現れない）。タブ列自体は`RouteOutcome.tsx`が組み立てる |
+| `features/route/routeTabLabel.ts` | 候補タブの「基準線からの超過時間」を組み立てる純関数（`fastestDurationSeconds`・`extraDurationLabel`）、生成した候補の並び（所要時間の短い順、`orderByDuration`）、一覧の見出しと名前（`routeListSections`。「採用ルート」と「生成した候補」の分け方は[ページ全体構成・状態管理](page-composition.md)「ルート結果の中身」）。区間を乗り換えて作ったルートのid接頭辞（`SPLICED_ROUTE_ID_PREFIX`）はbackendが付ける値で、画面は作った順の番号を足して同じ生成の中で重ならないようにする。タブ列自体は`RouteOutcome.tsx`が組み立てる |
+| `features/route/routeEditDiff.ts` | 編集で作ったルートの元との差（距離・所要・総合難易度・負荷と、変えた区間の元の位置・長さの差）と、差の表記（`formatDelta`。編集面と同じ書き方）。変えた区間は適用した乗り換えの手順からではなく、できた2本のEdge id列の差（`routeSplice.ts: pairedStretches`）から求める——乗り換えの範囲は適用した時点の経路に対する位置で、元の位置へ戻すには手順の全部が要る |
+| `features/route/EditDifference/EditDifference.tsx` | 編集で作ったルートの中身の先頭に出す「元との違い」。元の名前と距離・変えた区間の数、指標の差、変えた区間ごとの長さの差を並べ、「元を見る」で元のルートへ切り替える |
 | `features/route/gpxExport.ts` | 候補1本をGPXとして書き出す（`downloadGpx`。押す口は[ページ全体構成・状態管理](page-composition.md)の候補の操作）。点数を上限（`MAX_GPX_TRACK_POINTS`）へ収めるとき、残す点を折れ線の形から選ぶ（下記「GPX書き出しの間引き」） |
 | `features/route/RouteAxisProfile/axisRawValue.ts` | 軸の生値（折れ点を通す前）を単位付きの表示文へ整える純関数（`formatAxisRawValue`）。走行距離を掛けた総量を添えるのは、軸カタログが`raw_value_total_unit`を返した軸だけ——総量が読み手の判断を変えるかの判断はbackendが持ち、フロントは単位の綴りから決めない。単位が定まらない軸の内訳1件を整える`formatMaterialBreakdown`（numeric/boolean）・`formatCategoryBreakdown`（categorical、最も延長の長い値）も持つ |
 | `components/AxisContributionBar/AxisContributionBar.tsx` | 「重み付き寄与度」内訳の表示部品（積み上げ1本バー＋凡例）。ルート全体の内訳（RouteAxisProfile）・区間クリック詳細（`RouteOutcome.tsx`）の両方から共用する |
 | `components/PinMark/PinMark.tsx` | 地点（出発地・経由地・目的地）の印の中身と背景色。行頭の印と地図のピンが共用する（下記「地点の指定」） |
 | `features/route/ComparisonPanel/ComparisonPanel.tsx`・`types/experimentSlot.ts`（`ExperimentSlot`型・`MAX_EXPERIMENT_SLOTS`） | 研究モードの実験スロット比較表 |
-| `hooks/useAxisCatalog.ts` | `GET /api/axis-catalog`取得。軸一覧・既定重み・ramp軸・軸ラベル・二次軸・ルート色分けモードを一括提供 |
-| `lib/axisCatalog.ts` | 上記フックが返すカタログを、応答から導く純関数（`axisCatalogFromResponse`）と、画面が読む較正値（`CLIENT_TUNING_IDS`・`clientTuningValue`）。フックが持つのは「いつ取りに行き、誰と共有するか」だけ |
+| `hooks/useAxisCatalog.ts` | `GET /api/axis-catalog`の取得。機能をまたいで読むカタログ（軸一覧・既定重み・軸ラベル・識別色・較正値）を`useAxisCatalog`が返す。1つの機能だけが読む形は、その機能が同じ取得の応答から`useAxisCatalogSelect`で導く（地図の表示の軸・タイルの世代は[地図: 静的レイヤー・道路表示](static-map-layers.md)の`features/map/useMapAxisCatalog.ts`）——共有のカタログへ相乗りさせると、読み手が1機能だけの知識を共有の層が運ぶ |
+| `lib/axisCatalog.ts` | 上記フックが返すカタログを、応答から導く純関数（`axisCatalogFromResponse`）と、画面が読む較正値（`CLIENT_TUNING_IDS`・`clientTuningValue`。並べるidは生成物`route-generate-config.json`に在るものだけを型が通す）。フックが持つのは「いつ取りに行き、誰と共有するか」だけ |
 | `services/axisCatalogApi.ts` | 上記フックが叩くbackend APIの薄いラッパー |
 | `lib/catalogAxis.ts` | 軸カタログの1行を画面が読む形へ移す型（`CatalogAxis`）と唯一の変換（`catalogAxisFromEntry`）。重み一覧の1行はこの型そのもので、ramp軸・専用配信の軸・地図のチップの軸はこれに用途の項目を足した型 |
 | `features/route/DifficultyProfile/DifficultyProfile.tsx`・`profileGeometry.ts` | 候補の中身の先頭に出す、道のりに沿った難易度のグラフ。横が始点からの距離、縦が区間ごとの難易度で、区間ごとの階段を軸の寄与で色分けして下から積む。区間はbackendがEdgeを約500mのビンへ畳んだもの（`aggregate_segments_into_bins`）で、Edge 1本ずつではない。**塗った面積がルートの負荷にほぼ一致する**——値の無い区間はルートの総合難易度の高さで灰色に描く（負荷は「値のある区間の距離加重平均×全長」で、値の無い区間を平均として数えるため）。ほぼなのは、ビンの中で値の無いEdgeがそのビンの平均で数えられるため。横軸の右端は**一覧の中で最も長い候補の距離**で、候補どうしで面積を見比べられる。押したまま動かす（キーボードは矢印・Home・End）と、その距離の区間と、区間の道なりの形の上で距離の割合ぶん進んだ地点を選ぶ——選択は地図で区間を押したときと同じ`selectedRouteSegment`で、地図に印が出て下に区間の詳細が出る。グラフ自体は区間を選んでいる間も残る |
 | `features/route/difficultyLoadBar.ts` | 難易度の帯の高さ（`baselineDistanceKm`・`loadBarHeightRatio`・`LOAD_BAR_MAX_HEIGHT_RATIO`）。帯は長さが総合難易度なので、高さへ距離の倍率を与えると塗られた面積が負荷（`overall_difficulty.load`）、積み上げの色ごとの面積が軸別の負荷になる。基準（高さ1.0）は**一覧の中で最も短い候補**——目標距離やbackendの値から取ると、周回モードと目的地モードで基準の意味が変わり、同じ高さが別のことを指す。距離の比をそのまま高さにすると行が破綻するため上限で頭打ちにし、そのぶん面積は負荷に厳密比例しなくなるので数値を併記する |
-| `lib/geoDistance.ts` | 座標列の距離計算（`cumulativeDistancesKm`）。区間の位置と代替の距離差を出すのに使う |
+| `features/route/geoDistance.ts` | 座標列の距離計算（`cumulativeDistancesKm`）。区間の位置と代替の距離差を出すのに使う。2点の距離がbackendと合うことは、`cardinalLabel`と同じ表をテストが通して確かめる |
+| `features/route/ErrorText/ErrorText.tsx` | 操作した箇所の直下に出すエラー文言（`role=alert`）。ルート結果と区間の乗り換えの面が使う |
 | `features/route/routePreferenceSync.ts` | 重みのキー集合を軸カタログの公開軸へ揃える関数（`useGenerationConditions.ts`が読むときに1回だけ通す）と、生成リクエストへ重みを載せるかの判定 |
 | `features/route/hardFilterSync.ts` | 保存された`hard_filters`のキー集合を正本（`routeGenerateConfig.hard_filters`）へ整合させる。backendはキー集合の完全一致を要求するため、デプロイでフィルタが増減しても保存値をまたいで送信が成立するようにする |
 | `components/ui/FieldLabel/FieldLabel.tsx` | 情報アイコン付きラベルの共有UI部品（値を変えたら上書きをONにする包みは`RouteSettingsPanel.tsx`が持つ） |
 | `features/route/SegmentWind/SegmentWind.tsx` | 区間の詳細に出す、その区間の評価に使った風（下記「区間クリック詳細」） |
 | `features/route/RouteSplicePanel/RouteSplicePanel.tsx` | 区間の乗り換えの結果面（「ルート結果」が編集モードのときの中身）。**選ぶのは地図、パネルは結果だけ**——地図の破線が「いまの道から乗り換えられる先」・太い実線が「いま作っているルート」で、タップすると乗り換わり、その先の分かれ道が次の破線になる（次に選べる区間は`features/route/routeSplice.ts: buildSplicedShape`が組む「いまの組み合わせ」との差として求めるため、乗り換え先の道の上の分岐もそのまま現れる。候補どうしが同じ地点を通るかはbackendが返すNode id［`node_ids`］で判定し、**当てると一度通った地点へ戻る代替は選択肢に出さない**——backendは連結性しか見ず、折り返しも走れはするため落とさない）。パネルはルート結果と同じ指標（距離・所要・総合難易度・負荷）で元と編集後を**2列×2行**に並べ（1セルに「元→編集後 差」を収め、列見出しを持たない）、軸別は2本並べず**差だけの1本**（中央が0・左が楽になった側・長さが変化量・色は軸チップと同じ）。戻すのは見出し行の「1つ戻す」「全部戻す」で、巻き戻せるのは直前の1手ずつ（適用済みの範囲はその時点の経路に対する位置のため、途中だけは外せない）。`edge_ids`が空の候補では「差が無い」と「そもそも出せない」を区別して伝える。使い方は画面へ書かず見出し脇の(i)の奥に置き、操作（1つ戻す・全部戻す・差分・作成）はパネルの他の操作と同じアイコンの横に名前を置く形 |
-| `features/route/useRouteResults.ts` | 「ルート結果」の状態: 候補の一覧・選んだ候補・地図で押した区間・比較タブを見ているか・生成に使われた重み。生成の結果で入れ替えると先頭を選び、比較タブと押した区間を外す。タブを選び替えると押した区間を外す。比較を見ている間も選んだ候補は保つ |
-| `features/route/RouteOutcome/RouteOutcome.tsx` | 「ルート結果」の中身: 生成前・生成中・失敗の案内、候補の一覧（縦のタブ。順位・距離・所要時間・総合難易度の帯）、候補の操作（合成・GPX）、選んだ候補の中身（道のりのグラフ・`RouteAxisProfile`）と地図で押した区間の詳細、研究モードの比較、編集中は`RouteSplicePanel`（[ページ全体構成・状態管理](page-composition.md)「ルート結果の中身」） |
+| `features/route/useRouteResults.ts` | 「ルート結果」の状態: 生成した候補・編集で作ったルート（作った順の番号と元にしたルートのid）・選んだ候補・地図で押した区間・比較タブを見ているか・生成に使われた重み。生成の結果で入れ替えると先頭を選び、編集で作ったルート・比較タブ・押した区間を外す。編集で作ったルートは元を上書きせず別の1本として足して選ぶ（編集で作ったルートをさらに編集したものも、元はその編集）。タブを選び替えると押した区間を外す。比較を見ている間も選んだ候補は保つ |
+| `features/route/RouteOutcome/RouteOutcome.tsx` | 「ルート結果」の中身: 生成前・生成中・失敗の案内、候補の一覧（縦のタブ。見出し・名前・距離・所要時間・総合難易度の帯）、候補の操作（合成・GPX）、選んだ候補の中身（編集で作ったルートなら`EditDifference`・道のりのグラフ・`RouteAxisProfile`）と地図で押した区間の詳細、研究モードの比較、編集中は`RouteSplicePanel`（[ページ全体構成・状態管理](page-composition.md)「ルート結果の中身」） |
 | `features/route/useGenerationConditions.ts` | 生成の条件（「ルート設定」の入力）: 周回か目的地か・距離・候補数・経由地と目的地・地図のタップで置ける役割・重み・除外。保存する値は読むときに今の画面が受け付ける範囲・今の項目へ揃え、重みは軸カタログの公開軸へ揃えた値だけを返す（下記「RouteSettingsPanel.tsx」）。出発地は位置の取得と同じ持ち主（`hooks/useLocation.ts`）が持ち、地図で置いた出発地は呼び出し側へ渡す |
-| `features/route/useRouteGeneration.ts` | ルート生成: 検証と送信（`useRouteFormSubmit`）・実行中の進み方・直近の案内（候補0件の理由・失敗の文言）・表示中の候補を作った条件といまのフォームのずれ（`conditionsDirty`）・研究モードの実験スロット。生成の入力は生成と「条件が変わったか」の判定が同じ関数で組み立て、目的地が補正されたら補正後の地点で組み直す。候補の一覧と選択は持たず、結果を`onGenerated`で呼び出し側へ渡す |
-| `features/route/useSpliceSession.ts` | 区間の乗り換えの編集1回ぶんの状態（編集の元の候補・適用した乗り換え・評価結果の控え・処理状態）と操作。**抜けると中身ごと消え、次の編集へ持ち込まない**。編集は始めたときの生成に結びつき、作り直す・消すと効かなくなる（候補のidは作り直しでも同じ値が振られうる）。組み合わせた経路は**表示中の候補を作った生成の入力**で評価する——いまのフォームで評価すると、生成後に重みを変えた1本だけが別の条件で並ぶ。評価は組み合わせ（適用した順を含む）ごとに覚え、「差分を見る」と「作成」で投げ直さない（生成APIには回数の上限がある）。「作成」は連打の2回目を同じタスクの中で止め、作った経路が既にある候補と同じ道ならその候補を選ぶだけにする。区間を割る下限（軸カタログの較正値）を引けない間は乗り換え先を作らず入口も出さない。返すのは地図へ渡す値（乗り換え先の帯・いま作っているルート・帯のタップ）と`RouteSplicePanel`へ渡す値で、候補の一覧を入れ替えるのは呼び出し側（`onApplied`） |
+| `features/route/useRouteGeneration.ts` | ルート生成: 検証と送信（`useRouteFormSubmit`）・実行中の進み方・直近の案内（候補0件の理由・失敗の文言）・表示中の候補を作った条件といまのフォームのずれ（`conditionsDirty`）・研究モードの実験スロット。生成の入力は生成と「条件が変わったか」の判定が同じ関数で組み立て、目的地が補正されたら補正後の地点で組み直す。候補の一覧と選択は持たず、結果を`onGenerated`で呼び出し側へ渡す。押した「生成」1回ごとに結果の種類（新しい結果か失敗か）を`onOutcome`で1度だけ知らせる——候補が出たときも、候補0件・失敗・入力の誤りと同じく知らせる |
+| `features/route/useRoutePlanner.ts` | ルートを作る機能の入口。結果・生成・区間の乗り換えをつなぐ: 生成と乗り換えが作った候補を結果へ入れ、全消去は結果と生成を一緒に消し（乗り換えの編集は生成に結びつくので一緒に終わる）、乗り換えで作り始めると直前の生成の失敗の文言を消す。生成と乗り換えの結果は1本の`onOutcome`で呼び出し側へ知らせる。軸を「未使用」と分ける重み（`routeWeights`。生成に使われた重み、生成前は今の設定の重み）も1か所でここが決め、地図のレンズの選択肢と候補の中身が同じ値を読む。地図に描くルート（`mapRoutes`。編集で作ったルートを選んでいる間は元と2本だけ）もここが決める |
+| `features/route/useSpliceSession.ts` | 区間の乗り換えの編集1回ぶんの状態（編集の元の候補・適用した乗り換え・評価結果の控え・処理状態）と操作。**抜けると中身ごと消え、次の編集へ持ち込まない**。編集は始めたときの生成に結びつき、作り直す・消すと効かなくなる（候補のidは作り直しでも同じ値が振られうる）。組み合わせた経路は**表示中の候補を作った生成の入力**で評価する——いまのフォームで評価すると、生成後に重みを変えた1本だけが別の条件で並ぶ。評価は組み合わせ（適用した順を含む）ごとに覚え、「差分を見る」と「作成」で投げ直さない（生成APIには回数の上限がある）。「作成」は連打の2回目を同じタスクの中で止め、作った経路が既にある候補と同じ道ならその候補を選ぶだけにする。区間を割る下限（軸カタログの較正値）を引けない間は乗り換え先を作らず入口も出さない。返すのは地図へ渡す値（乗り換え先の帯・いま作っているルート・帯のタップ）と`RouteSplicePanel`へ渡す値で、作った経路と元を結果へ足すのは呼び出し側（`onApplied`） |
 | `features/map/scene/groups/routes.ts`（乗り換え帯の箇所） | 他の候補が別の道を通る区間を地図へ帯で描き、**タップでその道を選べる**（`onSpliceStretchSelect`。選ぶ操作の中心を地図へ置く——パネルの行だけで選ばせると、どの行がどの帯かを目で対応づける必要がある。帯と当たり判定は役割`spliceBandLine`・`spliceBandHit`として宣言する）。帯はどれも破線で描く。タップして乗り換えた先は帯ではなく、いま作っているルート（太い実線）の一部として描かれる。破線の刻みは配列で持つ（feature式に依存しない） |
 | `features/map/scene/groups/routes.ts` | ルート候補・選択中ルート・区間色分け・乗り換え帯・比較スロットの宣言。状態から載るべきレイヤーの並びを返すだけで、地図を直接は触らない |
 
@@ -62,10 +66,10 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
 - 取得に失敗したときの告知と再試行導線は、**常設ヘッダーの「未取得」の印**（既定で開く条件タブ・地図を
   見ている人にも届く場所。[ページ全体構成](page-composition.md)「失敗・空・待ちの伝え方」）と、重みを
   触っている人へ向けたこのパネルの両方にある。影響は重み配分だけではない——同じ応答がタイル世代も
-  運ぶため、地図の道路・POI・事故も出ない（[静的地図レイヤー](static-map-layers.md)「配信情報を取得できず
+  運ぶ（地図は同じ取得から世代を導く）ため、地図の道路・POI・事故も出ない（[静的地図レイヤー](static-map-layers.md)「配信情報を取得できず
   表示できません」節）。告知の文面はその両方を述べる。
 - **カタログ1件→画面の軸の変換は`catalogAxis.ts: catalogAxisFromEntry`1本**で、重み一覧も、
-  ramp軸・専用配信の軸・地図のチップの軸（`axisLayers.ts`・`secondaryAxes.ts`）の共通の項目も
+  ramp軸・専用配信の軸・地図のチップの軸（`axisLayers.ts`・`features/map/secondaryAxes.ts`）の共通の項目も
   これを通る——経路ごとに行を写すと、同じ行の略名の補い方（`chip_label`が無いときに名前で埋めるか）が
   経路ごとに食い違う。略名は`chipLabel`に名前で埋めた値が必ず入り、読み手は補わない。
 - カテゴリ（観測/推定/動的）によるグルーピング表示は行わない。軸スタジオは常に
@@ -88,7 +92,7 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
   ドラッグ・矢印キー操作のみ**。ドラッグ中の値は帯の区間とチップの%がその場で動いて
   示すため、操作の説明文も、同じ調整を別の形で用意した操作（増減ボタン等）も置かない。
   帯の色と凡例チップの色ドットは、どちらも軸カタログが1回だけ導く識別色
-  （`lib/axisCatalog.ts`の`axisColors`、実際の軸数でHSL色相環を等分）を読むため、常に一致する
+  （`lib/axisCatalog.ts: axisColors`、実際の軸数でHSL色相環を等分）を読むため、常に一致する
   （ルート結果・レンズの選択肢も同じ色）。**帯そのものが「重み配分」で
   あり「全体で100%」であることを示すため、タブは見出しも合計の表記も持たない**（言い換えの
   行を置かない、設計原則「冗長なものは削る」）。
@@ -99,7 +103,7 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
   重みを切り替えるだけで、地図の色分けとは無関係（地図の色分け（レンズ）はこのパネルには
   なく、地図上の`LensControl`だけが持つ）。
 - 向きコンパス（`WindBearingSlider`）はこのパネルには存在しない。風・勾配の走行方位は
-  走行条件の単一共有state（`features/conditions/useRideConditions.ts`の`bearingDeg`）を地図上の`TravelBearingControl`
+  走行条件の単一共有state（`features/conditions/useRideConditions.ts: bearingDeg`）を地図上の`TravelBearingControl`
   1箇所からのみ設定する（[ページ全体構成・状態管理](page-composition.md)「動的材料
   （風・勾配）の状態別表現契約」参照）。
 - パネルが受け取る重みは、`useGenerationConditions.ts`がカタログのキー集合へ揃えた値（`routePreferenceSync.ts: alignRoutePreference`。
@@ -135,7 +139,7 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
 結果が変わらない」を実験の差だと取り違えるため、常設ヘッダーの印と`RouteSettingsPanel`が失敗の表示と
 再試行導線（`retryAxisCatalogFetch`、成功済みなら何もしない）を出し、重みを上書きしていたのに送れずに
 作った候補には「ルート結果」の先頭に「重み配分を反映できず、既定の配分で作りました。」を出す
-（`useRouteGeneration.ts`の`weightsNotApplied`）。上書きしていない生成には出さない——元から既定の配分で、
+（`useRouteGeneration.ts: weightsNotApplied`）。上書きしていない生成には出さない——元から既定の配分で、
 反映できなかったものが無い。生成そのものは断らない——既定の配分のルートでも走るには使える。
 
 `lens_axis_id`にも同じガードを掛ける。**存在しない軸idはエラーにならず黙って無視される**
@@ -150,7 +154,7 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
 
 `WindBearingSlider`自体は本コンポーネント表に無い`features/conditions/TravelBearingControl/
 TravelBearingControl.tsx`（`page.tsx`から直接importされ地図上に置かれるアイコンボタン）
-1箇所だけからマウントされる。走行条件の単一共有state（`useRideConditions.ts`の`bearingDeg`。風・勾配で
+1箇所だけからマウントされる。走行条件の単一共有state（`useRideConditions.ts: bearingDeg`。風・勾配で
 共有、[ページ全体構成・状態管理](page-composition.md)「動的材料（風・勾配）の状態別
 表現契約」参照）を`TravelBearingControl`が受け取り、地図右上（MapLibreのズーム+/−・
 回転コントロールの直下）のアイコンボタンをトリガーにしたRadix Popoverの中で
@@ -159,7 +163,8 @@ TravelBearingControl.tsx`（`page.tsx`から直接importされ地図上に置か
 
 `cardinalLabel(bearingDeg)`（角度→方位の日本語ラベル）は、呼び名の並びを生成物
 （`mapDisplay.compassLabels`、源泉は`backend/app/domain/geo.py: COMPASS_LABELS`）から読み、区分の幅は
-その数から決める。丸め方だけを画面側に持ち、backendと同じhalf-upにする（違うと区分の境界で食い違う）。
+その数から決める。丸め方だけを画面側に持ち、区分の境界ではbackendと同じく次の区分へ倒す（違うと境界の角度で
+食い違う）。同じ呼び名になることは、backendが入力と答えを出す表（生成物`geo-expectations.json`）をテストが全行通して確かめる。
 
 角度計算・ドラッグ処理は`RouteSettingsPanel.tsx: startBoundaryDrag`（帯グラフの境界
 ドラッグ）と同じ「pointerdown起点でwindowへ直接pointermove/upを登録する」パターンを
@@ -174,10 +179,9 @@ TravelBearingControl.tsx`（`page.tsx`から直接importされ地図上に置か
 ## RouteAxisProfile.tsx（候補ごとタブの中身: 総合難易度＋軸別内訳）
 
 `RouteOutcome.tsx`（[ページ全体構成・状態管理](page-composition.md)「ルート結果の中身」参照）が組み立てる候補ごとの
-タブ（方向・距離のみを表示。総合難易度の点数はタブ内では繰り返さない）の中身として、
-候補1件につき1つ表示する。呼び出し側（`RouteOutcome.tsx`）は`axes`へ公開軸すべてを渡す——重み0の軸を
-落とすと、下記の「未使用の軸」行（この候補を評価した重みが0だった軸が何本あるかを示す）が
-構造的に出せなくなる。
+タブの中身として、候補1件につき1つ表示する。呼び出し側（`RouteOutcome.tsx`）は`axes`へ公開軸すべてを渡す——
+寄与が0・欠損でも重みのある軸のチップを凡例に残すためで、重み0の軸は`RouteAxisProfile`自身が凡例から落とす
+（下記「評価に使っていない軸」）。
 
 **軸を1行ずつ並べる一覧は持たない**。軸ごとの詳細（軸別難易度・生値・材料内訳・説明）は
 寄与度バーの凡例チップを押して開く。1軸1行の一覧は公開軸の本数ぶん縦へ伸びるのに対し、
@@ -272,13 +276,13 @@ TravelBearingControl.tsx`（`page.tsx`から直接importされ地図上に置か
 
 ## 区間クリック詳細（selectedRouteSegment）
 
-地図上でルート線の区間をクリックすると、`useRouteResults.ts`の`selectedRouteSegment` state
+地図上でルート線の区間をクリックすると、`useRouteResults.ts: selectedRouteSegment` state
 （`{ segment: RouteSegmentDetail, latitude, longitude }`、`MapView.tsx:
 handleRouteSegmentClick`がクリック地点の座標とともに設定する）が入る。地図側は
 クリック地点へ軽量なマーカーを立てるだけでテキストポップアップは出さない
 （[地図: 静的レイヤー・道路表示](static-map-layers.md)参照）。`selectedRouteSegment`が
 non-nullの間、「ルート結果」タブはルート全体の内訳の代わりにその区間の地点・到達予想
-時刻・評価に使った風（`SegmentWind`: 数値予報モデルの計算値の時刻・風向風速、追える時刻の先で延ばして使った区間はその旨。
+時刻・評価に使った風（`SegmentWind`: 数値予報モデルの計算値の時刻・風向風速、追える時刻の先で延ばして使った区間は短い注記、詳しくは(i)。
 「予報」とは呼ばない——[動的気象レイヤー](dynamic-weather-layers.md)「責務」。
 (i)の説明がレグごとに追う時間を生成物`route-generate-config.json`の`wind_forecast_hours_per_leg`から出す）＋
 `AxisContributionBar`（区間の`axis_contributions`）を表示し、×ボタンで
@@ -374,8 +378,9 @@ DBの`ROUTE_GENERATION_COMMAND_TIMEOUT_SECONDS`はクエリ1本ごとの上限�
 「ルート結果」欄へ出す（[page-composition.md](page-composition.md)の「生成に関する
 フィードバックの置き場」参照）。同じ見出し行には、生成条件が表示中の候補とずれている間だけ
 印（`conditionsDirty`）を出す——条件を変えている本人は設定側を見ているため。検証・送信ロジック自体は
-`useRouteFormSubmit`（`{error, handleSubmit}`を返す）へ切り出し、生成（`useRouteGeneration.ts`）が
-包んだ送信を`page.tsx`がヘッダーのボタンから直接呼ぶ。候補数の指定が効くか（効かないならbackendの決まった数）は
+`useRouteFormSubmit`（`{error, check}`を返す）へ切り出し、生成（`useRouteGeneration.ts: submit`）が検証して送る。
+`page.tsx`はヘッダーのボタンからその送信を、地図のレンズを引数にして呼ぶ（塗る軸は押した時点のレンズで決まり、
+「条件が変わったか」の比較には入らないので、生成のフックは地図の見え方を読まない）。候補数の指定が効くか（効かないならbackendの決まった数）は
 `useRouteFormSubmit.ts: fixedRouteCount`が1か所で決め、`RouteForm`（候補数ステッパーの表示）・
 `useRouteGeneration.ts`（送る値と「条件が変わった」の比較）が読む。
 
@@ -384,13 +389,14 @@ DBの`ROUTE_GENERATION_COMMAND_TIMEOUT_SECONDS`はクエリ1本ごとの上限�
 数値の直接入力欄は持たない（原則としてユーザーに数字を直接入力させない方針）。
 distance・maxRoutesはいずれもstring stateのまま`useGenerationConditions.ts`が持ち、数値への変換は送るときに行う。
 **距離・候補数は検証しない**——スライダー・ステッパーはmin/maxで値域を強制するため空文字・範囲外を作れず、
-保存値も読むときに範囲の外を捨てる（`useGenerationConditions.ts`の`useStoredState`の`deserialize`）。`useRouteFormSubmit`が
+保存値も読むときに範囲の外を捨てる（`useGenerationConditions.ts: useStoredState`の`deserialize`）。`useRouteFormSubmit`が
 確かめるのは、出発地が分からないこと（下記）と、目的地モードで地点が1つも無いことだけ。
 
 **出発地が仮の地点のままなら生成しない**（どちらのモードでも）。位置情報を許可しない・取得に失敗した・
 端末が対応しない・許可の確認に答える前のどれでも、出発地は`useLocation`の決まった仮の地点で、そこから
-作ったルートは利用者のいる場所と関係が無い。押すと「現在地が分かりません。位置情報を許可するか、地図で出発地を
-選んでください。」を出す（出し先は他の検証エラーと同じ「ルート結果」）。仮の地点そのものは地図の最初の
+作ったルートは利用者のいる場所と関係が無い。押すと「現在地が分かりません。位置情報を許可するか、出発地の「地図で選ぶ」を押して
+地図をタップしてください。」を出す（出し先は他の検証エラーと同じ「ルート結果」。モバイルは「ルート設定」シートにも、
+page-composition.md「生成に関するフィードバックの置き場」）。案内が指す出発地の行は、どちらのモードにもある（下記「地点の指定」）。仮の地点そのものは地図の最初の
 中心として残す（天候・警報は仮の地点では取らない。page-composition.md「失敗・空・待ちの伝え方」）。目的地モードでは距離入力を出さない。想定速度はこの
 フォームでは扱わない（地図右上の条件アイコン列`RideConditionBar`、page-composition.md参照）。
 候補数ステッパーは**モード切替と同じ行**に置く（どちらのモードでも効く共通の条件で、
@@ -406,6 +412,8 @@ distance・maxRoutesはいずれもstring stateのまま`useGenerationConditions
 地図で指定／なし／N地点／未設定）が出るため、**地図を見に行かなくても何が決まっているかが
 読める**。現在地を取れていない間の出発地は「現在地」と出さず「現在地を取得できていません」と出す
 （印も地図のピンと同じ灰色）——「現在地」と出ている出発地は、本当に今いる場所である。
+**出発地の行はどちらのモードにも出す**（周回では距離の上、`RouteForm.tsx: originRow`）。経由地・目的地の行は目的地モードだけ。
+現在地が取れないときの案内（上記）は出発地の「地図で選ぶ」を指すため、既定の周回モードにもその入口が要る。
 
 - 地図のピンは3つとも同じ丸いバッジ（`MapView.tsx: createPointMarkerElement`、出発地だけは
   現在地アイコン入りの白バッジ）で、**どれもつかんで動かせる**。**行頭の印と地図のピンは
@@ -414,7 +422,7 @@ distance・maxRoutesはいずれもstring stateのまま`useGenerationConditions
   文字は`components/PinMark/PinMark.tsx: pinMarkText`を要素の文字として入れる）——同じものを2箇所で描くと、片方だけ直したときに
   行とピンが違う見た目になる。動かした直後のclickは読み飛ばす（`bindDragAwareClick`）——同じ操作の
   終わりにclickが飛ぶため、動かしただけで削除・解除が起きてしまう。
-- **行そのものが押下領域**（`pointMain`）。押す場所を探させず、行の幅も詰まる。解除（✕）と
+- **行そのものが押下領域**（`RouteForm.tsx: renderPointRow`）。押す場所を探させず、行の幅も詰まる。解除（✕）と
   「現在地に戻す」は別の操作のため、入れ子にせず行の外側へ並べる。
 - **地図でできることは、いま見ているパネルが持つ操作だけにする**。「ルート設定」の条件タブ＝
   地点を置く・つかんで動かす・消す（`pointEditingEnabled`）、「ルート結果」＝候補の切り替えと
@@ -430,12 +438,16 @@ distance・maxRoutesはいずれもstring stateのまま`useGenerationConditions
   が出て、現在地の取得（`useLocation: handleLocateMe`）がその役割を兼ねる。
 - 経由地だけは置いたあとも武装を続ける（続けて何地点も置くのが普通の使い方で、1つ置くたびに
   押し直させない）。武装中も件数と解除（✕）は出したままにする。
+- **経由地は生成が受け付ける数まで**（生成物`route-generate-config.json`の`max_waypoints`。backendの
+  `domain/route_request.py: MAX_WAYPOINTS`）。達した時点で武装を解き、行は押せなくして「上限」と出す
+  （解除の✕は残す）。超える点を置かせると、生成を押して初めて断られる。
 - 設定済みの地点から武装しても値は残る。次の地図タップが置き換えになる——生成後に目的地を
   変えたいとき、解除してから指定し直す2段階を踏ませないため。解除は行の✕が担う。
-- 目的地モードへ切り替えた時点で目的地・経由地とも未指定なら、行を押さなくても目的地を
-  置ける状態にする（`useGenerationConditions.ts`の`changeRouteMode`）。既に目的地・経由地がある場合は
+- 目的地モードへ切り替えた時点・目的地モードを保存したまま開き直した時点で目的地・経由地とも未指定なら、行を押さなくても目的地を
+  置ける状態にする（判定は`useGenerationConditions.ts: pinRoleOnEnter`の1つ。開き直しは、誰も役割を選んでいない間だけ保存したモードから
+  決める——モードの保存値はマウントの後に読まれるため、武装の初期値には使えない）。既に目的地・経由地がある場合は
   自動で武装しない——次のタップの意図が「経由地の追加」である可能性があり、武装したままだと
   意図せず目的地が上書きされてしまうため。
 - 置ける場所も限る。「ルート設定」区分を見ていて、かつ「条件」タブを開いている間だけ武装が
-  効く（`app/page.tsx: pinPlacementArmedRole`）。「ルート結果」を見ている間や他のタブを開いて
+  効く（`app/page.tsx: pinPlacementArmedRole`）。周回の間に効くのは出発地だけ（経由地・目的地は周回の間は地図に出さず送らない）。「ルート結果」を見ている間や他のタブを開いて
   いる間は、武装したままでも地図のタップはピンにしない。

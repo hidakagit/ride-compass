@@ -205,6 +205,9 @@ SupplyPoiKind = Literal[
     "convenience", "vending_drinks", "vending_unknown", "toilets", "drinking_water", "bicycle_parking"
 ]
 
+#: `node_materials.kind`の語彙。`tag_kind_sql`が付けうる種別で、表の検査制約もここから作る。
+NODE_KINDS: frozenset[str] = STOP_POI_KINDS | frozenset(get_args(SupplyPoiKind))
+
 _AMENITY_SUPPLY_KINDS: dict[str, SupplyPoiKind] = {
     "toilets": "toilets",
     "drinking_water": "drinking_water",
@@ -285,6 +288,18 @@ TAG_KIND_RULES: tuple[tuple[str, str, str, int], ...] = tuple(
 #: 自販機だけは`vending`の値が`;`で連なるため表に落ちない。式で当てる。どの群よりも
 #: 後に見る（`amenity`の表に`vending_machine`は無いので、ここが最後の引き当てになる）。
 _VENDING_PRIORITY = len(_TAG_KIND_GROUPS) + 1
+_VENDING_MACHINE = ("amenity", "vending_machine")
+
+#: 補給・休憩の種別が付きうるタグ（タグ名, 値）。自販機は何を売るかによらず含む。
+SUPPLY_POI_TAGS: frozenset[tuple[str, str]] = frozenset(
+    (tag_key, value) for tag_key, value, kind, _priority in TAG_KIND_RULES
+    if kind in get_args(SupplyPoiKind)) | {_VENDING_MACHINE}
+
+
+def has_supply_poi_tag(tags: Mapping[str, str]) -> bool:
+    """`tags`が補給・休憩の種別が付きうるタグを持つか。値は`tag_kind_sql`と同じく、前後の
+    空白を落として小文字にしてから比べる。"""
+    return any((key, value.strip(" ").lower()) in SUPPLY_POI_TAGS for key, value in tags.items())
 
 #: 信号の判定。**`TAG_KIND_RULES`と違い、値を正規化せずそのまま比べる**——
 #: 現行の判定がそうであり、ここで揃えると付く信号の数が変わる。
@@ -317,6 +332,10 @@ DIRECTION_RULES: tuple[tuple[str, str, str, int], ...] = tuple(
 
 #: どの規則にも当たらない道は両方向。
 DIRECTION_DEFAULT = "both"
+
+#: `way_materials.direction`の語彙。表の検査制約もここから作る。
+DIRECTIONS: frozenset[str] = frozenset(
+    direction for _key, _value, direction, _priority in DIRECTION_RULES) | {DIRECTION_DEFAULT}
 
 
 def _quote(value: str) -> str:
@@ -390,7 +409,7 @@ matched AS ({_rule_match_sql(TAG_KIND_RULES)}
         FROM (SELECT array_remove(array_agg(nullif(btrim(lower(t)), '')), NULL) AS vals
               FROM unnest(string_to_array(coalesce(s.tags->>'vending', ''), ';')) AS t) q
     ) v
-    WHERE lower(btrim(s.tags->>'amenity')) = 'vending_machine' AND v.result IS NOT NULL
+    WHERE lower(btrim(s.tags->>{_quote(_VENDING_MACHINE[0])})) = {_quote(_VENDING_MACHINE[1])} AND v.result IS NOT NULL
 )
 SELECT DISTINCT ON (id) id, result AS kind FROM matched ORDER BY id, priority
 """

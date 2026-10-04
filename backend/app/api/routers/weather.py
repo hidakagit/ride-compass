@@ -4,7 +4,6 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from app.api.dependencies import (
-    enforce_rate_limit,
     get_amedas_service,
     get_flood_service,
     get_ingested_area,
@@ -12,6 +11,7 @@ from app.api.dependencies import (
     get_wbgt_service,
     get_weather_service,
 )
+from app.api.rate_limit import enforce_rate_limit
 from app.config import settings
 from app.domain.jma_amedas import AmedasObservation
 from app.domain.region import BoundingBox
@@ -48,7 +48,7 @@ async def get_weather(
     longitude: float = Query(ge=-180, le=180),
     weather_service: WeatherService = Depends(get_weather_service),
 ) -> WeatherConditions:
-    """「今日」のパネル（TodayOutlook、1日の最大・最小と2時間おきのコマ）向けの、数値予報モデル（MSM）の計算値。
+    """「今日」のパネル（1日の最大・最小と一定間隔のコマ）向けの、数値予報モデル（MSM）の計算値。
     常設ヘッダー（現在値の気温・体感温度・風速風向）はアメダス実測を使う
     `GET /api/weather/amedas`が担う。"""
     # Queryのge/leで範囲外の値をFastAPI層で弾く（Coordinatesへの委譲だと
@@ -119,7 +119,7 @@ async def get_amedas(
     amedas_service: JmaAmedasService = Depends(get_amedas_service),
 ) -> AmedasObservation:
     """出発地点近傍の最寄りアメダス観測所の直近観測値を返す。
-    観測値本体はRedis Hash（TTL 15分）でキャッシュされる（jma_amedas_service.py参照）。
+    観測値本体はRedis Hash（TTL 15分）でキャッシュされる（infrastructure/jma_amedas_store.py参照）。
     観測所解決・取得のいずれかに失敗した場合は502を返す。"""
     enforce_rate_limit(http_request, "amedas", settings.weather_amedas_rate_limit_per_minute)
     observation = await amedas_service.get_nearest_observation(Coordinates(latitude=latitude, longitude=longitude))

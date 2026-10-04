@@ -18,8 +18,7 @@ from collections.abc import AsyncIterator, Sequence
 
 import numpy as np
 import shapely
-from sqlalchemy import Float, Row, Text, bindparam, text
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy import Row, TextClause, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from app.domain.attributes import CategoricalColumn, EdgeMaterialArrays
@@ -31,12 +30,11 @@ from app.domain.material_catalog import (
     material_array_columns,
     material_array_group,
     material_value_sql,
-    stop_poi_map_group_sql,
 )
 from app.domain.material_sql import LANES_COUNT_CASE_SQL, MAXSPEED_KMH_CASE_SQL
 from app.infrastructure.source_models import (
-    NODES_SOURCE_SQL,
     WAYS_SOURCE_SQL,
+    Source,
     latest_succeeded_run_sql,
     nodes_lookup_sql,
     ways_lookup_sql,
@@ -44,12 +42,9 @@ from app.infrastructure.source_models import (
 )
 from app.domain.region import BoundingBox
 from app.domain.traffic import (
-    POI_CLUSTER_EPS_M,
     POI_COUNT_KINDS,
-    STOP_POI_KINDS,
     poi_count_column,
     poi_density_material_id,
-    stop_kind_sql,
 )
 from app.infrastructure import derived_data_meta
 from app.infrastructure.cache_identity import shape_digest
@@ -58,7 +53,6 @@ from app.infrastructure.orm_base import declared_metadata
 from app.infrastructure.vector_tile import (
     ROAD_FEATURE_PROPERTIES,
     ROAD_SURFACE_LAYER_NAME,
-    STOP_POI_LAYER_NAME,
     TILE_EXTENT,
 )
 
@@ -86,7 +80,7 @@ async def create_tables(engine: AsyncEngine) -> None:
     権限がありません」とだけ出て、何をすればよいかが伝わらない。
     """
     async with engine.begin() as conn:
-        installed = set(
+        installed: set[str] = set(
             (await conn.execute(text("SELECT extname FROM pg_extension"))).scalars())
         missing = [name for name in REQUIRED_EXTENSIONS if name not in installed]
         if missing:
@@ -110,10 +104,12 @@ _INGESTED_BBOX_SQL = f"""
         (profile->'target'->'bbox'->>1)::double precision AS min_lon,
         (profile->'target'->'bbox'->>2)::double precision AS max_lat,
         (profile->'target'->'bbox'->>3)::double precision AS max_lon
-    FROM {latest_succeeded_run_sql("'osm_way'")} latest
+    FROM {latest_succeeded_run_sql(Source.OSM_WAY)} latest
 """
 
-_COVERAGE_SQL = f"""
+#: 要求タイルが取込範囲に入るか（`covered`）。範囲を判定するタイルのSQL（点のタイルは
+#: `point_tile_layers.py`）は`WITH coverage AS (...)`で読む。
+COVERAGE_SQL = f"""
     SELECT EXISTS (
         SELECT 1 FROM ({_INGESTED_BBOX_SQL}) ingested
         WHERE ST_Intersects(
@@ -250,7 +246,7 @@ _TILE_MATERIAL_JOINS = f"""
 # falseの分岐を評価しないため、カバレッジ外ではMVT生成のサブクエリ自体が実行されない。
 _ROAD_SURFACE_TILE_MVT_SQL = text(
     f"""
-    WITH coverage AS ({_COVERAGE_SQL})
+    WITH coverage AS ({COVERAGE_SQL})
     SELECT
         coverage.covered,
         CASE WHEN coverage.covered THEN (
@@ -300,7 +296,7 @@ _ROAD_SURFACE_TILE_MVT_SQL = text(
 # 決め方にする——区間単位のズームでは同じ区間が同じ予報の格子点へ寄る。
 _FEATURE_MIDPOINTS_IN_TILE_SQL = text(
     f"""
-    WITH coverage AS ({_COVERAGE_SQL})
+    WITH coverage AS ({COVERAGE_SQL})
     SELECT
         coverage.covered,
         CASE WHEN coverage.covered THEN (
@@ -336,7 +332,7 @@ _FEATURE_MIDPOINTS_IN_TILE_SQL = text(
 # ——どちら向きに辿るかが決まらず、0%として配ると平坦と読まれる。
 _FEATURE_GRADIENT_INPUTS_IN_TILE_SQL = text(
     f"""
-    WITH coverage AS ({_COVERAGE_SQL})
+    WITH coverage AS ({COVERAGE_SQL})
     SELECT
         coverage.covered,
         CASE WHEN coverage.covered THEN (
@@ -376,75 +372,10 @@ _FEATURE_GRADIENT_INPUTS_IN_TILE_SQL = text(
 )
 
 
-# 停止要因POI・補給POIを1タイルへ焼き込む。種別は`node_materials.kind`（派生側の分類器が
-# 付けたもの）に信号の読み替えを済ませたもので、位置は`source_features`の点。
-_POI_TILE_KIND_EXPR = stop_kind_sql("nm")
-_POI_TILE_GROUP_EXPR = stop_poi_map_group_sql("nm")
-
-#: クラスタ化のためにタイルの外側も読む幅（度）。タイル境界で塊が切れると、同じ交差点が
-#: 隣り合うタイルで別々の点になる。`POI_CLUSTER_EPS_M`より十分広く取る。
-_POI_TILE_CLUSTER_PAD_DEG = 0.001
-
-_POI_TILE_MVT_SQL = text(
-    f"""
-    WITH coverage AS ({_COVERAGE_SQL})
-    SELECT
-        coverage.covered,
-        CASE WHEN coverage.covered THEN (
-            SELECT ST_AsMVT(mvt.*, :stop_poi_layer, :extent, 'geom') FROM (
-                SELECT
-                    ST_AsMVTGeom(
-                        ST_Transform(grouped.geom, 3857),
-                        ST_TileEnvelope(:z, :x, :y), :extent, 256, true
-                    ) AS geom,
-                    grouped.kind AS kind
-                FROM (
-                    -- まとめた点の種別はどれを代表にしても凡例の同じ行に入る。
-                    SELECT min(clustered.kind) AS kind,
-                           ST_Centroid(ST_Collect(clustered.geom)) AS geom
-                    FROM (
-                        SELECT {_POI_TILE_KIND_EXPR} AS kind,
-                               {_POI_TILE_GROUP_EXPR} AS map_group,
-                               p.geom AS geom,
-                               -- 停止要因はまとめてから出す（同じ交差点が複数の点に
-                               -- ならないように）。補給POIは別々の実体なのでまとめない。
-                               CASE WHEN nm.kind = ANY(:stop_kinds) THEN
-                                   'c' || ST_ClusterDBSCAN(
-                                       ST_Transform(p.geom, 3857),
-                                       eps := :cluster_eps_m, minpoints := 1
-                                   ) OVER (PARTITION BY {_POI_TILE_GROUP_EXPR})
-                               ELSE 'n' || p.osm_node_id END AS cluster_key
-                        FROM {NODES_SOURCE_SQL} p
-                        JOIN node_materials nm ON nm.osm_node_id = p.osm_node_id
-                        WHERE nm.kind IS NOT NULL
-                          AND ST_Intersects(
-                              p.geom,
-                              ST_Expand(
-                                  ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326),
-                                  :cluster_pad_deg))
-                    ) clustered
-                    GROUP BY clustered.map_group, clustered.cluster_key
-                ) grouped
-                WHERE ST_Intersects(
-                    grouped.geom, ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326))
-            ) mvt
-            WHERE mvt.geom IS NOT NULL
-        ) END AS tile
-    FROM coverage
-    """
-).bindparams(
-    bindparam("stop_poi_layer", value=STOP_POI_LAYER_NAME, type_=Text()),
-    bindparam("stop_kinds", value=sorted(STOP_POI_KINDS), type_=ARRAY(Text())),
-    bindparam("cluster_eps_m", value=POI_CLUSTER_EPS_M, type_=Float()),
-    bindparam("cluster_pad_deg", value=_POI_TILE_CLUSTER_PAD_DEG, type_=Float()),
-)
-
-
 #: タイルのディスク／Redisキャッシュの鍵に入る**形の署名**。焼き込むSQLから導出するため、
 #: 列や分類タグを変えれば自動的に別の鍵になる。DBの中身が作り直されたことは署名では表せず、
 #: そちらは`services/tile_version_service.py`が世代の変化として扱う。
 ROAD_SURFACE_TILE_SHAPE = shape_digest(_ROAD_SURFACE_TILE_MVT_SQL)
-POI_TILE_SHAPE = shape_digest(_POI_TILE_MVT_SQL)
 #: 勾配の入力を取り出すSQLの形の署名。勾配のタイル値のキャッシュの鍵に入る
 #: （`services/gradient_way_service.py: GRADIENT_VALUE_SHAPE`）。
 FEATURE_GRADIENT_INPUTS_SHAPE = shape_digest(_FEATURE_GRADIENT_INPUTS_IN_TILE_SQL)
@@ -731,21 +662,23 @@ class RoadGraphRepository:
 
     # --- 世代・カバレッジ ----------------------------------------------------
 
-    async def get_derived_data_revision(self) -> int | None:
-        """派生データの世代。バッチが中身を書き直すたびに進む。道路網全体の配列の置き場の
-        名前と、配信する地図タイルの世代に入る。"""
-        return await derived_data_meta.get_revision(self._session)
+    async def get_data_revisions(self) -> derived_data_meta.DataRevisions:
+        """派生データと生データの世代。派生の世代は道路網全体の配列の置き場の名前に、
+        両方が配信する地図タイルの世代に入る。"""
+        return await derived_data_meta.get_revisions(self._session)
 
     async def get_accident_years(self) -> list[int]:
         """事故データの収録年。
 
-        取込プロファイルの宣言（`rows.years`）をそのまま返す——実データの発生年を数えると、
-        事故が1件も無かった年が落ちる。年数は`accident_count_per_km_year`の分母に、年そのものは
-        地図の説明文に使う。どちらもここが正本で、**表示側は年を自分で持たない**。
+        今の事故の数を数えた取込（`derived_data_meta.accident_run_id`）の宣言（`rows.years`）を
+        そのまま返す。最新の取込の宣言を読むと、取り込み直してから派生の作り直しが入れ替わるまでの間、
+        古い数を新しい年数で割る。実データの発生年を数えると、事故が1件も無かった年が落ちる。
+        年数は`accident_count_per_km_year`の分母に、年そのものは地図の説明文に使う。どちらもここが
+        正本で、**表示側は年を自分で持たない**。
         """
-        latest = latest_succeeded_run_sql("'accident'")
-        row = await self._session.execute(
-            text(f"SELECT profile->'source'->'rows'->'years' AS years FROM {latest} latest"))
+        row = await self._session.execute(text(
+            "SELECT r.profile->'source'->'rows'->'years' AS years FROM derived_data_meta m"
+            " JOIN source_runs r ON r.run_id = m.accident_run_id WHERE m.id = 1"))
         value = row.scalar()
         if not isinstance(value, list):
             return []
@@ -757,7 +690,7 @@ class RoadGraphRepository:
 
     async def is_covered(self, bbox: BoundingBox) -> bool:
         """その範囲の生データを取り込んでいるか。判定は取込の宣言から導く。"""
-        row = await self._session.execute(text(f"SELECT covered FROM ({_COVERAGE_SQL}) c"), {
+        row = await self._session.execute(text(f"SELECT covered FROM ({COVERAGE_SQL}) c"), {
             "xmin": bbox.min_longitude, "ymin": bbox.min_latitude,
             "xmax": bbox.max_longitude, "ymax": bbox.max_latitude,
         })
@@ -880,9 +813,9 @@ class RoadGraphRepository:
     async def sample_way_material_values(
         self,
         accident_years_covered: int,
-        sample_percent: float = 2.0,
-        limit: int = 20_000,
-        bbox: BoundingBox | None = None,
+        sample_percent: float,
+        limit: int,
+        bbox: BoundingBox | None,
     ) -> list[tuple[float, dict[str, object]]]:
         """way標本を`(延長m, 材料値)`の並びで返す（軸スタジオの分布プレビュー）。
 
@@ -978,33 +911,27 @@ class RoadGraphRepository:
     async def get_road_surface_tile_mvt(
         self, z: int, x: int, y: int, bbox: BoundingBox
     ) -> bytes | None:
-        """路面レイヤーのMVTタイル1枚をPostGIS側（ST_AsMVT）で丸ごと生成して返す。
+        """路面レイヤーのMVTタイル1枚。契約は`get_tile_mvt`と同じ。"""
+        return await self.get_tile_mvt(_ROAD_SURFACE_TILE_MVT_SQL, ROAD_SURFACE_LAYER_NAME, z, x, y, bbox)
+
+    async def get_tile_mvt(
+        self, sql: TextClause, layer_name: str, z: int, x: int, y: int, bbox: BoundingBox
+    ) -> bytes | None:
+        """`(covered, tile)`の1行を返すMVT生成SQLを流し、タイル1枚をPostGIS側（ST_AsMVT）で丸ごと生成して返す。
 
         取込範囲外はNone（呼び出し側が空タイルへのフォールバックを判断する）。範囲内で
-        対象wayが1本も無い場合は空バイト列（有効な空MVT、「道路が無いことを確認済み」の
+        対象が1つも無い場合は空バイト列（有効な空MVT、「無いことを確認済み」の
         正常応答でNoneとは区別される）。
         """
-        result = await self._session.execute(_ROAD_SURFACE_TILE_MVT_SQL, {
+        result = await self._session.execute(sql, {
             **self._tile_params(z, x, y, bbox),
-            "layer_name": ROAD_SURFACE_LAYER_NAME, "extent": TILE_EXTENT,
+            "layer_name": layer_name, "extent": TILE_EXTENT,
         })
         covered, tile = result.one()
         if not covered:
             return None
         # 範囲内で対象0行のときST_AsMVT（集約関数）はNULLを返す。長さ0のバイト列は
         # 「featureが1つも無い有効なMVT」としてMapLibreがそのまま受理する。
-        return bytes(tile) if tile is not None else b""
-
-    async def get_poi_tile_mvt(
-        self, z: int, x: int, y: int, bbox: BoundingBox
-    ) -> bytes | None:
-        """停止要因・補給POIレイヤーのMVTタイル1枚。契約は`get_road_surface_tile_mvt`と同じ。"""
-        result = await self._session.execute(_POI_TILE_MVT_SQL, {
-            **self._tile_params(z, x, y, bbox), "extent": TILE_EXTENT,
-        })
-        covered, tile = result.one()
-        if not covered:
-            return None
         return bytes(tile) if tile is not None else b""
 
     async def get_feature_midpoints_in_tile(

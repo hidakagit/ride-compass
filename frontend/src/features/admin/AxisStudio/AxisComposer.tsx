@@ -34,17 +34,16 @@ interface AxisComposerProps {
   /** 編集中の軸を地図が塗るときの段階色（しきい値の配列→段階数ぶんの色）。段階プレビューを
    * 実際の地図と同じ色で描くために親が渡す。地図に出る経路がまだ決まっていない軸
    * （下書き・ramp表示も専用配信も持たない軸）ではundefinedで、プレビューは色を持たない。 */
-  mapBandColors?: (boundaries: readonly number[]) => readonly string[];
+  mapBandColors: ((boundaries: readonly number[]) => readonly string[]) | undefined;
   /** 段階プレビューのレンジに添える単位（軸カタログのmap_value_unit、無ければ空）。 */
-  mapValueUnit?: string;
+  mapValueUnit: string;
   /** 既定重み(default_weight)欄に「他の公開軸の重みに対して何%か」を参考表示するための、
-   * この軸以外を含む全軸一覧（AxisStudio.tsxが一覧取得済みのものをそのまま渡す）。
-   * 省略時（テスト等）は参考表示自体を出さない。 */
-  otherAxes?: readonly AxisDefinitionResponse[];
+   * この軸以外を含む全軸一覧（AxisStudio.tsxが一覧取得済みのものをそのまま渡す）。 */
+  otherAxes: readonly AxisDefinitionResponse[];
   /** 「調整する」で一時的に下書きへ戻した軸を編集中か。**保存すると必ず公開へ戻る**ため、
    * 公開の切り替えを操作させない（操作させると、チェックを外して保存しても公開へ戻り、
    * 画面の操作結果が無言で反転する）。 */
-  republishing?: boolean;
+  republishing: boolean;
   onCancelEdit: () => void;
   onSave: (payload: AxisDefinitionPayload, isNew: boolean) => Promise<void>;
 }
@@ -58,13 +57,13 @@ export default function AxisComposer({
   duplicateFrom,
   otherAxes,
   mapBandColors,
-  mapValueUnit = "",
-  republishing = false,
+  mapValueUnit,
+  republishing,
   onCancelEdit,
   onSave,
 }: AxisComposerProps) {
   const [draft, setDraft] = useState<Draft>(() => {
-    const axisIds = new Set((otherAxes ?? []).map((axis) => axis.axis_id));
+    const axisIds = new Set(otherAxes.map((axis) => axis.axis_id));
     if (editing) return draftFromExisting(editing, MATERIAL_CATALOG, axisIds);
     if (duplicateFrom) return draftFromDuplicate(duplicateFrom, MATERIAL_CATALOG, axisIds);
     return emptyDraft(MATERIAL_CATALOG);
@@ -96,7 +95,7 @@ export default function AxisComposer({
   // 材料の一覧（MATERIAL_CATALOG）とは別に用意する。編集中の軸自身は
   // 自己参照になるため候補から除く。軸のスコアは常に0〜100（difficultyの規約）のため
   // dtype="numeric"として扱う。
-  const axisTermOptions: readonly AxisMaterialOption[] = (otherAxes ?? [])
+  const axisTermOptions: readonly AxisMaterialOption[] = otherAxes
     .filter((a) => a.axis_id !== draft.axisId)
     .map((a) => ({
       id: a.axis_id,
@@ -174,9 +173,8 @@ export default function AxisComposer({
    * （重みの合計で正規化）で、かつ対象は公開軸のみ（domain/axis_definitions.py:
    * default_axis_weights）のため、「他の公開軸の重み合計に対して何%か」を参考表示する。
    * 非公開の軸はそもそもこの合成に加わらないため、公開してから意味を持つ旨を案内する。
-   * otherAxes未指定（テスト等）・公開軸が1つも無い場合は表示しない。 */
+   * 公開軸が1つも無い場合は表示しない。 */
   function renderWeightShare() {
-    if (!otherAxes) return null;
     if (!draft.isPublished) {
       return (
         <p className={textVariants({ variant: "hint" })}>

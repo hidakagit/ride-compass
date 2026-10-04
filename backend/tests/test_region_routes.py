@@ -1,18 +1,32 @@
 import inspect
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.api import dependencies
-from app.api.dependencies import get_dedicated_way_value_service, get_region_service
+from app.api.dependencies import (
+    get_dedicated_way_value_service,
+    get_directional_material_service,
+    get_region_service,
+)
 from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisDefinition, BreakpointLinearShape, MaterialTerm
 from app.config import settings
 from app.domain.axis_inspector import AxisInspectorAxis, AxisInspectorResult, InspectorComposite
 from app.infrastructure import rate_limiter
+from app.infrastructure.derived_data_meta import DataRevisions
+from app.infrastructure.point_tile_layers import POINT_TILE_LAYERS
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.tile_serving import TileResponse
 from app.domain.dynamic_way_values import transform_dedicated_way_values
+from app.domain.rain import rain_window_material_id
+from app.services import dedicated_way_values
+from app.services.dedicated_way_values import DirectionalMaterialService
+from app.services.gradient_way_service import GradientConditions
+from app.services.rain_way_service import RainConditions
+from app.services.weather_service import WeatherService
+from app.services.wind_way_service import WindConditions
 from app.main import app
 from app.api.routers import region as region_router
 from app.domain.landcover import LANDCOVER_TILE_MAX_ZOOM, LANDCOVER_TILE_MIN_ZOOM
@@ -30,15 +44,15 @@ class FakeRegionService:
         # Cache-Control: no-storeを明示することの検証に使う。
         self._cacheable = cacheable
         self.last_request = None
-        self.last_poi_request = None
+        self.last_point_request = None
         self.last_axis_inspector_request = None
 
     async def get_road_surface_tile(self, z, x, y):
         self.last_request = (z, x, y)
         return TileResponse(self._tile_bytes, cacheable=self._cacheable)
 
-    async def get_poi_tile(self, z, x, y):
-        self.last_poi_request = (z, x, y)
+    async def get_point_tile(self, layer, z, x, y):
+        self.last_point_request = (layer.name, z, x, y)
         return TileResponse(self._tile_bytes, cacheable=self._cacheable)
 
     async def get_axis_inspector(self, osm_way_id, edge_id=None, dynamic_materials=None, preference=None):
@@ -137,54 +151,71 @@ def test_region_road_surface_tile_is_rate_limited_per_client():
     assert response.status_code == 429
 
 
-def test_region_poi_tile_returns_mvt_bytes():
+@pytest.mark.parametrize("layer", POINT_TILE_LAYERS)
+def test_region_point_tile_returns_the_layers_mvt_bytes(layer):
     fake = FakeRegionService(tile_bytes=b"\x04\x05\x06")
     app.dependency_overrides[get_region_service] = lambda: fake
 
     try:
-        response = client.get("/api/region/poi-tiles/14/14551/6447.pbf")
+        response = client.get(f"/api/region/point-tiles/{layer}/14/14551/6447.pbf")
     finally:
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
     assert response.content == b"\x04\x05\x06"
     assert response.headers["content-type"] == "application/vnd.mapbox-vector-tile"
-    assert fake.last_poi_request == (14, 14551, 6447)
+    assert fake.last_point_request == (layer, 14, 14551, 6447)
 
 
-def test_region_poi_tile_rejects_too_low_zoom():
+def test_region_point_tile_rejects_an_undeclared_layer():
+    fake = FakeRegionService()
+    app.dependency_overrides[get_region_service] = lambda: fake
+
+    try:
+        response = client.get("/api/region/point-tiles/no-such-layer/14/14551/6447.pbf")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 404
+    assert fake.last_point_request is None
+
+
+def test_region_point_tile_rejects_too_low_zoom():
     app.dependency_overrides[get_region_service] = lambda: FakeRegionService()
 
     try:
-        response = client.get("/api/region/poi-tiles/5/10/10.pbf")
+        response = client.get(f"/api/region/point-tiles/{next(iter(POINT_TILE_LAYERS))}/5/10/10.pbf")
     finally:
         app.dependency_overrides.clear()
 
     assert response.status_code == 400
 
 
-def test_region_poi_tile_rate_limit_is_independent_from_road_surface_tile_rate_limit():
-    # poi-tileはroad-tileと同じsettings.road_tile_rate_limit_per_minuteを使うが、
-    # レート制限キーのprefixは別（routers/region.py: _check_tile_rate_limit）。road-tile側の
-    # 上限を使い切ってもpoi-tileには影響しないこと（road_surface_tile_rate_limit_is_
-    # independent_from_basemap_rate_limitと同じ回帰観点）。
+def test_point_tile_rate_limit_is_kept_per_layer():
+    # 点のタイルは路面と同じ上限値を使うが、キーはレイヤーごと（routers/region.py: _check_tile_rate_limit）。
+    # 1つのレイヤーの上限を使い切っても、路面と他のレイヤーには影響しない。
+    exhausted, *others = POINT_TILE_LAYERS
+    limit = settings.road_tile_rate_limit_per_minute
     app.dependency_overrides[get_region_service] = lambda: FakeRegionService()
 
     try:
-        for _ in range(settings.road_tile_rate_limit_per_minute):
-            rate_limiter.check_rate_limit("road-tile:testclient", settings.road_tile_rate_limit_per_minute)
-        assert client.get("/api/region/road-surface-tiles/14/14551/6447.pbf").status_code == 429
+        for _ in range(limit - 1):
+            rate_limiter.check_rate_limit(f"{exhausted}-tile:testclient", limit)
+        assert client.get(f"/api/region/point-tiles/{exhausted}/14/14551/6447.pbf").status_code == 200
+        assert client.get(f"/api/region/point-tiles/{exhausted}/14/14551/6447.pbf").status_code == 429
 
-        response = client.get("/api/region/poi-tiles/14/14551/6447.pbf")
+        others_status = [client.get(f"/api/region/point-tiles/{layer}/14/14551/6447.pbf").status_code
+                         for layer in others]
+        road_status = client.get("/api/region/road-surface-tiles/14/14551/6447.pbf").status_code
     finally:
         app.dependency_overrides.clear()
 
-    assert response.status_code == 200
+    assert others
+    assert others_status == [200] * len(others)
+    assert road_status == 200
 
 
 def test_region_axis_inspector_returns_result_json():
-    # 改善計画T292: 車ストレス専用の内訳エンドポイント（旧/api/region/car-stress-breakdown）は
-    # 廃止し、軸別の汎用内訳エンドポイント（本エンドポイント）へ統合した。
     result = AxisInspectorResult(
         highway="primary",
         tags={},
@@ -237,7 +268,7 @@ def test_region_axis_inspector_returns_null_when_service_returns_none():
     assert response.json() is None
 
 
-def test_region_axis_inspector_passes_the_maps_direction_and_time_through(monkeypatch):
+def test_region_axis_inspector_passes_the_maps_direction_and_time_through():
     """地図が指定している走行方位・時刻・想定速度が、方向依存の材料を引く側まで届く。
 
     届かないと、1本の道が往復2方向で違う値を持つ材料（勾配・風）を算出できず、地図が
@@ -247,13 +278,12 @@ def test_region_axis_inspector_passes_the_maps_direction_and_time_through(monkey
     app.dependency_overrides[get_region_service] = lambda: fake
     seen = {}
 
-    async def fake_directional_materials(*args):
-        seen["args"] = args
-        return {"some_material": 4.2}
+    class FakeDirectionalMaterialService:
+        async def materials(self, *args):
+            seen["args"] = args
+            return {"some_material": 4.2}
 
-    monkeypatch.setattr(
-        "app.api.routers.region.directional_materials", fake_directional_materials
-    )
+    app.dependency_overrides[get_directional_material_service] = lambda: FakeDirectionalMaterialService()
     try:
         response = client.post(
             "/api/region/axis-inspector",
@@ -290,6 +320,46 @@ def test_region_axis_inspector_passes_the_maps_direction_and_time_through(monkey
     )
 
 
+# 地図の配信なら422になる欠けは、内訳ではその材料だけを「データなし」にする（同じ組み立てで判定する）。
+@pytest.mark.usefixtures("dedicated_axes")
+@pytest.mark.parametrize(
+    ("given", "found"),
+    [
+        ({}, {}),
+        ({"bearing_deg": 90.0}, {"gradient_percent": 2.0}),
+        ({"bearing_deg": 90.0, "speed_kmh": 20.0}, {"gradient_percent": 2.0, "wind_drag_ratio": 1.0}),
+    ],
+)
+def test_region_axis_inspector_leaves_out_materials_whose_conditions_are_missing(monkeypatch, given, found):
+    fake = FakeRegionService(axis_inspector_result=None)
+    app.dependency_overrides[get_region_service] = lambda: fake
+    app.dependency_overrides[get_directional_material_service] = lambda: DirectionalMaterialService(
+        object(), WeatherService()
+    )
+    for service in (
+        FakeDynamicWayValueService({"12345": 1.0}, "wind_drag_ratio", WindConditions),
+        FakeDynamicWayValueService({"12345": 2.0}, "gradient_percent", GradientConditions),
+    ):
+        monkeypatch.setitem(
+            dedicated_way_values._DEDICATED_WAY_VALUE_SERVICES_BY_MATERIAL,
+            service.material_id,
+            SimpleNamespace(
+                conditions_type=service.conditions_type,
+                build=lambda repository, weather_service, material_id, service=service: service,
+            ),
+        )
+
+    try:
+        response = client.post(
+            "/api/region/axis-inspector", json={"osm_way_id": 12345, "z": 14, "x": 14551, "y": 6447, **given}
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert fake.last_axis_inspector_request[2] == found
+
+
 def test_region_axis_inspector_rate_limit_is_independent_from_road_surface_tile_rate_limit():
     app.dependency_overrides[get_region_service] = lambda: FakeRegionService()
 
@@ -306,17 +376,17 @@ def test_region_axis_inspector_rate_limit_is_independent_from_road_surface_tile_
 
 
 class FakeDynamicWayValueService:
-    """改善計画T405→T414→T423で材料id駆動へ汎用化: /api/region/dynamic-way-values/
-    {material_id}向けフェイク。風・勾配どちらのテストにも使う（get_way_valuesという
-    統一インターフェース、region.py参照）。"""
+    """DBを読む配信サービスの代役。受け取る条件の型は本物のサービスのものを渡す——要求から
+    何を組み立てるか（`assemble_conditions`）は本物を通したいため。"""
 
-    def __init__(self, values=None, material_id="gradient_percent"):
+    def __init__(self, values=None, material_id="gradient_percent", conditions_type=GradientConditions):
         self._values = values if values is not None else {}
         self.material_id = material_id
+        self.conditions_type = conditions_type
         self.last_request = None
 
-    async def get_way_values(self, z, x, y, at, bearing_deg, speed_kmh=None):
-        self.last_request = (z, x, y, at, bearing_deg, speed_kmh)
+    async def get_way_values(self, z, x, y, conditions):
+        self.last_request = (z, x, y, conditions)
         return self._values
 
 
@@ -332,9 +402,6 @@ DEDICATED_AXES = {
         default_weight=0.2,
         label="軸ウ",
         dedicated_way_value_layer=True,
-        dynamic_way_value_needs_time=True,
-        dynamic_way_value_needs_bearing=True,
-        dynamic_way_value_needs_speed=True,
     ),
     "axis_way_value_signed": AxisDefinition(
         axis_id="axis_way_value_signed",
@@ -346,7 +413,6 @@ DEDICATED_AXES = {
         default_weight=0.2,
         label="軸グ",
         dedicated_way_value_layer=True,
-        dynamic_way_value_needs_bearing=True,
     ),
 }
 
@@ -363,16 +429,16 @@ def dedicated_axes():
 # 同じ関数へ通した結果と突き合わせる——見たいのは「エンドポイントがこの写像を通すか」。
 @pytest.mark.usefixtures("dedicated_axes")
 @pytest.mark.parametrize(
-    ("axis_id", "material_id", "speed_kmh"),
+    ("axis_id", "material_id", "speed_kmh", "conditions"),
     [
-        ("axis_way_value_scored", "wind_drag_ratio", 20.0),
-        ("axis_way_value_signed", "gradient_percent", None),
+        ("axis_way_value_scored", "wind_drag_ratio", 20.0, WindConditions(bearing_deg=90.0, speed_kmh=20.0)),
+        ("axis_way_value_signed", "gradient_percent", None, GradientConditions(bearing_deg=90.0)),
     ],
 )
-def test_region_dedicated_way_values_returns_map_values_json(axis_id, material_id, speed_kmh):
+def test_region_dedicated_way_values_returns_map_values_json(axis_id, material_id, speed_kmh, conditions):
     raw = {"1": 2.0, "2": -1.5}
     expected = transform_dedicated_way_values(AXIS_DEFINITIONS[axis_id], material_id, raw)
-    fake = FakeDynamicWayValueService(values=dict(raw), material_id=material_id)
+    fake = FakeDynamicWayValueService(values=dict(raw), material_id=material_id, conditions_type=type(conditions))
     app.dependency_overrides[get_dedicated_way_value_service] = lambda: fake
 
     params = {"bearing_deg": 90}
@@ -386,60 +452,58 @@ def test_region_dedicated_way_values_returns_map_values_json(axis_id, material_i
     assert response.status_code == 200
     # JSONのキーは常に文字列（intキーは自動的にstrへ変換される、Python標準のjson.dumps挙動）。
     assert response.json() == expected
-    assert fake.last_request == (14, 14551, 6447, None, 90.0, speed_kmh)
+    assert fake.last_request == (14, 14551, 6447, conditions)
 
 
 @pytest.mark.usefixtures("dedicated_axes")
-@pytest.mark.parametrize("material_id", ["axis_way_value_scored", "axis_way_value_signed"])
-def test_region_dedicated_way_values_requires_bearing_deg_query_param(material_id):
-    app.dependency_overrides[get_dedicated_way_value_service] = lambda: FakeDynamicWayValueService()
+@pytest.mark.parametrize(
+    ("axis_id", "material_id", "conditions_type"),
+    [
+        ("axis_way_value_scored", "wind_drag_ratio", WindConditions),
+        ("axis_way_value_signed", "gradient_percent", GradientConditions),
+    ],
+)
+def test_region_dedicated_way_values_requires_bearing_deg_query_param(axis_id, material_id, conditions_type):
+    fake = FakeDynamicWayValueService(material_id=material_id, conditions_type=conditions_type)
+    app.dependency_overrides[get_dedicated_way_value_service] = lambda: fake
 
     try:
-        response = client.get(f"/api/region/dynamic-way-values/{material_id}/14/14551/6447")
+        response = client.get(f"/api/region/dynamic-way-values/{axis_id}/14/14551/6447", params={"speed_kmh": 20.0})
     finally:
         app.dependency_overrides.clear()
 
     assert response.status_code == 422
+    assert "bearing_deg" in response.json()["detail"]
+    assert fake.last_request is None
 
 
-# 改善計画T450: needs_bearing=Falseの材料は現状（wind/gradientともTrue）存在しないため、
-# この分岐（bearing_deg省略でも422にならない）が未テストのまま宣言されていた。改善計画
-# T458: dedicated_way_value_axes()はAXIS_DEFINITIONSから毎回導出する関数になった
-# （固定dictではないためmonkeypatch.setitemで直接差し込めない）ため、region.py側が
-# 読むAXIS_DEFINITIONS自体へダミー軸をmonkeypatchで差し込む。
-def test_region_dedicated_way_values_needs_bearing_false_does_not_require_bearing_deg(monkeypatch):
-    dummy_axis = axis_definition(
-        "dummy_no_bearing",
-        material="gradient_percent",
-        dedicated_way_value_layer=True,
-        dynamic_way_value_needs_time=False,
-        dynamic_way_value_needs_bearing=False,
+def test_region_dedicated_way_values_serves_a_material_that_needs_no_conditions_without_query_params(monkeypatch):
+    material = rain_window_material_id(1)
+    monkeypatch.setitem(
+        AXIS_DEFINITIONS, "dummy_rain", axis_definition("dummy_rain", material=material, dedicated_way_value_layer=True)
     )
-    monkeypatch.setitem(AXIS_DEFINITIONS, "dummy_no_bearing", dummy_axis)
-    fake = FakeDynamicWayValueService(values={"1": 1.0})
+    fake = FakeDynamicWayValueService(values={"1": 1.0}, material_id=material, conditions_type=RainConditions)
     app.dependency_overrides[get_dedicated_way_value_service] = lambda: fake
 
     try:
-        response = client.get("/api/region/dynamic-way-values/dummy_no_bearing/14/14551/6447")
+        response = client.get("/api/region/dynamic-way-values/dummy_rain/14/14551/6447")
     finally:
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
-    assert fake.last_request == (14, 14551, 6447, None, None, None)
+    assert fake.last_request == (14, 14551, 6447, RainConditions())
 
 
-def test_region_dedicated_way_values_needs_speed_requires_speed_kmh_and_passes_it(monkeypatch):
+def test_region_dedicated_way_values_requires_speed_kmh_when_the_service_needs_it_and_passes_it(monkeypatch):
     dummy_axis = AxisDefinition(
         axis_id="dummy_needs_speed",
         shape=BreakpointLinearShape(terms=[MaterialTerm(material="wind_drag_ratio")], breakpoints=[(0.0, 0.0), (5.0, 100.0)]),
         default_weight=0.1,
         label="ダミー",
         dedicated_way_value_layer=True,
-        dynamic_way_value_needs_bearing=True,
-        dynamic_way_value_needs_speed=True,
     )
     monkeypatch.setitem(AXIS_DEFINITIONS, "dummy_needs_speed", dummy_axis)
-    fake = FakeDynamicWayValueService(values={"1": 2.5}, material_id="wind_drag_ratio")
+    fake = FakeDynamicWayValueService(values={"1": 2.5}, material_id="wind_drag_ratio", conditions_type=WindConditions)
     app.dependency_overrides[get_dedicated_way_value_service] = lambda: fake
 
     try:
@@ -451,9 +515,10 @@ def test_region_dedicated_way_values_needs_speed_requires_speed_kmh_and_passes_i
         app.dependency_overrides.clear()
 
     assert missing.status_code == 422
+    assert "speed_kmh" in missing.json()["detail"]
     assert ok.status_code == 200
     assert ok.json() == {"1": 50.0}
-    assert fake.last_request == (14, 14551, 6447, None, 0.0, 25.0)
+    assert fake.last_request == (14, 14551, 6447, WindConditions(bearing_deg=0.0, speed_kmh=25.0))
 
 
 def test_region_dedicated_way_values_unknown_axis_id_returns_404():
@@ -467,8 +532,8 @@ def test_region_dedicated_way_values_unknown_axis_id_returns_404():
 class UncoveredRepository:
     """どのタイルも取込範囲外と答えるDBの代役。"""
 
-    async def get_derived_data_revision(self):
-        return 1
+    async def get_data_revisions(self):
+        return DataRevisions(derived=1, imported=1)
 
     async def get_feature_gradient_inputs_in_tile(self, *args, **kwargs):
         inspect.signature(RoadGraphRepository.get_feature_gradient_inputs_in_tile).bind(self, *args, **kwargs)
@@ -480,9 +545,7 @@ class UncoveredRepository:
 # 配信の実装が無い材料だけを参照する軸は404になることを見る。
 @pytest.mark.parametrize(("material", "status"), [("gradient_percent", 200), ("maxspeed_kmh", 404)])
 def test_region_dedicated_way_values_resolves_the_service_by_the_axis_material(monkeypatch, material, status):
-    axis = axis_definition(
-        "axis_new_name", material=material, dedicated_way_value_layer=True, dynamic_way_value_needs_bearing=True
-    )
+    axis = axis_definition("axis_new_name", material=material, dedicated_way_value_layer=True)
     monkeypatch.setitem(AXIS_DEFINITIONS, "axis_new_name", axis)
     monkeypatch.setattr(dependencies, "RoadGraphRepository", lambda session: UncoveredRepository())
 
@@ -493,7 +556,7 @@ def test_region_dedicated_way_values_resolves_the_service_by_the_axis_material(m
 
 @pytest.mark.usefixtures("dedicated_axes")
 def test_region_dedicated_way_values_wind_passes_at_query_param():
-    fake = FakeDynamicWayValueService()
+    fake = FakeDynamicWayValueService(material_id="wind_drag_ratio", conditions_type=WindConditions)
     app.dependency_overrides[get_dedicated_way_value_service] = lambda: fake
 
     try:
@@ -505,12 +568,12 @@ def test_region_dedicated_way_values_wind_passes_at_query_param():
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
-    assert fake.last_request[3].isoformat() == "2026-08-30T09:00:00"
+    assert fake.last_request[3].at.isoformat() == "2026-08-30T09:00:00"
 
 
 @pytest.mark.usefixtures("dedicated_axes")
 def test_region_dedicated_way_values_gradient_does_not_require_at_query_param():
-    # 勾配は時刻に依存しないため、atを省略しても200（wind同様Noneが渡るだけ）。
+    # 勾配は時刻に依存しないため、atを省略しても200。
     fake = FakeDynamicWayValueService()
     app.dependency_overrides[get_dedicated_way_value_service] = lambda: fake
 
@@ -520,7 +583,7 @@ def test_region_dedicated_way_values_gradient_does_not_require_at_query_param():
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
-    assert fake.last_request == (14, 14551, 6447, None, 0.0, None)
+    assert fake.last_request == (14, 14551, 6447, GradientConditions(bearing_deg=0.0))
 
 
 @pytest.mark.usefixtures("dedicated_axes")
@@ -623,12 +686,13 @@ def test_road_surface_tile_is_not_cached_when_retrieval_failed_temporarily():
     assert response.headers["cache-control"] == "no-store"
 
 
-def test_poi_tile_is_not_cached_when_retrieval_failed_temporarily():
+@pytest.mark.parametrize("layer", POINT_TILE_LAYERS)
+def test_point_tile_is_not_cached_when_retrieval_failed_temporarily(layer):
     fake = FakeRegionService(tile_bytes=b"", cacheable=False)
     app.dependency_overrides[get_region_service] = lambda: fake
 
     try:
-        response = client.get("/api/region/poi-tiles/12/3637/1612.pbf")
+        response = client.get(f"/api/region/point-tiles/{layer}/12/3637/1612.pbf")
     finally:
         app.dependency_overrides.clear()
 

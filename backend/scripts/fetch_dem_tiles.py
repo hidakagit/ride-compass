@@ -43,6 +43,7 @@ from app.batch._common import (  # noqa: E402
 )
 from app.batch.source_profile import SourceProfile, load_source_profile  # noqa: E402
 from app.domain.region import BoundingBox, tiles_covering_bbox  # noqa: E402
+from app.infrastructure.source_models import Source  # noqa: E402
 
 logger = logging.getLogger("ridecompass.fetch_dem_tiles")
 
@@ -122,7 +123,7 @@ async def fetch(client: httpx.AsyncClient, root: Path, profile: SourceProfile,
     bbox = BoundingBox(min_latitude=low_lat, min_longitude=low_lon,
                        max_latitude=high_lat, max_longitude=high_lon)
     results: dict[str, dict[str, int]] = {}
-    for product, zoom in profile.source("dem").grid.products.items():
+    for product, zoom in profile.source(Source.DEM).grid.products.items():
         tiles = tiles_covering_bbox(bbox, zoom)
         logger.info("標高タイル: product=%s zoom=%d 対象%d枚 / 置き場 %s",
                     product, zoom, len(tiles), root)

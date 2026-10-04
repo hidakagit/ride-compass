@@ -33,7 +33,15 @@ interface HarnessProps {
   mapBands?: MapBandsJudgement;
 }
 
-function Harness({ initial, editing = null, restrictedDisplayOnly = false, mapValueUnit = "", ...rest }: HarnessProps) {
+function Harness({
+  initial,
+  editing = null,
+  restrictedDisplayOnly = false,
+  republishing = false,
+  mapBandColors,
+  mapValueUnit = "",
+  mapBands = { droppedOnMap: [], bandsOnMap: null, failed: false },
+}: HarnessProps) {
   const [draft, setDraft] = useState(initial);
   return (
     <>
@@ -43,9 +51,11 @@ function Harness({ initial, editing = null, restrictedDisplayOnly = false, mapVa
         setDraft={setDraft}
         editing={editing}
         restrictedDisplayOnly={restrictedDisplayOnly}
+        republishing={republishing}
+        mapBandColors={mapBandColors}
         mapValueUnit={mapValueUnit}
+        mapBands={mapBands}
         onThresholdErrorChange={onThresholdErrorChange}
-        {...rest}
       />
     </>
   );
@@ -87,9 +97,6 @@ function editingAxis(kind: "ramp" | "none"): AxisDefinitionResponse {
     show_map_icon: true,
     time_scope: "always",
     dedicated_way_value_layer: false,
-    dynamic_way_value_needs_time: false,
-    dynamic_way_value_needs_bearing: false,
-    dynamic_way_value_needs_speed: false,
     shape: { kind: "breakpoint_linear", terms: [], preprocess: "identity", breakpoints: [] },
     display: { kind, label: "", category: "", tile_inputs: [], thresholds: [] },
   };

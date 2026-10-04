@@ -17,7 +17,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
-import type { MaterialValuesResponse } from "@/types/route";
+import type { getMaterialValues } from "@/features/admin/adminApi";
 
 import { buildShape, emptyDraft, type Draft } from "./axisDraft";
 import { generateBreakpoints, insertBreakpointAtLargestGap } from "./breakpointTools";
@@ -136,6 +136,8 @@ function draft(): Draft {
 }
 
 const primarySelect = () => screen.getByRole("combobox", { name: "点数のもとになるもの" });
+
+type MaterialValuesResponse = Awaited<ReturnType<typeof getMaterialValues>>;
 
 function valuesResponse(values: string[], available = true): MaterialValuesResponse {
   return { available, values: values.map((value) => ({ value, label: `${value}のラベル` })) };

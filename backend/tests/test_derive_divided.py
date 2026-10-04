@@ -1,12 +1,9 @@
-"""上下線が分かれた道の片側か（`batch/derive_way_materials.py`の`way_materials.divided`）。
+"""上下線が分かれた道の片側か（`batch/derive_way_materials.py: way_materials.divided`）。
 
 判定の3条件（`carriageway`の申告・同じ名前の対向一方通行・寄り添う対向一方通行）それぞれに、
 当たる入力と、条件の外にある入力を1組ずつ置く。生データから派生の段を本物のまま通す。
 """
 
-import json
-import struct
-from datetime import UTC, datetime
 from typing import NamedTuple
 
 import asyncpg
@@ -15,10 +12,10 @@ import pytest_asyncio
 
 from app.batch import derive_counts, derive_topology, derive_way_materials
 from app.batch._common import asyncpg_dsn
-from app.batch.ingest import ensure_partition
 from app.domain.divided_carriageway import GEOMETRIC_GAP_M, NAMED_GAP_M
 from app.domain.geo import KM_PER_DEGREE_LATITUDE
 from tests.conftest import postgis_database_url
+from tests.source_ingest import ingest_records, way_record
 
 # road_graph_session（conftest.py）と同じDBを使うため、docs/conventions/testing.mdのパターン2どおり
 # loop_scope="module"・xdist_group="postgis"が必須。
@@ -90,30 +87,15 @@ def _ways() -> dict[str, list[tuple[int, dict[str, str], list[tuple[float, float
 WAYS = _ways()
 
 
-async def _insert_run(conn: asyncpg.Connection, source: str) -> int:
-    return await conn.fetchval(
-        "INSERT INTO source_runs (source, status, started_at, origin, profile, counts)"
-        " VALUES ($1, 'succeeded', $2, $3, $3, $3) RETURNING run_id",
-        source, datetime.now(UTC), json.dumps({}))
-
-
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
 async def divided_conn(road_graph_engine):
     """`road_graph_engine`に依存するのはスキーマを作らせるため（`test_derive_topology.py`と同じ）。"""
     conn = await asyncpg.connect(asyncpg_dsn(postgis_database_url()))
     try:
-        await ensure_partition(conn, "osm_way")
         await conn.execute("TRUNCATE " + ", ".join(TABLES) + " CASCADE")
-        run = await _insert_run(conn, "osm_way")
-        for ways in WAYS.values():
-            for way_id, tags, points in ways:
-                node_ids = [way_id * 10 + k for k in range(len(points))]
-                wkt = "LINESTRING(" + ", ".join(f"{lon} {lat}" for lon, lat in points) + ")"
-                await conn.execute(
-                    "INSERT INTO source_features (source, natural_key, run_id, geom, attrs, payload)"
-                    " VALUES ('osm_way', $1, $2, ST_GeomFromText($3, 4326), $4::jsonb, $5)",
-                    str(way_id), run, wkt, json.dumps(tags),
-                    struct.pack(f"<{len(node_ids)}q", *node_ids))
+        await ingest_records("osm_way", [
+            way_record(way_id, points, [way_id * 10 + k for k in range(len(points))], tags)
+            for ways in WAYS.values() for way_id, tags, points in ways], conn=conn)
         await derive_topology.derive(conn)
         await derive_counts.derive(conn)
         await derive_way_materials.derive(conn)

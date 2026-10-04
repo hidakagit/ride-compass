@@ -25,12 +25,12 @@ export function MaterialInfoButton({ option }: { option: AxisMaterialOption | un
 
 /** 見出し＋詳しい説明は(ⓘ)ポップオーバーへ折りたたむ（表示名・既定重み欄で既に使っている
  * FieldLabelと同じ考え方を、フォーム項目1つではなく材料一覧・折れ点等のセクション
- * 単位に広げたもの）。descriptionを省略した場合は見出しだけを出す。 */
-export function SectionLabel({ label, description }: { label: string; description?: string }) {
+ * 単位に広げたもの）。 */
+export function SectionLabel({ label, description }: { label: string; description: string }) {
   return (
     <div className="flex items-center gap-1">
       <p className={textVariants({ variant: "label" })}>{label}</p>
-      {description && <InfoPopoverButton ariaLabel={`${label}の説明`} description={description} />}
+      <InfoPopoverButton ariaLabel={`${label}の説明`} description={description} />
     </div>
   );
 }

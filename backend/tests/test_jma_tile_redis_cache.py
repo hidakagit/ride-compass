@@ -1,128 +1,97 @@
-"""`infrastructure/jma_tile_redis_cache.py`——JMA動的タイル本体のRedis cache-aside。
+"""`infrastructure/jma_tile_redis_cache.py`——気象庁のタイルの本体をRedisへ持つ置き場。
+
+入口は`get`・`set`・`set_empty`。Redisはfakeredis、時計はfreezegunで与える。
 
 ここで見ないもの:
-- 空かどうかの判定そのもの → `test_jma_tile_content.py`
-- 時刻一覧とタイルの振り分け・上流フェッチ → `test_jma_tile_client.py`
-- サーキットブレーカーの開閉そのもの → `test_redis_client.py`
-
-Redisへは下の`FakeRedis`を通す（実Redisは使わない）。
+- どのタイルを空とみなすか（透明・0バイト・読めない画像） → `test_jma_tile_content.py`。ここでは空の代表を1つずつ使う
+- いつ`set_empty`を呼ぶか（確定した404） → `test_jma_tile_client.py`
+- Redisの障害で接続を止める回路そのもの → `test_redis_client.py`
 """
 
 import io
 
-import pytest
-import redis
 from PIL import Image
 
-from app.infrastructure import jma_tile_redis_cache, redis_client, redis_json_cache
-from app.infrastructure.jma_tile_redis_cache import EMPTY_TILE
+from app.infrastructure import jma_tile_redis_cache
+from app.infrastructure.jma_tile_redis_cache import EmptyTile
+
+TILE = "bosai/jmatile/data/risk/20260101000000/none/20260101000000/surf/land/10/908/403.png"
+OTHER_TILE = "bosai/jmatile/data/risk/20260101000000/none/20260101000000/surf/land/10/908/404.png"
+VECTOR_TILE = "bosai/jmatile/data/risk/20260101000000/none/20260101000000/surf/flood/10/908/403.pbf"
 
 
-class FakeRedis:
-    """実装が使うコマンドは`get`/`set`だけのため、フェイクもその2つで足りる。`raise_on_get`/`raise_on_set`には
-    送出させたい例外を渡す（Redis不通時にfail-openすることの検証に使う）。"""
-
-    def __init__(self, raise_on_get=None, raise_on_set=None):
-        self.store: dict[str, str] = {}
-        self._raise_on_get = raise_on_get
-        self._raise_on_set = raise_on_set
-
-    async def get(self, key):
-        if self._raise_on_get:
-            raise self._raise_on_get
-        return self.store.get(key)
-
-    async def set(self, key, value, ex=None):
-        if self._raise_on_set:
-            raise self._raise_on_set
-        self.store[key] = value
-
-
-PNG_PATH = "bosai/jmatile/data/nowc/20260101000000/none/20260101000500/surf/hrpns/6/57/25.png"
-PBF_PATH = "bosai/jmatile/data/kkcr/20260101000000/none/20260101000000/surf/flood/6/57/25.pbf"
-TILE_BYTES = b"\x89PNG\r\n\x1a\n\xff\xfe\x00binary"
-
-
-@pytest.fixture
-def fake_redis(monkeypatch):
-    fake = FakeRedis()
-    monkeypatch.setattr(redis_json_cache, "get_redis_client_or_none", lambda: fake)
-    return fake
-
-
-def _transparent_png() -> bytes:
+def png(alpha: int) -> bytes:
     buffer = io.BytesIO()
-    Image.new("RGBA", (8, 8), (0, 0, 0, 0)).save(buffer, format="PNG")
+    Image.new("RGBA", (4, 4), (255, 0, 0, alpha)).save(buffer, format="PNG")
     return buffer.getvalue()
 
 
-async def test_stored_tile_comes_back_with_its_content_type(fake_redis):
-    """バイト列をそのまま置けないRedisへ回すため、非テキストのバイト列で往復を見る。"""
-    await jma_tile_redis_cache.set(PNG_PATH, TILE_BYTES, "image/png")
-    assert await jma_tile_redis_cache.get(PNG_PATH) == (TILE_BYTES, "image/png")
+async def test_a_tile_never_stored_is_a_miss(fake_redis):
+    assert await jma_tile_redis_cache.get(TILE) is None
 
 
-async def test_uncached_path_is_a_miss(fake_redis):
-    assert await jma_tile_redis_cache.get(PNG_PATH) is None
+async def test_a_stored_tile_comes_back_byte_for_byte_with_its_content_type(fake_redis):
+    """本体は区切りのNULを含みうる。区切りで本体を切ると、画像が途中で切れて壊れて届く。"""
+    content = png(255) + b"\0trailing\0bytes"
+
+    await jma_tile_redis_cache.set(TILE, content, "image/png; charset=binary")
+
+    assert await jma_tile_redis_cache.get(TILE) == (content, "image/png; charset=binary")
 
 
 async def test_each_path_keeps_its_own_entry(fake_redis):
-    await jma_tile_redis_cache.set(PNG_PATH, TILE_BYTES, "image/png")
-    assert await jma_tile_redis_cache.get(PBF_PATH) is None
+    await jma_tile_redis_cache.set(TILE, png(255), "image/png")
+
+    assert await jma_tile_redis_cache.get(OTHER_TILE) is None
 
 
-async def test_tile_with_nothing_to_draw_is_kept_as_a_flag(fake_redis):
-    await jma_tile_redis_cache.set(PNG_PATH, _transparent_png(), "image/png")
-    assert await jma_tile_redis_cache.get(PNG_PATH) is EMPTY_TILE
+async def test_a_tile_with_nothing_to_draw_comes_back_as_the_flag(fake_redis):
+    await jma_tile_redis_cache.set(TILE, png(0), "image/png")
+
+    assert isinstance(await jma_tile_redis_cache.get(TILE), EmptyTile)
 
 
-async def test_vector_tile_is_judged_as_a_vector_by_its_path(fake_redis):
-    """空判定へ渡す拡張子はパスから取る——画像として読もうとすると0バイトのMVTを
-    「中身あり」と見て、描くものが無い事実を持てなくなる。"""
-    await jma_tile_redis_cache.set(PBF_PATH, b"", "application/vnd.mapbox-vector-tile")
-    assert await jma_tile_redis_cache.get(PBF_PATH) is EMPTY_TILE
+async def test_a_vector_tile_is_judged_as_a_vector_by_its_path(fake_redis):
+    """ベクタは長さで空を見る。画像として読もうとすると、空のベクタも「中身あり」で実体を持つ。"""
+    await jma_tile_redis_cache.set(VECTOR_TILE, b"", "application/x-protobuf")
+    await jma_tile_redis_cache.set(VECTOR_TILE + "?v=1", b"\x1a\x02", "application/x-protobuf")
+
+    assert isinstance(await jma_tile_redis_cache.get(VECTOR_TILE), EmptyTile)
+    assert await jma_tile_redis_cache.get(VECTOR_TILE + "?v=1") == (b"\x1a\x02", "application/x-protobuf")
 
 
-async def test_set_empty_records_that_there_is_nothing_to_draw(fake_redis):
-    await jma_tile_redis_cache.set_empty(PNG_PATH)
-    assert await jma_tile_redis_cache.get(PNG_PATH) is EMPTY_TILE
+async def test_a_path_recorded_as_having_nothing_to_draw_comes_back_as_the_flag(fake_redis):
+    await jma_tile_redis_cache.set_empty(TILE)
+
+    assert isinstance(await jma_tile_redis_cache.get(TILE), EmptyTile)
 
 
-async def test_entry_that_cannot_be_decoded_is_treated_as_uncached(fake_redis):
-    await jma_tile_redis_cache.set(PNG_PATH, TILE_BYTES, "image/png")
-    (key,) = fake_redis.store
-    for broken in ("not json", '{"content_type": "image/png"}', '{"body_b64": 1, "content_type": "image/png"}'):
-        fake_redis.store[key] = broken
-        assert await jma_tile_redis_cache.get(PNG_PATH) is None
+async def test_a_later_tile_replaces_what_was_recorded(fake_redis):
+    await jma_tile_redis_cache.set_empty(TILE)
+    await jma_tile_redis_cache.set(TILE, png(255), "image/png")
+
+    assert await jma_tile_redis_cache.get(TILE) == (png(255), "image/png")
 
 
-async def test_read_failure_falls_back_to_uncached(monkeypatch):
-    monkeypatch.setattr(
-        redis_json_cache, "get_redis_client_or_none", lambda: FakeRedis(raise_on_get=redis.RedisError("down"))
-    )
-    assert await jma_tile_redis_cache.get(PNG_PATH) is None
-    assert redis_client.redis_available() is False
+async def test_tiles_and_flags_are_forgotten_after_twenty_minutes(fake_redis, clock):
+    """プリウォームの間隔（10分）より長く持ち、1回温め損ねても地図から消えない。"""
+    await jma_tile_redis_cache.set(TILE, png(255), "image/png")
+    await jma_tile_redis_cache.set_empty(OTHER_TILE)
+
+    clock.tick(20 * 60 - 1)
+    assert await jma_tile_redis_cache.get(TILE) is not None
+    assert await jma_tile_redis_cache.get(OTHER_TILE) is not None
+    clock.tick(2)
+    assert await jma_tile_redis_cache.get(TILE) is None
+    assert await jma_tile_redis_cache.get(OTHER_TILE) is None
 
 
-async def test_write_failure_is_not_raised_to_the_caller(monkeypatch):
-    monkeypatch.setattr(
-        redis_json_cache, "get_redis_client_or_none", lambda: FakeRedis(raise_on_set=redis.RedisError("down"))
-    )
-    await jma_tile_redis_cache.set(PNG_PATH, TILE_BYTES, "image/png")
-    assert redis_client.redis_available() is False
+async def test_without_redis_nothing_is_kept_and_nothing_is_raised(fake_redis, redis_server):
+    """Redisが落ちても、呼び出し元は上流へ取りに行く道へ進める。"""
+    redis_server.connected = False
 
+    await jma_tile_redis_cache.set(TILE, png(255), "image/png")
+    await jma_tile_redis_cache.set_empty(OTHER_TILE)
 
-async def test_failure_stops_further_calls_until_the_cooldown_passes(fake_redis):
-    """障害の直後はRedisへ行かない——不通のRedisを1リクエストごとに待つと、
-    タイル配信そのものが上流の遅さへ引きずられる。"""
-    await jma_tile_redis_cache.set(PNG_PATH, TILE_BYTES, "image/png")
-    redis_client.record_redis_failure()
-    await jma_tile_redis_cache.set(PBF_PATH, TILE_BYTES, "application/vnd.mapbox-vector-tile")
-    assert len(fake_redis.store) == 1
-    assert await jma_tile_redis_cache.get(PNG_PATH) is None
-
-
-async def test_missing_client_is_treated_as_no_cache(monkeypatch):
-    monkeypatch.setattr(redis_json_cache, "get_redis_client_or_none", lambda: None)
-    await jma_tile_redis_cache.set(PNG_PATH, TILE_BYTES, "image/png")
-    assert await jma_tile_redis_cache.get(PNG_PATH) is None
+    assert await jma_tile_redis_cache.get(TILE) is None
+    assert await jma_tile_redis_cache.get(OTHER_TILE) is None

@@ -23,6 +23,7 @@ from sqlalchemy import (
     Boolean,
     ForeignKey,
     ForeignKeyConstraint,
+    Index,
     Integer,
     REAL,
     SmallInteger,
@@ -34,9 +35,9 @@ from app.infrastructure.orm_base import Base
 # ここの表は`source_runs`への外部キーを持つ。宣言した先が同じメタデータに載っていないと、
 # `Base.metadata.sorted_tables`が解決できずに落ちる——このimportが、それをimport順の
 # 偶然に任せないための担保である。
-from app.infrastructure import source_models  # noqa: F401
+from app.infrastructure.source_models import Source
 from app.domain.landcover import PERCENT_CLASSES, landcover_key
-from app.domain.traffic import POI_COUNT_KINDS, poi_count_column
+from app.domain.traffic import DIRECTIONS, NODE_KINDS, POI_COUNT_KINDS, poi_count_column
 
 #: NULLが「まだ計算していない」ではなく「確定して値が無い」を意味する列に付ける印。
 #: 鮮度台帳（`derived_data_freshness.py`）はこの印のある列を未計算として数えない——
@@ -44,7 +45,7 @@ from app.domain.traffic import POI_COUNT_KINDS, poi_count_column
 ABSENT_OK = {"null_means_absent": True}
 
 
-def covers(source: str) -> dict[str, str]:
+def covers(source: Source) -> dict[str, str]:
     """「この列の値は、その生データのソースを1件残らず覆う」という宣言。
 
     鮮度台帳が母数（`source_features`のそのソースの行数）と突き合わせ、派生の**行が
@@ -87,6 +88,12 @@ def material_value_checks(table: str) -> tuple[CheckConstraint, ...]:
     )
 
 
+def vocabulary_check(table: str, column: str, values: frozenset[str]) -> CheckConstraint:
+    """派生の段がSQLで直接書く語彙の列に、domainの宣言の外の値を入れさせない制約。NULLは通す。"""
+    allowed = ", ".join("'" + value.replace("'", "''") + "'" for value in sorted(values))
+    return CheckConstraint(f"{column} IN ({allowed})", name=f"{table}_{column}_known")
+
+
 class RoadEdgeRow(Base):
     """道を交差点で切った区間1本。**向きでは分けない**。
 
@@ -94,9 +101,6 @@ class RoadEdgeRow(Base):
     しない。地球の丸みを近似しないため）、勾配は符号を反転し、通行の可否は道の属性
     （一方通行）から決まる。有向グラフは探索がメモリ上で組む実行時の構成物で、表が
     両向きの行を持つ必要はない。
-
-    空間の索引は持たない。範囲で絞るときは親の道（`osm_way`）を先に絞り、その区間を
-    主キーの先頭列で引く。
     """
 
     __tablename__ = "road_edges"
@@ -105,11 +109,16 @@ class RoadEdgeRow(Base):
         CheckConstraint("distance_m > 0", name="road_edges_distance_m_positive"),
         CheckConstraint("NOT ST_IsEmpty(geom) AND ST_NumPoints(geom) >= 2",
                         name="road_edges_geom_has_two_points"),
+        # 区間単位のズームの路面タイル・道路網の切り出し・事故の帰属は、区間を形の範囲で
+        # 直接絞る。無いと区間の全件を総なめにする。
+        Index("idx_road_edges_geom", "geom", postgresql_using="gist"),
     )
 
-    #: 親の道。区間は道を切って作る派生なので、対応する道が必ずある。
+    #: 親の道。区間は道を切って作る派生なので、対応する道が必ずあり、**`way_materials`に
+    #: 行がある**——読み手が道の値を内部結合で引ける（`derive_topology`が道の行を先に入れる）。
     osm_way_id: Mapped[int] = mapped_column(
-        BigInteger, primary_key=True, autoincrement=False, info=covers("osm_way"))
+        BigInteger, ForeignKey("way_materials.osm_way_id"), primary_key=True, autoincrement=False,
+        info=covers(Source.OSM_WAY))
     #: 道の何番目の区間か。
     segment_index: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
 
@@ -121,7 +130,8 @@ class RoadEdgeRow(Base):
     to_node_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("node_materials.osm_node_id"), nullable=False)
 
-    geom: Mapped[object] = mapped_column(Geometry("LINESTRING", srid=4326), nullable=False)
+    geom: Mapped[object] = mapped_column(
+        Geometry("LINESTRING", srid=4326, spatial_index=False), nullable=False)
     #: 長さは丸めない。4.8 cmの区間が実在し、0へ落とすと読み出し側が除算を守る羽目になる。
     distance_m: Mapped[float] = mapped_column(REAL, nullable=False)
     #: 順方向の方位。
@@ -204,10 +214,13 @@ class WayMaterialRow(Base):
     """
 
     __tablename__ = "way_materials"
-    __table_args__ = material_value_checks("way_materials")
+    __table_args__ = (
+        *material_value_checks("way_materials"),
+        vocabulary_check("way_materials", "direction", DIRECTIONS),
+    )
 
     osm_way_id: Mapped[int] = mapped_column(
-        BigInteger, primary_key=True, autoincrement=False, info=covers("osm_way"))
+        BigInteger, primary_key=True, autoincrement=False, info=covers(Source.OSM_WAY))
 
     accident_count: Mapped[float | None] = mapped_column(REAL, nullable=True)
     intersection_count: Mapped[float | None] = mapped_column(REAL, nullable=True)
@@ -252,6 +265,7 @@ class NodeMaterialRow(Base):
     """
 
     __tablename__ = "node_materials"
+    __table_args__ = (vocabulary_check("node_materials", "kind", NODE_KINDS),)
 
     osm_node_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
 

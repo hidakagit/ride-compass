@@ -5,6 +5,7 @@
   "routes_with_waypoints": 1,
   "default_assumed_speed_kmh": 20.0,
   "default_distance_tolerance_km": 5.0,
+  "max_waypoints": 8,
   "spliced_route_id": "route-spliced",
   "waypoints_route_id": "route-waypoints",
   "max_axis_weight": 0.6,
@@ -12,6 +13,7 @@
   "max_assumed_speed_kmh": 60.0,
   "job_result_ttl_seconds": 600.0,
   "wind_forecast_hours_per_leg": 4.0,
+  "wind_time_bin_hours": 1.0,
   "client_tuning": {
     "splice.min_stretch_km": 0.2
   },

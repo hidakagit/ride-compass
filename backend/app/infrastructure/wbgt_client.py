@@ -11,13 +11,13 @@
 import csv
 import io
 import logging
-from dataclasses import dataclass
 from datetime import datetime
 
 import httpx
 from cachetools import TTLCache
 
-from app.domain.wbgt_points import WbgtPoint
+from app.domain.time_zone import JST
+from app.domain.wbgt import WbgtForecast, WbgtPoint
 from app.infrastructure.simple_api_client import UnexpectedShapeError, cached_fetch
 
 # ファイル名に更新日が埋め込まれた命名規則（環境省サイト側の運用）のため、地点構成が
@@ -104,20 +104,6 @@ def _parse_point_master(csv_text: str) -> list[WbgtPoint]:
     return points
 
 
-@dataclass(frozen=True)
-class WbgtForecast:
-    """暑さ指数の予測値1件。発表時刻の無い行は載せない。"""
-
-    #: 発表時刻（配信元の表記。同じ表記どうしの大小がそのまま時刻の前後になる）。
-    reference_time: str
-    #: 予測の対象時刻（JSTの素の時刻）。読めない行はNone。
-    forecast_time: datetime | None
-    #: 対象時刻の配信元の表記（応答へそのまま出す）。
-    forecast_time_text: str | None
-    #: 暑さ指数。値が無い・読めない行はNone。
-    wbgt: float | None
-
-
 def _parse_forecast(entry: dict) -> WbgtForecast | None:
     reference_time = entry.get("reference_time")
     if not reference_time:
@@ -138,12 +124,12 @@ def _parse_forecast(entry: dict) -> WbgtForecast | None:
 
 
 async def fetch_forecast(
-    client: httpx.AsyncClient, wbgt_no: str, range_from: str, range_to: str
+    client: httpx.AsyncClient, wbgt_no: str, range_from: datetime, range_to: datetime
 ) -> list[WbgtForecast] | None:
     """指定地点の暑さ指数予測値列（3時間刻み、翌々日まで）を取得する。
 
-    `range_from`/`range_to`はYYYYMMDDHHMMSS形式（発表時刻=reference_timeの検索範囲。
-    呼び出し元が「現在時刻を含む直近N時間」を渡す想定）。date_search_type=3
+    `range_from`/`range_to`は発表時刻=reference_timeの検索範囲（呼び出し元が「現在時刻を
+    含む直近N時間」を渡す想定。配信元へはJSTのYYYYMMDDHHMMSSで渡す）。date_search_type=3
     （特定時刻）は指定時刻ちょうどに発表（reference_time）が存在しないと空を返す
     厳格な一致検索（20:00:00ちょうどを指定すると20時発表がまだ無く空、19:00:00なら
     19時発表がヒットする、等）。発表は概ね毎時行われるが遅延もありうるため、
@@ -155,8 +141,8 @@ async def fetch_forecast(
         "location_type": 1,
         "date_search_type": 1,
         "wbgt_nos": wbgt_no,
-        "range_date_from": range_from,
-        "range_date_to": range_to,
+        "range_date_from": _query_time(range_from),
+        "range_date_to": _query_time(range_to),
     }
 
     async def fetch() -> list[WbgtForecast]:
@@ -181,3 +167,7 @@ async def fetch_forecast(
         key=wbgt_no,
         wbgt_no=wbgt_no,
     )
+
+
+def _query_time(at: datetime) -> str:
+    return at.astimezone(JST).strftime("%Y%m%d%H%M%S")

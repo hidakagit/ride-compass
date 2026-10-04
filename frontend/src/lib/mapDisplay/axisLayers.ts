@@ -7,6 +7,7 @@
 // 材料がタイルにある限り再デプロイなしに地図のレイヤーとして現れる。
 
 import type { DedicatedWayValueDisplay } from "./dedicatedWayValueLayer";
+import type { MapLegendScale } from "./valueScale";
 import { catalogAxisFromEntry, type CatalogAxis } from "@/lib/catalogAxis";
 import type { AxisCatalogEntry } from "@/types/route";
 
@@ -23,25 +24,27 @@ interface AxisTileInput {
    * lit・has_tunnel⟵tunnel）はtrueValue/falseValueへ通常どおり倒す。 */
   hasUnknownFallback?: boolean;
   /** N値文字列材料（例: highway）。タイルプロパティの
-   * 文字列値をこの辞書で引いた点数×weightを寄与値とする。未登録値は0扱い
+   * 文字列値をこの辞書で引いた点数×weightを寄与値とする。未登録値の道は「不明」
    * （registry.py: TileInputSpec.categories参照）。 */
   categories?: Record<string, number>;
   /** 自己変換材料（例: maxspeed_kmh/lanes_count）。材料自身が持つ
-   * 区分線形breakpointsでタイルプロパティの生値をinterpolateした値×weightを
+   * 区分線形breakpointsでタイルプロパティの生値をinterpolateし、小数1桁へ丸めた値×weightを
    * 寄与値とする（registry.py: TileInputSpec.breakpoints参照）。 */
   breakpoints?: readonly (readonly [number, number])[];
-  /** true=タイルの生値を材料の値へ換算する係数（`material_runtime_scales`）が届いていない。どの道でも
+  /** true=タイルの生値を材料の値へ換算する係数（`tile_runtime_scales`）が届いていない。どの道でも
    * この材料の寄与を出せないので、どの道でも軸の値が「不明」になる（寄与0として塗ると、材料が無いのに
    * 最良側の色で塗る）。 */
   scaleMissing?: boolean;
 }
 
-/** 地図のramp表示を持つ軸。凡例の範囲に添える単位は`rawValueUnit`（定まらない軸はnull）。 */
+/** 地図のramp表示を持つ軸。 */
 export interface RampAxis extends CatalogAxis {
   category: string;
   tileInputs: readonly AxisTileInput[];
   /** 昇順の色段階境界値。値 < thresholds[0] が最も低い段階 */
   thresholds: readonly number[];
+  /** 凡例が`thresholds`を書く目盛り（同じ件数・同じ順。ルート後の線の凡例と同じ文字になる）。 */
+  legend: MapLegendScale;
   /** 段階ごとの体感ラベル（軸自身のデータ、display_band_labels_override由来）。要素数が
    * thresholds.length+1と一致する間だけ、凡例（`features/map/view/lens.ts: buildAxisRampLegend`）が
    * 数値レンジの前に添える。 */
@@ -55,7 +58,7 @@ export function axisLabelsFromCatalogAxes(axes: readonly AxisCatalogEntry[]): Re
   return Object.fromEntries(axes.map((axis) => [axis.axis_id, axis.label]));
 }
 
-/** `runtimeScales`（GET /api/axis-catalogのmaterial_runtime_scales、tile property名→スケール係数）は、
+/** `runtimeScales`（GET /api/axis-catalogのtile_runtime_scales、tile property名→スケール係数）は、
  * `needs_runtime_scale`なtile_inputの`weight`へ構築時に一度だけ掛け合わせて解決する（地図の式は
  * 解決済みのweightだけを見る）。
  * 該当するtile propertyのスケール係数が届いていない場合（事故データの収録年を読めず、backendが
@@ -63,7 +66,7 @@ export function axisLabelsFromCatalogAxes(axes: readonly AxisCatalogEntry[]): Re
  * 最良側の色で塗る。 */
 export function rampAxesFromCatalogAxes(
   axes: readonly AxisCatalogEntry[],
-  runtimeScales: Readonly<Record<string, number>> = {},
+  runtimeScales: Readonly<Record<string, number>>,
 ): RampAxis[] {
   return axes
     .filter((axis) => axis.display.kind === "ramp")
@@ -85,6 +88,7 @@ export function rampAxesFromCatalogAxes(
         breakpoints: input.breakpoints ?? undefined,
       })),
       thresholds: axis.display.thresholds,
+      legend: axis.map_legend,
       bandLabelsOverride: axis.display_band_labels_override ?? undefined,
     }));
 }
@@ -96,13 +100,13 @@ export function axisMapLayerId(axisId: string): AxisMapLayerId {
   return `axis:${axisId}`;
 }
 
-/** 専用のway_id→値配信レイヤーを持つ軸（`dedicated_way_value_layer=true`、現状: 風・勾配）。
+/** 専用のフィーチャー→値配信レイヤーを持つ軸（`dedicated_way_value_layer=true`）。
  * ramp軸に対する`RampAxis`と同じ位置付けの、軸カタログ由来の地図向けビュー。
  * この型があることで、レイヤー登録・カタログ・可視性・フェッチのすべてを軸idの
  * ハードコードなしに導出できる（3件目の軸を軸スタジオで公開しただけで
  * 地図に現れる。ただし配信実装本体はbackend側の登録が別途必要）。 */
 export interface DedicatedWayValueAxis extends CatalogAxis {
-  /** 専用way値配信APIへ添えるクエリパラメータの宣言。`features/map/useDedicatedWayValues.ts`が
+  /** 専用way値配信APIへ添えるクエリパラメータ（軸カタログの`dynamic_way_value_conditions`）。`features/map/useDedicatedWayValues.ts`が
    * 「どの軸のフェッチに時刻・想定速度を乗せるか」をaxis_idの分岐ではなくここから決める
    * （乗せない入力は依存配列からも外れるため、時刻を動かしても時刻非依存の軸は再フェッチしない）。 */
   needsTime: boolean;
@@ -117,13 +121,13 @@ export function dedicatedWayValueAxesFromCatalogAxes(axes: readonly AxisCatalogE
     .filter((axis) => axis.dedicated_way_value_layer)
     .map((axis) => ({
       ...catalogAxisFromEntry(axis),
-      needsTime: axis.dynamic_way_value_needs_time,
-      needsBearing: axis.dynamic_way_value_needs_bearing,
-      needsSpeed: axis.dynamic_way_value_needs_speed,
+      needsTime: axis.dynamic_way_value_conditions.includes("at"),
+      needsBearing: axis.dynamic_way_value_conditions.includes("bearing_deg"),
+      needsSpeed: axis.dynamic_way_value_conditions.includes("speed_kmh"),
       display: {
         kind: axis.map_value.kind,
-        unit: axis.map_value_unit,
-        boundaries: axis.map_value_thresholds ?? undefined,
+        boundaries: axis.map_value_thresholds,
+        legend: axis.map_legend,
         bandLabels: axis.display_band_labels_override ?? undefined,
       },
     }));

@@ -101,6 +101,7 @@ class FakeAxisRegistry:
     async def unpublish(self, axis_id):
         self._record("unpublish", axis_id)
         self.axes[axis_id] = self.axes[axis_id].model_copy(update={"is_published": False})
+        return self.axes[axis_id]
 
 
 @pytest.fixture
@@ -303,7 +304,7 @@ class TestPayloadValidation:
     @pytest.mark.parametrize(
         ("fields", "reason"),
         [
-            ({"shape": linear_shape("ghost")}, "無い材料・軸を指しています: ['ghost']"),
+            ({"shape": linear_shape("ghost")}, "存在しない材料・軸を指しています（ghost）"),
             (
                 {"dedicated_way_value_layer": True, "shape": linear_shape(NUM_A, NUM_B)},
                 "専用配信の軸は",
@@ -387,3 +388,27 @@ class TestPreviews:
         )
 
         assert response.status_code == 422
+
+    @pytest.mark.parametrize(
+        ("second_required", "expected_points"),
+        [
+            (False, [{"x": 6.0, "score": 60.0}, {"x": 2.0, "score": 20.0}, {"x": 14.0, "score": 100.0}]),
+            (True, [None, None, None]),
+        ],
+        ids=["必須でないほかの項は寄与0", "必須のほかの項が無い道は評価できない"],
+    )
+    def test_scores_of_a_draft_with_two_terms(self, client, second_required, expected_points):
+        """1つ目の項の材料の値ごとの点数は、ほかの項の材料が無い道を評価したときの点数である。"""
+        shape = {
+            "kind": "breakpoint_linear",
+            "terms": [{"material": NUM_A, "weight": 2.0}, {"material": NUM_B, "required": second_required}],
+            "preprocess": "abs",
+            "breakpoints": [[0, 0], [10, 100]],
+        }
+
+        body = client.post(
+            BASE + "/preview-scores",
+            json={"shape": shape, "xs": [2.5, 20.0], "material_values": [-3.0, 1.0, 7.0]},
+        ).json()
+
+        assert body == {"scores": [25.0, 100.0], "material_points": expected_points}

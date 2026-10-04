@@ -1,11 +1,15 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 
-import { catalogEntry, catalogOf, dedicatedEntry, rampEntry } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
-import { pointLegendAxes } from "@/features/map/scene/legends";
+import { mapCatalogOf } from "@/testing/mapAxisCatalog";
+import { catalogEntry, dedicatedEntry, rampEntry } from "@/testing/catalogAxes";
 import { mapDisplay } from "@/types/generated/mapDisplay";
+import { primaryAttributes } from "@/types/generated/primaryAttributes";
 
-import { LANDCOVER_PAINTED_CLASSES } from "./landcoverClasses";
+import regionTileConfig from "@/types/generated/region-tile-config.json";
+import weatherScales from "@/types/generated/weather-scales.json";
+
+import { LANDCOVER_CLASSES, LANDCOVER_PAINTED_CLASSES } from "./landcoverClasses";
 import {
   buildDefaultLayerVisibility,
   buildMapLayers,
@@ -17,13 +21,13 @@ import {
   type MapLayerDescriptor,
 } from "./mapLayers";
 
-const catalog = catalogOf([
+const catalog = mapCatalogOf([
   rampEntry("ramp_a", [10, 20], { raw_value_unit: "%", chip_label: "勾配" }),
   dedicatedEntry("dedicated_b", [1, 2]),
 ]);
 const withAxes = buildMapLayers({ ...catalog, accidentYears: [2021, 2019, 2020] });
-const withoutAxes = buildMapLayers(catalogOf([]));
-const withYears = (accidentYears: number[]) => buildMapLayers({ ...catalogOf([]), accidentYears });
+const withoutAxes = buildMapLayers(mapCatalogOf([]));
+const withYears = (accidentYears: number[]) => buildMapLayers({ ...mapCatalogOf([]), accidentYears });
 const layer = (layers: readonly MapLayerDescriptor[], id: string) => layers.find((entry) => entry.id === id)!;
 const staticLayerIds: readonly string[] = mapDisplay.layers.map((entry) => entry.id);
 
@@ -57,21 +61,17 @@ describe("buildMapLayers（レイヤーの一覧）", () => {
     expect(layer(withoutAxes, "accident_point").description).not.toContain("[");
   });
 
-  it("停止要因・補給休憩の説明は、凡例と同じ種別名を並べる（受け皿の種別は除く）", () => {
-    const pointAxes = pointLegendAxes().filter((axis) => axis.layerId === "stop_poi" || axis.layerId === "supply_poi");
-    expect(pointAxes).toHaveLength(2);
-    for (const axis of pointAxes) {
-      const description = layer(withoutAxes, axis.layerId).description;
-      for (const entry of axis.entries) {
-        if (entry.isFallback) expect(description).not.toContain(entry.label);
-        else expect(description).toContain(entry.label);
-      }
+  it("停止要因・補給休憩の説明は、凡例と同じ種別名（先頭の軸の行の名前）を並べる", () => {
+    for (const id of ["stop_poi", "supply_poi"]) {
+      const description = layer(withoutAxes, id).description;
+      const [axis] = primaryAttributes.find((attr) => attr.attr_id === id)!.display_axes;
+      for (const category of axis!.categories) expect(description).toContain(category.label);
     }
   });
 
   it("説明は、そのレイヤーの元データを材料に持つ公開中の評価を名前で挙げ、無ければ評価に触れない", () => {
     const axes = buildMapLayers(
-      catalogOf([
+      mapCatalogOf([
         catalogEntry({ axis_id: "night", label: "暗さ", primary_attribute_ids: ["lit", "tunnel"] }),
         catalogEntry({ axis_id: "stops", label: "止まりやすさ", primary_attribute_ids: ["stop_poi"] }),
         catalogEntry({ axis_id: "wind", label: "向かい風", weather_layer_groups: ["windVector"] }),
@@ -87,7 +87,7 @@ describe("buildMapLayers（レイヤーの一覧）", () => {
 
   it("ルートの説明は、レンズで選べる色分け（公開中の評価と総合難易度）を並べる", () => {
     const axes = buildMapLayers(
-      catalogOf([catalogEntry({ axis_id: "a", label: "坂" }), catalogEntry({ axis_id: "b", label: "風" })]),
+      mapCatalogOf([catalogEntry({ axis_id: "a", label: "坂" }), catalogEntry({ axis_id: "b", label: "風" })]),
     );
     expect(layer(axes, "route").description).toContain("[坂・風・総合難易度]");
     expect(layer(withoutAxes, "route").description).toContain("[総合難易度]");
@@ -96,6 +96,44 @@ describe("buildMapLayers（レイヤーの一覧）", () => {
   it("土地被覆の凡例は、地図に塗るクラスだけを並べる", () => {
     const [block] = layer(withoutAxes, "landcover").readOnlyLegend ?? [];
     expect(block.legend.map((entry) => entry.label)).toEqual(LANDCOVER_PAINTED_CLASSES.map((cls) => cls.label));
+  });
+
+  it("土地被覆の凡例の行は、どれも（i）から開く説明を持つ", () => {
+    const [block] = layer(withoutAxes, "landcover").readOnlyLegend ?? [];
+    for (const entry of block.legend) expect(entry.description?.trim()).toBeTruthy();
+  });
+
+  it("土地被覆の説明は、塗らない分類と、評価が土地被覆を数える帯の幅を源泉から出す", () => {
+    const landcover = layer(withoutAxes, "landcover");
+    const unpainted = LANDCOVER_CLASSES.filter((entry) => !entry.painted);
+    expect(unpainted.length).toBeGreaterThan(0);
+    for (const cls of unpainted) {
+      expect(landcover.description).toContain(cls.label);
+      expect(landcover.panelHint).toContain(`${cls.label}は塗りません`);
+    }
+    expect(landcover.panelHint).toContain(`周囲${regionTileConfig.landcover.ring_outer_m}m`);
+  });
+
+  it("災害の説明は、源泉が災害のチップに宣言した要素の名前を全部挙げる", () => {
+    const disaster = layer(withoutAxes, "disaster");
+    const elements = mapDisplay.weatherElements.filter((element) => element.group === "disaster");
+    expect(elements.length).toBeGreaterThan(0);
+    for (const element of elements) {
+      expect(disaster.description).toContain(element.label);
+      expect(disaster.panelHint).toContain(element.label);
+    }
+  });
+
+  it("災害の凡例は、要素が塗る段ごとに1つ並び、見出しにその段で塗る要素の名前が入る", () => {
+    const blocks = layer(withoutAxes, "disaster").readOnlyLegend ?? [];
+    const scaled = mapDisplay.weatherElements.filter((element) => element.group === "disaster" && element.levelScale);
+    expect(scaled.length).toBeGreaterThan(0);
+    expect(blocks).toHaveLength(new Set(scaled.map((element) => element.levelScale)).size);
+    for (const element of scaled) {
+      const keys = weatherScales[element.levelScale!].map((level) => level.key);
+      const block = blocks.find((candidate) => candidate.legend.map((entry) => entry.key).join() === keys.join());
+      expect(block?.label).toContain(element.label);
+    }
   });
 });
 

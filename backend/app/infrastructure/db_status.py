@@ -19,7 +19,7 @@ from datetime import datetime
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.infrastructure.source_models import latest_succeeded_run_sql
+from app.infrastructure.source_models import latest_succeeded_run_by_column_sql
 
 
 # PostGISが作る付属テーブル。アプリのデータではないため一覧から外す。
@@ -110,8 +110,8 @@ SELECT DISTINCT ON (source)
        finished_at AS latest_finished_at,
        counts AS latest_counts,
        origin AS latest_origin,
-       (SELECT run_id FROM {latest_succeeded_run_sql("r.source")} s) AS latest_succeeded_id,
-       (SELECT finished_at FROM {latest_succeeded_run_sql("r.source")} s) AS latest_succeeded_finished_at
+       (SELECT run_id FROM {latest_succeeded_run_by_column_sql("r.source")} s) AS latest_succeeded_id,
+       (SELECT finished_at FROM {latest_succeeded_run_by_column_sql("r.source")} s) AS latest_succeeded_finished_at
 FROM source_runs r
 ORDER BY source, run_id DESC
 """

@@ -12,7 +12,6 @@ import {
   stretchCoordinateRange,
   type StretchAlternative,
 } from "@/features/route/routeSplice";
-import { SPLICED_ROUTE_ID_PREFIX, orderByDuration } from "@/features/route/routeTabLabel";
 import type RouteSplicePanel from "@/features/route/RouteSplicePanel/RouteSplicePanel";
 import type { RouteCandidate } from "@/types/route";
 
@@ -58,7 +57,7 @@ const spliceFeatureIndex = (groupIndex: number, optionIndex: number) => {
   return groupIndex * SPLICE_OPTIONS_PER_GROUP + optionIndex;
 };
 
-export interface SpliceSessionInputs {
+interface SpliceSessionInputs {
   /** 候補の一覧（編集の元と乗り換え先はここから引く）。 */
   routes: RouteCandidate[];
   /** 表示中の候補を作った生成の入力。合成した経路も同じ条件で評価する（同じ並びへ入るため、条件が違うと
@@ -68,8 +67,8 @@ export interface SpliceSessionInputs {
   hasSelectedRoute: boolean;
   /** 「作成」を押して評価を始める直前に呼ぶ。 */
   onApplyStart: () => void;
-  /** 作った経路を入れた一覧と、選ぶ候補。作った経路が既にある候補と同じ道なら、一覧は変えずにその候補を選ぶ。 */
-  onApplied: (result: { routes: RouteCandidate[]; selectedRouteId: string }) => void;
+  /** 作った経路と元にした候補。作った経路が既にある候補と同じ道なら、作らずにその候補のidだけを渡す。 */
+  onApplied: (result: { created: RouteCandidate; originId: string } | { existingRouteId: string }) => void;
 }
 
 /** 地図へ渡す乗り換えの値（`MapView`の同名のprops）。 */
@@ -159,7 +158,6 @@ export function useSpliceSession({
         ? stretchAlternativeGroups(
             splicedShape.edgeIds,
             candidateShapes.filter((item) => item.id !== editingRouteId),
-            // 座標も渡すと、2本が交わる地点でも区間を割れる（Edge idだけでは丸ごとの入れ替えにしかならない）。
             { baseShape: splicedShape, minSplitLengthKm: minStretchKm },
           )
         : [],
@@ -173,7 +171,6 @@ export function useSpliceSession({
           const target = routes.find((route) => route.id === option.candidateId);
           if (!target) return [];
           const range = stretchCoordinateRange(target.edge_point_offsets, option.targetStretch);
-          if (!range) return [];
           const coordinates = (target.geometry.coordinates as GeoJSON.Position[]).slice(range.start, range.end + 1);
           if (coordinates.length < 2) return [];
           return [{ index: spliceFeatureIndex(groupIndex, optionIndex), coordinates }];
@@ -248,14 +245,7 @@ export function useSpliceSession({
       }
       // 全部を1つの候補の道へ乗り換えると、既にある候補そのものになる。そのときは並べずにその候補を選ぶ。
       const sameRoute = routes.find((route) => route.edge_ids.join(",") === spliced.edge_ids.join(","));
-      // 生成した候補と同じ並びの規約へ入れる（見分けはタブの名前）。候補数の上限では切り詰めない（上限は生成が何本
-      // 探すかで、作った組み合わせを押し出す理由が無い）。
-      const unique = { ...spliced, id: `${SPLICED_ROUTE_ID_PREFIX}-${routes.length}` };
-      onApplied(
-        sameRoute
-          ? { routes, selectedRouteId: sameRoute.id }
-          : { routes: orderByDuration([...routes, unique]), selectedRouteId: unique.id },
-      );
+      onApplied(sameRoute ? { existingRouteId: sameRoute.id } : { created: spliced, originId: editingRoute.id });
       setSplice(null);
     } catch (error) {
       setSpliceTask({ status: "idle", error: spliceFailureMessage(error) });

@@ -120,7 +120,6 @@
 | `display_thresholds_override` | list[float]\|None | 色分けしきい値の上書き |
 | `display_band_labels_override` | list[str]\|None | 段階ごとの体感ラベルの上書き（例:「強い向かい風」）。設定する場合は`display_thresholds_override`も設定済みで要素数が段階数（しきい値数+1）と一致すること |
 | `dedicated_way_value_layer` | bool | 専用のフィーチャー→値配信レイヤーを持つか |
-| `dynamic_way_value_needs_time`/`dynamic_way_value_needs_bearing`/`dynamic_way_value_needs_speed` | bool | `dedicated_way_value_layer=True`の軸のみ意味を持つ。`GET /api/region/dynamic-way-values/...`の`at`/`bearing_deg`/`speed_kmh`クエリパラメータ必須判定（[dynamic-way-values.md](dynamic-way-values.md)参照） |
 
 **表示に関するフィールドは、軸idの分岐をコードへ持たないための宣言**である。
 
@@ -205,8 +204,8 @@ Pythonの値、ルート選びは材料の型ごとの配列で、分類の材�
 | `evaluate_axes_inputs(materials, length)` | 同じ入力から、公開軸ごとに得点へ写す前の値（折れ点の軸は生値、対応表の軸は引く材料の値）を返す。他の軸を読む軸の生値は、読んだ軸の得点から求める。飽和の計測が使う |
 | `raw_values(shape, materials, length)` | 折れ点を通す前の生値をPythonの値の並びから求める。保存前の`shape`を受け取れるため分布プレビューが使う |
 
-折れ線の得点は小数1桁へ丸め、Pythonの`round()`と同じ値へ丸める
-（`axis_templates.round1_array`。2進の実際の値で丸める）——`np.round`は×10の丸め誤差で、端数がちょうど`.x5`の値を別の側へ丸める。
+折れ線の得点は難易度の桁へ丸め、Pythonの`round()`と同じ値へ丸める
+（`domain/difficulty.py: round_difficulty_array`。2進の実際の値で丸める）——`np.round`は×10の丸め誤差で、端数がちょうど`.x5`の値を別の側へ丸める。
 
 `topological_axis_order`は深さ優先探索でトポロジカルソートし、結果を内容ベースの
 キー（各軸の`materials`）でメモ化する（件数上限つきの`cachetools.LRUCache`。軸スタジオの
@@ -310,14 +309,21 @@ DB側の値が変わっても追従しない。軸の中身が主題でないテ
 生の上書きではなくこの引き直した値（`map_band_labels`）で、件数は地図の段数と一致する。
 軸スタジオの段階プレビューも同じ番号を問い合わせの応答（`bands_on_map`）で受け取る。
 
+**地図の式が評価と同じ値を出すことは、表で確かめる。** 導出の形ごと（例: 真偽の材料・分類の未登録の値・
+実行時の係数・他の軸を参照する項）に、表のために組んだ軸と道1本の材料から、
+地図へ配る表示・タイルのプロパティ・評価が付ける値（折れ点の軸は折れ点を通す前の和、分類の軸は点数）と
+「不明」かを`scripts/cross_language_expectations.py: axis_ramp_expectations`が表にして生成物へ出し、画面のテストが
+全行を画面の式へ通す（置き場と作り方は[testing.md](../../conventions/testing.md)「パターン11」）。
+
 **暗黙の前提（重要な既知の非対称性）**: 自動導出した表示と評価側の整合性は
-`required=False`の材料でのみ厳密に一致する。`required=True`の材料が欠損している場合、
-評価側（`evaluate_axis_array`）は軸全体を「評価不能（None）」にするが、フロント側の
+`required=False`の材料でのみ厳密に一致する。`required=True`の材料が欠損している場合と、全termの材料が
+欠損している場合、評価側（`evaluate_axis_array`）は軸全体を「評価不能（None）」にするが、フロント側の
 自動導出expression（`buildAxisRampValueExpression`）はタイルプロパティ欠損を寄与0
 （coalesce）として扱う——本来「評価不能」な区間が地図上では「評価済みで良好（緑）」に
-誤表示されうる。テストで検証済みの許容された制約であり、実務上は稀（way単位の
-事前集計は欠損時0埋めが基本）だが、新規軸でrequired=True材料が実際にタグ欠損
-しやすい場合はこの不整合が顕在化しうる。
+誤表示されうる。タイルは数値の0もキーごと省くため、地図の側では欠損と0を見分けられない。
+実務上は稀（way単位の事前集計は欠損時0埋めが基本）だが、新規軸でrequired=True材料が実際にタグ欠損
+しやすい場合はこの不整合が顕在化しうる。同じ理由で、他の軸を参照する項（`TileInputSpec.breakpoints`）は
+材料の値が0の道も地図では寄与0になり、評価（参照先の折れ線の0での点数）と食い違いうる。上の表はこれらの場面を入れない。
 
 ### 生値の単位（`raw_value_unit`）
 
@@ -336,8 +342,9 @@ DB側の値が変わっても追従しない。軸の中身が主題でないテ
 `GET /api/axis-catalog`が`raw_value_unit`として配信し、
 [ルート設定・ルート結果（frontend）](../frontend/route-settings-and-results.md)が
 得点の隣へ生値を添えるのに使う。単位の無い数字は読み手が意味を取れないため出さない。
-地図のramp軸の凡例も同じ単位を段階ラベルへ添える——rampの段の境界は折れ点のx値
-（＝生値の目盛り）で、単位が定まる軸では生値と同じ量を塗っている（`axis_display.py`）。
+地図の凡例も、得点が単位の定まる生値について狭く増える軸では、段を生値の量と単位で書く
+（`dynamic_way_values.py: map_legend`。[dynamic-way-values.md](dynamic-way-values.md)）——rampの段の境界は
+折れ点のx値（＝生値の目盛り）で、単位が定まる軸では生値と同じ量を塗っている（`axis_display.py`）。
 
 ### 材料単位への分解（`material_breakdown`）
 
@@ -385,14 +392,18 @@ idの文字列ではなく宣言そのもので指す。材料が指す要素に
 | `DELETE /api/admin/axis-definitions/{axis_id}` | Basic認証必須 | 削除 |
 | `POST /api/admin/axis-definitions/{axis_id}/unpublish` | Basic認証必須 | 公開済み軸を下書きへ戻す（`is_published`以外は変更しない） |
 | `POST /api/admin/axis-definitions/preview-display-thresholds` | Basic認証必須 | 編集中の軸で、上書きしたしきい値のうち地図が段にしないものと、地図の各段に当たる入力の段（DBを読まない） |
-| `POST /api/admin/axis-definitions/preview-scores` | Basic認証必須 | 編集中の折れ点で、横軸の値の並び（分布の階級の代表値）と1つ目の項の材料の値の並び（参考点）がそれぞれ何点になるか。参考点は横軸の値（重みと前処理を当てた値）も返す。点数は評価と同じ`BreakpointLinearShape.score_at`（DBを読まない） |
+| `POST /api/admin/axis-definitions/preview-scores` | Basic認証必須 | 編集中の折れ点で、横軸の値の並び（分布の階級の代表値）と1つ目の項の材料の値の並び（参考点）がそれぞれ何点になるか。参考点は横軸の値も返す。どちらも評価と同じ配列の計算（`domain/axis_definitions.py: BreakpointLinearShape.score_at`・`first_term_points`）で出し、参考点は「ほかの項の材料が無い道」として評価する——ほかの項に必須の材料があれば評価と同じく欠損（null）になる（DBを読まない） |
 | `GET /api/axis-catalog` | 不要（公開） | `is_published=True`の軸のみ返す。`AxisDefinition`のほぼ全フィールドをそのまま返す |
 
 管理API（`/api/admin/axis-definitions`）のBasic認証はルーターの`dependencies`で1か所に宣言し、
 口ごとには付けない——口を足しても認証の付け忘れが起きない。
 
-`GET /api/axis-catalog`の`material_runtime_scales`（実行時にしか決まらないスケール係数）
-のみ、リクエストごとにDBを直接見る例外（現状`accident_count_per_km_year`のみ対象）。
+`GET /api/axis-catalog`の`tile_runtime_scales`（タイルのプロパティ名→実行時にしか決まらない換算係数）
+だけが、リクエストごとにDBを見る（係数の源の事故の収録年）。どの材料に係数が要るかは材料の宣言
+（`MaterialSpec.tile_property_runtime_scale`）だけが持ち、ルーターは材料名を持たない。印を付けた材料が
+増えると、同じ源なら宣言だけでその材料のタイルの値にも係数が届く。新しい源（収録年数以外）を足すときは
+`domain/material_catalog.py: tile_runtime_scales`にその値の求め方を足す——足すまではその材料の係数が
+配られず、地図はその材料を使う軸をどの道も「データなし」で塗る（最良側の色にはならない）。
 
 ### 軸そのものの不変条件（`domain/axis_definitions.py`のモデル）
 
@@ -418,6 +429,11 @@ idの文字列ではなく宣言そのもので指す。材料が指す要素に
 「Value error, 」の前置きが付いて返る。組み込みの制約（空・件数）が英語の文を返すもののうち画面で
 起きるもの（表示名が空・しきい値の上書きが0件）は、制約より先に動く検証（`mode="before"`）で日本語にする
 （制約そのものは契約に載せるため残す）。
+
+**文は材料・軸を表示名で名指し（`axis_definitions.py: named_references`）、直し方を添える。** idは画面のどこにも
+出ないので、idで名指すと管理者はどの材料・軸のことか辿れない。名前を持たない参照（材料にも軸にも無いid）だけは
+idのまま出す。書き込み時のガード・削除の断り（下の「書き込み時のガード」）も同じ書き方で、管理APIが409の
+`detail`としてそのまま返す。起動時の読み込みの失敗（`AxisDefinitionSyncError`）は運用者がログで読むため、軸をidで名指す。
 
 ### 軸の外に照らす値の不変条件（`domain/axis_definitions.py: check_axis_definition`）
 
@@ -454,7 +470,7 @@ idの文字列ではなく宣言そのもので指す。材料が指す要素に
 ### 書き込み時だけの検証（`AxisDefinitionPayload`）
 
 `dedicated_way_value_layer`を立てられるのは、フィーチャー→値配信の実装
-（`api/dependencies.py`の`_DEDICATED_WAY_VALUE_SERVICE_FACTORIES`、材料ごとに登録）がある
+（`services/dedicated_way_values.py: _DEDICATED_WAY_VALUE_SERVICES`、材料ごとに登録）がある
 材料を**ちょうど1つ**参照する軸だけ（軸の名前は問わない）。宣言だけでは配信できる値が無い
 （配信側はそういう軸を未知の`axis_id`と同じく404で返す）。照らす相手はこのプロセスが組み立てた配信の実装で、
 値の不変条件ではないため読み込みでは見ない——実装の無い軸の配信は404で済み、起動を止める理由にならない。
@@ -469,11 +485,15 @@ idの文字列ではなく宣言そのもので指す。材料が指す要素に
 | unpublish | `is_published`のみを変更する専用操作（`update()`は使えない、公開済みは拒否されるため） |
 
 create/update/deleteは、確定する前に**書いた後の全軸**を起動時の読み込みと同じ判定
-（`services/axis_registry_service.py: _loading_problem`。0行と、`check_axis_definition`に通らない軸）へ通し、通らなければ確定しない。
+（0行と、`check_axis_definition`に通らない軸。`services/axis_registry_service.py: _rejected_axes`）へ通し、通らなければ確定しない。
 確定してから反映（`refresh_axis_definitions`）で通らないと分かっても、行は既にDBにあり、次の起動が止まる。
 削除では、ほかの軸（材料・0次条件のどちらでも）が参照している軸と最後の1軸がこれで止まる——内部軸を
 整理するときは、参照している軸を先に直すか消す。判定を別に持たないので、読み込みの規則が増えれば
 書き込みも同じだけ止まる。
+
+削除の断り（`services/axis_registry_service.py: _check_deletable`）は、消す軸と、それを組み合わせに使っている軸を
+表示名で名指し、先に外すか消すという次の手を書く。消す前の全軸は読み込みを通っているので、消した後に判定を
+通らなくなる軸は、消す軸を指している軸だけである（判定のうち軸の集合で答えが変わるのは参照先の実在だけ）。
 
 いずれの書き込みも「DB commit → `refresh_axis_definitions`呼び出し」で完結する
 （1操作=1トランザクション）。
@@ -483,7 +503,8 @@ acquire_write_lock()`（PostgreSQLのトランザクションスコープadvisor
 「読み取り→Python側で検証→書き込み」の一連を直列化する。このロックが無いと、
 2つのcreate()が同時に走った場合に互いのsort_orderや材料排他帰属チェックが相手の
 変更を見ないまま古いスナップショットへ基づいて計算されるため、書き込み後にsort_order
-衝突・材料の二重帰属というTOCTOUレースが起こりうる。asyncio.Lock（同一プロセス内のみ
+衝突・材料の二重帰属というTOCTOUレースが起こりうる（`sort_order`の衝突は表の一意制約でも断られ、
+書き込みが失敗する側へ倒れる）。asyncio.Lock（同一プロセス内のみ
 有効）ではなくDBレベルのロックにしているのは、将来複数ワーカー化する場合にも機能させる
 ため。
 

@@ -24,7 +24,7 @@ interface CatalogAxis {
   label: string;
   display: { kind: string; tile_inputs: { property: string }[] };
   dedicated_way_value_layer: boolean;
-  dynamic_way_value_needs_time: boolean;
+  dynamic_way_value_conditions: string[];
 }
 
 export interface Catalog {
@@ -104,10 +104,17 @@ async function record(watch: Watch, response: Response): Promise<void> {
 }
 
 /**
- * 実backendへ向けてモバイル幅でアプリを開き、地図の読み込みが終わるまで待つ。
+ * 実backendへ向けてアプリを開き（既定はモバイル幅）、地図の読み込みが終わるまで待つ。
  * 起点はブラウザの現在地として、レイヤーのON/OFF等は保存状態として与える（利用者の操作を真似ない）。
+ * 初回の案内（地図の上に重なる）は閉じた状態で開く。
  */
-export async function openLive(page: Page, { storedState = {} }: { storedState?: Record<string, string> } = {}) {
+export async function openLive(
+  page: Page,
+  {
+    storedState = {},
+    viewport = LIVE_VIEWPORT,
+  }: { storedState?: Record<string, string>; viewport?: { width: number; height: number } } = {},
+) {
   const watch: Watch = {
     mapErrors: [],
     pageErrors: [],
@@ -126,12 +133,15 @@ export async function openLive(page: Page, { storedState = {} }: { storedState?:
 
   await page.context().grantPermissions(["geolocation"]);
   await page.context().setGeolocation(LIVE_POINT);
-  await page.setViewportSize(LIVE_VIEWPORT);
+  await page.setViewportSize(viewport);
   await page.addInitScript(installPageHelpers);
   await page.addInitScript(installMapFinder);
-  await page.addInitScript((items) => {
-    for (const [key, value] of Object.entries(items)) window.localStorage.setItem(key, value);
-  }, storedState);
+  await page.addInitScript(
+    (items) => {
+      for (const [key, value] of Object.entries(items)) window.localStorage.setItem(key, value);
+    },
+    { "ridecompass:first-visit-intro-closed": "true", ...storedState },
+  );
 
   await page.goto("/");
   await expect(page.getByRole("button", { name: "メニュー" })).toBeVisible({ timeout: 30_000 });
@@ -159,7 +169,7 @@ declare global {
  * アプリは地図を外へ公開していないので、テストのために入口を足さず、Reactが要素へ付ける内部の印（`__reactFiber$`）から
  * 祖先の部品のフックを辿る。Reactの内部の形が変わると見つからず、そのときは例外で止まる（黙って空を返さない）。
  */
-function installMapFinder(): void {
+export function installMapFinder(): void {
   window.__liveMap = () => {
     const container = document.querySelector(".maplibregl-map");
     const key = container && Object.keys(container).find((k) => k.startsWith("__reactFiber$"));
@@ -285,8 +295,8 @@ export function expectNoOwnFailures(watch: Watch): void {
 
 /** レンズを選ぶ（ピルを押して選択肢を押す。選ぶとポップオーバーは閉じる）。選択肢の名前には「ルート後のみ」等の印が続くので、ラベルの要素で当てる。 */
 export async function chooseLens(page: Page, label: string): Promise<void> {
-  await page.getByRole("button", { name: /^レンズ: / }).click();
-  const group = page.getByRole("radiogroup", { name: "レンズ" });
+  await page.getByRole("button", { name: /^地図の色分け: / }).click();
+  const group = page.getByRole("radiogroup", { name: "地図の色分け" });
   await group
     .getByRole("radio")
     .filter({ has: page.getByText(label, { exact: true }) })
@@ -295,6 +305,6 @@ export async function chooseLens(page: Page, label: string): Promise<void> {
 }
 
 export async function currentLensLabel(page: Page): Promise<string> {
-  const name = await page.getByRole("button", { name: /^レンズ: / }).getAttribute("aria-label");
-  return /^レンズ: (.*)（タップで変更）$/.exec(name ?? "")?.[1] ?? "";
+  const name = await page.getByRole("button", { name: /^地図の色分け: / }).getAttribute("aria-label");
+  return /^地図の色分け: (.*)（タップで変更）$/.exec(name ?? "")?.[1] ?? "";
 }

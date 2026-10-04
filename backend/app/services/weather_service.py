@@ -6,7 +6,7 @@ from app.domain.geo import compass_label
 from app.domain.msm import wind_speed_and_direction
 from app.domain.route import Coordinates
 from app.domain.twilight import sunrise_sunset_jst
-from app.domain.weather import TemperatureRange, WeatherConditions, WeatherPeriodOutlook
+from app.domain.weather import PERIOD_INTERVAL_HOURS, WeatherConditions, daily_max, daily_range, period_outlooks, today_indices
 from app.domain.region import BoundingBox
 from app.domain.wind import WIND_FORECAST_LAT_STEP_DEG, WIND_FORECAST_LON_STEP_DEG, WindForecastSeries, WindLattice
 from app.domain.wind_grid import WindGridPoint
@@ -97,19 +97,13 @@ class WeatherService:
         return series.times, results
 
     def _conditions_from_series(self, point: Coordinates, series: MsmSeries) -> WeatherConditions:
-        """MSMの時系列（1地点ぶん）から「今日」のパネル向けの値を組み立てる。
-
-        時系列の先頭（現在時刻の正時）を現在値として扱い、日次の集計は同じJST暦日の
-        残り時間ぶんを対象にする（MSMは過去の時刻を返さないため、朝から見た「今日の最高
-        気温」と夕方から見た値は一致しない——これから走る人向けの見通しとして扱う）。
-        """
+        """MSMの時系列（1地点ぶん）から「今日」のパネル向けの値を組み立てる。時系列の先頭（現在時刻の
+        正時）を現在値として扱い、日次の集計は同じJST暦日の残り時間ぶんを対象にする。"""
         times = series.times
         speed, direction = wind_speed_and_direction(series.wind_u_ms[0], series.wind_v_ms[0])
         temperature = series.temperature_c[0]
         precipitation = series.precipitation_mm[0]
-
-        now = datetime.fromisoformat(times[0])
-        today = [index for index, t in enumerate(times) if datetime.fromisoformat(t).date() == now.date()]
+        today = today_indices(times)
 
         return WeatherConditions(
             temperature_c=round(float(temperature[0]), 1),
@@ -118,46 +112,10 @@ class WeatherService:
             wind_direction_label=compass_label(float(direction[0])),
             precipitation_mm=round(float(precipitation[0]), 2),
             observed_at=times[0],
-            twilight=sunrise_sunset_jst(point, now.date()),
-            precipitation_max_mm=self._daily_max(precipitation, today),
-            wind_speed_max_ms=self._daily_max(speed, today),
-            temperature_range=self._daily_range(temperature, today),
-            today_periods=self._period_outlooks(series),
+            twilight=sunrise_sunset_jst(point, datetime.fromisoformat(times[0]).date()),
+            precipitation_max_mm=daily_max(precipitation, today),
+            wind_speed_max_ms=daily_max(speed, today),
+            temperature_range=daily_range(temperature, today),
+            today_periods=period_outlooks(times, temperature, precipitation),
+            today_period_interval_hours=PERIOD_INTERVAL_HOURS,
         )
-
-    @staticmethod
-    def _daily_max(series: np.ndarray, indices: list[int]) -> float | None:
-        return None if not indices else round(float(np.max(series[indices])), 1)
-
-    @staticmethod
-    def _daily_range(series: np.ndarray, indices: list[int]) -> TemperatureRange | None:
-        # 格子の欠損（NaN）は最低・最高の両方を欠く。
-        if not indices or np.isnan(series[indices]).any():
-            return None
-        values = series[indices]
-        return TemperatureRange(min_c=round(float(np.min(values)), 1), max_c=round(float(np.max(values)), 1))
-
-    _PERIOD_SLOT_COUNT = 8
-    _PERIOD_INTERVAL_HOURS = 2
-
-    @classmethod
-    def _period_outlooks(cls, series: MsmSeries) -> list[WeatherPeriodOutlook]:
-        """現在時刻の正時を起点に、一定間隔のコマを返す。
-
-        予報の終端に達したらそこで打ち切るため、コマ数はMSMのrunによって変動する。
-        """
-        results = []
-        for slot in range(cls._PERIOD_SLOT_COUNT):
-            index = slot * cls._PERIOD_INTERVAL_HOURS
-            if index >= len(series.times):
-                break
-            precipitation = float(series.precipitation_mm[0][index])
-            temperature = float(series.temperature_c[0][index])
-            results.append(
-                WeatherPeriodOutlook(
-                    period=datetime.fromisoformat(series.times[index]).strftime("%H:%M"),
-                    temperature_c=round(temperature, 1),
-                    precipitation_mm=round(precipitation, 2),
-                )
-            )
-        return results

@@ -1,449 +1,585 @@
 /**
- * 「ルート結果」の中身（`RouteOutcome`）——空の状態・案内・候補の一覧の行・候補の操作・選んだ候補の中身と区間の詳細・比較・
- * 編集面を、結果（本物の`useRouteResults`）・生成・乗り換えの値から描き、上がった操作を結果へ返す。
+ * `features/route/RouteOutcome/RouteOutcome.tsx`——「ルート結果」の中身。
  *
- * ここで見ないもの:
- * - 最速の印・「+N分」・負荷の帯の高さの決め方 → `routeTabLabel.ts`・`difficultyLoadBar.ts`
- * - 生成の案内・条件のずれの決め方 → `useRouteGeneration.ts`、乗り換えの状態 → `useSpliceSession.ts`
+ * 見るもの:
+ * - 候補が無い間の案内（生成中の進み方・直近の案内・生成前）と、候補がある間の作り直しの失敗・条件のずれ・
+ *   既定の配分で作ったこと・目的地の補正の知らせ（作り直しの失敗を出している間は条件のずれを重ねない）
+ * - 候補の一覧: 見出しを分けるのは経由地の無い目的地ルートの生成と編集で作ったルートがあるときで、行に出す名前・
+ *   距離・最速の印と所要時間・ほかの候補の余計にかかる時間・総合難易度（無ければ「—」）と負荷の帯の高さ、選ばれて
+ *   いるタブ（選んだ候補・無ければ先頭・比較を見ている間は比較）と、タブを押したときに上がる操作
+ * - 選んだ候補の中身: 合成（始められるときだけ）・GPXの操作、編集で作ったルートの「元との違い」へ渡す元と名前、
+ *   道のりのグラフへ渡す値（区間がある候補だけ）、区間を押している間の地点・到達予想・解除・区間の風と内訳と
+ *   研究モードの材料の値、押していない間の内訳へ渡す値、編集中は編集面だけを出すこと
+ * - 研究モードの比較タブと、比較表へ渡す軸（どれかの回で重みが0より大きかった軸）
  *
- * 差し替えた部品と、それで見えなくなるもの:
- * - 候補の中身（`RouteAxisProfile`）・道のりのグラフ（`DifficultyProfile`）・区間の内訳の帯（`AxisContributionBar`）・
- *   区間の風（`SegmentWind`）・比較表（`ComparisonPanel`）・編集面（`RouteSplicePanel`）: 渡す値と、上がる操作だけを見る。
- *   部品自身の表示は各部品のテストが見る。
- * - 軸カタログ（`useAxisCatalog`）: 返す値をテストが決める。GPXの書き出し（`gpxExport.downloadGpx`）: ファイルを落とす境界。
+ * ここで見ないもの: 一覧の見出し・名前・最速の決め方 → `features/route/routeTabLabel.ts`。帯の高さの求め方 →
+ * `features/route/difficultyLoadBar.ts`。結果の状態の移り変わり → `features/route/useRouteResults.ts`。
+ *
+ * 差し替えたもの: 子の部品（比較表・道のりのグラフ・内訳・寄与の帯・元との違い・区間の風・編集面）は受け取った値と
+ * 上げる操作だけを見る（表示は各部品のテストが見る）。軸カタログの通信（`services/axisCatalogApi.ts: getAxisCatalog`）と
+ * GPXのファイルを落とす関数（`features/route/gpxExport.ts: downloadGpx`）。
+ *
+ * 軸は架空のもの（`axis_a`等）を`src/testing/catalogAxes.ts`の雛形から作る。
  */
-import { act, render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useLayoutEffect, type ReactNode } from "react";
+import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { axisCatalogFromResponse, type AxisCatalog } from "@/lib/axisCatalog";
-import { MATERIAL_CATALOG } from "@/lib/axisMaterialsCatalog";
-import { catalogEntry } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
-import { setResearchEnabled } from "@/lib/researchMode";
-import { makeRouteCandidate } from "@/testing/routeFixtures";
-import { SPLICED_ROUTE_ID_PREFIX } from "@/features/route/routeTabLabel";
-import { useRouteResults, type RouteResults } from "@/features/route/useRouteResults";
-import type { ExperimentSlot } from "@/types/experimentSlot";
-import routeGenerateConfig from "@/types/generated/route-generate-config.json";
-import type { GenerationConditions, RouteCandidate, RouteSegmentDetail } from "@/types/route";
-
-const stubs = vi.hoisted(() => {
-  const mounted = new Map<string, Record<string, unknown>>();
-  return { mounted, catalog: undefined as unknown };
-});
-function stubModule(name: string) {
-  return async () => {
-    const react = await import("react");
-    return {
-      default: function Stub(props: Record<string, unknown>) {
-        react.useLayoutEffect(() => {
-          stubs.mounted.set(name, props);
-          return () => {
-            stubs.mounted.delete(name);
-          };
-        });
-        return react.createElement("div", { "data-stub": name }, props.children as ReactNode);
-      },
-    };
-  };
-}
-vi.mock("@/features/route/RouteAxisProfile/RouteAxisProfile", stubModule("RouteAxisProfile"));
-vi.mock("@/features/route/DifficultyProfile/DifficultyProfile", stubModule("DifficultyProfile"));
-vi.mock("@/components/AxisContributionBar/AxisContributionBar", stubModule("AxisContributionBar"));
-vi.mock("@/features/route/SegmentWind/SegmentWind", stubModule("SegmentWind"));
-vi.mock("@/features/route/ComparisonPanel/ComparisonPanel", stubModule("ComparisonPanel"));
-vi.mock("@/features/route/RouteSplicePanel/RouteSplicePanel", stubModule("RouteSplicePanel"));
-vi.mock("@/hooks/useAxisCatalog", () => ({ useAxisCatalog: () => stubs.catalog }));
-vi.mock("@/features/route/gpxExport", () => ({ downloadGpx: vi.fn() }));
-
+import type AxisContributionBar from "@/components/AxisContributionBar/AxisContributionBar";
+import type ComparisonPanel from "@/features/route/ComparisonPanel/ComparisonPanel";
+import type DifficultyProfile from "@/features/route/DifficultyProfile/DifficultyProfile";
+import type EditDifference from "@/features/route/EditDifference/EditDifference";
+import type RouteAxisProfile from "@/features/route/RouteAxisProfile/RouteAxisProfile";
+import type RouteSplicePanel from "@/features/route/RouteSplicePanel/RouteSplicePanel";
+import type SegmentWind from "@/features/route/SegmentWind/SegmentWind";
 import { downloadGpx } from "@/features/route/gpxExport";
+import type { GenerationInput } from "@/features/route/generationRequest";
+import { SPLICED_ROUTE_ID_PREFIX } from "@/features/route/routeTabLabel";
+import { COMPARISON_TAB, type EditedRoute, type RouteResults } from "@/features/route/useRouteResults";
+import { MATERIAL_CATALOG } from "@/lib/axisMaterialsCatalog";
+import { setResearchEnabled } from "@/lib/researchMode";
+import { getAxisCatalog } from "@/services/axisCatalogApi";
+import { catalogEntry, catalogOf, catalogResponse } from "@/testing/catalogAxes";
+import { makeGenerationConditions, makeRouteCandidate, makeRouteSegment } from "@/testing/routeFixtures";
+import type { ExperimentSlot } from "@/types/experimentSlot";
+import type { RouteCandidate, RouteSegmentDetail, SelectedRouteSegment } from "@/types/route";
 import RouteOutcome from "./RouteOutcome";
 
-const CATALOG: AxisCatalog = axisCatalogFromResponse(
-  [catalogEntry({ axis_id: "axis_a" }), catalogEntry({ axis_id: "axis_b" }), catalogEntry({ axis_id: "axis_c" })],
-  {},
-  {},
-  [],
-);
+const { stubModule, stubProps, isStubMounted } = await vi.hoisted(() => import("@/testing/componentStubs"));
+vi.mock("@/features/route/ComparisonPanel/ComparisonPanel", stubModule("ComparisonPanel"));
+vi.mock("@/features/route/DifficultyProfile/DifficultyProfile", stubModule("DifficultyProfile"));
+vi.mock("@/features/route/RouteAxisProfile/RouteAxisProfile", stubModule("RouteAxisProfile"));
+vi.mock("@/components/AxisContributionBar/AxisContributionBar", stubModule("AxisContributionBar"));
+vi.mock("@/features/route/EditDifference/EditDifference", stubModule("EditDifference"));
+vi.mock("@/features/route/SegmentWind/SegmentWind", stubModule("SegmentWind"));
+vi.mock("@/features/route/RouteSplicePanel/RouteSplicePanel", stubModule("RouteSplicePanel"));
+vi.mock("@/features/route/gpxExport", () => ({ downloadGpx: vi.fn() }));
+vi.mock("@/services/axisCatalogApi", () => ({ getAxisCatalog: vi.fn() }));
 
-type Props = Omit<Parameters<typeof RouteOutcome>[0], "results">;
-const GENERATION: Props["generation"] = {
-  running: false,
-  progressLabel: undefined,
-  lastMessage: undefined,
-  failure: null,
-  conditionsDirty: false,
-  weightsNotApplied: false,
-  destinationCorrected: false,
-  experimentSlots: [],
-};
-const SPLICE: Props["splice"] = { canStart: false, start: vi.fn(), panel: null };
-const CURRENT_WEIGHTS = { axis_a: 0.2 };
+const ENTRIES = [
+  catalogEntry({ axis_id: "axis_a", label: "軸A" }),
+  catalogEntry({ axis_id: "axis_b", label: "軸B" }),
+  catalogEntry({ axis_id: "axis_c", label: "軸C" }),
+];
+const CATALOG = catalogOf(ENTRIES);
 
-const resultsRef = { current: undefined as unknown as RouteResults };
-function Harness(props: Props) {
-  const results = useRouteResults();
-  useLayoutEffect(() => {
-    resultsRef.current = results;
-  });
-  return <RouteOutcome results={results} {...props} />;
-}
-function renderOutcome(
-  overrides: { generation?: Partial<Props["generation"]>; splice?: Partial<Props["splice"]> } = {},
-) {
-  const props: Props = {
-    generation: { ...GENERATION, ...overrides.generation },
-    splice: { ...SPLICE, ...overrides.splice },
-    currentWeights: CURRENT_WEIGHTS,
-  };
-  const view = render(<Harness {...props} />);
-  return { ...view, props };
-}
-function withRoutes(routes: RouteCandidate[], usedWeights = { axis_b: 1 }) {
-  act(() => resultsRef.current.replaceWithGenerated(routes, usedWeights));
-}
-function propsOf<T = Record<string, unknown>>(name: string): T {
-  const props = stubs.mounted.get(name);
-  if (!props) throw new Error(`${name}が描かれていない`);
-  return props as T;
-}
-const rows = () => within(screen.getByRole("tablist", { name: "ルート結果" })).getAllByRole("tab");
-const row = (name: RegExp | string) =>
-  within(screen.getByRole("tablist", { name: "ルート結果" })).getByRole("tab", { name });
+beforeEach(() => {
+  vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse(ENTRIES));
+});
 
-function segment(overrides: Partial<RouteSegmentDetail> = {}): RouteSegmentDetail {
+afterEach(() => {
+  setResearchEnabled(false);
+  vi.clearAllMocks();
+});
+
+function route(id: string, overrides: Partial<RouteCandidate> = {}): RouteCandidate {
+  return makeRouteCandidate({ id, direction_label: id, ...overrides });
+}
+
+const FAST = route("fast", {
+  distance_km: 10,
+  estimated_duration_seconds: 1800,
+  overall_difficulty: { average: 41.6, load: 416 },
+});
+const SLOW = route("slow", { distance_km: 20, estimated_duration_seconds: 2520, overall_difficulty: null });
+
+function resultsOf(
+  state: Partial<
+    Pick<RouteResults, "generated" | "edits" | "selectedRouteId" | "comparisonTabActive" | "selectedRouteSegment">
+  > = {},
+): RouteResults {
+  const generated = state.generated ?? [];
+  const edits = state.edits ?? [];
+  const routes = [...generated, ...edits.map((edit) => edit.route)];
+  const selectedRouteId = state.selectedRouteId ?? null;
+  const selectedCandidate = routes.find((candidate) => candidate.id === selectedRouteId) ?? null;
+  const edit = edits.find((item) => item.route.id === selectedRouteId);
   return {
-    geometry: null,
-    start_latitude: 0,
-    start_longitude: 0,
-    end_latitude: 0,
-    end_longitude: 0,
-    cumulative_distance_km: 0,
-    distance_km: 0,
-    estimated_arrival_time: null,
-    axis_difficulties: {},
-    axis_contributions: {},
-    material_values: {},
-    axis_raw_values: {},
-    difficulty: null,
-    wind: null,
+    routes,
+    generated,
+    edits,
+    selectedRouteId,
+    selectedCandidate,
+    selectedEdit: edit ? { ...edit, origin: routes.find((candidate) => candidate.id === edit.originId) ?? null } : null,
+    hasDetail: (selectedCandidate?.segments.length ?? 0) > 0,
+    selectedRouteSegment: state.selectedRouteSegment ?? null,
+    selectSegment: vi.fn(),
+    comparisonTabActive: state.comparisonTabActive ?? false,
+    usedWeights: null,
+    replaceWithGenerated: vi.fn(),
+    addEdit: vi.fn(),
+    clear: vi.fn(),
+    selectTab: vi.fn(),
+  };
+}
+
+type Generation = ComponentProps<typeof RouteOutcome>["generation"];
+
+function generationOf(overrides: Partial<Generation> = {}): Generation {
+  return {
+    running: false,
+    progressLabel: undefined,
+    lastMessage: undefined,
+    failure: null,
+    conditionsDirty: false,
+    weightsNotApplied: false,
+    destinationCorrected: false,
+    experimentSlots: [],
+    generatedInput: null,
     ...overrides,
   };
 }
-const route = (id: string, overrides: Partial<RouteCandidate> = {}) => makeRouteCandidate({ id, ...overrides });
 
-beforeEach(() => {
-  stubs.mounted.clear();
-  stubs.catalog = CATALOG;
-  vi.mocked(downloadGpx).mockReset();
-  setResearchEnabled(false);
-});
-afterEach(() => setResearchEnabled(false));
+/** 生成に使った入力。経由地・目的地だけを変える。 */
+function inputOf(overrides: Pick<GenerationInput, "destination" | "waypoints">): GenerationInput {
+  return {
+    origin: { latitude: 35, longitude: 139 },
+    distanceKm: null,
+    distanceToleranceKm: 0,
+    maxRoutes: 3,
+    assumedSpeedKmh: 20,
+    startTime: new Date(0),
+    hardFilters: {},
+    lensAxisId: null,
+    routePreference: null,
+    startTimePinned: false,
+    ...overrides,
+  };
+}
+const DESTINATION_INPUT = inputOf({ destination: { latitude: 35.1, longitude: 139.1 }, waypoints: [] });
+
+type Splice = ComponentProps<typeof RouteOutcome>["splice"];
+
+function renderOutcome({
+  results = resultsOf(),
+  generation = generationOf(),
+  splice = { canStart: false, start: vi.fn(), panel: null },
+  routeWeights = { axis_a: 1 },
+}: {
+  results?: RouteResults;
+  generation?: Generation;
+  splice?: Splice;
+  routeWeights?: Record<string, number>;
+} = {}) {
+  render(<RouteOutcome results={results} generation={generation} splice={splice} routeWeights={routeWeights} />);
+  return { results, splice };
+}
+
+/** 一覧の行を、上から行の文で（見出しを含む）。 */
+function listTexts(): string[] {
+  const list = screen.getByRole("tablist", { name: "ルート結果" });
+  return Array.from(list.children).map((child) => child.textContent ?? "");
+}
+
+/** 一覧の行の、負荷の帯の高さの倍率。 */
+function loadBarRatio(tab: HTMLElement): string {
+  const bar = Array.from(tab.querySelectorAll<HTMLElement>("span")).find((span) =>
+    span.style.getPropertyValue("--load-bar-height-ratio"),
+  );
+  return bar?.style.getPropertyValue("--load-bar-height-ratio") ?? "";
+}
+
+function segmentSelection(overrides: Partial<RouteSegmentDetail> = {}): SelectedRouteSegment {
+  return {
+    segment: makeRouteSegment({
+      cumulative_distance_km: 3.25,
+      estimated_arrival_time: "2026-10-04T00:42:00Z",
+      axis_contributions: { axis_a: 12 },
+      wind: { speed_ms: 3, direction_deg: 90, forecast_at: null, extended: false },
+      ...overrides,
+    }),
+    latitude: 35,
+    longitude: 139,
+  };
+}
 
 describe("候補が無い間", () => {
-  it("生成前は、押せば候補が並ぶことを案内する", () => {
-    renderOutcome();
-    expect(screen.getByText("「生成」を押すと候補がここに並びます")).toBeInTheDocument();
-  });
-
-  it("生成中は進み方を出し、進み方がまだ無ければ「生成中...」を出す", () => {
-    const { rerender, props } = renderOutcome({ generation: { running: true } });
-    expect(screen.getByText("生成中...")).toBeInTheDocument();
-    rerender(<Harness {...props} generation={{ ...props.generation, progressLabel: "順番待ち..." }} />);
+  it("生成中は進み方を出す", () => {
+    renderOutcome({ generation: generationOf({ running: true, progressLabel: "順番待ち..." }) });
     expect(screen.getByText("順番待ち...")).toBeInTheDocument();
   });
 
-  it("直近の案内（失敗・候補0件の理由）はエラーとして出す", () => {
-    renderOutcome({ generation: { lastMessage: "対象の道が見つかりません" } });
-    expect(screen.getByRole("alert")).toHaveTextContent("対象の道が見つかりません");
+  it("進み方の届く前の生成中は「生成中...」で、直近の案内より先に出す", () => {
+    renderOutcome({ generation: generationOf({ running: true, lastMessage: "前回の失敗" }) });
+    expect(screen.getByText("生成中...")).toBeInTheDocument();
+    expect(screen.queryByText("前回の失敗")).not.toBeInTheDocument();
+  });
+
+  it("生成していない間は、直近の案内（失敗・候補0件の理由）をエラーとして出す", () => {
+    renderOutcome({ generation: generationOf({ lastMessage: "候補が見つかりませんでした" }) });
+    expect(screen.getByRole("alert")).toHaveTextContent("候補が見つかりませんでした");
+  });
+
+  it("案内が無ければ、生成を押すと候補が並ぶことを案内する", () => {
+    renderOutcome();
+    expect(screen.getByText("「ルート設定」の「生成」を押すと候補がここに並びます")).toBeInTheDocument();
+    expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
   });
 });
 
-describe("候補の上の案内", () => {
-  it("作り直しの失敗は前の候補の上に出し、その間は条件が変わった旨を重ねない", () => {
-    renderOutcome({ generation: { failure: "混み合っています", conditionsDirty: true } });
-    withRoutes([route("a")]);
-    expect(screen.getByRole("alert")).toHaveTextContent("作り直せませんでした。混み合っています");
+describe("候補の上の知らせ", () => {
+  it("作り直しの失敗は前の候補の上にエラーとして出し、その間は条件が変わった旨を重ねない", () => {
+    renderOutcome({
+      results: resultsOf({ generated: [FAST] }),
+      generation: generationOf({ failure: "時間切れ", conditionsDirty: true }),
+    });
+    expect(screen.getByRole("alert")).toHaveTextContent("作り直せませんでした。時間切れ");
     expect(screen.queryByText("生成条件が変更されています")).not.toBeInTheDocument();
-    expect(rows()).toHaveLength(1);
+    expect(screen.getByRole("tablist", { name: "ルート結果" })).toBeInTheDocument();
   });
 
   it("条件のずれ・既定の配分で作ったこと・目的地の補正を、それぞれの間だけ知らせる", () => {
-    const { rerender, props } = renderOutcome();
-    withRoutes([route("a")]);
-    expect(screen.queryByText("生成条件が変更されています")).not.toBeInTheDocument();
-    rerender(
-      <Harness
-        {...props}
-        generation={{ ...props.generation, conditionsDirty: true, weightsNotApplied: true, destinationCorrected: true }}
-      />,
-    );
+    renderOutcome({
+      results: resultsOf({ generated: [FAST] }),
+      generation: generationOf({ conditionsDirty: true, weightsNotApplied: true, destinationCorrected: true }),
+    });
     expect(screen.getByText("生成条件が変更されています")).toBeInTheDocument();
     expect(screen.getByText("重み配分を反映できず、既定の配分で作りました。")).toBeInTheDocument();
-    expect(
-      screen.getByText("指定した地点は自転車で行けない場所だったため、近くのアクセス可能な地点へ補正しました。"),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/近くのアクセス可能な地点へ補正しました/)).toBeInTheDocument();
+  });
+
+  it("どれにも当たらなければ知らせを出さない", () => {
+    renderOutcome({ results: resultsOf({ generated: [FAST] }) });
+    expect(screen.queryByText("生成条件が変更されています")).not.toBeInTheDocument();
+    expect(screen.queryByText(/既定の配分/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/補正しました/)).not.toBeInTheDocument();
   });
 });
 
-describe("候補の一覧の行", () => {
-  it("並びどおりの順位と距離を出し、最も早く着く候補にその所要時間と「最速」の印、他の候補に余計にかかる時間を添える", () => {
-    renderOutcome();
-    withRoutes([
-      route("fast", { distance_km: 12.34, estimated_duration_seconds: 3600 }),
-      route("slow", { distance_km: 9, estimated_duration_seconds: 3600 + 12 * 60 }),
-      route("unknown", { distance_km: 8 }),
-    ]);
-    const [fast, slow, unknown] = rows();
-    expect(fast).toHaveTextContent(/^1 12\.3km/);
-    expect(within(fast).getByRole("img", { name: "最速" })).toBeInTheDocument();
-    expect(fast).toHaveTextContent("1時間0分");
-    expect(slow).toHaveTextContent(/^2 9\.0km/);
-    expect(slow).toHaveTextContent("+12分");
-    expect(within(slow).queryByRole("img", { name: "最速" })).not.toBeInTheDocument();
-    expect(unknown).toHaveTextContent(/^3 8\.0km—$/);
+describe("候補の一覧", () => {
+  it("見出しを分けない生成では、候補に1から番号を振り、距離・最速の印と所要時間・余計にかかる時間・総合難易度を並べる", () => {
+    renderOutcome({ results: resultsOf({ generated: [FAST, SLOW] }) });
+    expect(listTexts()).toEqual(["1 10.0km30分42", "2 20.0km+12分—"]);
+    expect(within(screen.getByRole("tab", { name: /^1 / })).getByRole("img", { name: "最速" })).toBeInTheDocument();
   });
 
-  it("候補が1件なら比べる相手が無いので最速の印を付けない", () => {
-    renderOutcome();
-    withRoutes([route("only", { estimated_duration_seconds: 600 })]);
+  it("候補が1件なら比べる相手が無いので、最速の印も余計にかかる時間も付けない", () => {
+    renderOutcome({ results: resultsOf({ generated: [FAST] }) });
+    expect(listTexts()).toEqual(["1 10.0km42"]);
     expect(screen.queryByRole("img", { name: "最速" })).not.toBeInTheDocument();
   });
 
-  it("経由地を通るルートは順位の代わりに名前を出し、乗り換えで作った候補には「合成」を添える", () => {
-    renderOutcome();
-    withRoutes([
-      route(routeGenerateConfig.waypoints_route_id, { direction_label: "経由地ルート", distance_km: 5 }),
-      route(`${SPLICED_ROUTE_ID_PREFIX}-1`, { distance_km: 6 }),
-    ]);
-    const [waypoints, spliced] = rows();
-    expect(waypoints).toHaveTextContent(/^経由地ルート 5\.0km/);
-    expect(spliced).toHaveTextContent(/^2 6\.0km合成/);
+  it("余計にかかる時間が丸めて1分未満の候補には何も添えない", () => {
+    renderOutcome({
+      results: resultsOf({ generated: [FAST, route("near", { distance_km: 11, estimated_duration_seconds: 1820 })] }),
+    });
+    expect(listTexts()[1]).toBe("2 11.0km—");
   });
 
-  it("総合難易度は丸めた数値と帯の長さで出し、算出できなかった候補は「—」だけで帯を塗らない", () => {
-    renderOutcome();
-    withRoutes([route("scored", { overall_difficulty: { average: 42.6, load: 426 } }), route("missing")]);
-    const [scored, missing] = rows();
-    expect(scored).toHaveTextContent(/43$/);
-    expect(scored.querySelector('[style*="width: 42.6%"]')).not.toBeNull();
-    expect(missing).toHaveTextContent(/—$/);
-    expect(missing.querySelector('[style*="width"]')).toBeNull();
+  it("経由地の無い目的地ルートでは、最速の候補を名前なしで「採用ルート」の先頭に置き、残りを「生成した候補」に番号で並べる", () => {
+    renderOutcome({
+      results: resultsOf({ generated: [SLOW, FAST] }),
+      generation: generationOf({ generatedInput: DESTINATION_INPUT }),
+    });
+    expect(listTexts()).toEqual(["採用ルート", "10.0km30分42", "生成した候補", "1 20.0km+12分—"]);
   });
 
-  it("負荷の帯の高さは、一覧の最短の候補を基準にした距離の倍率", () => {
-    renderOutcome();
-    withRoutes([route("short", { distance_km: 10 }), route("long", { distance_km: 15 })]);
-    const [short, long] = rows();
-    expect(short.querySelector('[style*="--load-bar-height-ratio: 1;"]')).not.toBeNull();
-    expect(long.querySelector('[style*="--load-bar-height-ratio: 1.5"]')).not.toBeNull();
+  it("経由地を伴う目的地ルートは見出しを分けない", () => {
+    renderOutcome({
+      results: resultsOf({ generated: [FAST, SLOW] }),
+      generation: generationOf({
+        generatedInput: inputOf({
+          destination: { latitude: 35.1, longitude: 139.1 },
+          waypoints: [{ latitude: 35, longitude: 139.05 }],
+        }),
+      }),
+    });
+    expect(listTexts()).not.toContain("採用ルート");
   });
 
-  it("選んでいる候補の行が選ばれて見え、行を押すとその候補を選ぶ", async () => {
-    const user = userEvent.setup();
-    renderOutcome();
-    withRoutes([route("a", { distance_km: 1 }), route("b", { distance_km: 2 })]);
-    expect(row(/^1 /)).toHaveAttribute("aria-selected", "true");
-    await user.click(row(/^2 /));
-    expect(resultsRef.current.selectedRouteId).toBe("b");
-    expect(row(/^2 /)).toHaveAttribute("aria-selected", "true");
+  it("編集で作ったルートは「採用ルート」に「編集N」の名前で並ぶ", () => {
+    const edit: EditedRoute = {
+      route: route(`${SPLICED_ROUTE_ID_PREFIX}-1`, { distance_km: 12 }),
+      originId: "fast",
+      number: 1,
+    };
+    renderOutcome({ results: resultsOf({ generated: [FAST, SLOW], edits: [edit] }) });
+    expect(listTexts()).toEqual(["採用ルート", "編集1 12.0km—", "生成した候補", "1 10.0km30分42", "2 20.0km+12分—"]);
+  });
+
+  it("総合難易度の帯は長さが総合難易度で、算出できなかった候補は塗らない", () => {
+    renderOutcome({ results: resultsOf({ generated: [FAST, SLOW] }) });
+    const fill = (tab: HTMLElement) =>
+      Array.from(tab.querySelectorAll<HTMLElement>("span")).find((span) => span.style.width !== "");
+    const [first, second] = screen.getAllByRole("tab");
+    expect(fill(first)?.style.width).toBe("41.6%");
+    expect(fill(second)).toBeUndefined();
+  });
+
+  it("負荷の帯の高さは、一覧の中で最も短い候補を1とした距離の比", () => {
+    renderOutcome({ results: resultsOf({ generated: [FAST, route("long", { distance_km: 15 })] }) });
+    const [first, second] = screen.getAllByRole("tab");
+    expect(loadBarRatio(first)).toBe("1");
+    expect(loadBarRatio(second)).toBe("1.5");
+  });
+
+  it("選んだ候補のタブが選ばれている", () => {
+    renderOutcome({ results: resultsOf({ generated: [FAST, SLOW], selectedRouteId: "slow" }) });
+    expect(screen.getByRole("tab", { name: /^2 / })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("選んだ候補が無ければ先頭の候補が選ばれている", () => {
+    renderOutcome({ results: resultsOf({ generated: [FAST, SLOW] }) });
+    expect(screen.getByRole("tab", { name: /^1 / })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("タブを押すと、その候補のidでタブの選択を上げる", async () => {
+    const { results } = renderOutcome({ results: resultsOf({ generated: [FAST, SLOW] }) });
+    await userEvent.click(screen.getByRole("tab", { name: /^2 / }));
+    expect(results.selectTab).toHaveBeenCalledWith("slow");
   });
 });
 
-describe("候補の中身", () => {
-  it("区間を押していない間は、候補の値と生成に使われた重みを中身へ渡す（まだ無ければいまの重み）", () => {
-    renderOutcome();
-    const candidate = route("a", {
-      distance_km: 12,
-      overall_difficulty: { average: 30, load: 360 },
-      estimated_duration_seconds: 2400,
+describe("選んだ候補の中身", () => {
+  it("合成は始められるときだけ出し、押すとその候補で編集を始めて押していた区間を外す", async () => {
+    const { results, splice } = renderOutcome({
+      results: resultsOf({ generated: [FAST, SLOW] }),
+      splice: { canStart: true, start: vi.fn(), panel: null },
+    });
+    await userEvent.click(screen.getByRole("button", { name: "ルートを合成" }));
+    expect(splice.start).toHaveBeenCalledWith("fast");
+    expect(results.selectSegment).toHaveBeenCalledWith(null);
+  });
+
+  it("編集を始められない生成では合成を出さない", () => {
+    renderOutcome({ results: resultsOf({ generated: [FAST] }) });
+    expect(screen.queryByRole("button", { name: "ルートを合成" })).not.toBeInTheDocument();
+  });
+
+  it("GPX出力はその候補を書き出す", async () => {
+    renderOutcome({ results: resultsOf({ generated: [FAST, SLOW], selectedRouteId: "slow" }) });
+    await userEvent.click(screen.getByRole("button", { name: "GPX出力" }));
+    expect(downloadGpx).toHaveBeenCalledWith(SLOW);
+  });
+
+  it("編集で作ったルートには、元とその一覧での名前を「元との違い」へ渡し、「元を見る」で元のタブを選ぶ", () => {
+    const edited = route(`${SPLICED_ROUTE_ID_PREFIX}-1`, { distance_km: 12 });
+    const { results } = renderOutcome({
+      results: resultsOf({
+        generated: [FAST, SLOW],
+        edits: [{ route: edited, originId: "slow", number: 1 }],
+        selectedRouteId: edited.id,
+      }),
+    });
+    const props = stubProps<ComponentProps<typeof EditDifference>>("EditDifference");
+    expect(props).toMatchObject({ originName: "2", origin: SLOW, edited });
+    props.onShowOrigin();
+    expect(results.selectTab).toHaveBeenCalledWith("slow");
+  });
+
+  it("生成した候補・元が一覧に無い編集には「元との違い」を出さない", () => {
+    const orphan = route(`${SPLICED_ROUTE_ID_PREFIX}-1`);
+    renderOutcome({
+      results: resultsOf({
+        generated: [FAST],
+        edits: [{ route: orphan, originId: "gone", number: 1 }],
+        selectedRouteId: orphan.id,
+      }),
+    });
+    expect(isStubMounted("EditDifference")).toBe(false);
+  });
+
+  it("区間のある候補だけに道のりのグラフを出し、横軸は一覧で最も長い候補の距離、押した区間と選ぶ操作を渡す", async () => {
+    const segment = makeRouteSegment({ distance_km: 1 });
+    const withSegments = route("fast", {
+      distance_km: 10,
+      segments: [segment],
+      overall_difficulty: { average: 30, load: 300 },
+    });
+    const selected = segmentSelection();
+    const { results } = renderOutcome({
+      results: resultsOf({ generated: [withSegments, SLOW], selectedRouteSegment: selected }),
+    });
+    await waitFor(() =>
+      expect(stubProps<ComponentProps<typeof DifficultyProfile>>("DifficultyProfile").axisOrder).toHaveLength(3),
+    );
+    const props = stubProps<ComponentProps<typeof DifficultyProfile>>("DifficultyProfile");
+    expect(props).toMatchObject({
+      segments: [segment],
+      overallDifficulty: 30,
+      axisOrder: ["axis_a", "axis_b", "axis_c"],
+      axisColors: CATALOG.axisColors,
+      scaleKm: 20,
+      selected,
+    });
+    props.onSelect(selected);
+    expect(results.selectSegment).toHaveBeenCalledWith(selected);
+  });
+
+  it("区間の無い候補には道のりのグラフを出さない", () => {
+    renderOutcome({ results: resultsOf({ generated: [FAST] }) });
+    expect(isStubMounted("DifficultyProfile")).toBe(false);
+  });
+
+  it("区間を押していない間は、候補の値と軸を分ける重みを内訳へ渡す", async () => {
+    const candidate = route("fast", {
+      distance_km: 10,
+      overall_difficulty: { average: 30, load: 300 },
+      estimated_duration_seconds: 1800,
+      axis_difficulties: { axis_a: 20 },
+      axis_contributions: { axis_a: 30 },
+      axis_raw_values: { axis_a: 0.5 },
+      material_values: { m: 1 },
+      material_category_shares: { c: { x: 1 } },
       wind_unavailable: true,
       missing_travel_data_share: 0.1,
-      axis_difficulties: { axis_a: 10 },
-      axis_contributions: { axis_a: 5 },
-      axis_raw_values: { axis_a: 1 },
-      material_values: { m: 2 },
-      material_category_shares: { m: { x: 1 } },
     });
-    withRoutes([candidate], { axis_b: 1 });
-    expect(propsOf("RouteAxisProfile")).toEqual({
+    renderOutcome({ results: resultsOf({ generated: [candidate] }), routeWeights: { axis_a: 0.7 } });
+    await waitFor(() =>
+      expect(stubProps<ComponentProps<typeof RouteAxisProfile>>("RouteAxisProfile").axes).toHaveLength(3),
+    );
+    expect(stubProps<ComponentProps<typeof RouteAxisProfile>>("RouteAxisProfile")).toMatchObject({
       axes: CATALOG.axes,
-      weights: { axis_b: 1 },
-      axisDifficulties: candidate.axis_difficulties,
-      axisContributions: candidate.axis_contributions,
-      axisRawValues: candidate.axis_raw_values,
-      materialValues: candidate.material_values,
-      materialCategoryShares: candidate.material_category_shares,
-      distanceKm: 12,
-      overallDifficulty: { average: 30, load: 360 },
-      estimatedDurationSeconds: 2400,
+      weights: { axis_a: 0.7 },
+      axisDifficulties: { axis_a: 20 },
+      axisContributions: { axis_a: 30 },
+      axisRawValues: { axis_a: 0.5 },
+      materialValues: { m: 1 },
+      materialCategoryShares: { c: { x: 1 } },
+      distanceKm: 10,
+      overallDifficulty: { average: 30, load: 300 },
+      estimatedDurationSeconds: 1800,
       windUnavailable: true,
       missingTravelDataShare: 0.1,
       axisColors: CATALOG.axisColors,
     });
-
-    act(() => resultsRef.current.clear());
-    act(() => resultsRef.current.replaceAndSelect([candidate], "a"));
-    expect(propsOf<{ weights: unknown }>("RouteAxisProfile").weights).toEqual(CURRENT_WEIGHTS);
+    expect(isStubMounted("SegmentWind")).toBe(false);
   });
 
-  it("道のりのグラフは区間を持つ候補にだけ出し、横軸は一覧で最も長い候補の距離にする。グラフで選んだ区間は結果へ入る", () => {
-    renderOutcome();
-    const segments = [segment({ cumulative_distance_km: 1 })];
-    withRoutes([
-      route("a", { distance_km: 10, segments, overall_difficulty: { average: 20, load: 200 } }),
-      route("b", { distance_km: 25 }),
-    ]);
-    const graph = propsOf<{
-      segments: unknown;
-      scaleKm: number;
-      axisOrder: string[];
-      overallDifficulty: number;
-      onSelect: (value: unknown) => void;
-    }>("DifficultyProfile");
-    expect(graph).toMatchObject({
-      segments,
-      scaleKm: 25,
-      axisOrder: ["axis_a", "axis_b", "axis_c"],
-      overallDifficulty: 20,
-      selected: null,
-    });
-    const selection = { segment: segments[0], latitude: 35, longitude: 139 };
-    act(() => graph.onSelect(selection));
-    expect(resultsRef.current.selectedRouteSegment).toBe(selection);
-  });
-
-  it("区間を持たない候補にはグラフを出さない", () => {
-    renderOutcome();
-    withRoutes([route("a", { segments: [] })]);
-    expect(stubs.mounted.has("DifficultyProfile")).toBe(false);
-  });
-});
-
-describe("押した区間の詳細", () => {
-  const WIND = { direction_deg: 90, speed_ms: 3, forecast_at: null, extended: false } as RouteSegmentDetail["wind"];
-
-  it("地点・到着予想（日本時間）・風・内訳を中身の代わりに出し、×で候補の中身へ戻す", async () => {
-    const user = userEvent.setup();
-    renderOutcome();
-    withRoutes([route("a")]);
-    const detail = segment({
-      cumulative_distance_km: 12.34,
-      estimated_arrival_time: "2026-09-25T03:40:00Z",
-      wind: WIND,
-      axis_contributions: { axis_a: 4 },
-    });
-    act(() => resultsRef.current.selectSegment({ segment: detail, latitude: 35, longitude: 139 }));
-    expect(screen.getByText(/12\.3 km地点/)).toBeInTheDocument();
-    expect(screen.getByText("到達予想 12:40")).toBeInTheDocument();
-    expect(propsOf("SegmentWind")).toEqual({ wind: WIND });
-    expect(propsOf("AxisContributionBar")).toEqual({
+  it("区間を押している間は、内訳の代わりに区間の地点・到達予想（日本時間）・風・寄与を出す", async () => {
+    const selected = segmentSelection();
+    renderOutcome({ results: resultsOf({ generated: [FAST], selectedRouteSegment: selected }) });
+    expect(screen.getByText("3.3 km地点")).toBeInTheDocument();
+    expect(screen.getByText("到達予想 09:42")).toBeInTheDocument();
+    expect(isStubMounted("RouteAxisProfile")).toBe(false);
+    expect(stubProps<ComponentProps<typeof SegmentWind>>("SegmentWind").wind).toBe(selected.segment.wind);
+    await waitFor(() =>
+      expect(stubProps<ComponentProps<typeof AxisContributionBar>>("AxisContributionBar").axes).toHaveLength(3),
+    );
+    expect(stubProps<ComponentProps<typeof AxisContributionBar>>("AxisContributionBar")).toMatchObject({
       axes: CATALOG.axes,
-      contributions: { axis_a: 4 },
+      contributions: { axis_a: 12 },
       axisColors: CATALOG.axisColors,
     });
-    expect(stubs.mounted.has("RouteAxisProfile")).toBe(false);
-
-    await user.click(screen.getByRole("button", { name: "区間の選択を解除" }));
-    expect(resultsRef.current.selectedRouteSegment).toBeNull();
-    expect(stubs.mounted.has("RouteAxisProfile")).toBe(true);
   });
 
   it.each([
-    ["無い", null],
-    ["読めない", "not-a-time"],
-  ])("到着予想が%sときは「不明」と出す", (_c, arrival) => {
-    renderOutcome();
-    withRoutes([route("a")]);
-    act(() =>
-      resultsRef.current.selectSegment({
-        segment: segment({ estimated_arrival_time: arrival }),
-        latitude: 0,
-        longitude: 0,
+    ["到達予想が無い", null],
+    ["到達予想が時刻として読めない", "not-a-time"],
+  ])("%s区間は、到達予想を「不明」と出す", (_, arrival) => {
+    renderOutcome({
+      results: resultsOf({
+        generated: [FAST],
+        selectedRouteSegment: segmentSelection({ estimated_arrival_time: arrival }),
       }),
-    );
+    });
     expect(screen.getByText("到達予想 不明")).toBeInTheDocument();
   });
 
-  it("研究モードの間だけ区間の材料の値を名前付きで並べ、名前を引けない材料は出さない", () => {
-    const [known] = MATERIAL_CATALOG;
-    const detail = segment({ material_values: { [known.id]: 1, not_a_material: 2 } });
-    renderOutcome();
-    withRoutes([route("a")]);
-    act(() => resultsRef.current.selectSegment({ segment: detail, latitude: 0, longitude: 0 }));
-    expect(screen.queryByRole("list")).not.toBeInTheDocument();
-
-    act(() => setResearchEnabled(true));
-    const items = within(screen.getByRole("list")).getAllByRole("listitem");
-    expect(items).toHaveLength(1);
-    expect(items[0]).toHaveTextContent(`${known.name}: `);
-  });
-});
-
-describe("候補の操作", () => {
-  it("「GPX」はその候補を書き出す", async () => {
-    const user = userEvent.setup();
-    renderOutcome();
-    const candidate = route("a");
-    withRoutes([candidate]);
-    await user.click(screen.getByRole("button", { name: "GPX出力" }));
-    expect(downloadGpx).toHaveBeenCalledWith(candidate);
-  });
-
-  it("「合成」は始められるときだけ出し、押すとその候補から編集を始めて押していた区間を外す", async () => {
-    const user = userEvent.setup();
-    const start = vi.fn();
-    const { rerender, props } = renderOutcome();
-    withRoutes([route("a"), route("b")]);
-    expect(screen.queryByRole("button", { name: "ルートを合成" })).not.toBeInTheDocument();
-
-    rerender(<Harness {...props} splice={{ ...props.splice, canStart: true, start }} />);
-    act(() => resultsRef.current.selectSegment({ segment: segment(), latitude: 0, longitude: 0 }));
-    await user.click(screen.getByRole("button", { name: "ルートを合成" }));
-    expect(start).toHaveBeenCalledWith("a");
-    expect(resultsRef.current.selectedRouteSegment).toBeNull();
-  });
-
-  it("編集中は一覧の代わりに編集面を出し、編集面の値をそのまま渡す（作り直しの失敗は上に残す）", () => {
-    const panel = { marker: "編集面" } as unknown as NonNullable<Props["splice"]["panel"]>;
-    renderOutcome({ splice: { panel }, generation: { failure: "混み合っています" } });
-    withRoutes([route("a")]);
-    expect(propsOf("RouteSplicePanel")).toEqual(panel);
-    expect(screen.queryByRole("tablist", { name: "ルート結果" })).not.toBeInTheDocument();
-    expect(screen.getByRole("alert")).toHaveTextContent("作り直せませんでした。混み合っています");
-  });
-});
-
-describe("比較", () => {
-  const slot = (weights: Record<string, number>): ExperimentSlot => ({
-    id: JSON.stringify(weights),
-    color: "#000",
-    conditions: { route_preference: weights } as unknown as GenerationConditions,
-    topCandidate: route("top"),
-  });
-
-  it("研究モードでない間は「比較」の行を出さない", () => {
-    renderOutcome();
-    withRoutes([route("a")]);
-    expect(screen.queryByRole("tab", { name: "比較" })).not.toBeInTheDocument();
-  });
-
-  it("研究モードでは末尾に「比較」を出し、軸はいずれかのスロットを作ったときの重みが正だった軸に絞る。押すと比較を見る", async () => {
-    setResearchEnabled(true);
-    const user = userEvent.setup();
-    const slots = [slot({ axis_a: 0.5, axis_b: 0 }), slot({ axis_c: 1 })];
-    renderOutcome({ generation: { experimentSlots: slots } });
-    withRoutes([route("a")]);
-    expect(rows().at(-1)).toHaveTextContent("比較");
-    expect(propsOf("ComparisonPanel")).toEqual({
-      slots,
-      axisLabels: CATALOG.axisLabels,
-      axes: CATALOG.axes.filter((axis) => axis.axisId !== "axis_b"),
-      materials: MATERIAL_CATALOG,
+  it("区間の選択の解除を押すと、押していた区間を外す", async () => {
+    const { results } = renderOutcome({
+      results: resultsOf({ generated: [FAST], selectedRouteSegment: segmentSelection() }),
     });
-    await user.click(screen.getByRole("tab", { name: "比較" }));
-    expect(resultsRef.current.comparisonTabActive).toBe(true);
+    await userEvent.click(screen.getByRole("button", { name: "区間の選択を解除" }));
+    expect(results.selectSegment).toHaveBeenCalledWith(null);
+  });
+
+  it("研究モードの間だけ、区間の材料の値を名前を引けるものだけ並べる", () => {
+    const known = MATERIAL_CATALOG[0];
+    const selected = segmentSelection({ material_values: { [known.id]: 1.5, not_a_material: 2 } });
+    const { unmount } = render(
+      <RouteOutcome
+        results={resultsOf({ generated: [FAST], selectedRouteSegment: selected })}
+        generation={generationOf()}
+        splice={{ canStart: false, start: vi.fn(), panel: null }}
+        routeWeights={{}}
+      />,
+    );
+    expect(screen.queryByRole("list")).not.toBeInTheDocument();
+    unmount();
+
+    setResearchEnabled(true);
+    renderOutcome({ results: resultsOf({ generated: [FAST], selectedRouteSegment: selected }) });
+    const items = screen.getAllByRole("listitem");
+    expect(items).toHaveLength(1);
+    expect(items[0].textContent?.startsWith(`${known.name}: 1.5`)).toBe(true);
+  });
+
+  it("編集している間は、一覧の代わりに編集面だけを出す", () => {
+    const panel: ComponentProps<typeof RouteSplicePanel> = {
+      displayed: FAST,
+      appliedCount: 0,
+      hasAlternatives: true,
+      onUndo: vi.fn(),
+      onReset: vi.fn(),
+      preview: null,
+      previewing: false,
+      onPreview: vi.fn(),
+      onApply: vi.fn(),
+      applying: false,
+      error: null,
+      onCancel: vi.fn(),
+      axes: CATALOG.axes,
+      axisColors: CATALOG.axisColors,
+    };
+    renderOutcome({
+      results: resultsOf({ generated: [FAST, SLOW] }),
+      splice: { canStart: true, start: vi.fn(), panel },
+    });
+    expect(stubProps("RouteSplicePanel")).toEqual(panel);
+    expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+  });
+});
+
+describe("研究モードの比較", () => {
+  function slot(id: string, routePreference: Record<string, number>): ExperimentSlot {
+    return {
+      id,
+      color: "",
+      conditions: makeGenerationConditions({ route_preference: routePreference }),
+      topCandidate: route(id),
+    };
+  }
+
+  it("研究モードでなければ比較タブを出さない", () => {
+    renderOutcome({ results: resultsOf({ generated: [FAST] }) });
+    expect(screen.queryByRole("tab", { name: "比較" })).not.toBeInTheDocument();
+    expect(isStubMounted("ComparisonPanel")).toBe(false);
+  });
+
+  it("比較タブを末尾に出し、開いていない間も比較表を描いておく", () => {
+    setResearchEnabled(true);
+    renderOutcome({ results: resultsOf({ generated: [FAST] }) });
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs.at(-1)).toHaveTextContent("比較");
+    expect(tabs.at(-1)).toHaveAttribute("aria-selected", "false");
+    expect(isStubMounted("ComparisonPanel")).toBe(true);
+  });
+
+  it("比較を見ている間は、選んだ候補ではなく比較タブが選ばれている", () => {
+    setResearchEnabled(true);
+    renderOutcome({ results: resultsOf({ generated: [FAST], selectedRouteId: "fast", comparisonTabActive: true }) });
     expect(screen.getByRole("tab", { name: "比較" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: /^1 / })).toHaveAttribute("aria-selected", "false");
+  });
+
+  it("比較タブを押すと、比較タブの選択を上げる", async () => {
+    setResearchEnabled(true);
+    const { results } = renderOutcome({ results: resultsOf({ generated: [FAST] }) });
+    await userEvent.click(screen.getByRole("tab", { name: "比較" }));
+    expect(results.selectTab).toHaveBeenCalledWith(COMPARISON_TAB);
+  });
+
+  it("比較表へは、どれかの回で重みが0より大きかった軸と、回・軸の名前・材料の一覧を渡す", async () => {
+    setResearchEnabled(true);
+    const slots = [slot("one", { axis_a: 0.5, axis_b: 0 }), slot("two", { axis_c: 0.2 })];
+    renderOutcome({ results: resultsOf({ generated: [FAST] }), generation: generationOf({ experimentSlots: slots }) });
+    await waitFor(() =>
+      expect(stubProps<ComponentProps<typeof ComparisonPanel>>("ComparisonPanel").axes).toHaveLength(2),
+    );
+    const props = stubProps<ComponentProps<typeof ComparisonPanel>>("ComparisonPanel");
+    expect(props.axes.map((axis) => axis.axisId)).toEqual(["axis_a", "axis_c"]);
+    expect(props).toMatchObject({ slots, axisLabels: CATALOG.axisLabels, materials: MATERIAL_CATALOG });
   });
 });

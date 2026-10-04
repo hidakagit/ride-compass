@@ -20,12 +20,12 @@
 | app | `page.tsx`・`layout.tsx`・`error.tsx`・`global-error.tsx` |
 | hooks | `useStoredState.ts`・`useIsMobile.ts`・`useElementHeightCssVar.ts`・`useLocation.ts`・`useDebouncedValue.ts`・`useIsomorphicLayoutEffect.ts` |
 | features/map/view | `useMapView.ts`（地図の見え方の状態と、地図・操作部品へ渡す値）・`mapLook.ts`（地図へ渡す見え方の値の型）・`lens.ts`（レンズから塗る軸・凡例・選択肢を導く）・`overlayChips.ts`（地図上チップの状態とレイヤー表示の保存形式）・`legendFilters.ts`（凡例で隠した行の保存先の読み書き） |
-| features/map/MapView | `useLayerDataStatus.ts`（`layerDataStatus` stateの実装） |
+| features/map/MapView | `useLayerDataStatus.ts`（MapLibreのソースイベントからレイヤーごとの取得状態を算出して渡す） |
 | lib | `apiBaseUrl.ts`・`apiClient.ts`（backendのAPIを呼ぶ口と、全呼び出しが共有する骨格。下記）・`apiPath.ts`（アプリ自身が呼ばないURL［地図ライブラリへ渡すタイル・スタイル］のパスをOpenAPIの宣言と型で照合して作る）・`apiError.ts`・`backendInternalUrl.ts`・`queryClient.ts`（画面のデータ取得が共有するTanStack Queryのキャッシュ。下記「データ取得の骨格」）・`apiTimeouts.ts`（APIリクエストのタイムアウト。呼び出しの性質ごとの名前付き定数）・`safeStorage.ts`（localStorageの読み書きで例外を外へ出さない薄いラッパ）・`paletteCssVariables.ts`（地図に塗る色と同じ色をUIにも出す箇所へ、配信された値をCSS変数として流す。`layout.tsx`がサーバー側で`:root`へ入れる。CSSが値を持つのはライト/ダークで2値を持つものだけ）・`mapOverlayEdges.ts`（地図の上に重ねる部品へ付ける「どの辺を覆うか」の印と、印の付いた部品が覆う幅の実測。印を付ける部品は地図の機能の外にもあるので共有の層に置く。下記「`MapView`との境界」） |
-| features/route | `routeApi.ts`（ルート生成・プレビューAPI）・`formatDuration.ts`（秒を「1時間42分」の形にする）・`generationRequest.ts`（生成リクエストのpayloadと`conditionsDirty`の比較キーを同じ入力から導出する純関数）・`routeSplice.ts`（候補どうしが別々の道を通る区間を`edge_ids`の集合演算で求め、表示中の側と相手側を対応づけ、選んだ区間を差し替えた経路を組み立て純関数。差し替えた経路の評価はbackendが行うため計算式は持たない。合成結果も生成候補と同じ並び（所要時間の短い順、`routeTabLabel.ts: orderByDuration`）へ入れる。区間を割る下限は持たず呼び出し側から受け取る［backendの較正値で、管理画面から変えられる］） |
+| features/route | `routeApi.ts`（ルート生成・プレビューAPI）・`formatDuration.ts`（秒を「102分」の形にする。1時間を超えても分で書き、候補の一覧・候補の中身・差し替えの比較で同じ単位で見比べる）・`generationRequest.ts`（生成リクエストのpayloadと`conditionsDirty`の比較キーを同じ入力から導出する純関数）・`routeSplice.ts`（候補どうしが別々の道を通る区間を`edge_ids`の集合演算で求め、表示中の側と相手側を対応づけ、選んだ区間を差し替えた経路を組み立て純関数。差し替えた経路の評価はbackendが行うため計算式は持たない。区間を割る下限は持たず呼び出し側から受け取る［backendの較正値で、管理画面から変えられる］） |
 | features/conditions | `useRideConditions.ts`（走行条件: 走行方位・出発時刻・想定速度。想定速度だけを保存し、保存値は画面の範囲内の整数だけを受け入れる）・`useDepartureTime.ts`（出発時刻。選ぶまでは5分刻みの「今」へ追従し、選んだ時刻は動かさない）・`rideConditions.ts`（走行条件の出発時刻ラベルと想定速度の丸め。速度の上下限はbackendの`routeGenerateConfig`から読む） |
-| types | `types/route.ts`（`RouteCandidate`等の生成APIレスポンス型） |
-| components（特定モジュールの責務ではない共通部品） | `ErrorText/ErrorText.tsx`（フォームのエラー文言表示）・`BottomSheet/BottomSheet.tsx`（モバイル下部シート、下記「モバイル/デスクトップのレイアウト分岐」節参照）・`Disclosure/Disclosure.tsx`（折りたたみ表示、[ルート設定・結果パネル](route-settings-and-results.md)等が使う） |
+| types | `types/route.ts`（`RouteCandidate`等の生成APIレスポンス型）・`types/fetchFailure.ts`（常設ヘッダーの「未取得」の印に並ぶ項目の型。下記「失敗・空・待ちの伝え方」） |
+| components（特定モジュールの責務ではない共通部品） | `BottomSheet/BottomSheet.tsx`（モバイル下部シート、下記「モバイル/デスクトップのレイアウト分岐」節参照）・`Disclosure/Disclosure.tsx`（折りたたみ表示、[ルート設定・結果パネル](route-settings-and-results.md)等が使う）・`UsageGuide/UsageGuide.tsx`（説明を見る状態。下記「使い方の説明」）・`UsageGuide/usageTarget.ts`（押された要素から説明する部品・名前・使い方の文を引く）・`FirstVisitIntro/FirstVisitIntro.tsx`（初めて開いたときだけ出す案内。下記「初回の案内」） |
 | features/conditions/RideConditionBar | `RideConditionBar.tsx`（地図右上、走行方位アイコン直下の走行条件アイコン列本体。出発時刻・想定速度ともTravelBearingControlと同じ列の幅のアイコンボタンで、アイコンの下へ現在値（出発時刻は当日なら「12:40」、別の日は「9/24」「12:40」の2行。想定速度は「20km/h」）を出す。表示・`aria-label`・`title`は同じ文字列から作る。タップしたポップオーバー内はドラッグ式タイムライン（「今」の目盛りを選ぶと追従へ戻す）＋`input[type=datetime-local]`の直接指定[出発時刻、日本時間で読み書きする]、スライダー＋数値入力[想定速度]）・`departureTimeline.ts`（出発時刻ポップオーバーのドラッグタイムライン用の目盛り生成。気象レイヤーの実フレームには依存しない自己完結した合成タイムライン） |
 | features/conditions/TravelBearingControl | `TravelBearingControl.tsx`（地図右上の走行方位のアイコンボタン。押すと`WindBearingSlider`のダイヤルをPopoverで開く。詳しくは[ルート設定・結果パネル](route-settings-and-results.md)） |
 | features/conditions/DynamicLayerTimeSlider | `DynamicLayerTimeSlider.tsx`（ドラッグ/横スクロールで時刻を選ぶ汎用タイムラインUI。`RideConditionBar`が出発時刻ピッカーとして使う唯一の呼び出し元） |
@@ -35,7 +35,7 @@ Next.js route handlerからのサーバー間fetch先を区別する（後者は
 ネットワークのURLになりうるため別変数）。
 
 **backendのAPIは`apiClient.ts`の呼び出し口（openapi-fetch）で呼び、パス・問い合わせの項目・本文・応答の型は
-OpenAPIの生成物（`types/generated/api.d.ts`の`paths`）から推論させる。** 呼ぶ側はパスも応答の型も手で書かない——手で書いた
+OpenAPIの生成物（`types/generated/api.d.ts: paths`）から推論させる。** 呼ぶ側はパスも応答の型も手で書かない——手で書いた
 型はbackendの応答の形が変わっても追従せず、画面から実際に呼ぶまで食い違いに気づけない。宣言に無いパス・問い合わせの項目の
 名前・必須の項目の欠けも型検査で落ちる（FastAPIは宣言に無い問い合わせの項目を既定では黙って無視するので、手で書いた名前が
 古くなると、任意の項目は届かないまま応答が返る）。値がnull・undefinedの項目は付けない（空文字は付く。付けたくない呼ぶ側が
@@ -55,7 +55,8 @@ undefinedにする）。パスの`{名前}`へ入る値は呼び出し口が1区
 （`lib/apiPath.ts`）で作る。** 引数は`paths`のキーで、`{名前}`の値を渡すと埋める（渡さなかった名前は残る——タイルの
 `{z}/{x}/{y}`は地図ライブラリが埋める。区切りの`/`を含む値もそのまま埋める）。ベースURL（`tileBaseUrl()`）は呼び出し側が付ける。
 
-`useLocation.ts`はブラウザのGeolocation APIを扱うhookで、起点座標の取得に使う。
+`useLocation.ts`はブラウザのGeolocation APIを扱うhookで、起点座標の取得に使う。位置が分かっているか（取れたか、手で置いたか）を
+1つの値（`locationKnown`）で返し、読み手は位置の出所から自分で導かない。
 
 タイムアウトは`apiTimeouts.ts`の名前付き定数（既定15秒・状態確認5秒・カタログ10秒・
 分布プレビュー60秒・管理画面の重い集計90秒）から選ぶ。**同じ呼び出しのブラウザ側
@@ -70,8 +71,9 @@ openapi-fetchのmiddlewareの`onError`で包み直し、本文の解析の失敗
 届いたことを記録する）。HTTPの失敗は呼び出し口が例外にせず`error`として返すので、骨格が`detail`から文言を作って投げる。
 呼び出し口は作った時点の`fetch`を握るので、呼ぶたびに`globalThis.fetch`を引く関数を渡している（テストが差し替えた`fetch`を届けるため）。
 
-`x-request-id`とHTTPステータスは失敗のdebugLogに残し、投げる`Error`の`message`には入れない。
-リクエストIDは開発者向け（debugLog・`BackendLogsPanel`）の情報で、画面へ出す文言に混ぜると
+`x-request-id`とHTTPステータスは失敗のdebugLogに残す。`x-request-id`は投げる`Error`の`message`には入れない。
+HTTPステータスが`message`に入るのは、応答に`detail`が無い（JSONでない本文を含む）ときに`messages.failure`へ
+`[HTTP <状態>]`を添える場合だけで、`detail`があればその文言だけを`message`にする。リクエストIDは開発者向け（debugLog・`BackendLogsPanel`）の情報で、画面へ出す文言に混ぜると
 利用者に意味が無いまま長くなり、狭い幅のレイアウト（常設ヘッダー）を溢れさせる。
 
 **暗黙の前提**: 骨格を各クライアントへ写経すると、片方だけ改良された非対称が静かに生まれる
@@ -155,16 +157,48 @@ backendも日本時間で扱う。`domain/time_zone.py`）。暦と時刻の取�
 失敗している間だけ小さな印（`WarningBadge.tsx`の「未取得」）を出し、どの出所が取れて
 いないか・失敗の文言・取れない間に何が起きているか（`effect`）はタップで開くポップオーバーに置く。
 成功している間は何も足さない（`features/conditions/useWeatherConditions.ts: warningFetchFailures`）。
+印に並ぶ項目の型（`types/fetchFailure.ts: FetchFailure`）は警報の部品の持ち物ではなく共有の型で、項目の文言はそれぞれの出所の
+フック・関数が組み立てる。`app/page.tsx`は出所ごとの項目を印へ並べるだけで、文言を持たない。
 
-同じ印には、**画面の前提になるデータの取得失敗**も並べる。例: 軸一覧（`useAxisCatalog`の`failed`、
-`app/page.tsx`が警報の失敗に足す）は、取れないと地図は道路・スポット・事故を描けず、生成は重み配分を
+同じ印には、**画面の前提になるデータの取得失敗**も並べる。例: 軸一覧（`hooks/useAxisCatalog.ts: axisCatalogFetchFailure`が
+`failed`の間だけ項目を返す）は、取れないと地図は道路・スポット・事故を描けず、生成は重み配分を
 送れず、合成は区間を割れない——どれも画面の中では「無い」ように見えるだけで、既定で開く条件タブ・
 地図のどこにも理由が出ない。ポップオーバーの項目に再試行（`onRetry`）を持たせ、ここから取り直せる。
 この印に並べるのは「取れていないと、画面が正常に見えたまま中身が違う」データで、取れない間の
 画面の振る舞いを文（`effect`）で言えるものに限る。
-現在地も同じ印に並べる: 位置が分からない間（`useLocation`の`locationSource`が仮の地点のまま）は、天候・警報を
-仮の地点で取らず（どこの値かが画面に出ないまま、利用者の場所の値として読まれる）、印の「現在地」から位置を取り直せる。
-地図で出発地を置けば、その地点で取る。
+現在地も同じ印に並べる: 位置が分からない間（`useLocation`の`locationKnown`が偽）は、天候・警報を
+仮の地点で取らず（どこの値かが画面に出ないまま、利用者の場所の値として読まれる）、印の「現在地」（`useLocation`の
+`locationFailure`。最初の取得——起動時の自動取得か、それより先に押した「現在地に移動」——が決着するまでは出さない）から
+位置を取り直せる。地図で出発地を置けば、自動取得の決着を
+待たずにその地点で取る。
+
+## 使い方の説明（`components/UsageGuide/`）
+
+ヘッダーのメニューの「使い方を見る」で**説明を見る状態**に入る。この間は、どの部品を押しても部品は動かず、押した部品の
+近くに名前と使い方の文を出し、部品を枠で示す。「やめる」・説明の✕・Esc・説明を出したあとに部品の外を押すと抜ける。
+説明を出している間に別の部品を押すと、その部品の説明に替わる。スマホもPCも同じ操作。
+
+- **止め方は1か所**: 押す操作（ポインタ・マウス・タッチ・Enter/Space・値を動かすキー）を窓の捕捉段階で止めるので、部品・地図の
+  側は止め方を持たない。タッチは伝わりを止めるだけで既定の動きを残す（下部シートの中をスクロールして、下の部品を探せる）。
+  部品を決めるのは押して離したとき（押せないボタンにはclickが届かない）で、押したまま動かしたら決めない。
+- **文は部品を置く箇所で渡す**: 押して動く共有部品（`Button`・`Tabs`の`TabsTrigger`・`Disclosure`等）は
+  `usage`を受け取り、DOMの`data-usage`へ書く。共有部品でない要素（範囲の入力・重みの境目等）は置く箇所で`data-usage`を直に付ける。
+  文の一覧のファイルは持たず、backendからも配らない（部品を消すと文も消える）。用語・数値の意味の(i)（`InfoPopover`）とは別で、
+  こちらは操作の使い方を書く。
+- **引き方**（`usageTarget.ts`）: 押された要素から最寄りの押せる要素（ボタン・入力・役割を持つ要素・ラベル〔ラベルなら中の入力〕）を部品と
+  みなす。名前は読み上げ名と同じ順（`aria-label`→`aria-labelledby`→ラベル→文字→`title`）で引く。文は部品か、それを囲む部品の
+  うち最も近いものが持つ`data-usage`で、選択肢のように同じ使い方の並びは囲む側へ1つ渡せばよい。文が無ければ「説明はまだありません」と
+  名前だけを出す——名前が`title`にしか無いアイコンのボタンも、タップで名前が分かる。
+- 案内（「説明を見たい部品を押してください」）は地図の上端の中央に出し、押す操作を素通しする（案内の下の部品も押せる）。
+  重なり順は`--z-usage-guide`（開いているほかの浮きパネルより上）。
+
+### 初回の案内（`components/FirstVisitIntro/`）
+
+初めて開いた人へ、何をするアプリか・出発地の印・最初の一手（スマホは下部タブ、PCは左のパネルの「ルート設定」から「生成」）・
+「使い方を見る」の場所を、地図の上のカードで1度だけ見せる。閉じる（「はじめる」か✕）とlocalStorageへ印を書き、この端末では
+次から出さない（端末を替えると出る）。2回目以降に分からなくなったときは「使い方を見る」が受け持つので、地図に常設の文字は足さない。
+保存値の復元はマウント後（下記「状態の永続化」）なので、カードもマウントするまで出さない——SSRのHTMLに載せると、閉じた人にも
+復元までの一瞬見える。文は画面に固定で書き、backendからは配らない。
 
 ## 主な構成要素（import元）
 
@@ -189,12 +223,13 @@ backendも日本時間で扱う。`domain/time_zone.py`）。暦と時刻の取�
 **生成の条件**（「ルート設定」の入力）は`features/route/useGenerationConditions.ts`、**生成**（送信・進み方・案内・
 条件のずれ・実験スロット）は`features/route/useRouteGeneration.ts`、**走行条件**は`features/conditions/useRideConditions.ts`が持つ。
 **結果**（候補・選択・地図で押した区間・比較タブ・生成に使われた重み）は`features/route/useRouteResults.ts`が持ち、
-生成と乗り換えは作った候補を`page.tsx`経由でそこへ入れる（地図の見え方が生成に使われた重みを読み、生成が地図のレンズを
-読むため、結果を生成の側に置くと呼ぶ順が回る）。「ルート結果」の中身は`features/route/RouteOutcome/RouteOutcome.tsx`が結果・生成・乗り換えの値から描く。
+結果・生成・乗り換えの3つは`features/route/useRoutePlanner.ts`がつなぐ（作った候補を結果へ入れる・全消去で両方を消す等。
+`page.tsx`はこの1つを呼び、出来事は1本の`onOutcome`で受ける）。地図のレンズは生成の送信の引数で渡すので、ルートの機能は
+地図の見え方を読まず、地図の見え方がルートの機能の値（候補を選んだか・「未使用」を分ける重み）を読む一方向になる。「ルート結果」の中身は`features/route/RouteOutcome/RouteOutcome.tsx`が結果・生成・乗り換えの値から描く。
 残り（画面の枠: 区分・シートの開閉と高さ、「ルート設定」のタブ、新着の印）は`page.tsx`が持ち、子コンポーネントへはpropsで渡す
 （子が独自に同じ状態を持たない）。**機能の間の受け渡しには、ある機能の変化が別の機能の振る舞いを変えるものがある**
 （生成を消す・作り直すと乗り換えの編集が終わる〔生成の入力を渡すため〕、候補の有無が条件のずれの判定に効く、編集中は
-地図で地点も区間も扱わない）。どれも各機能の単体では見えないので、`app/page.test.tsx`が受け渡しとして確かめる。全件の一覧は
+地図で地点も区間も扱わない）。ルートの機能の中のもの（前の2つ）は`useRoutePlanner.ts`が持つ。どれも各機能の単体では見えないので、`app/page.test.tsx`が受け渡しとして確かめる。全件の一覧は
 実装を読むのが正で、ここでは**永続化するかどうかの判断基準**だけを示す——一覧を書き写すと、
 状態を1つ足したときにこの節だけが古くなる。
 
@@ -225,7 +260,7 @@ backendも日本時間で扱う。`domain/time_zone.py`）。暦と時刻の取�
 （走行方位という1つの概念を表す単一state）:
 
 ```
-走行方位（`features/conditions/useRideConditions.ts`の`bearingDeg`、TravelBearingControlで操作）。出発時刻は`features/conditions/useDepartureTime.ts`の`at`、想定速度は`useRideConditions.ts`の`speedKmh`（いずれも地図右上の条件アイコン列`features/conditions/RideConditionBar/RideConditionBar.tsx`で操作し、生成リクエストの`start_time`/`assumed_speed_kmh`とレンズの`speed_kmh`へ同じ値が乗る）
+走行方位（`features/conditions/useRideConditions.ts: bearingDeg`、TravelBearingControlで操作）。出発時刻は`features/conditions/useDepartureTime.ts: at`、想定速度は`useRideConditions.ts: speedKmh`（いずれも地図右上の条件アイコン列`features/conditions/RideConditionBar/RideConditionBar.tsx`で操作し、生成リクエストの`start_time`/`assumed_speed_kmh`とレンズの`speed_kmh`へ同じ値が乗る）
   │
   ├─→ 風:   [時刻]出発時刻（useDepartureTime由来）
   │           │
@@ -239,7 +274,7 @@ backendも日本時間で扱う。`domain/time_zone.py`）。暦と時刻の取�
   評価軸（線）の共通経路（軸ごとの分岐を持たない）:
     塗っている軸 paintedAxisId = lens（ルート確定後は周囲も塗る設定の間だけ。それ以外はnull）
     useDedicatedWayValues([塗っている専用way値配信軸], 表示範囲, 走行方位, 出発時刻, 想定速度)
-      （useMapViewの中。時刻・想定速度は軸カタログのneedsTime/needsSpeedが立つ軸のリクエストにだけ載る）
+      （useMapViewの中。時刻・向き・想定速度は、軸カタログのdynamic_way_value_conditionsがその名前を含む軸のリクエストにだけ載る）
     軸のレイヤーを出すか = 軸id === paintedAxisId（地図側のsceneが導く）
 ```
 
@@ -253,7 +288,7 @@ backendも日本時間で扱う。`domain/time_zone.py`）。暦と時刻の取�
 一部として**常時表示する**（表示条件を持たない）。中身は`RouteSettingsPanel`と同じ
 `WindBearingSlider`ダイヤルをRadix Popoverで開く。
 
-地図右上は、MapLibreのズーム+/−・回転（`MapView.tsx`の`NavigationControl`）の下へ
+地図右上は、MapLibreのズーム+/−・回転（`MapView.tsx: NavigationControl`）の下へ
 `TravelBearingControl`・`RideConditionBar`を積んだ**1本の列**で、幅・間隔・アイコンの大きさは
 `globals.css`の`--map-ctrl-*`だけが持つ。MapLibre側のボタンの幅もそこで列の幅へ広げ、
 アプリのボタンを積み始める位置はNavigationControlの既定のボタン数（3つ）から導く——
@@ -281,7 +316,7 @@ localStorageへの保存・復元を1箇所に集約する。
   ドラッグ中の高さ）は、途中の値を別の`useState`で持ち、確定した値だけをsetterへ渡す。
 - `reloadKey`: 復元処理を再実行させたい追加の依存値。`deserialize`はrefへ退避しない
   （`reloadKey`が変わった際、その時点の最新の`deserialize`クロージャで再復元する）。例:
-  レンズの選択（`lens`）は`deserialize`が実行時カタログの`routeStyleModes`を参照するため、
+  レンズの選択（`lens`）は`deserialize`が地図の軸カタログの`routeStyleModes`を参照するため、
   `axisCatalog.loaded`を`reloadKey`にする——カタログ取得前の1回だけで判定すると、軸を指す
   保存値が未知のidとして捨てられ、再訪のたびに総合難易度へ戻る。
 - `useStoredJsonState`は`JSON.stringify`/`JSON.parse`を既定にした薄いラッパー、`useStoredBooleanState`は
@@ -311,19 +346,20 @@ Reactの外（モジュール評価時に初期値を決めるシングルトン
   決めた重みではなく、取得前は軸が0件のため、そのまま整合させると保存済みの重みを全部消す。
 - 走行条件（走行方位・出発時刻・想定速度）→ 地図の見え方（`useMapView`の入力）・生成リクエスト・
   道の詳細（`MapView`の`rideConditions`）が同じ値を読む（上記「動的材料の状態別表現契約」参照）。
-- 生成に使われた重み（`useRouteResults.ts`の`usedWeights`。backendが生成時に使った値を返し、生成が結果と一緒に渡す）→ レンズの
-  選択肢の「未使用」。生成前は代わりに今の設定の重み（`useMapView`の`currentWeights`）で分ける——重みタブが薄く出す軸と
-  同じ軸が「未使用」に並ぶ。
+- 軸を「未使用」と分ける重み（`useRoutePlanner.ts: routeWeights`）→ レンズの選択肢（`useMapView`の`routeWeights`）と
+  候補の中身（`RouteOutcome`）。生成に使われた重み（`useRouteResults.ts: usedWeights`。backendが生成時に使った値を返し、
+  生成が結果と一緒に渡す）で、生成前は代わりに今の設定の重み——重みタブが薄く出す軸と同じ軸が「未使用」に並ぶ。
 - 地図の見え方の値（`useMapView`の`look`）→ `MapView`。レイヤーのON/OFF・レンズ・塗っている軸・
   隠した行・取得結果の状態そのものだけを渡し、そこから導けるもの（どのレイヤーを出すか・家族ごとの
   隠した行・二次軸の下敷き）は地図側のscene（`features/map/scene/applyToMap.ts`）が導く。
-  軸カタログ・タイル世代は`MapView`と`useMapView`がそれぞれ共有ストアから読み、`page.tsx`は
-  渡さない。
+  軸カタログ・タイル世代は`MapView`と`useMapView`がそれぞれ同じ取得（共有の軸カタログと、そこから地図だけが読む
+  ものを導く`features/map/useMapAxisCatalog.ts`）から読み、`page.tsx`は渡さない。
 
 ## モバイル/デスクトップのレイアウト分岐
 
 `useIsMobile()`で分岐する。幅のしきい値はCSSだけが持ち（`globals.css`の`@media`が立てる
-`--is-mobile`）、JSはその旗を読むだけで数値を写さない:
+`--is-mobile`。メディアクエリの中で立てなくなると`frontend/src/structure/isMobileFlag.test.ts`が落とす）、
+JSはその旗を読むだけで数値を写さない:
 
 - デスクトップ: サイドバー（`aside.app-sidebar`）にモバイルの下部タブと同じ2区分
   「ルート設定 / ルート結果」を同じ順序で縦積み。各区分は独立した`Disclosure`折りたたみで、
@@ -336,7 +372,9 @@ Reactの外（モジュール評価時に初期値を決めるシングルトン
   （`features/route/difficultyLoadBar.ts`、基準は一覧の中で最も短い候補）を与える——長さが総合難易度の
   ため、塗られた面積がそのまま負荷（`overall_difficulty.load`）になり、候補の中身の道のりのグラフ
   （`DifficultyProfile`、面積が負荷）と同じ見方で読める。行は**一覧の中で所要時間が最小の候補に
-  その所要時間と最速の印（時計のアイコン）、他の候補にはそこから何分余計にかかるか（`+8分`）を添える**——並び順は所要時間の短い順で、
+  その所要時間と最速の印（時計のアイコン）、他の候補にはそこから何分余計にかかるか（`+8分`・`+107分`）を、順位・距離の
+  後ろに添える**（1時間を超えても分で書いて行を短く保つ。幅に収まらないときは省略で切らず所要時間を次の行へ送る——
+  切ると最速の所要時間が画面のどこにも出ない）——並び順は所要時間の短い順で、
   易しさ（総合難易度）は行の数値と帯で見比べる。基準線は一覧の中だけで決める（backendの応答は基準線に
   印を付けない。周回・目的地・区間を乗り換えて作った候補を同じ判定で比べる）。時間の最上級と距離の最上級を
   同じ列へ並べると何と比べているのか読めなくなるため、**距離の「最短」は出さない**。2カラムは高さを
@@ -347,20 +385,24 @@ Reactの外（モジュール評価時に初期値を決めるシングルトン
   `features/route/RouteOutcome/RouteOutcome.tsx`が生成前・生成中・失敗（検証エラー・APIエラー・候補0件）を
   出し分ける。**生成に関するフィードバックの置き場はここ1箇所**——「ルート生成」は見出し行の
   ボタンで本文を畳んだままでも押せるため、押した結果を「ルート設定」本文へ出すと操作している
-  場所から見えない。**候補がある間に押した「生成」が通らなかったとき（検証エラー・APIエラー）も、
+  場所から見えない。例外はモバイルの入力の誤り（`features/route/useRouteGeneration.ts`の`inputError`。出発地が分からない等）で、
+  「ルート設定」シートの本文の先頭にも出す——シートは1枚ずつしか開かず、押した直後に見えるのは「ルート結果」タブの点だけで、
+  誤りを直す場所はそのシートだから。**候補がある間に押した「生成」が通らなかったとき（検証エラー・APIエラー）も、
   前の候補を残したまま先頭に「作り直せませんでした。」＋理由を出す**（`RouteOutcome.tsx`）——
   候補だけが並んだままだと作り直せたように見え、前の条件の候補で走り出しうる。候補を消すと
   見ていた候補も地図のルートも失い、混雑は待てば通るため残す。この文言は次に「生成」を押した時点・
   「全消去」・合成の作成で消える。候補0件は候補を空にするので、この形にはならない。
-  結果が出たら`outcomeOpen`を開き、モバイル向けに`unseenOutcome`も立てる
-  （シートは排他表示のため勝手に開かず、タブのドットで知らせる）。
+  押した「生成」・「作成」の結果が出たら（候補・候補0件・失敗・入力の誤り・乗り換えで作った経路のどれでも）、閉じていても
+  `outcomeOpen`を開き、モバイル向けに`unseenOutcome`も立てる（シートは排他表示のため勝手に開かず、タブのドットで知らせる）
+  ——候補が出たときも開くのは、地図に線は出ても一覧と中身は区分を開くまで見えないため。
   **ルートの編集は「ルート結果」の中のモード**（`features/route/useSpliceSession.ts`。編集の元の候補・適用した乗り換え・
   評価結果の控え・処理状態を1つに持ち、抜けると中身ごと消える）で、独立した置き場を
   持たない——別の置き場にすると、どのルートを編集しているのかを編集側で選び直す形になる。
   入口は候補のタブの中身の先頭にある「合成」（`RouteOutcome.tsx`の候補の操作）で、
   乗り換えできない生成（周回・候補1件）と編集中、区間を割る下限（軸カタログが運ぶ較正値）を
-  引けない間には出さない——押しても何もできない入口・較正と違う切り方で動く入口を残さない。編集の元は押した候補に固定し、作ったら同じ場所が一覧へ戻る
-  （[route-settings-and-results.md](route-settings-and-results.md)参照）。
+  引けない間には出さない——押しても何もできない入口・較正と違う切り方で動く入口を残さない。編集の元は押した候補に固定し、作ったら同じ場所が一覧へ戻って
+  作ったルートを「採用ルート」に別の1本として並べる（元を上書きしない。下記「ルート結果の中身」、
+  [route-settings-and-results.md](route-settings-and-results.md)参照）。
 - モバイル: 下部タブバー（ルート設定/ルート結果）+`BottomSheet`（2枚が`mobileSheet`で
   排他表示、高さ`mobileSheetHeightVh`を共有）。「ルート結果」タブの点は、まだ開いていない結果
   （`unseenOutcome`）か条件の変更（`conditionsDirty`）で点き、**失敗のときだけ赤、それ以外は橙**
@@ -373,7 +415,7 @@ Reactの外（モジュール評価時に初期値を決めるシングルトン
 
 `BottomSheet`はposition:fixedのオーバーレイで暗幕を敷かない（表示中も地図をパン/ズーム
 できる）。地図の操作ボタンは画面の下端からの距離で置いているため、シートが占める高さを
-`--mobile-sheet-height`として`.mapPane`へ渡し、下端からの距離は「元の位置」と「シートの
+`--mobile-sheet-height`として地図ペイン（`app/page.tsx: mapPaneRef`）へ渡し、下端からの距離は「元の位置」と「シートの
 上端のすぐ上」の大きい方にする（シートを持ち上げたときに裏へ隠れない。閉じている間は0で
 従来どおり）。見出し行には差し込み口が2つあり、見出しのすぐ右（左寄せ）が`headerLead`、右上の
 アクション群が`headerAction`——中身を切り替えるタブと、押して何かを走らせるボタンを
@@ -394,25 +436,29 @@ Reactの外（モジュール評価時に初期値を決めるシングルトン
 **高さ指定を一時的に外して実測する**: `scrollHeight`は中身が箱より低いと箱の高さを返し、
 子要素の合算も中身側のflexが引き伸ばされていると箱の高さに一致するため、どちらも縮める
 判断に使えない。合わせた高さはドラッグで上書きでき、その値は次に開くまで有効
-（`onHeightCommit`の保存は、実寸が取れない実行のフォールバックとして残る）。任意の`headerAction`
-propでヘッダ右側・閉じるボタンの手前へ要素を差し込める（「ルート結果」シートの
-「全消去」、下記「ルート結果の中身」参照）。
+（`onHeightCommit`の保存は、実寸が取れない実行のフォールバックとして残る）。`headerAction`
+propでヘッダ右側・閉じるボタンの手前へ要素を差し込む（「ルート結果」シートの
+「全消去」、下記「ルート結果の中身」参照。差し込むものが無い間は`undefined`を渡す）。
 
 ## ルート結果の中身（`features/route/RouteOutcome/RouteOutcome.tsx`。デスクトップ「ルート結果」区分・
 モバイル「ルート結果」タブ共通）
 
 候補が無い間は上の空の状態（生成前・生成中・失敗）を出す。見出しは描画しない
 （デスクトップは`Disclosure`の見出し、モバイルはBottomSheetの`title`が担う）。1件以上
-生成された後は、Radix Tabs（`@radix-ui/react-tabs`）1段のフラットなタブ列を描画する。タブの並び順は
+生成された後は、Radix Tabs（`@radix-ui/react-tabs`）1段のフラットなタブ列を描画する。生成した候補の並び順は
 **所要時間の短い順**（`routeTabLabel.ts: orderByDuration`。同着は受け取った並び＝backendの総合難易度の昇順を保つ）。
-生成の結果を受け取ったときと、区間を乗り換えて作った候補を足したときに並べ直してから`routes`へ入れるので、一覧・最初に
+生成の結果を受け取ったときに並べ直してから`useRouteResults.ts: generated`へ入れるので、一覧・最初に
 選ぶ候補（先頭＝最も早く着く候補）・行の番号が同じ並びになる。研究モードの実験スロットの代表だけは、backendの並びの
-先頭（総合難易度が最小）を使う。タブは
-**候補ごと**（`routes`の件数ぶん、「順位番号（1始まり） 距離km」に加えて総合難易度を
+先頭（総合難易度が最小）を使う。
+**一覧の見出しと名前は`routeTabLabel.ts: routeListSections`が決める**。経由地の無い目的地ルートの生成（backendが所要時間だけで
+選んだ1本を必ず含める）か、区間の乗り換えで作ったルートがあるときは、「採用ルート」と「生成した候補」の見出しで分ける。
+採用ルートの先頭は生成した候補のうち最も早く着く1本（名前は出さない）で、比べる基準の1本が編集の前後で動かずに一番上にある。
+その後に編集で作ったルートが作った順に「編集N」で続く（`useRouteResults.ts: edits`。生成し直す・全消去で一緒に消える）。
+残りの生成した候補は1から番号を振る。周回など見出しを分けない生成では、生成した候補に1から番号を振る。タブは
+**候補ごと**（名前と距離kmに加えて総合難易度を
 数値と長さの両方で表示する——タブを開かずに候補どうしを見比べられるようにするため。経由地
-ルート（id: `route-waypoints`）は常に1件で順位の概念が無いため、`NON_DIRECTIONAL_ROUTE_IDS`
-の判定でdirection_label[固定文言]をそのまま表示する。
-基準線（一覧の中で所要時間が最小の候補。`fastestRouteId`）には順位番号に加えて
+ルート（id: `route-waypoints`）は常に1件で順位の概念が無いため、番号の代わりにdirection_label[固定文言]をそのまま表示する。
+基準線（一覧の中で所要時間が最小の候補。編集で作ったルートも含めて決める。`fastestRouteId`）には
 その所要時間と最速の印を添え、他の候補には距離の後ろへ基準線からの超過時間[`+12分`]を添える
 [`features/route/routeTabLabel.ts`]——軸設定に沿ったルートを走る対価であり、候補を見比べる
 タブ列に無いと比較のたびにタブを開き直すことになるため）＋「比較」
@@ -423,7 +469,7 @@ propでヘッダ右側・閉じるボタンの手前へ要素を差し込める�
 （`RouteForm`で指定する`max_routes`件＋経由地/目的地ルート）がシートの高さを超える場合は
 候補一覧の中だけが縦スクロールする（右の中身はスクロールしない）。`routes`・`selectedRouteId`・
 `comparisonTabActive`・生成に使われた重みに加え、生成の側の作った条件と
-`experimentSlots`（比較タブ・地図重ね描き用の履歴）も同時に空にする（`handleRoutesClear`→`useRouteGeneration.ts`の`clear`）。
+`experimentSlots`（比較タブ・地図重ね描き用の履歴）も同時に空にする（`useRoutePlanner.ts: clear`→`useRouteGeneration.ts: clear`）。
 
 `conditionsDirty`（表示中の候補を作った条件と現在のフォーム値のずれ）は、
 `features/route/generationRequest.ts`が組み立てる比較キーの一致で決まる。**送るpayloadと比較キーを
@@ -446,7 +492,7 @@ backendが最寄りのアクセス可能な地点へ補正した場合のヒン�
 （ピンの位置と生成されたルートの終点がずれて見えないようにする）。
 
 「ルート結果」ヘッダの操作枠（`renderRouteResultHeaderActions()`）には**候補すべてに効く操作だけ**を置く
-（「全消去」、`ClearRoutesIcon`、`handleRoutesClear`）。候補1本に効く操作（「合成」＝区間の乗り換えの入口・
+（「全消去」、`ClearRoutesIcon`、`useRoutePlanner.ts: clear`）。候補1本に効く操作（「合成」＝区間の乗り換えの入口・
 「GPX」＝`features/route/gpxExport.ts: downloadGpx`）は`RouteOutcome.tsx`がその候補のタブの中身の
 先頭に置く——見出しに並べると、どれが選んでいる1本だけに効くのか見分けられない。「全消去」に**バツ印は使わない**
 ——シートの閉じる✕の隣に並ぶため、同じ形だとどちらがどちらか分からない。総合難易度の説明は
@@ -454,6 +500,9 @@ backendが最寄りのアクセス可能な地点へ補正した場合のヒン�
 繰り返し表示される。デスクトップは「ルート結果」`Disclosure`の`trailing`、モバイルは
 BottomSheetの`headerAction`propとして同じヘルパーを渡す（`routes.length > 0`の間のみ）。
 候補タブ列のvalue体系はroute idと`features/route/useRouteResults.ts: COMPARISON_TAB`。
+編集で作ったルートを選んでいる間は、中身の先頭に「元との違い」（`features/route/EditDifference/EditDifference.tsx`）を出し、
+地図には元のルートだけを参考線として重ねる（`useRoutePlanner.ts: mapRoutes`。ほかの候補まで並ぶと、変えた区間がどれとの差か
+読めない）。編集している間は乗り換え先を探すため、全部の候補を参考線にする。
 
 外側タブの選択値は`selectedRouteId`（候補タブ選択時）と`comparisonTabActive`
 （比較タブ選択時）を組み合わせて求める。`selectedRouteId`自体は比較タブを見ている間も
@@ -461,7 +510,7 @@ BottomSheetの`headerAction`propとして同じヘルパーを渡す（`routes.l
 タブ構成に関わらず変わらない（比較タブから候補タブへ戻ると、見ていた候補がそのまま
 選択された状態に戻る）。
 
-候補タブの中身（`Tabs.Content`）は`RouteAxisProfile`単体。`RouteAxisProfile`は
+候補タブの中身（`Tabs.Content`）は、上の候補の操作・元との違い・道のりのグラフの下に`RouteAxisProfile`を置く（地図で区間を押している間は、その代わりに区間の詳細）。`RouteAxisProfile`は
 総合難易度の表示・軸別内訳
 （`domain/difficulty.py:
 composite_difficulty`と同じ考え方で軸の重みを反映した寄与度をバー長に、生の

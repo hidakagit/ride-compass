@@ -2,30 +2,28 @@ import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { fetchDynamicWayValues } = vi.hoisted(() => ({ fetchDynamicWayValues: vi.fn() }));
-vi.mock("@/services/regionApi", async (importOriginal) => ({
+vi.mock("@/features/map/regionApi", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   fetchDynamicWayValues,
 }));
 // 待ち時間の間引き自体はuseDebouncedValueの持ち物。ここは値が届いた後の振る舞いを見る。
 vi.mock("@/hooks/useDebouncedValue", () => ({ MAP_FETCH_DEBOUNCE_MS: 0, useDebouncedValue: <T>(value: T) => value }));
 
-import { catalogOf, dedicatedEntry } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
+import { mapCatalogOf } from "@/testing/mapAxisCatalog";
+import { dedicatedEntry } from "@/testing/catalogAxes";
 import type { MapViewport } from "@/features/map/layers/windLayer";
 
 import { useDedicatedWayValues } from "./useDedicatedWayValues";
 
-const { dedicatedAxes } = catalogOf([
-  dedicatedEntry("timed", [1], {
-    dynamic_way_value_needs_time: true,
-    dynamic_way_value_needs_bearing: true,
-    dynamic_way_value_needs_speed: true,
-  }),
+const { dedicatedAxes } = mapCatalogOf([
+  dedicatedEntry("timed", [1], { dynamic_way_value_conditions: ["at", "bearing_deg", "speed_kmh"] }),
   dedicatedEntry("static", [1]),
 ]);
 const [, STATIC] = dedicatedAxes;
 // z14で横2枚×縦1枚のタイルにまたがる範囲
 const VIEWPORT: MapViewport = { west: 139.76, south: 35.68, east: 139.77, north: 35.685, zoom: 14 };
 const AT = new Date("2026-09-24T00:00:00Z");
+const SPEED_KMH = 20;
 
 // 取得の結果は区切り（`setTimeout(0)`）ごとに届くので、偽にしていない時計で数回区切りを待つ。
 async function settle() {
@@ -44,7 +42,8 @@ beforeEach(() => {
 type Props = { axes: typeof dedicatedAxes; viewport: MapViewport | null; bearing: number; at: Date; speed?: number };
 function render(initialProps: Props) {
   return renderHook(
-    ({ axes, viewport, bearing, at, speed }: Props) => useDedicatedWayValues(axes, viewport, bearing, at, speed),
+    ({ axes, viewport, bearing, at, speed }: Props) =>
+      useDedicatedWayValues(axes, viewport, bearing, at, speed ?? SPEED_KMH),
     { initialProps },
   );
 }

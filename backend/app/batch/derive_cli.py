@@ -139,15 +139,19 @@ async def _copy_to_work_schema(conn: asyncpg.Connection, tables: list[str]) -> N
 
 async def _build_road_network(database_url: str, revision: int) -> Path:
     """作業用のスキーマの表から道路網の配列を作り、読み手がまだ拾わない名前で置く。"""
+    started = time.perf_counter()
     async with batch_session_factory(database_url, schema=WORK_SCHEMA) as session_factory:
         async with session_factory() as session:
             network = await road_network_store.build(RoadGraphRepository(session), revision)
-    return road_network_store.write_pending(network)
+    pending = road_network_store.write_pending(network)
+    logger.info("道路網の配列を作った / %s", format_duration(time.perf_counter() - started))
+    return pending
 
 
 async def _swap(conn: asyncpg.Connection, tables: list[str], revision: int) -> None:
     """`public`の派生の表を作業用のスキーマの表で置き換え、世代を`revision`へ進める（1トランザクション）。"""
     for attempt in range(1, _SWAP_ATTEMPTS + 1):
+        started = time.perf_counter()
         try:
             async with conn.transaction():
                 await conn.execute(f"SET LOCAL lock_timeout = '{_SWAP_LOCK_TIMEOUT}'")
@@ -158,6 +162,8 @@ async def _swap(conn: asyncpg.Connection, tables: list[str], revision: int) -> N
                 if bumped != revision:
                     raise RuntimeError(
                         f"派生データの世代が作り直しの間に動いた（道路網は {revision} で作った。今 {bumped}）")
+            logger.info("派生の表を入れ替えた（%d回目） / 表の排他ロック（待ちを含む）=%.1fs",
+                        attempt, time.perf_counter() - started)
             return
         except asyncpg.exceptions.LockNotAvailableError:
             logger.warning("入れ替えが表を読んでいる相手を待ちきれなかった。%.0f秒後にやり直す（%d/%d）",
@@ -176,7 +182,8 @@ async def _read_tuning(database_url: str) -> dict[str, float]:
 async def run(database_url: str, start_from: str | None) -> int:
     names = [name for name, _ in STAGES]
     begin = names.index(start_from) if start_from else 0
-    tables = [table.name for table in derived_tables()]
+    # 世代の表も写す——数の段がそこへ書く「数えた事故の取込」を、数と同時に読み手へ出すため。
+    tables = [*(table.name for table in derived_tables()), derived_data_meta.DerivedDataMetaRow.__tablename__]
     tuning = await _read_tuning(database_url)
     conn = await asyncpg.connect(asyncpg_dsn(database_url))
     if not await conn.fetchval("SELECT pg_try_advisory_lock(hashtext($1))", WORK_SCHEMA):

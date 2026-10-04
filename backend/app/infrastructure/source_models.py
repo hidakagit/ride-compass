@@ -9,6 +9,7 @@
 """
 
 from datetime import datetime
+from enum import StrEnum
 
 from geoalchemy2 import Geometry, Raster
 from sqlalchemy import (
@@ -17,26 +18,55 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     LargeBinary,
     String,
     event,
+    func,
+    select,
 )
+from sqlalchemy.sql.selectable import ScalarSelect
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.infrastructure.orm_base import Base
 
 
-#: 成功した取込の状態。生データはこの状態のrunの行だけが入っている。
-SUCCEEDED = "succeeded"
+class Source(StrEnum):
+    """コードが名指すソース。値は`batch/source_profile.yaml: name`と同じ綴り。
 
-#: 取込のrunの状態と、管理画面に出す呼び名。取込は開くときに`running`を書き、失敗すれば`failed`、
-#: 書き終えれば`succeeded`で閉じる（`batch/ingest.py`）。プロセスごと止まったrunは閉じる者が
-#: いないので`running`のまま残り、呼び名はその両方を言う。表の`status`はこの鍵しか入れさせない。
+    取込の経路はソースを名指さない（プロファイルが挙げたものをそのまま取り込む）ので、
+    ここに在るのは派生・読み手が中身を知って読むソースだけである。
+    """
+
+    OSM_WAY = "osm_way"
+    OSM_NODE = "osm_node"
+    ACCIDENT = "accident"
+    DEM = "dem"
+    LULC = "lulc"
+
+
+class SourceRunStatus(StrEnum):
+    """取込のrunの状態。取込は開くときに`running`を書き、失敗すれば`failed`、書き終えれば
+    `succeeded`で閉じる（`batch/ingest.py`）。プロセスごと止まったrunは閉じる者がいないので
+    `running`のまま残る。生データは`succeeded`のrunの行だけが入っている。表の`status`は
+    この値しか入れさせない。"""
+
+    RUNNING = "running"
+    FAILED = "failed"
+    SUCCEEDED = "succeeded"
+
+
+#: 道の種別を持つタグ。道の生データはかならずこのタグを持つ——道路網の階級・優先関係・材料の多くが
+#: この値から決まり、無い道をどう読むかを読み手ごとに決めさせないため。取込の条件（`osm_pbf.py: OsmWayRows`）と
+#: 表の検査制約の両方がここを読む。
+WAY_KIND_TAG = "highway"
+
+#: 取込のrunの状態と、管理画面に出す呼び名。`running`は中断したrunも指すので、呼び名はその両方を言う。
 SOURCE_RUN_STATUS_LABELS: dict[str, str] = {
-    "running": "実行中か中断",
-    "failed": "失敗",
-    SUCCEEDED: "成功",
+    SourceRunStatus.RUNNING: "実行中か中断",
+    SourceRunStatus.FAILED: "失敗",
+    SourceRunStatus.SUCCEEDED: "成功",
 }
 
 
@@ -53,7 +83,7 @@ class SourceRunRow(Base):
     __tablename__ = "source_runs"
     __table_args__ = (
         CheckConstraint(
-            "status IN (" + ", ".join(f"'{s}'" for s in SOURCE_RUN_STATUS_LABELS) + ")",
+            "status IN (" + ", ".join(f"'{s}'" for s in SourceRunStatus) + ")",
             name="source_runs_status_known"),
     )
 
@@ -87,7 +117,15 @@ class SourceFeatureRow(Base):
     """
 
     __tablename__ = "source_features"
-    __table_args__ = {"postgresql_partition_by": "LIST (source)"}
+    __table_args__ = (
+        # 生データは範囲や近さで引かれる（事故を区間へ割り当てる、信号を交差点へ割り当てる）。
+        # パーティションした表の索引なので、取込が作る子パーティションにもPostgreSQLが同じ
+        # 索引を張る。
+        Index("idx_source_features_geom", "geom", postgresql_using="gist"),
+        CheckConstraint(f"source <> '{Source.OSM_WAY}' OR attrs->>'{WAY_KIND_TAG}' IS NOT NULL",
+                        name="source_features_way_has_kind"),
+        {"postgresql_partition_by": "LIST (source)"},
+    )
 
     source: Mapped[str] = mapped_column(String, primary_key=True)
     #: 外部が持つ識別子（OSMのid・事故の自然キー・タイルの z/x/y 等）。
@@ -95,35 +133,54 @@ class SourceFeatureRow(Base):
     run_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("source_runs.run_id"), nullable=False
     )
-    geom: Mapped[object] = mapped_column(Geometry(srid=4326), nullable=False)
+    geom: Mapped[object] = mapped_column(Geometry(srid=4326, spatial_index=False), nullable=False)
     attrs: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
     payload: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
-    #: 面のソースの画素。線・点のソースでは空。
-    rast: Mapped[object | None] = mapped_column(Raster, nullable=True)
+    #: 面のソースの画素。線・点のソースでは空。外形の索引は張らない——面のタイルは`geom`で
+    #: 絞るか番地で引き、`rast`で範囲を絞る読み手はいない。
+    rast: Mapped[object | None] = mapped_column(Raster(spatial_index=False), nullable=True)
 
 
-def latest_succeeded_run_sql(source_sql: str) -> str:
+def latest_succeeded_run_sql(source: Source) -> str:
     """そのソースの成功した最新の取込1行（`source_runs`の全列）を指す副問い合わせ。
 
-    `source_sql`はソース名を出すSQLの式（`'osm_way'`・`$1`・外側の問い合わせの列等）。
     生データに入っているのはこのrunの行だけなので、派生の基準も取込の範囲もここから読む。
     """
-    return (f"(SELECT * FROM {SourceRunRow.__tablename__} WHERE source = {source_sql}"
-            f" AND status = '{SUCCEEDED}' ORDER BY run_id DESC LIMIT 1)")
+    return latest_succeeded_run_by_column_sql(f"'{source}'")
 
 
-# --- 道とノードの生データを読む副問い合わせ ---
+def latest_succeeded_run_by_column_sql(source_column: str) -> str:
+    """`latest_succeeded_run_sql`の、ソースを外側の問い合わせの列（`r.source`等）で指す形。
+    ソースごとに並べる読み手（取込の一覧・鮮度台帳）が、行ごとに相関させて使う。"""
+    return (f"(SELECT * FROM {SourceRunRow.__tablename__} WHERE source = {source_column}"
+            f" AND status = '{SourceRunStatus.SUCCEEDED}' ORDER BY run_id DESC LIMIT 1)")
+
+
+def succeeded_run_count() -> ScalarSelect[int]:
+    """成功した取込の数（全ソース通し）を出す副問い合わせ。生データの世代として使う。
+
+    どのソースの取込が成功しても1つ増え、失敗した取込では動かない（runの行は消さず、成功は
+    別の状態へ戻らない）。成功した`run_id`の最大では代用できない——`run_id`は開いた順に振られる
+    ため、先に開いた取込が後に開いた取込より遅れて成功すると、最大は動かない。
+    """
+    return (select(func.count()).select_from(SourceRunRow)
+            .where(SourceRunRow.status == SourceRunStatus.SUCCEEDED).scalar_subquery())
+
+
+# --- ソースごとの生データを読む副問い合わせ ---
 #
-# 材料の式（`domain/material_sql.py`）が読む別名`w`（道）と、ノードの別名の中身。生データの
-# 入れ方（`source`の値・キーの型）はここだけが知る。よく引くタグを列として出し、式の側が
-# `attrs`の構造を知らなくて済むようにする。
+# 生データの入れ方（`source`の値・キーの型）はここだけが知る。読み手は`source_features`を
+# ソース名で絞らず、ここの副問い合わせを置く。
+#
+# 道とノードは、材料の式（`domain/material_sql.py`）が読む別名`w`（道）とノードの別名の中身。
+# よく引くタグを列として出し、式の側が`attrs`の構造を知らなくて済むようにする。
 
 _TABLE = SourceFeatureRow.__tablename__
 
 
 def _ways_select(extra_columns: tuple[str, ...]) -> str:
     columns = ("natural_key::bigint AS osm_way_id", "geom", "attrs AS tags",
-               "attrs->>'highway' AS highway", "attrs->>'surface' AS surface", *extra_columns)
+               f"attrs->>'{WAY_KIND_TAG}' AS highway", "attrs->>'surface' AS surface", *extra_columns)
     return "SELECT " + ", ".join(columns) + f" FROM {_TABLE}"
 
 
@@ -134,7 +191,7 @@ def ways_source_sql(sampling: str = "", *, extra_columns: tuple[str, ...] = ()) 
     （外に付けると構文エラーになる）。`extra_columns`は生データの表の列を
     そのまま足す口（構成ノードの並び`payload`等、材料の式が読まない列を要る読み手向け）。
     """
-    return f"({_ways_select(extra_columns)} {sampling} WHERE source = 'osm_way')"
+    return f"({_ways_select(extra_columns)} {sampling} WHERE source = '{Source.OSM_WAY}')"
 
 
 WAYS_SOURCE_SQL = ways_source_sql()
@@ -148,7 +205,7 @@ def ways_lookup_sql(key_expr: str) -> str:
     取得で2,124万行を捨てて2.95秒）。
     """
     return (f"({_ways_select(())} "
-            f"WHERE source = 'osm_way' AND natural_key = ({key_expr})::text)")
+            f"WHERE source = '{Source.OSM_WAY}' AND natural_key = ({key_expr})::text)")
 
 
 _NODES_SELECT = f"SELECT natural_key::bigint AS osm_node_id, geom, attrs AS tags FROM {_TABLE}"
@@ -156,13 +213,34 @@ _NODES_SELECT = f"SELECT natural_key::bigint AS osm_node_id, geom, attrs AS tags
 #: ノードの生データの全件を指す副問い合わせ（空間で絞る読み手・全件を流す派生の段向け）。
 #: キーで引くなら`nodes_lookup_sql`を使う——ここの`osm_node_id`で突き合わせると、
 #: `ways_lookup_sql`と同じ理由で主キーの索引が使えない。
-NODES_SOURCE_SQL = f"({_NODES_SELECT} WHERE source = 'osm_node')"
+NODES_SOURCE_SQL = f"({_NODES_SELECT} WHERE source = '{Source.OSM_NODE}')"
 
 
 def nodes_lookup_sql(key_expr: str) -> str:
     """ノードを1点だけ引くときの副問い合わせ（LATERALの中に置く）。照合をtextのまま
     行う理由は`ways_lookup_sql`と同じ。"""
-    return f"({_NODES_SELECT} WHERE source = 'osm_node' AND natural_key = ({key_expr})::text)"
+    return f"({_NODES_SELECT} WHERE source = '{Source.OSM_NODE}' AND natural_key = ({key_expr})::text)"
+
+
+#: 事故の生データ（1件=1点）。判定の式（`domain/accident.py`）が読む別名`a`の中身。
+ACCIDENTS_SOURCE_SQL = f"(SELECT geom, attrs FROM {_TABLE} WHERE source = '{Source.ACCIDENT}')"
+
+
+def _raster_tiles_sql(source: Source) -> str:
+    return f"(SELECT rast, attrs, geom FROM {_TABLE} WHERE source = '{source}')"
+
+
+#: 標高タイル（1枚=1行）。`attrs`に製品・ズーム・番地・幅・尺度を持つ。
+DEM_TILES_SQL = _raster_tiles_sql(Source.DEM)
+
+#: 土地被覆タイル（1枚=1行）。
+LANDCOVER_TILES_SQL = _raster_tiles_sql(Source.LULC)
+
+
+def source_keys_sql(source: Source) -> str:
+    """そのソースの生データの識別子（`natural_key`、text）を全件指す副問い合わせ。
+    派生が生データを1件残らず覆うかを数える読み手（鮮度台帳）向け。"""
+    return f"(SELECT natural_key FROM {_TABLE} WHERE source = '{source}')"
 
 
 # 圧縮しない指定は型では表せないので、表を作った直後に当てる。親へ当てれば以後の

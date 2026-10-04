@@ -1,14 +1,9 @@
-# backendをOracle Cloud VM（DBと同居）へデプロイする（改善計画T261/T263）。
-# Renderの無料プラン（0.1 CPU/512MB）が冷パスの重いリクエストでクラッシュ→自動復旧を
-# 繰り返す障害（T261）を受け、DBが既に稼働しているOracle Cloud Always Free VM
-# （2 OCPU/12GB・egress月10TB）へbackendを同居させることにした。
+# backendをOracle Cloud VM（DBと同居）へデプロイする。
 #
-# 当初はGitHub Actions（amd64ランナー）でビルドしghcr.ioへpushする方式（VM側の負荷を
-# 避ける狙い）を試みたが、VMがAmpere A1（arm64）のためQEMUエミュレーションでの
-# クロスビルドが必要になり、実測で10分超かかっても終わらないほど非現実的に遅かった
-# （numpy/scipy等C拡張を含む依存関係のインストール自体がエミュレーション対象になるため）。
-# VM上でのネイティブビルドは実測約3分で完了することを確認済みのため、SSH経由で
-# VM自身にgit pull→dockerビルド→再起動させる方式へ変更した（レジストリ不要）。
+# イメージはVM自身にSSH経由でgit pull→dockerビルド→再起動させて作る（レジストリ不要）。
+# VMはAmpere A1（arm64）で、GitHub Actionsのamd64ランナーでビルドするとQEMUでの
+# クロスビルドになり、numpy/scipy等のC拡張を含む依存の導入までエミュレーションされて
+# 10分超かかっても終わらない。VM上のネイティブビルドは約3分で済む。
 name: Deploy Backend to Oracle VM
 
 on:
@@ -55,7 +50,7 @@ jobs:
           fi
       - name: Deploy via SSH (native arm64 build on VM)
         if: steps.gate.outputs.deploy == 'true'
-        uses: appleboy/ssh-action@v1.2.0
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.ORACLE_VM_HOST }}
           username: ubuntu
@@ -69,11 +64,10 @@ jobs:
             git reset --hard FETCH_HEAD
 
             cd backend
-            # GIT_COMMIT: Renderは`RENDER_GIT_COMMIT`をデプロイ先へ自動注入していたが、
-            # このVM上でのDocker運用にはその仕組みが無い。「本番に実際にどのコミットが
-            # 反映されているか」を/healthから確認できるようにするため、実際にビルドした
-            # HEADのSHAを明示的にコンテナへ渡す（改善計画T263フォローアップ、config.py:
-            # settings.git_commit参照）。
+            # GIT_COMMIT: VM上のDockerにはデプロイしたコミットを注入する仕組みが無い。
+            # 「本番に実際にどのコミットが反映されているか」を/healthから確認できるように
+            # するため、実際にビルドしたHEADのSHAを明示的にコンテナへ渡す（`config.py:
+            # settings.git_commit`参照）。
             GIT_COMMIT=$(git rev-parse HEAD)
             # CORS_ALLOWED_ORIGINSの自己修復（改善計画T315）: この値はgit管理外の
             # VM上の環境変数ファイルで手動管理されており、本番フロントのオリジンと
@@ -171,8 +165,7 @@ jobs:
             # 必要がある（ブリッジのままだとコンテナ内のlocalhostはコンテナ自身を指し、
             # ConnectionRefusedErrorになる。実機で確認済み）。
             # --log-opt: 既定のjson-fileドライバはログサイズに上限が無く、無制限に
-            # ディスクを消費しうる（Renderでは基盤側が保持期間を管理してくれていたが、
-            # 自前運用ではこちらで明示する必要がある）。10MB×5世代=最大50MBに制限する。
+            # ディスクを消費しうる。10MB×5世代=最大50MBに制限する。
             sudo docker run -d \
               --name ridecompass-backend \
               --restart unless-stopped \

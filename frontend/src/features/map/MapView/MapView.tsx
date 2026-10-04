@@ -26,8 +26,8 @@ import type {
   SelectedRouteSegment,
 } from "@/types/route";
 import type { ExperimentSlot } from "@/types/experimentSlot";
-import { ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM } from "@/services/regionApi";
-import type { RideConditions } from "@/services/regionApi";
+import { ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM } from "@/features/map/regionApi";
+import type { RideConditions } from "@/features/map/regionApi";
 import { tileContainingLonLat, type TileXY } from "@/features/map/layers/dynamicWayValues";
 import {
   ORIGIN_MARK_COLOR,
@@ -47,11 +47,9 @@ import { apiPath } from "@/lib/apiPath";
 import { tileBaseUrl } from "@/lib/tileBaseUrl";
 import { resetBasemapAreaLayerPreparation, runWhenStyleReady } from "@/features/map/layers/mapStyleOps";
 import {
-  ACCIDENT_TILE_SOURCE_LAYER,
   applyScene,
   ROAD_TILE_SOURCE_LAYER,
   sceneInputsFrom,
-  STOP_POI_SOURCE_LAYER,
   type SpliceStretchInput,
 } from "@/features/map/scene/applyToMap";
 import { interactiveSceneLayerIds, sceneLayerIdsForHitTarget, type MapScene } from "@/features/map/scene/mapScene";
@@ -61,14 +59,14 @@ import {
   ROUTE_HIT_TARGET_SPLICE_BAND,
 } from "@/features/map/scene/groups/routes";
 import { buildMapScene, type SceneInputs } from "@/features/map/scene/buildScene";
-import { POINT_LAYERS, pointSourceId } from "@/features/map/scene/groups/points";
+import { POINT_LAYERS, POINT_TILE_SOURCES } from "@/features/map/scene/groups/points";
 import { AREA_SOURCE_ID } from "@/features/map/scene/groups/areaRasters";
 import { ROAD_LINE_SOURCE_ID } from "@/features/map/scene/groups/roadLines";
 import { sceneLayerId } from "@/features/map/scene/sceneBuilders";
 
 /** 押された点のレイヤーidから、その点の宣言を引く。idは役割から決まるので写しではない。 */
 const POINT_LAYER_BY_SCENE_ID = new Map(
-  POINT_LAYERS.map((layer) => [sceneLayerId(pointSourceId(layer.tile_kind), layer.attr_id), layer]),
+  POINT_LAYERS.map((layer) => [sceneLayerId(POINT_TILE_SOURCES[layer.tile_kind].sourceId, layer.attr_id), layer]),
 );
 
 /** ルート線の当たり判定レイヤー。**idは scene が決める**ので、当たり判定の名前で引く。 */
@@ -79,7 +77,7 @@ import { axisMapLayerId } from "@/lib/mapDisplay/axisLayers";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import type { MapLook } from "@/features/map/view/mapLook";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
-import { useTileVersionsReady } from "@/features/map/useTileVersionsReady";
+import { useMapAxisCatalog } from "@/features/map/useMapAxisCatalog";
 import { useLayerDataStatus } from "@/features/map/MapView/useLayerDataStatus";
 import { useJmaTileIndex } from "@/features/map/useJmaTileIndex";
 import { registerJmaTileProtocol } from "@/features/map/layers/jmaTileProtocol";
@@ -145,14 +143,14 @@ type LayerDataSource = { key: MapLayerId; sourceId: string; sourceLayer?: string
 const INITIAL_TILES_OVERLAY_MAX_MS = 6000;
 
 /** 情報源の名前→MapLibreの(source, source-layer)。レイヤーごとではなく情報源ごとの表で、配信元を増やしたときだけ
- * 伸びる。source-layerを持たないラスタは取得失敗だけを見て、空かどうかは判定しない。 */
+ * 伸びる。点のタイルの情報源は点のタイルと同じ名前で、行はその一覧から来る。source-layerを持たないラスタは
+ * 取得失敗だけを見て、空かどうかは判定しない。 */
 const TILE_SOURCE_BY_DATA_SOURCE: Record<
   Exclude<MapLayerDataSource, "ownFetch">,
   { sourceId: string; sourceLayer?: string }
 > = {
   road_surface: { sourceId: ROAD_LINE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
-  accident: { sourceId: pointSourceId("accident"), sourceLayer: ACCIDENT_TILE_SOURCE_LAYER },
-  poi: { sourceId: pointSourceId("poi"), sourceLayer: STOP_POI_SOURCE_LAYER },
+  ...POINT_TILE_SOURCES,
   gsiRelief: { sourceId: AREA_SOURCE_ID.elevation },
   gsiTerrain: { sourceId: AREA_SOURCE_ID.hillshade },
   landcoverRaster: { sourceId: AREA_SOURCE_ID.landcover },
@@ -232,7 +230,7 @@ function mergeObscured(a: RouteFitObscuredPx | undefined, b: RouteFitObscuredPx)
 function fitBoundsToRoutes(
   map: MapLibreMap,
   routes: RouteCandidate[],
-  measureObscured?: () => RouteFitObscuredPx | undefined,
+  measureObscured: () => RouteFitObscuredPx | undefined,
 ) {
   if (routes.length === 0) return;
 
@@ -240,7 +238,7 @@ function fitBoundsToRoutes(
 
   runWhenStyleReady(map, () => {
     const canvas = map.getCanvas();
-    const obscured = mergeObscured(measureObscured?.(), measureMapOverlayEdges(canvas.getBoundingClientRect()));
+    const obscured = mergeObscured(measureObscured(), measureMapOverlayEdges(canvas.getBoundingClientRect()));
     const padding = computeRouteFitPadding(obscured, { width: canvas.clientWidth, height: canvas.clientHeight });
     debugLog("map:viewport", "ルートを収める", { padding });
     map.fitBounds(bounds, { padding });
@@ -283,14 +281,14 @@ function nearestPointOnLineString(
 interface MapViewProps {
   routes: RouteCandidate[];
   selectedRouteId: string | null;
-  // 比較相手が別の道を通る区間。空/未指定なら帯を出さない。
-  spliceStretches?: readonly SpliceStretchInput[];
-  /** 編集中に「いま作っているルート」として描く座標列（編集していなければ省略）。 */
-  splicedRoute?: readonly GeoJSON.Position[] | null;
+  // 比較相手が別の道を通る区間。空なら帯を出さない。
+  spliceStretches: readonly SpliceStretchInput[];
+  /** 編集中に「いま作っているルート」として描く座標列（編集していなければnull）。 */
+  splicedRoute: readonly GeoJSON.Position[] | null;
   /** 乗り換えられる区間の帯をタップしたときに呼ばれる（`SpliceStretchInput.index`）。
    * 選ぶ操作の中心を地図へ置くためのもの——パネルの行だけで選ばせると、どの行がどの帯かを
    * 目で対応づける必要がある。 */
-  onSpliceStretchSelect?: (index: number) => void;
+  onSpliceStretchSelect: (index: number) => void;
   location: Coordinates;
   /** 出発地点の色。位置が取れず既定の地点（"default"）のときだけ灰色にする。 */
   locationSource: LocationSource;
@@ -298,9 +296,9 @@ interface MapViewProps {
    * 軸カタログ・タイル世代のような共有の源泉から導けるものはここで読む。 */
   look: MapLook;
   /** 地図を塗るのに使っている走行の条件。道を押したときの内訳にも同じ値を渡す（揃えないと色と数字が食い違う）。 */
-  rideConditions?: RideConditions;
+  rideConditions: RideConditions;
   /** 利用者がいま設定している重み（ルート生成へ送るのと同じもの）。道の詳細の評価に使う。nullなら既定の重み。 */
-  routePreference?: RoutePreferenceWeights | null;
+  routePreference: RoutePreferenceWeights | null;
   /** 実験スロット。デバッグモードOFFの間は空。 */
   experimentSlots: ExperimentSlot[];
   /** 押して選んでいる区間。地図は押した地点に印を立てるだけで、内訳は下部のシートが出す（地図上の
@@ -328,7 +326,7 @@ interface MapViewProps {
   onDestinationClear: () => void;
   /** 地図の上に重なるUIで覆われている辺ごとの高さ(px)をいま測る。ルートを収めるとき、覆われた所へ収めないため。
    * レイアウトを持つ呼び出し側が測る。地図の上に置いた部品は、ここで測らず`mapOverlayEdge`の印を付ければ地図が測る。 */
-  measureRouteFitObscuredPx?: () => RouteFitObscuredPx | undefined;
+  measureRouteFitObscuredPx: () => RouteFitObscuredPx | undefined;
 }
 
 export default function MapView({
@@ -341,7 +339,7 @@ export default function MapView({
   locationSource,
   look,
   rideConditions,
-  routePreference = null,
+  routePreference,
   experimentSlots,
   selectedRouteSegment,
   onRouteSegmentSelect,
@@ -375,8 +373,11 @@ export default function MapView({
   // 出発地点の印の器（Markerの要素）と、中身の印の色。
   const [originMark, setOriginMark] = useState<{ element: HTMLDivElement; color: string } | null>(null);
   const catalog = useAxisCatalog();
-  const tileVersionsReady = useTileVersionsReady();
-  const mapLayerCatalog = useMemo(() => buildMapLayers(catalog), [catalog]);
+  const mapCatalog = useMapAxisCatalog();
+  const mapLayerCatalog = useMemo(
+    () => buildMapLayers({ ...mapCatalog, axes: catalog.axes }),
+    [mapCatalog, catalog.axes],
+  );
   const layerDataSources = useMemo(() => buildLayerDataSources(mapLayerCatalog), [mapLayerCatalog]);
   // 詳細を見ている道。強調も scene の一部として当てる。
   const inspectedWayId = roadPopup ? roadWayId(roadPopup.properties) : null;
@@ -385,26 +386,16 @@ export default function MapView({
     () =>
       sceneInputsFrom({
         look,
-        catalog,
+        catalog: mapCatalog,
         routes,
         selectedRouteId,
         spliceStretches,
         splicedRoute,
         experimentSlots,
-        tileVersionsReady,
+        tileVersions: mapCatalog.tileVersions,
         inspectedWayId,
       }),
-    [
-      look,
-      catalog,
-      routes,
-      selectedRouteId,
-      spliceStretches,
-      splicedRoute,
-      experimentSlots,
-      tileVersionsReady,
-      inspectedWayId,
-    ],
+    [look, mapCatalog, routes, selectedRouteId, spliceStretches, splicedRoute, experimentSlots, inspectedWayId],
   );
   const scene = useMemo(() => buildMapScene(sceneInputs), [sceneInputs]);
   // 押せるのは scene が当たり判定を宣言したレイヤーだけ。
@@ -421,10 +412,10 @@ export default function MapView({
     () => ({
       ...look.layerVisibility,
       ...Object.fromEntries(
-        catalog.rampAxes.map((axis) => [axisMapLayerId(axis.axisId), axis.axisId === look.paintedAxisId]),
+        mapCatalog.rampAxes.map((axis) => [axisMapLayerId(axis.axisId), axis.axisId === look.paintedAxisId]),
       ),
     }),
-    [look.layerVisibility, look.paintedAxisId, catalog.rampAxes],
+    [look.layerVisibility, look.paintedAxisId, mapCatalog.rampAxes],
   );
   // 地図のイベント（初期化のeffectで一度だけ登録する）とマーカーの操作が、いまのpropsを読むための参照。
   const latestProps = {
@@ -568,7 +559,7 @@ export default function MapView({
       const index = e.features?.[0]?.properties?.index;
       if (typeof index !== "number") return;
       popupRef.current?.remove();
-      latest.current.onSpliceStretchSelect?.(index);
+      latest.current.onSpliceStretchSelect(index);
     }
 
     function handleRouteSegmentClick(e: MapLayerMouseEvent) {
@@ -957,7 +948,7 @@ export default function MapView({
             properties={roadPopup.properties}
             axes={catalog.axes}
             axisColors={catalog.axisColors}
-            conditions={rideConditions != null ? { ...rideConditions, ...roadPopup.tile } : null}
+            conditions={{ ...rideConditions, ...roadPopup.tile }}
             routePreference={routePreference}
           />,
           roadPopupContainer,

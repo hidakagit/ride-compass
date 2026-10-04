@@ -1,43 +1,44 @@
 // @vitest-environment node
-import { afterEach, describe, expect, it } from "vitest";
+/**
+ * `app/api/version/route.ts`——フロントのサーバーが今どのコミットで動いているかを返す口。入口はNext.jsが呼ぶ`GET`、
+ * 確かめるのは応答の本文。デプロイの反映を、手元のコミットと見比べて確かめるために読まれる。
+ *
+ * ここで見ないもの:
+ * - 応答をビルド時に固めない指定（`dynamic`）→ Next.jsの規約の宣言で、振る舞いはフレームワークが持つ
+ * - この口を読んで画面に出すこと → `features/admin/SystemStatusPanel/SystemStatusPanel.test.tsx`
+ *
+ * コミットの環境変数はこの口だけが読むので、`vi.stubEnv`で立てて入口を呼ぶ（docs/conventions/testing.md パターン7）。
+ */
+import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { GET } from "./route";
 
+async function body() {
+  const response = await GET();
+  expect(response.status).toBe(200);
+  return (await response.json()) as { status: string; commit: string | null; started_at: string };
+}
+
 describe("GET /api/version", () => {
-  const originalCommit = process.env.RENDER_GIT_COMMIT;
-
   afterEach(() => {
-    if (originalCommit === undefined) {
-      delete process.env.RENDER_GIT_COMMIT;
-    } else {
-      process.env.RENDER_GIT_COMMIT = originalCommit;
-    }
+    vi.unstubAllEnvs();
   });
 
-  it("returns status ok and a valid ISO started_at timestamp", async () => {
-    const response = await GET();
-    const body = await response.json();
+  it("デプロイされたコミットを返し、注入されていない環境（手元）ではnullを返す", async () => {
+    vi.stubEnv("RENDER_GIT_COMMIT", "0123456789abcdef0123456789abcdef01234567");
+    expect(await body()).toMatchObject({ status: "ok", commit: "0123456789abcdef0123456789abcdef01234567" });
 
-    expect(response.status).toBe(200);
-    expect(body.status).toBe("ok");
-    expect(typeof body.started_at).toBe("string");
-    expect(Number.isNaN(new Date(body.started_at).getTime())).toBe(false);
+    vi.stubEnv("RENDER_GIT_COMMIT", undefined);
+    expect((await body()).commit).toBeNull();
   });
 
-  it("returns commit as null when RENDER_GIT_COMMIT is not set", async () => {
-    delete process.env.RENDER_GIT_COMMIT;
+  it("起動の時刻は呼ぶたびに変わらず、プロセスが起きた時点（呼んだ時より前）を指す", async () => {
+    const first = await body();
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const second = await body();
 
-    const response = await GET();
-    const body = await response.json();
-
-    expect(body.commit).toBeNull();
-  });
-
-  it("reflects RENDER_GIT_COMMIT when set (Render本番相当)", async () => {
-    process.env.RENDER_GIT_COMMIT = "abc1234def5678";
-
-    const response = await GET();
-    const body = await response.json();
-
-    expect(body.commit).toBe("abc1234def5678");
+    expect(second.started_at).toBe(first.started_at);
+    expect(new Date(first.started_at).toISOString()).toBe(first.started_at);
+    expect(Date.parse(first.started_at)).toBeLessThan(Date.now());
   });
 });

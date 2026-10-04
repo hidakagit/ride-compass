@@ -21,7 +21,7 @@ type ProfileSegment = Pick<
 >;
 
 /** 区間1本ぶんの柱。`startKm`は区間の長さを積み上げた値（丸めた累積距離は使わない——丸めの分だけ柱の間に隙間ができる）。 */
-export type ProfileColumn<S extends ProfileSegment = ProfileSegment> = {
+type ProfileColumn<S extends ProfileSegment = ProfileSegment> = {
   readonly segment: S;
   readonly index: number;
   readonly startKm: number;
@@ -98,14 +98,13 @@ export function columnAtKm<S extends ProfileSegment>(
 
 /** 区間の道なりの形の上で、始点から割合`fraction`だけ進んだ点（[経度, 緯度]）。形が無ければ始点と終点を結ぶ直線の上。 */
 export function pointAlongSegment(segment: ProfileSegment, fraction: number): [number, number] {
-  const geometry = segment.geometry as { type?: string; coordinates?: [number, number][] } | null | undefined;
-  const coordinates =
-    geometry?.type === "LineString" && Array.isArray(geometry.coordinates) && geometry.coordinates.length >= 2
-      ? geometry.coordinates
-      : ([
+  const coordinates: [number, number][] =
+    segment.geometry !== null
+      ? (segment.geometry.coordinates as [number, number][])
+      : [
           [segment.start_longitude, segment.start_latitude],
           [segment.end_longitude, segment.end_latitude],
-        ] as [number, number][]);
+        ];
   // 区間は短いので、緯度で経度方向を縮めた平面の距離で足りる（割合を決めるだけで、長さそのものは使わない）。
   const scale = Math.cos((coordinates[0][1] * Math.PI) / 180);
   const lengths = coordinates.slice(1).map(([lng, lat], i) => {
@@ -115,14 +114,13 @@ export function pointAlongSegment(segment: ProfileSegment, fraction: number): [n
   const total = lengths.reduce((sum, length) => sum + length, 0);
   if (total === 0) return coordinates[0];
   let remaining = Math.min(1, Math.max(0, fraction)) * total;
-  for (let i = 0; i < lengths.length; i++) {
-    if (remaining <= lengths[i] || i === lengths.length - 1) {
-      const t = lengths[i] === 0 ? 0 : Math.min(1, remaining / lengths[i]);
-      const [fromLng, fromLat] = coordinates[i];
-      const [toLng, toLat] = coordinates[i + 1];
-      return [fromLng + (toLng - fromLng) * t, fromLat + (toLat - fromLat) * t];
-    }
+  let i = 0;
+  while (i < lengths.length - 1 && remaining > lengths[i]) {
     remaining -= lengths[i];
+    i += 1;
   }
-  return coordinates[coordinates.length - 1];
+  const t = lengths[i] === 0 ? 0 : Math.min(1, remaining / lengths[i]);
+  const [fromLng, fromLat] = coordinates[i];
+  const [toLng, toLat] = coordinates[i + 1];
+  return [fromLng + (toLng - fromLng) * t, fromLat + (toLat - fromLat) * t];
 }

@@ -11,8 +11,11 @@ from app.infrastructure.proj_data import pin_bundled_proj_data
 pin_bundled_proj_data()
 
 import asyncpg
+import fakeredis
+import freezegun
 import pytest
 import pytest_asyncio
+from hypothesis import settings as hypothesis_settings
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
@@ -27,6 +30,11 @@ from app.infrastructure.road_graph_repository import (
 from app.config import settings
 from app.services import derived_data_revision_service
 from tests.admin_auth import ADMIN_PASSWORD, ADMIN_USERNAME
+
+# hypothesisは1例ごとに壁時計の締め切り（既定200ms）を持ち、超えると落とす。共有のランナーでは同じ例の所要時間が
+# 実行ごとに揺れて別のテストが落ちるため外す。止まったテストはpytest-timeoutが落とす。
+hypothesis_settings.register_profile("ridecompass", deadline=None)
+hypothesis_settings.load_profile("ridecompass")
 
 
 @pytest.fixture
@@ -46,13 +54,52 @@ def _closed_redis_circuit_breaker(monkeypatch):
     monkeypatch.setattr(redis_client, "_last_failure_at", None)
 
 
+@pytest.fixture
+def clock():
+    """時計を止める（freezegun）。`tick(秒)`で進めたぶんだけ進み、`move_to`でその時刻へ飛ぶ。
+
+    `time.time`・`time.monotonic`・`datetime.now`をまとめて止めるので、読む口がどれでも同じ時刻になる。
+    イベントループは実時間のまま（`real_asyncio`）——止めると`asyncio.sleep`が永遠に明けない。
+    止める時刻は秒の端数を持たせない。大きな時刻どうしの差で境界を見るテストが、端数の丸めで1刻み
+    ずれないため。
+
+    `ignore`はpytest自身の計時（`--durations`）を実時間に保つ。freezegunは呼び出し元から数段の
+    フレームのモジュール名で除外を判定するため、`_pytest`全体を除外すると、テスト関数から直接読んだ
+    時計まで（数段上にpytestのフレームがあるので）実時間になる。除外は計時を呼ぶ`_pytest.runner`だけにする。
+    """
+    with freezegun.freeze_time("2026-01-01 00:00:00", real_asyncio=True, ignore=["_pytest.runner"]) as frozen:
+        yield frozen
+
+
+@pytest.fixture
+def redis_server():
+    """Redisの代役（fakeredis）のサーバ。`connected = False`にすると、以後のコマンドが接続の失敗になる。
+
+    テストごとに作る——サーバを渡さずに作ったfakeredisのクライアントは同じ接続先どうしで中身を共有し、
+    前のテストが書いたキーが残る。
+    """
+    return fakeredis.FakeServer()
+
+
+@pytest.fixture
+def fake_redis(monkeypatch, redis_server):
+    """空のRedis。共有クライアント（`app/infrastructure/redis_client.py: _client`・
+    `app/infrastructure/redis_client.py: _binary_client`）を同じサーバのfakeredisへ差すので、
+    `get_redis_client_or_none`・`get_redis_binary_client_or_none`を読むどのモジュールからも同じものが見える。
+    返すのは文字列側のクライアント。"""
+    fake = fakeredis.FakeAsyncRedis(server=redis_server, decode_responses=True)
+    monkeypatch.setattr(redis_client, "_client", fake)
+    monkeypatch.setattr(redis_client, "_binary_client", fakeredis.FakeAsyncRedis(server=redis_server))
+    return fake
+
+
 @pytest.fixture(autouse=True)
 def _unread_derived_data_revision(monkeypatch):
-    """派生データの世代はまだ読んでいない状態から始める。読んだ世代とTTLはプロセス内のモジュール変数に
+    """データの世代はまだ読んでいない状態から始める。読んだ世代とTTLはプロセス内のモジュール変数に
     残り、前のテストが読んだ世代のままTTLの内側に入ると、後のテストのリポジトリは世代を聞かれず、鍵も
     ディスクへ残すかも前のテストで決まる。"""
     monkeypatch.setattr(derived_data_revision_service, "_next_check_at", 0.0)
-    monkeypatch.setattr(derived_data_revision_service, "_current_revision", None)
+    monkeypatch.setattr(derived_data_revision_service, "_current_revisions", None)
 
 
 @pytest.fixture

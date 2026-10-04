@@ -1,71 +1,58 @@
-"""`infrastructure/rate_limiter.py`——プロセス内の移動窓レート制限。
+"""`infrastructure/rate_limiter.py`——接続元ごとの移動窓の回数制限（`check_rate_limit`）。
+
+時計は`tests/conftest.py: rate_limit_clock`（回数制限が読む時計。テストごとに1窓進んでから始まる）で進める。
+接続元の鍵はテストごとに別の名前にし、前のテストの記録と混ざらないようにする。
 
 ここで見ないもの:
-- 超過をHTTPの429へ翻訳する層とキーの組み立て → `api/dependencies.py`を通る各ルーターのテスト
-- レート制限のキーになるクライアントidの決め方 → `test_client_ip_behind_proxy.py`
-- 来なくなった接続元の記録が消えること → cachetoolsの`TTLCache`が持つ（期限は窓の長さ）。
-  記録の中身は入口の結果に現れないので見ない
-
-**実時間を待たない。** 窓の長さはモジュールが読む時計だけで決まるため、`conftest.py`の
-`rate_limit_clock`（テストごとに1窓ぶん進んだ状態で始まる）を進める。
+- 上限を超えた要求が429になること・上限の値と鍵の接頭辞 → `api/rate_limit.py`を通る各ルーターのテスト
+  （例: `test_region_routes.py`）
+- 件数の上限（`_MAX_CLIENTS`）を超えたときに最も古い接続元を忘れること。10万の接続元を作らないと届かず、
+  忘れられた接続元が少し多く通るだけで利用者には見えない
 """
 
-from app.infrastructure import rate_limiter
+from app.infrastructure.rate_limiter import _WINDOW_SECONDS, check_rate_limit
 
 
-class TestTheLimit:
-    def test_requests_up_to_the_limit_are_allowed(self):
-        allowed = [rate_limiter.check_rate_limit("a", 3) for _ in range(3)]
-
-        assert allowed == [True, True, True]
-
-    def test_the_request_after_the_limit_is_refused(self):
-        for _ in range(3):
-            rate_limiter.check_rate_limit("a", 3)
-
-        assert rate_limiter.check_rate_limit("a", 3) is False
-
-    def test_each_client_has_its_own_budget(self):
-        """1つのキーへ相乗りさせると、1人が上限に達した瞬間に全員が429になる。"""
-        for _ in range(3):
-            rate_limiter.check_rate_limit("a", 3)
-
-        assert rate_limiter.check_rate_limit("b", 3) is True
+def test_requests_up_to_the_limit_pass_and_the_next_is_refused():
+    assert [check_rate_limit("client-limit", 3) for _ in range(4)] == [True, True, True, False]
 
 
-class TestTheWindow:
-    def test_a_hit_still_inside_the_window_counts(self, rate_limit_clock):
-        assert rate_limiter.check_rate_limit("a", 1) is True
-        rate_limit_clock.advance(rate_limiter._WINDOW_SECONDS - 1)
+def test_each_client_has_its_own_count():
+    assert check_rate_limit("client-a", 1)
+    assert not check_rate_limit("client-a", 1)
 
-        assert rate_limiter.check_rate_limit("a", 1) is False
+    assert check_rate_limit("client-b", 1)
 
-    def test_a_hit_that_is_exactly_a_window_old_no_longer_counts(self, rate_limit_clock):
-        """境界を内側へ倒すと、窓ぶんきっかり待って再試行した利用者が1回ぶん損をする。"""
-        assert rate_limiter.check_rate_limit("a", 1) is True
-        rate_limit_clock.advance(rate_limiter._WINDOW_SECONDS)
 
-        assert rate_limiter.check_rate_limit("a", 1) is True
+def test_a_request_leaves_the_count_once_it_is_a_full_window_old(rate_limit_clock):
+    assert check_rate_limit("client-boundary", 1)
 
-    def test_only_the_hits_that_left_the_window_stop_counting(self, rate_limit_clock):
-        """窓を出た分だけが空く。まとめて忘れると、上限に達していた利用者が窓の途中で回復する。"""
-        rate_limiter.check_rate_limit("a", 2)
-        rate_limit_clock.advance(rate_limiter._WINDOW_SECONDS / 2)
-        rate_limiter.check_rate_limit("a", 2)
-        rate_limit_clock.advance(rate_limiter._WINDOW_SECONDS / 2)
+    rate_limit_clock.advance(_WINDOW_SECONDS - 1)
+    assert not check_rate_limit("client-boundary", 1)
 
-        assert rate_limiter.check_rate_limit("a", 2) is True
-        assert rate_limiter.check_rate_limit("a", 2) is False
+    rate_limit_clock.advance(1)
+    assert check_rate_limit("client-boundary", 1)
 
-    def test_a_refusal_does_not_extend_the_window(self, rate_limit_clock):
-        """拒否もヒットとして数えると、連打をやめない利用者は窓が明けても回復できず、
-        タイルも天候も返らないまま固まる。
-        """
-        for _ in range(3):
-            rate_limiter.check_rate_limit("a", 3)
+
+def test_the_window_moves_with_each_request_instead_of_resetting_at_once(rate_limit_clock):
+    """窓の途中の要求は、窓の始まりの要求が抜けても数えたまま残る。"""
+    assert check_rate_limit("client-moving", 2)
+    rate_limit_clock.advance(_WINDOW_SECONDS / 2)
+    assert check_rate_limit("client-moving", 2)
+
+    rate_limit_clock.advance(_WINDOW_SECONDS / 2)
+
+    assert check_rate_limit("client-moving", 2)
+    assert not check_rate_limit("client-moving", 2)
+
+
+def test_refused_requests_are_not_counted(rate_limit_clock):
+    """拒んだ回を数えると、連打をやめない接続元は窓が明けても回復しない。"""
+    assert check_rate_limit("client-hammering", 1)
+    for _ in range(int(_WINDOW_SECONDS) - 1):
         rate_limit_clock.advance(1)
-        for _ in range(5):
-            assert rate_limiter.check_rate_limit("a", 3) is False
-        rate_limit_clock.advance(rate_limiter._WINDOW_SECONDS - 1)
+        assert not check_rate_limit("client-hammering", 1)
 
-        assert rate_limiter.check_rate_limit("a", 3) is True
+    rate_limit_clock.advance(1)
+
+    assert check_rate_limit("client-hammering", 1)

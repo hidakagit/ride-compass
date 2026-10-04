@@ -27,21 +27,18 @@ from app.domain.wind_grid import (  # noqa: E402
     WIND_GRID_DETAIL_MIN_SPACING_DEG,
     WIND_GRID_SPACING_DEG,
 )
-from app.api.routers.routes import DEFAULT_DISTANCE_TOLERANCE_KM, MAX_ROUTE_DISTANCE_KM  # noqa: E402
+from app.domain.route_request import DEFAULT_DISTANCE_TOLERANCE_KM, MAX_ROUTE_DISTANCE_KM, MAX_WAYPOINTS  # noqa: E402
 from app.api.routers.axis_admin import AxisDefinitionPayload  # noqa: E402
 from app.api.routers.debug_admin import LogLevelName  # noqa: E402
 from app.infrastructure.source_models import SOURCE_RUN_STATUS_LABELS  # noqa: E402
 from app.domain.axis_definitions import MAP_CHIP_LABEL_MAX_LENGTH  # noqa: E402
-from app.infrastructure.vector_tile import (  # noqa: E402
-    ACCIDENT_LAYER_NAME,
-    ROAD_FEATURE_PROPERTIES,
-    ROAD_SURFACE_LAYER_NAME,
-    STOP_POI_LAYER_NAME,
-)
+from app.infrastructure.point_tile_layers import POINT_TILE_LAYERS  # noqa: E402
+from app.infrastructure.vector_tile import ROAD_FEATURE_PROPERTIES, ROAD_SURFACE_LAYER_NAME  # noqa: E402
 from app.main import app  # noqa: E402
 from app.domain.wind import ASSUMED_SPEED_KMH, MAX_ASSUMED_SPEED_KMH, MIN_ASSUMED_SPEED_KMH  # noqa: E402
 from app.domain.hard_filters import DEFAULT_HARD_FILTERS, HARD_FILTER_LABELS, HARD_FILTER_NAMES  # noqa: E402
 from app.domain.geo import COMPASS_LABELS  # noqa: E402
+from cross_language_expectations import EXPECTATIONS  # noqa: E402
 from app.domain.weather_elements import (  # noqa: E402
     WEATHER_ELEMENTS,
     WEATHER_LAYER_GROUPS,
@@ -49,10 +46,11 @@ from app.domain.weather_elements import (  # noqa: E402
     weather_element_deliveries,
     weather_element_tile,
 )
+from app.domain.dynamic_way_values import DEFAULT_DIFFICULTY_BOUNDARIES  # noqa: E402
 from app.domain.map_display import (  # noqa: E402
     ALWAYS_SHOWN_ATTRIBUTIONS,
-    DEFAULT_DIFFICULTY_BOUNDARIES,
     AXIS_LAYER_SPECS,
+    LEGEND_SHARED_ROWS,
     MAP_LAYER_CATEGORIES,
     MAP_LAYERS,
     map_layer_label,
@@ -80,11 +78,11 @@ from app.domain.map_display import (  # noqa: E402
     WEATHER_MARK_HALO_WIDTH_PX,
     WIND_FULL_SCALE_MS,
     WIND_ICON_SCALE_RANGE,
-    ACCIDENT_POINT_OPACITY,
     POINT_FATAL_RADIUS_PX,
     POINT_NON_FATAL_RADIUS_PX,
-    POINT_OPACITY,
+    POINT_OPACITY_BY_ATTR,
     POINT_RADIUS_PX,
+    POINT_ICON_SIZE_PX,
     POINT_STROKE_WIDTH_PX,
     ROAD_INSPECTED_WIDTH_PX,
     ROAD_KNOWN_OPACITY,
@@ -116,10 +114,12 @@ from app.domain.display_palette import (  # noqa: E402
     resolved_display_axes,
 )
 from app.api.routers.gsi_tile import RELIEF_TILE_URL, TERRAIN_TILE_URL  # noqa: E402
+from app.api.cache_policy import BASEMAP  # noqa: E402
 from app.domain.gsi_tiles import RELIEF_ATTRIBUTION, RELIEF_MAX_ZOOM, TERRAIN_MAX_ZOOM  # noqa: E402
 from app.domain.terrain_rgb import TERRAIN_RGB_BASE_M, TERRAIN_RGB_UNIT_M  # noqa: E402
 from app.domain.landcover import (  # noqa: E402
     LANDCOVER_CLASSES,
+    LANDCOVER_RING_OUTER_M,
     LANDCOVER_TILE_MAX_ZOOM,
     LANDCOVER_TILE_MIN_ZOOM,
 )
@@ -147,7 +147,7 @@ from app.domain.route_preference import MAX_AXIS_WEIGHT  # noqa: E402
 from app.domain.tuning import client_tuning_values  # noqa: E402
 from app.domain.weather import PRECIPITATION_MIN_MM  # noqa: E402
 from app.infrastructure.msm_client import DEFAULT_UPDATE_INTERVAL_SECONDS as MSM_UPDATE_INTERVAL_SECONDS  # noqa: E402
-from app.services.jma_amedas_service import AMEDAS_REFRESH_INTERVAL_MINUTES  # noqa: E402
+from app.infrastructure.jma_amedas_client import AMEDAS_REFRESH_INTERVAL_MINUTES  # noqa: E402
 from app.infrastructure.job_registry import JOB_TTL_SECONDS  # noqa: E402
 from app.services.tile_version_service import TILE_SHAPES  # noqa: E402
 
@@ -234,6 +234,8 @@ def _weather_element_entry(element: WeatherElement) -> dict:
         "label": element.label,
         "frameRule": {"kind": element.frame_rule.kind, "windowMinutes": element.frame_rule.window_minutes},
         "gridValue": element.grid_value,
+        "levelScale": element.level_scale,
+        "description": element.description,
         # 時刻の段の順（近い時刻から）。画面のデータ層は、時刻一覧をそのパスから取り、行を読み方に従って
         # コマにし、コマの時刻と系列でパスのテンプレートを埋めて取りに行く。
         "jmaElements": [
@@ -276,11 +278,11 @@ def main() -> None:
             # （環境ごとに違う値をビルド機の設定で固定してしまうため）。
             # 実行時に世代が配られる系統の名前。**frontendはこの一覧を手で持たず、
             # ここから照合する**——片側だけ系統を足すと、足りない側は「世代が揃った」と
-            # 判定したまま配られない世代を待ち続ける（`regionApi.ts: TILE_KINDS`）。
+            # 判定したまま配られない世代を待ち続ける。
             "tile_version_kinds": sorted(TILE_SHAPES),
             "road_surface": {"layer_name": ROAD_SURFACE_LAYER_NAME, "properties": ROAD_FEATURE_PROPERTIES},
-            "accident": {"layer_name": ACCIDENT_LAYER_NAME},
-            "poi": {"stop_poi_layer_name": STOP_POI_LAYER_NAME},
+            # 点のレイヤーの名前→source-layer名。画面はタイルのURLをこの名前で組み、source-layerを写さない。
+            "point_layers": {layer.name: layer.source_layer for layer in POINT_TILE_LAYERS.values()},
             # 路面タイルを要求するズーム範囲。frontendのMapLibreソース設定
             # （minzoom/maxzoom）とタイル要求のガードがこの値を使う。手書きで複製すると、
             # backendだけ広げてもfrontendが要求せずレイヤーが黙って消える。
@@ -310,6 +312,8 @@ def main() -> None:
             # backendが決める（domain/landcover.py）。
             "landcover": {
                 "tile_version": LANDCOVER_TILE_VERSION,
+                # 評価の材料が土地被覆を数える帯の外側（道路の中心線からm）。地図の説明がこの距離を出す。
+                "ring_outer_m": LANDCOVER_RING_OUTER_M,
                 "min_zoom": LANDCOVER_TILE_MIN_ZOOM,
                 "max_zoom": LANDCOVER_TILE_MAX_ZOOM,
             },
@@ -333,6 +337,8 @@ def main() -> None:
         "mapDisplay",
         {
             "overlayGroups": [g._asdict() for g in MAP_OVERLAY_GROUPS],
+            # 凡例の受け皿の行の名前と説明。
+            "legendSharedRows": {key: row._asdict() for key, row in LEGEND_SHARED_ROWS.items()},
             "layerCategories": [c._asdict() for c in MAP_LAYER_CATEGORIES],
             "layerDataSources": [
                 {"key": source.key, "minZoom": source.min_zoom} for source in MAP_LAYER_DATA_SOURCES
@@ -369,8 +375,8 @@ def main() -> None:
                 "fatalRadiusPx": POINT_FATAL_RADIUS_PX,
                 "nonFatalRadiusPx": POINT_NON_FATAL_RADIUS_PX,
                 "strokeWidthPx": POINT_STROKE_WIDTH_PX,
-                "opacity": POINT_OPACITY,
-                "accidentOpacity": ACCIDENT_POINT_OPACITY,
+                "iconSizePx": POINT_ICON_SIZE_PX,
+                "opacityByLayer": POINT_OPACITY_BY_ATTR,
             },
             "area": {
                 "opacity": AREA_OPACITY,
@@ -451,6 +457,8 @@ def main() -> None:
             "amedas_seconds": AMEDAS_REFRESH_INTERVAL_MINUTES * 60,
             "jma_tile_index_seconds": Settings.model_fields["jma_tile_prewarm_interval_minutes"].default * 60,
             "msm_seconds": MSM_UPDATE_INTERVAL_SECONDS,
+            # 基礎地図のタイルをブラウザが持つ時間。管理画面のタイルキャッシュの消去が各利用者の画面へ届くまでの遅れ。
+            "basemap_browser_cache_seconds": BASEMAP.max_age_seconds,
         },
     )
     # 土地被覆のクラス（画素値・割合列・表示名・色）。地図タイルの塗りと同じレジストリから
@@ -463,6 +471,7 @@ def main() -> None:
                 "percent_field": cls.percent_field,
                 "label": cls.label,
                 "color": cls.color,
+                "description": cls.description,
                 "painted": cls.painted,
             }
             for cls in LANDCOVER_CLASSES
@@ -491,6 +500,9 @@ def main() -> None:
             for spec in MATERIAL_CATALOG.values()
         ],
     )
+    # backendと画面が同じ計算を持つところの「入力→答え」の表（組ごとに1ファイル）。
+    for name, build in EXPECTATIONS.items():
+        _write_json(GENERATED_DIR / f"{name}-expectations.json", build())
     # **軸そのものはここへ書き出さない。** 軸定義の正本は本番DBで、実行時の
     # `GET /api/axis-catalog`が配る。ビルド時に写しを持つと、API障害時に古い軸で
     # 地図が描かれ、伝播の失敗が見えなくなる。
@@ -515,7 +527,7 @@ def main() -> None:
         ],
     )
     # 風・降水延長予報の粗い格子の間隔と、詳細格子の問い合わせが受け付ける範囲（domain/wind_grid.py）。
-    # APIレスポンスは間隔を含まないため、frontend（windLayer.ts）はこのJSONから読む以外に値を知る手段がない。
+    # APIレスポンスは間隔を含まないため、画面はこのJSONから読む以外に値を知る手段がない。
     _write_json(
         WIND_GRID_CONFIG_PATH,
         {
@@ -548,6 +560,8 @@ def main() -> None:
             "routes_with_waypoints": ROUTES_WITH_WAYPOINTS,
             "default_assumed_speed_kmh": ASSUMED_SPEED_KMH,
             "default_distance_tolerance_km": DEFAULT_DISTANCE_TOLERANCE_KM,
+            # 画面は経由地をこの数まで置け、超える点は置かない。
+            "max_waypoints": MAX_WAYPOINTS,
             "spliced_route_id": SPLICED_ROUTE_ID,
             "waypoints_route_id": WAYPOINTS_ROUTE_ID,
             "max_axis_weight": MAX_AXIS_WEIGHT,
@@ -559,6 +573,8 @@ def main() -> None:
             # 風の予報を追う長さ（レグごと、時刻ビンの本数×幅）。区間の詳細の説明が、この先は最後に追った時刻の予報を
             # そのまま使うことを数字で示す。
             "wind_forecast_hours_per_leg": MAX_TIME_BINS * TIME_BIN_HOURS,
+            # 区間の風を引く時刻の刻み（時刻ビンの幅）。区間の詳細の説明が評価の刻みを数字で示す。
+            "wind_time_bin_hours": TIME_BIN_HOURS,
             # フロントが使う較正値の**既定**（`domain/tuning.py`の宣言そのまま）。
             # 実際に効いている値はGET /api/axis-catalogが返し、これはそれを取れるまでの値。
             "client_tuning": client_tuning_values(),

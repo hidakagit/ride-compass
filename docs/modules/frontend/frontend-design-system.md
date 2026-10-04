@@ -74,16 +74,19 @@ Tailwindのユーティリティで書く。CSS Modulesは使わない（CSSの�
 | `--z-header-popover` | 46 | ヘッダー由来のポップオーバー（メニュー・警報バッジ・「今日」のパネル） |
 | `--z-floating-panel` | 50 | 開発者向けFloatingPanel・`ui/Dialog` |
 | `--z-top-popover` | 60 | 開いた時点で必ず見えるべき浮きパネル（`ui/Popover`の既定・レンズ一覧・走行条件） |
+| `--z-usage-guide` | 70 | 使い方の説明（案内・説明・部品の枠。開いているどの浮きパネルの部品を押しても、その上に出す） |
 
 1つの部品の内側だけで重なる要素（読み込みオーバーレイ・sticky列見出し等）はこのスケールの
 対象外で、素の小さい値のままでよい。
 
 **存在しないトークン名を書かない**。`var(--color-text)`のように規約どおりの見た目でも
 定義が無ければ継承値へ落ち、SVGの`fill`だとダークモードで文字が読めなくなる。
-`globals.css`にも同一ファイル内にも定義の無い`var(--x)`参照は書かない。
+`globals.css`にも同一ファイル内にも定義の無い`var(--x)`参照は書かない（ほかの`.css`ファイルの
+定義は数えない）。実行時に要素へ置く名前（`.ts`/`.tsx`のstyleのキー・`setProperty`へ渡す名前）と、
+`dependencies`のUIライブラリが自分の要素へ置く名前（Radixの`--radix-*`等）は定義として数える。
 `frontend/src/structure/cssTokens.test.ts`が`frontend/src`配下を走査して落とす。
 対象は`.css`だけでなく、Tailwindの任意値記法（`bg-[var(--x)]`）でトークンを参照する
-`.ts`/`.tsx`も含む。フォールバック付き（`var(--x, 既定値)`）の参照も同じく対象にする。
+`.ts`/`.tsx`も含む。フォールバック付き（`var(--x, 既定値)`）の参照と`theme(--x)`も同じく対象にする。
 
 **テーマトークンにフォールバック（`var(--x, 既定値)`）を付けないこと。** フォールバックは
 未定義であることを隠すだけで、トークン名の綴り違いはそのまま残る（同じトークン名なのに
@@ -106,6 +109,8 @@ Tailwindのユーティリティで書く。CSS Modulesは使わない（CSSの�
   属性で切り替えると、状態を見た目のために二重に持たない。親の状態で子を変えるときは`group`/`group-data-*`、
   祖先の属性で変えるときは`in-data-*`を使う。
 - 狭い画面だけの違いは`max-mobile:`（`--breakpoint-mobile`から導かれる）。
+- 押して動く部品（`Button`等）は、使い方の文を`usage`で受け取り
+  `data-usage`へ書く（[ページ全体構成](page-composition.md)「使い方の説明」）。
 - 部品の構造の目印が要るとき（テストが兄弟関係を見る等）は`data-slot`（shadcn/uiの慣習）を付ける。
 
 ## 5. 意図的に作らない・統合しないもの
@@ -172,7 +177,8 @@ Tailwindのユーティリティで書く。CSS Modulesは使わない（CSSの�
 地図UI変更と同様、Claude Codeの Browser ペインは MapLibre 同様に `isStyleLoaded` 等が進まない
 既知の制約があり CSS の実描画確認に使えない。Playwright headless chromium を直接使う
 （`frontend/node_modules/.bin/playwright`。`npx`は付けない）。ライト/ダーク確認は
-`chromium.newPage({ colorScheme: "light" | "dark" })`で行う。
+`chromium.newPage({ colorScheme: "light" | "dark" })`で行う。画面を幅・ライト/ダークを選び、脚本どおりに進めて撮るなら
+`frontend/scripts/capture.mjs`を使う（置き場と走らせ方は[testing.md](../../conventions/testing.md)「走らせ方」）。
 
 ## 8. globals.cssのグローバルルールに関する方針
 

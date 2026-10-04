@@ -111,6 +111,8 @@ async def test_get_conditions_builds_two_hourly_periods(monkeypatch):
         "20:00",
     ]
     assert conditions.today_periods[1].temperature_c == 22.0
+    # 画面はこの間隔をコマの並びの見出しに出す。並びの実際の間隔と食い違わない。
+    assert conditions.today_period_interval_hours == 2
 
 
 async def test_get_conditions_truncates_periods_at_the_end_of_the_forecast(monkeypatch):
@@ -217,8 +219,9 @@ def test_derive_observed_weather_code(precipitation_10min, sunshine_10min, tempe
     assert derive_observed_weather_code(precipitation_10min, sunshine_10min, temperature) == expected
 
 
-def test_every_derived_weather_code_has_a_category():
-    """画面は分類に無いコードを出さないので、導くコードはどれも分類に入る。入力は降水量の全ての強さの帯・日照の
+def test_weather_categories_hold_exactly_the_derived_codes():
+    """画面は分類に無いコードを出さないので、導くコードはどれも分類に入る。導かないコードと、導くコードを1つも
+    持たない分類は、画面に通らないアイコンを残すので置かない。入力は降水量の全ての強さの帯・日照の
     有無・気温の雨と雪の両側を掃く。"""
     precipitations = [None, *(step / 100 for step in range(201))]
     derived = {
@@ -230,3 +233,5 @@ def test_every_derived_weather_code_has_a_category():
     categorized = {code for category in WEATHER_CATEGORIES for code in category.codes}
     assert derived
     assert derived <= categorized, sorted(derived - categorized)
+    assert categorized <= derived, sorted(categorized - derived)
+    assert all(category.codes for category in WEATHER_CATEGORIES)

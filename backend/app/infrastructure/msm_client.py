@@ -14,6 +14,7 @@ Open-MeteoがAWS Open Data経由で公開している前処理済みMSM（CC-BY-
 import asyncio
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -25,7 +26,7 @@ from omfiles import OmFileReader
 
 from app.domain.time_zone import JST
 from app.config import settings
-from app.domain.msm import MsmGrid, MsmWindow, parse_bbox
+from app.domain.msm import MsmGrid, MsmWindow
 from app.infrastructure.debug_log import log_external_call
 
 logger = logging.getLogger("ridecompass.msm_client")
@@ -298,8 +299,16 @@ def _read_block(variable: str, chunk_number: int, window: MsmWindow, t0: int, t1
     return block
 
 
+# 配信元メタ情報のcrs_wktが持つ範囲指定。WKTのBBOXは南・西・北・東の順に並ぶ。
+_BBOX_PATTERN = re.compile(r"BBOX\[\s*([-\d.]+)\s*,\s*([-\d.]+)\s*,\s*([-\d.]+)\s*,\s*([-\d.]+)\s*\]")
+
+
 def _grid_from_meta(meta: dict, n_lat: int, n_lon: int) -> MsmGrid:
-    return MsmGrid.from_bbox_and_shape(parse_bbox(meta["crs_wkt"]), n_lat, n_lon)
+    match = _BBOX_PATTERN.search(meta["crs_wkt"])
+    if match is None:
+        raise ValueError("crs_wktにBBOXがありません")
+    south, west, north, east = (float(value) for value in match.groups())
+    return MsmGrid.from_bbox_and_shape((south, west, north, east), n_lat, n_lon)
 
 
 def _read_series_sync(latitudes: np.ndarray, longitudes: np.ndarray, hours: int, now: int) -> MsmSeries:

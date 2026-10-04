@@ -6,7 +6,7 @@
 
 `GET /api/admin/material-catalog/{material_id}/values`（読み取り専用だがHTTP Basic認可要）は、
 highway/surface/smoothnessのようなOSMタグの生値でオープンエンドな材料について、DBに
-実際に取り込まれている値を動的取得し返す（`AxisComposer.tsx`の値入力欄がタグ生値を
+実際に取り込まれている値を動的取得し返す（軸スタジオの値入力欄がタグ生値を
 暗記して手入力せずに選べるようにする）。値を出せないとき（DB障害・タイムアウト）は
 `available=false`を返し、呼び出し側（フロント）が自由テキスト入力へフォールバックする。
 

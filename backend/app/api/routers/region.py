@@ -1,30 +1,38 @@
 import asyncio
 from datetime import datetime
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from app.api.dependencies import (
-    directional_materials,
-    enforce_rate_limit,
     get_dedicated_way_value_service,
+    get_directional_material_service,
     get_region_service,
 )
+from app.api.rate_limit import enforce_rate_limit
 from app.api.routers._tile_http import tile_response, validate_tile_coords
 from app.api.routers.routes import RoutePreferenceWeights
 from app.config import settings
 from app.domain.axis_definitions import AXIS_DEFINITIONS
-from app.domain.dynamic_way_values import dedicated_way_value_axes, transform_dedicated_way_values
+from app.domain.dynamic_way_values import (
+    MissingConditions,
+    WayValueQuery,
+    assemble_conditions,
+    transform_dedicated_way_values,
+)
 from app.domain.axis_inspector import AxisInspectorResult
 from app.domain.route_preference import RoutePreference
 from app.domain.landcover import LANDCOVER_TILE_MAX_ZOOM, LANDCOVER_TILE_MIN_ZOOM
 from app.infrastructure.media_types import PNG_CONTENT_TYPE
+from app.infrastructure.point_tile_layers import POINT_TILE_LAYERS
 from app.services.landcover_tile_service import get_landcover_tile
+from app.services.dedicated_way_values import DedicatedWayValueService, DirectionalMaterialService
 from app.services.region_service import RegionService
 from app.domain.strict_model import StrictModel
 
 router = APIRouter()
 
-# 地域タイル（路面・停止要因POI）の同時実行上限
+# 地域タイル（路面・点）の同時実行上限
 # （settings.road_tile_max_concurrent、値の根拠はconfig.py参照）。
 #
 # 上限超過分は即座に429を返すルート生成とは異なり、こちらは「待たせて全件処理する」
@@ -34,8 +42,8 @@ router = APIRouter()
 # docs/modules/backend/static-road-attributes.md参照）。/healthはこのsemaphoreを
 # 経由しない別の同期ハンドラのため、待機中のタイル要求に巻き込まれず応答し続けられる。
 #
-# 停止要因POIタイルも同じDB接続プールを取り合うため、専用semaphoreを新設せずこれを
-# 共有する（プール上限15接続に対し、独立semaphoreを追加すると2種のタイルの同時実行数の
+# 点のタイルも同じDB接続プールを取り合うため、専用semaphoreを新設せずこれを
+# 共有する（プール上限15接続に対し、独立semaphoreを追加すると種類ごとのタイルの同時実行数の
 # 合計がプール上限を超えうる）。
 _region_tile_semaphore = asyncio.Semaphore(settings.road_tile_max_concurrent)
 
@@ -73,21 +81,25 @@ async def region_road_surface_tile(
     return tile_response(tile)
 
 
-@router.get("/api/region/poi-tiles/{z}/{x}/{y}.pbf")
-async def region_poi_tile(
+@router.get("/api/region/point-tiles/{layer}/{z}/{x}/{y}.pbf")
+async def region_point_tile(
+    layer: str,
     z: int,
     x: int,
     y: int,
     request: Request,
     region_service: RegionService = Depends(get_region_service),
 ) -> Response:
-    """停止要因POI（信号・横断歩道・一時停止・踏切）と補給休憩POIの点レイヤー。
-    路面タイルと同じ歯止め・同時実行制御を使う。
+    """点のレイヤー（`infrastructure/point_tile_layers.py`の名前。例: 停止要因・補給休憩のPOI、事故）。
+    宣言に無いレイヤーは404。路面タイルと同じ歯止め・同時実行制御を使い、レート制限のキーはレイヤーごとに分ける。
     """
-    _check_tile_rate_limit(request, "poi-tile")
+    point_layer = POINT_TILE_LAYERS.get(layer)
+    if point_layer is None:
+        raise HTTPException(status_code=404, detail="未知の点のレイヤーです。")
+    _check_tile_rate_limit(request, f"{layer}-tile")
     validate_tile_coords(z, x, y)
     async with _region_tile_semaphore:
-        tile = await region_service.get_poi_tile(z, x, y)
+        tile = await region_service.get_point_tile(point_layer, z, x, y)
     return tile_response(tile)
 
 
@@ -117,7 +129,7 @@ async def region_dedicated_way_values(
     bearing_deg: float | None = None,
     at: datetime | None = None,
     speed_kmh: float | None = None,
-    service=Depends(get_dedicated_way_value_service),
+    service: DedicatedWayValueService[Any] | None = Depends(get_dedicated_way_value_service),
 ) -> dict[str, float]:
     """「評価軸」グループとしての動的材料（風・勾配・雨等）。指定タイル内のフィーチャーごとの
     値（風=wind_drag_ratio[backend/app/domain/wind.py]、勾配=effective_gradient
@@ -129,35 +141,33 @@ async def region_dedicated_way_values(
 
     パスパラメータは**軸id**（`axis_definitions.axis_id`）で、サービスが返す生値の材料id
     （`wind_drag_ratio`等、下の`service.material_id`）とは別の名前空間である。サービスは
-    その軸が参照する材料から引く。`domain/dynamic_way_values.py: dedicated_way_value_axes()`に
-    無い未知のaxis_idと、配信を実装した材料を参照していない軸は404。`bearing_deg`（クエリパラメータ）はその軸が向きに依存する場合のみ
-    必須（現状は風・勾配のどちらも必須、`needs_bearing`参照）——省略すると422。`at`は
-    その軸が時刻に依存する場合のみ意味を持つ（風は必須ではなく省略時は現在時刻[Asia/Tokyo]
-    を使う、勾配は時刻に依存しないため渡しても無視される）。`speed_kmh`（想定速度）は
-    その軸が走行速度に依存する場合（`needs_speed`）のみ必須で、それ以外は無視される。
+    その軸が参照する材料から引く。専用配信を持たない・未知のaxis_idと、配信を実装した材料を
+    参照していない軸は404。クエリパラメータ（`bearing_deg`・`at`・`speed_kmh`）のうち何が要るかは
+    材料のサービスが受け取る条件の型が決め（`domain/dynamic_way_values.py: assemble_conditions`）、
+    要るものを省略すると422。要らないものは渡しても無視される（例: 勾配は時刻と速度に依らない。
+    風は時刻を省略すると現在時刻[Asia/Tokyo]を使う）。
 
     静的な路面タイル（`/api/region/road-surface-tiles`、MVT、本エンドポイントとは無関係）
-    とは別経路——フロントは同じz/x/yに対して両方を取得し、MapLibreの`setFeatureState`で
-    合成する（`frontend/src/components/Map/dedicatedWayValueLayer.ts`参照）。
+    とは別経路——受け取る側は同じz/x/yについて両方を取り、way_idで突き合わせて重ねる。
     勾配はタイル単位の値を地図表示専用のディスクキャッシュ（`dynamic_way_value_cache.py`）に
     持つため、パン・ズームで同じタイルが再び視界に入っても、同じ向きバケットの範囲内では
     DBへの再問い合わせは発生しない（風は計算が軽いためキャッシュしない）。
 
-    路面・POIタイルと同じレート制限・座標検証・DB接続プールのsemaphoreを共有する
+    路面・点のタイルと同じレート制限・座標検証・DB接続プールのsemaphoreを共有する
     （本ファイルの`_region_tile_semaphore`のコメント参照——MVTエンコードは
     伴わないが同じPostGISコネクションプールを取り合うため）。
     """
-    axis = dedicated_way_value_axes().get(axis_id)
-    if axis is None or service is None:
+    if service is None:
         raise HTTPException(status_code=404, detail="未知のaxis_idです。")
-    if axis.needs_bearing and bearing_deg is None:
-        raise HTTPException(status_code=422, detail="この軸にはbearing_degが必須です。")
-    if axis.needs_speed and speed_kmh is None:
-        raise HTTPException(status_code=422, detail="この軸にはspeed_kmhが必須です。")
+    conditions = assemble_conditions(
+        service.conditions_type, WayValueQuery(at=at, bearing_deg=bearing_deg, speed_kmh=speed_kmh)
+    )
+    if isinstance(conditions, MissingConditions):
+        raise HTTPException(status_code=422, detail=f"この軸には{'・'.join(conditions.names)}が必須です。")
     _check_tile_rate_limit(request, f"{axis_id}-way-values")
     validate_tile_coords(z, x, y)
     async with _region_tile_semaphore:
-        values = await service.get_way_values(z, x, y, at, bearing_deg, speed_kmh)
+        values = await service.get_way_values(z, x, y, conditions)
     # サービスは材料の生値を返しキャッシュも生値のまま持つ。地図が塗る値（難易度か符号付き
     # 材料か）への変換は軸定義から都度行うため、軸スタジオでbreakpointsを変えても
     # キャッシュを捨てずに即座に反映される。
@@ -191,6 +201,7 @@ async def region_axis_inspector(
     body: AxisInspectorRequest,
     http_request: Request,
     region_service: RegionService = Depends(get_region_service),
+    directional_material_service: DirectionalMaterialService = Depends(get_directional_material_service),
 ) -> AxisInspectorResult | None:
     """区間インスペクタ。クリックされた道路（osm_way_id）について、
     一次属性（highway/tags）→二次軸スコア（取得可能な軸のみ）→
@@ -204,7 +215,7 @@ async def region_axis_inspector(
     # （road_tile_rate_limit_per_minuteと結合）を流用せず、専用の設定値を直接使う
     # （config.py: axis_inspector_rate_limit_per_minuteのコメント参照）。
     enforce_rate_limit(http_request, "axis-inspector", settings.axis_inspector_rate_limit_per_minute)
-    dynamic = await directional_materials(
+    dynamic = await directional_material_service.materials(
         body.osm_way_id, body.feature_key, body.z, body.x, body.y,
         body.at, body.bearing_deg, body.speed_kmh)
     preference = None if body.route_preference is None else RoutePreference(weights=dict(body.route_preference.root))

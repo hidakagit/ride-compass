@@ -1,6 +1,7 @@
 // 地図の色分けの凡例の段（ラベル・色・安定キーだけ）と、段の範囲の書き方。専用配信の軸の値はfeature-stateで入り、
 // MapLibreのfilterはfeature-stateを読めないため、段の表示ON/OFFは色の式の側で透明にする——そのため述語を持たない。
 
+import { mapDisplay } from "@/types/generated/mapDisplay";
 import palette from "@/types/generated/palette.json";
 
 export interface MapColorLegendBand {
@@ -8,6 +9,7 @@ export interface MapColorLegendBand {
   key: string;
   label: string;
   color: string;
+  description?: string;
   /** 「データなし」の受け皿段階（数値レンジを持たない）。 */
   isFallback?: boolean;
 }
@@ -26,7 +28,7 @@ export const LEGEND_NO_DATA_KEY = "nodata";
  * ——同じ鍵の行が凡例ごとに違う名前で出ると、ルートを出す前と後で同じ行が別物に見える。 */
 export const NO_DATA_LEGEND_BAND: MapColorLegendBand = {
   key: LEGEND_NO_DATA_KEY,
-  label: "データなし",
+  ...mapDisplay.legendSharedRows.noData,
   color: palette.semantic.no_data,
   isFallback: true,
 };
@@ -50,20 +52,20 @@ function rangeStepLabel(lower: number | null, upper: number | null, unit: string
   return `${lower}〜${upper}${unit}`;
 }
 
-/** 境界（昇順、段の数−1件）と色（段の数ぶん）から凡例の段を組む。`labels`（段の数ぶん）を渡すと、範囲の前に体感ラベル
- * を添える（例:「強い向かい風（2〜6m/s）」）。 */
+/** 境界（昇順、段の数−1件）と色（段の数ぶん）から凡例の段を組む。`labels`（段の数ぶん）があれば、範囲の前に体感ラベル
+ * を添える（例:「強い向かい風[2〜6m/s]」）。無ければ範囲の前に`rangePrefix`を置く。 */
 export function buildRangeLegendBands(
   boundaries: readonly number[],
   colors: readonly string[],
   unit: string,
-  labels?: readonly string[],
+  labels: readonly string[] | undefined,
+  rangePrefix = "",
 ): MapColorLegendBand[] {
   return colors.map((color, index) => {
-    // 境界が段の数に足りなくても、無い端は「無い」として扱う（「undefined〜」を出さない）。
-    const lower = index === 0 ? null : (boundaries[index - 1] ?? null);
-    const upper = index >= boundaries.length ? null : (boundaries[index] ?? null);
+    const lower = index === 0 ? null : boundaries[index - 1];
+    const upper = index === boundaries.length ? null : boundaries[index];
     const rangeLabel = rangeStepLabel(lower, upper, unit);
-    const label = labels ? `${labels[index]}[${rangeLabel}]` : rangeLabel;
+    const label = labels ? `${labels[index]}[${rangeLabel}]` : `${rangePrefix}${rangeLabel}`;
     return { key: legendBandKey(index), label, color };
   });
 }

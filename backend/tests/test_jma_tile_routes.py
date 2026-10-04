@@ -3,7 +3,6 @@ from fastapi.testclient import TestClient
 from app.api.dependencies import get_jma_tile_client
 from app.config import settings
 from app.infrastructure import rate_limiter
-from app.infrastructure import redis_json_cache
 from app.infrastructure.jma_tile_index import JmaTileIndex, set_index
 from app.main import app
 import mapbox_vector_tile
@@ -414,22 +413,7 @@ def test_index_reports_unavailable_when_nothing_is_stored(monkeypatch):
     assert response.json() == {"available": False}
 
 
-class _FakeRedis:
-    """在否インデックスの置き場（Redis）の代役。使うコマンドは`get`/`set`だけ。"""
-
-    def __init__(self):
-        self.store: dict[str, str] = {}
-
-    async def get(self, key):
-        return self.store.get(key)
-
-    async def set(self, key, value, ex=None):
-        self.store[key] = value
-
-
-async def test_the_index_the_prewarm_stored_is_what_the_client_receives(monkeypatch):
-    fake_redis = _FakeRedis()
-    monkeypatch.setattr(redis_json_cache, "get_redis_client_or_none", lambda: fake_redis)
+async def test_the_index_the_prewarm_stored_is_what_the_client_receives(fake_redis):
     await set_index(JmaTileIndex.model_validate({
         "coverage": {
             "min_longitude": 138.35,

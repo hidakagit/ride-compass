@@ -9,8 +9,8 @@ import { formatJstMinute, isSameJstDay, jstParts } from "@/lib/time";
 const MIN_SPEED_KMH = routeGenerateConfig.min_assumed_speed_kmh;
 const MAX_SPEED_KMH = routeGenerateConfig.max_assumed_speed_kmh;
 
-/** 出発時刻の表示ラベル。当日は「9:30」、別日は「9/6 9:30」（日本時間）。 */
-export function formatDepartureLabel(time: Date, now: Date = new Date()): string {
+/** 出発時刻の表示ラベル。`now`と同じ日（日本時間）は「9:30」、別日は「9/6 9:30」。 */
+export function formatDepartureLabel(time: Date, now: Date): string {
   const { month, day, hour } = jstParts(time);
   const hm = `${hour}:${formatJstMinute(time)}`;
   return isSameJstDay(time, now) ? hm : `${month}/${day} ${hm}`;

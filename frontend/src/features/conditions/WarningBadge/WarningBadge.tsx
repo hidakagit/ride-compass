@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button/Button";
 import { vocabulary } from "@/types/generated/vocabulary";
 import { cn } from "@/lib/cn";
 import { textVariants } from "@/components/ui/Text/Text";
+import type { FetchFailure } from "@/types/fetchFailure";
 
 // JMA警報・注意報バッジとWBGT警告が共有する表示コンポーネント。
 // 「地図レイヤーではなく警告バッジ」という表現形式を揃えるため、JMA固有の型
@@ -29,21 +30,9 @@ export interface WarningBadgeItem {
   title?: string;
 }
 
-/** 取得に失敗した出所（警告に限らず、画面の前提になるデータも含む）。 */
-export interface WarningFetchFailure {
-  id: string;
-  label: string;
-  /** 失敗の文言（429の案内・`[通信エラー]`等）。文言を持たない取得では無い。 */
-  detail?: string;
-  /** 取れていない間に何が起きているか（利用者が何を当てにできないか）。 */
-  effect: string;
-  /** 取り直す操作。自動で取り直す出所では無い。 */
-  onRetry?: () => void;
-}
-
 interface WarningBadgeListProps {
   items: WarningBadgeItem[];
-  failures?: readonly WarningFetchFailure[];
+  failures: readonly FetchFailure[];
 }
 
 // 段階の並び（軽い→重い）と、出所ごとの呼び名・色は、backendの宣言（domain/warning_display.py）が配る。
@@ -67,7 +56,7 @@ function highestLevelItem(items: readonly WarningBadgeItem[]): WarningBadgeItem 
 // 方針自体は変えず（警報の存在に気づけないことを避ける）、ボタンの文言・色だけで
 // 「今の最高警戒度」が常に分かり、内訳は開かないと見えないぶん、常時全件表示より
 // 一歩踏み込む操作が要るという妥当なトレードオフ。
-export default function WarningBadgeList({ items, failures = [] }: WarningBadgeListProps) {
+export default function WarningBadgeList({ items, failures }: WarningBadgeListProps) {
   return (
     <>
       {items.length > 0 && <WarningSummary items={items} />}
@@ -79,7 +68,7 @@ export default function WarningBadgeList({ items, failures = [] }: WarningBadgeL
 // 取得に失敗している間だけ出す印。バッジが0件のときに「警告なし」と読ませず、取れていないデータを当てにした
 // 画面（地図・生成）を正常と読ませないためのもので、成功している間は何も出さない。常時は小さな印だけにし、
 // 何が取れていないか・何が起きているか・再試行はタップで開く。
-function WarningFetchFailureMark({ failures }: { failures: readonly WarningFetchFailure[] }) {
+function WarningFetchFailureMark({ failures }: { failures: readonly FetchFailure[] }) {
   const labels = failures.map((failure) => failure.label).join("・");
   return (
     <Popover>
@@ -90,6 +79,7 @@ function WarningFetchFailureMark({ failures }: { failures: readonly WarningFetch
           shape="pill"
           className="bg-transparent"
           aria-label={`${labels}を取得できていません。押すと詳細を表示`}
+          usage="取得できていない情報と、その間に画面で起きていることを開きます。そこから取り直せます。"
         >
           <WarningTriangleIcon size={14} />
           <span>未取得</span>
@@ -136,6 +126,7 @@ function WarningSummary({ items }: { items: WarningBadgeItem[] }) {
           className="border-0 font-bold text-white data-[state=open]:text-white"
           style={{ backgroundColor: levelDisplay(topItem).color }}
           aria-label={`気象警報・注意報あり: ${summaryLabel}。押すと詳細を表示`}
+          usage="いまいる場所に出ている気象警報・注意報の詳細を開きます。"
         >
           {summaryLabel}
         </Button>

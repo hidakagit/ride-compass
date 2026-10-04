@@ -103,8 +103,7 @@ _ROUTE_POLICIES: Final[tuple[tuple[str, CachePolicy], ...]] = (
     ("/api/gsi-terrain-tile/", PERMANENT),
     ("/api/basemap/", BASEMAP),
     ("/api/region/road-surface-tiles/", BATCH_TILE),
-    ("/api/region/accident-tiles/", BATCH_TILE),
-    ("/api/region/poi-tiles/", BATCH_TILE),
+    ("/api/region/point-tiles/", BATCH_TILE),
     # 年次のラスタをそのまま塗ったもの。配色・クラス構成の変化はURLの世代が表すが、
     # **開いているラスタの構成は環境変数で決まりURLに現れない**（landcover_tile_service.py）。
     # 同じURLの内容が変わりうるため`immutable`は付けられない。

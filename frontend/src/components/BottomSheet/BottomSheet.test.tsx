@@ -1,406 +1,340 @@
+/**
+ * `components/BottomSheet/BottomSheet.tsx`——スマホの下からせり上がるシートと、高さを範囲へ寄せる`clampSheetHeightVh`。
+ *
+ * 見るもの: 開いている間だけ見出しを名前に持つダイアログとして出すこと、見出しの脇の差し込み、閉じ方
+ * （✕・Esc・下スワイプ）と閉じない操作（シートの外を押す・閉じないスワイプ）、高さを変える帯（いまの高さと範囲の表示・ドラッグ・矢印キー）で
+ * 上がる高さ、開いたときに中身へ高さを合わせること（合わせ直す時機・合わせない指定・実寸が取れないとき）。
+ *
+ * ここで見ないもの: 高さを覚えて次に開いたときに使うこと → `app/page.tsx`（このシートは高さを受け取り、変えたい高さを
+ * 上げるだけ）。シートの中身。
+ *
+ * 中身の高さ・シートの高さはテスト環境に無いレイアウトの実寸なので、使うテストだけ`getBoundingClientRect`と
+ * `clientHeight`をテストが決める。画面の高さはテスト環境の`window.innerHeight`をそのまま使う。
+ */
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
 import BottomSheet, { clampSheetHeightVh } from "./BottomSheet";
 
-function renderSheet(onClose: () => void) {
-  return render(
-    <div>
-      <nav aria-label="パネル切り替え">
-        <button type="button">ルートを作る</button>
-      </nav>
-      <button type="button">地図(シート外)</button>
-      <BottomSheet
-        open
-        onClose={onClose}
-        title="テストシート"
-        titleId="test-sheet-title"
-        heightVh={50}
-        onHeightChange={() => {}}
-        onHeightCommit={() => {}}
-      >
-        <p>シートの中身がここに長く続く想定のテキスト</p>
-      </BottomSheet>
-    </div>,
+type Props = React.ComponentProps<typeof BottomSheet>;
+
+/** 高さの下限・上限。値を書き写さず、範囲の外の値を寄せた結果として取る（書き写すと、範囲を変えたときに
+ * テストも一緒に動き、寄せることを誰も見なくなる）。 */
+const FLOOR = clampSheetHeightVh(0);
+const CEILING = clampSheetHeightVh(100);
+
+function sheetElement(props: Partial<Props>, handlers: Pick<Props, "onClose" | "onHeightChange" | "onHeightCommit">) {
+  return (
+    <BottomSheet
+      open
+      title="ルート設定"
+      titleId="sheet-title"
+      headerAction={null}
+      heightVh={50}
+      autoFitHeight={false}
+      {...handlers}
+      {...props}
+    >
+      <p>中身</p>
+    </BottomSheet>
   );
 }
 
-// シートは暗幕を敷かないので、外を押しても閉じない（地図を動かしながら中身を見られる）。閉じるのは✕・Escape・
-// 下スワイプだけで、本文のスクロールとつまみのドラッグは下スワイプに数えない。
-/** 上限・下限そのもの。**値を書かずに、丸めの結果として取る**——値を書くと、上限を
- * 変えたときテストも一緒に動いて「頭打ちになる」ことを誰も見なくなる。 */
-const CEILING_VH = clampSheetHeightVh(Number.MAX_SAFE_INTEGER);
-const FLOOR_VH = clampSheetHeightVh(Number.MIN_SAFE_INTEGER);
+function renderSheet(props: Partial<Props> = {}) {
+  const handlers = { onClose: vi.fn(), onHeightChange: vi.fn(), onHeightCommit: vi.fn() };
+  const view = render(sheetElement(props, handlers));
+  let current = props;
+  return {
+    ...handlers,
+    /** 前に渡したpropsへ`next`を重ねて描き直す。 */
+    rerender: (next: Partial<Props>) => {
+      current = { ...current, ...next };
+      view.rerender(sheetElement(current, handlers));
+    },
+    container: view.container,
+  };
+}
+
+function handle() {
+  return screen.getByRole("separator", { name: "パネルの高さを変更" });
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe("clampSheetHeightVh", () => {
+  it("範囲の外の値は、どれだけ外でも同じ下限・上限へ寄せ、上限は画面いっぱい（地図を隠し切る高さ）より低い", () => {
+    expect(clampSheetHeightVh(-1000)).toBe(FLOOR);
+    expect(clampSheetHeightVh(1000)).toBe(CEILING);
+    expect(FLOOR).toBeGreaterThan(0);
+    expect(CEILING).toBeGreaterThan(FLOOR);
+    expect(CEILING).toBeLessThan(100);
+  });
+
+  it("範囲の中の値と、下限・上限そのものはそのまま通す", () => {
+    const inside = (FLOOR + CEILING) / 2 + 0.5;
+
+    expect([FLOOR, inside, CEILING].map(clampSheetHeightVh)).toEqual([FLOOR, inside, CEILING]);
+  });
+});
 
 describe("BottomSheet", () => {
-  it("シートの外（地図・下部タブバー）を押しても閉じない", () => {
-    const onClose = vi.fn();
-    renderSheet(onClose);
+  it("開いている間は、見出しを名前に持つダイアログに見出し・差し込み・中身を出し、受け取った高さにする", () => {
+    renderSheet({ headerLead: <span>タブ</span>, headerAction: <button type="button">共有</button> });
 
-    fireEvent.pointerDown(screen.getByRole("button", { name: "地図(シート外)" }));
-    fireEvent.pointerDown(screen.getByRole("button", { name: "ルートを作る" }));
-
-    expect(onClose).not.toHaveBeenCalled();
+    const sheet = screen.getByRole("dialog", { name: "ルート設定" });
+    expect(screen.getByRole("heading", { name: "ルート設定" })).toBeInTheDocument();
+    expect(sheet).toHaveTextContent("タブ");
+    expect(screen.getByRole("button", { name: "共有" })).toBeInTheDocument();
+    expect(sheet).toHaveTextContent("中身");
+    expect(sheet.style.height).toBe("50vh");
   });
 
-  it("Escapeで閉じる", () => {
-    const onClose = vi.fn();
-    renderSheet(onClose);
+  it("閉じている間は何も出さない", () => {
+    const { container } = renderSheet({ open: false });
 
-    fireEvent.keyDown(document, { key: "Escape" });
-
-    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(container).toBeEmptyDOMElement();
   });
 
-  it("✕ボタンのクリックで閉じる", async () => {
-    const onClose = vi.fn();
-    renderSheet(onClose);
+  describe("閉じ方", () => {
+    it("✕を押すと、閉じる操作が上がる", async () => {
+      const { onClose } = renderSheet();
 
-    fireEvent.click(screen.getByRole("button", { name: "閉じる" }));
+      await userEvent.click(screen.getByRole("button", { name: "閉じる" }));
 
-    expect(onClose).toHaveBeenCalledTimes(1);
-  });
-
-  it("パネル内容の大きな縦タッチ移動（スクロール相当）では閉じない", () => {
-    const onClose = vi.fn();
-    renderSheet(onClose);
-    const content = screen.getByText("シートの中身がここに長く続く想定のテキスト");
-
-    fireEvent.touchStart(content, { touches: [{ clientX: 100, clientY: 100 }] });
-    fireEvent.touchEnd(content, { changedTouches: [{ clientX: 100, clientY: 300 }] });
-
-    expect(onClose).not.toHaveBeenCalled();
-  });
-
-  it("シート自体（本文の外）での下スワイプでは閉じる", () => {
-    const onClose = vi.fn();
-    renderSheet(onClose);
-    const sheet = screen.getByRole("dialog");
-
-    fireEvent.touchStart(sheet, { touches: [{ clientX: 100, clientY: 100 }] });
-    fireEvent.touchEnd(sheet, { changedTouches: [{ clientX: 100, clientY: 300 }] });
-
-    expect(onClose).toHaveBeenCalledTimes(1);
-  });
-
-  it("下へ60pxちょうどまでは閉じず、それを越えると閉じる", () => {
-    const swipe = (dy: number) => {
-      const onClose = vi.fn();
-      const { unmount } = renderSheet(onClose);
-      const sheet = screen.getByRole("dialog");
-      fireEvent.touchStart(sheet, { touches: [{ clientX: 100, clientY: 100 }] });
-      fireEvent.touchEnd(sheet, { changedTouches: [{ clientX: 100, clientY: 100 + dy }] });
-      unmount();
-      return onClose.mock.calls.length;
-    };
-
-    expect(swipe(60)).toBe(0);
-    expect(swipe(61)).toBe(1);
-  });
-
-  it("横の動きが縦より大きいスワイプ（シート内の横スクロール）では閉じない", () => {
-    const onClose = vi.fn();
-    renderSheet(onClose);
-    const sheet = screen.getByRole("dialog");
-
-    fireEvent.touchStart(sheet, { touches: [{ clientX: 100, clientY: 100 }] });
-    fireEvent.touchEnd(sheet, { changedTouches: [{ clientX: 400, clientY: 300 }] });
-
-    expect(onClose).not.toHaveBeenCalled();
-  });
-
-  it("つまみから始めた下向きの指の動きでは閉じない（高さを変える操作）", () => {
-    const onClose = vi.fn();
-    renderSheet(onClose);
-
-    fireEvent.touchStart(screen.getByRole("separator", { name: "パネルの高さを変更" }), {
-      touches: [{ clientX: 100, clientY: 100 }],
-    });
-    fireEvent.touchEnd(screen.getByRole("dialog"), { changedTouches: [{ clientX: 100, clientY: 300 }] });
-
-    expect(onClose).not.toHaveBeenCalled();
-  });
-});
-
-describe("BottomSheet 高さ調整", () => {
-  describe("clampSheetHeightVh", () => {
-    it("範囲内の値はそのまま返す", () => {
-      expect(clampSheetHeightVh(50)).toBe(50);
+      expect(onClose).toHaveBeenCalledTimes(1);
     });
 
-    // 上限・下限の値は借りない。**張り付くこと**と、**張り付いた値がそのまま通ること**を見る
-    // （借りると、上限を変えたときテストも一緒に動いて頭打ちを誰も見なくなる）。
-    it("下限より小さい値は、どれだけ小さくても同じ高さへ切り上がる", () => {
-      const floor = clampSheetHeightVh(0);
-
-      expect(clampSheetHeightVh(-10)).toBe(floor);
-      expect(clampSheetHeightVh(-1000)).toBe(floor);
-      expect(floor).toBeGreaterThan(0);
-    });
-
-    it("上限より大きい値は、どれだけ大きくても同じ高さへ切り下がる", () => {
-      const ceiling = clampSheetHeightVh(100);
-
-      expect(clampSheetHeightVh(1000)).toBe(ceiling);
-      expect(ceiling).toBeLessThan(100);
-      expect(ceiling).toBeGreaterThan(clampSheetHeightVh(0));
-    });
-
-    it("切り上げ・切り下げた値そのものはそのまま通る（二重に丸めない）", () => {
-      expect(clampSheetHeightVh(clampSheetHeightVh(0))).toBe(clampSheetHeightVh(0));
-      expect(clampSheetHeightVh(clampSheetHeightVh(100))).toBe(clampSheetHeightVh(100));
-    });
-  });
-
-  function renderHandle(heightVh: number, onHeightChange: (vh: number) => void, onHeightCommit: (vh: number) => void) {
-    render(
-      <BottomSheet
-        open
-        onClose={() => {}}
-        title="テストシート"
-        titleId="test-sheet-title-2"
-        heightVh={heightVh}
-        onHeightChange={onHeightChange}
-        onHeightCommit={onHeightCommit}
-      >
-        <p>本文</p>
-      </BottomSheet>,
-    );
-    return screen.getByRole("separator", { name: "パネルの高さを変更" });
-  }
-
-  describe("キーボード操作（ハンドルの矢印キー）", () => {
-    it("ArrowUpで高さがHEIGHT_KEY_STEP_VH(5vh)分増え、onHeightChange/onHeightCommit双方が呼ばれる", () => {
-      const onHeightChange = vi.fn();
-      const onHeightCommit = vi.fn();
-      const handle = renderHandle(50, onHeightChange, onHeightCommit);
-
-      fireEvent.keyDown(handle, { key: "ArrowUp" });
-
-      expect(onHeightChange).toHaveBeenCalledWith(55);
-      expect(onHeightCommit).toHaveBeenCalledWith(55);
-    });
-
-    it("ArrowDownで高さがHEIGHT_KEY_STEP_VH(5vh)分減る", () => {
-      const onHeightChange = vi.fn();
-      const onHeightCommit = vi.fn();
-      const handle = renderHandle(50, onHeightChange, onHeightCommit);
-
-      fireEvent.keyDown(handle, { key: "ArrowDown" });
-
-      expect(onHeightChange).toHaveBeenCalledWith(45);
-      expect(onHeightCommit).toHaveBeenCalledWith(45);
-    });
-
-    it("MAX_SHEET_HEIGHT_VH付近でArrowUpを押しても上限を超えない", () => {
-      const onHeightChange = vi.fn();
-      const onHeightCommit = vi.fn();
-      const handle = renderHandle(CEILING_VH - 2, onHeightChange, onHeightCommit);
-
-      fireEvent.keyDown(handle, { key: "ArrowUp" });
-
-      expect(onHeightChange).toHaveBeenCalledWith(CEILING_VH);
-      expect(onHeightCommit).toHaveBeenCalledWith(CEILING_VH);
-    });
-
-    it("MIN_SHEET_HEIGHT_VH付近でArrowDownを押しても下限を下回らない", () => {
-      const onHeightChange = vi.fn();
-      const onHeightCommit = vi.fn();
-      const handle = renderHandle(FLOOR_VH + 2, onHeightChange, onHeightCommit);
-
-      fireEvent.keyDown(handle, { key: "ArrowDown" });
-
-      expect(onHeightChange).toHaveBeenCalledWith(FLOOR_VH);
-      expect(onHeightCommit).toHaveBeenCalledWith(FLOOR_VH);
-    });
-
-    it("ArrowUp/ArrowDown以外のキーでは高さを変更しない", () => {
-      const onHeightChange = vi.fn();
-      const onHeightCommit = vi.fn();
-      const handle = renderHandle(50, onHeightChange, onHeightCommit);
-
-      fireEvent.keyDown(handle, { key: "Enter" });
-
-      expect(onHeightChange).not.toHaveBeenCalled();
-      expect(onHeightCommit).not.toHaveBeenCalled();
-    });
-  });
-
-  describe("ハンドルのポインタードラッグ", () => {
-    // jsdom/happy-domはsetPointerCapture/releasePointerCaptureを実装しないため
-    // no-opでスタブする（AxisStudio.test.tsxのResizeObserverMockと同じ、既知の欠落への対処）。
-    if (!Element.prototype.setPointerCapture) {
-      Element.prototype.setPointerCapture = vi.fn();
-    }
-    if (!Element.prototype.releasePointerCapture) {
-      Element.prototype.releasePointerCapture = vi.fn();
-    }
-
-    it("ハンドルを上方向へドラッグすると高さが増え、onHeightChangeが随時・onHeightCommitはpointerup時のみ呼ばれる", () => {
-      vi.spyOn(window, "innerHeight", "get").mockReturnValue(1000);
-      const onHeightChange = vi.fn();
-      const onHeightCommit = vi.fn();
-      const handle = renderHandle(50, onHeightChange, onHeightCommit);
-
-      fireEvent.pointerDown(handle, { pointerId: 1, clientY: 500 });
-      expect(onHeightCommit).not.toHaveBeenCalled();
-
-      // 上方向(clientYが減る)ドラッグ100pxはinnerHeight(1000px)の10% → +10vh
-      fireEvent.pointerMove(handle, { pointerId: 1, clientY: 400 });
-      expect(onHeightChange).toHaveBeenCalledWith(60);
-      expect(onHeightCommit).not.toHaveBeenCalled();
-
-      fireEvent.pointerUp(handle, { pointerId: 1, clientY: 400 });
-      // pointerup時点ではheightVh prop自体はまだ50のまま(呼び出し側が再renderして更新する前)
-      // のため、onHeightCommitはheightVh(=50)で呼ばれる（BottomSheet.tsx: handleHandlePointerUp参照）。
-      expect(onHeightCommit).toHaveBeenCalledWith(50);
-
-      vi.restoreAllMocks();
-    });
-
-    it("ドラッグ中はMAX_SHEET_HEIGHT_VHを超えない", () => {
-      vi.spyOn(window, "innerHeight", "get").mockReturnValue(1000);
-      const onHeightChange = vi.fn();
-      const onHeightCommit = vi.fn();
-      const handle = renderHandle(CEILING_VH - 2, onHeightChange, onHeightCommit);
-
-      fireEvent.pointerDown(handle, { pointerId: 1, clientY: 500 });
-      // 上方向へ大きく動かす(+50vh相当)が上限でクランプされる
-      fireEvent.pointerMove(handle, { pointerId: 1, clientY: 0 });
-
-      expect(onHeightChange).toHaveBeenCalledWith(CEILING_VH);
-
-      vi.restoreAllMocks();
-    });
-
-    it("別のpointerIdのpointermove/pointerupは無視する（複数指の誤反応防止）", () => {
-      vi.spyOn(window, "innerHeight", "get").mockReturnValue(1000);
-      const onHeightChange = vi.fn();
-      const onHeightCommit = vi.fn();
-      const handle = renderHandle(50, onHeightChange, onHeightCommit);
-
-      fireEvent.pointerDown(handle, { pointerId: 1, clientY: 500 });
-      fireEvent.pointerMove(handle, { pointerId: 2, clientY: 400 });
-      expect(onHeightChange).not.toHaveBeenCalled();
-
-      fireEvent.pointerUp(handle, { pointerId: 2, clientY: 400 });
-      expect(onHeightCommit).not.toHaveBeenCalled();
-
-      vi.restoreAllMocks();
-    });
-  });
-});
-
-// 開いた時点で中身に合う高さへ合わせる（シートが中身より高いと、そのぶん地図が隠れたまま
-// 空白を見せることになる）。実寸はレイアウトを持たない環境では取れないため、
-// clientHeight/scrollHeightを差し替えて検証する。
-describe("BottomSheet（開いたときに中身の高さへ合わせる）", () => {
-  // 高さ指定を外したときの実測（naturalHeightOf）を再現する。レイアウトを持たない環境では
-  // getBoundingClientRectが常に0を返すため、高さ指定が"auto"の間だけ中身なりの高さを返す。
-  function withStubbedMetrics(naturalHeightPx: number, run: () => void) {
-    const client = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight");
-    const rect = HTMLElement.prototype.getBoundingClientRect;
-    Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 406 });
-    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
-      const height = this.style.height === "auto" ? naturalHeightPx : 406;
-      return { height, width: 390, top: 0, left: 0, right: 390, bottom: height, x: 0, y: 0, toJSON: () => ({}) };
-    };
-    try {
-      run();
-    } finally {
-      if (client) Object.defineProperty(HTMLElement.prototype, "clientHeight", client);
-      HTMLElement.prototype.getBoundingClientRect = rect;
-    }
-  }
-
-  function renderWithHeight(
-    onHeightChange: (vh: number) => void,
-    options: { autoFitHeight?: boolean; fitKey?: string } = {},
-  ) {
-    return render(
-      <BottomSheet
-        open
-        onClose={() => {}}
-        title="テストシート"
-        titleId="test-sheet-title"
-        heightVh={50}
-        onHeightChange={onHeightChange}
-        onHeightCommit={() => {}}
-        autoFitHeight={options.autoFitHeight}
-        fitKey={options.fitKey}
-      >
-        <p>中身</p>
-      </BottomSheet>,
-    );
-  }
-
-  it("中身がシートより低ければ、その高さまで縮める", () => {
-    const onHeightChange = vi.fn();
-    window.innerHeight = 812;
-    // 中身なりの高さ302px → 812pxの37.2% → 38vh（切り上げ）
-    withStubbedMetrics(302, () => renderWithHeight(onHeightChange));
-
-    expect(onHeightChange).toHaveBeenCalledWith(38);
-  });
-
-  it("中身が上限を超えても上限までしか広げない（地図を完全には隠さない）", () => {
-    const onHeightChange = vi.fn();
-    window.innerHeight = 812;
-    withStubbedMetrics(5000, () => renderWithHeight(onHeightChange));
-
-    expect(onHeightChange).toHaveBeenCalledWith(CEILING_VH);
-  });
-
-  it("中身が下限より低くても、下限までしか縮めない", () => {
-    const onHeightChange = vi.fn();
-    window.innerHeight = 812;
-    withStubbedMetrics(60, () => renderWithHeight(onHeightChange));
-
-    expect(onHeightChange).toHaveBeenCalledWith(FLOOR_VH);
-  });
-
-  // 利用者が自分で高さを決めた後は、中身に合わせた調整をしない（地図を広く見るために
-  // わざと低くしたシートが、中身の都合で戻されないようにする）。
-  it("autoFitHeight=falseなら中身に合わせない", () => {
-    const onHeightChange = vi.fn();
-    window.innerHeight = 812;
-
-    withStubbedMetrics(302, () => renderWithHeight(onHeightChange, { autoFitHeight: false }));
-
-    expect(onHeightChange).not.toHaveBeenCalled();
-  });
-
-  // 開いている間は合わせ直さないのが既定だが、タブを切り替えて中身が別物になった場合だけは
-  // 合わせ直す（切り替えた先の中身が、開いた時点の高さに収まらないままになるため）。
-  it("fitKeyが変わると合わせ直す", () => {
-    const onHeightChange = vi.fn();
-    window.innerHeight = 812;
-
-    withStubbedMetrics(302, () => {
-      const { rerender } = renderWithHeight(onHeightChange, { fitKey: "generate" });
-      expect(onHeightChange).toHaveBeenCalledTimes(1);
-      rerender(
-        <BottomSheet
-          open
-          onClose={() => {}}
-          title="テストシート"
-          titleId="test-sheet-title"
-          heightVh={50}
-          onHeightChange={onHeightChange}
-          onHeightCommit={() => {}}
-          fitKey="weights"
-        >
-          <p>中身</p>
-        </BottomSheet>,
+    it("シートの外の要素は押せ、押しても閉じる操作は上がらない", async () => {
+      const onMapClick = vi.fn();
+      const handlers = { onClose: vi.fn(), onHeightChange: vi.fn(), onHeightCommit: vi.fn() };
+      render(
+        <>
+          <button type="button" onClick={onMapClick}>
+            地図
+          </button>
+          {sheetElement({}, handlers)}
+        </>,
       );
-      expect(onHeightChange).toHaveBeenCalledTimes(2);
+
+      await userEvent.click(screen.getByRole("button", { name: "地図" }));
+
+      expect(onMapClick).toHaveBeenCalledTimes(1);
+      expect(handlers.onClose).not.toHaveBeenCalled();
+    });
+
+    it("開いている間はEscで閉じる操作が上がり、ほかのキーでは上がらない", async () => {
+      const { onClose } = renderSheet();
+
+      await userEvent.keyboard("a");
+      expect(onClose).not.toHaveBeenCalled();
+      await userEvent.keyboard("{Escape}");
+
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it("閉じたあとはEscで閉じる操作が上がらない", async () => {
+      const { onClose, rerender } = renderSheet();
+      rerender({ open: false });
+
+      await userEvent.keyboard("{Escape}");
+
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    function swipe(from: Element, to: Element, start: { x: number; y: number }, end: { x: number; y: number }) {
+      fireEvent.touchStart(from, { touches: [{ clientX: start.x, clientY: start.y }] });
+      fireEvent.touchEnd(to, { changedTouches: [{ clientX: end.x, clientY: end.y }] });
+    }
+
+    it.each([
+      ["61px下へ", { x: 100, y: 361 }, 1],
+      ["60px下へ（ちょうど）", { x: 100, y: 360 }, 0],
+      ["上へ", { x: 100, y: 200 }, 0],
+      ["横の動きのほうが大きく下へ", { x: 300, y: 400 }, 0],
+    ])("見出しを%sスワイプすると、閉じる操作が%s回上がる", (_, end, times) => {
+      const { onClose } = renderSheet();
+      const heading = screen.getByRole("heading", { name: "ルート設定" });
+
+      swipe(heading, heading, { x: 100, y: 300 }, end);
+
+      expect(onClose).toHaveBeenCalledTimes(times);
+    });
+
+    it.each([
+      ["中身", () => screen.getByText("中身")],
+      ["高さを変える帯", handle],
+    ])("%sから始めた下スワイプでは閉じない", (_, from) => {
+      const { onClose } = renderSheet();
+
+      swipe(from(), from(), { x: 100, y: 300 }, { x: 100, y: 500 });
+
+      expect(onClose).not.toHaveBeenCalled();
     });
   });
 
-  it("実寸が取れない実行では高さを触らない", () => {
-    const onHeightChange = vi.fn();
-    window.innerHeight = 812;
-    renderWithHeight(onHeightChange);
+  describe("高さを変える帯", () => {
+    it("いまの高さ（整数）と、変えられる範囲を出す", () => {
+      renderSheet({ heightVh: 42.6 });
 
-    expect(onHeightChange).not.toHaveBeenCalled();
+      expect(handle()).toHaveAttribute("aria-valuenow", "43");
+      expect(handle()).toHaveAttribute("aria-valuemin", String(FLOOR));
+      expect(handle()).toHaveAttribute("aria-valuemax", String(CEILING));
+    });
+
+    it("つまんで上へ動かすと動いたぶん高くした値を途中も上げ、離すと受け取っている高さを確定として上げる", () => {
+      const { onHeightChange, onHeightCommit, rerender } = renderSheet({ heightVh: 50 });
+      const moved = window.innerHeight / 4;
+
+      fireEvent.pointerDown(handle(), { pointerId: 1, clientY: 500 });
+      fireEvent.pointerMove(handle(), { pointerId: 1, clientY: 500 - moved });
+      expect(onHeightChange).toHaveBeenLastCalledWith(75);
+      expect(onHeightCommit).not.toHaveBeenCalled();
+      rerender({ heightVh: 75 });
+      fireEvent.pointerUp(handle(), { pointerId: 1, clientY: 500 - moved });
+
+      expect(onHeightCommit.mock.calls).toEqual([[75]]);
+    });
+
+    it.each([
+      ["上へ大きく", -1, CEILING],
+      ["下へ大きく", 1, FLOOR],
+    ])("%s動かしても、範囲の中に留める", (_, direction, expected) => {
+      const { onHeightChange } = renderSheet({ heightVh: 50 });
+
+      fireEvent.pointerDown(handle(), { pointerId: 1, clientY: 400 });
+      fireEvent.pointerMove(handle(), { pointerId: 1, clientY: 400 + direction * window.innerHeight });
+
+      expect(onHeightChange).toHaveBeenLastCalledWith(expected);
+    });
+
+    it("つまんだ指と別の指の動きと離しは無視する", () => {
+      const { onHeightChange, onHeightCommit } = renderSheet();
+
+      fireEvent.pointerDown(handle(), { pointerId: 1, clientY: 500 });
+      fireEvent.pointerMove(handle(), { pointerId: 2, clientY: 300 });
+      fireEvent.pointerUp(handle(), { pointerId: 2, clientY: 300 });
+
+      expect(onHeightChange).not.toHaveBeenCalled();
+      expect(onHeightCommit).not.toHaveBeenCalled();
+    });
+
+    it("つままずに動かしたり離したりしても何も上げず、離したあとの動きも無視する", () => {
+      const { onHeightChange, onHeightCommit } = renderSheet();
+
+      fireEvent.pointerMove(handle(), { pointerId: 1, clientY: 300 });
+      fireEvent.pointerUp(handle(), { pointerId: 1, clientY: 300 });
+      fireEvent.pointerDown(handle(), { pointerId: 1, clientY: 500 });
+      fireEvent.pointerUp(handle(), { pointerId: 1, clientY: 500 });
+      onHeightCommit.mockClear();
+      fireEvent.pointerMove(handle(), { pointerId: 1, clientY: 300 });
+
+      expect(onHeightChange).not.toHaveBeenCalled();
+      expect(onHeightCommit).not.toHaveBeenCalled();
+    });
+
+    /** 帯にフォーカスしてキーを押し、途中と確定で上がった高さを返す。 */
+    async function pressOnHandle(key: string, from: number) {
+      const { onHeightChange, onHeightCommit, container } = renderSheet({ heightVh: from });
+      handle().focus();
+      await userEvent.keyboard(key);
+      const raised = { change: onHeightChange.mock.calls, commit: onHeightCommit.mock.calls };
+      container.remove();
+      return raised;
+    }
+
+    it("上の矢印と下の矢印は同じ幅だけ高さを上げ下げし、途中と確定の両方で同じ高さを上げる", async () => {
+      const up = await pressOnHandle("{ArrowUp}", 50);
+      const down = await pressOnHandle("{ArrowDown}", 50);
+
+      expect(up.change).toEqual(up.commit);
+      expect(down.change).toEqual(down.commit);
+      expect(up.change[0][0]).toBeGreaterThan(50);
+      expect(50 - down.change[0][0]).toBe(up.change[0][0] - 50);
+    });
+
+    it.each([
+      ["上限の近くで上の矢印", "{ArrowUp}", CEILING - 0.5, CEILING],
+      ["下限の近くで下の矢印", "{ArrowDown}", FLOOR + 0.5, FLOOR],
+    ])("%sを押しても、範囲の中に留める", async (_, key, from, expected) => {
+      const { change, commit } = await pressOnHandle(key, from);
+
+      expect(change).toEqual([[expected]]);
+      expect(commit).toEqual([[expected]]);
+    });
+
+    it("矢印の上下以外のキーでは何も上げない", async () => {
+      const { onHeightChange, onHeightCommit } = renderSheet();
+      handle().focus();
+
+      await userEvent.keyboard("{ArrowLeft}");
+
+      expect(onHeightChange).not.toHaveBeenCalled();
+      expect(onHeightCommit).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("中身に合わせた高さ", () => {
+    /** 高さの指定を外したときだけ中身の高さを、それ以外はシートの箱の高さを返す実寸。 */
+    function stubLayout(naturalPx: number, boxPx = 300) {
+      vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+        return new DOMRect(0, 0, 300, this.style.height === "auto" ? naturalPx : boxPx);
+      });
+      vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(boxPx);
+    }
+
+    it("開くと、高さの指定を外して測った中身の高さを画面の割合（切り上げ）にして上げ、指定は元へ戻す", () => {
+      stubLayout(window.innerHeight * 0.333);
+
+      const { onHeightChange } = renderSheet({ autoFitHeight: true, heightVh: 50 });
+
+      expect(onHeightChange.mock.calls).toEqual([[34]]);
+      expect(screen.getByRole("dialog").style.height).toBe("50vh");
+    });
+
+    it.each([
+      ["低い", FLOOR / 200, FLOOR],
+      ["高い", (CEILING + 100) / 200, CEILING],
+    ])("中身が%sときも、範囲の中に留める", (_, ratio, expected) => {
+      stubLayout(window.innerHeight * ratio);
+
+      const { onHeightChange } = renderSheet({ autoFitHeight: true });
+
+      expect(onHeightChange.mock.calls).toEqual([[expected]]);
+    });
+
+    it("開いている間は合わせ直さず、中身が別物になった（fitKeyが変わった）ときと開き直したときに合わせ直す", () => {
+      stubLayout(window.innerHeight * 0.3);
+      const { onHeightChange, rerender } = renderSheet({ autoFitHeight: true, fitKey: "設定" });
+      onHeightChange.mockClear();
+
+      rerender({ heightVh: 61 });
+      expect(onHeightChange).not.toHaveBeenCalled();
+
+      stubLayout(window.innerHeight * 0.75);
+      rerender({ fitKey: "結果" });
+      expect(onHeightChange.mock.calls).toEqual([[75]]);
+
+      stubLayout(window.innerHeight * 0.25);
+      rerender({ open: false });
+      rerender({ open: true });
+      expect(onHeightChange.mock.calls).toEqual([[75], [25]]);
+    });
+
+    it("合わせない指定のときは、開いても高さを上げない", () => {
+      stubLayout(window.innerHeight * 0.3);
+
+      const { onHeightChange } = renderSheet({ autoFitHeight: false });
+
+      expect(onHeightChange).not.toHaveBeenCalled();
+    });
+
+    it("実寸が取れないとき（テスト環境のまま）は、高さを上げない", () => {
+      const { onHeightChange } = renderSheet({ autoFitHeight: true });
+
+      expect(onHeightChange).not.toHaveBeenCalled();
+    });
   });
 });

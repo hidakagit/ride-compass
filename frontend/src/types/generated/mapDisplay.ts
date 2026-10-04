@@ -14,6 +14,20 @@ export const mapDisplay = {
       "label": "スポット"
     }
   ],
+  "legendSharedRows": {
+    "other": {
+      "label": "その他",
+      "description": "値は書かれているが、上のどの行にも当てはまらない道（まれな種類など）。"
+    },
+    "notApplicable": {
+      "label": "該当なし",
+      "description": "この種類に当たらない道（例: トンネルの凡例では、トンネルでない道）。"
+    },
+    "noData": {
+      "label": "データなし",
+      "description": "元にする地図のデータに値が無く、どの行にも分けられない道。道が無いのではなく、値が分からないことを破線で示す。"
+    }
+  },
   "layerCategories": [
     {
       "key": "roadCondition",
@@ -248,6 +262,8 @@ export const mapDisplay = {
         "windowMinutes": null
       },
       "gridValue": null,
+      "levelScale": null,
+      "description": null,
       "jmaElements": [
         {
           "id": "hrpns",
@@ -287,6 +303,8 @@ export const mapDisplay = {
         "windowMinutes": null
       },
       "gridValue": "precipitation",
+      "levelScale": null,
+      "description": null,
       "jmaElements": [],
       "tile": null
     },
@@ -300,6 +318,8 @@ export const mapDisplay = {
         "windowMinutes": 180
       },
       "gridValue": null,
+      "levelScale": null,
+      "description": null,
       "jmaElements": [
         {
           "id": "sjfcstmap",
@@ -328,6 +348,8 @@ export const mapDisplay = {
         "windowMinutes": null
       },
       "gridValue": null,
+      "levelScale": null,
+      "description": null,
       "jmaElements": [
         {
           "id": "slmcs_unify",
@@ -352,6 +374,8 @@ export const mapDisplay = {
         "windowMinutes": null
       },
       "gridValue": null,
+      "levelScale": null,
+      "description": null,
       "jmaElements": [
         {
           "id": "slmcs_unifyfcst",
@@ -376,6 +400,8 @@ export const mapDisplay = {
         "windowMinutes": null
       },
       "gridValue": "wind",
+      "levelScale": null,
+      "description": null,
       "jmaElements": [],
       "tile": null
     },
@@ -389,6 +415,8 @@ export const mapDisplay = {
         "windowMinutes": null
       },
       "gridValue": null,
+      "levelScale": "risk_levels",
+      "description": "大雨による土砂災害と浸水害の危険度の高まりを、まとめて段階で示す気象庁の情報。",
       "jmaElements": [
         {
           "id": "rain_mesh",
@@ -417,6 +445,8 @@ export const mapDisplay = {
         "windowMinutes": null
       },
       "gridValue": null,
+      "levelScale": "risk_levels",
+      "description": "大雨による土砂災害（がけ崩れ・土石流など）の危険度の高まりを段階で示す気象庁の情報。",
       "jmaElements": [
         {
           "id": "land",
@@ -445,6 +475,8 @@ export const mapDisplay = {
         "windowMinutes": null
       },
       "gridValue": null,
+      "levelScale": "risk_levels",
+      "description": "短い時間の強い雨で、道路や低い土地が水につかる危険度の高まりを段階で示す気象庁の情報。",
       "jmaElements": [
         {
           "id": "inund",
@@ -473,6 +505,8 @@ export const mapDisplay = {
         "windowMinutes": null
       },
       "gridValue": null,
+      "levelScale": "thunder_activity",
+      "description": "雷の激しさと雷が起こる可能性を、活動度の段階で示す気象庁の実況と1時間先までの予測。",
       "jmaElements": [
         {
           "id": "thns",
@@ -501,6 +535,8 @@ export const mapDisplay = {
         "windowMinutes": null
       },
       "gridValue": null,
+      "levelScale": "tornado_potential",
+      "description": "竜巻などの激しい突風が起こりやすい所を、確度の段階で示す気象庁の実況と1時間先までの予測。",
       "jmaElements": [
         {
           "id": "trns",
@@ -529,6 +565,8 @@ export const mapDisplay = {
         "windowMinutes": null
       },
       "gridValue": null,
+      "levelScale": "risk_levels",
+      "description": "大雨で川があふれる危険度の高まりを、川に沿った色で示す気象庁の情報。",
       "jmaElements": [
         {
           "id": "flood",
@@ -557,6 +595,8 @@ export const mapDisplay = {
         "windowMinutes": 20
       },
       "gridValue": null,
+      "levelScale": null,
+      "description": "気象庁の雷の観測が捉えた、直近の雷の発生地点。",
       "jmaElements": [
         {
           "id": "liden",
@@ -608,8 +648,12 @@ export const mapDisplay = {
     "fatalRadiusPx": 6,
     "nonFatalRadiusPx": 3,
     "strokeWidthPx": 1,
-    "opacity": 0.9,
-    "accidentOpacity": 0.75
+    "iconSizePx": 20,
+    "opacityByLayer": {
+      "stop_poi": 0.9,
+      "accident_point": 0.75,
+      "supply_poi": 0.9
+    }
   },
   "area": {
     "opacity": 0.55,

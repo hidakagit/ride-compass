@@ -145,7 +145,7 @@ Next.jsのHTMLの404が返る（backendの404はJSON）。本番のAPIを手で�
 - **CIを待つぶん、反映はpushからCIの所要だけ遅れる。** 急ぎの修正でも待つ。待たずに出す手段は
   `deploy-backend.yml`の手動起動（`workflow_dispatch`）で、選んだrefの先端を判定なしで出す。
 
-振り分けの一覧（`deploy_backend_gate.py`の`DEPLOY_PATHS`と`NOT_DEPLOYED`。gitのpathspecとして
+振り分けの一覧（`deploy_backend_gate.py: DEPLOY_PATHS`と`deploy_backend_gate.py: NOT_DEPLOYED`。gitのpathspecとして
 `git diff --name-only`に当てさせる）は`backend/**`から、イメージに入らないもの（テスト・lint設定等）と、イメージには入るが本番
 プロセスが読まないもの（`export_openapi.py`とそれだけが読む表示値の宣言）を外している。
 表示値の変更は生成物（`frontend/src/types/generated/`）を経由してfrontendのデプロイで
@@ -183,7 +183,7 @@ publicリポジトリで標準のGitHubホストランナーを使う実行を�
   backendの本番へのデプロイは、masterへの
   pushでCIが通ったときだけ`ci.yml`から呼ばれる（上の「デプロイの反映確認」）。
 - 同じブランチへの新しいpushで古い実行を打ち切らない。打ち切ると、そのコミットのCIの結論が残らない。
-- ジョブの分け方・キャッシュ・文書や運用の道具だけの変更で重い検査を飛ばす範囲（`ci.yml`の`changes`ジョブの
+- ジョブの分け方・キャッシュ・文書や運用の道具だけの変更で重い検査を飛ばす範囲（`ci.yml: changes`ジョブの
   `case`）は、所要時間と同時実行の枠で決める（理由は各ワークフローのコメント）。
 - **ワークフローは`paths`で飛ばさず、いつも起こす。** コードのリポジトリは、master へ入れる前に必須チェック
   （`ci.yml`の`ci-ok`）が通ることを求める。ワークフローごと飛ばすと必須チェックが Pending のまま残り、
@@ -199,7 +199,7 @@ publicリポジトリで標準のGitHubホストランナーを使う実行を�
 リポジトリは標準ランナーで月2,000分までで、支払い方法が未登録なら使い切った時点で実行が止まる
 （登録済みなら超過分が課金される）。privateへ切り替えるときは、切り替えの前に次を見直す:
 作業ブランチ（`orch/**`）でCIを走らせるか、古い実行を打ち切るか（`concurrency`）、文書・運用の道具
-だけの変更で重い検査を飛ばす範囲（`ci.yml`の`changes`）、ジョブの分け方とキャッシュ。検査の門を
+だけの変更で重い検査を飛ばす範囲（`ci.yml: changes`）、ジョブの分け方とキャッシュ。検査の門を
 CIだけに置いているため、CIの分数が尽きると検査そのものが止まる。
 
 ## DBの版（本番が正本）
@@ -222,7 +222,7 @@ CIと`docker-compose.yml`も上げる。** CIが本番と違う版で合否を�
   （`libgeos-c1t64`・`libproj25`・`proj-data`）。Ubuntu本体のアーカイブにも同じパッケージ名の
   古い版があり、PGDGの`postgresql-18-postgis-3`はどちらでも入る。**本番でaptを更新すると
   GEOS・PROJも進む**——CIは実行のたびにPGDGの最新を入れるので、本番のaptを長く止めると
-  CIだけが先へ進む。本番の実際の版はCIの注釈`DB`と同じ関数（`postgis_full_version()`）で読める。
+  CIだけが先へ進む。本番の実際のGEOS・PROJの版も`postgis_full_version()`（上）で読める。
 - 開発機（Windows）は別の配布物で、版が揃わない（PostgreSQL 18.6・PostGIS 3.6.2・
   GEOS 3.14.1dev・PROJ 8.2.1。2026-09-23）。GEOS・PROJの挙動差が効く検査（土地被覆の帯の形等）は
   CIで判定する。

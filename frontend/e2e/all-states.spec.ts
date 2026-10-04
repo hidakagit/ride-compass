@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { installApiMocks } from "./fixtures";
-import { scanLayout, scanPinch, scanSpacingUtilities } from "./scans";
+import { scanLayout, scanPinch, scanSpacingUtilities, scanTruncatedText } from "./scans";
 import {
   WIDTHS,
   assertWidthsStraddleBreakpoint,
@@ -37,7 +37,7 @@ for (const width of Object.keys(WIDTHS) as WidthName[]) {
 
     // 違反 → 最初に見つかった状態の道筋。
     const problems = new Map<string, string>();
-    const counts = { widgets: 0, viaContainer: 0, spacing: 0, pinches: 0 };
+    const counts = { widgets: 0, viaContainer: 0, truncatable: 0, spacing: 0, pinches: 0 };
     const summary: string[] = [];
 
     await openApp(page);
@@ -54,6 +54,9 @@ for (const width of Object.keys(WIDTHS) as WidthName[]) {
         counts.widgets += layout.checked;
         counts.viaContainer += layout.viaContainer;
         layout.problems.forEach(record);
+        const truncated = await scanTruncatedText(page);
+        counts.truncatable += truncated.checked;
+        truncated.problems.forEach(record);
         const spacing = await scanSpacingUtilities(page);
         counts.spacing += spacing.checked;
         spacing.problems.forEach(record);
@@ -69,7 +72,7 @@ for (const width of Object.keys(WIDTHS) as WidthName[]) {
       summary.push(`${phase} ${result.states}状態（${Math.round((Date.now() - phaseStarted) / 1000)}秒）`);
       console.log(
         `全状態の走査 ${width}: ${summary.join("・")}、横幅の検査 ${counts.widgets}件（うち横スクロールする容器で判定 ` +
-          `${counts.viaContainer}件）・余白ユーティリティ ${counts.spacing}件・ピンチ ${counts.pinches}件、` +
+          `${counts.viaContainer}件）・省略の検査 ${counts.truncatable}件・余白ユーティリティ ${counts.spacing}件・ピンチ ${counts.pinches}件、` +
           `計${Math.round((Date.now() - started) / 1000)}秒`,
       );
       // 段階ごとに確かめる。違反が次の段階の段取り（生成）を壊すと、違反そのものが見えなくなる。

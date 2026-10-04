@@ -10,7 +10,6 @@ import {
   gridAtTime,
   mergeWindGridKeepingStale,
   WIND_CALM_THRESHOLD_MS,
-  WIND_GRID_SPACING_DEG,
   WIND_DETAIL_MIN_ZOOM,
   WIND_SPEED_COLOR_STOPS,
   WIND_SPEED_LEGEND_LEVELS,
@@ -51,7 +50,7 @@ describe("gridAtTime（時刻ごとに描く格子）", () => {
 
   it("詳細格子がその時刻を持たなければ（取った時刻が早く、先の端が手前で終わる）、粗い格子とその間隔", () => {
     expect(gridAtTime(coarse, detail, "2026-09-24T12:00")).toEqual({
-      spacingDeg: WIND_GRID_SPACING_DEG,
+      spacingDeg: windGridConfig.spacing_deg,
       points: coarse,
     });
   });

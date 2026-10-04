@@ -2,7 +2,7 @@
 
 ## 前提
 
-- Node.js 20+
+- Node.js 22.12+（frontend のテストの道具 vitest の要件）
 - Python 3.11+
 - PostgreSQL + PostGIS（Road Graph・路面タイル生成の一次系統。**DBなしでは起動しない**）
 - Redis（JMA気象データの短命キャッシュ。未接続でもフォールバックする箇所が
@@ -136,15 +136,63 @@ npm run dev
 
 ```bash
 cd backend && pytest tests/test_road_graph_engine.py -q
-cd frontend && npx vitest run <対象ファイル> --pool=threads
-cd frontend && npx tsc --noEmit
+cd frontend && ./node_modules/.bin/vitest run <対象ファイル> --pool=threads
+cd frontend && ./node_modules/.bin/tsc --noEmit
 ```
+
+frontendのツールはすべて`node_modules`に入っているので、`npx`を付けずに`./node_modules/.bin/`から
+直接起こす。`npx`は起動のたびにパッケージ解決をやり直し、`npx tsc --version`だけで13.6秒かかる
+（開発機での実測、2026-09-22）。`tsc --noEmit`は型の波及を1ファイルへ絞れないためプロジェクト全体で
+1回通し、開発機で27秒かかる。Next.jsの生成型が未作成なら`./node_modules/.bin/next typegen`を先に流す。
+backendのフルスイートは開発機で5〜10分かかる（CIは`-n auto`で並列に回す）。
 
 PostGIS統合テスト（`road_graph_session`フィクスチャを使うもの。`postgis`マーカー付き）は、
 テスト専用DB（既定は作業ツリーごとのDB、`TEST_DATABASE_URL`で上書き可。
 [testing.md](../conventions/testing.md)「テストDBは作業ツリーごとに分かれる」）へ接続できないと
 落ちる（スキップにはしない。`backend/tests/conftest.py`）。DBの無い環境では
 `-m "not postgis"`で除外して回す。
+
+## 開発機の本体のチェックアウトの遅れ
+
+担当は GitHub Actions のランナーで動くので、開発機の本体のチェックアウトを早送りする人はいない。遅れた
+本体で打った道具は古いコードで判定し、本番へ古いコードを流す。結果がコードの版に左右される道具は、
+実行口で`scripts/checkout_freshness.py`を呼び、HEAD が origin/master を含まなければ、何コミット遅れかと
+追いつくコマンドを出して止まる。作業ブランチでも、origin/master の上に載っていれば止まらない。
+作業ツリーの変更は遅れに数えない。
+
+| 道具 | 呼ぶところ | 版に左右される理由 |
+|---|---|---|
+| 本番へつなぐ道具（例: `backend/scripts/run_probe.py`・`backend/scripts/axis_apply.py`） | `backend/scripts/_prod_env.py: read_prod_env`（接続情報を渡す前） | 本番へ流すのがこのチェックアウトのコード（プローブが読む`app`・管理APIへ送る形） |
+| `scripts/review_checks.py`の`size`・`metrics`・`trigger` | `scripts/review_checks.py: main` | 前回のレビューから HEAD までを測るので、HEAD が古いと変更を数え漏らす |
+
+開発機の手元のスクリプト（リポジトリに入れないもの）で本体のコードを流すものは、上の道具を経由するか、
+頭で`python <本体>/scripts/checkout_freshness.py`を打って終了コードを見る。
+
+`python scripts/checkout_freshness.py --sync`は、master にいて追跡しているファイルに変更が無いときだけ
+早送りし、結果を1行出す（ほかの枝・変更のある作業ツリーには触らない。並行のセッションが作業中かもしれない
+ため）。Claude Code の SessionStart フックから打つ形にしてある。
+
+## Windowsの開発機でのBashの長さの上限
+
+Claude CodeのBashツールのコマンドは、実行環境の包みごと`bash.exe -c`の1引数で渡り、MSYS2ランタイムが
+その引数を8,186文字で**黙って切る**。自分のコマンドに使えるのは約7,950文字（単一引用符は包みの中で
+1個5文字に膨らむ）。
+
+- 超えると、引用符の壊れに見えるエラー（`unexpected EOF while looking for matching`）で1行も実行されない。
+- わずかに超えた範囲では実行はされるが、作業ディレクトリの記録先が切れて、ホーム直下に断片名のファイルができる。
+- `\\`は長さに関係なく`\`へ半減する。
+- 閾値はcmd.exeの上限（8,191文字）に近いが、プロセスを辿るとcmd.exeは経由していない。
+
+長いスクリプト・ヒアドキュメントはWriteツールでファイルに書いてから実行する（実測と出典は
+[T1041](../records/tasks/T1041.md)）。
+
+## 作業ツリーどうしで node_modules を共有しない
+
+`git worktree`で作った作業ツリーどうしで、`node_modules`をジャンクション等で共有しない。
+
+- `next dev`が「プロジェクトルート外を指すリンク」として拒否する。
+- 一方の作業ツリーを`git worktree remove --force`すると、再帰削除がリンクの中へ入り共有元を壊す
+  （[T768](../records/tasks/T768.md)）。
 
 ## リポジトリの構成
 

@@ -1,6 +1,6 @@
 """一次属性と、地図表示の宣言の型。
 
-一次属性の語彙そのものは`domain/material_catalog.py`の`PRIMARY_ATTRIBUTES`が宣言する
+一次属性の語彙そのものは`domain/material_catalog.py: PRIMARY_ATTRIBUTES`が宣言する
 （ビルド時生成物`primaryAttributes.ts`の元）。
 
 `AxisDisplaySpec`/`TileInputSpec`は地図が軸をどう塗るかの宣言の型で、
@@ -25,7 +25,7 @@ class DisplayCategorySpec(StrictModel):
     意味の無い値は1行へまとめる（車道用と歩道用の踏切など）——網羅ではなく
     「走りやすさの違いが出る単位」で束ねる。
 
-    色は軸の`palette`・`hue_slot`と行数から導く（評価軸の段の色を境界の個数から補間するのと同じ形）。
+    色は軸の`palette`・`hue_slot`・`tone`と行数から導く（評価軸の段の色を境界の個数から補間するのと同じ形）。
     **行ごとに色を持たせない**——持たせると、行が1つ増えたときに色を手で決め直すことになり、
     パレットの意味（中立か評価か）もその場の判断で破れる。
     """
@@ -33,6 +33,12 @@ class DisplayCategorySpec(StrictModel):
     key: str
     label: str
     values: tuple[str | bool, ...]
+    #: 凡例の行の（i）から開く、この行に何が入るかの説明。利用者の言葉で書き、OSMのタグは括弧で添える程度にする。
+    description: str = Field(min_length=1)
+    #: 点を、行の色の角丸四角に白い絵記号を載せた形で描くときの絵の名前（`None`は丸い点）。絵の描き方は画面が持つ。
+    #: 色だけでは、同時に出る点のレイヤーどうしを軸の中ほど離せないので、形でも分けるレイヤーに付ける。
+    #: 付けるのは点の先頭の軸で、その軸の行の全部に付ける（一部の行だけ形が違うと、形が分類の意味を持ってしまう）。
+    glyph: str | None = None
 
 
 class DisplayAxisSpec(StrictModel):
@@ -57,6 +63,9 @@ class DisplayAxisSpec(StrictModel):
     #: 色相環を等分して配る。**軸をまたいで重複させない**——同じ起点だと、1行しか持たない
     #: 軸どうし（トンネルと一方通行）が必ず同じ色になる。
     hue_slot: int | None = None
+    #: 順序を持たない列挙の明度の段（`None`は標準）。**同時に出る点のレイヤーどうしは段を変える**
+    #: ——色相の起点を変えても、行を色相環へ等分して配る以上、レイヤーをまたいで近い色相が残る。
+    tone: Literal["dark", "light"] | None = None
     categories: tuple[DisplayCategorySpec, ...]
 
 
@@ -64,7 +73,7 @@ class PrimaryAttributeSpec(StrictModel):
     """一次属性の宣言。
 
     `label`はユーザー向け正式名称の単一ソース。`export_openapi.py`が`primaryAttributes.ts`へ
-    書き出し、フロントはそこから略名（地図チップ用）への対応表だけを別途持つ（片側import）。
+    書き出す。
 
     `geometry`は値が載る図形で、フロントはこれを読んでレイヤーの描き方（線・点・面）を
     決める。持たせないと、どの属性をどう描くかを画面側が手で並べた表で持つことになる。
@@ -86,23 +95,22 @@ class PrimaryAttributeSpec(StrictModel):
 
 
 class TileInputSpec(StrictModel):
-    """地図表示（ramp）が読むMVTタイルプロパティ。
+    """地図表示（ramp）が読むMVTタイルプロパティ1つと、その道の値への寄与。軸の値は寄与の和。
 
-    数値材料（既定）: フロントのMapLibre expressionが`Σ(property × weight)`を計算する。
+    数値材料（既定）: `property × weight`。プロパティが無い道は寄与0。
 
     真偽値材料（`boolean=True`）: MVTの真偽値プロパティは真偽比較でしか読めず重み付け
     結合が成立しないため、`true_value`/`false_value`で寄与値を直接指定する（`weight`は
     無視される）。
 
-    N値文字列材料（`categories`）: 文字列値を`categories`で引いた点数×`weight`を寄与値と
-    する。`CategoricalShape`のmappingがbool2値ではなく3値以上（highway/surface等）の
-    場合に使う。
+    N値文字列材料（`categories`）: 文字列値を`categories`で引いた点数×`weight`。
+    `CategoricalShape`のmappingがbool2値ではなく3値以上（highway/surface等）の場合に使う。
 
-    自己変換材料（`breakpoints`）: 区分線形（`BreakpointLinearShape`）で変換される軸の
-    寄与値を、フロントの`interpolate`でタイル生値から直接求める。
+    自己変換材料（`breakpoints`）: 区分線形（`BreakpointLinearShape`）で変換される参照先の軸の
+    点数（小数1桁）×`weight`を、タイル生値から直接求める。プロパティが無い道は寄与0。
 
     `has_unknown_fallback`: 値が引けないときの意味が「true/falseどちらでもない不明」
-    （例: 未分類の路面）ならTrueにし、フロントは灰色「不明」へ倒す。既定Falseは
+    （例: 未分類の路面）ならTrueにし、その道の軸の値を「不明」にする。既定Falseは
     「欠損=falseとみなしてよい」材料（例: lit。タグ不在は「無し」の安全側既定）を表す。
     `categories`材料では**未登録値**も不明に含める——`evaluate_categorical`が未登録値に
     Noneを返し`required=True`の軸全体を評価不能にするため、欠損だけを見ると、実際には
@@ -111,8 +119,11 @@ class TileInputSpec(StrictModel):
 
     `needs_runtime_scale`: タイル生値が実行時にしか決まらない係数でのスケール変換を要する
     材料（例: 収録年数で正規化する前の事故件数）でTrue。`weight`が静的な変換係数を
-    表現できないが、`GET /api/axis-catalog`が配るスケール定数をフロントのJS式が追加で
-    掛けるため、地図表示の対象には含める。`thresholds`は材料スケールの値のままでよい。
+    表現できないが、`GET /api/axis-catalog`が配るスケール定数（`tile_runtime_scales`、
+    `property`で引く）をフロントのJS式が追加で掛けるため、地図表示の対象には含める。`thresholds`は材料スケールの値のままでよい。
+
+    画面の式が形ごとに評価と同じ値・同じ「不明」を出すことは、`scripts/cross_language_expectations.py:
+    axis_ramp_expectations`が表にして配り、画面のテストが通して確かめる。
     """
 
     property: str = Field(min_length=1)
