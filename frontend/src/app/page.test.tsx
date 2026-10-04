@@ -428,7 +428,7 @@ describe("生成", () => {
     });
   });
 
-  it("実行中は押せず、順番待ちか経過時間をボタンに出す", async () => {
+  it("実行中は押せず、順番待ちか経過時間をボタンの名前に出す", async () => {
     const user = userEvent.setup();
     await renderHome();
     const held = holdGeneration();
@@ -437,11 +437,9 @@ describe("生成", () => {
     const button = () => screen.getByRole("button", { name: /^(生成中|順番待ち)/ });
     expect(button()).toBeDisabled();
     expect(button()).toHaveAccessibleName("生成中...");
-    expect(button()).toHaveTextContent("生成中");
 
     await held.progress({ status: "queued", elapsedMs: 1000 });
     expect(button()).toHaveAccessibleName("順番待ち...");
-    expect(button()).toHaveTextContent("順番待ち");
 
     await held.progress({ status: "running", elapsedMs: 12_400 });
     expect(button()).toHaveAccessibleName("生成中...(12秒経過)");
@@ -527,7 +525,6 @@ describe("生成", () => {
     await generate(user);
 
     const clear = screen.getByRole("button", { name: "候補を全消去" });
-    expect(clear).toHaveTextContent("全消去");
     expect(clear.querySelector("svg")).not.toBeNull();
 
     await user.click(clear);

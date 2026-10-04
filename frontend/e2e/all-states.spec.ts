@@ -1,13 +1,15 @@
 import { expect, test } from "@playwright/test";
-import { installApiMocks } from "./fixtures";
-import { scanLayout, scanPinch, scanSpacingUtilities, scanTruncatedText } from "./scans";
+import { installApiMocks, installMapFinder } from "./fixtures";
+import { scanLayout, scanOverflowingContent, scanPinch, scanSpacingUtilities, scanTruncatedText } from "./scans";
 import {
   WIDTHS,
   assertWidthsStraddleBreakpoint,
   generate,
   installPageHelpers,
+  installSpliceMocks,
   openApp,
   resetPhase,
+  splice,
   traverse,
   type Phase,
   type WidthName,
@@ -23,13 +25,15 @@ test.describe.configure({ retries: 0 });
 
 for (const width of Object.keys(WIDTHS) as WidthName[]) {
   test(`全状態の走査: ${width}`, async ({ browser }) => {
-    test.setTimeout(150_000);
+    test.setTimeout(220_000);
     const started = Date.now();
     const touch = width === "mobile";
     const context = await browser.newContext({ viewport: WIDTHS[width], isMobile: touch, hasTouch: touch });
     const page = await context.newPage();
     await page.addInitScript(installPageHelpers);
+    await page.addInitScript(installMapFinder);
     await installApiMocks(page);
+    await installSpliceMocks(page);
     const client = await context.newCDPSession(page);
     await client.send("Accessibility.enable");
     await client.send("DOM.enable");
@@ -37,13 +41,14 @@ for (const width of Object.keys(WIDTHS) as WidthName[]) {
 
     // 違反 → 最初に見つかった状態の道筋。
     const problems = new Map<string, string>();
-    const counts = { widgets: 0, viaContainer: 0, truncatable: 0, spacing: 0, pinches: 0 };
+    const counts = { widgets: 0, viaContainer: 0, truncatable: 0, overflowable: 0, spacing: 0, pinches: 0 };
     const summary: string[] = [];
 
     await openApp(page);
     await assertWidthsStraddleBreakpoint(page);
-    for (const phase of ["生成前", "生成後"] as Phase[]) {
+    for (const phase of ["生成前", "生成後", "乗り換え後"] as Phase[]) {
       if (phase === "生成後") await generate(page, width);
+      if (phase === "乗り換え後") await splice(page, width);
       await resetPhase(page);
       const phaseStarted = Date.now();
       const result = await traverse(page, `${width} / ${phase}`, async (path) => {
@@ -57,6 +62,9 @@ for (const width of Object.keys(WIDTHS) as WidthName[]) {
         const truncated = await scanTruncatedText(page);
         counts.truncatable += truncated.checked;
         truncated.problems.forEach(record);
+        const overflowing = await scanOverflowingContent(page);
+        counts.overflowable += overflowing.checked;
+        overflowing.problems.forEach(record);
         const spacing = await scanSpacingUtilities(page);
         counts.spacing += spacing.checked;
         spacing.problems.forEach(record);
@@ -72,7 +80,7 @@ for (const width of Object.keys(WIDTHS) as WidthName[]) {
       summary.push(`${phase} ${result.states}状態（${Math.round((Date.now() - phaseStarted) / 1000)}秒）`);
       console.log(
         `全状態の走査 ${width}: ${summary.join("・")}、横幅の検査 ${counts.widgets}件（うち横スクロールする容器で判定 ` +
-          `${counts.viaContainer}件）・省略の検査 ${counts.truncatable}件・余白ユーティリティ ${counts.spacing}件・ピンチ ${counts.pinches}件、` +
+          `${counts.viaContainer}件）・省略の検査 ${counts.truncatable}件・はみ出しの検査 ${counts.overflowable}件・余白ユーティリティ ${counts.spacing}件・ピンチ ${counts.pinches}件、` +
           `計${Math.round((Date.now() - started) / 1000)}秒`,
       );
       // 段階ごとに確かめる。違反が次の段階の段取り（生成）を壊すと、違反そのものが見えなくなる。
