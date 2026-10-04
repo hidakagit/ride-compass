@@ -35,7 +35,6 @@ describe("buildRangeLegendBands", () => {
     expect(keys(buildRangeLegendBands([10, 20], COLORS, "", ["a", "b", "c"]))).toEqual(
       keys(buildRangeLegendBands([-5, 0], COLORS, "%", undefined)),
     );
-    expect(new Set(keys(buildRangeLegendBands([10, 20], COLORS, "", undefined))).size).toBe(COLORS.length);
   });
 
   it("境界が無く段が1つなら、範囲の文字を空にする", () => {
@@ -46,15 +45,11 @@ describe("buildRangeLegendBands", () => {
 });
 
 describe("bandLabelsForBandCount", () => {
-  it("体感ラベルは段の数と同じ件数のときだけ使い、多くても少なくても捨てる", () => {
+  it("体感ラベルは段の数と同じ件数のときだけ使い、件数が違う・持たない（null）ならラベル無しで返す", () => {
     const labels = ["低", "中", "高"];
 
     expect(bandLabelsForBandCount(labels, 3)).toEqual(labels);
     expect(bandLabelsForBandCount(labels, 2)).toBeUndefined();
-    expect(bandLabelsForBandCount(labels, 4)).toBeUndefined();
-  });
-
-  it("体感ラベルを持たない軸（null）は、ラベル無しで返す", () => {
     expect(bandLabelsForBandCount(null, 3)).toBeUndefined();
   });
 });

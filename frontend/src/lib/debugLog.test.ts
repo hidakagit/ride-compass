@@ -22,7 +22,6 @@ let consoleWarn: ReturnType<typeof vi.spyOn>;
 let consoleError: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
-  window.localStorage.clear();
   consoleDebug = vi.spyOn(console, "debug").mockImplementation(() => {});
   consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
   consoleError = vi.spyOn(console, "error").mockImplementation(() => {});

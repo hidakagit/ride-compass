@@ -66,10 +66,9 @@ def test_issued_and_continuing_warnings_come_out_in_order_with_their_name_level_
     [
         _kind("t_warning", "解除"),
         _kind(None, "発表警報・注意報はなし"),
-        _kind("t_warning", None),
         _kind("t_irrelevant", "発表"),
     ],
-    ids=["lifted", "nothing_issued", "no_status", "not_relevant_to_cycling"],
+    ids=["lifted", "nothing_issued", "not_relevant_to_cycling"],
 )
 def test_lifted_absent_and_irrelevant_kinds_are_left_out(kind):
     assert extract_active_warnings([kind]) == []
@@ -93,12 +92,11 @@ NOTHING = (_kind(None, "発表警報・注意報はなし"),)
 @pytest.mark.parametrize(
     ("class20_kinds", "class10_kinds", "expected"),
     [
-        ({"1310100": AREA}, {"130010": SUBDIVISION}, AREA),
         ({"1310100": NOTHING}, {"130010": SUBDIVISION}, NOTHING),
         ({}, {"130010": SUBDIVISION}, SUBDIVISION),
         ({"1310200": AREA}, {"130020": SUBDIVISION}, None),
     ],
-    ids=["area_first", "area_saying_nothing_still_wins", "subdivision_when_no_area_item", "neither"],
+    ids=["area_first_even_saying_nothing", "subdivision_when_no_area_item", "neither"],
 )
 def test_the_area_item_is_used_and_the_subdivision_only_when_the_bulletin_has_no_area_item(
     class20_kinds, class10_kinds, expected

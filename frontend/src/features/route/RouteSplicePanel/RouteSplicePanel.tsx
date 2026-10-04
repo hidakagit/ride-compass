@@ -10,6 +10,7 @@ import { formatDelta, roundToDigits } from "@/features/route/routeEditDiff";
 import { formatDurationShort } from "@/features/route/formatDuration";
 import type { OverallDifficulty, RouteCandidate } from "@/types/route";
 import { Button } from "@/components/ui/Button/Button";
+import { GuideText } from "@/components/ui/GuideText/GuideText";
 import { textVariants } from "@/components/ui/Text/Text";
 import { cn } from "@/lib/cn";
 import { cardVariants } from "@/components/ui/Card/Card";
@@ -300,17 +301,19 @@ export default function RouteSplicePanel({
           {error && <ErrorText>{error}</ErrorText>}
 
           <p className={textVariants({ variant: "hint" })}>
-            {deltas.length > 0
-              ? deltas.slice(0, LABELLED_DELTA_COUNT).map((item) => (
-                  <span className="mr-2.5" key={item.axisId}>
-                    {item.label} {formatDelta(item.delta, 1)}
-                  </span>
-                ))
-              : appliedCount > 0
-                ? "「差分を見る」を押すと、乗り換えた結果が出ます"
-                : hasAlternatives
-                  ? "地図の破線をタップして乗り換えます"
-                  : "他の候補と別の道を通る区間がありません。"}
+            {deltas.length > 0 ? (
+              deltas.slice(0, LABELLED_DELTA_COUNT).map((item) => (
+                <span className="mr-2.5" key={item.axisId}>
+                  {item.label} {formatDelta(item.delta, 1)}
+                </span>
+              ))
+            ) : appliedCount > 0 ? (
+              <GuideText text="「差分を見る」を押すと、乗り換えた結果が出ます" />
+            ) : hasAlternatives ? (
+              "地図の破線をタップして乗り換えます"
+            ) : (
+              "他の候補と別の道を通る区間がありません。"
+            )}
           </p>
         </>
       )}

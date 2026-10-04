@@ -212,7 +212,9 @@ describe("候補が無い間", () => {
 
   it("案内が無ければ、生成を押すと候補が並ぶことを案内する", () => {
     renderOutcome();
-    expect(screen.getByText("「ルート設定」の「ルート生成」を押すと候補がここに並びます")).toBeInTheDocument();
+    expect(screen.getByText(/候補がここに並びます/)).toHaveTextContent(
+      "「ルート設定」のルート生成を押すと候補がここに並びます",
+    );
     expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
   });
 });

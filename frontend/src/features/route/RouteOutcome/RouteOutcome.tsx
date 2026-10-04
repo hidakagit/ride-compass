@@ -5,6 +5,7 @@ import { Fragment } from "react";
 import AxisContributionBar from "@/components/AxisContributionBar/AxisContributionBar";
 import ErrorText from "@/features/route/ErrorText/ErrorText";
 import { Button } from "@/components/ui/Button/Button";
+import { GuideText } from "@/components/ui/GuideText/GuideText";
 import { DownloadIcon, FastestRouteIcon, RouteSpliceIcon } from "@/components/ui/icons/icons";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs/Tabs";
 import { textVariants } from "@/components/ui/Text/Text";
@@ -91,7 +92,9 @@ export default function RouteOutcome({ results, generation, splice, routeWeights
       return <ErrorText>{generation.lastMessage}</ErrorText>;
     }
     return (
-      <p className={textVariants({ variant: "hint" })}>「ルート設定」の「ルート生成」を押すと候補がここに並びます</p>
+      <p className={textVariants({ variant: "hint" })}>
+        <GuideText text="「ルート設定」の「ルート生成」を押すと候補がここに並びます" />
+      </p>
     );
   }
 

@@ -5,7 +5,9 @@
  *
  * ここで見ないもの:
  * - 口ごとのパスと応答の型の組 → OpenAPIの生成物から型で決まり、取り違えると型検査が落ちる
- * - 失敗の文言の組み立て（口ごとの主語は宣言）・通信の失敗とタイムアウトの包み直し → `lib/apiClient.test.ts`
+ * - 失敗を投げること・失敗の文言の組み立て（口ごとの主語は宣言）・通信の失敗とタイムアウトの包み直し → `lib/apiClient.test.ts`
+ * - 地点を問い合わせるほかの口（アメダス・警報・暑さ指数・河川氾濫）と気象庁タイルの在否 → 地点を項目へ載せる形は天候と
+ *   同じで、要求は取った値を使う側のテストが網の層で通す
  * - 取った値を画面の状態へ載せること → `features/conditions/useWeatherConditions.test.ts`・
  *   `features/map/useWeatherGrid.test.ts`・`features/map/useJmaTileIndex.test.ts`
  */
@@ -13,7 +15,6 @@ import { describe, expect, it } from "vitest";
 
 import { onBackend } from "@/testing/backendServer";
 
-import * as weatherApi from "./weatherApi";
 import { getCurrentWeather, getWindGrid, getWindGridDetail } from "./weatherApi";
 
 const POINT = { latitude: 35.68, longitude: 139.76 };
@@ -58,21 +59,5 @@ describe("風の格子", () => {
         query: { min_lon: "139.1", min_lat: "35.2", max_lon: "139.9", max_lat: "35.8", spacing_deg: "0.05" },
       },
     ]);
-  });
-});
-
-describe("失敗", () => {
-  it("どの口も、backendの失敗を空の値で返さずに投げる（呼ぶ側は失敗を画面に出す）", async () => {
-    onBackend("GET", "/api/*", () => Response.json({}, { status: 502 }));
-    // 口の引数は地点・範囲・無しのどれかで、どれに地点を渡しても要求は出る（失敗の扱いは引数によらない）。
-    const endpoints = Object.entries(weatherApi).map(([name, call]) => ({
-      name,
-      call: call as (point: typeof POINT) => Promise<unknown>,
-    }));
-    expect(endpoints.length).toBeGreaterThan(0);
-
-    for (const { name, call } of endpoints) {
-      await expect(call(POINT), name).rejects.toThrow(Error);
-    }
   });
 });

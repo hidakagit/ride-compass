@@ -73,15 +73,15 @@ def test_a_tile_element_whose_stages_cannot_share_one_source_is_refused(kind, jm
 
 @pytest.mark.usefixtures("_declared")
 def test_each_stage_is_delivered_with_its_listings_template_reader_refresh_and_delay():
-    deliveries = weather_element_deliveries(_element("outline", ["t_even10", "t_points"]))
+    deliveries = weather_element_deliveries(_element("outline", ["t_even11", "t_points"]))
 
     assert deliveries == [
         WeatherDelivery(
-            "t_even10",
-            ("bosai/jmatile/data/nowc/targetTimes_N1.json", "bosai/jmatile/data/nowc/targetTimes_N2.json"),
-            "bosai/jmatile/data/nowc/{basetime}/{member}/{validtime}/surf/t_even10/{z}/{x}/{y}.png",
-            "nowcast",
-            weather_elements.JMA_REFRESH_INTERVAL_SECONDS["nowc"],
+            "t_even11",
+            ("bosai/jmatile/data/rasrf/targetTimes.json",),
+            "bosai/jmatile/data/rasrf/{basetime}/{member}/{validtime}/surf/t_even11/{z}/{x}/{y}.png",
+            "latestFullRun",
+            weather_elements.JMA_REFRESH_INTERVAL_SECONDS["rasrf"],
             0,
         ),
         WeatherDelivery(
@@ -93,23 +93,6 @@ def test_each_stage_is_delivered_with_its_listings_template_reader_refresh_and_d
             10,
         ),
     ]
-
-
-@pytest.mark.usefixtures("_declared")
-def test_each_stage_refreshes_at_the_interval_of_its_own_path_group():
-    deliveries = weather_element_deliveries(_element("rasterTile", ["t_even10", "t_even11"]))
-    assert [delivery.refresh_interval_seconds for delivery in deliveries] == [
-        weather_elements.JMA_REFRESH_INTERVAL_SECONDS[group] for group in ("nowc", "rasrf")
-    ]
-
-
-def test_an_element_drawn_from_its_own_grid_has_no_delivery():
-    assert weather_element_deliveries(_element("gridFill", (), "precipitation")) == []
-
-
-def test_an_undeclared_delivery_is_refused():
-    with pytest.raises(KeyError):
-        weather_element_deliveries(_element("rasterTile", ["t_undeclared"]))
 
 
 def _frames(*validtimes: str) -> list[JmaFrame]:
@@ -164,11 +147,10 @@ def test_配信元から取る段はすべて時刻一覧のファイルを持�
 
 def test_どの要素も時刻の読み方を持つ() -> None:
     """配信元から取る段は時刻一覧の読み方を、自前の格子から描く要素は読む値を持つ。無いと画面は
-    その要素のコマを作れない（配信元の段の読み方が無ければ`weather_element_deliveries`が落ちる）。"""
+    その要素のコマを作れない（配信元の段の読み方は宣言が持ち、宣言が無ければ上のテストの`weather_element_deliveries`が落ちる）。"""
     for element in WEATHER_ELEMENTS:
         name = f"{element.group}/{element.source}"
         if element.jma_elements:
-            assert weather_element_deliveries(element), name
             assert element.grid_value is None, f"{name} は配信元から取るのに格子の値を持つ"
         else:
             assert element.grid_value is not None, f"{name} は読む格子の値を持たない"

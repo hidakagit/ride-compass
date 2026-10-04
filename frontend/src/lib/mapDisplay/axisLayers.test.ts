@@ -6,7 +6,8 @@
  *
  * ここで見ないもの:
  * - 名前・略名・単位など軸に共通の項目を行から移すこと → `lib/catalogAxis.test.ts`
- * - 移した軸で道を塗る式・段 → `features/map/scene/groups/axisLines.test.ts`・`valueScale.test.ts`
+ * - 表示の宣言の項目（分類・段の境界・凡例の目盛り・体感ラベル・タイルの入力）をそのまま移すこと → 移した軸で道を塗る式と
+ *   凡例（`features/map/scene/groups/axisLines.test.ts`の backend の表・`features/map/view/lens.test.ts`）が通す
  * - 地図のレイヤーの鍵（`axisMapLayerId`）→ 文字列の組み立てだけで、レイヤーの登録と可視の切り替えのテストが通す
  */
 import { describe, expect, it } from "vitest";
@@ -27,70 +28,6 @@ describe("rampAxesFromCatalogAxes", () => {
     expect(rampAxesFromCatalogAxes(axes, {}).map((axis) => axis.axisId)).toEqual(["ramp_b", "ramp_a"]);
   });
 
-  it("地図の分類・段の境界・体感ラベルを表示の宣言から移し、体感ラベルが無ければ持たない", () => {
-    const [labelled, plain] = rampAxesFromCatalogAxes(
-      [rampEntry("labelled", [10, 20], { display_band_labels_override: ["低", "中", "高"] }), rampEntry("plain", [5])],
-      {},
-    );
-
-    expect(labelled).toMatchObject({
-      category: "roadCondition",
-      thresholds: [10, 20],
-      bandLabelsOverride: ["低", "中", "高"],
-    });
-    expect(plain.bandLabelsOverride).toBeUndefined();
-  });
-
-  it("タイルの入力を、材料の型ごとの項目ごと移し、宣言の無い分類表・折れ点は持たない", () => {
-    const entry = rampEntry("a", [1], {
-      display: {
-        kind: "ramp",
-        label: "a",
-        category: "roadCondition",
-        thresholds: [1],
-        tile_inputs: [
-          tileInput({ property: "num", weight: 2 }),
-          tileInput({ property: "flag", boolean: true, true_value: 3, false_value: 1, has_unknown_fallback: true }),
-          tileInput({ property: "kind", weight: 1, categories: { x: 0.5 } }),
-          tileInput({
-            property: "speed",
-            weight: 1,
-            breakpoints: [
-              [0, 0],
-              [60, 1],
-            ],
-          }),
-        ],
-      },
-    });
-
-    expect(rampAxesFromCatalogAxes([entry], {})[0].tileInputs).toEqual([
-      { property: "num", weight: 2, boolean: false, trueValue: 0, falseValue: 0, hasUnknownFallback: false },
-      { property: "flag", weight: 0, boolean: true, trueValue: 3, falseValue: 1, hasUnknownFallback: true },
-      {
-        property: "kind",
-        weight: 1,
-        boolean: false,
-        trueValue: 0,
-        falseValue: 0,
-        hasUnknownFallback: false,
-        categories: { x: 0.5 },
-      },
-      {
-        property: "speed",
-        weight: 1,
-        boolean: false,
-        trueValue: 0,
-        falseValue: 0,
-        hasUnknownFallback: false,
-        breakpoints: [
-          [0, 0],
-          [60, 1],
-        ],
-      },
-    ]);
-  });
-
   it("実行時の係数が要る入力は、届いた係数を重みへ掛け、届いていなければ寄与0で塗らず「不明」の印を付ける", () => {
     const entry = rampEntry("a", [1], {
       display: {
@@ -100,18 +37,16 @@ describe("rampAxesFromCatalogAxes", () => {
         thresholds: [1],
         tile_inputs: [
           tileInput({ property: "scaled", weight: 2, needs_runtime_scale: true }),
-          tileInput({ property: "zero_scaled", weight: 2, needs_runtime_scale: true }),
           tileInput({ property: "unscaled", weight: 2, needs_runtime_scale: true }),
           tileInput({ property: "plain", weight: 2 }),
         ],
       },
     });
 
-    const inputs = rampAxesFromCatalogAxes([entry], { scaled: 0.25, zero_scaled: 0, plain: 10 })[0].tileInputs;
+    const inputs = rampAxesFromCatalogAxes([entry], { scaled: 0.25, plain: 10 })[0].tileInputs;
 
     expect(inputs.map(({ property, weight, scaleMissing }) => ({ property, weight, scaleMissing }))).toEqual([
       { property: "scaled", weight: 0.5, scaleMissing: undefined },
-      { property: "zero_scaled", weight: 0, scaleMissing: undefined },
       { property: "unscaled", weight: 0, scaleMissing: true },
       { property: "plain", weight: 2, scaleMissing: undefined },
     ]);
@@ -133,30 +68,6 @@ describe("dedicatedWayValueAxesFromCatalogAxes", () => {
 
     expect(timeOnly).toMatchObject({ needsTime: true, needsBearing: false, needsSpeed: false });
     expect(bearingAndSpeed).toMatchObject({ needsTime: false, needsBearing: true, needsSpeed: true });
-  });
-
-  it("塗るときの表示の宣言（値の種類・境界・凡例の目盛り・体感ラベル）を同じ行から作り、宣言の無い体感ラベルは持たない", () => {
-    const [declared, bare] = dedicatedWayValueAxesFromCatalogAxes([
-      dedicatedEntry("declared", [-2, 2], {
-        map_value: { kind: "signed_material", material: "m" },
-        map_legend: { boundaries: [-2, 2], unit: "%" },
-        display_band_labels_override: ["下り", "平坦", "上り"],
-      }),
-      dedicatedEntry("bare", [33, 66]),
-    ]);
-
-    expect(declared.display).toEqual({
-      kind: "signed_material",
-      boundaries: [-2, 2],
-      legend: { boundaries: [-2, 2], unit: "%" },
-      bandLabels: ["下り", "平坦", "上り"],
-    });
-    expect(bare.display).toEqual({
-      kind: "difficulty",
-      boundaries: [33, 66],
-      legend: { boundaries: [33, 66], unit: null },
-      bandLabels: undefined,
-    });
   });
 });
 

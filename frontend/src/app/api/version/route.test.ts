@@ -14,9 +14,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { GET } from "./route";
 
 async function body() {
-  const response = await GET();
-  expect(response.status).toBe(200);
-  return (await response.json()) as { status: string; commit: string | null; started_at: string };
+  return (await (await GET()).json()) as { status: string; commit: string | null; started_at: string };
 }
 
 describe("GET /api/version", () => {

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/Popover/Popover";
 import { Button } from "@/components/ui/Button/Button";
+import { GuideText } from "@/components/ui/GuideText/GuideText";
 import { textVariants } from "@/components/ui/Text/Text";
 import { cardVariants } from "@/components/ui/Card/Card";
 import { cn } from "@/lib/cn";
@@ -178,7 +179,7 @@ export default function UsageGuide({ onEnd }: UsageGuideProps) {
             </Button>
           </div>
           <p className={cn(textVariants({ variant: target?.usage ? "body" : "hint" }), "m-0")}>
-            {target?.usage ?? "この部品の説明はまだありません。"}
+            {target?.usage ? <GuideText text={target.usage} /> : "この部品の説明はまだありません。"}
           </p>
         </PopoverContent>
       </Popover>
