@@ -34,7 +34,7 @@ from sqlalchemy import text  # noqa: E402
 from sqlalchemy.ext.asyncio import create_async_engine  # noqa: E402
 
 from app.batch import derive_cli, ingest_cli  # noqa: E402
-from app.batch._common import format_duration, run_batch_cli  # noqa: E402
+from app.batch.common import format_duration, run_batch_cli  # noqa: E402
 from app.batch.source_profile import load_source_profile  # noqa: E402
 from app.infrastructure.road_graph_repository import REQUIRED_EXTENSIONS, create_tables  # noqa: E402
 

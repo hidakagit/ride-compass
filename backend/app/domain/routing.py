@@ -78,7 +78,7 @@ _CSR_INDEX_DTYPE = np.int32
 # 優先度キューの初期容量（種の数＋この余裕）。満杯になれば倍へ伸びるため上限を当てる必要は
 # 無く、**当ててはいけない**——コストが時刻で変わると押し込み回数が遷移数で頭打ちにならない。
 # 小さく始めることで、伸長の経路が普通の探索で毎回通る（使われない分岐にしない）。
-_HEAP_INITIAL_SLACK = 64
+HEAP_INITIAL_SLACK = 64
 
 
 @dataclass
@@ -742,7 +742,7 @@ def build_turn_expanded_structure(
 
 # 探索の優先度キュー（numpy配列のバイナリヒープ）。順位のキー・状態・積んだ時点のコスト`g`の列と、
 # `g`の列を使うか。`g`の列を使わないヒープはキーそのものを`g`として扱う。
-_Heap = tuple[np.ndarray, np.ndarray, np.ndarray, bool]
+Heap = tuple[np.ndarray, np.ndarray, np.ndarray, bool]
 
 
 def _kernel_array(values: np.ndarray, dtype: type) -> np.ndarray:
@@ -757,7 +757,7 @@ def _kernel_array(values: np.ndarray, dtype: type) -> np.ndarray:
 
 
 @njit(cache=True, inline="always")
-def _empty_heap(capacity: int, carries_g: bool) -> _Heap:
+def empty_heap(capacity: int, carries_g: bool) -> Heap:
     """空のヒープを作る。`carries_g`はキーが`g`と別の値になる探索（A*のキーは`g`＋下界）だけが立てる。
 
     容量は最低1にする——伸長は要素数を倍にするため、容量0からは伸びない。
@@ -779,7 +779,7 @@ def _grown(values: np.ndarray, size: int) -> np.ndarray:
 
 
 @njit(cache=True, inline="always")
-def _heap_push(heap: _Heap, size: int, key: float, state: int, g: float = math.nan) -> tuple[_Heap, int]:
+def heap_push(heap: Heap, size: int, key: float, state: int, g: float = math.nan) -> tuple[Heap, int]:
     """エントリを1つ積み、（伸ばしたかもしれない）ヒープと新しい要素数を返す。`g`は`g`の列を
     使うヒープにだけ渡す（使わないヒープでは取り出しがキーを`g`として返す）。
 
@@ -812,7 +812,7 @@ def _heap_push(heap: _Heap, size: int, key: float, state: int, g: float = math.n
 
 
 @njit(cache=True, inline="always")
-def _heap_pop(heap: _Heap, size: int) -> tuple[float, int, int]:
+def heap_pop(heap: Heap, size: int) -> tuple[float, int, int]:
     """キー最小のエントリを取り出し、その`g`・状態と新しい要素数を返す。空で呼ばない。"""
     heap_key, heap_state, heap_g, carries_g = heap
     g = heap_g[0] if carries_g else heap_key[0]
@@ -889,7 +889,7 @@ def _turn_expanded_dijkstra(
     arrival = np.full(state_count, np.inf)
     length = np.full(state_count, np.nan)
     predecessor = np.full(state_count, -1, dtype=np.int64)
-    heap = _empty_heap(capacity, False)
+    heap = empty_heap(capacity, False)
     size = 0
 
     for i in range(entry_states.shape[0]):
@@ -900,10 +900,10 @@ def _turn_expanded_dijkstra(
         best[state] = g
         arrival[state] = edge_seconds[0, state]
         length[state] = edge_length_m[state]
-        heap, size = _heap_push(heap, size, g, state)
+        heap, size = heap_push(heap, size, g, state)
 
     while size > 0:
-        g, state, size = _heap_pop(heap, size)
+        g, state, size = heap_pop(heap, size)
         if g > best[state]:
             continue
         travelled = arrival[state]
@@ -921,7 +921,7 @@ def _turn_expanded_dijkstra(
             arrival[nxt] = travelled + edge_seconds[time_bin, nxt] + wait
             length[nxt] = length[state] + edge_length_m[nxt]
             predecessor[nxt] = state
-            heap, size = _heap_push(heap, size, next_g, nxt)
+            heap, size = heap_push(heap, size, next_g, nxt)
     return best, predecessor, length, arrival
 
 
@@ -978,7 +978,7 @@ def build_turn_expanded_tree(
     呼び出し元は1本のビンで呼ぶこと（`reverse=True`へ複数ビンを渡すと`ValueError`）。
     """
     state_count = structure.state_count
-    cost_bins, seconds_bins = _time_bin_arrays(
+    cost_bins, seconds_bins = time_bin_arrays(
         "build_turn_expanded_tree", edge_cost, edge_seconds, bin_seconds
     )
     if reverse and cost_bins.shape[0] > 1:
@@ -1002,7 +1002,7 @@ def build_turn_expanded_tree(
         _kernel_array(cost_bins, np.float64), _kernel_array(seconds_bins, np.float64),
         _kernel_array(edge_length_m, np.float64), float(bin_seconds),
         _kernel_array(entry_state_indices, np.int64), float(cost_limit),
-        len(entry_state_indices) + _HEAP_INITIAL_SLACK,
+        len(entry_state_indices) + HEAP_INITIAL_SLACK,
     )
     dijkstra_ms = (time.perf_counter() - started) * 1000
 
@@ -1142,7 +1142,7 @@ def _as_time_bins(caller: str, values: np.ndarray) -> np.ndarray:
     return array if array.ndim == 2 else array.reshape(1, -1)
 
 
-def _time_bin_arrays(
+def time_bin_arrays(
     caller: str, edge_cost: np.ndarray, edge_seconds: np.ndarray, bin_seconds: float
 ) -> tuple[np.ndarray, np.ndarray]:
     """コスト配列と素の所要時間配列を`(時刻ビン, 状態)`へ揃え、時刻で引く契約を確かめる。
@@ -1199,7 +1199,7 @@ def _turn_expanded_astar(
     best = np.full(state_count, np.inf)
     arrival = np.full(state_count, np.inf)
     predecessor = np.full(state_count, -1, dtype=np.int64)
-    heap = _empty_heap(capacity, True)
+    heap = empty_heap(capacity, True)
     size = 0
 
     for i in range(origin_states.shape[0]):
@@ -1210,11 +1210,11 @@ def _turn_expanded_astar(
         best[state] = g
         arrival[state] = edge_seconds[0, state]
         f = g + node_heuristic[edge_to[state]]
-        heap, size = _heap_push(heap, size, f, state, g)
+        heap, size = heap_push(heap, size, f, state, g)
 
     goal_state = -1
     while size > 0:
-        g, state, size = _heap_pop(heap, size)
+        g, state, size = heap_pop(heap, size)
         if g > best[state]:
             continue
         if edge_to[state] == goal_node:
@@ -1235,7 +1235,7 @@ def _turn_expanded_astar(
             arrival[nxt] = travelled + edge_seconds[time_bin, nxt] + wait
             predecessor[nxt] = state
             next_f = next_g + node_heuristic[edge_to[nxt]]
-            heap, size = _heap_push(heap, size, next_f, nxt, next_g)
+            heap, size = heap_push(heap, size, next_f, nxt, next_g)
     return predecessor, goal_state
 
 
@@ -1260,10 +1260,10 @@ def turn_expanded_shortest_path(
     `edge_seconds`を同じ形で渡す——探索が出発からの経過時間を持ち回り、その時刻のビンから
     コストと所要時間を引く。ビンが2本以上なら幅`bin_seconds`も渡す。
     """
-    cost_bins, seconds_bins = _time_bin_arrays(
+    cost_bins, seconds_bins = time_bin_arrays(
         "turn_expanded_shortest_path", edge_cost, edge_seconds, bin_seconds
     )
-    capacity = len(origin_states) + _HEAP_INITIAL_SLACK
+    capacity = len(origin_states) + HEAP_INITIAL_SLACK
     predecessor, goal_state = _turn_expanded_astar(
         _kernel_array(structure.indptr, np.int64), _kernel_array(structure.target_state, np.int64),
         _kernel_array(structure.turn_seconds, np.float64), _kernel_array(structure.edge_to, np.int64),

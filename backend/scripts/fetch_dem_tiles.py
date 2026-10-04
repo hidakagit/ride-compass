@@ -37,7 +37,7 @@ from app.batch.dem_tile_store import (  # noqa: E402
     mark_absent,
     write_tile,
 )
-from app.batch._common import (  # noqa: E402
+from app.batch.common import (  # noqa: E402
     PROGRESS_INTERVAL_SECONDS,
     format_progress,
 )

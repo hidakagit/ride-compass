@@ -1,12 +1,14 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 import path from "node:path";
 import { mapDisplay } from "@/types/generated/mapDisplay";
+import * as catalogAxes from "@/testing/catalogAxes";
 import * as fixtures from "../e2e/fixtures";
-import { installPageHelpers } from "../e2e/states";
-import { LIVE_POINT, chooseLens, installMapFinder, settleMap } from "../e2e-live/live";
+import * as states from "../e2e/states";
+import { LIVE_POINT, chooseLens, settleMap } from "../e2e-live/live";
 
 // 脚本（scripts/capture.mjs の --script）が受け取る口。脚本はこの口だけを使い、何も読み込まない（型の読み込みは実行時に
-// 消えるのでよい）。そのため作業ツリーの外に置いても、読み込みの解決に頼らずに動く。
+// 消えるのでよい）。そのため作業ツリーの外に置いても、読み込みの解決に頼らずに動く。e2e の段取りと応答の雛形はモジュールごと
+// 口に載せるので、そこへ足した関数は口を変えずに脚本から呼べる。
 
 interface OpenOptions {
   /** 現在地（出発地）。既定は、モックなら e2e/fixtures.ts: installApiMocks の地点、本物の backend なら e2e-live/live.ts: LIVE_POINT。 */
@@ -26,6 +28,10 @@ export interface CaptureContext {
   expect: typeof expect;
   /** e2e/fixtures.ts の段取りと応答（openMobileSheet・generateRoutes・doneJobFixture 等）。 */
   fixtures: typeof fixtures;
+  /** e2e/states.ts の全状態の走査の段取り（installSpliceMocks・splice 等）。 */
+  states: typeof states;
+  /** src/testing/catalogAxes.ts の軸の雛形（catalogEntry・rampEntry 等）。モックの軸カタログを組むときに fixtures.axisCatalogFixture へ渡す。 */
+  catalogAxes: typeof catalogAxes;
   /** アプリを開き、地図の全ソースの読み終わりまで待つ。初回の案内は閉じた状態で開く。 */
   open(options?: OpenOptions): Promise<void>;
   /** 地図の色分け（レンズ）を名前で選び、読み終わりまで待つ。選べなければ、選べる名前を並べて止まる。 */
@@ -40,7 +46,7 @@ export interface CaptureContext {
   /**
    * URL が glob に当たる応答の本文を `transform` の返した JSON に替える。本物の応答を取ってから本文だけを替えるので、CORS 等の
    * ヘッダーは本物のまま残る（ヘッダーの無い応答で返すと、別オリジンの backend への取得としてブラウザが捨てる）。
-   * 本物の backend へ向けたときに使う（モックの応答を替えるなら open の routes で page.route を足す）。
+   * 本物の backend へ向けたときに使う（モックの応答を替えるなら open の routes で page.route を足す。例は examples/axis-catalog.ts）。
    */
   patch(glob: string, transform: (json: unknown) => unknown): Promise<void>;
   /** 地図の全ソースの読み終わりまで待つ。 */
@@ -77,6 +83,8 @@ export function captureContext(page: Page, { out, mocked }: { out: string; mocke
     page,
     expect,
     fixtures,
+    states,
+    catalogAxes,
     settle,
     async open({ point, zoom, layers = [], storedState, routes } = {}) {
       const layerIds: string[] = mapDisplay.layers.map(({ id }) => id);
@@ -90,8 +98,8 @@ export function captureContext(page: Page, { out, mocked }: { out: string; mocke
         await page.context().setGeolocation(point ?? LIVE_POINT);
       }
       if (routes) await routes(page);
-      await page.addInitScript(installPageHelpers);
-      await page.addInitScript(installMapFinder);
+      await page.addInitScript(states.installPageHelpers);
+      await page.addInitScript(fixtures.installMapFinder);
       await fixtures.seedStoredState(page, {
         "ridecompass:first-visit-intro-closed": "true",
         ...(layers.length > 0
@@ -147,21 +155,7 @@ export function captureContext(page: Page, { out, mocked }: { out: string; mocke
       return panel;
     },
     async clickMap(lngLat) {
-      const point = await page.evaluate((at) => {
-        const map = window.__liveMap();
-        const projected = map.project(at);
-        const box = map.getCanvas().getBoundingClientRect();
-        const x = box.left + projected.x;
-        const y = box.top + projected.y;
-        const inside = x >= 0 && y >= 0 && x < window.innerWidth && y < window.innerHeight;
-        return { x, y, onMap: inside && document.elementFromPoint(x, y) === map.getCanvas() };
-      }, lngLat);
-      if (!point.onMap) {
-        throw new Error(
-          `地図の点 ${lngLat.join(",")}（画面の ${Math.round(point.x)},${Math.round(point.y)}）は押せない`,
-        );
-      }
-      await page.mouse.click(point.x, point.y);
+      await fixtures.clickMap(page, lngLat);
     },
     async patch(glob, transform) {
       await page.route(glob, async (route) => {

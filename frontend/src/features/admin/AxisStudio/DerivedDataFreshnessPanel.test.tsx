@@ -8,12 +8,11 @@
  */
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
+
+import { onSameOrigin } from "@/testing/backendServer";
 
 import type { DerivedDataFreshnessResponse } from "@/types/route";
-
-const api = vi.hoisted(() => ({ getDerivedDataFreshness: vi.fn() }));
-vi.mock("@/features/admin/adminApi", () => api);
 
 import DerivedDataFreshnessPanel from "./DerivedDataFreshnessPanel";
 
@@ -43,12 +42,8 @@ function report(tables: Table[], computedAt = "2026-09-24T01:02:03Z"): DerivedDa
   return { computed_at: computedAt, tables };
 }
 
-beforeEach(() => {
-  api.getDerivedDataFreshness.mockReset();
-});
-
 async function collect(response: DerivedDataFreshnessResponse) {
-  api.getDerivedDataFreshness.mockResolvedValue(response);
+  onSameOrigin("GET", "/admin/api/derived-data/freshness", () => Response.json(response));
   const user = userEvent.setup();
   render(<DerivedDataFreshnessPanel />);
   await user.click(screen.getByRole("button", { name: "集計する" }));

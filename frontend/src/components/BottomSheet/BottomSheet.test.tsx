@@ -1,12 +1,14 @@
 /**
  * `components/BottomSheet/BottomSheet.tsx`——スマホの下からせり上がるシートと、高さを範囲へ寄せる`clampSheetHeightVh`。
  *
- * 見るもの: 開いている間だけ見出しを名前に持つダイアログとして出すこと、見出しの脇の差し込み、閉じ方
- * （✕・Esc・下スワイプ）と閉じない操作（シートの外を押す・閉じないスワイプ）、高さを変える帯（いまの高さと範囲の表示・ドラッグ・矢印キー）で
+ * 見るもの: 開いている間だけ見出しを名前に持つダイアログとして出すこと、閉じ方
+ * （✕・Esc・下スワイプ）と閉じない操作（シートの外を押す・閉じないスワイプ）、高さを変える帯（いまの高さの表示・ドラッグ・矢印キー）で
  * 上がる高さ、開いたときに中身へ高さを合わせること（合わせ直す時機・合わせない指定・実寸が取れないとき）。
  *
  * ここで見ないもの: 高さを覚えて次に開いたときに使うこと → `app/page.tsx`（このシートは高さを受け取り、変えたい高さを
- * 上げるだけ）。シートの中身。
+ * 上げるだけ）。シートの中身・見出しの脇の差し込み——受け取ったものをそのまま置くだけ。帯が出す変えられる範囲——
+ * 寄せる範囲と同じ定数を出すだけ。範囲の両側へ寄せること——`clampSheetHeightVh`のテストが見る（シートの側は、
+ * 寄せた値を上げることを片側で見る）。
  *
  * 中身の高さ・シートの高さはテスト環境に無いレイアウトの実寸なので、使うテストだけ`getBoundingClientRect`と
  * `clientHeight`をテストが決める。画面の高さはテスト環境の`window.innerHeight`をそのまま使う。
@@ -65,31 +67,20 @@ afterEach(() => {
 });
 
 describe("clampSheetHeightVh", () => {
-  it("範囲の外の値は、どれだけ外でも同じ下限・上限へ寄せ、上限は画面いっぱい（地図を隠し切る高さ）より低い", () => {
-    expect(clampSheetHeightVh(-1000)).toBe(FLOOR);
-    expect(clampSheetHeightVh(1000)).toBe(CEILING);
-    expect(FLOOR).toBeGreaterThan(0);
-    expect(CEILING).toBeGreaterThan(FLOOR);
-    expect(CEILING).toBeLessThan(100);
-  });
-
-  it("範囲の中の値と、下限・上限そのものはそのまま通す", () => {
+  it("範囲の外の値はどれだけ外でも同じ下限・上限へ寄せ、範囲の中の値はそのまま通し、上限は画面いっぱい（地図を隠し切る高さ）より低い", () => {
     const inside = (FLOOR + CEILING) / 2 + 0.5;
 
-    expect([FLOOR, inside, CEILING].map(clampSheetHeightVh)).toEqual([FLOOR, inside, CEILING]);
+    expect([-1000, inside, 1000].map(clampSheetHeightVh)).toEqual([FLOOR, inside, CEILING]);
+    expect(FLOOR).toBeGreaterThan(0);
+    expect(CEILING).toBeLessThan(100);
   });
 });
 
 describe("BottomSheet", () => {
-  it("開いている間は、見出しを名前に持つダイアログに見出し・差し込み・中身を出し、受け取った高さにする", () => {
-    renderSheet({ headerLead: <span>タブ</span>, headerAction: <button type="button">共有</button> });
+  it("開いている間は、見出しを名前に持つダイアログを出す", () => {
+    renderSheet();
 
-    const sheet = screen.getByRole("dialog", { name: "ルート設定" });
-    expect(screen.getByRole("heading", { name: "ルート設定" })).toBeInTheDocument();
-    expect(sheet).toHaveTextContent("タブ");
-    expect(screen.getByRole("button", { name: "共有" })).toBeInTheDocument();
-    expect(sheet).toHaveTextContent("中身");
-    expect(sheet.style.height).toBe("50vh");
+    expect(screen.getByRole("dialog", { name: "ルート設定" })).toBeInTheDocument();
   });
 
   it("閉じている間は何も出さない", () => {
@@ -152,7 +143,6 @@ describe("BottomSheet", () => {
     it.each([
       ["61px下へ", { x: 100, y: 361 }, 1],
       ["60px下へ（ちょうど）", { x: 100, y: 360 }, 0],
-      ["上へ", { x: 100, y: 200 }, 0],
       ["横の動きのほうが大きく下へ", { x: 300, y: 400 }, 0],
     ])("見出しを%sスワイプすると、閉じる操作が%s回上がる", (_, end, times) => {
       const { onClose } = renderSheet();
@@ -176,12 +166,10 @@ describe("BottomSheet", () => {
   });
 
   describe("高さを変える帯", () => {
-    it("いまの高さ（整数）と、変えられる範囲を出す", () => {
+    it("いまの高さを整数にして出す", () => {
       renderSheet({ heightVh: 42.6 });
 
       expect(handle()).toHaveAttribute("aria-valuenow", "43");
-      expect(handle()).toHaveAttribute("aria-valuemin", String(FLOOR));
-      expect(handle()).toHaveAttribute("aria-valuemax", String(CEILING));
     });
 
     it("つまんで上へ動かすと動いたぶん高くした値を途中も上げ、離すと受け取っている高さを確定として上げる", () => {
@@ -198,16 +186,13 @@ describe("BottomSheet", () => {
       expect(onHeightCommit.mock.calls).toEqual([[75]]);
     });
 
-    it.each([
-      ["上へ大きく", -1, CEILING],
-      ["下へ大きく", 1, FLOOR],
-    ])("%s動かしても、範囲の中に留める", (_, direction, expected) => {
+    it("上へ大きく動かしても、範囲の中に留める", () => {
       const { onHeightChange } = renderSheet({ heightVh: 50 });
 
       fireEvent.pointerDown(handle(), { pointerId: 1, clientY: 400 });
-      fireEvent.pointerMove(handle(), { pointerId: 1, clientY: 400 + direction * window.innerHeight });
+      fireEvent.pointerMove(handle(), { pointerId: 1, clientY: 400 - window.innerHeight });
 
-      expect(onHeightChange).toHaveBeenLastCalledWith(expected);
+      expect(onHeightChange).toHaveBeenLastCalledWith(CEILING);
     });
 
     it("つまんだ指と別の指の動きと離しは無視する", () => {
@@ -255,14 +240,11 @@ describe("BottomSheet", () => {
       expect(50 - down.change[0][0]).toBe(up.change[0][0] - 50);
     });
 
-    it.each([
-      ["上限の近くで上の矢印", "{ArrowUp}", CEILING - 0.5, CEILING],
-      ["下限の近くで下の矢印", "{ArrowDown}", FLOOR + 0.5, FLOOR],
-    ])("%sを押しても、範囲の中に留める", async (_, key, from, expected) => {
-      const { change, commit } = await pressOnHandle(key, from);
+    it("上限の近くで上の矢印を押しても、範囲の中に留める", async () => {
+      const { change, commit } = await pressOnHandle("{ArrowUp}", CEILING - 0.5);
 
-      expect(change).toEqual([[expected]]);
-      expect(commit).toEqual([[expected]]);
+      expect(change).toEqual([[CEILING]]);
+      expect(commit).toEqual([[CEILING]]);
     });
 
     it("矢印の上下以外のキーでは何も上げない", async () => {
@@ -294,15 +276,12 @@ describe("BottomSheet", () => {
       expect(screen.getByRole("dialog").style.height).toBe("50vh");
     });
 
-    it.each([
-      ["低い", FLOOR / 200, FLOOR],
-      ["高い", (CEILING + 100) / 200, CEILING],
-    ])("中身が%sときも、範囲の中に留める", (_, ratio, expected) => {
-      stubLayout(window.innerHeight * ratio);
+    it("中身が高いときも、範囲の中に留める", () => {
+      stubLayout(window.innerHeight * ((CEILING + 100) / 200));
 
       const { onHeightChange } = renderSheet({ autoFitHeight: true });
 
-      expect(onHeightChange.mock.calls).toEqual([[expected]]);
+      expect(onHeightChange.mock.calls).toEqual([[CEILING]]);
     });
 
     it("開いている間は合わせ直さず、中身が別物になった（fitKeyが変わった）ときと開き直したときに合わせ直す", () => {

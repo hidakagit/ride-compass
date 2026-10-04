@@ -19,7 +19,7 @@ from hypothesis import settings as hypothesis_settings
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
-from app.batch._common import asyncpg_dsn
+from app.batch.common import asyncpg_dsn
 from app.infrastructure import debug_log, rate_limiter, redis_client, tile_cache, tile_persistent_cache
 from app.infrastructure.orm_base import Base
 from app.infrastructure.road_graph_repository import (
@@ -44,14 +44,14 @@ def admin_credentials(monkeypatch):
     monkeypatch.setattr(settings, "admin_basic_auth_password", ADMIN_PASSWORD)
 
 @pytest.fixture(autouse=True)
-def _closed_redis_circuit_breaker(monkeypatch):
+def _closed_redis_circuit_breaker():
     """redis_client.pyのサーキットブレーカーは閉じた状態から始める。
 
     状態はプロセス内のモジュール変数に残るため、Redis疎通不能をシミュレートするテストが
     1つでも実行されると、無関係な後続テスト（正常系のフェイクRedisを使うテスト）まで
     「クールダウン中」と誤判定されてしまう。
     """
-    monkeypatch.setattr(redis_client, "_last_failure_at", None)
+    redis_client.record_redis_success()
 
 
 @pytest.fixture
@@ -83,13 +83,13 @@ def redis_server():
 
 @pytest.fixture
 def fake_redis(monkeypatch, redis_server):
-    """空のRedis。共有クライアント（`app/infrastructure/redis_client.py: _client`・
-    `app/infrastructure/redis_client.py: _binary_client`）を同じサーバのfakeredisへ差すので、
+    """空のRedis。共有クライアント（`app/infrastructure/redis_client.py: text_client`・
+    `app/infrastructure/redis_client.py: binary_client`）を同じサーバのfakeredisへ差すので、
     `get_redis_client_or_none`・`get_redis_binary_client_or_none`を読むどのモジュールからも同じものが見える。
     返すのは文字列側のクライアント。"""
     fake = fakeredis.FakeAsyncRedis(server=redis_server, decode_responses=True)
-    monkeypatch.setattr(redis_client, "_client", fake)
-    monkeypatch.setattr(redis_client, "_binary_client", fakeredis.FakeAsyncRedis(server=redis_server))
+    monkeypatch.setattr(redis_client, "text_client", fake)
+    monkeypatch.setattr(redis_client, "binary_client", fakeredis.FakeAsyncRedis(server=redis_server))
     return fake
 
 
@@ -98,15 +98,15 @@ def _unread_derived_data_revision(monkeypatch):
     """データの世代はまだ読んでいない状態から始める。読んだ世代とTTLはプロセス内のモジュール変数に
     残り、前のテストが読んだ世代のままTTLの内側に入ると、後のテストのリポジトリは世代を聞かれず、鍵も
     ディスクへ残すかも前のテストで決まる。"""
-    monkeypatch.setattr(derived_data_revision_service, "_next_check_at", 0.0)
-    monkeypatch.setattr(derived_data_revision_service, "_current_revisions", None)
+    monkeypatch.setattr(derived_data_revision_service, "next_check_at", 0.0)
+    monkeypatch.setattr(derived_data_revision_service, "last_read_revisions", None)
 
 
 @pytest.fixture
 def empty_debug_counters(monkeypatch):
     """外部I/Oの集計と警告の抑制窓（infrastructure/debug_log.py）を空から始める。
     どちらもプロセス内のモジュール変数で、前のテストが数えた分が残る。"""
-    for name in ("_stats", "_rejections", "_warn_windows"):
+    for name in ("external_stats", "rate_limit_rejections", "warn_windows"):
         monkeypatch.setattr(debug_log, name, {})
 
 
@@ -144,7 +144,7 @@ def rate_limit_clock(_rate_limit_clock_for_the_session) -> RateLimitClock:
     前のテストのリクエストが今のテストの上限に食い込む。記録そのものには触らない。
     """
     clock = _rate_limit_clock_for_the_session
-    clock.advance(rate_limiter._WINDOW_SECONDS)
+    clock.advance(rate_limiter.WINDOW_SECONDS)
     return clock
 
 
@@ -160,13 +160,13 @@ def _disk_caches_in(patch: pytest.MonkeyPatch, directory_of):
     """
     for name, module in _DISK_CACHES.items():
         patch.setattr(module, "CACHE_DIR", directory_of(name))
-        patch.setattr(module, "_cache", None)
+        patch.setattr(module, "opened_cache", None)
     try:
         yield
     finally:
         for module in _DISK_CACHES.values():
-            if module._cache is not None:
-                module._cache.close()
+            if module.opened_cache is not None:
+                module.opened_cache.close()
 
 
 @pytest.fixture(autouse=True, scope="session")

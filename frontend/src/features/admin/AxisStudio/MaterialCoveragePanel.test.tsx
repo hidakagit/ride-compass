@@ -7,13 +7,12 @@
  */
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
+
+import { onSameOrigin } from "@/testing/backendServer";
 
 import { vocabulary } from "@/types/generated/vocabulary";
 import type { MaterialCoverageEntry, MaterialCoverageResponse } from "@/types/route";
-
-const api = vi.hoisted(() => ({ getMaterialCoverage: vi.fn() }));
-vi.mock("@/features/admin/adminApi", () => api);
 
 import MaterialCoveragePanel from "./MaterialCoveragePanel";
 
@@ -45,12 +44,8 @@ function response(materials: MaterialCoverageEntry[], overrides: Partial<Materia
   return { computed_at: "2026-09-24T01:02:03Z", way_total: 0, edge_total: 0, materials, ...overrides };
 }
 
-beforeEach(() => {
-  api.getMaterialCoverage.mockReset();
-});
-
 async function collect(result: MaterialCoverageResponse) {
-  api.getMaterialCoverage.mockResolvedValue(result);
+  onSameOrigin("GET", "/admin/api/material-catalog/coverage", () => Response.json(result));
   const user = userEvent.setup();
   render(<MaterialCoveragePanel />);
   await user.click(screen.getByRole("button", { name: "集計する" }));

@@ -18,7 +18,7 @@ import time
 
 import asyncpg
 
-from app.batch._common import latest_succeeded_run_id
+from app.batch.common import latest_succeeded_run_id
 from app.infrastructure.source_models import Source, ways_source_sql
 
 logger = logging.getLogger("ridecompass.derive_topology")

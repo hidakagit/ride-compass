@@ -62,7 +62,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> Respo
     )
 
 
-def _access_level(method: str, path: str, status_code: int) -> int:
+def access_level(method: str, path: str, status_code: int) -> int:
     if status_code >= 500:
         return logging.ERROR
     if status_code == 429:
@@ -95,7 +95,7 @@ async def request_log_middleware(request: Request, call_next) -> Response:
         raise
     elapsed_ms = round((time.monotonic() - started) * 1000)
     access_logger.log(
-        _access_level(request.method, request.url.path, response.status_code),
+        access_level(request.method, request.url.path, response.status_code),
         "%s %s -> %d in %dms client=%s",
         request.method,
         request.url.path,

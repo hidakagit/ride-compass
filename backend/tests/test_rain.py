@@ -19,7 +19,6 @@ from app.domain.rain import (
     HOURS_SINCE_RAIN,
     RAIN_HISTORY_HOURS,
     RAIN_HISTORY_MAX_AGE,
-    RAIN_WINDOW_HOURS,
     StationRainMaterials,
     is_rain_history_current,
     rain_material_columns,
@@ -42,52 +41,38 @@ def _value(values: dict[str, np.ndarray], material_id: str) -> float:
     return float(values[material_id][0])
 
 
-@pytest.mark.parametrize("window", RAIN_WINDOW_HOURS)
-def test_a_window_sums_only_the_hours_inside_it(window):
-    """窓のちょうど内側（最も古い1時間）は数え、ちょうど外側は数えない。"""
-    inside = {"h0": 1.0, f"h{window - 1}": 2.0} if window > 1 else {"h0": 3.0}
-    outside = {f"h{window}": 4.0} if window < RAIN_HISTORY_HOURS else {}
+@pytest.mark.parametrize(
+    ("history", "expected"),
+    [
+        (_history(h0=1.0, h2=2.0, h3=4.0), 3.0),
+        (_history(h2=NAN), NAN),
+        (_history(h3=NAN), 0.0),
+    ],
+    ids=["窓の内側だけを足す", "窓の内側に欠測", "窓の外側に欠測"],
+)
+def test_a_window_sums_the_hours_inside_it_unless_one_is_missing(history, expected):
+    """3時間の窓。欠測を0として足すと、雨を少なく見せる。"""
+    value = _value(rain_material_values(history), rain_window_material_id(3))
 
-    values = rain_material_values(_history(**inside, **outside))
-
-    assert _value(values, rain_window_material_id(window)) == 3.0
-
-
-@pytest.mark.parametrize("window", RAIN_WINDOW_HOURS)
-def test_a_missing_hour_inside_the_window_leaves_the_window_without_a_value(window):
-    """欠測を0として足すと、雨を少なく見せる。窓の外の欠測は効かない。"""
-    inside = rain_material_values(_history(**{f"h{window - 1}": NAN}))
-    outside = rain_material_values(_history(**{f"h{window}": NAN})) if window < RAIN_HISTORY_HOURS else None
-
-    assert np.isnan(_value(inside, rain_window_material_id(window)))
-    if outside is not None:
-        assert _value(outside, rain_window_material_id(window)) == 0.0
+    assert (np.isnan(value) and np.isnan(expected)) or value == expected
 
 
 @pytest.mark.parametrize(
     ("history", "expected"),
     [
-        (_history(h0=1.0), 0.0),
         (_history(h5=1.0, h9=4.0), 5.0),
-        (_history(), float(RAIN_HISTORY_HOURS)),
+        (_history(h3=rain.PRECIPITATION_MIN_MM), 3.0),
+        (_history(h3=np.nextafter(rain.PRECIPITATION_MIN_MM, 0.0)), float(RAIN_HISTORY_HOURS)),
         (_history(h2=NAN, h5=1.0), NAN),
         (_history(h5=1.0, h7=NAN), 5.0),
     ],
-    ids=["直近に雨", "最後の雨が5時間前", "履歴に雨が無い", "雨を見つける前に欠測", "雨より古い欠測"],
+    ids=["最後の雨が5時間前", "降っていないの境ちょうど", "境の直下", "雨を見つける前に欠測", "雨より古い欠測"],
 )
 def test_hours_since_rain_counts_back_to_the_last_rainy_hour(history, expected):
+    """天気の「降っていない」の境と同じ量から雨と数える。"""
     value = _value(rain_material_values(history), HOURS_SINCE_RAIN)
 
     assert (np.isnan(value) and np.isnan(expected)) or value == expected
-
-
-def test_rain_starts_at_the_smallest_amount_that_is_not_dry():
-    """天気の「降っていない」の境と同じ量から雨と数える。"""
-    at_the_border = rain_material_values(_history(h3=rain.PRECIPITATION_MIN_MM))
-    below = rain_material_values(_history(h3=np.nextafter(rain.PRECIPITATION_MIN_MM, 0.0)))
-
-    assert _value(at_the_border, HOURS_SINCE_RAIN) == 3.0
-    assert _value(below, HOURS_SINCE_RAIN) == float(RAIN_HISTORY_HOURS)
 
 
 def test_each_station_gets_its_own_values():
@@ -97,25 +82,19 @@ def test_each_station_gets_its_own_values():
     assert values[rain_window_material_id(1)].tolist() == [2.0, 0.0]
 
 
-STATIONS = StationRainMaterials(
-    latest_hour=datetime(2026, 7, 1, 12, 0),
-    latitudes=np.array([35.0, 36.0]),
-    longitudes=np.array([139.0, 139.0]),
-    values={"rain_a": np.array([1.0, 2.0]), "rain_b": np.array([NAN, 5.0])},
-)
+def test_each_place_reads_its_nearest_rain_gauge_even_when_it_is_missing():
+    """近さの順に埋めると、同じ道が欠測の有無で別の雨量計の値へ静かに切り替わる。"""
+    stations = StationRainMaterials(
+        latest_hour=datetime(2026, 7, 1, 12, 0),
+        latitudes=np.array([35.0, 36.0]),
+        longitudes=np.array([139.0, 139.0]),
+        values={"rain_a": np.array([1.0, 2.0]), "rain_b": np.array([NAN, 5.0])},
+    )
 
-
-def test_each_place_reads_its_nearest_rain_gauge():
-    columns = rain_material_columns(STATIONS, np.array([35.1, 35.9, 35.4]), np.array([139.0, 139.0, 139.0]))
+    columns = rain_material_columns(stations, np.array([35.1, 35.9, 35.4]), np.array([139.0, 139.0, 139.0]))
 
     assert columns["rain_a"].tolist() == [1.0, 2.0, 1.0]
-
-
-def test_a_missing_value_at_the_nearest_gauge_is_not_filled_from_the_next():
-    """近さの順に埋めると、同じ道が欠測の有無で別の雨量計の値へ静かに切り替わる。"""
-    columns = rain_material_columns(STATIONS, np.array([35.1]), np.array([139.0]))
-
-    assert np.isnan(columns["rain_b"][0])
+    np.testing.assert_array_equal(columns["rain_b"], [NAN, 5.0, NAN])
 
 
 @pytest.mark.parametrize(

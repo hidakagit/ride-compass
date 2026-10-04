@@ -120,7 +120,7 @@ def seams(monkeypatch):
         return NUM_A if materials == [NUM_A] else None
 
     async def axis_raw_value_distribution(repository, shape):
-        received["distribution"].append((repository, shape))
+        received["distribution"].append(shape)
         return ValueDistribution(
             sample_ways=3, total_km=1.5, quantiles={"p50": 2.0}, bins=[(0.0, 4.0, 1.0)], zero_share=0.25
         )
@@ -350,8 +350,7 @@ class TestPreviews:
             "bins": [[0.0, 4.0, 1.0]],
             "zero_share": 0.25,
         }
-        ((repository, shape),) = seams["distribution"]
-        assert repository is REPOSITORY
+        (shape,) = seams["distribution"]
         assert [t.material for t in shape.terms] == [NUM_A]
 
     @pytest.mark.parametrize(

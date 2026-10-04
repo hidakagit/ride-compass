@@ -27,6 +27,7 @@ import {
   Trash,
   TriangleAlert,
   Wind,
+  Zap,
   type LucideIcon,
 } from "lucide-react";
 
@@ -509,6 +510,8 @@ export const RouteSettingsIcon = fromLucide(SlidersHorizontal);
 export const ShieldIcon = fromLucide(Shield);
 export const TargetIcon = fromLucide(Target);
 export const ClockIcon = fromLucide(Clock);
+/** 最も早く着くルート。 */
+export const FastestRouteIcon = fromLucide(Zap);
 export const LayersStackIcon = fromLucide(Layers);
 export const MenuIcon = fromLucide(EllipsisVertical);
 export const DownloadIcon = fromLucide(Download);

@@ -10,6 +10,7 @@ import { formatDelta, roundToDigits } from "@/features/route/routeEditDiff";
 import { formatDurationShort } from "@/features/route/formatDuration";
 import type { OverallDifficulty, RouteCandidate } from "@/types/route";
 import { Button } from "@/components/ui/Button/Button";
+import { GuideText } from "@/components/ui/GuideText/GuideText";
 import { textVariants } from "@/components/ui/Text/Text";
 import { cn } from "@/lib/cn";
 import { cardVariants } from "@/components/ui/Card/Card";
@@ -146,7 +147,7 @@ export default function RouteSplicePanel({
         >
           ‹
         </Button>
-        <h3 className={cn(textVariants({ variant: "heading" }), "font-semibold")} id="splice-heading">
+        <h3 className={cn(textVariants({ variant: "heading" }), "font-semibold whitespace-nowrap")} id="splice-heading">
           区間の乗り換え
         </h3>
         {/* 使い方は画面へ書かずここへ置く（設計原則「冗長なものは削る」）。 */}
@@ -155,28 +156,35 @@ export default function RouteSplicePanel({
           分かれ道があれば次の破線が出ます。太い線が、いま作っているルートです。軸の棒は中央が0で、左[−]へ
           伸びた軸ほど難易度が下がり、右[＋]へ伸びた軸ほど上がっています。
         </InfoPopover>
-        {appliedCount > 0 && <span className={cn(textVariants({ variant: "hint" }), "ml-1")}>{appliedCount}回</span>}
+        {appliedCount > 0 && (
+          <span className={cn(textVariants({ variant: "hint" }), "ml-1 whitespace-nowrap")}>{appliedCount}回</span>
+        )}
         {!unavailable && (
           <div className="ml-auto flex items-center gap-1.5">
             {appliedCount > 0 && (
               <>
-                <Button size="iconLabel" onClick={onUndo} disabled={busy} usage="直前の乗り換えを1つ取り消します。">
+                <Button
+                  size="panelIcon"
+                  onClick={onUndo}
+                  disabled={busy}
+                  aria-label="1つ戻す"
+                  usage="直前の乗り換えを1つ取り消します。"
+                >
                   <UndoIcon size={18} />
-                  1つ戻す
                 </Button>
                 <Button
-                  size="iconLabel"
+                  size="panelIcon"
                   onClick={onReset}
                   disabled={busy}
+                  aria-label="全部戻す"
                   usage="乗り換えをすべて取り消して、元の候補に戻します。"
                 >
                   <UndoAllIcon size={18} />
-                  全部戻す
                 </Button>
               </>
             )}
             <Button
-              size="iconLabel"
+              size="panelIcon"
               onClick={onPreview}
               disabled={appliedCount === 0 || busy}
               aria-busy={previewing}
@@ -184,19 +192,16 @@ export default function RouteSplicePanel({
               usage="いまの乗り換えで、距離・所要時間・難易度が元の候補からどう変わるかを出します。"
             >
               <RouteDiffIcon size={18} />
-              差分
             </Button>
             <Button
-              size="iconLabel"
+              size="panelIcon"
               onClick={onApply}
               disabled={appliedCount === 0 || busy}
               aria-busy={applying}
               aria-label="新しいルートを作成"
-              usage="いまの乗り換えで作ったルートを、採用ルートに加えます。元のルートは残ります。"
-              title="採用ルートに加える"
+              usage="いまの乗り換えで作ったルートを、合成ルートに加えます。元のルートは残ります。"
             >
               <NewRouteIcon size={18} />
-              作成
             </Button>
           </div>
         )}
@@ -296,17 +301,19 @@ export default function RouteSplicePanel({
           {error && <ErrorText>{error}</ErrorText>}
 
           <p className={textVariants({ variant: "hint" })}>
-            {deltas.length > 0
-              ? deltas.slice(0, LABELLED_DELTA_COUNT).map((item) => (
-                  <span className="mr-2.5" key={item.axisId}>
-                    {item.label} {formatDelta(item.delta, 1)}
-                  </span>
-                ))
-              : appliedCount > 0
-                ? "「差分」を押すと、乗り換えた結果が出ます"
-                : hasAlternatives
-                  ? "地図の破線をタップして乗り換えます"
-                  : "他の候補と別の道を通る区間がありません。"}
+            {deltas.length > 0 ? (
+              deltas.slice(0, LABELLED_DELTA_COUNT).map((item) => (
+                <span className="mr-2.5" key={item.axisId}>
+                  {item.label} {formatDelta(item.delta, 1)}
+                </span>
+              ))
+            ) : appliedCount > 0 ? (
+              <GuideText text="「差分を見る」を押すと、乗り換えた結果が出ます" />
+            ) : hasAlternatives ? (
+              "地図の破線をタップして乗り換えます"
+            ) : (
+              "他の候補と別の道を通る区間がありません。"
+            )}
           </p>
         </>
       )}

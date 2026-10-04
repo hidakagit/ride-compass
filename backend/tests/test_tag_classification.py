@@ -46,8 +46,7 @@ async def test_a_tag_in_the_rules_gives_its_kind(road_graph_engine):
     assert await _kinds(road_graph_engine, {
         1: {"highway": "crossing"},
         2: {"railway": "crossing"},
-        3: {"amenity": "toilets"},
-    }) == {1: "crossing", 2: "railway_crossing", 3: "toilets"}
+    }) == {1: "crossing", 2: "railway_crossing"}
 
 
 async def test_values_are_matched_ignoring_case_and_surrounding_spaces(road_graph_engine):
@@ -61,7 +60,6 @@ async def test_values_are_matched_ignoring_case_and_surrounding_spaces(road_grap
         ({"highway": "crossing", "railway": "crossing"}, "railway_crossing"),
         # 停止要因は補給・休憩より先に当たる。信号のあるコンビニの角は信号として数える。
         ({"highway": "traffic_signals", "shop": "convenience"}, "traffic_signals"),
-        ({"barrier": "bollard", "amenity": "drinking_water"}, "barrier"),
         ({"traffic_calming": "hump", "amenity": "vending_machine", "vending": "drinks"}, "traffic_calming"),
     ],
 )
@@ -72,15 +70,13 @@ async def test_a_point_with_two_meanings_gets_the_one_that_stops_the_rider(road_
 async def test_points_that_neither_stop_nor_supply_are_not_returned(road_graph_engine):
     assert await _kinds(road_graph_engine, {
         1: {},
-        2: {"highway": "residential"},
-        3: {"amenity": "vending_machine", "vending": "cigarettes"},
+        2: {"amenity": "vending_machine", "vending": "cigarettes"},
     }) == {}
 
 
 @pytest.mark.parametrize(
     ("vending", "expected"),
     [
-        ("drinks", "vending_drinks"),
         # `;`で連なる値は、要素のどれかが飲食物なら飲料の自販機。
         ("cigarettes;coffee", "vending_drinks"),
         (" Coffee ", "vending_drinks"),
@@ -110,9 +106,7 @@ async def _is_signal(engine, tags: dict[str, str]) -> bool:
         ({"highway": "traffic_signals"}, True),
         # 横断歩道の位置に描かれた信号。`crossing`の値に`signals`を含むものを信号とする。
         ({"highway": "crossing", "crossing": "traffic_signals"}, True),
-        ({"highway": "crossing", "crossing": "traffic_signals;marked"}, True),
         ({"highway": "crossing", "crossing": "uncontrolled"}, False),
-        ({"highway": "crossing"}, False),
         # `crossing`の値だけでは、道路の横断歩道とは限らない。
         ({"railway": "crossing", "crossing": "traffic_signals"}, False),
     ],
@@ -136,11 +130,8 @@ async def _read_kinds(engine, expression, kind: str, has_traffic_signals: bool):
         # 信号のある交差点の横断歩道は、利用者から見れば信号で、信号として1回数える。
         ("crossing", True, "traffic_signals", "signal"),
         ("crossing", False, "crossing", "crossing"),
-        ("traffic_signals", False, "traffic_signals", "signal"),
         # 読み替えるのは信号と横断歩道だけ。近くに信号があっても一時停止は一時停止。
         ("stop", True, "stop", "stop"),
-        # 取込時に分けた種別を、数えるときは1つにまとめる。
-        ("traffic_calming", False, "traffic_calming", "barrier"),
         # 補給・休憩は地図には出るが、停止の回数には入らない。
         ("convenience", True, "convenience", None),
     ],

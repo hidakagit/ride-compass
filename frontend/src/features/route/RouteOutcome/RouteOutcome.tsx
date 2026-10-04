@@ -5,7 +5,8 @@ import { Fragment } from "react";
 import AxisContributionBar from "@/components/AxisContributionBar/AxisContributionBar";
 import ErrorText from "@/features/route/ErrorText/ErrorText";
 import { Button } from "@/components/ui/Button/Button";
-import { ClockIcon, DownloadIcon, RouteSpliceIcon } from "@/components/ui/icons/icons";
+import { GuideText } from "@/components/ui/GuideText/GuideText";
+import { DownloadIcon, FastestRouteIcon, RouteSpliceIcon } from "@/components/ui/icons/icons";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs/Tabs";
 import { textVariants } from "@/components/ui/Text/Text";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
@@ -19,7 +20,6 @@ import AxisDetail from "@/features/route/RouteAxisProfile/AxisDetail";
 import RouteAxisProfile from "@/features/route/RouteAxisProfile/RouteAxisProfile";
 import RouteSplicePanel from "@/features/route/RouteSplicePanel/RouteSplicePanel";
 import SegmentWind from "@/features/route/SegmentWind/SegmentWind";
-import { baselineDistanceKm, loadBarHeightRatio } from "@/features/route/difficultyLoadBar";
 import { formatDurationShort } from "@/features/route/formatDuration";
 import { downloadGpx, MAX_GPX_TRACK_POINTS } from "@/features/route/gpxExport";
 import EditDifference from "@/features/route/EditDifference/EditDifference";
@@ -27,7 +27,8 @@ import {
   extraDurationLabel,
   fastestDurationSeconds,
   fastestRouteId,
-  routeListSections,
+  routeListEntries,
+  type RouteListGroup,
 } from "@/features/route/routeTabLabel";
 import type { useRouteGeneration } from "@/features/route/useRouteGeneration";
 import { COMPARISON_TAB, type RouteResults } from "@/features/route/useRouteResults";
@@ -35,7 +36,13 @@ import type { SpliceSessionView } from "@/features/route/useSpliceSession";
 import type { RouteCandidate, RoutePreferenceWeights } from "@/types/route";
 
 const CANDIDATE_TAB_USAGE =
-  "この候補を地図と内訳に出します。距離のあとに、最も早い候補は所要時間、ほかは最速より余計にかかる時間、右端に総合難易度が並びます。";
+  "この候補を地図と内訳に出します。名前の稲妻の印は最も早く着く最速ルート、合成の印は区間を乗り換えて作った合成ルートで、番号だけのものは生成した候補です。列は距離（km）・時間（最も早い候補は所要時間、ほかは最速より余計にかかる時間）・総合難易度です。";
+
+/** 名前の列で群を見分ける印と、その意味（指を置いたときの吹き出しと読み上げの名前）。生成した候補は印を持たない。 */
+const GROUP_MARKS: Partial<Record<RouteListGroup, { Icon: typeof FastestRouteIcon; meaning: string }>> = {
+  fastest: { Icon: FastestRouteIcon, meaning: "最速ルート" },
+  spliced: { Icon: RouteSpliceIcon, meaning: "合成ルート" },
+};
 
 function formatSegmentArrivalTime(iso: string | null): string {
   if (!iso) return "不明";
@@ -84,7 +91,11 @@ export default function RouteOutcome({ results, generation, splice, routeWeights
     if (generation.lastMessage) {
       return <ErrorText>{generation.lastMessage}</ErrorText>;
     }
-    return <p className={textVariants({ variant: "hint" })}>「ルート設定」の「生成」を押すと候補がここに並びます</p>;
+    return (
+      <p className={textVariants({ variant: "hint" })}>
+        <GuideText text="「ルート設定」の「ルート生成」を押すと候補がここに並びます" />
+      </p>
+    );
   }
 
   // 候補1本への操作（合成・GPX出力）。その候補のタブの中身の先頭に置く。
@@ -94,29 +105,25 @@ export default function RouteOutcome({ results, generation, splice, routeWeights
         {/* 合成（区間の乗り換え）の入口。乗り換えできない生成（周回・候補1件）では出さない。 */}
         {splice.canStart && (
           <Button
-            size="iconLabel"
+            size="panelIcon"
             onClick={() => {
               splice.start(route.id);
               // 区間の詳細の置き場は編集面に置き換わるため、選択を外す（地図に印だけが残らない）。
               results.selectSegment(null);
             }}
             aria-label="ルートを合成"
-            title="区間を別の候補の道へ乗り換えて、新しいルートを作る"
             usage="この候補の一部の区間を、ほかの候補が通る道へ乗り換えて新しいルートを作ります。押すと、乗り換えられる道が地図に破線で出ます。"
           >
             <RouteSpliceIcon size={18} />
-            合成
           </Button>
         )}
         <Button
-          size="iconLabel"
+          size="panelIcon"
           onClick={() => downloadGpx(route)}
           aria-label="GPX出力"
-          title="GPXファイルで書き出す"
           usage={`この候補をGPXファイルで書き出します。サイクルコンピューターやほかの地図アプリに読み込めます。点の数は${MAX_GPX_TRACK_POINTS}点に収まるように間引きます。`}
         >
           <DownloadIcon size={18} />
-          GPX
         </Button>
       </div>
     );
@@ -158,18 +165,15 @@ export default function RouteOutcome({ results, generation, splice, routeWeights
     const showComparisonTab = researchEnabled;
     // 所要時間だけで選んだ1本を生成が必ず含めるのは、経由地の無い目的地ルートだけ。
     const input = generation.generatedInput;
-    const sections = routeListSections(
+    const entries = routeListEntries(
       results.generated,
       results.edits,
       input !== null && input.destination !== null && input.waypoints.length === 0,
     );
-    const nameOf = (routeId: string) =>
-      sections.flatMap((section) => section.entries).find((entry) => entry.route.id === routeId)?.name ?? "";
+    const nameOf = (routeId: string) => entries.find((entry) => entry.route.id === routeId)?.name ?? "";
     const outerTabValue = comparisonTabActive ? COMPARISON_TAB : (selectedRouteId ?? routes[0].id);
     const fastestSeconds = fastestDurationSeconds(routes);
     const fastestRouteIdInList = fastestRouteId(routes);
-    // 難易度の帯の高さ1.0とする距離（面積が負荷になる）。一覧の行と候補の中身で同じ基準を使う。
-    const loadBarBaselineKm = baselineDistanceKm(routes);
     // 道のりのグラフの横軸の右端。候補どうしで同じ物差しにし、面積（負荷）を見比べられるようにする。
     const longestDistanceKm = Math.max(0, ...routes.map((route) => route.distance_km));
 
@@ -199,72 +203,72 @@ export default function RouteOutcome({ results, generation, splice, routeWeights
           onValueChange={results.selectTab}
         >
           {/* 狭幅では下部シートの高さいっぱいまで伸ばし、はみ出す候補は一覧の中だけを縦スクロールさせる——一覧に固定の
-              高さ上限を置くと、シートに余白があっても伸びずに触れない余白が残る。 */}
-          <div className="flex w-48 flex-none items-stretch border-r border-[var(--color-border)]">
-            <TabsList variant="side" className="max-mobile:min-h-0 max-mobile:overflow-y-auto" aria-label="ルート結果">
-              {sections.map((section) => (
-                <Fragment key={section.title ?? ""}>
-                  {section.title !== null && (
-                    <p className={cn(textVariants({ variant: "note" }), "m-0 px-2 pt-2 pb-0.5 font-medium first:pt-0")}>
-                      {section.title}
-                    </p>
-                  )}
-                  {section.entries.map(({ route, name, nameShown }) => (
-                    <TabsTrigger key={route.id} value={route.id} usage={CANDIDATE_TAB_USAGE}>
-                      {/* 値を省略で切らず、幅に収まらないときだけ所要時間を次の行へ送る（切られた値は画面のどこにも出ない）。 */}
-                      <span className="flex min-w-0 flex-wrap items-center gap-x-1">
-                        {/* 見分けるための名前（番号・編集N）と距離。 */}
-                        <span>
-                          {nameShown && `${name} `}
-                          {route.distance_km.toFixed(1)}km
-                        </span>
-                        {/* 最速の候補はその所要時間を印付きで、他の候補はそこから何分余計にかかるか（見比べる場所に置く）。 */}
-                        {route.id === fastestRouteIdInList && fastestSeconds !== null ? (
-                          <span
-                            className="inline-flex items-center gap-0.5 font-normal text-[var(--color-muted-strong)]"
-                            title="最速"
-                          >
-                            <span role="img" aria-label="最速" className="inline-flex">
-                              <ClockIcon size={11} />
-                            </span>
-                            {formatDurationShort(fastestSeconds)}
+              高さ上限を置くと、シートに余白があっても伸びずに触れない余白が残る。
+              列（名前・距離・時間・難易度）は一覧全体の格子にそろえ、一覧の幅は列が折り返さずに収まる最小にする。 */}
+          <div className="flex flex-none items-stretch border-r border-[var(--color-border)]">
+            <TabsList
+              variant="side"
+              className="grid grid-cols-[repeat(4,auto)] content-start gap-x-2 max-mobile:min-h-0 max-mobile:overflow-y-auto"
+              aria-label="ルート結果"
+            >
+              {/* 列の見出し。行の読み上げの名前は単位と項目を自分で持つので、見出しは読み上げない。 */}
+              <div
+                aria-hidden
+                className={cn(
+                  textVariants({ variant: "note" }),
+                  "col-span-full grid grid-cols-subgrid border-l-3 border-transparent px-2 pb-0.5 text-right",
+                )}
+              >
+                <span />
+                <span>km</span>
+                <span>時間</span>
+                <span>難易度</span>
+              </div>
+              {entries.map(({ route, group, label }, index) => {
+                const mark = GROUP_MARKS[group];
+                return (
+                  <Fragment key={route.id}>
+                    {index > 0 && group !== entries[index - 1].group && (
+                      <hr className="col-span-full m-0 border-0 border-t border-[var(--color-border)]" />
+                    )}
+                    {/* セルの間の空白は格子には出ず、読み上げの名前でだけ項目を区切る。 */}
+                    <TabsTrigger
+                      value={route.id}
+                      usage={CANDIDATE_TAB_USAGE}
+                      className="col-span-full grid grid-cols-subgrid"
+                    >
+                      <span className="inline-flex items-center gap-0.5">
+                        {mark && (
+                          <span role="img" aria-label={mark.meaning} title={mark.meaning} className="inline-flex">
+                            <mark.Icon size={12} />
                           </span>
-                        ) : (
-                          extraDurationLabel(route, fastestSeconds) && (
-                            <span className="font-normal text-[var(--color-muted-strong)]">
-                              {extraDurationLabel(route, fastestSeconds)}
-                            </span>
-                          )
                         )}
-                      </span>
-                      {/* 総合難易度を数値と長さで。算出できなかった候補は「—」だけ（0と欠損を同じ見た目にしない）。 */}
-                      <span className="flex flex-shrink-0 items-center justify-end gap-1">
-                        <span
-                          className="h-[calc(0.35rem*var(--load-bar-height-ratio,1))] w-6 flex-shrink-0 overflow-hidden rounded-[2px] bg-[var(--color-border)]"
-                          style={
-                            {
-                              "--load-bar-height-ratio": String(
-                                loadBarHeightRatio(route.distance_km, loadBarBaselineKm),
-                              ),
-                            } as React.CSSProperties & { "--load-bar-height-ratio"?: string }
-                          }
-                        >
-                          {route.overall_difficulty !== null && (
-                            <span
-                              className="block h-full rounded-l-[2px] bg-[var(--color-accent)] opacity-70"
-                              style={{ width: `${route.overall_difficulty.average}%` }}
-                            />
-                          )}
-                        </span>
-                        <span className="font-normal text-[var(--color-muted-strong)] tabular-nums">
-                          {route.overall_difficulty === null ? "—" : Math.round(route.overall_difficulty.average)}
-                        </span>
+                        {label}
+                      </span>{" "}
+                      <span className="text-right tabular-nums">
+                        {route.distance_km.toFixed(1)}
+                        <span className="sr-only">km</span>
+                      </span>{" "}
+                      {/* 最速の候補はその所要時間、他の候補はそこから何分余計にかかるか（見比べる場所に置く）。 */}
+                      <span className="text-right font-normal text-[var(--color-muted-strong)] tabular-nums">
+                        {route.id === fastestRouteIdInList && fastestSeconds !== null
+                          ? formatDurationShort(fastestSeconds)
+                          : extraDurationLabel(route, fastestSeconds)}
+                      </span>{" "}
+                      {/* 算出できなかった候補は「—」（0と欠損を同じ見た目にしない）。 */}
+                      <span className="text-right font-normal text-[var(--color-muted-strong)] tabular-nums">
+                        <span className="sr-only">難易度</span>
+                        {route.overall_difficulty === null ? "—" : Math.round(route.overall_difficulty.average)}
                       </span>
                     </TabsTrigger>
-                  ))}
-                </Fragment>
-              ))}
-              {showComparisonTab && <TabsTrigger value={COMPARISON_TAB}>比較</TabsTrigger>}
+                  </Fragment>
+                );
+              })}
+              {showComparisonTab && (
+                <TabsTrigger className="col-span-full" value={COMPARISON_TAB}>
+                  比較
+                </TabsTrigger>
+              )}
             </TabsList>
           </div>
           <div className="min-w-0 flex-auto">

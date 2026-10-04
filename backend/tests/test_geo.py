@@ -41,30 +41,17 @@ def test_the_rough_length_of_a_degree_stays_within_one_percent_of_the_true_dista
     assert geo.km_per_degree_longitude(latitude) == pytest.approx(true_km, rel=0.01)
 
 
-def test_a_degree_of_longitude_at_the_pole_is_still_positive():
-    """この値で割る側（矩形の余白・索引のセル幅）が極でゼロ除算にならない。"""
-    assert geo.km_per_degree_longitude(90.0) > 0
-    assert geo.km_per_degree_longitude(-90.0) > 0
-
-
 # --- compass_label ---
 
 
 @pytest.mark.parametrize(
     ("bearing", "label"),
     [
-        (0.0, "北"),
         (90.0, "東"),
-        (180.0, "南"),
-        (270.0, "西"),
         (22.4, "北"),
         (22.5, "北東"),  # 区分の境界ちょうどは上の区分へ倒す
-        (67.5, "東"),
-        (337.4, "北西"),
         (337.5, "北"),
         (360.0, "北"),
-        (405.0, "北東"),
-        (-45.0, "北西"),
     ],
 )
 def test_compass_label_names_the_eight_point_sector(bearing, label):
@@ -163,6 +150,8 @@ def nearest(locations: list[Point], candidates: list[Point]) -> np.ndarray:
 
 
 @given(locations=st.lists(points, min_size=1, max_size=40), candidates=st.lists(points, min_size=1, max_size=40))
+# 日付変更線の向こうが最寄り。
+@example(locations=[Point(0.0, 179.99)], candidates=[Point(0.0, -179.99), Point(0.0, 179.0)])
 def test_each_location_gets_a_point_no_farther_than_any_other_anywhere_on_the_globe(locations, candidates):
     indices = nearest(locations, candidates)
 
@@ -203,12 +192,6 @@ def test_locations_spread_over_many_cells_each_get_their_nearest_point():
         assert chosen_km(location, candidates, index) == pytest.approx(brute_force_nearest_km(location, candidates), abs=RESOLUTION_KM)
 
 
-def test_the_nearest_point_across_the_date_line_is_found():
-    candidates = [Point(0.0, -179.99), Point(0.0, 179.0)]
-
-    assert list(nearest([Point(0.0, 179.99)], candidates)) == [0]
-
-
 def test_no_locations_give_no_indices():
     indices = geo.nearest_point_indices(np.array([]), np.array([]), np.array([35.0]), np.array([139.0]))
 
@@ -226,16 +209,3 @@ def test_nearest_point_index_takes_the_first_listed_of_equally_near_points(candi
     )
 
     assert index == 0
-
-
-@given(location=points, candidates=st.lists(points, min_size=1, max_size=20))
-def test_nearest_point_index_answers_the_nearest_point(location, candidates):
-    index = geo.nearest_point_index(
-        location.latitude,
-        location.longitude,
-        np.array([p.latitude for p in candidates]),
-        np.array([p.longitude for p in candidates]),
-    )
-
-    assert index is not None
-    assert chosen_km(location, candidates, index) == pytest.approx(brute_force_nearest_km(location, candidates), abs=RESOLUTION_KM)

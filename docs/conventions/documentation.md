@@ -60,10 +60,10 @@
 挙動を分かりやすくするために代表的な要素を挙げるのは**よい**。全件のつもりで読まれる
 書き方をしないこと。
 
-- よい: 「`_common.py`が共通ヘルパ（`batch_session_factory`等）を提供し、
+- よい: 「`common.py`が共通ヘルパ（`batch_session_factory`等）を提供し、
   派生バッチはこれに乗る」
 - よい: 「タイル世代の定数（`LANDCOVER_REVISION`など）」
-- 避ける: 「`_common.py`は`asyncpg_dsn`・`fetch_verified`を提供する。4バッチが参照する」
+- 避ける: 「`common.py`は`asyncpg_dsn`・`fetch_verified`を提供する。4バッチが参照する」
 - 避ける: 「対象は`gradient`・`surface_q`・`stop_density`・`car_stress`・`accident`・`night`の6軸」
 
 判断の目安は**「要素が1つ増えたときにこの文は嘘になるか」**。嘘になるなら数え上げている。

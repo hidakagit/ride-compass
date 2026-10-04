@@ -13,7 +13,7 @@ export interface EditedRoute {
   route: RouteCandidate;
   /** 元にしたルートのid（生成した候補か、先に作った編集）。 */
   originId: string;
-  /** 作った順の番号（1から）。画面の名前「編集N」に使う。 */
+  /** 作った順の番号（1から）。画面の名前「合成N」に使う。 */
   number: number;
 }
 

@@ -247,7 +247,7 @@ def _tile_property(material_id: str) -> str:
 
 def _tile_properties(road: _Road, scales: Mapping[str, float]) -> dict[str, object]:
     """材料の値を、路面タイルへ焼いたときのプロパティにする（`infrastructure/road_graph_repository.py:
-    _ROAD_SURFACE_TILE_MVT_SQL`の形）。欠損・偽・数値の0はキーごと載らない（密度の0はNULLIFで省く）。
+    ROAD_SURFACE_TILE_MVT_SQL`の形）。欠損・偽・数値の0はキーごと載らない（密度の0はNULLIFで省く）。
     実行時の係数が要る材料は、材料の値を係数で割り戻したタイルの生値で載る。"""
     properties: dict[str, object] = {}
     for material_id, value in road.items():

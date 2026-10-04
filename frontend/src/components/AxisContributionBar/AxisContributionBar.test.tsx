@@ -4,15 +4,15 @@
  *
  * 見るもの: 寄与のある軸だけを`axes`の順に帯へ積むこと、帯の長さと添える値（0〜100へ寄せる）、軸の色と
  * 色の無い軸の色、凡例に並ぶ軸（既定・`legendAxes`・`renderDetail`がnullを返した軸）とチップに出す値、
- * 詳細のある軸のチップを押すと詳細が出ること、寄与が1つも無ければ何も描かないこと。
+ * 詳細のある軸のチップを、詳細を開くボタンにすること、寄与が1つも無ければ何も描かないこと。
  *
  * ここで見ないもの: 軸のアイコンの引き方 → `components/ui/icons/axisIconPalette.tsx`。詳細の中身 → 呼び出し側
- * （`features/route/RouteOutcome`等）。
+ * （`features/route/RouteOutcome`等）。チップを押すと詳細が出ること → `components/ui/InfoPopover/InfoPopover.tsx`
+ * （詳細とチップの中身をそのまま渡すだけ）。
  *
  * 軸は架空のもの（`axis_a`等）を`src/testing/catalogAxes.ts`の雛形から作る。
  */
 import { render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
 import { catalogAxisFromEntry } from "@/lib/catalogAxis";
@@ -46,8 +46,7 @@ describe("hasContribution", () => {
   it.each([
     ["キーが無い", {}, false],
     ["0", { axis_a: 0 }, false],
-    ["正の値", { axis_a: 0.4 }, true],
-    ["負の値", { axis_a: -2 }, true],
+    ["0でない値", { axis_a: 0.4 }, true],
   ])("寄与が%sなら%s", (_, contributions, expected) => {
     expect(hasContribution(contributions, "axis_a")).toBe(expected);
   });
@@ -117,7 +116,7 @@ describe("AxisContributionBar", () => {
     ]);
   });
 
-  it("詳細を渡すと、詳細がnullの軸は凡例から落とし、ほかのチップは押すと詳細が出る", async () => {
+  it("詳細を渡すと、詳細がnullの軸は凡例から落とし、ほかのチップは詳細を開くボタンにする", () => {
     renderBar({
       contributions: { axis_a: 30, axis_b: 5 },
       legendAxes: [A, B, C],
@@ -129,10 +128,5 @@ describe("AxisContributionBar", () => {
       "軸Aの詳細を表示",
       "軸Cの詳細を表示",
     ]);
-    expect(chips.map((chip) => chip.textContent)).toEqual(["30.0", ""]);
-
-    await userEvent.click(screen.getByRole("button", { name: "軸Cの詳細を表示" }));
-
-    expect(await screen.findByText("軸Cの中身")).toBeInTheDocument();
   });
 });

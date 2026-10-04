@@ -16,7 +16,7 @@ from app.domain.strict_model import StrictModel
 
 # GeoJSONのLineString（座標は[経度, 緯度]）。契約には形を載せるが、検証はしない——数千点の座標を
 # 組み立てのたびにたどることになる。形は組み立てる側（`_concat_segment_geometries`・
-# `services/road_graph_engine.py: _concat_edge_geometries`等）が決める。
+# `services/road_graph_engine.py: concat_edge_geometries`等）が決める。
 LineStringGeometry = Annotated[
     dict[str, Any],
     WithJsonSchema(

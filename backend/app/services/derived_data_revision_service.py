@@ -23,25 +23,25 @@ from app.infrastructure.derived_data_meta import DataRevisions
 logger = logging.getLogger("ridecompass.derived_data_revision")
 
 #: 次にDBを読み直してよくなる時刻（`time.monotonic()`）。プロセス内のみ。
-_next_check_at: float = 0.0
+next_check_at: float = 0.0
 
 #: 最後に読んだ世代。配信するタイルの世代（`tile_version_service`）が読む。
 #: Noneは「まだ読めていない」で、読めるまで配信側は世代なしの印を使う。
-_current_revisions: DataRevisions | None = None
+last_read_revisions: DataRevisions | None = None
 
 
 def current_revisions() -> DataRevisions | None:
     """最後に読んだ世代。読めていなければNone。"""
-    return _current_revisions
+    return last_read_revisions
 
 
 async def refresh_current_revisions(repository) -> None:
     """TTLが切れていればDBの世代を読み直す。"""
-    global _next_check_at, _current_revisions
+    global next_check_at, last_read_revisions
     now = time.monotonic()
-    if now < _next_check_at:
+    if now < next_check_at:
         return
-    _next_check_at = now + settings.derived_data_revision_check_interval_seconds
+    next_check_at = now + settings.derived_data_revision_check_interval_seconds
 
     try:
         revisions = await repository.get_data_revisions()
@@ -49,6 +49,6 @@ async def refresh_current_revisions(repository) -> None:
         # 世代を読めないだけで配信を止めない。TTLは先に進めてあるためログが溢れることもない。
         logger.warning("データの世代を読めませんでした（前回の値のまま配信します）", exc_info=True)
         return
-    if revisions != _current_revisions:
+    if revisions != last_read_revisions:
         logger.info("データの世代を読みました derived=%s imported=%s", revisions.derived, revisions.imported)
-    _current_revisions = revisions
+    last_read_revisions = revisions

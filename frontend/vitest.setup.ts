@@ -1,5 +1,10 @@
 import { format } from "node:util";
-import { afterAll, afterEach } from "vitest";
+import { BroadcastChannel } from "node:worker_threads";
+import { afterAll, afterEach, beforeAll } from "vitest";
+
+// mswは読み込んだ時点で`BroadcastChannel`を使う。`pool: "vmThreads"`のテストの文脈にはNodeのそれが無いので、先に置いてから読み込む。
+globalThis.BroadcastChannel ??= BroadcastChannel as unknown as typeof globalThis.BroadcastChannel;
+const { backendServer, closeHeldReplies } = await import("@/testing/backendServer");
 
 // 警告は既定でエラー（docs/conventions/testing.md「警告は既定でエラー」）。`console.warn`・`console.error`へ出たもの
 // （Reactの警告もここへ届く）は、出したテストを落とす。vitestには出力の警告で落とす設定が無いため、ここで受ける。
@@ -29,6 +34,39 @@ function failOnWarnings(): void {
 // テストの外（ファイルの読み込み・afterAll）で出たものは、ファイルの終わりに落とす。
 afterEach(failOnWarnings);
 afterAll(failOnWarnings);
+
+// backendとの通信は網の層で差し替える（`src/testing/backendServer.ts`）。応答を与えていない要求はテストを落とす
+// （黙って本物の網へ出すと、テストが通るかが手元の網の具合で変わる）。既定の`"error"`は、拡張子が静的なファイルの
+// もの（`.json`等。mswの`isCommonAssetRequest`）を落とさずに本物の網へ流すので、関数で渡してどの要求も落とす。
+beforeAll(() =>
+  backendServer.listen({
+    onUnhandledFrame: async ({ defaults }) => {
+      await defaults.error();
+      throw new Error("応答を与えていない要求は網へ出さない");
+    },
+  }),
+);
+// テストの終わりに`fetch`へ出たばかりの要求は、mswへ届く前に応答を片付けると、次のテストの応答に当たる（次のテストが
+// 受けた要求を数え違え、応答の無い要求として関係の無いテストを落とす）。mswは要求が届いた時点（`request:start`）の
+// 応答で答えるので、描いたものを外したあと（後に足した`afterEach`が先に走る）、出た要求が全部届いてから片付ける。
+// 応答の無い要求の失敗も、警告の確かめ（上の`failOnWarnings`。先に足したので後に走る）より前に出させる。
+// 届く前に`fetch`ごと失敗した要求は届かないので、待つのは決まった回数までにする。
+let sentToFetch = 0;
+let reachedServer = 0;
+const fetchOfEnvironment = globalThis.fetch;
+globalThis.fetch = (...args: Parameters<typeof fetch>) => {
+  sentToFetch += 1;
+  return fetchOfEnvironment(...args);
+};
+backendServer.events.on("request:start", () => (reachedServer += 1));
+afterEach(async () => {
+  let turn = 0;
+  do await new Promise((resolve) => setTimeout(resolve, 0));
+  while (reachedServer < sentToFetch && ++turn < 50);
+  closeHeldReplies();
+  backendServer.resetHandlers();
+});
+afterAll(() => backendServer.close());
 
 // DOMを使わないテスト（`// @vitest-environment node`docblock付き）では
 // Testing Library自体が不要なため読み込まない。

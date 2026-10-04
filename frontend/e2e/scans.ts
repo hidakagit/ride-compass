@@ -182,6 +182,33 @@ export async function scanTruncatedText(page: Page): Promise<{ checked: number; 
 }
 
 /**
+ * 観点1（配置の検査）: 中身が箱から横にはみ出して、親の縁の外へ漏れている要素が無いこと。対象は見えている要素のうち、
+ * 自分と親の計算後の`overflow-x`がどちらも`visible`（はみ出しを切りもスクロールもしない）で、中身が箱より広い
+ * （`scrollWidth > clientWidth`）もの。親がはみ出しを切るかスクロールする（横に流す帯等）なら、見せ方は親が決めているので見ない。
+ * 祖先は子のはみ出しも自分の中身に数えるので、はみ出した要素を含む祖先は出さず、いちばん内側だけを出す。
+ */
+export async function scanOverflowingContent(page: Page): Promise<{ checked: number; problems: string[] }> {
+  return page.evaluate(() => {
+    let checked = 0;
+    const overflowing: HTMLElement[] = [];
+    for (const element of document.querySelectorAll<HTMLElement>("body *")) {
+      if (!(element instanceof HTMLElement) || getComputedStyle(element).overflowX !== "visible") continue;
+      if (!element.parentElement || getComputedStyle(element.parentElement).overflowX !== "visible") continue;
+      if (element.clientWidth === 0 || !element.checkVisibility({ visibilityProperty: true })) continue;
+      checked += 1;
+      if (element.scrollWidth > element.clientWidth + 1) overflowing.push(element);
+    }
+    const problems = overflowing
+      .filter((element) => !overflowing.some((other) => other !== element && element.contains(other)))
+      .map((element) => {
+        const name = (element.getAttribute("aria-label") ?? element.textContent ?? "").trim().slice(0, 30);
+        return `${element.tagName.toLowerCase()} "${name}" の中身が箱から横にはみ出す（中身${element.scrollWidth}px > 箱${element.clientWidth}px）`;
+      });
+    return { checked, problems };
+  });
+}
+
+/**
  * Tailwindの余白ユーティリティ（`p-2`・`px-[0.9rem]`・`-mt-1`等）。変種付き（`sm:`・`hover:`）は、今の画面で
  * その条件が成り立つかを判定しないので対象外。
  */

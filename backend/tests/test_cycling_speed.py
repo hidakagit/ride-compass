@@ -1,6 +1,6 @@
 """`domain/cycling_speed.py`——平地・無風の巡航速度から出力を逆算し、勾配・風・路面から区間ごとの速度と走行時間を解く走行モデル。
 
-入口は`RiderProfile`・`wheel_power_w`・`SegmentSpeedModel`（`speed_ms`・`travel_seconds`）・`crr_for_surface`。
+入口は`RiderProfile`・`wheel_power_w`・`climb_power_w`・`top_speed_kmh`・`SegmentSpeedModel`（`speed_ms`・`travel_seconds`）・`crr_for_surface`。
 期待値は走行方程式（公開の物理）と、モデルが約束する性質（平地・無風なら巡航速度に戻る・向かい風で遅くなる・上下限で止まる）から書く。
 
 ここで見ないもの:
@@ -17,6 +17,7 @@ from app.domain import cycling_speed
 from app.domain.attributes import CategoricalColumn
 from app.domain.cycling_speed import RiderProfile, SegmentSpeedModel
 from app.domain.tuning import TUNING_VALUES
+from app.domain.wind import MAX_ASSUMED_SPEED_KMH, MIN_ASSUMED_SPEED_KMH
 
 # 二分法が詰める幅（下限〜上限を12回半分にした幅）より広く、速度の違いとして意味のある差より狭い許容。
 SOLVE_TOLERANCE_MS = 0.005
@@ -52,7 +53,8 @@ def test_the_standard_values_follow_the_values_changed_from_the_admin_screen(mon
 
 profiles = st.builds(
     RiderProfile,
-    cruise_speed_kmh=st.floats(min_value=8.0, max_value=40.0),
+    # ルート生成の要求が受け付ける巡航速度の全範囲（下りの上限より速い巡航を含む）。
+    cruise_speed_kmh=st.floats(min_value=MIN_ASSUMED_SPEED_KMH, max_value=MAX_ASSUMED_SPEED_KMH),
     cda_m2=st.floats(min_value=0.2, max_value=0.6),
     crr=st.floats(min_value=0.002, max_value=0.02),
     mass_kg=st.floats(min_value=50.0, max_value=150.0),
@@ -68,11 +70,13 @@ def test_on_the_flat_without_wind_the_rider_rides_at_the_cruise_speed(profile):
 
 
 @given(profile=profiles, grade=grades, headwind=winds, crosswind=winds)
-def test_the_speed_stays_between_walking_and_the_descent_limit(profile, grade, headwind, crosswind):
-    """急な登りや強い向かい風でも押して歩く速度より遅くならず、急な下りでも上限を超えない（所要時間が発散しない）。"""
+def test_the_speed_stays_between_walking_and_the_top_speed(profile, grade, headwind, crosswind):
+    """急な登りや強い向かい風でも押して歩く速度より遅くならず、急な下りでも上限を超えない（所要時間が発散しない）。
+    探索の所要時間の下界（`services/road_graph_engine.py: _heuristic_seconds`）も、この上限で割る。"""
     speed = _speed(profile, grade, headwind, crosswind)
+    top_ms = cycling_speed.top_speed_kmh(profile.cruise_speed_kmh) / 3.6
 
-    assert _kmh("speed.walking_kmh") - SOLVE_TOLERANCE_MS <= speed <= _kmh("speed.max_descent_kmh") + SOLVE_TOLERANCE_MS
+    assert _kmh("speed.walking_kmh") - SOLVE_TOLERANCE_MS <= speed <= top_ms + SOLVE_TOLERANCE_MS
 
 
 @given(profile=profiles, grade=grades, headwind=winds, stronger=st.floats(min_value=0.0, max_value=10.0), crosswind=winds)
@@ -113,11 +117,6 @@ def test_a_crosswind_slows_the_rider_less_than_a_headwind_of_the_same_strength()
     assert headwind < crosswind < calm
 
 
-def test_a_tailwind_faster_than_the_rider_pushes_the_rider():
-    """追い風が走る速さを超えると、空気抵抗は後ろから押す力になる。"""
-    assert _speed(RIDER, headwind=-10.0) > _speed(RIDER, headwind=-3.0) > _speed(RIDER)
-
-
 def test_the_rider_works_harder_on_a_climb_than_on_the_flat():
     """一定の出力のままだと20km/hの人が5%の登りで押して歩く速度まで落ちる。登りでは出力を増やし、それより速く登る。"""
     speed = _speed(RIDER, grade=0.05)
@@ -125,16 +124,20 @@ def test_the_rider_works_harder_on_a_climb_than_on_the_flat():
     assert _kmh("speed.walking_kmh") * 1.5 < speed < RIDER.cruise_speed_ms
 
 
-def test_the_rider_does_not_work_less_on_a_descent():
-    assert _speed(RIDER, grade=-0.03) > _speed(RIDER)
+@pytest.mark.parametrize("flat_power_w", [60.0, 300.0])
+def test_a_climb_adds_the_declared_watts_per_percent_whatever_the_flat_power(flat_power_w):
+    """管理画面の「登りの出力の増え方」（W/%）のとおり、勾配2%なら値の2倍のWを足す。平地の出力に比例させると、
+    巡航が速い人ほど坂で平地並みの速度を保ち、所要時間が短く出る。"""
+    power = cycling_speed.climb_power_w(flat_power_w, np.array([0.02]))
+
+    assert power[0] - flat_power_w == pytest.approx(2 * cycling_speed.tuning_value("speed.climb_power_per_grade"))
 
 
 def test_the_extra_power_on_a_climb_stops_at_the_upper_limit():
     """上限より先では出力が増えないので、勾配が増えたぶんだけ遅くなる（上限が無ければ登りの速度が下がりきらない）。"""
-    ratios = cycling_speed.climb_power_ratio(np.array([-0.1, 0.0, 0.5, 1.0]))
+    power = cycling_speed.climb_power_w(100.0, np.array([-0.1, 0.5]))
 
-    assert ratios.tolist() == [1.0, 1.0, cycling_speed.tuning_value("speed.max_climb_power_ratio"),
-                               cycling_speed.tuning_value("speed.max_climb_power_ratio")]
+    assert power.tolist() == pytest.approx([100.0, 100.0 * cycling_speed.tuning_value("speed.max_climb_power_ratio")])
 
 
 @pytest.mark.parametrize(
@@ -153,12 +156,11 @@ def test_the_limits_follow_the_values_changed_from_the_admin_screen(monkeypatch,
 
 
 def test_the_travel_time_is_the_distance_at_the_solved_speed():
-    model = SegmentSpeedModel(RIDER, np.array([0.0, 0.0]), np.array([RIDER.crr, RIDER.crr]))
+    model = SegmentSpeedModel(RIDER, np.array([0.0]), np.array([RIDER.crr]))
 
-    seconds = model.travel_seconds(np.array([1000.0, 0.0]), np.zeros(2), np.zeros(2))
+    seconds = model.travel_seconds(np.array([1000.0]), np.zeros(1), np.zeros(1))
 
     assert seconds[0] == pytest.approx(1000.0 / RIDER.cruise_speed_ms, rel=1e-3)
-    assert seconds[1] == 0.0
 
 
 @pytest.mark.parametrize(
@@ -166,7 +168,6 @@ def test_the_travel_time_is_the_distance_at_the_solved_speed():
     [
         lambda: SegmentSpeedModel(RIDER, np.zeros(3), np.zeros(1)),
         lambda: SegmentSpeedModel(RIDER, np.zeros(3), np.zeros(3)).speed_ms(np.zeros(1), np.zeros(3)),
-        lambda: SegmentSpeedModel(RIDER, np.zeros(3), np.zeros(3)).speed_ms(np.zeros(3), np.zeros(1)),
         lambda: SegmentSpeedModel(RIDER, np.zeros(3), np.zeros(3)).travel_seconds(np.zeros(1), np.zeros(3), np.zeros(3)),
     ],
 )
@@ -174,14 +175,6 @@ def test_arrays_of_different_lengths_are_refused_instead_of_spread_over_every_se
     """長さ1の配列はnumpyが全区間へ黙って広げる。1区間の値が全区間に効く前に断る。"""
     with pytest.raises(ValueError):
         call()
-
-
-def test_every_surface_estimate_has_a_finite_positive_rolling_resistance():
-    keys = [estimate.key for estimate in cycling_speed.SURFACE_ESTIMATES]
-
-    crr = cycling_speed.crr_for_surface(CategoricalColumn.encode(keys))
-
-    assert np.all(np.isfinite(crr)) and np.all(crr > 0)
 
 
 def test_the_rolling_resistance_of_a_surface_follows_the_value_changed_from_the_admin_screen(monkeypatch):

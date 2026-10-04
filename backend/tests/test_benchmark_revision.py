@@ -3,7 +3,7 @@
 import re
 from pathlib import Path
 
-from benchmarks._revision import RevisionState, describe, stale_reason
+from benchmarks.revision import RevisionState, describe, stale_reason
 
 SHA = "a" * 40
 OTHER = "b" * 40

@@ -1,11 +1,12 @@
 """`domain/axis_templates.py`——軸の得点を求める2つの演算（区分線形・値ごとの対応表）。
 
 入口は`evaluate_breakpoint_linear`と`evaluate_categorical`。どちらも配列で受け、欠損と引けない値はNaNで返す。
-`evaluate_categorical`は材料の列が本番で届く形（分類の材料の`domain/attributes.py: CategoricalColumn`、真偽の材料の真偽の配列と
-1.0/0.0/NaNの数値の配列、Pythonの値から作ったobjectの配列）ごとに確かめる——同じ値には形によらず同じ得点になる。
+`evaluate_categorical`は材料の列が本番で届く形（真偽の材料の真偽の配列と1.0/0.0/NaNの数値の配列、Pythonの値から作った
+objectの配列）ごとに確かめる——同じ値には形によらず同じ得点になる。
 
 ここで見ないもの:
 - 材料の線形結合・前処理・得点の丸め・0次条件 → `test_axis_definitions.py`
+- 分類の材料の列（`domain/attributes.py: CategoricalColumn`）はその列の引き方へそのまま渡す → `test_attributes.py`
 """
 
 import bisect
@@ -16,7 +17,6 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from app.domain.attributes import CategoricalColumn
 from app.domain.axis_templates import evaluate_breakpoint_linear, evaluate_categorical
 
 
@@ -65,13 +65,10 @@ ROAD_VALUES = ["residential", "aaa", "zzz", "secondary", None, "track", "primary
 ROAD_SCORES = [30.0, math.nan, math.nan, math.nan, math.nan, 50.0, 80.0]
 
 
-@pytest.mark.parametrize(
-    "column",
-    [CategoricalColumn.encode(ROAD_VALUES), _object_column(ROAD_VALUES)],
-    ids=["CategoricalColumn", "object"],
-)
-def test_a_value_the_table_does_not_hold_and_a_missing_value_have_no_score(column):
-    assert evaluate_categorical(column, ROAD_TYPES).tolist() == pytest.approx(ROAD_SCORES, nan_ok=True)
+def test_a_value_the_table_does_not_hold_and_a_missing_value_have_no_score():
+    scores = evaluate_categorical(_object_column(ROAD_VALUES), ROAD_TYPES)
+
+    assert scores.tolist() == pytest.approx(ROAD_SCORES, nan_ok=True)
 
 
 FLAG = {True: 10.0, False: 90.0}

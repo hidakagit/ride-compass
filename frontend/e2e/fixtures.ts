@@ -179,6 +179,20 @@ export function axisCatalogFixture(
   return { axes, tile_versions, tile_runtime_scales: {}, client_tuning: {}, accident_years: [] };
 }
 
+/** 既定の軸カタログ。アプリが軸一覧を引ける最小の1軸だけを持つ。 */
+export function defaultAxisCatalogFixture(): components["schemas"]["AxisCatalogResponse"] {
+  return axisCatalogFixture([
+    {
+      ...catalogEntry({
+        axis_id: "ramp",
+        show_map_icon: true,
+        display: { kind: "ramp", tile_inputs: [tileInput({ property: "v", weight: 1 })], thresholds: [50] },
+      }),
+      default_weight: 0,
+    },
+  ]);
+}
+
 /**
  * バックエンド・外部APIへの依存を断ち切るネットワークモックを登録する。
  * 各テストの冒頭（page.goto前）で呼ぶ。ここの応答はアプリを起動して画面を進めるための
@@ -214,21 +228,7 @@ export async function installApiMocks(page: Page): Promise<void> {
   );
   await page.route(`${API_BASE}/api/routes/generate/*`, (route) => route.fulfill({ json: doneJobFixture() }));
 
-  // 軸カタログ。アプリが軸一覧を引ける最小の1軸だけを持つ。
-  await page.route(`${API_BASE}/api/axis-catalog*`, (route) =>
-    route.fulfill({
-      json: axisCatalogFixture([
-        {
-          ...catalogEntry({
-            axis_id: "ramp",
-            show_map_icon: true,
-            display: { kind: "ramp", tile_inputs: [tileInput({ property: "v", weight: 1 })], thresholds: [50] },
-          }),
-          default_weight: 0,
-        },
-      ]),
-    }),
-  );
+  await page.route(`${API_BASE}/api/axis-catalog*`, (route) => route.fulfill({ json: defaultAxisCatalogFixture() }));
 
   // Next.jsのrewritesでbackendへ中継される経路（タイル・時刻一覧等）。モックしないと、E2Eの
   // サーバーの中継が接続拒否をログへ出し続ける。経路は next.config.ts の宣言から取り、中身無しで
@@ -316,7 +316,7 @@ export async function openMobileSheet(page: Page, name: MobileSheetName) {
 
 /**
  * 「ルート設定」シートから距離を指定してルートを生成し、完了まで待つ。生成中は
- * ボタン文言が「生成中...」へ変わるため、「ルート生成」が再び押せることが完了の合図。
+ * ボタンの名前が「生成中...」へ変わるため、「ルート生成」が再び押せることが完了の合図。
  */
 export async function generateRoutes(page: Page, { distanceKm = 20 }: { distanceKm?: number } = {}) {
   const sheet = await openMobileSheet(page, "ルート設定");
@@ -330,4 +330,53 @@ export async function generateRoutes(page: Page, { distanceKm = 20 }: { distance
 export async function runGeneration(scope: Page | Locator): Promise<void> {
   await scope.getByRole("button", { name: "ルート生成" }).click();
   await expect(scope.getByRole("button", { name: "ルート生成" })).toBeEnabled({ timeout: 60_000 });
+}
+
+declare global {
+  interface Window {
+    __liveMap(): import("maplibre-gl").Map;
+  }
+}
+
+/**
+ * 地図のインスタンスを、描画しているReactの部品の参照（useRef）から探す関数をページへ入れる。
+ * アプリは地図を外へ公開していないので、テストのために入口を足さず、Reactが要素へ付ける内部の印（`__reactFiber$`）から
+ * 祖先の部品のフックを辿る。Reactの内部の形が変わると見つからず、そのときは例外で止まる（黙って空を返さない）。
+ */
+export function installMapFinder(): void {
+  window.__liveMap = () => {
+    const container = document.querySelector(".maplibregl-map");
+    const key = container && Object.keys(container).find((k) => k.startsWith("__reactFiber$"));
+    type Hook = { memoizedState: unknown; next: Hook | null };
+    type Fiber = { memoizedState: unknown; return: Fiber | null };
+    let fiber = key ? ((container as unknown as Record<string, Fiber>)[key] ?? null) : null;
+    for (; fiber; fiber = fiber.return) {
+      let hook = fiber.memoizedState as Hook | null;
+      while (hook && typeof hook === "object" && "next" in hook) {
+        const state = hook.memoizedState as { current?: { queryRenderedFeatures?: unknown } } | null;
+        if (state && typeof state === "object" && typeof state.current?.queryRenderedFeatures === "function") {
+          return state.current as unknown as import("maplibre-gl").Map;
+        }
+        hook = hook.next;
+      }
+    }
+    throw new Error("地図のインスタンスが見つからない（Reactの内部の形が変わった可能性）");
+  };
+}
+
+/** 地図の上の経度・緯度の点を押す（`installMapFinder`を入れたページで）。その点が画面の外か、地図の上に別の部品が重なっていれば止める。 */
+export async function clickMap(page: Page, lngLat: [number, number]): Promise<void> {
+  const point = await page.evaluate((at) => {
+    const map = window.__liveMap();
+    const projected = map.project(at);
+    const box = map.getCanvas().getBoundingClientRect();
+    const x = box.left + projected.x;
+    const y = box.top + projected.y;
+    const inside = x >= 0 && y >= 0 && x < window.innerWidth && y < window.innerHeight;
+    return { x, y, onMap: inside && document.elementFromPoint(x, y) === map.getCanvas() };
+  }, lngLat);
+  if (!point.onMap) {
+    throw new Error(`地図の点 ${lngLat.join(",")}（画面の ${Math.round(point.x)},${Math.round(point.y)}）は押せない`);
+  }
+  await page.mouse.click(point.x, point.y);
 }

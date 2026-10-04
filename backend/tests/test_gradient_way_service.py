@@ -13,6 +13,8 @@ from app.services import gradient_way_service
 from app.services.gradient_way_service import GradientConditions, GradientWayService
 
 Z, X, Y = 14, 14551, 6447
+#: キャッシュの検査で、1回目の後にDBの中身を替える先。`{1: (5.0, 30.0)}`と走行方位0度で値が違う。
+CHANGED_INPUTS = {1: (8.0, 30.0)}
 
 
 class FakeGradientInputsRepository:
@@ -23,9 +25,8 @@ class FakeGradientInputsRepository:
     """
 
     def __init__(self, inputs: dict[int, tuple[float, float]] | None, error: Exception | None = None):
-        self._inputs = inputs
+        self.inputs = inputs
         self._error = error
-        self.calls: list[tuple] = []
         self.revision = 1
 
     async def get_data_revisions(self):
@@ -33,10 +34,9 @@ class FakeGradientInputsRepository:
 
     async def get_feature_gradient_inputs_in_tile(self, *args, **kwargs):
         inspect.signature(RoadGraphRepository.get_feature_gradient_inputs_in_tile).bind(self, *args, **kwargs)
-        self.calls.append(args)
         if self._error is not None:
             raise self._error
-        return self._inputs
+        return self.inputs
 
 
 async def test_uncovered_tile_returns_empty_dict():
@@ -94,13 +94,12 @@ async def test_second_call_with_same_bearing_bucket_is_served_from_cache():
     service = GradientWayService(repository=repository)
 
     first = await service.get_way_values(Z, X, Y, GradientConditions(0.0))
+    # wind_way_serviceと異なり、way一覧の取得もキャッシュした値に含まれる。DBの中身が変わっても、
+    # 当たれば前の値を返す。
+    repository.inputs = CHANGED_INPUTS
     second = await service.get_way_values(Z, X, Y, GradientConditions(0.0))
 
     assert first == second
-    # 勾配はキャッシュ確認を先に行い、ヒットすればDB問い合わせ自体をスキップする
-    # （wind_way_serviceと異なりway一覧の取得自体もキャッシュされた値に含まれるため、
-    # 2回目はrepositoryを一切呼ばない）。
-    assert len(repository.calls) == 1
     # 外した1回と当たった1回が、運用の統計のヒット率に載る。
     stats = debug_log.get_stats().external["region:gradient-way-values"]
     assert (stats.cache_misses, stats.cache_hits) == (1, 1)
@@ -118,8 +117,6 @@ async def test_different_bearing_bucket_recomputes():
     second = await service.get_way_values(Z, X, Y, GradientConditions(180.0))
 
     assert first != second
-    # 値が違うことだけでなく、向きバケットが違えば実際に作り直していることを見る。
-    assert len(repository.calls) == 2
 
 
 async def test_a_new_derived_data_revision_recomputes_without_the_catalog(monkeypatch):
@@ -128,12 +125,12 @@ async def test_a_new_derived_data_revision_recomputes_without_the_catalog(monkey
     monkeypatch.setattr(settings, "derived_data_revision_check_interval_seconds", 0.0)
     repository = FakeGradientInputsRepository(inputs={1: (5.0, 30.0)})
     service = GradientWayService(repository=repository)
-    await service.get_way_values(Z, X, Y, GradientConditions(0.0))
+    first = await service.get_way_values(Z, X, Y, GradientConditions(0.0))
 
+    repository.inputs = CHANGED_INPUTS
     repository.revision = 2
-    await service.get_way_values(Z, X, Y, GradientConditions(0.0))
 
-    assert len(repository.calls) == 2
+    assert await service.get_way_values(Z, X, Y, GradientConditions(0.0)) != first
 
 
 async def test_a_rebaked_road_surface_tile_recomputes(monkeypatch):
@@ -141,12 +138,12 @@ async def test_a_rebaked_road_surface_tile_recomputes(monkeypatch):
     動かさないため、路面タイルの形が鍵に無いと前の版の値がTTLの間返り続ける——エラーにはならず、色だけが消える。"""
     repository = FakeGradientInputsRepository(inputs={1: (5.0, 30.0)})
     service = GradientWayService(repository=repository)
-    await service.get_way_values(Z, X, Y, GradientConditions(0.0))
+    first = await service.get_way_values(Z, X, Y, GradientConditions(0.0))
 
+    repository.inputs = CHANGED_INPUTS
     monkeypatch.setattr(gradient_way_service, "ROAD_SURFACE_TILE_SHAPE", "another-layout")
-    await service.get_way_values(Z, X, Y, GradientConditions(0.0))
 
-    assert len(repository.calls) == 2
+    assert await service.get_way_values(Z, X, Y, GradientConditions(0.0)) != first
 
 
 async def test_a_deploy_that_changes_how_gradient_is_computed_recomputes(monkeypatch):
@@ -154,12 +151,12 @@ async def test_a_deploy_that_changes_how_gradient_is_computed_recomputes(monkeyp
     動かさない。署名が鍵に届いていないと、前の計算の値がTTL（24時間）の間返り続ける。"""
     repository = FakeGradientInputsRepository(inputs={1: (5.0, 30.0)})
     service = GradientWayService(repository=repository)
-    await service.get_way_values(Z, X, Y, GradientConditions(0.0))
+    first = await service.get_way_values(Z, X, Y, GradientConditions(0.0))
 
+    repository.inputs = CHANGED_INPUTS
     monkeypatch.setattr(gradient_way_service, "GRADIENT_VALUE_SHAPE", "another-computation")
-    await service.get_way_values(Z, X, Y, GradientConditions(0.0))
 
-    assert len(repository.calls) == 2
+    assert await service.get_way_values(Z, X, Y, GradientConditions(0.0)) != first
 
 
 async def test_repository_error_returns_empty_dict():

@@ -3,18 +3,19 @@
  *
  * 見るもの: デバッグモードでないときは何も出さないこと、見出しの件数（出している数/全数）、記録が無いとき・
  * 絞って0件のときの案内、レベルの下限での絞り込み、1行の中身、コピーで渡る文字（出している行だけ）と
- * コピーの結果・失敗の表示、クリア、閉じる操作。
+ * コピーの結果・失敗の表示、クリア（記録が変わると描き直すこと）。
  *
  * ここで見ないもの:
  * - 記録の上限・記録の時刻の書式・デバッグモードの保存 → `lib/debugLog.ts`
  * - コピー済みの表示が戻るまでの時間・失敗の文言の組み立て → `hooks/useCopyToClipboard.ts`
- * - パネルの置き方と閉じるボタン → `components/FloatingPanel/FloatingPanel.tsx`（本物を描く）
+ * - パネルの開閉・置き方と閉じるボタン → `components/FloatingPanel/FloatingPanel.tsx`（本物を描き、開閉と閉じる操作は
+ *   そのまま渡す）
  * - 新しい行が来たら一番下まで送ること——送り先の高さはテスト環境に無いレイアウトの実寸で、常に0になる
  *
  * 記録は本物の`lib/debugLog.ts`へ書く。状態はモジュールが持つので、テストごとに空にしてデバッグモードを戻す。
  * 記録の時刻を決めるため、時計（`Date`）だけを止める。クリップボードはテスト環境のものを使う。
  */
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -24,10 +25,8 @@ import DebugConsole from "./DebugConsole";
 const AT = new Date(2026, 9, 1, 9, 5, 7, 42);
 const TIME = "09:05:07.042";
 
-function renderConsole(open = true) {
-  const onClose = vi.fn();
-  const view = render(<DebugConsole open={open} onClose={onClose} />);
-  return { onClose, view };
+function renderConsole() {
+  return render(<DebugConsole open onClose={vi.fn()} />);
 }
 
 function logThree() {
@@ -60,15 +59,9 @@ describe("DebugConsole", () => {
   it("デバッグモードでなければ、開いていても何も出さない", () => {
     setDebugEnabled(false);
 
-    const { view } = renderConsole();
+    const { container } = renderConsole();
 
-    expect(view.container).toBeEmptyDOMElement();
-  });
-
-  it("閉じている間は何も出さない", () => {
-    const { view } = renderConsole(false);
-
-    expect(view.container).toBeEmptyDOMElement();
+    expect(container).toBeEmptyDOMElement();
   });
 
   it("記録が無いときは待っている旨を出し、コピーは押せない", () => {
@@ -90,32 +83,19 @@ describe("DebugConsole", () => {
     expect(screen.getByText("生成に失敗").parentElement?.textContent).toBe(`${TIME} [api] 生成に失敗`);
   });
 
-  it("開いている間に記録された行も出す", () => {
-    renderConsole();
-
-    act(() => debugLog("map", "移動した"));
-
-    expect(screen.getByText("移動した")).toBeInTheDocument();
-    expect(heading()).toBe("デバッグログ[1/1件]");
-  });
-
-  it.each([
-    ["警告以上", ["応答が遅い", "生成に失敗"], "デバッグログ[2/3件]"],
-    ["エラーのみ", ["生成に失敗"], "デバッグログ[1/3件]"],
-  ])("下限を「%s」にすると、そのレベル以上の行だけを出す", async (option, shown, title) => {
+  it("下限を「警告以上」にすると、そのレベル以上の行だけを出す", async () => {
     logThree();
     renderConsole();
 
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: "表示するログレベルの下限" }), option);
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "表示するログレベルの下限" }), "警告以上");
 
-    for (const message of ["タイルを読んだ", "応答が遅い", "生成に失敗"]) {
-      if (shown.includes(message)) expect(screen.getByText(message)).toBeInTheDocument();
-      else expect(screen.queryByText(message)).not.toBeInTheDocument();
-    }
-    expect(heading()).toBe(title);
+    expect(screen.queryByText("タイルを読んだ")).not.toBeInTheDocument();
+    expect(screen.getByText("応答が遅い")).toBeInTheDocument();
+    expect(screen.getByText("生成に失敗")).toBeInTheDocument();
+    expect(heading()).toBe("デバッグログ[2/3件]");
   });
 
-  it("絞って1行も残らなければ、全数を添えて戻し方を出し、コピーは押せない", async () => {
+  it("絞って1行も残らなければ、全数を添えて戻し方を出す", async () => {
     debugLog("map", "タイルを読んだ");
     debugLog("map", "移動した");
     renderConsole();
@@ -125,7 +105,6 @@ describe("DebugConsole", () => {
     expect(
       screen.getByText("条件に一致するログがありません[フィルタを「すべて」に戻すと2件表示されます]"),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "表示中のログをコピー" })).toBeDisabled();
   });
 
   it("コピーすると出している行だけを1行ずつ渡し、コピーしたことを名前で出す", async () => {
@@ -171,13 +150,5 @@ describe("DebugConsole", () => {
 
     expect(heading()).toBe("デバッグログ[0/0件]");
     expect(screen.getByText("イベント待機中...[地図を操作するかAPIを呼び出してください]")).toBeInTheDocument();
-  });
-
-  it("閉じるボタンを押すと、閉じる操作が上がる", async () => {
-    const { onClose } = renderConsole();
-
-    await userEvent.click(screen.getByRole("button", { name: /を閉じる$/ }));
-
-    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

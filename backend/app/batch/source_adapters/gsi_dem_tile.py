@@ -24,7 +24,7 @@ import numpy as np
 
 from app.batch import dem_tile_store
 from app.batch.ingest import SourceRecord, register_adapter
-from app.batch.source_adapters._raster_wkb import tile_bbox_wkb, tile_raster_wkb
+from app.batch.source_adapters.raster_wkb import tile_bbox_wkb, tile_raster_wkb
 from app.batch.source_profile import SourceProfile, SourceProfileError, SourceSpec
 from app.domain.region import BoundingBox, tiles_covering_bbox
 
@@ -49,7 +49,7 @@ SCALE = 100
 NODATA = -2147483648
 
 
-def _pack(text: str) -> tuple[bytes, int]:
+def pack_elevations(text: str) -> tuple[bytes, int]:
     """タイル本文（カンマ区切りのテキスト）をint32の配列へ詰める。"""
     # 値は小数第二位までの10進表記で指数を含まないため、`e`は欠測の印にしか現れない。
     # 指数表記が来れば`1nan5`のような字句になり、黙って欠測にならず読み込みで止まる。
@@ -97,7 +97,7 @@ async def read_gsi_dem_tiles(spec: SourceSpec, profile: SourceProfile,
                     unfetched += 1
                 continue
             stored += 1
-            pixels, missing = _pack(dem_tile_store.read_tile(root, product, zoom, x, y))
+            pixels, missing = pack_elevations(dem_tile_store.read_tile(root, product, zoom, x, y))
             yield SourceRecord(
                 natural_key=f"{product}/{zoom}/{x}/{y}",
                 geom_wkb=tile_bbox_wkb(zoom, x, y),

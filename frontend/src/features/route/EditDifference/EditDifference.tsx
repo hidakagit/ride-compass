@@ -10,7 +10,7 @@ import { cn } from "@/lib/cn";
 import type { RouteCandidate } from "@/types/route";
 
 interface EditDifferenceProps {
-  /** 元にしたルートの一覧での名前（例: `2`・`編集1`・`最速`）。 */
+  /** 元にしたルートの一覧での名前（例: `2`・`合成1`・`最速`）。 */
   originName: string;
   origin: RouteCandidate;
   edited: RouteCandidate;
@@ -43,7 +43,7 @@ export default function EditDifference({ originName, origin, edited, onShowOrigi
     >
       <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
         <h3 className={cn(textVariants({ variant: "heading" }), "font-semibold whitespace-nowrap")}>元との違い</h3>
-        <Button size="iconLabel" onClick={onShowOrigin} usage="元にしたルートへ切り替えます。">
+        <Button size="xs" onClick={onShowOrigin} usage="元にしたルートへ切り替えます。">
           元を見る
         </Button>
       </div>

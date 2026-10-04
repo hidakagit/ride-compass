@@ -10,7 +10,7 @@
  * 受け取る重みを公開軸へ揃えること → `features/route/routePreferenceSync.test.ts`（このパネルは揃った値を受け取る）。
  * 無効な軸のチップを薄くすること（クラスで付ける見た目）。
  *
- * 差し替えた部品: 軸カタログの通信（`services/axisCatalogApi.getAxisCatalog`）は返す値をテストが決め、軸は架空のもの
+ * 差し替えたもの: 軸カタログの応答（網の層）はテストが決め、軸は架空のもの
  * （`testing/catalogAxes.ts`）。帯の実寸はテスト環境に無いので、ドラッグのテストだけ帯の`getBoundingClientRect`を決める。
  * 重みと上書きの状態は親が持つので、テストの包みが上がった値を持ち直して渡す。
  */
@@ -21,14 +21,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { WEIGHT_STEP } from "@/features/route/routeWeightShare";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
-import { getAxisCatalog } from "@/services/axisCatalogApi";
+import { inTurn, onBackend, serveAxisCatalog } from "@/testing/backendServer";
 import { catalogEntry, catalogOf, catalogResponse } from "@/testing/catalogAxes";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import type { RoutePreferenceWeights } from "@/types/route";
 
 import RouteSettingsPanel from "./RouteSettingsPanel";
-
-vi.mock("@/services/axisCatalogApi", () => ({ getAxisCatalog: vi.fn() }));
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -49,7 +47,7 @@ const AXES = [WIDTH, TRAFFIC, SLOPE, LIGHT];
 const COLORS = catalogOf(AXES).axisColors;
 
 function serveCatalog(entries = AXES) {
-  vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse(entries));
+  serveAxisCatalog(catalogResponse(entries));
 }
 
 /** 親の代わりに、上がった重みと上書きの状態を持ち直して渡す包み。 */
@@ -93,8 +91,11 @@ function boundary(name: string) {
 
 describe("RouteSettingsPanel 軸一覧を取れないとき", () => {
   it("重みが反映されないことと再試行を出し、再試行で取り直して届いたら告知を消す", async () => {
-    vi.mocked(getAxisCatalog).mockRejectedValueOnce(new Error("網の失敗"));
-    serveCatalog();
+    onBackend(
+      "GET",
+      "/api/axis-catalog",
+      inTurn(new Response(null, { status: 503 }), Response.json(catalogResponse(AXES))),
+    );
     renderPanel({});
 
     expect(await screen.findByRole("status")).toHaveTextContent(
@@ -104,7 +105,8 @@ describe("RouteSettingsPanel 軸一覧を取れないとき", () => {
     await userEvent.click(screen.getByRole("button", { name: "再試行" }));
 
     await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
-    expect(getAxisCatalog).toHaveBeenCalledTimes(2);
+    const catalog = renderHook(() => useAxisCatalog());
+    await waitFor(() => expect(catalog.result.current.loaded).toBe(true));
   });
 });
 

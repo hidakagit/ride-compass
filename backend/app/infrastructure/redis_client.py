@@ -10,8 +10,8 @@ import redis.asyncio as redis
 
 from app.config import settings
 
-_client: redis.Redis | None = None
-_binary_client: redis.Redis | None = None
+text_client: redis.Redis | None = None
+binary_client: redis.Redis | None = None
 
 # 接続確立・コマンド応答の待ち上限。既定値のままだと疎通不能時の1回の失敗検知に数秒かかる。
 # Redisは常に同一ホスト（本番は`--network=host`）にあるため、正常時は決して到達しない
@@ -19,7 +19,7 @@ _binary_client: redis.Redis | None = None
 _CONNECT_TIMEOUT_SECONDS = 0.2
 _SOCKET_TIMEOUT_SECONDS = 0.2
 
-_CIRCUIT_COOLDOWN_SECONDS = 10.0
+CIRCUIT_COOLDOWN_SECONDS = 10.0
 _last_failure_at: float | None = None
 
 
@@ -40,11 +40,11 @@ def get_redis_client_or_none() -> redis.Redis | None:
     例外を送出する。呼び出し元のtry/exceptはRedisコマンドの周りにあり、クライアント生成
     自体の例外はその外で起きるため、ここで捕まえないとタイル配信・ルート生成ごと落ちる。
     """
-    global _client
+    global text_client
     try:
-        if _client is None:
-            _client = _connect(decode_responses=True)
-        return _client
+        if text_client is None:
+            text_client = _connect(decode_responses=True)
+        return text_client
     except Exception:
         record_redis_failure()
         return None
@@ -52,11 +52,11 @@ def get_redis_client_or_none() -> redis.Redis | None:
 
 def get_redis_binary_client_or_none() -> redis.Redis | None:
     """値を生のバイト列で読み書きする共有クライアント。接続先とサーキットブレーカーは文字列側と共有する。"""
-    global _binary_client
+    global binary_client
     try:
-        if _binary_client is None:
-            _binary_client = _connect(decode_responses=False)
-        return _binary_client
+        if binary_client is None:
+            binary_client = _connect(decode_responses=False)
+        return binary_client
     except Exception:
         record_redis_failure()
         return None
@@ -66,7 +66,7 @@ def redis_available() -> bool:
     """直近のRedis障害からクールダウン期間を過ぎているか（＝呼び出す価値があるか）を返す。"""
     if _last_failure_at is None:
         return True
-    return time.monotonic() - _last_failure_at >= _CIRCUIT_COOLDOWN_SECONDS
+    return time.monotonic() - _last_failure_at >= CIRCUIT_COOLDOWN_SECONDS
 
 
 def record_redis_failure() -> None:

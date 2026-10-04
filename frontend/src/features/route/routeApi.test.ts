@@ -10,11 +10,11 @@
  * - 失敗の文言の組み立て・通信の失敗とタイムアウトの包み直し → `lib/apiClient.test.ts`
  * - 送る値を組み立てること・結果と進み方を画面の状態にすること → `generationRequest.test.ts`・`useRouteGeneration.test.ts`
  *
- * 差し替えたもの: 網（`fetch`）と時計（`setTimeout`・`performance`）。
+ * 差し替えたもの: 網（msw）と時計（`setTimeout`・`performance`）。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { stubBackend, type SentRequest } from "@/testing/backendFetch";
+import { onBackend, type SentRequest } from "@/testing/backendServer";
 import { makeRouteCandidate } from "@/testing/routeFixtures";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import type { GenerationConditions, RouteGenerateRequest } from "@/types/route";
@@ -36,17 +36,21 @@ const CONDITIONS = { latitude: 35.68, longitude: 139.77, distance_km: 40 } as Ge
 const JOB_PATH = "/api/routes/generate/job-1";
 const TTL_MS = routeGenerateConfig.job_result_ttl_seconds * 1000;
 
-type Poll = Response | Error;
-
-/** 生成の受け付けにはjob-1を返し、問い合わせには`polls`を順に返す（尽きたら最後のものを返し続ける）。 */
-function stubJob(polls: Poll[]): SentRequest[] {
+/** 生成の受け付けにはjob-1を返し、問い合わせには`polls`を順に返す（尽きたら最後のものを返し続ける）。届いた要求を順に積む。 */
+function stubJob(polls: Response[]): SentRequest[] {
+  const sent: SentRequest[] = [];
   let next = 0;
-  return stubBackend((request) => {
-    if (request.method === "POST") return Response.json({ job_id: "job-1" });
+  onBackend("POST", "/api/routes/generate", (request) => {
+    sent.push(request);
+    return Response.json({ job_id: "job-1" });
+  });
+  onBackend("GET", "/api/routes/generate/:jobId", (request) => {
+    sent.push(request);
     const reply = polls[Math.min(next, polls.length - 1)];
     next += 1;
-    return reply instanceof Error ? reply : reply.clone();
+    return reply.clone();
   });
+  return sent;
 }
 
 const pending = (status: "queued" | "running") => Response.json({ status });
@@ -64,7 +68,6 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
-  vi.unstubAllGlobals();
 });
 
 describe("generateRoutes", () => {
@@ -120,7 +123,9 @@ describe("generateRoutes", () => {
   });
 
   it("生成を受け付けてもらえなければ、問い合わせずに投げる", async () => {
-    const sent = stubBackend(() => Response.json({ detail: "混雑しています" }, { status: 429 }));
+    const sent = onBackend("POST", "/api/routes/generate", () =>
+      Response.json({ detail: "混雑しています" }, { status: 429 }),
+    );
 
     await expect(generateRoutes(REQUEST)).rejects.toThrow("混雑しています");
     expect(sent).toHaveLength(1);

@@ -13,7 +13,7 @@ import shapely
 from shapely.geometry import LineString
 
 from app.batch import derive_topology
-from app.batch._common import asyncpg_dsn
+from app.batch.common import asyncpg_dsn
 from app.batch.ingest import SourceRecord
 from app.batch.source_adapters.osm_pbf import way_payload
 from app.domain.traffic import DIRECTION_RULES, TAG_KIND_RULES, direction_sql, tag_kind_sql

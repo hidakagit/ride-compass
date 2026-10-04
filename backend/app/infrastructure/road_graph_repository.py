@@ -244,7 +244,7 @@ _TILE_MATERIAL_JOINS = f"""
 #
 # カバレッジ判定も同じクエリへ畳み込み、1タイルあたりのDB往復を1回にする。CASE式は条件が
 # falseの分岐を評価しないため、カバレッジ外ではMVT生成のサブクエリ自体が実行されない。
-_ROAD_SURFACE_TILE_MVT_SQL = text(
+ROAD_SURFACE_TILE_MVT_SQL = text(
     f"""
     WITH coverage AS ({COVERAGE_SQL})
     SELECT
@@ -374,7 +374,7 @@ _FEATURE_GRADIENT_INPUTS_IN_TILE_SQL = text(
 #: タイルのディスク／Redisキャッシュの鍵に入る**形の署名**。焼き込むSQLから導出するため、
 #: 列や分類タグを変えれば自動的に別の鍵になる。DBの中身が作り直されたことは署名では表せず、
 #: そちらは`services/tile_version_service.py`が世代の変化として扱う。
-ROAD_SURFACE_TILE_SHAPE = shape_digest(_ROAD_SURFACE_TILE_MVT_SQL)
+ROAD_SURFACE_TILE_SHAPE = shape_digest(ROAD_SURFACE_TILE_MVT_SQL)
 #: 勾配の入力を取り出すSQLの形の署名。勾配のタイル値のキャッシュの鍵に入る
 #: （`services/gradient_way_service.py: GRADIENT_VALUE_SHAPE`）。
 FEATURE_GRADIENT_INPUTS_SHAPE = shape_digest(_FEATURE_GRADIENT_INPUTS_IN_TILE_SQL)
@@ -910,7 +910,7 @@ class RoadGraphRepository:
         self, z: int, x: int, y: int, bbox: BoundingBox
     ) -> bytes | None:
         """路面レイヤーのMVTタイル1枚。契約は`get_tile_mvt`と同じ。"""
-        return await self.get_tile_mvt(_ROAD_SURFACE_TILE_MVT_SQL, ROAD_SURFACE_LAYER_NAME, z, x, y, bbox)
+        return await self.get_tile_mvt(ROAD_SURFACE_TILE_MVT_SQL, ROAD_SURFACE_LAYER_NAME, z, x, y, bbox)
 
     async def get_tile_mvt(
         self, sql: TextClause, layer_name: str, z: int, x: int, y: int, bbox: BoundingBox

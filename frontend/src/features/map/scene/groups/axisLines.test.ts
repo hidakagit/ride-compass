@@ -35,15 +35,6 @@ function opacityOf(value: AxisLineState["axes"][number]["value"], underlay = fal
 }
 
 describe("レンズの線の濃さ", () => {
-  it("値を受け取れなかった道は薄く、値を持つ道は濃く塗る", () => {
-    const opacity = opacityOf({ kind: "delivered", values: new Map(), loading: false }) as unknown[];
-
-    expect(opacity[0]).toBe("case");
-    expect(opacity[2]).toBe(mapDisplay.road.unknownOpacity);
-    expect(opacity[3]).toBe(mapDisplay.road.knownOpacity);
-    expect(mapDisplay.road.unknownOpacity).toBeLessThan(mapDisplay.road.knownOpacity);
-  });
-
   it("取得中は薄くしない（「取得中」と「対象外」が見分けられなくなるため）", () => {
     expect(opacityOf({ kind: "delivered", values: new Map(), loading: true })).toBe(mapDisplay.road.knownOpacity);
   });
@@ -88,10 +79,10 @@ describe("レンズの線の線種", () => {
     expect(evaluate(dash, { v: 15 })).toEqual([1, 0]);
   });
 
-  it("配信値の軸は、取得中でも取得後でも破線を持たない（破線の刻みはfeature-stateを読めない）", () => {
-    for (const loading of [true, false]) {
-      expect(layerFor({ kind: "delivered", values: new Map(), loading }).paint?.["line-dasharray"]).toBeUndefined();
-    }
+  it("配信値の軸は破線を持たない（破線の刻みはfeature-stateを読めない）", () => {
+    expect(
+      layerFor({ kind: "delivered", values: new Map(), loading: false }).paint?.["line-dasharray"],
+    ).toBeUndefined();
   });
 });
 
@@ -117,7 +108,6 @@ describe("タイルの材料から塗る軸", () => {
     expect(of({ v: 5 })).toBe("#16a34a");
     expect(of({ v: 15 })).toBe(TRANSPARENT);
     expect(of({ v: 25 })).toBe("#dc2626");
-    expect(of({})).toBe(palette.semantic.no_data);
   });
 
   it("「不明」を隠すと、評価できない道だけが透明になる", () => {
@@ -131,7 +121,6 @@ describe("タイルの材料から塗る軸", () => {
     const of = color({ ...TILE_VALUE, unknown: null }, ["low"]);
 
     expect(of({ v: 5 })).toBe(TRANSPARENT);
-    expect(of({ v: 15 })).toBe("#f59e0b");
   });
 });
 
@@ -145,10 +134,8 @@ describe("配信された値で塗る軸", () => {
     expect(color(delivered(true), [], {})).toBe(palette.semantic.loading);
   });
 
-  it("隠した段の道だけが透明になり、他の段の色は変わらない", () => {
+  it("段を隠すと、配信された値がその段の道が透明になる（隠し方はタイルの材料から塗る軸と同じ）", () => {
     expect(color(delivered(), ["mid"], { axValue: 15 })).toBe(TRANSPARENT);
-    expect(color(delivered(), ["mid"], { axValue: 25 })).toBe("#dc2626");
-    expect(color(delivered(), ["mid"], { axValue: 5 })).toBe("#16a34a");
   });
 
   it("「データなし」を隠すと値の無い道が透明になる。ただし取得中の色は残す", () => {

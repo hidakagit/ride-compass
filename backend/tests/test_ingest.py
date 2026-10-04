@@ -16,7 +16,7 @@ import shapely
 from shapely.geometry import Point
 
 from app.batch import derive_cli
-from app.batch._common import asyncpg_dsn
+from app.batch.common import asyncpg_dsn
 from app.batch.ingest import (
     ADAPTERS,
     RegisteredAdapter,

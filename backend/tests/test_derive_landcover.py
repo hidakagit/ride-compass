@@ -10,8 +10,8 @@ import pytest
 import pytest_asyncio
 
 from app.batch import derive_counts, derive_raster_materials, derive_topology
-from app.batch._common import asyncpg_dsn
-from app.batch.source_adapters._raster_wkb import tile_raster_wkb
+from app.batch.common import asyncpg_dsn
+from app.batch.source_adapters.raster_wkb import tile_raster_wkb
 from app.domain.landcover import (
     LANDCOVER_RING_INNER_M,
     LANDCOVER_RING_OUTER_M,

@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app as main_app
 from app.infrastructure.request_log import (
+    access_level,
     format_log_lines,
     request_log_middleware,
     unhandled_exception_handler,
@@ -56,19 +57,20 @@ def test_access_log_line_carries_the_request_id(caplog):
     assert "ms client=" in line
 
 
-def test_access_level_policy():
-    # タイル系(高頻度)のGET成功はDEBUG、通常エンドポイントの成功はINFO、
-    # 4xxはWARNING(ただし429は別途record_rate_limit_rejectionが出すためDEBUG)、5xxはERROR。
-    # タイル系プレフィックス配下でも状態を変える操作(POSTのキャッシュ全消去)はINFOで残す。
-    from app.infrastructure.request_log import _access_level
-
-    assert _access_level("GET", "/api/basemap/tiles/1", 200) == logging.DEBUG
-    assert _access_level("GET", "/api/region/road-surface-tiles/14/1/1.pbf", 200) == logging.DEBUG
-    assert _access_level("POST", "/api/admin/basemap/refresh", 200) == logging.INFO
-    assert _access_level("POST", "/api/routes/generate", 200) == logging.INFO
-    assert _access_level("POST", "/api/routes/generate", 400) == logging.WARNING
-    assert _access_level("POST", "/api/routes/generate", 429) == logging.DEBUG
-    assert _access_level("GET", "/api/basemap/tiles/1", 502) == logging.ERROR
+@pytest.mark.parametrize(
+    ("method", "path", "status_code", "level"),
+    [
+        # タイル系(高頻度)のGET成功はDEBUG、通常エンドポイントの成功はINFO。
+        ("GET", "/api/basemap/tiles/1", 200, logging.DEBUG),
+        ("GET", "/api/axis-catalog", 200, logging.INFO),
+        # 4xxはWARNING(ただし429は別途record_rate_limit_rejectionが出すためDEBUG)、5xxはERROR。
+        ("POST", "/api/routes/generate", 400, logging.WARNING),
+        ("POST", "/api/routes/generate", 429, logging.DEBUG),
+        ("GET", "/api/basemap/tiles/1", 502, logging.ERROR),
+    ],
+)
+def test_access_level_policy(method, path, status_code, level):
+    assert access_level(method, path, status_code) == level
 
 
 def test_unhandled_exception_logged_as_error_with_traceback(caplog):

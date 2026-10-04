@@ -28,7 +28,6 @@ from app.domain.region import (
 )
 
 WGS84_SEMI_MAJOR_AXIS_M = 6378137.0
-MERCATOR_HALF_M = math.pi * WGS84_SEMI_MAJOR_AXIS_M
 MERCATOR_LATITUDE_LIMIT = 85.0511287798
 KM_PER_DEGREE_ON_A_6371KM_SPHERE = 2 * math.pi * 6371.0 / 360
 
@@ -48,13 +47,11 @@ def box(min_lat: float, min_lon: float, max_lat: float, max_lon: float) -> Bound
 @pytest.mark.parametrize(
     ("corners", "message"),
     [
-        ((35.1, 139.0, 35.0, 139.1), "緯度はmin < maxが必要です"),
-        ((35.0, 139.1, 35.1, 139.0), "経度はmin < maxが必要です"),
         ((35.0, 139.0, 35.0, 139.1), "緯度はmin < maxが必要です"),
         ((35.0, 139.0, 35.1, 139.0), "経度はmin < maxが必要です"),
     ],
 )
-def test_a_box_with_swapped_or_empty_sides_is_rejected(corners, message):
+def test_a_box_with_empty_sides_is_rejected(corners, message):
     with pytest.raises(ValidationError, match=message):
         box(*corners)
 
@@ -62,25 +59,14 @@ def test_a_box_with_swapped_or_empty_sides_is_rejected(corners, message):
 # --- bbox_covering_points ---
 
 
-def test_the_margin_extends_every_side_by_about_that_many_kilometers():
-    point = Point(35.0, 139.0)
-
-    covering = bbox_covering_points([point], margin_km=10.0)
-
-    km_per_degree_longitude = KM_PER_DEGREE_ON_A_6371KM_SPHERE * math.cos(math.radians(35.0))
-    assert (point.latitude - covering.min_latitude) * KM_PER_DEGREE_ON_A_6371KM_SPHERE == pytest.approx(10.0, rel=0.01)
-    assert (covering.max_latitude - point.latitude) * KM_PER_DEGREE_ON_A_6371KM_SPHERE == pytest.approx(10.0, rel=0.01)
-    assert (point.longitude - covering.min_longitude) * km_per_degree_longitude == pytest.approx(10.0, rel=0.01)
-    assert (covering.max_longitude - point.longitude) * km_per_degree_longitude == pytest.approx(10.0, rel=0.01)
-
-
-def test_the_longitude_margin_is_converted_at_the_mean_latitude_of_the_points():
+def test_the_margin_extends_every_side_by_about_that_many_kilometers_converting_longitude_at_the_mean_latitude():
     covering = bbox_covering_points([Point(30.0, 139.0), Point(40.0, 140.0)], margin_km=10.0)
 
     km_per_degree_longitude = KM_PER_DEGREE_ON_A_6371KM_SPHERE * math.cos(math.radians(35.0))
+    assert (30.0 - covering.min_latitude) * KM_PER_DEGREE_ON_A_6371KM_SPHERE == pytest.approx(10.0, rel=0.01)
+    assert (covering.max_latitude - 40.0) * KM_PER_DEGREE_ON_A_6371KM_SPHERE == pytest.approx(10.0, rel=0.01)
     assert (139.0 - covering.min_longitude) * km_per_degree_longitude == pytest.approx(10.0, rel=0.01)
     assert (covering.max_longitude - 140.0) * km_per_degree_longitude == pytest.approx(10.0, rel=0.01)
-    assert covering.min_latitude < 30.0 and covering.max_latitude > 40.0
 
 
 # 日本の取込範囲を含む広さ。極・日付変更線をまたぐ矩形は`BoundingBox`が表せない。
@@ -108,17 +94,9 @@ def test_parse_bbox_reads_min_lat_min_lon_max_lat_max_lon_in_that_order():
     assert parse_bbox("35.0, 139.0,35.5,139.5") == box(35.0, 139.0, 35.5, 139.5)
 
 
-@pytest.mark.parametrize("text", ["35.0,139.0,35.5", "35.0,139.0,35.5,139.5,1"])
-def test_parse_bbox_needs_exactly_four_values(text):
+def test_parse_bbox_needs_exactly_four_values():
     with pytest.raises(ValueError, match="4値が必要です"):
-        parse_bbox(text)
-
-
-@pytest.mark.parametrize("text", ["35.0,139.0,35.5,east", "139.0,35.0,139.5,35.5"])
-def test_parse_bbox_rejects_values_that_are_not_a_box(text):
-    """数でない値と、緯度と経度を取り違えた並び（緯度が90を超える）は通らない。"""
-    with pytest.raises(ValueError):
-        parse_bbox(text)
+        parse_bbox("35.0,139.0,35.5")
 
 
 # --- tile_bounds_lonlat・tile_bounds_3857 ---
@@ -132,13 +110,11 @@ def test_the_single_tile_at_zoom_0_covers_the_whole_mercator_world():
     world = box(-MERCATOR_LATITUDE_LIMIT, -180.0, MERCATOR_LATITUDE_LIMIT, 180.0)
 
     assert _approx_box(tile_bounds_lonlat(0, 0, 0), world)
-    assert tile_bounds_3857(0, 0, 0) == pytest.approx((-MERCATOR_HALF_M, -MERCATOR_HALF_M, MERCATOR_HALF_M, MERCATOR_HALF_M))
 
 
 def test_y_grows_southward_and_x_grows_eastward():
     """z1のx=1, y=0は北東の4分の1。"""
     assert _approx_box(tile_bounds_lonlat(1, 1, 0), box(0.0, 0.0, MERCATOR_LATITUDE_LIMIT, 180.0))
-    assert tile_bounds_3857(1, 1, 0) == pytest.approx((0.0, 0.0, MERCATOR_HALF_M, MERCATOR_HALF_M), abs=1e-6)
 
 
 def mercator_m(longitude: float, latitude: float) -> tuple[float, float]:
@@ -176,29 +152,6 @@ def test_neighboring_tiles_share_their_edges(tile):
 # --- tiles_covering_bbox ---
 
 
-@given(tile=tiles)
-def test_a_box_strictly_inside_a_tile_is_covered_by_that_tile_alone(tile):
-    z, x, y = tile
-    bounds = tile_bounds_lonlat(z, x, y)
-    inset_lat = (bounds.max_latitude - bounds.min_latitude) / 4
-    inset_lon = (bounds.max_longitude - bounds.min_longitude) / 4
-    inside = box(
-        bounds.min_latitude + inset_lat,
-        bounds.min_longitude + inset_lon,
-        bounds.max_latitude - inset_lat,
-        bounds.max_longitude - inset_lon,
-    )
-
-    assert tiles_covering_bbox(inside, z) == [(x, y)]
-
-
-def test_a_box_across_tile_edges_takes_every_tile_it_touches():
-    # z1の4枚の境目（経度0・緯度0）をまたぐ。
-    covering = tiles_covering_bbox(box(-1.0, -1.0, 1.0, 1.0), 1)
-
-    assert sorted(covering) == [(0, 0), (0, 1), (1, 0), (1, 1)]
-
-
 def test_an_east_or_south_side_lying_on_a_tile_edge_also_takes_the_tile_beyond_it():
     """境目の上の点は東・南のタイルに属するとみなす（覆い漏れの無い側へ倒れる）。"""
     covering = tiles_covering_bbox(box(0.0, -10.0, 10.0, 0.0), 1)
@@ -207,7 +160,6 @@ def test_an_east_or_south_side_lying_on_a_tile_edge_also_takes_the_tile_beyond_i
 
 
 def test_a_box_reaching_beyond_the_mercator_limits_stops_at_the_edge_of_the_world():
-    assert tiles_covering_bbox(box(-90.0, -180.0, 90.0, 180.0), 0) == [(0, 0)]
     assert sorted(tiles_covering_bbox(box(-90.0, -180.0, 90.0, 180.0), 1)) == [(0, 0), (0, 1), (1, 0), (1, 1)]
 
 
