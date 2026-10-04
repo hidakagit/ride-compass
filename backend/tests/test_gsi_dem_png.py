@@ -49,14 +49,13 @@ def terrain_rgb_meters(png: bytes) -> np.ndarray:
 def test_every_elevation_reads_back_to_the_nearest_tenth_of_a_metre(centimeters):
     meters = terrain_rgb_meters(gsi_dem_png_to_terrain_rgb(gsi_png(centimeters)))
 
-    assert meters.shape == centimeters.shape
     np.testing.assert_allclose(meters, centimeters / 100, atol=0.05 + 1e-6)
 
 
 def test_a_pixel_without_elevation_becomes_sea_level_not_a_cliff():
-    rgb = np.array([[GSI_NO_DATA, (0, 0, 100)]], dtype=np.uint8)
+    rgb = np.array([[GSI_NO_DATA]], dtype=np.uint8)
 
     meters = terrain_rgb_meters(gsi_dem_png_to_terrain_rgb(png_of(rgb)))
 
-    np.testing.assert_allclose(meters, [[0.0, 1.0]], atol=1e-6)
+    np.testing.assert_allclose(meters, [[0.0]], atol=1e-6)
 

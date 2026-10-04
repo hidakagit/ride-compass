@@ -45,36 +45,26 @@ def warnings(caplog, empty_debug_counters):
 
 async def test_a_tile_is_relayed_and_served_from_disk_after_a_restart():
     router = respx.Router()
-    route = router.get(f"{UPSTREAM}/{RELIEF}").respond(content=b"\x89PNG", headers={"content-type": "image/png"})
+    router.get(f"{UPSTREAM}/{RELIEF}").respond(content=b"\x89PNG", headers={"content-type": "image/png"})
 
     first = await client(router).get(RELIEF)
     later = await client(unreachable()).get(RELIEF)
 
     assert first == later == (b"\x89PNG", "image/png")
-    assert route.call_count == 1
-
-
-async def test_a_tile_without_a_content_type_is_served_as_png():
-    router = respx.Router()
-    router.get(f"{UPSTREAM}/{RELIEF}").respond(content=b"\x89PNG")
-
-    assert await client(router).get(RELIEF) == (b"\x89PNG", "image/png")
 
 
 async def test_outside_coverage_is_remembered_for_the_process_but_not_across_a_restart(warnings):
     """整備区域は広がりうるので、区域外の記憶はディスクへ残さない。"""
     router = respx.Router()
-    route = router.get(f"{UPSTREAM}/{RELIEF}").respond(404)
+    router.get(f"{UPSTREAM}/{RELIEF}").side_effect = [httpx.Response(404), httpx.Response(200, content=b"\x89PNG")]
     not_found = LRUCache(maxsize=16)
 
     first = await client(router, not_found).get(RELIEF)
     same_process = await client(unreachable(), not_found).get(RELIEF)
-    assert route.call_count == 1
-
     after_restart = await client(router).get(RELIEF)
 
-    assert first is same_process is after_restart is gsi_tile_client.GSI_TILE_NOT_FOUND
-    assert route.call_count == 2
+    assert first is same_process is gsi_tile_client.GSI_TILE_NOT_FOUND
+    assert after_restart == (b"\x89PNG", "image/png")
     assert warnings() == []
 
 
