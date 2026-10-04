@@ -20,8 +20,16 @@ if (release) {
   console.log(`#${number} を手放した`);
   process.exit(0);
 }
+// もう種類「開発機」の実行が持っていれば、列に並ばずに終える（並ぶと、その実行が手放されるまで最大6時間待つ）。誰の実行かは
+// 道具には分からないので、どうするかは打った者が決める。
+const runs = holds();
+const held = runs.find((r) => r.status !== "completed");
+if (held) {
+  console.log(`#${number} はもう種類「開発機」の実行が持っている: ${held.html_url}（自分が持ったものなら、持ち直さずに続ける。別のセッションのものなら、手放されてから打ち直す）`);
+  process.exit(1);
+}
 // 起こした実行は、起こす前に無かった種類「開発機」の実行のうち一番新しいもの（workflow_dispatch は実行の id を返さない）。
-const before = new Set(holds().map((r) => r.id));
+const before = new Set(runs.map((r) => r.id));
 gh("workflow", "run", workflow, "-R", repository, "--ref", base, "-f", `issue=${number}`, "-f", "kind=開発機");
 for (;;) {
   await new Promise((r) => setTimeout(r, 10e3));
