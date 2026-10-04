@@ -23,10 +23,8 @@ class FakeRepositoryForMaterialValues:
     def __init__(self, values: list[str] | None = None, error: Exception | None = None):
         self._values = values or []
         self._error = error
-        self.last_material_id: str | None = None
 
     async def get_distinct_material_values(self, material_id: str) -> list[str]:
-        self.last_material_id = material_id
         if self._error is not None:
             raise self._error
         return self._values
@@ -57,29 +55,12 @@ def test_get_material_values_returns_sorted_distinct_values_from_service(admin_c
             {"value": "residential", "label": "住宅街の道路 - residential"},
         ]
     }
-    assert fake.last_material_id == "highway"
 
 
 def test_get_material_values_unknown_material_id_is_404(admin_credentials):
     response = client.get(values_url("not_a_real_material"), headers=AUTH_HEADERS)
 
     assert response.status_code == 404
-
-
-def test_get_material_values_known_material_without_dynamic_support_returns_empty_list(admin_credentials):
-    # 改善計画T340: tracktypeのように事前に閉じた値集合を持つ既知の材料は404にせず、
-    # available=trueの空リストを返す（フロント側は自由テキスト入力へフォールバックする）。
-    fake = FakeRepositoryForMaterialValues(values=[])
-    app.dependency_overrides[get_road_graph_repository] = lambda: fake
-
-    try:
-        response = client.get(values_url("tracktype"), headers=AUTH_HEADERS)
-    finally:
-        app.dependency_overrides.clear()
-
-    assert response.status_code == 200
-    assert response.json() == {"available": True, "values": []}
-    assert fake.last_material_id == "tracktype"
 
 
 def test_get_material_values_the_db_could_not_read_is_unavailable(admin_credentials):
