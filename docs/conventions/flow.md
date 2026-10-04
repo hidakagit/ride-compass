@@ -360,11 +360,17 @@ issue の番号ごと）が持つ。同じタスクの実行（作る・確か�
 | 止まり方 | 例 | 当てる先 |
 |---|---|---|
 | Claude Code の自動モードの判定が、編集を自分を動かす設定の書き換えとして断る（1か所目が通っても次から断られる） | CLAUDE.md・`.claude/` の設定 | 作業ブランチ（Pull Request を出す前） |
-| 担当のトークンに GitHub の `workflow` の権限が無く、push が `refusing to allow a Personal Access Token to create or update workflow` で断られる | `.github/workflows/` | master（タスクの Pull Request のマージのあと、ユーザーの Pull Request で） |
+| 担当のトークンに GitHub の `workflow` の権限が無く、push が `refusing to allow a Personal Access Token to create or update workflow` で断られる | `.github/workflows/` | master（ユーザーの Pull Request で。タスクの Pull Request のマージのあとか、出す前か。下の1） |
 
 1. 作る: 書けるファイルはふつうに直して作業ブランチへ push する。書けないファイルは作業ツリーの外へ写して写しを直し、
    `diff -u --label a/<パス> --label b/<パス> <パス> <写し>` でパッチにする（ファイルが複数なら続けて足す）。作業ツリーの側は直さない。
-   master へ当てるものは、完了の条件にチェックの無い行として書く（マージのあとの残りとして未着手へ戻る）。
+   master へ当てるものは、完了の条件にチェックの無い行として書く。当てる順番は、変更の依存の向きで選ぶ:
+   - **マージのあとに当てる**（既定）: 作業ブランチの変更が今のワークフローで動くとき。行はマージのあとの残りとして未着手へ戻る。
+   - **Pull Request を出す前に当てる**: 作業ブランチの変更が今のワークフローで動かず（マージの直後から今のワークフローが落ちる）、
+     パッチが今の master の道具で動くとき。マージは確かめる担当が確認を待たずに打つので、Pull Request を出してから当ててもらうと
+     順番を守れない。Pull Request を出さずに4で問って終える。
+   - どちらの順でも動かない変更は、どちらかの順で動く中間の形を挟んで、「段階に分ける」のとおり2段に分ける（段階ごとに上の
+     2つのどちらかで当てる）。
 2. 置く: issue のコメントに、見出し「<ファイル>の変更（パッチ）」・何を変えたか・当たる版（作業ブランチか master のコミット）と、
    パッチを置く。パッチは4つのバッククォートの囲み（バッククォート4つと `diff` の行で開き、バッククォート4つだけの行で閉じる）に
    入れる——中の差分に3つのバッククォートの行があっても囲みが閉じない。コメントは `--body-file` で書く（`gh issue comment` が出す URL の末尾がコメントの id）。
@@ -379,7 +385,9 @@ issue の番号ごと）が持つ。同じタスクの実行（作る・確か�
    Edit this file → Commit changes... → Create a new branch for this commit and start a pull request でもよい）。
 5. 答えのあと: 作業ブランチなら、手順の1で取った枝にユーザーのコミットがあること（`git log origin/master..HEAD -- <パス>`）を見て、
    パッチから変わった所があれば読み、検査を通して手順の4から続ける。master なら、master のファイルにパッチの変更が入っていることを
-   見て完了の条件にチェックを付け、残りが無ければ閉じる。
+   見て完了の条件にチェックを付ける。マージのあとに当てたものは、残りが無ければ閉じる。Pull Request を出す前に当てたものは、
+   `git fetch origin` のあと作業ブランチへ `git merge origin/master` で取り込み（載せ直し）、検査を通して作る担当の4から続けて
+   Pull Request を出す。
 
 ## 改善を起票する
 
