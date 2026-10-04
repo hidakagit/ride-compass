@@ -70,6 +70,7 @@ def test_the_identity_is_the_revision_followed_by_the_signature():
     identity = cache_identity.cache_identity("2", "SELECT 1")
 
     assert identity == f"2-{cache_identity.shape_digest('SELECT 1')}"
+    assert cache_identity.cache_identity("3", "SELECT 1") != identity
 
 
 @pytest.mark.parametrize(("revisions", "version", "known"), [

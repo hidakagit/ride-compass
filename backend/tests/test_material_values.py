@@ -99,11 +99,12 @@ async def test_a_surface_falls_in_the_class_that_lists_it_and_other_values_in_ot
     values = await _way_values(road_graph_session, material_sql.surface_class_sql(_CLASSES), {
         1: {"surface": " VALUE_A "},
         2: {"surface": "o'quoted"},
-        3: {"surface": "unlisted"},
-        4: {},
+        3: {"surface": "value_b"},
+        4: {"surface": "unlisted"},
+        5: {},
     })
 
-    assert values == {1: "class_a", 2: "class_a", 3: material_sql.SURFACE_OTHER_KEY, 4: None}
+    assert values == {1: "class_a", 2: "class_a", 3: "class_b", 4: material_sql.SURFACE_OTHER_KEY, 5: None}
 
 
 async def test_the_surface_estimate_gives_every_road_a_value(road_graph_session):
