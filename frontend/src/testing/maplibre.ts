@@ -76,10 +76,7 @@ function asRendered(feature: PointedFeature) {
 }
 
 export class LngLatBounds {
-  readonly points: LngLat[] = [];
-
-  extend(point: readonly [number, number]) {
-    this.points.push(toLngLat(point));
+  extend() {
     return this;
   }
 }
@@ -92,9 +89,9 @@ export class Marker extends Evented {
   private lngLat: LngLat = { lng: 0, lat: 0 };
   private map: StandInMap | null = null;
 
-  constructor(options: { element?: HTMLElement; draggable?: boolean } = {}) {
+  constructor(options: { element: HTMLElement; draggable?: boolean }) {
     super();
-    this.element = options.element ?? document.createElement("div");
+    this.element = options.element;
     this.draggable = options.draggable ?? false;
   }
 
@@ -177,7 +174,7 @@ const drawn: StandInMap[] = [];
 
 class StandInMap extends Evented {
   readonly markers = new Set<Marker>();
-  readonly fits: { bounds: LngLatBounds; options: unknown }[] = [];
+  readonly fits: unknown[] = [];
   readonly styles: string[];
   readonly content: ReturnType<typeof createRecordingMap>["handle"];
   private readonly container: HTMLElement;
@@ -231,8 +228,8 @@ class StandInMap extends Evented {
     return this;
   }
 
-  fitBounds(bounds: LngLatBounds, options: unknown) {
-    this.fits.push({ bounds, options });
+  fitBounds(_bounds: LngLatBounds, options: unknown) {
+    this.fits.push(options);
     return this;
   }
 
@@ -294,8 +291,8 @@ export interface MapOnScreen {
   sourceFeatures(sourceId: string): GeoJSON.Feature[];
   /** 地図に置いた印。 */
   markers(): { coordinates: Coordinates; draggable: boolean; element: HTMLElement }[];
-  /** 収めた範囲の指定（古い順）。 */
-  readonly fits: readonly { bounds: LngLatBounds; options: unknown }[];
+  /** 範囲を収めたときの指定（余白等。古い順）。 */
+  readonly fits: readonly unknown[];
   /** 求めたスタイル（最初の1つと、取り直しの分）。 */
   readonly styles: readonly string[];
 }

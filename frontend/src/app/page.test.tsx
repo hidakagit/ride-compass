@@ -582,7 +582,7 @@ describe("画面の枠", () => {
     expect(await generate(user)).toMatchObject({ latitude: HERE.latitude, longitude: HERE.longitude });
     await waitFor(() => expect(outcomeTab).toHaveAccessibleDescription("新しい結果があります"));
     // ルートは、開いているシートが覆う高さ（画面の半分）を避けて収める。
-    const { padding } = mapOnScreen().fits.at(-1)!.options as { padding: { top: number; bottom: number } };
+    const { padding } = mapOnScreen().fits.at(-1) as { padding: { top: number; bottom: number } };
     expect(padding.bottom - padding.top).toBe(window.innerHeight * 0.5);
 
     await user.click(outcomeTab);
