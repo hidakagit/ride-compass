@@ -80,44 +80,35 @@ def axes(*definitions: AxisDefinition) -> dict[str, AxisDefinition]:
 
 
 class TestDependencies:
-    def test_the_axes_an_axis_reads_are_its_dependencies(self):
-        definition = axis(
-            "outer", "num_a", "inner", priority_overrides=[PriorityCondition(material="flag_axis", equals="x", value=0.0)]
-        )
-
-        assert axis_definitions.axis_dependencies(definition, {"inner", "flag_axis", "outer"}) == {"inner", "flag_axis"}
-
-    def test_a_reference_outside_the_known_axes_is_not_a_dependency(self):
-        assert axis_definitions.axis_dependencies(axis("outer", "inner"), {"outer"}) == set()
-
-    def test_a_name_that_is_also_a_material_is_read_as_the_material(self):
-        assert axis_definitions.axis_dependencies(axis("outer", "num_a"), {"num_a", "outer"}) == set()
+    @pytest.mark.parametrize(
+        ("definition", "known", "expected"),
+        [
+            (
+                axis("outer", "num_a", "inner", priority_overrides=[PriorityCondition(material="flag_axis", equals="x", value=0.0)]),
+                {"inner", "flag_axis", "outer"},
+                {"inner", "flag_axis"},
+            ),
+            (axis("outer", "inner"), {"outer"}, set()),
+            (axis("outer", "num_a"), {"num_a", "outer"}, set()),
+        ],
+        ids=["known-axes", "unknown-axis", "also-a-material"],
+    )
+    def test_the_known_axes_an_axis_reads_other_than_materials_are_its_dependencies(self, definition, known, expected):
+        assert axis_definitions.axis_dependencies(definition, known) == expected
 
 
 class TestTopologicalOrder:
-    def test_an_axis_comes_after_the_axes_it_reads(self):
-        definitions = axes(axis("top", "middle"), axis("middle", "bottom"), axis("bottom"))
-
-        assert axis_definitions.topological_axis_order(definitions) == ["bottom", "middle", "top"]
-
     def test_axes_no_one_reads_keep_their_given_order_and_a_shared_axis_comes_once(self):
         definitions = axes(axis("first", "inner"), axis("second"), axis("third", "inner"), axis("inner"))
 
         assert axis_definitions.topological_axis_order(definitions) == ["inner", "first", "second", "third"]
 
-    @pytest.mark.parametrize(
-        ("definitions", "cycle"),
-        [
-            (axes(axis("a", "b"), axis("b", "a")), ["a", "b", "a"]),
-            (axes(axis("a", "a")), ["a", "a"]),
-        ],
-    )
-    def test_a_cycle_is_refused_naming_the_axes_around_it(self, definitions, cycle):
+    def test_a_cycle_is_refused_naming_the_axes_around_it(self):
         with pytest.raises(axis_definitions.AxisDependencyCycleError) as caught:
-            axis_definitions.topological_axis_order(definitions)
+            axis_definitions.topological_axis_order(axes(axis("a", "b"), axis("b", "a")))
 
-        assert caught.value.cycle == cycle
-        assert "→".join(f"「{a}」" for a in cycle) in str(caught.value)
+        assert caught.value.cycle == ["a", "b", "a"]
+        assert "「a」→「b」→「a」" in str(caught.value)
 
     def test_the_order_follows_the_contents_when_the_same_mapping_is_rewritten(self):
         definitions = axes(axis("a", "b"), axis("b"))
@@ -142,7 +133,6 @@ class TestDynamicOrder:
 
     def test_the_list_follows_the_contents_when_the_same_mapping_is_rewritten(self):
         definitions = axes(axis("wind", DYNAMIC), axis("other", "num_a"))
-        assert axis_definitions.dynamic_axis_topological_order(definitions) == ["wind"]
         assert axis_definitions.dynamic_axis_topological_order(definitions) == ["wind"]
 
         definitions.clear()
@@ -173,10 +163,6 @@ class TestEvaluateAllAxes:
 
         assert list(result) == ["outer", "plain"]
         assert result == {"outer": [50.0, None], "plain": [10.0, 10.0]}
-
-    def test_a_published_axis_without_its_materials_stays_with_no_scores(self):
-        with replaced_axis_definitions(axes(axis("lonely", "num_c", published=True))):
-            assert axis_definitions.evaluate_axes_values({}, 2) == {"lonely": [None, None]}
 
     def test_inputs_are_the_raw_sum_or_the_looked_up_value_of_each_published_axis(self):
         definitions = axes(

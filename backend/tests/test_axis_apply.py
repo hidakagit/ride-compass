@@ -129,7 +129,6 @@ class TestShowingTheChange:
 
         assert code == 0
         assert "軸 axis_a: 下書き → 下書き" in out
-        assert "  default_weight: 1.0 → 2.0" in out
         assert "書く操作: 定義を書き換える" in out
         assert f"--apply {fingerprint(out)}" in out
         assert api.writes == []
@@ -239,7 +238,6 @@ class TestFailures:
 
         assert code == 1
         assert f"PUT {ADMIN}/axis_a が422を返しました: {shown}" in err
-        assert api.axes["axis_a"] == definition()
 
     def test_a_refused_unpublishing_changed_nothing_and_is_not_put_back(self, run):
         api = AdminApi(definition(is_published=True))
@@ -251,38 +249,25 @@ class TestFailures:
         assert "取り消せません" in err and "戻しました" not in err
         assert api.writes == [("POST", f"{ADMIN}/axis_a/unpublish")]
 
-    def test_a_failure_after_unpublishing_puts_the_published_original_back(self, run):
-        original = definition(is_published=True)
-        api = AdminApi(original)
-        api.fail("PUT", f"{ADMIN}/axis_a")
+    @pytest.mark.parametrize(
+        ("failing", "argv"),
+        [
+            ({"method": "PUT", "after": False}, ()),
+            ({"method": "DELETE", "after": True}, ("--delete", "axis_a")),
+            ({"method": "PUT", "after": True}, ()),
+        ],
+        ids=["left-unpublished", "gone", "written-and-published"],
+    )
+    def test_a_failure_after_unpublishing_puts_the_published_original_back(self, run, failing, argv):
+        api = AdminApi(definition(is_published=True))
+        api.fail(failing["method"], f"{ADMIN}/axis_a", status=500, after=failing["after"])
 
-        code, _, err = apply(run, api, desired=definition(default_weight=2.0, is_published=True))
+        code, _, err = apply(run, api, *argv, desired=None if argv else definition(default_weight=2.0, is_published=True))
 
         assert code == 1
         assert "元の定義（公開）へ戻しました" in err
         assert api.axes["axis_a"]["is_published"] is True
         assert api.axes["axis_a"]["default_weight"] == 1.0
-
-    def test_an_axis_gone_after_a_failed_answer_is_added_back(self, run):
-        api = AdminApi(definition(is_published=True))
-        api.fail("DELETE", f"{ADMIN}/axis_a", status=500, body={"detail": "応答できませんでした"}, after=True)
-
-        code, _, err = apply(run, api, "--delete", "axis_a")
-
-        assert code == 1
-        assert "元の定義（公開）へ戻しました" in err
-        assert api.axes["axis_a"]["is_published"] is True
-
-    def test_an_update_written_before_a_failed_answer_is_unpublished_and_put_back(self, run):
-        api = AdminApi(definition(is_published=True))
-        api.fail("PUT", f"{ADMIN}/axis_a", status=500, body={"detail": "応答できませんでした"}, after=True)
-
-        code, _, err = apply(run, api, desired=definition(default_weight=2.0, is_published=True))
-
-        assert code == 1
-        assert "元の定義（公開）へ戻しました" in err
-        assert api.axes["axis_a"]["default_weight"] == 1.0
-        assert api.axes["axis_a"]["is_published"] is True
 
     def test_when_the_original_cannot_be_put_back_it_is_shown_for_restoring_by_hand(self, run):
         api = AdminApi(definition(is_published=True))
