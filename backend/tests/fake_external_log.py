@@ -11,6 +11,8 @@
 import contextlib
 from dataclasses import dataclass
 
+from app.infrastructure.debug_log import error_type_label
+
 
 @dataclass
 class ExternalCall:
@@ -28,7 +30,11 @@ def record_external_calls(monkeypatch, module) -> list[ExternalCall]:
     def fake_log_external_call(category, **log_fields):
         call = ExternalCall(category, dict(log_fields))
         recorded.append(call)
-        yield call.fields
+        try:
+            yield call.fields
+        except Exception as exc:
+            call.fields["error_type"] = error_type_label(exc)
+            raise
 
     monkeypatch.setattr(module, "log_external_call", fake_log_external_call)
     return recorded

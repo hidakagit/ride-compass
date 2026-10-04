@@ -4,8 +4,8 @@
 ディスクは本物を通す。ディスクが拒む場面は、置き場をファイルの下へ向けて作る。
 
 ここで見ないもの:
-- 置いたものが戻る・置いていない鍵は無い・全消去 → `diskcache`への1行の委譲で、使う側が通す
-  （`test_basemap_client.py`・`test_gsi_tile_client.py`のディスクから返す場面・`test_basemap_routes.py`の全消去）
+- 置いたものが戻る・置いていない鍵は無い → `test_fake_tile_cache.py`（代役と同じテストを本物へ流す）
+- 全消去 → `diskcache`への1行の委譲で、使う側（`test_basemap_routes.py`）が通す
 - 容量の上限と退避の順 → `diskcache`が持つ（設定は宣言で、振る舞いはライブラリのもの）
 - 読み書きをイベントループの外で行うこと → 呼び出し元の順序の約束で、結果に現れない
   （理由は`docs/modules/backend/static-road-attributes.md`「vector_tile.py・tile_cache.py」）
