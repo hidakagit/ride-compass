@@ -11,11 +11,12 @@ const { rest: [number, release] } = args("node tools/flow-gate/bin/hold.js <issu
 const { workflow } = config.coordinator;
 const { repository, base } = config.code;
 const gh = (...a) => execFileSync("gh", a, { encoding: "utf8" });
-const holds = () => JSON.parse(gh("api", `/repos/${repository}/actions/workflows/${workflow}/runs?per_page=50`)).workflow_runs
+// 実行の一覧は大きいので、gh の側で要る項目だけに絞る。
+const holds = () => JSON.parse(gh("api", `repos/${repository}/actions/workflows/${workflow}/runs?per_page=50`, "--jq", "[.workflow_runs[] | {id, status, conclusion, display_title, html_url}]"))
   .filter((r) => { const [n, kind] = runOf(r.display_title); return Number(n) === Number(number) && kind === "開発機"; });
 
 if (release) {
-  for (const r of holds().filter((r) => r.status !== "completed")) gh("api", "-X", "POST", `/repos/${repository}/actions/runs/${r.id}/cancel`);
+  for (const r of holds().filter((r) => r.status !== "completed")) gh("api", "-X", "POST", `repos/${repository}/actions/runs/${r.id}/cancel`);
   console.log(`#${number} を手放した`);
   process.exit(0);
 }
