@@ -3,7 +3,7 @@
 # 担当は docs/conventions/flow.md の「作る担当」「確かめる担当」の手順を進める。
 # このリポジトリは公開で、Actions の記録は誰でも読める。担当の出力の全文（show_full_output）と報告（display_report）は出さない。
 name: Claude Task
-# 振り出しは、この名前から動いている担当の issue の番号を読む（tools/flow-gate/src/dispatch.js: runIssue）。
+# 振り出しは、この名前から動いている担当の issue の番号を読む（tools/flow-gate/src/dispatch.js: runOf）。
 run-name: "#${{ inputs.issue }} ${{ inputs.kind }}"
 
 on:
@@ -34,7 +34,7 @@ jobs:
     env:
       TEST_DATABASE_URL: postgresql+asyncpg://ridecompass:ridecompass@localhost:5432/ridecompass_test
       DATABASE_URL: postgresql+asyncpg://ridecompass:ridecompass@localhost:5432/ridecompass_test
-      # 置き場へ書く道具（tools/flow-gate/bin/token.js）は hidakagit-bot、コードのリポジトリの gh は hidakagit の名義。
+      # 置き場へ書く道具（tools/flow-gate/bin/cli.js）は hidakagit-bot、コードのリポジトリの gh は hidakagit の名義。
       # マージを GITHUB_TOKEN で打つと master の CI とデプロイが起きないので、hidakagit のトークンで打つ。
       FLOW_BOT_TOKEN: ${{ secrets.FLOW_BOT_TOKEN }}
       GH_TOKEN: ${{ secrets.CODE_TOKEN }}

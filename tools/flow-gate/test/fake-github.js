@@ -1,136 +1,76 @@
-// テスト用の GitHub。ゲートの網の外側（fetch）だけを差し替え、書き込みと呼び出しの回数を記録する。
+// テスト用の GitHub。網（fetch）だけを差し替え、1件の issue と Project・コメント・状況の更新を持って、書き込みを記録する。
 import config from "../flow.config.json" with { type: "json" };
 
-const OPTIONS = Object.fromEntries(config.statuses.map((s, i) => [s, `opt${i}`]));
-const NAMES = Object.fromEntries(Object.entries(OPTIONS).map(([k, v]) => [v, k]));
-// Status のほかの単一選択の欄（Project に足してあるもの）。選択肢の id は「欄の名前:選択肢」。日付の欄は着手可能日（id は「F_欄の名前」）。
+const OPTIONS = Object.fromEntries(config.statuses.map((s) => [s, `S:${s}`]));
 const FIELDS = { [config.project.priorityField]: ["高", "中", "低"], [config.project.sizeField]: ["S", "M", "L"] };
-const BY_NODE = Object.fromEntries(Object.entries(config.people).map(([k, p]) => [p.node, k]));
+const LOGIN = Object.fromEntries(Object.entries(config.people).map(([k, p]) => [p.node, k]));
+const AS = { "Bearer form-token": config.user, "Bearer bot-token": config.claude };
 
-// code はコードのリポジトリの状態（Pull Request の一覧）。
-// parent を渡すと、issue をその子にする。親の id は I_P。
-// issue.comments は今あるコメント（古い順。{ author, body, createdAt }）。読むときは GitHub が描いた形（bodyHTML）で返す。
-// REST の書き込み（POST）・読み（GET）・消す（DELETE）のコメントは、番号の若い順に issue.comments に並ぶ。
-// issue.statusAt は Status の値を最後に書いた時刻で、Status を書くたびに1秒進む。
-// markdown を false にすると、Markdown を描く呼び出しが失敗する。
-// updates は Project の状況の更新（新しいものが先。{ id, status, body, by, updatedAt? }）。トークン bot-token は hidakagit-bot の名義。
-// race を渡すと、担当者を書く最初の updateIssue の直前に、並んで動く別の書き込みがその担当者（login の並び）を入れ、
-// その updateIssue は GitHub と同じく「Assignments is invalid」で断られて何も書かない。
-export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel, "規模S"], code = { prs: [] }, markdown = true, updates = [], race = null }) {
-  const blank = { blockedBy: [], assignees: [], labels: [], lastClose: [], state: "OPEN", fields: {}, comments: [], statusAt: "2026-10-03T00:00:00Z" };
-  const state = {
-    issue: { ...blank, ...issue },
-    parent: parent && { ...blank, ...parent },
-    writes: [],
-    requests: [],
-    calls: 0,
-    code,
-    updates,
-    race,
-  };
-  const byId = (id) => (id === "I_P" || id === "PVTI_P" ? state.parent : state.issue);
-  const json = (body, status = 200) => new Response(JSON.stringify(body), { status });
-  const node = (i, v) => {
-    const main = i === state.issue;
-    const comments = v.wc ? { comments: { nodes: i.comments.slice(-v.c).map(({ author, body, createdAt }, k) =>
-      ({ author: { login: author }, createdAt, url: `${config.repository}#c${k}`, bodyHTML: `<p>描いたコメント: ${body}</p>` })) } } : {};
-    return {
-      ...comments,
-      id: main ? "I_1" : "I_P", number: i.number, title: "題名", body: i.body ?? "本文", url: `https://github.com/${config.repository}/issues/${i.number}`,
-      state: i.state, author: { databaseId: i.authorId },
-      parent: main && state.parent ? { number: state.parent.number } : (i.parent ?? null),
-      assignees: { nodes: i.assignees.map((login) => ({ id: config.people[login]?.node, login })) },
-      labels: { nodes: i.labels.map((name) => ({ name })) }, blockedBy: { nodes: i.blockedBy },
-      lastClose: { nodes: i.lastClose }, repository: { nameWithOwner: config.repository },
-      projectItems: { nodes: [{ id: main ? "PVTI_1" : "PVTI_P", project: { id: "PVT_1" }, fieldValues: { nodes: [
-        ...(i.status ? [{ name: i.status, updatedAt: i.statusAt, field: { name: config.project.statusField } }] : []),
-        ...Object.entries(i.fields).map(([name, value]) => (name === config.project.startField ? { date: value, field: { name } } : { name: value, field: { name } })),
-      ] } }] },
-    };
-  };
+// issue: { number, author（login）, status, body, labels, assignees（login）, fields, comments（{ author, body }）, parent, lastClose }
+// parent を渡すと issue をその子にし、親の優先度は parent.fields から読む。markdown を false にすると Markdown の描き方が失敗する。
+export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel, "規模S"], markdown = true, updates = [] }) {
+  const blank = { state: "OPEN", body: "本文", labels: [], assignees: [], fields: {}, comments: [], lastClose: [], statusAt: "2026-10-03T00:00:00Z" };
+  const s = { issue: { ...blank, ...issue }, parent: parent && { ...blank, ...parent }, writes: [], updates };
+  const node = (i) => ({
+    id: i === s.parent ? "I_P" : "I_1", number: i.number, title: "題名", body: i.body, url: `https://github.com/${config.repository}/issues/${i.number}`, state: i.state,
+    author: { databaseId: config.people[i.author ?? config.user]?.id }, parent: i === s.issue && s.parent ? { number: s.parent.number } : null,
+    assignees: { nodes: i.assignees.map((login) => ({ id: config.people[login].node, login })) }, labels: { nodes: i.labels.map((name) => ({ name })) },
+    lastClose: { nodes: i.lastClose }, repository: { nameWithOwner: config.repository },
+    comments: { nodes: i.comments.map((c, k) => ({ author: { login: c.author }, createdAt: "2026-10-04T00:00:00Z", url: `c${k}`, body: c.body, bodyHTML: `<p>描いた: ${c.body}</p>` })) },
+    projectItems: { nodes: [{ id: "PVTI", project: { id: "PVT" }, fieldValues: { nodes: [
+      { name: i.status, updatedAt: i.statusAt, field: { name: config.project.statusField } },
+      ...Object.entries(i.fields).map(([name, v]) => (name === config.project.startField ? { date: v, field: { name } } : { name: v, field: { name } }))] } }] },
+  });
   const apply = (name, input, as) => {
-    if (name === "updateIssue" && input.assigneeIds && state.race) {
-      byId(input.id).assignees = state.race;
-      state.race = null;
-      return { error: "Assignments is invalid" };
+    s.writes.push({ op: name, as, ...input });
+    const i = input.id === "I_P" ? s.parent : s.issue;
+    if (name === "updateProjectV2ItemFieldValue") {
+      const v = input.value.singleSelectOptionId ?? input.value.date;
+      if (input.fieldId === "F") Object.assign(i, { status: v.slice(2), statusAt: new Date(Date.parse(i.statusAt) + 1000).toISOString() });
+      else i.fields = { ...i.fields, [input.fieldId]: v.includes(":") ? v.split(":")[1] : v };
     }
-    state.writes.push({ op: name, as, ...input });
-    if (name === "createProjectV2StatusUpdate") state.updates.unshift({ id: `SU_${state.updates.length + 1}`, status: input.status, body: input.body, by: as });
-    if (name === "updateProjectV2StatusUpdate") Object.assign(state.updates.find((u) => u.id === input.statusUpdateId), { status: input.status, body: input.body });
-    if (name.endsWith("StatusUpdate")) return { clientMutationId: null };
-    const i = byId(input.id ?? input.itemId ?? input.subjectId ?? input.issueId);
-    if (name === "updateProjectV2ItemFieldValue" && input.fieldId === "F_1") {
-      i.status = NAMES[input.value.singleSelectOptionId];
-      i.statusAt = new Date(Date.parse(i.statusAt) + 1000).toISOString();
+    if (name === "clearProjectV2ItemFieldValue") delete i.fields[input.fieldId];
+    if (name === "addComment") i.comments.push({ author: as, body: input.body });
+    if (name === "updateIssue") {
+      if (input.assigneeIds) i.assignees = input.assigneeIds.map((id) => LOGIN[id]);
+      if (input.labelIds) i.labels = input.labelIds.map((id) => id.slice(2));
+      if ("body" in input) i.body = input.body;
+      if (input.stateInput) i.state = "CLOSED";
     }
-    else if (name === "updateProjectV2ItemFieldValue" && input.value.date) i.fields = { ...i.fields, [config.project.startField]: input.value.date };
-    else if (name === "updateProjectV2ItemFieldValue") {
-      const [field, value] = input.value.singleSelectOptionId.split(":");
-      i.fields = { ...i.fields, [field]: value };
-    }
-    if (name === "clearProjectV2ItemFieldValue" && input.fieldId === "F_1") i.status = null;
-    else if (name === "clearProjectV2ItemFieldValue") i.fields = Object.fromEntries(Object.entries(i.fields).filter(([k]) => `F_${k}` !== input.fieldId));
-    if (name === "updateIssue" && input.assigneeIds) i.assignees = input.assigneeIds.map((id) => BY_NODE[id]);
-    if (name === "updateIssue" && "body" in input) i.body = input.body;
-    if (name === "updateIssue" && input.labelIds) i.labels = input.labelIds.map((id) => id.slice(2));
-    if (name === "updateIssue" && input.stateInput) i.state = input.stateInput.value;
     if (name === "reopenIssue") i.state = "OPEN";
-    return { clientMutationId: null };
+    if (name === "createProjectV2StatusUpdate") s.updates.unshift({ id: `U${s.updates.length}`, status: input.status, body: input.body, by: as });
+    if (name === "updateProjectV2StatusUpdate") Object.assign(s.updates.find((u) => u.id === input.statusUpdateId), { status: input.status, body: input.body });
   };
-  const graphql = ({ query, variables }, as) => {
-    if (query.startsWith("query Open")) return { data: { repository: { issues: { pageInfo: { hasNextPage: false }, nodes: [{ number: state.issue.number }] } } } };
-    if (query.startsWith("query Updates")) {
-      const nodes = state.updates.slice(0, variables.k).map(({ by, ...u }) => ({ createdAt: "t", updatedAt: "t", ...u, creator: { login: by } }));
-      return { data: { organization: { projectV2: { id: "PVT_1", statusUpdates: { nodes } } } } };
+  const graphql = ({ query, variables: v }, as) => {
+    if (query.startsWith("query Task")) {
+      const i = s.parent && (v.k === s.parent.number || v.id === "I_P") ? s.parent : s.issue;
+      return { data: { organization: { projectV2: { id: "PVT", fields: { nodes: [
+        { id: "F", name: config.project.statusField, options: Object.entries(OPTIONS).map(([name, id]) => ({ id, name })) },
+        ...Object.entries(FIELDS).map(([f, os]) => ({ id: f, name: f, options: os.map((o) => ({ id: `${f}:${o}`, name: o })) })),
+        { id: config.project.startField, name: config.project.startField, dataType: "DATE" }] } } },
+        repository: { labels: { nodes: labels.map((name) => ({ id: `L:${name}`, name })) }, issue: node(i) }, node: node(i) } };
     }
-    if (query.startsWith("query Task") && state.requests.push("読む")) {
-      const i = state.parent && (variables.id === "I_P" || variables.k === state.parent.number) ? state.parent : state.issue;
-      return { data: {
-        organization: { projectV2: { id: "PVT_1", fields: { nodes: [
-          { id: "F_1", name: config.project.statusField, options: Object.entries(OPTIONS).map(([name, id]) => ({ id, name })) },
-          ...Object.entries(FIELDS).map(([field, options]) => ({ id: `F_${field}`, name: field, options: options.map((o) => ({ id: `${field}:${o}`, name: o })) })),
-          { id: `F_${config.project.startField}`, name: config.project.startField, dataType: "DATE" },
-          { id: "F_title", name: "Title", dataType: "TITLE" },
-        ] } } },
-        repository: { labels: { nodes: labels.map((name) => ({ id: `L:${name}`, name })) }, issue: node(i, variables) },
-        node: node(i, variables),
-      } };
-    }
-    // GitHub は mutation を並べた順に1つずつ処理し、断られたものは null にして残りを続ける。
-    const data = {};
-    const errors = [];
-    const ops = [...query.matchAll(/(m\d+): (\w+)\(input: \$m\d+\)/g)];
-    state.requests.push(ops.map(([, , name]) => name).join("+"));
-    for (const [, key, name] of ops) {
-      const r = apply(name, variables[key], as);
-      data[key] = r.error ? null : r;
-      if (r.error) errors.push({ path: [key], message: r.error });
-    }
-    return errors.length ? { data, errors } : { data };
+    if (query.startsWith("query Open")) return { data: { repository: { issues: { pageInfo: { hasNextPage: false }, nodes: [{ number: s.issue.number }] } } } };
+    if (query.startsWith("query Updates"))
+      return { data: { organization: { projectV2: { id: "PVT", statusUpdates: { nodes: s.updates.slice(0, 1).map(({ by, ...u }) => ({ ...u, creator: { login: by } })) } } } } };
+    for (const [, key, name] of query.matchAll(/(m\d+): (\w+)\(input/g)) apply(name, v[key], as);
+    return { data: {} };
   };
   globalThis.fetch = async (url, init = {}) => {
-    state.calls++;
     const path = new URL(url).pathname;
     const body = init.body ? JSON.parse(init.body) : null;
-    const as = { "Bearer form-token": "hidakagit", "Bearer bot-token": "hidakagit-bot" }[init.headers.authorization] ?? "gate";
-    if (path.endsWith("/access_tokens")) return json({ token: "app-token" });
+    const as = AS[init.headers.authorization] ?? "gate";
+    const json = (b, status = 200) => new Response(JSON.stringify(b), { status });
+    if (path.endsWith("/access_tokens")) return json({ token: "app-token", expires_at: "2099-01-01T00:00:00Z" });
     if (path === "/graphql") return json(graphql(body, as));
     if (path === "/markdown") return markdown ? new Response(`<p>描いた: ${body.text}</p>`) : new Response("失敗", { status: 500 });
-    const comments = `/repos/${config.repository}/issues/${state.issue.number}/comments`;
-    if (path === comments && init.method === "POST") {
-      const c = { id: (state.issue.comments.at(-1)?.id ?? 0) + 1, author: as, body: body.body, createdAt: state.issue.statusAt };
-      state.issue.comments.push(c);
-      return json({ id: c.id, body: c.body, html_url: `https://github.com/${config.repository}/issues/${state.issue.number}#issuecomment-${c.id}` }, 201);
-    }
-    if (path === comments) return json(state.issue.comments.map(({ id, body }) => ({ id, body })));
-    const removed = path.match(new RegExp(`^/repos/${config.repository}/issues/comments/(\\d+)$`));
-    if (removed && init.method === "DELETE") {
-      state.issue.comments = state.issue.comments.filter((c) => c.id !== Number(removed[1]));
-      return new Response(null, { status: 204 });
-    }
-    const repo = `/repos/${config.code.repository}`;
-    if (path === `${repo}/pulls`) return json(state.code.prs.filter((p) => `${config.code.repository.split("/")[0]}:${p.head.ref}` === new URL(url).searchParams.get("head")));
+    const comments = `/repos/${config.repository}/issues/${s.issue.number}/comments`;
+    const ids = () => s.issue.comments.map((c, k) => ({ id: k + 1, body: c.body, html_url: `c${k}` })).filter((c) => s.issue.comments[c.id - 1].body !== null);
+    if (path === comments && init.method === "POST") return (apply("addComment", { subjectId: "I_1", body: body.body }, as), json(ids().at(-1), 201));
+    if (path === comments) return json(ids());
+    const gone = /\/issues\/comments\/(\d+)$/.exec(path);
+    if (gone && init.method === "DELETE") return (s.issue.comments[gone[1] - 1].body = null, new Response(null, { status: 204 }));
     throw new Error(`テストの GitHub が知らない呼び出し: ${init.method} ${path}`);
   };
-  return state;
+  return s;
 }
