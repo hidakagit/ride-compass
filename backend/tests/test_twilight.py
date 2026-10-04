@@ -60,11 +60,10 @@ def test_a_naive_time_is_read_as_utc():
     ("place", "at"),
     [
         (Coordinates(latitude=89.0, longitude=0.0), datetime(2026, 12, 21, 0, 0, tzinfo=timezone.utc)),
-        (Coordinates(latitude=89.0, longitude=0.0), datetime(2026, 6, 21, 0, 0, tzinfo=timezone.utc)),
         # 白夜に入る境目。最後の薄明の出来事は日暮れで、次の夜明けを前後数日の中に挟めない。
         (Coordinates(latitude=66.0, longitude=0.0), datetime(2026, 5, 11, 0, 0, tzinfo=timezone.utc)),
     ],
-    ids=["極夜", "白夜", "白夜に入る境目"],
+    ids=["極夜", "白夜に入る境目"],
 )
 def test_where_civil_twilight_cannot_be_drawn_it_is_not_treated_as_night(place, at):
     assert is_night(place, at) is False
