@@ -45,7 +45,7 @@ export function parseQuestion(text) {
   return { text: question, plans: plans.map((l) => l.slice(2).trim()), material };
 }
 
-// ステータスを動かすときに issue へ残すコメント。書く側（道具・ゲート）はここで作り、見回りの作業時間（dispatch.js: workload）は
+// ステータスを動かすときに issue へ残すコメント。書く側（道具・ゲート）はここで作り、見回りの作業時間（src/dispatch.js: workload）は
 // 同じ形を worksAfter で読む。形を変えるときは、作る側と読む側をここで一緒に変える。
 export const notes = {
   start: (kind, url) => `### ${kind}担当の着手\n\n実行: ${url}`,
