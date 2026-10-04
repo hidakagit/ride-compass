@@ -92,7 +92,7 @@ FROM句に`re`は無い。欠損を「不明」として持つ真偽の材料（
 | way1本 | `road_graph_repository.py: get_way_material_values` | way1本（区間インスペクタ） |
 | way標本 | `road_graph_repository.py: sample_way_material_values` | way標本（軸スタジオの分布プレビュー） |
 
-way粒度の経路も**区間向けと同じ式**を使う。`_way_from_clause`がwayの行から同じ名前の
+way粒度の経路も**区間向けと同じ式**を使う。`way_from_clause`がwayの行から同じ名前の
 エイリアス（`_WAY_ALIAS_CLAUSES`が持つ`wm`/`re`/`em`）を組み立てるだけで、式を2組持たない。
 区間の値を持つ`em`は、way粒度では`way_materials`を引く別名になる——**区間の値をway1本へ
 落としているのではなく、way粒度の値を同じ名前で読んでいる**（way側の値は
@@ -380,7 +380,7 @@ MaterialSpec]`が単一ソース。
 | `wm` | 道1本に付く値（`way_materials`） | way単位の土地被覆・道の曲がり具合等 |
 
 way粒度で引くときは、同じ式のまま`w`の行から同じ名前の別名を組み立てる
-（`road_graph_repository.py: _way_from_clause`）。`em`はway側の同名列かNULLを返す1行になる
+（`road_graph_repository.py: way_from_clause`）。`em`はway側の同名列かNULLを返す1行になる
 ため、区間にしか無い値（標高）はNULLになる。
 
 **行の有無と値の有無を分ける。** `w`の行が無い（未取込の地域・PBF再取込の途中）ときは
@@ -394,7 +394,7 @@ way粒度で引くときは、同じ式のまま`w`の行から同じ名前の�
 
 **エイリアスを足してよいかの判定基準**: その材料の兄弟が今後増えるなら、既存の
 エイリアスの列として足す。新しいエイリアスを足すのは、元データの表そのものが増えるとき
-だけ（`_way_from_clause`・区間向けのFROM句の両方へ同じ名前で用意する必要がある）。
+だけ（`way_from_clause`・区間向けのFROM句の両方へ同じ名前で用意する必要がある）。
 
 ### 材料カタログのAPI（`api/routers/material_catalog.py`）
 
