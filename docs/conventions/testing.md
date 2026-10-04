@@ -1191,7 +1191,8 @@ CSSの規則が当たる。開くたびに作り直される部品（ポップ�
   `frontend/e2e/fixtures.ts: installApiMocks`・本物の backend）×「脚本」（`frontend/capture/context.ts: CaptureScript`）に分かれ、
   見せたい状態（位置・レイヤー・レンズ・凡例・応答の差し替え等）は引数でなく脚本で書く。脚本は受け取る口だけを使い何も読み込まないので、
   作業ツリーの外に置ける。地図を開く・レンズを選ぶ・読み終わりを待つ段取りは`e2e-live/live.ts`、画面を進める段取りは
-  `e2e/fixtures.ts`を使い、書き直さない。ブラウザで開く前に、入口が宛先の応答を待ち（休止明けの本番等）、PlaywrightのChromiumと、
+  `e2e/fixtures.ts`・`e2e/states.ts`を使い、書き直さない。e2e の段取りと応答の雛形（`e2e/fixtures.ts`・`e2e/states.ts`・
+  `src/testing/catalogAxes.ts`）はモジュールごと口に載るので、そこへ足した関数は口を変えずに脚本から呼べる。ブラウザで開く前に、入口が宛先の応答を待ち（休止明けの本番等）、PlaywrightのChromiumと、
   Linuxなら起こすのに要る依存と日本語のフォント（無いと文字が豆腐になる）を入れる。
 
 ### 書き方
