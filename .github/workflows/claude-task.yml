@@ -105,16 +105,14 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.CODE_TOKEN }}
-          # 拒否の一覧と判定役への説明（master の版）。連携は settings をユーザー設定へ混ぜて書き、判定役はユーザー設定の autoMode を読む
-          # （リポジトリの .claude/settings.json の autoMode は読まない）。
+          # 権限の決まり（自動モード・拒否の一覧・判定役への説明。master の版）。連携は settings をユーザー設定へ混ぜて書き、判定役は
+          # ユーザー設定の autoMode を読む（リポジトリの .claude/settings.json の autoMode は読まない）。
           settings: ${{ github.workspace }}/tools/flow-gate/settings.json
-          claude_args: --permission-mode auto --model claude-opus-5-5 --disallowedTools Monitor,ScheduleWakeup,CronCreate,CronDelete,CronList,Workflow
+          claude_args: --model claude-opus-5-5 --disallowedTools Monitor,ScheduleWakeup,CronCreate,CronDelete,CronList,Workflow
+          # 決まりも環境の説明も写さず、読む節だけを指す（docs/conventions/flow.md「担当」の3）。
           prompt: |
             あなたは RideCompass の${{ inputs.kind }}担当です。作業ツリー ${{ github.workspace }} で、置き場 ridecompass/ride-compass-tasks の issue #${{ inputs.issue }} を扱います。
             まず CLAUDE.md と docs/conventions/flow.md の「担当」「${{ inputs.kind }}担当」「問い」「issue の形」を読み、その手順のとおりに進めてください。
-            ここは GitHub Actions のランナーです。backend の依存は `python` に、frontend の依存は frontend/node_modules に入っていて、PostgreSQL + PostGIS のテスト用 DB（TEST_DATABASE_URL）も動いています。開発 DB の実データと本番への調べ（run_probe.py）は無いので、それが要ると分かったら flow.md「開発機が要る」のとおりにしてください。
-            この実行は、あなたが手番を終えた最初の発言で終わり、裏の処理の終わりの知らせで起こし直されることはありません。CI などを待つときは `gh run watch` 等を前に出したまま、終わるまで待ってください。
-            作業はこの作業ツリーの中だけで行い、終わるときは手順のとおり push と issue への報告をして終えてください。次の担当を起こすことには触れないでください。すべて日本語で書いてください。
       # 作る担当の GitHub に無い変更は、マシンと一緒に消えないよう wip の枝へ残す（作業ブランチは書き換えない）。
       - name: 残った変更
         if: always() && steps.claim.outputs.go == 'true' && inputs.kind == '作る'
