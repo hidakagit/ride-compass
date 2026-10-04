@@ -5,8 +5,9 @@
 
 ここで見ないもの:
 - どのズームを補間するか（`domain/jma_tile_specs.py: source_zoom_for_interpolation`）・パスの形の読み書き
-  → `test_jma_tile_specs.py`。ここでは宣言にあるラスタ（降水ナウキャスト）とベクタ（洪水キキクル）のパスを使う
-- 親を取りに行く・取れないときに上流へ回す段取り → `test_jma_tile_routes.py`
+  （要素・座標・拡張子、タイルでないパスと宣言の無い要素がNoneになること） → `test_jma_tile_specs.py`。
+  `parse_tile_path`はその読み取りを座標へ移すだけなので、ここでは親と象限の関係だけを宣言にあるラスタ（降水ナウキャスト）のパスで見る
+- 親を取りに行く・取れないときに上流へ回す段取り・ベクタのパスをベクタとして切り出すこと → `test_jma_tile_routes.py`
 """
 
 import io
@@ -22,7 +23,6 @@ from shapely.geometry import LineString, Point, Polygon, shape
 from app.infrastructure.jma_tile_interpolation import crop_and_upscale, crop_and_upscale_mvt, parse_tile_path
 
 FRAME = "bosai/jmatile/data/nowc/20260101000000/none/20260101000500/surf"
-RISK_FRAME = "bosai/jmatile/data/risk/20260101000000/none/20260101000000/surf"
 EXTENT = 4096
 HALF = EXTENT // 2
 SIZE = 256
@@ -30,32 +30,6 @@ SIZE = 256
 
 def raster(z: int, x: int, y: int) -> str:
     return f"{FRAME}/hrpns/{z}/{x}/{y}.png"
-
-
-def test_a_raster_tile_path_reads_as_its_coordinates():
-    coords = parse_tile_path(raster(7, 113, 50))
-
-    assert (coords.element, coords.z, coords.x, coords.y, coords.ext) == ("hrpns", 7, 113, 50, "png")
-
-
-def test_a_vector_tile_is_cropped_as_a_vector():
-    coords = parse_tile_path(f"{RISK_FRAME}/flood/9/454/201.pbf")
-
-    assert (coords.element, coords.ext) == ("flood", "pbf")
-    assert coords.parent_path() == f"{RISK_FRAME}/flood/8/227/100.pbf"
-
-
-@pytest.mark.parametrize(
-    "path",
-    [
-        "bosai/jmatile/data/nowc/targetTimes_N1.json",
-        f"{FRAME}/liden/data.geojson?id=liden",
-        f"{FRAME}/undeclared/7/113/50.png",
-    ],
-    ids=["time_listing", "features", "undeclared_element"],
-)
-def test_paths_that_are_not_a_declared_tile_have_nothing_to_interpolate(path):
-    assert parse_tile_path(path) is None
 
 
 @given(z=st.integers(5, 12), data=st.data())
@@ -84,9 +58,10 @@ def pixels(content: bytes) -> np.ndarray:
         return np.asarray(image.convert("RGBA"))
 
 
-@pytest.mark.parametrize("quadrant", [(0, 0), (1, 0), (0, 1), (1, 1)])
+@pytest.mark.parametrize("quadrant", [(1, 0), (0, 1)])
 def test_a_raster_quadrant_is_doubled_pixel_for_pixel(quadrant):
-    """凡例の色と1対1で読む画像なので、拡大で中間の色を作らない（1画素を2×2へ写すだけ）。"""
+    """凡例の色と1対1で読む画像なので、拡大で中間の色を作らない（1画素を2×2へ写すだけ）。
+    象限は東西・南北それぞれの両側を通し、東西と南北を取り違えると落ちる組み合わせにする。"""
     rng = np.random.default_rng(0)
     parent = rng.integers(0, 256, size=(SIZE, SIZE, 4), dtype=np.uint8)
     left, top = quadrant[0] * SIZE // 2, quadrant[1] * SIZE // 2
