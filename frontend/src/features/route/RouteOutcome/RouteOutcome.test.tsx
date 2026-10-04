@@ -4,16 +4,16 @@
  * 見るもの:
  * - 候補が無い間の案内（生成中の進み方・直近の案内・生成前）と、候補がある間の作り直しの失敗・条件のずれ・
  *   既定の配分で作ったこと・目的地の補正の知らせ（作り直しの失敗を出している間は条件のずれを重ねない）
- * - 候補の一覧: 見出しを分けるのは経由地の無い目的地ルートの生成と編集で作ったルートがあるときで、行に出す名前・
- *   距離・最速の印と所要時間・ほかの候補の余計にかかる時間・総合難易度（無ければ「—」）と負荷の帯の高さ、選ばれて
- *   いるタブ（選んだ候補・無ければ先頭・比較を見ている間は比較）と、タブを押したときに上がる操作
+ * - 候補の一覧: 一番上の列の見出し、群（最速・生成した候補・合成）の間の区切りの線と名前の列の印（意味を読み上げの
+ *   名前に持つ）、行に出す名前・距離・最速の所要時間・ほかの候補の余計にかかる時間・総合難易度（無ければ「—」）、
+ *   選ばれているタブ（選んだ候補・無ければ先頭・比較を見ている間は比較）と、タブを押したときに上がる操作
  * - 選んだ候補の中身: 合成（始められるときだけ）・GPXの操作、編集で作ったルートの「元との違い」へ渡す元と名前、
  *   道のりのグラフへ渡す値（区間がある候補だけ）、区間を押している間の地点・到達予想・解除・区間の風と内訳
  *   （チップから開く軸の詳細を含む）と研究モードの材料の値、押していない間の内訳へ渡す値、編集中は編集面だけを出すこと
  * - 研究モードの比較タブと、比較表へ渡す軸（どれかの回で重みが0より大きかった軸）
  *
- * ここで見ないもの: 一覧の見出し・名前・最速の決め方 → `features/route/routeTabLabel.ts`。帯の高さの求め方 →
- * `features/route/difficultyLoadBar.ts`。結果の状態の移り変わり → `features/route/useRouteResults.ts`。
+ * ここで見ないもの: 一覧の並び・群・名前・最速の決め方 → `features/route/routeTabLabel.ts`。結果の状態の移り変わり →
+ * `features/route/useRouteResults.ts`。
  *
  * 差し替えたもの: 子の部品（比較表・道のりのグラフ・内訳・寄与の帯・元との違い・区間の風・編集面）は受け取った値と
  * 上げる操作だけを見る（表示は各部品のテストが見る）。軸カタログの応答（網の層）と
@@ -169,19 +169,15 @@ function renderOutcome({
   return { results, splice };
 }
 
-/** 一覧の行を、上から行の文で（見出しを含む）。 */
+/** 一覧の行を、上から行の文で（列の見出しを含み、区切りの線は「―」）。 */
 function listTexts(): string[] {
   const list = screen.getByRole("tablist", { name: "ルート結果" });
-  return Array.from(list.children).map((child) => child.textContent ?? "");
+  return Array.from(list.children).map((child) =>
+    child.getAttribute("role") === "separator" || child.tagName === "HR" ? "―" : (child.textContent ?? ""),
+  );
 }
 
-/** 一覧の行の、負荷の帯の高さの倍率。 */
-function loadBarRatio(tab: HTMLElement): string {
-  const bar = Array.from(tab.querySelectorAll<HTMLElement>("span")).find((span) =>
-    span.style.getPropertyValue("--load-bar-height-ratio"),
-  );
-  return bar?.style.getPropertyValue("--load-bar-height-ratio") ?? "";
-}
+const HEADER = "km時間難易度";
 
 function segmentSelection(overrides: Partial<RouteSegmentDetail> = {}): SelectedRouteSegment {
   return {
@@ -253,34 +249,48 @@ describe("候補の上の知らせ", () => {
 });
 
 describe("候補の一覧", () => {
-  it("見出しを分けない生成では、候補に1から番号を振り、距離・最速の印と所要時間・余計にかかる時間・総合難易度を並べる", () => {
+  it("最速も合成も無い生成では、番号・距離・時間・難易度の列だけで並べ、区切りの線も群の印も出さない", () => {
     renderOutcome({ results: resultsOf({ generated: [FAST, SLOW] }) });
-    expect(listTexts()).toEqual(["1 10.0km30分42", "2 20.0km+12分—"]);
-    expect(within(screen.getByRole("tab", { name: /^1 / })).getByRole("img", { name: "最速" })).toBeInTheDocument();
+    expect(listTexts()).toEqual([HEADER, "1 10.0km 30分 難易度42", "2 20.0km +12分 難易度—"]);
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
   });
 
-  it("候補が1件なら比べる相手が無いので、最速の印も余計にかかる時間も付けない", () => {
+  it("候補が1件なら比べる相手が無いので、所要時間も余計にかかる時間も出さない", () => {
     renderOutcome({ results: resultsOf({ generated: [FAST] }) });
-    expect(listTexts()).toEqual(["1 10.0km42"]);
-    expect(screen.queryByRole("img", { name: "最速" })).not.toBeInTheDocument();
+    expect(listTexts()).toEqual([HEADER, "1 10.0km  難易度42"]);
   });
 
   it("余計にかかる時間が丸めて1分未満の候補には何も添えない", () => {
     renderOutcome({
       results: resultsOf({ generated: [FAST, route("near", { distance_km: 11, estimated_duration_seconds: 1820 })] }),
     });
-    expect(listTexts()[1]).toBe("2 11.0km—");
+    expect(listTexts()[2]).toBe("2 11.0km  難易度—");
   });
 
-  it("経由地の無い目的地ルートでは、最速の候補を名前なしで「採用ルート」の先頭に置き、残りを「生成した候補」に番号で並べる", () => {
+  it("最速・生成した候補・合成がそろうと、その順に並べて群の間に線を引き、最速と合成は名前の列の印に意味を持つ", () => {
+    const edit: EditedRoute = {
+      route: route(`${SPLICED_ROUTE_ID_PREFIX}-1`, { distance_km: 12, estimated_duration_seconds: 2700 }),
+      originId: "fast",
+      number: 1,
+    };
     renderOutcome({
-      results: resultsOf({ generated: [SLOW, FAST] }),
+      results: resultsOf({ generated: [SLOW, FAST], edits: [edit] }),
       generation: generationOf({ generatedInput: DESTINATION_INPUT }),
     });
-    expect(listTexts()).toEqual(["採用ルート", "10.0km30分42", "生成した候補", "1 20.0km+12分—"]);
+    expect(listTexts()).toEqual([
+      HEADER,
+      " 10.0km 30分 難易度42",
+      "―",
+      "1 20.0km +12分 難易度—",
+      "―",
+      "1 12.0km +15分 難易度—",
+    ]);
+    const [fastest, , spliced] = screen.getAllByRole("tab");
+    expect(within(fastest).getByRole("img", { name: "最速ルート" })).toHaveAttribute("title", "最速ルート");
+    expect(within(spliced).getByRole("img", { name: "合成ルート" })).toHaveAttribute("title", "合成ルート");
   });
 
-  it("経由地を伴う目的地ルートは見出しを分けない", () => {
+  it("経由地を伴う目的地ルートは最速を分けない", () => {
     renderOutcome({
       results: resultsOf({ generated: [FAST, SLOW] }),
       generation: generationOf({
@@ -290,33 +300,7 @@ describe("候補の一覧", () => {
         }),
       }),
     });
-    expect(listTexts()).not.toContain("採用ルート");
-  });
-
-  it("編集で作ったルートは「採用ルート」に「編集N」の名前で並ぶ", () => {
-    const edit: EditedRoute = {
-      route: route(`${SPLICED_ROUTE_ID_PREFIX}-1`, { distance_km: 12 }),
-      originId: "fast",
-      number: 1,
-    };
-    renderOutcome({ results: resultsOf({ generated: [FAST, SLOW], edits: [edit] }) });
-    expect(listTexts()).toEqual(["採用ルート", "編集1 12.0km—", "生成した候補", "1 10.0km30分42", "2 20.0km+12分—"]);
-  });
-
-  it("総合難易度の帯は長さが総合難易度で、算出できなかった候補は塗らない", () => {
-    renderOutcome({ results: resultsOf({ generated: [FAST, SLOW] }) });
-    const fill = (tab: HTMLElement) =>
-      Array.from(tab.querySelectorAll<HTMLElement>("span")).find((span) => span.style.width !== "");
-    const [first, second] = screen.getAllByRole("tab");
-    expect(fill(first)?.style.width).toBe("41.6%");
-    expect(fill(second)).toBeUndefined();
-  });
-
-  it("負荷の帯の高さは、一覧の中で最も短い候補を1とした距離の比", () => {
-    renderOutcome({ results: resultsOf({ generated: [FAST, route("long", { distance_km: 15 })] }) });
-    const [first, second] = screen.getAllByRole("tab");
-    expect(loadBarRatio(first)).toBe("1");
-    expect(loadBarRatio(second)).toBe("1.5");
+    expect(listTexts()).toEqual([HEADER, "1 10.0km 30分 難易度42", "2 20.0km +12分 難易度—"]);
   });
 
   it("選んだ候補のタブが選ばれている", () => {
