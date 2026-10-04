@@ -149,7 +149,8 @@ function checkoutRef(ref) {
       maxBuffer: 1 << 30,
     });
     if (archive.status !== 0) fail(`${ref} の frontend を取り出せない: ${archive.stderr}`);
-    const extract = spawnSync("tar", ["-x", "-f", "-", "-C", dir], { input: archive.stdout });
+    // 展開の先は引数でなく作業ディレクトリで渡す: Git Bash の GNU tar は `C:` を含むパスを別のマシンの名前と読んで開けない。
+    const extract = spawnSync("tar", ["-x", "-f", "-"], { cwd: dir, input: archive.stdout });
     if (extract.status !== 0) fail(`${ref} の frontend を展開できない: ${extract.stderr}`);
   }
   if (!existsSync(path.join(dir, "node_modules"))) {
