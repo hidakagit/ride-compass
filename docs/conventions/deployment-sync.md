@@ -39,14 +39,14 @@ CLAUDE.md「コミット時の同期ルール」から参照される。個々�
   完了扱いにする条件は下の「本番へ効かせたい軸定義の変更は、本番の管理APIへ入れる」
   （開発DBのみの反映で完了扱いにしない）。
 - **既存DBの行データを新しいコードが読めなくなる変更（Pydanticモデルの破壊的変更等）を
-  含む`backend/**`の変更は、本番DBのデータ移行を完了させてからpushする**。
-  masterへのpushでCI（`.github/workflows/ci.yml`）が通ると、backendは本番へ自動デプロイされる
+  含む`backend/**`の変更は、本番DBのデータ移行を完了させてからmasterへ入れる（マージする）**。
+  作業ブランチへのpushでは本番へ出ない。masterに入ってCI（`.github/workflows/ci.yml`）が通ると、backendは本番へ自動デプロイされる
   （コンテナを入れ替えるかの振り分けは`scripts/deploy_backend_gate.py`が正本）。
-  DB移行より先にpushすると、新コードが本番DBに残る旧形式データを読めず、
+  DB移行より先にmasterへ入れると、新コードが本番DBに残る旧形式データを読めず、
   `refresh_axis_definitions`等のfail-fast設計により本番backendが起動失敗する
   （本番障害の実績あり、詳細は[T396](../records/tasks/T396.md)参照）。
   対応順序は事前に次のいずれかを選ぶこと: 1) 本番DBのデータ移行を先に完了させてから
-  push、2) 移行を即座に行えない場合は`workflow_dispatch`のみで手動デプロイへ切り替える、
+  マージ、2) 移行を即座に行えない場合は`workflow_dispatch`のみで手動デプロイへ切り替える、
   3) 新旧両方の形式を一時的に許容する後方互換コードを経由して段階的に移行する。
 
 ## 派生データの作り直し
@@ -163,20 +163,21 @@ CLAUDE.md「コミット時の同期ルール」から参照される。個々�
   開発DBへの変更は開発環境にしか効かないため、開発DBだけ変えてタスクを完了扱いにしない
   ——本番へ効かせるなら本番の軸スタジオか、次の道具で行う。環境間で内容を転送する仕組みは持たない
   （上記の決定文書参照）。**リポジトリは軸の写しを持たない**ため、再ダンプの手順は無い。
-- 変える中身が決まっている変更（タスクで値を決めた軸の書き換え・追加・削除）は、軸1本の定義のJSONを
-  `docs/records/axis-changes/<タスク番号>-<axis_id>.json`に置き、`backend/scripts/axis_apply.py`で入れる
+- 変える中身が決まっている変更（タスクで値を決めた軸の書き換え・追加・削除）は、軸1本の定義のJSONを作り、
+  `backend/scripts/axis_apply.py`で入れる
   （仕組みは[axis-studio.md](../modules/backend/axis-studio.md)「軸の定義をファイルから本番へ入れる」）:
 
   ```
-  python scripts/axis_apply.py ../docs/records/axis-changes/T1234-foo.json               # 差を出すだけ
-  python scripts/axis_apply.py ../docs/records/axis-changes/T1234-foo.json --apply <指紋>  # 書く
+  python scripts/axis_apply.py <JSONのパス>               # 差を出すだけ
+  python scripts/axis_apply.py <JSONのパス> --apply <指紋>  # 書く
   python scripts/axis_apply.py --delete <axis_id> [--apply <指紋>]
   ```
 
-  差（項目ごとの「前 → 後」）と指紋を見て承認してから、同じ指紋で書く。宛先と認証情報は
+  道具は本番の管理APIを読み書きするので、**打つのはユーザー**で、担当も開発機の対話のセッションも打たない（頼み方は
+  [flow.md](flow.md)「自動で進めないもの」）。差（項目ごとの「前 → 後」）と指紋を見て承認してから、同じ指紋で書く。宛先と認証情報は
   `backend/.env.oracle.local`の`BACKEND_ORIGIN`（本番backendの直接のオリジン）・`ADMIN_BASIC_AUTH_USERNAME`・
-  `ADMIN_BASIC_AUTH_PASSWORD`に置く。JSONは1回当てたら役目を終える記録で、本番の写しとして直し続けない
-  （次に変えるときは本番の今の定義から新しいJSONを作る）。
+  `ADMIN_BASIC_AUTH_PASSWORD`に置く。JSONは1回当てたら役目を終えるもので、`docs/records/`へは置かない（維持しない階層。
+  記録はタスクの issue に書く）。本番の写しとして直し続けない（次に変えるときは本番の今の定義から新しいJSONを作る）。
 - 完了の条件: 道具が「反映を確かめました」を出したこと（管理APIと公開の軸カタログの両方で見ている）。
   画面で変えたときは、本番の`GET /api/axis-catalog`で変えた軸を確かめる。
 - 背景: 開発DBのみ反映してタスクを完了扱いにした結果、本番だけ古い軸定義のまま取り残される
