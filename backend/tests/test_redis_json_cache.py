@@ -17,7 +17,7 @@ import pytest
 from app.config import settings
 from app.infrastructure import redis_client, redis_json_cache
 from app.infrastructure.debug_log import get_stats
-from app.infrastructure.redis_client import _CIRCUIT_COOLDOWN_SECONDS
+from app.infrastructure.redis_client import CIRCUIT_COOLDOWN_SECONDS
 
 pytestmark = pytest.mark.usefixtures("empty_debug_counters")
 
@@ -145,7 +145,7 @@ async def test_after_a_failed_read_redis_is_not_called_until_the_cooldown_passes
     calls_after_failure = stats().calls
     redis_server.connected = True
 
-    clock.tick(_CIRCUIT_COOLDOWN_SECONDS - 1)
+    clock.tick(CIRCUIT_COOLDOWN_SECONDS - 1)
     assert await read() is None
     assert stats().calls == calls_after_failure
 
@@ -159,7 +159,7 @@ async def test_after_a_failed_write_nothing_is_written_until_the_cooldown_passes
     await redis_json_cache.set_json(KEY, [1], ttl_seconds=TTL, category=CATEGORY)
     redis_server.connected = True
 
-    clock.tick(_CIRCUIT_COOLDOWN_SECONDS - 1)
+    clock.tick(CIRCUIT_COOLDOWN_SECONDS - 1)
     await redis_json_cache.set_json(KEY, [2], ttl_seconds=TTL, category=CATEGORY)
     await redis_json_cache.set_bytes(KEY + ":bytes", b"Tx", ttl_seconds=TTL, category=CATEGORY)
     assert await fake_redis.exists(KEY, KEY + ":bytes") == 0
@@ -171,8 +171,8 @@ async def test_after_a_failed_write_nothing_is_written_until_the_cooldown_passes
 
 async def test_without_a_client_nothing_is_tried_and_nothing_is_raised(monkeypatch):
     """接続先の設定の誤りでクライアントを作れなくても、未キャッシュで進む。"""
-    monkeypatch.setattr(redis_client, "_client", None)
-    monkeypatch.setattr(redis_client, "_binary_client", None)
+    monkeypatch.setattr(redis_client, "text_client", None)
+    monkeypatch.setattr(redis_client, "binary_client", None)
     monkeypatch.setattr(settings, "redis_url", "not-a-redis-url")
 
     await redis_json_cache.set_json(KEY, [1], ttl_seconds=TTL, category=CATEGORY)

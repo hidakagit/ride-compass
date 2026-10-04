@@ -8,6 +8,11 @@ import { DEFAULT_HARD_FILTERS } from "@/features/route/RouteSettingsPanel/HardFi
 import type { RouteMode } from "@/features/route/RouteForm/useRouteFormSubmit";
 import { syncHardFilterKeys } from "@/features/route/hardFilterSync";
 import { alignRoutePreference, routePreferenceToSend } from "@/features/route/routePreferenceSync";
+import {
+  acceptedDistanceInput,
+  acceptedMaxRoutesInput,
+  type GenerationConditionsSnapshot,
+} from "@/features/route/savedConditions";
 import type { Coordinates, HardFilterOverride, PinRole, RoutePreferenceWeights } from "@/types/route";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 
@@ -33,7 +38,7 @@ interface GenerationConditionsInputs {
 
 /**
  * 生成の条件（「ルート設定」の入力）: 周回か目的地か・距離・候補数・地点（出発地以外）・重み・除外と、地図のタップで
- * 置ける地点の役割。保存する値は、読むときに今の画面が受け付ける範囲・今の項目へ揃える。
+ * 置ける地点の役割と、保存した条件での入れ替え。保存する値は、読むときに今の画面が受け付ける範囲・今の項目へ揃える。
  */
 export function useGenerationConditions({ onOriginPlace }: GenerationConditionsInputs) {
   const axisCatalog = useAxisCatalog();
@@ -95,11 +100,7 @@ export function useGenerationConditions({ onOriginPlace }: GenerationConditionsI
   // 距離の入力（文字列のまま）。表示中の候補を作った条件と比べて「生成条件が変更されています」を出すため、入力の形で持つ。
   const [distanceInput, setDistanceInput] = useStoredState(DISTANCE_STORAGE_KEY, "30", {
     serialize: (value) => value,
-    // 保存値は画面の範囲内の数値だけを受け入れる（範囲が縮んだ後でも、範囲外の距離が復元されて送られない）。
-    deserialize: (raw) => {
-      const parsed = Number(raw);
-      return Number.isFinite(parsed) && parsed >= 1 && parsed <= routeGenerateConfig.max_distance_km ? raw : null;
-    },
+    deserialize: acceptedDistanceInput,
   });
   // 候補数（文字列のまま、送るときに数へ）。
   const [maxRoutesInput, setMaxRoutesInput] = useStoredState(
@@ -107,10 +108,7 @@ export function useGenerationConditions({ onOriginPlace }: GenerationConditionsI
     String(routeGenerateConfig.default_max_routes),
     {
       serialize: (value) => value,
-      deserialize: (raw) => {
-        const parsed = Number(raw);
-        return Number.isInteger(parsed) && parsed >= 1 && parsed <= routeGenerateConfig.max_routes ? raw : null;
-      },
+      deserialize: acceptedMaxRoutesInput,
     },
   );
 
@@ -146,7 +144,25 @@ export function useGenerationConditions({ onOriginPlace }: GenerationConditionsI
     },
   );
 
+  // 保存した条件で入れ替える（出発地は位置の持ち主が受け取るので、呼び出し側が渡す）。地点を入れ替えたので、置ける役割は
+  // 選び直させる。
+  const restore = useCallback(
+    (saved: Omit<GenerationConditionsSnapshot, "origin">) => {
+      setRouteMode(saved.routeMode);
+      setDistanceInput(saved.distance);
+      setMaxRoutesInput(saved.maxRoutes);
+      setWaypoints(saved.waypoints);
+      setDestination(saved.destination);
+      setArmedPinRole(null);
+      if (saved.routePreference !== null) setRoutePreference(saved.routePreference);
+      setWeightOverrideEnabled(saved.routePreference !== null);
+      setHardFilters(saved.hardFilters);
+    },
+    [setRouteMode, setDistanceInput, setMaxRoutesInput, setRoutePreference, setWeightOverrideEnabled, setHardFilters],
+  );
+
   return {
+    restore,
     routeMode,
     changeRouteMode,
     distanceInput,

@@ -23,19 +23,20 @@ export class GitHub {
     return new GitHub(t.token);
   }
 
-  async text(method, path, body) {
-    const res = await fetch(API + path, {
+  // path は API の中の道か、応答が返した URL（リリースの upload_url 等）。type が JSON でなければ body をそのまま送る。
+  async text(method, path, body, type = "application/json") {
+    const res = await fetch(path.startsWith("https://") ? path : API + path, {
       method,
-      headers: { authorization: `Bearer ${this.token}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28", "user-agent": "ridecompass-gate", "content-type": "application/json" },
-      body: body ? JSON.stringify(body) : undefined,
+      headers: { authorization: `Bearer ${this.token}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28", "user-agent": "ridecompass-gate", "content-type": type },
+      body: body && type === "application/json" ? JSON.stringify(body) : body,
     });
     const text = await res.text();
     if (!res.ok) throw new Error(`GitHub ${method} ${path}: ${res.status} ${text.slice(0, 200)}`);
     return text;
   }
 
-  async rest(method, path, body) {
-    const text = await this.text(method, path, body);
+  async rest(method, path, body, type) {
+    const text = await this.text(method, path, body, type);
     return text ? JSON.parse(text) : null;
   }
 

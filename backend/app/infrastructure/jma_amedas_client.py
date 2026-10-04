@@ -33,8 +33,8 @@ _STATION_TABLE_CACHE_TTL_SECONDS = 24 * 60 * 60
 # 最新観測時刻の一覧は10分更新のアメダスの鮮度に合わせた短いTTL。
 _LATEST_TIME_CACHE_TTL_SECONDS = 5 * 60
 
-_station_table_cache: TTLCache = TTLCache(maxsize=1, ttl=_STATION_TABLE_CACHE_TTL_SECONDS)
-_latest_time_cache: TTLCache = TTLCache(maxsize=1, ttl=_LATEST_TIME_CACHE_TTL_SECONDS)
+station_table_cache: TTLCache = TTLCache(maxsize=1, ttl=_STATION_TABLE_CACHE_TTL_SECONDS)
+latest_time_cache: TTLCache = TTLCache(maxsize=1, ttl=_LATEST_TIME_CACHE_TTL_SECONDS)
 _STATION_TABLE_CACHE_KEY = "stations"
 _LATEST_TIME_CACHE_KEY = "latest_time"
 
@@ -113,7 +113,7 @@ async def fetch_station_table(client: httpx.AsyncClient) -> dict[str, AmedasStat
         return _parse_station_table(payload)
 
     return await cached_fetch(
-        "weather:jma-amedas-stations", fetch, cache=_station_table_cache, key=_STATION_TABLE_CACHE_KEY
+        "weather:jma-amedas-stations", fetch, cache=station_table_cache, key=_STATION_TABLE_CACHE_KEY
     )
 
 
@@ -141,7 +141,7 @@ async def fetch_latest_observation_time(client: httpx.AsyncClient) -> datetime |
     return await cached_fetch(
         "weather:jma-amedas-latest-time",
         fetch,
-        cache=_latest_time_cache,
+        cache=latest_time_cache,
         key=_LATEST_TIME_CACHE_KEY,
         catch=(httpx.HTTPError,),
     )

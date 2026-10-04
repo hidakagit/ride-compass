@@ -47,7 +47,6 @@ def provision_period(year: int) -> tuple[date, date]:
 
     環境省は運用期間を年ごとに発表し、4月第4水曜から26週後の水曜までに置いている。
     終わりは10月第3水曜の年も第4水曜の年もあるため、月の何週目では決まらない。
-    期間外の配信元は、エラーではなく値の無い成功を返す。
     """
     april_first = date(year, 4, 1)
     first_wednesday = april_first + timedelta(days=(_WEDNESDAY - april_first.weekday()) % 7)

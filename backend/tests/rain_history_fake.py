@@ -18,7 +18,7 @@ from tests.fake_http import client_for
 
 def forget_rain_materials(monkeypatch) -> None:
     """観測所ごとの材料の値のプロセス内の保持を空から始める（前のテストが作った値が残るため）。"""
-    monkeypatch.setattr(jma_amedas_service, "_rain_materials_cache", TTLCache(maxsize=1, ttl=300))
+    monkeypatch.setattr(jma_amedas_service, "rain_materials_cache", TTLCache(maxsize=1, ttl=300))
 
 
 async def observe(monkeypatch, stations: dict, rain_mm: dict[str, float | None]) -> None:
@@ -34,6 +34,6 @@ async def observe(monkeypatch, stations: dict, rain_mm: dict[str, float | None])
     upstream.get(jma_amedas_client.AMEDAS_LATEST_TIME_URL).respond(text=latest_time.isoformat())
     upstream.route().respond(json=observation)
 
-    monkeypatch.setattr(jma_amedas_client, "_station_table_cache", TTLCache(maxsize=1, ttl=60))
-    monkeypatch.setattr(jma_amedas_client, "_latest_time_cache", TTLCache(maxsize=1, ttl=60))
+    monkeypatch.setattr(jma_amedas_client, "station_table_cache", TTLCache(maxsize=1, ttl=60))
+    monkeypatch.setattr(jma_amedas_client, "latest_time_cache", TTLCache(maxsize=1, ttl=60))
     await JmaAmedasService(http_client=client_for(upstream)).refresh_all_stations()

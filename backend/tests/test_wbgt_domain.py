@@ -1,11 +1,11 @@
 """`domain/wbgt.py`——暑さ指数の警戒の段・提供期間・今の予測の選び方。
 
-入口は`wbgt_level`（値→段と呼び名）・`provision_period`と`is_within_provision_period`（取りに行く日か）・
+入口は`wbgt_level`（値→段と呼び名）・`provision_period`と`is_within_provision_period`（値が無いのを正常とみなす日か）・
 `current_forecast`（取得した予測から今の1件を選ぶ）。
 
 ここで見ないもの:
 - 配信元の応答を`WbgtForecast`へ解くこと・発表時刻の無い行を載せないこと → `test_wbgt_client.py`
-- 最寄りの地点の選び方・提供期間外に取りに行かないこと → `test_wbgt_service.py`
+- 最寄りの地点の選び方・値が得られないときに提供期間で空と未取得を分けること → `test_wbgt_service.py`
 - 段階ごとの呼び名`WBGT_LEVEL_LABELS`——段と同じ並びから導き、全段がそろっていることは
   `domain/warning_display.py`がimportの時点で全段を引いて確かめる
 """
