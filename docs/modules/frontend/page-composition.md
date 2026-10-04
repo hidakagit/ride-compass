@@ -510,7 +510,7 @@ BottomSheetの`headerAction`propとして同じヘルパーを渡す（`routes.l
 タブ構成に関わらず変わらない（比較タブから候補タブへ戻ると、見ていた候補がそのまま
 選択された状態に戻る）。
 
-候補タブの中身（`Tabs.Content`）は`RouteAxisProfile`単体。`RouteAxisProfile`は
+候補タブの中身（`Tabs.Content`）は、上の候補の操作・元との違い・道のりのグラフの下に`RouteAxisProfile`を置く（地図で区間を押している間は、その代わりに区間の詳細）。`RouteAxisProfile`は
 総合難易度の表示・軸別内訳
 （`domain/difficulty.py:
 composite_difficulty`と同じ考え方で軸の重みを反映した寄与度をバー長に、生の
