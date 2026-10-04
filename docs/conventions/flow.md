@@ -188,8 +188,8 @@ issue の番号ごと）が持つ。同じタスクの実行（作る・確か�
 4. `tasks#<番号>:` の件名でコミットし、`git push origin orch/tasks-<番号>` で push する。静的検査とテストは手元で回さず、
    CI に任せる（testing.md「手元の検査の回し方」）。作業ブランチの強制 push は
    コードのリポジトリの規則で断られる（一度 push したコミットは、ほかの者のものも消せない）ので、直しは足すコミットにする。
-   master に入るコミットは、5 の Pull Request の題名と本文から作られる（確かめる担当が squash でマージする）。push で起きる CI の実行は
-   待たずに 5 へ進む（待つのは 5 の Pull Request の実行だけ）。
+   master に入るコミットは、5 の Pull Request の題名と本文から作られる（確かめる担当が squash でマージする）。作業ブランチへの push では
+   CI は走らない（`ci.yml` と `docs-consistency.yml` の push は master だけ）ので、CI は 5 の Pull Request の実行だけを待つ。
 5. コードのリポジトリに Pull Request を出す（`gh pr create --base master --head orch/tasks-<番号>`。
    コードのリポジトリは hidakagit のものなので、`GH_TOKEN` に hidakagit のトークン（ユーザー環境変数 `GH_TOKEN`）を渡す）。
    題名と本文は、そのまま master のコミットになるので、下の「コミット」の書式で書く（題名が件名
@@ -224,9 +224,8 @@ issue の番号ごと）が持つ。同じタスクの実行（作る・確か�
    実行があっても0件になり、まだ出ていないのと見分けられない）、`gh run watch <id> --compact -i 30 -R hidakagit/ride-compass --exit-status`
    で終わるまで前に出したまま待つ（Bash の `timeout` を上限の 600000 にして打つ。上限で止まったら同じコマンドを打ち直す。裏へ回して
    知らせを待つと、そこで担当の実行が終わる。端末でない出力では見回りのたびに全部のジョブを書き直すので、`--compact -i 30` で出力を絞る）。
-   push の実行は作業ブランチ単体の版なので、合流点の後に master へ入った変更との意味の競合（文字の競合なしに載せ直せて、合わせると
-   落ちる）を見ていない。Pull Request の必須のチェックは名前で照らすので、Pull Request の実行が出る前は push の実行の `ci-ok` だけで
-   通ってしまう。待つのはこの実行にする。落ちたら `git merge origin/master` で今の master を取り込み、失敗を直して（手元で検査や
+   Pull Request の実行は master と合わせた版を検査するので、作業ブランチの変更の誤りも、合流点の後に master へ入った変更との意味の
+   競合（文字の競合なしに載せ直せて、合わせると落ちる）も、同じくここで落ちる。落ちたら `git merge origin/master` で今の master を取り込み、失敗を直して（手元で検査や
    テストを回すのは、この失敗を再現するときだけ。testing.md「テストが落ちたときの直し方」）、4 から続ける。
 6. issue の本文を直し（経緯・完了の条件のチェック。マージのあとでないとできない条件だけをチェックの無いまま残す）、
    Pull Request へのリンクをコメントに書いて報告する。Pull Request を出すと、ゲートが検証中へ動かし、確かめる担当に渡る。
@@ -261,13 +260,12 @@ issue の番号ごと）が持つ。同じタスクの実行（作る・確か�
 
 **確かめる担当**（検証中。作った担当とは別）
 1. 作業ブランチを取る（`git fetch origin` と
-   `git checkout -B orch/tasks-<番号> origin/orch/tasks-<番号>`）。依存のファイルが master と違えば、作る担当の2のとおり入れ直す。Pull Request（`gh pr view <番号> -R hidakagit/ride-compass --json title,body,comments,reviews`。本文のキャプチャ・差分）・作業ブランチの CI・issue の完了の条件・変更が届く範囲（要るなら画面）を
+   `git checkout -B orch/tasks-<番号> origin/orch/tasks-<番号>`）。依存のファイルが master と違えば、作る担当の2のとおり入れ直す。Pull Request（`gh pr view <番号> -R hidakagit/ride-compass --json title,body,comments,reviews`。本文のキャプチャ・差分）・Pull Request の CI・issue の完了の条件・変更が届く範囲（要るなら画面）を
    確かめる。作る担当の報告を読み写さず、自分で見る（画面なら変更後を自分で撮る。作る担当の5と同じ道具・脚本・応答で撮り、
    変更前は撮り直さずに作る担当が貼った画像と比べる）。Pull Request が無ければ（手順が変わる前に
    検証中になったもの）、作る担当の5のとおりに出してから確かめる。CI は Pull Request の実行（master と合わせた版。作る担当の5と
    同じく `--event pull_request` で引く）が通っていることを見る。落ちていれば満たしていないとして 4 のとおり落ちたテストを書いて
-   閉じる。push の実行（作業ブランチ単体の版）が通っているのに Pull Request の実行だけが落ちていれば、合流点の後に master へ入った
-   変更との意味の競合なので、「意味の競合」と書く（作る担当が載せ直して直す）。`lost_constraints.py` も自分で回し、
+   閉じる（落ちたのが作業ブランチの変更か master との意味の競合かは見分けない。作る担当はどちらも master を取り込んでから直す）。`lost_constraints.py` も自分で回し、
    「消えた」制約に本文の処置が無ければ満たしていない。分布の前後は測らず、本文に前後の行が無いことを理由にしない（上の「分布の前後」）。
    **設計書の条件を1つ当てる**: 作り直しで落ちた条件（絞り込み・不変条件・制約）は、差分にも作る担当の報告にも1行も出ないので、
    報告の主張ではなく設計書を基準にする。差分が変えた関数・SQL・材料のファイルを `docs/modules/*.md` の対象ファイル表で引き

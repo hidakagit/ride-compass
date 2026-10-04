@@ -680,7 +680,7 @@ issue へ書いてから**3周目に入る（実例: 失敗一覧を「直し方
 | 層 | 回すもの | 担うこと |
 |---|---|---|
 | 手元 | 回さない。CIが落ちたときだけ、その失敗に届く範囲（上の「手元の検査の回し方」） | CIの失敗を再現して原因を取る |
-| 作業ブランチ（`orch/**`）のCI | `ci.yml`の全ジョブと`docs-consistency.yml`（pushとPull Requestのそれぞれで走る。待つのはPull Requestの実行） | 静的検査とフルスイート（Linuxでの結果）。Pull Requestの実行（masterと合わせた版）で、masterへ入れてよいかの判定 |
+| 作業ブランチ（`orch/**`）のCI | `ci.yml`の全ジョブと`docs-consistency.yml`（Pull Requestで走る。作業ブランチへのpushでは走らない） | 静的検査とフルスイート（Linuxでの結果）。masterと合わせた版で、masterへ入れてよいかの判定 |
 | masterのCI | 同じ`ci.yml`と`docs-consistency.yml` | 作業ブランチで個別に通ったコミットを組み合わせた木の検査。`ci.yml`が全部通るまでbackend・frontendのデプロイは起動しない（**本番へ出る前の門はここ**） |
 
 - **コミット・pushの直前（gitのフック）には検査を置かない。** CIと同じ検査をpushの直前に置くと、作業ブランチへのpushの
@@ -1101,7 +1101,7 @@ CSSの規則が当たる。開くたびに作り直される部品（ポップ�
   コマンドを使う。
 - **全状態の走査（`e2e/all-states.spec.ts`）は、CIでは幅ごとの別ジョブ（`e2e-scan`）で走らせ、
   それ以外のspecは`e2e`ジョブで走らせる。** 走査は1本の中で画面の状態を辿るので、分けられる単位は幅に
-  なる。masterと作業ブランチ（`orch/**`）のどちらでも走る。CIで落ちた走査を手元で再現するときは
+  なる。masterへのpushとPull Requestのどちらでも走る。CIで落ちた走査を手元で再現するときは
   `./node_modules/.bin/playwright test e2e/all-states.spec.ts -g "全状態の走査: <幅>"`を回す。
 - 起動するのは、本番Dockerfileと同じ`node .next/standalone/server.js`
   （`npm run start:standalone`。`scripts/prepare-standalone.mjs`がDockerfileのCOPYと同じ
@@ -1352,7 +1352,7 @@ str(Path("venv") / "Scripts" / "uvicorn.exe")
 持ち込まない。実装に両方の区切りを読む分岐を足してテストへ合わせることもしない。
 
 これは書く人が守るもので、機械では確かめていない。**最終的にはCI（Linux）が判定する**——
-作業ブランチ（`orch/**`）へのpushでCIが走り、masterへ入れる前の確かめがその結論を読む
+作業ブランチ（`orch/**`）のPull RequestでCIが走り、masterへ入れる前の確かめがその結論を読む
 （[flow.md](flow.md)の検証中）ので、Windowsで通っただけのテストはmasterへ入る前に止まる。
 
 ## パターン11: backendと画面が同じ計算を持つ → backendが「入力→答え」の表を出す
