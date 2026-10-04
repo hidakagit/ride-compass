@@ -77,6 +77,12 @@ def asyncpg_dsn(sqlalchemy_url: str) -> str:
 
 
 
+#: 取込と派生の作り直しが取るadvisory lockの名前（`hashtext`で鍵にする）。作り直しは排他で、取込は共有で
+#: 取る——取込どうしは並んで走れ、取込と作り直しはどちらかが止まる。作り直しの段と段の間に取込が
+#: 終わると、段ごとに違う取込を読み、記録した取込（`derived_source_runs`）とも食い違うため。
+SOURCE_DATA_LOCK = "source_data"
+
+
 async def latest_succeeded_run_id(conn: asyncpg.Connection, source: Source) -> int:
     """派生の基準にする取込（そのソースの成功した最新のrun）。無ければ止める。"""
     run_id = await conn.fetchval(f"SELECT run_id FROM {latest_succeeded_run_sql(source)} latest")
