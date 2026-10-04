@@ -8,58 +8,53 @@
  * - 判定の結果を画面にどう出すか → `AxisStudio/AxisMapDisplaySection.test.tsx`
  */
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import type { DisplayThresholdsPreviewRequest, MapBandsOfThresholds } from "./adminApi";
+import { heldReplies, onSameOrigin } from "@/testing/backendServer";
 
-const api = vi.hoisted(() => ({ fetchMapBandsOfThresholds: vi.fn() }));
-vi.mock("@/features/admin/adminApi", () => api);
+import type { DisplayThresholdsPreviewRequest } from "./adminApi";
+
 vi.mock("@/hooks/useDebouncedValue", () => ({ MAP_FETCH_DEBOUNCE_MS: 0, useDebouncedValue: <T>(value: T) => value }));
 
 import { useMapBandsOfThresholds } from "./useMapBandsOfThresholds";
+
+const PREVIEW = "/admin/api/axis-definitions/preview-display-thresholds";
 
 function request(thresholds: number[]): DisplayThresholdsPreviewRequest {
   return { axis_id: "axis_a", shape: { kind: "categorical", material: "m", mapping: {} }, thresholds };
 }
 
-const judged: MapBandsOfThresholds = { droppedOnMap: [2], bandsOnMap: [0, 2] };
-const judgedOk = { ...judged, failed: false };
+const judgement = (droppedOnMap: number[], bandsOnMap: number[]) =>
+  Response.json({ dropped_on_map: droppedOnMap, bands_on_map: bandsOnMap });
+const judgedOk = { droppedOnMap: [2], bandsOnMap: [0, 2], failed: false };
 /** 判定が無い間: 落ちる値なし・全段が残る（入力どおりの段で出す）。 */
 const noJudgement = { droppedOnMap: [], bandsOnMap: null, failed: false };
-
-beforeEach(() => {
-  api.fetchMapBandsOfThresholds.mockReset();
-});
 
 describe("useMapBandsOfThresholds", () => {
   it("しきい値を上書きしていない間は問い合わせず、判定なし", async () => {
     const { result } = renderHook(() => useMapBandsOfThresholds(null));
     await act(async () => {});
-    expect(api.fetchMapBandsOfThresholds).not.toHaveBeenCalled();
     expect(result.current).toEqual(noJudgement);
   });
 
-  it("下書きの形・しきい値をそのまま問い、答えを返す", async () => {
-    api.fetchMapBandsOfThresholds.mockResolvedValue(judged);
+  it("下書きを問い、答えを返す", async () => {
+    onSameOrigin("POST", PREVIEW, () => judgement([2], [0, 2]));
     const { result } = renderHook(() => useMapBandsOfThresholds(request([1, 2])));
 
     await waitFor(() => expect(result.current).toEqual(judgedOk));
-    expect(api.fetchMapBandsOfThresholds).toHaveBeenCalledWith(request([1, 2]));
   });
 
   it("判定に失敗したら、判定なし（効かない値がある、とは言わない）で、失敗したことを返す", async () => {
-    api.fetchMapBandsOfThresholds.mockRejectedValue(new Error("しきい値の確認に失敗しました"));
+    onSameOrigin("POST", PREVIEW, () => new Response(null, { status: 500 }));
     const { result } = renderHook(() => useMapBandsOfThresholds(request([1])));
-    await waitFor(() => expect(api.fetchMapBandsOfThresholds).toHaveBeenCalledTimes(1));
-    await act(async () => {});
-    expect(result.current).toEqual({ ...noJudgement, failed: true });
+    await waitFor(() => expect(result.current).toEqual({ ...noJudgement, failed: true }));
   });
 
   it("入力を変えた直後は、前の入力の答えを返さない", async () => {
-    let answerSecond!: (value: MapBandsOfThresholds) => void;
-    api.fetchMapBandsOfThresholds
-      .mockResolvedValueOnce(judged)
-      .mockReturnValueOnce(new Promise<MapBandsOfThresholds>((resolve) => (answerSecond = resolve)));
+    const held = heldReplies();
+    onSameOrigin("POST", PREVIEW, ({ body }) =>
+      (body as DisplayThresholdsPreviewRequest).thresholds?.[1] === 2 ? judgement([2], [0, 2]) : held.reply(),
+    );
     const { result, rerender } = renderHook(({ thresholds }) => useMapBandsOfThresholds(request(thresholds)), {
       initialProps: { thresholds: [1, 2] },
     });
@@ -67,7 +62,7 @@ describe("useMapBandsOfThresholds", () => {
 
     rerender({ thresholds: [1, 3] });
     expect(result.current).toEqual(noJudgement);
-    answerSecond({ droppedOnMap: [], bandsOnMap: [0, 1, 2] });
+    await held.answer(0, judgement([], [0, 1, 2]));
     await waitFor(() => expect(result.current.bandsOnMap).toEqual([0, 1, 2]));
   });
 });

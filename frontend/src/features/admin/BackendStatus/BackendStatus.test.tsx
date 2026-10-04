@@ -5,32 +5,27 @@
  * - 疎通の判定（応答の読み方・失敗を偽にすること） → `app/admin/adminApi.test.ts`
  */
 import { render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
-const api = vi.hoisted(() => ({ checkBackendHealth: vi.fn() }));
-vi.mock("@/features/admin/adminApi", () => api);
+import { heldReplies, onBackend } from "@/testing/backendServer";
 
 import BackendStatus from "./BackendStatus";
 
-beforeEach(() => {
-  api.checkBackendHealth.mockReset();
-});
-
 describe("BackendStatus", () => {
   it("答えが来るまでは確認中と出す", () => {
-    api.checkBackendHealth.mockReturnValue(new Promise(() => {}));
+    onBackend("GET", "/health", heldReplies().reply);
     render(<BackendStatus />);
     expect(screen.getByText("サーバー接続を確認中…")).toBeInTheDocument();
   });
 
   it("疎通できればOK", async () => {
-    api.checkBackendHealth.mockResolvedValue(true);
+    onBackend("GET", "/health", () => Response.json({ status: "ok" }));
     render(<BackendStatus />);
     expect(await screen.findByText("サーバー接続: OK")).toBeInTheDocument();
   });
 
   it("疎通できなければ、接続できないと出す", async () => {
-    api.checkBackendHealth.mockResolvedValue(false);
+    onBackend("GET", "/health", () => new Response(null, { status: 503 }));
     render(<BackendStatus />);
     expect(await screen.findByText("サーバーに接続できません")).toBeInTheDocument();
   });

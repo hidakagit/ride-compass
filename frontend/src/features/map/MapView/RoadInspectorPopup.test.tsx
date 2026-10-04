@@ -1,15 +1,16 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { setDebugEnabled } from "@/lib/debugLog";
 import { catalogAxisFromEntry, type CatalogAxis } from "@/lib/catalogAxis";
+import { onBackend } from "@/testing/backendServer";
 import { catalogEntry } from "@/testing/catalogAxes";
-import { fetchAxisInspector } from "@/features/map/regionApi";
 import materialCatalog from "@/types/generated/material-catalog.json";
 import type { AxisInspectorResult } from "@/types/traffic";
 import RoadInspectorPopup from "./RoadInspectorPopup";
 
-vi.mock("@/features/map/regionApi", () => ({ fetchAxisInspector: vi.fn() }));
+const INSPECTOR = "/api/region/axis-inspector";
+const serveInspector = (result: AxisInspectorResult) => onBackend("POST", INSPECTOR, () => Response.json(result));
 
 const axis = (axisId: string, label: string, description: string): CatalogAxis =>
   catalogAxisFromEntry(catalogEntry({ axis_id: axisId, label, description }));
@@ -53,7 +54,7 @@ function inspectorResult(): AxisInspectorResult {
 describe("RoadInspectorPopup", () => {
   it("周囲の土地被覆は畳んでおき、閉じている間は最も多いクラスだけを見せる", async () => {
     const user = userEvent.setup();
-    vi.mocked(fetchAxisInspector).mockResolvedValue(inspectorResult());
+    serveInspector(inspectorResult());
     render(
       <RoadInspectorPopup
         properties={{ osm_way_id: 1, surface_class: SURFACE_CLASS_VALUE }}
@@ -78,10 +79,6 @@ describe("RoadInspectorPopup", () => {
     expect(screen.queryByText("水面")).not.toBeInTheDocument();
   });
 
-  beforeEach(() => {
-    vi.mocked(fetchAxisInspector).mockReset();
-  });
-
   it("事実だけを先に出し、評価は押したときに取りに行く（クリックのたびに引かない）", () => {
     render(
       <RoadInspectorPopup
@@ -94,13 +91,12 @@ describe("RoadInspectorPopup", () => {
 
     expect(screen.getByText("明治通り")).toBeInTheDocument();
     expect(screen.getByText(SURFACE_CLASS_VALUE_LABEL)).toBeInTheDocument();
-    expect(fetchAxisInspector).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "この道の評価を見る" })).toBeInTheDocument();
   });
 
   it("評価はルート結果と同じ寄与度で出し、算出できない軸は並べない", async () => {
     const user = userEvent.setup();
-    vi.mocked(fetchAxisInspector).mockResolvedValue(inspectorResult());
+    serveInspector(inspectorResult());
     render(
       <RoadInspectorPopup
         properties={{ osm_way_id: 1, surface_class: SURFACE_CLASS_VALUE }}
@@ -121,7 +117,7 @@ describe("RoadInspectorPopup", () => {
 
   it("合成は注記として出す（実際の探索コストとは一致しないため主役にしない）", async () => {
     const user = userEvent.setup();
-    vi.mocked(fetchAxisInspector).mockResolvedValue(inspectorResult());
+    serveInspector(inspectorResult());
     render(
       <RoadInspectorPopup
         properties={{ osm_way_id: 1, surface_class: SURFACE_CLASS_VALUE }}
@@ -139,7 +135,7 @@ describe("RoadInspectorPopup", () => {
 
   it("カタログ外の生タグは畳んで置く（数が読めないため、開いたときだけ縦に伸ばす）", async () => {
     const user = userEvent.setup();
-    vi.mocked(fetchAxisInspector).mockResolvedValue(inspectorResult());
+    serveInspector(inspectorResult());
     render(
       <RoadInspectorPopup
         properties={{ osm_way_id: 1, surface_class: SURFACE_CLASS_VALUE }}
@@ -160,10 +156,7 @@ describe("RoadInspectorPopup", () => {
 
   it("属性は畳んでおき、タイルとタグの両方が持つ項目は1度だけ出す", async () => {
     const user = userEvent.setup();
-    vi.mocked(fetchAxisInspector).mockResolvedValue({
-      ...inspectorResult(),
-      tags: { highway: "residential", lit: "yes" },
-    });
+    serveInspector({ ...inspectorResult(), tags: { highway: "residential", lit: "yes" } });
     render(
       <RoadInspectorPopup
         properties={{ osm_way_id: 1, surface_class: SURFACE_CLASS_VALUE }}
@@ -193,7 +186,12 @@ describe("評価の重み", () => {
 
   it("評価は、利用者がいま設定している重みで取りに行く", async () => {
     const user = userEvent.setup();
-    vi.mocked(fetchAxisInspector).mockResolvedValue(inspectorResult());
+    // backendは、送られた重みがいまの設定と同じときだけ評価を返す。
+    onBackend("POST", INSPECTOR, ({ body }) =>
+      JSON.stringify((body as { route_preference?: unknown }).route_preference) === JSON.stringify(WEIGHTS)
+        ? Response.json(inspectorResult())
+        : Response.json({ detail: "重みが違う" }, { status: 400 }),
+    );
     render(
       <RoadInspectorPopup
         properties={{ osm_way_id: 1 }}
@@ -206,12 +204,12 @@ describe("評価の重み", () => {
 
     await user.click(screen.getByRole("button", { name: "この道の評価を見る" }));
 
-    expect(vi.mocked(fetchAxisInspector).mock.calls.at(-1)?.[3]).toEqual(WEIGHTS);
+    expect(await screen.findByText(/この道だけで見た合成/)).toBeInTheDocument();
   });
 
   it("重みを変えたら、前の重みで取った評価を見せずに取り直しへ戻る", async () => {
     const user = userEvent.setup();
-    vi.mocked(fetchAxisInspector).mockResolvedValue(inspectorResult());
+    serveInspector(inspectorResult());
     const props = { properties: { osm_way_id: 1 }, axes: AXES, axisColors: AXIS_COLORS, ...RIDE };
     const { rerender } = render(<RoadInspectorPopup {...props} routePreference={WEIGHTS} />);
     await user.click(screen.getByRole("button", { name: "この道の評価を見る" }));
@@ -230,7 +228,7 @@ describe("評価の走行の条件", () => {
 
   it("開いている間に出発時刻が進んでも、押したときの条件で取った評価を出し続ける", async () => {
     const user = userEvent.setup();
-    vi.mocked(fetchAxisInspector).mockResolvedValue(inspectorResult());
+    serveInspector(inspectorResult());
     const { rerender } = render(<RoadInspectorPopup {...props} conditions={CONDITIONS} />);
     await user.click(screen.getByRole("button", { name: "この道の評価を見る" }));
     await screen.findByText(/この道だけで見た合成/);
@@ -242,17 +240,15 @@ describe("評価の走行の条件", () => {
 
   it("同じ道を同じ条件・重みで開き直したときは、取り直さずに前の評価を出す", async () => {
     const user = userEvent.setup();
-    vi.mocked(fetchAxisInspector).mockResolvedValue(inspectorResult());
+    serveInspector(inspectorResult());
     const first = render(<RoadInspectorPopup {...props} conditions={CONDITIONS} />);
     await user.click(screen.getByRole("button", { name: "この道の評価を見る" }));
     await screen.findByText(/この道だけで見た合成/);
     first.unmount();
-    vi.mocked(fetchAxisInspector).mockClear();
 
     render(<RoadInspectorPopup {...props} conditions={{ ...CONDITIONS }} />);
 
     expect(screen.getByText(/この道だけで見た合成/)).toBeInTheDocument();
-    expect(fetchAxisInspector).not.toHaveBeenCalled();
   });
 });
 

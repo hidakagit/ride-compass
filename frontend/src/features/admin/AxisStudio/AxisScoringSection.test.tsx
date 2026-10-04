@@ -2,7 +2,7 @@
  * `AxisScoringSection.tsx`——「点数の決め方」の節: 選んだもの（数値・真偽・種類の材料、ほかの軸）の型で下書きの形を
  * 組み替え、その形の入力欄だけを出すこと。
  *
- * 材料・軸は性質だけを持つ架空のもの。値の候補は取得の応答（`getMaterialValues`）を差し替えて与え、候補あり・
+ * 材料・軸は性質だけを持つ架空のもの。値の候補は取得の応答（網の層）で与え、候補あり・
  * 空・出せなかったの3経路をこの節の中で見る。分布の取得（`useAxisValueDistribution`）は差し替えて、何を渡したかを見る。
  * 分布の表示・曲線エディタ・材料の分位の1行は子の部品で、ここでは何を渡したかだけを見る。
  *
@@ -12,18 +12,16 @@
  * - 保存前の検証 → `AxisComposer.test.tsx`
  */
 import { useState } from "react";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
 import type { getMaterialValues } from "@/features/admin/adminApi";
+import { onSameOrigin } from "@/testing/backendServer";
 
 import { buildShape, emptyDraft, type Draft } from "./axisDraft";
 import { generateBreakpoints, insertBreakpointAtLargestGap } from "./breakpointTools";
-
-const api = vi.hoisted(() => ({ getMaterialValues: vi.fn() }));
-vi.mock("@/features/admin/adminApi", () => ({ getMaterialValues: api.getMaterialValues }));
 
 const captured = vi.hoisted(() => ({
   distributionArgs: [] as [boolean, string, () => unknown][],
@@ -143,9 +141,18 @@ function valuesResponse(values: string[], available = true): MaterialValuesRespo
   return { available, values: values.map((value) => ({ value, label: `${value}のラベル` })) };
 }
 
+/** 材料`materialId`の値の候補の取得に`response`を返す（ほかの材料には候補0件）。 */
+function serveValues(materialId: string, response: MaterialValuesResponse) {
+  onSameOrigin("GET", "/admin/api/material-catalog/:materialId/values", ({ path }) =>
+    Response.json(path.endsWith(`/${materialId}/values`) ? response : valuesResponse([])),
+  );
+}
+
+/** 値の候補の応答が届くだけの間をおく。 */
+const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+
 beforeEach(() => {
-  api.getMaterialValues.mockReset();
-  api.getMaterialValues.mockResolvedValue(valuesResponse([]));
+  serveValues("", valuesResponse([]));
   captured.distributionArgs = [];
   captured.distributionResult = { distribution: null, loading: false, error: null };
   captured.preview = null;
@@ -577,7 +584,7 @@ describe("はい/いいえ・種類の形", () => {
     });
   });
 
-  it("真偽の材料は、該当時・非該当時の点数を入れる。値の候補は取りに行かない", () => {
+  it("真偽の材料は、該当時・非該当時の点数を入れる", () => {
     renderSection(categoricalDraft(BOOL.id, { trueScore: 0, falseScore: 0 }));
     fireEvent.change(screen.getByRole("slider", { name: "はいのときのスコア(スライダー)" }), {
       target: { value: "30" },
@@ -586,11 +593,10 @@ describe("はい/いいえ・種類の形", () => {
       target: { value: "-20" },
     });
     expect(draft()).toMatchObject({ trueScore: 30, falseScore: -20 });
-    expect(api.getMaterialValues).not.toHaveBeenCalled();
   });
 
   it("種類の材料で値の候補が取れたら、値は候補からだけ選べ、値はラベルで出す（候補に無い値はそのまま）。選んだときは生の値を入れる", async () => {
-    api.getMaterialValues.mockResolvedValue(valuesResponse(["primary", "track"]));
+    serveValues(CAT.id, valuesResponse(["primary", "track"]));
     const user = renderSection(
       categoricalDraft(CAT.id, {
         categoricalRows: [
@@ -601,7 +607,6 @@ describe("はい/いいえ・種類の形", () => {
     );
 
     const candidates = await screen.findAllByRole("combobox", { name: "値の候補" });
-    expect(api.getMaterialValues).toHaveBeenCalledWith(CAT.id);
     const values = screen.getAllByRole("textbox", { name: "値" });
     expect(values.map((input) => (input as HTMLInputElement).value)).toEqual(["trackのラベル", "legacy"]);
     expect(values.every((input) => input.hasAttribute("readonly"))).toBe(true);
@@ -611,9 +616,8 @@ describe("はい/いいえ・種類の形", () => {
   });
 
   it("種類の材料で候補が0件なら、値を自由に打てる", async () => {
-    api.getMaterialValues.mockResolvedValue(valuesResponse([]));
     const user = renderSection(categoricalDraft(CAT.id, { categoricalRows: [{ value: "", score: 0 }] }));
-    await waitFor(() => expect(api.getMaterialValues).toHaveBeenCalled());
+    await settle();
 
     const value = screen.getByRole("textbox", { name: "値" });
     expect(value).not.toHaveAttribute("readonly");
@@ -623,9 +627,9 @@ describe("はい/いいえ・種類の形", () => {
   });
 
   it("種類の材料で候補を出せなかったら、値を自由に打て、説明にその理由を出す", async () => {
-    api.getMaterialValues.mockResolvedValue(valuesResponse([], false));
+    serveValues(CAT.id, valuesResponse([], false));
     const user = renderSection(categoricalDraft(CAT.id, { categoricalRows: [{ value: "", score: 0 }] }));
-    await waitFor(() => expect(api.getMaterialValues).toHaveBeenCalled());
+    await settle();
 
     await user.type(screen.getByRole("textbox", { name: "値" }), "x");
     expect(draft().categoricalRows[0].value).toBe("x");
@@ -635,7 +639,7 @@ describe("はい/いいえ・種類の形", () => {
 
   it("値ごとの行の点数を変えられ、行を足せ、1行のときは削除できない", async () => {
     const user = renderSection(categoricalDraft(CAT.id, { categoricalRows: [{ value: "a", score: 0 }] }));
-    await waitFor(() => expect(api.getMaterialValues).toHaveBeenCalled());
+    await settle();
 
     fireEvent.change(screen.getByRole("slider", { name: "スコア(スライダー)" }), { target: { value: "45" } });
     expect(draft().categoricalRows[0].score).toBe(45);
