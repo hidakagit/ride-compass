@@ -312,7 +312,12 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
 4. 1 で「満たしていない」とした条件のどれかに当たれば、足りないことを書いて Pull Request を閉じる（`gh pr close <番号> --comment <理由>`）。
    閉じる操作は GitHub の API の失敗で通らないことがあるので、閉じたかは `gh pr view <番号> -R hidakagit/ride-compass --json state` で
    `CLOSED` が出るかで見て、`OPEN` のままなら閉じ直す。ゲートが未着手へ戻す。それ以外の気づき（本文の数字の誤り・書き漏れ・使われない import 等）は閉じる理由にせず、2 の結果に書いて 5 へ進む。
-5. 満たしていれば Pull Request を squash でマージする（`gh pr merge <番号> -R hidakagit/ride-compass --squash`。コードのリポジトリの
+5. 満たしていれば、マージの前に、1 で確かめて満たしていた完了の条件へ issue の本文でチェックを付ける（本文をファイルに書いて
+   `gh issue edit <番号> -R ridecompass/ride-compass-tasks --body-file <ファイル>` で書き戻す）。作る担当が付け漏らした条件・
+   開発機の対話のセッションで出た Pull Request の条件は、ここで付けないと本文に届かず、マージでゲートが残りありとして未着手へ戻す。
+   付けないのは、確かめの行（`- [ ] ユーザーが確かめる: …`）・マージのあとでないとできない条件・3 で足した行。4 で閉じるときは
+   どの行にも付けない。
+   そのあと Pull Request を squash でマージする（`gh pr merge <番号> -R hidakagit/ride-compass --squash`。コードのリポジトリの
    設定で、題名と本文がそのまま master の1つのコミットになる）。CI は 1 で通ったのを見ているので、待たずに打つ。master の CI も
    待たない（ゲートが閉じる）。マージの道具は通っても何も出さないことがあるので、通ったかは
    `gh pr view <番号> -R hidakagit/ride-compass --json state` で `MERGED` が出るかで見て、`OPEN` のままなら打ち直す。
