@@ -222,6 +222,24 @@ Pull RequestごとにCIを走らせるか、古い実行を打ち切るか（`co
 だけの変更で重い検査を飛ばす範囲（`ci.yml: changes`）、ジョブの分け方とキャッシュ。検査の門を
 CIだけに置いているため、CIの分数が尽きると検査そのものが止まる。
 
+## 秘密の値とトークン
+
+**どのトークンが誰の名義で、どこへ届き、どこで使われているかは、GitHub・Cloudflareの画面にもコードにも
+まとまって無く、この表だけが持つ。** 値はここに書かない。トークンを作る前に、この表で今あるものを使えないかを
+見る。トークンを作る・消す・権限や届く範囲を変えるときは、同じ変更でこの表を直す。どの名義でどこへ書くかの
+決まりは[flow.md](../conventions/flow.md)「担当」の「名義」が持つ。
+
+| 入れた場所 | 名前 | 中身（作った人・Resource owner・届く範囲・権限・期限） | 使う所 |
+|---|---|---|---|
+| hidakagit/ride-compassのActionsの秘密の値 | `CODE_TOKEN` | hidakagitが作ったfine-grained `ride-compass-actions`。Resource ownerはhidakagitで、届くのはhidakagit/ride-compassだけ。Actions・Contents・Issues・Pull requests・Variablesは読み書き、Commit statusesは読むだけ。期限は未記録 | `claude-task.yml`（checkout・Claudeの連携・ghの既定）・`claude-dispatch.yml`（盤面を読み担当を起こす・次の見回りを起こす） |
+| 同 | `FLOW_BOT_TOKEN` | hidakagit-botが作ったfine-grained。届くのはridecompass/ride-compass-tasksだけ。Contentsは読み書き（担当の手番の記録をリリースへ置く）。期限2027-09-29 | 担当と流れの道具が置き場へ書く・ゲートの公開のあと`refresh.js`。開発機ではユーザー環境変数の同じ名前 |
+| 同 | `CLAUDE_CODE_OAUTH_TOKEN` | Claudeの契約のトークン（GitHubのトークンではない） | `claude-task.yml` |
+| 同 | `CLOUDFLARE_API_TOKEN`・`CLOUDFLARE_ACCOUNT_ID` | Cloudflare | ゲートと回答フォームの公開（`ci.yml`） |
+| 同 | `ORACLE_VM_HOST`・`ORACLE_VM_SSH_KEY` | 本番のVM | backendのデプロイ |
+| 同 | `RENDER_FRONTEND_DEPLOY_HOOK_URL` | Render | frontendのデプロイ |
+| ゲートのWorker（`ridecompass-gate`） | `APP_ID`・`APP_KEY`・`WEBHOOK_SECRET` | GitHub Appの鍵とWebhookの秘密 | ゲート |
+| 回答フォームのWorker（`ride-compass-answer`） | `APP_ID`・`APP_KEY`・`FORM_TOKEN` | `FORM_TOKEN`はhidakagitが作ったfine-grained `ridecompass-answer-form-2`。Resource ownerはridecompassで、届くのはridecompass/ride-compass-tasksだけ。期限2027-09-29 | 回答フォームの答えをhidakagitの名義で書く |
+
 ## DBの版（本番が正本）
 
 **本番DBの版が正本で、CIと`docker-compose.yml`はそれに従う。本番の版を上げたら、同じ変更で
