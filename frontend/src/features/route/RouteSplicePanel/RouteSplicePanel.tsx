@@ -160,23 +160,28 @@ export default function RouteSplicePanel({
           <div className="ml-auto flex items-center gap-1.5">
             {appliedCount > 0 && (
               <>
-                <Button size="iconLabel" onClick={onUndo} disabled={busy} usage="直前の乗り換えを1つ取り消します。">
+                <Button
+                  size="panelIcon"
+                  onClick={onUndo}
+                  disabled={busy}
+                  aria-label="1つ戻す"
+                  usage="直前の乗り換えを1つ取り消します。"
+                >
                   <UndoIcon size={18} />
-                  1つ戻す
                 </Button>
                 <Button
-                  size="iconLabel"
+                  size="panelIcon"
                   onClick={onReset}
                   disabled={busy}
+                  aria-label="全部戻す"
                   usage="乗り換えをすべて取り消して、元の候補に戻します。"
                 >
                   <UndoAllIcon size={18} />
-                  全部戻す
                 </Button>
               </>
             )}
             <Button
-              size="iconLabel"
+              size="panelIcon"
               onClick={onPreview}
               disabled={appliedCount === 0 || busy}
               aria-busy={previewing}
@@ -184,19 +189,16 @@ export default function RouteSplicePanel({
               usage="いまの乗り換えで、距離・所要時間・難易度が元の候補からどう変わるかを出します。"
             >
               <RouteDiffIcon size={18} />
-              差分
             </Button>
             <Button
-              size="iconLabel"
+              size="panelIcon"
               onClick={onApply}
               disabled={appliedCount === 0 || busy}
               aria-busy={applying}
               aria-label="新しいルートを作成"
               usage="いまの乗り換えで作ったルートを、採用ルートに加えます。元のルートは残ります。"
-              title="採用ルートに加える"
             >
               <NewRouteIcon size={18} />
-              作成
             </Button>
           </div>
         )}
@@ -303,7 +305,7 @@ export default function RouteSplicePanel({
                   </span>
                 ))
               : appliedCount > 0
-                ? "「差分」を押すと、乗り換えた結果が出ます"
+                ? "「差分を見る」を押すと、乗り換えた結果が出ます"
                 : hasAlternatives
                   ? "地図の破線をタップして乗り換えます"
                   : "他の候補と別の道を通る区間がありません。"}
