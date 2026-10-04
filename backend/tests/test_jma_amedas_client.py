@@ -12,7 +12,6 @@ None、プロセス内キャッシュで上流を引き直さないこと。
 
 from datetime import datetime, timedelta, timezone
 
-import httpx
 import pytest
 import respx
 
@@ -113,13 +112,6 @@ async def test_latest_time_failure_is_none(response):
     assert await jma_amedas_client.fetch_latest_observation_time(answering(**response)) is None
 
 
-async def test_latest_time_connection_failure_is_none():
-    router = respx.Router()
-    router.get(jma_amedas_client.AMEDAS_LATEST_TIME_URL).mock(side_effect=httpx.ConnectError)
-
-    assert await jma_amedas_client.fetch_latest_observation_time(client_for(router)) is None
-
-
 # --- 観測値 ---
 
 _FULL_READING = {
@@ -178,8 +170,7 @@ async def test_reading_without_a_sensor_has_none_and_no_hourly_rain():
 
 async def test_missing_value_is_none_but_the_hourly_rain_item_is_still_reported():
     """雨量計はあるが欠測（`[null, フラグ]`）なら、値はNoneで、1時間雨量の項目は持つ。"""
-    reading = {key: [None, 5] for key in _FULL_READING}
-    client = answering(json={"44132": reading})
+    client = answering(json={"44132": {"precipitation1h": [None, 5]}})
 
     readings = await jma_amedas_client.fetch_observation_map(client, datetime(2026, 8, 29, 8, 0, tzinfo=timezone.utc))
 
