@@ -63,9 +63,14 @@ CI・フック・開発環境の用意のスクリプト）。
   配信する地図タイルの世代がこれに追随する（タイルは成功した取込の数にも追随する）——バッチはデプロイを伴わないため、コード内の定数では表せない。
   外部ソースの形は`source_adapters/`が解き、実行するSQL文はバッチが持つ。業務の判断
   （停止要因の畳み方・土地被覆の帯幅のような、値をどう読むか）は持たず`domain/`から読む。
+  SQL文が持つのは表・列・結合の骨格だけで、**判断のリテラル（しきい値・割合・語彙の値）を持たない**——
+  `domain/`の定数か`*_sql()`の式を差し込む（例: 停止要因の端の分け持ち`traffic.py: place_count_sql`、
+  上下線分離の3条件`divided_carriageway.py: divided_sql`）。機械では落とさない: SQL文には座標系（4326・3857）・
+  タイルの書式・単位・PostgreSQLの語彙のリテラルも並び、判断と形で見分けるには除外リストが要る。
 - **`infrastructure/`**: DB・外部API・キャッシュ・ログといった外側との接続。外部の応答の形を
   解くこと、表と列を名指しするSQL文、ORMの宣言が属する。キャッシュの鍵の組み立ては
-  `cache_identity.py`が唯一の正本。業務の判断は持たず`domain/`から読む。
+  `cache_identity.py`が唯一の正本。業務の判断は持たず`domain/`から読む。SQL文に判断のリテラルを
+  持たないのは`batch/`と同じ（例: 路面タイルの一方通行`divided_carriageway.py: map_oneway_sql`）。
   - **Redisの接続（`redis_client.py`・`redis_json_cache.py`）を読むのはこの層だけ**。上の層
     （`main.py`・`api/`・`services/`・`batch/`）が直にimportすると、`backend/.importlinter`の
     `forbidden`契約で`lint-imports`が落ちる。この層のモジュールを通して読むのはよい。

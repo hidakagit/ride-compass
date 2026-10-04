@@ -18,7 +18,7 @@
 
 - Claude は GitHub の置き場へ、hidakagit-bot のトークン（ユーザー環境変数 `FLOW_BOT_TOKEN`）でだけ書く。hidakagit の
   トークンで書かない——hidakagit に通知が届かず、ゲートが hidakagit の操作と見分けられなくなる。
-  gh で書くときは `GH_TOKEN` に `FLOW_BOT_TOKEN` の値を渡す。
+  gh で置き場を打つときは、読むときも `GH_TOKEN` に `FLOW_BOT_TOKEN` の値を渡す（担当の既定のトークンは置き場に届かない。「担当」の「名義」）。
 - ゲートは自分の書き込み（送り主 `flow.config.json: gate`）を無視する。組み込みの自動化「Auto-add to project」
   （段階は「Auto-add sub-issues to project」）が issue を Project に入れると、ゲートが入口（下）を処理する。
 
@@ -102,7 +102,8 @@ issue の番号ごと）が持つ。同じタスクの実行（作る・確か�
   1. 引き受ける（`tools/flow-gate/bin/claim.js`）: 作るなら未着手 → 進行中へ動かせたときだけ、確かめるなら検証中のときだけ進み、
      issue に着手（担当の種類・実行へのリンク）を書く。同じタスクの実行は1本ずつ動く（「1つのタスクを触るのは1者だけ」）ので、
      待っていた実行は前の実行が終わってからここで照らされ、行き先が無ければ何もせず終わる。
-  2. 準備: `ci.yml` の backend と同じ PostgreSQL + PostGIS、backend と frontend の依存を入れ、担当の権限（「担当の権限」）を渡す。
+  2. 準備: `ci.yml` の backend と同じ PostgreSQL + PostGIS、Read が PDF をページで読むための `poppler-utils`、backend と frontend の依存を入れ、
+     担当の権限（「担当の権限」）を渡す。
   3. 担当を起こす。持ち時間はジョブの `timeout-minutes` で、超えると Actions がジョブを止める。担当の実行は、担当が手番を終えた
      最初の発言で終わる（連携 `anthropics/claude-code-action` は SDK の最初の結果で抜け、裏で動かしたシェルはその数秒後に止まる）。
      裏の処理の知らせで起こし直されることは無いので、裏で動かす道具（Bash の `run_in_background`・Monitor・ScheduleWakeup・
@@ -125,6 +126,11 @@ issue の番号ごと）が持つ。同じタスクの実行（作る・確か�
      （ステータス・ジョブの結果・時間・手数）は写さない。PR も報告も出さずに終わった担当の理由は、この最後の発言で読む。
 - **名義**: 置き場へは hidakagit-bot（secret `FLOW_BOT_TOKEN`）、コードのリポジトリへは hidakagit（secret `CODE_TOKEN`。
   `GITHUB_TOKEN` で打ったマージは master の CI とデプロイを起こさないため）、Claude は契約のトークン（secret `CLAUDE_CODE_OAUTH_TOKEN`）。
+  どのトークンがどこへ届くかは docs/architecture/tech-stack.md「秘密の値とトークン」が持つ。`CODE_TOKEN` はコードのリポジトリにだけ
+  届き、置き場に届かない。担当のワークフローは gh の既定（`GH_TOKEN`）に `CODE_TOKEN` を置くので、担当が置き場へ打つときに `GH_TOKEN=$FLOW_BOT_TOKEN` を
+  付け忘れると、hidakagit の名義で通らずに断られる。名義の誤りを止めるのはこのトークンの範囲だけ: gh はトークンをホストごとに
+  しか選べず（公式の文書 `gh help environment`）、権限の拒否の規則は先頭の変数の代入を越えて当たるので、付けた打ち方と
+  付け忘れた打ち方を見分けられない（公式の文書「Configure permissions」の Wrappers）。
 - **記録**: Actions の実行の記録に、「#<番号> <種類>」の名前で並ぶ。コードのリポジトリは公開なので、記録は誰でも読める。
   担当の出力の全文と報告は記録に出さない（出るのは指示文と、手数・費用の目安）。担当の最後の発言は、非公開の置き場の issue にだけ書く（4）。
   手番の記録（担当が何をどの順でしたか）は、非公開の置き場のリリース「担当の手番の記録 <日付>」の添付に残り、終わりのコメントの

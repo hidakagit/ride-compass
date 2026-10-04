@@ -192,7 +192,7 @@ async def test_the_signal_radius_set_on_the_admin_screen_decides_which_nodes_get
 
 async def test_the_accident_density_is_divided_by_the_years_of_the_import_that_was_counted(
         derived_before, road_graph_engine, monkeypatch):
-    """事故密度の分母（収録年数）は、今の数を数えた事故の取込の年から読む。取り込み直しても、作り直しが
+    """事故密度の分母（収録年数）は、今の表を作った事故の取込の年から読む。取り込み直しても、作り直しが
     入れ替わるまでは前の取込の年のまま（数も前のまま）で、入れ替えた後は新しい取込の年になり、その世代の
     道路網も新しい年数で割っている。"""
 

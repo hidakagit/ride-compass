@@ -6,9 +6,6 @@
 **停止要因は、まとまり1つを道路網の上の1つの場所として数える。**場所に端から入る区間と
 出る区間が0.5ずつ持ち、場所を通り抜ける区間が1を持つので、経路上ではどう通っても合計1回に
 なる。規則の中身は`docs/modules/backend/static-road-attributes.md`「停止要因の数え方」。
-
-**事故を数えた取込を、数と一緒に記録する**（`derived_data_meta.accident_run_id`）。事故密度の分母の
-年はそこから読む（`docs/modules/backend/static-road-attributes.md`「事故の帰属」）。
 """
 
 import logging
@@ -25,19 +22,18 @@ from app.domain.accident import (
     bicycle_sql,
 )
 from app.domain.geo import KM_PER_DEGREE_LATITUDE
-from app.infrastructure import derived_data_meta
 from app.infrastructure.source_models import (
     ACCIDENTS_SOURCE_SQL,
     WAYS_SOURCE_SQL,
-    Source,
-    latest_succeeded_run_sql,
     nodes_lookup_sql,
 )
 from app.domain.traffic import (
     INTERSECTION_DEGREE_THRESHOLD,
+    PLACE_SHARE_PER_END,
     POI_CLUSTER_EPS_M,
     POI_COUNT_KINDS,
     count_kind_sql,
+    place_count_sql,
     poi_count_column,
 )
 
@@ -75,8 +71,8 @@ JOIN road_edges e ON e.osm_way_id = w.osm_way_id AND ST_Intersects(e.geom, s.geo
 _STOP_COLUMNS = {kind: poi_count_column(kind) for kind in POI_COUNT_KINDS}
 
 #: まとまりが占める場所の内側のノードは、点が乗るノードと、点を途中に持つ区間が2本以上集まる
-#: ノード。区間の値は内側の端の数で決まる（0本なら通り抜けるので1、1本なら0.5、2本なら場所の
-#: 中なので0）。内側の端を持たない区間は、点を途中に持つときだけ数える。
+#: ノード。区間の値は内側の端の数で決まる（`place_count_sql`）。内側の端を持たない区間は、点を
+#: 途中に持つときだけ数える。
 _EDGE_STOP_COUNTS = f"""
 WITH ends AS (
     SELECT osm_way_id, segment_index, from_node_id AS node_id FROM road_edges
@@ -101,7 +97,7 @@ bounded AS (
 ),
 counted AS (
     SELECT count_kind, osm_way_id, segment_index,
-           CASE coalesce(b.inside_ends, 0) WHEN 0 THEN 1.0 WHEN 1 THEN 0.5 ELSE 0 END AS n
+           {place_count_sql("coalesce(b.inside_ends, 0)")} AS n
     FROM through t
     FULL JOIN bounded b USING (count_kind, cluster_id, osm_way_id, segment_index)
 )
@@ -121,8 +117,8 @@ WHERE p.osm_way_id = m.osm_way_id AND p.segment_index = m.segment_index
 _EDGE_RESET = reset_columns_sql(
     "edge_materials", {c: "0" for c in ("accident_count", *_STOP_COLUMNS.values())})
 
-#: 交差点のノードも前後の区間が0.5ずつ持つ（経路上で1回になる）。
-_EDGE_INTERSECTIONS = """
+#: 交差点のノードも、停止要因の場所と同じく端を持つ区間が分け持つ（経路上で1回になる）。
+_EDGE_INTERSECTIONS = f"""
 WITH ends AS (
     SELECT osm_way_id, segment_index, from_node_id AS node_id FROM road_edges
     UNION ALL
@@ -131,7 +127,7 @@ WITH ends AS (
 UPDATE edge_materials m SET intersection_count = c.n
 FROM (
     SELECT e.osm_way_id, e.segment_index,
-           count(*) FILTER (WHERE nm.branch_count >= $1) * 0.5 AS n
+           count(*) FILTER (WHERE nm.branch_count >= $1) * {PLACE_SHARE_PER_END} AS n
     FROM ends e JOIN node_materials nm ON nm.osm_node_id = e.node_id
     GROUP BY e.osm_way_id, e.segment_index
 ) c
@@ -161,9 +157,6 @@ FROM (
 ) s
 WHERE s.osm_way_id = m.osm_way_id AND s.segment_index = m.segment_index
 """
-
-#: 数えた事故の行を入れた取込。生データに入っているのは成功した最新の取込の行だけ。
-_ACCIDENT_RUN_SQL = "SELECT run_id FROM " + latest_succeeded_run_sql(Source.ACCIDENT) + " latest"
 
 #: 道1本へ区間の和として写す列。
 _WAY_SUMMED_COLUMNS = ("accident_count", "intersection_count", *_STOP_COLUMNS.values())
@@ -201,11 +194,9 @@ async def derive(conn: asyncpg.Connection) -> None:
         await conn.execute(_EDGE_INTERSECTIONS, INTERSECTION_DEGREE_THRESHOLD)
         await conn.execute(_EDGE_ACCIDENTS, ACCIDENT_FATAL_WEIGHT, degrees,
                            ACCIDENT_MATCH_MAX_DISTANCE_M, sorted(BICYCLE_PARTY_TYPE_CODES))
-        accident_run_id = await conn.fetchval(_ACCIDENT_RUN_SQL)
-        await derived_data_meta.record_accident_run(conn, accident_run_id)
         await conn.execute(_WAY_FROM_EDGES)
         await conn.execute("ANALYZE way_materials")
 
-    logger.info("数の値を埋めた: 停止要因 %d点（まとまり %d・区間に乗る点 %d）・事故の取込 run_id=%s / %.1f秒",
-                stops["points"], stops["clusters"], stops["on_network"], accident_run_id,
+    logger.info("数の値を埋めた: 停止要因 %d点（まとまり %d・区間に乗る点 %d） / %.1f秒",
+                stops["points"], stops["clusters"], stops["on_network"],
                 time.perf_counter() - started)
