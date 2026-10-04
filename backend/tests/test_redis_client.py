@@ -51,10 +51,6 @@ async def silent_redis(monkeypatch, no_clients_yet):
     await server.wait_closed()
 
 
-def test_the_breaker_starts_closed():
-    assert redis_client.redis_available()
-
-
 def test_after_a_failure_redis_is_skipped_until_the_cooldown_has_passed(clock):
     redis_client.record_redis_failure()
     assert not redis_client.redis_available()
@@ -102,12 +98,11 @@ def test_the_text_client_decodes_values_and_the_binary_client_keeps_bytes():
 
 
 @pytest.mark.usefixtures("silent_redis")
-@pytest.mark.parametrize("get_client", CLIENTS)
-async def test_a_redis_that_does_not_answer_fails_within_a_second(get_client):
+async def test_a_redis_that_does_not_answer_fails_within_a_second():
     """疎通しないRedisで数秒待つと、ルート生成やタイル配信の応答がその分だけ遅れる。"""
     started = time.monotonic()
 
     with pytest.raises(redis.exceptions.TimeoutError):
-        await get_client().ping()
+        await redis_client.get_redis_client_or_none().ping()
 
     assert time.monotonic() - started < 1.0

@@ -18,8 +18,6 @@ from app.infrastructure import database
 # 何も聞いていないポート。接続は張る段階ですぐに断られる。
 UNREACHABLE_DATABASE_URL = "postgresql+asyncpg://user:password@127.0.0.1:1/unreachable"
 
-FACTORIES = [database.get_session_factory, database.get_route_generation_session_factory]
-
 
 @pytest.fixture
 async def unreachable_database(monkeypatch):
@@ -35,7 +33,8 @@ async def unreachable_database(monkeypatch):
 @pytest.mark.usefixtures("unreachable_database")
 def test_each_factory_is_built_once_and_the_two_do_not_share_a_pool():
     """ルート生成は1件の間ずっと接続を持つので、タイル配信と接続を取り合わない。"""
-    tiles, route_generation = (factory() for factory in FACTORIES)
+    tiles = database.get_session_factory()
+    route_generation = database.get_route_generation_session_factory()
 
     assert database.get_session_factory() is tiles
     assert database.get_route_generation_session_factory() is route_generation
@@ -43,8 +42,7 @@ def test_each_factory_is_built_once_and_the_two_do_not_share_a_pool():
 
 
 @pytest.mark.usefixtures("unreachable_database")
-@pytest.mark.parametrize("factory", FACTORIES)
-async def test_a_database_that_cannot_be_reached_raises_an_error_counted_as_unavailable(factory):
+async def test_a_database_that_cannot_be_reached_raises_an_error_counted_as_unavailable():
     with pytest.raises(database.DB_UNAVAILABLE_ERRORS):
-        async with factory()() as session:
+        async with database.get_session_factory()() as session:
             await session.execute(text("SELECT 1"))

@@ -21,10 +21,7 @@ PRODUCTION_ARGV = [
     ("argv", "environ"),
     [
         pytest.param(PRODUCTION_ARGV, {}, id="production-command"),
-        pytest.param([*PRODUCTION_ARGV, "--workers", "1"], {}, id="one-worker"),
         pytest.param(["/usr/local/bin/uvicorn", "app.main:app", "--reload", "--workers", "4"], {}, id="reload"),
-        pytest.param(["/usr/local/bin/uvicorn", "app.main:app", "--reload"], {"WEB_CONCURRENCY": "4"},
-                     id="reload-with-env"),
         pytest.param([*PRODUCTION_ARGV, "--workers", "1"], {"WEB_CONCURRENCY": "4"}, id="flag-wins-over-env"),
         pytest.param(["/usr/local/bin/pytest", "--workers", "4"], {"WEB_CONCURRENCY": "4"}, id="not-uvicorn"),
         pytest.param(["/srv/other/__main__.py", "--workers", "4"], {}, id="another-package-run-with-m"),

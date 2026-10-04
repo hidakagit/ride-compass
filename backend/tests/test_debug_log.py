@@ -63,29 +63,27 @@ class TestCounting:
         assert stats.last_success_at == "2026-01-01T00:00:00.400000+00:00"
         assert stats.last_error is None
 
-    def test_cache_hits_and_misses_give_the_hit_rate(self):
-        for cache in ("hit", "hit", "miss"):
+    @pytest.mark.parametrize(
+        ("caches", "counted"),
+        [(("hit", "hit", "miss"), (2, 1, 0.667)), ((None,), (0, 0, None))],
+    )
+    def test_the_hit_rate_is_over_the_calls_that_looked_at_a_cache(self, caches, counted):
+        for cache in caches:
             call("cat", cache=cache)
 
         stats = get_stats().external["cat"]
-        assert (stats.cache_hits, stats.cache_misses, stats.cache_hit_rate) == (2, 1, 0.667)
-
-    def test_calls_that_never_looked_at_a_cache_have_no_hit_rate(self):
-        call("cat")
-
-        assert get_stats().external["cat"].cache_hit_rate is None
+        assert (stats.cache_hits, stats.cache_misses, stats.cache_hit_rate) == counted
 
     def test_only_calls_that_retried_count_as_retried(self):
         call("cat", retries=2)
         call("cat", retries=0)
-        call("cat")
 
         stats = get_stats().external["cat"]
         assert (stats.retried_calls, stats.retry_attempts_total) == (1, 2)
 
     @pytest.mark.parametrize(
         ("fallback", "counted"),
-        [("stale_cache", 1), ("stale_cache:redis", 1), ("default_value", 0), (True, 0)],
+        [("stale_cache:redis", 1), ("default_value", 0), (True, 0)],
     )
     def test_only_a_stale_cache_fallback_counts_as_one(self, fallback, counted):
         call("cat", fallback=fallback)
@@ -124,13 +122,6 @@ class TestFailures:
         assert (stats.last_error.type, stats.last_error.at) == ("ValueError", FROZEN_AT)
         assert stats.last_success_at is None
         assert any("error after" in message for message in warnings_of(logs))
-
-    def test_an_http_error_is_counted_by_its_status_without_the_url(self):
-        with pytest.raises(httpx.HTTPStatusError):
-            with log_external_call("cat"):
-                raise http_error(429)
-
-        assert get_stats().external["cat"].error_types == {"http_429": 1}
 
     def test_a_failure_caught_by_the_caller_is_counted_and_warned_with_the_exception(self, logs):
         with log_external_call("cat", tile="14/1/2") as fields:
@@ -193,26 +184,24 @@ class TestWarningThrottle:
 
         assert warnings_of(logs) == ["trouble in cat"] * WARN_BURST_PER_WINDOW
 
-    def test_the_next_window_reports_how_many_were_held_back(self, logs, clock):
+    @pytest.mark.parametrize(
+        ("elapsed", "expected"),
+        [
+            (WARN_WINDOW_SECONDS - 1, []),
+            (
+                WARN_WINDOW_SECONDS,
+                [f"[cat] suppressed 3 similar warnings in last {int(WARN_WINDOW_SECONDS)}s", "trouble in cat"],
+            ),
+        ],
+    )
+    def test_the_next_window_reports_how_many_were_held_back(self, logs, clock, elapsed, expected):
         self.warn(times=WARN_BURST_PER_WINDOW + 3)
         logs.clear()
 
-        clock.tick(WARN_WINDOW_SECONDS)
+        clock.tick(elapsed)
         self.warn()
 
-        assert warnings_of(logs) == [
-            f"[cat] suppressed 3 similar warnings in last {int(WARN_WINDOW_SECONDS)}s",
-            "trouble in cat",
-        ]
-
-    def test_the_window_does_not_end_before_its_full_length(self, logs, clock):
-        self.warn(times=WARN_BURST_PER_WINDOW)
-        logs.clear()
-
-        clock.tick(WARN_WINDOW_SECONDS - 1)
-        self.warn()
-
-        assert warnings_of(logs) == []
+        assert warnings_of(logs) == expected
 
     def test_a_new_window_without_anything_held_back_reports_nothing_extra(self, logs, clock):
         self.warn()

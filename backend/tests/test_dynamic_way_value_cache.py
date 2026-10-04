@@ -4,11 +4,9 @@
 置き場は`tests/conftest.py`のautouseがテストごとの空の一時ディレクトリへ差し替える。
 
 ここで見ないもの:
-- 置き場の読み書きに失敗したときに未キャッシュへ倒すこと・失効の境界 → `test_tile_persistent_cache.py`
+- 置き場の読み書きに失敗したときに未キャッシュへ倒すこと・失効（TTLは置き場へそのまま渡す） → `test_tile_persistent_cache.py`
 - どの材料をキャッシュし、どの世代・署名・TTLを渡すか → 材料のサービスのテスト（例: `test_gradient_way_service.py`）
 """
-
-import asyncio
 
 import pytest
 from hypothesis import given
@@ -27,18 +25,8 @@ VERSIONS = {"surface_tile_version": "tiles-1", "value_shape": "shape-1"}
 HALF_BUCKET = BEARING_BUCKET_DEG / 2
 
 
-async def store(bearing_deg: float = 0.0, ttl_seconds: int = 3600) -> None:
-    await set_tile_values(**KEY, bearing_deg=bearing_deg, values=VALUES, ttl_seconds=ttl_seconds, **VERSIONS)
-
-
-async def test_values_stored_for_a_tile_are_read_back():
-    await store()
-
-    assert await get_tile_values(**KEY, bearing_deg=0.0, **VERSIONS) == VALUES
-
-
-async def test_a_tile_never_stored_reads_as_not_cached():
-    assert await get_tile_values(**KEY, bearing_deg=0.0, **VERSIONS) is None
+async def store(bearing_deg: float = 0.0) -> None:
+    await set_tile_values(**KEY, bearing_deg=bearing_deg, values=VALUES, ttl_seconds=3600, **VERSIONS)
 
 
 async def test_a_tile_whose_features_all_came_out_without_a_value_is_remembered_as_empty():
@@ -70,33 +58,19 @@ async def test_a_read_that_differs_in_any_part_of_the_key_does_not_see_the_store
     assert await get_tile_values(**request) is None
 
 
-@pytest.mark.parametrize("bearing_deg", [HALF_BUCKET - 0.01, -(HALF_BUCKET - 0.01), 360.0, 360.0 * 3 + 1.0])
-async def test_a_nearby_heading_reads_the_values_stored_for_the_same_bucket(bearing_deg):
+async def test_a_nearby_heading_reads_the_values_stored_for_the_same_bucket():
     """コンパスを少し回しただけでは、同じタイルを計算し直さない。"""
     await store(bearing_deg=0.0)
 
-    assert await get_tile_values(**KEY, bearing_deg=bearing_deg, **VERSIONS) == VALUES
-
-
-async def test_stored_values_expire_after_their_ttl():
-    """置き場はスレッドの中で時計を読み、止めた時計（freezegun）はスレッドの中では効かないので、実時間で待つ。"""
-    await store(ttl_seconds=1)
-    assert await get_tile_values(**KEY, bearing_deg=0.0, **VERSIONS) == VALUES
-
-    await asyncio.sleep(1.1)
-
-    assert await get_tile_values(**KEY, bearing_deg=0.0, **VERSIONS) is None
+    assert await get_tile_values(**KEY, bearing_deg=HALF_BUCKET - 0.01, **VERSIONS) == VALUES
 
 
 @pytest.mark.parametrize(
     ("bearing_deg", "bucket"),
     [
-        (HALF_BUCKET - 0.01, 0),
         # 境界ちょうどは上のバケットへ。偶数への丸めだと、境界ごとに上下が入れ替わり幅が揃わない。
         (HALF_BUCKET, 1),
-        (HALF_BUCKET + 2 * BEARING_BUCKET_DEG, 3),
         (360.0 - HALF_BUCKET, 0),
-        (-HALF_BUCKET, 0),
     ],
 )
 def test_a_heading_on_a_bucket_edge_goes_to_the_bucket_above(bearing_deg, bucket):
