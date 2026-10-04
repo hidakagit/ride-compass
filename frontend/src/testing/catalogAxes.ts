@@ -4,6 +4,7 @@
 // **既定値は型を満たすための空だけ**（段の境界だけは、backendが宣言の無い軸にも必ず入れる既定の境界）。見たい性質
 // （ramp表示を持つ・専用配信を持つ等）は呼び出し側が書く。
 import { axisCatalogFromResponse, type AxisCatalog } from "@/lib/axisCatalog";
+import { onBackend } from "@/testing/backendServer";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import type { AxisCatalogEntry, AxisCatalogResponse } from "@/types/route";
 
@@ -89,6 +90,11 @@ export function dedicatedEntry(axisId: string, thresholds: number[], overrides: 
 }
 
 /** 軸だけを持つ応答。軸以外（較正値・タイルの世代・事故の収録年）は、見たい呼び出し側が上書きする。 */
+/** 軸カタログの取得に`response`を返す（網の層。`testing/backendServer.ts`）。 */
+export function serveAxisCatalog(response: AxisCatalogResponse): void {
+  onBackend("GET", "/api/axis-catalog", () => Response.json(response));
+}
+
 export function catalogResponse(
   entries: readonly AxisCatalogEntry[],
   overrides: Partial<Omit<AxisCatalogResponse, "axes">> = {},

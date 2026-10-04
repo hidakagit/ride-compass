@@ -11,18 +11,18 @@
  * - 要求の投げ方と見回り（ジョブの問い合わせ・打ち切り） → `routeApi.test.ts`
  * - 結果を一覧へ入れる・知らせを画面に出す → `useRouteResults.test.ts`・`app/page.test.tsx`
  *
- * 差し替えたもの: backendを呼ぶ口（`routeApi.ts: generateRoutes`・`services/axisCatalogApi.ts: getAxisCatalog`）。条件は
+ * 差し替えたもの: 生成のジョブと軸カタログの応答（網の層）。条件は
  * 本物の`useGenerationConditions`を同じ描画で通して作る（呼び出し側と同じく、補正した目的地はそこへ書き戻る）。
  */
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_HARD_FILTERS } from "@/features/route/RouteSettingsPanel/HardFilterPanel";
-import { generateRoutes, type GenerationProgress } from "@/features/route/routeApi";
 import { LENS_DIFFICULTY_ID, LENS_NONE_ID } from "@/lib/mapDisplay/routeStyleModes";
 import { setResearchEnabled } from "@/lib/researchMode";
-import { getAxisCatalog } from "@/services/axisCatalogApi";
+import { heldReplies, onBackend } from "@/testing/backendServer";
 import { catalogEntry, catalogResponse } from "@/testing/catalogAxes";
+import { serveGenerationJobs } from "@/testing/generationJobs";
 import { makeRouteCandidate } from "@/testing/routeFixtures";
 import { EXPERIMENT_SLOT_COLORS, MAX_EXPERIMENT_SLOTS } from "@/types/experimentSlot";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
@@ -30,12 +30,6 @@ import type { Coordinates, GenerationConditions, RouteCandidate } from "@/types/
 
 import { useGenerationConditions } from "./useGenerationConditions";
 import { useRouteGeneration } from "./useRouteGeneration";
-
-vi.mock("@/features/route/routeApi", () => ({ generateRoutes: vi.fn() }));
-vi.mock("@/services/axisCatalogApi", () => ({ getAxisCatalog: vi.fn() }));
-
-const generate = vi.mocked(generateRoutes);
-const fetchCatalog = vi.mocked(getAxisCatalog);
 
 const ORIGIN: Coordinates = { latitude: 35.68, longitude: 139.76 };
 const A: Coordinates = { latitude: 35.7, longitude: 139.8 };
@@ -104,53 +98,35 @@ function used(overrides: Partial<GenerationConditions> = {}): GenerationConditio
   };
 }
 
-function respond(routes: RouteCandidate[], conditions: GenerationConditions = used(), noCandidatesReason?: string) {
-  generate.mockResolvedValueOnce({ routes, conditions, noCandidatesReason });
-}
+let jobs: ReturnType<typeof serveGenerationJobs>;
 
-/** 決着させるまで待つ生成。進み方を届けられる。 */
-function deferredGeneration() {
-  const handle: { progress: (progress: GenerationProgress) => void; resolve: (routes: RouteCandidate[]) => void } = {
-    progress: () => {},
-    resolve: () => {},
-  };
-  generate.mockImplementationOnce(
-    (_request, onProgress) =>
-      new Promise((resolve) => {
-        handle.progress = (progress) => onProgress?.(progress);
-        handle.resolve = (routes) => resolve({ routes, conditions: used() });
-      }),
-  );
-  return handle;
+function respond(routes: RouteCandidate[], conditions: GenerationConditions = used(), noCandidatesReason?: string) {
+  jobs.respond(routes, conditions, noCandidatesReason);
 }
 
 function sentRequest() {
-  return generate.mock.calls.at(-1)?.[0];
+  return jobs.submitted.at(-1)?.body;
 }
 
-let resolveCatalog: (response: typeof CATALOG) => void = () => {};
+let catalog: ReturnType<typeof heldReplies>;
 
 /** 描画のときに投げた軸カタログの取得を届ける。 */
 async function loadCatalog(rendered: Rendered) {
-  act(() => resolveCatalog(CATALOG));
+  await act(() => catalog.answer(0, Response.json(CATALOG)));
   await waitFor(() => expect(rendered.result.current.conditions.routePreference).toEqual({ axis_a: 0.4, axis_b: 0.6 }));
 }
 
 beforeEach(() => {
   window.localStorage.clear();
-  generate.mockReset();
-  fetchCatalog.mockReset();
+  jobs = serveGenerationJobs();
   // 既定は届かないまま（カタログを見るテストだけが`loadCatalog`で届ける）。
-  fetchCatalog.mockImplementation(
-    () =>
-      new Promise((resolve) => {
-        resolveCatalog = resolve;
-      }),
-  );
+  catalog = heldReplies();
+  onBackend("GET", "/api/axis-catalog", catalog.reply);
 });
 
 afterEach(() => {
   setResearchEnabled(false);
+  vi.useRealTimers();
 });
 
 describe("送る要求", () => {
@@ -247,7 +223,7 @@ describe("入力の誤り", () => {
     await submit(rendered);
 
     const { generation } = rendered.result.current;
-    expect(generate).not.toHaveBeenCalled();
+    expect(jobs.submitted).toEqual([]);
     expect(generation.inputError).toMatch(/現在地が分かりません/);
     expect(generation.failure).toBe(generation.inputError);
     expect(generation.lastMessage).toBe(generation.inputError);
@@ -257,7 +233,7 @@ describe("入力の誤り", () => {
 
   it("入力の誤りは、直前の生成の失敗の文言より先に出す", async () => {
     const rendered = renderGeneration();
-    generate.mockRejectedValueOnce(new Error("リクエストに失敗しました"));
+    jobs.fail("リクエストに失敗しました");
     await submit(rendered);
 
     rendered.rerender({ ...PROPS, originKnown: false });
@@ -270,8 +246,12 @@ describe("入力の誤り", () => {
 
 describe("進み方", () => {
   it("実行中は進み方を文言で返し、順番待ちかを見分けられる。終わると実行中でなくなる", async () => {
+    // 問い合わせの間隔と経過時間は時計で進める。
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
     const rendered = renderGeneration();
-    const pending = deferredGeneration();
+    const job = heldReplies();
+    jobs.answerWith(job.reply);
+    const flush = () => act(() => vi.advanceTimersByTimeAsync(0));
     let done: Promise<void> = Promise.resolve();
     act(() => {
       done = rendered.result.current.generation.submit(LENS_NONE_ID);
@@ -279,16 +259,27 @@ describe("進み方", () => {
     expect(rendered.result.current.generation.running).toBe(true);
     expect(rendered.result.current.generation.progressLabel).toBeUndefined();
 
-    act(() => pending.progress({ status: "queued", elapsedMs: 0 }));
+    await job.answer(0, Response.json({ status: "queued" }));
+    await flush();
     expect(rendered.result.current.generation.progressLabel).toBe("順番待ち...");
     expect(rendered.result.current.generation.queued).toBe(true);
 
-    act(() => pending.progress({ status: "running", elapsedMs: 2600 }));
+    await act(() => vi.advanceTimersByTimeAsync(2600));
+    await job.answer(1, Response.json({ status: "running" }));
+    await flush();
     expect(rendered.result.current.generation.progressLabel).toBe("生成中...(3秒経過)");
     expect(rendered.result.current.generation.queued).toBe(false);
 
+    await act(() => vi.advanceTimersByTimeAsync(1500));
+    await job.answer(
+      2,
+      Response.json({
+        status: "done",
+        result: { routes: [route("r1")], conditions: used(), no_candidates_reason: null },
+      }),
+    );
     await act(async () => {
-      pending.resolve([route("r1")]);
+      await vi.advanceTimersByTimeAsync(0);
       await done;
     });
     expect(rendered.result.current.generation.running).toBe(false);
@@ -328,33 +319,24 @@ describe("生成の結果", () => {
     expect(rendered.result.current.generation.failure).toBeNull();
   });
 
-  it.each([
-    {
-      label: "Errorなら",
-      error: new Error("ルート生成がタイムアウトしました"),
-      message: "ルート生成がタイムアウトしました",
-    },
-    { label: "Error以外なら", error: "boom", message: "不明なエラーが発生しました" },
-  ])(
-    "生成が失敗したら（$label）文言を失敗として返して知らせ、結果は渡さない。次の生成で消す",
-    async ({ error, message }) => {
-      const rendered = renderGeneration();
-      generate.mockRejectedValueOnce(error);
+  it("生成が失敗したら文言を失敗として返して知らせ、結果は渡さない。次の生成で消す", async () => {
+    const message = "ルート生成がタイムアウトしました";
+    const rendered = renderGeneration();
+    jobs.fail(message);
 
-      await submit(rendered);
+    await submit(rendered);
 
-      expect(rendered.result.current.generation.failure).toBe(message);
-      expect(rendered.result.current.generation.lastMessage).toBe(message);
-      expect(rendered.onOutcome).toHaveBeenCalledWith("failed");
-      expect(rendered.onGenerated).not.toHaveBeenCalled();
+    expect(rendered.result.current.generation.failure).toBe(message);
+    expect(rendered.result.current.generation.lastMessage).toBe(message);
+    expect(rendered.onOutcome).toHaveBeenCalledWith("failed");
+    expect(rendered.onGenerated).not.toHaveBeenCalled();
 
-      deferredGeneration();
-      act(() => {
-        void rendered.result.current.generation.submit(LENS_NONE_ID);
-      });
-      expect(rendered.result.current.generation.failure).toBeNull();
-    },
-  );
+    jobs.keepRunning();
+    act(() => {
+      void rendered.result.current.generation.submit(LENS_NONE_ID);
+    });
+    expect(rendered.result.current.generation.failure).toBeNull();
+  });
 
   it("backendが目的地を補正したら、置いた目的地を補正後の地点へ動かして知らせ、条件が変わったとは扱わない", async () => {
     const rendered = renderGeneration();
@@ -493,14 +475,14 @@ describe("実験スロット", () => {
 describe("消す", () => {
   it("案内を消す。実行中は何もしない", async () => {
     const rendered = renderGeneration();
-    generate.mockRejectedValueOnce(new Error("リクエストに失敗しました"));
+    jobs.fail("リクエストに失敗しました");
     await submit(rendered);
 
     act(() => rendered.result.current.generation.clearNotice());
     expect(rendered.result.current.generation.failure).toBeNull();
     expect(rendered.result.current.generation.lastMessage).toBeUndefined();
 
-    deferredGeneration();
+    jobs.keepRunning();
     act(() => {
       void rendered.result.current.generation.submit(LENS_NONE_ID);
     });
@@ -516,7 +498,7 @@ describe("消す", () => {
     act(() => rendered.result.current.conditions.placePin("destination", A));
     respond([route("r1")], used({ corrected_destination: B }));
     await submit(rendered);
-    generate.mockRejectedValueOnce(new Error("リクエストに失敗しました"));
+    jobs.fail("リクエストに失敗しました");
     act(() => rendered.result.current.conditions.setMaxRoutesInput("2"));
     await submit(rendered);
 

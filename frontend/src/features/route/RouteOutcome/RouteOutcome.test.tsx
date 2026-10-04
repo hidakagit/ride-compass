@@ -16,7 +16,7 @@
  * `features/route/difficultyLoadBar.ts`。結果の状態の移り変わり → `features/route/useRouteResults.ts`。
  *
  * 差し替えたもの: 子の部品（比較表・道のりのグラフ・内訳・寄与の帯・元との違い・区間の風・編集面）は受け取った値と
- * 上げる操作だけを見る（表示は各部品のテストが見る）。軸カタログの通信（`services/axisCatalogApi.ts: getAxisCatalog`）と
+ * 上げる操作だけを見る（表示は各部品のテストが見る）。軸カタログの応答（網の層）と
  * GPXのファイルを落とす関数（`features/route/gpxExport.ts: downloadGpx`）。
  *
  * 軸は架空のもの（`axis_a`等）を`src/testing/catalogAxes.ts`の雛形から作る。
@@ -40,8 +40,7 @@ import { COMPARISON_TAB, type EditedRoute, type RouteResults } from "@/features/
 import { MATERIAL_CATALOG } from "@/lib/axisMaterialsCatalog";
 import { catalogAxisFromEntry } from "@/lib/catalogAxis";
 import { setResearchEnabled } from "@/lib/researchMode";
-import { getAxisCatalog } from "@/services/axisCatalogApi";
-import { catalogEntry, catalogOf, catalogResponse } from "@/testing/catalogAxes";
+import { catalogEntry, catalogOf, catalogResponse, serveAxisCatalog } from "@/testing/catalogAxes";
 import { makeGenerationConditions, makeRouteCandidate, makeRouteSegment } from "@/testing/routeFixtures";
 import type { ExperimentSlot } from "@/types/experimentSlot";
 import type { RouteCandidate, RouteSegmentDetail, SelectedRouteSegment } from "@/types/route";
@@ -56,7 +55,6 @@ vi.mock("@/features/route/EditDifference/EditDifference", stubModule("EditDiffer
 vi.mock("@/features/route/SegmentWind/SegmentWind", stubModule("SegmentWind"));
 vi.mock("@/features/route/RouteSplicePanel/RouteSplicePanel", stubModule("RouteSplicePanel"));
 vi.mock("@/features/route/gpxExport", () => ({ downloadGpx: vi.fn() }));
-vi.mock("@/services/axisCatalogApi", () => ({ getAxisCatalog: vi.fn() }));
 
 const ENTRIES = [
   catalogEntry({ axis_id: "axis_a", label: "軸A" }),
@@ -66,7 +64,7 @@ const ENTRIES = [
 const CATALOG = catalogOf(ENTRIES);
 
 beforeEach(() => {
-  vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse(ENTRIES));
+  serveAxisCatalog(catalogResponse(ENTRIES));
 });
 
 afterEach(() => {

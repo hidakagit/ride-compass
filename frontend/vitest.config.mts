@@ -37,6 +37,10 @@ export default defineConfig({
     // 副作用があり不採用（速度最適化はテストの検証内容を変えない範囲で行う、
     // docs/testing.md基本原則3）。
     environment: "happy-dom",
+    // backendは画面と別のオリジンにあり、happy-domの`fetch`はCORSの事前の要求（OPTIONS）を出して応答の見出しを照らす。
+    // CORSを許すのはbackendの設定で、画面のテストが見るものではないため外す（外さないと、網の層の差し替え
+    // `src/testing/backendServer.ts`が、口の要求の前に応答の無いOPTIONSを受けて落とす）。
+    environmentOptions: { happyDOM: { settings: { fetch: { disableSameOriginPolicy: true } } } },
     // jsdom環境の構築はテストファイルごとに毎回発生し（vitestのデフォルトはファイル単位で
     // 環境を再構築する）、DOMを使わない純ロジックのテスト（services/lib/Map内の式・
     // フィルタ関数群）にまで一律で課すと無駄なオーバーヘッドになる（実測でsetup/environment

@@ -6,58 +6,55 @@
  * - 候補を画面でどう使うか（選択式か自由入力か） → `AxisStudio/AxisScoringSection.test.tsx`
  */
 import { renderHook, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import type { getMaterialValues } from "@/features/admin/adminApi";
-
-const api = vi.hoisted(() => ({ getMaterialValues: vi.fn() }));
-vi.mock("@/features/admin/adminApi", () => ({ getMaterialValues: api.getMaterialValues }));
+import { heldReplies, onSameOrigin } from "@/testing/backendServer";
 
 import { useMaterialValues } from "./useMaterialValues";
 
 type MaterialValuesResponse = Awaited<ReturnType<typeof getMaterialValues>>;
 
+const VALUES = "/admin/api/material-catalog/:materialId/values";
+
 function response(values: string[], available = true): MaterialValuesResponse {
   return { available, values: values.map((value) => ({ value, label: value })) };
 }
 
-beforeEach(() => {
-  api.getMaterialValues.mockReset();
-});
-
 describe("useMaterialValues", () => {
   it("材料が無ければ取りに行かず、候補なし・出せなかったわけでもない", () => {
     const { result } = renderHook(() => useMaterialValues(null));
-    expect(api.getMaterialValues).not.toHaveBeenCalled();
     expect(result.current).toEqual({ values: [], unavailable: false });
   });
 
-  it("取れた値一覧を返す", async () => {
-    api.getMaterialValues.mockResolvedValue(response(["primary", "track"]));
+  it("選んだ材料の値一覧を返す", async () => {
+    onSameOrigin("GET", VALUES, ({ path }) =>
+      Response.json(path.includes("/cat_a/") ? response(["primary", "track"]) : response(["other"])),
+    );
     const { result } = renderHook(() => useMaterialValues("cat_a"));
 
     await waitFor(() => expect(result.current.values.map((v) => v.value)).toEqual(["primary", "track"]));
     expect(result.current.unavailable).toBe(false);
-    expect(api.getMaterialValues).toHaveBeenCalledWith("cat_a");
   });
 
   it("backendが値一覧を出せない（DB障害等）と答えたら、出せなかったとして返す", async () => {
-    api.getMaterialValues.mockResolvedValue(response([], false));
+    onSameOrigin("GET", VALUES, () => Response.json(response([], false)));
     const { result } = renderHook(() => useMaterialValues("cat_a"));
     await waitFor(() => expect(result.current.unavailable).toBe(true));
     expect(result.current.values).toEqual([]);
   });
 
   it("取得に失敗したら、出せなかったとして返す", async () => {
-    api.getMaterialValues.mockRejectedValue(new Error("材料の値一覧の取得に失敗しました"));
+    onSameOrigin("GET", VALUES, () => new Response(null, { status: 500 }));
     const { result } = renderHook(() => useMaterialValues("cat_a"));
     await waitFor(() => expect(result.current).toEqual({ values: [], unavailable: true }));
   });
 
   it("材料を切り替えた直後は、前の材料の値を返さない", async () => {
-    api.getMaterialValues
-      .mockResolvedValueOnce(response(["a_value"]))
-      .mockReturnValueOnce(new Promise<MaterialValuesResponse>(() => {}));
+    const held = heldReplies();
+    onSameOrigin("GET", VALUES, ({ path }) =>
+      path.includes("/a/") ? Response.json(response(["a_value"])) : held.reply(),
+    );
     const { result, rerender } = renderHook(({ id }) => useMaterialValues(id), { initialProps: { id: "a" } });
     await waitFor(() => expect(result.current.values.map((v) => v.value)).toEqual(["a_value"]));
 

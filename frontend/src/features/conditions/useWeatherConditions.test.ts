@@ -1,17 +1,18 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { HttpResponse } from "msw";
+
+import { heldReplies, inTurn, onBackend } from "@/testing/backendServer";
+
 import { useWeatherConditions } from "./useWeatherConditions";
 
-// 通信はテストが決める（応答の形はbackendの契約で、ここでは画面へ渡すまでを見る）。
-const api = vi.hoisted(() => ({
-  getCurrentWeather: vi.fn(),
-  getAmedasObservation: vi.fn(),
-  getWeatherWarnings: vi.fn(),
-  getWbgtStatus: vi.fn(),
-  getFloodForecasts: vi.fn(),
-}));
-vi.mock("@/services/weatherApi", () => api);
+// 通信は網の層でテストが決める（応答の形はbackendの契約で、ここでは画面へ渡すまでを見る）。
+const WEATHER = "/api/weather";
+const AMEDAS = "/api/weather/amedas";
+const WARNINGS = "/api/weather/warnings";
+const WBGT = "/api/weather/wbgt";
+const FLOOD = "/api/weather/flood-forecast";
 
 const TOKYO = { latitude: 35.68, longitude: 139.76 };
 const YOKOHAMA = { latitude: 35.44, longitude: 139.64 };
@@ -20,26 +21,29 @@ const NO_WARNINGS = { warnings: [] };
 const NO_WBGT = { reading: null };
 const NO_FLOOD = { forecasts: [] };
 
+const json = (body: unknown) => () => Response.json(body);
+const failure = (detail: string) => () => Response.json({ detail }, { status: 502 });
+
+let forecasts: ReturnType<typeof onBackend>;
+let observations: ReturnType<typeof onBackend>;
+
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
-  api.getCurrentWeather.mockResolvedValue({ temperature_c: 20 });
-  api.getAmedasObservation.mockResolvedValue({ temperature_c: 21 });
-  api.getWeatherWarnings.mockResolvedValue(NO_WARNINGS);
-  api.getWbgtStatus.mockResolvedValue(NO_WBGT);
-  api.getFloodForecasts.mockResolvedValue(NO_FLOOD);
+  forecasts = onBackend("GET", WEATHER, json({ temperature_c: 20 }));
+  observations = onBackend("GET", AMEDAS, json({ temperature_c: 21 }));
+  onBackend("GET", WARNINGS, json(NO_WARNINGS));
+  onBackend("GET", WBGT, json(NO_WBGT));
+  onBackend("GET", FLOOD, json(NO_FLOOD));
 });
 
 afterEach(() => {
   vi.useRealTimers();
-  vi.clearAllMocks();
 });
 
 /** 取りに行く・応答を反映する、の非同期の段を最後まで進める（時間の早送りは取り直しの間隔だけ）。取得の結果は
- * 区切り（`setTimeout(0)`）ごとに届くので、偽にしていない時計で数回区切りを待つ。 */
+ * 網を通って届くので、偽にしていない時計で届くまでの間をおく。 */
 async function settle() {
-  await act(async () => {
-    for (let i = 0; i < 3; i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
-  });
+  await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
 }
 
 function render(location = TOKYO, ready = true) {
@@ -50,41 +54,61 @@ function render(location = TOKYO, ready = true) {
 
 describe("useWeatherConditions 取得の時機", () => {
   it("位置が決まるまでは取りに行かない", async () => {
-    render(TOKYO, false);
+    const { result } = render(TOKYO, false);
     await settle();
-    expect(api.getCurrentWeather).not.toHaveBeenCalled();
-    expect(api.getWeatherWarnings).not.toHaveBeenCalled();
+    expect(result.current).toMatchObject({ weather: null, amedas: null, warningBadgeItems: [] });
   });
 
   it("位置が決まったら、予報・実測・警報・暑さ指数・氾濫予報をその位置で取る", async () => {
+    // どの口も、問い合わせた緯度を値に書いて返す。
+    const at = ({ query }: { query: Record<string, string> }) => query.latitude;
+    onBackend("GET", WEATHER, (request) => Response.json({ temperature_c: Number(at(request)) }));
+    onBackend("GET", AMEDAS, (request) => Response.json({ temperature_c: Number(at(request)) }));
+    onBackend("GET", WARNINGS, (request) =>
+      Response.json({ warnings: [{ code: "03", name: `警報@${at(request)}`, level: "warning", additions: [] }] }),
+    );
+    onBackend("GET", WBGT, (request) =>
+      Response.json({ reading: { level: "warning", value: 29, label: `@${at(request)}`, observed_at: "" } }),
+    );
+    onBackend("GET", FLOOD, (request) =>
+      Response.json({
+        forecasts: [{ river_code: "r1", label: `氾濫@${at(request)}`, badge_level: "warning", condition: "" }],
+      }),
+    );
     const { result } = render();
     await settle();
-    expect(result.current.weather).toEqual({ temperature_c: 20 });
-    for (const fetcher of Object.values(api)) expect(fetcher).toHaveBeenCalledWith(TOKYO);
-    expect(result.current.amedas).toEqual({ temperature_c: 21 });
+    expect(result.current.weather).toEqual({ temperature_c: TOKYO.latitude });
+    expect(result.current.amedas).toEqual({ temperature_c: TOKYO.latitude });
+    expect(result.current.warningBadgeItems.map((item) => item.label)).toEqual([
+      `警報@${TOKYO.latitude}`,
+      `暑さ指数@${TOKYO.latitude}`,
+      `氾濫@${TOKYO.latitude}`,
+    ]);
   });
 
   it("位置が変わったら、新しい位置で取り直す", async () => {
-    const { rerender } = render();
+    onBackend("GET", WEATHER, ({ query }) => Response.json({ temperature_c: Number(query.latitude) }));
+    const { result, rerender } = render();
     await settle();
-    expect(api.getCurrentWeather).toHaveBeenCalledTimes(1);
     rerender({ location: YOKOHAMA, ready: true });
     await settle();
-    expect(api.getCurrentWeather).toHaveBeenLastCalledWith(YOKOHAMA);
+    expect(result.current.weather).toEqual({ temperature_c: YOKOHAMA.latitude });
   });
 
+  // 取り直す回数はbackendの回数制限（429）に効くので、届いた要求を数える。
   it("開いたままでも10分ごとに取り直す", async () => {
     render();
     await settle();
-    expect(api.getAmedasObservation).toHaveBeenCalledTimes(1);
+    expect(observations).toHaveLength(1);
     act(() => vi.advanceTimersByTime(10 * 60 * 1000));
-    expect(api.getAmedasObservation).toHaveBeenCalledTimes(2);
+    await settle();
+    expect(observations).toHaveLength(2);
   });
 
   it("位置を変えて取り直している間は、前の位置の値を出したまま読み込み中にする", async () => {
     const { result, rerender } = render();
     await settle();
-    api.getCurrentWeather.mockReturnValueOnce(new Promise(() => {}));
+    onBackend("GET", WEATHER, heldReplies().reply);
     rerender({ location: YOKOHAMA, ready: true });
     await settle();
     expect(result.current.weather).toEqual({ temperature_c: 20 });
@@ -94,20 +118,29 @@ describe("useWeatherConditions 取得の時機", () => {
   it("画面を閉じた後は、取り直しも応答の反映もしない", async () => {
     const { unmount } = render();
     await settle();
-    expect(api.getCurrentWeather).toHaveBeenCalledTimes(1);
+    expect(forecasts).toHaveLength(1);
     unmount();
     act(() => vi.advanceTimersByTime(10 * 60 * 1000));
-    expect(api.getCurrentWeather).toHaveBeenCalledTimes(1);
+    await settle();
+    expect(forecasts).toHaveLength(1);
   });
 });
 
 describe("useWeatherConditions 失敗の扱い", () => {
   it("取り直しに失敗しても直前の値は残し、失敗の文言を添える。次に取れたら文言は消える", async () => {
+    onBackend(
+      "GET",
+      WEATHER,
+      inTurn(
+        Response.json({ temperature_c: 20 }),
+        Response.json({ detail: "予報を取得できませんでした" }, { status: 502 }),
+        Response.json({ temperature_c: 20 }),
+      ),
+    );
     const { result } = render();
     await settle();
     expect(result.current.weather).toEqual({ temperature_c: 20 });
 
-    api.getCurrentWeather.mockRejectedValueOnce(new Error("予報を取得できませんでした"));
     act(() => vi.advanceTimersByTime(10 * 60 * 1000));
     await settle();
     expect(result.current.weatherError).toBe("予報を取得できませんでした");
@@ -119,12 +152,12 @@ describe("useWeatherConditions 失敗の扱い", () => {
   });
 
   it("取っている間は読み込み中の印を立て、終われば下ろす", async () => {
-    let resolve: (value: unknown) => void = () => {};
-    api.getCurrentWeather.mockReturnValueOnce(new Promise((r) => (resolve = r)));
+    const held = heldReplies();
+    onBackend("GET", WEATHER, held.reply);
     const { result } = render();
     await settle();
     expect(result.current.weatherLoading).toBe(true);
-    resolve({ temperature_c: 20 });
+    await held.answer(0, Response.json({ temperature_c: 20 }));
     await settle();
     expect(result.current.weatherLoading).toBe(false);
   });
@@ -132,18 +165,28 @@ describe("useWeatherConditions 失敗の扱い", () => {
 
 describe("useWeatherConditions 警報のバッジ", () => {
   it("警報・暑さ指数・氾濫予報を、この順で1つの並びにする", async () => {
-    api.getWeatherWarnings.mockResolvedValue({
-      warnings: [
-        { code: "03", name: "大雨警報", level: "warning", additions: ["土砂災害", "浸水害"] },
-        { code: "10", name: "雷注意報", level: "advisory", additions: [] },
-      ],
-    });
-    api.getWbgtStatus.mockResolvedValue({
-      reading: { level: "warning", value: 29.04, label: "厳重警戒", observed_at: "2026/08/22 18:00:00" },
-    });
-    api.getFloodForecasts.mockResolvedValue({
-      forecasts: [{ river_code: "r1", label: "多摩川氾濫警戒", badge_level: "warning", condition: "氾濫警戒情報" }],
-    });
+    onBackend(
+      "GET",
+      WARNINGS,
+      json({
+        warnings: [
+          { code: "03", name: "大雨警報", level: "warning", additions: ["土砂災害", "浸水害"] },
+          { code: "10", name: "雷注意報", level: "advisory", additions: [] },
+        ],
+      }),
+    );
+    onBackend(
+      "GET",
+      WBGT,
+      json({ reading: { level: "warning", value: 29.04, label: "厳重警戒", observed_at: "2026/08/22 18:00:00" } }),
+    );
+    onBackend(
+      "GET",
+      FLOOD,
+      json({
+        forecasts: [{ river_code: "r1", label: "多摩川氾濫警戒", badge_level: "warning", condition: "氾濫警戒情報" }],
+      }),
+    );
     const { result } = render();
     await settle();
     expect(result.current.warningBadgeItems).toEqual([
@@ -161,15 +204,13 @@ describe("useWeatherConditions 警報のバッジ", () => {
   });
 
   it("取得に失敗した出所はバッジを出さず、失敗として名前と理由を渡す（「警告なし」と読ませない）", async () => {
-    api.getWeatherWarnings.mockResolvedValue({
-      warnings: [{ code: "03", name: "大雨警報", level: "warning", additions: [] }],
-    });
+    onBackend("GET", WARNINGS, json({ warnings: [{ code: "03", name: "大雨警報", level: "warning", additions: [] }] }));
     const { result } = render();
     await settle();
     expect(result.current.warningBadgeItems).toHaveLength(1);
 
-    api.getWeatherWarnings.mockRejectedValue(new Error("取得できませんでした。"));
-    api.getFloodForecasts.mockRejectedValue(new Error("河川氾濫予報の取得に失敗しました[通信エラー]"));
+    onBackend("GET", WARNINGS, failure("取得できませんでした。"));
+    onBackend("GET", FLOOD, () => HttpResponse.error());
     act(() => vi.advanceTimersByTime(10 * 60 * 1000));
     await settle();
     expect(result.current.warningBadgeItems).toEqual([]);
