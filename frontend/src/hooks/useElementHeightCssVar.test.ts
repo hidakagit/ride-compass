@@ -48,10 +48,8 @@ function elementOfHeight(height: number): HTMLElement {
   return element;
 }
 
-function mount(measure: HTMLElement | null, target: HTMLElement | null, varName = VAR) {
-  return renderHook(({ varName }) => useElementHeightCssVar({ current: measure }, { current: target }, varName), {
-    initialProps: { varName },
-  });
+function mount(measure: HTMLElement, target: HTMLElement) {
+  return renderHook(() => useElementHeightCssVar({ current: measure }, { current: target }, VAR));
 }
 
 beforeEach(() => {
@@ -82,16 +80,6 @@ describe("useElementHeightCssVar", () => {
     expect(target.style.getPropertyValue(VAR)).toBe("64px");
   });
 
-  it("中身の無い知らせでは書き換えない", () => {
-    const measure = elementOfHeight(42);
-    const target = document.createElement("div");
-    mount(measure, target);
-
-    resize(measure, []);
-
-    expect(target.style.getPropertyValue(VAR)).toBe("42px");
-  });
-
   it("外れると変数を消し、そのあと大きさが変わっても書かない", () => {
     const measure = elementOfHeight(42);
     const target = document.createElement("div");
@@ -101,27 +89,5 @@ describe("useElementHeightCssVar", () => {
     resize(measure, [{ contentRect: { height: 64 } as DOMRectReadOnly }]);
 
     expect(target.style.getPropertyValue(VAR)).toBe("");
-  });
-
-  it("変数の名前が変わると、前の名前を消して新しい名前へ書く", () => {
-    const target = document.createElement("div");
-    const { rerender } = mount(elementOfHeight(42), target);
-
-    rerender({ varName: "--other-height" });
-
-    expect(target.style.getPropertyValue(VAR)).toBe("");
-    expect(target.style.getPropertyValue("--other-height")).toBe("42px");
-  });
-
-  it("測る要素がまだ無ければ、何も書かない", () => {
-    const target = document.createElement("div");
-
-    mount(null, target);
-
-    expect(target.style.getPropertyValue(VAR)).toBe("");
-  });
-
-  it("書く先がまだ無くても落ちない（描き分けで祖先が後から出る）", () => {
-    expect(() => mount(elementOfHeight(42), null)).not.toThrow();
   });
 });

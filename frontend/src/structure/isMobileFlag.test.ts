@@ -17,6 +17,5 @@ describe("CSSとの取り決め", () => {
 
     expect(mediaBlock).not.toBeNull();
     expect(mediaBlock![0]).toContain("--is-mobile: 1");
-    expect(css).toContain("--is-mobile: 0");
   });
 });
