@@ -29,18 +29,25 @@ JITを通る対象はこれを付けないと⑤が実態より低く出る。
 カバレッジは対象の親ディレクトリを`--cov`に渡して測り、報告と④を対象ファイルへ絞る。
 ドット記法の`--cov`はcoverage.pyが対象の親パッケージを収集より前にimportするため、
 api層の対象ではconftestのimportでnumpyが2度読み込まれて収集ごと落ちる。ファイルのパスを
-渡すと何も報告されない。測るのは`-m "not postgis"`のテストだけ。
+渡すと何も報告されない。`postgis`の印のテストは、テスト用DBのサーバーへ繋がるときだけ
+含めて測り、繋がらなければ外したことを出す。
 """
 
 import argparse
 import ast
+import asyncio
 import os
 import subprocess
 import sys
 from collections import defaultdict
 from pathlib import Path
 
+import asyncpg
 from coverage import CoverageData
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from app.batch._common import asyncpg_dsn  # noqa: E402  sys.pathを通した後に読む
 
 
 def module_symbols(path: Path) -> tuple[set[str], dict[str, str]]:
@@ -196,6 +203,29 @@ def tests_that_never_enter_the_implementation(
     return sorted(executed - entered), len(executed)
 
 
+def test_database_unreachable(backend: Path) -> str | None:
+    """PostGISのテストが繋ぐDBのサーバーへ繋がらない理由。繋がればNone。
+
+    行き先はテストと同じ規則（`tests/conftest.py: postgis_database_url`）から取る。作業ツリー
+    専用のDBは最初のpytestの実行が作るため、`TEST_DATABASE_URL`が無ければサーバーの管理DBで確かめる。
+    conftestは子プロセスで読む（このファイルからimportすると、型検査の対象外のtestsをmypyが辿る）。
+    """
+    url = os.environ.get("TEST_DATABASE_URL") or subprocess.run(
+        [sys.executable, "-c", "from tests.conftest import TEST_DATABASE_MAINTENANCE as url; print(url)"],
+        cwd=backend, capture_output=True, text=True, check=True,
+    ).stdout.strip()
+
+    async def connect() -> None:
+        conn = await asyncpg.connect(asyncpg_dsn(url), timeout=5)
+        await conn.close()
+
+    try:
+        asyncio.run(connect())
+    except Exception as exc:  # noqa: BLE001 繋がらない理由はそのまま出す
+        return f"{type(exc).__name__}: {exc}"
+    return None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="起こし直したテストを機械で監査する")
     parser.add_argument("implementation", help="実装ファイル（backendディレクトリからの相対パス）")
@@ -222,6 +252,11 @@ def main() -> int:
     print(f"対象:     {args.implementation}")
     print(f"テスト:   {' '.join(args.tests)}")
     print(f"--cov:    {cov_dir}（親ディレクトリで測り、対象ファイルへ絞る）")
+    unreachable = test_database_unreachable(backend)
+    if unreachable:
+        print(f"postgis:  **外す**（テスト用DBに繋がらない: {unreachable}）")
+    else:
+        print("postgis:  含める（テスト用DBに繋がる）")
     print("=" * 78)
 
     # --- ① 実装を変えていないか ---
@@ -282,7 +317,8 @@ def main() -> int:
     if args.no_jit:
         env["NUMBA_DISABLE_JIT"] = "1"
     result = subprocess.run(
-        [sys.executable, "-m", "pytest", *args.tests, "-q", "-rA", "-m", "not postgis", "-p", "no:randomly",
+        [sys.executable, "-m", "pytest", *args.tests, "-q", "-rA", *(["-m", "not postgis"] if unreachable else []),
+         "-p", "no:randomly",
          f"--cov={cov_dir}", "--cov-branch", "--cov-context=test", "--cov-report=term-missing"],
         cwd=backend, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
