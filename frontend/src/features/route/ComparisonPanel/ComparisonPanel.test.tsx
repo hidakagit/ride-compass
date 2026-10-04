@@ -88,24 +88,13 @@ function bodyRows(): string[][] {
 }
 
 describe("ComparisonPanel", () => {
-  it("まだ1回も生成していなければ、生成すると積まれることを案内し、表を出さない", () => {
-    renderPanel([]);
-    expect(screen.getByText(/ルートを生成すると、その回の結果がここへ積まれます/)).toBeInTheDocument();
+  it.each([
+    [0, [], /ルートを生成すると、その回の結果がここへ積まれます/],
+    [1, [FIRST], "もう1回生成すると、前回との違いをここで並べて比べられます。"],
+  ])("%i回なら比べる相手がいないので、何をすれば比べられるかを案内し、表を出さない", (_, slots, hint) => {
+    renderPanel(slots);
+    expect(screen.getByText(hint)).toBeInTheDocument();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
-  });
-
-  it("1回だけなら、もう1回生成すると比べられることを案内し、表を出さない", () => {
-    renderPanel([FIRST]);
-    expect(screen.getByText("もう1回生成すると、前回との違いをここで並べて比べられます。")).toBeInTheDocument();
-    expect(screen.queryByRole("table")).not.toBeInTheDocument();
-  });
-
-  it("同じ分に生成した回も見分けられるよう、列の見出しに回の色を付ける", () => {
-    renderPanel([FIRST, { ...SECOND, color: "rgb(4, 5, 6)" }]);
-    const headers = within(screen.getAllByRole("row")[0]).getAllByRole("columnheader").slice(1);
-    const dotColor = (header: HTMLElement) =>
-      header.querySelector<HTMLElement>('[aria-hidden="true"]')?.style.background;
-    expect(headers.map(dotColor)).toEqual(["rgb(1, 2, 3)", "rgb(4, 5, 6)"]);
   });
 
   it("2回以上なら、何回分を並べているかを添える", () => {

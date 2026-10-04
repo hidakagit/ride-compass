@@ -28,14 +28,12 @@ describe("SegmentWind", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("計算値の時刻が無ければ出発時点の風として、方位の呼び名と小数1桁の風速を出す", () => {
-    render(<SegmentWind wind={wind({ direction_deg: 90, speed_ms: 4 })} />);
-    expect(screen.getByText(`出発時点の風: ${cardinalLabel(90)} 4.0m/s`)).toBeInTheDocument();
-  });
-
-  it("計算値の時刻は、時刻帯を持たない値を日本時間として読んで時:分で出す", () => {
-    render(<SegmentWind wind={wind({ forecast_at: "2026-10-04T09:05", direction_deg: 180, speed_ms: 3.26 })} />);
-    expect(screen.getByText(`09:05のモデルの計算値: ${cardinalLabel(180)} 3.3m/s`)).toBeInTheDocument();
+  it.each([
+    [null, "出発時点の風"],
+    ["2026-10-04T09:05", "09:05のモデルの計算値"],
+  ])("計算値の時刻が%sなら「%s」として、方位の呼び名と小数1桁の風速を出す", (forecastAt, when) => {
+    render(<SegmentWind wind={wind({ forecast_at: forecastAt, direction_deg: 180, speed_ms: 3.26 })} />);
+    expect(screen.getByText(`${when}: ${cardinalLabel(180)} 3.3m/s`)).toBeInTheDocument();
   });
 
   it("追える時刻の先で延ばして使った区間にだけ「延長」の印を付ける", () => {

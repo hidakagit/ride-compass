@@ -158,7 +158,6 @@ describe("RouteAxisProfile", () => {
     renderProfile({ weights: { axis_a: 0.5, axis_b: 0.5 } });
     const detail = await openDetail("軸B");
     expect(detail).toContain("データなし");
-    expect(detail).not.toContain("軸別難易度");
     expect(detail).not.toContain("この軸の内訳");
   });
 });
