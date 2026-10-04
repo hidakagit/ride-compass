@@ -1,9 +1,10 @@
-// 約束 18（担当の後始末の行き先）を確かめる。確かめるのは約束の結果で、文言は確かめない。
-// ここで見ないもの: ステータスを動かす道具（src/move.js）は表の照らし（rules.js: judge）を呼ぶだけなので、照らしは gate.test.js が見る。
+// 約束 18（担当の後始末の行き先。src/after.js: settle）を確かめる。設定は架空のもの（fake-github.js: config）を渡す。
+// ここで見ないもの: 終わりのコメントの中身（目的を決め直すまで確かめない）・ステータスを動かす道具（src/move.js）は表の照らし
+// （rules.js: judge）を呼ぶだけなので、照らしは gate.test.js が見る。
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import config from "../flow.config.json" with { type: "json" };
 import { settle } from "../src/after.js";
+import { config } from "./fake-github.js";
 
 test("18 後始末: 上限・認証は戻して振り出しを止め、一時の失敗と起きる前の落ちは戻すだけ、着手可能日が先なら戻し、それ以外は保留", () => {
   const said = (error) => [{ type: "assistant", error }];
