@@ -2023,17 +2023,6 @@
             ],
             "title": "Precipitation 10Min Mm"
           },
-          "sunshine_10min_minutes": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Sunshine 10Min Minutes"
-          },
           "twilight": {
             "anyOf": [
               {
@@ -2053,8 +2042,7 @@
                 "type": "null"
               }
             ],
-            "title": "Weather Code",
-            "readOnly": true
+            "title": "Weather Code"
           }
         },
         "additionalProperties": false,
@@ -2070,7 +2058,6 @@
           "wind_speed_ms",
           "wind_direction",
           "precipitation_10min_mm",
-          "sunshine_10min_minutes",
           "twilight",
           "weather_code"
         ],

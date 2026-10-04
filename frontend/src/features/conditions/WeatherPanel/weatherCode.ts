@@ -2,7 +2,7 @@ import type { ReactElement } from "react";
 import { vocabulary } from "@/types/generated/vocabulary";
 import { CloudIcon, RaindropIcon, SnowflakeIcon, SunIcon } from "@/components/ui/icons/icons";
 
-// WMO天気コード（weather_code。backendがアメダスの観測から導く）の分類ごとの天気アイコン。
+// WMO天気コード（weather_code。backendがアメダスと推計気象分布の観測から導く）の分類ごとの天気アイコン。
 // 天気コードの分類と名前はbackendの宣言（domain/weather_display.py: WEATHER_CATEGORIES）が配る。
 // 画面が持つのは分類ごとのアイコンだけ。
 type WeatherCodeCategory = (typeof vocabulary.weatherCategories)[number]["key"];

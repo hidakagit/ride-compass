@@ -157,7 +157,6 @@ function amedasObservationFixture(): AmedasObservation {
     wind_speed_ms: 2.1,
     wind_direction: { deg: 90, label: "東" },
     precipitation_10min_mm: null,
-    sunshine_10min_minutes: null,
     weather_code: null,
     twilight: null,
   };

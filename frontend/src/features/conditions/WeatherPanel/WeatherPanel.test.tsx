@@ -14,7 +14,6 @@ const observation = (overrides: Partial<AmedasObservation> = {}) =>
     wind_speed_ms: 3.25,
     wind_direction: { deg: 90, label: "東" },
     precipitation_10min_mm: 0,
-    sunshine_10min_minutes: 10,
     weather_code: 0,
     twilight: { sunrise: "2026-09-24T05:30:00+09:00", sunset: "2026-09-24T17:40:00+09:00" },
     ...overrides,
@@ -114,7 +113,7 @@ describe("WeatherPanel 観測値", () => {
   it("天気を決められなければ、天気は出さない", () => {
     render(
       <WeatherPanel
-        amedas={observation({ precipitation_10min_mm: null, sunshine_10min_minutes: null, weather_code: null })}
+        amedas={observation({ precipitation_10min_mm: null, weather_code: null })}
         loading={false}
         error={null}
       />,

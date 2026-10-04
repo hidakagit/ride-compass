@@ -1,11 +1,13 @@
 """JMAアメダス観測値サービス。
 
-最寄りのアメダス観測所を解決し、直近の気温・風向風速・10分間降水量を返す。
+最寄りのアメダス観測所を解決し、直近の気温・風向風速・10分間降水量と天気コードを返す。
 
-**取得は定期バッチが担い、リクエスト経路（`get_nearest_observation`）はRedis読み取り専用に
+**観測値の取得は定期バッチが担い、リクエスト経路（`get_nearest_observation`）は観測値をRedisから読むだけに
 する**。JMAの観測値エンドポイントは1地点だけを絞り込めず、常に全国ぶんを1回のレスポンスで
 返すため——「リクエストされた1地点だけ」を都度取る形にすると、その不可分な取得コストを
 払いながら近隣ユーザーのリクエストはキャッシュヒットせず、同じ全国データを取り直し続ける。
+天気コードの晴れ・くもりだけは、リクエストの地点の推計気象分布（天気）のタイルから読む（地図の気象庁タイルと
+同じキャッシュを通る。`infrastructure/jma_suikei_client.py`）。
 
 観測値は短命でPostGISへは書かず、Redisで完結させる（置き場は`infrastructure/jma_amedas_store.py`）。
 雨の材料（`domain/rain.py`）の元になる毎正時の1時間雨量の履歴も同じバッチが取り、Redisに持つ
@@ -27,11 +29,14 @@ from app.domain.jma_amedas import (
     apparent_temperature_from_amedas,
     wind_direction_from_jma_code,
 )
+from app.domain.jma_suikei import sky_from_color
 from app.domain.route import Coordinates
 from app.domain.twilight import sunrise_sunset_jst
-from app.infrastructure import jma_amedas_client, jma_amedas_store
+from app.domain.weather import derive_observed_weather_code
+from app.infrastructure import jma_amedas_client, jma_amedas_store, jma_suikei_client
 from app.infrastructure.jma_amedas_client import AmedasReading, AmedasStation
 from app.infrastructure.jma_amedas_store import RainHistory
+from app.infrastructure.jma_tile_client import JmaTileClient
 from app.infrastructure.debug_log import log_throttled_warning
 
 logger = logging.getLogger("ridecompass.jma_amedas_service")
@@ -46,7 +51,8 @@ class JmaAmedasService:
         self._http_client = http_client
 
     async def get_nearest_observation(self, point: Coordinates) -> AmedasObservation | None:
-        """最寄り観測所を解決し、保存済みの観測値を返す。JMAへは問い合わせない。
+        """最寄り観測所を解決し、保存済みの観測値に地点の日の出・日没と天気コードを入れて返す。観測値はJMAへ
+        問い合わせない。推計気象分布が取れなくても観測値は返し、降っていなければ天気コードだけがNoneになる。
 
         バッチがまだ一度も成功していない・Redisが不通・最寄り観測所が必要なセンサーを
         持たない種別（雨量計のみ等）のいずれもNone。
@@ -69,7 +75,18 @@ class JmaAmedasService:
         # 日の出/日没は最寄り観測所ではなく**クエリ地点**に対して計算する（観測所境界
         # 付近でのズレを避ける）。外部への問い合わせを伴わないため都度計算でよい。
         today = datetime.now(JST).date()
-        return observation.model_copy(update={"twilight": sunrise_sunset_jst(point, today)})
+        color = await jma_suikei_client.fetch_weather_color(
+            JmaTileClient(self._http_client), point.latitude, point.longitude
+        )
+        sky = None if color is None else sky_from_color(*color)
+        return observation.model_copy(
+            update={
+                "twilight": sunrise_sunset_jst(point, today),
+                "weather_code": derive_observed_weather_code(
+                    observation.precipitation_10min_mm, sky, observation.temperature_c
+                ),
+            }
+        )
 
     async def refresh_all_stations(self) -> int:
         """全国のアメダス観測値を1回取得し、観測所ごとに書き戻す。
@@ -171,9 +188,9 @@ def _observation(station_id: str, station: AmedasStation, reading: AmedasReading
         wind_speed_ms=reading.wind_speed_ms,
         wind_direction=wind_direction_from_jma_code(reading.wind_direction_code),
         precipitation_10min_mm=reading.precipitation_10min_mm,
-        sunshine_10min_minutes=reading.sunshine_10min_minutes,
         # クエリ地点依存のためバッチ時点では決められない。
         twilight=None,
+        weather_code=None,
     )
 
 

@@ -200,34 +200,34 @@ async def test_get_wind_forecast_lattice_returns_none_when_msm_unavailable(monke
 
 
 @pytest.mark.parametrize(
-    ("precipitation_10min", "sunshine_10min", "temperature", "expected"),
+    ("precipitation_10min", "sky", "temperature", "expected"),
     [
-        (0.0, 10.0, 20.0, 0),  # 降水なし・日が差している
-        (0.0, 0.0, 20.0, 3),  # 降水なし・日照なし
-        (None, 0.0, 20.0, 3),
-        (0.1, 10.0, 20.0, 61),  # 10分0.1mm＝1時間0.6mm相当は弱い雨。日照より降水を先に見る
-        (0.5, 10.0, 20.0, 63),  # 1時間3mm相当
+        (0.0, "clear", 20.0, 0),
+        (0.0, "cloudy", 20.0, 3),
+        (None, "cloudy", 20.0, 3),
+        (0.1, "clear", 20.0, 61),  # 10分0.1mm＝1時間0.6mm相当は弱い雨。空より降水を先に見る
+        (0.5, "clear", 20.0, 63),  # 1時間3mm相当
         (1.0, None, 20.0, 65),  # 1時間6mm相当は強い雨
         (0.5, None, 0.0, 73),  # 0℃以下は雪
         (0.5, None, 0.1, 63),
         (0.5, None, None, 63),  # 気温が欠測なら雨
-        (0.0, None, 20.0, None),  # 降水なしで日照が欠測なら判定材料が無い
+        (0.0, None, 20.0, None),  # 降水なしで空が分からなければ判定材料が無い
         (None, None, 20.0, None),
     ],
 )
-def test_derive_observed_weather_code(precipitation_10min, sunshine_10min, temperature, expected):
-    assert derive_observed_weather_code(precipitation_10min, sunshine_10min, temperature) == expected
+def test_derive_observed_weather_code(precipitation_10min, sky, temperature, expected):
+    assert derive_observed_weather_code(precipitation_10min, sky, temperature) == expected
 
 
 def test_weather_categories_hold_exactly_the_derived_codes():
     """画面は分類に無いコードを出さないので、導くコードはどれも分類に入る。導かないコードと、導くコードを1つも
-    持たない分類は、画面に通らないアイコンを残すので置かない。入力は降水量の全ての強さの帯・日照の
-    有無・気温の雨と雪の両側を掃く。"""
+    持たない分類は、画面に通らないアイコンを残すので置かない。入力は降水量の全ての強さの帯・空の
+    区分・気温の雨と雪の両側を掃く。"""
     precipitations = [None, *(step / 100 for step in range(201))]
     derived = {
-        derive_observed_weather_code(precipitation, sunshine, temperature)
+        derive_observed_weather_code(precipitation, sky, temperature)
         for precipitation in precipitations
-        for sunshine in (None, 0.0, 5.0, 10.0)
+        for sky in (None, "clear", "cloudy")
         for temperature in (None, -5.0, 0.0, 0.1, 20.0)
     } - {None}
     categorized = {code for category in WEATHER_CATEGORIES for code in category.codes}
