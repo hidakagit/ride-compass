@@ -1,14 +1,21 @@
-"""天候サービス（services/weather_service.py）のテスト。値はすべてMSMから読む。"""
+"""`services/weather_service.py`——MSMの読み出しから、地点の天候・風の格子・風の予報の系列を組み立てる。
+
+MSMの読み出し（`msm_client.read_series`）だけを差し替え、domainの計算は本物を通す。「今日」のパネルの
+読み方（`domain/weather.py`の今日の範囲・日次の値・コマ）は、ここで入口から見る。
+
+ここで見ないもの:
+- 実測から天気コードを導く規則 → `test_weather_domain.py`
+- 風の成分から風速・風向を求めること・格子の敷き方 → `test_msm.py`・`test_wind.py`
+- 日の出・日没の計算 → `test_twilight.py`
+"""
 
 from datetime import datetime
 
 import numpy as np
-import pytest
 
 from app.domain.region import BoundingBox
 from app.domain.route import Coordinates
-from app.domain.weather import TemperatureRange, derive_observed_weather_code
-from app.domain.weather_display import WEATHER_CATEGORIES
+from app.domain.weather import TemperatureRange
 from app.infrastructure import msm_client
 from app.infrastructure.msm_client import MsmSeries, MsmUnavailableError
 from app.services.weather_service import WeatherService
@@ -66,6 +73,7 @@ async def test_get_conditions_reports_the_first_hour_as_current(monkeypatch):
     assert conditions.wind_direction_deg == 270.0
     assert conditions.wind_direction_label == "西"
     assert conditions.precipitation_mm == 0.2
+    assert conditions.twilight.sunrise.startswith("2026-09-07T0")
 
 
 async def test_get_conditions_aggregates_today_only(monkeypatch):
@@ -124,17 +132,6 @@ async def test_get_conditions_truncates_periods_at_the_end_of_the_forecast(monke
     assert [p.period for p in conditions.today_periods] == ["13:00", "15:00"]
 
 
-async def test_get_conditions_computes_sunrise_and_sunset_locally(monkeypatch):
-    """日の出・日没は外部に問い合わせず天文計算（domain/twilight.py）で埋める。"""
-    _patch_read_series(monkeypatch, times=["2026-09-07T13:00"])
-
-    conditions = await WeatherService().get_conditions(POINT)
-
-    assert conditions.twilight is not None
-    assert conditions.twilight.sunrise.startswith("2026-09-07T0")
-    assert conditions.twilight.sunset.startswith("2026-09-07T1")
-
-
 async def test_get_conditions_returns_none_when_msm_unavailable(monkeypatch):
     _patch_unavailable(monkeypatch)
 
@@ -172,22 +169,12 @@ async def test_get_wind_grid_returns_empty_for_empty_points():
 ROUTE_BBOX = BoundingBox(min_latitude=35.0, min_longitude=139.0, max_latitude=35.12, max_longitude=139.1)
 
 
-async def test_get_wind_forecast_lattice_reads_msm_at_every_grid_point_of_the_area(monkeypatch):
-    asked = []
-
-    async def read_series(latitudes, longitudes):
-        asked.append((np.asarray(latitudes), np.asarray(longitudes)))
-        return _series(["2026-09-07T13:00", "2026-09-07T14:00"], u=[3.0, 0.0], v=[0.0, 4.0], count=len(latitudes))
-
-    monkeypatch.setattr(msm_client, "read_series", read_series)
+async def test_get_wind_forecast_lattice_reads_the_series_of_the_area(monkeypatch):
+    _patch_read_series(monkeypatch, times=["2026-09-07T13:00", "2026-09-07T14:00"], u=[3.0, 0.0], v=[0.0, 4.0])
 
     series = await WeatherService().get_wind_forecast_lattice(ROUTE_BBOX)
 
     assert series.times == [datetime(2026, 9, 7, 13, 0), datetime(2026, 9, 7, 14, 0)]
-    latitudes, longitudes = asked[0]
-    assert len(latitudes) == series.lattice.rows * series.lattice.cols
-    assert latitudes.min() <= 35.0 and latitudes.max() >= 35.12
-    assert longitudes.min() <= 139.0 and longitudes.max() >= 139.1
     # 西風（u=3）は270度、北向きに吹く風（v=4）は南から＝180度。
     assert series.speed_ms[0].tolist() == [3.0, 4.0]
     assert series.direction_deg[0].tolist() == [270.0, 180.0]
@@ -197,41 +184,3 @@ async def test_get_wind_forecast_lattice_returns_none_when_msm_unavailable(monke
     _patch_unavailable(monkeypatch)
 
     assert await WeatherService().get_wind_forecast_lattice(ROUTE_BBOX) is None
-
-
-@pytest.mark.parametrize(
-    ("precipitation_10min", "sky", "temperature", "expected"),
-    [
-        (0.0, "clear", 20.0, 0),
-        (0.0, "cloudy", 20.0, 3),
-        (None, "cloudy", 20.0, 3),
-        (0.1, "clear", 20.0, 61),  # 10分0.1mm＝1時間0.6mm相当は弱い雨。空より降水を先に見る
-        (0.5, "clear", 20.0, 63),  # 1時間3mm相当
-        (1.0, None, 20.0, 65),  # 1時間6mm相当は強い雨
-        (0.5, None, 0.0, 73),  # 0℃以下は雪
-        (0.5, None, 0.1, 63),
-        (0.5, None, None, 63),  # 気温が欠測なら雨
-        (0.0, None, 20.0, None),  # 降水なしで空が分からなければ判定材料が無い
-        (None, None, 20.0, None),
-    ],
-)
-def test_derive_observed_weather_code(precipitation_10min, sky, temperature, expected):
-    assert derive_observed_weather_code(precipitation_10min, sky, temperature) == expected
-
-
-def test_weather_categories_hold_exactly_the_derived_codes():
-    """画面は分類に無いコードを出さないので、導くコードはどれも分類に入る。導かないコードと、導くコードを1つも
-    持たない分類は、画面に通らないアイコンを残すので置かない。入力は降水量の全ての強さの帯・空の
-    区分・気温の雨と雪の両側を掃く。"""
-    precipitations = [None, *(step / 100 for step in range(201))]
-    derived = {
-        derive_observed_weather_code(precipitation, sky, temperature)
-        for precipitation in precipitations
-        for sky in (None, "clear", "cloudy")
-        for temperature in (None, -5.0, 0.0, 0.1, 20.0)
-    } - {None}
-    categorized = {code for category in WEATHER_CATEGORIES for code in category.codes}
-    assert derived
-    assert derived <= categorized, sorted(derived - categorized)
-    assert categorized <= derived, sorted(categorized - derived)
-    assert all(category.codes for category in WEATHER_CATEGORIES)
