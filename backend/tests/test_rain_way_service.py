@@ -2,6 +2,10 @@
 
 各道は中ほどに最も近い雨量計の値を引く。差し替えるのはDB（リポジトリ）・気象庁への取得・Redisだけで、
 履歴の組み立てと材料の計算は本物を通す（履歴はアメダスの定期バッチの入口から作る。`tests/rain_history_fake.py`）。
+
+ここで見ないもの:
+- 最寄りの雨量計の選び方（欠測でも遠くで埋めないこと）・窓の雨量と止んでからの時間の計算 → `test_rain.py`
+- 配ってよい履歴の古さ・観測所ごとの材料の値の組み立て → `test_jma_amedas_service.py`
 """
 
 import inspect
@@ -53,7 +57,7 @@ async def test_each_road_takes_the_value_of_its_nearest_rain_gauge(monkeypatch, 
 
 
 async def test_a_gauge_with_a_missing_reading_leaves_its_roads_without_a_value(monkeypatch, empty_rain_history):
-    """近くの雨量計が欠測なら、遠くの雨量計で埋めずに「データなし」にする。"""
+    """最寄りの雨量計が欠測の道は、値を持たずに結果から落ちる（地図では「データなし」）。"""
     await _observe(monkeypatch, {"44132": None, "46106": 0.0})
     repository = FakeMidpointsRepository({"tokyo": (35.68, 139.77), "yokohama": (35.45, 139.64)})
 
