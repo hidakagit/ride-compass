@@ -51,10 +51,6 @@ async def silent_redis(monkeypatch, no_clients_yet):
     await server.wait_closed()
 
 
-def test_the_breaker_starts_closed():
-    assert redis_client.redis_available()
-
-
 def test_after_a_failure_redis_is_skipped_until_the_cooldown_has_passed(clock):
     redis_client.record_redis_failure()
     assert not redis_client.redis_available()

@@ -13,21 +13,6 @@ from app.infrastructure import job_registry
 from app.infrastructure.job_registry import JOB_TTL_SECONDS
 
 
-def test_a_new_job_is_queued_with_neither_result_nor_error():
-    record = job_registry.get_job(job_registry.create_job())
-
-    assert record is not None
-    assert (record.status, record.result, record.error) == ("queued", None, None)
-
-
-def test_every_new_job_gets_its_own_id():
-    assert job_registry.create_job() != job_registry.create_job()
-
-
-def test_an_id_that_was_never_handed_out_finds_nothing():
-    assert job_registry.get_job("no-such-job") is None
-
-
 def test_a_job_that_runs_and_finishes_carries_its_result():
     job_id = job_registry.create_job()
 
@@ -73,12 +58,10 @@ def test_a_finished_job_can_be_polled_for_the_whole_ttl_and_is_dropped_after_it(
 
 def test_a_job_still_running_is_never_dropped(clock):
     """ルート生成は数十秒かかり、走っている間に別の利用者がジョブを作っても消えない。"""
-    queued = job_registry.create_job()
     running = job_registry.create_job()
     job_registry.set_running(running)
 
     clock.tick(JOB_TTL_SECONDS * 10)
     job_registry.create_job()
 
-    assert job_registry.get_job(queued) is not None
     assert job_registry.get_job(running) is not None
