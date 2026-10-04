@@ -327,7 +327,7 @@ push型の無効化はfail-openと組み合わさると「伝え漏れても誰�
 ブラウザ側は`immutable`を付けず再検証できるようにしている（`api/cache_policy.py`）。
 
 焼き込み値（MVTのCASE式・材料タグ・domain純関数）を変えたら、対応する世代定数と生成物を
-**同一コミットで**上げる（CLAUDE.md「コミット時の同期ルール」）。
+**同一コミットで**上げる（[deployment-sync.md](deployment-sync.md)「コミットと同時に揃えるもの」）。
 
 ## 直接使ってよい場所
 

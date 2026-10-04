@@ -5,8 +5,11 @@
 [docs/architecture/design-principles.md](../architecture/design-principles.md)や`docs/records/tasks/`側の該当タスクへ
 リンクする）。
 
-コードと乖離が生じたら、変更と同一コミットでここを更新する
-（[design-principles.md](../architecture/design-principles.md)参照）。
+## 着手の前に読む
+
+**既存モジュールへの修正・追加に着手する際は、対象の docs/modules/*.md を必ず先に精読し、記載と実装の乖離
+（未記載のファイル・古くなった記述）は同一コミットで直す**（サンプリング読みで済ませない。
+[design-principles.md](../architecture/design-principles.md)参照）。
 
 ## 記載粒度（必読、肥大化を防ぐルール）
 

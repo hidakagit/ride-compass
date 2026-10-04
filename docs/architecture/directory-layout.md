@@ -106,7 +106,7 @@ VMはデプロイのたびに作業コピー（`~/ridecompass-repo`）をその�
 
 **評価軸の行データはコードに無い。** `axis_definitions`テーブルが唯一の
 正本で、変更は軸スタジオ（`/api/admin/axis-definitions`）経由のみ
-（CLAUDE.md「コミット時の同期ルール」）。
+（[deployment-sync.md](../conventions/deployment-sync.md)「コミットと同時に揃えるもの」）。
 
 ## frontend（`frontend/src/`）
 
