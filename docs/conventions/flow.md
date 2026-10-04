@@ -102,7 +102,8 @@ issue の番号ごと）が持つ。同じタスクの実行（作る・確か�
   1. 引き受ける（`tools/flow-gate/bin/claim.js`）: 作るなら未着手 → 進行中へ動かせたときだけ、確かめるなら検証中のときだけ進み、
      issue に着手（担当の種類・実行へのリンク）を書く。同じタスクの実行は1本ずつ動く（「1つのタスクを触るのは1者だけ」）ので、
      待っていた実行は前の実行が終わってからここで照らされ、行き先が無ければ何もせず終わる。
-  2. 準備: `ci.yml` の backend と同じ PostgreSQL + PostGIS、backend と frontend の依存を入れ、担当の権限（「担当の権限」）を渡す。
+  2. 準備: `ci.yml` の backend と同じ PostgreSQL + PostGIS、Read が PDF をページで読むための `poppler-utils`、backend と frontend の依存を入れ、
+     担当の権限（「担当の権限」）を渡す。
   3. 担当を起こす。持ち時間はジョブの `timeout-minutes` で、超えると Actions がジョブを止める。担当の実行は、担当が手番を終えた
      最初の発言で終わる（連携 `anthropics/claude-code-action` は SDK の最初の結果で抜け、裏で動かしたシェルはその数秒後に止まる）。
      裏の処理の知らせで起こし直されることは無いので、裏で動かす道具（Bash の `run_in_background`・Monitor・ScheduleWakeup・
