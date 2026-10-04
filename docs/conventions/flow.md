@@ -329,7 +329,9 @@ issue の番号ごと）が持つ。同じタスクの実行（作る・確か�
 `autoMode` で、担当の置かれた環境（2つのリポジトリがユーザーのもの・担当は使い捨てのランナーの無人の作業役 等）と日常の操作
 （作業ブランチへの push・Pull Request とタスクの issue を読み書きする・`tools/flow-gate/bin` の道具を打つ 等）を教える（公式
 「Configure auto mode」）。決して打たせない操作（master への push・強制の push・GitHub の API での書き込み・ワークフローの起動等）は、
-同じファイルの `permissions.deny` で断る（拒否は判定役より先に効く）。自動モードそのものも同じファイルの `permissions.defaultMode` で
+同じファイルの `permissions.deny` で断る（拒否は判定役より先に効く）。拒否の規則はコマンドの文に当てるので、読むだけでも
+`-X`・`-f` 等の付いた `gh api`（`-X GET` に `-f` で欄を渡す一覧・`gh api graphql`）は断られる。読むときは欄を URL に書き
+（`gh api 'repos/<所有者>/<リポジトリ>/actions/workflows/<ファイル>/runs?created=<範囲>'`）、`gh run list`・`gh issue view --json`（`blockedBy` 等）で済むものはそれを使う。自動モードそのものも同じファイルの `permissions.defaultMode` で
 決める。各一覧は既定の規則（`$defaults`）を必ず残す（書かないとその一覧の既定の守りを捨てる）。担当は連携の `settings` で
 このファイルを読む。開発機の対話のセッションも同じ決まりで動く: セッションの始まりのフック（`.claude/settings.json` の
 `SessionStart`）で `tools/flow-gate/bin/settings.js` が、master の版のこのファイルの `permissions` と `autoMode` をユーザー設定
