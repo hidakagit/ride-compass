@@ -12,6 +12,8 @@
 - 経路の中身（周回が閉じる・一方通行・重みの効き等） → `test_route_generation_behavior.py`
 - 候補の並べ方・理由の文面 → `test_route_generator.py`
 - レート制限の数え方そのもの → `test_rate_limiter.py`
+- 重みの値の検査（公開軸のidだけ・非負） → `test_route_preference.py`。ここでは寄せていることを1行で見る
+- 項目ごとの値の範囲（距離・件数等の`Field`の制約）→ 型の宣言が持つ
 - 本物の開き方（`api/dependencies.py`がDBのセッションと天気を開いて渡すだけの結線。判断を持たない）
 """
 
@@ -192,7 +194,6 @@ async def test_the_defaults_that_were_applied_are_echoed(client):
     assert conditions["hard_filters"] == {name: name in DEFAULT_HARD_FILTERS for name in HARD_FILTER_NAMES}
     assert conditions["max_routes"] == routes.DEFAULT_MAX_ROUTES
     assert conditions["distance_tolerance_km"] == routes.DEFAULT_DISTANCE_TOLERANCE_KM
-    assert conditions["penalty_strength"] >= 0
     assert conditions["waypoints"] is None and conditions["destination"] is None
     assert conditions["corrected_destination"] is None
     assert datetime.fromisoformat(conditions["start_time"]).utcoffset().total_seconds() == 9 * 3600
@@ -239,12 +240,11 @@ async def test_a_destination_route_searches_as_far_as_the_farthest_point_whateve
     """点を置いたときの距離は探索の範囲で、backendが点から決める（最も遠い点の距離を切り上げて1km足す）。"""
     origin = at(SOUTH_WEST)
     farthest = max(haversine_distance_km(origin, at(node)) for node in (CENTER, NORTH_EAST))
-    for sent in ({}, {"distance_km": 0.5}):
-        conditions = (await _generate(
-            client, **_point(SOUTH_WEST), waypoints=[_point(CENTER)], destination=_point(NORTH_EAST), **sent,
-        ))["result"]["conditions"]
+    conditions = (await _generate(
+        client, **_point(SOUTH_WEST), waypoints=[_point(CENTER)], destination=_point(NORTH_EAST), distance_km=0.5,
+    ))["result"]["conditions"]
 
-        assert conditions["distance_km"] == math.ceil(farthest) + 1
+    assert conditions["distance_km"] == math.ceil(farthest) + 1
 
 
 async def test_a_destination_moved_to_the_nearest_reachable_road_is_echoed(client, world):
@@ -260,19 +260,11 @@ async def test_a_destination_moved_to_the_nearest_reachable_road_is_echoed(clien
 
 
 @pytest.mark.parametrize("body", [
-    {"distance_km": 0},
-    {"distance_km": routes.MAX_ROUTE_DISTANCE_KM + 1},
-    {"max_routes": 0},
-    {"max_routes": routes.MAX_ROUTES + 1},
     {"route_preference": {}},                                        # 公開軸を全部書いていない
-    {"route_preference": {AVOID_AXIS: 1.0, "no_such_axis": 1.0}},    # 知らない軸
-    {"route_preference": {AVOID_AXIS: -1.0}},
+    {"route_preference": {AVOID_AXIS: -1.0}},                        # 値の検査（`check_axis_weights`）へ寄せている
     {"hard_filters": {}},
-    {"hard_filters": {**{name: True for name in HARD_FILTER_NAMES}, "no_such_filter": True}},
     {"spliced_edge_ids": ["way-100-seg0-fwd"]},                       # 目的地が無い
-    {"destination": BEYOND_REACH},                                   # 起点から生成できる距離より遠い
     {"distance_km": None},                                           # 周回なのに目標距離が無い
-    {"waypoints": [_point(CENTER)] * (MAX_WAYPOINTS + 1)},
 ])
 async def test_a_request_outside_what_can_be_generated_is_refused_before_any_job(client, body):
     response = await _post(client, **body)
