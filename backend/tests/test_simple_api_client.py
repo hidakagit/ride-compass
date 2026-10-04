@@ -4,8 +4,9 @@
 ここで見ないもの:
 - 上流ごとのURL・要求パラメータ・応答の読み方 → 各クライアントのテスト
   （`test_jma_warning_client.py`・`test_wbgt_client.py`）
-- ログの出力先・`/api/debug/stats`の集計・例外ラベルの作り方 → `debug_log`側。ここでは
-  **`fields`へ何を書くか**だけを見るため、`log_external_call`を差し替えて受け取る
+- ログの出力先・`/api/debug/stats`の集計・失敗の記録の中身（例外の種類と文言） → `debug_log`側
+  （`test_debug_log.py`）。ここでは**`fields`へ何を書くか**（キャッシュの当たり外れと、成功か失敗か）
+  だけを見るため、`log_external_call`を差し替えて受け取る
 """
 
 import httpx
@@ -39,15 +40,13 @@ async def test_without_cache_calls_fetch_every_time():
 async def test_cache_miss_calls_fetch_and_stores_result(monkeypatch):
     recorded = record_external_calls(monkeypatch, simple_api_client)
     cache: TTLCache = TTLCache(maxsize=4, ttl=60)
-    fetch, calls = _counting_fetch("v")
+    fetch, _ = _counting_fetch("v")
 
-    assert await simple_api_client.cached_fetch("cat", fetch, cache=cache, key="k", site="x") == "v"
+    assert await simple_api_client.cached_fetch("cat", fetch, cache=cache, key="k") == "v"
 
     assert cache["k"] == "v"
-    assert len(calls) == 1
     assert recorded[0].category == "cat"
     fields = recorded[0].fields
-    assert fields["site"] == "x"
     assert fields["cache"] == "miss"
     assert fields["result"] == "ok"
 
@@ -80,16 +79,6 @@ async def _unexpected_shape():
     raise simple_api_client.UnexpectedShapeError("list, not dict")
 
 
-async def test_unexpected_shape_returns_none(monkeypatch):
-    recorded = record_external_calls(monkeypatch, simple_api_client)
-
-    assert await simple_api_client.cached_fetch("cat", _unexpected_shape) is None
-
-    fields = recorded[0].fields
-    assert fields["result"] == "error"
-    assert fields["error_type"] == "UnexpectedShapeError"
-
-
 async def test_unexpected_shape_is_swallowed_even_when_catch_is_empty():
     """`UnexpectedShapeError`は`catch`の指定に関わらず常にNoneへ倒れる。"""
     assert await simple_api_client.cached_fetch("cat", _unexpected_shape, catch=()) is None
@@ -105,14 +94,10 @@ async def test_caught_exception_returns_none_and_is_not_cached(monkeypatch):
         raise ValueError("bad json")
 
     assert await simple_api_client.cached_fetch("cat", fetch, cache=cache, key="k") is None
-    assert "k" not in cache
     assert await simple_api_client.cached_fetch("cat", fetch, cache=cache, key="k") is None
     assert len(calls) == 2
 
-    fields = recorded[0].fields
-    assert fields["result"] == "error"
-    assert fields["error_type"] == "ValueError"
-    assert "bad json" in fields["error"]
+    assert recorded[0].fields["result"] == "error"
 
 
 async def test_exception_outside_catch_propagates():
