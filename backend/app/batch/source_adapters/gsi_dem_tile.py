@@ -24,7 +24,7 @@ import numpy as np
 
 from app.batch import dem_tile_store
 from app.batch.ingest import SourceRecord, register_adapter
-from app.batch.source_adapters._raster_wkb import tile_bbox_wkb, tile_raster_wkb
+from app.batch.source_adapters.raster_wkb import tile_bbox_wkb, tile_raster_wkb
 from app.batch.source_profile import SourceProfile, SourceProfileError, SourceSpec
 from app.domain.region import BoundingBox, tiles_covering_bbox
 

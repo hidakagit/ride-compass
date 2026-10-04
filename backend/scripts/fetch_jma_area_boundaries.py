@@ -8,7 +8,7 @@
 区域のコードが空の図形（北方領土・帰属の決まっていない埋立地等。どの区域にも警報が出ない）は
 書かない。
 
-取得の手順（一時ファイル経由・落とし終えたら開いてみる）は`app.batch._common.fetch_verified`が
+取得の手順（一時ファイル経由・落とし終えたら開いてみる）は`app.batch.common.fetch_verified`が
 持つ。
 
 実行方法（backendディレクトリから）:
@@ -31,7 +31,7 @@ from shapely.geometry.base import BaseGeometry
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.batch._common import fetch_verified  # noqa: E402
+from app.batch.common import fetch_verified  # noqa: E402
 from app.infrastructure import jma_area_boundaries  # noqa: E402
 
 logger = logging.getLogger("ridecompass.fetch_jma_area_boundaries")

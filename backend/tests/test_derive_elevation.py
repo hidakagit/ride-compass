@@ -25,7 +25,7 @@ import pytest
 import pytest_asyncio
 
 from app.batch import dem_tile_store, derive_raster_materials, derive_topology
-from app.batch._common import asyncpg_dsn
+from app.batch.common import asyncpg_dsn
 from app.batch.ingest import ingest_source
 from app.batch.source_profile import Target, load_source_profile
 from app.domain.region import tile_bounds_lonlat

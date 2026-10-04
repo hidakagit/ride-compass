@@ -62,7 +62,7 @@ from coverage import CoverageData
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.batch._common import asyncpg_dsn  # noqa: E402  sys.pathを通した後に読む
+from app.batch.common import asyncpg_dsn  # noqa: E402  sys.pathを通した後に読む
 
 
 def module_symbols(path: Path) -> tuple[set[str], dict[str, str]]:

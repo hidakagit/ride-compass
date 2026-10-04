@@ -15,7 +15,7 @@ import time
 
 import asyncpg
 
-from app.batch._common import latest_succeeded_run_id, reset_columns_sql
+from app.batch.common import latest_succeeded_run_id, reset_columns_sql
 from app.infrastructure.source_models import NODES_SOURCE_SQL, WAYS_SOURCE_SQL, Source
 from app.domain.traffic import (
     HIGHWAY_RANK,

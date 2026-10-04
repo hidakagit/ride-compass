@@ -8,7 +8,7 @@
 （例: `54S_2024.tif`）で、設定されたパスのファイル名部分をそのままバケット内のキーとして
 使う——どのゾーン・どの年を使うかは設定側の決定で、このスクリプトは持たない。
 
-取得の手順（一時ファイル経由・落とし終えたら開いてみる）は`app.batch._common.fetch_verified`が
+取得の手順（一時ファイル経由・落とし終えたら開いてみる）は`app.batch.common.fetch_verified`が
 持つ。壊れたラスタが「取得済み」に見えると、次の実行が再取得しないまま読み続けることになる。
 
 実行方法（backendディレクトリから）:
@@ -23,7 +23,7 @@ import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.batch._common import fetch_verified  # noqa: E402
+from app.batch.common import fetch_verified  # noqa: E402
 from app.config import settings  # noqa: E402
 from app.infrastructure.proj_data import pin_bundled_proj_data  # noqa: E402
 

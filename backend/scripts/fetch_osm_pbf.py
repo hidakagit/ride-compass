@@ -4,7 +4,7 @@ r"""OSMの抽出ファイル（`.pbf`）を配布元から手元へ写す（取�
 「取得済み」に見える。
 
 取得の手順（読めるものは落とし直さない・一時ファイル経由・落とし終えたら開いてみる）は
-`app.batch._common.fetch_verified`が持つ。読めないPBFを置いたまま成功を報告すると、
+`app.batch.common.fetch_verified`が持つ。読めないPBFを置いたまま成功を報告すると、
 次に落ちるのは何時間もかかる取込の途中になる。
 
 どのファイルを要するかはプロファイルが持つ（wayのソースの`rows.file`）。配布元の
@@ -24,7 +24,7 @@ import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.batch._common import fetch_verified  # noqa: E402
+from app.batch.common import fetch_verified  # noqa: E402
 from app.batch.source_adapters.osm_pbf import DATA_DIR, OsmWayRows  # noqa: E402
 from app.batch.source_profile import load_source_profile  # noqa: E402
 

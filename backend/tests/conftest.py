@@ -19,7 +19,7 @@ from hypothesis import settings as hypothesis_settings
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
-from app.batch._common import asyncpg_dsn
+from app.batch.common import asyncpg_dsn
 from app.infrastructure import debug_log, rate_limiter, redis_client, tile_cache, tile_persistent_cache
 from app.infrastructure.orm_base import Base
 from app.infrastructure.road_graph_repository import (

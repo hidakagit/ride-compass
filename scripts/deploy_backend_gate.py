@@ -32,7 +32,7 @@ NOT_DEPLOYED = (
     # ベンチマークはイメージに入らない（backend/Dockerfileのcopy対象外。VM上の作業コピー
     # から実行する）。押しただけでビルドとコンテナ入れ替えを起こさないよう除外し、VMの
     # 作業コピーを新しくしたいときはworkflow_dispatchで明示的に起動する。どのコードを
-    # 測ったかは、どの実行口もbenchmarks/_revision.pyが実行時に出力へ残す（まとめて
+    # 測ったかは、どの実行口もbenchmarks/revision.pyが実行時に出力へ残す（まとめて
     # 走らせるrun_allは配信元と違えば止め、個別のベンチは警告に留める）。
     "backend/benchmarks/**",
     # イメージに入らないもの（backend/DockerfileのCOPY対象外）。
