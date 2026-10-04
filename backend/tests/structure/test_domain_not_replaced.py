@@ -11,6 +11,9 @@
 
 **判定しない形**: 差し替える相手（持ち主）を変数・引数で渡す形は、ソースから相手が決まらない。名前だけを
 変数で渡す形は、同じ関数の中の文字列リテラルのうち持ち主が持つ名前をすべて候補として判定する。
+
+ここで見ないもの:
+- 差し替えたフェイクが本物の署名に合うか → 差し替えるテストが`tests/bound_fake.py: bound`で当てる
 """
 
 from __future__ import annotations
@@ -110,42 +113,26 @@ def _backend(tmp_path: Path, test_source: str) -> Path:
     return tmp_path
 
 
-def test_detects_a_domain_function_replaced_through_another_layer(tmp_path: Path) -> None:
-    """検査が効いていること（他の層が import した domain の関数を、その層の名前空間で差し替える形を1件置く）。"""
+def test_detects_replaced_domain_functions_and_classes_but_not_declared_data(tmp_path: Path) -> None:
+    """検査が効いていること。落とす側は、他の層が import した domain の関数をその層の名前空間で差し替える形・
+    文字列の道筋・クラスのメソッド・名前を変数で渡す形。落とさない側は、宣言のデータ（辞書・定数）の差し替え。"""
     root = _backend(
         tmp_path,
-        "from app.services import planner\n\n\ndef test_x(monkeypatch):\n"
-        "    monkeypatch.setattr(planner, 'cruise', lambda: 2.0)\n",
-    )
-
-    assert domain_replacements(root) == ["tests/test_sample.py:5: planner.cruise（app.domain.speed）"]
-
-
-def test_detects_the_forms_that_name_the_target_indirectly(tmp_path: Path) -> None:
-    """文字列の道筋・クラスのメソッド・名前を変数で渡す形も、定義元を辿って捕まえる。"""
-    root = _backend(
-        tmp_path,
-        "from app.domain import speed\nfrom app.domain.speed import Model\n\n\n"
+        "from app.domain import speed\nfrom app.domain.speed import Model\nfrom app.services import planner\n\n\n"
         "def test_x(monkeypatch):\n"
+        "    monkeypatch.setattr(planner, 'cruise', lambda: 2.0)\n"
         "    monkeypatch.setattr('app.domain.speed.cruise', lambda: 2.0)\n"
         "    monkeypatch.setattr(Model, 'run', lambda self: 1)\n"
+        "    monkeypatch.setattr(speed, 'TABLE', {'a': 1})\n"
+        "    monkeypatch.setitem(speed.TABLE, 'a', 1)\n\n\n"
+        "def test_y(monkeypatch):\n"
         "    for name in ('Model',):\n"
         "        monkeypatch.setattr(speed, name, object)\n",
     )
 
     assert domain_replacements(root) == [
-        "tests/test_sample.py:6: app.domain.speed.cruise（app.domain.speed）",
-        "tests/test_sample.py:7: Model.run（app.domain.speed）",
-        "tests/test_sample.py:9: speed.Model（app.domain.speed）",
+        "tests/test_sample.py:7: planner.cruise（app.domain.speed）",
+        "tests/test_sample.py:8: app.domain.speed.cruise（app.domain.speed）",
+        "tests/test_sample.py:9: Model.run（app.domain.speed）",
+        "tests/test_sample.py:16: speed.Model（app.domain.speed）",
     ]
-
-
-def test_declared_data_may_be_replaced(tmp_path: Path) -> None:
-    """宣言のデータ（辞書・定数）の差し替えは落とさない。"""
-    root = _backend(
-        tmp_path,
-        "from app.domain import speed\n\n\ndef test_x(monkeypatch):\n"
-        "    monkeypatch.setattr(speed, 'TABLE', {'a': 1})\n    monkeypatch.setitem(speed.TABLE, 'a', 1)\n",
-    )
-
-    assert domain_replacements(root) == []
