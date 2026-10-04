@@ -24,6 +24,7 @@ from app.domain.axis_inspector import AxisInspectorResult
 from app.domain.route_preference import RoutePreference
 from app.domain.landcover import LANDCOVER_TILE_MAX_ZOOM, LANDCOVER_TILE_MIN_ZOOM
 from app.infrastructure.media_types import PNG_CONTENT_TYPE
+from app.infrastructure.point_tile_layers import POINT_TILE_LAYERS
 from app.services.landcover_tile_service import get_landcover_tile
 from app.services.dedicated_way_values import DedicatedWayValueService, DirectionalMaterialService
 from app.services.region_service import RegionService
@@ -31,7 +32,7 @@ from app.domain.strict_model import StrictModel
 
 router = APIRouter()
 
-# 地域タイル（路面・停止要因POI）の同時実行上限
+# 地域タイル（路面・点）の同時実行上限
 # （settings.road_tile_max_concurrent、値の根拠はconfig.py参照）。
 #
 # 上限超過分は即座に429を返すルート生成とは異なり、こちらは「待たせて全件処理する」
@@ -41,8 +42,8 @@ router = APIRouter()
 # docs/modules/backend/static-road-attributes.md参照）。/healthはこのsemaphoreを
 # 経由しない別の同期ハンドラのため、待機中のタイル要求に巻き込まれず応答し続けられる。
 #
-# 停止要因POIタイルも同じDB接続プールを取り合うため、専用semaphoreを新設せずこれを
-# 共有する（プール上限15接続に対し、独立semaphoreを追加すると2種のタイルの同時実行数の
+# 点のタイルも同じDB接続プールを取り合うため、専用semaphoreを新設せずこれを
+# 共有する（プール上限15接続に対し、独立semaphoreを追加すると種類ごとのタイルの同時実行数の
 # 合計がプール上限を超えうる）。
 _region_tile_semaphore = asyncio.Semaphore(settings.road_tile_max_concurrent)
 
@@ -80,21 +81,25 @@ async def region_road_surface_tile(
     return tile_response(tile)
 
 
-@router.get("/api/region/poi-tiles/{z}/{x}/{y}.pbf")
-async def region_poi_tile(
+@router.get("/api/region/point-tiles/{layer}/{z}/{x}/{y}.pbf")
+async def region_point_tile(
+    layer: str,
     z: int,
     x: int,
     y: int,
     request: Request,
     region_service: RegionService = Depends(get_region_service),
 ) -> Response:
-    """停止要因POI（信号・横断歩道・一時停止・踏切）と補給休憩POIの点レイヤー。
-    路面タイルと同じ歯止め・同時実行制御を使う。
+    """点のレイヤー（`infrastructure/point_tile_layers.py`の名前。例: 停止要因・補給休憩のPOI、事故）。
+    宣言に無いレイヤーは404。路面タイルと同じ歯止め・同時実行制御を使い、レート制限のキーはレイヤーごとに分ける。
     """
-    _check_tile_rate_limit(request, "poi-tile")
+    point_layer = POINT_TILE_LAYERS.get(layer)
+    if point_layer is None:
+        raise HTTPException(status_code=404, detail="未知の点のレイヤーです。")
+    _check_tile_rate_limit(request, f"{layer}-tile")
     validate_tile_coords(z, x, y)
     async with _region_tile_semaphore:
-        tile = await region_service.get_poi_tile(z, x, y)
+        tile = await region_service.get_point_tile(point_layer, z, x, y)
     return tile_response(tile)
 
 
@@ -148,7 +153,7 @@ async def region_dedicated_way_values(
     持つため、パン・ズームで同じタイルが再び視界に入っても、同じ向きバケットの範囲内では
     DBへの再問い合わせは発生しない（風は計算が軽いためキャッシュしない）。
 
-    路面・POIタイルと同じレート制限・座標検証・DB接続プールのsemaphoreを共有する
+    路面・点のタイルと同じレート制限・座標検証・DB接続プールのsemaphoreを共有する
     （本ファイルの`_region_tile_semaphore`のコメント参照——MVTエンコードは
     伴わないが同じPostGISコネクションプールを取り合うため）。
     """

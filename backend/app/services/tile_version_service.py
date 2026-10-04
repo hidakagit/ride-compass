@@ -26,9 +26,9 @@
 古い世代の鍵のまま配り続ける。
 """
 
-from app.infrastructure.accident_repository import ACCIDENT_TILE_SHAPE
 from app.infrastructure.cache_identity import tile_version
-from app.infrastructure.road_graph_repository import POI_TILE_SHAPE, ROAD_SURFACE_TILE_SHAPE
+from app.infrastructure.point_tile_layers import POINT_TILE_LAYERS
+from app.infrastructure.road_graph_repository import ROAD_SURFACE_TILE_SHAPE
 from app.services import derived_data_revision_service
 
 async def served_tile_version(repository, shape: str) -> str:
@@ -44,11 +44,11 @@ async def served_tile_version(repository, shape: str) -> str:
     return tile_version(derived_data_revision_service.current_revisions(), shape)
 
 
-#: 配信するタイルの系統と、その形の署名。フロントが受け取る辞書のキーでもある。
+#: 配信するタイルの系統と、その形の署名。フロントが受け取る辞書のキーでもある。点のレイヤーは
+#: それぞれ自分のSQLだけから署名を持つので、1つのSQLを変えても他のレイヤーの世代は変わらない。
 TILE_SHAPES: dict[str, str] = {
     "road_surface": ROAD_SURFACE_TILE_SHAPE,
-    "poi": POI_TILE_SHAPE,
-    "accident": ACCIDENT_TILE_SHAPE,
+    **{layer.name: layer.shape for layer in POINT_TILE_LAYERS.values()},
 }
 
 
