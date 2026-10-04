@@ -141,4 +141,4 @@ VMはデプロイのたびに作業コピー（`~/ridecompass-repo`）をその�
 なる等の形で本番に出る。必要な値は`types/generated/`経由の片側importで受け取る。
 
 **ただし軸カタログだけはビルド時の写しを持たない**（[design-principles.md](design-principles.md)
-構造仕様9）。軸はGUIから増減するため、実行時の`GET /api/axis-catalog`だけを読む。
+構造仕様9）。

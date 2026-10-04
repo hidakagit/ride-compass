@@ -193,8 +193,8 @@ publicリポジトリで標準のGitHubホストランナーを使う実行を�
 
 この前提の上で、CIは次のように組んである。
 
-- `ci.yml`・`docs-consistency.yml`はmasterへのpushとPull Requestで走り、作業ブランチ（`orch/**`）への
-  pushでは走らない（検査はPull Requestの実行で済み、pushの実行は誰も待たない。docs/conventions/testing.md「検査の置き場」）。
+- どの出来事でCIが走るかはdocs/conventions/testing.md「検査の置き場（手元・作業ブランチのCI・masterのCI）」が持つ。
+  作業ブランチへのpushで走らせないのは、検査はPull Requestの実行で済み、誰も待たないpushの実行で枠を使わないため。
   backendの本番へのデプロイは、masterへの
   pushでCIが通ったときだけ`ci.yml`から呼ばれる（上の「デプロイの反映確認」）。
 - 同じブランチへの新しいpushで古い実行を打ち切らない。打ち切ると、そのコミットのCIの結論が残らない。
