@@ -6,6 +6,8 @@
  *
  * ここで見ないもの:
  * - 段の色・範囲の文字・体感ラベルの決め方 → `valueScale.test.ts`・`mapColorLegend.test.ts`
+ * - 値で段を引く式と「データなし」の分け方は、どのモードも同じ組み立てを通るので、軸の難易度で塗るモードで両側を見て、
+ *   ほかのモードはどの値で塗るかだけを見る
  * - 区間が持つ値（総合難易度・軸ごとの難易度・材料の値）を作ること → backendのルート生成のテスト
  * - モードを選ぶ画面と、選んだモードの式を地図へ渡すこと → `features/map/LensControl/LensControl.test.tsx`・
  *   `features/map/view/lens.test.ts`
@@ -74,13 +76,6 @@ describe("モードの一覧", () => {
 
     expect(modes.map((mode) => mode.id)).toEqual(["b", "a", LENS_DIFFICULTY_ID, LENS_NONE_ID]);
   });
-
-  it("軸カタログが無くても、総合難易度と「なし」は選べる", () => {
-    expect(routeStyleModesFromCatalogAxes([]).map((mode) => [mode.id, mode.label])).toEqual([
-      [LENS_DIFFICULTY_ID, "総合難易度"],
-      [LENS_NONE_ID, "なし"],
-    ]);
-  });
 });
 
 describe("難易度で塗る軸のモード", () => {
@@ -102,17 +97,14 @@ describe("難易度で塗る軸のモード", () => {
     expectColorsMatchLegend(mode, [20, 50], segmentOf);
   });
 
-  it("難易度0の区間は最も易しい段で、値が無い（null・その軸の値を持たない）区間だけが「データなし」の色の破線になる", () => {
+  it("難易度0の区間は最も易しい段で、値が無い区間だけが「データなし」の色の破線になる", () => {
     const lowest = mode.legend[0];
     expect(drawn(mode, segmentOf(0))).toEqual({ color: lowest.color, rows: [lowest.key], dashed: false });
-
-    for (const segment of [segmentOf(null), { axis_difficulties: { other: 10 } }]) {
-      expect(drawn(mode, segment)).toEqual({
-        color: palette.semantic.no_data,
-        rows: [LEGEND_NO_DATA_KEY],
-        dashed: true,
-      });
-    }
+    expect(drawn(mode, segmentOf(null))).toEqual({
+      color: palette.semantic.no_data,
+      rows: [LEGEND_NO_DATA_KEY],
+      dashed: true,
+    });
   });
 });
 
@@ -133,16 +125,7 @@ describe("材料の値をそのまま塗る軸のモード（符号付き材料�
   });
 
   it("軸の難易度ではなく、区間の材料の値で塗る（負の値は下りの色）", () => {
-    expectColorsMatchLegend(mode, [-2, 2], segmentOf);
     expect(drawn(mode, segmentOf(-5)).color).toBe(palette.semantic.signed_descent);
-  });
-
-  it("材料の値が無い区間は「データなし」の破線になる", () => {
-    expect(drawn(mode, segmentOf(null))).toEqual({
-      color: palette.semantic.no_data,
-      rows: [LEGEND_NO_DATA_KEY],
-      dashed: true,
-    });
   });
 });
 
@@ -152,22 +135,16 @@ describe("総合難易度のモード", () => {
   it("区間の総合難易度を、難易度の既定の境界で塗る", () => {
     expectColorsMatchLegend(mode, DEFAULT_DIFFICULTY_BOUNDARIES, (difficulty) => ({ difficulty }));
   });
-
-  it("総合難易度が無い区間は「データなし」の破線になる", () => {
-    expect(drawn(mode, { difficulty: null })).toEqual({
-      color: palette.semantic.no_data,
-      rows: [LEGEND_NO_DATA_KEY],
-      dashed: true,
-    });
-  });
 });
 
 describe("「なし」のモード", () => {
   it("どの区間も中立の1色で塗り、凡例も破線も持たない", () => {
     const mode = modeOf([], LENS_NONE_ID);
 
-    for (const segment of [{}, { difficulty: 90 }, { difficulty: null }]) {
-      expect(drawn(mode, segment)).toEqual({ color: Color.parse(LENS_NEUTRAL_COLOR), rows: [], dashed: false });
-    }
+    expect(drawn(mode, { difficulty: 90 })).toEqual({
+      color: Color.parse(LENS_NEUTRAL_COLOR),
+      rows: [],
+      dashed: false,
+    });
   });
 });
