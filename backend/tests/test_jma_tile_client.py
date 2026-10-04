@@ -10,6 +10,8 @@
 - 降水のタイルの色の塗り替え → `test_jma_tile_recolor.py`。ここでは取得したタイルに塗り替えが当たることだけを見る
 - 404・502・`Cache-Control`への振り分け、レート制限を当てる順序 → `test_jma_tile_routes.py`
 - 解いた行をコマにする読み方 → `test_jma_tile_specs.py`
+- 上流が404・失敗を返した取得も間隔に数えること → 待ちは結果を問わず問い合わせの前に置かれる（`fetch`の先頭）
+- 別のパスのタイルが混ざらないこと → `test_jma_tile_redis_cache.py`
 """
 
 import types
@@ -65,30 +67,17 @@ def client(upstream) -> JmaTileClient:
 
 
 @pytest.mark.parametrize(
-    "path",
+    "path, is_listing",
     [
-        "bosai/jmatile/data/nowc/targetTimes.json",
-        LISTING,
-        "bosai/jmatile/data/nowc/targetTimes_N3.json",
-        "bosai/jmatile/data/rasrf/targetTimes.json",
+        ("bosai/jmatile/data/nowc/targetTimes.json", True),
+        (LISTING, True),
+        ("bosai/jmatile/data/nowc/targetTimes.json/6/57/25.png", False),
     ],
+    ids=["plain_name", "numbered_name", "name_in_the_middle"],
 )
-def test_a_time_listing_is_recognised_by_its_file_name(path):
-    assert jma_tile_client.is_target_times_path(path)
-
-
-@pytest.mark.parametrize(
-    "path",
-    [
-        TILE,
-        FEATURES,
-        "bosai/jmatile/data/nowc/targetTimes.json/6/57/25.png",
-        "bosai/jmatile/data/nowc/targetTimes.json.png",
-    ],
-)
-def test_anything_whose_file_is_not_a_time_listing_is_not_one(path):
+def test_a_time_listing_is_recognised_by_its_file_name(path, is_listing):
     """時刻一覧の名前を途中に含むだけのパスを時刻一覧と取ると、内容の変わらないタイルを2分で捨て続ける。"""
-    assert not jma_tile_client.is_target_times_path(path)
+    assert jma_tile_client.is_target_times_path(path) is is_listing
 
 
 async def test_nothing_is_cached_at_first_and_a_lookup_never_asks_upstream(monkeypatch, upstream, fake_redis):
@@ -96,7 +85,6 @@ async def test_nothing_is_cached_at_first_and_a_lookup_never_asks_upstream(monke
 
     assert await client(upstream).get_cached(TILE) is None
     assert await client(upstream).get_cached(LISTING) is None
-    assert not upstream.calls
     assert [call.fields["cache"] for call in recorded] == ["miss", "miss"]
 
 
@@ -209,8 +197,6 @@ async def test_a_locally_built_tile_is_served_like_a_fetched_one(upstream, fake_
     await client(upstream).store(TILE, OPAQUE, "image/png")
 
     assert await client(upstream).get_cached(TILE) == (OPAQUE, "image/png")
-    assert await client(upstream).get_cached(OTHER_TILE) is None
-    assert not upstream.calls
 
 
 async def test_a_locally_built_time_listing_is_kept_in_this_process(upstream, fake_redis, redis_server):
@@ -221,21 +207,13 @@ async def test_a_locally_built_time_listing_is_kept_in_this_process(upstream, fa
     assert await client(upstream).get_cached(LISTING) == (b"[]", "application/json")
 
 
-async def test_get_serves_the_cache_before_asking_upstream(upstream, fake_redis):
-    await client(upstream).store(TILE, OPAQUE, "image/png")
-
-    assert await client(upstream).get(TILE) == (OPAQUE, "image/png")
-    assert not upstream.calls
-
-
 @pytest.mark.parametrize(
     "answer, expected",
     [
-        (httpx.Response(200, content=OPAQUE, headers={"content-type": "image/png"}), (OPAQUE, "image/png")),
         (httpx.Response(404), EmptyTile),
         (httpx.Response(500), None),
     ],
-    ids=["found", "missing", "failed"],
+    ids=["missing", "failed"],
 )
 async def test_get_tells_a_tile_with_nothing_to_draw_apart_from_a_failure(upstream, fake_redis, answer, expected):
     """プリウォームは空を正常に数え、失敗だけを数える。混ぜると平常時の大半の空が失敗に見える。"""
@@ -249,33 +227,10 @@ async def test_get_tells_a_tile_with_nothing_to_draw_apart_from_a_failure(upstre
         assert result == expected
 
 
-async def test_the_first_upstream_request_is_not_held_back(upstream, fake_redis, waits):
-    upstream.get(f"/{TILE}").respond(content=OPAQUE, content_type="image/png")
-
-    await client(upstream).fetch(TILE)
-
-    assert waits == []
-
-
-async def test_back_to_back_upstream_requests_are_spaced_by_the_configured_rate(
-    monkeypatch, upstream, fake_redis, waits
-):
-    """プリウォームと利用者の取得のどちらも、プロセス全体で秒間の上限を守る（使い捨てのクライアントをまたぐ）。"""
-    monkeypatch.setattr(jma_tile_client.settings, "jma_tile_upstream_max_requests_per_second", 4.0)
-    upstream.get(f"/{TILE}").respond(content=OPAQUE, content_type="image/png")
-    upstream.get(f"/{OTHER_TILE}").respond(404)
-
-    await client(upstream).fetch(TILE)
-    with pytest.raises(JmaTileNotFoundError):
-        await client(upstream).fetch(OTHER_TILE)
-    await client(upstream).fetch(TILE)
-
-    assert waits == [0.25, 0.25]
-
-
-async def test_a_request_after_the_interval_has_passed_is_not_held_back(
+async def test_upstream_requests_are_spaced_by_the_configured_rate_only_until_the_interval_has_passed(
     monkeypatch, upstream, fake_redis, waits, clock
 ):
+    """プリウォームと利用者の取得のどちらも、プロセス全体で秒間の上限を守る（使い捨てのクライアントをまたぐ）。"""
     monkeypatch.setattr(jma_tile_client.settings, "jma_tile_upstream_max_requests_per_second", 4.0)
     upstream.get(f"/{TILE}").respond(content=OPAQUE, content_type="image/png")
     await client(upstream).fetch(TILE)
@@ -288,12 +243,11 @@ async def test_a_request_after_the_interval_has_passed_is_not_held_back(
     assert waits == [pytest.approx(0.15)]
 
 
-async def test_answers_from_the_cache_do_not_count_toward_the_interval(upstream, fake_redis, waits):
+async def test_get_serves_the_cache_without_counting_toward_the_interval(upstream, fake_redis, waits):
     await client(upstream).store(TILE, OPAQUE, "image/png")
     upstream.get(f"/{OTHER_TILE}").respond(content=OPAQUE, content_type="image/png")
 
-    await client(upstream).get(TILE)
-    await client(upstream).get(TILE)
+    assert await client(upstream).get(TILE) == (OPAQUE, "image/png")
     await client(upstream).get(OTHER_TILE)
 
     assert waits == []

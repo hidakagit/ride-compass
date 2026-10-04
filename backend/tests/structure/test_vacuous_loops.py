@@ -18,6 +18,10 @@
   その名前の代入を見る。`.items()`・`.values()`・`.keys()`は件数を変えないので剥がして読む。
   同じテスト関数に、その名前が空でないことの主張
   （`assert xs`・`assert len(xs) > 0`・`>= 1`・`== 3`・`!= 0`）が無ければ違反
+
+ここで見ないもの:
+- 反復対象が関数の引数のループ（parametrize の空の組は`backend/pytest.ini`の`empty_parameter_set_mark`が止める）
+- frontend のテスト → `frontend/src/structure/vacuousLoops.test.ts`
 """
 
 from __future__ import annotations
@@ -232,11 +236,13 @@ def _write(tmp_path: Path, source: str) -> Path:
     return root
 
 
-def test_detects_a_filtered_population_without_a_nonempty_check(tmp_path: Path) -> None:
-    """検査が効いていること（絞り込みの書き方ごとに、空になりうる母集団を捕まえる）。"""
+def test_detects_filtered_populations_without_a_nonempty_check(tmp_path: Path) -> None:
+    """検査が効いていること。落とす側は、絞り込みの書き方ごとに空になりうる母集団。落とさない側は、空でないことを
+    確かめた母集団・どの要素もアサーションへ届くループ・呼び出し側が決める母集団。"""
     root = _write(
         tmp_path,
-        "SPECS = {'a': 1}\n\n\n"
+        "SPECS = {'a': 1}\n"
+        "PICKED = {k: v for k, v in SPECS.items() if v}\n\n\n"
         "def test_every_picked_spec_is_positive():\n"
         "    picked = [v for v in SPECS.values() if v > 5]\n"
         "    for value in picked:\n"
@@ -258,27 +264,7 @@ def test_detects_a_filtered_population_without_a_nonempty_check(tmp_path: Path) 
         "    assert not any(v < 0 for v in SPECS.values() if v > 5)\n\n\n"
         "def test_quantified_named():\n"
         "    picked = [v for v in SPECS.values() if v > 5]\n"
-        "    assert all(v > 0 for v in picked)\n",
-    )
-
-    assert vacuous_loops(root) == [
-        "tests/test_sample.py:6: 絞り込んだ母集団 `picked` が空でも通る（空でないことを同じテストで確かめる）",
-        "tests/test_sample.py:11: その場で絞り込んだ母集団を検査している（名前へ束ねて空でないことを確かめる）",
-        "tests/test_sample.py:16: ループの中の条件を通った要素にしか届かないアサーションがある"
-        "（絞り込みを名前へ束ねて空でないことを確かめる）",
-        "tests/test_sample.py:22: ループの中の条件を通った要素にしか届かないアサーションがある"
-        "（絞り込みを名前へ束ねて空でないことを確かめる）",
-        "tests/test_sample.py:29: その場で絞り込んだ母集団を検査している（名前へ束ねて空でないことを確かめる）",
-        "tests/test_sample.py:30: その場で絞り込んだ母集団を検査している（名前へ束ねて空でないことを確かめる）",
-        "tests/test_sample.py:35: 絞り込んだ母集団 `picked` が空でも通る（空でないことを同じテストで確かめる）",
-    ]
-
-
-def test_accepts_a_population_that_is_checked_to_be_nonempty(tmp_path: Path) -> None:
-    root = _write(
-        tmp_path,
-        "SPECS = {'a': 1}\n"
-        "PICKED = {k: v for k, v in SPECS.items() if v}\n\n\n"
+        "    assert all(v > 0 for v in picked)\n\n\n"
         "def test_asserts_truthiness():\n"
         "    picked = [v for v in SPECS.values() if v > 0]\n"
         "    assert picked, 'no spec'\n"
@@ -307,4 +293,14 @@ def test_accepts_a_population_that_is_checked_to_be_nonempty(tmp_path: Path) -> 
         "        assert color\n",
     )
 
-    assert vacuous_loops(root) == []
+    assert vacuous_loops(root) == [
+        "tests/test_sample.py:7: 絞り込んだ母集団 `picked` が空でも通る（空でないことを同じテストで確かめる）",
+        "tests/test_sample.py:12: その場で絞り込んだ母集団を検査している（名前へ束ねて空でないことを確かめる）",
+        "tests/test_sample.py:17: ループの中の条件を通った要素にしか届かないアサーションがある"
+        "（絞り込みを名前へ束ねて空でないことを確かめる）",
+        "tests/test_sample.py:23: ループの中の条件を通った要素にしか届かないアサーションがある"
+        "（絞り込みを名前へ束ねて空でないことを確かめる）",
+        "tests/test_sample.py:30: その場で絞り込んだ母集団を検査している（名前へ束ねて空でないことを確かめる）",
+        "tests/test_sample.py:31: その場で絞り込んだ母集団を検査している（名前へ束ねて空でないことを確かめる）",
+        "tests/test_sample.py:36: 絞り込んだ母集団 `picked` が空でも通る（空でないことを同じテストで確かめる）",
+    ]

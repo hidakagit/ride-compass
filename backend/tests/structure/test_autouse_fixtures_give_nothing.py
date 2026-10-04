@@ -14,6 +14,10 @@ autouse で配ってよいのは何も与えないものだけ（docs/convention
 - 元へ戻す値（同じ書き先から読んでおいた値）
 - 同じ種類の作り直し（書き先の宣言と同じ呼び出しを、定数だけの引数で作る）
 - 時計（書き先が`time`・`datetime`のモジュール）
+
+ここで見ないもの:
+- 引数で取るフィクスチャ（取ったテストが前提を宣言している）
+- 警告の無視と空の parametrize → `backend/pytest.ini`（どちらも既定で落とす）
 """
 
 from __future__ import annotations
@@ -287,27 +291,15 @@ def _backend(tmp_path: Path, test_source: str) -> Path:
     return tmp_path
 
 
-def test_detects_data_given_directly_and_through_a_helper(tmp_path: Path) -> None:
-    """検査が効いていること（データを直接書く形と、補助関数へ渡して書かせる形を1件ずつ置く）。"""
+def test_detects_fixtures_that_give_something_and_passes_those_that_give_nothing(tmp_path: Path) -> None:
+    """検査が効いていること。与える側は、データを直接書く形と補助関数へ渡して書かせる形。与えない側は、
+    空・一時ディレクトリ・同じ種類の作り直し・時計・何もしない関数・元へ戻す値。"""
     root = _backend(
         tmp_path,
-        "import pytest\nfrom app import store\nfrom tests.world import installed\n\nNETWORK = object()\n\n\n"
+        "import pytest\nfrom cachetools import TTLCache\nfrom app import store\nfrom tests.world import installed\n\n"
+        "NETWORK = object()\n\n\nasync def _noop():\n    return None\n\n\n"
         "@pytest.fixture(autouse=True)\ndef direct(monkeypatch):\n    monkeypatch.setattr(store, 'current', NETWORK)\n\n\n"
-        "@pytest.fixture(autouse=True)\ndef through_helper():\n    with installed({'a': 1}):\n        yield\n",
-    )
-
-    assert autouse_violations(root) == [
-        "tests/test_sample.py: direct（tests.test_sample:10: store.current ← NETWORK）",
-        "tests/test_sample.py: through_helper（tests.world:8: store.current ← value）",
-    ]
-
-
-def test_resets_temporary_places_restores_and_clocks_give_nothing(tmp_path: Path) -> None:
-    """空・一時ディレクトリ・同じ種類の作り直し・元へ戻す・時計・何もしない関数は、何も与えない。"""
-    root = _backend(
-        tmp_path,
-        "import pytest\nfrom cachetools import TTLCache\nfrom app import store\nfrom tests.world import installed\n\n\n"
-        "async def _noop():\n    return None\n\n\n"
+        "@pytest.fixture(autouse=True)\ndef through_helper():\n    with installed({'a': 1}):\n        yield\n\n\n"
         "@pytest.fixture(autouse=True)\ndef reset(monkeypatch, tmp_path):\n"
         "    monkeypatch.setattr(store, 'current', None)\n"
         "    monkeypatch.setattr(store, 'ROOT', tmp_path / 'x')\n"
@@ -317,4 +309,7 @@ def test_resets_temporary_places_restores_and_clocks_give_nothing(tmp_path: Path
         "    with installed(None):\n        yield\n",
     )
 
-    assert autouse_violations(root) == []
+    assert autouse_violations(root) == [
+        "tests/test_sample.py: direct（tests.test_sample:15: store.current ← NETWORK）",
+        "tests/test_sample.py: through_helper（tests.world:8: store.current ← value）",
+    ]

@@ -8,6 +8,9 @@ importすると、**そのファイルの変更だけが本番へ届かなくな
 母集団はその一覧とDockerfileから導く。外したパターンのうちイメージへ入るコード
 （DockerfileがCOPYするディレクトリ配下の`.py`）に当たるものについて、外していない同じ
 範囲の`.py`からの参照（関数内の遅延importと、モジュール名を文字列で渡す形を含む）を探す。
+
+ここで見ないもの:
+- 変更をデプロイするかの判定 → `tests/test_deploy_backend_gate.py`
 """
 
 from __future__ import annotations

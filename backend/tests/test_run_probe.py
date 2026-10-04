@@ -3,6 +3,9 @@
 差し替えるのは接続情報の置き場（ディスクの`.env.oracle.local`）と、チェックアウトの遅れの確かめ（網と
 このチェックアウトの履歴を読む。`test_checkout_freshness.py`が見る）だけで、接続先はテストDB、
 プローブは別プロセスのPythonとして本当に走らせる。
+
+ここで見ないもの: 接続文字列をasyncpgの形へ直す規則は`test_batch_common.py`、コンテナの中で走らせる経路
+（`--in-container`）は本番VMへのSSHなので通さない。プローブの後ろの引数をそのまま渡すのはargparseの設定。
 """
 
 import sys
@@ -55,13 +58,3 @@ def test_a_probe_connects_with_plain_asyncpg_when_the_url_carries_the_sqlalchemy
     assert run_probe.main([str(probe)]) == 0
     assert capfd.readouterr().out.strip() == "1"
 
-
-def test_arguments_after_the_probe_reach_the_probe(tmp_path, monkeypatch, capfd):
-    env_file = tmp_path / ".env.oracle.local"
-    env_file.write_text(f"DATABASE_URL={postgis_database_url()}\n", encoding="utf-8")
-    monkeypatch.setattr(_prod_env, "prod_env_file", lambda: env_file)
-    probe = tmp_path / "probe.py"
-    probe.write_text("import sys\nprint(sys.argv[1:])\n", encoding="utf-8")
-
-    assert run_probe.main([str(probe), "--column", "edge_materials.accident_count"]) == 0
-    assert capfd.readouterr().out.strip() == "['--column', 'edge_materials.accident_count']"

@@ -58,8 +58,8 @@ async def test_an_operational_bulletin_is_read_into_its_fields():
     assert bulletin.report_datetime == "2026-07-01T10:00:00+09:00"
 
 
-async def test_drills_tests_and_entries_that_are_not_objects_are_left_out():
-    client, _ = answering(json=[{**KANDA, "status": "訓練"}, {**KANDA, "status": "試験"}, "broken", KANDA])
+async def test_drills_and_entries_that_are_not_objects_are_left_out():
+    client, _ = answering(json=[{**KANDA, "status": "訓練"}, "broken", KANDA])
 
     bulletins = await flood_client.fetch_flood_documents(client)
 

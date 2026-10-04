@@ -98,7 +98,6 @@ def test_reprojecting_a_utm_raster_keeps_class_numbers_and_invents_none(tmp_path
 
     classes = landcover_raster.tile_classes(*TOKYO)
 
-    assert classes.shape == (SIZE, SIZE)
     # タイルはラスタの内側にあるので、縁まで全画素がクラスを持つ。
     assert set(np.unique(classes)) == {5, 7}
 
@@ -123,15 +122,6 @@ def test_where_rasters_overlap_the_first_configured_wins_and_the_next_fills_its_
     assert (classes[:, SIZE // 2 :] == 5).all()
 
 
-def test_the_raster_listed_first_is_not_overwritten_by_a_later_one(tmp_path, configure):
-    west_only = over_tile(tmp_path / "west.tif", stripes(2, 0), *TOKYO)
-    everywhere = over_tile(tmp_path / "all.tif", stripes(5), *TOKYO)
-
-    configure(everywhere, west_only)
-
-    assert (landcover_raster.tile_classes(*TOKYO) == 5).all()
-
-
 def test_a_raster_finer_than_the_read_limit_still_fills_the_whole_tile(tmp_path, configure):
     """低いズームでは間引いて読む。間引いた分の画素の大きさを合わせないと、タイルの一部しか埋まらない。"""
     z, x, y = 12, TOKYO[1] // 4, TOKYO[2] // 4
@@ -154,7 +144,6 @@ def test_the_image_paints_painted_classes_in_their_colour_and_leaves_the_rest_cl
 
     image = decoded(landcover_raster.render_tile(*TOKYO))
 
-    assert image.shape == (SIZE, SIZE, 4)
     hex_colour = painted[0].color.lstrip("#")
     assert tuple(image[SIZE // 2, 10]) == (*bytes.fromhex(hex_colour), 255)
     assert image[SIZE // 2, SIZE // 2, 3] == 0

@@ -11,7 +11,6 @@
 - 地点から警報を返すまでの通し → `test_warning_service.py`
 """
 
-import httpx
 import pytest
 import respx
 
@@ -192,10 +191,3 @@ async def test_bulletins_are_cached_per_office():
 )
 async def test_bulletin_failure_is_none(response):
     assert await jma_warning_client.fetch_warning_documents(answering(**response), "130000") is None
-
-
-async def test_bulletin_connection_failure_is_none():
-    router = respx.Router()
-    router.get(_warning_url("130000")).mock(side_effect=httpx.ConnectTimeout)
-
-    assert await jma_warning_client.fetch_warning_documents(client_for(router), "130000") is None

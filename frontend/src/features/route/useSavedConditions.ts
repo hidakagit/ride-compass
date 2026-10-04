@@ -18,8 +18,10 @@ const SAVED_CONDITIONS_STORAGE_KEY = "ridecompass:saved-conditions";
 
 interface SavedConditionsInputs {
   conditions: GenerationConditionsState;
-  /** 地図で置いた出発地（現在地のままならnull）。 */
-  manualOrigin: Coordinates | null;
+  /** いまの出発地（現在地か地図で置いた地点。位置が分からない間はnull）。 */
+  origin: Coordinates | null;
+  /** 出発地を地図で置いたか。 */
+  originManual: boolean;
   /** 保存した出発地を地図で置いた出発地にする。 */
   onOriginPlace: (point: Coordinates) => void;
   /** 出発地を現在地へ戻す。 */
@@ -29,7 +31,8 @@ interface SavedConditionsInputs {
 /** 名前を付けて保存した生成の条件の一覧と、いまの条件の保存・呼び出し・削除。 */
 export function useSavedConditions({
   conditions,
-  manualOrigin,
+  origin,
+  originManual,
   onOriginPlace,
   onOriginFollowCurrent,
 }: SavedConditionsInputs) {
@@ -38,12 +41,12 @@ export function useSavedConditions({
     deserialize: readSavedConditions,
   });
 
-  const current: GenerationConditionsSnapshot = useMemo(
+  // 出発地は保存のときに固定するかを選ぶので、ここには持たない。
+  const current: Omit<GenerationConditionsSnapshot, "origin"> = useMemo(
     () => ({
       routeMode: conditions.routeMode,
       distance: conditions.distanceInput,
       maxRoutes: conditions.maxRoutesInput,
-      origin: manualOrigin,
       waypoints: conditions.waypoints,
       destination: conditions.destination,
       routePreference: conditions.weightOverrideEnabled ? conditions.routePreference : null,
@@ -53,7 +56,6 @@ export function useSavedConditions({
       conditions.routeMode,
       conditions.distanceInput,
       conditions.maxRoutesInput,
-      manualOrigin,
       conditions.waypoints,
       conditions.destination,
       conditions.weightOverrideEnabled,
@@ -63,13 +65,13 @@ export function useSavedConditions({
   );
   const suggestedName = suggestedConditionName(current);
 
-  // 名前が空なら仮の名前で保存する。
+  // 名前が空なら仮の名前で保存する。固定しない出発地は、呼び出した時の現在地から作る印（null）で保存する。
   const save = useCallback(
-    (name: string) => {
-      const entry = { ...current, name: name.trim() || suggestedName };
+    (name: string, fixOrigin: boolean) => {
+      const entry = { ...current, origin: fixOrigin ? origin : null, name: name.trim() || suggestedName };
       setSaved((prev) => withSavedCondition(prev, entry));
     },
-    [current, suggestedName, setSaved],
+    [current, origin, suggestedName, setSaved],
   );
 
   const { restore } = conditions;
@@ -77,9 +79,9 @@ export function useSavedConditions({
     (entry: SavedCondition) => {
       restore(entry);
       if (entry.origin !== null) onOriginPlace(entry.origin);
-      else if (manualOrigin !== null) onOriginFollowCurrent();
+      else if (originManual) onOriginFollowCurrent();
     },
-    [restore, onOriginPlace, onOriginFollowCurrent, manualOrigin],
+    [restore, onOriginPlace, onOriginFollowCurrent, originManual],
   );
 
   const remove = useCallback(
@@ -87,5 +89,5 @@ export function useSavedConditions({
     [setSaved],
   );
 
-  return { saved, suggestedName, save, recall, remove };
+  return { saved, current, suggestedName, save, recall, remove };
 }

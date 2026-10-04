@@ -1,6 +1,9 @@
 """`scripts/deploy_backend_gate.py`の判定テスト（本番・ネットワークには触れない）。
 
 履歴は一時的なgitリポジトリで作り、振り分けの一覧は本物（`DEPLOY_PATHS`・`NOT_DEPLOYED`）を当てる。
+
+ここで見ないもの: 一覧の中身（どのファイルを外すか）は宣言なので書き写さない。外したファイルが本番で
+読まれていないことは`tests/structure/test_deploy_exclusions.py`が見る。
 """
 
 import importlib.util
@@ -67,15 +70,8 @@ def test_relation_reads_ancestry(tmp_path, monkeypatch):
 def test_only_changes_that_reach_the_image_deploy(tmp_path, monkeypatch):
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     deployed = _commit(tmp_path, "README.md")
-    # 外したものと対象の外（根から当てるので、下の階層にある同じ名前のディレクトリも外）だけが変わった。
-    unchanged_image = _commit(
-        tmp_path,
-        "backend/tests/test_x.py",
-        "backend/benchmarks/deep/bench.py",
-        "backend/app/domain/map_display.py",
-        "frontend/backend/app.py",
-        "docs/a.md",
-    )
+    # 外したもの（`**`は下の階層を跨ぐ）と対象の外（根から当てるので、下の階層にある同じ名前のディレクトリも外）だけが変わった。
+    unchanged_image = _commit(tmp_path, "backend/benchmarks/deep/bench.py", "frontend/backend/app.py")
     changed_image = _commit(tmp_path, "backend/app/main.py")
     output = tmp_path / "github_output"
     monkeypatch.setenv("GITHUB_OUTPUT", str(output))
