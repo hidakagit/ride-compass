@@ -55,6 +55,8 @@ from app.domain.material_sql import (
     BRIDGE_NORMALIZED_SQL,
     CYCLEWAY_TAG_NAMES,
     HIGHWAY_SQL,
+    IS_BRIDGE_SQL,
+    IS_TUNNEL_SQL,
     LIT_NORMALIZED_SQL,
     MOTOR_VEHICLE_NORMALIZED_SQL,
     TUNNEL_NORMALIZED_SQL,
@@ -923,7 +925,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="intersection_per_km",
         primary_attribute=_ATTR_INTERSECTION,
         reference_points=_INTERSECTION_COUNT_PER_KM_REFERENCE_POINTS,
-        value_sql="CASE WHEN re.distance_m > 0 THEN em.intersection_count / (re.distance_m / 1000.0) END",
+        value_sql="em.intersection_count / (re.distance_m / 1000.0)",
         coverage=EdgeMaterialCoverageSpec(
                 present_condition=_EDGE_COUNTS_PRESENT_CONDITION,
                 source=_EDGE_COUNTS_SOURCE,
@@ -942,7 +944,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property_runtime_scale="per_accident_year",
         primary_attribute=_ATTR_ACCIDENT_POINT,
         reference_points=_ACCIDENT_COUNT_PER_KM_YEAR_REFERENCE_POINTS,
-        value_sql="CASE WHEN re.distance_m > 0 AND :accident_years > 0 "
+        value_sql="CASE WHEN :accident_years > 0 "
         "THEN em.accident_count / (re.distance_m / 1000.0) / :accident_years END",
         coverage=EdgeMaterialCoverageSpec(
                 present_condition=_EDGE_COUNTS_PRESENT_CONDITION,
@@ -967,11 +969,11 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "has_tunnel": MaterialSpec(
         material_id="has_tunnel",
         label="トンネル",
-        description="OSMのトンネルタグ(tunnel=yes)に該当する区間はtrue。",
+        description="OSMのトンネルタグが地中を通るもの(tunnel=yes・覆道)に該当する区間はtrue。",
         dtype="boolean",
         tile_property="tunnel",
         primary_attribute=_ATTR_TUNNEL,
-        value_sql=tag_is_value_sql("tunnel", "yes"),
+        value_sql=IS_TUNNEL_SQL,
         coverage=WayMaterialCoverageSpec(
                 missing_condition=f"{TUNNEL_NORMALIZED_SQL} IS NULL",
                 source="OSM wayのタグ tunnel（タグ不在は非該当扱い）",
@@ -982,11 +984,10 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "bridge": MaterialSpec(
         material_id="bridge",
         label="橋・高架",
-        description="OSMの橋・高架タグ(bridge=yes)に該当する区間はtrue。",
+        description="OSMの橋・高架タグが地面から浮いたもの(bridge=yes・高架橋等)に該当する区間はtrue。",
         dtype="boolean",
-        # OSMのbridgeタグ（yesのみtrue、それ以外はキー省略＝unknown/false扱い）。
         tile_property="bridge",
-        value_sql=tag_is_value_sql("bridge", "yes"),
+        value_sql=IS_BRIDGE_SQL,
         coverage=WayMaterialCoverageSpec(
                 missing_condition=f"{BRIDGE_NORMALIZED_SQL} IS NULL",
                 source="OSM wayのタグ bridge（タグ不在は非該当扱い）",

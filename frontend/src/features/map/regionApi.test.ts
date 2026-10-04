@@ -29,12 +29,6 @@ function allVersions(): Record<string, string> {
   return Object.fromEntries(kinds.map((kind) => [kind, `${kind}-v1`]));
 }
 
-const TILE_URLS = [
-  ["roadSurfaceTileUrl", "road_surface", "/api/region/road-surface-tiles/{z}/{x}/{y}.pbf"],
-  ["accidentTileUrl", "accident", "/api/region/accident-tiles/{z}/{x}/{y}.pbf"],
-  ["poiTileUrl", "poi", "/api/region/poi-tiles/{z}/{x}/{y}.pbf"],
-] as const;
-
 describe("タイルの世代とURL", () => {
   it("配信される全系統に空でない世代があるときだけ揃ったとし、揃った世代をそのまま返す", () => {
     const versions = allVersions();
@@ -51,10 +45,24 @@ describe("タイルの世代とURL", () => {
     expect(api.completeTileVersions({})).toBeNull();
   });
 
-  it.each(TILE_URLS)("%sは、オリジン・地図ライブラリが埋める{z}/{x}/{y}・その系統の世代を持つ", (name, kind, path) => {
+  it("路面のタイルは、オリジン・地図ライブラリが埋める{z}/{x}/{y}・路面の世代を持つ", () => {
     const versions = api.completeTileVersions(allVersions())!;
 
-    expect(api[name](versions)).toBe(`https://tiles.example${path}?v=${kind}-v1`);
+    expect(api.roadSurfaceTileUrl(versions)).toBe(
+      "https://tiles.example/api/region/road-surface-tiles/{z}/{x}/{y}.pbf?v=road_surface-v1",
+    );
+  });
+
+  it("点のタイルは、どのレイヤーも1つの配信のパスにレイヤー名を持ち、そのレイヤーの世代を持つ", () => {
+    const versions = api.completeTileVersions(allVersions())!;
+    const layers = Object.keys(regionTileConfig.point_layers) as api.PointTileLayer[];
+    expect(layers.length).toBeGreaterThan(0);
+
+    for (const layer of layers) {
+      expect(api.pointTileUrl(versions, layer)).toBe(
+        `https://tiles.example/api/region/point-tiles/${layer}/{z}/{x}/{y}.pbf?v=${layer}-v1`,
+      );
+    }
   });
 
   it("土地被覆のタイルは実行時の世代を待たず、生成物の世代で組み立てる", () => {

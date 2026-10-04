@@ -29,8 +29,8 @@ SAMPLE = AmedasObservation(
     wind_speed_ms=3.5,
     wind_direction=WindDirection(deg=180.0, label="南"),
     precipitation_10min_mm=0.0,
-    sunshine_10min_minutes=5.0,
     twilight=Twilight(sunrise="2026-08-29T05:12:00+09:00", sunset="2026-08-29T18:41:00+09:00"),
+    weather_code=0,
 )
 
 
@@ -45,7 +45,6 @@ def test_get_amedas_returns_observation_on_success():
     body = response.json()
     assert body["station_name"] == "東京"
     assert body["wind_direction"] == {"deg": 180.0, "label": "南"}
-    # 降水なし・日照ありの実測は、画面が分類を引くWMOコードの「晴れ」で届く
     assert body["weather_code"] == 0
 
 

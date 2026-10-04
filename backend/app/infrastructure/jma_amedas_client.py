@@ -56,7 +56,6 @@ class AmedasReading:
     #: 気象庁の16方位コード（0=静穏）。角度への読み替えは`domain/jma_amedas.py: wind_direction_from_jma_code`。
     wind_direction_code: int | None
     precipitation_10min_mm: float | None
-    sunshine_10min_minutes: float | None
     #: その時刻に終わる1時間の雨量。正時の観測値だけが持つ。
     precipitation_1h_mm: float | None
     #: 1時間雨量の項目を持つか。雨量計の無い観測所は持たず、雨量計はあるが欠測なら
@@ -97,7 +96,6 @@ def _parse_reading(raw: dict) -> AmedasReading:
         wind_speed_ms=_first_value(raw.get("wind")),
         wind_direction_code=None if wind_direction is None else int(wind_direction),
         precipitation_10min_mm=_first_value(raw.get("precipitation10m")),
-        sunshine_10min_minutes=_first_value(raw.get("sun10m")),
         precipitation_1h_mm=_first_value(raw.get("precipitation1h")),
         reports_precipitation_1h="precipitation1h" in raw,
     )

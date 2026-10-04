@@ -4,11 +4,11 @@ rem backend/frontendをポート上の既存プロセスをkillしてからバックグラウンドで再起
 rem docs/architecture/tech-stack.md「Windows: uvicorn --reloadの多重プロセス」が説明する
 rem 「netstat -ano | findstr :8000 で全PIDを確認しtaskkillで終了してから再起動」という
 rem 手動手順を1コマンド化したもの。
-rem 停止のみ行いたい場合はstop-dev.batを使う。ログは.\logs\（.gitignore対象）へ出力される。
+rem 止める段と番号の決め方はstop-dev.batが持つ（停止のみ行いたい場合もそちらを使う）。
+rem frontendはその番号を明示してnext devを起こすので、番号が使用中なら別の番号へ逃げずに起動に失敗する。
+rem ログは.\logs\（.gitignore対象）へ出力される。
 
 set "ROOT=%~dp0"
-set "BACKEND_PORT=8000"
-set "FRONTEND_PORT=3000"
 
 if not exist "%ROOT%logs" mkdir "%ROOT%logs"
 
@@ -17,15 +17,18 @@ echo  RideCompass local restart (background, no window)
 echo ===============================================
 echo.
 
-call :kill_port %BACKEND_PORT% backend
-call :kill_port %FRONTEND_PORT% frontend
+call "%ROOT%stop-dev.bat" nopause
+if not defined FRONTEND_PORT (
+    pause
+    exit /b 1
+)
 
 echo.
 echo Starting backend in background...
 powershell -NoProfile -Command "Start-Process -FilePath '%ROOT%backend\.venv\Scripts\python.exe' -ArgumentList '-u -m uvicorn app.main:app --host 127.0.0.1 --port %BACKEND_PORT%' -WorkingDirectory '%ROOT%backend' -WindowStyle Hidden -RedirectStandardOutput '%ROOT%logs\backend.log' -RedirectStandardError '%ROOT%logs\backend.err.log'"
 
 echo Starting frontend in background...
-powershell -NoProfile -Command "Start-Process -FilePath 'cmd.exe' -ArgumentList '/c npm run dev' -WorkingDirectory '%ROOT%frontend' -WindowStyle Hidden -RedirectStandardOutput '%ROOT%logs\frontend.log' -RedirectStandardError '%ROOT%logs\frontend.err.log'"
+powershell -NoProfile -Command "Start-Process -FilePath 'cmd.exe' -ArgumentList '/c npm run dev -- --port %FRONTEND_PORT%' -WorkingDirectory '%ROOT%frontend' -WindowStyle Hidden -RedirectStandardOutput '%ROOT%logs\frontend.log' -RedirectStandardError '%ROOT%logs\frontend.err.log'"
 
 echo.
 echo Checking backend health...
@@ -62,16 +65,4 @@ echo Both run hidden in the background (no console window). Logs are in .\logs\
 echo Run stop-dev.bat to stop them.
 echo.
 pause
-goto :eof
-
-:kill_port
-set "PORT=%~1"
-set "LABEL=%~2"
-set "FOUND=0"
-for /f "tokens=5" %%P in ('netstat -ano ^| findstr /R /C:":%PORT% .*LISTENING"') do (
-    echo Stopping existing %LABEL% process on port %PORT% (PID=%%P^)
-    taskkill /F /PID %%P >nul 2>nul
-    set "FOUND=1"
-)
-if "!FOUND!"=="0" echo No existing %LABEL% process found on port %PORT%
 goto :eof

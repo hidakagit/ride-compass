@@ -3,8 +3,8 @@
 すべて純関数・unknown安全（タグが無い/未知の値は`None`または`"unknown"`を返し、
 根拠のない推測はしない）。OSMタグからこれらの分類を導く規則の正本はここ1箇所。
 
-車ストレスは軸定義（DBが正本、軸スタジオから増減する）の内部軸と公開軸の階層構造で
-再現している。自転車インフラは正規化フラグ材料（`domain/material_catalog.py`が宣言する
+道路種別・制限速度等から走りにくさを組み立てるのは軸定義（DBが正本、軸スタジオから増減する）の
+側で、ここは材料の分類までを持つ。自転車インフラは正規化フラグ材料（`domain/material_catalog.py`が宣言する
 `highway_is_cycleway`等）の組み合わせで表す。
 
 分類のほかに、**所要時間モデルのパラメータ**も持つ（`stop_seconds`: 停止要因1回あたりの
@@ -288,6 +288,18 @@ TAG_KIND_RULES: tuple[tuple[str, str, str, int], ...] = tuple(
 #: 自販機だけは`vending`の値が`;`で連なるため表に落ちない。式で当てる。どの群よりも
 #: 後に見る（`amenity`の表に`vending_machine`は無いので、ここが最後の引き当てになる）。
 _VENDING_PRIORITY = len(_TAG_KIND_GROUPS) + 1
+_VENDING_MACHINE = ("amenity", "vending_machine")
+
+#: 補給・休憩の種別が付きうるタグ（タグ名, 値）。自販機は何を売るかによらず含む。
+SUPPLY_POI_TAGS: frozenset[tuple[str, str]] = frozenset(
+    (tag_key, value) for tag_key, value, kind, _priority in TAG_KIND_RULES
+    if kind in get_args(SupplyPoiKind)) | {_VENDING_MACHINE}
+
+
+def has_supply_poi_tag(tags: Mapping[str, str]) -> bool:
+    """`tags`が補給・休憩の種別が付きうるタグを持つか。値は`tag_kind_sql`と同じく、前後の
+    空白を落として小文字にしてから比べる。"""
+    return any((key, value.strip(" ").lower()) in SUPPLY_POI_TAGS for key, value in tags.items())
 
 #: 信号の判定。**`TAG_KIND_RULES`と違い、値を正規化せずそのまま比べる**——
 #: 現行の判定がそうであり、ここで揃えると付く信号の数が変わる。
@@ -397,7 +409,7 @@ matched AS ({_rule_match_sql(TAG_KIND_RULES)}
         FROM (SELECT array_remove(array_agg(nullif(btrim(lower(t)), '')), NULL) AS vals
               FROM unnest(string_to_array(coalesce(s.tags->>'vending', ''), ';')) AS t) q
     ) v
-    WHERE lower(btrim(s.tags->>'amenity')) = 'vending_machine' AND v.result IS NOT NULL
+    WHERE lower(btrim(s.tags->>{_quote(_VENDING_MACHINE[0])})) = {_quote(_VENDING_MACHINE[1])} AND v.result IS NOT NULL
 )
 SELECT DISTINCT ON (id) id, result AS kind FROM matched ORDER BY id, priority
 """

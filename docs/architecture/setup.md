@@ -1,6 +1,90 @@
 # 開発環境の立ち上げ
 
-## 前提
+環境を立ち上げる手順（前提・起動のしかた）は一度きりの準備なので、末尾の付録に置く。
+
+## テスト
+
+手元で検査とテストを回すかと、回すときの範囲は[../conventions/testing.md](../conventions/testing.md)「手元の検査の回し方」が決める。
+ここには、回すときの開発機での前提と所要を置く。
+
+```bash
+cd backend && pytest tests/test_road_graph_engine.py -q
+cd frontend && ./node_modules/.bin/vitest run <対象ファイル> --pool=threads
+cd frontend && ./node_modules/.bin/tsc --noEmit
+```
+
+frontendのツールはすべて`node_modules`に入っている。`npx`は起動のたびにパッケージ解決をやり直し、
+`npx tsc --version`だけで13.6秒かかる（開発機での実測、2026-09-22）。`tsc --noEmit`をプロジェクト全体で
+1回通すと、開発機で27秒かかる。Next.jsの生成型が未作成なら`./node_modules/.bin/next typegen`を先に流す。
+backendのフルスイートは開発機で5〜10分かかる（CIは`-n auto`で並列に回す）。
+
+PostGIS統合テスト（`road_graph_session`フィクスチャを使うもの。`postgis`マーカー付き）は、
+テスト専用DB（既定は作業ツリーごとのDB、`TEST_DATABASE_URL`で上書き可。
+[testing.md](../conventions/testing.md)「テストDBは作業ツリーごとに分かれる」）へ接続できないと
+落ちる（スキップにはしない。`backend/tests/conftest.py`）。DBの無い環境では
+`-m "not postgis"`で除外して回す。
+
+## 開発機の本体のチェックアウトの遅れ
+
+担当は GitHub Actions のランナーで動くので、開発機の本体のチェックアウトを早送りする人はいない。遅れた
+本体で打った道具は古いコードで判定し、本番へ古いコードを流す。結果がコードの版に左右される道具は、
+実行口で`scripts/checkout_freshness.py`を呼ぶ。HEAD が origin/master を含まなければ、master にいて追跡しているファイルに
+変更が無いときだけ早送りして進み、それ以外（別の枝・変更あり）は何コミット遅れかと追いつくコマンドを出して止まる。作業ブランチでも、origin/master の上に載っていれば止まらない。
+作業ツリーの変更は遅れに数えない。
+
+| 道具 | 呼ぶところ | 版に左右される理由 |
+|---|---|---|
+| 本番へつなぐ道具（例: `backend/scripts/run_probe.py`・`backend/scripts/axis_apply.py`） | `backend/scripts/_prod_env.py: read_prod_env`（接続情報を渡す前） | 本番へ流すのがこのチェックアウトのコード（プローブが読む`app`・管理APIへ送る形） |
+| `scripts/review_checks.py`の`size`・`metrics`・`trigger` | `scripts/review_checks.py: main` | 前回のレビューから HEAD までを測るので、HEAD が古いと変更を数え漏らす |
+
+開発機の手元のスクリプト（リポジトリに入れないもの）で本体のコードを流すものは、上の道具を経由するか、
+頭で`python <本体>/scripts/checkout_freshness.py`を打って終了コードを見る。
+
+`python scripts/checkout_freshness.py --sync`は、master にいて追跡しているファイルに変更が無いときだけ
+早送りし、結果を1行出す（ほかの枝・変更のある作業ツリーには触らない。並行のセッションが作業中かもしれない
+ため）。上の道具も、遅れていれば同じ条件で早送りしてから進む。
+
+## Windowsの開発機でのBashの長さの上限
+
+Claude CodeのBashツールのコマンドは、実行環境の包みごと`bash.exe -c`の1引数で渡り、MSYS2ランタイムが
+その引数を8,186文字で**黙って切る**。自分のコマンドに使えるのは約7,950文字（単一引用符は包みの中で
+1個5文字に膨らむ）。
+
+- 超えると、引用符の壊れに見えるエラー（`unexpected EOF while looking for matching`）で1行も実行されない。
+- わずかに超えた範囲では実行はされるが、作業ディレクトリの記録先が切れて、ホーム直下に断片名のファイルができる。
+- `\\`は長さに関係なく`\`へ半減する。
+- 閾値はcmd.exeの上限（8,191文字）に近いが、プロセスを辿るとcmd.exeは経由していない。
+
+長いスクリプト・ヒアドキュメントはWriteツールでファイルに書いてから実行する。
+
+## 作業ツリーどうしで node_modules を共有しない
+
+`git worktree`で作った作業ツリーどうしで、`node_modules`をジャンクション等で共有しない。
+
+- `next dev`が「プロジェクトルート外を指すリンク」として拒否する。
+- 一方の作業ツリーを`git worktree remove --force`すると、再帰削除がリンクの中へ入り共有元を壊す。
+
+## リポジトリの構成
+
+```
+RideCompass/
+  frontend/           Next.js (App Router) + TypeScript + MapLibre GL JS
+  backend/            FastAPI (Python) + PostGIS
+  docs/               architecture/（構成と設計原則）・modules/（実装の詳細）・
+                      conventions/（規約）・records/（記録）
+  .claude/            レビュー基盤・スキル定義
+  scripts/            リポジトリ横断の検査スクリプト・クラウドのセッションの用意（remote_dev/）
+  tools/flow-gate/    タスクの流れのゲートと回答フォーム（docs/conventions/flow.md）
+  docker-compose.yml  frontend/backend/postgres(PostGIS)/redisを一括起動
+  restart-dev.bat / stop-dev.bat   Windows向けの再起動・停止（残留プロセスをkillして
+                                    バックグラウンド起動、ログはlogs/へ）
+```
+
+## 付録
+
+作業の前には読まない。環境を立ち上げる一度きりの手順。
+
+### 前提
 
 - Node.js 22.12+（frontend のテストの道具 vitest の要件）
 - Python 3.11+
@@ -9,7 +93,7 @@
   一部あるが、ローカル開発でも用意することを推奨）
 - Docker / Docker Compose（任意。frontend/backend/postgres/redisをまとめて起動する場合）
 
-## Docker Composeで起動する
+### Docker Composeで起動する
 
 ```bash
 cp .env.example .env
@@ -40,7 +124,7 @@ docker compose run --rm backend python scripts/bootstrap_database.py --create-ex
 確かめるのは本番か手元の開発機で行う（地図に色を出すには軸のほかに取込済みのデータも要る）。
 テスト（`-m postgis`を含む）は軸を要らないので、この状態で回せる。
 
-## クラウドのセッション（Claude Code on the web）
+### クラウドのセッション（Claude Code on the web）
 
 依存の導入とDB・Redisの起動を自動で行う。本体は`scripts/remote_dev/`。
 
@@ -84,9 +168,9 @@ docker compose run --rm backend python scripts/bootstrap_database.py --create-ex
   直接出られないため、composeのbackend・frontendのイメージはそこではビルドできない
   （`apt-get`・`npm ci`が止まる）。
 
-## 個別に起動する
+### 個別に起動する
 
-### backend
+#### backend
 
 ```bash
 cd backend
@@ -118,7 +202,7 @@ curl -X POST http://localhost:8000/api/routes/generate -H "Content-Type: applica
 残留し、同じポートを奪い合うことがある（`restart-dev.bat`はこのkillを含めて再起動する）。
 手で確認するなら`netstat -ano | findstr :8000`でPIDを見て`taskkill /F /PID <PID>`。
 
-### frontend
+#### frontend
 
 ```bash
 cd frontend
@@ -129,83 +213,12 @@ npm run dev
 バックエンドのURLは既定で`http://localhost:8000`（`NEXT_PUBLIC_API_URL`で上書き可、
 `.env.local`は無くても動く）。
 
-## テスト
-
-手元で回すのは変更が届く範囲だけで、フルスイートはCIが持つ
-（[../conventions/testing.md](../conventions/testing.md)）。
-
-```bash
-cd backend && pytest tests/test_road_graph_engine.py -q
-cd frontend && ./node_modules/.bin/vitest run <対象ファイル> --pool=threads
-cd frontend && ./node_modules/.bin/tsc --noEmit
-```
-
-frontendのツールはすべて`node_modules`に入っているので、`npx`を付けずに`./node_modules/.bin/`から
-直接起こす。`npx`は起動のたびにパッケージ解決をやり直し、`npx tsc --version`だけで13.6秒かかる
-（開発機での実測、2026-09-22）。`tsc --noEmit`は型の波及を1ファイルへ絞れないためプロジェクト全体で
-1回通し、開発機で27秒かかる。Next.jsの生成型が未作成なら`./node_modules/.bin/next typegen`を先に流す。
-backendのフルスイートは開発機で5〜10分かかる（CIは`-n auto`で並列に回す）。
-
-PostGIS統合テスト（`road_graph_session`フィクスチャを使うもの。`postgis`マーカー付き）は、
-テスト専用DB（既定は作業ツリーごとのDB、`TEST_DATABASE_URL`で上書き可。
-[testing.md](../conventions/testing.md)「テストDBは作業ツリーごとに分かれる」）へ接続できないと
-落ちる（スキップにはしない。`backend/tests/conftest.py`）。DBの無い環境では
-`-m "not postgis"`で除外して回す。
-
-## 開発機の本体のチェックアウトの遅れ
-
-担当は GitHub Actions のランナーで動くので、開発機の本体のチェックアウトを早送りする人はいない。遅れた
-本体で打った道具は古いコードで判定し、本番へ古いコードを流す。結果がコードの版に左右される道具は、
-実行口で`scripts/checkout_freshness.py`を呼び、HEAD が origin/master を含まなければ、何コミット遅れかと
-追いつくコマンドを出して止まる。作業ブランチでも、origin/master の上に載っていれば止まらない。
-作業ツリーの変更は遅れに数えない。
-
-| 道具 | 呼ぶところ | 版に左右される理由 |
-|---|---|---|
-| 本番へつなぐ道具（例: `backend/scripts/run_probe.py`・`backend/scripts/axis_apply.py`） | `backend/scripts/_prod_env.py: read_prod_env`（接続情報を渡す前） | 本番へ流すのがこのチェックアウトのコード（プローブが読む`app`・管理APIへ送る形） |
-| `scripts/review_checks.py`の`size`・`metrics`・`trigger` | `scripts/review_checks.py: main` | 前回のレビューから HEAD までを測るので、HEAD が古いと変更を数え漏らす |
-
-開発機の手元のスクリプト（リポジトリに入れないもの）で本体のコードを流すものは、上の道具を経由するか、
-頭で`python <本体>/scripts/checkout_freshness.py`を打って終了コードを見る。
-
-`python scripts/checkout_freshness.py --sync`は、master にいて追跡しているファイルに変更が無いときだけ
-早送りし、結果を1行出す（ほかの枝・変更のある作業ツリーには触らない。並行のセッションが作業中かもしれない
-ため）。Claude Code の SessionStart フックから打つ形にしてある。
-
-## Windowsの開発機でのBashの長さの上限
-
-Claude CodeのBashツールのコマンドは、実行環境の包みごと`bash.exe -c`の1引数で渡り、MSYS2ランタイムが
-その引数を8,186文字で**黙って切る**。自分のコマンドに使えるのは約7,950文字（単一引用符は包みの中で
-1個5文字に膨らむ）。
-
-- 超えると、引用符の壊れに見えるエラー（`unexpected EOF while looking for matching`）で1行も実行されない。
-- わずかに超えた範囲では実行はされるが、作業ディレクトリの記録先が切れて、ホーム直下に断片名のファイルができる。
-- `\\`は長さに関係なく`\`へ半減する。
-- 閾値はcmd.exeの上限（8,191文字）に近いが、プロセスを辿るとcmd.exeは経由していない。
-
-長いスクリプト・ヒアドキュメントはWriteツールでファイルに書いてから実行する（実測と出典は
-[T1041](../records/tasks/T1041.md)）。
-
-## 作業ツリーどうしで node_modules を共有しない
-
-`git worktree`で作った作業ツリーどうしで、`node_modules`をジャンクション等で共有しない。
-
-- `next dev`が「プロジェクトルート外を指すリンク」として拒否する。
-- 一方の作業ツリーを`git worktree remove --force`すると、再帰削除がリンクの中へ入り共有元を壊す
-  （[T768](../records/tasks/T768.md)）。
-
-## リポジトリの構成
-
-```
-RideCompass/
-  frontend/           Next.js (App Router) + TypeScript + MapLibre GL JS
-  backend/            FastAPI (Python) + PostGIS
-  docs/               architecture/（構成と設計原則）・modules/（実装の詳細）・
-                      conventions/（規約）・records/（記録）
-  .claude/            レビュー基盤・スキル定義
-  scripts/            リポジトリ横断の検査スクリプト・クラウドのセッションの用意（remote_dev/）
-  tools/flow-gate/    タスクの流れのゲートと回答フォーム（docs/conventions/flow.md）
-  docker-compose.yml  frontend/backend/postgres(PostGIS)/redisを一括起動
-  restart-dev.bat / stop-dev.bat   Windows向けの再起動・停止（残留プロセスをkillして
-                                    バックグラウンド起動、ログはlogs/へ）
-```
+frontendは`next dev`の既定の3000番で動かす。backendのCORSの許可元と基礎地図の書き換え先の既定
+（`backend/app/config.py: _LOCAL_FRONTEND_ORIGIN`）がこの番号を前提にしており、ほかの番号で開くと
+基礎地図のタイル・スプライト・フォントが3000番へ向かって地図が真っ白になる。Claude Codeのプレビューの
+起動の設定（`.claude/launch.json`）も番号を書かずにプレビューの既定の3000番で起動し、使用中なら別の番号へ
+逃がさずに失敗する（`autoPort: false`）。`restart-dev.bat`・`stop-dev.bat`は番号を持たず、backendの設定の
+基礎地図の書き換え先（`.env`の上書きを含む）から番号を読み、その番号で止め、その番号を明示して`next dev`を起こす
+（使用中なら別の番号へ逃げずに失敗する）。ほかの番号で動かすときは、`backend/.env`に`CORS_ALLOWED_ORIGINS`と
+`BASEMAP_PUBLIC_BASE_URL`をその番号で書く（書いた値は既定を直しても残るので、戻すときは消す）。batはそれで
+その番号へ移る。

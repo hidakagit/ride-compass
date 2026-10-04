@@ -1,100 +1,109 @@
 // @vitest-environment node
+/**
+ * `features/route/generationRequest.ts`——生成の入力から、backendへ送る値と「生成条件が変わったか」の比較キーを作る。
+ * - `buildGenerateRequest`: 決まった項目は常に送り、目標距離・レンズの軸・重み・経由地・目的地は値があるときだけ送る
+ * - `generationConditionsKey`: 送る値のうち、レンズの軸と、利用者が選んでいない出発時刻を除いたものが同じなら同じキー。
+ *   重み・除外の項目の並びは比べない
+ *
+ * ここで見ないもの:
+ * - 画面の状態から入力を組み立てること・キーの違いを印にすること → `useRouteGeneration.test.ts`
+ * - 乗り換えの評価に生成の入力を使い回すこと → `useSpliceSession.test.ts`
+ */
 import { describe, expect, it } from "vitest";
 
 import { buildGenerateRequest, generationConditionsKey, type GenerationInput } from "./generationRequest";
 
+const START = new Date("2026-10-04T01:30:00Z");
+
 const LOOP: GenerationInput = {
-  origin: { latitude: 35.6, longitude: 139.7 },
-  distanceKm: 30,
-  distanceToleranceKm: 3,
-  maxRoutes: 5,
-  assumedSpeedKmh: 20,
-  startTime: new Date("2026-09-24T09:00:00+09:00"),
-  hardFilters: { stairs: true },
+  origin: { latitude: 35.68, longitude: 139.77 },
+  distanceKm: 40,
+  distanceToleranceKm: 5,
+  maxRoutes: 3,
+  assumedSpeedKmh: 22,
+  startTime: START,
+  hardFilters: { exclude_a: true, exclude_b: false },
   lensAxisId: null,
   routePreference: null,
   waypoints: [],
   destination: null,
-  startTimePinned: true,
-};
-
-const DESTINATION: GenerationInput = {
-  ...LOOP,
-  distanceKm: null,
-  waypoints: [
-    { latitude: 35.61, longitude: 139.71 },
-    { latitude: 35.62, longitude: 139.72 },
-  ],
-  destination: { latitude: 35.7, longitude: 139.8 },
+  startTimePinned: false,
 };
 
 describe("buildGenerateRequest", () => {
-  it("画面の値を送る形へ移す。開始時刻はISO形式", () => {
-    const request = buildGenerateRequest(LOOP);
-    expect(request).toMatchObject({
-      latitude: 35.6,
-      longitude: 139.7,
-      distance_km: 30,
-      distance_tolerance_km: 3,
-      max_routes: 5,
-      assumed_speed_kmh: 20,
-      hard_filters: { stairs: true },
-      start_time: "2026-09-24T00:00:00.000Z",
+  it("周回では、地点・目標距離・幅・除外・候補数・速度・出発時刻を送り、値の無い項目は載せない", () => {
+    expect(buildGenerateRequest(LOOP)).toEqual({
+      latitude: 35.68,
+      longitude: 139.77,
+      distance_km: 40,
+      distance_tolerance_km: 5,
+      route_type: "loop",
+      hard_filters: { exclude_a: true, exclude_b: false },
+      max_routes: 3,
+      assumed_speed_kmh: 22,
+      start_time: "2026-10-04T01:30:00.000Z",
     });
   });
 
-  it("レンズの軸・重みの上書き・経由地・目的地・距離は、値があるときだけ送る", () => {
-    const loop = buildGenerateRequest(LOOP);
-    for (const key of ["lens_axis_id", "route_preference", "waypoints", "destination"]) {
-      expect(loop).not.toHaveProperty(key);
-    }
-    expect(buildGenerateRequest(DESTINATION)).not.toHaveProperty("distance_km");
-    const full = buildGenerateRequest({ ...DESTINATION, lensAxisId: "wind", routePreference: { wind: 1 } });
-    expect(full).toMatchObject({
-      lens_axis_id: "wind",
-      route_preference: { wind: 1 },
-      waypoints: DESTINATION.waypoints,
-      destination: DESTINATION.destination,
+  it("目標距離が無ければ（経由地・目的地を置いたとき）距離を載せず、経由地と目的地を送る", () => {
+    const waypoints = [
+      { latitude: 35.7, longitude: 139.8 },
+      { latitude: 35.71, longitude: 139.81 },
+    ];
+    const request = buildGenerateRequest({
+      ...LOOP,
+      distanceKm: null,
+      waypoints,
+      destination: { latitude: 35.75, longitude: 139.85 },
     });
+    expect(request).not.toHaveProperty("distance_km");
+    expect(request.waypoints).toEqual(waypoints);
+    expect(request.destination).toEqual({ latitude: 35.75, longitude: 139.85 });
   });
 
-  it("経由地は渡した配列そのものではなく写しを送る", () => {
-    expect(buildGenerateRequest(DESTINATION).waypoints).not.toBe(DESTINATION.waypoints);
+  it("レンズが軸を指していればその軸を、重みを上書きしていれば重みを送る", () => {
+    const request = buildGenerateRequest({ ...LOOP, lensAxisId: "wind", routePreference: { wind: 0.4, slope: 0.6 } });
+    expect(request.lens_axis_id).toBe("wind");
+    expect(request.route_preference).toEqual({ wind: 0.4, slope: 0.6 });
   });
 });
 
-describe("generationConditionsKey（「生成条件が変更されています」の比較キー）", () => {
-  const key = generationConditionsKey;
+describe("generationConditionsKey", () => {
+  const key = (overrides: Partial<GenerationInput>) => generationConditionsKey({ ...LOOP, ...overrides });
 
-  it("送る値が変われば変わる", () => {
-    const base = key(DESTINATION);
-    const changed: Partial<GenerationInput>[] = [
-      { distanceKm: 31 },
-      { distanceToleranceKm: 2 },
-      { assumedSpeedKmh: 22 },
-      { hardFilters: { stairs: false } },
-      { routePreference: { wind: 1 } },
-      { origin: { latitude: 35.5, longitude: 139.7 } },
-      { destination: { latitude: 35.71, longitude: 139.8 } },
-      { waypoints: [...DESTINATION.waypoints].reverse() },
-      { maxRoutes: 6 },
-      { startTime: new Date("2026-09-24T10:00:00+09:00") },
-    ];
-    for (const change of changed) expect(key({ ...DESTINATION, ...change })).not.toBe(base);
+  it.each<[string, Partial<GenerationInput>]>([
+    ["出発地", { origin: { latitude: 35.69, longitude: 139.77 } }],
+    ["目標距離", { distanceKm: 41 }],
+    ["距離の幅", { distanceToleranceKm: 4 }],
+    ["候補数", { maxRoutes: 4 }],
+    ["想定速度", { assumedSpeedKmh: 23 }],
+    ["除外", { hardFilters: { exclude_a: false, exclude_b: false } }],
+    ["重み", { routePreference: { wind: 0.5 } }],
+    ["経由地", { waypoints: [{ latitude: 35.7, longitude: 139.8 }] }],
+    ["目的地", { destination: { latitude: 35.75, longitude: 139.85 } }],
+  ])("送る値の%sが変われば、キーが変わる", (_label, overrides) => {
+    expect(key(overrides)).not.toBe(key({}));
   });
 
-  it("レンズの軸は比べない（地図の見え方の選択で、候補の選定に影響しない）", () => {
-    expect(key({ ...LOOP, lensAxisId: "wind" })).toBe(key(LOOP));
+  it("レンズの軸だけが変わっても、キーは変わらない", () => {
+    expect(key({ lensAxisId: "wind" })).toBe(key({}));
   });
 
-  it("出発時刻は、利用者が選んでいない間は比べない（「今」へ追従して勝手に進む）", () => {
-    const following = { ...LOOP, startTimePinned: false };
-    expect(key({ ...following, startTime: new Date("2026-09-24T09:05:00+09:00") })).toBe(key(following));
+  it("出発時刻は、利用者が選んだときだけ比べる", () => {
+    const later = new Date(START.getTime() + 5 * 60 * 1000);
+    expect(key({ startTime: later })).toBe(key({}));
+    expect(key({ startTime: later, startTimePinned: true })).not.toBe(key({ startTimePinned: true }));
   });
 
-  it("中身が同じなら、除外条件・重みのキーの並びが違っても同じ", () => {
-    const a = { ...LOOP, hardFilters: { stairs: true, unpaved: false }, routePreference: { a: 0.3, b: 0.7 } };
-    const b = { ...LOOP, hardFilters: { unpaved: false, stairs: true }, routePreference: { b: 0.7, a: 0.3 } };
-    expect(key(a)).toBe(key(b));
+  it("除外・重みの項目の並びが違うだけなら、キーは変わらない", () => {
+    expect(
+      key({ hardFilters: { exclude_b: false, exclude_a: true }, routePreference: { slope: 0.6, wind: 0.4 } }),
+    ).toBe(key({ routePreference: { wind: 0.4, slope: 0.6 } }));
+  });
+
+  it("経由地の順番が違えば、キーが変わる", () => {
+    const a = { latitude: 35.7, longitude: 139.8 };
+    const b = { latitude: 35.71, longitude: 139.81 };
+    expect(key({ waypoints: [a, b] })).not.toBe(key({ waypoints: [b, a] }));
   });
 });

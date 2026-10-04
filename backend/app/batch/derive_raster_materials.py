@@ -32,15 +32,14 @@ from app.domain.landcover import (
     landcover_key,
 )
 from app.domain.region import tile_position_sql
-from app.domain.material_sql import BRIDGE_NORMALIZED_SQL, TUNNEL_NORMALIZED_SQL
+from app.domain.material_sql import IS_BRIDGE_SQL, IS_TUNNEL_SQL
 from app.infrastructure.source_models import DEM_TILES_SQL, LANDCOVER_TILES_SQL, WAYS_SOURCE_SQL
 
 logger = logging.getLogger("ridecompass.derive_raster_materials")
 
 _EDGE_SHAPES = f"""
 SELECT e.osm_way_id, e.segment_index, e.geom,
-       (coalesce({TUNNEL_NORMALIZED_SQL}, '') NOT IN ('', 'no')
-        OR coalesce({BRIDGE_NORMALIZED_SQL}, '') NOT IN ('', 'no')) AS on_structure
+       ({IS_TUNNEL_SQL} OR {IS_BRIDGE_SQL}) AS on_structure
 FROM road_edges e JOIN {WAYS_SOURCE_SQL} w ON w.osm_way_id = e.osm_way_id
 """
 
@@ -235,8 +234,8 @@ def _way_rollup_sql() -> str:
     # 0〜100へ丸め込む。入力が割合である以上、加重平均が範囲外へ出るのはREALの丸めだけ。
     # 表の制約が受け取れる値にして渡す。
     averaged = ", ".join(
-        f"least(100, greatest(0, sum(m.{c} * e.distance_m) / nullif(sum(e.distance_m) "
-        f"FILTER (WHERE m.{c} IS NOT NULL), 0))) AS {c}" for c in columns)
+        f"least(100, greatest(0, sum(m.{c} * e.distance_m) / sum(e.distance_m) "
+        f"FILTER (WHERE m.{c} IS NOT NULL))) AS {c}" for c in columns)
     assigned = ", ".join(f"{c} = s.{c}" for c in columns)
     return f"""
 UPDATE way_materials w SET lc_valid_pixels = s.lc_valid_pixels, {assigned}

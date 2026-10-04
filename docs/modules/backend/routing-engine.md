@@ -889,16 +889,16 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
 **道を結合して区間を範囲で絞るSQLは、区間の空間索引だけで絞る**——道の側からも範囲で絞ると、
 プランナが道を外側にした入れ子ループを選んで遅くなる。
 
-#### 派生delivery系クエリ（wind/gradient/road surface/POI）
+#### 派生delivery系クエリ（wind/gradient/road surface）
 
-`_ROAD_SURFACE_TILE_MVT_SQL`（路面・道路種別・車ストレス材料タグ等をPostGIS側で
+`_ROAD_SURFACE_TILE_MVT_SQL`（路面・道路種別・制限速度等の材料タグをPostGIS側で
 ST_AsMVT丸ごと生成）・`_FEATURE_MIDPOINTS_IN_TILE_SQL`（wind、道路自身の方位角は使わず鍵ごとに
 中ほど＝両端の平均の緯度経度を返す。区間の中ほどは探索の`mid_lat`/`mid_lon`と同じ点）・`_FEATURE_GRADIENT_INPUTS_IN_TILE_SQL`（gradient。そのフィーチャーに属する
 区間の値を長さで重み付けて平均する——区間単位のズームでは区間1本の値そのもの、way単位の
 ズームではwayの全区間をならした値になる。区間の勾配はジオメトリの始点→終点を正とするため、
 フィーチャーの基準方位とのcosの符号で向きを揃えてから平均する）は、いずれも
-`_COVERAGE_SQL`（取込の宣言した範囲か）をMVT生成と同じ1クエリへ畳み込み、1タイル1DB往復に
-まとめる設計を共有する。カバレッジ外はNone、カバレッジ内で0件なら空、という契約で呼び出し側
+`COVERAGE_SQL`（取込の宣言した範囲か）をMVT生成と同じ1クエリへ畳み込み、1タイル1DB往復に
+まとめる設計を共有する（点のタイルのSQLも同じ判定を読む。[静的道路属性](static-road-attributes.md)「点のタイル」）。カバレッジ外はNone、カバレッジ内で0件なら空、という契約で呼び出し側
 （`RegionService`）が空タイルと区別する。いずれも**同じ`_TILE_FEATURE_SOURCE_SQL`から
 フィーチャーを引く**——別々に組み立てると、代表の選び方がタイルとずれた瞬間に鍵が噛み合わず
 色が一切付かない。詳細は[dynamic-way-values.md](dynamic-way-values.md)参照。

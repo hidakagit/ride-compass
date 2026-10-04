@@ -200,9 +200,8 @@ class DerivedDataFreshnessQuery:
             oldest = row["oldest_run_id"]
             source = latest = None
             if oldest is not None:
-                run = (await self._session.execute(_RUN_SOURCE_SQL, {"run_id": oldest})).first()
-                if run is not None:
-                    source, latest = run.source, run.latest_run_id
+                run = (await self._session.execute(_RUN_SOURCE_SQL, {"run_id": oldest})).one()
+                source, latest = run.source, run.latest_run_id
             coverage = None
             coverage_sql = build_coverage_sql(table)
             parent = coverage_parent(table)

@@ -107,7 +107,7 @@ HILLSHADE_LAYER_ID = "hillshade"
 #: 地図へ常に出す出典（HTML）。路面の色・評価・ルートの計算・常設の表示（ヘッダーの天気・警戒度バッジ）へ常に使う
 #: データで、どのレイヤーを表示しているかと関係なく出典が要る（レイヤーのソースに付けると、そのレイヤーを消したとき
 #: 出典も消える）。公共データ利用規約（PDL1.0）とCC BY 4.0は出典とは別に加工した旨を求め、標高からは勾配を、事故の点から
-#: は区間ごとの件数を、アメダスの観測からは雨の材料と天気を、区域の境界は簡略化して、配信タイルは欠けたズームを隣の
+#: は区間ごとの件数を、アメダスの観測からは雨の材料を、アメダスと推計気象分布からは天気を、区域の境界は簡略化して、配信タイルは欠けたズームを隣の
 #: ズームから、MSMの格子は地点・時刻へ補間して使っている。気象レイヤーの出典もここが持つ（気象庁のデータは常設の表示
 #: で常に使うため）。基礎地図は配信元のTileJSONが出典を持つので入れない（入れると2回並ぶ）。データ源を足したら、
 #: 利用条件（docs/architecture/data-sources.md）と合わせてここも見る。
@@ -309,5 +309,21 @@ POINT_STROKE_WIDTH_PX = 1
 #: 絵記号で描く点（行が`glyph`を持つ軸）の一辺。丸い点より大きくし、中の絵を読める大きさにする。
 POINT_ICON_SIZE_PX = 20
 POINT_OPACITY = 0.9
-#: 事故は面的に多く、同じ濃さだと停止要因の点が埋もれる。
-ACCIDENT_POINT_OPACITY = 0.75
+#: 点の一次属性ごとの、既定と違う不透明度。事故は面的に多く、同じ濃さだと停止要因の点が埋もれる。
+_POINT_OPACITY_OVERRIDES: dict[str, float] = {"accident_point": 0.75}
+
+
+def _point_opacities() -> dict[str, float]:
+    """地図に点で出す一次属性（点の幾何・行の定義・タイルの系統を持つもの）ごとの不透明度。"""
+    shown = [
+        attr.attr_id
+        for attr in PRIMARY_ATTRIBUTES
+        if attr.geometry == "point" and attr.display_axes and attr.tile_kind is not None
+    ]
+    unknown = set(_POINT_OPACITY_OVERRIDES) - set(shown)
+    assert not unknown, f"点で出さない一次属性に不透明度がある: {sorted(unknown)}"
+    return {attr_id: _POINT_OPACITY_OVERRIDES.get(attr_id, POINT_OPACITY) for attr_id in shown}
+
+
+#: 一次属性 → 点の不透明度。画面は点のレイヤーごとに自分の名前で引く。
+POINT_OPACITY_BY_ATTR: dict[str, float] = _point_opacities()

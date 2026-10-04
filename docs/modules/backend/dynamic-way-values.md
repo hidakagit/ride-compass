@@ -261,8 +261,8 @@ road_bearing_deg)`のフィーチャー単位dict（`edge_materials.average_grad
 そのまま返り、way単位のズームでは**区間を長さで重み付けて平均した値**が代表になる
 （上の「フィーチャーの値」節と同じ規則。1区間の外れ値がway全体を染めない）。
 
-**暗黙の前提（モジュール間の隠れた依存）**: このJOINは`em.average_grade IS NOT NULL
-AND re.bearing_deg IS NOT NULL`を要求するため、[elevation.md](elevation.md)の
+**暗黙の前提（モジュール間の隠れた依存）**: このJOINは`em.average_grade IS NOT NULL`を
+要求するため、[elevation.md](elevation.md)の
 派生（`derive_raster_materials.py`）が該当区間の勾配を出していない（または勾配を出さないと
 決めた区間）の場合、その鍵は勾配タイルの結果から静かに除外される——エラーには
 ならず、単に地図上でその道路に勾配の色が付かないだけに留まる。区間は向きを持たない1行で、

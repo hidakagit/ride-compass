@@ -15,7 +15,6 @@ from fastapi import Depends
 from app.config import settings
 from app.domain.region import BoundingBox
 from app.domain.route_preference import RoutePreference
-from app.infrastructure.accident_repository import AccidentTileQuery
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
 from app.infrastructure.basemap_client import BasemapClient
 from app.infrastructure.database import get_route_generation_session_factory, get_session_factory
@@ -26,7 +25,6 @@ from app.infrastructure.http_client import get_http_client
 from app.infrastructure.jma_tile_client import JmaTileClient
 from app.infrastructure.material_coverage import MaterialCoverageQuery
 from app.infrastructure.road_graph_repository import RoadGraphRepository
-from app.services.accident_service import AccidentService
 from app.services.axis_registry_service import AxisRegistryAdminService
 from app.services.db_status_service import DbStatusService
 from app.services.dedicated_way_values import DirectionalMaterialService, dedicated_way_value_factory
@@ -154,11 +152,6 @@ async def get_directional_material_service(weather_service: WeatherService = Dep
     """区間インスペクタが足す専用配信の材料。値は地図のレンズと同じ経路で引く。"""
     async with get_session_factory()() as session:
         yield DirectionalMaterialService(RoadGraphRepository(session), weather_service)
-
-
-async def get_accident_service():
-    async with get_session_factory()() as session:
-        yield AccidentService(repository=AccidentTileQuery(session))
 
 
 def get_basemap_client():

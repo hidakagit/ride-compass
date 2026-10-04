@@ -112,6 +112,18 @@ def tag_is_value_sql(tag: str, expected: str) -> str:
     return tag_absent_is_false_sql(f"{normalized_tag_sql(tag)} = '{expected}'")
 
 
+# 橋・トンネルとみなすのは、道が地面から浮いているか地中にある値だけ（値の意味は OSM wiki の
+# Key:bridge・Key:tunnel）。地図の「橋・高架」「トンネル」と、勾配で地表を拾わない区間
+# （`attributes.py: elevation_values_sql` の on_structure）が同じ道を指すよう、両方がここを読む。
+# 建物の下の通路（building_passage）・道の下の水路（culvert）・水面すれすれの低い橋
+# （low_water_crossing）は道が地表にあり、載っていない値も普通の道として扱う——知らない値を
+# 構造物に入れると、地図に誤った橋・トンネルが出る。
+_BRIDGE_STRUCTURE_VALUES = ("yes", "viaduct", "cantilever", "covered", "suspension_bridge", "boardwalk")
+_TUNNEL_STRUCTURE_VALUES = ("yes", "avalanche_protector")
+IS_BRIDGE_SQL = tag_absent_is_false_sql(f"{BRIDGE_NORMALIZED_SQL} IN ({_sql_literals(_BRIDGE_STRUCTURE_VALUES)})")
+IS_TUNNEL_SQL = tag_absent_is_false_sql(f"{TUNNEL_NORMALIZED_SQL} IN ({_sql_literals(_TUNNEL_STRUCTURE_VALUES)})")
+
+
 def cycleway_has_value_sql(*values: str) -> str:
     listed = ", ".join(f"'{v}'" for v in values)
     return tag_absent_is_false_sql(f"{_CYCLEWAY_TAGS_ARRAY_SQL} && ARRAY[{listed}]")
@@ -120,8 +132,7 @@ def cycleway_has_value_sql(*values: str) -> str:
 def poi_density_value_sql(kind: str) -> str:
     """停止要因POIの種別別密度。列がNULLなら未計算＝欠損。"""
     column = f"em.{poi_count_column(kind)}"
-    return (f"CASE WHEN {column} IS NOT NULL AND re.distance_m > 0 "
-            f"THEN {column} / (re.distance_m / 1000.0) END")
+    return f"{column} / (re.distance_m / 1000.0)"
 
 
 def landcover_value_sql(key: str) -> str:

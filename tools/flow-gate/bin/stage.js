@@ -4,6 +4,7 @@
 import { readFileSync } from "node:fs";
 import { readTask } from "../src/github.js";
 import { moveTask } from "../src/move.js";
+import { notes } from "../src/rules.js";
 import { args, bot, config, isNumber } from "./cli.js";
 
 const { rest: [parent, title, file, ...before] } = args("node tools/flow-gate/bin/stage.js <親の番号> <題名> <本文のファイル> [前の段階の番号...]",
@@ -17,4 +18,4 @@ const stage = (await gh.gql(`mutation C($i: CreateIssueInput!) { createIssue(inp
 await gh.write([...ids.slice(1).map((b) => ["addBlockedBy", { issueId: stage.id, blockingIssueId: b }]), ["addBlockedBy", { issueId: ids[0], blockingIssueId: stage.id }]]);
 console.log(`段階 #${stage.number} ${stage.url}`);
 if ((await readTask(gh, config, { number: Number(parent) })).issue.status === config.working)
-  console.log(await moveTask(gh, config, Number(parent), config.todo, { comment: `${config.todo}にする理由: 段階 #${stage.number} に分けた。段階が全部閉じるまで、段階に blocked by されて待つ` }));
+  console.log(await moveTask(gh, config, Number(parent), config.todo, { comment: notes.reason(config.todo, `段階 #${stage.number} に分けた。段階が全部閉じるまで、段階に blocked by されて待つ`) }));

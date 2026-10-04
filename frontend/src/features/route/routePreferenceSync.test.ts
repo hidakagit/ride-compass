@@ -1,44 +1,64 @@
 // @vitest-environment node
+/**
+ * `features/route/routePreferenceSync.ts`——重みを軸カタログの公開軸へ揃える。
+ * - `alignRoutePreference`: カタログに増えた軸は既定の重みで補い、消えた軸は外す。カタログが届くまでは揃えない。
+ *   揃える必要が無ければ渡した値をそのまま（同じ参照で）返す
+ * - `routePreferenceToSend`: 重みを上書きしていて、カタログが届いているときだけ重みを送る
+ *
+ * ここで見ないもの:
+ * - 読んだ重みをこの関数へ1回だけ通すこと・保存値の読み書き → `useGenerationConditions.test.ts`
+ */
 import { describe, expect, it } from "vitest";
 
 import { alignRoutePreference, routePreferenceToSend } from "./routePreferenceSync";
 
-const LOADED = { loaded: true, defaultWeights: { a: 0.5, b: 0.5 } };
+const DEFAULTS = { a: 0.5, b: 0.5 };
 
-describe("alignRoutePreference（重みのキーを軸カタログへ揃える）", () => {
-  it("キーが揃っていれば、渡した値をそのまま返す", () => {
-    const current = { a: 0.2, b: 0.8 };
-    expect(alignRoutePreference(current, LOADED)).toBe(current);
-  });
-
-  it("カタログに増えた軸は既定の重みで補い、消えた軸は外す。利用者の重みは残す", () => {
-    expect(alignRoutePreference({ a: 0.2, gone: 0.8 }, LOADED)).toEqual({ a: 0.2, b: 0.5 });
-  });
-
-  it("渡した重みを書き換えない", () => {
-    const stored = { gone: 1 };
-    alignRoutePreference(stored, LOADED);
-    expect(stored).toEqual({ gone: 1 });
-  });
-
-  it("軸カタログを取得できていない間は揃えない（軸0件へ揃えると保存済みの重みが消える）", () => {
-    const stored = { a: 0.2, gone: 0.8 };
+describe("alignRoutePreference", () => {
+  it("カタログが届くまでは、軸が0件でも保存した重みを消さずにそのまま返す", () => {
+    const stored = { a: 0.3, stale: 0.7 };
     expect(alignRoutePreference(stored, { loaded: false, defaultWeights: {} })).toBe(stored);
+  });
+
+  it("キーがカタログの公開軸と同じなら、渡した値をそのまま返す", () => {
+    const stored = { b: 0.1, a: 0.9 };
+    expect(alignRoutePreference(stored, { loaded: true, defaultWeights: DEFAULTS })).toBe(stored);
+  });
+
+  it("カタログに増えた軸は既定の重みで補い、ほかの軸の重みは変えない", () => {
+    expect(alignRoutePreference({ a: 0.2 }, { loaded: true, defaultWeights: DEFAULTS })).toEqual({ a: 0.2, b: 0.5 });
+  });
+
+  it("カタログから消えた軸は外す", () => {
+    expect(alignRoutePreference({ a: 0.2, b: 0.3, stale: 0.5 }, { loaded: true, defaultWeights: DEFAULTS })).toEqual({
+      a: 0.2,
+      b: 0.3,
+    });
+  });
+
+  it("届いたカタログの公開軸が0件なら、重みは空になる", () => {
+    expect(alignRoutePreference({ a: 0.2 }, { loaded: true, defaultWeights: {} })).toEqual({});
+  });
+
+  it("揃えるときは渡した値を書き換えない", () => {
+    const stored = { a: 0.2, stale: 0.5 };
+    alignRoutePreference(stored, { loaded: true, defaultWeights: DEFAULTS });
+    expect(stored).toEqual({ a: 0.2, stale: 0.5 });
   });
 });
 
-describe("routePreferenceToSend（生成リクエストへ載せる重み）", () => {
+describe("routePreferenceToSend", () => {
   const aligned = { a: 0.2, b: 0.8 };
 
-  it("重みを上書きしていない間は送らない（backendの既定へ委ねる）", () => {
-    expect(routePreferenceToSend(aligned, true, false)).toBeNull();
-  });
-
-  it("軸カタログを取得できていない間は送らない（届いた軸へ揃えられていない）", () => {
-    expect(routePreferenceToSend(aligned, false, true)).toBeNull();
-  });
-
-  it("上書きしていて取得済みなら、揃えた重みを送る", () => {
+  it("上書きしていて、カタログが届いていれば、揃えた重みを送る", () => {
     expect(routePreferenceToSend(aligned, true, true)).toBe(aligned);
+  });
+
+  it.each([
+    ["上書きしていない", true, false],
+    ["カタログが届いていない", false, true],
+    ["どちらでもない", false, false],
+  ])("%sなら送らない（null）", (_label, catalogLoaded, overrideEnabled) => {
+    expect(routePreferenceToSend(aligned, catalogLoaded, overrideEnabled)).toBeNull();
   });
 });

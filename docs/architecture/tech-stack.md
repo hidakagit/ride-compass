@@ -136,8 +136,8 @@ Next.jsのHTMLの404が返る（backendの404はJSON）。本番のAPIを手で�
   上限に届くのは起動が止まったときに限る。起動が遅くなる変更を入れたら、ログの秒数を見て上限を決め直す。
 - **探索のJIT（numba）のコンパイル結果はイメージの組み立てで焼く**（`backend/Dockerfile`の`compile_search_kernels`）。
   焼かないと、コンパイル結果の置き場がコンテナの書き込み層のためコンテナの入れ替えで消え、デプロイ後の最初のルート
-  生成がコンパイルを払う（本番の都心40kmで初回11.9秒・2回目5.1秒、差の大半がコンパイル。
-  [T1161](../records/tasks/T1161.md)）。**numbaのキャッシュは、組み立てた機械のCPUの型
+  生成がコンパイルを払う（本番の都心40kmで初回11.9秒・2回目5.1秒、差の大半がコンパイル）。
+  **numbaのキャッシュは、組み立てた機械のCPUの型
   （LLVMのtriple・CPU名・CPUの機能）と、元のファイルの更新時刻・大きさが実行時と一致するときだけ読まれる**
   （numbaの`core/caching.py`: 索引の鍵に`codegen.magic_tuple()`、索引の印に`st_mtime`・`st_size`）。今はVMの上で
   組み立ててそのVMで動かすので一致する。**組み立てを別の機械（CIのランナー等）へ移すと、エラーも出ずに焼いたものが
@@ -154,11 +154,26 @@ importすると、その変更だけが本番へ届かなくなる**（エラー
 `backend/tests/structure/test_deploy_exclusions.py`がその一覧とDockerfileから母集団を
 導いてこれを検査する。
 
-**frontend（Render）のデプロイがCIを待つかは、Renderのダッシュボードの設定で決まり、
-リポジトリには無い。** Renderの自動デプロイの設定のうち「On Commit」はpushで即デプロイし、
-「After CI Checks Pass」はそのコミットのGitHubのチェックが全て成功（skipped・neutralを含む）
-したときだけデプロイする（チェックが1件も無いコミットは出さない。Render公式の
-[Deploys](https://render.com/docs/deploys)）。
+**frontend（Render）のデプロイも、masterのCIが通ったコミットを出す。** `ci.yml`の`deploy-frontend`が、
+`deploy-backend`と同じ条件で`deploy-frontend.yml`を呼び、呼ばれた側がRenderのデプロイフックへそのコミットを
+`ref`で渡す（Render公式の[Deploy Hooks](https://render.com/docs/deploy-hooks)。フックのURLはリポジトリの秘密
+`RENDER_FRONTEND_DEPLOY_HOOK_URL`）。
+
+- **Renderの自動デプロイは Off にしてある**（ダッシュボードのサービスの Settings → Auto-Deploy）。「After CI
+  Checks Pass」は連携したブランチの**最新のコミットだけ**を、そのコミットのチェックが全部終わってから出す
+  （Render公式の[Deploys](https://render.com/docs/deploys)。待つチェックは選べない）。Claudeの担当や見回りは
+  `workflow_dispatch`で動き、起こした時点のmasterの先頭にチェックを付けて長く動くので、それらが動き続ける間は
+  何も出ない。フックで`ref`を渡して出すと、Renderはそのサービスの自動デプロイを Off にする（同じ文書の
+  「Deploying a specific commit」）。
+- **出すかは本番の`/api/version`の`commit`で決める。** CIを通ったコミットが本番のコミットか、その祖先なら出さない
+  （後から終わった古いCIの実行）。本番のコミットが読めない・履歴に無いときは出す。backendと違い変更のパスでは
+  振り分けない——重い検査が走ったmasterのコミットは全部出す（文書だけの変更は`ci.yml`の`changes`が重い検査ごと
+  飛ばすので、デプロイも起動しない）。
+- **出したあと、本番の`/api/version`がそのコミットになるまで待つ。** Renderは最後に頼まれたデプロイを出す
+  （同じ文書の「Handling overlapping deploys」）ので、待たずに次へ進むと古いコミットが新しいコミットを上書きしうる。
+  判定・フック・待ちは1つのジョブで1本ずつ走る。上限（30分）までに変わらなければジョブを落とす——Renderのビルドか
+  起動が失敗している（ダッシュボードの Events に出る）。変わるまでの秒数は毎回ジョブのログに出る。
+- 待たずに出す手段は`deploy-frontend.yml`の手動起動（`workflow_dispatch`）で、選んだrefの先端を判定なしで出す。
 
 **タイルプロパティを削除する変更はデプロイ順序に制約がある。** backendとfrontendは別
 サービスとして独立にデプロイされ、反映タイミングは同期しない。プロパティの**追加**は
@@ -178,8 +193,8 @@ publicリポジトリで標準のGitHubホストランナーを使う実行を�
 
 この前提の上で、CIは次のように組んである。
 
-- `ci.yml`・`docs-consistency.yml`はmasterに加えて作業ブランチ（`orch/**`）への
-  pushでも走り、重い検査を開発機から外す（docs/conventions/testing.md「検査の置き場」）。
+- どの出来事でCIが走るかはdocs/conventions/testing.md「検査の置き場（手元・作業ブランチのCI・masterのCI）」が持つ。
+  作業ブランチへのpushで走らせないのは、検査はPull Requestの実行で済み、誰も待たないpushの実行で枠を使わないため。
   backendの本番へのデプロイは、masterへの
   pushでCIが通ったときだけ`ci.yml`から呼ばれる（上の「デプロイの反映確認」）。
 - 同じブランチへの新しいpushで古い実行を打ち切らない。打ち切ると、そのコミットのCIの結論が残らない。
@@ -198,7 +213,7 @@ publicリポジトリで標準のGitHubホストランナーを使う実行を�
 **privateにしたら、この節の前提が崩れる。** 公式の同じページによれば、Freeプランのprivate
 リポジトリは標準ランナーで月2,000分までで、支払い方法が未登録なら使い切った時点で実行が止まる
 （登録済みなら超過分が課金される）。privateへ切り替えるときは、切り替えの前に次を見直す:
-作業ブランチ（`orch/**`）でCIを走らせるか、古い実行を打ち切るか（`concurrency`）、文書・運用の道具
+Pull RequestごとにCIを走らせるか、古い実行を打ち切るか（`concurrency`）、文書・運用の道具
 だけの変更で重い検査を飛ばす範囲（`ci.yml: changes`）、ジョブの分け方とキャッシュ。検査の門を
 CIだけに置いているため、CIの分数が尽きると検査そのものが止まる。
 

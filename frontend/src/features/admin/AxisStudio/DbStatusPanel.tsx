@@ -33,13 +33,12 @@ function runStatusLabel(status: string): string {
 function groupsFromStatus(report: DbStatusResponse): StatusGroup[] {
   const imports: StatusRow[] = report.imports.map((entry) => ({
     name: entry.label,
-    scale: entry.latest === null ? "記録なし" : `#${entry.latest.id} ${runStatusLabel(entry.latest.status)}`,
+    scale: `#${entry.latest.id} ${runStatusLabel(entry.latest.status)}`,
     flagged: entry.needs_attention,
     detail: [
       {
         label: "最終実行",
-        value:
-          entry.latest === null ? "#- ・ 記録なし" : `#${entry.latest.id} ・ ${formatMoment(entry.latest.finished_at)}`,
+        value: `#${entry.latest.id} ・ ${formatMoment(entry.latest.finished_at)}`,
       },
       {
         label: "成功した最新",
@@ -48,7 +47,7 @@ function groupsFromStatus(report: DbStatusResponse): StatusGroup[] {
             ? "なし"
             : `#${entry.latest_succeeded.id} ・ ${formatMoment(entry.latest_succeeded.finished_at)}`,
       },
-      ...(entry.latest?.item_count == null
+      ...(entry.latest.item_count === null
         ? []
         : [
             {
@@ -56,7 +55,7 @@ function groupsFromStatus(report: DbStatusResponse): StatusGroup[] {
               value: `${formatCount(entry.latest.item_count)}件`,
             },
           ]),
-      ...Object.entries(entry.latest?.identity ?? {}).map(([key, value]) => ({
+      ...Object.entries(entry.latest.identity).map(([key, value]) => ({
         label: key,
         value,
       })),

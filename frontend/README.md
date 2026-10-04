@@ -11,7 +11,7 @@ npx tsc --noEmit # type check
 ```
 
 UIの実機確認には、`npm run dev`起動後に Playwright の CLI で headless Chromium のスクリーンショットを撮れる:
-`./node_modules/.bin/playwright screenshot --viewport-size="390,844" http://localhost:3000 <出力先.png>`（PowerShellでは`,`が配列になるので引用符が要る）
+`./node_modules/.bin/playwright screenshot --viewport-size="390,844" <npm run devが表示したLocalのURL> <出力先.png>`（PowerShellでは`,`が配列になるので引用符が要る）
 
 ## Getting Started
 
@@ -27,7 +27,7 @@ pnpm dev
 bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open the `Local` URL that `npm run dev` prints with your browser to see the result.
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 

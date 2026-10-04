@@ -102,7 +102,7 @@ class MaterialCoverageQuery:
         edge_total = int(edge_row["total"])
         for material_id, spec in MATERIAL_COVERAGE_SPECS.items():
             if isinstance(spec, EdgeMaterialCoverageSpec):
-                missing_by_material[material_id] = max(edge_total - int(edge_row[material_id]), 0)
+                missing_by_material[material_id] = edge_total - int(edge_row[material_id])
 
         return MaterialCoverageCounts(
             way_total=way_total, edge_total=edge_total, missing_by_material=missing_by_material

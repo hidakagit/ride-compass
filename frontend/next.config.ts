@@ -12,7 +12,7 @@ const nextConfig: NextConfig = {
     proxyTimeout: 60_000,
   },
   // 基礎地図タイルをバックエンド経由でキャッシュしつつ、ブラウザからは常にフロントエンドと
-  // 同一オリジン（localhost:3000）で見えるようにする。地図タイルをAPI呼び出しと別オリジンの
+  // 同一オリジンで見えるようにする。地図タイルをAPI呼び出しと別オリジンの
   // tiles.openfreemap.orgから直接取得していた頃と違い、両方をバックエンドの同一オリジンから
   // 取得するようにした結果、ブラウザのオリジン単位の同時接続数上限（HTTP/1.1で6本程度）を
   // 大量のタイルリクエストが埋めてしまい、ルート生成APIの呼び出しが数十秒詰まる問題が
@@ -31,15 +31,10 @@ const nextConfig: NextConfig = {
         source: "/api/region/road-surface-tiles/:path*",
         destination: `${BACKEND_INTERNAL_URL}/api/region/road-surface-tiles/:path*`,
       },
-      // 事故レイヤー（外部静的データソース T50）も同じ理由で同一オリジン経由にする。
+      // 点のレイヤー（事故・停止要因・補給休憩）も同じ理由で同一オリジン経由にする。
       {
-        source: "/api/region/accident-tiles/:path*",
-        destination: `${BACKEND_INTERNAL_URL}/api/region/accident-tiles/:path*`,
-      },
-      // 停止要因POI・交差点密度レイヤー（改善計画T54）も同じ理由で同一オリジン経由にする。
-      {
-        source: "/api/region/poi-tiles/:path*",
-        destination: `${BACKEND_INTERNAL_URL}/api/region/poi-tiles/:path*`,
+        source: "/api/region/point-tiles/:path*",
+        destination: `${BACKEND_INTERNAL_URL}/api/region/point-tiles/:path*`,
       },
       // 土地被覆ラスタタイルも同じ理由で同一オリジン経由にする。
       {

@@ -17,6 +17,7 @@
 | `features/conditions/WindBearingSlider/WindBearingSlider.tsx` | 走行方位の指定コンパスダイヤル（`TravelBearingControl`から使われる。単体としての設置場所は[ページ全体構成・状態管理](page-composition.md)参照） |
 | `lib/cardinalLabel.ts` | 角度を方位の呼び名へ（走行方位のダイヤルと区間の風の両方が使う）。呼び名の並びはbackend（`domain/geo.py: COMPASS_LABELS`）が配り、丸めは画面が持つ。区分の境界を含む角度でbackendと同じ呼び名になることは、backendが出す表（生成物`geo-expectations.json`）をテストが通して確かめる |
 | `features/route/RouteAxisProfile/RouteAxisProfile.tsx` | 候補ごとのタブの中身（公開軸すべての軸別難易度一覧＋「重み付き寄与度」内訳）。地図の色分けを選ぶ操作はここには無い（`LensControl`）。候補一覧のタブ自体は`RouteOutcome.tsx`が組み立てる |
+| `features/route/RouteAxisProfile/AxisDetail.tsx` | 内訳のチップを押して開く軸の詳細の形（名前・軸別難易度［値が無ければ「データなし」］・説明）。ルート全体の内訳（`RouteAxisProfile`。生値・材料の内訳を間へ足す）と区間の詳細（`RouteOutcome.tsx`）が同じこの形で出す |
 | `features/route/routeTabLabel.ts` | 候補タブの「基準線からの超過時間」を組み立てる純関数（`fastestDurationSeconds`・`extraDurationLabel`）、生成した候補の並び（所要時間の短い順、`orderByDuration`）、一覧の見出しと名前（`routeListSections`。「採用ルート」と「生成した候補」の分け方は[ページ全体構成・状態管理](page-composition.md)「ルート結果の中身」）。区間を乗り換えて作ったルートのid接頭辞（`SPLICED_ROUTE_ID_PREFIX`）はbackendが付ける値で、画面は作った順の番号を足して同じ生成の中で重ならないようにする。タブ列自体は`RouteOutcome.tsx`が組み立てる |
 | `features/route/routeEditDiff.ts` | 編集で作ったルートの元との差（距離・所要・総合難易度・負荷と、変えた区間の元の位置・長さの差）と、差の表記（`formatDelta`。編集面と同じ書き方）。変えた区間は適用した乗り換えの手順からではなく、できた2本のEdge id列の差（`routeSplice.ts: pairedStretches`）から求める——乗り換えの範囲は適用した時点の経路に対する位置で、元の位置へ戻すには手順の全部が要る |
 | `features/route/EditDifference/EditDifference.tsx` | 編集で作ったルートの中身の先頭に出す「元との違い」。元の名前と距離・変えた区間の数、指標の差、変えた区間ごとの長さの差を並べ、「元を見る」で元のルートへ切り替える |
@@ -179,10 +180,9 @@ TravelBearingControl.tsx`（`page.tsx`から直接importされ地図上に置か
 ## RouteAxisProfile.tsx（候補ごとタブの中身: 総合難易度＋軸別内訳）
 
 `RouteOutcome.tsx`（[ページ全体構成・状態管理](page-composition.md)「ルート結果の中身」参照）が組み立てる候補ごとの
-タブ（方向・距離のみを表示。総合難易度の点数はタブ内では繰り返さない）の中身として、
-候補1件につき1つ表示する。呼び出し側（`RouteOutcome.tsx`）は`axes`へ公開軸すべてを渡す——重み0の軸を
-落とすと、下記の「未使用の軸」行（この候補を評価した重みが0だった軸が何本あるかを示す）が
-構造的に出せなくなる。
+タブの中身として、候補1件につき1つ表示する。呼び出し側（`RouteOutcome.tsx`）は`axes`へ公開軸すべてを渡す——
+寄与が0・欠損でも重みのある軸のチップを凡例に残すためで、重み0の軸は`RouteAxisProfile`自身が凡例から落とす
+（下記「評価に使っていない軸」）。
 
 **軸を1行ずつ並べる一覧は持たない**。軸ごとの詳細（軸別難易度・生値・材料内訳・説明）は
 寄与度バーの凡例チップを押して開く。1軸1行の一覧は公開軸の本数ぶん縦へ伸びるのに対し、
@@ -192,7 +192,8 @@ TravelBearingControl.tsx`（`page.tsx`から直接importされ地図上に置か
   四捨五入、重みを掛ける前）＋生値＋材料内訳＋軸の説明。**チップの数字（重み付き寄与度）とは
   別の値**であることが分かるよう「軸別難易度 N/100」と単位付きで書く。寄与度バーの凡例
   （`AxisContributionBar`の`renderDetail`）と、下記の「寄与が出ていない軸」のチップの
-  どちらから開いても同じ中身を出す（軸の詳細の出どころは1つ）。押せることは
+  どちらから開いても同じ中身を出す（軸の詳細の出どころは1つ）。名前・軸別難易度・説明の形は
+  `AxisDetail.tsx`が持ち、区間の詳細のチップも同じ形で開く（下記「区間クリック詳細」）。押せることは
   チップ内の(i)アイコンで示す——このアプリで「押すと説明が出る」を表す形を共有する。
 - **評価に使っていない軸**: 重み（生成時点の`route_preference`）が0の軸のチップは**出さない**
   ——軸の一覧はルート設定側が持ち、結果側は「このルートの評価に効いた軸」に絞る。チップの形は
@@ -287,7 +288,10 @@ non-nullの間、「ルート結果」タブはルート全体の内訳の代わ
 「予報」とは呼ばない——[動的気象レイヤー](dynamic-weather-layers.md)「責務」。
 (i)の説明がレグごとに追う時間を生成物`route-generate-config.json`の`wind_forecast_hours_per_leg`から出す）＋
 `AxisContributionBar`（区間の`axis_contributions`）を表示し、×ボタンで
-`selectedRouteSegment`をnullへ戻すとルート全体表示に復帰する。研究モード
+`selectedRouteSegment`をnullへ戻すとルート全体表示に復帰する。内訳のチップはルート全体の内訳・道の詳細と同じく
+(i)付きで、押すと軸の名前・**その区間の**軸別難易度（`RouteSegmentDetail.axis_difficulties`）・説明が開く（`AxisDetail.tsx`）
+——チップは名前を文字で出さないため、押して開けないとマウスを重ねられないスマホでは軸の名前が分からない。
+生値は区間の詳細には出さない（設計原則「数値は3層で見せる」の、区間の詳細は得点まで）。研究モード
 （`researchEnabled`）の間だけ、`AxisContributionBar`の下へ区間の材料値
 （`RouteSegmentDetail.material_values`）の一覧を追加表示する——一般ユーザー向けには
 出さない（走行中のスマホ利用が主で情報量を増やしたくないという方針、ComparisonPanel.tsxの

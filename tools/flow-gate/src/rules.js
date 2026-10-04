@@ -1,6 +1,7 @@
 // 遷移の表・問いと答えの形。GitHub に触れない純粋な関数だけを置く。
 
-export const normalize = (text) => (text ?? "").replace(/\r\n/g, "\n");
+// 画面や Windows から書かれた本文は改行の前に \r が重なって届くことがある。
+export const normalize = (text) => (text ?? "").replace(/\r+\n/g, "\n");
 
 // 誰の番かはステータスだけで決まる（flow.config.json: owner）。閉じたものは誰の番でもない。
 export const ownerOf = (config, issue) => (issue.state === "OPEN" ? (config.owner[issue.status] ?? null) : null);
@@ -10,8 +11,11 @@ export const today = (now = new Date()) => new Intl.DateTimeFormat("en-CA", { ti
 export const waitsUntil = (date, now = new Date()) => (date && date > today(now) ? date : null);
 
 // 本文の先頭の、ゲートの印の間（回答待ちの間だけ、回答フォームへのボタンを置く）。印の間だけを足し替える。
-const BLOCK = /^<!-- flow-gate -->\n[\s\S]*?<!-- \/flow-gate -->\n*/;
+const BLOCK = /^<!-- flow-gate -->\n([\s\S]*?)<!-- \/flow-gate -->\n*/;
+const BUTTON = /^\[!\[回答する\]\([^)]*\)\]\([^)]*\)$/;
 export const bodyRest = (body) => normalize(body).replace(BLOCK, "");
+// 印の間のうち、ゲートが書かない行（ボタンでない行）。印の間を足し替えると消えるので、ゲートが拾って印の外へ出す。
+export const strayInBlock = (body) => (BLOCK.exec(normalize(body))?.[1] ?? "").split("\n").filter((l) => l.trim() && !BUTTON.test(l.trim())).join("\n");
 export const withButton = (rest, url, image) => `<!-- flow-gate -->\n[![回答する](${image})](${url})\n<!-- /flow-gate -->\n\n${rest}`;
 
 // 完了の条件のうちチェックの無いもの（本文のチェックは完了の条件にだけ使う）と、それを全部チェックした本文。
@@ -41,10 +45,30 @@ export function parseQuestion(text) {
   return { text: question, plans: plans.map((l) => l.slice(2).trim()), material };
 }
 
+// ステータスを動かすときに issue へ残すコメント。書く側（道具・ゲート）はここで作り、見回りの作業時間（src/dispatch.js: workload）は
+// 同じ形を worksAfter で読む。形を変えるときは、作る側と読む側をここで一緒に変える。
+export const notes = {
+  start: (kind, url) => `### ${kind}担当の着手\n\n実行: ${url}`,
+  reason: (to, why) => `${to}にする理由: ${why}`,
+  back: (why, from) => `${why}「${from}」へ戻しました。`,
+  // ゲートが Pull Request の閉じで書く。どれもタスクを未着手か完了へ動かす。
+  pullRequest: (pr, rest) => `Pull Request [#${pr.number} ${pr.title.replace(/[[\]]/g, "\\$&")}](${pr.html_url}) ${rest}`,
+};
+
+// コメント（notes の形か問い）の直後に、タスクが作業の状態（進行中・検証中）にいるか。記録の形でなければ null。
+// 着手は作る担当なら進行中へ動かし、確かめる担当なら検証中のまま書く。
+export function worksAfter(config, body) {
+  const text = normalize(body);
+  if (parseQuestion(text) || /^Pull Request \[#\d+ /.test(text)) return false;
+  if (/^### \S+?担当の着手\n/.test(text)) return true;
+  const to = /^(\S+?)にする理由: /.exec(text)?.[1] ?? /「([^」]+)」へ戻しました。$/.exec(text)?.[1];
+  return config.statuses.includes(to) ? [config.working, config.review].includes(to) : null;
+}
+
 // 回答フォームの次のステータス: 表で今のステータスから行ける先。完了は完成と見送りに分ける。最初のものが既定。
 export const nextChoices = (config, from) =>
   config.transitions[from].flatMap((to) =>
-    to === config.done ? [{ to, close: "COMPLETED", text: `${to}（完成）` }, { to, close: "NOT_PLANNED", text: `${to}（見送り）` }] : [{ to, text: to }]);
+    to === config.done ? [{ to, close: "COMPLETED", text: "完成" }, { to, close: "NOT_PLANNED", text: "見送り" }] : [{ to, text: to }]);
 
 // 答えのコメント（問いのコメントの後ろに続く）。
 export const answerBody = ({ question, plan, choice, checked, added, removed, note }) =>

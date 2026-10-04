@@ -2,12 +2,9 @@
 
 import math
 
-from pydantic import computed_field
-
 from app.domain.geo import SIXTEEN_POINT_LABELS
 from app.domain.strict_model import StrictModel
 from app.domain.twilight import Twilight
-from app.domain.weather import derive_observed_weather_code
 
 
 class WindDirection(StrictModel):
@@ -71,17 +68,9 @@ class AmedasObservation(StrictModel):
     #: 静穏（方位不定）・欠測ならNone。
     wind_direction: WindDirection | None
     precipitation_10min_mm: float | None
-    # 直近10分間の日照時間（分、0〜10）。降水量と組み合わせて`weather_code`を決める。
-    sunshine_10min_minutes: float | None
     # 最寄り観測所ではなくリクエストのlatitude/longitudeそのものに対する、当日（JST）の値。
     # 外部には問い合わせず、domain/twilight.py: sunrise_sunset_jstのローカル天文計算で求める。
     twilight: Twilight | None
-
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def weather_code(self) -> int | None:
-        """実測から導いたWMO天気コード（`weather.derive_observed_weather_code`）。保存した観測値からいつでも
-        導けるため、Redisには持たない。"""
-        return derive_observed_weather_code(
-            self.precipitation_10min_mm, self.sunshine_10min_minutes, self.temperature_c
-        )
+    # WMO天気コード（`weather.derive_observed_weather_code`）。晴れ・くもりはリクエストの地点の推計気象分布で
+    # 決まるため、twilightと同じく応答のたびに入れ、Redisには持たない。
+    weather_code: int | None

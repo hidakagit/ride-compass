@@ -1,40 +1,65 @@
 // @vitest-environment node
+/**
+ * `features/route/routeApi.ts: generateRoutes`——生成のジョブをbackendへ出し、終わるまで状態を問い合わせて結果を返す口。
+ * - 出した直後に1回目を問い合わせ、2回目からは間をおく。待ち・実行中の間は経過時間とともに知らせる
+ * - 終われば候補・条件・候補0件の理由を返し、失敗ならbackendの文言で投げる
+ * - 問い合わせの失敗は続けて決まった回数まで取り直し（成功すれば数え直す）、超えたら最後の失敗の文言を添えて投げる
+ * - 結果をbackendが持つ時間（生成物`route-generate-config.json: job_result_ttl_seconds`）を過ぎたら諦める
+ *
+ * ここで見ないもの:
+ * - 失敗の文言の組み立て・通信の失敗とタイムアウトの包み直し → `lib/apiClient.test.ts`
+ * - 送る値を組み立てること・結果と進み方を画面の状態にすること → `generationRequest.test.ts`・`useRouteGeneration.test.ts`
+ *
+ * 差し替えたもの: 網（`fetch`）と時計（`setTimeout`・`performance`）。
+ */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { stubBackend, type SentRequest } from "@/testing/backendFetch";
+import { makeRouteCandidate } from "@/testing/routeFixtures";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
-import type { RouteGenerateRequest } from "@/types/route";
+import type { GenerationConditions, RouteGenerateRequest } from "@/types/route";
 
 import { generateRoutes } from "./routeApi";
 
-// backendの生成はジョブで、POSTがjob_idを返し、GETで結果を問い合わせる。
-// 1回ごとの応答は`respond`へ並べ、fetchは並んだ順に返す（尽きたら最後の応答を返し続ける）。
-type Step = { json: unknown } | { status: number } | { reject: Error };
-let steps: Step[];
-let calls: Request[];
-
-const REQUEST = { latitude: 35.6, longitude: 139.7, distance_km: 20 } as RouteGenerateRequest;
-const DONE = {
-  status: "done",
-  result: { routes: [{ id: "r1" }], conditions: { distance_km: 20 }, no_candidates_reason: null },
+const REQUEST: RouteGenerateRequest = {
+  latitude: 35.68,
+  longitude: 139.77,
+  distance_km: 40,
+  distance_tolerance_km: 5,
+  route_type: "loop",
+  hard_filters: {},
+  max_routes: 3,
+  assumed_speed_kmh: 22,
+  start_time: "2026-10-04T01:30:00.000Z",
 };
+const CONDITIONS = { latitude: 35.68, longitude: 139.77, distance_km: 40 } as GenerationConditions;
+const JOB_PATH = "/api/routes/generate/job-1";
+const TTL_MS = routeGenerateConfig.job_result_ttl_seconds * 1000;
 
-function respond(...next: Step[]) {
-  steps = next;
+type Poll = Response | Error;
+
+/** 生成の受け付けにはjob-1を返し、問い合わせには`polls`を順に返す（尽きたら最後のものを返し続ける）。 */
+function stubJob(polls: Poll[]): SentRequest[] {
+  let next = 0;
+  return stubBackend((request) => {
+    if (request.method === "POST") return Response.json({ job_id: "job-1" });
+    const reply = polls[Math.min(next, polls.length - 1)];
+    next += 1;
+    return reply instanceof Error ? reply : reply.clone();
+  });
 }
 
+const pending = (status: "queued" | "running") => Response.json({ status });
+const done = (routes = [makeRouteCandidate({ id: "r1" })], noCandidatesReason: string | null = null) =>
+  Response.json({
+    status: "done",
+    result: { routes, conditions: CONDITIONS, no_candidates_reason: noCandidatesReason },
+  });
+
+const polled = (sent: SentRequest[]) => sent.filter((request) => request.path === JOB_PATH).length;
+
 beforeEach(() => {
-  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance", "Date"] });
-  calls = [];
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (request: Request) => {
-      calls.push(request);
-      const step = steps.length > 1 ? steps.shift()! : steps[0];
-      if ("reject" in step) throw step.reject;
-      if ("status" in step) return Response.json({}, { status: step.status });
-      return Response.json(step.json);
-    }),
-  );
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
 });
 
 afterEach(() => {
@@ -42,101 +67,113 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-/** 生成を始め、fetchが返るたびにタイマーを進めて最後まで回す。 */
-async function run(onProgress?: Parameters<typeof generateRoutes>[1]) {
-  const promise = generateRoutes(REQUEST, onProgress);
-  promise.catch(() => {});
-  await vi.runAllTimersAsync();
-  return promise;
-}
-
-const polls = () => calls.filter((call) => call.method === "GET");
-
 describe("generateRoutes", () => {
-  it("ジョブを投稿し、そのjob_idの結果を問い合わせて、候補と生成条件を返す", async () => {
-    respond({ json: { job_id: "job-7" } }, { json: DONE });
-    const result = await run();
+  it("生成をPOSTで出し、そのジョブの状態をGETで問い合わせて、終われば候補と条件を返す", async () => {
+    const routes = [makeRouteCandidate({ id: "r1" }), makeRouteCandidate({ id: "r2" })];
+    const sent = stubJob([done(routes)]);
 
-    expect(calls[0].url).toMatch(/\/api\/routes\/generate$/);
-    expect(calls[0].method).toBe("POST");
-    expect(await calls[0].json()).toEqual(REQUEST);
-    expect(calls[1].url).toMatch(/\/api\/routes\/generate\/job-7$/);
-    expect(result).toEqual({ routes: [{ id: "r1" }], conditions: { distance_km: 20 }, noCandidatesReason: undefined });
+    await expect(generateRoutes(REQUEST)).resolves.toEqual({
+      routes,
+      conditions: CONDITIONS,
+      noCandidatesReason: undefined,
+    });
+    expect(sent).toEqual([
+      { method: "POST", path: "/api/routes/generate", query: {}, body: REQUEST },
+      { method: "GET", path: JOB_PATH, query: {}, body: undefined },
+    ]);
   });
 
-  it("候補が0件なら、その理由を返す", async () => {
-    const empty = { status: "done", result: { routes: [], conditions: {}, no_candidates_reason: "候補がありません" } };
-    respond({ json: { job_id: "j" } }, { json: empty });
-    await expect(run()).resolves.toMatchObject({ routes: [], noCandidatesReason: "候補がありません" });
+  it("候補が0件なら、backendが返した理由を添えて返す", async () => {
+    stubJob([done([], "距離の条件に合う周回が見つかりませんでした")]);
+
+    await expect(generateRoutes(REQUEST)).resolves.toEqual({
+      routes: [],
+      conditions: CONDITIONS,
+      noCandidatesReason: "距離の条件に合う周回が見つかりませんでした",
+    });
   });
 
-  it("最初の問い合わせは待たずに行い、以降は1.5秒おきに問い合わせる", async () => {
-    respond({ json: { job_id: "j" } }, { json: { status: "queued" } }, { json: { status: "running" } }, { json: DONE });
-    const promise = generateRoutes(REQUEST);
+  it("1回目は出した直後に問い合わせ、2回目からは間をおき、待ち・実行中の間は経過時間とともに知らせる", async () => {
+    const sent = stubJob([pending("queued"), pending("running"), done()]);
+    const onProgress = vi.fn();
+    const result = generateRoutes(REQUEST, onProgress);
+
     await vi.advanceTimersByTimeAsync(0);
-    expect(polls()).toHaveLength(1);
+    expect(polled(sent)).toBe(1);
+    expect(onProgress).toHaveBeenLastCalledWith({ status: "queued", elapsedMs: 0 });
+
     await vi.advanceTimersByTimeAsync(1499);
-    expect(polls()).toHaveLength(1);
+    expect(polled(sent)).toBe(1);
     await vi.advanceTimersByTimeAsync(1);
-    expect(polls()).toHaveLength(2);
+    expect(polled(sent)).toBe(2);
+    expect(onProgress).toHaveBeenLastCalledWith({ status: "running", elapsedMs: 1500 });
+
     await vi.advanceTimersByTimeAsync(1500);
-    await expect(promise).resolves.toMatchObject({ routes: [{ id: "r1" }] });
+    await expect(result).resolves.toMatchObject({ routes: [expect.objectContaining({ id: "r1" })] });
+    expect(onProgress).toHaveBeenCalledTimes(2);
   });
 
-  it("待ち・実行中の間は、問い合わせのたびに状態と経過時間を知らせる", async () => {
-    respond({ json: { job_id: "j" } }, { json: { status: "queued" } }, { json: { status: "running" } }, { json: DONE });
-    const progress: { status: string; elapsedMs: number }[] = [];
-    await run((p) => progress.push(p));
-    expect(progress.map((p) => p.status)).toEqual(["queued", "running"]);
-    expect(progress[1].elapsedMs).toBeGreaterThan(progress[0].elapsedMs);
+  it("ジョブが失敗したら、backendの文言で投げる", async () => {
+    stubJob([Response.json({ status: "failed", error: "ルートの生成に失敗しました" })]);
+
+    await expect(generateRoutes(REQUEST)).rejects.toThrow("ルートの生成に失敗しました");
   });
 
-  it("ジョブが失敗したら、backendの文言で失敗する", async () => {
-    respond({ json: { job_id: "j" } }, { json: { status: "failed", error: "探索に失敗しました" } });
-    await expect(run()).rejects.toThrow("探索に失敗しました");
+  it("生成を受け付けてもらえなければ、問い合わせずに投げる", async () => {
+    const sent = stubBackend(() => Response.json({ detail: "混雑しています" }, { status: 429 }));
+
+    await expect(generateRoutes(REQUEST)).rejects.toThrow("混雑しています");
+    expect(sent).toHaveLength(1);
   });
 
-  it("問い合わせの一時的な失敗は4回続いても諦めず、成功すれば数え直す", async () => {
-    const fail = { status: 503 };
-    respond(
-      { json: { job_id: "j" } },
-      fail,
-      fail,
-      fail,
-      fail,
-      { json: { status: "running" } },
-      fail,
-      fail,
-      fail,
-      fail,
-      { json: DONE },
+  it("問い合わせの失敗は取り直し、途中で成功すれば失敗の数を数え直す", async () => {
+    const failure = () => new Response(null, { status: 503 });
+    const sent = stubJob([
+      failure(),
+      failure(),
+      failure(),
+      failure(),
+      pending("running"),
+      failure(),
+      failure(),
+      failure(),
+      failure(),
+      done(),
+    ]);
+    const result = generateRoutes(REQUEST);
+
+    await vi.advanceTimersByTimeAsync(1500 * 9);
+    await expect(result).resolves.toMatchObject({ routes: [expect.objectContaining({ id: "r1" })] });
+    expect(polled(sent)).toBe(10);
+  });
+
+  it("問い合わせに5回続けて失敗したら、最後の失敗の文言を句点を重ねずに添えて投げる", async () => {
+    const sent = stubJob([
+      new Response(null, { status: 503 }),
+      new Response(null, { status: 503 }),
+      new Response(null, { status: 503 }),
+      new Response(null, { status: 503 }),
+      Response.json({ detail: "混雑しています。" }, { status: 503 }),
+    ]);
+    const result = generateRoutes(REQUEST);
+    const rejected = expect(result).rejects.toThrow(
+      "ルート生成の状況確認に続けて失敗しました: 混雑しています。時間をおいて再度お試しください。",
     );
-    await expect(run()).resolves.toMatchObject({ routes: [{ id: "r1" }] });
+
+    await vi.advanceTimersByTimeAsync(1500 * 4);
+    await rejected;
+    expect(polled(sent)).toBe(5);
   });
 
-  it("問い合わせが5回続けて失敗したら、最後の失敗の文言を添えて諦める", async () => {
-    respond({ json: { job_id: "j" } }, { reject: new TypeError("Failed to fetch") });
-    const error = await run().catch((e: Error) => e);
-    expect(error).toBeInstanceOf(Error);
-    expect((error as Error).message).toMatch(
-      /^ルート生成の状況確認に続けて失敗しました: .+。時間をおいて再度お試しください。$/,
-    );
-    expect((error as Error).message).not.toContain("Failed to fetch");
-    expect((error as Error).cause).toBeInstanceOf(Error);
-    expect(polls()).toHaveLength(5);
-  });
+  it("結果をbackendが持つ時間を過ぎても終わらなければ、諦めて投げる", async () => {
+    stubJob([pending("running")]);
+    const result = generateRoutes(REQUEST);
+    let settled = false;
+    const rejected = expect(result.finally(() => (settled = true))).rejects.toThrow("ルート生成がタイムアウトしました");
 
-  it("backendが結果を持つ時間を過ぎても終わらなければ、時間切れで失敗する", async () => {
-    respond({ json: { job_id: "j" } }, { json: { status: "running" } });
-    const promise = generateRoutes(REQUEST);
-    promise.catch(() => {});
-    await vi.advanceTimersByTimeAsync(routeGenerateConfig.job_result_ttl_seconds * 1000 + 2000);
-    await expect(promise).rejects.toThrow("タイムアウト");
-  });
-
-  it("投稿に失敗したら、問い合わせずに失敗する", async () => {
-    respond({ status: 500 });
-    await expect(run()).rejects.toThrow();
-    expect(calls).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(TTL_MS);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1500);
+    await rejected;
   });
 });

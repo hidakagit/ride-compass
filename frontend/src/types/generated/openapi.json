@@ -554,10 +554,19 @@
         }
       }
     },
-    "/api/region/poi-tiles/{z}/{x}/{y}.pbf": {
+    "/api/region/point-tiles/{layer}/{z}/{x}/{y}.pbf": {
       "get": {
-        "operationId": "region_poi_tile_api_region_poi_tiles__z___x___y__pbf_get",
+        "operationId": "region_point_tile_api_region_point_tiles__layer___z___x___y__pbf_get",
         "parameters": [
+          {
+            "name": "layer",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Layer"
+            }
+          },
           {
             "name": "z",
             "in": "path",
@@ -809,60 +818,6 @@
                   ],
                   "title": "Response Region Axis Inspector Api Region Axis Inspector Post"
                 }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/region/accident-tiles/{z}/{x}/{y}.pbf": {
-      "get": {
-        "operationId": "region_accident_tile_api_region_accident_tiles__z___x___y__pbf_get",
-        "parameters": [
-          {
-            "name": "z",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Z"
-            }
-          },
-          {
-            "name": "x",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "X"
-            }
-          },
-          {
-            "name": "y",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Y"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
               }
             }
           },
@@ -2068,17 +2023,6 @@
             ],
             "title": "Precipitation 10Min Mm"
           },
-          "sunshine_10min_minutes": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Sunshine 10Min Minutes"
-          },
           "twilight": {
             "anyOf": [
               {
@@ -2098,8 +2042,7 @@
                 "type": "null"
               }
             ],
-            "title": "Weather Code",
-            "readOnly": true
+            "title": "Weather Code"
           }
         },
         "additionalProperties": false,
@@ -2115,7 +2058,6 @@
           "wind_speed_ms",
           "wind_direction",
           "precipitation_10min_mm",
-          "sunshine_10min_minutes",
           "twilight",
           "weather_code"
         ],
@@ -3815,14 +3757,7 @@
             "title": "Label"
           },
           "latest": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/LatestRunEntry"
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "$ref": "#/components/schemas/LatestRunEntry"
           },
           "latest_succeeded": {
             "anyOf": [
