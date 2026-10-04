@@ -15,6 +15,10 @@
   "wind_forecast_hours_per_leg": 4.0,
   "wind_time_bin_hours": 1.0,
   "client_tuning": {
+    "speed.cda_m2": 0.32,
+    "speed.mass_kg": 80.0,
+    "speed.max_descent_kmh": 45.0,
+    "speed.walking_kmh": 4.5,
     "splice.min_stretch_km": 0.2
   },
   "hard_filters": {

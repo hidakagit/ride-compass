@@ -14,6 +14,8 @@ import { NumberInput } from "@/components/ui/NumberInput/NumberInput";
 import { Input } from "@/components/ui/Input/Input";
 import { textVariants } from "@/components/ui/Text/Text";
 import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
+import { useAxisCatalog } from "@/hooks/useAxisCatalog";
+import { CLIENT_TUNING_IDS, clientTuningValue, type AxisCatalog } from "@/lib/axisCatalog";
 
 const MIN_SPEED_KMH = routeGenerateConfig.min_assumed_speed_kmh;
 const MAX_SPEED_KMH = routeGenerateConfig.max_assumed_speed_kmh;
@@ -32,6 +34,19 @@ interface RideConditionBarProps {
 }
 
 const subscribeNothing = () => () => {};
+
+/** 想定速度の説明に出す走行モデルの標準値（管理画面の較正値）。1つでも引けなければ`null`——
+ * 引けない間は標準値の文を出さない（較正したのとは別の数を出さない）。 */
+function riderDefaultsOf(catalog: AxisCatalog) {
+  const massKg = clientTuningValue(catalog, CLIENT_TUNING_IDS.massKg);
+  const cdaM2 = clientTuningValue(catalog, CLIENT_TUNING_IDS.cdaM2);
+  const maxDescentKmh = clientTuningValue(catalog, CLIENT_TUNING_IDS.maxDescentKmh);
+  const walkingKmh = clientTuningValue(catalog, CLIENT_TUNING_IDS.walkingKmh);
+  if (massKg === undefined || cdaM2 === undefined || maxDescentKmh === undefined || walkingKmh === undefined) {
+    return null;
+  }
+  return { massKg, cdaM2, maxDescentKmh, walkingKmh };
+}
 
 // 地図右上の走行条件アイコン列。走行条件（出発時刻・想定速度）は評価軸の風（通過予測時刻・
 // 風の抵抗）と気象レイヤーの表示時刻の両方が参照する共有stateのため、ルート設定フォームでは
@@ -56,6 +71,7 @@ export default function RideConditionBar({
   const departureFrames = useMemo(() => buildDepartureFrames(departureTimeline), [departureTimeline]);
   const nowIndex = departureAnchor ? nearestTimeIndex(departureTimeline, departureAnchor) : 0;
   const speedInputId = useId();
+  const riderDefaults = riderDefaultsOf(useAxisCatalog());
   const departureInputId = useId();
   // 出発時刻の文言は描いた時刻で決まる。ページはビルド時に描かれるので、サーバーとハイドレーションの描画では
   // 出さず、ハイドレーションのあとに出す（出すとビルドの時刻の文言とずれ、ハイドレーションが不一致で失敗する）。
@@ -181,11 +197,13 @@ export default function RideConditionBar({
                 {"普段の平均速度[信号待ち・坂を含む]ではなく、平らな道を風の無いときに巡航する速度です。" +
                   "所要時間は、この速度から平地で出している力を逆算し、区間ごとの坂と風で速度を変えて計算します。"}
               </p>
-              <p>
-                {"体格・機材は標準値で計算します: 総質量80kg[体重＋車体＋装備]・" +
-                  "空気抵抗CdA 0.32m²[ロードバイクのブラケットポジション]。" +
-                  "下りは45km/hまで、登りで4.5km/h以下になる所は押して歩くとみなします。"}
-              </p>
+              {riderDefaults && (
+                <p>
+                  {`体格・機材は標準値で計算します: 総質量${riderDefaults.massKg}kg[体重＋車体＋装備]・` +
+                    `空気抵抗CdA ${riderDefaults.cdaM2}m²[ロードバイクのブラケットポジション]。` +
+                    `下りは${riderDefaults.maxDescentKmh}km/hまで、登りで${riderDefaults.walkingKmh}km/h以下になる所は押して歩くとみなします。`}
+                </p>
+              )}
             </InfoPopover>
           </div>
         </PopoverContent>
