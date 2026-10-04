@@ -176,8 +176,8 @@ class PriorityCondition(StrictModel):
     `equals`と一致する場合、軸の通常計算（shape評価）を丸ごとスキップし、`value`を
     そのままdifficultyとして返す。
 
-    典型例: `motor_vehicle_no`（自動車通行不可）が立っている区間は、highway種別・
-    自転車インフラ等の通常の判定に関わらず「車の圧迫感が最も低い」で確定する。
+    例: `motor_vehicle_no`（自動車通行不可）が立っている区間を、highway種別等の
+    通常の判定に関わらず最良の値で確定する。
     自転車通行禁止（`bicycle=no`）はこれとは異なり、既存の0次ハードフィルタ
     （`no_bicycle`）で道路そのものが探索から除外されるため、この機構は使わない
     （「探索除外」と「評価の優先確定」は別の概念）。

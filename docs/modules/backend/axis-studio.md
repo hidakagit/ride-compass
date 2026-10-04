@@ -2,8 +2,8 @@
 
 ## 責務
 
-「評価軸」（道路のEdge/区間ごとに0-100のdifficultyスコアを出す単位、例: 勾配・車の
-圧迫感・事故密度）を、`axis_definitions`DBテーブルを唯一の正本として定義・評価・配信する。
+「評価軸」（道路のEdge/区間ごとに0-100のdifficultyスコアを出す単位、例: 勾配・事故密度）を、
+`axis_definitions`DBテーブルを唯一の正本として定義・評価・配信する。
 
 評価軸の値はルート探索が区間の材料から求める（`domain/evaluation.py`が全軸を配列で
 まとめて評価する。[評価・スコアリング](evaluation-scoring.md)参照）。周回ルート生成専用ではない
@@ -73,7 +73,7 @@
 中ほどの1つの値に大半が集まった軸（どの道も同じ難易度で重みが効かない）はこの列で見る。
 
 軸の難易度は`domain/axis_definitions.py: evaluate_axes_values`で標本の全wayぶんをまとめて得る。個々の軸へ
-`evaluate_axis_values`を直接当てると、他の軸を材料にする合成軸（車の圧迫感）が
+`evaluate_axis_values`を直接当てると、他の軸を材料にする合成軸が
 「材料が欠損」として現れてしまう。
 
 **分布は地域で大きく変わる**。全域の抽選標本では市街地の偏りが平均に埋もれるため、
@@ -275,10 +275,10 @@ DB側の値が変わっても追従しない。軸の中身が主題でないテ
 |---|---|
 | `CategoricalShape`（真偽値材料1件、またはstr N値材料1件） | できる（隣接中間点をしきい値に） |
 | `BreakpointLinearShape`で全termがboolean材料 | できる（重みの全部分和集合の隣接中間点。上限12term） |
-| `BreakpointLinearShape`で`preprocess="identity"`かつboolean材料混在なし | できる（breakpointsのx値をそのまま流用） |
+| `BreakpointLinearShape`で`preprocess="identity"`（全termがboolean材料の形を除く） | できる（breakpointsのx値をそのまま流用。boolean材料の項は該当時に重み・非該当時に0の2値として足す） |
 | `preprocess="abs"`を含む軸 | **できない**（実装しないと確定済み。方向依存材料[風・勾配]を含む軸は別の制約でも弾かれるため二重に対象外） |
 | タイル非依存材料・方向依存材料（`tile_property_direction_dependent`）を含む軸 | できない |
-| 他の軸を参照する`MaterialTerm`を含む軸 | 参照先の軸を1段だけ解決して畳めれば可（`_resolve_referenced_axis_tile_input`、car_stressが参照する内部軸が実例）。2段階以上のネストは非対応 |
+| 他の軸を参照する`MaterialTerm`を含む軸 | 参照先の軸を1段だけ解決して畳めれば可（`_resolve_referenced_axis_tile_input`）。2段階以上のネストは非対応 |
 | `priority_overrides`（0次条件）を持つ軸、または畳む参照先の軸が持つ | できない（タイルの式が条件を表せない。上の「`PriorityCondition`」） |
 
 `axis_display_for(definition)`の優先順位: ①自動導出成功＋`display_thresholds_override`

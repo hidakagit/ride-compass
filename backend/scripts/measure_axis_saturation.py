@@ -133,7 +133,7 @@ async def run(
     print("-" * 100)
 
     # 軸の階層（内部軸→公開軸）を解いて公開軸の難易度を得る。個々の軸へ
-    # `evaluate_axis_values`を直接当てると、他の軸を材料にする合成軸（車の圧迫感）が
+    # `evaluate_axis_values`を直接当てると、他の軸を材料にする合成軸が
     # 「材料が欠損」になってしまう。
     material_ids = {key for _, materials in sample for key in materials}
     columns = {key: [materials.get(key) for _, materials in sample] for key in material_ids}
