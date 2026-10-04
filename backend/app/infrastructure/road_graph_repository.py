@@ -677,7 +677,7 @@ class RoadGraphRepository:
         """
         row = await self._session.execute(text(
             "SELECT r.profile->'source'->'rows'->'years' AS years FROM derived_data_meta m"
-            " JOIN source_runs r ON r.run_id = m.accident_run_id WHERE m.id = 1"))
+            " JOIN source_runs r ON r.run_id = m.accident_run_id"))
         value = row.scalar()
         if not isinstance(value, list):
             return []
