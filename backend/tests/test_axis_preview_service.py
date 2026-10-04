@@ -5,7 +5,7 @@ import pytest
 from app.domain.axis_definitions import BreakpointLinearShape, CategoricalShape, MaterialTerm, raw_values
 from app.services.axis_preview_service import (
     HISTOGRAM_BINS,
-    _distribution,
+    weighted_distribution,
 )
 
 
@@ -25,14 +25,14 @@ def _bins_cover(bins, value: float) -> bool:
 
 class TestDistribution:
     def test_empty_pairs_return_zeroed_distribution(self):
-        result = _distribution([])
+        result = weighted_distribution([])
         assert result.sample_ways == 0
         assert result.bins == []
 
     def test_positive_values_start_at_zero(self):
         # 正の値だけの分布は0起点（0は常に範囲へ含める）。
         pairs = [(100.0, v) for v in (1.0, 2.0, 3.0, 4.0)]
-        result = _distribution(pairs)
+        result = weighted_distribution(pairs)
         assert result.bins[0][0] == 0.0
         assert len(result.bins) == HISTOGRAM_BINS
         assert result.bins[-1][1] > 0
@@ -40,7 +40,7 @@ class TestDistribution:
     def test_negative_values_are_not_collapsed_into_the_first_bin(self):
         # 生値が負になる軸で、下限を0に固定すると全サンプルが階級0へ潰れる。
         pairs = [(100.0, v) for v in (-160.0, -120.0, -80.0, -40.0, -5.0)]
-        result = _distribution(pairs)
+        result = weighted_distribution(pairs)
 
         assert result.bins[0][0] <= -160.0, "下限がデータ下端を覆っていない"
         assert result.bins[-1][1] >= 0.0, "0が範囲に含まれていない"
@@ -50,14 +50,14 @@ class TestDistribution:
 
     def test_every_sample_falls_inside_some_bin(self):
         for values in ([-160.0, -80.0, -5.0], [0.0, 1.0, 2.0], [-3.0, 0.0, 7.0]):
-            result = _distribution([(10.0, v) for v in values])
+            result = weighted_distribution([(10.0, v) for v in values])
             for v in values:
                 assert _bins_cover(result.bins, v), f"{v}がどの階級にも入らない（{values}）"
 
     def test_outliers_above_the_drawn_range_land_in_the_last_bin(self):
         # 描画範囲はp99の少し上まで。その外の延長も割合から落とさない。
         pairs = [(100.0, 1.0)] * 99 + [(50.0, 1000.0)]
-        result = _distribution(pairs)
+        result = weighted_distribution(pairs)
         assert result.bins[-1][1] < 1000.0
         assert result.bins[-1][2] == pytest.approx(50.0 / 9950.0, abs=1e-5)
         assert sum(b[2] for b in result.bins) == pytest.approx(1.0, abs=1e-4)
@@ -66,18 +66,18 @@ class TestDistribution:
         # 分位が負を返しているのにヒストグラムが正の範囲しか持たない、という
         # 画面上で矛盾する2つの数字が出ないこと。
         pairs = [(100.0, v) for v in (-144.0, -99.0, -79.0, -12.0, -2.0)]
-        result = _distribution(pairs)
+        result = weighted_distribution(pairs)
         assert result.quantiles["p50"] < 0
         assert result.bins[0][0] <= result.quantiles["p10"]
 
     def test_zero_share_counts_only_exact_zero(self):
         # 「ゼロ」は値がちょうど0のこと。負の値を混ぜても割合は変わらない。
         pairs = [(100.0, 0.0), (100.0, -5.0), (100.0, 3.0), (100.0, 0.0)]
-        result = _distribution(pairs)
+        result = weighted_distribution(pairs)
         assert result.zero_share == pytest.approx(0.5)
 
     def test_all_samples_at_zero_do_not_divide_by_zero(self):
-        result = _distribution([(100.0, 0.0), (100.0, 0.0)])
+        result = weighted_distribution([(100.0, 0.0), (100.0, 0.0)])
         assert result.zero_share == pytest.approx(1.0)
         assert len(result.bins) == HISTOGRAM_BINS
         assert result.total_km == pytest.approx(0.2)

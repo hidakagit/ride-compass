@@ -32,7 +32,7 @@ get_feature_gradient_inputs_in_tile`・`get_feature_midpoints_in_tile`は
 | id | 何を指すか | 実体 | 出てくる場所 |
 |---|---|---|---|
 | **軸id** (`axis_id`) | 評価軸そのもの。軸スタジオでDBの行として増減する | `axis_definitions.axis_id` | APIのパスパラメータ、`AXIS_DEFINITIONS`のキー |
-| **材料id** (`material_id`) | サービスが返す生値が軸定義のどの材料か。例: `wind_drag_ratio`・`gradient_percent`・`rain_24h_mm` | `material_catalog.py`のキー | 各サービスの`material_ids`クラス属性（担当する材料）と組み立てたインスタンスの`material_id`、`_DEDICATED_WAY_VALUE_SERVICES_BY_MATERIAL`のキー、キャッシュの名前空間、`transform_dedicated_way_values`の第2引数 |
+| **材料id** (`material_id`) | サービスが返す生値が軸定義のどの材料か。例: `wind_drag_ratio`・`gradient_percent`・`rain_24h_mm` | `material_catalog.py`のキー | 各サービスの`material_ids`クラス属性（担当する材料）と組み立てたインスタンスの`material_id`、`DEDICATED_WAY_VALUE_SERVICES_BY_MATERIAL`のキー、キャッシュの名前空間、`transform_dedicated_way_values`の第2引数 |
 
 **実装は軸idを持たない。** 軸とサービスは、軸定義が参照する材料（`AxisDefinition.materials`）と
 サービスの`material_id`の突き合わせで結ばれる。材料はコードが正本（GUIから増減しない）なので、
@@ -51,7 +51,7 @@ get_feature_gradient_inputs_in_tile`・`get_feature_midpoints_in_tile`は
 次の要求から効く。
 
 ただし**配信できる値があるかは別**で、軸が参照する材料の値を組み立てるサービス本体が
-`services/dedicated_way_values.py: _DEDICATED_WAY_VALUE_SERVICES`に登録されている必要がある
+`services/dedicated_way_values.py: DEDICATED_WAY_VALUE_SERVICES`に登録されている必要がある
 （材料ごとに1回のコード変更）。軸が参照する材料のうち、登録済みのものが**ちょうど1つ**
 （`served_dedicated_way_value_material`）でなければ配信できない——0件なら値が無く、2件以上は
 1つのサービスが1つの材料の値しか返さないため軸を評価しきれない。そういう軸へ
@@ -95,13 +95,13 @@ frontendはどのクエリパラメータをどの軸のリクエストへ載せ
 | `displayed_material_ids(weights, lens_axis_id)` | 区間表示へ載せる材料（[routing-engine.md](routing-engine.md)） |
 | `transform_dedicated_way_values(definition, material_id, values)` | 生値→地図表示値。`difficulty`は`evaluate_axis_values`でタイル内の全道路を1回の配列評価、`signed_material`は素通し。`material_id`以外の材料に0次条件を置いた軸は全道路を落とす——配信はその材料の値しか持たず、条件が当たるかを決められない |
 
-`services/dedicated_way_values.py: _DEDICATED_WAY_VALUE_SERVICES_BY_MATERIAL`は、材料id→担当するサービス実装本体
+`services/dedicated_way_values.py: DEDICATED_WAY_VALUE_SERVICES_BY_MATERIAL`は、材料id→担当するサービス実装本体
 （`WindWayService`/`GradientWayService`/`RainWayService`）のdictで、配信の組み立てと地図が載せる条件の導出がここから引く。こちらはPython実装本体
 （コンストラクタ）の登録のため軸スタジオの宣言だけでは代替できず、**新しい計算の材料**の配信には
 コード変更が要る（同じ材料を参照する軸を増やすのには要らない）。実装は担当する材料のクラス属性
 `material_ids`・受け取る条件の型`conditions_type`と、組み立てる材料を`material_id`で受け取る統一シグネチャの
 `build`を持ち、クラスが`DedicatedWayValueServiceType`、インスタンスが`DedicatedWayValueService`（`material_id`・`conditions_type`・`get_way_values`）の
-形を満たせば、`_DEDICATED_WAY_VALUE_SERVICES`へ
+形を満たせば、`DEDICATED_WAY_VALUE_SERVICES`へ
 1行足すだけで登録される（キーは`material_ids`から取るため、名前を2箇所に書かない）。
 1つの実装が同じ計算の材料群を担当できる——雨は窓の長さの一覧（`domain/rain.py: RAIN_WINDOW_HOURS`）へ
 1件足すと、材料カタログの行も配信の登録も一緒に増える。

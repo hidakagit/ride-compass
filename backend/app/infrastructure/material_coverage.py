@@ -9,7 +9,7 @@ Pythonループは回さない）。ここは測り方の実装だけを持つ�
 
 - `"way"`: 道の生データ全行（`WAYS_SOURCE_SQL`、OSMタグ由来の材料）。全材料が同じ行の
   タグを見るため、材料ごとの`count(*) FILTER`を並べた1回の走査にまとめる。欠損判定式は
-  `domain/material_sql.py`の共有SQL断片を`road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQL`
+  `domain/material_sql.py`の共有SQL断片を`road_graph_repository.py: ROAD_SURFACE_TILE_MVT_SQL`
   （地図タイル配信）と共通で使う——両者ともRoad Graphを構築せずDBを直接引く経路のため、
   独立に書くと片方だけ変更されるドリフトを招く。
 - `"edge"`: `road_edges`全行（Edge単位の材料）。値は`edge_materials`の列に並び、その

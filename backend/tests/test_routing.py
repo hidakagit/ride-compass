@@ -19,6 +19,7 @@ from typing import NamedTuple
 import numba
 import numpy as np
 import pytest
+from numba.core import event
 from numba.core.registry import CPUDispatcher
 
 from app.domain import routing
@@ -830,8 +831,8 @@ def test_reverse_transitions_flip_direction_and_carry_the_original_wait():
 GRID_SIZE = 20
 
 
-def grid_tree(size=GRID_SIZE, **kwargs):
-    graph = make_grid(size)
+def grid_tree(**kwargs):
+    graph = make_grid(GRID_SIZE)
     lazy, statics, structure = build_all(graph)
     cost = np.ones(structure.state_count)
     tree = routing.build_turn_expanded_tree(
@@ -1094,7 +1095,7 @@ def test_junction_leaves_unreachable_nodes_empty():
 
 
 def test_one_dimensional_cost_becomes_a_single_bin():
-    cost_bins, seconds_bins = routing._time_bin_arrays(
+    cost_bins, seconds_bins = routing.time_bin_arrays(
         "caller", np.array([1.0, 2.0, 3.0]), np.array([4.0, 5.0, 6.0]), math.inf
     )
     assert cost_bins.shape == (1, 3)
@@ -1104,27 +1105,27 @@ def test_one_dimensional_cost_becomes_a_single_bin():
 
 def test_two_dimensional_cost_is_passed_through():
     cost = np.ones((3, 4))
-    cost_bins, _ = routing._time_bin_arrays("caller", cost, np.ones((3, 4)), 60.0)
+    cost_bins, _ = routing.time_bin_arrays("caller", cost, np.ones((3, 4)), 60.0)
     assert cost_bins.shape == (3, 4)
 
 
 def test_more_than_two_dimensions_is_refused():
     """黙って(1, n)へ潰すと、ビン数の食い違いの検査もすり抜けてJITが範囲外を読む。"""
     with pytest.raises(ValueError):
-        routing._time_bin_arrays("caller", np.ones((2, 3, 4)), np.ones((2, 3, 4)), 60.0)
+        routing.time_bin_arrays("caller", np.ones((2, 3, 4)), np.ones((2, 3, 4)), 60.0)
 
 
 @pytest.mark.parametrize("bin_seconds", [0.0, -60.0, math.inf, math.nan])
 def test_time_binned_cost_requires_a_positive_finite_bin_width(bin_seconds):
     """幅が無いと全区間が先頭のビンへ落ち、例外もNaNも出ないまま結果だけが変わる。"""
     with pytest.raises(ValueError):
-        routing._time_bin_arrays("caller", np.ones((2, 3)), np.ones((2, 3)), bin_seconds)
+        routing.time_bin_arrays("caller", np.ones((2, 3)), np.ones((2, 3)), bin_seconds)
 
 
 def test_mismatched_cost_and_seconds_shapes_raise():
     """JITした探索は境界を検査しない。ビン数が食い違えば範囲外の読み出しになる。"""
     with pytest.raises(ValueError):
-        routing._time_bin_arrays("caller", np.ones((2, 3)), np.ones((2, 4)), 60.0)
+        routing.time_bin_arrays("caller", np.ones((2, 3)), np.ones((2, 4)), 60.0)
 
 
 # --- turn_expanded_shortest_path ---
@@ -1258,75 +1259,92 @@ def test_heap_returns_every_entry_in_key_order_across_growth(carries_g):
     検査しないため、1列だけ伸ばし忘れても出力からは見えないことがある）。
     """
     keys = np.random.default_rng(0).permutation(50).astype(float)
-    heap = routing._empty_heap(1, carries_g)
+    heap = routing.empty_heap(1, carries_g)
     size = 0
     for state, key in enumerate(keys):
         if carries_g:
-            heap, size = routing._heap_push(heap, size, key, state, key * 10.0 + 0.5)
+            heap, size = routing.heap_push(heap, size, key, state, key * 10.0 + 0.5)
         else:
-            heap, size = routing._heap_push(heap, size, key, state)
+            heap, size = routing.heap_push(heap, size, key, state)
     columns = heap[:3] if carries_g else heap[:2]
     assert all(column.shape[0] >= size for column in columns)
     popped = []
     while size > 0:
-        g, state, size = routing._heap_pop(heap, size)
+        g, state, size = routing.heap_pop(heap, size)
         popped.append((keys[state], g))
     assert [key for key, _ in popped] == sorted(keys)
     assert [g for _, g in popped] == [key * 10.0 + 0.5 if carries_g else key for key, _ in popped]
 
 
-@pytest.fixture
-def tiny_heap(monkeypatch):
-    """優先度キューの初期容量を「種の数＋1」まで絞り、小さなグラフでも伸長を何度も通す。"""
-    monkeypatch.setattr(routing, "_HEAP_INITIAL_SLACK", 1)
+# 扇の葉の数。起点から出る区間は1本なので、優先度キューの初期容量は1＋`HEAP_INITIAL_SLACK`。
+# 分岐Hを取り出した1回の展開で葉へ出る区間が全部積まれるため、容量を超えて何度も伸びる。
+FAN_SPOKES = routing.HEAP_INITIAL_SLACK * 4
 
 
-def test_tree_costs_stay_exact_while_the_queue_grows(tiny_heap):
-    """伸長をまたいでも、各Nodeのコストは起点からの区間の本数のまま（起点自身はUターン1回の2）。"""
-    lazy, _, _, tree = grid_tree(size=5)
-    for node_id, node_index in lazy.node_id_to_index.items():
-        row, col = (int(part) for part in node_id[1:].split("_"))
-        hops = row + col
-        assert tree.node_cost[node_index] == pytest.approx(hops if hops else 2), node_id
+def make_fan():
+    """起点O→分岐H→葉`L0`…の扇。各葉から終点Gへ1本ずつ入る（逆向きの区間は無い）。"""
+    nodes = {"O": (35.00, 139.00), "H": (35.00, 139.01), "G": (35.00, 139.03)}
+    edges = {"OH": ("O", "H")}
+    for spoke in range(FAN_SPOKES):
+        nodes[f"L{spoke}"] = (35.00 + (spoke - FAN_SPOKES / 2) * 0.0001, 139.02)
+        edges[f"HL{spoke}"] = ("H", f"L{spoke}")
+        edges[f"L{spoke}G"] = (f"L{spoke}", "G")
+    return make_graph(nodes, edges)
 
 
-def test_shortest_path_stays_exact_while_the_queue_grows(tiny_heap):
-    """伸長をまたいでも、A*は唯一の最安経路（1行目を東へ、最後の列を北へ）を返す。
-
-    下界（目的地までの格子の歩数×最安の区間コスト）を0でなくし、キー（`g`＋下界）と`g`を
-    別の値にする——取り出しがキーを`g`として返すと、経路が変わる。
-    `g`の列そのものが伸長で崩れないことは、部品のテスト（上）が見る。この経路では崩れた`g`が
-    前任者の輪を作り、経路の復元が止まらなくなることがあるため、ここでは確かめない。
-    """
-    size = 5
-    last = size - 1
-    graph = make_grid(size)
-    lazy, _, structure = build_all(graph)
+def test_tree_costs_stay_exact_while_the_queue_grows():
+    """伸長をまたいでも、各葉のコストは起点からの区間コストの和のまま。"""
+    graph = make_fan()
+    lazy, statics, structure = build_all(graph)
     states = state_index(lazy)
-    route = [f"n0_{col}>n0_{col + 1}" for col in range(last)]
-    route += [f"n{row}_{last}>n{row + 1}_{last}" for row in range(last)]
-    cost = np.full(structure.state_count, 3.0)
-    for edge_id in route:
-        cost[states[edge_id]] = 1.0
-    heuristic = np.zeros(lazy.node_count)
-    for node_id, node_index in lazy.node_id_to_index.items():
-        row, col = (int(part) for part in node_id[1:].split("_"))
-        heuristic[node_index] = (last - row) + (last - col)
-    path = routing.turn_expanded_shortest_path(
-        structure, cost, heuristic, out_states(lazy, "n0_0"),
-        lazy.node_id_to_index[f"n{last}_{last}"],
+    spoke_cost = np.random.default_rng(0).permutation(FAN_SPOKES) + 1.0
+    cost = np.ones(structure.state_count)
+    for spoke in range(FAN_SPOKES):
+        cost[states[f"HL{spoke}"]] = spoke_cost[spoke]
+    tree = routing.build_turn_expanded_tree(
+        structure, cost, statics.edge_length_m, out_states(lazy, "O"), lazy.node_count,
         edge_seconds=np.ones(structure.state_count),
     )
-    assert path == [states[edge_id] for edge_id in route]
+    for spoke in range(FAN_SPOKES):
+        node_index = lazy.node_id_to_index[f"L{spoke}"]
+        assert tree.node_cost[node_index] == pytest.approx(1.0 + spoke_cost[spoke]), spoke
+    assert tree.node_cost[lazy.node_id_to_index["G"]] == pytest.approx(3.0)
+
+
+def test_shortest_path_stays_exact_while_the_queue_grows():
+    """伸長をまたいでも、A*は唯一の最安経路（葉`L0`を通る）を返す。
+
+    `L0`の下界を0でなくし、キー（`g`＋下界）と`g`を別の値にする——取り出しがキーを`g`として返すと、
+    `L0`を通る経路が下界の分だけ高く見え、次に安い`L1`を通る経路が選ばれる。
+    `g`の列そのものが伸長で崩れないことは、部品のテスト（上）が見る。
+    """
+    graph = make_fan()
+    lazy, _, structure = build_all(graph)
+    states = state_index(lazy)
+    cost = np.ones(structure.state_count)
+    for spoke in range(FAN_SPOKES):
+        cost[states[f"L{spoke}G"]] = 10.0
+    cost[states["L0G"]] = 2.0
+    cost[states["L1G"]] = 3.0
+    heuristic = np.zeros(lazy.node_count)
+    heuristic[lazy.node_id_to_index["L0"]] = 2.0
+    path = routing.turn_expanded_shortest_path(
+        structure, cost, heuristic, out_states(lazy, "O"), lazy.node_id_to_index["G"],
+        edge_seconds=np.ones(structure.state_count),
+    )
+    assert path == [states["OH"], states["HL0"], states["L0G"]]
 
 
 # --- 探索のJITの型 ---
 
 
-def test_each_search_compiles_once_whatever_arrays_the_caller_passes():
+def test_searches_compile_nothing_after_baking_whatever_arrays_the_caller_passes():
     """イメージの組み立てで焼いたコンパイル結果（`compile_search_kernels`）は、型の同じ呼び出しにしか効かない。
-    探索の入口が型を揃えるため、呼び出し側の配列のdtype・並び・読み取り専用かに依らず、探索1つにつき
-    コンパイルは1本で済む——本番の最初のルート生成がコンパイルを払わない。"""
+    探索の入口が型を揃えるため、呼び出し側の配列のdtype・並び・読み取り専用かに依らず、焼いた後の探索は
+    コンパイルしない——本番の最初のルート生成がコンパイルを払わない。
+
+    コンパイルはnumbaの出来事（`numba:compile`）で数える。ディスクのキャッシュから読んだ型は出来事を出さないが、
+    キャッシュは`routing.py`を書き換えると無効になるため、型を揃え損ねた変更は最初の実行でここに出る。"""
     if numba.config.DISABLE_JIT:
         pytest.skip("JITを切って測っている（numbaの型がそもそも無い）")
     routing.compile_search_kernels()
@@ -1340,22 +1358,22 @@ def test_each_search_compiles_once_whatever_arrays_the_caller_passes():
         read_only,
     ]
     origin_states = out_states(lazy, "n0_0").astype(np.int32)
-    for cost in costs:
+    with event.install_recorder("numba:compile") as compiled:
+        for cost in costs:
+            routing.build_turn_expanded_tree(
+                structure, cost, statics.edge_length_m.astype(np.float32), origin_states, lazy.node_count,
+                edge_seconds=cost, bin_seconds=3600.0,
+            )
+            routing.turn_expanded_shortest_path(
+                structure, cost, np.zeros(lazy.node_count, dtype=np.float32), origin_states,
+                lazy.node_id_to_index["n2_2"], edge_seconds=cost, bin_seconds=3600.0,
+            )
         routing.build_turn_expanded_tree(
-            structure, cost, statics.edge_length_m.astype(np.float32), origin_states, lazy.node_count,
-            edge_seconds=cost, bin_seconds=3600.0,
+            structure, costs[0], statics.edge_length_m, origin_states, lazy.node_count,
+            reverse=True, edge_seconds=costs[0],
         )
-        routing.turn_expanded_shortest_path(
-            structure, cost, np.zeros(lazy.node_count, dtype=np.float32), origin_states,
-            lazy.node_id_to_index["n2_2"], edge_seconds=cost, bin_seconds=3600.0,
-        )
-    routing.build_turn_expanded_tree(
-        structure, costs[0], statics.edge_length_m, origin_states, lazy.node_count,
-        reverse=True, edge_seconds=costs[0],
-    )
 
-    assert len(routing._turn_expanded_dijkstra.signatures) == 1
-    assert len(routing._turn_expanded_astar.signatures) == 1
+    assert compiled.buffer == []
 
 
 async def test_route_generation_calls_from_python_only_the_jit_that_the_image_bakes(monkeypatch):

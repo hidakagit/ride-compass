@@ -1,6 +1,6 @@
 // 起こし直したテストを外から測る（docs/conventions/testing.md「既存テストを直さず、実装から起こし直す」の手順3）。
 //
-//   node scripts/audit-test-rewrite.mjs <実装のファイル> [テストのファイル...] [--ref <git の版>]
+//   node scripts/audit-test-rewrite.mjs <実装のファイル> [テストのファイル...] [--ref <git の版>] [--summary]
 //
 // 出すもの: テストの本数（実行した数。it.each は展開した後）・テストの行数・行と分岐のカバレッジ・届いていない行と分岐・
 // テストごとの「そのテストだけが届く行」。パスは frontend からの相対で渡す。
@@ -9,8 +9,18 @@
 // --ref は「前」の値を測る（例: --ref origin/master）。母集団をその版から集め、その版のテストを元のテストの隣へ一時の名前で
 // 書き出して流し、終わったら消す。実装はその版と同じでなければならない（起こし直しは実装を変えない）。
 // --ref ではテストごとの「そのテストだけが届く行」を出さない（旧版のテスト名が出るため。起こし直しの手順1〜3では旧版を開かない）。
+// --summary も「そのテストだけが届く行」を出さない。それはテストを1本ずつ流して取るので、母集団の本数に比例して時間がかかる。
+// 起こし直しの報告と完了の条件は全体の値と届いていない行・分岐で足り、テストごとの値は見落としを探す場面でだけ要るので、
+// 全体の値だけでよいときに付ける。--ref と一緒に付けてもよい。
 // 1本だけ流すのは、vitest の -t が describe と題名を「 > 」でつないだ名前に当てるため、その形で絞る。
 // 絞って1本も流れなければ（どれも skipped）、0行とせずに落とす。
+// 実装が *.test.ts(x) のとき（src/structure のように検査の本体がテストファイルの中にあるもの）は、そのファイルが母集団の
+// 全部で、テストを渡さない（渡すならそのファイルだけ）。vitest はテストの include に当たるファイルを coverage.exclude へ
+// 必ず足し、設定では外せないので、同じ置き場へテストでない名前（.audit-copy）で写し、それを import するだけのテスト
+// （.audit-run.test。元の @vitest-environment を継ぐ）から流して写しを測り、終わったら消す。写しは元と同じ行なので、
+// 届いていない行は元のファイルの行番号で出る。--ref では、その版のファイルを写す（前の版のファイルそのものを測る）。
+// この数え方では、テストの本体（it に渡した関数の中の文）も実装の行と分岐に入る。テストを消すと、その本体の行は
+// 届いていない行にならず分母から消える。
 
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -29,12 +39,16 @@ function fail(message) {
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
-  options: { ref: { type: "string" } },
+  options: { ref: { type: "string" }, summary: { type: "boolean" } },
 });
 const [implementation, ...givenTests] = positionals.map((p) => p.replaceAll("\\", "/"));
 if (!implementation)
   fail("<実装のファイル> が要る（frontend からの相対。例: src/components/ui/Checkbox/Checkbox.tsx）");
 if (!existsSync(path.join(frontendRoot, implementation))) fail(`実装のファイルが無い: ${implementation}`);
+const testFile = /\.test\.(tsx?)$/;
+const implementationIsTest = testFile.test(implementation);
+if (implementationIsTest && givenTests.some((test) => test !== implementation))
+  fail(`実装がテストファイルのときは、そのファイルだけを測る: ${implementation}`);
 
 function git(args) {
   return execFileSync("git", args, { cwd: frontendRoot, encoding: "utf-8", maxBuffer: 1 << 30 });
@@ -81,31 +95,53 @@ function collectPopulation(ref) {
   return [...population].sort();
 }
 
-/** --ref の版のテストを元の隣へ書き出し、流すパスの並びを返す。書き出したものは終わるときに消す。 */
+const temporaryFiles = [];
+process.on("exit", () => temporaryFiles.forEach((file) => rmSync(path.join(frontendRoot, file), { force: true })));
+process.on("SIGINT", () => process.exit(130));
+
+/** frontend からの相対の file へ一時のファイルを書く。書いたものは終わるときに消す。 */
+function writeTemporary(file, content) {
+  writeFileSync(path.join(frontendRoot, file), content);
+  temporaryFiles.push(file);
+}
+
+/** --ref の版のテストを元の隣へ書き出し、流すパスの並びを返す。 */
 function writeRefTests(ref, tests) {
   try {
     git(["diff", "--quiet", ref, "--", implementation]);
   } catch {
     fail(`実装が ${ref} と違う。前の値は実装を変える前に測る: ${implementation}`);
   }
-  const written = [];
-  process.on("exit", () => written.forEach((file) => rmSync(path.join(frontendRoot, file), { force: true })));
-  for (const test of tests) {
-    const temporary = test.replace(/\.test\.(tsx?)$/, ".audit-before.test.$1");
+  return tests.map((test) => {
+    const temporary = test.replace(testFile, ".audit-before.test.$1");
     if (!existsSync(path.dirname(path.join(frontendRoot, test))))
       fail(`${ref} のテストの置き場が作業ツリーに無い: ${test}`);
-    writeFileSync(path.join(frontendRoot, temporary), git(["show", `${ref}:frontend/${test}`]));
-    written.push(temporary);
-  }
-  process.on("SIGINT", () => process.exit(130));
-  return written;
+    writeTemporary(temporary, git(["show", `${ref}:frontend/${test}`]));
+    return temporary;
+  });
+}
+
+/** 実装のテストファイル（--ref ならその版）をテストでない名前へ写し、写しと、写しを流すテストのパスを返す。 */
+function writeTestCopy(ref) {
+  const source = ref
+    ? git(["show", `${ref}:frontend/${implementation}`])
+    : readFileSync(path.join(frontendRoot, implementation), "utf-8");
+  const copy = implementation.replace(testFile, ".audit-copy.$1");
+  const runner = implementation.replace(testFile, ".audit-run.test.$1");
+  const environment = source.match(/@vitest-environment\s+(\S+)/);
+  writeTemporary(copy, source);
+  writeTemporary(
+    runner,
+    `${environment ? `// @vitest-environment ${environment[1]}\n` : ""}import "./${path.posix.basename(copy).replace(/\.tsx?$/, "")}";\n`,
+  );
+  return { copy, runner };
 }
 
 const workDir = mkdtempSync(path.join(os.tmpdir(), "ridecompass-audit-"));
 process.on("exit", () => rmSync(workDir, { recursive: true, force: true }));
 
-/** テストを流し、実行した（passed・failed の）テストと、対象のカバレッジを返す。 */
-function runVitest(files, namePattern) {
+/** テストを流し、実行した（passed・failed の）テストと、measured のカバレッジを返す。 */
+function runVitest(files, measured, namePattern) {
   const report = path.join(workDir, "report.json");
   const coverageDir = path.join(workDir, "coverage");
   rmSync(report, { force: true });
@@ -120,7 +156,7 @@ function runVitest(files, namePattern) {
       "--reporter=json",
       `--outputFile=${report}`,
       "--coverage.enabled",
-      `--coverage.include=${implementation}`,
+      `--coverage.include=${measured}`,
       "--coverage.reporter=json",
       `--coverage.reportsDirectory=${coverageDir}`,
     ],
@@ -168,7 +204,11 @@ function ranges(numbers) {
 
 const percent = (covered, total) => (total === 0 ? "100%" : `${((covered / total) * 100).toFixed(2)}%`);
 
-const tests = givenTests.length > 0 ? givenTests : collectPopulation(values.ref);
+const tests = implementationIsTest
+  ? [implementation]
+  : givenTests.length > 0
+    ? givenTests
+    : collectPopulation(values.ref);
 if (tests.length === 0) fail(`母集団が空: ${implementation} を import するテストが無い`);
 const missing = values.ref
   ? tests.filter(
@@ -177,19 +217,31 @@ const missing = values.ref
     )
   : tests.filter((test) => !existsSync(path.join(frontendRoot, test)));
 if (missing.length > 0) fail(`テストが無い${values.ref ? `（${values.ref}）` : ""}: ${missing.join(" ")}`);
-const files = values.ref ? writeRefTests(values.ref, tests) : tests;
+// lineSources は行数を数えるファイル、files は流すファイル、measured はカバレッジを取るファイル。
+let lineSources, files, measured;
+if (implementationIsTest) {
+  const { copy, runner } = writeTestCopy(values.ref);
+  [lineSources, files, measured] = [[copy], [runner], copy];
+} else {
+  files = values.ref ? writeRefTests(values.ref, tests) : tests;
+  [lineSources, measured] = [files, implementation];
+}
 
 console.log(`対象: ${implementation}`);
-console.log(`版:   ${values.ref ? `${values.ref} のテスト（実装は同じ）` : "作業ツリー"}`);
-console.log(`母集団（${givenTests.length > 0 ? "渡したもの" : "import の指定子で集めたもの"}）:`);
+console.log(
+  `版:   ${values.ref ? `${values.ref} の${implementationIsTest ? "ファイル" : "テスト（実装は同じ）"}` : "作業ツリー"}`,
+);
+console.log(
+  `母集団（${implementationIsTest ? "実装のテストファイルそのもの" : givenTests.length > 0 ? "渡したもの" : "import の指定子で集めたもの"}）:`,
+);
 let totalLines = 0;
 tests.forEach((test, i) => {
-  const lineCount = readFileSync(path.join(frontendRoot, files[i]), "utf-8").trimEnd().split("\n").length;
+  const lineCount = readFileSync(path.join(frontendRoot, lineSources[i]), "utf-8").trimEnd().split("\n").length;
   totalLines += lineCount;
   console.log(`  ${test}（${lineCount}行）`);
 });
 
-const whole = runVitest(files);
+const whole = runVitest(files, measured);
 const hits = lineHits(whole.coverage);
 const coveredLines = [...hits].filter(([, count]) => count > 0).map(([line]) => line);
 const uncoveredLines = [...hits].filter(([, count]) => count === 0).map(([line]) => line);
@@ -214,11 +266,11 @@ console.log(
   `届いていない分岐: ${uncoveredBranches.map((b) => `行${b.line} ${b.type} の${b.index + 1}つ目`).join("、") || "なし"}`,
 );
 
-if (values.ref) process.exit(0);
+if (values.ref || values.summary) process.exit(0);
 
 const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const reachedBy = whole.executed.map((test) => {
-  const alone = runVitest([test.file], `^${escape(test.name)}$`);
+  const alone = runVitest([test.file], measured, `^${escape(test.name)}$`);
   if (alone.executed.length !== 1)
     fail(`1本に絞れない（${alone.executed.length}本流れた）: ${test.file} > ${test.name}`);
   return { test, lines: new Set([...lineHits(alone.coverage)].filter(([, count]) => count > 0).map(([line]) => line)) };
@@ -226,5 +278,5 @@ const reachedBy = whole.executed.map((test) => {
 console.log("そのテストだけが届く行:");
 for (const { test, lines } of reachedBy) {
   const only = [...lines].filter((line) => reachedBy.every((other) => other.test === test || !other.lines.has(line)));
-  console.log(`  ${test.file} > ${test.name}: ${ranges(only)}`);
+  console.log(`  ${implementationIsTest ? implementation : test.file} > ${test.name}: ${ranges(only)}`);
 }

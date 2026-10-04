@@ -18,17 +18,17 @@ import redis.exceptions
 
 from app.config import settings
 from app.infrastructure import redis_client
-from app.infrastructure.redis_client import _CIRCUIT_COOLDOWN_SECONDS
+from app.infrastructure.redis_client import CIRCUIT_COOLDOWN_SECONDS
 
 CLIENTS = [redis_client.get_redis_client_or_none, redis_client.get_redis_binary_client_or_none]
 
 
 @pytest.fixture
 async def no_clients_yet(monkeypatch):
-    monkeypatch.setattr(redis_client, "_client", None)
-    monkeypatch.setattr(redis_client, "_binary_client", None)
+    monkeypatch.setattr(redis_client, "text_client", None)
+    monkeypatch.setattr(redis_client, "binary_client", None)
     yield
-    for client in (redis_client._client, redis_client._binary_client):
+    for client in (redis_client.text_client, redis_client.binary_client):
         if client is not None:
             await client.aclose()
 
@@ -59,7 +59,7 @@ def test_after_a_failure_redis_is_skipped_until_the_cooldown_has_passed(clock):
     redis_client.record_redis_failure()
     assert not redis_client.redis_available()
 
-    clock.tick(_CIRCUIT_COOLDOWN_SECONDS - 1)
+    clock.tick(CIRCUIT_COOLDOWN_SECONDS - 1)
     assert not redis_client.redis_available()
 
     clock.tick(1)

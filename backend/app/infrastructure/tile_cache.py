@@ -16,21 +16,21 @@ CACHE_DIR = DATA_DIR / "tile_cache"
 
 _CATEGORY = "tile-cache"
 
-_cache: diskcache.Cache | None = None
+opened_cache: diskcache.Cache | None = None
 
 
 def _opened() -> diskcache.Cache:
     """遅延生成した共有キャッシュ。スレッド（`asyncio.to_thread`）から同時に呼んでよい。"""
-    global _cache
-    if _cache is None:
-        _cache = diskcache.Cache(
+    global opened_cache
+    if opened_cache is None:
+        opened_cache = diskcache.Cache(
             str(CACHE_DIR),
             size_limit=settings.tile_cache_size_limit_mb * 1024 * 1024,
             # 退避の順は書いた順にする。読んだ順（least-recently-used）は読むたびに書き込みが走り、
             # 地図の読み込みで同時に来る数十件のタイル要求がそのぶん重くなる。
             eviction_policy="least-recently-stored",
         )
-    return _cache
+    return opened_cache
 
 
 def get(path: str) -> tuple[bytes, str] | None:
