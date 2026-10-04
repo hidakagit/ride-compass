@@ -98,11 +98,12 @@ def test_the_text_client_decodes_values_and_the_binary_client_keeps_bytes():
 
 
 @pytest.mark.usefixtures("silent_redis")
-async def test_a_redis_that_does_not_answer_fails_within_a_second():
+@pytest.mark.parametrize("get_client", CLIENTS)
+async def test_a_redis_that_does_not_answer_fails_within_a_second(get_client):
     """疎通しないRedisで数秒待つと、ルート生成やタイル配信の応答がその分だけ遅れる。"""
     started = time.monotonic()
 
     with pytest.raises(redis.exceptions.TimeoutError):
-        await redis_client.get_redis_client_or_none().ping()
+        await get_client().ping()
 
     assert time.monotonic() - started < 1.0

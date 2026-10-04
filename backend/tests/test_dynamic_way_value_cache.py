@@ -62,12 +62,13 @@ async def test_a_nearby_heading_reads_the_values_stored_for_the_same_bucket():
     """コンパスを少し回しただけでは、同じタイルを計算し直さない。"""
     await store(bearing_deg=0.0)
 
-    assert await get_tile_values(**KEY, bearing_deg=HALF_BUCKET - 0.01, **VERSIONS) == VALUES
+    assert await get_tile_values(**KEY, bearing_deg=360.0 - (HALF_BUCKET - 0.01), **VERSIONS) == VALUES
 
 
 @pytest.mark.parametrize(
     ("bearing_deg", "bucket"),
     [
+        (HALF_BUCKET - 0.01, 0),
         # 境界ちょうどは上のバケットへ。偶数への丸めだと、境界ごとに上下が入れ替わり幅が揃わない。
         (HALF_BUCKET, 1),
         (360.0 - HALF_BUCKET, 0),

@@ -123,6 +123,13 @@ class TestFailures:
         assert stats.last_success_at is None
         assert any("error after" in message for message in warnings_of(logs))
 
+    def test_an_http_error_is_counted_by_its_status_without_the_url(self):
+        with pytest.raises(httpx.HTTPStatusError):
+            with log_external_call("cat"):
+                raise http_error(429)
+
+        assert get_stats().external["cat"].error_types == {"http_429": 1}
+
     def test_a_failure_caught_by_the_caller_is_counted_and_warned_with_the_exception(self, logs):
         with log_external_call("cat", tile="14/1/2") as fields:
             mark_failed(fields, http_error(503))

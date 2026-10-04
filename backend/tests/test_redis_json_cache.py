@@ -106,14 +106,19 @@ async def test_after_a_failed_read_redis_is_not_called_until_the_cooldown_passes
     assert stats().calls == calls_after_failure + 1
 
 
-async def test_after_a_failed_write_nothing_is_written_during_the_cooldown(fake_redis, redis_server, clock):
+async def test_after_a_failed_write_nothing_is_written_until_the_cooldown_passes(fake_redis, redis_server, clock):
     redis_server.connected = False
     await redis_json_cache.set_json(KEY, [1], ttl_seconds=TTL, category=CATEGORY)
     redis_server.connected = True
 
     clock.tick(CIRCUIT_COOLDOWN_SECONDS - 1)
     await redis_json_cache.set_json(KEY, [2], ttl_seconds=TTL, category=CATEGORY)
-    assert await fake_redis.exists(KEY) == 0
+    await redis_json_cache.set_bytes(KEY + ":bytes", b"Tx", ttl_seconds=TTL, category=CATEGORY)
+    assert await fake_redis.exists(KEY, KEY + ":bytes") == 0
+
+    clock.tick(1)
+    await redis_json_cache.set_json(KEY, [3], ttl_seconds=TTL, category=CATEGORY)
+    assert await redis_json_cache.get_json(KEY, category=CATEGORY) == [3]
 
 
 async def test_without_a_client_nothing_is_tried_and_nothing_is_raised(monkeypatch):
