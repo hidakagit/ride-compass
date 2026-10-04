@@ -98,7 +98,8 @@ Next.jsのHTMLの404が返る（backendの404はJSON）。本番のAPIを手で�
 
 **手元の道具は、backendの宛先を`backend/.env.oracle.local`の`BACKEND_ORIGIN`から読む**（読み方は
 `backend/scripts/_prod_env.py`。例: `axis_apply.py`）。道具のコードに宛先を書き込まない——IPが変わったとき、
-道具の側で直すのが各自の`BACKEND_ORIGIN`だけで済むようにするため。
+道具の側で直すのが各自の`BACKEND_ORIGIN`だけで済むようにするため。振り出しの見回りは、同じ値をコードのリポジトリの
+Actionsの変数`BACKEND_ORIGIN`から読む（宛先が変わったらここも書き換える）。
 
 ## デプロイの反映確認（backend/frontendで注入元が異なる）
 

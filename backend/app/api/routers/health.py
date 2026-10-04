@@ -1,6 +1,9 @@
+from datetime import UTC, datetime
+
 from fastapi import APIRouter
 
 from app.config import settings
+from app.infrastructure.admin_data_backup import backup_age_hours
 from app.infrastructure.msm_client import freshness as msm_freshness
 from app.infrastructure.debug_log import StatsSnapshot, get_stats
 from app.version import STARTED_AT
@@ -28,15 +31,18 @@ class DebugStatsResponse(StatsSnapshot):
 
 
 @router.get("/health")
-def health() -> dict[str, str | None]:
+def health() -> dict[str, str | float | None]:
     # commit（デプロイワークフローが注入するGIT_COMMIT）とstarted_at（プロセス起動時刻、
     # デプロイのたびに再起動されるため実質デプロイ時刻の目安）で、本番に実際に
     # デプロイされているコミットが最新かどうかを外部から確認できるようにする
     # （ローカル開発ではcommitはnullのまま。詳細はdocs/architecture/tech-stack.md参照）。
+    # admin_data_backup_age_hoursは管理データのバックアップが最後に置けてからの時間で、見回りが止まりに気づくために読む。
+    age = backup_age_hours(datetime.now(UTC))
     return {
         "status": "ok",
         "commit": settings.git_commit,
         "started_at": STARTED_AT.isoformat(),
+        "admin_data_backup_age_hours": None if age is None else round(age, 1),
     }
 
 

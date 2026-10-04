@@ -1,7 +1,7 @@
 // 振り出しの見回りの1周（繰り返しは .github/workflows/claude-dispatch.yml が、1周ごとに master の今の道具で打つ）。種類ごとの枠まで
-// 担当のワークフローを起こし、全体の様子を Project の状況の更新に書く。同じタスクの担当は、担当のワークフローのグループで1本ずつ動く。
+// 担当のワークフローを起こし、全体の様子（本番の管理データのバックアップの止まりも）を Project の状況の更新に書く。同じタスクの担当は、担当のワークフローのグループで1本ずつ動く。
 // 見回りのワークフローが無効なら振り出さずに書き、終わりの値 3 で終える。後始末が置いた止める時刻が先なら振り出さない。
-import { pick, putStatus, readTasks, ready, runOf, summary, workload } from "../src/dispatch.js";
+import { pick, putStatus, readBackup, readTasks, ready, runOf, summary, workload } from "../src/dispatch.js";
 import { args, bot, code, config } from "./cli.js";
 
 const { dry } = args("node tools/flow-gate/bin/dispatch.js [--dry-run]", (a) => !a.length);
@@ -36,6 +36,7 @@ if (dry) {
 const status = summary(config, {
   watcher: env.GITHUB_RUN_ID ? `[実行](${env.GITHUB_SERVER_URL}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID})` : "手元の試し",
   tasks: board.tasks, working: load.tasks, expected: load.expected, runs, started, waiting: candidates.length - started.length, idle,
+  backup: await readBackup(repo, config),
 });
 if (dry) say(`状況の更新（${status.status}）:\n${status.body}`);
 else if (await putStatus(gh, config, status)) say(`状況の更新を書いた（${status.status}）`);

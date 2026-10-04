@@ -2039,7 +2039,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        [key: string]: string | null;
+                        [key: string]: string | number | null;
                     };
                 };
             };

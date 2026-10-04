@@ -1,7 +1,7 @@
 // 約束 19・20・23（見回りの判断と状況の更新。src/dispatch.js）を確かめる。設定は架空のもの（fake-github.js: config）を渡し、差し替えるのは
 // GitHub（網）だけ。確かめるのは約束の結果（振り出す番号・At risk かどうか・書いたかどうか）。
 // ここで見ないもの: 状況の更新の文言・見回りのワークフローの止める（無効・止める時刻。bin/dispatch.js が読む値で決まる）・
-// 同じタスクの実行が1本ずつ動くこと（担当のワークフローの concurrency。GitHub の動き）。
+// 同じタスクの実行が1本ずつ動くこと（担当のワークフローの concurrency。GitHub の動き）・本番の /health を読むこと（readBackup。変数と網を読むだけ）。
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { pick, putStatus, ready, summary, workload } from "../src/dispatch.js";
@@ -57,16 +57,19 @@ test("23 作業時間は作業の状態にいた区間の和で、回答待ち�
   assert.deepEqual(Object.fromEntries(load.tasks.map((t) => [t.number, t.workHours])), { 1: 2, 3: 1.5, 4: 3 });
   assert.deepEqual(load.expected, { S: 1.75 });
   assert.deepEqual(gh.read.toSorted((a, b) => a - b), [1, 3, 4, 5, 21, 22, 23, 24, 25]);
-  assert.equal(summary(config, { watcher: "w", tasks: open, working: load.tasks, expected: load.expected, runs: [], started: [], waiting: 0, idle: null }).status, "AT_RISK");
+  assert.equal(summary(config, { watcher: "w", tasks: open, working: load.tasks, expected: load.expected, runs: [], started: [], waiting: 0, idle: null, backup: { hours: 1 } }).status, "AT_RISK");
 });
 
-test("23 状況の更新: 想定を超えた作業中のタスク・仕事があるのに空いた枠・落ちた実行のどれかがあれば At risk。中身が変わったときだけ書く", async () => {
+test("23 状況の更新: 想定を超えた作業中のタスク・仕事があるのに空いた枠・落ちた実行・止まったか読めない管理データのバックアップのどれかがあれば At risk。中身が変わったときだけ書く", async () => {
   const tasks = [task(3, config.working, { size: "S" })];
-  const base = { watcher: "w", tasks, working: [{ ...tasks[0], workHours: 2 }], expected: { S: 4 }, runs: [], started: [], waiting: 0, idle: null };
+  const max = config.coordinator.backupMaxHours;
+  const base = { watcher: "w", tasks, working: [{ ...tasks[0], workHours: 2 }], expected: { S: 4 }, runs: [], started: [], waiting: 0, idle: null, backup: { hours: max } };
   const failed = [{ number: 3, kind: "作る", conclusion: "failure", url: "u2" }, { number: 3, kind: "作る", conclusion: "success", url: "u1" }];
   for (const [what, extra, want] of [["無し", {}, "ON_TRACK"], ["想定超え", { working: [{ ...tasks[0], workHours: 5 }] }, "AT_RISK"],
     ["想定の無い規模は数えない", { working: [{ ...tasks[0], size: "M", workHours: 9 }] }, "ON_TRACK"], ["空いた枠", { idle: "止めている" }, "AT_RISK"],
-    ["落ちた実行", { runs: failed }, "AT_RISK"], ["落ちた後に通った", { runs: failed.toReversed() }, "ON_TRACK"]])
+    ["落ちた実行", { runs: failed }, "AT_RISK"], ["落ちた後に通った", { runs: failed.toReversed() }, "ON_TRACK"],
+    ["バックアップが上限を超えた", { backup: { hours: max + 0.1 } }, "AT_RISK"], ["バックアップの記録が無い", { backup: { hours: null } }, "AT_RISK"],
+    ["/health に経過の欄が無い", { backup: {} }, "AT_RISK"], ["/health を読めない", { backup: { error: "503" } }, "AT_RISK"]])
     assert.equal(summary(config, { ...base, ...extra }).status, want, what);
   const gh = fakeGitHub({ issue: { number: 1 } });
   const calm = summary(config, base);

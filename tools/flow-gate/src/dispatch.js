@@ -111,10 +111,32 @@ export function pick(config, candidates, running) {
   return candidates.filter((t) => free[t.kind]-- > 0);
 }
 
-// 状況の更新の中身。気づくべきもの（想定を超えたタスク・振り出せる仕事があるのに空いた枠・一番新しい実行が失敗したタスク）が
-// あれば At risk。working と expected は workload の結果、runs は担当の実行の新しい順（終わったものは conclusion を持つ）、
-// idle は枠が空いている理由（無ければ null）。
-export function summary(config, { watcher, tasks, working, expected: limit, runs, started, waiting, idle }) {
+// 管理データのバックアップが最後に置けてからの時間を、本番の backend の /health から読む（hours。/health に欄が無ければ undefined）。
+// 宛先はコードのリポジトリの変数 coordinator.backendVariable から取る（道具に宛先を書かない。docs/architecture/tech-stack.md
+// 「本番の宛先」）。読めなければ error に理由を持つ。
+export async function readBackup(repo, config) {
+  try {
+    const origin = (await repo.rest("GET", `/repos/${config.code.repository}/actions/variables/${config.coordinator.backendVariable}`)).value;
+    const res = await fetch(`${origin}/health`, { signal: AbortSignal.timeout(10e3) });
+    if (!res.ok) throw new Error(`/health: ${res.status}`);
+    return { hours: (await res.json()).admin_data_backup_age_hours };
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
+// バックアップについて気づくべきこと（無ければ null）。止まった・記録が無い・読めない、のどれも出す。
+function backupNote(max, { error, hours }) {
+  if (error) return `読めなかった: ${error}`;
+  if (hours === undefined) return "読めなかった: /health に admin_data_backup_age_hours が無い";
+  if (hours === null) return "記録が無い（まだ1回も置けていない）";
+  return hours > max ? `${hours}時間前から置けていない（上限 ${max}時間）` : null;
+}
+
+// 状況の更新の中身。気づくべきもの（想定を超えたタスク・振り出せる仕事があるのに空いた枠・一番新しい実行が失敗したタスク・
+// 管理データのバックアップ）があれば At risk。working と expected は workload の結果、runs は担当の実行の新しい順（終わったものは
+// conclusion を持つ）、idle は枠が空いている理由（無ければ null）、backup は readBackup の結果。
+export function summary(config, { watcher, tasks, working, expected: limit, runs, started, waiting, idle, backup }) {
   const latest = new Map();
   for (const r of runs) if (!latest.has(r.number)) latest.set(r.number, r);
   const notes = [
@@ -122,6 +144,7 @@ export function summary(config, { watcher, tasks, working, expected: limit, runs
       .map((t) => `- #${t.number}（${t.size}）が想定を超えている: 作業時間 ${t.workHours.toFixed(1)}時間 ／ 想定 ${limit[t.size].toFixed(1)}時間`),
     ...(idle ? [`- 振り出せる仕事があるのに枠が空いている: ${idle}`] : []),
     ...[...latest.values()].filter((r) => r.conclusion === "failure" && tasks.some((t) => t.number === r.number)).map((r) => `- #${r.number} の${r.kind}担当の実行が失敗で終わった [実行](${r.url})`),
+    ...[backupNote(config.coordinator.backupMaxHours, backup)].filter(Boolean).map((note) => `- 管理データのバックアップ: ${note}`),
   ];
   const lines = [`振り出しの見回り（${watcher}）が書く。中身が変わったときだけ書き換える。`, "", "### 気づくべきもの", ...(notes.length ? notes : ["無し"])];
   for (const [kind, n] of Object.entries(config.coordinator.slots)) {
