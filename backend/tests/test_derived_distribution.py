@@ -10,7 +10,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from derived_distribution import collect, select_targets  # noqa: E402
 from tests.conftest import postgis_database_url  # noqa: E402
-from tests.source_ingest import ingest_records  # noqa: E402
 
 pytestmark = [
     pytest.mark.asyncio(loop_scope="module"),
@@ -23,12 +22,11 @@ NODES = (("traffic_signals", 0, True), ("traffic_signals", 2, False), (None, 3, 
 
 
 async def _insert_nodes(session) -> None:
-    run_id = await ingest_records("osm_node", [])
     for node_id, (kind, branch_count, signals) in enumerate(NODES, start=1):
         await session.execute(text(
-            "INSERT INTO node_materials (osm_node_id, kind, branch_count, has_traffic_signals, source_run_id)"
-            " VALUES (:id, :kind, :branch_count, :signals, :run_id)"),
-            {"id": node_id, "kind": kind, "branch_count": branch_count, "signals": signals, "run_id": run_id})
+            "INSERT INTO node_materials (osm_node_id, kind, branch_count, has_traffic_signals)"
+            " VALUES (:id, :kind, :branch_count, :signals)"),
+            {"id": node_id, "kind": kind, "branch_count": branch_count, "signals": signals})
     await session.commit()
 
 
@@ -58,6 +56,6 @@ async def test_every_declared_value_column_is_measured_even_when_empty(road_grap
 
 
 async def test_a_name_that_is_not_a_declared_value_column_is_refused():
-    with pytest.raises(SystemExit, match="source_run_id"):
-        select_targets(["node_materials.source_run_id"])
+    with pytest.raises(SystemExit, match="osm_node_id"):
+        select_targets(["node_materials.osm_node_id"])
 

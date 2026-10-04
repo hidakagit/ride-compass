@@ -12,12 +12,10 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TypeVar
 
-import asyncpg
 import httpx
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.config import settings
-from app.infrastructure.source_models import Source, latest_succeeded_run_sql
 
 _T = TypeVar("_T")
 
@@ -81,14 +79,6 @@ def asyncpg_dsn(sqlalchemy_url: str) -> str:
 #: 取る——取込どうしは並んで走れ、取込と作り直しはどちらかが止まる。作り直しの段と段の間に取込が
 #: 終わると、段ごとに違う取込を読み、記録した取込（`derived_source_runs`）とも食い違うため。
 SOURCE_DATA_LOCK = "source_data"
-
-
-async def latest_succeeded_run_id(conn: asyncpg.Connection, source: Source) -> int:
-    """派生の基準にする取込（そのソースの成功した最新のrun）。無ければ止める。"""
-    run_id = await conn.fetchval(f"SELECT run_id FROM {latest_succeeded_run_sql(source)} latest")
-    if run_id is None:
-        raise RuntimeError(f"'{source}' の取込が成功していません")
-    return run_id
 
 
 #: 進捗を出す間隔（秒）。件数ごとに出すと、関東全域では行数が多すぎて読めない。

@@ -13,6 +13,12 @@ from sqlalchemy.orm import DeclarativeBase
 IRREPLACEABLE_KEY = "irreplaceable"
 IRREPLACEABLE = {IRREPLACEABLE_KEY: True}
 
+#: 表の`info`に付ける印（`__table_args__`の最後に`{"info": DERIVED}`）。生データから作り直す派生の表であることを
+#: 宣言する。派生の作り直し（`batch/derive_cli.py`）が作業用のスキーマへ写す表と、鮮度台帳
+#: （`derived_data_freshness.py`）が数える表は、この印から導く。
+DERIVED_KEY = "derived"
+DERIVED = {DERIVED_KEY: True}
+
 
 class Base(DeclarativeBase):
     pass

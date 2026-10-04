@@ -391,7 +391,7 @@ FEATURE_GRADIENT_INPUTS_SHAPE = shape_digest(_FEATURE_GRADIENT_INPUTS_IN_TILE_SQ
 #: `em`をway粒度で作るときの列。`edge_materials`と`way_materials`で同じ名前の列はway側の
 #: 値を、way側に無い列（標高）はNULLを返す——列の一覧を書かず、宣言から導く。
 _WAY_EM_COLUMNS = [c.name for c in EdgeMaterialRow.__table__.columns
-                   if c.name not in ("osm_way_id", "segment_index", "source_run_id")]
+                   if c.name not in ("osm_way_id", "segment_index")]
 _WAY_MATERIAL_COLUMNS = {c.name for c in WayMaterialRow.__table__.columns}
 _WAY_ALIAS_EM_SQL = ", ".join(
     (f"wm2.{name} AS {name}" if name in _WAY_MATERIAL_COLUMNS

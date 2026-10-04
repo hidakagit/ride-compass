@@ -15,8 +15,8 @@ import time
 
 import asyncpg
 
-from app.batch.common import latest_succeeded_run_id, reset_columns_sql
-from app.infrastructure.source_models import NODES_SOURCE_SQL, WAYS_SOURCE_SQL, Source
+from app.batch.common import reset_columns_sql
+from app.infrastructure.source_models import NODES_SOURCE_SQL, WAYS_SOURCE_SQL
 from app.domain.traffic import (
     HIGHWAY_RANK,
     TRAFFIC_SIGNAL_SQL,
@@ -40,8 +40,8 @@ _RESET = reset_columns_sql("node_materials", {
     "kind": "NULL", "has_traffic_signals": "false", "max_highway_rank": "0"})
 
 _UPSERT_KIND = f"""
-INSERT INTO node_materials (osm_node_id, kind, source_run_id)
-SELECT id, kind, $1 FROM ({tag_kind_sql(_source_nodes())}) k
+INSERT INTO node_materials (osm_node_id, kind)
+SELECT id, kind FROM ({tag_kind_sql(_source_nodes())}) k
 ON CONFLICT (osm_node_id) DO UPDATE SET kind = EXCLUDED.kind
 """
 
@@ -86,14 +86,13 @@ FROM best WHERE best.node_id = nm.osm_node_id
 
 async def derive(conn: asyncpg.Connection, signal_radius_m: float) -> int:
     """`signal_radius_m`は較正値`signal.match_radius_m`（交差点から何m以内の信号をその交差点のものとみなすか）。"""
-    run_id = await latest_succeeded_run_id(conn, Source.OSM_NODE)
     started = time.perf_counter()
 
     values = ", ".join(f"('{h}', {r})" for h, r in sorted(HIGHWAY_RANK.items()))
     async with conn.transaction():
         await conn.execute(_DROP_KIND_ONLY)
         await conn.execute(_RESET)
-        classified = int((await conn.execute(_UPSERT_KIND, run_id)).split()[-1])
+        classified = int((await conn.execute(_UPSERT_KIND)).split()[-1])
         await conn.execute(_SIGNAL_NODES)
         signals = await conn.fetchval("SELECT count(*) FROM _signal_nodes")
         await conn.execute("ANALYZE _signal_nodes")

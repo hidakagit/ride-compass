@@ -18,8 +18,7 @@ import time
 
 import asyncpg
 
-from app.batch.common import latest_succeeded_run_id
-from app.infrastructure.source_models import Source, ways_source_sql
+from app.infrastructure.source_models import ways_source_sql
 
 logger = logging.getLogger("ridecompass.derive_topology")
 
@@ -113,8 +112,8 @@ FROM _seg WHERE NOT ({_USABLE})
 """
 
 _INSERT_NODES = """
-INSERT INTO node_materials (osm_node_id, branch_count, source_run_id)
-SELECT node_id, count(*), $1
+INSERT INTO node_materials (osm_node_id, branch_count)
+SELECT node_id, count(*)
 FROM (SELECT from_node_id AS node_id FROM _seg
       UNION ALL
       SELECT to_node_id FROM _seg) e
@@ -122,27 +121,26 @@ GROUP BY node_id
 """
 
 _INSERT_WAYS = """
-INSERT INTO way_materials (osm_way_id, source_run_id)
-SELECT DISTINCT osm_way_id, $1::bigint FROM _seg
+INSERT INTO way_materials (osm_way_id)
+SELECT DISTINCT osm_way_id FROM _seg
 """
 
 _INSERT_EDGES = """
 INSERT INTO road_edges (osm_way_id, segment_index, from_node_id, to_node_id,
-                        geom, distance_m, bearing_deg, reverse_bearing_deg, source_run_id)
+                        geom, distance_m, bearing_deg, reverse_bearing_deg)
 SELECT osm_way_id, segment_index, from_node_id, to_node_id,
-       geom, distance_m, bearing_deg, reverse_bearing_deg, $1
+       geom, distance_m, bearing_deg, reverse_bearing_deg
 FROM _seg
 """
 
 #: 値はこれから埋める。行だけ先に作り、未計算をNULLで表す。
 _INSERT_EDGE_MATERIALS = """
-INSERT INTO edge_materials (osm_way_id, segment_index, source_run_id)
-SELECT osm_way_id, segment_index, source_run_id FROM road_edges
+INSERT INTO edge_materials (osm_way_id, segment_index)
+SELECT osm_way_id, segment_index FROM road_edges
 """
 
 
 async def derive(conn: asyncpg.Connection) -> tuple[int, int]:
-    run_id = await latest_succeeded_run_id(conn, Source.OSM_WAY)
     started = time.perf_counter()
 
     async with conn.transaction():
@@ -169,9 +167,9 @@ async def derive(conn: asyncpg.Connection) -> tuple[int, int]:
         # 同じトランザクション内でも「参照されている表は削除できない」で止まる）。
         await conn.execute("TRUNCATE road_edges, node_materials, way_materials CASCADE")
         # 外部キーが指す先を先に作る。
-        nodes = await conn.execute(_INSERT_NODES, run_id)
-        await conn.execute(_INSERT_WAYS, run_id)
-        edges = await conn.execute(_INSERT_EDGES, run_id)
+        nodes = await conn.execute(_INSERT_NODES)
+        await conn.execute(_INSERT_WAYS)
+        edges = await conn.execute(_INSERT_EDGES)
         await conn.execute(_INSERT_EDGE_MATERIALS)
         # 後ろの段はこれらの表を読む。autovacuumは既定60秒周期の背景処理で、派生は
         # 数秒で走り切るため、統計が付くのを待てない。無いまま読まれると実行計画が
