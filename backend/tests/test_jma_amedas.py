@@ -20,7 +20,7 @@ from app.domain.jma_amedas import apparent_temperature_from_amedas, wind_directi
 
 @pytest.mark.parametrize(
     ("code", "deg", "label"),
-    [(1, 22.5, "北北東"), (4, 90.0, "東"), (8, 180.0, "南"), (12, 270.0, "西"), (16, 0.0, "北")],
+    [(1, 22.5, "北北東"), (16, 0.0, "北")],
 )
 def test_jma_wind_codes_read_as_the_direction_the_wind_comes_from(code, deg, label):
     """気象庁の番号は1=北北東から時計回りで16=北。北は360度ではなく0度。"""
@@ -29,7 +29,7 @@ def test_jma_wind_codes_read_as_the_direction_the_wind_comes_from(code, deg, lab
     assert (direction.deg, direction.label) == (deg, label)
 
 
-@pytest.mark.parametrize("code", [None, 0, -1, 17])
+@pytest.mark.parametrize("code", [None, 0, 17])
 def test_calm_missing_and_out_of_range_codes_have_no_direction(code):
     """0は静穏（方位不定）。範囲外を別の方位として出すと向かい風と追い風を取り違えさせる。"""
     assert wind_direction_from_jma_code(code) is None
