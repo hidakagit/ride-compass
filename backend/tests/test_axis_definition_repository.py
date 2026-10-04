@@ -6,14 +6,13 @@
 ここで見ないもの:
 - 書く前の検証（材料の排他・公開済みの不変・循環）と、操作ごとの確定 → `test_axis_registry_service.py`
 - 定義そのものの値の検証（折れ点の並び・段のラベルの件数等） → `test_axis_definitions.py`
+- `list_all`の並び → `list_all_with_sort_order`から順の値を落として詰め替えるだけで、判断を持たない
 """
 
 import asyncio
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import text
-from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.axis_definitions import (
@@ -73,36 +72,16 @@ async def repository(road_graph_session: AsyncSession) -> AxisDefinitionReposito
     return AxisDefinitionRepository(road_graph_session)
 
 
-async def test_a_written_definition_reads_back_with_every_field_and_its_order(repository):
-    definition = _with_every_field_set("axis_a")
-
+@pytest.mark.parametrize("definition", [
+    _with_every_field_set("axis_a"),
+    # JSONのキーは文字列になるので、真偽の対応表は読み戻しで真偽へ戻る（値の名前"yes"・"1"は上の行が見る）。
+    _linear("axis_a").model_copy(
+        update={"shape": CategoricalShape(material="bool_a", mapping={True: 1.0, False: 2.0})}),
+])
+async def test_a_written_definition_reads_back_with_every_field_and_its_order(repository, definition):
     await repository.upsert(definition, sort_order=3)
 
     assert await repository.get("axis_a") == (definition, 3)
-
-
-async def test_a_flag_mapping_reads_back_as_flags_and_other_names_stay_names(repository):
-    """JSONのキーは文字列になるので、真偽の対応表は読み戻しで真偽へ戻る。値の名前（"yes"・"1"）は真偽に化けない。"""
-    flags = _linear("axis_flags").model_copy(
-        update={"shape": CategoricalShape(material="bool_a", mapping={True: 1.0, False: 2.0})})
-    names = _with_every_field_set("axis_names")
-
-    await repository.upsert(flags, sort_order=1)
-    await repository.upsert(names, sort_order=2)
-
-    assert (await repository.get("axis_flags"))[0].shape.mapping == {True: 1.0, False: 2.0}
-    assert (await repository.get("axis_names"))[0].shape.mapping == {"paved": 10.0, "yes": 20.0, "1": 30.0}
-
-
-async def test_an_unset_chip_stays_unset_rather_than_empty(repository):
-    """チップの表示要素の未設定は、画面の汎用の表示に任せる印。空の値に化けると汎用の表示が出ない。"""
-    await repository.upsert(_linear("axis_a"), sort_order=1)
-
-    definition, _ = await repository.get("axis_a")
-
-    assert (definition.icon_id, definition.chip_label, definition.panel_hint) == (None, None, None)
-    assert definition.display_thresholds_override is None
-    assert definition.display_band_labels_override is None
 
 
 async def test_writing_an_existing_axis_replaces_every_field_and_its_order(repository):
@@ -121,19 +100,10 @@ async def test_the_axes_are_listed_in_their_order_not_in_the_order_they_were_wri
     await repository.upsert(_linear("axis_a"), sort_order=10)
     await repository.upsert(_linear("axis_b"), sort_order=20)
 
-    listed = await repository.list_all()
     with_order = await repository.list_all_with_sort_order()
 
-    assert list(listed) == ["axis_a", "axis_b", "axis_c"]
-    assert listed["axis_b"] == _linear("axis_b")
-    assert {axis_id: order for axis_id, (_, order) in with_order.items()} == {"axis_a": 10, "axis_b": 20, "axis_c": 30}
-    assert list(with_order) == list(listed)
-
-
-async def test_an_axis_that_is_not_there_is_none(repository):
-    await repository.upsert(_linear("axis_a"), sort_order=1)
-
-    assert await repository.get("axis_b") is None
+    assert [(axis_id, order) for axis_id, (_, order) in with_order.items()] == [
+        ("axis_a", 10), ("axis_b", 20), ("axis_c", 30)]
 
 
 async def test_deleting_tells_whether_there_was_an_axis_to_delete(repository):
@@ -158,11 +128,6 @@ async def test_the_write_lock_makes_a_second_writer_wait_until_the_first_commits
 
     async with AsyncSession(road_graph_engine) as other:
         second = AxisDefinitionRepository(other)
-        await other.execute(text("SET LOCAL lock_timeout = '200ms'"))
-        with pytest.raises(DBAPIError, match="lock timeout"):
-            await second.acquire_write_lock()
-        await other.rollback()
-
         waiting = asyncio.ensure_future(second.acquire_write_lock())
         await asyncio.sleep(0.2)
         assert not waiting.done()

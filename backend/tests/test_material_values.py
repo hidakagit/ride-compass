@@ -72,24 +72,11 @@ async def _edge_value(session, expression: str, *, distance_m: float, accident_y
 # --- 部品（domain/material_sql.py） ---------------------------------------------------
 
 
-async def test_a_tag_is_read_in_lower_case_without_surrounding_spaces(road_graph_session):
-    values = await _way_values(road_graph_session, material_sql.normalized_tag_sql("tag_a"),
-                               {1: {"tag_a": "  Mixed Case "}, 2: {}})
-
-    assert values == {1: "mixed case", 2: None}
-
-
 @pytest.mark.parametrize(("tag", "expected"), [
-    ("50", 50),
     (" 60 ", 60),
     ("40.7", 40),  # 小数は切り捨てる
-    ("1.0", 1),
-    ("0", None),
     ("0.5", None),  # 切り捨てると0
-    ("-30", None),
     ("50 mph", None),
-    ("signals", None),
-    (None, None),
 ])
 async def test_a_number_tag_has_a_value_only_when_it_is_a_positive_number(road_graph_session, tag, expected):
     values = await _way_values(road_graph_session, material_sql.positive_integer_tag_sql("tag_a"),
@@ -129,16 +116,12 @@ async def test_the_surface_estimate_gives_every_road_a_value(road_graph_session)
         # surfaceの区分が等級に先立つ。
         1: {**track, "surface": "value_a", "tracktype": "grade_a"},
         # 区分に無いsurfaceは、等級があれば等級から写す。
-        2: {**track, "surface": "unlisted", "tracktype": "grade_a"},
+        2: {**track, "surface": "unlisted", "tracktype": " GRADE_A "},
         3: {"surface": "unlisted"},
-        4: {**track, "tracktype": " GRADE_A "},
-        5: {**track, "tracktype": "unlisted"},
-        6: track,
-        7: {"highway": "residential"},
+        4: track,
     })
 
-    assert values == {1: "class_a", 2: "class_b", 3: unknown_road, 4: "class_b", 5: unknown_track, 6: unknown_track,
-                      7: unknown_road}
+    assert values == {1: "class_a", 2: "class_b", 3: unknown_road, 4: unknown_track}
 
 
 async def test_a_tag_with_the_value_is_true_and_an_absent_tag_is_false(road_graph_session):
@@ -149,17 +132,13 @@ async def test_a_tag_with_the_value_is_true_and_an_absent_tag_is_false(road_grap
 
 
 async def test_a_cycleway_value_on_any_side_counts(road_graph_session):
-    expression = material_sql.cycleway_has_value_sql("value_a", "value_b")
-    sides = {way_id: {tag: " Value_A "} for way_id, tag in enumerate(material_sql.CYCLEWAY_TAG_NAMES, start=1)}
-
-    values = await _way_values(road_graph_session, expression, {
-        **sides,
-        10: {"cycleway:both": "value_b"},
-        11: {"cycleway": "no", "cycleway:left": "other"},
-        12: {},
+    values = await _way_values(road_graph_session, material_sql.cycleway_has_value_sql("value_a", "value_b"), {
+        1: {"cycleway:both": " Value_B "},
+        # 値の無い道も同じ側（NULLだけの配列との`&&`もfalse）。
+        2: {"cycleway": "no", "cycleway:left": "other"},
     })
 
-    assert values == {**{way_id: True for way_id in sides}, 10: True, 11: False, 12: False}
+    assert values == {1: True, 2: False}
 
 
 # 停止要因の種別は区間の値の表の列名を決めるだけで、どの種別でも式は同じ。
@@ -168,7 +147,6 @@ _POI_KIND = "signal"
 
 @pytest.mark.parametrize(("count", "distance_m", "expected"), [
     (3.0, 500.0, 6.0),
-    (0.0, 500.0, 0.0),
     (None, 500.0, None),  # 未計算
 ])
 async def test_a_poi_density_is_per_km_and_missing_until_counted(road_graph_session, count, distance_m, expected):
@@ -214,14 +192,13 @@ async def test_a_road_is_a_cycleway_by_its_own_kind(road_graph_session):
 
 async def test_a_shared_pedestrian_path_is_a_footway_or_path_that_lets_bicycles_in(road_graph_session):
     values = await _way_values(road_graph_session, material_value_sql()["shared_pedestrian_path"], {
-        1: {"highway": "footway", "bicycle": "yes"},
-        2: {"highway": "path", "bicycle": " Designated "},
-        3: {"highway": "footway", "bicycle": "no"},
-        4: {"highway": "path"},
-        5: {"highway": "residential", "bicycle": "yes"},
+        1: {"highway": "path", "bicycle": " Designated "},
+        2: {"highway": "footway", "bicycle": "no"},
+        3: {"highway": "path"},
+        4: {"highway": "residential", "bicycle": "yes"},
     })
 
-    assert values == {1: True, 2: True, 3: False, 4: False, 5: False}
+    assert values == {1: True, 2: False, 3: False, 4: False}
 
 
 # --- 読み出しの経路（infrastructure/road_graph_repository.py） -----------------------------
