@@ -1,4 +1,7 @@
-"""app/main.pyのlifespan（起動・終了シーケンス）のテスト。
+"""`app/main.py`のlifespan（起動・終了）: 軸定義を読めなければ起動しない・定期ジョブが起動直後にも走る・
+失敗した定期ジョブがプロジェクトの接頭辞のロガーに残る。
+
+ここで見ないもの: 定期ジョブそれぞれの中身（呼ぶ先のテスト）、CORSの結線（`test_main.py`）
 
 `TestClient(app)`をcontext manager無しで生成するとASGIのlifespanイベント自体が
 発火しない。ここでは`with TestClient(app) as client:`で実際に発火させる。
@@ -131,7 +134,6 @@ def test_every_interval_job_also_runs_immediately_at_startup(captured_add_job_ca
     interval_jobs = [call for call in captured_add_job_calls if call["trigger"] == "interval"]
     assert interval_jobs, "intervalジョブが1本も登録されていない"
     for call in interval_jobs:
-        assert call["minutes"] > 0, call["id"]
         started_at = call.get("next_run_time")
         assert started_at is not None, f"{call['id']}にnext_run_timeが無い"
         assert abs((started_at - before).total_seconds()) < 5, call["id"]

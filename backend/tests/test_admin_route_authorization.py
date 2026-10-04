@@ -7,13 +7,15 @@
 - **その依存が資格情報の欠落・不一致・未設定を401で拒むこと**——依存を持つ口ならどれで
   確かめても同じなので、1つの口で見る。
 
-口ごとに「認証なしで401」を確かめるテストは、この2つの組で足りるため置かない。
+口ごとに「認証なしで401」を確かめるテストは、この2つの組で足りるため置かない。正しい資格情報で通ることは、
+管理APIの経路ごとのテストが通す。
 
 管理APIは全利用者へ影響する操作（タイルキャッシュの全消去・軸定義の変更）と、全表走査を
 伴う重い集計を持つ。付け忘れは「動くが誰でも叩ける」という形で出るため、型でも例外でも
 現れない。
 """
 
+import pytest
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
@@ -42,38 +44,29 @@ def _depends_on_admin_auth(route: APIRoute) -> bool:
     )
 
 
-def test_the_scan_is_not_empty():
-    # 管理APIが1本も見つからない＝パスの前置きが変わった等でこの検査が空回りしている。
-    assert _admin_routes(), f"{ADMIN_PATH_PREFIX}配下のルートが1本も見つからない"
-
-
 def test_every_admin_route_requires_basic_auth():
-    unprotected = [route.path for route in _admin_routes() if not _depends_on_admin_auth(route)]
+    admin_routes = _admin_routes()
+    assert admin_routes, f"{ADMIN_PATH_PREFIX}配下のルートが1本も見つからない"
+    unprotected = [route.path for route in admin_routes if not _depends_on_admin_auth(route)]
 
     assert unprotected == [], f"require_admin_basic_authが付いていない管理API: {unprotected}"
 
 
-def test_update_mode_rejects_missing_credentials(admin_credentials):
-    response = client.post("/api/admin/debug/mode", json={"enabled": True})
+@pytest.mark.parametrize(
+    ("configured", "headers"),
+    [
+        (True, {}),
+        (True, {"Authorization": basic_auth_header(ADMIN_USERNAME, "wrong")}),
+        (False, AUTH_HEADERS),
+    ],
+    ids=["missing", "wrong", "unset"],
+)
+def test_the_dependency_rejects_with_a_basic_auth_challenge(monkeypatch, admin_credentials, configured, headers):
+    if not configured:
+        monkeypatch.setattr(settings, "admin_basic_auth_username", "")
+        monkeypatch.setattr(settings, "admin_basic_auth_password", "")
+
+    response = client.post("/api/admin/debug/mode", json={"enabled": True}, headers=headers)
 
     assert response.status_code == 401
     assert response.headers["www-authenticate"] == 'Basic realm="RideCompass admin"'
-
-
-def test_update_mode_rejects_wrong_credentials(admin_credentials):
-    response = client.post(
-        "/api/admin/debug/mode",
-        json={"enabled": True},
-        headers={"Authorization": basic_auth_header(ADMIN_USERNAME, "wrong")},
-    )
-
-    assert response.status_code == 401
-
-
-def test_update_mode_rejects_any_credentials_when_unset(monkeypatch):
-    monkeypatch.setattr(settings, "admin_basic_auth_username", "")
-    monkeypatch.setattr(settings, "admin_basic_auth_password", "")
-
-    response = client.post("/api/admin/debug/mode", json={"enabled": True}, headers=AUTH_HEADERS)
-
-    assert response.status_code == 401

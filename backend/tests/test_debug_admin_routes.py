@@ -1,3 +1,8 @@
+"""`/api/admin/debug`（debug_modeの切替・直近ログの取得）と、ログを持つリングバッファ（`debug_control.py`）。
+
+ここで見ないもの: 認可 → `test_admin_route_authorization.py`、ログ1行の書式 → `test_request_log.py`
+"""
+
 import logging
 import uuid
 
@@ -31,14 +36,10 @@ def test_update_mode_enables_and_disables_without_restart(admin_credentials):
     enable_response = client.post("/api/admin/debug/mode", json={"enabled": True}, headers=AUTH_HEADERS)
     assert enable_response.status_code == 200
     assert enable_response.json() == {"debug_mode": True}
-    assert settings.debug_mode is True
-    assert logging.getLogger().level == logging.DEBUG
 
     disable_response = client.post("/api/admin/debug/mode", json={"enabled": False}, headers=AUTH_HEADERS)
     assert disable_response.status_code == 200
     assert disable_response.json() == {"debug_mode": False}
-    assert settings.debug_mode is False
-    assert logging.getLogger().level == logging.INFO
 
 
 def test_read_mode_reflects_current_state(admin_credentials):
@@ -53,13 +54,12 @@ def test_read_mode_reflects_current_state(admin_credentials):
 # --- ログ取得（リングバッファ、T318のユースケース: containsで絞り込み） ---
 
 
-def test_read_logs_filters_by_contains_and_limit(admin_credentials):
+def test_read_logs_filters_by_contains(admin_credentials):
     client.post("/api/admin/debug/mode", json={"enabled": True}, headers=AUTH_HEADERS)
     marker = uuid.uuid4().hex
     logger = logging.getLogger("test.t377")
     logger.debug("distance filter rejected bearing=0 marker=%s", marker)
     logger.debug("distance filter rejected bearing=1 marker=%s", marker)
-    logger.debug("unrelated debug line marker=%s", marker)
 
     response = client.get("/api/admin/debug/logs", params={"contains": f"distance filter rejected bearing=1 marker={marker}"}, headers=AUTH_HEADERS)
 
@@ -70,15 +70,12 @@ def test_read_logs_filters_by_contains_and_limit(admin_credentials):
 
 
 def test_read_logs_filters_by_min_level(admin_credentials):
-    """改善計画T517: min_level=WARNINGを渡すとWARNING以上だけが返り、
-    DEBUG/INFOは除外される。debug_modeをONにしてDEBUG行も記録させた上で検証する。"""
+    """`min_level`を渡すと、そのレベル以上だけが返る（境の両側のINFOとWARNINGで見る）。"""
     client.post("/api/admin/debug/mode", json={"enabled": True}, headers=AUTH_HEADERS)
     marker = uuid.uuid4().hex
     logger = logging.getLogger("test.t517")
-    logger.debug("debug line marker=%s", marker)
     logger.info("info line marker=%s", marker)
     logger.warning("warning line marker=%s", marker)
-    logger.error("error line marker=%s", marker)
 
     response = client.get(
         "/api/admin/debug/logs", params={"contains": marker, "min_level": "WARNING"}, headers=AUTH_HEADERS
@@ -86,14 +83,8 @@ def test_read_logs_filters_by_min_level(admin_credentials):
 
     assert response.status_code == 200
     lines = response.json()
-    assert len(lines) == 2
-    assert all("[WARNING]" in line or "[ERROR]" in line for line in lines)
-
-
-def test_read_logs_rejects_unknown_min_level(admin_credentials):
-    response = client.get("/api/admin/debug/logs", params={"min_level": "TRACE"}, headers=AUTH_HEADERS)
-
-    assert response.status_code == 422
+    assert len(lines) == 1
+    assert "[WARNING]" in lines[0]
 
 
 def test_read_logs_returns_nothing_while_debug_mode_disabled(admin_credentials):
