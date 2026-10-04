@@ -6,6 +6,7 @@
 """
 
 import io
+from typing import cast
 
 from PIL import Image, ImageColor
 
@@ -45,11 +46,11 @@ def _recolor_palette(path: str, content: bytes) -> bytes:
     with Image.open(io.BytesIO(content)) as image:
         if image.mode != "P":
             return content
-        unknown = {
-            rgba[:3]
-            for _count, rgba in image.convert("RGBA").getcolors(maxcolors=256) or []
-            if rgba[3] > 0 and rgba[:3] not in _PRECIPITATION_COLORS
-        }
+        # RGBAに直した画像の色は4つ組になる（`getcolors`の型は1帯の画像の数も含む）。
+        colors = cast(
+            "list[tuple[int, tuple[int, int, int, int]]]", image.convert("RGBA").getcolors(maxcolors=256) or []
+        )
+        unknown = {rgba[:3] for _count, rgba in colors if rgba[3] > 0 and rgba[:3] not in _PRECIPITATION_COLORS}
         if unknown:
             log_throttled_warning(
                 "jma:tile-recolor",
