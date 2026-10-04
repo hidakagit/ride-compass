@@ -8,6 +8,7 @@
 // 渡した実装のパスになるもの（間接に通すテストは入らないので、要れば並べて渡す）。--ref でも同じ規則でその版から集める。
 // --ref は「前」の値を測る（例: --ref origin/master）。母集団をその版から集め、その版のテストを元のテストの隣へ一時の名前で
 // 書き出して流し、終わったら消す。実装はその版と同じでなければならない（起こし直しは実装を変えない）。
+// --ref ではテストごとの「そのテストだけが届く行」を出さない（旧版のテスト名が出るため。起こし直しの手順1〜3では旧版を開かない）。
 // 1本だけ流すのは、vitest の -t が describe と題名を「 > 」でつないだ名前に当てるため、その形で絞る。
 // 絞って1本も流れなければ（どれも skipped）、0行とせずに落とす。
 
@@ -213,6 +214,8 @@ console.log(
   `届いていない分岐: ${uncoveredBranches.map((b) => `行${b.line} ${b.type} の${b.index + 1}つ目`).join("、") || "なし"}`,
 );
 
+if (values.ref) process.exit(0);
+
 const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const reachedBy = whole.executed.map((test) => {
   const alone = runVitest([test.file], `^${escape(test.name)}$`);
@@ -223,6 +226,5 @@ const reachedBy = whole.executed.map((test) => {
 console.log("そのテストだけが届く行:");
 for (const { test, lines } of reachedBy) {
   const only = [...lines].filter((line) => reachedBy.every((other) => other.test === test || !other.lines.has(line)));
-  const label = values.ref ? test.file.replace(".audit-before.test.", ".test.") : test.file;
-  console.log(`  ${label} > ${test.name}: ${ranges(only)}`);
+  console.log(`  ${test.file} > ${test.name}: ${ranges(only)}`);
 }
