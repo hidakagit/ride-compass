@@ -1,8 +1,9 @@
-"""`scripts/review_checks.py`の差分の報告（`change`）のテスト。
+"""`scripts/review_checks.py`の差分の報告（`change`）と総量（`metrics`）のテスト。
 
 履歴は一時的なgitリポジトリで作る。
 """
 
+import argparse
 import importlib.util
 import subprocess
 import sys
@@ -88,3 +89,29 @@ def test_change_counts_the_working_tree_with_untracked_files(repo, monkeypatch, 
 
     assert f"増減: 実装 +{lines:,}/−0・テスト +0/−0・文書 +0/−0" in out
     assert f"規模: {label}（" in out
+
+
+def test_metrics_counts_task_tools_and_workflows_apart_from_product(repo, capsys):
+    _commit(repo, {"backend/app/a.py": "a\n"})
+    _git(repo, "tag", "-a", "periodic-review/001", "-m", "r")
+    (repo / "stop-dev.bat").write_bytes("rem 止める\r\n".encode("cp932") * 2)
+    _git(repo, "add", "stop-dev.bat")
+    _commit(
+        repo,
+        {
+            "tools/flow-gate/src/gate.js": "g\n" * 3,
+            "tools/flow-gate/test/fake-github.js": "f\n" * 4,
+            ".github/workflows/claude-task.yml": "c\n" * 5,
+            ".github/workflows/ci.yml": "w\n" * 6,
+            ".github/dependabot.yml": "d\n" * 7,
+        },
+    )
+
+    assert rc.cmd_metrics(argparse.Namespace()) == 0
+    out = capsys.readouterr().out
+
+    assert "| 実装 | 17 | 1 | +16 |" in out
+    assert "| うち製品 | 1 | 1 | +0 |" in out
+    assert "| うちタスク管理 | 8 | 0 | +8 |" in out
+    assert "| うち道具 | 8 | 0 | +8 |" in out
+    assert "| テスト | 4 | 0 | +4 |" in out
