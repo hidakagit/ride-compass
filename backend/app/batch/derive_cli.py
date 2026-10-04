@@ -8,7 +8,10 @@
     .venv\\Scripts\\python.exe -m app.batch.derive_cli --from counts
 
 途中から流し直すのは、ある段のやり方だけを変えたとき（分類器を直した・しきい値を
-変えた）。生データを取り直したときは最初から通す。`--from`はその段から後ろを全部流す。
+変えた）。`--from`はその段から後ろを全部流す。生データを取り直したときは最初から通す——
+`--from`は、全ソースの成功した最新の取込が前の作り直しの記録（`derived_source_runs`）と
+同じときだけ流し、違えば止まる（流すと、前の段が古い取込から作った値のまま残る）。
+作り直しは取込と同時に走らない（`_common.py: SOURCE_DATA_LOCK`）。
 
 後ろの段がみな直前の段の値を読むわけではない。面を線へ落とす段（`raster`）はノードの値も
 数の値も読まず、数の段が作る道1本の行へ書き込むためにその後ろにある。そのため`--from`は、
@@ -48,6 +51,7 @@ from app.batch import (  # noqa: E402
     derive_way_materials,
 )
 from app.batch._common import (  # noqa: E402
+    SOURCE_DATA_LOCK,
     asyncpg_dsn,
     batch_session_factory,
     format_duration,
@@ -57,6 +61,7 @@ from app.infrastructure.tuning_overrides import load_tuning_values  # noqa: E402
 from app.infrastructure import derived_data_meta, road_network_store  # noqa: E402
 from app.infrastructure.derived_data_freshness import derived_tables  # noqa: E402
 from app.infrastructure.road_graph_repository import RoadGraphRepository  # noqa: E402
+from app.infrastructure.source_models import LATEST_SUCCEEDED_RUNS_SQL  # noqa: E402
 
 logger = logging.getLogger("ridecompass.derive_cli")
 
@@ -72,7 +77,8 @@ STAGES: tuple[tuple[str, Stage], ...] = (
     ("ways", lambda conn, tuning: derive_way_materials.derive(conn)),
 )
 
-#: 作り直す間の表を置くスキーマ。同時に2本走ると互いの表を消し合うため、この名前で1本に限る。
+#: 作り直す間の表を置くスキーマ。同時に2本走ると互いの表を消し合うため、作り直しは排他の鍵
+#: （`SOURCE_DATA_LOCK`）を取って1本に限る。
 WORK_SCHEMA = "derived_rebuild"
 
 #: 入れ替えが読み手を待つ上限。入れ替えは表の排他ロックを取り、待つ間は後から来た読み手も
@@ -148,8 +154,9 @@ async def _build_road_network(database_url: str, revision: int) -> Path:
     return pending
 
 
-async def _swap(conn: asyncpg.Connection, tables: list[str], revision: int) -> None:
-    """`public`の派生の表を作業用のスキーマの表で置き換え、世代を`revision`へ進める（1トランザクション）。"""
+async def _swap(conn: asyncpg.Connection, tables: list[str], revision: int, runs: dict[str, int]) -> None:
+    """`public`の派生の表を作業用のスキーマの表で置き換え、世代を`revision`へ進め、作った取込を`runs`と
+    記録する（1トランザクション）。"""
     for attempt in range(1, _SWAP_ATTEMPTS + 1):
         started = time.perf_counter()
         try:
@@ -162,6 +169,7 @@ async def _swap(conn: asyncpg.Connection, tables: list[str], revision: int) -> N
                 if bumped != revision:
                     raise RuntimeError(
                         f"派生データの世代が作り直しの間に動いた（道路網は {revision} で作った。今 {bumped}）")
+                await derived_data_meta.replace_source_runs(conn, runs)
             logger.info("派生の表を入れ替えた（%d回目） / 表の排他ロック（待ちを含む）=%.1fs",
                         attempt, time.perf_counter() - started)
             return
@@ -186,12 +194,15 @@ async def run(database_url: str, start_from: str | None) -> int:
     tables = [*(table.name for table in derived_tables()), derived_data_meta.DerivedDataMetaRow.__tablename__]
     tuning = await _read_tuning(database_url)
     conn = await asyncpg.connect(asyncpg_dsn(database_url))
-    if not await conn.fetchval("SELECT pg_try_advisory_lock(hashtext($1))", WORK_SCHEMA):
+    if not await conn.fetchval("SELECT pg_try_advisory_lock(hashtext($1))", SOURCE_DATA_LOCK):
         await conn.close()
-        raise RuntimeError("別の派生の作り直しが走っている")
+        raise RuntimeError("別の派生の作り直しか取込が走っている")
     pending: Path | None = None
     started = time.perf_counter()
     try:
+        runs = {row["source"]: row["run_id"] for row in await conn.fetch(LATEST_SUCCEEDED_RUNS_SQL)}
+        if start_from and runs != await derived_data_meta.read_source_runs(conn):
+            raise RuntimeError("生データが前の作り直しから変わっている。--from を外して最初から流す")
         await _copy_to_work_schema(conn, tables)
         for index, (name, stage) in enumerate(STAGES[begin:], start=1):
             stage_started = time.perf_counter()
@@ -201,7 +212,7 @@ async def run(database_url: str, start_from: str | None) -> int:
                         format_duration(time.perf_counter() - stage_started))
         revision = (await conn.fetchval("SELECT revision FROM derived_data_meta WHERE id = 1") or 0) + 1
         pending = await _build_road_network(database_url, revision)
-        await _swap(conn, tables, revision)
+        await _swap(conn, tables, revision, runs)
         road_network_store.publish(pending)
         pending = None
     finally:

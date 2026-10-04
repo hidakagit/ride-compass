@@ -200,8 +200,8 @@ bbox全体ぶんのコストをリクエストにつき1回だけnumpyで合成�
   という既存の汎用トポロジカル合成が「動的材料さえ埋まればどんな軸[軸スタジオが
   動的材料を直接参照して作ったカスタム軸を含む]でも正しく合成する」ため、
   軸名のハードコードは呼び出し側に一切現れない）。動的材料が増えたら
-  `REQUEST_DYNAMIC_MATERIAL_IDS`とこの辞書へ1エントリずつ追加するだけでよい（CLAUDE.md
-  原則1、フロントがramp軸をカタログ［`axisCatalog.rampAxes`］から列挙して塗るのと同種の汎用ディスパッチ）。
+  `REQUEST_DYNAMIC_MATERIAL_IDS`とこの辞書へ1エントリずつ追加するだけでよい（
+  [設計原則](../../architecture/design-principles.md)構造仕様8、フロントがramp軸をカタログ［`axisCatalog.rampAxes`］から列挙して塗るのと同種の汎用ディスパッチ）。
   `evaluate_dynamic_material_arrays`が全動的材料を評価する唯一の経路で、静的行列への
   動的軸合成（`evaluate_dynamic_axis_arrays`）もここを通るため、式が乖離しない。
   `DynamicAxisRequestContext`は出発時点のスナップショット（`weather`）・走行速度

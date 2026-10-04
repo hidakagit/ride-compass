@@ -1,4 +1,34 @@
+import { format } from "node:util";
 import { afterAll, afterEach } from "vitest";
+
+// 警告は既定でエラー（docs/conventions/testing.md「警告は既定でエラー」）。`console.warn`・`console.error`へ出たもの
+// （Reactの警告もここへ届く）は、出したテストを落とす。vitestには出力の警告で落とす設定が無いため、ここで受ける。
+// 直せない警告だけを、文で名指して下の一覧へ載せる（1件ずつ、理由と外せる条件を添える）。
+// テストが`vi.spyOn(console, ...)`で差し替えている間は、そのテストが出力を受け持つ。
+const ALLOWED_WARNINGS: readonly { message: RegExp; reason: string; removeWhen: string }[] = [];
+
+const warnings: string[] = [];
+for (const level of ["warn", "error"] as const) {
+  const original = console[level];
+  console[level] = (...args: unknown[]) => {
+    original(...args);
+    const text = format(...args);
+    if (!ALLOWED_WARNINGS.some((allowed) => allowed.message.test(text))) warnings.push(`console.${level}: ${text}`);
+  };
+}
+
+function failOnWarnings(): void {
+  if (warnings.length === 0) return;
+  const found = warnings.splice(0);
+  throw new Error(
+    `警告が${found.length}件出た。直すか、直せなければ vitest.setup.ts: ALLOWED_WARNINGS へ文で名指して載せる:\n  ` +
+      found.join("\n  "),
+  );
+}
+
+// テストの外（ファイルの読み込み・afterAll）で出たものは、ファイルの終わりに落とす。
+afterEach(failOnWarnings);
+afterAll(failOnWarnings);
 
 // DOMを使わないテスト（`// @vitest-environment node`docblock付き）では
 // Testing Library自体が不要なため読み込まない。

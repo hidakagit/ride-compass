@@ -12,6 +12,8 @@ r"""起こし直したテストを機械で監査する。報告の自己申告�
 - ④ 実装へ1行も入らないテスト（`--cov-context=test`で実測する。**静的解析は誤検知する**
   ——`setattr(mod, ...)`の形やヘルパ経由を数え落とした実績が2回ある）
 - ⑤ 行・分岐カバレッジ
+- ⑥ 対象の公開の名前ごとの`app`・`scripts`・`benchmarks`での参照数（対象の外/中）と、どちらも0の
+  「テストからしか使われない候補」。ASTで数えるので、文字列で指す参照とフレームワークが規約で呼ぶものは0に見える
 
 **機械化できないものは残る。** 「そのテストは要るか」の3問と、「本番で作れない入力を
 使っていないか」の突き合わせは、対象ごとに値域の導出が要るため人が読む。
@@ -82,18 +84,82 @@ def module_symbols(path: Path) -> tuple[set[str], dict[str, str]]:
     return defined, imported
 
 
-def app_imports(tree: ast.AST) -> list[tuple[str, str]]:
-    """テストからの`app.*`直接import。`(表示用の行, 束縛された名前)`で返す。"""
-    out: list[tuple[str, str]] = []
+def app_imports(tree: ast.AST) -> list[tuple[str, str, str]]:
+    """テストからの`app.*`直接import。`(表示用の行, 束縛された名前, importしたもののドット記法)`で返す。
+
+    表示とドット記法は`as`の前の元の名前で書き、束縛された名前は③の内訳の照合にだけ使う。
+    """
+    out: list[tuple[str, str, str]] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("app"):
             for a in node.names:
-                out.append((f"from {node.module} import {a.asname or a.name}", a.asname or a.name))
+                out.append((f"from {node.module} import {a.name}", a.asname or a.name, f"{node.module}.{a.name}"))
         elif isinstance(node, ast.Import):
             for a in node.names:
                 if a.name.startswith("app"):
-                    out.append((f"import {a.name}", a.asname or a.name.split(".")[0]))
+                    out.append((f"import {a.name}", a.asname or a.name.split(".")[0], a.name))
     return out
+
+
+def public_names(tree: ast.Module) -> list[tuple[str, str]]:
+    """実装の公開の名前。`(表示名, 参照を数える名前)`で返す。
+
+    最上位の関数・クラス・代入と、公開のクラスの`_`で始まらないメソッド（表示は`クラス.メソッド`）。
+    """
+    out: list[tuple[str, str]] = []
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names = [node.name]
+        elif isinstance(node, ast.Assign):
+            names = [t.id for t in node.targets if isinstance(t, ast.Name)]
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            names = [node.target.id]
+        else:
+            continue
+        out.extend((name, name) for name in names if not name.startswith("_"))
+        if isinstance(node, ast.ClassDef) and not node.name.startswith("_"):
+            out.extend(
+                (f"{node.name}.{item.name}", item.name)
+                for item in node.body
+                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and not item.name.startswith("_")
+            )
+    return out
+
+
+def name_references(tree: ast.AST) -> dict[str, int]:
+    """名前として読む箇所・属性として読む箇所・`from … import <名前>`を、名前ごとに数える。"""
+    counts: dict[str, int] = defaultdict(int)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+            counts[node.id] += 1
+        elif isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Load):
+            counts[node.attr] += 1
+        elif isinstance(node, ast.ImportFrom):
+            for a in node.names:
+                counts[a.name] += 1
+    return counts
+
+
+def report_test_only_names(backend: Path, implementation: str) -> None:
+    """公開の名前ごとに`app`・`scripts`・`benchmarks`での参照数（対象の外/中）を出し、どちらも0の名前を候補に並べる。"""
+    impl_tree = ast.parse((backend / implementation).read_text(encoding="utf-8"))
+    inside = name_references(impl_tree)
+    outside: dict[str, int] = defaultdict(int)
+    for directory in ("app", "scripts", "benchmarks"):
+        for path in sorted((backend / directory).rglob("*.py")):
+            if path.relative_to(backend).as_posix() != implementation:
+                for name, count in name_references(ast.parse(path.read_text(encoding="utf-8"))).items():
+                    outside[name] += count
+    names = public_names(impl_tree)
+    print("\n⑥ 公開の名前の参照（app・scripts・benchmarks。対象の外 / 中）")
+    print("     数え方の穴: 文字列で指す参照（getattr・setattr・importlib・文字列の注釈等）は数えない。"
+          "デコレータやフレームワークが規約で呼ぶもの（ルーター・バリデータ等）は参照0に見える。"
+          "メソッドは同じ名前の別の属性への参照も数える")
+    for label, name in names:
+        print(f"     {label:<48} 外 {outside[name]:>3} / 中 {inside[name]:>3}")
+    candidates = [label for label, name in names if outside[name] == 0 and inside[name] == 0]
+    print(f"   テストからしか使われない候補（外にも中にも参照が無い）: {len(candidates)}個"
+          + (f"（{', '.join(candidates)}）" if candidates else ""))
 
 
 def bare_import_alias(tree: ast.AST, name: str) -> str | None:
@@ -441,14 +507,14 @@ def main() -> int:
         # --- ② app.* 直接import ---
         imports = app_imports(tree)
         print(f"② テストからの app.* 直接import: {len(imports)}本")
-        for line, _ in imports:
+        for line, _, _ in imports:
             print(f"     {line}")
         if imports:
             print("     ← 許されるのは対象モジュールと、対象の公開シグネチャが要求する型だけ。")
             print("       他モジュールの関数・サービス・例外・定数は対象の名前空間経由で触ること")
 
         # --- ③ <対象>.X の内訳 ---
-        alias = next((name for _, name in imports if module.endswith(name)), None) or bare_import_alias(
+        alias = next((name for _, name, path in imports if path == module), None) or bare_import_alias(
             tree, module.rsplit(".", 1)[-1]
         )
         if alias is None and imports:
@@ -474,6 +540,8 @@ def main() -> int:
             print(f"     属性を変数で指す呼び出し {len(unresolved)}か所（行 {', '.join(map(str, unresolved))}）"
                   "は上の内訳に入っていない")
             print(f"     テストに文字列で現れる {alias} の名前（上に無いもの）: {', '.join(candidates) or 'なし'}")
+
+    report_test_only_names(backend, implementation)
 
     # --- ④⑤ カバレッジ ---
     print("\n④⑤ カバレッジを測っています…")
