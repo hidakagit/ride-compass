@@ -23,65 +23,16 @@ CREATE TEMP TABLE _way_facts ON COMMIT DROP AS
 SELECT w.osm_way_id, w.geom,
        d.direction,
        w.highway,
-       lower(btrim(coalesce(w.tags->>'carriageway', ''))) AS carriageway,
-       COALESCE(NULLIF(btrim(w.tags->>'ref'), ''), NULLIF(btrim(w.tags->>'name'), '')) AS ident,
-       degrees(ST_Azimuth(ST_StartPoint(w.geom)::geography, ST_EndPoint(w.geom)::geography))
-           + CASE WHEN d.direction = 'backward' THEN 180 ELSE 0 END AS travel_deg
+       {dc.facts_sql("w", "d.direction")}
 FROM {WAYS_SOURCE_SQL} w
 JOIN way_materials d ON d.osm_way_id = w.osm_way_id
 """
 
-#: 逆向きに並走しているか。
-_ANTIPARALLEL = """
-abs(((b.travel_deg - t.travel_deg)::numeric % 360 + 360) % 360 - 180) < $1
-"""
-
-
-def _divided_sql() -> str:
-    fractions = ", ".join(str(f) for f in dc.SAMPLE_FRACTIONS)
-    named_deg = dc.NAMED_GAP_M / dc.PREFILTER_METERS_PER_DEGREE
-    geometric_deg = dc.GEOMETRIC_GAP_M / dc.PREFILTER_METERS_PER_DEGREE
-    return f"""
+_DIVIDED = f"""
 UPDATE way_materials m SET divided = v.divided
 FROM (
     SELECT t.osm_way_id,
-           t.direction <> 'both' AND t.travel_deg IS NOT NULL AND (
-               -- 条件1: OSM自身の申告
-               t.carriageway = ANY($4)
-               -- 条件2: 同じ路線番号/名前の対向一方通行が近くにある
-               OR (t.ident IS NOT NULL AND EXISTS (
-                   SELECT 1 FROM _way_facts b
-                   WHERE b.osm_way_id <> t.osm_way_id
-                     AND b.direction <> 'both'
-                     AND b.ident = t.ident
-                     AND b.geom && ST_Expand(t.geom, {named_deg})
-                     AND ST_DWithin(t.geom::geography, b.geom::geography, $2)
-                     AND {_ANTIPARALLEL}
-               ))
-               -- 条件3: 全長にわたって対向する同種別の一方通行が寄り添う
-               OR NOT EXISTS (
-                   SELECT 1 FROM unnest(ARRAY[{fractions}]::double precision[]) AS f
-                   WHERE NOT EXISTS (
-                       SELECT 1 FROM _way_facts b
-                       WHERE b.osm_way_id <> t.osm_way_id
-                         AND b.direction <> 'both'
-                         AND b.highway = t.highway
-                         -- 名前が食い違う道どうしは対にしない（両方無名は許す）。
-                         -- 主線に沿う側道を上下線の片側と見なさないため。
-                         AND (b.ident IS NOT DISTINCT FROM t.ident
-                              OR t.ident IS NULL OR b.ident IS NULL)
-                         -- 前置フィルタは標本点まわりの小さな箱にする（wayの全体bboxで
-                         -- 広げると長い道で候補が爆発する）。索引を使わせるためにあり、
-                         -- 正確な距離は次の行が決める。
-                         AND b.geom && ST_Expand(
-                               ST_LineInterpolatePoint(t.geom, f), {geometric_deg})
-                         AND ST_DWithin(
-                               ST_LineInterpolatePoint(t.geom, f)::geography,
-                               b.geom::geography, $3)
-                         AND {_ANTIPARALLEL}
-                   )
-               )
-           ) AS divided
+           {dc.divided_sql("t", "_way_facts")} AS divided
     FROM _way_facts t
 ) v
 WHERE v.osm_way_id = m.osm_way_id
@@ -107,8 +58,7 @@ async def derive_divided(conn: asyncpg.Connection) -> int:
     await conn.execute(_WAY_FACTS)
     await conn.execute("CREATE INDEX ON _way_facts USING GIST (geom)")
     await conn.execute("ANALYZE _way_facts")
-    await conn.execute(_divided_sql(), dc.BEARING_TOLERANCE_DEG, dc.NAMED_GAP_M,
-                       dc.GEOMETRIC_GAP_M, list(dc.TAG_VALUES))
+    await conn.execute(_DIVIDED)
     divided = await conn.fetchval("SELECT count(*) FROM way_materials WHERE divided")
     logger.info("上下線分離: 該当 %d本 / %.1f秒", divided, time.perf_counter() - started)
     return divided
