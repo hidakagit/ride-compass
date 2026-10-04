@@ -8,8 +8,8 @@
  *   距離・最速の印と所要時間・ほかの候補の余計にかかる時間・総合難易度（無ければ「—」）と負荷の帯の高さ、選ばれて
  *   いるタブ（選んだ候補・無ければ先頭・比較を見ている間は比較）と、タブを押したときに上がる操作
  * - 選んだ候補の中身: 合成（始められるときだけ）・GPXの操作、編集で作ったルートの「元との違い」へ渡す元と名前、
- *   道のりのグラフへ渡す値（区間がある候補だけ）、区間を押している間の地点・到達予想・解除・区間の風と内訳と
- *   研究モードの材料の値、押していない間の内訳へ渡す値、編集中は編集面だけを出すこと
+ *   道のりのグラフへ渡す値（区間がある候補だけ）、区間を押している間の地点・到達予想・解除・区間の風と内訳
+ *   （チップから開く軸の詳細を含む）と研究モードの材料の値、押していない間の内訳へ渡す値、編集中は編集面だけを出すこと
  * - 研究モードの比較タブと、比較表へ渡す軸（どれかの回で重みが0より大きかった軸）
  *
  * ここで見ないもの: 一覧の見出し・名前・最速の決め方 → `features/route/routeTabLabel.ts`。帯の高さの求め方 →
@@ -38,6 +38,7 @@ import type { GenerationInput } from "@/features/route/generationRequest";
 import { SPLICED_ROUTE_ID_PREFIX } from "@/features/route/routeTabLabel";
 import { COMPARISON_TAB, type EditedRoute, type RouteResults } from "@/features/route/useRouteResults";
 import { MATERIAL_CATALOG } from "@/lib/axisMaterialsCatalog";
+import { catalogAxisFromEntry } from "@/lib/catalogAxis";
 import { setResearchEnabled } from "@/lib/researchMode";
 import { getAxisCatalog } from "@/services/axisCatalogApi";
 import { catalogEntry, catalogOf, catalogResponse } from "@/testing/catalogAxes";
@@ -462,6 +463,22 @@ describe("選んだ候補の中身", () => {
       contributions: { axis_a: 12 },
       axisColors: CATALOG.axisColors,
     });
+  });
+
+  it("区間の内訳のチップから開く詳細は、軸の名前・候補全体ではなくその区間の軸別難易度・説明を出す", async () => {
+    const candidate = route("fast", { axis_difficulties: { axis_a: 20, axis_b: 30 } });
+    const selected = segmentSelection({ axis_difficulties: { axis_a: 72.4 } });
+    renderOutcome({ results: resultsOf({ generated: [candidate], selectedRouteSegment: selected }) });
+    await waitFor(() =>
+      expect(stubProps<ComponentProps<typeof AxisContributionBar>>("AxisContributionBar").axes).toHaveLength(3),
+    );
+    const { renderDetail } = stubProps<ComponentProps<typeof AxisContributionBar>>("AxisContributionBar");
+    const detailOf = (entry: Parameters<typeof catalogEntry>[0]) =>
+      render(<>{renderDetail?.(catalogAxisFromEntry(catalogEntry(entry)))}</>).container.textContent;
+    expect(detailOf({ axis_id: "axis_a", label: "軸A", description: "軸Aの説明" })).toBe(
+      "軸A軸別難易度 72/100軸Aの説明",
+    );
+    expect(detailOf({ axis_id: "axis_b", label: "軸B" })).toBe("軸Bデータなし");
   });
 
   it.each([
