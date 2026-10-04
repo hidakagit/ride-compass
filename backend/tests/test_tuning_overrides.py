@@ -85,6 +85,17 @@ async def test_override_round_trip_reaches_the_running_value(road_graph_session:
 @pytest.mark.asyncio(loop_scope="module")
 @pytest.mark.xdist_group(name="postgis")
 @pytest.mark.postgis
+async def test_an_empty_table_leaves_every_declared_default(road_graph_session: AsyncSession):
+    """行が1つも無くても宣言どおりに動く（fresh bootstrapで投入が要らない）。"""
+    await refresh_tuning_values(road_graph_session)
+
+    for parameter in TUNING_PARAMETERS:
+        assert tuning.tuning_value(parameter.id) == parameter.default
+
+
+@pytest.mark.asyncio(loop_scope="module")
+@pytest.mark.xdist_group(name="postgis")
+@pytest.mark.postgis
 async def test_writing_an_undeclared_id_is_rejected(road_graph_session: AsyncSession):
     with pytest.raises(TuningOverrideError):
         await set_override(road_graph_session, "turn.no_such_value", 1.0)
