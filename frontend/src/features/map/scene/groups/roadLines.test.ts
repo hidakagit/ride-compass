@@ -60,10 +60,9 @@ describe.each(TRACKS)("道の線（%s）", (_id, track) => {
 
 // 値の無い道がタイルに現れうる属性（源泉の`missing_semantics`が`unknown`）。
 describe.each(WITH_MISSING)("値の無い道が現れる線（%s）", (_id, track) => {
-  it("タグが無い道だけを薄い破線にする", () => {
+  it("タグが無い道だけを破線にする", () => {
     const paint = layerOf(track).paint ?? {};
     expect(evaluate(paint["line-dasharray"], {})).toEqual([...mapDisplay.noDataDash]);
-    expect(evaluate(paint["line-opacity"], {})).toBe(mapDisplay.road.unknownOpacity);
   });
 
   it("「不明」を隠すとタグが無い道だけが、分類の外の値を隠すとその道だけが消える", () => {
