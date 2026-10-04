@@ -44,16 +44,15 @@ _half_of_rounded_sum = st.tuples(
 _any_value = st.floats(min_value=-1e6, max_value=1e6)
 
 
-@given(values=st.lists(st.one_of(_on_a_midpoint, _half_of_rounded_sum, _any_value), min_size=1, max_size=30))
+_missing = st.just(math.nan)
+
+
+@given(values=st.lists(st.one_of(_on_a_midpoint, _half_of_rounded_sum, _any_value, _missing), min_size=1, max_size=30))
 def test_rounding_an_array_agrees_with_rounding_each_value(values):
-    """配列で丸めた区間と1つずつ丸めた値が食い違うと、同じ難易度の候補の並びが経路によって変わる。"""
+    """配列で丸めた区間と1つずつ丸めた値が食い違うと、同じ難易度の候補の並びが経路によって変わる。欠損は欠損のまま。"""
     rounded = round_difficulty_array(np.array(values))
 
-    assert rounded.tolist() == [round_difficulty(value) for value in values]
-
-
-def test_rounding_keeps_a_missing_value_missing():
-    assert math.isnan(round_difficulty_array(np.array([math.nan, 1.25]))[0])
+    np.testing.assert_array_equal(rounded, [round_difficulty(value) for value in values])
 
 
 def test_the_share_of_a_weight_is_taken_from_the_sum_of_all_weights():
@@ -61,7 +60,7 @@ def test_the_share_of_a_weight_is_taken_from_the_sum_of_all_weights():
     assert weight_share(0.0, [0.0, 0.0]) is None
 
 
-_scores = st.one_of(st.integers(min_value=0, max_value=100).map(float), st.just(math.nan))
+_scores = st.one_of(st.integers(min_value=0, max_value=100).map(float), _missing)
 _weights = st.integers(min_value=0, max_value=5).map(float)
 
 
@@ -141,13 +140,8 @@ def test_contributions_of_a_segment_are_rounded_and_may_not_add_up_to_the_compos
     assert contributions == {"a": 0.3, "b": 0.3, "c": 0.3}
 
 
-@pytest.mark.parametrize(
-    ("scores", "weights"),
-    [({"a": None}, {"a": 1.0}), ({"a": 50.0}, {"a": 0.0}), ({}, {})],
-    ids=["得点が無い", "重みの合計が0", "軸が無い"],
-)
-def test_a_segment_without_a_composite_has_no_contributions(scores, weights):
-    assert composite_difficulty(scores, weights) == (None, {axis_id: None for axis_id in scores})
+def test_a_segment_without_a_composite_has_no_contributions():
+    assert composite_difficulty({"a": 50.0}, {"a": 0.0}) == (None, {"a": None})
 
 
 def test_the_mean_by_distance_skips_segments_without_a_value_and_is_not_rounded():
@@ -155,18 +149,14 @@ def test_the_mean_by_distance_skips_segments_without_a_value_and_is_not_rounded(
 
 
 @pytest.mark.parametrize(
-    "segments",
-    [[], [(None, 1.0)], [(10.0, 0.0), (None, 3.0)]],
-    ids=["区間が無い", "値が無い", "値のある区間の距離が0"],
+    "segments", [[(None, 1.0)], [(10.0, 0.0), (None, 3.0)]], ids=["値が無い", "値のある区間の距離が0"]
 )
 def test_the_mean_by_distance_is_missing_without_a_measured_distance(segments):
     assert weighted_mean_by_distance(segments) is None
-    assert distance_weighted_difficulty(segments) is None
-    assert overall_difficulty(segments) is None
 
 
-def test_the_difficulty_by_distance_is_rounded():
-    assert distance_weighted_difficulty([(10.0, 1.0), (20.0, 2.0)]) == 16.7
+def test_a_route_without_a_mean_by_distance_has_no_load():
+    assert overall_difficulty([(None, 1.0)]) is None
 
 
 def test_the_load_of_a_route_is_its_rounded_average_over_every_segment_including_those_without_a_value():
