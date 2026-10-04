@@ -66,7 +66,7 @@
 | backendとの通信 | 網の層で差し替える（msw）。backendを呼ぶ口のモジュール（`services/*Api.ts`・`features/**/*Api.ts`）も、通信を包む自前のフック（`hooks/useAxisCatalog.ts: useAxisCatalog`等）も差し替えず、本物を通す（取得のキャッシュは`vitest.setup.ts`がテストごとに空にする）。応答は`frontend/src/testing/backendServer.ts`の手引きで経路ごとに与え、応答を与えていない要求はテストを落とす。口を差し替えると、口が応答をどう読むか（状態・本文の形・問い合わせの組み立て）が使う側のテストから抜け落ちる——backendのHTTPの代役（パターン5のrespx）と同じ理由である。口それぞれは、網の層で確かめる自分のテストを持つ |
 | 時計 | `vi.useFakeTimers()`で進める。待ち時間の定数や、待つフック（`hooks/useDebouncedValue.ts: useDebouncedValue`）を差し替えない |
 | 環境変数 | 値を**使う側**は、読み取り口のモジュール（`lib/tileBaseUrl.ts: tileBaseUrl`・`lib/adminBasicAuth.ts: adminBasicAuthCredentials`等）を`vi.mock`して値を固定する。`process.env`はテストファイルをまたいで共有されるので、使う側のテストで立てない。立ててよいのは読み取り口そのもののテストだけ（下の「パターン7」） |
-| テスト環境に無いブラウザの機能 | WebGL（`maplibre-gl`）・レイアウトの実寸（`embla-carousel-*`）等。テスト環境が持つもの（`localStorage`・`navigator`の値等。環境変数は上の行）は、それを読むフックを差し替えず、環境に値を置く。`localStorage`が投げる場面を作るときは`window`のゲッター（`vi.spyOn(window, "localStorage", "get")`）を差し替える——テスト環境（jsdom）の`localStorage`はProxy越しで、`getItem`/`setItem`へ張ったスパイは`vi.restoreAllMocks()`で戻らず、後のテストへ残る |
+| テスト環境に無いブラウザの機能 | WebGL（`maplibre-gl`）・レイアウトの実寸（`embla-carousel-*`）等。`maplibre-gl`は`frontend/src/testing/maplibre.ts`の代役へ差し替え、地図の部品は本物を描く（代役は受けたものを記録するだけで、出来事と押した所の地物はテストが起こす）。テスト環境が持つもの（`localStorage`・`navigator`の値等。環境変数は上の行）は、それを読むフックを差し替えず、環境に値を置く。`localStorage`が投げる場面を作るときは`window`のゲッター（`vi.spyOn(window, "localStorage", "get")`）を差し替える——テスト環境（jsdom）の`localStorage`はProxy越しで、`getItem`/`setItem`へ張ったスパイは`vi.restoreAllMocks()`で戻らず、後のテストへ残る |
 | ファイルを落とす | GPXの書き出し等、ブラウザにファイルを保存させる関数 |
 | 子の部品 | 下の条件を満たすときだけ |
 
@@ -78,8 +78,7 @@
 
 代役は受け取ったpropsを記録し、`children`を描くだけにする。子の振る舞いを真似ない——真似た代役は子の写しで、
 子が変わっても親のテストが通り続ける。差し替えたものと、それで見えなくなるものは、ファイル冒頭の
-「ここで見ないもの」に書く。代役と記録の読み出しは`frontend/src/testing/componentStubs.ts: stubModule`から取り、
-テストごとに書き写さない。
+「ここで見ないもの」に書く。
 
 ## 単体で確かめるかを、コードの種類で先に決める
 
