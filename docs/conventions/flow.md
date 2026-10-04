@@ -137,7 +137,8 @@
    入れたのは master の版の依存のファイルからなので、1 のあと `git diff --name-only origin/master -- backend/requirements*.txt frontend/package-lock.json`
    で作業ブランチとの違いを見る。backend のファイルが出たら `python -m pip install -q -r backend/requirements-batch.txt -r backend/requirements-dev.txt`、
    `frontend/package-lock.json` が出たら `npm ci --prefix frontend` で入れ直す（作業の途中で依存のファイルを変えたときも同じ）。
-3. issue の本文とコメント（`gh issue view <番号> -R ridecompass/ride-compass-tasks --comments`。答えのコメント・やり直しなら前の Pull Request のコメントも）を読み、CLAUDE.md と規約のとおりに作る。
+3. issue の本文とコメント（`gh issue view <番号> -R ridecompass/ride-compass-tasks --json title,body,comments --jq '.title, .body, (.comments[] | "--- \(.author.login) \(.createdAt)", .body)'`。
+   `--comments` は端末でない出力ではコメントだけを出し、本文を出さない。答えのコメント・やり直しなら前の Pull Request のコメントも）を読み、CLAUDE.md と規約のとおりに作る。
    - ユーザーの判断が要るところは「問い」の形で書いて `ask.js` で問い、そこで終える（答えは次の起動で拾われる）。
      作る前に、答えの無い判断（方針・見た目の案・本番への書き込み等）が残っていないかを見て、残っていれば問いに要る分だけを
      調べて（画面を撮る・件数を数える等）作らずに問う。作り込んだあとに問うと、答えしだいで作ったものが無駄になる。
