@@ -1,11 +1,11 @@
 /**
  * 保存した生成の条件（`useSavedConditions.ts`）——いまの生成の条件を名前を付けて保存し、呼び出すと生成の条件
- * （`useGenerationConditions.ts`。本物を通す）が保存した値に入れ替わる。出発地は位置の持ち主へ渡す: 地図で置いた
- * 出発地はその地点に、現在地のまま保存したものは現在地へ戻す。一覧は開き直しても残る。
+ * （`useGenerationConditions.ts`。本物を通す）が保存した値に入れ替わる。出発地は位置の持ち主へ渡す: 固定して保存した
+ * ものは保存したときの出発地に、固定せずに保存したものは現在地へ戻す。一覧は開き直しても残る。
  *
  * ここで見ないもの:
  * - 保存値の1件ずつの読み方・名前の案・同じ名前の上書き → `savedConditions.test.ts`
- * - 一覧の表示と押した操作 → `SavedConditionsPanel/SavedConditionsPanel.test.tsx`
+ * - 一覧の表示と押した操作・出発地を固定するかの既定 → `SavedConditionsPanel/SavedConditionsPanel.test.tsx`
  * - 出発地を受け取ったあと（地図で置いた出発地・現在地の取り直し） → `hooks/useLocation.test.ts`
  *
  * 差し替えたもの: 軸カタログの応答（網の層）。保存はテスト環境の`localStorage`を本物のまま使う。
@@ -30,18 +30,23 @@ const CATALOG = catalogResponse([
   catalogEntry({ axis_id: "axis_b", default_weight: 0.6 }),
 ]);
 
-function renderSaved(initialOrigin: Coordinates | null = null) {
+interface OriginProps {
+  origin: Coordinates | null;
+  originManual: boolean;
+}
+
+function renderSaved(initialOrigin: OriginProps = { origin: ORIGIN, originManual: false }) {
   const onOriginPlace = vi.fn();
   const onOriginFollowCurrent = vi.fn();
   const rendered = renderHook(
-    ({ manualOrigin }: { manualOrigin: Coordinates | null }) => {
+    ({ origin, originManual }: OriginProps) => {
       const conditions = useGenerationConditions({ onOriginPlace: () => {} });
       return {
         conditions,
-        saved: useSavedConditions({ conditions, manualOrigin, onOriginPlace, onOriginFollowCurrent }),
+        saved: useSavedConditions({ conditions, origin, originManual, onOriginPlace, onOriginFollowCurrent }),
       };
     },
-    { initialProps: { manualOrigin: initialOrigin } },
+    { initialProps: initialOrigin },
   );
   return { ...rendered, onOriginPlace, onOriginFollowCurrent };
 }
@@ -53,7 +58,7 @@ beforeEach(() => {
 
 describe("保存して呼び出す", () => {
   it("保存したあとに変えた条件が、呼び出すと保存した値へ戻る", async () => {
-    const { result } = renderSaved(ORIGIN);
+    const { result } = renderSaved();
     await waitFor(() => expect(result.current.conditions.routePreference).toEqual({ axis_a: 0.4, axis_b: 0.6 }));
     const [filterKey] = Object.keys(DEFAULT_HARD_FILTERS);
     act(() => {
@@ -68,7 +73,7 @@ describe("保存して呼び出す", () => {
         [filterKey]: !DEFAULT_HARD_FILTERS[filterKey],
       });
     });
-    act(() => result.current.saved.save("荒川へ"));
+    act(() => result.current.saved.save("荒川へ", false));
 
     act(() => {
       result.current.conditions.changeRouteMode("loop");
@@ -94,7 +99,7 @@ describe("保存して呼び出す", () => {
 
   it("重みを上書きせずに保存した条件は、呼び出すと上書きをやめる", async () => {
     const { result } = renderSaved();
-    act(() => result.current.saved.save("既定の重み"));
+    act(() => result.current.saved.save("既定の重み", false));
     act(() => {
       result.current.conditions.setRoutePreference({ axis_a: 0.7, axis_b: 0.3 });
       result.current.conditions.setWeightOverrideEnabled(true);
@@ -108,7 +113,7 @@ describe("保存して呼び出す", () => {
 
   it("名前が空なら仮の名前で保存し、一覧は開き直しても残る", () => {
     const first = renderSaved();
-    act(() => first.result.current.saved.save("  "));
+    act(() => first.result.current.saved.save("  ", false));
     first.unmount();
 
     expect(renderSaved().result.current.saved.saved.map((entry) => entry.name)).toEqual(["周回 30km"]);
@@ -116,8 +121,8 @@ describe("保存して呼び出す", () => {
 
   it("消すとその件だけが一覧から外れる", () => {
     const { result } = renderSaved();
-    act(() => result.current.saved.save("A"));
-    act(() => result.current.saved.save("B"));
+    act(() => result.current.saved.save("A", false));
+    act(() => result.current.saved.save("B", false));
 
     act(() => result.current.saved.remove("A"));
 
@@ -126,10 +131,13 @@ describe("保存して呼び出す", () => {
 });
 
 describe("出発地", () => {
-  it("地図で置いた出発地で保存したものは、呼び出すとその地点を出発地にする", () => {
-    const { result, rerender, onOriginPlace, onOriginFollowCurrent } = renderSaved(ORIGIN);
-    act(() => result.current.saved.save("置いた出発地"));
-    rerender({ manualOrigin: null });
+  it("固定して保存したものは、呼び出すと保存したときの出発地にする（現在地のままでも）", () => {
+    const { result, rerender, onOriginPlace, onOriginFollowCurrent } = renderSaved({
+      origin: ORIGIN,
+      originManual: false,
+    });
+    act(() => result.current.saved.save("ここに固定", true));
+    rerender({ origin: A, originManual: true });
 
     act(() => result.current.saved.recall(result.current.saved.saved[0]));
 
@@ -137,14 +145,15 @@ describe("出発地", () => {
     expect(onOriginFollowCurrent).not.toHaveBeenCalled();
   });
 
-  it("現在地のまま保存したものは、呼び出したとき地図で置いた出発地があれば現在地へ戻し、現在地のままなら何もしない", () => {
-    const { result, rerender, onOriginPlace, onOriginFollowCurrent } = renderSaved(null);
-    act(() => result.current.saved.save("現在地から"));
+  it("固定せずに保存したものは、呼び出したとき地図で置いた出発地があれば現在地へ戻し、現在地のままなら何もしない", () => {
+    const { result, rerender, onOriginPlace, onOriginFollowCurrent } = renderSaved({ origin: A, originManual: true });
+    act(() => result.current.saved.save("現在地から", false));
+    rerender({ origin: ORIGIN, originManual: false });
 
     act(() => result.current.saved.recall(result.current.saved.saved[0]));
     expect(onOriginFollowCurrent).not.toHaveBeenCalled();
 
-    rerender({ manualOrigin: A });
+    rerender({ origin: A, originManual: true });
     act(() => result.current.saved.recall(result.current.saved.saved[0]));
 
     expect(onOriginFollowCurrent).toHaveBeenCalledOnce();
