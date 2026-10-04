@@ -1,7 +1,12 @@
 """警察庁の本票CSVの取得（scripts/fetch_accident_csv.py）。
 
-実ダウンロード（60MB規模）はテストで行わず、配布元の応答だけを差し替えて、
-「既にあるものは触らない」「読めないものを取得済みとして残さない」を確かめる。
+入口は`fetch`。実ダウンロード（60MB規模）はテストで行わず、配布元の応答と置き場だけを差し替えて、
+「既にあるものは触らない」「読めないものを取得済みとして残さない」を確かめる。取得の道具が共有する手順
+（`app/batch/common.py: fetch_verified`）の判断は、ここで見る（ほかの取得の道具のテストは寄せていることだけを見る）。
+配布元へ応答を与えていない要求は`respx_mock`が落とすので、取りに行かないことは応答を与えないことで見る。
+
+ここで見ないもの:
+- 本票の列の読み方 → `test_npa_honhyo.py`
 """
 
 import pytest
@@ -27,12 +32,11 @@ def distributor(monkeypatch, tmp_path, respx_mock):
 
 
 def test_downloads_missing_year(tmp_path, distributor):
-    download = distributor.get(URL_2024).respond(content=_honhyo_bytes())
+    distributor.get(URL_2024).respond(content=_honhyo_bytes())
 
     assert fetch_accident_csv.fetch([2024]) == 0
 
-    assert (tmp_path / "honhyo_2024.csv").exists()
-    assert download.call_count == 1
+    assert (tmp_path / "honhyo_2024.csv").read_bytes() == _honhyo_bytes()
 
 
 def test_keeps_existing_csv_untouched(tmp_path, distributor):
@@ -42,7 +46,6 @@ def test_keeps_existing_csv_untouched(tmp_path, distributor):
     assert fetch_accident_csv.fetch([2024]) == 0
 
     assert destination.read_bytes() == _honhyo_bytes()
-    assert not distributor.calls
 
 
 def test_refetches_a_file_that_is_not_readable(tmp_path, distributor):

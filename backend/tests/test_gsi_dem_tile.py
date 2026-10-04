@@ -3,6 +3,12 @@
 配信元の仕様（https://maps.gsi.go.jp/development/demtile.html）:
 - 「標高値が存在しない画素には「e」の文字が格納されている。」
 - 「標高データは小数点第二位までデータとして入っている（単位はm）。」
+
+入口は`pack_elevations`。見るのは、欠測の印・負の値・int16に収まらない値を含む1枚が画素の順に詰まること。
+
+ここで見ないもの:
+- 置き場のタイルを読んで製品×タイル1枚を1行にする取込（`read_gsi_dem_tiles`）と、詰めた値が画素ごとに
+  採られること → 本物の取込を通す`test_derive_elevation.py`
 """
 
 import struct
