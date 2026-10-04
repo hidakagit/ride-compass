@@ -7,35 +7,46 @@ const SCAN = 30; // 問いを探すために読むコメントの件数
 const RECENT = 5; // 材料に載せる最近のコメントの件数
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
-// 1回目の送信で選んだ内容を見せ、2回目で送る。完了の条件のチェック欄は、完成を選んだときだけ出して必須にする。
+// 「確認へ」で入力を固め（完成なのに条件が残っていれば止める）、「送信」で送る。送ったあとは結果と「GitHub に戻る」だけ。
 const SCRIPT = `<script>
-const f = document.querySelector("form"), left = document.getElementById("left");
-const sync = () => { const on = f.next.value && f.querySelector("[name=next]:checked").dataset.complete === "1";
-  if (left) { left.hidden = !on; left.querySelectorAll("input").forEach((b) => (b.required = on)); } };
+const f = document.querySelector("form"), left = document.getElementById("left"), err = document.getElementById("err");
+const sync = () => { if (left) left.hidden = f.querySelector("[name=next]:checked").dataset.complete !== "1"; err.textContent = ""; };
 f?.addEventListener("change", sync); f && sync();
+document.getElementById("go")?.addEventListener("click", () => {
+  if (left && !left.hidden && [...left.querySelectorAll("input")].some((b) => !b.checked)) return (err.textContent = "完了の条件が残っています");
+  f.classList.add("lock");
+});
+document.getElementById("back")?.addEventListener("click", () => f.classList.remove("lock"));
 f?.addEventListener("submit", async (e) => {
   e.preventDefault();
-  if (!f.classList.contains("confirm")) {
-    document.getElementById("sum").textContent = "送る内容: " + [f.plan?.value, f.querySelector("[name=next]:checked").dataset.text, f.note.value && "補足あり"].filter(Boolean).join(" ／ ");
-    return f.classList.add("confirm");
-  }
+  if (!f.classList.contains("lock")) return;
   f.querySelectorAll("button").forEach((b) => (b.disabled = true));
   const j = await (await fetch(location.pathname, { method: "POST", body: new FormData(f) })).json();
-  document.body.innerHTML = "";
-  document.body.append(Object.assign(document.createElement("p"), { textContent: j.error || "受け付けました（" + j.label + "）。" }));
-  if (j.url) document.body.append(Object.assign(document.createElement("a"), { href: j.url, textContent: "GitHub に戻る", className: "back" }));
+  const p = (text, className = "") => Object.assign(document.createElement("p"), { textContent: text, className });
+  document.body.replaceChildren(p(j.error || "受け付けました（" + j.label + "）。"));
+  if (!j.url) return;
+  // 先にタブを閉じる（リンクで移ったあとではこのページが無く、閉じる処理が動かない）。閉じられない開き方なら issue へ移る。
+  const back = Object.assign(document.createElement("button"), { textContent: "GitHub に戻る", className: "sub" });
+  back.addEventListener("click", () => (window.close(), setTimeout(() => location.replace(j.url), 300)));
+  document.body.append(back, p("押すとこのタブを閉じる。閉じられない開き方のときは issue へ移る。", "note"));
 });
-document.getElementById("back")?.addEventListener("click", () => f.classList.remove("confirm"));
 </script>`;
 
+// 見た目は合意したモック（スマホの幅で1列。材料と選ぶ行は下の区切り線だけ、次のステータスは1行のボタン）。
 const page = (body, status = 200) =>
   new Response(
     `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark">` +
-      `<title>回答</title><style>body{font:15px/1.5 system-ui,sans-serif;max-width:34rem;margin:.6rem auto;padding:0 16px}h1{font-size:1.05rem}h2{font-size:.95rem;margin:.9rem 0 .2rem}` +
-      `details{border:1px solid #8884;border-radius:.4rem;padding:.4rem .6rem;margin:.5rem 0;overflow-wrap:anywhere}details>div{max-height:40vh;overflow:auto}` +
-      `label{display:flex;gap:.5rem;padding:.45rem .6rem;border:1px solid #8886;border-radius:.4rem;margin:.3rem 0}textarea{width:100%;box-sizing:border-box;font:inherit}` +
-      `button,.back{display:block;width:100%;padding:.6rem;margin-top:.4rem;border-radius:.4rem;border:0;background:#1f6feb;color:#fff;font:inherit;text-align:center;text-decoration:none}` +
-      `.ok,#sum{display:none}.confirm .ok,.confirm #sum{display:block}.confirm .ask{display:none}.confirm label{pointer-events:none;opacity:.6}.who{font-size:13px}` +
+      `<title>回答</title><style>body{font:14px/1.6 system-ui,sans-serif;max-width:34rem;margin:.75rem auto;padding:0 16px}p{margin:0 0 .5rem}` +
+      `.num,.sec,.note,summary.s{font-size:13px;opacity:.7}.num{font-size:12px;margin:0}.title{font-weight:500;margin:0 0 6px}.sec{margin:14px 0 6px}` +
+      `details{border-bottom:1px solid #8884;padding:6px 0;overflow-wrap:anywhere}details>div{max-height:40vh;overflow:auto;font-size:13px;margin-top:6px}` +
+      `.opt{display:flex;gap:8px;align-items:flex-start;padding:7px 0;border-bottom:1px solid #8884;overflow-wrap:anywhere}.cond .opt{font-size:13px}` +
+      `textarea{width:100%;box-sizing:border-box;font:inherit;margin-top:8px}` +
+      `.seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;border:1px solid #8888;border-radius:8px;overflow:hidden}` +
+      `.seg label{text-align:center;font-size:13px;padding:8px 0}.seg label+label{border-left:1px solid #8888}.seg input{position:absolute;opacity:0;pointer-events:none}` +
+      `.seg label:has(input:checked){background:#1f6feb22;color:#1f6feb}.labels{border:0;margin-top:6px}.labels>div{display:flex;flex-wrap:wrap;gap:10px}` +
+      `#err{font-size:13px;color:#d1242f;min-height:1em;margin:8px 0 0}button{display:block;width:100%;padding:8px;margin-top:4px;border-radius:8px;font:inherit}` +
+      `.sub{background:transparent;color:inherit;border:1px solid #8888}.main{background:#1f6feb;color:#fff;border:0}.row{display:none;gap:8px}.row button{flex:1}` +
+      `.lock .inp{pointer-events:none;opacity:.55}.lock #go{display:none}.lock .row{display:flex}` +
       `</style></head><body>${body}${SCRIPT}</body></html>`,
     { status, headers: { "content-type": "text/html; charset=utf-8" } },
   );
@@ -53,23 +64,22 @@ async function load(gate, number) {
 
 function render({ issue, asked, question, labels, choices, left, html }) {
   const fold = (title, inner, open = false) => `<details${open ? " open" : ""}><summary>${title}</summary><div>${inner}</div></details>`;
-  const md = (h, text) => h ?? `<div style="white-space:pre-wrap">${esc(text)}</div>`;
-  const box = (type, name, value, text, extra = "") => `<label><input type="${type}" name="${name}" value="${esc(value)}"${extra}> ${esc(text)}</label>`;
+  const box = (type, name, value, text, extra = "", cls = "opt") => `<label class="${cls}"><input type="${type}" name="${name}" value="${esc(value)}"${extra}><span>${esc(text)}</span></label>`;
   const when = (t) => new Date(Date.parse(t) + 9 * 3600e3).toISOString().slice(0, 16).replace("T", " ");
-  const recent = issue.comments.nodes.slice(-RECENT).reverse().map((c) => `<p class="who"><a href="${esc(c.url)}">${esc(c.author?.login ?? "ghost")} ・ ${when(c.createdAt)}</a></p>${c.bodyHTML}`);
+  const recent = issue.comments.nodes.slice(-RECENT).reverse().map((c) => `<p class="note"><a href="${esc(c.url)}">${esc(c.author?.login ?? "ghost")} ・ ${when(c.createdAt)}</a></p>${c.bodyHTML}`);
   const have = new Set(issue.labels.nodes.map((l) => l.name));
   return page(
-    `<h1>#${issue.number} ${esc(issue.title)}</h1><p>${esc(question.text)}</p>` +
-      (question.material ? fold("判断材料", md(html.material, question.material), true) : "") +
-      (bodyRest(issue.body).trim() ? fold("本文", md(html.body, bodyRest(issue.body).trim())) : "") +
-      fold("最近のコメント（新しい順）", recent.join("")) +
-      `<a href="${esc(issue.url)}">issue を開く</a><form><input type="hidden" name="issue" value="${issue.number}"><input type="hidden" name="q" value="${esc(asked.url)}">` +
-      (question.plans.length ? `<h2>回答</h2>${question.plans.map((p) => box("radio", "plan", p, p)).join("")}` : "") +
-      `<textarea name="note" rows="4" placeholder="補足（任意）"></textarea>` +
-      `<h2>次のステータス</h2>${choices.map((c, i) => box("radio", "next", i, c.text, ` required data-text="${esc(c.text)}"${c.close === "COMPLETED" ? ' data-complete="1"' : ""}${i ? "" : " checked"}`)).join("")}` +
-      (left.length ? `<div id="left" hidden><h2>確かめた完了の条件</h2>${left.map((l) => box("checkbox", "done", l, l)).join("")}</div>` : "") +
-      fold("ラベル", labels.map((n) => box("checkbox", "label", n, n, have.has(n) ? " checked" : "")).join("")) +
-      `<p id="sum"></p><button type="button" id="back" class="ok">戻る</button><button class="ok">送信</button><button class="ask">確認へ</button></form>`,
+    `<p class="num">#${issue.number}</p><p class="title">${esc(issue.title)}</p><p>${esc(question.text)}</p>` +
+      (html.material ? fold("判断材料", html.material, true) : "") +
+      (html.body ? fold("本文", html.body) : "") +
+      fold("最近のコメント", recent.join("")) +
+      `<form><input type="hidden" name="issue" value="${issue.number}"><input type="hidden" name="q" value="${esc(asked.url)}"><div class="inp">` +
+      (question.plans.length ? `<p class="sec">回答</p>${question.plans.map((p) => box("radio", "plan", p, p)).join("")}` : "") +
+      `<textarea name="note" rows="2" placeholder="補足（任意）"></textarea>` +
+      `<p class="sec">次のステータス</p><div class="seg">${choices.map((c, i) => box("radio", "next", i, c.text, ` data-text="${esc(c.text)}"${c.close === "COMPLETED" ? ' data-complete="1"' : ""}${i ? "" : " checked"}`, "")).join("")}</div>` +
+      (left.length ? `<div id="left" class="cond" hidden><p class="sec">残っている完了の条件（確かめたものにチェック）</p>${left.map((l) => box("checkbox", "done", l, l)).join("")}</div>` : "") +
+      `<details class="labels"><summary class="s">ラベル（任意）</summary><div>${labels.map((n) => box("checkbox", "label", n, n, have.has(n) ? " checked" : "", "")).join("")}</div></details>` +
+      `</div><p id="err"></p><button type="button" id="go" class="sub">確認へ</button><div class="row"><button type="button" id="back" class="sub">戻る</button><button class="main">送信</button></div></form>`,
   );
 }
 
@@ -99,7 +109,8 @@ export async function answerForm(request, env, config) {
   if (request.method === "POST") return Response.json(await submit(gate, env, await request.formData()));
   const loaded = await load(gate, Number(new URL(request.url).searchParams.get("issue")));
   if (loaded.error) return page(`<p>${esc(loaded.error)}</p>`, 404);
-  const draw = (text) => (text ? gate.gh.markdown(text, config.repository).catch(() => null) : null);
+  // 判断材料と本文は GitHub の Markdown の描き方で HTML にする。
+  const draw = (text) => (text ? gate.gh.markdown(text, config.repository) : null);
   const [material, body] = await Promise.all([draw(loaded.question.material), draw(bodyRest(loaded.issue.body).trim())]);
   return render({ ...loaded, html: { material, body } });
 }
