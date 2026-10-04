@@ -13,7 +13,7 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.batch import derive_cli, derive_topology
-from app.batch._common import asyncpg_dsn
+from app.batch.common import asyncpg_dsn
 from app.batch.source_adapters.npa_honhyo import HonhyoRows
 from app.domain.accident import BICYCLE_PARTY_TYPE_CODES
 from app.domain.material_catalog import ACCIDENT_COUNT_PER_KM_YEAR

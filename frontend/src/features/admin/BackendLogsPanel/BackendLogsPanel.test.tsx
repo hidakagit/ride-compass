@@ -5,7 +5,7 @@
  * ここで見ないもの:
  * - 絞り込みを問い合わせの項目へ組み立てること → `app/admin/adminApi.test.ts`
  * - クリップボードへの書き込みと失敗の文言 → `hooks/useCopyToClipboard.ts`
- * - 行の色そのもの → `components/ui/LogLine`（ここでは差し替えて、どの重さで描かせたかだけを見る）
+ * - 行の色そのもの → `components/ui/LogLine`（ここでは、重さごとに`LogLine`が描く見た目と同じかだけを見る）
  */
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -13,14 +13,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { heldReplies, inTurn, onSameOrigin } from "@/testing/backendServer";
 
-vi.mock("@/components/ui/LogLine/LogLine", () => ({
-  LogLine: ({ tone, children, ...rest }: { tone: string; children: React.ReactNode }) => (
-    <div data-testid="log-line" data-tone={tone} {...rest}>
-      {children}
-    </div>
-  ),
-}));
-
+import { LogLine } from "@/components/ui/LogLine/LogLine";
 import BackendLogsPanel from "./BackendLogsPanel";
 
 const LOGS = "/admin/api/debug/logs";
@@ -29,13 +22,14 @@ const serveLogs = (lines: string[]) => onSameOrigin("GET", LOGS, () => Response.
 /** 届いた問い合わせの項目を1行のログとして返し、画面が送った絞り込みを出た行から読む。 */
 function echoQuery() {
   onSameOrigin("GET", LOGS, ({ query }) => Response.json([JSON.stringify(query)]));
-  return async () => JSON.parse((await screen.findByTestId("log-line")).textContent ?? "");
+  return async () => JSON.parse((await screen.findByText(/^\{.*\}$/)).textContent ?? "");
 }
 
 describe("BackendLogsPanel", () => {
   it("開いただけでは取りに行かない", () => {
+    serveLogs(["[INFO] 1行目"]);
     render(<BackendLogsPanel />);
-    expect(screen.queryByTestId("log-line")).not.toBeInTheDocument();
+    expect(screen.queryByText("[INFO] 1行目")).not.toBeInTheDocument();
   });
 
   it("既定はWARNING以上・200件・絞り込みなしで取る", async () => {
@@ -120,8 +114,12 @@ describe("BackendLogsPanel", () => {
 
     await user.click(screen.getByRole("button", { name: "取得" }));
 
-    const rows = await screen.findAllByTestId("log-line");
-    expect(rows.map((row) => [row.textContent, row.dataset.tone, row.dataset.level ?? null])).toEqual([
+    const rows = Array.from((await screen.findByText("レベルの無い行")).parentElement!.children) as HTMLElement[];
+    const looks = (["error", "warning", "normal"] as const).map(
+      (tone) => [tone, render(<LogLine tone={tone} />).container.firstElementChild!.className] as const,
+    );
+    const toneOf = (row: HTMLElement) => looks.find(([, look]) => look === row.className)?.[0];
+    expect(rows.map((row) => [row.textContent, toneOf(row), row.dataset.level ?? null])).toEqual([
       ["2026-09-24 [ERROR] a", "error", "ERROR"],
       ["2026-09-24 [CRITICAL] b", "error", "CRITICAL"],
       ["2026-09-24 [WARNING] c", "warning", "WARNING"],

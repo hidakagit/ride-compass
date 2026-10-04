@@ -18,7 +18,7 @@ import mapbox_vector_tile
 import pytest
 
 from app.batch import derive_node_materials
-from app.batch._common import asyncpg_dsn
+from app.batch.common import asyncpg_dsn
 from app.domain.region import BoundingBox, tile_bounds_lonlat, tiles_covering_bbox
 from app.domain.tuning import TUNING_PARAMETERS_BY_ID
 from app.infrastructure.point_tile_layers import POINT_TILE_LAYERS

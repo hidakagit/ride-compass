@@ -21,7 +21,7 @@ import time
 
 import asyncpg
 
-from app.batch._common import reset_columns_sql
+from app.batch.common import reset_columns_sql
 from app.batch.dem_tile_store import PRODUCT_PRIORITY
 from app.domain.attributes import elevation_values_sql
 from app.domain.landcover import (

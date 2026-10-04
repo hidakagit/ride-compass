@@ -1,6 +1,6 @@
 // 起こし直したテストを外から測る（docs/conventions/testing.md「既存テストを直さず、実装から起こし直す」の手順3）。
 //
-//   node scripts/audit-test-rewrite.mjs <実装のファイル> [テストのファイル...] [--ref <git の版>]
+//   node scripts/audit-test-rewrite.mjs <実装のファイル> [テストのファイル...] [--ref <git の版>] [--summary]
 //
 // 出すもの: テストの本数（実行した数。it.each は展開した後）・テストの行数・行と分岐のカバレッジ・届いていない行と分岐・
 // テストごとの「そのテストだけが届く行」。パスは frontend からの相対で渡す。
@@ -9,6 +9,9 @@
 // --ref は「前」の値を測る（例: --ref origin/master）。母集団をその版から集め、その版のテストを元のテストの隣へ一時の名前で
 // 書き出して流し、終わったら消す。実装はその版と同じでなければならない（起こし直しは実装を変えない）。
 // --ref ではテストごとの「そのテストだけが届く行」を出さない（旧版のテスト名が出るため。起こし直しの手順1〜3では旧版を開かない）。
+// --summary も「そのテストだけが届く行」を出さない。それはテストを1本ずつ流して取るので、母集団の本数に比例して時間がかかる。
+// 起こし直しの報告と完了の条件は全体の値と届いていない行・分岐で足り、テストごとの値は見落としを探す場面でだけ要るので、
+// 全体の値だけでよいときに付ける。--ref と一緒に付けてもよい。
 // 1本だけ流すのは、vitest の -t が describe と題名を「 > 」でつないだ名前に当てるため、その形で絞る。
 // 絞って1本も流れなければ（どれも skipped）、0行とせずに落とす。
 
@@ -29,7 +32,7 @@ function fail(message) {
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
-  options: { ref: { type: "string" } },
+  options: { ref: { type: "string" }, summary: { type: "boolean" } },
 });
 const [implementation, ...givenTests] = positionals.map((p) => p.replaceAll("\\", "/"));
 if (!implementation)
@@ -58,8 +61,8 @@ function collectPopulation(ref) {
     `(from|import)[[:space:]]*\\(?[[:space:]]*["'][.@]`,
     ...(ref ? [ref] : []),
     "--",
-    "src/**/*.test.ts",
-    "src/**/*.test.tsx",
+    ":(glob)src/**/*.test.ts",
+    ":(glob)src/**/*.test.tsx",
   ];
   const result = spawnSync("git", args, { cwd: frontendRoot, encoding: "utf-8", maxBuffer: 1 << 30 });
   if (result.status !== 0 && result.status !== 1) fail(`母集団を集められない: ${result.stderr}`);
@@ -214,7 +217,7 @@ console.log(
   `届いていない分岐: ${uncoveredBranches.map((b) => `行${b.line} ${b.type} の${b.index + 1}つ目`).join("、") || "なし"}`,
 );
 
-if (values.ref) process.exit(0);
+if (values.ref || values.summary) process.exit(0);
 
 const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const reachedBy = whole.executed.map((test) => {

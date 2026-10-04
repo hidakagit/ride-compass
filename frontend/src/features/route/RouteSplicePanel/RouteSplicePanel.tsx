@@ -199,7 +199,7 @@ export default function RouteSplicePanel({
               disabled={appliedCount === 0 || busy}
               aria-busy={applying}
               aria-label="新しいルートを作成"
-              usage="いまの乗り換えで作ったルートを、採用ルートに加えます。元のルートは残ります。"
+              usage="いまの乗り換えで作ったルートを、合成ルートに加えます。元のルートは残ります。"
             >
               <NewRouteIcon size={18} />
             </Button>

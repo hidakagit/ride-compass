@@ -5,7 +5,7 @@ import pytest
 import pytest_asyncio
 
 from app.batch import derive_counts, derive_node_materials, derive_topology
-from app.batch._common import asyncpg_dsn
+from app.batch.common import asyncpg_dsn
 from app.domain.accident import (
     ACCIDENT_FATAL_WEIGHT,
     ACCIDENT_MATCH_MAX_DISTANCE_M,

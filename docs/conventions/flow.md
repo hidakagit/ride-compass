@@ -195,8 +195,8 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    - 確かめの問い（確かめの行だけが残ったとき・コードを変えないタスクの結果）に未着手の答えが返ったら、確かめが済んだと読み、
      問い直さない。確かめの行（コードを変えないタスクなら残りの行）にチェックを付け、経緯に答えを1行足して、残りが無ければ
      `gh issue close <番号> --reason completed` で閉じる。補足に直してほしい点が書かれていたときだけ、それを残りとして済ませてから閉じる。
-4. `tasks#<番号>:` の件名でコミットし、`git push origin orch/tasks-<番号>` で push する。静的検査とテストは手元で回さず、
-   CI に任せる（testing.md「手元の検査の回し方」）。作業ブランチの強制 push は
+4. `tasks#<番号>:` の件名でコミットし、`git push origin orch/tasks-<番号>` で push する。静的検査とテストを手元で回す場面と範囲は
+   testing.md「手元の検査の回し方」だけが決め、全体は CI に任せる。作業ブランチの強制 push は
    コードのリポジトリの規則で断られる（一度 push したコミットは、ほかの者のものも消せない）ので、直しは足すコミットにする。
    master に入るコミットは、5 の Pull Request の題名と本文から作られる（確かめる担当が squash でマージする）。CI は 5 の
    Pull Request の実行だけを待つ（作業ブランチへの push で走るかは testing.md「検査の置き場（手元・作業ブランチのCI・masterのCI）」）。
@@ -312,7 +312,12 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
 4. 1 で「満たしていない」とした条件のどれかに当たれば、足りないことを書いて Pull Request を閉じる（`gh pr close <番号> --comment <理由>`）。
    閉じる操作は GitHub の API の失敗で通らないことがあるので、閉じたかは `gh pr view <番号> -R hidakagit/ride-compass --json state` で
    `CLOSED` が出るかで見て、`OPEN` のままなら閉じ直す。ゲートが未着手へ戻す。それ以外の気づき（本文の数字の誤り・書き漏れ・使われない import 等）は閉じる理由にせず、2 の結果に書いて 5 へ進む。
-5. 満たしていれば Pull Request を squash でマージする（`gh pr merge <番号> -R hidakagit/ride-compass --squash`。コードのリポジトリの
+5. 満たしていれば、マージの前に、1 で確かめて満たしていた完了の条件へ issue の本文でチェックを付ける（本文をファイルに書いて
+   `gh issue edit <番号> -R ridecompass/ride-compass-tasks --body-file <ファイル>` で書き戻す）。作る担当が付け漏らした条件・
+   開発機の対話のセッションで出た Pull Request の条件は、ここで付けないと本文に届かず、マージでゲートが残りありとして未着手へ戻す。
+   付けないのは、確かめの行（`- [ ] ユーザーが確かめる: …`）・マージのあとでないとできない条件・3 で足した行。4 で閉じるときは
+   どの行にも付けない。
+   そのあと Pull Request を squash でマージする（`gh pr merge <番号> -R hidakagit/ride-compass --squash`。コードのリポジトリの
    設定で、題名と本文がそのまま master の1つのコミットになる）。CI は 1 で通ったのを見ているので、待たずに打つ。master の CI も
    待たない（ゲートが閉じる）。マージの道具は通っても何も出さないことがあるので、通ったかは
    `gh pr view <番号> -R hidakagit/ride-compass --json state` で `MERGED` が出るかで見て、`OPEN` のままなら打ち直す。
@@ -683,7 +688,8 @@ dependencies」）。前提が開いている未着手は、見回りが飛ば�
   issue の ⓘ →「プロジェクト」に出る（組織の issue fields は出ないので使わない）。優先度は仕事としての重さの見積もりで、
   入口でゲートが既定の値（`flow.config.json: project.defaults`。段階は親の値）を入れ、Claude が起票するときは下の「優先度の見積もり」で
   入れる（ユーザーが直してもよい）。既定と違う値は誰かが決めた値（ユーザーが付けた・起票で見積もった・親から継いだ）として扱い、`field.js` は別の値への書き換えを断る（変えるなら
-  ユーザーに問う）。振り出しはその選択肢の順に並べる。規模は Claude が `field.js` で入れる。
+  ユーザーに問う）。振り出しはその選択肢の順に並べる。規模は Claude が `field.js` で入れる。今の値は値を渡さない
+  `field.js <番号>` で読む（書かずに、Status を含む全部の欄を出す。`gh issue view --json projectItems` は Status しか出さない）。
   欄は機械が決めるものなので、回答フォームには出さない（ユーザーが直すときはボードで）。選択肢を足せば並べ順はそのまま効く。
 - 着手可能日（`flow.config.json: project.startField`。Project の日付の欄）は、その日より前には振り出さない日。誰が入れてもよい
   （ユーザーはボード・スマホで、Claude は `field.js` で）。ステータスは変えず、未着手のまま待つ。時間を待つ残り・外部の公開待ち・

@@ -33,7 +33,7 @@ from typing import Literal
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.batch._common import batch_session_factory  # noqa: E402
+from app.batch.common import batch_session_factory  # noqa: E402
 from app.domain.axis_definitions import (  # noqa: E402
     AXIS_DEFINITIONS,
     evaluate_axes_inputs,

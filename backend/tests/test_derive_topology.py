@@ -13,7 +13,7 @@ import pytest
 import pytest_asyncio
 
 from app.batch import derive_topology
-from app.batch._common import asyncpg_dsn
+from app.batch.common import asyncpg_dsn
 from tests.conftest import postgis_database_url
 from tests.source_ingest import ingest_records, way_record
 
