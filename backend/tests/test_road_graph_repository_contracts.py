@@ -31,16 +31,15 @@ from app.domain.landcover import LandcoverPercentages, landcover_key
 from app.domain.material_catalog import material_array_columns
 from app.domain.region import BoundingBox
 from app.infrastructure import road_graph_repository
+from app.infrastructure.derived_models import EdgeMaterialRow
 from app.domain.graph import edge_key, node_key, parse_edge_feature_key
 from app.services.axis_preview_service import SAMPLE_LIMIT, SAMPLE_PERCENT
 from app.infrastructure.road_graph_repository import (
+    ID_CHUNK_SIZE,
     MATERIAL_ARRAY_COLUMN_ORDER,
     RoadGraphRepository,
-    _REVERSED_ELEVATION_COLUMNS,
-    _SAMPLE_WAY_MATERIAL_VALUES_IN_BBOX_SQL,
-    _SAMPLE_WAY_MATERIAL_VALUES_SQL,
-    _way_from_clause,
     reversed_material_expression,
+    way_from_clause,
 )
 
 BBOX = BoundingBox(min_latitude=35.0, min_longitude=139.0,
@@ -151,8 +150,10 @@ def test_only_the_first_pair_and_the_first_occurrence_are_swapped():
 
 def test_reversing_twice_returns_to_the_original_column():
     """対が壊れると、逆向きの枝の標高が別の列から来る。列の一覧は宣言から導く。"""
-    assert _REVERSED_ELEVATION_COLUMNS, "向きで変わる列が1つも無い"
-    for name, expression in _REVERSED_ELEVATION_COLUMNS.items():
+    reversed_columns = {column.name: expression for column in EdgeMaterialRow.__table__.columns
+                        if (expression := reversed_material_expression(column.name)) is not None}
+    assert reversed_columns, "向きで変わる列が1つも無い"
+    for name, expression in reversed_columns.items():
         partner = expression.lstrip("-").removeprefix("m.")
         back = reversed_material_expression(partner)
         assert back is not None
@@ -170,9 +171,9 @@ def test_material_array_columns_are_all_distinct():
 
 def test_way_from_clause_joins_only_what_the_expression_reads():
     """使わないJOINを足すと、材料1件を引くだけの値列挙まで道の全件へ広がる。"""
-    assert "JOIN" not in _way_from_clause(["w.tags"])
-    assert _way_from_clause(["em.a"]).count("JOIN") == 1
-    assert _way_from_clause(["em.a", "wm.b", "re.c"]).count("JOIN") == 3
+    assert "JOIN" not in way_from_clause(["w.tags"])
+    assert way_from_clause(["em.a"]).count("JOIN") == 1
+    assert way_from_clause(["em.a", "wm.b", "re.c"]).count("JOIN") == 3
 
 
 # --- 行からグラフを組む -------------------------------------------------------
@@ -257,17 +258,30 @@ async def test_hard_filter_flags_are_named_by_their_filter():
     assert arrays.hard_filter_columns()[names[0]].tolist() == [True]
 
 
-async def test_rows_keep_the_order_of_the_given_edges_across_chunks(monkeypatch):
-    """並びは渡した区間の位置で決まる。1つでもずれると値が列の間で静かに入れ替わる。"""
-    monkeypatch.setattr(road_graph_repository, "_ID_CHUNK_SIZE", 1)
-    repo, session = _repo([_arrays_row(1, {"distance_m": [10.0]})],
-                          [_arrays_row(1, {"distance_m": [20.0]})])
-    arrays = await repo.get_edge_material_arrays([1, 2], [0, 3], [True, False], 1)
+class _EchoingArraysSession:
+    """材料配列のクエリに、受け取った区間をそのまま値として返すセッション（DBの`WITH ORDINALITY`の代わり）。
+    way・区間の番号・向きを、それぞれ距離・始点の標高・標高の有無の列に入れる。"""
 
-    assert arrays.distance_m.tolist() == [10.0, 20.0]
-    assert [params["way_ids"] for params in session.params] == [[1], [2]]
-    assert [params["segment_indexes"] for params in session.params] == [[0], [3]]
-    assert [params["forwards"] for params in session.params] == [[True], [False]]
+    async def execute(self, statement, params):
+        count = len(params["way_ids"])
+        return _Result([_arrays_row(count, {"distance_m": params["way_ids"],
+                                            "elevation_start_m": params["segment_indexes"],
+                                            "elevation_present": params["forwards"]})])
+
+
+async def test_rows_keep_the_order_of_the_given_edges_across_chunks():
+    """並びは渡した区間の位置で決まる。1文に載る数を超えて分けても、1つでもずれると値が列の間で静かに入れ替わる。"""
+    count = ID_CHUNK_SIZE + 1
+    way_ids = list(range(count))
+    segment_indexes = [i % 7 for i in way_ids]
+    forwards = [i % 2 == 0 for i in way_ids]
+
+    arrays = await RoadGraphRepository(_EchoingArraysSession()).get_edge_material_arrays(
+        way_ids, segment_indexes, forwards, 1)
+
+    assert arrays.distance_m.tolist() == way_ids
+    assert arrays.elevation_start_m.tolist() == segment_indexes
+    assert arrays.elevation_present.tolist() == forwards
 
 
 async def test_paired_edge_columns_are_not_swapped():
@@ -307,20 +321,6 @@ async def test_unknown_way_has_neither_materials_nor_tags():
 
     assert await repo.get_way_material_values(123, 1) is None
     assert await repo.get_way_tags_by_osm_way_id(123) is None
-
-
-async def test_a_range_replaces_the_sampling():
-    """`TABLESAMPLE`は表全体のページから抽選するため、狭い範囲と重ねると標本が数本へ落ちる。"""
-    repo, session = _repo([], [])
-
-    await repo.sample_way_material_values(1, SAMPLE_PERCENT, SAMPLE_LIMIT, None)
-    await repo.sample_way_material_values(1, SAMPLE_PERCENT, SAMPLE_LIMIT, BBOX)
-
-    assert session.calls[0][0] is _SAMPLE_WAY_MATERIAL_VALUES_SQL
-    assert "sample_percent" in session.params[0]
-    assert session.calls[1][0] is _SAMPLE_WAY_MATERIAL_VALUES_IN_BBOX_SQL
-    assert "sample_percent" not in session.params[1]
-    assert session.params[1]["xmin"] == BBOX.min_longitude
 
 
 async def test_sampled_way_without_length_is_dropped():

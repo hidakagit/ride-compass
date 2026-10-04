@@ -15,7 +15,7 @@ SQLの中の条件はPythonのカバレッジに現れないので、式をテ�
 カタログの全部の式が、読み出しの各経路（`infrastructure/road_graph_repository.py: RoadGraphRepository`の区間の材料・
 道1本・道の標本・値の一覧・路面タイル）の中で実在の列だけを読むことも見る。上の節は別名を値で与えるので、
 綴りの合わない列や、経路に無い別名を読む式を見つけられない。値の一覧の経路は、SQLが値を重ねず・値の無い道を除き・
-並べることも見る（セッションを差し替える契約のテストには、SQLが返す値が現れない）。
+並べることも、道の標本の経路は、範囲を絞ると抽選しないことも見る（セッションを差し替える契約のテストには、SQLが返す値が現れない）。
 
 ここで見ないもの:
 - 読み出しの経路が結果をどの形に並べるか（列と材料の対応・取込範囲の外のタイル） → `test_road_graph_repository_contracts.py`
@@ -232,6 +232,17 @@ async def test_the_value_list_of_a_material_has_each_value_once_in_order_without
     await _ingest_ways({1: {"tracktype": "grade3"}, 2: {"tracktype": "grade1"}, 3: {"tracktype": "grade3"}, 4: {}})
 
     assert await road_graph_repository.get_distinct_material_values("tracktype") == ["grade1", "grade3"]
+
+
+async def test_a_sample_within_a_range_takes_every_way_in_it_regardless_of_the_sampling_rate(road_graph_repository):
+    """`TABLESAMPLE`は表全体のページから抽選するため、狭い範囲と重ねると標本が数本へ落ちる。
+    割合0は、抽選が混ざれば1本も返さない。"""
+    await _ingest_ways({1: {}, 2: {}})
+    area = BoundingBox(min_latitude=35.68, min_longitude=139.69, max_latitude=35.69, max_longitude=139.71)
+
+    samples = await road_graph_repository.sample_way_material_values(1, 0.0, 10, area)
+
+    assert len(samples) == 2
 
 
 async def test_every_declared_expression_reads_only_what_each_reading_path_provides(road_graph_repository):

@@ -61,7 +61,7 @@ logger = logging.getLogger("ridecompass.road_graph_repository")
 _CACHED_GRAPH_VERSION = "cached"
 
 #: 1文へ載せるidの数。1配列=1パラメータなので上限ではなく転送量の都合で切る。
-_ID_CHUNK_SIZE = 50_000
+ID_CHUNK_SIZE = 50_000
 
 
 #: スキーマが依存する拡張。**アプリの権限では入れられない**（どちらもスーパーユーザーを
@@ -408,7 +408,7 @@ _WAY_ALIAS_CLAUSES: dict[str, str] = {
 }
 
 
-def _way_from_clause(expressions: list[str], source: str | None = None) -> str:
+def way_from_clause(expressions: list[str], source: str | None = None) -> str:
     """式が参照する別名だけを含むFROM句。使わないJOINを足すと、材料1件のDISTINCTを引く
     だけの軸スタジオの値列挙まで重くなる。
 
@@ -428,7 +428,7 @@ _WAY_MATERIAL_SELECT_SQL = ", ".join(
 
 _WAY_MATERIAL_VALUES_SQL = text(
     f"SELECT {_WAY_MATERIAL_SELECT_SQL}"
-    + _way_from_clause(list(material_value_sql().values()),
+    + way_from_clause(list(material_value_sql().values()),
                        source=ways_lookup_sql(":osm_way_id"))
 )
 
@@ -442,7 +442,7 @@ _WAY_MATERIAL_VALUES_SQL = text(
 def _sample_way_materials_sql(sampling: str, area: str):
     return text(
         f"SELECT ST_Length(w.geom::geography) AS length_m, {_WAY_MATERIAL_SELECT_SQL}"
-        + _way_from_clause(list(material_value_sql().values()),
+        + way_from_clause(list(material_value_sql().values()),
                            source=ways_source_sql(sampling))
         + f"{area} LIMIT :limit"
     )
@@ -732,7 +732,7 @@ class RoadGraphRepository:
             wanted.setdefault((edge.osm_way_id, edge.segment_index), []).append(edge.forward)
         keys = sorted(wanted)
         result: dict[str, LeanEdge] = {}
-        for chunk in _chunked(keys, _ID_CHUNK_SIZE):
+        for chunk in _chunked(keys, ID_CHUNK_SIZE):
             rows = (await self._session.execute(_EDGE_GEOMETRIES_SQL, {
                 "way_ids": [k[0] for k in chunk],
                 "segment_indexes": [k[1] for k in chunk],
@@ -755,8 +755,8 @@ class RoadGraphRepository:
         numeric_ids, boolean_ids, categorical_ids = material_array_columns()
         raw: dict[str, list] = {name: [] for name in MATERIAL_ARRAY_COLUMN_ORDER}
         n = len(way_ids)
-        for start in range(0, n, _ID_CHUNK_SIZE):
-            stop = start + _ID_CHUNK_SIZE
+        for start in range(0, n, ID_CHUNK_SIZE):
+            stop = start + ID_CHUNK_SIZE
             row = (await self._session.execute(_EDGE_MATERIAL_ARRAYS_SQL, {
                 "way_ids": way_ids[start:stop], "segment_indexes": segment_indexes[start:stop],
                 "forwards": forwards[start:stop], "accident_years": accident_years_covered,
@@ -801,7 +801,7 @@ class RoadGraphRepository:
         """way1本ぶんの材料値（材料id→スカラー）。行が無ければNone。
 
         区間インスペクタが使う。式は区間の評価と同じもので、way粒度の別名を
-        `_way_from_clause`が用意する。
+        `way_from_clause`が用意する。
         """
         rows = await self._session.execute(_WAY_MATERIAL_VALUES_SQL, {
             # 鍵はtextで渡す（`ways_lookup_sql`が主キーで引くため）。
@@ -892,7 +892,7 @@ class RoadGraphRepository:
         result = await self._session.execute(
             text(
                 f"SELECT DISTINCT {column_expr} AS value"  # noqa: S608 カタログの宣言のみ
-                + _way_from_clause([column_expr])
+                + way_from_clause([column_expr])
                 + f" WHERE {column_expr} IS NOT NULL ORDER BY value"
             )
         )
