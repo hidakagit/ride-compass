@@ -78,6 +78,9 @@ test("入口: ユーザーの起票と段階は未着手、Claude の起票は�
   assert.deepEqual([gh.issue.status, gh.issue.assignees, said(gh), gh.issue.body], ["回答待ち", [config.user], [`## 問い\n${config.adoption}`], `${button(2)}本文`]);
   await move("回答待ち", "保留");
   assert.equal(gh.issue.body, "本文", "回答待ちを出るとボタンは消える");
+  gh = fakeGitHub({ issue: { number: 2, status: "回答待ち", assignees: [config.user], body: `${button(2)}本文`.replaceAll("\n", "\r\r\n") } });
+  await deliver("issues", { action: "edited", issue: { node_id: "I_1" } });
+  assert.equal(gh.issue.body.match(/回答する/g).length, 1, "改行が壊れて届いた本文でもボタンは1つ");
 });
 
 const pr = (action, extra) => deliver("pull_request", { repository: { full_name: config.code.repository }, action, pull_request: { number: 3, title: "題名", head: { ref: `${config.code.branchPrefix}8` }, html_url: "u", merged: false, ...extra } });
