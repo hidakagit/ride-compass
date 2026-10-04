@@ -19,7 +19,7 @@ MIN_WORDS = 5
 
 
 def english_lines(text: str) -> list[str]:
-    text = re.sub(r"```.*?```", "", text, flags=re.S)
+    text = re.sub(r"```.*?```", "", text, flags=re.DOTALL)
     text = re.sub(r"`[^`]*`", "", text)
     text = re.sub(r"https?://\S+", "", text)
     return [line.strip() for line in text.splitlines()
