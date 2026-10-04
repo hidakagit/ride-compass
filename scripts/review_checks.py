@@ -68,13 +68,19 @@ MARKDOWN_LINK_RE = re.compile(r"\[[^\]]*\]\(([^)\s#]+)(?:#[^)]*)?\)")
 #: 雛形の綴り。「タスク番号1件=1ファイル」等を説明するためのもので、実在しなくてよい。
 PLACEHOLDER_RE = re.compile(r"Txxx|YYYY-MM-DD|<[^>]+>")
 
-CODE_SUFFIXES = (".py", ".ts", ".tsx")
+CODE_SUFFIXES = (".py", ".ts", ".tsx", ".js", ".mjs", ".mts", ".sh", ".bat")
+#: ワークフローの YAML は CI・デプロイ・担当の実行の手順そのものなので、コードとして数える。
+WORKFLOW_PREFIXES = (".github/workflows/",)
 #: 総量の「実装」のうち、製品の挙動を持たない部分。製品の増減が生成物・運用の道具の増減に
-#: 埋もれないよう、総量の前回比で分けて出す。道具は運用・計測の道具と、テストの実行の足場
-#: （テストのファイル名を持たないE2Eの共通部品・テストランナーの設定）。
+#: 埋もれないよう、総量の前回比で分けて出す。道具は運用・計測・検査の道具と、テストの実行の足場
+#: （テストのファイル名を持たないE2Eの共通部品・テストランナーの設定・CIのワークフロー）と、
+#: リポジトリの直下に置くコード（開発機での起動の道具）。
+#: タスク管理は製品と無関係に作り直されるので、道具の増減に混ぜずに分ける。
 GENERATED_PREFIXES = ("frontend/src/types/generated/",)
-TOOLING_PREFIXES = ("scripts/", "backend/scripts/", "backend/benchmarks/",
-                    "frontend/e2e", "frontend/playwright", "frontend/vitest")
+TASKFLOW_PREFIXES = ("tools/flow-gate/", ".github/workflows/claude-")
+TOOLING_PREFIXES = ("scripts/", "backend/scripts/", "backend/benchmarks/", "backend/ops/",
+                    "frontend/e2e", "frontend/playwright", "frontend/vitest", "frontend/eslint",
+                    "frontend/capture/", "frontend/scripts/capture-", ".github/workflows/")
 
 #: この行数以上のファイルは、個別閾値（size_thresholds.json）を持つまで毎回発火する。
 #: 越えた周期だけ鳴らすと、分類で閾値を決めなかったファイルが以後+15%の成長でしか
@@ -185,11 +191,18 @@ def cmd_docs(args: argparse.Namespace) -> int:
 # --- 計測（検査ではなく報告。前回値は保存せずタグから導く） -----------------
 
 def line_counts(paths: list[str], sha: str | None = None) -> dict[str, int]:
-    """行数。`sha`を渡すとそのコミット時点の内容を1本の`git cat-file --batch`で読む。"""
+    """行数。`sha`を渡すとそのコミット時点の内容を1本の`git cat-file --batch`で読む。
+
+    バイト列のまま数えるので、UTF-8 でないファイル（Windows のバッチ等）も数える。
+    """
+    texts: dict[str, bytes] = {}
     if sha is None:
-        texts = {path: read(REPO_ROOT / path) for path in paths}
+        for path in paths:
+            try:
+                texts[path] = (REPO_ROOT / path).read_bytes()
+            except OSError:
+                pass
     else:
-        texts = {}
         result = subprocess.run(
             ["git", "cat-file", "--batch"], cwd=str(REPO_ROOT), capture_output=True,
             input="".join(f"{sha}:{path}\n" for path in paths).encode("utf-8"), check=False)
@@ -201,10 +214,7 @@ def line_counts(paths: list[str], sha: str | None = None) -> dict[str, int]:
             if header.endswith(b" missing"):
                 continue
             size = int(header.rsplit(b" ", 1)[1])
-            try:
-                texts[path] = out[pos:pos + size].decode("utf-8")
-            except UnicodeDecodeError:
-                pass
+            texts[path] = out[pos:pos + size]
             pos += size + 1
     return {path: len(text.splitlines()) for path, text in texts.items() if text}
 
@@ -214,12 +224,16 @@ def files_at(sha: str) -> list[str]:
 
 
 def is_test(path: str) -> bool:
-    return ".test." in path or ".spec." in path or "/tests/" in path
+    return ".test." in path or ".spec." in path or "/tests/" in path or "/test/" in path
+
+
+def is_code(path: str) -> bool:
+    return path.endswith(CODE_SUFFIXES) or path.startswith(WORKFLOW_PREFIXES)
 
 
 def volume_kind(path: str) -> str | None:
     """総量を数える種別（実装・テスト・維持する文書）。数えないものはNone。"""
-    if path.endswith(CODE_SUFFIXES):
+    if is_code(path):
         return "テスト" if is_test(path) else "実装"
     if path.endswith(".md") and not path.startswith(FROZEN_PREFIXES):
         return "文書"
@@ -231,16 +245,19 @@ def volume_counts(paths: list[str], sha: str | None = None) -> dict[str, int]:
 
 
 def implementation_part(path: str) -> str:
-    """実装の内訳（製品・生成物・道具）。"""
+    """実装の内訳（製品・生成物・タスク管理・道具）。"""
     if path.startswith(GENERATED_PREFIXES):
         return "うち生成物"
-    if path.startswith(TOOLING_PREFIXES):
+    if path.startswith(TASKFLOW_PREFIXES):
+        return "うちタスク管理"
+    if "/" not in path or path.startswith(TOOLING_PREFIXES):
         return "うち道具"
     return "うち製品"
 
 
 def volume_totals(counts: dict[str, int]) -> dict[str, int]:
-    totals = {"実装": 0, "うち製品": 0, "うち生成物": 0, "うち道具": 0, "テスト": 0, "文書": 0}
+    totals = {"実装": 0, "うち製品": 0, "うち生成物": 0, "うちタスク管理": 0, "うち道具": 0,
+              "テスト": 0, "文書": 0}
     for f, n in counts.items():
         kind = volume_kind(f)
         totals[kind] += n
@@ -250,9 +267,7 @@ def volume_totals(counts: dict[str, int]) -> dict[str, int]:
 
 
 def cmd_size(args: argparse.Namespace) -> int:
-    counts = line_counts([f for f in tracked_files()
-                          if f.endswith(CODE_SUFFIXES + (".md",))
-                          and not f.startswith(FROZEN_PREFIXES)])
+    counts = volume_counts(tracked_files())
     decided = json.loads(read(SIZE_THRESHOLDS)) if SIZE_THRESHOLDS.exists() else {}
     thresholds = decided.get("thresholds", {})
     on_fire = decided.get("on_fire", {})
@@ -314,10 +329,10 @@ def cmd_size(args: argparse.Namespace) -> int:
 def cmd_metrics(args: argparse.Namespace) -> int:
     files = tracked_files()
     volume = volume_counts(files)
-    counts = {f: n for f, n in volume.items() if f.endswith(CODE_SUFFIXES)}
+    counts = {f: n for f, n in volume.items() if is_code(f)}
     by_area: dict[str, int] = defaultdict(int)
     for f, n in counts.items():
-        by_area[f.split("/")[0]] += n
+        by_area[f.split("/")[0] if "/" in f else "（ルート）"] += n
     tests = [f for f in counts if is_test(f)]
     current = volume_totals(volume)
     records_lines = sum(len(read(REPO_ROOT / f).splitlines())

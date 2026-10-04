@@ -33,7 +33,7 @@ import type EditDifference from "@/features/route/EditDifference/EditDifference"
 import type RouteAxisProfile from "@/features/route/RouteAxisProfile/RouteAxisProfile";
 import type RouteSplicePanel from "@/features/route/RouteSplicePanel/RouteSplicePanel";
 import type SegmentWind from "@/features/route/SegmentWind/SegmentWind";
-import { downloadGpx } from "@/features/route/gpxExport";
+import { downloadGpx, MAX_GPX_TRACK_POINTS } from "@/features/route/gpxExport";
 import type { GenerationInput } from "@/features/route/generationRequest";
 import { SPLICED_ROUTE_ID_PREFIX } from "@/features/route/routeTabLabel";
 import { COMPARISON_TAB, type EditedRoute, type RouteResults } from "@/features/route/useRouteResults";
@@ -55,7 +55,10 @@ vi.mock("@/components/AxisContributionBar/AxisContributionBar", stubModule("Axis
 vi.mock("@/features/route/EditDifference/EditDifference", stubModule("EditDifference"));
 vi.mock("@/features/route/SegmentWind/SegmentWind", stubModule("SegmentWind"));
 vi.mock("@/features/route/RouteSplicePanel/RouteSplicePanel", stubModule("RouteSplicePanel"));
-vi.mock("@/features/route/gpxExport", () => ({ downloadGpx: vi.fn() }));
+vi.mock("@/features/route/gpxExport", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/features/route/gpxExport")>()),
+  downloadGpx: vi.fn(),
+}));
 vi.mock("@/services/axisCatalogApi", () => ({ getAxisCatalog: vi.fn() }));
 
 const ENTRIES = [
@@ -352,6 +355,13 @@ describe("選んだ候補の中身", () => {
     renderOutcome({ results: resultsOf({ generated: [FAST, SLOW], selectedRouteId: "slow" }) });
     await userEvent.click(screen.getByRole("button", { name: "GPX出力" }));
     expect(downloadGpx).toHaveBeenCalledWith(SLOW);
+  });
+
+  it("GPX出力の使い方に、書き出す点の上限まで間引くことを書く", () => {
+    renderOutcome({ results: resultsOf({ generated: [FAST] }) });
+    expect(screen.getByRole("button", { name: "GPX出力" }).dataset.usage).toContain(
+      `${MAX_GPX_TRACK_POINTS}点に収まるように間引きます`,
+    );
   });
 
   it("編集で作ったルートには、元とその一覧での名前を「元との違い」へ渡し、「元を見る」で元のタブを選ぶ", () => {

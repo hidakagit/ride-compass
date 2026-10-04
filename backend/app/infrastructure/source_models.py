@@ -156,6 +156,13 @@ def latest_succeeded_run_by_column_sql(source_column: str) -> str:
             f" AND status = '{SourceRunStatus.SUCCEEDED}' ORDER BY run_id DESC LIMIT 1)")
 
 
+#: 取込の成功したソースごとに、成功した最新の取込（`source`・`run_id`）を1行ずつ出す問い合わせ。
+#: 派生の作り直しが「どの取込から作ったか」として記録する（`batch/derive_cli.py`）。
+LATEST_SUCCEEDED_RUNS_SQL = (
+    f"SELECT DISTINCT ON (source) source, run_id FROM {SourceRunRow.__tablename__}"
+    f" WHERE status = '{SourceRunStatus.SUCCEEDED}' ORDER BY source, run_id DESC")
+
+
 def succeeded_run_count() -> ScalarSelect[int]:
     """成功した取込の数（全ソース通し）を出す副問い合わせ。生データの世代として使う。
 
