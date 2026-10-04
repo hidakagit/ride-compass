@@ -1,3 +1,15 @@
+"""`api/routers/material_catalog.py`——材料の実データの値・分布・欠損割合（軸スタジオの管理API）。
+
+ここで見るもの: 未知の材料を404で断ること、値と分布を出せなかったことを`available`で伝えること、
+値に表示名を添えること、欠損割合の集計の結果をそのまま返し、DBの失敗を503にすること。
+
+ここで見ないもの:
+- 値の表示名の形（「論理名 - 物理名」・対訳の無い値） → `test_material_catalog.py`
+- 分布の計算 → `test_axis_preview_service.py`
+- 欠損割合の組み立て（並び・割合・集計の対象外） → `test_material_coverage.py`
+- 認可 → `test_admin_route_authorization.py`
+"""
+
 from datetime import datetime, timezone
 
 import pytest
@@ -8,13 +20,32 @@ from app.api.dependencies import get_material_coverage_service, get_road_graph_r
 from app.domain.material_catalog import MATERIAL_CATALOG
 from app.infrastructure.material_coverage import MATERIAL_COVERAGE_SPECS, MaterialCoverageCounts
 from app.main import app
+from app.services.axis_preview_service import EMPTY_DISTRIBUTION, ValueDistribution
 from app.services.material_coverage_service import build_material_coverage_report
 from tests.admin_auth import AUTH_HEADERS
 
 client = TestClient(app)
 
 
-# --- 材料の実データ値一覧（改善計画T340） ---
+@pytest.fixture
+def repository():
+    """`get_road_graph_repository`を、テストが置いた値へ差し替える。"""
+
+    def _set(value):
+        app.dependency_overrides[get_road_graph_repository] = lambda: value
+
+    yield _set
+    app.dependency_overrides.clear()
+
+
+@pytest.mark.parametrize("kind", ["values", "distribution"])
+def test_an_unknown_material_is_404(admin_credentials, kind):
+    response = client.get(f"/api/admin/material-catalog/not_a_real_material/{kind}", headers=AUTH_HEADERS)
+
+    assert response.status_code == 404
+
+
+# --- 材料の実データ値一覧 ---
 
 
 class FakeRepositoryForMaterialValues:
@@ -34,108 +65,85 @@ def values_url(material_id: str) -> str:
     return f"/api/admin/material-catalog/{material_id}/values"
 
 
-def test_get_material_values_returns_sorted_distinct_values_from_service(admin_credentials):
-    fake = FakeRepositoryForMaterialValues(values=["cycleway", "primary", "residential"])
-    app.dependency_overrides[get_road_graph_repository] = lambda: fake
+def test_get_material_values_returns_each_value_with_its_label(admin_credentials, repository):
+    repository(FakeRepositoryForMaterialValues(values=["cycleway"]))
 
-    try:
-        response = client.get(values_url("highway"), headers=AUTH_HEADERS)
-    finally:
-        app.dependency_overrides.clear()
+    response = client.get(values_url("highway"), headers=AUTH_HEADERS)
 
-    assert response.status_code == 200
-    # 改善計画T345フォローアップ: 値ごとに日本語ラベルも返す
-    # （MaterialSpec.value_labels、地図の絞り込みUIのグルーピングとは独立の1値1ラベル）。
-    # さらなるフォローアップ2: 「論理名 - 物理名」形式。
     assert response.json() == {
         "available": True,
-        "values": [
-            {"value": "cycleway", "label": "自転車専用道 - cycleway"},
-            {"value": "primary", "label": "主要幹線道路 - primary"},
-            {"value": "residential", "label": "住宅街の道路 - residential"},
-        ]
+        "values": [{"value": "cycleway", "label": MATERIAL_CATALOG["highway"].value_label("cycleway")}],
     }
 
 
-def test_get_material_values_unknown_material_id_is_404(admin_credentials):
-    response = client.get(values_url("not_a_real_material"), headers=AUTH_HEADERS)
+def test_get_material_values_the_db_could_not_read_is_unavailable(admin_credentials, repository):
+    repository(FakeRepositoryForMaterialValues(error=ConnectionRefusedError("db down")))
 
-    assert response.status_code == 404
-
-
-def test_get_material_values_the_db_could_not_read_is_unavailable(admin_credentials):
-    app.dependency_overrides[get_road_graph_repository] = lambda: FakeRepositoryForMaterialValues(
-        error=ConnectionRefusedError("db down")
-    )
-
-    try:
-        response = client.get(values_url("smoothness"), headers=AUTH_HEADERS)
-    finally:
-        app.dependency_overrides.clear()
+    response = client.get(values_url("smoothness"), headers=AUTH_HEADERS)
 
     assert response.status_code == 200
     # 出せなかったのは「候補を出せなかった」——「値が無い」と同じ形にしない。
     assert response.json() == {"available": False, "values": []}
 
 
-# --- 材料ごとの欠損割合（GET /api/admin/material-catalog/coverage、Basic認証必須） ---
+# --- 材料の値の分布 ---
+
+
+@pytest.mark.parametrize(
+    ("result", "available"),
+    [
+        (ValueDistribution(sample_ways=3, total_km=1.2, quantiles={"p50": 10.0}, bins=[(0.0, 1.0, 1.0)], zero_share=0.0), True),
+        (None, False),
+    ],
+    ids=["分布がある", "数値の材料でない"],
+)
+def test_material_distribution_answers_the_distribution_or_that_there_is_none(
+    admin_credentials, monkeypatch, repository, result, available
+):
+    repository(object())
+
+    async def _distribution(repository, material_id):
+        return result
+
+    monkeypatch.setattr("app.api.routers.material_catalog.material_value_distribution", _distribution)
+
+    response = client.get("/api/admin/material-catalog/surface/distribution", headers=AUTH_HEADERS)
+
+    assert response.json() == {"available": available, **(result or EMPTY_DISTRIBUTION).model_dump(mode="json")}
+
+
+# --- 材料ごとの欠損割合 ---
 
 
 COVERAGE_URL = "/api/admin/material-catalog/coverage"
 
 
 class FakeMaterialCoverageService:
-    def __init__(self, counts: MaterialCoverageCounts | None = None, error: Exception | None = None):
-        self._counts = counts
+    def __init__(self, error: Exception | None = None):
         self._error = error
 
     async def get_material_coverage(self):
         if self._error is not None:
             raise self._error
-        assert self._counts is not None
-        return build_material_coverage_report(self._counts, datetime(2026, 9, 4, tzinfo=timezone.utc))
+        return REPORT
 
 
-def _counts(**missing_overrides: int) -> MaterialCoverageCounts:
-    missing = {material_id: 0 for material_id in MATERIAL_COVERAGE_SPECS}
-    missing.update(missing_overrides)
-    return MaterialCoverageCounts(way_total=200, edge_total=40, missing_by_material=missing)
+REPORT = build_material_coverage_report(
+    MaterialCoverageCounts(
+        way_total=200, edge_total=40, missing_by_material={material_id: 0 for material_id in MATERIAL_COVERAGE_SPECS}
+    ),
+    datetime(2026, 9, 4, tzinfo=timezone.utc),
+)
 
 
-def test_get_material_coverage_returns_all_catalog_materials(admin_credentials):
-    app.dependency_overrides[get_material_coverage_service] = lambda: FakeMaterialCoverageService(
-        counts=_counts(surface=170, gradient_percent=30)
-    )
+def test_get_material_coverage_returns_the_report(admin_credentials):
+    app.dependency_overrides[get_material_coverage_service] = lambda: FakeMaterialCoverageService()
     try:
         response = client.get(COVERAGE_URL, headers=AUTH_HEADERS)
     finally:
         app.dependency_overrides.clear()
 
-    assert response.status_code == 200
-    body = response.json()
-    assert body["way_total"] == 200
-    assert body["edge_total"] == 40
-    assert body["computed_at"].startswith("2026-09-04")
-    assert [entry["material_id"] for entry in body["materials"]] == list(MATERIAL_CATALOG)
-
-    by_id = {entry["material_id"]: entry for entry in body["materials"]}
-    assert by_id["surface"] == {
-        "kind": "counted",
-        "material_id": "surface",
-        "label": MATERIAL_CATALOG["surface"].full_label(),
-        "dtype": "categorical",
-        "population": "way",
-        "total": 200,
-        "missing": 170,
-        "missing_ratio": pytest.approx(0.85),
-        "source": MATERIAL_COVERAGE_SPECS["surface"].source,
-        "missing_semantics": "unknown",
-    }
-    assert by_id["gradient_percent"]["population"] == "edge"
-    assert by_id["gradient_percent"]["missing_ratio"] == pytest.approx(0.75)
-    assert by_id["lit"]["missing_semantics"] == "definite"
-    assert by_id["wind_drag_ratio"]["kind"] == "excluded"
-    assert by_id["wind_drag_ratio"]["excluded_reason"]
+    assert response.json() == REPORT.model_dump(mode="json")
 
 
 def test_get_material_coverage_translates_db_errors_to_503(admin_credentials):
