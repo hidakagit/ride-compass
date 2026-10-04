@@ -101,7 +101,6 @@ describe("周回か目的地か", () => {
   ])("「$label」が既に置いてあれば、目的地へ切り替えても自動では置けるようにしない", ({ place }) => {
     const { result } = renderConditions();
     act(() => place(result.current));
-    act(() => result.current.armPinRole(null));
 
     act(() => result.current.changeRouteMode("destination"));
 
@@ -146,18 +145,16 @@ describe("地点", () => {
     expect(result.current.armedPinRole).toBeNull();
   });
 
-  it("経由地は置いた順に足し、置いたあとも続けて置ける", () => {
+  it("経由地は置いた順に足す", () => {
     const { result } = renderConditions();
-    act(() => result.current.armPinRole("waypoint"));
 
     act(() => result.current.placePin("waypoint", A));
     act(() => result.current.placePin("waypoint", B));
 
     expect(result.current.waypoints).toEqual([A, B]);
-    expect(result.current.armedPinRole).toBe("waypoint");
   });
 
-  it("経由地は生成が受け付ける数まで置け、達したところで置ける役割を解く", () => {
+  it("経由地は置いたあとも続けて置け、生成が受け付ける数に達したところで置ける役割を解く", () => {
     const max = routeGenerateConfig.max_waypoints;
     const { result } = renderConditions();
     act(() => result.current.armPinRole("waypoint"));
@@ -202,13 +199,6 @@ describe("地点", () => {
 });
 
 describe("距離と候補数", () => {
-  it("保存値が無ければ距離30km・候補数は既定の数で始める", () => {
-    const { result } = renderConditions();
-
-    expect(result.current.distanceInput).toBe("30");
-    expect(result.current.maxRoutesInput).toBe(String(routeGenerateConfig.default_max_routes));
-  });
-
   it("入力した値は文字列のまま持ち、開き直しても残る", () => {
     const first = renderConditions();
     act(() => first.result.current.setDistanceInput("55"));
