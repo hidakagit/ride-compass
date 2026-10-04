@@ -237,6 +237,10 @@ issue の番号ごと）が持つ。同じタスクの実行（作る・確か�
 測らず、Pull Request の本文に前後の行を求めず、そのために「開発機が要る」にもしない。値の偏りは、本番の派生を作り直すたびに
 派生の表の全部の値の列を前と後で測る記録で確かめる（手順は [deployment-sync.md](deployment-sync.md)「派生データの作り直し」）。
 気づく時点は、Pull Request ではなく本番の作り直しになる。
+軸の評価の式（`backend/app/domain/` の軸の評価）だけを変える変更は派生の表を変えず、この記録に出ない。そうした変更が本番に出たら、
+出たあとに全部の軸の張り付きを本番で1回測り（`backend` で `python scripts/run_probe.py scripts/measure_axis_saturation.py`。読むだけ）、
+出力をそのタスクの issue にコメントで書く。本番の接続情報は開発機にだけあるので、開発機の対話のセッションが打つ。張り付いた軸が
+あれば、その変更を疑う。
 
 **Pull Request のあと**（ゲートが、コードのリポジトリの Webhook から届く Pull Request の出来事で動かす）
 - コードのリポジトリは、master に入れる前に必須チェック（`ci.yml` の `ci-ok` と Docs Consistency 等）が Pull Request で通ることを
