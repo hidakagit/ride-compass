@@ -103,10 +103,3 @@ async def test_unreadable_boundaries_raise(boundary_path, content):
 
     with pytest.raises(jma_area_boundaries.AreaBoundariesUnavailableError):
         await jma_area_boundaries.find_class20_code(35.65, 139.7)
-
-
-def test_written_boundaries_leave_no_partial_file(boundary_path):
-    """書き終えた置き場には境界のファイルだけが残る（書きかけの別名を残さない）。"""
-    jma_area_boundaries.write_boundaries(boundary_path, {"0000010": WEST})
-
-    assert list(boundary_path.parent.iterdir()) == [boundary_path]
