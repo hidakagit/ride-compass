@@ -83,17 +83,13 @@ describe("EditDifference", () => {
     expect(screen.getByText("から1区間")).toBeInTheDocument();
   });
 
-  it("差は指標ごとの桁と単位で符号付きに書き、増えたら悪化・減ったら改善の印を付ける", () => {
+  it("差は指標ごとの桁と単位で符号付きに書き、増えたら悪化・減ったら改善の印、表示する桁で0に丸まれば「±0」で印を付けない", () => {
     renderDifference();
     expect(metric("距離")).toHaveTextContent("+2.3km");
     expect(metric("距離")).toHaveAttribute("data-worse", "true");
     expect(metric("所要")).toHaveTextContent("−10分");
     expect(metric("所要")).toHaveAttribute("data-better", "true");
     expect(metric("負荷")).toHaveTextContent("−20");
-  });
-
-  it("表示する桁で0に丸まる差は「±0」で、増減のどちらの印も付けない", () => {
-    renderDifference();
     expect(metric("総合難易度")).toHaveTextContent("±0");
     expect(metric("総合難易度")).toHaveAttribute("data-worse", "false");
     expect(metric("総合難易度")).toHaveAttribute("data-better", "false");

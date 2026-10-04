@@ -3,11 +3,12 @@
  *
  * 見るもの: 長さのある区間が無ければ何も描かないこと、横軸の右端（候補の距離と渡された物差しの長い方）と目盛り、
  * 軸ごとの塗り（`axisOrder`の順に下から積む・軸の色と色の無い軸の色）、値の無い区間の灰色の塗り（総合難易度の高さ。
- * 総合難易度が無い・0なら塗らない）、選ばれた区間の帯とスライダーとしての値、キーボード（矢印・Home・End）と
+ * 総合難易度が無ければ塗らない）、選ばれた区間の帯とスライダーとしての値、キーボード（矢印・Home・End）と
  * 1本の指（マウス）でなぞる・押して離す操作で選ぶ区間と地点、押しただけ・ボタンを押していない動き・2本目の指が
  * 加わった操作では選ばないこと、自分で動かした地点の線（選ばれた区間の中にあるときだけ）。
  *
- * ここで見ないもの: 区間の柱と積み上げの長方形の組み方・区間の中の割合から地点を引く計算（道なりの形の上） →
+ * ここで見ないもの: 区間の柱と積み上げの長方形の組み方（総合難易度が0なら値の無い区間を塗らないことを含む）・
+ * 区間の中の割合から地点を引く計算（道なりの形の上） →
  * `features/route/DifficultyProfile/profileGeometry.ts`。
  *
  * 差し替えたもの: グラフの実寸（`getBoundingClientRect`。テスト環境は実寸を返さない）。
@@ -120,7 +121,7 @@ describe("DifficultyProfile", () => {
     expect(paths(container).map((path) => path.fill)).toEqual([COLORS.axis_a, palette.semantic.no_data]);
   });
 
-  it("値の無い区間は総合難易度の高さで灰色に塗り、総合難易度が無い・0なら塗らない", () => {
+  it("値の無い区間は総合難易度の高さで灰色に塗り、総合難易度が無ければ塗らない", () => {
     const missingPath = (container: HTMLElement) => paths(container).find((path) => path.opacity === "0.6");
     const first = renderProfile({ overallDifficulty: 30 });
     expect(missingPath(first.container)).toEqual({
@@ -130,7 +131,6 @@ describe("DifficultyProfile", () => {
     });
     first.unmount();
     expect(missingPath(renderProfile({ overallDifficulty: null }).container)).toBeUndefined();
-    expect(missingPath(renderProfile({ overallDifficulty: 0 }).container)).toBeUndefined();
   });
 
   it("スライダーの値は、選ばれた区間の始まりの距離（選ばれていなければ0）", () => {
