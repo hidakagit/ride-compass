@@ -7,6 +7,9 @@
 
 母集団はソースから導く——`app`配下の全`.py`をASTで読み、`Depends(...)`の最初の引数に書かれた名前
 （`Depends(x)`・`Depends(mod.x)`）と、`main.py`に現れる名前を集める。
+
+ここで見ないもの:
+- 注入した部品の結線 → APIの経路のテスト（例: `tests/test_weather_route.py`）
 """
 
 from __future__ import annotations
