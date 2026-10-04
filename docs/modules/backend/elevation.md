@@ -24,7 +24,7 @@ source_features(source='dem')          ← 生データ。取り直さない限�
 edge_materials（start/end・gain/loss・average/max/min）
    │ 探索フェーズが材料として読む（road_graph_repository.py）
    ▼
-経路の集計（services/road_graph_engine.py: _aggregate_elevation）
+経路の集計（services/road_graph_engine.py: aggregate_elevation）
 ```
 
 値の出し方そのものは`domain/attributes.py: elevation_values_sql`が持つ。派生バッチは
@@ -78,7 +78,7 @@ DEMが返すのは地表面の標高で、桁や坑道の高さではない—�
 （`road_graph_repository.py: _REVERSED_ELEVATION_COLUMNS`）ので、材料の式も評価も向きを
 知らない。
 
-## 経路の集計（`services/road_graph_engine.py: _aggregate_elevation`）
+## 経路の集計（`services/road_graph_engine.py: aggregate_elevation`）
 
 確定した経路の区間ぶんの値から、累積標高・最低/最高標高を組み立てる（エンジンの一部で、
 ファイルは[ルート生成エンジン](routing-engine.md)の対象）。区間の値は探索フェーズで読んだ

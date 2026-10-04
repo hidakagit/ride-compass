@@ -128,7 +128,7 @@ Edgeコストは「探索範囲の静的Edge×公開軸スコア行列＋リク�
 そのまま読む。`displayed_material_ids`はリクエストの`lens_axis_id`（地図のレンズが表示を
 要求している軸）が符号付き材料の軸（`map_value_kind`が`signed_material`）を指す場合、
 その軸の材料も重みに関わらず含める（地図の色分けが重み0の軸でも成立するため）。
-逆回り候補はレグ割当ても反転する（先に走る側が往路配列、`_reverse_leg_assignment`）。レグ番号は走行順に振られるため、Edge列の反転と同時に番号自体も`max_leg - leg`へ振り直す。探索範囲を覆う格子点ごとの時別風予報
+逆回り候補はレグ割当ても反転する（先に走る側が往路配列、`reverse_leg_assignment`）。レグ番号は走行順に振られるため、Edge列の反転と同時に番号自体も`max_leg - leg`へ振り直す。探索範囲を覆う格子点ごとの時別風予報
 （`WeatherService.get_wind_forecast_lattice`。格子はMSMと同じ細かさ、`domain/wind.py: WindLattice`・
 `WIND_FORECAST_LAT_STEP_DEG`/`WIND_FORECAST_LON_STEP_DEG`。格子は緯度・経度0度から数えた固定の線に揃い、
 探索範囲に依らない。各Edgeは中点に最も近い格子点の風を引く——ルートを出す前の地図も同じ点を引く、
@@ -620,8 +620,8 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
 周回候補（waypoints指定でない場合）は、順方向の探索結果から逆方向候補を
 **追加のDB/API呼び出し無しに代数的に導出**する: 標高の獲得/喪失を入れ替え、勾配の符号を
 反転し、既にhydrate済みのgeometryを再利用する（`_reverse_traced_edges`/
-`domain/attributes.py: ElevationAttribute.reversed_as`・`_reverse_elevation_by_edge`）。両方向の`distance_weighted_difficulty`を比較し、
-小さい方を採用する（`_pick_better_candidate`）。`TracedLoop.bearing is None`
+`domain/attributes.py: ElevationAttribute.reversed_as`・`reverse_elevation_by_edge`）。両方向の`distance_weighted_difficulty`を比較し、
+小さい方を採用する（`pick_better_candidate`）。`TracedLoop.bearing is None`
 （waypoints指定ルート）ではこの逆回り合成をスキップする——ユーザーが指定した訪問順序を
 尊重する必要があるため。
 
@@ -827,7 +827,7 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
   数値・文字のフィールドが静かに外れる）。
 - **`RouteCandidate.edge_point_offsets`は、その経路のEdgeが`geometry.coordinates`の
   どこで切り替わるか**を`edge_ids`より1件多く持つ。隣接Edgeの境界点は重複させずに連結する
-  （`_concat_edge_geometries`）ため、**座標列だけからはEdgeの境目を復元できない**。
+  （`concat_edge_geometries`）ため、**座標列だけからはEdgeの境目を復元できない**。
   Edge単位で決めた区間を地図へ帯として描くのに要る。座標列と境界の位置は同じ関数が
   同時に作る——別々に組み立てるとずれても型でも例外でも現れず、帯だけが1点ずれる。
 - **`RouteCandidate.node_ids`は経路が通るNodeを`edge_ids`より1件多く持つ**
