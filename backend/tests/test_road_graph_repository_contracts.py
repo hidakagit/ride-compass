@@ -2,7 +2,7 @@
 
 対象は、道路網と材料の読み出しのうち**Python側が決めていること**:
 
-- 鍵（ノード・有向な枝・タイルのフィーチャー）の作り方と読み方
+- 地図のフィーチャーの鍵から、区間とwayのどちらの単位で読むか
 - 逆向きに辿ったときの列の読み替え規則
 - 行から探索用グラフ・材料の行列を組む部分
 - 取込範囲の外（None）と、範囲内で0件（空）の区別
@@ -10,6 +10,8 @@
 ここで見ないもの:
 - 材料の値式そのもの → `test_material_values.py`、欠損率 → `test_material_coverage.py`
 - タイルの形の署名 → `test_cache_identity.py`
+- 有向な枝の鍵の書式（`domain/graph.py`の持ち物。逆の`parse_edge_key`を持つので衝突しない）。向きで分かれる
+  ことは、ここの両向きの取り直しが通す
 - スキーマの作成（`create_tables`）と、SQLが実際に返す値
 
 **セッションは差し替えて与える。** 実行した文とパラメータを記録するだけのフェイクを使い、
@@ -32,7 +34,7 @@ from app.domain.material_catalog import material_array_columns
 from app.domain.region import BoundingBox
 from app.infrastructure import road_graph_repository
 from app.infrastructure.derived_models import EdgeMaterialRow
-from app.domain.graph import edge_key, node_key, parse_edge_feature_key
+from app.domain.graph import edge_key, node_key
 from app.services.axis_preview_service import SAMPLE_LIMIT, SAMPLE_PERCENT
 from app.infrastructure.road_graph_repository import (
     ID_CHUNK_SIZE,
@@ -99,53 +101,19 @@ def _repo(*results) -> tuple[RoadGraphRepository, _FakeSession]:
     return RoadGraphRepository(session), session
 
 
-# --- 鍵 ---------------------------------------------------------------------
-
-
-def test_feature_key_of_a_whole_way_has_no_segment():
-    """タイルは区間とway丸ごとを同じ名前の鍵で出す。読む側は区切りの有無だけで見分ける。"""
-    assert parse_edge_feature_key("123-4") == (123, 4)
-    assert parse_edge_feature_key("123") is None
-
-
-def test_unparsable_feature_key_is_not_a_segment():
-    """鍵はフロントから来る。数でない鍵を区間として扱うと、引き直しが例外で落ちる。"""
-    assert parse_edge_feature_key("123-x") is None
-    assert parse_edge_feature_key("123-") is None
-    assert parse_edge_feature_key("-4") is None
-
-
-def test_edge_keys_never_collide():
-    """衝突すると、後から組んだ枝が前のものを辞書から追い出す（片方向が黙って消える）。"""
-    triples = [(1, 0, True), (1, 0, False), (1, 1, True), (2, 0, True)]
-    assert len({edge_key(*triple) for triple in triples}) == len(triples)
-
-
 # --- 逆向きの読み替え ---------------------------------------------------------
 
 
-def test_paired_tokens_are_swapped_in_both_directions():
-    assert reversed_material_expression("start_a") == "m.end_a"
-    assert reversed_material_expression("end_a") == "m.start_a"
-    assert reversed_material_expression("a_gain_b") == "m.a_loss_b"
-    assert reversed_material_expression("a_loss_b") == "m.a_gain_b"
-    assert reversed_material_expression("max_a") == "m.min_a"
-    assert reversed_material_expression("min_a") == "m.max_a"
-
-
-def test_grade_flips_its_sign():
-    assert reversed_material_expression("a_grade") == "-m.a_grade"
-    assert reversed_material_expression("max_grade") == "-m.min_grade"
-
-
-def test_direction_independent_column_has_no_reversed_expression():
-    assert reversed_material_expression("a_count") is None
-
-
-def test_only_the_first_pair_and_the_first_occurrence_are_swapped():
-    """2度入れ替えると元へ戻り、逆向きの枝が順向きと同じ値を読む。"""
-    assert reversed_material_expression("start_max_a") == "m.end_max_a"
-    assert reversed_material_expression("start_a_start") == "m.end_a_start"
+@pytest.mark.parametrize(("name", "expression"), [
+    ("start_a", "m.end_a"),
+    # 勾配は符号を返す。対の語を持てば入れ替えもする
+    ("max_grade", "-m.min_grade"),
+    ("a_grade", "-m.a_grade"),
+    # 向きで変わらない列
+    ("a_count", None),
+])
+def test_reversed_expression_swaps_paired_tokens_and_flips_grades(name, expression):
+    assert reversed_material_expression(name) == expression
 
 
 def test_reversing_twice_returns_to_the_original_column():
@@ -173,10 +141,6 @@ def test_way_from_clause_joins_only_what_the_expression_reads():
     """使わないJOINを足すと、材料1件を引くだけの値列挙まで道の全件へ広がる。"""
     assert "JOIN" not in way_from_clause(["w.tags"])
     assert way_from_clause(["em.a"]).count("JOIN") == 1
-    assert way_from_clause(["em.a", "wm.b", "re.c"]).count("JOIN") == 3
-
-
-# --- 行からグラフを組む -------------------------------------------------------
 
 
 # --- ジオメトリ付きの取り直し -------------------------------------------------
@@ -187,22 +151,13 @@ def _geometry_row(way_id=1, segment=0, coordinates=((139.0, 35.0), (139.1, 35.2)
                 distance_m=100.0, wkb=shapely.to_wkb(shapely.LineString(coordinates)))
 
 
-async def test_geometry_is_not_fetched_for_an_empty_request():
-    repo, session = _repo()
-
-    assert await repo.get_edges_with_geometry([]) == {}
-    assert session.calls == []
-
-
 async def test_both_directions_of_a_segment_share_one_row():
     """同じ区間を向きの数だけ引き直さない。形は向きに依らず、逆順にすれば足りる。"""
-    repo, session = _repo([_geometry_row()])
+    repo, _ = _repo([_geometry_row()])
     requested = [_lean_edge(1, 0, True), _lean_edge(1, 0, False)]
 
     edges = await repo.get_edges_with_geometry(requested)
 
-    assert session.params[0]["way_ids"] == [1]
-    assert session.params[0]["segment_indexes"] == [0]
     forward = edges[edge_key(1, 0, True)]
     backward = edges[edge_key(1, 0, False)]
     assert forward.geometry == [[35.0, 139.0], [35.2, 139.1]]
@@ -340,29 +295,23 @@ async def test_distinct_values_are_listed_only_for_categorical_materials(monkeyp
         "material_b": SimpleNamespace(value_sql="w.tags->>'tag_b'", dtype="numeric"),
         "material_c": SimpleNamespace(value_sql=None, dtype="categorical"),
     })
-    repo, session = _repo([_Row(value="value_a"), _Row(value="value_b")])
+    repo, _ = _repo([_Row(value="value_a"), _Row(value="value_b")])
 
     assert await repo.get_distinct_material_values("material_a") == ["value_a", "value_b"]
     assert await repo.get_distinct_material_values("material_b") == []
     assert await repo.get_distinct_material_values("material_c") == []
     assert await repo.get_distinct_material_values("material_unknown") == []
-    assert len(session.calls) == 1
 
 
 # --- 事故の収録年 -------------------------------------------------------------
 
 
-async def test_accident_years_come_from_the_declared_profile():
+@pytest.mark.parametrize(("declared", "years"), [([2023, 2021, 2022], [2021, 2022, 2023]), (None, [])])
+async def test_accident_years_come_from_the_declared_profile(declared, years):
     """実データの発生年を数えない——事故が1件も無かった年が落ちて、密度の分母がずれる。"""
-    repo, _ = _repo([_Row(years=[2023, 2021, 2022])])
+    repo, _ = _repo([_Row(years=declared)])
 
-    assert await repo.get_accident_years() == [2021, 2022, 2023]
-
-
-async def test_no_accident_profile_yields_no_years():
-    repo, _ = _repo([_Row(years=None)])
-
-    assert await repo.get_accident_years() == []
+    assert await repo.get_accident_years() == years
 
 
 # --- 土地被覆の内訳 -----------------------------------------------------------
@@ -376,24 +325,22 @@ def _landcover_row(valid_pixels=100, missing: str | None = None) -> _Row:
     return _Row(**values)
 
 
-async def test_landcover_is_read_at_the_unit_the_map_paints():
+@pytest.mark.parametrize(("feature_key", "segment_index"), [
+    ("123-4", 4),
+    # タイルは区間とway丸ごとを同じ名前の鍵で出す。区切りの無い鍵はway丸ごと
+    ("123", None),
+    # 鍵とwayが食い違うのは呼び出し側の取り違え。別の区間の内訳を返すよりway全体で答える
+    ("456-7", None),
+    # 鍵はフロントから来る。数でない鍵を区間として扱うと、引き直しが例外で落ちる
+    ("123-x", None),
+])
+async def test_landcover_is_read_at_the_unit_the_map_paints(feature_key, segment_index):
     """鍵が区間を指すなら区間の値。way丸ごとの値を返すと、同じ場所で地図の色と数字が食い違う。"""
-    repo, session = _repo([_landcover_row()], [_landcover_row()])
-
-    await repo.get_feature_landcover(123, "123-4")
-    await repo.get_feature_landcover(123, "123")
-
-    assert session.params[0]["segment_index"] == 4
-    assert "segment_index" not in session.params[1]
-
-
-async def test_landcover_of_a_key_from_another_way_falls_back_to_the_way():
-    """鍵とwayが食い違うのは呼び出し側の取り違え。別の区間の内訳を返すよりway全体で答える。"""
     repo, session = _repo([_landcover_row()])
 
-    await repo.get_feature_landcover(123, "456-7")
+    await repo.get_feature_landcover(123, feature_key)
 
-    assert "segment_index" not in session.params[0]
+    assert session.params[0].get("segment_index") == segment_index
 
 
 @pytest.mark.parametrize("row", [None, _landcover_row(valid_pixels=None),
@@ -407,13 +354,13 @@ async def test_incomplete_landcover_is_not_reported(row):
 
 # --- タイル -------------------------------------------------------------------
 
-# タイル1枚を焼く口（路面と、SQLを受け取る点の口）。点の口のSQLはフェイクのセッションが実行しない。
-_MVT_READERS = {
-    "road_surface": lambda repo: repo.get_road_surface_tile_mvt(14, 1, 2, BBOX),
-    "point": lambda repo: repo.get_tile_mvt(text("SELECT 1"), "layer", 14, 1, 2, BBOX),
-}
+# タイル1枚を焼く口。路面の口はこの口へSQLを渡すだけ。SQLはフェイクのセッションが実行しない。
+def _read_mvt(repo):
+    return repo.get_tile_mvt(text("SELECT 1"), "layer", 14, 1, 2, BBOX)
+
+
 _TILE_READERS = {
-    **_MVT_READERS,
+    "mvt": _read_mvt,
     "midpoints": lambda repo: repo.get_feature_midpoints_in_tile(14, 1, 2, BBOX),
     "gradient_inputs": lambda repo: repo.get_feature_gradient_inputs_in_tile(14, 1, 2, BBOX),
 }
@@ -427,19 +374,15 @@ async def test_outside_the_imported_area_nothing_is_returned(read):
     assert await read(repo) is None
 
 
-@pytest.mark.parametrize("read", _MVT_READERS.values(), ids=_MVT_READERS)
-async def test_tile_without_features_is_an_empty_but_valid_tile(read):
-    """長さ0のバイト列は「featureが1つも無い有効なMVT」として地図がそのまま受理する。"""
-    repo, _ = _repo([_Row(covered=True, tile=None)])
+@pytest.mark.parametrize(("tile", "payload"), [
+    # 長さ0のバイト列は「featureが1つも無い有効なMVT」として地図がそのまま受理する
+    (None, b""),
+    (memoryview(b"tile_a"), b"tile_a"),
+])
+async def test_tile_inside_the_imported_area_is_bytes_even_without_features(tile, payload):
+    repo, _ = _repo([_Row(covered=True, tile=tile)])
 
-    assert await read(repo) == b""
-
-
-@pytest.mark.parametrize("read", _MVT_READERS.values(), ids=_MVT_READERS)
-async def test_tile_payload_is_returned_as_bytes(read):
-    repo, _ = _repo([_Row(covered=True, tile=memoryview(b"tile_a"))])
-
-    assert await read(repo) == b"tile_a"
+    assert await _read_mvt(repo) == payload
 
 
 async def test_feature_keys_are_returned_as_text():

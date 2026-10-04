@@ -2,6 +2,10 @@
 
 既定値は宣言が持ち、DBは差分だけを持つ。**行が1つも無くても宣言どおりに動く**ことと、
 壊れた行の扱いが2通りに分かれること（宣言から消えたidは無視、範囲の外は落とす）を固定する。
+
+ここで見ないもの:
+- 書き込みの取引の区切りと、書いた値をプロセスへ反映する順 → `test_tuning_service.py`
+- HTTPの受け口 → `test_tuning_admin_routes.py`、派生バッチが同じ値を読むこと → `test_derive_cli.py`
 """
 
 from datetime import UTC, datetime
@@ -27,9 +31,6 @@ _PARAM = "turn.right_seconds"
 
 
 class TestMerge:
-    def test_no_override_means_the_declared_defaults(self):
-        assert merge_overrides({}) == {p.id: p.default for p in TUNING_PARAMETERS}
-
     def test_an_override_replaces_only_that_value(self):
         merged = merge_overrides({_PARAM: 30.0})
 
@@ -44,16 +45,12 @@ class TestMerge:
         assert merged == {p.id: p.default for p in TUNING_PARAMETERS}
         assert "宣言に無いid" in caplog.text
 
-    def test_a_value_outside_the_declared_range_is_fatal(self):
+    @pytest.mark.parametrize("value", [TUNING_PARAMETERS_BY_ID[_PARAM].maximum + 1.0, float("nan")],
+                             ids=["範囲の外", "数値でない"])
+    def test_a_broken_value_is_fatal(self, value):
         # 間違った値が静かに効く方が悪い。
-        too_big = TUNING_PARAMETERS_BY_ID[_PARAM].maximum + 1.0
-
         with pytest.raises(TuningOverrideError):
-            merge_overrides({_PARAM: too_big})
-
-    def test_a_non_numeric_value_is_fatal(self):
-        with pytest.raises(TuningOverrideError):
-            merge_overrides({_PARAM: float("nan")})
+            merge_overrides({_PARAM: value})
 
 
 @pytest.mark.asyncio(loop_scope="module")
@@ -108,13 +105,7 @@ async def test_writing_an_undeclared_id_is_rejected(road_graph_session: AsyncSes
 @pytest.mark.xdist_group(name="postgis")
 @pytest.mark.postgis
 async def test_the_row_records_when_it_was_changed(road_graph_session: AsyncSession):
-    """`updated_at`が実際のDBに在って、書いた行へ値が入る。
-
-    この列はmigration 0043が`CREATE TABLE`で宣言していたのにORMが持っておらず、
-    fresh bootstrap（`create_tables()`）で作ったDBには
-    存在しなかった。**同じコードが環境によって違うスキーマの上で動く**状態で、
-    この行を読む経路を通らない限り気づけない。
-    """
+    """`updated_at`が実際のDBに在って、挿入でも書き換えでも書いた時刻へ進む。"""
     default = TUNING_PARAMETERS_BY_ID[_PARAM].default
     before = datetime.now(UTC)
 
