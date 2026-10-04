@@ -1,0 +1,82 @@
+# frontendをRenderへデプロイする。
+#
+# Renderのデプロイフックに、CIを通ったコミットを`ref`で渡して出させる。Renderの自動デプロイは使わない——
+# 「After CI Checks Pass」は連携したブランチの最新のコミットだけを、そのコミットのチェックが全部終わってから
+# 出すため、masterの先頭に長く動くチェック（workflow_dispatchで動く実行）が付いている間は何も出ない。
+name: Deploy Frontend to Render
+
+on:
+  # ci.ymlが、masterへのpushでCIの全ジョブが通ったあとに呼ぶ（どれかが赤なら呼ばれない）。
+  # 呼ばれたときの`github.sha`は、CIを通ったそのコミット。
+  workflow_call:
+  # 手動のデプロイ。CIを待たず、選んだrefの先端をそのまま出す。
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    # 判定・デプロイ・反映の待ちを1つのジョブにし、まとめて1本ずつ走らせる。Renderは最後に頼まれたデプロイを
+    # 出すので、反映を待たずに次の判定へ進むと、後から終わった古いCIの実行が新しいコミットを上書きしうる。
+    concurrency:
+      group: deploy-frontend
+      cancel-in-progress: false
+    env:
+      VERSION_URL: https://ride-compass-frontend.onrender.com/api/version
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: 本番で動いているコミットを読む
+        id: deployed
+        run: |
+          # 休止から起き上がる間は429・5xxが返るので、少し待って読み直す。読めなければ空のまま進む
+          # （判定は「分からないので出す」になる）。
+          sha=$(curl -fsS --max-time 30 --retry 6 --retry-all-errors --retry-delay 10 "$VERSION_URL" | jq -r '.commit // empty') || sha=""
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+      - name: 出すかを決める
+        id: gate
+        env:
+          DEPLOYED: ${{ steps.deployed.outputs.sha }}
+        run: |
+          if [ "${{ github.event_name }}" = workflow_dispatch ]; then
+            echo "出す: 手動の起動"
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          elif [ -n "$DEPLOYED" ] && git cat-file -e "$DEPLOYED^{commit}" 2>/dev/null && git merge-base --is-ancestor "$GITHUB_SHA" "$DEPLOYED"; then
+            echo "出さない: 本番はこのコミットか、これより新しいコミットで動いている（本番 ${DEPLOYED:0:8} → ${GITHUB_SHA:0:8}）"
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "出す: 本番のコミットが分からないか、これより古いか、履歴が分かれている（本番 ${DEPLOYED:0:8} → ${GITHUB_SHA:0:8}）"
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Renderのデプロイフックでこのコミットを出す
+        if: steps.gate.outputs.deploy == 'true'
+        env:
+          HOOK: ${{ secrets.RENDER_FRONTEND_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "::error::リポジトリの秘密 RENDER_FRONTEND_DEPLOY_HOOK_URL が無い"
+            exit 1
+          fi
+          # フックのURLは鍵を`?key=`で持つので、`ref`は`&`で足す。200は今始まった、202は進行中のデプロイの後に始まる。
+          code=$(curl -sS --max-time 60 -o "$RUNNER_TEMP/hook.json" -w '%{http_code}' -X POST "$HOOK&ref=$GITHUB_SHA") || code=000
+          echo "デプロイフックの応答 $code $(cat "$RUNNER_TEMP/hook.json" 2>/dev/null)"
+          case "$code" in
+            200|202) ;;
+            *) exit 1 ;;
+          esac
+      - name: 本番の/api/versionがこのコミットになるまで待つ
+        if: steps.gate.outputs.deploy == 'true'
+        run: |
+          # 上限までに変わらなければ、Renderのビルドか起動が失敗している（ダッシュボードの Events に出る）。
+          WAIT_SECONDS=1800
+          WAIT_STARTED=$SECONDS
+          until [ "$(curl -fsS --max-time 30 "$VERSION_URL" 2>/dev/null | jq -r '.commit // empty' 2>/dev/null)" = "$GITHUB_SHA" ]; do
+            if [ $((SECONDS - WAIT_STARTED)) -ge $WAIT_SECONDS ]; then
+              echo "::error::本番の/api/versionが${WAIT_SECONDS}秒以内にこのコミットになりませんでした commit=$GITHUB_SHA"
+              curl -sS --max-time 30 "$VERSION_URL" || true
+              exit 1
+            fi
+            sleep 30
+          done
+          echo "本番の/api/versionがこのコミットになるまで $((SECONDS - WAIT_STARTED))秒 commit=$GITHUB_SHA"

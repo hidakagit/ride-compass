@@ -180,7 +180,8 @@ issue の番号ごと）が持つ。同じタスクの実行（作る・確か�
      （宛先は docs/architecture/tech-stack.md「本番の宛先」。backend は、Pull Request の差分に `scripts/deploy_backend_gate.py: DEPLOY_PATHS`
      に当たるファイルがあるときだけ見る）。`git merge-base --is-ancestor <マージのコミット> <本番の commit>` が 0 で終われば出ている
      （本番の commit が手元に無ければ先に `git fetch origin`）。出ていなければ、マージのコミットの master の CI を 4 と同じく引いて
-     終わるまで待ち、見直す。それでも出ていなければ、そのことを判断材料に書いて問う。判断材料には、ユーザーが自分で版を見分ける方法
+     終わるまで待ち、見直す（CI の `deploy-frontend`・`deploy-backend` は、出したコミットが本番の `commit` になるまで待って終わる。
+     デプロイのジョブが取り消しで終わったのは後のコミットのデプロイに順番を譲ったときで、そのときは master の先頭の CI を同じく待つ）。それでも出ていなければ、そのことを判断材料に書いて問う。判断材料には、ユーザーが自分で版を見分ける方法
      として、開く URL と、見た時点の `commit`・`started_at` を書く（出ていれば「`started_at` がこの時刻以降なら修正を含む版」、
      出ていなければ「`commit` がこの値から変わっていれば修正を含む版」。本番へはマージの後の master しか出ないため）。残りが無くなれば
      `gh issue close <番号> --reason completed` で閉じる（ゲートが、残りが無いことを照らしてから完了にする）。
@@ -249,7 +250,7 @@ issue の番号ごと）が持つ。同じタスクの実行（作る・確か�
 - コードのリポジトリは、master に入れる前に必須チェック（`ci.yml` の `ci-ok` と Docs Consistency 等）が Pull Request で通ることを
   求める（ルールセット。管理者にも効く）。最新の master の取り込みは求めない（求めると、1件入るたびにほかの Pull Request が
   全部載せ直しと CI の待ちになり、並べて進めた分が1本ずつに潰れる）。それぞれ通った Pull Request の組み合わせで壊れたものは
-  master の CI が捕まえ、通るまで本番へは出ない（`ci.yml` の `deploy-backend`）。マージは hidakagit のトークンで打つので、
+  master の CI が捕まえ、通るまで本番へは出ない（`ci.yml` の `deploy-backend`・`deploy-frontend`）。マージは hidakagit のトークンで打つので、
   落ちた知らせは GitHub の通知（Actions の失敗）で hidakagit に届き、直すのは普通のタスクにする。
 - 開いた（開き直された） → 進行中なら検証中。ほかの状態なら何もしない
 - マージされずに閉じた → 未着手（閉じたときのコメントを作る担当が読んでやり直す）。master と競合して Merge が押せない

@@ -21,8 +21,8 @@
 # - ci-ok: コードのリポジトリの必須チェックに置く1本。上のどれかが失敗・取り消しなら落ち、スキップは通す
 #   （必須にするのをこの1本にまとめると、ジョブを足し引きしても必須チェックの設定を変えずに済む）。
 # - deploy-gate: masterへのpushで ci-ok が通り、tools/flow-gate/ が変わっていれば、ゲートを Cloudflare へ公開する。
-# - deploy-backend: masterへのpushで上の全ジョブが通ったときだけ、backendを本番へ出す
-#   （出すかの判定と手順は deploy-backend.yml）。**本番へ出る前の検査はこのワークフロー**で、
+# - deploy-backend・deploy-frontend: masterへのpushで上の全ジョブが通ったときだけ、backend・frontendを本番へ出す
+#   （出すかの判定と手順は deploy-backend.yml・deploy-frontend.yml）。**本番へ出る前の検査はこのワークフロー**で、
 #   どれかが赤ならデプロイは起動しない。
 name: CI
 
@@ -301,4 +301,9 @@ jobs:
     needs: [backend, api-contract, frontend, e2e, e2e-scan]
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     uses: ./.github/workflows/deploy-backend.yml
+    secrets: inherit
+  deploy-frontend:
+    needs: [backend, api-contract, frontend, e2e, e2e-scan]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    uses: ./.github/workflows/deploy-frontend.yml
     secrets: inherit
