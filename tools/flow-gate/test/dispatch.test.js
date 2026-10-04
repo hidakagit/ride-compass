@@ -31,9 +31,10 @@ test("23 想定は Claude の番の時間（ユーザーの番を除く）の、
   const events = [turn("AssignedEvent", config.claude, "00"), turn("UnassignedEvent", config.claude, "02"), turn("AssignedEvent", config.user, "02"),
     turn("UnassignedEvent", config.user, "10"), turn("AssignedEvent", config.claude, "10")];
   assert.equal(claudeHours(config, events, "2026-10-01T13:00:00Z"), 5);
-  const { recent } = config.coordinator;
-  const done = Array.from({ length: recent + 10 }, (_, k) => ({ size: "S", closedAt: `2026-08-${String(k + 1).padStart(2, "0")}`, claudeHours: k + 1 }));
-  assert.deepEqual(expected(config, [...done, { size: "M", closedAt: "2026-09-01", claudeHours: 7 }]), { S: 11 + Math.floor(0.9 * recent), M: 7 });
+  // 直近20件（閉じた日が新しいもの）は 11〜30 時間で、その p90 は 29 時間。
+  const recent20 = { ...config, coordinator: { ...config.coordinator, recent: 20 } };
+  const done = Array.from({ length: 30 }, (_, k) => ({ size: "S", closedAt: `2026-08-${String(k + 1).padStart(2, "0")}`, claudeHours: k + 1 }));
+  assert.deepEqual(expected(recent20, [...done, { size: "M", closedAt: "2026-09-01", claudeHours: 7 }]), { S: 29, M: 7 });
 });
 
 test("23 状況の更新: 想定を超えた Claude の番のタスク・仕事があるのに空いた枠・落ちた実行のどれかがあれば At risk。中身が変わったときだけ書く", async () => {
