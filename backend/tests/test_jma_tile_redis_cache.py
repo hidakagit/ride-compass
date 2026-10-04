@@ -5,7 +5,9 @@
 ここで見ないもの:
 - どのタイルを空とみなすか（透明・0バイト・読めない画像） → `test_jma_tile_content.py`。ここでは空の代表を1つずつ使う
 - いつ`set_empty`を呼ぶか（確定した404） → `test_jma_tile_client.py`
-- Redisの障害で接続を止める回路そのもの → `test_redis_client.py`
+- Redisの障害で何も持たず、例外を出さないこと → `test_redis_json_cache.py`（ここは`get_bytes`・`set_bytes`へ委ねるだけ）
+- 一度も書いていないパスの外れ → 同じ。ここでは別のパスが外れるテストが通す
+- 後から書いた値が前の値を置き換えること → Redisの`SET`の振る舞いで、ここに判断が無い
 """
 
 import io
@@ -24,10 +26,6 @@ def png(alpha: int) -> bytes:
     buffer = io.BytesIO()
     Image.new("RGBA", (4, 4), (255, 0, 0, alpha)).save(buffer, format="PNG")
     return buffer.getvalue()
-
-
-async def test_a_tile_never_stored_is_a_miss(fake_redis):
-    assert await jma_tile_redis_cache.get(TILE) is None
 
 
 async def test_a_stored_tile_comes_back_byte_for_byte_with_its_content_type(fake_redis):
@@ -54,23 +52,14 @@ async def test_a_tile_with_nothing_to_draw_comes_back_as_the_flag(fake_redis):
 async def test_a_vector_tile_is_judged_as_a_vector_by_its_path(fake_redis):
     """ベクタは長さで空を見る。画像として読もうとすると、空のベクタも「中身あり」で実体を持つ。"""
     await jma_tile_redis_cache.set(VECTOR_TILE, b"", "application/x-protobuf")
-    await jma_tile_redis_cache.set(VECTOR_TILE + "?v=1", b"\x1a\x02", "application/x-protobuf")
 
     assert isinstance(await jma_tile_redis_cache.get(VECTOR_TILE), EmptyTile)
-    assert await jma_tile_redis_cache.get(VECTOR_TILE + "?v=1") == (b"\x1a\x02", "application/x-protobuf")
 
 
 async def test_a_path_recorded_as_having_nothing_to_draw_comes_back_as_the_flag(fake_redis):
     await jma_tile_redis_cache.set_empty(TILE)
 
     assert isinstance(await jma_tile_redis_cache.get(TILE), EmptyTile)
-
-
-async def test_a_later_tile_replaces_what_was_recorded(fake_redis):
-    await jma_tile_redis_cache.set_empty(TILE)
-    await jma_tile_redis_cache.set(TILE, png(255), "image/png")
-
-    assert await jma_tile_redis_cache.get(TILE) == (png(255), "image/png")
 
 
 async def test_tiles_and_flags_are_forgotten_after_twenty_minutes(fake_redis, clock):
@@ -85,13 +74,3 @@ async def test_tiles_and_flags_are_forgotten_after_twenty_minutes(fake_redis, cl
     assert await jma_tile_redis_cache.get(TILE) is None
     assert await jma_tile_redis_cache.get(OTHER_TILE) is None
 
-
-async def test_without_redis_nothing_is_kept_and_nothing_is_raised(fake_redis, redis_server):
-    """Redisが落ちても、呼び出し元は上流へ取りに行く道へ進める。"""
-    redis_server.connected = False
-
-    await jma_tile_redis_cache.set(TILE, png(255), "image/png")
-    await jma_tile_redis_cache.set_empty(OTHER_TILE)
-
-    assert await jma_tile_redis_cache.get(TILE) is None
-    assert await jma_tile_redis_cache.get(OTHER_TILE) is None

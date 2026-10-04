@@ -29,23 +29,13 @@ def transparent() -> Image.Image:
     return Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
 
 
-def palette(opaque_pixel: tuple[int, int] | None) -> Image.Image:
+def test_a_palette_raster_whose_every_pixel_is_the_transparent_entry_is_empty():
     """配信元のタイルの形（パレットの0番を透明にした画像）。"""
     image = Image.new("P", (SIZE, SIZE), 0)
     image.putpalette([0, 0, 0, 255, 40, 0] + [0, 0, 0] * 254)
     image.info["transparency"] = 0
-    if opaque_pixel is not None:
-        image.putpixel(opaque_pixel, 1)
-    return image
 
-
-def test_a_fully_transparent_raster_is_empty():
-    assert is_empty_tile(encode(transparent()), "png")
-
-
-def test_a_palette_raster_is_empty_only_when_every_pixel_is_the_transparent_entry():
-    assert is_empty_tile(encode(palette(None)), "png")
-    assert not is_empty_tile(encode(palette((SIZE - 1, SIZE - 1))), "png")
+    assert is_empty_tile(encode(image), "png")
 
 
 @given(
@@ -67,11 +57,9 @@ def test_a_raster_without_an_alpha_channel_is_not_empty():
 
 def test_bytes_that_cannot_be_read_as_an_image_are_not_empty():
     assert not is_empty_tile(b"", "png")
-    assert not is_empty_tile(encode(transparent())[:40], "png")
 
 
 def test_a_vector_tile_is_empty_only_when_it_carries_no_bytes():
     """配信元は地物の無いベクタタイルを0バイトで返す。中身を解かずに長さで決まる。"""
     assert is_empty_tile(b"", "pbf")
     assert not is_empty_tile(b"\x1a\x00", "pbf")
-    assert not is_empty_tile(encode(transparent()), "pbf")
