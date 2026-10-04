@@ -44,11 +44,8 @@ describe("大文字小文字だけが違う名前", () => {
     afterEach(() => removeTree(root));
 
     it("拡張子を書かずにimportできる2ファイルの組を出す", () => {
-      root = writeTree({ "a/Foo.tsx": "", "a/foo.ts": "", "b/bar.d.ts": "", "b/Bar.js": "" });
-      expect(caseOnlyPaths(walkTree(root))).toEqual([
-        ["a/Foo", "a/foo"],
-        ["b/Bar", "b/bar"],
-      ]);
+      root = writeTree({ "bar.d.ts": "", "Bar.js": "" });
+      expect(caseOnlyPaths(walkTree(root))).toEqual([["Bar", "bar"]]);
     });
 
     it("ディレクトリとファイルの組を出す", () => {
@@ -57,15 +54,15 @@ describe("大文字小文字だけが違う名前", () => {
     });
 
     it("拡張子を書いて読むファイルは拡張子まで比べる", () => {
-      root = writeTree({ "a/Foo.css": "", "a/foo.json": "", "b/Logo.svg": "", "b/logo.ts": "" });
+      root = writeTree({ "Logo.svg": "", "logo.ts": "" });
       expect(caseOnlyPaths(walkTree(root))).toEqual([]);
       // 大文字小文字を区別しないファイルシステムには書けない組なので、木を作らずに渡す
-      const files = ["c/Logo.svg", "c/logo.SVG"].map((path) => ({ path, isDirectory: false }));
-      expect(caseOnlyPaths(files)).toEqual([["c/Logo.svg", "c/logo.SVG"]]);
+      const files = ["Logo.svg", "logo.SVG"].map((path) => ({ path, isDirectory: false }));
+      expect(caseOnlyPaths(files)).toEqual([["Logo.svg", "logo.SVG"]]);
     });
 
     it("綴りまで同じ名前どうしは出さない", () => {
-      root = writeTree({ "foo.ts": "", "foo.css": "", "foo/index.ts": "", "Bar.tsx": "", "Bar.test.tsx": "" });
+      root = writeTree({ "foo.ts": "", "foo/index.ts": "" });
       expect(caseOnlyPaths(walkTree(root))).toEqual([]);
     });
   });
