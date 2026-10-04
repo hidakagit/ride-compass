@@ -1,6 +1,11 @@
 """`services/wbgt_service.py`——地点の暑さ指数の警戒レベルを、最寄りの情報提供地点の予測から選ぶ。
 
 環境省の応答は形のまま上流の代役から返し、解くクライアントは本物を通す。
+
+ここで見ないもの:
+- 予測の中から今の1件を選ぶこと（最新の発表回・今に最も近い時刻）・値から段と呼び名を決めること・提供期間
+  → `test_wbgt_domain.py`
+- 配信元の応答を解くこと → `test_wbgt_client.py`
 """
 
 from datetime import datetime
@@ -52,12 +57,14 @@ def _service(monkeypatch, *, point_master=POINT_MASTER_CSV, forecast=None) -> tu
 
 async def test_a_value_outside_the_provision_period_is_shown(monkeypatch):
     """配信元は発表の期間の外でも値を返す年があり、その日の段を隠さない。"""
-    service, _ = _service(monkeypatch, forecast=[_forecast("2026/10/28 08:00:00", "2026/10/28 09:00:00", "230")])
+    service, _ = _service(monkeypatch, forecast=[_forecast("2026/10/28 08:00:00", "2026/10/28 09:00:00", "300")])
 
     result = await service.get_status(POINT, now=datetime(2026, 10, 28, 9, 0, 0))
 
     assert result is not None and result.reading is not None
-    assert result.reading.level == "advisory"
+    assert result.reading.level == "severe_warning"
+    assert result.reading.value == 30.0
+    assert result.reading.observed_at == "2026/10/28 09:00:00"
 
 
 @pytest.mark.parametrize("failure", [
@@ -65,6 +72,7 @@ async def test_a_value_outside_the_provision_period_is_shown(monkeypatch):
     {"point_master": POINT_MASTER_CSV.splitlines()[0] + "\n"},  # 運用中の地点が1つも読めない
     {"forecast": None},
     {"forecast": []},  # 検索窓に発表が無い
+    {"forecast": [_forecast("2026/08/22 14:00:00", "2026/08/22 15:00:00", None)]},  # 今の予測の値が読めない
 ])
 @pytest.mark.parametrize(("now", "within_period"), [(SUMMER_NOW, True), (WINTER_NOW, False)])
 async def test_without_a_current_value_only_inside_the_period_is_unknown(monkeypatch, failure, now, within_period):
@@ -98,49 +106,3 @@ async def test_get_status_returns_empty_when_below_almost_safe_threshold(monkeyp
     result = await service.get_status(POINT, now=SUMMER_NOW)  # 15.0、21未満
 
     assert result is not None and result.reading is None
-
-
-async def test_get_status_picks_the_forecast_entry_nearest_to_now(monkeypatch):
-    forecast = [
-        _forecast("2026/08/22 14:00:00", "2026/08/22 15:00:00", "250"),
-        _forecast("2026/08/22 14:00:00", "2026/08/22 18:00:00", "300"),
-        _forecast("2026/08/22 14:00:00", "2026/08/22 21:00:00", "220"),
-    ]
-    service, _ = _service(monkeypatch, forecast=forecast)
-    now = datetime(2026, 8, 22, 17, 30, 0)  # 18:00に最も近い
-
-    result = await service.get_status(POINT, now=now)
-
-    assert result is not None and result.reading is not None
-    assert result.reading.level == "severe_warning"
-    assert result.reading.label == "厳重警戒"
-    assert result.reading.value == 30.0
-    assert result.reading.observed_at == "2026/08/22 18:00:00"
-
-
-async def test_get_status_uses_only_the_latest_reference_time_when_multiple_are_present(monkeypatch):
-    # range_date_from/range_date_toで検索窓を広げると複数の発表回（reference_time）が
-    # 混在しうる。古い発表回（14時、まだ21未満=ほぼ安全だった頃）を無視し、最新の発表回
-    # （15時、既に25.0=警戒に上がった）だけを使うことを確認する。
-    forecast = [
-        _forecast("2026/08/22 14:00:00", "2026/08/22 15:00:00", "150"),
-        _forecast("2026/08/22 15:00:00", "2026/08/22 15:00:00", "250"),
-    ]
-    service, _ = _service(monkeypatch, forecast=forecast)
-
-    result = await service.get_status(POINT, now=datetime(2026, 8, 22, 15, 0, 0))
-
-    assert result is not None and result.reading is not None
-    assert result.reading.level == "warning"
-    assert result.reading.value == 25.0
-
-
-async def test_the_nearest_forecast_without_a_value_is_unknown_rather_than_a_farther_one(monkeypatch):
-    """最も近い予測の値が読めなければ、遠い時刻の値で埋めない（別の時刻の暑さを今の暑さとして出さない）。"""
-    forecast = [
-        _forecast("2026/08/22 14:00:00", "2026/08/22 15:00:00", None),
-        _forecast("2026/08/22 14:00:00", "2026/08/22 18:00:00", "300"),
-    ]
-    service, _ = _service(monkeypatch, forecast=forecast)
-
-    assert await service.get_status(POINT, now=SUMMER_NOW) is None
