@@ -85,7 +85,7 @@ def _git(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["git", *args], capture_output=True, text=True, check=False)
 
 
-def _relation(deployed: str, target: str) -> str:
+def commit_relation(deployed: str, target: str) -> str:
     if not deployed or _git("cat-file", "-e", f"{deployed}^{{commit}}").returncode != 0:
         return "unknown"
     if _git("rev-parse", deployed).stdout.strip() == _git("rev-parse", target).stdout.strip():
@@ -99,7 +99,7 @@ def _relation(deployed: str, target: str) -> str:
 
 def main(argv: list[str]) -> int:
     deployed, target = argv[1].strip(), argv[2].strip()
-    relation = _relation(deployed, target)
+    relation = commit_relation(deployed, target)
     hits: list[str] = []
     if relation == "newer":
         diff = _git("diff", "--name-only", deployed, target, "--", *pathspec(DEPLOY_PATHS, NOT_DEPLOYED))

@@ -1,6 +1,6 @@
 """HTTPキャッシュポリシー（`Cache-Control`）の一元管理。
 
-パスとポリシーの対応表（`_ROUTE_POLICIES`）をこの1箇所へ集め、
+パスとポリシーの対応表（`ROUTE_POLICIES`）をこの1箇所へ集め、
 `CachePolicyMiddleware`が応答へ付与する。新しいエンドポイントを追加したときは、この表へも
 1行足す（足し忘れは`tests/test_cache_policy.py`が全ルートを走査して機械的に検出する）。
 
@@ -91,7 +91,7 @@ GSI_TILE_NOT_FOUND = CachePolicy(max_age_seconds=60 * 60)
 
 # --- パスとポリシーの対応表 ---------------------------------------------------
 # 前方一致で引き、複数該当する場合は最も長いパターンを採る（表の記載順に依存しない）。
-_ROUTE_POLICIES: Final[tuple[tuple[str, CachePolicy], ...]] = (
+ROUTE_POLICIES: Final[tuple[tuple[str, CachePolicy], ...]] = (
     # 地図タイル系（1画面あたり数十〜数百枚が飛ぶ。キャッシュの有無が最も効く）
     # 在否インデックスはプリウォーム（10分間隔）ごとに内容が変わる。古いものを掴むと
     # 「中身があるのに取りに行かない」ことになるため短命にする。
@@ -131,14 +131,14 @@ _ROUTE_POLICIES: Final[tuple[tuple[str, CachePolicy], ...]] = (
 def policy_for_path(path: str) -> CachePolicy | None:
     """パスに対応するポリシーを返す（該当が無ければNone）。"""
     best: tuple[int, CachePolicy] | None = None
-    for prefix, policy in _ROUTE_POLICIES:
+    for prefix, policy in ROUTE_POLICIES:
         if path.startswith(prefix) and (best is None or len(prefix) > best[0]):
             best = (len(prefix), policy)
     return best[1] if best is not None else None
 
 
 class CachePolicyMiddleware:
-    """`_ROUTE_POLICIES`に基づき応答へ`Cache-Control`を付ける。
+    """`ROUTE_POLICIES`に基づき応答へ`Cache-Control`を付ける。
 
     ボディに触れず`http.response.start`のヘッダだけを書き換えるため、ASGI生の実装にしてある。
     """

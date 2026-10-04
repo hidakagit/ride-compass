@@ -891,7 +891,7 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
 
 #### 派生delivery系クエリ（wind/gradient/road surface）
 
-`_ROAD_SURFACE_TILE_MVT_SQL`（路面・道路種別・制限速度等の材料タグをPostGIS側で
+`ROAD_SURFACE_TILE_MVT_SQL`（路面・道路種別・制限速度等の材料タグをPostGIS側で
 ST_AsMVT丸ごと生成）・`_FEATURE_MIDPOINTS_IN_TILE_SQL`（wind、道路自身の方位角は使わず鍵ごとに
 中ほど＝両端の平均の緯度経度を返す。区間の中ほどは探索の`mid_lat`/`mid_lon`と同じ点）・`_FEATURE_GRADIENT_INPUTS_IN_TILE_SQL`（gradient。そのフィーチャーに属する
 区間の値を長さで重み付けて平均する——区間単位のズームでは区間1本の値そのもの、way単位の
@@ -906,7 +906,7 @@ ST_AsMVT丸ごと生成）・`_FEATURE_MIDPOINTS_IN_TILE_SQL`（wind、道路自
 **material_catalogの動的値列挙**（`get_distinct_material_values`）: 軸スタジオ
 （AxisComposer.tsx）がhighway/surface/smoothnessのような開放的な多値材料の候補一覧を
 動的取得するための経路。値式（`MaterialSpec.value_sql`）は`domain/material_sql.py`の共有断片を
-`_ROAD_SURFACE_TILE_MVT_SQL`・`material_coverage.py`
+`ROAD_SURFACE_TILE_MVT_SQL`・`material_coverage.py`
 （[evaluation-scoring.md](evaluation-scoring.md)）と共通で参照する。詳細は
 [axis-studio.md](axis-studio.md)参照。
 
