@@ -1,11 +1,12 @@
-// 約束 19・20・23（見回りの判断と状況の更新。src/dispatch.js）を確かめる。差し替えるのは GitHub（網）だけ。
-// 確かめるのは約束の結果（振り出す番号・At risk かどうか・書いたかどうか）で、文言は確かめない。
+// 約束 19・20・23（見回りの判断と状況の更新。src/dispatch.js）を確かめる。設定は架空のもの（fake-github.js: config）を渡し、差し替えるのは
+// GitHub（網）だけ。確かめるのは約束の結果（振り出す番号・At risk かどうか・書いたかどうか）。
+// ここで見ないもの: 状況の更新の文言・見回りのワークフローの止める（無効・止める時刻。bin/dispatch.js が読む値で決まる）・
+// 同じタスクの実行が1本ずつ動くこと（担当のワークフローの concurrency。GitHub の動き）。
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import config from "../flow.config.json" with { type: "json" };
 import { claudeHours, expected, pick, putStatus, ready, summary } from "../src/dispatch.js";
 import { GitHub } from "../src/github.js";
-import { fakeGitHub } from "./fake-github.js";
+import { config, fakeGitHub } from "./fake-github.js";
 
 const task = (number, status, extra = {}) => ({ number, status, blocked: false, labels: [], urgent: false, priority: null, size: null, startOn: null, claudeHours: 0, ...extra });
 const board = (...tasks) => ({ tasks, ranks: ["高", "中", "低"] });
@@ -31,10 +32,9 @@ test("23 想定は Claude の番の時間（ユーザーの番を除く）の、
   const events = [turn("AssignedEvent", config.claude, "00"), turn("UnassignedEvent", config.claude, "02"), turn("AssignedEvent", config.user, "02"),
     turn("UnassignedEvent", config.user, "10"), turn("AssignedEvent", config.claude, "10")];
   assert.equal(claudeHours(config, events, "2026-10-01T13:00:00Z"), 5);
-  // 直近20件（閉じた日が新しいもの）は 11〜30 時間で、その p90 は 29 時間。
-  const recent20 = { ...config, coordinator: { ...config.coordinator, recent: 20 } };
+  // 架空の設定の直近20件（閉じた日が新しいもの）は 11〜30 時間で、その p90 は 29 時間。
   const done = Array.from({ length: 30 }, (_, k) => ({ size: "S", closedAt: `2026-08-${String(k + 1).padStart(2, "0")}`, claudeHours: k + 1 }));
-  assert.deepEqual(expected(recent20, [...done, { size: "M", closedAt: "2026-09-01", claudeHours: 7 }]), { S: 29, M: 7 });
+  assert.deepEqual(expected(config, [...done, { size: "M", closedAt: "2026-09-01", claudeHours: 7 }]), { S: 29, M: 7 });
 });
 
 test("23 状況の更新: 想定を超えた Claude の番のタスク・仕事があるのに空いた枠・落ちた実行のどれかがあれば At risk。中身が変わったときだけ書く", async () => {

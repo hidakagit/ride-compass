@@ -1,14 +1,32 @@
-// テスト用の GitHub。網（fetch）だけを差し替え、1件の issue と Project・コメント・状況の更新を持って、書き込みを記録する。
-import config from "../flow.config.json" with { type: "json" };
+// テスト用の設定と GitHub。設定は本物（flow.config.json）を読まず、性質だけを表す架空の値で与える（本物の遷移の表やステータスの名前を
+// 変えても、テストの意味は変わらない）。GitHub は網（fetch）だけを差し替え、1件の issue と Project・コメント・状況の更新を持って、
+// 書き込みを記録する。
+export const config = {
+  repository: "o/tasks",
+  project: { owner: "o", number: 1, statusField: "状態", priorityField: "重さ", urgentLabel: "急", sizeField: "大きさ", startField: "開始日", defaults: { 重さ: "並" } },
+  gate: "gate[bot]",
+  urls: { gate: "https://gate.example", form: "https://form.example" },
+  installation: 1,
+  people: { u: { id: 1, node: "N_U" }, c: { id: 2, node: "N_C" } },
+  user: "u",
+  claude: "c",
+  statuses: ["答え待ち", "置き", "前", "中", "検", "済"],
+  owner: { 答え待ち: "u", 置き: "u", 前: "c", 中: "c", 検: "c" },
+  done: "済", waiting: "答え待ち", hold: "置き", todo: "前", working: "中", review: "検",
+  adoption: "やる？",
+  transitions: { 答え待ち: ["前", "置き", "済"], 置き: ["前", "済"], 前: ["中", "答え待ち", "置き", "済"], 中: ["検", "前", "置き", "答え待ち", "済"], 検: ["済", "前", "答え待ち"], 済: [] },
+  code: { repository: "o/code", branchPrefix: "work/t-", base: "main" },
+  coordinator: { slots: { 作る: 2, 確かめる: 1 }, devLabel: "機", recent: 20 },
+};
 
 const OPTIONS = Object.fromEntries(config.statuses.map((s) => [s, `S:${s}`]));
-const FIELDS = { [config.project.priorityField]: ["高", "中", "低"], [config.project.sizeField]: ["S", "M", "L"] };
+const FIELDS = { [config.project.priorityField]: ["上", "並", "下"], [config.project.sizeField]: ["S", "M", "L"] };
 const LOGIN = Object.fromEntries(Object.entries(config.people).map(([k, p]) => [p.node, k]));
 const AS = { "Bearer form-token": config.user, "Bearer bot-token": config.claude };
 
 // issue: { number, author（login）, status, body, labels, assignees（login）, fields, comments（{ author, body }）, parent, lastClose }
 // parent を渡すと issue をその子にし、親の優先度は parent.fields から読む。
-export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel, "規模S"], updates = [] }) {
+export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel, "札"], updates = [] }) {
   const blank = { state: "OPEN", body: "本文", labels: [], assignees: [], fields: {}, comments: [], lastClose: [] };
   const s = { issue: { ...blank, ...issue }, parent: parent && { ...blank, ...parent }, writes: [], updates };
   const node = (i) => ({
@@ -29,7 +47,6 @@ export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel
       if (input.fieldId === "F") i.status = v.slice(2);
       else i.fields = { ...i.fields, [input.fieldId]: v.includes(":") ? v.split(":")[1] : v };
     }
-    if (name === "clearProjectV2ItemFieldValue") delete i.fields[input.fieldId];
     if (name === "addComment") i.comments.push({ author: as, body: input.body });
     if (name === "updateIssue") {
       if (input.assigneeIds) i.assignees = input.assigneeIds.map((id) => LOGIN[id]);
