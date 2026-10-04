@@ -106,7 +106,9 @@ issue の番号ごと）が持つ。同じタスクの実行（作る・確か�
      最初の発言で終わる（連携 `anthropics/claude-code-action` は SDK の最初の結果で抜け、裏で動かしたシェルはその数秒後に止まる）。
      裏の処理の知らせで起こし直されることは無いので、裏で動かす道具（Bash の `run_in_background`・Monitor・ScheduleWakeup・
      cron の道具・Workflow）は担当のワークフローが外してある（`claude_args` の `--disallowedTools` と環境変数
-     `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS`）。担当が待つときは、終わるまで前に出したまま待つ。
+     `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS`）。担当が待つときは、終わるまで前に出したまま待つ。起こす指示（`claude-task.yml` の
+     `prompt`）は、役・作業ツリー・issue の番号と読む節だけを渡し、決まりも環境の説明も写さない（どちらも CLAUDE.md とこの文書に
+     あり、開発機の対話のセッションも同じものを読む。「開発機の対話のセッション」の「決まりの出どころ」）。
   4. 後始末（担当が落ちても止められても走る）: 作る担当の GitHub に無い変更（未コミットの変更・push していないコミット）は
      `wip/tasks-<番号>-<時刻>` の枝へ残す（作業ブランチは書き換えない）。そのあと `tools/flow-gate/bin/after.js` が、連携の書き出す
      実行のファイルで終わり方を見分ける。Claude の利用の上限・認証・サーバーの失敗（担当の発言の `error`）か、担当が動けなかった
@@ -327,12 +329,14 @@ issue の番号ごと）が持つ。同じタスクの実行（作る・確か�
 `autoMode` で、担当の置かれた環境（2つのリポジトリがユーザーのもの・担当は使い捨てのランナーの無人の作業役 等）と日常の操作
 （作業ブランチへの push・Pull Request とタスクの issue を読み書きする・`tools/flow-gate/bin` の道具を打つ 等）を教える（公式
 「Configure auto mode」）。決して打たせない操作（master への push・強制の push・GitHub の API での書き込み・ワークフローの起動等）は、
-同じファイルの `permissions.deny` で断る（拒否は判定役より先に効く）。各一覧は既定の規則（`$defaults`）を必ず残す（書かないとその一覧の
-既定の守りを捨てる）。開発機の対話のセッションも同じ決まりで動く: セッションの始まりのフック（`.claude/settings.json` の
-`SessionStart`）で `tools/flow-gate/bin/settings.js` が、master の版のこのファイルの `permissions.deny` と `autoMode` をユーザー設定
-（`~/.claude/settings.json`）へ写す（判定役はリポジトリの `.claude/settings.json` の `autoMode` を読まない）。決まりを変えるのは
-このファイルだけで、master に入った次のセッションから両方に効く。担当も開発機の対話のセッションもこのファイルを書けない（自分を
-動かす設定の書き換えとして判定役が断る）ので、権限を変えるのはユーザーだけになる。断られた操作は、後始末の終わりのコメントの
+同じファイルの `permissions.deny` で断る（拒否は判定役より先に効く）。自動モードそのものも同じファイルの `permissions.defaultMode` で
+決める。各一覧は既定の規則（`$defaults`）を必ず残す（書かないとその一覧の既定の守りを捨てる）。担当は連携の `settings` で
+このファイルを読む。開発機の対話のセッションも同じ決まりで動く: セッションの始まりのフック（`.claude/settings.json` の
+`SessionStart`）で `tools/flow-gate/bin/settings.js` が、master の版のこのファイルの `permissions` と `autoMode` をユーザー設定
+（`~/.claude/settings.json`）へ写す（判定役はリポジトリの `.claude/settings.json` の `autoMode` を読まず、`defaultMode` の `auto` も
+リポジトリの設定からは効かない。`permissions` は丸ごと置き換えるので、開発機にだけある許可は残らない）。決まりを変えるのは
+このファイルだけで、master に入った次のセッションから両方に効く（作業ブランチで直しても、作業中の自分の権限は変わらない）。
+判定役が自分を動かす設定の書き換えとして編集を断ったら、「担当が書けないファイル」のとおりにする。断られた操作は、後始末の終わりのコメントの
 「判定に断られた操作」に、道具と打とうとしたものが出る。日常の操作が断られていたら、`autoMode` の説明を直す。
 
 **自動で進めないもの**: 本番 DB へ書く・本番のデータや設定を消す・取り消せない操作は、担当が自分でしない。
@@ -396,6 +400,18 @@ issue の番号ごと）が持つ。同じタスクの実行（作る・確か�
 | 答え | 回答フォーム（「問い」） | ユーザーがチャットで決めたことを、Claude が issue に記録する（「答え」） |
 | 言葉 | CLAUDE.md「出力言語」 | 同じ（裏の作業役の文も） |
 
+- **決まりの出どころ**: 担当と開発機の対話のセッションは、同じ1つの出どころを読む。環境の違いは上の表と、権限の
+  `autoMode` の環境の説明にだけ書く。
+
+  | 決まり | 出どころ | 担当の読み方 | 開発機の対話のセッションの読み方 |
+  |---|---|---|---|
+  | 常時の決まり・規約・手順 | CLAUDE.md と、そこから指す docs/ | 連携がリポジトリの設定を読む（連携の既定の `settingSources` が `user`・`project`・`local`）。指示は読む節を指すだけ（「担当」の3） | Claude Code がリポジトリの CLAUDE.md を読む |
+  | フック（日本語の検査・セッションの始まり）・言葉 | `.claude/settings.json` | 1行目と同じ | 1行目と同じ |
+  | 権限（自動モード・拒否の一覧・判定役への説明） | `tools/flow-gate/settings.json`（master の版） | 連携の `settings` | セッションの始まりのフックの `settings.js`（「担当の権限」） |
+  | 周期レビューの手順 | `.claude/commands/review.md` | 1行目と同じ | 1行目と同じ |
+
+  開発機にしか無い置き場（ユーザーの CLAUDE.md・`.claude/settings.local.json`・自動の記憶）には決まりを置かない
+  （CLAUDE.md「ドキュメント階層」）。
 - **持つ**: タスクを触る（issue へ書く・ステータスを動かす・作業ブランチへ push する・Pull Request を出す・マージする）前に
   `node tools/flow-gate/bin/hold.js <番号>` でタスクを持つ。種類「開発機」の実行を起こし、前の実行が終わって動き始めたら URL を
   出して戻る（それまで待つ）。もう種類「開発機」の実行が持っていれば、並ばずにその URL を出して終える（自分が持ったものなら
