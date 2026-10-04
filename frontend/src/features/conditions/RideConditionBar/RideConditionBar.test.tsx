@@ -3,8 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CLIENT_TUNING_IDS } from "@/lib/axisCatalog";
-import { getAxisCatalog } from "@/services/axisCatalogApi";
-import { catalogResponse } from "@/testing/catalogAxes";
+import { onBackend } from "@/testing/backendServer";
+import { catalogResponse, serveAxisCatalog } from "@/testing/catalogAxes";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 
 import RideConditionBar from "./RideConditionBar";
@@ -14,7 +14,6 @@ vi.mock("embla-carousel-react", () => ({
   default: () => [() => {}, { scrollTo: vi.fn(), on: vi.fn(), off: vi.fn(), selectedScrollSnap: () => 0 }],
 }));
 vi.mock("embla-carousel-wheel-gestures", () => ({ WheelGesturesPlugin: () => ({}) }));
-vi.mock("@/services/axisCatalogApi", () => ({ getAxisCatalog: vi.fn() }));
 
 const jst = (text: string) => new Date(`${text}+09:00`);
 const NOW = jst("2026-09-24T09:07");
@@ -23,7 +22,7 @@ const { min_assumed_speed_kmh: MIN, max_assumed_speed_kmh: MAX } = routeGenerate
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(NOW);
-  vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse([]));
+  serveAxisCatalog(catalogResponse([]));
 });
 
 afterEach(() => {
@@ -142,7 +141,7 @@ describe("RideConditionBar 想定速度", () => {
   });
 
   it("平地・無風の巡航速度であることを書き、(i)の奥に軸カタログが配る体格・機材の標準値を書く", async () => {
-    vi.mocked(getAxisCatalog).mockResolvedValue(
+    serveAxisCatalog(
       catalogResponse([], {
         client_tuning: {
           [CLIENT_TUNING_IDS.massKg]: 72,
@@ -160,7 +159,7 @@ describe("RideConditionBar 想定速度", () => {
   });
 
   it("体格・機材の標準値を軸カタログから引けない間は、標準値の文を出さない", async () => {
-    vi.mocked(getAxisCatalog).mockRejectedValue(new Error("網の失敗"));
+    onBackend("GET", "/api/axis-catalog", () => new Response(null, { status: 503 }));
     renderBar();
     await userEvent.click(screen.getByRole("button", { name: /^想定速度:/ }));
     await userEvent.click(await screen.findByRole("button", { name: "想定速度の説明を表示" }));
