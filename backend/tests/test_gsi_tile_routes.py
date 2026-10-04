@@ -1,11 +1,28 @@
+"""`api/routers/gsi_tile.py`——地理院の色別標高図の中継と、標高タイル（Terrain-RGB）の配信。
+
+確かめるのは、取得の結果（中身・整備区域外・失敗）がどの応答になるかと、整備区域外の404をブラウザにも
+覚えさせること、回数制限（429）、標高タイルのズームの範囲（400）。取得の口（`get_gsi_tile_client`）は応答を差し替える。
+
+ここで見ないもの:
+- 配信元への取得・ディスクへの記憶・整備区域外の見分け → `test_gsi_tile_client.py`
+- 標高タイルの書式の変換 → `test_gsi_dem_png.py`
+- 回数制限の数え方そのもの → `test_rate_limiter.py`
+"""
+
+import pytest
 from fastapi.testclient import TestClient
 
+from app.api.cache_policy import GSI_TILE_NOT_FOUND
 from app.api.dependencies import get_gsi_tile_client
 from app.config import settings
 from app.infrastructure import rate_limiter
+from app.infrastructure.gsi_tile_client import GSI_TILE_NOT_FOUND as NOT_FOUND_SENTINEL
 from app.main import app
 
 client = TestClient(app)
+
+RELIEF_TILE = "/api/gsi-relief-tile/xyz/relief/12/3637/1612.png"
+TERRAIN_TILE = "/api/gsi-terrain-tile/13/7276/3225.png"
 
 
 class FakeGsiTileClient:
@@ -16,112 +33,55 @@ class FakeGsiTileClient:
         return self._result
 
 
-def test_gsi_relief_tile_proxy_returns_content_with_correct_media_type():
-    app.dependency_overrides[get_gsi_tile_client] = lambda: FakeGsiTileClient((b"\x89PNG", "image/png"))
+def _answer(monkeypatch, result):
+    monkeypatch.setitem(app.dependency_overrides, get_gsi_tile_client, lambda: FakeGsiTileClient(result))
 
-    try:
-        response = client.get("/api/gsi-relief-tile/xyz/relief/12/3637/1612.png")
-    finally:
-        app.dependency_overrides.clear()
+
+def test_gsi_relief_tile_proxy_returns_content_with_correct_media_type(monkeypatch):
+    _answer(monkeypatch, (b"\x89PNG", "image/png"))
+
+    response = client.get(RELIEF_TILE)
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("image/png")
     assert response.content == b"\x89PNG"
 
 
-def test_gsi_relief_tile_proxy_returns_502_on_upstream_failure():
-    app.dependency_overrides[get_gsi_tile_client] = lambda: FakeGsiTileClient(None)
+@pytest.mark.parametrize("path", [RELIEF_TILE, TERRAIN_TILE])
+def test_an_upstream_failure_is_502(monkeypatch, path):
+    _answer(monkeypatch, None)
 
-    try:
-        response = client.get("/api/gsi-relief-tile/xyz/relief/12/3637/1612.png")
-    finally:
-        app.dependency_overrides.clear()
-
-    assert response.status_code == 502
+    assert client.get(path).status_code == 502
 
 
-def test_gsi_relief_tile_proxy_returns_404_when_tile_not_found_upstream():
-    # 改善計画T605: 整備区域外（404、珍しくない正常系）は502ではなく404を返す。
-    from app.infrastructure.gsi_tile_client import GSI_TILE_NOT_FOUND
+@pytest.mark.parametrize("path", [RELIEF_TILE, TERRAIN_TILE])
+def test_整備区域外は404で返し_ブラウザへもキャッシュさせる(monkeypatch, path):
+    """整備区域外（珍しくない正常系）は上流障害の502にしない。
 
-    app.dependency_overrides[get_gsi_tile_client] = lambda: FakeGsiTileClient(GSI_TILE_NOT_FOUND)
-
-    try:
-        response = client.get("/api/gsi-relief-tile/xyz/relief/12/3637/1612.png")
-    finally:
-        app.dependency_overrides.clear()
-
-    assert response.status_code == 404
-
-
-def test_整備区域外の404はブラウザへもキャッシュさせる():
-    """`raster-dem`は整備区域外のタイルも視界へ入るたび要求する。
-
-    サーバー側は同じ事実をプロセス内に持って上流へ問い合わせ直さないが、それだけでは
-    ブラウザからの要求は減らない——沿岸部を連続してパンする利用者は404だけでレート制限に
-    達しうる。恒久404はブラウザにも伝える。
+    `raster-dem`は整備区域外のタイルも視界へ入るたび要求する。サーバー側は同じ事実をプロセス内に
+    持って上流へ問い合わせ直さないが、それだけではブラウザからの要求は減らない——沿岸部を連続して
+    パンする利用者は404だけでレート制限に達しうる。恒久404はブラウザにも伝える。
     """
-    from app.api.cache_policy import GSI_TILE_NOT_FOUND
-    from app.infrastructure.gsi_tile_client import GSI_TILE_NOT_FOUND as NOT_FOUND_SENTINEL
+    _answer(monkeypatch, NOT_FOUND_SENTINEL)
 
-    app.dependency_overrides[get_gsi_tile_client] = lambda: FakeGsiTileClient(NOT_FOUND_SENTINEL)
-
-    try:
-        relief = client.get("/api/gsi-relief-tile/xyz/relief/12/3637/1612.png")
-        terrain = client.get("/api/gsi-terrain-tile/13/7276/3225.png")
-    finally:
-        app.dependency_overrides.clear()
-
-    for response in (relief, terrain):
-        assert response.status_code == 404
-        assert response.headers["cache-control"] == GSI_TILE_NOT_FOUND.header()
-
-
-def test_gsi_relief_tile_proxy_is_rate_limited_per_client():
-    app.dependency_overrides[get_gsi_tile_client] = lambda: FakeGsiTileClient((b"x", "image/png"))
-
-    try:
-        for _ in range(settings.gsi_tile_rate_limit_per_minute - 1):
-            rate_limiter.check_rate_limit("gsi-relief-tile:testclient", settings.gsi_tile_rate_limit_per_minute)
-        assert client.get("/api/gsi-relief-tile/xyz/relief/12/3637/1612.png").status_code == 200
-        response = client.get("/api/gsi-relief-tile/xyz/relief/12/3637/1612.png")
-    finally:
-        app.dependency_overrides.clear()
-
-    assert response.status_code == 429
-
-
-def test_標高タイルは整備区域外を404で返す():
-    from app.infrastructure.gsi_tile_client import GSI_TILE_NOT_FOUND
-
-    app.dependency_overrides[get_gsi_tile_client] = lambda: FakeGsiTileClient(GSI_TILE_NOT_FOUND)
-
-    try:
-        response = client.get("/api/gsi-terrain-tile/13/7276/3225.png")
-    finally:
-        app.dependency_overrides.clear()
+    response = client.get(path)
 
     assert response.status_code == 404
+    assert response.headers["cache-control"] == GSI_TILE_NOT_FOUND.header()
 
 
-def test_標高タイルは上流障害を502で返す():
-    app.dependency_overrides[get_gsi_tile_client] = lambda: FakeGsiTileClient(None)
+def test_gsi_relief_tile_proxy_is_rate_limited_per_client(monkeypatch):
+    _answer(monkeypatch, (b"x", "image/png"))
 
-    try:
-        response = client.get("/api/gsi-terrain-tile/13/7276/3225.png")
-    finally:
-        app.dependency_overrides.clear()
+    for _ in range(settings.gsi_tile_rate_limit_per_minute - 1):
+        rate_limiter.check_rate_limit("gsi-relief-tile:testclient", settings.gsi_tile_rate_limit_per_minute)
+    assert client.get(RELIEF_TILE).status_code == 200
 
-    assert response.status_code == 502
+    assert client.get(RELIEF_TILE).status_code == 429
 
 
-def test_標高タイルは配信元がデータを持たないズームを拒む():
+def test_標高タイルは配信元がデータを持たないズームを拒む(monkeypatch):
     # 配信元はz14までしか実データを持たない。範囲外をそのまま上流へ投げない。
-    app.dependency_overrides[get_gsi_tile_client] = lambda: FakeGsiTileClient((b"", "image/png"))
+    _answer(monkeypatch, (b"", "image/png"))
 
-    try:
-        response = client.get("/api/gsi-terrain-tile/16/58211/25802.png")
-    finally:
-        app.dependency_overrides.clear()
-
-    assert response.status_code == 400
+    assert client.get("/api/gsi-terrain-tile/16/58211/25802.png").status_code == 400
