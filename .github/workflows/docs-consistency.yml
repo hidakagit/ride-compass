@@ -15,8 +15,8 @@ name: Docs Consistency
 
 on:
   push:
-    # orch/** は作業ブランチ（ci.ymlと同じ）。
-    branches: [master, "orch/**"]
+    # 作業ブランチ（orch/**）へのpushでは走らせない（ci.ymlと同じ）。
+    branches: [master]
   pull_request:
   workflow_dispatch:
 
