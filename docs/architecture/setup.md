@@ -133,8 +133,11 @@ frontendは`next dev`の既定の3000番で動かす。backendのCORSの許可�
 （`backend/app/config.py: _LOCAL_FRONTEND_ORIGIN`）がこの番号を前提にしており、ほかの番号で開くと
 基礎地図のタイル・スプライト・フォントが3000番へ向かって地図が真っ白になる。Claude Codeのプレビューの
 起動の設定（`.claude/launch.json`）も番号を書かずにプレビューの既定の3000番で起動し、使用中なら別の番号へ
-逃がさずに失敗する（`autoPort: false`）。ほかの番号で動かすときは、`backend/.env`に`CORS_ALLOWED_ORIGINS`と
-`BASEMAP_PUBLIC_BASE_URL`をその番号で書く（書いた値は既定を直しても残るので、戻すときは消す）。
+逃がさずに失敗する（`autoPort: false`）。`restart-dev.bat`・`stop-dev.bat`は番号を持たず、backendの設定の
+基礎地図の書き換え先（`.env`の上書きを含む）から番号を読み、その番号で止め、その番号を明示して`next dev`を起こす
+（使用中なら別の番号へ逃げずに失敗する）。ほかの番号で動かすときは、`backend/.env`に`CORS_ALLOWED_ORIGINS`と
+`BASEMAP_PUBLIC_BASE_URL`をその番号で書く（書いた値は既定を直しても残るので、戻すときは消す）。batはそれで
+その番号へ移る。
 
 ## テスト
 

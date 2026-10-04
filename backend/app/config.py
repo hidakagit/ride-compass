@@ -7,7 +7,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 _ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
 
 # 手元で`next dev`を起動したときのfrontendのオリジン。`next dev`と`.claude/launch.json`は番号を書かず、
-# どちらも既定の3000番で動くので、ここもその番号に合わせる。
+# どちらも既定の3000番で動くので、ここもその番号に合わせる。`restart-dev.bat`・`stop-dev.bat`は番号を持たず、
+# `basemap_public_base_url`（.envの上書きを含む）の番号でfrontendを止め・起こす。
 _LOCAL_FRONTEND_ORIGIN = "http://localhost:3000"
 
 
