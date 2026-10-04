@@ -10,8 +10,8 @@
     {
       "name": "frontend",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--prefix", "frontend", "--", "-p", "3010"],
-      "port": 3010
+      "runtimeArgs": ["run", "dev", "--prefix", "frontend"],
+      "autoPort": false
     }
   ]
 }

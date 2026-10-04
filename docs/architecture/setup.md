@@ -129,6 +129,13 @@ npm run dev
 バックエンドのURLは既定で`http://localhost:8000`（`NEXT_PUBLIC_API_URL`で上書き可、
 `.env.local`は無くても動く）。
 
+frontendは`next dev`の既定の3000番で動かす。backendのCORSの許可元と基礎地図の書き換え先の既定
+（`backend/app/config.py: _LOCAL_FRONTEND_ORIGIN`）がこの番号を前提にしており、ほかの番号で開くと
+基礎地図のタイル・スプライト・フォントが3000番へ向かって地図が真っ白になる。Claude Codeのプレビューの
+起動の設定（`.claude/launch.json`）も番号を書かずにプレビューの既定の3000番で起動し、使用中なら別の番号へ
+逃がさずに失敗する（`autoPort: false`）。ほかの番号で動かすときは、`backend/.env`に`CORS_ALLOWED_ORIGINS`と
+`BASEMAP_PUBLIC_BASE_URL`をその番号で書く（書いた値は既定を直しても残るので、戻すときは消す）。
+
 ## テスト
 
 手元で回すのは変更が届く範囲だけで、フルスイートはCIが持つ
