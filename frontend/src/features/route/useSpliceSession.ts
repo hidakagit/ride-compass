@@ -171,7 +171,6 @@ export function useSpliceSession({
           const target = routes.find((route) => route.id === option.candidateId);
           if (!target) return [];
           const range = stretchCoordinateRange(target.edge_point_offsets, option.targetStretch);
-          if (!range) return [];
           const coordinates = (target.geometry.coordinates as GeoJSON.Position[]).slice(range.start, range.end + 1);
           if (coordinates.length < 2) return [];
           return [{ index: spliceFeatureIndex(groupIndex, optionIndex), coordinates }];

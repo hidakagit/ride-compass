@@ -34,6 +34,35 @@ export function makeRouteCandidate(overrides: Partial<RouteCandidate> = {}): Rou
   };
 }
 
+/** 地点の名前 → [経度, 緯度]。 */
+export type Places = Readonly<Record<string, readonly [number, number]>>;
+
+/**
+ * 地点を順に通る経路の形（`edge_ids`・`edge_point_offsets`・`node_ids`・`geometry`）を、backendの契約
+ * （`backend/app/domain/route.py: RouteCandidate`）どおりに組む。Edge idは両端の地点の名前を「-」でつないだもの、
+ * Node idは地点の名前。Edgeごとに中間点を1つ挟むので、Edgeの境界の位置（`edge_point_offsets`）は座標の位置と食い違う。
+ */
+export function routeThrough(
+  places: Places,
+  names: readonly string[],
+): Pick<RouteCandidate, "edge_ids" | "edge_point_offsets" | "node_ids" | "geometry"> {
+  const coordinates: number[][] = [];
+  names.forEach((name, index) => {
+    const [lon, lat] = places[name];
+    if (index > 0) {
+      const [prevLon, prevLat] = places[names[index - 1]];
+      coordinates.push([(prevLon + lon) / 2, (prevLat + lat) / 2]);
+    }
+    coordinates.push([lon, lat]);
+  });
+  return {
+    edge_ids: names.slice(1).map((name, index) => `${names[index]}-${name}`),
+    edge_point_offsets: names.map((_, index) => index * 2),
+    node_ids: [...names],
+    geometry: { type: "LineString", coordinates },
+  };
+}
+
 /** `GenerationConditions`（生成に使われた条件）の組み立て。既定値は`makeRouteCandidate`と同じく型を満たすための空だけ。 */
 export function makeGenerationConditions(overrides: Partial<GenerationConditions> = {}): GenerationConditions {
   return {
