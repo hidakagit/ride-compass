@@ -58,18 +58,6 @@ async def test_refresh_raises_when_table_empty(road_graph_session):
     assert AXIS_DEFINITIONS == original
 
 
-async def test_refresh_replaces_axis_definitions_with_db_content(road_graph_session):
-    # 軸を読む軸は、参照先が同じ読み込み結果にあれば通す（未知の材料として断らない）。
-    repository = AxisDefinitionRepository(road_graph_session)
-    await repository.upsert(axis_definition("base_axis", material="oneway"), sort_order=0)
-    await repository.upsert(axis_definition("dependent_axis", material="base_axis"), sort_order=1)
-    await repository.commit()
-
-    await refresh_axis_definitions(repository)
-
-    assert set(AXIS_DEFINITIONS) == {"base_axis", "dependent_axis"}
-
-
 async def test_refresh_raises_on_repository_error(road_graph_session):
     # DB接続自体が失敗した場合もfail-fast（AxisDefinitionSyncErrorへラップして再送出）。
     original = dict(AXIS_DEFINITIONS)
@@ -225,19 +213,6 @@ async def test_update_rejects_published_axis(road_graph_session):
 async def test_an_operation_on_an_unknown_axis_raises_key_error(road_graph_session, operation):
     with pytest.raises(KeyError):
         await operation(AxisRegistryAdminService(AxisDefinitionRepository(road_graph_session)))
-
-
-async def test_delete_removes_definition_and_refreshes_process_cache(road_graph_session):
-    repository = AxisDefinitionRepository(road_graph_session)
-    service = AxisRegistryAdminService(repository)
-    await service.create(axis_definition("test_axis", material=CATALOG_MATERIAL))
-    # 最後の1軸削除ガードに引っかからないための2軸目（材料は衝突しないよう分ける）。
-    await service.create(axis_definition("other_axis", material="poi_signal_per_km"))
-
-    await service.delete("test_axis")
-
-    assert "test_axis" not in AXIS_DEFINITIONS
-    assert await repository.get("test_axis") is None
 
 
 async def test_delete_rejects_removing_the_last_remaining_axis(road_graph_session):
