@@ -35,6 +35,7 @@ import numpy as np
 from app.domain.time_zone import JST
 from app.domain.traffic import highway_rank
 from app.domain.tuning import tuning_value
+from app.domain.cycling_speed import top_speed_kmh
 from app.domain.attributes import ElevationAttribute
 from app.domain.dynamic_way_values import displayed_material_ids
 from app.domain.difficulty import DIFFICULTY_QUANTUM, distance_weighted_difficulty, round_difficulty_array
@@ -531,7 +532,9 @@ class RoadGraphEngine:
                     context.legs.append(leg)
                 segment_path = turn_expanded_shortest_path(
                     context.turn_structure, leg.cost_bins_lazy,
-                    _heuristic_seconds(_estimate_distances_m(context.node_lat, context.node_lon, to_node)),
+                    _heuristic_seconds(
+                        _estimate_distances_m(context.node_lat, context.node_lon, to_node), context.composer.speed_kmh,
+                    ),
                     _origin_states(context.statics, from_node),
                     to_node,
                     leg.travel_bins_lazy, leg.bin_seconds,
@@ -1010,7 +1013,9 @@ class RoadGraphEngine:
         edges = await asyncio.to_thread(
             turn_expanded_shortest_path,
             context.turn_structure, time_bins,
-            _heuristic_seconds(_estimate_distances_m(context.node_lat, context.node_lon, destination_index)),
+            _heuristic_seconds(
+                _estimate_distances_m(context.node_lat, context.node_lon, destination_index), context.composer.speed_kmh,
+            ),
             _origin_states(context.statics, context.origin_node), destination_index,
             time_bins, outbound.bin_seconds,
         )
@@ -1075,7 +1080,7 @@ class RoadGraphEngine:
         try:
             cost_bins[:, penalized_columns] = original * _RETRACE_PENALTY_MULTIPLIER
             return_edge_index_list = turn_expanded_shortest_path(
-                context.turn_structure, cost_bins, _heuristic_seconds(_origin_estimate(context)),
+                context.turn_structure, cost_bins, _heuristic_seconds(_origin_estimate(context), context.composer.speed_kmh),
                 _origin_states(context.statics, data.node),
                 context.origin_node,
                 inbound_leg.travel_bins_lazy, inbound_leg.bin_seconds,
@@ -1638,14 +1643,14 @@ def _estimate_distances_m(node_lat: np.ndarray, node_lon: np.ndarray, target_nod
     return (haversine_distance_km_array(node_lat, node_lon, target) * 1000).tolist()
 
 
-def _heuristic_seconds(straight_m: np.ndarray | list[float]) -> np.ndarray:
+def _heuristic_seconds(straight_m: np.ndarray | list[float], cruise_speed_kmh: float) -> np.ndarray:
     """Nodeごとの直線距離（m）を、所要時間の下界（秒）へ直す。
 
-    実経路は直線より長く、実際の速度は下りの上限以下のため、これは真の
+    実経路は直線より長く、実際の速度は走行モデルの速度の上限以下のため、これは真の
     所要時間を上回らない＝A*のヒューリスティックとして使える（admissible）。主観的割増は
     1以上の倍率のため、割増を含むコストに対しても下界であり続ける。
     """
-    return np.asarray(straight_m, dtype=float) / kmh_to_ms(tuning_value("speed.max_descent_kmh"))
+    return np.asarray(straight_m, dtype=float) / kmh_to_ms(top_speed_kmh(cruise_speed_kmh))
 
 
 def _origin_estimate(context: _RoadGraphContext) -> list[float]:
