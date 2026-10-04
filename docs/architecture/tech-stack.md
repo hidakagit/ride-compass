@@ -154,11 +154,26 @@ importすると、その変更だけが本番へ届かなくなる**（エラー
 `backend/tests/structure/test_deploy_exclusions.py`がその一覧とDockerfileから母集団を
 導いてこれを検査する。
 
-**frontend（Render）のデプロイがCIを待つかは、Renderのダッシュボードの設定で決まり、
-リポジトリには無い。** Renderの自動デプロイの設定のうち「On Commit」はpushで即デプロイし、
-「After CI Checks Pass」はそのコミットのGitHubのチェックが全て成功（skipped・neutralを含む）
-したときだけデプロイする（チェックが1件も無いコミットは出さない。Render公式の
-[Deploys](https://render.com/docs/deploys)）。
+**frontend（Render）のデプロイも、masterのCIが通ったコミットを出す。** `ci.yml`の`deploy-frontend`が、
+`deploy-backend`と同じ条件で`deploy-frontend.yml`を呼び、呼ばれた側がRenderのデプロイフックへそのコミットを
+`ref`で渡す（Render公式の[Deploy Hooks](https://render.com/docs/deploy-hooks)。フックのURLはリポジトリの秘密
+`RENDER_FRONTEND_DEPLOY_HOOK_URL`）。
+
+- **Renderの自動デプロイは Off にしてある**（ダッシュボードのサービスの Settings → Auto-Deploy）。「After CI
+  Checks Pass」は連携したブランチの**最新のコミットだけ**を、そのコミットのチェックが全部終わってから出す
+  （Render公式の[Deploys](https://render.com/docs/deploys)。待つチェックは選べない）。Claudeの担当や見回りは
+  `workflow_dispatch`で動き、起こした時点のmasterの先頭にチェックを付けて長く動くので、それらが動き続ける間は
+  何も出ない。フックで`ref`を渡して出すと、Renderはそのサービスの自動デプロイを Off にする（同じ文書の
+  「Deploying a specific commit」）。
+- **出すかは本番の`/api/version`の`commit`で決める。** CIを通ったコミットが本番のコミットか、その祖先なら出さない
+  （後から終わった古いCIの実行）。本番のコミットが読めない・履歴に無いときは出す。backendと違い変更のパスでは
+  振り分けない——重い検査が走ったmasterのコミットは全部出す（文書だけの変更は`ci.yml`の`changes`が重い検査ごと
+  飛ばすので、デプロイも起動しない）。
+- **出したあと、本番の`/api/version`がそのコミットになるまで待つ。** Renderは最後に頼まれたデプロイを出す
+  （同じ文書の「Handling overlapping deploys」）ので、待たずに次へ進むと古いコミットが新しいコミットを上書きしうる。
+  判定・フック・待ちは1つのジョブで1本ずつ走る。上限（30分）までに変わらなければジョブを落とす——Renderのビルドか
+  起動が失敗している（ダッシュボードの Events に出る）。変わるまでの秒数は毎回ジョブのログに出る。
+- 待たずに出す手段は`deploy-frontend.yml`の手動起動（`workflow_dispatch`）で、選んだrefの先端を判定なしで出す。
 
 **タイルプロパティを削除する変更はデプロイ順序に制約がある。** backendとfrontendは別
 サービスとして独立にデプロイされ、反映タイミングは同期しない。プロパティの**追加**は
