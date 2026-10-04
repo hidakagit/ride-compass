@@ -1,4 +1,4 @@
-from app.batch._common import asyncpg_dsn
+from app.batch.common import asyncpg_dsn
 
 
 def test_asyncpg_dsn_normalizes_driver_and_ssl_param():

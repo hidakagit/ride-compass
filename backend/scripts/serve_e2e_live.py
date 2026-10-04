@@ -101,7 +101,7 @@ async def candidate_points(database_url: str) -> list[tuple[float, float]]:
     """開発DBの区間のうち、主キーの順で真ん中あたりの区間の中点（緯度, 経度）。"""
     import asyncpg
 
-    from app.batch._common import asyncpg_dsn
+    from app.batch.common import asyncpg_dsn
 
     conn = await asyncpg.connect(asyncpg_dsn(database_url))
     try:

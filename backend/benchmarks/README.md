@@ -34,5 +34,5 @@ DATABASE_URL=...新 BENCH_LABEL=新構成 python -m benchmarks.bench_route_gener
 
 ## どのコードを測ったか
 
-`_revision.py`が実行時に作業コピーの素性（HEAD・`origin/master`との一致・未コミットの
+`revision.py`が実行時に作業コピーの素性（HEAD・`origin/master`との一致・未コミットの
 変更）を出す。数字だけが残ると、古いコードのもっともらしい値と見分けが付かない。

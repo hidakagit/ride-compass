@@ -11,7 +11,7 @@
 変えた）。`--from`はその段から後ろを全部流す。生データを取り直したときは最初から通す——
 `--from`は、全ソースの成功した最新の取込が前の作り直しの記録（`derived_source_runs`）と
 同じときだけ流し、違えば止まる（流すと、前の段が古い取込から作った値のまま残る）。
-作り直しは取込と同時に走らない（`_common.py: SOURCE_DATA_LOCK`）。
+作り直しは取込と同時に走らない（`common.py: SOURCE_DATA_LOCK`）。
 
 後ろの段がみな直前の段の値を読むわけではない。面を線へ落とす段（`raster`）はノードの値も
 数の値も読まず、数の段が作る道1本の行へ書き込むためにその後ろにある。そのため`--from`は、
@@ -50,7 +50,7 @@ from app.batch import (  # noqa: E402
     derive_topology,
     derive_way_materials,
 )
-from app.batch._common import (  # noqa: E402
+from app.batch.common import (  # noqa: E402
     SOURCE_DATA_LOCK,
     asyncpg_dsn,
     batch_session_factory,

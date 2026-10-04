@@ -16,7 +16,7 @@ import time
 
 import asyncpg
 
-from app.batch._common import reset_columns_sql
+from app.batch.common import reset_columns_sql
 from app.domain.accident import (
     ACCIDENT_FATAL_WEIGHT,
     ACCIDENT_MATCH_MAX_DISTANCE_M,

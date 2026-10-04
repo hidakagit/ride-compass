@@ -8,7 +8,7 @@
 import asyncpg
 import pytest
 
-from app.batch._common import asyncpg_dsn
+from app.batch.common import asyncpg_dsn
 from app.batch.source_profile import load_source_profile
 from app.config import settings
 from app.infrastructure import derived_data_meta

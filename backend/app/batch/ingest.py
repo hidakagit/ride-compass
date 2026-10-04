@@ -10,7 +10,7 @@
 差し替えは「そのソースのパーティションを空にしてから入れ直す」。同一トランザクション内で
 行うため、途中の状態が読まれることはない。
 
-取込は派生の作り直しと同時に走らない（`_common.py: SOURCE_DATA_LOCK`）。作り直しが走っていれば
+取込は派生の作り直しと同時に走らない（`common.py: SOURCE_DATA_LOCK`）。作り直しが走っていれば
 始めずに止まる。
 """
 
@@ -25,7 +25,7 @@ from typing import Any
 
 import asyncpg
 
-from app.batch._common import PROGRESS_INTERVAL_SECONDS, SOURCE_DATA_LOCK, format_progress
+from app.batch.common import PROGRESS_INTERVAL_SECONDS, SOURCE_DATA_LOCK, format_progress
 from app.batch.source_profile import NoFields, SourceProfile, SourceSpec
 from app.infrastructure.source_models import SourceRunStatus
 
@@ -44,7 +44,7 @@ class SourceRecord:
     attrs: dict[str, Any]
     #: 属性として読めない配列実体（参照ノードid列・タイル本体）。
     payload: bytes | None = None
-    #: 面のソースの画素（raster WKB。`_raster_wkb.tile_raster_wkb`が作る）。
+    #: 面のソースの画素（raster WKB。`raster_wkb.tile_raster_wkb`が作る）。
     rast: bytes | None = None
 
 

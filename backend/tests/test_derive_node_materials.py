@@ -5,7 +5,7 @@ import pytest
 import pytest_asyncio
 
 from app.batch import derive_node_materials, derive_topology
-from app.batch._common import asyncpg_dsn
+from app.batch.common import asyncpg_dsn
 from app.domain.traffic import HIGHWAY_RANK
 from app.domain.tuning import TUNING_PARAMETERS_BY_ID
 from tests.conftest import postgis_database_url

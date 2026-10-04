@@ -20,7 +20,7 @@
 - `BACKEND_DIR`: `app`パッケージのある場所
 
 コンテナ実行の場合は`app.config.settings.database_url`を使い、素のasyncpgで繋ぐなら
-`app.batch._common.asyncpg_dsn`を通す。
+`app.batch.common.asyncpg_dsn`を通す。
 
 接続情報は`backend/.env.oracle.local`の`DATABASE_URL`と`SSH_COMMAND`から読む（在処の探し方は`_prod_env.py`）。
 """
@@ -37,7 +37,7 @@ from _prod_env import read_prod_env
 _BACKEND_DIR = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_BACKEND_DIR))
 
-from app.batch._common import asyncpg_dsn  # noqa: E402
+from app.batch.common import asyncpg_dsn  # noqa: E402
 
 _CONTAINER = "ridecompass-backend"
 

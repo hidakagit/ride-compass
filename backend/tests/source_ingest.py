@@ -19,9 +19,9 @@ import asyncpg
 import shapely
 from shapely.geometry import LineString, Point
 
-from app.batch._common import asyncpg_dsn
+from app.batch.common import asyncpg_dsn
 from app.batch.ingest import ADAPTERS, RegisteredAdapter, SourceRecord, ingest_source
-from app.batch.source_adapters._raster_wkb import tile_bbox_wkb
+from app.batch.source_adapters.raster_wkb import tile_bbox_wkb
 from app.batch.source_adapters.osm_pbf import way_payload
 from app.batch.source_profile import NoFields, SourceProfile, SourceSpec, Target, load_source_profile
 from app.infrastructure.source_models import WAY_KIND_TAG
