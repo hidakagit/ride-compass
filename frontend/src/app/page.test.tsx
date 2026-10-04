@@ -5,7 +5,8 @@
  * - ルートを作る: 「ルート生成」が地図の色分けを添えて送ること・実行中は押せないこと、結果が出たら閉じていた「ルート結果」を
  *   開くこと、候補が「ルート結果」と地図の両方へ出て、選んだ候補が地図でも選ばれ、区間を持つかで周りの塗りが決まること、
  *   全消去で両方から消えること、候補がある間だけ条件のずれの印が点き全消去で消えること、走行条件の想定速度・出発時刻が
- *   生成と地図の道の詳細へ同じ値で渡ること、「地図の色分け」の未使用を分ける重み（生成の前はいまの重み・後は使われた重み）
+ *   生成と地図の道の詳細へ同じ値で渡ること、「地図の色分け」の未使用を分ける重み（生成の前はいまの重み・後は使われた重み）、
+ *   保存した条件が地図で置いた出発地を持ち、呼び出すとその出発地（無ければ現在地）から生成すること
  * - 地図で扱えること: 地点を置けるのは「ルート設定」の条件タブを見ている間だけで、周回の間は目的地を地図へ出さないこと、
  *   区間を押して詳細を出せるのは「ルート結果」を見ている間だけのこと、編集の間は地図で地点も区間も扱わず全部の候補を重ね、
  *   作り直すと編集が終わること、作ると直前の作り直しの失敗の文言を消し、合成ルートを選んでいる間は元のルートだけを重ねること、
@@ -226,6 +227,37 @@ describe("ルートを作る", () => {
     expect(mapView().rideConditions).toMatchObject({ speedKmh: 25, at: departure });
     jobs.respond([FIRST], LOOP_CONDITIONS);
     expect(await generate(user)).toMatchObject({ assumed_speed_kmh: 25, start_time: departure.toISOString() });
+  });
+
+  it("保存した条件は地図で置いた出発地を持ち、呼び出すとその出発地から生成する。現在地のまま保存した条件を呼び出すと現在地へ戻る", async () => {
+    const PLACED: Coordinates = { latitude: 35.65, longitude: 139.75 };
+    const { user } = renderHome();
+    const saveAs = async (name: string) => {
+      await user.click(screen.getByRole("tab", { name: "保存" }));
+      const nameInput = screen.getByRole("textbox", { name: "保存する名前" });
+      await user.clear(nameInput);
+      await user.type(nameInput, name);
+      await user.click(screen.getByRole("button", { name: "保存" }));
+    };
+    const recall = async (name: string) => {
+      await user.click(screen.getByRole("tab", { name: "保存" }));
+      await user.click(screen.getByRole("button", { name: `「${name}」を呼び出す` }));
+    };
+    const origin = (body: Record<string, unknown>) => ({ latitude: body.latitude, longitude: body.longitude });
+
+    await user.click(screen.getByRole("button", { name: "出発地を地図で選ぶ" }));
+    act(() => mapView().onPinPlace("origin", PLACED));
+    await saveAs("置いた所");
+    await user.click(screen.getByRole("tab", { name: "条件" }));
+    await user.click(screen.getByRole("button", { name: "出発地を現在地に戻す" }));
+    await saveAs("現在地");
+
+    jobs.respond([FIRST], LOOP_CONDITIONS);
+    await recall("置いた所");
+    expect(origin(await generate(user))).toEqual(PLACED);
+    jobs.respond([FIRST], LOOP_CONDITIONS);
+    await recall("現在地");
+    expect(origin(await generate(user))).toEqual(HERE);
   });
 
   it("「地図の色分け」で未使用に分ける軸は、生成の前はいまの重み、生成の後は生成に使われた重みで決まる", async () => {
