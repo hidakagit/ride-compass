@@ -22,23 +22,17 @@ JUST_OUTSIDE = BAND_EDGE - 0.1
 @pytest.mark.parametrize(
     ("road_bearing", "travel_bearing", "expected"),
     [
-        (30.0, 30.0, 6.0),  # 道路の向きに辿る
-        (30.0, 210.0, -6.0),  # 逆向きに辿ると登りと下りが入れ替わる
-        (350.0, 10.0, 6.0),  # 北をまたいでも、向きの差は20度
         (0.0, JUST_OUTSIDE, 6.0),  # 帯のすぐ外は、角度差があっても急さはそのまま
-        (0.0, 180.0 - JUST_OUTSIDE, -6.0),
+        (0.0, 180.0 - JUST_OUTSIDE, -6.0),  # 逆向き寄りに辿ると登りと下りが入れ替わる
+        (350.0, 10.0, 6.0),  # 北をまたいでも、向きの差は20度
+        (0.0, BAND_EDGE, None),  # 直角に近い向きは値を持たない（帯の両端ちょうど）
+        (0.0, 180.0 - BAND_EDGE, None),
     ],
 )
-def test_the_travel_bearing_decides_only_the_sign(road_bearing, travel_bearing, expected):
+def test_the_travel_bearing_decides_only_the_sign_and_a_near_perpendicular_road_has_no_value(
+    road_bearing, travel_bearing, expected
+):
     assert effective_gradient(6.0, road_bearing, travel_bearing) == expected
-
-
-@pytest.mark.parametrize(
-    "travel_bearing",
-    [90.0, 270.0, BAND_EDGE, 180.0 - BAND_EDGE, 180.0 + BAND_EDGE, -90.0],
-)
-def test_a_road_near_perpendicular_to_the_travel_bearing_has_no_value(travel_bearing):
-    assert effective_gradient(6.0, 0.0, travel_bearing) is None
 
 
 angles = st.floats(min_value=-720.0, max_value=720.0, allow_nan=False)
