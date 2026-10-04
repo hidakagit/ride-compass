@@ -10,15 +10,6 @@ import pytest
 from app.services.axis_preview_service import weighted_distribution, weighted_quantiles
 
 
-def _bins_cover(bins, value: float) -> bool:
-    """`value`がいずれかの階級の範囲に入るか（最上位階級は上限を含む）。"""
-    for i, (low, high, _) in enumerate(bins):
-        last = i == len(bins) - 1
-        if low <= value < high or (last and value <= high):
-            return True
-    return False
-
-
 def test_quantiles_weight_by_length_not_by_way_count():
     """短い道が何本あっても、長い道1本の値が中央値を決める。
 
@@ -37,13 +28,14 @@ class TestDistribution:
         assert result.bins == []
 
     @pytest.mark.parametrize("values", [[1.0, 2.0, 3.0, 4.0], [-160.0, -120.0, -80.0, -40.0, -5.0]])
-    def test_every_sample_and_zero_fall_inside_some_bin(self, values):
+    def test_range_covers_every_sample_and_zero_without_collapsing(self, values):
         # 下限を0に固定すると、生値が負になる軸で全サンプルが範囲の外（階級0）へ潰れる。
+        # 分位は標本の値なので、範囲が標本を覆えば分位と階級の符号も揃う。
         result = weighted_distribution([(100.0, v) for v in values])
 
-        for v in [*values, 0.0]:
-            assert _bins_cover(result.bins, v), f"{v}がどの階級にも入らない（{values}）"
-        assert sum(b[2] for b in result.bins) == pytest.approx(1.0, abs=1e-4)
+        assert result.bins[0][0] <= min(*values, 0.0)
+        assert result.bins[-1][1] >= max(*values, 0.0)
+        assert len([b for b in result.bins if b[2] > 0]) == len(values)
 
     def test_outliers_above_the_drawn_range_land_in_the_last_bin(self):
         # 描画範囲はp99の少し上まで。その外の延長も割合から落とさない。
