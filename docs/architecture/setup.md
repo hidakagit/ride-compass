@@ -163,8 +163,8 @@ PostGIS統合テスト（`road_graph_session`フィクスチャを使うもの�
 
 担当は GitHub Actions のランナーで動くので、開発機の本体のチェックアウトを早送りする人はいない。遅れた
 本体で打った道具は古いコードで判定し、本番へ古いコードを流す。結果がコードの版に左右される道具は、
-実行口で`scripts/checkout_freshness.py`を呼び、HEAD が origin/master を含まなければ、何コミット遅れかと
-追いつくコマンドを出して止まる。作業ブランチでも、origin/master の上に載っていれば止まらない。
+実行口で`scripts/checkout_freshness.py`を呼ぶ。HEAD が origin/master を含まなければ、master にいて追跡しているファイルに
+変更が無いときだけ早送りして進み、それ以外（別の枝・変更あり）は何コミット遅れかと追いつくコマンドを出して止まる。作業ブランチでも、origin/master の上に載っていれば止まらない。
 作業ツリーの変更は遅れに数えない。
 
 | 道具 | 呼ぶところ | 版に左右される理由 |
@@ -177,7 +177,7 @@ PostGIS統合テスト（`road_graph_session`フィクスチャを使うもの�
 
 `python scripts/checkout_freshness.py --sync`は、master にいて追跡しているファイルに変更が無いときだけ
 早送りし、結果を1行出す（ほかの枝・変更のある作業ツリーには触らない。並行のセッションが作業中かもしれない
-ため）。Claude Code の SessionStart フックから打つ形にしてある。
+ため）。上の道具も、遅れていれば同じ条件で早送りしてから進む。
 
 ## Windowsの開発機でのBashの長さの上限
 

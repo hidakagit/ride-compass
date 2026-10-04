@@ -77,7 +77,7 @@ def test_changes_in_the_working_tree_are_not_counted_as_behind(clones):
     assert cf.staleness(work) is None
 
 
-def test_a_checkout_behind_master_stops_with_the_count_and_the_fast_forward_command(clones):
+def test_a_checkout_behind_master_reports_the_count_and_the_fast_forward_command(clones):
     work, other = clones
     _advance_master(other)
 
@@ -85,7 +85,26 @@ def test_a_checkout_behind_master_stops_with_the_count_and_the_fast_forward_comm
 
     assert "1 コミット遅れ" in message
     assert "merge --ff-only origin/master" in message
-    with pytest.raises(SystemExit):
+
+
+def test_require_current_fast_forwards_a_clean_master_and_goes_on(clones):
+    work, other = clones
+    latest = _advance_master(other)
+
+    cf.require_current(work)
+
+    assert _git(work, "rev-parse", "HEAD") == latest
+
+
+def test_require_current_stops_on_a_master_with_changes_or_another_branch(clones):
+    work, other = clones
+    _advance_master(other)
+    (work / "a.txt").write_text("changed\n", encoding="utf-8")
+    with pytest.raises(SystemExit, match="片付けてから"):
+        cf.require_current(work)
+    (work / "a.txt").write_text("1\n", encoding="utf-8")
+    _git(work, "checkout", "-q", "-b", "feature")
+    with pytest.raises(SystemExit, match="rebase origin/master"):
         cf.require_current(work)
 
 
