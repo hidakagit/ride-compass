@@ -141,8 +141,8 @@ frontendは`next dev`の既定の3000番で動かす。backendのCORSの許可�
 
 ## テスト
 
-手元で回すのは変更が届く範囲だけで、フルスイートはCIが持つ
-（[../conventions/testing.md](../conventions/testing.md)）。
+手元では静的検査もテストも回さず、CIに任せる。手元で回すのはCIが落ちた失敗を再現して直すときだけで、
+そのときも落ちた失敗に届く範囲だけを回す（[../conventions/testing.md](../conventions/testing.md)「手元の検査の回し方」）。
 
 ```bash
 cd backend && pytest tests/test_road_graph_engine.py -q

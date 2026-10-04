@@ -172,7 +172,7 @@ issue の番号ごと）が持つ。同じタスクの実行（作る・確か�
      見て「直っていない」と答える）。見る口は変更が届く側で決まる: frontend は `/api/version`、backend は `/health` の `commit`
      （宛先は docs/architecture/tech-stack.md「本番の宛先」。backend は、Pull Request の差分に `scripts/deploy_backend_gate.py: DEPLOY_PATHS`
      に当たるファイルがあるときだけ見る）。`git merge-base --is-ancestor <マージのコミット> <本番の commit>` が 0 で終われば出ている
-     （本番の commit が手元に無ければ先に `git fetch origin`）。出ていなければ、マージのコミットの master の CI を 4 と同じく引いて
+     （本番の commit が手元に無ければ先に `git fetch origin`）。出ていなければ、マージのコミットの master の CI を 5 と同じく（`--event pull_request` を付けずに）引いて
      終わるまで待ち、見直す（CI の `deploy-frontend`・`deploy-backend` は、出したコミットが本番の `commit` になるまで待って終わる。
      デプロイのジョブが取り消しで終わったのは後のコミットのデプロイに順番を譲ったときで、そのときは master の先頭の CI を同じく待つ）。それでも出ていなければ、そのことを判断材料に書いて問う。判断材料には、ユーザーが自分で版を見分ける方法
      として、開く URL と、見た時点の `commit`・`started_at` を書く（出ていれば「`started_at` がこの時刻以降なら修正を含む版」、
@@ -185,15 +185,12 @@ issue の番号ごと）が持つ。同じタスクの実行（作る・確か�
    - 確かめの問い（確かめの行だけが残ったとき・コードを変えないタスクの結果）に未着手の答えが返ったら、確かめが済んだと読み、
      問い直さない。確かめの行（コードを変えないタスクなら残りの行）にチェックを付け、経緯に答えを1行足して、残りが無ければ
      `gh issue close <番号> --reason completed` で閉じる。補足に直してほしい点が書かれていたときだけ、それを残りとして済ませてから閉じる。
-4. `tasks#<番号>:` の件名でコミットし、`git push origin orch/tasks-<番号>` で push する。作業ブランチの強制 push は
+4. `tasks#<番号>:` の件名でコミットし、`git push origin orch/tasks-<番号>` で push する。静的検査とテストは手元で回さず、
+   CI に任せる（testing.md「手元の検査の回し方」）。作業ブランチの強制 push は
    コードのリポジトリの規則で断られる（一度 push したコミットは、ほかの者のものも消せない）ので、直しは足すコミットにする。
-   master に入るコミットは、5 の Pull Request の題名と本文から作られる（確かめる担当が squash でマージする）。CI は、push したコミットの実行の id を
-   `gh run list -R hidakagit/ride-compass --commit <コミットの40桁の ID> --workflow ci.yml --json databaseId` で引き（出ていなければ少しおいて
-   引き直す。ID は git rev-parse HEAD が出す40桁を渡す——`--commit` は短い ID や後ろを補った ID に一致せず、実行があっても0件になり、
-   まだ出ていないのと見分けられない）、`gh run watch <id> --compact -i 30 -R hidakagit/ride-compass --exit-status` で終わるまで前に出したまま待つ（Bash の
-   `timeout` を上限の 600000 にして打つ。上限で止まったら同じコマンドを打ち直す。裏へ回して知らせを待つと、そこで担当の実行が終わる。
-   端末でない出力では見回りのたびに全部のジョブを書き直すので、`--compact -i 30` で出力を絞る）。
-5. CI が通ったら、コードのリポジトリに Pull Request を出す（`gh pr create --base master --head orch/tasks-<番号>`。
+   master に入るコミットは、5 の Pull Request の題名と本文から作られる（確かめる担当が squash でマージする）。push で起きる CI の実行は
+   待たずに 5 へ進む（待つのは 5 の Pull Request の実行だけ）。
+5. コードのリポジトリに Pull Request を出す（`gh pr create --base master --head orch/tasks-<番号>`。
    コードのリポジトリは hidakagit のものなので、`GH_TOKEN` に hidakagit のトークン（ユーザー環境変数 `GH_TOKEN`）を渡す）。
    題名と本文は、そのまま master のコミットになるので、下の「コミット」の書式で書く（題名が件名
    `tasks#<番号>: …`、本文が背景・課題・成果・検証・増減・残り）。書式の中に、次のものを入れる:
@@ -206,21 +203,31 @@ issue の番号ごと）が持つ。同じタスクの実行（作る・確か�
    画面の変更は、修正前後のキャプチャを Pull Request のコメントに貼る（`gh pr comment <番号> --attach <前の画像> --attach <後の画像>`。
    画面・幅など、何を撮ったかを添える。画像はコミットに残さない）。画面は `node frontend/scripts/capture.mjs --script <脚本>` で撮る
      （開く版を `--app`、応答を `--api` で選び、見せたい状態までは脚本で進める。脚本の口と使い方はスクリプトの先頭、例は
-     `frontend/capture/examples/`。脚本は作業ツリーの外に置いてよい）。地図の塗りは道路タイルを持つ本物の backend でしか出ないので、
-     前は `--app production`（本番の画面）、後は `--api <本番の backend>`（作業ツリーの版を手元でビルドし、本番の backend へ向ける。
-     宛先は docs/architecture/tech-stack.md「本番の宛先」）で撮る。backend の応答も変わる変更は、変わる応答を脚本の `patch` で差し替えて撮る。
-     地図の塗り以外の画面（ルート結果・パネル・管理画面等）は、e2e のモックの応答（既定）で、前は `--app origin/master`、後は既定の
-     作業ツリーの版で撮る（作業ツリーは切り替えない）。画面に出ない変更は、確かめ方と根拠（実行したコマンドと出た値・読んだ公式の文書）を検証に書く。
+     `frontend/capture/examples/`。脚本は作業ツリーの外に置いてよい）。前は本番を撮り（`--app production`。ビルドしない）、後は
+     `--api <本番の backend>`（作業ツリーの版を手元でビルドし、本番の backend へ向ける。宛先は docs/architecture/tech-stack.md「本番の宛先」）で、
+     前と同じ脚本で撮る。前後が同じ backend を使うので、地図の塗り（道路タイルを持つ本物の backend でしか出ない）も、それ以外の画面
+     （ルート結果・パネル等）も、作業ツリーの変更の差だけが写る。backend の応答も変わる変更は、変わる応答を脚本の `patch` で差し替えて後を撮る。
+     本番で開けない画面（認証の要る管理画面等）は、e2e のモックの応答（既定）で、前は `--app origin/master`、後は既定の作業ツリーの版で撮る。
+     本番の版は master より遅れていることがある。本番の版（`/api/version` の `commit`）と作業ブランチの合流点
+     （`git merge-base HEAD origin/master`）の間で frontend が変わっていて（`git diff --name-only <本番の commit> <合流点> -- frontend`）、
+     それが撮る画面に関わるなら、前に作業ツリーの変更でない差が混ざるので、前は本番の代わりに `--app <合流点> --api <本番の backend>` で撮る。
+     画面に出ない変更は、確かめ方と根拠（実行したコマンドと出た値・読んだ公式の文書）を検証に書く。
    Pull Request の題名・本文・コメントは公開のリポジトリに載るので、打ったコマンドを写すときも本番の宛先は値を書かず、
    `--api <本番の backend>` のように tech-stack.md「本番の宛先」の名で書く（値を含む書き込みは、自動モードの判定に
    `[Excess Sensitive Detail]` で断られうる。`--attach` の付いた書き込みそのものは断られない）。
    前の Pull Request が開いたまま残っていれば、新しく出さずに push し、撮り直したキャプチャを `gh pr comment --attach` で足す。
    本文を直すときは `gh issue edit <番号> -R hidakagit/ride-compass --body-file <ファイル>` で書き換える（`gh pr edit` と、欄を選ばない
    `gh pr view` は、レビューを頼んだチームの名前を問い合わせるため、組織を読む権限の無いトークンでは断られる）。
-   出したら（push したら）、Pull Request の実行（master と合わせた版）を、4 の `gh run list` に `--event pull_request` を足して引き、
-   4 と同じく終わるまで前に出したまま待つ。4 の push の実行は作業ブランチ単体の版なので、合流点の後に master へ入った変更との意味の競合（文字の競合なしに載せ直せて、合わせると
+   出したら（push したら）、Pull Request の CI の実行（master と合わせた版）の id を
+   `gh run list -R hidakagit/ride-compass --commit <コミットの40桁の ID> --workflow ci.yml --event pull_request --json databaseId` で引き
+   （出ていなければ少しおいて引き直す。ID は git rev-parse HEAD が出す40桁を渡す——`--commit` は短い ID や後ろを補った ID に一致せず、
+   実行があっても0件になり、まだ出ていないのと見分けられない）、`gh run watch <id> --compact -i 30 -R hidakagit/ride-compass --exit-status`
+   で終わるまで前に出したまま待つ（Bash の `timeout` を上限の 600000 にして打つ。上限で止まったら同じコマンドを打ち直す。裏へ回して
+   知らせを待つと、そこで担当の実行が終わる。端末でない出力では見回りのたびに全部のジョブを書き直すので、`--compact -i 30` で出力を絞る）。
+   push の実行は作業ブランチ単体の版なので、合流点の後に master へ入った変更との意味の競合（文字の競合なしに載せ直せて、合わせると
    落ちる）を見ていない。Pull Request の必須のチェックは名前で照らすので、Pull Request の実行が出る前は push の実行の `ci-ok` だけで
-   通ってしまう。待つのはこの実行にする。落ちたら `git merge origin/master` で今の master を取り込んで直し、4 から続ける。
+   通ってしまう。待つのはこの実行にする。落ちたら `git merge origin/master` で今の master を取り込み、失敗を直して（手元で検査や
+   テストを回すのは、この失敗を再現するときだけ。testing.md「テストが落ちたときの直し方」）、4 から続ける。
 6. issue の本文を直し（経緯・完了の条件のチェック。マージのあとでないとできない条件だけをチェックの無いまま残す）、
    Pull Request へのリンクをコメントに書いて報告する。Pull Request を出すと、ゲートが検証中へ動かし、確かめる担当に渡る。
 
@@ -255,11 +262,12 @@ issue の番号ごと）が持つ。同じタスクの実行（作る・確か�
 **確かめる担当**（検証中。作った担当とは別）
 1. 作業ブランチを取る（`git fetch origin` と
    `git checkout -B orch/tasks-<番号> origin/orch/tasks-<番号>`）。依存のファイルが master と違えば、作る担当の2のとおり入れ直す。Pull Request（`gh pr view <番号> -R hidakagit/ride-compass --json title,body,comments,reviews`。本文のキャプチャ・差分）・作業ブランチの CI・issue の完了の条件・変更が届く範囲（要るなら画面）を
-   確かめる。作る担当の報告を読み写さず、自分で見る（画面なら自分で撮る。作る担当の5と同じ道具で撮る）。Pull Request が無ければ（手順が変わる前に
-   検証中になったもの）、作る担当の5のとおりに出してから確かめる。CI は作業ブランチ単体（push の実行）に加えて、Pull Request の
-   実行（master と合わせた版。作る担当の5と同じく `--event pull_request` で引く）が通っていることを見る。Pull Request の実行だけが
-   落ちていれば、合流点の後に master へ入った変更との意味の競合なので、満たしていないとして 4 のとおり「意味の競合」と落ちた
-   テストを書いて閉じる（作る担当が載せ直して直す）。`lost_constraints.py` も自分で回し、
+   確かめる。作る担当の報告を読み写さず、自分で見る（画面なら変更後を自分で撮る。作る担当の5と同じ道具・脚本・応答で撮り、
+   変更前は撮り直さずに作る担当が貼った画像と比べる）。Pull Request が無ければ（手順が変わる前に
+   検証中になったもの）、作る担当の5のとおりに出してから確かめる。CI は Pull Request の実行（master と合わせた版。作る担当の5と
+   同じく `--event pull_request` で引く）が通っていることを見る。落ちていれば満たしていないとして 4 のとおり落ちたテストを書いて
+   閉じる。push の実行（作業ブランチ単体の版）が通っているのに Pull Request の実行だけが落ちていれば、合流点の後に master へ入った
+   変更との意味の競合なので、「意味の競合」と書く（作る担当が載せ直して直す）。`lost_constraints.py` も自分で回し、
    「消えた」制約に本文の処置が無ければ満たしていない。分布の前後は測らず、本文に前後の行が無いことを理由にしない（上の「分布の前後」）。
    **設計書の条件を1つ当てる**: 作り直しで落ちた条件（絞り込み・不変条件・制約）は、差分にも作る担当の報告にも1行も出ないので、
    報告の主張ではなく設計書を基準にする。差分が変えた関数・SQL・材料のファイルを `docs/modules/*.md` の対象ファイル表で引き
@@ -370,9 +378,9 @@ issue の番号ごと）が持つ。同じタスクの実行（作る・確か�
    master なら、master から切った枝に同じく当てて Pull Request を出し、必須のチェックが通ったらマージする（数行なら GitHub の画面の
    Edit this file → Commit changes... → Create a new branch for this commit and start a pull request でもよい）。
 5. 答えのあと: 作業ブランチなら、手順の1で取った枝にユーザーのコミットがあること（`git log origin/master..HEAD -- <パス>`）を見て、
-   パッチから変わった所があれば読み、検査を通して手順の4から続ける。master なら、master のファイルにパッチの変更が入っていることを
+   パッチから変わった所があれば読み、手順の4から続ける。master なら、master のファイルにパッチの変更が入っていることを
    見て完了の条件にチェックを付ける。マージのあとに当てたものは、残りが無ければ閉じる。Pull Request を出す前に当てたものは、
-   `git fetch origin` のあと作業ブランチへ `git merge origin/master` で取り込み（載せ直し）、検査を通して作る担当の4から続けて
+   `git fetch origin` のあと作業ブランチへ `git merge origin/master` で取り込み（載せ直し）、作る担当の4から続けて
    Pull Request を出す。
 
 ## 開発機の対話のセッション
@@ -384,7 +392,7 @@ issue の番号ごと）が持つ。同じタスクの実行（作る・確か�
 |---|---|---|
 | タスクを持つ | 担当のワークフローが持つ（「1つのタスクを触るのは1者だけ」） | `hold.js` で持つ（下の「持つ」） |
 | 進行中へ動かす | 引き受ける段（`claim.js`）が動かし、着手のコメントを書く | 持ってから `move.js <番号> 進行中 <理由>` で、理由のコメントを付けて動かす（作業時間の記録の入りになる。「様子を見る」） |
-| 依存 | 担当のワークフローが入れてある（作る担当の2） | 作業ツリーごとに `npm ci --prefix frontend` から入れる（docs/architecture/setup.md「作業ツリーどうしで node_modules を共有しない」）。backend は testing.md「開発機でのbackendテストの回し方」 |
+| 依存 | 担当のワークフローが入れてある（作る担当の2） | 手元で検査・テストを回さないので、要る道具を動かすとき（画面を撮る・CI の失敗を再現する等）だけ、作業ツリーごとに `npm ci --prefix frontend` から入れる（docs/architecture/setup.md「作業ツリーどうしで node_modules を共有しない」）。backend は testing.md「開発機でのbackendテストの回し方」 |
 | 本番 | 接続情報を持たない。読むのが要れば「開発機が要る」で返し、書く操作は問いで頼む（「自動で進めないもの」） | 接続情報があり、読める（`run_probe.py`）。本番へ書く操作は、ユーザーが打つスクリプトにして頼む（下の「本番へ書く」） |
 | マージ | 確かめる担当がマージする | ユーザーの指示があれば、対話のセッションがマージする。ワークフローのファイル（`.github/workflows/`）を変える Pull Request は、開発機の gh のトークンに `workflow` の権限が無いので、ユーザーがブラウザでマージする |
 | 答え | 回答フォーム（「問い」） | ユーザーがチャットで決めたことを、Claude が issue に記録する（「答え」） |
@@ -656,7 +664,7 @@ dependencies」）。前提が開いている未着手は、見回りが飛ば�
 ## コミット
 
 **1タスク=1コミット**（またはPR）。ただし**段階を切って進める規模のタスクは段階ごとに1コミット**にする（段階の境界で
-静的検査と変更が届くテストを通すため。docs/conventions/testing.md「手元の検査の回し方」）。**コミット履歴は、ある時点へ戻すときに
+CI を通すため。docs/conventions/testing.md「手元の検査の回し方」）。**コミット履歴は、ある時点へ戻すときに
 どのコミットまで戻せばよいかを件名と本文だけで特定できる状態に保つ**。問い・決定・確認の結果はそのタスクの issue に書き、git には写さない。
 コミットメッセージは次の書式で書く:
 
