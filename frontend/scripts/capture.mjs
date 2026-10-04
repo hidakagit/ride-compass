@@ -8,8 +8,9 @@
 // 手元で起動する。取り出しとビルドは版の commit と --api ごとに使い回す。
 // --api は応答: mock（既定）は e2e/fixtures.ts: installApiMocks（backend も外部も要らない）。<backend のオリジン> は本物の backend で、
 // 地図の塗り（道路タイル）はこちらでしか出ない（本番の宛先は docs/architecture/tech-stack.md「本番の宛先」）。
-// 脚本は default export の関数（capture/context.ts: CaptureScript）で、受け取った口（open・chooseLens・openLegend・patch・shot 等）
-// だけを使い、何も読み込まない。作業ツリーの外に置いてよい（.ts も読める）。省略すると開いて1枚撮る。例は capture/examples/。
+// 脚本は default export の関数（capture/context.ts: CaptureScript）で、受け取った口（open・openAdmin・chooseLens・openLegend・patch・
+// shot 等）だけを使い、何も読み込まない。管理画面は openAdmin で開く（モックの応答のときだけ。撮影用の資格情報はここが渡す）。
+// 作業ツリーの外に置いてよい（.ts も読める）。省略すると開いて1枚撮る。例は capture/examples/。
 // 撮る前に、宛先（本番の frontend・本物の backend）が応答するまで待ち、Playwright の Chromium と、Linux なら起こすのに要る依存と
 // 日本語のフォント（無いと文字が豆腐になる）を入れる。画像は <出力>/<版>/<番号>-<名前>.png。
 
@@ -25,6 +26,8 @@ const playwright = path.join(frontendRoot, "node_modules", "@playwright", "test"
 const PRODUCTION_FRONTEND = "https://ride-compass-frontend.onrender.com";
 /** e2e/fixtures.ts: installApiMocks が待ち受ける向け先。ビルドの環境変数に別の向け先があっても、モックへ向ける。 */
 const MOCKED_API = "http://localhost:8000";
+/** モックの応答のとき手元で起動する版へ渡す管理画面（src/proxy.ts）の資格情報。capture/context.ts: openAdmin が同じ環境変数から読む。 */
+const ADMIN_CREDENTIALS = { ADMIN_BASIC_AUTH_USERNAME: "capture", ADMIN_BASIC_AUTH_PASSWORD: "capture" };
 /** frontend/e2e（3100）・e2e-live（3200）・devサーバー（3000）と取り合わないポート。 */
 const LOCAL_PORT = "3300";
 /** Render の無料のインスタンスは休止から起きるのに約1分かかる（https://render.com/docs/free）。その3倍まで待つ。 */
@@ -179,7 +182,12 @@ if (!production) {
     if (
       run("npm", ["run", "build"], {
         cwd: serverDir,
-        env: { NEXT_PUBLIC_API_URL: target, BACKEND_INTERNAL_URL: target },
+        // タイルも本番の Render と同じく backend へ直接取りに行く（手元の版の rewrites に無いタイルがある）。
+        env: {
+          NEXT_PUBLIC_API_URL: target,
+          BACKEND_INTERNAL_URL: target,
+          ...(mocked ? {} : { NEXT_PUBLIC_TILE_BASE_URL: target }),
+        },
       }) !== 0
     ) {
       fail("ビルドに失敗");
@@ -195,6 +203,7 @@ const status = run(process.execPath, [playwright, "test", "-c", "playwright.capt
   env: {
     CAPTURE_BASE_URL: production ? PRODUCTION_FRONTEND : `http://localhost:${LOCAL_PORT}`,
     ...(serverDir ? { CAPTURE_LOCAL_PORT: LOCAL_PORT, CAPTURE_SERVER_DIR: serverDir } : {}),
+    ...(mocked ? ADMIN_CREDENTIALS : {}),
     CAPTURE_OPTIONS: JSON.stringify({
       script,
       out,

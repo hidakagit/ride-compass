@@ -23,6 +23,13 @@ interface OpenOptions {
   routes?: (page: Page) => Promise<unknown>;
 }
 
+interface OpenAdminOptions {
+  /** 選ぶタブの名前。既定は開いたときのタブ。 */
+  tab?: string;
+  /** 開く前・モックの後に呼ぶ。管理APIの応答（`/admin/api/…`）はここで page.route で足す（足さない管理APIは失敗の表示になる）。 */
+  routes?: (page: Page) => Promise<unknown>;
+}
+
 export interface CaptureContext {
   page: Page;
   expect: typeof expect;
@@ -34,6 +41,11 @@ export interface CaptureContext {
   catalogAxes: typeof catalogAxes;
   /** アプリを開き、地図の全ソースの読み終わりまで待つ。初回の案内は閉じた状態で開く。 */
   open(options?: OpenOptions): Promise<void>;
+  /**
+   * 管理画面（/admin）を撮影用の資格情報で開き、タブを選んで、そのタブの中身を返す。応答はモックだけで開ける（本番と本物の
+   * backend は撮影用の資格情報を通さない）。選べなければ、選べるタブを並べて止まる。
+   */
+  openAdmin(options?: OpenAdminOptions): Promise<Locator>;
   /** 地図の色分け（レンズ）を名前で選び、読み終わりまで待つ。選べなければ、選べる名前を並べて止まる。 */
   chooseLens(label: string): Promise<void>;
   /**
@@ -115,6 +127,32 @@ export function captureContext(page: Page, { out, mocked }: { out: string; mocke
         await page.evaluate((z) => window.__liveMap().jumpTo({ zoom: z }), zoom);
         await settle();
       }
+    },
+    async openAdmin({ tab, routes } = {}) {
+      // 資格情報は scripts/capture.mjs が手元で起動する版へ渡したもの。
+      const { ADMIN_BASIC_AUTH_USERNAME: username, ADMIN_BASIC_AUTH_PASSWORD: password } = process.env;
+      if (!mocked || !username || !password) {
+        throw new Error("管理画面はモックの応答でだけ開ける（--app production と --api を外す）");
+      }
+      await fixtures.installApiMocks(page);
+      if (routes) await routes(page);
+      await page.setExtraHTTPHeaders({
+        Authorization: `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`,
+      });
+      await page.goto("/admin");
+      // タブの中身にも入れ子のタブがあるので、一番外の並びで選ぶ。
+      const tabs = page.getByRole("tablist").first();
+      await expect(tabs).toBeVisible();
+      if (tab !== undefined) {
+        const trigger = tabs.getByRole("tab", { name: tab, exact: true });
+        if (!(await trigger.isVisible())) {
+          const names = await tabs.getByRole("tab").allInnerTexts();
+          throw new Error(`管理画面のタブ「${tab}」を選べない。選べるタブ: ${names.join(" / ")}`);
+        }
+        await trigger.click();
+      }
+      const selected = await tabs.getByRole("tab", { selected: true }).innerText();
+      return page.getByRole("tabpanel", { name: selected.trim(), exact: true });
     },
     async chooseLens(label) {
       try {

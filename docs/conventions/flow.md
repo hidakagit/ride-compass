@@ -229,6 +229,7 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
      前と同じ脚本で撮る。前後が同じ backend を使うので、地図の塗り（道路タイルを持つ本物の backend でしか出ない）も、それ以外の画面
      （ルート結果・パネル等）も、作業ツリーの変更の差だけが写る。backend の応答も変わる変更は、変わる応答を脚本の `patch` で差し替えて後を撮る。
      本番で開けない画面（認証の要る管理画面等）は、e2e のモックの応答（既定）で、前は `--app origin/master`、後は既定の作業ツリーの版で撮る。
+     管理画面は脚本の口 `openAdmin` で開く（撮影用の資格情報は `capture.mjs` が渡すので、環境変数は要らない。管理APIの応答は口の `routes` で差し替える）。
      本番の版は master より遅れていることがある。本番の版（`/api/version` の `commit`）と作業ブランチの合流点
      （`git merge-base HEAD origin/master`）の間で frontend が変わっていて（`git diff --name-only <本番の commit> <合流点> -- frontend`）、
      それが撮る画面に関わるなら、前に作業ツリーの変更でない差が混ざるので、前は本番の代わりに `--app <合流点> --api <本番の backend>` で撮る。
