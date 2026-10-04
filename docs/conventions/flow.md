@@ -544,10 +544,23 @@ dependencies」）。前提が開いている未着手は、見回りが飛ば�
   （「確かめる担当」の3）。
 - **探す**: 起票するとき（「改善を起票する」も）・作る担当が着手するとき・段階に分けるときに、自分の**直す場所**（変える所。
   ファイル・道具の関数・設定の項目・手順の節。同じ派生の段・同じモジュール・同じ本番の作り直しもその例）を1行で書き、その名前
-  （パス・道具名・節の名前）と題名の語で開いた issue を探す（`gh issue list -R ridecompass/ride-compass-tasks --state open --search "<語>"`。
-  本文のやること・背景がパスや節を名指すので、題名より当たる。日本語の検索は緩く当たるので題名と本文を読んで判じる）。同じ直す場所に
-  触るものがあれば前後関係か組を張り、張った関係を起票の本文か自分のタスクの issue への報告に書く。何も無かったときも、探した鍵
+  （パス・道具名・節の名前）と題名の語で開いた issue を探す（本文のやること・背景がパスや節を名指すので、題名より当たる）。
+  当たったものは題名と本文を読んで判じ、同じ直す場所に触るものがあれば前後関係か組を張り、張った関係を起票の本文か自分のタスクの issue への報告に書く。何も無かったときも、探した鍵
   （直す場所と検索した語）を報告に1行書く（探したかが後から読めるように）。
+  - **打ち方**: 語1つにつき1回、`gh issue list -R ridecompass/ride-compass-tasks --state open --limit 1000 --search '"<語>" in:title,body'`
+    を Bash で打つ（Windows PowerShell 5.1 は引数の中の `"` を落として、囲まない語として届ける。公式の文書 about_Parsing
+    「Passing arguments that contain quote characters」）。
+    - **語を `"` で囲む**: 囲まない `lost_constraints` は、その名前を題名・本文に持つ issue の多くに当たらない。囲むと `_`・`/`・`.` 等で
+      区切られた語の並びとして当たる。日本語の語も、囲まないと関係の無い issue まで緩く当たる。
+    - **`in:title,body` で絞る**: `in` を省くとコメントまで探す（公式の文書「Searching issues and pull requests」の「Search by the
+      title, body, or comments」）。確かめる担当の報告等のコメントは多くの道具の名前を書くので、コメントで当たった issue が
+      直す場所の重なりを埋もれさせる。
+    - **パスは最後の名前で打つ**: 囲んだパスは、そのパスを全部書いた issue にしか当たらない（`"lost_constraints"` は
+      `backend/scripts/lost_constraints.py` を書いた issue にも当たるが、逆は当たらない）。名前が別の文字と続けて書かれた所
+      （区切りの無い所）には当たらないので、0件でも重なりが無いとは言い切らない。
+    - **語を空白で並べない**: 空白は AND として扱われ、すべての語を持つ issue にしか当たらない（公式の文書「Filtering and searching
+      issues and pull requests」の「Building advanced filters for issues」）。
+    - **`--limit` を付ける**: 付けないと30件で黙って切れる（`gh issue list --help` の `--limit`）。
   - 着手したタスクに、まだ閉じていない前提が見つかったら、張ったうえで問う（未着手の答えなら、前提が閉じるまで待つ）。
     自分のタスクがほかの issue の先に当たるなら、張るだけで続ける。
 
