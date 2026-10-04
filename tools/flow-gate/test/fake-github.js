@@ -9,7 +9,7 @@ const AS = { "Bearer form-token": config.user, "Bearer bot-token": config.claude
 // issue: { number, author（login）, status, body, labels, assignees（login）, fields, comments（{ author, body }）, parent, lastClose }
 // parent を渡すと issue をその子にし、親の優先度は parent.fields から読む。
 export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel, "規模S"], updates = [] }) {
-  const blank = { state: "OPEN", body: "本文", labels: [], assignees: [], fields: {}, comments: [], lastClose: [], statusAt: "2026-10-03T00:00:00Z" };
+  const blank = { state: "OPEN", body: "本文", labels: [], assignees: [], fields: {}, comments: [], lastClose: [] };
   const s = { issue: { ...blank, ...issue }, parent: parent && { ...blank, ...parent }, writes: [], updates };
   const node = (i) => ({
     id: i === s.parent ? "I_P" : "I_1", number: i.number, title: "題名", body: i.body, url: `https://github.com/${config.repository}/issues/${i.number}`, state: i.state,
@@ -18,7 +18,7 @@ export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel
     lastClose: { nodes: i.lastClose }, repository: { nameWithOwner: config.repository },
     comments: { nodes: i.comments.map((c, k) => ({ author: { login: c.author }, createdAt: "2026-10-04T00:00:00Z", url: `c${k}`, body: c.body, bodyHTML: `<p>描いた: ${c.body}</p>` })) },
     projectItems: { nodes: [{ id: "PVTI", project: { id: "PVT" }, fieldValues: { nodes: [
-      { name: i.status, updatedAt: i.statusAt, field: { name: config.project.statusField } },
+      { name: i.status, field: { name: config.project.statusField } },
       ...Object.entries(i.fields).map(([name, v]) => (name === config.project.startField ? { date: v, field: { name } } : { name: v, field: { name } }))] } }] },
   });
   const apply = (name, input, as) => {
@@ -26,7 +26,7 @@ export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel
     const i = input.id === "I_P" ? s.parent : s.issue;
     if (name === "updateProjectV2ItemFieldValue") {
       const v = input.value.singleSelectOptionId ?? input.value.date;
-      if (input.fieldId === "F") Object.assign(i, { status: v.slice(2), statusAt: new Date(Date.parse(i.statusAt) + 1000).toISOString() });
+      if (input.fieldId === "F") i.status = v.slice(2);
       else i.fields = { ...i.fields, [input.fieldId]: v.includes(":") ? v.split(":")[1] : v };
     }
     if (name === "clearProjectV2ItemFieldValue") delete i.fields[input.fieldId];
@@ -64,12 +64,6 @@ export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel
     if (path.endsWith("/access_tokens")) return json({ token: "app-token", expires_at: "2099-01-01T00:00:00Z" });
     if (path === "/graphql") return json(graphql(body, as));
     if (path === "/markdown") return new Response(`<p>描いた: ${body.text}</p>`);
-    const comments = `/repos/${config.repository}/issues/${s.issue.number}/comments`;
-    const ids = () => s.issue.comments.map((c, k) => ({ id: k + 1, body: c.body, html_url: `c${k}` })).filter((c) => s.issue.comments[c.id - 1].body !== null);
-    if (path === comments && init.method === "POST") return (apply("addComment", { subjectId: "I_1", body: body.body }, as), json(ids().at(-1), 201));
-    if (path === comments) return json(ids());
-    const gone = /\/issues\/comments\/(\d+)$/.exec(path);
-    if (gone && init.method === "DELETE") return (s.issue.comments[gone[1] - 1].body = null, new Response(null, { status: 204 }));
     throw new Error(`テストの GitHub が知らない呼び出し: ${init.method} ${path}`);
   };
   return s;

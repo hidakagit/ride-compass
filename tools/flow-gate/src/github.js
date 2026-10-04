@@ -64,7 +64,7 @@ const TASK = `fragment Task on Issue { id number title body url state author { .
   lastClose: timelineItems(last: 1, itemTypes: [CLOSED_EVENT]) { nodes { ... on ClosedEvent { stateReason } } }
   comments(last: $c) { nodes { author { login } createdAt url body bodyHTML } }
   projectItems(first: 10) { nodes { id project { id } fieldValues(first: 30) { nodes {
-    ... on ProjectV2ItemFieldSingleSelectValue { name updatedAt field { ... on ProjectV2SingleSelectField { name } } }
+    ... on ProjectV2ItemFieldSingleSelectValue { name field { ... on ProjectV2SingleSelectField { name } } }
     ... on ProjectV2ItemFieldDateValue { date field { ... on ProjectV2Field { name } } } } } } }
   repository { nameWithOwner } }`;
 const COMMON = `organization(login: $po) { projectV2(number: $pn) { id fields(first: 50) { nodes {
@@ -73,7 +73,7 @@ const COMMON = `organization(login: $po) { projectV2(number: $pn) { id fields(fi
 
 // タスクを1回の問い合わせで読む。ref は { number } か { nodeId }。comments は新しいコメントを何件読むか。
 // project.fields は欄の名前 → { id, options（単一選択の名前 → id）か date: true }。issue.fields は欄の名前 → 今の値。
-// issue.statusAt は Status の値を最後に書いた時刻（引き受けの回を見分ける）。置き場の issue でなければ issue は null。
+// 置き場の issue でなければ issue は null。
 export async function readTask(gh, config, ref, { comments = 1 } = {}) {
   const [o, n] = config.repository.split("/");
   const head = "$po: String!, $pn: Int!, $o: String!, $n: String!, $c: Int!";
@@ -93,8 +93,7 @@ export async function readTask(gh, config, ref, { comments = 1 } = {}) {
   const item = issue.projectItems.nodes.find((i) => i.project.id === p.id);
   const set = (item?.fieldValues.nodes ?? []).filter((x) => x.field);
   const fields = Object.fromEntries(set.map((x) => [x.field.name, x.name ?? x.date]));
-  const statusAt = set.find((x) => x.field.name === config.project.statusField)?.updatedAt ?? null;
-  return { project, labels, issue: { ...issue, item: item?.id ?? null, status: fields[config.project.statusField] ?? null, statusAt, fields } };
+  return { project, labels, issue: { ...issue, item: item?.id ?? null, status: fields[config.project.statusField] ?? null, fields } };
 }
 
 // Project の欄を名前で書く1件。単一選択は選択肢の名前、日付は YYYY-MM-DD（消すなら null）。
