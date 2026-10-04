@@ -35,9 +35,11 @@ from app.infrastructure.source_models import (
 )
 from app.domain.traffic import (
     INTERSECTION_DEGREE_THRESHOLD,
+    PLACE_SHARE_PER_END,
     POI_CLUSTER_EPS_M,
     POI_COUNT_KINDS,
     count_kind_sql,
+    place_count_sql,
     poi_count_column,
 )
 
@@ -75,8 +77,8 @@ JOIN road_edges e ON e.osm_way_id = w.osm_way_id AND ST_Intersects(e.geom, s.geo
 _STOP_COLUMNS = {kind: poi_count_column(kind) for kind in POI_COUNT_KINDS}
 
 #: まとまりが占める場所の内側のノードは、点が乗るノードと、点を途中に持つ区間が2本以上集まる
-#: ノード。区間の値は内側の端の数で決まる（0本なら通り抜けるので1、1本なら0.5、2本なら場所の
-#: 中なので0）。内側の端を持たない区間は、点を途中に持つときだけ数える。
+#: ノード。区間の値は内側の端の数で決まる（`place_count_sql`）。内側の端を持たない区間は、点を
+#: 途中に持つときだけ数える。
 _EDGE_STOP_COUNTS = f"""
 WITH ends AS (
     SELECT osm_way_id, segment_index, from_node_id AS node_id FROM road_edges
@@ -101,7 +103,7 @@ bounded AS (
 ),
 counted AS (
     SELECT count_kind, osm_way_id, segment_index,
-           CASE coalesce(b.inside_ends, 0) WHEN 0 THEN 1.0 WHEN 1 THEN 0.5 ELSE 0 END AS n
+           {place_count_sql("coalesce(b.inside_ends, 0)")} AS n
     FROM through t
     FULL JOIN bounded b USING (count_kind, cluster_id, osm_way_id, segment_index)
 )
@@ -121,8 +123,8 @@ WHERE p.osm_way_id = m.osm_way_id AND p.segment_index = m.segment_index
 _EDGE_RESET = reset_columns_sql(
     "edge_materials", {c: "0" for c in ("accident_count", *_STOP_COLUMNS.values())})
 
-#: 交差点のノードも前後の区間が0.5ずつ持つ（経路上で1回になる）。
-_EDGE_INTERSECTIONS = """
+#: 交差点のノードも、停止要因の場所と同じく端を持つ区間が分け持つ（経路上で1回になる）。
+_EDGE_INTERSECTIONS = f"""
 WITH ends AS (
     SELECT osm_way_id, segment_index, from_node_id AS node_id FROM road_edges
     UNION ALL
@@ -131,7 +133,7 @@ WITH ends AS (
 UPDATE edge_materials m SET intersection_count = c.n
 FROM (
     SELECT e.osm_way_id, e.segment_index,
-           count(*) FILTER (WHERE nm.branch_count >= $1) * 0.5 AS n
+           count(*) FILTER (WHERE nm.branch_count >= $1) * {PLACE_SHARE_PER_END} AS n
     FROM ends e JOIN node_materials nm ON nm.osm_node_id = e.node_id
     GROUP BY e.osm_way_id, e.segment_index
 ) c

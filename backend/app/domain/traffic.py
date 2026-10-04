@@ -200,6 +200,18 @@ def stop_count_material_ids() -> tuple[str, ...]:
 # 上回る。集計時にこの距離でまとめてから数える。
 POI_CLUSTER_EPS_M = 40.0
 
+#: 道路網の上の1つの場所（停止要因のまとまり・交差点）を、そこに端を持つ区間1本が持つ割合。
+#: 場所へ入る区間と出る区間が半分ずつ持つので、経路がどう通っても合計1回になる。
+PLACE_SHARE_PER_END = 0.5
+
+
+def place_count_sql(inside_ends: str) -> str:
+    """場所の内側に端を`inside_ends`本持つ区間が、その場所を数える回数のSQL式。
+
+    0本なら場所を通り抜けるので1、1本なら入るか出るかなので`PLACE_SHARE_PER_END`、2本なら場所の中なので0。
+    """
+    return f"CASE {inside_ends} WHEN 0 THEN 1.0 WHEN 1 THEN {PLACE_SHARE_PER_END} ELSE 0 END"
+
 
 SupplyPoiKind = Literal[
     "convenience", "vending_drinks", "vending_unknown", "toilets", "drinking_water", "bicycle_parking"
@@ -309,9 +321,12 @@ TRAFFIC_SIGNAL_SQL = (
     "     AND position('signals' in coalesce(tags->>'crossing', '')) > 0))"
 )
 
+#: 道の形の向き（始点→終点）と逆にだけ通れる道の通行方向。
+DIRECTION_BACKWARD = "backward"
+
 _ONEWAY_DIRECTIONS: dict[str, str] = {
     **{value: "forward" for value in sorted(ONEWAY_FORWARD_ONLY)},
-    **{value: "backward" for value in sorted(ONEWAY_BACKWARD_ONLY)},
+    **{value: DIRECTION_BACKWARD for value in sorted(ONEWAY_BACKWARD_ONLY)},
     **{value: "both" for value in sorted(ONEWAY_BIDIRECTIONAL)},
 }
 
@@ -340,6 +355,11 @@ DIRECTIONS: frozenset[str] = frozenset(
 
 def _quote(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
+
+
+def one_way_sql(direction: str) -> str:
+    """通行方向の式`direction`の道が、片方向にだけ通れるかのSQL式。"""
+    return f"{direction} <> {_quote(DIRECTION_DEFAULT)}"
 
 
 #: 信号の読み替え。近くに信号がある（`has_traffic_signals`）これらの種別の点は、利用者から
