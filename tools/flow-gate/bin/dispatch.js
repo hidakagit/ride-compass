@@ -1,5 +1,5 @@
 // 振り出しの見回りの1周（繰り返しは .github/workflows/claude-dispatch.yml が、1周ごとに master の今の道具で打つ）。種類ごとの枠まで
-// 担当のワークフローを起こし、全体の様子を Project の状況の更新に書く。何か所から同時に起きても、担当の引き受けが二重の作業を止める。
+// 担当のワークフローを起こし、全体の様子を Project の状況の更新に書く。同じタスクの担当は、担当のワークフローのグループで1本ずつ動く。
 // 見回りのワークフローが無効なら振り出さずに書き、終わりの値 3 で終える。後始末が置いた止める時刻が先なら振り出さない。
 import { expected, pick, putStatus, readTasks, ready, runOf, summary } from "../src/dispatch.js";
 import { args, bot, code, config } from "./cli.js";
