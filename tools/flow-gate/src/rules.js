@@ -11,8 +11,11 @@ export const today = (now = new Date()) => new Intl.DateTimeFormat("en-CA", { ti
 export const waitsUntil = (date, now = new Date()) => (date && date > today(now) ? date : null);
 
 // 本文の先頭の、ゲートの印の間（回答待ちの間だけ、回答フォームへのボタンを置く）。印の間だけを足し替える。
-const BLOCK = /^<!-- flow-gate -->\n[\s\S]*?<!-- \/flow-gate -->\n*/;
+const BLOCK = /^<!-- flow-gate -->\n([\s\S]*?)<!-- \/flow-gate -->\n*/;
+const BUTTON = /^\[!\[回答する\]\([^)]*\)\]\([^)]*\)$/;
 export const bodyRest = (body) => normalize(body).replace(BLOCK, "");
+// 印の間のうち、ゲートが書かない行（ボタンでない行）。印の間を足し替えると消えるので、ゲートが拾って印の外へ出す。
+export const strayInBlock = (body) => (BLOCK.exec(normalize(body))?.[1] ?? "").split("\n").filter((l) => l.trim() && !BUTTON.test(l.trim())).join("\n");
 export const withButton = (rest, url, image) => `<!-- flow-gate -->\n[![回答する](${image})](${url})\n<!-- /flow-gate -->\n\n${rest}`;
 
 // 完了の条件のうちチェックの無いもの（本文のチェックは完了の条件にだけ使う）と、それを全部チェックした本文。
