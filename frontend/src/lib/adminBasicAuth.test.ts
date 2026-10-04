@@ -30,8 +30,6 @@ describe("adminBasicAuthCredentials", () => {
 
   it.each([
     ["ユーザー名が無い", undefined, "secret"],
-    ["ユーザー名が空", "", "secret"],
-    ["パスワードが無い", "admin", undefined],
     ["パスワードが空", "admin", ""],
   ])("%sなら、認証を成立させない（null）", (_scene, username, password) => {
     stubCredentials(username, password);

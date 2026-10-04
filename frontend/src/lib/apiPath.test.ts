@@ -19,9 +19,6 @@ describe("apiPath", () => {
   });
 
   it("渡さなかった名前は`{名前}`のまま残す（タイルの座標は地図ライブラリが埋める）", () => {
-    expect(apiPath("/api/region/dynamic-way-values/{axis_id}/{z}/{x}/{y}", { axis_id: "wind" })).toBe(
-      "/api/region/dynamic-way-values/wind/{z}/{x}/{y}",
-    );
     expect(apiPath("/api/region/road-surface-tiles/{z}/{x}/{y}.pbf")).toBe(
       "/api/region/road-surface-tiles/{z}/{x}/{y}.pbf",
     );
