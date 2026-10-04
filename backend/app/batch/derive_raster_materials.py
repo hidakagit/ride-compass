@@ -32,15 +32,14 @@ from app.domain.landcover import (
     landcover_key,
 )
 from app.domain.region import tile_position_sql
-from app.domain.material_sql import BRIDGE_NORMALIZED_SQL, TUNNEL_NORMALIZED_SQL
+from app.domain.material_sql import IS_BRIDGE_SQL, IS_TUNNEL_SQL
 from app.infrastructure.source_models import DEM_TILES_SQL, LANDCOVER_TILES_SQL, WAYS_SOURCE_SQL
 
 logger = logging.getLogger("ridecompass.derive_raster_materials")
 
 _EDGE_SHAPES = f"""
 SELECT e.osm_way_id, e.segment_index, e.geom,
-       (coalesce({TUNNEL_NORMALIZED_SQL}, '') NOT IN ('', 'no')
-        OR coalesce({BRIDGE_NORMALIZED_SQL}, '') NOT IN ('', 'no')) AS on_structure
+       ({IS_TUNNEL_SQL} OR {IS_BRIDGE_SQL}) AS on_structure
 FROM road_edges e JOIN {WAYS_SOURCE_SQL} w ON w.osm_way_id = e.osm_way_id
 """
 

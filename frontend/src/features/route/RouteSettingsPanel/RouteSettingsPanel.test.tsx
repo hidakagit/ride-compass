@@ -23,6 +23,7 @@ import { WEIGHT_STEP } from "@/features/route/routeWeightShare";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
 import { inTurn, onBackend } from "@/testing/backendServer";
 import { catalogEntry, catalogOf, catalogResponse, serveAxisCatalog } from "@/testing/catalogAxes";
+import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import type { RoutePreferenceWeights } from "@/types/route";
 
 import RouteSettingsPanel from "./RouteSettingsPanel";
@@ -236,6 +237,18 @@ describe("RouteSettingsPanel 軸のチップ", () => {
 });
 
 describe("RouteSettingsPanel 配分の帯", () => {
+  it("帯の(i)の奥に、1つの軸へ置ける重みの上限を書く", async () => {
+    serveCatalog();
+    renderPanel({ width: 0.5, traffic: 0.3, slope: 0.2, light: 0 });
+    await chipsShown();
+
+    await userEvent.click(screen.getByRole("button", { name: "重みの配分の説明を表示" }));
+
+    expect(
+      await screen.findByText(new RegExp(`${Math.round(routeGenerateConfig.max_axis_weight * 100)}%まで`)),
+    ).toBeInTheDocument();
+  });
+
   it("有効な軸ごとに、取り分の幅の区間を軸の色で並べる", async () => {
     serveCatalog();
     renderPanel({ width: 0.5, traffic: 0, slope: 0.3, light: 0.2 });

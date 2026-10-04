@@ -355,7 +355,7 @@ export function buildMapLayers({
       icon: SupplyPoiIcon,
       chipLabel: "補給休憩",
       description: `${pointKindList("supply_poi")}の位置を種別ごとに色分け表示`,
-      // 鮮度の差の根拠は`backend/scripts/measure_poi_freshness.py`（OSMの最終編集日時）で測る。
+      // 種別ごとの鮮度の差を書く根拠は docs/modules/frontend/static-map-layers.md「点で示すもの」。
       panelHint:
         `${pointKindList("supply_poi")}の位置です。自販機は飲み物が買えると分かって` +
         "いるものだけを「飲料自販機」として出し、売っているものが分からないものは薄い色の" +

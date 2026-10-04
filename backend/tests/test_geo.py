@@ -1,7 +1,7 @@
 """`domain/geo.py`——球面の距離・方位・方位の呼び名と、多数の地点それぞれの最寄りの点。
 
 入口は`km_per_degree_longitude`・`compass_label`・`bearing_between`（と配列版）・`haversine_distance_km`（と配列版）・
-`nearest_point_indices`・`nearest_point_index`。距離の性質（同じ点で0・三角不等式）と最寄りが本当に最も近いことは
+`nearest_point_indices`・`nearest_point_index`。距離の性質（同じ点で0・三角不等式）・方位が別の道で求めた向きと合うこと・最寄りが本当に最も近いことは
 hypothesisで任意の地点について確かめ、絶対値は公開の事実（子午線の4分の1はおよそ1万km）と突き合わせる。
 
 ここで見ないもの:
@@ -13,7 +13,7 @@ from typing import NamedTuple
 
 import numpy as np
 import pytest
-from hypothesis import given
+from hypothesis import example, given
 from hypothesis import strategies as st
 
 from app.domain import geo
@@ -79,33 +79,37 @@ def test_every_sixteen_point_name_is_different():
 # --- bearing_between ---
 
 
-@pytest.mark.parametrize(
-    ("destination", "bearing"),
-    [
-        (Point(1.0, 0.0), 0.0),
-        (Point(0.0, 1.0), 90.0),
-        (Point(-1.0, 0.0), 180.0),
-        (Point(0.0, -1.0), 270.0),
-    ],
-)
-def test_bearing_between_measures_clockwise_from_north(destination, bearing):
-    assert geo.bearing_between(Point(0.0, 0.0), destination) == pytest.approx(bearing)
+def tangent_plane_direction(origin: Point, destination: Point) -> tuple[float, float]:
+    """方位を球面三角法の式とは別の道で求める: 目的地の位置ベクトルを、出発地で地面に接する平面の北向き・東向きの
+    単位ベクトルへ射影した成分（北, 東）。長さは2点の中心角の正弦で、向きが定まらない出発地・対蹠点の近くでは0へ縮む。"""
+    lat, lon = np.radians(origin.latitude), np.radians(origin.longitude)
+    north = np.array([-np.sin(lat) * np.cos(lon), -np.sin(lat) * np.sin(lon), np.cos(lat)])
+    east = np.array([-np.sin(lon), np.cos(lon), 0.0])
+    to_lat, to_lon = np.radians(destination.latitude), np.radians(destination.longitude)
+    target = np.array([np.cos(to_lat) * np.cos(to_lon), np.cos(to_lat) * np.sin(to_lon), np.sin(to_lat)])
+    return float(target @ north), float(target @ east)
+
+
+@given(origin=points, destinations=st.lists(points, min_size=1, max_size=10))
+# 斜めの向きと緯度の違う2点（東西南北だけでは、式の掛け算を割り算にしても、引き算を足し算にしても答えが変わらない）。
+@example(origin=Point(35.0, 139.0), destinations=[Point(36.0, 140.0), Point(34.0, 138.0), Point(35.0, 149.0)])
+def test_the_bearing_agrees_with_the_direction_on_the_tangent_plane(origin, destinations):
+    """向かい風・追い風の分け方は、走る向きの方位で決まる。斜めの向き・緯度の違う2点でも、北から時計回りの角度が
+    別の道で求めた向きと合う（向きの定まらない2点は、比べる成分がどちらも0へ縮むので外さずに比べる）。"""
+    bearings = geo.bearing_between_array(
+        origin, np.array([p.latitude for p in destinations]), np.array([p.longitude for p in destinations])
+    )
+
+    assert bearings.shape == (len(destinations),)
+    for destination, bearing in zip(destinations, bearings, strict=True):
+        toward_north, toward_east = tangent_plane_direction(origin, destination)
+        length = np.hypot(toward_north, toward_east)
+        angle = np.radians(bearing)
+        assert (length * np.cos(angle), length * np.sin(angle)) == pytest.approx((toward_north, toward_east), abs=1e-9)
 
 
 def test_bearing_between_the_same_point_is_north():
     assert geo.bearing_between(Point(35.0, 139.0), Point(35.0, 139.0)) == 0.0
-
-
-def test_the_initial_bearing_along_a_great_circle_leans_toward_the_pole():
-    """同じ緯度の真東の地点へ向かう大円は、北半球では真東より北へ傾いて出る（平面の方位とは違う）。"""
-    assert geo.bearing_between(Point(35.0, 139.0), Point(35.0, 149.0)) < 90.0
-
-
-def test_bearing_between_array_answers_each_point_in_the_shape_given():
-    bearings = geo.bearing_between_array(Point(0.0, 0.0), np.array([1.0, 0.0, -1.0, 0.0]), np.array([0.0, 1.0, 0.0, -1.0]))
-
-    np.testing.assert_allclose(bearings, [0.0, 90.0, 180.0, 270.0], atol=1e-9)
-
 
 
 # --- haversine_distance_km ---
@@ -174,6 +178,12 @@ dense_locations = st.builds(
 
 
 @given(locations=st.lists(dense_locations, min_size=1, max_size=200), candidates=st.lists(dense_locations, min_size=1, max_size=30))
+# 地点が格子（35.00〜35.01度・139.00〜139.01度）の北東の角にあり、最寄りの点が角の外に、格子の中心に最も近い点が
+# 南西にある。格子ごとの候補の余白が格子の1辺では最寄りを落とし、2辺で拾う。
+@example(locations=[Point(35.0099, 139.0099)], candidates=[Point(35.004, 139.004), Point(35.0135, 139.0145)])
+# 地点が格子の東の端にあり、最寄りの点が東の隣の格子のさらに外に、遠い点が西の隣の格子の中心にある（候補の余白を
+# 地点の格子の中心から測らないと最寄りを落とす）。
+@example(locations=[Point(35.005, 139.0099)], candidates=[Point(35.005, 138.995), Point(35.005, 139.021)])
 def test_each_location_gets_the_nearest_point_where_points_are_dense(locations, candidates):
     indices = nearest(locations, candidates)
 
