@@ -1,6 +1,9 @@
 """`scripts/review_checks.py`の差分の報告（`change`）と総量（`metrics`）のテスト。
 
 履歴は一時的なgitリポジトリで作る。
+
+ここで見ないもの: `docs`はCI（Docs Consistency）が本物のリポジトリへ毎回流す。`size`・`trigger`は周期レビューで
+人が読む出力で、ここでは通さない。
 """
 
 import argparse

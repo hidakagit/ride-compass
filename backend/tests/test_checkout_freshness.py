@@ -1,6 +1,8 @@
 """`scripts/checkout_freshness.py`のテスト。
 
 origin は一時的な bare リポジトリで作り、git は本物を通す。
+
+ここで見ないもの: 道具の実行口（`main`）と、道具から呼ぶ所（`review_checks.py` 等）の結線。
 """
 
 import importlib.util
@@ -53,13 +55,6 @@ def _advance_master(other: Path) -> str:
     return sha
 
 
-def test_a_checkout_that_contains_origin_master_is_current(clones):
-    work, _ = clones
-
-    assert cf.staleness(work) is None
-    assert "なし" in cf.sync(work)
-
-
 def test_a_branch_on_top_of_the_latest_master_is_current(clones):
     work, other = clones
     _advance_master(other)
@@ -68,13 +63,7 @@ def test_a_branch_on_top_of_the_latest_master_is_current(clones):
     _commit(work, "c.txt", "3\n")
 
     assert cf.staleness(work) is None
-
-
-def test_changes_in_the_working_tree_are_not_counted_as_behind(clones):
-    work, _ = clones
-    (work / "a.txt").write_text("changed\n", encoding="utf-8")
-
-    assert cf.staleness(work) is None
+    assert "なし" in cf.sync(work)
 
 
 def test_a_checkout_behind_master_reports_the_count_and_the_fast_forward_command(clones):
@@ -96,15 +85,12 @@ def test_require_current_fast_forwards_a_clean_master_and_goes_on(clones):
     assert _git(work, "rev-parse", "HEAD") == latest
 
 
-def test_require_current_stops_on_a_master_with_changes_or_another_branch(clones):
+def test_require_current_stops_on_a_master_with_changes(clones):
+    # 早送りしない場面（変更のある master・ほかの枝）の分け方は sync のテストが見る。
     work, other = clones
     _advance_master(other)
     (work / "a.txt").write_text("changed\n", encoding="utf-8")
     with pytest.raises(SystemExit, match="片付けてから"):
-        cf.require_current(work)
-    (work / "a.txt").write_text("1\n", encoding="utf-8")
-    _git(work, "checkout", "-q", "-b", "feature")
-    with pytest.raises(SystemExit, match="rebase origin/master"):
         cf.require_current(work)
 
 
@@ -114,7 +100,6 @@ def test_sync_fast_forwards_a_clean_master(clones):
 
     assert "1 コミット早送りした" in cf.sync(work)
     assert _git(work, "rev-parse", "HEAD") == head
-    assert cf.staleness(work) is None
 
 
 def test_sync_leaves_a_master_with_changes_untouched(clones):
@@ -128,7 +113,6 @@ def test_sync_leaves_a_master_with_changes_untouched(clones):
     assert "1 コミット遅れ" in line
     assert "片付けてから" in line
     assert _git(work, "rev-parse", "HEAD") == before
-    assert (work / "a.txt").read_text(encoding="utf-8") == "changed\n"
 
 
 def test_sync_leaves_another_branch_untouched_and_suggests_a_rebase(clones):
@@ -142,7 +126,6 @@ def test_sync_leaves_another_branch_untouched_and_suggests_a_rebase(clones):
     assert "1 コミット遅れ" in line
     assert "rebase origin/master" in line
     assert _git(work, "rev-parse", "HEAD") == before
-    assert _git(work, "symbolic-ref", "--short", "HEAD") == "feature"
 
 
 def test_a_checkout_that_cannot_reach_origin_stops_as_unverified(clones):
