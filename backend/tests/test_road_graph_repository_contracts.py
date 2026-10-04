@@ -309,13 +309,6 @@ async def test_unknown_way_has_neither_materials_nor_tags():
     assert await repo.get_way_tags_by_osm_way_id(123) is None
 
 
-async def test_way_without_tags_reads_as_an_empty_mapping():
-    """タグの無い道でも、読む側は辞書として引ける（Noneを配ると呼び出し側が落ちる）。"""
-    repo, _ = _repo([_Row(highway=None, tags=None, surface=None)])
-
-    assert await repo.get_way_tags_by_osm_way_id(123) == (None, {}, None)
-
-
 async def test_a_range_replaces_the_sampling():
     """`TABLESAMPLE`は表全体のページから抽選するため、狭い範囲と重ねると標本が数本へ落ちる。"""
     repo, session = _repo([], [])
@@ -330,10 +323,9 @@ async def test_a_range_replaces_the_sampling():
     assert session.params[1]["xmin"] == BBOX.min_longitude
 
 
-@pytest.mark.parametrize("length_m", [None, 0.0])
-async def test_sampled_way_without_length_is_dropped(length_m):
+async def test_sampled_way_without_length_is_dropped():
     """延長は分布の重み。0を混ぜると、その材料の値が重みなしで平均へ入る。"""
-    repo, _ = _repo([_Row(length_m=length_m, m_material_a=1.0),
+    repo, _ = _repo([_Row(length_m=0.0, m_material_a=1.0),
                      _Row(length_m=10.0, m_material_a=2.0)])
 
     samples = await repo.sample_way_material_values(1, SAMPLE_PERCENT, SAMPLE_LIMIT, None)

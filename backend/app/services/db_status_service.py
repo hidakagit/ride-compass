@@ -55,11 +55,11 @@ class ImportRunEntry(StrictModel):
     ここが失敗したままだと鮮度の判定そのものが古い基準の上で行われる。"""
 
     label: str
-    #: 最新のrun。記録が1件も無ければNone。
-    latest: LatestRunEntry | None
+    #: 最新のrun。
+    latest: LatestRunEntry
     #: 成功した最新のrun。成功が1件も無ければNone。
     latest_succeeded: SucceededRunEntry | None
-    #: 最新runが成功していない（失敗したまま、または記録が1件も無い）。
+    #: 最新runが成功していない。
     needs_attention: bool
     note: str
 
@@ -98,15 +98,6 @@ class DbStatusReport(StrictModel):
 
 
 def _import_entry(counts) -> ImportRunEntry:
-    # 状態は最新のrunの行が持つので、行が在れば在る。
-    if counts.latest_id is None or counts.latest_status is None:
-        return ImportRunEntry(
-            label=counts.label,
-            latest=None,
-            latest_succeeded=None,
-            needs_attention=True,
-            note="取込の記録が1件も無い。派生データの世代比較はこの記録を基準にするため、基準そのものが無い",
-        )
     failed = counts.latest_status != SourceRunStatus.SUCCEEDED
     note = ""
     if failed:

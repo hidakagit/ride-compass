@@ -923,7 +923,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="intersection_per_km",
         primary_attribute=_ATTR_INTERSECTION,
         reference_points=_INTERSECTION_COUNT_PER_KM_REFERENCE_POINTS,
-        value_sql="CASE WHEN re.distance_m > 0 THEN em.intersection_count / (re.distance_m / 1000.0) END",
+        value_sql="em.intersection_count / (re.distance_m / 1000.0)",
         coverage=EdgeMaterialCoverageSpec(
                 present_condition=_EDGE_COUNTS_PRESENT_CONDITION,
                 source=_EDGE_COUNTS_SOURCE,
@@ -942,7 +942,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property_runtime_scale="per_accident_year",
         primary_attribute=_ATTR_ACCIDENT_POINT,
         reference_points=_ACCIDENT_COUNT_PER_KM_YEAR_REFERENCE_POINTS,
-        value_sql="CASE WHEN re.distance_m > 0 AND :accident_years > 0 "
+        value_sql="CASE WHEN :accident_years > 0 "
         "THEN em.accident_count / (re.distance_m / 1000.0) / :accident_years END",
         coverage=EdgeMaterialCoverageSpec(
                 present_condition=_EDGE_COUNTS_PRESENT_CONDITION,

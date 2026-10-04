@@ -120,8 +120,7 @@ def cycleway_has_value_sql(*values: str) -> str:
 def poi_density_value_sql(kind: str) -> str:
     """停止要因POIの種別別密度。列がNULLなら未計算＝欠損。"""
     column = f"em.{poi_count_column(kind)}"
-    return (f"CASE WHEN {column} IS NOT NULL AND re.distance_m > 0 "
-            f"THEN {column} / (re.distance_m / 1000.0) END")
+    return f"{column} / (re.distance_m / 1000.0)"
 
 
 def landcover_value_sql(key: str) -> str:

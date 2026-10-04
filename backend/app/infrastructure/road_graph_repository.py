@@ -182,7 +182,7 @@ def _density_column_sql(column: str, precision: int) -> str:
     return f"""
                         NULLIF(round((CASE
                             WHEN src.segment_index IS NOT NULL
-                            THEN em.{column} * 1000.0 / NULLIF(src.length_m, 0)
+                            THEN em.{column} * 1000.0 / src.length_m
                             ELSE wm.{column} * 1000.0 / NULLIF(ST_Length(w.geom::geography), 0)
                         END)::numeric, {precision}), 0)::double precision"""
 
@@ -346,7 +346,7 @@ _FEATURE_GRADIENT_INPUTS_IN_TILE_SQL = text(
                     round((sum(em.average_grade
                                * sign(cos(radians(re.bearing_deg) - ref.azimuth))
                                * re.distance_m)
-                           / nullif(sum(re.distance_m), 0))::numeric, 2)::double precision
+                           / sum(re.distance_m))::numeric, 2)::double precision
                         AS average_grade,
                     degrees(ref.azimuth) AS bearing_deg
                 FROM ({_TILE_FEATURE_SOURCE_SQL}) src
@@ -362,7 +362,6 @@ _FEATURE_GRADIENT_INPUTS_IN_TILE_SQL = text(
                 JOIN edge_materials em
                   ON em.osm_way_id = re.osm_way_id AND em.segment_index = re.segment_index
                 WHERE em.average_grade IS NOT NULL
-                  AND re.bearing_deg IS NOT NULL
                   AND ref.azimuth IS NOT NULL
                 GROUP BY src.feature_key, ref.azimuth
             ) t
@@ -600,8 +599,7 @@ ORDER BY re.osm_way_id, re.segment_index
 #: 座標はノードの生データから読み、生データが無いノードは現れない。
 _NETWORK_NODES_SQL = text(f"""
 SELECT nm.osm_node_id, ST_X(n.geom) AS longitude, ST_Y(n.geom) AS latitude,
-       COALESCE(nm.has_traffic_signals, false) AS has_traffic_signals,
-       COALESCE(nm.max_highway_rank, 0) AS max_highway_rank
+       nm.has_traffic_signals, nm.max_highway_rank
 FROM node_materials nm
 JOIN LATERAL {nodes_lookup_sql("nm.osm_node_id")} n ON true
 ORDER BY nm.osm_node_id
@@ -832,7 +830,7 @@ class RoadGraphRepository:
                           xmax=bbox.max_longitude, ymax=bbox.max_latitude)
         rows = await self._session.execute(statement, params)
         return [(float(row.length_m), _material_values_from_row(row))
-                for row in rows if row.length_m and row.length_m > 0]
+                for row in rows if row.length_m > 0]
 
     async def get_way_tags_by_osm_way_id(
         self, osm_way_id: int
@@ -849,7 +847,7 @@ class RoadGraphRepository:
         """), {"osm_way_id": str(osm_way_id)})).first()
         if row is None:
             return None
-        return (row.highway, row.tags or {}, row.surface)
+        return (row.highway, row.tags, row.surface)
 
     async def get_feature_landcover(
         self, osm_way_id: int, feature_key: str | None

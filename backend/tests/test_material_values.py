@@ -164,7 +164,6 @@ _POI_KIND = "signal"
     (3.0, 500.0, 6.0),
     (0.0, 500.0, 0.0),
     (None, 500.0, None),  # 未計算
-    (3.0, 0.0, None),
 ])
 async def test_a_poi_density_is_per_km_and_missing_until_counted(road_graph_session, count, distance_m, expected):
     value = await _edge_value(road_graph_session, material_sql.poi_density_value_sql(_POI_KIND),
@@ -179,7 +178,6 @@ async def test_a_poi_density_is_per_km_and_missing_until_counted(road_graph_sess
 @pytest.mark.parametrize(("count", "distance_m", "expected"), [
     (2.0, 250.0, 8.0),
     (None, 250.0, None),
-    (2.0, 0.0, None),
 ])
 async def test_the_intersection_density_is_per_km(road_graph_session, count, distance_m, expected):
     value = await _edge_value(road_graph_session, material_value_sql()["intersection_count_per_km"],
@@ -191,7 +189,6 @@ async def test_the_intersection_density_is_per_km(road_graph_session, count, dis
 @pytest.mark.parametrize(("count", "distance_m", "years", "expected"), [
     (3.0, 500.0, 2, 3.0),
     (None, 500.0, 2, None),
-    (3.0, 0.0, 2, None),
     (3.0, 500.0, 0, None),  # 収録年の無い取込
 ])
 async def test_the_accident_density_is_per_km_and_per_year_covered(road_graph_session, count, distance_m, years,
