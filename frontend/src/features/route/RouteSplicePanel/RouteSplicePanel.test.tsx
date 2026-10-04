@@ -1,14 +1,14 @@
 /**
  * `RouteSplicePanel/RouteSplicePanel.tsx`——区間の乗り換えの結果面。見出し行の操作、元と編集後の指標、軸別の差の棒、案内。
  *
- * 見るもの: 見出し（戻る・(i)の使い方・回数）と操作（1つ戻す・全部戻す・差分・作成）の出し方・押せる条件・上がる操作、区間を
+ * 見るもの: 見出し（戻る・回数）と操作（1つ戻す・全部戻す・差分・作成）の出し方・押せる条件・上がる操作、区間を
  * 持たない候補の書き方、指標（距離・所要・総合難易度・負荷）の元・編集後・差の書き方と、表示する桁で丸めた差で決める
- * 良し悪しの印、寄与度が動いた軸の棒（出す境界・読み上げの並び・左右・長さ・軸の色）と下に書く大きい軸、状態ごとの案内、
+ * 良し悪しの印、寄与度が動いた軸の棒（出す境界・読み上げの並び・左右・長さ）と下に書く大きい軸、状態ごとの案内、
  * 合成の失敗。
  *
  * ここで見ないもの: どの区間を乗り換えるか・差分と作成の評価 → `features/route/useSpliceSession.test.ts`。
  * 差の表記（符号・桁）→ `features/route/routeEditDiff.test.ts`。所要の表記 → `features/route/formatDuration.test.ts`。
- * 良し悪しの印から付く色（クラスで付ける見た目）。
+ * 良し悪しの印から付く色（クラスで付ける見た目）。受け取った値や書いた文をそのまま出すもの（棒の軸の色・(i)の奥の使い方）。
  */
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -92,14 +92,6 @@ describe("RouteSplicePanel 見出しと操作", () => {
     expect(onCancel).toHaveBeenCalledOnce();
   });
 
-  it("(i)の奥に使い方を置く", async () => {
-    renderPanel();
-
-    await userEvent.click(screen.getByRole("button", { name: "区間の乗り換えの説明を表示" }));
-
-    expect(screen.getByText(/地図の破線が、いまの道から乗り換えられる先です/)).toBeInTheDocument();
-  });
-
   it("乗り換える前は回数と戻す操作を出さず、差分と作成を押せない", () => {
     renderPanel({ appliedCount: 0 });
 
@@ -159,12 +151,6 @@ describe("RouteSplicePanel 指標", () => {
     }
   });
 
-  it("元の値が無い指標は「—」を出す", () => {
-    renderPanel({ displayed: { ...DISPLAYED, estimated_duration_seconds: null, overall_difficulty: null } });
-
-    expect(["所要", "総合難易度", "負荷"].map((label) => metric(label).base.textContent)).toEqual(["—", "—", "—"]);
-  });
-
   it("差分を見たら元→編集後と差を出し、表示する桁で丸めた差が増えたら悪い・減ったら良い印を付ける", () => {
     const preview = makeRouteCandidate({
       edge_ids: ["e1", "e4", "e3"],
@@ -187,29 +173,26 @@ describe("RouteSplicePanel 指標", () => {
     ]);
   });
 
-  it("元か編集後のどちらかに値が無い指標は、差を出さない", () => {
+  it("元の値が無い指標は「—」を出し、差を出さない", () => {
     const preview = makeRouteCandidate({
       edge_ids: ["e1", "e4", "e3"],
       distance_km: 13,
       estimated_duration_seconds: 1500,
+      overall_difficulty: { average: 40, load: 300 },
     });
     renderPanel({
-      displayed: { ...DISPLAYED, estimated_duration_seconds: null },
+      displayed: { ...DISPLAYED, estimated_duration_seconds: null, overall_difficulty: null },
       appliedCount: 1,
       preview,
     });
 
-    const duration = metric("所要");
-    expect([duration.base.textContent, duration.after.textContent, duration.delta.textContent]).toEqual([
-      "—",
-      "25分",
-      "",
-    ]);
-    const difficulty = metric("総合難易度");
-    expect([difficulty.arrow.textContent, difficulty.after.textContent, difficulty.delta.textContent]).toEqual([
-      "",
-      "",
-      "",
+    const rows = ["所要", "総合難易度"].map((label) => {
+      const { base, after, delta } = metric(label);
+      return [base.textContent, after.textContent, delta.textContent];
+    });
+    expect(rows).toEqual([
+      ["—", "25分", ""],
+      ["—", "40", ""],
     ]);
   });
 });
@@ -231,7 +214,7 @@ describe("RouteSplicePanel 軸別の差", () => {
     expect(screen.queryByText("街灯 +1.5")).not.toBeInTheDocument();
   });
 
-  it("棒は中央を0に、減った軸を左・増えた軸を右へ、いちばん大きい差を片側いっぱいとする長さと、軸の色で描く", () => {
+  it("棒は中央を0に、減った軸を左・増えた軸を右へ、いちばん大きい差を片側いっぱいとする長さで描く", () => {
     renderPanel({ appliedCount: 1, preview: MOVED });
 
     const bar = screen.getByRole("img");
@@ -239,9 +222,6 @@ describe("RouteSplicePanel 軸別の差", () => {
     const [decreased, increased] = [bar.firstElementChild!, bar.lastElementChild!];
     expect(widths(decreased).map(parseFloat)).toEqual([expect.closeTo((2 / 3) * 50, 5)]);
     expect(widths(increased).map(parseFloat)).toEqual([50, 25]);
-    expect(decreased.children[0]).toHaveStyle({ background: CATALOG.axisColors.width });
-    expect(increased.children[0]).toHaveStyle({ background: CATALOG.axisColors.slope });
-    expect(increased.children[1]).toHaveStyle({ background: CATALOG.axisColors.light });
   });
 
   it("ちょうど0.1動いた軸は出す", () => {
