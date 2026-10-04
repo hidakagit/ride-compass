@@ -1,14 +1,30 @@
+"""`infrastructure/axis_definition_repository.py`——評価軸の定義を表へ書き、読み戻す。
+
+入口は`AxisDefinitionRepository`の公開のメソッド。テスト用DBの本物の表へ書き、読み戻した定義を
+書いた定義と比べる。軸は架空のもの（`axis_a`等。材料の名前も架空）で、本番の軸定義には踏み込まない。
+
+ここで見ないもの:
+- 書く前の検証（材料の排他・公開済みの不変・循環）と、操作ごとの確定 → `test_axis_registry_service.py`
+- 定義そのものの値の検証（折れ点の並び・段のラベルの件数等） → `test_axis_definitions.py`
+"""
+
 import asyncio
 
 import pytest
+import pytest_asyncio
+from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domain.axis_definitions import AxisDefinition, CategoricalShape, PriorityCondition
+from app.domain.axis_definitions import (
+    AxisDefinition,
+    BreakpointLinearShape,
+    CategoricalShape,
+    MaterialTerm,
+    PriorityCondition,
+)
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
-from tests.axis_system_fixture import axis_definition
 
-# road_graph_session（conftest.py）はファイル単位でエンジン・イベントループを共有する設計
-# のため、docs/conventions/testing.mdのパターン2どおりloop_scope="module"・xdist_group="postgis"が必須。
 pytestmark = [
     pytest.mark.asyncio(loop_scope="module"),
     pytest.mark.xdist_group(name="postgis"),
@@ -16,243 +32,140 @@ pytestmark = [
 ]
 
 
-# 改善計画T469: create/update/delete/unpublish（AxisRegistryAdminService）のTOCTOUレース
-# 対策として新設したacquire_write_lockが、実際に別トランザクションをブロックすることを
-# 確認する（advisory lockがトランザクションスコープで正しく機能しているかの回帰テスト）。
-async def test_acquire_write_lock_blocks_until_holder_commits(road_graph_session, road_graph_engine):
-    repository = AxisDefinitionRepository(road_graph_session)
-    await repository.acquire_write_lock()  # road_graph_sessionが未commitのままロックを保持
-
-    async with AsyncSession(road_graph_engine, expire_on_commit=False) as other_session:
-        other_repository = AxisDefinitionRepository(other_session)
-        with pytest.raises(asyncio.TimeoutError):
-            await asyncio.wait_for(other_repository.acquire_write_lock(), timeout=0.5)
-        await other_session.rollback()
-
-    await repository.commit()  # ロック解放
-
-    # 解放後は別セッションからでも即座に取得できる。
-    async with AsyncSession(road_graph_engine, expire_on_commit=False) as third_session:
-        third_repository = AxisDefinitionRepository(third_session)
-        await asyncio.wait_for(third_repository.acquire_write_lock(), timeout=0.5)
-        await third_session.rollback()
-
-
-async def test_list_all_returns_empty_dict_when_no_rows(road_graph_session):
-    repository = AxisDefinitionRepository(road_graph_session)
-
-    assert await repository.list_all() == {}
-
-
-async def test_upsert_then_list_all_round_trips_shape_and_weight(road_graph_session):
-    repository = AxisDefinitionRepository(road_graph_session)
-    # 既定と違う値を持たせる。既定のままだと、書き込みで落ちたフィールドが読み戻しで既定へ戻り一致してしまう。
-    definition = axis_definition("test_axis", default_weight=0.1, label="軸A", description="説明", category="観測")
-
-    await repository.upsert(definition, sort_order=0)
-    await repository.commit()
-
-    result = await repository.list_all()
-    assert result == {"test_axis": definition}
-
-
-async def test_upsert_then_list_all_round_trips_categorical_bool_keys(road_graph_session):
-    # JSONBのキーは文字列で保存されるため、読み戻しで"true"/"false"が真偽へ戻らないと
-    # 真偽の材料の対応表が値の名前の表になり、その軸は全区間で欠損になる。
-    definition = AxisDefinition(
-        axis_id="bool_categorical_axis",
-        shape=CategoricalShape(material="lit", mapping={True: 0.0, False: 80.0}),
-        default_weight=0.1,
-        label="テスト軸[bool_categorical_axis]",
-        description="",
-        category="推定",
+def _linear(axis_id: str, **overrides) -> AxisDefinition:
+    return AxisDefinition(
+        axis_id=axis_id,
+        shape=BreakpointLinearShape(
+            terms=[MaterialTerm(material="num_a", weight=0.5), MaterialTerm(material="num_b", required=False)],
+            preprocess="abs",
+            breakpoints=[(0.0, 0.0), (10.0, 100.0)],
+        ),
+        default_weight=1.5,
+        label=f"{axis_id}の表示名",
+        **overrides,
     )
-    repository = AxisDefinitionRepository(road_graph_session)
-
-    await repository.upsert(definition, sort_order=0)
-    await repository.commit()
-
-    result = await repository.list_all()
-    loaded_shape = result["bool_categorical_axis"].shape
-    assert isinstance(loaded_shape, CategoricalShape)
-    assert loaded_shape.mapping == {True: 0.0, False: 80.0}
-    assert all(isinstance(key, bool) for key in loaded_shape.mapping)
 
 
-async def test_upsert_then_list_all_round_trips_categorical_str_keys(road_graph_session):
-    # 上と対称: 通常のstr多値categorical材料（highway等）は文字列キーのまま
-    # 正しく往復すること（bool優先判定の副作用で意図せずbool化されないことの確認）。
-    definition = AxisDefinition(
-        axis_id="str_categorical_axis",
-        shape=CategoricalShape(material="bicycle_infra", mapping={"separated": -2.0, "roadway": 1.0}),
-        default_weight=0.1,
-        label="テスト軸[str_categorical_axis]",
-        description="",
-        category="推定",
-    )
-    repository = AxisDefinitionRepository(road_graph_session)
-
-    await repository.upsert(definition, sort_order=0)
-    await repository.commit()
-
-    result = await repository.list_all()
-    loaded_shape = result["str_categorical_axis"].shape
-    assert isinstance(loaded_shape, CategoricalShape)
-    assert loaded_shape.mapping == {"separated": -2.0, "roadway": 1.0}
-    assert all(isinstance(key, str) for key in loaded_shape.mapping)
-
-
-async def test_upsert_then_list_all_round_trips_priority_overrides(road_graph_session):
-    # コードレビュー指摘の修正確認: priority_overrides（0次条件）がDB往復で
-    # 失われないこと（以前はカラム自体が無く、DB経由では常に空リストへ戻っていた）。
-    definition = axis_definition(
-        "priority_override_axis",
-        priority_overrides=[PriorityCondition(material="motor_vehicle_no", equals="true", value=0.0)],
-    )
-    repository = AxisDefinitionRepository(road_graph_session)
-
-    await repository.upsert(definition, sort_order=0)
-    await repository.commit()
-
-    result = await repository.list_all()
-    assert result["priority_override_axis"].priority_overrides == [
-        PriorityCondition(material="motor_vehicle_no", equals="true", value=0.0)
-    ]
-
-
-async def test_upsert_then_list_all_round_trips_display_fields(road_graph_session):
-    # 改善計画T310/T318回帰テスト: 地図チップ表示要素（icon_id/chip_label/panel_hint/
-    # show_map_icon）がDB往復で失われないこと（priority_overridesの0018回帰と同じ
-    # パターン、先回りしてテストを用意する）。show_map_iconは既定Trueとは違う値
-    # （False）を設定し、既定値と取り違えていないことを確認する。
-    definition = axis_definition(
-        "display_fields_axis",
-        icon_id="incline",
-        chip_label="テスト",
-        panel_hint="パネル向け説明文",
+def _with_every_field_set(axis_id: str) -> AxisDefinition:
+    """既定値から外した値をすべての欄に置いた定義（欄を1つ書き落とすと読み戻しで既定値に化ける）。"""
+    return AxisDefinition(
+        axis_id=axis_id,
+        shape=CategoricalShape(material="cat_a", mapping={"paved": 10.0, "yes": 20.0, "1": 30.0}),
+        default_weight=0.25,
+        label="全部の欄",
+        description="説明",
+        category="観測",
+        is_published=True,
+        priority_overrides=[PriorityCondition(material="bool_a", equals="true", value=5.0)],
+        icon_id="icon",
+        chip_label="チップ",
+        panel_hint="ヒント",
         show_map_icon=False,
+        time_scope="night_only",
+        display_thresholds_override=[10.0, 20.0],
+        display_band_labels_override=["低", "中", "高"],
+        dedicated_way_value_layer=True,
     )
-    repository = AxisDefinitionRepository(road_graph_session)
-
-    await repository.upsert(definition, sort_order=0)
-    await repository.commit()
-
-    result = await repository.list_all()
-    assert result == {"display_fields_axis": definition}
 
 
-async def test_upsert_then_list_all_round_trips_display_fields_when_unset(road_graph_session):
-    # icon_id/chip_label/panel_hintの未設定（None）は「フロント側の汎用フォールバックを
-    # 使う」の意味であり、priority_overridesの`[]`既定と違ってNoneのままdb往復する必要が
-    # ある。show_map_iconはこれらと違い常に確定した真偽値（既定True）を持つフィールドの
-    # ため、未設定でもTrueとして往復することを確認する（改善計画T318）。
-    definition = axis_definition("no_display_fields_axis")
-    repository = AxisDefinitionRepository(road_graph_session)
-
-    await repository.upsert(definition, sort_order=0)
-    await repository.commit()
-
-    result = await repository.list_all()
-    loaded = result["no_display_fields_axis"]
-    assert loaded.icon_id is None
-    assert loaded.chip_label is None
-    assert loaded.panel_hint is None
-    assert loaded.show_map_icon is True
+@pytest_asyncio.fixture(loop_scope="module")
+async def repository(road_graph_session: AsyncSession) -> AxisDefinitionRepository:
+    return AxisDefinitionRepository(road_graph_session)
 
 
-async def test_upsert_then_list_all_round_trips_every_flag_away_from_its_default(road_graph_session):
-    # 真偽のフィールドは、書き込みか読み戻しで落ちると既定値へ静かに戻り、既定のままの軸では
-    # 見分けがつかない。母集団は`AxisDefinition`の真偽のフィールド全部で、足したフィールドも
-    # ここで既定と逆の値を往復させる。
-    flags = {
-        name: not field.default
-        for name, field in AxisDefinition.model_fields.items()
-        if field.annotation is bool
-    }
-    definition = axis_definition("flags_axis", **flags)
-    repository = AxisDefinitionRepository(road_graph_session)
+async def test_a_written_definition_reads_back_with_every_field_and_its_order(repository):
+    definition = _with_every_field_set("axis_a")
 
-    await repository.upsert(definition, sort_order=0)
-    await repository.commit()
+    await repository.upsert(definition, sort_order=3)
 
-    result = await repository.list_all()
-    assert result == {"flags_axis": definition}
+    assert await repository.get("axis_a") == (definition, 3)
 
 
-async def test_upsert_orders_by_sort_order_not_axis_id(road_graph_session):
-    repository = AxisDefinitionRepository(road_graph_session)
-    await repository.upsert(axis_definition("z_axis"), sort_order=0)
-    await repository.upsert(axis_definition("a_axis"), sort_order=1)
-    await repository.commit()
+async def test_a_flag_mapping_reads_back_as_flags_and_other_names_stay_names(repository):
+    """JSONのキーは文字列になるので、真偽の対応表は読み戻しで真偽へ戻る。値の名前（"yes"・"1"）は真偽に化けない。"""
+    flags = _linear("axis_flags").model_copy(
+        update={"shape": CategoricalShape(material="bool_a", mapping={True: 1.0, False: 2.0})})
+    names = _with_every_field_set("axis_names")
 
-    assert list((await repository.list_all()).keys()) == ["z_axis", "a_axis"]
+    await repository.upsert(flags, sort_order=1)
+    await repository.upsert(names, sort_order=2)
 
-
-async def test_upsert_on_existing_axis_id_updates_in_place(road_graph_session):
-    repository = AxisDefinitionRepository(road_graph_session)
-    await repository.upsert(axis_definition("test_axis", default_weight=0.1), sort_order=0)
-    await repository.commit()
-
-    await repository.upsert(axis_definition("test_axis", default_weight=0.9), sort_order=0)
-    await repository.commit()
-
-    result = await repository.list_all()
-    assert len(result) == 1
-    assert result["test_axis"].default_weight == 0.9
+    assert (await repository.get("axis_flags"))[0].shape.mapping == {True: 1.0, False: 2.0}
+    assert (await repository.get("axis_names"))[0].shape.mapping == {"paved": 10.0, "yes": 20.0, "1": 30.0}
 
 
-async def test_get_returns_definition_and_sort_order(road_graph_session):
-    repository = AxisDefinitionRepository(road_graph_session)
-    await repository.upsert(axis_definition("test_axis"), sort_order=3)
-    await repository.commit()
+async def test_an_unset_chip_stays_unset_rather_than_empty(repository):
+    """チップの表示要素の未設定は、画面の汎用の表示に任せる印。空の値に化けると汎用の表示が出ない。"""
+    await repository.upsert(_linear("axis_a"), sort_order=1)
 
-    result = await repository.get("test_axis")
+    definition, _ = await repository.get("axis_a")
 
-    assert result is not None
-    definition, sort_order = result
-    assert definition == axis_definition("test_axis")
-    assert sort_order == 3
+    assert (definition.icon_id, definition.chip_label, definition.panel_hint) == (None, None, None)
+    assert definition.display_thresholds_override is None
+    assert definition.display_band_labels_override is None
 
 
-async def test_get_returns_none_for_unknown_axis_id(road_graph_session):
-    repository = AxisDefinitionRepository(road_graph_session)
+async def test_writing_an_existing_axis_replaces_every_field_and_its_order(repository):
+    await repository.upsert(_linear("axis_a"), sort_order=1)
+    replacement = _with_every_field_set("axis_a")
 
-    assert await repository.get("unknown") is None
+    await repository.upsert(replacement, sort_order=7)
 
-
-async def test_list_all_with_sort_order_returns_empty_dict_when_empty(road_graph_session):
-    repository = AxisDefinitionRepository(road_graph_session)
-
-    assert await repository.list_all_with_sort_order() == {}
+    assert await repository.get("axis_a") == (replacement, 7)
+    assert list(await repository.list_all()) == ["axis_a"]
 
 
-async def test_list_all_with_sort_order_returns_definitions_and_sort_order(road_graph_session):
-    # 改善計画T271のレビュー指摘の修正: AxisRegistryAdminService.create/updateが
-    # 既存軸一覧の取得とsort_order算出を1回のSELECTで済ませられるよう新設したメソッド。
-    repository = AxisDefinitionRepository(road_graph_session)
-    await repository.upsert(axis_definition("a"), sort_order=0)
-    await repository.upsert(axis_definition("b"), sort_order=5)
-    await repository.commit()
+async def test_the_axes_are_listed_in_their_order_not_in_the_order_they_were_written(repository):
+    """並びは合成の加算順で、順が変わると合成の得点がビット単位で変わりうる。"""
+    await repository.upsert(_linear("axis_c"), sort_order=30)
+    await repository.upsert(_linear("axis_a"), sort_order=10)
+    await repository.upsert(_linear("axis_b"), sort_order=20)
 
-    result = await repository.list_all_with_sort_order()
+    listed = await repository.list_all()
+    with_order = await repository.list_all_with_sort_order()
 
-    assert result["a"] == (axis_definition("a"), 0)
-    assert result["b"] == (axis_definition("b"), 5)
-
-
-async def test_delete_removes_row_and_returns_true(road_graph_session):
-    repository = AxisDefinitionRepository(road_graph_session)
-    await repository.upsert(axis_definition("test_axis"), sort_order=0)
-    await repository.commit()
-
-    deleted = await repository.delete("test_axis")
-    await repository.commit()
-
-    assert deleted is True
-    assert await repository.list_all() == {}
+    assert list(listed) == ["axis_a", "axis_b", "axis_c"]
+    assert listed["axis_b"] == _linear("axis_b")
+    assert {axis_id: order for axis_id, (_, order) in with_order.items()} == {"axis_a": 10, "axis_b": 20, "axis_c": 30}
+    assert list(with_order) == list(listed)
 
 
-async def test_delete_returns_false_for_unknown_axis_id(road_graph_session):
-    repository = AxisDefinitionRepository(road_graph_session)
+async def test_an_axis_that_is_not_there_is_none(repository):
+    await repository.upsert(_linear("axis_a"), sort_order=1)
 
-    assert await repository.delete("unknown") is False
+    assert await repository.get("axis_b") is None
+
+
+async def test_deleting_tells_whether_there_was_an_axis_to_delete(repository):
+    await repository.upsert(_linear("axis_a"), sort_order=1)
+
+    assert await repository.delete("axis_a") is True
+    assert await repository.get("axis_a") is None
+    assert await repository.delete("axis_a") is False
+
+
+async def test_writes_are_seen_by_others_only_after_the_commit(repository, road_graph_engine):
+    await repository.upsert(_linear("axis_a"), sort_order=1)
+
+    async with AsyncSession(road_graph_engine) as other:
+        assert await AxisDefinitionRepository(other).get("axis_a") is None
+        await repository.commit()
+        assert await AxisDefinitionRepository(other).get("axis_a") == (_linear("axis_a"), 1)
+
+
+async def test_the_write_lock_makes_a_second_writer_wait_until_the_first_commits(repository, road_graph_engine):
+    await repository.acquire_write_lock()
+
+    async with AsyncSession(road_graph_engine) as other:
+        second = AxisDefinitionRepository(other)
+        await other.execute(text("SET LOCAL lock_timeout = '200ms'"))
+        with pytest.raises(DBAPIError, match="lock timeout"):
+            await second.acquire_write_lock()
+        await other.rollback()
+
+        waiting = asyncio.ensure_future(second.acquire_write_lock())
+        await asyncio.sleep(0.2)
+        assert not waiting.done()
+        await repository.commit()
+        await asyncio.wait_for(waiting, timeout=5)
+        await other.rollback()

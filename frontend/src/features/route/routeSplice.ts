@@ -9,6 +9,8 @@
  *
  * 区間を細かく割るときだけ座標（`geometry.coordinates`と`edge_point_offsets`）も読む
  * ——2本が交差・接触する地点はEdge idの一致では分からないため（`splitPairedStretch`）。
+ * `edge_ids`を持つ候補は、`edge_point_offsets`・`node_ids`もEdgeの数より1件多く必ず持つ（backendの
+ * `services/road_graph_engine.py`が同じ箇所で組む）ので、ここでは欠けを見ない。
  */
 import { cumulativeDistancesKm } from "@/features/route/geoDistance";
 
@@ -46,17 +48,12 @@ function differingStretches(displayed: readonly string[], target: readonly strin
  *
  * 隣接Edgeの境界点は重複させずに連結されるため、この対応はbackendが
  * `edge_point_offsets`として返すものだけが持つ（座標列からは復元できない）。
- * 対応が取れないときは`null`——**描かないほうが、ずれた場所へ帯を描くよりよい**。
  */
 export function stretchCoordinateRange(
   edgePointOffsets: readonly number[],
   stretch: RouteStretch,
-): { start: number; end: number } | null {
-  if (stretch.start < 0 || stretch.end >= edgePointOffsets.length) return null;
-  const start = edgePointOffsets[stretch.start];
-  const end = edgePointOffsets[stretch.end];
-  if (start === undefined || end === undefined || end < start) return null;
-  return { start, end };
+): { start: number; end: number } {
+  return { start: edgePointOffsets[stretch.start], end: edgePointOffsets[stretch.end] };
 }
 
 /** 表示中の候補の区間と、それに対応する相手側の区間の組。 */
@@ -73,7 +70,7 @@ interface PairedStretch {
  * 現れる。本数が食い違ったら対応づけを諦める（片側だけ描くと、地図上の帯と実際に
  * 差し替わる道がずれる）。
  */
-function pairedStretches(displayed: readonly string[], target: readonly string[]): PairedStretch[] {
+export function pairedStretches(displayed: readonly string[], target: readonly string[]): PairedStretch[] {
   const onDisplayed = differingStretches(displayed, target);
   const onTarget = differingStretches(target, displayed);
   if (onDisplayed.length !== onTarget.length) return [];
@@ -87,11 +84,6 @@ interface RouteGeometryShape {
   edgePointOffsets: readonly number[];
   /** Edge iの始点のNode id（末尾に終点を持つ）。backendの`node_ids`。 */
   nodeIds: readonly string[];
-}
-
-/** `edgeIndex`のEdgeが始まるNode id。持っていなければundefined。 */
-function boundaryNode(shape: RouteGeometryShape, edgeIndex: number): string | undefined {
-  return shape.nodeIds[edgeIndex];
 }
 
 /**
@@ -114,30 +106,22 @@ function splitPairedStretch(
 ): PairedStretch[] {
   const sharedOnBase = new Map<string, number>();
   for (let index = pair.displayed.start + 1; index < pair.displayed.end; index += 1) {
-    const node = boundaryNode(base, index);
-    if (node !== undefined) sharedOnBase.set(node, index);
+    sharedOnBase.set(base.nodeIds[index], index);
   }
   if (sharedOnBase.size === 0) return [pair];
 
-  const kmAt = (edgeIndex: number) => {
-    const offset = base.edgePointOffsets[edgeIndex];
-    return offset === undefined ? undefined : baseCumulativeKm[offset];
-  };
+  const kmAt = (edgeIndex: number) => baseCumulativeKm[base.edgePointOffsets[edgeIndex]];
   const startKm = kmAt(pair.displayed.start);
   const endKm = kmAt(pair.displayed.end);
-  if (startKm === undefined || endKm === undefined) return [pair];
 
   const splits: PairedStretch[] = [];
   let lastBase = pair.displayed.start;
   let lastTarget = pair.target.start;
   let lastKm = startKm;
   for (let index = pair.target.start + 1; index < pair.target.end; index += 1) {
-    const node = boundaryNode(target, index);
-    if (node === undefined) continue;
-    const onBase = sharedOnBase.get(node);
+    const onBase = sharedOnBase.get(target.nodeIds[index]);
     if (onBase === undefined || onBase <= lastBase) continue;
     const splitKm = kmAt(onBase);
-    if (splitKm === undefined) continue;
     // 手前の断片と、残り全部の両方が下限を満たすときだけ割る（割った結果に下限未満を作らない）。
     if (splitKm - lastKm < minLengthKm || endKm - splitKm < minLengthKm) continue;
     splits.push({
@@ -197,7 +181,6 @@ function createsRevisit(
   const inserted = new Set<string>();
   for (let index = targetStretch.start + 1; index < targetStretch.end; index += 1) {
     const node = targetNodeIds[index];
-    if (node === undefined) continue;
     if (inserted.has(node)) return true;
     if (baseNodeSet.has(node) && !removed.has(node)) return true;
     inserted.add(node);
@@ -239,7 +222,6 @@ export function stretchAlternativeGroups(
       // 差し替え後に通るEdgeは相手側の範囲そのもの。両端の共有Edgeを目印に切り出す形には
       // できない——共有**地点**で割った区間は、両端に共有Edgeを持たない。
       const edgeIds = candidate.edgeIds.slice(pair.target.start, pair.target.end);
-      if (edgeIds.length === 0) continue;
       if (createsRevisit(baseShape.nodeIds, baseNodeSet, candidate.shape.nodeIds, pair.displayed, pair.target)) {
         continue;
       }
@@ -311,12 +293,6 @@ export function buildSplicedShape(
       ...targetShape.nodeIds.slice(alternative.targetStretch.start, alternative.targetStretch.end),
       ...current.nodeIds.slice(alternative.stretch.end),
     ];
-    // 座標やEdge境界を持たない候補（古い応答・Edge情報だけのエンジン）では、経路の
-    // つなぎ替えだけを行う。区間の割り直しはできなくなるが、差し替え自体は成立する。
-    if (from === undefined || to === undefined || head === undefined || tail === undefined) {
-      current = { ...current, edgeIds, nodeIds };
-      continue;
-    }
     // 継ぎ目の点は両者で同じ座標のため、後ろ側の先頭を落として重複させない。
     const coordinates = [
       ...current.coordinates.slice(0, head),

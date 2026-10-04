@@ -12,7 +12,7 @@ import { cn } from "@/lib/cn";
 // - "commit": 欄を離れたとき・Enterで1回だけ渡す（走行条件の速度のように、桁の途中の値を効かせたくないとき）
 //
 // "commit"で打ったまま欄ごと消えた（ポップオーバーをEscで閉じた等。消える要素にはblurが届かない）ときも、
-// 打った値を渡す。
+// 打った値を渡す。欄を離れた・Enterで渡したあとは打っている文字を持たないので、そのあと消えても二度は渡さない。
 //
 // 範囲への丸めは呼び出し側が値で行う（丸めた結果が前と同じ値でも、欄を離れれば表示は値へ戻る）。
 interface NumberInputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "type"> {

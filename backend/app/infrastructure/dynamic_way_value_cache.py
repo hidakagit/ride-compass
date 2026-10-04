@@ -57,7 +57,10 @@ def _key(
 async def get_tile_values(
     material_id: str, z: int, x: int, y: int, bearing_deg: float, *, surface_tile_version: str, value_shape: str,
 ) -> dict[str, float] | None:
-    """該当バケットの`{フィーチャー鍵: 値}`。未キャッシュ・読み出し失敗はいずれもNone。"""
+    """該当バケットの`{フィーチャー鍵: 値}`。未キャッシュ・読み出し失敗はいずれもNone。
+
+    値の無いタイルは空のdictとして返り、Noneとは別に扱われる（呼び出し元はNoneのときだけ計算し直す）。
+    """
     key = _key(material_id, z, x, y, bearing_deg, surface_tile_version, value_shape)
     return await asyncio.to_thread(tile_persistent_cache.get_by_key, key)
 

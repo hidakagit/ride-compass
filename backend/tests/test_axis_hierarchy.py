@@ -214,18 +214,18 @@ class TestWeights:
         with replaced_axis_definitions(definitions):
             assert axis_definitions.default_axis_weights() == {"shown": 2.0}
 
-    def test_an_axis_outside_the_active_time_scopes_weighs_nothing(self):
+    def test_an_axis_with_a_time_scope_weighs_only_on_the_segments_ridden_in_it(self):
         definitions = axes(axis("always"), axis("night", time_scope="night_only"))
         weights = {"always": 1.0, "night": 3.0}
 
         with replaced_axis_definitions(definitions):
-            by_day = axis_definitions.time_scoped_weights(weights, frozenset())
-            by_night = axis_definitions.time_scoped_weights(weights, frozenset({"night_only"}))
+            scoped = axis_definitions.time_scoped_weights(weights, {"night_only": np.array([False, True])})
+            outside_every_scope = axis_definitions.time_scoped_weights(weights, {})
 
-        assert by_day == {"always": 1.0, "night": 0.0}
-        assert by_night == {"always": 1.0, "night": 3.0}
+        assert scoped["always"] == 1.0 and scoped["night"].tolist() == [0.0, 3.0]
+        assert outside_every_scope == {"always": 1.0, "night": 0.0}
         assert weights == {"always": 1.0, "night": 3.0}
 
     def test_axes_absent_from_the_weights_are_not_added(self):
         with replaced_axis_definitions(axes(axis("night", time_scope="night_only"))):
-            assert axis_definitions.time_scoped_weights({"other": 1.0}, frozenset()) == {"other": 1.0}
+            assert axis_definitions.time_scoped_weights({"other": 1.0}, {}) == {"other": 1.0}

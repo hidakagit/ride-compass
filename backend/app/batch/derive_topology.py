@@ -9,7 +9,8 @@
 同じ次の交差点へ向かうと位相の次数は1つに潰れるが、自転車から見ればそこは分岐である。
 交差点の密度を測るのに要るのは枝の本数のほう。
 
-`node_materials`を先に入れる。`road_edges`の端点はここへの外部キーで縛られている。
+`node_materials`と`way_materials`を先に入れる。`road_edges`の端点と親の道は、それぞれへの
+外部キーで縛られている。道の行は区間を持つ道にだけ作り、値はこれから後ろの段が埋める。
 """
 
 import logging
@@ -120,6 +121,11 @@ FROM (SELECT from_node_id AS node_id FROM _seg
 GROUP BY node_id
 """
 
+_INSERT_WAYS = """
+INSERT INTO way_materials (osm_way_id, source_run_id)
+SELECT DISTINCT osm_way_id, $1::bigint FROM _seg
+"""
+
 _INSERT_EDGES = """
 INSERT INTO road_edges (osm_way_id, segment_index, from_node_id, to_node_id,
                         geom, distance_m, bearing_deg, reverse_bearing_deg, source_run_id)
@@ -159,17 +165,18 @@ async def derive(conn: asyncpg.Connection) -> tuple[int, int]:
             await conn.execute(f"DELETE FROM _seg WHERE NOT ({_USABLE})")
         await conn.execute("ANALYZE _seg")
 
-        # 端点の外部キーがある以上、参照する側とされる側は1文で空にする（2文に分けると
+        # 外部キーがある以上、参照する側とされる側は1文で空にする（2文に分けると
         # 同じトランザクション内でも「参照されている表は削除できない」で止まる）。
-        await conn.execute("TRUNCATE road_edges, node_materials CASCADE")
-        # 端点の外部キーが指す先を先に作る。
+        await conn.execute("TRUNCATE road_edges, node_materials, way_materials CASCADE")
+        # 外部キーが指す先を先に作る。
         nodes = await conn.execute(_INSERT_NODES, run_id)
+        await conn.execute(_INSERT_WAYS, run_id)
         edges = await conn.execute(_INSERT_EDGES, run_id)
         await conn.execute(_INSERT_EDGE_MATERIALS)
-        # 後ろの段はこの3表を読む。autovacuumは既定60秒周期の背景処理で、派生は
+        # 後ろの段はこれらの表を読む。autovacuumは既定60秒周期の背景処理で、派生は
         # 数秒で走り切るため、統計が付くのを待てない。無いまま読まれると実行計画が
         # 桁で外れる。
-        await conn.execute("ANALYZE road_edges, node_materials, edge_materials")
+        await conn.execute("ANALYZE road_edges, node_materials, edge_materials, way_materials")
 
     edge_count = int(edges.split()[-1])
     node_count = int(nodes.split()[-1])

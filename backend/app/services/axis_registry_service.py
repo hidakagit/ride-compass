@@ -197,8 +197,8 @@ class AxisRegistryAdminService:
         await self._repository.commit()
         await refresh_axis_definitions(self._repository)
 
-    async def unpublish(self, axis_id: str) -> None:
-        """公開済み軸を下書きへ戻す。`update()`が公開済み軸を一律拒否するための逃げ道。
+    async def unpublish(self, axis_id: str) -> AxisDefinition:
+        """公開済み軸を下書きへ戻し、戻した後の定義を返す。`update()`が公開済み軸を一律拒否するための逃げ道。
 
         **フロント側が公開軸集合の変化に合わせてroutePreferenceのキーを自己修復すること**が
         前提。それが無いと、旧設定を保持したブラウザは次のルート生成で
@@ -210,7 +210,9 @@ class AxisRegistryAdminService:
             raise KeyError(axis_id)
         definition, sort_order = existing[axis_id]
         if not definition.is_published:
-            return  # 既に下書きなら何もしない（べき等）
-        await self._repository.upsert(definition.model_copy(update={"is_published": False}), sort_order)
+            return definition  # 既に下書きなら何もしない（べき等）
+        unpublished = definition.model_copy(update={"is_published": False})
+        await self._repository.upsert(unpublished, sort_order)
         await self._repository.commit()
         await refresh_axis_definitions(self._repository)
+        return unpublished

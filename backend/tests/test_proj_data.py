@@ -1,72 +1,52 @@
-"""`infrastructure/proj_data.py`——rasterioが読むPROJデータの固定。
+"""`infrastructure/proj_data.py`——rasterioが読むPROJのデータを、rasterio同梱のものへ向ける。
+
+入口は`pin_bundled_proj_data`。入力はインストールされたパッケージの置き場（ディスク）なので、
+一時ディレクトリに`rasterio`パッケージの形を作り、importの探し先をそこへ向けて与える。
+環境変数は`monkeypatch.setenv`で先に置き、テストの後に元へ戻す。
 
 ここで見ないもの:
-- ラスタの読み出しそのもの → `test_landcover.py`・`test_fetch_lulc_raster.py`
-
-**rasterioの在処は差し替えて与える。** 実インストールに寄りかかると、同梱データが無い構成
-（システムのGDAL/PROJへリンクしたビルド）の分岐を通せない。実物へ当てるのは末尾の1件だけで、
-そこは「この環境のwheelが本当に座標系DBを同梱しているか」という別の問いを見る。
+- rasterioのimportより先に呼ばれること → import順の約束で、`tests/conftest.py`と
+  `infrastructure/landcover_raster.py`の先頭が守る。効いていることは、座標系を使う
+  `test_landcover_raster.py`が本物のrasterioで通ることが示す
 """
 
 import os
-from pathlib import Path
+import sys
 
 import pytest
 
 from app.infrastructure.proj_data import pin_bundled_proj_data
 
-SENTINEL = "/somewhere/else"
-
-
-class _Spec:
-    def __init__(self, origin: str | None) -> None:
-        self.origin = origin
+BEFORE = "/opt/other-app/share/proj"
 
 
 @pytest.fixture
-def untouched_environment(monkeypatch):
-    monkeypatch.setenv("PROJ_DATA", SENTINEL)
-    monkeypatch.setenv("PROJ_LIB", SENTINEL)
+def installed(tmp_path, monkeypatch):
+    """`rasterio`がまだimportされていない状態で、探し先を一時ディレクトリだけにする。"""
+    monkeypatch.setenv("PROJ_LIB", BEFORE)
+    monkeypatch.setenv("PROJ_DATA", BEFORE)
+    for name in [m for m in sys.modules if m == "rasterio" or m.startswith("rasterio.")]:
+        monkeypatch.delitem(sys.modules, name)
+    monkeypatch.setattr(sys, "path", [str(tmp_path)])
+    return tmp_path
 
 
-def _rasterio_at(monkeypatch, spec: _Spec | None) -> None:
-    monkeypatch.setattr("importlib.util.find_spec", lambda name: spec)
+def test_the_data_bundled_with_rasterio_is_pinned_for_both_variable_names(installed):
+    package = installed / "rasterio"
+    (package / "proj_data").mkdir(parents=True)
+    (package / "__init__.py").write_text("")
 
-
-def test_nothing_is_pinned_when_rasterio_cannot_be_located(monkeypatch, untouched_environment):
-    for spec in (None, _Spec(origin=None)):
-        _rasterio_at(monkeypatch, spec)
-
-        assert pin_bundled_proj_data() is None
-        assert os.environ["PROJ_DATA"] == SENTINEL
-
-
-def test_nothing_is_pinned_when_the_wheel_ships_no_bundled_data(monkeypatch, untouched_environment, tmp_path):
-    """同梱データが無いビルドで空のパスを指すと、rasterioはPROJデータを一切見つけられなくなる。"""
-    _rasterio_at(monkeypatch, _Spec(origin=str(tmp_path / "__init__.py")))
-
-    assert pin_bundled_proj_data() is None
-    assert os.environ["PROJ_LIB"] == SENTINEL
-
-
-def test_both_variable_names_point_at_the_bundled_directory(monkeypatch, untouched_environment, tmp_path):
-    """PROJ 9は`PROJ_DATA`、8以前は`PROJ_LIB`を読む。片方だけ書くと、もう片方を読む構成で
-    PostGIS等が設定した別レイアウトの`proj.db`を掴む。
-    """
-    bundled = tmp_path / "proj_data"
-    bundled.mkdir()
-    _rasterio_at(monkeypatch, _Spec(origin=str(tmp_path / "__init__.py")))
-
-    assert pin_bundled_proj_data() == bundled
-    assert os.environ["PROJ_DATA"] == str(bundled)
-    assert os.environ["PROJ_LIB"] == str(bundled)
-
-
-def test_the_installed_rasterio_ships_a_coordinate_system_database():
-    """同梱の置き場がwheelの更新で変わると、ここは黙ってNoneを返し、rasterioは他所の
-    `proj.db`を掴んでEPSG解決に失敗する。
-    """
     pinned = pin_bundled_proj_data()
 
-    assert pinned is not None
-    assert (Path(pinned) / "proj.db").is_file()
+    assert pinned == package / "proj_data"
+    assert os.environ["PROJ_DATA"] == os.environ["PROJ_LIB"] == str(package / "proj_data")
+
+
+@pytest.mark.parametrize("layout", ["without-bundled-data", "not-installed"])
+def test_without_bundled_data_the_variables_are_left_as_they_were(installed, layout):
+    if layout == "without-bundled-data":
+        (installed / "rasterio").mkdir()
+        (installed / "rasterio" / "__init__.py").write_text("")
+
+    assert pin_bundled_proj_data() is None
+    assert os.environ["PROJ_DATA"] == os.environ["PROJ_LIB"] == BEFORE

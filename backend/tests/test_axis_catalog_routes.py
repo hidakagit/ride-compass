@@ -10,6 +10,7 @@ from app.domain.axis_definitions import (
     CategoricalShape,
     MaterialTerm,
 )
+from app.domain.rain import rain_window_material_id
 from app.domain.material_catalog import MATERIAL_CATALOG, SURFACE_ESTIMATE, CoverageExcluded, MaterialSpec
 from app.domain.tuning import TUNING_PARAMETERS, TuningEffect
 from app.infrastructure.derived_data_meta import DataRevisions
@@ -368,6 +369,28 @@ def test_get_axis_catalog_includes_map_value_and_unit(client, catalog_axes):
     assert entries_by_id["axis_way_value_signed"]["map_value_unit"] == "%"
     assert entries_by_id["axis_way_value_scored"]["map_value"] == {"kind": "difficulty"}
     assert entries_by_id["axis_way_value_scored"]["map_value_unit"] == ""
+
+
+# 地図が専用配信の要求へ載せるクエリパラメータは、軸が参照する材料の配信サービスが受け取る条件から決まる。
+# 風は時刻を省略できても載せる（利用者が選んだ時刻の風を塗る）。専用配信を持たない軸には何も載せない。
+@pytest.mark.parametrize(
+    ("material", "dedicated", "conditions"),
+    [
+        ("wind_drag_ratio", True, {"at", "bearing_deg", "speed_kmh"}),
+        ("gradient_percent", True, {"bearing_deg"}),
+        (rain_window_material_id(24), True, set()),
+        ("wind_drag_ratio", False, set()),
+    ],
+)
+def test_get_axis_catalog_names_the_query_params_the_map_sends_for_a_dedicated_axis(
+    client, material, dedicated, conditions
+):
+    axis = axis_definition("axis_any_name", material=material, is_published=True, dedicated_way_value_layer=dedicated)
+    with replaced_axis_definitions({axis.axis_id: axis}):
+        response = client.get("/api/axis-catalog")
+
+    (entry,) = response.json()["axes"]
+    assert set(entry["dynamic_way_value_conditions"]) == conditions
 
 
 def test_get_axis_catalog_includes_raw_value_unit(client, catalog_axes):

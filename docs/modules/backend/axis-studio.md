@@ -120,7 +120,6 @@
 | `display_thresholds_override` | list[float]\|None | 色分けしきい値の上書き |
 | `display_band_labels_override` | list[str]\|None | 段階ごとの体感ラベルの上書き（例:「強い向かい風」）。設定する場合は`display_thresholds_override`も設定済みで要素数が段階数（しきい値数+1）と一致すること |
 | `dedicated_way_value_layer` | bool | 専用のフィーチャー→値配信レイヤーを持つか |
-| `dynamic_way_value_needs_time`/`dynamic_way_value_needs_bearing`/`dynamic_way_value_needs_speed` | bool | `dedicated_way_value_layer=True`の軸のみ意味を持つ。`GET /api/region/dynamic-way-values/...`の`at`/`bearing_deg`/`speed_kmh`クエリパラメータ必須判定（[dynamic-way-values.md](dynamic-way-values.md)参照） |
 
 **表示に関するフィールドは、軸idの分岐をコードへ持たないための宣言**である。
 
@@ -310,14 +309,21 @@ DB側の値が変わっても追従しない。軸の中身が主題でないテ
 生の上書きではなくこの引き直した値（`map_band_labels`）で、件数は地図の段数と一致する。
 軸スタジオの段階プレビューも同じ番号を問い合わせの応答（`bands_on_map`）で受け取る。
 
+**地図の式が評価と同じ値を出すことは、表で確かめる。** 導出の形ごと（例: 真偽の材料・分類の未登録の値・
+実行時の係数・他の軸を参照する項）に、表のために組んだ軸と道1本の材料から、
+地図へ配る表示・タイルのプロパティ・評価が付ける値（折れ点の軸は折れ点を通す前の和、分類の軸は点数）と
+「不明」かを`scripts/cross_language_expectations.py: axis_ramp_expectations`が表にして生成物へ出し、画面のテストが
+全行を画面の式へ通す（置き場と作り方は[testing.md](../../conventions/testing.md)「パターン11」）。
+
 **暗黙の前提（重要な既知の非対称性）**: 自動導出した表示と評価側の整合性は
-`required=False`の材料でのみ厳密に一致する。`required=True`の材料が欠損している場合、
-評価側（`evaluate_axis_array`）は軸全体を「評価不能（None）」にするが、フロント側の
+`required=False`の材料でのみ厳密に一致する。`required=True`の材料が欠損している場合と、全termの材料が
+欠損している場合、評価側（`evaluate_axis_array`）は軸全体を「評価不能（None）」にするが、フロント側の
 自動導出expression（`buildAxisRampValueExpression`）はタイルプロパティ欠損を寄与0
 （coalesce）として扱う——本来「評価不能」な区間が地図上では「評価済みで良好（緑）」に
-誤表示されうる。テストで検証済みの許容された制約であり、実務上は稀（way単位の
-事前集計は欠損時0埋めが基本）だが、新規軸でrequired=True材料が実際にタグ欠損
-しやすい場合はこの不整合が顕在化しうる。
+誤表示されうる。タイルは数値の0もキーごと省くため、地図の側では欠損と0を見分けられない。
+実務上は稀（way単位の事前集計は欠損時0埋めが基本）だが、新規軸でrequired=True材料が実際にタグ欠損
+しやすい場合はこの不整合が顕在化しうる。同じ理由で、他の軸を参照する項（`TileInputSpec.breakpoints`）は
+材料の値が0の道も地図では寄与0になり、評価（参照先の折れ線の0での点数）と食い違いうる。上の表はこれらの場面を入れない。
 
 ### 生値の単位（`raw_value_unit`）
 
@@ -464,7 +470,7 @@ idのまま出す。書き込み時のガード・削除の断り（下の「書
 ### 書き込み時だけの検証（`AxisDefinitionPayload`）
 
 `dedicated_way_value_layer`を立てられるのは、フィーチャー→値配信の実装
-（`services/dedicated_way_values.py: _DEDICATED_WAY_VALUE_SERVICE_FACTORIES`、材料ごとに登録）がある
+（`services/dedicated_way_values.py: _DEDICATED_WAY_VALUE_SERVICES`、材料ごとに登録）がある
 材料を**ちょうど1つ**参照する軸だけ（軸の名前は問わない）。宣言だけでは配信できる値が無い
 （配信側はそういう軸を未知の`axis_id`と同じく404で返す）。照らす相手はこのプロセスが組み立てた配信の実装で、
 値の不変条件ではないため読み込みでは見ない——実装の無い軸の配信は404で済み、起動を止める理由にならない。
@@ -497,7 +503,8 @@ acquire_write_lock()`（PostgreSQLのトランザクションスコープadvisor
 「読み取り→Python側で検証→書き込み」の一連を直列化する。このロックが無いと、
 2つのcreate()が同時に走った場合に互いのsort_orderや材料排他帰属チェックが相手の
 変更を見ないまま古いスナップショットへ基づいて計算されるため、書き込み後にsort_order
-衝突・材料の二重帰属というTOCTOUレースが起こりうる。asyncio.Lock（同一プロセス内のみ
+衝突・材料の二重帰属というTOCTOUレースが起こりうる（`sort_order`の衝突は表の一意制約でも断られ、
+書き込みが失敗する側へ倒れる）。asyncio.Lock（同一プロセス内のみ
 有効）ではなくDBレベルのロックにしているのは、将来複数ワーカー化する場合にも機能させる
 ため。
 

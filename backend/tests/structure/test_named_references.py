@@ -132,8 +132,14 @@ def _keep(text: str, spans: list[tuple[int, int]], *, inside: bool) -> str:
     return "".join(ch if keep or ch == "\n" else " " for ch, keep in zip(text, mask, strict=True))
 
 
-def tracked_files(root: Path) -> list[str]:
-    out = subprocess.run(["git", "ls-files", "-z"], cwd=root, check=True, capture_output=True).stdout.decode("utf-8")
+def repository_files(root: Path) -> list[str]:
+    """追跡下のファイルと、まだ`git add`していない無視されていないファイル。"""
+    out = subprocess.run(
+        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    ).stdout.decode("utf-8")
     return [f for f in out.split("\0") if f]
 
 
@@ -197,7 +203,7 @@ def dangling_references(root: Path, files: list[str]) -> list[str]:
 
 
 def test_named_references_exist() -> None:
-    dangling = dangling_references(REPO_ROOT, tracked_files(REPO_ROOT))
+    dangling = dangling_references(REPO_ROOT, repository_files(REPO_ROOT))
 
     assert dangling == [], (
         "文書・コメントが「パス: 名前」で名指ししたものが見つからない。今の名前・パスへ直すか、"
@@ -232,4 +238,22 @@ def test_detects_dangling_references(tmp_path: Path) -> None:
         "app/e.ts:1: a.py: GONE_TS（そのファイルのコードに名前が無い）",
         "docs/guide.md:1: util.ts: helper（パスが2本に当たる。親ディレクトリを足して1本に決める）",
         "docs/guide.md:1: missing.py: X（そのパスのファイルが無い）",
+    ]
+
+
+def test_untracked_files_count_as_existing(tmp_path: Path) -> None:
+    """`git add`前の新しいファイルは実在に数え、無視されたファイルは数えない。"""
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    files = {
+        ".gitignore": "ignored.py\n",
+        "app/new.py": "LIVE = 1\n",
+        "app/ignored.py": "HIDDEN = 1\n",
+        "docs/guide.md": "`new.py: LIVE`と`ignored.py: HIDDEN`。\n",
+    }
+    for rel, body in files.items():
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text(body, encoding="utf-8")
+
+    assert dangling_references(tmp_path, repository_files(tmp_path)) == [
+        "docs/guide.md:1: ignored.py: HIDDEN（そのパスのファイルが無い）",
     ]

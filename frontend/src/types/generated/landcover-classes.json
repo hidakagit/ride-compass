@@ -4,6 +4,7 @@
     "percent_field": "built_percent",
     "label": "建物",
     "color": "#9AA0A6",
+    "description": "建物・大きな道路や線路・駐車場など、人が作った固い地面。",
     "painted": false
   },
   {
@@ -11,6 +12,7 @@
     "percent_field": "trees_percent",
     "label": "樹木",
     "color": "#4C8C4A",
+    "description": "背の高い木がまとまって茂る所（森林・林など）。",
     "painted": true
   },
   {
@@ -18,6 +20,7 @@
     "percent_field": "crops_percent",
     "label": "農地",
     "color": "#E0C066",
+    "description": "人が植えた作物の畑（木の高さにならないもの。休耕地を含む）。",
     "painted": true
   },
   {
@@ -25,6 +28,7 @@
     "percent_field": "rangeland_percent",
     "label": "草地",
     "color": "#C3B78F",
+    "description": "高い木がほとんど無く、草に覆われた開けた所。",
     "painted": true
   },
   {
@@ -32,6 +36,7 @@
     "percent_field": "water_percent",
     "label": "水面",
     "color": "#4A7FB5",
+    "description": "一年の大半に水がある所（川・湖・海など）。",
     "painted": true
   },
   {
@@ -39,6 +44,7 @@
     "percent_field": "flooded_veg_percent",
     "label": "湿地",
     "color": "#7FB99B",
+    "description": "一年の大半、植物と水が混じっている所（冠水した草地など）。",
     "painted": true
   },
   {
@@ -46,6 +52,7 @@
     "percent_field": "bare_percent",
     "label": "裸地",
     "color": "#C4B4A3",
+    "description": "一年を通して植物がほとんど無い岩や土・砂の所（河川敷・造成地など）。",
     "painted": true
   },
   {
@@ -53,6 +60,7 @@
     "percent_field": "snow_ice_percent",
     "label": "雪氷",
     "color": "#D8E6F0",
+    "description": "一年中、雪か氷に覆われた所。",
     "painted": true
   }
 ]

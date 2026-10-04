@@ -1,9 +1,10 @@
 # 担当（作る・確かめる）を1件、GitHub Actions のランナーで動かす。振り出し（claude-dispatch.yml）が起こす。手でも起こせる:
 #   gh workflow run claude-task.yml -R hidakagit/ride-compass -f issue=<置き場の issue の番号> -f kind=<作る|確かめる>
-# 担当は docs/conventions/flow.md の「作る担当」「確かめる担当」の手順を進める。
+# 担当は docs/conventions/flow.md の「作る担当」「確かめる担当」の手順を進める。種類「開発機」は担当を動かさず、開発機の対話の
+# セッションがそのタスクを触る間、下のグループを持つだけの実行（tools/flow-gate/bin/hold.js が起こし、取り消して手放す）。
 # このリポジトリは公開で、Actions の記録は誰でも読める。担当の出力の全文（show_full_output）と報告（display_report）は出さない。
 name: Claude Task
-# 振り出しは、この名前から動いている担当の issue の番号を読む（tools/flow-gate/src/dispatch.js: runIssue）。
+# 振り出しは、この名前から動いている担当の issue の番号を読む（tools/flow-gate/src/dispatch.js: runOf）。
 run-name: "#${{ inputs.issue }} ${{ inputs.kind }}"
 
 on:
@@ -16,17 +17,28 @@ on:
         description: 担当の種類
         required: true
         type: choice
-        options: [作る, 確かめる]
+        options: [作る, 確かめる, 開発機]
 
 permissions:
   contents: read
 
-# 同じ issue の担当は1本ずつ。重ねて起こされた2本目は、1本目が終わってから最初の段で照らされて何もせず終わる。
+# 1つのタスクを触るのは1者だけ: 同じ issue の実行（作る・確かめる・開発機）は1本ずつ動き、あとから来たものは取り消されずに
+# 順に待つ（queue: max）。待っていた担当は、前の実行が終わってから最初の段で照らされ、行き先が無ければ何もせず終わる。
 concurrency:
   group: claude-task-${{ inputs.issue }}
+  queue: max
 
 jobs:
+  # 開発機の対話のセッションがタスクを触る間、グループを持つ。取り消されるか、ジョブの上限（6時間）で止まると手放す。
+  hold:
+    if: inputs.kind == '開発機'
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - run: sleep 21600
+
   task:
+    if: inputs.kind != '開発機'
     # backend のテストを CI（ci.yml の backend）と同じ aarch64・同じ PostgreSQL + PostGIS で流せるようにする。
     runs-on: ubuntu-24.04-arm
     # 担当の持ち時間。超えると Actions がジョブを止め、最後の段（後始末）が落ちたものとして扱う。
@@ -34,12 +46,15 @@ jobs:
     env:
       TEST_DATABASE_URL: postgresql+asyncpg://ridecompass:ridecompass@localhost:5432/ridecompass_test
       DATABASE_URL: postgresql+asyncpg://ridecompass:ridecompass@localhost:5432/ridecompass_test
-      # 置き場へ書く道具（tools/flow-gate/bin/token.js）は hidakagit-bot、コードのリポジトリの gh は hidakagit の名義。
+      # 置き場へ書く道具（tools/flow-gate/bin/cli.js）は hidakagit-bot、コードのリポジトリの gh は hidakagit の名義。
       # マージを GITHUB_TOKEN で打つと master の CI とデプロイが起きないので、hidakagit のトークンで打つ。
       FLOW_BOT_TOKEN: ${{ secrets.FLOW_BOT_TOKEN }}
       GH_TOKEN: ${{ secrets.CODE_TOKEN }}
       ISSUE: ${{ inputs.issue }}
       KIND: ${{ inputs.kind }}
+      # 担当の実行は最初の結果で終わり、裏の処理の知らせで起こし直されない。Bash の run_in_background と裏の subagent を外す
+      # （Monitor・ScheduleWakeup 等は claude_args の --disallowedTools で外す）。
+      CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"
     steps:
       - uses: actions/checkout@v5
         with:
@@ -50,7 +65,7 @@ jobs:
           node-version-file: frontend/package.json
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      # 作るなら振り出しの遷移（未着手 → 進行中）が通ったときだけ、確かめるなら検証中のときだけ進み、issue に着手を書く。
+      # 作るなら未着手 → 進行中が通ったときだけ、確かめるなら検証中のときだけ進み、issue に着手を書く。
       - name: 引き受ける
         id: claim
         run: |
@@ -84,23 +99,21 @@ jobs:
         run: |
           git config --global user.name hidakagit
           git config --global user.email 6731891+hidakagit@users.noreply.github.com
-      # 許可の行（.claude/settings.json の permissions）だけを渡す。連携は settings をユーザー設定へ混ぜて書き、ユーザー設定は
-      # フォルダの信頼に関係なく読まれる（プロジェクトの設定は、信頼していないフォルダでは許可の行が読み飛ばされる）。
-      - name: 許可の行
-        if: steps.claim.outputs.go == 'true'
-        run: node -e 'const s=require("./.claude/settings.json"); require("fs").writeFileSync(process.env.RUNNER_TEMP+"/permissions.json", JSON.stringify({permissions:s.permissions}))'
       - uses: anthropics/claude-code-action@v1
         id: claude
         if: steps.claim.outputs.go == 'true'
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.CODE_TOKEN }}
-          settings: ${{ runner.temp }}/permissions.json
-          claude_args: --permission-mode auto --model claude-opus-5-5
+          # 拒否の一覧と判定役への説明（master の版）。連携は settings をユーザー設定へ混ぜて書き、判定役はユーザー設定の autoMode を読む
+          # （リポジトリの .claude/settings.json の autoMode は読まない）。
+          settings: ${{ github.workspace }}/tools/flow-gate/settings.json
+          claude_args: --permission-mode auto --model claude-opus-5-5 --disallowedTools Monitor,ScheduleWakeup,CronCreate,CronDelete,CronList,Workflow
           prompt: |
             あなたは RideCompass の${{ inputs.kind }}担当です。作業ツリー ${{ github.workspace }} で、置き場 ridecompass/ride-compass-tasks の issue #${{ inputs.issue }} を扱います。
             まず CLAUDE.md と docs/conventions/flow.md の「担当」「${{ inputs.kind }}担当」「問い」「issue の形」を読み、その手順のとおりに進めてください。
             ここは GitHub Actions のランナーです。backend の依存は `python` に、frontend の依存は frontend/node_modules に入っていて、PostgreSQL + PostGIS のテスト用 DB（TEST_DATABASE_URL）も動いています。開発 DB の実データと本番への調べ（run_probe.py）は無いので、それが要ると分かったら flow.md「開発機が要る」のとおりにしてください。
+            この実行は、あなたが手番を終えた最初の発言で終わり、裏の処理の終わりの知らせで起こし直されることはありません。CI などを待つときは `gh run watch` 等を前に出したまま、終わるまで待ってください。
             作業はこの作業ツリーの中だけで行い、終わるときは手順のとおり push と issue への報告をして終えてください。次の担当を起こすことには触れないでください。すべて日本語で書いてください。
       # 作る担当の GitHub に無い変更は、マシンと一緒に消えないよう wip の枝へ残す（作業ブランチは書き換えない）。
       - name: 残った変更

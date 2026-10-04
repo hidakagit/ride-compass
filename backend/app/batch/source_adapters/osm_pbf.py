@@ -4,6 +4,11 @@
 しか占めないうえ、捨てると後から解釈を変えられなくなる——分類（POIの種別・自転車が
 通れるか等）は派生の側で行う。
 
+ノードのソースは、採ったwayの頂点に加えて、道と関係なく置かれた補給・休憩の点も採る。
+面（way）で描かれた補給・休憩の施設は、面の内側の1点を**wayのidの符号を反転した値**を
+キーにしたノードとして採る——OSMのidは正の数で、ノードとwayはidの空間が別なので、
+反転すればノードのidと重ならない。
+
 wayの`payload`は参照ノードidをint64で並べた配列。属性として読める値ではないが、区間へ
 切るときに「どのwayがどのノードを共有しているか」が要る。
 
@@ -23,10 +28,12 @@ from pathlib import Path
 from typing import Any
 
 import shapely
-from shapely.geometry import LineString, Point
+from shapely.geometry import LineString, Point, Polygon
 
 from app.batch.ingest import SourceRecord, file_origin, register_adapter
-from app.batch.source_profile import SourceProfile, SourceSpec
+from app.batch.source_profile import SourceProfile, SourceProfileError, SourceSpec
+from app.domain.traffic import has_supply_poi_tag
+from app.infrastructure.source_models import WAY_KIND_TAG
 
 logger = logging.getLogger("ridecompass.ingest.osm_pbf")
 
@@ -45,9 +52,16 @@ class OsmWayRows:
     """`osm_pbf_way`の`rows`。"""
 
     #: 採るwayの条件。どれか1つに合えば採る。1つの条件はタグ名→許容値（`*`は値を問わない）のAND。
+    #: どの条件も道の種別（`WAY_KIND_TAG`）を含む——含まない条件は種別の無い道を採りうる。
     any_of: list[dict[str, Any]] = field(default_factory=list)
     #: 読むPBF（`data/pbf/`の下）。
     file: str = "kanto-latest.osm.pbf"
+
+    def __post_init__(self) -> None:
+        lacking = [rule for rule in self.any_of if WAY_KIND_TAG not in rule]
+        if lacking:
+            raise SourceProfileError(
+                f"rows.any_of の条件はどれも {WAY_KIND_TAG} を含む必要があります（含まない条件: {lacking}）")
 
 
 @dataclass(frozen=True)
@@ -56,6 +70,9 @@ class OsmNodeRows:
 
     #: 頂点を採るwayのソース。そのソースの条件とPBFを受け継ぐ。
     referenced_by: str
+    #: 道の頂点でない補給・休憩の点（点と面）も採るか。どのタグが補給・休憩かは
+    #: `domain/traffic.py: SUPPLY_POI_TAGS`が決める。
+    standalone_supply_poi: bool = False
 
 
 def _matches(tags: dict[str, str], rule: dict[str, Any]) -> bool:
@@ -99,6 +116,20 @@ def _pbf_path(rows: OsmWayRows) -> Path:
 def way_payload(node_ids: Sequence[int]) -> bytes:
     """wayの`payload`。参照ノードidを、リトルエンディアンの符号付き64bit整数で並べる。"""
     return struct.pack(f"<{len(node_ids)}q", *node_ids)
+
+
+def _area_point(node_ids: Sequence[int], coords: dict[int, tuple[float, float]]) -> Point | None:
+    """面で描かれた施設を代表する点（面の内側の1点）。閉じていないwayは線の上の1点にする。"""
+    points = [(coords[n][1], coords[n][0]) for n in node_ids if n in coords]
+    if not points:
+        return None
+    if len(points) >= 4 and node_ids[0] == node_ids[-1] and len(points) == len(node_ids):
+        shape = shapely.make_valid(Polygon(points))
+    elif len(points) >= 2:
+        shape = LineString(points)
+    else:
+        return Point(points[0])
+    return shape.point_on_surface()
 
 
 def _in_bbox(lat: float, lon: float, bbox: tuple[float, float, float, float]) -> bool:
@@ -218,15 +249,16 @@ async def read_osm_ways(spec: SourceSpec, profile: SourceProfile,
 @register_adapter("osm_pbf_node", rows=OsmNodeRows)
 async def read_osm_nodes(spec: SourceSpec, profile: SourceProfile,
                          origin: dict[str, Any]) -> AsyncIterator[SourceRecord]:
-    """採ったwayが参照する頂点を、タグ込みで返す。
+    """採ったwayが参照する頂点と、`standalone_supply_poi`なら補給・休憩の点を、タグ込みで返す。
 
-    タグの有無で分けない——POIかどうかは派生側の判定で、生データの側では決めない。
+    頂点はタグの有無で分けない——POIかどうかは派生側の判定で、生データの側では決めない。
     どのwayの頂点を採るかは`referenced_by`が指すソースの絞り込みに従う。
     """
     from app.batch.pbf_source import stream_ways
 
     bbox = profile.target.bbox
     referenced_by = spec.rows.referenced_by
+    standalone = spec.rows.standalone_supply_poi
     # 参照先からは**どのwayを採るかと、どのファイルから採るか**の両方を受け継ぐ。
     # 片方だけ受け継ぐと、既定以外のPBFを指したプロファイルで頂点だけ別のファイルを読む。
     way_rows = profile.source(referenced_by).rows
@@ -235,8 +267,12 @@ async def read_osm_nodes(spec: SourceSpec, profile: SourceProfile,
                          f"（指しているもの: {referenced_by}）")
     path = _pbf_path(way_rows)
     origin.update(_pbf_origin(path))
-    matches = _way_matcher(way_rows)
-    logger.info("OSM node: %s（%s の頂点）", path.name, referenced_by)
+    road_matches = _way_matcher(way_rows)
+    logger.info("OSM node: %s（%s の頂点%s）", path.name, referenced_by,
+                "と補給・休憩の点" if standalone else "")
+
+    def way_matches(tags: dict[str, str]) -> bool:
+        return road_matches(tags) or (standalone and has_supply_poi_tag(tags))
 
     def work(handoff: _Handoff) -> None:
         # PBFはノードがwayより先に来るため、wayを処理する時点でタグは揃っている。
@@ -244,9 +280,27 @@ async def read_osm_nodes(spec: SourceSpec, profile: SourceProfile,
         seen: set[int] = set()
 
         def node_sink(node: dict) -> None:
-            tagged[node["id"]] = node["tags"]
+            node_id = node["id"]
+            tagged[node_id] = node["tags"]
+            if standalone and has_supply_poi_tag(node["tags"]) and _in_bbox(node["lat"], node["lon"], bbox):
+                seen.add(node_id)
+                handoff.put(SourceRecord(
+                    natural_key=str(node_id),
+                    geom_wkb=shapely.to_wkb(Point(node["lon"], node["lat"])),
+                    attrs=node["tags"],
+                ))
 
         def sink(way: dict, coords: dict[int, tuple[float, float]]) -> None:
+            if standalone and has_supply_poi_tag(way["tags"]):
+                point = _area_point(way["nodes"], coords)
+                if point is not None and _in_bbox(point.y, point.x, bbox):
+                    handoff.put(SourceRecord(
+                        natural_key=str(-way["id"]),
+                        geom_wkb=shapely.to_wkb(point),
+                        attrs=way["tags"],
+                    ))
+            if not road_matches(way["tags"]):
+                return
             for node_id in way["nodes"]:
                 location = coords.get(node_id)
                 if location is None or node_id in seen:
@@ -261,7 +315,7 @@ async def read_osm_nodes(spec: SourceSpec, profile: SourceProfile,
                     attrs=tagged.get(node_id, {}),
                 ))
 
-        stream_ways(path, matches, sink, node_sink=node_sink)
+        stream_ways(path, way_matches, sink, node_sink=node_sink)
 
     handoff = _Handoff()
     async for record in handoff.drain(handoff.run(work)):

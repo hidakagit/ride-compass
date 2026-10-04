@@ -101,6 +101,7 @@ class FakeAxisRegistry:
     async def unpublish(self, axis_id):
         self._record("unpublish", axis_id)
         self.axes[axis_id] = self.axes[axis_id].model_copy(update={"is_published": False})
+        return self.axes[axis_id]
 
 
 @pytest.fixture

@@ -16,11 +16,7 @@ import type { MapViewport } from "@/features/map/layers/windLayer";
 import { useDedicatedWayValues } from "./useDedicatedWayValues";
 
 const { dedicatedAxes } = mapCatalogOf([
-  dedicatedEntry("timed", [1], {
-    dynamic_way_value_needs_time: true,
-    dynamic_way_value_needs_bearing: true,
-    dynamic_way_value_needs_speed: true,
-  }),
+  dedicatedEntry("timed", [1], { dynamic_way_value_conditions: ["at", "bearing_deg", "speed_kmh"] }),
   dedicatedEntry("static", [1]),
 ]);
 const [, STATIC] = dedicatedAxes;

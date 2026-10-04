@@ -10,7 +10,7 @@
 
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Literal
 
 JobStatus = Literal["queued", "running", "done", "failed"]
@@ -25,9 +25,7 @@ JOB_TTL_SECONDS = 600.0
 
 @dataclass
 class JobRecord:
-    job_id: str
     status: JobStatus = "queued"
-    created_at: float = field(default_factory=time.monotonic)
     finished_at: float | None = None
     result: Any = None
     error: str | None = None
@@ -40,7 +38,7 @@ def create_job() -> str:
     """新規ジョブを"queued"状態で登録し、job_idを返す。"""
     _purge_expired()
     job_id = uuid.uuid4().hex
-    _JOBS[job_id] = JobRecord(job_id=job_id)
+    _JOBS[job_id] = JobRecord()
     return job_id
 
 
@@ -49,25 +47,21 @@ def get_job(job_id: str) -> JobRecord | None:
 
 
 def set_running(job_id: str) -> None:
-    record = _JOBS.get(job_id)
-    if record is not None:
-        record.status = "running"
+    _JOBS[job_id].status = "running"
 
 
 def set_done(job_id: str, result: Any) -> None:
-    record = _JOBS.get(job_id)
-    if record is not None:
-        record.status = "done"
-        record.result = result
-        record.finished_at = time.monotonic()
+    record = _JOBS[job_id]
+    record.status = "done"
+    record.result = result
+    record.finished_at = time.monotonic()
 
 
 def set_failed(job_id: str, error: str) -> None:
-    record = _JOBS.get(job_id)
-    if record is not None:
-        record.status = "failed"
-        record.error = error
-        record.finished_at = time.monotonic()
+    record = _JOBS[job_id]
+    record.status = "failed"
+    record.error = error
+    record.finished_at = time.monotonic()
 
 
 def _purge_expired() -> None:

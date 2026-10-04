@@ -38,13 +38,15 @@ export interface AxisCatalog {
   failed: boolean;
 }
 
-/** フロントが読む較正値のid。**ここに並んだidは、ビルド時生成物
- * （route-generate-config.json）に必ず在る**ことをテストが固定する——backendの宣言から
+/** ビルド時生成物（route-generate-config.json）に在る較正値のid。 */
+type ClientTuningId = keyof (typeof import("@/types/generated/route-generate-config.json"))["client_tuning"];
+
+/** フロントが読む較正値のid。**ここに並んだidは、ビルド時生成物に在るものだけを型が通す**——backendの宣言から
  * 消す/綴りを変えると、フロントは引けないまま、その値を使う機能を黙って出さなくなるため。 */
 export const CLIENT_TUNING_IDS = {
   /** 区間を割る下限（km）。これ未満の共有区間では割らない（`features/route/routeSplice.ts`）。 */
   minStretchKm: "splice.min_stretch_km",
-} as const;
+} as const satisfies Record<string, ClientTuningId>;
 
 /** 較正値を1つ引く。**引けなければ`undefined`**——ここで既定を作らない。既定を作ると、
  * 宣言から消えた値を「0」等として使い続け、較正したのとは別の挙動で黙って動く。 */

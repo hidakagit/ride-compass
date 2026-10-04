@@ -1,58 +1,44 @@
-"""`infrastructure/http_client.py`——timeoutごとに1本だけ持つHTTPクライアントの引き出し。
+"""`infrastructure/http_client.py`——外部APIへの共有HTTPクライアント（`get_http_client`・`close_all_http_clients`）。
+
+共有のクライアントはプロセス大域に溜まるので、テストごとに空の置き場から始め、閉じる口で片付ける。
 
 ここで見ないもの:
-
-- どの呼び出しがどのtimeoutを要求するか → `app/api/dependencies.py`側の話
-- 終了時に誰がいつ閉じるか（lifespanの順序） → `test_main_lifespan.py`
-- 受け取ったクライアントで何をするか → 各クライアントのテスト
-
-**通信はしない。** 確かめるのは引き出しの出し入れだけで、httpx自身の振る舞いは対象外。
-引き出しはプロセス大域のため、各テストの前後で空にする。
+- クライアントを通した外部APIの呼び出し → 各クライアントのテスト（例: `test_simple_api_client.py`）
+- 起動時のウォームアップとシャットダウンで閉じること → `main.py`のlifespan（結線のみ）
 """
 
 import httpx
 import pytest
 
-from app.infrastructure.http_client import close_all_http_clients, get_http_client
-
-TIMEOUT_A = 7.5
-TIMEOUT_B = 15.0
+from app.infrastructure import http_client
 
 
 @pytest.fixture(autouse=True)
-async def _empty_drawer():
-    await close_all_http_clients()
+async def empty_clients(monkeypatch):
+    monkeypatch.setattr(http_client, "_clients", {})
     yield
-    await close_all_http_clients()
+    await http_client.close_all_http_clients()
 
 
-async def test_asking_twice_for_the_same_timeout_gets_the_same_client():
-    """要求のたびに作ると、SSLコンテキストの構築がイベントループを同期的に止める。"""
-    assert get_http_client(TIMEOUT_A) is get_http_client(TIMEOUT_A)
+def test_the_same_timeout_reuses_one_client():
+    assert http_client.get_http_client(10.0) is http_client.get_http_client(10.0)
 
 
-async def test_each_timeout_gets_a_client_of_its_own():
-    assert get_http_client(TIMEOUT_A) is not get_http_client(TIMEOUT_B)
+def test_each_timeout_gets_its_own_client_with_that_timeout():
+    short = http_client.get_http_client(10.0)
+    long = http_client.get_http_client(15.0)
+
+    assert short is not long
+    assert short.timeout == httpx.Timeout(10.0)
+    assert long.timeout == httpx.Timeout(15.0)
 
 
-async def test_the_client_waits_as_long_as_it_was_asked_to():
-    """別のtimeoutの引き出しから配ると、短い締め切りを要求した呼び出しが長く待たされる。"""
-    assert get_http_client(TIMEOUT_A).timeout == httpx.Timeout(TIMEOUT_A)
+async def test_closing_closes_every_client_and_the_next_request_gets_an_open_one():
+    clients = [http_client.get_http_client(10.0), http_client.get_http_client(15.0)]
 
+    await http_client.close_all_http_clients()
 
-async def test_closing_shuts_every_client_that_was_handed_out():
-    """開いたまま残すと、プロセスが終わるまで接続が残る。"""
-    clients = [get_http_client(TIMEOUT_A), get_http_client(TIMEOUT_B)]
-
-    await close_all_http_clients()
-
-    assert [client.is_closed for client in clients] == [True, True]
-
-
-async def test_a_request_after_closing_gets_a_fresh_client():
-    """閉じたクライアントを配り続けると、以降のリクエストがすべて失敗する。"""
-    closed = get_http_client(TIMEOUT_A)
-
-    await close_all_http_clients()
-
-    assert get_http_client(TIMEOUT_A) is not closed
+    assert all(client.is_closed for client in clients)
+    reopened = http_client.get_http_client(10.0)
+    assert reopened not in clients
+    assert not reopened.is_closed

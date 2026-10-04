@@ -45,12 +45,12 @@ DB接続・Redis・HTTPクライアント・レート制限・ログ・デバッ
 | scripts | `_stdio.py` | `scripts/`の実行口が共通で使う、標準出力・標準エラーのUTF-8化 |
 | scripts | `run_probe.py` | 調査用のスクリプトを本番DBに対して走らせる（手元のPythonから本番DBを引くか、本番のbackendコンテナの中で走らせる）。手元実行では接続文字列をSQLAlchemy用と素のasyncpg用の両方の形で環境変数へ渡す。プローブの後ろに書いた引数はそのままプローブへ渡す |
 | scripts | `derived_distribution.py` | 派生の表の値の列ごとに、値のある割合と、型に応じた分布（数: 0でない割合・合計・分位・最大、真偽: 真の割合、文字: 種類の数）を1列1行で出す。表と列は`infrastructure/derived_data_freshness.py: derived_tables`・`value_columns`から導く。派生の値を変える変更の前後を並べるための道具（[flow.md](../../conventions/flow.md)「分布の前後」）。本番DBへは`run_probe.py`で当てる |
-| scripts | `_prod_env.py` | 本番へつなぐ道具（`run_probe.py`・`axis_apply.py`等）が共有する、手元の接続情報（`backend/.env.oracle.local`）の読み方。worktreeから打ったときは本体のチェックアウト側のファイルを読む（gitignore対象のファイルはworktreeへ写らない） |
+| scripts | `_prod_env.py` | 本番へつなぐ道具（`run_probe.py`・`axis_apply.py`等）が共有する、手元の接続情報（`backend/.env.oracle.local`）の読み方。worktreeから打ったときは本体のチェックアウト側のファイルを読む（gitignore対象のファイルはworktreeへ写らない）。接続情報を渡す前に、このチェックアウトがorigin/masterより遅れていれば止まる（[setup.md](../../architecture/setup.md)「開発機の本体のチェックアウトの遅れ」） |
 | scripts | `check_db_connection.py` | `DATABASE_URL`（既定は`.env`）へつながるかだけを確かめる |
 | scripts | `drop_orphan_test_databases.py` | 作業ツリーごとに作られるPostGIS統合テストのDBのうち、作業ツリーが無くなったものを出し、`--drop`で落とす。どの作業ツリーのものかはDB自身のコメントから読む（名前から推測しない） |
 | scripts | `serve_e2e_live.py` | e2e-live（`frontend/e2e-live/`）のために、この作業ツリーのbackendを開発DBへ向けて空いたポートで起動し、路面タイルに道が出る起点を開発DBの区間から選んで、ビルドと実行のコマンドを出す（手順の正本は[testing.md](../../conventions/testing.md)） |
 | scripts | `dead_code_survey.py` | 本番の入力の源流（`scripts/`・`benchmarks/`・`main.py`とアプリの起動・ルートハンドラ等の入口）から参照をたどり、たどり着かない`app/`の定義を出す。テストは源流に含めない。曖昧な参照は生きている側へ倒す |
-| scripts | `audit_test_rewrite.py` | 実装から起こし直したテストを外から測る（実装を変えていないか・テストが読む`app.*`・対象の属性の出どころ・seams 数・実装へ1行も入らないテスト・カバレッジ。テストは対象を読む母集団を並べて渡す）。起こし直しの手順は[testing.md](../../conventions/testing.md) |
+| scripts | `audit_test_rewrite.py` | 実装から起こし直したテストを外から測る（実装を変えていないか・テストが読む`app.*`・対象の属性の出どころ・seams 数・実装へ1行も入らないテスト・カバレッジ。テストは対象を読む母集団を並べて渡す。PostGISのテストはテスト用DBへ繋がるときだけ含める）。起こし直しの手順は[testing.md](../../conventions/testing.md) |
 
 ## Pydanticモデルの基底（`domain/strict_model.py`）
 
@@ -203,14 +203,13 @@ None）へ倒す箇所は、`except Exception`ではなくこのタプルだけ�
 形のまま「データなし」に見え、誰も気づかない。
 空へ倒さずに503で知らせる口（管理APIの集計・軸の編集）も、捕まえるのは同じタプルである。
 
-中身はSQLAlchemy 2.0＋asyncpgで例外がどう届くかから決まっている（ソースで確認）:
+中身はSQLAlchemy 2.1＋asyncpgで例外がどう届くかから決まっている（ソースで確認）:
 
-- 実行中の失敗はasyncpgの例外が`DBAPIError`へ訳される。プールの待ち切れは
-  `sqlalchemy.exc.TimeoutError`。どちらも`SQLAlchemyError`。
+- 接続を張る段階（接続数の上限・認証等）と実行中の失敗は、asyncpgの例外（`asyncpg.PostgresError`・
+  `asyncpg.InterfaceError`）が`DBAPIError`へ訳される（方言の`_asyncpg_error_translate`）。プールの待ち切れは
+  `sqlalchemy.exc.TimeoutError`。どれも`SQLAlchemyError`。
 - `command_timeout`の`TimeoutError`は訳されずに届く（Python 3.11以降は`OSError`の派生）。
   接続の拒否・切断も`OSError`。
-- 接続を張る段階ではSQLAlchemyがasyncpgの`connect`を直接呼ぶため、接続数の上限・認証等の
-  失敗は`asyncpg.PostgresError`・`asyncpg.InterfaceError`のまま届く（`DBAPIError`にならない）。
 
 ## レート制限の集約（`api/rate_limit.py: enforce_rate_limit`）
 

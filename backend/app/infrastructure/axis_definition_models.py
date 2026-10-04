@@ -6,7 +6,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, Integer, String, func
+from sqlalchemy import Boolean, DateTime, Float, Integer, String, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -22,7 +22,10 @@ class AxisDefinitionRow(Base):
     """
 
     __tablename__ = "axis_definitions"
-    __table_args__ = {"info": IRREPLACEABLE}
+    __table_args__ = (
+        UniqueConstraint("sort_order", name="axis_definitions_sort_order_key"),
+        {"info": IRREPLACEABLE},
+    )
 
     axis_id: Mapped[str] = mapped_column(String, primary_key=True)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -45,8 +48,4 @@ class AxisDefinitionRow(Base):
     display_thresholds_override: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     display_band_labels_override: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     dedicated_way_value_layer: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
-    # dedicated_way_value_layer=trueの軸だけが意味を持つ。
-    dynamic_way_value_needs_time: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
-    dynamic_way_value_needs_bearing: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
-    dynamic_way_value_needs_speed: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

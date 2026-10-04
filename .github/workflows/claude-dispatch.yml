@@ -1,8 +1,7 @@
-# 振り出しの見回り（tools/flow-gate/bin/dispatch.js --watch）。1つの実行の中で決まった間隔ごとに、担当のワークフロー
-# （claude-task.yml）を動いている数が上限になるまでキューの上から起こし、全体の様子を Project の状況の更新に書く。
-# 見回りの持ち時間（flow.config.json: coordinator.watchForMinutes）が過ぎたら、次の実行を起こしてから終える。
-# 止めるときは、置き場の開いた issue のどれかにラベル「停止」を付ける（見回りは続くが振り出さない）。見回りそのものを止めるなら、
-# このワークフローを Actions の画面で無効にし（Disable workflow）、動いている実行を Cancel する。
+# 振り出しの見回り。決まった間隔（flow.config.json: coordinator.watchEveryMinutes）ごとに、master の今の道具を取り出し直して
+# tools/flow-gate/bin/dispatch.js を1周打つ（master に入った変更が次の周から効く）。持ち時間（coordinator.watchForMinutes）が
+# 過ぎたら、次の実行を起こしてから終える。止めるときは、このワークフローを Actions の画面で無効にする（Disable workflow）。
+# 動いている実行は次の周で無効と読み（dispatch.js が終わりの値 3 で終える）、次を起こさない。戻すときは Enable workflow のあと Run workflow。
 name: Claude Dispatch
 
 on:
@@ -11,29 +10,42 @@ on:
 permissions:
   contents: read
 
-# 見回りは1本ずつ。動いている間に起きたものは待ち、待っているものは1つだけ残る（新しいものが前のものを取り消す）。
+# 見回りは1本ずつ。動いている間に起きたものは待ち、待っているものは1つだけ残る。
 concurrency:
   group: claude-dispatch
 
 jobs:
   dispatch:
     runs-on: ubuntu-latest
-    # 見回りの持ち時間より長く、GitHub のジョブの上限（6時間）を超えない。
     timeout-minutes: 360
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-      - run: node tools/flow-gate/bin/dispatch.js --watch
+      # 1周の失敗（GitHub の一時の失敗など）では止めない。持ち時間のあいだ1周も通らなかったときだけ失敗で終える（次を起こさない）。
+      - name: 見回る
+        id: watch
+        run: |
+          config=tools/flow-gate/flow.config.json
+          every=$(node -p "require('./$config').coordinator.watchEveryMinutes")
+          end=$(( $(date +%s) + $(node -p "require('./$config').coordinator.watchForMinutes") * 60 ))
+          ok=0
+          while [ "$(date +%s)" -lt "$end" ]; do
+            git fetch -q origin master && git checkout -q FETCH_HEAD -- tools/flow-gate
+            code=0
+            node tools/flow-gate/bin/dispatch.js || code=$?
+            if [ "$code" = 3 ]; then echo "stopped=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+            if [ "$code" = 0 ]; then ok=1; else echo "見回りの1周に失敗（終わりの値 $code）"; fi
+            sleep $(( every * 60 ))
+          done
+          [ "$ok" = 1 ]
         env:
           FLOW_BOT_TOKEN: ${{ secrets.FLOW_BOT_TOKEN }}
           GH_TOKEN: ${{ secrets.CODE_TOKEN }}
-      # GITHUB_TOKEN で起こした実行は新しい実行を作らないので、hidakagit のトークンで起こす。見回りの1回ごとの失敗は
-      # dispatch.js が受け止めるので、ジョブごと失敗するのは続く不具合のときだけで、そこで次を起こすと失敗の実行が
-      # 止まらずに続く。成功して終えたときだけ起こす（Cancel・失敗で途切れたら、状況の更新が書き換わらなくなる）。
+      # GITHUB_TOKEN で起こした実行は新しい実行を作らないので、hidakagit のトークンで起こす。
       - name: 次の見回りを起こす
-        if: ${{ success() }}
+        if: ${{ success() && steps.watch.outputs.stopped != 'true' }}
         run: gh workflow run claude-dispatch.yml -R "$GITHUB_REPOSITORY" --ref master
         env:
           GH_TOKEN: ${{ secrets.CODE_TOKEN }}

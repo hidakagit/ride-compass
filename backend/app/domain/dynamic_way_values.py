@@ -1,7 +1,7 @@
-"""専用way値レイヤー（`dedicated_way_value_layer=True`の軸）が対象とする軸の宣言。状態機械
-（ルート未確定=ユーザー指定パラメータを全道路へ一律適用／ルート確定後=ルート自身の実値を
-ルート線のみへ適用）は軸非依存で、実際に何のパラメータ（時刻・向き・速度）を必要と
-するかだけをここで宣言する。
+"""専用way値レイヤー（`dedicated_way_value_layer=True`の軸）の、要求の条件の組み立てと地図が塗る値。
+状態機械（ルート未確定=ユーザー指定パラメータを全道路へ一律適用／ルート確定後=ルート自身の実値を
+ルート線のみへ適用）は軸非依存で、要求の条件（時刻・向き・速度）のうち何が要るかは値を返す
+サービスが受け取る条件の型で決まる（`assemble_conditions`）。
 
 **この層で扱うidは軸id（`axis_definitions.axis_id`）であり、材料id
 （`material_catalog.py`のキー、例: `wind_drag_ratio`）ではない。**両者は名前空間が
@@ -14,8 +14,9 @@
 """
 
 from collections.abc import Mapping
-from dataclasses import dataclass
-from typing import Annotated, Literal, cast
+from dataclasses import MISSING, dataclass, fields
+from datetime import datetime
+from typing import TYPE_CHECKING, Annotated, Literal, TypeVar, cast
 
 from pydantic import Field
 
@@ -34,6 +35,9 @@ from app.domain.strict_model import StrictModel
 #: ——無次元の得点には目盛りの手掛かりが無いので、3等分する。符号付き材料の段は
 #: 軸の折れ線から導く（`_signed_thresholds_from_breakpoints`）ので、ここには持たない。
 DEFAULT_DIFFICULTY_BOUNDARIES: tuple[float, ...] = (33, 66)
+
+if TYPE_CHECKING:
+    from _typeshed import DataclassInstance
 
 # 地図がその軸について塗る値の種類。`signed_material`は「単一材料の絶対値を評価する軸」
 # （勾配のように向きの符号が意味を持つ）で、地図は難易度ではなく符号付きの材料生値を塗る。
@@ -63,46 +67,47 @@ class SignedMaterialMapValue(StrictModel):
 MapValue = Annotated[DifficultyMapValue | SignedMaterialMapValue, Field(discriminator="kind")]
 
 
+#: 専用配信の要求が運ぶ条件の名前。`WayValueQuery`の欄の名前で、配信のクエリパラメータの名前でもある。
+WayValueConditionName = Literal["at", "bearing_deg", "speed_kmh"]
+
+
 @dataclass(frozen=True)
-class DedicatedWayValueAxis:
-    axis_id: str
-    label: str
-    # 時刻（`at`クエリパラメータ）に依存するか。風=Yes（気象予報が時々刻々変わる）、
-    # 勾配=No（標高・道路の向きは時刻で変わらない）。
-    needs_time: bool
-    # 向き（`bearing_deg`クエリパラメータ）に依存するか。風・勾配どちらもYes——向きの
-    # *出所*（外部データ/道路自身に内在）が異なるだけで、パラメータとしては両方とも
-    # ユーザー指定の走行方位を必要とする。
-    needs_bearing: bool
-    # 想定速度（`speed_kmh`クエリパラメータ）に依存するか。走行速度依存の材料
-    # （`wind_drag_ratio`）を参照する軸で立てる。
-    needs_speed: bool
+class WayValueQuery:
+    """専用配信の要求が運ぶ条件。どれも省略されうる——どれが要るかは、値を返すサービスが
+    受け取る条件の型（`assemble_conditions`の`kind`）が決める。欄の名前は`WayValueConditionName`。"""
+
+    at: datetime | None
+    bearing_deg: float | None
+    speed_kmh: float | None
 
 
-def dedicated_way_value_axes() -> dict[str, DedicatedWayValueAxis]:
-    """`AXIS_DEFINITIONS`から`dedicated_way_value_layer=True`の軸を抽出して導出する。
+@dataclass(frozen=True)
+class MissingConditions:
+    """サービスが要る条件のうち、要求に無かったものの名前（`WayValueQuery`の欄の名前）。"""
 
-    定数ではなく呼び出しの都度導出する関数なのは、`AXIS_DEFINITIONS`がプロセス起動時・
-    管理API書き込み直後にin-place更新されるため。軸スタジオでの設定はここへ自動的に
-    反映される。
+    names: tuple[str, ...]
 
-    配信できる値があるかは別で、軸が参照する材料の値を組み立てるサービス本体が
-    `services/dedicated_way_values.py: _DEDICATED_WAY_VALUE_SERVICES`に登録されている必要がある
-    （材料ごとに1回のコード変更。軸を増やすたびには要らない）。登録の無い材料だけを
-    参照する軸へこのフラグを立てることは書き込み時に拒否される
-    （`axis_admin.py: _check_dedicated_layer_is_implemented`）。
+
+_C = TypeVar("_C", bound="DataclassInstance")
+
+
+def assemble_conditions(kind: type[_C], query: WayValueQuery) -> _C | MissingConditions:
+    """サービスが受け取る条件（frozen dataclassの`kind`）を要求から組み立てる。
+
+    `kind`の欄は`WayValueQuery`の同じ名前の欄から取り、既定値の無い欄が要るものになる。
+    **方位・速度の欠けを判定するのはここだけ**——サービスは組み立て済みの値だけを受け取るので、
+    要る欄は`None`を許さない型のまま届く。地図の配信は欠けを422に、区間インスペクタは
+    「データなし」にする。
     """
-    return {
-        axis_id: DedicatedWayValueAxis(
-            axis_id=axis_id,
-            label=definition.label,
-            needs_time=definition.dynamic_way_value_needs_time,
-            needs_bearing=definition.dynamic_way_value_needs_bearing,
-            needs_speed=definition.dynamic_way_value_needs_speed,
-        )
-        for axis_id, definition in AXIS_DEFINITIONS.items()
-        if definition.dedicated_way_value_layer
-    }
+    kind_fields = fields(kind)
+    values = {field.name: getattr(query, field.name) for field in kind_fields}
+    missing = tuple(
+        field.name for field in kind_fields
+        if values[field.name] is None and field.default is MISSING and field.default_factory is MISSING
+    )
+    if missing:
+        return MissingConditions(missing)
+    return kind(**values)
 
 
 def map_value_kind(definition: AxisDefinition) -> MapValueKind:

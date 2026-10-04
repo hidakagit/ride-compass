@@ -1,6 +1,6 @@
 """レグ（基準点・時刻・向き）ごとのコスト配列の合成。
 
-探索範囲の静的スコア行列・重み・0次フィルタ・風の予報から、区間ごとの体感の所要時間（探索のコスト）と、
+探索範囲の静的スコア行列・重み・0次フィルタ・風の予報・昼夜から、区間ごとの体感の所要時間（探索のコスト）と、
 区間の表示が読む難易度・軸・材料・所要時間を、時刻ビンごとに合成する。外部とはやり取りせず、配列だけを受け取って配列を返す。
 探索（`services/road_graph_engine.py`）はここが合成した配列をそのまま読み、区間の表示も同じ配列から読む
 （探索コストと表示の一致、design-principles.md構造仕様10）。構造と前提はdocs/modules/backend/routing-engine.md
@@ -10,7 +10,7 @@
 import logging
 import math
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -21,6 +21,7 @@ from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
     REQUEST_DYNAMIC_MATERIAL_IDS,
     dynamic_axis_topological_order,
+    time_scoped_weights,
 )
 from app.domain.cycling_speed import (
     ROLLING_RESISTANCE_MATERIAL_ID,
@@ -32,7 +33,9 @@ from app.domain.difficulty import axis_contributions_at_row, axis_weighted_sums
 from app.domain.dynamic_materials import DynamicAxisRequestContext, evaluate_dynamic_axis_arrays
 from app.domain.evaluation import AxisComposition, StaticEdgeScoreMatrix, compose_costs_from_axis_matrix
 from app.domain.route import Coordinates, SegmentWind
+from app.domain.time_zone import JST
 from app.domain.traffic import POI_COUNT_KINDS, stop_count_material_ids, stop_seconds
+from app.domain.twilight import night_mask
 from app.domain.weather import WeatherConditions
 from app.domain.wind import WindForecastSeries, kmh_to_ms
 
@@ -49,7 +52,8 @@ logger = logging.getLogger("ridecompass.graph")
 @dataclass
 class LegCostArrays:
     """1レグぶんの合成済みコスト配列一式。`cost_lazy`は区間の番号順（探索が使う
-    行順）、それ以外は切り出した区間の順の表示用配列。レグごとに違うのは風（各Edgeの通過予定時刻の風）だけで、静的軸の列は共有する。"""
+    行順）、それ以外は切り出した区間の順の表示用配列。レグごとに違うのは通過予定時刻で決まるもの（各Edgeの
+    通過予定時刻の風と、時間帯を持つ軸の重み）だけで、静的軸の列は共有する。"""
 
     cost_lazy: np.ndarray
     difficulty_array: np.ndarray
@@ -58,7 +62,9 @@ class LegCostArrays:
     # `axis_contributions_at`が読むときに1行だけ求める——全区間ぶん作っても、読むのは
     # 経路上の数百区間だけのため。
     weight_sums: np.ndarray
-    weights: dict[str, float]
+    # 合成に使った重み。時間帯を持つ軸（`time_scope`）は、区間ごとの通過時刻で決めた重みの配列
+    # （切り出した区間の順、`domain/axis_definitions.py: time_scoped_weights`）。
+    weights: Mapping[str, float | np.ndarray]
     # 折れ点を通す前の生値（切り出した区間の順）。静的スコア行列の列をそのまま指すため
     # レグ間で同じ配列を共有する（風のようにレグごとに変わる値は持たない）。
     axis_raw_arrays: dict[str, np.ndarray]
@@ -103,7 +109,7 @@ class RowValues:
     difficulty_array: np.ndarray
     axis_arrays: dict[str, np.ndarray]
     weight_sums: np.ndarray
-    weights: dict[str, float]
+    weights: Mapping[str, float | np.ndarray]
     material_arrays: dict[str, np.ndarray]
 
     def axis_contributions_at(self, row: int) -> dict[str, float]:
@@ -144,16 +150,17 @@ class _Evaluated:
     material_arrays: dict[str, np.ndarray]
     travel: np.ndarray
     composed: AxisComposition
+    weights: Mapping[str, float | np.ndarray]
 
 
 class LegCostComposer:
     """bbox全体ぶんのコスト配列を、レグ（基準点・時刻オフセット・向き）ごとに合成する。
     静的スコア行列・重み・0次フィルタ・lazy_graph行順の対応表はリクエスト内で共通のため
-    1回だけ用意する。風に依らない計算（走行モデルの出力と一定の抵抗・停止の待ち、時刻で変わる軸に
+    1回だけ用意する。時刻に依らない計算（走行モデルの出力と一定の抵抗・停止の待ち、時刻で変わる軸に
     重みが無ければ合成の難易度と割増の倍率も）はリクエストに1回だけ求め、時刻ビンごとには
-    その時刻の風に依る計算だけを行う。
-    **風の時別系列が無いときだけ**、出発時点のスナップショットで合成した1本（`snapshot`）を
-    全レグで共有する（追加コストゼロ）。系列があれば軸の重みが0でも時刻で引き直す
+    その時刻の風と昼夜に依る計算だけを行う。
+    **風の時別系列が無く、時間帯を持つ軸にも重みが無いときだけ**、出発時点のスナップショットで合成した
+    1本（`snapshot`）を全レグで共有する（追加コストゼロ）。系列があれば軸の重みが0でも時刻で引き直す
     ——理由は`__init__`の`self.time_varying`のコメント参照。"""
 
     def __init__(
@@ -168,6 +175,7 @@ class LegCostComposer:
         speed_kmh: float,
         lazy_row_index: np.ndarray,
         detour_ratio: float,
+        twilight_origin: Coordinates,
     ) -> None:
         self._score_matrix = score_matrix
         self._axis_raw_arrays = {
@@ -184,11 +192,17 @@ class LegCostComposer:
             zip(score_matrix.categorical_material_ids, score_matrix.categorical_material_columns, strict=True)
         )
         self._static_axis_scores = score_matrix.axis_arrays()
-        # 時刻で変わる（風に依存する）公開軸と、それ以外。ビンごとの合成では後者の重み付き和を
-        # 使い回す——合成の時間は軸数にほぼ比例するため、毎回全軸を足し直すと本数ぶん効く。
+        # 時刻で変わる公開軸（風に依存する軸と、時間帯を持つ軸）と、それ以外。ビンごとの合成では後者の
+        # 重み付き和を使い回す——合成の時間は軸数にほぼ比例するため、毎回全軸を足し直すと本数ぶん効く。
         dynamic_axes = set(dynamic_axis_topological_order(AXIS_DEFINITIONS))
-        self._time_varying_axis_ids = [a for a in score_matrix.axis_ids if a in dynamic_axes]
-        self._fixed_axis_ids = [a for a in score_matrix.axis_ids if a not in dynamic_axes]
+        time_scoped_axes = {
+            axis_id for axis_id in score_matrix.axis_ids
+            if (definition := AXIS_DEFINITIONS.get(axis_id)) is not None and definition.time_scope != "always"
+        }
+        self._time_varying_axis_ids = [
+            a for a in score_matrix.axis_ids if a in dynamic_axes or a in time_scoped_axes
+        ]
+        self._fixed_axis_ids = [a for a in score_matrix.axis_ids if a not in self._time_varying_axis_ids]
         # 重みが0の軸は合成に何も足さないので、時刻で変わる軸がすべて重み0なら合成は時刻に依らない。
         self._composition_is_time_invariant = all(
             weights.get(axis_id, 0.0) == 0.0 for axis_id in self._time_varying_axis_ids
@@ -204,6 +218,8 @@ class LegCostComposer:
             else wind_series.lattice.points_of(score_matrix.mid_lat, score_matrix.mid_lon)
         )
         self.start = start
+        # 昼夜を決める地点。探索範囲の中の位置の違いで薄明の時刻がずれるのは数分のため、区間ごとには引かない。
+        self._twilight_origin = twilight_origin
         self.speed_kmh = speed_kmh
         self._lazy_row_index = lazy_row_index
         # lazy行順の配列を切り出した区間の順へ戻す並べ替え表（`_lazy_row_index`の逆）。
@@ -212,12 +228,14 @@ class LegCostComposer:
         self._full_row_index = np.full(len(score_matrix.distance_m), -1, dtype=np.int64)
         self._full_row_index[lazy_row_index] = np.arange(len(lazy_row_index))
         # 通過予定時刻の推定に使う迂回率（道なり距離÷直線距離）。探索範囲ごとの学習値が
-        # あればそれ、無ければ`ROUTE_DETOUR_RATIO`。`compose`の引数で個別に上書きできる。
+        # あればそれ、無ければ`ROUTE_DETOUR_RATIO`。合成には使わず、レグの時刻を置く探索の側が読む。
         self.detour_ratio = detour_ratio
         # 風の時別系列があれば常に時変化合成する。風は軸（主観的な避けたさ）である前に
         # **走行モデルの入力**（向かい風で実際に遅くなる）のため、軸の重みが0でも時刻で
-        # 引き直す必要がある。
-        self.time_varying = wind_series is not None
+        # 引き直す必要がある。時間帯を持つ軸は重みがあるときだけ、通過時刻の昼夜で合成が変わる。
+        self.time_varying = wind_series is not None or any(
+            weights.get(axis_id, 0.0) > 0 for axis_id in time_scoped_axes
+        )
         self._cache: dict[tuple, LegCostArrays] = {}
         self._fixed_axis_sums_cache: tuple[np.ndarray, np.ndarray] | None = None
         self._travel_inputs_cache: tuple[SegmentSpeedModel, np.ndarray] | None = None
@@ -283,7 +301,7 @@ class LegCostComposer:
 
         `anchor`は座標の値も在るかどうかも使わない（ログへ出すだけ）——風の予報は起点
         1地点ぶんを`WeatherService`が既に引いており、ここでは方位だけがEdgeごとに効く。
-        時刻で変えるかどうかは`time_varying`（風の時別系列があるか）だけで決まる。
+        時刻で変えるかどうかは`time_varying`（風の時別系列があるか・時間帯を持つ軸に重みがあるか）だけで決まる。
 
         `duration_hours`（このレグに何時間かかる見込みか）を渡すと、レグの中を
         `TIME_BIN_HOURS`ごとのビンへ分けた配列（`cost_bins_lazy`）も併せて作る。到達時刻を
@@ -342,7 +360,7 @@ class LegCostComposer:
             difficulty_array=representative.difficulty_array,
             axis_arrays=representative.axis_arrays,
             weight_sums=representative.weight_sums,
-            weights=self._weights,
+            weights=representative.weights,
             axis_raw_arrays=self._axis_raw_arrays,
             material_arrays=representative.material_arrays,
             categorical_material_arrays=self._categorical_material_arrays,
@@ -422,9 +440,14 @@ class LegCostComposer:
     def _evaluate(self, passage: np.ndarray | None, rows: np.ndarray | None = None) -> _Evaluated:
         """指定した通過時刻（`None`は出発時点のスナップショット）で、軸・材料・所要時間・合成を求める。
         `rows`を渡すとその行だけで求める（`passage`も同じ並び）——探索の合成と同じ式を、経路上の数百行へ
-        当て直すために使う。"""
+        当て直すために使う。時間帯を持つ軸の重みは、区間ごとの通過時刻（スナップショットは出発時刻）の昼夜で決める。"""
         take = _row_taker(rows)
         bearing = take(self._score_matrix.bearing_deg)
+        hours = np.zeros(len(bearing)) if passage is None else passage
+        weights = time_scoped_weights(
+            self._weights,
+            {"night_only": night_mask(self._twilight_origin, self.start.replace(tzinfo=JST), hours)},
+        )
         dynamic_context = DynamicAxisRequestContext(
             bearing_deg=bearing, weather=self._weather,
             travel_speed_ms=kmh_to_ms(self.speed_kmh),
@@ -462,10 +485,12 @@ class LegCostComposer:
         else:
             time_varying = {axis_id: resolved[axis_id] for axis_id in self._time_varying_axis_ids}
             composed = compose_costs_from_axis_matrix(
-                take(self._score_matrix.distance_m), time_varying, self._weights, self._penalty_strength,
+                take(self._score_matrix.distance_m), time_varying, weights, self._penalty_strength,
                 base=travel, static_sums=self._fixed_axis_sums(rows),
             )
-        return _Evaluated(published=published, material_arrays=material_arrays, travel=travel, composed=composed)
+        return _Evaluated(
+            published=published, material_arrays=material_arrays, travel=travel, composed=composed, weights=weights,
+        )
 
     def values_at_rows(self, rows: np.ndarray, passage_hours: np.ndarray) -> RowValues:
         """経路上の行`rows`（切り出した区間の順の行番号）だけを、行ごとの通過時刻`passage_hours`で合成し直す。"""
@@ -475,13 +500,13 @@ class LegCostComposer:
             difficulty_array=evaluated.composed.difficulty,
             axis_arrays=evaluated.published,
             weight_sums=evaluated.composed.weight_sums,
-            weights=self._weights,
+            weights=evaluated.weights,
             material_arrays=evaluated.material_arrays,
         )
 
     @property
     def weights(self) -> dict[str, float]:
-        """合成に使った軸の重み。区間に載せる材料の集合もこの重みから決まる。"""
+        """利用者の軸の重み（時間帯を持つ軸も、通過時刻で0にする前の値）。区間に載せる材料の集合はこの重みから決まる。"""
         return self._weights
 
     @property
@@ -545,8 +570,10 @@ class LegCostComposer:
                     extended=bool(clamped[j]) or beyond_bins[i],
                 )
         if self._weather is not None:
-            for i, passage in enumerate(passage_hours):
-                if passage is None:
+            # 時刻で引けなかった区間（出発時点の値で合成した区間と、時別系列が無いまま昼夜のために
+            # 時刻で合成した区間）は、出発時点の風。
+            for i, wind in enumerate(winds):
+                if wind is None:
                     winds[i] = SegmentWind(
                         speed_ms=round(self._weather.wind_speed_ms, 1),
                         direction_deg=round(self._weather.wind_direction_deg, 1),
@@ -568,7 +595,7 @@ class LegCostComposer:
             difficulty_array=difficulty_array,
             axis_arrays=published,
             weight_sums=composed.weight_sums,
-            weights=self._weights,
+            weights=evaluated.weights,
             axis_raw_arrays=self._axis_raw_arrays,
             material_arrays=material_arrays,
             categorical_material_arrays=self._categorical_material_arrays,

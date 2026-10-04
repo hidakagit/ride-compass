@@ -24,11 +24,11 @@ interface AxisTileInput {
    * lit・has_tunnel⟵tunnel）はtrueValue/falseValueへ通常どおり倒す。 */
   hasUnknownFallback?: boolean;
   /** N値文字列材料（例: highway）。タイルプロパティの
-   * 文字列値をこの辞書で引いた点数×weightを寄与値とする。未登録値は0扱い
+   * 文字列値をこの辞書で引いた点数×weightを寄与値とする。未登録値の道は「不明」
    * （registry.py: TileInputSpec.categories参照）。 */
   categories?: Record<string, number>;
   /** 自己変換材料（例: maxspeed_kmh/lanes_count）。材料自身が持つ
-   * 区分線形breakpointsでタイルプロパティの生値をinterpolateした値×weightを
+   * 区分線形breakpointsでタイルプロパティの生値をinterpolateし、小数1桁へ丸めた値×weightを
    * 寄与値とする（registry.py: TileInputSpec.breakpoints参照）。 */
   breakpoints?: readonly (readonly [number, number])[];
   /** true=タイルの生値を材料の値へ換算する係数（`tile_runtime_scales`）が届いていない。どの道でも
@@ -106,7 +106,7 @@ export function axisMapLayerId(axisId: string): AxisMapLayerId {
  * ハードコードなしに導出できる（3件目の軸を軸スタジオで公開しただけで
  * 地図に現れる。ただし配信実装本体はbackend側の登録が別途必要）。 */
 export interface DedicatedWayValueAxis extends CatalogAxis {
-  /** 専用way値配信APIへ添えるクエリパラメータの宣言。`features/map/useDedicatedWayValues.ts`が
+  /** 専用way値配信APIへ添えるクエリパラメータ（軸カタログの`dynamic_way_value_conditions`）。`features/map/useDedicatedWayValues.ts`が
    * 「どの軸のフェッチに時刻・想定速度を乗せるか」をaxis_idの分岐ではなくここから決める
    * （乗せない入力は依存配列からも外れるため、時刻を動かしても時刻非依存の軸は再フェッチしない）。 */
   needsTime: boolean;
@@ -121,9 +121,9 @@ export function dedicatedWayValueAxesFromCatalogAxes(axes: readonly AxisCatalogE
     .filter((axis) => axis.dedicated_way_value_layer)
     .map((axis) => ({
       ...catalogAxisFromEntry(axis),
-      needsTime: axis.dynamic_way_value_needs_time,
-      needsBearing: axis.dynamic_way_value_needs_bearing,
-      needsSpeed: axis.dynamic_way_value_needs_speed,
+      needsTime: axis.dynamic_way_value_conditions.includes("at"),
+      needsBearing: axis.dynamic_way_value_conditions.includes("bearing_deg"),
+      needsSpeed: axis.dynamic_way_value_conditions.includes("speed_kmh"),
       display: {
         kind: axis.map_value.kind,
         boundaries: axis.map_value_thresholds,

@@ -19,7 +19,7 @@
 | `features/map/layers/dynamicWayValues.ts` | タイル座標計算・複数タイル応答の統合（材料非依存の共通部分） |
 | `lib/mapDisplay/axisLayers.ts`（`RampAxis`関連のみ） | 軸カタログ→ramp軸一覧の変換（`rampAxesFromCatalogAxes`）。段の色は持たない（`valueScale.ts: rampAxisBands`）。値が無い道の色は`palette.json: semantic.no_data`を別名を付けずに指す。ramp軸自体の全面的な生成ロジックは主に[地図: 静的レイヤー・道路表示](static-map-layers.md)の管轄 |
 | `lib/mapDisplay/mapColorLegend.ts` | 地図上の色分け凡例（`MapColorLegendBand`型・`buildRangeLegendBands`・`rangeStepLabel`）の共通ロジックと、値が無い行（`NO_DATA_LEGEND_BAND`）。凡例を作る関数（`features/map/view/lens.ts`）・道の属性の凡例（`features/map/scene/legends.ts`）と管理画面が使う |
-| `features/map/LensControl/LensControl.tsx` | レンズ（地図を何で塗るか）の唯一の入口。画面での名前は「地図の色分け」（見出し・読み上げ名。「レンズ」はコードの中の名前で、画面には出さない）。地図上部中央のピルが現在のレンズと凡例を示し、タップで単一選択の一覧（なし／総合難易度／評価に使用中の軸／未使用の軸）と「ルート後も周囲の道路を薄く塗る」トグルを開く（選択肢・凡例は`features/map/view/useMapView.ts`が組み立て、`page.tsx`はそのまま渡す） |
+| `features/map/LensControl/LensControl.tsx` | レンズ（地図を何で塗るか）の唯一の入口。画面での名前は「地図の色分け」（見出し・読み上げ名。「レンズ」はコードの中の名前で、画面には出さない）。地図上部中央のピルが現在のレンズと凡例を示し、タップで単一選択の札の並び（なし／総合難易度／評価に使用中の軸／未使用の軸。スマホの幅でも地図の塗りが窓の外に見えるよう、札と凡例を横へ流して窓を低く保つ）と「ルート後も周囲の道路を薄く塗る」トグルを開く（選択肢・凡例は`features/map/view/useMapView.ts`が組み立て、`page.tsx`はそのまま渡す） |
 | `features/map/layers/mapLayers.ts` | `isAxisStudioLayer`（記述子の印で判定。地図上チップの一覧`overlayChips`が除くのに使う）・専用配信軸のレイヤーIDの導出（`dedicatedWayValueMapLayerId`） |
 | `features/map/MapView/MapView.tsx`（専用way値配信軸・ルート線の区間クリックの箇所のみ） | 画面の状態を宣言の入力へ渡すだけの配線（下記「MapView.tsx側の配線」）。軸ごとの処理は持たない |
 | `features/map/scene/groups/routes.ts` | 色分け線そのものを引く側。レンズの配色式・凡例フィルタを受け取ってMapLibreの線レイヤーへ流す |
@@ -65,7 +65,7 @@ backend（`domain/dynamic_way_values.py: map_value_thresholds`）が軸の折れ
 |---|---|---|
 | 専用のフィーチャー配信レイヤーを持つか | `AxisDefinition.dedicated_way_value_layer` | `axisLayers.ts: dedicatedWayValueAxesFromCatalogAxes`が抽出し、地図の軸カタログ（`features/map/useMapAxisCatalog.ts`）の`dedicatedAxes`として配る |
 | 地図レイヤーID（表示ON/OFFのキー） | 軸id（文字列合成） | `mapLayers.ts: dedicatedWayValueMapLayerId`（`${axisId}Axis`）。MapLibreのレイヤーidは宣言が役割（軸id）から決める（[静的レイヤー](static-map-layers.md)「ソース名とレイヤーidの決め方」） |
-| フェッチに時刻／向き／想定速度を載せるか | `AxisCatalogEntry.dynamic_way_value_needs_time` / `_needs_bearing` / `_needs_speed` | `useDedicatedWayValues`（載せない入力は依存キーからも外れるため、その入力が変わっても再フェッチしない） |
+| フェッチに時刻／向き／想定速度を載せるか | `AxisCatalogEntry.dynamic_way_value_conditions`（載せるクエリパラメータの名前。backendが配信サービスの条件の型から導く） | `useDedicatedWayValues`（載せない入力は依存キーからも外れるため、その入力が変わっても再フェッチしない） |
 | 符号付き材料を直接読むか／難易度を読むか | `AxisCatalogEntry.map_value`（backend `domain/dynamic_way_values.py: map_value_kind`が`shape`から導出） | `routeStyleModes.ts: routeColorableModeFromAxis`・`dedicatedWayValueLayer.ts`（`DedicatedWayValueDisplay.kind`） |
 | 凡例の段の範囲を何で書くか | `AxisCatalogEntry.map_legend`（`map_value_thresholds`と同じ件数の境界と単位。単位がnullなら得点。backend `domain/dynamic_way_values.py: map_legend`） | `axisLayers.ts`がramp軸の`legend`・専用配信軸の`display.legend`へ載せ、`routeStyleModes.ts`は行から直接読む。どれも`valueScale.ts: valueBands`へ渡す |
 
@@ -139,6 +139,12 @@ localStorageキーは`ridecompass:route-style-mode`）。ルート前は全道�
 ルート確定前に道を塗る線は、ramp軸（タイルへ焼き込んだ材料から値を組み立てる）と
 専用way値配信軸（配信された値をfeature-stateで載せる）の両方を同じ1つの宣言で描く。
 値の届き方の違いは「値が無い道をどう見分けるか」と「隠した段をどう落とすか」だけに出る。
+
+ramp軸の値と「不明」の式（`buildAxisRampValueExpression`・`buildAxisRampUnknownExpression`）は、backendの評価の
+意味を画面の式に写したもの。形ごとに評価と同じ値・同じ「不明」を出すことは、backendが出す表（生成物
+`axis-ramp-expectations.json`。場面の選び方は[軸スタジオ（backend）](../backend/axis-studio.md)「地図表示ルールの自動導出」）を
+`scene/groups/axisLines.test.ts`が全行、軸カタログからramp軸への変換（`rampAxesFromCatalogAxes`、実行時の係数を含む）から
+通して確かめる。
 
 - **値が無い道は段の色で塗らない。** 配信値ではfeature-stateが未設定（null）の道、ramp軸では
   `hasUnknownFallback`な材料が欠けている（または分類表に無い値を持つ）道
@@ -384,9 +390,9 @@ isAxisStudioLayer`により地図上チップ（`MapOverlayControls.tsx`）に�
 | `MapLayerId`・`MapLayerDescriptor`（地図UIからの除外を含む） | `buildMapLayers(rampAxes, dedicatedAxes)` |
 | MapLibreの線レイヤー・色式・濃さ・feature-state | `scene/applyToMap.ts: sceneInputsFrom`が`dedicatedAxes`を評価軸の線（`scene/groups/axisLines.ts`）の入力へ移す |
 | 表示ON/OFF（レンズ選択） | 塗っている軸（`useMapView`の`paintedAxisId`）から`scene/applyToMap.ts`が導く |
-| way値のフェッチとクエリパラメータの取捨 | `useDedicatedWayValues` + 軸カタログの`needsTime`/`needsSpeed` |
+| way値のフェッチとクエリパラメータの取捨 | `useDedicatedWayValues` + 軸カタログの`dynamic_way_value_conditions`（`axisLayers.ts`が`needsTime`/`needsBearing`/`needsSpeed`へ移す） |
 | 表示宣言・凡例 | `dedicatedWayValueAxesFromCatalogAxes`（軸の`display`）/`dedicatedWayValueLegend` |
 
-**追従しないもの**: 値を組み立てるbackendのサービス本体（材料ごとの`_DEDICATED_WAY_VALUE_SERVICE_
-FACTORIES`への登録、[dynamic-way-values.md](../backend/dynamic-way-values.md)参照）。
+**追従しないもの**: 値を組み立てるbackendのサービス本体（材料ごとの`_DEDICATED_WAY_VALUE_SERVICES`
+への登録、[dynamic-way-values.md](../backend/dynamic-way-values.md)参照）。
 配信を実装した材料を参照しない軸へこのフラグを立てる書き込み自体がbackendで拒否される。

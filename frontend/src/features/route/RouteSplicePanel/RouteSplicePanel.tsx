@@ -6,6 +6,7 @@ import ErrorText from "@/features/route/ErrorText/ErrorText";
 import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
 import { NewRouteIcon, RouteDiffIcon, UndoAllIcon, UndoIcon } from "@/components/ui/icons/icons";
 import type { CatalogAxis } from "@/lib/catalogAxis";
+import { formatDelta, roundToDigits } from "@/features/route/routeEditDiff";
 import { formatDurationShort } from "@/features/route/formatDuration";
 import type { OverallDifficulty, RouteCandidate } from "@/types/route";
 import { Button } from "@/components/ui/Button/Button";
@@ -39,7 +40,7 @@ interface RouteSplicePanelProps {
   onCancel: () => void;
   /** 公開軸すべて（差分バーのラベルの正本）。 */
   axes: readonly CatalogAxis[];
-  /** 軸id→色（ルート設定パネルの軸チップと同じ色）。 */
+  /** 軸id→色（ルート設定パネルの軸チップと同じ色）。`axes`の全軸を持つ。 */
   axisColors: Record<string, string>;
 }
 
@@ -48,20 +49,8 @@ const MIN_CONTRIBUTION_DELTA = 0.1;
 /** 差分バーの下へ数値を書く軸の数。大きい順。 */
 const LABELLED_DELTA_COUNT = 2;
 
-/** 表示する桁で丸めた差。色を変えるかどうかも**この値**で決める——生の差で判断すると、
- * 画面には「±0」と出ているのに色だけ増減を主張する。 */
-function roundToDigits(value: number, digits: number): number {
-  return Number(value.toFixed(digits));
-}
-
 function digitsOf(label: string): number {
   return label === "距離" ? 1 : 0;
-}
-
-function formatDelta(value: number, digits: number): string {
-  const rounded = roundToDigits(value, digits);
-  if (rounded === 0) return "±0";
-  return `${rounded > 0 ? "+" : "−"}${Math.abs(rounded).toFixed(digits)}`;
 }
 
 /** 元→編集後で寄与度が動いた軸（大きい順）。減った軸は負、増えた軸は正。 */
@@ -203,8 +192,8 @@ export default function RouteSplicePanel({
               disabled={appliedCount === 0 || busy}
               aria-busy={applying}
               aria-label="新しいルートを作成"
-              usage="いまの乗り換えで作ったルートを、新しい候補として一覧に加えます。元の候補は残ります。"
-              title="新しい候補として一覧へ加える"
+              usage="いまの乗り換えで作ったルートを、採用ルートに加えます。元のルートは残ります。"
+              title="採用ルートに加える"
             >
               <NewRouteIcon size={18} />
               作成
@@ -277,7 +266,7 @@ export default function RouteSplicePanel({
                         className="block h-full"
                         style={{
                           width: `${(Math.abs(item.delta) / scale) * 50}%`,
-                          background: axisColors[item.axisId] ?? "var(--color-muted)",
+                          background: axisColors[item.axisId],
                         }}
                       />
                     ))}
@@ -292,7 +281,7 @@ export default function RouteSplicePanel({
                         className="block h-full"
                         style={{
                           width: `${(Math.abs(item.delta) / scale) * 50}%`,
-                          background: axisColors[item.axisId] ?? "var(--color-muted)",
+                          background: axisColors[item.axisId],
                         }}
                       />
                     ))}

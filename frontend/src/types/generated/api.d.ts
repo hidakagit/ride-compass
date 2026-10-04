@@ -196,14 +196,14 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/region/poi-tiles/{z}/{x}/{y}.pbf": {
+    "/api/region/point-tiles/{layer}/{z}/{x}/{y}.pbf": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get: operations["region_poi_tile_api_region_poi_tiles__z___x___y__pbf_get"];
+        get: operations["region_point_tile_api_region_point_tiles__layer___z___x___y__pbf_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -254,22 +254,6 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["region_axis_inspector_api_region_axis_inspector_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/region/accident-tiles/{z}/{x}/{y}.pbf": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["region_accident_tile_api_region_accident_tiles__z___x___y__pbf_get"];
-        put?: never;
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -742,12 +726,8 @@ export interface components {
             raw_value_total_unit: string | null;
             /** Material Breakdown */
             material_breakdown: components["schemas"]["AxisMaterialBreakdownEntry"][];
-            /** Dynamic Way Value Needs Time */
-            dynamic_way_value_needs_time: boolean;
-            /** Dynamic Way Value Needs Bearing */
-            dynamic_way_value_needs_bearing: boolean;
-            /** Dynamic Way Value Needs Speed */
-            dynamic_way_value_needs_speed: boolean;
+            /** Dynamic Way Value Conditions */
+            dynamic_way_value_conditions: ("at" | "bearing_deg" | "speed_kmh")[];
         };
         /** AxisCatalogResponse */
         AxisCatalogResponse: {
@@ -834,21 +814,6 @@ export interface components {
              * @default false
              */
             dedicated_way_value_layer: boolean;
-            /**
-             * Dynamic Way Value Needs Time
-             * @default false
-             */
-            dynamic_way_value_needs_time: boolean;
-            /**
-             * Dynamic Way Value Needs Bearing
-             * @default false
-             */
-            dynamic_way_value_needs_bearing: boolean;
-            /**
-             * Dynamic Way Value Needs Speed
-             * @default false
-             */
-            dynamic_way_value_needs_speed: boolean;
         };
         /** AxisDefinitionResponse */
         AxisDefinitionResponse: {
@@ -904,21 +869,6 @@ export interface components {
              * @default false
              */
             dedicated_way_value_layer: boolean;
-            /**
-             * Dynamic Way Value Needs Time
-             * @default false
-             */
-            dynamic_way_value_needs_time: boolean;
-            /**
-             * Dynamic Way Value Needs Bearing
-             * @default false
-             */
-            dynamic_way_value_needs_bearing: boolean;
-            /**
-             * Dynamic Way Value Needs Speed
-             * @default false
-             */
-            dynamic_way_value_needs_speed: boolean;
             display: components["schemas"]["AxisDisplaySpec"];
             /** Weight Share When Published */
             weight_share_when_published: number | null;
@@ -2424,11 +2374,12 @@ export interface operations {
             };
         };
     };
-    region_poi_tile_api_region_poi_tiles__z___x___y__pbf_get: {
+    region_point_tile_api_region_point_tiles__layer___z___x___y__pbf_get: {
         parameters: {
             query?: never;
             header?: never;
             path: {
+                layer: string;
                 z: number;
                 x: number;
                 y: number;
@@ -2550,39 +2501,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AxisInspectorResult"] | null;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    region_accident_tile_api_region_accident_tiles__z___x___y__pbf_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                z: number;
-                x: number;
-                y: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

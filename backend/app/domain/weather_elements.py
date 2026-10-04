@@ -69,6 +69,9 @@ class WeatherElement(NamedTuple):
     #: 地図がこの要素を塗る段。災害のチップは、同じ段で塗る要素の名前を見出しにして段を凡例に並べる。
     #: 段を持たない要素（記号・格子の塗り・輪郭線）と、凡例を別に持つ降水の要素はNone。
     level_scale: LevelScale | None = None
+    #: ▶パネルの要素の行の（i）から開く説明。行を出す要素（災害のチップ）だけが持ち、同じ名前付きソースの
+    #: 要素は同じ説明を持つ。
+    description: str | None = None
 
 
 #: 並びが同じ段（面・線・記号）の中の重なり順になる。災害は面を下に、見落としやすい線（洪水）・
@@ -109,6 +112,7 @@ WEATHER_ELEMENTS: tuple[WeatherElement, ...] = (
         "大雨キキクル",
         FrameRule("current"),
         level_scale="risk_levels",
+        description="大雨による土砂災害と浸水害の危険度の高まりを、まとめて段階で示す気象庁の情報。",
     ),
     WeatherElement(
         "disaster",
@@ -118,6 +122,7 @@ WEATHER_ELEMENTS: tuple[WeatherElement, ...] = (
         "土砂災害キキクル",
         FrameRule("current"),
         level_scale="risk_levels",
+        description="大雨による土砂災害（がけ崩れ・土石流など）の危険度の高まりを段階で示す気象庁の情報。",
     ),
     WeatherElement(
         "disaster",
@@ -127,12 +132,27 @@ WEATHER_ELEMENTS: tuple[WeatherElement, ...] = (
         "浸水キキクル",
         FrameRule("current"),
         level_scale="risk_levels",
+        description="短い時間の強い雨で、道路や低い土地が水につかる危険度の高まりを段階で示す気象庁の情報。",
     ),
     WeatherElement(
-        "disaster", "thunder", "rasterTile", ("thns",), "雷ナウキャスト", _NEAREST, level_scale="thunder_activity"
+        "disaster",
+        "thunder",
+        "rasterTile",
+        ("thns",),
+        "雷ナウキャスト",
+        _NEAREST,
+        level_scale="thunder_activity",
+        description="雷の激しさと雷が起こる可能性を、活動度の段階で示す気象庁の実況と1時間先までの予測。",
     ),
     WeatherElement(
-        "disaster", "tornado", "rasterTile", ("trns",), "竜巻発生確度", _NEAREST, level_scale="tornado_potential"
+        "disaster",
+        "tornado",
+        "rasterTile",
+        ("trns",),
+        "竜巻発生確度",
+        _NEAREST,
+        level_scale="tornado_potential",
+        description="竜巻などの激しい突風が起こりやすい所を、確度の段階で示す気象庁の実況と1時間先までの予測。",
     ),
     WeatherElement(
         "disaster",
@@ -142,9 +162,18 @@ WEATHER_ELEMENTS: tuple[WeatherElement, ...] = (
         "洪水キキクル[河川]",
         FrameRule("current"),
         level_scale="risk_levels",
+        description="大雨で川があふれる危険度の高まりを、川に沿った色で示す気象庁の情報。",
     ),
     # 落雷は予測を持たない。遅れの幅は配信の遅れの実績値へ余裕を足した上限。
-    WeatherElement("disaster", "liden", "gridMark", ("liden",), "落雷[発生地点]", FrameRule("latestObservation", 20)),
+    WeatherElement(
+        "disaster",
+        "liden",
+        "gridMark",
+        ("liden",),
+        "落雷[発生地点]",
+        FrameRule("latestObservation", 20),
+        description="気象庁の雷の観測が捉えた、直近の雷の発生地点。",
+    ),
 )
 
 

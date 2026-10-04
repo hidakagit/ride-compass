@@ -6,6 +6,7 @@
 import weatherScales from "@/types/generated/weather-scales.json";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import regionTileConfig from "@/types/generated/region-tile-config.json";
+import { primaryAttributes } from "@/types/generated/primaryAttributes";
 import { axisIconFor } from "@/components/ui/icons/axisIconPalette";
 import {
   AccidentIcon,
@@ -29,16 +30,18 @@ import type { LegendEntry } from "@/lib/mapDisplay/legendFilter";
 import { LANDCOVER_CLASSES, LANDCOVER_PAINTED_CLASSES } from "./landcoverClasses";
 import { PRECIPITATION_INTENSITY_LEVELS } from "./precipitationNowcast";
 import { WIND_SPEED_LEGEND_LEVELS } from "./windLayer";
-import { pointLegendAxes } from "@/features/map/scene/legends";
 import { axisMapLayerId, type AxisMapLayerId, type RampAxis } from "@/lib/mapDisplay/axisLayers";
 import type { AxisCatalog } from "@/lib/axisCatalog";
 import type { MapAxisCatalog } from "@/features/map/mapAxisCatalog";
 import type { CatalogAxis } from "@/lib/catalogAxis";
 import { FIXED_LENS_LABELS, LENS_DIFFICULTY_ID } from "@/lib/mapDisplay/routeStyleModes";
 
-/** チップの説明文へ差し込む種別名の並び（凡例と同じ宣言から作る）。 */
+/** チップの説明文へ差し込む種別名の並び（凡例と同じ、先頭の軸の行から作る）。区切りが読点なのは、名前が中黒を含むため。 */
 function pointKindList(role: string): string {
-  return legendKindList(pointLegendAxes().find((entry) => entry.layerId === role)!.entries);
+  return primaryAttributes
+    .find((attr) => attr.attr_id === role)!
+    .display_axes[0]!.categories.map((category) => category.label)
+    .join("、");
 }
 
 /** 源泉が宣言する、地図に載るものの名前。 */
@@ -279,6 +282,7 @@ export function buildMapLayers({
           legend: LANDCOVER_PAINTED_CLASSES.map((cls) => ({
             key: cls.percentField,
             label: cls.label,
+            description: cls.description,
             color: cls.color,
             filter: UNUSED_LEGEND_FILTER,
           })),
@@ -572,12 +576,4 @@ type DedicatedWayValueMapLayerId = `${string}Axis`;
 
 function dedicatedWayValueMapLayerId(axisId: string): DedicatedWayValueMapLayerId {
   return `${axisId}Axis`;
-}
-
-/** 凡例の種別名を説明文へ差し込める並びにする（受け皿は除く）。区切りが読点なのは、名前が中黒を含むため。 */
-function legendKindList(legend: readonly LegendEntry[]): string {
-  return legend
-    .filter((entry) => entry.isFallback !== true)
-    .map((entry) => entry.label)
-    .join("、");
 }

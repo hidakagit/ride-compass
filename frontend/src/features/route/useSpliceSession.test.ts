@@ -1,396 +1,564 @@
 /**
- * 区間の乗り換え（`useSpliceSession`）——候補を元に、区間を別の候補の道へ差し替えた経路を組み、backendで評価して一覧へ入れる。
+ * 区間の乗り換えの編集（`useSpliceSession.ts`）——目的地の生成で候補が2本以上あり、候補を選んでいて、区間を割る下限を
+ * 引けるときだけ始められる。始めると元の候補を編集面と地図（いま作っているルート）へ渡し、他の候補が別の道を通る
+ * 区間を乗り換え先として地図へ出す。乗り換え・1つ戻す・全部戻す・やめるができ、組み合わせた経路は表示中の候補を
+ * 作った生成の入力でbackendに評価させ（同じ組み合わせは投げ直さない）、「作成」で作った経路か同じ道の既存の候補を
+ * 渡して編集を終える。編集は始めたときの生成に結びつき、抜けると中身ごと消える。
  *
  * ここで見ないもの:
- * - 乗り換え先の区間の求め方・経路の継ぎ方 → `routeSplice.ts`
- * - 入力からpayloadを作る規則 → `generationRequest.ts`
- * - 所要時間の並べ方 → `routeTabLabel.ts`
+ * - 乗り換え先の求め方の細部（区間の割り方・下限・折り返しを出さない・重なる代替のまとめ方・形の継ぎ方） →
+ *   `routeSplice.test.ts`。ここでは分かれ道が1つずつの網で、出る・乗り換えた経路から次が出ることを見る
+ * - 編集面の表示（差・戻す操作・失敗の出し方） → `RouteSplicePanel/RouteSplicePanel.test.tsx`
+ * - 地図の帯の描き方とタップ → `features/map/scene/groups/routes.test.ts`
+ * - 作った経路を結果へ足す・既存の候補を選ぶ → `useRouteResults.test.ts`・`app/page.test.tsx`
  *
- * 差し替えた部品: 生成の通信（`routeApi.generateRoutes`）と軸カタログ（`useAxisCatalog`）は返す値をテストが決める。
+ * 差し替えたもの: backendを呼ぶ口（`routeApi.ts: generateRoutes`・`services/axisCatalogApi.ts: getAxisCatalog`）。
+ *
+ * 通さない分岐（どれも入口から作れない）:
+ * - 生成の入力が無いときの`start`: 始められるのは目的地の生成があるときだけで、入口（`canStart`）が出ない
+ * - 帯の相手が一覧に無い・帯の座標が2点未満: 相手は同じ一覧から引き、範囲は少なくとも1本のEdgeを持つ
+ * - 1グループの選択肢の上限: 候補数の上限（`route-generate-config.json: max_routes`）より多くは並ばない
+ * - 評価の入口の前提（編集・乗り換え・形が無い）と、編集が無いときの乗り換え: 呼ぶ側が先に同じ前提で止め、
+ *   編集していない間は乗り換え先が出ない
  */
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { axisCatalogFromResponse, CLIENT_TUNING_IDS, type AxisCatalog } from "@/lib/axisCatalog";
+import type { GenerationInput } from "@/features/route/generationRequest";
+import { generateRoutes } from "@/features/route/routeApi";
+import { CLIENT_TUNING_IDS } from "@/lib/axisCatalog";
+import { getAxisCatalog } from "@/services/axisCatalogApi";
 import { catalogEntry, catalogResponse } from "@/testing/catalogAxes";
 import { makeRouteCandidate } from "@/testing/routeFixtures";
-import { buildGenerateRequest, type GenerationInput } from "@/features/route/generationRequest";
-import { SPLICED_ROUTE_ID_PREFIX } from "@/features/route/routeTabLabel";
-import type { RouteCandidate } from "@/types/route";
+import type { GenerationConditions, RouteCandidate } from "@/types/route";
 
-const catalog = vi.hoisted(() => ({ current: undefined as unknown }));
-vi.mock("@/hooks/useAxisCatalog", () => ({ useAxisCatalog: () => catalog.current }));
+import { useSpliceSession } from "./useSpliceSession";
+
 vi.mock("@/features/route/routeApi", () => ({ generateRoutes: vi.fn() }));
+vi.mock("@/services/axisCatalogApi", () => ({ getAxisCatalog: vi.fn() }));
 
-import { generateRoutes } from "@/features/route/routeApi";
-import { useSpliceSession, type SpliceSessionInputs } from "./useSpliceSession";
+const generate = vi.mocked(generateRoutes);
+const fetchCatalog = vi.mocked(getAxisCatalog);
 
-const catalogWith = (clientTuning: Record<string, number>): AxisCatalog =>
-  axisCatalogFromResponse(catalogResponse([catalogEntry({ axis_id: "axis_a" })], { client_tuning: clientTuning }));
-const TUNED = catalogWith({ [CLIENT_TUNING_IDS.minStretchKm]: 0.2 });
-
-const INPUT: GenerationInput = {
-  origin: { latitude: 35, longitude: 139 },
-  distanceKm: null,
-  distanceToleranceKm: 5,
-  maxRoutes: 3,
-  assumedSpeedKmh: 20,
-  startTime: new Date("2026-09-25T03:00:00Z"),
-  startTimePinned: false,
-  hardFilters: {},
-  lensAxisId: "axis_a",
-  routePreference: null,
-  waypoints: [],
-  destination: { latitude: 35.1, longitude: 139 },
-};
-
-// 3本とも同じ地点（n0〜n5）で交わる。AとCは1つ目の分かれ道だけ、AとBは両方の分かれ道で別の道を通る。
-const NODES = ["n0", "n1", "n2", "n3", "n4", "n5"];
-const pointsOf = (flat: number[]): GeoJSON.Position[] =>
-  Array.from({ length: flat.length / 2 }, (_, i) => [flat[2 * i], flat[2 * i + 1]]);
-const lineOf = (flat: number[]) => ({ type: "LineString" as const, coordinates: pointsOf(flat) });
-const ROUTE_A = makeRouteCandidate({
-  id: "route-0",
-  estimated_duration_seconds: 600,
-  edge_ids: ["e1", "a1", "e2", "a2", "e3"],
-  node_ids: NODES,
-  edge_point_offsets: [0, 1, 2, 3, 4, 5],
-  geometry: lineOf([0, 0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0]),
+const CATALOG = catalogResponse([catalogEntry({ axis_id: "axis_a", default_weight: 1 })], {
+  client_tuning: { [CLIENT_TUNING_IDS.minStretchKm]: 0.1 },
 });
-const ROUTE_B = makeRouteCandidate({
-  id: "route-1",
-  estimated_duration_seconds: 900,
-  edge_ids: ["e1", "b1", "e2", "b2", "e3"],
-  node_ids: NODES,
-  edge_point_offsets: [0, 1, 3, 4, 6, 7],
-  geometry: lineOf([0, 0, 1, 0, 1.5, 1, 2, 0, 3, 0, 3.5, 1, 4, 0, 5, 0]),
-});
-const ROUTE_C = makeRouteCandidate({
-  id: "route-2",
-  estimated_duration_seconds: 1200,
-  edge_ids: ["e1", "c1", "e2", "a2", "e3"],
-  node_ids: NODES,
-  edge_point_offsets: [0, 1, 3, 4, 5, 6],
-  geometry: lineOf([0, 0, 1, 0, 1.5, -1, 2, 0, 3, 0, 4, 0, 5, 0]),
-});
-const ROUTES = [ROUTE_A, ROUTE_B, ROUTE_C];
-// Bの1つ目・2つ目の分かれ道、Cの分かれ道を通る点。
-const B_FIRST: GeoJSON.Position = [1.5, 1];
-const B_SECOND: GeoJSON.Position = [3.5, 1];
-const C_FIRST: GeoJSON.Position = [1.5, -1];
+const CATALOG_WITHOUT_MIN_STRETCH = catalogResponse([catalogEntry({ axis_id: "axis_a", default_weight: 1 })]);
 
-const onApplyStart = vi.fn();
-const onApplied = vi.fn();
-type Props = Omit<SpliceSessionInputs, "onApplyStart" | "onApplied">;
-const PROPS: Props = { routes: ROUTES, generatedInput: INPUT, hasSelectedRoute: true };
+// 地点（[経度, 緯度]）。P0→P1→P2→P3が元の道で、P1とP2の間を、QかRを通る別の道が結ぶ。
+const P0 = [139.7, 35.6];
+const P1 = [139.71, 35.6];
+const P2 = [139.72, 35.6];
+const P3 = [139.73, 35.6];
+const Q = [139.715, 35.61];
+const R = [139.715, 35.605];
 
-function render(props: Partial<Props> = {}) {
-  return renderHook((current: Props) => useSpliceSession({ ...current, onApplyStart, onApplied }), {
-    initialProps: { ...PROPS, ...props },
+/** Edge 1本ごとに地点1つずつ進む候補。`stops`は通る地点の名前と位置（最後は終点）。 */
+function routeThrough(id: string, edgeIds: string[], stops: [string, number[]][]): RouteCandidate {
+  return makeRouteCandidate({
+    id,
+    edge_ids: edgeIds,
+    node_ids: stops.map(([node]) => node),
+    edge_point_offsets: stops.map((_, index) => index),
+    geometry: { type: "LineString", coordinates: stops.map(([, position]) => position) },
   });
 }
-type Rendered = ReturnType<typeof render>;
 
-function startEditing(props: Partial<Props> = {}, routeId = ROUTE_A.id) {
-  const hook = render(props);
-  act(() => hook.result.current.start(routeId));
-  return hook;
-}
-const through = (hook: Rendered, point: GeoJSON.Position) =>
-  hook.result.current.map.spliceStretches.find((stretch) =>
-    stretch.coordinates.some(([x, y]) => x === point[0] && y === point[1]),
-  );
-function choose(hook: Rendered, point: GeoJSON.Position) {
-  const found = through(hook, point);
-  if (!found) throw new Error(`${point.join(",")}を通る乗り換え先が無い`);
-  act(() => hook.result.current.map.onSpliceStretchSelect(found.index));
-}
-const panel = (hook: Rendered) => {
-  const value = hook.result.current.panel;
-  if (!value) throw new Error("編集面が無い");
-  return value;
+// 元: P1→P2を1本（e2）で進む。
+const BASE = routeThrough(
+  "base",
+  ["e1", "e2", "e3"],
+  [
+    ["n0", P0],
+    ["n1", P1],
+    ["n2", P2],
+    ["n3", P3],
+  ],
+);
+// 別の道: P1→Q→P2（q1・q2）。
+const VIA_Q = routeThrough(
+  "via-q",
+  ["e1", "q1", "q2", "e3"],
+  [
+    ["n0", P0],
+    ["n1", P1],
+    ["nq", Q],
+    ["n2", P2],
+    ["n3", P3],
+  ],
+);
+// Qまでは同じで、Q→P2をRを通って進む（r1・r2）。Qの道へ乗り換えた後に、次の分かれ道になる。
+const VIA_Q_R = routeThrough(
+  "via-q-r",
+  ["e1", "q1", "r1", "r2", "e3"],
+  [
+    ["n0", P0],
+    ["n1", P1],
+    ["nq", Q],
+    ["nr", R],
+    ["n2", P2],
+    ["n3", P3],
+  ],
+);
+
+const BASIS: GenerationInput = {
+  origin: { latitude: 35.6, longitude: 139.7 },
+  distanceKm: null,
+  distanceToleranceKm: 5,
+  maxRoutes: 4,
+  assumedSpeedKmh: 22,
+  startTime: new Date("2026-10-04T09:00:00Z"),
+  startTimePinned: true,
+  hardFilters: { motorway: true },
+  lensAxisId: null,
+  routePreference: { axis_a: 1 },
+  waypoints: [],
+  destination: { latitude: 35.6, longitude: 139.73 },
 };
-function evaluated(id: string, edgeIds: string[], seconds = 700): RouteCandidate {
-  return makeRouteCandidate({ id, edge_ids: edgeIds, estimated_duration_seconds: seconds });
+
+// 評価の応答に付く生成の条件（乗り換えは読まない）。
+const CONDITIONS: GenerationConditions = {
+  latitude: BASIS.origin.latitude,
+  longitude: BASIS.origin.longitude,
+  distance_km: 0,
+  distance_tolerance_km: BASIS.distanceToleranceKm,
+  route_preference: { axis_a: 1 },
+  penalty_strength: 1,
+  max_average_grade_percent: null,
+  hard_filters: BASIS.hardFilters,
+  max_routes: BASIS.maxRoutes,
+  start_time: BASIS.startTime.toISOString(),
+  assumed_speed_kmh: BASIS.assumedSpeedKmh,
+  waypoints: null,
+  destination: BASIS.destination,
+  corrected_destination: null,
+  generated_at: "2026-10-04T09:00:30Z",
+};
+
+type Props = Pick<Parameters<typeof useSpliceSession>[0], "routes" | "generatedInput" | "hasSelectedRoute">;
+
+const PROPS: Props = { routes: [BASE, VIA_Q], generatedInput: BASIS, hasSelectedRoute: true };
+
+function renderSplice(props: Partial<Props> = {}) {
+  const onApplyStart = vi.fn();
+  const onApplied = vi.fn();
+  const rendered = renderHook((p: Props) => useSpliceSession({ ...p, onApplyStart, onApplied }), {
+    initialProps: { ...PROPS, ...props },
+  });
+  return { ...rendered, onApplyStart, onApplied };
 }
+
+type Rendered = ReturnType<typeof renderSplice>;
+
+/** 編集を始め、軸カタログ（区間を割る下限）が届いて編集面へ軸が渡るまで待つ。 */
+async function startWithCatalog(rendered: Rendered, routeId = "base") {
+  act(() => rendered.result.current.start(routeId));
+  await waitFor(() => expect(rendered.result.current.panel?.axes).toHaveLength(1));
+}
+
+/** 編集を始め、乗り換え先が地図へ出るまで待つ。 */
+async function startEditing(rendered: Rendered, routeId = "base") {
+  act(() => rendered.result.current.start(routeId));
+  await waitFor(() => expect(rendered.result.current.map.spliceStretches.length).toBeGreaterThan(0));
+}
+
+/** 地図に出ているn番目の乗り換え先をタップする。 */
+function tapStretch(rendered: Rendered, n = 0) {
+  const { index } = rendered.result.current.map.spliceStretches[n];
+  act(() => rendered.result.current.map.onSpliceStretchSelect(index));
+}
+
+function evaluated(edgeIds: string[], id = "spliced"): RouteCandidate {
+  return makeRouteCandidate({ id, edge_ids: edgeIds, distance_km: 12.3 });
+}
+
+/** 決着させるまで待つ評価。 */
+function deferredEvaluation() {
+  const handle: { resolve: (routes: RouteCandidate[]) => void } = { resolve: () => {} };
+  generate.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        handle.resolve = (routes) => resolve({ routes, conditions: CONDITIONS });
+      }),
+  );
+  return handle;
+}
+
 function respond(routes: RouteCandidate[]) {
-  vi.mocked(generateRoutes).mockResolvedValueOnce({ routes, conditions: {} as never });
+  generate.mockResolvedValueOnce({ routes, conditions: CONDITIONS });
 }
-function deferred() {
-  let resolve!: (value: Awaited<ReturnType<typeof generateRoutes>>) => void;
-  const promise = new Promise<Awaited<ReturnType<typeof generateRoutes>>>((done) => (resolve = done));
-  return { promise, resolve };
+
+/** 編集面の操作を押し、終わるまで待つ（編集面の型は戻り値を持たないが、実体は評価を待つ）。 */
+async function press(action: (() => unknown) | undefined) {
+  await act(async () => {
+    await action?.();
+  });
 }
 
 beforeEach(() => {
-  catalog.current = TUNED;
-  vi.mocked(generateRoutes).mockReset();
-  onApplyStart.mockReset();
-  onApplied.mockReset();
+  generate.mockReset();
+  fetchCatalog.mockReset();
+  fetchCatalog.mockResolvedValue(CATALOG);
 });
 
 describe("入口", () => {
-  it("目的地の生成で候補が2本以上あり、候補を選んでいて、区間を割る下限を引けるときだけ始められる", () => {
-    expect(render().result.current.canStart).toBe(true);
-    expect(render({ generatedInput: { ...INPUT, destination: null } }).result.current.canStart).toBe(false);
-    expect(render({ generatedInput: null }).result.current.canStart).toBe(false);
-    expect(render({ routes: [ROUTE_A] }).result.current.canStart).toBe(false);
-    expect(render({ hasSelectedRoute: false }).result.current.canStart).toBe(false);
-    catalog.current = catalogWith({});
-    expect(render().result.current.canStart).toBe(false);
+  it("目的地の生成で候補が2本以上あり、候補を選んでいて、区間を割る下限を引けるときだけ始められる", async () => {
+    const rendered = renderSplice();
+    await waitFor(() => expect(rendered.result.current.canStart).toBe(true));
+
+    const blocked: Partial<Props>[] = [
+      { generatedInput: { ...BASIS, destination: null } },
+      { generatedInput: null },
+      { routes: [BASE] },
+      { hasSelectedRoute: false },
+    ];
+    for (const props of blocked) {
+      rendered.rerender({ ...PROPS, ...props });
+      expect(rendered.result.current.canStart).toBe(false);
+    }
   });
 
-  it("始める前は編集面も乗り換え先も無い", () => {
-    const { result } = render();
+  it("区間を割る下限を引けない間は始められず、始めても乗り換え先を作らない（較正と別の切り方で出さない）", async () => {
+    fetchCatalog.mockResolvedValue(CATALOG_WITHOUT_MIN_STRETCH);
+    const rendered = renderSplice();
+
+    await startWithCatalog(rendered);
+
+    expect(rendered.result.current.canStart).toBe(false);
+    expect(rendered.result.current.editingRoute).toEqual(BASE);
+    expect(rendered.result.current.map.spliceStretches).toEqual([]);
+    expect(rendered.result.current.panel?.hasAlternatives).toBe(false);
+  });
+
+  it("始める前は編集面も、地図のいま作っているルート・乗り換え先も無い", async () => {
+    const { result } = renderSplice();
+
     expect(result.current.editingRoute).toBeNull();
     expect(result.current.panel).toBeNull();
-    expect(result.current.map.spliceStretches).toEqual([]);
     expect(result.current.map.splicedRoute).toBeNull();
+    expect(result.current.map.spliceStretches).toEqual([]);
   });
 });
 
 describe("編集", () => {
-  it("始めると、元の候補を編集面と地図（いま作っているルート）へ渡し、他の候補が別の道を通る区間を乗り換え先として出す", () => {
-    const hook = startEditing();
-    expect(hook.result.current.editingRoute).toBe(ROUTE_A);
-    expect(panel(hook)).toMatchObject({ displayed: ROUTE_A, appliedCount: 0, hasAlternatives: true, preview: null });
-    expect(hook.result.current.map.splicedRoute).toEqual(ROUTE_A.geometry.coordinates);
-    for (const point of [B_FIRST, B_SECOND, C_FIRST]) expect(through(hook, point)).toBeDefined();
+  it("始めると元の候補を編集面と地図へ渡し、他の候補が別の道を通る区間を乗り換え先として出す", async () => {
+    const rendered = renderSplice();
+
+    await startEditing(rendered);
+
+    const { result } = rendered;
+    expect(result.current.editingRoute).toEqual(BASE);
+    expect(result.current.panel).toMatchObject({
+      displayed: BASE,
+      appliedCount: 0,
+      hasAlternatives: true,
+      preview: null,
+    });
+    expect(result.current.panel?.axes.map((axis) => axis.axisId)).toEqual(["axis_a"]);
+    expect(result.current.map.splicedRoute).toEqual([P0, P1, P2, P3]);
+    expect(result.current.map.spliceStretches.map((stretch) => stretch.coordinates)).toEqual([[P1, Q, P2]]);
   });
 
-  it("乗り換え先を選ぶとその道へ乗り換え、乗り換えた経路から次の乗り換え先を出す。1つ戻す・全部戻すで戻る", () => {
-    const hook = startEditing();
-    choose(hook, B_FIRST);
-    expect(panel(hook).appliedCount).toBe(1);
-    expect(hook.result.current.map.splicedRoute).toContainEqual(B_FIRST);
-    expect(through(hook, B_FIRST)).toBeUndefined();
-    expect(through(hook, B_SECOND)).toBeDefined();
-    expect(through(hook, C_FIRST)).toBeDefined();
+  it("乗り換え先を選ぶとその道へ乗り換え、乗り換えた経路から次の乗り換え先を出す。1つ戻す・全部戻すで戻る", async () => {
+    const rendered = renderSplice({ routes: [BASE, VIA_Q, VIA_Q_R] });
+    await startEditing(rendered);
+    const viaQ = rendered.result.current.map.spliceStretches.findIndex(
+      (stretch) => JSON.stringify(stretch.coordinates) === JSON.stringify([P1, Q, P2]),
+    );
 
-    choose(hook, B_SECOND);
-    expect(panel(hook).appliedCount).toBe(2);
-    act(() => panel(hook).onUndo());
-    expect(panel(hook).appliedCount).toBe(1);
-    expect(hook.result.current.map.splicedRoute).not.toContainEqual(B_SECOND);
-    act(() => panel(hook).onReset());
-    expect(panel(hook).appliedCount).toBe(0);
-    expect(hook.result.current.map.splicedRoute).toEqual(ROUTE_A.geometry.coordinates);
+    tapStretch(rendered, viaQ);
+    expect(rendered.result.current.panel?.appliedCount).toBe(1);
+    expect(rendered.result.current.map.splicedRoute).toEqual([P0, P1, Q, P2, P3]);
+    expect(rendered.result.current.map.spliceStretches.map((stretch) => stretch.coordinates)).toEqual([[Q, R, P2]]);
+
+    tapStretch(rendered);
+    expect(rendered.result.current.panel?.appliedCount).toBe(2);
+    expect(rendered.result.current.map.splicedRoute).toEqual([P0, P1, Q, R, P2, P3]);
+
+    act(() => rendered.result.current.panel?.onUndo());
+    expect(rendered.result.current.panel?.appliedCount).toBe(1);
+    expect(rendered.result.current.map.splicedRoute).toEqual([P0, P1, Q, P2, P3]);
+
+    act(() => rendered.result.current.panel?.onReset());
+    expect(rendered.result.current.panel?.appliedCount).toBe(0);
+    expect(rendered.result.current.map.splicedRoute).toEqual([P0, P1, P2, P3]);
   });
 
-  it("地図から知らない位置が届いても何も変えない", () => {
-    const hook = startEditing();
-    act(() => hook.result.current.map.onSpliceStretchSelect(99_999));
-    expect(panel(hook).appliedCount).toBe(0);
+  it("地図から知らない乗り換え先が届いても何も変えない", async () => {
+    const rendered = renderSplice();
+    await startEditing(rendered);
+
+    act(() => rendered.result.current.map.onSpliceStretchSelect(9999));
+
+    expect(rendered.result.current.panel?.appliedCount).toBe(0);
   });
 
-  it("区間を割る下限を引けない間は乗り換え先を作らない（較正と別の切り方で出さない）", () => {
-    const hook = startEditing();
-    catalog.current = catalogWith({});
-    hook.rerender(PROPS);
-    expect(hook.result.current.map.spliceStretches).toEqual([]);
-    expect(panel(hook).hasAlternatives).toBe(false);
+  it("線の形を持たない候補（Edge idだけ）では、地図に描けない乗り換え先を出さない", async () => {
+    const edgesOnly = (route: RouteCandidate) =>
+      makeRouteCandidate({ id: route.id, edge_ids: route.edge_ids, node_ids: route.node_ids });
+    const rendered = renderSplice({ routes: [edgesOnly(BASE), edgesOnly(VIA_Q)] });
+
+    await startWithCatalog(rendered);
+
+    expect(rendered.result.current.canStart).toBe(true);
+    expect(rendered.result.current.map.spliceStretches).toEqual([]);
+    expect(rendered.result.current.panel?.hasAlternatives).toBe(false);
   });
 
-  it("線の形を持たない候補（Edge idだけ）では、地図に描けない乗り換え先を出さない", () => {
-    const bare = (candidate: RouteCandidate) =>
-      makeRouteCandidate({ id: candidate.id, edge_ids: candidate.edge_ids, node_ids: candidate.node_ids });
-    const hook = startEditing({ routes: ROUTES.map(bare) });
-    expect(hook.result.current.map.spliceStretches).toEqual([]);
-    expect(panel(hook).hasAlternatives).toBe(false);
+  it("やめると編集面も地図の乗り換え先も消え、次に始めた編集は空から始まる", async () => {
+    const rendered = renderSplice();
+    await startEditing(rendered);
+    tapStretch(rendered);
+
+    act(() => rendered.result.current.panel?.onCancel());
+    expect(rendered.result.current.editingRoute).toBeNull();
+    expect(rendered.result.current.panel).toBeNull();
+    expect(rendered.result.current.map.spliceStretches).toEqual([]);
+    expect(rendered.result.current.map.splicedRoute).toBeNull();
+
+    act(() => rendered.result.current.start("base"));
+    expect(rendered.result.current.panel?.appliedCount).toBe(0);
   });
 
-  it("やめると編集面も地図の乗り換え先も消え、次に始めた編集は空から始まる", () => {
-    const hook = startEditing();
-    choose(hook, B_FIRST);
-    act(() => panel(hook).onCancel());
-    expect(hook.result.current.panel).toBeNull();
-    expect(hook.result.current.map.splicedRoute).toBeNull();
-    act(() => hook.result.current.start(ROUTE_A.id));
-    expect(panel(hook).appliedCount).toBe(0);
+  it("作り直す・消すと（表示中の候補を作った生成が替わると）、候補のidが同じでも編集は終わる", async () => {
+    const rendered = renderSplice();
+    await startEditing(rendered);
+
+    rendered.rerender({ ...PROPS, generatedInput: { ...BASIS } });
+    expect(rendered.result.current.editingRoute).toBeNull();
+    expect(rendered.result.current.panel).toBeNull();
+
+    rendered.rerender({ ...PROPS, generatedInput: null });
+    expect(rendered.result.current.editingRoute).toBeNull();
   });
 
-  it("作り直す・消すと（表示中の候補を作った生成が替わると）、候補のidが同じでも編集は終わる", () => {
-    const hook = startEditing();
-    hook.rerender({ ...PROPS, generatedInput: { ...INPUT } });
-    expect(hook.result.current.editingRoute).toBeNull();
-    expect(hook.result.current.panel).toBeNull();
+  it("編集の元の候補が一覧から消えたら、編集は効かない", async () => {
+    const rendered = renderSplice();
+    await startEditing(rendered);
 
-    const other = startEditing();
-    other.rerender({ ...PROPS, generatedInput: null, routes: [] });
-    expect(other.result.current.editingRoute).toBeNull();
-  });
+    rendered.rerender({ ...PROPS, routes: [VIA_Q] });
 
-  it("編集の元の候補が一覧から消えたら、編集は効かない", () => {
-    const hook = startEditing();
-    hook.rerender({ ...PROPS, routes: [ROUTE_B, ROUTE_C] });
-    expect(hook.result.current.panel).toBeNull();
+    expect(rendered.result.current.editingRoute).toBeNull();
+    expect(rendered.result.current.panel).toBeNull();
   });
 });
 
 describe("差分を見る", () => {
   it("表示中の候補を作った入力へ、乗り換えた経路のEdge列を載せて評価し、結果を編集面へ渡す。同じ組み合わせは投げ直さない", async () => {
-    const hook = startEditing();
-    choose(hook, B_FIRST);
-    const result = evaluated("x", ["e1", "b1", "e2", "a2", "e3"]);
+    const rendered = renderSplice();
+    await startEditing(rendered);
+    tapStretch(rendered);
+    const result = evaluated(["e1", "q1", "q2", "e3"]);
     respond([result]);
-    await act(async () => panel(hook).onPreview());
-    expect(generateRoutes).toHaveBeenCalledWith({
-      ...buildGenerateRequest(INPUT),
-      spliced_edge_ids: ["e1", "b1", "e2", "a2", "e3"],
-    });
-    expect(panel(hook).preview).toBe(result);
 
-    choose(hook, B_SECOND);
-    expect(panel(hook).preview).toBeNull();
-    act(() => panel(hook).onUndo());
-    expect(panel(hook).preview).toBe(result);
-    await act(async () => panel(hook).onPreview());
-    expect(generateRoutes).toHaveBeenCalledTimes(1);
+    await press(rendered.result.current.panel?.onPreview);
+
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(generate.mock.calls[0][0]).toMatchObject({
+      latitude: BASIS.origin.latitude,
+      longitude: BASIS.origin.longitude,
+      max_routes: BASIS.maxRoutes,
+      assumed_speed_kmh: BASIS.assumedSpeedKmh,
+      route_preference: BASIS.routePreference,
+      destination: BASIS.destination,
+      spliced_edge_ids: ["e1", "q1", "q2", "e3"],
+    });
+    expect(rendered.result.current.panel?.preview).toEqual(result);
+
+    // 戻して選び直しても、覚えた評価を出して投げ直さない。
+    act(() => rendered.result.current.panel?.onUndo());
+    expect(rendered.result.current.panel?.preview).toBeNull();
+    tapStretch(rendered);
+    expect(rendered.result.current.panel?.preview).toEqual(result);
+    await press(rendered.result.current.panel?.onPreview);
+    expect(generate).toHaveBeenCalledTimes(1);
   });
 
   it("乗り換えていない間は評価しない", async () => {
-    const hook = startEditing();
-    await act(async () => panel(hook).onPreview());
-    expect(generateRoutes).not.toHaveBeenCalled();
+    const rendered = renderSplice();
+    await startEditing(rendered);
+
+    await press(rendered.result.current.panel?.onPreview);
+
+    expect(generate).not.toHaveBeenCalled();
   });
 
   it("評価を待っている間は待っていると返し、選び直しても続ける。待っている間に押しても投げ直さない", async () => {
-    const hook = startEditing();
-    choose(hook, B_FIRST);
-    const pending = deferred();
-    vi.mocked(generateRoutes).mockReturnValueOnce(pending.promise);
+    const rendered = renderSplice({ routes: [BASE, VIA_Q, VIA_Q_R] });
+    await startEditing(rendered);
+    tapStretch(rendered);
+    const pending = deferredEvaluation();
+    let first: unknown;
     act(() => {
-      void panel(hook).onPreview();
+      first = rendered.result.current.panel?.onPreview();
     });
-    expect(panel(hook).previewing).toBe(true);
-    choose(hook, B_SECOND);
-    expect(panel(hook).previewing).toBe(true);
-    act(() => {
-      void panel(hook).onPreview();
+    expect(rendered.result.current.panel?.previewing).toBe(true);
+
+    await press(rendered.result.current.panel?.onPreview);
+    tapStretch(rendered);
+    expect(rendered.result.current.panel?.previewing).toBe(true);
+    expect(generate).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      pending.resolve([evaluated(["e1", "q1", "q2", "e3"])]);
+      await first;
     });
-    expect(generateRoutes).toHaveBeenCalledTimes(1);
-    await act(async () => pending.resolve({ routes: [evaluated("x", ["e1"])], conditions: {} as never }));
-    expect(panel(hook).previewing).toBe(false);
+    expect(rendered.result.current.panel?.previewing).toBe(false);
   });
 
   it.each([
-    ["評価が空で返る", () => respond([]), "組み合わせたルートを評価できませんでした"],
-    [
-      "通信が失敗する",
-      () => vi.mocked(generateRoutes).mockRejectedValueOnce(new Error("混み合っています")),
-      "混み合っています",
-    ],
-    [
-      "Error以外で失敗する",
-      () => vi.mocked(generateRoutes).mockRejectedValueOnce("壊れた"),
-      "組み合わせたルートの評価に失敗しました",
-    ],
-  ])("%sと、理由を編集面に出す。次に乗り換え先を選ぶと消す", async (_c, arrange, shown) => {
-    const hook = startEditing();
-    choose(hook, B_FIRST);
-    arrange();
-    await act(async () => panel(hook).onPreview());
-    expect(panel(hook).error).toBe(shown);
-    choose(hook, B_SECOND);
-    expect(panel(hook).error).toBeNull();
+    { label: "評価が空で返る", outcome: () => respond([]), message: "組み合わせたルートを評価できませんでした" },
+    {
+      label: "通信が失敗する",
+      outcome: () => generate.mockRejectedValueOnce(new Error("リクエストに失敗しました")),
+      message: "リクエストに失敗しました",
+    },
+    {
+      label: "Error以外で失敗する",
+      outcome: () => generate.mockRejectedValueOnce("boom"),
+      message: "組み合わせたルートの評価に失敗しました",
+    },
+  ])("「$label」と、理由を編集面に出す。次に乗り換え先を選ぶ・戻すと消す", async ({ outcome, message }) => {
+    const rendered = renderSplice({ routes: [BASE, VIA_Q, VIA_Q_R] });
+    await startEditing(rendered);
+    tapStretch(rendered);
+
+    for (const clear of [() => tapStretch(rendered), () => act(() => rendered.result.current.panel?.onUndo())]) {
+      outcome();
+      await press(rendered.result.current.panel?.onPreview);
+      expect(rendered.result.current.panel?.error).toBe(message);
+      expect(rendered.result.current.panel?.preview).toBeNull();
+
+      clear();
+      expect(rendered.result.current.panel?.error).toBeNull();
+    }
+
+    outcome();
+    await press(rendered.result.current.panel?.onPreview);
+    act(() => rendered.result.current.panel?.onReset());
+    expect(rendered.result.current.panel?.error).toBeNull();
   });
 
   it("評価を待っている間に編集をやめたら、あとから届いた評価で編集へ戻さず、次の編集へも持ち込まない", async () => {
-    const hook = startEditing();
-    choose(hook, B_FIRST);
-    const pending = deferred();
-    vi.mocked(generateRoutes).mockReturnValueOnce(pending.promise);
+    const rendered = renderSplice();
+    await startEditing(rendered);
+    tapStretch(rendered);
+    const pending = deferredEvaluation();
+    let first: unknown;
     act(() => {
-      void panel(hook).onPreview();
+      first = rendered.result.current.panel?.onPreview();
     });
-    act(() => panel(hook).onCancel());
-    await act(async () => pending.resolve({ routes: [evaluated("x", ["e1"])], conditions: {} as never }));
-    expect(hook.result.current.panel).toBeNull();
-    act(() => hook.result.current.start(ROUTE_A.id));
-    expect(panel(hook)).toMatchObject({ appliedCount: 0, preview: null, previewing: false });
+
+    act(() => rendered.result.current.panel?.onCancel());
+    await act(async () => {
+      pending.resolve([evaluated(["e1", "q1", "q2", "e3"])]);
+      await first;
+    });
+    expect(rendered.result.current.editingRoute).toBeNull();
+
+    await startEditing(rendered);
+    tapStretch(rendered);
+    expect(rendered.result.current.panel?.preview).toBeNull();
+    expect(rendered.result.current.panel?.previewing).toBe(false);
   });
 });
 
 describe("作成", () => {
-  it("評価した経路を、合成の印のidで一覧へ所要時間の順に加えて選び、編集を終える。作る直前に知らせる", async () => {
-    const hook = startEditing();
-    choose(hook, B_FIRST);
-    respond([evaluated("backend-id", ["e1", "b1", "e2", "a2", "e3"], 700)]);
-    await act(async () => panel(hook).onApply());
-    expect(onApplyStart).toHaveBeenCalledTimes(1);
-    const created = {
-      ...evaluated("backend-id", ["e1", "b1", "e2", "a2", "e3"], 700),
-      id: `${SPLICED_ROUTE_ID_PREFIX}-3`,
-    };
-    expect(onApplied).toHaveBeenCalledWith({
-      routes: [ROUTE_A, created, ROUTE_B, ROUTE_C],
-      selectedRouteId: created.id,
-    });
-    expect(hook.result.current.panel).toBeNull();
-  });
-
-  it("作った経路が既にある候補と同じ道なら、一覧を変えずにその候補を選ぶ", async () => {
-    const hook = startEditing();
-    choose(hook, B_FIRST);
-    choose(hook, B_SECOND);
-    respond([evaluated("backend-id", ROUTE_B.edge_ids)]);
-    await act(async () => panel(hook).onApply());
-    expect(onApplied).toHaveBeenCalledWith({ routes: ROUTES, selectedRouteId: ROUTE_B.id });
-  });
-
-  it("評価済みの組み合わせは作るときに投げ直さない", async () => {
-    const hook = startEditing();
-    choose(hook, B_FIRST);
-    respond([evaluated("x", ["e1", "b1", "e2", "a2", "e3"])]);
-    await act(async () => panel(hook).onPreview());
-    await act(async () => panel(hook).onApply());
-    expect(generateRoutes).toHaveBeenCalledTimes(1);
-    expect(onApplied).toHaveBeenCalledTimes(1);
-  });
-
-  it("続けて2回押しても1本だけ作る。作っている間は作っていると返す", async () => {
-    const hook = startEditing();
-    choose(hook, B_FIRST);
-    const pending = deferred();
-    vi.mocked(generateRoutes).mockReturnValueOnce(pending.promise);
+  it("作る直前に知らせ、評価した経路を元の候補と一緒に渡して編集を終える", async () => {
+    const rendered = renderSplice();
+    await startEditing(rendered);
+    tapStretch(rendered);
+    const created = evaluated(["e1", "q1", "x", "e3"]);
+    const pending = deferredEvaluation();
+    let applying: unknown;
     act(() => {
-      void panel(hook).onApply();
-      void panel(hook).onApply();
+      applying = rendered.result.current.panel?.onApply();
     });
-    expect(panel(hook).applying).toBe(true);
-    await act(async () =>
-      pending.resolve({ routes: [evaluated("x", ["e1", "b1", "e2", "a2", "e3"])], conditions: {} as never }),
-    );
-    expect(generateRoutes).toHaveBeenCalledTimes(1);
-    expect(onApplied).toHaveBeenCalledTimes(1);
+    expect(rendered.onApplyStart).toHaveBeenCalledTimes(1);
+    expect(rendered.onApplied).not.toHaveBeenCalled();
+    expect(rendered.result.current.panel?.applying).toBe(true);
+
+    await act(async () => {
+      pending.resolve([created]);
+      await applying;
+    });
+
+    expect(rendered.onApplied).toHaveBeenCalledWith({ created, originId: "base" });
+    expect(rendered.result.current.editingRoute).toBeNull();
   });
 
-  it("失敗したら編集を続けて理由を出し、もう一度押せる", async () => {
-    const hook = startEditing();
-    choose(hook, B_FIRST);
-    vi.mocked(generateRoutes).mockRejectedValueOnce(new Error("混み合っています"));
-    await act(async () => panel(hook).onApply());
-    expect(panel(hook)).toMatchObject({ error: "混み合っています", applying: false });
-    expect(onApplied).not.toHaveBeenCalled();
+  it("作った経路が既にある候補と同じ道なら、作らずにその候補を渡す", async () => {
+    const rendered = renderSplice();
+    await startEditing(rendered);
+    tapStretch(rendered);
+    respond([evaluated(VIA_Q.edge_ids)]);
 
-    respond([evaluated("x", ["e1", "b1", "e2", "a2", "e3"])]);
-    await act(async () => panel(hook).onApply());
-    expect(onApplied).toHaveBeenCalledTimes(1);
+    await press(rendered.result.current.panel?.onApply);
+
+    expect(rendered.onApplied).toHaveBeenCalledWith({ existingRouteId: "via-q" });
   });
 
-  it("評価が空で返ったら作らず理由を出す", async () => {
-    const hook = startEditing();
-    choose(hook, B_FIRST);
-    respond([]);
-    await act(async () => panel(hook).onApply());
-    expect(panel(hook).error).toBe("組み合わせたルートを評価できませんでした");
-    expect(onApplied).not.toHaveBeenCalled();
+  it("差分を見た組み合わせは、作るときに投げ直さない", async () => {
+    const rendered = renderSplice();
+    await startEditing(rendered);
+    tapStretch(rendered);
+    const created = evaluated(["e1", "q1", "x", "e3"]);
+    respond([created]);
+    await press(rendered.result.current.panel?.onPreview);
+
+    await press(rendered.result.current.panel?.onApply);
+
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(rendered.onApplied).toHaveBeenCalledWith({ created, originId: "base" });
   });
 
-  it("乗り換えていない間は何もしない", async () => {
-    const hook = startEditing();
-    await act(async () => panel(hook).onApply());
-    expect(onApplyStart).not.toHaveBeenCalled();
-    expect(generateRoutes).not.toHaveBeenCalled();
+  it("連打しても投げるのは1回で、渡すのも1回", async () => {
+    const rendered = renderSplice();
+    await startEditing(rendered);
+    tapStretch(rendered);
+    respond([evaluated(["e1", "q1", "x", "e3"])]);
+
+    await act(async () => {
+      const apply = rendered.result.current.panel?.onApply;
+      await Promise.all([apply?.(), apply?.()]);
+    });
+
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(rendered.onApplyStart).toHaveBeenCalledTimes(1);
+    expect(rendered.onApplied).toHaveBeenCalledTimes(1);
+  });
+
+  it("乗り換えていない間は作らず、知らせもしない", async () => {
+    const rendered = renderSplice();
+    await startEditing(rendered);
+
+    await press(rendered.result.current.panel?.onApply);
+
+    expect(rendered.onApplyStart).not.toHaveBeenCalled();
+    expect(generate).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { label: "評価が空で返る", outcome: () => respond([]), message: "組み合わせたルートを評価できませんでした" },
+    {
+      label: "通信が失敗する",
+      outcome: () => generate.mockRejectedValueOnce(new Error("リクエストに失敗しました")),
+      message: "リクエストに失敗しました",
+    },
+  ])("「$label」と、編集を続けたまま理由を出し、もう一度作れる", async ({ outcome, message }) => {
+    const rendered = renderSplice();
+    await startEditing(rendered);
+    tapStretch(rendered);
+    outcome();
+
+    await press(rendered.result.current.panel?.onApply);
+
+    expect(rendered.onApplied).not.toHaveBeenCalled();
+    expect(rendered.result.current.panel?.error).toBe(message);
+    expect(rendered.result.current.panel?.applying).toBe(false);
+
+    respond([evaluated(["e1", "q1", "x", "e3"])]);
+    await press(rendered.result.current.panel?.onApply);
+    expect(rendered.onApplied).toHaveBeenCalledTimes(1);
   });
 });

@@ -147,7 +147,7 @@ def collect_gaps(conn: Connection) -> list[str]:
         conn.execute(text("SET LOCAL lock_timeout = '5s'"))
         declared_metadata().create_all(
             conn.execution_options(schema_translate_map={None: "pg_temp"}), checkfirst=False)
-        temp = conn.execute(text("SELECT nspname FROM pg_namespace WHERE oid = pg_my_temp_schema()")).scalar_one()
+        temp: str = conn.execute(text("SELECT nspname FROM pg_namespace WHERE oid = pg_my_temp_schema()")).scalar_one()
         return _differences(_Catalog(conn, "public"), _Catalog(conn, temp))
     finally:
         transaction.rollback()

@@ -19,7 +19,7 @@ pytestmark = [
 ]
 
 #: (種別, 枝の本数, 信号)
-NODES = (("signal", 0, True), ("signal", 2, False), (None, 3, False), ("crossing", 3, False))
+NODES = (("traffic_signals", 0, True), ("traffic_signals", 2, False), (None, 3, False), ("crossing", 3, False))
 
 
 async def _insert_nodes(session) -> None:

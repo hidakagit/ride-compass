@@ -11,6 +11,44 @@ CLAUDE.md「コミット時の同期ルール」から参照される。個々�
 軸定義を軸スタジオに何をさせるかは
 [axis-definition-maintenance-split.md](../records/decisions/axis-definition-maintenance-split.md)。
 
+## コミットと同時に揃えるもの
+
+コード変更と同期して更新すべきペアは、漏れが繰り返し起きてきた。次は**同一コミットで**実施する。
+
+- **backend側のAPIルーター・Pydanticモデル・レジストリ・domain定数を変更したら**、
+  `backend/scripts/export_openapi.py`→`cd frontend && npm run generate:api`を実行し、
+  `git diff --exit-code -- frontend/src/types/generated/`がクリーンであることを確認する。
+- **規模M以上でAPI・ドメイン概念・レイヤー種を新設するタスクは、完了条件へ
+  docs/architecture/追従を既定で含める**。docs（「現状」記述）はコード変更と
+  同一コミットで更新する。
+- **既存の仕組みと技術的に別方式の新しい配信・レンダリング機構（例: タイル焼き込み済み
+  ramp軸に対する、フィーチャーの鍵で値を配る`dedicated_way_value_layer`）を新設するときは、
+  着手前に`docs/architecture/design-principles.md`の構造仕様3・8（1本道の追加点）がこの新しい機構にも
+  適用されるかを点検し、適用されるなら軸ごとのファイル・関数・定数・propを新設しない
+  汎用設計にする**（新しい種類の機構を作る時にだけ点検が漏れやすい）。
+- **MVT焼き込み値（CASE式・材料タグ・domain純関数）を変更したら**、生成物
+  （region-tile-config.json）を同一コミットで再生成する（タイル世代そのものは焼き込みSQLから
+  導出されるため手で上げない。`app/infrastructure/cache_identity.py`参照）。
+- **評価軸（`axis_definitions`テーブル）の新規追加・削除・既存軸の`shape_params`調整は、
+  すべて`axis_admin`のAPI（軸スタジオのGUI、または直接API呼び出し。新規追加=POST、
+  削除=unpublish→DELETE、公開軸の調整=unpublish→PUT→republish）経由で行う。**
+  **正本は本番DBだけ**で、リポジトリは軸の写しを持たない——スキーマはORMの宣言から
+  `create_tables()`が作り、軸の中身は実行時の`GET /api/axis-catalog`がフロントへ配る。
+  ビルド時の生成物（`frontend/src/types/generated/`）はすべてコードの宣言から決まり、
+  DBを読まない。取り直せない管理データのバックアップは下の「管理データのバックアップ」。
+  完了扱いにする条件は下の「本番へ効かせたい軸定義の変更は、本番の管理APIへ入れる」
+  （開発DBのみの反映で完了扱いにしない）。
+- **既存DBの行データを新しいコードが読めなくなる変更（Pydanticモデルの破壊的変更等）を
+  含む`backend/**`の変更は、本番DBのデータ移行を完了させてからpushする**。
+  masterへのpushでCI（`.github/workflows/ci.yml`）が通ると、backendは本番へ自動デプロイされる
+  （コンテナを入れ替えるかの振り分けは`scripts/deploy_backend_gate.py`が正本）。
+  DB移行より先にpushすると、新コードが本番DBに残る旧形式データを読めず、
+  `refresh_axis_definitions`等のfail-fast設計により本番backendが起動失敗する
+  （本番障害の実績あり、詳細は[T396](../records/tasks/T396.md)参照）。
+  対応順序は事前に次のいずれかを選ぶこと: 1) 本番DBのデータ移行を先に完了させてから
+  push、2) 移行を即座に行えない場合は`workflow_dispatch`のみで手動デプロイへ切り替える、
+  3) 新旧両方の形式を一時的に許容する後方互換コードを経由して段階的に移行する。
+
 ## 派生データの作り直し
 
 - 対象: 管理画面の「派生データの鮮度」が作り直し待ちを出したとき（古い理由がどれであっても打つのは同じ

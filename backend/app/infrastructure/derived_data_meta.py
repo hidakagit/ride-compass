@@ -1,4 +1,4 @@
-"""派生データの世代（1行のみ、id=1固定）。
+"""派生データの世代と、数えた事故の取込（1行のみ、id=1固定）。
 
 派生の作り直し（`app/batch/derive_cli.py`）が作り直した表を入れ替えるたびにインクリメントする単調カウンタ。
 道路網全体の配列の置き場の名前（`road_network_store.py`）と、配信する地図タイルの世代
@@ -10,14 +10,19 @@
 系譜は変わらないためである。「中身を書き直した」という事実を
 表せるのは書いた側が進めるカウンタだけである。
 
-行は最初に世代を進めたときに作られる（`bump_revision`）。それまでは`get_revisions()`の
+**この表も派生の表と一緒に作業用のスキーマへ写して入れ替える**（`derive_cli.py`）。
+`accident_run_id`は事故の数の分母（収録年数）を決めるので、数と同じ時点で変わらないと、
+取り込み直してから作り直しが入れ替わるまでの間、分母だけが新しい取込の年数になる。
+
+行は最初に世代を進めたとき（`bump_revision`）か、数の段が数えた事故の取込を記録したとき
+（`record_accident_run`）に作られる。行が無い間は`get_revisions()`の
 派生の世代がNoneになる。
 """
 
 from dataclasses import dataclass
 
 import asyncpg
-from sqlalchemy import Integer, select
+from sqlalchemy import BigInteger, CheckConstraint, ForeignKey, Integer, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -27,9 +32,15 @@ from app.infrastructure.source_models import succeeded_run_count
 
 class DerivedDataMetaRow(Base):
     __tablename__ = "derived_data_meta"
+    __table_args__ = (CheckConstraint("id = 1", name="derived_data_meta_single_row"),)
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    #: 連番にしない——表ごと入れ替えるので、写しの既定値が元の表の連番を指すと元の表を消せない。
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
     revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    #: 今の事故の数（`accident_count`）を数えた事故の取込。事故密度の分母はこのrunの宣言の年から読む。
+    #: NULLは事故の取込が無いまま数えたこと（事故の数はどれも0）。
+    accident_run_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("source_runs.run_id"), nullable=True)
 
 
 @dataclass(frozen=True)
@@ -55,11 +66,20 @@ async def bump_revision(conn: asyncpg.Connection) -> int:
 
     派生の表を入れ替えるトランザクションの中で呼ぶ——入れ替えと世代が別々にコミットされると、
     その間の読み手は新しい表を古い世代の鍵でキャッシュする。
-
-    **行を作るのはここだけ**——スキーマはORMの宣言から作るため、行を入れる場所が他に無い。
     """
     revision: int = await conn.fetchval(
         "INSERT INTO derived_data_meta (id, revision) VALUES (1, 1)"
         " ON CONFLICT (id) DO UPDATE SET revision = derived_data_meta.revision + 1"
         " RETURNING revision")
     return revision
+
+
+async def record_accident_run(conn: asyncpg.Connection, run_id: int | None) -> None:
+    """数えた事故の取込を記録する。行が無ければ世代0（まだ一度も入れ替えていない）で作る。
+
+    数の段が作業用のスキーマの写しへ書き、入れ替えで数と一緒に読み手へ出る。
+    """
+    await conn.execute(
+        "INSERT INTO derived_data_meta (id, revision, accident_run_id) VALUES (1, 0, $1)"
+        " ON CONFLICT (id) DO UPDATE SET accident_run_id = EXCLUDED.accident_run_id",
+        run_id)

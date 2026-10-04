@@ -231,16 +231,9 @@ async def unpublish_axis_definition(
     フィールドは一切変更しない、「公開済みは編集不可」原則を保ったまま公開フラグの
     反転だけに穴を開ける）。下書きへ戻った軸は通常のPUTで再編集・再公開できる。"""
     try:
-        await _guard_db_errors(service.unpublish(axis_id))
+        definition = await _guard_db_errors(service.unpublish(axis_id))
     except KeyError as exc:
         raise _axis_not_found() from exc
-    definition = await _guard_db_errors(service.get(axis_id))
-    if definition is None:
-        # assert文は`python -O`実行時に取り除かれるため使わない（本番起動コマンドが-Oを
-        # 使っていなくても、将来変更されると不変条件チェックごと消える不安定な保護に
-        # なる）。unpublishが例外なく返った直後のため通常は必ず存在するが、その不変条件を
-        # 常に有効な形で守る。
-        raise RuntimeError(f"axis_id={axis_id} のunpublish直後にgetが空を返しました（不変条件違反）")
     return _to_response(definition, await _all_definitions(service))
 
 

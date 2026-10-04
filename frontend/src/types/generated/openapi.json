@@ -554,10 +554,19 @@
         }
       }
     },
-    "/api/region/poi-tiles/{z}/{x}/{y}.pbf": {
+    "/api/region/point-tiles/{layer}/{z}/{x}/{y}.pbf": {
       "get": {
-        "operationId": "region_poi_tile_api_region_poi_tiles__z___x___y__pbf_get",
+        "operationId": "region_point_tile_api_region_point_tiles__layer___z___x___y__pbf_get",
         "parameters": [
+          {
+            "name": "layer",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Layer"
+            }
+          },
           {
             "name": "z",
             "in": "path",
@@ -809,60 +818,6 @@
                   ],
                   "title": "Response Region Axis Inspector Api Region Axis Inspector Post"
                 }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/region/accident-tiles/{z}/{x}/{y}.pbf": {
-      "get": {
-        "operationId": "region_accident_tile_api_region_accident_tiles__z___x___y__pbf_get",
-        "parameters": [
-          {
-            "name": "z",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Z"
-            }
-          },
-          {
-            "name": "x",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "X"
-            }
-          },
-          {
-            "name": "y",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Y"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
               }
             }
           },
@@ -2306,17 +2261,17 @@
             "type": "array",
             "title": "Material Breakdown"
           },
-          "dynamic_way_value_needs_time": {
-            "type": "boolean",
-            "title": "Dynamic Way Value Needs Time"
-          },
-          "dynamic_way_value_needs_bearing": {
-            "type": "boolean",
-            "title": "Dynamic Way Value Needs Bearing"
-          },
-          "dynamic_way_value_needs_speed": {
-            "type": "boolean",
-            "title": "Dynamic Way Value Needs Speed"
+          "dynamic_way_value_conditions": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "at",
+                "bearing_deg",
+                "speed_kmh"
+              ]
+            },
+            "type": "array",
+            "title": "Dynamic Way Value Conditions"
           }
         },
         "additionalProperties": false,
@@ -2345,9 +2300,7 @@
           "raw_value_unit",
           "raw_value_total_unit",
           "material_breakdown",
-          "dynamic_way_value_needs_time",
-          "dynamic_way_value_needs_bearing",
-          "dynamic_way_value_needs_speed"
+          "dynamic_way_value_conditions"
         ],
         "title": "AxisCatalogEntry"
       },
@@ -2541,21 +2494,6 @@
             "type": "boolean",
             "title": "Dedicated Way Value Layer",
             "default": false
-          },
-          "dynamic_way_value_needs_time": {
-            "type": "boolean",
-            "title": "Dynamic Way Value Needs Time",
-            "default": false
-          },
-          "dynamic_way_value_needs_bearing": {
-            "type": "boolean",
-            "title": "Dynamic Way Value Needs Bearing",
-            "default": false
-          },
-          "dynamic_way_value_needs_speed": {
-            "type": "boolean",
-            "title": "Dynamic Way Value Needs Speed",
-            "default": false
           }
         },
         "additionalProperties": false,
@@ -2706,21 +2644,6 @@
             "title": "Dedicated Way Value Layer",
             "default": false
           },
-          "dynamic_way_value_needs_time": {
-            "type": "boolean",
-            "title": "Dynamic Way Value Needs Time",
-            "default": false
-          },
-          "dynamic_way_value_needs_bearing": {
-            "type": "boolean",
-            "title": "Dynamic Way Value Needs Bearing",
-            "default": false
-          },
-          "dynamic_way_value_needs_speed": {
-            "type": "boolean",
-            "title": "Dynamic Way Value Needs Speed",
-            "default": false
-          },
           "display": {
             "$ref": "#/components/schemas/AxisDisplaySpec"
           },
@@ -2755,9 +2678,6 @@
           "display_thresholds_override",
           "display_band_labels_override",
           "dedicated_way_value_layer",
-          "dynamic_way_value_needs_time",
-          "dynamic_way_value_needs_bearing",
-          "dynamic_way_value_needs_speed",
           "display",
           "weight_share_when_published"
         ],

@@ -1,0 +1,437 @@
+{
+  "axes": [
+    {
+      "axis": "数値の材料（重み違いの複数項）",
+      "display": {
+        "kind": "ramp",
+        "label": "数値の材料（重み違いの複数項）",
+        "category": "trafficSafety",
+        "tile_inputs": [
+          {
+            "property": "built_pct",
+            "weight": 1.5,
+            "boolean": false,
+            "true_value": 0.0,
+            "false_value": 0.0,
+            "has_unknown_fallback": false,
+            "categories": null,
+            "breakpoints": null,
+            "needs_runtime_scale": false
+          },
+          {
+            "property": "trees_pct",
+            "weight": -0.5,
+            "boolean": false,
+            "true_value": 0.0,
+            "false_value": 0.0,
+            "has_unknown_fallback": false,
+            "categories": null,
+            "breakpoints": null,
+            "needs_runtime_scale": false
+          }
+        ],
+        "thresholds": [
+          50.0,
+          100.0
+        ]
+      },
+      "runtime_scales": {
+        "accident_per_km": 0.25
+      },
+      "roads": [
+        {
+          "road": "両方ある",
+          "properties": {
+            "built_pct": 40.0,
+            "trees_pct": 10.0
+          },
+          "value": 55.0,
+          "unknown": false
+        },
+        {
+          "road": "片方が0（タイルに載らない）",
+          "properties": {
+            "trees_pct": 20.0
+          },
+          "value": -10.0,
+          "unknown": false
+        }
+      ]
+    },
+    {
+      "axis": "任意の材料",
+      "display": {
+        "kind": "ramp",
+        "label": "任意の材料",
+        "category": "trafficSafety",
+        "tile_inputs": [
+          {
+            "property": "intersection_per_km",
+            "weight": 1.0,
+            "boolean": false,
+            "true_value": 0.0,
+            "false_value": 0.0,
+            "has_unknown_fallback": false,
+            "categories": null,
+            "breakpoints": null,
+            "needs_runtime_scale": false
+          },
+          {
+            "property": "poi_signal_per_km",
+            "weight": 2.0,
+            "boolean": false,
+            "true_value": 0.0,
+            "false_value": 0.0,
+            "has_unknown_fallback": false,
+            "categories": null,
+            "breakpoints": null,
+            "needs_runtime_scale": false
+          }
+        ],
+        "thresholds": [
+          5.0,
+          10.0
+        ]
+      },
+      "runtime_scales": {
+        "accident_per_km": 0.25
+      },
+      "roads": [
+        {
+          "road": "両方ある",
+          "properties": {
+            "intersection_per_km": 3.0,
+            "poi_signal_per_km": 1.5
+          },
+          "value": 6.0,
+          "unknown": false
+        },
+        {
+          "road": "任意の材料が欠けた",
+          "properties": {
+            "intersection_per_km": 3.0
+          },
+          "value": 3.0,
+          "unknown": false
+        }
+      ]
+    },
+    {
+      "axis": "真偽の材料の重み付き和",
+      "display": {
+        "kind": "ramp",
+        "label": "真偽の材料の重み付き和",
+        "category": "trafficSafety",
+        "tile_inputs": [
+          {
+            "property": "lit",
+            "weight": 1.0,
+            "boolean": true,
+            "true_value": 10.0,
+            "false_value": 0.0,
+            "has_unknown_fallback": false,
+            "categories": null,
+            "breakpoints": null,
+            "needs_runtime_scale": false
+          },
+          {
+            "property": "tunnel",
+            "weight": 1.0,
+            "boolean": true,
+            "true_value": 5.0,
+            "false_value": 0.0,
+            "has_unknown_fallback": false,
+            "categories": null,
+            "breakpoints": null,
+            "needs_runtime_scale": false
+          }
+        ],
+        "thresholds": [
+          2.5,
+          7.5,
+          12.5
+        ]
+      },
+      "runtime_scales": {
+        "accident_per_km": 0.25
+      },
+      "roads": [
+        {
+          "road": "片方が真",
+          "properties": {
+            "lit": true
+          },
+          "value": 10.0,
+          "unknown": false
+        },
+        {
+          "road": "両方が偽（タイルに載らない）",
+          "properties": {},
+          "value": 0.0,
+          "unknown": false
+        },
+        {
+          "road": "両方が真",
+          "properties": {
+            "lit": true,
+            "tunnel": true
+          },
+          "value": 15.0,
+          "unknown": false
+        }
+      ]
+    },
+    {
+      "axis": "真偽の分類",
+      "display": {
+        "kind": "ramp",
+        "label": "真偽の分類",
+        "category": "trafficSafety",
+        "tile_inputs": [
+          {
+            "property": "bridge",
+            "weight": 1.0,
+            "boolean": true,
+            "true_value": 80.0,
+            "false_value": 10.0,
+            "has_unknown_fallback": false,
+            "categories": null,
+            "breakpoints": null,
+            "needs_runtime_scale": false
+          }
+        ],
+        "thresholds": [
+          45.0
+        ]
+      },
+      "runtime_scales": {
+        "accident_per_km": 0.25
+      },
+      "roads": [
+        {
+          "road": "真",
+          "properties": {
+            "bridge": true
+          },
+          "value": 80.0,
+          "unknown": false
+        },
+        {
+          "road": "偽（タイルに載らない）",
+          "properties": {},
+          "value": 10.0,
+          "unknown": false
+        }
+      ]
+    },
+    {
+      "axis": "3値以上の分類",
+      "display": {
+        "kind": "ramp",
+        "label": "3値以上の分類",
+        "category": "trafficSafety",
+        "tile_inputs": [
+          {
+            "property": "highway",
+            "weight": 1.0,
+            "boolean": false,
+            "true_value": 0.0,
+            "false_value": 0.0,
+            "has_unknown_fallback": true,
+            "categories": {
+              "cycleway": 0.0,
+              "primary": 60.0,
+              "residential": 20.0
+            },
+            "breakpoints": null,
+            "needs_runtime_scale": false
+          }
+        ],
+        "thresholds": [
+          10.0,
+          40.0
+        ]
+      },
+      "runtime_scales": {
+        "accident_per_km": 0.25
+      },
+      "roads": [
+        {
+          "road": "登録した値",
+          "properties": {
+            "highway": "primary"
+          },
+          "value": 60.0,
+          "unknown": false
+        },
+        {
+          "road": "点数0の登録した値",
+          "properties": {
+            "highway": "cycleway"
+          },
+          "value": 0.0,
+          "unknown": false
+        },
+        {
+          "road": "未登録の値",
+          "properties": {
+            "highway": "service"
+          },
+          "value": null,
+          "unknown": true
+        },
+        {
+          "road": "欠けた",
+          "properties": {},
+          "value": null,
+          "unknown": true
+        }
+      ]
+    },
+    {
+      "axis": "実行時の係数が要る材料",
+      "display": {
+        "kind": "ramp",
+        "label": "実行時の係数が要る材料",
+        "category": "trafficSafety",
+        "tile_inputs": [
+          {
+            "property": "accident_per_km",
+            "weight": 2.0,
+            "boolean": false,
+            "true_value": 0.0,
+            "false_value": 0.0,
+            "has_unknown_fallback": false,
+            "categories": null,
+            "breakpoints": null,
+            "needs_runtime_scale": true
+          },
+          {
+            "property": "built_pct",
+            "weight": 0.5,
+            "boolean": false,
+            "true_value": 0.0,
+            "false_value": 0.0,
+            "has_unknown_fallback": false,
+            "categories": null,
+            "breakpoints": null,
+            "needs_runtime_scale": false
+          }
+        ],
+        "thresholds": [
+          20.0
+        ]
+      },
+      "runtime_scales": {
+        "accident_per_km": 0.25
+      },
+      "roads": [
+        {
+          "road": "両方ある",
+          "properties": {
+            "accident_per_km": 2.0,
+            "built_pct": 30.0
+          },
+          "value": 16.0,
+          "unknown": false
+        },
+        {
+          "road": "係数の要る材料が0",
+          "properties": {
+            "built_pct": 30.0
+          },
+          "value": 15.0,
+          "unknown": false
+        }
+      ]
+    },
+    {
+      "axis": "他の軸を参照する項",
+      "display": {
+        "kind": "ramp",
+        "label": "referenced",
+        "category": "trafficSafety",
+        "tile_inputs": [
+          {
+            "property": "maxspeed_kmh",
+            "weight": 0.5,
+            "boolean": false,
+            "true_value": 0.0,
+            "false_value": 0.0,
+            "has_unknown_fallback": false,
+            "categories": null,
+            "breakpoints": [
+              [
+                30.0,
+                0.0
+              ],
+              [
+                60.0,
+                50.0
+              ],
+              [
+                90.0,
+                100.0
+              ]
+            ],
+            "needs_runtime_scale": false
+          },
+          {
+            "property": "intersection_per_km",
+            "weight": 1.0,
+            "boolean": false,
+            "true_value": 0.0,
+            "false_value": 0.0,
+            "has_unknown_fallback": false,
+            "categories": null,
+            "breakpoints": null,
+            "needs_runtime_scale": false
+          }
+        ],
+        "thresholds": [
+          60.0
+        ]
+      },
+      "runtime_scales": {
+        "accident_per_km": 0.25
+      },
+      "roads": [
+        {
+          "road": "折れ点の間（点数を小数1桁へ丸める）",
+          "properties": {
+            "maxspeed_kmh": 40.0,
+            "intersection_per_km": 2.0
+          },
+          "value": 10.35,
+          "unknown": false
+        },
+        {
+          "road": "折れ点より下（端の点数）",
+          "properties": {
+            "maxspeed_kmh": 20.0,
+            "intersection_per_km": 2.0
+          },
+          "value": 2.0,
+          "unknown": false
+        },
+        {
+          "road": "折れ点より上（端の点数）",
+          "properties": {
+            "maxspeed_kmh": 100.0,
+            "intersection_per_km": 2.0
+          },
+          "value": 52.0,
+          "unknown": false
+        },
+        {
+          "road": "参照先の材料が欠けた（任意の項は寄与0）",
+          "properties": {
+            "intersection_per_km": 2.0
+          },
+          "value": 2.0,
+          "unknown": false
+        }
+      ]
+    }
+  ]
+}

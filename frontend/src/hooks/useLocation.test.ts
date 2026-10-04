@@ -1,212 +1,230 @@
-import { act, renderHook } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+/**
+ * 位置の取得と保持（`hooks/useLocation.ts: useLocation`）——マウント時に自動で取り、「現在地に移動」で取り直し、
+ * 手で地点を決められる。並走する要求は最後に出したものだけを反映する。位置が分からないことの印の項目は、
+ * 最初の取得が決着するまで出さない。
+ *
+ * ここで見ないもの:
+ * - 位置が分からない間に天候・警報を取らないこと、印の項目をヘッダーに並べること → `app/page.test.tsx`
+ *
+ * 差し替えたもの: 位置情報の取得（`navigator.geolocation`。テスト環境に無いブラウザの機能）。要求ごとに、
+ * テストが決めた時に成功か失敗で返す。
+ */
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
+import type { Coordinates } from "@/types/route";
+
 import { useLocation } from "./useLocation";
 
-type SuccessCallback = (position: GeolocationPosition) => void;
-type ErrorCallback = (error: GeolocationPositionError) => void;
-
-function makePosition(latitude: number, longitude: number): GeolocationPosition {
-  return {
-    coords: {
-      latitude,
-      longitude,
-      accuracy: 1,
-      altitude: null,
-      altitudeAccuracy: null,
-      heading: null,
-      speed: null,
-      toJSON: () => ({}),
-    },
-    timestamp: Date.now(),
-    toJSON: () => ({}),
-  } as GeolocationPosition;
+interface PendingRequest {
+  succeed: (point: Coordinates) => void;
+  fail: () => void;
 }
 
-describe("useLocation", () => {
-  let calls: { success: SuccessCallback; error: ErrorCallback }[];
+const HERE: Coordinates = { latitude: 35.6812, longitude: 139.7671 };
+const THERE: Coordinates = { latitude: 34.7025, longitude: 135.4959 };
+const PICKED: Coordinates = { latitude: 43.0687, longitude: 141.3508 };
 
-  beforeEach(() => {
-    calls = [];
-    Object.defineProperty(global.navigator, "geolocation", {
-      value: {
-        getCurrentPosition: vi.fn((success: SuccessCallback, error: ErrorCallback) => {
-          calls.push({ success, error });
-        }),
-      },
-      configurable: true,
-    });
-  });
+let requests: PendingRequest[];
 
-  // マウント時の自動取得は最大8秒かかりうる（backend/実機のGPS事情）。ユーザーが
-  // 「現在地に移動」ボタンを押して発行した新しいリクエストの結果を、後から遅れて
-  // 返ってきたマウント時取得の結果が黙って上書きしてしまわないことを検証する。
-  it("先に発行されたが後から解決するマウント時取得が、後発のhandleLocateMeの結果を上書きしない", () => {
+function installGeolocation() {
+  requests = [];
+  const geolocation = {
+    getCurrentPosition(onSuccess: PositionCallback, onError: PositionErrorCallback) {
+      requests.push({
+        succeed: (point) =>
+          act(() =>
+            onSuccess({ coords: { latitude: point.latitude, longitude: point.longitude } } as GeolocationPosition),
+          ),
+        fail: () => act(() => onError({ code: 1, message: "denied" } as GeolocationPositionError)),
+      });
+    },
+  };
+  Object.defineProperty(navigator, "geolocation", { value: geolocation, configurable: true });
+}
+
+function removeGeolocation() {
+  Object.defineProperty(navigator, "geolocation", { value: undefined, configurable: true });
+}
+
+beforeEach(() => {
+  installGeolocation();
+});
+
+afterEach(() => {
+  removeGeolocation();
+});
+
+describe("マウント時の自動取得", () => {
+  it("決着するまでは初期地点で、位置は分からないが印の項目も出さない", () => {
     const { result } = renderHook(() => useLocation());
 
-    // マウント時の自動取得（1件目）が発行され、まだ未解決
-    expect(calls).toHaveLength(1);
-
-    // ユーザーがボタンを押して2件目のリクエストを発行
-    act(() => {
-      result.current.handleLocateMe();
-    });
-    expect(calls).toHaveLength(2);
-
-    // 2件目（ボタン操作）が先に解決する
-    act(() => {
-      calls[1].success(makePosition(34.6937, 135.5023));
-    });
-    expect(result.current.location).toEqual({ latitude: 34.6937, longitude: 135.5023 });
-    expect(result.current.locationSource).toBe("geolocation");
-
-    // 1件目（マウント時取得）が遅れて解決しても、古いリクエストの結果は反映されない
-    act(() => {
-      calls[0].success(makePosition(1, 1));
-    });
-    expect(result.current.location).toEqual({ latitude: 34.6937, longitude: 135.5023 });
-  });
-
-  it("後発のhandleLocateMeが失敗しても、先発の古いリクエストの失敗コールバックが結果を上書きしない", () => {
-    const { result } = renderHook(() => useLocation());
-
-    act(() => {
-      result.current.handleLocateMe();
-    });
-    act(() => {
-      calls[1].success(makePosition(34.6937, 135.5023));
-    });
-    expect(result.current.location).toEqual({ latitude: 34.6937, longitude: 135.5023 });
-
-    // 古いマウント時取得が遅れて「失敗」で解決しても、既に確定した新しい位置情報や
-    // locateErrorは変化しない
-    act(() => {
-      calls[0].error({ code: 1, message: "denied" } as GeolocationPositionError);
-    });
-    expect(result.current.location).toEqual({ latitude: 34.6937, longitude: 135.5023 });
+    expect(requests).toHaveLength(1);
+    expect(result.current.locationSource).toBe("default");
+    expect(result.current.locationKnown).toBe(false);
+    expect(result.current.locationFailure).toBeNull();
+    expect(result.current.locating).toBe(false);
     expect(result.current.locateError).toBeNull();
   });
 
-  it("位置情報APIが無い端末ではhandleLocateMeがエラーメッセージを表示する", () => {
-    Object.defineProperty(global.navigator, "geolocation", { value: undefined, configurable: true });
+  it("取れたらその位置になり、位置が分かっている", () => {
     const { result } = renderHook(() => useLocation());
 
-    act(() => {
-      result.current.handleLocateMe();
-    });
-    expect(result.current.locateError).toBe("この端末では位置情報を取得できません。");
+    requests[0].succeed(HERE);
+
+    expect(result.current.location).toEqual(HERE);
+    expect(result.current.locationSource).toBe("geolocation");
+    expect(result.current.locationKnown).toBe(true);
+    expect(result.current.locationFailure).toBeNull();
+  });
+
+  it("失敗したら初期地点のまま、文は出さずに印の項目を出し、その再試行は取り直しになる", () => {
+    const { result } = renderHook(() => useLocation());
+    const initial = result.current.location;
+
+    requests[0].fail();
+
+    expect(result.current.location).toEqual(initial);
+    expect(result.current.locationKnown).toBe(false);
+    expect(result.current.locateError).toBeNull();
+    expect(result.current.locationFailure).toMatchObject({ id: "location", label: "現在地" });
+    expect(result.current.locationFailure?.onRetry).toBe(result.current.handleLocateMe);
+  });
+
+  it("位置情報の無い端末では、問い合わせずに、描いた後で印の項目を出す", async () => {
+    removeGeolocation();
+
+    const { result } = renderHook(() => useLocation());
+
+    expect(result.current.locationFailure).toBeNull();
+    await waitFor(() => expect(result.current.locationFailure).toMatchObject({ id: "location" }));
+    expect(result.current.locateError).toBeNull();
+  });
+});
+
+describe("「現在地に移動」の取り直し", () => {
+  it("取っている間は取得中で、取れたらその位置になる", () => {
+    const { result } = renderHook(() => useLocation());
+    requests[0].fail();
+
+    act(() => result.current.handleLocateMe());
+
+    expect(result.current.locating).toBe(true);
+    requests[1].succeed(HERE);
     expect(result.current.locating).toBe(false);
+    expect(result.current.location).toEqual(HERE);
+    expect(result.current.locationKnown).toBe(true);
+    expect(result.current.locateError).toBeNull();
+    expect(result.current.locationFailure).toBeNull();
   });
 
-  // 改善計画T366: 地図タップによる出発地点の手動指定。
-  describe("setManualLocation", () => {
-    it("locationとlocationSourceを更新する", () => {
-      const { result } = renderHook(() => useLocation());
+  it("失敗したら取得中を下ろして文を出し、次に押すと文を消してから取り直す", () => {
+    const { result } = renderHook(() => useLocation());
+    requests[0].succeed(HERE);
 
-      act(() => {
-        result.current.setManualLocation({ latitude: 35.6812, longitude: 139.7671 });
-      });
+    act(() => result.current.handleLocateMe());
+    requests[1].fail();
 
-      expect(result.current.location).toEqual({ latitude: 35.6812, longitude: 139.7671 });
-      expect(result.current.locationSource).toBe("manual");
-    });
+    expect(result.current.locating).toBe(false);
+    expect(result.current.locateError).toBe(
+      "現在地を取得できませんでした。位置情報の利用が許可されているかご確認ください。",
+    );
+    expect(result.current.location).toEqual(HERE);
 
-    it("マウント時の自動取得がまだ未解決のまま手動指定した後、遅れて解決しても手動指定を上書きしない", () => {
-      const { result } = renderHook(() => useLocation());
-      expect(calls).toHaveLength(1); // マウント時取得はまだ未解決
-
-      act(() => {
-        result.current.setManualLocation({ latitude: 35.6812, longitude: 139.7671 });
-      });
-
-      act(() => {
-        calls[0].success(makePosition(1, 1));
-      });
-
-      expect(result.current.location).toEqual({ latitude: 35.6812, longitude: 139.7671 });
-      expect(result.current.locationSource).toBe("manual");
-    });
-
-    it("手動指定後にhandleLocateMeを呼ぶとgeolocationへ戻る", () => {
-      const { result } = renderHook(() => useLocation());
-      act(() => {
-        result.current.setManualLocation({ latitude: 35.6812, longitude: 139.7671 });
-      });
-
-      act(() => {
-        result.current.handleLocateMe();
-      });
-      act(() => {
-        calls[calls.length - 1].success(makePosition(34.6937, 135.5023));
-      });
-
-      expect(result.current.location).toEqual({ latitude: 34.6937, longitude: 135.5023 });
-      expect(result.current.locationSource).toBe("geolocation");
-    });
+    act(() => result.current.handleLocateMe());
+    expect(result.current.locateError).toBeNull();
+    expect(result.current.locating).toBe(true);
   });
 
-  describe("位置が分かっているかと、分からないことの印", () => {
-    it("自動取得が決着するまでは、分かっていないが印も出さない。取れたら分かっている", () => {
-      const { result } = renderHook(() => useLocation());
-      expect(result.current.locationKnown).toBe(false);
-      expect(result.current.locationFailure).toBeNull();
+  it("位置情報の無い端末では、取得中にせず文を出す", () => {
+    removeGeolocation();
+    const { result } = renderHook(() => useLocation());
 
-      act(() => {
-        calls[0].success(makePosition(34.6937, 135.5023));
-      });
+    act(() => result.current.handleLocateMe());
 
-      expect(result.current.locationKnown).toBe(true);
-      expect(result.current.locationFailure).toBeNull();
-    });
+    expect(result.current.locating).toBe(false);
+    expect(result.current.locateError).toBe("この端末では位置情報を取得できません。");
+  });
 
-    it("自動取得に失敗したら印を出し、印から取り直して取れたら消える", () => {
-      const { result } = renderHook(() => useLocation());
+  it("自動取得より後に出した取り直しの結果を、遅れて返った自動取得が上書きしない", () => {
+    const { result } = renderHook(() => useLocation());
+    act(() => result.current.handleLocateMe());
 
-      act(() => {
-        calls[0].error({ code: 1, message: "denied" } as GeolocationPositionError);
-      });
+    requests[1].succeed(HERE);
+    requests[0].succeed(THERE);
 
-      expect(result.current.locationKnown).toBe(false);
-      expect(result.current.locationFailure).toMatchObject({ id: "location", label: "現在地" });
+    expect(result.current.location).toEqual(HERE);
+  });
 
-      act(() => result.current.locationFailure?.onRetry?.());
-      act(() => {
-        calls[1].success(makePosition(34.6937, 135.5023));
-      });
+  it("取り直しの失敗を、遅れて返った自動取得の失敗が打ち消さない", () => {
+    const { result } = renderHook(() => useLocation());
+    act(() => result.current.handleLocateMe());
 
-      expect(result.current.locationKnown).toBe(true);
-      expect(result.current.locationFailure).toBeNull();
-    });
+    requests[1].fail();
+    requests[0].fail();
 
-    it("自動取得の決着より先に押した取り直しが失敗したら、自動取得の結果を待たずに印を出す", () => {
-      const { result } = renderHook(() => useLocation());
+    expect(result.current.locateError).toBe(
+      "現在地を取得できませんでした。位置情報の利用が許可されているかご確認ください。",
+    );
+  });
 
-      act(() => result.current.handleLocateMe());
-      act(() => {
-        calls[1].error({ code: 1, message: "denied" } as GeolocationPositionError);
-      });
+  it("自動取得の決着より先に取り直しが失敗したら、自動取得を待たずに印の項目を出す", () => {
+    const { result } = renderHook(() => useLocation());
+    act(() => result.current.handleLocateMe());
 
-      expect(result.current.locationKnown).toBe(false);
-      expect(result.current.locationFailure).toMatchObject({ id: "location", label: "現在地" });
-    });
+    requests[1].fail();
 
-    it("位置情報APIが無い端末では（マイクロタスク経由で）待たせず印を出す", async () => {
-      Object.defineProperty(global.navigator, "geolocation", { value: undefined, configurable: true });
-      const { result } = renderHook(() => useLocation());
+    expect(result.current.locationFailure).toMatchObject({ id: "location" });
+  });
+});
 
-      await act(async () => {
-        await Promise.resolve();
-      });
+describe("手で地点を決める", () => {
+  it("その地点になり、位置が分かっている。取得中と文は下ろす", () => {
+    const { result } = renderHook(() => useLocation());
+    requests[0].succeed(HERE);
+    act(() => result.current.handleLocateMe());
+    requests[1].fail();
+    act(() => result.current.handleLocateMe());
 
-      expect(result.current.locationFailure).toMatchObject({ id: "location" });
-    });
+    act(() => result.current.setManualLocation(PICKED));
 
-    it("自動取得の決着より先に手で置いた位置は、分かっている位置になる", () => {
-      const { result } = renderHook(() => useLocation());
+    expect(result.current.location).toEqual(PICKED);
+    expect(result.current.locationSource).toBe("manual");
+    expect(result.current.locationKnown).toBe(true);
+    expect(result.current.locating).toBe(false);
+    expect(result.current.locateError).toBeNull();
+  });
 
-      act(() => result.current.setManualLocation({ latitude: 34.6937, longitude: 135.5023 }));
+  it("自動取得の決着より先に決めると、位置が分かっていて印の項目は出さない", () => {
+    const { result } = renderHook(() => useLocation());
 
-      expect(result.current.locationKnown).toBe(true);
-      expect(result.current.locationFailure).toBeNull();
-    });
+    act(() => result.current.setManualLocation(PICKED));
+
+    expect(result.current.locationKnown).toBe(true);
+    expect(result.current.locationFailure).toBeNull();
+  });
+
+  it("まだ返っていない取得は、後から返っても決めた地点を上書きしない", () => {
+    const { result } = renderHook(() => useLocation());
+    act(() => result.current.handleLocateMe());
+
+    act(() => result.current.setManualLocation(PICKED));
+    requests[0].succeed(HERE);
+    requests[1].fail();
+
+    expect(result.current.location).toEqual(PICKED);
+    expect(result.current.locationSource).toBe("manual");
+    expect(result.current.locateError).toBeNull();
+  });
+
+  it("決めた後に取り直すと、取れた位置へ戻る", () => {
+    const { result } = renderHook(() => useLocation());
+    act(() => result.current.setManualLocation(PICKED));
+
+    act(() => result.current.handleLocateMe());
+    requests[1].succeed(HERE);
+
+    expect(result.current.location).toEqual(HERE);
+    expect(result.current.locationSource).toBe("geolocation");
   });
 });

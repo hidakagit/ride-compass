@@ -318,9 +318,8 @@ class AxisDefinition(StrictModel):
     `show_map_icon`として配り、絞り込むのは受け取る側）。"""
     time_scope: Literal["always", "night_only"] = "always"
     """この軸の重みが常に有効か、特定の時間帯でのみ有効かの宣言。
-    「`time_scope != "always"`な軸のうち、現在の`active_scopes`に含まれないものの
-    重みを0倍にする」という汎用ロジック（`RoutePreference.with_time_scope`、
-    `domain/axis_definitions.py: time_scoped_weights`参照）が、このフィールドだけを
+    「`time_scope != "always"`な軸の重みを、その時間帯に区間を通るときだけ残し、ほかは0倍にする」
+    という汎用ロジック（`domain/axis_definitions.py: time_scoped_weights`参照）が、このフィールドだけを
     見て判定する。別の時間帯を足すときもこのLiteralへ値を1つ増やすだけで、エンジン側の
     コード変更は要らない。"""
     display_thresholds_override: list[float] | None = Field(default=None, min_length=1)
@@ -353,24 +352,6 @@ class AxisDefinition(StrictModel):
     軸の評価ロジック（shape）自体からは自動導出できないため、他のbool系フィールドと
     同様に明示的に持たせ、軸スタジオの編集画面（管理API）からも設定できるようにする。
     既定Falseは、この専用レイヤーを持たない大多数の軸の実際の状態と一致する。"""
-    dynamic_way_value_needs_time: bool = False
-    """`dedicated_way_value_layer=True`の軸のみ意味を持つ。`GET /api/region/
-    dynamic-way-values/{axis_id}/...`（`api/routers/region.py`）の`at`クエリ
-    パラメータにこの軸の値が依存するかの宣言（風=True、気象予報が時々刻々変わる。
-    勾配=False、標高・道路の向きは時刻で変わらない）。`dedicated_way_value_layer`と
-    同様、この値自体は軸の評価ロジック（shape）から自動導出できない工学的事実のため、
-    明示的なフィールドとして持たせる。"""
-    dynamic_way_value_needs_bearing: bool = False
-    """`dedicated_way_value_layer=True`の軸のみ意味を持つ。同エンドポイントの
-    `bearing_deg`クエリパラメータにこの軸の値が依存するかの宣言（風・勾配どちらもTrue——
-    向きの*出所*（外部データ/道路自身に内在）が異なるだけで、パラメータとしては両方とも
-    ユーザー指定の走行方位を必要とする）。`dynamic_way_value_needs_time`と
-    同じ理由で明示的なフィールドとして持たせる。"""
-    dynamic_way_value_needs_speed: bool = False
-    """`dedicated_way_value_layer=True`の軸のみ意味を持つ。同エンドポイントの
-    `speed_kmh`クエリパラメータ（想定速度）にこの軸の値が依存するかの宣言。走行速度に
-    依存する材料（`wind_drag_ratio`）を参照する軸で立てる。他の2フラグと同じ理由で
-    明示的なフィールドとして持たせる。"""
 
     @field_validator("display_thresholds_override")
     @classmethod
@@ -898,24 +879,25 @@ def default_axis_weights() -> dict[str, float]:
     }
 
 
-def time_scoped_weights(weights: Mapping[str, float], active_scopes: frozenset[str]) -> dict[str, float]:
-    """`weights`のうち、`time_scope`が"always"以外（AXIS_DEFINITIONS参照）かつ
-    `active_scopes`に含まれない軸の重みを0.0にした新しい辞書を返す
-    （`weights`自体は変更しない）。
+def time_scoped_weights(
+    weights: Mapping[str, float], active_scopes: Mapping[str, np.ndarray]
+) -> dict[str, float | np.ndarray]:
+    """`weights`のうち、`time_scope`が"always"以外（AXIS_DEFINITIONS参照）の軸の重みを、
+    その時間帯に当たる区間（`active_scopes`の真偽の配列。区間の並び）でだけ残し、ほかの区間では
+    0.0にした配列へ置き換えた新しい辞書を返す（`weights`自体は変更しない）。`active_scopes`に無い
+    時間帯は、どの区間も当たらないとして扱う。
 
     エンジン側は「この性質を持つ軸を探して掛け替える」という汎用ロジックだけを持つため、
     軸を足すときに要るのはその軸の`time_scope`を設定することだけになる。
 
     `weights`に無いaxis_id（内部軸・非公開化された軸等）は重みを持たないため、キーを足さずに
     無視する。"""
-    overrides = {
-        axis_id: 0.0
-        for axis_id, definition in AXIS_DEFINITIONS.items()
-        if axis_id in weights and definition.time_scope != "always" and definition.time_scope not in active_scopes
-    }
-    if not overrides:
-        return dict(weights)
-    return {**weights, **overrides}
+    scoped: dict[str, float | np.ndarray] = dict(weights)
+    for axis_id, definition in AXIS_DEFINITIONS.items():
+        if axis_id in weights and definition.time_scope != "always":
+            active = active_scopes.get(definition.time_scope)
+            scoped[axis_id] = 0.0 if active is None else np.where(active, weights[axis_id], 0.0)
+    return scoped
 
 
 def _priority_override_mask(values: MaterialColumn, equals: str) -> np.ndarray:
