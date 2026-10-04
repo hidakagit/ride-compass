@@ -23,24 +23,16 @@ def _master(class20s, class15s=None, class10s=None) -> AreaMaster:
 EXPECTED = ResolvedArea(class20_code="1310100", class10_code="130010", office_code="130000", class10_name="東京地方")
 
 
-def test_an_area_is_resolved_through_its_class15_parent():
-    master = _master(
-        {"1310100": AreaEntry(parent="130011", name="千代田区")},
-        class15s={"130011": AreaEntry(parent="130010", name="23区西部")},
-    )
-    assert resolve_area("1310100", master) == EXPECTED
-
-
-def test_an_area_whose_parent_is_already_the_subdivision_is_resolved():
-    master = _master({"1310100": AreaEntry(parent="130010", name="千代田区")})
-    assert resolve_area("1310100", master) == EXPECTED
-
-
-def test_several_class15_levels_are_followed():
-    master = _master(
-        {"1310100": AreaEntry(parent="a", name=None)},
-        class15s={"a": AreaEntry(parent="b", name=None), "b": AreaEntry(parent="130010", name=None)},
-    )
+@pytest.mark.parametrize(
+    ("parent", "class15s"),
+    [
+        ("130010", {}),
+        ("a", {"a": AreaEntry(parent="b", name=None), "b": AreaEntry(parent="130010", name=None)}),
+    ],
+    ids=["parent_is_already_the_subdivision", "several_class15_levels"],
+)
+def test_an_area_is_resolved_by_following_class15_parents_up_to_the_subdivision(parent, class15s):
+    master = _master({"1310100": AreaEntry(parent=parent, name=None)}, class15s)
     assert resolve_area("1310100", master) == EXPECTED
 
 
