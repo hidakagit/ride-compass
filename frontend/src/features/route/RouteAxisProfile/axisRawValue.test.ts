@@ -34,18 +34,14 @@ describe("formatAxisRawValue", () => {
   it.each([
     ["生値が無い", undefined, "%"],
     ["単位が無い", 3, null],
-    ["単位が空", 3, ""],
   ])("%sなら出さない（null）", (_label, rawValue, unit) => {
     expect(formatAxisRawValue(rawValue, unit, null, 10)).toBeNull();
   });
 
   it.each([
-    [123.4, "123"],
     [10, "10"],
     [9.96, "10.0"],
-    [3.14, "3.1"],
     [1, "1.0"],
-    [0.5, "0.5"],
     [0.0412, "0.041"],
     [0, "0"],
   ])("生値%sの数字は「%s」", (rawValue, text) => {

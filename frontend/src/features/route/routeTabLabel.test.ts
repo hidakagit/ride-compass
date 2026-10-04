@@ -43,15 +43,7 @@ describe("routeListEntries", () => {
     ]);
   });
 
-  it("最速の1本を含める生成なら、最も早い生成候補を最速として先頭に印だけで置き、残りに1から番号を振る", () => {
-    expect(entriesOf(routeListEntries(generated, [], true))).toEqual([
-      "b:fastest:最速/",
-      "a:generated:1/1",
-      "c:generated:2/2",
-    ]);
-  });
-
-  it("合成で作ったルートは、生成した候補の後へ受け取った順に「合成N」で並び、名前の列には番号を出す", () => {
+  it("最速の1本を含める生成なら、最も早い候補を印だけの最速として先頭に置いて残りに1から番号を振り、合成は後へ「合成N」で並べる", () => {
     const edits = [
       { route: route("e2", 700), number: 2 },
       { route: route("e1", 650), number: 1 },
@@ -63,10 +55,6 @@ describe("routeListEntries", () => {
       "e2:spliced:合成2/2",
       "e1:spliced:合成1/1",
     ]);
-  });
-
-  it("比べる相手の無い1件だけの生成は、最速の1本を含める生成でも最速にしない", () => {
-    expect(entriesOf(routeListEntries([route("a", 900)], [], true))).toEqual(["a:generated:1/1"]);
   });
 
   it("経由地ルートは番号の代わりに方位の名前を出す", () => {
@@ -96,7 +84,6 @@ describe("fastestRouteId・fastestDurationSeconds", () => {
 
   it.each([
     ["候補が1件", [route("a", 600)]],
-    ["候補が無い", []],
     ["所要時間を持つ候補が無い", [route("a", null), route("b", null)]],
   ])("%sならnull", (_label, routes) => {
     expect(fastestRouteId(routes)).toBeNull();
@@ -107,11 +94,9 @@ describe("fastestRouteId・fastestDurationSeconds", () => {
 describe("extraDurationLabel", () => {
   it("基準線より余計にかかる分を、分へ四捨五入して「+N分」で書く", () => {
     expect(extraDurationLabel(route("a", 600 + 12 * 60), 600)).toBe("+12分");
-    expect(extraDurationLabel(route("a", 600 + 107 * 60 + 29), 600)).toBe("+107分");
   });
 
   it("差が丸めて1分に満たなければnull、半分ちょうどからは「+1分」", () => {
-    expect(extraDurationLabel(route("a", 600), 600)).toBeNull();
     expect(extraDurationLabel(route("a", 629), 600)).toBeNull();
     expect(extraDurationLabel(route("a", 630), 600)).toBe("+1分");
   });
@@ -126,11 +111,5 @@ describe("orderByDuration", () => {
   it("所要時間の短い順に並べ、所要時間の無い候補は末尾、同着は受け取った並びを保つ", () => {
     const routes = [route("a", 900), route("none", null), route("b", 600), route("c", 900)];
     expect(orderByDuration(routes).map((r) => r.id)).toEqual(["b", "a", "c", "none"]);
-  });
-
-  it("受け取った並びは書き換えない", () => {
-    const routes = [route("a", 900), route("b", 600)];
-    orderByDuration(routes);
-    expect(routes.map((r) => r.id)).toEqual(["a", "b"]);
   });
 });

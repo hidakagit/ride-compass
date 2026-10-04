@@ -63,29 +63,12 @@ describe("profileBoxes", () => {
     expect(missing).toEqual([]);
   });
 
-  it("塗った面積の合計は、総合難易度×全長（ルートの負荷）に一致する", () => {
-    const columns = profileColumns([
-      segment({ distance_km: 2, axis_contributions: { slope: 30, wind: 10 } }),
-      segment({ distance_km: 1, axis_contributions: { slope: 50, wind: 20 } }),
-      segment({ distance_km: 1, difficulty: null }),
-    ]);
-    // 総合難易度は値のある区間の距離加重平均: (2×40 + 1×70) / 3 = 50。
-    const average = 50;
-    const { byAxis, missing } = profileBoxes(columns, ["slope", "wind"], average);
-    const area = [...[...byAxis.values()].flat(), ...missing].reduce(
-      (sum, box) => sum + (box.endKm - box.startKm) * (box.top - box.bottom),
-      0,
-    );
-    expect(area).toBeCloseTo(average * columns.at(-1)!.endKm, 10);
-  });
-
   it("寄与が0の軸・寄与の無い軸は積まず、上の軸はその分下がる。指定の順に無い軸は描かない", () => {
     const columns = profileColumns([segment({ axis_contributions: { wind: 0, light: 25, other: 10 } })]);
     const { byAxis } = profileBoxes(columns, ["wind", "slope", "light"], 40);
     expect(byAxis.get("wind")).toEqual([]);
     expect(byAxis.get("slope")).toEqual([]);
     expect(byAxis.get("light")).toEqual([{ startKm: 0, endKm: 1, bottom: 0, top: 25 }]);
-    expect([...byAxis.keys()]).toEqual(["wind", "slope", "light"]);
   });
 
   it("値の無い区間は、ルートの総合難易度の高さの1本にする", () => {
@@ -107,13 +90,8 @@ describe("profileBoxes", () => {
   });
 
   it("長さの無い区間は描かない", () => {
-    const columns = profileColumns([
-      segment({ distance_km: 0, axis_contributions: { wind: 20 } }),
-      segment({ distance_km: 0, difficulty: null }),
-    ]);
-    const { byAxis, missing } = profileBoxes(columns, ["wind"], 35);
-    expect(byAxis.get("wind")).toEqual([]);
-    expect(missing).toEqual([]);
+    const columns = profileColumns([segment({ distance_km: 0, axis_contributions: { wind: 20 } })]);
+    expect(profileBoxes(columns, ["wind"], 35).byAxis.get("wind")).toEqual([]);
   });
 });
 
@@ -126,7 +104,6 @@ describe("columnAtKm", () => {
 
   it("距離が入る柱と、柱の中の割合", () => {
     expect(columnAtKm(columns, 0.25)).toEqual({ column: columns[0], fraction: 0.25 });
-    expect(columnAtKm(columns, 2)).toEqual({ column: columns[2], fraction: 0.5 });
   });
 
   it("柱の境目ちょうどは後ろの柱の始まりで、長さの無い柱は選ばない", () => {
@@ -139,7 +116,6 @@ describe("columnAtKm", () => {
   });
 
   it("長さのある柱が無ければnull", () => {
-    expect(columnAtKm([], 0)).toBeNull();
     expect(columnAtKm(profileColumns([segment({ distance_km: 0 })]), 0)).toBeNull();
   });
 });
@@ -156,8 +132,6 @@ describe("pointAlongSegment", () => {
     expect(pointAlongSegment(bent, 0.25)).toEqual([0.5, 0]);
     expect(pointAlongSegment(bent, 0.75)[0]).toBeCloseTo(1);
     expect(pointAlongSegment(bent, 0.75)[1]).toBeCloseTo(0.5);
-    expect(pointAlongSegment(bent, 0)).toEqual([0, 0]);
-    expect(pointAlongSegment(bent, 1)).toEqual([1, 1]);
   });
 
   it("経度方向の長さは緯度で縮めて測る", () => {

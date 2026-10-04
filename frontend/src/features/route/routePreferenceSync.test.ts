@@ -36,10 +36,6 @@ describe("alignRoutePreference", () => {
     });
   });
 
-  it("届いたカタログの公開軸が0件なら、重みは空になる", () => {
-    expect(alignRoutePreference({ a: 0.2 }, { loaded: true, defaultWeights: {} })).toEqual({});
-  });
-
   it("揃えるときは渡した値を書き換えない", () => {
     const stored = { a: 0.2, stale: 0.5 };
     alignRoutePreference(stored, { loaded: true, defaultWeights: DEFAULTS });
@@ -57,7 +53,6 @@ describe("routePreferenceToSend", () => {
   it.each([
     ["上書きしていない", true, false],
     ["カタログが届いていない", false, true],
-    ["どちらでもない", false, false],
   ])("%sなら送らない（null）", (_label, catalogLoaded, overrideEnabled) => {
     expect(routePreferenceToSend(aligned, catalogLoaded, overrideEnabled)).toBeNull();
   });

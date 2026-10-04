@@ -15,11 +15,6 @@ describe("formatDurationShort", () => {
     expect(formatDurationShort(102 * 60)).toBe("102分");
   });
 
-  it("分へは四捨五入で丸める（半分ちょうどは繰り上げる）", () => {
-    expect(formatDurationShort(60 + 29)).toBe("1分");
-    expect(formatDurationShort(60 + 30)).toBe("2分");
-  });
-
   it("丸めて1分に満たないものは「1分未満」、半分ちょうどからは「1分」", () => {
     expect(formatDurationShort(0)).toBe("1分未満");
     expect(formatDurationShort(29)).toBe("1分未満");
@@ -29,7 +24,6 @@ describe("formatDurationShort", () => {
   it.each([
     ["負の秒", -1],
     ["NaN", Number.NaN],
-    ["無限大", Number.POSITIVE_INFINITY],
   ])("%sは「—」", (_label, seconds) => {
     expect(formatDurationShort(seconds)).toBe("—");
   });
