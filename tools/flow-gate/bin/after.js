@@ -29,8 +29,6 @@ if (kind === "作る" && task?.status === config.working)
   note(await moveTask(gh, config, Number(number), step.to, { comment: notes.reason(step.to, step.reason), dryRun: dry }).catch((e) => `${step.to}へ動かさなかった（${e.message}）`));
 else note(`${task?.status ?? "置き場に無い"}なので動かさなかった`);
 
-const run = await repo.rest("GET", `/repos/${config.code.repository}/actions/runs/${url.split("/").at(-1)}`).catch(() => null);
-const status = (await readTask(gh, config, { number: Number(number) })).issue?.status;
-const body = endReport({ kind, url, jobStatus, messages, done, status, elapsedMs: run?.run_started_at ? Date.now() - Date.parse(run.run_started_at) : null });
+const body = endReport({ kind, url, messages, done });
 if (dry) console.log(body);
 else await gh.rest("POST", `/repos/${config.repository}/issues/${number}/comments`, { body });
