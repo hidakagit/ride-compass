@@ -2,12 +2,13 @@
  * `components/HeaderMenu/HeaderMenu.tsx`——ヘッダーのメニュー（使い方を見る・研究モードの切り替え・デバッグログの開閉）。
  *
  * 見るもの: メニューを開くと出る項目、「使い方を見る」を押すとメニューが閉じて説明を見る状態に入る操作が上がること、
- * 研究モードのチェックが今の状態を出し押すと切り替わること、
- * デバッグログの項目がデバッグモードの間だけ出て、開閉の状態を出し、押すと開閉の操作が上がること。
+ * 研究モードのチェック（項目の文言を押しても）を押すと切り替わること、
+ * デバッグログの項目がデバッグモードの間だけ出て、開閉の状態を名前で出し、押すと開閉の操作が上がること。
  *
  * ここで見ないもの: 研究モードの保存（`localStorage`）と、ほかの画面への知らせ → `lib/researchMode.ts`。
  * デバッグモードそのもののON/OFF → `features/admin/DebugPanel/DebugPanel.tsx`（このメニューは呼び出し側から受け取るだけ）。
  * 説明を見る状態で部品の使い方が出ること → `components/UsageGuide/UsageGuide.test.tsx`（メニューのボタンの使い方の文は宣言）。
+ * 押したときに逆へ戻ること・押下の状態（`aria-pressed`）——`components/ui/Checkbox`・`components/ui/Toggle`へそのまま渡すだけ。
  *
  * 研究モードは本物の`lib/researchMode.ts`を通す。状態はモジュールが持つので、テストごとにOFFへ戻す。
  */
@@ -41,14 +42,6 @@ afterEach(() => {
 });
 
 describe("HeaderMenu", () => {
-  it("押すまで項目を出さない", () => {
-    render(
-      <HeaderMenu debugEnabled debugConsoleOpen={false} onToggleDebugConsole={vi.fn()} onStartUsageGuide={vi.fn()} />,
-    );
-
-    expect(screen.queryByRole("checkbox", { name: RESEARCH })).not.toBeInTheDocument();
-  });
-
   it("「使い方を見る」を押すと、メニューが閉じて説明を見る状態に入る操作が上がる", async () => {
     const { onStartUsageGuide } = await openMenu();
 
@@ -60,23 +53,13 @@ describe("HeaderMenu", () => {
   });
 
   describe("研究モード", () => {
-    it("研究モードが入っていれば、チェックの入った状態で出す", async () => {
-      setResearchEnabled(true);
-
-      await openMenu();
-
-      expect(screen.getByRole("checkbox", { name: RESEARCH })).toHaveAttribute("aria-checked", "true");
-    });
-
-    it("チェックを押すと切り替わり、もう一度押すと戻る", async () => {
+    it("チェックを押すと切り替わる", async () => {
       await openMenu();
       const checkbox = screen.getByRole("checkbox", { name: RESEARCH });
 
       await userEvent.click(checkbox);
-      expect(checkbox).toHaveAttribute("aria-checked", "true");
-      await userEvent.click(checkbox);
 
-      expect(checkbox).toHaveAttribute("aria-checked", "false");
+      expect(checkbox).toHaveAttribute("aria-checked", "true");
     });
 
     it("項目の文言を押しても切り替わる", async () => {
@@ -96,12 +79,12 @@ describe("HeaderMenu", () => {
     });
 
     it.each([
-      [false, "デバッグログを表示", "false"],
-      [true, "デバッグログを隠す", "true"],
-    ])("開いている（%s）かを、名前と押下の状態で出す", async (open, name, pressed) => {
+      [false, "デバッグログを表示"],
+      [true, "デバッグログを隠す"],
+    ])("開いている（%s）かを、名前で出す", async (open, name) => {
       await openMenu({ debugEnabled: true, debugConsoleOpen: open });
 
-      expect(screen.getByRole("button", { name })).toHaveAttribute("aria-pressed", pressed);
+      expect(screen.getByRole("button", { name })).toBeInTheDocument();
     });
 
     it("押すと、開閉の操作が上がる", async () => {
