@@ -60,7 +60,7 @@ def _dsn() -> str:
 
 
 async def _revision(conn: asyncpg.Connection) -> int | None:
-    return await conn.fetchval("SELECT revision FROM derived_data_meta WHERE id = 1")
+    return await conn.fetchval("SELECT revision FROM derived_data_meta")
 
 
 @pytest_asyncio.fixture(loop_scope="module")

@@ -210,7 +210,7 @@ async def run(database_url: str, start_from: str | None) -> int:
             await stage(conn, tuning)
             logger.info("段 %s 完了 / %s", name,
                         format_duration(time.perf_counter() - stage_started))
-        revision = (await conn.fetchval("SELECT revision FROM derived_data_meta WHERE id = 1") or 0) + 1
+        revision = (await conn.fetchval("SELECT revision FROM derived_data_meta") or 0) + 1
         pending = await _build_road_network(database_url, revision)
         await _swap(conn, tables, revision, runs)
         road_network_store.publish(pending)
