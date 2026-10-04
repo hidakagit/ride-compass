@@ -4,11 +4,12 @@
 // 同じタスクの実行が1本ずつ動くこと（担当のワークフローの concurrency。GitHub の動き）。
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { claudeHours, expected, pick, putStatus, ready, summary } from "../src/dispatch.js";
+import { pick, putStatus, ready, summary, workload } from "../src/dispatch.js";
 import { GitHub } from "../src/github.js";
+import { notes } from "../src/rules.js";
 import { config, fakeGitHub } from "./fake-github.js";
 
-const task = (number, status, extra = {}) => ({ number, status, blocked: false, labels: [], urgent: false, priority: null, size: null, startOn: null, claudeHours: 0, ...extra });
+const task = (number, status, extra = {}) => ({ number, status, blocked: false, labels: [], urgent: false, priority: null, size: null, startOn: null, ...extra });
 const board = (...tasks) => ({ tasks, ranks: ["高", "中", "低"] });
 const now = new Date("2026-10-03T15:30:00Z");
 
@@ -27,21 +28,44 @@ test("20 確かめるは検証中を全部、作るは前提が閉じ・開発�
   assert.deepEqual(ready(config, board(...tasks), [{ number: 10, kind: "作る" }], now).map((t) => t.number), [7, 6, 5, 4, 8]);
 });
 
-test("23 想定は Claude の番の時間（ユーザーの番を除く）の、同じ規模で完成した直近の件の p90", () => {
-  const turn = (type, login, at) => ({ __typename: type, assignee: { login }, createdAt: `2026-10-01T${at}:00:00Z` });
-  const events = [turn("AssignedEvent", config.claude, "00"), turn("UnassignedEvent", config.claude, "02"), turn("AssignedEvent", config.user, "02"),
-    turn("UnassignedEvent", config.user, "10"), turn("AssignedEvent", config.claude, "10")];
-  assert.equal(claudeHours(config, events, "2026-10-01T13:00:00Z"), 5);
-  // 架空の設定の直近20件（閉じた日が新しいもの）は 11〜30 時間で、その p90 は 29 時間。
-  const done = Array.from({ length: 30 }, (_, k) => ({ size: "S", closedAt: `2026-08-${String(k + 1).padStart(2, "0")}`, claudeHours: k + 1 }));
-  assert.deepEqual(expected(config, [...done, { size: "M", closedAt: "2026-09-01", claudeHours: 7 }]), { S: 29, M: 7 });
+test("23 作業時間は作業の状態にいた区間の和で、回答待ち・未着手の待ち・記録の始まりより前の着手は数えない。想定は完成した同じ規模の作業時間を持つ直近の件の p90。記録は作業の状態のタスクとその規模の母集団の分だけ読む", async () => {
+  const ago = (hours) => new Date(now.getTime() - hours * 3600e3).toISOString();
+  const [c, u, gate] = [config.claude, config.user, config.gate];
+  const start = (at, kind = "作る") => ({ by: c, at, body: notes.start(kind, "u") });
+  const asked = (at) => ({ by: c, at, body: "## 問い\nどうする？" });
+  const answered = (at) => ({ by: u, at, body: "## 回答\n**どうする？**\n\n次のステータス: 前" });
+  const merged = (at) => [{ by: gate, at, body: notes.pullRequest({ number: 9, title: "題名", html_url: "u" }, "をマージしました。完了にします。") }, { closed: at }];
+  const records = {
+    1: [start(ago(2))],
+    2: [start(ago(10)), { by: c, at: ago(9.9), body: notes.reason(config.todo, "段階に分けた") }], // 段階を待つ親
+    3: [{ by: gate, at: ago(40), body: `## 問い\n${config.adoption}` }, answered(ago(31)), start(ago(30)), asked(ago(29.5)), answered(ago(2)), start(ago(1))],
+    4: [start(ago(3)), { by: gate, at: ago(2), body: notes.back("表に無い。", config.review) }, start(ago(1), "確かめる")],
+    5: [start("2026-09-30T00:00:00Z")],
+    21: [answered(ago(1.5)), { closed: ago(1) }],
+    22: [start(ago(2.5)), { closed: ago(2) }],
+    23: [start(ago(4)), { closed: ago(3) }],
+    24: [start(ago(5.5)), ...merged(ago(4))],
+    // 10:00 着手 → 10:40 問い（40分）、13:05 着手 → 14:10 マージで完了（65分）→ 105分。
+    25: [start("2026-10-02T10:00:00Z"), asked("2026-10-02T10:40:00Z"), answered("2026-10-02T12:00:00Z"), start("2026-10-02T13:05:00Z"), ...merged("2026-10-02T14:10:00Z")],
+    26: [start("2026-10-01T00:00:00Z"), { closed: "2026-10-02T00:00:00Z" }],
+  };
+  const gh = fakeGitHub({ issue: { number: 1 }, records });
+  const open = [task(1, config.working, { size: "S" }), task(2, config.todo, { size: "S" }), task(3, config.working, { size: "S" }), task(4, config.review, { size: "M" }), task(5, config.working, { size: "S" })];
+  const done = [...[21, 22, 23, 24].map((k) => ({ number: k, size: "S", closedAt: ago(k - 20) })), { number: 25, size: "S", closedAt: "2026-10-02T14:10:00Z" },
+    { number: 26, size: "S", closedAt: "2026-10-02T00:00:00Z" }, { number: 27, size: "L", closedAt: ago(1) }, { number: 28, size: "S", closedAt: "2026-09-30T00:00:00Z" }];
+  const load = await workload(new GitHub("bot-token"), config, open, done, now);
+  assert.deepEqual(Object.fromEntries(load.tasks.map((t) => [t.number, t.workHours])), { 1: 2, 3: 1.5, 4: 3 });
+  assert.deepEqual(load.expected, { S: 1.75 });
+  assert.deepEqual(gh.read.toSorted((a, b) => a - b), [1, 3, 4, 5, 21, 22, 23, 24, 25]);
+  assert.equal(summary(config, { watcher: "w", tasks: open, working: load.tasks, expected: load.expected, runs: [], started: [], waiting: 0, idle: null }).status, "AT_RISK");
 });
 
-test("23 状況の更新: 想定を超えた Claude の番のタスク・仕事があるのに空いた枠・落ちた実行のどれかがあれば At risk。中身が変わったときだけ書く", async () => {
-  const base = { watcher: "w", tasks: [task(3, config.working, { size: "S", claudeHours: 2 })], expected: { S: 4 }, runs: [], started: [], waiting: 0, idle: null };
+test("23 状況の更新: 想定を超えた作業中のタスク・仕事があるのに空いた枠・落ちた実行のどれかがあれば At risk。中身が変わったときだけ書く", async () => {
+  const tasks = [task(3, config.working, { size: "S" })];
+  const base = { watcher: "w", tasks, working: [{ ...tasks[0], workHours: 2 }], expected: { S: 4 }, runs: [], started: [], waiting: 0, idle: null };
   const failed = [{ number: 3, kind: "作る", conclusion: "failure", url: "u2" }, { number: 3, kind: "作る", conclusion: "success", url: "u1" }];
-  for (const [what, extra, want] of [["無し", {}, "ON_TRACK"], ["想定超え", { tasks: [task(3, config.working, { size: "S", claudeHours: 5 })] }, "AT_RISK"],
-    ["ユーザーの番は数えない", { tasks: [task(3, config.waiting, { size: "S", claudeHours: 9 })] }, "ON_TRACK"], ["空いた枠", { idle: "止めている" }, "AT_RISK"],
+  for (const [what, extra, want] of [["無し", {}, "ON_TRACK"], ["想定超え", { working: [{ ...tasks[0], workHours: 5 }] }, "AT_RISK"],
+    ["想定の無い規模は数えない", { working: [{ ...tasks[0], size: "M", workHours: 9 }] }, "ON_TRACK"], ["空いた枠", { idle: "止めている" }, "AT_RISK"],
     ["落ちた実行", { runs: failed }, "AT_RISK"], ["落ちた後に通った", { runs: failed.toReversed() }, "ON_TRACK"]])
     assert.equal(summary(config, { ...base, ...extra }).status, want, what);
   const gh = fakeGitHub({ issue: { number: 1 } });

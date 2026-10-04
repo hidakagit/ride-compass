@@ -5,6 +5,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { endReport, settle } from "../src/after.js";
 import { readTask } from "../src/github.js";
 import { moveTask } from "../src/move.js";
+import { notes } from "../src/rules.js";
 import { args, bot, code, config, isNumber } from "./cli.js";
 
 const { dry, rest: [number, kind, file, url, jobStatus] } = args("node tools/flow-gate/bin/after.js [--dry-run] <issue の番号> <作る|確かめる> <実行のファイル（無ければ空）> <実行の URL> <ジョブの結果>",
@@ -25,7 +26,7 @@ if (step.pause) {
   note(`振り出しを ${until} まで止めた`);
 }
 if (kind === "作る" && task?.status === config.working)
-  note(await moveTask(gh, config, Number(number), step.to, { comment: `${step.to}にする理由: ${step.reason}`, dryRun: dry }).catch((e) => `${step.to}へ動かさなかった（${e.message}）`));
+  note(await moveTask(gh, config, Number(number), step.to, { comment: notes.reason(step.to, step.reason), dryRun: dry }).catch((e) => `${step.to}へ動かさなかった（${e.message}）`));
 else note(`${task?.status ?? "置き場に無い"}なので動かさなかった`);
 
 const run = await repo.rest("GET", `/repos/${config.code.repository}/actions/runs/${url.split("/").at(-1)}`).catch(() => null);

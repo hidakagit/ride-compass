@@ -1,6 +1,6 @@
 // ゲート: GitHub の出来事と回答フォームの送信を受け、遷移の表で照らして書く。1つの出来事では、タスクを1回読み、1回で書く。
 import { GitHub, readTask, setField } from "./github.js";
-import { bodyRest, judge, normalize, ownerOf, strayInBlock, withButton } from "./rules.js";
+import { bodyRest, judge, normalize, notes, ownerOf, strayInBlock, withButton } from "./rules.js";
 
 export class Gate {
   // env.GITHUB_TOKEN があればその名義（公開の直後の揃えを CI で流すとき）、無ければ App の名義で読み書きする。
@@ -87,7 +87,7 @@ export class Gate {
     const verdict = judge(this.config, from, to, { close, body: issue.body });
     if (verdict.ok) return this.write(issue, { status: to, close: to === done && !closed ? close : undefined });
     const back = wasClosed === closed ? {} : wasClosed ? { close: reason } : { reopen: true };
-    await this.write(issue, { status: from, ...back, comments: [`${verdict.reason}「${from}」へ戻しました。`] });
+    await this.write(issue, { status: from, ...back, comments: [notes.back(verdict.reason, from)] });
   }
 
   // 作業ブランチの Pull Request: 開くと検証中へ（表で行けるのは進行中からだけ）。閉じたら、検証中のタスクだけを動かす: マージされずに
@@ -99,10 +99,10 @@ export class Gate {
     if (!issue?.item || issue.state !== "OPEN") return;
     if (action !== "closed") return this.apply(issue, this.config.review);
     if (issue.status !== this.config.review) return;
-    const link = `Pull Request [#${pr.number} ${pr.title.replace(/[[\]]/g, "\\$&")}](${pr.html_url})`;
-    if (!pr.merged) return this.apply(issue, this.config.todo, { comments: [`${link} がマージされずに閉じられました。コメントを読んでやり直してください。`] });
-    const done = await this.apply(issue, this.config.done, { close: "COMPLETED", comments: [`${link} をマージしました。完了にします。`] });
-    if (!done.ok) await this.apply(issue, this.config.todo, { comments: [`${link} をマージしました。${done.reason}Claude に戻します。`] });
+    const said = (rest) => ({ comments: [notes.pullRequest(pr, rest)] });
+    if (!pr.merged) return this.apply(issue, this.config.todo, said("がマージされずに閉じられました。コメントを読んでやり直してください。"));
+    const done = await this.apply(issue, this.config.done, { close: "COMPLETED", ...said("をマージしました。完了にします。") });
+    if (!done.ok) await this.apply(issue, this.config.todo, said(`をマージしました。${done.reason}Claude に戻します。`));
   }
 
   // 公開の直後: 開いた issue を全部、今の規則の姿（担当者・本文の先頭）へ揃える。揃っているものには書かない。揃えた番号を返す。
