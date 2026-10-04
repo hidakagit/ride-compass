@@ -12,7 +12,7 @@ import { cn } from "@/lib/cn";
 interface RouteAxisProfileProps {
   /** 公開軸すべて（軸カタログの順序・ラベルの正本）。重みによる絞り込みは行わない。 */
   axes: readonly CatalogAxis[];
-  /** この候補を実際に評価した重み（生成時点のroute_preference）。0の軸は畳んだ1行へまとめる。 */
+  /** この候補を実際に評価した重み（生成時点のroute_preference）。0の軸と重みの無い軸は凡例に出さない。 */
   weights: RoutePreferenceWeights;
   /** RouteCandidate.axis_difficulties（axis_id→距離加重平均の難易度0-100）。評価できなかった
    * 軸はキー自体を持たない。 */

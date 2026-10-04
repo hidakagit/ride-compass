@@ -1,4 +1,4 @@
-import type { RouteCandidate } from "@/types/route";
+import type { GenerationConditions, RouteCandidate, RouteSegmentDetail } from "@/types/route";
 
 /**
  * テスト・ベンチで使う`RouteCandidate`の組み立て。
@@ -30,6 +30,49 @@ export function makeRouteCandidate(overrides: Partial<RouteCandidate> = {}): Rou
     edge_point_offsets: [],
     node_ids: [],
     axis_contributions: {},
+    ...overrides,
+  };
+}
+
+/** `GenerationConditions`（生成に使われた条件）の組み立て。既定値は`makeRouteCandidate`と同じく型を満たすための空だけ。 */
+export function makeGenerationConditions(overrides: Partial<GenerationConditions> = {}): GenerationConditions {
+  return {
+    latitude: 0,
+    longitude: 0,
+    distance_km: 0,
+    distance_tolerance_km: 0,
+    route_preference: {},
+    penalty_strength: 0,
+    max_average_grade_percent: null,
+    hard_filters: {},
+    max_routes: 0,
+    start_time: "",
+    assumed_speed_kmh: 0,
+    waypoints: null,
+    destination: null,
+    corrected_destination: null,
+    generated_at: "",
+    ...overrides,
+  };
+}
+
+/** `RouteSegmentDetail`（候補の区間1つ）の組み立て。既定値は型を満たすための空だけ。 */
+export function makeRouteSegment(overrides: Partial<RouteSegmentDetail> = {}): RouteSegmentDetail {
+  return {
+    geometry: null,
+    start_latitude: 0,
+    start_longitude: 0,
+    end_latitude: 0,
+    end_longitude: 0,
+    cumulative_distance_km: 0,
+    distance_km: 0,
+    estimated_arrival_time: null,
+    axis_difficulties: {},
+    axis_contributions: {},
+    material_values: {},
+    axis_raw_values: {},
+    difficulty: null,
+    wind: null,
     ...overrides,
   };
 }
