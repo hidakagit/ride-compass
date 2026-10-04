@@ -308,7 +308,7 @@ function holdGeneration() {
     return pending;
   });
   return {
-    progress: (progress: GenerationProgress) => act(() => onProgress?.(progress)),
+    progress: (progress: GenerationProgress) => act(async () => onProgress?.(progress)),
     finish: (routes: RouteCandidate[]) => act(async () => settle.resolve(routes)),
   };
 }
@@ -337,7 +337,9 @@ async function generate(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("button", { name: "ルート生成" }));
 }
 
-const call = <A extends unknown[]>(fn: (...args: A) => void, ...args: A) => act(() => fn(...args));
+// 待つ act は async の関数で渡す。同期の関数の act を待つと、Testing Library が act の環境の印を先に戻し、
+// React が残りを流す間に届いた更新が「act の環境ではない」と警告される。
+const call = <A extends unknown[]>(fn: (...args: A) => void, ...args: A) => act(async () => fn(...args));
 
 beforeEach(() => {
   stubBackend(() => new Response(null, { status: 503 }));
@@ -1057,6 +1059,8 @@ describe("ヘッダーとメニュー", () => {
   });
 
   it("メニューからデバッグログを開閉し、コンソールの側からも閉じられる", async () => {
+    // デバッグログは取得の失敗を console.error へ出すので、網の取得を通しておく。
+    stubBackend(() => Response.json([]));
     setDebugEnabled(true);
     await renderHome();
     const menu = () =>
