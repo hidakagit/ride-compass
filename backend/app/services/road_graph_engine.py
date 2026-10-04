@@ -689,7 +689,7 @@ class RoadGraphEngine:
         ]
 
         def prefer(remaining: Sequence[int], selected: list[int]) -> list[int]:
-            return _order_by_bearing_spread(remaining, selected, bearing_by_node, closeness_by_node)
+            return order_by_bearing_spread(remaining, selected, bearing_by_node, closeness_by_node)
 
         outbound_cache: dict[int, list[int] | None] = {}
 
@@ -880,7 +880,7 @@ class RoadGraphEngine:
         junction_ms = round((time.monotonic() - junction_started) * 1000)
         # 目的地そのものを経由Nodeとする経路（＝経由せず直行する経路）も候補に含める。
         # junctionは「入る区間×出る区間」の対で作るため、そこで終わる経路は現れない。
-        _add_terminal_candidate(junction, forward_tree, destination_index)
+        add_terminal_candidate(junction, forward_tree, destination_index)
         combined_cost = junction.cost
         combined_length = junction.length_m
         combined_seconds = junction.seconds
@@ -1245,14 +1245,12 @@ class RoadGraphEngine:
         if reversed_path is None:
             return forward_candidate
         reverse_edges, reverse_path = reversed_path
-        reverse_elevation_by_edge = _reverse_elevation_by_edge(
-            edges_in_path, reverse_edges, elevation_by_edge
-        )
+        reverse_elevation = reverse_elevation_by_edge(edges_in_path, reverse_edges, elevation_by_edge)
         reverse_candidate = self._build_candidate(
-            context, traced, reverse_edges, reverse_path, reverse_elevation_by_edge, start_time,
-            _reverse_leg_assignment(leg_of_edge),
+            context, traced, reverse_edges, reverse_path, reverse_elevation, start_time,
+            reverse_leg_assignment(leg_of_edge),
         )
-        return _pick_better_candidate(forward_candidate, reverse_candidate)
+        return pick_better_candidate(forward_candidate, reverse_candidate)
 
     def _elevation_by_edge(
         self, context: "_RoadGraphContext", edges_in_path: list[LeanEdge], path: list[int]
@@ -1281,8 +1279,8 @@ class RoadGraphEngine:
     ) -> RouteCandidate:
         # 区間と標高属性を引数で受けるのは、逆回り候補も同じ組み立てを通すため。
         # distance_km・bearingは同じ物理経路なので順方向の`traced`のものをそのまま使う。
-        geometry, edge_point_offsets = _concat_edge_geometries(edges_in_path)
-        elevation_stats = _aggregate_elevation(edges_in_path, elevation_by_edge)
+        geometry, edge_point_offsets = concat_edge_geometries(edges_in_path)
+        elevation_stats = aggregate_elevation(edges_in_path, elevation_by_edge)
         segments, segment_categories = self._build_segment_details(
             edges_in_path, path, elevation_by_edge, context, start_time, leg_of_edge
         )
@@ -1583,7 +1581,7 @@ def _origin_states(statics: SearchGraphStatics, node_index: int) -> np.ndarray:
     return csr.entry_edge_index[csr.indptr[node_index]:csr.indptr[node_index + 1]].astype(np.int64)
 
 
-def _add_terminal_candidate(
+def add_terminal_candidate(
     junction: NodeJunction, forward: TurnExpandedTree, destination_index: int
 ) -> None:
     """目的地そのものを経由Nodeとする候補（＝どこも経由せず目的地で終わる経路）を足す。
@@ -1662,7 +1660,7 @@ def _origin_estimate(context: _RoadGraphContext) -> list[float]:
     return context.origin_estimate
 
 
-def _order_by_bearing_spread(
+def order_by_bearing_spread(
     remaining: Sequence[int],
     selected: list[int],
     bearing_by_node: Mapping[int, float],
@@ -1730,7 +1728,7 @@ def _reverse_traced_edges(
     return reverse_edges, reverse_path
 
 
-def _reverse_elevation_by_edge(
+def reverse_elevation_by_edge(
     edges_in_path: list[LeanEdge],
     reverse_edges: list[LeanEdge],
     elevation_by_edge: dict[str, ElevationAttribute],
@@ -1756,20 +1754,18 @@ def _route_composite_difficulty(candidate: RouteCandidate) -> float | None:
     return distance_weighted_difficulty([(s.difficulty, s.distance_km) for s in candidate.segments])
 
 
-def _reverse_leg_assignment(leg_of_edge: list[int]) -> list[int]:
+def reverse_leg_assignment(leg_of_edge: list[int]) -> list[int]:
     """逆回り候補のレグ割当てを求める（先に走る側が往路配列）。
 
     `context.legs`は走行順にレグ番号を振った時間帯別のコスト配列のため、Edge列の反転と
     同時にレグ番号自体も`max_leg - leg`へ振り直す必要がある（並びだけを反転させると、
     走り始めを帰着時刻の風、走り終わりを出発時刻の風で評価することになる）。
     """
-    if not leg_of_edge:
-        return []
     max_leg = max(leg_of_edge)
     return [max_leg - leg for leg in reversed(leg_of_edge)]
 
 
-def _pick_better_candidate(forward: RouteCandidate, reverse: RouteCandidate) -> RouteCandidate:
+def pick_better_candidate(forward: RouteCandidate, reverse: RouteCandidate) -> RouteCandidate:
     """順方向・逆回り候補のうち、`_route_composite_difficulty`が小さい（走りやすい）方を
     採用する。逆回り側が算出不能（segments欠損等）なら順方向を採用する
     （比較不能を「逆回りの方が良い」とは解釈しない、安全側）。
@@ -1781,7 +1777,7 @@ def _pick_better_candidate(forward: RouteCandidate, reverse: RouteCandidate) -> 
     return forward
 
 
-def _concat_edge_geometries(edges: list[LeanEdge]) -> tuple[dict, list[int]]:
+def concat_edge_geometries(edges: list[LeanEdge]) -> tuple[dict, list[int]]:
     """経路上のEdge群を、ひとつながりのGeoJSON LineStringとEdgeの境界点の位置へ変換する。
 
     隣接するEdgeの境界点（前Edgeの終端＝次Edgeの始端）は重複させないため、**座標列だけ
@@ -1804,7 +1800,7 @@ def _concat_edge_geometries(edges: list[LeanEdge]) -> tuple[dict, list[int]]:
     return {"type": "LineString", "coordinates": coordinates}, offsets
 
 
-def _aggregate_elevation(edges: list[LeanEdge], elevation_by_edge: dict) -> dict:
+def aggregate_elevation(edges: list[LeanEdge], elevation_by_edge: dict) -> dict:
     attrs = [elevation_by_edge.get(edge.edge_id) for edge in edges]
     valid = [a for a in attrs if a is not None]
 
