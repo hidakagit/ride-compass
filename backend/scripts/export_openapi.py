@@ -32,12 +32,8 @@ from app.api.routers.axis_admin import AxisDefinitionPayload  # noqa: E402
 from app.api.routers.debug_admin import LogLevelName  # noqa: E402
 from app.infrastructure.source_models import SOURCE_RUN_STATUS_LABELS  # noqa: E402
 from app.domain.axis_definitions import MAP_CHIP_LABEL_MAX_LENGTH  # noqa: E402
-from app.infrastructure.vector_tile import (  # noqa: E402
-    ACCIDENT_LAYER_NAME,
-    ROAD_FEATURE_PROPERTIES,
-    ROAD_SURFACE_LAYER_NAME,
-    STOP_POI_LAYER_NAME,
-)
+from app.infrastructure.point_tile_layers import POINT_TILE_LAYERS  # noqa: E402
+from app.infrastructure.vector_tile import ROAD_FEATURE_PROPERTIES, ROAD_SURFACE_LAYER_NAME  # noqa: E402
 from app.main import app  # noqa: E402
 from app.domain.wind import ASSUMED_SPEED_KMH, MAX_ASSUMED_SPEED_KMH, MIN_ASSUMED_SPEED_KMH  # noqa: E402
 from app.domain.hard_filters import DEFAULT_HARD_FILTERS, HARD_FILTER_LABELS, HARD_FILTER_NAMES  # noqa: E402
@@ -286,8 +282,8 @@ def main() -> None:
             # 判定したまま配られない世代を待ち続ける。
             "tile_version_kinds": sorted(TILE_SHAPES),
             "road_surface": {"layer_name": ROAD_SURFACE_LAYER_NAME, "properties": ROAD_FEATURE_PROPERTIES},
-            "accident": {"layer_name": ACCIDENT_LAYER_NAME},
-            "poi": {"stop_poi_layer_name": STOP_POI_LAYER_NAME},
+            # 点のレイヤーの名前→source-layer名。画面はタイルのURLをこの名前で組み、source-layerを写さない。
+            "point_layers": {layer.name: layer.source_layer for layer in POINT_TILE_LAYERS.values()},
             # 路面タイルを要求するズーム範囲。frontendのMapLibreソース設定
             # （minzoom/maxzoom）とタイル要求のガードがこの値を使う。手書きで複製すると、
             # backendだけ広げてもfrontendが要求せずレイヤーが黙って消える。

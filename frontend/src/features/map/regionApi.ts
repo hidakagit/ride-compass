@@ -7,8 +7,6 @@ import regionTileConfig from "@/types/generated/region-tile-config.json";
 import { DEFAULT_API_TIMEOUT_MS } from "@/lib/apiTimeouts";
 
 const ROAD_SURFACE_TILE_PATH = apiPath("/api/region/road-surface-tiles/{z}/{x}/{y}.pbf");
-const ACCIDENT_TILE_PATH = apiPath("/api/region/accident-tiles/{z}/{x}/{y}.pbf");
-const POI_TILE_PATH = apiPath("/api/region/poi-tiles/{z}/{x}/{y}.pbf");
 
 // タイルの世代。**手で上げない**——焼き込むSQLの署名とDBの派生データ・生データの世代からbackendが導き、実行時に配る（軸カタログの
 // `tile_versions`）。ビルド時の生成物に持たないのは、バッチがタイルを作り直してもデプロイは起きないため。
@@ -47,13 +45,13 @@ export function roadSurfaceTileUrl(versions: TileVersions): string {
   return `${tileBaseUrl()}${ROAD_SURFACE_TILE_PATH}?v=${tileVersion(versions, "road_surface")}`;
 }
 
-export function accidentTileUrl(versions: TileVersions): string {
-  return `${tileBaseUrl()}${ACCIDENT_TILE_PATH}?v=${tileVersion(versions, "accident")}`;
-}
+/** 点のレイヤーの名前（生成物の`point_layers`の鍵）。名前が配信のパスとタイルの世代の系統を兼ねる。 */
+export type PointTileLayer = keyof typeof regionTileConfig.point_layers & TileKind;
 
-// 停止要因と補給の点は同じタイルを分け合う（種別の集合で分ける）。
-export function poiTileUrl(versions: TileVersions): string {
-  return `${tileBaseUrl()}${POI_TILE_PATH}?v=${tileVersion(versions, "poi")}`;
+// 点のレイヤーはどれも同じ1つの配信で、パスのレイヤー名だけが違う。停止要因と補給の点は同じタイルを分け合う（種別の集合で分ける）。
+export function pointTileUrl(versions: TileVersions, layer: PointTileLayer): string {
+  const path = apiPath("/api/region/point-tiles/{layer}/{z}/{x}/{y}.pbf", { layer });
+  return `${tileBaseUrl()}${path}?v=${tileVersion(versions, layer)}`;
 }
 
 // 土地被覆のラスタタイル。世代はbackendが生成物で配る。オリジンの決め方は他のタイルと揃える。
