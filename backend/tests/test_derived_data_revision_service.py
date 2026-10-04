@@ -22,10 +22,8 @@ class FakeRepository:
     def __init__(self, revision: int | None, imported: int = 3):
         self.revision = revision
         self.imported = imported
-        self.calls = 0
 
     async def get_data_revisions(self) -> DataRevisions:
-        self.calls += 1
         return DataRevisions(derived=self.revision, imported=self.imported)
 
 
@@ -34,7 +32,6 @@ async def test_first_call_reads_db_and_records_revision():
 
     await derived_data_revision_service.refresh_current_revisions(repository)
 
-    assert repository.calls == 1
     assert derived_data_revision_service.current_revisions() == DataRevisions(derived=7, imported=3)
 
 
@@ -43,9 +40,10 @@ async def test_second_call_within_ttl_does_not_read_db():
     repository = FakeRepository(7)
     await derived_data_revision_service.refresh_current_revisions(repository)
 
+    repository.revision = 8
     await derived_data_revision_service.refresh_current_revisions(repository)
 
-    assert repository.calls == 1
+    assert derived_data_revision_service.current_revisions() == DataRevisions(derived=7, imported=3)
 
 
 async def test_db_failure_keeps_the_last_revision(monkeypatch):
@@ -64,15 +62,18 @@ async def test_db_failure_keeps_the_last_revision(monkeypatch):
 
 
 class TileRepository(FakeRepository):
-    """世代と路面タイルを返すリポジトリ。タイルを焼いた回数を数える。"""
+    """世代と路面タイルを返すリポジトリ。`tile`を替えると、次に焼くタイルの中身が替わる。"""
 
     def __init__(self, revision: int | None, imported: int = 3):
         super().__init__(revision, imported)
-        self.tile_calls = 0
+        self.tile = b"tile"
 
     async def get_road_surface_tile_mvt(self, z, x, y, bbox):
-        self.tile_calls += 1
-        return b"tile"
+        return self.tile
+
+
+async def _served_tile(service: RegionService) -> bytes:
+    return (await service.get_road_surface_tile(12, 5, 6)).content
 
 
 async def test_世代が変わると焼き済みタイルを使わずに焼き直す(monkeypatch):
@@ -84,17 +85,16 @@ async def test_世代が変わると焼き済みタイルを使わずに焼き�
     monkeypatch.setattr(settings, "derived_data_revision_check_interval_seconds", 0.0)
     repository = TileRepository(5)
     service = RegionService(repository=repository)
-    await service.get_road_surface_tile(12, 5, 6)
-    await service.get_road_surface_tile(12, 5, 6)
-    assert repository.tile_calls == 1, "同じ世代のタイルを焼き直している"
+    await _served_tile(service)
+    repository.tile = b"derived 6"
+    assert await _served_tile(service) == b"tile", "同じ世代のタイルを焼き直している"
 
     repository.revision = 6
-    await service.get_road_surface_tile(12, 5, 6)
-    assert repository.tile_calls == 2, "派生の世代が変わったのに焼き済みタイルを配った"
+    assert await _served_tile(service) == b"derived 6", "派生の世代が変わったのに焼き済みタイルを配った"
 
+    repository.tile = b"imported 4"
     repository.imported = 4
-    await service.get_road_surface_tile(12, 5, 6)
-    assert repository.tile_calls == 3, "生データの世代が変わったのに焼き済みタイルを配った"
+    assert await _served_tile(service) == b"imported 4", "生データの世代が変わったのに焼き済みタイルを配った"
 
 
 async def test_配信するタイル世代は読んだ世代を前置きする():
@@ -126,8 +126,8 @@ async def test_世代が分からないうちは印を前置きしディスク�
 
     versions = await tile_version_service.current_tile_versions(repository)
     service = RegionService(repository=repository)
-    await service.get_road_surface_tile(12, 5, 6)
-    await service.get_road_surface_tile(12, 5, 6)
+    await _served_tile(service)
+    repository.tile = b"rebaked"
 
     assert all(v.startswith(f"{cache_identity.UNKNOWN_REVISION}-") for v in versions.values())
-    assert repository.tile_calls == 2, "世代が分からないまま焼いたタイルをディスクから配った"
+    assert await _served_tile(service) == b"rebaked", "世代が分からないまま焼いたタイルをディスクから配った"
