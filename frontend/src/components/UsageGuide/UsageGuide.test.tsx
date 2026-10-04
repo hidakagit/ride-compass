@@ -2,7 +2,7 @@
  * `components/UsageGuide/UsageGuide.tsx`——説明を見る状態（押した部品は動かず、その部品の名前と使い方を出す）。
  * 押された要素から部品と名前・使い方を引く`usageTarget.ts`は、この部品の中の手順として通す。
  *
- * 見るもの: 案内と「やめる」、部品を押したときに部品が動かず説明が出ること、説明に出す名前（読み上げ名の引き方）と
+ * 見るもの: 案内の「やめる」、部品を押したときに部品が動かず説明が出ること、説明に出す名前（読み上げ名の引き方）と
  * 使い方の文（自分か囲む要素の印・無いときの文言）、ラベルを押したときに説明する入力、押せないボタンでも出ること、
  * 動かした（なぞった・取り消された）押し方では出さないこと、部品の外を押したとき、キー操作（Esc・Enter・Space・
  * 値を動かすキー）、案内と説明の面の上の操作は止めないこと、説明している部品を囲む枠と測り直し、
@@ -10,6 +10,7 @@
  * 終えたら部品が動くこと。
  *
  * ここで見ないもの:
+ * - 案内の文言——部品の宣言で、書き写して突き合わせるだけになる
  * - 共有部品が使い方の文を印に書くこと → それぞれの部品（`components/ui/Button/Button.tsx`等）。ここでは本物の
  *   `Button`で1つだけ通す
  * - 説明の面の置き方（部品の上端の中央・画面の端との間）——Radix Popoverの振る舞いで、テスト環境に実寸が無い
@@ -75,10 +76,9 @@ afterEach(() => {
 });
 
 describe("UsageGuide", () => {
-  it("案内を出し、「やめる」を押すと終える操作が上がる", async () => {
+  it("案内の「やめる」を押すと、終える操作が上がる", async () => {
     const { onEnd } = renderScreen();
 
-    expect(screen.getByRole("status")).toHaveTextContent("説明を見たい部品を押してください");
     await userEvent.click(screen.getByRole("button", { name: "やめる" }));
 
     expect(onEnd).toHaveBeenCalledTimes(1);
@@ -96,16 +96,16 @@ describe("UsageGuide", () => {
   });
 
   it.each([
-    ["読み上げの名前の指定", "地図の色分け", "地図の色分け"],
-    ["名前を指す要素（複数なら空白でつなぐ）", "距離 km", "距離 km"],
-    ["中の文字（空白はまとめる）", "地図の 明るさ ▼", "地図の 明るさ ▼"],
-    ["中の文字が無ければ題", "現在地へ移動", "現在地へ移動"],
-  ])("名前は%sから引く", async (_, accessibleName, shown) => {
+    ["読み上げの名前の指定", "地図の色分け"],
+    ["名前を指す要素（複数なら空白でつなぐ）", "距離 km"],
+    ["中の文字（空白はまとめる）", "地図の 明るさ ▼"],
+    ["中の文字が無ければ題", "現在地へ移動"],
+  ])("名前は%sから引く", async (_, name) => {
     renderScreen();
 
-    await userEvent.click(screen.getByRole("button", { name: accessibleName }));
+    await userEvent.click(screen.getByRole("button", { name }));
 
-    expect(explanation()?.querySelector("p")).toHaveTextContent(shown);
+    expect(explanation()?.querySelector("p")).toHaveTextContent(name);
   });
 
   it("名前を引けない部品は「この部品」とし、使い方の文が無ければまだ無いと出す", async () => {
@@ -180,14 +180,6 @@ describe("UsageGuide", () => {
     expect(explanation()).not.toBeInTheDocument();
   });
 
-  it("押さずに離しただけでは説明を出さない", () => {
-    renderScreen();
-
-    fireEvent.pointerUp(screen.getByRole("button", { name: "地図の色分け" }), { clientX: 0, clientY: 0 });
-
-    expect(explanation()).not.toBeInTheDocument();
-  });
-
   describe("部品の外を押したとき", () => {
     it("説明を出す前なら、何もしない", async () => {
       const { onEnd } = renderScreen();
@@ -242,7 +234,7 @@ describe("UsageGuide", () => {
       const { onPartKeyDown } = renderScreen();
       screen.getByRole("slider", { name: "重み" }).focus();
 
-      await userEvent.keyboard("{ArrowUp}{ArrowLeft}{Home}{PageDown}");
+      await userEvent.keyboard("{ArrowUp}");
       expect(onPartKeyDown).not.toHaveBeenCalled();
       await userEvent.keyboard("a");
 

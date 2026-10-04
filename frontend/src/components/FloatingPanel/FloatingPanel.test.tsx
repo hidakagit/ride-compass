@@ -1,10 +1,11 @@
 /**
  * `components/FloatingPanel/FloatingPanel.tsx`——開発者向けパネルの、画面に浮かぶ殻。
  *
- * 見るもの: 開いている間だけ見出し・見出しの操作・閉じるボタン・中身を出すこと、閉じる操作が上がること、
- * 開いたときに横は画面の中央・縦は指定の高さへ置くこと、本文の高さの上限を指定どおりにすること。
+ * 見るもの: 閉じている間は何も出さないこと、閉じるボタン（名前は見出しから作る）で閉じる操作が上がること、
+ * 開いたときに横は画面の中央・縦は指定の高さへ置くこと。
  *
- * ここで見ないもの: つまみでのドラッグと、画面の外へ出ないこと——react-rndの振る舞い。幅（`widthRem`と画面幅の小さいほう）
+ * ここで見ないもの: 見出し・見出しの操作・中身・本文の高さの上限——受け取ったものをそのまま置くだけ。
+ * つまみでのドラッグと、画面の外へ出ないこと——react-rndの振る舞い。幅（`widthRem`と画面幅の小さいほう）
  * ——幅の式は`min()`の中にCSS変数を持ち、テスト環境（happy-dom）はその宣言を捨てて残さない。
  *
  * 描いた幅はテスト環境に無いレイアウトの実寸なので、`getBoundingClientRect`の幅をテストが決める。
@@ -57,15 +58,6 @@ afterEach(() => {
 });
 
 describe("FloatingPanel", () => {
-  it("開いている間は、見出し・見出しの操作・閉じるボタン・中身を出す", () => {
-    renderPanel({ headerButtons: <button type="button">クリア</button> });
-
-    expect(screen.getByText("デバッグログ")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "クリア" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "デバッグログを閉じる" })).toBeInTheDocument();
-    expect(screen.getByText("本文")).toBeInTheDocument();
-  });
-
   it("閉じている間は何も出さない", () => {
     const { view } = renderPanel({ open: false });
 
@@ -107,12 +99,5 @@ describe("FloatingPanel", () => {
     view.rerender(panel({ onClose }));
 
     expect(panelPosition()).toEqual({ x: (window.innerWidth - 400) / 2, y: centered.y });
-  });
-
-  it("本文の高さの上限を、指定どおりにする", () => {
-    renderPanel({ maxHeightPx: 300 });
-
-    const panel = screen.getByText("本文").closest<HTMLElement>('[style*="max-height"]');
-    expect(panel?.style.maxHeight).toBe("300px");
   });
 });
