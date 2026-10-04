@@ -146,7 +146,7 @@ export default function RouteSplicePanel({
         >
           ‹
         </Button>
-        <h3 className={cn(textVariants({ variant: "heading" }), "font-semibold")} id="splice-heading">
+        <h3 className={cn(textVariants({ variant: "heading" }), "font-semibold whitespace-nowrap")} id="splice-heading">
           区間の乗り換え
         </h3>
         {/* 使い方は画面へ書かずここへ置く（設計原則「冗長なものは削る」）。 */}
@@ -155,7 +155,9 @@ export default function RouteSplicePanel({
           分かれ道があれば次の破線が出ます。太い線が、いま作っているルートです。軸の棒は中央が0で、左[−]へ
           伸びた軸ほど難易度が下がり、右[＋]へ伸びた軸ほど上がっています。
         </InfoPopover>
-        {appliedCount > 0 && <span className={cn(textVariants({ variant: "hint" }), "ml-1")}>{appliedCount}回</span>}
+        {appliedCount > 0 && (
+          <span className={cn(textVariants({ variant: "hint" }), "ml-1 whitespace-nowrap")}>{appliedCount}回</span>
+        )}
         {!unavailable && (
           <div className="ml-auto flex items-center gap-1.5">
             {appliedCount > 0 && (

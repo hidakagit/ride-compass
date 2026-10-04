@@ -48,7 +48,7 @@ export const buttonVariants = cva(
         /** 四角のアイコンボタン。 */
         icon: "size-8 rounded-sm",
         /** パネルの操作のボタン。アイコンだけを置き、名前は`aria-label`で渡す（マウスを重ねた吹き出しにも同じ名前が出る）。 */
-        panelIcon: "rounded-sm px-2 py-1",
+        panelIcon: "rounded-sm px-1.5 py-1",
         /** 小さい丸のアイコンボタン。 */
         iconRound: "size-6.5 rounded-full",
         /** 地図右上の列の1段。 */
