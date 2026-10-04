@@ -120,7 +120,6 @@
 | `display_thresholds_override` | list[float]\|None | 色分けしきい値の上書き |
 | `display_band_labels_override` | list[str]\|None | 段階ごとの体感ラベルの上書き（例:「強い向かい風」）。設定する場合は`display_thresholds_override`も設定済みで要素数が段階数（しきい値数+1）と一致すること |
 | `dedicated_way_value_layer` | bool | 専用のフィーチャー→値配信レイヤーを持つか |
-| `dynamic_way_value_needs_time`/`dynamic_way_value_needs_bearing`/`dynamic_way_value_needs_speed` | bool | `dedicated_way_value_layer=True`の軸のみ意味を持つ。地図が`GET /api/region/dynamic-way-values/...`へ`at`/`bearing_deg`/`speed_kmh`クエリパラメータを載せるか。必須かどうかは配信サービスの条件の型が決め、このフラグは見ない（[dynamic-way-values.md](dynamic-way-values.md)参照） |
 
 **表示に関するフィールドは、軸idの分岐をコードへ持たないための宣言**である。
 
@@ -471,7 +470,7 @@ idのまま出す。書き込み時のガード・削除の断り（下の「書
 ### 書き込み時だけの検証（`AxisDefinitionPayload`）
 
 `dedicated_way_value_layer`を立てられるのは、フィーチャー→値配信の実装
-（`services/dedicated_way_values.py: _DEDICATED_WAY_VALUE_SERVICE_FACTORIES`、材料ごとに登録）がある
+（`services/dedicated_way_values.py: _DEDICATED_WAY_VALUE_SERVICES`、材料ごとに登録）がある
 材料を**ちょうど1つ**参照する軸だけ（軸の名前は問わない）。宣言だけでは配信できる値が無い
 （配信側はそういう軸を未知の`axis_id`と同じく404で返す）。照らす相手はこのプロセスが組み立てた配信の実装で、
 値の不変条件ではないため読み込みでは見ない——実装の無い軸の配信は404で済み、起動を止める理由にならない。

@@ -106,7 +106,7 @@ export function axisMapLayerId(axisId: string): AxisMapLayerId {
  * ハードコードなしに導出できる（3件目の軸を軸スタジオで公開しただけで
  * 地図に現れる。ただし配信実装本体はbackend側の登録が別途必要）。 */
 export interface DedicatedWayValueAxis extends CatalogAxis {
-  /** 専用way値配信APIへ添えるクエリパラメータの宣言。`features/map/useDedicatedWayValues.ts`が
+  /** 専用way値配信APIへ添えるクエリパラメータ（軸カタログの`dynamic_way_value_conditions`）。`features/map/useDedicatedWayValues.ts`が
    * 「どの軸のフェッチに時刻・想定速度を乗せるか」をaxis_idの分岐ではなくここから決める
    * （乗せない入力は依存配列からも外れるため、時刻を動かしても時刻非依存の軸は再フェッチしない）。 */
   needsTime: boolean;
@@ -121,9 +121,9 @@ export function dedicatedWayValueAxesFromCatalogAxes(axes: readonly AxisCatalogE
     .filter((axis) => axis.dedicated_way_value_layer)
     .map((axis) => ({
       ...catalogAxisFromEntry(axis),
-      needsTime: axis.dynamic_way_value_needs_time,
-      needsBearing: axis.dynamic_way_value_needs_bearing,
-      needsSpeed: axis.dynamic_way_value_needs_speed,
+      needsTime: axis.dynamic_way_value_conditions.includes("at"),
+      needsBearing: axis.dynamic_way_value_conditions.includes("bearing_deg"),
+      needsSpeed: axis.dynamic_way_value_conditions.includes("speed_kmh"),
       display: {
         kind: axis.map_value.kind,
         boundaries: axis.map_value_thresholds,

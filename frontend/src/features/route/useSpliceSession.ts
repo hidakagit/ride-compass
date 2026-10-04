@@ -57,7 +57,7 @@ const spliceFeatureIndex = (groupIndex: number, optionIndex: number) => {
   return groupIndex * SPLICE_OPTIONS_PER_GROUP + optionIndex;
 };
 
-export interface SpliceSessionInputs {
+interface SpliceSessionInputs {
   /** 候補の一覧（編集の元と乗り換え先はここから引く）。 */
   routes: RouteCandidate[];
   /** 表示中の候補を作った生成の入力。合成した経路も同じ条件で評価する（同じ並びへ入るため、条件が違うと
@@ -171,7 +171,6 @@ export function useSpliceSession({
           const target = routes.find((route) => route.id === option.candidateId);
           if (!target) return [];
           const range = stretchCoordinateRange(target.edge_point_offsets, option.targetStretch);
-          if (!range) return [];
           const coordinates = (target.geometry.coordinates as GeoJSON.Position[]).slice(range.start, range.end + 1);
           if (coordinates.length < 2) return [];
           return [{ index: spliceFeatureIndex(groupIndex, optionIndex), coordinates }];

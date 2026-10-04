@@ -90,9 +90,10 @@ def _neumaier_accumulate(terms: list[np.ndarray]) -> np.ndarray:
 
 
 def _axis_terms(
-    axis_arrays: Mapping[str, np.ndarray], weights: Mapping[str, float]
+    axis_arrays: Mapping[str, np.ndarray], weights: Mapping[str, float | np.ndarray]
 ) -> tuple[list[np.ndarray], list[np.ndarray]]:
-    """軸ごとの「重み付きスコアの項」「重みの項」。
+    """軸ごとの「重み付きスコアの項」「重みの項」。重みは軸1つに1つの値か、区間ごとの配列
+    （`axis_arrays`と同じ並び。時間帯を持つ軸、`domain/axis_definitions.py: time_scoped_weights`）。
 
     データ欠損（NaN）の軸はその区間だけ項を0にする＝和から外す（「データ無しは除外し
     残りの重みで再正規化」）。**この式を2箇所に書かない**——先に和だけ求める経路と合成の
@@ -109,7 +110,7 @@ def _axis_terms(
 
 
 def axis_weighted_sums(
-    axis_arrays: Mapping[str, np.ndarray], weights: Mapping[str, float], length: int
+    axis_arrays: Mapping[str, np.ndarray], weights: Mapping[str, float | np.ndarray], length: int
 ) -> tuple[np.ndarray, np.ndarray]:
     """`composite_difficulty_array`の`static_sums`へ渡す`(重み付きスコアの和, 重みの和)`。
 
@@ -123,7 +124,7 @@ def axis_weighted_sums(
 
 def composite_difficulty_array(
     axis_arrays: Mapping[str, np.ndarray],
-    weights: Mapping[str, float],
+    weights: Mapping[str, float | np.ndarray],
     length: int,
     static_sums: tuple[np.ndarray, np.ndarray] | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -151,7 +152,7 @@ def composite_difficulty_array(
 
 def axis_contributions_at_row(
     axis_arrays: Mapping[str, np.ndarray],
-    weights: Mapping[str, float],
+    weights: Mapping[str, float | np.ndarray],
     weight_sums: np.ndarray,
     row: int,
 ) -> dict[str, float]:
@@ -168,7 +169,8 @@ def axis_contributions_at_row(
         value = arr[row]
         if math.isnan(value):
             continue
-        values[axis_id] = float(value) * weights.get(axis_id, 0.0) / total
+        weight = weights.get(axis_id, 0.0)
+        values[axis_id] = float(value) * float(weight[row] if isinstance(weight, np.ndarray) else weight) / total
     return values
 
 

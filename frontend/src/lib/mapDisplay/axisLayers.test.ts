@@ -125,13 +125,10 @@ describe("dedicatedWayValueAxesFromCatalogAxes", () => {
     expect(dedicatedWayValueAxesFromCatalogAxes(axes).map((axis) => axis.axisId)).toEqual(["d_b", "d_a"]);
   });
 
-  it("配信に添える入力（時刻・方位・速度）の要否を、軸ごとに宣言から移す", () => {
+  it("配信に添える入力（時刻・方位・速度）の要否を、軸ごとにカタログの条件の名前から移す", () => {
     const [timeOnly, bearingAndSpeed] = dedicatedWayValueAxesFromCatalogAxes([
-      dedicatedEntry("time_only", [1], { dynamic_way_value_needs_time: true }),
-      dedicatedEntry("bearing_speed", [1], {
-        dynamic_way_value_needs_bearing: true,
-        dynamic_way_value_needs_speed: true,
-      }),
+      dedicatedEntry("time_only", [1], { dynamic_way_value_conditions: ["at"] }),
+      dedicatedEntry("bearing_speed", [1], { dynamic_way_value_conditions: ["bearing_deg", "speed_kmh"] }),
     ]);
 
     expect(timeOnly).toMatchObject({ needsTime: true, needsBearing: false, needsSpeed: false });

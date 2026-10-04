@@ -28,7 +28,9 @@ APIが受け取る重みの形を変えるとき、`dynamic_materials.py`は動�
 
 **材料の導出は`MaterialSpec.value_sql`1本**。評価・地図タイル配信・欠損率の集計・
 軸スタジオの値列挙は、すべて同じ式を読む。入力に対するあるべき値は
-`tests/test_material_values.py`が期待値の表で固定する。
+`tests/test_material_values.py`が期待値の表で固定する。式が実在の列と、読み出しの経路ごとのFROM句に
+ある別名だけを読むことも同じファイルが見る——値の表は別名を値で与えるため、綴りの合わない列や、
+経路に無い別名（路面タイルの`re`等）を読む式は、値の表だけでは見つからない。
 
 **タイルへ焼く式だけは符号化が違う**。`CASE WHEN 条件 THEN true END`で「該当しない」を
 NULLへ畳み、フィーチャーからキーを省いてタイルを軽くする。材料の値を求める式は
@@ -462,7 +464,6 @@ way粒度で引くときは、同じ式のまま`w`の行から同じ名前の�
 （研究のスクリプト・テスト）も同じ検査を通る。「上書きするなら公開軸を全部書く」は要求の形で、
 `api/routers/routes.py: RoutePreferenceWeights`が持ち、値の検査は同じ`check_axis_weights`を呼ぶ。
 
-`with_time_scope(active_scopes)`は、`time_scope`が`"always"`以外の軸のうち
-`active_scopes`に含まれないものの重みを0倍にしたコピーを返す（night軸の動的重み
-付けが使う、[routing-engine.md](routing-engine.md)参照）。リクエスト間で共有するインスタンスを
-汚染しないよう、新しい`RoutePreference`インスタンスを返す（`self`を書き換えない）。
+時間帯を持つ軸（`time_scope`が`"always"`以外）の重みは`RoutePreference`では切り替えない——区間を通る時刻で
+区間ごとに決まるため、合成器が`domain/axis_definitions.py: time_scoped_weights`で区間ごとの配列にする
+（[routing-engine.md](routing-engine.md)「夜間軸の動的重み付け」）。

@@ -52,7 +52,7 @@ export function formatMaterialBreakdown(
   entry: { label: string; dtype: string; unit: string },
   value: number | undefined,
 ): string | null {
-  if (value == null || !Number.isFinite(value)) return null;
+  if (value == null) return null;
   if (entry.dtype === "boolean") return `${entry.label} ${Math.round(value * 100)}%`;
   if (entry.dtype !== "numeric") return null;
   return `${entry.label} ${formatNumber(value)}${entry.unit}`;
@@ -74,6 +74,5 @@ export function formatCategoryBreakdown(
   const top = Object.entries(shares ?? {})[0];
   if (top === undefined) return null;
   const [value, share] = top;
-  if (!Number.isFinite(share)) return null;
   return `${entry.valueLabels?.[value] ?? value} ${Math.round(share * 100)}%`;
 }

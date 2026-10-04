@@ -8,12 +8,18 @@
 その軸のタイルが全て失敗する）。
 """
 
+from dataclasses import fields
 from datetime import datetime
 from functools import partial
-from typing import Any, Callable, Iterable, Protocol, TypeVar
+from typing import Any, Callable, Iterable, Protocol, TypeVar, cast
 
 from app.domain.axis_definitions import AXIS_DEFINITIONS
-from app.domain.dynamic_way_values import MissingConditions, WayValueQuery, assemble_conditions
+from app.domain.dynamic_way_values import (
+    MissingConditions,
+    WayValueConditionName,
+    WayValueQuery,
+    assemble_conditions,
+)
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.gradient_way_service import GradientWayService
 from app.services.rain_way_service import RainWayService
@@ -39,30 +45,47 @@ class DedicatedWayValueService(Protocol[_Conditions]):
 
 DedicatedWayValueServiceFactory = Callable[[RoadGraphRepository, WeatherService], DedicatedWayValueService[Any]]
 
+
+class DedicatedWayValueServiceType(Protocol):
+    """配信の実装のクラスが満たす形。担当する材料・受け取る条件の型・組み立てを持つ。"""
+
+    @property
+    def material_ids(self) -> tuple[str, ...]: ...
+
+    @property
+    def conditions_type(self) -> type: ...
+
+    def build(
+        self, repository: RoadGraphRepository, weather_service: WeatherService, material_id: str
+    ) -> DedicatedWayValueService[Any]: ...
+
+
 # 各サービスは担当する材料を`material_ids`で宣言し、`build`は組み立てる材料を`material_id`で受け取る
 # （1つの実装が同じ計算の材料群——雨の窓の長さ違い等——をまとめて担当できる）。
-_DEDICATED_WAY_VALUE_SERVICES = (
+_DEDICATED_WAY_VALUE_SERVICES: tuple[DedicatedWayValueServiceType, ...] = (
     WindWayService,
     GradientWayService,
     RainWayService,
 )
 
 
-def _factories_by_material(services) -> dict[str, DedicatedWayValueServiceFactory]:
-    """材料id→サービスの組み立て。1つの材料を2つのサービスが担当していたら起動時に落とす
+def _services_by_material(
+    services: Iterable[DedicatedWayValueServiceType],
+) -> dict[str, DedicatedWayValueServiceType]:
+    """材料id→担当するサービス。1つの材料を2つのサービスが担当していたら起動時に落とす
     ——どちらを選ぶかを黙って決めない。"""
-    factories: dict[str, DedicatedWayValueServiceFactory] = {}
+    by_material: dict[str, DedicatedWayValueServiceType] = {}
     for service in services:
         for material_id in service.material_ids:
-            if material_id in factories:
+            if material_id in by_material:
                 raise RuntimeError(
                     f"material '{material_id}' is served by more than one dedicated way value service"
                 )
-            factories[material_id] = partial(service.build, material_id=material_id)
-    return factories
+            by_material[material_id] = service
+    return by_material
 
 
-_DEDICATED_WAY_VALUE_SERVICE_FACTORIES = _factories_by_material(_DEDICATED_WAY_VALUE_SERVICES)
+_DEDICATED_WAY_VALUE_SERVICES_BY_MATERIAL = _services_by_material(_DEDICATED_WAY_VALUE_SERVICES)
 
 
 def served_dedicated_way_value_material(materials: Iterable[str]) -> str | None:
@@ -72,7 +95,7 @@ def served_dedicated_way_value_material(materials: Iterable[str]) -> str | None:
     その軸を評価しきれない。どちらも「実装が無い」として扱う（書き込み時の検証が拒否し、
     配信側は404）。
     """
-    served = {material for material in materials if material in _DEDICATED_WAY_VALUE_SERVICE_FACTORIES}
+    served = {material for material in materials if material in _DEDICATED_WAY_VALUE_SERVICES_BY_MATERIAL}
     return next(iter(served)) if len(served) == 1 else None
 
 
@@ -84,10 +107,28 @@ def _served_material_of(axis_id: str) -> str | None:
     return served_dedicated_way_value_material(definition.materials)
 
 
+def _factory_of(material: str) -> DedicatedWayValueServiceFactory:
+    return partial(_DEDICATED_WAY_VALUE_SERVICES_BY_MATERIAL[material].build, material_id=material)
+
+
 def dedicated_way_value_factory(axis_id: str) -> DedicatedWayValueServiceFactory | None:
     """軸の配信を組み立てる工場。専用配信の軸でないか、配信できる材料が無ければNone。"""
     material = _served_material_of(axis_id)
-    return None if material is None else _DEDICATED_WAY_VALUE_SERVICE_FACTORIES[material]
+    return None if material is None else _factory_of(material)
+
+
+def dedicated_way_value_conditions(axis_id: str) -> list[WayValueConditionName]:
+    """地図がこの軸の配信の要求へ載せる条件の名前（クエリパラメータの名前と同じ）。
+
+    載せるのは、配信サービスが受け取る条件の型の欄すべて——既定値のある欄（風の時刻）も載せる。
+    省略できるのは配信が既定値で補えるというだけで、地図が利用者の選んだ値を持っているなら
+    それで求めた値を塗る。専用配信の軸でないか、配信できる材料が無ければ空。
+    """
+    material = _served_material_of(axis_id)
+    if material is None:
+        return []
+    conditions_type = _DEDICATED_WAY_VALUE_SERVICES_BY_MATERIAL[material].conditions_type
+    return [cast(WayValueConditionName, field.name) for field in fields(conditions_type)]
 
 
 class DirectionalMaterialService:
@@ -128,7 +169,7 @@ class DirectionalMaterialService:
         key = feature_key or str(osm_way_id)
         found: dict[str, float] = {}
         for material in materials:
-            service = _DEDICATED_WAY_VALUE_SERVICE_FACTORIES[material](self._repository, self._weather_service)
+            service = _factory_of(material)(self._repository, self._weather_service)
             conditions = assemble_conditions(service.conditions_type, query)
             if isinstance(conditions, MissingConditions):
                 continue

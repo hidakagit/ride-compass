@@ -18,8 +18,9 @@ import {
   type MapOverlayGroup,
 } from "@/features/map/layers/mapLayers";
 import { LEGEND_SWATCH_RING_CLASS, legendSwatchBackground, type LegendEntry } from "@/lib/mapDisplay/legendFilter";
-import { mapDisplay } from "@/types/generated/mapDisplay";
 import LegendCheckboxList from "@/features/map/LegendCheckboxList/LegendCheckboxList";
+import LegendRow from "@/features/map/LegendCheckboxList/LegendRow";
+import { PointIconSwatch } from "@/features/map/layers/pointIcon";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
 import { mapOverlayEdge } from "@/lib/mapOverlayEdges";
@@ -37,9 +38,10 @@ import { Dot } from "@/components/ui/Dot/Dot";
 import { cardVariants } from "@/components/ui/Card/Card";
 import { badgeVariants } from "@/components/ui/Badge/Badge";
 
-/** 色見本の点の直径と、線の見本の長さ（px）。点は色が読める大きさにする。 */
+/** 色見本の点の直径と、線の見本の長さと太さ（px）。点は色が読める大きさにする。 */
 const SWATCH_DOT_PX = 12;
 const SWATCH_LINE_LENGTH_PX = 20;
+const SWATCH_LINE_WIDTH_PX = 7;
 
 /** 地図上のチップ1つ分の凡例（1軸ぶん）。 */
 export interface LegendFilterSummaryAxis {
@@ -131,12 +133,23 @@ function readStringArray(raw: string): string[] | null {
   }
 }
 
-/** 色見本。パネルへ直に、地図と同じ形（線なら線、点なら点）で置く——明るい台に載せると、暗いパネルの上では台の
- * 白が色より目立ち、明るい色は台に溶ける。線の行は地図と同じ太さ、大きさで意味を示す行は地図の点と同じ直径で出す。
+/** 色見本。パネルへ直に、地図と同じ形（線なら線、点なら点、絵記号の点なら絵記号）で置く——明るい台に載せると、暗いパネルの上では台の
+ * 白が色より目立ち、明るい色は台に溶ける。線の行は地図の線より太く、大きさで意味を示す行は地図の点と同じ直径で出す。
  * 見本の枠の幅はそろえ、ラベルの位置を行ごとにずらさない。 */
 function renderSwatch(entry: LegendEntry) {
+  if (entry.glyph !== undefined) {
+    return (
+      <span aria-hidden="true" className="inline-flex w-6 flex-shrink-0 items-center justify-center">
+        <PointIconSwatch
+          color={entry.color}
+          glyph={entry.glyph}
+          className={cn("rounded-[4px]", LEGEND_SWATCH_RING_CLASS)}
+        />
+      </span>
+    );
+  }
   const size = entry.line
-    ? { width: SWATCH_LINE_LENGTH_PX, height: mapDisplay.road.lineWidthPx }
+    ? { width: SWATCH_LINE_LENGTH_PX, height: SWATCH_LINE_WIDTH_PX }
     : entry.diameterPx !== undefined
       ? { width: entry.diameterPx, height: entry.diameterPx }
       : { width: SWATCH_DOT_PX, height: SWATCH_DOT_PX };
@@ -207,15 +220,22 @@ function LegendDetails({
                   <li
                     key={entry.key}
                     className={cn(
-                      "flex items-center gap-1.5 text-[length:var(--font-size-sm)]",
-                      hidden && "opacity-50",
                       // 「不明・他」等の受け皿は他の項目と同列の判定値ではないため区切る。
                       entry.isFallback && "mt-1 border-t border-dashed border-[var(--color-border)] pt-1",
                     )}
                   >
-                    {renderSwatch(entry)}
-                    <span className="min-w-0 flex-1">{entry.label}</span>
-                    {hidden && <span className={badgeVariants({ variant: "outline" })}>非表示</span>}
+                    <LegendRow entry={entry}>
+                      <div
+                        className={cn(
+                          "flex items-center gap-1.5 text-[length:var(--font-size-sm)]",
+                          hidden && "opacity-50",
+                        )}
+                      >
+                        {renderSwatch(entry)}
+                        <span className="min-w-0 flex-1">{entry.label}</span>
+                        {hidden && <span className={badgeVariants({ variant: "outline" })}>非表示</span>}
+                      </div>
+                    </LegendRow>
                   </li>
                 );
               })}

@@ -1,15 +1,27 @@
 // 凡例の1行。道路の線の分類とルートの色分けのモード（routeStyleModes.ts）が同じ凡例UI・
 // 絞り込みの仕組みを共有するため、両方が読むこの層に置く。
 
+import type { primaryAttributes } from "@/types/generated/primaryAttributes";
+
+type DisplayCategory = (typeof primaryAttributes)[number]["display_axes"][number]["categories"][number];
+
+/** 源泉が点の行に付ける絵記号の名前。 */
+export type PointGlyph = Extract<DisplayCategory, { glyph: string }>["glyph"];
+
 export interface LegendEntry {
   /** カテゴリの安定識別子（表示/非表示状態のキー。ラベル文言の変更に影響されない） */
   key: string;
   color: string;
   label: string;
+  /** 行の（i）から開く、この行に何が入るかの説明。行を宣言しているbackendの宣言が持ち、画面は書かない。
+   * 持たない行（数の範囲の段・名前が説明そのものの行）には（i）を出さない。 */
+  description?: string;
   /** 大きさで意味を示す行の見本の直径。持つ行は色ではなく大きさを見せる（地図の点と同じ大きさ）。 */
   diameterPx?: number;
   /** 地図で線として描く行か。見本を地図と同じ線の形で見せる（持たない行は点の形）。 */
   line?: true;
+  /** 地図で、色の角丸四角にこの絵記号を載せた形で描く行。見本も同じ形で見せる。 */
+  glyph?: PointGlyph;
   /** この地物がカテゴリに属するときtrueになるMapLibre式（凡例フィルタ用の述語）。
    * 絞り込みを自分で持つレイヤー（scene のグループが宣言するもの）は持たない。 */
   filter?: unknown[];

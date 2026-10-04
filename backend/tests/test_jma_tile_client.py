@@ -1,16 +1,17 @@
-"""`infrastructure/jma_tile_client.py`——JMA bosaiのプロキシ、2系統のキャッシュ、上流への秒間上限、時刻一覧を行へ解くこと。
+"""`infrastructure/jma_tile_client.py`——気象庁のタイルと時刻一覧の取得、キャッシュの持ち分け、上流への間隔。
+
+入口は`JmaTileClient`の`get_cached`・`fetch`・`store`・`get`と、`is_target_times_path`・`get_target_times`。
+上流はrespxの経路、Redisはfakeredis、時計はfreezegunで与え、待ちは時計を進める代役で受ける。
 
 ここで見ないもの:
-- 共有キャッシュ（Redis）の格納形式・TTL・空タイルの表し方 → `test_jma_tile_redis_cache.py`
-- 404と他の失敗をHTTPステータスへ割り当てる判断、利用者側のレート制限 → `api/routers/jma_tile.py`側
-- 上流に無いズームを組み立てる補間 → `jma_tile_interpolation.py`側
-
-共有キャッシュと上流HTTPは差し替えて与える。上流はrespxの経路で応答を決める。
-上流への秒間上限の待ちは実時間を消費させず、待った長さだけを記録する（時計は`clock`で止める）。
+- 中身が空のタイルをフラグで持つこと・Redisの値の形 → `test_jma_tile_redis_cache.py`
+- どのパスが「配信前に404が返る地物」か（`domain/jma_tile_specs.py: is_final_absence`） → `test_jma_tile_specs.py`。
+  ここでは宣言にある地物（落雷）とタイル（降水ナウキャスト）のパスを1つずつ入力に使う
+- 404・502・`Cache-Control`への振り分け、レート制限を当てる順序 → `test_jma_tile_routes.py`
+- 解いた行をコマにする読み方 → `test_jma_tile_specs.py`
 """
 
-import json
-import time
+import types
 
 import httpx
 import pytest
@@ -18,396 +19,301 @@ import respx
 
 from app.domain.jma_tile_specs import JmaFrame, TargetTimesRow
 from app.infrastructure import jma_tile_client
+from app.infrastructure.jma_tile_client import EmptyTile, JmaTileClient, JmaTileNotFoundError
 from tests.fake_external_log import record_external_calls
 from tests.fake_http import client_for
 
-TILE_PATH = "bosai/jmatile/data/nowc/20260101000000/none/20260101000000/surf/hrpns/6/57/25.png"
-TARGET_TIMES_PATH = "bosai/jmatile/data/nowc/targetTimes_N1.json"
-FEATURES_PATH = (
-    "bosai/jmatile/data/nowc/20260101000000/none/20260101000000/surf/slmcs_unify/data.geojson?id=slmcs_unify"
-)
-
-#: 差し替え前の共有キャッシュが配っている「描くものが無い」センチネル。
-EMPTY_TILE = jma_tile_client.jma_tile_redis_cache.EMPTY_TILE
-
-
-class FakeRedisCache:
-    """`jma_tile_redis_cache`の差し替え。タイル本体の保存先。"""
-
-    EMPTY_TILE = EMPTY_TILE
-
-    def __init__(self, seed: dict | None = None):
-        self.entries = dict(seed or {})
-
-    async def get(self, path):
-        return self.entries.get(path)
-
-    async def set(self, path, content, content_type):
-        self.entries[path] = (content, content_type)
-
-    async def set_empty(self, path):
-        self.entries[path] = EMPTY_TILE
-
-
-class RecordingSleep:
-    """`asyncio`の差し替え。待つ代わりに待った長さを憶える。"""
-
-    def __init__(self):
-        self.slept: list[float] = []
-
-    async def sleep(self, seconds):
-        self.slept.append(seconds)
+TILE = "bosai/jmatile/data/nowc/20260101000000/none/20260101000000/surf/hrpns/6/57/25.png"
+OTHER_TILE = "bosai/jmatile/data/nowc/20260101000000/none/20260101000000/surf/hrpns/6/57/26.png"
+LISTING = "bosai/jmatile/data/nowc/targetTimes_N1.json"
+FEATURES = "bosai/jmatile/data/nowc/20260101000000/none/20260101000000/surf/liden/data.geojson?id=liden"
+OPAQUE = b"\x89PNG not decoded by the client"
 
 
 @pytest.fixture(autouse=True)
-def reset_module_state():
-    """プロセス内に残る時刻一覧キャッシュと直前フェッチ時刻を、テストごとに空へ戻す。"""
+def _nothing_fetched_yet(monkeypatch):
+    """上流への間隔の起点と時刻一覧のキャッシュはプロセス内に残るので、空から始める。"""
+    monkeypatch.setattr(jma_tile_client, "_last_fetch_at", None)
     jma_tile_client._target_times_cache.clear()
-    jma_tile_client._last_fetch_at = None
-    yield
-    jma_tile_client._target_times_cache.clear()
-    jma_tile_client._last_fetch_at = None
-
-
-@pytest.fixture
-def sleeps(monkeypatch):
-    recorder = RecordingSleep()
-    monkeypatch.setattr(jma_tile_client, "asyncio", recorder)
-    return recorder
-
-
-def install_fakes(monkeypatch, redis=None):
-    """共有キャッシュと`log_external_call`を差し替え、記録先を返す。"""
-    redis = redis or FakeRedisCache()
-    monkeypatch.setattr(jma_tile_client, "jma_tile_redis_cache", redis)
-    return redis, record_external_calls(monkeypatch, jma_tile_client)
 
 
 @pytest.fixture
 def upstream():
-    """JMA bosaiの代役。応答はテストごとに経路を足して決め、経路が無ければ引いた時点で失敗する。"""
+    """気象庁の代役。応答はテストごとに経路を足して決め、経路に無いURLを引けば失敗する。"""
     return respx.Router(base_url=jma_tile_client.UPSTREAM_HOST)
 
 
-def make_client(upstream):
-    return jma_tile_client.JmaTileClient(client_for(upstream))
+@pytest.fixture
+def waits(monkeypatch, clock):
+    """上流への間隔の待ちを記録し、待った分だけ止めた時計を進める。"""
+    recorded: list[float] = []
+
+    async def sleep(seconds: float) -> None:
+        recorded.append(seconds)
+        clock.tick(seconds)
+
+    monkeypatch.setattr(jma_tile_client, "asyncio", types.SimpleNamespace(sleep=sleep))
+    return recorded
 
 
-def requested_urls(upstream):
-    return [str(call.request.url) for call in upstream.calls]
-
-
-# --- 時刻一覧かタイル本体かの見分け ---------------------------------------------------
+def client(upstream) -> JmaTileClient:
+    return JmaTileClient(client_for(upstream))
 
 
 @pytest.mark.parametrize(
     "path",
     [
         "bosai/jmatile/data/nowc/targetTimes.json",
-        "bosai/jmatile/data/nowc/targetTimes_N1.json",
+        LISTING,
         "bosai/jmatile/data/nowc/targetTimes_N3.json",
+        "bosai/jmatile/data/rasrf/targetTimes.json",
     ],
 )
-def test_time_listing_is_recognised_whatever_series_it_belongs_to(path):
-    """時刻一覧だけが同じURLのまま中身を更新するため、見分けを誤ると古い時刻を配り続ける。"""
-    assert jma_tile_client.is_target_times_path(path) is True
+def test_a_time_listing_is_recognised_by_its_file_name(path):
+    assert jma_tile_client.is_target_times_path(path)
 
 
 @pytest.mark.parametrize(
     "path",
     [
-        TILE_PATH,
+        TILE,
+        FEATURES,
         "bosai/jmatile/data/nowc/targetTimes.json/6/57/25.png",
-        "bosai/jmatile/data/nowc/notatargetTimes.json.png",
-        "bosai/jmatile/data/targetTimes/nowc.json",
+        "bosai/jmatile/data/nowc/targetTimes.json.png",
     ],
 )
-def test_anything_that_is_not_the_listing_file_itself_is_treated_as_a_tile(path):
-    assert jma_tile_client.is_target_times_path(path) is False
+def test_anything_whose_file_is_not_a_time_listing_is_not_one(path):
+    """時刻一覧の名前を途中に含むだけのパスを時刻一覧と取ると、内容の変わらないタイルを2分で捨て続ける。"""
+    assert not jma_tile_client.is_target_times_path(path)
 
 
-# --- 上流への秒間上限 -----------------------------------------------------------------
+async def test_nothing_is_cached_at_first_and_a_lookup_never_asks_upstream(monkeypatch, upstream, fake_redis):
+    recorded = record_external_calls(monkeypatch, jma_tile_client)
 
-
-async def test_the_first_upstream_request_is_not_held_back(sleeps):
-    await jma_tile_client._wait_for_upstream_rate_limit()
-
-    assert sleeps.slept == []
-    assert jma_tile_client._last_fetch_at is not None
-
-
-async def test_back_to_back_upstream_requests_are_spaced_by_the_configured_rate(sleeps, monkeypatch, clock):
-    """利用者が何人いてもJMAへの問い合わせが秒間上限を超えないようにする。"""
-    monkeypatch.setattr(jma_tile_client.settings, "jma_tile_upstream_max_requests_per_second", 4.0)
-    jma_tile_client._last_fetch_at = time.monotonic()
-
-    await jma_tile_client._wait_for_upstream_rate_limit()
-
-    assert sleeps.slept == [0.25]
-
-
-async def test_an_upstream_request_after_the_interval_is_not_held_back(sleeps, monkeypatch):
-    monkeypatch.setattr(jma_tile_client.settings, "jma_tile_upstream_max_requests_per_second", 4.0)
-    jma_tile_client._last_fetch_at = time.monotonic() - 10.0
-
-    await jma_tile_client._wait_for_upstream_rate_limit()
-
-    assert sleeps.slept == []
-
-
-# --- キャッシュだけを見る呼び出し -----------------------------------------------------
-
-
-async def test_a_cached_time_listing_comes_from_this_process(monkeypatch, upstream):
-    """時刻一覧は短い周期で入れ替わるため、共有キャッシュではなくプロセス内に置く。"""
-    redis, recorded = install_fakes(monkeypatch)
-    jma_tile_client._target_times_cache[TARGET_TIMES_PATH] = (b"{}", "application/json")
-
-    result = await make_client(upstream).get_cached(TARGET_TIMES_PATH)
-
-    assert result == (b"{}", "application/json")
-    assert redis.entries == {}
+    assert await client(upstream).get_cached(TILE) is None
+    assert await client(upstream).get_cached(LISTING) is None
     assert not upstream.calls
-    assert recorded[0].fields["cache"] == "hit"
-    assert recorded[0].fields["result"] == "ok"
+    assert [call.fields["cache"] for call in recorded] == ["miss", "miss"]
 
 
-async def test_a_cached_tile_comes_from_the_shared_cache(monkeypatch, upstream):
-    redis, recorded = install_fakes(monkeypatch, FakeRedisCache({TILE_PATH: (b"png", "image/png")}))
+async def test_a_fetched_tile_is_returned_and_then_served_from_the_cache(monkeypatch, upstream, fake_redis):
+    recorded = record_external_calls(monkeypatch, jma_tile_client)
+    upstream.get(f"/{TILE}").respond(content=OPAQUE, content_type="image/png")
 
-    result = await make_client(upstream).get_cached(TILE_PATH)
+    fetched = await client(upstream).fetch(TILE)
+    cached = await client(upstream).get_cached(TILE)
 
-    assert result == (b"png", "image/png")
-    assert not upstream.calls
-    assert recorded[0].fields["cache"] == "hit"
-
-
-async def test_a_cache_lookup_never_reaches_upstream_when_nothing_is_stored(monkeypatch, upstream, sleeps):
-    """キャッシュ参照だけの呼び出しは、上流への秒間上限を一切消費しない。"""
-    redis, recorded = install_fakes(monkeypatch)
-
-    result = await make_client(upstream).get_cached(TILE_PATH)
-
-    assert result is None
-    assert not upstream.calls
-    assert sleeps.slept == []
-    assert recorded[0].fields["cache"] == "miss"
-    assert recorded[0].fields["result"] == "ok"
+    assert fetched == cached == (OPAQUE, "image/png")
+    assert upstream.calls.call_count == 1
+    assert recorded[0].fields | {"path": TILE} == {"path": TILE, "cache": "miss", "result": "ok", "status": 200}
+    assert recorded[1].fields["cache"] == "hit"
 
 
-# --- 上流フェッチ ---------------------------------------------------------------------
+async def test_a_fetch_without_a_content_type_is_served_as_generic_bytes(upstream, fake_redis):
+    upstream.get(f"/{TILE}").respond(content=OPAQUE)
+
+    assert await client(upstream).fetch(TILE) == (OPAQUE, "application/octet-stream")
 
 
-async def test_a_fetched_tile_is_kept_in_the_shared_cache(monkeypatch, upstream, sleeps):
-    redis, recorded = install_fakes(monkeypatch)
-    upstream.route().respond(content=b"png", content_type="image/png")
+async def test_tiles_are_shared_through_redis_and_time_listings_are_kept_in_this_process(
+    upstream, fake_redis, redis_server, waits
+):
+    """タイルは全プロセスで共有し、時刻一覧は2分で変わるのでプロセス内に置く。Redisが落ちると片方だけが消える。"""
+    upstream.get(f"/{TILE}").respond(content=OPAQUE, content_type="image/png")
+    upstream.get(f"/{LISTING}").respond(json=[], content_type="application/json")
+    await client(upstream).fetch(TILE)
+    await client(upstream).fetch(LISTING)
 
-    result = await make_client(upstream).fetch(TILE_PATH)
+    redis_server.connected = False
 
-    assert result == (b"png", "image/png")
-    assert requested_urls(upstream) == [f"{jma_tile_client.UPSTREAM_HOST}/{TILE_PATH}"]
-    assert redis.entries == {TILE_PATH: (b"png", "image/png")}
-    assert recorded[0].fields["cache"] == "miss"
-    assert recorded[0].fields["result"] == "ok"
-    assert recorded[0].fields["status"] == 200
-
-
-async def test_a_fetched_time_listing_is_kept_in_this_process(monkeypatch, upstream, sleeps):
-    redis, _ = install_fakes(monkeypatch)
-    upstream.route().respond(content=b"[]", content_type="application/json")
-
-    result = await make_client(upstream).fetch(TARGET_TIMES_PATH)
-
-    assert result == (b"[]", "application/json")
-    assert jma_tile_client._target_times_cache[TARGET_TIMES_PATH] == (b"[]", "application/json")
-    assert redis.entries == {}
+    assert await client(upstream).get_cached(TILE) is None
+    assert await client(upstream).get_cached(LISTING) == (b"[]", "application/json")
 
 
-async def test_a_fetch_without_a_content_type_header_falls_back_to_a_generic_one(monkeypatch, upstream, sleeps):
-    redis, _ = install_fakes(monkeypatch)
-    upstream.route().respond(content=b"png")
+async def test_a_missing_tile_is_raised_apart_from_failures_and_remembered_as_nothing_to_draw(
+    monkeypatch, upstream, fake_redis
+):
+    """疎な格子の穴は正常系なので、失敗として数えず（WARNINGも出さず）、次からは上流へ問い合わせない。"""
+    recorded = record_external_calls(monkeypatch, jma_tile_client)
+    upstream.get(f"/{TILE}").respond(404)
 
-    result = await make_client(upstream).fetch(TILE_PATH)
+    with pytest.raises(JmaTileNotFoundError):
+        await client(upstream).fetch(TILE)
 
-    assert result == (b"png", "application/octet-stream")
-    assert redis.entries == {TILE_PATH: (b"png", "application/octet-stream")}
-
-
-async def test_every_upstream_fetch_waits_out_the_rate_limit_first(monkeypatch, upstream, sleeps):
-    install_fakes(monkeypatch)
-    jma_tile_client._last_fetch_at = time.monotonic()
-    upstream.route().respond(content=b"png", content_type="image/png")
-
-    await make_client(upstream).fetch(TILE_PATH)
-
-    assert len(sleeps.slept) == 1
-
-
-async def test_a_missing_tile_is_raised_apart_from_other_failures_and_remembered_as_empty(monkeypatch, upstream, sleeps):
-    """疎な格子では在否の穴が平常運転の一部なので、エラー集計へ載せず、次回は問い合わせない。"""
-    redis, recorded = install_fakes(monkeypatch)
-    upstream.route().respond(404)
-
-    with pytest.raises(jma_tile_client.JmaTileNotFoundError):
-        await make_client(upstream).fetch(TILE_PATH)
-
-    assert redis.entries == {TILE_PATH: EMPTY_TILE}
     assert recorded[0].fields["result"] == "ok"
     assert recorded[0].fields["status"] == 404
+    assert isinstance(await client(upstream).get_cached(TILE), EmptyTile)
 
 
-async def test_features_not_yet_delivered_are_raised_but_not_remembered(monkeypatch, upstream, sleeps):
-    """配信元はコマの地物を配信するまで404を返す。覚えると、配信された後もその間は「無い」を返し続ける。"""
-    redis, recorded = install_fakes(monkeypatch)
-    upstream.route().respond(404)
+async def test_a_missing_time_listing_is_remembered_in_this_process(upstream, fake_redis, redis_server):
+    upstream.get(f"/{LISTING}").respond(404)
 
-    with pytest.raises(jma_tile_client.JmaTileNotFoundError):
-        await make_client(upstream).fetch(FEATURES_PATH)
+    with pytest.raises(JmaTileNotFoundError):
+        await client(upstream).fetch(LISTING)
 
-    assert redis.entries == {}
-    assert recorded[0].fields["result"] == "ok"
+    redis_server.connected = False
+    assert isinstance(await client(upstream).get_cached(LISTING), EmptyTile)
 
 
-async def test_a_missing_time_listing_is_remembered_as_empty_in_this_process(monkeypatch, upstream, sleeps):
-    redis, _ = install_fakes(monkeypatch)
-    upstream.route().respond(404)
+async def test_features_not_yet_delivered_are_raised_but_not_remembered(upstream, fake_redis):
+    """地物は配信されるまで404が返るので、覚えると配信された後も「無い」を返し続ける。"""
+    upstream.get(f"/{FEATURES}").respond(404)
 
-    with pytest.raises(jma_tile_client.JmaTileNotFoundError):
-        await make_client(upstream).fetch(TARGET_TIMES_PATH)
+    with pytest.raises(JmaTileNotFoundError):
+        await client(upstream).fetch(FEATURES)
 
-    assert jma_tile_client._target_times_cache[TARGET_TIMES_PATH] is EMPTY_TILE
-    assert redis.entries == {}
+    assert await client(upstream).get_cached(FEATURES) is None
 
 
-async def test_an_upstream_server_error_is_reported_as_a_failure(monkeypatch, upstream, sleeps):
-    """404以外のステータスは取得失敗で、空だと憶えない（次回また取りに行く）。"""
-    redis, recorded = install_fakes(monkeypatch)
-    upstream.route().respond(503)
+@pytest.mark.parametrize(
+    "answer, error_type",
+    [
+        (httpx.Response(503), "http_503"),
+        (httpx.ConnectError("refused"), "ConnectError"),
+    ],
+)
+async def test_an_upstream_failure_reads_as_nothing_and_is_not_remembered(
+    monkeypatch, upstream, fake_redis, answer, error_type
+):
+    recorded = record_external_calls(monkeypatch, jma_tile_client)
+    route = upstream.get(f"/{TILE}")
+    if isinstance(answer, Exception):
+        route.side_effect = answer
+    else:
+        route.return_value = answer
 
-    result = await make_client(upstream).fetch(TILE_PATH)
+    assert await client(upstream).fetch(TILE) is None
 
-    assert result is None
-    assert redis.entries == {}
     assert recorded[0].fields["result"] == "error"
-    assert recorded[0].fields["error_type"]
+    assert recorded[0].fields["error_type"] == error_type
+    assert await client(upstream).get_cached(TILE) is None
 
 
-async def test_an_upstream_transport_failure_is_reported_as_a_failure(monkeypatch, upstream, sleeps):
-    redis, recorded = install_fakes(monkeypatch)
-    upstream.route().mock(side_effect=httpx.ConnectTimeout)
+async def test_a_locally_built_tile_is_served_like_a_fetched_one(upstream, fake_redis):
+    await client(upstream).store(TILE, OPAQUE, "image/png")
 
-    result = await make_client(upstream).fetch(TILE_PATH)
-
-    assert result is None
-    assert redis.entries == {}
-    assert recorded[0].fields["result"] == "error"
-    assert recorded[0].fields["error_type"]
-
-
-# --- 上流を経ずに作ったタイルの書き戻し -----------------------------------------------
-
-
-async def test_a_locally_built_tile_is_stored_where_fetched_tiles_go(monkeypatch, upstream, sleeps):
-    """上流に実体が無いズームを組み立てた結果も、次回からそのまま配れるようにする。"""
-    redis, _ = install_fakes(monkeypatch)
-
-    await make_client(upstream).store(TILE_PATH, b"built", "image/png")
-
-    assert redis.entries == {TILE_PATH: (b"built", "image/png")}
+    assert await client(upstream).get_cached(TILE) == (OPAQUE, "image/png")
+    assert await client(upstream).get_cached(OTHER_TILE) is None
     assert not upstream.calls
-    assert sleeps.slept == []
 
 
-async def test_a_locally_built_time_listing_is_stored_in_this_process(monkeypatch, upstream, sleeps):
-    redis, _ = install_fakes(monkeypatch)
+async def test_a_locally_built_time_listing_is_kept_in_this_process(upstream, fake_redis, redis_server):
+    redis_server.connected = False
 
-    await make_client(upstream).store(TARGET_TIMES_PATH, b"[]", "application/json")
+    await client(upstream).store(LISTING, b"[]", "application/json")
 
-    assert jma_tile_client._target_times_cache[TARGET_TIMES_PATH] == (b"[]", "application/json")
-    assert redis.entries == {}
-
-
-# --- キャッシュ参照とフェッチをまとめた呼び出し ---------------------------------------
+    assert await client(upstream).get_cached(LISTING) == (b"[]", "application/json")
 
 
-async def test_a_cached_tile_is_returned_without_a_fetch(monkeypatch, upstream, sleeps):
-    redis, _ = install_fakes(monkeypatch, FakeRedisCache({TILE_PATH: (b"png", "image/png")}))
-    upstream.route().respond(content=b"other", content_type="image/png")
+async def test_get_serves_the_cache_before_asking_upstream(upstream, fake_redis):
+    await client(upstream).store(TILE, OPAQUE, "image/png")
 
-    result = await make_client(upstream).get(TILE_PATH)
-
-    assert result == (b"png", "image/png")
+    assert await client(upstream).get(TILE) == (OPAQUE, "image/png")
     assert not upstream.calls
-    assert sleeps.slept == []
 
 
-async def test_an_uncached_tile_falls_through_to_a_fetch(monkeypatch, upstream, sleeps):
-    redis, _ = install_fakes(monkeypatch)
-    upstream.route().respond(content=b"png", content_type="image/png")
+@pytest.mark.parametrize(
+    "answer, expected",
+    [
+        (httpx.Response(200, content=OPAQUE, headers={"content-type": "image/png"}), (OPAQUE, "image/png")),
+        (httpx.Response(404), EmptyTile),
+        (httpx.Response(500), None),
+    ],
+    ids=["found", "missing", "failed"],
+)
+async def test_get_tells_a_tile_with_nothing_to_draw_apart_from_a_failure(upstream, fake_redis, answer, expected):
+    """プリウォームは空を正常に数え、失敗だけを数える。混ぜると平常時の大半の空が失敗に見える。"""
+    upstream.get(f"/{TILE}").return_value = answer
 
-    result = await make_client(upstream).get(TILE_PATH)
+    result = await client(upstream).get(TILE)
 
-    assert result == (b"png", "image/png")
-    assert requested_urls(upstream) == [f"{jma_tile_client.UPSTREAM_HOST}/{TILE_PATH}"]
-
-
-async def test_a_missing_tile_counts_as_nothing_to_draw_rather_than_a_failure(monkeypatch, upstream, sleeps):
-    """平常時は取得のほとんどが空のため、空を失敗として数えると本物の障害が埋もれる。"""
-    redis, _ = install_fakes(monkeypatch)
-    upstream.route().respond(404)
-
-    result = await make_client(upstream).get(TILE_PATH)
-
-    assert isinstance(result, jma_tile_client.EmptyTile)
-
-
-async def test_a_failed_fetch_stays_a_failure(monkeypatch, upstream, sleeps):
-    redis, _ = install_fakes(monkeypatch)
-    upstream.route().mock(side_effect=httpx.ConnectTimeout)
-
-    result = await make_client(upstream).get(TILE_PATH)
-
-    assert result is None
+    if expected is EmptyTile:
+        assert isinstance(result, EmptyTile)
+    else:
+        assert result == expected
 
 
-# --- 時刻一覧を行へ解く ---------------------------------------------------------------
+async def test_the_first_upstream_request_is_not_held_back(upstream, fake_redis, waits):
+    upstream.get(f"/{TILE}").respond(content=OPAQUE, content_type="image/png")
+
+    await client(upstream).fetch(TILE)
+
+    assert waits == []
 
 
-async def _target_time_rows(monkeypatch, content: bytes):
-    install_fakes(monkeypatch)
-    upstream = respx.Router()
-    upstream.route().respond(content=content, content_type="application/json")
-    return await jma_tile_client.get_target_times(make_client(upstream), TARGET_TIMES_PATH)
+async def test_back_to_back_upstream_requests_are_spaced_by_the_configured_rate(
+    monkeypatch, upstream, fake_redis, waits
+):
+    """プリウォームと利用者の取得のどちらも、プロセス全体で秒間の上限を守る（使い捨てのクライアントをまたぐ）。"""
+    monkeypatch.setattr(jma_tile_client.settings, "jma_tile_upstream_max_requests_per_second", 4.0)
+    upstream.get(f"/{TILE}").respond(content=OPAQUE, content_type="image/png")
+    upstream.get(f"/{OTHER_TILE}").respond(404)
+
+    await client(upstream).fetch(TILE)
+    with pytest.raises(JmaTileNotFoundError):
+        await client(upstream).fetch(OTHER_TILE)
+    await client(upstream).fetch(TILE)
+
+    assert waits == [0.25, 0.25]
 
 
-async def test_a_time_listing_row_becomes_a_frame_and_the_elements_it_has_tiles_for(monkeypatch, sleeps):
-    # 行の形は2026-09-27に取得した時刻一覧のまま（降水短時間予報は`member`を持ち、ナウキャストは持たない）。
-    content = json.dumps([
-        {"basetime": "20260926220000", "validtime": "20260927130000", "member": "none",
-         "elements": ["rasrf", "rasrf_point", "rasrf_nd"]},
-        {"basetime": "20260926224000", "validtime": "20260926224000", "elements": ["hrpns", "hrpns_nd"]},
-    ]).encode()
+async def test_a_request_after_the_interval_has_passed_is_not_held_back(
+    monkeypatch, upstream, fake_redis, waits, clock
+):
+    monkeypatch.setattr(jma_tile_client.settings, "jma_tile_upstream_max_requests_per_second", 4.0)
+    upstream.get(f"/{TILE}").respond(content=OPAQUE, content_type="image/png")
+    await client(upstream).fetch(TILE)
 
-    rows = await _target_time_rows(monkeypatch, content)
+    clock.tick(0.1)
+    await client(upstream).fetch(TILE)
+    clock.tick(0.25)
+    await client(upstream).fetch(TILE)
+
+    assert waits == [pytest.approx(0.15)]
+
+
+async def test_answers_from_the_cache_do_not_count_toward_the_interval(upstream, fake_redis, waits):
+    await client(upstream).store(TILE, OPAQUE, "image/png")
+    upstream.get(f"/{OTHER_TILE}").respond(content=OPAQUE, content_type="image/png")
+
+    await client(upstream).get(TILE)
+    await client(upstream).get(TILE)
+    await client(upstream).get(OTHER_TILE)
+
+    assert waits == []
+
+
+async def test_a_time_listing_reads_as_its_frames_and_the_elements_with_tiles(upstream, fake_redis):
+    """系列を持たない系統（nowc）の行には`member`が無く、タイルのパスでは"none"と書く。"""
+    upstream.get(f"/{LISTING}").respond(
+        json=[
+            {"basetime": "20260101000000", "validtime": "20260101000500", "elements": ["hrpns", "hrpns_nd"]},
+            {"basetime": "20260101000000", "member": "immed0", "validtime": "20260101001000"},
+            {"basetime": "20260101000000"},
+            {"validtime": "20260101000000"},
+            "not a row",
+        ]
+    )
+
+    rows = await jma_tile_client.get_target_times(client(upstream), LISTING)
 
     assert rows == [
-        TargetTimesRow(JmaFrame("20260926220000", "none", "20260927130000"), ("rasrf", "rasrf_point", "rasrf_nd")),
-        TargetTimesRow(JmaFrame("20260926224000", "none", "20260926224000"), ("hrpns", "hrpns_nd")),
+        TargetTimesRow(JmaFrame("20260101000000", "none", "20260101000500"), ("hrpns", "hrpns_nd")),
+        TargetTimesRow(JmaFrame("20260101000000", "immed0", "20260101001000"), ()),
     ]
 
 
-async def test_rows_without_the_frame_times_are_skipped(monkeypatch, sleeps):
-    content = json.dumps([
-        {"basetime": "20260926224000", "elements": ["hrpns"]},
-        "broken",
-        {"basetime": "20260926224000", "validtime": "20260926224000"},
-    ]).encode()
+@pytest.mark.parametrize(
+    "answer",
+    [
+        httpx.Response(200, text="<html>maintenance</html>"),
+        httpx.Response(200, json={"basetime": "20260101000000", "validtime": "20260101000000"}),
+        httpx.Response(404),
+        httpx.Response(500),
+    ],
+    ids=["not_json", "not_a_list", "missing", "failed"],
+)
+async def test_a_time_listing_that_cannot_be_read_reads_as_nothing(upstream, fake_redis, answer):
+    upstream.get(f"/{LISTING}").return_value = answer
 
-    rows = await _target_time_rows(monkeypatch, content)
-
-    assert rows == [TargetTimesRow(JmaFrame("20260926224000", "none", "20260926224000"), ())]
-
-
-@pytest.mark.parametrize("content", [b"<html>maintenance</html>", b'{"basetime": "20260926224000"}'])
-async def test_a_time_listing_that_is_not_a_json_array_reads_as_nothing(monkeypatch, sleeps, content):
-    assert await _target_time_rows(monkeypatch, content) is None
+    assert await jma_tile_client.get_target_times(client(upstream), LISTING) is None

@@ -1,14 +1,15 @@
-"""`domain/leg_costs.py`——探索範囲の静的スコア行列・重み・0次フィルタ・風から、レグ（時刻・向き）ごとに区間の所要時間と
+"""`domain/leg_costs.py`——探索範囲の静的スコア行列・重み・0次フィルタ・風・昼夜から、レグ（時刻・向き）ごとに区間の所要時間と
 探索のコスト、区間の表示が読む値を合成する`LegCostComposer`。
 
 入口は`LegCostComposer`（`compose`・`values_at_rows`・`winds_at`・`missing_travel_data_share`・`to_full_row_order`・
 `lazy_row`・`wind_unavailable`）と、`LegCostArrays`/`RowValues`の`axis_contributions_at`、`material_value_at`。
-静的スコア行列は架空の軸・材料で組み、風に依る軸だけは軸の宣言（本番はDBが正本）を架空の1本へ差し替える。
+静的スコア行列は架空の軸・材料で組み、風に依る軸と夜だけ効く軸は軸の宣言（本番はDBが正本）を架空の1本へ差し替える。
 
 ここで見ないもの:
 - 勾配・風・路面から速度を解く走行モデルそのもの → `test_cycling_speed.py`
 - 軸の得点の重み付き平均と、データの無い区間の扱い → `test_difficulty.py`・`test_axis_definitions.py`
 - 風を進行方向の成分へ分けることと、予報の格子点の引き当て → `test_wind.py`・`test_wind_grid.py`
+- ある時刻が夜か（市民薄明の外か） → `test_twilight.py`
 - 合成した配列で探索し、経路の区間を組み立てること → `test_road_graph_engine.py`
 """
 
@@ -22,6 +23,7 @@ from app.domain import leg_costs
 from app.domain.attributes import CategoricalColumn
 from app.domain.evaluation import StaticEdgeScoreMatrix
 from app.domain.leg_costs import LegCostComposer
+from app.domain.route import Coordinates
 from app.domain.weather import PERIOD_INTERVAL_HOURS, WeatherConditions
 from app.domain.wind import WindForecastSeries, WindLattice
 from tests.axis_system_fixture import axis_definition, replaced_axis_definitions
@@ -32,7 +34,10 @@ SURFACE = leg_costs.ROLLING_RESISTANCE_MATERIAL_ID
 WIND_DRAG = next(iter(leg_costs.REQUEST_DYNAMIC_MATERIAL_IDS))
 STOP_DENSITY = dict(zip(leg_costs.POI_COUNT_KINDS, leg_costs.stop_count_material_ids(), strict=True))
 WIND_AXIS = "axis_wind"
+NIGHT_AXIS = "axis_night"
 NORTH, SOUTH = 0.0, 180.0
+#: 昼夜を決める地点。`START`の日の市民薄明の終わりは17時51分、翌朝の始まりは5時15分（JST）。
+PLACE = Coordinates(latitude=35.0, longitude=139.0)
 
 
 @pytest.fixture
@@ -93,7 +98,7 @@ def _composer(matrix: StaticEdgeScoreMatrix, *, weights=None, penalty=0.0, exclu
         matrix, weights or {}, penalty,
         np.zeros(n, dtype=bool) if excluded is None else np.asarray(excluded, dtype=bool),
         weather, series, START, CRUISE_KMH,
-        np.arange(n) if lazy is None else np.asarray(lazy), detour_ratio=1.3,
+        np.arange(n) if lazy is None else np.asarray(lazy), detour_ratio=1.3, twilight_origin=PLACE,
     )
 
 
@@ -363,6 +368,55 @@ def test_values_recomposed_for_the_rows_on_the_route_match_the_composition_used_
     assert values.axis_contributions_at(0) == leg.axis_contributions_at(2)
 
 
+# --- 昼夜 -----------------------------------------------------------------------
+
+
+@pytest.fixture
+def night_axis():
+    """夜だけ重みが効く公開軸。"""
+    definition = axis_definition(NIGHT_AXIS, is_published=True, time_scope="night_only")
+    with replaced_axis_definitions({NIGHT_AXIS: definition}):
+        yield
+
+
+def _night_composer(n: int = 1) -> LegCostComposer:
+    """0点の常に効く軸と100点の夜の軸に同じ重みがあり、夜に通る区間は合成が50点で、所要時間の1.25倍の
+    コストになる。風の時別予報は無い。"""
+    return _composer(
+        _matrix(n, axes={"axis_a": 0.0, NIGHT_AXIS: 100.0}), weights={"axis_a": 1.0, NIGHT_AXIS: 1.0}, penalty=0.5,
+    )
+
+
+@pytest.mark.parametrize(
+    ("offset_hours", "night_bins"),
+    [
+        (7.5, [False, False, True]),  # 16時30分・17時30分・18時30分
+        (19.5, [True, False, False]),  # 翌4時30分・5時30分・6時30分
+    ],
+    ids=["日没をまたぐ", "日の出をまたぐ"],
+)
+def test_the_night_axis_weighs_only_in_the_bins_ridden_in_the_dark(night_axis, offset_hours, night_bins):
+    leg = _night_composer().compose("leg", None, offset_hours, +1, duration_hours=3.0)
+
+    ratio = leg.cost_bins_lazy[:, 0] / leg.travel_bins_lazy[:, 0]
+    assert ratio.tolist() == pytest.approx([1.25 if night else 1.0 for night in night_bins])
+
+
+def test_a_tree_without_a_clock_weighs_the_night_axis_at_each_segment_s_own_passage(night_axis):
+    leg = _night_composer(2).compose("inbound", None, 10.0, -1, passage_hours=np.array([8.0, 9.5]))
+
+    assert (leg.cost_lazy / leg.travel_seconds_lazy).tolist() == pytest.approx([1.0, 1.25])
+
+
+def test_the_display_of_a_segment_weighs_the_night_axis_at_the_hour_it_is_ridden(night_axis):
+    """17時30分に通る区間には夜の軸が効かず、18時30分に通る区間には効く。"""
+    values = _night_composer().values_at_rows(np.array([0, 0]), np.array([8.5, 9.5]))
+
+    assert values.difficulty_array.tolist() == [0.0, 50.0]
+    assert [values.axis_contributions_at(i) for i in (0, 1)] == [
+        {"axis_a": 0.0, NIGHT_AXIS: 0.0}, {"axis_a": 0.0, NIGHT_AXIS: 50.0}]
+
+
 # --- 所要時間の欠け・区間の風 ---------------------------------------------------
 
 
@@ -393,9 +447,8 @@ def test_a_segment_without_a_passage_shows_the_wind_at_departure():
 
     winds = composer.winds_at([0, 1], [None, 0.5], [False, False])
 
-    assert winds[0] == leg_costs.SegmentWind(speed_ms=3.0, direction_deg=271.1)
-    # 時別の予報が無いと、通過時刻の風は引けない。
-    assert winds[1] is None
+    # 時別の予報が無いと、通過時刻で合成した区間（夜だけ効く軸のため）も出発時点の風で走っている。
+    assert winds == [leg_costs.SegmentWind(speed_ms=3.0, direction_deg=271.1)] * 2
 
 
 def test_a_segment_has_no_wind_when_no_wind_was_available():

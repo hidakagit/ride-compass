@@ -1,5 +1,6 @@
 import inspect
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -15,6 +16,7 @@ from app.config import settings
 from app.domain.axis_inspector import AxisInspectorAxis, AxisInspectorResult, InspectorComposite
 from app.infrastructure import rate_limiter
 from app.infrastructure.derived_data_meta import DataRevisions
+from app.infrastructure.point_tile_layers import POINT_TILE_LAYERS
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.tile_serving import TileResponse
 from app.domain.dynamic_way_values import transform_dedicated_way_values
@@ -42,15 +44,15 @@ class FakeRegionService:
         # Cache-Control: no-storeを明示することの検証に使う。
         self._cacheable = cacheable
         self.last_request = None
-        self.last_poi_request = None
+        self.last_point_request = None
         self.last_axis_inspector_request = None
 
     async def get_road_surface_tile(self, z, x, y):
         self.last_request = (z, x, y)
         return TileResponse(self._tile_bytes, cacheable=self._cacheable)
 
-    async def get_poi_tile(self, z, x, y):
-        self.last_poi_request = (z, x, y)
+    async def get_point_tile(self, layer, z, x, y):
+        self.last_point_request = (layer.name, z, x, y)
         return TileResponse(self._tile_bytes, cacheable=self._cacheable)
 
     async def get_axis_inspector(self, osm_way_id, edge_id=None, dynamic_materials=None, preference=None):
@@ -149,49 +151,68 @@ def test_region_road_surface_tile_is_rate_limited_per_client():
     assert response.status_code == 429
 
 
-def test_region_poi_tile_returns_mvt_bytes():
+@pytest.mark.parametrize("layer", POINT_TILE_LAYERS)
+def test_region_point_tile_returns_the_layers_mvt_bytes(layer):
     fake = FakeRegionService(tile_bytes=b"\x04\x05\x06")
     app.dependency_overrides[get_region_service] = lambda: fake
 
     try:
-        response = client.get("/api/region/poi-tiles/14/14551/6447.pbf")
+        response = client.get(f"/api/region/point-tiles/{layer}/14/14551/6447.pbf")
     finally:
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
     assert response.content == b"\x04\x05\x06"
     assert response.headers["content-type"] == "application/vnd.mapbox-vector-tile"
-    assert fake.last_poi_request == (14, 14551, 6447)
+    assert fake.last_point_request == (layer, 14, 14551, 6447)
 
 
-def test_region_poi_tile_rejects_too_low_zoom():
+def test_region_point_tile_rejects_an_undeclared_layer():
+    fake = FakeRegionService()
+    app.dependency_overrides[get_region_service] = lambda: fake
+
+    try:
+        response = client.get("/api/region/point-tiles/no-such-layer/14/14551/6447.pbf")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 404
+    assert fake.last_point_request is None
+
+
+def test_region_point_tile_rejects_too_low_zoom():
     app.dependency_overrides[get_region_service] = lambda: FakeRegionService()
 
     try:
-        response = client.get("/api/region/poi-tiles/5/10/10.pbf")
+        response = client.get(f"/api/region/point-tiles/{next(iter(POINT_TILE_LAYERS))}/5/10/10.pbf")
     finally:
         app.dependency_overrides.clear()
 
     assert response.status_code == 400
 
 
-def test_region_poi_tile_rate_limit_is_independent_from_road_surface_tile_rate_limit():
-    # poi-tileはroad-tileと同じsettings.road_tile_rate_limit_per_minuteを使うが、
-    # レート制限キーのprefixは別（routers/region.py: _check_tile_rate_limit）。road-tile側の
-    # 上限を使い切ってもpoi-tileには影響しないこと（road_surface_tile_rate_limit_is_
-    # independent_from_basemap_rate_limitと同じ回帰観点）。
+def test_point_tile_rate_limit_is_kept_per_layer():
+    # 点のタイルは路面と同じ上限値を使うが、キーはレイヤーごと（routers/region.py: _check_tile_rate_limit）。
+    # 1つのレイヤーの上限を使い切っても、路面と他のレイヤーには影響しない。
+    exhausted, *others = POINT_TILE_LAYERS
+    limit = settings.road_tile_rate_limit_per_minute
     app.dependency_overrides[get_region_service] = lambda: FakeRegionService()
 
     try:
-        for _ in range(settings.road_tile_rate_limit_per_minute):
-            rate_limiter.check_rate_limit("road-tile:testclient", settings.road_tile_rate_limit_per_minute)
-        assert client.get("/api/region/road-surface-tiles/14/14551/6447.pbf").status_code == 429
+        for _ in range(limit - 1):
+            rate_limiter.check_rate_limit(f"{exhausted}-tile:testclient", limit)
+        assert client.get(f"/api/region/point-tiles/{exhausted}/14/14551/6447.pbf").status_code == 200
+        assert client.get(f"/api/region/point-tiles/{exhausted}/14/14551/6447.pbf").status_code == 429
 
-        response = client.get("/api/region/poi-tiles/14/14551/6447.pbf")
+        others_status = [client.get(f"/api/region/point-tiles/{layer}/14/14551/6447.pbf").status_code
+                         for layer in others]
+        road_status = client.get("/api/region/road-surface-tiles/14/14551/6447.pbf").status_code
     finally:
         app.dependency_overrides.clear()
 
-    assert response.status_code == 200
+    assert others
+    assert others_status == [200] * len(others)
+    assert road_status == 200
 
 
 def test_region_axis_inspector_returns_result_json():
@@ -320,9 +341,12 @@ def test_region_axis_inspector_leaves_out_materials_whose_conditions_are_missing
         FakeDynamicWayValueService({"12345": 2.0}, "gradient_percent", GradientConditions),
     ):
         monkeypatch.setitem(
-            dedicated_way_values._DEDICATED_WAY_VALUE_SERVICE_FACTORIES,
+            dedicated_way_values._DEDICATED_WAY_VALUE_SERVICES_BY_MATERIAL,
             service.material_id,
-            lambda repository, weather_service, service=service: service,
+            SimpleNamespace(
+                conditions_type=service.conditions_type,
+                build=lambda repository, weather_service, material_id, service=service: service,
+            ),
         )
 
     try:
@@ -378,9 +402,6 @@ DEDICATED_AXES = {
         default_weight=0.2,
         label="軸ウ",
         dedicated_way_value_layer=True,
-        dynamic_way_value_needs_time=True,
-        dynamic_way_value_needs_bearing=True,
-        dynamic_way_value_needs_speed=True,
     ),
     "axis_way_value_signed": AxisDefinition(
         axis_id="axis_way_value_signed",
@@ -392,7 +413,6 @@ DEDICATED_AXES = {
         default_weight=0.2,
         label="軸グ",
         dedicated_way_value_layer=True,
-        dynamic_way_value_needs_bearing=True,
     ),
 }
 
@@ -481,8 +501,6 @@ def test_region_dedicated_way_values_requires_speed_kmh_when_the_service_needs_i
         default_weight=0.1,
         label="ダミー",
         dedicated_way_value_layer=True,
-        dynamic_way_value_needs_bearing=True,
-        dynamic_way_value_needs_speed=True,
     )
     monkeypatch.setitem(AXIS_DEFINITIONS, "dummy_needs_speed", dummy_axis)
     fake = FakeDynamicWayValueService(values={"1": 2.5}, material_id="wind_drag_ratio", conditions_type=WindConditions)
@@ -527,9 +545,7 @@ class UncoveredRepository:
 # 配信の実装が無い材料だけを参照する軸は404になることを見る。
 @pytest.mark.parametrize(("material", "status"), [("gradient_percent", 200), ("maxspeed_kmh", 404)])
 def test_region_dedicated_way_values_resolves_the_service_by_the_axis_material(monkeypatch, material, status):
-    axis = axis_definition(
-        "axis_new_name", material=material, dedicated_way_value_layer=True, dynamic_way_value_needs_bearing=True
-    )
+    axis = axis_definition("axis_new_name", material=material, dedicated_way_value_layer=True)
     monkeypatch.setitem(AXIS_DEFINITIONS, "axis_new_name", axis)
     monkeypatch.setattr(dependencies, "RoadGraphRepository", lambda session: UncoveredRepository())
 
@@ -670,12 +686,13 @@ def test_road_surface_tile_is_not_cached_when_retrieval_failed_temporarily():
     assert response.headers["cache-control"] == "no-store"
 
 
-def test_poi_tile_is_not_cached_when_retrieval_failed_temporarily():
+@pytest.mark.parametrize("layer", POINT_TILE_LAYERS)
+def test_point_tile_is_not_cached_when_retrieval_failed_temporarily(layer):
     fake = FakeRegionService(tile_bytes=b"", cacheable=False)
     app.dependency_overrides[get_region_service] = lambda: fake
 
     try:
-        response = client.get("/api/region/poi-tiles/12/3637/1612.pbf")
+        response = client.get(f"/api/region/point-tiles/{layer}/12/3637/1612.pbf")
     finally:
         app.dependency_overrides.clear()
 

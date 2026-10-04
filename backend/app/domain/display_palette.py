@@ -114,6 +114,8 @@ SEMANTIC_COLORS: dict[str, str] = {
     # 記号の縁取りと、雷。
     "mark_halo": "rgba(31, 41, 55, 0.85)",
     "mark_stroke": "#ffffff",
+    # 点の角丸四角に載せる絵記号。下地の行の色に対してコントラスト比3:1を割らない。
+    "mark_glyph": "#ffffff",
     "lightning": "#facc15",
     # 基礎地図（OpenFreeMap liberty）の背景色。配信元のスタイルが持つ値の写しで、分類色の
     # 明度の上限（`_MAX_LIGHTNESS`）はこれを基準にする——分類色は地図の上では常にこの地に載る。
@@ -156,7 +158,7 @@ def resolved_display_axes(attr: PrimaryAttributeSpec) -> list[dict]:
             {
                 **axis.model_dump(exclude={"categories", "palette", "hue_slot", "tone"}),
                 "categories": [
-                    c.model_dump() if color is None else {**c.model_dump(), "color": color}
+                    c.model_dump(exclude_none=True) if color is None else {**c.model_dump(exclude_none=True), "color": color}
                     for c, color in zip(axis.categories, colors, strict=True)
                 ],
             }

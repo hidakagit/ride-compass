@@ -32,12 +32,8 @@ from app.api.routers.axis_admin import AxisDefinitionPayload  # noqa: E402
 from app.api.routers.debug_admin import LogLevelName  # noqa: E402
 from app.infrastructure.source_models import SOURCE_RUN_STATUS_LABELS  # noqa: E402
 from app.domain.axis_definitions import MAP_CHIP_LABEL_MAX_LENGTH  # noqa: E402
-from app.infrastructure.vector_tile import (  # noqa: E402
-    ACCIDENT_LAYER_NAME,
-    ROAD_FEATURE_PROPERTIES,
-    ROAD_SURFACE_LAYER_NAME,
-    STOP_POI_LAYER_NAME,
-)
+from app.infrastructure.point_tile_layers import POINT_TILE_LAYERS  # noqa: E402
+from app.infrastructure.vector_tile import ROAD_FEATURE_PROPERTIES, ROAD_SURFACE_LAYER_NAME  # noqa: E402
 from app.main import app  # noqa: E402
 from app.domain.wind import ASSUMED_SPEED_KMH, MAX_ASSUMED_SPEED_KMH, MIN_ASSUMED_SPEED_KMH  # noqa: E402
 from app.domain.hard_filters import DEFAULT_HARD_FILTERS, HARD_FILTER_LABELS, HARD_FILTER_NAMES  # noqa: E402
@@ -54,6 +50,7 @@ from app.domain.dynamic_way_values import DEFAULT_DIFFICULTY_BOUNDARIES  # noqa:
 from app.domain.map_display import (  # noqa: E402
     ALWAYS_SHOWN_ATTRIBUTIONS,
     AXIS_LAYER_SPECS,
+    LEGEND_SHARED_ROWS,
     MAP_LAYER_CATEGORIES,
     MAP_LAYERS,
     map_layer_label,
@@ -81,11 +78,11 @@ from app.domain.map_display import (  # noqa: E402
     WEATHER_MARK_HALO_WIDTH_PX,
     WIND_FULL_SCALE_MS,
     WIND_ICON_SCALE_RANGE,
-    ACCIDENT_POINT_OPACITY,
     POINT_FATAL_RADIUS_PX,
     POINT_NON_FATAL_RADIUS_PX,
-    POINT_OPACITY,
+    POINT_OPACITY_BY_ATTR,
     POINT_RADIUS_PX,
+    POINT_ICON_SIZE_PX,
     POINT_STROKE_WIDTH_PX,
     ROAD_INSPECTED_WIDTH_PX,
     ROAD_KNOWN_OPACITY,
@@ -238,6 +235,7 @@ def _weather_element_entry(element: WeatherElement) -> dict:
         "frameRule": {"kind": element.frame_rule.kind, "windowMinutes": element.frame_rule.window_minutes},
         "gridValue": element.grid_value,
         "levelScale": element.level_scale,
+        "description": element.description,
         # 時刻の段の順（近い時刻から）。画面のデータ層は、時刻一覧をそのパスから取り、行を読み方に従って
         # コマにし、コマの時刻と系列でパスのテンプレートを埋めて取りに行く。
         "jmaElements": [
@@ -283,8 +281,8 @@ def main() -> None:
             # 判定したまま配られない世代を待ち続ける。
             "tile_version_kinds": sorted(TILE_SHAPES),
             "road_surface": {"layer_name": ROAD_SURFACE_LAYER_NAME, "properties": ROAD_FEATURE_PROPERTIES},
-            "accident": {"layer_name": ACCIDENT_LAYER_NAME},
-            "poi": {"stop_poi_layer_name": STOP_POI_LAYER_NAME},
+            # 点のレイヤーの名前→source-layer名。画面はタイルのURLをこの名前で組み、source-layerを写さない。
+            "point_layers": {layer.name: layer.source_layer for layer in POINT_TILE_LAYERS.values()},
             # 路面タイルを要求するズーム範囲。frontendのMapLibreソース設定
             # （minzoom/maxzoom）とタイル要求のガードがこの値を使う。手書きで複製すると、
             # backendだけ広げてもfrontendが要求せずレイヤーが黙って消える。
@@ -339,6 +337,8 @@ def main() -> None:
         "mapDisplay",
         {
             "overlayGroups": [g._asdict() for g in MAP_OVERLAY_GROUPS],
+            # 凡例の受け皿の行の名前と説明。
+            "legendSharedRows": {key: row._asdict() for key, row in LEGEND_SHARED_ROWS.items()},
             "layerCategories": [c._asdict() for c in MAP_LAYER_CATEGORIES],
             "layerDataSources": [
                 {"key": source.key, "minZoom": source.min_zoom} for source in MAP_LAYER_DATA_SOURCES
@@ -375,8 +375,8 @@ def main() -> None:
                 "fatalRadiusPx": POINT_FATAL_RADIUS_PX,
                 "nonFatalRadiusPx": POINT_NON_FATAL_RADIUS_PX,
                 "strokeWidthPx": POINT_STROKE_WIDTH_PX,
-                "opacity": POINT_OPACITY,
-                "accidentOpacity": ACCIDENT_POINT_OPACITY,
+                "iconSizePx": POINT_ICON_SIZE_PX,
+                "opacityByLayer": POINT_OPACITY_BY_ATTR,
             },
             "area": {
                 "opacity": AREA_OPACITY,
@@ -471,6 +471,7 @@ def main() -> None:
                 "percent_field": cls.percent_field,
                 "label": cls.label,
                 "color": cls.color,
+                "description": cls.description,
                 "painted": cls.painted,
             }
             for cls in LANDCOVER_CLASSES

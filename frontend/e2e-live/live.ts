@@ -24,7 +24,7 @@ interface CatalogAxis {
   label: string;
   display: { kind: string; tile_inputs: { property: string }[] };
   dedicated_way_value_layer: boolean;
-  dynamic_way_value_needs_time: boolean;
+  dynamic_way_value_conditions: string[];
 }
 
 export interface Catalog {
@@ -169,7 +169,7 @@ declare global {
  * アプリは地図を外へ公開していないので、テストのために入口を足さず、Reactが要素へ付ける内部の印（`__reactFiber$`）から
  * 祖先の部品のフックを辿る。Reactの内部の形が変わると見つからず、そのときは例外で止まる（黙って空を返さない）。
  */
-function installMapFinder(): void {
+export function installMapFinder(): void {
   window.__liveMap = () => {
     const container = document.querySelector(".maplibregl-map");
     const key = container && Object.keys(container).find((k) => k.startsWith("__reactFiber$"));

@@ -4,7 +4,8 @@ import pytest
 from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisDefinition
 from app.domain.route_preference import RoutePreference
 from app.infrastructure.derived_data_meta import DataRevisions
-from app.infrastructure.vector_tile import encode_empty_poi_tile, encode_empty_road_surface_tile
+from app.infrastructure.point_tile_layers import POINT_TILE_LAYERS
+from app.infrastructure.vector_tile import ROAD_SURFACE_LAYER_NAME, encode_empty_tile
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.region_service import RegionService
 from tests.axis_system_fixture import axis_definition
@@ -14,7 +15,7 @@ Z, X, Y = 14, 14551, 6447
 
 
 class _TileRepository:
-    """路面・POIのMVTを焼く口とデータの世代だけを持つフェイク。取込範囲外はNone、DB障害は例外。"""
+    """路面・点のMVTを焼く口とデータの世代だけを持つフェイク。取込範囲外はNone、DB障害は例外。"""
 
     def __init__(self, tile: bytes | None = None, error: Exception | None = None):
         self._tile = tile
@@ -33,44 +34,54 @@ class _TileRepository:
     async def get_road_surface_tile_mvt(self, z, x, y, bbox):
         return await self._answer()
 
-    async def get_poi_tile_mvt(self, z, x, y, bbox):
+    async def get_tile_mvt(self, sql, layer_name, z, x, y, bbox):
         return await self._answer()
 
 
+def _road_surface_tile(service):
+    return service.get_road_surface_tile(Z, X, Y)
+
+
+def _point_tile(layer):
+    return lambda service: service.get_point_tile(layer, Z, X, Y)
+
+
+# 路面と、宣言された点のレイヤー全部。空タイルはそれぞれのsource-layerを名乗る。
 TILE_KINDS = [
-    ("get_road_surface_tile", encode_empty_road_surface_tile()),
-    ("get_poi_tile", encode_empty_poi_tile()),
+    pytest.param(_road_surface_tile, encode_empty_tile(ROAD_SURFACE_LAYER_NAME), id="road_surface"),
+    *(pytest.param(_point_tile(layer), encode_empty_tile(layer.source_layer), id=name)
+      for name, layer in POINT_TILE_LAYERS.items()),
 ]
 
 
-@pytest.mark.parametrize(("method", "empty_tile"), TILE_KINDS)
-async def test_uncovered_tile_is_empty_and_browsers_may_keep_it(method, empty_tile):
+@pytest.mark.parametrize(("serve", "empty_tile"), TILE_KINDS)
+async def test_uncovered_tile_is_empty_and_browsers_may_keep_it(serve, empty_tile):
     service = RegionService(repository=_TileRepository(tile=None))
 
-    tile = await getattr(service, method)(Z, X, Y)
+    tile = await serve(service)
 
     assert (tile.content, tile.cacheable) == (empty_tile, True)
 
 
-@pytest.mark.parametrize(("method", "empty_tile"), TILE_KINDS)
-async def test_db_error_tile_is_empty_and_browsers_must_not_keep_it(method, empty_tile):
+@pytest.mark.parametrize(("serve", "empty_tile"), TILE_KINDS)
+async def test_db_error_tile_is_empty_and_browsers_must_not_keep_it(serve, empty_tile):
     # 一時的な失敗の空タイルをブラウザが持つと、回復した後もその区画の空白が残る。
     service = RegionService(repository=_TileRepository(error=ConnectionRefusedError("db down")))
 
-    tile = await getattr(service, method)(Z, X, Y)
+    tile = await serve(service)
 
     assert (tile.content, tile.cacheable) == (empty_tile, False)
 
 
-@pytest.mark.parametrize(("method", "empty_tile"), TILE_KINDS)
-async def test_tile_is_kept_on_disk_without_anyone_fetching_the_catalog_first(method, empty_tile):
+@pytest.mark.parametrize(("serve", "empty_tile"), TILE_KINDS)
+async def test_tile_is_kept_on_disk_without_anyone_fetching_the_catalog_first(serve, empty_tile):
     """世代はタイルを配る経路が自分で読む。起動後に誰もカタログを取っていなくても、焼いたタイルは
     世代付きの鍵でディスクへ残り、同じタイルの2回目はDBへ行かない。"""
     repository = _TileRepository(tile=b"tile")
     service = RegionService(repository=repository)
 
-    await getattr(service, method)(Z, X, Y)
-    await getattr(service, method)(Z, X, Y)
+    await serve(service)
+    await serve(service)
 
     assert repository.tile_calls == 1
 
@@ -105,7 +116,6 @@ def direction_dependent_axis(monkeypatch) -> AxisDefinition:
         material="wind_drag_ratio",
         is_published=True,
         dedicated_way_value_layer=True,
-        dynamic_way_value_needs_bearing=True,
     )
     monkeypatch.setitem(AXIS_DEFINITIONS, axis.axis_id, axis)
     return axis

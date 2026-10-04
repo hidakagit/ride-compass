@@ -20,6 +20,12 @@ const ROUTE_MODE_STORAGE_KEY = "ridecompass:route-mode";
 const DISTANCE_STORAGE_KEY = "ridecompass:distance-km";
 const MAX_ROUTES_STORAGE_KEY = "ridecompass:max-routes";
 
+// モードに入ったとき（切り替えた・開き直した）に置ける役割。目的地モードで何も置いていなければ、次のタップで目的地を
+// 置ける。既に置いてあれば、次のタップは経由地の追加かもしれないので自動では武装しない（目的地が意図せず上書きされる）。
+function pinRoleOnEnter(mode: RouteMode, destination: Coordinates | null, waypointCount: number): PinRole | null {
+  return mode === "destination" && destination === null && waypointCount === 0 ? "destination" : null;
+}
+
 interface GenerationConditionsInputs {
   /** 地図で出発地を置いたとき（出発地は位置の取得と同じ持ち主が持つ）。 */
   onOriginPlace: (point: Coordinates) => void;
@@ -45,8 +51,9 @@ export function useGenerationConditions({ onOriginPlace }: GenerationConditionsI
   // 目的地（あれば片道のルート）。
   const [destination, setDestination] = useState<Coordinates | null>(null);
   const clearDestination = useCallback(() => setDestination(null), []);
-  // 地図のタップで置ける地点の役割（1つだけ）。無い間は地図を触ってもピンは増えない。
-  const [armedPinRole, setArmedPinRole] = useState<PinRole | null>(null);
+  // 地図のタップで置ける地点の役割（1つだけ）。無い間は地図を触ってもピンは増えない。undefinedは開いてから誰も選んで
+  // いない間で、保存したモードから決める（モードの保存値はマウントの後に読まれるため、初期値には使えない）。
+  const [chosenPinRole, setArmedPinRole] = useState<PinRole | null | undefined>(undefined);
 
   // 周回か目的地か。切り替えても経由地・目的地は消さない（周回の間は地図に出さず送らないだけで、戻れば復元される）。
   const [routeMode, setRouteMode] = useStoredState<RouteMode>(ROUTE_MODE_STORAGE_KEY, "loop", {
@@ -56,16 +63,12 @@ export function useGenerationConditions({ onOriginPlace }: GenerationConditionsI
   const changeRouteMode = useCallback(
     (mode: RouteMode) => {
       setRouteMode(mode);
-      if (mode === "destination") {
-        // 何も置いていなければ、次のタップで目的地を置けるようにする。既に置いてあれば、次のタップは経由地の
-        // 追加かもしれないので自動では武装しない（目的地が意図せず上書きされる）。
-        setArmedPinRole(destination === null && waypoints.length === 0 ? "destination" : null);
-      } else {
-        setArmedPinRole(null);
-      }
+      setArmedPinRole(pinRoleOnEnter(mode, destination, waypoints.length));
     },
     [destination, waypoints.length, setRouteMode],
   );
+  const armedPinRole =
+    chosenPinRole === undefined ? pinRoleOnEnter(routeMode, destination, waypoints.length) : chosenPinRole;
 
   // 武装中の役割の地点として地図のタップを受ける。経由地だけは置いたあとも武装を続ける
   // （続けて何地点も置くのが普通の使い方で、1つ置くたびに押し直させない）。上限に達したら武装を解き、超える点は置かない。

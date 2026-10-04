@@ -13,11 +13,9 @@
       "ref": "ref"
     }
   },
-  "accident": {
-    "layer_name": "accidents"
-  },
-  "poi": {
-    "stop_poi_layer_name": "stop_poi"
+  "point_layers": {
+    "poi": "stop_poi",
+    "accident": "accidents"
   },
   "road_tile_min_zoom": 12,
   "road_tile_max_zoom": 15,
@@ -36,7 +34,7 @@
     }
   },
   "landcover": {
-    "tile_version": "1-e30a2b1df328",
+    "tile_version": "2-e30a2b1df328",
     "ring_outer_m": 100.0,
     "min_zoom": 6,
     "max_zoom": 14

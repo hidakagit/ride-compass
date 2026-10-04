@@ -63,7 +63,6 @@ from app.domain.route import (
     aggregate_segments_into_bins,
     merge_material_category_shares,
 )
-from app.domain.twilight import is_night
 from app.domain.routing import (
     LazyRoadGraph,
     NodeSpatialIndex,
@@ -213,10 +212,6 @@ class _RoadGraphContext:
     # numpyで1回だけベクトル計算するための、ノード番号順の緯度・経度配列。
     node_lat: np.ndarray
     node_lon: np.ndarray
-    # prepare実行時点で起点が市民薄明の外（夜間）だったかどうか。レグのコスト配列の
-    # 構築時に使った値と同じものを_build_segment_details（表示用difficulty）でも使い、探索コストと
-    # 表示を一致させる（詳細はprepare()参照）。
-    night_active: bool
     # 一対全最短経路木用のCSR構造＋Edge実距離配列（domain/routing.py: SearchGraphStatics参照）。
     statics: SearchGraphStatics
     # 状態＝有向Edge・辺＝ターンの遷移構造（`statics.csr`から導く。起点にもコストにも
@@ -251,7 +246,7 @@ def _static_score_matrix(road: RoadSlice, rain: StationRainMaterials | None) -> 
 @dataclass
 class _SearchGraph:
     """`prepare`が組む「bboxに対する探索用グラフ＋材料一式」。
-    wind/night軸・0次ハードフィルタ等の探索コスト算出ロジックは`_build_search_graph`1箇所にある。
+    0次ハードフィルタ等の探索コスト算出の組み立ては`_build_search_graph`1箇所にある。
     """
 
     road: RoadSlice
@@ -259,7 +254,6 @@ class _SearchGraph:
     # bboxを覆うタイル集合（学習した迂回率の鍵）。
     tile_set: frozenset[tuple[int, int, int]]
     weather: WeatherConditions | None
-    night_active: bool
     # _RoadGraphContextと同じ意味（フィールドdocstring参照）。`outbound`は基準点（起点側の
     # 座標）から離れていくレグとして合成済みの配列。
     composer: LegCostComposer
@@ -317,12 +311,11 @@ class RoadGraphEngine:
         self._turn_cost = current_turn_cost()
 
     async def _build_search_graph(
-        self, bbox: BoundingBox, wind_and_night_origin: Coordinates, now: datetime
+        self, bbox: BoundingBox, origin: Coordinates, now: datetime
     ) -> _SearchGraph | None:
         """bboxに対する探索用グラフ（lazy_graph）＋bbox全体ぶんのコスト配列を構築する。
-        夜間の判定と、風の時別予報が無いときの風（出発時点の値）は`wind_and_night_origin`（起点）を
-        基準にする——探索中は到達時刻が未確定のため出発時刻の近似として使う簡略化
-        （モジュールdocstring参照）。時別予報は`bbox`を覆う格子点ごとに引く。
+        風の時別予報が無いときの風（出発時点の値）と、区間を通る時刻の昼夜は`origin`（起点）の地点で決める。
+        時別予報は`bbox`を覆う格子点ごとに引く。
 
         雨の材料は、出発時刻ではなく今の観測（地図の雨と同じ値）。観測の履歴が無い・古いときは欠損のまま組み、
         雨の材料を読む軸はその生成で「データなし」になる。
@@ -342,7 +335,7 @@ class RoadGraphEngine:
             return None
 
         weather_started = time.monotonic()
-        weather = await self._weather_service.get_conditions(wind_and_night_origin)
+        weather = await self._weather_service.get_conditions(origin)
         # 探索範囲を覆う格子点ごとの時別風予報（MSMのローカルファイルから読む。外部API呼び出しは無い）。
         wind_series = await self._weather_service.get_wind_forecast_lattice(bbox)
         rain = await load_station_rain_materials(datetime.now(JST))
@@ -355,18 +348,9 @@ class RoadGraphEngine:
         materials_ms = round((time.monotonic() - materials_started) * 1000)
         # 通過予定時刻の基準（出発時刻）。時別系列はJSTのローカル時刻のため揃える。
         start = now.astimezone(JST).replace(tzinfo=None)
-        # 時間帯依存軸（time_scope="night_only"）の動的化。区間ごとの到達時刻は探索中は未確定の
-        # ため（風と同じモジュールdocstringの制約）、出発地点の座標・呼び出し時点を出発時刻の
-        # 近似として採用し、起点が市民薄明の外（夜間）ならnight_only軸の重みをそのまま、日中なら
-        # 0倍にしたRoutePreferenceのコピーを探索コストへ渡す（self._route_preference自体は
-        # 書き換えない、リクエスト間で共有される状態のため）。
-        night_active = is_night(wind_and_night_origin, now)
 
         # --- bbox全体ぶんのコスト配列の合成（レグごと。まず起点から離れる往路レグ） ---
         cost_started = time.monotonic()
-        active_scopes = frozenset({"night_only"}) if night_active else frozenset()
-        preference = self._route_preference.with_time_scope(active_scopes)
-        weights = preference.weights
         hard_filter_excluded = compute_hard_filter_excluded(
             score_matrix.hard_filter_flags,
             score_matrix.gradient_percent, self._hard_filters, self._max_average_grade_percent,
@@ -379,11 +363,12 @@ class RoadGraphEngine:
         # 迂回率は同じ探索範囲で前回の往路木から学習した値があればそれを使う（無ければ既定値）。
         learned_detour_ratio = detour_ratio_cache.get_detour_ratio(tile_set)
         composer = LegCostComposer(
-            score_matrix, weights, self._penalty_strength, hard_filter_excluded, weather, wind_series,
-            start, self._assumed_speed_kmh, lazy_graph.edge_rows,
+            score_matrix, self._route_preference.weights, self._penalty_strength, hard_filter_excluded, weather,
+            wind_series, start, self._assumed_speed_kmh, lazy_graph.edge_rows,
             detour_ratio=learned_detour_ratio if learned_detour_ratio is not None else ROUTE_DETOUR_RATIO,
+            twilight_origin=origin,
         )
-        outbound = composer.compose("outbound", wind_and_night_origin, 0.0, +1)
+        outbound = composer.compose("outbound", origin, 0.0, +1)
         cost_ms = round((time.monotonic() - cost_started) * 1000) - graph_ms
         # 重み付き軸がすべてNaNのEdge比率（探索コストはbbox内平均difficultyで補完される。
         # 実際の発生頻度を把握するためのサマリ）。
@@ -395,7 +380,7 @@ class RoadGraphEngine:
         total_ms = round((time.monotonic() - stage_started) * 1000)
         logger.info(
             "_build_search_graph edges=%d nodes=%d slice_ms=%d weather_ms=%d materials_ms=%d rain_ms=%d cost_ms=%d "
-            "graph_ms=%d total_ms=%d rain_hour=%s wind_time_varying=%s speed_kmh=%.1f detour_ratio=%.2f(%s) "
+            "graph_ms=%d total_ms=%d rain_hour=%s time_varying=%s speed_kmh=%.1f detour_ratio=%.2f(%s) "
             "missing_axis_edges=%d missing_axis_distance_ratio=%.3f",
             road.edge_count, road.node_count, slice_ms, weather_ms, materials_ms, rain_ms, cost_ms, graph_ms, total_ms,
             "none" if rain is None else rain.latest_hour.strftime("%Y-%m-%dT%H"),
@@ -409,7 +394,6 @@ class RoadGraphEngine:
             lazy_graph=lazy_graph,
             tile_set=tile_set,
             weather=weather,
-            night_active=night_active,
             composer=composer,
             outbound=outbound,
             node_lat=road.node_lat,
@@ -464,8 +448,7 @@ class RoadGraphEngine:
         now: datetime,
         waypoints: list[Coordinates] | None,
     ) -> _RoadGraphContext | None:
-        # nowは出発時刻。night軸判定にも使う（wind同様、探索中は到達時刻が未確定のため
-        # 出発時刻を近似として使う簡略化、詳細は_build_search_graph参照）。
+        # nowは出発時刻。区間ごとの通過時刻（風・昼夜）はここからの経過で決まる。
         if waypoints:
             # ユーザー指定の経由地は起点から半径radius_km以内とは限らない
             # ため、周回探索の円を覆う矩形ではなく、複数点の外接矩形+固定マージンを使う。
@@ -494,7 +477,6 @@ class RoadGraphEngine:
             origin=origin,
             node_lat=search.node_lat,
             node_lon=search.node_lon,
-            night_active=search.night_active,
             statics=statics,
             turn_structure=turn_structure,
             tile_set=search.tile_set,

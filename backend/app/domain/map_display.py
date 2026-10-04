@@ -31,6 +31,31 @@ MAP_OVERLAY_GROUPS: tuple[OverlayGroup, ...] = (
     OverlayGroup("spot", "スポット"),
 )
 
+
+class LegendSharedRow(NamedTuple):
+    label: str
+    #: 凡例の行の（i）から開く説明。
+    description: str
+
+
+#: 行の宣言に当てはまらない道の受け皿の行。道の属性・評価軸・ルートのどの凡例でも同じ意味なので、名前と説明を
+#: ここだけが持つ（鍵は画面が引く名前）。
+LEGEND_SHARED_ROWS: dict[str, LegendSharedRow] = {
+    "other": LegendSharedRow(
+        "その他",
+        "値は書かれているが、上のどの行にも当てはまらない道（まれな種類など）。",
+    ),
+    "notApplicable": LegendSharedRow(
+        "該当なし",
+        "この種類に当たらない道（例: トンネルの凡例では、トンネルでない道）。",
+    ),
+    "noData": LegendSharedRow(
+        "データなし",
+        "元にする地図のデータに値が無く、どの行にも分けられない道。道が無いのではなく、値が分からないことを"
+        "破線で示す。",
+    ),
+}
+
 class MapLayerDataSource(NamedTuple):
     key: str
     #: このズーム未満では配信されない（ONにしても地図には何も出ない）。無いものはNone。
@@ -281,6 +306,24 @@ POINT_RADIUS_PX = 4
 POINT_FATAL_RADIUS_PX = 6
 POINT_NON_FATAL_RADIUS_PX = 3
 POINT_STROKE_WIDTH_PX = 1
+#: 絵記号で描く点（行が`glyph`を持つ軸）の一辺。丸い点より大きくし、中の絵を読める大きさにする。
+POINT_ICON_SIZE_PX = 20
 POINT_OPACITY = 0.9
-#: 事故は面的に多く、同じ濃さだと停止要因の点が埋もれる。
-ACCIDENT_POINT_OPACITY = 0.75
+#: 点の一次属性ごとの、既定と違う不透明度。事故は面的に多く、同じ濃さだと停止要因の点が埋もれる。
+_POINT_OPACITY_OVERRIDES: dict[str, float] = {"accident_point": 0.75}
+
+
+def _point_opacities() -> dict[str, float]:
+    """地図に点で出す一次属性（点の幾何・行の定義・タイルの系統を持つもの）ごとの不透明度。"""
+    shown = [
+        attr.attr_id
+        for attr in PRIMARY_ATTRIBUTES
+        if attr.geometry == "point" and attr.display_axes and attr.tile_kind is not None
+    ]
+    unknown = set(_POINT_OPACITY_OVERRIDES) - set(shown)
+    assert not unknown, f"点で出さない一次属性に不透明度がある: {sorted(unknown)}"
+    return {attr_id: _POINT_OPACITY_OVERRIDES.get(attr_id, POINT_OPACITY) for attr_id in shown}
+
+
+#: 一次属性 → 点の不透明度。画面は点のレイヤーごとに自分の名前で引く。
+POINT_OPACITY_BY_ATTR: dict[str, float] = _point_opacities()

@@ -21,7 +21,6 @@ DI工場（サービスの組み立て）はapi/dependencies.pyに集約して�
 from fastapi import APIRouter
 
 from app.api.routers import (
-    accidents,
     axis_admin,
     axis_catalog,
     basemap,
@@ -43,7 +42,6 @@ api_router.include_router(health.router)
 api_router.include_router(routes.router)
 api_router.include_router(weather.router)
 api_router.include_router(region.router)
-api_router.include_router(accidents.router)
 api_router.include_router(basemap.router)
 api_router.include_router(jma_tile.router)
 api_router.include_router(gsi_tile.router)

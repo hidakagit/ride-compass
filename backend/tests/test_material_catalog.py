@@ -239,6 +239,20 @@ def test_a_row_key_is_not_repeated_in_an_axis(attr):
         assert len(row_keys) == len(set(row_keys)), spec.key
 
 
+@pytest.mark.parametrize("attr", DISPLAYED, ids=lambda attr: attr.attr_id)
+def test_glyphs_mark_every_row_of_a_point_color_axis_or_none(attr):
+    """絵記号で描くのは点の、色を持つ先頭の軸。行の一部だけが絵を持つと形が分類の意味を持ち、
+    2本目以降の軸の絵は地図のどこにも描かれず、同じ絵の2行は形で見分けられない。"""
+    first, *rest = attr.display_axes
+    glyphs = [category.glyph for category in first.categories]
+
+    assert all(category.glyph is None for spec in rest for category in spec.categories)
+    if any(glyph is not None for glyph in glyphs):
+        assert attr.geometry == "point"
+        assert None not in glyphs
+        assert len(glyphs) == len(set(glyphs))
+
+
 def test_a_line_has_exactly_one_axis():
     """道の線は1本の軸の行で塗る（線のプロパティが属性そのもの）。2本目の軸は地図のどこにも出ない。"""
     lines = [attr for attr in DISPLAYED if attr.geometry == "line"]

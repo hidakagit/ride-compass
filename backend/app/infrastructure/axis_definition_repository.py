@@ -48,9 +48,6 @@ def _row_to_definition(row: AxisDefinitionRow) -> AxisDefinition:
         display_thresholds_override=row.display_thresholds_override,
         display_band_labels_override=row.display_band_labels_override,
         dedicated_way_value_layer=row.dedicated_way_value_layer,
-        dynamic_way_value_needs_time=row.dynamic_way_value_needs_time,
-        dynamic_way_value_needs_bearing=row.dynamic_way_value_needs_bearing,
-        dynamic_way_value_needs_speed=row.dynamic_way_value_needs_speed,
     )
 
 
@@ -110,9 +107,6 @@ class AxisDefinitionRepository:
             display_thresholds_override=definition.display_thresholds_override,
             display_band_labels_override=definition.display_band_labels_override,
             dedicated_way_value_layer=definition.dedicated_way_value_layer,
-            dynamic_way_value_needs_time=definition.dynamic_way_value_needs_time,
-            dynamic_way_value_needs_bearing=definition.dynamic_way_value_needs_bearing,
-            dynamic_way_value_needs_speed=definition.dynamic_way_value_needs_speed,
             updated_at=datetime.now(timezone.utc),
         )
         stmt = stmt.on_conflict_do_update(
@@ -134,9 +128,6 @@ class AxisDefinitionRepository:
                 "display_thresholds_override": stmt.excluded.display_thresholds_override,
                 "display_band_labels_override": stmt.excluded.display_band_labels_override,
                 "dedicated_way_value_layer": stmt.excluded.dedicated_way_value_layer,
-                "dynamic_way_value_needs_time": stmt.excluded.dynamic_way_value_needs_time,
-                "dynamic_way_value_needs_bearing": stmt.excluded.dynamic_way_value_needs_bearing,
-                "dynamic_way_value_needs_speed": stmt.excluded.dynamic_way_value_needs_speed,
                 "updated_at": stmt.excluded.updated_at,
             },
         )

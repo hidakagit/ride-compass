@@ -48,8 +48,4 @@ class AxisDefinitionRow(Base):
     display_thresholds_override: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     display_band_labels_override: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     dedicated_way_value_layer: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
-    # dedicated_way_value_layer=trueの軸だけが意味を持つ。
-    dynamic_way_value_needs_time: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
-    dynamic_way_value_needs_bearing: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
-    dynamic_way_value_needs_speed: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
