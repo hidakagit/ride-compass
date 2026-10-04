@@ -26,8 +26,8 @@ REQUEST_TIMEOUT = httpx.Timeout(connect=3.0, read=5.0, write=5.0, pool=5.0)
 
 # maxsizeは実運用で想定されるキー数（府県予報区約50）に十分な余裕を持たせた上限
 # （LRU的なサイズ超過退避が実質発生しない値。TTL切れによる鮮度管理が主）。
-_area_data_cache: TTLCache = TTLCache(maxsize=1, ttl=_AREA_DATA_CACHE_TTL_SECONDS)
-_warning_cache: TTLCache = TTLCache(maxsize=256, ttl=_WARNING_CACHE_TTL_SECONDS)
+area_data_cache: TTLCache = TTLCache(maxsize=1, ttl=_AREA_DATA_CACHE_TTL_SECONDS)
+warning_cache: TTLCache = TTLCache(maxsize=256, ttl=_WARNING_CACHE_TTL_SECONDS)
 _AREA_DATA_CACHE_KEY = "area"
 
 
@@ -93,7 +93,7 @@ async def fetch_area_data(client: httpx.AsyncClient) -> AreaMaster | None:
         return _parse_area_master(payload)
 
     return await cached_fetch(
-        "weather:jma-area", fetch, cache=_area_data_cache, key=_AREA_DATA_CACHE_KEY
+        "weather:jma-area", fetch, cache=area_data_cache, key=_AREA_DATA_CACHE_KEY
     )
 
 
@@ -116,7 +116,7 @@ async def fetch_warning_documents(client: httpx.AsyncClient, office_code: str) -
     return await cached_fetch(
         "weather:jma-warning",
         fetch,
-        cache=_warning_cache,
+        cache=warning_cache,
         key=office_code,
         office_code=office_code,
     )

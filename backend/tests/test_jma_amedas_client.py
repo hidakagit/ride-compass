@@ -23,11 +23,11 @@ from tests.fake_http import answering, client_for
 @pytest.fixture(autouse=True)
 def _empty_caches():
     """観測所マスタと最新時刻のキャッシュはプロセス内のモジュール変数に残るため、テストごとに空にする。"""
-    jma_amedas_client._station_table_cache.clear()
-    jma_amedas_client._latest_time_cache.clear()
+    jma_amedas_client.station_table_cache.clear()
+    jma_amedas_client.latest_time_cache.clear()
     yield
-    jma_amedas_client._station_table_cache.clear()
-    jma_amedas_client._latest_time_cache.clear()
+    jma_amedas_client.station_table_cache.clear()
+    jma_amedas_client.latest_time_cache.clear()
 
 
 # --- 観測所マスタ ---

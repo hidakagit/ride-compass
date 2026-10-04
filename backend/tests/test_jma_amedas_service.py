@@ -133,16 +133,16 @@ def _upstream(**answers):
 def _forget_client_caches(monkeypatch):
     """クライアントのプロセス内キャッシュ（観測所マスタ・最新時刻）を空にする。テストをまたいで残り、
     同じテストの中でも最新時刻を変えて引き直すときに古い値が返るため。"""
-    monkeypatch.setattr(jma_amedas_client, "_station_table_cache", TTLCache(maxsize=1, ttl=60))
-    monkeypatch.setattr(jma_amedas_client, "_latest_time_cache", TTLCache(maxsize=1, ttl=60))
+    monkeypatch.setattr(jma_amedas_client, "station_table_cache", TTLCache(maxsize=1, ttl=60))
+    monkeypatch.setattr(jma_amedas_client, "latest_time_cache", TTLCache(maxsize=1, ttl=60))
 
 
 @pytest.fixture(autouse=True)
 def _empty_stores(monkeypatch, fake_redis):
     """Redisは空から、クライアントのプロセス内キャッシュ（推計気象分布の時刻一覧も）も空から始める。"""
     _forget_client_caches(monkeypatch)
-    monkeypatch.setattr(jma_tile_client, "_target_times_cache", TTLCache(maxsize=16, ttl=60))
-    monkeypatch.setattr(jma_tile_client, "_last_fetch_at", None)
+    monkeypatch.setattr(jma_tile_client, "target_times_cache", TTLCache(maxsize=16, ttl=60))
+    monkeypatch.setattr(jma_tile_client, "last_fetch_at", None)
 
 
 async def _hashes(redis) -> dict[str, dict[str, str]]:

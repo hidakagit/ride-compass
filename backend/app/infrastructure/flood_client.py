@@ -22,7 +22,7 @@ REQUEST_TIMEOUT = httpx.Timeout(connect=3.0, read=8.0, write=5.0, pool=5.0)
 
 # キー無しの単一値キャッシュ（全国1本の電文一覧のため、固定キーで代用）。
 _FLOOD_CACHE_KEY = "flood"
-_flood_cache: TTLCache = TTLCache(maxsize=1, ttl=_FLOOD_CACHE_TTL_SECONDS)
+flood_cache: TTLCache = TTLCache(maxsize=1, ttl=_FLOOD_CACHE_TTL_SECONDS)
 
 #: 運用の電文の`status`。これ以外（訓練・試験）の電文は上へ渡さない。
 _OPERATIONAL_STATUS = "通常"
@@ -58,4 +58,4 @@ async def fetch_flood_documents(client: httpx.AsyncClient) -> list[FloodBulletin
             if isinstance(entry, dict) and entry.get("status") == _OPERATIONAL_STATUS
         ]
 
-    return await cached_fetch("weather:jma-flood", fetch, cache=_flood_cache, key=_FLOOD_CACHE_KEY)
+    return await cached_fetch("weather:jma-flood", fetch, cache=flood_cache, key=_FLOOD_CACHE_KEY)
