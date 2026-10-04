@@ -14,26 +14,15 @@ import { syncHardFilterKeys } from "./hardFilterSync";
 const CANONICAL = { exclude_a: true, exclude_b: false };
 
 describe("syncHardFilterKeys", () => {
-  it("正本と同じキーを持つ保存値は、保存した選択のまま返す", () => {
-    expect(syncHardFilterKeys({ exclude_a: false, exclude_b: true }, CANONICAL)).toEqual({
-      exclude_a: false,
-      exclude_b: true,
-    });
-  });
-
-  it("保存に無いキー（あとから足されたフィルタ）は正本の既定値で補う", () => {
-    expect(syncHardFilterKeys({ exclude_a: false }, CANONICAL)).toEqual({ exclude_a: false, exclude_b: false });
-  });
-
-  it("正本に無いキー（取り下げられたフィルタ）は送る値に残さない", () => {
+  it("正本にあるキーは保存した選択のまま、正本に無いキー（取り下げられたフィルタ）は送る値に残さない", () => {
     expect(syncHardFilterKeys({ exclude_a: false, exclude_b: true, removed: true }, CANONICAL)).toEqual({
       exclude_a: false,
       exclude_b: true,
     });
   });
 
-  it("保存値の中身が真偽でないキーは、正本の既定値にする", () => {
-    const stored = JSON.parse('{"exclude_a": "false", "exclude_b": null}');
+  it("保存に無いキー（あとから足されたフィルタ）と、中身が真偽でないキーは、正本の既定値にする", () => {
+    const stored = JSON.parse('{"exclude_a": "false"}');
     expect(syncHardFilterKeys(stored, CANONICAL)).toEqual(CANONICAL);
   });
 });

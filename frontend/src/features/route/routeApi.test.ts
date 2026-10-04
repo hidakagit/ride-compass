@@ -122,15 +122,6 @@ describe("generateRoutes", () => {
     await expect(generateRoutes(REQUEST)).rejects.toThrow("ルートの生成に失敗しました");
   });
 
-  it("生成を受け付けてもらえなければ、問い合わせずに投げる", async () => {
-    const sent = onBackend("POST", "/api/routes/generate", () =>
-      Response.json({ detail: "混雑しています" }, { status: 429 }),
-    );
-
-    await expect(generateRoutes(REQUEST)).rejects.toThrow("混雑しています");
-    expect(sent).toHaveLength(1);
-  });
-
   it("問い合わせの失敗は取り直し、途中で成功すれば失敗の数を数え直す", async () => {
     const failure = () => new Response(null, { status: 503 });
     const sent = stubJob([

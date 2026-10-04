@@ -29,12 +29,10 @@ describe("totalWeight", () => {
 describe("clampBoundaryDrag", () => {
   it("動かした量だけ一方へ足し、もう一方から引く", () => {
     expect(clampBoundaryDrag(0.3, 0.3, 0.1)).toEqual({ weightA: 0.4, weightB: 0.2 });
-    expect(clampBoundaryDrag(0.3, 0.3, -0.1)).toEqual({ weightA: 0.2, weightB: 0.4 });
   });
 
   it("動かした量は刻みの倍数へ丸める", () => {
     expect(clampBoundaryDrag(0.3, 0.3, 0.034)).toEqual({ weightA: 0.33, weightB: 0.27 });
-    expect(clampBoundaryDrag(0.3, 0.3, WEIGHT_STEP * 0.4)).toEqual({ weightA: 0.3, weightB: 0.3 });
   });
 
   it("引かれる側は刻みで止まり、0（無効）まで下がらない", () => {

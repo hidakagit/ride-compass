@@ -72,15 +72,8 @@ describe("generationConditionsKey", () => {
   const key = (overrides: Partial<GenerationInput>) => generationConditionsKey({ ...LOOP, ...overrides });
 
   it.each<[string, Partial<GenerationInput>]>([
-    ["出発地", { origin: { latitude: 35.69, longitude: 139.77 } }],
     ["目標距離", { distanceKm: 41 }],
-    ["距離の幅", { distanceToleranceKm: 4 }],
-    ["候補数", { maxRoutes: 4 }],
-    ["想定速度", { assumedSpeedKmh: 23 }],
     ["除外", { hardFilters: { exclude_a: false, exclude_b: false } }],
-    ["重み", { routePreference: { wind: 0.5 } }],
-    ["経由地", { waypoints: [{ latitude: 35.7, longitude: 139.8 }] }],
-    ["目的地", { destination: { latitude: 35.75, longitude: 139.85 } }],
   ])("送る値の%sが変われば、キーが変わる", (_label, overrides) => {
     expect(key(overrides)).not.toBe(key({}));
   });

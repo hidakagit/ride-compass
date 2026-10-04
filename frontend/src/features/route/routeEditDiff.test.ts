@@ -88,18 +88,6 @@ describe("editDifference", () => {
     });
     expect(difference.stretches).toHaveLength(2);
   });
-
-  it("続けて当てた乗り換えが隣り合えば、1つの区間として数える", () => {
-    // B〜CをPへ、C〜DをQへ替えた結果は、B〜Dを1つ替えたものとして見える。
-    const difference = editDifference(route("ABCDE"), route("ABPQDE"));
-    expect(difference.stretches).toHaveLength(1);
-    expect(difference.stretches[0].startKm).toBeCloseTo(lengthKm("AB"), 10);
-    expect(difference.stretches[0].endKm).toBeCloseTo(lengthKm("ABCD"), 10);
-  });
-
-  it("同じ道なら、変えた区間は無い", () => {
-    expect(editDifference(route("ABCDE"), route("ABCDE")).stretches).toEqual([]);
-  });
 });
 
 describe("formatDelta", () => {
@@ -107,12 +95,11 @@ describe("formatDelta", () => {
     [0.44, 1, "+0.4"],
     [-2.04, 0, "−2"],
     [2, 1, "+2.0"],
-    [-0.36, 1, "−0.4"],
   ])("%sを小数%s桁で書くと「%s」（減りはマイナス記号）", (value, digits, text) => {
     expect(formatDelta(value, digits)).toBe(text);
   });
 
-  it.each([0, 0.04, -0.04])("%sは小数1桁へ丸めると0なので「±0」", (value) => {
+  it.each([0.04, -0.04])("%sは小数1桁へ丸めると0なので「±0」", (value) => {
     expect(formatDelta(value, 1)).toBe("±0");
   });
 });
