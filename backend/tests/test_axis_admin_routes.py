@@ -5,10 +5,15 @@
   ほかの軸）に照らす値の不変条件（`check_axis_definition`）の中身 → `test_axis_definitions.py`
 - 書き込みの本体（DBへの反映と`AXIS_DEFINITIONS`の差し替え） → `test_axis_registry_service.py`
 - 地図表示の導出・段が落ちるかの判定 → `test_axis_display.py`
+- 下書きの点数の計算と段の境界の並びの検証の入力違い → `test_axis_definitions.py`
 - 分布の計算 → `test_axis_preview_service.py`
 - 認可（どの口もBasic認証の依存を持つこと・その依存が拒むこと） → `test_admin_route_authorization.py`
 
+ここで見るのは、口ごとの受け渡し（DBの例外・無い軸・断られた書き込みを状態コードへ変えること・
+応答に地図表示を添えること）と、ルーターが自分で持つ検証（URLと本文の軸の一致・配信の実装の有無）。
+
 **ルーターが名前空間に持つ外向きの参照は差し替える**——軸の集合・配信実装の有無・分布の計算（DB）。
+どれも読むだけなので、応答を差し替えるだけで呼ばれ方は見ない。
 地図表示の導出（domain）と材料カタログは本物を通し、材料は性質ごとに本物のカタログから選ぶ。
 """
 
@@ -92,6 +97,8 @@ class FakeAxisRegistry:
 
     async def update(self, axis_id, definition):
         self._record("update", axis_id, definition)
+        if axis_id not in self.axes:
+            raise KeyError(axis_id)
         self.axes[axis_id] = definition
 
     async def delete(self, axis_id):
@@ -111,16 +118,10 @@ def registry():
 
 @pytest.fixture
 def seams(monkeypatch):
-    """差し替えた外向きの参照が受けた引数を記録する。"""
-    received: dict[str, list] = {"served": [], "distribution": []}
-
     def served_dedicated_way_value_material(materials):
-        materials = list(materials)
-        received["served"].append(materials)
-        return NUM_A if materials == [NUM_A] else None
+        return NUM_A if list(materials) == [NUM_A] else None
 
     async def axis_raw_value_distribution(repository, shape):
-        received["distribution"].append(shape)
         return ValueDistribution(
             sample_ways=3, total_km=1.5, quantiles={"p50": 2.0}, bins=[(0.0, 4.0, 1.0)], zero_share=0.25
         )
@@ -132,7 +133,6 @@ def seams(monkeypatch):
     for name, fake in fakes.items():
         monkeypatch.setattr(axis_admin, name, bound(getattr(axis_admin, name), fake))
     monkeypatch.setattr(axis_admin, "AXIS_DEFINITIONS", {REFERENCED_AXIS: stored(REFERENCED_AXIS)})
-    return received
 
 
 @pytest.fixture
@@ -209,9 +209,6 @@ class TestRead:
         assert body["axis_id"] == "a"
         assert body["display"]["label"] == "軸A"
 
-    def test_get_of_an_unknown_axis_is_404(self, client):
-        assert client.get(BASE + "/missing").status_code == 404
-
     def test_an_axis_whose_material_left_the_catalog_can_still_be_read(self, client, registry):
         """読み出しは保存済みの内容を返すだけで、書き込み時の検証をやり直さない。"""
         registry.axes["a"] = stored(shape=linear_shape("retired"))
@@ -223,21 +220,12 @@ class TestWrite:
     def test_create_stores_a_plain_axis_definition_and_returns_it_with_its_display(self, client, registry):
         """ペイロードの型のまま渡すと、公開後の見た目だけの更新を判定する等価比較が型の違いで
         常に不一致になる。"""
-        response = client.post(BASE, json=payload(chip_label="略"))
+        response = client.post(BASE, json=payload())
 
         assert response.status_code == 201
         assert response.json()["display"]["label"] == "軸A"
         ((name, definition),) = registry.writes
-        assert name == "create"
-        assert type(definition) is axis_admin.AxisDefinition
-        assert definition.chip_label == "略"
-
-    def test_create_rejected_by_the_registry_is_a_409(self, client, registry):
-        registry.errors["create"] = ValueError("材料が重複している")
-
-        response = client.post(BASE, json=payload())
-
-        assert (response.status_code, response.json()["detail"]) == (409, "材料が重複している")
+        assert (name, type(definition)) == ("create", axis_admin.AxisDefinition)
 
     def test_update_stores_a_plain_axis_definition_under_the_axis_id(self, client, registry):
         registry.axes["a"] = stored()
@@ -260,23 +248,27 @@ class TestWrite:
         assert registry.calls == []
 
     @pytest.mark.parametrize(
-        ("method", "path", "body", "operation"),
+        ("method", "path", "body"),
         [
-            ("PUT", BASE + "/a", payload(), "update"),
-            ("DELETE", BASE + "/a", None, "delete"),
-            ("POST", BASE + "/a/unpublish", None, "unpublish"),
+            ("GET", BASE + "/a", None),
+            ("PUT", BASE + "/a", payload()),
+            ("DELETE", BASE + "/a", None),
+            ("POST", BASE + "/a/unpublish", None),
         ],
     )
-    def test_an_operation_on_an_unknown_axis_is_a_404(self, client, registry, method, path, body, operation):
-        registry.errors[operation] = KeyError("a")
-
+    def test_an_operation_on_an_unknown_axis_is_a_404(self, client, method, path, body):
         assert client.request(method, path, json=body).status_code == 404
 
     @pytest.mark.parametrize(
         ("method", "path", "body", "operation"),
-        [("PUT", BASE + "/a", payload(), "update"), ("DELETE", BASE + "/a", None, "delete")],
+        [
+            ("POST", BASE, payload(), "create"),
+            ("PUT", BASE + "/a", payload(), "update"),
+            ("DELETE", BASE + "/a", None, "delete"),
+        ],
     )
     def test_an_operation_refused_by_the_registry_is_a_409(self, client, registry, method, path, body, operation):
+        registry.axes["a"] = stored()
         registry.errors[operation] = ValueError("公開済みの軸は変更できない")
 
         response = client.request(method, path, json=body)
@@ -309,8 +301,15 @@ class TestPayloadValidation:
                 {"dedicated_way_value_layer": True, "shape": linear_shape(NUM_A, NUM_B)},
                 "専用配信の軸は",
             ),
+            (
+                {
+                    "dedicated_way_value_layer": True,
+                    "priority_overrides": [{"material": BOOL_A, "equals": "true", "value": 0}],
+                },
+                "専用配信の軸は",
+            ),
         ],
-        ids=["値の不変条件に通らない", "配信実装の無い専用レイヤー"],
+        ids=["値の不変条件に通らない", "配信実装の無い専用レイヤー", "0次条件の材料も数える専用レイヤー"],
     )
     def test_rejected(self, client, registry, fields, reason):
         response = client.post(BASE, json=payload(**fields))
@@ -327,20 +326,9 @@ class TestPayloadValidation:
     def test_accepted(self, client, fields):
         assert client.post(BASE, json=payload(**fields)).status_code == 201
 
-    def test_the_delivery_check_sees_the_override_materials_too(self, client, seams):
-        client.post(
-            BASE,
-            json=payload(
-                dedicated_way_value_layer=True,
-                priority_overrides=[{"material": BOOL_A, "equals": "true", "value": 0}],
-            ),
-        )
-
-        assert seams["served"] == [[NUM_A, BOOL_A]]
-
 
 class TestPreviews:
-    def test_distribution_is_computed_from_the_repository_for_the_draft_shape(self, client, seams):
+    def test_distribution_answers_what_was_computed_for_the_draft_shape(self, client):
         body = client.post(BASE + "/preview-distribution", json={"shape": linear_shape(NUM_A)}).json()
 
         assert body == {
@@ -350,21 +338,8 @@ class TestPreviews:
             "bins": [[0.0, 4.0, 1.0]],
             "zero_share": 0.25,
         }
-        (shape,) = seams["distribution"]
-        assert [t.material for t in shape.terms] == [NUM_A]
 
-    @pytest.mark.parametrize(
-        ("overrides", "expected"),
-        [
-            ([], {"dropped_on_map": [8.0], "bands_on_map": [0, 1, 2]}),
-            (
-                [{"material": BOOL_A, "equals": "true", "value": 0.0}],
-                {"dropped_on_map": [], "bands_on_map": [0, 1, 2, 3]},
-            ),
-        ],
-        ids=["同じ点数へ写る境界は地図に出ない", "0次条件のある軸は地図に塗らないので全段が残る"],
-    )
-    def test_display_thresholds_answer_which_bands_the_map_drops_and_keeps(self, client, overrides, expected):
+    def test_display_thresholds_answer_which_bands_the_map_drops_and_keeps(self, client):
         """5より上は点数が100で平らなので、6と8の境界は地図では区別できない。"""
         shape = {
             "kind": "breakpoint_linear",
@@ -374,33 +349,24 @@ class TestPreviews:
 
         body = client.post(
             BASE + "/preview-display-thresholds",
-            json={"axis_id": "a", "shape": shape, "priority_overrides": overrides, "thresholds": [1.0, 6.0, 8.0]},
+            json={"axis_id": "a", "shape": shape, "thresholds": [1.0, 6.0, 8.0]},
         ).json()
 
-        assert body == expected
+        assert body == {"dropped_on_map": [8.0], "bands_on_map": [0, 1, 2]}
 
-    @pytest.mark.parametrize("thresholds", [[2.0, 1.0], [1.0, 1.0]], ids=["降順", "同値"])
-    def test_display_thresholds_must_rise_strictly(self, client, thresholds):
+    def test_display_thresholds_must_rise_strictly(self, client):
         response = client.post(
             BASE + "/preview-display-thresholds",
-            json={"axis_id": "a", "shape": linear_shape(NUM_A), "thresholds": thresholds},
+            json={"axis_id": "a", "shape": linear_shape(NUM_A), "thresholds": [1.0, 1.0]},
         )
 
         assert response.status_code == 422
 
-    @pytest.mark.parametrize(
-        ("second_required", "expected_points"),
-        [
-            (False, [{"x": 6.0, "score": 60.0}, {"x": 2.0, "score": 20.0}, {"x": 14.0, "score": 100.0}]),
-            (True, [None, None, None]),
-        ],
-        ids=["必須でないほかの項は寄与0", "必須のほかの項が無い道は評価できない"],
-    )
-    def test_scores_of_a_draft_with_two_terms(self, client, second_required, expected_points):
+    def test_scores_of_a_draft_with_two_terms(self, client):
         """1つ目の項の材料の値ごとの点数は、ほかの項の材料が無い道を評価したときの点数である。"""
         shape = {
             "kind": "breakpoint_linear",
-            "terms": [{"material": NUM_A, "weight": 2.0}, {"material": NUM_B, "required": second_required}],
+            "terms": [{"material": NUM_A, "weight": 2.0}, {"material": NUM_B, "required": False}],
             "preprocess": "abs",
             "breakpoints": [[0, 0], [10, 100]],
         }
@@ -410,4 +376,7 @@ class TestPreviews:
             json={"shape": shape, "xs": [2.5, 20.0], "material_values": [-3.0, 1.0, 7.0]},
         ).json()
 
-        assert body == {"scores": [25.0, 100.0], "material_points": expected_points}
+        assert body == {
+            "scores": [25.0, 100.0],
+            "material_points": [{"x": 6.0, "score": 60.0}, {"x": 2.0, "score": 20.0}, {"x": 14.0, "score": 100.0}],
+        }
