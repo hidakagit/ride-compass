@@ -1,6 +1,6 @@
 // ゲート: GitHub の出来事と回答フォームの送信を受け、遷移の表で照らして書く。1つの出来事では、タスクを1回読み、1回で書く。
 import { GitHub, readTask, setField } from "./github.js";
-import { bodyRest, judge, normalize, ownerOf, withButton } from "./rules.js";
+import { bodyRest, judge, normalize, ownerOf, strayInBlock, withButton } from "./rules.js";
 
 export class Gate {
   // env.GITHUB_TOKEN があればその名義（公開の直後の揃えを CI で流すとき）、無ければ App の名義で読み書きする。
@@ -19,8 +19,10 @@ export class Gate {
   }
 
   // 本文: 回答待ちの間だけ、先頭に回答フォームへのボタン（画像は GitHub が中継して取りに来るので Access の外の urls.gate から返す）。
+  // 印の間にゲートが書かないものがあれば、消さずに印の外（本文の先頭）へ出す（知らせのコメントは write が書く）。
   bodyFor(issue) {
-    const rest = bodyRest(issue.body);
+    const stray = strayInBlock(issue.body);
+    const rest = (stray ? `${stray}\n\n` : "") + bodyRest(issue.body);
     const { gate, form } = this.config.urls;
     return issue.state === "OPEN" && issue.status === this.config.waiting ? withButton(rest, `${form}/answer?issue=${issue.number}`, `${gate}/button.svg`) : rest;
   }
@@ -32,7 +34,9 @@ export class Gate {
     const ops = [];
     for (const [name, value] of Object.entries({ ...want.fields, ...(next.status !== issue.status ? { [this.config.project.statusField]: next.status } : {}) }))
       if (issue.fields[name] !== value && (this.project.fields[name]?.options?.[value] || name === this.config.project.statusField)) ops.push(setField(this.project, issue.item, name, value));
-    for (const body of want.comments ?? []) ops.push(["addComment", { subjectId: issue.id, body }]);
+    const stray = strayInBlock(next.body);
+    const notes = stray ? [`本文の先頭のゲートの印の間に、ゲートが書かないものがあった。消さずに印の外（本文の先頭）へ出した。\n\n${stray}`] : [];
+    for (const body of [...(want.comments ?? []), ...notes]) ops.push(["addComment", { subjectId: issue.id, body }]);
     if (want.reopen) ops.push(["reopenIssue", { issueId: issue.id }]);
     const update = {};
     const owner = ownerOf(this.config, next);
