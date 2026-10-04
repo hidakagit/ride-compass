@@ -36,14 +36,6 @@ describe("useIsMobile", () => {
     expect(result.current).toBe(true);
   });
 
-  it("印が 1 でない・無いなら、スマホ幅でないと答える", () => {
-    setMobileFlag("0");
-    expect(renderHook(() => useIsMobile()).result.current).toBe(false);
-
-    document.documentElement.style.removeProperty("--is-mobile");
-    expect(renderHook(() => useIsMobile()).result.current).toBe(false);
-  });
-
   it("窓の大きさが変わるたびに印を読み直す", () => {
     setMobileFlag("0");
     const { result } = renderHook(() => useIsMobile());

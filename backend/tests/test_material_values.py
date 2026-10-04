@@ -14,7 +14,8 @@ SQLの中の条件はPythonのカバレッジに現れないので、式をテ�
 
 カタログの全部の式が、読み出しの各経路（`infrastructure/road_graph_repository.py: RoadGraphRepository`の区間の材料・
 道1本・道の標本・値の一覧・路面タイル）の中で実在の列だけを読むことも見る。上の節は別名を値で与えるので、
-綴りの合わない列や、経路に無い別名を読む式を見つけられない。
+綴りの合わない列や、経路に無い別名を読む式を見つけられない。値の一覧の経路は、SQLが値を重ねず・値の無い道を除き・
+並べることも見る（セッションを差し替える契約のテストには、SQLが返す値が現れない）。
 
 ここで見ないもの:
 - 読み出しの経路が結果をどの形に並べるか（列と材料の対応・取込範囲の外のタイル） → `test_road_graph_repository_contracts.py`
@@ -41,12 +42,17 @@ pytestmark = [
 ]
 
 
-async def _way_values(session, expression: str, tags_by_way: dict[int, dict[str, str]]) -> dict[int, object]:
-    """道ごとのタグで道を取り込み、式を道ごとに評価する。"""
+async def _ingest_ways(tags_by_way: dict[int, dict[str, str]]) -> None:
+    """道ごとのタグで道を取り込む。"""
     await ingest_records("osm_way", [
         way_record(way_id, [(139.70, 35.68 + 0.001 * way_id), (139.701, 35.68 + 0.001 * way_id)],
                    [way_id * 10, way_id * 10 + 1], tags)
         for way_id, tags in tags_by_way.items()])
+
+
+async def _way_values(session, expression: str, tags_by_way: dict[int, dict[str, str]]) -> dict[int, object]:
+    """道ごとのタグで道を取り込み、式を道ごとに評価する。"""
+    await _ingest_ways(tags_by_way)
     rows = await session.execute(text(f"SELECT w.osm_way_id, ({expression}) FROM {WAYS_SOURCE_SQL} w"))
     return dict(rows.all())
 
@@ -216,6 +222,16 @@ async def test_a_shared_pedestrian_path_is_a_footway_or_path_that_lets_bicycles_
     })
 
     assert values == {1: True, 2: True, 3: False, 4: False, 5: False}
+
+
+# --- 読み出しの経路（infrastructure/road_graph_repository.py） -----------------------------
+
+
+async def test_the_value_list_of_a_material_has_each_value_once_in_order_without_missing(road_graph_repository):
+    """軸スタジオの値の候補。値の無い道は候補を足さない。"""
+    await _ingest_ways({1: {"tracktype": "grade3"}, 2: {"tracktype": "grade1"}, 3: {"tracktype": "grade3"}, 4: {}})
+
+    assert await road_graph_repository.get_distinct_material_values("tracktype") == ["grade1", "grade3"]
 
 
 async def test_every_declared_expression_reads_only_what_each_reading_path_provides(road_graph_repository):

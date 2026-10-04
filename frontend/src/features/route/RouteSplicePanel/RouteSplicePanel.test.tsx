@@ -262,7 +262,7 @@ describe("RouteSplicePanel 軸別の差", () => {
     renderPanel({ appliedCount: 1, preview: still });
 
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
-    expect(screen.getByText("「差分を見る」を押すと、乗り換えた結果が出ます")).toBeInTheDocument();
+    expect(screen.getByText(/乗り換えた結果が出ます/)).toHaveTextContent("差分を見るを押すと、乗り換えた結果が出ます");
   });
 });
 
@@ -279,7 +279,7 @@ describe("RouteSplicePanel 案内", () => {
   it("乗り換えて差分をまだ見ていなければ、「差分を見る」を押す案内を出す", () => {
     renderPanel({ appliedCount: 1, hasAlternatives: false, preview: null });
 
-    expect(screen.getByText("「差分を見る」を押すと、乗り換えた結果が出ます")).toBeInTheDocument();
+    expect(screen.getByText(/乗り換えた結果が出ます/)).toHaveTextContent("差分を見るを押すと、乗り換えた結果が出ます");
   });
 
   it("合成に失敗した理由を知らせとして出す", () => {

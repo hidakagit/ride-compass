@@ -85,7 +85,7 @@ export function useWeatherConditions(location: Coordinates, locationKnown: boole
           title: warning.additions.length > 0 ? `付随事項: ${warning.additions.join("・")}` : undefined,
         }))
       : [];
-    // 暑さ指数は段が無い間（提供期間外・「ほぼ安全」等）は出さない。
+    // 暑さ指数は段が無い間（値の無い提供期間外・「ほぼ安全」等）は出さない。
     const wbgtReading = wbgtStatus?.reading;
     const wbgtItem: WarningBadgeItem[] = wbgtReading
       ? [

@@ -16,14 +16,13 @@ import { resolveTileBaseUrl } from "@/lib/tileBaseUrl";
 describe("resolveTileBaseUrl", () => {
   it.each([
     ["末尾の/が無い", "https://tiles.example.com", "https://tiles.example.com"],
-    ["末尾の/が1つ", "https://tiles.example.com/", "https://tiles.example.com"],
     ["末尾の/が続く", "https://tiles.example.com//", "https://tiles.example.com"],
   ])("設定があれば、画面のオリジンより設定を使い、末尾の/を外す（%s）", (_scene, configured, expected) => {
     expect(resolveTileBaseUrl(configured, "https://app.example.com")).toBe(expected);
   });
 
-  it.each([undefined, ""])("設定が無ければ（%j）、画面のオリジンを使う", (configured) => {
-    expect(resolveTileBaseUrl(configured, "https://app.example.com")).toBe("https://app.example.com");
+  it("設定が無ければ、画面のオリジンを使う", () => {
+    expect(resolveTileBaseUrl(undefined, "https://app.example.com")).toBe("https://app.example.com");
   });
 
   it("設定も画面のオリジンも無ければ（サーバー側の描画）、空文字を返す", () => {

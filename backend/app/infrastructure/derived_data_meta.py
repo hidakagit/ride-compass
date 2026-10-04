@@ -71,7 +71,7 @@ class DataRevisions:
 
 async def get_revisions(session: AsyncSession) -> DataRevisions:
     """派生データの世代と生データの世代を1回の問い合わせで読む。"""
-    derived = select(DerivedDataMetaRow.revision).where(DerivedDataMetaRow.id == 1).scalar_subquery()
+    derived = select(DerivedDataMetaRow.revision).scalar_subquery()
     row = (await session.execute(select(derived, succeeded_run_count()))).one()
     return DataRevisions(derived=row[0], imported=row[1])
 

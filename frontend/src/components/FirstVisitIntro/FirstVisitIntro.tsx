@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/Button/Button";
+import { GuideText } from "@/components/ui/GuideText/GuideText";
 import { cardVariants } from "@/components/ui/Card/Card";
 import { textVariants } from "@/components/ui/Text/Text";
 import { MenuIcon } from "@/components/ui/icons/icons";
@@ -60,9 +61,13 @@ export default function FirstVisitIntro({ isMobile }: FirstVisitIntroProps) {
           <span>この印が出発地です（はじめは現在地）。地図の上でつかんで動かせます。</span>
         </li>
         <li>
-          {isMobile
-            ? "下の「ルート設定」を開いて距離を決め、「ルート生成」を押すと、ルートの候補が地図に出ます。"
-            : "左の「ルート設定」で距離を決め、「ルート生成」を押すと、ルートの候補が地図に出ます。"}
+          <GuideText
+            text={
+              isMobile
+                ? "下の「ルート設定」を開いて距離を決め、「ルート生成」を押すと、ルートの候補が地図に出ます。"
+                : "左の「ルート設定」で距離を決め、「ルート生成」を押すと、ルートの候補が地図に出ます。"
+            }
+          />
         </li>
         <li>
           部品の使い方は、右上のメニュー（

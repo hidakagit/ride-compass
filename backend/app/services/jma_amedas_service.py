@@ -42,7 +42,7 @@ from app.infrastructure.debug_log import log_throttled_warning
 logger = logging.getLogger("ridecompass.jma_amedas_service")
 
 _RAIN_MATERIALS_CACHE_TTL_SECONDS = 5 * 60
-_rain_materials_cache: TTLCache = TTLCache(maxsize=1, ttl=_RAIN_MATERIALS_CACHE_TTL_SECONDS)
+rain_materials_cache: TTLCache = TTLCache(maxsize=1, ttl=_RAIN_MATERIALS_CACHE_TTL_SECONDS)
 _RAIN_MATERIALS_CACHE_KEY = "rain_materials"
 
 
@@ -214,13 +214,13 @@ async def load_station_rain_materials(now: datetime) -> StationRainMaterials | N
     全観測所×`RAIN_HISTORY_HOURS`本の履歴を読み直さないため。履歴が新しい正時を得てから
     地図に出るまで、この時間だけ遅れうる。
     """
-    materials = _rain_materials_cache.get(_RAIN_MATERIALS_CACHE_KEY)
+    materials = rain_materials_cache.get(_RAIN_MATERIALS_CACHE_KEY)
     if materials is None:
         history = await jma_amedas_store.read_rain_history()
         if history is None or not history.stations:
             return None
         materials = _station_rain_materials(history)
-        _rain_materials_cache[_RAIN_MATERIALS_CACHE_KEY] = materials
+        rain_materials_cache[_RAIN_MATERIALS_CACHE_KEY] = materials
     if not is_rain_history_current(materials.latest_hour, now):
         log_throttled_warning(
             "weather:jma-amedas-rain-history",

@@ -306,7 +306,7 @@ JMA気象データの短命キャッシュが使う共有接続。値を文字�
 ホットパスに乗ると「PostGIS往復を減らす」という本来の目的に反する遅延になる）。
 
 **サーキットブレーカー**: `redis_available()`が直近の失敗（`record_redis_failure()`）から
-`_CIRCUIT_COOLDOWN_SECONDS=10.0`秒以内なら`False`を返し、呼び出し元はRedis自体への
+`CIRCUIT_COOLDOWN_SECONDS=10.0`秒以内なら`False`を返し、呼び出し元はRedis自体への
 接続試行そのものをスキップしてPostGISへ即座にフォールバックできる（0.2秒×リクエスト数の
 累積コストを避ける）。Redis接続自体の障害はfail-fastさせない設計（`main.py`のlifespanでも
 疎通確認しない）。すべての用途がTTL付きキャッシュまたはPostGIS[正本]への即座フォールバック
@@ -333,7 +333,7 @@ Starlette側が付与する。
 ## 応答のCache-Control（`api/cache_policy.py`）
 
 `CachePolicyMiddleware`が全応答へ`Cache-Control`を付ける。パスとポリシーの対応表
-（`_ROUTE_POLICIES`）がこのファイルにあり、ルーター側はヘッダを書かない——方針が
+（`ROUTE_POLICIES`）がこのファイルにあり、ルーター側はヘッダを書かない——方針が
 ルーター全体へ散らばると「どのAPIがどれだけキャッシュされるか」を一覧できなくなるため。
 
 | 規則 | 内容 |
@@ -382,7 +382,7 @@ Basic認証必須）はサーバー側のファイルキャッシュしか消せ
 
 `request_log_middleware`は1リクエスト=1行のアクセスログを出す。
 
-アクセスログのレベルは`_access_level`が動的に決める:
+アクセスログのレベルは`access_level`が動的に決める:
 
 | 条件 | レベル |
 |---|---|

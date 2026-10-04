@@ -224,7 +224,7 @@ _CATEGORICAL_TILE_COLUMNS_SQL = (",\n").join(
 )
 
 #: タイルが材料を引くためのJOIN。区間単位のフィーチャーだけが`em`に一致し、way丸ごとの
-#: フィーチャーは`wm`側へ落ちる。
+#: フィーチャーは`wm`側へ落ちる。区間を持たない道は`way_materials`にも行が無いので、`wm`も外部結合にする。
 _TILE_MATERIAL_JOINS = f"""
                     JOIN LATERAL {ways_lookup_sql('src.osm_way_id')} w ON true
                     LEFT JOIN way_materials wm ON wm.osm_way_id = src.osm_way_id
@@ -244,7 +244,7 @@ _TILE_MATERIAL_JOINS = f"""
 #
 # カバレッジ判定も同じクエリへ畳み込み、1タイルあたりのDB往復を1回にする。CASE式は条件が
 # falseの分岐を評価しないため、カバレッジ外ではMVT生成のサブクエリ自体が実行されない。
-_ROAD_SURFACE_TILE_MVT_SQL = text(
+ROAD_SURFACE_TILE_MVT_SQL = text(
     f"""
     WITH coverage AS ({COVERAGE_SQL})
     SELECT
@@ -374,7 +374,7 @@ _FEATURE_GRADIENT_INPUTS_IN_TILE_SQL = text(
 #: タイルのディスク／Redisキャッシュの鍵に入る**形の署名**。焼き込むSQLから導出するため、
 #: 列や分類タグを変えれば自動的に別の鍵になる。DBの中身が作り直されたことは署名では表せず、
 #: そちらは`services/tile_version_service.py`が世代の変化として扱う。
-ROAD_SURFACE_TILE_SHAPE = shape_digest(_ROAD_SURFACE_TILE_MVT_SQL)
+ROAD_SURFACE_TILE_SHAPE = shape_digest(ROAD_SURFACE_TILE_MVT_SQL)
 #: 勾配の入力を取り出すSQLの形の署名。勾配のタイル値のキャッシュの鍵に入る
 #: （`services/gradient_way_service.py: GRADIENT_VALUE_SHAPE`）。
 FEATURE_GRADIENT_INPUTS_SHAPE = shape_digest(_FEATURE_GRADIENT_INPUTS_IN_TILE_SQL)
@@ -398,6 +398,7 @@ _WAY_ALIAS_EM_SQL = ", ".join(
     for name in _WAY_EM_COLUMNS
 )
 
+#: `w`は区間を持たない道も含み、その道は`way_materials`に行が無いので、`wm`と`em`は外部結合にする。
 _WAY_ALIAS_CLAUSES: dict[str, str] = {
     "wm": "LEFT JOIN way_materials wm ON wm.osm_way_id = w.osm_way_id",
     "re": ("CROSS JOIN LATERAL (SELECT ST_Length(w.geom::geography) AS distance_m,"
@@ -443,14 +444,14 @@ def _sample_way_materials_sql(sampling: str, area: str):
         f"SELECT ST_Length(w.geom::geography) AS length_m, {_WAY_MATERIAL_SELECT_SQL}"
         + _way_from_clause(list(material_value_sql().values()),
                            source=ways_source_sql(sampling))
-        + f" WHERE w.highway IS NOT NULL {area} LIMIT :limit"
+        + f"{area} LIMIT :limit"
     )
 
 
 _SAMPLE_WAY_MATERIAL_VALUES_SQL = _sample_way_materials_sql(
     "TABLESAMPLE SYSTEM (:sample_percent)", "")
 _SAMPLE_WAY_MATERIAL_VALUES_IN_BBOX_SQL = _sample_way_materials_sql(
-    "", "AND w.geom && ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326)")
+    "", " WHERE w.geom && ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326)")
 
 _WAY_MATERIAL_COLUMN_PREFIX = "m_"
 
@@ -591,7 +592,7 @@ SELECT re.osm_way_id, re.segment_index, re.from_node_id, re.to_node_id,
        ST_XMax(re.geom) AS max_lon, ST_YMax(re.geom) AS max_lat
 FROM road_edges re
 JOIN LATERAL {ways_lookup_sql("re.osm_way_id")} w ON true
-LEFT JOIN way_materials wm ON wm.osm_way_id = re.osm_way_id
+JOIN way_materials wm ON wm.osm_way_id = re.osm_way_id
 ORDER BY re.osm_way_id, re.segment_index
 """)
 
@@ -676,7 +677,7 @@ class RoadGraphRepository:
         """
         row = await self._session.execute(text(
             "SELECT r.profile->'source'->'rows'->'years' AS years FROM derived_data_meta m"
-            " JOIN source_runs r ON r.run_id = m.accident_run_id WHERE m.id = 1"))
+            " JOIN source_runs r ON r.run_id = m.accident_run_id"))
         value = row.scalar()
         if not isinstance(value, list):
             return []
@@ -910,7 +911,7 @@ class RoadGraphRepository:
         self, z: int, x: int, y: int, bbox: BoundingBox
     ) -> bytes | None:
         """路面レイヤーのMVTタイル1枚。契約は`get_tile_mvt`と同じ。"""
-        return await self.get_tile_mvt(_ROAD_SURFACE_TILE_MVT_SQL, ROAD_SURFACE_LAYER_NAME, z, x, y, bbox)
+        return await self.get_tile_mvt(ROAD_SURFACE_TILE_MVT_SQL, ROAD_SURFACE_LAYER_NAME, z, x, y, bbox)
 
     async def get_tile_mvt(
         self, sql: TextClause, layer_name: str, z: int, x: int, y: int, bbox: BoundingBox

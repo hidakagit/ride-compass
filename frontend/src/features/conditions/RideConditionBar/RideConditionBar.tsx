@@ -201,7 +201,7 @@ export default function RideConditionBar({
                 <p>
                   {`体格・機材は標準値で計算します: 総質量${riderDefaults.massKg}kg[体重＋車体＋装備]・` +
                     `空気抵抗CdA ${riderDefaults.cdaM2}m²[ロードバイクのブラケットポジション]。` +
-                    `下りは${riderDefaults.maxDescentKmh}km/hまで、登りで${riderDefaults.walkingKmh}km/h以下になる所は押して歩くとみなします。`}
+                    `下りは${riderDefaults.maxDescentKmh}km/hまで[想定速度がそれより速いときは想定速度まで]、登りで${riderDefaults.walkingKmh}km/h以下になる所は押して歩くとみなします。`}
                 </p>
               )}
             </InfoPopover>

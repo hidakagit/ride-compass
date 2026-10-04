@@ -217,9 +217,10 @@ describe("送る要求", () => {
 });
 
 describe("入力の誤り", () => {
-  it("出発地が仮の地点のままなら送らず、理由を案内に出して失敗として知らせる", async () => {
+  it("出発地が仮の地点のままなら送らず、理由を案内に出して、押すたびに失敗として知らせる", async () => {
     const rendered = renderGeneration({ originKnown: false });
 
+    await submit(rendered);
     await submit(rendered);
 
     const { generation } = rendered.result.current;
@@ -227,8 +228,7 @@ describe("入力の誤り", () => {
     expect(generation.inputError).toMatch(/現在地が分かりません/);
     expect(generation.failure).toBe(generation.inputError);
     expect(generation.lastMessage).toBe(generation.inputError);
-    expect(rendered.onOutcome).toHaveBeenCalledTimes(1);
-    expect(rendered.onOutcome).toHaveBeenCalledWith("failed");
+    expect(rendered.onOutcome.mock.calls).toEqual([["failed"], ["failed"]]);
   });
 
   it("入力の誤りは、直前の生成の失敗の文言より先に出す", async () => {

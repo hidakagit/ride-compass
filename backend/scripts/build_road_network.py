@@ -16,7 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.batch._common import batch_session_factory  # noqa: E402
+from app.batch.common import batch_session_factory  # noqa: E402
 from app.infrastructure import road_network_store  # noqa: E402
 
 

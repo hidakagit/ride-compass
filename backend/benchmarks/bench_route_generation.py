@@ -32,14 +32,14 @@ import time
 from datetime import datetime
 
 from app.api.dependencies import get_route_generation_setup_opener
-from app.batch._common import asyncpg_dsn
+from app.batch.common import asyncpg_dsn
 from app.config import settings
 from app.domain.route import Coordinates
 from app.domain.time_zone import JST
 from app.domain.wind import ASSUMED_SPEED_KMH
 from app.services.route_generator import DEFAULT_MAX_ROUTES
 from benchmarks._resources import sample_resources
-from benchmarks._revision import announce_revision
+from benchmarks.revision import announce_revision
 from benchmarks._route_generation_service import refresh_axis_registry
 
 #: 段の所要を出しているロガー。ここが出す`key=value`を拾う。

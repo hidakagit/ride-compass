@@ -56,9 +56,9 @@ def area_lookup_upstream(
                            CHIYODA_POINT.longitude + 0.01, CHIYODA_POINT.latitude + 0.01)},
     )
     monkeypatch.setattr(jma_area_boundaries, "BOUNDARY_PATH", boundary_path)
-    monkeypatch.setattr(jma_warning_client, "_area_data_cache", TTLCache(maxsize=1, ttl=60))
-    monkeypatch.setattr(jma_warning_client, "_warning_cache", TTLCache(maxsize=8, ttl=60))
-    monkeypatch.setattr(flood_client, "_flood_cache", TTLCache(maxsize=1, ttl=60))
+    monkeypatch.setattr(jma_warning_client, "area_data_cache", TTLCache(maxsize=1, ttl=60))
+    monkeypatch.setattr(jma_warning_client, "warning_cache", TTLCache(maxsize=8, ttl=60))
+    monkeypatch.setattr(flood_client, "flood_cache", TTLCache(maxsize=1, ttl=60))
 
     payloads = {
         jma_warning_client.JMA_AREA_JSON_URL: area_data,

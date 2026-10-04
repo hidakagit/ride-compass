@@ -4,7 +4,7 @@
  * 確かめるのは送った要求と戻り値。
  *
  * ここで見ないもの:
- * - 失敗の文言の組み立て・通信の失敗とタイムアウトの包み直し → `lib/apiClient.test.ts`
+ * - 失敗を投げること・失敗の文言の組み立て・通信の失敗とタイムアウトの包み直し → `lib/apiClient.test.ts`
  * - 届いたカタログを画面の形へ移すこと・失敗したときの空のカタログ → `hooks/useAxisCatalog.test.ts`
  */
 import { describe, expect, it } from "vitest";
@@ -20,11 +20,5 @@ describe("getAxisCatalog", () => {
 
     await expect(getAxisCatalog()).resolves.toEqual(catalog);
     expect(sent).toEqual([{ method: "GET", path: "/api/axis-catalog", query: {}, body: undefined }]);
-  });
-
-  it("backendが失敗したら、空のカタログで返さずに投げる（呼ぶ側が「取得に失敗した」と知るため）", async () => {
-    onBackend("GET", "/api/axis-catalog", () => new Response(null, { status: 503 }));
-
-    await expect(getAxisCatalog()).rejects.toThrow(Error);
   });
 });

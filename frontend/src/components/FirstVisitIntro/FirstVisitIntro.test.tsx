@@ -34,12 +34,12 @@ describe("FirstVisitIntro", () => {
   });
 
   it.each([
-    [true, "下の「ルート設定」を開いて距離を決め、「ルート生成」を押すと、ルートの候補が地図に出ます。"],
-    [false, "左の「ルート設定」で距離を決め、「ルート生成」を押すと、ルートの候補が地図に出ます。"],
+    [true, "下の「ルート設定」を開いて距離を決め、ルート生成を押すと、ルートの候補が地図に出ます。"],
+    [false, "左の「ルート設定」で距離を決め、ルート生成を押すと、ルートの候補が地図に出ます。"],
   ])("スマホ（%s）かで、最初の一手の場所を言い分ける", (isMobile, firstStep) => {
     render(<FirstVisitIntro isMobile={isMobile} />);
 
-    expect(screen.getByText(firstStep)).toBeInTheDocument();
+    expect(screen.getByText(/ルートの候補が地図に出ます/)).toHaveTextContent(firstStep);
   });
 
   it.each(["案内を閉じる", "はじめる"])("「%s」を押すと消え、次に開いても出ない", async (name) => {

@@ -12,53 +12,50 @@ export const SPLICED_ROUTE_ID_PREFIX = routeGenerateConfig.spliced_route_id;
 // 経由地ルートのid（常に1件、「方位」という概念が無いため順位番号の代わりに名前を出す）。
 const NON_DIRECTIONAL_ROUTE_IDS = new Set([routeGenerateConfig.waypoints_route_id]);
 
-/** 一覧の1行。`name`は元との違い等でそのルートを指す名前で、`nameShown`がfalseなら行には出さない。 */
+/** 一覧の群。並びは最速 → 生成した候補 → 合成で、群が変わる所に区切りの線を引く。 */
+export type RouteListGroup = "fastest" | "generated" | "spliced";
+
+/**
+ * 一覧の1行。`name`はそのルートを指す名前（「元との違い」の元の名前にも使う）で、`label`は名前の列に印と並べて
+ * 出す文字（最速は印だけなので空、合成は番号）。
+ */
 interface RouteListEntry<T> {
   route: T;
+  group: RouteListGroup;
   name: string;
-  nameShown: boolean;
+  label: string;
 }
 
-/** 一覧の見出し1つ分。見出しを持たない一覧（周回等）は`title`がnullの1つだけになる。 */
-interface RouteListSection<T> {
-  title: string | null;
-  entries: RouteListEntry<T>[];
-}
-
-/** 見出しを分けたときに採用ルートの先頭へ置く、所要時間だけで選んだ候補の名前。 */
+/** 一覧の先頭に置く、所要時間だけで選んだ候補の名前。 */
 const FASTEST_ROUTE_NAME = "最速";
 
 /**
  * 「ルート結果」の一覧の並びと名前。
  *
- * `pinsFastest`（生成が所要時間だけで選んだ1本を必ず含める目的地ルート）なら、最も早く着く生成候補を「採用ルート」の
- * 先頭に置き、編集で作ったルートを作った順に続ける。残りの生成候補は「生成した候補」として1から番号を振る。
- * 比べる基準の1本を、編集の前後で動かさずに一番上へ置くため。見出しを分けないときは生成候補に1から番号を振る。
+ * `pinsFastest`（生成が所要時間だけで選んだ1本を必ず含める目的地ルート）なら、最も早く着く生成候補を「最速」として
+ * 先頭に置き、残りの生成候補に1から番号を振り、合成で作ったルートを作った順に「合成N」で続ける。比べる基準の1本を、
+ * 合成の前後で動かさずに一番上へ置くため。
  */
-export function routeListSections<
+export function routeListEntries<
   T extends { id: string; direction_label: string; estimated_duration_seconds: number | null },
->(
-  generated: readonly T[],
-  edits: readonly { route: T; number: number }[],
-  pinsFastest: boolean,
-): RouteListSection<T>[] {
+>(generated: readonly T[], edits: readonly { route: T; number: number }[], pinsFastest: boolean): RouteListEntry<T>[] {
   const pinnedId = pinsFastest ? fastestRouteId(generated) : null;
-  const numbered = (routes: readonly T[]): RouteListEntry<T>[] =>
-    routes.map((route, index) =>
-      NON_DIRECTIONAL_ROUTE_IDS.has(route.id)
-        ? { route, name: route.direction_label, nameShown: true }
-        : { route, name: `${index + 1}`, nameShown: true },
-    );
-  const edited = edits.map(({ route, number }) => ({ route, name: `編集${number}`, nameShown: true }));
-  if (pinnedId === null && edited.length === 0) return [{ title: null, entries: numbered(generated) }];
-  const pinned = generated.filter((route) => route.id === pinnedId);
-  return [
-    {
-      title: "採用ルート",
-      entries: [...pinned.map((route) => ({ route, name: FASTEST_ROUTE_NAME, nameShown: false })), ...edited],
-    },
-    { title: "生成した候補", entries: numbered(generated.filter((route) => route.id !== pinnedId)) },
-  ];
+  const fastest = generated
+    .filter((route) => route.id === pinnedId)
+    .map((route) => ({ route, group: "fastest" as const, name: FASTEST_ROUTE_NAME, label: "" }));
+  const numbered = generated
+    .filter((route) => route.id !== pinnedId)
+    .map((route, index) => {
+      const name = NON_DIRECTIONAL_ROUTE_IDS.has(route.id) ? route.direction_label : `${index + 1}`;
+      return { route, group: "generated" as const, name, label: name };
+    });
+  const spliced = edits.map(({ route, number }) => ({
+    route,
+    group: "spliced" as const,
+    name: `合成${number}`,
+    label: `${number}`,
+  }));
+  return [...fastest, ...numbered, ...spliced];
 }
 
 type TimedRoute = { id: string; estimated_duration_seconds: number | null };

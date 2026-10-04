@@ -9,7 +9,7 @@
 別に持つ（`transform_dedicated_way_values`が軸定義の評価へ渡す先）。
 
 軸→サービス実装本体の対応は、軸が参照する材料とサービスの`material_id`の突き合わせで
-決まる（`services/dedicated_way_values.py: _DEDICATED_WAY_VALUE_SERVICES`）。材料ごとの計算ロジック
+決まる（`services/dedicated_way_values.py: DEDICATED_WAY_VALUE_SERVICES`）。材料ごとの計算ロジック
 自体は宣言的に導出できないPythonコードのまま残る。
 """
 

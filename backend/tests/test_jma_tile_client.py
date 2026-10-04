@@ -33,8 +33,8 @@ OPAQUE = b"\x89PNG not decoded by the client"
 @pytest.fixture(autouse=True)
 def _nothing_fetched_yet(monkeypatch):
     """上流への間隔の起点と時刻一覧のキャッシュはプロセス内に残るので、空から始める。"""
-    monkeypatch.setattr(jma_tile_client, "_last_fetch_at", None)
-    jma_tile_client._target_times_cache.clear()
+    monkeypatch.setattr(jma_tile_client, "last_fetch_at", None)
+    jma_tile_client.target_times_cache.clear()
 
 
 @pytest.fixture

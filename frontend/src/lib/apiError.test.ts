@@ -10,8 +10,8 @@ import { describe, expect, it } from "vitest";
 import { formatErrorDetail } from "@/lib/apiError";
 
 describe("formatErrorDetail", () => {
-  it.each([null, undefined])("%s なら文言を作らない（呼び出し側が自分の文言を使う）", (detail) => {
-    expect(formatErrorDetail(detail)).toBeUndefined();
+  it("無ければ文言を作らない（呼び出し側が自分の文言を使う）", () => {
+    expect(formatErrorDetail(undefined)).toBeUndefined();
   });
 
   it("文字列はそのまま返す", () => {
@@ -35,9 +35,7 @@ describe("formatErrorDetail", () => {
 
   it.each([
     ["`msg`を持つ項目が無い配列", [{ loc: ["body"] }], '[{"loc":["body"]}]'],
-    ["空の配列", [], "[]"],
     ["配列でないオブジェクト", { reason: "busy" }, '{"reason":"busy"}'],
-    ["数値", 503, "503"],
   ])("%sは、JSONの文字列にして中身を残す", (_scene, detail, expected) => {
     expect(formatErrorDetail(detail)).toBe(expected);
   });

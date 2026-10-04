@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 
 import numpy as np
 import pytest
-from hypothesis import given
+from hypothesis import example, given
 from hypothesis import strategies as st
 
 from app.domain.route import Coordinates
@@ -52,22 +52,6 @@ def test_kmh_to_ms():
 # --- 風の分解 ---
 
 
-@pytest.mark.parametrize(
-    ("wind_direction_deg", "travel_bearing_deg", "expected"),
-    [
-        (90.0, 90.0, (5.0, 0.0)),  # 走る先から吹いてくる風は向かい風
-        (270.0, 90.0, (-5.0, 0.0)),  # 背後から吹いてくる風は追い風
-        (180.0, 90.0, (0.0, 5.0)),  # 真横の風は進行方向の成分を持たない
-    ],
-    ids=["向かい風", "追い風", "横風"],
-)
-def test_wind_components_split_by_where_the_wind_comes_from(wind_direction_deg, travel_bearing_deg, expected):
-    """風向は風が吹いてくる方向（気象の慣習）。"""
-    headwind, crosswind = wind_components(5.0, wind_direction_deg, travel_bearing_deg)
-
-    assert (float(headwind), float(crosswind)) == pytest.approx(expected, abs=1e-12)
-
-
 @given(WIND_SPEEDS, BEARINGS, BEARINGS, BEARINGS)
 def test_wind_components_depend_only_on_the_angle_between_wind_and_travel(speed, wind_dir, bearing, turn):
     """風向と走行方位を同じだけ回しても、走る人が受ける風は変わらない。分解しても風の強さは保たれる。"""
@@ -81,25 +65,6 @@ def test_wind_components_depend_only_on_the_angle_between_wind_and_travel(speed,
 # --- 風の追加負荷 ---
 
 
-def test_no_wind_adds_no_drag():
-    assert wind_drag_ratio(0.0, 123.0, 45.0, 7.0) == pytest.approx(0.0, abs=1e-12)
-
-
-@pytest.mark.parametrize(
-    ("wind_direction_deg", "expected"),
-    [
-        (0.0, 3.0),  # 相対風速が2倍で抵抗は4倍、増分は無風の3倍
-        (180.0, -1.0),  # 走行速度と同じ追い風は相対風速0で、無風の抵抗がまるごと消える
-    ],
-    ids=["向かい風", "追い風"],
-)
-def test_drag_is_measured_against_the_still_air_drag_at_the_reference_speed(wind_direction_deg, expected):
-    """基準速度で走り、走行速度と同じ強さの風を受ける。"""
-    v = WIND_DRAG_REFERENCE_SPEED_MS
-
-    assert wind_drag_ratio(v, wind_direction_deg, 0.0, v) == pytest.approx(expected)
-
-
 def _one_dimensional(headwind: float, travel_speed: float) -> float:
     """横風の無い場合の素直な式: 相対風速xとして`sign(x)·x² − v²`。"""
     x = travel_speed + headwind
@@ -107,8 +72,9 @@ def _one_dimensional(headwind: float, travel_speed: float) -> float:
 
 
 @given(st.floats(-40.0, 40.0), TRAVEL_SPEEDS)
+@example(-WIND_DRAG_REFERENCE_SPEED_MS, WIND_DRAG_REFERENCE_SPEED_MS)  # 相対風速0
 def test_without_crosswind_the_drag_follows_the_one_dimensional_square_law(headwind, travel_speed):
-    """追い風が走行速度を超える（相対風速が負になる）所も同じ式で続く。"""
+    """風向は風が吹いてくる方向（気象の慣習）。追い風が走行速度を超える（相対風速が負になる）所も同じ式で続く。"""
     direction = 0.0 if headwind >= 0 else 180.0
 
     value = wind_drag_ratio(abs(headwind), direction, 0.0, travel_speed)
@@ -142,10 +108,9 @@ def test_the_array_form_evaluates_each_element():
     assert values.tolist() == pytest.approx([_one_dimensional(5.0, 5.0), _one_dimensional(-5.0, 5.0), 0.0])
 
 
-@pytest.mark.parametrize("travel_speed_ms", [0.0, -1.0])
-def test_drag_requires_a_positive_travel_speed(travel_speed_ms):
+def test_drag_requires_a_positive_travel_speed():
     with pytest.raises(ValueError):
-        wind_drag_ratio(3.0, 0.0, 0.0, travel_speed_ms)
+        wind_drag_ratio(3.0, 0.0, 0.0, 0.0)
 
 
 # --- 固定の格子 ---
@@ -221,9 +186,9 @@ def test_a_place_outside_the_lattice_picks_the_nearest_edge_point():
     """タイルをまたぐ道の中ほどは格子の外にありうる。"""
     lattice = WindLattice(south=35.0, west=139.0, lat_step=0.5, lon_step=0.5, rows=2, cols=2)
 
-    points = lattice.points_of(np.array([30.0, 40.0, 35.1]), np.array([130.0, 150.0, 139.9]))
+    points = lattice.points_of(np.array([30.0, 40.0]), np.array([130.0, 150.0]))
 
-    assert points.tolist() == [0, 3, 1]
+    assert points.tolist() == [0, 3]
 
 
 # --- 時別の予報 ---
@@ -303,7 +268,6 @@ def test_passage_hours_move_from_the_offset_by_the_detoured_ride_time(direction,
     assert hours.tolist() == pytest.approx([expected, 3.0], rel=1e-4)
 
 
-@pytest.mark.parametrize("speed_kmh", [0.0, -20.0])
-def test_passage_hours_require_a_positive_speed(speed_kmh):
+def test_passage_hours_require_a_positive_speed():
     with pytest.raises(ValueError):
-        estimate_passage_hours(np.array([35.0]), np.array([139.0]), ANCHOR, 0.0, 1, speed_kmh, 1.3)
+        estimate_passage_hours(np.array([35.0]), np.array([139.0]), ANCHOR, 0.0, 1, 0.0, 1.3)

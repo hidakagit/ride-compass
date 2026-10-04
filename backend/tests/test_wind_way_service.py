@@ -38,16 +38,14 @@ class FakeMidpointsRepository:
     """
 
     def __init__(self, midpoints: dict[str, tuple[float, float]] | None, error: Exception | None = None):
-        self._midpoints = midpoints
+        self.midpoints = midpoints
         self._error = error
-        self.calls: list[tuple] = []
 
     async def get_feature_midpoints_in_tile(self, *args, **kwargs):
         inspect.signature(RoadGraphRepository.get_feature_midpoints_in_tile).bind(self, *args, **kwargs)
-        self.calls.append(args)
         if self._error is not None:
             raise self._error
-        return self._midpoints
+        return self.midpoints
 
 
 def _wind_uv(latitudes, longitudes, hour_index):
@@ -163,17 +161,17 @@ async def test_at_none_defaults_to_now(monkeypatch):
     assert set(result) == {"1"}
 
 
-async def test_second_call_reads_the_forecast_again(monkeypatch):
+async def test_second_call_is_computed_again(monkeypatch):
     # 風の値はキャッシュせず、同じ条件でも都度計算する。
-    asked = _patch_msm(monkeypatch)
+    _patch_msm(monkeypatch)
     repository = FakeMidpointsRepository({"1": (35.674, 139.713)})
     service = _service(repository)
+    await service.get_way_values(Z, X, Y, _conditions())
 
-    first = await service.get_way_values(Z, X, Y, _conditions())
+    repository.midpoints = {"1": (35.676, 139.735)}
     second = await service.get_way_values(Z, X, Y, _conditions())
 
-    assert first == second
-    assert len(repository.calls) == 2 and len(asked) == 2
+    assert second == {"1": _expected(35.70, 139.75, 1, 0.0, SPEED_KMH)}
 
 
 async def test_forecast_unavailable_returns_empty_dict(monkeypatch):

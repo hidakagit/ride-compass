@@ -3,7 +3,7 @@ r"""警察庁の交通事故統計（本票CSV）を配布元から手元へ写�
 取込はローカルのファイルを読むだけにする（`source_adapters/npa_honhyo.py`）。
 
 取得の手順（読めるものは落とし直さない・一時ファイル経由・落とし終えたら開いてみる）は
-`app.batch._common.fetch_verified`が持つ。
+`app.batch.common.fetch_verified`が持つ。
 
 どの年を要するかはプロファイルが持つ（`npa_honhyo`ソースの`rows.years`）。配布元のURLの
 組み立て方だけがここにある。
@@ -23,7 +23,7 @@ import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.batch._common import fetch_verified  # noqa: E402
+from app.batch.common import fetch_verified  # noqa: E402
 from app.batch.source_adapters.npa_honhyo import ENCODING, honhyo_path  # noqa: E402
 from app.batch.source_profile import load_source_profile  # noqa: E402
 

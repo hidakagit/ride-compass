@@ -9,7 +9,6 @@ import AxisDetail from "./AxisDetail";
 import { formatAxisRawValue, formatCategoryBreakdown, formatMaterialBreakdown } from "./axisRawValue";
 import { textVariants } from "@/components/ui/Text/Text";
 import { cn } from "@/lib/cn";
-import { LOAD_BAR_MAX_HEIGHT_RATIO } from "@/features/route/difficultyLoadBar";
 
 interface RouteAxisProfileProps {
   /** 公開軸すべて（軸カタログの順序・ラベルの正本）。重みによる絞り込みは行わない。 */
@@ -145,8 +144,6 @@ export default function RouteAxisProfile({
                 <p>
                   上のグラフは横が距離、縦が区間ごとの難易度で、塗られた面積がこの負荷にあたります
                   [色ごとの面積がその軸の負荷]。灰色は値の無い区間で、平均の高さで数えています。
-                  候補一覧の行のバーは、長さが総合難易度・高さが距離で、面積が負荷の目安です。高さは最も短い候補の
-                  {LOAD_BAR_MAX_HEIGHT_RATIO}倍で頭打ちにしているため、それより長い候補は面積が負荷より小さく見えます。
                 </p>
               </InfoPopover>
             </span>

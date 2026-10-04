@@ -128,7 +128,7 @@ Edgeコストは「探索範囲の静的Edge×公開軸スコア行列＋リク�
 そのまま読む。`displayed_material_ids`はリクエストの`lens_axis_id`（地図のレンズが表示を
 要求している軸）が符号付き材料の軸（`map_value_kind`が`signed_material`）を指す場合、
 その軸の材料も重みに関わらず含める（地図の色分けが重み0の軸でも成立するため）。
-逆回り候補はレグ割当ても反転する（先に走る側が往路配列、`_reverse_leg_assignment`）。レグ番号は走行順に振られるため、Edge列の反転と同時に番号自体も`max_leg - leg`へ振り直す。探索範囲を覆う格子点ごとの時別風予報
+逆回り候補はレグ割当ても反転する（先に走る側が往路配列、`reverse_leg_assignment`）。レグ番号は走行順に振られるため、Edge列の反転と同時に番号自体も`max_leg - leg`へ振り直す。探索範囲を覆う格子点ごとの時別風予報
 （`WeatherService.get_wind_forecast_lattice`。格子はMSMと同じ細かさ、`domain/wind.py: WindLattice`・
 `WIND_FORECAST_LAT_STEP_DEG`/`WIND_FORECAST_LON_STEP_DEG`。格子は緯度・経度0度から数えた固定の線に揃い、
 探索範囲に依らない。各Edgeは中点に最も近い格子点の風を引く——ルートを出す前の地図も同じ点を引く、
@@ -620,8 +620,8 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
 周回候補（waypoints指定でない場合）は、順方向の探索結果から逆方向候補を
 **追加のDB/API呼び出し無しに代数的に導出**する: 標高の獲得/喪失を入れ替え、勾配の符号を
 反転し、既にhydrate済みのgeometryを再利用する（`_reverse_traced_edges`/
-`domain/attributes.py: ElevationAttribute.reversed_as`・`_reverse_elevation_by_edge`）。両方向の`distance_weighted_difficulty`を比較し、
-小さい方を採用する（`_pick_better_candidate`）。`TracedLoop.bearing is None`
+`domain/attributes.py: ElevationAttribute.reversed_as`・`reverse_elevation_by_edge`）。両方向の`distance_weighted_difficulty`を比較し、
+小さい方を採用する（`pick_better_candidate`）。`TracedLoop.bearing is None`
 （waypoints指定ルート）ではこの逆回り合成をスキップする——ユーザーが指定した訪問順序を
 尊重する必要があるため。
 
@@ -738,14 +738,14 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
   `_time_bin_of_kernel`を展開する。
   キャッシュが効く条件（CPUの型・元のファイルの更新時刻）は[tech-stack.md](../../architecture/tech-stack.md)
   「デプロイの反映確認」節。
-- **`_empty_heap`/`_heap_push`/`_heap_pop`/`_grown`・`_time_bin_of_kernel`**: 一対全木と2点間探索が共有する
+- **`empty_heap`/`heap_push`/`heap_pop`/`_grown`・`_time_bin_of_kernel`**: 一対全木と2点間探索が共有する
   `@njit`の部品。ヒープの列は「順位のキー・状態」と、**キーが`g`と別の値になる探索だけが持つ**
   「積んだ時点のコスト`g`」。A*はキーに`g＋下界`を積むため`g`の列を持ち（`best[state]`は
   最新の`g`で、積んだ時点の`g`とは別物なので省けない）、Dijkstraはキーが`g`そのものなので
-  列を持たず、`_heap_push`へ`g`を渡さない（取り出しはキーを`g`として返す）。ヒープは列と
-  「`g`の列を持つか」の組（`_Heap`）で持ち、列の有無を容量や配列の長さから推さない。部品は1組
+  列を持たず、`heap_push`へ`g`を渡さない（取り出しはキーを`g`として返す）。ヒープは列と
+  「`g`の列を持つか」の組（`Heap`）で持ち、列の有無を容量や配列の長さから推さない。部品は1組
   だけにする。容量は最低1にする（伸長は要素数を倍にするため、0からは伸びない）。
-  `_heap_push`は満杯なら倍へ伸ばした組を返すため、呼び出し側は戻り値の組で持ち替える。
+  `heap_push`は満杯なら倍へ伸ばした組を返すため、呼び出し側は戻り値の組で持ち替える。
   `_time_bin_of_kernel`は経過時間が落ちる時刻ビンを端へ寄せて返す（区間の表示も経路をたどって同じ本体の
   `time_bin_of`で同じビンを選ぶ）。
   **部品はどれも`inline="always"`で呼び出し元へ展開する**——関数呼び出しのまま残すと、
@@ -827,7 +827,7 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
   数値・文字のフィールドが静かに外れる）。
 - **`RouteCandidate.edge_point_offsets`は、その経路のEdgeが`geometry.coordinates`の
   どこで切り替わるか**を`edge_ids`より1件多く持つ。隣接Edgeの境界点は重複させずに連結する
-  （`_concat_edge_geometries`）ため、**座標列だけからはEdgeの境目を復元できない**。
+  （`concat_edge_geometries`）ため、**座標列だけからはEdgeの境目を復元できない**。
   Edge単位で決めた区間を地図へ帯として描くのに要る。座標列と境界の位置は同じ関数が
   同時に作る——別々に組み立てるとずれても型でも例外でも現れず、帯だけが1点ずれる。
 - **`RouteCandidate.node_ids`は経路が通るNodeを`edge_ids`より1件多く持つ**
@@ -891,7 +891,7 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
 
 #### 派生delivery系クエリ（wind/gradient/road surface）
 
-`_ROAD_SURFACE_TILE_MVT_SQL`（路面・道路種別・制限速度等の材料タグをPostGIS側で
+`ROAD_SURFACE_TILE_MVT_SQL`（路面・道路種別・制限速度等の材料タグをPostGIS側で
 ST_AsMVT丸ごと生成）・`_FEATURE_MIDPOINTS_IN_TILE_SQL`（wind、道路自身の方位角は使わず鍵ごとに
 中ほど＝両端の平均の緯度経度を返す。区間の中ほどは探索の`mid_lat`/`mid_lon`と同じ点）・`_FEATURE_GRADIENT_INPUTS_IN_TILE_SQL`（gradient。そのフィーチャーに属する
 区間の値を長さで重み付けて平均する——区間単位のズームでは区間1本の値そのもの、way単位の
@@ -906,7 +906,7 @@ ST_AsMVT丸ごと生成）・`_FEATURE_MIDPOINTS_IN_TILE_SQL`（wind、道路自
 **material_catalogの動的値列挙**（`get_distinct_material_values`）: 軸スタジオ
 （AxisComposer.tsx）がhighway/surface/smoothnessのような開放的な多値材料の候補一覧を
 動的取得するための経路。値式（`MaterialSpec.value_sql`）は`domain/material_sql.py`の共有断片を
-`_ROAD_SURFACE_TILE_MVT_SQL`・`material_coverage.py`
+`ROAD_SURFACE_TILE_MVT_SQL`・`material_coverage.py`
 （[evaluation-scoring.md](evaluation-scoring.md)）と共通で参照する。詳細は
 [axis-studio.md](axis-studio.md)参照。
 

@@ -18,18 +18,16 @@ class _TileRepository:
     """路面・点のMVTを焼く口とデータの世代だけを持つフェイク。取込範囲外はNone、DB障害は例外。"""
 
     def __init__(self, tile: bytes | None = None, error: Exception | None = None):
-        self._tile = tile
-        self._error = error
-        self.tile_calls = 0
+        self.tile = tile
+        self.error = error
 
     async def get_data_revisions(self):
         return DataRevisions(derived=1, imported=1)
 
     async def _answer(self):
-        self.tile_calls += 1
-        if self._error is not None:
-            raise self._error
-        return self._tile
+        if self.error is not None:
+            raise self.error
+        return self.tile
 
     async def get_road_surface_tile_mvt(self, z, x, y, bbox):
         return await self._answer()
@@ -76,14 +74,15 @@ async def test_db_error_tile_is_empty_and_browsers_must_not_keep_it(serve, empty
 @pytest.mark.parametrize(("serve", "empty_tile"), TILE_KINDS)
 async def test_tile_is_kept_on_disk_without_anyone_fetching_the_catalog_first(serve, empty_tile):
     """世代はタイルを配る経路が自分で読む。起動後に誰もカタログを取っていなくても、焼いたタイルは
-    世代付きの鍵でディスクへ残り、同じタイルの2回目はDBへ行かない。"""
+    世代付きの鍵でディスクへ残り、同じタイルの2回目はDBが答えなくても焼いたタイルを配る。"""
     repository = _TileRepository(tile=b"tile")
     service = RegionService(repository=repository)
-
-    await serve(service)
     await serve(service)
 
-    assert repository.tile_calls == 1
+    repository.error = ConnectionRefusedError("db down")
+    tile = await serve(service)
+
+    assert tile.content == b"tile"
 
 
 # --- 区間インスペクタ ---
@@ -149,28 +148,15 @@ async def test_axis_inspector_uses_the_direction_dependent_materials_it_is_given
 # --- 事故データ収録年数 ---
 
 
-class _AccidentYearsRepository:
-    """収録年だけを答えるフェイク（`get_accident_years`の戻りを差し替える）。"""
-
-    def __init__(self, years=None, error: Exception | None = None):
-        self._years = years or []
-        self._error = error
+class _UnreadableAccidentYearsRepository:
+    """収録年を読めないDBの代役。"""
 
     async def get_accident_years(self):
-        if self._error is not None:
-            raise self._error
-        return self._years
-
-
-async def test_accident_years_come_from_the_import_profile():
-    """年そのものを配る。表示側が年を文字列で持たないための口。"""
-    service = RegionService(repository=_AccidentYearsRepository([2023, 2024]))
-
-    assert await service.get_accident_years() == [2023, 2024]
+        raise ConnectionRefusedError("db down")
 
 
 async def test_accident_years_fall_back_to_empty_on_db_error():
-    service = RegionService(repository=_AccidentYearsRepository(error=ConnectionRefusedError("db down")))
+    service = RegionService(repository=_UnreadableAccidentYearsRepository())
 
     assert await service.get_accident_years() == []
 

@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import asyncpg  # noqa: E402
 
-from app.batch._common import asyncpg_dsn, run_batch_cli  # noqa: E402
+from app.batch.common import asyncpg_dsn, run_batch_cli  # noqa: E402
 from app.batch.ingest import ingest_source  # noqa: E402
 from app.batch.source_profile import SourceProfile, load_source_profile  # noqa: E402
 

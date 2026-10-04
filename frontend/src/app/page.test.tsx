@@ -1117,7 +1117,7 @@ describe("モバイルの下部タブとシート", () => {
     await renderHome();
     const settings = within(screen.getByRole("region", { name: "ルート設定" }));
     const results = within(screen.getByRole("region", { name: "ルート結果" }));
-    expect(settings.getAllByRole("tab").map((t) => t.textContent)).toEqual(["条件", "重み", "除外"]);
+    expect(settings.getAllByRole("tab").map((t) => t.textContent)).toEqual(["条件", "重み", "除外", "保存"]);
     expect(results.queryByRole("button", { name: "候補を全消去" })).toBeNull();
 
     answerGeneration([route("a")]);

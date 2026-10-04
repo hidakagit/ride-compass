@@ -56,12 +56,12 @@ def test_relation_reads_ancestry(tmp_path, monkeypatch):
     side = _commit(tmp_path, "c")
     monkeypatch.chdir(tmp_path)
 
-    assert gate._relation("", second) == "unknown"
-    assert gate._relation("0" * 40, second) == "unknown"
-    assert gate._relation(second, second) == "same"
-    assert gate._relation(second, first) == "older"
-    assert gate._relation(first, second) == "newer"
-    assert gate._relation(second, side) == "diverged"
+    assert gate.commit_relation("", second) == "unknown"
+    assert gate.commit_relation("0" * 40, second) == "unknown"
+    assert gate.commit_relation(second, second) == "same"
+    assert gate.commit_relation(second, first) == "older"
+    assert gate.commit_relation(first, second) == "newer"
+    assert gate.commit_relation(second, side) == "diverged"
 
 
 def test_only_changes_that_reach_the_image_deploy(tmp_path, monkeypatch):

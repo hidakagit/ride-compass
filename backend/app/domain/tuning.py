@@ -220,7 +220,7 @@ TUNING_PARAMETERS: tuple[TuningParameter, ...] = (
         "speed.max_descent_kmh",
         "下りの速度上限", "km/h", 45.0, 10.0, 100.0,
         TuningEffect.IMMEDIATE,
-        "入れないと急勾配で所要時間が発散する。",
+        "入れないと急勾配で所要時間が発散する。巡航速度がこれより速い人は、巡航速度を上限にする。",
         shown_to_users=True,
     ),
     TuningParameter(
@@ -231,10 +231,10 @@ TUNING_PARAMETERS: tuple[TuningParameter, ...] = (
     ),
     TuningParameter(
         "speed.climb_power_per_grade",
-        "登りの出力の増え方", "W/%", 25.0, 0.0, 200.0,
+        "登りの出力の増え方", "W/%", 15.0, 0.0, 200.0,
         TuningEffect.IMMEDIATE,
-        "勾配1%あたり何W余分に踏むか。勾配5%で時速10km前後という実感に"
-        "合わせた暫定値で、根拠は薄い。",
+        "勾配1%あたり何W余分に踏むか。巡航速度によらず同じWを足す。巡航20km/hの人が勾配5%で時速10km前後"
+        "という実感に合わせた暫定値で、根拠は薄い。",
     ),
     TuningParameter(
         "speed.max_climb_power_ratio",

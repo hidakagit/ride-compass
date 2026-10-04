@@ -10,7 +10,7 @@ import { cn } from "@/lib/cn";
 import type { RouteCandidate } from "@/types/route";
 
 interface EditDifferenceProps {
-  /** 元にしたルートの一覧での名前（例: `2`・`編集1`・`最速`）。 */
+  /** 元にしたルートの一覧での名前（例: `2`・`合成1`・`最速`）。 */
   originName: string;
   origin: RouteCandidate;
   edited: RouteCandidate;

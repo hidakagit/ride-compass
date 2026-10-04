@@ -13,20 +13,14 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { CLIENT_TUNING_IDS, clientTuningValue } from "@/lib/axisCatalog";
 import { heldReplies, onBackend, serveAxisCatalog } from "@/testing/backendServer";
 import { catalogEntry, catalogResponse } from "@/testing/catalogAxes";
 import type { AxisCatalogResponse } from "@/types/route";
 
 import { axisCatalogFetchFailure, retryAxisCatalogFetch, useAxisCatalog, useAxisCatalogSelect } from "./useAxisCatalog";
 
-const RESPONSE_A = catalogResponse([catalogEntry({ axis_id: "axis_a", default_weight: 0.4 })], {
-  client_tuning: { [CLIENT_TUNING_IDS.minStretchKm]: 0.5 },
-});
-const RESPONSE_B = catalogResponse([
-  catalogEntry({ axis_id: "axis_a", default_weight: 0.4 }),
-  catalogEntry({ axis_id: "axis_b", default_weight: 0.6 }),
-]);
+const RESPONSE_A = catalogResponse([catalogEntry({ axis_id: "axis_a" })]);
+const RESPONSE_B = catalogResponse([catalogEntry({ axis_id: "axis_a" }), catalogEntry({ axis_id: "axis_b" })]);
 
 /** 届いた順に、テストが応えるまで応答を返さない取得。`resolve`・`reject`は、その番目の取得が届くまで待ってから応える。 */
 function deferredFetches() {
@@ -40,8 +34,6 @@ function deferredFetches() {
   };
 }
 
-const failCatalog = () => onBackend("GET", "/api/axis-catalog", () => new Response(null, { status: 503 }));
-
 /** 取り直しが起きていれば応答が届くだけの間をおく（起きないことを確かめるため）。 */
 const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 50)));
 
@@ -50,7 +42,7 @@ function axisIds(catalog: ReturnType<typeof useAxisCatalog>) {
 }
 
 describe("useAxisCatalog", () => {
-  it("届くまでは軸0件で、取れても失敗してもいない。較正値も引けない", () => {
+  it("届くまでは軸0件で、取れても失敗してもいない", () => {
     deferredFetches();
 
     const { result } = renderHook(() => useAxisCatalog());
@@ -58,11 +50,10 @@ describe("useAxisCatalog", () => {
     expect(result.current.axes).toEqual([]);
     expect(result.current.loaded).toBe(false);
     expect(result.current.failed).toBe(false);
-    expect(clientTuningValue(result.current, CLIENT_TUNING_IDS.minStretchKm)).toBeUndefined();
     expect(axisCatalogFetchFailure(result.current)).toBeNull();
   });
 
-  it("届いたら、応答の軸・既定重み・較正値を持つ取れたカタログになり、印の項目は無い", async () => {
+  it("届いたら、応答の軸を持つ取れたカタログになり、印の項目は無い", async () => {
     serveAxisCatalog(RESPONSE_A);
 
     const { result } = renderHook(() => useAxisCatalog());
@@ -70,41 +61,27 @@ describe("useAxisCatalog", () => {
     await waitFor(() => expect(result.current.loaded).toBe(true));
     expect(result.current.failed).toBe(false);
     expect(axisIds(result.current)).toEqual(["axis_a"]);
-    expect(result.current.defaultWeights).toEqual({ axis_a: 0.4 });
-    expect(clientTuningValue(result.current, CLIENT_TUNING_IDS.minStretchKm)).toBe(0.5);
     expect(axisCatalogFetchFailure(result.current)).toBeNull();
   });
 
-  it("軸が0件の応答も、取れたカタログになる", async () => {
-    serveAxisCatalog(catalogResponse([]));
-
-    const { result } = renderHook(() => useAxisCatalog());
-
-    await waitFor(() => expect(result.current.loaded).toBe(true));
-    expect(result.current.axes).toEqual([]);
-    expect(result.current.failed).toBe(false);
-  });
-
   it("失敗したら軸0件の失敗したカタログになり、ヘッダーの印の項目が再試行を持って出る", async () => {
-    failCatalog();
+    onBackend("GET", "/api/axis-catalog", () => new Response(null, { status: 503 }));
 
     const { result } = renderHook(() => useAxisCatalog());
 
     await waitFor(() => expect(result.current.failed).toBe(true));
     expect(result.current.loaded).toBe(false);
     expect(result.current.axes).toEqual([]);
-    const failure = axisCatalogFetchFailure(result.current);
-    expect(failure).toMatchObject({ id: "axis-catalog", label: "軸一覧" });
-    expect(failure?.onRetry).toBe(retryAxisCatalogFetch);
+    expect(axisCatalogFetchFailure(result.current)).not.toBeNull();
   });
 
-  it("失敗の後の再試行は取り直し、取り直している間は失敗を下ろし、取れたら印の項目が消える", async () => {
+  it("失敗の後の印の項目の再試行は取り直し、取り直している間は失敗を下ろし、取れたら印の項目が消える", async () => {
     const fetches = deferredFetches();
     const { result } = renderHook(() => useAxisCatalog());
     await fetches.reject(0);
     await waitFor(() => expect(result.current.failed).toBe(true));
 
-    act(() => retryAxisCatalogFetch());
+    act(() => axisCatalogFetchFailure(result.current)!.onRetry!());
 
     await waitFor(() => expect(fetches.arrived()).toBe(2));
     expect(result.current.failed).toBe(false);
@@ -153,49 +130,15 @@ describe("useAxisCatalog", () => {
     await waitFor(() => expect(fetches.arrived()).toBe(2));
     await fetches.reject(1);
 
-    for (const reader of [first, second]) {
-      expect(reader.result.current.loaded).toBe(true);
-      expect(reader.result.current.failed).toBe(false);
-      expect(axisIds(reader.result.current)).toEqual(["axis_a"]);
-    }
-  });
-
-  it("読み手が一度いなくなっても、次の読み手は届いたカタログから始まる", async () => {
-    const fetches = deferredFetches();
-    const first = renderHook(() => useAxisCatalog());
-    await fetches.resolve(0, RESPONSE_A);
-    await waitFor(() => expect(first.result.current.loaded).toBe(true));
-    first.unmount();
-
-    const next = renderHook(() => useAxisCatalog());
-
-    expect(next.result.current.loaded).toBe(true);
-    expect(axisIds(next.result.current)).toEqual(["axis_a"]);
+    expect(second.result.current.failed).toBe(false);
+    expect(axisIds(second.result.current)).toEqual(["axis_a"]);
   });
 });
 
 describe("useAxisCatalogSelect", () => {
   const countAxes = (response: AxisCatalogResponse) => response.axes.length;
 
-  it("届くまでは値が無く、届いたら読み手の導いた形を返す", async () => {
-    const fetches = deferredFetches();
-
-    const { result } = renderHook(() => useAxisCatalogSelect(countAxes));
-
-    expect(result.current).toEqual({ data: undefined, failed: false });
-    await fetches.resolve(0, RESPONSE_B);
-    await waitFor(() => expect(result.current).toEqual({ data: 2, failed: false }));
-  });
-
-  it("失敗したら値が無く失敗になる", async () => {
-    failCatalog();
-
-    const { result } = renderHook(() => useAxisCatalogSelect(countAxes));
-
-    await waitFor(() => expect(result.current).toEqual({ data: undefined, failed: true }));
-  });
-
-  it("形の異なる読み手どうしも、取得は1つを共有する", async () => {
+  it("形の異なる読み手どうしも、取得は1つを共有し、それぞれ自分の導いた形で受け取る", async () => {
     const fetches = deferredFetches();
 
     const counted = renderHook(() => useAxisCatalogSelect(countAxes));

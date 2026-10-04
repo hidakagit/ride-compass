@@ -35,3 +35,16 @@ export function endReport({ kind, url, messages, done }) {
     ...(denied.length ? ["", "判定に断られた操作:", ...denied.map((d) => `- ${d}`)] : []), "", `実行: ${url}`].join("\n");
   return head + words.split("\n").map((l) => `> ${l}`).join("\n").slice(0, LIMIT - head.length - tail.length) + tail;
 }
+
+// 担当の手番の記録（実行のファイルを gzip したもの）を置き場のリリースへ置き、開くリンクを返す。公開の Actions の記録と成果物は
+// 誰でも読めるので、非公開の置き場に置く。1つのリリースに付けられるのは1000件まで（公式の文書「About releases」）で、担当は1日に
+// 数百回動くので、リリースは日（UTC）ごとに分ける。同じ日の最初の担当どうしが並んで作ると後のほうは作れない（422）ので、
+// 先に作られたものへ付ける。
+export async function keepLog(gh, repository, { gz, name, now = new Date() }) {
+  const day = now.toISOString().slice(0, 10);
+  const path = `/repos/${repository}/releases`;
+  const find = () => gh.rest("GET", `${path}/tags/turns-${day}`);
+  const release = await find().catch(() => gh.rest("POST", path, { tag_name: `turns-${day}`, name: `担当の手番の記録 ${day}` }).catch(find));
+  const asset = await gh.rest("POST", `${release.upload_url.replace(/\{.*\}$/, "")}?name=${encodeURIComponent(name)}`, gz, "application/gzip");
+  return asset.browser_download_url;
+}

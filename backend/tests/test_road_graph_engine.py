@@ -2,8 +2,8 @@
 
 対象は、エンジンが自分で決める計算のうち、入力を配列や値で直接与えられるもの。
 
-- 表示値の部品（ジオメトリの連結・標高の集約と逆回りの代数変換・候補の難易度の比較）
-- 探索の部品（起点・終点の状態の引き方・繋ぎ目の候補・同点グループの試行順）
+- 表示値の部品（ジオメトリの連結・標高の集約と逆回りの付け替え・候補の難易度の比較）
+- 探索の部品（繋ぎ目の候補・同点グループの試行順）
 
 ここでは見ないもの:
 
@@ -11,6 +11,10 @@
   → `test_route_generation_behavior.py`（公開の入口`RouteGenerator`から、小さな道路網で確かめる）。
   エンジンの途中状態（`_RoadGraphContext`等）を手で組むテストはここに置かない——道路網の持ち方や
   組み立てを作り替えるたびに足場ごと書き直すことになり、振る舞いは何も守らない。
+- 起点・終点の状態の引き方（CSR／遷移構造からの索引）→ 周回・目的地の経路が起点に戻る・目的地へ着くことで
+  `test_route_generation_behavior.py`が通す。
+- 標高属性の逆向き（`ElevationAttribute.reversed_as`）→ `test_attributes.py`。候補の難易度の距離加重平均
+  （`distance_weighted_difficulty`）→ `test_difficulty.py`。
 - レグごとのコスト配列の合成（`domain/leg_costs.py`）→ `test_leg_costs.py`。
 - 探索カーネル（`domain/routing.py`）・評価軸（`domain/evaluation.py`）・走行モデル
   （`domain/cycling_speed.py`）・風（`domain/wind.py`）・0次フィルタ（`domain/hard_filters.py`）
@@ -22,18 +26,21 @@
 
 
 import numpy as np
+import pytest
 
 from app.domain.attributes import ElevationAttribute
 from app.domain.graph import LeanEdge
 from app.domain.route import RouteCandidate, RouteSegmentDetail
-from app.domain.routing import (
-    CsrGraphStructure,
-    NodeJunction,
-    SearchGraphStatics,
-    TurnExpandedStructure,
-    TurnExpandedTree,
+from app.domain.routing import NodeJunction, TurnExpandedTree
+from app.services.road_graph_engine import (
+    add_terminal_candidate,
+    aggregate_elevation,
+    concat_edge_geometries,
+    order_by_bearing_spread,
+    pick_better_candidate,
+    reverse_elevation_by_edge,
+    reverse_leg_assignment,
 )
-from app.services import road_graph_engine as engine
 
 
 # --------------------------------------------------------------------------------------
@@ -93,7 +100,7 @@ def test_concat_edge_geometries_drops_the_shared_boundary_point():
         lean_edge("e1", geometry=[[35.0, 139.0], [35.1, 139.1]]),
         lean_edge("e2", geometry=[[35.1, 139.1], [35.2, 139.2]]),
     ]
-    geometry, offsets = engine._concat_edge_geometries(edges)
+    geometry, offsets = concat_edge_geometries(edges)
 
     assert geometry["type"] == "LineString"
     assert geometry["coordinates"] == [[139.0, 35.0], [139.1, 35.1], [139.2, 35.2]]
@@ -106,7 +113,7 @@ def test_concat_edge_geometries_offsets_slice_back_to_each_edge():
         lean_edge("e1", geometry=[[35.0, 139.0], [35.1, 139.1], [35.2, 139.2]]),
         lean_edge("e2", geometry=[[35.2, 139.2], [35.3, 139.3]]),
     ]
-    geometry, offsets = engine._concat_edge_geometries(edges)
+    geometry, offsets = concat_edge_geometries(edges)
     coordinates = geometry["coordinates"]
 
     assert coordinates[offsets[0]:offsets[1] + 1] == [[139.0, 35.0], [139.1, 35.1], [139.2, 35.2]]
@@ -118,18 +125,12 @@ def test_concat_edge_geometries_keeps_both_points_when_edges_do_not_touch():
         lean_edge("e1", geometry=[[35.0, 139.0]]),
         lean_edge("e2", geometry=[[36.0, 140.0]]),
     ]
-    geometry, _ = engine._concat_edge_geometries(edges)
+    geometry, _ = concat_edge_geometries(edges)
     assert geometry["coordinates"] == [[139.0, 35.0], [140.0, 36.0]]
 
 
-def test_concat_edge_geometries_of_no_edges_is_an_empty_line():
-    geometry, offsets = engine._concat_edge_geometries([])
-    assert geometry["coordinates"] == []
-    assert offsets == [0]
-
-
 # --------------------------------------------------------------------------------------
-# 標高の集約と逆走時の代数変換
+# 標高の集約と、逆回りの区間への付け替え
 # --------------------------------------------------------------------------------------
 
 
@@ -143,7 +144,7 @@ def test_aggregate_elevation_collects_only_present_values():
         "e4": elevation("e4", start_elevation_m=30.0, end_elevation_m=None, elevation_gain_m=2.0),
     }
 
-    assert engine._aggregate_elevation(edges, attributes) == {
+    assert aggregate_elevation(edges, attributes) == {
         "elevation_gain_m": 12.0,
         "min_elevation_m": 5.0,
         "max_elevation_m": 30.0,
@@ -152,35 +153,11 @@ def test_aggregate_elevation_collects_only_present_values():
 
 def test_aggregate_elevation_without_any_value_is_none_not_zero():
     """標高が1つも取れなかった経路は、0mではなく「取れなかった」として返す。"""
-    assert engine._aggregate_elevation([lean_edge("e1")], {}) == {
+    assert aggregate_elevation([lean_edge("e1")], {}) == {
         "elevation_gain_m": None,
         "min_elevation_m": None,
         "max_elevation_m": None,
     }
-
-
-def test_reversed_elevation_swaps_climb_and_descent():
-    forward = elevation(
-        "fwd", start_elevation_m=10.0, end_elevation_m=50.0,
-        elevation_gain_m=40.0, elevation_loss_m=0.0,
-        average_grade=4.0, max_grade=9.0, min_grade=-1.0,
-    )
-    reverse = forward.reversed_as("rev")
-
-    assert reverse.edge_id == "rev"
-    assert (reverse.start_elevation_m, reverse.end_elevation_m) == (50.0, 10.0)
-    assert (reverse.elevation_gain_m, reverse.elevation_loss_m) == (0.0, 40.0)
-    assert reverse.average_grade == -4.0
-    assert reverse.max_grade == 1.0
-    assert reverse.min_grade == -9.0
-
-
-def test_reversed_elevation_keeps_missing_grades_missing():
-    forward = elevation("fwd", average_grade=None, max_grade=None, min_grade=None)
-    reverse = forward.reversed_as("rev")
-    assert reverse.average_grade is None
-    assert reverse.max_grade is None
-    assert reverse.min_grade is None
 
 
 def test_reverse_elevation_by_edge_pairs_the_path_in_reverse_order():
@@ -189,7 +166,7 @@ def test_reverse_elevation_by_edge_pairs_the_path_in_reverse_order():
     reverse_edges = [lean_edge("r2"), lean_edge("r1")]
     attributes = {"f2": elevation("f2", start_elevation_m=1.0, end_elevation_m=9.0)}
 
-    result = engine._reverse_elevation_by_edge(forward_edges, reverse_edges, attributes)
+    result = reverse_elevation_by_edge(forward_edges, reverse_edges, attributes)
 
     assert set(result) == {"r2"}
     assert result["r2"].start_elevation_m == 9.0
@@ -202,72 +179,28 @@ def test_reverse_elevation_by_edge_pairs_the_path_in_reverse_order():
 
 def test_reverse_leg_assignment_renumbers_as_well_as_reverses():
     """並びだけ反転すると、走り始めを帰着時刻の風で評価することになる。"""
-    assert engine._reverse_leg_assignment([0, 0, 0, 1, 1]) == [0, 0, 1, 1, 1]
-    assert engine._reverse_leg_assignment([0, 1, 2]) == [0, 1, 2]
-    assert engine._reverse_leg_assignment([]) == []
+    assert reverse_leg_assignment([0, 0, 0, 1, 1]) == [0, 0, 1, 1, 1]
 
 
-def test_pick_better_candidate_prefers_the_lower_difficulty():
-    forward = route_candidate("forward", segments=[segment_detail(5.0, 1.0)])
-    reverse = route_candidate("reverse", segments=[segment_detail(3.0, 1.0)])
+@pytest.mark.parametrize(
+    ("forward_difficulty", "reverse_difficulty", "picked"),
+    [
+        (5.0, 3.0, "reverse"),
+        (3.0, 5.0, "forward"),
+        # 比較できないときは「逆回りの方が良い」と読まない（安全側）
+        (5.0, None, "forward"),
+        (None, 7.0, "reverse"),
+    ],
+)
+def test_pick_better_candidate_takes_the_lower_difficulty(forward_difficulty, reverse_difficulty, picked):
+    """難易度は区間から求める。区間が無い候補は比較できない。"""
+    def candidate(name, difficulty):
+        return route_candidate(name, segments=[] if difficulty is None else [segment_detail(difficulty, 1.0)])
 
-    assert engine._pick_better_candidate(forward, reverse) is reverse
-    assert engine._pick_better_candidate(reverse, forward) is reverse
+    forward = candidate("forward", forward_difficulty)
+    reverse = candidate("reverse", reverse_difficulty)
 
-
-def test_pick_better_candidate_falls_back_to_forward_when_reverse_cannot_be_scored():
-    """比較不能を「逆回りの方が良い」と読まない（安全側）。"""
-    forward = route_candidate("forward", segments=[segment_detail(5.0, 1.0)])
-    reverse = route_candidate("reverse", segments=[])
-
-    assert engine._pick_better_candidate(forward, reverse) is forward
-
-
-def test_pick_better_candidate_takes_reverse_when_only_forward_is_unscorable():
-    forward = route_candidate("forward", segments=[])
-    reverse = route_candidate("reverse", segments=[segment_detail(7.0, 1.0)])
-
-    assert engine._pick_better_candidate(forward, reverse) is reverse
-
-
-def test_route_composite_difficulty_is_the_distance_weighted_mean_of_the_scored_segments():
-    """難易度の無い区間は平均に入れない（(2×0.5 + 4×1.5) / 2.0）。"""
-    candidate = route_candidate(
-        "candidate", segments=[segment_detail(2.0, 0.5), segment_detail(4.0, 1.5), segment_detail(None, 0.3)]
-    )
-
-    assert engine._route_composite_difficulty(candidate) == 3.5
-
-
-def test_route_composite_difficulty_is_none_without_segments():
-    assert engine._route_composite_difficulty(route_candidate("candidate")) is None
-
-
-# --------------------------------------------------------------------------------------
-# CSR／遷移構造からの索引
-# --------------------------------------------------------------------------------------
-
-
-def test_origin_states_are_the_edges_leaving_the_node():
-    """CSRのエントリ位置ではなく、そのエントリが指すEdge indexを返す。"""
-    csr = CsrGraphStructure(
-        node_count=3,
-        indptr=np.array([0, 2, 3, 3], dtype=np.int32),
-        indices=np.array([1, 2, 0], dtype=np.int32),
-        entry_edge_index=np.array([2, 0, 1], dtype=np.int32),
-    )
-    states = engine._origin_states(SearchGraphStatics(csr=csr, edge_length_m=np.zeros(3)), 0)
-
-    assert states.tolist() == [2, 0]
-    assert states.dtype == np.int64
-
-
-def test_destination_states_are_the_edges_entering_the_node():
-    structure = TurnExpandedStructure(
-        state_count=3, indptr=np.zeros(4, dtype=np.int64), target_state=np.array([], dtype=np.int64),
-        turn_seconds=np.array([]), edge_from=np.array([0, 1, 2]), edge_to=np.array([1, 2, 1]),
-    )
-    assert engine._destination_states(structure, 1).tolist() == [0, 2]
+    assert pick_better_candidate(forward, reverse).id == picked
 
 
 # --------------------------------------------------------------------------------------
@@ -294,7 +227,7 @@ def test_add_terminal_candidate_copies_every_field_from_the_forward_tree():
         4, node_cost=[0.0, 5.0], node_length_m=[0.0, 60.0], node_seconds=[0.0, 4.0], node_best_state=[-1, 3],
     )
 
-    engine._add_terminal_candidate(junction, forward, 1)
+    add_terminal_candidate(junction, forward, 1)
 
     assert junction.cost[1] == 5.0
     assert junction.length_m[1] == 60.0
@@ -309,7 +242,7 @@ def test_add_terminal_candidate_does_nothing_when_the_forward_tree_never_arrived
         4, node_cost=[0.0, np.inf], node_length_m=[0.0, np.nan], node_seconds=[0.0, np.nan], node_best_state=[-1, -1],
     )
 
-    engine._add_terminal_candidate(junction, forward, 1)
+    add_terminal_candidate(junction, forward, 1)
 
     assert not np.isfinite(junction.cost[1])
     assert junction.forward_state[1] == -1
@@ -321,7 +254,7 @@ def test_add_terminal_candidate_does_nothing_when_the_forward_tree_never_arrived
 
 
 def test_order_by_bearing_spread_uses_ring_centre_closeness_before_anything_is_selected():
-    order = engine._order_by_bearing_spread(
+    order = order_by_bearing_spread(
         [10, 11, 12], [], {10: 0.0, 11: 90.0, 12: 180.0}, {10: 500.0, 11: 10.0, 12: 100.0}
     )
     assert order == [11, 12, 10]
@@ -329,7 +262,7 @@ def test_order_by_bearing_spread_uses_ring_centre_closeness_before_anything_is_s
 
 def test_order_by_bearing_spread_puts_the_most_distant_bearing_first():
     """同点候補が同じ方角に並ぶと、周回一覧が「似た向き」ばかりになる。"""
-    order = engine._order_by_bearing_spread(
+    order = order_by_bearing_spread(
         [10, 11], [99], {10: 20.0, 11: 180.0, 99: 0.0}, {10: 0.0, 11: 0.0}
     )
     assert order == [11, 10]
@@ -337,14 +270,14 @@ def test_order_by_bearing_spread_puts_the_most_distant_bearing_first():
 
 def test_order_by_bearing_spread_measures_bearings_on_the_circle():
     """方位の差は360度を跨ぐ。単純な引き算だと350度と10度が「遠い」と誤判定される。"""
-    order = engine._order_by_bearing_spread(
+    order = order_by_bearing_spread(
         [10, 11], [99], {10: 10.0, 11: 90.0, 99: 350.0}, {10: 0.0, 11: 0.0}
     )
     assert order == [11, 10]
 
 
 def test_order_by_bearing_spread_breaks_ties_by_node_index():
-    order = engine._order_by_bearing_spread(
+    order = order_by_bearing_spread(
         [12, 11], [99], {11: 90.0, 12: 90.0, 99: 0.0}, {11: 5.0, 12: 5.0}
     )
     assert order == [11, 12]

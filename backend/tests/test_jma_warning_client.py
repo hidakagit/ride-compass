@@ -24,11 +24,11 @@ from tests.fake_http import answering, client_for
 @pytest.fixture(autouse=True)
 def _empty_caches():
     """地域マスタと電文のキャッシュはプロセス内のモジュール変数に残るため、テストごとに空にする。"""
-    jma_warning_client._area_data_cache.clear()
-    jma_warning_client._warning_cache.clear()
+    jma_warning_client.area_data_cache.clear()
+    jma_warning_client.warning_cache.clear()
     yield
-    jma_warning_client._area_data_cache.clear()
-    jma_warning_client._warning_cache.clear()
+    jma_warning_client.area_data_cache.clear()
+    jma_warning_client.warning_cache.clear()
 
 
 def _warning_url(office_code: str) -> str:

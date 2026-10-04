@@ -11,7 +11,7 @@ import pytest
 import pytest_asyncio
 
 from app.batch import derive_counts, derive_topology, derive_way_materials
-from app.batch._common import asyncpg_dsn
+from app.batch.common import asyncpg_dsn
 from app.domain.divided_carriageway import GEOMETRIC_GAP_M, NAMED_GAP_M
 from app.domain.geo import KM_PER_DEGREE_LATITUDE
 from tests.conftest import postgis_database_url
