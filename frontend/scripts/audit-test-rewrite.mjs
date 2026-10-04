@@ -4,10 +4,11 @@
 //
 // 出すもの: テストの本数（実行した数。it.each は展開した後）・テストの行数・行と分岐のカバレッジ・届いていない行と分岐・
 // テストごとの「そのテストだけが届く行」。パスは frontend からの相対で渡す。
-// テストを渡さなければ、母集団を集める: src の *.test.ts(x) のうち、import の指定子が「/<実装のファイル名から拡張子を除いたもの>」
-// で終わるもの（間接に通すテストは入らないので、要れば並べて渡す）。
+// テストを渡さなければ、母集団を集める: src の *.test.ts(x) のうち、import の指定子（相対・@/）をテストの位置から解決すると
+// 渡した実装のパスになるもの（間接に通すテストは入らないので、要れば並べて渡す）。--ref でも同じ規則でその版から集める。
 // --ref は「前」の値を測る（例: --ref origin/master）。母集団をその版から集め、その版のテストを元のテストの隣へ一時の名前で
 // 書き出して流し、終わったら消す。実装はその版と同じでなければならない（起こし直しは実装を変えない）。
+// --ref ではテストごとの「そのテストだけが届く行」を出さない（旧版のテスト名が出るため。起こし直しの手順1〜3では旧版を開かない）。
 // 1本だけ流すのは、vitest の -t が describe と題名を「 > 」でつないだ名前に当てるため、その形で絞る。
 // 絞って1本も流れなければ（どれも skipped）、0行とせずに落とす。
 
@@ -39,28 +40,45 @@ function git(args) {
   return execFileSync("git", args, { cwd: frontendRoot, encoding: "utf-8", maxBuffer: 1 << 30 });
 }
 
-/** 版 ref（無ければ作業ツリー）で、実装の名前を import の指定子の末尾に持つテスト。 */
+/**
+ * 版 ref（無ければ作業ツリー）で、実装そのものを import するテスト。指定子（相対・`@/` の別名）をテストの位置から
+ * 実装のパスへ解決して比べる（ファイル名だけで比べると、同じ名前の別の実装のテストが入る）。拡張子を省いた指定子と、
+ * index を指すディレクトリの指定子も実装と同じとみなす。
+ */
 function collectPopulation(ref) {
-  const name = path.basename(implementation).replace(/\.[^.]+$/, "");
-  const pattern = `/${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["']`;
+  const stem = implementation.replace(/\.[^./]+$/, "");
+  const targets = new Set([implementation, stem]);
+  if (path.posix.basename(stem) === "index") targets.add(path.posix.dirname(stem));
+  const specifier = /(?:from|import)\s*\(?\s*["']([^"']+)["']/g;
   // 作業ツリーでは、まだ追跡していない起こし直したテストも拾う。
   const args = [
     "grep",
     ...(ref ? [] : ["--untracked"]),
-    "-lE",
-    pattern,
+    "-E",
+    `(from|import)[[:space:]]*\\(?[[:space:]]*["'][.@]`,
     ...(ref ? [ref] : []),
     "--",
     "src/**/*.test.ts",
     "src/**/*.test.tsx",
   ];
-  const result = spawnSync("git", args, { cwd: frontendRoot, encoding: "utf-8" });
+  const result = spawnSync("git", args, { cwd: frontendRoot, encoding: "utf-8", maxBuffer: 1 << 30 });
   if (result.status !== 0 && result.status !== 1) fail(`母集団を集められない: ${result.stderr}`);
-  // git grep は版を付けると「<版>:<frontend からのパス>」で返す。
-  return result.stdout
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => (ref ? line.slice(ref.length + 1) : line));
+  const population = new Set();
+  // git grep は「[<版>:]<frontend からのパス>:<行>」で返す。
+  for (const line of result.stdout.split("\n").filter(Boolean)) {
+    const rest = ref ? line.slice(ref.length + 1) : line;
+    const separator = rest.indexOf(":");
+    const test = rest.slice(0, separator);
+    for (const [, spec] of rest.slice(separator + 1).matchAll(specifier)) {
+      const resolved = spec.startsWith("@/")
+        ? path.posix.join("src", spec.slice(2))
+        : spec.startsWith(".")
+          ? path.posix.join(path.posix.dirname(test), spec)
+          : null;
+      if (resolved && targets.has(resolved)) population.add(test);
+    }
+  }
+  return [...population].sort();
 }
 
 /** --ref の版のテストを元の隣へ書き出し、流すパスの並びを返す。書き出したものは終わるときに消す。 */
@@ -196,6 +214,8 @@ console.log(
   `届いていない分岐: ${uncoveredBranches.map((b) => `行${b.line} ${b.type} の${b.index + 1}つ目`).join("、") || "なし"}`,
 );
 
+if (values.ref) process.exit(0);
+
 const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const reachedBy = whole.executed.map((test) => {
   const alone = runVitest([test.file], `^${escape(test.name)}$`);
@@ -206,6 +226,5 @@ const reachedBy = whole.executed.map((test) => {
 console.log("そのテストだけが届く行:");
 for (const { test, lines } of reachedBy) {
   const only = [...lines].filter((line) => reachedBy.every((other) => other.test === test || !other.lines.has(line)));
-  const label = values.ref ? test.file.replace(".audit-before.test.", ".test.") : test.file;
-  console.log(`  ${label} > ${test.name}: ${ranges(only)}`);
+  console.log(`  ${test.file} > ${test.name}: ${ranges(only)}`);
 }

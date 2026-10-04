@@ -122,7 +122,7 @@ describe("RouteForm 候補数", () => {
 });
 
 describe("RouteForm 周回", () => {
-  it("出発地の行と距離のスライダー（1km〜上限を1km刻み）を出し、経由地・目的地の行は出さない", () => {
+  it("出発地の行と距離のスライダー（1km〜上限を1km刻み）と候補の距離の幅を出し、経由地・目的地の行は出さない", () => {
     renderForm({ routeMode: "loop", distance: "42" });
 
     const slider = screen.getByRole("slider", { name: "距離" });
@@ -131,6 +131,9 @@ describe("RouteForm 周回", () => {
     expect(slider).toHaveAttribute("step", "1");
     expect(slider).toHaveValue("42");
     expect(screen.getByText("42km")).toBeInTheDocument();
+    const tolerance = `±${routeGenerateConfig.default_distance_tolerance_km}km`;
+    expect(screen.getByText(tolerance)).toBeInTheDocument();
+    expect(slider.dataset.usage).toContain(tolerance);
     expect(pointRow("出発地を地図で選ぶ")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^経由地/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^目的地/ })).not.toBeInTheDocument();

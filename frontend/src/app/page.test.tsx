@@ -308,7 +308,7 @@ function holdGeneration() {
     return pending;
   });
   return {
-    progress: (progress: GenerationProgress) => act(() => onProgress?.(progress)),
+    progress: (progress: GenerationProgress) => act(async () => onProgress?.(progress)),
     finish: (routes: RouteCandidate[]) => act(async () => settle.resolve(routes)),
   };
 }
@@ -337,7 +337,9 @@ async function generate(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("button", { name: "ルート生成" }));
 }
 
-const call = <A extends unknown[]>(fn: (...args: A) => void, ...args: A) => act(() => fn(...args));
+// 待つ act は async の関数で渡す。同期の関数の act を待つと、Testing Library が act の環境の印を先に戻し、
+// React が残りを流す間に届いた更新が「act の環境ではない」と警告される。
+const call = <A extends unknown[]>(fn: (...args: A) => void, ...args: A) => act(async () => fn(...args));
 
 beforeEach(() => {
   stubBackend(() => new Response(null, { status: 503 }));
@@ -426,7 +428,7 @@ describe("生成", () => {
     });
   });
 
-  it("実行中は押せず、順番待ちか経過時間をボタンに出す", async () => {
+  it("実行中は押せず、順番待ちか経過時間をボタンの名前に出す", async () => {
     const user = userEvent.setup();
     await renderHome();
     const held = holdGeneration();
@@ -435,11 +437,9 @@ describe("生成", () => {
     const button = () => screen.getByRole("button", { name: /^(生成中|順番待ち)/ });
     expect(button()).toBeDisabled();
     expect(button()).toHaveAccessibleName("生成中...");
-    expect(button()).toHaveTextContent("生成中");
 
     await held.progress({ status: "queued", elapsedMs: 1000 });
     expect(button()).toHaveAccessibleName("順番待ち...");
-    expect(button()).toHaveTextContent("順番待ち");
 
     await held.progress({ status: "running", elapsedMs: 12_400 });
     expect(button()).toHaveAccessibleName("生成中...(12秒経過)");
@@ -525,7 +525,6 @@ describe("生成", () => {
     await generate(user);
 
     const clear = screen.getByRole("button", { name: "候補を全消去" });
-    expect(clear).toHaveTextContent("全消去");
     expect(clear.querySelector("svg")).not.toBeNull();
 
     await user.click(clear);
@@ -1057,6 +1056,8 @@ describe("ヘッダーとメニュー", () => {
   });
 
   it("メニューからデバッグログを開閉し、コンソールの側からも閉じられる", async () => {
+    // デバッグログは取得の失敗を console.error へ出すので、網の取得を通しておく。
+    stubBackend(() => Response.json([]));
     setDebugEnabled(true);
     await renderHome();
     const menu = () =>

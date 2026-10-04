@@ -254,7 +254,7 @@ describe("RouteSplicePanel 軸別の差", () => {
     expect(screen.getByRole("img", { name: "街灯 +0.1" })).toBeInTheDocument();
   });
 
-  it("どの軸の動きも0.1未満なら棒も軸の差も出さず、「差分」を押す案内を出す", () => {
+  it("どの軸の動きも0.1未満なら棒も軸の差も出さず、「差分を見る」を押す案内を出す", () => {
     const still = makeRouteCandidate({
       edge_ids: ["e1", "e4", "e3"],
       axis_contributions: { width: 10.05, traffic: 5, slope: 3 },
@@ -262,7 +262,7 @@ describe("RouteSplicePanel 軸別の差", () => {
     renderPanel({ appliedCount: 1, preview: still });
 
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
-    expect(screen.getByText("「差分」を押すと、乗り換えた結果が出ます")).toBeInTheDocument();
+    expect(screen.getByText("「差分を見る」を押すと、乗り換えた結果が出ます")).toBeInTheDocument();
   });
 });
 
@@ -276,10 +276,10 @@ describe("RouteSplicePanel 案内", () => {
     expect(screen.getByText(hint)).toBeInTheDocument();
   });
 
-  it("乗り換えて差分をまだ見ていなければ、「差分」を押す案内を出す", () => {
+  it("乗り換えて差分をまだ見ていなければ、「差分を見る」を押す案内を出す", () => {
     renderPanel({ appliedCount: 1, hasAlternatives: false, preview: null });
 
-    expect(screen.getByText("「差分」を押すと、乗り換えた結果が出ます")).toBeInTheDocument();
+    expect(screen.getByText("「差分を見る」を押すと、乗り換えた結果が出ます")).toBeInTheDocument();
   });
 
   it("合成に失敗した理由を知らせとして出す", () => {

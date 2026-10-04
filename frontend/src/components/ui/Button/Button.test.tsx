@@ -1,7 +1,7 @@
 /**
  * `components/ui/Button/Button.tsx`——押すと1回動く操作のボタン。
  *
- * 見るもの: 種類を指定しないとフォームを送らないこと。
+ * 見るもの: 種類を指定しないとフォームを送らないこと、パネルの操作のボタン（アイコンだけ）は名前を吹き出し（`title`）にも出すこと。
  *
  * ここで見ないもの: 役割（`variant`）・大きさ（`size`）ごとの見た目——クラス文字列はこの部品の宣言で、
  * テスト環境はTailwindの規則を作らないため、書き写して突き合わせる以外に確かめようがない。
@@ -26,5 +26,15 @@ describe("Button", () => {
     await userEvent.click(screen.getByRole("button", { name: "保存" }));
 
     expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("パネルの操作のボタンは、名前を吹き出しにも出す", () => {
+    render(
+      <Button size="panelIcon" aria-label="ルート生成">
+        <svg />
+      </Button>,
+    );
+
+    expect(screen.getByRole("button", { name: "ルート生成" })).toHaveAttribute("title", "ルート生成");
   });
 });
