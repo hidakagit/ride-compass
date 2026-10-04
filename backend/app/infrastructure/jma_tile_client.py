@@ -28,7 +28,7 @@ class JmaTileNotFoundError(Exception):
 # 多数ユーザーがキャッシュを共有できる程度の長さにする。
 _TARGET_TIMES_TTL_SECONDS = 2 * 60
 # 同時に存在しうる時刻一覧の種類は要素の系統ぶんしかないため、上限は小さくてよい。
-_target_times_cache: TTLCache = TTLCache(maxsize=16, ttl=_TARGET_TIMES_TTL_SECONDS)
+target_times_cache: TTLCache = TTLCache(maxsize=16, ttl=_TARGET_TIMES_TTL_SECONDS)
 
 # targetTimes_N1.json / targetTimes_N2.json / targetTimes_N3.json / targetTimes.json のいずれも
 # 末尾がtargetTimes*.jsonという共通パターンを持つ。
@@ -49,22 +49,22 @@ def is_target_times_path(path: str) -> bool:
 # 上限の状態はモジュールレベルで持つ。プロセスをまたいでは効かないため、ワーカーを
 # 複数にした起動は`single_process.py`が止める。
 _rate_limit_lock = asyncio.Lock()
-_last_fetch_at: float | None = None
+last_fetch_at: float | None = None
 
 
 async def _wait_for_upstream_rate_limit() -> None:
     """直前の実フェッチから`1/jma_tile_upstream_max_requests_per_second`秒未満しか
     経っていなければ、その差分だけ待つ。キャッシュヒット（get_cached）はこの待機の
     対象外——実際にJMAへ問い合わせる直前（fetch）でのみ呼ぶ。"""
-    global _last_fetch_at
+    global last_fetch_at
     min_interval = 1.0 / settings.jma_tile_upstream_max_requests_per_second
     async with _rate_limit_lock:
         now = time.monotonic()
-        if _last_fetch_at is not None:
-            wait_seconds = _last_fetch_at + min_interval - now
+        if last_fetch_at is not None:
+            wait_seconds = last_fetch_at + min_interval - now
             if wait_seconds > 0:
                 await asyncio.sleep(wait_seconds)
-        _last_fetch_at = time.monotonic()
+        last_fetch_at = time.monotonic()
 
 
 class JmaTileClient:
@@ -84,7 +84,7 @@ class JmaTileClient:
         is_target_times = is_target_times_path(path)
         with log_external_call("weather:jma-tile", path=path) as fields:
             if is_target_times:
-                cached = _target_times_cache.get(path)
+                cached = target_times_cache.get(path)
             else:
                 cached = await jma_tile_redis_cache.get(path)
             fields["result"] = "ok"
@@ -124,7 +124,7 @@ class JmaTileClient:
                     # 確定した404だけを覚え、次回以降は上流へ問い合わせずJmaTileNotFoundErrorで即座に済ませる。
                     # 配信前の地物の404を覚えると、配信された後もその間は「無い」を返し続ける。
                     if is_target_times:
-                        _target_times_cache[path] = jma_tile_redis_cache.EMPTY_TILE
+                        target_times_cache[path] = jma_tile_redis_cache.EMPTY_TILE
                     elif is_final_absence(path):
                         await jma_tile_redis_cache.set_empty(path)
                 else:
@@ -138,7 +138,7 @@ class JmaTileClient:
                 content = response.content
                 result = (content, content_type)
                 if is_target_times:
-                    _target_times_cache[path] = result
+                    target_times_cache[path] = result
                 else:
                     await jma_tile_redis_cache.set(path, content, content_type)
         if not_found:
@@ -153,7 +153,7 @@ class JmaTileClient:
         書き込み先は`fetch`と同じ（`targetTimes*.json`はプロセス内、それ以外はRedis）。
         """
         if is_target_times_path(path):
-            _target_times_cache[path] = (content, content_type)
+            target_times_cache[path] = (content, content_type)
         else:
             await jma_tile_redis_cache.set(path, content, content_type)
 

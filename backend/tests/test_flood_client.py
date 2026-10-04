@@ -33,9 +33,9 @@ KANDA = {
 
 @pytest.fixture(autouse=True)
 def _empty_bulletin_cache():
-    flood_client._flood_cache.clear()
+    flood_client.flood_cache.clear()
     yield
-    flood_client._flood_cache.clear()
+    flood_client.flood_cache.clear()
 
 
 def answering(**response) -> tuple[httpx.AsyncClient, respx.Route]:
