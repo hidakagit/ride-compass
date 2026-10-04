@@ -133,11 +133,11 @@ async def test_a_tag_with_the_value_is_true_and_an_absent_tag_is_false(road_grap
 async def test_a_cycleway_value_on_any_side_counts(road_graph_session):
     values = await _way_values(road_graph_session, material_sql.cycleway_has_value_sql("value_a", "value_b"), {
         1: {"cycleway:both": " Value_B "},
+        # 値の無い道も同じ側（NULLだけの配列との`&&`もfalse）。
         2: {"cycleway": "no", "cycleway:left": "other"},
-        3: {},
     })
 
-    assert values == {1: True, 2: False, 3: False}
+    assert values == {1: True, 2: False}
 
 
 # 停止要因の種別は区間の値の表の列名を決めるだけで、どの種別でも式は同じ。
