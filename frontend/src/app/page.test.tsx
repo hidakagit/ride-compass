@@ -1,1244 +1,571 @@
 /**
- * トップページ（`app/page.tsx`）——画面の枠（区分・シートの開閉と高さ・「ルート設定」のタブ・新着の印）と、機能の間の
- * 受け渡し（ある機能の変化が別の機能の振る舞いを変えるもの）を、ページを描いて確かめる。
+ * `app/page.tsx`——トップページ。機能（地図・ルートの設定と結果・走行条件・天候）を1つの画面に束ね、機能の間の値を受け渡す。
  *
- * ここで見ること:
- * - 区分（デスクトップ）とシート（モバイル）の開閉・高さ・保存と、生成の結果が出たときの知らせ方
- * - 生成の条件・走行条件・地図のレンズ・出発地が、生成の要求・地図・「ルート結果」へ同じ値で届くこと
- * - 地図で地点・区間を扱えるのは、それを持つパネルを見ている間だけで、編集中は止まること
- * - 結果・生成・区間の乗り換えをつなぐもの（`features/route/useRoutePlanner.ts`。各機能の単体では見えないので、ここで
- *   受け渡しとして見る）: 作った候補が結果へ入る・全消去と作り直しで編集が終わる・候補の有無が条件のずれの知らせに効く
- * - ヘッダー（天気・警報・取得の失敗の印・メニュー）と、地図の上の操作（まとめて戻す・現在地）の受け渡し
+ * 見ること（利用者の操作の流れで、ある機能の変化が別の機能の振る舞いを変える受け渡し）:
+ * - ルートを作る: 「ルート生成」が地図の色分けを添えて送ること・実行中は押せないこと、結果が出たら閉じていた「ルート結果」を
+ *   開くこと、候補が「ルート結果」と地図の両方へ出て、選んだ候補が地図でも選ばれ、区間を持つかで周りの塗りが決まること、
+ *   全消去で両方から消えること、候補がある間だけ条件のずれの印が点き全消去で消えること、走行条件の想定速度・出発時刻が
+ *   生成と地図の道の詳細へ同じ値で渡ること、「地図の色分け」の未使用を分ける重み（生成の前はいまの重み・後は使われた重み）
+ * - 地図で扱えること: 地点を置けるのは「ルート設定」の条件タブを見ている間だけで、周回の間は目的地を地図へ出さないこと、
+ *   区間を押して詳細を出せるのは「ルート結果」を見ている間だけのこと、編集の間は地図で地点も区間も扱わず全部の候補を重ね、
+ *   作り直すと編集が終わること、作ると直前の作り直しの失敗の文言を消し、合成ルートを選んでいる間は元のルートだけを重ねること、
+ *   研究モードの実験スロットは「比較」を見ている間だけ重ねること、地図の下のまとめて元に戻す操作
+ * - 画面の枠: スマホの下部タブとシート（1枚ずつ開く・地点を扱える間・結果の合図・入力の誤り・出発地・覆う高さ・高さの保存と
+ *   保存値の検査）、区分の開閉の保存、ヘッダーの「未取得」に並ぶ出所と「現在地に移動」の失敗、メニューから入る使い方の説明と
+ *   デバッグログ
  *
- * ここで見ないもの（持ち主のテストが見る）:
- * - 子の部品の描くもの → 各部品のテスト（下の代役の一覧）。地図（`MapView`）の入口は #98 の対象
- * - 生成の検証・送信・条件のずれの判定・実験スロットの積み方 → `features/route/useRouteGeneration.test.ts`
- * - 結果の選択・編集で作ったルートの番号 → `features/route/useRouteResults.test.ts`
- * - 乗り換え先の求め方・作る前の評価・失敗の出し方 → `features/route/useSpliceSession.test.ts`
- * - 地図の見え方の中身（レンズの選択肢・凡例・チップ） → `features/map/view/useMapView.test.ts`
- * - 位置の取得の並走と決着 → `hooks/useLocation.test.ts`
+ * ここで見ないもの: 子の部品は地図を除いて本物を描き、子が値をどう描くか（一覧の書式・印の色・天候の値）は各部品のテストが
+ * 見る。機能の状態の移り変わり（生成の検証と要求の形・候補の並び・地点の置き方・レイヤーと凡例の状態）は各フックのテストが
+ * 見る。子へ渡す受け口へフックの関数や値をそのまま渡す所（重み・除外の入力・経由地を地図で動かす・消す・「現在地に戻す」・
+ * 取り直している間の「現在地に移動」）は1行の委譲なので見ない。中身に合わせたシートの高さと、シートの高さに合わせて地図の
+ * 操作部品を持ち上げることは、レイアウトの実寸が要るので見ない（テスト環境は実寸を0で返し、シートは合わせない）。
  *
- * 差し替えたもの:
- * - backendとの通信（軸カタログ・天気・道ごとの値・ルート生成のジョブ）は網の層で応える。地図の見え方が取る気象の
- *   格子・配信は失敗で答える（地図の見え方の中身はここで見ない）
- * - 位置情報（`navigator.geolocation`。テスト環境に無いブラウザの機能）。スマホ幅の印は根の要素の`--is-mobile`へ置く
- * - 子の部品（`@/testing/componentStubs`の代役）。地図はWebGLを要し、ほかは入口のテストを持つ機能の部品。
- *   区分の開閉（`Disclosure`）・タブ・ボタンは描く
+ * 差し替えたもの: backend の応答（網の層）、位置情報の取得（`navigator.geolocation`。テスト環境に無いブラウザの機能）、
+ * 地図（`features/map/MapView/MapView`）。地図は WebGL（`maplibre-gl`）を要するので、受け取った値を記録する代役にし、
+ * 地図から上がる操作（地点を置く・区間を押す・乗り換え先を押す）は代役が受け取った関数を呼んで起こす。地図の代役は、
+ * `maplibre-gl` の側に代役を作ったら外す。
  */
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ReactNode } from "react";
+import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { DEFAULT_SHEET_HEIGHT_VH } from "@/components/BottomSheet/BottomSheet";
-import type { MapLook } from "@/features/map/view/mapLook";
+import { clampSheetHeightVh, DEFAULT_SHEET_HEIGHT_VH } from "@/components/BottomSheet/BottomSheet";
+import type MapView from "@/features/map/MapView/MapView";
 import { CLIENT_TUNING_IDS } from "@/lib/axisCatalog";
 import { setDebugEnabled } from "@/lib/debugLog";
 import { setResearchEnabled } from "@/lib/researchMode";
-import { heldReplies, onBackend, onSameOrigin, type SentRequest, serveAxisCatalog } from "@/testing/backendServer";
-import { catalogEntry, catalogResponse, dedicatedEntry, rampEntry } from "@/testing/catalogAxes";
+import { heldReplies, onBackend, onSameOrigin, serveAxisCatalog } from "@/testing/backendServer";
+import { catalogEntry, catalogResponse } from "@/testing/catalogAxes";
 import { serveGenerationJobs } from "@/testing/generationJobs";
-import { makeRouteCandidate } from "@/testing/routeFixtures";
-import type { FetchFailure } from "@/types/fetchFailure";
-import type {
-  Coordinates,
-  GenerationConditions,
-  RouteCandidate,
-  RouteGenerateRequest,
-  RouteSegmentDetail,
-} from "@/types/route";
+import { makeGenerationConditions, makeRouteCandidate, makeRouteSegment } from "@/testing/routeFixtures";
+import type { Coordinates, RouteCandidate } from "@/types/route";
+import type { AmedasObservation, WeatherConditions } from "@/types/weather";
 
-import Home from "./page";
-
-const { stubComponent, stubModule, stubProps, isStubMounted } = await vi.hoisted(
-  () => import("@/testing/componentStubs"),
-);
-
+const { stubModule, stubProps } = await vi.hoisted(() => import("@/testing/componentStubs"));
 vi.mock("@/features/map/MapView/MapView", stubModule("MapView"));
-vi.mock("@/features/map/LensControl/LensControl", stubModule("LensControl"));
-vi.mock("@/features/map/MapOverlayControls/MapOverlayControls", stubModule("MapOverlayControls"));
-vi.mock("@/features/conditions/TravelBearingControl/TravelBearingControl", stubModule("TravelBearingControl"));
-vi.mock("@/features/conditions/RideConditionBar/RideConditionBar", stubModule("RideConditionBar"));
-vi.mock("@/features/conditions/WeatherPanel/WeatherPanel", stubModule("WeatherPanel"));
-vi.mock("@/features/conditions/TodayOutlook/TodayOutlook", stubModule("TodayOutlook"));
-vi.mock("@/features/conditions/WarningBadge/WarningBadge", stubModule("WarningBadgeList"));
-vi.mock("@/components/HeaderMenu/HeaderMenu", stubModule("HeaderMenu"));
-vi.mock("@/components/DebugConsole/DebugConsole", stubModule("DebugConsole"));
-vi.mock("@/components/UsageGuide/UsageGuide", stubModule("UsageGuide"));
-vi.mock("@/components/FirstVisitIntro/FirstVisitIntro", stubModule("FirstVisitIntro"));
-vi.mock("@/features/route/RouteOutcome/RouteOutcome", stubModule("RouteOutcome"));
-vi.mock("@/features/route/RouteSettingsPanel/RouteSettingsPanel", stubModule("RouteSettingsPanel"));
-vi.mock("@/features/route/RouteSettingsPanel/HardFilterPanel", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/features/route/RouteSettingsPanel/HardFilterPanel")>()),
-  default: stubComponent("HardFilterPanel"),
-}));
-// 重み・除外のパネルは「ルート設定」が受け取って描くノードなので、代役もそれを描く。
-vi.mock("@/features/route/RouteForm/RouteForm", () => ({
-  default: stubComponent("RouteForm", (props) => (
-    <>
-      {props.weightsPanel as ReactNode}
-      {props.exclusionsPanel as ReactNode}
-    </>
-  )),
-}));
-// シートは2枚あるので題名で分けて記録する。見出し行へ差し込むタブ・ボタンも描く。
-vi.mock("@/components/BottomSheet/BottomSheet", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/components/BottomSheet/BottomSheet")>()),
-  default: stubComponent(
-    (props) => `BottomSheet:${String(props.title)}`,
-    (props) => (
-      <section aria-label={String(props.title)}>
-        {props.headerLead as ReactNode}
-        {props.headerAction as ReactNode}
-        {props.children as ReactNode}
-      </section>
-    ),
-  ),
-}));
 
-// ---- 代役が受け取るprops（読むものだけ） ----
+const { default: Home } = await import("./page");
 
-interface MapViewProps {
-  routes: RouteCandidate[];
-  selectedRouteId: string | null;
-  location: Coordinates;
-  locationSource: string;
-  look: { lens: string; layerVisibility: Record<string, boolean>; refreshToken: number };
-  rideConditions: { bearingDeg: number; at: Date; speedKmh: number };
-  routePreference: Record<string, number> | null;
-  experimentSlots: unknown[];
-  selectedRouteSegment: unknown;
-  onRouteSegmentSelect: (selection: unknown) => void;
-  waypoints: Coordinates[];
-  onWaypointRemove: (index: number) => void;
-  onWaypointMove: (index: number, point: Coordinates) => void;
-  destination: Coordinates | null;
-  onDestinationClear: () => void;
-  armedPinRole: string | null;
-  pointEditingEnabled: boolean;
-  onPinPlace: (role: "origin" | "waypoint" | "destination", point: Coordinates) => void;
-  measureRouteFitObscuredPx: () => { bottom: number } | undefined;
-}
+const HERE: Coordinates = { latitude: 35.7, longitude: 139.7 };
+const DESTINATION: Coordinates = { latitude: 35.6, longitude: 139.73 };
 
-interface RouteFormProps {
-  distance: string;
-  onDistanceChange: (value: string) => void;
-  maxRoutes: string;
-  onMaxRoutesChange: (value: string) => void;
-  routeMode: "loop" | "destination";
-  onRouteModeChange: (mode: "loop" | "destination") => void;
-  waypointCount: number;
-  onWaypointsClear: () => void;
-  destinationSet: boolean;
-  onDestinationClear: () => void;
-  originManual: boolean;
-  originLocated: boolean;
-  onOriginReset: () => void;
-  armedPinRole: string | null;
-  onArmPinRole: (role: "origin" | "waypoint" | "destination" | null) => void;
-}
-
-interface RouteOutcomeProps {
-  results: {
-    routes: RouteCandidate[];
-    selectTab: (value: string) => void;
-  };
-  generation: { experimentSlots: unknown[]; failure: string | null; generatedInput: unknown };
-  splice: {
-    start: (routeId: string) => void;
-    panel: { onCancel: () => void; onApply: () => Promise<void> } | null;
-  };
-  routeWeights: Record<string, number>;
-}
-
-interface SheetProps {
-  open: boolean;
-  onClose: () => void;
-  heightVh: number;
-  onHeightChange: (vh: number) => void;
-  onHeightCommit: (vh: number) => void;
-  autoFitHeight: boolean;
-  fitKey?: string;
-}
-
-const mapView = () => stubProps<MapViewProps>("MapView");
-const routeForm = () => stubProps<RouteFormProps>("RouteForm");
-const outcome = () => stubProps<RouteOutcomeProps>("RouteOutcome");
-const settingsSheet = () => stubProps<SheetProps>("BottomSheet:ルート設定");
-const outcomeSheet = () => stubProps<SheetProps>("BottomSheet:ルート結果");
-
-// ---- 位置情報 ----
-
-const HERE: Coordinates = { latitude: 35.68, longitude: 139.77 };
-const PICKED: Coordinates = { latitude: 35.7, longitude: 139.8 };
-
-interface PendingPosition {
-  succeed: (point: Coordinates) => void;
-  fail: () => void;
-}
-
-/** 位置の要求に、すぐ現在地を返す・すぐ断る・テストが決めるまで待つ。 */
-let positionAnswer: "here" | "deny" | "wait";
-let positionRequests: PendingPosition[];
-
-function installGeolocation() {
-  positionRequests = [];
-  const geolocation = {
-    getCurrentPosition(onSuccess: PositionCallback, onError: PositionErrorCallback) {
-      const pending: PendingPosition = {
-        succeed: (point) =>
-          onSuccess({ coords: { latitude: point.latitude, longitude: point.longitude } } as GeolocationPosition),
-        fail: () => onError({ code: 1, message: "denied" } as GeolocationPositionError),
-      };
-      positionRequests.push(pending);
-      if (positionAnswer === "here") pending.succeed(HERE);
-      if (positionAnswer === "deny") pending.fail();
-    },
-  };
-  Object.defineProperty(navigator, "geolocation", { value: geolocation, configurable: true });
-}
-
-// ---- backend ----
-
-const AXIS = "climb";
-const WIND_AXIS = "headwind";
-
-function usedConditions(overrides: Partial<GenerationConditions> = {}): GenerationConditions {
-  return {
-    latitude: HERE.latitude,
-    longitude: HERE.longitude,
-    distance_km: 30,
-    distance_tolerance_km: 5,
-    route_preference: { [AXIS]: 1 },
-    penalty_strength: 1,
-    max_average_grade_percent: null,
-    hard_filters: {},
-    max_routes: 3,
-    start_time: "2026-10-04T00:00:00Z",
-    assumed_speed_kmh: 20,
-    waypoints: null,
-    destination: null,
-    corrected_destination: null,
-    generated_at: "2026-10-04T00:00:00Z",
-    ...overrides,
-  };
-}
-
-function route(id: string, overrides: Partial<RouteCandidate> = {}): RouteCandidate {
-  return makeRouteCandidate({ id, estimated_duration_seconds: 3600, ...overrides });
-}
-
-// 区間の乗り換えができる2本: 同じ地点（n0〜n5）で交わり、2つの分かれ道で別の道を通る。
-const NODES = ["n0", "n1", "n2", "n3", "n4", "n5"];
-const lineOf = (points: [number, number][]) => ({ type: "LineString" as const, coordinates: points });
-const ROUTE_A = route("a", {
-  edge_ids: ["e1", "a1", "e2", "a2", "e3"],
-  node_ids: NODES,
-  edge_point_offsets: [0, 1, 2, 3, 4, 5],
-  geometry: lineOf([
-    [0, 0],
-    [1, 0],
-    [2, 0],
-    [3, 0],
-    [4, 0],
-    [5, 0],
-  ]),
+const CATALOG = catalogResponse([catalogEntry({ axis_id: "axis_a", label: "軸A", default_weight: 1 })], {
+  client_tuning: { [CLIENT_TUNING_IDS.minStretchKm]: 0.1 },
 });
-const ROUTE_B = route("b", {
-  estimated_duration_seconds: 4000,
-  edge_ids: ["e1", "b1", "e2", "b2", "e3"],
-  node_ids: NODES,
-  edge_point_offsets: [0, 1, 3, 4, 6, 7],
-  geometry: lineOf([
-    [0, 0],
-    [1, 0],
-    [1.5, 1],
-    [2, 0],
-    [3, 0],
-    [3.5, 1],
-    [4, 0],
-    [5, 0],
-  ]),
-});
-const SPLICEABLE_CATALOG = catalogResponse([catalogEntry({ axis_id: AXIS, default_weight: 1 })], {
-  client_tuning: { [CLIENT_TUNING_IDS.minStretchKm]: 0.2 },
-});
+
+// 予報と実測（ここでは中身を見ない）。
+const FORECAST: WeatherConditions = {
+  temperature_c: null,
+  wind_speed_ms: 0,
+  wind_direction_deg: 0,
+  wind_direction_label: "北",
+  precipitation_mm: null,
+  observed_at: "2026-10-04T09:00:00+09:00",
+  twilight: null,
+  precipitation_max_mm: null,
+  wind_speed_max_ms: null,
+  temperature_range: null,
+  today_periods: [],
+  today_period_interval_hours: 2,
+};
+const OBSERVATION: AmedasObservation = {
+  station_id: "station",
+  station_name: "観測所",
+  ...HERE,
+  observed_at: "2026-10-04T09:00:00+09:00",
+  temperature_c: null,
+  apparent_temperature_c: null,
+  wind_speed_ms: null,
+  wind_direction: null,
+  precipitation_10min_mm: null,
+  twilight: null,
+  weather_code: null,
+};
 
 let jobs: ReturnType<typeof serveGenerationJobs>;
 
-/** 次の生成を、渡した候補で答える。 */
-function answerGeneration(routes: RouteCandidate[], conditions = usedConditions()) {
-  jobs.respond(routes, conditions);
-}
-
-/** 次の生成を、`message`で失敗させる。 */
-function failGeneration(message: string) {
-  jobs.fail(message);
-}
-
-/** 次の生成の状態の問い合わせに、テストが決めるまで答えない。届いた順に、待ち・実行中か、候補で答える。 */
-function holdGeneration() {
-  const polls = heldReplies();
-  jobs.answerWith(polls.reply);
-  let answered = 0;
-  const answer = (response: Response) => act(() => polls.answer(answered++, response));
-  return {
-    progress: (status: "queued" | "running") => answer(Response.json({ status })),
-    finish: (routes: RouteCandidate[]) =>
-      answer(Response.json({ status: "done", result: { routes, conditions: usedConditions() } })),
+/** 位置情報の取得。`point`が無ければ断る。 */
+function installGeolocation(point: Coordinates | null) {
+  const getCurrentPosition = (onSuccess: PositionCallback, onError: PositionErrorCallback) => {
+    if (point) onSuccess({ coords: point } as GeolocationPosition);
+    else onError({ code: 1 } as GeolocationPositionError);
   };
+  Object.defineProperty(navigator, "geolocation", { value: { getCurrentPosition }, configurable: true });
 }
 
-function lastRequest(): RouteGenerateRequest {
-  const request = jobs.submitted.at(-1);
-  if (!request) throw new Error("生成を頼んでいない");
-  return request.body as RouteGenerateRequest;
+function useMobileLayout() {
+  document.documentElement.style.setProperty("--is-mobile", "1");
 }
-
-const WAY_VALUES = "/api/region/dynamic-way-values/:axisId/:z/:x/:y";
-/** 地図の見え方が取る気象庁の配信（フロントの中継の口）。 */
-const JMA_DELIVERY = "/api/jma-tile/*";
-const failure = (detail: string) => () => Response.json({ detail }, { status: 502 });
-
-// ---- 描く ----
-
-function setMobile(mobile: boolean) {
-  document.documentElement.style.setProperty("--is-mobile", mobile ? "1" : "0");
-}
-
-/** 網を通った応答が届くだけの間をおく。 */
-const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 50)));
-
-/** 描いて、位置の決着と軸カタログ・天候の到着を待つ。 */
-async function renderHome() {
-  const view = render(<Home />);
-  await settle();
-  return view;
-}
-
-/** 「ルート生成」を押し、生成が終わって押せる状態へ戻るまで待つ。 */
-async function generate(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByRole("button", { name: "ルート生成" }));
-  await screen.findByRole("button", { name: "ルート生成" });
-  await settle();
-}
-
-// 待つ act は async の関数で渡す。同期の関数の act を待つと、Testing Library が act の環境の印を先に戻し、
-// React が残りを流す間に届いた更新が「act の環境ではない」と警告される。
-const call = <A extends unknown[]>(fn: (...args: A) => void, ...args: A) => act(async () => fn(...args));
-
-/** 天候の5つの口。どれも問い合わせた緯度・経度を返す値に添える（その位置で取ったかを、渡った値で読む）。 */
-let weatherRequests: Record<"weather" | "amedas" | "warnings" | "wbgt" | "flood", SentRequest[]>;
 
 beforeEach(() => {
-  localStorage.clear();
-  positionAnswer = "here";
-  installGeolocation();
-  setMobile(false);
-  serveAxisCatalog(catalogResponse([catalogEntry({ axis_id: AXIS, default_weight: 1 })]));
-  weatherRequests = {
-    weather: onBackend("GET", "/api/weather", () => Response.json({ temperature_c: 20 })),
-    amedas: onBackend("GET", "/api/weather/amedas", () => Response.json({ station_name: "東京" })),
-    warnings: onBackend("GET", "/api/weather/warnings", () => Response.json({ warnings: [] })),
-    wbgt: onBackend("GET", "/api/weather/wbgt", () => Response.json({ reading: null })),
-    flood: onBackend("GET", "/api/weather/flood-forecast", () => Response.json({ forecasts: [] })),
-  };
-  onBackend("GET", WAY_VALUES, () => Response.json({}));
-  onSameOrigin("GET", JMA_DELIVERY, () => new Response(null, { status: 503 }));
+  window.localStorage.clear();
+  installGeolocation(HERE);
   jobs = serveGenerationJobs();
+  serveAxisCatalog(CATALOG);
+  onSameOrigin("GET", "/api/jma-tile/*", () => Response.json([]));
+  onBackend("GET", "/api/weather", () => Response.json(FORECAST));
+  onBackend("GET", "/api/weather/amedas", () => Response.json(OBSERVATION));
+  onBackend("GET", "/api/weather/warnings", () => Response.json({ warnings: [] }));
+  onBackend("GET", "/api/weather/wbgt", () => Response.json({ reading: null }));
+  onBackend("GET", "/api/weather/flood-forecast", () => Response.json({ forecasts: [] }));
 });
 
 afterEach(() => {
-  vi.clearAllMocks();
-  setDebugEnabled(false);
-  setResearchEnabled(false);
   document.documentElement.style.removeProperty("--is-mobile");
-  Object.defineProperty(navigator, "geolocation", { value: undefined, configurable: true });
+  setResearchEnabled(false);
+  setDebugEnabled(false);
 });
 
-describe("区分とサイドバー（デスクトップ）", () => {
-  it("2つの区分は開いて始まり、見出しで畳んだ状態は描き直しても保つ", async () => {
-    const user = userEvent.setup();
-    const { unmount } = await renderHome();
-    expect(screen.getByRole("button", { name: "ルート設定" })).toHaveAttribute("aria-expanded", "true");
-    expect(isStubMounted("RouteOutcome")).toBe(true);
+type MapProps = ComponentProps<typeof MapView>;
 
-    await user.click(screen.getByRole("button", { name: "ルート設定" }));
-    await user.click(screen.getByRole("button", { name: "ルート結果" }));
-    expect(isStubMounted("RouteForm")).toBe(false);
-    expect(isStubMounted("RouteOutcome")).toBe(false);
+function mapView(): MapProps {
+  return stubProps<MapProps>("MapView");
+}
 
-    unmount();
-    await renderHome();
-    expect(screen.getByRole("button", { name: "ルート設定" })).toHaveAttribute("aria-expanded", "false");
-    expect(screen.getByRole("button", { name: "ルート結果" })).toHaveAttribute("aria-expanded", "false");
-  });
+function route(id: string, overrides: Partial<RouteCandidate> = {}): RouteCandidate {
+  return makeRouteCandidate({ id, direction_label: id, ...overrides });
+}
 
-  it("パネルを閉じると区分ごと隠し、開き直すと区分の開閉を保ったまま戻す", async () => {
-    const user = userEvent.setup();
-    await renderHome();
-    await user.click(screen.getByRole("button", { name: "ルート結果" }));
+const SEGMENT = makeRouteSegment({ start_latitude: 35.7, start_longitude: 139.7, distance_km: 1 });
+const FIRST = route("first", { estimated_duration_seconds: 1800, segments: [SEGMENT] });
+const SECOND = route("second", { estimated_duration_seconds: 2400 });
 
-    expect(screen.getByRole("button", { name: "パネルを閉じる" })).toHaveTextContent("✕");
-    await user.click(screen.getByRole("button", { name: "パネルを閉じる" }));
-    expect(screen.getByRole("button", { name: "パネルを開く" })).toHaveTextContent("☰");
-    expect(screen.queryByRole("button", { name: "ルート設定" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "ルート生成" })).toBeNull();
+const LOOP_CONDITIONS = makeGenerationConditions({ latitude: HERE.latitude, longitude: HERE.longitude });
 
-    await user.click(screen.getByRole("button", { name: "パネルを開く" }));
-    expect(screen.getByRole("button", { name: "ルート設定" })).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByRole("button", { name: "ルート結果" })).toHaveAttribute("aria-expanded", "false");
-  });
+function renderHome() {
+  const user = userEvent.setup();
+  return { user, ...render(<Home />) };
+}
 
-  it("デスクトップには下部タブもシートも無い", async () => {
-    await renderHome();
-    expect(screen.queryByRole("navigation", { name: "パネル切り替え" })).toBeNull();
-    expect(isStubMounted("BottomSheet:ルート設定")).toBe(false);
-  });
-});
+/** 「ルート生成」を押し、出した要求を返す。 */
+async function generate(user: ReturnType<typeof userEvent.setup>) {
+  const before = jobs.submitted.length;
+  await user.click(screen.getByRole("button", { name: "ルート生成" }));
+  await waitFor(() => expect(jobs.submitted).toHaveLength(before + 1));
+  return jobs.submitted[before].body as Record<string, unknown>;
+}
 
-describe("生成", () => {
-  it("入力欄で変えた距離・候補の数と、出発地・地図のレンズで生成を頼む", async () => {
-    const user = userEvent.setup();
-    await renderHome();
-    await call(routeForm().onDistanceChange, "42");
-    await call(routeForm().onMaxRoutesChange, "5");
-    await call(stubProps<{ onLensChange: (lens: string) => void }>("LensControl").onLensChange, AXIS);
-    expect(routeForm()).toMatchObject({ distance: "42", maxRoutes: "5" });
-    answerGeneration([route("a")]);
+function candidateTabs() {
+  return within(screen.getByRole("tablist", { name: "ルート結果" })).getAllByRole("tab");
+}
 
-    await generate(user);
+function section(name: "ルート設定" | "ルート結果") {
+  return screen.getByRole("button", { name });
+}
 
-    expect(lastRequest()).toMatchObject({
-      latitude: HERE.latitude,
-      longitude: HERE.longitude,
-      distance_km: 42,
-      max_routes: 5,
-      lens_axis_id: AXIS,
-    });
-  });
+describe("ルートを作る", () => {
+  it("生成は地図の色分けを添えて送り、結果が出たら閉じていた「ルート結果」を開く。候補は一覧と地図に出て、選んだ候補が区間を持つかで周りの塗りが決まる。全消去で両方から消える", async () => {
+    const { user } = renderHome();
+    await user.click(section("ルート結果"));
+    expect(section("ルート結果")).toHaveAttribute("aria-expanded", "false");
 
-  it("実行中は押せず、順番待ちか経過時間をボタンの名前に出す", async () => {
-    const user = userEvent.setup();
-    await renderHome();
-    const held = holdGeneration();
+    await user.click(screen.getByRole("button", { name: /^地図の色分け: / }));
+    await user.click(await screen.findByRole("radio", { name: /軸A/ }));
+    await user.click(screen.getByRole("button", { name: /^地図の色分け: / }));
+    await user.click(await screen.findByRole("checkbox", { name: "ルート後も周囲の道路を薄く塗る" }));
+    await user.keyboard("{Escape}");
+    expect(mapView().look.paintedAxisId).toBe("axis_a");
 
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
-    const button = () => screen.getByRole("button", { name: /^(生成中|順番待ち)/ });
-    expect(button()).toBeDisabled();
-    expect(button()).toHaveAccessibleName("生成中...");
+    const job = heldReplies();
+    jobs.answerWith(job.reply);
+    expect((await generate(user)).lens_axis_id).toBe("axis_a");
+    expect(screen.getByRole("button", { name: "生成中..." })).toBeDisabled();
 
-    await held.progress("queued");
-    await waitFor(() => expect(button()).toHaveAccessibleName("順番待ち..."));
+    await job.answer(
+      0,
+      Response.json({ status: "done", result: { routes: [FIRST, SECOND], conditions: LOOP_CONDITIONS } }),
+    );
+    await waitFor(() => expect(section("ルート結果")).toHaveAttribute("aria-expanded", "true"));
+    expect(candidateTabs()).toHaveLength(2);
+    expect(mapView().routes.map((candidate) => candidate.id)).toEqual(["first", "second"]);
+    expect(mapView().selectedRouteId).toBe("first");
+    expect(mapView().look.paintedAxisId).toBeNull();
 
-    await held.progress("running");
-    await waitFor(() => expect(button()).toHaveAccessibleName(/^生成中\.\.\.\(\d+秒経過\)$/));
+    await user.click(candidateTabs()[1]);
+    expect(mapView().selectedRouteId).toBe("second");
+    expect(mapView().look.paintedAxisId).toBe("axis_a");
 
-    await held.finish([route("a")]);
-    expect(await screen.findByRole("button", { name: "ルート生成" })).toBeEnabled();
-  });
-
-  it("候補・失敗・入力の誤りのどれが出ても、閉じていた「ルート結果」を開く", async () => {
-    const user = userEvent.setup();
-    positionAnswer = "deny";
-    await renderHome();
-    const outcomeSection = () => screen.getByRole("button", { name: "ルート結果" });
-
-    await user.click(outcomeSection());
-    await generate(user);
-    expect(outcomeSection()).toHaveAttribute("aria-expanded", "true");
-
-    await call(mapView().onPinPlace, "origin", PICKED);
-    await user.click(outcomeSection());
-    failGeneration("混雑しています");
-    await generate(user);
-    expect(outcomeSection()).toHaveAttribute("aria-expanded", "true");
-
-    await user.click(outcomeSection());
-    answerGeneration([route("a")]);
-    await generate(user);
-    expect(outcomeSection()).toHaveAttribute("aria-expanded", "true");
-  });
-
-  it("候補を地図と「ルート結果」へ渡し、「ルート結果」で選んだ候補を地図でも選ぶ", async () => {
-    const user = userEvent.setup();
-    await renderHome();
-    answerGeneration([route("a"), route("b", { estimated_duration_seconds: 4000 })]);
-
-    await generate(user);
-    expect(mapView().routes.map((r) => r.id)).toEqual(["a", "b"]);
-    expect(outcome().results.routes.map((r) => r.id)).toEqual(["a", "b"]);
-    expect(mapView().selectedRouteId).toBe("a");
-
-    await call(outcome().results.selectTab, "b");
-    expect(mapView().selectedRouteId).toBe("b");
-  });
-
-  it("候補を選んだか・選んだ候補が区間の内訳を持つかを、地図の見え方（チップ・レンズ）へ渡す", async () => {
-    const user = userEvent.setup();
-    await renderHome();
-    const routeOnlyChips = () =>
-      stubProps<{ layers: { id: string; disabled?: boolean }[] }>("MapOverlayControls")
-        .layers.filter((layer) => layer.disabled)
-        .map((layer) => layer.id);
-    const lockedBeforeRoute = routeOnlyChips();
-    expect(lockedBeforeRoute.length).toBeGreaterThan(0);
-    expect(stubProps<{ hasDetail: boolean }>("LensControl").hasDetail).toBe(false);
-    answerGeneration([route("a", { segments: [{} as RouteSegmentDetail] })]);
-
-    await generate(user);
-
-    expect(routeOnlyChips().filter((id) => lockedBeforeRoute.includes(id))).toEqual([]);
-    expect(stubProps<{ hasDetail: boolean }>("LensControl").hasDetail).toBe(true);
-  });
-
-  it("作った後に条件を変えると、「生成」の隣に印を付ける", async () => {
-    const user = userEvent.setup();
-    await renderHome();
-    const mark = () => screen.queryByRole("img", { name: "生成条件が変更されています" });
-    answerGeneration([route("a")]);
-    await generate(user);
-    expect(mark()).toBeNull();
-
-    await call(routeForm().onDistanceChange, "50");
-
-    expect(mark()).not.toBeNull();
-  });
-
-  it("「全消去」は候補がある間だけ見出しに出し、押すと地図と「ルート結果」から候補を消す。置いた地点は残す", async () => {
-    const user = userEvent.setup();
-    await renderHome();
-    expect(screen.queryByRole("button", { name: "候補を全消去" })).toBeNull();
-    await call(routeForm().onRouteModeChange, "destination");
-    await call(mapView().onPinPlace, "destination", PICKED);
-    answerGeneration([route("a")]);
-    await generate(user);
-
-    const clear = screen.getByRole("button", { name: "候補を全消去" });
-    expect(clear.querySelector("svg")).not.toBeNull();
-
-    await user.click(clear);
-
+    await user.click(screen.getByRole("button", { name: "候補を全消去" }));
+    expect(screen.queryByRole("tablist", { name: "ルート結果" })).toBeNull();
     expect(mapView().routes).toEqual([]);
-    expect(outcome().results.routes).toEqual([]);
-    expect(mapView().destination).toEqual(PICKED);
     expect(screen.queryByRole("button", { name: "候補を全消去" })).toBeNull();
   });
-});
 
-describe("結果・生成・区間の乗り換えのつなぎ", () => {
-  it("候補0件の後は、条件を変えても変わったとは知らせない（比べる候補が無い）", async () => {
-    const user = userEvent.setup();
-    await renderHome();
-    answerGeneration([]);
+  it("条件を変えたことの印は、候補がある間だけ「ルート生成」の隣に点き、全消去で消える", async () => {
+    const { user } = renderHome();
+    const distance = screen.getByLabelText("距離");
+    const changedMark = () => screen.queryByRole("img", { name: "生成条件が変更されています" });
+
+    fireEvent.change(distance, { target: { value: "40" } });
+    expect(changedMark()).toBeNull();
+
+    jobs.respond([FIRST], LOOP_CONDITIONS);
     await generate(user);
+    await waitFor(() => expect(candidateTabs()).toHaveLength(1));
+    expect(changedMark()).toBeNull();
 
-    await call(routeForm().onDistanceChange, "50");
-
-    expect(screen.queryByRole("img", { name: "生成条件が変更されています" })).toBeNull();
-  });
-
-  it("「全消去」は生成の側も消す: 条件の変更の印と、作った条件を消す", async () => {
-    const user = userEvent.setup();
-    await renderHome();
-    answerGeneration([route("a")]);
-    await generate(user);
-    await call(routeForm().onDistanceChange, "50");
-
+    fireEvent.change(distance, { target: { value: "50" } });
+    expect(changedMark()).not.toBeNull();
     await user.click(screen.getByRole("button", { name: "候補を全消去" }));
-
-    expect(screen.queryByRole("img", { name: "生成条件が変更されています" })).toBeNull();
-    expect(outcome().generation.generatedInput).toBeNull();
+    expect(changedMark()).toBeNull();
   });
 
-  it("編集で地図の帯を選んで作ると、作ったルートを足して選び、閉じていた「ルート結果」を開く。地図には元と作ったものだけを描き、直前の生成の失敗の文言は消す", async () => {
-    const user = userEvent.setup();
-    serveAxisCatalog(SPLICEABLE_CATALOG);
-    await renderHome();
-    answerGeneration([ROUTE_A, ROUTE_B]);
-    await generate(user);
-    failGeneration("混雑しています");
-    await generate(user);
-    expect(outcome().generation.failure).toBe("混雑しています");
+  it("走行条件の想定速度と出発時刻を変えると、生成の要求と地図の道の詳細へ同じ値が渡る", async () => {
+    const { user } = renderHome();
+    await user.click(screen.getByRole("button", { name: /^想定速度: / }));
+    const speed = await screen.findByRole("spinbutton", { name: "想定速度（km/h）" });
+    await user.clear(speed);
+    await user.type(speed, "25");
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: /^出発時刻.*（タップで変更）$/ }));
+    // 出発日時の入力は日本時間で読む。
+    fireEvent.change(await screen.findByLabelText("出発日時を直接指定"), { target: { value: "2026-10-05T09:00" } });
+    const departure = new Date("2026-10-05T09:00:00+09:00");
 
-    await call(outcome().splice.start, "a");
-    const stretches = stubProps<{ spliceStretches: { index: number }[] }>("MapView").spliceStretches;
-    expect(stretches.length).toBeGreaterThan(0);
-    await call(
-      stubProps<{ onSpliceStretchSelect: (index: number) => void }>("MapView").onSpliceStretchSelect,
-      stretches[0].index,
-    );
-    expect(stubProps<{ splicedRoute: unknown[] | null }>("MapView").splicedRoute).not.toBeNull();
-    const apply = outcome().splice.panel!.onApply;
-    await user.click(screen.getByRole("button", { name: "ルート結果" }));
-    const spliced = route("from-backend", { edge_ids: ["e1", "b1", "e2", "a2", "e3"] });
-    answerGeneration([spliced]);
-
-    await act(async () => apply());
-
-    expect(screen.getByRole("button", { name: "ルート結果" })).toHaveAttribute("aria-expanded", "true");
-    expect(outcome().results.routes).toHaveLength(3);
-    expect(mapView().routes.map((r) => r.edge_ids)).toEqual([ROUTE_A.edge_ids, spliced.edge_ids]);
-    expect(outcome().generation.failure).toBeNull();
-    expect(outcome().splice.panel).toBeNull();
+    expect(mapView().rideConditions).toMatchObject({ speedKmh: 25, at: departure });
+    jobs.respond([FIRST], LOOP_CONDITIONS);
+    expect(await generate(user)).toMatchObject({ assumed_speed_kmh: 25, start_time: departure.toISOString() });
   });
 
-  it("編集中に「全消去」を押すと編集も終わって地点の操作が戻る", async () => {
-    const user = userEvent.setup();
-    await renderHome();
-    answerGeneration([route("a"), route("b")]);
-    await generate(user);
-    await call(outcome().splice.start, "a");
-    expect(mapView().pointEditingEnabled).toBe(false);
-
-    await user.click(screen.getByRole("button", { name: "候補を全消去" }));
-
-    expect(mapView().pointEditingEnabled).toBe(true);
-    expect(outcome().splice.panel).toBeNull();
-  });
-
-  it("作り直すと編集を終える（作り直した候補のidが同じでも、前の編集を残さない）", async () => {
-    const user = userEvent.setup();
-    await renderHome();
-    answerGeneration([route("a"), route("b")]);
-    await generate(user);
-    await call(outcome().splice.start, "a");
-    expect(outcome().splice.panel).not.toBeNull();
-
-    answerGeneration([route("a"), route("b")]);
-    await generate(user);
-
-    expect(outcome().splice.panel).toBeNull();
-    expect(mapView().pointEditingEnabled).toBe(true);
-  });
-});
-
-describe("重み・除外の受け渡し", () => {
-  it("重みを上書きすると、その重みを地図の道の評価と生成へ渡す。上書きしない間はどちらにも渡さない", async () => {
-    const user = userEvent.setup();
-    await renderHome();
-    const panel = () =>
-      stubProps<{
-        routePreference: Record<string, number>;
-        onRoutePreferenceChange: (weights: Record<string, number>) => void;
-        overrideEnabled: boolean;
-        onOverrideEnabledChange: (on: boolean) => void;
-      }>("RouteSettingsPanel");
-    expect(mapView().routePreference).toBeNull();
-
-    await call(panel().onOverrideEnabledChange, true);
-    await call(panel().onRoutePreferenceChange, { [AXIS]: 3 });
-    expect(panel()).toMatchObject({ overrideEnabled: true, routePreference: { [AXIS]: 3 } });
-    answerGeneration([route("a")]);
-    await generate(user);
-
-    expect(mapView().routePreference).toEqual({ [AXIS]: 3 });
-    expect(lastRequest().route_preference).toEqual({ [AXIS]: 3 });
-  });
-
-  it("「ルート結果」とレンズの選択肢が未使用を分ける重みは、生成前はいまの重み、生成後は生成に使われた重み", async () => {
-    const user = userEvent.setup();
-    await renderHome();
-    const lensUnused = () =>
-      stubProps<{ axisOptions: { id: string; unused: boolean }[] }>("LensControl").axisOptions.find(
-        (option) => option.id === AXIS,
-      )?.unused;
-    await call(
-      stubProps<{ onRoutePreferenceChange: (w: Record<string, number>) => void }>("RouteSettingsPanel")
-        .onRoutePreferenceChange,
-      {
-        [AXIS]: 2,
-      },
-    );
-    expect(outcome().routeWeights).toEqual({ [AXIS]: 2 });
-    expect(lensUnused()).toBe(false);
-
-    answerGeneration([route("a")], usedConditions({ route_preference: { [AXIS]: 0 } }));
-    await generate(user);
-
-    expect(outcome().routeWeights).toEqual({ [AXIS]: 0 });
-    expect(lensUnused()).toBe(true);
-  });
-
-  it("除外のパネルで変えた道路の種類を生成へ渡す", async () => {
-    const user = userEvent.setup();
-    await renderHome();
-    const panel = () =>
-      stubProps<{ hardFilters: Record<string, boolean>; onHardFiltersChange: (f: Record<string, boolean>) => void }>(
-        "HardFilterPanel",
-      );
-    const changed = Object.fromEntries(Object.entries(panel().hardFilters).map(([key, on]) => [key, !on]));
-
-    await call(panel().onHardFiltersChange, changed);
-    answerGeneration([route("a")]);
-    await generate(user);
-
-    expect(lastRequest().hard_filters).toEqual(changed);
-  });
-
-  it("実験スロットは研究モードで「比較」を見ている間だけ地図へ重ねる", async () => {
-    const user = userEvent.setup();
-    setResearchEnabled(true);
-    await renderHome();
-    answerGeneration([route("a")]);
-    await generate(user);
-    expect(outcome().generation.experimentSlots).toHaveLength(1);
-    expect(mapView().experimentSlots).toEqual([]);
-
-    await call(outcome().results.selectTab, "comparison");
-
-    expect(mapView().experimentSlots).toEqual(outcome().generation.experimentSlots);
-  });
-});
-
-describe("走行条件の受け渡し", () => {
-  it("走行方位・出発時刻・想定速度は、地図と生成が同じ値を読む", async () => {
-    const user = userEvent.setup();
-    await renderHome();
-    const departure = new Date("2026-10-05T06:00:00+09:00");
-
-    await call(stubProps<{ onChange: (deg: number) => void }>("TravelBearingControl").onChange, 90);
-    await call(
-      stubProps<{ onDepartureTimeChange: (at: Date) => void }>("RideConditionBar").onDepartureTimeChange,
-      departure,
-    );
-    await call(stubProps<{ onSpeedKmhChange: (speed: number) => void }>("RideConditionBar").onSpeedKmhChange, 28);
-
-    expect(stubProps<{ value: number }>("TravelBearingControl").value).toBe(90);
-    expect(stubProps<{ departureTime: Date; speedKmh: number }>("RideConditionBar")).toMatchObject({
-      departureTime: departure,
-      speedKmh: 28,
-    });
-    expect(mapView().rideConditions).toEqual({ bearingDeg: 90, at: departure, speedKmh: 28 });
-    answerGeneration([route("a")]);
-    await generate(user);
-    expect(lastRequest()).toMatchObject({ start_time: departure.toISOString(), assumed_speed_kmh: 28 });
-  });
-
-  it("地図の見え方も同じ走行条件で道の色分けを取る", async () => {
+  it("「地図の色分け」で未使用に分ける軸は、生成の前はいまの重み、生成の後は生成に使われた重みで決まる", async () => {
     serveAxisCatalog(
       catalogResponse([
-        dedicatedEntry(WIND_AXIS, [1, 2], { dynamic_way_value_conditions: ["at", "bearing_deg", "speed_kmh"] }),
+        catalogEntry({ axis_id: "axis_a", label: "軸A", default_weight: 1 }),
+        catalogEntry({ axis_id: "axis_b", label: "軸B", default_weight: 0 }),
       ]),
     );
-    onBackend("GET", WAY_VALUES, ({ path, query }) => {
-      const axisId = path.split("/").at(-4);
-      return Response.json({ [`${axisId}@${query.bearing_deg}|${query.at}|${query.speed_kmh}`]: 1 });
-    });
-    await renderHome();
-    const departure = new Date("2026-10-05T06:00:00+09:00");
-    await call(stubProps<{ onChange: (deg: number) => void }>("TravelBearingControl").onChange, 90);
-    await call(
-      stubProps<{ onDepartureTimeChange: (at: Date) => void }>("RideConditionBar").onDepartureTimeChange,
-      departure,
-    );
-    await call(stubProps<{ onSpeedKmhChange: (speed: number) => void }>("RideConditionBar").onSpeedKmhChange, 28);
-    await call(stubProps<{ onLensChange: (lens: string) => void }>("LensControl").onLensChange, WIND_AXIS);
+    const { user } = renderHome();
+    /** 「未使用」の見出しより後に並ぶ選択肢の文字。 */
+    const unusedAxes = async () => {
+      await user.click(screen.getByRole("button", { name: /^地図の色分け: / }));
+      const options = await screen.findByRole("radiogroup", { name: "地図の色分け" });
+      const unused = options.textContent?.split("未使用")[1] ?? "";
+      await user.keyboard("{Escape}");
+      return unused;
+    };
+    const beforeGeneration = await unusedAxes();
+    expect(beforeGeneration).toContain("軸B");
+    expect(beforeGeneration).not.toContain("軸A");
 
-    await call(stubProps<{ look: MapLook }>("MapView").look.onViewportChange, {
-      west: 139.7,
-      south: 35.6,
-      east: 139.71,
-      north: 35.61,
-      zoom: 14,
-    });
-
-    // 道ごとの値は、問われた軸と条件（向き|時刻|速度）を道の鍵に書いて返す。
-    await waitFor(() =>
-      expect([
-        ...(stubProps<{ look: MapLook }>("MapView").look.dedicatedWayValues.get(WIND_AXIS)?.values.keys() ?? []),
-      ]).toEqual([`${WIND_AXIS}@90|${departure.toISOString()}|28`]),
-    );
-  });
-
-  it("出発時刻を「今」へ戻すと、地図は選んでいた時刻を離れる", async () => {
-    await renderHome();
-    const departure = new Date("2030-01-01T06:00:00+09:00");
-    const bar = () =>
-      stubProps<{ onDepartureTimeChange: (at: Date) => void; onDepartureNow: () => void }>("RideConditionBar");
-    await call(bar().onDepartureTimeChange, departure);
-
-    await call(bar().onDepartureNow);
-
-    expect(mapView().rideConditions.at).not.toEqual(departure);
+    jobs.respond([FIRST], { ...LOOP_CONDITIONS, route_preference: { axis_a: 0, axis_b: 1 } });
+    await generate(user);
+    await waitFor(() => expect(candidateTabs()).toHaveLength(1));
+    const afterGeneration = await unusedAxes();
+    expect(afterGeneration).toContain("軸A");
+    expect(afterGeneration).not.toContain("軸B");
   });
 });
 
-describe("出発地と地点", () => {
-  it("出発地の行は、現在地か地図で置いた地点かを受け取り、地図で置いた出発地から生成する", async () => {
-    const user = userEvent.setup();
-    await renderHome();
-    expect(routeForm()).toMatchObject({ originLocated: true, originManual: false });
-    expect(mapView().location).toEqual(HERE);
+describe("地図で扱えること", () => {
+  it("地点を置けるのは「ルート設定」の条件タブを見ている間だけ（パネルを畳むと区分ごと隠れる）で、周回の間は目的地を地図へ出さない", async () => {
+    const { user } = renderHome();
+    await user.click(screen.getByRole("radio", { name: "目的地" }));
+    expect(mapView().armedPinRole).toBe("destination");
+    expect(mapView().pointEditingEnabled).toBe(true);
 
-    await call(mapView().onPinPlace, "origin", PICKED);
+    act(() => mapView().onPinPlace("destination", DESTINATION));
+    expect(mapView().destination).toEqual(DESTINATION);
+    expect(screen.getByRole("button", { name: "目的地をクリア" })).toBeInTheDocument();
 
-    expect(routeForm()).toMatchObject({ originLocated: true, originManual: true });
-    expect(mapView()).toMatchObject({ location: PICKED, locationSource: "manual" });
-    answerGeneration([route("a")]);
-    await generate(user);
-    expect(lastRequest()).toMatchObject({ latitude: PICKED.latitude, longitude: PICKED.longitude });
-  });
-
-  it("出発地の行の「現在地に戻す」で位置を取り直す", async () => {
-    await renderHome();
-    await call(mapView().onPinPlace, "origin", PICKED);
-    const before = positionRequests.length;
-
-    await call(routeForm().onOriginReset);
-
-    expect(positionRequests).toHaveLength(before + 1);
-    expect(mapView().location).toEqual(HERE);
-    expect(routeForm().originManual).toBe(false);
-  });
-
-  it("経由地・目的地は目的地の間だけ地図へ渡す。周回へ切り替えても消さない", async () => {
-    await renderHome();
-    await call(routeForm().onRouteModeChange, "destination");
-    await call(mapView().onPinPlace, "waypoint", HERE);
-    await call(mapView().onPinPlace, "destination", PICKED);
-    expect(mapView()).toMatchObject({ waypoints: [HERE], destination: PICKED });
-    expect(routeForm()).toMatchObject({ waypointCount: 1, destinationSet: true });
-
-    await call(routeForm().onRouteModeChange, "loop");
-    expect(mapView()).toMatchObject({ waypoints: [], destination: null });
-
-    await call(routeForm().onRouteModeChange, "destination");
-    expect(mapView()).toMatchObject({ waypoints: [HERE], destination: PICKED });
-  });
-
-  it("地図で動かした経由地から生成し、地図と入力欄のどちらで消しても置いた点が消える", async () => {
-    const user = userEvent.setup();
-    await renderHome();
-    await call(routeForm().onRouteModeChange, "destination");
-    await call(mapView().onPinPlace, "waypoint", HERE);
-    await call(mapView().onPinPlace, "waypoint", HERE);
-    await call(mapView().onPinPlace, "destination", PICKED);
-
-    await call(mapView().onWaypointMove, 1, PICKED);
-    expect(mapView().waypoints).toEqual([HERE, PICKED]);
-    answerGeneration([route("a")]);
-    await generate(user);
-    expect(lastRequest().waypoints).toEqual([HERE, PICKED]);
-
-    await call(mapView().onWaypointRemove, 0);
-    expect(mapView().waypoints).toEqual([PICKED]);
-    await call(routeForm().onWaypointsClear);
-    await call(routeForm().onDestinationClear);
-    expect(mapView()).toMatchObject({ waypoints: [], destination: null });
-
-    await call(mapView().onPinPlace, "destination", PICKED);
-    await call(mapView().onDestinationClear);
-    expect(routeForm()).toMatchObject({ waypointCount: 0, destinationSet: false });
-  });
-});
-
-describe("地図で扱える操作（デスクトップ）", () => {
-  it("地点を置けるのは「ルート設定」が開いていて「条件」タブを見ている間だけ", async () => {
-    const user = userEvent.setup();
-    await renderHome();
-    await call(routeForm().onRouteModeChange, "destination");
-    await call(routeForm().onArmPinRole, "destination");
-    expect(mapView()).toMatchObject({ pointEditingEnabled: true, armedPinRole: "destination" });
-
+    await user.click(screen.getByRole("button", { name: "経由地を追加" }));
     await user.click(screen.getByRole("tab", { name: "重み" }));
-    expect(mapView()).toMatchObject({ pointEditingEnabled: false, armedPinRole: null });
+    expect(mapView().armedPinRole).toBeNull();
+    expect(mapView().pointEditingEnabled).toBe(false);
 
     await user.click(screen.getByRole("tab", { name: "条件" }));
-    await user.click(screen.getByRole("button", { name: "ルート設定" }));
-    expect(mapView()).toMatchObject({ pointEditingEnabled: false, armedPinRole: null });
-  });
-
-  it("周回の間に地図のタップで置けるのは出発地だけ", async () => {
-    await renderHome();
-    await call(routeForm().onArmPinRole, "waypoint");
-    expect(routeForm().armedPinRole).toBe("waypoint");
-    expect(mapView()).toMatchObject({ pointEditingEnabled: true, armedPinRole: null });
-
-    await call(routeForm().onArmPinRole, "origin");
-    expect(mapView().armedPinRole).toBe("origin");
-  });
-
-  it("地図で区間を選べるのは「ルート結果」が開いている間だけ", async () => {
-    const user = userEvent.setup();
-    await renderHome();
-    answerGeneration([route("a")]);
-    await generate(user);
-    const segment = { routeId: "a", segmentIndex: 0 };
-
-    await user.click(screen.getByRole("button", { name: "ルート結果" }));
-    await call(mapView().onRouteSegmentSelect, segment);
-    expect(mapView().selectedRouteSegment).toBeNull();
-
-    await user.click(screen.getByRole("button", { name: "ルート結果" }));
-    await call(mapView().onRouteSegmentSelect, segment);
-    expect(mapView().selectedRouteSegment).toEqual(segment);
-  });
-
-  it("パネルを閉じている間は、区分が開いていても地図で地点も区間も扱わない", async () => {
-    const user = userEvent.setup();
-    await renderHome();
-    answerGeneration([route("a")]);
-    await generate(user);
-    await call(routeForm().onArmPinRole, "origin");
-
+    expect(mapView().armedPinRole).toBe("waypoint");
     await user.click(screen.getByRole("button", { name: "パネルを閉じる" }));
-    await call(mapView().onRouteSegmentSelect, { routeId: "a", segmentIndex: 0 });
+    expect(screen.queryByRole("button", { name: "ルート設定" })).toBeNull();
+    expect(mapView().armedPinRole).toBeNull();
+    expect(mapView().pointEditingEnabled).toBe(false);
 
-    expect(mapView()).toMatchObject({ pointEditingEnabled: false, armedPinRole: null, selectedRouteSegment: null });
+    await user.click(screen.getByRole("button", { name: "パネルを開く" }));
+    await user.click(screen.getByRole("radio", { name: "周回" }));
+    expect(mapView().destination).toBeNull();
+    await user.click(screen.getByRole("radio", { name: "目的地" }));
+    expect(mapView().destination).toEqual(DESTINATION);
   });
 
-  it("区間の乗り換えの編集中は地点の操作も区間の選択も止め、やめると戻す", async () => {
-    const user = userEvent.setup();
-    await renderHome();
-    answerGeneration([route("a"), route("b")]);
+  it("地図で区間を押して詳細を出せるのは「ルート結果」を見ている間だけ", async () => {
+    const { user } = renderHome();
+    jobs.respond([FIRST], LOOP_CONDITIONS);
     await generate(user);
-    await call(routeForm().onArmPinRole, "origin");
+    await waitFor(() => expect(candidateTabs()).toHaveLength(1));
+    const selection = { segment: SEGMENT, latitude: 35.7, longitude: 139.7 };
 
-    await call(outcome().splice.start, "a");
-    await call(mapView().onRouteSegmentSelect, { routeId: "a", segmentIndex: 0 });
-    expect(mapView()).toMatchObject({ pointEditingEnabled: false, armedPinRole: null, selectedRouteSegment: null });
+    await user.click(screen.getByRole("button", { name: "ルート結果" }));
+    act(() => mapView().onRouteSegmentSelect(selection));
+    await user.click(screen.getByRole("button", { name: "ルート結果" }));
+    expect(screen.queryByRole("button", { name: "区間の選択を解除" })).toBeNull();
 
-    await call(outcome().splice.panel!.onCancel);
-    expect(mapView()).toMatchObject({ pointEditingEnabled: true, armedPinRole: "origin" });
+    act(() => mapView().onRouteSegmentSelect(selection));
+    expect(screen.getByRole("button", { name: "区間の選択を解除" })).toBeInTheDocument();
+    expect(mapView().selectedRouteSegment).toEqual(selection);
   });
 
-  it("デスクトップでは、ルートを地図へ収めるときに覆われた高さを渡さない", async () => {
-    await renderHome();
-    expect(mapView().measureRouteFitObscuredPx()).toBeUndefined();
-  });
-});
+  describe("区間の乗り換え", () => {
+    // 地点（[経度, 緯度]）。元の候補は P0→P1→P2→P3→P4 を進み、もう1本は P1 と P2 の間を Q、P3 と P4 の間を R を通って進む
+    // （片方の分かれ道だけを乗り換えると、どちらの候補とも違う道になる）。
+    const P0 = [139.7, 35.6];
+    const P1 = [139.71, 35.6];
+    const P2 = [139.72, 35.6];
+    const P3 = [139.73, 35.6];
+    const P4 = [139.74, 35.6];
+    const Q = [139.715, 35.61];
+    const R = [139.735, 35.61];
 
-describe("地図の見え方", () => {
-  it("レンズで選んだ塗り方を地図へ渡す", async () => {
-    await renderHome();
-
-    await call(stubProps<{ onLensChange: (lens: string) => void }>("LensControl").onLensChange, AXIS);
-
-    expect(mapView().look.lens).toBe(AXIS);
-    expect(stubProps<{ lens: string }>("LensControl").lens).toBe(AXIS);
-  });
-
-  it("「まとめて非表示」は表示中のレイヤーがある間だけ押せ、押すと地図とチップの全部を消す", async () => {
-    const user = userEvent.setup();
-    await renderHome();
-    const hideAll = () => screen.getByRole("button", { name: "表示中のレイヤーをすべて非表示にする" });
-    const chips = () =>
-      stubProps<{ layers: { id: string; on: boolean }[]; onToggle: (id: string, on: boolean) => void }>(
-        "MapOverlayControls",
-      );
-    expect(chips().layers.some((layer) => layer.on)).toBe(true);
-    expect(hideAll()).toBeEnabled();
-
-    await user.click(hideAll());
-
-    expect(chips().layers.every((layer) => !layer.on)).toBe(true);
-    expect(Object.values(mapView().look.layerVisibility).every((on) => !on)).toBe(true);
-    expect(hideAll()).toBeDisabled();
-    await call(chips().onToggle, chips().layers[0].id, true);
-    expect(hideAll()).toBeEnabled();
-  });
-
-  it("凡例で隠した段が無い間は「絞り込みを解除」を押せず、あれば押すと全部を戻す", async () => {
-    const user = userEvent.setup();
-    serveAxisCatalog(catalogResponse([rampEntry(AXIS, [1, 2])]));
-    await renderHome();
-    await call(stubProps<{ onLensChange: (lens: string) => void }>("LensControl").onLensChange, AXIS);
-    const showAll = () => screen.getByRole("button", { name: "絞り込みをすべて解除する" });
-    const lens = () =>
-      stubProps<{ legend: { key: string }[]; hiddenLegendKeys: string[]; onToggleLegendKey: (key: string) => void }>(
-        "LensControl",
-      );
-    expect(showAll()).toBeDisabled();
-
-    await call(lens().onToggleLegendKey, lens().legend[0].key);
-    expect(showAll()).toBeEnabled();
-
-    await user.click(showAll());
-    expect(lens().hiddenLegendKeys).toEqual([]);
-    expect(showAll()).toBeDisabled();
-  });
-
-  it("「再描画」はいつでも押せ、押すたびに地図へ描き直しを伝える", async () => {
-    const user = userEvent.setup();
-    await renderHome();
-    const before = mapView().look.refreshToken;
-
-    await user.click(screen.getByRole("button", { name: "地図の表示を再描画する" }));
-
-    expect(mapView().look.refreshToken).not.toBe(before);
-  });
-});
-
-describe("ヘッダーとメニュー", () => {
-  it("現在地が分かってから、その位置で天気・実測・警報を取り、取れた値をヘッダーへ渡す", async () => {
-    positionAnswer = "wait";
-    onBackend("GET", "/api/weather/warnings", () =>
-      Response.json({ warnings: [{ code: "03", name: "大雨警報", level: "warning", additions: [] }] }),
-    );
-    await renderHome();
-    expect(stubProps<{ weather: unknown }>("TodayOutlook").weather).toBeNull();
-
-    await act(async () => positionRequests[0].succeed(HERE));
-
-    await waitFor(() =>
-      expect(stubProps<{ amedas: unknown }>("WeatherPanel").amedas).toEqual({ station_name: "東京" }),
-    );
-    expect(stubProps<{ weather: unknown }>("TodayOutlook").weather).toEqual({ temperature_c: 20 });
-    await waitFor(() =>
-      expect(stubProps<{ items: { label: string }[] }>("WarningBadgeList").items.map((item) => item.label)).toEqual([
-        "大雨警報",
-      ]),
-    );
-    for (const sent of [weatherRequests.weather, weatherRequests.amedas, weatherRequests.wbgt, weatherRequests.flood]) {
-      expect(sent.at(-1)?.query).toEqual({ latitude: String(HERE.latitude), longitude: String(HERE.longitude) });
+    function through(id: string, edgeIds: string[], points: number[][], overrides: Partial<RouteCandidate> = {}) {
+      return route(id, {
+        edge_ids: edgeIds,
+        node_ids: points.map((point) => point.join(",")),
+        edge_point_offsets: points.map((_, index) => index),
+        geometry: { type: "LineString", coordinates: points },
+        ...overrides,
+      });
     }
+
+    const BASE = through("base", ["e1", "e2", "e3", "e4"], [P0, P1, P2, P3, P4], { estimated_duration_seconds: 1800 });
+    const OTHER = through("other", ["e1", "q1", "q2", "e3", "r1", "r2"], [P0, P1, Q, P2, P3, R, P4], {
+      estimated_duration_seconds: 2400,
+    });
+    const DESTINATION_CONDITIONS = makeGenerationConditions({
+      latitude: HERE.latitude,
+      longitude: HERE.longitude,
+      destination: DESTINATION,
+    });
+
+    /** 目的地を置いて2本の候補を作る。 */
+    async function generateTwo(user: ReturnType<typeof userEvent.setup>) {
+      await user.click(screen.getByRole("radio", { name: "目的地" }));
+      act(() => mapView().onPinPlace("destination", DESTINATION));
+      jobs.respond([BASE, OTHER], DESTINATION_CONDITIONS);
+      await generate(user);
+    }
+
+    /** 先頭の候補で編集を始める。 */
+    async function startEditing(user: ReturnType<typeof userEvent.setup>) {
+      await user.click(await screen.findByRole("button", { name: "ルートを合成" }));
+      await waitFor(() => expect(mapView().spliceStretches.length).toBeGreaterThan(0));
+    }
+
+    it("編集している間は地図で地点も区間も扱わず、全部の候補を重ねる。作り直すと編集が終わる", async () => {
+      const { user } = renderHome();
+      await generateTwo(user);
+      await startEditing(user);
+      expect(mapView().routes.map((candidate) => candidate.id)).toEqual(["base", "other"]);
+      expect(mapView().armedPinRole).toBeNull();
+      expect(mapView().pointEditingEnabled).toBe(false);
+
+      act(() => mapView().onRouteSegmentSelect({ segment: SEGMENT, latitude: 35.6, longitude: 139.7 }));
+      await user.click(screen.getByRole("button", { name: "編集をやめて候補へ戻る" }));
+      expect(screen.queryByRole("button", { name: "区間の選択を解除" })).toBeNull();
+
+      await user.click(screen.getByRole("button", { name: "ルートを合成" }));
+      jobs.respond([BASE, OTHER], DESTINATION_CONDITIONS);
+      await generate(user);
+      await waitFor(() => expect(mapView().spliceStretches).toEqual([]));
+      expect(mapView().splicedRoute).toBeNull();
+      expect(screen.queryByRole("button", { name: "編集をやめて候補へ戻る" })).toBeNull();
+    });
+
+    it("作ると直前の作り直しの失敗の文言を消し、作った合成ルートを選んでいる間は、地図に元のルートだけを重ねる", async () => {
+      const { user } = renderHome();
+      await generateTwo(user);
+      jobs.fail("混雑しています");
+      await generate(user);
+      expect(await screen.findByText(/作り直せませんでした/)).toBeInTheDocument();
+      await startEditing(user);
+      act(() => mapView().onSpliceStretchSelect(mapView().spliceStretches[0].index));
+      jobs.respond([route("evaluated", { edge_ids: ["e1", "q1", "q2", "e3", "e4"] })], DESTINATION_CONDITIONS);
+      await user.click(await screen.findByRole("button", { name: "新しいルートを作成" }));
+
+      await waitFor(() => expect(mapView().routes).toHaveLength(2));
+      const [origin, created] = mapView().routes;
+      expect(origin.id).toBe("base");
+      expect(mapView().selectedRouteId).toBe(created.id);
+      expect(created.id).not.toBe("other");
+      expect(screen.queryByText(/作り直せませんでした/)).toBeNull();
+    });
   });
 
-  it("現在地が分からないと決まったら天候・警報を取らず、ヘッダーの印に「現在地」を出して、そこから取り直せる", async () => {
-    positionAnswer = "deny";
-    await renderHome();
-    const failures = () => stubProps<{ failures: FetchFailure[] }>("WarningBadgeList").failures;
+  it("研究モードの実験スロットは、「比較」を見ている間だけ地図へ重ねる", async () => {
+    const { user } = renderHome();
+    await user.click(screen.getByRole("button", { name: "メニュー" }));
+    await user.click(screen.getByRole("checkbox", { name: "研究モード[実験スロット・比較・材料値]" }));
+    await user.keyboard("{Escape}");
+    jobs.respond([FIRST], LOOP_CONDITIONS);
+    await generate(user);
+    await waitFor(() => expect(candidateTabs().length).toBeGreaterThan(1));
+    expect(mapView().experimentSlots).toEqual([]);
 
-    expect(failures().map((failure) => failure.label)).toEqual(["現在地"]);
-    expect(stubProps<{ weather: unknown }>("TodayOutlook").weather).toBeNull();
-
-    positionAnswer = "here";
-    await call(failures()[0].onRetry!);
-    await waitFor(() => expect(stubProps<{ weather: unknown }>("TodayOutlook").weather).toEqual({ temperature_c: 20 }));
-    expect(failures()).toEqual([]);
+    await user.click(screen.getByRole("tab", { name: /比較/ }));
+    expect(mapView().experimentSlots).toHaveLength(1);
+    await user.click(candidateTabs()[0]);
+    expect(mapView().experimentSlots).toEqual([]);
   });
 
-  it("天気・実測の取得の失敗はそれぞれの欄へ、警報の取得の失敗と軸一覧を取得できないことはヘッダーの印に並べる", async () => {
-    onBackend("GET", "/api/weather", failure("予報を取れませんでした"));
-    onBackend("GET", "/api/weather/amedas", failure("実測を取れませんでした"));
-    onBackend("GET", "/api/weather/warnings", failure("警報を取れませんでした"));
-    onBackend("GET", "/api/axis-catalog", failure("軸一覧を取れませんでした"));
-    await renderHome();
+  it("まとめて元に戻す操作: レイヤーを消すのはどれかを表示している間、絞り込みを解くのは凡例で隠している間だけ押せる。再描画は地図の描き直しを求める", async () => {
+    const { user } = renderHome();
+    const hideAll = screen.getByRole("button", { name: "表示中のレイヤーをすべて非表示にする" });
+    expect(Object.values(mapView().look.layerVisibility)).toContain(true);
+    await user.click(hideAll);
+    expect(Object.values(mapView().look.layerVisibility)).not.toContain(true);
+    expect(hideAll).toBeDisabled();
 
-    await waitFor(() =>
-      expect(stubProps<{ error: string | null }>("WeatherPanel").error).toBe("実測を取れませんでした"),
-    );
-    expect(stubProps<{ error: string | null }>("TodayOutlook").error).toBe("予報を取れませんでした");
+    const showAll = screen.getByRole("button", { name: "絞り込みをすべて解除する" });
+    expect(showAll).toBeDisabled();
+    jobs.respond([FIRST], LOOP_CONDITIONS);
+    await generate(user);
+    await user.click(await screen.findByRole("button", { name: /^地図の色分け: / }));
+    const legendAll = await screen.findByRole("checkbox", { name: "凡例の全段階をまとめて表示/非表示" });
+    await user.click(legendAll);
+    await user.keyboard("{Escape}");
+    expect(showAll).toBeEnabled();
+    await user.click(showAll);
+    expect(showAll).toBeDisabled();
 
-    await waitFor(() =>
-      expect(stubProps<{ failures: FetchFailure[] }>("WarningBadgeList").failures.map((f) => f.label)).toEqual([
-        "警報・注意報",
-        "軸一覧",
-      ]),
-    );
-  });
-
-  it("メニューの「使い方を見る」で説明を見る状態に入り、説明の側で終えると抜ける", async () => {
-    await renderHome();
-    expect(isStubMounted("UsageGuide")).toBe(false);
-
-    await call(stubProps<{ onStartUsageGuide: () => void }>("HeaderMenu").onStartUsageGuide);
-    expect(isStubMounted("UsageGuide")).toBe(true);
-
-    await call(stubProps<{ onEnd: () => void }>("UsageGuide").onEnd);
-    expect(isStubMounted("UsageGuide")).toBe(false);
-  });
-
-  it("メニューからデバッグログを開閉し、コンソールの側からも閉じられる", async () => {
-    // デバッグログは取得の失敗を console.error へ出すので、気象庁の配信の取得も通しておく。
-    onSameOrigin("GET", JMA_DELIVERY, () => Response.json([]));
-    setDebugEnabled(true);
-    await renderHome();
-    const menu = () =>
-      stubProps<{ debugEnabled: boolean; debugConsoleOpen: boolean; onToggleDebugConsole: () => void }>("HeaderMenu");
-    const consoleProps = () => stubProps<{ open: boolean; onClose: () => void }>("DebugConsole");
-    expect(menu()).toMatchObject({ debugEnabled: true, debugConsoleOpen: false });
-
-    await call(menu().onToggleDebugConsole);
-    expect(consoleProps().open).toBe(true);
-    expect(menu().debugConsoleOpen).toBe(true);
-
-    await call(consoleProps().onClose);
-    expect(consoleProps().open).toBe(false);
+    const before = mapView().look.refreshToken;
+    await user.click(screen.getByRole("button", { name: "地図の表示を再描画する" }));
+    expect(mapView().look.refreshToken).toBe(before + 1);
   });
 });
 
-describe("現在地のボタン", () => {
-  it("待つ間は押せず、取れなかったら理由を地図の上に出す", async () => {
-    const user = userEvent.setup();
-    await renderHome();
-    positionAnswer = "wait";
+describe("画面の枠", () => {
+  it("スマホでは下部タブでシートを1枚ずつ開き、地図で地点を扱えるのは「ルート設定」の条件タブを開いている間だけ。結果の合図は「ルート結果」を開くまで残り、入力の誤りは「ルート設定」にも出す", async () => {
+    installGeolocation(null);
+    useMobileLayout();
+    const { user } = renderHome();
+    const settingsTab = () => screen.getByRole("button", { name: "ルート設定", expanded: false });
+    const outcomeTab = screen.getByRole("button", { name: "ルート結果" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(mapView().measureRouteFitObscuredPx?.()).toEqual({ bottom: 0 });
 
-    await user.click(screen.getByRole("button", { name: "現在地に移動" }));
-    expect(screen.getByRole("button", { name: "現在地に移動" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "現在地に移動" })).toHaveTextContent("…");
+    await user.click(settingsTab());
+    const settingsSheet = screen.getByRole("dialog", { name: "ルート設定" });
+    expect(mapView().measureRouteFitObscuredPx?.()).toEqual({ bottom: window.innerHeight * 0.5 });
+    await user.click(within(settingsSheet).getByRole("button", { name: "ルート生成" }));
+    expect(within(settingsSheet).getByText(/^現在地が分かりません/)).toBeInTheDocument();
+    expect(outcomeTab).toHaveAccessibleDescription("生成に失敗しました");
 
-    await act(async () => positionRequests.at(-1)!.fail());
+    await user.click(within(settingsSheet).getByRole("button", { name: "出発地を地図で選ぶ" }));
+    expect(mapView().armedPinRole).toBe("origin");
+    expect(mapView().pointEditingEnabled).toBe(true);
+    await user.click(within(settingsSheet).getByRole("tab", { name: "重み" }));
+    expect(mapView().pointEditingEnabled).toBe(false);
+    await user.click(within(settingsSheet).getByRole("tab", { name: "条件" }));
+    act(() => mapView().onPinPlace("origin", HERE));
+    jobs.respond([FIRST], LOOP_CONDITIONS);
+    expect(await generate(user)).toMatchObject({ latitude: HERE.latitude, longitude: HERE.longitude });
+    await waitFor(() => expect(outcomeTab).toHaveAccessibleDescription("新しい結果があります"));
 
-    expect(screen.getByRole("button", { name: "現在地に移動" })).toBeEnabled();
-    expect(screen.getByText(/現在地を取得できませんでした/)).toBeInTheDocument();
-  });
-});
+    await user.click(outcomeTab);
+    expect(screen.queryByRole("dialog", { name: "ルート設定" })).toBeNull();
+    const outcomeSheet = screen.getByRole("dialog", { name: "ルート結果" });
+    expect(within(outcomeSheet).getByRole("button", { name: "候補を全消去" })).toBeInTheDocument();
+    expect(outcomeTab).not.toHaveAccessibleDescription();
+    await user.click(within(outcomeSheet).getByRole("button", { name: "閉じる" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
 
-describe("モバイルの下部タブとシート", () => {
-  beforeEach(() => setMobile(true));
-
-  const tab = (name: string) =>
-    within(screen.getByRole("navigation", { name: "パネル切り替え" })).getByRole("button", { name });
-
-  it("タブを押すとそのシートを開き、同じタブでもう一度押すと閉じる。シートは1枚ずつ開く", async () => {
-    const user = userEvent.setup();
-    await renderHome();
-    expect(screen.queryByRole("button", { name: "パネルを閉じる" })).toBeNull();
-    expect(settingsSheet().open).toBe(false);
-
-    await user.click(tab("ルート設定"));
-    expect(settingsSheet().open).toBe(true);
-    expect(tab("ルート設定")).toHaveAttribute("aria-expanded", "true");
-
-    await user.click(tab("ルート結果"));
-    expect(settingsSheet().open).toBe(false);
-    expect(outcomeSheet().open).toBe(true);
-
-    await user.click(tab("ルート結果"));
-    expect(outcomeSheet().open).toBe(false);
-  });
-
-  it("シートの側から閉じても地図だけの状態へ戻る", async () => {
-    const user = userEvent.setup();
-    await renderHome();
-    await user.click(tab("ルート設定"));
-    await call(settingsSheet().onClose);
-    expect(settingsSheet().open).toBe(false);
-
-    await user.click(tab("ルート結果"));
-    await call(outcomeSheet().onClose);
-    expect(outcomeSheet().open).toBe(false);
+    await user.click(settingsTab());
+    fireEvent.change(screen.getByLabelText("距離"), { target: { value: "50" } });
+    expect(outcomeTab).toHaveAccessibleDescription("生成条件が変更されています");
+    await user.click(screen.getByRole("button", { name: "ルート設定", expanded: true }));
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("「ルート設定」シートは見出しにタブと「生成」を置き、「ルート結果」シートは候補がある間だけ「全消去」を置く", async () => {
-    const user = userEvent.setup();
-    await renderHome();
-    const settings = within(screen.getByRole("region", { name: "ルート設定" }));
-    const results = within(screen.getByRole("region", { name: "ルート結果" }));
-    expect(settings.getAllByRole("tab").map((t) => t.textContent)).toEqual(["条件", "重み", "除外"]);
-    expect(results.queryByRole("button", { name: "候補を全消去" })).toBeNull();
-
-    answerGeneration([route("a")]);
-    await user.click(settings.getByRole("button", { name: "ルート生成" }));
-
-    expect(results.getByRole("button", { name: "候補を全消去" })).toBeInTheDocument();
-  });
-
-  it("入力の誤りは「ルート設定」シートの中にも出し、直して生成すると消える", async () => {
-    const user = userEvent.setup();
-    positionAnswer = "deny";
-    await renderHome();
-    const settings = within(screen.getByRole("region", { name: "ルート設定" }));
-
-    await user.click(settings.getByRole("button", { name: "ルート生成" }));
-    expect(settings.getByText(/現在地が分かりません/)).toBeInTheDocument();
-
-    await call(mapView().onPinPlace, "origin", PICKED);
-    answerGeneration([route("a")]);
-    await user.click(settings.getByRole("button", { name: "ルート生成" }));
-    expect(settings.queryByText(/現在地が分かりません/)).toBeNull();
-  });
-
-  it("「ルート結果」タブの印: 失敗は赤の失敗、新しい結果と条件の変更は橙。タブを開くと新着の印は消え、条件の変更は残る", async () => {
-    const user = userEvent.setup();
-    await renderHome();
-    const settings = within(screen.getByRole("region", { name: "ルート設定" }));
-    const signal = () => tab("ルート結果").getAttribute("aria-description");
-    expect(signal()).toBeNull();
-
-    failGeneration("混雑しています");
-    await user.click(settings.getByRole("button", { name: "ルート生成" }));
-    expect(signal()).toBe("生成に失敗しました");
-
-    answerGeneration([route("a")]);
-    await user.click(settings.getByRole("button", { name: "ルート生成" }));
-    expect(signal()).toBe("新しい結果があります");
-
-    await user.click(tab("ルート結果"));
-    expect(signal()).toBeNull();
-
-    await call(routeForm().onDistanceChange, "50");
-    expect(signal()).toBe("生成条件が変更されています");
-  });
-
-  it("シートの高さは2枚で共有し、動かしている間の高さはすぐ渡し、決めた高さだけを保存して中身に合わせるのをやめる", async () => {
-    const { unmount } = await renderHome();
-    expect(settingsSheet()).toMatchObject({ heightVh: DEFAULT_SHEET_HEIGHT_VH, autoFitHeight: true });
-
-    await call(settingsSheet().onHeightChange, 63);
-    expect(outcomeSheet().heightVh).toBe(63);
-    expect(settingsSheet().autoFitHeight).toBe(true);
-
-    await call(outcomeSheet().onHeightCommit, 70);
-    expect(settingsSheet()).toMatchObject({ heightVh: 70, autoFitHeight: false });
-
+  it("スマホのシートの高さは、確定した値を2枚のシートで共有し、次に開いたときも使う", async () => {
+    useMobileLayout();
+    const { user, unmount } = renderHome();
+    await user.click(screen.getByRole("button", { name: "ルート設定" }));
+    const handle = screen.getByRole("separator", { name: "パネルの高さを変更" });
+    handle.focus();
+    await user.keyboard("{ArrowUp}");
+    expect(handle).toHaveAttribute("aria-valuenow", "55");
     unmount();
-    await renderHome();
-    expect(outcomeSheet()).toMatchObject({ heightVh: 70, autoFitHeight: false });
+
+    renderHome();
+    await user.click(screen.getByRole("button", { name: "ルート結果" }));
+    expect(screen.getByRole("separator", { name: "パネルの高さを変更" })).toHaveAttribute("aria-valuenow", "55");
+  });
+
+  it("スマホのシートをつまみで動かしている間の高さは、すぐ使うが保存しない", async () => {
+    useMobileLayout();
+    const { user, unmount } = renderHome();
+    await user.click(screen.getByRole("button", { name: "ルート設定" }));
+    const handle = screen.getByRole("separator", { name: "パネルの高さを変更" });
+    fireEvent.pointerDown(handle, { pointerId: 1, clientY: window.innerHeight * 0.5 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientY: window.innerHeight * 0.3 });
+    expect(handle).toHaveAttribute("aria-valuenow", "70");
+    unmount();
+
+    renderHome();
+    await user.click(screen.getByRole("button", { name: "ルート設定" }));
+    expect(screen.getByRole("separator", { name: "パネルの高さを変更" })).toHaveAttribute(
+      "aria-valuenow",
+      String(DEFAULT_SHEET_HEIGHT_VH),
+    );
   });
 
   it.each([
-    { saved: "99", heightVh: 80, autoFitHeight: false },
-    { saved: '"tall"', heightVh: DEFAULT_SHEET_HEIGHT_VH, autoFitHeight: true },
-    { saved: "{", heightVh: DEFAULT_SHEET_HEIGHT_VH, autoFitHeight: true },
-  ])("保存した高さ $saved は、範囲へ寄せるか既定の高さで始める", async ({ saved, heightVh, autoFitHeight }) => {
-    localStorage.setItem("ridecompass:mobile-sheet-height-vh", saved);
-    await renderHome();
-    expect(settingsSheet()).toMatchObject({ heightVh, autoFitHeight });
-  });
-
-  it("「ルート設定」シートは、タブかモードが変わると中身に合わせ直す鍵が変わる", async () => {
-    const user = userEvent.setup();
-    await renderHome();
-    const before = settingsSheet().fitKey;
-
-    await user.click(screen.getByRole("tab", { name: "除外" }));
-    const afterTab = settingsSheet().fitKey;
-    await call(routeForm().onRouteModeChange, "destination");
-
-    expect(new Set([before, afterTab, settingsSheet().fitKey]).size).toBe(3);
-  });
-
-  it("シートを開いている間だけ、地図の枠と、ルートを地図へ収めるときの覆われた高さにシートの高さを渡す", async () => {
-    const user = userEvent.setup();
-    const { container } = await renderHome();
-    const pane = () => container.querySelector<HTMLElement>(".app-map-pane")!;
-    expect(pane().style.getPropertyValue("--mobile-sheet-height")).toBe("0px");
-    expect(mapView().measureRouteFitObscuredPx()).toEqual({ bottom: 0 });
-
-    await user.click(tab("ルート結果"));
-
-    expect(pane().style.getPropertyValue("--mobile-sheet-height")).toBe(`${DEFAULT_SHEET_HEIGHT_VH}vh`);
-    expect(mapView().measureRouteFitObscuredPx()).toEqual({
-      bottom: (window.innerHeight * DEFAULT_SHEET_HEIGHT_VH) / 100,
-    });
-  });
-
-  it("地図で地点を扱えるのは「ルート設定」シートを開いている間、区間を選べるのは「ルート結果」シートを開いている間", async () => {
-    const user = userEvent.setup();
-    await renderHome();
-    answerGeneration([route("a")]);
-    await user.click(
-      within(screen.getByRole("region", { name: "ルート設定" })).getByRole("button", { name: "ルート生成" }),
+    ["数として読めない", "高い", DEFAULT_SHEET_HEIGHT_VH],
+    ["数でない値", '"70"', DEFAULT_SHEET_HEIGHT_VH],
+    ["シートの範囲の外", "500", clampSheetHeightVh(500)],
+  ])("保存されたシートの高さが%sなら、%sから%d%%で開く", async (_, stored, expected) => {
+    window.localStorage.setItem("ridecompass:mobile-sheet-height-vh", stored);
+    useMobileLayout();
+    const { user } = renderHome();
+    await user.click(screen.getByRole("button", { name: "ルート設定" }));
+    expect(screen.getByRole("separator", { name: "パネルの高さを変更" })).toHaveAttribute(
+      "aria-valuenow",
+      String(Math.round(expected)),
     );
-    const segment = { routeId: "a", segmentIndex: 0 };
-    expect(mapView().pointEditingEnabled).toBe(false);
-
-    await user.click(tab("ルート設定"));
-    expect(mapView().pointEditingEnabled).toBe(true);
-    await call(mapView().onRouteSegmentSelect, segment);
-    expect(mapView().selectedRouteSegment).toBeNull();
-
-    await user.click(tab("ルート結果"));
-    expect(mapView().pointEditingEnabled).toBe(false);
-    await call(mapView().onRouteSegmentSelect, segment);
-    expect(mapView().selectedRouteSegment).toEqual(segment);
   });
 
-  it("初めて開いたときの案内へ、スマホ幅かを渡す", async () => {
-    await renderHome();
-    expect(stubProps<{ isMobile: boolean }>("FirstVisitIntro").isMobile).toBe(true);
+  it("区分の開閉は、次に開いたときも同じになる", async () => {
+    const { user, unmount } = renderHome();
+    await user.click(section("ルート設定"));
+    unmount();
+
+    renderHome();
+    expect(section("ルート設定")).toHaveAttribute("aria-expanded", "false");
+    expect(section("ルート結果")).toHaveAttribute("aria-expanded", "true");
+    expect(mapView().measureRouteFitObscuredPx?.()).toBeUndefined();
+  });
+
+  it("ヘッダーの「未取得」に、現在地・軸の一覧・警報の取れないものが並ぶ。「現在地に移動」が取れなければ地図の上に理由を出す", async () => {
+    installGeolocation(null);
+    onBackend("GET", "/api/axis-catalog", () => Response.json({ detail: "失敗" }, { status: 502 }));
+    onBackend("GET", "/api/weather/warnings", () => Response.json({ detail: "失敗" }, { status: 502 }));
+    const { user } = renderHome();
+    const missing = () => screen.getByRole("button", { name: /を取得できていません/ });
+    await waitFor(() => expect(missing()).toHaveAccessibleName(/現在地.*軸一覧|軸一覧.*現在地/));
+    expect(missing()).not.toHaveAccessibleName(/警報/);
+
+    await user.click(screen.getByRole("button", { name: "現在地に移動" }));
+    expect(screen.getByText(/現在地を取得できませんでした/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "出発地を地図で選ぶ" }));
+    act(() => mapView().onPinPlace("origin", HERE));
+    await waitFor(() => expect(missing()).toHaveAccessibleName(/警報/));
+    expect(missing()).not.toHaveAccessibleName(/現在地/);
+  });
+
+  it("メニューから使い方の説明に入って「やめる」で抜け、デバッグログをメニューから開いてログの側から閉じられる", async () => {
+    setDebugEnabled(true);
+    const { user } = renderHome();
+    await user.click(screen.getByRole("button", { name: "メニュー" }));
+    await user.click(screen.getByRole("button", { name: "使い方を見る" }));
+    expect(screen.getByText("説明を見たい部品を押してください")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "やめる" }));
+    expect(screen.queryByText("説明を見たい部品を押してください")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "メニュー" }));
+    await user.click(screen.getByRole("button", { name: "デバッグログを表示" }));
+    expect(screen.getByText(/^デバッグログ\[/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /^デバッグログ\[.*を閉じる$/ }));
+    expect(screen.queryByText(/^デバッグログ\[/)).toBeNull();
+    await user.click(screen.getByRole("button", { name: "メニュー" }));
+    expect(screen.getByRole("button", { name: "デバッグログを表示" })).toBeInTheDocument();
   });
 });
