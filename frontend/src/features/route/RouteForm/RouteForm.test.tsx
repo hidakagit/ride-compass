@@ -1,6 +1,6 @@
 /**
  * `RouteForm/RouteForm.tsx`——「ルート設定」区分の各タブの中身。「条件」タブ（周回か目的地か・候補数・距離・地点の行）を
- * 描き、「重み」「除外」タブには受け取った中身を置く。
+ * 描き、「重み」「除外」「保存」タブには受け取った中身を置く。
  *
  * 見るもの: モードの切り替えで上がるモード、候補数のステッパー（今の件数・1件ずつの増減・端で押せない・経由地があると
  * 決まった件数で押せず、理由を(i)の奥に置く）、周回の距離のスライダー（選べる値の範囲と刻み）、モードごとに出す地点の行、
@@ -37,6 +37,7 @@ const BASE = {
   armedPinRole: null,
   weightsPanel: null,
   exclusionsPanel: null,
+  savedPanel: null,
 } satisfies Partial<Props>;
 
 function renderForm(props: Partial<Props> = {}, tab: SettingsTab = "generate") {
@@ -310,19 +311,26 @@ describe("RouteForm タブの中身", () => {
     return <input aria-label={name} value={text} onChange={(e) => setText(e.target.value)} />;
   }
 
-  it("「重み」「除外」に受け取った中身を置き、タブを切り替えても外さない", async () => {
+  it("「重み」「除外」「保存」に受け取った中身を置き、タブを切り替えても外さない", async () => {
     const { showTab } = renderForm(
-      { weightsPanel: <Draft name="重みの中身" />, exclusionsPanel: <Draft name="除外の中身" /> },
+      {
+        weightsPanel: <Draft name="重みの中身" />,
+        exclusionsPanel: <Draft name="除外の中身" />,
+        savedPanel: <Draft name="保存の中身" />,
+      },
       "weights",
     );
     await userEvent.type(screen.getByRole("textbox", { name: "重みの中身" }), "動かした配分");
     showTab("exclusions");
     await userEvent.type(screen.getByRole("textbox", { name: "除外の中身" }), "外した種類");
+    showTab("saved");
+    await userEvent.type(screen.getByRole("textbox", { name: "保存の中身" }), "書きかけの名前");
 
     showTab("generate");
     showTab("weights");
 
     expect(screen.getByRole("textbox", { name: "重みの中身" })).toHaveValue("動かした配分");
     expect(screen.getByRole("textbox", { name: "除外の中身" })).toHaveValue("外した種類");
+    expect(screen.getByRole("textbox", { name: "保存の中身" })).toHaveValue("書きかけの名前");
   });
 });

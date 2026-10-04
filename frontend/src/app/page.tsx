@@ -24,7 +24,9 @@ import LensControl from "@/features/map/LensControl/LensControl";
 import RouteForm, { type SettingsTab } from "@/features/route/RouteForm/RouteForm";
 import RouteSettingsPanel from "@/features/route/RouteSettingsPanel/RouteSettingsPanel";
 import HardFilterPanel from "@/features/route/RouteSettingsPanel/HardFilterPanel";
+import SavedConditionsPanel from "@/features/route/SavedConditionsPanel/SavedConditionsPanel";
 import { useGenerationConditions } from "@/features/route/useGenerationConditions";
+import { useSavedConditions } from "@/features/route/useSavedConditions";
 import type { RouteOutcomeKind } from "@/features/route/useRouteGeneration";
 import { useRoutePlanner } from "@/features/route/useRoutePlanner";
 import RouteOutcome from "@/features/route/RouteOutcome/RouteOutcome";
@@ -65,7 +67,8 @@ type MobileSheet = "routeSettings" | "routeOutcome" | null;
 
 /** モバイルの下部タブの使い方。 */
 const MOBILE_TAB_USAGES = {
-  routeSettings: "ルートを作る条件[距離・地点・重み・除外]と「ルート生成」を開きます。もう一度押すと閉じます。",
+  routeSettings:
+    "ルートを作る条件[距離・地点・重み・除外・保存した条件]と「ルート生成」を開きます。もう一度押すと閉じます。",
   routeOutcome: "作った候補の一覧と、その難易度の内訳を開きます。点は新しい結果か条件の変更の合図で、赤は失敗です。",
 } as const;
 
@@ -95,6 +98,13 @@ export default function Home() {
   // 生成の条件（「ルート設定」の入力）と走行条件。
   const conditions = useGenerationConditions({ onOriginPlace: setManualLocation });
   const ride = useRideConditions();
+  // 名前を付けて保存した生成の条件（「保存」タブ）。
+  const savedConditions = useSavedConditions({
+    conditions,
+    manualOrigin: locationSource === "manual" ? location : null,
+    onOriginPlace: setManualLocation,
+    onOriginFollowCurrent: handleLocateMe,
+  });
 
   // デスクトップの区分の開閉（モバイルはシートの開閉がこれに当たる）。
   const [generateOpen, setGenerateOpen] = useStoredBooleanState(GENERATE_OPEN_STORAGE_KEY, true);
@@ -255,6 +265,9 @@ export default function Home() {
         <TabsTrigger value="exclusions" usage="ルートに使わない道路の種類を選びます。">
           除外
         </TabsTrigger>
+        <TabsTrigger value="saved" usage="いまの条件に名前を付けて保存し、保存した条件を呼び出します。">
+          保存
+        </TabsTrigger>
       </TabsList>
     );
   }
@@ -315,6 +328,15 @@ export default function Home() {
         }
         exclusionsPanel={
           <HardFilterPanel hardFilters={conditions.hardFilters} onHardFiltersChange={conditions.setHardFilters} />
+        }
+        savedPanel={
+          <SavedConditionsPanel
+            saved={savedConditions.saved}
+            suggestedName={savedConditions.suggestedName}
+            onSave={savedConditions.save}
+            onRecall={savedConditions.recall}
+            onRemove={savedConditions.remove}
+          />
         }
       />
     );
