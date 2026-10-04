@@ -16,7 +16,7 @@ export const config = {
   adoption: "やる？",
   transitions: { 答え待ち: ["前", "置き", "済"], 置き: ["前", "済"], 前: ["中", "答え待ち", "置き", "済"], 中: ["検", "前", "置き", "答え待ち", "済"], 検: ["済", "前", "答え待ち"], 済: [] },
   code: { repository: "o/code", branchPrefix: "work/t-", base: "main" },
-  coordinator: { slots: { 作る: 2, 確かめる: 1 }, devLabel: "機", recent: 20 },
+  coordinator: { slots: { 作る: 2, 確かめる: 1 }, devLabel: "機", recent: 4, recordsSince: "2026-10-01T00:00:00Z" },
 };
 
 const OPTIONS = Object.fromEntries(config.statuses.map((s) => [s, `S:${s}`]));
@@ -25,10 +25,11 @@ const LOGIN = Object.fromEntries(Object.entries(config.people).map(([k, p]) => [
 const AS = { "Bearer form-token": config.user, "Bearer bot-token": config.claude };
 
 // issue: { number, author（login）, status, body, labels, assignees（login）, fields, comments（{ author, body }）, parent, lastClose }
-// parent を渡すと issue をその子にし、親の優先度は parent.fields から読む。
-export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel, "札"], updates = [] }) {
+// parent を渡すと issue をその子にし、親の優先度は parent.fields から読む。records は番号 → 記録の並び（コメント { by, at, body } か
+// 閉じ { closed: at }）で、見回りが issue ごとに読むもの（読んだ番号を read に残す）。
+export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel, "札"], updates = [], records = {} }) {
   const blank = { state: "OPEN", body: "本文", labels: [], assignees: [], fields: {}, comments: [], lastClose: [] };
-  const s = { issue: { ...blank, ...issue }, parent: parent && { ...blank, ...parent }, writes: [], updates };
+  const s = { issue: { ...blank, ...issue }, parent: parent && { ...blank, ...parent }, writes: [], updates, read: [] };
   const node = (i) => ({
     id: i === s.parent ? "I_P" : "I_1", number: i.number, title: "題名", body: i.body, url: `https://github.com/${config.repository}/issues/${i.number}`, state: i.state,
     author: { databaseId: config.people[i.author ?? config.user]?.id }, parent: i === s.issue && s.parent ? { number: s.parent.number } : null,
@@ -68,6 +69,13 @@ export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel
         repository: { labels: { nodes: labels.map((name) => ({ id: `L:${name}`, name })) }, issue: node(i) }, node: node(i) } };
     }
     if (query.startsWith("query Open")) return { data: { repository: { issues: { pageInfo: { hasNextPage: false }, nodes: [{ number: s.issue.number }] } } } };
+    // GraphQL は App の名義を [bot] を付けずに返す。
+    if (query.startsWith("query Records")) {
+      const numbers = [...query.matchAll(/i(\d+): issue/g)].map(([, k]) => Number(k));
+      s.read.push(...numbers);
+      return { data: { repository: Object.fromEntries(numbers.map((k) => [`i${k}`, { timelineItems: { nodes: (records[k] ?? []).map((r) =>
+        (r.closed ? { __typename: "ClosedEvent", createdAt: r.closed } : { __typename: "IssueComment", createdAt: r.at, body: r.body, author: { login: r.by.replace(/\[bot\]$/, "") } })) } }])) } };
+    }
     if (query.startsWith("query Updates"))
       return { data: { organization: { projectV2: { id: "PVT", statusUpdates: { nodes: s.updates.slice(0, 1).map(({ by, ...u }) => ({ ...u, creator: { login: by } })) } } } } };
     for (const [, key, name] of query.matchAll(/(m\d+): (\w+)\(input/g)) apply(name, v[key], as);

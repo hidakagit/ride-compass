@@ -45,6 +45,26 @@ export function parseQuestion(text) {
   return { text: question, plans: plans.map((l) => l.slice(2).trim()), material };
 }
 
+// ステータスを動かすときに issue へ残すコメント。書く側（道具・ゲート）はここで作り、見回りの作業時間（src/dispatch.js: workload）は
+// 同じ形を worksAfter で読む。形を変えるときは、作る側と読む側をここで一緒に変える。
+export const notes = {
+  start: (kind, url) => `### ${kind}担当の着手\n\n実行: ${url}`,
+  reason: (to, why) => `${to}にする理由: ${why}`,
+  back: (why, from) => `${why}「${from}」へ戻しました。`,
+  // ゲートが Pull Request の閉じで書く。どれもタスクを未着手か完了へ動かす。
+  pullRequest: (pr, rest) => `Pull Request [#${pr.number} ${pr.title.replace(/[[\]]/g, "\\$&")}](${pr.html_url}) ${rest}`,
+};
+
+// コメント（notes の形か問い）の直後に、タスクが作業の状態（進行中・検証中）にいるか。記録の形でなければ null。
+// 着手は作る担当なら進行中へ動かし、確かめる担当なら検証中のまま書く。
+export function worksAfter(config, body) {
+  const text = normalize(body);
+  if (parseQuestion(text) || /^Pull Request \[#\d+ /.test(text)) return false;
+  if (/^### \S+?担当の着手\n/.test(text)) return true;
+  const to = /^(\S+?)にする理由: /.exec(text)?.[1] ?? /「([^」]+)」へ戻しました。$/.exec(text)?.[1];
+  return config.statuses.includes(to) ? [config.working, config.review].includes(to) : null;
+}
+
 // 回答フォームの次のステータス: 表で今のステータスから行ける先。完了は完成と見送りに分ける。最初のものが既定。
 export const nextChoices = (config, from) =>
   config.transitions[from].flatMap((to) =>
