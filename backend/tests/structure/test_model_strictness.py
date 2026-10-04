@@ -6,6 +6,9 @@
 
 母集団はソースから導く——`backend/app`配下の全`.py`をASTで読み、`BaseModel`を**直接**
 継承するクラスを数える。`StrictModel`経由の継承は対象外（あちらが`forbid`を宣言している）。
+
+ここで見ないもの:
+- `StrictModel`が未知のフィールドを断ること → `tests/test_strict_model.py`
 """
 
 from __future__ import annotations

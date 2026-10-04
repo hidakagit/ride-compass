@@ -947,13 +947,19 @@ PYTHONUTF8=1 backend/.venv/Scripts/python.exe -m pytest backend/tests/test_foo.p
 置き場を決める軸は「何を守るか」ではなく、**そのテストが何を読むか**である。
 
 - **リポジトリのソースをデータとして読む**（ASTやテキストとして走査し、コードは動かさない）
-  ——素の`BaseModel`を使っていないか、web層がバッチをimportしていないか、未定義のCSSトークンを
+  ——素の`BaseModel`を使っていないか、設定の項目に読み手がいるか、未定義のCSSトークンを
   参照していないか等。これを下の専用ディレクトリへ置く
 - **コードを動かして確かめる**——横断的な不変条件を守るものでも、対象を実際に動かすなら
   普通のテストであり、**対象の隣へ置く**（例: スタイル作り直しの前後でレイヤー状態が戻るかは
   MapViewを動かして見るため、`features/map/MapView/`側に置く）
 
-前者の置き場は次の2か所。
+前者のうち、CIが既に流している静的な検査（backendの`ruff.toml`・`.importlinter`・`mypy.ini`、frontendのESLint・knip）の
+設定で表せて、許可リストが要らないものは、テストにせずその設定へ置く（例: web層が`app.batch`をモジュール直下で
+importしない → `backend/ruff.toml`の`TID253`）。テストにするのは、自前でソースを読む（ASTの走査・一覧からの母集団）ことが
+要るものと、許可リストが要るもの（ruffの`per-file-ignores`と`# noqa`は、古くなっても落ちない）だけである。
+`scripts/review_checks.py`の検知器へは置かない（実装を検査対象にしない。[fixing.md](fixing.md)「検知器を足す条件は厳しい」）。
+
+テストにするものの置き場は次の2か所。
 
 | 対象 | 置き場 |
 |---|---|
