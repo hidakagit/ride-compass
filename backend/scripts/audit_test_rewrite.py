@@ -22,6 +22,13 @@ r"""起こし直したテストを機械で監査する。報告の自己申告�
     .venv\Scripts\python.exe scripts\audit_test_rewrite.py --no-jit app/domain/routing.py tests/test_routing.py
     .venv\Scripts\python.exe scripts\audit_test_rewrite.py --backend ../.claude/worktrees/agent-x/backend \
         app/infrastructure/wbgt_client.py tests/test_wbgt_client.py
+    .venv\Scripts\python.exe scripts\audit_test_rewrite.py --ref origin/master app/domain/traffic.py tests/test_traffic.py
+
+`--ref`は起こし直す前の値を同じ実行で測る。その版を一時の作業ツリーへ取り出して同じ母集団で④⑤を測り、
+前と後の行・分岐カバレッジと、後で新たに未到達になった行・分岐を並べる。作業ツリーは終わるときに消す
+（テストが落ちても）。前の版のテスト名は出さない（起こし直しの手順1〜3では旧版を開かないため）。
+その版に無いテストファイルは前の測りから外し、外したことを出す。PostGISのテストは、前の版でも今の
+作業ツリーと同じテスト用DBへ繋ぐ（一時の作業ツリー専用のDBは、作業ツリーを消しても残るため作らせない）。
 
 `--no-jit`は`NUMBA_DISABLE_JIT=1`を立てる。`njit`の中はcoverage.pyが追えないため、
 JITを通る対象はこれを付けないと⑤が実態より低く出る。
@@ -36,10 +43,16 @@ api層の対象ではconftestのimportでnumpyが2度読み込まれて収集ご
 import argparse
 import ast
 import asyncio
+import json
 import os
+import re
 import subprocess
 import sys
+import tempfile
 from collections import defaultdict
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 
 import asyncpg
@@ -226,12 +239,163 @@ def test_database_unreachable(backend: Path) -> str | None:
     return None
 
 
+def worktree_test_database_url(backend: Path) -> str:
+    """作業ツリーのPostGISのテストが繋ぐDBのURL（無ければ作る）。テストと同じ規則で、子プロセスで決める。"""
+    return os.environ.get("TEST_DATABASE_URL") or subprocess.run(
+        [sys.executable, "-c", "from tests.conftest import _prepare_worktree_database as p; print(p())"],
+        cwd=backend, capture_output=True, text=True, encoding="utf-8", errors="replace", check=True,
+    ).stdout.strip().splitlines()[-1]
+
+
+@dataclass(frozen=True)
+class Measurement:
+    """1つの版の④⑤。"""
+
+    covered_lines: int
+    statements: int
+    covered_branches: int
+    branches: int
+    missing_lines: frozenset[int]
+    missing_branches: frozenset[tuple[int, int]]
+    dead: list[str]
+    executed: int
+
+
+def rate(covered: int, total: int) -> str:
+    return f"{'100' if total == 0 else f'{covered / total * 100:.1f}'}%（{covered}/{total}）"
+
+
+def line_ranges(lines: set[int] | frozenset[int]) -> str:
+    """連続する行番号を`12-15`にまとめる。"""
+    out: list[list[int]] = []
+    for n in sorted(lines):
+        if out and out[-1][1] == n - 1:
+            out[-1][1] = n
+        else:
+            out.append([n, n])
+    return ", ".join(f"{a}" if a == b else f"{a}-{b}" for a, b in out) or "なし"
+
+
+def run_pytest(
+    backend: Path, tests: list[str], cov_dir: str, env: dict[str, str], with_postgis: bool, report: Path
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, "-m", "pytest", *tests, "-q", "-rA", *([] if with_postgis else ["-m", "not postgis"]),
+         "-p", "no:randomly",
+         f"--cov={cov_dir}", "--cov-branch", "--cov-context=test", "--cov-report=term-missing",
+         f"--cov-report=json:{report}"],
+        cwd=backend, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace",
+    )
+
+
+def measurement(backend: Path, report: Path, implementation: str, pytest_output: str) -> Measurement:
+    """pytestの実行が残したカバレッジから、対象ファイルの④⑤を読む。
+
+    `--cov`に親ディレクトリを渡すので、テストが1行も通らなかった実装も報告に載る。
+    """
+    files = json.loads(report.read_text(encoding="utf-8"))["files"]
+    data = next(f for path, f in files.items() if path.replace("\\", "/") == implementation)
+    summary = data["summary"]
+    dead, executed = tests_that_never_enter_the_implementation(
+        backend / ".coverage", implementation, passed_test_ids(pytest_output)
+    )
+    return Measurement(
+        covered_lines=summary["covered_lines"],
+        statements=summary["num_statements"],
+        covered_branches=summary["covered_branches"],
+        branches=summary["num_branches"],
+        missing_lines=frozenset(data["missing_lines"]),
+        missing_branches=frozenset((a, b) for a, b in data["missing_branches"]),
+        dead=dead,
+        executed=executed,
+    )
+
+
+@contextmanager
+def checkout(backend: Path, ref: str, parent: Path) -> Iterator[Path]:
+    """版`ref`を一時の作業ツリーへ取り出し、そのbackendを渡す。抜けるとき（テストが落ちても・中断されても）消す。"""
+    root = parent / "before"
+    subprocess.run(
+        ["git", "worktree", "add", "--detach", str(root), ref],
+        cwd=backend, capture_output=True, text=True, encoding="utf-8", errors="replace", check=True,
+    )
+    try:
+        yield root / "backend"
+    finally:
+        removed = subprocess.run(
+            ["git", "worktree", "remove", "--force", str(root)],
+            cwd=backend, capture_output=True, text=True, encoding="utf-8", errors="replace",
+        )
+        if removed.returncode != 0:
+            print(f"一時の作業ツリーを消せなかった: {root}（git worktree remove --force で消す）"
+                  f"\n     {removed.stderr.strip()}", file=sys.stderr)
+
+
+def compare_with_ref(
+    backend: Path, ref: str, tests: list[str], implementation: str, cov_dir: str,
+    env: dict[str, str], with_postgis: bool, after: Measurement, work: Path,
+) -> int:
+    """版`ref`の同じ母集団で④⑤を測り、後の値と並べる。前の版のテスト名は出さない。"""
+    print(f"\n前の版（{ref}）を一時の作業ツリーへ取り出して④⑤を測っています…")
+    if with_postgis:
+        env = dict(env, TEST_DATABASE_URL=worktree_test_database_url(backend))
+    try:
+        with checkout(backend, ref, work) as before_backend:
+            present = [test for test in tests if (before_backend / test).exists()]
+            absent = [test for test in tests if test not in present]
+            if absent:
+                print(f"     前の版に無いテスト（前の測りから外した）: {' '.join(absent)}")
+            if not present:
+                print("     前の版に母集団のテストが1本も無い。前の値は測れない", file=sys.stderr)
+                return 1
+            if not (before_backend / implementation).exists():
+                print(f"     前の版に対象の実装が無い: {implementation}", file=sys.stderr)
+                return 1
+            report = work / "before.json"
+            result = run_pytest(before_backend, present, cov_dir, env, with_postgis, report)
+            if result.returncode != 0:
+                print("     前の版のテストが緑でない。前の値は当てにならない（旧版のテスト名は落ちたものだけ出す）:",
+                      file=sys.stderr)
+                for line in (result.stdout + "\n" + result.stderr).splitlines():
+                    if line.startswith(("FAILED ", "ERROR ")) or (
+                        "::" not in line and re.search(r"\d+ (passed|failed|errors?)\b", line)
+                    ):
+                        print("     " + line, file=sys.stderr)
+                return 1
+            before = measurement(before_backend, report, implementation, result.stdout)
+    except subprocess.CalledProcessError as exc:
+        print(f"     前の版を取り出せない: {' '.join(exc.cmd)}\n     {exc.stderr.strip()}", file=sys.stderr)
+        return 1
+
+    print(f"\n前（{ref}）→ 後（作業ツリー）")
+    print(f"     テスト: {before.executed}本 → {after.executed}本")
+    print(f"     行:     {rate(before.covered_lines, before.statements)} → {rate(after.covered_lines, after.statements)}")
+    print(f"     分岐:   {rate(before.covered_branches, before.branches)}"
+          f" → {rate(after.covered_branches, after.branches)}")
+    print(f"     ④ 実装へ1行も入らないテスト: {len(before.dead)} → {len(after.dead)}")
+    same_implementation = subprocess.run(
+        ["git", "diff", "--quiet", ref, "--", implementation], cwd=backend, capture_output=True,
+    ).returncode == 0
+    if not same_implementation:
+        print(f"     実装が {ref} と違うため、行番号は前と後で対応しない。新たに未到達になった行は出さない")
+        return 0
+    lines = after.missing_lines - before.missing_lines
+    branches = after.missing_branches - before.missing_branches
+    print(f"     後で新たに未到達になった行: {line_ranges(lines)}")
+    print("     後で新たに未到達になった分岐: "
+          + (", ".join(f"{a}->{b}" for a, b in sorted(branches)) or "なし"))
+    if lines or branches:
+        print("     ← 下がった箇所ごとに、なぜ見なくてよいかを1行書く（testing.md「既存テストを直さず、実装から起こし直す」）")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="起こし直したテストを機械で監査する")
     parser.add_argument("implementation", help="実装ファイル（backendディレクトリからの相対パス）")
     parser.add_argument("tests", nargs="+", help="テストファイル（同上）。母集団を並べて渡す")
     parser.add_argument("--backend", default=".", help="別の作業ツリーのbackendディレクトリ（既定: .）")
     parser.add_argument("--no-jit", action="store_true", help="NUMBA_DISABLE_JIT=1で測る")
+    parser.add_argument("--ref", help="前の値を測る版（例: origin/master）。後の値と並べる")
     args = parser.parse_args()
 
     not_python = [test for test in args.tests if not test.endswith(".py")]
@@ -316,30 +480,31 @@ def main() -> int:
     env = dict(os.environ, PYTHONUTF8="1")
     if args.no_jit:
         env["NUMBA_DISABLE_JIT"] = "1"
-    result = subprocess.run(
-        [sys.executable, "-m", "pytest", *args.tests, "-q", "-rA", *(["-m", "not postgis"] if unreachable else []),
-         "-p", "no:randomly",
-         f"--cov={cov_dir}", "--cov-branch", "--cov-context=test", "--cov-report=term-missing"],
-        cwd=backend, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace",
-    )
-    lines = result.stdout.splitlines()
-    for line in lines:
-        if line.replace("\\", "/").startswith(implementation + " ") or (
-            line.startswith("=") and (" passed" in line or " failed" in line or " error" in line)
-        ):
-            print("     " + line.strip())
-    if result.returncode != 0:
-        print("\n     テストが緑でない。監査の残りは当てにならない。pytestの出力の末尾:", file=sys.stderr)
-        for line in (lines + result.stderr.splitlines())[-15:]:
-            print("     " + line, file=sys.stderr)
-        return 1
+    with tempfile.TemporaryDirectory(prefix="ridecompass-audit-") as work_dir:
+        work = Path(work_dir)
+        report = work / "after.json"
+        result = run_pytest(backend, args.tests, cov_dir, env, not unreachable, report)
+        lines = result.stdout.splitlines()
+        for line in lines:
+            if line.replace("\\", "/").startswith(implementation + " ") or (
+                line.startswith("=") and (" passed" in line or " failed" in line or " error" in line)
+            ):
+                print("     " + line.strip())
+        if result.returncode != 0:
+            print("\n     テストが緑でない。監査の残りは当てにならない。pytestの出力の末尾:", file=sys.stderr)
+            for line in (lines + result.stderr.splitlines())[-15:]:
+                print("     " + line, file=sys.stderr)
+            return 1
 
-    dead, total = tests_that_never_enter_the_implementation(
-        backend / ".coverage", implementation, passed_test_ids(result.stdout)
-    )
-    print(f"\n④ 実装へ1行も入らないテスト: {len(dead)} / {total}")
-    for name in dead:
-        print("     " + (name if len(args.tests) > 1 else name.split("::", 1)[1]))
+        after = measurement(backend, report, implementation, result.stdout)
+        print(f"\n④ 実装へ1行も入らないテスト: {len(after.dead)} / {after.executed}")
+        for name in after.dead:
+            print("     " + (name if len(args.tests) > 1 else name.split("::", 1)[1]))
+
+        if args.ref and compare_with_ref(
+            backend, args.ref, args.tests, implementation, cov_dir, env, not unreachable, after, work
+        ):
+            return 1
 
     print("\n" + "=" * 78)
     print("機械化できないもの（人が読む）:"

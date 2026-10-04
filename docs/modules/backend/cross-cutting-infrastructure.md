@@ -50,7 +50,7 @@ DB接続・Redis・HTTPクライアント・レート制限・ログ・デバッ
 | scripts | `drop_orphan_test_databases.py` | 作業ツリーごとに作られるPostGIS統合テストのDBのうち、作業ツリーが無くなったものを出し、`--drop`で落とす。どの作業ツリーのものかはDB自身のコメントから読む（名前から推測しない） |
 | scripts | `serve_e2e_live.py` | e2e-live（`frontend/e2e-live/`）のために、この作業ツリーのbackendを開発DBへ向けて空いたポートで起動し、路面タイルに道が出る起点を開発DBの区間から選んで、ビルドと実行のコマンドを出す（手順の正本は[testing.md](../../conventions/testing.md)） |
 | scripts | `dead_code_survey.py` | 本番の入力の源流（`scripts/`・`benchmarks/`・`main.py`とアプリの起動・ルートハンドラ等の入口）から参照をたどり、たどり着かない`app/`の定義を出す。テストは源流に含めない。曖昧な参照は生きている側へ倒す |
-| scripts | `audit_test_rewrite.py` | 実装から起こし直したテストを外から測る（実装を変えていないか・テストが読む`app.*`・対象の属性の出どころ・seams 数・実装へ1行も入らないテスト・カバレッジ。テストは対象を読む母集団を並べて渡す。PostGISのテストはテスト用DBへ繋がるときだけ含める）。起こし直しの手順は[testing.md](../../conventions/testing.md) |
+| scripts | `audit_test_rewrite.py` | 実装から起こし直したテストを外から測る（実装を変えていないか・テストが読む`app.*`・対象の属性の出どころ・seams 数・実装へ1行も入らないテスト・カバレッジ。テストは対象を読む母集団を並べて渡す。PostGISのテストはテスト用DBへ繋がるときだけ含める。`--ref`で前の版を一時の作業ツリーへ取り出して同じ母集団で測り、前後のカバレッジと新たに未到達になった行を並べる）。起こし直しの手順は[testing.md](../../conventions/testing.md) |
 
 ## Pydanticモデルの基底（`domain/strict_model.py`）
 
