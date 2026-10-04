@@ -9,6 +9,9 @@
 
 差し替えは「そのソースのパーティションを空にしてから入れ直す」。同一トランザクション内で
 行うため、途中の状態が読まれることはない。
+
+取込は派生の作り直しと同時に走らない（`_common.py: SOURCE_DATA_LOCK`）。作り直しが走っていれば
+始めずに止まる。
 """
 
 import json
@@ -22,7 +25,7 @@ from typing import Any
 
 import asyncpg
 
-from app.batch._common import PROGRESS_INTERVAL_SECONDS, format_progress
+from app.batch._common import PROGRESS_INTERVAL_SECONDS, SOURCE_DATA_LOCK, format_progress
 from app.batch.source_profile import NoFields, SourceProfile, SourceSpec
 from app.infrastructure.source_models import SourceRunStatus
 
@@ -157,6 +160,15 @@ async def ingest_source(
     """
     if conn.is_in_transaction():
         raise RuntimeError("取込はトランザクションの外の接続で呼ぶ（中で呼ぶと、失敗の記録が行と一緒に巻き戻る）")
+    if not await conn.fetchval("SELECT pg_try_advisory_lock_shared(hashtext($1))", SOURCE_DATA_LOCK):
+        raise RuntimeError("派生の作り直しが走っている")
+    try:
+        return await _ingest(conn, profile, source_name)
+    finally:
+        await conn.execute("SELECT pg_advisory_unlock_shared(hashtext($1))", SOURCE_DATA_LOCK)
+
+
+async def _ingest(conn: asyncpg.Connection, profile: SourceProfile, source_name: str) -> int:
     spec = profile.source(source_name)
     adapter = ADAPTERS[spec.adapter].read
 

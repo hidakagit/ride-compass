@@ -2,6 +2,7 @@
 
 段そのものの値の出し方は段ごとのテスト（`test_derive_*.py`）が持つ。ここは入口が負う契約——
 作業用のスキーマで作り、1つのトランザクションで入れ替え、世代を進め、その中身から作った道路網を置く・
+作った取込を記録し、生データが記録から変わっていれば途中から流さない・取込と同時に走らない・
 管理画面で変えた較正値を段へ渡す——を見る。
 段は本物を通し、読み手の目で見るための覗き窓だけを段の後ろに挟む。
 """
@@ -16,8 +17,9 @@ from app.batch._common import asyncpg_dsn
 from app.batch.source_adapters.npa_honhyo import HonhyoRows
 from app.domain.accident import BICYCLE_PARTY_TYPE_CODES
 from app.domain.material_catalog import ACCIDENT_COUNT_PER_KM_YEAR
-from app.infrastructure import road_network_store
+from app.infrastructure import derived_data_meta, road_network_store
 from app.infrastructure.road_graph_repository import RoadGraphRepository
+from app.infrastructure.source_models import LATEST_SUCCEEDED_RUNS_SQL
 from tests.conftest import postgis_database_url
 from tests.source_ingest import ingest_records, point_record, way_record
 
@@ -63,7 +65,8 @@ async def _revision(conn: asyncpg.Connection) -> int | None:
 
 @pytest_asyncio.fixture(loop_scope="module")
 async def derived_before(road_graph_engine, monkeypatch, tmp_path):
-    """作り直す前の状態: 区間まで作り、道の値は通行方向が既定（両方向）のまま。道路網の置き場は一時ディレクトリ。
+    """作り直す前の状態: 区間まで作り、道の値は通行方向が既定（両方向）のまま。今の生データから作った記録がある。
+    道路網の置き場は一時ディレクトリ。
 
     `road_graph_engine`に依存するのはスキーマを作らせるため。
     """
@@ -77,6 +80,7 @@ async def derived_before(road_graph_engine, monkeypatch, tmp_path):
             for way_id, node_ids, tags in WAYS], conn=conn)
         await derive_topology.derive(conn)
         await conn.execute("INSERT INTO derived_data_meta (id, revision) VALUES (1, 5)")
+        await conn.execute(f"INSERT INTO derived_source_runs (source, run_id) {LATEST_SUCCEEDED_RUNS_SQL}")
         yield conn
     finally:
         await conn.execute("DROP SCHEMA IF EXISTS " + derive_cli.WORK_SCHEMA + " CASCADE")
@@ -174,7 +178,7 @@ async def test_the_signal_radius_set_on_the_admin_screen_decides_which_nodes_get
         point_record(n, *_point(n), {"highway": "traffic_signals"} if n == 2 else None) for n in range(1, 5)],
         conn=derived_before)
 
-    assert await derive_cli.run(postgis_database_url(), "nodes") == 0
+    assert await derive_cli.run(postgis_database_url(), None) == 0
     assert await _nodes_with_signal(derived_before) == {2}
 
     await derived_before.execute(
@@ -205,7 +209,7 @@ async def test_the_accident_density_is_divided_by_the_years_of_the_import_that_w
     accident = point_record("on-way-100", *_point(2), {
         "当事者種別（当事者A）": min(BICYCLE_PARTY_TYPE_CODES), "当事者種別（当事者B）": "59", "死者数": "000"})
     await ingest_records("accident", [accident], conn=derived_before, rows=HonhyoRows(years=[2024]))
-    assert await derive_cli.run(postgis_database_url(), "counts") == 0
+    assert await derive_cli.run(postgis_database_url(), None) == 0
     one_year = density_on_way_100()
 
     await ingest_records("accident", [accident], conn=derived_before, rows=HonhyoRows(years=[2023, 2024]))
@@ -217,10 +221,59 @@ async def test_the_accident_density_is_divided_by_the_years_of_the_import_that_w
     _observe_after("counts", monkeypatch, observe)
     years_before_rebuild = await accident_years()
 
-    assert await derive_cli.run(postgis_database_url(), "counts") == 0
+    assert await derive_cli.run(postgis_database_url(), None) == 0
 
     # 前提: 1年で割った密度が出ている。
     assert one_year > 0
     assert (years_before_rebuild, seen_while_rebuilding) == ([2024], [[2024]])
     assert await accident_years() == [2023, 2024]
     assert density_on_way_100() == pytest.approx(one_year / 2)
+
+
+async def test_a_rebuild_records_the_latest_succeeded_import_of_every_source(derived_before):
+    """入れ替えた後、全ソースの成功した最新の取込が、今の表を作った取込として記録されている。後から失敗した取込は記録しない。"""
+    way_run = await ingest_records("osm_way", [
+        way_record(way_id, [_point(n) for n in node_ids], node_ids, tags)
+        for way_id, node_ids, tags in WAYS], conn=derived_before)
+    node_run = await ingest_records("osm_node", [point_record(n, *_point(n)) for n in range(1, 5)],
+                                    conn=derived_before)
+
+    def breaks():
+        yield point_record(1, *_point(1))
+        raise OSError("配信元が途中で切れた")
+
+    with pytest.raises(OSError):
+        await ingest_records("osm_node", breaks(), conn=derived_before)
+
+    assert await derive_cli.run(postgis_database_url(), None) == 0
+
+    assert await derived_data_meta.read_source_runs(derived_before) == {"osm_way": way_run, "osm_node": node_run}
+
+
+async def test_rebuilding_from_a_stage_stops_after_an_import_until_rebuilt_from_the_first_stage(derived_before):
+    """生データを取り直した後は、途中の段からは流さず何も変えない。最初から流した後は、途中の段から流せる。"""
+    await ingest_records("osm_way", [
+        way_record(way_id, [_point(n) for n in node_ids], node_ids, tags)
+        for way_id, node_ids, tags in WAYS], conn=derived_before)
+
+    with pytest.raises(RuntimeError, match="--from を外して最初から流す"):
+        await derive_cli.run(postgis_database_url(), "ways")
+    assert await _revision(derived_before) == 5
+
+    assert await derive_cli.run(postgis_database_url(), None) == 0
+    assert await derive_cli.run(postgis_database_url(), "ways") == 0
+    assert await _revision(derived_before) == 7
+
+
+async def test_an_import_is_refused_while_a_rebuild_runs(derived_before, monkeypatch):
+    """作り直しの段の間に取込を始めると、取込は何も書かずに止まる。"""
+    runs_before = await derived_before.fetchval("SELECT count(*) FROM source_runs")
+
+    async def import_meanwhile():
+        with pytest.raises(RuntimeError, match="派生の作り直しが走っている"):
+            await ingest_records("accident", [], conn=derived_before)
+
+    _observe_after("topology", monkeypatch, import_meanwhile)
+
+    assert await derive_cli.run(postgis_database_url(), None) == 0
+    assert await derived_before.fetchval("SELECT count(*) FROM source_runs") == runs_before

@@ -57,6 +57,7 @@ interface RouteFormProps {
 }
 
 const MAX_DISTANCE_KM = routeGenerateConfig.max_distance_km;
+const DISTANCE_TOLERANCE_KM = routeGenerateConfig.default_distance_tolerance_km;
 const MAX_ROUTES = routeGenerateConfig.max_routes;
 const MAX_WAYPOINTS = routeGenerateConfig.max_waypoints;
 
@@ -263,9 +264,12 @@ export default function RouteForm({
                   value={distance}
                   onChange={(e) => onDistanceChange(e.target.value)}
                   className="min-w-0 flex-1"
-                  data-usage="周回するルートの長さを決めます。作る候補はこの距離の前後になります。"
+                  data-usage={`周回するルートの長さを決めます。作る候補は、この距離の±${DISTANCE_TOLERANCE_KM}kmに入るものだけです。`}
                 />
                 <span className="min-w-[3.5em] flex-shrink-0 text-right tabular-nums">{distance}km</span>
+                <span className={cn(textVariants({ variant: "hint" }), "flex-shrink-0 tabular-nums")}>
+                  ±{DISTANCE_TOLERANCE_KM}km
+                </span>
               </div>
             </>
           ) : (
