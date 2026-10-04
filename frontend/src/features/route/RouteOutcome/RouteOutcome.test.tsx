@@ -455,7 +455,8 @@ describe("選んだ候補の中身", () => {
       />,
     );
     // 材料の値の行は「名前: 値」の文を自分で持つ（内訳のチップの行は文を持たない）。
-    const materialLines = () => screen.queryAllByText((content, element) => element?.tagName === "LI" && content !== "");
+    const materialLines = () =>
+      screen.queryAllByText((content, element) => element?.tagName === "LI" && content !== "");
     expect(materialLines()).toHaveLength(0);
     unmount();
 
