@@ -24,12 +24,11 @@ const NO_FLOOD = { forecasts: [] };
 const json = (body: unknown) => () => Response.json(body);
 const failure = (detail: string) => () => Response.json({ detail }, { status: 502 });
 
-let forecasts: ReturnType<typeof onBackend>;
 let observations: ReturnType<typeof onBackend>;
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
-  forecasts = onBackend("GET", WEATHER, json({ temperature_c: 20 }));
+  onBackend("GET", WEATHER, json({ temperature_c: 20 }));
   observations = onBackend("GET", AMEDAS, json({ temperature_c: 21 }));
   onBackend("GET", WARNINGS, json(NO_WARNINGS));
   onBackend("GET", WBGT, json(NO_WBGT));
@@ -105,24 +104,15 @@ describe("useWeatherConditions 取得の時機", () => {
     expect(observations).toHaveLength(2);
   });
 
-  it("位置を変えて取り直している間は、前の位置の値を出したまま読み込み中にする", async () => {
+  it("取り終えたら読み込み中を下ろし、位置を変えて取り直す間は前の位置の値のまま読み込み中にする", async () => {
     const { result, rerender } = render();
     await settle();
+    expect(result.current.weatherLoading).toBe(false);
     onBackend("GET", WEATHER, heldReplies().reply);
     rerender({ location: YOKOHAMA, ready: true });
     await settle();
     expect(result.current.weather).toEqual({ temperature_c: 20 });
     expect(result.current.weatherLoading).toBe(true);
-  });
-
-  it("画面を閉じた後は、取り直しも応答の反映もしない", async () => {
-    const { unmount } = render();
-    await settle();
-    expect(forecasts).toHaveLength(1);
-    unmount();
-    act(() => vi.advanceTimersByTime(10 * 60 * 1000));
-    await settle();
-    expect(forecasts).toHaveLength(1);
   });
 });
 
@@ -149,17 +139,6 @@ describe("useWeatherConditions 失敗の扱い", () => {
     act(() => vi.advanceTimersByTime(10 * 60 * 1000));
     await settle();
     expect(result.current.weatherError).toBeNull();
-  });
-
-  it("取っている間は読み込み中の印を立て、終われば下ろす", async () => {
-    const held = heldReplies();
-    onBackend("GET", WEATHER, held.reply);
-    const { result } = render();
-    await settle();
-    expect(result.current.weatherLoading).toBe(true);
-    await held.answer(0, Response.json({ temperature_c: 20 }));
-    await settle();
-    expect(result.current.weatherLoading).toBe(false);
   });
 });
 

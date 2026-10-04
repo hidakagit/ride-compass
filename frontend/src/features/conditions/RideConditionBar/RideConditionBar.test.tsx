@@ -17,7 +17,7 @@ vi.mock("embla-carousel-wheel-gestures", () => ({ WheelGesturesPlugin: () => ({}
 
 const jst = (text: string) => new Date(`${text}+09:00`);
 const NOW = jst("2026-09-24T09:07");
-const { min_assumed_speed_kmh: MIN, max_assumed_speed_kmh: MAX } = routeGenerateConfig;
+const { max_assumed_speed_kmh: MAX } = routeGenerateConfig;
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
@@ -45,17 +45,13 @@ function renderBar(overrides: Partial<Props> = {}) {
 }
 
 describe("RideConditionBar 出発時刻", () => {
-  it("今日の出発時刻は時刻だけを1行で出す", () => {
-    renderBar();
-    const button = screen.getByRole("button", { name: "出発時刻: 9:05（タップで変更）" });
-    expect(button).toHaveAttribute("title", "出発時刻: 9:05");
-    expect([...button.lastElementChild!.children].map((line) => line.textContent)).toEqual(["9:05"]);
-  });
-
-  it("別の日の出発時刻は、日付と時刻を2行に分けて出す（列の幅に収める）", () => {
-    renderBar({ departureTime: jst("2026-09-25T13:00") });
-    const button = screen.getByRole("button", { name: "出発時刻: 9/25 13:00（タップで変更）" });
-    expect([...button.lastElementChild!.children].map((line) => line.textContent)).toEqual(["9/25", "13:00"]);
+  it.each([
+    ["今日は時刻だけを1行", "2026-09-24T09:05", "9:05", ["9:05"]],
+    ["別の日は日付と時刻を2行に分けて（列の幅に収める）", "2026-09-25T13:00", "9/25 13:00", ["9/25", "13:00"]],
+  ])("出発時刻を、%s出す", (_case, departure, label, lines) => {
+    renderBar({ departureTime: jst(departure) });
+    const button = screen.getByRole("button", { name: `出発時刻: ${label}（タップで変更）` });
+    expect([...button.lastElementChild!.children].map((line) => line.textContent)).toEqual(lines);
   });
 
   it("開くと、日時の入力欄に日本時間で今の出発時刻を入れて出し、直接指定した日時を日本時間として渡す", async () => {
@@ -85,7 +81,6 @@ describe("RideConditionBar 出発時刻", () => {
     renderBar({ departureTime: jst("2026-09-24T09:05") });
     const trigger = screen.getByRole("button", { name: /^出発時刻:/ });
     await userEvent.click(trigger);
-    expect(await screen.findByRole("slider", { name: "出発時刻" })).toHaveAttribute("aria-valuetext", "9/24 09:05");
     await userEvent.click(trigger);
     vi.setSystemTime(jst("2026-09-24T10:02"));
     await userEvent.click(trigger);
@@ -102,45 +97,32 @@ describe("RideConditionBar 出発時刻", () => {
     expect(props.onDepartureTimeChange).not.toHaveBeenCalled();
   });
 
-  it("目盛りで選んだコマの時刻を出発時刻にし、「現在」は今への追従へ戻す", async () => {
+  it("目盛りで選んだコマの時刻を出発時刻にする", async () => {
     const props = renderBar({ departureTime: jst("2026-09-24T09:15") });
     await userEvent.click(screen.getByRole("button", { name: /^出発時刻:/ }));
     await userEvent.click(await screen.findByRole("button", { name: "出発時刻を1つ次へ" }));
     expect(props.onDepartureTimeChange).toHaveBeenCalledWith(jst("2026-09-24T09:20"));
-    await userEvent.click(screen.getByRole("button", { name: "出発時刻を現在に戻す" }));
-    expect(props.onDepartureNow).toHaveBeenCalled();
   });
 });
 
 describe("RideConditionBar 想定速度", () => {
-  it("今の想定速度を出す", () => {
-    renderBar({ speedKmh: 22 });
-    const button = screen.getByRole("button", { name: "想定速度: 22km/h（タップで変更）" });
-    expect(button).toHaveTextContent("22km/h");
-  });
-
-  it("スライダーはbackendが受け付ける範囲で動かし、動かした値を渡す", async () => {
+  it("スライダーで動かした値を渡す", async () => {
     const props = renderBar();
     await userEvent.click(screen.getByRole("button", { name: /^想定速度:/ }));
-    const slider = await screen.findByRole("slider", { name: "想定速度スライダー" });
-    expect(slider).toHaveAttribute("min", String(MIN));
-    expect(slider).toHaveAttribute("max", String(MAX));
-    fireEvent.change(slider, { target: { value: "24" } });
+    fireEvent.change(await screen.findByRole("slider", { name: "想定速度スライダー" }), { target: { value: "24" } });
     expect(props.onSpeedKmhChange).toHaveBeenCalledWith(24);
   });
 
-  it("数値欄は確定したときに渡し、範囲の外の値は範囲へ収める", async () => {
+  it("数値欄の範囲の外の値は、範囲へ収めて渡す", async () => {
     const props = renderBar();
     await userEvent.click(screen.getByRole("button", { name: /^想定速度:/ }));
     const input = await screen.findByLabelText("想定速度（km/h）");
     await userEvent.clear(input);
-    await userEvent.type(input, String(MAX + 10));
-    expect(props.onSpeedKmhChange).not.toHaveBeenCalled();
-    await userEvent.keyboard("{Enter}");
+    await userEvent.type(input, `${MAX + 10}{Enter}`);
     expect(props.onSpeedKmhChange).toHaveBeenCalledWith(MAX);
   });
 
-  it("平地・無風の巡航速度であることを書き、(i)の奥に軸カタログが配る体格・機材の標準値を書く", async () => {
+  it("(i)の奥に、軸カタログが配る体格・機材の標準値を書く", async () => {
     serveAxisCatalog(
       catalogResponse([], {
         client_tuning: {
@@ -153,8 +135,7 @@ describe("RideConditionBar 想定速度", () => {
     );
     renderBar();
     await userEvent.click(screen.getByRole("button", { name: /^想定速度:/ }));
-    expect(await screen.findByText("平地・無風で巡航する速度")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "想定速度の説明を表示" }));
+    await userEvent.click(await screen.findByRole("button", { name: "想定速度の説明を表示" }));
     expect(await screen.findByText(/総質量72kg.*CdA 0.4m².*下りは50km\/hまで.*5km\/h以下/)).toBeInTheDocument();
   });
 

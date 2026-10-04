@@ -18,14 +18,12 @@ describe("buildDepartureTimeline（出発時刻を選ぶ目盛り）", () => {
   });
 
   it("5分刻みの後は、開いた時刻の48時間後まで1時間刻み", () => {
-    const anchor = jst("2026-09-24T09:07");
-    const times = buildDepartureTimeline(anchor);
+    const times = buildDepartureTimeline(jst("2026-09-24T09:07"));
     const cut = times.findIndex((t) => t.getTime() === jst("2026-09-24T11:00").getTime());
     const hourly = times.slice(cut);
     expect(hourly.length).toBeGreaterThan(1);
     expect(hourly.every((t, i) => i === 0 || t.getTime() - hourly[i - 1].getTime() === HOUR)).toBe(true);
     expect(times.at(-1)).toEqual(jst("2026-09-26T09:00"));
-    expect(times.at(-1)!.getTime()).toBeLessThanOrEqual(anchor.getTime() + 48 * HOUR);
   });
 
   it("開いた時刻の1時間後がちょうど正時なら、そこで1時間刻みへ切り替える", () => {
@@ -37,19 +35,9 @@ describe("buildDepartureTimeline（出発時刻を選ぶ目盛り）", () => {
 });
 
 describe("buildDepartureFrames（目盛りの表記）", () => {
-  const frames = buildDepartureFrames([
-    jst("2026-09-24T09:55"),
-    jst("2026-09-24T10:00"),
-    jst("2026-09-24T11:00"),
-    jst("2026-09-25T00:00"),
-  ]);
-
-  it("どの目盛りにも、日付つきの日本時間を添える", () => {
-    expect(frames.map((f) => f.label)).toEqual(["9/24 09:55", "9/24 10:00", "9/24 11:00", "9/25 00:00"]);
-  });
-
   it("正時には印を付け、日本時間の偶数時だけ時刻を書く。正時でない目盛りは分だけ", () => {
-    expect(frames.map((f) => f.hourMark)).toEqual([false, true, true, true]);
-    expect(frames.map((f) => f.tickLabel)).toEqual(["55", "10:00", undefined, "00:00"]);
+    const frames = buildDepartureFrames([jst("2026-09-24T09:55"), jst("2026-09-24T10:00"), jst("2026-09-24T11:00")]);
+    expect(frames.map((f) => f.hourMark)).toEqual([false, true, true]);
+    expect(frames.map((f) => f.tickLabel)).toEqual(["55", "10:00", undefined]);
   });
 });

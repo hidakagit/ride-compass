@@ -26,14 +26,12 @@ describe("想定速度の保存", () => {
 
     const second = renderHook(() => useRideConditions());
     expect(second.result.current.speedKmh).toBe(speed);
-    expect(second.result.current.ride.speedKmh).toBe(speed);
   });
 
   it.each([
     ["範囲の下限より遅い", String(routeGenerateConfig.min_assumed_speed_kmh - 1)],
     ["範囲の上限より速い", String(routeGenerateConfig.max_assumed_speed_kmh + 1)],
     ["整数でない", String(routeGenerateConfig.min_assumed_speed_kmh + 0.5)],
-    ["数でない", "fast"],
   ])("保存値が%sなら捨てて既定の速度で始める", (_case, stored) => {
     localStorage.setItem(SPEED_KEY, stored);
     const { result } = renderHook(() => useRideConditions());

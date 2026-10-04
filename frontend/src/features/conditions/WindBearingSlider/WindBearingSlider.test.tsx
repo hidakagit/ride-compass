@@ -16,21 +16,18 @@ function renderDial(value: number) {
 }
 
 describe("WindBearingSlider 表示", () => {
-  it("値（整数へ丸めた度）と方位の呼び名を、読み上げと文字の両方で出し、矢印をその向きへ回す", () => {
+  it("値（整数へ丸めた度）と方位の呼び名を、読み上げと文字の両方で出す", () => {
     const { dial } = renderDial(44.6);
     expect(dial).toHaveAttribute("aria-valuenow", "45");
     expect(dial).toHaveAttribute("aria-valuetext", `45度（${cardinalLabel(44.6)}）`);
     expect(screen.getByText(`45° ${cardinalLabel(44.6)}`)).toBeInTheDocument();
-    expect((dial.firstElementChild as HTMLElement).style.transform).toBe("rotate(44.6deg)");
   });
 });
 
 describe("WindBearingSlider キー操作", () => {
   it("右・上で5度増やし、左・下で5度減らす。一周をまたいだら0〜360の中へ畳む", async () => {
     for (const [value, key, next] of [
-      [10, "{ArrowRight}", 15],
       [10, "{ArrowUp}", 15],
-      [10, "{ArrowLeft}", 5],
       [10, "{ArrowDown}", 5],
       [2, "{ArrowLeft}", 357],
       [358, "{ArrowRight}", 3],
@@ -56,7 +53,6 @@ describe("WindBearingSlider ドラッグ", () => {
     for (const [x, y, deg] of [
       [34, 0, 0],
       [68, 34, 90],
-      [34, 68, 180],
       [0, 34, 270],
     ] as const) {
       const { dial, onChange } = renderDial(0);

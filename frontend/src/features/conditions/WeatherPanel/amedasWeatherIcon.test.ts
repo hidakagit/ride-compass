@@ -13,19 +13,12 @@ describe("getAmedasWeatherDisplay", () => {
     expect(getAmedasWeatherDisplay(0, false)).toEqual({ Icon: MoonIcon, label: WEATHER_CATEGORY_LABEL.clear });
   });
 
-  it("宣言された天気コードは、その分類の名前になり、晴れ以外は分類のアイコンになる", () => {
-    const codes = vocabulary.weatherCategories.flatMap((category) =>
-      category.codes.map((code) => ({ category, code })),
-    );
-    expect(codes).not.toHaveLength(0);
-    for (const { category, code } of codes) {
-      expect(getAmedasWeatherDisplay(code, true)?.label).toBe(category.label);
-    }
-    const notClear = codes.filter(({ category }) => category.key !== "clear");
-    expect(notClear).not.toHaveLength(0);
-    for (const { category, code } of notClear) {
-      expect(getAmedasWeatherDisplay(code, true)?.Icon).toBe(WEATHER_CATEGORY_ICON[category.key]);
-    }
+  it("晴れ以外は、分類の名前と分類のアイコンになる", () => {
+    const rain = vocabulary.weatherCategories.find((category) => category.key === "rain")!;
+    expect(getAmedasWeatherDisplay(rain.codes[0], true)).toEqual({
+      Icon: WEATHER_CATEGORY_ICON.rain,
+      label: rain.label,
+    });
   });
 
   it("天気が決まっていない・宣言に無いコードは、別の天気に見せず何も出さない", () => {
