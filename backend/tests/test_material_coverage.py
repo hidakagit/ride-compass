@@ -1,35 +1,28 @@
-"""材料の欠損割合集計（infrastructure/material_coverage.py・services/material_coverage_service.py）。
+"""材料の欠損割合（`infrastructure/material_coverage.py`の集計・`services/material_coverage_service.py`のレポート）。
 
-**SQLを実際にDBへ投げる検査はここには無い**（このファイルは組み立てた文字列と集計後の
-計算だけを見る）。テーブル名や列名が実在するかは、ここを通っても分からない。
+レポートの組み立ては件数を与えて見る。集計はテスト用DBで流して、道と区間の母集団ごとに欠損を数えることを見る
+（全材料の判定式が同じ1回の問い合わせに並ぶので、どれかが実在しない列を読めば問い合わせごと落ちる）。
+
+ここで見ないもの:
+- 材料ごとの判定式・測らない理由（カタログの宣言） → 宣言そのもので、テストに書き写さない
+- どの材料も測るか測らない理由を持つか → `test_material_catalog.py`
+- レポートを管理APIの応答へ出すこと・DBの失敗を503にすること → `test_material_catalog_routes.py`
 """
 
 from datetime import datetime, timezone
 
+import asyncpg
 import pytest
 
+from app.batch import derive_topology
+from app.batch.common import asyncpg_dsn
 from app.domain.material_catalog import MATERIAL_CATALOG
 from app.infrastructure.material_coverage import (
     MATERIAL_COVERAGE_EXCLUSIONS,
     MATERIAL_COVERAGE_SPECS,
-    EdgeMaterialCoverageSpec,
     MaterialCoverageCounts,
-    WayMaterialCoverageSpec,
-    build_edge_coverage_sql,
-    build_way_coverage_sql,
+    MaterialCoverageQuery,
 )
-from app.infrastructure.source_models import WAYS_SOURCE_SQL
-from app.domain.material_sql import (
-    BRIDGE_NORMALIZED_SQL,
-    LANES_COUNT_CASE_SQL,
-    LIT_NORMALIZED_SQL,
-    MAXSPEED_KMH_CASE_SQL,
-    MOTOR_VEHICLE_NORMALIZED_SQL,
-    SMOOTHNESS_NORMALIZED_SQL,
-    SURFACE_NORMALIZED_SQL,
-    TUNNEL_NORMALIZED_SQL,
-)
-from app.infrastructure.road_graph_repository import ROAD_SURFACE_TILE_MVT_SQL
 from app.services import material_coverage_service
 from app.services.material_coverage_service import (
     MaterialCoverageCounted,
@@ -37,6 +30,8 @@ from app.services.material_coverage_service import (
     MaterialCoverageService,
     build_material_coverage_report,
 )
+from tests.conftest import postgis_database_url
+from tests.source_ingest import ingest_records, way_record
 
 COMPUTED_AT = datetime(2026, 9, 4, tzinfo=timezone.utc)
 
@@ -47,88 +42,6 @@ def _counts(way_total: int = 10, edge_total: int = 4, **missing_overrides: int) 
     return MaterialCoverageCounts(way_total=way_total, edge_total=edge_total, missing_by_material=missing)
 
 
-# --- 宣言テーブルの網羅性 ---
-
-
-def test_exclusion_reasons_are_non_empty():
-    for material_id, reason in MATERIAL_COVERAGE_EXCLUSIONS.items():
-        assert reason.strip() != "", material_id
-
-
-def test_specs_carry_source_description_and_population():
-    for material_id, spec in MATERIAL_COVERAGE_SPECS.items():
-        assert spec.source.strip() != "", material_id
-        if isinstance(spec, WayMaterialCoverageSpec):
-            assert spec.population == "way"
-            assert spec.missing_condition.strip() != ""
-        else:
-            assert isinstance(spec, EdgeMaterialCoverageSpec)
-            assert spec.population == "edge"
-            assert spec.present_condition.strip() != ""
-
-
-# --- way母集団の判定式は domain/material_sql.py の共有SQL断片を
-# _ROAD_SURFACE_TILE_MVT_SQLと文字どおり同じ定数から組み立てる（同じPython定数を
-# 使う以上ドリフトしようがないため、両クエリの文字列を突き合わせる契約テストは不要）。
-
-
-@pytest.mark.parametrize(
-    ("material_id", "fragment"),
-    [
-        ("surface", SURFACE_NORMALIZED_SQL),
-        ("smoothness", SMOOTHNESS_NORMALIZED_SQL),
-        ("maxspeed_kmh", MAXSPEED_KMH_CASE_SQL),
-        ("lanes_count", LANES_COUNT_CASE_SQL),
-        ("lit", LIT_NORMALIZED_SQL),
-        ("has_tunnel", TUNNEL_NORMALIZED_SQL),
-        ("bridge", BRIDGE_NORMALIZED_SQL),
-        ("motor_vehicle_no", MOTOR_VEHICLE_NORMALIZED_SQL),
-    ],
-)
-def test_way_missing_condition_uses_shared_fragment_also_used_by_mvt_sql(material_id: str, fragment: str):
-    """`MATERIAL_COVERAGE_SPECS`の判定式と`ROAD_SURFACE_TILE_MVT_SQL`が、同じ
-    `material_sql.py`の定数を実際に使っていることを確認する（両クエリが同じ
-    Python文字列を参照する構成そのものが一致を保証するため、独立した2つの文字列を
-    突き合わせる旧方式より確実）。"""
-    spec = MATERIAL_COVERAGE_SPECS[material_id]
-    assert isinstance(spec, WayMaterialCoverageSpec)
-
-    assert fragment in spec.missing_condition
-    assert fragment in ROAD_SURFACE_TILE_MVT_SQL.text
-
-
-def test_build_way_coverage_sql_has_one_filter_column_per_way_material():
-    statement = build_way_coverage_sql()
-    sql = statement.text
-
-    way_material_ids = [m for m, s in MATERIAL_COVERAGE_SPECS.items() if isinstance(s, WayMaterialCoverageSpec)]
-    # 0件だと下のループが1度も走らず、列の対応を何も確かめないまま緑になる。
-    assert way_material_ids, "way材料のカバレッジ仕様が1件も無い"
-    assert sql.startswith("SELECT count(*) AS total")
-    # 元データの引き方は共有断片から来る。ここで表名を書き写すと、生データの置き場が
-    # 変わったときにこの検査だけが古いテーブルを正として固定する。
-    assert f"FROM {WAYS_SOURCE_SQL} AS w" in sql
-    assert "NOT EXISTS (SELECT" not in sql
-    for material_id in way_material_ids:
-        assert f" AS {material_id}" in sql
-    assert sql.count("count(*) FILTER") == len(way_material_ids)
-
-
-def test_build_edge_coverage_sql_counts_every_edge_material_in_one_scan():
-    sql = " ".join(build_edge_coverage_sql().text.split())
-
-    edge_material_ids = [m for m, s in MATERIAL_COVERAGE_SPECS.items() if isinstance(s, EdgeMaterialCoverageSpec)]
-    # 0件だと下のループが1度も走らず、列の対応を何も確かめないまま緑になる。
-    assert edge_material_ids, "edge材料のカバレッジ仕様が1件も無い"
-    # 分母は区間の全件、分子は値の置き場を1回だけ走査する。
-    assert sql.startswith("SELECT (SELECT count(*) FROM road_edges) AS total")
-    assert sql.endswith("FROM edge_materials AS em")
-    for material_id in edge_material_ids:
-        spec = MATERIAL_COVERAGE_SPECS[material_id]
-        assert f"count(*) FILTER (WHERE {spec.present_condition}) AS {material_id}" in sql
-    assert sql.count("count(*) FILTER") == len(edge_material_ids)
-
-
 # --- レポート組み立て（純関数） ---
 
 
@@ -136,9 +49,6 @@ def test_build_report_lists_all_catalog_materials_in_catalog_order():
     report = build_material_coverage_report(_counts(), COMPUTED_AT)
 
     assert [e.material_id for e in report.materials] == list(MATERIAL_CATALOG)
-    assert report.computed_at == COMPUTED_AT
-    assert report.way_total == 10
-    assert report.edge_total == 4
 
 
 def test_build_report_computes_ratio_against_population_total():
@@ -150,9 +60,6 @@ def test_build_report_computes_ratio_against_population_total():
     assert surface.population == "way"
     assert (surface.total, surface.missing) == (10, 8)
     assert surface.missing_ratio == pytest.approx(0.8)
-    assert surface.label == MATERIAL_CATALOG["surface"].full_label()
-    assert surface.dtype == "categorical"
-    assert surface.missing_semantics == "unknown"
 
     gradient = by_id["gradient_percent"]
     assert isinstance(gradient, MaterialCoverageCounted)
@@ -187,29 +94,27 @@ def test_build_report_fails_fast_when_material_is_registered_nowhere(monkeypatch
         build_material_coverage_report(_counts(), COMPUTED_AT)
 
 
-# --- サービス ---
+# --- 集計（テスト用DB） ---
 
 
-class FakeCoverageQuery:
-    def __init__(self, counts: MaterialCoverageCounts):
-        self._counts = counts
-        self.calls = 0
+@pytest.mark.asyncio(loop_scope="module")
+@pytest.mark.xdist_group(name="postgis")
+@pytest.mark.postgis
+async def test_the_report_counts_missing_values_per_population_on_the_database(road_graph_session):
+    # 道3本（路面のタグは1本だけ）を取り込んで区間へ切り、区間1つにだけ勾配を付ける。
+    await ingest_records("osm_way", [
+        way_record(way_id, [(139.70, 35.68 + 0.001 * way_id), (139.701, 35.68 + 0.001 * way_id)],
+                   [way_id * 10, way_id * 10 + 1], tags)
+        for way_id, tags in {1: {"surface": "asphalt"}, 2: {}, 3: {}}.items()])
+    conn = await asyncpg.connect(asyncpg_dsn(postgis_database_url()))
+    try:
+        await derive_topology.derive(conn)
+        await conn.execute("UPDATE edge_materials SET average_grade = 1.0 WHERE osm_way_id = 1")
+    finally:
+        await conn.close()
 
-    async def get_material_coverage_counts(self) -> MaterialCoverageCounts:
-        self.calls += 1
-        return self._counts
+    report = await MaterialCoverageService(MaterialCoverageQuery(road_graph_session)).get_material_coverage()
+    by_id = {e.material_id: e for e in report.materials}
 
-
-async def test_service_builds_report_from_repository_counts():
-    query = FakeCoverageQuery(_counts(way_total=100, edge_total=50, surface=85))
-    service = MaterialCoverageService(query)  # type: ignore[arg-type]
-
-    report = await service.get_material_coverage()
-
-    assert query.calls == 1
-    assert report.way_total == 100
-    assert report.edge_total == 50
-    surface = next(e for e in report.materials if e.material_id == "surface")
-    assert isinstance(surface, MaterialCoverageCounted)
-    assert surface.missing_ratio == pytest.approx(0.85)
-    assert report.computed_at.tzinfo is not None
+    assert (report.way_total, report.edge_total) == (3, 3)
+    assert [(by_id[m].total, by_id[m].missing) for m in ("surface", "gradient_percent")] == [(3, 2), (3, 2)]
