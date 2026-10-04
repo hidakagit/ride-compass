@@ -19,7 +19,7 @@ import { cn } from "@/lib/cn";
 
 /** 「ルート設定」区分のタブ。タブ列と選択状態はpage.tsxが持ち（見出し行に置くため）、
  * ここは各タブの中身だけを描く。 */
-export type SettingsTab = "generate" | "weights" | "exclusions";
+export type SettingsTab = "generate" | "weights" | "exclusions" | "saved";
 
 interface RouteFormProps {
   /** 距離入力の現在値（文字列のまま）。生成条件のdirty判定（`features/route/useRouteGeneration.ts`）に使うため親が持つ */
@@ -54,6 +54,8 @@ interface RouteFormProps {
   weightsPanel: React.ReactNode;
   /** 「除外」タブの中身。 */
   exclusionsPanel: React.ReactNode;
+  /** 「保存」タブの中身（保存した条件の一覧と保存）。 */
+  savedPanel: React.ReactNode;
 }
 
 const MAX_DISTANCE_KM = routeGenerateConfig.max_distance_km;
@@ -79,6 +81,7 @@ export default function RouteForm({
   onArmPinRole,
   weightsPanel,
   exclusionsPanel,
+  savedPanel,
 }: RouteFormProps) {
   const fixedCount = fixedRouteCount(routeMode, waypointCount);
   const maxRoutesRelevant = fixedCount === null;
@@ -327,6 +330,10 @@ export default function RouteForm({
 
       <TabsContent value="exclusions" forceMount className="data-[state=inactive]:hidden">
         {exclusionsPanel}
+      </TabsContent>
+
+      <TabsContent value="saved" forceMount className="data-[state=inactive]:hidden">
+        {savedPanel}
       </TabsContent>
     </div>
   );
