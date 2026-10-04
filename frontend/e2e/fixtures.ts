@@ -10,6 +10,7 @@ import type {
   WeatherConditions,
   WeatherWarnings,
 } from "@/types/weather";
+import regionTileConfig from "@/types/generated/region-tile-config.json";
 import nextConfig from "../next.config";
 
 // CIのE2Eスモークテストは「実バックエンド＋実外部API（
@@ -169,12 +170,14 @@ function emptyMapStyleFixture() {
   return { version: 8, sources: {}, layers: [] };
 }
 
-/** `GET /api/axis-catalog`の応答。軸以外（世代・尺度・調整値・事故の収録年）は空で返す。型は契約のもので、
- * 項目を欠いた応答を作れない（欠けると、本物のbackendなら必ず来る値が画面で`undefined`になる）。 */
+/** `GET /api/axis-catalog`の応答。世代は本物のbackendと同じく全種類を返し（無いと凡例が配信情報を取得できない表示になる）、
+ * 軸と世代以外（尺度・調整値・事故の収録年）は空で返す。型は契約のもので、項目を欠いた応答を作れない（欠けると、
+ * 本物のbackendなら必ず来る値が画面で`undefined`になる）。 */
 export function axisCatalogFixture(
   axes: ReturnType<typeof catalogEntry>[],
 ): components["schemas"]["AxisCatalogResponse"] {
-  return { axes, tile_versions: {}, tile_runtime_scales: {}, client_tuning: {}, accident_years: [] };
+  const tile_versions = Object.fromEntries(regionTileConfig.tile_version_kinds.map((kind) => [kind, "e2e"]));
+  return { axes, tile_versions, tile_runtime_scales: {}, client_tuning: {}, accident_years: [] };
 }
 
 /**
