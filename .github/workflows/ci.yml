@@ -240,15 +240,23 @@ jobs:
           name: playwright-report-scan-${{ matrix.width }}
           path: frontend/playwright-report/
           retention-days: 7
-  # タスク管理のゲート（tools/flow-gate/）。依存するパッケージが無いので npm ci は要らない。
+  # タスク管理のゲート（tools/flow-gate/）。lint が構文と import の解決（無いファイル・無い名前）を動かさずに見る。
+  # テストは部品（src/）しか読み込まないので、道具（bin/）の静的な誤りは lint だけが落とす。
   flow-gate:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools/flow-gate
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-      - run: node --test tools/flow-gate/test/*.test.js
+          cache: npm
+          cache-dependency-path: tools/flow-gate/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
   ci-ok:
     needs: [changes, backend, api-contract, frontend, e2e, e2e-scan, flow-gate]
     if: always()
