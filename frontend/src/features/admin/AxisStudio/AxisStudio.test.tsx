@@ -15,8 +15,8 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MATERIAL_CATALOG } from "@/lib/axisMaterialsCatalog";
-import { heldReplies, onSameOrigin, type SentRequest } from "@/testing/backendServer";
-import { catalogResponse, rampEntry, serveAxisCatalog } from "@/testing/catalogAxes";
+import { heldReplies, onSameOrigin, type SentRequest, serveAxisCatalog } from "@/testing/backendServer";
+import { catalogResponse, rampEntry } from "@/testing/catalogAxes";
 import type { AxisCatalogEntry, AxisDefinitionPayload, AxisDefinitionResponse } from "@/types/route";
 
 interface ComposerProps {

@@ -3,8 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CLIENT_TUNING_IDS } from "@/lib/axisCatalog";
-import { onBackend } from "@/testing/backendServer";
-import { catalogResponse, serveAxisCatalog } from "@/testing/catalogAxes";
+import { onBackend, serveAxisCatalog } from "@/testing/backendServer";
+import { catalogResponse } from "@/testing/catalogAxes";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 
 import RideConditionBar from "./RideConditionBar";

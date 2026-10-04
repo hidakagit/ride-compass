@@ -27,8 +27,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { GenerationInput } from "@/features/route/generationRequest";
 import { CLIENT_TUNING_IDS } from "@/lib/axisCatalog";
-import { heldReplies } from "@/testing/backendServer";
-import { catalogEntry, catalogResponse, serveAxisCatalog } from "@/testing/catalogAxes";
+import { heldReplies, serveAxisCatalog } from "@/testing/backendServer";
+import { catalogEntry, catalogResponse } from "@/testing/catalogAxes";
 import { serveGenerationJobs } from "@/testing/generationJobs";
 import { makeRouteCandidate } from "@/testing/routeFixtures";
 import type { GenerationConditions, RouteCandidate } from "@/types/route";

@@ -8,7 +8,8 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
-import { catalogEntry, catalogResponse, rampEntry, serveAxisCatalog } from "@/testing/catalogAxes";
+import { serveAxisCatalog } from "@/testing/backendServer";
+import { catalogEntry, catalogResponse, rampEntry } from "@/testing/catalogAxes";
 import regionTileConfig from "@/types/generated/region-tile-config.json";
 
 import { useMapAxisCatalog } from "./useMapAxisCatalog";

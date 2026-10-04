@@ -21,8 +21,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { WEIGHT_STEP } from "@/features/route/routeWeightShare";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
-import { inTurn, onBackend } from "@/testing/backendServer";
-import { catalogEntry, catalogOf, catalogResponse, serveAxisCatalog } from "@/testing/catalogAxes";
+import { inTurn, onBackend, serveAxisCatalog } from "@/testing/backendServer";
+import { catalogEntry, catalogOf, catalogResponse } from "@/testing/catalogAxes";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import type { RoutePreferenceWeights } from "@/types/route";
 

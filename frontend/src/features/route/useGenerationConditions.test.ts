@@ -21,8 +21,8 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_HARD_FILTERS } from "@/features/route/RouteSettingsPanel/HardFilterPanel";
-import { heldReplies, onBackend } from "@/testing/backendServer";
-import { catalogEntry, catalogResponse, serveAxisCatalog } from "@/testing/catalogAxes";
+import { heldReplies, onBackend, serveAxisCatalog } from "@/testing/backendServer";
+import { catalogEntry, catalogResponse } from "@/testing/catalogAxes";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import type { Coordinates } from "@/types/route";
 

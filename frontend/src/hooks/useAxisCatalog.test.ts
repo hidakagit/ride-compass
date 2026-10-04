@@ -14,8 +14,8 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { CLIENT_TUNING_IDS, clientTuningValue } from "@/lib/axisCatalog";
-import { heldReplies, onBackend } from "@/testing/backendServer";
-import { catalogEntry, catalogResponse, serveAxisCatalog } from "@/testing/catalogAxes";
+import { heldReplies, onBackend, serveAxisCatalog } from "@/testing/backendServer";
+import { catalogEntry, catalogResponse } from "@/testing/catalogAxes";
 import type { AxisCatalogResponse } from "@/types/route";
 
 import { axisCatalogFetchFailure, retryAxisCatalogFetch, useAxisCatalog, useAxisCatalogSelect } from "./useAxisCatalog";

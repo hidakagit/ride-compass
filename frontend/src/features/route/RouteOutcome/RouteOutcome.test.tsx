@@ -40,7 +40,8 @@ import { COMPARISON_TAB, type EditedRoute, type RouteResults } from "@/features/
 import { MATERIAL_CATALOG } from "@/lib/axisMaterialsCatalog";
 import { catalogAxisFromEntry } from "@/lib/catalogAxis";
 import { setResearchEnabled } from "@/lib/researchMode";
-import { catalogEntry, catalogOf, catalogResponse, serveAxisCatalog } from "@/testing/catalogAxes";
+import { serveAxisCatalog } from "@/testing/backendServer";
+import { catalogEntry, catalogOf, catalogResponse } from "@/testing/catalogAxes";
 import { makeGenerationConditions, makeRouteCandidate, makeRouteSegment } from "@/testing/routeFixtures";
 import type { ExperimentSlot } from "@/types/experimentSlot";
 import type { RouteCandidate, RouteSegmentDetail, SelectedRouteSegment } from "@/types/route";

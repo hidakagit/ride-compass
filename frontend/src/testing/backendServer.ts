@@ -6,6 +6,7 @@ import { setupServer } from "msw/node";
 import { expect, vi } from "vitest";
 
 import { API_BASE_URL } from "@/lib/apiBaseUrl";
+import type { AxisCatalogResponse } from "@/types/route";
 
 export const backendServer = setupServer();
 
@@ -58,6 +59,11 @@ export function onBackend(method: Method, path: string, reply: Reply): SentReque
  */
 export function onSameOrigin(method: Method, path: string, reply: Reply): SentRequest[] {
   return answer(method, path, reply);
+}
+
+/** 軸カタログの取得に`response`を返す（多くの画面が描くと同時に取る）。 */
+export function serveAxisCatalog(response: AxisCatalogResponse): void {
+  onBackend("GET", "/api/axis-catalog", () => Response.json(response));
 }
 
 /** 届いた順に`responses`を返す（尽きたら最後のものを返し続ける）。 */
