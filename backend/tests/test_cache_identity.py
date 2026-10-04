@@ -1,84 +1,102 @@
-"""キャッシュ鍵の導出（app/infrastructure/cache_identity.py）。
+"""`infrastructure/cache_identity.py`——キャッシュ鍵（形の署名・配信するタイルの世代）の組み立て。
 
-見るのは「列やSQLを変えたら鍵が変わる」という性質そのもので、特定の署名値ではない
-（値を固定すると、鍵を導出にした意味が無くなり「定数を更新せよ」というテストへ戻る）。
+入口は`shape_digest`・`cache_identity`・`tile_version`・`is_known_tile_version`。署名の材料は
+架空のdataclassとSQLで与え、本番の表・SQLの中身には踏み込まない。
+
+ここで見ないもの:
+- 道路網の置き場が署名で選ばれること → `test_road_network_store.py`
+- 世代をDBから読んでTTLで持つこと → `test_derived_data_revision_service.py`
+- 世代を読めなかったタイルをディスクへ残さないこと → `is_known_tile_version`を読む側（`services/region_service.py`・
+  `services/accident_service.py`）の責務
 """
 
 import dataclasses
+import re
 
-from app.domain.road_network import RoadNetwork
-from app.infrastructure import cache_identity as ci
+from sqlalchemy import bindparam, text
 
-
-def _with_extra_column(source: type) -> type:
-    """`source`の列構成の末尾に1列だけ足したdataclass。"""
-    fields = [(f.name, f.type) for f in dataclasses.fields(source)]
-    return dataclasses.make_dataclass(
-        source.__name__ + "Plus", [*fields, ("zzz_added_column", object)], frozen=True, slots=True)
+from app.infrastructure import cache_identity
+from app.infrastructure.derived_data_meta import DataRevisions
 
 
-class TestShapeDigest:
-    def test_adding_a_column_changes_the_digest(self):
-        # 道路網の置き場は列ごとのファイルを列名で読むため、列が1つ増えたコードが古い置き場を
-        # 選ぶと、その列のファイルが無いまま読みに行く。
-        assert ci.shape_digest(RoadNetwork) != ci.shape_digest(_with_extra_column(RoadNetwork))
-
-    def test_reordering_columns_changes_the_digest(self):
-        reordered = dataclasses.make_dataclass(
-            "Reordered",
-            [(f.name, object) for f in reversed(dataclasses.fields(RoadNetwork))],
-            frozen=True, slots=True)
-
-        assert ci.shape_digest(RoadNetwork) != ci.shape_digest(reordered)
-
-    def test_changing_the_sql_changes_the_digest(self):
-        assert ci.shape_digest("SELECT a FROM t") != ci.shape_digest("SELECT a, b FROM t")
-
-    def test_the_same_shape_gives_the_same_digest(self):
-        # 鍵が安定しないと、内容が変わっていないのにデプロイのたびに冷パスを踏む。
-        assert ci.shape_digest(RoadNetwork) == ci.shape_digest(RoadNetwork)
-
-    def test_sources_are_separated(self):
-        # 区切り無しで連結すると、("ab", "c")と("a", "bc")が同じ鍵になる。
-        assert ci.shape_digest("ab", "c") != ci.shape_digest("a", "bc")
+@dataclasses.dataclass
+class _Columns:
+    a: int
+    b: float
 
 
-class TestCacheIdentity:
-    def test_revision_is_visible_in_the_key(self):
-        # 運用でディスクの世代ディレクトリを目で追えるようにする（旧世代の削除導線が
-        # どの世代を残すかを人が判断できる必要がある）。
-        assert ci.cache_identity("7", "x").startswith("7-")
+def test_the_signature_is_a_short_hex_that_fits_a_url_and_a_directory_name():
+    digest = cache_identity.shape_digest("SELECT 1")
 
-    def test_bumping_the_revision_changes_the_key(self):
-        assert ci.cache_identity("7", "x") != ci.cache_identity("8", "x")
+    assert re.fullmatch(r"[0-9a-f]{12}", digest)
+    assert cache_identity.shape_digest("SELECT 1") == digest
 
 
-class TestBoundValuesAreSigned:
-    """SQLへあらかじめ束ねた値（分類タグ集合等）が署名へ入ること。
+def test_a_dataclass_is_signed_by_its_column_names():
+    @dataclasses.dataclass
+    class SameNamesOtherTypes:
+        a: str
+        b: str = "x"
 
-    `str(TextClause)`にはプレースホルダ名しか現れないため、ここが抜けるとタグを足しても
-    鍵が動かない。焼き込み値だけが変わって配信は古い値のまま、という気づきにくい形になる。
-    """
+    @dataclasses.dataclass
+    class OneMoreColumn:
+        a: int
+        b: float
+        c: int
 
-    def _sql(self, tags: list[str]):
-        from sqlalchemy import bindparam, text
-        from sqlalchemy.dialects.postgresql import ARRAY
-        from sqlalchemy.types import Text
+    @dataclasses.dataclass
+    class RenamedColumn:
+        a: int
+        renamed: float
 
-        return text("SELECT :tags AS t").bindparams(
-            bindparam("tags", value=tags, type_=ARRAY(Text()))
-        )
+    digest = cache_identity.shape_digest(_Columns)
 
-    def test_changing_a_bound_value_changes_the_digest(self):
-        assert ci.shape_digest(self._sql(["asphalt"])) != ci.shape_digest(self._sql(["asphalt", "sett"]))
+    assert cache_identity.shape_digest(SameNamesOtherTypes) == digest
+    assert cache_identity.shape_digest(OneMoreColumn) != digest
+    assert cache_identity.shape_digest(RenamedColumn) != digest
 
-    def test_same_bound_values_keep_the_digest(self):
-        assert ci.shape_digest(self._sql(["asphalt"])) == ci.shape_digest(self._sql(["asphalt"]))
 
-    def test_runtime_parameters_without_a_value_are_not_signed(self):
-        # タイル座標のように実行時へ委ねるパラメータは値を持たない。署名へ入れると
-        # 「値が無い」ことを毎回同じに書き出すだけで、意味のある差にならない。
-        from sqlalchemy import bindparam, text
+def test_changing_the_text_of_a_query_changes_the_signature():
+    assert cache_identity.shape_digest(text("SELECT a FROM t")) != cache_identity.shape_digest(text("SELECT b FROM t"))
 
-        sql = text("SELECT :z AS z").bindparams(bindparam("z"))
-        assert ci.bound_values(sql) == []
+
+def test_a_value_bound_when_the_query_is_defined_is_part_of_the_signature():
+    def query(layer: str):
+        return text("SELECT :layer, :z").bindparams(bindparam("layer", value=layer))
+
+    assert cache_identity.shape_digest(query("poi")) == cache_identity.shape_digest(query("poi"))
+    assert cache_identity.shape_digest(query("poi")) != cache_identity.shape_digest(query("stop"))
+
+
+def test_each_source_counts_on_its_own_and_their_boundary_is_not_lost():
+    assert cache_identity.shape_digest("ab", "c") != cache_identity.shape_digest("a", "bc")
+    assert cache_identity.shape_digest(_Columns, "SELECT 1") != cache_identity.shape_digest(_Columns, "SELECT 2")
+
+
+def test_the_identity_is_the_revision_followed_by_the_signature():
+    identity = cache_identity.cache_identity("2", "SELECT 1")
+
+    assert identity == f"2-{cache_identity.shape_digest('SELECT 1')}"
+    assert cache_identity.cache_identity("3", "SELECT 1") != identity
+
+
+def test_a_tile_version_carries_both_revisions_and_the_shape():
+    assert cache_identity.tile_version(DataRevisions(derived=7, imported=3), "abc") == "7.3-abc"
+    # 取込だけを流した（派生の世代は動かない）ときも世代が変わる。
+    assert cache_identity.tile_version(DataRevisions(derived=7, imported=4), "abc") == "7.4-abc"
+
+
+def test_a_tile_version_of_the_first_derived_revision_is_known():
+    version = cache_identity.tile_version(DataRevisions(derived=0, imported=0), "abc")
+
+    assert version == "0.0-abc"
+    assert cache_identity.is_known_tile_version(version)
+
+
+def test_a_tile_version_built_without_revisions_is_marked_unknown():
+    not_read_yet = cache_identity.tile_version(None, "abc")
+    no_derived_row = cache_identity.tile_version(DataRevisions(derived=None, imported=5), "abc")
+
+    assert not_read_yet == no_derived_row == "x-abc"
+    assert not cache_identity.is_known_tile_version(not_read_yet)
+    assert cache_identity.is_known_tile_version(cache_identity.tile_version(DataRevisions(derived=1, imported=5), "abc"))
