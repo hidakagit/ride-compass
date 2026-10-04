@@ -125,8 +125,8 @@ issue の番号ごと）が持つ。同じタスクの実行（作る・確か�
      （ステータス・ジョブの結果・時間・手数）は写さない。PR も報告も出さずに終わった担当の理由は、この最後の発言で読む。
 - **名義**: 置き場へは hidakagit-bot（secret `FLOW_BOT_TOKEN`）、コードのリポジトリへは hidakagit（secret `CODE_TOKEN`。
   `GITHUB_TOKEN` で打ったマージは master の CI とデプロイを起こさないため）、Claude は契約のトークン（secret `CLAUDE_CODE_OAUTH_TOKEN`）。
-  `CODE_TOKEN` は、持ち主を hidakagit・リポジトリを hidakagit/ride-compass だけに絞った fine-grained のトークンで、置き場に届かない。
-  担当のワークフローは gh の既定（`GH_TOKEN`）に `CODE_TOKEN` を置くので、担当が置き場へ打つときに `GH_TOKEN=$FLOW_BOT_TOKEN` を
+  どのトークンがどこへ届くかは docs/architecture/tech-stack.md「秘密の値とトークン」が持つ。`CODE_TOKEN` はコードのリポジトリにだけ
+  届き、置き場に届かない。担当のワークフローは gh の既定（`GH_TOKEN`）に `CODE_TOKEN` を置くので、担当が置き場へ打つときに `GH_TOKEN=$FLOW_BOT_TOKEN` を
   付け忘れると、hidakagit の名義で通らずに断られる。名義の誤りを止めるのはこのトークンの範囲だけ: gh はトークンをホストごとに
   しか選べず（公式の文書 `gh help environment`）、権限の拒否の規則は先頭の変数の代入を越えて当たるので、付けた打ち方と
   付け忘れた打ち方を見分けられない（公式の文書「Configure permissions」の Wrappers）。
