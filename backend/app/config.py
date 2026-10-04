@@ -6,7 +6,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # 起動方法では読み込まれない。このファイルの位置から解決してcwdへの依存を無くす。
 _ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
 
-# 手元で`next dev`を起動したときのfrontendのオリジン。
+# 手元で`next dev`を起動したときのfrontendのオリジン。`next dev`と`.claude/launch.json`は番号を書かず、
+# どちらも既定の3000番で動くので、ここもその番号に合わせる。
 _LOCAL_FRONTEND_ORIGIN = "http://localhost:3000"
 
 
