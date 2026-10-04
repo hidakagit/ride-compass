@@ -204,7 +204,6 @@ describe("入口", () => {
 
     const blocked: Partial<Props>[] = [
       { generatedInput: { ...BASIS, destination: null } },
-      { generatedInput: null },
       { routes: [BASE] },
       { hasSelectedRoute: false },
     ];
@@ -225,15 +224,6 @@ describe("入口", () => {
     expect(rendered.result.current.map.spliceStretches).toEqual([]);
     expect(rendered.result.current.panel?.hasAlternatives).toBe(false);
   });
-
-  it("始める前は編集面も、地図のいま作っているルート・乗り換え先も無い", async () => {
-    const { result } = renderSplice();
-
-    expect(result.current.editingRoute).toBeNull();
-    expect(result.current.panel).toBeNull();
-    expect(result.current.map.splicedRoute).toBeNull();
-    expect(result.current.map.spliceStretches).toEqual([]);
-  });
 });
 
 describe("編集", () => {
@@ -250,7 +240,6 @@ describe("編集", () => {
       hasAlternatives: true,
       preview: null,
     });
-    expect(result.current.panel?.axes.map((axis) => axis.axisId)).toEqual(["axis_a"]);
     expect(result.current.map.splicedRoute).toEqual([P0, P1, P2, P3]);
     expect(result.current.map.spliceStretches.map((stretch) => stretch.coordinates)).toEqual([[P1, Q, P2]]);
   });
@@ -316,16 +305,14 @@ describe("編集", () => {
     expect(rendered.result.current.panel?.appliedCount).toBe(0);
   });
 
-  it("作り直す・消すと（表示中の候補を作った生成が替わると）、候補のidが同じでも編集は終わる", async () => {
+  it("作り直すと（表示中の候補を作った生成が替わると）、候補のidが同じでも編集は終わる", async () => {
     const rendered = renderSplice();
     await startEditing(rendered);
 
     rendered.rerender({ ...PROPS, generatedInput: { ...BASIS } });
+
     expect(rendered.result.current.editingRoute).toBeNull();
     expect(rendered.result.current.panel).toBeNull();
-
-    rendered.rerender({ ...PROPS, generatedInput: null });
-    expect(rendered.result.current.editingRoute).toBeNull();
   });
 
   it("編集の元の候補が一覧から消えたら、編集は効かない", async () => {

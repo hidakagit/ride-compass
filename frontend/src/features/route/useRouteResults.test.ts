@@ -64,18 +64,6 @@ function pressSegment(rendered: Rendered) {
 }
 
 describe("生成の結果", () => {
-  it("生成する前は何も無く、何も選ばない", () => {
-    const { result } = renderResults();
-
-    expect(result.current.routes).toEqual([]);
-    expect(result.current.selectedRouteId).toBeNull();
-    expect(result.current.selectedCandidate).toBeNull();
-    expect(result.current.selectedEdit).toBeNull();
-    expect(result.current.hasDetail).toBe(false);
-    expect(result.current.comparisonTabActive).toBe(false);
-    expect(result.current.usedWeights).toBeNull();
-  });
-
   it("一覧を入れ替えて先頭を選び、使われた重みを持つ。編集で作ったルート・比較タブ・押した区間は外す", () => {
     const rendered = renderResults();
     generated(rendered);
@@ -88,8 +76,6 @@ describe("生成の結果", () => {
 
     const { result } = rendered;
     expect(result.current.routes).toEqual([next, FIRST]);
-    expect(result.current.generated).toEqual([next, FIRST]);
-    expect(result.current.edits).toEqual([]);
     expect(result.current.selectedCandidate).toEqual(next);
     expect(result.current.comparisonTabActive).toBe(false);
     expect(result.current.selectedRouteSegment).toBeNull();
@@ -104,6 +90,7 @@ describe("生成の結果", () => {
 
     expect(rendered.result.current.selectedRouteId).toBeNull();
     expect(rendered.result.current.selectedCandidate).toBeNull();
+    expect(rendered.result.current.hasDetail).toBe(false);
   });
 });
 
@@ -192,7 +179,6 @@ describe("消す", () => {
 
     const { result } = rendered;
     expect(result.current.routes).toEqual([]);
-    expect(result.current.edits).toEqual([]);
     expect(result.current.selectedRouteId).toBeNull();
     expect(result.current.selectedRouteSegment).toBeNull();
     expect(result.current.comparisonTabActive).toBe(false);

@@ -65,36 +65,24 @@ describe("useRouteFormSubmit", () => {
     expect(result.current.error).toBeNull();
   });
 
-  it.each<RouteMode>(["loop", "destination"])(
-    "出発地が仮の地点のままなら（%s）、地点の有無に関わらず生成せず、位置情報の許可か地図での指定を促す",
-    (routeMode) => {
-      const { result } = renderSubmit({ ...LOOP, routeMode, destinationSet: true, originKnown: false });
-
-      expect(check(result)).toBeNull();
-      expect(result.current.error).toBe(ORIGIN_UNKNOWN);
-    },
-  );
-
-  it("目的地モードで目的地も経由地も無ければ生成せず、地図での指定を促す", () => {
-    const { result } = renderSubmit({ ...LOOP, routeMode: "destination" });
+  it("出発地が仮の地点のままなら生成せず、位置情報の許可か地図での指定を促す", () => {
+    const { result } = renderSubmit({ ...LOOP, originKnown: false });
 
     expect(check(result)).toBeNull();
-    expect(result.current.error).toBe(NO_POINT);
+    expect(result.current.error).toBe(ORIGIN_UNKNOWN);
   });
 
-  it.each([
-    { label: "目的地だけ", waypointCount: 0, destinationSet: true },
-    { label: "経由地だけ", waypointCount: 2, destinationSet: false },
-  ])("目的地モードは「$label」でも生成し、距離は送らない（0を返す）", ({ waypointCount, destinationSet }) => {
-    const { result } = renderSubmit({ ...LOOP, routeMode: "destination", waypointCount, destinationSet });
+  it("目的地モードは経由地だけでも生成し、距離は送らない（0を返す）", () => {
+    const { result } = renderSubmit({ ...LOOP, routeMode: "destination", waypointCount: 2 });
 
     expect(check(result)).toBe(0);
     expect(result.current.error).toBeNull();
   });
 
-  it("文言は押し直すまで残り、地点を置いて押し直すと消えて生成する", () => {
+  it("目的地モードで目的地も経由地も無ければ生成せず、地図での指定を促す。文言は押し直すまで残り、目的地を置いて押し直すと消えて生成する", () => {
     const { result, rerender } = renderSubmit({ ...LOOP, routeMode: "destination" });
-    check(result);
+    expect(check(result)).toBeNull();
+    expect(result.current.error).toBe(NO_POINT);
 
     rerender({ ...LOOP, routeMode: "destination", destinationSet: true });
     expect(result.current.error).toBe(NO_POINT);

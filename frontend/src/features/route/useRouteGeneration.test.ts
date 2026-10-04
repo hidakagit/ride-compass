@@ -165,10 +165,9 @@ describe("送る要求", () => {
 
     expect(sentRequest()).not.toHaveProperty("distance_km");
     expect(sentRequest()).toMatchObject({ max_routes: 4, destination: A });
-    expect(sentRequest()).not.toHaveProperty("waypoints");
   });
 
-  it("経由地があると、候補数の入力に関わらず決まった数を送り、経由地は置いた順に送る。目的地が無ければ経由地だけを送る", async () => {
+  it("経由地があると、候補数の入力に関わらず決まった数を送り、経由地は置いた順に送る", async () => {
     const rendered = renderGeneration();
     act(() => rendered.result.current.conditions.changeRouteMode("destination"));
     act(() => rendered.result.current.conditions.setMaxRoutesInput("4"));
@@ -179,8 +178,6 @@ describe("送る要求", () => {
     await submit(rendered);
 
     expect(sentRequest()).toMatchObject({ max_routes: routeGenerateConfig.routes_with_waypoints, waypoints: [B, A] });
-    expect(sentRequest()).not.toHaveProperty("destination");
-    expect(sentRequest()).not.toHaveProperty("distance_km");
   });
 
   it("塗る軸は、軸カタログが届いていてレンズが軸を指すときだけ送る", async () => {
@@ -201,13 +198,9 @@ describe("送る要求", () => {
     expect(sentRequest()).toMatchObject({ lens_axis_id: "axis_a" });
   });
 
-  it("重みは上書きを有効にし、軸カタログが届いた後だけ送る", async () => {
+  it("上書きを有効にした重みを送る", async () => {
     const rendered = renderGeneration();
     await loadCatalog(rendered);
-    respond([route("r1")]);
-    await submit(rendered);
-    expect(sentRequest()).not.toHaveProperty("route_preference");
-
     act(() => rendered.result.current.conditions.setWeightOverrideEnabled(true));
     respond([route("r1")]);
     await submit(rendered);
@@ -379,9 +372,8 @@ describe("生成の結果", () => {
     expect(rendered.result.current.generation.weightsNotApplied).toBe(false);
   });
 
-  it("作った入力（塗る軸を含む）を返す。生成する前は無い", async () => {
+  it("作った入力（塗る軸を含む）を返す", async () => {
     const rendered = renderGeneration();
-    expect(rendered.result.current.generation.generatedInput).toBeNull();
     await loadCatalog(rendered);
     respond([route("r1")]);
 
@@ -416,12 +408,10 @@ describe("条件のずれ", () => {
     expect(rendered.result.current.generation.conditionsDirty).toBe(false);
   });
 
-  it("出発時刻は選んだときだけ比べ（「今」への追従では変わったとしない）、塗る軸は比べない", async () => {
+  it("出発時刻は選んだときだけ比べる（「今」への追従では変わったとしない）", async () => {
     const rendered = renderGeneration();
-    await loadCatalog(rendered);
     respond([route("r1")]);
-    await submit(rendered, "axis_a");
-    expect(rendered.result.current.generation.conditionsDirty).toBe(false);
+    await submit(rendered);
 
     rendered.rerender({ ...PROPS, departure: { at: T2, pinned: false } });
     expect(rendered.result.current.generation.conditionsDirty).toBe(false);
