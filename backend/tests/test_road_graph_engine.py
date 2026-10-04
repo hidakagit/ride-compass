@@ -94,21 +94,9 @@ def route_candidate(name, segments=()):
 # --------------------------------------------------------------------------------------
 
 
-def test_concat_edge_geometries_drops_the_shared_boundary_point():
-    """隣接Edgeの境界点を二重に持たせない（線が同じ点で折り返して見える）。"""
-    edges = [
-        lean_edge("e1", geometry=[[35.0, 139.0], [35.1, 139.1]]),
-        lean_edge("e2", geometry=[[35.1, 139.1], [35.2, 139.2]]),
-    ]
-    geometry, offsets = concat_edge_geometries(edges)
-
-    assert geometry["type"] == "LineString"
-    assert geometry["coordinates"] == [[139.0, 35.0], [139.1, 35.1], [139.2, 35.2]]
-    assert len(offsets) == len(edges) + 1
-
-
 def test_concat_edge_geometries_offsets_slice_back_to_each_edge():
-    """境界の位置は座標列からは復元できない。offsetsが各Edgeの形状を切り出せること。"""
+    """隣接Edgeの境界点を二重に持たせない（線が同じ点で折り返して見える）ため、境界の位置は座標列からは
+    復元できない。offsetsが各Edgeの形状を切り出せること。"""
     edges = [
         lean_edge("e1", geometry=[[35.0, 139.0], [35.1, 139.1], [35.2, 139.2]]),
         lean_edge("e2", geometry=[[35.2, 139.2], [35.3, 139.3]]),
@@ -260,16 +248,9 @@ def test_order_by_bearing_spread_uses_ring_centre_closeness_before_anything_is_s
     assert order == [11, 12, 10]
 
 
-def test_order_by_bearing_spread_puts_the_most_distant_bearing_first():
-    """同点候補が同じ方角に並ぶと、周回一覧が「似た向き」ばかりになる。"""
-    order = order_by_bearing_spread(
-        [10, 11], [99], {10: 20.0, 11: 180.0, 99: 0.0}, {10: 0.0, 11: 0.0}
-    )
-    assert order == [11, 10]
-
-
-def test_order_by_bearing_spread_measures_bearings_on_the_circle():
-    """方位の差は360度を跨ぐ。単純な引き算だと350度と10度が「遠い」と誤判定される。"""
+def test_order_by_bearing_spread_puts_the_most_distant_bearing_on_the_circle_first():
+    """同点候補が同じ方角に並ぶと、周回一覧が「似た向き」ばかりになる。方位の差は360度を跨ぐ——単純な
+    引き算だと350度と10度が「遠い」と誤判定される。"""
     order = order_by_bearing_spread(
         [10, 11], [99], {10: 10.0, 11: 90.0, 99: 350.0}, {10: 0.0, 11: 0.0}
     )
