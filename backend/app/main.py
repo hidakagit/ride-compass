@@ -57,7 +57,7 @@ logging.getLogger("ridecompass.startup").info(
     settings.database_url.split("@")[-1] if "@" in settings.database_url else "設定値",
 )
 
-_scheduler = AsyncIOScheduler()
+scheduler = AsyncIOScheduler()
 
 
 def _log_job_failure(event: JobExecutionEvent) -> None:
@@ -123,17 +123,17 @@ async def lifespan(app: FastAPI):
         # 較正値は行が1つも無ければ宣言どおりの既定値のまま動く（壊れた値の行だけが起動を止める）。
         await refresh_tuning_values(session)
 
-    _scheduler.add_listener(_log_job_failure, EVENT_JOB_ERROR)
+    scheduler.add_listener(_log_job_failure, EVENT_JOB_ERROR)
     # next_run_time=nowで起動直後にも1回実行し、次の定期実行までキャッシュが空のまま
     # 502を返し続けるのを避ける。
-    _scheduler.add_job(
+    scheduler.add_job(
         _refresh_amedas_job,
         trigger="interval",
         minutes=AMEDAS_REFRESH_INTERVAL_MINUTES,
         next_run_time=datetime.now(),
         id="refresh_amedas",
     )
-    _scheduler.add_job(
+    scheduler.add_job(
         _prewarm_jma_tile_job,
         trigger="interval",
         minutes=settings.jma_tile_prewarm_interval_minutes,
@@ -141,7 +141,7 @@ async def lifespan(app: FastAPI):
         id="prewarm_jma_tile",
     )
     # 初回はローカルにファイルが無く、完了するまで風グリッド・ルート評価の風が使えない。
-    _scheduler.add_job(
+    scheduler.add_job(
         _sync_msm_job,
         trigger="interval",
         minutes=settings.msm_sync_interval_minutes,
@@ -149,15 +149,16 @@ async def lifespan(app: FastAPI):
         id="sync_msm",
     )
     # 世代を上げたコードがデプロイされた直後がこのタイミングに当たる。
-    _scheduler.add_job(
+    scheduler.add_job(
         _prune_stale_disk_generations_job,
         trigger="date",
         run_date=datetime.now(),
         id="prune_stale_disk_generations",
     )
-    _scheduler.start()
+    scheduler.start()
     yield
-    _scheduler.shutdown(wait=False)
+    # 先に定期ジョブを止める。逆にすると、閉じたあとに走り出したジョブが閉じたクライアントで外部を呼ぶ。
+    scheduler.shutdown(wait=False)
     await close_all_http_clients()
 
 

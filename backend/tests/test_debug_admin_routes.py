@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.config import settings
-from app.infrastructure.debug_control import get_recent_logs
+from app.infrastructure.debug_control import RING_BUFFER_MAX_SIZE, get_recent_logs
 from app.main import app
 from tests.admin_auth import AUTH_HEADERS
 
@@ -110,22 +110,15 @@ def test_read_logs_returns_nothing_while_debug_mode_disabled(admin_credentials):
 # --- リングバッファの上限件数（debug_control.py単体） ---
 
 
-def test_ring_buffer_keeps_only_most_recent_entries(monkeypatch):
-    import app.infrastructure.debug_control as debug_control_module
-
-    small_handler = debug_control_module._LogRingBufferHandler(maxlen=3)
-    monkeypatch.setattr(debug_control_module, "_ring_buffer_handler", small_handler)
+def test_ring_buffer_keeps_only_most_recent_entries():
+    marker = uuid.uuid4().hex
     logger = logging.getLogger("test.t377.ringbuffer")
-    logger.addHandler(small_handler)
     logger.setLevel(logging.DEBUG)
-    try:
-        for i in range(5):
-            logger.debug("entry %d", i)
-    finally:
-        logger.removeHandler(small_handler)
+    for i in range(RING_BUFFER_MAX_SIZE + 1):
+        logger.debug("entry %d marker=%s", i, marker)
 
-    lines = get_recent_logs(limit=None, contains=None, min_level=None)
+    lines = get_recent_logs(limit=None, contains=marker, min_level=None)
 
-    assert len(lines) == 3
-    assert "entry 2" in lines[0]
-    assert "entry 4" in lines[2]
+    assert len(lines) == RING_BUFFER_MAX_SIZE
+    assert "entry 1 " in lines[0]
+    assert f"entry {RING_BUFFER_MAX_SIZE} " in lines[-1]

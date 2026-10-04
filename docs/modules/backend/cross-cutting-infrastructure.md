@@ -186,7 +186,7 @@ composeのfrontendの公開先に従う値で、既定値（手元で`next dev`�
 | ファクトリ | command_timeout | 用途 |
 |---|---|---|
 | `get_session_factory()` | 20秒 | タイル配信（路面/POI/事故）・軸スタジオCRUD等、通常のリクエスト |
-| `get_route_generation_session_factory()` | 180秒 | ルート生成（`api/dependencies.py: _open_graph_service`）と、全表走査を伴う管理APIの集計（DBの状態・材料の欠損率等） |
+| `get_route_generation_session_factory()` | 180秒 | ルート生成（`api/dependencies.py: open_graph_service`）と、全表走査を伴う管理APIの集計（DBの状態・材料の欠損率等） |
 
 ルート生成は取込範囲の判定（`is_covered`）で接続を取り、確定した経路の形の取り直し
 （`get_edges_with_geometry`）を終えるまで、1件の生成の間（本番で数秒〜数十秒）その接続を持ち続ける。
@@ -315,7 +315,7 @@ JMA気象データの短命キャッシュが使う共有接続。値を文字�
 ## HTTPクライアントの共有（`http_client.py`）
 
 `get_http_client(timeout)`が、timeoutの値ごとに`httpx.AsyncClient`を1つだけ生成して
-キャッシュする（`_clients: dict[float, httpx.AsyncClient]`）。`httpx.AsyncClient`の生成は
+キャッシュする（`clients: dict[float, httpx.AsyncClient]`）。`httpx.AsyncClient`の生成は
 SSLコンテキスト構築（CA証明書バンドルの読み込み・パース）を伴い環境によっては高コストに
 なりうるため、リクエストごとの新規生成をやめプロセス全体で使い回す（`main.py`の
 lifespanが起動時に主要なtimeout値[10.0/15.0]を事前ウォームアップするのもこのため）。

@@ -5,7 +5,7 @@
 同時実行とレート制限（429）。
 
 裏の生成は本物の`RouteGenerator`とエンジンを、小さな格子の道路網（`tests/route_world.py`）の上で通す。
-差し替えるのはプロセス境界だけ——DBのセッション（`_open_graph_service`）・天気の予報ファイル（`get_weather_service`）・
+差し替えるのはプロセス境界だけ——DBのセッション（`open_graph_service`）・天気の予報ファイル（`get_weather_service`）・
 道路網の置き場・レート制限の記録。
 
 ここで見ないもの:
@@ -94,7 +94,7 @@ def world(monkeypatch):
         yield GraphService(NetworkRepository(world.network))
 
     monkeypatch.setattr(road_network_store, "current", world.current)
-    monkeypatch.setattr(dependencies, "_open_graph_service", graph_service)
+    monkeypatch.setattr(dependencies, "open_graph_service", graph_service)
     monkeypatch.setattr(dependencies, "get_weather_service", lambda: world.weather)
     with avoid_axis_declared():
         yield world

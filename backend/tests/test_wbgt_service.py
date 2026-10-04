@@ -33,8 +33,8 @@ def _forecast(reference_time, forecast_time, forecast_val):
 
 def _service(monkeypatch, *, point_master=POINT_MASTER_CSV, forecast=None) -> tuple[WbgtService, respx.Router]:
     """地点マスタはCSVのまま、予測は`{"status": "success", "data": forecast}`で返す（Noneなら接続の失敗）。"""
-    monkeypatch.setattr(wbgt_client, "_point_master_cache", TTLCache(maxsize=1, ttl=60))
-    monkeypatch.setattr(wbgt_client, "_forecast_cache", TTLCache(maxsize=8, ttl=60))
+    monkeypatch.setattr(wbgt_client, "point_master_cache", TTLCache(maxsize=1, ttl=60))
+    monkeypatch.setattr(wbgt_client, "forecast_cache", TTLCache(maxsize=8, ttl=60))
 
     upstream = respx.Router()
     master = upstream.get(wbgt_client.WBGT_POINT_MASTER_URL)
