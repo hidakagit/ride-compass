@@ -12,9 +12,9 @@ OSM由来の道路データ（PBF取込）・警察庁事故データ・土地�
 |---|---|
 | domain | `road.py`・`attributes.py`・`accident.py`・`traffic.py`（OSMタグの解釈と分類。停止要因・補給POIの種別、通行方向、道の階級）・`landcover.py`（土地被覆クラス別割合の算出と、数える帯の幅。割合の列・焼き込み列の名前の規則。評価軸の材料）・`divided_carriageway.py`（上下線が分かれた道の片側かを判定するしきい値）・`map_display.py`・`display_palette.py`（地図の束ね方・レイヤーごとの種別と情報源と既定表示・常に出す出典・描く寸法と配色。**本番プロセスは読まず**、`scripts/export_openapi.py`の生成物を経由してだけ画面へ届く。読み方は[地図: 静的レイヤー](../frontend/static-map-layers.md)）（[region.py](routing-engine.md)は別モジュール管轄） |
 | services | `tile_serving.py`・`region_service.py`・`landcover_tile_service.py`（土地被覆ラスタタイルの配信）・`derived_data_freshness_service.py`（派生データ鮮度台帳）・`tile_version_service.py`（配信するタイル世代の組み立て。形の署名とDBの派生データ・生データの世代から作る）・`derived_data_revision_service.py`（DBの派生データ・生データの世代をTTL付きで読み直す。別コンテナのバッチが書き直したことにbackendが気づく唯一の経路で、タイル世代の組み立て等の配信側が読む）・`db_status_service.py`（本番DB状態の判定。しきい値と根拠を持つ） |
-| infrastructure | `vector_tile.py`・`tile_cache.py`・`landcover_raster.py`（土地被覆GeoTIFFの読み取り・再投影・着色）・`source_models.py`（外部ソースの生データを、ソースによらない1つの形で持つ。点・線・ラスタのタイルを同じ骨格へ載せ、取込1回ぶんを`source_runs`が記録する。コードが名指すソース名と取込の状態の綴り［`Source`・`SourceRunStatus`］、ソースごとの生データを読む副問い合わせ、ソースの成功した最新の取込を指す副問い合わせ［`latest_succeeded_run_sql`。派生の基準・取込の範囲はここから読む］、全ソースの成功した最新の取込［`LATEST_SUCCEEDED_RUNS_SQL`。派生の作り直しが記録する］、成功した取込の数［`succeeded_run_count`。生データの世代］もここが持つ）・`derived_models.py`（生データから導いたもの。粒度ごとに1表で、バッチが1つ増えても表は増えない）・`orm_base.py`（ORMの基底。どのモデルからも辿れる位置に置き、モデル同士がimportで絡まないようにする。全表を載せたmetadata［`declared_metadata`。importの有無で表が欠けないよう、全表を見る側はここを通す］と、取り直せない表の印［`IRREPLACEABLE`］もここが持つ）・`point_tile_layers.py`（点のタイルのレイヤーの宣言。名前・source-layer名・焼き込むSQL。配信・世代の表・生成物はここから組み立てる）・`derived_data_freshness.py`（派生データ鮮度台帳）・`db_status.py`（本番DBの状態＝取込runの最終実行・テーブルの実数と容量・統計とVACUUMの鮮度・接続）・`proj_data.py`（rasterioが参照するPROJデータをrasterio同梱のものへ固定する。別インストールの`proj.db`を掴むとEPSG解決が失敗するため、rasterioのimport前に呼ぶ） |
+| infrastructure | `vector_tile.py`・`tile_cache.py`・`landcover_raster.py`（土地被覆GeoTIFFの読み取り・再投影・着色）・`source_models.py`（外部ソースの生データを、ソースによらない1つの形で持つ。点・線・ラスタのタイルを同じ骨格へ載せ、取込1回ぶんを`source_runs`が記録する。コードが名指すソース名と取込の状態の綴り［`Source`・`SourceRunStatus`］、ソースごとの生データを読む副問い合わせ、ソースの成功した最新の取込を指す副問い合わせ［`latest_succeeded_run_sql`。派生の基準・取込の範囲はここから読む］、全ソースの成功した最新の取込［`LATEST_SUCCEEDED_RUNS_SQL`。派生の作り直しが記録する］、成功した取込の数［`succeeded_run_count`。生データの世代］もここが持つ）・`derived_models.py`（生データから導いたもの。粒度ごとに1表で、バッチが1つ増えても表は増えない）・`orm_base.py`（ORMの基底。どのモデルからも辿れる位置に置き、モデル同士がimportで絡まないようにする。全表を載せたmetadata［`declared_metadata`。importの有無で表が欠けないよう、全表を見る側はここを通す］と、取り直せない表の印［`IRREPLACEABLE`］・派生の表の印［`DERIVED`。派生の作り直しが写す表と鮮度台帳が数える表はここから導く］もここが持つ）・`point_tile_layers.py`（点のタイルのレイヤーの宣言。名前・source-layer名・焼き込むSQL。配信・世代の表・生成物はここから組み立てる）・`derived_data_freshness.py`（派生データ鮮度台帳）・`db_status.py`（本番DBの状態＝取込runの最終実行・テーブルの実数と容量・統計とVACUUMの鮮度・接続）・`proj_data.py`（rasterioが参照するPROJデータをrasterio同梱のものへ固定する。別インストールの`proj.db`を掴むとEPSG解決が失敗するため、rasterioのimport前に呼ぶ） |
 | api | `region.py`（路面/点/動的材料/土地被覆タイル・区間インスペクタ）・`_tile_http.py`（タイルの口が共有する座標検証と応答組み立て）・`derived_data_freshness.py`（`GET /api/admin/derived-data/freshness`、Basic認証必須）・`db_status.py`（`GET /api/admin/db-status`、同） |
-| batch | `ingest.py`（外部ソースの共通取込経路。アダプタから受けた1件ずつをステージングへ積み、そのソースのパーティションだけを入れ替え、`source_runs`へ適用した絞り込みごと記録する。runを開く記録と失敗の記録は入れ替えと別のトランザクションで書き、成功の記録は入れ替えと同じトランザクションで書く——失敗した取込は行を元のまま残して`failed`のrunが残り、`succeeded`のrunの行は必ず入っている）・`ingest_cli.py`（その入口）・`source_profile.py`／`source_profile.yaml`（取り込む母集団の宣言。実装には範囲を書かない。読む側が知らない欄があれば取込の前に止める）・`source_adapters/`（外部の形を開いて1件ずつ返すだけの実装。`npa_honhyo.py`は警察庁の本票CSV（配信元は叩かず、手元にあるものを読む。無ければ何を流せばよいかを言って止まる。度分秒をつないだ数字列の緯度・経度を度へ読み、日本の範囲を外れた値は壊れた値として落とす）、`osm_pbf.py`はOSMのPBF（way・node。タグを絞らず全部持つ。PBFの読み取り自体は`pbf_source.py`が持ち、pyosmiumへの依存をそこへ閉じ込める）、`io_lulc_tile.py`は土地被覆ラスタをタイルへ切って、`gsi_dem_tile.py`は地理院の標高タイル——製品×タイル1枚を1行として返し、標高はint32（0.01m単位）で詰める。面のタイルは`raster_wkb.py`がPostGISの`raster`へ包む。位置・画素の大きさ・型・欠測値をその値自身に持たせ、読み手が属性から形を組み立てなくてよいようにする）・`derive_cli.py`（派生を作り直す入口。段の順番と、どの段がどの較正値を読むかはここだけが持つ。較正値は始めにDBの上書きから読み、段へ値で渡す。作業用のスキーマで作り、道路網の配列まで作ってから`public`の表と入れ替えて世代を進める）・`derive_topology.py`（生データから区間`road_edges`とノードの枝数を導く。切る位置は2本以上の道が通るノード）・`derive_node_materials.py`（ノードの種別・信号の有無・集まる道の最大階級。種別の判断は取込ではなくここで行うため、判断が変わっても生データは取り直さない）・`derive_counts.py`（区間と道に付く数の値。停止要因はまとまり1つを経路上で1回になるよう区間へ割り振り、道の値は区間の和から導くため地図と評価で食い違わない）・`derive_raster_materials.py`（面のタイルを線へ落とす。標高は形状点で測り、土地被覆は中心線の周りの帯に落ちる画素を数える）・`derive_way_materials.py`（道1本の性質。通行方向をタグから決め、上下線分離は逆向きに並走する相方の有無で判定する）・`common.py`（バッチ間共通ヘルパ。asyncpg用DSN変換・`latest_succeeded_run_id`［派生の基準にする取込。無ければ止める］・`SOURCE_DATA_LOCK`［取込と派生の作り直しが同時に走らないよう両方が取る鍵の名前］・`fetch_verified`［配布元のファイルを手元へ写す取得スクリプト共通の手順。読めるものは落とし直さず、一時ファイル経由で置き、落とし終えたら開いてみて開けなければ退ける］・`batch_session_factory`[エンジン生成と破棄。表を先に探すスキーマを指定できる]・`reset_columns_sql`[派生の段が書く列を、値を出す前の状態へ戻す]・`run_batch_cli`[DBを書く入口（例: `ingest_cli.py`・`derive_cli.py`・`scripts/bootstrap_database.py`）の骨格。ログの設定・`--database-url`の読み取りを持ち、入口は自分の引数と本体だけを書く]）・`scripts/fetch_lulc_raster.py`（土地被覆ラスタの取得。デプロイが呼ぶ）・`scripts/fetch_osm_pbf.py`（OSMの抽出ファイルの取得）・`scripts/fetch_accident_csv.py`（警察庁の本票CSVの取得。年ごとに1ファイルで、要る年はプロファイルが持つ）・`scripts/bootstrap_database.py`（まっさらなDBを使える状態まで立ち上げる。スキーマ→取込→派生の順はここだけが持ち、途中から流し直せる） |
+| batch | `ingest.py`（外部ソースの共通取込経路。アダプタから受けた1件ずつをステージングへ積み、そのソースのパーティションだけを入れ替え、`source_runs`へ適用した絞り込みごと記録する。runを開く記録と失敗の記録は入れ替えと別のトランザクションで書き、成功の記録は入れ替えと同じトランザクションで書く——失敗した取込は行を元のまま残して`failed`のrunが残り、`succeeded`のrunの行は必ず入っている）・`ingest_cli.py`（その入口）・`source_profile.py`／`source_profile.yaml`（取り込む母集団の宣言。実装には範囲を書かない。読む側が知らない欄があれば取込の前に止める）・`source_adapters/`（外部の形を開いて1件ずつ返すだけの実装。`npa_honhyo.py`は警察庁の本票CSV（配信元は叩かず、手元にあるものを読む。無ければ何を流せばよいかを言って止まる。度分秒をつないだ数字列の緯度・経度を度へ読み、日本の範囲を外れた値は壊れた値として落とす）、`osm_pbf.py`はOSMのPBF（way・node。タグを絞らず全部持つ。PBFの読み取り自体は`pbf_source.py`が持ち、pyosmiumへの依存をそこへ閉じ込める）、`io_lulc_tile.py`は土地被覆ラスタをタイルへ切って、`gsi_dem_tile.py`は地理院の標高タイル——製品×タイル1枚を1行として返し、標高はint32（0.01m単位）で詰める。面のタイルは`raster_wkb.py`がPostGISの`raster`へ包む。位置・画素の大きさ・型・欠測値をその値自身に持たせ、読み手が属性から形を組み立てなくてよいようにする）・`derive_cli.py`（派生を作り直す入口。段の順番と、どの段がどの較正値を読むかはここだけが持つ。較正値は始めにDBの上書きから読み、段へ値で渡す。作業用のスキーマで作り、道路網の配列まで作ってから`public`の表と入れ替えて世代を進める）・`derive_topology.py`（生データから区間`road_edges`とノードの枝数を導く。切る位置は2本以上の道が通るノード）・`derive_node_materials.py`（ノードの種別・信号の有無・集まる道の最大階級。種別の判断は取込ではなくここで行うため、判断が変わっても生データは取り直さない）・`derive_counts.py`（区間と道に付く数の値。停止要因はまとまり1つを経路上で1回になるよう区間へ割り振り、道の値は区間の和から導くため地図と評価で食い違わない）・`derive_raster_materials.py`（面のタイルを線へ落とす。標高は形状点で測り、土地被覆は中心線の周りの帯に落ちる画素を数える）・`derive_way_materials.py`（道1本の性質。通行方向をタグから決め、上下線分離は逆向きに並走する相方の有無で判定する）・`common.py`（バッチ間共通ヘルパ。asyncpg用DSN変換・`SOURCE_DATA_LOCK`［取込と派生の作り直しが同時に走らないよう両方が取る鍵の名前］・`fetch_verified`［配布元のファイルを手元へ写す取得スクリプト共通の手順。読めるものは落とし直さず、一時ファイル経由で置き、落とし終えたら開いてみて開けなければ退ける］・`batch_session_factory`[エンジン生成と破棄。表を先に探すスキーマを指定できる]・`reset_columns_sql`[派生の段が書く列を、値を出す前の状態へ戻す]・`run_batch_cli`[DBを書く入口（例: `ingest_cli.py`・`derive_cli.py`・`scripts/bootstrap_database.py`）の骨格。ログの設定・`--database-url`の読み取りを持ち、入口は自分の引数と本体だけを書く]）・`scripts/fetch_lulc_raster.py`（土地被覆ラスタの取得。デプロイが呼ぶ）・`scripts/fetch_osm_pbf.py`（OSMの抽出ファイルの取得）・`scripts/fetch_accident_csv.py`（警察庁の本票CSVの取得。年ごとに1ファイルで、要る年はプロファイルが持つ）・`scripts/bootstrap_database.py`（まっさらなDBを使える状態まで立ち上げる。スキーマ→取込→派生の順はここだけが持ち、途中から流し直せる） |
 
 `api/routers/region.py`のうち`GET /api/region/dynamic-way-values/...`エンドポイントは
 [動的材料・フィーチャー値配信](dynamic-way-values.md)の管轄、`domain/road.py`の
@@ -157,7 +157,7 @@ int32の0.01m単位、土地被覆はuint8）で持つ。位置・画素の大�
 （例: ノードの段だけを直しても、面の段まで流れる）。どの段がどの段の値を読むかは宣言されて
 いないので、1段だけを流す入口は置かない——流し忘れた後ろの段に、古い入力から作った値が残る。
 
-**作り直しの途中は読み手に見せない。** 入口は派生の表（`source_run_id`を持つ表）と世代の表
+**作り直しの途中は読み手に見せない。** 入口は派生の表（表の印`orm_base.py: DERIVED`を持つ表）と世代の表
 （`derived_data_meta`）を今の中身ごと作業用のスキーマ（`derive_cli.py: WORK_SCHEMA`）へ写し、段はそこを書く。接続の`search_path`を
 作業用のスキーマ→`public`にするので、段のSQLは表の名前をそのまま書き、生データは`public`から読む
 ——段のSQLへ`public.`を書くと、作り直しの途中の値がそのまま配られる。全段が終わったら、作業用の
@@ -217,7 +217,7 @@ reset_columns_sql`。戻す値は、未計算のNULL・「無い」を表す0や
 直す場所が1つで済む。読み手は`source_features`をソース名で絞らない。ソース名と取込の状態の綴りも
 同じファイルの`StrEnum`（`Source`・`SourceRunStatus`）だけが持つ。綴りの食い違いはエラーにならず
 0件を読む問い合わせとして静かに通るため、2つの形で止める: ソースや状態を受け取る関数
-（`latest_succeeded_run_sql`・`batch/common.py: latest_succeeded_run_id`・`infrastructure/derived_models.py: covers`・
+（`latest_succeeded_run_sql`・`infrastructure/derived_models.py: covers`・
 `batch/ingest.py: _close_run`）は`StrEnum`を受け、文字列を渡すと型検査が落ちる。SQLの文字列の形（`'accident'`・
 `'succeeded'`等）で`source_models.py`の外に書くと構造テスト（`tests/structure/test_source_literals.py`）が
 落ちる。同じ綴りがソース名ではない意味（タイルの系統名・標高タイルの置き場）で使われるので、Pythonの値の
@@ -270,9 +270,11 @@ reset_columns_sql`。戻す値は、未計算のNULL・「無い」を表す0や
 ### 未計算はNULL
 
 材料の列は`road_edges`と同時に行だけ作り、値を出す段がそれぞれ自分の列を埋める。どの列が
-まだ埋まっていないかは「その列がNULLの行数」で一様に数えられる。有効画素が足りない区間
-（ラスタが覆っていない・雲に覆われていた）の土地被覆は、`lc_valid_pixels`も割合もNULLの
-まま残る——今の表では、まだ計算していない区間と見分けられない。
+まだ埋まっていないかは「その列がNULLの行数」で一様に数えられる。値を出した結果「確定して値が
+無い」ものは、別の印で見分ける（下の「派生データ鮮度台帳」）。有効画素が足りない区間（ラスタが
+覆っていない・雲に覆われていた）の土地被覆は、段が`lc_valid_pixels`へ0を書いて割合をNULLのまま
+にする——`lc_valid_pixels`もNULLなら、まだ計算していない。道は、割合を持つ区間が1本も無ければ
+同じく0と割合NULLになる。
 
 ### 事故の帰属
 
@@ -351,24 +353,28 @@ OSMは中央分離帯のある道路の上下線を別々のwayとして持ち�
 
 派生データについて2つの問いを分けて見る。
 
-- **鮮度**: その行はどの取込世代から作られたか（`source_run_id`）。同じソースの最新の成功
-  runより古ければ、生データを取り直したのに派生を流し直していない。
+- **鮮度**: ソースごとに、今の派生の表を作った取込（`derived_source_runs`。上の「派生」）が、そのソースの
+  成功した最新の取込と同じか。違えば、生データを取り直したのに派生を作り直していない。取込が1度も成功して
+  いないソース（未取込）と、作り直しの記録に無いソース（まだ作り直しに使っていない）も、作り直し（か取込）が
+  要る側に数える。ソースは取込の記録（`source_runs`）と作り直しの記録の和から導く。
 - **完成度**: 値の列にNULLが何件あるか。
 
-**対象は宣言から導く**。`source_run_id`を持つ表が派生データで、主キーと`source_run_id`
+**対象の表は宣言から導く**。表の印（`orm_base.py: DERIVED`）を持つ表が派生データで、主キー
 以外の列が値である。表を1つ足しても列を1つ足しても、台帳の側に手当ては要らない。
 
 **逆向き（子にあって親に無い行）は数えない。** 区間・ノード・道1本の行（`way_materials`）は
 `derive_topology.py`が表ごと空にしてから、区間を持つ道の行だけを作り直す。区間は親の道の行への
 外部キー（`road_edges.osm_way_id → way_materials.osm_way_id`）を持つので、読み手は道の値を内部結合で
 引ける。生データから消えた道の行が残るのは「取り直した後に派生を流していない」ときだけで、
-そのときは行の世代が最新の取込runより古いという**鮮度**の側で鳴る。`way_materials`は生データの
+そのときは道のソースの作り直しに使った取込が最新でないという**鮮度**の側で鳴る。`way_materials`は生データの
 道への外部キーを持てない（生データ側の鍵が複合で、表が分割されている）。
 
 NULLの意味は列によって違う。「まだ計算していない」と「確定して値が無い」（ありえない急勾配・
 指定のない道・POIでないノード）を分けるため、後者は列の宣言へ印を付ける
-（`derived_models.py: ABSENT_OK`）。**印が無い列は未計算として数える側へ倒れる**ので、
-付け忘れは鳴りすぎる方向にしか外れない。
+（`derived_models.py: ABSENT_OK`）。同じ行の別の列に値があるときだけ「確定して値が無い」と読む列には、
+その列を名指す印を付ける（`ABSENT_WHEN_SET_KEY`。土地被覆の割合は`lc_valid_pixels`に値があるとき）。
+台帳は列ごとに2つの件数を返し、作り直しが要る側に数えるのは未計算だけ。**印が無い列は未計算として
+数える側へ倒れる**ので、付け忘れは鳴りすぎる方向にしか外れない。
 
 ### 本番DBの状態（`db_status.py`・`db_status_service.py`）
 
@@ -644,7 +650,7 @@ PBF取込時にしか変わらないため、再訪時の同一タイル再取�
 - **道の値と区間の値は同じ数え方から作る**——道の値は区間の値の集約で、別々に数えない。
   片方だけ数え方を変えると、地図に出ている値と採点が使う値が別物になる。
 - **土地被覆は、中心線の周りの帯に落ちる有効画素が足りない区間では値を持たない**
-  （`lc_valid_pixels`も割合もNULL）。ラスタが覆っていない場所でもっともらしい
+  （`lc_valid_pixels`が0で割合はNULL）。ラスタが覆っていない場所でもっともらしい
   数値を書かない。覆うラスタを足して派生を流し直せば値が付く。帯は中心線から
   `domain/landcover.py: LANDCOVER_RING_OUTER_M`までで、`LANDCOVER_RING_INNER_M`より内側
   （路面そのもの）の画素は数えない——道の周りの景色を表す値で、道の舗装の画素を混ぜない。

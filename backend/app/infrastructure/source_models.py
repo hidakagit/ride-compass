@@ -73,8 +73,9 @@ SOURCE_RUN_STATUS_LABELS: dict[str, str] = {
 class SourceRunRow(Base):
     """取込1回ぶんの記録。
 
-    派生データはこの`run_id`を指し、「どの世代の生データから作ったか」を表す。生データを
-    差し替えると新しいrunになり、下流は自分が指すrunが最新でないことで古いと分かる。
+    派生の作り直しはこの`run_id`を記録し（`derived_data_meta.py: DerivedSourceRunRow`）、「どの世代の
+    生データから作ったか」を表す。生データを差し替えると新しいrunになり、記録したrunが最新でないことで
+    派生が古いと分かる。
 
     `profile`はそのとき適用した絞り込みの宣言を丸ごと持つ。範囲を変えて取り直したのか、
     同じ範囲を取り直したのかは、これが無いと後から区別できない。
@@ -151,13 +152,13 @@ def latest_succeeded_run_sql(source: Source) -> str:
 
 def latest_succeeded_run_by_column_sql(source_column: str) -> str:
     """`latest_succeeded_run_sql`の、ソースを外側の問い合わせの列（`r.source`等）で指す形。
-    ソースごとに並べる読み手（取込の一覧・鮮度台帳）が、行ごとに相関させて使う。"""
+    ソースごとに並べる読み手（取込の一覧）が、行ごとに相関させて使う。"""
     return (f"(SELECT * FROM {SourceRunRow.__tablename__} WHERE source = {source_column}"
             f" AND status = '{SourceRunStatus.SUCCEEDED}' ORDER BY run_id DESC LIMIT 1)")
 
 
 #: 取込の成功したソースごとに、成功した最新の取込（`source`・`run_id`）を1行ずつ出す問い合わせ。
-#: 派生の作り直しが「どの取込から作ったか」として記録する（`batch/derive_cli.py`）。
+#: 派生の作り直しが「どの取込から作ったか」として記録し（`batch/derive_cli.py`）、鮮度台帳がその記録と比べる。
 LATEST_SUCCEEDED_RUNS_SQL = (
     f"SELECT DISTINCT ON (source) source, run_id FROM {SourceRunRow.__tablename__}"
     f" WHERE status = '{SourceRunStatus.SUCCEEDED}' ORDER BY source, run_id DESC")

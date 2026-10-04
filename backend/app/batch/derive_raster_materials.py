@@ -218,6 +218,9 @@ async def derive_landcover(conn: asyncpg.Connection) -> int:
     logger.info("土地被覆: 帯 %d本を作った。重なる画素を数える",
                 await conn.fetchval("SELECT count(*) FROM _rings"))
     updated = int((await conn.execute(_update_landcover_sql())).split()[-1])
+    # 割合を出さなかった区間（有効画素が下限に足りない）は、有効画素を0と書いて割合をNULLのままにする。
+    # NULLのままだと、鮮度台帳が「まだ計算していない」と見分けられず、作り直しても未計算に数え続ける。
+    await conn.execute("UPDATE edge_materials SET lc_valid_pixels = 0 WHERE lc_valid_pixels IS NULL")
 
     edges = await conn.fetchval("SELECT count(*) FROM road_edges")
     logger.info("土地被覆: 区間 %d/%d本に値が付いた / タイル %d枚 / %.1f秒",
@@ -233,9 +236,11 @@ def _way_rollup_sql() -> str:
     columns = [column for _, column in _landcover_columns()]
     # 0〜100へ丸め込む。入力が割合である以上、加重平均が範囲外へ出るのはREALの丸めだけ。
     # 表の制約が受け取れる値にして渡す。
+    # 割合を持つ区間が1本も無い道（有効画素0）は割合を持たない——`greatest`はNULLを飛ばすので、
+    # そのままでは0%になる。
     averaged = ", ".join(
-        f"least(100, greatest(0, sum(m.{c} * e.distance_m) / sum(e.distance_m) "
-        f"FILTER (WHERE m.{c} IS NOT NULL))) AS {c}" for c in columns)
+        f"CASE WHEN sum(m.lc_valid_pixels) > 0 THEN least(100, greatest(0, sum(m.{c} * e.distance_m)"
+        f" / sum(e.distance_m) FILTER (WHERE m.{c} IS NOT NULL))) END AS {c}" for c in columns)
     assigned = ", ".join(f"{c} = s.{c}" for c in columns)
     return f"""
 UPDATE way_materials w SET lc_valid_pixels = s.lc_valid_pixels, {assigned}

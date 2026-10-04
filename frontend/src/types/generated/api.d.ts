@@ -1037,10 +1037,10 @@ export interface components {
         ColumnEntry: {
             /** Column */
             column: string;
-            /** Null Count */
-            null_count: number;
-            /** Is Incomplete */
-            is_incomplete: boolean;
+            /** Uncalculated Count */
+            uncalculated_count: number;
+            /** Absent Count */
+            absent_count: number;
         };
         /** ConnectionEntry */
         ConnectionEntry: {
@@ -1125,6 +1125,8 @@ export interface components {
              * Format: date-time
              */
             computed_at: string;
+            /** Sources */
+            sources: components["schemas"]["SourceEntry"][];
             /** Tables */
             tables: components["schemas"]["app__services__derived_data_freshness_service__TableEntry"][];
         };
@@ -1756,6 +1758,17 @@ export interface components {
             /** Material */
             material: string;
         };
+        /** SourceEntry */
+        SourceEntry: {
+            /** Source */
+            source: string;
+            /** Derived Run Id */
+            derived_run_id: number | null;
+            /** Latest Run Id */
+            latest_run_id: number | null;
+            /** Needs Rebuild */
+            needs_rebuild: boolean;
+        };
         /** SucceededRunEntry */
         SucceededRunEntry: {
             /** Id */
@@ -1995,14 +2008,6 @@ export interface components {
             table_name: string;
             /** Row Count */
             row_count: number;
-            /** Source */
-            source: string | null;
-            /** Oldest Run Id */
-            oldest_run_id: number | null;
-            /** Latest Run Id */
-            latest_run_id: number | null;
-            /** Is Stale */
-            is_stale: boolean;
             coverage: components["schemas"]["CoverageEntry"] | null;
             /** Columns */
             columns: components["schemas"]["ColumnEntry"][];

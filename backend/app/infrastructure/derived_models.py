@@ -12,8 +12,8 @@
 面（ラスタ）の派生は持たない——面の生データを読む出口は「そのまま見せる」か「線へ
 落とす」のどちらかで、面のままの中間結果を要る相手がいない。
 
-`source_run_id`はどの取込世代から作ったかを指す。生データを差し替えると新しいrunになり、
-これが最新でないことで古いと分かる。
+どの取込から作ったかは行ごとに持たず、作り直しごとに全ソースぶんを記録する
+（`derived_data_meta.py: DerivedSourceRunRow`）。派生の表であることは表の印（`orm_base.py: DERIVED`）で宣言する。
 """
 
 from geoalchemy2 import Geometry
@@ -31,10 +31,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.infrastructure.orm_base import Base
-# ここの表は`source_runs`への外部キーを持つ。宣言した先が同じメタデータに載っていないと、
-# `Base.metadata.sorted_tables`が解決できずに落ちる——このimportが、それをimport順の
-# 偶然に任せないための担保である。
+from app.infrastructure.orm_base import DERIVED, Base
 from app.infrastructure.source_models import Source
 from app.domain.landcover import PERCENT_CLASSES, landcover_key
 from app.domain.traffic import DIRECTIONS, NODE_KINDS, POI_COUNT_KINDS, poi_count_column
@@ -43,6 +40,13 @@ from app.domain.traffic import DIRECTIONS, NODE_KINDS, POI_COUNT_KINDS, poi_coun
 #: 鮮度台帳（`derived_data_freshness.py`）はこの印のある列を未計算として数えない——
 #: 付け忘れても安全側（未計算として鳴る）に倒れる。
 ABSENT_OK = {"null_means_absent": True}
+
+#: `ABSENT_OK`の、同じ行の別の列に値があるときだけ効く形。その列がNULLの行は、まだ計算していない。
+ABSENT_WHEN_SET_KEY = "null_means_absent_when_set"
+
+#: 土地被覆の割合の列に付ける印。割合を出さなかった区間・道（有効画素が下限に足りない）は、段が
+#: `lc_valid_pixels`へ0を書き、割合をNULLのままにする（`batch/derive_raster_materials.py`）。
+_LANDCOVER_SHARE = {ABSENT_WHEN_SET_KEY: "lc_valid_pixels"}
 
 
 def covers(source: Source) -> dict[str, str]:
@@ -112,6 +116,7 @@ class RoadEdgeRow(Base):
         # 区間単位のズームの路面タイル・道路網の切り出し・事故の帰属は、区間を形の範囲で
         # 直接絞る。無いと区間の全件を総なめにする。
         Index("idx_road_edges_geom", "geom", postgresql_using="gist"),
+        {"info": DERIVED},
     )
 
     #: 親の道。区間は道を切って作る派生なので、対応する道が必ずあり、**`way_materials`に
@@ -141,10 +146,6 @@ class RoadEdgeRow(Base):
     #: 求め直すとグラフ読み込みが目に見えて遅くなるため、列として持つ。
     reverse_bearing_deg: Mapped[float] = mapped_column(REAL, nullable=False)
 
-    source_run_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("source_runs.run_id"), nullable=False
-    )
-
 
 class EdgeMaterialRow(Base):
     """区間に付く値。**未計算はNULL**。
@@ -164,6 +165,7 @@ class EdgeMaterialRow(Base):
             ondelete="CASCADE",
         ),
         *material_value_checks("edge_materials"),
+        {"info": DERIVED},
     )
 
     osm_way_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
@@ -189,18 +191,14 @@ class EdgeMaterialRow(Base):
     min_grade: Mapped[float | None] = mapped_column(REAL, nullable=True, info=ABSENT_OK)
 
     lc_valid_pixels: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    lc_water: Mapped[float | None] = mapped_column(REAL, nullable=True)
-    lc_trees: Mapped[float | None] = mapped_column(REAL, nullable=True)
-    lc_flooded_veg: Mapped[float | None] = mapped_column(REAL, nullable=True)
-    lc_crops: Mapped[float | None] = mapped_column(REAL, nullable=True)
-    lc_built: Mapped[float | None] = mapped_column(REAL, nullable=True)
-    lc_bare: Mapped[float | None] = mapped_column(REAL, nullable=True)
-    lc_snow_ice: Mapped[float | None] = mapped_column(REAL, nullable=True)
-    lc_rangeland: Mapped[float | None] = mapped_column(REAL, nullable=True)
-
-    source_run_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("source_runs.run_id"), nullable=False
-    )
+    lc_water: Mapped[float | None] = mapped_column(REAL, nullable=True, info=_LANDCOVER_SHARE)
+    lc_trees: Mapped[float | None] = mapped_column(REAL, nullable=True, info=_LANDCOVER_SHARE)
+    lc_flooded_veg: Mapped[float | None] = mapped_column(REAL, nullable=True, info=_LANDCOVER_SHARE)
+    lc_crops: Mapped[float | None] = mapped_column(REAL, nullable=True, info=_LANDCOVER_SHARE)
+    lc_built: Mapped[float | None] = mapped_column(REAL, nullable=True, info=_LANDCOVER_SHARE)
+    lc_bare: Mapped[float | None] = mapped_column(REAL, nullable=True, info=_LANDCOVER_SHARE)
+    lc_snow_ice: Mapped[float | None] = mapped_column(REAL, nullable=True, info=_LANDCOVER_SHARE)
+    lc_rangeland: Mapped[float | None] = mapped_column(REAL, nullable=True, info=_LANDCOVER_SHARE)
 
 
 class WayMaterialRow(Base):
@@ -217,6 +215,7 @@ class WayMaterialRow(Base):
     __table_args__ = (
         *material_value_checks("way_materials"),
         vocabulary_check("way_materials", "direction", DIRECTIONS),
+        {"info": DERIVED},
     )
 
     osm_way_id: Mapped[int] = mapped_column(
@@ -231,14 +230,14 @@ class WayMaterialRow(Base):
     poi_barrier: Mapped[float | None] = mapped_column(REAL, nullable=True)
 
     lc_valid_pixels: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    lc_water: Mapped[float | None] = mapped_column(REAL, nullable=True)
-    lc_trees: Mapped[float | None] = mapped_column(REAL, nullable=True)
-    lc_flooded_veg: Mapped[float | None] = mapped_column(REAL, nullable=True)
-    lc_crops: Mapped[float | None] = mapped_column(REAL, nullable=True)
-    lc_built: Mapped[float | None] = mapped_column(REAL, nullable=True)
-    lc_bare: Mapped[float | None] = mapped_column(REAL, nullable=True)
-    lc_snow_ice: Mapped[float | None] = mapped_column(REAL, nullable=True)
-    lc_rangeland: Mapped[float | None] = mapped_column(REAL, nullable=True)
+    lc_water: Mapped[float | None] = mapped_column(REAL, nullable=True, info=_LANDCOVER_SHARE)
+    lc_trees: Mapped[float | None] = mapped_column(REAL, nullable=True, info=_LANDCOVER_SHARE)
+    lc_flooded_veg: Mapped[float | None] = mapped_column(REAL, nullable=True, info=_LANDCOVER_SHARE)
+    lc_crops: Mapped[float | None] = mapped_column(REAL, nullable=True, info=_LANDCOVER_SHARE)
+    lc_built: Mapped[float | None] = mapped_column(REAL, nullable=True, info=_LANDCOVER_SHARE)
+    lc_bare: Mapped[float | None] = mapped_column(REAL, nullable=True, info=_LANDCOVER_SHARE)
+    lc_snow_ice: Mapped[float | None] = mapped_column(REAL, nullable=True, info=_LANDCOVER_SHARE)
+    lc_rangeland: Mapped[float | None] = mapped_column(REAL, nullable=True, info=_LANDCOVER_SHARE)
 
     #: 通行方向（forward/backward/both）。タグからの判断なので、生データではなくここに置く。
     #: 探索が有向グラフをメモリ上で組むときに、逆向きの枝を作ってよいかを決める。
@@ -246,10 +245,6 @@ class WayMaterialRow(Base):
 
     #: 上下線が分かれた道の片側か。
     divided: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-
-    source_run_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("source_runs.run_id"), nullable=False
-    )
 
 
 class NodeMaterialRow(Base):
@@ -265,7 +260,7 @@ class NodeMaterialRow(Base):
     """
 
     __tablename__ = "node_materials"
-    __table_args__ = (vocabulary_check("node_materials", "kind", NODE_KINDS),)
+    __table_args__ = (vocabulary_check("node_materials", "kind", NODE_KINDS), {"info": DERIVED})
 
     osm_node_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
 
@@ -280,7 +275,3 @@ class NodeMaterialRow(Base):
         Boolean, nullable=False, server_default="false")
     max_highway_rank: Mapped[int] = mapped_column(
         SmallInteger, nullable=False, server_default="0")
-
-    source_run_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("source_runs.run_id"), nullable=False
-    )

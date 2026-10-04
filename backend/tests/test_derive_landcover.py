@@ -8,6 +8,7 @@ import math
 import asyncpg
 import pytest
 import pytest_asyncio
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.batch import derive_counts, derive_raster_materials, derive_topology
 from app.batch.common import asyncpg_dsn
@@ -19,6 +20,7 @@ from app.domain.landcover import (
     landcover_key,
 )
 from app.domain.region import WEB_MERCATOR_HALF_M, tile_bounds_3857, tile_bounds_lonlat
+from app.infrastructure.derived_data_freshness import DerivedDataFreshnessQuery
 from tests.conftest import postgis_database_url
 from tests.source_ingest import ingest_records, tile_record, way_record
 
@@ -119,7 +121,7 @@ async def landcover_conn(module_conn):
 
 
 async def test_rerun_on_pixels_left_out_keeps_no_share_on_segments_or_ways(landcover_conn):
-    """画素が欠測になって流し直すと、区間も道も割合を持たない（有効画素が足りない）。"""
+    """画素が欠測になって流し直すと、区間も道も割合を持たず、有効画素は0になる（有効画素が足りない）。"""
     conn = landcover_conn
     first = landcover_key(PERCENT_CLASSES[0][0])
 
@@ -137,7 +139,23 @@ async def test_rerun_on_pixels_left_out_keeps_no_share_on_segments_or_ways(landc
     # 前提: 1回目は区間にも道にも値が付いている。
     assert len(before) == 2
     assert all(pixels and share == pytest.approx(100) for pixels, share in before)
-    assert await shares() == [(None, None), (None, None)]
+    assert await shares() == [(0, None), (0, None)]
+
+
+async def test_segments_and_ways_with_too_few_valid_pixels_are_not_counted_as_uncalculated(
+        landcover_conn, road_graph_engine):
+    """有効画素が足りず割合を出さなかった区間と道は、鮮度台帳で未計算ではなく確定した値なしに数える。"""
+    await _ingest_tile(landcover_conn, _raster(NODATA))
+    await derive_raster_materials.derive(landcover_conn)
+
+    async with AsyncSession(road_graph_engine) as session:
+        freshness = await DerivedDataFreshnessQuery(session).get_freshness()
+
+    first = "lc_" + landcover_key(PERCENT_CLASSES[0][0])
+    counts = {(table.table_name, column.column): (column.uncalculated_count, column.absent_count)
+              for table in freshness.tables for column in table.columns}
+    assert counts[("edge_materials", first)] == (0, 1)
+    assert counts[("way_materials", first)] == (0, 1)
 
 
 async def test_only_pixels_in_the_band_around_the_road_are_counted(landcover_conn):

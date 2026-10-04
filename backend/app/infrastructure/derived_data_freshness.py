@@ -2,16 +2,18 @@
 
 `GET /api/admin/derived-data/freshness`のデータ源。別々の問いを分けて見る。
 
-- **鮮度**: その行はどの取込世代から作られたか（`source_run_id`）。同じソースの最新の
-  成功runより古ければ、生データを取り直したのに派生を流し直していない。
+- **鮮度**: ソースごとに、今の派生の表を作った取込（`derived_source_runs`）が、そのソースの成功した
+  最新の取込と同じか。違えば、生データを取り直したのに派生を作り直していない。取込が1度も成功して
+  いないソースと、まだ作り直しに使っていないソースも、作り直し（か取込）が要る側に数える。
 - **完成度**: 値の列がNULLの行が何件あるか。NULLは「まだ計算していない」で、値が0で
   あることとは別の状態。
 - **被覆**: 親（生データ、または親の派生表）に対して行そのものが無い件数。**鮮度と
   完成度はこれを見つけられない**——行が無ければ古くもなければNULLでもない。外部キーは
   向きが逆（子から親を縛る）ため制約では表せず、ここが引き受ける。
 
-**対象は宣言から導く**——`source_run_id`を持つ表が派生データで、その表の主キーと
-`source_run_id`以外の列が値である。表を1つ足しても、列を1つ足しても、ここは変わらない。
+**対象は宣言から導く**——表の印（`orm_base.py: DERIVED`）を持つ表が派生データで、その表の主キー
+以外の列が値である。ソースは取込の記録と作り直しの記録にあるものを全部並べる。表・列・ソースを
+1つ足しても、ここは変わらない。
 """
 
 from dataclasses import dataclass
@@ -19,26 +21,24 @@ from dataclasses import dataclass
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.infrastructure import derived_models  # noqa: F401  Base.metadataへの登録が目的
-from app.infrastructure import source_models  # 外部キーの解決にも要る
-from app.infrastructure.orm_base import Base
-
-#: 系譜の列。これを持つ表が派生データ。
-SOURCE_RUN_COLUMN = "source_run_id"
+from app.infrastructure import derived_models
+from app.infrastructure import source_models
+from app.infrastructure.derived_data_meta import DerivedSourceRunRow
+from app.infrastructure.orm_base import DERIVED_KEY, Base
 
 #: 被覆の期待を書いた印（`derived_models.covers`）。
 COVERS_SOURCE_KEY = "covers_source"
 
 
 def derived_tables() -> list:
-    """`source_run_id`を持つ表（＝派生データ）。"""
+    """表の印（`orm_base.py: DERIVED`）を持つ表（＝派生データ）。"""
     return [table for table in Base.metadata.sorted_tables
-            if SOURCE_RUN_COLUMN in table.c]
+            if table.info.get(DERIVED_KEY)]
 
 
 def value_columns(table) -> list[str]:
-    """その表の「値」の列。鍵と系譜を除いたもの。"""
-    keys = {column.name for column in table.primary_key.columns} | {SOURCE_RUN_COLUMN}
+    """その表の「値」の列。鍵を除いたもの。"""
+    keys = {column.name for column in table.primary_key.columns}
     return [column.name for column in table.columns if column.name not in keys]
 
 
@@ -109,22 +109,30 @@ def coverage_parent(table) -> str | None:
     return parent[0] if parent else None
 
 
-def counts_as_uncalculated(table, name: str) -> bool:
-    """その列のNULLを「未計算」として数えてよいか。
+def absent_condition(table, name: str) -> str:
+    """その列のNULLが「確定して値が無い」を意味する行の条件（SQL）。それ以外の行のNULLは未計算。
 
     NULLが「確定して値が無い」を意味する列（橋の勾配・指定のない道・POIでないノード）は
-    数えない。印は列の宣言（`ABSENT_OK`）が持つ——印の無い列は未計算として数える側へ
+    いつも、土地被覆の割合は有効画素の列に値があるときだけ、そう読む。印は列の宣言
+    （`ABSENT_OK`・`ABSENT_WHEN_SET_KEY`）が持つ——印の無い列は未計算として数える側へ
     倒れるので、付け忘れは鳴りすぎる方向にしか外れない。
     """
-    return not table.c[name].info.get("null_means_absent", False)
+    info = table.c[name].info
+    if info.get("null_means_absent", False):
+        return "TRUE"
+    when_set = info.get(derived_models.ABSENT_WHEN_SET_KEY)
+    if when_set is not None:
+        return f"{table.c[when_set].name} IS NOT NULL"
+    return "FALSE"
 
 
 @dataclass(frozen=True)
 class ColumnCompleteness:
     column: str
-    null_count: int
-    #: NULLを未計算として数えてよい列か（`counts_as_uncalculated`）。
-    counts_as_uncalculated: bool
+    #: NULLのうち、まだ計算していない行の数。
+    uncalculated_count: int
+    #: NULLのうち、確定して値が無い行の数（`absent_condition`）。
+    absent_count: int
 
 
 @dataclass(frozen=True)
@@ -142,20 +150,9 @@ class Coverage:
 class TableFreshness:
     table_name: str
     row_count: int
-    #: その表の行が指すいちばん古い取込run。行が無ければNone。
-    oldest_run_id: int | None
-    #: その取込runのソース名（`source_runs.source`）。
-    source: str | None
-    #: 同じソースの最新の成功run。
-    latest_run_id: int | None
     columns: tuple[ColumnCompleteness, ...]
     #: 覆うことを宣言していない表（`node_materials`）はNone。
     coverage: Coverage | None
-
-    @property
-    def is_stale(self) -> bool:
-        return (self.oldest_run_id is not None and self.latest_run_id is not None
-                and self.oldest_run_id < self.latest_run_id)
 
     @property
     def has_missing_rows(self) -> bool:
@@ -163,27 +160,46 @@ class TableFreshness:
 
 
 @dataclass(frozen=True)
+class SourceFreshness:
+    source: str
+    #: 今の派生の表を作った取込。まだ作り直しに使っていなければNone。
+    derived_run_id: int | None
+    #: そのソースの成功した最新の取込。1度も成功していなければNone。
+    latest_run_id: int | None
+
+    @property
+    def needs_rebuild(self) -> bool:
+        """作り直しに使った取込が、成功した最新の取込でない（どちらかが無いときも）。"""
+        return self.latest_run_id is None or self.derived_run_id != self.latest_run_id
+
+
+@dataclass(frozen=True)
 class DerivedDataFreshness:
+    sources: tuple[SourceFreshness, ...]
     tables: tuple[TableFreshness, ...]
 
 
 def build_table_sql(table) -> str:
-    """1表ぶんの集計（行数・最古の世代・列ごとの未計算件数）を1回の走査で求める。
+    """1表ぶんの集計（行数・列ごとの未計算と確定した値なしの件数）を1回の走査で求める。
 
     列名は宣言からのみ組み立てる（外部入力を連結しない）。
     """
-    nulls = ", ".join(
-        f"count(*) FILTER (WHERE {name} IS NULL) AS null_{name}" for name in value_columns(table))
-    columns = f"count(*) AS row_count, min({SOURCE_RUN_COLUMN}) AS oldest_run_id"
-    if nulls:
-        columns = f"{columns}, {nulls}"
-    return f"SELECT {columns} FROM {table.name}"  # noqa: S608 宣言のみ
+    counts = []
+    for name in value_columns(table):
+        absent = absent_condition(table, name)
+        counts.append(f"count(*) FILTER (WHERE {name} IS NULL AND NOT ({absent})) AS uncalculated_{name}")
+        counts.append(f"count(*) FILTER (WHERE {name} IS NULL AND ({absent})) AS absent_{name}")
+    return f"SELECT {', '.join(['count(*) AS row_count', *counts])} FROM {table.name}"  # noqa: S608 宣言のみ
 
 
-#: その取込runのソースと、同じソースの最新の成功run。
-_RUN_SOURCE_SQL = text(f"""
-SELECT r.source, (SELECT run_id FROM {source_models.latest_succeeded_run_by_column_sql("r.source")} l) AS latest_run_id
-FROM source_runs r WHERE r.run_id = :run_id
+#: 取込か作り直しの記録にあるソースごとに、作り直しに使った取込と成功した最新の取込。
+_SOURCES_SQL = text(f"""
+SELECT s.source, d.run_id AS derived_run_id, l.run_id AS latest_run_id
+FROM (SELECT source FROM {source_models.SourceRunRow.__tablename__}
+      UNION SELECT source FROM {DerivedSourceRunRow.__tablename__}) s
+LEFT JOIN {DerivedSourceRunRow.__tablename__} d ON d.source = s.source
+LEFT JOIN ({source_models.LATEST_SUCCEEDED_RUNS_SQL}) l ON l.source = s.source
+ORDER BY s.source
 """)
 
 
@@ -194,14 +210,12 @@ class DerivedDataFreshnessQuery:
         self._session = session
 
     async def get_freshness(self) -> DerivedDataFreshness:
+        sources = tuple(
+            SourceFreshness(source=row.source, derived_run_id=row.derived_run_id, latest_run_id=row.latest_run_id)
+            for row in await self._session.execute(_SOURCES_SQL))
         tables: list[TableFreshness] = []
         for table in derived_tables():
             row = (await self._session.execute(text(build_table_sql(table)))).mappings().one()
-            oldest = row["oldest_run_id"]
-            source = latest = None
-            if oldest is not None:
-                run = (await self._session.execute(_RUN_SOURCE_SQL, {"run_id": oldest})).one()
-                source, latest = run.source, run.latest_run_id
             coverage = None
             coverage_sql = build_coverage_sql(table)
             parent = coverage_parent(table)
@@ -215,14 +229,11 @@ class DerivedDataFreshnessQuery:
             tables.append(TableFreshness(
                 table_name=table.name,
                 row_count=int(row["row_count"]),
-                oldest_run_id=oldest,
-                source=source,
-                latest_run_id=latest,
                 columns=tuple(
                     ColumnCompleteness(
-                        column=name, null_count=int(row[f"null_{name}"]),
-                        counts_as_uncalculated=counts_as_uncalculated(table, name))
+                        column=name, uncalculated_count=int(row[f"uncalculated_{name}"]),
+                        absent_count=int(row[f"absent_{name}"]))
                     for name in value_columns(table)),
                 coverage=coverage,
             ))
-        return DerivedDataFreshness(tables=tuple(tables))
+        return DerivedDataFreshness(sources=sources, tables=tuple(tables))

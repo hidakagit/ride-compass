@@ -1,5 +1,5 @@
 /**
- * `DerivedDataFreshnessPanel.tsx`——派生データの鮮度台帳を押したときだけ集計し、表ごとに「作り直しが
+ * `DerivedDataFreshnessPanel.tsx`——派生データの鮮度台帳を押したときだけ集計し、ソースごと・表ごとに「作り直しが
  * 要るか」を1行へまとめ、要るなら打つコマンドを1つだけ示すこと。
  *
  * 行の組み立て（どの状態を手当て要とするか・開いた先に何を並べるか）はこのファイルの判断で、
@@ -16,17 +16,18 @@ import type { DerivedDataFreshnessResponse } from "@/types/route";
 
 import DerivedDataFreshnessPanel from "./DerivedDataFreshnessPanel";
 
+type Source = DerivedDataFreshnessResponse["sources"][number];
 type Table = DerivedDataFreshnessResponse["tables"][number];
 type Column = Table["columns"][number];
+
+function source(overrides: Partial<Source>): Source {
+  return { source: "osm_way", derived_run_id: 1, latest_run_id: 1, needs_rebuild: false, ...overrides };
+}
 
 function table(overrides: Partial<Table>): Table {
   return {
     table_name: "derived_a",
     row_count: 0,
-    source: null,
-    oldest_run_id: null,
-    latest_run_id: null,
-    is_stale: false,
     coverage: null,
     columns: [],
     needs_rebuild: false,
@@ -35,11 +36,11 @@ function table(overrides: Partial<Table>): Table {
 }
 
 function column(overrides: Partial<Column>): Column {
-  return { column: "value_a", null_count: 0, is_incomplete: false, ...overrides };
+  return { column: "value_a", uncalculated_count: 0, absent_count: 0, ...overrides };
 }
 
-function report(tables: Table[], computedAt = "2026-09-24T01:02:03Z"): DerivedDataFreshnessResponse {
-  return { computed_at: computedAt, tables };
+function report(tables: Table[], sources: Source[] = []): DerivedDataFreshnessResponse {
+  return { computed_at: "2026-09-24T01:02:03Z", sources, tables };
 }
 
 async function collect(response: DerivedDataFreshnessResponse) {
@@ -51,84 +52,99 @@ async function collect(response: DerivedDataFreshnessResponse) {
   return user;
 }
 
-function rowOf(tableName: string): HTMLElement {
-  return screen.getByText(tableName).closest("details")!;
+function rowOf(name: string): HTMLElement {
+  return screen.getByText(name).closest("details")!;
+}
+
+function detailOf(name: string): (string | null | undefined)[][] {
+  return Array.from(rowOf(name).querySelectorAll("dt")).map((dt) => [dt.textContent, dt.nextSibling?.textContent]);
 }
 
 describe("DerivedDataFreshnessPanel", () => {
   it("手当て要の表が無ければ、すべて最新と言い、コマンドは出さない", async () => {
-    await collect(report([table({ table_name: "fresh", columns: [column({ null_count: 5 })] })]));
+    await collect(report([table({ table_name: "fresh", columns: [column({ absent_count: 5 })] })], [source({})]));
 
     expect(screen.getByText("すべて最新")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "コピー" })).not.toBeInTheDocument();
     expect(within(rowOf("fresh")).getByText("最新")).toBeInTheDocument();
   });
 
-  it("作り直しが要る表は、作り直し待ちとして数える", async () => {
-    await collect(report([table({ table_name: "target", needs_rebuild: true }), table({ table_name: "fresh" })]));
+  it("作り直しが要るソースと表は、合わせて作り直し待ちとして数える", async () => {
+    await collect(
+      report(
+        [table({ table_name: "target", needs_rebuild: true }), table({ table_name: "fresh" })],
+        [source({ source: "accident", needs_rebuild: true }), source({ source: "osm_way" })],
+      ),
+    );
 
-    expect(screen.getByText("1件が作り直し待ち")).toBeInTheDocument();
+    expect(screen.getByText("2件が作り直し待ち")).toBeInTheDocument();
     expect(within(rowOf("target")).getByText("作り直しが必要")).toBeInTheDocument();
+    expect(within(rowOf("accident")).getByText("作り直しが必要")).toBeInTheDocument();
     expect(within(rowOf("fresh")).getByText("最新")).toBeInTheDocument();
+    expect(within(rowOf("osm_way")).getByText("最新")).toBeInTheDocument();
   });
 
-  it("行は表の名前と行数を出し、開いた先に取込の世代・被覆・列ごとの未計算と確定した値なしを並べる", async () => {
+  it("ソースの行は、開いた先に成功した最新の取込と作り直しに使った取込を並べ、無ければ理由とともに無いと言う", async () => {
+    await collect(
+      report(
+        [],
+        [
+          source({ source: "accident", latest_run_id: 9, derived_run_id: 7 }),
+          source({ source: "osm_node", latest_run_id: 4, derived_run_id: null }),
+          source({ source: "dem", latest_run_id: null, derived_run_id: null }),
+        ],
+      ),
+    );
+
+    expect(detailOf("accident")).toEqual([
+      ["成功した最新の取込", "#9"],
+      ["作り直しに使った取込", "#7"],
+    ]);
+    expect(detailOf("osm_node")).toEqual([
+      ["成功した最新の取込", "#4"],
+      ["作り直しに使った取込", "なし（まだ作り直しに使っていない）"],
+    ]);
+    expect(detailOf("dem")).toEqual([
+      ["成功した最新の取込", "なし（取込が1度も成功していない）"],
+      ["作り直しに使った取込", "なし（まだ作り直しに使っていない）"],
+    ]);
+  });
+
+  it("表の行は名前と行数を出し、開いた先に被覆と、未計算の列を先に列ごとの未計算と確定した値なしを並べる", async () => {
     await collect(
       report([
         table({
           table_name: "edge_materials",
           row_count: 12345,
-          source: "OSM",
-          latest_run_id: 9,
-          oldest_run_id: 7,
           coverage: { parent: "road_edges", parent_row_count: 20000, missing_rows: 1500 },
           columns: [
-            column({ column: "gradient", null_count: 42, is_incomplete: true }),
-            column({ column: "bridge_slope", null_count: 7, is_incomplete: false }),
-            column({ column: "complete_col", null_count: 0, is_incomplete: false }),
+            column({ column: "bridge_slope", absent_count: 7 }),
+            column({ column: "gradient", uncalculated_count: 42 }),
+            column({ column: "lc_trees", uncalculated_count: 3, absent_count: 5 }),
+            column({ column: "complete_col" }),
           ],
         }),
       ]),
     );
 
-    const row = rowOf("edge_materials");
-    expect(within(row).getByText("12,345行")).toBeInTheDocument();
-    const detail = Array.from(row.querySelectorAll("dt")).map((dt) => [dt.textContent, dt.nextSibling?.textContent]);
-    expect(detail).toEqual([
-      ["OSM", "最新 #9 / 反映 #7"],
+    expect(within(rowOf("edge_materials")).getByText("12,345行")).toBeInTheDocument();
+    expect(detailOf("edge_materials")).toEqual([
       ["road_edges を覆う", "1,500件ぶん行が無い（母数 20,000）"],
       ["gradient", "未計算 42件"],
+      ["lc_trees", "未計算 3件 / 値なし 5件（確定）"],
       ["bridge_slope", "値なし 7件（確定）"],
     ]);
   });
 
-  it("取込の名前・世代が無い表は「取込」「-」で出し、親に欠けが無ければ母数とともにそう言う", async () => {
+  it("親に欠けが無ければ母数とともにそう言い、親を覆うことを宣言していない表には被覆の項目を出さない", async () => {
     await collect(
       report([
-        table({
-          table_name: "t",
-          source: null,
-          latest_run_id: null,
-          oldest_run_id: null,
-          coverage: { parent: "osm_way", parent_row_count: 3000, missing_rows: 0 },
-        }),
+        table({ table_name: "t", coverage: { parent: "osm_way", parent_row_count: 3000, missing_rows: 0 } }),
+        table({ table_name: "plain", coverage: null }),
       ]),
     );
 
-    const detail = Array.from(rowOf("t").querySelectorAll("dt")).map((dt) => [
-      dt.textContent,
-      dt.nextSibling?.textContent,
-    ]);
-    expect(detail).toEqual([
-      ["取込", "最新 - / 反映 -"],
-      ["osm_way を覆う", "欠けなし（母数 3,000）"],
-    ]);
-  });
-
-  it("親を覆うことを宣言していない表には、被覆の項目を出さない", async () => {
-    await collect(report([table({ table_name: "plain", coverage: null })]));
-
-    const labels = Array.from(rowOf("plain").querySelectorAll("dt")).map((dt) => dt.textContent);
-    expect(labels).toEqual(["取込"]);
+    expect(detailOf("t")).toEqual([["osm_way を覆う", "欠けなし（母数 3,000）"]]);
+    expect(detailOf("plain")).toEqual([]);
   });
 });

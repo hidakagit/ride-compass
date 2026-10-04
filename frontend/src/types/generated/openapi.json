@@ -3157,21 +3157,21 @@
             "type": "string",
             "title": "Column"
           },
-          "null_count": {
+          "uncalculated_count": {
             "type": "integer",
-            "title": "Null Count"
+            "title": "Uncalculated Count"
           },
-          "is_incomplete": {
-            "type": "boolean",
-            "title": "Is Incomplete"
+          "absent_count": {
+            "type": "integer",
+            "title": "Absent Count"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
           "column",
-          "null_count",
-          "is_incomplete"
+          "uncalculated_count",
+          "absent_count"
         ],
         "title": "ColumnEntry"
       },
@@ -3399,6 +3399,13 @@
             "format": "date-time",
             "title": "Computed At"
           },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceEntry"
+            },
+            "type": "array",
+            "title": "Sources"
+          },
           "tables": {
             "items": {
               "$ref": "#/components/schemas/app__services__derived_data_freshness_service__TableEntry"
@@ -3411,6 +3418,7 @@
         "type": "object",
         "required": [
           "computed_at",
+          "sources",
           "tables"
         ],
         "title": "DerivedDataFreshnessReport"
@@ -5245,6 +5253,49 @@
         ],
         "title": "SignedMaterialMapValue"
       },
+      "SourceEntry": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "derived_run_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Derived Run Id"
+          },
+          "latest_run_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Run Id"
+          },
+          "needs_rebuild": {
+            "type": "boolean",
+            "title": "Needs Rebuild"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "source",
+          "derived_run_id",
+          "latest_run_id",
+          "needs_rebuild"
+        ],
+        "title": "SourceEntry"
+      },
       "SucceededRunEntry": {
         "properties": {
           "id": {
@@ -5970,43 +6021,6 @@
             "type": "integer",
             "title": "Row Count"
           },
-          "source": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Source"
-          },
-          "oldest_run_id": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Oldest Run Id"
-          },
-          "latest_run_id": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Latest Run Id"
-          },
-          "is_stale": {
-            "type": "boolean",
-            "title": "Is Stale"
-          },
           "coverage": {
             "anyOf": [
               {
@@ -6034,10 +6048,6 @@
         "required": [
           "table_name",
           "row_count",
-          "source",
-          "oldest_run_id",
-          "latest_run_id",
-          "is_stale",
           "coverage",
           "columns",
           "needs_rebuild"

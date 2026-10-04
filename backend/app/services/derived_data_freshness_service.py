@@ -1,6 +1,6 @@
 """派生データの鮮度レポートを組み立てるサービス層。
 
-集計の生値へ、画面がそのまま並べられる判定（古いか・未計算が残っているか）を足す。
+集計の生値へ、画面がそのまま並べられる判定（作り直しが要るか）を足す。
 レポートの型は`GET /api/admin/derived-data/freshness`の応答の型を兼ねる。
 """
 
@@ -30,35 +30,40 @@ class CoverageEntry(StrictModel):
 class ColumnEntry(StrictModel):
     """値の列1本ぶんの完成度。
 
-    NULLが「まだ計算していない」を意味する列と、「確定して値が無い」を意味する列がある。
-    件数は常に返し、鳴らすかどうか（`is_incomplete`）だけを区別する。
+    NULLには「まだ計算していない」と「確定して値が無い」がある。どちらの件数も返し、
+    作り直しが要る側に数えるのは前者だけ。
     """
 
     column: str
-    null_count: int
-    #: NULLが「まだ計算していない」を意味する列で、実際にNULLが残っている。
-    is_incomplete: bool
+    uncalculated_count: int
+    absent_count: int
+
+
+class SourceEntry(StrictModel):
+    source: str
+    #: 今の派生の表を作った取込。まだ作り直しに使っていなければNone。
+    derived_run_id: int | None
+    #: 成功した最新の取込。1度も成功していなければNone。
+    latest_run_id: int | None
+    #: 作り直しに使った取込が成功した最新の取込でない（取込が1度も成功していない・まだ作り直しに
+    #: 使っていない、も含む）。画面は理由を問わずこれでソースを「作り直しが必要」に数える。
+    needs_rebuild: bool
 
 
 class TableEntry(StrictModel):
     table_name: str
     row_count: int
-    #: その行を作った取込のソース名（`source_runs.source`）。行が無ければNone。
-    source: str | None
-    oldest_run_id: int | None
-    latest_run_id: int | None
-    #: 生データを取り直したのに派生を流し直していない。
-    is_stale: bool
     #: 親に対して行が欠けていないか。覆うことを宣言していない表はNone。
     coverage: CoverageEntry | None
     columns: list[ColumnEntry]
-    #: 作り直しが要る（取込より古い・値の列に未計算が残る・親に対して行が欠ける のどれか）。
+    #: 作り直しが要る（値の列に未計算が残る・親に対して行が欠ける のどちらか）。
     #: 画面は理由を問わずこれで表を「作り直しが必要」に数える。
     needs_rebuild: bool
 
 
 class DerivedDataFreshnessReport(StrictModel):
     computed_at: datetime
+    sources: list[SourceEntry]
     tables: list[TableEntry]
 
 
@@ -67,14 +72,19 @@ def build_freshness_report(
 ) -> DerivedDataFreshnessReport:
     return DerivedDataFreshnessReport(
         computed_at=computed_at,
+        sources=[
+            SourceEntry(
+                source=source.source,
+                derived_run_id=source.derived_run_id,
+                latest_run_id=source.latest_run_id,
+                needs_rebuild=source.needs_rebuild,
+            )
+            for source in freshness.sources
+        ],
         tables=[
             TableEntry(
                 table_name=table.table_name,
                 row_count=table.row_count,
-                source=table.source,
-                oldest_run_id=table.oldest_run_id,
-                latest_run_id=table.latest_run_id,
-                is_stale=table.is_stale,
                 coverage=(
                     CoverageEntry(
                         parent=table.coverage.parent,
@@ -87,15 +97,14 @@ def build_freshness_report(
                 columns=[
                     ColumnEntry(
                         column=column.column,
-                        null_count=column.null_count,
-                        is_incomplete=column.counts_as_uncalculated and column.null_count > 0,
+                        uncalculated_count=column.uncalculated_count,
+                        absent_count=column.absent_count,
                     )
                     for column in table.columns
                 ],
                 needs_rebuild=(
-                    table.is_stale
-                    or table.has_missing_rows
-                    or any(column.counts_as_uncalculated and column.null_count > 0 for column in table.columns)
+                    table.has_missing_rows
+                    or any(column.uncalculated_count > 0 for column in table.columns)
                 ),
             )
             for table in freshness.tables
@@ -115,12 +124,12 @@ class DerivedDataFreshnessService:
             freshness = await self._repository.get_freshness()
             fields["tables"] = len(freshness.tables)
         report = build_freshness_report(freshness, datetime.now(timezone.utc))
-        stale = sum(1 for table in report.tables if table.is_stale)
+        stale = sum(1 for source in report.sources if source.needs_rebuild)
         incomplete = sum(1 for table in report.tables
-                         for column in table.columns if column.is_incomplete)
+                         for column in table.columns if column.uncalculated_count > 0)
         missing = sum(table.coverage.missing_rows for table in report.tables if table.coverage)
         logger.info(
-            "derived data freshness computed tables=%d stale_tables=%d incomplete_columns=%d "
+            "derived data freshness computed tables=%d stale_sources=%d incomplete_columns=%d "
             "missing_rows=%d elapsed_ms=%d",
             len(report.tables), stale, incomplete, missing,
             round((time.monotonic() - started) * 1000),
