@@ -1,11 +1,7 @@
-// 開いた issue を全部、今のゲートの規則が書くはずの姿へ揃える（hidakagit-bot の名義。src/refresh.js）。ゲートを公開した直後に
-// CI（ci.yml の deploy-gate）が流す。手で流してもよい。
-// 使い方: node tools/flow-gate/bin/refresh.js [--dry-run]（--dry-run は揃える issue と理由を出すだけで、書かない）
-import config from "../flow.config.json" with { type: "json" };
-import { refreshAll } from "../src/refresh.js";
-import { botToken } from "./token.js";
+// 公開の直後に、開いた issue を全部、今のゲートの規則の姿（担当者・本文の先頭）へ揃える（hidakagit-bot の名義）。
+import { Gate } from "../src/gate.js";
+import { args, config } from "./cli.js";
 
-const dry = process.argv.includes("--dry-run");
-const changed = await refreshAll({ GITHUB_TOKEN: botToken() }, config, { dry });
-for (const c of changed) console.log(`#${c.number}: ${c.why.join("・")}を${dry ? "揃える" : "揃えた"}`);
-console.log(`${dry ? "揃える" : "揃えた"} issue: ${changed.length} 件`);
+const { dry } = args("node tools/flow-gate/bin/refresh.js [--dry-run]", (a) => !a.length);
+const gate = await Gate.open({ GITHUB_TOKEN: process.env.FLOW_BOT_TOKEN }, config);
+console.log(`${dry ? "（試し）揃える" : "揃えた"}: ${(await gate.refreshAll({ dry })).map((n) => `#${n}`).join(" ") || "無し"}`);

@@ -1,18 +1,19 @@
 """`domain/twilight.py`——夜かどうか（市民薄明の外か）と、その日の日の出・日没。
 
-入口は`is_night`（夜の軸を効かせるか）と`sunrise_sunset_jst`（観測の表示に添える時刻）。
+入口は`night_mask`（区間を通る時刻ごとに夜の軸を効かせるか）と`sunrise_sunset_jst`（観測の表示に添える時刻）。
 
 「夜」の定義は太陽の高度が−6度より下（市民薄明の終わり）。期待値は、`astral`の太陽高度
 （`astral.sun.elevation`）という、実装が使う薄明の時刻とは別の道で求める。日の出・日没は
 国立天文台の暦と比べる。
 
 ここで見ないもの:
-- 夜の軸の重みを切り替えること（`domain/axis_definitions.py: time_scoped_weights`） → `test_axis_hierarchy.py`
+- 夜の軸の重みを切り替えること（`domain/axis_definitions.py: time_scoped_weights`） → `test_axis_hierarchy.py`・`test_leg_costs.py`
 - 観測の応答へ日の出・日没を埋めること → `test_jma_amedas_service.py`・`test_amedas_route.py`
 """
 
 from datetime import date, datetime, timedelta, timezone
 
+import numpy as np
 import pytest
 from astral import Observer
 from astral.sun import elevation
@@ -20,7 +21,7 @@ from hypothesis import assume, given
 from hypothesis import strategies as st
 
 from app.domain.route import Coordinates
-from app.domain.twilight import is_night, sunrise_sunset_jst
+from app.domain.twilight import night_mask, sunrise_sunset_jst
 
 JST = timezone(timedelta(hours=9))
 TOKYO = Coordinates(latitude=35.6581, longitude=139.7414)
@@ -32,13 +33,19 @@ MOMENTS = st.datetimes(min_value=datetime(2026, 1, 1), max_value=datetime(2027, 
 )
 
 
-@given(PLACES, MOMENTS)
-def test_night_is_when_the_sun_is_lower_than_six_degrees_below_the_horizon(place, at):
-    """日付の境をまたぐ時刻（東経では日暮れと夜明けがUTCの暦日の中で入れ替わる）も含めて、一日中で成り立つ。"""
-    altitude = elevation(Observer(latitude=place.latitude, longitude=place.longitude), at)
-    assume(abs(altitude + 6.0) > 0.3)  # 境の前後1分ほどは、計算の細部で入れ替わりうる
+def is_night(place: Coordinates, at: datetime) -> bool:
+    return bool(night_mask(place, at, np.zeros(1))[0])
 
-    assert is_night(place, at) is (altitude < -6.0)
+
+@given(PLACES, MOMENTS, st.lists(st.floats(0.0, 72.0), min_size=1, max_size=8))
+def test_night_is_when_the_sun_is_lower_than_six_degrees_below_the_horizon(place, start, hours):
+    """日付の境をまたぐ時刻（東経では日暮れと夜明けがUTCの暦日の中で入れ替わる）も、何日かに散らばった時刻を
+    まとめて問うときも、一つ一つの時刻で成り立つ。"""
+    observer = Observer(latitude=place.latitude, longitude=place.longitude)
+    altitudes = [elevation(observer, start + timedelta(hours=h)) for h in hours]
+    assume(all(abs(altitude + 6.0) > 0.3 for altitude in altitudes))  # 境の前後1分ほどは、計算の細部で入れ替わりうる
+
+    assert night_mask(place, start, np.array(hours)).tolist() == [altitude < -6.0 for altitude in altitudes]
 
 
 def test_a_naive_time_is_read_as_utc():

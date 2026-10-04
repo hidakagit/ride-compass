@@ -13,11 +13,7 @@
   "statuses": ["回答待ち", "保留", "未着手", "進行中", "検証中", "完了"],
   "owner": { "回答待ち": "hidakagit", "保留": "hidakagit", "未着手": "hidakagit-bot", "進行中": "hidakagit-bot", "検証中": "hidakagit-bot" },
   "done": "完了", "waiting": "回答待ち", "hold": "保留", "todo": "未着手", "working": "進行中", "review": "検証中",
-  "entry": [
-    { "parent": true, "to": "未着手" },
-    { "author": "hidakagit", "to": "未着手" },
-    { "author": null, "to": "回答待ち", "question": "このタスクをやりますか？" }
-  ],
+  "adoption": "このタスクをやりますか？",
   "transitions": {
     "回答待ち": ["未着手", "保留", "完了"],
     "保留": ["未着手", "完了"],
@@ -26,18 +22,9 @@
     "検証中": ["完了", "未着手", "回答待ち"],
     "完了": []
   },
-  "answers": [
-    { "text": "進める", "to": "未着手", "plans": true },
-    { "text": "保留にする（あとで再開できる。補足に理由）", "to": "保留", "note": true },
-    { "text": "完成", "to": "完了", "close": "COMPLETED" },
-    { "text": "見送る（閉じて、再開しない）", "to": "完了", "close": "NOT_PLANNED" },
-    { "text": "その他（補足に書く）", "to": "未着手", "note": true }
-  ],
-  "questions": { "保留": "保留にしてあるこのタスクを、どうしますか？", "default": "このタスクを、どうしますか？" },
   "code": { "repository": "hidakagit/ride-compass", "branchPrefix": "orch/tasks-", "base": "master" },
   "coordinator": {
-    "order": ["検証中", "未着手"], "stopLabel": "停止", "devLabel": "開発機が要る", "workflow": "claude-task.yml", "parallel": 6,
-    "pauseVariable": "CLAUDE_PAUSE_UNTIL", "pauseMinutes": 60,
-    "watchEveryMinutes": 1, "watchForMinutes": 350
+    "workflow": "claude-task.yml", "watcher": "claude-dispatch.yml", "slots": { "作る": 6, "確かめる": 2 }, "devLabel": "開発機が要る",
+    "recent": 30, "recordsSince": "2026-10-04T00:09:49Z", "pauseVariable": "CLAUDE_PAUSE_UNTIL", "pauseMinutes": 60, "watchEveryMinutes": 1, "watchForMinutes": 350
   }
 }

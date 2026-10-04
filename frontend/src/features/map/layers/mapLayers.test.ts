@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 
 import { mapCatalogOf } from "@/testing/mapAxisCatalog";
 import { catalogEntry, dedicatedEntry, rampEntry } from "@/testing/catalogAxes";
-import { pointLegendAxes } from "@/features/map/scene/legends";
 import { mapDisplay } from "@/types/generated/mapDisplay";
+import { primaryAttributes } from "@/types/generated/primaryAttributes";
 
 import regionTileConfig from "@/types/generated/region-tile-config.json";
 import weatherScales from "@/types/generated/weather-scales.json";
@@ -61,15 +61,11 @@ describe("buildMapLayers（レイヤーの一覧）", () => {
     expect(layer(withoutAxes, "accident_point").description).not.toContain("[");
   });
 
-  it("停止要因・補給休憩の説明は、凡例と同じ種別名を並べる（受け皿の種別は除く）", () => {
-    const pointAxes = pointLegendAxes().filter((axis) => axis.layerId === "stop_poi" || axis.layerId === "supply_poi");
-    expect(pointAxes).toHaveLength(2);
-    for (const axis of pointAxes) {
-      const description = layer(withoutAxes, axis.layerId).description;
-      for (const entry of axis.entries) {
-        if (entry.isFallback) expect(description).not.toContain(entry.label);
-        else expect(description).toContain(entry.label);
-      }
+  it("停止要因・補給休憩の説明は、凡例と同じ種別名（先頭の軸の行の名前）を並べる", () => {
+    for (const id of ["stop_poi", "supply_poi"]) {
+      const description = layer(withoutAxes, id).description;
+      const [axis] = primaryAttributes.find((attr) => attr.attr_id === id)!.display_axes;
+      for (const category of axis!.categories) expect(description).toContain(category.label);
     }
   });
 

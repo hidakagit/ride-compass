@@ -69,8 +69,9 @@ export default function RouteSettingsPanel({
     });
   }, [catalog.defaultWeights]);
 
+  // 覚えた重みは既定か、帯で動かした値（下限より上）なので、0になるのは既定の重みが0の軸だけ。
   function handleToggle(axisId: string, checked: boolean) {
-    const restored = checked ? lastWeights[axisId] || catalog.defaultWeights[axisId] || 0.1 : 0;
+    const restored = checked ? lastWeights[axisId] || 0.1 : 0;
     handlePreferenceChange({ ...routePreference, [axisId]: restored });
   }
 
@@ -87,7 +88,7 @@ export default function RouteSettingsPanel({
   // 有効な軸を先に並べる（スクロールせずに今の%を読める）。
   const axesWithWeight = catalog.axes.map((axis) => ({
     axis,
-    weight: routePreference[axis.axisId] ?? 0,
+    weight: routePreference[axis.axisId],
   }));
   const enabledAxes = axesWithWeight.filter(({ weight }) => weight > 0);
   const orderedAxes = [...enabledAxes, ...axesWithWeight.filter(({ weight }) => weight <= 0)];
@@ -109,10 +110,8 @@ export default function RouteSettingsPanel({
   ) {
     const bar = stackBarRef.current;
     if (!bar) return;
-    const barWidthPx = bar.getBoundingClientRect().width;
-    if (barWidthPx <= 0) return;
     const startClientX = e.clientX;
-    const pixelsPerUnit = barWidthPx / total;
+    const pixelsPerUnit = bar.getBoundingClientRect().width / total;
     const handleWindowPointerMove = (moveEvent: PointerEvent) => {
       const rawDelta = (moveEvent.clientX - startClientX) / pixelsPerUnit;
       const { weightA, weightB } = clampBoundaryDrag(startWeightA, startWeightB, rawDelta);

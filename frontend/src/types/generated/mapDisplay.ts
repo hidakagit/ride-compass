@@ -649,8 +649,11 @@ export const mapDisplay = {
     "nonFatalRadiusPx": 3,
     "strokeWidthPx": 1,
     "iconSizePx": 20,
-    "opacity": 0.9,
-    "accidentOpacity": 0.75
+    "opacityByLayer": {
+      "stop_poi": 0.9,
+      "accident_point": 0.75,
+      "supply_poi": 0.9
+    }
   },
   "area": {
     "opacity": 0.55,

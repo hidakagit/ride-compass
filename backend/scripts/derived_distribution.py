@@ -1,7 +1,7 @@
 r"""派生の表の値の列ごとに、値の分布を1行で出す。
 
 落ちた絞り込み・二重に数えた値はエラーにもテストの失敗にもならず、値の偏りとしてだけ現れる。
-派生の値を変える変更は、この行の前後を並べてから取り込む（docs/conventions/flow.md「分布の前後」）。
+本番の派生を作り直すたびに、全部の列のこの行を前と後で並べる（docs/conventions/deployment-sync.md「派生データの作り直し」）。
 
 対象は宣言から導く（`app/infrastructure/derived_data_freshness.py: derived_tables`・`value_columns`）
 ——表・列を足しても、ここは変わらない。
@@ -12,12 +12,12 @@ r"""派生の表の値の列ごとに、値の分布を1行で出す。
 - 真偽の列: 真の割合
 - 文字の列: 値の種類の数
 
-分位は列ごとに表を並べ替えるので、大きな表の全列を測ると重い。変える列だけを`--column`で絞る。
+`--column`を付けなければ全部の派生の表の全部の値の列を測る。見たい表・列だけなら`--column`で絞る。
 
 実行方法（backendディレクトリから）:
-    .venv\Scripts\python.exe scripts\derived_distribution.py --column edge_materials.accident_count   # 開発DB
-    .venv\Scripts\python.exe scripts\derived_distribution.py --column node_materials                  # 表の全列
-    .venv\Scripts\python.exe scripts\run_probe.py scripts\derived_distribution.py --column edge_materials.accident_count   # 本番
+    .venv\Scripts\python.exe scripts\run_probe.py scripts\derived_distribution.py   # 本番の全部の列（作り直しの前と後）
+    .venv\Scripts\python.exe scripts\derived_distribution.py --column node_materials                  # 開発DBの表の全列
+    .venv\Scripts\python.exe scripts\derived_distribution.py --column edge_materials.accident_count   # 開発DBの1列
 """
 
 import argparse

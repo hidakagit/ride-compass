@@ -5,6 +5,7 @@ import type { CatalogAxis } from "@/lib/catalogAxis";
 import { formatDurationShort } from "@/features/route/formatDuration";
 import type { OverallDifficulty, RoutePreferenceWeights } from "@/types/route";
 import AxisContributionBar, { hasContribution } from "@/components/AxisContributionBar/AxisContributionBar";
+import AxisDetail from "./AxisDetail";
 import { formatAxisRawValue, formatCategoryBreakdown, formatMaterialBreakdown } from "./axisRawValue";
 import { textVariants } from "@/components/ui/Text/Text";
 import { cn } from "@/lib/cn";
@@ -13,7 +14,7 @@ import { LOAD_BAR_MAX_HEIGHT_RATIO } from "@/features/route/difficultyLoadBar";
 interface RouteAxisProfileProps {
   /** 公開軸すべて（軸カタログの順序・ラベルの正本）。重みによる絞り込みは行わない。 */
   axes: readonly CatalogAxis[];
-  /** この候補を実際に評価した重み（生成時点のroute_preference）。0の軸は畳んだ1行へまとめる。 */
+  /** この候補を実際に評価した重み（生成時点のroute_preference）。0の軸と重みの無い軸は凡例に出さない。 */
   weights: RoutePreferenceWeights;
   /** RouteCandidate.axis_difficulties（axis_id→距離加重平均の難易度0-100）。評価できなかった
    * 軸はキー自体を持たない。 */
@@ -74,7 +75,6 @@ export default function RouteAxisProfile({
   // 何が効いたか」が読めなくなる（設計原則「消さずに薄くする」の例外）。
   const renderAxisDetail = (axis: CatalogAxis) => {
     if ((weights[axis.axisId] ?? 0) <= 0) return null;
-    const difficulty = axisDifficulties[axis.axisId];
     // 折れ点を通す前の生値。単位が定まらない軸（合成軸等）はbackendがrawValueUnitを
     // 返さないため何も出ない。
     const rawText = formatAxisRawValue(
@@ -92,18 +92,12 @@ export default function RouteAxisProfile({
       )
       .filter((text): text is string => text !== null);
     return (
-      <>
-        <span className="block font-medium">{axis.label}</span>
-        <span className="mt-1 block tabular-nums">
-          {/* 重みを掛ける前の、この軸単体の難易度。チップの数字（重み付き寄与度）とは別物。 */}
-          {difficulty == null ? "データなし" : `軸別難易度 ${Math.round(difficulty)}/100`}
-        </span>
+      <AxisDetail axis={axis} difficulty={axisDifficulties[axis.axisId]}>
         {rawText && <span className="block text-[var(--color-muted-strong)] tabular-nums">{rawText}</span>}
         {breakdownTexts.length > 0 && (
           <span className="block text-[var(--color-muted-strong)] tabular-nums">{`この軸の内訳: ${breakdownTexts.join("・")}`}</span>
         )}
-        <span className="mt-2 block text-[var(--color-muted)]">{axis.description}</span>
-      </>
+      </AxisDetail>
     );
   };
 

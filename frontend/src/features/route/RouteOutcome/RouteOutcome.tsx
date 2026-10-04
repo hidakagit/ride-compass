@@ -15,6 +15,7 @@ import { cn } from "@/lib/cn";
 import { formatJstHourMinute } from "@/lib/time";
 import ComparisonPanel from "@/features/route/ComparisonPanel/ComparisonPanel";
 import DifficultyProfile from "@/features/route/DifficultyProfile/DifficultyProfile";
+import AxisDetail from "@/features/route/RouteAxisProfile/AxisDetail";
 import RouteAxisProfile from "@/features/route/RouteAxisProfile/RouteAxisProfile";
 import RouteSplicePanel from "@/features/route/RouteSplicePanel/RouteSplicePanel";
 import SegmentWind from "@/features/route/SegmentWind/SegmentWind";
@@ -310,6 +311,12 @@ export default function RouteOutcome({ results, generation, splice, routeWeights
                       axes={axisCatalog.axes}
                       contributions={selectedRouteSegment.segment.axis_contributions}
                       axisColors={axisCatalog.axisColors}
+                      renderDetail={(axis) => (
+                        <AxisDetail
+                          axis={axis}
+                          difficulty={selectedRouteSegment.segment.axis_difficulties[axis.axisId]}
+                        />
+                      )}
                     />
                     {researchEnabled && Object.keys(selectedRouteSegment.segment.material_values).length > 0 && (
                       <ul className={cn(textVariants({ variant: "hint" }), "m-0 flex list-none flex-col gap-0.5 p-0")}>

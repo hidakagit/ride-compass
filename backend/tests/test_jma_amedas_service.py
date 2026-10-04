@@ -1,13 +1,15 @@
 """jma_amedas_service.pyのテスト。
 
-差し替えるのはプロセス境界だけ——気象庁への取得は応答の形のままURLごとに返すrespxの経路、
-Redisはfakeredis（`fake_redis`）。応答の形を解くクライアントは本物を通す。
+差し替えるのはプロセス境界だけ——気象庁への取得は応答の形のままURLごとに返すrespxの経路
+（アメダスのJSONと推計気象分布の時刻一覧・タイルのPNG）、Redisはfakeredis（`fake_redis`）。
+応答の形を解くクライアントは本物を通す。
 
 JMAの観測値エンドポイントは1地点だけを絞り込めず全国分を1レスポンスで返すため、取得は
 `refresh_all_stations`（main.pyの定期バッチが呼ぶ）が一括で担い、`get_nearest_observation`
 （リクエスト経路）はRedis読み取り専用である。
 """
 
+import io
 import json
 from datetime import datetime, timedelta
 
@@ -16,12 +18,14 @@ import numpy as np
 import pytest
 import respx
 from cachetools import TTLCache
+from PIL import Image
 
 from app.domain.jma_amedas import apparent_temperature_from_amedas
+from app.domain.jma_suikei import SUIKEI_TARGET_TIMES_PATH
 from app.domain.rain import HOURS_SINCE_RAIN, RAIN_HISTORY_HOURS, RAIN_HISTORY_MAX_AGE, rain_window_material_id
 from app.domain.route import Coordinates
 from app.domain.time_zone import JST
-from app.infrastructure import jma_amedas_client, jma_amedas_store
+from app.infrastructure import jma_amedas_client, jma_amedas_store, jma_tile_client
 from app.services.jma_amedas_service import JmaAmedasService, load_station_rain_materials
 from tests import rain_history_fake
 from tests.fake_http import client_for
@@ -53,9 +57,42 @@ OBSERVATION_MAP = {
 }
 
 
-def _router(*, stations=STATIONS, latest_time=LATEST_TIME, observation_map=lambda timestamp: OBSERVATION_MAP):
-    """気象庁アメダスの代役。観測値は要求された時刻（URLの`YYYYMMDDHHMMSS`）ごとに`observation_map`が返す。
-    どれもNoneなら、その取得は接続の失敗になる。"""
+# 推計気象分布の凡例の色（気象庁の公式の画面の凡例）。
+CLEAR = (255, 170, 0, 255)
+CLOUDY = (170, 170, 170, 255)
+RAIN = (0, 65, 255, 255)
+SUIKEI_ROOT = f"{jma_tile_client.UPSTREAM_HOST}/bosai/jmatile/data/suikeikishou"
+SUIKEI_LATEST = "20260829030000"
+SUIKEI_TARGET_TIMES = [
+    {"basetime": SUIKEI_LATEST, "validtime": SUIKEI_LATEST, "elements": ["temp", "wthr", "suns1h"]},
+    {"basetime": "20260829020000", "validtime": "20260829020000", "elements": ["temp", "wthr", "suns1h"]},
+]
+# `POINT`を含む天気のタイル（パスのズーム10。512画素のタイルを1辺512枚で数える）と、その中の画素の列・行。
+# 気象庁の公式の画面が東京付近で取りに行くタイルと同じ座標。
+POINT_TILE = (454, 201)
+POINT_PIXEL = (394, 315)
+
+
+def suikei_tile(color_at_point, elsewhere=CLOUDY) -> bytes:
+    """`POINT`の画素だけを`color_at_point`で、ほかを`elsewhere`で塗った、配信元と同じパレットのPNG。"""
+    image = Image.new("RGBA", (512, 512), elsewhere)
+    image.putpixel(POINT_PIXEL, color_at_point)
+    buffer = io.BytesIO()
+    image.convert("P").save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def _router(
+    *,
+    stations=STATIONS,
+    latest_time=LATEST_TIME,
+    observation_map=lambda timestamp: OBSERVATION_MAP,
+    suikei_target_times=SUIKEI_TARGET_TIMES,
+    suikei=suikei_tile(CLOUDY),
+):
+    """気象庁アメダスと推計気象分布の代役。観測値は要求された時刻（URLの`YYYYMMDDHHMMSS`）ごとに
+    `observation_map`が返す。どれもNoneなら、その取得は接続の失敗になる。推計気象分布のタイルは、最新の時刻の
+    `POINT`を含むタイルだけを`suikei`（PNG。Noneなら404）で返す。"""
     prefix, suffix = jma_amedas_client.AMEDAS_OBSERVATION_URL_TEMPLATE.split("{timestamp}")
 
     def observation(request):
@@ -76,6 +113,16 @@ def _router(*, stations=STATIONS, latest_time=LATEST_TIME, observation_map=lambd
     else:
         latest.respond(text=latest_time)
     upstream.get(url__startswith=prefix).mock(side_effect=observation)
+    target_times = upstream.get(f"{jma_tile_client.UPSTREAM_HOST}/{SUIKEI_TARGET_TIMES_PATH}")
+    if suikei_target_times is None:
+        target_times.mock(side_effect=httpx.ConnectError)
+    else:
+        target_times.respond(json=suikei_target_times)
+    tile = upstream.get(f"{SUIKEI_ROOT}/{SUIKEI_LATEST}/none/{SUIKEI_LATEST}/surf/wthr/10/{POINT_TILE[0]}/{POINT_TILE[1]}.png")
+    if suikei is None:
+        tile.respond(404)
+    else:
+        tile.respond(content=suikei, headers={"content-type": "image/png"})
     return upstream
 
 
@@ -92,8 +139,10 @@ def _forget_client_caches(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _empty_stores(monkeypatch, fake_redis):
-    """Redisは空から、クライアントのプロセス内キャッシュも空から始める。"""
+    """Redisは空から、クライアントのプロセス内キャッシュ（推計気象分布の時刻一覧も）も空から始める。"""
     _forget_client_caches(monkeypatch)
+    monkeypatch.setattr(jma_tile_client, "_target_times_cache", TTLCache(maxsize=16, ttl=60))
+    monkeypatch.setattr(jma_tile_client, "_last_fetch_at", None)
 
 
 async def _hashes(redis) -> dict[str, dict[str, str]]:
@@ -157,8 +206,9 @@ async def test_get_nearest_observation_reads_from_redis_without_fetching(monkeyp
 
     result = await service.get_nearest_observation(POINT)
 
-    # 観測所マスタはクライアントのキャッシュから引き、観測値は気象庁へ取りに行かない。
-    assert not upstream.calls
+    # 観測所マスタはクライアントのキャッシュから引き、観測値は気象庁へ取りに行かない（取りに行くのは推計気象分布だけ）。
+    assert upstream.calls
+    assert all(str(call.request.url).startswith(SUIKEI_ROOT) for call in upstream.calls)
     assert result is not None
     assert result.station_id == "44132"
     assert result.station_name == "東京"
@@ -167,9 +217,70 @@ async def test_get_nearest_observation_reads_from_redis_without_fetching(monkeyp
     assert result.wind_speed_ms == 3.5
     assert result.wind_direction is not None and result.wind_direction.label == "南"
     assert result.precipitation_10min_mm == 0.0
-    assert result.sunshine_10min_minutes == 5.0
     # 日の出・日没はRedisには無く、クエリ地点に対してその場で計算される。
     assert result.twilight is not None
+
+
+async def _nearest(**answers):
+    service = JmaAmedasService(http_client=_upstream(**answers))
+    await service.refresh_all_stations()
+    return await service.get_nearest_observation(POINT)
+
+
+def _at_night(precipitation_10min_mm):
+    """夜の観測（日照計は空によらず0）。"""
+    return lambda timestamp: {
+        **OBSERVATION_MAP,
+        "44132": {**OBSERVATION_MAP["44132"], "precipitation10m": [precipitation_10min_mm, 0], "sun10m": [0.0, 0]},
+    }
+
+
+@pytest.mark.parametrize(
+    ("precipitation_10min_mm", "color_at_point", "expected"),
+    [
+        (0.0, CLEAR, 0),  # 晴れた夜は、日照が0でも晴れ
+        (0.0, CLOUDY, 3),
+        (0.0, RAIN, 3),  # 観測所で降っていなければ、推計の雨の区分は空のくもりとして出す
+        (0.2, CLEAR, 63),  # 降っているかは観測所の実測が決める（10分0.2mm＝1時間1.2mm相当）
+    ],
+)
+async def test_weather_code_takes_rain_from_the_station_and_the_sky_from_the_point(
+    precipitation_10min_mm, color_at_point, expected
+):
+    result = await _nearest(observation_map=_at_night(precipitation_10min_mm), suikei=suikei_tile(color_at_point))
+
+    assert result is not None
+    assert result.weather_code == expected
+
+
+async def test_sky_is_read_at_the_requested_point_not_around_it():
+    result = await _nearest(observation_map=_at_night(0.0), suikei=suikei_tile(CLOUDY, elsewhere=CLEAR))
+
+    assert result is not None
+    assert result.weather_code == 3
+
+
+@pytest.mark.parametrize(
+    "answers",
+    [
+        {"suikei_target_times": None},  # 時刻一覧が取れない
+        {"suikei": None},  # 描くものが無いタイル（推計の範囲の外）
+        {"suikei": suikei_tile((1, 2, 3, 255))},  # 凡例に無い色
+    ],
+)
+async def test_observation_is_still_returned_without_a_weather_code_when_the_sky_is_unknown(answers):
+    result = await _nearest(observation_map=_at_night(0.0), **answers)
+
+    assert result is not None
+    assert result.temperature_c == 26.5
+    assert result.weather_code is None
+
+
+async def test_unknown_sky_is_logged_as_a_warning(caplog):
+    with caplog.at_level("WARNING"):
+        await _nearest(observation_map=_at_night(0.0), suikei_target_times=None)
+
+    assert any("推計気象分布" in record.message for record in caplog.records)
 
 
 async def test_get_nearest_observation_returns_none_when_not_yet_cached(monkeypatch):

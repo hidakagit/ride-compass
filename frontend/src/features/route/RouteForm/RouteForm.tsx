@@ -83,9 +83,9 @@ export default function RouteForm({
   const fixedCount = fixedRouteCount(routeMode, waypointCount);
   const maxRoutesRelevant = fixedCount === null;
 
+  // 範囲の端ではボタンを押せなくするので、足した値は範囲を出ない。
   function stepMaxRoutes(delta: number) {
-    const next = Math.min(MAX_ROUTES, Math.max(1, Number(maxRoutes) + delta));
-    onMaxRoutesChange(String(next));
+    onMaxRoutesChange(String(Number(maxRoutes) + delta));
   }
 
   // 出発地・経由地・目的地は同じ形の行で並べる（役割が同じ「地点を置く」操作のため）。

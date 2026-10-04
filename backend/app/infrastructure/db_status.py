@@ -64,8 +64,8 @@ class ImportRunCounts:
     """取込1ソースぶんの生値。`latest`は成否を問わない最新、`latest_succeeded`は成功した最新。"""
 
     label: str
-    latest_id: int | None
-    latest_status: str | None
+    latest_id: int
+    latest_status: str
     latest_finished_at: datetime | None
     #: そのrunが何を取りに行ったか（`source_runs.origin`をそのまま文字列化したもの）。
     latest_identity: dict[str, str]
@@ -131,9 +131,8 @@ class DbStatusQuery:
                 latest_id=int(row["latest_id"]),
                 latest_status=str(row["latest_status"]),
                 latest_finished_at=row["latest_finished_at"],
-                latest_identity={key: str(value)
-                                 for key, value in (row["latest_origin"] or {}).items()},
-                latest_item_count=(row["latest_counts"] or {}).get("records"),
+                latest_identity={key: str(value) for key, value in row["latest_origin"].items()},
+                latest_item_count=row["latest_counts"].get("records"),
                 latest_succeeded=(None if row["latest_succeeded_id"] is None
                                   else SucceededRunCounts(int(row["latest_succeeded_id"]),
                                                           row["latest_succeeded_finished_at"])),

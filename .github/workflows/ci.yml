@@ -1,4 +1,4 @@
-# CI。masterと作業ブランチ（orch/**）へのpush・PRごとに、backend・frontendの全チェックを回す。
+# CI。masterへのpushとPull Requestごとに、backend・frontendの全チェックを回す。
 #
 # - backend: ruff（lint）→ mypy（型検査）→ pytest（PostGIS統合テスト込み）。PostGIS統合テスト（tests/conftest.py の
 #   road_graph_session）は、ランナーへ直接入れたPostgreSQL＋PostGIS + TEST_DATABASE_URL 注入で実行する。
@@ -21,15 +21,16 @@
 # - ci-ok: コードのリポジトリの必須チェックに置く1本。上のどれかが失敗・取り消しなら落ち、スキップは通す
 #   （必須にするのをこの1本にまとめると、ジョブを足し引きしても必須チェックの設定を変えずに済む）。
 # - deploy-gate: masterへのpushで ci-ok が通り、tools/flow-gate/ が変わっていれば、ゲートを Cloudflare へ公開する。
-# - deploy-backend: masterへのpushで上の全ジョブが通ったときだけ、backendを本番へ出す
-#   （出すかの判定と手順は deploy-backend.yml）。**本番へ出る前の検査はこのワークフロー**で、
+# - deploy-backend・deploy-frontend: masterへのpushで上の全ジョブが通ったときだけ、backend・frontendを本番へ出す
+#   （出すかの判定と手順は deploy-backend.yml・deploy-frontend.yml）。**本番へ出る前の検査はこのワークフロー**で、
 #   どれかが赤ならデプロイは起動しない。
 name: CI
 
 on:
   push:
-    # orch/** はmasterへ入れる前の作業ブランチ。重い検査を開発機からここへ移すために回す。
-    branches: [master, "orch/**"]
+    # 作業ブランチ（orch/**）へのpushでは走らせない。masterへ入れてよいかはPull Requestの実行
+    # （masterと合わせた版）で決める。
+    branches: [master]
   # ワークフローはいつも起こし、重い検査を走らせるかは changes ジョブが変更されたパスから決める
   # （必須チェックは、ワークフローごと飛ばすと Pending のまま残り Pull Request がマージできない。
   # ジョブの if で飛ばしたものはスキップになり、必須チェックを通る。GitHub の公式の文書
@@ -50,8 +51,8 @@ jobs:
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
-          # 比べる相手が無い（手での実行・新しい枝の最初の push）ときは、すべて走らせる。
-          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$BASE^{commit}"; then
+          # 比べる相手が無い（手での実行）ときは、すべて走らせる。
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}"; then
             echo "heavy=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
           heavy=false
@@ -240,26 +241,23 @@ jobs:
           name: playwright-report-scan-${{ matrix.width }}
           path: frontend/playwright-report/
           retention-days: 7
-  # タスク管理のゲート（tools/flow-gate/）。依存するパッケージが無いので npm ci は要らない。
+  # タスク管理のゲート（tools/flow-gate/）。lint が構文と import の解決（無いファイル・無い名前）を動かさずに見る。
+  # テストは部品（src/）しか読み込まないので、道具（bin/）の静的な誤りは lint だけが落とす。
   flow-gate:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools/flow-gate
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-      - run: node --test tools/flow-gate/test/*.test.js
-      # 担当の許可が増える Pull Request は、ユーザーが許したものだけをマージする（docs/conventions/flow.md「許可の一覧に合わせて打つ」）。
-      - if: github.event_name == 'pull_request'
-        env:
-          BASE: ${{ github.base_ref }}
-        run: |
-          git fetch -q --depth=1 origin "$BASE"
-          added="$(node tools/flow-gate/bin/permissions.js --added FETCH_HEAD)"
-          if [ -n "$added" ]; then
-            { echo "### 担当の許可が増える行"; echo; echo '```'; echo "$added"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-            echo "::warning::担当の許可が増える行が $(echo "$added" | wc -l) 行ある。ユーザーが許した答えが issue にあるかを確かめる"
-          fi
+          cache: npm
+          cache-dependency-path: tools/flow-gate/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
   ci-ok:
     needs: [changes, backend, api-contract, frontend, e2e, e2e-scan, flow-gate]
     if: always()
@@ -271,7 +269,7 @@ jobs:
   # 公開の直後に、開いた issue を全部、今の規則が書くはずの姿（担当者・本文の先頭・問いの形）へ揃える（揃っていれば何も書かない）。
   deploy-gate:
     needs: [ci-ok]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -310,6 +308,11 @@ jobs:
         run: node tools/flow-gate/bin/refresh.js
   deploy-backend:
     needs: [backend, api-contract, frontend, e2e, e2e-scan]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    if: github.event_name == 'push'
     uses: ./.github/workflows/deploy-backend.yml
+    secrets: inherit
+  deploy-frontend:
+    needs: [backend, api-contract, frontend, e2e, e2e-scan]
+    if: github.event_name == 'push'
+    uses: ./.github/workflows/deploy-frontend.yml
     secrets: inherit

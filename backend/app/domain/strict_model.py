@@ -14,8 +14,8 @@ Pydanticの`extra`の既定は`ignore`で、モデルが知らないフィール
 `infrastructure/axis_definition_repository.py`が**過去のコードが書いた形**を今のモデルで
 読む。`forbid`のもとでフィールドを消す・改名すると、既存の行が読めずアプリが起動に失敗する
 （fail-fast）。これは意図した挙動——黙って値を捨てるより起動を止める方がよい——だが、
-**そういう変更は本番DBの移行を先に済ませてからpushする**必要がある
-（CLAUDE.md「コミット時の同期ルール」）。
+**そういう変更は本番DBの移行を先に済ませてからmasterへマージする**必要がある
+（docs/conventions/deployment-sync.md「コミットと同時に揃えるもの」）。
 
 `model_config`はPydantic v2が親子でマージするため、派生側は`frozen=True`のような別の
 設定だけを書けばよい（`extra`は引き継がれる）。

@@ -61,7 +61,7 @@ def _observation_key(station_id: str) -> str:
 
 
 async def read_observation(station_id: str) -> AmedasObservation | None:
-    """保存済みの観測値。日の出・日没（`twilight`）は持たずNoneで返す（クエリ地点で決まるため）。"""
+    """保存済みの観測値。日の出・日没（`twilight`）と天気コード（`weather_code`）は持たずNoneで返す（クエリ地点で決まるため）。"""
     if not redis_available():
         return None
     client = get_redis_client_or_none()
@@ -124,7 +124,6 @@ def _fields_from_observation(observation: AmedasObservation) -> dict[str, str | 
         "wind_direction_deg": _field_value(None if observation.wind_direction is None else observation.wind_direction.deg),
         "wind_direction_label": "" if observation.wind_direction is None else observation.wind_direction.label,
         "precipitation_10min_mm": _field_value(observation.precipitation_10min_mm),
-        "sunshine_10min_minutes": _field_value(observation.sunshine_10min_minutes),
     }
 
 
@@ -140,8 +139,8 @@ def _observation_from_fields(station_id: str, fields: dict) -> AmedasObservation
         wind_speed_ms=_optional_float(fields.get("wind_speed_ms")),
         wind_direction=_wind_direction_from_fields(fields),
         precipitation_10min_mm=_optional_float(fields.get("precipitation_10min_mm")),
-        sunshine_10min_minutes=_optional_float(fields.get("sunshine_10min_minutes")),
         twilight=None,
+        weather_code=None,
     )
 
 

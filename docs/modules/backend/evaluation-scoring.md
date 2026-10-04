@@ -28,7 +28,9 @@ APIが受け取る重みの形を変えるとき、`dynamic_materials.py`は動�
 
 **材料の導出は`MaterialSpec.value_sql`1本**。評価・地図タイル配信・欠損率の集計・
 軸スタジオの値列挙は、すべて同じ式を読む。入力に対するあるべき値は
-`tests/test_material_values.py`が期待値の表で固定する。
+`tests/test_material_values.py`が期待値の表で固定する。式が実在の列と、読み出しの経路ごとのFROM句に
+ある別名だけを読むことも同じファイルが見る——値の表は別名を値で与えるため、綴りの合わない列や、
+経路に無い別名（路面タイルの`re`等）を読む式は、値の表だけでは見つからない。
 
 **タイルへ焼く式だけは符号化が違う**。`CASE WHEN 条件 THEN true END`で「該当しない」を
 NULLへ畳み、フィーチャーからキーを省いてタイルを軽くする。材料の値を求める式は
@@ -73,7 +75,7 @@ FROM句に`re`は無い。欠損を「不明」として持つ真偽の材料（
   `elevation_attribute.average_grade`が取得済みの場合、その絶対値（登り・下りどちらの
   急勾配も対象）がしきい値を超えるEdgeを除外する。
 - `motor_vehicle=no`（自転車可の車両通行禁止）はここでは扱わない。自転車は法的に通行
-  可能なため0次のハード除外対象にはせず、二次軸（車ストレス）側の補正として扱う。
+  可能なため0次のハード除外対象にはせず、軸の側（材料`motor_vehicle_no`）で扱う。
 
 軸単位の評価（[軸スタジオ](axis-studio.md)の`priority_overrides`、材料の値が一致すれば
 評価を優先確定する仕組み）とは別の概念——0次フィルタは道路そのものを探索グラフから
@@ -198,8 +200,8 @@ bbox全体ぶんのコストをリクエストにつき1回だけnumpyで合成�
   という既存の汎用トポロジカル合成が「動的材料さえ埋まればどんな軸[軸スタジオが
   動的材料を直接参照して作ったカスタム軸を含む]でも正しく合成する」ため、
   軸名のハードコードは呼び出し側に一切現れない）。動的材料が増えたら
-  `REQUEST_DYNAMIC_MATERIAL_IDS`とこの辞書へ1エントリずつ追加するだけでよい（CLAUDE.md
-  原則1、フロントがramp軸をカタログ［`axisCatalog.rampAxes`］から列挙して塗るのと同種の汎用ディスパッチ）。
+  `REQUEST_DYNAMIC_MATERIAL_IDS`とこの辞書へ1エントリずつ追加するだけでよい（
+  [設計原則](../../architecture/design-principles.md)構造仕様8、フロントがramp軸をカタログ［`axisCatalog.rampAxes`］から列挙して塗るのと同種の汎用ディスパッチ）。
   `evaluate_dynamic_material_arrays`が全動的材料を評価する唯一の経路で、静的行列への
   動的軸合成（`evaluate_dynamic_axis_arrays`）もここを通るため、式が乖離しない。
   `DynamicAxisRequestContext`は出発時点のスナップショット（`weather`）・走行速度
@@ -260,7 +262,7 @@ bbox全体ぶんのコストをリクエストにつき1回だけnumpyで合成�
 
 **単位が定まらない軸は、代わりに材料まで分解した絶対量を持つ。** 分解は
 `axis_raw_value.py: axis_material_shares`が軸定義から機械的に行い、軸参照
-（車の圧迫感の内部軸5本）は葉の材料まで再帰的に辿る——途中の軸の得点は内訳に含めない。
+（内部軸）は葉の材料まで再帰的に辿る——途中の軸の得点は内訳に含めない。
 得点を内訳へ混ぜると、この仕組みが解こうとしている「較正依存の数字しか出せない」問題が
 入れ子で再発するため。並び順は各階層で`|w| / Σ|w|`へ正規化した重みの積の降順
 （生の重みは階層をまたぐと比較できない——内部軸の`breakpoints`・`mapping`が非線形変換の
@@ -462,7 +464,6 @@ way粒度で引くときは、同じ式のまま`w`の行から同じ名前の�
 （研究のスクリプト・テスト）も同じ検査を通る。「上書きするなら公開軸を全部書く」は要求の形で、
 `api/routers/routes.py: RoutePreferenceWeights`が持ち、値の検査は同じ`check_axis_weights`を呼ぶ。
 
-`with_time_scope(active_scopes)`は、`time_scope`が`"always"`以外の軸のうち
-`active_scopes`に含まれないものの重みを0倍にしたコピーを返す（night軸の動的重み
-付けが使う、[routing-engine.md](routing-engine.md)参照）。リクエスト間で共有するインスタンスを
-汚染しないよう、新しい`RoutePreference`インスタンスを返す（`self`を書き換えない）。
+時間帯を持つ軸（`time_scope`が`"always"`以外）の重みは`RoutePreference`では切り替えない——区間を通る時刻で
+区間ごとに決まるため、合成器が`domain/axis_definitions.py: time_scoped_weights`で区間ごとの配列にする
+（[routing-engine.md](routing-engine.md)「夜間軸の動的重み付け」）。

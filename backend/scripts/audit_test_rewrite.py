@@ -7,10 +7,13 @@ r"""起こし直したテストを機械で監査する。報告の自己申告�
 - ① 実装を変えていないか（テストの起こし直しで実装が変わったら、それは別の作業）
 - ② テストからの`app.*`直接import（対象モジュールと、対象の公開シグネチャが要求する型だけ）
 - ③ テストが触る`<対象>.X`の内訳（自ファイル定義／他モジュール由来）。他モジュール由来は
-  1件ずつ「差し替えのseamか、責務外か」を人が言う
+  1件ずつ「差し替えのseamか、責務外か」を人が言う。`scripts/`の道具はテストが`sys.path`へ足して
+  素で`import <道具名>`するので、その名前も対象として読む
 - ④ 実装へ1行も入らないテスト（`--cov-context=test`で実測する。**静的解析は誤検知する**
   ——`setattr(mod, ...)`の形やヘルパ経由を数え落とした実績が2回ある）
 - ⑤ 行・分岐カバレッジ
+- ⑥ 対象の公開の名前ごとの`app`・`scripts`・`benchmarks`での参照数（対象の外/中）と、どちらも0の
+  「テストからしか使われない候補」。ASTで数えるので、文字列で指す参照とフレームワークが規約で呼ぶものは0に見える
 
 **機械化できないものは残る。** 「そのテストは要るか」の3問と、「本番で作れない入力を
 使っていないか」の突き合わせは、対象ごとに値域の導出が要るため人が読む。
@@ -28,18 +31,25 @@ JITを通る対象はこれを付けないと⑤が実態より低く出る。
 カバレッジは対象の親ディレクトリを`--cov`に渡して測り、報告と④を対象ファイルへ絞る。
 ドット記法の`--cov`はcoverage.pyが対象の親パッケージを収集より前にimportするため、
 api層の対象ではconftestのimportでnumpyが2度読み込まれて収集ごと落ちる。ファイルのパスを
-渡すと何も報告されない。測るのは`-m "not postgis"`のテストだけ。
+渡すと何も報告されない。`postgis`の印のテストは、テスト用DBのサーバーへ繋がるときだけ
+含めて測り、繋がらなければ外したことを出す。
 """
 
 import argparse
 import ast
+import asyncio
 import os
 import subprocess
 import sys
 from collections import defaultdict
 from pathlib import Path
 
+import asyncpg
 from coverage import CoverageData
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from app.batch._common import asyncpg_dsn  # noqa: E402  sys.pathを通した後に読む
 
 
 def module_symbols(path: Path) -> tuple[set[str], dict[str, str]]:
@@ -61,18 +71,92 @@ def module_symbols(path: Path) -> tuple[set[str], dict[str, str]]:
     return defined, imported
 
 
-def app_imports(tree: ast.AST) -> list[tuple[str, str]]:
-    """テストからの`app.*`直接import。`(表示用の行, 束縛された名前)`で返す。"""
-    out: list[tuple[str, str]] = []
+def app_imports(tree: ast.AST) -> list[tuple[str, str, str]]:
+    """テストからの`app.*`直接import。`(表示用の行, 束縛された名前, importしたもののドット記法)`で返す。
+
+    表示とドット記法は`as`の前の元の名前で書き、束縛された名前は③の内訳の照合にだけ使う。
+    """
+    out: list[tuple[str, str, str]] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("app"):
             for a in node.names:
-                out.append((f"from {node.module} import {a.asname or a.name}", a.asname or a.name))
+                out.append((f"from {node.module} import {a.name}", a.asname or a.name, f"{node.module}.{a.name}"))
         elif isinstance(node, ast.Import):
             for a in node.names:
                 if a.name.startswith("app"):
-                    out.append((f"import {a.name}", a.asname or a.name.split(".")[0]))
+                    out.append((f"import {a.name}", a.asname or a.name.split(".")[0], a.name))
     return out
+
+
+def public_names(tree: ast.Module) -> list[tuple[str, str]]:
+    """実装の公開の名前。`(表示名, 参照を数える名前)`で返す。
+
+    最上位の関数・クラス・代入と、公開のクラスの`_`で始まらないメソッド（表示は`クラス.メソッド`）。
+    """
+    out: list[tuple[str, str]] = []
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names = [node.name]
+        elif isinstance(node, ast.Assign):
+            names = [t.id for t in node.targets if isinstance(t, ast.Name)]
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            names = [node.target.id]
+        else:
+            continue
+        out.extend((name, name) for name in names if not name.startswith("_"))
+        if isinstance(node, ast.ClassDef) and not node.name.startswith("_"):
+            out.extend(
+                (f"{node.name}.{item.name}", item.name)
+                for item in node.body
+                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and not item.name.startswith("_")
+            )
+    return out
+
+
+def name_references(tree: ast.AST) -> dict[str, int]:
+    """名前として読む箇所・属性として読む箇所・`from … import <名前>`を、名前ごとに数える。"""
+    counts: dict[str, int] = defaultdict(int)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+            counts[node.id] += 1
+        elif isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Load):
+            counts[node.attr] += 1
+        elif isinstance(node, ast.ImportFrom):
+            for a in node.names:
+                counts[a.name] += 1
+    return counts
+
+
+def report_test_only_names(backend: Path, implementation: str) -> None:
+    """公開の名前ごとに`app`・`scripts`・`benchmarks`での参照数（対象の外/中）を出し、どちらも0の名前を候補に並べる。"""
+    impl_tree = ast.parse((backend / implementation).read_text(encoding="utf-8"))
+    inside = name_references(impl_tree)
+    outside: dict[str, int] = defaultdict(int)
+    for directory in ("app", "scripts", "benchmarks"):
+        for path in sorted((backend / directory).rglob("*.py")):
+            if path.relative_to(backend).as_posix() != implementation:
+                for name, count in name_references(ast.parse(path.read_text(encoding="utf-8"))).items():
+                    outside[name] += count
+    names = public_names(impl_tree)
+    print("\n⑥ 公開の名前の参照（app・scripts・benchmarks。対象の外 / 中）")
+    print("     数え方の穴: 文字列で指す参照（getattr・setattr・importlib・文字列の注釈等）は数えない。"
+          "デコレータやフレームワークが規約で呼ぶもの（ルーター・バリデータ等）は参照0に見える。"
+          "メソッドは同じ名前の別の属性への参照も数える")
+    for label, name in names:
+        print(f"     {label:<48} 外 {outside[name]:>3} / 中 {inside[name]:>3}")
+    candidates = [label for label, name in names if outside[name] == 0 and inside[name] == 0]
+    print(f"   テストからしか使われない候補（外にも中にも参照が無い）: {len(candidates)}個"
+          + (f"（{', '.join(candidates)}）" if candidates else ""))
+
+
+def bare_import_alias(tree: ast.AST, name: str) -> str | None:
+    """`sys.path`へ足したディレクトリから素で`import <name>`したときの束縛名（`scripts/`の道具を読む形）。"""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for a in node.names:
+                if a.name == name:
+                    return a.asname or a.name
+    return None
 
 
 def touched_attributes(tree: ast.AST, alias: str) -> dict[str, int]:
@@ -185,6 +269,29 @@ def tests_that_never_enter_the_implementation(
     return sorted(executed - entered), len(executed)
 
 
+def test_database_unreachable(backend: Path) -> str | None:
+    """PostGISのテストが繋ぐDBのサーバーへ繋がらない理由。繋がればNone。
+
+    行き先はテストと同じ規則（`tests/conftest.py: postgis_database_url`）から取る。作業ツリー
+    専用のDBは最初のpytestの実行が作るため、`TEST_DATABASE_URL`が無ければサーバーの管理DBで確かめる。
+    conftestは子プロセスで読む（このファイルからimportすると、型検査の対象外のtestsをmypyが辿る）。
+    """
+    url = os.environ.get("TEST_DATABASE_URL") or subprocess.run(
+        [sys.executable, "-c", "from tests.conftest import TEST_DATABASE_MAINTENANCE as url; print(url)"],
+        cwd=backend, capture_output=True, text=True, check=True,
+    ).stdout.strip()
+
+    async def connect() -> None:
+        conn = await asyncpg.connect(asyncpg_dsn(url), timeout=5)
+        await conn.close()
+
+    try:
+        asyncio.run(connect())
+    except Exception as exc:  # noqa: BLE001 繋がらない理由はそのまま出す
+        return f"{type(exc).__name__}: {exc}"
+    return None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="起こし直したテストを機械で監査する")
     parser.add_argument("implementation", help="実装ファイル（backendディレクトリからの相対パス）")
@@ -211,6 +318,11 @@ def main() -> int:
     print(f"対象:     {args.implementation}")
     print(f"テスト:   {' '.join(args.tests)}")
     print(f"--cov:    {cov_dir}（親ディレクトリで測り、対象ファイルへ絞る）")
+    unreachable = test_database_unreachable(backend)
+    if unreachable:
+        print(f"postgis:  **外す**（テスト用DBに繋がらない: {unreachable}）")
+    else:
+        print("postgis:  含める（テスト用DBに繋がる）")
     print("=" * 78)
 
     # --- ① 実装を変えていないか ---
@@ -231,13 +343,16 @@ def main() -> int:
         # --- ② app.* 直接import ---
         imports = app_imports(tree)
         print(f"② テストからの app.* 直接import: {len(imports)}本")
-        for line, _ in imports:
+        for line, _, _ in imports:
             print(f"     {line}")
-        print("     ← 許されるのは対象モジュールと、対象の公開シグネチャが要求する型だけ。")
-        print("       他モジュールの関数・サービス・例外・定数は対象の名前空間経由で触ること")
+        if imports:
+            print("     ← 許されるのは対象モジュールと、対象の公開シグネチャが要求する型だけ。")
+            print("       他モジュールの関数・サービス・例外・定数は対象の名前空間経由で触ること")
 
         # --- ③ <対象>.X の内訳 ---
-        alias = next((name for _, name in imports if module.endswith(name)), None)
+        alias = next((name for _, name, path in imports if path == module), None) or bare_import_alias(
+            tree, module.rsplit(".", 1)[-1]
+        )
         if alias is None and imports:
             alias = imports[0][1]
         if alias is None:
@@ -262,13 +377,16 @@ def main() -> int:
                   "は上の内訳に入っていない")
             print(f"     テストに文字列で現れる {alias} の名前（上に無いもの）: {', '.join(candidates) or 'なし'}")
 
+    report_test_only_names(backend, implementation)
+
     # --- ④⑤ カバレッジ ---
     print("\n④⑤ カバレッジを測っています…")
     env = dict(os.environ, PYTHONUTF8="1")
     if args.no_jit:
         env["NUMBA_DISABLE_JIT"] = "1"
     result = subprocess.run(
-        [sys.executable, "-m", "pytest", *args.tests, "-q", "-rA", "-m", "not postgis", "-p", "no:randomly",
+        [sys.executable, "-m", "pytest", *args.tests, "-q", "-rA", *(["-m", "not postgis"] if unreachable else []),
+         "-p", "no:randomly",
          f"--cov={cov_dir}", "--cov-branch", "--cov-context=test", "--cov-report=term-missing"],
         cwd=backend, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace",
     )

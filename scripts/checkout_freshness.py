@@ -76,8 +76,21 @@ def staleness(repo: Path = REPO_ROOT) -> str | None:
             f"古いコードで判定しないよう止まる。追いつく: {_catch_up_command(repo)}")
 
 
+def _fast_forward(repo: Path) -> str | None:
+    """master にいて変更が無ければ早送りする。早送りしたら None、しなければ（できなければ）その理由。"""
+    if _branch(repo) != BRANCH or _dirty(repo):
+        return "master でないか変更があるので触らない"
+    result = _git(repo, "merge", "-q", "--ff-only", UPSTREAM)
+    if result.returncode == 0:
+        return None
+    return "早送りできなかった（" + (result.stderr.strip().splitlines() or [f"終了コード {result.returncode}"])[-1] + "）"
+
+
 def require_current(repo: Path = REPO_ROOT) -> None:
-    """遅れていれば（確かめられなければ）説明を出して止まる。"""
+    """遅れていれば、master にいて変更が無いときだけ早送りして進む。追いつけなければ（確かめられなければ）説明を出して止まる。"""
+    behind = _behind(repo)
+    if isinstance(behind, int) and behind and _fast_forward(repo) is None:
+        print(f"{repo} を {UPSTREAM} へ {behind} コミット早送りした", file=sys.stderr)
     message = staleness(repo)
     if message:
         raise SystemExit(message)
@@ -90,14 +103,10 @@ def sync(repo: Path = REPO_ROOT) -> str:
         return f"チェックアウトの遅れ: 確かめられなかった（{behind}）"
     if not behind:
         return f"チェックアウトの遅れ: なし（{UPSTREAM} を含む）"
-    if _branch(repo) == BRANCH and not _dirty(repo):
-        result = _git(repo, "merge", "-q", "--ff-only", UPSTREAM)
-        if result.returncode == 0:
-            return f"チェックアウトの遅れ: {UPSTREAM} へ {behind} コミット早送りした"
-        reason = (result.stderr.strip().splitlines() or [f"終了コード {result.returncode}"])[-1]
-        return f"チェックアウトの遅れ: {UPSTREAM} より {behind} コミット遅れ。早送りできなかった（{reason}）"
-    return (f"チェックアウトの遅れ: {UPSTREAM} より {behind} コミット遅れ（master でないか変更があるので触らない）。"
-            f"追いつく: {_catch_up_command(repo)}")
+    skipped = _fast_forward(repo)
+    if skipped is None:
+        return f"チェックアウトの遅れ: {UPSTREAM} へ {behind} コミット早送りした"
+    return f"チェックアウトの遅れ: {UPSTREAM} より {behind} コミット遅れ（{skipped}）。追いつく: {_catch_up_command(repo)}"
 
 
 def main(argv: list[str] | None = None) -> int:

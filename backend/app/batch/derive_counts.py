@@ -128,11 +128,11 @@ WITH ends AS (
     UNION ALL
     SELECT osm_way_id, segment_index, to_node_id FROM road_edges
 )
-UPDATE edge_materials m SET intersection_count = COALESCE(c.n, 0)
+UPDATE edge_materials m SET intersection_count = c.n
 FROM (
     SELECT e.osm_way_id, e.segment_index,
            count(*) FILTER (WHERE nm.branch_count >= $1) * 0.5 AS n
-    FROM ends e LEFT JOIN node_materials nm ON nm.osm_node_id = e.node_id
+    FROM ends e JOIN node_materials nm ON nm.osm_node_id = e.node_id
     GROUP BY e.osm_way_id, e.segment_index
 ) c
 WHERE c.osm_way_id = m.osm_way_id AND c.segment_index = m.segment_index

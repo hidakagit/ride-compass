@@ -65,7 +65,7 @@ type MobileSheet = "routeSettings" | "routeOutcome" | null;
 
 /** モバイルの下部タブの使い方。 */
 const MOBILE_TAB_USAGES = {
-  routeSettings: "ルートを作る条件（距離・地点・重み・除外）と「生成」を開きます。もう一度押すと閉じます。",
+  routeSettings: "ルートを作る条件[距離・地点・重み・除外]と「生成」を開きます。もう一度押すと閉じます。",
   routeOutcome: "作った候補の一覧と、その難易度の内訳を開きます。点は新しい結果か条件の変更の合図で、赤は失敗です。",
 } as const;
 

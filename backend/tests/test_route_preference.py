@@ -1,6 +1,6 @@
 """`domain/route_preference.py`——ルート生成の重み指定（`RoutePreference`）と、重みの値の検査（`check_axis_weights`）。
 
-軸の集合は本番ではDBが正本なので、見たい性質（公開か・既定の重み・時間帯）だけを持つ架空の軸へ差し替える。
+軸の集合は本番ではDBが正本なので、見たい性質（公開か・既定の重み）だけを持つ架空の軸へ差し替える。
 
 ここで見ないもの:
 - 要求で上書きするなら公開軸を全部書く、という要求の形 → `test_routes_generate.py`
@@ -18,12 +18,11 @@ pytestmark = pytest.mark.usefixtures("fictional_axes")
 
 @pytest.fixture
 def fictional_axes():
-    """公開軸2本（`axis_b`は夜だけ効く）と、内部軸1本。並びが合成の加算順になる。"""
+    """公開軸2本と、内部軸1本。並びが合成の加算順になる。"""
     with replaced_axis_definitions({
         "axis_a": axis_definition("axis_a", is_published=True, default_weight=0.4),
         "axis_internal": axis_definition("axis_internal", material="material_b", default_weight=0.9),
-        "axis_b": axis_definition("axis_b", material="material_c", is_published=True, default_weight=0.2,
-                                  time_scope="night_only"),
+        "axis_b": axis_definition("axis_b", material="material_c", is_published=True, default_weight=0.2),
     }):
         yield
 
@@ -64,19 +63,3 @@ def test_a_zero_weight_is_kept_rather_than_replaced_by_the_default():
 def test_a_weight_above_the_screen_limit_is_accepted():
     """画面で1軸へ寄せられる上限は、保存された配分や既定がそれを超えていても生成を断らない。"""
     assert RoutePreference(weights={"axis_a": 1.0}).weights["axis_a"] == 1.0
-
-
-def test_an_axis_limited_to_a_time_of_day_weighs_nothing_outside_it():
-    preference = RoutePreference(weights={"axis_a": 0.5, "axis_b": 0.3})
-
-    assert preference.with_time_scope(frozenset()).weights == {"axis_a": 0.5, "axis_b": 0.0}
-    assert preference.with_time_scope(frozenset({"night_only"})).weights == {"axis_a": 0.5, "axis_b": 0.3}
-
-
-def test_limiting_to_a_time_of_day_leaves_the_shared_preference_as_it_was():
-    """リクエストの間で共有する重みを書き換えない。"""
-    preference = RoutePreference(weights={"axis_a": 0.5, "axis_b": 0.3})
-
-    preference.with_time_scope(frozenset())
-
-    assert preference.weights == {"axis_a": 0.5, "axis_b": 0.3}

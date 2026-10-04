@@ -2,12 +2,13 @@ from datetime import datetime
 
 import numpy as np
 
+from app.domain.jma_suikei import Sky
 from app.domain.strict_model import StrictModel
 from app.domain.twilight import Twilight
 
-# 天気コードは観測（アメダス）からだけ導く。数値予報モデル（MSM）の値から天気を計算して出すことは、気象業務法の
-# 予報業務の許可の対象と気象庁の公式の説明が書いているため、しない（docs/architecture/data-sources.md「気象業務法の
-# 予報業務許可」節）。コードの分類と表示名はdomain/weather_display.py（WEATHER_CATEGORIES）が持つ。
+# 天気コードは観測（アメダスと推計気象分布）からだけ導く。数値予報モデル（MSM）の値から天気を計算して出すことは、
+# 気象業務法の予報業務の許可の対象と気象庁の公式の説明が書いているため、しない（docs/architecture/data-sources.md
+# 「気象業務法の予報業務許可」節）。コードの分類と表示名はdomain/weather_display.py（WEATHER_CATEGORIES）が持つ。
 #: これ未満（mm/h）は「降っていない」。天気コードのほか、「今日」のパネルの降水量の「-」と地図の降水の塗りも同じ境で切る。
 PRECIPITATION_MIN_MM = 0.1
 _PRECIPITATION_MODERATE_MM = 1.0
@@ -16,13 +17,15 @@ _SNOW_MAX_TEMPERATURE_C = 0.0
 
 
 def derive_observed_weather_code(
-    precipitation_10min_mm: float | None, sunshine_10min_minutes: float | None, temperature_c: float | None
+    precipitation_10min_mm: float | None, sky: Sky | None, temperature_c: float | None
 ) -> int | None:
-    """アメダスの10分間の実測（降水量・日照時間・気温）からWMO天気コードを求める。
+    """アメダスの10分間の実測（降水量・気温）と推計気象分布の空（`jma_suikei.py: sky_from_color`）から
+    WMO天気コードを求める。
 
     降水があれば10分間量を1時間あたりへ直し、気温で雨（61/63/65）と雪（71/73/75）を、1時間あたりの量で
-    強さを分ける。降水が無ければ日照の有無だけで晴れ（0）/くもり（3）に分け、霧・雷雨は実測の項目からは
-    判定できないため返さない。降水量も日照時間も無ければNone。
+    強さを分ける。降水が無ければ空で晴れ（0）/くもり（3）に分ける。日照時間は夜は空によらず0になるため
+    晴れ・くもりの材料にしない。霧・雷雨はどちらの項目からも判定できないため返さない。降っておらず空も
+    分からなければNone。
     """
     hourly_mm = None if precipitation_10min_mm is None else precipitation_10min_mm * 6
     if hourly_mm is not None and hourly_mm >= PRECIPITATION_MIN_MM:
@@ -32,9 +35,9 @@ def derive_observed_weather_code(
         if hourly_mm < _PRECIPITATION_HEAVY_MM:
             return 73 if snow else 63
         return 75 if snow else 65
-    if sunshine_10min_minutes is None:
+    if sky is None:
         return None
-    return 0 if sunshine_10min_minutes > 0 else 3
+    return 0 if sky == "clear" else 3
 
 
 class WeatherPeriodOutlook(StrictModel):

@@ -8,7 +8,7 @@ interface AmedasWeatherDisplay {
   label: string;
 }
 
-/** アメダスの実測からbackendが導いた天気コード+昼夜フラグから天気アイコン+ラベルを決める。
+/** backendが観測（アメダス・推計気象分布）から導いた天気コード+昼夜フラグから天気アイコン+ラベルを決める。
  * コードが無い・分類に無ければnullを返す。 */
 export function getAmedasWeatherDisplay(weatherCode: number | null, isDay: boolean): AmedasWeatherDisplay | null {
   if (weatherCode == null) return null;

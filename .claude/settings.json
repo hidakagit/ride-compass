@@ -1,42 +1,5 @@
 {
   "language": "japanese",
-  "permissions": {
-    "allow": [
-      "Bash(node tools/flow-gate/bin/after.js --dry-run *)",
-      "PowerShell(node tools/flow-gate/bin/after.js --dry-run *)",
-      "Bash(node tools/flow-gate/bin/dispatch.js --dry-run)",
-      "PowerShell(node tools/flow-gate/bin/dispatch.js --dry-run)",
-      "WebFetch(domain:raw.githubusercontent.com)",
-      "Bash(git checkout -B orch/tasks-*)",
-      "PowerShell(git checkout -B orch/tasks-*)",
-      "Bash(git rebase origin/master)",
-      "PowerShell(git rebase origin/master)",
-      "Bash(git rebase --continue)",
-      "PowerShell(git rebase --continue)",
-      "Bash(git rebase --abort)",
-      "PowerShell(git rebase --abort)",
-      "Bash(git push origin orch/tasks-*)",
-      "PowerShell(git push origin orch/tasks-*)",
-      "Bash(git push --force-with-lease origin orch/tasks-*)",
-      "PowerShell(git push --force-with-lease origin orch/tasks-*)",
-      "Bash(git push origin --delete wip/tasks-*)",
-      "PowerShell(git push origin --delete wip/tasks-*)",
-      "Bash(gh run list -R hidakagit/ride-compass *)",
-      "PowerShell(gh run list -R hidakagit/ride-compass *)",
-      "Bash(gh run watch * -R hidakagit/ride-compass --exit-status)",
-      "PowerShell(gh run watch * -R hidakagit/ride-compass --exit-status)",
-      "Bash(gh pr checks * -R hidakagit/ride-compass --watch --required)",
-      "PowerShell(gh pr checks * -R hidakagit/ride-compass --watch --required)",
-      "Bash(gh pr merge * -R hidakagit/ride-compass --rebase)",
-      "PowerShell(gh pr merge * -R hidakagit/ride-compass --rebase)",
-      "Bash(gh pr view *)",
-      "PowerShell(gh pr view *)",
-      "Bash(gh issue list *)",
-      "PowerShell(gh issue list *)",
-      "Bash(gh issue view *)",
-      "PowerShell(gh issue view *)"
-    ]
-  },
   "hooks": {
     "SessionStart": [
       {
@@ -46,6 +9,16 @@
             "type": "command",
             "command": "f=\"$CLAUDE_PROJECT_DIR/scripts/remote_dev/session_start.sh\"; [ -f \"$f\" ] || exit 0; bash \"$f\"",
             "timeout": 600
+          }
+        ]
+      },
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/tools/flow-gate/bin/settings.js\"",
+            "timeout": 60
           }
         ]
       }
@@ -58,6 +31,40 @@
             "type": "command",
             "command": "f=\"$CLAUDE_PROJECT_DIR/scripts/remote_dev/session_start.sh\"; [ -f \"$f\" ] || exit 0; bash \"$f\" setup",
             "timeout": 600
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/scripts/hooks/japanese_only.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/scripts/hooks/japanese_only.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/scripts/hooks/japanese_only.py\"",
+            "timeout": 10
           }
         ]
       }

@@ -1,10 +1,10 @@
-"""`domain/jma_amedas.py`——アメダスの風向コードの読み替え・体感温度・観測値の応答の形。
+"""`domain/jma_amedas.py`——アメダスの風向コードの読み替え・体感温度。
 
-入口は`wind_direction_from_jma_code`・`apparent_temperature_from_amedas`と、応答に出る`AmedasObservation`。
+入口は`wind_direction_from_jma_code`・`apparent_temperature_from_amedas`。
 
 ここで見ないもの:
 - 実測から天気コードを導く規則（`domain/weather.py: derive_observed_weather_code`） → `test_weather_service.py`。
-  ここでは観測値の項目がその規則へ正しく渡り、応答に出ることだけを見る
+  観測値と推計気象分布の空がその規則へ渡り、応答に出ること → `test_jma_amedas_service.py`
 - 16方位の呼び名の並び（`domain/geo.py: SIXTEEN_POINT_LABELS`） → `test_geo.py`
 - 観測値を集めて組み立てること → `test_jma_amedas_service.py`
 """
@@ -15,8 +15,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from app.domain import jma_amedas
-from app.domain.jma_amedas import AmedasObservation, apparent_temperature_from_amedas, wind_direction_from_jma_code
+from app.domain.jma_amedas import apparent_temperature_from_amedas, wind_direction_from_jma_code
 
 
 @pytest.mark.parametrize(
@@ -84,37 +83,3 @@ def test_saturated_still_air_matches_the_published_saturation_vapour_pressure():
     （水面上）で、AT = 30 + 0.33×42.46 - 4.00。"""
     assert apparent_temperature_from_amedas(30.0, 100.0, 0.0) == pytest.approx(30 + 0.33 * 42.46 - 4.0, abs=0.1)
 
-
-def _observation(**fields) -> AmedasObservation:
-    values = {
-        "station_id": "44132",
-        "station_name": "東京",
-        "latitude": 35.69,
-        "longitude": 139.75,
-        "observed_at": "2026-07-01T13:20:00+09:00",
-        "temperature_c": 20.0,
-        "apparent_temperature_c": None,
-        "wind_speed_ms": 1.0,
-        "wind_direction": None,
-        "precipitation_10min_mm": 0.0,
-        "sunshine_10min_minutes": 10.0,
-        "twilight": None,
-    }
-    return AmedasObservation(**(values | fields))
-
-
-@pytest.mark.parametrize(
-    "fields",
-    [
-        {"precipitation_10min_mm": 0.0, "sunshine_10min_minutes": 10.0, "temperature_c": 20.0},
-        {"precipitation_10min_mm": 2.0, "sunshine_10min_minutes": 0.0, "temperature_c": -2.0},
-        {"precipitation_10min_mm": None, "sunshine_10min_minutes": None, "temperature_c": None},
-    ],
-)
-def test_the_response_carries_the_weather_code_derived_from_the_observation_itself(fields):
-    """天気コードは保存した実測から応答のたびに導く（入力として受け取らない）。"""
-    dumped = _observation(**fields).model_dump()
-
-    assert dumped["weather_code"] == jma_amedas.derive_observed_weather_code(
-        fields["precipitation_10min_mm"], fields["sunshine_10min_minutes"], fields["temperature_c"]
-    )

@@ -1,37 +1,19 @@
-// 担当のワークフロー（.github/workflows/claude-task.yml）の最初の段。作るなら未着手 → 進行中が通ったときだけ（着手のコメントを
-// 引き受けの印にして書く。src/move.js: moveTask）、確かめるなら検証中のときだけ引き受けて着手を書く（src/after.js: startReport）。
-// 引き受けたら 0、引き受けなければ 1 で終わる。
-// 使い方: node tools/flow-gate/bin/claim.js <issue の番号> <作る|確かめる> <実行の URL>
-import config from "../flow.config.json" with { type: "json" };
-import { startReport } from "../src/after.js";
-import { GitHub, readTask } from "../src/github.js";
+// 担当のワークフロー（.github/workflows/claude-task.yml）の最初の段。作るなら未着手 → 進行中へ動かせたときだけ、確かめるなら
+// 検証中のときだけ進み、issue に着手を書く。進むなら 0、進まなければ 1 で終わる。
+import { readTask } from "../src/github.js";
 import { moveTask } from "../src/move.js";
-import { botToken } from "./token.js";
+import { notes } from "../src/rules.js";
+import { args, bot, config, isNumber } from "./cli.js";
 
-const [number, kind, url, ...rest] = process.argv.slice(2);
-if (!/^\d+$/.test(number ?? "") || !["作る", "確かめる"].includes(kind) || !url || rest.length) {
-  console.error("使い方: node tools/flow-gate/bin/claim.js <issue の番号> <作る|確かめる> <実行の URL>");
-  process.exit(2);
-}
-const gh = new GitHub(botToken());
-if (kind === "作る") {
-  try {
-    console.log(await moveTask(gh, config, Number(number), config.working, { comment: startReport({ kind, url }) }));
-  } catch (e) {
-    console.log(`未着手ではないので、作らずに終わる（${e.message}）`);
-    process.exit(1);
-  }
-  process.exit(0);
-}
-const { issue } = await readTask(gh, config, { number: Number(number) });
-if (issue?.state !== "OPEN" || issue.status !== "検証中") {
-  console.log("検証中ではないので、確かめずに終わる");
-  process.exit(1);
-}
-// 引き受けたあとに書けなくても 0 で終わる。1 で終わると後始末の段が走らない。
+const { rest: [number, kind, url] } = args("node tools/flow-gate/bin/claim.js <issue の番号> <作る|確かめる> <実行の URL>",
+  (a) => a.length === 3 && isNumber(a[0]) && ["作る", "確かめる"].includes(a[1]));
+const gh = bot();
+const start = notes.start(kind, url);
 try {
-  await gh.rest("POST", `/repos/${config.repository}/issues/${number}/comments`, { body: startReport({ kind, url }) });
-  console.log(`#${number} へ着手を書いた`);
+  if (kind === "作る") console.log(await moveTask(gh, config, Number(number), config.working, { comment: start }));
+  else if ((await readTask(gh, config, { number: Number(number) })).issue?.status === config.review) await gh.rest("POST", `/repos/${config.repository}/issues/${number}/comments`, { body: start });
+  else throw new Error("検証中ではない");
 } catch (e) {
-  console.log(`#${number} へ着手を書けなかった（${e.message}）`);
+  console.log(`引き受けずに終わる（${e.message}）`);
+  process.exit(1);
 }

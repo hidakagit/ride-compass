@@ -4,7 +4,7 @@
 
 ここで見ないもの:
 - 生データの列から判定するSQL（自転車の関与・死亡・発生年）と帰属の半径・重み → 実行して数える
-  `test_derive_counts.py`・`test_accident_service.py`
+  `test_derive_counts.py`・`test_point_tiles.py`
 - 本票CSVの取得と保存 → `test_fetch_accident_csv.py`
 """
 

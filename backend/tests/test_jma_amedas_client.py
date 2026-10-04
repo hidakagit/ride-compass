@@ -151,7 +151,6 @@ async def test_observation_map_is_requested_by_the_jst_time():
             wind_speed_ms=3.2,
             wind_direction_code=8,
             precipitation_10min_mm=0.5,
-            sunshine_10min_minutes=4,
             precipitation_1h_mm=2.0,
             reports_precipitation_1h=True,
         )
@@ -171,7 +170,6 @@ async def test_reading_without_a_sensor_has_none_and_no_hourly_rain():
             wind_speed_ms=None,
             wind_direction_code=None,
             precipitation_10min_mm=0.0,
-            sunshine_10min_minutes=None,
             precipitation_1h_mm=None,
             reports_precipitation_1h=False,
         )
@@ -191,7 +189,6 @@ async def test_missing_value_is_none_but_the_hourly_rain_item_is_still_reported(
         wind_speed_ms=None,
         wind_direction_code=None,
         precipitation_10min_mm=None,
-        sunshine_10min_minutes=None,
         precipitation_1h_mm=None,
         reports_precipitation_1h=True,
     )

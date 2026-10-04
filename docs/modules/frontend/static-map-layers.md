@@ -29,7 +29,7 @@
 | `features/map/layers/landcoverClasses.ts` | 土地被覆のクラス（表示名・色・割合列・地図に塗るか）。backendのレジストリ由来の生成物（`landcover-classes.json`）を読むだけの薄い層で、凡例（レイヤーの記述子）と区間インスペクタ（`RoadInspectorPopup.tsx`）が共有する。色は地図タイルの塗りと同じ値のため、凡例と地図がずれない。**凡例は塗るクラスだけ**（`LANDCOVER_PAINTED_CLASSES`）——塗らないクラスを並べると色見本があるのに地図のどこにも無い表になる。区間インスペクタは数値なので全クラスを出す |
 | `features/map/layers/primaryAttributes.ts` | 一次属性のカタログと、二次軸→一次属性の導出（軸増減時の観測データ連動表示に使用） |
 | `features/map/secondaryAxes.ts` | 「推定指標（合成）」チップグループの軸一覧生成。軸の共通の項目（略名・アイコン・パネル説明・材料の一次属性等）は`lib/catalogAxis.ts`から受け、足すのは対応`MapLayerId`。`show_map_icon`による除外を持つ |
-| `features/map/layers/mapLayers.ts` | レイヤーカタログ本体（`MapLayerDescriptor[]`）・地図上チップの最上位グループ（`MAP_OVERLAY_GROUP_ORDER`が正本。現在は道路/環境/スポット）判定・軸スタジオ由来レイヤーの除外判定・`deriveFetchLayerStatus`（MapLibreのソースイベントを経由しないレイヤーのデータ状態判定） |
+| `features/map/layers/mapLayers.ts` | レイヤーカタログ本体（`MapLayerDescriptor[]`）・地図上チップの最上位グループ（`MAP_OVERLAY_GROUP_ORDER`が正本。現在は道路/環境/スポット）判定・軸スタジオ由来レイヤーの除外判定・`deriveFetchLayerStatus`（MapLibreのソースイベントを経由しないレイヤーのデータ状態判定）。チップの説明に並べる点の種別名は、凡例と同じ先頭の軸の行の名前を生成物の一次属性から引く。**`layers/`は`scene/`を読まない**（`scene/`が`layers/`を読む一方向） |
 | `features/map/scene/mapScene.ts` | 地図に載っているべきものの宣言の型（ソース・レイヤー・feature-state）と、重なりの段（`MAP_SCENE_TIERS`）・押せるレイヤーの引き方 |
 | `features/map/scene/applyMapScene.ts` | 宣言を地図へ当てる唯一の実装（`addSource`/`addLayer`/`setPaintProperty`/`setFilter`/`setFeatureState`）。前回の宣言との差分だけを当て、段の順に差し込む |
 | `features/map/MapView/MapView.tsx`（静的レイヤーの箇所のみ） | 画面の状態をsceneの入力へ渡す配線・押された点や道の判定とポップアップ・レイヤーのデータ取得状態の算出元（`buildLayerDataSources`）。レイヤーの描画コードは持たない |
@@ -42,7 +42,7 @@
 同じ道を同じ条件・重みで開き直したときは押さずに前の評価を出す。軸ごとの効き方は**ルート結果と同じ`AxisContributionBar`**で出す——同じものを別の見た目で見せると読み方を2つ覚えることになる。寄与度はbackendが返す値をそのまま使い、フロントで重みを掛け直さない。**デバッグログONのときだけ`osm_way_id`を出す**——値がおかしい道を見つけたとき、地図で押した1本をそのままbackendの調査へ渡せるようにする。一般の利用者には読めない値のため常時は出さない |
 | `features/map/MapView/roadFacts.ts` | クリックした道の「事実」（例: 道路名・路面の区分・農道・林道の等級・トンネル）をタイルのプロパティから組み立てる純関数。項目名と値の呼び名、タイルのどの属性を読むか（`tile_property`）は材料カタログ（生成物`material-catalog.json`）から引く。材料の外の列（識別子・道路名）の名前は生成物`region-tile-config.json`の`road_surface.properties`から引き、押した道のway_id・フィーチャーの鍵もここの関数（`roadWayId`・`roadFeatureKey`）で読む。該当しない項目は行ごと出さない（「なし」が並ぶと該当する項目が埋もれる）。路面の区分だけは値が無くても「不明」として出す——どの道でも最初に見たい項目で、行ごと消すと「舗装されていない」と読める |
 | `types/traffic.ts` | 停止要因POI・補給休憩POIの`kind`列挙型定義 |
-| `features/map/regionApi.ts`（`roadSurfaceTileUrl`/`poiTileUrl`/`accidentTileUrl`とタイル世代の判定） | ベクタタイルのURLテンプレート（`fetchDynamicWayValues`は[地図: 軸・ルート色分け](map-axis-coloring.md)の管轄）。世代はbackendから実行時に届き、**全系統が揃ったもの（`completeTileVersions`だけが作る`TileVersions`）でしかURLを組み立てない** |
+| `features/map/regionApi.ts`（`roadSurfaceTileUrl`/`pointTileUrl`とタイル世代の判定） | ベクタタイルのURLテンプレート（`fetchDynamicWayValues`は[地図: 軸・ルート色分け](map-axis-coloring.md)の管轄）。点のレイヤーはどれも1つの配信（backend `GET /api/region/point-tiles/{layer}/...`）で、URLはレイヤー名（生成物`region-tile-config.json`の`point_layers`の鍵。タイルの世代の系統の名前でもある）で組み、source-layer名も同じ一覧から読む。世代はbackendから実行時に届き、**全系統が揃ったもの（`completeTileVersions`だけが作る`TileVersions`）でしかURLを組み立てない** |
 | `features/map/mapAxisCatalog.ts`・`useMapAxisCatalog.ts` | 軸カタログの応答のうち、地図だけが読むもの（ramp軸・専用配信の軸・推定指標のチップ・ルートの色分けモード・事故の収録年・タイルの世代）を導く純関数と、共有の軸カタログと同じ取得（`hooks/useAxisCatalog.ts: useAxisCatalogSelect`）から引くフック。地図がソースを作れるかの判定と、チップの縮退表示は、どちらもここのタイルの世代1つを見る |
 | `lib/tileBaseUrl.ts` | タイル配信元オリジンの決定（既定はフロント自身のオリジン＝rewrites経由、`NEXT_PUBLIC_TILE_BASE_URL`設定時はbackend直接）。路面/POI/事故タイル・基礎地図スタイル（`MapView.tsx: mapStyleUrl`）・国土地理院色別標高図・JMA動的タイル（[動的気象レイヤー](dynamic-weather-layers.md)）が共通に使う |
 | `next.config.ts`（`frontend/`直下） | フロント自身のオリジンへ来たタイル類（基礎地図・路面・POI・事故等）の要求をbackendへ転送するrewritesと、その転送を打ち切るまでの時間（`experimental.proxyTimeout`） |
@@ -239,7 +239,7 @@ backendの同じ場所で出典も足す。ソース側の`attribution`に
 地理院・警察庁・気象庁の公共データ利用規約（PDL1.0）は、出典とは別に**加工した旨**の記載を求める。
 MSMを配るOpen-MeteoのCC BY 4.0も、リンク付きのクレジット・ライセンスへのリンク・変更した旨を求める。
 標高タイルからは勾配を、事故点からは区間ごとの件数を、アメダスの観測からは累計の雨量・雨が止んでからの時間
-（雨の材料）と常設ヘッダーの天気を導き、警報の区域の境界は簡略化し、気象庁の配信タイルは欠けたズームを隣のズームから
+（雨の材料）を、アメダスの観測と推計気象分布からは常設ヘッダーの天気を導き、警報の区域の境界は簡略化し、気象庁の配信タイルは欠けたズームを隣のズームから
 補い、MSMの格子は地点・時刻へ補間しているため、常時表記はこの文言を含む。暑さ指数は最寄りの地点の予測値と
 提供元のサイトが掲げる指針の段階で出す（値を変えない）ので、出典だけを書く。規約が示す書き方は記載例で、
 書式（括弧・語順）は定めていない（警察庁ウェブサイト利用規約の「出典記載例」。2026-09-27に確認）ので、表記の括弧は
@@ -690,6 +690,9 @@ E2Eの`e2e/map-runtime.spec.ts`「宣言された地図レイヤーを全部ON�
 しまう（backendの`test_material_catalog.py`が確かめる）。地図が行の値ごとに見本と同じ色・同じ絵記号の絵を引くことは
 `scene/legends.test.ts`が確かめる。
 
+**点の不透明度はレイヤーごとに源泉が宣言する**（`domain/map_display.py: POINT_OPACITY_BY_ATTR`。生成物`mapDisplay.point.opacityByLayer`）。
+画面は自分の名前で引くだけで、点の種類の名前で分岐しない。点のレイヤーを足して宣言に無ければ、生成物の型で型検査が落ちる。
+
 **重大度は円の大きさでも示すが、絞り込みの軸としても独立に持つ。** 大きさは「死亡事故だけを
 残す」操作にはならない。当事者の軸とANDで効く。
 
@@ -705,8 +708,7 @@ E2Eの`e2e/map-runtime.spec.ts`「宣言された地図レイヤーを全部ON�
 | レイヤー | ソース | 独立/共有 |
 |---|---|---|
 | 道路の線（例: 路面の種類・道路の種類・トンネル） | `ROAD_LINE_SOURCE_ID`（同じソースを分け合う） | 独立レイヤー（並列トラック対象） |
-| 停止要因POI・補給休憩POI | 系統`poi`のソース（点データ。ソース名は`points.ts: pointSourceId`が系統の名前から作る） | 同一source-layer`stop_poi`を`kind`値集合で分ける（`baseFilter`必須） |
-| 事故 | 系統`accident`のソース（点データ、別ソース） | 独立 |
+| 点（例: 停止要因POI・補給休憩POI・事故） | 自分の`tile_kind`が指す点のタイルのソース（`points.ts: POINT_TILE_SOURCES`。生成物`region-tile-config.json`の`point_layers`から1タイルに1つ作り、source-layerも同じ一覧から引く） | 同じタイルを2つ以上のレイヤーが分け合うとき（例: 停止要因と補給）は、先頭の軸の値の集合で分ける（`baseFilter`）。1つしか読まないタイル（例: 事故）は独立 |
 
 停止要因POIは**バックエンドで交差点単位にまとめられた点**が届く（[静的道路属性](../backend/static-road-attributes.md)）。
 1つの交差点に立つ複数の信号ノードは1点で、位置は交差点の真ん中になる。届く`kind`は取込時の
