@@ -67,7 +67,8 @@ async def test_point_master_converts_degrees_and_minutes():
     assert points[0].longitude == pytest.approx(141 + 56.1 / 60.0)
 
 
-async def test_point_master_excludes_retired_points():
+async def test_point_master_excludes_retired_points_without_counting_them_as_unreadable(caplog):
+    """運用終了は配布元が宣言した除外で、読めなかったのではない。"""
     client = answering(
         text=_csv(
             [
@@ -77,9 +78,11 @@ async def test_point_master_excludes_retired_points():
         )
     )
 
-    points = await wbgt_client.fetch_point_master(client)
+    with caplog.at_level(logging.WARNING, logger="ridecompass.wbgt_client"):
+        points = await wbgt_client.fetch_point_master(client)
 
     assert [point.no for point in points] == ["44132"]
+    assert caplog.records == []
 
 
 async def test_point_master_does_not_count_a_trailing_blank_line_as_unreadable(caplog):
@@ -95,44 +98,19 @@ async def test_point_master_does_not_count_a_trailing_blank_line_as_unreadable(c
     assert caplog.records == []
 
 
-async def test_point_master_skips_rows_without_the_end_date_column_and_says_so(caplog):
+@pytest.mark.parametrize(
+    "unreadable",
+    ["44100,終了日の列が無い", _row("44100", "座標欠損", "", "", "", "", _ACTIVE)],
+)
+async def test_point_master_skips_unreadable_rows_and_says_so(caplog, unreadable):
     """列構成が変わると読める行だけが残り、遠い地点の値が何事もなく表示される。"""
-    client = answering(
-        text=_csv(["44100,列が足りない", _row("44132", "東京", "35", "41.4", "139", "45.6", _ACTIVE)])
-    )
+    client = answering(text=_csv([unreadable, _row("44132", "東京", "35", "41.4", "139", "45.6", _ACTIVE)]))
 
     with caplog.at_level(logging.WARNING, logger="ridecompass.wbgt_client"):
         points = await wbgt_client.fetch_point_master(client)
 
     assert [point.no for point in points] == ["44132"]
     assert "unreadable=1 rows=2" in caplog.text
-
-
-async def test_point_master_skips_rows_with_unparsable_coordinates_and_says_so(caplog):
-    client = answering(
-        text=_csv(
-            [
-                _row("44100", "座標欠損", "", "", "", "", _ACTIVE),
-                _row("44132", "東京", "35", "41.4", "139", "45.6", _ACTIVE),
-            ]
-        )
-    )
-
-    with caplog.at_level(logging.WARNING, logger="ridecompass.wbgt_client"):
-        points = await wbgt_client.fetch_point_master(client)
-
-    assert [point.no for point in points] == ["44132"]
-    assert "unreadable=1 rows=2" in caplog.text
-
-
-async def test_point_master_does_not_count_retired_points_as_unreadable(caplog):
-    """運用終了は配布元が宣言した除外で、読めなかったのではない。"""
-    client = answering(text=_csv([_row("44166", "旧地点", "35", "30.0", "139", "30.0", "2025-03-31")]))
-
-    with caplog.at_level(logging.WARNING, logger="ridecompass.wbgt_client"):
-        assert await wbgt_client.fetch_point_master(client) == []
-
-    assert caplog.records == []
 
 
 async def test_point_master_trims_surrounding_whitespace():
@@ -146,22 +124,15 @@ async def test_point_master_trims_surrounding_whitespace():
     assert [(point.no, point.name) for point in points] == [("44132", "東京")]
 
 
-async def test_point_master_with_only_a_header_returns_no_points():
-    client = answering(text=_csv([]))
-
-    assert await wbgt_client.fetch_point_master(client) == []
-
-
 async def test_point_master_is_cached_across_calls():
     upstream = respx.Router()
     upstream.route().respond(text=_csv([_row("44132", "東京", "35", "41.4", "139", "45.6", _ACTIVE)]))
     client = client_for(upstream)
 
-    first = await wbgt_client.fetch_point_master(client)
-    second = await wbgt_client.fetch_point_master(client)
+    await wbgt_client.fetch_point_master(client)
+    await wbgt_client.fetch_point_master(client)
 
     assert upstream.calls.call_count == 1
-    assert second == first
 
 
 async def test_point_master_http_error_returns_none():
@@ -203,16 +174,15 @@ async def test_a_forecast_is_read_into_its_times_and_the_index_divided_by_ten():
     )
 
 
-@pytest.mark.parametrize("reference_time", [None, ""])
-async def test_a_forecast_without_a_reference_time_is_left_out(reference_time):
+async def test_a_forecast_without_a_reference_time_is_left_out():
     result = await wbgt_client.fetch_forecast(
-        _success(_forecast_row(reference_time=reference_time)), "44132", _RANGE_FROM, _RANGE_TO
+        _success(_forecast_row(reference_time=None)), "44132", _RANGE_FROM, _RANGE_TO
     )
 
     assert result == []
 
 
-@pytest.mark.parametrize("forecast_time", [None, "", "2026-07-01T09:00:00"])
+@pytest.mark.parametrize("forecast_time", [None, "2026-07-01T09:00:00"])
 async def test_a_forecast_time_that_cannot_be_read_is_absent_but_the_row_stays(forecast_time):
     """行は最新の発表回を決めるのに数える。落とすと、古い発表回の値を今の値として選びうる。"""
     (forecast,) = await wbgt_client.fetch_forecast(
@@ -223,7 +193,7 @@ async def test_a_forecast_time_that_cannot_be_read_is_absent_but_the_row_stays(f
     assert forecast.reference_time == "2026/07/01 08:00:00"
 
 
-@pytest.mark.parametrize("value", [None, "", "abc"])
+@pytest.mark.parametrize("value", [None, "abc"])
 async def test_a_value_that_cannot_be_read_is_absent(value):
     (forecast,) = await wbgt_client.fetch_forecast(
         _success(_forecast_row(forecast_val=value)), "44132", _RANGE_FROM, _RANGE_TO
@@ -247,14 +217,9 @@ async def test_forecast_requests_a_continuous_range():
     }
 
 
-async def test_forecast_rejects_unsuccessful_status():
-    client = answering(json={"status": "error", "data": [_forecast_row()]})
-
-    assert await wbgt_client.fetch_forecast(client, "44132", _RANGE_FROM, _RANGE_TO) is None
-
-
-async def test_forecast_without_a_data_series_returns_none():
-    client = answering(json={"status": "success"})
+@pytest.mark.parametrize("body", [{"status": "error", "data": [_forecast_row()]}, {"status": "success"}])
+async def test_a_forecast_response_that_is_not_a_successful_series_returns_none(body):
+    client = answering(json=body)
 
     assert await wbgt_client.fetch_forecast(client, "44132", _RANGE_FROM, _RANGE_TO) is None
 

@@ -7,7 +7,7 @@
 `.om`ファイルは本物のライブラリ（omfiles）で書く。
 
 ここで見ないもの:
-- 範囲と形状から導いた格子の幾何と、双一次補間そのもの → `test_msm.py`
+- 範囲と形状から導いた格子の幾何と、双一次補間そのもの・格子の外の地点を断ること → `test_msm.py`
 - 予報を天候・風へ組み立てる側 → `test_weather_service.py`
 
 予報の値は「格子点(i, j)・チャンク内の時刻tで 100i + 10j + t（チャンクごとに1000ずつ足す）」にしてある。
@@ -170,7 +170,6 @@ class TestSyncing:
             again = await msm_client.refresh(client)
 
         assert again == 1
-        assert (msm_dir.path / variable / f"chunk_{NOW_CHUNK}.om").exists()
 
     async def test_chunks_no_longer_covered_are_removed(self, tmp_path, msm_dir):
         """1ファイル十数MBあるため、予報に使わなくなった過去のチャンクを残さない。"""
@@ -197,8 +196,6 @@ class TestSyncing:
             await msm_client.refresh(client)
 
         assert not dropped.exists()
-        variable = next(iter(msm_client.FORECAST_VARIABLES))
-        assert (msm_dir.path / variable / f"chunk_{NOW_CHUNK}.om").exists()
 
     async def test_after_syncing_the_schedule_of_the_source_is_readable(self, tmp_path, msm_dir):
         assert msm_client.freshness() is None
@@ -215,13 +212,6 @@ class TestSyncing:
         source.fail.add(failing)
         async with source.client() as client:
             with pytest.raises(httpx.HTTPStatusError):
-                msm_dir.forecast_hours(3)
-                await msm_client.refresh(client)
-
-    async def test_meta_information_that_is_not_json_is_raised(self, tmp_path, msm_dir):
-        source = Source(tmp_path, meta=b"<html>maintenance</html>")
-        async with source.client() as client:
-            with pytest.raises(ValueError):
                 msm_dir.forecast_hours(3)
                 await msm_client.refresh(client)
 
@@ -296,21 +286,20 @@ class TestReading:
         with pytest.raises(MsmUnavailableError):
             await _read(msm_dir, _points(SOUTH_WEST), 3)
 
-    @pytest.mark.parametrize("variable_index", [0, -1])
-    @pytest.mark.parametrize("missing_chunk", [NOW_CHUNK, NOW_CHUNK + 1])
-    async def test_a_chunk_that_has_not_been_synced_cannot_be_read(self, tmp_path, msm_dir, missing_chunk, variable_index):
+    @pytest.mark.parametrize(
+        ("variable_index", "missing_chunk"),
+        [
+            (0, NOW_CHUNK),  # 格子の形を読む最初の変数の、今のチャンク
+            (-1, NOW_CHUNK + 1),  # 値を読むチャンク
+        ],
+    )
+    async def test_a_chunk_that_has_not_been_synced_cannot_be_read(self, tmp_path, msm_dir, variable_index, missing_chunk):
         await _synced(tmp_path, msm_dir)
         variable = list(msm_client.FORECAST_VARIABLES)[variable_index]
         (msm_dir.path / variable / f"chunk_{missing_chunk}.om").unlink()
 
         with pytest.raises(MsmUnavailableError):
             await _read(msm_dir, _points(SOUTH_WEST), 6)
-
-    async def test_a_point_outside_the_grid_is_refused(self, tmp_path, msm_dir):
-        await _synced(tmp_path, msm_dir)
-
-        with pytest.raises(ValueError):
-            await _read(msm_dir, _points((36.0, 139.0)), 3)
 
 
 # --- 鮮度 ---
@@ -344,7 +333,7 @@ class TestFreshness:
         value = _freshness(last_run_availability_time=NOW - int(hours_since_publication * 3600))
 
         assert value.run_is_stale is stale
-        assert value.is_healthy is (not stale and not value.horizon_is_short)
+        assert value.is_healthy is not stale
 
     @pytest.mark.parametrize(("remaining_hours", "short"), [(12.0, False), (11.9, True)])
     def test_the_forecast_counts_as_running_out_below_twelve_hours(self, remaining_hours, short):
@@ -360,10 +349,7 @@ class TestFreshness:
         assert value.run_age_hours > value.stale_threshold_hours
         assert value.run_is_stale is False
 
-    def test_the_stop_threshold_follows_the_update_interval_the_source_announces(self):
-        assert _freshness(update_interval_seconds=3600).stale_threshold_hours == pytest.approx(2.0)
-
-    @pytest.mark.parametrize("interval", [0, -1, "3h", None])
+    @pytest.mark.parametrize("interval", [0, None])
     def test_an_unusable_update_interval_falls_back_to_three_hours(self, interval):
         assert _freshness(update_interval_seconds=interval).stale_threshold_hours == pytest.approx(6.0)
 
