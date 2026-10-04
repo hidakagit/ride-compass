@@ -1,7 +1,13 @@
-"""取込・派生の段がSQLで直接書く列に、宣言の外の値をDBが入れさせないこと。
+"""取込・派生の段がSQLで直接書く語彙の列（`infrastructure/derived_models.py: vocabulary_check`）に、宣言の外の値を
+DBが入れさせないこと。
 
 段はdomainの検査を通らずに書くため、入らないことはDBが断ることでしか確かめられない。
-値の母集団（語彙）はdomainの宣言から導かれ、段が実際に付ける値は全部通る。
+値の母集団（語彙）はdomainの宣言から導かれ、分類器が実際に付ける値は全部通る。
+
+ここで見ないもの:
+- 制約を1つ宣言しただけのもの（区間から道の行への外部キー・種別の無い道・世代の2行目・軸の並び順の一意）
+  ——PostgreSQLが宣言どおりに断る
+- 通行方向の語彙が規則の出す値を全部通すこと——語彙（`domain/traffic.py: DIRECTIONS`）は規則と既定の値から作る
 """
 
 import json
@@ -9,14 +15,10 @@ import json
 import asyncpg
 import pytest
 import pytest_asyncio
-import shapely
-from shapely.geometry import LineString
 
 from app.batch import derive_topology
 from app.batch.common import asyncpg_dsn
-from app.batch.ingest import SourceRecord
-from app.batch.source_adapters.osm_pbf import way_payload
-from app.domain.traffic import DIRECTION_RULES, TAG_KIND_RULES, direction_sql, tag_kind_sql
+from app.domain.traffic import TAG_KIND_RULES, tag_kind_sql
 from tests.conftest import postgis_database_url
 from tests.source_ingest import ingest_records, point_record, way_record
 
@@ -79,14 +81,6 @@ def _tags_relation(tags: list[dict[str, str]]) -> str:
         f"({i}, $${json.dumps(t)}$$::jsonb)" for i, t in enumerate(tags)) + ") AS t(id, tags)"
 
 
-async def test_every_direction_the_rules_give_is_accepted(conn):
-    """規則の全行と、どの規則にも当たらない道の向きを書く。"""
-    tags = [{key: value} for key, value, _direction, _priority in DIRECTION_RULES] + [{}]
-    directions = {row["direction"] for row in await conn.fetch(direction_sql(_tags_relation(tags)))}
-    for direction in sorted(directions):
-        await _write(conn, "UPDATE way_materials SET direction = $1", direction)
-
-
 async def test_every_kind_the_classifier_gives_is_accepted(conn):
     """分類の表の全行と、自販機の判定の結果を書く。"""
     tags = [{key: value} for key, value, _kind, _priority in TAG_KIND_RULES] + [
@@ -94,32 +88,3 @@ async def test_every_kind_the_classifier_gives_is_accepted(conn):
     kinds = {row["kind"] for row in await conn.fetch(tag_kind_sql(_tags_relation(tags)))}
     for kind in sorted(kinds):
         await _write(conn, "UPDATE node_materials SET kind = $1", kind)
-
-
-async def test_edge_without_its_way_row_is_refused(conn):
-    with pytest.raises(asyncpg.ForeignKeyViolationError):
-        await _write(conn, "DELETE FROM way_materials WHERE osm_way_id = $1", WAY_ID)
-
-
-async def test_way_without_kind_is_not_ingested(conn):
-    record = SourceRecord(
-        natural_key="200", attrs={"name": "種別の無い道"}, payload=way_payload(NODE_IDS),
-        geom_wkb=shapely.to_wkb(LineString([(BASE_LON + STEP * n, BASE_LAT) for n in NODE_IDS])))
-    with pytest.raises(asyncpg.CheckViolationError):
-        await ingest_records("osm_way", [record], conn=conn)
-
-    ways = await conn.fetch("SELECT natural_key FROM source_features WHERE source = 'osm_way'")
-    assert [row["natural_key"] for row in ways] == [str(WAY_ID)]
-
-
-async def test_second_derived_data_meta_row_is_refused(conn):
-    with pytest.raises(asyncpg.CheckViolationError):
-        await _write(conn, "INSERT INTO derived_data_meta (id, revision) VALUES (2, 1)")
-
-
-async def test_two_axes_with_the_same_sort_order_are_refused(conn):
-    insert = ("INSERT INTO axis_definitions (axis_id, sort_order, shape_params, default_weight)"
-              " SELECT unnest($1::text[]), coalesce(max(sort_order), 0) + 1, '{}'::jsonb, 1.0"
-              " FROM axis_definitions")
-    with pytest.raises(asyncpg.UniqueViolationError):
-        await _write(conn, insert, ["__test_axis_a", "__test_axis_b"])
