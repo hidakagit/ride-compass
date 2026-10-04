@@ -1,19 +1,7 @@
-// Claude がステータスを動かす（hidakagit-bot の名義。src/move.js: moveTask）。理由を渡すと、理由をコメントに書いてから動かす。
-// 問いを置いて回答待ちにするのは ask.js。
-// 使い方: node tools/flow-gate/bin/move.js [--dry-run] <issue の番号> <行き先のステータス> [理由]
-// （--dry-run は今の状態で遷移を照らして行き先を出すだけで、書かない）
-import config from "../flow.config.json" with { type: "json" };
-import { GitHub } from "../src/github.js";
+// Claude がステータスを動かす（src/move.js: moveTask）。理由を渡すと、理由をコメントに書いてから動かす。
 import { moveTask } from "../src/move.js";
-import { botToken } from "./token.js";
+import { args, bot, config, isNumber } from "./cli.js";
 
-const dry = process.argv[2] === "--dry-run";
-const args = process.argv.slice(dry ? 3 : 2);
-const [number, to, reason] = args;
-if (!/^\d+$/.test(number ?? "") || !config.statuses.includes(to) || args.length > 3 || (args.length === 3 && !reason.trim())) {
-  console.error(`使い方: node tools/flow-gate/bin/move.js [--dry-run] <issue の番号> <${config.statuses.join("|")}> [理由]`);
-  process.exit(2);
-}
-
-const comment = reason ? `${to}にする理由: ${reason.trim()}` : undefined;
-console.log(await moveTask(new GitHub(botToken()), config, Number(number), to, { comment, dryRun: dry }));
+const { dry, rest: [number, to, reason] } = args(`node tools/flow-gate/bin/move.js [--dry-run] <issue の番号> <${config.statuses.join("|")}> [理由]`,
+  (a) => isNumber(a[0]) && config.statuses.includes(a[1]) && a.length <= 3 && (a.length < 3 || a[2].trim()));
+console.log(await moveTask(bot(), config, Number(number), to, { comment: reason && `${to}にする理由: ${reason.trim()}`, dryRun: dry }));

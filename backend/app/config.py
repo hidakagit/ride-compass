@@ -49,15 +49,13 @@ class Settings(BaseSettings):
     generate_rate_limit_per_minute: int = 10
     generate_max_concurrent: int = 2
     # タイル処理の律速はDB側の同時クエリ負荷とSQLAlchemyの接続プール
-    # （既定pool_size=5+max_overflow=10=最大15接続）。路面・事故の同時実行上限の和が
-    # このプール上限に収まるようにする（ルート生成は別エンジン・別プールで取り合わない）。
+    # （既定pool_size=5+max_overflow=10=最大15接続）。地域タイル（路面・点）は1つの同時実行上限を
+    # 共有し、それがこのプール上限に収まるようにする（ルート生成は別エンジン・別プールで取り合わない）。
     road_tile_rate_limit_per_minute: int = 120
     road_tile_max_concurrent: int = 6
     # 区間インスペクタは座標を持たない単発リクエストで、パン/ズームのたびに多数のz/x/y
     # タイルを連続要求するroad_tileとは負荷特性が異なるため別の上限を持つ。
     axis_inspector_rate_limit_per_minute: int = 120
-    accident_tile_rate_limit_per_minute: int = 120
-    accident_tile_max_concurrent: int = 6
     # 土地被覆ラスタタイルはDBを読まず、GeoTIFFの読み取り・再投影（GDAL）をスレッドプールで
     # 行う。律速がCPUとディスクI/Oになるため、DB向けのタイル上限とは別に持つ。
     # `asyncio.to_thread`の既定スレッドプールを1画面ぶんのタイルで埋めないための値。

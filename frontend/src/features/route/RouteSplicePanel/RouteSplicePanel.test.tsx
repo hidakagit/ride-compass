@@ -1,200 +1,296 @@
-import { render, screen } from "@testing-library/react";
+/**
+ * `RouteSplicePanel/RouteSplicePanel.tsx`——区間の乗り換えの結果面。見出し行の操作、元と編集後の指標、軸別の差の棒、案内。
+ *
+ * 見るもの: 見出し（戻る・(i)の使い方・回数）と操作（1つ戻す・全部戻す・差分・作成）の出し方・押せる条件・上がる操作、区間を
+ * 持たない候補の書き方、指標（距離・所要・総合難易度・負荷）の元・編集後・差の書き方と、表示する桁で丸めた差で決める
+ * 良し悪しの印、寄与度が動いた軸の棒（出す境界・読み上げの並び・左右・長さ・軸の色）と下に書く大きい軸、状態ごとの案内、
+ * 合成の失敗。
+ *
+ * ここで見ないもの: どの区間を乗り換えるか・差分と作成の評価 → `features/route/useSpliceSession.test.ts`。
+ * 差の表記（符号・桁）→ `features/route/routeEditDiff.test.ts`。所要の表記 → `features/route/formatDuration.test.ts`。
+ * 良し悪しの印から付く色（クラスで付ける見た目）。
+ */
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import { catalogAxisFromEntry, type CatalogAxis } from "@/lib/catalogAxis";
-import { catalogEntry } from "@/testing/catalogAxes";
+import { catalogEntry, catalogOf } from "@/testing/catalogAxes";
 import { makeRouteCandidate } from "@/testing/routeFixtures";
 
 import RouteSplicePanel from "./RouteSplicePanel";
 
-const axis = (axisId: string, label: string): CatalogAxis =>
-  catalogAxisFromEntry(catalogEntry({ axis_id: axisId, label }));
-const AXES = [axis("wind", "風"), axis("slope", "勾配"), axis("stops", "停止")];
+type Props = ComponentProps<typeof RouteSplicePanel>;
+
+const CATALOG = catalogOf([
+  catalogEntry({ axis_id: "width", label: "道幅" }),
+  catalogEntry({ axis_id: "traffic", label: "交通" }),
+  catalogEntry({ axis_id: "slope", label: "勾配" }),
+  catalogEntry({ axis_id: "light", label: "街灯" }),
+]);
 
 const DISPLAYED = makeRouteCandidate({
-  id: "base",
-  distance_km: 30,
-  estimated_duration_seconds: 90 * 60,
-  overall_difficulty: { average: 40.2, load: 1206 },
-  edge_ids: ["e1", "e2"],
-  axis_contributions: { wind: 20, slope: 10, stops: 10.2 },
+  edge_ids: ["e1", "e2", "e3"],
+  distance_km: 12.3,
+  estimated_duration_seconds: 1800,
+  overall_difficulty: { average: 40.4, load: 300.6 },
+  axis_contributions: { width: 10, traffic: 5, slope: 3 },
 });
 
-type Props = React.ComponentProps<typeof RouteSplicePanel>;
-
-function renderPanel(overrides: Partial<Props> = {}) {
-  const props: Props = {
-    displayed: DISPLAYED,
-    appliedCount: 0,
-    hasAlternatives: true,
+function renderPanel(props: Partial<Props> = {}) {
+  const handlers = {
     onUndo: vi.fn(),
     onReset: vi.fn(),
-    preview: null,
-    previewing: false,
     onPreview: vi.fn(),
     onApply: vi.fn(),
-    applying: false,
-    error: null,
     onCancel: vi.fn(),
-    axes: AXES,
-    axisColors: { wind: "#0000ff" },
-    ...overrides,
   };
-  render(<RouteSplicePanel {...props} />);
-  return props;
+  render(
+    <RouteSplicePanel
+      displayed={DISPLAYED}
+      appliedCount={0}
+      hasAlternatives
+      preview={null}
+      previewing={false}
+      applying={false}
+      error={null}
+      axes={CATALOG.axes}
+      axisColors={CATALOG.axisColors}
+      {...handlers}
+      {...props}
+    />,
+  );
+  return handlers;
 }
 
-/** 指標1つ（名前・元・→・後・差）の文字の並び。 */
+/** 指標1つの、元・矢印・編集後・差のセル。 */
 function metric(label: string) {
-  const cells = [screen.getByText(label, { selector: "dt" })];
-  for (let i = 0; i < 4; i += 1) cells.push(cells.at(-1)!.nextElementSibling as HTMLElement);
-  return cells.slice(1);
+  const term = screen.getByText(label, { selector: "dt" });
+  const base = term.nextElementSibling as HTMLElement;
+  const arrow = base.nextElementSibling as HTMLElement;
+  const after = arrow.nextElementSibling as HTMLElement;
+  const delta = after.nextElementSibling as HTMLElement;
+  return { base, arrow, after, delta };
 }
 
-describe("RouteSplicePanel 操作", () => {
-  it("戻る操作で編集をやめる", async () => {
-    const props = renderPanel();
-    await userEvent.click(screen.getByRole("button", { name: "編集をやめて候補へ戻る" }));
-    expect(props.onCancel).toHaveBeenCalled();
+/** 良し悪しの印（表示する差が増えたら悪い・減ったら良い）。 */
+function verdict(cell: HTMLElement) {
+  if (cell.dataset.worse === "true") return "悪い";
+  if (cell.dataset.better === "true") return "良い";
+  return "なし";
+}
+
+const ACTIONS = ["1つ戻す", "全部戻す", "差分を見る", "新しいルートを作成"];
+
+describe("RouteSplicePanel 見出しと操作", () => {
+  it("見出し「区間の乗り換え」の面を出し、戻る操作を押すと上げる", async () => {
+    const { onCancel } = renderPanel();
+
+    const panel = screen.getByRole("region", { name: "区間の乗り換え" });
+    await userEvent.click(within(panel).getByRole("button", { name: "編集をやめて候補へ戻る" }));
+
+    expect(onCancel).toHaveBeenCalledOnce();
   });
 
-  it("乗り換えていない間は、戻す操作を出さず、差分・作成も押せない", () => {
+  it("(i)の奥に使い方を置く", async () => {
+    renderPanel();
+
+    await userEvent.click(screen.getByRole("button", { name: "区間の乗り換えの説明を表示" }));
+
+    expect(screen.getByText(/地図の破線が、いまの道から乗り換えられる先です/)).toBeInTheDocument();
+  });
+
+  it("乗り換える前は回数と戻す操作を出さず、差分と作成を押せない", () => {
     renderPanel({ appliedCount: 0 });
+
+    expect(screen.queryByText(/^\d+回$/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "1つ戻す" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "全部戻す" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "差分を見る" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "新しいルートを作成" })).toBeDisabled();
   });
 
-  it("乗り換えたら回数を出し、戻す・差分・作成の操作をそれぞれの処理へつなぐ", async () => {
-    const props = renderPanel({ appliedCount: 2 });
+  it("乗り換えた回数を出し、1つ戻す・全部戻す・差分・作成を押すとそれぞれ上げる", async () => {
+    const { onUndo, onReset, onPreview, onApply } = renderPanel({ appliedCount: 2 });
+
     expect(screen.getByText("2回")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "1つ戻す" }));
-    await userEvent.click(screen.getByRole("button", { name: "全部戻す" }));
-    await userEvent.click(screen.getByRole("button", { name: "差分を見る" }));
-    await userEvent.click(screen.getByRole("button", { name: "新しいルートを作成" }));
-    expect(props.onUndo).toHaveBeenCalled();
-    expect(props.onReset).toHaveBeenCalled();
-    expect(props.onPreview).toHaveBeenCalled();
-    expect(props.onApply).toHaveBeenCalled();
+    for (const name of ACTIONS) await userEvent.click(screen.getByRole("button", { name }));
+
+    for (const handler of [onUndo, onReset, onPreview, onApply]) expect(handler).toHaveBeenCalledOnce();
   });
 
-  it("評価を待っている間は、どの操作も押せず、待っている操作に待ち中の印を付ける", () => {
-    renderPanel({ appliedCount: 1, previewing: true });
-    for (const name of ["1つ戻す", "全部戻す", "差分を見る", "新しいルートを作成"]) {
-      expect(screen.getByRole("button", { name })).toBeDisabled();
+  it.each([
+    ["差分の評価", { previewing: true }, "差分を見る"],
+    ["作成", { applying: true }, "新しいルートを作成"],
+  ] as const)("%sを待つ間は、どの操作も押せず、待っている操作に待ちの印を付ける", (_waiting, props, busy) => {
+    renderPanel({ appliedCount: 1, ...props });
+
+    for (const name of ACTIONS) {
+      const button = screen.getByRole("button", { name });
+      expect(button).toBeDisabled();
+      if (name === busy) expect(button).toHaveAttribute("aria-busy", "true");
+      else expect(button).not.toHaveAttribute("aria-busy", "true");
     }
-    expect(screen.getByRole("button", { name: "差分を見る" })).toHaveAttribute("aria-busy", "true");
-    expect(screen.getByRole("button", { name: "新しいルートを作成" })).toHaveAttribute("aria-busy", "false");
   });
 
-  it("作成を待っている間も同じ（作成の側に待ち中の印）", () => {
-    renderPanel({ appliedCount: 1, applying: true });
-    expect(screen.getByRole("button", { name: "1つ戻す" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "新しいルートを作成" })).toHaveAttribute("aria-busy", "true");
-  });
+  it("区間を持たない候補では、操作と指標を出さずに区間を出せないことを書き、戻る操作は残す", () => {
+    renderPanel({ displayed: { ...DISPLAYED, edge_ids: [] }, appliedCount: 1 });
 
-  it("失敗の理由を、押した場所から見える所に出す", () => {
-    renderPanel({ appliedCount: 1, error: "合成に失敗しました" });
-    expect(screen.getByText("合成に失敗しました")).toBeInTheDocument();
+    expect(screen.getByText("この候補は経路のEdge情報を持たないため、区間を出せません。")).toBeInTheDocument();
+    for (const name of ACTIONS) expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+    expect(screen.queryByText("距離", { selector: "dt" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "編集をやめて候補へ戻る" })).toBeInTheDocument();
   });
 });
 
 describe("RouteSplicePanel 指標", () => {
-  it("評価する前は元の値だけを出す（矢印も出さない）。値が無ければ「—」", () => {
-    renderPanel({ displayed: { ...DISPLAYED, overall_difficulty: null } });
-    expect(metric("距離").map((cell) => cell.textContent)).toEqual(["30.0", "", "", ""]);
-    expect(metric("所要")[0]).toHaveTextContent("90分");
-    expect(metric("総合難易度")[0]).toHaveTextContent("—");
-    expect(metric("負荷")[0]).toHaveTextContent("—");
+  it("差分を見る前は元の距離・所要・総合難易度・負荷だけを出し、矢印と編集後と差は出さない", () => {
+    renderPanel({ appliedCount: 1 });
+
+    expect(["距離", "所要", "総合難易度", "負荷"].map((label) => metric(label).base.textContent)).toEqual([
+      "12.3",
+      "30分",
+      "40",
+      "301",
+    ]);
+    for (const label of ["距離", "所要", "総合難易度", "負荷"]) {
+      const { arrow, after, delta } = metric(label);
+      expect([arrow.textContent, after.textContent, delta.textContent]).toEqual(["", "", ""]);
+    }
   });
 
-  it("評価したら元→後と差を出す（距離は小数1桁、ほかは整数。所要の差は分）", () => {
+  it("元の値が無い指標は「—」を出す", () => {
+    renderPanel({ displayed: { ...DISPLAYED, estimated_duration_seconds: null, overall_difficulty: null } });
+
+    expect(["所要", "総合難易度", "負荷"].map((label) => metric(label).base.textContent)).toEqual(["—", "—", "—"]);
+  });
+
+  it("差分を見たら元→編集後と差を出し、表示する桁で丸めた差が増えたら悪い・減ったら良い印を付ける", () => {
     const preview = makeRouteCandidate({
-      distance_km: 31.25,
-      estimated_duration_seconds: 85 * 60,
-      overall_difficulty: { average: 40.4, load: 1263 },
-      axis_contributions: DISPLAYED.axis_contributions,
+      edge_ids: ["e1", "e4", "e3"],
+      distance_km: 13,
+      estimated_duration_seconds: 1500,
+      overall_difficulty: { average: 40.6, load: 280.2 },
     });
     renderPanel({ appliedCount: 1, preview });
-    expect(metric("距離").map((cell) => cell.textContent)).toEqual(["30.0", "→", "31.3km", "+1.3"]);
-    expect(metric("所要").map((cell) => cell.textContent)).toEqual(["90分", "→", "85分", "−5"]);
-    expect(metric("総合難易度").map((cell) => cell.textContent)).toEqual(["40", "→", "40", "±0"]);
-    expect(metric("負荷").map((cell) => cell.textContent)).toEqual(["1206", "→", "1263", "+57"]);
-  });
 
-  it("増えた指標は悪くなった印、減った指標は良くなった印。表示で±0なら印を付けない", () => {
-    const preview = makeRouteCandidate({
-      distance_km: 31.25,
-      estimated_duration_seconds: 85 * 60,
-      overall_difficulty: { average: 40.4, load: 1263 },
+    const rows = ["距離", "所要", "総合難易度", "負荷"].map((label) => {
+      const { arrow, after, delta } = metric(label);
+      return [label, arrow.textContent, after.textContent, delta.textContent, verdict(after), verdict(delta)];
     });
-    renderPanel({ appliedCount: 1, preview });
-    expect(metric("距離")[3]).toHaveAttribute("data-worse", "true");
-    expect(metric("所要")[3]).toHaveAttribute("data-better", "true");
-    const unchanged = metric("総合難易度")[3];
-    expect(unchanged).toHaveAttribute("data-worse", "false");
-    expect(unchanged).toHaveAttribute("data-better", "false");
+    expect(rows).toEqual([
+      ["距離", "→", "13.0km", "+0.7", "悪い", "悪い"],
+      ["所要", "→", "25分", "−5", "良い", "良い"],
+      // 差0.2は0桁で書くと0になるので、良し悪しを言わない。
+      ["総合難易度", "→", "41", "±0", "なし", "なし"],
+      ["負荷", "→", "280", "−20", "良い", "良い"],
+    ]);
   });
 
-  it("どちらかの値が無い指標は、差を出さない", () => {
-    const preview = makeRouteCandidate({ distance_km: 30, estimated_duration_seconds: null });
-    renderPanel({ appliedCount: 1, preview });
-    expect(metric("所要").map((cell) => cell.textContent)).toEqual(["90分", "", "", ""]);
-  });
+  it("元か編集後のどちらかに値が無い指標は、差を出さない", () => {
+    const preview = makeRouteCandidate({
+      edge_ids: ["e1", "e4", "e3"],
+      distance_km: 13,
+      estimated_duration_seconds: 1500,
+    });
+    renderPanel({
+      displayed: { ...DISPLAYED, estimated_duration_seconds: null },
+      appliedCount: 1,
+      preview,
+    });
 
-  it("経路のEdgeを持たない候補では、区間を出せない旨だけを出す", () => {
-    renderPanel({ displayed: { ...DISPLAYED, edge_ids: [] }, appliedCount: 1 });
-    expect(screen.getByText("この候補は経路のEdge情報を持たないため、区間を出せません。")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "差分を見る" })).not.toBeInTheDocument();
-    expect(screen.queryByText("距離", { selector: "dt" })).not.toBeInTheDocument();
+    const duration = metric("所要");
+    expect([duration.base.textContent, duration.after.textContent, duration.delta.textContent]).toEqual([
+      "—",
+      "25分",
+      "",
+    ]);
+    const difficulty = metric("総合難易度");
+    expect([difficulty.arrow.textContent, difficulty.after.textContent, difficulty.delta.textContent]).toEqual([
+      "",
+      "",
+      "",
+    ]);
   });
 });
 
-describe("RouteSplicePanel 軸ごとの差", () => {
-  // 風 −8、勾配 +3、停止 +0.05（0.1未満は出さない）。
-  const preview = makeRouteCandidate({ axis_contributions: { wind: 12, slope: 13, stops: 10.25 } });
-
-  it("動いた軸を差の大きい順に1本の棒へ並べ、差が0.1未満の軸は出さない", () => {
-    renderPanel({ appliedCount: 1, preview });
-    expect(screen.getByRole("img")).toHaveAttribute("aria-label", "風 −8.0、勾配 +3.0");
+describe("RouteSplicePanel 軸別の差", () => {
+  /** 寄与度: 道幅−2・交通+0.05（0.1未満）・勾配+3・街灯+1.5（元に無い軸は0から）。 */
+  const MOVED = makeRouteCandidate({
+    edge_ids: ["e1", "e4", "e3"],
+    distance_km: 12.3,
+    axis_contributions: { width: 8, traffic: 5.05, slope: 6, light: 1.5 },
   });
 
-  it("減った軸は中央の左、増えた軸は右に、最も大きい差を半分の幅として比で伸ばし、軸の色で塗る", () => {
-    renderPanel({ appliedCount: 1, preview });
-    const [left, , right] = [...screen.getByRole("img").children] as HTMLElement[];
-    expect([...left.children].map((bar) => (bar as HTMLElement).style.width)).toEqual(["50%"]);
-    expect([...right.children].map((bar) => (bar as HTMLElement).style.width)).toEqual(["18.75%"]);
-    // 色は軸の色。色を持たない軸は弱い文字色で塗る。
-    expect((left.children[0] as HTMLElement).style.background).toBe("#0000ff");
-    expect((right.children[0] as HTMLElement).style.background).toBe("var(--color-muted)");
-  });
+  it("寄与度が0.1以上動いた軸を大きい順に棒の読み上げへ並べ、大きい2つを下に書く", () => {
+    renderPanel({ appliedCount: 1, preview: MOVED });
 
-  it("寄与の値を持たない軸は0として差を取る", () => {
-    const withNewAxis = makeRouteCandidate({ axis_contributions: { ...DISPLAYED.axis_contributions, fresh: 5 } });
-    renderPanel({ appliedCount: 1, preview: withNewAxis, axes: [...AXES, axis("fresh", "新しい軸")] });
-    expect(screen.getByRole("img")).toHaveAttribute("aria-label", "新しい軸 +5.0");
-  });
-
-  it("差の大きい2軸を、数値つきで書き出す", () => {
-    renderPanel({ appliedCount: 1, preview });
-    expect(screen.getByText("風 −8.0")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "勾配 +3.0、道幅 −2.0、街灯 +1.5" })).toBeInTheDocument();
     expect(screen.getByText("勾配 +3.0")).toBeInTheDocument();
+    expect(screen.getByText("道幅 −2.0")).toBeInTheDocument();
+    expect(screen.queryByText("街灯 +1.5")).not.toBeInTheDocument();
   });
 
-  it("乗り換えた後、評価する前は、評価のしかたを出す", () => {
-    renderPanel({ appliedCount: 1 });
+  it("棒は中央を0に、減った軸を左・増えた軸を右へ、いちばん大きい差を片側いっぱいとする長さと、軸の色で描く", () => {
+    renderPanel({ appliedCount: 1, preview: MOVED });
+
+    const bar = screen.getByRole("img");
+    const widths = (side: Element) => [...side.children].map((piece) => (piece as HTMLElement).style.width);
+    const [decreased, increased] = [bar.firstElementChild!, bar.lastElementChild!];
+    expect(widths(decreased).map(parseFloat)).toEqual([expect.closeTo((2 / 3) * 50, 5)]);
+    expect(widths(increased).map(parseFloat)).toEqual([50, 25]);
+    expect(decreased.children[0]).toHaveStyle({ background: CATALOG.axisColors.width });
+    expect(increased.children[0]).toHaveStyle({ background: CATALOG.axisColors.slope });
+    expect(increased.children[1]).toHaveStyle({ background: CATALOG.axisColors.light });
+  });
+
+  it("ちょうど0.1動いた軸は出す", () => {
+    const edge = makeRouteCandidate({
+      edge_ids: ["e1", "e4", "e3"],
+      axis_contributions: { width: 10, traffic: 5, slope: 3, light: 0.1 },
+    });
+    renderPanel({ appliedCount: 1, preview: edge });
+
+    expect(screen.getByRole("img", { name: "街灯 +0.1" })).toBeInTheDocument();
+  });
+
+  it("どの軸の動きも0.1未満なら棒も軸の差も出さず、「差分」を押す案内を出す", () => {
+    const still = makeRouteCandidate({
+      edge_ids: ["e1", "e4", "e3"],
+      axis_contributions: { width: 10.05, traffic: 5, slope: 3 },
+    });
+    renderPanel({ appliedCount: 1, preview: still });
+
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    expect(screen.getByText("「差分」を押すと、乗り換えた結果が出ます")).toBeInTheDocument();
+  });
+});
+
+describe("RouteSplicePanel 案内", () => {
+  it.each([
+    ["乗り換え先があれば", true, "地図の破線をタップして乗り換えます"],
+    ["乗り換え先が無ければ", false, "他の候補と別の道を通る区間がありません。"],
+  ] as const)("乗り換える前で%s、「%s」と出す", (_state, hasAlternatives, hint) => {
+    renderPanel({ appliedCount: 0, hasAlternatives });
+
+    expect(screen.getByText(hint)).toBeInTheDocument();
+  });
+
+  it("乗り換えて差分をまだ見ていなければ、「差分」を押す案内を出す", () => {
+    renderPanel({ appliedCount: 1, hasAlternatives: false, preview: null });
+
     expect(screen.getByText("「差分」を押すと、乗り換えた結果が出ます")).toBeInTheDocument();
   });
 
-  it("乗り換える前は、乗り換えられる区間があるかで一言が変わる", () => {
-    renderPanel({ appliedCount: 0, hasAlternatives: true });
-    expect(screen.getByText("地図の破線をタップして乗り換えます")).toBeInTheDocument();
+  it("合成に失敗した理由を知らせとして出す", () => {
+    renderPanel({ appliedCount: 1, error: "合成した経路を評価できませんでした。" });
+
+    expect(screen.getByRole("alert")).toHaveTextContent("合成した経路を評価できませんでした。");
   });
 
-  it("乗り換えられる区間が無ければ、その旨を出す", () => {
-    renderPanel({ appliedCount: 0, hasAlternatives: false });
-    expect(screen.getByText("他の候補と別の道を通る区間がありません。")).toBeInTheDocument();
+  it("合成の失敗が無ければ知らせを出さない", () => {
+    renderPanel({ appliedCount: 1, error: null });
+
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });

@@ -309,5 +309,21 @@ POINT_STROKE_WIDTH_PX = 1
 #: 絵記号で描く点（行が`glyph`を持つ軸）の一辺。丸い点より大きくし、中の絵を読める大きさにする。
 POINT_ICON_SIZE_PX = 20
 POINT_OPACITY = 0.9
-#: 事故は面的に多く、同じ濃さだと停止要因の点が埋もれる。
-ACCIDENT_POINT_OPACITY = 0.75
+#: 点の一次属性ごとの、既定と違う不透明度。事故は面的に多く、同じ濃さだと停止要因の点が埋もれる。
+_POINT_OPACITY_OVERRIDES: dict[str, float] = {"accident_point": 0.75}
+
+
+def _point_opacities() -> dict[str, float]:
+    """地図に点で出す一次属性（点の幾何・行の定義・タイルの系統を持つもの）ごとの不透明度。"""
+    shown = [
+        attr.attr_id
+        for attr in PRIMARY_ATTRIBUTES
+        if attr.geometry == "point" and attr.display_axes and attr.tile_kind is not None
+    ]
+    unknown = set(_POINT_OPACITY_OVERRIDES) - set(shown)
+    assert not unknown, f"点で出さない一次属性に不透明度がある: {sorted(unknown)}"
+    return {attr_id: _POINT_OPACITY_OVERRIDES.get(attr_id, POINT_OPACITY) for attr_id in shown}
+
+
+#: 一次属性 → 点の不透明度。画面は点のレイヤーごとに自分の名前で引く。
+POINT_OPACITY_BY_ATTR: dict[str, float] = _point_opacities()

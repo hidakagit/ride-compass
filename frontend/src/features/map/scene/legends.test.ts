@@ -11,10 +11,10 @@ import { ROAD_OTHER_KEY, ROAD_TRACKS, roadLineGroup, roadTrackAxis, roadTrackHas
 import { disasterSourceLegendAxis, pointLegendAxes, roadLegendAxes } from "./legends";
 
 const TILES = {
-  poi: ["https://example.test/poi/{z}/{x}/{y}"],
-  accident: ["https://example.test/accident/{z}/{x}/{y}"],
-  poiSourceLayer: "poi",
-  accidentSourceLayer: "accident",
+  urls: {
+    poi: ["https://example.test/poi/{z}/{x}/{y}"],
+    accident: ["https://example.test/accident/{z}/{x}/{y}"],
+  },
   minZoom: 10,
   maxZoom: 14,
 };

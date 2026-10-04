@@ -26,7 +26,7 @@ interface RouteListSection<T> {
 }
 
 /** 見出しを分けたときに採用ルートの先頭へ置く、所要時間だけで選んだ候補の名前。 */
-export const FASTEST_ROUTE_NAME = "最速";
+const FASTEST_ROUTE_NAME = "最速";
 
 /**
  * 「ルート結果」の一覧の並びと名前。
@@ -36,7 +36,7 @@ export const FASTEST_ROUTE_NAME = "最速";
  * 比べる基準の1本を、編集の前後で動かさずに一番上へ置くため。見出しを分けないときは生成候補に1から番号を振る。
  */
 export function routeListSections<
-  T extends { id: string; direction_label: string; estimated_duration_seconds?: number | null },
+  T extends { id: string; direction_label: string; estimated_duration_seconds: number | null },
 >(
   generated: readonly T[],
   edits: readonly { route: T; number: number }[],
@@ -61,33 +61,34 @@ export function routeListSections<
   ];
 }
 
+type TimedRoute = { id: string; estimated_duration_seconds: number | null };
+
 /**
- * 一覧の中で最も所要時間が短い候補のid（＝基準線）。候補が1件以下、または所要時間を持つ
+ * 一覧の中で最も所要時間が短い候補（＝基準線）。候補が1件以下、または所要時間を持つ
  * 候補が無ければnull（比べる相手が無い）。
  *
  * 一覧の中だけで決める——周回・目的地のどちらでも、区間を乗り換えて作った候補を含めて
  * 「何と比べた+N分か」を同じ判定で出すため。同着は先に来た方（並び順は総合難易度の昇順なので、易しい方）。
  */
-export function fastestRouteId(
-  routes: readonly { id: string; estimated_duration_seconds?: number | null }[],
-): string | null {
+function fastestRoute(routes: readonly TimedRoute[]): { id: string; seconds: number } | null {
   if (routes.length < 2) return null;
   let best: { id: string; seconds: number } | null = null;
   for (const route of routes) {
     const seconds = route.estimated_duration_seconds;
-    if (seconds === null || seconds === undefined || !Number.isFinite(seconds)) continue;
+    if (seconds === null) continue;
     if (best === null || seconds < best.seconds) best = { id: route.id, seconds };
   }
-  return best?.id ?? null;
+  return best;
 }
 
-/** 基準線（`fastestRouteId`が返す候補）の所要時間（秒）。基準線が無ければnull。 */
-export function fastestDurationSeconds(
-  routes: readonly { id: string; estimated_duration_seconds?: number | null }[],
-): number | null {
-  const id = fastestRouteId(routes);
-  if (id === null) return null;
-  return routes.find((route) => route.id === id)?.estimated_duration_seconds ?? null;
+/** 基準線のid。基準線が無ければnull。 */
+export function fastestRouteId(routes: readonly TimedRoute[]): string | null {
+  return fastestRoute(routes)?.id ?? null;
+}
+
+/** 基準線の所要時間（秒）。基準線が無ければnull。 */
+export function fastestDurationSeconds(routes: readonly TimedRoute[]): number | null {
+  return fastestRoute(routes)?.seconds ?? null;
 }
 
 /**
@@ -96,12 +97,12 @@ export function fastestDurationSeconds(
  * ときも差0なのでここに入る）。
  */
 export function extraDurationLabel(
-  route: { estimated_duration_seconds?: number | null },
+  route: { estimated_duration_seconds: number | null },
   fastestSeconds: number | null,
 ): string | null {
   if (fastestSeconds === null) return null;
   const seconds = route.estimated_duration_seconds;
-  if (seconds === null || seconds === undefined) return null;
+  if (seconds === null) return null;
   const extraMinutes = Math.round((seconds - fastestSeconds) / 60);
   if (extraMinutes < 1) return null;
   return `+${extraMinutes}分`;
@@ -111,11 +112,8 @@ export function extraDurationLabel(
  * 生成した候補の並び: 所要時間の短い順。所要時間の無い候補は末尾。同じ所要時間は受け取った並び（backendの総合難易度の
  * 昇順）を保つので、同着なら易しい方が先。
  */
-export function orderByDuration<T extends { estimated_duration_seconds?: number | null }>(routes: readonly T[]): T[] {
-  const secondsOf = (route: T) => {
-    const seconds = route.estimated_duration_seconds;
-    return seconds === null || seconds === undefined || !Number.isFinite(seconds) ? Number.POSITIVE_INFINITY : seconds;
-  };
+export function orderByDuration<T extends { estimated_duration_seconds: number | null }>(routes: readonly T[]): T[] {
+  const secondsOf = (route: T) => route.estimated_duration_seconds ?? Number.POSITIVE_INFINITY;
   return routes
     .map((route, index) => ({ route, index }))
     .sort((a, b) => secondsOf(a.route) - secondsOf(b.route) || a.index - b.index)

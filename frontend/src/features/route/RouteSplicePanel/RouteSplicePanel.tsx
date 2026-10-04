@@ -40,7 +40,7 @@ interface RouteSplicePanelProps {
   onCancel: () => void;
   /** 公開軸すべて（差分バーのラベルの正本）。 */
   axes: readonly CatalogAxis[];
-  /** 軸id→色（ルート設定パネルの軸チップと同じ色）。 */
+  /** 軸id→色（ルート設定パネルの軸チップと同じ色）。`axes`の全軸を持つ。 */
   axisColors: Record<string, string>;
 }
 
@@ -266,7 +266,7 @@ export default function RouteSplicePanel({
                         className="block h-full"
                         style={{
                           width: `${(Math.abs(item.delta) / scale) * 50}%`,
-                          background: axisColors[item.axisId] ?? "var(--color-muted)",
+                          background: axisColors[item.axisId],
                         }}
                       />
                     ))}
@@ -281,7 +281,7 @@ export default function RouteSplicePanel({
                         className="block h-full"
                         style={{
                           width: `${(Math.abs(item.delta) / scale) * 50}%`,
-                          background: axisColors[item.axisId] ?? "var(--color-muted)",
+                          background: axisColors[item.axisId],
                         }}
                       />
                     ))}
