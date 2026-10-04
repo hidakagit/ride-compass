@@ -45,7 +45,7 @@ export function parseQuestion(text) {
 // 回答フォームの次のステータス: 表で今のステータスから行ける先。完了は完成と見送りに分ける。最初のものが既定。
 export const nextChoices = (config, from) =>
   config.transitions[from].flatMap((to) =>
-    to === config.done ? [{ to, close: "COMPLETED", text: `${to}（完成）` }, { to, close: "NOT_PLANNED", text: `${to}（見送り）` }] : [{ to, text: to }]);
+    to === config.done ? [{ to, close: "COMPLETED", text: "完成" }, { to, close: "NOT_PLANNED", text: "見送り" }] : [{ to, text: to }]);
 
 // 答えのコメント（問いのコメントの後ろに続く）。
 export const answerBody = ({ question, plan, choice, checked, added, removed, note }) =>

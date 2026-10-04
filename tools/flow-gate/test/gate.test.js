@@ -133,15 +133,15 @@ test("並びは問い・判断材料・本文と最近のコメント・回答�
   waiting("## 問い\n重い CI を飛ばしますか\n\n### 案\n- 飛ばす\n- 飛ばさない\n\n<details><summary>判断材料</summary>\n材料の文\n</details>");
   const html = await open();
   const at = (re) => html.search(re);
-  assert.ok([/重い CI/, /<details open><summary>判断材料/, /<summary>本文/, /<summary>最近のコメント/, /name="plan"/, /name="next"/, /<summary>ラベル/].map(at).every((v, i, a) => v > 0 && (!i || a[i - 1] < v)), "並び");
-  assert.deepEqual(nexts(html), ["未着手", "保留", "完了（完成）", "完了（見送り）"]);
+  assert.ok([/重い CI/, /<details open><summary>判断材料/, /<summary>本文/, /<summary>最近のコメント/, /name="plan"/, /name="next"/, /<summary>ラベル（任意）/].map(at).every((v, i, a) => v > 0 && (!i || a[i - 1] < v)), "並び");
+  assert.deepEqual(nexts(html), ["未着手", "保留", "完成", "見送り"]);
   assert.match(html, /data-text="未着手" checked>/);
   waiting("## 問い\nどうする？\n\n<details><summary>判断材料</summary>\n<b>タグ</b>\n</details>", {}, { markdown: false });
   assert.match(await open(), /white-space:pre-wrap">&#60;b&#62;タグ/);
 });
 
 test("答えは1つのコメント（ユーザーの名義）に残り、行き先ごとに動く。完成は残りの条件を全部確かめたときだけ通り、本文にもチェックが付く", async () => {
-  for (const [next, status, reason] of [["未着手", "未着手"], ["保留", "保留"], ["完了（見送り）", config.done, "NOT_PLANNED"]]) {
+  for (const [next, status, reason] of [["未着手", "未着手"], ["保留", "保留"], ["見送り", config.done, "NOT_PLANNED"]]) {
     const gh = waiting("## 問い\nどうする？\n\n### 案\n- A\n- B", { labels: ["規模S"] });
     await answer(await open(), { next, plan: "A", note: "補足", labels: [config.project.urgentLabel] });
     assert.equal(gh.issue.status, status, next);
@@ -150,9 +150,9 @@ test("答えは1つのコメント（ユーザーの名義）に残り、行き�
   }
   const gh = waiting("## 問い\nどうする？", { body: `${button(4)}${left}` });
   const html = await open();
-  assert.match((await answer(html, { next: "完了（完成）" })).error, /完成にするには次が残っています/);
+  assert.match((await answer(html, { next: "完成" })).error, /完成にするには次が残っています/);
   assert.deepEqual([gh.issue.status, said(gh)], ["回答待ち", []], "断った答えは記録も書かない");
-  await answer(html, { next: "完了（完成）", done: ["マージのあとの操作"] });
+  await answer(html, { next: "完成", done: ["マージのあとの操作"] });
   assert.deepEqual([gh.issue.status, gh.issue.state, /- \[x\] マージのあとの操作/.test(gh.issue.body)], [config.done, "CLOSED", true]);
 });
 

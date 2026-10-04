@@ -23,7 +23,11 @@ f?.addEventListener("submit", async (e) => {
   const j = await (await fetch(location.pathname, { method: "POST", body: new FormData(f) })).json();
   document.body.innerHTML = "";
   document.body.append(Object.assign(document.createElement("p"), { textContent: j.error || "受け付けました（" + j.label + "）。" }));
-  if (j.url) document.body.append(Object.assign(document.createElement("a"), { href: j.url, textContent: "GitHub に戻る", className: "back" }));
+  if (!j.url) return;
+  // 先にタブを閉じる（リンクで移ったあとではこのページが無く、閉じる処理が動かない）。閉じられない開き方なら issue へ移る。
+  const a = Object.assign(document.createElement("a"), { href: j.url, textContent: "GitHub に戻る", className: "back" });
+  a.addEventListener("click", (ev) => (ev.preventDefault(), window.close(), setTimeout(() => location.replace(j.url), 300)));
+  document.body.append(a);
 });
 document.getElementById("back")?.addEventListener("click", () => f.classList.remove("confirm"));
 </script>`;
@@ -35,6 +39,8 @@ const page = (body, status = 200) =>
       `details{border:1px solid #8884;border-radius:.4rem;padding:.4rem .6rem;margin:.5rem 0;overflow-wrap:anywhere}details>div{max-height:40vh;overflow:auto}` +
       `label{display:flex;gap:.5rem;padding:.45rem .6rem;border:1px solid #8886;border-radius:.4rem;margin:.3rem 0}textarea{width:100%;box-sizing:border-box;font:inherit}` +
       `button,.back{display:block;width:100%;padding:.6rem;margin-top:.4rem;border-radius:.4rem;border:0;background:#1f6feb;color:#fff;font:inherit;text-align:center;text-decoration:none}` +
+      `.seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;border:1px solid #8886;border-radius:.4rem;overflow:hidden}.seg label{margin:0;border:0;border-radius:0;justify-content:center}` +
+      `.seg label+label{border-left:1px solid #8886}.seg input{position:absolute;opacity:0}.seg label:has(input:checked){background:#1f6feb;color:#fff}` +
       `.ok,#sum{display:none}.confirm .ok,.confirm #sum{display:block}.confirm .ask{display:none}.confirm label{pointer-events:none;opacity:.6}.who{font-size:13px}` +
       `</style></head><body>${body}${SCRIPT}</body></html>`,
     { status, headers: { "content-type": "text/html; charset=utf-8" } },
@@ -66,9 +72,9 @@ function render({ issue, asked, question, labels, choices, left, html }) {
       `<a href="${esc(issue.url)}">issue を開く</a><form><input type="hidden" name="issue" value="${issue.number}"><input type="hidden" name="q" value="${esc(asked.url)}">` +
       (question.plans.length ? `<h2>回答</h2>${question.plans.map((p) => box("radio", "plan", p, p)).join("")}` : "") +
       `<textarea name="note" rows="4" placeholder="補足（任意）"></textarea>` +
-      `<h2>次のステータス</h2>${choices.map((c, i) => box("radio", "next", i, c.text, ` required data-text="${esc(c.text)}"${c.close === "COMPLETED" ? ' data-complete="1"' : ""}${i ? "" : " checked"}`)).join("")}` +
+      `<h2>次のステータス</h2><div class="seg">${choices.map((c, i) => box("radio", "next", i, c.text, ` required data-text="${esc(c.text)}"${c.close === "COMPLETED" ? ' data-complete="1"' : ""}${i ? "" : " checked"}`)).join("")}</div>` +
       (left.length ? `<div id="left" hidden><h2>確かめた完了の条件</h2>${left.map((l) => box("checkbox", "done", l, l)).join("")}</div>` : "") +
-      fold("ラベル", labels.map((n) => box("checkbox", "label", n, n, have.has(n) ? " checked" : "")).join("")) +
+      fold("ラベル（任意）", labels.map((n) => box("checkbox", "label", n, n, have.has(n) ? " checked" : "")).join("")) +
       `<p id="sum"></p><button type="button" id="back" class="ok">戻る</button><button class="ok">送信</button><button class="ask">確認へ</button></form>`,
   );
 }
