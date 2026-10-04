@@ -4,6 +4,7 @@
 - 点のタグから停止要因・補給休憩の種別を引き当てるSQLと、数える種別へ畳むSQL → `test_tag_classification.py`
 - 道の通行方向を決めるSQL → `test_resolve_direction.py`
 - 停止の待ちが区間の所要時間へ足されること → `test_leg_costs.py`
+- 待ちの秒が管理画面から変えた値を読むこと → `test_tuning_overrides.py`
 - 階級を比べて交差点の待ちを足すこと → `test_routing.py`
 - 停止要因の種別を地図の凡例の行へ写すこと → `test_material_catalog.py`
 """
@@ -11,14 +12,6 @@
 import pytest
 
 from app.domain import traffic
-from app.domain.tuning import TUNING_VALUES
-
-
-def test_the_wait_of_a_stop_follows_the_value_changed_from_the_admin_screen(monkeypatch):
-    """待ちの秒は呼ぶたびに読む。管理画面から変えた値が、プロセスを入れ替えずに次の生成から効く。"""
-    monkeypatch.setitem(TUNING_VALUES, traffic.stop_seconds_parameter_id("signal"), 33.0)
-
-    assert traffic.stop_seconds("signal") == 33.0
 
 
 def test_a_kind_that_is_not_counted_fails_instead_of_waiting_zero_seconds():
