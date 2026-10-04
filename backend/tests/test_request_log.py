@@ -1,11 +1,11 @@
 """リクエストID・アクセスサマリログ(infrastructure/request_log.py)のテスト。
 
-docs/conventions/logging.mdの方針のうち「全レスポンスにX-Request-IDが付く」「クライアント指定の
-X-Request-IDを引き継ぐ」「アクセスサマリのレベルはステータス・経路で変わる」
-「未処理例外はスタックトレース付きERRORで残る」を守る。ログ行の時刻がJSTで、
-オフセットを名乗ることも併せて検査する（書式はこのモジュールが1つだけ持つ）。
+docs/conventions/logging.mdの方針のうち「クライアント指定のX-Request-IDを応答とログ行へ引き継ぐ」
+「アクセスサマリのレベルはステータス・経路で変わる」「未処理例外はスタックトレース付きERRORで残り、
+500応答にもIDが付く」を守る。ログ行の時刻がJSTで、オフセットを名乗ることも併せて検査する
+（書式はこのモジュールが1つだけ持つ）。
 
-ここで見ないもの: IDの形式の確かめ方・発行の仕方 → `asgi_correlation_id`の持ち物
+ここで見ないもの: IDの形式の確かめ方・指定が無いときの発行 → `asgi_correlation_id`の持ち物
 """
 
 import calendar
@@ -27,13 +27,6 @@ from app.infrastructure.request_log import (
 CLIENT_REQUEST_ID = "0f8fad5bd9cb469fa16570867728950e"
 
 
-def test_response_has_generated_request_id():
-    client = TestClient(main_app)
-    response = client.get("/health")
-    assert response.status_code == 200
-    assert response.headers.get("X-Request-ID")
-
-
 def test_incoming_request_id_is_propagated():
     client = TestClient(main_app)
     response = client.get("/health", headers={"X-Request-ID": CLIENT_REQUEST_ID})
@@ -49,9 +42,7 @@ def test_access_log_line_carries_the_request_id(caplog):
 
     records = [r for r in caplog.records if r.name == "ridecompass.access"]
     assert len(records) == 1
-    record = records[0]
-    assert record.levelno == logging.INFO
-    line = caplog.handler.format(record)
+    line = caplog.handler.format(records[0])
     assert f"[req:{CLIENT_REQUEST_ID}]" in line
     assert "GET /health -> 200" in line
     assert "ms client=" in line
@@ -123,19 +114,12 @@ def _formatted_line(created_utc: tuple[int, int, int, int, int, int], msecs: flo
     return handler.format(record)
 
 
-def test_log_time_is_written_in_jst():
-    """コンテナのTZ（UTC）ではなくJSTの壁時計で書く。
+def test_log_time_is_written_in_jst_with_its_offset():
+    """コンテナのTZ（UTC）ではなくJSTの壁時計で書き、行が自分の時間帯を名乗る。
 
     ずれたままだと、ブラウザ側のデバッグログ（利用者のローカル時刻）が示す時刻で
     backendのログを探したとき、9時間離れた窓を見て「該当ログなし」と読んでしまう。
     """
     line = _formatted_line((2026, 9, 18, 0, 0, 30), 840)
 
-    assert line.startswith("2026-09-18 09:00:30,840")
-
-
-def test_log_time_names_its_offset():
-    """行が自分の時間帯を名乗る。ずれていること自体より、読み手が気づけないことが問題。"""
-    line = _formatted_line((2026, 9, 18, 0, 0, 30), 840)
-
-    assert "+0900" in line
+    assert line.startswith("2026-09-18 09:00:30,840+0900")

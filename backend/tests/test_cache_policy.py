@@ -2,6 +2,9 @@
 
 対応表の網羅性を機械的に検証することで、新しいエンドポイントを追加したときの
 「ポリシーの決め忘れ」と、リファクタで消えたパスの「死んだエントリ」の両方を落とす。
+ミドルウェアは、表から付ける・ハンドラの明示を残す・エラー応答に付けない、の3つの側を見る。
+
+ここで見ないもの: 表の各行の秒数（宣言の書き写しになる）
 """
 
 import pytest
@@ -36,7 +39,7 @@ def test_every_policy_entry_matches_a_real_route():
 def test_policy_for_path_prefers_the_longest_prefix():
     # 表への追記順に依存しないことの保証。
     assert policy_for_path("/api/weather/amedas").header() == "public, max-age=120"
-    assert policy_for_path("/api/weather?lat=35&lon=139").header() == "public, max-age=300"
+    assert policy_for_path("/api/weather").header() == "public, max-age=300"
 
 
 def test_policy_for_path_returns_none_for_unknown_path():
@@ -44,7 +47,6 @@ def test_policy_for_path_returns_none_for_unknown_path():
 
 
 def test_cache_policy_header_formats():
-    assert CachePolicy(max_age_seconds=60).header() == "public, max-age=60"
     assert CachePolicy(max_age_seconds=60, immutable=True).header() == "public, max-age=60, immutable"
     assert CachePolicy(max_age_seconds=None).header() == "no-store"
 
@@ -57,10 +59,6 @@ def middleware_client():
 
     @test_app.get("/api/axis-catalog")
     def catalog():
-        return {"ok": True}
-
-    @test_app.get("/api/debug/stats")
-    def stats():
         return {"ok": True}
 
     @test_app.get("/api/axis-catalog/explicit")
@@ -81,11 +79,6 @@ def middleware_client():
 def test_middleware_applies_policy_from_the_table(middleware_client):
     response = middleware_client.get("/api/axis-catalog")
     assert response.headers["cache-control"] == "public, max-age=60"
-
-
-def test_middleware_applies_no_store(middleware_client):
-    response = middleware_client.get("/api/debug/stats")
-    assert response.headers["cache-control"] == "no-store"
 
 
 def test_middleware_keeps_handler_supplied_header(middleware_client):

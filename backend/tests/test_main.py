@@ -1,3 +1,11 @@
+"""`app/main.py`の結線のうち、CORSだけを見る（ブラウザから呼べるか）。
+
+ここで見ないもの:
+- 起動・終了とスケジューラ → `test_main_lifespan.py`
+- リクエストIDとアクセスの記録の結線 → `test_request_log.py`
+- 圧縮 → `test_response_compression.py`、`Cache-Control` → `test_cache_policy.py`、ルーター → 経路ごとのテスト
+"""
+
 from fastapi.testclient import TestClient
 
 from app.config import settings
