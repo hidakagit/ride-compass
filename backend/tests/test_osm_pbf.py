@@ -1,18 +1,27 @@
-"""ノードのソースの取込（`source_adapters/osm_pbf.py: read_osm_nodes`）が採る点。
+"""`batch/source_adapters/osm_pbf.py`——OSMのPBFのアダプタ。
 
-本物のプロファイル（`source_profile.yaml`）で、手で書いたOSMのファイルを読む。差し替えるのは
-読むファイルの置き場だけ。
+入口はノードのソースの取込（`read_osm_nodes`）と、wayの条件の型（`OsmWayRows`）。ノードは、本物のプロファイル
+（`source_profile.yaml`）で手で書いたOSMのファイルを読む。差し替えるのは読むファイルの置き場だけ。
+見るのは、ノードのソースが採る点（道の頂点・道の外の補給・休憩の点と面）と、道の種別を含まない条件を断ること。
+補給・休憩かの判定（`domain/traffic.py: has_supply_poi_tag`）の空白・大文字の揃えと、何を売るかによらない自販機も、
+ほかに通すテストが無いのでここで通す。
+
+ここで見ないもの:
+- wayのソースの取込（`read_osm_ways`）→ どのテストも通さない（派生の段のテストは`tests/source_ingest.py`で
+  アダプタを差し替えて入れる）
 """
 
 import dataclasses
 from pathlib import Path
 from xml.sax.saxutils import quoteattr
 
+import pytest
 import shapely
 from shapely.geometry import Polygon
 
 from app.batch.source_adapters import osm_pbf
-from app.batch.source_profile import load_source_profile
+from app.batch.source_adapters.osm_pbf import OsmWayRows
+from app.batch.source_profile import SourceProfileError, load_source_profile
 
 BASE_LAT, BASE_LON = 35.69, 139.70
 
@@ -20,7 +29,6 @@ BASE_LAT, BASE_LON = 35.69, 139.70
 NODES: dict[int, tuple[float, float, dict[str, str]]] = {
     # 採る道の頂点。タグの無い頂点も、補給・休憩のタグを持つ頂点も採る。
     1: (0.0, 0.0, {}),
-    2: (0.0, 0.001, {"highway": "crossing"}),
     3: (0.0, 0.002, {"shop": "convenience"}),
     # 採らない道（自転車の通れない歩道）の頂点。
     4: (0.001, 0.0, {}),
@@ -40,7 +48,7 @@ NODES: dict[int, tuple[float, float, dict[str, str]]] = {
 
 #: way → (ノードの並び, タグ)。
 WAYS: dict[int, tuple[list[int], dict[str, str]]] = {
-    1: ([1, 2, 3], {"highway": "residential"}),
+    1: ([1, 3], {"highway": "residential"}),
     2: ([4, 5], {"highway": "footway"}),
     3: ([20, 21, 22, 23, 20], {"building": "yes", "shop": "convenience", "name": "店"}),
 }
@@ -84,16 +92,21 @@ async def test_road_vertices_and_supply_points_off_the_road_are_taken(tmp_path, 
     """道の頂点に加え、道から離れた補給・休憩の点を採る。範囲の外と、補給・休憩でない点は採らない。"""
     taken = await _read(tmp_path, monkeypatch)
 
-    assert set(taken) == {"1", "2", "3", "10", "11", "13", "-3"}
+    assert set(taken) == {"1", "3", "10", "11", "13", "-3"}
     assert taken["10"][1] == {"shop": "convenience"}
 
 
 async def test_supply_area_becomes_one_point_inside_it_keyed_by_the_negated_way_id(tmp_path, monkeypatch):
-    """面で描かれた施設は、面の内側の1点として、wayのタグを持って入る。輪郭の頂点は採らない。"""
+    """面で描かれた施設は、面の内側の1点として、wayのタグを持って入る。"""
     taken = await _read(tmp_path, monkeypatch)
 
     point, tags = taken["-3"]
     outline = Polygon([(BASE_LON + NODES[n][1], BASE_LAT + NODES[n][0]) for n in WAYS[3][0]])
     assert outline.contains(point)
     assert tags == WAYS[3][1]
-    assert not {"20", "21", "22", "23"} & set(taken)
+
+
+def test_a_way_condition_without_road_kind_is_refused():
+    """種別を問わない条件は種別の無い道を採りうるので、取込を始める前に止める。"""
+    with pytest.raises(SourceProfileError, match="highway を含む必要があります.*'bicycle'"):
+        OsmWayRows(any_of=[{"highway": ["cycleway"]}, {"bicycle": ["designated"]}])

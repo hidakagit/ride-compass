@@ -4,6 +4,10 @@
 本番の取込は上限つきの使い捨てコンテナで走り、標高のタイルは1件が約0.26MB（256×256画素のint32）ある。
 ここでは同じ大きさの行を数百件、本物の入口へ流し、取込の間のPythonの確保の最大が、流した総量より
 桁で小さいことを見る。アダプタは取込の追加点（`ADAPTERS`）へ差し込んだ、行を作って返すだけのもの。
+
+ここで見ないもの:
+- アダプタが外部の形をどう読むか → `test_npa_honhyo.py`・`test_osm_pbf.py`・`test_gsi_dem_tile.py`
+- 作り直しの間に取込を始めると断ること → 作り直しの側から起こす`test_derive_cli.py`
 """
 
 import tracemalloc
@@ -42,6 +46,11 @@ ROWS = 300
 POINT_WKB = shapely.to_wkb(Point(139.7, 35.6))
 
 
+def _only(source: str, adapter: str) -> SourceProfile:
+    return replace(load_source_profile(None), sources=(
+        SourceSpec(name=source, adapter=adapter, rows=NoFields(), grid=NoFields()),))
+
+
 async def _large_rows(spec, profile, origin):
     for i in range(ROWS):
         yield SourceRecord(natural_key=str(i), geom_wkb=POINT_WKB, attrs={"i": i},
@@ -63,8 +72,7 @@ async def conn(road_graph_engine):
 async def test_memory_held_while_ingesting_does_not_grow_with_the_rows(conn, monkeypatch):
     monkeypatch.setitem(ADAPTERS, SOURCE,
                         RegisteredAdapter(read=_large_rows, rows=NoFields, grid=NoFields))
-    profile = replace(load_source_profile(None), sources=(
-        SourceSpec(name=SOURCE, adapter=SOURCE, rows=NoFields(), grid=NoFields()),))
+    profile = _only(SOURCE, SOURCE)
 
     tracemalloc.start()
     try:
@@ -78,11 +86,6 @@ async def test_memory_held_while_ingesting_does_not_grow_with_the_rows(conn, mon
     assert (count, total) == (ROWS, ROWS * ROW_BYTES)
     # 流した総量は約79MB。溜めずに流していれば、確保の最大は行数によらず一定（数MB）に留まる。
     assert peak < ROWS * ROW_BYTES / 10, f"取込の間の確保の最大 {peak / 1e6:.1f}MB"
-
-
-def _only(source: str, adapter: str) -> SourceProfile:
-    return replace(load_source_profile(None), sources=(
-        SourceSpec(name=source, adapter=adapter, rows=NoFields(), grid=NoFields()),))
 
 
 async def _breaks_midway(spec, profile, origin):

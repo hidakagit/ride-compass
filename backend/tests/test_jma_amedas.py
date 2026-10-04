@@ -3,7 +3,7 @@
 入口は`wind_direction_from_jma_code`・`apparent_temperature_from_amedas`。
 
 ここで見ないもの:
-- 実測から天気コードを導く規則（`domain/weather.py: derive_observed_weather_code`） → `test_weather_service.py`。
+- 実測から天気コードを導く規則（`domain/weather.py: derive_observed_weather_code`） → `test_weather_domain.py`。
   観測値と推計気象分布の空がその規則へ渡り、応答に出ること → `test_jma_amedas_service.py`
 - 16方位の呼び名の並び（`domain/geo.py: SIXTEEN_POINT_LABELS`） → `test_geo.py`
 - 観測値を集めて組み立てること → `test_jma_amedas_service.py`

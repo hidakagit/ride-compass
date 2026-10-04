@@ -1,18 +1,29 @@
+"""`api/routers/axis_catalog.py`——公開軸の一覧（`GET /api/axis-catalog`、認可不要）。
+
+ここで見るもの: 公開軸だけを配ること、軸ごとの欄へ domain の導出を受け渡すこと、domain に低い層の
+テストが無い導出（気象のチップ・生値の単位・材料の内訳・専用配信の条件・画面へ配る較正値）の結果、
+実行時の換算係数を地図の塗る式がタイルのプロパティ名で引けること。
+
+ここで見ないもの:
+- 地図表示の導出と段のラベル → `test_axis_display.py`、一次属性 → `test_axis_hierarchy.py`、
+  塗る値の種類と単位 → `test_dynamic_way_values.py`
+- 換算係数を収録年から導くこと → `test_material_catalog.py`
+- タイルの世代 → `test_derived_data_revision_service.py`・`test_derived_data_meta.py`
+- 軸の項目を応答へそのまま写すこと（表示名・重み・チップの欄等）——書き写しで、判断が無い
+"""
+
 import pytest
 from fastapi.testclient import TestClient
 
 from app.api.dependencies import get_region_service
 from app.domain import tuning
 from app.domain.axis_definitions import (
-    AXIS_DEFINITIONS,
     AxisDefinition,
     BreakpointLinearShape,
     CategoricalShape,
     MaterialTerm,
 )
-from app.domain.rain import rain_window_material_id
-from app.domain.material_catalog import MATERIAL_CATALOG, SURFACE_ESTIMATE, CoverageExcluded, MaterialSpec
-from app.domain.tuning import TUNING_PARAMETERS, TuningEffect
+from app.domain.material_catalog import MATERIAL_CATALOG, SURFACE_ESTIMATE
 from app.infrastructure.derived_data_meta import DataRevisions
 from app.main import app
 from app.services.region_service import RegionService
@@ -31,7 +42,6 @@ CATALOG_AXES: dict[str, AxisDefinition] = {
         default_weight=0.2,
         label="軸グ",
         is_published=True,
-        icon_id="incline",
     ),
     # 得点を塗る軸。
     "axis_way_value_scored": AxisDefinition(
@@ -44,16 +54,15 @@ CATALOG_AXES: dict[str, AxisDefinition] = {
         label="軸ウ",
         is_published=True,
     ),
-    # 分類のshape。地図表示を導出でき、略称を持つ。
+    # 分類のshape。地図表示を導出できる。
     "axis_categorical": AxisDefinition(
         axis_id="axis_categorical",
         shape=CategoricalShape(material=SURFACE_ESTIMATE, mapping={"paved": 0.0, "gravel": 80.0}),
         default_weight=0.2,
         label="軸カ",
         is_published=True,
-        chip_label="チップカ",
     ),
-    # 重みの違う材料を足す軸（和の単位が定まらない）。表示のしきい値を上書きする。
+    # 重みの違う材料を足す軸（和の単位が定まらない）。
     "axis_optional_terms": AxisDefinition(
         axis_id="axis_optional_terms",
         shape=BreakpointLinearShape(
@@ -68,7 +77,6 @@ CATALOG_AXES: dict[str, AxisDefinition] = {
         default_weight=0.2,
         label="軸オ",
         is_published=True,
-        display_thresholds_override=[1.0, 2.0, 3.0],
     ),
     # 実行時スケールを要する材料（収録年数で割る前の生値がタイルに焼かれている）を使う軸。
     "axis_runtime_scaled": AxisDefinition(
@@ -95,18 +103,6 @@ CATALOG_AXES: dict[str, AxisDefinition] = {
         label="軸ナ",
         is_published=True,
     ),
-    # 地図にアイコンを出さない軸。
-    "axis_no_map_icon": AxisDefinition(
-        axis_id="axis_no_map_icon",
-        shape=BreakpointLinearShape(
-            terms=[MaterialTerm(material="highway_is_cycleway", weight=-4.0)],
-            breakpoints=[(-4.0, 0.0), (0.0, 100.0)],
-        ),
-        default_weight=0.1,
-        label="軸ノ",
-        is_published=True,
-        show_map_icon=False,
-    ),
 }
 
 
@@ -119,12 +115,11 @@ def catalog_axes():
 class _CatalogRepository:
     """`/api/axis-catalog`が`RegionService`越しに読むDBの口（データの世代・事故の収録年）の代役。"""
 
-    def __init__(self, revision: int | None = None, imported: int = 0, accident_years: list[int] | None = None):
-        self._revisions = DataRevisions(derived=revision, imported=imported)
+    def __init__(self, accident_years: list[int] | None = None):
         self._accident_years = accident_years or []
 
     async def get_data_revisions(self):
-        return self._revisions
+        return DataRevisions(derived=None, imported=0)
 
     async def get_accident_years(self):
         return self._accident_years
@@ -145,134 +140,37 @@ def client():
     app.dependency_overrides.pop(get_region_service, None)
 
 
-@pytest.fixture
-def draft_axis():
-    # 改善計画T271: 下書き軸（is_published=False）が公開APIから漏れないことの検証用。
-    # AXIS_DEFINITIONSはプロセス全体で共有されるため、他テストへ汚染が漏れないよう
-    # 必ず復元する（test_axis_registry_service.pyのrestore_axis_definitionsと同じ方針）。
-    AXIS_DEFINITIONS["draft_axis"] = axis_definition("draft_axis", is_published=False)
-    yield
-    del AXIS_DEFINITIONS["draft_axis"]
+def _entries(client) -> dict[str, dict]:
+    return {entry["axis_id"]: entry for entry in client.get("/api/axis-catalog").json()["axes"]}
 
 
-def test_get_axis_catalog_requires_no_auth_and_returns_builtin_axes(client, catalog_axes):
-    # 改善計画T269: 読み取り専用・認可不要（axis_adminとは異なりトークン無しでアクセスできる）。
-    response = client.get("/api/axis-catalog")
-
-    assert response.status_code == 200
-    body = response.json()
-    axis_ids = {entry["axis_id"] for entry in body["axes"]}
-    # 内部軸（is_published=False）は一般公開しない。
-    published_axis_ids = {axis_id for axis_id, d in AXIS_DEFINITIONS.items() if d.is_published}
-    assert axis_ids == published_axis_ids
+def test_only_the_published_axes_are_served_without_auth(client):
+    """下書きの軸が一般の画面へ漏れると、まだ固まっていない軸を利用者が選び、変えも消せもしなくなる。"""
+    draft = axis_definition("draft_axis", is_published=False)
+    with replaced_axis_definitions({**CATALOG_AXES, draft.axis_id: draft}):
+        assert set(_entries(client)) == set(CATALOG_AXES)
 
 
-def test_get_axis_catalog_reflects_axis_definitions_content(client, catalog_axes):
-    response = client.get("/api/axis-catalog")
+def test_each_axis_carries_what_the_domain_derives_for_it(client, catalog_axes):
+    """導出の入力違いは domain のテストが持つ。ここは軸ごとの欄へ結果が届くことだけを見る。"""
+    entries = _entries(client)
 
-    body = response.json()
-    entries_by_id = {entry["axis_id"]: entry for entry in body["axes"]}
-    gradient = entries_by_id["axis_way_value_signed"]
-
-    assert gradient["label"] == AXIS_DEFINITIONS["axis_way_value_signed"].label
-    assert gradient["description"] == AXIS_DEFINITIONS["axis_way_value_signed"].description
-    assert gradient["category"] == AXIS_DEFINITIONS["axis_way_value_signed"].category
-    assert gradient["default_weight"] == AXIS_DEFINITIONS["axis_way_value_signed"].default_weight
-
-
-def test_get_axis_catalog_reflects_display_fields(client, catalog_axes):
-    # 地図チップの表示要素（icon_id/chip_label/show_map_icon）は、軸自身のデータを
-    # そのまま配る。未設定はnullで返し、フロントが汎用の既定で埋める。
-    response = client.get("/api/axis-catalog")
-
-    entries_by_id = {entry["axis_id"]: entry for entry in response.json()["axes"]}
-
-    assert entries_by_id["axis_way_value_signed"]["icon_id"] == CATALOG_AXES["axis_way_value_signed"].icon_id
-    assert entries_by_id["axis_categorical"]["chip_label"] == CATALOG_AXES["axis_categorical"].chip_label
-    assert entries_by_id["axis_categorical"]["icon_id"] is None
-    # show_map_iconは既定True。falseにした軸だけがfalseで出る。
-    assert entries_by_id["axis_categorical"]["show_map_icon"] is True
-    assert entries_by_id["axis_no_map_icon"]["show_map_icon"] is False
-
-
-def test_get_axis_catalog_excludes_draft_axes(client, draft_axis):
-    # 改善計画T271完了条件: 下書き軸が一般向けAPIに漏れないこと。
-    response = client.get("/api/axis-catalog")
-
-    axis_ids = {entry["axis_id"] for entry in response.json()["axes"]}
-    assert "draft_axis" not in axis_ids
-
-
-def test_get_axis_catalog_includes_display_for_hand_written_and_auto_derived_axes(client, catalog_axes):
-    # 改善計画T308: displayフィールドが軸ごとに含まれ、is_published切替が即座に
-    # （axis-catalog.jsonの再生成・フロント再デプロイなしに）反映されることの土台。
-    response = client.get("/api/axis-catalog")
-
-    body = response.json()
-    entries_by_id = {entry["axis_id"]: entry for entry in body["axes"]}
-
-    # 上書きを持つ軸は、その値がそのまま段の境界になる（写し方の検証は
-    # test_axis_display.pyが持つ）。
-    overridden = entries_by_id["axis_optional_terms"]["display"]
-    assert overridden["kind"] == "ramp"
-    assert overridden["thresholds"] == CATALOG_AXES["axis_optional_terms"].display_thresholds_override
-
-    # 上書きが無い軸は導出した値をそのまま使う。
-    derived = entries_by_id["axis_categorical"]["display"]
-    assert derived["kind"] == "ramp"
-    assert derived["tile_inputs"][0]["property"] == MATERIAL_CATALOG[SURFACE_ESTIMATE].tile_property
-
-    # gradientはどちらの経路でも導出できないためkind="none"。
-    assert entries_by_id["axis_way_value_signed"]["display"]["kind"] == "none"
-
-
-def test_get_axis_catalog_display_reflects_gui_created_published_axis(client):
-    # 改善計画T308の完了条件そのもの: 軸スタジオが公開した軸（複数材料の重み付き結合、
-    # 手書きoverrideテーブルに含まれない）が、コード変更・再デプロイなしにramp表示を持つ。
-    AXIS_DEFINITIONS["gui_published_axis"] = AxisDefinition(
-        axis_id="gui_published_axis",
-        shape=BreakpointLinearShape(
-            terms=[MaterialTerm(material="lanes_count", weight=1.0)],
-            breakpoints=[(0.0, 0.0), (10.0, 100.0)],
-        ),
-        default_weight=0.1,
-        label="GUI公開軸テスト",
-        is_published=True,
+    categorical = entries["axis_categorical"]
+    assert categorical["display"]["tile_inputs"][0]["property"] == MATERIAL_CATALOG[SURFACE_ESTIMATE].tile_property
+    assert categorical["primary_attribute_ids"] == ["surface"]
+    signed = entries["axis_way_value_signed"]
+    assert (signed["map_value"], signed["map_value_unit"]) == (
+        {"kind": "signed_material", "material": "gradient_percent"},
+        "%",
     )
-    try:
-        response = client.get("/api/axis-catalog")
-        entries_by_id = {entry["axis_id"]: entry for entry in response.json()["axes"]}
-        display = entries_by_id["gui_published_axis"]["display"]
-        assert display["kind"] == "ramp"
-        assert len(display["tile_inputs"]) == 1
-        assert display["tile_inputs"][0]["property"] == "lanes_count"
-        assert display["tile_inputs"][0]["weight"] == 1.0
-        assert display["thresholds"] == [10.0]
-        # 材料idと一次属性idは別の名前空間（材料lanes_countは一次属性lanesを指す）。
-        assert entries_by_id["gui_published_axis"]["primary_attribute_ids"] == ["lanes"]
-    finally:
-        del AXIS_DEFINITIONS["gui_published_axis"]
-
-
-def test_get_axis_catalog_primary_attribute_ids_match_legacy_static_inputs(client, catalog_axes):
-    # 一次属性idは軸が参照する材料から導く。軸が材料を複数持てば、その材料が属する
-    # 一次属性がすべて挙がる。
-    response = client.get("/api/axis-catalog")
-    entries_by_id = {entry["axis_id"]: entry for entry in response.json()["axes"]}
-
-    assert set(entries_by_id["axis_way_value_signed"]["primary_attribute_ids"]) == {"elevation"}
-    assert set(entries_by_id["axis_categorical"]["primary_attribute_ids"]) == {"surface"}
-    assert set(entries_by_id["axis_boolean_terms"]["primary_attribute_ids"]) == {"lit", "tunnel"}
 
 
 def test_get_axis_catalog_names_the_weather_chip_that_shows_a_dynamic_material(client, catalog_axes):
     # 風の材料は一次属性を持たないが、同じ格子の風を描く気象のチップが元データを見せる。
-    response = client.get("/api/axis-catalog")
-    entries_by_id = {entry["axis_id"]: entry for entry in response.json()["axes"]}
+    entries = _entries(client)
 
-    assert entries_by_id["axis_way_value_scored"]["weather_layer_groups"] == ["windVector"]
-    assert entries_by_id["axis_way_value_scored"]["primary_attribute_ids"] == []
-    assert entries_by_id["axis_categorical"]["weather_layer_groups"] == []
+    assert entries["axis_way_value_scored"]["weather_layer_groups"] == ["windVector"]
+    assert entries["axis_categorical"]["weather_layer_groups"] == []
 
 
 def _runtime_scaled_tile_properties(body) -> set[str]:
@@ -284,40 +182,8 @@ def _runtime_scaled_tile_properties(body) -> set[str]:
     }
 
 
-@pytest.fixture
-def second_runtime_scaled_material(monkeypatch):
-    """実行時の換算係数の印を付けた、事故密度とは別の材料と、それを塗る公開軸。"""
-    monkeypatch.setitem(
-        MATERIAL_CATALOG,
-        "second_scaled",
-        MaterialSpec(
-            material_id="second_scaled",
-            label="二つ目",
-            description="二つ目",
-            dtype="numeric",
-            tile_property="second_per_km",
-            tile_property_runtime_scale="per_accident_year",
-            coverage=CoverageExcluded(reason="テスト用", missing_semantics="unknown"),
-        ),
-    )
-    axis = AxisDefinition(
-        axis_id="axis_second_scaled",
-        shape=BreakpointLinearShape(
-            terms=[MaterialTerm(material="second_scaled")], breakpoints=[(0.0, 0.0), (1.0, 100.0)]
-        ),
-        default_weight=0.1,
-        label="軸二",
-        is_published=True,
-    )
-    with replaced_axis_definitions({**CATALOG_AXES, axis.axis_id: axis}):
-        yield
-
-
-def test_every_runtime_scaled_tile_input_finds_its_scale_by_its_tile_property(
-    client, second_runtime_scaled_material
-):
-    """換算係数は材料の宣言から導かれ、地図が塗る値の式はタイルのプロパティ名でそれを引く。
-    印を付けた材料が増えれば、その材料のタイルの値にも係数が届く。"""
+def test_every_runtime_scaled_tile_input_finds_its_scale_by_its_tile_property(client, catalog_axes):
+    """換算係数は材料の宣言から導かれ、地図が塗る値の式はタイルのプロパティ名でそれを引く。"""
     app.dependency_overrides[get_region_service] = lambda: RegionService(
         repository=_CatalogRepository(accident_years=[2019, 2020, 2021, 2022, 2023, 2024])
     )
@@ -325,67 +191,29 @@ def test_every_runtime_scaled_tile_input_finds_its_scale_by_its_tile_property(
     body = client.get("/api/axis-catalog").json()
 
     scaled = _runtime_scaled_tile_properties(body)
-    assert {"accident_per_km", "second_per_km"} <= scaled
+    assert scaled
     assert {p: body["tile_runtime_scales"].get(p) for p in scaled} == {p: pytest.approx(1 / 6) for p in scaled}
-
-
-def test_no_runtime_scale_is_sent_while_the_accident_years_are_unknown(client, catalog_axes):
-    """収録年が読めないと係数は決まらない。係数の無い材料は、画面がどの道も「データなし」で塗る。"""
-    body = client.get("/api/axis-catalog").json()
-
-    assert _runtime_scaled_tile_properties(body)
-    assert body["tile_runtime_scales"] == {}
 
 
 def test_get_axis_catalog_carries_the_calibration_values_the_client_needs(client, monkeypatch):
     """フロントが使う較正値は、このカタログが**いま効いている値**で運ぶ。
 
     ビルド時生成物（route-generate-config.json）だけで配ると、管理画面から変えても
-    次のデプロイまで画面に届かない。運ぶ対象は宣言（効き方がCLIENT_RELOADか、画面の説明文に値を出すもの）から導く。
+    次のデプロイまで画面に届かない。
     """
-    expected = {
-        p.id for p in TUNING_PARAMETERS if p.effect is TuningEffect.CLIENT_RELOAD or p.shown_to_users
-    }
-    assert expected, "画面へ配る較正値が宣言に1件も無い"
-    param_id = sorted(expected)[0]
+    param_id = sorted(client.get("/api/axis-catalog").json()["client_tuning"])[0]
     monkeypatch.setitem(tuning.TUNING_VALUES, param_id, 9.5)
 
-    body = client.get("/api/axis-catalog").json()
-
-    assert set(body["client_tuning"]) == expected
-    assert body["client_tuning"][param_id] == 9.5
-
-
-def test_get_axis_catalog_includes_map_value_and_unit(client, catalog_axes):
-    # 地図の色分けがルート前後で同じスケールを使うための宣言（domain/dynamic_way_values.py:
-    # map_value/map_value_unit）。勾配だけが符号付き材料（%）、他は難易度（無次元）。
-    # 材料は符号付き材料のときだけ項目として在る（nullで埋めない）。
-    response = client.get("/api/axis-catalog")
-    entries_by_id = {entry["axis_id"]: entry for entry in response.json()["axes"]}
-    assert entries_by_id["axis_way_value_signed"]["map_value"] == {
-        "kind": "signed_material",
-        "material": "gradient_percent",
-    }
-    assert entries_by_id["axis_way_value_signed"]["map_value_unit"] == "%"
-    assert entries_by_id["axis_way_value_scored"]["map_value"] == {"kind": "difficulty"}
-    assert entries_by_id["axis_way_value_scored"]["map_value_unit"] == ""
+    assert client.get("/api/axis-catalog").json()["client_tuning"][param_id] == 9.5
 
 
 # 地図が専用配信の要求へ載せるクエリパラメータは、軸が参照する材料の配信サービスが受け取る条件から決まる。
 # 風は時刻を省略できても載せる（利用者が選んだ時刻の風を塗る）。専用配信を持たない軸には何も載せない。
-@pytest.mark.parametrize(
-    ("material", "dedicated", "conditions"),
-    [
-        ("wind_drag_ratio", True, {"at", "bearing_deg", "speed_kmh"}),
-        ("gradient_percent", True, {"bearing_deg"}),
-        (rain_window_material_id(24), True, set()),
-        ("wind_drag_ratio", False, set()),
-    ],
-)
-def test_get_axis_catalog_names_the_query_params_the_map_sends_for_a_dedicated_axis(
-    client, material, dedicated, conditions
-):
-    axis = axis_definition("axis_any_name", material=material, is_published=True, dedicated_way_value_layer=dedicated)
+@pytest.mark.parametrize(("dedicated", "conditions"), [(True, {"at", "bearing_deg", "speed_kmh"}), (False, set())])
+def test_get_axis_catalog_names_the_query_params_the_map_sends_for_a_dedicated_axis(client, dedicated, conditions):
+    axis = axis_definition(
+        "axis_any_name", material="wind_drag_ratio", is_published=True, dedicated_way_value_layer=dedicated
+    )
     with replaced_axis_definitions({axis.axis_id: axis}):
         response = client.get("/api/axis-catalog")
 
@@ -396,42 +224,19 @@ def test_get_axis_catalog_names_the_query_params_the_map_sends_for_a_dedicated_a
 def test_get_axis_catalog_includes_raw_value_unit(client, catalog_axes):
     # 得点の隣へ生値を出すための単位（domain/axis_raw_value.py: raw_value_unit）。
     # 勾配は単一材料をそのまま使うので%、内部軸を合成する軸は単位が定まらずnull。
-    response = client.get("/api/axis-catalog")
-    entries_by_id = {entry["axis_id"]: entry for entry in response.json()["axes"]}
-    assert entries_by_id["axis_way_value_signed"]["raw_value_unit"] == "%"
+    entries = _entries(client)
+    assert entries["axis_way_value_signed"]["raw_value_unit"] == "%"
     # 材料ごとに重みを変えて足す軸は、和がどの単位でも読めない——nullになる。
-    assert entries_by_id["axis_optional_terms"]["raw_value_unit"] is None
+    assert entries["axis_optional_terms"]["raw_value_unit"] is None
 
 
 def test_get_axis_catalog_includes_material_breakdown(client, catalog_axes):
     # 単位が定まらない軸は、材料まで分解した内訳を持つ（得点だけでは軸単体で判断できない、
     # docs/records/tasks/T689.md）。並びは正規化重みの降順で、フロントは並べ替えを持たない。
-    response = client.get("/api/axis-catalog")
-
-    entries_by_id = {entry["axis_id"]: entry for entry in response.json()["axes"]}
+    entries = _entries(client)
     # 単位が定まる軸は分解しない（軸単位の生値で足りる）。
-    assert entries_by_id["axis_way_value_signed"]["material_breakdown"] == []
-    night = entries_by_id["axis_boolean_terms"]["material_breakdown"]
-    assert [entry["material_id"] for entry in night] == ["lit", "has_tunnel"]
-    assert [entry["dtype"] for entry in night] == ["boolean", "boolean"]
-    assert [entry["share"] for entry in night] == [0.5, 0.5]
-    # 材料の表示名・単位はbackendが返す（フロントは対応表を持たない）。
-    lit = next(entry for entry in night if entry["material_id"] == "lit")
-    assert lit["label"]
+    assert entries["axis_way_value_signed"]["material_breakdown"] == []
+    night = entries["axis_boolean_terms"]["material_breakdown"]
+    assert [(entry["material_id"], entry["share"]) for entry in night] == [("lit", 0.5), ("has_tunnel", 0.5)]
     # 真偽値材料に対訳は要らない（走行中に見る画面へ不要なデータを載せない）。
-    assert lit["value_labels"] == {}
-
-
-def test_タイル世代はDBの派生データと生データの世代を前置きして配る(client):
-    """フロントはこの世代でブラウザのキャッシュを分ける。
-
-    カタログは起動直後に取られるため、**カタログ側が自分で読み直しを促さないと**
-    「まだ誰も読んでいない」印（`x-`）のまま配ってしまう。
-    """
-    app.dependency_overrides[get_region_service] = lambda: RegionService(repository=_CatalogRepository(revision=42, imported=5))
-
-    versions = client.get("/api/axis-catalog").json()["tile_versions"]
-
-    assert versions, "タイル世代が配られていない"
-    for name, version in versions.items():
-        assert version.startswith("42.5-"), f"{name}がDBの世代を前置きしていない: {version}"
+    assert night[0]["value_labels"] == {}

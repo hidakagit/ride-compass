@@ -1,6 +1,11 @@
 """`services/flood_service.py`——地点の区域に該当する、現在の指定河川洪水予報を集める。
 
 電文は気象庁の応答の形のまま上流の代役から返し、解くクライアントとdomainの取り出しは本物を通す。
+
+ここで見ないもの:
+- 電文1件が発表中か・区域にかかるか → `test_flood_forecast_domain.py`
+- 訓練・試験の電文を落とすこと → `test_flood_client.py`
+- 地点から区域を引くこと → `test_jma_area_boundaries.py`
 """
 
 import pytest
@@ -50,34 +55,7 @@ async def test_get_forecasts_is_unknown_when_area_boundaries_are_unreadable(monk
     assert await service.get_forecasts(CHIYODA_POINT) is None
 
 
-async def test_get_forecasts_returns_matching_active_forecast(monkeypatch, tmp_path):
-    result = await _service(monkeypatch, tmp_path, flood_documents=[_bulletin()]).get_forecasts(CHIYODA_POINT)
-
-    assert len(result.forecasts) == 1
-    assert result.forecasts[0].river_name == "神田川"
-    assert result.forecasts[0].badge_level == "severe_warning"
-    assert result.forecasts[0].condition == "レベル４氾濫危険警報（発表）"
-
-
-async def test_get_forecasts_ignores_cleared_and_non_matching_and_test_operation_entries(monkeypatch, tmp_path):
-    documents = [
-        # 解除済み（対象外）
-        _bulletin(
-            item={"name": "レベル２氾濫注意報解除", "code": "10", "condition": "レベル２氾濫注意報解除"},
-            riverName="善福寺川",
-        ),
-        # 対象エリア外（対象外）
-        _bulletin(riverName="無関係川", class20Codes=["9999999"], class10Codes=["999999"]),
-        # 訓練電文（対象外）
-        _bulletin(status="訓練"),
-    ]
-
-    result = await _service(monkeypatch, tmp_path, flood_documents=documents).get_forecasts(CHIYODA_POINT)
-
-    assert result.forecasts == []
-
-
-async def test_get_forecasts_returns_multiple_rivers_when_both_match(monkeypatch, tmp_path):
+async def test_get_forecasts_collects_every_active_forecast_and_leaves_out_the_rest(monkeypatch, tmp_path):
     documents = [
         _bulletin(),
         _bulletin(
@@ -85,6 +63,10 @@ async def test_get_forecasts_returns_multiple_rivers_when_both_match(monkeypatch
             item={"name": "レベル２氾濫注意報", "code": "21", "condition": "レベル２氾濫注意報"},
             riverCode="830304004900",
             riverName="善福寺川",
+        ),
+        _bulletin(
+            item={"name": "レベル２氾濫注意報解除", "code": "10", "condition": "レベル２氾濫注意報解除"},
+            riverName="妙正寺川",
         ),
     ]
 

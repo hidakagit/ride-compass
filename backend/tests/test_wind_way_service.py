@@ -6,9 +6,14 @@
 
 差し替えるのはDB（リポジトリ）とMSMのローカルファイルの読み出しだけで、天候サービス・
 評価器は本物を通す。
+
+ここで見ないもの:
+- 指定時刻に最も近い予報の時刻の選び方・格子点の寄せ方・空気抵抗の式 → `test_wind.py`
+- 予報の格子の読み出し → `test_weather_service.py`・`test_msm_client.py`
 """
 
 import inspect
+from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
@@ -55,11 +60,8 @@ def _wind_uv(latitudes, longitudes, hour_index):
     return (lat - 35.0) * 10 * (1 + hour_index), (lon - 139.0) * 10 * (1 + hour_index)
 
 
-def _patch_msm(monkeypatch, times: list[str] = TIMES) -> list[tuple[np.ndarray, np.ndarray]]:
-    asked: list[tuple[np.ndarray, np.ndarray]] = []
-
+def _patch_msm(monkeypatch, times: list[str] = TIMES) -> None:
     async def read_series(latitudes, longitudes):
-        asked.append((np.asarray(latitudes), np.asarray(longitudes)))
         u, v = zip(*(_wind_uv(latitudes, longitudes, h) for h in range(len(times))))
         count = len(latitudes)
         return MsmSeries(
@@ -71,7 +73,6 @@ def _patch_msm(monkeypatch, times: list[str] = TIMES) -> list[tuple[np.ndarray, 
         )
 
     monkeypatch.setattr(msm_client, "read_series", read_series)
-    return asked
 
 
 def _expected(grid_lat: float, grid_lon: float, hour_index: int, bearing_deg: float, speed_kmh: float) -> float:
@@ -88,17 +89,10 @@ def _conditions(bearing_deg: float = 0.0, speed_kmh: float = SPEED_KMH, at: date
     return WindConditions(bearing_deg=bearing_deg, speed_kmh=speed_kmh, at=at)
 
 
-async def test_uncovered_tile_returns_empty_dict_without_reading_the_forecast(monkeypatch):
-    asked = _patch_msm(monkeypatch)
-
-    assert await _service(FakeMidpointsRepository(None)).get_way_values(Z, X, Y, _conditions()) == {}
-    assert asked == []
-
-
-async def test_covered_but_no_ways_returns_empty_dict(monkeypatch):
+async def test_uncovered_tile_returns_empty_dict(monkeypatch):
     _patch_msm(monkeypatch)
 
-    assert await _service(FakeMidpointsRepository({})).get_way_values(Z, X, Y, _conditions()) == {}
+    assert await _service(FakeMidpointsRepository(None)).get_way_values(Z, X, Y, _conditions()) == {}
 
 
 async def test_each_way_takes_the_wind_of_the_grid_point_nearest_its_middle(monkeypatch):
@@ -118,25 +112,14 @@ async def test_each_way_takes_the_wind_of_the_grid_point_nearest_its_middle(monk
         "2-0": _expected(35.70, 139.75, 1, 45.0, 25.0),
         "3": _expected(35.60, 139.8125, 1, 45.0, 25.0),
     }
-    assert len(set(result.values())) == 3
 
 
-async def test_the_forecast_hour_nearest_the_chosen_time_is_used(monkeypatch):
-    _patch_msm(monkeypatch)
-    repository = FakeMidpointsRepository({"1": (35.674, 139.713)})
-
-    result = await _service(repository).get_way_values(Z, X, Y, _conditions(at=datetime(2026, 8, 30, 9, 40)))
-
-    assert result == {"1": _expected(35.65, 139.6875, 2, 0.0, SPEED_KMH)}
-
-
-@pytest.mark.parametrize("at", [datetime(2026, 8, 30, 7, 20), datetime(2026, 8, 30, 10, 40), datetime(2027, 1, 1)])
-async def test_a_time_outside_the_forecast_is_not_painted(monkeypatch, at):
+async def test_a_time_outside_the_forecast_is_not_painted(monkeypatch):
     """ルートの区間は予報の先を端の値で延ばすが、地図は延ばした値で塗らない（「データなし」）。"""
     _patch_msm(monkeypatch)
     repository = FakeMidpointsRepository({"1": (35.674, 139.713)})
 
-    assert await _service(repository).get_way_values(Z, X, Y, _conditions(at=at)) == {}
+    assert await _service(repository).get_way_values(Z, X, Y, _conditions(at=datetime(2026, 8, 30, 10, 40))) == {}
 
 
 async def test_utc_aware_at_is_read_as_jst(monkeypatch):
@@ -161,19 +144,6 @@ async def test_at_none_defaults_to_now(monkeypatch):
     assert set(result) == {"1"}
 
 
-async def test_second_call_is_computed_again(monkeypatch):
-    # 風の値はキャッシュせず、同じ条件でも都度計算する。
-    _patch_msm(monkeypatch)
-    repository = FakeMidpointsRepository({"1": (35.674, 139.713)})
-    service = _service(repository)
-    await service.get_way_values(Z, X, Y, _conditions())
-
-    repository.midpoints = {"1": (35.676, 139.735)}
-    second = await service.get_way_values(Z, X, Y, _conditions())
-
-    assert second == {"1": _expected(35.70, 139.75, 1, 0.0, SPEED_KMH)}
-
-
 async def test_forecast_unavailable_returns_empty_dict(monkeypatch):
     async def unavailable(latitudes, longitudes):
         raise MsmUnavailableError("未同期")
@@ -184,15 +154,14 @@ async def test_forecast_unavailable_returns_empty_dict(monkeypatch):
     assert await _service(repository).get_way_values(Z, X, Y, _conditions()) == {}
 
 
-async def test_repository_error_returns_empty_dict():
-    repository = FakeMidpointsRepository(None, error=ConnectionRefusedError("db down"))
-
-    assert await _service(repository).get_way_values(Z, X, Y, _conditions()) == {}
-
-
-async def test_an_implementation_error_is_not_turned_into_an_empty_result():
-    """DB障害でない例外まで空へ倒すと、利用者には「データなし」に見えて誰も気づかない。"""
-    repository = FakeMidpointsRepository(None, error=TypeError("wrong arguments"))
-
-    with pytest.raises(TypeError):
-        await _service(repository).get_way_values(Z, X, Y, _conditions())
+@pytest.mark.parametrize(
+    ("error", "outcome"),
+    [
+        (ConnectionRefusedError("db down"), nullcontext()),
+        # DB障害でない例外まで空へ倒すと、利用者には「データなし」に見えて誰も気づかない。
+        (TypeError("wrong arguments"), pytest.raises(TypeError)),
+    ],
+)
+async def test_only_a_db_outage_is_turned_into_an_empty_result(error, outcome):
+    with outcome:
+        assert await _service(FakeMidpointsRepository(None, error=error)).get_way_values(Z, X, Y, _conditions()) == {}

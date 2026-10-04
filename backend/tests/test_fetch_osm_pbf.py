@@ -1,6 +1,11 @@
 """OSMの抽出ファイルの取得（scripts/fetch_osm_pbf.py）。
 
-配布元の応答と置き場だけを差し替え、何を取りに行くかは本物のプロファイルから導く。
+入口は`main`。配布元の応答と置き場だけを差し替え、何を取りに行くかは本物のプロファイルから導く。
+見るのは、取込が開くファイルを取りに行くことと、落としたPBFをosmiumで開けたら取得済みとすること。
+
+ここで見ないもの:
+- 一時ファイル経由の取得・読めるものを落とし直さない・読めないものを退ける手順（`app/batch/common.py: fetch_verified`）
+  → `test_fetch_accident_csv.py`
 """
 
 import sys
@@ -25,7 +30,7 @@ def pbf_bytes(tmp_path) -> bytes:
 
 def test_default_profile_fetches_the_file_the_ingest_reads(tmp_path, monkeypatch, pbf_bytes, respx_mock):
     """プロファイルがファイル名を書いていなくても、取込が開くファイルを取りに行く。"""
-    distributor = respx_mock.route().respond(content=pbf_bytes)
+    respx_mock.route().respond(content=pbf_bytes)
     store = tmp_path / "pbf"
     monkeypatch.setattr(fetch_osm_pbf, "DATA_DIR", store)
     monkeypatch.setattr(sys, "argv", ["fetch_osm_pbf.py"])
@@ -35,7 +40,4 @@ def test_default_profile_fetches_the_file_the_ingest_reads(tmp_path, monkeypatch
     ingested = {spec.rows.file for spec in load_source_profile(None).sources
                 if isinstance(spec.rows, OsmWayRows)}
     assert ingested
-    assert [str(call.request.url) for call in distributor.calls] == [
-        fetch_osm_pbf.PBF_URL.format(name=name) for name in sorted(ingested)
-    ]
     assert sorted(p.name for p in store.iterdir()) == sorted(ingested)

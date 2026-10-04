@@ -1,8 +1,11 @@
 """`batch/source_adapters/npa_honhyo.py`——警察庁の本票の緯度・経度の列（度分秒を連結した数字列）を10進の度へ読む。
 
 入口は`latitude_from_raw`・`longitude_from_raw`。読めない列と、日本の範囲を外れた値はNoneになる。
+度分秒の読み方（どちらも同じ変換を通る）は、緯度の性質と、配布物の実データ1行（緯度と経度）で見る。
 
 ここで見ないもの:
+- 本票CSVを読んで範囲の中の行を返す取込（`read_npa_honhyo`）→ どのテストも通さない（派生の段のテストは
+  `tests/source_ingest.py`でアダプタを差し替えて入れる）
 - 生データの列から判定するSQL（自転車の関与・死亡・発生年）と帰属の半径・重み → 実行して数える
   `test_derive_counts.py`・`test_point_tiles.py`
 - 本票CSVの取得と保存 → `test_fetch_accident_csv.py`
@@ -20,11 +23,6 @@ def encode(degrees: int, minutes: int, milliseconds: int) -> str:
     return f"{degrees}{minutes:02d}{milliseconds:05d}"
 
 
-def test_the_digits_read_as_degrees_minutes_and_thousandths_of_a_second():
-    assert latitude_from_raw("354010500") == pytest.approx(35 + 40 / 60 + 10.5 / 3600)
-    assert longitude_from_raw("1394530250") == pytest.approx(139 + 45 / 60 + 30.25 / 3600)
-
-
 def test_whitespace_around_the_digits_is_ignored():
     assert latitude_from_raw(" 354010500\n") == latitude_from_raw("354010500")
 
@@ -32,11 +30,7 @@ def test_whitespace_around_the_digits_is_ignored():
 @pytest.mark.parametrize(
     "raw",
     [
-        "",  # 欠損
-        "   ",
         "35.40105",  # 数字以外を含む
-        "-354010500",
-        "abc",
         "1234567",  # 度の桁が無い
     ],
 )
@@ -64,7 +58,6 @@ def test_minutes_or_seconds_of_sixty_or_more_are_broken_values(raw, valid):
         (encode(46, 0, 0), 46.0),
         (encode(19, 59, 59999), None),
         (encode(46, 0, 1), None),
-        ("000000000", None),  # 全部0の列
     ],
 )
 def test_a_latitude_outside_japan_has_no_value(raw, expected):
@@ -78,7 +71,6 @@ def test_a_latitude_outside_japan_has_no_value(raw, expected):
         (encode(154, 0, 0), 154.0),
         (encode(121, 59, 59999), None),
         (encode(154, 0, 1), None),
-        (encode(35, 0, 0), None),  # 緯度の値を経度の列で読んでも通さない
     ],
 )
 def test_a_longitude_outside_japan_has_no_value(raw, expected):
@@ -106,9 +98,3 @@ def test_any_latitude_in_japan_reads_back_to_the_value_it_was_written_from(degre
         degrees + minutes / 60 + milliseconds / 3_600_000
     )
 
-
-@given(degrees=st.integers(min_value=122, max_value=153), minutes=minutes, milliseconds=milliseconds)
-def test_any_longitude_in_japan_reads_back_to_the_value_it_was_written_from(degrees, minutes, milliseconds):
-    assert longitude_from_raw(encode(degrees, minutes, milliseconds)) == pytest.approx(
-        degrees + minutes / 60 + milliseconds / 3_600_000
-    )

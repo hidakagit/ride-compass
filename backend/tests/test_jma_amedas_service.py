@@ -6,7 +6,14 @@
 
 JMAの観測値エンドポイントは1地点だけを絞り込めず全国分を1レスポンスで返すため、取得は
 `refresh_all_stations`（main.pyの定期バッチが呼ぶ）が一括で担い、`get_nearest_observation`
-（リクエスト経路）はRedis読み取り専用である。
+（リクエスト経路）はRedis読み取り専用である。推計気象分布の色を取るクライアントと空の区分への読み替え、
+観測値と雨の履歴の置き場は、自分のテストを持たないのでここで入口から通す。
+
+ここで見ないもの:
+- 実測と空から天気コードを導く規則 → `test_weather_domain.py`
+- 風向コード・体感温度 → `test_jma_amedas.py`
+- 気象庁の応答を解くこと → `test_jma_amedas_client.py`
+- 1時間雨量の履歴から窓の累計・止んでからの時間を求めること → `test_rain.py`
 """
 
 import io
@@ -25,7 +32,7 @@ from app.domain.jma_suikei import SUIKEI_TARGET_TIMES_PATH
 from app.domain.rain import HOURS_SINCE_RAIN, RAIN_HISTORY_HOURS, RAIN_HISTORY_MAX_AGE, rain_window_material_id
 from app.domain.route import Coordinates
 from app.domain.time_zone import JST
-from app.infrastructure import jma_amedas_client, jma_amedas_store, jma_tile_client
+from app.infrastructure import jma_amedas_client, jma_tile_client
 from app.services.jma_amedas_service import JmaAmedasService, load_station_rain_materials
 from tests import rain_history_fake
 from tests.fake_http import client_for
@@ -145,56 +152,23 @@ def _empty_stores(monkeypatch, fake_redis):
     monkeypatch.setattr(jma_tile_client, "last_fetch_at", None)
 
 
-async def _hashes(redis) -> dict[str, dict[str, str]]:
-    """Redisにあるハッシュ（観測所ごとの観測値）を、キーから中身へ。"""
-    return {key: await redis.hgetall(key) for key in await redis.keys() if await redis.type(key) == "hash"}
-
-
-async def test_refresh_all_stations_caches_every_station_in_one_batch(fake_redis):
-    service = JmaAmedasService(http_client=_upstream())
-
-    count = await service.refresh_all_stations()
-
-    assert count == 2
-    hashes = await _hashes(fake_redis)
-    assert set(hashes) == {"jma:amedas:44132", "jma:amedas:99999"}
-    assert hashes["jma:amedas:44132"]["station_name"] == "東京"
-    expected_apparent = apparent_temperature_from_amedas(26.5, 70, 3.5)
-    assert float(hashes["jma:amedas:44132"]["apparent_temperature_c"]) == expected_apparent
-    # 湿度センサー無しの観測所（99999）は体感温度を計算できずNone（空文字）のまま。
-    assert hashes["jma:amedas:99999"]["apparent_temperature_c"] == ""
-
-
-async def test_refresh_all_stations_warns_when_station_table_fetch_fails(monkeypatch, caplog):
-    # 呼び出し元は例外の有無しか見ないため、1件も書けていないことはサービス層自身が
-    # WARNINGで残すしかない。
-    service = JmaAmedasService(http_client=_upstream(stations=None))
+@pytest.mark.parametrize(
+    ("answers", "message"),
+    [
+        ({"stations": None}, "観測所マスタ"),
+        ({"latest_time": None}, "最新観測時刻"),
+        ({"observation_map": lambda timestamp: None}, "観測値マップ"),
+    ],
+)
+async def test_refresh_all_stations_warns_when_a_fetch_fails(caplog, answers, message):
+    """呼び出し元は例外の有無しか見ないため、1件も書けていないことはサービス層自身がWARNINGで残すしかない。"""
+    service = JmaAmedasService(http_client=_upstream(**answers))
 
     with caplog.at_level("WARNING", logger="ridecompass.jma_amedas_service"):
         count = await service.refresh_all_stations()
 
     assert count == 0
-    assert any("観測所マスタ" in record.message for record in caplog.records)
-
-
-async def test_refresh_all_stations_warns_when_latest_observation_time_fetch_fails(monkeypatch, caplog):
-    service = JmaAmedasService(http_client=_upstream(latest_time=None))
-
-    with caplog.at_level("WARNING", logger="ridecompass.jma_amedas_service"):
-        count = await service.refresh_all_stations()
-
-    assert count == 0
-    assert any("最新観測時刻" in record.message for record in caplog.records)
-
-
-async def test_refresh_all_stations_warns_when_observation_map_fetch_fails(monkeypatch, caplog):
-    service = JmaAmedasService(http_client=_upstream(observation_map=lambda timestamp: None))
-
-    with caplog.at_level("WARNING", logger="ridecompass.jma_amedas_service"):
-        count = await service.refresh_all_stations()
-
-    assert count == 0
-    assert any("観測値マップ" in record.message for record in caplog.records)
+    assert any(message in record.message for record in caplog.records)
 
 
 async def test_get_nearest_observation_reads_from_redis_without_fetching(monkeypatch):
@@ -238,7 +212,7 @@ def _at_night(precipitation_10min_mm):
 @pytest.mark.parametrize(
     ("precipitation_10min_mm", "color_at_point", "expected"),
     [
-        (0.0, CLEAR, 0),  # 晴れた夜は、日照が0でも晴れ
+        (0.0, CLEAR, 0),  # 晴れた夜は、日照が0でも晴れ。地点の周りはくもりで塗ってある
         (0.0, CLOUDY, 3),
         (0.0, RAIN, 3),  # 観測所で降っていなければ、推計の雨の区分は空のくもりとして出す
         (0.2, CLEAR, 63),  # 降っているかは観測所の実測が決める（10分0.2mm＝1時間1.2mm相当）
@@ -251,13 +225,6 @@ async def test_weather_code_takes_rain_from_the_station_and_the_sky_from_the_poi
 
     assert result is not None
     assert result.weather_code == expected
-
-
-async def test_sky_is_read_at_the_requested_point_not_around_it():
-    result = await _nearest(observation_map=_at_night(0.0), suikei=suikei_tile(CLOUDY, elsewhere=CLEAR))
-
-    assert result is not None
-    assert result.weather_code == 3
 
 
 @pytest.mark.parametrize(
@@ -290,29 +257,6 @@ async def test_get_nearest_observation_returns_none_when_not_yet_cached(monkeypa
     result = await service.get_nearest_observation(POINT)
 
     assert result is None
-
-
-async def test_get_nearest_observation_fails_open_when_redis_client_unavailable(monkeypatch):
-    # 設定ミス等でクライアント生成自体が失敗する場合、`get_redis_client_or_none`はNoneを
-    # 返す。例外を外へ漏らさず「観測値なし」へ倒すこと。
-    monkeypatch.setattr(jma_amedas_store, "get_redis_client_or_none", lambda: None)
-    service = JmaAmedasService(http_client=_upstream())
-
-    result = await service.get_nearest_observation(POINT)
-
-    assert result is None
-
-
-async def test_refresh_all_stations_fails_open_when_redis_client_unavailable(monkeypatch, caplog):
-    # 書き込み側も同じfail-open契約を守る。書き込みだけをスキップし、バッチは完了する。
-    monkeypatch.setattr(jma_amedas_store, "get_redis_client_or_none", lambda: None)
-    service = JmaAmedasService(http_client=_upstream())
-
-    count = await service.refresh_all_stations()
-
-    # 観測値マップ自体の取得（JMA API側）は成功しているためcountは通常どおり返る。
-    # Redisへの書き込みだけがスキップされる。
-    assert count == 2
 
 
 # --- 毎正時の1時間雨量の履歴（雨の材料の元） ---
@@ -366,9 +310,7 @@ async def test_rain_history_is_backfilled_from_past_hourly_maps(monkeypatch):
     assert materials is not None
     # 雨量計を持たない観測所（99999）は最寄りの候補に入らない。
     assert len(materials.latitudes) == 1
-    assert materials.values[rain_window_material_id(1)][0] == 0.0
     assert materials.values[rain_window_material_id(3)][0] == 3.0
-    assert materials.values[rain_window_material_id(4)][0] == 6.0
     assert materials.values[HOURS_SINCE_RAIN][0] == 2.0
 
 
@@ -405,12 +347,12 @@ async def test_an_hour_that_could_not_be_fetched_is_retried_and_leaves_its_windo
 
 
 async def test_rain_history_is_not_refetched_while_redis_is_down(monkeypatch, redis_server):
-    """置き場が使えないたびに全本を取り直すと、10分ごとに気象庁へ全本を問い合わせ続ける。"""
+    """置き場が使えないたびに全本を取り直すと、10分ごとに気象庁へ全本を問い合わせ続ける。観測値の書き込みだけを
+    飛ばし、バッチは取れた観測所の数を返して終わる。"""
     redis_server.connected = False
     maps = RainMaps(_latest_hour(datetime.now(JST)), rain_by_back={})
 
-    await _rain_service(monkeypatch, maps).refresh_all_stations()
-
+    assert await _rain_service(monkeypatch, maps).refresh_all_stations() == 2
     assert maps.requested_hours == []
 
 

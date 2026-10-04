@@ -1,7 +1,13 @@
 """標高タイルの取得（scripts/fetch_dem_tiles.py）。
 
-配信元は`httpx.MockTransport`の代役に、置き場は一時ディレクトリに差し替える。取る母集団は
+入口は`fetch`。配信元は`httpx.MockTransport`の代役に、置き場は一時ディレクトリに差し替える。取る母集団は
 本物のプロファイルの宣言（製品とズーム）から導き、範囲だけをタイル1枚ぶんへ絞る。
+見るのは、宣言した製品をそれぞれのズームで取り、返ったものを置いて404は区域外の印にすることと、
+次の実行がどちらも叩かないこと。
+
+ここで見ないもの:
+- 置き場のパスと印の形（`app/batch/dem_tile_store.py`）→ 置いたものを同じモジュールで読み戻すだけで、形は見ない
+- 一時的な失敗の試し直しと、諦めたタイルがあれば失敗で終えること → どのテストも通さない
 """
 
 from dataclasses import replace
@@ -61,18 +67,8 @@ def profile():
     return _profile()
 
 
-async def test_every_declared_product_is_requested_at_its_own_zoom(tmp_path, profile):
-    """1つの製品が返しても他の製品を取りやめず、各製品を宣言したズームで1回ずつ叩く。"""
-    origin = Origin()
-    async with origin.client() as client:
-        results = await fetch_dem_tiles.fetch(client, tmp_path, profile, attempts=1)
-
-    expected = _declared_requests(profile)
-    assert sorted(origin.requests) == sorted(expected)
-    assert sum(counts["往復"] for counts in results.values()) == len(expected)
-
-
 async def test_served_tiles_are_stored_and_the_rest_marked_absent_per_product(tmp_path, profile):
+    """1つの製品が返しても他の製品を取りやめず、各製品を宣言したズームで取る。"""
     origin = Origin()
     async with origin.client() as client:
         await fetch_dem_tiles.fetch(client, tmp_path, profile, attempts=1)

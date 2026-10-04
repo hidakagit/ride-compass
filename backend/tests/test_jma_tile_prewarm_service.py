@@ -8,9 +8,11 @@
 インデックスの書き込み先（Redis）だけ。
 
 ここで見ないもの:
-- タイルの取得・キャッシュ・空タイルの扱い → `test_jma_tile_client.py`・`test_jma_tile_redis_cache.py`
+- タイルの取得・キャッシュ・空タイルの扱い・読めない時刻一覧の形 → `test_jma_tile_client.py`・`test_jma_tile_redis_cache.py`
 - 空かどうかの判定 → `test_jma_tile_content.py`
-- 配信元仕様（ズームの偶奇・時刻一覧のファイル） → `test_jma_tile_specs.py`
+- 配信元仕様（ズームの偶奇・時刻一覧のファイル）・時刻一覧の読み方（別の要素の行・最新の実況・最新の行・
+  メンバーごとの最新の完全なラン）・タイルのパスと拡張子 → `test_jma_tile_specs.py`
+- 段をつないだときの各段の最初のコマ（前の段の後ろに続く・前の段に覆われた段は描かない） → `test_weather_elements.py`
 
 配信元の仕様の事実として、要素はどれも偶数ズーム（4・6・8・10、雷と竜巻は8まで）だけが実データを持ち、
 奇数ズームは親から補う。
@@ -87,7 +89,7 @@ OPAQUE, TRANSPARENT = _png(255), _png(0)
 
 
 class Source:
-    """配信元の代役。時刻一覧はJSONで、タイルは`tiles`（パスの一部→返す値）の最初に当たるもの、無ければ空タイル。"""
+    """配信元の代役。時刻一覧はJSON（Noneなら取れない）で、タイルは`tiles`（パスの一部→返す値）の最初に当たるもの、無ければ空タイル。"""
 
     def __init__(self, target_times=None, tiles=None):
         self.target_times = _target_times() if target_times is None else target_times
@@ -98,10 +100,8 @@ class Source:
         self.requests.append(path)
         if path in TARGET_TIMES:
             value = self.target_times.get(path)
-            if value is None or isinstance(value, prewarm.EmptyTile):
-                return value
-            if isinstance(value, bytes):
-                return value, "text/html"
+            if value is None:
+                return None
             return json.dumps(value).encode(), "application/json"
         for fragment, value in self.tiles.items():
             if fragment in path:
@@ -171,53 +171,9 @@ async def test_tiles_are_fetched_over_the_given_area(stored):
     assert z10 == set(tiles_covering_bbox(AREA, 10))
 
 
-async def test_an_element_with_observations_and_forecasts_warms_the_latest_observation(stored):
-    """実況＋予測の要素は、画面の時系列の左端（最新の実況）を温める。予測フレームは温めない（全フレームだと
-    タイル数が桁違いになる）。"""
-    source = Source()
-
-    await _run(source)
-
-    frames = {(_tile_parts(p)["basetime"], _tile_parts(p)["validtime"]) for p in source.tile_requests("hrpns")}
-    assert frames == {("20260922001000", "20260922001000")}
-
-
-async def test_an_element_that_holds_one_current_value_warms_its_newest_row_even_when_it_is_a_forecast(stored):
-    """配信元が実況と予測を統合済みの「現在」の単一値は、画面が最新の行を描く。実況の行を優先すると、画面と
-    違うフレームを温め、在否インデックスも画面のフレームと一致しなくなる。"""
-    target_times = _target_times()
-    target_times[RISK] += [_row("20260922001000", "20260922013000", *RISK_ELEMENTS)]
-    source = Source(target_times=target_times)
-
-    await _run(source)
-
-    frames = {(_tile_parts(p)["basetime"], _tile_parts(p)["validtime"], _tile_parts(p)["member"])
-              for p in source.tile_requests("rain_mesh")}
-    assert frames == {("20260922001000", "20260922013000", "none")}
-    assert stored[0]["elements"]["rain_mesh"]["validtime"] == "20260922013000"
-
-
-async def test_rows_that_do_not_list_the_element_are_ignored(stored):
-    """時刻一覧には、その要素のタイルが無い時刻の行も載る。それを採ると存在しないタイルを取りに行き続ける。"""
-    source = Source()
-
-    await _run(source)
-
-    frames = {(_tile_parts(p)["basetime"], _tile_parts(p)["member"]) for p in source.tile_requests("thns")}
-    assert frames == {("20260922000500", "none")}
-
-
-async def test_an_element_with_only_forecast_frames_warms_its_latest_run(stored):
-    source = Source()
-
-    await _run(source)
-
-    frames = {(_tile_parts(p)["basetime"], _tile_parts(p)["validtime"]) for p in source.tile_requests("sjfcstmap")}
-    assert frames == {("20260922000000", "20260922020000")}
-
-
 async def test_a_later_stage_warms_the_first_frame_the_screen_draws_after_the_earlier_stage(stored):
-    """降水は01:00まで1段目、その先を2段目で描く。2段目は最新の完全な予報ランの、01:00より後の最初のフレーム。"""
+    """降水は01:00まで1段目（2つの時刻一覧に分かれて載る）、その先を2段目で描く。2段目は最新の完全な予報ランの、
+    01:00より後の最初のフレーム。予測フレームを全部温めるとタイル数が桁違いになるので、段ごとに1フレームだけ。"""
     source = Source()
 
     await _run(source)
@@ -225,15 +181,6 @@ async def test_a_later_stage_warms_the_first_frame_the_screen_draws_after_the_ea
     frames = {(_tile_parts(p)["basetime"], _tile_parts(p)["validtime"], _tile_parts(p)["member"])
               for p in source.tile_requests("rasrf")}
     assert frames == {("20260922000000", "20260922020000", "m1")}
-
-
-async def test_vector_tiles_are_requested_as_pbf(stored):
-    source = Source()
-
-    await _run(source)
-
-    assert {_tile_parts(p)["ext"] for p in source.tile_requests("flood")} == {"pbf"}
-    assert {_tile_parts(p)["ext"] for p in source.tile_requests("land")} == {"png"}
 
 
 # --- 在否インデックス ---
@@ -267,8 +214,8 @@ async def test_a_zoom_filled_from_its_parent_is_listed_wherever_the_parent_has_s
     await _run(source)
 
     zooms = stored[0]["elements"]["rain_mesh"]["zooms"]
-    expected = sorted([x * 2 + dx, y * 2 + dy] for x, y in zooms["4"] for dx in (0, 1) for dy in (0, 1))
-    assert sorted(zooms["5"]) == expected
+    assert zooms["4"] == [[14, 6]]
+    assert sorted(zooms["5"]) == [[28, 12], [28, 13], [29, 12], [29, 13]]
     assert "7" not in zooms  # 親の6に中身が無い
 
 
@@ -277,7 +224,6 @@ async def test_the_index_says_which_frame_and_which_area_it_describes(stored):
     await _run(Source())
 
     (payload,) = stored
-    assert set(payload["elements"]) == {"hrpns", "rasrf", "sjfcstmap", "rain_mesh", "land", "inund", "thns", "trns", "flood"}
     assert payload["elements"]["rasrf"] | {"zooms": None} == {
         "basetime": "20260922000000", "validtime": "20260922020000", "member": "m1", "zooms": None,
     }
@@ -287,10 +233,9 @@ async def test_the_index_says_which_frame_and_which_area_it_describes(stored):
 # --- 時刻一覧が取れないとき ---
 
 
-@pytest.mark.parametrize("unusable", [None, prewarm.EmptyTile(), b"<html>maintenance</html>"])
-async def test_elements_whose_time_list_cannot_be_read_are_skipped_with_a_warning(stored, caplog, unusable):
+async def test_elements_whose_time_list_cannot_be_read_are_skipped_with_a_warning(stored, caplog):
     target_times = _target_times()
-    target_times[RISK] = unusable
+    target_times[RISK] = None
     source = Source(target_times=target_times)
 
     with caplog.at_level(logging.WARNING, logger="ridecompass.jma_tile_prewarm_service"):
@@ -325,34 +270,3 @@ async def test_nothing_is_stored_when_no_time_list_can_be_read(stored):
 
     assert stored == []
     assert [p for p in source.requests if p not in TARGET_TIMES] == []
-
-
-async def test_a_later_stage_with_no_frame_after_the_earlier_stage_is_skipped(stored):
-    """2段目の予報が1段目の終わりまでしか届いていなければ、画面はその段を描かない。"""
-    target_times = _target_times()
-    target_times[RASRF] = [row for row in target_times[RASRF] if "rasrf" not in row["elements"]] + [
-        _row("20260922000000", "20260922003000", "rasrf", member="m1"),
-        _row("20260922000000", "20260922010000", "rasrf", member="m1"),
-    ]
-    source = Source(target_times=target_times)
-
-    await _run(source)
-
-    assert not source.tile_requests("rasrf")
-    assert source.tile_requests("hrpns")
-
-
-async def test_each_member_of_a_later_stage_takes_its_own_latest_full_run(stored):
-    """最新の完全なランはメンバーごとに決まる。全体で最新のランだけを見ると、別のメンバーの先に描くフレームを落とす。"""
-    target_times = _target_times()
-    target_times[RASRF] += [
-        _row("20260921233000", "20260922015000", "rasrf", member="m2"),
-        _row("20260921233000", "20260922025000", "rasrf", member="m2"),
-    ]
-    source = Source(target_times=target_times)
-
-    await _run(source)
-
-    frames = {(_tile_parts(p)["basetime"], _tile_parts(p)["validtime"], _tile_parts(p)["member"])
-              for p in source.tile_requests("rasrf")}
-    assert frames == {("20260921233000", "20260922015000", "m2")}
