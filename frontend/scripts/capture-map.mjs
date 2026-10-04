@@ -1,11 +1,13 @@
 // 地図の画面を、指定の位置・幅・レンズで撮る（Pull Request の修正前後のキャプチャ。docs/conventions/flow.md「作る担当」の5）。
 //
 //   node scripts/capture-map.mjs [--url <frontend のオリジン> | --local --api <backend のオリジン>] [--lens <レンズの名前>]...
-//     [--point <緯度,経度>] [--size <幅>x<高さ>] [--zoom <倍率>] [--theme light|dark] [--replace <URL の glob>=<ファイル>]...
+//     [--layer <レイヤーの id>]... [--point <緯度,経度>] [--size <幅>x<高さ>] [--zoom <倍率>] [--theme light|dark] [--replace <URL の glob>=<ファイル>]...
 //     [--out <出力のディレクトリ>] [--no-build]
 //
 // 既定は本番の画面（--url の既定）。--local は作業ツリーの版をビルドして手元で起動し、API とタイルを --api の backend へ向けて撮る
 // （本番に出る前の版。地図の塗りに要る道路タイルは backend が持つので、本番の backend へ向ければ開発 DB は要らない）。
+// --layer は、その id のレイヤー（チップで ON にする点・道の線等。id は mapDisplay.layers）を ON にして開く。渡さないレイヤーは
+// 既定の表示のまま。知らない id は、選べる id を並べて止まる。
 // --replace は、URL が glob に当たる応答の本文を差し替える。.json はファイルの中身で、.mjs は default export の関数（本物の JSON を
 // 受け取って返す）で替える。撮る前に Playwright の Chromium と、Linux なら日本語のフォント（無いと文字が豆腐になる）を入れる。
 
@@ -23,6 +25,7 @@ const { values } = parseArgs({
     local: { type: "boolean", default: false },
     api: { type: "string" },
     lens: { type: "string", multiple: true, default: [] },
+    layer: { type: "string", multiple: true, default: [] },
     point: { type: "string" },
     size: { type: "string", default: "390x812" },
     zoom: { type: "string" },
@@ -61,6 +64,7 @@ const status = runCapture("capture/map.spec.ts", {
   ...(values.point ? { E2E_LIVE_POINT: values.point } : {}),
   CAPTURE_OPTIONS: JSON.stringify({
     lenses: values.lens,
+    layers: values.layer,
     out,
     viewport: { width, height },
     zoom: values.zoom === undefined ? null : Number(values.zoom),

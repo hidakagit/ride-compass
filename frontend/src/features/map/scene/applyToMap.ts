@@ -34,9 +34,8 @@ import { tileBaseUrl } from "@/lib/tileBaseUrl";
 import {
   ROAD_TILE_MAX_ZOOM,
   ROAD_TILE_MIN_ZOOM,
-  accidentTileUrl,
   landcoverTileUrl,
-  poiTileUrl,
+  pointTileUrl,
   roadSurfaceTileUrl,
   type TileVersions,
 } from "@/features/map/regionApi";
@@ -44,8 +43,8 @@ import regionTileConfig from "@/types/generated/region-tile-config.json";
 
 /** ベクタタイル内のレイヤー名。源泉が配る値をそのまま使う。 */
 export const ROAD_TILE_SOURCE_LAYER = regionTileConfig.road_surface.layer_name;
-export const ACCIDENT_TILE_SOURCE_LAYER = regionTileConfig.accident.layer_name;
-export const STOP_POI_SOURCE_LAYER = regionTileConfig.poi.stop_poi_layer_name;
+export const ACCIDENT_TILE_SOURCE_LAYER = regionTileConfig.point_layers.accident;
+export const STOP_POI_SOURCE_LAYER = regionTileConfig.point_layers.poi;
 
 import { applyMapScene } from "./applyMapScene";
 import { buildAxisRampUnknownExpression, buildAxisRampValueExpression } from "./groups/axisLines";
@@ -269,8 +268,8 @@ export function sceneInputsFrom(props: SceneWiringProps): SceneInputs {
     point: {
       tiles: versions
         ? {
-            poi: [poiTileUrl(versions)],
-            accident: [accidentTileUrl(versions)],
+            poi: [pointTileUrl(versions, "poi")],
+            accident: [pointTileUrl(versions, "accident")],
             poiSourceLayer: STOP_POI_SOURCE_LAYER,
             accidentSourceLayer: ACCIDENT_TILE_SOURCE_LAYER,
             minZoom: ROAD_TILE_MIN_ZOOM,

@@ -11,16 +11,16 @@ OSM由来の道路データ（PBF取込）・警察庁事故データ・土地�
 | レイヤー | ファイル |
 |---|---|
 | domain | `road.py`・`attributes.py`・`accident.py`・`traffic.py`（OSMタグの解釈と分類。停止要因・補給POIの種別、通行方向、道の階級）・`landcover.py`（土地被覆クラス別割合の算出と、数える帯の幅。割合の列・焼き込み列の名前の規則。評価軸の材料）・`divided_carriageway.py`（上下線が分かれた道の片側かを判定するしきい値）・`map_display.py`・`display_palette.py`（地図の束ね方・レイヤーごとの種別と情報源と既定表示・常に出す出典・描く寸法と配色。**本番プロセスは読まず**、`scripts/export_openapi.py`の生成物を経由してだけ画面へ届く。読み方は[地図: 静的レイヤー](../frontend/static-map-layers.md)）（[region.py](routing-engine.md)は別モジュール管轄） |
-| services | `tile_serving.py`・`accident_service.py`・`region_service.py`・`landcover_tile_service.py`（土地被覆ラスタタイルの配信）・`derived_data_freshness_service.py`（派生データ鮮度台帳）・`tile_version_service.py`（配信するタイル世代の組み立て。形の署名とDBの派生データ・生データの世代から作る）・`derived_data_revision_service.py`（DBの派生データ・生データの世代をTTL付きで読み直す。別コンテナのバッチが書き直したことにbackendが気づく唯一の経路で、タイル世代の組み立て等の配信側が読む）・`db_status_service.py`（本番DB状態の判定。しきい値と根拠を持つ） |
-| infrastructure | `vector_tile.py`・`tile_cache.py`・`landcover_raster.py`（土地被覆GeoTIFFの読み取り・再投影・着色）・`source_models.py`（外部ソースの生データを、ソースによらない1つの形で持つ。点・線・ラスタのタイルを同じ骨格へ載せ、取込1回ぶんを`source_runs`が記録する。コードが名指すソース名と取込の状態の綴り［`Source`・`SourceRunStatus`］、ソースごとの生データを読む副問い合わせ、ソースの成功した最新の取込を指す副問い合わせ［`latest_succeeded_run_sql`。派生の基準・取込の範囲はここから読む］、成功した取込の数［`succeeded_run_count`。生データの世代］もここが持つ）・`derived_models.py`（生データから導いたもの。粒度ごとに1表で、バッチが1つ増えても表は増えない）・`orm_base.py`（ORMの基底。どのモデルからも辿れる位置に置き、モデル同士がimportで絡まないようにする。全表を載せたmetadata［`declared_metadata`。importの有無で表が欠けないよう、全表を見る側はここを通す］と、取り直せない表の印［`IRREPLACEABLE`］もここが持つ）・`accident_repository.py`・`derived_data_freshness.py`（派生データ鮮度台帳）・`db_status.py`（本番DBの状態＝取込runの最終実行・テーブルの実数と容量・統計とVACUUMの鮮度・接続）・`proj_data.py`（rasterioが参照するPROJデータをrasterio同梱のものへ固定する。別インストールの`proj.db`を掴むとEPSG解決が失敗するため、rasterioのimport前に呼ぶ） |
+| services | `tile_serving.py`・`region_service.py`・`landcover_tile_service.py`（土地被覆ラスタタイルの配信）・`derived_data_freshness_service.py`（派生データ鮮度台帳）・`tile_version_service.py`（配信するタイル世代の組み立て。形の署名とDBの派生データ・生データの世代から作る）・`derived_data_revision_service.py`（DBの派生データ・生データの世代をTTL付きで読み直す。別コンテナのバッチが書き直したことにbackendが気づく唯一の経路で、タイル世代の組み立て等の配信側が読む）・`db_status_service.py`（本番DB状態の判定。しきい値と根拠を持つ） |
+| infrastructure | `vector_tile.py`・`tile_cache.py`・`landcover_raster.py`（土地被覆GeoTIFFの読み取り・再投影・着色）・`source_models.py`（外部ソースの生データを、ソースによらない1つの形で持つ。点・線・ラスタのタイルを同じ骨格へ載せ、取込1回ぶんを`source_runs`が記録する。コードが名指すソース名と取込の状態の綴り［`Source`・`SourceRunStatus`］、ソースごとの生データを読む副問い合わせ、ソースの成功した最新の取込を指す副問い合わせ［`latest_succeeded_run_sql`。派生の基準・取込の範囲はここから読む］、成功した取込の数［`succeeded_run_count`。生データの世代］もここが持つ）・`derived_models.py`（生データから導いたもの。粒度ごとに1表で、バッチが1つ増えても表は増えない）・`orm_base.py`（ORMの基底。どのモデルからも辿れる位置に置き、モデル同士がimportで絡まないようにする。全表を載せたmetadata［`declared_metadata`。importの有無で表が欠けないよう、全表を見る側はここを通す］と、取り直せない表の印［`IRREPLACEABLE`］もここが持つ）・`point_tile_layers.py`（点のタイルのレイヤーの宣言。名前・source-layer名・焼き込むSQL。配信・世代の表・生成物はここから組み立てる）・`derived_data_freshness.py`（派生データ鮮度台帳）・`db_status.py`（本番DBの状態＝取込runの最終実行・テーブルの実数と容量・統計とVACUUMの鮮度・接続）・`proj_data.py`（rasterioが参照するPROJデータをrasterio同梱のものへ固定する。別インストールの`proj.db`を掴むとEPSG解決が失敗するため、rasterioのimport前に呼ぶ） |
 | scripts | `measure_poi_freshness.py`（補給・休憩のPOIの鮮度を、OSMの確認日・最終編集日時から推定する）・`measure_vending_types.py`（自販機が何を売るかの判定を、取り込む前のPBF全体に当てて残る件数・落ちる件数を数える） |
-| api | `region.py`（路面/POI/動的材料/土地被覆タイル・区間インスペクタ）・`accidents.py`（事故タイル）・`_tile_http.py`（両者が共有する座標検証と応答組み立て）・`derived_data_freshness.py`（`GET /api/admin/derived-data/freshness`、Basic認証必須）・`db_status.py`（`GET /api/admin/db-status`、同） |
+| api | `region.py`（路面/点/動的材料/土地被覆タイル・区間インスペクタ）・`_tile_http.py`（タイルの口が共有する座標検証と応答組み立て）・`derived_data_freshness.py`（`GET /api/admin/derived-data/freshness`、Basic認証必須）・`db_status.py`（`GET /api/admin/db-status`、同） |
 | batch | `ingest.py`（外部ソースの共通取込経路。アダプタから受けた1件ずつをステージングへ積み、そのソースのパーティションだけを入れ替え、`source_runs`へ適用した絞り込みごと記録する。runを開く記録と失敗の記録は入れ替えと別のトランザクションで書き、成功の記録は入れ替えと同じトランザクションで書く——失敗した取込は行を元のまま残して`failed`のrunが残り、`succeeded`のrunの行は必ず入っている）・`ingest_cli.py`（その入口）・`source_profile.py`／`source_profile.yaml`（取り込む母集団の宣言。実装には範囲を書かない。読む側が知らない欄があれば取込の前に止める）・`source_adapters/`（外部の形を開いて1件ずつ返すだけの実装。`npa_honhyo.py`は警察庁の本票CSV（配信元は叩かず、手元にあるものを読む。無ければ何を流せばよいかを言って止まる。度分秒をつないだ数字列の緯度・経度を度へ読み、日本の範囲を外れた値は壊れた値として落とす）、`osm_pbf.py`はOSMのPBF（way・node。タグを絞らず全部持つ。PBFの読み取り自体は`pbf_source.py`が持ち、pyosmiumへの依存をそこへ閉じ込める）、`io_lulc_tile.py`は土地被覆ラスタをタイルへ切って、`gsi_dem_tile.py`は地理院の標高タイル——製品×タイル1枚を1行として返し、標高はint32（0.01m単位）で詰める。面のタイルは`_raster_wkb.py`がPostGISの`raster`へ包む。位置・画素の大きさ・型・欠測値をその値自身に持たせ、読み手が属性から形を組み立てなくてよいようにする）・`derive_cli.py`（派生を作り直す入口。段の順番と、どの段がどの較正値を読むかはここだけが持つ。較正値は始めにDBの上書きから読み、段へ値で渡す。作業用のスキーマで作り、道路網の配列まで作ってから`public`の表と入れ替えて世代を進める）・`derive_topology.py`（生データから区間`road_edges`とノードの枝数を導く。切る位置は2本以上の道が通るノード）・`derive_node_materials.py`（ノードの種別・信号の有無・集まる道の最大階級。種別の判断は取込ではなくここで行うため、判断が変わっても生データは取り直さない）・`derive_counts.py`（区間と道に付く数の値。停止要因はまとまり1つを経路上で1回になるよう区間へ割り振り、道の値は区間の和から導くため地図と評価で食い違わない）・`derive_raster_materials.py`（面のタイルを線へ落とす。標高は形状点で測り、土地被覆は中心線の周りの帯に落ちる画素を数える）・`derive_way_materials.py`（道1本の性質。通行方向をタグから決め、上下線分離は逆向きに並走する相方の有無で判定する）・`_common.py`（バッチ間共通ヘルパ。asyncpg用DSN変換・`latest_succeeded_run_id`［派生の基準にする取込。無ければ止める］・`fetch_verified`［配布元のファイルを手元へ写す取得スクリプト共通の手順。読めるものは落とし直さず、一時ファイル経由で置き、落とし終えたら開いてみて開けなければ退ける］・`batch_session_factory`[エンジン生成と破棄。表を先に探すスキーマを指定できる]・`reset_columns_sql`[派生の段が書く列を、値を出す前の状態へ戻す]・`run_batch_cli`[DBを書く入口（例: `ingest_cli.py`・`derive_cli.py`・`scripts/bootstrap_database.py`）の骨格。ログの設定・`--database-url`の読み取りを持ち、入口は自分の引数と本体だけを書く]）・`scripts/fetch_lulc_raster.py`（土地被覆ラスタの取得。デプロイが呼ぶ）・`scripts/fetch_osm_pbf.py`（OSMの抽出ファイルの取得）・`scripts/fetch_accident_csv.py`（警察庁の本票CSVの取得。年ごとに1ファイルで、要る年はプロファイルが持つ）・`scripts/bootstrap_database.py`（まっさらなDBを使える状態まで立ち上げる。スキーマ→取込→派生の順はここだけが持ち、途中から流し直せる） |
 
 `api/routers/region.py`のうち`GET /api/region/dynamic-way-values/...`エンドポイントは
 [動的材料・フィーチャー値配信](dynamic-way-values.md)の管轄、`domain/road.py`の
 `RoadGraphRepository`本体は[ルート生成エンジン](routing-engine.md)の
-管轄。本モジュールは同じ`region.py`ファイル内の路面/POI/区間インスペクタ部分と、
+管轄。本モジュールは同じ`region.py`ファイル内の路面/点/区間インスペクタ部分と、
 `vector_tile.py`・`tile_cache.py`等の周辺インフラを扱う。
 
 ## データ取込（batch）
@@ -380,7 +380,7 @@ NULLの意味は列によって違う。「まだ計算していない」と「�
 
 ### 共通骨格（`tile_serving.py: serve_cached_tile`）
 
-`RegionService`（路面/POI）・`AccidentService`（事故）が共有する「ファイルキャッシュ確認
+`RegionService`（路面・点）と土地被覆の配信が共有する「ファイルキャッシュ確認
 →ミスなら`fetch_tile`呼び出し→取得成功ならキャッシュへ書いて返す→取得不可（None）なら
 空タイルを返す」という外側の骨格。取得不可の理由をどうWARNINGログへ出すかはタイル種別
 ごとに異なるため、その判断は引き続き呼び出し元の`fetch_tile`側が持つ。取得不可の場合は
@@ -415,11 +415,11 @@ NULLの意味は列によって違う。「まだ計算していない」と「�
 ズームでもway丸ごとで出す。落とすとその道は引いた表示に出ているのに拡大すると消え、データが
 無いことよりも壊れて見える。
 
-### RegionService（路面・POIタイル、区間インスペクタ）
+### RegionService（路面・点のタイル、区間インスペクタ）
 
 `repository`（`RoadGraphRepository`、必須）から、要求タイルが取込の宣言した範囲に入って
-いれば、MVTエンコードまで含めてPostGIS側（ST_AsMVT）でタイルを丸ごと生成する。範囲外・
-DB障害時は空タイルを返す。タイル配信用の短い`command_timeout`のセッションで組まれる
+いれば、MVTエンコードまで含めてPostGIS側（ST_AsMVT）でタイルを丸ごと生成する（範囲を判定しない
+点のレイヤーは下の「点のタイル」）。範囲外・DB障害時は、そのレイヤーのsource-layer名を名乗る空タイルを返す。タイル配信用の短い`command_timeout`のセッションで組まれる
 （`api/dependencies.py: get_region_service`）ため、全表走査を伴う読み出しはここへ置かない。
 
 - **カバレッジはマーカーの表ではなく取込の宣言から決まる**（成功した最新の道路の取込の`source_runs.profile`の
@@ -433,7 +433,7 @@ DB障害時は空タイルを返す。タイル配信用の短い`command_timeou
   絞ることはせず、どのソースを取り直しても全系統の鍵が変わる（宣言は焼き込むSQLの写しになり、SQLが新しい
   ソースを読み始めても気づけないため）。配信する世代は`tile_version_service.py`が実行時に組み立て、
   `GET /api/axis-catalog`の`tile_versions`で配る（手で書く定数を持たない）。DBの世代は、カタログと
-  タイル（路面・POI・事故）・way値の配信のそれぞれが読む前にTTL付きで読み直す——どれか1つに寄せると、
+  タイル（路面・点）・way値の配信のそれぞれが読む前にTTL付きで読み直す——どれか1つに寄せると、
   そこが呼ばれるまで世代が読まれず、起動直後のタイルはディスクへ残らず、バッチの後も古い世代の鍵で配り続ける。署名が
   鍵に入るため、プロパティを足す・消す・式を変えると鍵が自動で変わり、旧世代の
   キャッシュ済みタイルにヒットしない。手で上げるのはSQLが読むテーブルの中身を作り直した
@@ -469,11 +469,24 @@ DB障害時は空タイルを返す。タイル配信用の短い`command_timeou
   グレースフルデグレード方針。DB障害として捕まえるのは`DB_UNAVAILABLE_ERRORS`だけで、
   実装の誤りは500になる（[横断インフラ](cross-cutting-infrastructure.md)「DB障害として扱う例外」節）。
 
-### AccidentService（事故タイル）
+### 点のタイル（`point_tile_layers.py`・`RegionService.get_point_tile`）
 
-`repository`（`AccidentTileQuery`、必須）からPostGIS側でMVTを生成する。road_surfaceと違い
-「取込範囲の一部だけ取得済み」という状態が無い（取込が対象範囲を一括で入れる）ため、
-カバレッジ判定は行わない。DB障害時は空タイルを返す。
+停止要因・補給休憩のPOIと事故のように、点を焼くタイルは**1つの配信（`GET /api/region/point-tiles/{layer}/...`）と
+1つのレジストリ（`point_tile_layers.py: POINT_TILE_LAYERS`）**で配る。レイヤーごとに違うのは、名前・source-layer名・
+焼き込むSQLだけで、どれも路面タイルと同じ`RegionService._get_tile`の道（キャッシュのパス`region/<名前>/v<世代>/…`・
+空タイル・ログ）を通る。**点のレイヤーを足すのは、レジストリへ1エントリ足すことだけ**——配信・世代の表
+（`tile_version_service.py: TILE_SHAPES`）・生成物（`region-tile-config.json`の`point_layers`。名前→source-layer名）は
+レジストリから組み立て、画面はレイヤー名でURLを組みsource-layer名を生成物から読む。地図へ点として出す一次属性の
+`tile_kind`は、レジストリの名前を指す。
+
+- **どのSQLも`(covered, tile)`の1行を返す**。取込範囲を判定するレイヤー（POI）は`road_graph_repository.py: COVERAGE_SQL`を
+  読み、判定しないレイヤー（事故。取込が対象範囲を一括で入れるため「取込範囲の一部だけ取得済み」という状態が無い）は
+  `covered`を常に真にする。読み出しは`RoadGraphRepository.get_tile_mvt`の1つで、路面タイルも同じ口を通る。
+- **世代はレイヤーごとに独立する**。形の署名はそのレイヤーのSQLとsource-layer名だけから作る（`PointTileLayer.shape`）ので、
+  1つのSQLを変えても他のレイヤーのキャッシュは捨てない。source-layer名を変えたときも鍵が変わる。
+- レジストリに無い名前は404。
+- 配信のパスを変えて残った古いキャッシュ（例: `region/accidents/…`）は、管理画面の一括クリア（`basemap_refresh`が
+  ディスクキャッシュを丸ごと消す）か、`diskcache`の容量の上限による追い出しで消える。
 
 ### 土地被覆ラスタタイル（`landcover_raster.py`・`landcover_tile_service.py`）
 
@@ -517,9 +530,9 @@ DB障害時は空タイルを返す。タイル配信用の短い`command_timeou
 
 ### vector_tile.py・tile_cache.py
 
-`vector_tile.py`はMVTの共有定数（`TILE_EXTENT`・各レイヤー名・路面タイルが材料の外に持つ列の名前
-`ROAD_FEATURE_PROPERTIES`）と空タイルのエンコード
-関数のみを持つ（実際のMVT生成はPostGIS側のST_AsMVTが担い、Pythonでのジオメトリ
+`vector_tile.py`はMVTの共有定数（`TILE_EXTENT`・路面のレイヤー名・路面タイルが材料の外に持つ列の名前
+`ROAD_FEATURE_PROPERTIES`）と、レイヤー名を受けて空タイルを作る関数（`encode_empty_tile`）のみを持つ
+（点のレイヤー名は`point_tile_layers.py`の宣言が持つ）（実際のMVT生成はPostGIS側のST_AsMVTが担い、Pythonでのジオメトリ
 エンコードは行わない）。列の名前は焼き込みSQLが別名として差し込み、生成物`region-tile-config.json`の
 `road_surface.properties`が画面へ配る——画面は識別子・道路名の列名を持たない（材料の列は材料の`tile_property`）。
 名前を変えると焼き込みSQLの文字列が変わるので、タイルの形の署名も変わって作り直しが起きる。`tile_cache.py`はタイルの生バイトを配信パスを鍵にディスク
@@ -536,21 +549,20 @@ DB障害時は空タイルを返す。タイル配信用の短い`command_timeou
 | エンドポイント | 内容 |
 |---|---|
 | `GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf` | 路面・道路種別等のMVTタイル |
-| `GET /api/region/poi-tiles/{z}/{x}/{y}.pbf` | 停止要因POI・補給休憩POIのMVTタイル |
+| `GET /api/region/point-tiles/{layer}/{z}/{x}/{y}.pbf` | 点のレイヤー（例: 停止要因・補給休憩のPOI`poi`、事故`accident`）のMVTタイル。`layer`はレジストリの名前で、無ければ404 |
 | `GET /api/region/landcover-tiles/{z}/{x}/{y}.png` | 土地被覆ラスタのPNGタイル |
 | `POST /api/region/axis-inspector` | 区間インスペクタ（osm_way_id指定）。合成は送られた重み（`route_preference`、ルート生成と同じ形・同じ検証で公開軸をすべて明示）で計算し、省略すると既定の重み |
-| `GET /api/region/accident-tiles/{z}/{x}/{y}.pbf`（`accidents.py`） | 事故のMVTタイル |
 
-MVTエンコードはPostGIS側（`ST_AsMVT`、`road_graph_repository.py`）で行う。タイル内の
+MVTエンコードはPostGIS側（`ST_AsMVT`、`road_graph_repository.py`・`point_tile_layers.py`）で行う。タイル内の
 フィーチャーへ材料（`edge_materials`・`way_materials`）を結合するJOINは、**主キー検索に
 なる形**を保つこと——道・ノードの生データは`natural_key`（text）が主キーのため、`natural_key::bigint`
 で突き合わせると索引が使えず、全件に対する総当たりに落ちる（`ways_lookup_sql`・`nodes_lookup_sql`）。
 POIタイルは向きが逆で、ノードの生データを空間索引で絞ってから`node_materials`を主キー（bigint）で引く。
 
-**同時実行数制限**: 路面・POIタイルは`_region_tile_semaphore`
+**同時実行数制限**: 路面・点のタイルは`_region_tile_semaphore`
 （`settings.road_tile_max_concurrent`）を共有する（DB接続プール上限を超えないため専用
-semaphoreを追加しない）。事故タイルは`_accident_tile_semaphore`
-（`settings.accident_tile_max_concurrent`）という別のsemaphoreを持つ。いずれも超過分は
+semaphoreを追加しない）。レート制限は同じ上限値（`settings.road_tile_rate_limit_per_minute`）で、
+キーはタイルの種類（点はレイヤー）ごとに分ける。超過分は
 **待たせて全件処理**する（ルート生成の即429方式とは異なる——MapLibreは失敗したタイル
 要求を自動再試行しないため、429だと広範囲で一部タイルが永久に空白になりうる）。
 `/health`はこれらのsemaphoreを経由しない別の同期ハンドラのため、待機中のタイル要求に

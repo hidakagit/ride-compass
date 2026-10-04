@@ -152,7 +152,7 @@ async def test_way_values_of_a_way_gone_from_the_raw_data_do_not_survive(counts_
 async def test_a_crossing_near_a_signal_is_counted_as_a_signal(counts_conn):
     """近くに信号がある横断歩道は、横断歩道ではなく信号として数える。
 
-    地図も同じ読み替えで信号の点を出す（`test_poi_tile.py`）。
+    地図も同じ読み替えで信号の点を出す（`test_point_tiles.py`）。
     """
     await ingest_records("osm_node", [point_record(TIED_NODE, *_point(TIED_NODE))], conn=counts_conn)
     await counts_conn.execute(
