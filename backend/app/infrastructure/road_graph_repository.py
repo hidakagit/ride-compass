@@ -224,7 +224,7 @@ _CATEGORICAL_TILE_COLUMNS_SQL = (",\n").join(
 )
 
 #: タイルが材料を引くためのJOIN。区間単位のフィーチャーだけが`em`に一致し、way丸ごとの
-#: フィーチャーは`wm`側へ落ちる。
+#: フィーチャーは`wm`側へ落ちる。区間を持たない道は`way_materials`にも行が無いので、`wm`も外部結合にする。
 _TILE_MATERIAL_JOINS = f"""
                     JOIN LATERAL {ways_lookup_sql('src.osm_way_id')} w ON true
                     LEFT JOIN way_materials wm ON wm.osm_way_id = src.osm_way_id
@@ -398,6 +398,7 @@ _WAY_ALIAS_EM_SQL = ", ".join(
     for name in _WAY_EM_COLUMNS
 )
 
+#: `w`は区間を持たない道も含み、その道は`way_materials`に行が無いので、`wm`と`em`は外部結合にする。
 _WAY_ALIAS_CLAUSES: dict[str, str] = {
     "wm": "LEFT JOIN way_materials wm ON wm.osm_way_id = w.osm_way_id",
     "re": ("CROSS JOIN LATERAL (SELECT ST_Length(w.geom::geography) AS distance_m,"
@@ -443,14 +444,14 @@ def _sample_way_materials_sql(sampling: str, area: str):
         f"SELECT ST_Length(w.geom::geography) AS length_m, {_WAY_MATERIAL_SELECT_SQL}"
         + _way_from_clause(list(material_value_sql().values()),
                            source=ways_source_sql(sampling))
-        + f" WHERE w.highway IS NOT NULL {area} LIMIT :limit"
+        + f"{area} LIMIT :limit"
     )
 
 
 _SAMPLE_WAY_MATERIAL_VALUES_SQL = _sample_way_materials_sql(
     "TABLESAMPLE SYSTEM (:sample_percent)", "")
 _SAMPLE_WAY_MATERIAL_VALUES_IN_BBOX_SQL = _sample_way_materials_sql(
-    "", "AND w.geom && ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326)")
+    "", " WHERE w.geom && ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326)")
 
 _WAY_MATERIAL_COLUMN_PREFIX = "m_"
 
@@ -591,7 +592,7 @@ SELECT re.osm_way_id, re.segment_index, re.from_node_id, re.to_node_id,
        ST_XMax(re.geom) AS max_lon, ST_YMax(re.geom) AS max_lat
 FROM road_edges re
 JOIN LATERAL {ways_lookup_sql("re.osm_way_id")} w ON true
-LEFT JOIN way_materials wm ON wm.osm_way_id = re.osm_way_id
+JOIN way_materials wm ON wm.osm_way_id = re.osm_way_id
 ORDER BY re.osm_way_id, re.segment_index
 """)
 
