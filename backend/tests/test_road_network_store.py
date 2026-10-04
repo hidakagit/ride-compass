@@ -47,9 +47,8 @@ def _on_test_db(test):
 
 @pytest.fixture(autouse=True)
 def store(monkeypatch, tmp_path):
-    """置き場を空の一時ディレクトリにし、読み込み済みの道路網を持たない状態から始める。"""
+    """置き場を空の一時ディレクトリにする（前のテストが読み込んだ道路網は置き場の場所が違うので使われない）。"""
     monkeypatch.setattr(road_network_store, "ROOT", tmp_path / "road_network")
-    monkeypatch.setattr(road_network_store, "_loaded", None)
     return tmp_path / "road_network"
 
 

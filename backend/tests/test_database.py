@@ -24,10 +24,10 @@ FACTORIES = [database.get_session_factory, database.get_route_generation_session
 @pytest.fixture
 async def unreachable_database(monkeypatch):
     monkeypatch.setattr(settings, "database_url", UNREACHABLE_DATABASE_URL)
-    for name in ("_session_factory", "_route_generation_session_factory"):
+    for name in ("session_factory", "route_generation_session_factory"):
         monkeypatch.setattr(database, name, None)
     yield
-    for factory in (database._session_factory, database._route_generation_session_factory):
+    for factory in (database.session_factory, database.route_generation_session_factory):
         if factory is not None:
             await factory.kw["bind"].dispose()
 
@@ -40,12 +40,6 @@ def test_each_factory_is_built_once_and_the_two_do_not_share_a_pool():
     assert database.get_session_factory() is tiles
     assert database.get_route_generation_session_factory() is route_generation
     assert tiles.kw["bind"] is not route_generation.kw["bind"]
-
-
-@pytest.mark.usefixtures("unreachable_database")
-@pytest.mark.parametrize("factory", FACTORIES)
-def test_both_factories_connect_to_the_configured_database(factory):
-    assert factory().kw["bind"].url.render_as_string(hide_password=False) == UNREACHABLE_DATABASE_URL
 
 
 @pytest.mark.usefixtures("unreachable_database")

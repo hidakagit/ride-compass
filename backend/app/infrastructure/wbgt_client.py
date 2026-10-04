@@ -37,11 +37,11 @@ REQUEST_TIMEOUT = httpx.Timeout(connect=3.0, read=8.0, write=5.0, pool=5.0)
 logger = logging.getLogger("ridecompass.wbgt_client")
 
 _POINT_MASTER_CACHE_KEY = "point_master"
-_point_master_cache: TTLCache = TTLCache(maxsize=1, ttl=_POINT_MASTER_CACHE_TTL_SECONDS)
+point_master_cache: TTLCache = TTLCache(maxsize=1, ttl=_POINT_MASTER_CACHE_TTL_SECONDS)
 # forecast_no単位の粒度でキャッシュする（地点ごとに問い合わせ元の緯度経度は丸められて
 # 同じ地点へ収束するため、地点番号キーで十分にキャッシュが効く）。maxsizeは全国の
 # 情報提供地点数（約840地点）に十分な余裕を持たせた値。
-_forecast_cache: TTLCache = TTLCache(maxsize=2048, ttl=_FORECAST_CACHE_TTL_SECONDS)
+forecast_cache: TTLCache = TTLCache(maxsize=2048, ttl=_FORECAST_CACHE_TTL_SECONDS)
 
 
 async def fetch_point_master(client: httpx.AsyncClient) -> list[WbgtPoint] | None:
@@ -54,7 +54,7 @@ async def fetch_point_master(client: httpx.AsyncClient) -> list[WbgtPoint] | Non
         return _parse_point_master(response.text)
 
     return await cached_fetch(
-        "weather:wbgt-point-master", fetch, cache=_point_master_cache, key=_POINT_MASTER_CACHE_KEY
+        "weather:wbgt-point-master", fetch, cache=point_master_cache, key=_POINT_MASTER_CACHE_KEY
     )
 
 
@@ -163,7 +163,7 @@ async def fetch_forecast(
     return await cached_fetch(
         "weather:wbgt-forecast",
         fetch,
-        cache=_forecast_cache,
+        cache=forecast_cache,
         key=wbgt_no,
         wbgt_no=wbgt_no,
     )

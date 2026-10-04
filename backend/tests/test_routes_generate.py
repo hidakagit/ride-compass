@@ -5,13 +5,14 @@
 同時実行とレート制限（429）。
 
 裏の生成は本物の`RouteGenerator`とエンジンを、小さな格子の道路網（`tests/route_world.py`）の上で通す。
-差し替えるのはプロセス境界だけ——DBのセッション（`_open_graph_service`）・天気の予報ファイル（`get_weather_service`）・
+差し替えるのはプロセス境界だけ——DBのセッションと天気の予報ファイル（生成の開き方の注入の口`get_route_generation_setup_opener`）・
 道路網の置き場・レート制限の記録。
 
 ここで見ないもの:
 - 経路の中身（周回が閉じる・一方通行・重みの効き等） → `test_route_generation_behavior.py`
 - 候補の並べ方・理由の文面 → `test_route_generator.py`
 - レート制限の数え方そのもの → `test_rate_limiter.py`
+- 本物の開き方（`api/dependencies.py`がDBのセッションと天気を開いて渡すだけの結線。判断を持たない）
 """
 
 import asyncio
@@ -34,6 +35,7 @@ from app.infrastructure import rate_limiter, road_network_store
 from app.infrastructure.road_network_store import RoadNetworkUnavailableError
 from app.main import app
 from app.services.graph_service import GraphService
+from app.services.route_generation_setup import assemble_route_generation_setup
 from tests.route_world import (
     AVOID_AXIS,
     CENTER,
@@ -90,12 +92,11 @@ def world(monkeypatch):
     world = World()
 
     @asynccontextmanager
-    async def graph_service():
-        yield GraphService(NetworkRepository(world.network))
+    async def open_setup(**options):
+        yield assemble_route_generation_setup(GraphService(NetworkRepository(world.network)), world.weather, **options)
 
     monkeypatch.setattr(road_network_store, "current", world.current)
-    monkeypatch.setattr(dependencies, "_open_graph_service", graph_service)
-    monkeypatch.setattr(dependencies, "get_weather_service", lambda: world.weather)
+    monkeypatch.setitem(app.dependency_overrides, dependencies.get_route_generation_setup_opener, lambda: open_setup)
     with avoid_axis_declared():
         yield world
 

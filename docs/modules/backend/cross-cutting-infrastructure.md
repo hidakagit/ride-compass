@@ -315,7 +315,7 @@ JMA気象データの短命キャッシュが使う共有接続。値を文字�
 ## HTTPクライアントの共有（`http_client.py`）
 
 `get_http_client(timeout)`が、timeoutの値ごとに`httpx.AsyncClient`を1つだけ生成して
-キャッシュする（`_clients: dict[float, httpx.AsyncClient]`）。`httpx.AsyncClient`の生成は
+キャッシュする（`clients: dict[float, httpx.AsyncClient]`）。`httpx.AsyncClient`の生成は
 SSLコンテキスト構築（CA証明書バンドルの読み込み・パース）を伴い環境によっては高コストに
 なりうるため、リクエストごとの新規生成をやめプロセス全体で使い回す（`main.py`の
 lifespanが起動時に主要なtimeout値[10.0/15.0]を事前ウォームアップするのもこのため）。

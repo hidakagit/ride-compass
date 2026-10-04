@@ -63,14 +63,13 @@ def over_tile(path, classes: np.ndarray, z: int, x: int, y: int) -> str:
 @pytest.fixture
 def configure(monkeypatch):
     """設定するラスタの置き場を渡し、ラスタをまだ開いていない状態から始める。"""
-    monkeypatch.setattr(landcover_raster, "_sources", None)
-    monkeypatch.setattr(landcover_raster, "_last_open_attempt", 0.0)
+    monkeypatch.setattr(landcover_raster, "opened_sources", None)
 
     def configure(*paths: str) -> None:
         monkeypatch.setattr(landcover_raster.settings, "lulc_raster_paths", ",".join(paths))
 
     yield configure
-    for source in landcover_raster._sources or []:
+    for source in landcover_raster.opened_sources or []:
         source.dataset.close()
 
 

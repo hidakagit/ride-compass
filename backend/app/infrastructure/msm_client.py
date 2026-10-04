@@ -33,8 +33,9 @@ logger = logging.getLogger("ridecompass.msm_client")
 
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
 MSM_DIR = DATA_DIR / "msm"
-_META_FILE = MSM_DIR / "meta.json"
-_ETAGS_FILE = MSM_DIR / "etags.json"
+# 置き場の中の名前。パスはチャンク（`_chunk_path`）と同じく、使うたびに`MSM_DIR`から作る。
+_META_FILE_NAME = "meta.json"
+_ETAGS_FILE_NAME = "etags.json"
 
 
 @dataclass(frozen=True)
@@ -150,7 +151,7 @@ def freshness_from_meta(meta: dict, now: datetime | None = None) -> MsmFreshness
 
 def freshness() -> MsmFreshness | None:
     """同期済みメタ情報から見た現在の鮮度。未同期ならNone。"""
-    return freshness_from_meta(_load_json(_META_FILE))
+    return freshness_from_meta(_load_json(MSM_DIR / _META_FILE_NAME))
 
 
 def warn_if_stale(freshness_value: MsmFreshness | None) -> None:
@@ -260,7 +261,7 @@ async def refresh(client: httpx.AsyncClient) -> int:
     # 予報窓より短くなると間のチャンクを取らず、読み出しが「未同期」で失敗する。
     chunk_numbers = sorted({_chunk_number(now, chunk_hours), _chunk_number(now + horizon * 3600, chunk_hours)})
 
-    etags = _load_json(_ETAGS_FILE)
+    etags = _load_json(MSM_DIR / _ETAGS_FILE_NAME)
     downloaded = 0
     keep: set[Path] = set()
     for variable in FORECAST_VARIABLES:
@@ -270,11 +271,11 @@ async def refresh(client: httpx.AsyncClient) -> int:
                 downloaded += 1
 
     MSM_DIR.mkdir(parents=True, exist_ok=True)
-    _META_FILE.write_text(json.dumps(meta), encoding="utf-8")
+    (MSM_DIR / _META_FILE_NAME).write_text(json.dumps(meta), encoding="utf-8")
     # 消したチャンクのETagが残ると、次に同じ番号を引いたとき「変更なし」と誤判定して
     # 存在しないファイルを読みに行くため、保持するチャンクぶんだけを残す。
     valid = {f"{variable}/{number}" for variable in FORECAST_VARIABLES for number in chunk_numbers}
-    _ETAGS_FILE.write_text(json.dumps({k: v for k, v in etags.items() if k in valid}), encoding="utf-8")
+    (MSM_DIR / _ETAGS_FILE_NAME).write_text(json.dumps({k: v for k, v in etags.items() if k in valid}), encoding="utf-8")
     await asyncio.to_thread(_prune, keep)
 
     current = freshness_from_meta(meta, now=datetime.fromtimestamp(now, JST))
@@ -312,7 +313,7 @@ def _grid_from_meta(meta: dict, n_lat: int, n_lon: int) -> MsmGrid:
 
 
 def _read_series_sync(latitudes: np.ndarray, longitudes: np.ndarray, hours: int, now: int) -> MsmSeries:
-    meta = _load_json(_META_FILE)
+    meta = _load_json(MSM_DIR / _META_FILE_NAME)
     if not meta:
         raise MsmUnavailableError("MSMのメタ情報が未同期です")
     chunk_hours = int(meta["chunk_time_length"])

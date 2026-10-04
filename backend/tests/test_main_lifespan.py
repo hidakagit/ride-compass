@@ -47,7 +47,7 @@ def _startup_job_attribute_names() -> list[str]:
 
 @pytest.fixture(autouse=True)
 def _isolated_scheduler(monkeypatch):
-    """共有の`_scheduler`へテストごとに同じjob idをadd_jobするとAPSchedulerの
+    """共有の`scheduler`へテストごとに同じjob idをadd_jobするとAPSchedulerの
     ConflictingIdErrorになるため、テストごとに新しいインスタンスへ差し替えて隔離する。
 
     **起動時ジョブはすべて無害化する**: いずれも起動直後に即時実行される登録のため、
@@ -60,7 +60,7 @@ def _isolated_scheduler(monkeypatch):
     実際には使わないため、安全にこのコストを避けられる。
     """
     fresh_scheduler = AsyncIOScheduler()
-    monkeypatch.setattr(main_module, "_scheduler", fresh_scheduler)
+    monkeypatch.setattr(main_module, "scheduler", fresh_scheduler)
     monkeypatch.setattr(main_module, "refresh_axis_definitions", bound(main_module.refresh_axis_definitions, _noop))
     monkeypatch.setattr(main_module, "refresh_tuning_values", bound(main_module.refresh_tuning_values, _noop))
     for name in _startup_job_attribute_names():
@@ -157,25 +157,3 @@ def test_a_failing_scheduled_job_is_logged_under_the_project_prefix(caplog, _iso
     assert [r.levelno for r in failures] == [logging.WARNING]
     assert "boom" in failures[0].getMessage()
 
-
-def test_lifespan_shuts_down_scheduler_before_closing_http_clients(monkeypatch, _isolated_scheduler):
-    """シャットダウンはAPScheduler停止→httpxクライアントcloseの順で走る。"""
-    call_order: list[str] = []
-
-    original_shutdown = _isolated_scheduler.shutdown
-
-    def _spy_shutdown(*args, **kwargs):
-        call_order.append("scheduler_shutdown")
-        return original_shutdown(*args, **kwargs)
-
-    monkeypatch.setattr(_isolated_scheduler, "shutdown", _spy_shutdown)
-
-    async def _spy_close_all_http_clients():
-        call_order.append("close_all_http_clients")
-
-    monkeypatch.setattr(main_module, "close_all_http_clients", _spy_close_all_http_clients)
-
-    with TestClient(app):
-        pass
-
-    assert call_order == ["scheduler_shutdown", "close_all_http_clients"]

@@ -15,7 +15,7 @@ from app.infrastructure import http_client
 
 @pytest.fixture(autouse=True)
 async def empty_clients(monkeypatch):
-    monkeypatch.setattr(http_client, "_clients", {})
+    monkeypatch.setattr(http_client, "clients", {})
     yield
     await http_client.close_all_http_clients()
 

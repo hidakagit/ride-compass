@@ -13,10 +13,10 @@ from app.infrastructure.request_log import format_log_lines
 # 直近何件のログレコードをメモリに保持するか。1レコード=数百バイト程度のため、
 # 1000件でも数百KB規模に収まる（プロセス再起動でリセットされる、既存の
 # /api/debug/statsの集計と同じ「プロセス内スナップショット」という性質）。
-_RING_BUFFER_MAX_SIZE = 1000
+RING_BUFFER_MAX_SIZE = 1000
 
 class _LogRingBufferHandler(logging.Handler):
-    """直近`_RING_BUFFER_MAX_SIZE`件の整形済みログ行を、レベル（`record.levelno`）と
+    """直近`RING_BUFFER_MAX_SIZE`件の整形済みログ行を、レベル（`record.levelno`）と
     セットでメモリ上に保持するハンドラ。`get_recent_logs`の`min_level`フィルタが
     整形済み文字列を`[WARNING]`のような部分文字列でパースせずに済むよう、
     数値のログレベルを別途保持する。"""
@@ -32,7 +32,7 @@ class _LogRingBufferHandler(logging.Handler):
         return list(self._buffer)
 
 
-_ring_buffer_handler = _LogRingBufferHandler(_RING_BUFFER_MAX_SIZE)
+_ring_buffer_handler = _LogRingBufferHandler(RING_BUFFER_MAX_SIZE)
 format_log_lines(_ring_buffer_handler)
 
 

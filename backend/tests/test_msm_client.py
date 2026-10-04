@@ -70,8 +70,6 @@ def msm_dir(tmp_path, monkeypatch, clock):
     """同期先のディスクを一時ディレクトリへ、時計を`NOW`へ。"""
     directory = tmp_path / "msm"
     monkeypatch.setattr(msm_client, "MSM_DIR", directory)
-    monkeypatch.setattr(msm_client, "_META_FILE", directory / "meta.json")
-    monkeypatch.setattr(msm_client, "_ETAGS_FILE", directory / "etags.json")
     clock.move_to(datetime.fromtimestamp(NOW, UTC))
 
     def forecast_hours(hours: int) -> None:
