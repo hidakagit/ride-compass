@@ -188,8 +188,8 @@ issue の番号ごと）が持つ。同じタスクの実行（作る・確か�
 4. `tasks#<番号>:` の件名でコミットし、`git push origin orch/tasks-<番号>` で push する。静的検査とテストは手元で回さず、
    CI に任せる（testing.md「手元の検査の回し方」）。作業ブランチの強制 push は
    コードのリポジトリの規則で断られる（一度 push したコミットは、ほかの者のものも消せない）ので、直しは足すコミットにする。
-   master に入るコミットは、5 の Pull Request の題名と本文から作られる（確かめる担当が squash でマージする）。作業ブランチへの push では
-   CI は走らない（`ci.yml` と `docs-consistency.yml` の push は master だけ）ので、CI は 5 の Pull Request の実行だけを待つ。
+   master に入るコミットは、5 の Pull Request の題名と本文から作られる（確かめる担当が squash でマージする）。CI は 5 の
+   Pull Request の実行だけを待つ（作業ブランチへの push で走るかは testing.md「検査の置き場（手元・作業ブランチのCI・masterのCI）」）。
 5. コードのリポジトリに Pull Request を出す（`gh pr create --base master --head orch/tasks-<番号>`。
    コードのリポジトリは hidakagit のものなので、`GH_TOKEN` に hidakagit のトークン（ユーザー環境変数 `GH_TOKEN`）を渡す）。
    題名と本文は、そのまま master のコミットになるので、下の「コミット」の書式で書く（題名が件名
@@ -394,7 +394,7 @@ issue の番号ごと）が持つ。同じタスクの実行（作る・確か�
 | 本番 | 接続情報を持たない。読むのが要れば「開発機が要る」で返し、書く操作は問いで頼む（「自動で進めないもの」） | 接続情報があり、読める（`run_probe.py`）。本番へ書く操作は、ユーザーが打つスクリプトにして頼む（下の「本番へ書く」） |
 | マージ | 確かめる担当がマージする | ユーザーの指示があれば、対話のセッションがマージする。ワークフローのファイル（`.github/workflows/`）を変える Pull Request は、開発機の gh のトークンに `workflow` の権限が無いので、ユーザーがブラウザでマージする |
 | 答え | 回答フォーム（「問い」） | ユーザーがチャットで決めたことを、Claude が issue に記録する（「答え」） |
-| 言葉 | CLAUDE.md「出力言語」 | 同じ。英語の文はフック（`scripts/hooks/japanese_only.py`）が止める（裏の作業役の文も） |
+| 言葉 | CLAUDE.md「出力言語」 | 同じ（裏の作業役の文も） |
 
 - **持つ**: タスクを触る（issue へ書く・ステータスを動かす・作業ブランチへ push する・Pull Request を出す・マージする）前に
   `node tools/flow-gate/bin/hold.js <番号>` でタスクを持つ。種類「開発機」の実行を起こし、前の実行が終わって動き始めたら URL を

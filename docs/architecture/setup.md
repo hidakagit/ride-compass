@@ -4,8 +4,8 @@
 
 ## テスト
 
-手元では静的検査もテストも回さず、CIに任せる。手元で回すのはCIが落ちた失敗を再現して直すときだけで、
-そのときも落ちた失敗に届く範囲だけを回す（[../conventions/testing.md](../conventions/testing.md)「手元の検査の回し方」）。
+手元で検査とテストを回すかと、回すときの範囲は[../conventions/testing.md](../conventions/testing.md)「手元の検査の回し方」が決める。
+ここには、回すときの開発機での前提と所要を置く。
 
 ```bash
 cd backend && pytest tests/test_road_graph_engine.py -q
@@ -13,10 +13,9 @@ cd frontend && ./node_modules/.bin/vitest run <対象ファイル> --pool=thread
 cd frontend && ./node_modules/.bin/tsc --noEmit
 ```
 
-frontendのツールはすべて`node_modules`に入っているので、`npx`を付けずに`./node_modules/.bin/`から
-直接起こす。`npx`は起動のたびにパッケージ解決をやり直し、`npx tsc --version`だけで13.6秒かかる
-（開発機での実測、2026-09-22）。`tsc --noEmit`は型の波及を1ファイルへ絞れないためプロジェクト全体で
-1回通し、開発機で27秒かかる。Next.jsの生成型が未作成なら`./node_modules/.bin/next typegen`を先に流す。
+frontendのツールはすべて`node_modules`に入っている。`npx`は起動のたびにパッケージ解決をやり直し、
+`npx tsc --version`だけで13.6秒かかる（開発機での実測、2026-09-22）。`tsc --noEmit`をプロジェクト全体で
+1回通すと、開発機で27秒かかる。Next.jsの生成型が未作成なら`./node_modules/.bin/next typegen`を先に流す。
 backendのフルスイートは開発機で5〜10分かかる（CIは`-n auto`で並列に回す）。
 
 PostGIS統合テスト（`road_graph_session`フィクスチャを使うもの。`postgis`マーカー付き）は、
