@@ -47,6 +47,9 @@ def reason(lines: list[str]) -> str:
 
 
 def main() -> int:
+    # Claude Code はフックの入出力を UTF-8 でやり取りする。Windows の既定（cp932）のままだと理由の文が化ける。
+    sys.stdin.reconfigure(encoding="utf-8")
+    sys.stdout.reconfigure(encoding="utf-8")
     hook = json.load(sys.stdin)
     event = hook.get("hook_event_name")
     if event in ("Stop", "SubagentStop"):
