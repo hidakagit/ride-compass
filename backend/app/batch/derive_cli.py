@@ -154,9 +154,8 @@ async def _build_road_network(database_url: str, revision: int) -> Path:
     return pending
 
 
-async def _swap(conn: asyncpg.Connection, tables: list[str], revision: int, runs: dict[str, int]) -> None:
-    """`public`の派生の表を作業用のスキーマの表で置き換え、世代を`revision`へ進め、作った取込を`runs`と
-    記録する（1トランザクション）。"""
+async def _swap(conn: asyncpg.Connection, tables: list[str], revision: int) -> None:
+    """`public`の派生の表を作業用のスキーマの表で置き換え、世代を`revision`へ進める（1トランザクション）。"""
     for attempt in range(1, _SWAP_ATTEMPTS + 1):
         started = time.perf_counter()
         try:
@@ -169,7 +168,6 @@ async def _swap(conn: asyncpg.Connection, tables: list[str], revision: int, runs
                 if bumped != revision:
                     raise RuntimeError(
                         f"派生データの世代が作り直しの間に動いた（道路網は {revision} で作った。今 {bumped}）")
-                await derived_data_meta.replace_source_runs(conn, runs)
             logger.info("派生の表を入れ替えた（%d回目） / 表の排他ロック（待ちを含む）=%.1fs",
                         attempt, time.perf_counter() - started)
             return
@@ -190,8 +188,8 @@ async def _read_tuning(database_url: str) -> dict[str, float]:
 async def run(database_url: str, start_from: str | None) -> int:
     names = [name for name, _ in STAGES]
     begin = names.index(start_from) if start_from else 0
-    # 世代の表も写す——数の段がそこへ書く「数えた事故の取込」を、数と同時に読み手へ出すため。
-    tables = [*(table.name for table in derived_tables()), derived_data_meta.DerivedDataMetaRow.__tablename__]
+    # 作った取込の記録も写す——事故密度の分母がそこから読まれ、写しから作る道路網の配列も数と同じ取込の年で割るため。
+    tables = [*(table.name for table in derived_tables()), derived_data_meta.DerivedSourceRunRow.__tablename__]
     tuning = await _read_tuning(database_url)
     conn = await asyncpg.connect(asyncpg_dsn(database_url))
     if not await conn.fetchval("SELECT pg_try_advisory_lock(hashtext($1))", SOURCE_DATA_LOCK):
@@ -204,6 +202,7 @@ async def run(database_url: str, start_from: str | None) -> int:
         if start_from and runs != await derived_data_meta.read_source_runs(conn):
             raise RuntimeError("生データが前の作り直しから変わっている。--from を外して最初から流す")
         await _copy_to_work_schema(conn, tables)
+        await derived_data_meta.replace_source_runs(conn, runs)
         for index, (name, stage) in enumerate(STAGES[begin:], start=1):
             stage_started = time.perf_counter()
             logger.info("段 %s を開始（%d/%d）", name, index, len(STAGES) - begin)
@@ -212,7 +211,7 @@ async def run(database_url: str, start_from: str | None) -> int:
                         format_duration(time.perf_counter() - stage_started))
         revision = (await conn.fetchval("SELECT revision FROM derived_data_meta") or 0) + 1
         pending = await _build_road_network(database_url, revision)
-        await _swap(conn, tables, revision, runs)
+        await _swap(conn, tables, revision)
         road_network_store.publish(pending)
         pending = None
     finally:

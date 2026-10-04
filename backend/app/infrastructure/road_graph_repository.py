@@ -669,15 +669,16 @@ class RoadGraphRepository:
     async def get_accident_years(self) -> list[int]:
         """事故データの収録年。
 
-        今の事故の数を数えた取込（`derived_data_meta.accident_run_id`）の宣言（`rows.years`）を
+        今の派生の表を作った事故の取込（`derived_data_meta.py: DerivedSourceRunRow`）の宣言（`rows.years`）を
         そのまま返す。最新の取込の宣言を読むと、取り込み直してから派生の作り直しが入れ替わるまでの間、
         古い数を新しい年数で割る。実データの発生年を数えると、事故が1件も無かった年が落ちる。
         年数は`accident_count_per_km_year`の分母に、年そのものは地図の説明文に使う。どちらもここが
         正本で、**表示側は年を自分で持たない**。
         """
         row = await self._session.execute(text(
-            "SELECT r.profile->'source'->'rows'->'years' AS years FROM derived_data_meta m"
-            " JOIN source_runs r ON r.run_id = m.accident_run_id"))
+            "SELECT r.profile->'source'->'rows'->'years' AS years"
+            f" FROM {derived_data_meta.DerivedSourceRunRow.__tablename__} d"
+            " JOIN source_runs r ON r.run_id = d.run_id WHERE d.source = :source"), {"source": Source.ACCIDENT})
         value = row.scalar()
         if not isinstance(value, list):
             return []
