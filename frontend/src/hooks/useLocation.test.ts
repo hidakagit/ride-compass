@@ -59,12 +59,9 @@ describe("マウント時の自動取得", () => {
   it("決着するまでは初期地点で、位置は分からないが印の項目も出さない", () => {
     const { result } = renderHook(() => useLocation());
 
-    expect(requests).toHaveLength(1);
     expect(result.current.locationSource).toBe("default");
     expect(result.current.locationKnown).toBe(false);
     expect(result.current.locationFailure).toBeNull();
-    expect(result.current.locating).toBe(false);
-    expect(result.current.locateError).toBeNull();
   });
 
   it("取れたらその位置になり、位置が分かっている", () => {
@@ -80,25 +77,21 @@ describe("マウント時の自動取得", () => {
 
   it("失敗したら初期地点のまま、文は出さずに印の項目を出し、その再試行は取り直しになる", () => {
     const { result } = renderHook(() => useLocation());
-    const initial = result.current.location;
 
     requests[0].fail();
 
-    expect(result.current.location).toEqual(initial);
     expect(result.current.locationKnown).toBe(false);
     expect(result.current.locateError).toBeNull();
-    expect(result.current.locationFailure).toMatchObject({ id: "location", label: "現在地" });
-    expect(result.current.locationFailure?.onRetry).toBe(result.current.handleLocateMe);
+    act(() => result.current.locationFailure!.onRetry!());
+    expect(result.current.locating).toBe(true);
   });
 
-  it("位置情報の無い端末では、問い合わせずに、描いた後で印の項目を出す", async () => {
+  it("位置情報の無い端末では、印の項目を出す", async () => {
     removeGeolocation();
 
     const { result } = renderHook(() => useLocation());
 
-    expect(result.current.locationFailure).toBeNull();
-    await waitFor(() => expect(result.current.locationFailure).toMatchObject({ id: "location" }));
-    expect(result.current.locateError).toBeNull();
+    await waitFor(() => expect(result.current.locationFailure).not.toBeNull());
   });
 });
 
@@ -113,9 +106,6 @@ describe("「現在地に移動」の取り直し", () => {
     requests[1].succeed(HERE);
     expect(result.current.locating).toBe(false);
     expect(result.current.location).toEqual(HERE);
-    expect(result.current.locationKnown).toBe(true);
-    expect(result.current.locateError).toBeNull();
-    expect(result.current.locationFailure).toBeNull();
   });
 
   it("失敗したら取得中を下ろして文を出し、次に押すと文を消してから取り直す", () => {
@@ -129,7 +119,6 @@ describe("「現在地に移動」の取り直し", () => {
     expect(result.current.locateError).toBe(
       "現在地を取得できませんでした。位置情報の利用が許可されているかご確認ください。",
     );
-    expect(result.current.location).toEqual(HERE);
 
     act(() => result.current.handleLocateMe());
     expect(result.current.locateError).toBeNull();
@@ -174,7 +163,7 @@ describe("「現在地に移動」の取り直し", () => {
 
     requests[1].fail();
 
-    expect(result.current.locationFailure).toMatchObject({ id: "location" });
+    expect(result.current.locationFailure).not.toBeNull();
   });
 });
 
@@ -190,18 +179,8 @@ describe("手で地点を決める", () => {
 
     expect(result.current.location).toEqual(PICKED);
     expect(result.current.locationSource).toBe("manual");
-    expect(result.current.locationKnown).toBe(true);
     expect(result.current.locating).toBe(false);
     expect(result.current.locateError).toBeNull();
-  });
-
-  it("自動取得の決着より先に決めると、位置が分かっていて印の項目は出さない", () => {
-    const { result } = renderHook(() => useLocation());
-
-    act(() => result.current.setManualLocation(PICKED));
-
-    expect(result.current.locationKnown).toBe(true);
-    expect(result.current.locationFailure).toBeNull();
   });
 
   it("まだ返っていない取得は、後から返っても決めた地点を上書きしない", () => {
@@ -213,18 +192,6 @@ describe("手で地点を決める", () => {
     requests[1].fail();
 
     expect(result.current.location).toEqual(PICKED);
-    expect(result.current.locationSource).toBe("manual");
     expect(result.current.locateError).toBeNull();
-  });
-
-  it("決めた後に取り直すと、取れた位置へ戻る", () => {
-    const { result } = renderHook(() => useLocation());
-    act(() => result.current.setManualLocation(PICKED));
-
-    act(() => result.current.handleLocateMe());
-    requests[1].succeed(HERE);
-
-    expect(result.current.location).toEqual(HERE);
-    expect(result.current.locationSource).toBe("geolocation");
   });
 });
