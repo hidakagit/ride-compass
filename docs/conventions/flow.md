@@ -167,7 +167,8 @@ issue の番号ごと）が持つ。同じタスクの実行（作る・確か�
      「dependabot の #<番号> が閉じている」を書く（判定役は issue が名指した dependabot の Pull Request だけを、担当が閉じてよいものと読む）。
      閉じるのは作る担当で、マージのあとの残りとして済ませる（下）。dependabot は master が同じ版になっても閉じないことがあり、
      閉じる条件は公式の文書に無いので、閉じるのを待たない。`gh pr view <番号> -R hidakagit/ride-compass --json state` が `OPEN` なら
-     `gh pr close <番号> -R hidakagit/ride-compass --comment "<取り込んだ Pull Request> で同じ版を取り込んだ"` で閉じる。
+     `gh pr close <番号> -R hidakagit/ride-compass --comment "<取り込んだ Pull Request> で同じ版を取り込んだ"` で閉じ、閉じたかを
+     確かめる担当の4と同じく `state` で見る。
    - マージ済みの Pull Request があって戻ってきたタスク（マージのあとの残り）は、残りを済ませて完了の条件にチェックを付ける。
      ラベル「ユーザー確認」が付いていれば、完了の条件に確かめてもらう行（`- [ ] ユーザーが確かめる: …`）を足してラベルを外す。確かめの行だけが
      残っていれば、確かめてほしいことを問う（完成・進める等は回答フォームが一律に出す）。
@@ -257,8 +258,10 @@ issue の番号ごと）が持つ。同じタスクの実行（作る・確か�
 - マージされた → 残り（チェックの無い完了の条件）が無ければ完了（completed）、あれば残りを書いて未着手（作る担当が残りを済ませる）。
   残りがユーザーの確かめの行だけなら、確かめる担当がマージした同じ回で問いを置いて回答待ちにする（下の 3）。PR の出来事は
   検証中のタスクだけを動かすので、問いとマージのどちらが先に届いても回答待ちのまま
-- GitHub は届かなかった出来事を送り直さない。Pull Request が閉じたのに検証中のまま止まったものは、コードのリポジトリの Settings →
-  Webhooks → Recent Deliveries から Redeliver する（3日分まで）。
+- Pull Request を閉じた・マージしたのに検証中のまま止まったら、先に `gh pr view <番号> -R hidakagit/ride-compass --json state` で
+  Pull Request の状態を見る。`OPEN` なら閉じる・マージする操作そのものが通っていないので、打ち直す（確かめる担当の4・5）。
+  `CLOSED`・`MERGED` なのにステータスが動かないときだけ、知らせが届かなかったので、コードのリポジトリの Settings →
+  Webhooks → Recent Deliveries から Redeliver する（GitHub は届かなかった出来事を送り直さない。3日分まで）。
 
 **確かめる担当**（検証中。作った担当とは別）
 1. 作業ブランチを取る（`git fetch origin` と
@@ -304,11 +307,12 @@ issue の番号ごと）が持つ。同じタスクの実行（作る・確か�
    無いものは、本文の完了の条件へチェックの無い行として足し、2 の結果にどのコメントから足したかを書く。足した行は閉じる理由に
    しない（4 の「満たしていない」には当てない）。マージすると残りとして未着手へ戻り、作る担当がマージのあとの残りとして済ませる。
 4. 1 で「満たしていない」とした条件のどれかに当たれば、足りないことを書いて Pull Request を閉じる（`gh pr close <番号> --comment <理由>`）。
-   ゲートが未着手へ戻す。それ以外の気づき（本文の数字の誤り・書き漏れ・使われない import 等）は閉じる理由にせず、2 の結果に書いて 5 へ進む。
+   閉じる操作は GitHub の API の失敗で通らないことがあるので、閉じたかは `gh pr view <番号> -R hidakagit/ride-compass --json state` で
+   `CLOSED` が出るかで見て、`OPEN` のままなら閉じ直す。ゲートが未着手へ戻す。それ以外の気づき（本文の数字の誤り・書き漏れ・使われない import 等）は閉じる理由にせず、2 の結果に書いて 5 へ進む。
 5. 満たしていれば Pull Request を squash でマージする（`gh pr merge <番号> -R hidakagit/ride-compass --squash`。コードのリポジトリの
    設定で、題名と本文がそのまま master の1つのコミットになる）。CI は 1 で通ったのを見ているので、待たずに打つ。master の CI も
    待たない（ゲートが閉じる）。マージの道具は通っても何も出さないことがあるので、通ったかは
-   `gh pr view <番号> -R hidakagit/ride-compass --json state` で `MERGED` が出るかで見る。
+   `gh pr view <番号> -R hidakagit/ride-compass --json state` で `MERGED` が出るかで見て、`OPEN` のままなら打ち直す。
 6. master と競合してマージできなければ、`git fetch origin` で今の master を取ってから
    `git -c merge.conflictStyle=diff3 merge origin/master` で取り込み（1 で取った master は古く、その上では競合しないことがある。
    `diff3` は競合の塊に合流点の行を `|||||||` の下に出す）、競合の塊ごとに、合流点の行を両側がどう変えたかで解き方を決める。
