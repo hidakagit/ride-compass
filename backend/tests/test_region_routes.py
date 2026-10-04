@@ -341,7 +341,7 @@ def test_region_axis_inspector_leaves_out_materials_whose_conditions_are_missing
         FakeDynamicWayValueService({"12345": 2.0}, "gradient_percent", GradientConditions),
     ):
         monkeypatch.setitem(
-            dedicated_way_values._DEDICATED_WAY_VALUE_SERVICES_BY_MATERIAL,
+            dedicated_way_values.DEDICATED_WAY_VALUE_SERVICES_BY_MATERIAL,
             service.material_id,
             SimpleNamespace(
                 conditions_type=service.conditions_type,

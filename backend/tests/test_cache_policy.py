@@ -10,7 +10,7 @@ from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from app.api.cache_policy import (
-    _ROUTE_POLICIES,
+    ROUTE_POLICIES,
     CachePolicy,
     CachePolicyMiddleware,
     policy_for_path,
@@ -29,7 +29,7 @@ def test_every_route_has_a_cache_policy():
 
 def test_every_policy_entry_matches_a_real_route():
     paths = [route.path for route in _api_routes()]
-    dead = [prefix for prefix, _ in _ROUTE_POLICIES if not any(path.startswith(prefix) for path in paths)]
+    dead = [prefix for prefix, _ in ROUTE_POLICIES if not any(path.startswith(prefix) for path in paths)]
     assert dead == [], f"どの実ルートにも一致しない対応表のエントリ: {dead}"
 
 

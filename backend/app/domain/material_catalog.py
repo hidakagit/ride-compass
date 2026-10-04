@@ -5,7 +5,7 @@
 docs/modules/backend/evaluation-scoring.md「材料カタログ」参照）。
 
 **材料の「登録」と「評価軸での利用」は独立している**: MVTタイル
-（`road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQL`）には、既存の軸が実際に使う
+（`road_graph_repository.py: ROAD_SURFACE_TILE_MVT_SQL`）には、既存の軸が実際に使う
 材料以外にも多くの生データ（highway・surface・smoothness等）が既に焼き込まれている。
 設計の一貫性のため、これらも「評価や地図描画に使えそうな生データ」として本カタログへ
 網羅的に登録する。登録済みでも対応する軸が無ければ評価には使われない（軸スタジオの
@@ -17,7 +17,7 @@ docs/modules/backend/evaluation-scoring.md「材料カタログ」参照）。
 変更なしに軸コンポーザーの選択肢へ現れる。
 
 `tile_property`はMVTタイル（`road_graph_repository.py:
-_ROAD_SURFACE_TILE_MVT_SQL`）に既に焼き込まれているプロパティ名（無ければ材料が
+ROAD_SURFACE_TILE_MVT_SQL`）に既に焼き込まれているプロパティ名（無ければ材料が
 タイル非依存＝地図レイヤーのramp自動生成が不可能なことを表す）。
 """
 

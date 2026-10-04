@@ -333,7 +333,7 @@ Starlette側が付与する。
 ## 応答のCache-Control（`api/cache_policy.py`）
 
 `CachePolicyMiddleware`が全応答へ`Cache-Control`を付ける。パスとポリシーの対応表
-（`_ROUTE_POLICIES`）がこのファイルにあり、ルーター側はヘッダを書かない——方針が
+（`ROUTE_POLICIES`）がこのファイルにあり、ルーター側はヘッダを書かない——方針が
 ルーター全体へ散らばると「どのAPIがどれだけキャッシュされるか」を一覧できなくなるため。
 
 | 規則 | 内容 |
@@ -382,7 +382,7 @@ Basic認証必須）はサーバー側のファイルキャッシュしか消せ
 
 `request_log_middleware`は1リクエスト=1行のアクセスログを出す。
 
-アクセスログのレベルは`_access_level`が動的に決める:
+アクセスログのレベルは`access_level`が動的に決める:
 
 | 条件 | レベル |
 |---|---|

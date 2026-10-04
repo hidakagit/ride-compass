@@ -29,7 +29,7 @@ from app.domain.material_sql import (
     SURFACE_NORMALIZED_SQL,
     TUNNEL_NORMALIZED_SQL,
 )
-from app.infrastructure.road_graph_repository import _ROAD_SURFACE_TILE_MVT_SQL
+from app.infrastructure.road_graph_repository import ROAD_SURFACE_TILE_MVT_SQL
 from app.services import material_coverage_service
 from app.services.material_coverage_service import (
     MaterialCoverageCounted,
@@ -86,7 +86,7 @@ def test_specs_carry_source_description_and_population():
     ],
 )
 def test_way_missing_condition_uses_shared_fragment_also_used_by_mvt_sql(material_id: str, fragment: str):
-    """`MATERIAL_COVERAGE_SPECS`の判定式と`_ROAD_SURFACE_TILE_MVT_SQL`が、同じ
+    """`MATERIAL_COVERAGE_SPECS`の判定式と`ROAD_SURFACE_TILE_MVT_SQL`が、同じ
     `material_sql.py`の定数を実際に使っていることを確認する（両クエリが同じ
     Python文字列を参照する構成そのものが一致を保証するため、独立した2つの文字列を
     突き合わせる旧方式より確実）。"""
@@ -94,7 +94,7 @@ def test_way_missing_condition_uses_shared_fragment_also_used_by_mvt_sql(materia
     assert isinstance(spec, WayMaterialCoverageSpec)
 
     assert fragment in spec.missing_condition
-    assert fragment in _ROAD_SURFACE_TILE_MVT_SQL.text
+    assert fragment in ROAD_SURFACE_TILE_MVT_SQL.text
 
 
 def test_build_way_coverage_sql_has_one_filter_column_per_way_material():

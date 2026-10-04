@@ -393,6 +393,6 @@ isAxisStudioLayer`により地図上チップ（`MapOverlayControls.tsx`）に�
 | way値のフェッチとクエリパラメータの取捨 | `useDedicatedWayValues` + 軸カタログの`dynamic_way_value_conditions`（`axisLayers.ts`が`needsTime`/`needsBearing`/`needsSpeed`へ移す） |
 | 表示宣言・凡例 | `dedicatedWayValueAxesFromCatalogAxes`（軸の`display`）/`dedicatedWayValueLegend` |
 
-**追従しないもの**: 値を組み立てるbackendのサービス本体（材料ごとの`_DEDICATED_WAY_VALUE_SERVICES`
+**追従しないもの**: 値を組み立てるbackendのサービス本体（材料ごとの`DEDICATED_WAY_VALUE_SERVICES`
 への登録、[dynamic-way-values.md](../backend/dynamic-way-values.md)参照）。
 配信を実装した材料を参照しない軸へこのフラグを立てる書き込み自体がbackendで拒否される。

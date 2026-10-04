@@ -62,14 +62,14 @@ class DedicatedWayValueServiceType(Protocol):
 
 # 各サービスは担当する材料を`material_ids`で宣言し、`build`は組み立てる材料を`material_id`で受け取る
 # （1つの実装が同じ計算の材料群——雨の窓の長さ違い等——をまとめて担当できる）。
-_DEDICATED_WAY_VALUE_SERVICES: tuple[DedicatedWayValueServiceType, ...] = (
+DEDICATED_WAY_VALUE_SERVICES: tuple[DedicatedWayValueServiceType, ...] = (
     WindWayService,
     GradientWayService,
     RainWayService,
 )
 
 
-def _services_by_material(
+def services_by_material(
     services: Iterable[DedicatedWayValueServiceType],
 ) -> dict[str, DedicatedWayValueServiceType]:
     """材料id→担当するサービス。1つの材料を2つのサービスが担当していたら起動時に落とす
@@ -85,7 +85,7 @@ def _services_by_material(
     return by_material
 
 
-_DEDICATED_WAY_VALUE_SERVICES_BY_MATERIAL = _services_by_material(_DEDICATED_WAY_VALUE_SERVICES)
+DEDICATED_WAY_VALUE_SERVICES_BY_MATERIAL = services_by_material(DEDICATED_WAY_VALUE_SERVICES)
 
 
 def served_dedicated_way_value_material(materials: Iterable[str]) -> str | None:
@@ -95,7 +95,7 @@ def served_dedicated_way_value_material(materials: Iterable[str]) -> str | None:
     その軸を評価しきれない。どちらも「実装が無い」として扱う（書き込み時の検証が拒否し、
     配信側は404）。
     """
-    served = {material for material in materials if material in _DEDICATED_WAY_VALUE_SERVICES_BY_MATERIAL}
+    served = {material for material in materials if material in DEDICATED_WAY_VALUE_SERVICES_BY_MATERIAL}
     return next(iter(served)) if len(served) == 1 else None
 
 
@@ -108,7 +108,7 @@ def _served_material_of(axis_id: str) -> str | None:
 
 
 def _factory_of(material: str) -> DedicatedWayValueServiceFactory:
-    return partial(_DEDICATED_WAY_VALUE_SERVICES_BY_MATERIAL[material].build, material_id=material)
+    return partial(DEDICATED_WAY_VALUE_SERVICES_BY_MATERIAL[material].build, material_id=material)
 
 
 def dedicated_way_value_factory(axis_id: str) -> DedicatedWayValueServiceFactory | None:
@@ -127,7 +127,7 @@ def dedicated_way_value_conditions(axis_id: str) -> list[WayValueConditionName]:
     material = _served_material_of(axis_id)
     if material is None:
         return []
-    conditions_type = _DEDICATED_WAY_VALUE_SERVICES_BY_MATERIAL[material].conditions_type
+    conditions_type = DEDICATED_WAY_VALUE_SERVICES_BY_MATERIAL[material].conditions_type
     return [cast(WayValueConditionName, field.name) for field in fields(conditions_type)]
 
 

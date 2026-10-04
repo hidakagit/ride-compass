@@ -101,7 +101,7 @@ async def _load_sample(repository: RoadGraphRepository) -> list[tuple[float, dic
     return sample
 
 
-def _distribution(pairs: list[tuple[float, float]]) -> ValueDistribution:
+def weighted_distribution(pairs: list[tuple[float, float]]) -> ValueDistribution:
     """`(長さm, 値)`から延長で重み付けた分布を組み立てる。"""
     if not pairs:
         return EMPTY_DISTRIBUTION
@@ -154,7 +154,7 @@ async def axis_raw_value_distribution(
         shape, {m: [materials.get(m) for _, materials in sample] for m in material_ids}, len(sample)
     )
     pairs = [(length_m, value) for (length_m, _), value in zip(sample, values) if value is not None]
-    return _distribution(pairs)
+    return weighted_distribution(pairs)
 
 
 async def material_value_distribution(
@@ -169,7 +169,7 @@ async def material_value_distribution(
         for length_m, materials in sample
         if materials.get(material_id) is not None
     ]
-    return _distribution(pairs)
+    return weighted_distribution(pairs)
 
 
 async def material_values(repository: RoadGraphRepository, material_id: str) -> list[str] | None:
