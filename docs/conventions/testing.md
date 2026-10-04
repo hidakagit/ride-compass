@@ -604,6 +604,8 @@ importしていないため、名前空間経由では中身の型へ届かな�
   テスト（`pytest`・`npm test`）より前に回す段を同じ順に、`api-contract`のOpenAPI生成物のドリフト（APIに触れたら）、
   `.github/workflows/docs-consistency.yml`の段を打つ。frontendの段は`npx`を外し、`npm run <名前>`か
   `./node_modules/.bin/<ツール>`で打つ（Next.jsの生成型が無い作業ツリーでは、`tsc`の前の`next typegen`を飛ばすと落ちる）。
+  backendに`ruff format`をかけない（CIは`ruff check`だけを回し、リポジトリのコードは`ruff format`の形に揃っていない。
+  かけると変えていない行まで書き換わる）。
   静的検査を先にするのは、消したシンボルの死んだ参照を最後に見つけてテストを回し直さないため。
   **段階（A/B/C…）を切って進めるときは、次の段階へ移る前にこの①②を通す。**
 - **1件直すたびに検査を回し直さない**——出た指摘は全部直してから、次の1回を回す。
