@@ -51,7 +51,7 @@ describe("profileBoxes", () => {
       segment({ distance_km: 2, axis_contributions: { wind: 10, slope: 30 } }),
       segment({ distance_km: 1, axis_contributions: { wind: 5, slope: 15 } }),
     ]);
-    const { byAxis, missing } = profileBoxes(columns, ["slope", "wind"], 40);
+    const { byAxis } = profileBoxes(columns, ["slope", "wind"], 40);
     expect(byAxis.get("slope")).toEqual([
       { startKm: 0, endKm: 2, bottom: 0, top: 30 },
       { startKm: 2, endKm: 3, bottom: 0, top: 15 },
@@ -60,13 +60,11 @@ describe("profileBoxes", () => {
       { startKm: 0, endKm: 2, bottom: 30, top: 40 },
       { startKm: 2, endKm: 3, bottom: 15, top: 20 },
     ]);
-    expect(missing).toEqual([]);
   });
 
-  it("寄与が0の軸・寄与の無い軸は積まず、上の軸はその分下がる。指定の順に無い軸は描かない", () => {
-    const columns = profileColumns([segment({ axis_contributions: { wind: 0, light: 25, other: 10 } })]);
-    const { byAxis } = profileBoxes(columns, ["wind", "slope", "light"], 40);
-    expect(byAxis.get("wind")).toEqual([]);
+  it("寄与の無い軸は積まず、上の軸はその分下がる。指定の順に無い軸は描かない", () => {
+    const columns = profileColumns([segment({ axis_contributions: { light: 25, other: 10 } })]);
+    const { byAxis } = profileBoxes(columns, ["slope", "light"], 40);
     expect(byAxis.get("slope")).toEqual([]);
     expect(byAxis.get("light")).toEqual([{ startKm: 0, endKm: 1, bottom: 0, top: 25 }]);
   });

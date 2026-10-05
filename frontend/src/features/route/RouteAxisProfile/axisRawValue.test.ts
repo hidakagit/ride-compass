@@ -14,10 +14,6 @@ import { describe, expect, it } from "vitest";
 import { formatAxisRawValue, formatCategoryBreakdown, formatMaterialBreakdown } from "./axisRawValue";
 
 describe("formatAxisRawValue", () => {
-  it("総量の単位が来た軸は、生値に走行距離を掛けた総量を四捨五入して「約」で添える", () => {
-    expect(formatAxisRawValue(0.8, "回/km", "回", 32.5)).toBe("0.8回/km・約26回");
-  });
-
   it.each([
     ["総量の単位が来ない", null, 32.5],
     ["走行距離が無い", "回", null],
@@ -26,7 +22,7 @@ describe("formatAxisRawValue", () => {
     expect(formatAxisRawValue(0.8, "回/km", totalUnit, distanceKm)).toBe("0.8回/km");
   });
 
-  it("総量が0.5に満たなければ添えず、0.5からは「約1」と添える", () => {
+  it("総量の単位が来た軸は、生値に走行距離を掛けた総量を四捨五入して「約」で添える。0.5に満たなければ添えない", () => {
     expect(formatAxisRawValue(0.049, "回/km", "回", 10)).toBe("0.049回/km");
     expect(formatAxisRawValue(0.05, "回/km", "回", 10)).toBe("0.05回/km・約1回");
   });
@@ -50,43 +46,27 @@ describe("formatAxisRawValue", () => {
 });
 
 describe("formatMaterialBreakdown", () => {
-  it("真偽の材料は、該当区間の延長割合を%で書く", () => {
-    expect(formatMaterialBreakdown({ label: "街灯あり", dtype: "boolean", unit: "" }, 0.675)).toBe("街灯あり 68%");
-  });
+  const lit = { label: "街灯あり", dtype: "boolean", unit: "" };
 
-  it("数値の材料は、値と単位を書く", () => {
-    expect(formatMaterialBreakdown({ label: "制限速度", dtype: "numeric", unit: "km/h" }, 42.3)).toBe(
-      "制限速度 42km/h",
-    );
-  });
-
-  it("値の無い材料は出さない（null）", () => {
-    expect(formatMaterialBreakdown({ label: "街灯あり", dtype: "boolean", unit: "" }, undefined)).toBeNull();
-  });
-
-  it("数値でも真偽でもない型の材料は出さない（null）", () => {
-    expect(formatMaterialBreakdown({ label: "道の種類", dtype: "categorical", unit: "" }, 1)).toBeNull();
+  it.each([
+    ["真偽の材料は、該当区間の延長割合を%で書く", lit, 0.675, "街灯あり 68%"],
+    ["数値の材料は、値と単位を書く", { label: "制限速度", dtype: "numeric", unit: "km/h" }, 42.3, "制限速度 42km/h"],
+    ["値の無い材料は出さない", lit, undefined, null],
+    ["数値でも真偽でもない型の材料は出さない", { label: "道の種類", dtype: "categorical", unit: "" }, 1, null],
+  ])("%s", (_label, entry, value, text) => {
+    expect(formatMaterialBreakdown(entry, value)).toBe(text);
   });
 });
 
 describe("formatCategoryBreakdown", () => {
   const entry = { label: "道の種類", valueLabels: { residential: "住宅街の道" } };
 
-  it("先頭の値を、対訳と割合で書く", () => {
-    expect(formatCategoryBreakdown(entry, { residential: 0.624, primary: 0.376 })).toBe("住宅街の道 62%");
-  });
-
-  it("並べ替えず、受け取った並びの先頭を出す", () => {
-    expect(formatCategoryBreakdown(entry, { primary: 0.1, residential: 0.9 })).toBe("primary 10%");
-  });
-
-  it("対訳の無い値・対訳を持たない材料は、タグ値のまま書く", () => {
-    expect(formatCategoryBreakdown(entry, { service: 0.4 })).toBe("service 40%");
-    expect(formatCategoryBreakdown({ label: "道の種類" }, { residential: 0.4 })).toBe("residential 40%");
-  });
-
-  it("割合が来ない・空なら出さない（null）", () => {
-    expect(formatCategoryBreakdown(entry, undefined)).toBeNull();
-    expect(formatCategoryBreakdown(entry, {})).toBeNull();
+  it.each([
+    ["先頭の値を、対訳と割合で書く", entry, { residential: 0.624, primary: 0.376 }, "住宅街の道 62%"],
+    ["並べ替えずに先頭を出し、対訳の無い値はタグ値のまま", entry, { primary: 0.1, residential: 0.9 }, "primary 10%"],
+    ["対訳を持たない材料は、タグ値のまま書く", { label: "道の種類" }, { residential: 0.4 }, "residential 40%"],
+    ["割合が来なければ出さない", entry, undefined, null],
+  ])("%s", (_label, material, shares, text) => {
+    expect(formatCategoryBreakdown(material, shares)).toBe(text);
   });
 });

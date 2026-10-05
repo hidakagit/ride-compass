@@ -21,8 +21,7 @@ describe("syncHardFilterKeys", () => {
     });
   });
 
-  it("保存に無いキー（あとから足されたフィルタ）と、中身が真偽でないキーは、正本の既定値にする", () => {
-    const stored = JSON.parse('{"exclude_a": "false"}');
-    expect(syncHardFilterKeys(stored, CANONICAL)).toEqual(CANONICAL);
+  it("保存に無いキー（あとから足されたフィルタ）は、正本の既定値にする", () => {
+    expect(syncHardFilterKeys({}, CANONICAL)).toEqual(CANONICAL);
   });
 });

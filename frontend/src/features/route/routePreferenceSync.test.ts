@@ -29,31 +29,21 @@ describe("alignRoutePreference", () => {
     expect(alignRoutePreference({ a: 0.2 }, { loaded: true, defaultWeights: DEFAULTS })).toEqual({ a: 0.2, b: 0.5 });
   });
 
-  it("カタログから消えた軸は外す", () => {
-    expect(alignRoutePreference({ a: 0.2, b: 0.3, stale: 0.5 }, { loaded: true, defaultWeights: DEFAULTS })).toEqual({
-      a: 0.2,
-      b: 0.3,
-    });
-  });
-
-  it("揃えるときは渡した値を書き換えない", () => {
-    const stored = { a: 0.2, stale: 0.5 };
-    alignRoutePreference(stored, { loaded: true, defaultWeights: DEFAULTS });
-    expect(stored).toEqual({ a: 0.2, stale: 0.5 });
+  it("カタログから消えた軸は外し、渡した値は書き換えない", () => {
+    const stored = { a: 0.2, b: 0.3, stale: 0.5 };
+    expect(alignRoutePreference(stored, { loaded: true, defaultWeights: DEFAULTS })).toEqual({ a: 0.2, b: 0.3 });
+    expect(stored).toEqual({ a: 0.2, b: 0.3, stale: 0.5 });
   });
 });
 
 describe("routePreferenceToSend", () => {
   const aligned = { a: 0.2, b: 0.8 };
 
-  it("上書きしていて、カタログが届いていれば、揃えた重みを送る", () => {
-    expect(routePreferenceToSend(aligned, true, true)).toBe(aligned);
-  });
-
   it.each([
-    ["上書きしていない", true, false],
-    ["カタログが届いていない", false, true],
-  ])("%sなら送らない（null）", (_label, catalogLoaded, overrideEnabled) => {
-    expect(routePreferenceToSend(aligned, catalogLoaded, overrideEnabled)).toBeNull();
+    ["上書きしていて、カタログが届いていれば、揃えた重みを送る", true, true, aligned],
+    ["上書きしていなければ送らない", true, false, null],
+    ["カタログが届いていなければ送らない", false, true, null],
+  ])("%s", (_label, catalogLoaded, overrideEnabled, expected) => {
+    expect(routePreferenceToSend(aligned, catalogLoaded, overrideEnabled)).toBe(expected);
   });
 });

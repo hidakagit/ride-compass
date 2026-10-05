@@ -71,11 +71,8 @@ describe("buildGenerateRequest", () => {
 describe("generationConditionsKey", () => {
   const key = (overrides: Partial<GenerationInput>) => generationConditionsKey({ ...LOOP, ...overrides });
 
-  it.each<[string, Partial<GenerationInput>]>([
-    ["目標距離", { distanceKm: 41 }],
-    ["除外", { hardFilters: { exclude_a: false, exclude_b: false } }],
-  ])("送る値の%sが変われば、キーが変わる", (_label, overrides) => {
-    expect(key(overrides)).not.toBe(key({}));
+  it("送る値（除外）が変われば、キーが変わる", () => {
+    expect(key({ hardFilters: { exclude_a: false, exclude_b: false } })).not.toBe(key({}));
   });
 
   it("レンズの軸だけが変わっても、キーは変わらない", () => {

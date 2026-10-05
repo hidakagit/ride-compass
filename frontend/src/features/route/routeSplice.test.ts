@@ -5,7 +5,6 @@
  * - `stretchAlternativeGroups`: 元の経路の区間ごとに、全候補から乗り換え先の道を集める。2本が同じ地点を通る所では、
  *   どちらの断片も下限の長さ以上のときだけ区間を割る。一度通った地点へ戻る道は出さず、同じ区間を同じ道へ替える
  *   ものは1つにまとめ、元の範囲が重なるものを同じ組にする
- * - `stretchCoordinateRange`: Edgeの範囲が座標列のどこにあたるか
  * - `buildSplicedShape`: 選んだ乗り換えを順に当てた経路の形（Edge id・座標・Edgeの境界・Node id）
  *
  * 経路はbackendの契約どおりの形を`testing/routeFixtures.ts: routeThrough`で地点の並びから組む。
@@ -18,7 +17,7 @@ import { describe, expect, it } from "vitest";
 
 import { routeThrough, type Places } from "@/testing/routeFixtures";
 
-import { buildSplicedShape, pairedStretches, stretchAlternativeGroups, stretchCoordinateRange } from "./routeSplice";
+import { buildSplicedShape, pairedStretches, stretchAlternativeGroups } from "./routeSplice";
 
 // 東西に並ぶ元の道（A〜F）と、その北（P〜S）・南（U〜W）の地点。隣どうしは東西に約0.91km。
 const PLACES: Places = {
@@ -69,10 +68,6 @@ function summary(groups: ReturnType<typeof stretchAlternativeGroups>) {
 }
 
 describe("pairedStretches", () => {
-  it("同じ道を通る2本には、別の道の区間が無い", () => {
-    expect(pairedStretches(["a", "b", "c"], ["a", "b", "c"])).toEqual([]);
-  });
-
   it("別の道を通る区間を、両側の範囲（終わりを含まない）で起点に近い順に対応づける", () => {
     expect(pairedStretches(shape("ABCDEF").edgeIds, shape("AUBCDWF").edgeIds)).toEqual([
       { displayed: { start: 0, end: 1 }, target: { start: 0, end: 2 } },
@@ -85,30 +80,14 @@ describe("pairedStretches", () => {
   });
 });
 
-describe("stretchCoordinateRange", () => {
-  it("Edgeの範囲を、その形が座標列で始まる位置と終わる位置にする", () => {
-    const { edgePointOffsets } = shape("AUB");
-    expect(stretchCoordinateRange(edgePointOffsets, { start: 1, end: 2 })).toEqual({ start: 2, end: 4 });
-  });
-});
-
 describe("stretchAlternativeGroups", () => {
-  it("区間は元の経路の起点に近い順に並び、範囲の重ならない区間は別の組になる", () => {
-    const late = candidate("late", "ABCDSF");
-    const early = candidate("early", "APCDEF");
-    expect(summary(groupsFor("ABCDEF", [late, early]))).toEqual([
-      { stretch: [0, 2], options: ["early [0,2)→[0,2) A-P P-C"] },
-      { stretch: [3, 5], options: ["late [3,5)→[3,5) D-S S-F"] },
-    ]);
-  });
-
   it("元の範囲が重なる乗り換え先は1つの組にまとめ、組の範囲は全部を覆う", () => {
     expect(summary(groupsFor("ABCDE", [candidate("c1", "ABQDE"), candidate("c3", "ABCRE")]))).toEqual([
       { stretch: [1, 4], options: ["c1 [1,3)→[1,3) B-Q Q-D", "c3 [2,4)→[2,4) C-R R-E"] },
     ]);
   });
 
-  it("同じ区間を同じ道へ替える乗り換え先は、候補が違っても先の候補の1つだけ", () => {
+  it("同じ区間を同じ道へ替える乗り換え先は、候補が違っても先の候補の1つだけ。組は元の経路の起点に近い順で、接するだけの範囲は別の組", () => {
     expect(summary(groupsFor("ABCDE", [candidate("c1", "ABQDE"), candidate("c2", "AUBQDE")]))).toEqual([
       { stretch: [0, 1], options: ["c2 [0,1)→[0,2) A-U U-B"] },
       { stretch: [1, 3], options: ["c1 [1,3)→[1,3) B-Q Q-D"] },

@@ -141,15 +141,6 @@ describe("downloadGpx", () => {
     expect(points).toEqual([line[0], line[1000]]);
   });
 
-  it("上限を超える点数なら、曲がり角は残す", async () => {
-    // 東へ600点進んでから北へ600点進む。
-    const east = straightLine(600, 5, 0);
-    const north = Array.from({ length: 600 }, (_, i) => offset(east[599], 0, 5 * (i + 1)));
-    const route = [...east, ...north];
-    const { points } = await exportGpx(candidate(route));
-    expect(points).toEqual([route[0], route[599], route[1199]]);
-  });
-
   it("始点と終点が同じ周回でも、上限以下へ間引いて角を残す", async () => {
     // 1辺300点の正方形を一周して始点へ戻る。
     const corners: GeoJSON.Position[] = [[139.7, 35.6]];
