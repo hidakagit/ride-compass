@@ -86,6 +86,16 @@ def test_ref_runs_the_old_tests_beside_and_removes_them(repo, capsys):
     assert _git(repo, "status", "--short") == ""
 
 
+def test_ref_without_the_test_file_runs_only_the_current_one(repo, capsys):
+    _commit(repo, {"backend/tests/test_calc_positive.py": _BOTH})
+
+    code = _run(repo, [_entry('else "pos"', 'else "POS"', tests=["backend/tests/test_calc_positive.py"])], ref="HEAD~1")
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "落ちた（HEAD~1 のテスト）: 0本\n  HEAD~1 に無いテストのファイル: backend/tests/test_calc_positive.py" in out
+
+
 @pytest.mark.parametrize(
     ("entry", "reason"),
     [
