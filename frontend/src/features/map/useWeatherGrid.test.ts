@@ -1,3 +1,10 @@
+/**
+ * `useWeatherGrid.ts`——風・延長降水予報の粗い格子と、ズームしたときの詳細格子を取り、取り直しで欠けた地点を補うこと。
+ *
+ * ここで見ないもの:
+ * - 無効の間は取りに行かないこと → 読むだけの要求なので送ったかを見ない（testing.md「確かめる高さ」）。無効の間に
+ *   返す値は「無効の間は「まだ取りに行っていない」とし…」が見る
+ */
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -46,9 +53,12 @@ async function settle() {
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
   serveGrid([point(35, 139)]);
-  // 詳細格子は、問い合わせた範囲の南西の角の1点を、問い合わせた間隔を風速にして返す。
+  // 詳細格子は、問い合わせた範囲の南西と北東の角の2点を、問い合わせた間隔を風速にして返す。
   onBackend("GET", DETAIL, ({ query }) =>
-    gridResponse(point(Number(query.min_lat), Number(query.min_lon), Number(query.spacing_deg))),
+    gridResponse(
+      point(Number(query.min_lat), Number(query.min_lon), Number(query.spacing_deg)),
+      point(Number(query.max_lat), Number(query.max_lon), Number(query.spacing_deg)),
+    ),
   );
 });
 afterEach(() => {
@@ -107,6 +117,7 @@ describe("useWeatherGrid（風・延長降水予報の格子）", () => {
     await settle();
     expect(result.current.detail?.points.map((p) => [p.latitude, p.longitude, p.wind_speed_ms[0], p.times])).toEqual([
       [35.6, 139.7, DETAIL_SPACING, HOURS],
+      [35.62, 139.72, DETAIL_SPACING, HOURS],
     ]);
     expect(result.current.detail?.spacingDeg).toBe(DETAIL_SPACING);
   });
@@ -165,7 +176,7 @@ describe("useWeatherGrid（風・延長降水予報の格子）", () => {
     onBackend("GET", DETAIL, held.reply);
     rerender({ enabled: true, viewport: { ...ZOOMED, zoom: 13 } });
     await vi.waitFor(() => expect(held.arrived()).toBe(1));
-    expect(result.current.detail?.points.map((p) => p.latitude)).toEqual([35.6]);
+    expect(result.current.detail?.points.map((p) => p.latitude)).toEqual([35.6, 35.62]);
     expect(result.current.detail?.spacingDeg).toBe(DETAIL_SPACING);
   });
 });

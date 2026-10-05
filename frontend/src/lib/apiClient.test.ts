@@ -14,7 +14,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { backendApi, fetchJson, requestApi } from "@/lib/apiClient";
+import { adminApiClient, backendApi, fetchJson, requestApi } from "@/lib/apiClient";
 import { clearDebugLog, getDebugLogEntries, setDebugEnabled } from "@/lib/debugLog";
 
 const URL_A = "https://example.test/feed.json";
@@ -55,6 +55,21 @@ function rejection(promise: Promise<unknown>): Promise<Error> {
     (error: Error) => error,
   );
 }
+
+// 落ちることは型検査（`tsc --noEmit`）が`@ts-expect-error`の行で見る（型が緩むと、使われない印として落ちる）。
+describe("呼び出し口の型はbackendの契約から決まる", () => {
+  it("宣言に無いパス・必須の問い合わせの項目の欠け・管理APIの口の接頭辞の付け過ぎは型検査で落ちる", () => {
+    const neverCalled = () => {
+      // @ts-expect-error backendの宣言に無いパス。
+      void backendApi.GET("/api/no-such-endpoint");
+      // @ts-expect-error 必須の問い合わせの項目（longitude）が欠けている。
+      void backendApi.GET("/api/weather", { params: { query: { latitude: 35 } } });
+      // @ts-expect-error 管理APIの口はbackendのパスの`/api/admin`より後で呼ぶ。
+      void adminApiClient.GET("/api/admin/db-status");
+    };
+    expect(neverCalled).toBeTypeOf("function");
+  });
+});
 
 describe("成功", () => {
   it("応答の本体を返し、開始と成功を記録する（開始には呼び出し側の情報を、成功には要求のidを添える）", async () => {

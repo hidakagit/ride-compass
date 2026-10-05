@@ -59,10 +59,10 @@ describe("useWeatherConditions 取得の時機", () => {
   });
 
   it("位置が決まったら、予報・実測・警報・暑さ指数・氾濫予報をその位置で取る", async () => {
-    // どの口も、問い合わせた緯度を値に書いて返す。
-    const at = ({ query }: { query: Record<string, string> }) => query.latitude;
-    onBackend("GET", WEATHER, (request) => Response.json({ temperature_c: Number(at(request)) }));
-    onBackend("GET", AMEDAS, (request) => Response.json({ temperature_c: Number(at(request)) }));
+    // どの口も、問い合わせた緯度・経度を値に書いて返す。
+    const at = ({ query }: { query: Record<string, string> }) => `${query.latitude},${query.longitude}`;
+    onBackend("GET", WEATHER, (request) => Response.json({ place: at(request) }));
+    onBackend("GET", AMEDAS, (request) => Response.json({ place: at(request) }));
     onBackend("GET", WARNINGS, (request) =>
       Response.json({ warnings: [{ code: "03", name: `警報@${at(request)}`, level: "warning", additions: [] }] }),
     );
@@ -76,22 +76,28 @@ describe("useWeatherConditions 取得の時機", () => {
     );
     const { result } = render();
     await settle();
-    expect(result.current.weather).toEqual({ temperature_c: TOKYO.latitude });
-    expect(result.current.amedas).toEqual({ temperature_c: TOKYO.latitude });
+    const tokyo = `${TOKYO.latitude},${TOKYO.longitude}`;
+    expect(result.current.weather).toEqual({ place: tokyo });
+    expect(result.current.amedas).toEqual({ place: tokyo });
     expect(result.current.warningBadgeItems.map((item) => item.label)).toEqual([
-      `警報@${TOKYO.latitude}`,
-      `暑さ指数@${TOKYO.latitude}`,
-      `氾濫@${TOKYO.latitude}`,
+      `警報@${tokyo}`,
+      `暑さ指数@${tokyo}`,
+      `氾濫@${tokyo}`,
     ]);
   });
 
-  it("位置が変わったら、新しい位置で取り直す", async () => {
-    onBackend("GET", WEATHER, ({ query }) => Response.json({ temperature_c: Number(query.latitude) }));
+  it("位置が変わったら、緯度・経度のどちらだけの違いでも新しい位置で取り直す", async () => {
+    onBackend("GET", WEATHER, ({ query }) => Response.json({ place: `${query.latitude},${query.longitude}` }));
     const { result, rerender } = render();
     await settle();
-    rerender({ location: YOKOHAMA, ready: true });
-    await settle();
-    expect(result.current.weather).toEqual({ temperature_c: YOKOHAMA.latitude });
+    for (const moved of [
+      { ...TOKYO, longitude: YOKOHAMA.longitude },
+      { latitude: YOKOHAMA.latitude, longitude: YOKOHAMA.longitude },
+    ]) {
+      rerender({ location: moved, ready: true });
+      await settle();
+      expect(result.current.weather).toEqual({ place: `${moved.latitude},${moved.longitude}` });
+    }
   });
 
   // 取り直す回数はbackendの回数制限（429）に効くので、届いた要求を数える。

@@ -1,3 +1,10 @@
+/**
+ * `useDedicatedWayValues.ts`——専用配信の軸の道ごとの値を、画面のタイルと走行の条件で取り、軸ごとにまとめること。
+ *
+ * ここで見ないもの:
+ * - 画面か対象の軸が無い間は取りに行かないこと → 読むだけの要求なので送ったかを見ない（testing.md「確かめる高さ」）。
+ *   要求はタイルと軸の組から作るので、どちらかが無ければ1件も作られない。画面が無くなれば空へ戻すことは下のテストが見る
+ */
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 

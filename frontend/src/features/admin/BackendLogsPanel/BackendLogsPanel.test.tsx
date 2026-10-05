@@ -3,7 +3,6 @@
  * まとめてコピーできること。
  *
  * ここで見ないもの:
- * - 絞り込みを問い合わせの項目へ組み立てること → `app/admin/adminApi.test.ts`
  * - クリップボードへの書き込みと失敗の文言 → `hooks/useCopyToClipboard.ts`
  * - 行の色そのもの → `components/ui/LogLine`（ここでは、重さごとに`LogLine`が描く見た目と同じかだけを見る）
  */
@@ -26,10 +25,10 @@ function echoQuery() {
 }
 
 describe("BackendLogsPanel", () => {
+  // ログの口へ応答を与えないので、取りに行けば応答の無い要求としてテストが落ちる（`vitest.setup.ts`）。
   it("開いただけでは取りに行かない", () => {
-    serveLogs(["[INFO] 1行目"]);
     render(<BackendLogsPanel />);
-    expect(screen.queryByText("[INFO] 1行目")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "取得" })).toBeInTheDocument();
   });
 
   it("既定はWARNING以上・200件・絞り込みなしで取る", async () => {

@@ -33,9 +33,12 @@ export function serveGenerationJobs() {
     fail(message: string) {
       replies.push(() => Response.json({ status: "failed", error: message }));
     },
-    /** 次の生成は、状態の問い合わせに答えないまま（実行中のまま）にする。 */
+    /**
+     * 次の生成は、状態の問い合わせに答えないまま（実行中のまま）にする。テストの終わりにジョブの失敗で閉じる——網の失敗で
+     * 閉じると、生成の口が問い合わせを続け、後のテストの応答か応答の無い要求に当たる。
+     */
     keepRunning() {
-      replies.push(heldReplies().reply);
+      replies.push(heldReplies(() => Response.json({ status: "failed", error: "テストが終わった" })).reply);
     },
     /** 次の生成の状態の問い合わせに`reply`で答える（待ち・実行中を挟むテスト用）。 */
     answerWith(reply: JobReply) {

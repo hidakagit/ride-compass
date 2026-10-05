@@ -13,6 +13,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { getQueryClient } from "@/lib/queryClient";
 import { heldReplies, onBackend, serveAxisCatalog } from "@/testing/backendServer";
 import { catalogEntry, catalogResponse } from "@/testing/catalogAxes";
 import type { AxisCatalogResponse } from "@/types/route";
@@ -129,6 +130,8 @@ describe("useAxisCatalog", () => {
     const second = renderHook(() => useAxisCatalog());
     await waitFor(() => expect(fetches.arrived()).toBe(2));
     await fetches.reject(1);
+    // 失敗が届いて取り直しが終わってから確かめる（取り直している間は、どの作りでも失敗にならない）。
+    await waitFor(() => expect(getQueryClient().isFetching()).toBe(0));
 
     expect(second.result.current.failed).toBe(false);
     expect(axisIds(second.result.current)).toEqual(["axis_a"]);
