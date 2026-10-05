@@ -117,6 +117,8 @@ FastAPI(lifespan=lifespan)
             → CorrelationIdMiddleware（リクエストID付与、最も外側）
         ▼
   api_router（api/routers/__init__.py、全routerを集約）
+        │  全経路に掛かる依存（FastAPI(dependencies=...)）: reject_non_finite_json_body（finite_json_body.py）が
+        │  本文のNaN・無限大を経路の処理（管理APIの認可を含む）より前に422で断る
         ▼
       yield（アプリ稼働中）
         ▼

@@ -28,12 +28,10 @@ def _non_finite_errors(value: Any, loc: tuple[str | int, ...]) -> Iterator[dict[
 
 
 async def reject_non_finite_json_body(request: Request) -> None:
-    if not await request.body():
-        return
     try:
         body = await request.json()
     except ValueError:
-        # JSONとして読めない本文は、本文を受ける経路ならFastAPIがこの依存より前に422で断っており、
+        # 空の本文・JSONとして読めない本文は、本文を受ける経路ならFastAPIがこの依存より前に422で断っており、
         # 受けない経路では誰も読まない。
         return
     errors = list(_non_finite_errors(body, ("body",)))
