@@ -127,8 +127,11 @@
 - 対象: 取り直せない管理データ（軸の定義・較正値の上書き等。ORMで`IRREPLACEABLE`の印を持つ表）。
   仕組みは[横断基盤](../modules/backend/cross-cutting-infrastructure.md)「取り直せない管理データのバックアップ」。
 - ルール: 本番VMのsystemdのtimerが毎日03:17（日本時間）に、その表を`pg_dump`してOracle Cloud Object Storageの
-  非公開バケットへ`admin-data/<UTCの時刻>.dump`として置く。**VMを作り直したら、下の登録をやり直す**（timerの
-  登録とバケットへ書く権限は、VMとそのインスタンスのOCIDに付く）。
+  非公開バケットへ`admin-data/<UTCの時刻>.dump`として置く。バケットにはライフサイクルの規則で直近30日だけを残す
+  （VMには消す権限が無いので、消すのはObject Storageの規則）。置けたら時刻を書き、backendの`/health`が
+  `admin_data_backup_age_hours`（最後に置けてからの時間）を返す。振り出しの見回りがそれを読み、48時間を超えた・記録が
+  無い・読めないときに Project の状況の更新の「気づくべきもの」に出す（[flow.md](flow.md)「様子を見る」）。
+  **VMを作り直したら、下の登録の1.〜4.をやり直す**（timerの登録とバケットへ書く権限は、VMとそのインスタンスのOCIDに付く）。
 - 登録（1回。Oracle Cloudのコンソールと、VMにSSHで入って打つ）:
   1. バケットを作る: コンソールの Storage → Buckets で、ホームリージョン（無料枠はホームリージョンだけ）に
      標準の層・既定の見え方（公開しない）で作る（例: `ridecompass-admin-data`）。ネームスペースは同じ画面か、
@@ -153,9 +156,20 @@
      systemctl list-timers ridecompass-admin-data-backup.timer
      ```
      `journalctl`の最後に「管理データを置きました object=admin-data/…」が出て、コンソールのバケットにそのオブジェクトが
-     見えれば済み。
-- 動いているかを見る: VMで`systemctl list-timers ridecompass-admin-data-backup.timer`（前回・次回）と
-  `sudo journalctl -u ridecompass-admin-data-backup.service --since -2d`。失敗しても知らせは来ない。
+     見え、`curl -fsS http://localhost:8000/health`の`admin_data_backup_age_hours`が0.0なら済み。
+  5. 30日より古いものを消す: Object Storageの規則は、Object Storageのサービスにバケットのオブジェクトを扱う権限が無いと
+     動かない（公式の文書「Using Object Lifecycle Policies」）。Identity → Policies で、**テナンシのルートのコンパートメント**に
+     次の1文のポリシーを作る（`<リージョン>`はバケットのあるリージョンの識別子。例: `ap-tokyo-1`）。
+     ```
+     Allow service objectstorage-<リージョン> to manage object-family in compartment <コンパートメント名>
+     ```
+     続けて Storage → Buckets → バケット → Policies の「Lifecycle policy rules」で Create Rule を押し、Lifecycle action を
+     Delete・日数を30・Object name filters の prefix を`admin-data/`にして作る。規則が効き始めるまで最大24時間かかる（同じ文書）。
+  6. 見回りに宛先を教える: コードのリポジトリの Settings → Secrets and variables → Actions → Variables で、変数
+     `BACKEND_ORIGIN`（`tools/flow-gate/flow.config.json: coordinator.backendVariable`）にbackendの宛先
+     （docs/architecture/tech-stack.md「本番の宛先」。末尾の`/`は付けない）を置く。宛先が変わったら書き換える。
+- 動いているかを見る: 止まれば見回りの状況の更新に出る。詳しくはVMで`systemctl list-timers ridecompass-admin-data-backup.timer`
+  （前回・次回）と`sudo journalctl -u ridecompass-admin-data-backup.service --since -2d`。
 - `backend/ops/`のユニットの中身を変えたコミットがデプロイされたら、VMで`sudo systemctl daemon-reload`を打つ
   （シェルの中身は次の回から新しいものが読まれる）。
 
