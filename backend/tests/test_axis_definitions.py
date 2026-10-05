@@ -354,7 +354,7 @@ class TestAxisSet:
             axis_definitions.check_axis_set(definitions)
 
     def test_a_material_counted_twice_is_named_from_the_later_axis(self):
-        # 作る書き込みは書いた軸を最後に並べるので、断りの文が書いた軸の側から読める。
+        # 書き込みは書いた軸を最後に並べて渡すので、断りの文が書いた軸の側から読める。
         definitions = {"axis_b": axis("axis_b", label="先の軸"), "axis_a": axis("axis_a")}
 
         with pytest.raises(axis_definitions.AxisMaterialConflictError) as caught:

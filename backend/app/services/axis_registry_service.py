@@ -14,6 +14,8 @@ import logging
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
     AxisDefinition,
+    AxisDependencyCycleError,
+    AxisMaterialConflictError,
     check_axis_definition,
     check_axis_set,
     check_internal_axis_not_published,
@@ -54,8 +56,7 @@ def _loading_problem(definitions: dict[str, AxisDefinition]) -> str | None:
     """起動時の読み込みがこの軸の集合を受け入れない理由。受け入れるならNone。運用者が読む文で、軸はidで名指す。
 
     管理APIの書き込みも確定する前の状態を同じ判定（0行と`_rejected_axes`と`check_axis_set`）へ通すが、断りの文は
-    画面に出るため書き込みの側で書く（`_check_loadable_after_write`・`AxisRegistryAdminService.delete`）。集合の誤りは
-    書き込みの断りと同じ文で、軸を表示名で名指す。
+    画面に出るため書き込みの側で書く（`_check_loadable_after_write`・`AxisRegistryAdminService.delete`）。
     """
     if not definitions:
         return (
@@ -68,9 +69,16 @@ def _loading_problem(definitions: dict[str, AxisDefinition]) -> str | None:
         return f"アプリが受け入れない軸があります（{reasons}）"
     try:
         check_axis_set(definitions)
-    except ValueError as error:
-        return f"アプリが受け入れない軸の組み合わせがあります（{error}）"
-    return None
+    except AxisMaterialConflictError as error:
+        materials = ", ".join(sorted(error.overlapping_materials))
+        reason = f"{error.axis_id}: 材料 {materials} を {error.conflicting_axis_id} も使っています"
+    except AxisDependencyCycleError as error:
+        reason = f"組み合わせが輪になっています {'→'.join(error.cycle)}"
+    except ValueError as error:  # 軸idと材料idの衝突。文が軸をidで名指している
+        reason = str(error)
+    else:
+        return None
+    return f"アプリが受け入れない軸の組み合わせがあります（{reason}）"
 
 
 async def refresh_axis_definitions(repository: AxisDefinitionRepository) -> None:
@@ -91,14 +99,18 @@ async def refresh_axis_definitions(repository: AxisDefinitionRepository) -> None
     AXIS_DEFINITIONS.update(definitions)
 
 
-def _check_loadable_after_write(after: dict[str, AxisDefinition]) -> None:
+def _check_loadable_after_write(after: dict[str, AxisDefinition], written_axis_id: str) -> None:
     """作成・更新の後の全軸が起動時の読み込みを通るか。軸を足す・差し替える書き込みなので、0行にはならない。
-    集合の誤り（`check_axis_set`）は、その文のまま断る。"""
+
+    集合の誤り（`check_axis_set`）は、その文のまま断る。材料の重なりは後に並ぶ軸の誤りとして名指されるので、
+    書いた軸を最後に並べて渡す——並び順のまま渡すと、前に並ぶ軸を直したときに、直した軸を「すでに使っている軸」と名指す。
+    """
     rejected = _rejected_axes(after)
     if rejected:
         reasons = "／".join(f"{named_references([axis_id], after)}: {reason}" for axis_id, reason in rejected.items())
         raise ValueError(f"この変更を確定すると、次の起動で読み込めない軸ができるため確定しません（{reasons}）")
-    check_axis_set(after)
+    others = {axis_id: d for axis_id, d in after.items() if axis_id != written_axis_id}
+    check_axis_set({**others, written_axis_id: after[written_axis_id]})
 
 
 def _check_deletable(axis_id: str, existing: dict[str, AxisDefinition]) -> None:
@@ -152,7 +164,7 @@ class AxisRegistryAdminService:
         existing_definitions = {aid: d for aid, (d, _) in existing.items()}
         check_internal_axis_not_published(definition, existing_definitions)
         after = {**existing_definitions, definition.axis_id: definition}
-        _check_loadable_after_write(after)
+        _check_loadable_after_write(after, definition.axis_id)
         sort_order = max((order for _, order in existing.values()), default=-1) + 1
         await self._repository.upsert(definition, sort_order)
         await self._repository.commit()
@@ -172,7 +184,7 @@ class AxisRegistryAdminService:
         existing_definitions = {aid: d for aid, (d, _) in existing.items()}
         check_internal_axis_not_published(definition, existing_definitions)
         after = {**existing_definitions, axis_id: definition}
-        _check_loadable_after_write(after)
+        _check_loadable_after_write(after, axis_id)
         await self._repository.upsert(definition, sort_order)
         await self._repository.commit()
         await refresh_axis_definitions(self._repository)
