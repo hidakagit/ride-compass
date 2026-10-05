@@ -220,14 +220,14 @@ describe("UsageGuide", () => {
         return { onMapClick, onGenerate };
       }
 
-      it("閉じた押し操作は外の要素へ届かず、次の押し操作は届く", async () => {
+      it("閉じた押し操作は外の要素へ届かず、そのあとの押し操作を経ない click（支援技術の決定等）は届く", async () => {
         const { onMapClick } = renderClosingScreen();
         await userEvent.click(screen.getByRole("button", { name: "生成" }));
 
         await userEvent.click(screen.getByText("地図"));
         expect(explanation()).not.toBeInTheDocument();
         expect(onMapClick).not.toHaveBeenCalled();
-        await userEvent.click(screen.getByText("地図"));
+        fireEvent.click(screen.getByText("地図"));
 
         expect(onMapClick).toHaveBeenCalledTimes(1);
       });
