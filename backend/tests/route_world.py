@@ -26,6 +26,7 @@ from app.domain.route_preference import RoutePreference
 from app.domain.wind import WindForecastSeries
 from app.infrastructure import road_network_store
 from app.services.graph_service import GraphService
+from app.services.weather_service import WeatherService
 from tests.axis_system_fixture import axis_definition, replaced_axis_definitions
 
 AVOID_AXIS = "avoid"
@@ -137,16 +138,21 @@ class NetworkRepository:
 
 
 class Weather:
-    """天気の代役。出発時点の風は無く、時別の風の予報は`series`（Noneなら無し）を返す。"""
+    """天気の代役。出発時点の風は無く、時別の風の予報は`series`（Noneなら無し）を返す。雨の観測は本物の
+    `WeatherService`から読む（Redisの履歴。`tests/rain_history_fake.py: observe`で作る）。"""
 
     def __init__(self, series: WindForecastSeries | None = None):
         self._series = series
+        self._rain = WeatherService()
 
     async def get_conditions(self, origin):
         return None
 
     async def get_wind_forecast_lattice(self, bbox):
         return self._series
+
+    async def get_station_rain_materials(self, now):
+        return await self._rain.get_station_rain_materials(now)
 
 
 def engine_for(monkeypatch, network: RoadNetwork, avoid_weight: float, wind: WindForecastSeries | None):

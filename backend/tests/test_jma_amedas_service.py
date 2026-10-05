@@ -24,7 +24,6 @@ import httpx
 import numpy as np
 import pytest
 import respx
-from cachetools import TTLCache
 from PIL import Image
 
 from app.domain.jma_amedas import apparent_temperature_from_amedas
@@ -33,8 +32,9 @@ from app.domain.rain import HOURS_SINCE_RAIN, RAIN_HISTORY_HOURS, RAIN_HISTORY_M
 from app.domain.route import Coordinates
 from app.domain.time_zone import JST
 from app.infrastructure import jma_amedas_client, jma_tile_client
-from app.services.jma_amedas_service import JmaAmedasService, load_station_rain_materials
-from tests import rain_history_fake
+from app.infrastructure.jma_amedas_client import new_latest_time_cache, new_station_table_cache
+from app.infrastructure.jma_tile_client import JmaTileClient, JmaTileSharedState
+from app.services.jma_amedas_service import JmaAmedasService, load_station_rain_materials, new_rain_materials_cache
 from tests.fake_http import client_for
 
 POINT = Coordinates(latitude=35.68, longitude=139.76)
@@ -137,19 +137,19 @@ def _upstream(**answers):
     return client_for(_router(**answers))
 
 
-def _forget_client_caches(monkeypatch):
-    """クライアントのプロセス内キャッシュ（観測所マスタ・最新時刻）を空にする。テストをまたいで残り、
-    同じテストの中でも最新時刻を変えて引き直すときに古い値が返るため。"""
-    monkeypatch.setattr(jma_amedas_client, "station_table_cache", TTLCache(maxsize=1, ttl=60))
-    monkeypatch.setattr(jma_amedas_client, "latest_time_cache", TTLCache(maxsize=1, ttl=60))
+def _service(http_client: httpx.AsyncClient) -> JmaAmedasService:
+    """取得のキャッシュ（観測所マスタ・最新時刻・推計気象分布の時刻一覧）は、組み立てるたびに空から始まる。"""
+    return JmaAmedasService(
+        http_client,
+        JmaTileClient(http_client, JmaTileSharedState()),
+        station_table_cache=new_station_table_cache(),
+        latest_time_cache=new_latest_time_cache(),
+    )
 
 
 @pytest.fixture(autouse=True)
-def _empty_stores(monkeypatch, fake_redis):
-    """Redisは空から、クライアントのプロセス内キャッシュ（推計気象分布の時刻一覧も）も空から始める。"""
-    _forget_client_caches(monkeypatch)
-    monkeypatch.setattr(jma_tile_client, "target_times_cache", TTLCache(maxsize=16, ttl=60))
-    monkeypatch.setattr(jma_tile_client, "last_fetch_at", None)
+def _empty_stores(fake_redis):
+    """Redisは空から始める。"""
 
 
 @pytest.mark.parametrize(
@@ -162,7 +162,7 @@ def _empty_stores(monkeypatch, fake_redis):
 )
 async def test_refresh_all_stations_warns_when_a_fetch_fails(caplog, answers, message):
     """呼び出し元は例外の有無しか見ないため、1件も書けていないことはサービス層自身がWARNINGで残すしかない。"""
-    service = JmaAmedasService(http_client=_upstream(**answers))
+    service = _service(_upstream(**answers))
 
     with caplog.at_level("WARNING", logger="ridecompass.jma_amedas_service"):
         count = await service.refresh_all_stations()
@@ -171,9 +171,9 @@ async def test_refresh_all_stations_warns_when_a_fetch_fails(caplog, answers, me
     assert any(message in record.message for record in caplog.records)
 
 
-async def test_get_nearest_observation_reads_from_redis_without_fetching(monkeypatch):
+async def test_get_nearest_observation_reads_from_redis_without_fetching():
     upstream = _router()
-    service = JmaAmedasService(http_client=client_for(upstream))
+    service = _service(client_for(upstream))
     # バッチ（定期実行想定）が先に全国分をキャッシュ済みという前提を再現する。
     await service.refresh_all_stations()
     upstream.reset()
@@ -196,7 +196,7 @@ async def test_get_nearest_observation_reads_from_redis_without_fetching(monkeyp
 
 
 async def _nearest(**answers):
-    service = JmaAmedasService(http_client=_upstream(**answers))
+    service = _service(_upstream(**answers))
     await service.refresh_all_stations()
     return await service.get_nearest_observation(POINT)
 
@@ -250,8 +250,8 @@ async def test_unknown_sky_is_logged_as_a_warning(caplog):
     assert any("推計気象分布" in record.message for record in caplog.records)
 
 
-async def test_get_nearest_observation_returns_none_when_not_yet_cached(monkeypatch):
-    service = JmaAmedasService(http_client=_upstream())
+async def test_get_nearest_observation_returns_none_when_not_yet_cached():
+    service = _service(_upstream())
 
     # refresh_all_stationsを呼んでいない（＝定期バッチがまだ一度も成功していない）状態。
     result = await service.get_nearest_observation(POINT)
@@ -260,11 +260,6 @@ async def test_get_nearest_observation_returns_none_when_not_yet_cached(monkeypa
 
 
 # --- 毎正時の1時間雨量の履歴（雨の材料の元） ---
-
-
-@pytest.fixture(autouse=True)
-def _fresh_rain_materials_cache(monkeypatch):
-    rain_history_fake.forget_rain_materials(monkeypatch)
 
 
 def _latest_hour(now: datetime) -> datetime:
@@ -293,18 +288,17 @@ class RainMaps:
         return {**OBSERVATION_MAP, "44132": {**OBSERVATION_MAP["44132"], "precipitation1h": [rain, 0]}}
 
 
-def _rain_service(monkeypatch, maps: RainMaps) -> JmaAmedasService:
-    _forget_client_caches(monkeypatch)
+def _rain_service(maps: RainMaps) -> JmaAmedasService:
     latest_time = (maps.latest_hour + timedelta(minutes=50)).isoformat()
-    return JmaAmedasService(http_client=_upstream(latest_time=latest_time, observation_map=maps.observation_map))
+    return _service(_upstream(latest_time=latest_time, observation_map=maps.observation_map))
 
 
-async def test_rain_history_is_backfilled_from_past_hourly_maps(monkeypatch):
+async def test_rain_history_is_backfilled_from_past_hourly_maps():
     now = datetime.now(JST)
     maps = RainMaps(_latest_hour(now), rain_by_back={2: 3.0, 3: 3.0})
 
-    await _rain_service(monkeypatch, maps).refresh_all_stations()
-    materials = await load_station_rain_materials(now)
+    await _rain_service(maps).refresh_all_stations()
+    materials = await load_station_rain_materials(now, new_rain_materials_cache())
 
     assert sorted(maps.requested_hours) == list(range(RAIN_HISTORY_HOURS))
     assert materials is not None
@@ -314,62 +308,64 @@ async def test_rain_history_is_backfilled_from_past_hourly_maps(monkeypatch):
     assert materials.values[HOURS_SINCE_RAIN][0] == 2.0
 
 
-async def test_rain_history_fetches_only_hours_it_does_not_have(monkeypatch):
+async def test_rain_history_fetches_only_hours_it_does_not_have():
     now = datetime.now(JST)
     latest_hour = _latest_hour(now)
     earlier = RainMaps(latest_hour - timedelta(hours=1), rain_by_back={})
-    await _rain_service(monkeypatch, earlier).refresh_all_stations()
+    await _rain_service(earlier).refresh_all_stations()
 
     later = RainMaps(latest_hour, rain_by_back={0: 1.5})
-    await _rain_service(monkeypatch, later).refresh_all_stations()
-    materials = await load_station_rain_materials(now)
+    await _rain_service(later).refresh_all_stations()
+    materials = await load_station_rain_materials(now, new_rain_materials_cache())
 
     assert later.requested_hours == [0]
     assert materials is not None
     assert materials.values[rain_window_material_id(1)][0] == 1.5
 
 
-async def test_an_hour_that_could_not_be_fetched_is_retried_and_leaves_its_windows_empty_meanwhile(monkeypatch):
+async def test_an_hour_that_could_not_be_fetched_is_retried_and_leaves_its_windows_empty_meanwhile():
     now = datetime.now(JST)
     latest_hour = _latest_hour(now)
     failing = RainMaps(latest_hour, rain_by_back={}, failing_backs={5})
-    await _rain_service(monkeypatch, failing).refresh_all_stations()
-    materials = await load_station_rain_materials(now)
+    await _rain_service(failing).refresh_all_stations()
+    materials = await load_station_rain_materials(now, new_rain_materials_cache())
 
     assert materials is not None
     assert materials.values[rain_window_material_id(4)][0] == 0.0
     assert np.isnan(materials.values[rain_window_material_id(6)][0])
 
     retry = RainMaps(latest_hour, rain_by_back={})
-    await _rain_service(monkeypatch, retry).refresh_all_stations()
+    await _rain_service(retry).refresh_all_stations()
 
     assert retry.requested_hours == [5]
 
 
-async def test_rain_history_is_not_refetched_while_redis_is_down(monkeypatch, redis_server):
+async def test_rain_history_is_not_refetched_while_redis_is_down(redis_server):
     """置き場が使えないたびに全本を取り直すと、10分ごとに気象庁へ全本を問い合わせ続ける。観測値の書き込みだけを
     飛ばし、バッチは取れた観測所の数を返して終わる。"""
     redis_server.connected = False
     maps = RainMaps(_latest_hour(datetime.now(JST)), rain_by_back={})
 
-    assert await _rain_service(monkeypatch, maps).refresh_all_stations() == 2
+    assert await _rain_service(maps).refresh_all_stations() == 2
     assert maps.requested_hours == []
 
 
-async def test_rain_materials_are_not_served_from_a_stale_history(monkeypatch):
+async def test_rain_materials_are_not_served_from_a_stale_history():
     now = datetime.now(JST)
     maps = RainMaps(_latest_hour(now), rain_by_back={})
-    await _rain_service(monkeypatch, maps).refresh_all_stations()
+    await _rain_service(maps).refresh_all_stations()
 
-    assert await load_station_rain_materials(now) is not None
-    assert await load_station_rain_materials(maps.latest_hour + RAIN_HISTORY_MAX_AGE + timedelta(minutes=1)) is None
+    cache = new_rain_materials_cache()
+
+    assert await load_station_rain_materials(now, cache) is not None
+    assert await load_station_rain_materials(maps.latest_hour + RAIN_HISTORY_MAX_AGE + timedelta(minutes=1), cache) is None
 
 
-async def test_a_rain_history_stored_in_a_shape_that_cannot_be_read_serves_no_materials(monkeypatch, fake_redis):
+async def test_a_rain_history_stored_in_a_shape_that_cannot_be_read_serves_no_materials(fake_redis):
     """保存した形は過去のコードが書いたもの。読めないまま展開すると、地図とルートの生成が500で落ちる。"""
     now = datetime.now(JST)
-    await _rain_service(monkeypatch, RainMaps(_latest_hour(now), rain_by_back={})).refresh_all_stations()
+    await _rain_service(RainMaps(_latest_hour(now), rain_by_back={})).refresh_all_stations()
     (key,) = [key for key in await fake_redis.keys() if await fake_redis.type(key) == "string"]
     await fake_redis.set(key, json.dumps({"latest_hour": "yesterday", "stations": {"44132": [35.69, 139.76]}, "hours": {}}))
 
-    assert await load_station_rain_materials(now) is None
+    assert await load_station_rain_materials(now, new_rain_materials_cache()) is None

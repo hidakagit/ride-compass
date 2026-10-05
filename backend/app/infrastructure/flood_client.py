@@ -22,7 +22,11 @@ REQUEST_TIMEOUT = httpx.Timeout(connect=3.0, read=8.0, write=5.0, pool=5.0)
 
 # キー無しの単一値キャッシュ（全国1本の電文一覧のため、固定キーで代用）。
 _FLOOD_CACHE_KEY = "flood"
-flood_cache: TTLCache = TTLCache(maxsize=1, ttl=_FLOOD_CACHE_TTL_SECONDS)
+
+
+def new_flood_cache() -> TTLCache:
+    """`fetch_flood_documents`へ渡すキャッシュ。リクエストをまたいで持つのは組み立てる側（`api/dependencies.py`）。"""
+    return TTLCache(maxsize=1, ttl=_FLOOD_CACHE_TTL_SECONDS)
 
 #: 運用の電文の`status`。これ以外（訓練・試験）の電文は上へ渡さない。
 _OPERATIONAL_STATUS = "通常"
@@ -42,7 +46,7 @@ def _parse_bulletin(entry: dict) -> FloodBulletin:
     )
 
 
-async def fetch_flood_documents(client: httpx.AsyncClient) -> list[FloodBulletin] | None:
+async def fetch_flood_documents(client: httpx.AsyncClient, cache: TTLCache) -> list[FloodBulletin] | None:
     """全国の指定河川洪水予報のうち運用の電文。1件=1河川の最新状態（発表・継続・解除の
     いずれか）で、解除された河川も解除のコードのまま残り続ける。"""
 
@@ -58,4 +62,4 @@ async def fetch_flood_documents(client: httpx.AsyncClient) -> list[FloodBulletin
             if isinstance(entry, dict) and entry.get("status") == _OPERATIONAL_STATUS
         ]
 
-    return await cached_fetch("weather:jma-flood", fetch, cache=flood_cache, key=_FLOOD_CACHE_KEY)
+    return await cached_fetch("weather:jma-flood", fetch, cache=cache, key=_FLOOD_CACHE_KEY)

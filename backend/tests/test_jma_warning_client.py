@@ -17,17 +17,8 @@ import respx
 from app.domain.jma_area import AreaEntry, AreaMaster
 from app.domain.jma_warning import AreaWarningKind, WarningBulletin
 from app.infrastructure import jma_warning_client
+from app.infrastructure.jma_warning_client import new_area_data_cache, new_warning_cache
 from tests.fake_http import answering, client_for
-
-
-@pytest.fixture(autouse=True)
-def _empty_caches():
-    """地域マスタと電文のキャッシュはプロセス内のモジュール変数に残るため、テストごとに空にする。"""
-    jma_warning_client.area_data_cache.clear()
-    jma_warning_client.warning_cache.clear()
-    yield
-    jma_warning_client.area_data_cache.clear()
-    jma_warning_client.warning_cache.clear()
 
 
 def _warning_url(office_code: str) -> str:
@@ -46,7 +37,7 @@ async def test_area_master_keeps_parent_and_name_of_each_level():
         "class20s": {"1310100": {"name": "千代田区", "kana": "ちよだく", "parent": "130011"}},
     }
 
-    master = await jma_warning_client.fetch_area_data(answering(json=payload))
+    master = await jma_warning_client.fetch_area_data(answering(json=payload), new_area_data_cache())
 
     assert master == AreaMaster(
         class20s={"1310100": AreaEntry(parent="130011", name="千代田区")},
@@ -62,7 +53,7 @@ async def test_area_master_tolerates_missing_or_malformed_sections():
         "class15s": ["辞書でない"],
     }
 
-    master = await jma_warning_client.fetch_area_data(answering(json=payload))
+    master = await jma_warning_client.fetch_area_data(answering(json=payload), new_area_data_cache())
 
     assert master == AreaMaster(class20s={"1310100": AreaEntry(parent=None, name="千代田区")}, class15s={}, class10s={})
 
@@ -72,8 +63,10 @@ async def test_area_master_is_fetched_once_while_cached():
     route = router.get(jma_warning_client.JMA_AREA_JSON_URL).respond(json={"class20s": {}})
     client = client_for(router)
 
-    await jma_warning_client.fetch_area_data(client)
-    await jma_warning_client.fetch_area_data(client)
+    cache = new_area_data_cache()
+
+    await jma_warning_client.fetch_area_data(client, cache)
+    await jma_warning_client.fetch_area_data(client, cache)
 
     assert route.call_count == 1
 
@@ -87,7 +80,7 @@ async def test_area_master_is_fetched_once_while_cached():
     ],
 )
 async def test_area_master_failure_is_none(response):
-    assert await jma_warning_client.fetch_area_data(answering(**response)) is None
+    assert await jma_warning_client.fetch_area_data(answering(**response), new_area_data_cache()) is None
 
 
 # --- 警報・注意報の電文 ---
@@ -113,7 +106,7 @@ async def test_bulletins_are_read_per_document_of_the_office():
         ]
     )
 
-    bulletins = await jma_warning_client.fetch_warning_documents(client_for(router), "130000")
+    bulletins = await jma_warning_client.fetch_warning_documents(client_for(router), "130000", new_warning_cache())
 
     assert bulletins == [
         WarningBulletin(
@@ -140,7 +133,7 @@ async def test_first_item_wins_when_an_area_appears_twice():
         }
     ]
 
-    [bulletin] = await jma_warning_client.fetch_warning_documents(answering(json=payload), "130000")
+    [bulletin] = await jma_warning_client.fetch_warning_documents(answering(json=payload), "130000", new_warning_cache())
 
     assert bulletin.class20_kinds == {"1310100": (AreaWarningKind(code="10", status="発表", additions=()),)}
 
@@ -160,7 +153,7 @@ async def test_malformed_parts_of_a_bulletin_are_skipped():
         {"reportDatetime": "2026-08-29T17:00:00+09:00", "warning": "辞書でない"},
     ]
 
-    bulletins = await jma_warning_client.fetch_warning_documents(answering(json=payload), "130000")
+    bulletins = await jma_warning_client.fetch_warning_documents(answering(json=payload), "130000", new_warning_cache())
 
     assert bulletins == [
         WarningBulletin(report_datetime=None, class20_kinds={}, class10_kinds={}),
@@ -174,9 +167,11 @@ async def test_bulletins_are_cached_per_office():
     osaka = router.get(_warning_url("270000")).respond(json=[])
     client = client_for(router)
 
-    await jma_warning_client.fetch_warning_documents(client, "130000")
-    await jma_warning_client.fetch_warning_documents(client, "130000")
-    await jma_warning_client.fetch_warning_documents(client, "270000")
+    cache = new_warning_cache()
+
+    await jma_warning_client.fetch_warning_documents(client, "130000", cache)
+    await jma_warning_client.fetch_warning_documents(client, "130000", cache)
+    await jma_warning_client.fetch_warning_documents(client, "270000", cache)
 
     assert (tokyo.call_count, osaka.call_count) == (1, 1)
 
@@ -190,4 +185,4 @@ async def test_bulletins_are_cached_per_office():
     ],
 )
 async def test_bulletin_failure_is_none(response):
-    assert await jma_warning_client.fetch_warning_documents(answering(**response), "130000") is None
+    assert await jma_warning_client.fetch_warning_documents(answering(**response), "130000", new_warning_cache()) is None
