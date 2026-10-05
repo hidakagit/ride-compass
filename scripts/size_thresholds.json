@@ -8,7 +8,7 @@
     "backend/app/infrastructure/road_graph_repository.py": 1400,
     "backend/app/services/road_graph_engine.py": 2700,
     "backend/tests/test_routing.py": 1500,
-    "docs/conventions/testing.md": 1400,
+    "docs/conventions/testing.md": 1350,
     "docs/modules/backend/routing-engine.md": 1200,
     "frontend/src/app/page.tsx": 800,
     "frontend/src/features/admin/AxisStudio/AxisScoringSection.tsx": 900,
@@ -19,7 +19,7 @@
   "on_fire": {
     "backend/app/domain/axis_definitions.py": "評価の計算（evaluate_*・生値・_python_value_columns）を domain/axis_evaluation.py へ出す",
     "backend/app/domain/material_catalog.py": "一次属性の表（PRIMARY_ATTRIBUTESとその型）を別モジュールへ出す",
-    "docs/conventions/testing.md": "運用の節（開発機での回し方・検査の置き場等）を別文書へ出す",
+    "docs/conventions/testing.md": "書き方のパターン（パターン1〜）を別文書へ出す",
     "docs/modules/backend/routing-engine.md": "レグ内の時刻ビン・レグ別コスト配列・domain層の節を別文書へ出す"
   }
 }
