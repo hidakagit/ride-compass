@@ -6,6 +6,8 @@
 `AreaMaster`・`WarningBulletin`で渡す。
 """
 
+import logging
+
 import httpx
 from cachetools import TTLCache
 
@@ -21,6 +23,8 @@ _AREA_DATA_CACHE_TTL_SECONDS = 24 * 60 * 60
 
 # 警報は数分〜数十分単位で更新されうるため、area.jsonより短いTTL。
 _WARNING_CACHE_TTL_SECONDS = 10 * 60
+
+logger = logging.getLogger("ridecompass.jma_warning_client")
 
 REQUEST_TIMEOUT = httpx.Timeout(connect=3.0, read=5.0, write=5.0, pool=5.0)
 
@@ -39,53 +43,98 @@ def new_warning_cache() -> TTLCache:
     return TTLCache(maxsize=256, ttl=_WARNING_CACHE_TTL_SECONDS)
 
 
+def _str_or_none(value: object) -> str | None:
+    return value if isinstance(value, str) else None
+
+
 def _parse_area_entries(section: object) -> dict[str, AreaEntry]:
     if not isinstance(section, dict):
         return {}
     return {
-        code: AreaEntry(parent=entry.get("parent"), name=entry.get("name"))
+        code: AreaEntry(parent=_str_or_none(entry.get("parent")), name=_str_or_none(entry.get("name")))
         for code, entry in section.items()
         if isinstance(entry, dict)
     }
 
 
 def _parse_area_master(payload: dict) -> AreaMaster:
-    return AreaMaster(
-        class20s=_parse_area_entries(payload.get("class20s")),
-        class15s=_parse_area_entries(payload.get("class15s")),
-        class10s=_parse_area_entries(payload.get("class10s")),
+    sections = {key: payload.get(key) for key in ("class20s", "class15s", "class10s")}
+    parsed = {key: _parse_area_entries(section) for key, section in sections.items()}
+    total = sum(len(section) for section in sections.values() if isinstance(section, dict))
+    unreadable = total - sum(len(entries) for entries in parsed.values())
+    # 読めない区域は他の区域を解くために飛ばすが、飛ばしたことは取得1回につき1行で出す（logging.md「外部データの読み飛ばし」）。
+    if unreadable:
+        logger.warning(
+            "気象庁の地域マスタに読めない区域があり読み飛ばしました unreadable=%d entries=%d", unreadable, total
+        )
+    return AreaMaster(**parsed)
+
+
+def _parse_kind(kind: object) -> AreaWarningKind | None:
+    """電文の1種別。辞書でない・コードか状態が文字列でないなら読めない（None）。警報が何も無い地域の種別は
+    `{"status": "発表警報・注意報はなし"}`でコードを持たない。付加事項は補足なので、
+    配列でなければ無いとし、文字列でない要素は落とす——付加事項が壊れても警報そのものは出す。"""
+    if not isinstance(kind, dict):
+        return None
+    code = kind.get("code")
+    status = kind.get("status")
+    if not (code is None or isinstance(code, str)) or not (status is None or isinstance(status, str)):
+        return None
+    additions = kind.get("additions")
+    return AreaWarningKind(
+        code=code,
+        status=status,
+        additions=tuple(a for a in additions if isinstance(a, str)) if isinstance(additions, list) else (),
     )
 
 
-def _parse_area_items(items: object) -> dict[str, tuple[AreaWarningKind, ...]]:
-    """地域ごとの種別。同じ地域のコードが2度現れたら最初の項目を使う。"""
+def _parse_area_items(items: object) -> tuple[dict[str, tuple[AreaWarningKind, ...]], int]:
+    """地域ごとの種別と、読めずに飛ばした項目・種別の数。同じ地域のコードが2度現れたら最初の項目を使う。"""
     if not isinstance(items, list):
-        return {}
+        return {}, 0
     kinds_by_area: dict[str, tuple[AreaWarningKind, ...]] = {}
+    unreadable = 0
     for item in items:
-        if not isinstance(item, dict):
+        if not isinstance(item, dict) or not isinstance(item.get("areaCode"), str):
+            unreadable += 1
             continue
-        area_code = item.get("areaCode")
-        if not isinstance(area_code, str) or area_code in kinds_by_area:
+        area_code = item["areaCode"]
+        if area_code in kinds_by_area:
             continue
-        kinds_by_area[area_code] = tuple(
-            # 警報が何も無い地域の種別は`{"status": "発表警報・注意報はなし"}`でコードを持たない。
-            AreaWarningKind(code=kind.get("code"), status=kind.get("status"), additions=tuple(kind.get("additions", ())))
-            for kind in item.get("kinds", ())
-        )
-    return kinds_by_area
+        raw_kinds = item.get("kinds")
+        parsed = [_parse_kind(kind) for kind in raw_kinds] if isinstance(raw_kinds, list) else []
+        kinds_by_area[area_code] = tuple(kind for kind in parsed if kind is not None)
+        unreadable += len(parsed) - len(kinds_by_area[area_code])
+    return kinds_by_area, unreadable
 
 
-def _parse_bulletin(document: dict) -> WarningBulletin:
+def _parse_bulletin(document: dict) -> tuple[WarningBulletin, int]:
+    """電文1件と、その中で読めずに飛ばした項目・種別の数。"""
     warning = document.get("warning")
     if not isinstance(warning, dict):
         warning = {}
     report_datetime = document.get("reportDatetime")
-    return WarningBulletin(
-        report_datetime=report_datetime if isinstance(report_datetime, str) else None,
-        class20_kinds=_parse_area_items(warning.get("class20Items")),
-        class10_kinds=_parse_area_items(warning.get("class10Items")),
+    class20_kinds, skipped20 = _parse_area_items(warning.get("class20Items"))
+    class10_kinds, skipped10 = _parse_area_items(warning.get("class10Items"))
+    bulletin = WarningBulletin(
+        report_datetime=_str_or_none(report_datetime),
+        class20_kinds=class20_kinds,
+        class10_kinds=class10_kinds,
     )
+    return bulletin, skipped20 + skipped10
+
+
+def _parse_bulletins(payload: list, office_code: str) -> list[WarningBulletin]:
+    parsed = [_parse_bulletin(document) for document in payload if isinstance(document, dict)]
+    unreadable = len(payload) - len(parsed) + sum(skipped for _, skipped in parsed)
+    # 読めない部分は他の警報を出すために飛ばすが、飛ばしたことは取得1回につき1行で出す（logging.md「外部データの読み飛ばし」）。
+    # 一部の警報だけが落ちる形は、画面も/api/debug/statsも正常に見える。
+    if unreadable:
+        logger.warning(
+            "気象庁の警報の電文に読めない部分があり読み飛ばしました unreadable=%d bulletins=%d office=%s",
+            unreadable, len(payload), office_code,
+        )
+    return [bulletin for bulletin, _ in parsed]
 
 
 async def fetch_area_data(client: httpx.AsyncClient, cache: TTLCache) -> AreaMaster | None:
@@ -119,7 +168,7 @@ async def fetch_warning_documents(
         payload = response.json()
         if not isinstance(payload, list):
             raise UnexpectedShapeError(f"warning bulletins are {type(payload).__name__}")
-        return [_parse_bulletin(document) for document in payload if isinstance(document, dict)]
+        return _parse_bulletins(payload, office_code)
 
     return await cached_fetch(
         "weather:jma-warning",

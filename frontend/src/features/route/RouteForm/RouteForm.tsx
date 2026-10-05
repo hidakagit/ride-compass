@@ -213,7 +213,7 @@ export default function RouteForm({
               目的地
             </ToggleGroupItem>
           </ToggleGroup>
-          {/* 経由地があるとbackendは決まった数へ固定する（route_generator.py:
+          {/* 経由地があるとbackendは決まった数へ固定する（route_request.py:
               applied_max_routes）。押せない状態で残す——消えると壊れて見えるうえ、
               複数候補へ広げる予定があるため置き場を動かさない。理由は隣の(i)の奥。 */}
           <div className="flex items-center gap-2 data-[disabled=true]:opacity-55" data-disabled={!maxRoutesRelevant}>

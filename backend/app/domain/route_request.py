@@ -23,6 +23,17 @@ MAX_WAYPOINTS = 8
 # 区間の乗り換えで受け取るEdge idの上限。1本の候補が数百Edgeで、区間を差し替えても
 # 2本ぶんの長さを超えることはない。
 MAX_SPLICED_EDGES = 5000
+# 返す候補数の既定値と上限（要求の`max_routes`）。
+DEFAULT_MAX_ROUTES = 8
+MAX_ROUTES = 15
+# 経由地を伴う生成が返す候補の数。経由地があるとレグごとの代替が組合せで増えるため、候補数の
+# 指定を使わず単一経路にする。
+ROUTES_WITH_WAYPOINTS = 1
+
+
+def applied_max_routes(max_routes: int, *, has_waypoints: bool) -> int:
+    """その生成で実際に使う候補数の上限。画面も同じ値を生成物で受け取り、候補数の入力欄に出す。"""
+    return ROUTES_WITH_WAYPOINTS if has_waypoints else max_routes
 
 
 def request_error(message: str) -> PydanticCustomError:

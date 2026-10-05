@@ -4,7 +4,7 @@
  *
  * 見るもの: 案内の「やめる」、部品を押したときに部品が動かず説明が出ること、説明に出す名前（読み上げ名の引き方）と
  * 使い方の文（自分か囲む要素の印・無いときの文言）、ラベルを押したときに説明する入力、押せないボタンでも出ること、
- * 動かした（なぞった・取り消された）押し方では出さないこと、部品の外を押したとき、キー操作（Esc・Enter・Space・
+ * 動かした（なぞった・取り消された）押し方では出さないこと、部品の外を押したとき（閉じる押し操作が外へ届かないことも）、キー操作（Esc・Enter・Space・
  * 値を動かすキー）、案内と説明の面の上の操作は止めないこと、説明している部品を囲む枠と測り直し、
  * 説明の外へフォーカスを移したときに終えること、マウスの操作は既定の動きまで止め、タッチは既定の動き（スクロール）を残すこと、
  * 終えたら部品が動くこと。
@@ -18,6 +18,7 @@
  * 部品の実寸はテスト環境に無いレイアウトの値なので、枠を見るテストだけ`getBoundingClientRect`をテストが決める。
  */
 import { act, fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -197,6 +198,61 @@ describe("UsageGuide", () => {
       await userEvent.click(screen.getByText("本文の文字"));
 
       expect(onEnd).toHaveBeenCalledTimes(1);
+    });
+
+    describe("終えて説明を見る状態を外したとき", () => {
+      function renderClosingScreen() {
+        const onMapClick = vi.fn();
+        const onGenerate = vi.fn();
+        function Screen() {
+          const [active, setActive] = useState(true);
+          return (
+            <>
+              <button type="button" onClick={onGenerate}>
+                生成
+              </button>
+              <div onClick={onMapClick}>地図</div>
+              {active && <UsageGuide onEnd={() => setActive(false)} />}
+            </>
+          );
+        }
+        render(<Screen />);
+        return { onMapClick, onGenerate };
+      }
+
+      it("閉じた押し操作は外の要素へ届かず、そのあとの押し操作を経ない click（支援技術の決定等）は届く", async () => {
+        const { onMapClick } = renderClosingScreen();
+        await userEvent.click(screen.getByRole("button", { name: "生成" }));
+
+        await userEvent.click(screen.getByText("地図"));
+        expect(explanation()).not.toBeInTheDocument();
+        expect(onMapClick).not.toHaveBeenCalled();
+        fireEvent.click(screen.getByText("地図"));
+
+        expect(onMapClick).toHaveBeenCalledTimes(1);
+      });
+
+      it.each([
+        ["押し操作", async () => userEvent.click(screen.getByRole("button", { name: "生成" }))],
+        [
+          "キー操作",
+          async () => {
+            screen.getByRole("button", { name: "生成" }).focus();
+            await userEvent.keyboard("{Enter}");
+          },
+        ],
+      ])("click の来ない押し方で閉じても、次の%sは部品へ届く", async (_, operate) => {
+        const { onGenerate } = renderClosingScreen();
+        await userEvent.click(screen.getByRole("button", { name: "生成" }));
+        const map = screen.getByText("地図");
+        fireEvent.pointerDown(map, { clientX: 0, clientY: 0 });
+        fireEvent.pointerUp(map, { clientX: 0, clientY: 0 });
+        expect(explanation()).not.toBeInTheDocument();
+
+        await operate();
+
+        expect(onGenerate).toHaveBeenCalledTimes(1);
+      });
     });
   });
 

@@ -37,7 +37,7 @@ from app.config import settings
 from app.domain.route import Coordinates
 from app.domain.time_zone import JST
 from app.domain.wind import ASSUMED_SPEED_KMH
-from app.services.route_generator import DEFAULT_MAX_ROUTES
+from app.domain.route_request import DEFAULT_MAX_ROUTES
 from benchmarks._resources import sample_resources
 from benchmarks.revision import announce_revision
 from benchmarks._route_generation_service import refresh_axis_registry
