@@ -38,9 +38,10 @@ RideCompassのログは本番のbackendコンテナのログだけで障害調�
 - カテゴリ名は`ドメイン:サービス名`形式（例: `msm:read`, `weather:jma-tile`,
   `basemap:openfreemap`）。`log_throttled_warning`のカテゴリも同じ形にする。
 - キャッシュを挟む場合は`fields["cache"] = "hit" / "miss"`を必ず設定する（ヒット率集計の元）。
-- 結果は`fields["result"] = "ok" / "error" / その他の状態`を設定する。HTTPステータスは
-  `fields["status"]`、クォータ系ヘッダがあれば`fields["quota_remaining"]`等で残す。
-- 「取得できないのが正常」なケース（GSIの整備区域外等）は`fields["result"]="ok"`のまま
+- 失敗は`fields["result"] = "error"`で示す（例外を捕まえて倒すときは下の`mark_failed`）。集計が失敗として
+  数えるのはこれと捕まえずに送り出した例外だけで、ほかは成功に数える。`"ok"`等の状態は集計に効かず、ログに
+  残したいときだけ書く。HTTPステータスは`fields["status"]`、クォータ系ヘッダがあれば`fields["quota_remaining"]`等で残す。
+- 「取得できないのが正常」なケース（GSIの整備区域外等）は`fields["result"]`を`"error"`にせず
   理由を別フィールドへ残し（`fields["status"]=404`等）、WARNINGでログを埋めない
   （`gsi_tile_client.py`の404分岐が実例）。
 - 例外を捕まえて既定値（空・None）へ倒すときは、`debug_log.py: mark_failed`で失敗を記録する。
@@ -57,7 +58,7 @@ RideCompassのログは本番のbackendコンテナのログだけで障害調�
   （プロセス内メモリのみのLRU）は、外部I/O自体を持たず失敗しうる経路が無いため対象外。
   `tile_persistent_cache.py`（ディスクI/O、失敗しうる）は`log_external_call`を経由せず、成功を専用loggerの
   DEBUG、失敗を`log_throttled_warning`で出す——`dynamic_way_value_cache.py`を
-  読む配信サービス（`gradient_way_service.py`等）が`log_external_call`で囲み、そちらがhit/missを
+  読む配信サービス（`gradient_way_service.py`）が`log_external_call`で囲み、そちらがhit/missを
   数えるため、下の層で二重に数えない。`tile_cache.py`（タイルの生バイトのディスクキャッシュ）も同じ形で、失敗を
   `log_throttled_warning`で出し、hit/missは読むクライアント（`basemap_client.py`等）の`log_external_call`が数える。
 

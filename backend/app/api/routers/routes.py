@@ -141,7 +141,7 @@ class RouteGenerateRequest(StrictModel):
     # （`RoutePreference()`）を使う。
     # 実際に適用された値はレスポンスのconditionsへエコーされる。
     route_preference: RoutePreferenceWeights | None = None
-    # T12 ADR原則1: 主観的割増と時間の換算レート（P）。**省略が既定**で、そのとき使う値は
+    # 主観的割増と時間の換算レート（P）。**省略が既定**で、そのとき使う値は
     # リクエスト処理時に較正値から読む（`domain/evaluation.py: resolve_penalty_strength`、
     # 値の意味と根拠もそちら）。ここへ既定値を書くとimport時に束ねられ、DBの上書きが効かない。
     penalty_strength: float | None = Field(ge=0, default=None)
@@ -259,9 +259,9 @@ class GenerationConditions(StrictModel):
     distance_km: float
     distance_tolerance_km: float
     route_preference: RoutePreferenceWeights
-    # T12 ADR原則1: 主観的割増と時間の換算レート（P）。
+    # 主観的割増と時間の換算レート（P）。
     penalty_strength: float
-    # T12 ADR原則5: 0次ハードフィルタの勾配しきい値（%、Noneは除外なし）。
+    # 0次ハードフィルタの勾配しきい値（%、Noneは除外なし）。
     max_average_grade_percent: float | None
     # 0次ハードフィルタの個別ON/OFF上書き（実際に適用された値）。
     hard_filters: HardFilterOverride

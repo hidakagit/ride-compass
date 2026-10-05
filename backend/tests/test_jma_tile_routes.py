@@ -113,8 +113,8 @@ def test_jma_tile_proxy_is_rate_limited_per_client_on_cache_miss(monkeypatch):
 
 
 def test_jma_tile_proxy_cache_hit_does_not_consume_rate_limit(monkeypatch):
-    """キャッシュヒットはレート制限を一切消費しない（以前は消費しており、既にキャッシュ済みの
-    タイルへの往復パンだけで429になっていた——ユーザー報告の直接原因）。"""
+    """キャッシュヒットはレート制限を一切消費しない（消費すると、キャッシュ済みのタイルを
+    往復するだけのパンで429になる）。"""
     _answer(monkeypatch, cached=(b"\x89PNG", "image/png"))
 
     _fill_rate_limit_but_one()

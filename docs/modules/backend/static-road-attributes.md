@@ -24,8 +24,9 @@ OSM由来の道路データ（PBF取込）・警察庁事故データ・土地�
 
 ## データ取込（batch）
 
-取込は**ソースによらず1本の経路**を通る（`ingest.py`）。増えるのはアダプタ1本と
-プロファイルの1エントリだけで、ソースごとのバッチは持たない。
+取込は**ソースによらず1本の経路**を通る（`ingest.py`）。ソースを足すときに書くのはアダプタ（`source_adapters/__init__.py`で
+読み込んで登録する）とプロファイルのエントリで、ソースごとのバッチは持たない。派生・読み手がそのソースを名指して読むなら、
+`infrastructure/source_models.py: Source`にも名前を足す。
 
 ```
 外部（PBF・CSV・圧縮書庫・タイル配信）
@@ -594,7 +595,7 @@ MVTエンコードはPostGIS側（`ST_AsMVT`、`road_graph_repository.py`・`poi
 フィーチャーへ材料（`edge_materials`・`way_materials`）を結合するJOINは、**主キー検索に
 なる形**を保つこと——道・ノードの生データは`natural_key`（text）が主キーのため、`natural_key::bigint`
 で突き合わせると索引が使えず、全件に対する総当たりに落ちる（`ways_lookup_sql`・`nodes_lookup_sql`）。
-POIタイルは向きが逆で、ノードの生データを空間索引で絞ってから`node_materials`を主キー（bigint）で引く。
+点のタイルは向きが逆で、ノードの生データを空間索引で絞ってから`node_materials`を主キー（bigint）で引く。
 
 **同時実行数制限**: 路面・点のタイルは`_region_tile_semaphore`
 （`settings.road_tile_max_concurrent`）を共有する（DB接続プール上限を超えないため専用

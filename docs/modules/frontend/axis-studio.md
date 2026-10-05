@@ -42,7 +42,7 @@ APIを呼ぶ）・「データ保守」タブ（派生データ鮮度台帳の�
 | `features/admin/AxisStudio/DbStatusPanel.tsx` | 「データ保守」タブ・本番DBの状態。取込runの最終実行・テーブルの実数と容量・統計とVACUUMの鮮度・接続を1件1行で出す |
 | `features/admin/AxisStudio/StatusRowList.tsx` | 上記2パネルが共有する点検の行の一覧（状態の丸・名前・規模、開くと項目と値）と、結果の一言（手当てが要れば目立たせる） |
 | `features/admin/AxisStudio/ReportCard.tsx` | 集計のパネル（材料の欠損割合・派生データ鮮度台帳・本番DBの状態）が共有するカード。見出しとⓘ・「集計する」ボタン・集計中と失敗の表示・集計の時刻（日本時間）を持ち、中身の描画は各パネルが渡す。件数と時点の書式（`formatCount`・`formatMoment`）もここに置く |
-| `features/admin/AxisStudio/TileCachePanel.tsx` | 「データ保守」タブの2枚目。サーバー側のタイルファイルキャッシュ（基礎地図・路面/事故/POIタイルが共有）を全消去する操作パネル。全利用者へ影響するため入口はここだけに持つ |
+| `features/admin/AxisStudio/TileCachePanel.tsx` | 「データ保守」タブの2枚目。サーバー側のタイルファイルキャッシュ（基礎地図・路面と点のタイルが共有）を全消去する操作パネル。全利用者へ影響するため入口はここだけに持つ |
 | `features/admin/AxisStudio/TuningPanel.tsx` | 「較正値」タブ本体。走ってみて決める値をデプロイなしで編集する。**並べる項目はbackendが宣言から導く**ため画面側に一覧を持たず、効き方（`effect`）ごとに見出しを分けて「変えたのに効かない」群がそれと分かるようにする。1件=1行で、説明と既定値・範囲は(i)の奥（他の管理パネルと同じ省スペースの作り）。入力は打っただけでは送らず「DBへ保存」でまとめて書き、既定と同じ値にして保存した行は上書きを消す（DBへ残るのは動かしたぶんだけ） |
 | `features/admin/useMaterialValues.ts` | `GET /api/admin/material-catalog/{material_id}/values`取得（`adminApi.ts: getMaterialValues`）。categorical材料の候補選択セレクトに使う実データ値一覧 |
 | `lib/axisMaterialsCatalog.ts` | 材料の一覧（`MATERIAL_CATALOG`。生成物`material-catalog.json`から作る）と型（`AxisMaterialOption`）、材料idを表示へ変える関数。`materialCatalogLabel`（論理名 - 物理名、軸スタジオ専用）/`materialCatalogName`（論理名だけ。カタログに無いidはundefinedで、呼び出し側はその材料を出さない）/`formatMaterialValue`。後の2つは軸スタジオ外（[ルート設定・結果パネル](route-settings-and-results.md)のComparisonPanel、`features/route/RouteOutcome/RouteOutcome.tsx`の区間クリック詳細）が`material_values`のラベル・単位表記に使う共用ヘルパー |

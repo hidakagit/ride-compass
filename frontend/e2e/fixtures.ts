@@ -114,14 +114,8 @@ export function routeGenerateResponseFixture(): DoneJob["result"] {
   };
 }
 
-// 戻り値へWeatherConditions型注釈を付ける（改善計画T385フォローアップ2のCI障害を受けて追加）:
-// このフィクスチャは型注釈が無かったためbackendのWeatherConditionsへ新規フィールドを追加
-// しても構造的部分型でコンパイルが通ってしまい、フィールド欠落に気づけなかった。
-// TodayOutlook.tsx側は「today_periodsは常に配列（Noneではない）」というbackend契約を
-// 前提に`.length`へ無条件アクセスするため、このフィクスチャがtoday_periods自体を
-// 持たない（undefined）とE2E実行時にTypeErrorで描画が丸ごと落ちる
-// （「element was detached from the DOM, retrying」の形でCIに現れた）。型注釈により
-// 今後のフィールド追加時はtscがこのフィクスチャの更新漏れを検知する。
+// 戻り値の型をbackendのWeatherConditionsに固定する。backendが欄を足したとき、型が無いと
+// 構造的部分型でtscが通り、欄の欠けたフィクスチャで画面がE2Eの実行中に落ちる。
 function weatherConditionsFixture(): WeatherConditions {
   return {
     temperature_c: 18.5,
@@ -139,12 +133,9 @@ function weatherConditionsFixture(): WeatherConditions {
   };
 }
 
-// 最寄りアメダス観測所の実測値フィクスチャ（改善計画T387フォローアップ）。/api/weather*の
-// 汎用ワイルドカード（後述installApiMocks）はWeatherConditions型のweatherConditionsFixture()を
-// 返すため、フィールド名が異なるAmedasObservation（station_id/station_name等）を使う
-// /api/weather/amedasには専用ルートが必要——無いとWeatherPanel（常設ヘッダー）が
-// undefinedフィールドだらけの誤った形のデータを受け取ることになる（型注釈が無いと
-// tscでは検知できない。weatherConditionsFixtureの型注釈導入の経緯コメント参照）。
+// 最寄りアメダス観測所の実測値フィクスチャ。/api/weather*の汎用ワイルドカード（後述installApiMocks）は
+// WeatherConditionsの形を返すため、形の違うAmedasObservationを使う/api/weather/amedasには専用ルートが
+// 要る——無いと常設ヘッダーが欄の欠けたデータを受け取り、tscでは気づけない。
 function amedasObservationFixture(): AmedasObservation {
   return {
     station_id: "44132",
@@ -219,7 +210,7 @@ export async function installApiMocks(page: Page): Promise<void> {
   await page.route(`${API_BASE}/api/weather/wbgt*`, (route) => route.fulfill({ json: noWbgt }));
   await page.route(`${API_BASE}/api/weather/flood-forecast*`, (route) => route.fulfill({ json: noFlood }));
 
-  // 改善計画T265: ルート生成はバックグラウンドジョブ化された。POST（ジョブ投稿）は
+  // ルート生成はジョブで動く。POST（ジョブ投稿）は
   // 即座にjob_idを返し、GET .../generate/{job_id}（ポーリング）は1回目から
   // status="done"を返す（e2eはUI操作の疎通確認が目的で、待ち状態の遷移自体は
   // frontend/src/features/route/routeApi.test.tsが検証するためここでは再現しない）。
@@ -259,7 +250,7 @@ async function rewriteRules(): Promise<{ source: string }[]> {
 
 // ここから下は「UIを見たい場所まで進める」導線のヘルパー。テストごとに書き直すと、
 // UIの中身とは無関係な段取り（シートを開く・生成の完了を待つ）で落ちて時間を使うため、
-// 1箇所へ集約する（docs/records/tasks/T768.md）。
+// 1箇所へ集約する。
 
 /** スマホ縦持ち相当。useIsMobile（CSSの`--breakpoint-mobile`以下で立つ`--is-mobile`の旗）のモバイル分岐に入る幅。 */
 export const MOBILE_VIEWPORT = { width: 390, height: 812 };

@@ -251,9 +251,8 @@ class MaterialSpec(StrictModel):
     # この材料が読む自前のMSM格子の値（`weather_elements.py: GridValue`）。一次属性を持たない動的な材料の
     # 元データを、同じ格子の値を描く気象のチップ（`WeatherElement.grid_value`）が地図に見せる。
     weather_grid_value: GridValue | None = None
-    # この材料の値をDBから求めるSQL式。読み出し側（`road_graph_repository.py`）が
-    # エイリアス（区間なら`re`/`c`/`e`/`el`/`wl`/`d`、wayなら同名の別ソース）を用意し、
-    # この式をそのまま並べる。Noneは「SQLでは求められない」——リクエスト時に決まる風、
+    # この材料の値をDBから求めるSQL式。読み出し側がFROM句で固定の別名（`material_sql.py`の
+    # モジュールの説明の表）を用意し、この式をそのまま並べる。Noneは「SQLでは求められない」——リクエスト時に決まる風、
     # 評価へ配線していないDEFER材料。**材料の値の求め方をここ以外へ書かない**
     # （設計原則 構造仕様8。別の辞書へ分けると、材料を増やしたとき片方が取り残される）。
     value_sql: str | None = None

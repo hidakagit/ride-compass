@@ -208,7 +208,7 @@ export async function renderedRoads(page: Page, sourceId: string): Promise<Recor
 }
 
 /**
- * 幹の終点から枝を1本見て、元へ戻す。戻せたかはT1078と同じ指紋（開閉の値と倍率）で確かめ、戻らなければ違反として落とす。
+ * 幹の終点から枝を1本見て、元へ戻す。戻せたかは地図の指紋（`window.__e2e.settle()`の`fp`。開閉の値と倍率）で確かめ、戻らなければ違反として落とす。
  * 枝の失敗（`expect.soft`）は他の枝を止めない。
  */
 export async function branch(page: Page, name: string, body: () => Promise<void>, restore: () => Promise<void>) {

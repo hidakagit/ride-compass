@@ -234,8 +234,7 @@ def test_get_axis_catalog_includes_raw_value_unit(client, catalog_axes):
 
 
 def test_get_axis_catalog_includes_material_breakdown(client, catalog_axes):
-    # 単位が定まらない軸は、材料まで分解した内訳を持つ（得点だけでは軸単体で判断できない、
-    # docs/records/tasks/T689.md）。並びは正規化重みの降順で、フロントは並べ替えを持たない。
+    # 単位が定まらない軸は、材料まで分解した内訳を持つ（得点だけでは軸単体で判断できない）。並びは正規化重みの降順で、フロントは並べ替えを持たない。
     entries = _entries(client)
     # 単位が定まる軸は分解しない（軸単位の生値で足りる）。
     assert entries["axis_way_value_signed"]["material_breakdown"] == []
