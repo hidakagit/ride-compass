@@ -20,6 +20,9 @@ import math
 #: 直角からこの角度以内の道路は、その走行方位での勾配を示さない（地図では「データなし」）。
 LENS_PERPENDICULAR_BAND_DEG = 15.0
 
+#: 地図へ配る勾配（%）を丸める小数の桁。
+GRADIENT_VALUE_DECIMALS = 1
+
 
 class GradientCalculator:
     """道路自身の勾配・向きと、ユーザーが指定した走行方位から、その道をその向きに辿った

@@ -13,13 +13,13 @@
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `axis_definitions.py`・`axis_display.py`・`axis_raw_value.py`・`axis_templates.py`・`registry.py` |
+| domain | `axis_definitions.py`・`axis_display.py`・`axis_raw_value.py`・`axis_templates.py`・`registry.py`・`value_distribution.py`（延長で重み付けた分位点とヒストグラム。分布の口の応答の型） |
 | services | `axis_registry_service.py`・`axis_preview_service.py`・`axis_catalog_service.py`（軸カタログが軸の宣言のほかに要る値——事故の収録年・タイルの世代・専用配信の条件——を1回で読む） |
 | infrastructure | `axis_definition_models.py`・`axis_definition_repository.py` |
 | api | `axis_admin.py`・`axis_catalog.py` |
 | scripts | `measure_axis_saturation.py`・`axis_apply.py` |
 
-## 分布プレビュー・材料の値の一覧（`services/axis_preview_service.py`）
+## 分布プレビュー・材料の値の一覧（`services/axis_preview_service.py`・`domain/value_distribution.py`）
 
 軸スタジオが折れ点を編集している最中に、**その設定で実データがどう分布するか**を返す。
 

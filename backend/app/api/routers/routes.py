@@ -19,8 +19,10 @@ from app.domain.hard_filters import HARD_FILTER_NAMES
 from app.domain.route_preference import RoutePreference, check_axis_weights, published_axis_ids
 from app.domain.route_request import (
     DEFAULT_DISTANCE_TOLERANCE_KM,
+    DEFAULT_MAX_ROUTES,
     MAX_DISTANCE_TOLERANCE_KM,
     MAX_ROUTE_DISTANCE_KM,
+    MAX_ROUTES,
     MAX_SPLICED_EDGES,
     MAX_WAYPOINTS,
     LoopTarget,
@@ -37,7 +39,6 @@ from app.domain.route import Coordinates, RouteCandidate
 from app.infrastructure import job_registry
 from app.infrastructure.debug_log import record_rate_limit_rejection
 from app.services.route_generation_setup import generate_route_candidates
-from app.services.route_generator import DEFAULT_MAX_ROUTES, MAX_ROUTES
 from app.domain.strict_model import StrictModel
 
 router = APIRouter()
@@ -242,7 +243,7 @@ class GenerationConditions(StrictModel):
     # 0次ハードフィルタの個別ON/OFF上書き（実際に適用された値）。
     hard_filters: HardFilterOverride
     # 候補数の上限（実際に適用された値）。経由地を伴う生成では、指定によらず
-    # `route_generator.ROUTES_WITH_WAYPOINTS`。
+    # `route_request.ROUTES_WITH_WAYPOINTS`。
     max_routes: int
     # 実際に適用された出発時刻（JST）。
     start_time: datetime
