@@ -8,11 +8,12 @@ from datetime import datetime
 from apscheduler.events import EVENT_JOB_ERROR, JobExecutionEvent
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from asgi_correlation_id import CorrelationIdMiddleware
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.cache_policy import CachePolicyMiddleware
 from app.api.dependencies import get_amedas_service, get_ingested_area, get_jma_tile_client
+from app.api.finite_json_body import reject_non_finite_json_body
 from app.api.routers import api_router
 from app.config import settings
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
@@ -162,7 +163,7 @@ async def lifespan(app: FastAPI):
     await close_process_resources()
 
 
-app = FastAPI(title="RideCompass API", lifespan=lifespan)
+app = FastAPI(title="RideCompass API", lifespan=lifespan, dependencies=[Depends(reject_non_finite_json_body)])
 
 app.add_middleware(
     CORSMiddleware,

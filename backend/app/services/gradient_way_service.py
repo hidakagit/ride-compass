@@ -6,7 +6,7 @@
 
 from dataclasses import dataclass
 
-from app.domain.gradient import LENS_PERPENDICULAR_BAND_DEG, GradientCalculator
+from app.domain.gradient import GRADIENT_VALUE_DECIMALS, LENS_PERPENDICULAR_BAND_DEG, GradientCalculator
 from app.domain.material_catalog import GRADIENT_PERCENT
 from app.domain.region import tile_bounds_lonlat
 from app.infrastructure.cache_identity import cache_identity
@@ -24,13 +24,11 @@ from app.services.tile_version_service import served_tile_version
 # DBへの再問い合わせを抑える。正本を持たないキャッシュで、期限切れ後は再計算されるだけ。
 GRADIENT_TILE_VALUES_TTL_SECONDS = 24 * 3600
 
-_VALUE_DECIMALS = 1
-
 #: 勾配の値の作り方の署名。キャッシュの鍵に入り、変われば勾配のタイル値だけを作り直す。
 #: 入力のSQL・落とす幅・丸めは機械で署名する。式（`domain/gradient.py: GradientCalculator.effective_gradient`）を
 #: 変えたときは先頭のリビジョンを上げる——関数のソースは署名しない（docs/conventions/caching.md「無効化」）。
 GRADIENT_VALUE_SHAPE = cache_identity(
-    "2", FEATURE_GRADIENT_INPUTS_SHAPE, LENS_PERPENDICULAR_BAND_DEG, _VALUE_DECIMALS
+    "2", FEATURE_GRADIENT_INPUTS_SHAPE, LENS_PERPENDICULAR_BAND_DEG, GRADIENT_VALUE_DECIMALS
 )
 
 
@@ -100,7 +98,7 @@ class GradientWayService:
                 for feature_key, (gradient_percent, road_bearing_deg) in inputs.items()
             )
             values = {
-                feature_key: None if value is None else round(value, _VALUE_DECIMALS)
+                feature_key: None if value is None else round(value, GRADIENT_VALUE_DECIMALS)
                 for feature_key, value in effective
             }
             await set_tile_values(

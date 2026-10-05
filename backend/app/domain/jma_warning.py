@@ -163,3 +163,33 @@ def extract_active_warnings(kinds: Iterable[AreaWarningKind]) -> list[ActiveWarn
             )
         )
     return result
+
+
+def collect_active_warnings(
+    bulletins: Iterable[WarningBulletin], class20_code: str, class10_code: str
+) -> tuple[list[ActiveWarning], str | None]:
+    """電文の一覧から、対象エリアぶんのアクティブな警報と、採用した警報のうち最も新しい発表時刻を返す。
+
+    警報の種類ごとに電文が分かれているため、同じコードが複数の電文に現れうる。codeで重複を除く。
+    """
+    collected: dict[str, ActiveWarning] = {}
+    latest_report_datetime: str | None = None
+
+    for bulletin in bulletins:
+        kinds = bulletin.kinds_for(class20_code, class10_code)
+        if kinds is None:
+            continue
+
+        active = extract_active_warnings(kinds)
+        if not active:
+            continue
+
+        report_datetime = bulletin.report_datetime
+        if report_datetime is not None and (
+            latest_report_datetime is None or report_datetime > latest_report_datetime
+        ):
+            latest_report_datetime = report_datetime
+        for item in active:
+            collected[item.code] = item
+
+    return list(collected.values()), latest_report_datetime

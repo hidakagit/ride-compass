@@ -88,15 +88,14 @@ class WindWayService:
                 fields["wind_grid"] = "unavailable"
                 log_throttled_warning(_CATEGORY, "風の評価軸配信の風グリッド取得に失敗 z=%d x=%d y=%d", z, x, y)
                 return {}
-            passage_hours = np.zeros(len(keys))
             # ルートの区間は予報の先を端の値で延ばすが、地図では延ばした値を当てにならない色として
             # 見せないよう塗らない。
-            _, clamped = series.sampled_times(target, passage_hours[:1])
-            if clamped[0]:
+            if not series.covers(target):
                 fields["wind_grid"] = "out_of_range"
                 log_throttled_warning(_CATEGORY, "風の評価軸配信の時刻が風グリッド範囲外 z=%d x=%d y=%d", z, x, y)
                 return {}
 
+            passage_hours = np.zeros(len(keys))
             context = DynamicAxisRequestContext(
                 bearing_deg=np.full(len(keys), conditions.bearing_deg, dtype=float),
                 weather=None,

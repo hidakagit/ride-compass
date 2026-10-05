@@ -1,0 +1,21 @@
+# テスト用の DB（PostgreSQL + PostGIS）を、ランナーへ直接入れて作る。ci.yml の backend と、担当（claude-task.yml）が使う。
+# 本番と同じ配布元（PostgreSQL公式のaptリポジトリ）から同じパッケージを入れる。GEOS・PROJも
+# PGDGの版（本番もPGDGの版を使っている）。版の正本は docs/architecture/tech-stack.md「DBの版」。
+# postgis/postgisのイメージはamd64しか配っていないため、arm64ではサービスコンテナにできない。
+name: PostgreSQL + PostGIS（本番と同じ版）
+description: 本番と同じ版の PostgreSQL + PostGIS を入れ、テスト用の DB ridecompass_test を作る
+
+runs:
+  using: composite
+  steps:
+    # ランナーに入っている別の版のクラスタは5432番を塞ぐため、先に落とす。
+    - shell: bash
+      run: |
+        pg_lsclusters -h | while read -r ver name _; do sudo pg_dropcluster --stop "$ver" "$name"; done
+        sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+        sudo apt-get install -y --no-install-recommends postgresql-18 postgresql-18-postgis-3
+        sudo pg_ctlcluster 18 main start
+        sudo -u postgres psql -v ON_ERROR_STOP=1 -c "CREATE ROLE ridecompass LOGIN SUPERUSER PASSWORD 'ridecompass'"
+        sudo -u postgres createdb -O ridecompass ridecompass_test
+        sudo -u postgres psql -v ON_ERROR_STOP=1 -d ridecompass_test -c "CREATE EXTENSION postgis" -c "CREATE EXTENSION postgis_raster"
+        echo "::notice title=DB::$(sudo -u postgres psql -d ridecompass_test -Atc "SELECT version() || ' / PostGIS ' || postgis_lib_version() || ' / GEOS ' || postgis_geos_version() || ' / PROJ ' || split_part(postgis_proj_version(), ' ', 1) || ' / ' || postgis_gdal_version()")"

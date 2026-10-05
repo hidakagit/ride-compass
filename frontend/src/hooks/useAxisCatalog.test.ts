@@ -7,6 +7,8 @@
  * - 応答からカタログの各欄（軸・既定重み・表示名・色）を導く中身 → `lib/axisCatalog.ts: axisCatalogFromResponse` を読む側のテスト
  * - backendへの問い合わせの形（宛先・待ち時間） → `services/axisCatalogApi.test.ts`
  * - 地図だけが読む形（`useAxisCatalogSelect` の読み手） → 判断の無い詰め替えで、`app/page.test.tsx` が本物で通す
+ * - 読み手が一時いなくなっても取得の結果を捨てないこと（`gcTime: Infinity`） → どのテストも通さない（既定の破棄は
+ *   5分後で、テストの間に起きない）
  *
  * 差し替えたもの: 軸カタログの応答（網の層）。取得のキャッシュは `vitest.setup.ts` がテストごとに空にする。
  */

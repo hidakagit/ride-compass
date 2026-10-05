@@ -339,3 +339,26 @@ def source_zoom_for_interpolation(element_id: str, zoom: int) -> int | None:
         return None
     parent = zoom - 1
     return parent if parent >= JMA_TILE_MIN_ZOOM else None
+
+
+def with_interpolated_zooms(
+    element_id: str, zooms: dict[int, list[list[int]]]
+) -> dict[int, list[list[int]]]:
+    """実データのあるズームの在否（ズーム→中身のあるタイルの`[x, y]`）に、補間で埋めるズームの在否を親から補う。
+
+    補間結果が空になるのは親が空のときだけなので、**親に中身のあるタイルの4象限**を
+    そのまま子ズームの中身ありとする（追加の取得は要らない）。
+    """
+    if not zooms:
+        return zooms
+    filled = dict(zooms)
+    for zoom in range(min(zooms) + 1, effective_max_zoom(jma_tile_spec(element_id)) + 1):
+        if source_zoom_for_interpolation(element_id, zoom) is None:
+            continue
+        parents = filled.get(zoom - 1)
+        if not parents:
+            continue
+        filled[zoom] = [
+            [x * 2 + dx, y * 2 + dy] for x, y in parents for dx in (0, 1) for dy in (0, 1)
+        ]
+    return filled

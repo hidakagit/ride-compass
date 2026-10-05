@@ -27,7 +27,14 @@ from app.domain.wind_grid import (  # noqa: E402
     WIND_GRID_DETAIL_MIN_SPACING_DEG,
     WIND_GRID_SPACING_DEG,
 )
-from app.domain.route_request import DEFAULT_DISTANCE_TOLERANCE_KM, MAX_ROUTE_DISTANCE_KM, MAX_WAYPOINTS  # noqa: E402
+from app.domain.route_request import (  # noqa: E402
+    DEFAULT_DISTANCE_TOLERANCE_KM,
+    DEFAULT_MAX_ROUTES,
+    MAX_ROUTE_DISTANCE_KM,
+    MAX_ROUTES,
+    MAX_WAYPOINTS,
+    ROUTES_WITH_WAYPOINTS,
+)
 from app.api.routers.axis_admin import AxisDefinitionPayload  # noqa: E402
 from app.api.routers.debug_admin import LogLevelName  # noqa: E402
 from app.infrastructure.source_models import SOURCE_RUN_STATUS_LABELS  # noqa: E402
@@ -132,12 +139,7 @@ from app.domain.material_catalog import (  # noqa: E402
 )
 from app.domain.region import ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM  # noqa: E402
 from app.domain.leg_costs import MAX_TIME_BINS, TIME_BIN_HOURS  # noqa: E402
-from app.services.route_generator import (  # noqa: E402
-    DEFAULT_MAX_ROUTES,
-    MAX_ROUTES,
-    ROUTES_WITH_WAYPOINTS,
-    SPLICED_ROUTE_ID,
-)
+from app.services.route_generator import SPLICED_ROUTE_ID  # noqa: E402
 from app.config import Settings  # noqa: E402
 from app.domain.loop_routing import WAYPOINTS_ROUTE_ID  # noqa: E402
 from app.domain.region import MAX_MERCATOR_LATITUDE  # noqa: E402

@@ -1,4 +1,4 @@
-"""`services/db_status_service.py`——DBの数を、管理画面で「注意が要るか」の印を付けたレポートにする判断。
+"""`services/db_status_service.py`・`domain/db_status.py`——DBの数を、管理画面で「注意が要るか」の印を付けたレポートにする判断。
 
 入口は`build_db_status_report`（数を値で受ける）。しきい値の境界の入力は本物の定数から組み立てる。
 
@@ -16,14 +16,14 @@ from app.infrastructure.db_status import (
     SucceededRunCounts,
     TableCounts,
 )
-from app.services.db_status_service import (
+from app.domain.db_status import (
     CONNECTION_USAGE_WARN_RATIO,
     DEAD_TUPLE_WARN_MIN_ROWS,
     DEAD_TUPLE_WARN_RATIO,
     IDLE_TRANSACTION_WARN_SECONDS,
     STATISTICS_WARN_MIN_ROWS,
-    build_db_status_report,
 )
+from app.services.db_status_service import build_db_status_report
 
 AT = datetime(2026, 9, 14, tzinfo=timezone.utc)
 MAX_CONNECTIONS = 100

@@ -9,10 +9,10 @@ from app.domain.evaluation import resolve_penalty_strength
 from app.domain.hard_filters import DEFAULT_HARD_FILTERS
 from app.domain.route import Coordinates, RouteCandidate
 from app.domain.route_preference import RoutePreference
-from app.domain.route_request import RouteTarget, SplicedTarget, WaypointsTarget
+from app.domain.route_request import RouteTarget, SplicedTarget, WaypointsTarget, applied_max_routes
 from app.services.graph_service import GraphService
 from app.services.road_graph_engine import RoadGraphEngine
-from app.services.route_generator import RouteGenerator, applied_max_routes
+from app.services.route_generator import RouteGenerator
 from app.services.weather_service import WeatherService
 
 

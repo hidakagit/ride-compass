@@ -179,6 +179,11 @@ class WindForecastSeries:
         index, clamped = self._sample_index(start, passage_hours)
         return [self.times[i] for i in index], clamped
 
+    def covers(self, at: datetime) -> bool:
+        """`at`に最も近い時刻が系列の範囲の中にあるか（端の値で延ばさずに引けるか）。"""
+        _, clamped = self._sample_index(at, np.zeros(1))
+        return not bool(clamped[0])
+
 
 def estimate_passage_hours(
     mid_lat: np.ndarray,
