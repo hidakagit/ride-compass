@@ -198,20 +198,20 @@ describe("RouteSplicePanel 指標", () => {
 });
 
 describe("RouteSplicePanel 軸別の差", () => {
-  /** 寄与度: 道幅−2・交通+0.05（0.1未満）・勾配+3・街灯+1.5（元に無い軸は0から）。 */
+  /** 寄与度: 道幅−2・交通+0.05（0.1未満）・勾配+3・街灯+0.1（ちょうど0.1。元に無い軸は0から）。 */
   const MOVED = makeRouteCandidate({
     edge_ids: ["e1", "e4", "e3"],
     distance_km: 12.3,
-    axis_contributions: { width: 8, traffic: 5.05, slope: 6, light: 1.5 },
+    axis_contributions: { width: 8, traffic: 5.05, slope: 6, light: 0.1 },
   });
 
   it("寄与度が0.1以上動いた軸を大きい順に棒の読み上げへ並べ、大きい2つを下に書く", () => {
     renderPanel({ appliedCount: 1, preview: MOVED });
 
-    expect(screen.getByRole("img", { name: "勾配 +3.0、道幅 −2.0、街灯 +1.5" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "勾配 +3.0、道幅 −2.0、街灯 +0.1" })).toBeInTheDocument();
     expect(screen.getByText("勾配 +3.0")).toBeInTheDocument();
     expect(screen.getByText("道幅 −2.0")).toBeInTheDocument();
-    expect(screen.queryByText("街灯 +1.5")).not.toBeInTheDocument();
+    expect(screen.queryByText("街灯 +0.1")).not.toBeInTheDocument();
   });
 
   it("棒は中央を0に、減った軸を左・増えた軸を右へ、いちばん大きい差を片側いっぱいとする長さで描く", () => {
@@ -221,28 +221,7 @@ describe("RouteSplicePanel 軸別の差", () => {
     const widths = (side: Element) => [...side.children].map((piece) => (piece as HTMLElement).style.width);
     const [decreased, increased] = [bar.firstElementChild!, bar.lastElementChild!];
     expect(widths(decreased).map(parseFloat)).toEqual([expect.closeTo((2 / 3) * 50, 5)]);
-    expect(widths(increased).map(parseFloat)).toEqual([50, 25]);
-  });
-
-  it("ちょうど0.1動いた軸は出す", () => {
-    const edge = makeRouteCandidate({
-      edge_ids: ["e1", "e4", "e3"],
-      axis_contributions: { width: 10, traffic: 5, slope: 3, light: 0.1 },
-    });
-    renderPanel({ appliedCount: 1, preview: edge });
-
-    expect(screen.getByRole("img", { name: "街灯 +0.1" })).toBeInTheDocument();
-  });
-
-  it("どの軸の動きも0.1未満なら棒も軸の差も出さず、「差分を見る」を押す案内を出す", () => {
-    const still = makeRouteCandidate({
-      edge_ids: ["e1", "e4", "e3"],
-      axis_contributions: { width: 10.05, traffic: 5, slope: 3 },
-    });
-    renderPanel({ appliedCount: 1, preview: still });
-
-    expect(screen.queryByRole("img")).not.toBeInTheDocument();
-    expect(screen.getByText(/乗り換えた結果が出ます/)).toHaveTextContent("差分を見るを押すと、乗り換えた結果が出ます");
+    expect(widths(increased).map(parseFloat)).toEqual([50, expect.closeTo((0.1 / 3) * 50, 5)]);
   });
 });
 
@@ -256,21 +235,19 @@ describe("RouteSplicePanel 案内", () => {
     expect(screen.getByText(hint)).toBeInTheDocument();
   });
 
-  it("乗り換えて差分をまだ見ていなければ、「差分を見る」を押す案内を出す", () => {
+  it("乗り換えて軸の差がまだ無ければ、棒を出さずに「差分を見る」を押す案内を出す", () => {
     renderPanel({ appliedCount: 1, hasAlternatives: false, preview: null });
 
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
     expect(screen.getByText(/乗り換えた結果が出ます/)).toHaveTextContent("差分を見るを押すと、乗り換えた結果が出ます");
   });
 
-  it("合成に失敗した理由を知らせとして出す", () => {
-    renderPanel({ appliedCount: 1, error: "合成した経路を評価できませんでした。" });
+  it.each([
+    ["合成した経路を評価できませんでした。", ["合成した経路を評価できませんでした。"]],
+    [null, []],
+  ])("合成に失敗した理由（%s）があるときだけ、知らせとして出す", (error, alerts) => {
+    renderPanel({ appliedCount: 1, error });
 
-    expect(screen.getByRole("alert")).toHaveTextContent("合成した経路を評価できませんでした。");
-  });
-
-  it("合成の失敗が無ければ知らせを出さない", () => {
-    renderPanel({ appliedCount: 1, error: null });
-
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.queryAllByRole("alert").map((alert) => alert.textContent)).toEqual(alerts);
   });
 });
