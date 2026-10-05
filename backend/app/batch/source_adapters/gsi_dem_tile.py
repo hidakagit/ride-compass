@@ -27,6 +27,7 @@ from app.batch.ingest import SourceRecord, register_adapter
 from app.batch.source_adapters.raster_wkb import tile_bbox_wkb, tile_raster_wkb
 from app.batch.source_profile import SourceProfile, SourceProfileError, SourceSpec
 from app.domain.region import BoundingBox, tiles_covering_bbox
+from app.infrastructure.source_models import SourceFeatureRow
 
 logger = logging.getLogger("ridecompass.ingest.gsi_dem_tile")
 
@@ -75,7 +76,7 @@ class DemGrid:
                 f"選んでください（知らない製品: {unknown}）")
 
 
-@register_adapter("gsi_dem_tile", grid=DemGrid)
+@register_adapter("gsi_dem_tile", grid=DemGrid, required=(SourceFeatureRow.rast,))
 async def read_gsi_dem_tiles(spec: SourceSpec, profile: SourceProfile,
                              origin: dict[str, Any]) -> AsyncIterator[SourceRecord]:
     root = dem_tile_store.TILE_ROOT
