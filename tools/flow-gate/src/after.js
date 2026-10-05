@@ -10,7 +10,7 @@ const TRANSIENT = ["overloaded", "server_error"];
 // 起きる前に落ちたときは、戻すだけ。ラベル coordinator.devLabel を付けて返したなら、見回りが飛ばすので未着手へ戻す。着手可能日が
 // 先の日か、開いた前提（blockers。blocked by の issue の番号）があるなら、見回りがその日・前提が閉じるまで振り出さないので未着手へ
 // 戻す。持ち時間を超えた・Cancel された（ジョブの結果 cancelled）は担当の側の止まりなので落ちた。
-export function settle(config, { messages, startOn, labels, blockers = [], url, jobStatus, now = new Date() }) {
+export function settle(config, { messages, startOn, labels, blockers, url, jobStatus, now = new Date() }) {
   const errors = jobStatus === "cancelled" ? [] : (messages ?? []).filter((m) => m?.type === "assistant" && m.error).map((m) => m.error);
   const quota = errors.find((e) => QUOTA.includes(e));
   const failed = quota ? `Claude の利用の上限か認証で止まった（${quota}）`

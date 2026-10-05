@@ -10,7 +10,7 @@ import { config } from "./fake-github.js";
 
 test("18 後始末: 上限・認証は戻して振り出しを止め、一時の失敗と起きる前の落ちは戻すだけ、開発機が要るのラベル・着手可能日が先・開いた前提があれば戻し、それ以外は保留", () => {
   const said = (error) => [{ type: "assistant", error }];
-  const at = (messages, extra = {}) => settle(config, { messages, startOn: null, labels: [], url: "u", jobStatus: "success", now: new Date("2026-10-03T15:30:00Z"), ...extra });
+  const at = (messages, extra = {}) => settle(config, { messages, startOn: null, labels: [], blockers: [], url: "u", jobStatus: "success", now: new Date("2026-10-03T15:30:00Z"), ...extra });
   assert.deepEqual([at(said("rate_limit")).to, at(said("rate_limit")).pause], [config.todo, true]);
   for (const m of [said("overloaded"), null]) assert.deepEqual([at(m).to, Boolean(at(m).pause)], [config.todo, false]);
   assert.equal(at([], { startOn: "2026-10-05" }).to, config.todo);
