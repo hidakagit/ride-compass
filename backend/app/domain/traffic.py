@@ -321,11 +321,12 @@ TRAFFIC_SIGNAL_SQL = (
     "     AND position('signals' in coalesce(tags->>'crossing', '')) > 0))"
 )
 
-#: 道の形の向き（始点→終点）と逆にだけ通れる道の通行方向。
+#: 道の形の向き（始点→終点）にだけ通れる道・逆にだけ通れる道の通行方向。
+DIRECTION_FORWARD = "forward"
 DIRECTION_BACKWARD = "backward"
 
 _ONEWAY_DIRECTIONS: dict[str, str] = {
-    **{value: "forward" for value in sorted(ONEWAY_FORWARD_ONLY)},
+    **{value: DIRECTION_FORWARD for value in sorted(ONEWAY_FORWARD_ONLY)},
     **{value: DIRECTION_BACKWARD for value in sorted(ONEWAY_BACKWARD_ONLY)},
     **{value: "both" for value in sorted(ONEWAY_BIDIRECTIONAL)},
 }
@@ -335,7 +336,7 @@ _ONEWAY_DIRECTIONS: dict[str, str] = {
 _DIRECTION_GROUPS: tuple[tuple[str, dict[str, str]], ...] = (
     ("oneway:bicycle", _ONEWAY_DIRECTIONS),
     ("oneway", _ONEWAY_DIRECTIONS),
-    ("junction", {value: "forward" for value in sorted(ONEWAY_JUNCTION_VALUES)}),
+    ("junction", {value: DIRECTION_FORWARD for value in sorted(ONEWAY_JUNCTION_VALUES)}),
 )
 
 #: (タグ名, 値, 通行方向, 優先順位)。
@@ -360,6 +361,11 @@ def _quote(value: str) -> str:
 def one_way_sql(direction: str) -> str:
     """通行方向の式`direction`の道が、片方向にだけ通れるかのSQL式。"""
     return f"{direction} <> {_quote(DIRECTION_DEFAULT)}"
+
+
+def travel_allowed(direction: str) -> tuple[bool, bool]:
+    """通行方向`direction`の道を、道の形の向き（始点→終点）に通れるか・逆に通れるか。"""
+    return direction != DIRECTION_BACKWARD, direction != DIRECTION_FORWARD
 
 
 #: 信号の読み替え。近くに信号がある（`has_traffic_signals`）これらの種別の点は、利用者から

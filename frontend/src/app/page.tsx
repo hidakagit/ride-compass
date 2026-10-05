@@ -5,6 +5,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/Tabs/Tabs";
 import Disclosure from "@/components/Disclosure/Disclosure";
 import ErrorText from "@/features/route/ErrorText/ErrorText";
 import { Button } from "@/components/ui/Button/Button";
+import { ConfirmDialog } from "@/components/ui/Dialog/Dialog";
 import { cn } from "@/lib/cn";
 import MapView from "@/features/map/MapView/MapView";
 import { mapOverlayEdge, type RouteFitObscuredPx } from "@/lib/mapOverlayEdges";
@@ -162,6 +163,8 @@ export default function Home() {
   });
   const { results, generation, splice } = route;
   const editingRoute = splice.editingRoute;
+  // 「候補を全消去」を押したか。確認の窓で「消す」を押すまで消さない。
+  const [confirmingClear, setConfirmingClear] = useState(false);
 
   const mapView = useMapView({
     hasSelectedRoute: results.selectedCandidate !== null,
@@ -352,14 +355,28 @@ export default function Home() {
   // （見出しに並べると、どれが選んでいる1本だけに効くのか見分けられない）。候補がある間だけ呼ばれる。
   function renderRouteResultHeaderActions() {
     return (
-      <Button
-        size="panelIcon"
-        onClick={route.clear}
-        aria-label="候補を全消去"
-        usage="作った候補をすべて消します。地図に置いた地点は残ります。"
-      >
-        <ClearRoutesIcon size={18} />
-      </Button>
+      <>
+        <Button
+          size="panelIcon"
+          onClick={() => setConfirmingClear(true)}
+          aria-label="候補を全消去"
+          usage="作った候補をすべて消します。地図に置いた地点は残ります。"
+        >
+          <ClearRoutesIcon size={18} />
+        </Button>
+        <ConfirmDialog
+          open={confirmingClear}
+          title="候補をすべて消します"
+          confirmLabel="消す"
+          onCancel={() => setConfirmingClear(false)}
+          onConfirm={() => {
+            setConfirmingClear(false);
+            route.clear();
+          }}
+        >
+          消した候補は元に戻せません。地図に置いた地点は残ります。
+        </ConfirmDialog>
+      </>
     );
   }
 

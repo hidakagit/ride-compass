@@ -87,16 +87,12 @@ frontendはどのクエリパラメータをどの軸のリクエストへ載せ
 - `dedicated_way_value_layer=True`は軸スタジオで立てられるフラグで、配信を実装した材料を
   参照する軸なら、名前が何であってもコード変更なしにこの配信経路へ載る。
 
-同じモジュールが、軸について地図が塗る値の種類を軸定義から決める:
+同じモジュールが、配った材料の生値を地図が塗る値へ写す。塗る値の種類（難易度か符号付き材料か）・段の境界・凡例の目盛りは
+`domain/map_paint.py: map_paint`が決める（[axis-studio.md](axis-studio.md)「地図が塗るもの」）。
 
 | 関数 | 意味 |
 |---|---|
-| `map_value_kind(definition)` | 0次条件（`priority_overrides`）を持たず、`BreakpointLinearShape`かつ`preprocess="abs"`かつterms単数で、その項が材料（`MATERIAL_CATALOG`にある）を指すなら`signed_material`、それ以外は`difficulty`。項は軸を指すこともあり、その値は参照先の得点で符号にも単位にも材料の意味が無い。0次条件を持つ軸の生値は、条件の当たる道でも生値のままで評価と食い違う |
-| `map_value(definition)` | 種類と、`signed_material`なら生値を塗る材料をまとめた値（`DifficultyMapValue`・`SignedMaterialMapValue`の判別共用体）。材料は`signed_material`のときだけ在る |
-| `map_value_unit(definition)` | `signed_material`なら材料カタログの`unit`、`difficulty`は空文字 |
-| `map_legend(definition)` | 凡例が段の境界を書く目盛り（`MapLegendScale`: `map_value_thresholds`と同じ件数の境界と単位）。`signed_material`は塗る値そのもの（材料の単位）。`difficulty`の軸のうち、得点が単位の定まる生値（`axis_raw_value.py: raw_value_unit`）から0次条件なし・符号を畳まずに作られ、その量について狭く増える（折れ線の節の得点が狭く昇順）軸は、境界を量で書く（例: 雨は5・20・50mm）。それ以外は得点（単位null。画面は「影響 33点未満」と書く）。塗るのは得点でも量で書いてよいのは、狭く増える間だけ「得点 f(a)以上 f(b)未満」と「量 a以上 b未満」が同じ道を指すため。量の境界は折れ線の下端より上・上端以下に限る（外では得点が端に張り付く） |
-| `displayed_material_ids(weights, lens_axis_id)` | 区間表示へ載せる材料（[routing-engine.md](routing-engine.md)） |
-| `transform_dedicated_way_values(definition, material_id, values)` | 生値→地図表示値。`difficulty`は`evaluate_axis_values`でタイル内の全道路を1回の配列評価、`signed_material`は素通し。`material_id`以外の材料に0次条件を置いた軸は全道路を落とす——配信はその材料の値しか持たず、条件が当たるかを決められない |
+| `transform_dedicated_way_values(definition, material_id, values)` | 生値→地図表示値。塗る値が難易度なら`evaluate_axis_values`でタイル内の全道路を1回の配列評価、符号付き材料なら素通し。`material_id`以外の材料に0次条件を置いた軸は全道路を落とす——配信はその材料の値しか持たず、条件が当たるかを決められない |
 
 `services/dedicated_way_values.py: _SERVICES_BY_MATERIAL`は、材料id→担当するサービス実装本体
 （`WindWayService`/`GradientWayService`/`RainWayService`）のdictで、配信の組み立てと地図が載せる条件の導出がここから引く。こちらはPython実装本体
@@ -125,21 +121,12 @@ axis_id → get_dedicated_way_value_service(axis_id) が軸の参照する材料
           同じもので、ズームによって区間・wayのどちらかになる）
 ```
 
-- 応答は材料の生値ではなく**地図が塗る値**。`map_value_kind(definition)`が`difficulty`の軸
+- 応答は材料の生値ではなく**地図が塗る値**。`map_paint`の塗る値が難易度の軸
   （風等）は軸定義（breakpoints・priority_overrides）で評価した難易度0〜100、
-  `signed_material`の軸（勾配: 単一材料・`preprocess="abs"`）は符号付き材料生値のまま。
+  符号付き材料の軸（勾配: 単一材料・`preprocess="abs"`）は符号付き材料生値のまま。
   ルート確定後のルート線色分け（`axis_difficulties`／符号付き材料の直読み）と同じ
   スケールになる。
-- 段階の境界は`map_value_thresholds(definition)`が同じスケールへ揃えて返す。**段そのものを
-  決めるのはここではなく`axis_display.py: axis_display_for`**（ルート確定前の全道路を
-  塗る境界）で、ここはその値を軸の折れ線で写すだけ。写さずに配ると、材料の単位で書かれた
-  境界が0〜100と比べられ、ルート線が全区間ひとつのバンドへ落ちる。
-  **上書きの有無で経路を分けない**——上書きを設定していない軸だけがNoneを返して読む側の
-  既定値へ転落すると、その軸だけルート確定の前後で段の数も意味も食い違う。境界を宣言していない
-  難易度の軸も、既定の境界（`DEFAULT_DIFFICULTY_BOUNDARIES`）をここで解いて返す——読む側に既定を持たせない。
-  ただし境界を宣言していない専用配信の軸のうち、凡例を量で書ける軸（上の`map_legend`）は、折れ線の節
-  （軸が「どの量から効きが変わるか」を宣言したもの）で切る——3等分の境界を量へ戻すと半端な量
-  （雨なら6.1mm等）になる。
+- 段階の境界も`map_paint`が同じスケールへ揃えて返す（[axis-studio.md](axis-studio.md)「地図が塗るもの」）。
 - **フィーチャーの値は、属する区間の勾配の値式を長さで重み付けて平均したもの**
   （`_FEATURE_GRADIENT_INPUTS_IN_TILE_SQL`。集約の式は`domain/material_sql.py: aligned_length_weighted_mean_sql`）。区間単位のズームでは属する区間が1本なので
   その区間の値そのもの、way単位のズームではwayの全区間をならした値になる。1区間の外れ値が
@@ -166,10 +153,8 @@ axis_id → get_dedicated_way_value_service(axis_id) が軸の参照する材料
   キャッシュは生値のまま持つため、軸スタジオでbreakpointsを変えてもキャッシュを捨てずに
   次の応答から反映される。評価できない値（軸が他の材料も必須にしている等）はその道路を
   結果から除く（地図上は「データなし」）。`null`（走行方位で決まらない）は`null`のまま返す。
-- `GET /api/axis-catalog`は同じ判定を`map_value`・`map_value_unit`（材料カタログの
-  `MaterialSpec.unit`、難易度は空文字）・`map_legend`として公開し、frontendは色式を前の2つから、
-  凡例の段の範囲の文字を`map_legend`から組み立てる（ルート確定の前後とも）。ramp軸は`axis_display.py: axis_display_for`が符号を畳む形を外すため
-  いつも`difficulty`で、画面はramp軸の配色もこれから引く（[地図: 軸・ルート色分け](../frontend/map-axis-coloring.md)参照）。
+- `GET /api/axis-catalog`は同じ値を`map_paint`として公開し、frontendは色式と凡例の段の範囲の文字をそこから
+  組み立てる（ルート確定の前後とも。[地図: 軸・ルート色分け](../frontend/map-axis-coloring.md)参照）。
 
 - ルート確定後は呼ばれない専用エンドポイント（フロントは`axis_difficulties`を使う）。
 - 静的な路面タイル（`/api/region/road-surface-tiles`、MVT）とは別経路——フロントは

@@ -13,7 +13,7 @@
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `axis_definitions.py`・`axis_display.py`・`axis_raw_value.py`・`axis_templates.py`・`registry.py`・`value_distribution.py`（延長で重み付けた分位点とヒストグラム。分布の口の応答の型） |
+| domain | `axis_definitions.py`・`axis_display.py`・`map_paint.py`（地図が軸について塗るもの）・`axis_raw_value.py`・`axis_templates.py`・`registry.py`・`value_distribution.py`（延長で重み付けた分位点とヒストグラム。分布の口の応答の型） |
 | services | `axis_registry_service.py`・`axis_preview_service.py`・`axis_catalog_service.py`（軸カタログが軸の宣言のほかに要る値——事故の収録年・タイルの世代・専用配信の条件——を1回で読む） |
 | infrastructure | `axis_definition_models.py`・`axis_definition_repository.py` |
 | api | `axis_admin.py`・`axis_catalog.py` |
@@ -284,7 +284,7 @@ DB側の値が変わっても追従しない。軸の中身が主題でないテ
 `axis_display_for(definition)`の優先順位: ①自動導出成功＋`display_thresholds_override`
 設定済みなら両方を組み合わせる、②自動導出成功のみなら自動導出のしきい値をそのまま使う、
 ③自動導出失敗なら`kind="none"`。しきい値を決めるのは`axis_display_for`1本で、
-ルート線側の境界（`dynamic_way_values.py: map_value_thresholds`）もそこから導く。
+ルート線側の境界（`map_paint.py: map_paint`の`thresholds`）もそこから導く。
 
 **折れ線が写した得点（小数1桁に丸めた値）が、直前に残した境界の得点を上回らない境界は落とす。**
 上書きで指定された値も同じ扱いで、軸スタジオで4つ刻んでも折れ線が3つ目で100へ達していれば段は
@@ -328,6 +328,33 @@ DB側の値が変わっても追従しない。軸の中身が主題でないテ
 しやすい場合はこの不整合が顕在化しうる。同じ理由で、他の軸を参照する項（`TileInputSpec.breakpoints`）は
 材料の値が0の道も地図では寄与0になり、評価（参照先の折れ線の0での点数）と食い違いうる。上の表はこれらの場面を入れない。
 
+### 地図が塗るもの（`domain/map_paint.py`）
+
+`map_paint(definition)`が、地図がその軸について塗るものを1つの値（`MapPaint`）で返す。ルート確定前の全道路の塗り
+（ramp・[専用way値配信](dynamic-way-values.md)）・ルート確定後のルート線の色分け・凡例は、どれもこの値に従うので、
+同じ軸の色分けはルートの有無でスケールも段も変わらない。塗る値の種類だけが要る読み手（専用配信の写し
+`dynamic_way_values.py: transform_dedicated_way_values`・区間表示へ載せる材料`evaluation.py: displayed_material_ids`）も、
+この値の`value`を読む。`GET /api/axis-catalog`は軸ごとにこの値を`map_paint`として配る。
+
+| 欄 | 意味 |
+|---|---|
+| `value` | 塗る値の種類（`DifficultyMapValue`・`SignedMaterialMapValue`の判別共用体）。0次条件（`priority_overrides`）を持たず、`BreakpointLinearShape`かつ`preprocess="abs"`かつterms単数で、その項が材料（`MATERIAL_CATALOG`にある）を指すなら符号付き材料（生値を塗る材料を名指す）、それ以外は難易度。項は軸を指すこともあり、その値は参照先の得点で符号にも単位にも材料の意味が無い。0次条件を持つ軸の生値は、条件の当たる道でも生値のままで評価と食い違う。ramp軸は`axis_display_for`が符号を畳む形を外すため、いつも難易度 |
+| `unit` | 符号付き材料なら材料カタログの`unit`、難易度は空文字 |
+| `thresholds` | `value`のスケールでの段の境界（下記） |
+| `legend` | 凡例が段の境界を書く目盛り（`MapLegendScale`: `thresholds`と同じ件数の境界と単位）。符号付き材料は塗る値そのもの（材料の単位）。難易度の軸のうち、得点が単位の定まる生値（`raw_value_unit`）から0次条件なし・符号を畳まずに作られ、その量について狭く増える（折れ線の節の得点が狭く昇順）軸は、境界を量で書く（例: 雨は5・20・50mm）。それ以外は得点（単位null。画面は「影響 33点未満」と書く）。塗るのは得点でも量で書いてよいのは、狭く増える間だけ「得点 f(a)以上 f(b)未満」と「量 a以上 b未満」が同じ道を指すため。量の境界は折れ線の下端より上・上端以下に限る（外では得点が端に張り付く） |
+
+段の境界（`thresholds`）:
+
+- **段そのものを決めるのは`axis_display_for`**（ルート確定前の全道路を塗る境界）で、ramp軸ではその値を軸の折れ線で
+  難易度へ写すだけ。写さずに配ると、材料の単位で書かれた境界が0〜100と比べられ、ルート線が全区間ひとつのバンドへ落ちる。
+  分類の軸の値は初めから得点なので写さない。
+- ramp表示を持たない軸（専用way値配信）の上書きは、地図が塗る値そのものに対する境界なのでそのまま返す。符号付き材料の
+  軸で上書きが無ければ、折れ線の節を0対称に開いた境界にする（軸は`|値|`を評価している）。
+- **上書きの有無で経路を分けない**——上書きを設定していない軸だけが無しを返して読む側の既定値へ転落すると、その軸だけ
+  ルート確定の前後で段の数も意味も食い違う。境界を宣言していない難易度の軸も、既定の境界（`DEFAULT_DIFFICULTY_BOUNDARIES`）を
+  ここで解いて返す——読む側に既定を持たせない。ただし凡例を量で書ける軸（上の`legend`）は、折れ線の節（軸が「どの量から
+  効きが変わるか」を宣言したもの）で切る——3等分の境界を量へ戻すと半端な量（雨なら6.1mm等）になる。
+
 ### 生値の単位（`raw_value_unit`）
 
 `axis_raw_value.py`が、軸の**生値**（折れ点を通す前の`terms`重み付き和）の単位を導出する。
@@ -346,7 +373,7 @@ DB側の値が変わっても追従しない。軸の中身が主題でないテ
 [ルート設定・ルート結果（frontend）](../frontend/route-settings-and-results.md)が
 得点の隣へ生値を添えるのに使う。単位の無い数字は読み手が意味を取れないため出さない。
 地図の凡例も、得点が単位の定まる生値について狭く増える軸では、段を生値の量と単位で書く
-（`dynamic_way_values.py: map_legend`。[dynamic-way-values.md](dynamic-way-values.md)）——rampの段の境界は
+（`map_paint.py: map_paint`の`legend`。上の「地図が塗るもの」）——rampの段の境界は
 折れ点のx値（＝生値の目盛り）で、単位が定まる軸では生値と同じ量を塗っている（`axis_display.py`）。
 
 ### 材料単位への分解（`material_breakdown`）

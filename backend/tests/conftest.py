@@ -191,7 +191,7 @@ def _use_temp_disk_cache_dirs(tmp_path, monkeypatch, _keep_disk_caches_out_of_th
 
 # road_graph_repository.pyのPostGIS統合テスト専用の接続先。開発機で稼働中の実DB
 # (ridecompass, backend/.envのDATABASE_URLが指す先)とは別のテスト専用DBを使う
-# (docs/osm-pbf-import.md関連の進行中データに触れないため)。ローカルでのみ実行する
+# (取り込んだ実データに触れないため)。ローカルでのみ実行する
 # 前提で、環境変数postgis_database_url()で上書き可能にしておく（CIはこの経路で注入する）。
 TEST_DATABASE_SERVER = "postgresql+asyncpg://ridecompass:ridecompass@localhost:5432"
 #: 作業ツリーの場所を書いておくDB。消してよいかの判断に使う（drop_orphan_test_databases.py）。

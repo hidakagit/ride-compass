@@ -1,6 +1,8 @@
 "use client";
 
 import * as RadixDialog from "@radix-ui/react-dialog";
+import { Button } from "@/components/ui/Button/Button";
+import { textVariants } from "@/components/ui/Text/Text";
 import { cn } from "@/lib/cn";
 
 // 汎用モーダルダイアログ。FloatingPanel(react-rndでドラッグ移動)・BottomSheet
@@ -43,5 +45,41 @@ export function DialogContent({ title, children, className }: DialogContentProps
         </RadixDialog.Close>
       </RadixDialog.Content>
     </RadixDialog.Portal>
+  );
+}
+
+interface ConfirmDialogProps {
+  open: boolean;
+  title: string;
+  /** 確かめるボタンの文言（「消す」等）。 */
+  confirmLabel: string;
+  onConfirm: () => void;
+  /** キャンセル・✕・Esc・外側の押下のどれで閉じても呼ばれる。 */
+  onCancel: () => void;
+  children: React.ReactNode;
+}
+
+// 消すなど取り消せない操作の前の確認の窓。確かめるボタンを押したときだけonConfirmを呼び、閉じるのは呼び出し側が
+// openを下ろして行う。
+export function ConfirmDialog({ open, title, confirmLabel, onConfirm, onCancel, children }: ConfirmDialogProps) {
+  return (
+    <DialogRoot
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onCancel();
+      }}
+    >
+      <DialogContent title={title}>
+        <p className={textVariants({ variant: "hint" })}>{children}</p>
+        <div className="mt-3 flex justify-end gap-2">
+          <Button size="sm" onClick={onCancel}>
+            キャンセル
+          </Button>
+          <Button variant="danger" size="sm" onClick={onConfirm}>
+            {confirmLabel}
+          </Button>
+        </div>
+      </DialogContent>
+    </DialogRoot>
   );
 }
