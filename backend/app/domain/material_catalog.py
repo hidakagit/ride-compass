@@ -265,8 +265,8 @@ class MaterialSpec(StrictModel):
     coverage: MaterialCoverage
     # 材料の値（OSMタグ生値）ごとの日本語ラベル対訳表（タグ値→ラベル）。
     # highway/surface/smoothnessのようなオープンエンドな多値材料だけが持つ（他は空dict）。
-    # 軸スタジオの「値の候補」セレクトが`GET /api/material-catalog/
-    # {material_id}/values`経由で表示するラベルの単一ソース。値の意味は材料そのものの
+    # 軸スタジオの「値の候補」セレクトが`GET /api/admin/material-catalog/{material_id}/values`
+    # 経由で表示するラベルの単一ソース。値の意味は材料そのものの
     # 定義に属するドメイン知識のため、他のフィールドと同じくここ（MaterialSpec自体）へ
     # 一元化する（material_id文字列をキーにした別の並列辞書にすると、材料の追加・削除の
     # たびに2箇所を同期する必要が生じるリスクを持ち込むため避ける）。

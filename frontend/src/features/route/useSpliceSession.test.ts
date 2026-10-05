@@ -9,7 +9,7 @@
  * - 乗り換え先の求め方の細部（区間の割り方・下限・折り返しを出さない・重なる代替のまとめ方・形の継ぎ方） →
  *   `routeSplice.test.ts`。ここでは分かれ道が1つずつの網で、出る・乗り換えた経路から次が出ることを見る
  * - 編集面の表示（差・戻す操作・失敗の出し方） → `RouteSplicePanel/RouteSplicePanel.test.tsx`
- * - 地図の帯の描き方とタップ → `features/map/scene/groups/routes.test.ts`
+ * - 地図の帯の描き方とタップ → `app/page.test.tsx`（描き方そのものは`features/map/scene/groups/routes.ts`の宣言）
  * - 作った経路を結果へ足す・既存の候補を選ぶ → `useRouteResults.test.ts`・`app/page.test.tsx`
  *
  * 差し替えたもの: 評価（生成のジョブ）と軸カタログの応答（網の層。`testing/generationJobs.ts`）。評価はジョブを作り

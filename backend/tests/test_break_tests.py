@@ -1,6 +1,6 @@
 """`scripts/break_tests.py`のテスト。
 
-一時の git リポジトリに backend の形（`backend/calc.py` とそのテスト）を作り、git と pytest は本物を通す。
+一時の git リポジトリに backend の形（計算のファイル1本とそのテスト）を作り、git と pytest は本物を通す。
 
 ここで見ないもの: frontend の側を回すこと（vitest は frontend の依存が要る。読む報告の形は `vitest_failures` で見る）と、
 道具の実行口（`main`）。
