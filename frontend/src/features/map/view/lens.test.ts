@@ -116,8 +116,7 @@ describe("lensConditionsLabel（周りの道の色が拠る走る条件）", () 
     dedicatedEntry("none", [1]),
     rampEntry("ramp", [1]),
   ]).dedicatedAxes;
-  const now = new Date("2026-10-05T10:00:00Z");
-  const ride = { bearingDeg: 90, at: new Date("2026-10-05T10:30:00Z"), speedKmh: 22 };
+  const ride = { bearingDeg: 90, speedKmh: 22 };
 
   it.each([
     ["bearing_only", "東へ走る"],
@@ -126,7 +125,7 @@ describe("lensConditionsLabel（周りの道の色が拠る走る条件）", () 
     ["ramp", null],
     [null, null],
   ])("塗っている軸（%s）が使う条件だけを並べ、使わなければnull", (axisId, expected) => {
-    expect(lensConditionsLabel(axisId, conditional, ride, now)).toBe(expected);
+    expect(lensConditionsLabel(axisId, conditional, ride, "19:30")).toBe(expected);
   });
 });
 

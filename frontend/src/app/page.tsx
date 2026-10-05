@@ -48,6 +48,7 @@ import { useElementHeightCssVar } from "@/hooks/useElementHeightCssVar";
 import { useLocation } from "@/hooks/useLocation";
 import { useStoredState, useStoredBooleanState } from "@/hooks/useStoredState";
 import { useRideConditions } from "@/features/conditions/useRideConditions";
+import { formatDepartureLabel } from "@/features/conditions/rideConditions";
 import { useMapView } from "@/features/map/view/useMapView";
 import { textVariants } from "@/components/ui/Text/Text";
 import { cardVariants } from "@/components/ui/Card/Card";
@@ -167,6 +168,7 @@ export default function Home() {
     hasDetail: results.hasDetail,
     ride: ride.ride,
     now: ride.departure.now,
+    departureLabel: formatDepartureLabel(ride.departure.at, ride.departure.now),
     routeWeights: route.routeWeights,
   });
 

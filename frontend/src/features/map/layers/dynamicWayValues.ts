@@ -65,9 +65,7 @@ export function tilesCoveringViewport(
  * **鍵は文字列のまま扱う**。路面タイルの`feature_key`はズームによってway_idにも
  * edge_idにもなり（backendの`EDGE_UNIT_MIN_ZOOM`）、edge_idは数値ではない。数値へ
  * 変換すると`setFeatureState`のidがタイル側のfeature.idと一致せず、色が一切付かない。 */
-export function mergeDynamicWayValues(
-  responses: readonly Record<string, number | null>[],
-): Map<string, number | null> {
+export function mergeDynamicWayValues(responses: readonly Record<string, number | null>[]): Map<string, number | null> {
   const merged = new Map<string, number | null>();
   for (const response of responses) {
     for (const [featureKey, value] of Object.entries(response)) {

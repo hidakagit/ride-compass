@@ -41,6 +41,7 @@ const INPUTS: Inputs = {
   hasDetail: false,
   ride: RIDE,
   now: RIDE.at,
+  departureLabel: "9:00",
   routeWeights: {},
 };
 

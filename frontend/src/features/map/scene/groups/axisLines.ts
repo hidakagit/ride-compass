@@ -96,7 +96,9 @@ function colorExpression(axisId: string, axis: AxisLineState["axes"][number]): u
     axis.value.kind === "delivered"
       ? [
           ["boolean", ["feature-state", axisUndeterminedStateKey(axisId)], false],
-          axis.hiddenBandKeys.includes(LEGEND_UNDETERMINED_KEY) ? palette.semantic.hidden : palette.semantic.undetermined,
+          axis.hiddenBandKeys.includes(LEGEND_UNDETERMINED_KEY)
+            ? palette.semantic.hidden
+            : palette.semantic.undetermined,
         ]
       : [];
   // 取得中の色は「値なし」を隠していても残す——消すと「まだ来ていない」と「隠した」が

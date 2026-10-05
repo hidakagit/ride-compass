@@ -21,7 +21,6 @@ import {
 import type { LensOption } from "@/features/map/LensControl/LensControl";
 import type { CatalogAxis } from "@/lib/catalogAxis";
 import { cardinalLabel } from "@/lib/cardinalLabel";
-import { formatDepartureLabel } from "@/features/conditions/rideConditions";
 
 /** 全道路を塗っている軸。ルート確定後は、周囲も塗り続ける設定の間だけ塗る。 */
 export function paintedAxisId(lens: LensId, hasDetail: boolean, keepAfterRoute: boolean): LensId | null {
@@ -33,15 +32,15 @@ export function paintedAxisId(lens: LensId, hasDetail: boolean, keepAfterRoute: 
 export function lensConditionsLabel(
   paintedAxis: LensId | null,
   dedicatedAxes: readonly DedicatedWayValueAxis[],
-  ride: { bearingDeg: number; at: Date; speedKmh: number },
-  now: Date,
+  ride: { bearingDeg: number; speedKmh: number },
+  departureLabel: string,
 ): string | null {
   const axis = dedicatedAxes.find((candidate) => candidate.axisId === paintedAxis);
   if (axis === undefined) return null;
   const parts = [
     axis.needsBearing ? `${cardinalLabel(ride.bearingDeg)}へ走る` : null,
     axis.needsSpeed ? `時速${ride.speedKmh}km` : null,
-    axis.needsTime ? `${formatDepartureLabel(ride.at, now)}出発` : null,
+    axis.needsTime ? `${departureLabel}出発` : null,
   ].filter((part) => part !== null);
   return parts.length > 0 ? parts.join("・") : null;
 }
