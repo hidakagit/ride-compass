@@ -5,7 +5,7 @@
 
 ここで見ないもの:
 - 中身が空のタイルをフラグで持つこと・Redisの値の形 → `test_jma_tile_redis_cache.py`
-- どのパスが「配信前に404が返る地物」か（`domain/jma_tile_specs.py: is_final_absence`） → `test_jma_tile_specs.py`。
+- どのパスが「配信前に404が返る地物」か（`infrastructure/jma_tile_paths.py: is_final_absence`） → `test_jma_tile_paths.py`。
   ここでは宣言にある地物（落雷）とタイル（土砂キキクル）のパスを1つずつ入力に使う
 - 降水のタイルの色の塗り替え → `test_jma_tile_recolor.py`。ここでは取得したタイルに塗り替えが当たることだけを見る
 - 404・502・`Cache-Control`への振り分け、レート制限を当てる順序 → `test_jma_tile_routes.py`
@@ -22,7 +22,8 @@ import pytest
 import respx
 
 from app.domain.jma_tile_specs import JmaFrame, TargetTimesRow
-from app.domain.weather_display import JMA_PRECIPITATION_TILE_COLORS, PRECIPITATION_COLOR_STOPS
+from app.domain.weather_display import PRECIPITATION_COLOR_STOPS
+from app.infrastructure.jma_tile_recolor import JMA_PRECIPITATION_TILE_COLORS
 from app.infrastructure import jma_tile_client
 from app.infrastructure.jma_tile_client import EmptyTile, JmaTileClient, JmaTileNotFoundError, JmaTileSharedState
 from tests.fake_external_log import record_external_calls

@@ -1,6 +1,6 @@
 "use client";
 
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/Popover/Popover";
+import { Popover, PopoverContent, PopoverTrigger, POPOVER_COLLISION_PADDING_PX } from "@/components/ui/Popover/Popover";
 import { useState } from "react";
 import LegendCheckboxList from "@/features/map/LegendCheckboxList/LegendCheckboxList";
 import { mapOverlayEdge } from "@/lib/mapOverlayEdges";
@@ -174,8 +174,7 @@ export default function LensControl({
           className="max-h-[70vh] w-[min(24rem,calc(100vw-1.5rem))] overflow-y-auto rounded-sm px-3 py-2.5"
           side="bottom"
           align="center"
-          sideOffset={6}
-          collisionPadding={8}
+          collisionPadding={POPOVER_COLLISION_PADDING_PX}
         >
           <p className="mb-1.5 font-semibold">{LENS_SCREEN_NAME}</p>
           {conditions && (

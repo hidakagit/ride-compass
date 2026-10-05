@@ -1,8 +1,8 @@
 """`domain/jma_tile_specs.py`——気象庁の配信要素ごとの、タイルのズーム・配信元のパス・時刻一覧の読み方。
 
 入口は、ズーム（`effective_max_zoom`・`has_native_tile`・`source_zoom_for_interpolation`・`jma_tile_spec`）、
-配信元のパス（`jma_target_times_paths`・`jma_url_template`・`jma_tile_path`と読み戻しの`read_jma_tile_path`・
-404の意味`is_final_absence`）、時刻一覧の行をコマにする`read_target_times`と、要素の宣言`JmaElement`の検証。
+配信元のパス（`jma_target_times_paths`・`jma_url_template`・`jma_tile_path`）、時刻一覧の行をコマにする
+`read_target_times`と、要素の宣言`JmaElement`の検証。
 
 要素の宣言`JMA_ELEMENTS`は配信元の設定ファイルの写し（本番の正本を持つ宣言のデータ）なので中身に踏み込まず、
 架空の要素へ差し替える。期待するパスの形は配信元のURL（`https://www.jma.go.jp/bosai/jmatile/data/...`）である。
@@ -10,12 +10,11 @@
 ここで見ないもの:
 - 動的気象の要素の段をつなぐこと・段ごとの配信の組み立て → `test_weather_elements.py`
 - 時刻一覧の応答を行へ解くこと・取得とキャッシュ → `test_jma_tile_client.py`
+- パスをタイルとして読み戻すこと・404の意味 → `test_jma_tile_paths.py`
 - 画面が同じ読み方・同じパスになること → `scripts/cross_language_expectations.py: jma_expectations`の表を通す画面のテスト
 """
 
 import pytest
-from hypothesis import given
-from hypothesis import strategies as st
 
 from app.domain import jma_tile_specs as specs
 from app.domain.jma_tile_specs import JmaElement, JmaFrame, JmaTile, JmaTileSpec, TargetTimesRow
@@ -139,54 +138,6 @@ def test_a_tile_path_fills_the_frame_and_the_tile_coordinates():
 def test_an_element_not_delivered_as_tiles_has_no_tile_path():
     with pytest.raises(ValueError):
         specs.jma_tile_path(JmaTile("pts", JmaFrame("20260701000000", "none", "20260701000000"), 6, 57, 25))
-
-
-_timestamps = st.datetimes().map(lambda moment: moment.strftime("%Y%m%d%H%M%S"))
-_segments = st.text(alphabet=st.characters(categories=["Ll", "Lu", "Nd"], codec="ascii"), min_size=1, max_size=8)
-
-
-@pytest.mark.usefixtures("_elements")
-@given(
-    element_id=st.sampled_from(["ras", "ras2", "vec", "oddz", "allz"]),
-    frame=st.builds(JmaFrame, _timestamps, st.one_of(st.just("none"), _segments), _timestamps),
-    z=st.integers(min_value=0, max_value=20),
-    x=st.integers(min_value=0, max_value=2**20),
-    y=st.integers(min_value=0, max_value=2**20),
-)
-def test_a_tile_path_reads_back_as_the_same_tile(element_id, frame, z, x, y):
-    tile = JmaTile(element_id, frame, z, x, y)
-    assert specs.read_jma_tile_path(specs.jma_tile_path(tile)) == tile
-
-
-@pytest.mark.usefixtures("_elements")
-@pytest.mark.parametrize(
-    "path",
-    [
-        "bosai/jmatile/data/nowc/targetTimes_N1.json",
-        "bosai/jmatile/data/nowc/20260701000000/none/20260701000000/surf/pts/data.geojson?id=pts",
-        "bosai/jmatile/data/nowc/20260701000000/none/20260701000000/surf/other/6/57/25.png",
-        "bosai/jmatile/data/nowc/20260701000000/none/20260701000000/surf/ras/6/57/25.pbf",
-        "bosai/jmatile/data/nowc/20260701000000/none/20260701000000/surf/ras/z/57/25.png",
-        "bosai/jmatile/data/nowc/20260701000000/none/20260701000000/surf/ras/6/57/25.png?v=1",
-    ],
-    ids=["time_listing", "features", "undeclared_element", "wrong_extension", "non_numeric_zoom", "trailing_query"],
-)
-def test_paths_that_are_not_a_declared_tile_read_as_nothing(path):
-    assert specs.read_jma_tile_path(path) is None
-
-
-@pytest.mark.usefixtures("_elements")
-@pytest.mark.parametrize(
-    ("path", "final"),
-    [
-        ("bosai/jmatile/data/nowc/20260701000000/none/20260701001000/surf/ras/6/57/25.png", True),
-        ("bosai/jmatile/data/nowc/20260701000000/none/20260701000000/surf/pts/data.geojson?id=pts", False),
-    ],
-    ids=["tile", "features_not_yet_delivered"],
-)
-def test_only_a_missing_features_file_may_still_be_delivered_later(path, final):
-    """地物は配信されるまで404、配信後は地物が無くても200。タイルと時刻一覧の404は確定した事実。"""
-    assert specs.is_final_absence(path) is final
 
 
 # --- 時刻一覧の行をコマにする ---

@@ -39,8 +39,8 @@ class JmaTileSpec:
     max_native_zoom: int
     #: ベクタタイル（.pbf）の中のレイヤー名。ラスタの要素はNone。
     vector_layer: str | None = None
-    #: 降水の段の色（`domain/weather_display.py: JMA_PRECIPITATION_TILE_COLORS`）で塗った画像で、中継がアプリの降水の段の
-    #: 色へ塗り替えて配る（`infrastructure/jma_tile_recolor.py`）。
+    #: 降水の段の色（`infrastructure/jma_tile_recolor.py: JMA_PRECIPITATION_TILE_COLORS`）で塗った画像で、中継がアプリの
+    #: 降水の段の色へ塗り替えて配る。
     precipitation_colors: bool = False
 
 
@@ -201,19 +201,16 @@ _TARGET_TIMES_PATH = _DATA_ROOT + "/{group}/{file}"
 _FRAME_PATH = _DATA_ROOT + "/{group}/{basetime}/{member}/{validtime}/surf/{element}"
 _TILE_FILE = "{z}/{x}/{y}.{extension}"
 _FEATURES_FILE = "data.geojson?id={element}"
-#: 読み戻すとき数字だけに当てる項目（タイル座標）。他の項目はパスの1区切りに当てる。
-_NUMERIC_FIELDS = frozenset({"z", "x", "y"})
-_NUMBER = r"\d+"
-_SEGMENT = r"[^/?]+"
-_PLACEHOLDER = re.compile(r"\{(\w+)\}")
+#: テンプレートの埋める所（`{名前}`）。画面も同じ書き方で埋める。
+TEMPLATE_PLACEHOLDER = re.compile(r"\{(\w+)\}")
 
 
 def _fill(template: str, **values: str) -> str:
     """`{名前}`を値で埋める。渡さなかった名前は`{名前}`のまま残す。"""
-    return _PLACEHOLDER.sub(lambda match: values.get(match.group(1), match.group(0)), template)
+    return TEMPLATE_PLACEHOLDER.sub(lambda match: values.get(match.group(1), match.group(0)), template)
 
 
-def tile_extension(spec: JmaTileSpec) -> str:
+def _tile_extension(spec: JmaTileSpec) -> str:
     """配信元はベクタをMapbox Vector Tile（.pbf）、ラスタを画像（.png）で配る。"""
     return "pbf" if spec.vector_layer else "png"
 
@@ -234,7 +231,7 @@ def jma_url_template(element_id: str) -> str:
         f"{_FRAME_PATH}/{_TILE_FILE}",
         group=element.path_group,
         element=element_id,
-        extension=tile_extension(element.tile),
+        extension=_tile_extension(element.tile),
     )
 
 
@@ -258,45 +255,6 @@ def jma_tile_path(tile: JmaTile) -> str:
         z=str(tile.z),
         x=str(tile.x),
         y=str(tile.y),
-    )
-
-
-def _template_pattern(template: str) -> re.Pattern[str]:
-    parts = _PLACEHOLDER.split(template)
-    pattern = "".join(
-        re.escape(part) if index % 2 == 0 else f"(?P<{part}>{_NUMBER if part in _NUMERIC_FIELDS else _SEGMENT})"
-        for index, part in enumerate(parts)
-    )
-    return re.compile(f"^{pattern}$")
-
-
-def read_jma_tile_path(path: str) -> JmaTile | None:
-    """配信元のパスを、宣言のある要素のタイルとして読む。タイルでないパス（時刻一覧・地物）・宣言の無い要素はNone。"""
-    for element_id, element in JMA_ELEMENTS.items():
-        if element.tile is None:
-            continue
-        match = _template_pattern(jma_url_template(element_id)).match(path)
-        if match is not None:
-            return JmaTile(
-                element_id,
-                JmaFrame(match["basetime"], match["member"], match["validtime"]),
-                int(match["z"]),
-                int(match["x"]),
-                int(match["y"]),
-            )
-    return None
-
-
-def is_final_absence(path: str) -> bool:
-    """配信元がこのパスに404を返したとき、それが「描くものが無い」という確定した事実か。
-
-    タイルと時刻一覧は確定する（疎な格子の穴）。タイルで配らない要素のコマの地物（GeoJSON）は確定しない
-    ——配信元は時刻一覧に載せたコマの地物を配信するまで404を返し、配信した後は地物が無くても200で空の
-    集まりを返すため、この404は「まだ配信されていない」である。"""
-    return not any(
-        _template_pattern(jma_url_template(element_id)).match(path)
-        for element_id, element in JMA_ELEMENTS.items()
-        if element.tile is None
     )
 
 

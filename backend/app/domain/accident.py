@@ -23,7 +23,7 @@ BICYCLE_PARTY_TYPE_CODES: frozenset[str] = frozenset({"51", "52"})
 
 # --- 生データの列から判定する式 -----------------------------------------------
 #
-# 本票の列名（日本語）と判定の規則をここだけが持つ。生データは列を捨てずに`attrs`へ
+# 判定の規則と、判定が読む本票の列名（日本語）をここだけが持つ。生データは列を捨てずに`attrs`へ
 # 入れてあるため、読む側は都度これを使う——同じ判定をタイルと集計で別々に書くとずれる。
 # 別名`a`は事故の生データの行（`infrastructure/source_models.py: ACCIDENTS_SOURCE_SQL`）を指す。
 
@@ -38,6 +38,3 @@ def bicycle_sql(party_types: str) -> str:
     """
     return (f"(a.attrs->>'当事者種別（当事者A）' = ANY({party_types})"
             f" OR a.attrs->>'当事者種別（当事者B）' = ANY({party_types}))")
-
-#: 発生年（全角空白を含む列名）。
-OCCURRED_YEAR_SQL = "(a.attrs->>'発生日時　　年')::int"

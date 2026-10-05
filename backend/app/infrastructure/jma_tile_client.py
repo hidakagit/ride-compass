@@ -7,9 +7,10 @@ import httpx
 from cachetools import TTLCache
 
 from app.config import settings
-from app.domain.jma_tile_specs import JmaFrame, TargetTimesRow, is_final_absence
+from app.domain.jma_tile_specs import JmaFrame, TargetTimesRow
 from app.infrastructure import jma_tile_redis_cache
 from app.infrastructure.debug_log import log_external_call, mark_failed
+from app.infrastructure.jma_tile_paths import is_final_absence
 from app.infrastructure.jma_tile_recolor import recolored
 from app.infrastructure.jma_tile_redis_cache import EmptyTile
 

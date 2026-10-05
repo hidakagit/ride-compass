@@ -65,7 +65,7 @@ def _patch_msm(monkeypatch, times: list[str] = TIMES) -> None:
         u, v = zip(*(_wind_uv(latitudes, longitudes, h) for h in range(len(times))))
         count = len(latitudes)
         return MsmSeries(
-            times=times,
+            times=[datetime.fromisoformat(t) for t in times],
             wind_u_ms=np.stack(u, axis=1),
             wind_v_ms=np.stack(v, axis=1),
             precipitation_mm=np.zeros((count, len(times))),

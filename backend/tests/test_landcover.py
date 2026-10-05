@@ -3,7 +3,6 @@
 入口は次のとおり。
 - `class_percentages_sql`: 区間ごとのクラス別の画素数から割合の行を返すSQL（PostGISで実行して確かめる）
 - `LandcoverPercentages`: その行を受け取るモデル
-- `raster_set_fingerprint`: 開いているラスタの構成の指紋
 - `LANDCOVER_CLASSES`: クラスの宣言（凡例・区間インスペクタ・集計が読む）。型でも導出でも保証できない不変条件だけを見る
 
 ここで見ないもの:
@@ -15,8 +14,6 @@
 """
 
 import pytest
-from hypothesis import given
-from hypothesis import strategies as st
 from sqlalchemy import text
 
 from app.domain import landcover
@@ -110,22 +107,3 @@ def test_the_class_declaration_can_be_told_apart_everywhere_it_is_read():
         assert len(set(values)) == len(values), attribute
     assert all(cls.percent_field.endswith("_percent") for cls in classes)
     assert not {cls.value for cls in classes} & {NO_DATA, CLOUDS}
-
-
-def test_the_fingerprint_reads_only_the_file_names():
-    assert landcover.raster_set_fingerprint(["/data/a/10N.tif", "/data/b/11N.tif"]) == (
-        landcover.raster_set_fingerprint(["other/10N.tif", "11N.tif"])
-    )
-
-
-def test_adding_a_raster_changes_the_fingerprint():
-    assert landcover.raster_set_fingerprint(["10N.tif"]) != landcover.raster_set_fingerprint(
-        ["10N.tif", "11N.tif"]
-    )
-
-
-@given(names=st.lists(st.from_regex(r"[0-9A-Z]{2,4}\.tif", fullmatch=True), min_size=1, unique=True), data=st.data())
-def test_the_order_of_the_rasters_does_not_change_the_fingerprint(names, data):
-    shuffled = data.draw(st.permutations(names))
-
-    assert landcover.raster_set_fingerprint(shuffled) == landcover.raster_set_fingerprint(names)

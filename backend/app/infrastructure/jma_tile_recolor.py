@@ -10,10 +10,17 @@ from typing import cast
 
 from PIL import Image, ImageColor
 
-from app.domain.jma_tile_specs import jma_tile_spec, read_jma_tile_path
-from app.domain.weather_display import JMA_PRECIPITATION_TILE_COLORS, PRECIPITATION_COLOR_STOPS
+from app.domain.jma_tile_specs import jma_tile_spec
+from app.domain.weather_display import PRECIPITATION_COLOR_STOPS
 from app.infrastructure.cache_identity import shape_digest
 from app.infrastructure.debug_log import log_throttled_warning
+from app.infrastructure.jma_tile_paths import read_jma_tile_path
+
+#: 気象庁の降水のタイル（降水ナウキャスト・降水短時間予報）が段を塗る色を、`PRECIPITATION_COLOR_STOPS`と同じ段の順に
+#: 並べたもの。配信元のタイルのパレットの色。
+JMA_PRECIPITATION_TILE_COLORS: tuple[str, ...] = (
+    "#f2f2ff", "#a0d2ff", "#218cff", "#0041ff", "#faf500", "#ff9900", "#ff2800", "#b40068",
+)
 
 _PRECIPITATION_COLORS: dict[tuple[int, ...], tuple[int, ...]] = {
     ImageColor.getrgb(jma): ImageColor.getrgb(stop.color)
@@ -55,7 +62,7 @@ def _recolor_palette(path: str, content: bytes) -> bytes:
             log_throttled_warning(
                 "jma:tile-recolor",
                 "気象庁の降水のタイルに、降水の段に無い色があります path=%s rgb=%s"
-                "（domain/weather_display.py: JMA_PRECIPITATION_TILE_COLORS）",
+                "（infrastructure/jma_tile_recolor.py: JMA_PRECIPITATION_TILE_COLORS）",
                 path,
                 sorted(unknown),
             )

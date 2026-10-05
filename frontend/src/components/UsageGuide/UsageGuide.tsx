@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/Popover/Popover";
+import { Popover, PopoverAnchor, PopoverContent, POPOVER_COLLISION_PADDING_PX } from "@/components/ui/Popover/Popover";
 import { Button } from "@/components/ui/Button/Button";
 import { GuideText } from "@/components/ui/GuideText/GuideText";
 import { textVariants } from "@/components/ui/Text/Text";
@@ -181,7 +181,7 @@ export default function UsageGuide({ onEnd }: UsageGuideProps) {
           {...{ [USAGE_GUIDE_ATTRIBUTE]: "" }}
           layer="guide"
           className="flex max-w-72 flex-col gap-1"
-          collisionPadding={8}
+          collisionPadding={POPOVER_COLLISION_PADDING_PX}
           aria-label="使い方の説明"
         >
           <div className="flex items-start justify-between gap-2">

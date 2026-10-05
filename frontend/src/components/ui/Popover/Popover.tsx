@@ -12,6 +12,9 @@ export const PopoverTrigger = RadixPopover.Trigger;
 /** 押した部品以外の位置へ開くときの目印（`virtualRef`で要素を指す）。 */
 export const PopoverAnchor = RadixPopover.Anchor;
 
+/** 画面の端へ寄せて開くとき、端との間に空ける幅（px）。 */
+export const POPOVER_COLLISION_PADDING_PX = 8;
+
 const contentVariants = cva(
   "rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-2 text-[length:var(--font-size-sm)] leading-[1.4] text-[var(--foreground)] shadow-float",
   {

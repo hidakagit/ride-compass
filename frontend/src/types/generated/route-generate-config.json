@@ -1,5 +1,6 @@
 {
   "max_distance_km": 100,
+  "min_routes": 1,
   "max_routes": 15,
   "default_max_routes": 8,
   "routes_with_waypoints": 1,

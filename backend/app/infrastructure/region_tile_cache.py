@@ -10,12 +10,12 @@ import asyncio
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 
-from app.domain.landcover import raster_set_fingerprint
 from app.domain.registry import TileKind
 from app.infrastructure import landcover_raster, tile_cache
 from app.infrastructure.cache_identity import (
     LANDCOVER_TILE_VERSION,
     is_known_tile_version,
+    raster_set_fingerprint,
     region_tile_generation_prefix,
     region_tile_key,
     region_tile_kind,
