@@ -687,10 +687,6 @@ export interface components {
             primary_attribute_ids: string[];
             /** Weather Layer Groups */
             weather_layer_groups: string[];
-            /** Shape */
-            shape: components["schemas"]["BreakpointLinearShape-Output"] | components["schemas"]["CategoricalShape-Output"];
-            /** Display Thresholds Override */
-            display_thresholds_override: number[] | null;
             /** Display Band Labels Override */
             display_band_labels_override: string[] | null;
             /** Dedicated Way Value Layer */
@@ -876,8 +872,6 @@ export interface components {
             axis_id: string;
             /** Difficulty */
             difficulty: number | null;
-            /** Weight */
-            weight: number;
             /** Contribution */
             contribution: number | null;
         };
@@ -1273,8 +1267,6 @@ export interface components {
         };
         /** LandcoverPercentages */
         LandcoverPercentages: {
-            /** Valid Pixels */
-            valid_pixels: number;
             /** Water Percent */
             water_percent: number;
             /** Trees Percent */
@@ -1377,11 +1369,6 @@ export interface components {
             material_id: string;
             /** Label */
             label: string;
-            /**
-             * Dtype
-             * @enum {string}
-             */
-            dtype: "numeric" | "boolean" | "categorical";
             /** Excluded Reason */
             excluded_reason: string;
         };
@@ -1401,20 +1388,10 @@ export interface components {
         };
         /** MaterialDistributionResponse */
         MaterialDistributionResponse: {
-            /** Sample Ways */
-            sample_ways: number;
-            /** Total Km */
-            total_km: number;
             /** Quantiles */
             quantiles: {
                 [key: string]: number;
             };
-            /** Bins */
-            bins: [
-                number,
-                number,
-                number
-            ][];
             /** Zero Share */
             zero_share: number;
             /** Available */
@@ -1854,8 +1831,6 @@ export interface components {
                 number,
                 number
             ][];
-            /** Zero Share */
-            zero_share: number;
         };
         /** WbgtReading */
         WbgtReading: {

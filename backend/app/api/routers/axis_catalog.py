@@ -35,7 +35,6 @@ from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
     AxisCategory,
     AxisDefinition,
-    AxisShape,
     primary_attribute_ids_for,
     weather_layer_groups_for,
 )
@@ -127,18 +126,9 @@ class AxisCatalogEntry(StrictModel):
     # この軸の材料の元データを描く気象のチップ（`domain/axis_definitions.py: weather_layer_groups_for`）。
     # 一次属性を持たない動的な材料（風等）は`primary_attribute_ids`に現れないため、こちらが運ぶ。
     weather_layer_groups: list[str]
-    # 「軸スタジオで決められること」（AxisDefinitionが実際に持つ未公開の
-    # フィールド）を個別に選んでフィールド追加するのではなく、まとめて返す方針。
-    # 地図・ルート線が何を塗るかは`shape`から読ませず、下の`map_paint`が配る。
-    shape: AxisShape
-    # `display`（axis_display_for()がkind="ramp"軸向けに導出した値、kind="none"の軸
-    # [gradient等]では常に空配列）経由では生の上書き値を読み取れないため、生の値をそのまま
-    # 返す。これは軸スタジオが編集した値そのもので、スケールは軸がramp表示を持つかで変わる。
-    # 地図の色分けは`map_paint.thresholds`を使う。
-    display_thresholds_override: list[float] | None
     # 段階ごとの体感ラベルの上書き（domain/axis_definitions.py: AxisDefinition.
     # display_band_labels_override）を、地図の段で引き直したもの（domain/axis_display.py:
-    # map_band_labels）。`display_thresholds_override`と違って生の値ではなく、件数は地図の段数
+    # map_band_labels）。軸定義の生の値ではなく、件数は地図の段数
     # （`map_paint.thresholds`の件数+1）と一致する——上書きは人が刻んだ境界の段ごとに付くため、
     # 地図で落ちる境界があるとそのままでは件数が合わない。
     display_band_labels_override: list[str] | None
@@ -148,9 +138,7 @@ class AxisCatalogEntry(StrictModel):
     # 受け取る側が、axis_idの文字列比較ではなくこのフィールドで地図レイヤー・取得の対象を決めるための宣言。
     dedicated_way_value_layer: bool
     # 地図がこの軸について塗る値・単位・段の境界・凡例の目盛り（domain/map_paint.py: map_paint）。
-    # ルート確定前の塗り・ルート確定後のルート線色分け・凡例のどれもこれに従う——
-    # `display_thresholds_override`はramp表示の自動導出値（材料の重み付き和）を上書きする
-    # フィールドで、難易度を塗る軸ではスケールが違う。
+    # ルート確定前の塗り・ルート確定後のルート線色分け・凡例のどれもこれに従う。
     map_paint: MapPaint
     # 折れ点を通す前の生値の単位（`domain/axis_raw_value.py: raw_value_unit`）。
     # 定まらない軸はnull。ルート結果は得点の隣にこの単位で生値を出す。
@@ -223,8 +211,6 @@ async def get_axis_catalog(region_service: RegionService = Depends(get_region_se
                 show_map_icon=definition.show_map_icon,
                 primary_attribute_ids=primary_attribute_ids_for(definition),
                 weather_layer_groups=weather_layer_groups_for(definition),
-                shape=definition.shape,
-                display_thresholds_override=definition.display_thresholds_override,
                 display_band_labels_override=map_band_labels(definition),
                 dedicated_way_value_layer=definition.dedicated_way_value_layer,
                 map_paint=map_paint(definition),

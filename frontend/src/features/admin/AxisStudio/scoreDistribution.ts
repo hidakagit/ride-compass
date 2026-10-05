@@ -4,7 +4,7 @@
 // 各階級の代表値の点数は別の軽い問い合わせ（`useScoresPreview`、評価と同じ計算）が返す。ここは届いた点数を
 // 帯へ振り分けるだけで、点数を計算しない。
 
-/** `GET /api/admin/material-catalog/{material_id}/distribution`の応答本体。
+/** `POST /api/admin/axis-definitions/preview-distribution`の応答本体。
  *
  * backendの`ValueDistribution`をそのまま使う（手書きで写すと、フィールドを足した
  * ときに片側だけ古くなる。`bins`は[階級の下限, 上限, その階級が占める延長の割合]）。 */

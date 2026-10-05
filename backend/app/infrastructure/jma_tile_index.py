@@ -21,7 +21,7 @@ import json
 
 from app.domain.strict_model import StrictModel
 from app.infrastructure.cache_identity import shape_digest
-from app.infrastructure.redis_json_cache import get_json, set_json
+from app.infrastructure.redis_json_cache import UNAVAILABLE, get_json, set_json
 
 __all__ = ["JmaTileIndex", "JmaTileIndexCoverage", "JmaTileIndexElement", "get_index", "set_index"]
 
@@ -84,4 +84,4 @@ async def get_index() -> JmaTileIndex | None:
     """保存済みインデックス。未保存・Redis障害時はNone（クライアントは従来どおり全タイルを
     取りに行く）。"""
     stored = await get_json(_LATEST_KEY, category=_LOG_CATEGORY, operation="get")
-    return None if stored is None else JmaTileIndex.model_validate(stored)
+    return None if stored is None or stored is UNAVAILABLE else JmaTileIndex.model_validate(stored)

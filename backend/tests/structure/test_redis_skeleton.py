@@ -2,7 +2,8 @@
 
 cache-asideの骨格（可用性チェック→クライアント取得→計測→fail-open→成否記録）は
 `infrastructure/redis_json_cache.py: get_json`/`infrastructure/redis_json_cache.py: set_json`（生のバイト列なら
-`infrastructure/redis_json_cache.py: get_bytes`/`infrastructure/redis_json_cache.py: set_bytes`）が内包している。自前で書き直すと、
+`infrastructure/redis_json_cache.py: get_bytes`/`infrastructure/redis_json_cache.py: set_bytes`、Hashなら
+`infrastructure/redis_json_cache.py: get_hash`/`infrastructure/redis_json_cache.py: set_hashes`）が内包している。自前で書き直すと、
 写経ミス（`record_redis_failure`の呼び忘れ等）でRedis障害の検知だけが静かに欠ける
 ——アプリはfail-openのまま動き続けるため表に出ない。
 
@@ -22,7 +23,6 @@ APP_ROOT = Path(__file__).resolve().parent.parent.parent / "app"
 
 SKELETON_SYMBOLS = (
     "get_redis_client_or_none",
-    "get_redis_binary_client_or_none",
     "record_redis_failure",
     "record_redis_success",
     "redis_available",
@@ -32,7 +32,6 @@ SKELETON_SYMBOLS = (
 ALLOWED = {
     "infrastructure/redis_client.py": "骨格が使う接続・サーキットブレーカー本体",
     "infrastructure/redis_json_cache.py": "骨格そのもの",
-    "infrastructure/jma_amedas_store.py": "全観測所をpipelineでHashへ一括読み書きする（単一キーのJSON読み書きでは表現できない）",
 }
 
 

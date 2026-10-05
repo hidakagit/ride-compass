@@ -78,7 +78,7 @@ def get_warning_service():
 def get_amedas_service():
     return JmaAmedasService(
         get_http_client(10.0),
-        JmaTileClient(get_http_client(10.0), _jma_tile_shared),
+        get_jma_tile_client(),
         station_table_cache=_station_table_cache,
         latest_time_cache=_latest_time_cache,
     )

@@ -12,7 +12,7 @@ import { maxBarShare, offRangeShare, quantileMarkers, visibleBars } from "./curv
 import type { ValueDistribution } from "./scoreDistribution";
 
 function distribution(bins: [number, number, number][], quantiles: Record<string, number> = {}): ValueDistribution {
-  return { sample_ways: 1, total_km: 1, quantiles, bins, zero_share: 0 };
+  return { sample_ways: 1, total_km: 1, quantiles, bins };
 }
 
 const sum = (values: number[]) => values.reduce((total, value) => total + value, 0);

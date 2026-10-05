@@ -121,7 +121,7 @@ def seams(monkeypatch):
 
     async def axis_raw_value_distribution(repository, shape):
         return ValueDistribution(
-            sample_ways=3, total_km=1.5, quantiles={"p50": 2.0}, bins=[(0.0, 4.0, 1.0)], zero_share=0.25
+            sample_ways=3, total_km=1.5, quantiles={"p50": 2.0}, bins=[(0.0, 4.0, 1.0)]
         )
 
     fakes = {
@@ -334,7 +334,6 @@ class TestPreviews:
             "total_km": 1.5,
             "quantiles": {"p50": 2.0},
             "bins": [[0.0, 4.0, 1.0]],
-            "zero_share": 0.25,
         }
 
     def test_display_thresholds_answer_which_bands_the_map_drops_and_keeps(self, client):
