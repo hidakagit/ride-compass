@@ -29,8 +29,7 @@ def check_axis_weights(weights: Mapping[str, float]) -> None:
     """重みの値の不変条件。書き手（ルート生成の要求・研究のスクリプト・テスト）を問わず成り立つ。
 
     キーは公開軸のidだけ。値は有限かつ非負——負の重みは合成difficultyの分母（重みの総和）と分子の
-    符号を食い違わせ、良い経路ほど高い点数になる。NaN・無限大は合成difficultyと寄与を黙って欠損にする
-    （JSONの本文の`NaN`・`Infinity`もfloatとして届く）。
+    符号を食い違わせ、良い経路ほど高い点数になる。NaN・無限大は合成difficultyと寄与を黙って欠損にする。
     """
     known = published_axis_ids()
     unknown = sorted(set(weights) - known)

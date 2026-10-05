@@ -47,12 +47,17 @@ interface LensControlProps {
   onKeepAfterRouteChange: (keep: boolean) => void;
   /** ルート確定済みか（ルート前は「ルート後のみ」バッジを出す）。 */
   hasDetail: boolean;
+  /** 周りの道の色が拠る走る条件の文（`view/lens.ts: lensConditionsLabel`）。条件を使わない色分けではnull。 */
+  conditions: string | null;
   /** 今のレンズの取得の状態（専用配信の軸のときだけ）。塗りは失敗でもデータ無しでも同じ無彩色なので、印で見分ける。 */
   dataStatus?: LayerDataStatus;
 }
 
 /** 画面の名前。コードの「レンズ」は画面には出さない（利用者が見る名前はこれだけ）。 */
 const LENS_SCREEN_NAME = "地図の色分け";
+
+/** ルートを作る前は道に何も塗らない色分けに付ける札。 */
+const ROUTE_ONLY_BADGE = "ルート後のみ";
 
 /** レンズ（地図を何で塗るか）の唯一の入口。地図の上の中央のピルが今のレンズを示し、押すと一覧を開く。 */
 export default function LensControl({
@@ -66,6 +71,7 @@ export default function LensControl({
   keepAfterRoute,
   onKeepAfterRouteChange,
   hasDetail,
+  conditions,
   dataStatus,
 }: LensControlProps) {
   const [open, setOpen] = useState(false);
@@ -77,6 +83,11 @@ export default function LensControl({
       : (axisOptions.find((option) => option.id === lens) ?? { label: lens, color: LENS_NEUTRAL_COLOR });
   const used = axisOptions.filter((option) => !option.unused);
   const unused = axisOptions.filter((option) => option.unused);
+  // 総合難易度はルートの線にだけ色を付ける（周りの道を塗る値を持たない）。
+  const routeOnlyBadges = (routeOnly: boolean) => (routeOnly && !hasDetail ? [ROUTE_ONLY_BADGE] : []);
+  const currentBadges = routeOnlyBadges(
+    lens === LENS_DIFFICULTY_ID || axisOptions.some((option) => option.id === lens && option.routeOnly),
+  );
 
   const select = (id: LensId) => {
     onLensChange(id);
@@ -92,17 +103,21 @@ export default function LensControl({
           style={{ background: color }}
         />
         {label}
-        {badges.map((badge) => (
-          <span key={badge} className={badgeVariants({ variant: "warning" })}>
-            {badge}
-          </span>
-        ))}
+        {renderBadges(badges)}
       </ToggleGroupItem>
     );
   }
 
+  function renderBadges(badges: string[]) {
+    return badges.map((badge) => (
+      <span key={badge} className={badgeVariants({ variant: "warning" })}>
+        {badge}
+      </span>
+    ));
+  }
+
   function renderAxis(option: LensOption) {
-    return renderOption(option.id, option.label, option.color, option.routeOnly && !hasDetail ? ["ルート後のみ"] : []);
+    return renderOption(option.id, option.label, option.color, routeOnlyBadges(option.routeOnly));
   }
 
   return (
@@ -117,7 +132,7 @@ export default function LensControl({
             size="bare"
             shape="pill"
             className="flex-col items-stretch gap-1 border-0 px-2.5 py-1 text-[length:var(--font-size-sm)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-accent-strong)]"
-            aria-label={`${LENS_SCREEN_NAME}: ${current.label}（タップで変更）`}
+            aria-label={`${LENS_SCREEN_NAME}: ${[current.label, ...currentBadges, conditions].filter(Boolean).join("・")}（タップで変更）`}
             title={statusLabel}
             usage="地図の道路（ルートを作った後はルートの線）を何で色分けするかを選びます。下の帯は今の色分けの凡例です。"
           >
@@ -128,11 +143,17 @@ export default function LensControl({
                 style={{ background: current.color }}
               />
               <span className="font-semibold">{current.label}</span>
+              {renderBadges(currentBadges)}
               {dataStatus && <Dot aria-hidden="true" tone={dataStatus} />}
               <span aria-hidden="true" className="text-[0.7rem] text-[var(--color-muted)]">
                 ▾
               </span>
             </span>
+            {conditions && (
+              <span aria-hidden="true" className="text-center text-[0.7rem] text-[var(--color-muted)]">
+                {conditions}
+              </span>
+            )}
             {legend.length > 0 && (
               <span className="flex flex-wrap justify-center gap-0.5" aria-hidden="true">
                 {legend
@@ -157,6 +178,9 @@ export default function LensControl({
           collisionPadding={8}
         >
           <p className="mb-1.5 font-semibold">{LENS_SCREEN_NAME}</p>
+          {conditions && (
+            <p className="mb-1.5 text-[length:var(--font-size-sm)]">{`周りの道は「${conditions}」の条件で塗っています。`}</p>
+          )}
           {/* ピルの状態ドットの意味。titleはスマホでは出ないため、開いた先で文として読ませる。 */}
           {statusNotice && (
             <p className="mb-1.5 text-[length:var(--font-size-sm)]" role="status">
@@ -171,7 +195,12 @@ export default function LensControl({
             usage="地図をこの評価で色分けします。「評価に使用中」は今の重みで道選びに使っている評価です。「ルート後のみ」は、ルートを作った後だけルートの線に色が付きます。"
           >
             {renderOption(LENS_NONE_ID, FIXED_LENS_LABELS[LENS_NONE_ID], LENS_NEUTRAL_COLOR)}
-            {renderOption(LENS_DIFFICULTY_ID, FIXED_LENS_LABELS[LENS_DIFFICULTY_ID], LENS_NEUTRAL_COLOR)}
+            {renderOption(
+              LENS_DIFFICULTY_ID,
+              FIXED_LENS_LABELS[LENS_DIFFICULTY_ID],
+              LENS_NEUTRAL_COLOR,
+              routeOnlyBadges(true),
+            )}
             {used.length > 0 && (
               <span className={cn(textVariants({ variant: "note" }), "basis-full pt-0.5 tracking-wide")}>
                 評価に使用中

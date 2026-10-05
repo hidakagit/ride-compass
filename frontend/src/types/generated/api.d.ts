@@ -726,6 +726,8 @@ export interface components {
             material_breakdown: components["schemas"]["AxisMaterialBreakdownEntry"][];
             /** Dynamic Way Value Conditions */
             dynamic_way_value_conditions: ("at" | "bearing_deg" | "speed_kmh")[];
+            /** Dynamic Way Value Undetermined By Bearing */
+            dynamic_way_value_undetermined_by_bearing: boolean;
         };
         /** AxisCatalogResponse */
         AxisCatalogResponse: {
@@ -2469,7 +2471,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        [key: string]: number;
+                        [key: string]: number | null;
                     };
                 };
             };

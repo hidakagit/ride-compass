@@ -87,6 +87,29 @@ async def test_refresh_raises_when_axis_references_unknown_material(road_graph_s
     assert AXIS_DEFINITIONS == original
 
 
+@pytest.mark.parametrize(
+    ("materials", "named"),
+    [
+        (("axis_b", "axis_a"), "axis_a→axis_b→axis_a"),
+        (("bridge", "bridge"), "axis_b: 材料 bridge を axis_a も使っています"),
+    ],
+    ids=["axes_combine_in_a_cycle", "two_axes_count_one_material"],
+)
+async def test_refresh_raises_when_the_axes_together_break_an_invariant(road_graph_session, materials, named):
+    # 1本ずつは通るが、集まると不変条件を破る軸を、管理APIを通さずに書く（バックアップから戻した行）。
+    # 運用者がログから直す行を辿れるよう、軸をidで名指す。集合の検査の中身は`test_axis_definitions.py`が見る。
+    original = dict(AXIS_DEFINITIONS)
+    repository = AxisDefinitionRepository(road_graph_session)
+    for sort_order, (axis_id, material) in enumerate(zip(("axis_a", "axis_b"), materials, strict=True)):
+        await repository.upsert(axis_definition(axis_id, material=material), sort_order=sort_order)
+    await repository.commit()
+
+    with pytest.raises(AxisDefinitionSyncError, match=named):
+        await refresh_axis_definitions(repository)
+
+    assert AXIS_DEFINITIONS == original
+
+
 # --- AxisRegistryAdminService（管理APIのユースケース層） ---
 
 
@@ -134,15 +157,17 @@ async def test_create_rejects_axis_reusing_existing_material(road_graph_session)
 
 
 async def test_update_rejects_axis_reusing_another_axis_material(road_graph_session):
+    # 直す軸が相手より前に並んでいても、断りは相手の軸を「すでに使っている軸」と名指す。
     repository = AxisDefinitionRepository(road_graph_session)
     service = AxisRegistryAdminService(repository)
-    await service.create(axis_definition("first_axis", material="motor_vehicle_no"))
-    await service.create(axis_definition("second_axis", material="oneway"))
+    await service.create(axis_definition("first_axis", material="oneway"))
+    await service.create(axis_definition("second_axis", material="motor_vehicle_no"))
 
-    with pytest.raises(AxisMaterialConflictError, match="「自動車通行不可」"):
-        await service.update("second_axis", axis_definition("second_axis", material="motor_vehicle_no"))
+    with pytest.raises(AxisMaterialConflictError, match="「自動車通行不可」") as caught:
+        await service.update("first_axis", axis_definition("first_axis", material="motor_vehicle_no"))
 
-    assert AXIS_DEFINITIONS["second_axis"].materials == ["oneway"]
+    assert (caught.value.axis_id, caught.value.conflicting_axis_id) == ("first_axis", "second_axis")
+    assert AXIS_DEFINITIONS["first_axis"].materials == ["oneway"]
 
 
 async def test_update_rejects_publishing_axis_another_axis_reads(road_graph_session):

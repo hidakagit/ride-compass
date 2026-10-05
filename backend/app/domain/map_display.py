@@ -54,6 +54,11 @@ LEGEND_SHARED_ROWS: dict[str, LegendSharedRow] = {
         "元にする地図のデータに値が無く、どの行にも分けられない道。道が無いのではなく、値が分からないことを"
         "破線で示す。",
     ),
+    "undetermined": LegendSharedRow(
+        "向きで決まらない",
+        "選んだ走行方位とほぼ直角に交わり、その向きでは値が決まらない道（勾配なら、登りか下りかが決まらない）。"
+        "データが無いのではなく、走行方位を変えると色が付く。",
+    ),
 }
 
 class MapLayerDataSource(NamedTuple):

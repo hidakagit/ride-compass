@@ -7,6 +7,7 @@
     "signed_descent": "#0284c7",
     "no_data": "#9ca3af",
     "loading": "#d1d5db",
+    "undetermined": "#a78bfa",
     "hidden": "rgba(0,0,0,0)",
     "route_candidate": "#64748b",
     "route_selected_halo": "#1e3a8a",

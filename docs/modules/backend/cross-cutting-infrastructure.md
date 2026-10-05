@@ -19,6 +19,7 @@ DB接続・Redis・HTTPクライアント・レート制限・ログ・デバッ
 | api | `admin_auth.py` | 管理API共通の認可境界 |
 | api | `cache_policy.py` | 応答の`Cache-Control`（パスとポリシーの対応表・付与ミドルウェア） |
 | api | `dependencies.py`（横断的な部分のみ、他は各モジュール参照） | DI工場（公開関数は注入の口だけ） |
+| api | `finite_json_body.py` | 要求の本文のNaN・無限大を、アプリ全体の依存として経路の処理より前に422で断る（Starletteの本文の読み方はJSONの外の`NaN`・`Infinity`を通す） |
 | api | `rate_limit.py` | per-IPレート制限（`enforce_rate_limit`集約・`client_id`） |
 | api/routers | `health.py` | `/health`・`/api/debug/stats` |
 | api/routers | `debug_admin.py` | `debug_mode`のランタイム切替・直近ログ取得 |
@@ -119,6 +120,8 @@ FastAPI(lifespan=lifespan)
             → CorrelationIdMiddleware（リクエストID付与、最も外側）
         ▼
   api_router（api/routers/__init__.py、全routerを集約）
+        │  全経路に掛かる依存（FastAPI(dependencies=...)）: reject_non_finite_json_body（finite_json_body.py）が
+        │  本文のNaN・無限大を経路の処理（管理APIの認可を含む）より前に422で断る
         ▼
       yield（アプリ稼働中）
         ▼

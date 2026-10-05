@@ -75,7 +75,7 @@ export interface SceneLook {
   /** 全道路を塗っている軸（塗っていなければnull）。 */
   readonly paintedAxisId: LensId | null;
   /** 専用配信軸ごとの取得結果。 */
-  readonly dedicatedWayValues: ReadonlyMap<string, { values: ReadonlyMap<string, number>; loading: boolean }>;
+  readonly dedicatedWayValues: ReadonlyMap<string, { values: ReadonlyMap<string, number | null>; loading: boolean }>;
   readonly hiddenLegendKeys: HiddenLegendKeys;
 }
 
@@ -199,7 +199,7 @@ function axisStateFrom(props: SceneWiringProps, sourceLayer: string | null): Axi
       bands: axisLineBands(dedicatedAxisBands(axis.display)),
       value: {
         kind: "delivered" as const,
-        values: delivered?.values ?? new Map<string, number>(),
+        values: delivered?.values ?? new Map<string, number | null>(),
         loading: delivered?.loading === true,
       },
       hiddenBandKeys: hiddenOf(axis.axisId),

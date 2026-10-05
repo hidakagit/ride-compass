@@ -2,8 +2,8 @@
 
 入口:
 - モデルの組み立て（`AxisDefinition`・`BreakpointLinearShape`・`CategoricalShape`。管理APIの本文もDBの行もここを通る）
-- 軸の外に照らす検査（`check_axis_definition`）と書き込みのガード（`check_publish_immutability`・
-  `check_material_exclusivity`・`check_internal_axis_not_published`）
+- 軸の外に照らす検査（`check_axis_definition`）・軸の集合の検査（`check_axis_set`）と書き込みのガード
+  （`check_publish_immutability`・`check_material_exclusivity`・`check_internal_axis_not_published`）
 - 軸1本の評価（`evaluate_axis_array`・`evaluate_axis_values`）と生値（`axis_raw_value_array`・`raw_values`・
   `first_term_points`・`BreakpointLinearShape.score_at`）
 
@@ -330,6 +330,46 @@ class TestMaterialExclusivity:
 
     def test_an_axis_does_not_conflict_with_its_own_saved_version(self):
         axis_definitions.check_material_exclusivity(axis("axis_a"), {"axis_a": axis("axis_a")})
+
+
+@pytest.mark.usefixtures("catalog")
+class TestAxisSet:
+    @pytest.mark.parametrize(
+        ("definitions", "refusal"),
+        [
+            ({"num_b": axis("num_b")}, "材料idと衝突"),
+            ({"axis_b": axis("axis_b"), "axis_a": axis("axis_a")}, "すでに軸「軸」が使っています"),
+            (
+                {
+                    "axis_a": axis("axis_a", shape=linear(MaterialTerm(material="axis_b"))),
+                    "axis_b": axis("axis_b", shape=linear(MaterialTerm(material="axis_a"))),
+                },
+                "輪になっています",
+            ),
+        ],
+        ids=["axis_id_is_a_material_id", "two_axes_count_one_material", "axes_combine_in_a_cycle"],
+    )
+    def test_a_set_breaking_an_invariant_is_refused(self, definitions, refusal):
+        with pytest.raises(ValueError, match=refusal):
+            axis_definitions.check_axis_set(definitions)
+
+    def test_a_material_counted_twice_is_named_from_the_later_axis(self):
+        # 書き込みは書いた軸を最後に並べて渡すので、断りの文が書いた軸の側から読める。
+        definitions = {"axis_b": axis("axis_b", label="先の軸"), "axis_a": axis("axis_a")}
+
+        with pytest.raises(axis_definitions.AxisMaterialConflictError) as caught:
+            axis_definitions.check_axis_set(definitions)
+
+        assert (caught.value.axis_id, caught.value.conflicting_axis_id) == ("axis_a", "axis_b")
+
+    def test_a_published_axis_another_axis_combines_is_accepted(self):
+        # 時刻で変わる軸は公開軸の点数しか受け取れないので、変わらない部分を公開軸にして組み合わせる。
+        definitions = {
+            "still": axis("still", is_published=True),
+            "wind": axis("wind", shape=linear(MaterialTerm(material=DYNAMIC), MaterialTerm(material="still"))),
+        }
+
+        axis_definitions.check_axis_set(definitions)
 
 
 @pytest.mark.usefixtures("catalog")

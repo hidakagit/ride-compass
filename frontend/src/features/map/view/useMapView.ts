@@ -36,7 +36,14 @@ import {
   toggleHiddenKey,
   withHiddenKeys,
 } from "./legendFilters";
-import { DEFAULT_ROUTE_STYLE_MODE_ID, isRouteStyleModeId, lensLegend, lensOptions, paintedAxisId } from "./lens";
+import {
+  DEFAULT_ROUTE_STYLE_MODE_ID,
+  isRouteStyleModeId,
+  lensConditionsLabel,
+  lensLegend,
+  lensOptions,
+  paintedAxisId,
+} from "./lens";
 import type { HiddenLegendKeys, MapLook } from "./mapLook";
 import { deserializeLayerVisibility, overlayChips } from "./overlayChips";
 
@@ -56,6 +63,8 @@ interface MapViewInputs {
   ride: { bearingDeg: number; at: Date; speedKmh: number };
   /** 刻みへ丸めた現在時刻（`useDepartureTime`）。 */
   now: Date;
+  /** 出発時刻の表示（走行条件の欄と同じ文字）。周りの道の色が拠る条件の文に使う。 */
+  departureLabel: string;
   /** レンズの選択肢を「未使用」と分ける重み。 */
   routeWeights: Readonly<Record<string, number>>;
 }
@@ -76,7 +85,14 @@ interface MapViewState {
   lens: LensId;
 }
 
-export function useMapView({ hasSelectedRoute, hasDetail, ride, now, routeWeights }: MapViewInputs): MapViewState {
+export function useMapView({
+  hasSelectedRoute,
+  hasDetail,
+  ride,
+  now,
+  departureLabel,
+  routeWeights,
+}: MapViewInputs): MapViewState {
   const catalog = useAxisCatalog();
   const mapCatalog = useMapAxisCatalog();
   const [layerVisibility, setLayerVisibility] = useStoredState<MapLayerVisibility>(
@@ -176,6 +192,7 @@ export function useMapView({ hasSelectedRoute, hasDetail, ride, now, routeWeight
       keepAfterRoute,
       onKeepAfterRouteChange: setKeepAfterRoute,
       hasDetail,
+      conditions: lensConditionsLabel(painted, mapCatalog.dedicatedAxes, ride, departureLabel),
       dataStatus: lensFetch
         ? deriveFetchLayerStatus(
             lensFetch.loading,

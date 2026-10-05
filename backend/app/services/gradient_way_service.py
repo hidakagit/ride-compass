@@ -24,7 +24,7 @@ from app.services.tile_version_service import served_tile_version
 #: 入力のSQL・落とす幅・丸めは機械で署名する。式（`domain/gradient.py: GradientCalculator.effective_gradient`）を
 #: 変えたときは先頭のリビジョンを上げる——関数のソースは署名しない（docs/conventions/caching.md「無効化」）。
 GRADIENT_VALUE_SHAPE = cache_identity(
-    "1", FEATURE_GRADIENT_INPUTS_SHAPE, LENS_PERPENDICULAR_BAND_DEG, GRADIENT_VALUE_DECIMALS
+    "2", FEATURE_GRADIENT_INPUTS_SHAPE, LENS_PERPENDICULAR_BAND_DEG, GRADIENT_VALUE_DECIMALS
 )
 
 
@@ -40,6 +40,8 @@ class GradientWayService:
     material_id = GRADIENT_PERCENT
     material_ids = (GRADIENT_PERCENT,)
     conditions_type = GradientConditions
+    #: 走行方位に直角に近い道は、値をNone（その向きでは決まらない）で返す。
+    undetermined_by_bearing = True
 
     def __init__(self, repository: RoadGraphRepository):
         self._repository = repository
@@ -49,8 +51,8 @@ class GradientWayService:
         """登録テーブルから呼ぶための統一シグネチャ。勾配は天候を要らず、材料は1つだけ。"""
         return cls(repository=repository)
 
-    async def get_way_values(self, z: int, x: int, y: int, conditions: GradientConditions) -> dict[str, float]:
-        """指定タイル内のフィーチャーごとの実効勾配（正=登り・負=下り）を返す。
+    async def get_way_values(self, z: int, x: int, y: int, conditions: GradientConditions) -> dict[str, float | None]:
+        """指定タイル内のフィーチャーごとの実効勾配（正=登り・負=下り）を返す。指定方位に直角に近い道はNone。
 
         取込範囲外・DB障害はいずれも空dictへ倒す。
         """
@@ -83,18 +85,17 @@ class GradientWayService:
                 return {}
             fields["feature_count"] = len(inputs)
 
-            # 指定方位に対して直角に近い道路は`effective_gradient`がNoneを返す。そのまま
-            # 0%として配ると、実際には急な坂の道が凡例の「平坦」の段へ入り区別できなくなる
-            # ため、値を持たないフィーチャーとして落とす。
+            # 指定方位に対して直角に近い道路は`effective_gradient`がNoneを返す。0%として配ると、実際には
+            # 急な坂の道が凡例の「平坦」の段へ入り区別できなくなる。落とすと値の無い道（データなし）と
+            # 区別できなくなるため、Noneのまま配る。
             effective = (
                 (feature_key,
                  GradientCalculator.effective_gradient(gradient_percent, road_bearing_deg, bearing_deg))
                 for feature_key, (gradient_percent, road_bearing_deg) in inputs.items()
             )
             values = {
-                feature_key: round(value, GRADIENT_VALUE_DECIMALS)
+                feature_key: None if value is None else round(value, GRADIENT_VALUE_DECIMALS)
                 for feature_key, value in effective
-                if value is not None
             }
             await set_tile_values(
                 self.material_id, z, x, y, bearing_deg, values,

@@ -36,6 +36,7 @@ function renderLens(props: Partial<Parameters<typeof LensControl>[0]> = {}) {
       hiddenLegendKeys={[]}
       keepAfterRoute
       hasDetail={false}
+      conditions={null}
       {...handlers}
       {...props}
     />,
@@ -52,7 +53,7 @@ describe("LensControl（レンズのピル）", () => {
   ])(
     "ピルは今のレンズ（%s）の名前（固定のレンズは固定の名前）を出し、隠していない段の色見本を並べる",
     (lens, label) => {
-      renderLens({ lens, hiddenLegendKeys: ["step-1"] });
+      renderLens({ lens, hiddenLegendKeys: ["step-1"], hasDetail: true });
       expect(pill()).toHaveAccessibleName(`地図の色分け: ${label}（タップで変更）`);
       const swatches = pill().querySelectorAll("[title]");
       expect([...swatches].map((swatch) => swatch.getAttribute("title"))).toEqual(["低い"]);
@@ -66,7 +67,7 @@ describe("LensControl（レンズのピル）", () => {
     expect(screen.getByRole("status")).toHaveTextContent(LAYER_DATA_STATUS_LABELS.error);
   });
 
-  it("選択肢は「なし」「総合難易度」、評価に使用中の軸、未使用の軸の順で、使用中か未使用かは見出しで分け、ルート後のみの印を付ける", async () => {
+  it("選択肢は「なし」「総合難易度」、評価に使用中の軸、未使用の軸の順で、使用中か未使用かは見出しで分け、ルート後のみの印を付ける（総合難易度にも）", async () => {
     renderLens();
     await open();
     const group = screen.getByRole("radiogroup", { name: "地図の色分け" });
@@ -75,7 +76,7 @@ describe("LensControl（レンズのピル）", () => {
       .map((item) => item.textContent);
     expect(labels).toEqual([
       FIXED_LENS_LABELS[LENS_NONE_ID],
-      FIXED_LENS_LABELS[LENS_DIFFICULTY_ID],
+      `${FIXED_LENS_LABELS[LENS_DIFFICULTY_ID]}ルート後のみ`,
       "usedの軸",
       "routeの軸ルート後のみ",
       "idleの軸",
@@ -84,8 +85,25 @@ describe("LensControl（レンズのピル）", () => {
     expect(within(group).getByText("未使用")).toBeInTheDocument();
   });
 
+  it.each([
+    [LENS_DIFFICULTY_ID, `地図の色分け: ${FIXED_LENS_LABELS[LENS_DIFFICULTY_ID]}・ルート後のみ（タップで変更）`],
+    ["route", "地図の色分け: routeの軸・ルート後のみ（タップで変更）"],
+  ])("ルート前は、ルートの線にだけ色を付けるレンズ（%s）のピルにも「ルート後のみ」を付ける", (lens, name) => {
+    renderLens({ lens });
+    expect(pill()).toHaveAccessibleName(name);
+    expect(within(pill()).getByText("ルート後のみ")).toBeInTheDocument();
+  });
+
+  it("走る条件で塗るレンズは、ピルと開いた先に条件を出す", async () => {
+    renderLens({ conditions: "北へ走る・時速20km" });
+    expect(pill()).toHaveAccessibleName("地図の色分け: usedの軸・北へ走る・時速20km（タップで変更）");
+    expect(within(pill()).getByText("北へ走る・時速20km")).toBeInTheDocument();
+    await open();
+    expect(screen.getByText("周りの道は「北へ走る・時速20km」の条件で塗っています。")).toBeInTheDocument();
+  });
+
   it("ルート確定後は「ルート後のみ」を付けず、使用中・未使用の見出しは中身があるときだけ", async () => {
-    renderLens({ hasDetail: true, axisOptions: [option("used")] });
+    renderLens({ hasDetail: true, lens: LENS_DIFFICULTY_ID, axisOptions: [option("used")] });
     await open();
     expect(screen.queryByText("ルート後のみ")).not.toBeInTheDocument();
     expect(screen.queryByText("未使用")).not.toBeInTheDocument();
