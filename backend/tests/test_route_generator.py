@@ -7,6 +7,8 @@
 - エンジンへ渡す引数（探索の範囲・経由地の並び・出発時刻・候補数）と、エンジンを呼んだか・何回か → 読むだけの呼び出しなので
   確かめない。経由地を順に通って起点か目的地で終わることは`test_route_generation_behavior.py`が経路で見る。経由地・目的地を
   探索の範囲に入れることは、範囲の余白が小さな格子を覆って入口の結果に現れないため確かめず、理由は実装のコメントが持つ
+- 算出不能の候補を末尾へ回すことの目的地の側 → 周回と目的地が同じ並びの鍵（`_difficulty_order`）を通るので、両側は
+  周回の並びのテストが見る
 - 前の生成の理由・目的地の補正を持ち越さないこと → 本番は生成ごとに`RouteGenerator`を作るので、持ち越す状態が起こらない
 
 エンジンの代役は、各メソッドを`RoadGraphEngine`の同名メソッドの署名へ当ててから呼ぶ（`bound`）。応答を返すだけで、呼ばれ方を記録しない。
@@ -232,6 +234,30 @@ async def test_candidate_values_are_rebuilt_from_its_segments(segments, expected
     (candidate,) = await RouteGenerator(engine).generate_spliced_route(ORIGIN, DESTINATION, 10.0, ["e1"], START)
 
     assert candidate.overall_difficulty == expected
+
+
+async def test_per_axis_values_are_rebuilt_from_its_segments_but_category_shares_are_kept():
+    """軸ごとの値（画面の内訳・生の値・材料の値）も区間から作り直す。延長割合はエンジンが区間を畳む前に作った値で、
+    畳んだ区間からは正しく作れないので、エンジンの値のまま配る。"""
+    stale = {"x": 99.0}
+    segments = [
+        _segment(10.0, axis_difficulties={"a": 10.0}, axis_contributions={"a": 10.0},
+                 axis_raw_values={"a": 10.0}, material_values={"a": 10.0}),
+        _segment(30.0, axis_difficulties={"a": 30.0}, axis_contributions={"a": 30.0},
+                 axis_raw_values={"a": 30.0}, material_values={"a": 30.0}),
+    ]
+    evaluated = _candidate("e1", segments=segments, axis_difficulties=stale, axis_contributions=stale,
+                           axis_raw_values=stale, material_values=stale,
+                           material_category_shares={"surface": {"asphalt": 1.0}})
+    engine = FakeEngine(candidates={"e1": evaluated})
+
+    (candidate,) = await RouteGenerator(engine).generate_spliced_route(ORIGIN, DESTINATION, 10.0, ["e1"], START)
+
+    assert candidate.axis_difficulties == {"a": 20.0}
+    assert candidate.axis_contributions == {"a": 20.0}
+    assert candidate.axis_raw_values == {"a": 20.0}
+    assert candidate.material_values == {"a": 20.0}
+    assert candidate.material_category_shares == {"surface": {"asphalt": 1.0}}
 
 
 async def test_evaluation_that_does_not_answer_every_route_is_an_error():

@@ -1,6 +1,7 @@
 """`GET /api/admin/db-status`のルートテスト: レポートを応答へ受け渡す・DB例外だけを503にする。
 
-ここで見ないもの: 認可 → `test_admin_route_authorization.py`、どの例外をDB障害に数えるか → `test_database.py`
+ここで見ないもの: 認可 → `test_admin_route_authorization.py`、どの例外をDB障害に数えるか → `test_database.py`、
+注意が要るかの判断（しきい値） → `test_db_status_service.py`（ここではレポートを作る関数の結果がそのまま応答になることだけを見る）
 """
 
 from datetime import datetime, timezone

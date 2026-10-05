@@ -148,7 +148,11 @@ async def axis_raw_value_distribution(
     repository: RoadGraphRepository, shape: AxisShape
 ) -> ValueDistribution:
     """候補の`shape`の生値（折れ点を通す前）の分布。"""
-    sample = await _load_sample(repository)
+    return raw_value_distribution(shape, await _load_sample(repository))
+
+
+def raw_value_distribution(shape: AxisShape, sample: list[tuple[float, dict[str, object]]]) -> ValueDistribution:
+    """道の標本（`(長さm, 材料id→値)`）から、`shape`の生値の延長で重み付けた分布。生値を出せない道は数えない。"""
     material_ids = referenced_materials(shape, [])
     values = raw_values(
         shape, {m: [materials.get(m) for _, materials in sample] for m in material_ids}, len(sample)

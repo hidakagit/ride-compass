@@ -6,17 +6,18 @@ autouse で配ってよいのは何も与えないものだけ（docs/convention
 
 母集団はソースから導く——`backend/tests`配下の全`.py`（この検査のディレクトリを除く）の autouse の
 フィクスチャと、そこから呼ぶ`tests`の補助関数（`with`の文脈管理も含む）を読み、共有の状態へ書く値を1つずつ
-判定する。書く形は`setattr`・`setitem`・属性や添字への代入・`update`等の書き足し。
+判定する。autouse のフィクスチャが引数で取るフィクスチャ（同じファイルか、上の`conftest.py`に定義したもの）も、
+autouse から配られるので同じく読む。書く形は`setattr`・`setitem`・`setenv`・属性や添字への代入・`update`等の書き足し。
 
 何も与えない値:
 - 空の値（`None`・`0`・`""`・空の入れ物）と、何もしない関数（本体が`return None`・`pass`だけ）
-- 一時ディレクトリ（pytest の`tmp_path`・`tmp_path_factory`から作るもの）
+- 一時ディレクトリ（pytest の`tmp_path`・`tmp_path_factory`から作るもの。`str(...)`で文字列にしたものも）
 - 元へ戻す値（同じ書き先から読んでおいた値）
 - 同じ種類の作り直し（書き先の宣言と同じ呼び出しを、定数だけの引数で作る）
 - 時計（書き先が`time`・`datetime`のモジュール）
 
 ここで見ないもの:
-- 引数で取るフィクスチャ（取ったテストが前提を宣言している）
+- テストが引数で取るフィクスチャ（取ったテストが前提を宣言している）
 - 警告の無視と空の parametrize → `backend/pytest.ini`（どちらも既定で落とす）
 """
 
@@ -89,6 +90,13 @@ def _is_autouse(function: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
     )
 
 
+def _is_fixture(function: ast.AST) -> bool:
+    return isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)) and any(
+        ast.unparse(decorator.func if isinstance(decorator, ast.Call) else decorator).endswith("fixture")
+        for decorator in function.decorator_list
+    )
+
+
 def _root(expr: ast.expr) -> ast.expr:
     while True:
         if isinstance(expr, (ast.Attribute, ast.Subscript)):
@@ -137,6 +145,8 @@ class Reader:
         self.source = source
 
     def _is_temporary(self, expr: ast.expr, frame: Frame) -> bool:
+        if isinstance(expr, ast.Call) and ast.unparse(expr.func) == "str" and len(expr.args) == 1:
+            expr = expr.args[0]  # 環境変数へ置くパスの文字列
         root = _root(expr)
         if isinstance(root, ast.Lambda):
             return self._is_temporary(root.body, frame)
@@ -208,6 +218,8 @@ class Reader:
                     yield node, args[1], str(args[0].value), (self.source.attribute(*split) if split else None)
                 elif name == "setitem" and len(args) == 3:
                     yield node, args[2], ast.unparse(args[0]), None
+                elif name == "setenv" and len(args) >= 2:
+                    yield node, args[1], f"os.environ[{ast.unparse(args[0])}]", None
                 elif name in GROWING and isinstance(node.func, ast.Attribute):
                     root = _root(node.func.value)
                     if not (isinstance(root, ast.Name) and root.id in local_names):
@@ -245,6 +257,21 @@ class Reader:
             arguments = dict(zip(parameters, ((a, frame) for a in node.args)))
             arguments.update({k.arg: (k.value, frame) for k in node.keywords if k.arg})
             yield from self.violations(Frame(helper_frame.scope, helper, arguments), seen)
+        if _is_fixture(frame.function):
+            for name in frame.parameters():
+                requested = self._fixture(name, frame.scope.module)
+                if requested is not None:
+                    yield from self.violations(requested, seen)
+
+    def _fixture(self, name: str, module: str) -> Frame | None:
+        """フィクスチャ`name`の定義（`module`自身か、上のパッケージの`conftest`。pytest が探す順）。"""
+        package = module.split(".")[:-1]
+        for candidate in [module] + [".".join(package[:depth] + ["conftest"]) for depth in range(len(package), 0, -1)]:
+            tree = self.source.tree(candidate)
+            for node in tree.body if tree is not None else ():
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name and _is_fixture(node):
+                    return Frame(Scope(self.source, candidate, tree), node)
+        return None
 
 
 def autouse_violations(root: Path) -> list[str]:
@@ -279,6 +306,10 @@ def _backend(tmp_path: Path, test_source: str) -> Path:
         "app/__init__.py": "",
         "app/store.py": "import time\nfrom cachetools import TTLCache\n\nCACHE = TTLCache(maxsize=1, ttl=60)\ncurrent = None\n",
         "tests/__init__.py": "",
+        "tests/conftest.py": (
+            "import pytest\nfrom app import store\n\n\n"
+            "@pytest.fixture\ndef shared(monkeypatch):\n    monkeypatch.setattr(store, 'current', 'shared')\n"
+        ),
         "tests/world.py": (
             "from contextlib import contextmanager\nfrom app import store\n\n\n"
             "@contextmanager\ndef installed(value):\n    original = store.current\n"
@@ -292,14 +323,20 @@ def _backend(tmp_path: Path, test_source: str) -> Path:
 
 
 def test_detects_fixtures_that_give_something_and_passes_those_that_give_nothing(tmp_path: Path) -> None:
-    """検査が効いていること。与える側は、データを直接書く形と補助関数へ渡して書かせる形。与えない側は、
-    空・一時ディレクトリ・同じ種類の作り直し・時計・何もしない関数・元へ戻す値。"""
+    """検査が効いていること。与える側は、データを直接書く形・補助関数へ渡して書かせる形・引数で取ったフィクスチャ
+    （同じファイルと conftest）に書かせる形・環境変数。与えない側は、空・一時ディレクトリ・同じ種類の作り直し・時計・
+    何もしない関数・元へ戻す値（引数で取ったフィクスチャの中でも同じ）。"""
     root = _backend(
         tmp_path,
         "import pytest\nfrom cachetools import TTLCache\nfrom app import store\nfrom tests.world import installed\n\n"
         "NETWORK = object()\n\n\nasync def _noop():\n    return None\n\n\n"
         "@pytest.fixture(autouse=True)\ndef direct(monkeypatch):\n    monkeypatch.setattr(store, 'current', NETWORK)\n\n\n"
         "@pytest.fixture(autouse=True)\ndef through_helper():\n    with installed({'a': 1}):\n        yield\n\n\n"
+        "@pytest.fixture\ndef given(monkeypatch):\n    monkeypatch.setattr(store, 'current', NETWORK)\n\n\n"
+        "@pytest.fixture\ndef emptied(monkeypatch, tmp_path):\n    monkeypatch.setattr(store, 'current', None)\n"
+        "    monkeypatch.setenv('HOME', str(tmp_path))\n\n\n"
+        "@pytest.fixture(autouse=True)\ndef through_argument(given, shared, emptied):\n    pass\n\n\n"
+        "@pytest.fixture(autouse=True)\ndef environment(monkeypatch):\n    monkeypatch.setenv('MODE', 'live')\n\n\n"
         "@pytest.fixture(autouse=True)\ndef reset(monkeypatch, tmp_path):\n"
         "    monkeypatch.setattr(store, 'current', None)\n"
         "    monkeypatch.setattr(store, 'ROOT', tmp_path / 'x')\n"
@@ -311,5 +348,8 @@ def test_detects_fixtures_that_give_something_and_passes_those_that_give_nothing
 
     assert autouse_violations(root) == [
         "tests/test_sample.py: direct（tests.test_sample:15: store.current ← NETWORK）",
+        "tests/test_sample.py: environment（tests.test_sample:42: os.environ['MODE'] ← 'live'）",
+        "tests/test_sample.py: through_argument（tests.conftest:7: store.current ← 'shared'）",
+        "tests/test_sample.py: through_argument（tests.test_sample:26: store.current ← NETWORK）",
         "tests/test_sample.py: through_helper（tests.world:8: store.current ← value）",
     ]

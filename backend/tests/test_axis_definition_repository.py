@@ -46,7 +46,9 @@ def _linear(axis_id: str, **overrides) -> AxisDefinition:
 
 
 def _with_every_field_set(axis_id: str) -> AxisDefinition:
-    """既定値から外した値をすべての欄に置いた定義（欄を1つ書き落とすと読み戻しで既定値に化ける）。"""
+    """既定値から外した値をすべての欄に置いた定義（列の型との往復で値が変わると、読み戻しで既定値や別の値に化ける）。
+
+    読み書きする欄の顔ぶれは、実装が軸定義の欄から導く。欄を足して列を足し忘れると、どの書き込みも断られる。"""
     return AxisDefinition(
         axis_id=axis_id,
         shape=CategoricalShape(material="cat_a", mapping={"paved": 10.0, "yes": 20.0, "1": 30.0}),
