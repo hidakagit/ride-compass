@@ -11,10 +11,10 @@
 """
 
 import logging
-import math
 from typing import Literal, NamedTuple
 
 from app.domain.jma_tile_specs import JmaFrame
+from app.domain.region import tile_position
 
 logger = logging.getLogger("ridecompass.jma_suikei")
 
@@ -50,9 +50,9 @@ class SuikeiPixel(NamedTuple):
 
 def suikei_pixel(latitude: float, longitude: float) -> SuikeiPixel:
     """地点を含む天気のタイルと画素（Webメルカトル）。"""
-    world = 2 ** (_ZOOM - 1) * _TILE_SIZE
-    x = int((longitude + 180) / 360 * world)
-    y = int((1 - math.asinh(math.tan(math.radians(latitude))) / math.pi) / 2 * world)
+    tile_x, tile_y = tile_position(longitude, latitude, _ZOOM - 1)
+    x = int(tile_x * _TILE_SIZE)
+    y = int(tile_y * _TILE_SIZE)
     return SuikeiPixel(x // _TILE_SIZE, y // _TILE_SIZE, x % _TILE_SIZE, y % _TILE_SIZE)
 
 
