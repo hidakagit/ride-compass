@@ -222,7 +222,8 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    - 確かめの問い（確かめの行だけが残ったとき・コードを変えないタスクの結果）に未着手の答えが返ったら、確かめが済んだと読み、
      問い直さない。確かめの行（コードを変えないタスクなら残りの行）にチェックを付け、経緯に答えを1行足して、残りが無ければ
      `GH_TOKEN=$FLOW_BOT_TOKEN gh issue close <番号> -R ridecompass/ride-compass-tasks --reason completed` で閉じる。補足に直してほしい点が書かれていたときだけ、それを残りとして済ませてから閉じる。
-4. `tasks#<番号>:` の件名でコミットし、`git push origin orch/tasks-<番号>` で push する。静的検査とテストを手元で回す場面と範囲は
+4. `tasks#<番号>:` の件名でコミットし、`git push origin orch/tasks-<番号>` で push する（断られたら、まず「担当の変更でない断り」に
+   当たるかを見る。着手のあとに master が workflow を変えていると、workflow を触っていなくても断られる）。静的検査とテストを手元で回す場面と範囲は
    testing-operations.md「手元の検査の回し方」だけが決め、全体は CI に任せる。作業ブランチの強制 push は
    コードのリポジトリの規則で断られる（一度 push したコミットは、ほかの者のものも消せない）ので、直しは足すコミットにする。
    master に入るコミットは、5 の Pull Request の題名と本文から作られる（確かめる担当が squash でマージする）。CI は 5 の
@@ -431,7 +432,17 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
 リポジトリの設定からは効かない。`permissions` は丸ごと置き換えるので、開発機にだけある許可は残らない）。決まりを変えるのは
 このファイルだけで、master に入った次のセッションから両方に効く（作業ブランチで直しても、作業中の自分の権限は変わらない）。
 判定役が自分を動かす設定の書き換えとして編集を断ったら、「担当が書けないファイル」のとおりにする。断られた操作は、後始末の終わりのコメントの
-「判定に断られた操作」に、道具と打とうとしたものが出る。日常の操作が断られていたら、`autoMode` の説明を直す。
+「判定に断られた操作」に、道具と打とうとしたものが出る。
+
+**担当の変更でない断り**: 操作が、担当の変更の中身でなく、打ち方か作業ブランチの古さで断られたときは、担当が理由を除いて
+打ち直して進める（パッチにも問いにもしない）。見分けは、断られたものが担当の変更（自分の差分 `git diff --name-only origin/master...HEAD`
+と、書こうとしたファイル）に当たるかで、当たれば「担当が書けないファイル」へ進む。
+- push が `refusing to allow a Personal Access Token to create or update workflow` で断られ、自分の差分に `.github/workflows/` が無い:
+  着手のあとに master が workflow を変えた。GitHub は、同じパスと中身のファイルが同じリポジトリのほかの枝にあれば、`workflow` の権限
+  なしで送らせる（公式の文書「Scopes for OAuth apps」の `workflow`）が、作業ブランチが持つ着手のときの workflow のファイルは、もうどの
+  枝にも無い。`git merge origin/master` で今の master を取り込んでから打ち直す。
+- 日常の操作を1行に続けて打って判定役に断られた: 1つずつに分けて打ち直す。
+- 打ち直しても日常の操作が断られたら、回り込まず（別の道具・別の名義で打たない）、`autoMode` の説明を直す（「改善を起票する」）。
 
 **自動で進めないもの**: 本番 DB へ書く・本番のデータや設定を消す・取り消せない操作は、担当が自分でしない。
 ユーザーに頼む問いを `ask.js` で問う。問いの文の頭に「PC での操作:」と書き（スマホで問いの1行目を見て、PC が要ると
@@ -450,7 +461,7 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
 | 止まり方 | 例 | 当てる先 |
 |---|---|---|
 | Claude Code の自動モードの判定が、編集を自分を動かす設定の書き換えとして断る（1か所目が通っても次から断られる。判定役への説明が日常の作業と教えていても、回によって断られる） | CLAUDE.md・`.claude/` の設定・権限（`tools/flow-gate/settings.json`）・流れの手順（flow.md 等） | 作業ブランチ（Pull Request を出す前） |
-| 担当のトークンに GitHub の `workflow` の権限が無く、push が `refusing to allow a Personal Access Token to create or update workflow` で断られる | `.github/workflows/` | master（ユーザーの Pull Request で。タスクの Pull Request のマージのあとか、出す前か。下の1） |
+| 担当のトークンに GitHub の `workflow` の権限が無く、push が `refusing to allow a Personal Access Token to create or update workflow` で断られる（自分の差分に `.github/workflows/` が無いのに出たものは当たらない。「担当の変更でない断り」） | `.github/workflows/` | master（ユーザーの Pull Request で。タスクの Pull Request のマージのあとか、出す前か。下の1） |
 
 1. 作る: 書けるファイルはふつうに直して作業ブランチへ push する。書けないファイルは作業ツリーの外へ写して写しを直し、
    `diff -u --label a/<パス> --label b/<パス> <パス> <写し>` でパッチにする（ファイルが複数なら続けて足す）。作業ツリーの側は直さない。
