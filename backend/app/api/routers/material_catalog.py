@@ -30,12 +30,8 @@ from app.api.dependencies import get_material_coverage_service, get_road_graph_r
 from app.domain.material_catalog import MATERIAL_CATALOG, is_known_material
 from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
 from app.infrastructure.road_graph_repository import RoadGraphRepository
-from app.services.axis_preview_service import (
-    EMPTY_DISTRIBUTION,
-    ValueDistribution,
-    material_value_distribution,
-    material_values,
-)
+from app.domain.value_distribution import EMPTY_DISTRIBUTION, ValueDistribution
+from app.services.axis_preview_service import material_value_distribution, material_values
 from app.services.material_coverage_service import MaterialCoverageReport, MaterialCoverageService
 from app.domain.strict_model import StrictModel
 

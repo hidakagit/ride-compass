@@ -17,7 +17,8 @@ from app.api.admin_auth import require_admin_basic_auth
 from app.api.dependencies import get_road_graph_repository
 from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
 from app.infrastructure.road_graph_repository import RoadGraphRepository
-from app.services.axis_preview_service import ValueDistribution, axis_raw_value_distribution
+from app.domain.value_distribution import ValueDistribution
+from app.services.axis_preview_service import axis_raw_value_distribution
 from app.api.dependencies import get_axis_registry_admin_service
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,

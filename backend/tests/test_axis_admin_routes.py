@@ -25,7 +25,7 @@ from sqlalchemy.exc import DBAPIError
 from app.api.routers import axis_admin
 from app.domain.axis_definitions import REQUEST_DYNAMIC_MATERIAL_IDS
 from app.domain.material_catalog import MATERIAL_CATALOG
-from app.services.axis_preview_service import ValueDistribution
+from app.domain.value_distribution import ValueDistribution
 from tests.admin_auth import AUTH_HEADERS
 from tests.bound_fake import bound
 

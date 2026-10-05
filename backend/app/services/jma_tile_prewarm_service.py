@@ -24,6 +24,7 @@ import logging
 import time
 
 from app.domain.jma_tile_specs import (
+    JMA_TILE_MIN_ZOOM,
     JmaFrame,
     JmaTile,
     TargetTimesRow,
@@ -32,7 +33,7 @@ from app.domain.jma_tile_specs import (
     jma_tile_path,
     jma_tile_spec,
     read_target_times,
-    source_zoom_for_interpolation,
+    with_interpolated_zooms,
 )
 from app.domain.region import BoundingBox, tiles_covering_bbox
 from app.domain.weather_elements import (
@@ -49,7 +50,6 @@ from app.infrastructure.jma_tile_interpolation import parse_tile_path
 
 logger = logging.getLogger("ridecompass.jma_tile_prewarm_service")
 
-_MIN_ZOOM = 4
 # 同時実行数の上限。配信元へ配慮しつつ、対象タイル全体を定期実行の間隔内に終えられること。
 _MAX_CONCURRENCY = 8
 
@@ -85,7 +85,7 @@ _STAGES: tuple[tuple[_PrewarmLayer, ...], ...] = _stages_from_weather_elements()
 
 def _tile_paths_for_layer(layer: "_PrewarmLayer", frame: JmaFrame, area: BoundingBox) -> list[str]:
     paths = []
-    for z in range(_MIN_ZOOM, layer.max_zoom + 1):
+    for z in range(JMA_TILE_MIN_ZOOM, layer.max_zoom + 1):
         # 配信元が実データを持たないズーム（zoomUseの偶奇に合わない段）は温めても空タイル
         # しか積まれない。要求されたときは親から補間するため（infrastructure/
         # jma_tile_interpolation.py）、親側さえ温まっていればよい。
@@ -94,34 +94,6 @@ def _tile_paths_for_layer(layer: "_PrewarmLayer", frame: JmaFrame, area: Boundin
         for x, y in tiles_covering_bbox(area, z):
             paths.append(jma_tile_path(JmaTile(layer.element_id, frame, z, x, y)))
     return paths
-
-
-def _with_interpolated_zooms(
-    element_id: str, zooms: dict[int, list[list[int]]]
-) -> dict[int, list[list[int]]]:
-    """実データの無いズーム（補間で埋める段）の在否を、親ズームの結果から補う。
-
-    **インデックスは「載っていないタイルは空」とクライアントへ伝える**。
-    プリウォームは実データのあるズームしか温めないため、補間で埋めるズームをそのまま
-    載せずにおくと、クライアントはそこを一律「空」と見なして取りに来なくなり、
-    補間（`jma_tile_interpolation.py`）が一度も動かない。
-
-    補間結果が空になるのは親が空のときだけなので、**親に中身のあるタイルの4象限**を
-    そのまま子ズームの中身ありとして載せればよい（追加の取得は発生しない）。
-    """
-    if not zooms:
-        return zooms
-    filled = dict(zooms)
-    for zoom in range(min(zooms) + 1, effective_max_zoom(jma_tile_spec(element_id)) + 1):
-        if source_zoom_for_interpolation(element_id, zoom) is None:
-            continue
-        parents = filled.get(zoom - 1)
-        if not parents:
-            continue
-        filled[zoom] = [
-            [x * 2 + dx, y * 2 + dy] for x, y in parents for dx in (0, 1) for dy in (0, 1)
-        ]
-    return filled
 
 
 async def _store_index(
@@ -151,12 +123,13 @@ async def _store_index(
                 validtime=frame.validtime,
                 member=frame.member,
                 # ズームは文字列キー（JSONのオブジェクトキーは文字列のため、往復で型が
-                # 変わらないようにここで揃える）。補間で埋めるズームは親から補う
-                # （`_with_interpolated_zooms`参照）。
+                # 変わらないようにここで揃える）。補間で埋めるズームは親から補う——
+                # インデックスに載らないタイルをクライアントは空と見なすので、温めない
+                # ズームを載せずにおくと補間（`jma_tile_interpolation.py`）が一度も動かない。
                 zooms={
                     str(z): coords
                     for z, coords in sorted(
-                        _with_interpolated_zooms(element_id, present.get(element_id, {})).items()
+                        with_interpolated_zooms(element_id, present.get(element_id, {})).items()
                     )
                 },
             )

@@ -41,6 +41,7 @@ from app.domain.axis_definitions import (  # noqa: E402
 )
 from app.domain.region import BoundingBox, parse_bbox  # noqa: E402
 from app.infrastructure.road_graph_repository import RoadGraphRepository  # noqa: E402
+from app.domain.value_distribution import weighted_quantiles  # noqa: E402
 from app.services import axis_preview_service  # noqa: E402
 from app.services.axis_registry_service import refresh_axis_definitions  # noqa: E402
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository  # noqa: E402
@@ -159,7 +160,7 @@ async def run(
         if not pairs:
             print(f"{axis_id:<28} {'0.0%':>7}  （全区間で材料が欠損）")
             continue
-        q = axis_preview_service.weighted_quantiles(pairs, _QUANTILES, digits=1)
+        q = weighted_quantiles(pairs, _QUANTILES, digits=1)
         high = share_at_or_above(pairs, SATURATION_THRESHOLD)
         low = share_at_or_below(pairs, FLOOR_THRESHOLD)
         print(
