@@ -53,6 +53,7 @@ describe("readSavedConditions", () => {
     ["座標でない出発地", { origin: { latitude: "35" } }],
     ["上限を超える経由地", { waypoints: Array(routeGenerateConfig.max_waypoints + 1).fill(POINT) }],
     ["数でない重み", { routePreference: { axis_a: "0.7" } }],
+    ["負の重み", { routePreference: { axis_a: -0.1 } }],
     ["除外が無い", { hardFilters: null }],
   ])("%sの件だけを捨て、ほかの件は残す", (_, broken) => {
     const other = { ...ENTRY, name: "別の件" };

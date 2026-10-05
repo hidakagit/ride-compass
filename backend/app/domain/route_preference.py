@@ -4,6 +4,7 @@
 APIが受け取る形を変えるときで、Edge Costの計算方法を変えるときではない。
 """
 
+import math
 from collections.abc import Mapping
 
 from pydantic import Field, model_validator
@@ -27,16 +28,17 @@ def published_axis_ids() -> set[str]:
 def check_axis_weights(weights: Mapping[str, float]) -> None:
     """重みの値の不変条件。書き手（ルート生成の要求・研究のスクリプト・テスト）を問わず成り立つ。
 
-    キーは公開軸のidだけ。値は非負——負の重みは合成difficultyの分母（重みの総和）と分子の符号を
-    食い違わせ、良い経路ほど高い点数になる。
+    キーは公開軸のidだけ。値は有限かつ非負——負の重みは合成difficultyの分母（重みの総和）と分子の
+    符号を食い違わせ、良い経路ほど高い点数になる。NaN・無限大は合成difficultyと寄与を黙って欠損にする
+    （JSONの本文の`NaN`・`Infinity`もfloatとして届く）。
     """
     known = published_axis_ids()
     unknown = sorted(set(weights) - known)
     if unknown:
         raise ValueError(f"unknown axis_id in weights: {unknown} (known: {sorted(known)})")
-    negative = sorted(axis_id for axis_id, weight in weights.items() if weight < 0)
-    if negative:
-        raise ValueError(f"weights must be >= 0 (negative: {negative})")
+    invalid = sorted(axis_id for axis_id, weight in weights.items() if not (math.isfinite(weight) and weight >= 0))
+    if invalid:
+        raise ValueError(f"weights must be finite and >= 0 (invalid: {invalid})")
 
 
 class RoutePreference(StrictModel):

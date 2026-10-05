@@ -56,7 +56,7 @@ class RoutePreferenceWeights(RootModel[dict[str, float]]):
     軸ごとの固定フィールドではなくaxis_idキーの辞書にすることで、軸の増減でこのモデルの
     改修が不要になる。API境界では「キー省略時に既定値が黙って入る」ことを避けるため、
     公開軸のaxis_idを全部明示することを検証で強制する（上書きするなら全軸を明示する、
-    という方針）。値の不変条件（公開軸のidだけ・非負）は`check_axis_weights`。
+    という方針）。値の不変条件（公開軸のidだけ・有限かつ非負）は`check_axis_weights`。
     """
 
     @model_validator(mode="after")
