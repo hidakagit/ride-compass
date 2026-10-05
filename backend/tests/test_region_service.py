@@ -4,7 +4,7 @@
 ディスクへ残すか、区間インスペクタが渡された向きの材料と重みで合成すること、DB障害の倒し方。差し替えるのはDBの口だけ。
 
 ここで見ないもの:
-- キャッシュの読み書きの骨格 → `test_tile_serving.py`
+- キャッシュの読み書きの骨格 → `test_region_tile_cache.py`
 - 世代の文字列の組み立て → `test_cache_identity.py`。世代をTTLで読み直すこと → `test_derived_data_revision_service.py`
 - 焼き込むSQLが出す点 → `test_point_tiles.py`
 - HTTPの受け渡し → `test_region_routes.py`

@@ -16,7 +16,7 @@ _KEY_PREFIX = f"jma:tile:{RECOLOR_VERSION}"
 _CATEGORY = "cache:jma-tile-redis"
 # プリウォーム間隔（jma_tile_prewarm_service.py、10分）より余裕を持たせ、1回のプリウォーム
 # 失敗・遅延で即座に空にならないようにする。
-_TTL_SECONDS = 20 * 60
+TTL_SECONDS = 20 * 60
 
 
 class EmptyTile:
@@ -70,9 +70,9 @@ async def set(path: str, content: bytes, content_type: str) -> None:
         await set_empty(path)
         return
     value = content_type.encode("latin-1", errors="replace") + b"\0" + content
-    await set_bytes(_key(path), value, ttl_seconds=_TTL_SECONDS, category=_CATEGORY, path=path)
+    await set_bytes(_key(path), value, ttl_seconds=TTL_SECONDS, category=_CATEGORY, path=path)
 
 
 async def set_empty(path: str) -> None:
     """このパスに描くものが無いと確認したときに呼ぶ（上流の確定した404、または200で返った空タイル）。"""
-    await set_bytes(_key(path), b"", ttl_seconds=_TTL_SECONDS, category=_CATEGORY, path=path)
+    await set_bytes(_key(path), b"", ttl_seconds=TTL_SECONDS, category=_CATEGORY, path=path)

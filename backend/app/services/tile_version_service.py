@@ -26,8 +26,12 @@
 古い世代の鍵のまま配り続ける。
 """
 
+import asyncio
+
+from app.domain.registry import TileKind
 from app.infrastructure.cache_identity import tile_version
 from app.infrastructure.point_tile_layers import POINT_TILE_LAYERS
+from app.infrastructure.region_tile_cache import prune_other_generations
 from app.infrastructure.road_graph_repository import ROAD_SURFACE_TILE_SHAPE
 from app.services import derived_data_revision_service
 
@@ -46,13 +50,13 @@ async def served_tile_version(repository, shape: str) -> str:
 
 #: 配信するタイルの系統と、その形の署名。フロントが受け取る辞書のキーでもある。点のレイヤーは
 #: それぞれ自分のSQLだけから署名を持つので、1つのSQLを変えても他のレイヤーの世代は変わらない。
-TILE_SHAPES: dict[str, str] = {
+TILE_SHAPES: dict[TileKind, str] = {
     "road_surface": ROAD_SURFACE_TILE_SHAPE,
     **{layer.name: layer.shape for layer in POINT_TILE_LAYERS.values()},
 }
 
 
-async def current_tile_versions(repository) -> dict[str, str]:
+async def current_tile_versions(repository) -> dict[TileKind, str]:
     """系統名→配信する世代（`cache_identity.tile_version`）。
 
     `repository`はDBの世代を読める口（`get_data_revisions`）。TTLの内側なら
@@ -61,3 +65,13 @@ async def current_tile_versions(repository) -> dict[str, str]:
     await derived_data_revision_service.refresh_current_revisions(repository)
     revisions = derived_data_revision_service.current_revisions()
     return {name: tile_version(revisions, shape) for name, shape in TILE_SHAPES.items()}
+
+
+async def prune_other_tile_generations(repository) -> int:
+    """いま配っていない世代の地域タイルをディスクから消し、消した数を返す。
+
+    世代はデプロイだけでなく、再起動を伴わない派生の作り直し・取込でも変わるため、定期に呼ぶ
+    （`main.py`）。消す範囲の決め方は`region_tile_cache.py: prune_other_generations`。
+    """
+    versions = await current_tile_versions(repository)
+    return await asyncio.to_thread(prune_other_generations, versions)
