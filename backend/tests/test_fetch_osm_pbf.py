@@ -29,15 +29,17 @@ def pbf_bytes(tmp_path) -> bytes:
 
 
 def test_default_profile_fetches_the_file_the_ingest_reads(tmp_path, monkeypatch, pbf_bytes, respx_mock):
-    """プロファイルがファイル名を書いていなくても、取込が開くファイルを取りに行く。"""
-    respx_mock.route().respond(content=pbf_bytes)
+    """プロファイルがファイル名を書いていなくても、取込が開くファイルを配布元（Geofabrik の日本の抽出）から取りに行く。
+    応答は配布元のそのファイルの URL にだけ与える（ほかの URL への要求は`respx_mock`が落とす）。"""
+    ingested = {spec.rows.file for spec in load_source_profile(None).sources
+                if isinstance(spec.rows, OsmWayRows)}
+    assert ingested
+    for name in ingested:
+        respx_mock.get(f"https://download.geofabrik.de/asia/japan/{name}").respond(content=pbf_bytes)
     store = tmp_path / "pbf"
     monkeypatch.setattr(fetch_osm_pbf, "DATA_DIR", store)
     monkeypatch.setattr(sys, "argv", ["fetch_osm_pbf.py"])
 
     assert fetch_osm_pbf.main() == 0
 
-    ingested = {spec.rows.file for spec in load_source_profile(None).sources
-                if isinstance(spec.rows, OsmWayRows)}
-    assert ingested
     assert sorted(p.name for p in store.iterdir()) == sorted(ingested)

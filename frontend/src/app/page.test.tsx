@@ -297,6 +297,9 @@ describe("ルートを作る", () => {
     // 出発日時の入力は日本時間で読む。
     fireEvent.change(await screen.findByLabelText("出発日時を直接指定"), { target: { value: "2026-10-05T09:00" } });
 
+    // 道を押せるのは、道路のレイヤーを出している間。
+    await user.click(screen.getByRole("button", { name: "道路" }));
+    await user.click(screen.getByRole("button", { name: "路面" }));
     clickMap(HERE, [{ layer: "road-tiles-surface", properties: { osm_way_id: 1 } }]);
     await user.click(screen.getByRole("button", { name: "この道の評価を見る" }));
     expect(await screen.findByText(/この道だけで見た合成/)).toBeInTheDocument();

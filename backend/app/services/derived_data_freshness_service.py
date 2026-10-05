@@ -120,7 +120,7 @@ class DerivedDataFreshnessService:
         """DB例外は呼び出し元（router）へそのまま伝播させる。管理者向けの診断APIのため、
         空のレポートへ倒して「鮮度不整合なし」に見せるより失敗を明示する方が安全。"""
         started = time.monotonic()
-        with log_external_call("derived-data-freshness") as fields:
+        with log_external_call("admin:derived-data-freshness") as fields:
             freshness = await self._repository.get_freshness()
             fields["tables"] = len(freshness.tables)
         report = build_freshness_report(freshness, datetime.now(timezone.utc))

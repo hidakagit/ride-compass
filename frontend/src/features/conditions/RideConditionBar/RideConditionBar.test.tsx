@@ -1,9 +1,10 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CLIENT_TUNING_IDS } from "@/lib/axisCatalog";
-import { onBackend, serveAxisCatalog } from "@/testing/backendServer";
+import { getQueryClient } from "@/lib/queryClient";
+import { serveAxisCatalog } from "@/testing/backendServer";
 import { catalogResponse } from "@/testing/catalogAxes";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 
@@ -139,12 +140,22 @@ describe("RideConditionBar 想定速度", () => {
     expect(await screen.findByText(/総質量72kg.*CdA 0.4m².*下りは50km\/hまで.*5km\/h以下/)).toBeInTheDocument();
   });
 
-  it("体格・機材の標準値を軸カタログから引けない間は、標準値の文を出さない", async () => {
-    onBackend("GET", "/api/axis-catalog", () => new Response(null, { status: 503 }));
+  it("体格・機材の標準値を軸カタログから1つでも引けなければ、標準値の文を出さない", async () => {
+    serveAxisCatalog(
+      catalogResponse([], {
+        client_tuning: {
+          [CLIENT_TUNING_IDS.massKg]: 72,
+          [CLIENT_TUNING_IDS.cdaM2]: 0.4,
+          [CLIENT_TUNING_IDS.maxDescentKmh]: 50,
+        },
+      }),
+    );
     renderBar();
     await userEvent.click(screen.getByRole("button", { name: /^想定速度:/ }));
     await userEvent.click(await screen.findByRole("button", { name: "想定速度の説明を表示" }));
     expect(await screen.findByText(/平らな道を風の無いときに巡航する速度です/)).toBeInTheDocument();
+    // 軸カタログが届いてから確かめる（届く前も文を出さないので、届く前に見ると引けたかを見分けない）。
+    await waitFor(() => expect(getQueryClient().isFetching()).toBe(0));
     expect(screen.queryByText(/標準値で計算します/)).not.toBeInTheDocument();
   });
 });

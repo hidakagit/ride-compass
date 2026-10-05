@@ -21,7 +21,7 @@ logger = logging.getLogger("ridecompass.tile_persistent_cache")
 
 CACHE_DIR = DATA_DIR / "tile_persistent_cache"
 
-_CATEGORY = "tile-persistent-cache"
+_CATEGORY = "cache:tile-persistent"
 
 opened_cache: diskcache.Cache | None = None
 

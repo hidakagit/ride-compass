@@ -729,6 +729,8 @@ class RoadGraphRepository:
         """
         if not edges:
             return {}
+        # 両向きの枝を頼まれても区間ごとに1行だけ引く（形は向きに依らず、逆向きは逆順にすれば足りる）。
+        # 向きの数だけ引くと、行も問い合わせの束（`ID_CHUNK_SIZE`）の数も増える。
         wanted: dict[tuple[int, int], list[bool]] = {}
         for edge in edges:
             wanted.setdefault((edge.osm_way_id, edge.segment_index), []).append(edge.forward)

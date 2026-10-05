@@ -45,6 +45,25 @@ async def test_a_dropped_check_an_extra_check_and_a_loosened_column_are_each_rep
     assert loosened == "road_edges.reverse_bearing_deg: NULL許容が違う（実DB=NULL ORM=NOT NULL）"
 
 
+async def test_a_missing_and_an_extra_not_null_on_a_source_partition_are_each_reported(road_graph_engine):
+    # 標高の区画は画素（rast）を必ず持つと、アダプタが宣言している。
+    async with road_graph_engine.connect() as conn:
+        await conn.begin()
+        try:
+            await conn.execute(text("DROP TABLE IF EXISTS source_features_dem"))
+            await conn.execute(text(
+                "CREATE TABLE source_features_dem PARTITION OF source_features FOR VALUES IN ('dem')"))
+            before = set(await conn.run_sync(collect_gaps))
+            await conn.execute(text("ALTER TABLE source_features_dem ALTER COLUMN rast SET NOT NULL"))
+            await conn.execute(text("ALTER TABLE source_features_dem ALTER COLUMN payload SET NOT NULL"))
+            after = set(await conn.run_sync(collect_gaps))
+        finally:
+            await conn.rollback()
+
+    assert before - after == {"source_features_dem.rast: NULL許容が違う（実DB=NULL 宣言=NOT NULL）"}
+    assert after - before == {"source_features_dem.payload: NULL許容が違う（実DB=NOT NULL 宣言=NULL）"}
+
+
 async def test_measures_while_an_ingest_holds_a_child_partition(road_graph_engine):
     # 取込は子パーティションを空けて入れ直す間、排他ロックを持ち続ける。そのあいだに測ると
     # 待ちきれずに落ち、差が無くてもデプロイが失敗で終わる。

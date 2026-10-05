@@ -26,6 +26,7 @@ from typing import Any
 import numpy as np
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.domain.attributes import EdgeMaterialArrays
 from app.domain.road_network import RoadNetwork
 from app.infrastructure.cache_identity import shape_digest
 from app.infrastructure.road_graph_repository import NETWORK_SQL_SOURCES, RoadGraphRepository
@@ -307,42 +308,61 @@ def _rows_of(sorted_ids: np.ndarray, ids: np.ndarray) -> tuple[np.ndarray, np.nd
 async def _read_materials(
     repository: RoadGraphRepository, way: np.ndarray, segment: np.ndarray, forward: np.ndarray
 ) -> dict[str, Any]:
-    """材料は`get_edge_material_arrays`で引く（式はタイル配信・軸スタジオと同じ`material_sql`の断片で、2か所に持たない）。
-
-    書き込み先の配列を先に確保し、区間の束ごとに埋める——束ごとの配列を最後に連結すると、
-    全体ぶんを2度持つ瞬間ができる。
-    """
+    """材料は`get_edge_material_arrays`で引く（式はタイル配信・軸スタジオと同じ`material_sql`の断片で、2か所に持たない）。"""
     edge_count = len(way)
     accident_years_covered = await repository.get_accident_years_covered()
-    arrays: dict[str, np.ndarray] = {}
-    vocab: list[dict[str | None, int]] = []
-    ids: dict[str, tuple[str, ...]] = {}
+    columns = MaterialColumns(edge_count)
     for start in range(0, edge_count, _MATERIAL_BATCH):
         stop = min(start + _MATERIAL_BATCH, edge_count)
-        materials = await repository.get_edge_material_arrays(
-            way[start:stop].tolist(), segment[start:stop].tolist(), forward[start:stop].tolist(), accident_years_covered)
-        if not arrays:
-            ids = {"numeric_ids": materials.numeric_ids, "boolean_ids": materials.boolean_ids,
-                   "categorical_ids": materials.categorical_ids, "hard_filter_ids": materials.hard_filter_ids}
-            vocab = [{None: 0} for _ in materials.categorical_ids]
-            arrays["categorical_codes"] = np.zeros((edge_count, len(materials.categorical_ids)), dtype=np.int16)
+        columns.add(await repository.get_edge_material_arrays(
+            way[start:stop].tolist(), segment[start:stop].tolist(), forward[start:stop].tolist(), accident_years_covered))
+        logger.info("材料 %d/%d", stop, edge_count)
+    return columns.result()
+
+
+class MaterialColumns:
+    """区間の束ごとに引いた材料を、道路網全体の配列へ引いた順に詰める。
+
+    書き込み先の配列を最初の束で確保して埋める——束ごとの配列を最後に連結すると、全体ぶんを
+    2度持つ瞬間ができる。分類の材料は束ごとに語彙が違うので、道路網全体の語彙の番号へ付け替える。
+    """
+
+    def __init__(self, edge_count: int):
+        self._edge_count = edge_count
+        self._filled = 0
+        self._arrays: dict[str, np.ndarray] = {}
+        self._vocab: list[dict[str | None, int]] = []
+        self._ids: dict[str, tuple[str, ...]] = {}
+
+    def add(self, materials: EdgeMaterialArrays) -> None:
+        """次の束を、前の束の続きの行へ詰める。"""
+        if not self._arrays:
+            self._ids = {"numeric_ids": materials.numeric_ids, "boolean_ids": materials.boolean_ids,
+                         "categorical_ids": materials.categorical_ids, "hard_filter_ids": materials.hard_filter_ids}
+            self._vocab = [{None: 0} for _ in materials.categorical_ids]
+            self._arrays["categorical_codes"] = np.zeros(
+                (self._edge_count, len(materials.categorical_ids)), dtype=np.int16)
             for name in _MATERIAL_ARRAY_FIELDS:
                 value = getattr(materials, name)
-                arrays[name] = np.empty((edge_count, *value.shape[1:]), dtype=value.dtype)
+                self._arrays[name] = np.empty((self._edge_count, *value.shape[1:]), dtype=value.dtype)
+        start, stop = self._filled, self._filled + len(materials.distance_m)
         for name in _MATERIAL_ARRAY_FIELDS:
-            arrays[name][start:stop] = getattr(materials, name)
+            self._arrays[name][start:stop] = getattr(materials, name)
         for column, values in enumerate(materials.categorical_columns):
-            codes = vocab[column]
+            codes = self._vocab[column]
             to_network_code = np.array([codes.setdefault(v, len(codes)) for v in values.vocab], dtype=np.int16)
-            arrays["categorical_codes"][start:stop, column] = to_network_code[values.codes]
-        logger.info("材料 %d/%d", stop, edge_count)
-    if not arrays:
-        raise ValueError("道路網に区間が1本もありません")
-    return {
-        **ids,
-        **arrays,
-        "categorical_vocab": tuple(tuple(sorted(codes, key=codes.__getitem__)) for codes in vocab),
-    }
+            self._arrays["categorical_codes"][start:stop, column] = to_network_code[values.codes]
+        self._filled = stop
+
+    def result(self) -> dict[str, Any]:
+        """`RoadNetwork`の材料の欄。束が1つも無ければ断る。"""
+        if not self._arrays:
+            raise ValueError("道路網に区間が1本もありません")
+        return {
+            **self._ids,
+            **self._arrays,
+            "categorical_vocab": tuple(tuple(sorted(codes, key=codes.__getitem__)) for codes in self._vocab),
+        }
 
 
 #: `EdgeMaterialArrays`から、そのまま行を写す配列の列（分類の材料は束ごとの語彙の番号を全体の語彙の番号へ

@@ -94,6 +94,21 @@ export async function readTasks(gh, config, query) {
 const kindOf = (config, status) => ({ [config.todo]: "作る", [config.review]: "確かめる" })[status];
 export const runOf = (title) => (/^#(\d+) (\S+)$/.exec(title ?? "") ?? []).slice(1);
 
+// 担当のワークフローの終わっていない実行（GitHub の実行の形のまま）。一覧は新しい順で1回に100件までなので、終わっていない状態ごとに
+// 絞って全部のページを読む（長く動く実行が新しい実行の後ろへ押し出されても数える）。状態は実行が移る順に読み、読んでいる間に次の状態へ
+// 移った実行も後の状態で拾う（同じ実行は後で読んだ方を採る）。pending は同じグループの前の実行を待っているもの。get はパスを受けて応答を返す。
+export async function readActive(get, config) {
+  const runs = new Map();
+  for (const status of ["requested", "queued", "pending", "waiting", "in_progress"]) {
+    for (let page = 1; ; page++) {
+      const { workflow_runs: rs } = await get(`/repos/${config.code.repository}/actions/workflows/${config.coordinator.workflow}/runs?status=${status}&per_page=100&page=${page}`);
+      for (const r of rs) runs.set(r.id, r);
+      if (rs.length < 100) break;
+    }
+  }
+  return [...runs.values()];
+}
+
 // 振り出せるもの: 確かめるは検証中の全部。作るは未着手のうち、前提が全部閉じ、ラベル coordinator.devLabel が無く、着手可能日が
 // 今日以前のもの。動いている番号は除く。並びは「急ぎ」→ 優先度の欄の選択肢の順（空は project.unsetPriority の位置）→ 番号の小さい順。
 export function ready(config, { tasks, ranks }, running, now = new Date()) {

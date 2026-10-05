@@ -8,6 +8,8 @@
 - 軸1本の宣言の検証・評価（折れ点・欠損・対応表・0次条件）と書き込みのガード → `test_axis_definitions.py`
 - 循環を管理APIが拒むこと・書いた後の全軸を読み込みと同じ判定へ通すこと → `test_axis_registry_service.py`
 - 軸カタログが配る一次属性と気象のチップ → `test_axis_catalog_routes.py`
+- `evaluate_axes_values`が返す軸の並び——読み手の区間インスペクタは軸の id で引き、画面は軸カタログの順で出すので、
+  並びは外へ出ない（依存の順に評価することは、軸を読む軸の値が出ることが示す）
 
 **材料カタログと軸の集合は差し替える。** 軸の参照か材料かは材料カタログにあるかで決まるので、葉の材料だけを持つ
 架空のカタログを与える。軸の集合は見たい階層だけをテストごとに組み立てる。
@@ -153,7 +155,7 @@ class TestEvaluateAllAxes:
         assert scores(result["inner"]) == [5.0, 20.0, None]
         assert scores(result["outer"]) == [50.0, 100.0, None]
 
-    def test_python_values_give_published_axes_only_in_dependency_order(self):
+    def test_python_values_give_published_axes_only(self):
         definitions = axes(
             axis("outer", "inner", published=True), axis("plain", "num_b", published=True), axis("inner", "num_a")
         )
@@ -161,7 +163,6 @@ class TestEvaluateAllAxes:
         with replaced_axis_definitions(definitions):
             result = axis_definitions.evaluate_axes_values({"num_a": [0.5, None], "num_b": [1.0, 1.0]}, 2)
 
-        assert list(result) == ["outer", "plain"]
         assert result == {"outer": [50.0, None], "plain": [10.0, 10.0]}
 
     def test_inputs_are_the_raw_sum_or_the_looked_up_value_of_each_published_axis(self):

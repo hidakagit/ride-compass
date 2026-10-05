@@ -152,7 +152,10 @@ def _geometry_row(way_id=1, segment=0, coordinates=((139.0, 35.0), (139.1, 35.2)
 
 
 async def test_both_directions_of_a_segment_share_one_row():
-    """同じ区間を向きの数だけ引き直さない。形は向きに依らず、逆順にすれば足りる。"""
+    """形は向きに依らず、逆向きは同じ行の形を逆順にし、端点を入れ替える。
+
+    同じ区間を向きの数だけ引き直さないことは見ない——結果の辞書は引き直しても同じで、違いはDBの手間だけ
+    （読むだけの問い合わせの引数になる）。理由は実装のコメントが持つ。"""
     repo, _ = _repo([_geometry_row()])
     requested = [_lean_edge(1, 0, True), _lean_edge(1, 0, False)]
 

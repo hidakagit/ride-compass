@@ -183,10 +183,10 @@ def test_the_tiles_are_exactly_the_block_of_tiles_the_box_touches(bbox, z):
     for latitude in (bbox.min_latitude, bbox.max_latitude):
         for longitude in (bbox.min_longitude, bbox.max_longitude):
             assert any(_contains(tile_bounds_lonlat(z, x, y), latitude, longitude) for x, y in covering)
-    # 端の列・行は、どれも矩形に触れている。
-    west, east = tile_bounds_lonlat(z, xs[0], ys[0]), tile_bounds_lonlat(z, xs[-1], ys[-1])
-    assert west.min_longitude <= bbox.min_longitude and east.min_longitude <= bbox.max_longitude
-    assert west.max_latitude >= bbox.max_latitude and east.max_latitude >= bbox.min_latitude
+    # 四方の端の列・行は、どれも矩形に触れている（余分な列・行が無い）。境目の上の点は東・南のタイルに入る。
+    north_west, south_east = tile_bounds_lonlat(z, xs[0], ys[0]), tile_bounds_lonlat(z, xs[-1], ys[-1])
+    assert north_west.max_longitude > bbox.min_longitude and south_east.min_longitude <= bbox.max_longitude
+    assert north_west.min_latitude < bbox.max_latitude and south_east.max_latitude >= bbox.min_latitude
 
 
 def _contains(bounds: BoundingBox, latitude: float, longitude: float) -> bool:

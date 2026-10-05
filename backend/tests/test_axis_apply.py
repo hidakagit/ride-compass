@@ -5,6 +5,8 @@
 ここで見ないもの:
 - 宛先と認証情報をファイルから読んで`run`へ渡す結線（`main`） → 見ない（読み取りは`_prod_env.py`の持ち物）
 - 管理APIそのもののガード（公開済みの軸を拒む等） → `test_axis_admin_routes.py`・`test_axis_registry_service.py`
+- 読めないファイルで本番の今の定義を読みに行かないこと——読む軸の id がファイルから来るので、読めないうちは読みに行けない
+  （構造が守る）。壊れた JSON は、定義として読めない JSON と同じ断り（`load_definition`の1つの except）の同じ側
 
 **本番の管理APIと軸カタログは代役にする**（網の境界）。代役は、公開済みの軸の更新・削除を409で拒み、
 単体取得の応答に算出項目を足し、軸カタログは公開の軸だけを体感ラベルを引き直して返す——道具が前提にする管理APIの約束だけを持つ。
@@ -158,7 +160,7 @@ class TestShowingTheChange:
         assert "差はありません" in out
         assert api.writes == []
 
-    def test_a_file_that_is_not_a_definition_is_refused_before_asking_production(self, run, tmp_path):
+    def test_a_file_that_is_not_a_definition_is_refused_without_writing(self, run, tmp_path):
         path = tmp_path / "broken.json"
         path.write_text(json.dumps({"axis_id": "axis_a"}), encoding="utf-8")
         api = AdminApi()

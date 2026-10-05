@@ -10,16 +10,12 @@ JSONB列との(逆)シリアライズはPydanticへそのまま委ねる。`Cate
 
 from datetime import datetime, timezone
 
-from pydantic import TypeAdapter
 from sqlalchemy import delete, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domain.axis_definitions import AxisDefinition, AxisShape, PriorityCondition
+from app.domain.axis_definitions import AxisDefinition
 from app.infrastructure.axis_definition_models import AxisDefinitionRow
-
-_SHAPE_ADAPTER: TypeAdapter[AxisShape] = TypeAdapter(AxisShape)
-_PRIORITY_OVERRIDES_ADAPTER: TypeAdapter[list[PriorityCondition]] = TypeAdapter(list[PriorityCondition])
 
 # 書き込み系操作（`AxisRegistryAdminService`）は「読み取り→Python側で検証→書き込み」の
 # 手順を踏むため、直列化しないとTOCTOUレースになる（2つのcreate()が互いのsort_orderや
@@ -30,25 +26,20 @@ _PRIORITY_OVERRIDES_ADAPTER: TypeAdapter[list[PriorityCondition]] = TypeAdapter(
 _WRITE_LOCK_KEY = 0x4158495344454653
 
 
+#: 軸定義の欄のうち、行の列の名前が違うもの（ほかの欄は同じ名前の列に入る）。
+_COLUMN_OF_FIELD = {"shape": "shape_params"}
+
+
 def _row_to_definition(row: AxisDefinitionRow) -> AxisDefinition:
-    return AxisDefinition(
-        axis_id=row.axis_id,
-        shape=_SHAPE_ADAPTER.validate_python(row.shape_params),
-        default_weight=row.default_weight,
-        label=row.label,
-        description=row.description,
-        category=row.category,
-        is_published=row.is_published,
-        priority_overrides=_PRIORITY_OVERRIDES_ADAPTER.validate_python(row.priority_overrides),
-        icon_id=row.icon_id,
-        chip_label=row.chip_label,
-        panel_hint=row.panel_hint,
-        show_map_icon=row.show_map_icon,
-        time_scope=row.time_scope,
-        display_thresholds_override=row.display_thresholds_override,
-        display_band_labels_override=row.display_band_labels_override,
-        dedicated_way_value_layer=row.dedicated_way_value_layer,
-    )
+    return AxisDefinition.model_validate(
+        {name: getattr(row, _COLUMN_OF_FIELD.get(name, name)) for name in AxisDefinition.model_fields})
+
+
+def _row_values(definition: AxisDefinition) -> dict[str, object]:
+    """書く列の値。読み書きする欄は軸定義の欄（`model_fields`）から導く——欄を1つずつ書くと、軸定義に足した欄を
+    書き落としても、読み戻しで既定へ黙って戻るだけで気づけない（列を足し忘れれば、書くときに断られる）。"""
+    dumped = definition.model_dump(mode="json")
+    return {_COLUMN_OF_FIELD.get(name, name): dumped[name] for name in AxisDefinition.model_fields}
 
 
 class AxisDefinitionRepository:
@@ -89,47 +80,11 @@ class AxisDefinitionRepository:
         return _row_to_definition(row), row.sort_order
 
     async def upsert(self, definition: AxisDefinition, sort_order: int) -> None:
-        stmt = pg_insert(AxisDefinitionRow).values(
-            axis_id=definition.axis_id,
-            sort_order=sort_order,
-            shape_params=definition.shape.model_dump(mode="json"),
-            default_weight=definition.default_weight,
-            label=definition.label,
-            description=definition.description,
-            category=definition.category,
-            is_published=definition.is_published,
-            priority_overrides=[cond.model_dump(mode="json") for cond in definition.priority_overrides],
-            icon_id=definition.icon_id,
-            chip_label=definition.chip_label,
-            panel_hint=definition.panel_hint,
-            show_map_icon=definition.show_map_icon,
-            time_scope=definition.time_scope,
-            display_thresholds_override=definition.display_thresholds_override,
-            display_band_labels_override=definition.display_band_labels_override,
-            dedicated_way_value_layer=definition.dedicated_way_value_layer,
-            updated_at=datetime.now(timezone.utc),
-        )
+        values = {**_row_values(definition), "sort_order": sort_order, "updated_at": datetime.now(timezone.utc)}
+        stmt = pg_insert(AxisDefinitionRow).values(**values)
         stmt = stmt.on_conflict_do_update(
             index_elements=[AxisDefinitionRow.axis_id],
-            set_={
-                "sort_order": stmt.excluded.sort_order,
-                "shape_params": stmt.excluded.shape_params,
-                "default_weight": stmt.excluded.default_weight,
-                "label": stmt.excluded.label,
-                "description": stmt.excluded.description,
-                "category": stmt.excluded.category,
-                "is_published": stmt.excluded.is_published,
-                "priority_overrides": stmt.excluded.priority_overrides,
-                "icon_id": stmt.excluded.icon_id,
-                "chip_label": stmt.excluded.chip_label,
-                "panel_hint": stmt.excluded.panel_hint,
-                "show_map_icon": stmt.excluded.show_map_icon,
-                "time_scope": stmt.excluded.time_scope,
-                "display_thresholds_override": stmt.excluded.display_thresholds_override,
-                "display_band_labels_override": stmt.excluded.display_band_labels_override,
-                "dedicated_way_value_layer": stmt.excluded.dedicated_way_value_layer,
-                "updated_at": stmt.excluded.updated_at,
-            },
+            set_={name: stmt.excluded[name] for name in values if name != "axis_id"},
         )
         await self._session.execute(stmt)
 

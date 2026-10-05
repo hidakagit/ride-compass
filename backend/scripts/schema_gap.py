@@ -16,6 +16,10 @@
 子パーティションは問い合わせの中で外す——式を文字に戻す関数（`pg_get_expr`等）は表ごとに読むロックを
 取るので、取込が子パーティションを入れ直す間の排他ロックを待ってしまう。
 
+子パーティション（生データの区画）は、列のNULL許容だけを別に比べる。宣言はアダプタが必ず持つとした列
+（`batch/ingest.py: partition_required_columns`）で、既定のプロファイルのソースごとに導く。実DBの側は
+カタログの`attnotnull`を読むだけで、区画のロックを待たない。
+
 一時スキーマは接続ごとのもので、作った表はトランザクションの巻き戻しで消える。`public`の表には
 書かない。
 
@@ -40,7 +44,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from sqlalchemy import Connection, text  # noqa: E402
 from sqlalchemy.ext.asyncio import create_async_engine  # noqa: E402
 
+from app.batch.ingest import partition_required_columns, partition_table_name  # noqa: E402
+from app.batch.source_profile import load_source_profile  # noqa: E402
 from app.infrastructure.orm_base import declared_metadata  # noqa: E402
+from app.infrastructure.source_models import SourceFeatureRow  # noqa: E402
 
 _TABLES = """
 SELECT c.relname AS table, coalesce(pg_get_partkeydef(c.oid), '') AS partition
@@ -83,6 +90,16 @@ WHERE n.nspname = :schema AND NOT c.relispartition
   AND NOT EXISTS (SELECT 1 FROM pg_constraint con
                   WHERE con.conrelid = ix.indrelid AND con.conindid = ix.indexrelid
                     AND con.contype IN ('p', 'u', 'x'))
+"""
+
+#: 生データの区画の列ごとのNOT NULLと、親の表のNOT NULL。カタログの値だけを読む。
+_PARTITION_COLUMNS = """
+SELECT c.relname AS partition, a.attname AS column, a.attnotnull AS not_null, pa.attnotnull AS parent_not_null
+FROM pg_inherits i
+JOIN pg_class c ON c.oid = i.inhrelid
+JOIN pg_attribute a ON a.attrelid = i.inhrelid AND a.attnum > 0 AND NOT a.attisdropped
+JOIN pg_attribute pa ON pa.attrelid = i.inhparent AND pa.attname = a.attname
+WHERE i.inhparent = to_regclass(:parent)
 """
 
 _KIND = {"p": "主キー", "u": "一意", "f": "外部キー", "c": "CHECK", "x": "排他"}
@@ -142,6 +159,24 @@ def _differences(actual: _Catalog, declared: _Catalog) -> list[str]:
     return sorted(lines)
 
 
+def _nullable(not_null: bool) -> str:
+    return "NOT NULL" if not_null else "NULL"
+
+
+def _partition_differences(conn: Connection) -> list[str]:
+    """生データの区画の列のNULL許容と、アダプタの宣言との差。宣言に無いソースの区画は、親の表と同じであるべき。"""
+    declared = {partition_table_name(spec.name): partition_required_columns(spec)
+                for spec in load_source_profile(None).sources}
+    lines = []
+    for r in conn.execute(text(_PARTITION_COLUMNS),
+                          {"parent": f"public.{SourceFeatureRow.__tablename__}"}).mappings():
+        expected = r["parent_not_null"] or r["column"] in declared.get(r["partition"], ())
+        if r["not_null"] != expected:
+            lines.append(f"{r['partition']}.{r['column']}: NULL許容が違う"
+                         f"（実DB={_nullable(r['not_null'])} 宣言={_nullable(expected)}）")
+    return lines
+
+
 def collect_gaps(conn: Connection) -> list[str]:
     """`conn`のDBの`public`と、ORMの宣言を一時スキーマへ作ったものとの差。何も残さない。"""
     transaction = conn.begin_nested() if conn.in_transaction() else conn.begin()
@@ -151,7 +186,7 @@ def collect_gaps(conn: Connection) -> list[str]:
         declared_metadata().create_all(
             conn.execution_options(schema_translate_map={None: "pg_temp"}), checkfirst=False)
         temp: str = conn.execute(text("SELECT nspname FROM pg_namespace WHERE oid = pg_my_temp_schema()")).scalar_one()
-        return _differences(_Catalog(conn, "public"), _Catalog(conn, temp))
+        return sorted(_differences(_Catalog(conn, "public"), _Catalog(conn, temp)) + _partition_differences(conn))
     finally:
         transaction.rollback()
 

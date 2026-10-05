@@ -80,5 +80,5 @@ async def test_an_upstream_failure_gives_nothing_is_logged_and_is_not_remembered
     not_found = LRUCache(maxsize=16)
 
     assert await client(router, not_found).get(RELIEF) is None
-    assert [r for r in warnings() if "gsi-relief-tile" in r.getMessage()]
+    assert [r for r in warnings() if "gsi:relief-tile" in r.getMessage()]
     assert await client(router, not_found).get(RELIEF) == (b"\x89PNG", "image/png")

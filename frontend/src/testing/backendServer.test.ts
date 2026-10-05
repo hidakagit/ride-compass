@@ -61,6 +61,17 @@ describe("heldReplies", () => {
 
     await expect(pending).rejects.toThrow();
   });
+
+  it("閉じる応答を渡した要求は、閉じるとその応答になる", async () => {
+    const held = heldReplies(() => Response.json("closed"));
+    onBackend("GET", "/api/held", held.reply);
+    const pending = fetch(`${API_BASE_URL}/api/held`);
+    await vi.waitFor(() => expect(held.arrived()).toBe(1));
+
+    closeHeldReplies();
+
+    await expect((await pending).json()).resolves.toBe("closed");
+  });
 });
 
 describe("応答を与えていない要求", () => {

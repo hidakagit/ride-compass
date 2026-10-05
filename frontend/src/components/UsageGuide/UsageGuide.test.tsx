@@ -210,8 +210,10 @@ describe("UsageGuide", () => {
     });
 
     it("描き直して終える操作が変わっても、新しいほうへ上げる", async () => {
-      const { onEnd, view } = renderScreen();
+      const onEnd = vi.fn();
       const latest = vi.fn();
+      // 同じ木の形で描き直す（形が変わると部品が作り直され、新しい操作で始まるので、入れ替えを見なくなる）。
+      const view = render(<UsageGuide onEnd={onEnd} />);
       view.rerender(<UsageGuide onEnd={latest} />);
 
       await userEvent.keyboard("{Escape}");
