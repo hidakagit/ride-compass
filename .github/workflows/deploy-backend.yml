@@ -163,7 +163,7 @@ jobs:
             # 稼働しているため、コンテナ内からDATABASE_URL=localhost:5432で到達させるには
             # ブリッジネットワーク（既定）ではなくホストのネットワーク名前空間を共有する
             # 必要がある（ブリッジのままだとコンテナ内のlocalhostはコンテナ自身を指し、
-            # ConnectionRefusedErrorになる。実機で確認済み）。
+            # ConnectionRefusedErrorになる）。
             # --log-opt: 既定のjson-fileドライバはログサイズに上限が無く、無制限に
             # ディスクを消費しうる。10MB×5世代=最大50MBに制限する。
             sudo docker run -d \

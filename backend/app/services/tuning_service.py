@@ -30,8 +30,10 @@ def _apply_tuning_values(values: dict[str, float]) -> None:
 
     **中身だけを差し替える**（辞書そのものを作り直すと、import済みの参照が古い辞書を
     指したままになる）。読み出しも検算も済んだ値を受け取るだけなので失敗しない。
+
+    `clear()`を挟まない——探索は別スレッドから読むため、消してから足すまでの間に読むと
+    宣言にあるidでも`KeyError`になる。`values`は宣言の全idを持つので、`update`だけで鍵が揃う。
     """
-    TUNING_VALUES.clear()
     TUNING_VALUES.update(values)
     changed = {k: v for k, v in values.items() if v != TUNING_PARAMETERS_BY_ID[k].default}
     if changed:

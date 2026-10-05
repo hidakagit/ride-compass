@@ -172,7 +172,6 @@ class RouteGenerator:
         started = time.monotonic()
         # 常時出るサマリログ用に座標を2桁(≈1km)へ丸める(debug_log.pyの方針と同じ)。
         origin_label = f"({origin.latitude:.2f},{origin.longitude:.2f})"
-        self.last_no_candidates_reason = None
 
         context = await self._prepare(
             origin, radius_km, start_time, None, origin_label=origin_label,
@@ -310,7 +309,6 @@ class RouteGenerator:
         radius_km = distance_km * TURNAROUND_RADIUS_RATIO
         started = time.monotonic()
         origin_label = f"({origin.latitude:.2f},{origin.longitude:.2f})"
-        self.last_no_candidates_reason = None
         end_point = destination if destination is not None else origin
         full_waypoints = [origin, *waypoints, end_point]
         # bboxが目的地もカバーするよう、prepareへ渡す点集合に含める。
@@ -375,8 +373,6 @@ class RouteGenerator:
         radius_km = distance_km * TURNAROUND_RADIUS_RATIO
         started = time.monotonic()
         origin_label = f"({origin.latitude:.2f},{origin.longitude:.2f})"
-        self.last_no_candidates_reason = None
-        self.last_destination_correction = None
 
         context = await self._prepare(
             origin, radius_km, start_time, [destination], origin_label=origin_label,
@@ -439,8 +435,6 @@ class RouteGenerator:
         radius_km = distance_km * TURNAROUND_RADIUS_RATIO
         started = time.monotonic()
         origin_label = f"({origin.latitude:.2f},{origin.longitude:.2f})"
-        self.last_no_candidates_reason = None
-        self.last_destination_correction = None
 
         context = await self._prepare(
             origin, radius_km, start_time, [destination], origin_label=origin_label,

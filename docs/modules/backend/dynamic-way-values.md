@@ -214,8 +214,7 @@ TTLで失効し、書き込みのたびに`diskcache`が失効したものを消
 再計算も発生しない。時刻・想定速度は鍵に入れない——キャッシュする勾配はどちらにも依らず、
 依る材料（風）はキャッシュしない。時刻・速度に依る材料をキャッシュするときは、その要素を鍵へ足す。
 
-値は`{feature_key: 値}`のdict。TTLは呼び出し元が渡す（勾配=`GRADIENT_TILE_VALUES_TTL_SECONDS`
-＝24時間）。正本を持たないキャッシュで、読み書きに失敗しても未キャッシュ扱いで実計算へ進む。
+値は`{feature_key: 値}`のdict。TTLはこのモジュールが持つ（24時間。勾配の入力は道の向きと標高で決まりほぼ変わらない）。正本を持たないキャッシュで、読み書きに失敗しても未キャッシュ扱いで実計算へ進む。
 このモジュール自身は`log_external_call`で囲まない。hit/missは呼び出し元のサービスが自分の
 `log_external_call`の`fields["cache"]`へ書き、`/api/debug/stats`のそのカテゴリのヒット率に載る
 （[docs/conventions/logging.md](../../conventions/logging.md)「外部API・キャッシュアクセス」節）。

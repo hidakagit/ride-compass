@@ -11,8 +11,8 @@ OSM由来の道路データ（PBF取込）・警察庁事故データ・土地�
 | レイヤー | ファイル |
 |---|---|
 | domain | `road.py`・`attributes.py`・`accident.py`・`traffic.py`（OSMタグの解釈と分類。停止要因・補給POIの種別、通行方向、道の階級）・`landcover.py`（土地被覆クラス別割合の算出と、数える帯の幅。割合の列・焼き込み列の名前の規則。評価軸の材料）・`divided_carriageway.py`（上下線が分かれた道の片側かのしきい値と判定のSQL式、地図の一方通行の式）・`map_display.py`・`display_palette.py`（地図の束ね方・レイヤーごとの種別と情報源と既定表示と名前と説明・常に出す出典・描く寸法と配色。**本番プロセスは読まず**、`scripts/export_openapi.py`の生成物を経由してだけ画面へ届く。読み方は[地図: 静的レイヤー](../frontend/static-map-layers.md)）（[region.py](routing-engine.md)は別モジュール管轄）・`db_status.py`（本番DBの数を「注意が要るか」へ読むしきい値と判定） |
-| services | `tile_serving.py`・`region_service.py`・`landcover_tile_service.py`（土地被覆ラスタタイルの配信）・`derived_data_freshness_service.py`（派生データ鮮度台帳）・`tile_version_service.py`（配信するタイル世代の組み立て。形の署名とDBの派生データ・生データの世代から作る）・`derived_data_revision_service.py`（DBの派生データ・生データの世代をTTL付きで読み直す。別コンテナのバッチが書き直したことにbackendが気づく唯一の経路で、タイル世代の組み立て等の配信側が読む）・`db_status_service.py`（本番DBの数を読み、domainの`db_status.py`の判定で注意の印を付けたレポートにする。レポートの型は応答の型を兼ねる） |
-| infrastructure | `vector_tile.py`・`tile_cache.py`・`landcover_raster.py`（土地被覆GeoTIFFの読み取り・再投影・着色）・`source_models.py`（外部ソースの生データを、ソースによらない1つの形で持つ。点・線・ラスタのタイルを同じ骨格へ載せ、取込1回ぶんを`source_runs`が記録する。コードが名指すソース名と取込の状態の綴り［`Source`・`SourceRunStatus`］、ソースごとの生データを読む副問い合わせ、ソースの成功した最新の取込を指す副問い合わせ［`latest_succeeded_run_sql`。派生の基準・取込の範囲はここから読む］、全ソースの成功した最新の取込［`LATEST_SUCCEEDED_RUNS_SQL`。派生の作り直しが記録する］、成功した取込の数［`succeeded_run_count`。生データの世代］もここが持つ）・`derived_models.py`（生データから導いたもの。粒度ごとに1表で、バッチが1つ増えても表は増えない）・`orm_base.py`（ORMの基底。どのモデルからも辿れる位置に置き、モデル同士がimportで絡まないようにする。全表を載せたmetadata［`declared_metadata`。importの有無で表が欠けないよう、全表を見る側はここを通す］と、取り直せない表の印［`IRREPLACEABLE`］・派生の表の印［`DERIVED`。派生の作り直しが写す表と鮮度台帳が数える表はここから導く］もここが持つ）・`point_tile_layers.py`（点のタイルのレイヤーの宣言。名前・source-layer名・焼き込むSQL。配信・世代の表・生成物はここから組み立てる）・`derived_data_freshness.py`（派生データ鮮度台帳）・`db_status.py`（本番DBの状態＝取込runの最終実行・テーブルの実数と容量・統計とVACUUMの鮮度・接続）・`proj_data.py`（rasterioが参照するPROJデータをrasterio同梱のものへ固定する。別インストールの`proj.db`を掴むとEPSG解決が失敗するため、rasterioのimport前に呼ぶ） |
+| services | `region_service.py`・`landcover_tile_service.py`（土地被覆ラスタタイルの配信）・`derived_data_freshness_service.py`（派生データ鮮度台帳）・`tile_version_service.py`（配信するタイル世代の組み立て。形の署名とDBの派生データ・生データの世代から作る）・`derived_data_revision_service.py`（DBの派生データ・生データの世代をTTL付きで読み直す。別コンテナのバッチが書き直したことにbackendが気づく唯一の経路で、タイル世代の組み立て等の配信側が読む）・`db_status_service.py`（本番DBの数を読み、domainの`db_status.py`の判定で注意の印を付けたレポートにする。レポートの型は応答の型を兼ねる） |
+| infrastructure | `vector_tile.py`・`tile_cache.py`・`region_tile_cache.py`（地域タイルのディスクの口。鍵・キャッシュ確認→取得→書き戻しの骨格・旧世代の掃除）・`landcover_raster.py`（土地被覆GeoTIFFの読み取り・再投影・着色）・`source_models.py`（外部ソースの生データを、ソースによらない1つの形で持つ。点・線・ラスタのタイルを同じ骨格へ載せ、取込1回ぶんを`source_runs`が記録する。コードが名指すソース名と取込の状態の綴り［`Source`・`SourceRunStatus`］、ソースごとの生データを読む副問い合わせ、ソースの成功した最新の取込を指す副問い合わせ［`latest_succeeded_run_sql`。派生の基準・取込の範囲はここから読む］、全ソースの成功した最新の取込［`LATEST_SUCCEEDED_RUNS_SQL`。派生の作り直しが記録する］、成功した取込の数［`succeeded_run_count`。生データの世代］もここが持つ）・`derived_models.py`（生データから導いたもの。粒度ごとに1表で、バッチが1つ増えても表は増えない）・`orm_base.py`（ORMの基底。どのモデルからも辿れる位置に置き、モデル同士がimportで絡まないようにする。全表を載せたmetadata［`declared_metadata`。importの有無で表が欠けないよう、全表を見る側はここを通す］と、取り直せない表の印［`IRREPLACEABLE`］・派生の表の印［`DERIVED`。派生の作り直しが写す表と鮮度台帳が数える表はここから導く］もここが持つ）・`point_tile_layers.py`（点のタイルのレイヤーの宣言。名前・source-layer名・焼き込むSQL。配信・世代の表・生成物はここから組み立てる）・`derived_data_freshness.py`（派生データ鮮度台帳）・`db_status.py`（本番DBの状態＝取込runの最終実行・テーブルの実数と容量・統計とVACUUMの鮮度・接続）・`proj_data.py`（rasterioが参照するPROJデータをrasterio同梱のものへ固定する。別インストールの`proj.db`を掴むとEPSG解決が失敗するため、rasterioのimport前に呼ぶ） |
 | api | `region.py`（路面/点/動的材料/土地被覆タイル・区間インスペクタ）・`_tile_http.py`（タイルの口が共有する座標検証と応答組み立て）・`derived_data_freshness.py`（`GET /api/admin/derived-data/freshness`、Basic認証必須）・`db_status.py`（`GET /api/admin/db-status`、同） |
 | batch | `ingest.py`（外部ソースの共通取込経路。アダプタから受けた1件ずつをステージングへ積み、そのソースのパーティションだけを入れ替え、`source_runs`へ適用した絞り込みごと記録する。runを開く記録と失敗の記録は入れ替えと別のトランザクションで書き、成功の記録は入れ替えと同じトランザクションで書く——失敗した取込は行を元のまま残して`failed`のrunが残り、`succeeded`のrunの行は必ず入っている）・`ingest_cli.py`（その入口）・`source_profile.py`／`source_profile.yaml`（取り込む母集団の宣言。実装には範囲を書かない。読む側が知らない欄があれば取込の前に止める）・`source_adapters/`（外部の形を開いて1件ずつ返すだけの実装。`npa_honhyo.py`は警察庁の本票CSV（配信元は叩かず、手元にあるものを読む。無ければ何を流せばよいかを言って止まる。度分秒をつないだ数字列の緯度・経度を度へ読み、日本の範囲を外れた値は壊れた値として落とす）、`osm_pbf.py`はOSMのPBF（way・node。タグを絞らず全部持つ。PBFの読み取り自体は`pbf_source.py`が持ち、pyosmiumへの依存をそこへ閉じ込める）、`io_lulc_tile.py`は土地被覆ラスタをタイルへ切って、`gsi_dem_tile.py`は地理院の標高タイル——製品×タイル1枚を1行として返し、標高はint32（0.01m単位）で詰める。面のタイルは`raster_wkb.py`がPostGISの`raster`へ包む。位置・画素の大きさ・型・欠測値をその値自身に持たせ、読み手が属性から形を組み立てなくてよいようにする）・`derive_cli.py`（派生を作り直す入口。段の順番と、どの段がどの較正値を読むかはここだけが持つ。較正値は始めにDBの上書きから読み、段へ値で渡す。作業用のスキーマで作り、道路網の配列まで作ってから`public`の表と入れ替えて世代を進める）・`derive_topology.py`（生データから区間`road_edges`とノードの枝数を導く。切る位置は2本以上の道が通るノード）・`derive_node_materials.py`（ノードの種別・信号の有無・集まる道の最大階級。種別の判断は取込ではなくここで行うため、判断が変わっても生データは取り直さない）・`derive_counts.py`（区間と道に付く数の値。停止要因はまとまり1つを経路上で1回になるよう区間へ割り振り、道の値は区間の和から導くため地図と評価で食い違わない）・`derive_raster_materials.py`（面のタイルを線へ落とす。標高は形状点で測り、土地被覆は中心線の周りの帯に落ちる画素を数える）・`derive_way_materials.py`（道1本の性質。通行方向をタグから決め、上下線分離は逆向きに並走する相方の有無で判定する）・`common.py`（バッチ間共通ヘルパ。asyncpg用DSN変換・`SOURCE_DATA_LOCK`［取込と派生の作り直しが同時に走らないよう両方が取る鍵の名前］・`fetch_verified`［配布元のファイルを手元へ写す取得スクリプト共通の手順。読めるものは落とし直さず、一時ファイル経由で置き、落とし終えたら開いてみて開けなければ退ける］・`batch_session_factory`[エンジン生成と破棄。表を先に探すスキーマを指定できる]・`reset_columns_sql`[派生の段が書く列を、値を出す前の状態へ戻す]・`run_batch_cli`[DBを書く入口（例: `ingest_cli.py`・`derive_cli.py`・`scripts/bootstrap_database.py`）の骨格。ログの設定・`--database-url`の読み取りを持ち、入口は自分の引数と本体だけを書く]）・`scripts/fetch_lulc_raster.py`（土地被覆ラスタの取得。デプロイが呼ぶ）・`scripts/fetch_osm_pbf.py`（OSMの抽出ファイルの取得）・`scripts/fetch_accident_csv.py`（警察庁の本票CSVの取得。年ごとに1ファイルで、要る年はプロファイルが持つ）・`scripts/bootstrap_database.py`（まっさらなDBを使える状態まで立ち上げる。スキーマ→取込→派生の順はここだけが持ち、途中から流し直せる） |
 
@@ -416,7 +416,7 @@ NULLの意味は列によって違う。「まだ計算していない」と「�
 **材料がタイルの外にある軸は、この方式に乗らない**（風のように外部条件で値が変わるもの）。
 そちらは[動的材料・フィーチャー値配信](dynamic-way-values.md)が別経路で配る。
 
-### 共通骨格（`tile_serving.py: serve_cached_tile`）
+### 共通骨格（`region_tile_cache.py: serve_region_tile`）
 
 `RegionService`（路面・点）と土地被覆の配信が共有する「ファイルキャッシュ確認
 →ミスなら`fetch_tile`呼び出し→取得成功ならキャッシュへ書いて返す→取得不可（None）なら
@@ -435,6 +435,16 @@ NULLの意味は列によって違う。「まだ計算していない」と「�
 ブラウザにはその区画の空白が残り続ける。サーバー側ファイルキャッシュには書かないため
 次のリクエストでは正しく生成され、**取り残されるのはブラウザ側だけ**という気づきにくい
 壊れ方をする。
+
+サービスは系統（`domain/registry.py: TileKind`か土地被覆）・世代・座標の値だけを渡し、ディスクの鍵
+（`region/<系統>/v<世代>/<z>/<x>/<y>.<拡張子>`）は`cache_identity.py: region_tile_key`が組む。世代は路面・点ならURLへ入る
+世代と同じ文字列（下の「タイル世代」）、土地被覆ならURLの世代に今開けているラスタ構成の指紋を足したもの
+（`region_tile_cache.py: landcover_generation`。下の「土地被覆ラスタタイル」）。
+
+**旧世代の掃除**（`region_tile_cache.py: prune_other_generations`）: 起動直後と`PRUNE_INTERVAL_HOURS`ごとに、
+`main.py`の定期ジョブが`tile_version_service.py: prune_other_tile_generations`を呼び、今配っている世代の鍵でない地域タイルを消す。
+世代を読めていない系統（`x-`の世代・土地被覆のラスタが1枚も開けない）は消さず、系統の表に無い系統の鍵は消す。
+同じ置き場の基礎地図・地理院のタイル（鍵が`region/`で始まらない）には触らない。理由は[キャッシュ方針](../../conventions/caching.md)「無効化」。
 
 ### 路面タイルが1フィーチャーとして焼く単位（`EDGE_UNIT_MIN_ZOOM`）
 
@@ -527,8 +537,7 @@ NULLの意味は列によって違う。「まだ計算していない」と「�
 - **世代はレイヤーごとに独立する**。形の署名はそのレイヤーのSQLとsource-layer名だけから作る（`PointTileLayer.shape`）ので、
   1つのSQLを変えても他のレイヤーのキャッシュは捨てない。source-layer名を変えたときも鍵が変わる。
 - レジストリに無い名前は404。
-- 配信のパスを変えて残った古いキャッシュ（例: `region/accidents/…`）は、管理画面の一括クリア（`basemap_refresh`が
-  ディスクキャッシュを丸ごと消す）か、`diskcache`の容量の上限による追い出しで消える。
+- 古い世代・名前を変えた系統（例: `region/accidents/…`）のキャッシュは、定期の掃除が消す（下の「旧世代の掃除」）。
 
 ### 土地被覆ラスタタイル（`landcover_raster.py`・`landcover_tile_service.py`）
 
@@ -560,11 +569,12 @@ NULLの意味は列によって違う。「まだ計算していない」と「�
   インスペクタは表示名と色でクラスを見分ける。タイルの塗り・凡例・区間インスペクタの表示名がすべてここを見る
   （frontendへは`landcover-classes.json`として書き出す）。クラス別の割合の材料（[評価・スコアリング](evaluation-scoring.md)
   「材料カタログ」節）もここから生成し、材料の表示名はクラスの表示名から作る。**クラスへ項目を足すと、
-  このラスタタイルの世代が変わる**（`LANDCOVER_TILE_VERSION`はこのレジストリの中身から署名を作る）ため、
+  このラスタタイルの世代が変わる**（`cache_identity.py: LANDCOVER_TILE_VERSION`はこのレジストリの中身から署名を作る）ため、
   塗りに関係しない材料の説明文の補足は材料カタログの側に置いている。
 - 配信（`landcover_tile_service.py`）: 上の共通骨格へ乗せる。ラスタが1枚も無い状態
   （設定漏れ）は「範囲外で空」と区別して503にする——空タイルを返すと、地図には何も出ない
-  のにチップは正常に見える。ディスクに焼いたタイルは期限を持たないため、読み方・描き方を変えて画素が
+  のにチップは正常に見える。ディスクの世代には、設定された一覧ではなく**実際に開けている**ラスタの構成を入れる
+  （ゾーンを1枚足したとき・起動時に1枚だけ置かれていなかったときに、継ぎ目の古い絵を返し続けない）。ディスクに焼いたタイルは期限を持たないため、読み方・描き方を変えて画素が
   変わるときは`infrastructure/cache_identity.py: LANDCOVER_REVISION`を上げる（署名はレジストリしか見ず、
   上げなければ焼いた古い絵を返し続ける）。
 - 取得（`scripts/fetch_lulc_raster.py`）: 設定されたパスに無い（あっても開けない）ラスタを配布元から取る。
