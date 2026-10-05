@@ -220,6 +220,15 @@ def test_glyphs_mark_every_row_of_a_point_color_axis_or_none(attr):
         assert len(glyphs) == len(set(glyphs))
 
 
+@pytest.mark.parametrize("attr", DISPLAYED, ids=lambda attr: attr.attr_id)
+def test_at_most_one_axis_sizes_the_points(attr):
+    """地図は半径を持つ最初の軸で点の大きさを決める。2本目の軸の半径は地図に出ず、凡例の大きさの見本にだけ並ぶ。"""
+    sized = [spec.key for spec in attr.display_axes if any(c.radius_px is not None for c in spec.categories)]
+
+    assert len(sized) <= 1
+    assert not sized or attr.geometry == "point"
+
+
 def test_a_line_has_exactly_one_axis():
     """道の線は1本の軸の行で塗る（線のプロパティが属性そのもの）。2本目の軸は地図のどこにも出ない。"""
     lines = [attr for attr in DISPLAYED if attr.geometry == "line"]

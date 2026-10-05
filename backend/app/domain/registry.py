@@ -39,6 +39,16 @@ class DisplayCategorySpec(StrictModel):
     #: 色だけでは、同時に出る点のレイヤーどうしを軸の中ほど離せないので、形でも分けるレイヤーに付ける。
     #: 付けるのは点の先頭の軸で、その軸の行の全部に付ける（一部の行だけ形が違うと、形が分類の意味を持ってしまう）。
     glyph: str | None = None
+    #: 丸い点で描くときの、この行の点の半径（`None`は既定の半径）。付けた軸が点の大きさを決める軸になる。
+    #: 付けるのは点の軸のうち1本だけ（2本に付けると、1つの点の大きさがどちらの軸の行で決まるかが無くなる）。
+    radius_px: int | None = None
+
+
+class PointFactSpec(StrictModel):
+    """点を押したときに、区分の行とは別に出す事実（発生年など）。タイルのプロパティと、画面に出す名前。"""
+
+    property: str
+    label: str = Field(min_length=1)
 
 
 class DisplayAxisSpec(StrictModel):
@@ -88,6 +98,8 @@ class PrimaryAttributeSpec(StrictModel):
     label: str = Field(min_length=1)
     geometry: PrimaryAttributeGeometry
     display_axes: tuple[DisplayAxisSpec, ...] = ()
+    #: 点を押したときに区分の行に続けて出す事実。値がその点に無ければ出さない。
+    point_facts: tuple[PointFactSpec, ...] = ()
     #: 値が載るタイルの系統（`tile_version_service.py: TILE_SHAPES`の名前）。地図へ出す
     #: 属性だけが持つ。**どのソースから読むかを画面が決めない**——決めさせると、系統を
     #: 1つ足したときに画面側の対応表も直すことになる。

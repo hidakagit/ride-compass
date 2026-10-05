@@ -78,8 +78,6 @@ from app.domain.map_display import (  # noqa: E402
     WEATHER_MARK_HALO_WIDTH_PX,
     WIND_FULL_SCALE_MS,
     WIND_ICON_SCALE_RANGE,
-    POINT_FATAL_RADIUS_PX,
-    POINT_NON_FATAL_RADIUS_PX,
     POINT_OPACITY_BY_ATTR,
     POINT_RADIUS_PX,
     POINT_ICON_SIZE_PX,
@@ -143,7 +141,7 @@ from app.services.route_generator import (  # noqa: E402
 from app.config import Settings  # noqa: E402
 from app.domain.loop_routing import WAYPOINTS_ROUTE_ID  # noqa: E402
 from app.domain.region import MAX_MERCATOR_LATITUDE  # noqa: E402
-from app.domain.route_preference import MAX_AXIS_WEIGHT  # noqa: E402
+from app.domain.route_preference import ENABLED_AXIS_WEIGHT, MAX_AXIS_WEIGHT  # noqa: E402
 from app.domain.tuning import client_tuning_values  # noqa: E402
 from app.domain.weather import PRECIPITATION_MIN_MM  # noqa: E402
 from app.infrastructure.msm_client import DEFAULT_UPDATE_INTERVAL_SECONDS as MSM_UPDATE_INTERVAL_SECONDS  # noqa: E402
@@ -372,8 +370,6 @@ def main() -> None:
             },
             "point": {
                 "radiusPx": POINT_RADIUS_PX,
-                "fatalRadiusPx": POINT_FATAL_RADIUS_PX,
-                "nonFatalRadiusPx": POINT_NON_FATAL_RADIUS_PX,
                 "strokeWidthPx": POINT_STROKE_WIDTH_PX,
                 "iconSizePx": POINT_ICON_SIZE_PX,
                 "opacityByLayer": POINT_OPACITY_BY_ATTR,
@@ -565,6 +561,7 @@ def main() -> None:
             "spliced_route_id": SPLICED_ROUTE_ID,
             "waypoints_route_id": WAYPOINTS_ROUTE_ID,
             "max_axis_weight": MAX_AXIS_WEIGHT,
+            "enabled_axis_weight": ENABLED_AXIS_WEIGHT,
             "min_assumed_speed_kmh": MIN_ASSUMED_SPEED_KMH,
             "max_assumed_speed_kmh": MAX_ASSUMED_SPEED_KMH,
             # フロントのポーリングの打ち切り。backendが結果を持つ時間より長く待つと、
