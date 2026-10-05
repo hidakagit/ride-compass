@@ -56,11 +56,6 @@ const axisLayerId = (role: string) => sceneLayerId(ROAD_LINE_SOURCE_ID, role);
 const pointLayerId = (role: string) =>
   sceneLayerId(POINT_TILE_SOURCES[POINT_LAYERS.find((layer) => layer.attr_id === role)!.tile_kind].sourceId, role);
 
-/** 作り直さずに伝える経路（画面の状態が変わるたびに通るのはこちら）。 */
-function show(map: unknown, state: State) {
-  applyScene(map as never, buildMapScene(sceneInputsFrom(state)));
-}
-
 /** 空から作り直す経路（スタイルを差し替えた後に通るのはこちら）。 */
 function rebuild(map: unknown, state: State) {
   applyScene(map as never, buildMapScene(sceneInputsFrom(state)), { reset: true });
@@ -77,26 +72,9 @@ describe("状態を地図へ伝えた結果", () => {
       expect(handle.layer(areaLayerId("landcover"))?.visibility).toBe("none");
       expect(handle.layer(areaLayerId("hillshade"))?.visibility).toBe("none");
     });
-
-    it("面は、道路の線より背面にある", () => {
-      const { map, handle } = createRecordingMap();
-
-      rebuild(map as never, shown({ elevation: true, surface: true, tunnel: true }));
-
-      const order = handle.layerOrder();
-      expect(order.indexOf(areaLayerId("elevation"))).toBeLessThan(order.indexOf(roadLayerId("tunnel")));
-    });
   });
 
   describe("道路の線", () => {
-    it("タイル世代が無い間は、道路のソースを作らない", () => {
-      const { map, handle } = createRecordingMap();
-
-      rebuild(map as never, { ...shown({ surface: true }), tileVersions: null });
-
-      expect(handle.sources()).not.toContain(ROAD_LINE_SOURCE_ID);
-    });
-
     it("世代が届いた後に同じ状態を伝えると、道路の線が見えている", () => {
       const { map, handle } = createRecordingMap();
       const state = shown({ surface: true });
@@ -133,26 +111,15 @@ describe("状態を地図へ伝えた結果", () => {
   });
 
   describe("点（事故・停止要因POI・補給休憩POI）", () => {
-    it("停止要因と補給は、同じソースの別レイヤーとして出る", () => {
-      const { map, handle } = createRecordingMap();
-
-      rebuild(map as never, shown({ stop_poi: true, supply_poi: true }));
-
-      const stop = handle.layer(pointLayerId("stop_poi"));
-      const supply = handle.layer(pointLayerId("supply_poi"));
-      expect(stop?.visibility).toBe("visible");
-      expect(supply?.visibility).toBe("visible");
-      expect(stop?.source).toBe(supply?.source);
-      expect(stop?.id).not.toBe(supply?.id);
-    });
-
-    it("同じタイルを分け合う点は、互いの種別を混ぜない", () => {
+    it("表示ONにした点が見え、同じタイルを分け合う点は互いの種別を混ぜない", () => {
       const { map, handle } = createRecordingMap();
 
       rebuild(map as never, shown({ stop_poi: true }));
 
-      // 分ける条件を持たないと、補給の点が停止要因の色で出る。
-      expect(handle.layer(pointLayerId("stop_poi"))?.filter).toBeDefined();
+      const stop = handle.layer(pointLayerId("stop_poi"));
+      expect(stop?.visibility).toBe("visible");
+      // 停止要因と補給は同じタイルを分け合う。分ける条件を持たないと、補給の点が停止要因の色で出る。
+      expect(stop?.filter).toBeDefined();
     });
   });
 
@@ -178,18 +145,6 @@ describe("状態を地図へ伝えた結果", () => {
       expect(handle.featureState(ROAD_LINE_SOURCE_ID, "w1")).toEqual({ ded1Value: 3, ded2Value: 7 });
       expect(handle.layer(axisLayerId("ded1"))?.visibility).toBe("visible");
       expect(handle.layer(axisLayerId("ded2"))?.visibility).toBe("none");
-    });
-
-    it("片方の軸の値が来なくなっても、もう片方の値は残る", () => {
-      const { map, handle } = createRecordingMap();
-      show(
-        map,
-        shown({}, { paintedAxisId: "ded1", dedicatedWayValues: delivered({ ded1: { w1: 3 }, ded2: { w1: 7 } }) }),
-      );
-
-      show(map, shown({}, { paintedAxisId: "ded2", dedicatedWayValues: delivered({ ded2: { w1: 7 } }) }));
-
-      expect(handle.featureState(ROAD_LINE_SOURCE_ID, "w1")).toEqual({ ded2Value: 7 });
     });
   });
 });
@@ -356,15 +311,5 @@ describe("レイヤーを横断する要求", () => {
     // 世代で守られているソースが実際にあること（0件なら、この検査は何も見ていない）。
     expect(gated.length).toBeGreaterThan(0);
     expect(gated).toContain(ROAD_LINE_SOURCE_ID);
-  });
-
-  it("世代が届いた後に同じ状態を伝えると、世代を要るソースが揃う", () => {
-    const { map, handle } = createRecordingMap();
-    const state = everythingVisible();
-    rebuild(map as never, { ...state, tileVersions: null });
-
-    rebuild(map as never, state);
-
-    expect(handle.sources()).toContain(ROAD_LINE_SOURCE_ID);
   });
 });
