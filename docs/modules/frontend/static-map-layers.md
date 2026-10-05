@@ -354,7 +354,7 @@ ON/OFFから行う（画面の側は下敷きの有無を知らない）。
 グループが返す宣言の一部として出す。宣言の外から`setPaintProperty`や`setFilter`で
 足す形を取らないため、**「当てた後に誰かが巻き戻す」という経路が無い**（当てるのは
 `applyMapScene`だけで、前回の宣言との差分しか触らない）。この性質は
-`scene/scene.state.contract.test.ts`の「同じ状態を伝え直しても結果が変わらない」で固定してある。
+`scene/scene.state.contract.test.ts`の「スタイルを差し替えても、同じ状態を伝え直せば元へ戻る」で固定してある。
 
 ## 初期表示の覆い（`initialTilesLoading`）
 
