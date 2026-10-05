@@ -61,14 +61,15 @@ export class Gate {
   }
 
   // Project に入った: 段階（親のある issue）とユーザーの起票は未着手、Claude の起票は回答待ちにして採否の問いをコメントに置く。
-  // 優先度の欄が空なら既定を入れ、段階は親の優先度を継ぐ。入った時点のステータス（ボードで選んだ列）は見ない。
+  // 段階は優先度の欄が空なら親の優先度を継ぐ。段階でないものの優先度は書かない（誰も決めていない欄は空のまま見せ、起票の直後に
+  // 入れた値を、読んでから書くまでの間に消さない）。入った時点のステータス（ボードで選んだ列）は見ない。
   async enter(nodeId, projectNodeId) {
     const issue = await this.read({ nodeId });
     if (this.project.id !== projectNodeId || !issue?.item || issue.state !== "OPEN") return;
     const byUser = issue.author?.databaseId === this.config.people[this.config.user].id;
     const priority = this.config.project.priorityField;
     const inherited = issue.parent ? (await readTask(this.gh, this.config, { number: issue.parent.number })).issue?.fields[priority] : null;
-    const fields = Object.fromEntries(Object.entries({ ...this.config.project.defaults, ...(inherited ? { [priority]: inherited } : {}) }).filter(([name]) => !issue.fields[name]));
+    const fields = inherited && !issue.fields[priority] ? { [priority]: inherited } : {};
     const asks = !issue.parent && !byUser;
     await this.write(issue, { status: asks ? this.config.waiting : this.config.todo, fields, comments: asks ? [`## 問い\n${this.config.adoption}`] : [] });
   }

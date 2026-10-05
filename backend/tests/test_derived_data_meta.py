@@ -1,15 +1,17 @@
 """`infrastructure/derived_data_meta.py`——派生データと生データの世代。
 
-世代の変化を読み手がどう使うか（キャッシュの追随・配列の作り直し）は、それぞれの読み手のテストが持つ。
-入れ替えと同じトランザクションで進むことは`test_derive_cli.py`が見る。取込が生データの世代を進めることは、
-本物の取込を通して配信するタイルの世代（`GET /api/axis-catalog`の`tile_versions`と同じ口）で見る。
+確かめるのは、派生の世代が行の無いDBで最初に進めたときに生まれて進むことと、成功した取込だけが生データの世代を
+進めること。後者は本物の取込を通して、配信するタイルの世代（`GET /api/axis-catalog`の`tile_versions`と同じ口）で見る。
+
+ここで見ないもの:
+- 世代の変化を読み手がどう使うか（キャッシュの追随・配列の作り直し） → それぞれの読み手のテスト
+- 入れ替えと同じトランザクションで進むこと・作り直しに使った取込の記録 → `test_derive_cli.py`
 """
 
 import asyncpg
 import pytest
 
 from app.batch.common import asyncpg_dsn
-from app.batch.source_profile import load_source_profile
 from app.config import settings
 from app.infrastructure import derived_data_meta
 from app.infrastructure.road_graph_repository import RoadGraphRepository
@@ -54,18 +56,15 @@ async def _tile_versions(session) -> dict[str, str]:
 
 async def test_a_succeeded_ingest_of_any_source_changes_every_tile_version(road_graph_session, reread_every_time):
     """取込だけを流すと派生の世代は動かないが、タイルは生データも直接読む。どのソースの取り直しでも
-    全系統の鍵が変わらないと、取込の前と後に焼いたタイルが同じ鍵で混ざる。"""
+    全系統の鍵が変わらないと、取込の前と後に焼いたタイルが同じ鍵で混ざる。成功した取込はソースを問わず
+    同じに数える（`source_models.py: succeeded_run_count`）ので、1つのソースで見る。"""
     await _bump_revision()
-    seen = [await _tile_versions(road_graph_session)]
+    before = await _tile_versions(road_graph_session)
 
-    sources = [spec.name for spec in load_source_profile(None).sources]
-    for source in sources:
-        await ingest_records(source, [])
-        seen.append(await _tile_versions(road_graph_session))
+    await ingest_records("dem", [])
 
-    for source, before, after in zip(sources, seen, seen[1:]):
-        unchanged = [name for name in before if before[name] == after[name]]
-        assert not unchanged, f"{source}を取り直しても鍵が変わらない系統: {unchanged}"
+    after = await _tile_versions(road_graph_session)
+    assert [name for name in before if before[name] == after[name]] == []
 
 
 async def test_a_failed_ingest_keeps_every_tile_version(road_graph_session, reread_every_time):

@@ -1,7 +1,8 @@
 """停止要因と交差点の数（`batch/derive_counts.py`）が、経路の上でどう通っても1か所1回になること。
 
 生データ（道・ノードのタグ）から派生の段を本物のまま通し、区間の値を経路に沿って足す。
-生データには道から離れた補給・休憩の点（取込が道の頂点でなくても採る点）も混ぜ、それが数に入らないことも見る。
+見ないもの: 道の値が区間の和であること → `test_derive_counts.py`の流し直しのテスト。道に属さないノードの
+種別と行 → `test_derive_node_materials.py`。
 """
 
 import asyncpg
@@ -25,7 +26,6 @@ pytestmark = [
 BASE_LON, BASE_LAT = 139.70, 35.68
 SIGNAL = {"highway": "traffic_signals"}
 LEVEL_CROSSING = {"railway": "level_crossing"}
-CONVENIENCE = {"shop": "convenience"}
 
 #: ノード → (経度の差, 緯度の差, タグ)。0.0001度は約10m、同じ種別の点をまとめる距離の内側。
 NODES: dict[int, tuple[float, float, dict[str, str]]] = {
@@ -42,13 +42,7 @@ NODES: dict[int, tuple[float, float, dict[str, str]]] = {
     # 複線の踏切（線路1本ごとに1点）。
     81: (0.0, 0.02, {}), 82: (0.0005, 0.02, LEVEL_CROSSING),
     83: (0.00055, 0.02, LEVEL_CROSSING), 84: (0.001, 0.02, {}),
-    # 道の頂点でない補給・休憩の点。交差点・信号・踏切のすぐ脇にある。面で描かれた施設の点は負のキーを持つ。
-    900: (0.00005, 0.00005, CONVENIENCE),
-    901: (0.0105, 0.00005, {"amenity": "vending_machine", "vending": "drinks"}),
-    -902: (0.0005, 0.02005, {"amenity": "toilets", "building": "yes"}),
 }
-
-OFF_ROAD_SUPPLY = {900: "convenience", 901: "vending_drinks", -902: "toilets"}
 
 WAYS: dict[int, list[int]] = {
     1: [11, 12, 100], 2: [100, 22, 21], 3: [31, 32, 100], 4: [100, 42, 41],
@@ -97,22 +91,21 @@ async def stop_conn(road_graph_engine):
         await conn.close()
 
 
-async def _along(conn: asyncpg.Connection, table: str, column: str) -> dict[str, float]:
-    """経路ごとに、通る道の値を足す（どの道も区間1本なので、道の値と区間の値は同じ）。"""
+async def _along(conn: asyncpg.Connection, column: str) -> dict[str, float]:
+    """経路ごとに、通る区間の値を足す（どの道も区間1本）。"""
     values = {r["osm_way_id"]: r["v"] for r in await conn.fetch(
-        f"SELECT osm_way_id, sum({column}) AS v FROM {table} GROUP BY osm_way_id")}
+        f"SELECT osm_way_id, {column} AS v FROM edge_materials")}
     return {name: sum(values[w] for w in ways) for name, ways in ROUTES.items()}
 
 
-@pytest.mark.parametrize("table", ["edge_materials", "way_materials"])
-async def test_each_stop_place_counts_once_on_any_route_through_it(stop_conn, table):
+async def test_each_stop_place_counts_once_on_any_route_through_it(stop_conn):
     """まとまり1つ（信号交差点・道の途中の信号・複線の踏切）は、どの経路で通っても1回。
 
     区間の端に乗る点だけを数えると、流入路の途中にある信号・道の途中の信号・踏切が0回になる。
     端の0.5を整数へ丸めると、継ぎ目の信号が2回になる。
     """
-    signals = await _along(stop_conn, table, "poi_signal")
-    crossings = await _along(stop_conn, table, "poi_level_crossing")
+    signals = await _along(stop_conn, "poi_signal")
+    crossings = await _along(stop_conn, "poi_level_crossing")
     level_crossing_route = "複線の踏切を渡る"
     assert signals == {name: 0.0 if name == level_crossing_route else 1.0 for name in ROUTES}
     assert crossings == {name: 1.0 if name == level_crossing_route else 0.0 for name in ROUTES}
@@ -123,17 +116,6 @@ async def test_an_intersection_counts_once_on_a_route_through_it(stop_conn):
     枝の少ないノード（道の継ぎ目・行き止まり）は交差点に数えない。"""
     through_intersection = {name for name, ways in ROUTES.items()
                             if any(100 in WAYS[w] for w in ways)}
-    assert await _along(stop_conn, "edge_materials", "intersection_count") == {
+    assert await _along(stop_conn, "intersection_count") == {
         name: 1.0 if name in through_intersection else 0.0 for name in ROUTES}
 
-
-async def test_supply_points_off_the_road_get_a_kind_but_never_join_the_road_network(stop_conn):
-    """道の頂点でない補給・休憩の点は種別を持つが、どの区間の端点にもならず、枝も持たない。"""
-    rows = await stop_conn.fetch(
-        "SELECT osm_node_id, kind, branch_count FROM node_materials WHERE osm_node_id = ANY($1::bigint[])",
-        list(OFF_ROAD_SUPPLY))
-    assert {r["osm_node_id"]: (r["kind"], r["branch_count"]) for r in rows} == {
-        node_id: (kind, 0) for node_id, kind in OFF_ROAD_SUPPLY.items()}
-    assert await stop_conn.fetchval(
-        "SELECT count(*) FROM road_edges WHERE from_node_id = ANY($1::bigint[]) OR to_node_id = ANY($1::bigint[])",
-        list(OFF_ROAD_SUPPLY)) == 0

@@ -3,7 +3,7 @@
 // 書き込みを記録する。
 export const config = {
   repository: "o/tasks",
-  project: { owner: "o", number: 1, statusField: "状態", priorityField: "重さ", urgentLabel: "急", sizeField: "大きさ", startField: "開始日", defaults: { 重さ: "並" } },
+  project: { owner: "o", number: 1, statusField: "状態", priorityField: "重さ", urgentLabel: "急", sizeField: "大きさ", startField: "開始日", unsetPriority: "並" },
   gate: "gate[bot]",
   urls: { gate: "https://gate.example", form: "https://form.example" },
   installation: 1,

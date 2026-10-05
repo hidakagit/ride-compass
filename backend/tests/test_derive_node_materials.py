@@ -1,4 +1,8 @@
-"""ノードに付く値（`batch/derive_node_materials.py`）の信号の近接判定と、流し直したときの値。"""
+"""ノードに付く値（`batch/derive_node_materials.py`）の信号の近接判定と、流し直したときの値。
+
+見ないもの: タグから種別・信号への読み替えの両側 → `test_tag_classification.py`。管理画面で変えた半径が
+この段へ渡ること → `test_derive_cli.py`。
+"""
 
 import asyncpg
 import pytest
