@@ -45,6 +45,26 @@ async def test_a_dropped_check_an_extra_check_and_a_loosened_column_are_each_rep
     assert loosened == "road_edges.reverse_bearing_deg: NULL許容が違う（実DB=NULL ORM=NOT NULL）"
 
 
+async def test_measures_while_an_ingest_holds_a_child_partition(road_graph_engine):
+    # 取込は子パーティションを空けて入れ直す間、排他ロックを持ち続ける。そのあいだに測ると
+    # 待ちきれずに落ち、差が無くてもデプロイが失敗で終わる。
+    partition = "source_features_schema_gap_probe"
+    async with road_graph_engine.begin() as conn:
+        await conn.execute(text(
+            f"CREATE TABLE {partition} PARTITION OF source_features FOR VALUES IN ('schema_gap_probe')"))
+    try:
+        async with road_graph_engine.connect() as ingest, road_graph_engine.connect() as conn:
+            await ingest.begin()
+            await ingest.execute(text(f"LOCK TABLE {partition} IN ACCESS EXCLUSIVE MODE"))
+            try:
+                await conn.run_sync(collect_gaps)
+            finally:
+                await ingest.rollback()
+    finally:
+        async with road_graph_engine.begin() as conn:
+            await conn.execute(text(f"DROP TABLE {partition}"))
+
+
 async def test_measuring_leaves_no_table_behind(road_graph_engine):
     async with road_graph_engine.connect() as conn:
         await conn.run_sync(collect_gaps)
