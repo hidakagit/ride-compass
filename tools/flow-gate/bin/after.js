@@ -18,7 +18,8 @@ const repo = code();
 const done = [];
 const note = (line) => (console.log(`${dry ? "（試し）" : ""}${line}`), done.push(line));
 const task = (await readTask(gh, config, { number: Number(number) })).issue;
-const step = settle(config, { messages, startOn: task?.fields[config.project.startField], labels: task?.labels.nodes.map((l) => l.name) ?? [], url, jobStatus });
+const step = settle(config, { messages, startOn: task?.fields[config.project.startField], labels: task?.labels.nodes.map((l) => l.name) ?? [],
+  blockers: (task?.blockedBy?.nodes ?? []).filter((b) => b.state !== "CLOSED").map((b) => b.number), url, jobStatus });
 
 if (step.pause) {
   const { pauseVariable: name, pauseMinutes } = config.coordinator;
