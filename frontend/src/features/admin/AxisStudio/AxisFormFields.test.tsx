@@ -1,38 +1,20 @@
 /**
- * `AxisFormFields.tsx`——軸スタジオの節が共有する入力部品: 材料の説明の口、見出しと説明、スライダーと数値欄の組。
+ * `AxisFormFields.tsx`——軸スタジオの節が共有する入力部品: 材料が選ばれていないときの説明の口と、スライダーと数値欄の組。
  *
  * ここで見ないもの:
+ * - 見出しと説明の口・材料の説明の口の中身（受け取った値を説明の部品へ詰め替えて渡すだけ） → 使う側の節
  * - 説明の開閉そのもの → `components/ui/InfoPopover`
- * - 数値欄の途中の文字の扱い → `components/ui/NumberInput`
+ * - 数値欄の途中の文字の扱いと、数値欄から渡す値 → `components/ui/NumberInput`
  */
 import { fireEvent, render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import { MaterialInfoButton, SectionLabel, SliderNumberField } from "./AxisFormFields";
+import { MaterialInfoButton, SliderNumberField } from "./AxisFormFields";
 
 describe("MaterialInfoButton", () => {
-  it("選んだ材料の説明を、材料の名前つきの口から開ける", async () => {
-    render(
-      <MaterialInfoButton
-        option={{ id: "m", label: "材料A - m", name: "材料A", description: "材料Aの説明", dtype: "numeric", unit: "" }}
-      />,
-    );
-    await userEvent.setup().click(screen.getByRole("button", { name: /材料A - mの説明/ }));
-    expect(await screen.findByText("材料Aの説明")).toBeInTheDocument();
-  });
-
   it("材料が選ばれていなければ、何も出さない", () => {
     const { container } = render(<MaterialInfoButton option={undefined} />);
     expect(container).toBeEmptyDOMElement();
-  });
-});
-
-describe("SectionLabel", () => {
-  it("見出しの横に説明の口を置く", () => {
-    render(<SectionLabel label="折れ点" description="説明文" />);
-    expect(screen.getByText("折れ点")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /折れ点の説明/ })).toBeInTheDocument();
   });
 });
 
@@ -51,15 +33,9 @@ describe("SliderNumberField", () => {
     expect(number).toHaveValue(25);
   });
 
-  it("スライダーでも数値欄でも、動かした値を渡す", async () => {
-    const { slider, number, onChange } = renderField(1);
-
+  it("スライダーで動かした値を数で渡す", () => {
+    const { slider, onChange } = renderField(1);
     fireEvent.change(slider, { target: { value: "-3.5" } });
     expect(onChange).toHaveBeenLastCalledWith(-3.5);
-
-    const user = userEvent.setup();
-    await user.clear(number);
-    await user.type(number, "12");
-    expect(onChange).toHaveBeenLastCalledWith(12);
   });
 });

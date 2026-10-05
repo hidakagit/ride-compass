@@ -1,74 +1,31 @@
 /**
  * `AxisScoringSection.tsx`——「点数の決め方」の節: 選んだもの（数値・真偽・種類の材料、ほかの軸）の型で下書きの形を
- * 組み替え、その形の入力欄だけを出すこと。
+ * 組み替え、その形の入力欄だけを出すこと。取れた分布・点数・材料の分位・値の候補を、どの欄へどう出すか。
  *
- * 材料・軸は性質だけを持つ架空のもの。値の候補は取得の応答（網の層）で与え、候補あり・
- * 空・出せなかったの3経路をこの節の中で見る。分布の取得（`useAxisValueDistribution`）は差し替えて、何を渡したかを見る。
- * 分布の表示・曲線エディタ・材料の分位の1行は子の部品で、ここでは何を渡したかだけを見る。
+ * 材料・軸は性質だけを持つ架空のもの。子の部品（分布の表示・曲線エディタ・材料の分位の1行）と取得のフックは本物を通し、
+ * backendの応答（網の層）だけを与える。点数の応答は、送られた参考点の値と分布の階級の代表値から決まる値を返す。
  *
  * ここで見ないもの:
  * - 折れ点の生成・補間・追加位置の計算 → `breakpointTools.test.ts`（期待値はそこの関数から引く）
  * - 下書きから送る形の組み立て → `axisDraft.test.ts`
  * - 保存前の検証 → `AxisComposer.test.tsx`
+ * - 子の部品の表示の決め方・取得の待ち方 → 子の部品とフックのテスト
+ * - 読むだけの問い合わせへ送ったか・何を送ったか（応答を与えるだけにする）
  */
 import { useState } from "react";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import type { AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
-import type { getMaterialValues } from "@/features/admin/adminApi";
-import { onSameOrigin } from "@/testing/backendServer";
+import type { getMaterialValues, ScoresPreviewRequest } from "@/features/admin/adminApi";
+import { heldReplies, onSameOrigin } from "@/testing/backendServer";
+import type { AxisShape } from "@/types/route";
 
-import { buildShape, emptyDraft, type Draft } from "./axisDraft";
+import { emptyDraft, type Draft } from "./axisDraft";
 import { generateBreakpoints, insertBreakpointAtLargestGap } from "./breakpointTools";
-
-const captured = vi.hoisted(() => ({
-  distributionArgs: [] as [boolean, string, () => unknown][],
-  distributionResult: { distribution: null, loading: false, error: null } as {
-    distribution: unknown;
-    loading: boolean;
-    error: string | null;
-  },
-  preview: null as Record<string, unknown> | null,
-  curve: null as Record<string, unknown> | null,
-  scoresRequest: null as unknown,
-  scoresPreview: null as { scores: number[]; material_points: { x: number; score: number }[] } | null,
-  scoresFailed: false,
-}));
-// 点数と参考点の横軸の値はbackendが返す（`useScoresPreview`）。ここでは決まった値を返させ、画面がそれを
-// そのまま使うことと、問い合わせに渡すものを見る。
-vi.mock("@/features/admin/useScoresPreview", () => ({
-  useScoresPreview: (request: unknown) => {
-    captured.scoresRequest = request;
-    return { preview: captured.scoresPreview, failed: captured.scoresFailed };
-  },
-}));
-vi.mock("@/features/admin/useAxisValueDistribution", () => ({
-  useAxisValueDistribution: (enabled: boolean, key: string, shape: () => unknown) => {
-    captured.distributionArgs.push([enabled, key, shape]);
-    return captured.distributionResult;
-  },
-}));
-vi.mock("./DistributionPreview", () => ({
-  DistributionPreview: (props: Record<string, unknown>) => {
-    captured.preview = props;
-    return null;
-  },
-}));
-vi.mock("./BreakpointCurveEditor", () => ({
-  BreakpointCurveEditor: (props: Record<string, unknown>) => {
-    captured.curve = props;
-    return null;
-  },
-}));
-vi.mock("./MaterialRangeHint", () => ({
-  MaterialRangeHint: ({ materialId, unit }: { materialId: string; unit?: string }) => (
-    <p data-testid="range-hint">{`${materialId}:${unit ?? ""}`}</p>
-  ),
-}));
-
 import { AxisScoringSection } from "./AxisScoringSection";
+import { scoreBands, type ValueDistribution } from "./scoreDistribution";
 
 function option(overrides: Partial<AxisMaterialOption> & Pick<AxisMaterialOption, "id" | "dtype">): AxisMaterialOption {
   return { label: overrides.id, name: overrides.id, description: `${overrides.id}の説明文`, unit: "", ...overrides };
@@ -89,16 +46,19 @@ const CAT = option({ id: "cat_a", dtype: "categorical" });
 const MATERIALS = [NUM, NUM_PLAIN, BOOL, CAT];
 const AXIS = option({ id: "axis_other", dtype: "numeric" });
 
-/** 参考点ごとにbackendが返す横軸の値と点数（参考点の並びどおり）。 */
-const REFERENCE_POINTS = [
-  { x: 10, score: 12.5 },
-  { x: 60, score: 87.5 },
-];
+const PREVIEW_DISTRIBUTION = "/admin/api/axis-definitions/preview-distribution";
+const PREVIEW_SCORES = "/admin/api/axis-definitions/preview-scores";
 
-beforeEach(() => {
-  captured.scoresPreview = { scores: [], material_points: REFERENCE_POINTS };
-  captured.scoresFailed = false;
-});
+/** 送られた形の分布。1階級だけを持ち、抽選の本数で下ごしらえを見分けられるようにする。 */
+function distributionOf(shape: AxisShape): ValueDistribution {
+  const sampleWays = "preprocess" in shape && shape.preprocess === "abs" ? 222 : 111;
+  return { sample_ways: sampleWays, total_km: 1, quantiles: {}, bins: [[0, 2, 1]], zero_share: 0 };
+}
+
+/** 参考点の値ごとにbackendが返す横軸の値と点数。 */
+const pointOf = (value: number) => ({ x: value * 2, score: value + 0.5 });
+/** 分布の階級の代表値ごとにbackendが返す点数。 */
+const binScoreOf = (x: number) => x * 40;
 
 function Harness({ initial, axes }: { initial: Draft; axes: readonly AxisMaterialOption[] }) {
   const [draft, setDraft] = useState(initial);
@@ -134,6 +94,7 @@ function draft(): Draft {
 }
 
 const primarySelect = () => screen.getByRole("combobox", { name: "点数のもとになるもの" });
+const effectRegion = () => screen.getByRole("region", { name: "折れ点の効き方" });
 
 type MaterialValuesResponse = Awaited<ReturnType<typeof getMaterialValues>>;
 
@@ -148,32 +109,52 @@ function serveValues(materialId: string, response: MaterialValuesResponse) {
   );
 }
 
-/** 値の候補の応答が届くだけの間をおく。 */
+/** 取得の応答が届くだけの間をおく。 */
 const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+
+/** 点数は、分布が届いて階級の代表値が決まると、入力が落ち着くのを待って取り直す。その答えが届くまで待つ。 */
+const LATER = { timeout: 2000 };
+const scoresArrived = () => within(effectRegion()).findByText("100.0%", undefined, LATER);
 
 beforeEach(() => {
   serveValues("", valuesResponse([]));
-  captured.distributionArgs = [];
-  captured.distributionResult = { distribution: null, loading: false, error: null };
-  captured.preview = null;
-  captured.curve = null;
+  onSameOrigin("POST", PREVIEW_DISTRIBUTION, ({ body }) =>
+    Response.json(distributionOf((body as { shape: AxisShape }).shape)),
+  );
+  onSameOrigin("POST", PREVIEW_SCORES, ({ body }) => {
+    const { xs, material_values } = body as Required<ScoresPreviewRequest>;
+    return Response.json({ scores: xs.map(binScoreOf), material_points: material_values.map(pointOf) });
+  });
+  // 材料の分位の中央値に、材料の並びの番号を返す（どの材料の分位かを画面で見分けるため）。
+  onSameOrigin("GET", "/admin/api/material-catalog/:materialId/distribution", ({ path }) =>
+    Response.json({
+      available: true,
+      sample_ways: 1,
+      total_km: 1,
+      quantiles: { p50: MATERIALS.findIndex((m) => path.includes(`/${m.id}/`)) },
+      bins: [],
+      zero_share: 0,
+    }),
+  );
 });
 
 describe("点数のもとになるもの", () => {
-  it("材料を数値と、はい/いいえ・種類に分け、ほかの軸があればその群も置く", () => {
-    renderSection(linearDraft());
-    const groups = Object.fromEntries(
-      Array.from(primarySelect().querySelectorAll("optgroup")).map((group) => [
-        group.label,
-        Array.from(group.querySelectorAll("option")).map((o) => o.value),
-      ]),
+  it.each([
+    ["ほかの軸があれば、その群も置く", [AXIS], [[NUM.id, NUM_PLAIN.id], [BOOL.id, CAT.id], [AXIS.id]]],
+    [
+      "ほかの軸が無ければ、その群を置かない",
+      [],
+      [
+        [NUM.id, NUM_PLAIN.id],
+        [BOOL.id, CAT.id],
+      ],
+    ],
+  ])("材料を数値と、はい/いいえ・種類に分け、%s", (_case, axes, groups) => {
+    renderSection(linearDraft(), axes);
+    const options = Array.from(primarySelect().querySelectorAll("optgroup")).map((group) =>
+      Array.from(group.querySelectorAll("option")).map((o) => o.value),
     );
-    expect(Object.values(groups)).toEqual([[NUM.id, NUM_PLAIN.id], [BOOL.id, CAT.id], [AXIS.id]]);
-  });
-
-  it("ほかの軸が無ければ、その群を置かない", () => {
-    renderSection(linearDraft(), []);
-    expect(primarySelect().querySelectorAll("optgroup")).toHaveLength(2);
+    expect(options).toEqual(groups);
   });
 
   it("選んでいるものは、折れ線なら最初の項の材料、はい/いいえ・種類なら点数の材料", () => {
@@ -195,44 +176,33 @@ describe("点数のもとになるもの", () => {
     });
   });
 
-  it("真偽の材料を選ぶと、はい/いいえの点数の形にし、値ごとの行には触れない", async () => {
-    const user = renderSection(linearDraft());
-    await user.selectOptions(primarySelect(), BOOL.id);
-    expect(draft()).toMatchObject({ shapeKind: "categorical", categoricalMaterial: BOOL.id, categoricalRows: [] });
+  it.each([
+    ["真偽の材料を選ぶと、値ごとの行には触れない", BOOL, [], []],
+    ["種類の材料を選ぶと、値ごとの行が無ければ空の行を1つ用意する", CAT, [], [{ value: "", score: 0 }]],
+    ["種類の材料を選んだとき、値ごとの行が既にあれば残す", CAT, [{ value: "a", score: 5 }], [{ value: "a", score: 5 }]],
+  ])("%s", async (_case, material, rows, expected) => {
+    const user = renderSection(linearDraft({ categoricalRows: rows }));
+    await user.selectOptions(primarySelect(), material.id);
+    expect(draft()).toMatchObject({
+      shapeKind: "categorical",
+      categoricalMaterial: material.id,
+      categoricalRows: expected,
+    });
   });
 
-  it("種類の材料を選ぶと、値ごとの行が無ければ空の行を1つ用意する", async () => {
-    const user = renderSection(linearDraft());
-    await user.selectOptions(primarySelect(), CAT.id);
-    expect(draft()).toMatchObject({ shapeKind: "categorical", categoricalMaterial: CAT.id });
-    expect(draft().categoricalRows).toEqual([{ value: "", score: 0 }]);
-  });
-
-  it("種類の材料を選んだとき、値ごとの行が既にあれば残す", async () => {
-    const user = renderSection(linearDraft({ categoricalRows: [{ value: "a", score: 5 }] }));
-    await user.selectOptions(primarySelect(), CAT.id);
-    expect(draft().categoricalRows).toEqual([{ value: "a", score: 5 }]);
-  });
-
-  it("折れ線のまま別の数値材料を選ぶと、材料だけを入れ替え、係数と折れ点は保つ", async () => {
+  it("折れ線のまま別の数値材料を選ぶと、先頭の項の材料だけを入れ替え、係数と折れ点は保つ", async () => {
+    const terms = [
+      { material: NUM.id, weight: 2, required: false },
+      { material: BOOL.id, weight: 3, required: false },
+    ];
     const breakpoints: [number, number][] = [
       [3, 10],
       [7, 90],
     ];
-    const user = renderSection(linearDraft({ terms: [{ material: NUM.id, weight: 2, required: false }], breakpoints }));
-    await user.selectOptions(primarySelect(), NUM_PLAIN.id);
-    expect(draft().terms).toEqual([{ material: NUM_PLAIN.id, weight: 2, required: false }]);
-    expect(draft().breakpoints).toEqual(breakpoints);
-  });
-
-  it("項が2つある折れ線で数値材料を選ぶと、先頭の項の材料だけを入れ替える", async () => {
-    const terms = [
-      { material: NUM.id, weight: 1, required: true },
-      { material: BOOL.id, weight: 3, required: false },
-    ];
-    const user = renderSection(linearDraft({ terms }));
+    const user = renderSection(linearDraft({ terms, breakpoints }));
     await user.selectOptions(primarySelect(), NUM_PLAIN.id);
     expect(draft().terms).toEqual([{ ...terms[0], material: NUM_PLAIN.id }, terms[1]]);
+    expect(draft().breakpoints).toEqual(breakpoints);
   });
 
   it("ほかの形から数値材料を選ぶと、その材料1つの折れ線にし、折れ点は既定へ戻す", async () => {
@@ -256,29 +226,24 @@ describe("折れ線の形", () => {
     expect(draft().terms[0].required).toBe(false);
   });
 
-  it("単一の数値材料・係数1なら、項の行を出さない（係数は0点・100点の値へ吸収される）", () => {
-    renderSection(linearDraft());
-    expect(screen.queryByRole("slider", { name: "係数(スライダー)" })).not.toBeInTheDocument();
-  });
-
   it.each([
-    ["係数が1でない", { terms: [{ material: NUM.id, weight: 2, required: true }] }],
-    ["真偽の材料を足し合わせる", { terms: [{ material: BOOL.id, weight: 1, required: true }] }],
+    ["単一の数値材料・係数1なら出さない（係数は0点・100点の値へ吸収される）", [{ material: NUM.id, weight: 1 }], []],
+    ["係数が1でなければ出す", [{ material: NUM.id, weight: 2 }], ["p50=0 (km/h)"]],
+    ["真偽の材料を足し合わせるなら出す", [{ material: BOOL.id, weight: 1 }], ["p50=2"]],
     [
-      "項が2つ以上ある",
-      {
-        terms: [
-          { material: NUM.id, weight: 1, required: true },
-          { material: NUM_PLAIN.id, weight: 1, required: true },
-        ],
-      },
+      "項が2つ以上あれば出す",
+      [
+        { material: NUM.id, weight: 1 },
+        { material: NUM_PLAIN.id, weight: 1 },
+      ],
+      ["p50=0 (km/h)", "p50=1"],
     ],
-  ])("%sなら、項ごとの行（材料・係数・必須・削除・分位）を出す", (_case, overrides) => {
-    renderSection(linearDraft(overrides as Partial<Draft>));
-    const draftTerms = (overrides as Partial<Draft>).terms!;
-    expect(screen.getAllByRole("slider", { name: "係数(スライダー)" })).toHaveLength(draftTerms.length);
-    expect(screen.getAllByTestId("range-hint").map((hint) => hint.textContent)).toEqual(
-      draftTerms.map((term) => `${term.material}:${MATERIALS.find((m) => m.id === term.material)!.unit}`),
+  ])("項ごとの行（材料・係数・必須・削除・材料の分位）は、%s", async (_case, terms, ranges) => {
+    renderSection(linearDraft({ terms: terms.map((term) => ({ ...term, required: true })) }));
+    await settle();
+    expect(screen.queryAllByRole("slider", { name: "係数(スライダー)" })).toHaveLength(ranges.length);
+    expect(screen.queryAllByText(/^実データ/).map((hint) => hint.textContent)).toEqual(
+      ranges.map((range) => `実データ: ${range}`),
     );
   });
 
@@ -327,7 +292,8 @@ describe("折れ線の形", () => {
     );
     await user.click(screen.getByRole("button", { name: "+ 軸を足して合計する" }));
     expect(draft().terms.at(-1)).toEqual({ material: AXIS.id, weight: 1, required: false });
-    expect(screen.queryByTestId("range-hint")).not.toBeInTheDocument();
+    await settle();
+    expect(screen.queryByText(/^実データ/)).not.toBeInTheDocument();
   });
 
   it("組み合わせられる軸が無ければ、そう言い、軸を足す口を押せない", () => {
@@ -388,22 +354,38 @@ describe("0点・100点・効き方", () => {
 
   it("材料に参考点があれば、押すと0点・2回押すと100点へ、backendが返した横軸の値で入れる", async () => {
     const user = renderSection(linearDraft());
-    const group = screen.getByRole("group", { name: "参考点から値を選ぶ" });
-    const downhill = within(group).getByRole("button", { name: "下り" });
-    expect(downhill).toHaveAttribute("title", "下り: -5km/h");
+    // 入れると折れ点が変わり、点数を取り直す間は参考点のボタンが消えるので、押すたびに探す。
+    const referenceButton = async (name: string) =>
+      within(await screen.findByRole("group", { name: "参考点から値を選ぶ" }, LATER)).getByRole("button", { name });
+    expect(await referenceButton("下り")).toHaveAttribute("title", "下り: -5km/h");
 
-    await user.click(within(group).getByRole("button", { name: "平坦" }));
-    expect(screen.getByRole("spinbutton", { name: "0点にする値" })).toHaveValue(REFERENCE_POINTS[1].x);
+    await user.click(await referenceButton("平坦"));
+    expect(screen.getByRole("spinbutton", { name: "0点にする値" })).toHaveValue(pointOf(30).x);
 
-    await user.dblClick(downhill);
-    expect(screen.getByRole("spinbutton", { name: "100点にする値" })).toHaveValue(REFERENCE_POINTS[0].x);
+    fireEvent.doubleClick(await referenceButton("下り"));
+    expect(screen.getByRole("spinbutton", { name: "100点にする値" })).toHaveValue(pointOf(-5).x);
   });
 
-  it("点数が届くまでは、参考点のボタンと効き目の表を出さない", () => {
-    captured.scoresPreview = null;
+  it("参考点のボタンと効き目の表は、点数が届くまで出さず、届くと参考点ごとに値と、backendが返した点数を出す", async () => {
+    const held = heldReplies();
+    onSameOrigin("POST", PREVIEW_SCORES, held.reply);
     renderSection(linearDraft());
+    await within(effectRegion()).findByText(/111本/);
     expect(screen.queryByRole("group", { name: "参考点から値を選ぶ" })).not.toBeInTheDocument();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
+
+    // 分布が届いて階級の代表値が決まった後の問い合わせに応える。
+    await held.answer(1, Response.json({ scores: [binScoreOf(1)], material_points: [-5, 30].map(pointOf) }));
+    const rows = within(await screen.findByRole("table"))
+      .getAllByRole("row")
+      .slice(1);
+    expect(
+      rows.map((row) =>
+        within(row)
+          .getAllByRole("cell")
+          .map((cell) => cell.textContent),
+      ),
+    ).toEqual(NUM.referencePoints!.map((p) => [p.label, `${p.value}km/h`, String(pointOf(p.value).score)]));
   });
 
   it.each([
@@ -417,116 +399,59 @@ describe("0点・100点・効き方", () => {
         ],
       }),
     ],
-  ])("%sなら、参考点のボタンと効き目の表を出さない", (_case, initial) => {
+  ])("%sなら、参考点のボタンと効き目の表を出さない", async (_case, initial) => {
     renderSection(initial);
+    await scoresArrived();
     expect(screen.queryByRole("group", { name: "参考点から値を選ぶ" })).not.toBeInTheDocument();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
-  });
-
-  it("効き目の表は、参考点ごとに値と、backendが返した点数を出す", () => {
-    renderSection(linearDraft());
-
-    const rows = within(screen.getByRole("table")).getAllByRole("row").slice(1);
-    expect(
-      rows.map((row) =>
-        within(row)
-          .getAllByRole("cell")
-          .map((cell) => cell.textContent),
-      ),
-    ).toEqual(NUM.referencePoints!.map((p, i) => [p.label, `${p.value}km/h`, String(REFERENCE_POINTS[i].score)]));
-  });
-
-  it("点数の問い合わせには、今の形・分布の階級の代表値・参考点の値を渡し、折れ線でなければ問い合わせない", () => {
-    captured.distributionResult = {
-      distribution: { sample_ways: 1, total_km: 1, quantiles: {}, bins: [[0, 2, 1]], zero_share: 0 },
-      loading: false,
-      error: null,
-    };
-    const { unmount } = render(<Harness initial={linearDraft()} axes={[]} />);
-    expect(captured.scoresRequest).toEqual({
-      shape: buildShape(draft(), MATERIALS),
-      xs: [1],
-      material_values: NUM.referencePoints!.map((p) => p.value),
-    });
-    unmount();
-    captured.distributionResult = { distribution: null, loading: false, error: null };
-
-    renderSection(categoricalDraft(BOOL.id));
-    expect(captured.scoresRequest).toBeNull();
   });
 });
 
 describe("分布と折れ点の直接編集", () => {
-  it("分布の取得には、折れ線のときだけ、材料・係数・必須・下ごしらえで決まる鍵を渡し、今の形を送る", async () => {
-    const user = renderSection(linearDraft());
-    const [enabled, key, shape] = captured.distributionArgs.at(-1)!;
-    expect(enabled).toBe(true);
-    expect(key).not.toBe("");
-    expect(shape()).toEqual(buildShape(draft(), MATERIALS));
+  it("分布の表示は、取れるまで集計中で、取れたら分布と、backendが返した階級ごとの点数の帯を出す", async () => {
+    const held = heldReplies();
+    onSameOrigin("POST", PREVIEW_DISTRIBUTION, held.reply);
+    renderSection(linearDraft());
+    expect(effectRegion()).toHaveTextContent("実データを集計中");
 
-    await user.selectOptions(screen.getByRole("combobox", { name: "効き方" }), "s_curve");
-    expect(captured.distributionArgs.at(-1)![1]).toBe(key);
+    const distribution = distributionOf({
+      kind: "breakpoint_linear",
+      terms: [],
+      preprocess: "identity",
+      breakpoints: [],
+    });
+    await held.answer(0, Response.json(distribution));
+    const full = scoreBands(distribution, [binScoreOf(1)])!.find((band) => band.share === 1)!;
+    expect((await scoresArrived()).parentElement).toHaveTextContent(full.label);
+    expect(effectRegion()).toHaveTextContent("111本");
+  });
+
+  it("下ごしらえを変えると、分布をそのときの形で取り直す", async () => {
+    const user = renderSection(linearDraft());
+    expect(await within(effectRegion()).findByText(/111本/)).toBeInTheDocument();
 
     await user.click(screen.getByRole("checkbox", { name: "マイナス側も同じ強さとして扱う" }));
-    expect(captured.distributionArgs.at(-1)![1]).not.toBe(key);
+    expect(await within(effectRegion()).findByText(/222本/, undefined, LATER)).toBeInTheDocument();
   });
 
   it.each([
-    ["はい/いいえ", categoricalDraft(BOOL.id)],
-    ["ほかの軸を組み合わせる", linearDraft({ shapeKind: "recipe_then_breakpoint_linear", terms: [] })],
-  ])("%sの形では、分布を取りに行かない", (_case, initial) => {
-    renderSection(initial);
-    expect(captured.distributionArgs.at(-1)!.slice(0, 2)).toEqual([false, ""]);
-  });
-
-  it("分布の表示へ、取得の結果と、backendが返した階級ごとの点数を渡す", () => {
-    captured.distributionResult = { distribution: { sample_ways: 1 }, loading: true, error: "e" };
-    captured.scoresPreview = { scores: [40, 60], material_points: [] };
+    ["分布", PREVIEW_DISTRIBUTION, "分布の取得: 500"],
+    ["点数", PREVIEW_SCORES, "この折れ点での点数を取得できませんでした。"],
+  ])("%sを取れなかったら、分布の表示にそう出す", async (_case, path, message) => {
+    onSameOrigin("POST", path, () => Response.json({ detail: "分布の取得: 500" }, { status: 500 }));
     renderSection(linearDraft());
-    expect(captured.preview).toEqual({
-      distribution: { sample_ways: 1 },
-      loading: true,
-      error: "e",
-      binScores: [40, 60],
-      scoresFailed: false,
-    });
+    expect(await within(effectRegion()).findByText(message, undefined, LATER)).toBeInTheDocument();
   });
 
-  it("点数の取得に失敗したら、点数の無いことと失敗したことを分布の表示へ渡す", () => {
-    captured.scoresPreview = null;
-    captured.scoresFailed = true;
-    renderSection(linearDraft());
-    expect(captured.preview).toMatchObject({ binScores: null, scoresFailed: true });
-  });
-
-  it("曲線エディタの横軸は、backendが返した参考点の横軸の値の範囲で固定し、参考点が無ければ固定しない", () => {
-    const { unmount } = render(<Harness initial={linearDraft()} axes={[]} />);
-    expect(captured.curve!.referenceRange).toEqual({ min: REFERENCE_POINTS[0].x, max: REFERENCE_POINTS[1].x });
-    unmount();
-
-    render(
-      <Harness initial={linearDraft({ terms: [{ material: NUM_PLAIN.id, weight: 1, required: true }] })} axes={[]} />,
-    );
-    expect(captured.curve!.referenceRange).toBeUndefined();
-  });
-
-  it("曲線エディタで動かした点を、その折れ点の横軸・スコアへ入れる", async () => {
-    renderSection(
-      linearDraft({
-        breakpoints: [
-          [0, 0],
-          [10, 100],
-        ],
-      }),
-    );
-    type OnChangePoint = (index: number, pos: 0 | 1, value: number) => void;
-    act(() => (captured.curve!.onChangePoint as OnChangePoint)(1, 0, 12));
-    expect(draft().breakpoints).toEqual([
-      [0, 0],
-      [12, 100],
-    ]);
-    act(() => (captured.curve!.onChangePoint as OnChangePoint)(0, 1, 5));
-    expect(draft().breakpoints[0]).toEqual([0, 5]);
+  it.each([
+    ["参考点のある材料なら、横軸をbackendが返した参考点の横軸の値の範囲で固定する", NUM, true],
+    ["参考点の無い材料なら、横軸を固定しない", NUM_PLAIN, false],
+  ])("曲線エディタは、%s", async (_case, material, fixed) => {
+    const user = renderSection(linearDraft({ terms: [{ material: material.id, weight: 1, required: true }] }));
+    await scoresArrived();
+    await user.click(screen.getByText("折れ点を直接いじる"));
+    const ticks = Array.from(screen.getByRole("img").querySelectorAll("g > text")).map((text) => text.textContent);
+    expect(ticks.includes(String(pointOf(30).x))).toBe(fixed);
   });
 
   it("折れ点の行で入力値・スコアを直せ、2点のときは削除できず、追加は最も広い間隔の中点へ入る", async () => {
@@ -615,27 +540,24 @@ describe("はい/いいえ・種類の形", () => {
     expect(draft().categoricalRows[1].value).toBe("primary");
   });
 
-  it("種類の材料で候補が0件なら、値を自由に打てる", async () => {
-    const user = renderSection(categoricalDraft(CAT.id, { categoricalRows: [{ value: "", score: 0 }] }));
-    await settle();
+  it.each([
+    ["候補が0件", valuesResponse([]), false],
+    ["候補を出せなかった", valuesResponse([], false), true],
+  ])(
+    "種類の材料で%sなら、値を自由に打て、出せなかったときだけ説明にその理由を出す",
+    async (_case, response, reason) => {
+      serveValues(CAT.id, response);
+      const user = renderSection(categoricalDraft(CAT.id, { categoricalRows: [{ value: "", score: 0 }] }));
+      await settle();
 
-    const value = screen.getByRole("textbox", { name: "値" });
-    expect(value).not.toHaveAttribute("readonly");
-    await user.type(value, "separated");
-    expect(draft().categoricalRows[0].value).toBe("separated");
-    expect(screen.queryByRole("combobox", { name: "値の候補" })).not.toBeInTheDocument();
-  });
-
-  it("種類の材料で候補を出せなかったら、値を自由に打て、説明にその理由を出す", async () => {
-    serveValues(CAT.id, valuesResponse([], false));
-    const user = renderSection(categoricalDraft(CAT.id, { categoricalRows: [{ value: "", score: 0 }] }));
-    await settle();
-
-    await user.type(screen.getByRole("textbox", { name: "値" }), "x");
-    expect(draft().categoricalRows[0].value).toBe("x");
-    await user.click(screen.getByRole("button", { name: /値ごとのスコアの説明/ }));
-    expect(await screen.findByText(/候補を取得できませんでした/)).toBeInTheDocument();
-  });
+      await user.type(screen.getByRole("textbox", { name: "値" }), "separated");
+      expect(draft().categoricalRows[0].value).toBe("separated");
+      expect(screen.queryByRole("combobox", { name: "値の候補" })).not.toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: /値ごとのスコアの説明/ }));
+      expect(await screen.findByText(/タグ値と完全に一致する文字列/)).toBeInTheDocument();
+      expect(screen.queryByText(/候補を取得できませんでした/) !== null).toBe(reason);
+    },
+  );
 
   it("値ごとの行の点数を変えられ、行を足せ、1行のときは削除できない", async () => {
     const user = renderSection(categoricalDraft(CAT.id, { categoricalRows: [{ value: "a", score: 0 }] }));

@@ -101,7 +101,6 @@ describe("取得", () => {
 
     expect(result.current).toEqual({ distribution: null, loading: true, error: null });
 
-    serveDistributions();
     await held.answer(0, Response.json(DIST_A));
     await advance();
 
