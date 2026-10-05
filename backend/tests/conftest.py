@@ -31,6 +31,7 @@ from app.infrastructure.road_graph_repository import (
 )
 from app.config import settings
 from app.services import derived_data_revision_service
+from scripts.schema_gap import collect_gaps
 from tests.admin_auth import ADMIN_PASSWORD, ADMIN_USERNAME
 
 # hypothesisは1例ごとに壁時計の締め切り（既定200ms）を持ち、超えると落とす。共有のランナーでは同じ例の所要時間が
@@ -223,12 +224,12 @@ TEMPLATE_TEST_DATABASE = "ridecompass_test_template"
 #: 42P04（duplicate_database）ではなく23505（unique_violation、pg_databaseの一意索引違反）を
 #: 返すことがある。**片方だけを捕まえると、並行実行のときだけ退避してしまう。**
 ALREADY_CREATED = (asyncpg.DuplicateDatabaseError, asyncpg.UniqueViolationError)
-#: 拡張が持ち込んだ表（`spatial_ref_sys`等）以外の、アプリ側の表。落とす対象を名前で
+#: 拡張が持ち込んだ表（`spatial_ref_sys`等）以外の、アプリ側の表（パーティションの親を含む）。落とす対象を名前で
 #: 並べずに依存関係から導く（表が増えてもこの問い合わせは追従する）。
 APP_TABLES_SQL = """
 SELECT c.relname FROM pg_class c
 JOIN pg_namespace n ON n.oid = c.relnamespace
-WHERE n.nspname = 'public' AND c.relkind = 'r'
+WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')
   AND NOT EXISTS (
     SELECT 1 FROM pg_depend d JOIN pg_extension e ON e.oid = d.refobjid
     WHERE d.objid = c.oid AND d.deptype = 'e')
@@ -386,6 +387,13 @@ async def road_graph_engine():
         except Exception:  # noqa: BLE001
             pass
     await create_tables(engine)
+    # create_tables()は在る表を直さないので、前の実行が宣言と違う形で残した表（表を入れ替える実装を壊して回した・
+    # ORMの宣言を一時に壊して回した）のまま走ってしまう。宣言と差があれば、表を消して今の宣言から作り直す。
+    async with engine.connect() as conn:
+        gaps = await conn.run_sync(collect_gaps)
+    if gaps:
+        await _clear_app_tables(postgis_database_url())
+        await create_tables(engine)
     # 前の実行が片付けの前に殺されると（時間切れ・中断）、その行がDBに残る。残った行は
     # 次の実行で最初に走るテストだけを落とし、そのテストの片付けで消える——単独で回すと
     # 通る失敗になる。ファイルの最初に消しておけば、どの実行も空から始まる。

@@ -1008,6 +1008,9 @@ PYTHONUTF8=1 backend/.venv/Scripts/python.exe -m pytest backend/tests/test_foo.p
 そこで`tests/conftest.py: postgis_database_url`が、チェックアウトの場所からDB名を導き
 （`ridecompass_test_<ディレクトリ名>_<パスのダイジェスト>`）、無ければ作る。同じ作業ツリー
 では同じDBを再利用するので、PostGIS拡張とテーブルの作成を毎回払わない。
+再利用する表が前の実行で宣言と違う形になっていれば（表を入れ替える実装・ORMの宣言を一時に壊して回した等）、ファイルごとの
+エンジンの準備（`tests/conftest.py: road_graph_engine`）が`scripts/schema_gap.py`で差を測り、表を消して今の宣言から作り直す。
+壊れ方の確かめ（上の「そのテストは要るか（3問を順に）」）で実装や宣言を戻したあとに、テストDBを手で戻さなくてよい。
 
 環境ごとに必要な作業（開発機で一度だけ付ける権限・拡張）と、作業ツリーを消したあとの残骸の片付けは付録にある。
 
