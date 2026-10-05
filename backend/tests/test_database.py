@@ -1,6 +1,6 @@
 """`infrastructure/database.py`——PostGISへの接続の口（2系統のセッションファクトリ）と、DB障害として捕まえる例外。
 
-エンジンはプロセス大域に1つずつ作られるので、テストごとに作る前の状態から始め、作ったエンジンを閉じる。
+エンジンはプロセス大域に1つずつ作られるので、テストごとに閉じる口（`dispose_engines`）で作る前の状態に戻してから始め、同じ口で閉じる。
 接続先は`config.py: settings`の`database_url`を差し替えて与える（DBへは届かない宛先にする）。
 
 ここで見ないもの:
@@ -24,12 +24,9 @@ FACTORIES = [database.get_session_factory, database.get_route_generation_session
 @pytest.fixture
 async def unreachable_database(monkeypatch):
     monkeypatch.setattr(settings, "database_url", UNREACHABLE_DATABASE_URL)
-    for name in ("session_factory", "route_generation_session_factory"):
-        monkeypatch.setattr(database, name, None)
+    await database.dispose_engines()
     yield
-    for factory in (database.session_factory, database.route_generation_session_factory):
-        if factory is not None:
-            await factory.kw["bind"].dispose()
+    await database.dispose_engines()
 
 
 @pytest.mark.usefixtures("unreachable_database")

@@ -18,9 +18,10 @@ from app.config import settings
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
 from app.infrastructure.database import get_session_factory
 from app.infrastructure.debug_control import install_ring_buffer_handler
-from app.infrastructure.http_client import close_all_http_clients, get_http_client
+from app.infrastructure.http_client import get_http_client
 from app.infrastructure import road_network_store
 from app.infrastructure.msm_client import refresh as refresh_msm
+from app.infrastructure.process_resources import close_process_resources
 from app.infrastructure.request_log import (
     format_log_lines,
     request_log_middleware,
@@ -159,7 +160,7 @@ async def lifespan(app: FastAPI):
     yield
     # 先に定期ジョブを止める。逆にすると、閉じたあとに走り出したジョブが閉じたクライアントで外部を呼ぶ。
     scheduler.shutdown(wait=False)
-    await close_all_http_clients()
+    await close_process_resources()
 
 
 app = FastAPI(title="RideCompass API", lifespan=lifespan)
