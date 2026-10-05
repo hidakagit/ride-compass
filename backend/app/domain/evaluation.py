@@ -67,7 +67,7 @@ def has_route_facing_raw_value(definition: AxisDefinition) -> bool:
     return not (set(definition.materials) & REQUEST_DYNAMIC_MATERIAL_IDS)
 
 
-def route_facing_raw_axis_ids(definitions: Mapping[str, AxisDefinition]) -> list[str]:
+def route_facing_raw_axis_ids(definitions: dict[str, AxisDefinition]) -> list[str]:
     """静的スコア行列が生値の列として持つ軸id（**並びも含めた唯一の定義元**）。"""
     return [
         axis_id
@@ -78,7 +78,7 @@ def route_facing_raw_axis_ids(definitions: Mapping[str, AxisDefinition]) -> list
     ]
 
 
-def _published_axis_leaf_material_ids(definitions: Mapping[str, AxisDefinition]) -> list[str]:
+def _published_axis_leaf_material_ids(definitions: dict[str, AxisDefinition]) -> list[str]:
     """公開軸を依存順に辿り、分解された葉の材料idを安定順で返す。
 
     下の2本（数値列とcategorical列）が同じ順序で列を組み立てるための土台。
@@ -93,7 +93,7 @@ def _published_axis_leaf_material_ids(definitions: Mapping[str, AxisDefinition])
     return list(seen)
 
 
-def route_facing_material_ids(definitions: Mapping[str, AxisDefinition]) -> list[str]:
+def route_facing_material_ids(definitions: dict[str, AxisDefinition]) -> list[str]:
     """内訳として経路へ運ぶ材料id（安定順）。
 
     単位が定まらない軸（合成軸・真偽値やカテゴリの材料を持つ軸）は`axis_raw_arrays`へ
@@ -125,7 +125,7 @@ def route_facing_material_ids(definitions: Mapping[str, AxisDefinition]) -> list
     return list(seen)
 
 
-def route_facing_categorical_material_ids(definitions: Mapping[str, AxisDefinition]) -> list[str]:
+def route_facing_categorical_material_ids(definitions: dict[str, AxisDefinition]) -> list[str]:
     """内訳として経路へ運ぶcategorical材料id（安定順）。
 
     `route_facing_material_ids`のcategorical版。数値行列には文字列を載せられないため、

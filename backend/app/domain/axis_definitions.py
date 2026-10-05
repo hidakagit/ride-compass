@@ -1069,7 +1069,7 @@ def _axes_python_value_columns(materials: Mapping[str, Sequence[object]], length
 
 
 def evaluate_axes_array(
-    materials: Mapping[str, MaterialColumn], definitions: Mapping[str, AxisDefinition]
+    materials: Mapping[str, MaterialColumn], definitions: dict[str, AxisDefinition]
 ) -> dict[str, np.ndarray]:
     """`definitions`の全軸を依存順（内部軸→公開軸）で評価し、軸id→得点の辞書を返す。
     評価した軸の得点は、後の軸の材料として読まれる（他の軸を材料にする軸）。
