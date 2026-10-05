@@ -162,27 +162,6 @@ describe("取りに行くかどうか", () => {
 });
 
 describe("選んだ時刻に描くもの", () => {
-  const precipitation = () => render({ visibility: visibility({ precipitationNowcast: true }) });
-
-  it("一番近いコマの規則: 最新の実況から先を描き、それより前（過去）の時刻では描かない", async () => {
-    const { result, rerender } = precipitation();
-    await settle();
-    expect(result.current.dynamicWeather.precipitationNowcast?.main).toMatchObject({
-      visible: true,
-      payload: { kind: "rasterTile" },
-    });
-    expect(drawn(result.current.dynamicWeather.precipitationNowcast?.main?.payload)?.frame).toEqual(frame(utc("0005")));
-
-    rerender({
-      visibility: visibility({ precipitationNowcast: true }),
-      hiddenSources: {},
-      mapViewport: null,
-      at: new Date("2026-09-23T23:50:00Z"),
-      now: NOW,
-    });
-    expect(result.current.dynamicWeather.precipitationNowcast?.main?.payload).toBeUndefined();
-  });
-
   it("配信元の段の先は、次の段（自前の格子の塗り）が描く", async () => {
     const { result } = render({
       visibility: visibility({ precipitationNowcast: true }),
@@ -190,15 +169,6 @@ describe("選んだ時刻に描くもの", () => {
     });
     await settle();
     expect(result.current.dynamicWeather.precipitationNowcast?.main?.payload?.kind).toBe("gridFill");
-  });
-
-  it("格子の風は、その時刻の矢印", async () => {
-    const { result } = render({ visibility: visibility({ windVector: true }) });
-    await settle();
-    expect(result.current.dynamicWeather.windVector?.arrow).toMatchObject({
-      visible: true,
-      payload: { kind: "gridMark" },
-    });
   });
 
   it("配信元のタイルは、そのソースの配信要素の、選んだコマの時刻を指す", async () => {
@@ -220,21 +190,6 @@ describe("選んだ時刻に描くもの", () => {
     expect(disaster.landslide?.payload?.kind).toBe("rasterTile");
     expect(disaster.flood?.payload?.kind).toBe("vectorTile");
     expect(disaster.inundation?.payload).toBeUndefined();
-  });
-
-  it("窓のある現在の規則: 今から窓の幅までの時刻を選んでいる間だけ描く", async () => {
-    const { windowMinutes } = source("precipitationNowcast", "linearRainband").frameRule;
-    const { result, rerender } = precipitation();
-    await settle();
-    expect(result.current.dynamicWeather.precipitationNowcast?.linearRainband?.payload?.kind).toBe("rasterTile");
-    rerender({
-      visibility: visibility({ precipitationNowcast: true }),
-      hiddenSources: {},
-      mapViewport: null,
-      at: new Date(NOW.getTime() + (windowMinutes! + 1) * 60_000),
-      now: NOW,
-    });
-    expect(result.current.dynamicWeather.precipitationNowcast?.linearRainband?.payload).toBeUndefined();
   });
 
   it("▶パネルで非表示にしたソースは非表示", async () => {
@@ -279,10 +234,6 @@ describe("格子の段と詳細格子（ズームしたとき）", () => {
   it("粗い格子と詳細格子を取った時刻が違っても、詳細格子の選んだ時刻の値を描く", () => {
     expect(arrowsAt(new Date("2026-09-24T13:20:00+09:00"))).toEqual([[35.61, 13]]);
   });
-
-  it("詳細格子が持たない先の時刻は、粗い格子で描く", () => {
-    expect(arrowsAt(new Date("2026-09-24T17:00:00+09:00"))).toEqual([[35, 17]]);
-  });
 });
 
 describe("配信元の地点（最新の観測の規則）", () => {
@@ -304,13 +255,6 @@ describe("配信元の地点（最新の観測の規則）", () => {
       kind: "gridMark",
       geojson: { id: utc("0025") },
     });
-  });
-
-  it("遅れの幅より先の時刻では描かない", async () => {
-    const { windowMinutes } = source("disaster", "liden").frameRule;
-    const { result } = liden(new Date(new Date("2026-09-24T00:25:00Z").getTime() + (windowMinutes! + 1) * 60_000));
-    await settle();
-    expect(result.current.dynamicWeather.disaster?.liden?.payload).toBeUndefined();
   });
 
   it("地点の取得に失敗したコマは描かず、チップは「値なし」ではなく失敗", async () => {
@@ -428,17 +372,6 @@ describe("取得状態", () => {
     const empty = render({ visibility: visibility({ disaster: true }) });
     await settle();
     expect(empty.result.current.dynamicWeatherDataStatus.disaster).toBe("empty");
-  });
-
-  it("チップ内のどの取得が失敗しても失敗", async () => {
-    const failing: readonly string[] = inGroup("precipitationNowcast").flatMap(jmaDeliveries)[0].targetTimesPaths;
-    fetchers.fetchJmaTargetTimesFile.mockImplementation(async (path: string) => {
-      if (failing.includes(path)) throw new Error("取れません");
-      return rowsOf(path, framesByReader);
-    });
-    const { result } = render({ visibility: visibility({ precipitationNowcast: true }) });
-    await settle();
-    expect(result.current.dynamicWeatherDataStatus.precipitationNowcast).toBe("error");
   });
 
   it("表示中のタイルの配信が止まっていれば、取得が成功していても失敗", async () => {

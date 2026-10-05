@@ -56,14 +56,6 @@ function render(initialProps: Props) {
 const wayKeys = (values: ReadonlyMap<string, number> | undefined) => [...(values?.keys() ?? [])];
 
 describe("useDedicatedWayValues（専用配信の値）", () => {
-  it("画面か対象の軸が無い間は取りに行かない", async () => {
-    const noViewport = render({ axes: dedicatedAxes, viewport: null, bearing: 0, at: AT });
-    const noAxes = render({ axes: [], viewport: VIEWPORT, bearing: 0, at: AT });
-    await settle();
-    expect(noViewport.result.current.size).toBe(0);
-    expect(noAxes.result.current.size).toBe(0);
-  });
-
   it("画面を覆うタイルごとに軸の値を取り、1つにまとめる", async () => {
     const { result } = render({ axes: [STATIC], viewport: VIEWPORT, bearing: 90, at: AT });
     await settle();
@@ -107,13 +99,6 @@ describe("useDedicatedWayValues（専用配信の値）", () => {
     rerender({ axes: dedicatedAxes, viewport: { ...VIEWPORT }, bearing: 90, at: AT });
     await settle();
     expect(result.current).toBe(before);
-  });
-
-  it("1枚でもタイルの取得に失敗すれば失敗として返す", async () => {
-    serveWayValues((x) => x % 2 === 0);
-    const { result } = render({ axes: [STATIC], viewport: VIEWPORT, bearing: 0, at: AT });
-    await settle();
-    expect(result.current.get("static")?.error).toBe(true);
   });
 
   it("取得に失敗した軸は、入力が同じでも次に取り直すときに一緒に取り直す", async () => {

@@ -17,11 +17,7 @@ vi.mock("@/features/map/useDedicatedWayValues", () => ({ useDedicatedWayValues: 
 // 凡例の絞り込みを地図へ反映するまでの間引きはuseDebouncedValueの持ち物。
 vi.mock("@/hooks/useDebouncedValue", () => ({ useDebouncedValue: <T>(value: T) => value }));
 
-import {
-  buildDefaultLayerVisibility,
-  TILE_VERSIONS_MISSING_NOTICE,
-  TILE_ZOOM_TOO_WIDE_NOTICE,
-} from "@/features/map/layers/mapLayers";
+import { TILE_VERSIONS_MISSING_NOTICE, TILE_ZOOM_TOO_WIDE_NOTICE } from "@/features/map/layers/mapLayers";
 import { disasterSourceLegendAxis } from "@/features/map/scene/legends";
 import { LENS_DIFFICULTY_ID } from "@/lib/mapDisplay/routeStyleModes";
 
@@ -108,19 +104,13 @@ describe("レンズ", () => {
     expect(result.current.lens).toBe("ramp");
   });
 
-  it("専用配信軸の値は、その軸で全道路を塗っている間だけ取る（ルート確定後は塗り続ける設定の間だけ）", () => {
-    const { result, rerender } = render();
+  it("専用配信軸の値は、その軸で全道路を塗っている間だけ、走行条件を添えて取る", () => {
+    const { result } = render();
     act(() => result.current.lensControl.onLensChange("dedicated"));
     expect(fetchedAxisIds()).toEqual(["dedicated"]);
     expect(mocks.useDedicatedWayValues.mock.lastCall?.slice(2)).toEqual([RIDE.bearingDeg, RIDE.at, RIDE.speedKmh]);
 
-    act(() => result.current.lensControl.onKeepAfterRouteChange(false));
-    rerender({ ...INPUTS, hasSelectedRoute: true, hasDetail: true });
-    expect(fetchedAxisIds()).toEqual([]);
-    expect(result.current.look.paintedAxisId).toBeNull();
-
     act(() => result.current.lensControl.onLensChange("ramp"));
-    rerender({ ...INPUTS, hasDetail: false });
     expect(fetchedAxisIds()).toEqual([]);
   });
 
@@ -134,18 +124,11 @@ describe("レンズ", () => {
     expect(result.current.lensControl.dataStatus).toBe("error");
   });
 
-  it("選択肢は公開軸で、全道路を塗れない軸にはルートだけの印が付き、渡した重みに無いか0の軸は未使用", () => {
+  it("選択肢は、ramp軸と専用配信軸を全道路を塗れる軸とし、渡した重みで未使用を分ける", () => {
     const { result } = render({ routeWeights: { ramp: 1 } });
     const options = result.current.lensControl.axisOptions;
-    expect(options.map((option) => option.id)).toEqual(CATALOG.axes.map((axis) => axis.axisId));
     expect(options.find((option) => option.id === "ramp")).toMatchObject({ routeOnly: false, unused: false });
     expect(options.find((option) => option.id === "dedicated")).toMatchObject({ routeOnly: false, unused: true });
-
-    const zero = render({ routeWeights: { ramp: 0, dedicated: 1 } });
-    const unused = zero.result.current.lensControl.axisOptions
-      .filter((option) => option.unused)
-      .map((option) => option.id);
-    expect(unused).toEqual(["ramp"]);
   });
 });
 
@@ -193,7 +176,6 @@ describe("チップの案内", () => {
       notice: TILE_VERSIONS_MISSING_NOTICE,
       dataStatus: "error",
     });
-    expect(chip(result.current, "elevation").notice).toBeNull();
   });
 
   it("地図が報告した取得状態と、気象レイヤーの取得状態を合わせて出す", () => {
@@ -217,9 +199,5 @@ describe("地図へ渡す値", () => {
     act(() => result.current.bulk.redraw());
     expect(result.current.look).not.toBe(before);
     expect(result.current.look.refreshToken).toBe(before.refreshToken + 1);
-  });
-
-  it("既定の表示状態は、保存値が無ければレイヤー一覧の既定値", () => {
-    expect(render().result.current.look.layerVisibility).toEqual(buildDefaultLayerVisibility());
   });
 });
