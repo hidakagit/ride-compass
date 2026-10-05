@@ -463,8 +463,7 @@ way粒度で引くときは、同じ式のまま`w`の行から同じ名前の�
 （ルート生成・区間インスペクタのどちらも、重みを省略されたらこれを使う）。
 部分指定を許し、書かれなかった公開軸は`default_weight`で補う。値の不変条件は`check_axis_weights`が持ち、
 組み立てるたびに通す——キーは公開軸（`is_published=True`）のidだけ（内部軸は重み付けの対象外）、値は有限かつ非負
-（負の重みは合成difficultyの分母と分子の符号を食い違わせ、NaN・無限大は合成difficultyと寄与を黙って欠損にする。
-JSONの本文の`NaN`・`Infinity`もfloatとして届く）。ルート生成の要求を通らずに組み立てる書き手
+（負の重みは合成difficultyの分母と分子の符号を食い違わせ、NaN・無限大は合成difficultyと寄与を黙って欠損にする）。ルート生成の要求を通らずに組み立てる書き手
 （研究のスクリプト・テスト）も同じ検査を通る。「上書きするなら公開軸を全部書く」は要求の形で、
 `api/routers/routes.py: RoutePreferenceWeights`が持ち、値の検査は同じ`check_axis_weights`を呼ぶ。
 
