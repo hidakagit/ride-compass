@@ -11,6 +11,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 
 from app.domain.landcover import raster_set_fingerprint
+from app.domain.registry import TileKind
 from app.infrastructure import landcover_raster, tile_cache
 from app.infrastructure.cache_identity import (
     LANDCOVER_TILE_VERSION,
@@ -107,7 +108,7 @@ async def serve_region_tile(
         return TileResponse(tile_bytes)
 
 
-def prune_other_generations(tile_versions: Mapping[str, str]) -> int:
+def prune_other_generations(tile_versions: Mapping[TileKind, str]) -> int:
     """配っていない世代の地域タイルをディスクから消し、消した数を返す。
 
     `tile_versions`はDBの世代から組んだ系統名→配信する世代（`services/tile_version_service.py:

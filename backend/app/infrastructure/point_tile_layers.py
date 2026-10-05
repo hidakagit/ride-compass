@@ -128,7 +128,7 @@ _ACCIDENT_TILE_MVT_SQL = text(
 )
 
 #: 名前→点のレイヤー。
-POINT_TILE_LAYERS: dict[TileKind, PointTileLayer] = {
+POINT_TILE_LAYERS: dict[str, PointTileLayer] = {
     layer.name: layer
     for layer in (
         PointTileLayer(name="poi", source_layer="stop_poi", sql=_POI_TILE_MVT_SQL),

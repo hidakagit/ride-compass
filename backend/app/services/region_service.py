@@ -35,7 +35,7 @@ class RegionService:
     def __init__(self, repository: RoadGraphRepository):
         self._repository = repository
 
-    async def tile_versions(self) -> dict[str, str]:
+    async def tile_versions(self) -> dict[TileKind, str]:
         """系統名→配信する世代（`services/tile_version_service.py`）。
 
         DBの口（`repository`）を外へ出さずにここで閉じる。**外へ出すと、呼び出し側が
