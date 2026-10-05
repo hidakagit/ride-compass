@@ -376,12 +376,26 @@ class TestAxisSet:
 class TestInternalAxisPublish:
     EXISTING = {"outer": axis("outer", label="外の軸", shape=linear(MaterialTerm(material="inner")))}
 
-    def test_an_axis_another_axis_reads_is_not_published(self):
+    @pytest.mark.parametrize(
+        "previous",
+        [{}, {"inner": axis("inner")}],
+        ids=["new", "draft"],
+    )
+    def test_an_axis_another_axis_reads_is_not_published(self, previous):
         with pytest.raises(axis_definitions.AxisInternalAxisPublishError) as caught:
-            axis_definitions.check_internal_axis_not_published(axis("inner", is_published=True), self.EXISTING)
+            axis_definitions.check_internal_axis_not_published(
+                axis("inner", is_published=True), {**self.EXISTING, **previous}
+            )
 
         assert (caught.value.axis_id, caught.value.referencing_axis_id) == ("inner", "outer")
         assert "「外の軸」" in str(caught.value)
+
+    def test_an_axis_another_axis_reads_that_is_already_published_may_stay_published(self):
+        # 時刻で変わる軸が組み合わせる公開軸の、表示だけの直し。公開へ切り替える書き込みではない。
+        axis_definitions.check_internal_axis_not_published(
+            axis("inner", is_published=True, chip_label="内"),
+            {**self.EXISTING, "inner": axis("inner", is_published=True)},
+        )
 
     def test_an_axis_another_axis_reads_may_stay_a_draft(self):
         axis_definitions.check_internal_axis_not_published(axis("inner"), self.EXISTING)
