@@ -119,8 +119,8 @@ Actionsの変数`BACKEND_ORIGIN`から読む（宛先が変わったらここも
 `git rev-parse HEAD`と突き合わせる。
 
 **backendのデプロイは、masterのCIが通ったコミットを、本番プロセスに届く変更があるときだけ
-出す。** `ci.yml`の最後のジョブ（`deploy-backend`）が、masterへのpushで他の全ジョブが通った
-ときだけ`deploy-backend.yml`を呼ぶ——どれかが赤ならデプロイは起動しない。呼ばれた側は、本番で
+出す。** `ci.yml`の`deploy-backend`が、masterへのpushでbackend・api-contract・frontend・e2e・e2e-scanの
+ジョブが通ったときだけ`deploy-backend.yml`を呼ぶ——どれかが赤ならデプロイは起動しない（flow-gate・文書の検査は待たない）。呼ばれた側は、本番で
 動いているコミット（コンテナの`GIT_COMMIT`）からCIを通ったコミットまでの差分を
 `scripts/deploy_backend_gate.py`で見て、出すかを決める。
 
