@@ -72,20 +72,20 @@ export function inTurn(...responses: Response[]): Reply {
   return () => responses[Math.min(next++, responses.length - 1)].clone();
 }
 
-/** まだ応えていない要求。テストの終わりに`closeHeldReplies`が閉じる。 */
-const unanswered = new Set<(response: Response) => void>();
+/** まだ応えていない要求と、テストの終わりにそれを閉じる応答。`closeHeldReplies`が閉じる。 */
+const unanswered = new Map<(response: Response) => void, () => Response>();
 
 /**
  * 届いた要求に、テストが応えるまで応答を返さない。`reply`を`onBackend`等へ渡し、`answer(番目, 応答)`で、届いた順の
- * その番目に応える（届くまで待つ）。応えなかった要求は、テストの終わりに網の失敗で閉じる。
+ * その番目に応える（届くまで待つ）。応えなかった要求は、テストの終わりに`closeWith`（既定は網の失敗）で閉じる。
  */
-export function heldReplies() {
+export function heldReplies(closeWith: () => Response = () => HttpResponse.error()) {
   const pending: ((response: Response) => void)[] = [];
   return {
     reply: () =>
       new Promise<Response>((settle) => {
         pending.push(settle);
-        unanswered.add(settle);
+        unanswered.set(settle, closeWith);
       }),
     answer: async (index: number, response: Response) => {
       // 間をおいて出る要求（ルート生成の2回目からの問い合わせは1.5秒あとに出る）も待てる長さにする。
@@ -98,10 +98,10 @@ export function heldReplies() {
 }
 
 /**
- * 応えていない要求を網の失敗で閉じる（`vitest.setup.ts`がテストの終わりに呼ぶ）。開いたまま残すと、serverを
+ * 応えていない要求を、それぞれの閉じる応答で閉じる（`vitest.setup.ts`がテストの終わりに呼ぶ）。開いたまま残すと、serverを
  * 止めたときにmswが本物の網へ流す。
  */
 export function closeHeldReplies(): void {
-  for (const settle of unanswered) settle(HttpResponse.error());
+  for (const [settle, closeWith] of unanswered) settle(closeWith());
   unanswered.clear();
 }

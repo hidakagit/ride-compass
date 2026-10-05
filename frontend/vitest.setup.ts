@@ -51,6 +51,8 @@ beforeAll(() =>
 // 応答で答えるので、描いたものを外したあと（後に足した`afterEach`が先に走る）、出た要求が全部届いてから片付ける。
 // 応答の無い要求の失敗も、警告の確かめ（上の`failOnWarnings`。先に足したので後に走る）より前に出させる。
 // 届く前に`fetch`ごと失敗した要求は届かないので、待つのは決まった回数までにする。
+// 数える包みはmswの`listen()`より前に置くが、mswは`fetch`を包んでも包む前の`fetch`（この包み）を必ず呼び、
+// 横取りは網の層で行う（`@mswjs/interceptors`の`FetchInterceptor`）ので、横取りした要求も数える。
 let sentToFetch = 0;
 let reachedServer = 0;
 const fetchOfEnvironment = globalThis.fetch;

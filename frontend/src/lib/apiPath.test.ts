@@ -27,4 +27,15 @@ describe("apiPath", () => {
   it("値は区切りの`/`を含めてそのまま埋める", () => {
     expect(apiPath("/api/basemap/{path}", { path: "styles/liberty" })).toBe("/api/basemap/styles/liberty");
   });
+
+  // 落ちることは型検査（`tsc --noEmit`）が`@ts-expect-error`の行で見る（型が緩むと、使われない印として落ちる）。
+  it("backendの宣言に無いパス・名前は型検査で落ちる", () => {
+    const neverCalled = () => {
+      // @ts-expect-error backendの宣言に無いパス。
+      apiPath("/api/no-such-endpoint");
+      // @ts-expect-error 宣言に無い名前は埋められない。
+      apiPath("/api/routes/generate/{job_id}", { id: "abc" });
+    };
+    expect(neverCalled).toBeTypeOf("function");
+  });
 });

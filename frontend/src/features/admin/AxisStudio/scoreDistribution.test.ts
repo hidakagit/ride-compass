@@ -9,6 +9,8 @@
  * ここで見ないもの:
  * - 点数の計算そのもの → backend（`BreakpointLinearShape.score_at`）
  * - 帯と警告を画面にどう出すか → `DistributionPreview.test.tsx`
+ * - 端数の点数（99.5等）の帯 → 帯の判定の比べ方（`score >= 100`等）の両側は整数の点数の行が持ち、端数は同じ側
+ *   （testing.md「そのテストは要るか」の表の行の決まり）
  */
 import { describe, expect, it } from "vitest";
 

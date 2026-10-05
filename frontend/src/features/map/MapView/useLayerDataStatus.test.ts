@@ -3,6 +3,12 @@
  * 知らせ、失敗は新しい取得が始まったときか、範囲が動いて読み込みが落ち着いたときにだけ解除すること。
  *
  * 地図は状態を読む3つのメソッドだけを持つ模擬で与える。
+ *
+ * ここで見ないもの:
+ * - 同じタイルを分け合うレイヤーの地物を1回だけ数えること → 地図を読むだけの呼び出しの回数で、知らせる状態に出ない
+ *   （testing.md「確かめる高さ」の読むだけの相手の箇条）
+ * - 追っていないソースの失敗を無視すること → 追っていないソースはどのレイヤーにも当たらず、無視しなくても知らせる
+ *   状態が変わらない
  */
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -81,6 +87,14 @@ describe("useLayerDataStatus（知らせ方と解除）", () => {
     expect(onChange).toHaveBeenLastCalledWith({});
     state.empty = ["road/lines"];
     act(() => hook().notifySourceData("road"));
+    expect(onChange).toHaveBeenLastCalledWith({ a: "empty", b: "empty" });
+  });
+
+  it("同じレイヤーの状態だけが変わったときも知らせる（失敗から空へ）", () => {
+    const { hook, onChange } = renderStatus({ empty: ["road/lines"] });
+    act(() => hook().markSourceErrored("road"));
+    expect(onChange).toHaveBeenLastCalledWith({ a: "error", b: "error" });
+    act(() => hook().clearSourceLoading("road"));
     expect(onChange).toHaveBeenLastCalledWith({ a: "empty", b: "empty" });
   });
 

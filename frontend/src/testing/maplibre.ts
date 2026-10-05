@@ -262,8 +262,12 @@ class StandInMap extends Evented {
     this.fire(type);
   }
 
-  /** `lngLat` を押す。`features` はそこに描かれている地物。 */
+  /** `lngLat` を押す。`features` はそこに描かれている地物で、無い・隠したレイヤーのものは渡せない（MapLibre は返さない）。 */
   click(lngLat: Coordinates, features: readonly PointedFeature[]) {
+    const undrawn = features.filter((feature) => (this.content.layer(feature.layer)?.visibility ?? "none") === "none");
+    if (undrawn.length > 0) {
+      throw new Error(`描かれていないレイヤーの地物は押せない: ${undrawn.map((feature) => feature.layer).join(", ")}`);
+    }
     this.pointed = features;
     try {
       this.fire("click", { lngLat: { lng: lngLat.longitude, lat: lngLat.latitude }, point: { x: 0, y: 0 } }, features);

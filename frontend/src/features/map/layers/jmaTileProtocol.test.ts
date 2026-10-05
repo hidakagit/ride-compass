@@ -135,10 +135,19 @@ describe("配信の失敗の記録", () => {
     expect(jmaTileFailures().size).toBe(0);
   });
 
-  it("到達できなければ失敗として記録して例外を返す。取り消し（中断）は失敗に数えない", async () => {
+  it("到達できなければ失敗として記録して例外を返す。地図が取り消すと取りに行った要求も止め、失敗に数えない", async () => {
     const { request, jmaTileFailures } = await load();
-    fetchMock.mockRejectedValueOnce(new DOMException("aborted", "AbortError"));
-    await expect(request(PRESENT_PNG_URL)).rejects.toThrow("aborted");
+    // 網は、渡された中断の合図で止まるまで答えない。
+    fetchMock.mockImplementationOnce(
+      (_url, init) =>
+        new Promise((_resolve, reject) =>
+          init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))),
+        ),
+    );
+    const abort = new AbortController();
+    const pending = request(PRESENT_PNG_URL, abort);
+    abort.abort();
+    await expect(pending).rejects.toThrow("aborted");
     expect(jmaTileFailures().size).toBe(0);
 
     fetchMock.mockRejectedValueOnce(new TypeError("network"));
