@@ -6,7 +6,7 @@
 
 ここで見ないもの:
 - 地図表示の導出と段のラベル → `test_axis_display.py`、一次属性 → `test_axis_hierarchy.py`、
-  塗る値の種類と単位 → `test_dynamic_way_values.py`
+  塗る値の種類と単位 → `test_map_paint.py`
 - 換算係数を収録年から導くこと → `test_material_catalog.py`
 - タイルの世代 → `test_derived_data_revision_service.py`・`test_derived_data_meta.py`
 - 軸の項目を応答へそのまま写すこと（表示名・重み・チップの欄等）——書き写しで、判断が無い
@@ -162,7 +162,7 @@ def test_each_axis_carries_what_the_domain_derives_for_it(client, catalog_axes):
     assert categorical["display"]["tile_inputs"][0]["property"] == MATERIAL_CATALOG[SURFACE_ESTIMATE].tile_property
     assert categorical["primary_attribute_ids"] == ["surface"]
     signed = entries["axis_way_value_signed"]
-    assert (signed["map_value"], signed["map_value_unit"]) == (
+    assert (signed["map_paint"]["value"], signed["map_paint"]["unit"]) == (
         {"kind": "signed_material", "material": "gradient_percent"},
         "%",
     )

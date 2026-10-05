@@ -711,13 +711,7 @@ export interface components {
             display_band_labels_override: string[] | null;
             /** Dedicated Way Value Layer */
             dedicated_way_value_layer: boolean;
-            /** Map Value */
-            map_value: components["schemas"]["DifficultyMapValue"] | components["schemas"]["SignedMaterialMapValue"];
-            /** Map Value Unit */
-            map_value_unit: string;
-            /** Map Value Thresholds */
-            map_value_thresholds: number[];
-            map_legend: components["schemas"]["MapLegendScale"];
+            map_paint: components["schemas"]["MapPaint"];
             /** Raw Value Unit */
             raw_value_unit: string | null;
             /** Raw Value Total Unit */
@@ -1342,6 +1336,16 @@ export interface components {
             boundaries: number[];
             /** Unit */
             unit: string | null;
+        };
+        /** MapPaint */
+        MapPaint: {
+            /** Value */
+            value: components["schemas"]["DifficultyMapValue"] | components["schemas"]["SignedMaterialMapValue"];
+            /** Unit */
+            unit: string;
+            /** Thresholds */
+            thresholds: number[];
+            legend: components["schemas"]["MapLegendScale"];
         };
         /** MaterialCoverageCounted */
         MaterialCoverageCounted: {

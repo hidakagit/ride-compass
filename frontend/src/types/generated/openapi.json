@@ -2197,37 +2197,8 @@
             "type": "boolean",
             "title": "Dedicated Way Value Layer"
           },
-          "map_value": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/DifficultyMapValue"
-              },
-              {
-                "$ref": "#/components/schemas/SignedMaterialMapValue"
-              }
-            ],
-            "title": "Map Value",
-            "discriminator": {
-              "propertyName": "kind",
-              "mapping": {
-                "difficulty": "#/components/schemas/DifficultyMapValue",
-                "signed_material": "#/components/schemas/SignedMaterialMapValue"
-              }
-            }
-          },
-          "map_value_unit": {
-            "type": "string",
-            "title": "Map Value Unit"
-          },
-          "map_value_thresholds": {
-            "items": {
-              "type": "number"
-            },
-            "type": "array",
-            "title": "Map Value Thresholds"
-          },
-          "map_legend": {
-            "$ref": "#/components/schemas/MapLegendScale"
+          "map_paint": {
+            "$ref": "#/components/schemas/MapPaint"
           },
           "raw_value_unit": {
             "anyOf": [
@@ -2294,10 +2265,7 @@
           "display_thresholds_override",
           "display_band_labels_override",
           "dedicated_way_value_layer",
-          "map_value",
-          "map_value_unit",
-          "map_value_thresholds",
-          "map_legend",
+          "map_paint",
           "raw_value_unit",
           "raw_value_total_unit",
           "material_breakdown",
@@ -4045,6 +4013,51 @@
           "unit"
         ],
         "title": "MapLegendScale"
+      },
+      "MapPaint": {
+        "properties": {
+          "value": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DifficultyMapValue"
+              },
+              {
+                "$ref": "#/components/schemas/SignedMaterialMapValue"
+              }
+            ],
+            "title": "Value",
+            "discriminator": {
+              "propertyName": "kind",
+              "mapping": {
+                "difficulty": "#/components/schemas/DifficultyMapValue",
+                "signed_material": "#/components/schemas/SignedMaterialMapValue"
+              }
+            }
+          },
+          "unit": {
+            "type": "string",
+            "title": "Unit"
+          },
+          "thresholds": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Thresholds"
+          },
+          "legend": {
+            "$ref": "#/components/schemas/MapLegendScale"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "value",
+          "unit",
+          "thresholds",
+          "legend"
+        ],
+        "title": "MapPaint"
       },
       "MaterialCoverageCounted": {
         "properties": {

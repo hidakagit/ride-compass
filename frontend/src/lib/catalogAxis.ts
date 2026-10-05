@@ -53,8 +53,8 @@ export function catalogAxisFromEntry(axis: AxisCatalogEntry): CatalogAxis {
     iconId: axis.icon_id ?? undefined,
     panelHint: axis.panel_hint ?? undefined,
     dedicatedWayValueLayer: axis.dedicated_way_value_layer,
-    mapValueKind: axis.map_value.kind,
-    mapValueUnit: axis.map_value_unit,
+    mapValueKind: axis.map_paint.value.kind,
+    mapValueUnit: axis.map_paint.unit,
     rawValueUnit: axis.raw_value_unit,
     rawValueTotalUnit: axis.raw_value_total_unit,
     materialBreakdown: axis.material_breakdown.map((entry) => ({

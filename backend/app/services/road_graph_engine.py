@@ -37,10 +37,14 @@ from app.domain.traffic import highway_rank
 from app.domain.tuning import tuning_value
 from app.domain.cycling_speed import top_speed_kmh
 from app.domain.attributes import ElevationAttribute
-from app.domain.dynamic_way_values import displayed_material_ids
 from app.domain.difficulty import DIFFICULTY_QUANTUM, distance_weighted_difficulty, round_difficulty_array
 from app.domain.errors import RoutingError
-from app.domain.evaluation import StaticEdgeScoreMatrix, build_static_edge_score_matrix, difficulty_from_cost
+from app.domain.evaluation import (
+    StaticEdgeScoreMatrix,
+    build_static_edge_score_matrix,
+    difficulty_from_cost,
+    displayed_material_ids,
+)
 from app.domain.hard_filters import compute_hard_filter_excluded, compute_routable_nodes
 from app.domain.leg_costs import LegCostArrays, LegCostComposer, RowValues, material_value_at
 from app.domain.material_catalog import GRADIENT_PERCENT

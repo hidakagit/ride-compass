@@ -46,15 +46,8 @@ from app.domain.axis_raw_value import (
     raw_value_total_unit,
     raw_value_unit,
 )
-from app.domain.dynamic_way_values import (
-    MapLegendScale,
-    MapValue,
-    WayValueConditionName,
-    map_legend,
-    map_value,
-    map_value_thresholds,
-    map_value_unit,
-)
+from app.domain.dynamic_way_values import WayValueConditionName
+from app.domain.map_paint import MapPaint, map_paint
 from app.domain.registry import AxisDisplaySpec
 from app.domain.tuning import client_tuning_values
 from app.services.axis_catalog_service import axis_catalog_sources
@@ -136,17 +129,17 @@ class AxisCatalogEntry(StrictModel):
     weather_layer_groups: list[str]
     # 「軸スタジオで決められること」（AxisDefinitionが実際に持つ未公開の
     # フィールド）を個別に選んでフィールド追加するのではなく、まとめて返す方針。
-    # 地図・ルート線が何を塗るかは`shape`から読ませず、下の`map_value`が配る。
+    # 地図・ルート線が何を塗るかは`shape`から読ませず、下の`map_paint`が配る。
     shape: AxisShape
     # `display`（axis_display_for()がkind="ramp"軸向けに導出した値、kind="none"の軸
     # [gradient等]では常に空配列）経由では生の上書き値を読み取れないため、生の値をそのまま
-    # 返す。これは軸スタジオが編集した値そのもので、スケールは軸がramp表示を持つかで変わる
-    # （`map_value_thresholds`のdocstring参照）。地図の色分けは`map_value_thresholds`を使う。
+    # 返す。これは軸スタジオが編集した値そのもので、スケールは軸がramp表示を持つかで変わる。
+    # 地図の色分けは`map_paint.thresholds`を使う。
     display_thresholds_override: list[float] | None
     # 段階ごとの体感ラベルの上書き（domain/axis_definitions.py: AxisDefinition.
     # display_band_labels_override）を、地図の段で引き直したもの（domain/axis_display.py:
     # map_band_labels）。`display_thresholds_override`と違って生の値ではなく、件数は地図の段数
-    # （`map_value_thresholds`の件数+1）と一致する——上書きは人が刻んだ境界の段ごとに付くため、
+    # （`map_paint.thresholds`の件数+1）と一致する——上書きは人が刻んだ境界の段ごとに付くため、
     # 地図で落ちる境界があるとそのままでは件数が合わない。
     display_band_labels_override: list[str] | None
     # 「専用のフィーチャー→値配信レイヤー（ルート未確定時から
@@ -154,19 +147,11 @@ class AxisCatalogEntry(StrictModel):
     # axis_definitions.py: AxisDefinition.dedicated_way_value_layerのdocstring参照）。
     # 受け取る側が、axis_idの文字列比較ではなくこのフィールドで地図レイヤー・取得の対象を決めるための宣言。
     dedicated_way_value_layer: bool
-    # 地図がこの軸について塗る値（種類と、種類で決まる材料）と単位（domain/dynamic_way_values.py:
-    # map_value/map_value_unit）。ルート確定前の塗り・ルート確定後のルート線色分けの両方が
-    # これに従う。
-    map_value: MapValue
-    map_value_unit: str
-    # 上の`map_value`の種類が示すスケールでの段階境界（domain/dynamic_way_values.py:
-    # map_value_thresholds）。地図の色分けはルート前後ともこれを使う——
+    # 地図がこの軸について塗る値・単位・段の境界・凡例の目盛り（domain/map_paint.py: map_paint）。
+    # ルート確定前の塗り・ルート確定後のルート線色分け・凡例のどれもこれに従う——
     # `display_thresholds_override`はramp表示の自動導出値（材料の重み付き和）を上書きする
-    # フィールドで、難易度を塗る軸ではスケールが違う。境界を宣言していない軸には既定の境界が入る。
-    map_value_thresholds: list[float]
-    # 凡例が上の境界を書く目盛り（domain/dynamic_way_values.py: map_legend）。塗る値が得点でも、
-    # 得点を単位のある量から作る軸は境界を量と単位で書く。ルート前後の凡例ともこれで段の範囲を書く。
-    map_legend: MapLegendScale
+    # フィールドで、難易度を塗る軸ではスケールが違う。
+    map_paint: MapPaint
     # 折れ点を通す前の生値の単位（`domain/axis_raw_value.py: raw_value_unit`）。
     # 定まらない軸はnull。ルート結果は得点の隣にこの単位で生値を出す。
     raw_value_unit: str | None
@@ -242,10 +227,7 @@ async def get_axis_catalog(region_service: RegionService = Depends(get_region_se
                 display_thresholds_override=definition.display_thresholds_override,
                 display_band_labels_override=map_band_labels(definition),
                 dedicated_way_value_layer=definition.dedicated_way_value_layer,
-                map_value=map_value(definition),
-                map_value_unit=map_value_unit(definition),
-                map_value_thresholds=map_value_thresholds(definition),
-                map_legend=map_legend(definition),
+                map_paint=map_paint(definition),
                 raw_value_unit=raw_value_unit(definition),
                 raw_value_total_unit=raw_value_total_unit(definition),
                 material_breakdown=_material_breakdown(definition),

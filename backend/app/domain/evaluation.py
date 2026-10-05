@@ -43,9 +43,11 @@ from app.domain.axis_definitions import (
 )
 from app.domain.axis_raw_value import axis_material_shares, raw_value_unit
 from app.domain.difficulty import composite_difficulty_array, distance_weighted_difficulty_array
+from app.domain.map_paint import SignedMaterialMapValue, map_paint
 from app.domain.material_catalog import (
     GRADIENT_PERCENT,
     MATERIAL_CATALOG,
+    is_known_material,
 )
 from app.domain.cycling_speed import ROLLING_RESISTANCE_MATERIAL_ID
 from app.domain.traffic import stop_count_material_ids
@@ -139,6 +141,36 @@ def route_facing_categorical_material_ids() -> list[str]:
             continue
         seen.setdefault(material_id, None)
     return list(seen)
+
+
+def displayed_material_ids(weights: Mapping[str, float], lens_axis_id: str | None) -> set[str]:
+    """区間表示へ載せるべき材料id。軸名のハードコードは持たない。
+
+    重み>0の公開軸が参照する材料に加え、`lens_axis_id`が符号付き材料を塗る軸を指す場合はその
+    材料も**重みに関わらず**含める。符号付き材料は難易度0-100へ変換すると符号（登り/下り）が
+    失われるため、地図のレンズは難易度ではなく生値の側を塗る。含めないと、重み0の軸を
+    レンズに選んだときだけ表示が欠ける。
+
+    `route_facing_material_ids`（スコア行列が運ぶ列の既定）とは別物で、
+    こちらはそのうちリクエストの好みとレンズに応じて実際に見せる部分集合を決める。
+    """
+    material_ids: set[str] = set()
+    for axis_id, weight in weights.items():
+        if weight <= 0:
+            continue
+        definition = AXIS_DEFINITIONS.get(axis_id)
+        if definition is None:
+            continue
+        material_ids.update(m for m in definition.materials if is_known_material(m))
+        # 軸参照を辿った先の材料（合成軸の内訳、`axis_material_shares`）。
+        # `definition.materials`は1段しか見ないため、これが無いと車の圧迫感のように
+        # 内部軸を経由する軸の内訳が1件も運ばれない。
+        material_ids.update(entry.material_id for entry in axis_material_shares(definition))
+    if lens_axis_id is not None:
+        lens_definition = AXIS_DEFINITIONS.get(lens_axis_id)
+        if lens_definition is not None and isinstance(map_paint(lens_definition).value, SignedMaterialMapValue):
+            material_ids.update(m for m in lens_definition.materials if is_known_material(m))
+    return material_ids
 
 
 def _empty_material_arrays(n: int) -> dict[str, MaterialColumn]:

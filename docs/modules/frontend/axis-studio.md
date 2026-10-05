@@ -437,9 +437,9 @@ backend `POST /api/admin/basemap/refresh`を呼び、
 
 入力した内容は`renderBandPreview`がその場で段階の並びとして描く。段階ラベルの組み立ては
 地図の凡例と同じ`mapColorLegend.ts: buildRangeLegendBands`を通し（レンジの数字は入力した目盛りで書く。
-地図の凡例は軸カタログの`map_legend`の目盛りで書くため、得点で書く軸では数字が違う）、色は親（`AxisStudio`）が
+地図の凡例は軸カタログの`map_paint.legend`の目盛りで書くため、得点で書く軸では数字が違う）、色は親（`AxisStudio`）が
 軸カタログの分類から決めて渡す（どちらも地図と同じ`bandColorsFor`で、値の種類は軸カタログの
-`map_value.kind`。[地図: 軸・ルート色分け](map-axis-coloring.md)参照）。**軸スタジオ側は
+`map_paint.value.kind`。[地図: 軸・ルート色分け](map-axis-coloring.md)参照）。**軸スタジオ側は
 「その軸がどちらの経路で地図に出るか」の判定を持たない**——カタログの実際の分類を引くため、
 プレビューの色と地図の色がずれない。地図に出る経路がまだ無い軸（下書き等）は色を持たず、
 その旨を注記する。
