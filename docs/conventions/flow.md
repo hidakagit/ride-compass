@@ -249,7 +249,7 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    前の Pull Request が開いたまま残っていれば、新しく出さずに push し、撮り直したキャプチャを `gh pr comment --attach` で足す。
    本文を直すときは `gh issue edit <番号> -R hidakagit/ride-compass --body-file <ファイル>` で書き換える（`gh pr edit` と、欄を選ばない
    `gh pr view` は、レビューを頼んだチームの名前を問い合わせるため、組織を読む権限の無いトークンでは断られる）。
-   出したら（push したら）、Pull Request の CI の実行（master と合わせた版。`ci.yml` と Docs Consistency のどちらも）の id を
+   出したら（push したら）、Pull Request の CI の実行（master と合わせた版。`ci.yml`・Docs Consistency・Claude Gate のどれも）の id を
    `gh run list -R hidakagit/ride-compass --commit "$(git rev-parse HEAD)" --event pull_request --json databaseId` で引き
    （ID は手で写さずにこの形で渡す——`--commit` は短い ID や後ろを補った ID に一致せず、実行があっても0件になり、まだ出ていないのと
    見分けられない）。
@@ -283,7 +283,7 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
 あれば、その変更を疑う。
 
 **Pull Request のあと**（ゲートが、コードのリポジトリの Webhook から届く Pull Request の出来事で動かす）
-- コードのリポジトリは、master に入れる前に必須チェック（`ci.yml` の `ci-ok` と Docs Consistency 等）が Pull Request で通ることを
+- コードのリポジトリは、master に入れる前に必須チェック（`ci.yml` の `ci-ok`・Docs Consistency・Claude Gate の `flow-gate` 等）が Pull Request で通ることを
   求める（ルールセット。管理者にも効く）。最新の master の取り込みは求めない（求めると、1件入るたびにほかの Pull Request が
   全部載せ直しと CI の待ちになり、並べて進めた分が1本ずつに潰れる）。それぞれ通った Pull Request の組み合わせで壊れたものは
   master の CI が捕まえ、通るまで本番へは出ない（`ci.yml` の `deploy-backend`・`deploy-frontend`）。マージは hidakagit のトークンで打つので、
@@ -305,7 +305,7 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    確かめる。作る担当の報告を読み写さず、自分で見る（画面なら変更後を自分で撮る。作る担当の5と同じ道具・脚本・応答で撮り、
    変更前は撮り直さずに作る担当が貼った画像と比べる。作る担当がコメントに脚本を貼っていれば、作業ツリーの外へ写して同じ引数で撮る）。Pull Request が無ければ（ボードで
    検証中へ動かした等）、作る担当の5のとおりに出してから確かめる。CI は Pull Request の必須のチェック全部（master と合わせた版。
-   `ci.yml` の外の Docs Consistency のジョブも）が通っていることを、作る担当の5と同じく実行を待ってから必須のチェックをルールセットと
+   `ci.yml` の外の Docs Consistency・Claude Gate のジョブも）が通っていることを、作る担当の5と同じく実行を待ってから必須のチェックをルールセットと
    突き合わせて見る。落ちていれば満たしていないとして 4 のとおり落ちたテストを書いて
    閉じる（落ちたのが作業ブランチの変更か master との意味の競合かは見分けない。作る担当はどちらも master を取り込んでから直す）。`lost_constraints.py` も自分で回し、
    「消えた」制約に本文の処置が無ければ満たしていない。分布の前後は測らず、本文に前後の行が無いことを理由にしない（上の「分布の前後」）。
@@ -802,11 +802,11 @@ CI を通すため。段階ごとに Pull Request を出す。「段階に分け
 
 ## ゲートを変える・公開する
 
-表・入口の採否の問い・枠は `flow.config.json` を直す。公開は、master に入ると CI（`ci.yml` の `deploy-gate`）が
-`wrangler deploy`（Webhook）と `wrangler deploy --env form`（回答フォーム）で行う（コードのリポジトリの秘密の値 `CLOUDFLARE_API_TOKEN`・
+表・入口の採否の問い・枠は `flow.config.json` を直す。公開は、master に入ると `claude-gate.yml` の `deploy-gate` が、
+ゲートを変えたかによらず master の先頭の版を `wrangler deploy`（Webhook）と `wrangler deploy --env form`（回答フォーム）で行う（コードのリポジトリの秘密の値 `CLOUDFLARE_API_TOKEN`・
 `CLOUDFLARE_ACCOUNT_ID` を使う）。公開の直後に、`tools/flow-gate/bin/refresh.js` が開いた issue を全部、今の規則が書くはずの姿
 （担当者・本文の先頭のボタン）へ揃える（ゲートは出来事が届いた issue しか書き直さないため。揃っていれば何も書かない）。
 手で公開するときは `tools/flow-gate` で同じコマンドを打ち、続けて `refresh.js` を流す（`--dry-run` で揃える件数を先に見られる）。秘密の値の名前は `tools/flow-gate/wrangler.toml` の先頭にある。
 テストは `node --test tools/flow-gate/test/*.test.js`。構文と import の解決（無いファイル・無い名前）は、`tools/flow-gate` で
 `npm ci` のあと `npm run lint` が動かさずに見る（ESLint と eslint-plugin-import の `errors` の組。`tools/flow-gate/eslint.config.js`）。
-テストは道具（`bin/`）を起動しないので、道具の静的な誤りは lint だけが落とす。CI の `flow-gate` も同じ2つを流す。
+テストは道具（`bin/`）を起動しないので、道具の静的な誤りは lint だけが落とす。CI（`claude-gate.yml` の `flow-gate`）も同じ2つを流す。
