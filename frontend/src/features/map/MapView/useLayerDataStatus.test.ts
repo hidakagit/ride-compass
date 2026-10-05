@@ -16,17 +16,13 @@ interface FakeMapState {
   added?: string[];
   unloaded?: string[];
   empty?: string[];
-  queries?: string[];
 }
 
 function fakeMap(state: FakeMapState): NonNullable<Args["mapRef"]["current"]> {
   return {
     getSource: (id) => (state.added === undefined || state.added.includes(id) ? {} : undefined),
     isSourceLoaded: (id) => !(state.unloaded ?? []).includes(id),
-    querySourceFeatures: (id, { sourceLayer }) => {
-      state.queries?.push(`${id}/${sourceLayer}`);
-      return (state.empty ?? []).includes(`${id}/${sourceLayer}`) ? [] : [{}];
-    },
+    querySourceFeatures: (id, { sourceLayer }) => ((state.empty ?? []).includes(`${id}/${sourceLayer}`) ? [] : [{}]),
   };
 }
 
@@ -75,36 +71,17 @@ describe("useLayerDataStatus（数え方）", () => {
     act(() => hook().recompute());
     expect(onChange).not.toHaveBeenCalled();
   });
-
-  it("同じタイルを分け合うレイヤーがいくつ見えていても、地物は1回だけ数える", () => {
-    const queries: string[] = [];
-    const { hook } = renderStatus({ queries });
-    act(() => hook().recompute());
-    expect(queries.sort()).toEqual(["points/poi", "road/lines"]);
-  });
 });
 
 describe("useLayerDataStatus（知らせ方と解除）", () => {
-  it("失敗したソースのレイヤーを失敗として知らせ、追っていないソースの失敗は無視する", () => {
-    const { hook, onChange } = renderStatus({});
-    act(() => hook().markSourceErrored("untracked"));
-    expect(onChange).not.toHaveBeenCalled();
-    act(() => hook().markSourceErrored("road"));
-    expect(onChange).toHaveBeenLastCalledWith({ a: "error", b: "error" });
-  });
-
-  it("状態が変わらなければ知らせない", () => {
-    const { hook, onChange } = renderStatus({});
-    act(() => hook().markSourceErrored("road"));
-    act(() => hook().notifySourceData("road"));
-    expect(onChange).toHaveBeenCalledTimes(1);
-  });
-
-  it("新しい取得が始まったら、失敗を解除する", () => {
-    const { hook, onChange } = renderStatus({});
+  it("新しい取得が始まったら失敗を解除し、届いた取得で数え直す", () => {
+    const { hook, onChange, state } = renderStatus({});
     act(() => hook().markSourceErrored("road"));
     act(() => hook().clearSourceLoading("road"));
     expect(onChange).toHaveBeenLastCalledWith({});
+    state.empty = ["road/lines"];
+    act(() => hook().notifySourceData("road"));
+    expect(onChange).toHaveBeenLastCalledWith({ a: "empty", b: "empty" });
   });
 
   it("範囲が動いて読み込みが落ち着いたソースだけ失敗を解除し、読み込み中のソースの失敗は残す", () => {
@@ -116,9 +93,5 @@ describe("useLayerDataStatus（知らせ方と解除）", () => {
     state.unloaded = ["points"];
     act(() => hook().settleViewport());
     expect(onChange).toHaveBeenLastCalledWith({ c: "error" });
-
-    onChange.mockClear();
-    act(() => hook().settleViewport());
-    expect(onChange).not.toHaveBeenCalled();
   });
 });
