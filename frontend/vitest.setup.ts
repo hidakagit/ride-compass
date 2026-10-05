@@ -9,7 +9,8 @@ const { backendServer, closeHeldReplies } = await import("@/testing/backendServe
 // 警告は既定でエラー（docs/conventions/testing.md「警告は既定でエラー」）。`console.warn`・`console.error`へ出たもの
 // （Reactの警告もここへ届く）は、出したテストを落とす。vitestには出力の警告で落とす設定が無いため、ここで受ける。
 // 直せない警告だけを、文で名指して下の一覧へ載せる（1件ずつ、理由と外せる条件を添える）。
-// テストが`vi.spyOn(console, ...)`で差し替えている間は、そのテストが出力を受け持つ。
+// スパイは見分けない。警告を出すことを確かめるテストは、`vi.spyOn(console, ...)`に`mockImplementation`を付けて
+// ここへ届く前に出力を止める。
 const ALLOWED_WARNINGS: readonly { message: RegExp; reason: string; removeWhen: string }[] = [];
 
 const warnings: string[] = [];
