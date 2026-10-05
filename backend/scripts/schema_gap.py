@@ -13,6 +13,8 @@
 
 母集団から外すのは、アプリのスキーマではない表——拡張が持ち込む表（PostGISの`spatial_ref_sys`等）と、
 取込が作る子パーティション（ORMは親の表だけを宣言する）。どちらも名前ではなく実DBのカタログから引く。
+子パーティションは問い合わせの中で外す——式を文字に戻す関数（`pg_get_expr`等）は表ごとに読むロックを
+取るので、取込が子パーティションを入れ直す間の排他ロックを待ってしまう。
 
 一時スキーマは接続ごとのもので、作った表はトランザクションの巻き戻しで消える。`public`の表には
 書かない。
@@ -58,7 +60,8 @@ FROM pg_attribute a
 JOIN pg_class c ON c.oid = a.attrelid
 JOIN pg_namespace n ON n.oid = c.relnamespace
 LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
-WHERE n.nspname = :schema AND c.relkind IN ('r', 'p') AND a.attnum > 0 AND NOT a.attisdropped
+WHERE n.nspname = :schema AND c.relkind IN ('r', 'p') AND NOT c.relispartition
+  AND a.attnum > 0 AND NOT a.attisdropped
 """
 
 #: NOT NULLは列の側で比べる（PostgreSQL 18からは制約の表にも載る）。
@@ -67,7 +70,7 @@ SELECT c.relname AS table, con.contype::text AS kind, pg_get_constraintdef(con.o
 FROM pg_constraint con
 JOIN pg_class c ON c.oid = con.conrelid
 JOIN pg_namespace n ON n.oid = c.relnamespace
-WHERE n.nspname = :schema AND con.contype <> 'n'
+WHERE n.nspname = :schema AND NOT c.relispartition AND con.contype <> 'n'
 """
 
 #: 制約（主キー・一意・排他）が持つ索引は制約の側で比べる。
@@ -76,7 +79,7 @@ SELECT c.relname AS table, pg_get_indexdef(ix.indexrelid) AS definition
 FROM pg_index ix
 JOIN pg_class c ON c.oid = ix.indrelid
 JOIN pg_namespace n ON n.oid = c.relnamespace
-WHERE n.nspname = :schema
+WHERE n.nspname = :schema AND NOT c.relispartition
   AND NOT EXISTS (SELECT 1 FROM pg_constraint con
                   WHERE con.conrelid = ix.indrelid AND con.conindid = ix.indexrelid
                     AND con.contype IN ('p', 'u', 'x'))
@@ -143,7 +146,7 @@ def collect_gaps(conn: Connection) -> list[str]:
     """`conn`のDBの`public`と、ORMの宣言を一時スキーマへ作ったものとの差。何も残さない。"""
     transaction = conn.begin_nested() if conn.in_transaction() else conn.begin()
     try:
-        # 一時スキーマへ作るだけで`public`の表を待つことは無いが、万一のロック待ちで本番を止めない。
+        # 式を文字に戻すときに`public`の表へ読むロックを取るので、表を入れ替える相手と重なっても待ち続けない。
         conn.execute(text("SET LOCAL lock_timeout = '5s'"))
         declared_metadata().create_all(
             conn.execution_options(schema_translate_map={None: "pg_temp"}), checkfirst=False)
