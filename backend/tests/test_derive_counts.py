@@ -1,4 +1,11 @@
-"""区間と道に付く数の値（`batch/derive_counts.py`）が、意図した区間へ数を付けること。"""
+"""区間と道に付く数の値（`batch/derive_counts.py`）が、意図した区間へ数を付けること。
+
+見るもの: 事故を付ける区間（等距離のタイ・地上の距離・帰属の距離の両側・自転車の関わらない事故・死亡の重み）、
+道路網に乗らない停止要因、信号の近くの横断歩道を信号として数える呼び出し、流し直しで数が0へ戻ること（区間と道の和）。
+見ないもの: 停止要因と交差点の数え方（場所1つを経路の上で1回） → `test_derive_stop_counts.py`。タグから
+種別・数える種別への読み替えの両側 → `test_tag_classification.py`。生データから消えた道の行が残らないことは
+`derive_topology`が表を空にして入れ直すことで、外すと主キーの重複で作り直しが落ちる。
+"""
 
 import asyncpg
 import pytest
@@ -43,6 +50,7 @@ BESIDE_WAY = (BASE_LON + STEP * 2, BASE_LAT + STEP)
 #: 自転車の当事者種別と、自転車ではない軽車両（その他）の当事者種別。
 BICYCLE_PARTY = min(BICYCLE_PARTY_TYPE_CODES)
 OTHER_PARTY = "59"
+CROSSING = {"highway": "crossing"}
 
 TABLES = ("edge_materials", "way_materials", "road_edges", "node_materials",
           "source_features", "source_runs")
@@ -136,29 +144,15 @@ async def test_equidistant_accident_goes_to_exactly_one_existing_segment(counts_
     assert [r["d"] for r in distances] == [0.0]
 
 
-async def test_way_values_of_a_way_gone_from_the_raw_data_do_not_survive(counts_conn):
-    """生データから道が消えたら、作り直した後にその道の値は残らない。"""
-    await ingest_records(
-        "osm_way", [_road(way_id, node_ids) for way_id, node_ids in WAYS if way_id != 200], conn=counts_conn)
-
-    await derive_topology.derive(counts_conn)
-    await derive_counts.derive(counts_conn)
-
-    rows = await counts_conn.fetch("SELECT osm_way_id FROM way_materials ORDER BY osm_way_id")
-    assert [r["osm_way_id"] for r in rows] == [100, 300]
-
-
 async def test_a_crossing_near_a_signal_is_counted_as_a_signal(counts_conn):
     """近くに信号がある横断歩道は、横断歩道ではなく信号として数える。
 
-    地図も同じ読み替えで信号の点を出す（`test_point_tiles.py`）。
+    地図も同じ読み替えで信号の点を出す（`test_point_tiles.py`）。信号のノード9は道から北へ約10mで、
+    どの区間にも乗らない。
     """
-    await ingest_records("osm_node", [point_record(TIED_NODE, *_point(TIED_NODE))], conn=counts_conn)
-    await counts_conn.execute(
-        "UPDATE node_materials SET kind = 'crossing', has_traffic_signals = true"
-        " WHERE osm_node_id = $1", TIED_NODE)
-
-    await derive_counts.derive(counts_conn)
+    lon, lat = _point(TIED_NODE)
+    await _derive_with_nodes(counts_conn, {
+        TIED_NODE: ((lon, lat), CROSSING), 9: ((lon, lat + 0.0001), {"highway": "traffic_signals"})})
 
     rows = await counts_conn.fetch(
         "SELECT DISTINCT m.poi_signal, m.poi_crossing FROM edge_materials m JOIN road_edges e"
@@ -168,8 +162,7 @@ async def test_a_crossing_near_a_signal_is_counted_as_a_signal(counts_conn):
 
 
 async def test_rerun_on_changed_input_keeps_no_count_the_input_no_longer_supports(counts_conn):
-    """入力を変えて流し直すと、停止要因も事故も無くなった区間・道の数は0へ戻る。"""
-    await ingest_records("osm_node", [point_record(TIED_NODE, *_point(TIED_NODE))], conn=counts_conn)
+    """入力を変えて流し直すと、停止要因も事故も無くなった区間・道の数は0へ戻る。道の数は区間の和。"""
     columns = ("accident_count", *(poi_count_column(k) for k in sorted(POI_COUNT_KINDS)))
     total = " + ".join(f"sum({c})" for c in columns)
 
@@ -178,30 +171,23 @@ async def test_rerun_on_changed_input_keeps_no_count_the_input_no_longer_support
         return (await counts_conn.fetchval(f"SELECT {total} FROM edge_materials"),
                 await counts_conn.fetchval(f"SELECT {total} FROM way_materials"))
 
-    await counts_conn.execute(
-        "UPDATE node_materials SET kind = 'crossing', has_traffic_signals = false"
-        " WHERE osm_node_id = $1", TIED_NODE)
-    await derive_counts.derive(counts_conn)
+    await _derive_with_nodes(counts_conn, {TIED_NODE: (_point(TIED_NODE), CROSSING)})
     before = await counted()
-    await counts_conn.execute(
-        "UPDATE node_materials SET kind = NULL WHERE osm_node_id = $1", TIED_NODE)
     await ingest_records("accident", [], conn=counts_conn)
-    await derive_counts.derive(counts_conn)
+    await _derive_with_nodes(counts_conn, {TIED_NODE: (_point(TIED_NODE), {})})
     after = await counted()
 
-    # 前提: 1回目は数が付いている。
-    assert all(n > 0 for n in before)
+    assert before[0] > 0 and before[1] == before[0]
     assert after == (0, 0)
 
 
 async def test_an_accident_without_a_bicycle_is_not_counted(counts_conn):
-    """自転車の関わらない事故は数えない。同じ場所の自転車の事故は数える。"""
-    await _ingest_accidents(counts_conn, _accident("car", _north_of_way(5.0), bicycle=False),
-                            _accident("bicycle", _north_of_way(5.0)))
+    """自転車の関わらない事故は数えない（自転車の事故はノード3の事故）。"""
+    await _ingest_accidents(counts_conn, _accident("car", _north_of_way(5.0), bicycle=False))
 
     await derive_counts.derive(counts_conn)
 
-    assert await _accidents(counts_conn) == {(100, 0): 1.0, (300, 0): 1.0}
+    assert await _accidents(counts_conn) == {(100, 0): 1.0}
 
 
 async def test_an_accident_farther_than_the_match_distance_is_not_counted(counts_conn):
@@ -244,19 +230,7 @@ async def test_only_a_fatal_accident_is_weighted(counts_conn):
 
 
 async def test_a_stop_point_on_no_segment_is_not_counted(counts_conn):
-    """どの区間にも乗らない停止要因の点（取り込んでいない道の上の点等）は、すぐ隣の道にも
-    数えない。区間の端に乗る点は数える（行き止まりなので入る区間の0.5）。"""
-    stop = {"highway": "stop"}
-    await _derive_with_nodes(counts_conn, {9: (_north_of_way(5.0), stop), 4: (_point(4), stop)})
+    """どの区間にも乗らない停止要因の点（取り込んでいない道の上の点等）は、すぐ隣の道にも数えない。"""
+    await _derive_with_nodes(counts_conn, {9: (_north_of_way(5.0), {"highway": "stop"})})
 
-    assert await _stop_counts(counts_conn) == {100: {}, 200: {"stop": 0.5}, 300: {}}
-
-
-async def test_a_point_that_is_not_a_stop_is_not_counted(counts_conn):
-    """停止要因の種別でない点（補給の店等）は、区間の上にあっても停止の数に入らない。"""
-    await _derive_with_nodes(counts_conn, {
-        TIED_NODE: (_point(TIED_NODE), {"shop": "convenience"}),
-        4: (_point(4), {"highway": "stop"}),
-    })
-
-    assert await _stop_counts(counts_conn) == {100: {}, 200: {"stop": 0.5}, 300: {}}
+    assert await _stop_counts(counts_conn) == {100: {}, 200: {}, 300: {}}
