@@ -87,7 +87,7 @@ RideCompass/
 ### 前提
 
 - Node.js 22.12+（frontend のテストの道具 vitest の要件）
-- Python 3.11+
+- Python 3.12（`backend/Dockerfile`・CI と同じ）
 - PostgreSQL + PostGIS（Road Graph・路面タイル生成の一次系統。**DBなしでは起動しない**）
 - Redis（JMA気象データの短命キャッシュ。未接続でもフォールバックする箇所が
   一部あるが、ローカル開発でも用意することを推奨）

@@ -129,8 +129,7 @@ VMはデプロイのたびに作業コピー（`~/ridecompass-repo`）をその�
 - **`features/<機能>/`**: 利用者から見た機能ごとの部品・状態・計算・その機能だけが使う通信
   （例: `map/`は地図、`route/`はルートの条件と結果、`conditions/`は天気と走行条件、`admin/`は管理画面）。
   1つの機能だけが使うものは、共有の層ではなくその機能に置く。
-- **`components/`**: 機能をまたいで使う部品。`ui/`は見た目を持つ部品（[frontend-design-system.md]
-  (../modules/frontend/frontend-design-system.md)）、それ以外は画面の枠（下部シート・浮きパネル等）と
+- **`components/`**: 機能をまたいで使う部品。`ui/`は見た目を持つ部品（[frontend-design-system.md](../modules/frontend/frontend-design-system.md)）、それ以外は画面の枠（下部シート・浮きパネル等）と
   複数の機能が出す部品。
 - **`hooks/`**: 機能をまたぐ状態（保存する状態・軸カタログの取得等）。
 - **`services/`**: 複数の機能が使うbackend APIを叩く薄い層。

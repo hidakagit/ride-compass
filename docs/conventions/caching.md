@@ -29,8 +29,9 @@
 
 | 取得するもの | 入力（取得層） | 保持（キャッシュ層） |
 |---|---|---|
-| 更新頻度の低い外部JSON/CSV（警報・WBGT・洪水・アメダス観測・地域マスタ） | `simple_api_client.py: cached_fetch` | プロセス内`cachetools.TTLCache`（`cached_fetch`が内包） |
-| 気象庁の動的タイル（ナウキャスト・キキクル等） | `jma_tile_client.py: fetch`（上流への秒間上限つき） | `jma_tile_redis_cache.py`（Redis） |
+| 更新頻度の低い外部JSON/CSV（警報・WBGT・洪水・地域マスタ） | `simple_api_client.py: cached_fetch` | プロセス内`cachetools.TTLCache`（クライアントのモジュールが作り、呼び出し側（`api/dependencies.py`）が持って`cached_fetch`へ渡す） |
+| アメダスの観測 | `simple_api_client.py: cached_fetch` | `jma_amedas_store.py`（Redis。定期の取得が書き、読む側はRedisから読む） |
+| 気象庁の動的タイル（ナウキャスト・キキクル等） | `jma_tile_client.py: JmaTileClient.fetch`（上流への秒間上限つき） | `jma_tile_redis_cache.py`（Redis） |
 | 気象庁MSMの予報 | `msm_client.py: refresh`（ETag条件付きGETでファイル同期） | ローカルファイル（`backend/data/msm/`）。プロセスをまたいで残る |
 | 色別標高図・基礎地図 | 各クライアント（`gsi_tile_client`・`basemap_client`） | `tile_cache.py`（ディスク、生バイト列） |
 | PostGIS由来の重い中間結果 | リポジトリ層 | 用途で選ぶ（次節） |
@@ -172,8 +173,9 @@ per_second`＝5.0で自主制限しているが、これはプロセス内の制
 
 ### ワーカー複数化に備えて注意すること
 
-現状のbackendは単一プロセス（`uvicorn app.main:app`、`--workers`指定なし）だが、複数化する
-可能性がある。そのとき問題になるのは**キャッシュだけではない**:
+backendは1プロセスでしか正しく動かず、ワーカーを増やすと起動を止める（`infrastructure/single_process.py: require_single_worker`。
+[cross-cutting-infrastructure.md](../modules/backend/cross-cutting-infrastructure.md)「1プロセスの境界」）。
+複数化するときに問題になるのは**キャッシュだけではない**:
 
 - **APSchedulerのバッチ**（アメダス更新10分・JMAタイルのプリウォーム10分・MSM同期30分）は
   `main.py`のlifespanで登録されるため、**ワーカーごとに起動して同じ仕事をN回する**。
@@ -337,8 +339,10 @@ push型の無効化はfail-openと組み合わさると「伝え漏れても誰�
 行うため、環境ごとに違う値を入れるとビルド機の設定で生成物が決まってしまう。そのぶん
 ブラウザ側は`immutable`を付けず再検証できるようにしている（`api/cache_policy.py`）。
 
-焼き込み値（MVTのCASE式・材料タグ・domain純関数）を変えたら、対応する世代定数と生成物を
-**同一コミットで**上げる（[deployment-sync.md](deployment-sync.md)「コミットと同時に揃えるもの」）。
+焼き込み値（MVTのCASE式・材料タグ・domain純関数）を変えても、MVTの世代は手で上げない
+——`infrastructure/cache_identity.py: tile_version`がDBの世代と焼き込みの形の署名から決める。
+同じコミットで揃えるのは生成物（[deployment-sync.md](deployment-sync.md)「コミットと同時に揃えるもの」）。
+手で上げる世代定数は、署名に表れない土地被覆の画素の変化を表す`LANDCOVER_REVISION`だけ。
 
 ## 直接使ってよい場所
 
