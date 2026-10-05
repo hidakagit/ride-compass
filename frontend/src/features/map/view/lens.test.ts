@@ -77,13 +77,15 @@ describe("同じ軸の同じ段は、ルートを出す前と後で同じ行", (
     valueRamp(
       "ramp",
       [1, 2, 3, 4],
-      { map_value_thresholds: [20, 40, 60, 80], map_legend: { boundaries: [20, 40, 60, 80], unit: null } },
+      { map_paint: { thresholds: [20, 40, 60, 80], legend: { boundaries: [20, 40, 60, 80], unit: null } } },
       true,
     ),
-    dedicatedEntry("rain", [30, 70], { map_legend: { boundaries: [5, 20], unit: "mm" } }),
+    dedicatedEntry("rain", [30, 70], { map_paint: { legend: { boundaries: [5, 20], unit: "mm" } } }),
     dedicatedEntry("signed", [-6, -2, 2, 6], {
-      map_value: { kind: "signed_material", material: VALUE },
-      map_legend: { boundaries: [-6, -2, 2, 6], unit: "%" },
+      map_paint: {
+        value: { kind: "signed_material", material: VALUE },
+        legend: { boundaries: [-6, -2, 2, 6], unit: "%" },
+      },
     }),
   ]);
   const paintable = [...sameBands.rampAxes, ...sameBands.dedicatedAxes].map((axis) => axis.axisId);

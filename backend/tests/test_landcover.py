@@ -94,7 +94,7 @@ async def test_every_class_in_the_declaration_is_counted_and_the_row_fits_the_mo
     total = sum(counts.values())
 
     percentages_row = landcover.LandcoverPercentages(
-        **{name: value for name, value in row.items() if name not in ("osm_way_id", "segment_index")}
+        **{name: value for name, value in row.items() if name not in ("osm_way_id", "segment_index", "valid_pixels")}
     )
 
     for cls in landcover.LANDCOVER_CLASSES:

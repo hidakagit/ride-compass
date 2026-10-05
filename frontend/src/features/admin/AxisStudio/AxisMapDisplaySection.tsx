@@ -305,7 +305,7 @@ export function AxisMapDisplaySection({
           <div className={fieldClass}>
             <FieldLabel
               label="チップの略称"
-              description={`${CHIP_LABEL_MAX_LENGTH}文字以内（地図チップは固定サイズのタイルのため必須の上限。未設定時は表示名(label)がそのまま使われるが、正式名が${CHIP_LABEL_MAX_LENGTH}文字を超える場合はここで略称を設定すること）。`}
+              description={`${CHIP_LABEL_MAX_LENGTH}文字以内（地図チップは固定サイズのタイルのため必須の上限。未設定時は表示名(label)がそのまま使われるが、正式名が${CHIP_LABEL_MAX_LENGTH}文字を超える場合はここで略称を設定すること）。略称が出るのは地図チップだけで、ほかの画面は表示名で出るため、略称は表示名を縮めたものにし、意味を狭めたり言い換えたりしない（例: 「自転車インフラ」を「自転車道」にしない）。`}
             />
             <Input
               type="text"

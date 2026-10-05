@@ -493,7 +493,8 @@ backendが最寄りのアクセス可能な地点へ補正した場合のヒン�
 （ピンの位置と生成されたルートの終点がずれて見えないようにする）。
 
 「ルート結果」ヘッダの操作枠（`renderRouteResultHeaderActions()`）には**候補すべてに効く操作だけ**を置く
-（「全消去」、`ClearRoutesIcon`、`useRoutePlanner.ts: clear`）。候補1本に効く操作（「合成」＝区間の乗り換えの入口・
+（「全消去」、`ClearRoutesIcon`、`useRoutePlanner.ts: clear`。押すと確認の窓`Dialog/Dialog.tsx: ConfirmDialog`を出し、「消す」を押したときだけ消す——
+消した候補は生成し直すしかなく、気象が変われば同じ候補にならない）。候補1本に効く操作（「合成」＝区間の乗り換えの入口・
 「GPX」＝`features/route/gpxExport.ts: downloadGpx`）は`RouteOutcome.tsx`がその候補のタブの中身の
 先頭に置く——見出しに並べると、どれが選んでいる1本だけに効くのか見分けられない。「全消去」に**バツ印は使わない**
 ——シートの閉じる✕の隣に並ぶため、同じ形だとどちらがどちらか分からない。総合難易度の説明は

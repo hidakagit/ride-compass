@@ -42,7 +42,6 @@ def _parse_bulletin(entry: dict) -> FloodBulletin:
         river_code=entry.get("riverCode") or "",
         river_name=entry.get("riverName") or "",
         condition=item.get("condition") or "",
-        report_datetime=entry.get("reportDatetime") or "",
     )
 
 

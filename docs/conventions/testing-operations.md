@@ -22,7 +22,7 @@
   1行・1ファイル変えただけで全体を流し直さない——全体の答えはCIが同じPull Requestで出す。静的検査も、1の再現と
   下の`tsc`の例外のほかは回さない。
 - 回すときは、どの場面でも次のとおりにする。
-  - **範囲の例**: backend `pytest backend/tests/test_foo.py -q`、frontend `./node_modules/.bin/vitest run <該当ファイル>`。
+  - **範囲の例**: backend `pytest backend/tests/<テストのファイル> -q`、frontend `./node_modules/.bin/vitest run <該当ファイル>`。
     **frontendのコマンドに`npx`を付けない**（ツールはローカルにあり、`npx`は毎回パッケージ解決をやり直す）。**例外は`tsc --noEmit`**で、
     型の波及を1ファイルへ絞れないためプロジェクト全体で1回通す（Next.jsの生成型が無い作業ツリーでは、`tsc`の前の
     `next typegen`を飛ばすと落ちる）。所要時間と生成型の前提は[setup.md](../architecture/setup.md)「テスト」。
@@ -133,10 +133,10 @@ frontendで、入口（Next.jsのファイル規約・vitestとPlaywrightの設�
 
 ```bash
 # DBを使わないぶんを並列で（PYTHONUTF8=1が無いとワーカー起動が落ちる）
-PYTHONUTF8=1 backend/.venv/Scripts/python.exe -m pytest backend/tests/test_foo.py backend/tests/test_bar.py -q -m "not postgis" -n auto
+PYTHONUTF8=1 backend/.venv/Scripts/python.exe -m pytest backend/tests/<テストのファイル> backend/tests/<テストのファイル> -q -m "not postgis" -n auto
 
 # DBを使うぶん（完了の条件には含めない。下の「テストDBは作業ツリーごとに分かれる」の`-m postgis`の段落）
-backend/.venv/Scripts/python.exe -m pytest backend/tests/test_foo.py backend/tests/test_bar.py -q -m postgis
+backend/.venv/Scripts/python.exe -m pytest backend/tests/<テストのファイル> backend/tests/<テストのファイル> -q -m postgis
 ```
 
 **`PYTHONUTF8=1`が要る理由**: 付けないと`execnet`のワーカーが
@@ -152,7 +152,7 @@ backend/.venv/Scripts/python.exe -m pytest backend/tests/test_foo.py backend/tes
 使い回す間は残る。
 
 ```bash
-PYTHONUTF8=1 backend/.venv/Scripts/python.exe -m pytest backend/tests/test_foo.py backend/tests/test_bar.py -q --testmon
+PYTHONUTF8=1 backend/.venv/Scripts/python.exe -m pytest backend/tests/<テストのファイル> backend/tests/<テストのファイル> -q --testmon
 ```
 
 - **渡した範囲の外は選ばない。** 候補のファイルは今までどおり導き（上の「手元の検査の回し方」の

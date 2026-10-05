@@ -164,7 +164,6 @@ async def test_a_forecast_is_read_into_its_times_and_the_index_divided_by_ten():
     assert forecast == wbgt_client.WbgtForecast(
         reference_time="2026/07/01 08:00:00",
         forecast_time=datetime(2026, 7, 1, 9, 0, 0),
-        forecast_time_text="2026/07/01 09:00:00",
         wbgt=28.0,
     )
 

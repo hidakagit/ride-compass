@@ -17,6 +17,7 @@ from sqlalchemy import Float, Text, TextClause, bindparam, text
 from sqlalchemy.dialects.postgresql import ARRAY
 
 from app.domain.accident import BICYCLE_PARTY_TYPE_CODES, FATAL_SQL, OCCURRED_YEAR_SQL, bicycle_sql
+from app.domain.geo import degrees_covering_m
 from app.domain.material_catalog import stop_poi_map_group_sql
 from app.domain.registry import TileKind
 from app.domain.traffic import POI_CLUSTER_EPS_M, STOP_POI_KINDS, stop_kind_sql
@@ -45,8 +46,9 @@ _POI_KIND_EXPR = stop_kind_sql("nm")
 _POI_GROUP_EXPR = stop_poi_map_group_sql("nm")
 
 #: クラスタ化のためにタイルの外側も読む幅（度）。タイル境界で塊が切れると、同じ交差点が
-#: 隣り合うタイルで別々の点になる。`POI_CLUSTER_EPS_M`より十分広く取る。
-_POI_CLUSTER_PAD_DEG = 0.001
+#: 隣り合うタイルで別々の点になる。境目の外へ`POI_CLUSTER_EPS_M`ずつ2つ先まで連なる点を読む
+#: （塊の間隔はWeb Mercatorのmで測り、その1mは地面では1m以下なので、地面のmで覆えば足りる）。
+_POI_CLUSTER_PAD_DEG = degrees_covering_m(2 * POI_CLUSTER_EPS_M)
 
 # 停止要因POI・補給POIを1タイルへ焼き込む。
 _POI_TILE_MVT_SQL = text(

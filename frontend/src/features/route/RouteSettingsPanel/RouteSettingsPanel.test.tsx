@@ -108,7 +108,7 @@ describe("RouteSettingsPanel 軸一覧を取れないとき", () => {
 });
 
 describe("RouteSettingsPanel 軸のチップ", () => {
-  it("公開軸ごとに略名のチップを、有効な軸を先に、それぞれカタログの並びのまま出す", async () => {
+  it("公開軸ごとに名前のチップを、有効な軸を先に、それぞれカタログの並びのまま出す", async () => {
     serveCatalog();
     renderPanel({ width: 0, traffic: 0.3, slope: 0, light: 0.2 });
     await chipsShown();
@@ -120,7 +120,7 @@ describe("RouteSettingsPanel 軸のチップ", () => {
       "道幅を有効にする",
       "勾配を有効にする",
     ]);
-    expect(chip("道幅を有効にする")).toHaveTextContent(/^幅$/);
+    expect(chip("道幅を有効にする")).toHaveTextContent(/^道幅$/);
   });
 
   it("有効な軸のチップに重みの合計に占める割合を出し、無効な軸には出さない", async () => {

@@ -2,14 +2,15 @@ from datetime import datetime
 
 import numpy as np
 
-from app.domain.geo import compass_label
 from app.domain.rain import StationRainMaterials
 from app.domain.msm import wind_speed_and_direction
 from app.domain.route import Coordinates
 from app.domain.twilight import sunrise_sunset_jst
 from app.domain.weather import PERIOD_INTERVAL_HOURS, WeatherConditions, daily_max, daily_range, period_outlooks, today_indices
 from app.domain.region import BoundingBox
-from app.domain.wind import WIND_FORECAST_LAT_STEP_DEG, WIND_FORECAST_LON_STEP_DEG, WindForecastSeries, WindLattice
+from app.domain.wind import (
+    WIND_FORECAST_LAT_STEP_DEG, WIND_FORECAST_LON_STEP_DEG, DepartureWind, WindForecastSeries, WindLattice,
+)
 from app.domain.wind_grid import WindGridPoint
 from app.infrastructure import msm_client
 from app.infrastructure.msm_client import MsmSeries, MsmUnavailableError
@@ -44,6 +45,14 @@ class WeatherService:
         if series is None or not series.times:
             return None
         return self._conditions_from_series(point, series)
+
+    async def get_departure_wind(self, point: Coordinates) -> DepartureWind | None:
+        """地点の時系列の先頭（現在時刻の正時）の風。`RoadGraphEngine`が時別の系列の代わりに使う。読めなければNone。"""
+        series = await self._read_point(point)
+        if series is None or not series.times:
+            return None
+        speed, direction = wind_speed_and_direction(series.wind_u_ms[0], series.wind_v_ms[0])
+        return DepartureWind(speed_ms=round(float(speed[0]), 1), direction_deg=round(float(direction[0]), 1))
 
     async def get_wind_forecast_lattice(self, bbox: BoundingBox) -> WindForecastSeries | None:
         """`bbox`を覆う格子点ごとの時別風向・風速の予報系列（1時間刻み、JSTのローカル時刻）。
@@ -110,18 +119,13 @@ class WeatherService:
         """MSMの時系列（1地点ぶん）から「今日」のパネル向けの値を組み立てる。時系列の先頭（現在時刻の
         正時）を現在値として扱い、日次の集計は同じJST暦日の残り時間ぶんを対象にする。"""
         times = series.times
-        speed, direction = wind_speed_and_direction(series.wind_u_ms[0], series.wind_v_ms[0])
+        speed, _direction = wind_speed_and_direction(series.wind_u_ms[0], series.wind_v_ms[0])
         temperature = series.temperature_c[0]
         precipitation = series.precipitation_mm[0]
         today = today_indices(times)
 
         return WeatherConditions(
-            temperature_c=round(float(temperature[0]), 1),
-            wind_speed_ms=round(float(speed[0]), 1),
-            wind_direction_deg=round(float(direction[0]), 1),
-            wind_direction_label=compass_label(float(direction[0])),
             precipitation_mm=round(float(precipitation[0]), 2),
-            observed_at=times[0],
             twilight=sunrise_sunset_jst(point, datetime.fromisoformat(times[0]).date()),
             precipitation_max_mm=daily_max(precipitation, today),
             wind_speed_max_ms=daily_max(speed, today),

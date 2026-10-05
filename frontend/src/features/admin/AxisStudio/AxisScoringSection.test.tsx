@@ -52,7 +52,7 @@ const PREVIEW_SCORES = "/admin/api/axis-definitions/preview-scores";
 /** 送られた形の分布。1階級だけを持ち、抽選の本数で下ごしらえを見分けられるようにする。 */
 function distributionOf(shape: AxisShape): ValueDistribution {
   const sampleWays = "preprocess" in shape && shape.preprocess === "abs" ? 222 : 111;
-  return { sample_ways: sampleWays, total_km: 1, quantiles: {}, bins: [[0, 2, 1]], zero_share: 0 };
+  return { sample_ways: sampleWays, total_km: 1, quantiles: {}, bins: [[0, 2, 1]] };
 }
 
 /** 参考点の値ごとにbackendが返す横軸の値と点数。 */
@@ -130,10 +130,7 @@ beforeEach(() => {
   onSameOrigin("GET", "/admin/api/material-catalog/:materialId/distribution", ({ path }) =>
     Response.json({
       available: true,
-      sample_ways: 1,
-      total_km: 1,
       quantiles: { p50: MATERIALS.findIndex((m) => path.includes(`/${m.id}/`)) },
-      bins: [],
       zero_share: 0,
     }),
   );

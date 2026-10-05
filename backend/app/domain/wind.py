@@ -20,14 +20,14 @@ MAX_ASSUMED_SPEED_KMH = 60.0
 # よる推定誤差は同じビンへ収まる程度で足りる。
 ROUTE_DETOUR_RATIO = 1.3
 
+def kmh_to_ms(speed_kmh: float) -> float:
+    return speed_kmh / 3.6
+
+
 # 風の追加負荷（`wind_drag_ratio_array`）を無次元化する基準速度（m/s、時速20km）。
 # `ASSUMED_SPEED_KMH`とは独立の専用定数にする——既定の想定速度を変えても材料のスケール
 # （軸スタジオのbreakpointsが前提にする値域）がずれないようにするため。
-WIND_DRAG_REFERENCE_SPEED_MS = 20.0 / 3.6
-
-
-def kmh_to_ms(speed_kmh: float) -> float:
-    return speed_kmh / 3.6
+WIND_DRAG_REFERENCE_SPEED_MS = kmh_to_ms(20.0)
 
 
 def _wind_relative_angle_rad(wind_direction_deg, travel_bearing_deg) -> np.ndarray:
@@ -135,6 +135,15 @@ class WindLattice:
         i = np.clip(np.rint((np.asarray(latitudes, dtype=float) - self.south) / self.lat_step), 0, self.rows - 1)
         j = np.clip(np.rint((np.asarray(longitudes, dtype=float) - self.west) / self.lon_step), 0, self.cols - 1)
         return (i.astype(np.int64) * self.cols + j.astype(np.int64)).astype(np.int64)
+
+
+@dataclass(frozen=True)
+class DepartureWind:
+    """出発地点の出発時点の風（MSMの時系列の先頭）。時別の系列が無いとき、全区間へ一様に使う。"""
+
+    speed_ms: float
+    #: 風が吹いてくる方位（0=北・時計回り）。
+    direction_deg: float
 
 
 @dataclass(frozen=True)

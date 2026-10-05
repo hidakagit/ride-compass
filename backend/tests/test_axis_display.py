@@ -9,7 +9,7 @@
 ここで見ないもの:
 - 地図表示の宣言の型の検証（形の重複・`kind`と中身の食い違い・境界の昇順） → `test_registry.py`
 - 折れ線の得点そのもの（`domain/axis_definitions.py: BreakpointLinearShape.score_at`） → `test_axis_definitions.py`
-- ルート線の段の境界（`domain/dynamic_way_values.py: map_value_thresholds`） → `test_dynamic_way_values.py`
+- ルート線の段の境界（`domain/map_paint.py: map_paint`） → `test_map_paint.py`
 """
 
 import pytest

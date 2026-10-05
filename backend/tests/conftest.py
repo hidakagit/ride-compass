@@ -87,13 +87,12 @@ def redis_server():
 @pytest.fixture
 async def fake_redis(monkeypatch, redis_server):
     """空のRedis。接続を作る所（`redis.asyncio.from_url`）を同じサーバのfakeredisへ差し、共有クライアントを
-    閉じる口（`redis_client.py: close_redis_clients`）で作る前に戻すので、`get_redis_client_or_none`・
-    `get_redis_binary_client_or_none`を読むどのモジュールからも同じものが見える。
-    返すのは文字列側のクライアント。"""
+    閉じる口（`redis_client.py: close_redis_client`）で作る前に戻すので、`get_redis_client_or_none`を読むどの
+    モジュールからも同じものが見える。返すのはその共有クライアントで、値は生のバイト列で返る。"""
     monkeypatch.setattr(redis.asyncio, "from_url", functools.partial(fakeredis.FakeAsyncRedis.from_url, server=redis_server))
-    await redis_client.close_redis_clients()
+    await redis_client.close_redis_client()
     yield redis_client.get_redis_client_or_none()
-    await redis_client.close_redis_clients()
+    await redis_client.close_redis_client()
 
 
 class MonotonicClock:
@@ -191,7 +190,7 @@ def _use_temp_disk_cache_dirs(tmp_path, monkeypatch, _keep_disk_caches_out_of_th
 
 # road_graph_repository.pyのPostGIS統合テスト専用の接続先。開発機で稼働中の実DB
 # (ridecompass, backend/.envのDATABASE_URLが指す先)とは別のテスト専用DBを使う
-# (docs/osm-pbf-import.md関連の進行中データに触れないため)。ローカルでのみ実行する
+# (取り込んだ実データに触れないため)。ローカルでのみ実行する
 # 前提で、環境変数postgis_database_url()で上書き可能にしておく（CIはこの経路で注入する）。
 TEST_DATABASE_SERVER = "postgresql+asyncpg://ridecompass:ridecompass@localhost:5432"
 #: 作業ツリーの場所を書いておくDB。消してよいかの判断に使う（drop_orphan_test_databases.py）。

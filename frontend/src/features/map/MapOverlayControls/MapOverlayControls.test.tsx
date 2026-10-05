@@ -276,6 +276,12 @@ describe("表示する項目を選ぶ", () => {
     expect(screen.queryByRole("button", { name: "hidden_on" })).not.toBeInTheDocument();
   });
 
+  it("項目は略名でなく名前で並べる", async () => {
+    const { panel } = await openSettings([roadMember("kind", { label: "道路の種別", chipLabel: "種別" })]);
+    expect(within(panel).getByRole("checkbox", { name: "道路の種別を表示しない" })).toBeInTheDocument();
+    expect(within(panel).queryByText("種別")).not.toBeInTheDocument();
+  });
+
   it("説明のある項目にだけⓘを出し、押すと説明を読める", async () => {
     const { user, panel } = await openSettings([roadMember("with_hint", { panelHint: "説明文" }), roadMember("plain")]);
     expect(within(panel).queryByRole("button", { name: /plainの説明/ })).not.toBeInTheDocument();

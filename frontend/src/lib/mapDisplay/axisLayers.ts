@@ -88,7 +88,7 @@ export function rampAxesFromCatalogAxes(
         breakpoints: input.breakpoints ?? undefined,
       })),
       thresholds: axis.display.thresholds,
-      legend: axis.map_legend,
+      legend: axis.map_paint.legend,
       bandLabelsOverride: axis.display_band_labels_override ?? undefined,
     }));
 }
@@ -128,9 +128,9 @@ export function dedicatedWayValueAxesFromCatalogAxes(axes: readonly AxisCatalogE
       needsSpeed: axis.dynamic_way_value_conditions.includes("speed_kmh"),
       undeterminedByBearing: axis.dynamic_way_value_undetermined_by_bearing,
       display: {
-        kind: axis.map_value.kind,
-        boundaries: axis.map_value_thresholds,
-        legend: axis.map_legend,
+        kind: axis.map_paint.value.kind,
+        boundaries: axis.map_paint.thresholds,
+        legend: axis.map_paint.legend,
         bandLabels: axis.display_band_labels_override ?? undefined,
       },
     }));

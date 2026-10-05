@@ -1,6 +1,6 @@
-"""`infrastructure/redis_json_cache.py`——Redisへ持つcache-asideの骨格（JSONと生のバイト列）。
+"""`infrastructure/redis_json_cache.py`——Redisへ持つcache-asideの骨格（JSON・生のバイト列・Hash）。
 
-入口は`get_json`・`set_json`・`get_bytes`・`set_bytes`。Redisはfakeredis、時計はfreezegunで与え、
+入口は`get_json`・`set_json`・`get_bytes`・`set_bytes`・`get_hash`・`set_hashes`。Redisはfakeredis、時計はfreezegunで与え、
 キャッシュの当たり外れと失敗は`/api/debug/stats`の集計（`debug_log.py: get_stats`）で見る。
 
 ここで見ないもの:
@@ -17,6 +17,7 @@ from app.config import settings
 from app.infrastructure import redis_client, redis_json_cache
 from app.infrastructure.debug_log import get_stats
 from app.infrastructure.redis_client import CIRCUIT_COOLDOWN_SECONDS
+from app.infrastructure.redis_json_cache import UNAVAILABLE
 
 KEY = "sample:key"
 TTL = 60
@@ -80,6 +81,28 @@ async def test_bytes_never_stored_do_not_reach_the_decoder(category, fake_redis)
     assert stats(category).cache_misses == 1
 
 
+async def test_hashes_written_together_come_back_one_by_one_with_their_ttl(category, fake_redis):
+    """観測所ごとのHashを1往復でまとめて書き、1つずつ読む。TTLが付かないと、バッチが止まっても古い観測値が残り続ける。"""
+    await redis_json_cache.set_hashes(
+        {"sample:a": {"temp": "20.5", "wind": ""}, "sample:b": {"temp": "3"}}, ttl_seconds=TTL, category=category
+    )
+
+    assert await redis_json_cache.get_hash("sample:a", decode=dict, category=category) == {
+        b"temp": b"20.5",
+        b"wind": b"",
+    }
+    assert [await fake_redis.ttl(key) for key in ("sample:a", "sample:b")] == [TTL, TTL]
+    assert stats(category).cache_hits == 1
+
+
+async def test_a_hash_never_stored_does_not_reach_the_decoder(category, fake_redis):
+    def decode(fields: dict) -> dict:
+        raise AssertionError("未保存のキーで解釈関数が呼ばれた")
+
+    assert await redis_json_cache.get_hash("sample:a", decode=decode, category=category) is None
+    assert stats(category).cache_misses == 1
+
+
 async def test_a_failing_redis_is_not_cached_and_raises_nothing(category, fake_redis, redis_server, caplog):
     """Redisの障害でタイル配信・ルート生成を止めない。失敗は集計とWARNINGへ、呼び出し元が渡した付帯情報つきで出る。"""
     redis_server.connected = False
@@ -94,15 +117,15 @@ async def test_a_failing_redis_is_not_cached_and_raises_nothing(category, fake_r
 
 @pytest.mark.usefixtures("fake_redis")
 async def test_after_a_failed_read_redis_is_not_called_until_the_cooldown_passes(category, redis_server, clock):
-    """失敗のたびに接続の待ちを重ねないよう、冷却の間はRedisにある値も読まずに未キャッシュで進む。"""
+    """失敗のたびに接続の待ちを重ねないよう、冷却の間はRedisにある値も読まずに「取れない」で返る（保存なしとは分ける）。"""
     await redis_json_cache.set_json(KEY, [1], ttl_seconds=3600, category=category)
     redis_server.connected = False
-    assert await redis_json_cache.get_json(KEY, category=category) is None
+    assert await redis_json_cache.get_json(KEY, category=category) is UNAVAILABLE
     calls_after_failure = stats(category).calls
     redis_server.connected = True
 
     clock.tick(CIRCUIT_COOLDOWN_SECONDS - 1)
-    assert await redis_json_cache.get_json(KEY, category=category) is None
+    assert await redis_json_cache.get_json(KEY, category=category) is UNAVAILABLE
     assert stats(category).calls == calls_after_failure
 
     clock.tick(1)
@@ -126,11 +149,11 @@ async def test_after_a_failed_write_nothing_is_written_until_the_cooldown_passes
 
 
 async def test_without_a_client_nothing_is_tried_and_nothing_is_raised(category, monkeypatch):
-    """接続先の設定の誤りでクライアントを作れなくても、未キャッシュで進む。"""
-    await redis_client.close_redis_clients()
+    """接続先の設定の誤りでクライアントを作れなくても、例外を出さず「取れない」で返る。"""
+    await redis_client.close_redis_client()
     monkeypatch.setattr(settings, "redis_url", "not-a-redis-url")
 
     await redis_json_cache.set_json(KEY, [1], ttl_seconds=TTL, category=category)
-    assert await redis_json_cache.get_json(KEY, category=category) is None
+    assert await redis_json_cache.get_json(KEY, category=category) is UNAVAILABLE
 
     assert category not in get_stats().external

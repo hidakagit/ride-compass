@@ -1,4 +1,5 @@
-"""延長で重み付けた値の分布（分位点とヒストグラム）。軸スタジオの分布の口の応答の型を兼ねる。
+"""延長で重み付けた値の分布（分位点とヒストグラム）と、値の範囲の手がかり（分位点とゼロの割合）。
+軸スタジオの分布の口・材料の分布の口の応答の型を兼ねる。
 
 本数ではなく**延長で重み付ける**。本数で数えると短い道が多数を占めて実際に走る距離の感覚と合わない。
 """
@@ -23,11 +24,21 @@ class ValueDistribution(StrictModel):
     total_km: float
     quantiles: dict[str, float]
     bins: list[tuple[float, float, float]]
-    # 値がちょうど0である延長の割合（負の値は含まない）。
+
+
+EMPTY_DISTRIBUTION = ValueDistribution(sample_ways=0, total_km=0.0, quantiles={}, bins=[])
+
+
+class ValueSpread(StrictModel):
+    """延長で重み付けた分位点と、値がちょうど0である延長の割合（負の値は含まない）。"""
+
+    quantiles: dict[str, float]
     zero_share: float
 
 
-EMPTY_DISTRIBUTION = ValueDistribution(sample_ways=0, total_km=0.0, quantiles={}, bins=[], zero_share=0.0)
+EMPTY_SPREAD = ValueSpread(quantiles={}, zero_share=0.0)
+
+_QUANTILE_TARGETS = [("p10", 0.10), ("p25", 0.25), ("p50", 0.50), ("p75", 0.75), ("p90", 0.90), ("p99", 0.99)]
 
 
 def weighted_quantiles(
@@ -48,8 +59,7 @@ def weighted_distribution(pairs: list[tuple[float, float]]) -> ValueDistribution
         return EMPTY_DISTRIBUTION
     lengths, values = np.asarray(pairs, dtype=float).T
     total_m = float(lengths.sum())
-    targets = [("p10", 0.10), ("p25", 0.25), ("p50", 0.50), ("p75", 0.75), ("p90", 0.90), ("p99", 0.99)]
-    quantiles = weighted_quantiles(pairs, targets, digits=3)
+    quantiles = weighted_quantiles(pairs, _QUANTILE_TARGETS, digits=3)
 
     # 描画範囲は**データの値域から決める**。下限を0に固定すると、生値が負になる軸
     # （termsの重みがすべて負の軸）で全サンプルが階級0へ潰れ、「1本だけの棒＝全量が
@@ -72,14 +82,22 @@ def weighted_distribution(pairs: list[tuple[float, float]]) -> ValueDistribution
         (round(float(low), 4), round(float(high), 4), round(float(b) / total_m, 5))
         for low, high, b in zip(edges[:-1], edges[1:], buckets, strict=True)
     ]
-    # 「ゼロ」は値がちょうど0であること。`v <= 0`にすると負の生値を持つ軸で
-    # 「下り勾配の道」「開けていない道」まで0として数えられ、表示（「ゼロX%」）が
-    # 意味と食い違う。
-    zero_share = float(lengths[values == 0].sum()) / total_m
     return ValueDistribution(
         sample_ways=len(pairs),
         total_km=round(total_m / 1000, 1),
         quantiles=quantiles,
         bins=bins,
-        zero_share=round(zero_share, 5),
+    )
+
+
+def weighted_spread(pairs: list[tuple[float, float]]) -> ValueSpread:
+    """`(長さm, 値)`から延長で重み付けた分位点とゼロの割合を求める。"""
+    if not pairs:
+        return EMPTY_SPREAD
+    lengths, values = np.asarray(pairs, dtype=float).T
+    # 「ゼロ」は値がちょうど0であること。`v <= 0`にすると負の値を持つ材料で
+    # 「下り勾配の道」まで0として数えられ、表示（「ゼロX%」）が意味と食い違う。
+    zero_share = float(lengths[values == 0].sum()) / float(lengths.sum())
+    return ValueSpread(
+        quantiles=weighted_quantiles(pairs, _QUANTILE_TARGETS, digits=3), zero_share=round(zero_share, 5)
     )

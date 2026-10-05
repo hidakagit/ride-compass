@@ -15,7 +15,7 @@ import { onSameOrigin } from "@/testing/backendServer";
 import { MaterialRangeHint } from "./MaterialRangeHint";
 
 function distribution(overrides: Partial<MaterialDistribution>): MaterialDistribution {
-  return { available: true, sample_ways: 1, total_km: 1, quantiles: {}, bins: [], zero_share: 0, ...overrides };
+  return { available: true, quantiles: {}, zero_share: 0, ...overrides };
 }
 
 /** 材料`materialId`の分布の取得に`reply`を返して描く（取れた分布は材料ごとに覚えられるので、描き直すなら材料を変える）。 */

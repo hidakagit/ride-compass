@@ -37,10 +37,14 @@ from app.domain.traffic import highway_rank
 from app.domain.tuning import tuning_value
 from app.domain.cycling_speed import top_speed_kmh
 from app.domain.attributes import ElevationAttribute
-from app.domain.dynamic_way_values import displayed_material_ids
 from app.domain.difficulty import DIFFICULTY_QUANTUM, distance_weighted_difficulty, round_difficulty_array
 from app.domain.errors import RoutingError
-from app.domain.evaluation import StaticEdgeScoreMatrix, build_static_edge_score_matrix, difficulty_from_cost
+from app.domain.evaluation import (
+    StaticEdgeScoreMatrix,
+    build_static_edge_score_matrix,
+    difficulty_from_cost,
+    displayed_material_ids,
+)
 from app.domain.hard_filters import compute_hard_filter_excluded, compute_routable_nodes
 from app.domain.leg_costs import LegCostArrays, LegCostComposer, RowValues, material_value_at
 from app.domain.material_catalog import GRADIENT_PERCENT
@@ -105,7 +109,6 @@ from app.domain.routing import (
     turn_expanded_path_from_state_to_source,
     turn_expanded_shortest_path,
 )
-from app.domain.weather import WeatherConditions
 from app.domain.wind import (
     ROUTE_DETOUR_RATIO,
     estimate_passage_hours,
@@ -119,13 +122,10 @@ from app.services.weather_service import WeatherService
 
 # Road Graphを取得するbboxは、起点・経由地2点の外接矩形にこのマージンを足したもの。
 # 実際の道なりは直線距離の外接矩形からはみ出ることが多い（川・線路等を迂回する等）ため、
-# 探索が失敗しない程度の余裕を持たせる。半径に比例させつつ、最低値を設ける。
+# 探索が失敗しない程度の余裕を持たせる。半径に比例させつつ、最低値を設ける。経由地ルートは
+# 最低値だけを使う（経由地は起点からの半径に収まるとは限らないため半径比例は使えない）。
 _BBOX_MARGIN_RATIO = 0.3
 _BBOX_MARGIN_MIN_KM = 2.0
-
-# 経由地ルートのbboxマージン。ループ探索の_BBOX_MARGIN_MIN_KMと同じ「道なりが直線外接矩形から
-# はみ出る余裕」を固定値で持たせる（経由地は起点からの半径に収まるとは限らないため半径比例は使えない）。
-_WAYPOINT_BBOX_MARGIN_KM = 2.0
 
 # 一対全探索のコスト上限に掛ける余裕。Edge単位の丸めの積み上がりで上限ぎりぎりのNodeを
 # 取りこぼさないため。
@@ -160,7 +160,6 @@ class _RoadGraphContext:
 
     # 探索範囲の切り出し。ノードの番号・区間の元の行はこれが決める。
     road: RoadSlice
-    weather: WeatherConditions | None
     # 起点のノード番号（`road`の切り出しの番号）。
     origin_node: int
     # 1リクエスト内で繰り返す最寄りNodeの探索（prepareの起点・trace_loopの
@@ -221,7 +220,6 @@ class _SearchGraph:
     lazy_graph: LazyRoadGraph
     # bboxを覆うタイル集合（学習した迂回率の鍵）。
     tile_set: frozenset[tuple[int, int, int]]
-    weather: WeatherConditions | None
     # _RoadGraphContextと同じ意味（フィールドdocstring参照）。`outbound`は基準点（起点側の
     # 座標）から離れていくレグとして合成済みの配列。
     composer: LegCostComposer
@@ -303,7 +301,7 @@ class RoadGraphEngine:
             return None
 
         weather_started = time.monotonic()
-        weather = await self._weather_service.get_conditions(origin)
+        departure_wind = await self._weather_service.get_departure_wind(origin)
         # 探索範囲を覆う格子点ごとの時別風予報（MSMのローカルファイルから読む。外部API呼び出しは無い）。
         wind_series = await self._weather_service.get_wind_forecast_lattice(bbox)
         rain = await self._weather_service.get_station_rain_materials(datetime.now(JST))
@@ -331,7 +329,7 @@ class RoadGraphEngine:
         # 迂回率は同じ探索範囲で前回の往路木から学習した値があればそれを使う（無ければ既定値）。
         learned_detour_ratio = detour_ratio_cache.get_detour_ratio(tile_set)
         composer = LegCostComposer(
-            score_matrix, self._route_preference.weights, self._penalty_strength, hard_filter_excluded, weather,
+            score_matrix, self._route_preference.weights, self._penalty_strength, hard_filter_excluded, departure_wind,
             wind_series, start, self._assumed_speed_kmh, lazy_graph.edge_rows,
             detour_ratio=learned_detour_ratio if learned_detour_ratio is not None else ROUTE_DETOUR_RATIO,
             twilight_origin=origin,
@@ -361,7 +359,6 @@ class RoadGraphEngine:
             road=road,
             lazy_graph=lazy_graph,
             tile_set=tile_set,
-            weather=weather,
             composer=composer,
             outbound=outbound,
             node_lat=road.node_lat,
@@ -420,7 +417,7 @@ class RoadGraphEngine:
         if waypoints:
             # ユーザー指定の経由地は起点から半径radius_km以内とは限らない
             # ため、周回探索の円を覆う矩形ではなく、複数点の外接矩形+固定マージンを使う。
-            bbox = bbox_covering_points([origin, *waypoints], _WAYPOINT_BBOX_MARGIN_KM)
+            bbox = bbox_covering_points([origin, *waypoints], _BBOX_MARGIN_MIN_KM)
         else:
             # 起点を中心とした円を覆う矩形。折返し点がどの方位に選ばれても、この1回の取得で足りる。
             margin_km = max(_BBOX_MARGIN_MIN_KM, radius_km * _BBOX_MARGIN_RATIO)
@@ -436,7 +433,6 @@ class RoadGraphEngine:
 
         return _RoadGraphContext(
             road=search.road,
-            weather=search.weather,
             origin_node=origin_node,
             node_index=node_index,
             lazy_graph=search.lazy_graph,

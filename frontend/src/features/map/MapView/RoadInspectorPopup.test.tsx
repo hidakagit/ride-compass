@@ -39,13 +39,12 @@ function inspectorResult(): AxisInspectorResult {
     highway: "residential",
     tags: { lit: "yes", name: "明治通り" },
     axes: [
-      { axis_id: "axis_sample", difficulty: 60, weight: 1, contribution: 30 },
-      { axis_id: "night", difficulty: 20, weight: 1, contribution: 10 },
-      { axis_id: "gradient", difficulty: null, weight: 1, contribution: null },
+      { axis_id: "axis_sample", difficulty: 60, contribution: 30 },
+      { axis_id: "night", difficulty: 20, contribution: 10 },
+      { axis_id: "gradient", difficulty: null, contribution: null },
     ],
     composite_difficulty: { value: 40, covered_weight_fraction: 0.8 },
     landcover: {
-      valid_pixels: 500,
       water_percent: 0,
       trees_percent: 20,
       flooded_veg_percent: 0,

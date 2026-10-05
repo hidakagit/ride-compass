@@ -10,7 +10,7 @@ import { bandLabelsForBandCount, buildRangeLegendBands, type MapColorLegendBand 
 
 /** 地図がその軸について塗る値の種類（正本はbackend）。`difficulty`は評価済みの0〜100、`signed_material`は
  * 向きの符号が意味を持つ材料1つの生値（勾配等）。 */
-export type MapValueKind = components["schemas"]["AxisCatalogEntry"]["map_value"]["kind"];
+export type MapValueKind = components["schemas"]["MapPaint"]["value"]["kind"];
 
 const COLOR_EASY = palette.semantic.evaluation_good;
 /** 符号付き材料の負側（下り坂等、走行が楽になる側）の色。 */

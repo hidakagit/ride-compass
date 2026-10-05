@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.domain.attributes import EdgeMaterialArrays
 from app.domain.road_network import RoadNetwork
+from app.domain.traffic import travel_allowed
 from app.infrastructure.cache_identity import shape_digest
 from app.infrastructure.road_graph_repository import NETWORK_SQL_SOURCES, RoadGraphRepository
 
@@ -261,16 +262,13 @@ async def _read_directed_edges(repository: RoadGraphRepository, node_osm_id: np.
         segment = np.fromiter((r.segment_index for r in rows), dtype=np.int32, count=n)
         from_osm = np.fromiter((r.from_node_id for r in rows), dtype=np.int64, count=n)
         to_osm = np.fromiter((r.to_node_id for r in rows), dtype=np.int64, count=n)
-        direction = [r.direction for r in rows]
         highway = np.fromiter(
             (highway_vocab.setdefault(r.highway, len(highway_vocab)) for r in rows), dtype=np.int16, count=n)
         bbox = {name: np.fromiter((getattr(r, name) for r in rows), dtype=np.float64, count=n)
                 for name in ("min_lon", "min_lat", "max_lon", "max_lat")}
 
         # 区間ごとに順方向・逆方向の2行を並べ、走れない向きを落とす。
-        forward_ok = np.fromiter((d != "backward" for d in direction), dtype=bool, count=n)
-        backward_ok = np.fromiter((d != "forward" for d in direction), dtype=bool, count=n)
-        keep = np.column_stack([forward_ok, backward_ok]).ravel()
+        keep = np.fromiter((ok for r in rows for ok in travel_allowed(r.direction)), dtype=bool, count=2 * n)
         is_forward = np.tile([True, False], n)[keep]
         source = np.repeat(np.arange(n), 2)[keep]
         tail = np.where(is_forward, from_osm[source], to_osm[source])

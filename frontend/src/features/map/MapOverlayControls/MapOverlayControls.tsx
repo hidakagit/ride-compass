@@ -563,7 +563,7 @@ export default function MapOverlayControls({
             {members.map((member) => {
               const hiddenKey = `${group}:${member.id}`;
               const hidden = hiddenIds.has(hiddenKey);
-              const name = member.chipLabel;
+              const name = member.label;
               return (
                 <li key={member.id} className="flex items-center gap-1.5 text-[length:var(--font-size-sm)]">
                   <Checkbox

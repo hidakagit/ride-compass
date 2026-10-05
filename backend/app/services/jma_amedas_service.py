@@ -122,11 +122,9 @@ class JmaAmedasService:
             logger.warning("アメダス観測値マップの取得に失敗しました（全滅バッチ）time=%s", latest_time.isoformat())
             return 0
 
-        observations = [
-            _observation(station_id, station, reading, latest_time.isoformat())
-            for station_id, reading in observation_map.items()
-            if (station := stations.get(station_id)) is not None
-        ]
+        observations = {
+            station_id: _observation(reading) for station_id, reading in observation_map.items() if station_id in stations
+        }
         await jma_amedas_store.write_observations(observations)
         await self._refresh_rain_history(stations, latest_time, observation_map)
         return len(observations)
@@ -144,7 +142,7 @@ class JmaAmedasService:
         latest_hour = latest_time.astimezone(JST).replace(minute=0, second=0, microsecond=0)
         hours = [latest_hour - timedelta(hours=back) for back in range(RAIN_HISTORY_HOURS)]
         stored = await jma_amedas_store.read_rain_history()
-        if stored is None and not jma_amedas_store.available():
+        if stored is jma_amedas_store.UNAVAILABLE:
             # 置き場が使えない間に全本を取り直すと、10分ごとに気象庁へ全本を問い合わせ続ける。
             return
         stored_hours = {} if stored is None else stored.hours
@@ -188,13 +186,8 @@ class JmaAmedasService:
         )
 
 
-def _observation(station_id: str, station: AmedasStation, reading: AmedasReading, observed_at: str) -> AmedasObservation:
+def _observation(reading: AmedasReading) -> AmedasObservation:
     return AmedasObservation(
-        station_id=station_id,
-        station_name=station.name,
-        latitude=station.latitude,
-        longitude=station.longitude,
-        observed_at=observed_at,
         temperature_c=reading.temperature_c,
         apparent_temperature_c=apparent_temperature_from_amedas(
             reading.temperature_c, reading.humidity_percent, reading.wind_speed_ms
@@ -231,7 +224,7 @@ async def load_station_rain_materials(now: datetime, cache: TTLCache) -> Station
     materials = cache.get(_RAIN_MATERIALS_CACHE_KEY)
     if materials is None:
         history = await jma_amedas_store.read_rain_history()
-        if history is None or not history.stations:
+        if not isinstance(history, RainHistory) or not history.stations:
             return None
         materials = _station_rain_materials(history)
         cache[_RAIN_MATERIALS_CACHE_KEY] = materials

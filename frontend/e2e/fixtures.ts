@@ -118,12 +118,7 @@ export function routeGenerateResponseFixture(): DoneJob["result"] {
 // 構造的部分型でtscが通り、欄の欠けたフィクスチャで画面がE2Eの実行中に落ちる。
 function weatherConditionsFixture(): WeatherConditions {
   return {
-    temperature_c: 18.5,
-    wind_speed_ms: 2.1,
-    wind_direction_deg: 90,
-    wind_direction_label: "東",
     precipitation_mm: null,
-    observed_at: new Date().toISOString(),
     twilight: null,
     precipitation_max_mm: null,
     wind_speed_max_ms: null,
@@ -138,11 +133,6 @@ function weatherConditionsFixture(): WeatherConditions {
 // 要る——無いと常設ヘッダーが欄の欠けたデータを受け取り、tscでは気づけない。
 function amedasObservationFixture(): AmedasObservation {
   return {
-    station_id: "44132",
-    station_name: "東京",
-    latitude: 35.69,
-    longitude: 139.76,
-    observed_at: new Date().toISOString(),
     temperature_c: 18.5,
     apparent_temperature_c: null,
     wind_speed_ms: 2.1,
@@ -203,7 +193,7 @@ export async function installApiMocks(page: Page): Promise<void> {
   // マッチ判定される）で/api/weather/amedasだけこちらを優先させる。
   await page.route(`${API_BASE}/api/weather/amedas*`, (route) => route.fulfill({ json: amedasObservationFixture() }));
   // 警告バッジ3種は「警告なし」の成功応答にする。応答しないと取得失敗の印がヘッダーに出る。
-  const noWarnings: WeatherWarnings = { area_name: null, report_datetime: null, warnings: [] };
+  const noWarnings: WeatherWarnings = { warnings: [] };
   const noWbgt: WbgtStatus = { reading: null };
   const noFlood: FloodForecasts = { forecasts: [] };
   await page.route(`${API_BASE}/api/weather/warnings*`, (route) => route.fulfill({ json: noWarnings }));

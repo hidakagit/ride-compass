@@ -13,7 +13,7 @@
 | `features/route/RouteForm/useRouteFormSubmit.ts` | 上記の検証（`{error, check}`。通れば送る距離を返す）。「ルート生成」ボタン自体は`RouteForm`の外（`page.tsx`の見出し行）にあるため分離している（下記参照） |
 | `features/route/RouteSettingsPanel/RouteSettingsPanel.tsx` | 一般向け軸重み設定（「重み」タブの中身。地図の色分けはここになく`LensControl`のみが持つ、下記参照） |
 | `features/route/RouteSettingsPanel/HardFilterPanel.tsx` | 0次ハードフィルタ（「除外」タブの中身）。キー・画面に出す名前・既定値はすべて生成物`route-generate-config.json`（backend `domain/hard_filters.py`）が正で、名前をフロントに持たない——キーと名前を別々に持つと、足したフィルタに名前が無く内部名が出る。重みづけとの違い（通らない）は見出し脇の(i)の奥に置く |
-| `features/route/SavedConditionsPanel/SavedConditionsPanel.tsx` | 「保存」タブの中身: 枠「いまの設定を保存」（保存する条件・出発地の扱いの切り替え・重み・除外と、名前の欄・保存のボタン）、保存した設定の一覧（行を開くと中身、「呼び出す」で呼び出し、✕で消す。下記「保存した条件」） |
+| `features/route/SavedConditionsPanel/SavedConditionsPanel.tsx` | 「保存」タブの中身: 枠「いまの設定を保存」（保存する条件・出発地の扱いの切り替え・重み・除外と、名前の欄・保存のボタン）、保存した設定の一覧（行を開くと中身、「呼び出す」で呼び出し、✕は確認の窓で「消す」を押すと消す。下記「保存した条件」） |
 | `features/route/useSavedConditions.ts` | 保存した条件の一覧（この端末の`localStorage`）と、いまの条件の保存（出発地を固定するかを受け取る）・呼び出し・削除。呼び出すと`useGenerationConditions.ts: restore`で条件を入れ替え、出発地は位置の持ち主（`hooks/useLocation.ts`）へ渡す |
 | `features/route/savedConditions.ts` | 保存する条件の形（`GenerationConditionsSnapshot`）と、保存値の読み方（今の画面が受け付けない件だけを捨てる）・仮の名前・何が保存されるかの説明（`describeConditions`。重みは軸ごとの割合）・同じ名前の上書き。距離・候補数として受け付ける範囲（`acceptedDistanceInput`・`acceptedMaxRoutesInput`）もここが持ち、`useGenerationConditions.ts`の保存値の読み直しと共有する。距離の下限（`MIN_DISTANCE_KM`）は画面だけの値で、`RouteForm`の距離の欄も読む。候補数の下限・上限は生成物`route-generate-config.json`から読む |
 | `features/route/routeWeightShare.ts` | 重み配分の純関数（帯グラフの境界ドラッグ`clampBoundaryDrag`・刻みと上下限） |
@@ -75,6 +75,8 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
   ramp軸・専用配信の軸・地図のチップの軸（`axisLayers.ts`・`features/map/secondaryAxes.ts`）の共通の項目も
   これを通る——経路ごとに行を写すと、同じ行の略名の補い方（`chip_label`が無いときに名前で埋めるか）が
   経路ごとに食い違う。略名は`chipLabel`に名前で埋めた値が必ず入り、読み手は補わない。
+  略名を使うのは地図のチップ（固定幅のタイル）だけで、文で読む所（重み配分のチップ・保存した条件の説明・
+  地図の「表示する項目」の一覧等）は名前（`label`）を使う——同じ軸が画面ごとに別の名前で出ないように。
 - カテゴリ（観測/推定/動的）によるグルーピング表示は行わない。軸スタジオは常に
   `category="推定"`固定で軸を作るため、フラットな1本のリストで表示する。
 - **軸が増えてもパネルの高さが変わらない構成**にする（走行中のスマホで扱うため）。
@@ -99,7 +101,7 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
   （ルート結果・レンズの選択肢も同じ色）。**帯そのものが「重み配分」で
   あり「全体で100%」であることを示すため、タブは見出しも合計の表記も持たない**（言い換えの
   行を置かない、設計原則「冗長なものは削る」）。
-- 軸の凡例チップ（`renderLegendChip`）は「本体（アイコン＋略名＋現在の%。タップで
+- 軸の凡例チップ（`renderLegendChip`）は「本体（アイコン＋名前＋現在の%。タップで
   有効/無効を切替、weight>0が有効の判定基準）」「(i)説明文ポップオーバー」の2要素で構成
   される複合ボタン群。無効な軸（weight=0）はチップ全体を半透明にし、%は出さない。
   軸の説明は画面へ書かずこの(i)の奥に置く（設計原則「冗長なものは削る」）。`route_preference`の
@@ -256,7 +258,7 @@ TravelBearingControl.tsx`（`page.tsx`から直接importされ地図上に置か
 公開軸の本数ぶんで内訳が画面の大半を占める。軸はアイコン（`axisIconFor`で地図チップと
 同じ意匠を引く）で示し、名前は押して開く説明と、押せないチップの`aria-label`が持つ。
 軸を選ぶ側（`RouteSettingsPanel`の「重み配分」）は名前が要るため、そちらは同じアイコンに
-略名（`chip_label`、最大4文字）を添える。`axes`（表示順・ラベル）・`contributions`（axis_id→寄与度）・`axisColors`のみを
+名前を添える。`axes`（表示順・ラベル）・`contributions`（axis_id→寄与度）・`axisColors`のみを
 受け取る汎用コンポーネントで、値の出どころ（ルート全体か特定の区間か）を一切知らない。
 `contributions`にキーが無い軸・値が0の軸（重み0の軸は常にこの値になる）は自動的に
 除外されるため、呼び出し側は`axes`を絞り込まずに渡してよい。
@@ -350,6 +352,8 @@ non-nullの間、「ルート結果」タブはルート全体の内訳の代わ
 - **呼び出し**: 一覧の行の「呼び出す」を押すと各タブの値と地図のピンが入れ替わり、一覧の上に、呼び出したことと出発地
   （今いる場所か保存した地点か）を出す（行そのものを押すと開閉で、呼び出さない）。生成はいつもの「ルート生成」で行う——
   入れ替えたあとに値を確かめたり少し変えたりできる。地点を入れ替えるので、地図のタップで置ける役割は解く。
+- **消す**: 行の✕は確認の窓（`Dialog/Dialog.tsx: ConfirmDialog`）を出し、「消す」を押したときだけ消す。消した設定を戻す手段は無く、
+  条件・重み・除外を組み直すことになるため（[デザイン基盤](frontend-design-system.md)「意図的に作らない・統合しないもの」の確認の窓の決まり）。
 - **読み方**: 保存値は読むときに、今の画面が受け付けない件（範囲の外の距離・候補数、上限を超える経由地等）だけを捨て、
   ほかの件は残す。除外は今の項目へ揃え、重みは「重み」へ入れたあと、いつもの保存値と同じく軸カタログの公開軸へ揃える
   （「RouteSettingsPanel.tsx」）。

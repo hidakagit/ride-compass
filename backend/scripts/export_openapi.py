@@ -55,7 +55,7 @@ from app.domain.weather_elements import (  # noqa: E402
     weather_element_tile,
 )
 from app.domain.difficulty import DIFFICULTY_DECIMALS  # noqa: E402
-from app.domain.dynamic_way_values import DEFAULT_DIFFICULTY_BOUNDARIES  # noqa: E402
+from app.domain.map_paint import DEFAULT_DIFFICULTY_BOUNDARIES  # noqa: E402
 from app.domain.map_display import (  # noqa: E402
     ALWAYS_SHOWN_ATTRIBUTIONS,
     AXIS_LAYER_SPECS,
