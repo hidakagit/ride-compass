@@ -1,4 +1,5 @@
 import asyncio
+import functools
 import hashlib
 import os
 import re
@@ -15,6 +16,7 @@ import fakeredis
 import freezegun
 import pytest
 import pytest_asyncio
+import redis.asyncio
 from hypothesis import settings as hypothesis_settings
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -82,15 +84,15 @@ def redis_server():
 
 
 @pytest.fixture
-def fake_redis(monkeypatch, redis_server):
-    """空のRedis。共有クライアント（`app/infrastructure/redis_client.py: text_client`・
-    `app/infrastructure/redis_client.py: binary_client`）を同じサーバのfakeredisへ差すので、
-    `get_redis_client_or_none`・`get_redis_binary_client_or_none`を読むどのモジュールからも同じものが見える。
+async def fake_redis(monkeypatch, redis_server):
+    """空のRedis。接続を作る所（`redis.asyncio.from_url`）を同じサーバのfakeredisへ差し、共有クライアントを
+    閉じる口（`redis_client.py: close_redis_clients`）で作る前に戻すので、`get_redis_client_or_none`・
+    `get_redis_binary_client_or_none`を読むどのモジュールからも同じものが見える。
     返すのは文字列側のクライアント。"""
-    fake = fakeredis.FakeAsyncRedis(server=redis_server, decode_responses=True)
-    monkeypatch.setattr(redis_client, "text_client", fake)
-    monkeypatch.setattr(redis_client, "binary_client", fakeredis.FakeAsyncRedis(server=redis_server))
-    return fake
+    monkeypatch.setattr(redis.asyncio, "from_url", functools.partial(fakeredis.FakeAsyncRedis.from_url, server=redis_server))
+    await redis_client.close_redis_clients()
+    yield redis_client.get_redis_client_or_none()
+    await redis_client.close_redis_clients()
 
 
 @pytest.fixture(autouse=True)

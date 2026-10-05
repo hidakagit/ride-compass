@@ -10,8 +10,8 @@ import redis.asyncio as redis
 
 from app.config import settings
 
-text_client: redis.Redis | None = None
-binary_client: redis.Redis | None = None
+_text_client: redis.Redis | None = None
+_binary_client: redis.Redis | None = None
 
 # 接続確立・コマンド応答の待ち上限。既定値のままだと疎通不能時の1回の失敗検知に数秒かかる。
 # Redisは常に同一ホスト（本番は`--network=host`）にあるため、正常時は決して到達しない
@@ -40,11 +40,11 @@ def get_redis_client_or_none() -> redis.Redis | None:
     例外を送出する。呼び出し元のtry/exceptはRedisコマンドの周りにあり、クライアント生成
     自体の例外はその外で起きるため、ここで捕まえないとタイル配信・ルート生成ごと落ちる。
     """
-    global text_client
+    global _text_client
     try:
-        if text_client is None:
-            text_client = _connect(decode_responses=True)
-        return text_client
+        if _text_client is None:
+            _text_client = _connect(decode_responses=True)
+        return _text_client
     except Exception:
         record_redis_failure()
         return None
@@ -52,14 +52,23 @@ def get_redis_client_or_none() -> redis.Redis | None:
 
 def get_redis_binary_client_or_none() -> redis.Redis | None:
     """値を生のバイト列で読み書きする共有クライアント。接続先とサーキットブレーカーは文字列側と共有する。"""
-    global binary_client
+    global _binary_client
     try:
-        if binary_client is None:
-            binary_client = _connect(decode_responses=False)
-        return binary_client
+        if _binary_client is None:
+            _binary_client = _connect(decode_responses=False)
+        return _binary_client
     except Exception:
         record_redis_failure()
         return None
+
+
+async def close_redis_clients() -> None:
+    """プロセス終了時にmain.pyのlifespanシャットダウン段から呼ぶ。次の取得で作り直す。"""
+    global _text_client, _binary_client
+    for client in (_text_client, _binary_client):
+        if client is not None:
+            await client.aclose()
+    _text_client = _binary_client = None
 
 
 def redis_available() -> bool:

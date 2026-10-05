@@ -1,6 +1,6 @@
 """`infrastructure/redis_client.py`——Redisの共有クライアント（文字列・生のバイト列）と、共有のサーキットブレーカー。
 
-クライアントはプロセス大域に1つずつ作られるので、テストごとに作る前の状態から始め、作ったものを閉じる。
+クライアントはプロセス大域に1つずつ作られるので、テストごとに閉じる口（`close_redis_clients`）で作る前の状態に戻してから始め、同じ口で閉じる。
 接続先は`config.py: settings`の`redis_url`を差し替えて与える。Redisの代わりに、接続を受けて何も答えない
 手元のソケットを立てる（待ちの上限は、答えない相手にしか現れない）。ブレーカーは
 `tests/conftest.py`のautouseが閉じた状態から始め、時計は`clock`で進める。
@@ -24,13 +24,10 @@ CLIENTS = [redis_client.get_redis_client_or_none, redis_client.get_redis_binary_
 
 
 @pytest.fixture
-async def no_clients_yet(monkeypatch):
-    monkeypatch.setattr(redis_client, "text_client", None)
-    monkeypatch.setattr(redis_client, "binary_client", None)
+async def no_clients_yet():
+    await redis_client.close_redis_clients()
     yield
-    for client in (redis_client.text_client, redis_client.binary_client):
-        if client is not None:
-            await client.aclose()
+    await redis_client.close_redis_clients()
 
 
 @pytest.fixture

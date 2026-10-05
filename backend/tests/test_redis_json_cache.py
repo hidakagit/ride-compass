@@ -123,8 +123,7 @@ async def test_after_a_failed_write_nothing_is_written_until_the_cooldown_passes
 
 async def test_without_a_client_nothing_is_tried_and_nothing_is_raised(monkeypatch):
     """接続先の設定の誤りでクライアントを作れなくても、未キャッシュで進む。"""
-    monkeypatch.setattr(redis_client, "text_client", None)
-    monkeypatch.setattr(redis_client, "binary_client", None)
+    await redis_client.close_redis_clients()
     monkeypatch.setattr(settings, "redis_url", "not-a-redis-url")
 
     await redis_json_cache.set_json(KEY, [1], ttl_seconds=TTL, category=CATEGORY)

@@ -2,7 +2,7 @@
 
 入口は`tile_classes`・`render_tile`・`empty_tile_png`・`has_sources`・`opened_raster_paths`。
 ラスタは一時ディレクトリに本物のGeoTIFFを書き、設定（`settings.lulc_raster_paths`）でその置き場を
-渡す。開いたラスタはプロセスに残るので、テストごとに開く前の状態から始めて、後で閉じる。
+渡す。開いたラスタはプロセスに残るので、テストごとに閉じる口（`close_sources`）で開く前の状態に戻してから始め、同じ口で閉じる。
 タイルの範囲はXYZの公開の定義（Web Mercatorの全幅を2^z等分し、yは北から数える）から作る。
 
 ここで見ないもの:
@@ -63,14 +63,13 @@ def over_tile(path, classes: np.ndarray, z: int, x: int, y: int) -> str:
 @pytest.fixture
 def configure(monkeypatch):
     """設定するラスタの置き場を渡し、ラスタをまだ開いていない状態から始める。"""
-    monkeypatch.setattr(landcover_raster, "opened_sources", None)
+    landcover_raster.close_sources()
 
     def configure(*paths: str) -> None:
         monkeypatch.setattr(landcover_raster.settings, "lulc_raster_paths", ",".join(paths))
 
     yield configure
-    for source in landcover_raster.opened_sources or []:
-        source.dataset.close()
+    landcover_raster.close_sources()
 
 
 def stripes(*values: int, size: int = SIZE) -> np.ndarray:

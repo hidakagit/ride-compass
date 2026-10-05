@@ -120,7 +120,10 @@ FastAPI(lifespan=lifespan)
       yield（アプリ稼働中）
         ▼
   シャットダウン: (1) APSchedulerを停止（`wait=False`）→
-                 (2) httpxクライアントを明示close（`close_all_http_clients`）
+                 (2) httpxクライアントを明示close（`close_all_http_clients`）→
+                 (3) Redisクライアントを閉じる（`close_redis_clients`）→
+                 (4) DBの2系統のエンジンを破棄（`dispose_engines`）→
+                 (5) 土地被覆ラスタを閉じる（`landcover_raster.py: close_sources`）
 ```
 
 - ログレベルは`debug_mode`の値でINFO/DEBUGを切り替える（`main.py`のlogging.basicConfig）。
@@ -317,7 +320,7 @@ JMA気象データの短命キャッシュが使う共有接続。値を文字�
 ## HTTPクライアントの共有（`http_client.py`）
 
 `get_http_client(timeout)`が、timeoutの値ごとに`httpx.AsyncClient`を1つだけ生成して
-キャッシュする（`clients: dict[float, httpx.AsyncClient]`）。`httpx.AsyncClient`の生成は
+キャッシュする。`httpx.AsyncClient`の生成は
 SSLコンテキスト構築（CA証明書バンドルの読み込み・パース）を伴い環境によっては高コストに
 なりうるため、リクエストごとの新規生成をやめプロセス全体で使い回す（`main.py`の
 lifespanが起動時に主要なtimeout値[10.0/15.0]を事前ウォームアップするのもこのため）。
