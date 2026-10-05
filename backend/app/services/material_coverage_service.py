@@ -106,7 +106,7 @@ class MaterialCoverageService:
         """DB例外は呼び出し元（router）へそのまま伝播させる。管理者向けの診断APIのため、
         空のレポートへ倒して「欠損0件」に見せるより失敗を明示する方が安全。"""
         started = time.monotonic()
-        with log_external_call("material-coverage") as fields:
+        with log_external_call("admin:material-coverage") as fields:
             counts = await self._repository.get_material_coverage_counts()
             fields["way_total"] = counts.way_total
             fields["edge_total"] = counts.edge_total
