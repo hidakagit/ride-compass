@@ -38,9 +38,13 @@ def _material(material_id, unit="") -> MaterialSpec:
 CATALOG = {spec.material_id: spec for spec in [_material("num_live", unit="%"), _material("num_other")]}
 
 
-@pytest.fixture(autouse=True)
-def _catalog(monkeypatch):
+@pytest.fixture
+def catalog(monkeypatch):
+    """材料カタログ（架空の材料だけ）。"""
     monkeypatch.setattr(map_paint, "MATERIAL_CATALOG", CATALOG)
+
+
+pytestmark = pytest.mark.usefixtures("catalog")
 
 
 def _line(*materials, breakpoints=((0.0, 0.0), (10.0, 100.0)), preprocess="identity") -> BreakpointLinearShape:
