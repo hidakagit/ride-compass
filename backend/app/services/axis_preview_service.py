@@ -20,7 +20,7 @@ from cachetools import TTLCache
 from app.domain.axis_definitions import AxisShape, raw_values, referenced_materials
 from app.domain.material_catalog import material_dtype
 from app.domain.region import BoundingBox
-from app.domain.value_distribution import ValueDistribution, weighted_distribution
+from app.domain.value_distribution import ValueDistribution, ValueSpread, weighted_distribution, weighted_spread
 from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
 from app.infrastructure.debug_log import log_external_call, mark_failed
 from app.infrastructure.road_graph_repository import RoadGraphRepository
@@ -81,10 +81,8 @@ def raw_value_distribution(shape: AxisShape, sample: list[tuple[float, dict[str,
     return weighted_distribution(pairs)
 
 
-async def material_value_distribution(
-    repository: RoadGraphRepository, material_id: str
-) -> ValueDistribution | None:
-    """1材料の値の分布。数値材料のみ（真偽・カテゴリは分位に意味が無いためNone）。"""
+async def material_value_distribution(repository: RoadGraphRepository, material_id: str) -> ValueSpread | None:
+    """1材料の値の分位点とゼロの割合。数値材料のみ（真偽・カテゴリは分位に意味が無いためNone）。"""
     if material_dtype(material_id) != "numeric":
         return None
     sample = await _load_sample(repository)
@@ -93,7 +91,7 @@ async def material_value_distribution(
         for length_m, materials in sample
         if materials.get(material_id) is not None
     ]
-    return weighted_distribution(pairs)
+    return weighted_spread(pairs)
 
 
 async def material_values(repository: RoadGraphRepository, material_id: str) -> list[str] | None:

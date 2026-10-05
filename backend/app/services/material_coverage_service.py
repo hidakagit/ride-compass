@@ -42,7 +42,6 @@ class MaterialCoverageExcluded(StrictModel):
     kind: Literal["excluded"] = "excluded"
     material_id: str
     label: str
-    dtype: MaterialDType
     excluded_reason: str
 
 
@@ -83,7 +82,6 @@ def build_material_coverage_report(counts: MaterialCoverageCounts, computed_at: 
             MaterialCoverageExcluded(
                 material_id=material_id,
                 label=spec.full_label(),
-                dtype=spec.dtype,
                 excluded_reason=MATERIAL_COVERAGE_EXCLUSIONS[material_id],
             )
         )

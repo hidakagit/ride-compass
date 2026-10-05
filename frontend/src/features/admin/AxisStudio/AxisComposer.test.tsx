@@ -96,7 +96,7 @@ const thresholdInput = () => screen.getByRole("textbox", { name: "色分けの�
 /** 点数の節が描くと同時に取る分布・点数と、地図の段の判定（段にならない値なし）に応える。 */
 beforeEach(() => {
   onSameOrigin("POST", "/admin/api/axis-definitions/preview-distribution", () =>
-    Response.json({ sample_ways: 1, total_km: 1, quantiles: {}, bins: [[0, 2, 1]], zero_share: 0 }),
+    Response.json({ sample_ways: 1, total_km: 1, quantiles: {}, bins: [[0, 2, 1]] }),
   );
   onSameOrigin("POST", "/admin/api/axis-definitions/preview-scores", () =>
     Response.json({ scores: [0], material_points: [] }),

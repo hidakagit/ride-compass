@@ -204,7 +204,7 @@ def test_region_axis_inspector_hands_the_maps_direction_and_the_result_over():
     result = AxisInspectorResult(
         highway="primary",
         tags={},
-        axes=[AxisInspectorAxis(axis_id="axis_b", difficulty=75.0, weight=0.2, contribution=75.0)],
+        axes=[AxisInspectorAxis(axis_id="axis_b", difficulty=75.0, contribution=75.0)],
         composite_difficulty=InspectorComposite(value=75.0, covered_weight_fraction=1.0),
     )
     fake = FakeRegionService(axis_inspector_result=result)

@@ -22,7 +22,7 @@ const POINTS: [number, number][] = [
 ];
 
 function distribution(overrides: Partial<ValueDistribution> = {}): ValueDistribution {
-  return { sample_ways: 1, total_km: 1, quantiles: {}, bins: [], zero_share: 0, ...overrides };
+  return { sample_ways: 1, total_km: 1, quantiles: {}, bins: [], ...overrides };
 }
 
 function renderEditor(props: Partial<Parameters<typeof BreakpointCurveEditor>[0]> = {}) {
