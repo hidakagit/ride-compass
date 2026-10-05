@@ -149,20 +149,19 @@ _DISK_CACHES = {"tile_persistent_cache": tile_persistent_cache, "tile_cache": ti
 
 @contextmanager
 def _disk_caches_in(patch: pytest.MonkeyPatch, directory_of):
-    """ディスクのキャッシュの置き場を差し替え、抜けるときに開いたキャッシュを閉じる。
+    """ディスクのキャッシュの置き場を差し替え、差し替える前と抜けるときに開いたキャッシュを閉じる。
 
-    キャッシュは最初に使われたときに開かれ、モジュール変数に残る。閉じずに置き場を戻すと、
+    キャッシュは最初に使われたときに開かれ、置き場を差し替えても開き直さない。閉じずに置き場を変えると、
     開いたままのSQLiteが次の置き場を使うはずの呼び出しへそのまま渡る。
     """
     for name, module in _DISK_CACHES.items():
+        module.close()
         patch.setattr(module, "CACHE_DIR", directory_of(name))
-        patch.setattr(module, "opened_cache", None)
     try:
         yield
     finally:
         for module in _DISK_CACHES.values():
-            if module.opened_cache is not None:
-                module.opened_cache.close()
+            module.close()
 
 
 @pytest.fixture(autouse=True, scope="session")

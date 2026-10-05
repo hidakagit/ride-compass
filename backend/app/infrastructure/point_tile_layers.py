@@ -18,6 +18,7 @@ from sqlalchemy.dialects.postgresql import ARRAY
 
 from app.domain.accident import BICYCLE_PARTY_TYPE_CODES, FATAL_SQL, OCCURRED_YEAR_SQL, bicycle_sql
 from app.domain.material_catalog import stop_poi_map_group_sql
+from app.domain.registry import TileKind
 from app.domain.traffic import POI_CLUSTER_EPS_M, STOP_POI_KINDS, stop_kind_sql
 from app.infrastructure.cache_identity import shape_digest
 from app.infrastructure.road_graph_repository import COVERAGE_SQL
@@ -27,7 +28,7 @@ from app.infrastructure.source_models import ACCIDENTS_SOURCE_SQL, NODES_SOURCE_
 @dataclass(frozen=True)
 class PointTileLayer:
     #: 配信のパス・タイルの世代の系統・キャッシュのパスに入る名前。一次属性の`tile_kind`はこの名前を指す。
-    name: str
+    name: TileKind
     #: タイルの中のレイヤー名（MapLibreのsource-layer）。空タイルもこの名前を名乗る。
     source_layer: str
     sql: TextClause

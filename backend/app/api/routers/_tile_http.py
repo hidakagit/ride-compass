@@ -10,7 +10,7 @@ from fastapi import HTTPException, Response
 from app.api.cache_policy import NO_STORE
 from app.domain.region import ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM
 from app.infrastructure.media_types import MVT_CONTENT_TYPE
-from app.services.tile_serving import TileResponse
+from app.infrastructure.region_tile_cache import TileResponse
 
 
 def validate_tile_coords(

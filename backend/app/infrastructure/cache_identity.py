@@ -7,6 +7,7 @@
 import dataclasses
 import hashlib
 
+from app.domain.landcover import LANDCOVER_CLASSES
 from app.infrastructure.derived_data_meta import DataRevisions
 
 # 土地被覆ラスタタイル。同じ配色のまま、元のGeoTIFFを別の年次・別の版へ差し替えたときと、
@@ -68,3 +69,35 @@ def tile_version(revisions: DataRevisions | None, shape: str) -> str:
 def is_known_tile_version(version: str) -> bool:
     """`tile_version`が世代を読めて組んだものか。違えばディスクへ残さない。"""
     return not version.startswith(f"{UNKNOWN_REVISION}-")
+
+
+#: 土地被覆ラスタタイルのURLへ入る世代（配色・クラス構成と手書きリビジョンから決まる）。
+#:
+#: **どのラスタを開いているかはここへ入れられない**。この値は生成物
+#: （`region-tile-config.json`）を通してフロントのURLへ焼き込まれ、生成はビルド機で行う
+#: ——ラスタの置き場所は環境変数（`LULC_RASTER_PATHS`）で環境ごとに違うため、入れると
+#: 生成物がビルド機の設定で決まり、本番の実際の構成とずれる。**実際に開けている**ラスタ
+#: 構成への追随はサーバー側のディスクの鍵（`region_tile_cache.py: landcover_generation`）で行い、
+#: ブラウザ側は`cache_policy.py`が`immutable`を付けないことで再検証できるようにしてある。
+LANDCOVER_TILE_VERSION = cache_identity(LANDCOVER_REVISION, LANDCOVER_CLASSES)
+
+
+#: 地域タイルのディスクの鍵の頭。同じ置き場に同居する基礎地図・地理院のタイル（配信元のパスが鍵）と分ける。
+_REGION_TILE_KEY_ROOT = "region/"
+
+
+def region_tile_generation_prefix(kind: str, generation: str) -> str:
+    """地域タイルの1つの系統・1つの世代のディスクの鍵が共通に持つ頭。旧世代の掃除はこれで見分ける。"""
+    return f"{_REGION_TILE_KEY_ROOT}{kind}/v{generation}/"
+
+
+def region_tile_kind(key: str) -> str | None:
+    """ディスクの鍵が地域タイルなら、その系統。地域タイルでない鍵はNone。"""
+    if not key.startswith(_REGION_TILE_KEY_ROOT):
+        return None
+    return key[len(_REGION_TILE_KEY_ROOT):].split("/", 1)[0]
+
+
+def region_tile_key(kind: str, generation: str, z: int, x: int, y: int, extension: str) -> str:
+    """地域タイル1枚のディスクの鍵。世代はURLへ入る世代と同じ文字列から組む。"""
+    return f"{region_tile_generation_prefix(kind, generation)}{z}/{x}/{y}.{extension}"
