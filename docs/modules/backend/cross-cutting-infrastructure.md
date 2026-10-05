@@ -26,7 +26,7 @@ DB接続・Redis・HTTPクライアント・レート制限・ログ・デバッ
 | infrastructure | `redis_client.py` | Redis共有クライアント |
 | infrastructure | `redis_json_cache.py` | Redisへ持つcache-asideの共通骨格（JSONと生のバイト列） |
 | infrastructure | `http_client.py` | 外部API向け共有HTTPクライアント |
-| infrastructure | `process_resources.py` | プロセスで持ち回る接続と資源（HTTP・Redis・DBのエンジン・土地被覆ラスタ）を、lifespanのシャットダウン段でまとめて閉じる |
+| infrastructure | `process_resources.py` | プロセスで持ち回る接続と資源（HTTP・Redis・DBのエンジン・土地被覆ラスタ・ディスクのキャッシュ）を、lifespanのシャットダウン段でまとめて閉じる |
 | infrastructure | `rate_limiter.py` | プロセス内メモリのみの移動窓レート制限 |
 | infrastructure | `request_log.py` | 1リクエスト=1行のHTTPアクセスサマリログ、ログ1行の書式（リクエストIDの差し込みとJSTでの時刻整形）、500応答へのリクエストIDの付与 |
 | infrastructure | `response_compression.py` | 応答のgzip圧縮（対象content-typeのみ） |
@@ -106,9 +106,12 @@ FastAPI(lifespan=lifespan)
         ├─ (5) 同じくAPSchedulerで気象庁MSM（風・降水の予報）の.omファイル定期同期ジョブを
         │       登録（interval=msm_sync_interval_minutes分＋next_run_time=now。初回は
         │       ローカルにファイルが無く、完了するまで風グリッド・ルート評価の風が使えない）
-        └─ (6) 同じくAPSchedulerでディスク永続キャッシュの旧世代掃除ジョブを登録
-                （trigger="date"で起動直後に1回だけ。世代を上げたデプロイの直後がこの
-                タイミングに当たる、docs/conventions/caching.md「無効化」参照）
+        ├─ (6) 同じくAPSchedulerでディスク永続キャッシュの旧世代掃除ジョブを登録
+        │       （trigger="date"で起動直後に1回だけ。世代を上げたデプロイの直後がこの
+        │       タイミングに当たる、docs/conventions/caching.md「無効化」参照）
+        └─ (7) 同じくAPSchedulerで地域タイルの旧世代掃除ジョブを登録（interval=24時間＋
+                next_run_time=now。世代は派生の作り直し・取込でも再起動なしに変わるため定期に回す。
+                [静的道路属性](static-road-attributes.md)「共通骨格」の旧世代の掃除）
         ▼
   CORSMiddleware → ContentTypeGZipMiddleware（応答のgzip圧縮）
             → CachePolicyMiddleware（Cache-Control付与、下記「Cache-Controlの一元化」節）
@@ -121,7 +124,7 @@ FastAPI(lifespan=lifespan)
         ▼
   シャットダウン: (1) APSchedulerを停止（`wait=False`）→
                  (2) プロセスで持ち回る接続と資源を閉じる（`process_resources.py: close_process_resources`。
-                     httpxクライアント・Redisクライアント・DBの2系統のエンジン・土地被覆ラスタ）
+                     httpxクライアント・Redisクライアント・DBの2系統のエンジン・土地被覆ラスタ・ディスクのキャッシュ）
 ```
 
 - ログレベルは`debug_mode`の値でINFO/DEBUGを切り替える（`main.py`のlogging.basicConfig）。

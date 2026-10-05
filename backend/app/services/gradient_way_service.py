@@ -20,10 +20,6 @@ from app.infrastructure.road_graph_repository import (
 )
 from app.services.tile_version_service import served_tile_version
 
-# 勾配の入力は道路の向きと標高で決まりほぼ不変のため、鮮度の制約が無い。長く持って
-# DBへの再問い合わせを抑える。正本を持たないキャッシュで、期限切れ後は再計算されるだけ。
-GRADIENT_TILE_VALUES_TTL_SECONDS = 24 * 3600
-
 #: 勾配の値の作り方の署名。キャッシュの鍵に入り、変われば勾配のタイル値だけを作り直す。
 #: 入力のSQL・落とす幅・丸めは機械で署名する。式（`domain/gradient.py: GradientCalculator.effective_gradient`）を
 #: 変えたときは先頭のリビジョンを上げる——関数のソースは署名しない（docs/conventions/caching.md「無効化」）。
@@ -101,7 +97,7 @@ class GradientWayService:
                 if value is not None
             }
             await set_tile_values(
-                self.material_id, z, x, y, bearing_deg, values, GRADIENT_TILE_VALUES_TTL_SECONDS,
+                self.material_id, z, x, y, bearing_deg, values,
                 surface_tile_version=surface_tile_version, value_shape=GRADIENT_VALUE_SHAPE,
             )
             fields["computed"] = len(values)

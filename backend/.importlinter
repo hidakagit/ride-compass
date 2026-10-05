@@ -38,6 +38,24 @@ forbidden_modules =
     app.infrastructure.redis_json_cache
 allow_indirect_imports = True
 
+# Disk cache keys and the check/fetch/store skeleton belong to infrastructure, as for
+# Redis (docs/conventions/caching.md). The admin "clear everything" of the basemap
+# router is the one operator action caching.md keeps on the raw cache.
+[importlinter:contract:disk-cache-in-infrastructure]
+name = Disk caches are read only by infrastructure
+type = forbidden
+source_modules =
+    app.main
+    app.api
+    app.services
+    app.batch
+forbidden_modules =
+    app.infrastructure.tile_cache
+    app.infrastructure.tile_persistent_cache
+ignore_imports =
+    app.api.routers.basemap -> app.infrastructure.tile_cache
+allow_indirect_imports = True
+
 [importlinter:contract:domain-formats]
 name = domain does not read external formats (docs/architecture/directory-layout.md)
 type = forbidden

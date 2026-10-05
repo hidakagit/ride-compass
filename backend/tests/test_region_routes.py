@@ -40,7 +40,7 @@ from app.infrastructure import rate_limiter
 from app.infrastructure.derived_data_meta import DataRevisions
 from app.infrastructure.point_tile_layers import POINT_TILE_LAYERS
 from app.infrastructure.road_graph_repository import RoadGraphRepository
-from app.services.tile_serving import TileResponse
+from app.infrastructure.region_tile_cache import TileResponse
 from app.domain.dynamic_way_values import transform_dedicated_way_values
 from app.services.dedicated_way_values import DirectionalMaterialService
 from app.services.gradient_way_service import GradientConditions

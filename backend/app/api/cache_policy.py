@@ -20,6 +20,8 @@ from typing import Final
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from app.infrastructure import jma_tile_redis_cache
+
 
 @dataclass(frozen=True)
 class CachePolicy:
@@ -48,8 +50,8 @@ class CachePolicy:
 #: 配信元が更新しない静的データ（例: 国土地理院の標高タイルと、その変換結果）。
 PERMANENT = CachePolicy(max_age_seconds=24 * 60 * 60, immutable=True)
 #: URLに`basetime`/`validtime`を含み内容が確定して以後変化しないタイル（気象庁）。
-#: `max-age`は`jma_tile_redis_cache.py`のTTLと揃える。
-IMMUTABLE_TILE = CachePolicy(max_age_seconds=20 * 60, immutable=True)
+#: サーバーが持つ時間（Redis）とブラウザに持たせる時間を同じにする。
+IMMUTABLE_TILE = CachePolicy(max_age_seconds=jma_tile_redis_cache.TTL_SECONDS, immutable=True)
 #: 取込バッチが走るまで変化しないタイル（路面・事故・POI・土地被覆など）。
 BATCH_TILE = CachePolicy(max_age_seconds=60 * 60)
 #: 基礎地図（OpenFreeMap）。管理画面のタイルキャッシュ全消去
