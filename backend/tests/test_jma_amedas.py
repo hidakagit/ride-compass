@@ -1,11 +1,11 @@
-"""`domain/jma_amedas.py`——アメダスの風向コードの読み替え・体感温度。
+"""`domain/jma_amedas.py`——アメダスの観測値からの体感温度。
 
-入口は`wind_direction_from_jma_code`・`apparent_temperature_from_amedas`。
+入口は`apparent_temperature_from_amedas`。
 
 ここで見ないもの:
 - 実測から天気コードを導く規則（`domain/weather.py: derive_observed_weather_code`） → `test_weather_domain.py`。
-  観測値と推計気象分布の空がその規則へ渡り、応答に出ること → `test_jma_amedas_service.py`
-- 16方位の呼び名の並び（`domain/geo.py: SIXTEEN_POINT_LABELS`） → `test_geo.py`
+  観測値と推計気象分布の区分がその規則へ渡り、応答に出ること → `test_jma_amedas_service.py`
+- 風向コードの読み替え → `test_jma_amedas_client.py`
 - 観測値を集めて組み立てること → `test_jma_amedas_service.py`
 """
 
@@ -15,30 +15,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from app.domain.jma_amedas import apparent_temperature_from_amedas, wind_direction_from_jma_code
-
-
-@pytest.mark.parametrize(
-    ("code", "deg", "label"),
-    [(1, 22.5, "北北東"), (16, 0.0, "北")],
-)
-def test_jma_wind_codes_read_as_the_direction_the_wind_comes_from(code, deg, label):
-    """気象庁の番号は1=北北東から時計回りで16=北。北は360度ではなく0度。"""
-    direction = wind_direction_from_jma_code(code)
-    assert direction is not None
-    assert (direction.deg, direction.label) == (deg, label)
-
-
-@pytest.mark.parametrize("code", [None, 0, 17])
-def test_calm_missing_and_out_of_range_codes_have_no_direction(code):
-    """0は静穏（方位不定）。範囲外を別の方位として出すと向かい風と追い風を取り違えさせる。"""
-    assert wind_direction_from_jma_code(code) is None
-
-
-def test_the_sixteen_codes_go_round_clockwise_in_equal_steps():
-    degrees = [wind_direction_from_jma_code(code).deg for code in range(1, 17)]  # type: ignore[union-attr]
-    steps = [(later - earlier) % 360 for earlier, later in zip(degrees, degrees[1:] + degrees[:1], strict=True)]
-    assert steps == [22.5] * 16
+from app.domain.jma_amedas import apparent_temperature_from_amedas
 
 
 @pytest.mark.parametrize(

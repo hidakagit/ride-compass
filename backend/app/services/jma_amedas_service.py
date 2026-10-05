@@ -24,12 +24,7 @@ from cachetools import TTLCache
 from app.domain.rain import RAIN_HISTORY_HOURS, StationRainMaterials, is_rain_history_current, rain_material_values
 from app.domain.time_zone import JST
 from app.domain.geo import nearest_point_index
-from app.domain.jma_amedas import (
-    AmedasObservation,
-    apparent_temperature_from_amedas,
-    wind_direction_from_jma_code,
-)
-from app.domain.jma_suikei import sky_from_color
+from app.domain.jma_amedas import AmedasObservation, apparent_temperature_from_amedas
 from app.domain.route import Coordinates
 from app.domain.twilight import sunrise_sunset_jst
 from app.domain.weather import derive_observed_weather_code
@@ -89,13 +84,12 @@ class JmaAmedasService:
         # 日の出/日没は最寄り観測所ではなく**クエリ地点**に対して計算する（観測所境界
         # 付近でのズレを避ける）。外部への問い合わせを伴わないため都度計算でよい。
         today = datetime.now(JST).date()
-        color = await jma_suikei_client.fetch_weather_color(self._tile_client, point.latitude, point.longitude)
-        sky = None if color is None else sky_from_color(*color)
+        suikei = await jma_suikei_client.fetch_weather(self._tile_client, point.latitude, point.longitude)
         return observation.model_copy(
             update={
                 "twilight": sunrise_sunset_jst(point, today),
                 "weather_code": derive_observed_weather_code(
-                    observation.precipitation_10min_mm, sky, observation.temperature_c
+                    observation.precipitation_10min_mm, suikei, observation.temperature_c
                 ),
             }
         )
@@ -193,7 +187,7 @@ def _observation(reading: AmedasReading) -> AmedasObservation:
             reading.temperature_c, reading.humidity_percent, reading.wind_speed_ms
         ),
         wind_speed_ms=reading.wind_speed_ms,
-        wind_direction=wind_direction_from_jma_code(reading.wind_direction_code),
+        wind_direction=reading.wind_direction,
         precipitation_10min_mm=reading.precipitation_10min_mm,
         # クエリ地点依存のためバッチ時点では決められない。
         twilight=None,

@@ -44,8 +44,8 @@ _ETAGS_FILE_NAME = "etags.json"
 class MsmSeries:
     """地点ごとの予報の時系列。値の配列はどれも[地点数, 時刻数]。"""
 
-    #: JSTのISO文字列（分まで、タイムゾーン指定なし）。フロントの既存パーサの入力形式と揃える。
-    times: list[str]
+    #: 正時の並び（タイムゾーン無しのローカル時刻[JST]）。
+    times: list[datetime]
     wind_u_ms: np.ndarray
     wind_v_ms: np.ndarray
     precipitation_mm: np.ndarray
@@ -336,7 +336,7 @@ def _read_series_sync(latitudes: np.ndarray, longitudes: np.ndarray, hours: int,
     window = grid.window(latitudes, longitudes)
 
     series: dict[str, list[np.ndarray]] = {variable: [] for variable in FORECAST_VARIABLES}
-    times: list[str] = []
+    times: list[datetime] = []
     cursor = start
     while cursor < end:
         chunk_number = _chunk_number(cursor, chunk_hours)
@@ -347,7 +347,7 @@ def _read_series_sync(latitudes: np.ndarray, longitudes: np.ndarray, hours: int,
             block = _read_block(variable, chunk_number, window, t0, t1)
             series[variable].append(window.interpolate(block))
         times.extend(
-            datetime.fromtimestamp(chunk_begin + hour * 3600, JST).strftime("%Y-%m-%dT%H:%M") for hour in range(t0, t1)
+            datetime.fromtimestamp(chunk_begin + hour * 3600, JST).replace(tzinfo=None) for hour in range(t0, t1)
         )
         cursor = chunk_begin + t1 * 3600
 
@@ -360,12 +360,16 @@ def _read_series_sync(latitudes: np.ndarray, longitudes: np.ndarray, hours: int,
 async def read_series(latitudes: np.ndarray, longitudes: np.ndarray) -> MsmSeries:
     """地点ごとの時系列（現在時刻の正時から`settings.msm_forecast_hours`時間ぶん）を返す。
 
-    同期が済んでいない・予報が現在時刻へ追いついていない場合は`MsmUnavailableError`。
+    同期が済んでいない・予報が現在時刻へ追いついていない・置き場のファイルが読めない（壊れたメタ情報・チャンク）
+    場合は`MsmUnavailableError`。
     """
     requested = settings.msm_forecast_hours
     with log_external_call("msm:read", locations=len(latitudes), hours=requested) as fields:
         fields["cache"] = "hit"
-        result = await asyncio.to_thread(_read_series_sync, latitudes, longitudes, requested, int(time.time()))
+        try:
+            result = await asyncio.to_thread(_read_series_sync, latitudes, longitudes, requested, int(time.time()))
+        except (OSError, ValueError, KeyError) as exc:
+            raise MsmUnavailableError(f"MSMの置き場を読めません: {exc!r}") from exc
         fields["result"] = "ok"
         fields["times"] = len(result.times)
         return result

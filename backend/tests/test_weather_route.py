@@ -18,6 +18,7 @@
 """
 
 import math
+from datetime import datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -138,7 +139,7 @@ class FakeService:
 
     async def get_wind_grid(self, points):
         self.received.append(points)
-        return TIMES, [self._grid_point] + [None] * (len(points) - 1)
+        return [datetime.fromisoformat(t) for t in TIMES], [self._grid_point] + [None] * (len(points) - 1)
 
 
 @pytest.fixture(autouse=True)

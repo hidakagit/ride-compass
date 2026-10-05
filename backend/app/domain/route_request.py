@@ -23,8 +23,9 @@ MAX_WAYPOINTS = 8
 # 区間の乗り換えで受け取るEdge idの上限。1本の候補が数百Edgeで、区間を差し替えても
 # 2本ぶんの長さを超えることはない。
 MAX_SPLICED_EDGES = 5000
-# 返す候補数の画面の既定値と、要求の`max_routes`の上限。
+# 返す候補数の画面の既定値と、要求の`max_routes`の下限・上限。
 DEFAULT_MAX_ROUTES = 8
+MIN_ROUTES = 1
 MAX_ROUTES = 15
 # 経由地を伴う生成が返す候補の数。経由地があるとレグごとの代替が組合せで増えるため、候補数の
 # 指定を使わず単一経路にする。

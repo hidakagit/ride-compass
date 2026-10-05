@@ -15,6 +15,7 @@ import { roadDisplayName, roadFactRows, roadFeatureKey, roadWayId, type RoadSurf
 import { Button } from "@/components/ui/Button/Button";
 import { textVariants } from "@/components/ui/Text/Text";
 import { cn } from "@/lib/cn";
+import { formatDifficulty } from "@/lib/mapDisplay/valueScale";
 
 interface RoadInspectorPopupProps {
   properties: RoadSurfacePopupProperties;
@@ -87,6 +88,10 @@ export default function RoadInspectorPopup({
     if (axis.contribution != null) contributions[axis.axis_id] = axis.contribution;
   }
 
+  // 合成に使えた軸の重みの割合（%）。出すのと同じ丸めで100%に届かないときだけ、一部の軸だけの値だと添える。
+  const coveredWeightPercent =
+    result?.composite_difficulty != null ? Math.round(result.composite_difficulty.covered_weight_fraction * 100) : null;
+
   return (
     // 高さに上限を付け、あふれたら中でスクロールする——地図の上の枠は、中身が伸びても画面の外へ出てはいけない。
     <div className="max-h-[min(22rem,45vh)] max-w-68 overflow-y-auto text-[length:var(--font-size-md)] leading-[1.4]">
@@ -121,9 +126,9 @@ export default function RoadInspectorPopup({
           )}
           {result.composite_difficulty !== null && (
             <p className={cn(textVariants({ variant: "hint" }), "m-0")}>
-              {`この道だけで見た合成: ${result.composite_difficulty.value.toFixed(1)}/100`}
-              {result.composite_difficulty.covered_weight_fraction < 0.999
-                ? `[重みの約${Math.round(result.composite_difficulty.covered_weight_fraction * 100)}%ぶんの軸だけ。残りの軸は、この道とこの走る条件では値が出せません]`
+              {`この道だけで見た合成: ${formatDifficulty(result.composite_difficulty.value)}/100`}
+              {coveredWeightPercent !== null && coveredWeightPercent < 100
+                ? `[重みの約${coveredWeightPercent}%ぶんの軸だけ。残りの軸は、この道とこの走る条件では値が出せません]`
                 : ""}
             </p>
           )}

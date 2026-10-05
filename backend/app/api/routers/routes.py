@@ -23,6 +23,7 @@ from app.domain.route_request import (
     MAX_ROUTES,
     MAX_SPLICED_EDGES,
     MAX_WAYPOINTS,
+    MIN_ROUTES,
     LoopTarget,
     RouteTarget,
     SplicedTarget,
@@ -128,9 +129,9 @@ class RouteGenerateRequest(StrictModel):
     # overall_difficulty昇順の上位この件数を返す）。経由地の無い目的地ルート
     # （destination指定・waypoints未指定）はvia-node方式の代替経路にも同じ値が効く。
     # 経由地を1つ以上伴う経由地・目的地指定ルートでは無視される（常に1件、経由地が
-    # あるとレグごとに代替案が組合せで増えるため）。上限と画面の既定値はOpenAPI生成物
+    # あるとレグごとに代替案が組合せで増えるため）。下限・上限と画面の既定値はOpenAPI生成物
     # （route-generate-config.json）経由でフロントへ渡す唯一の情報源にする。
-    max_routes: int = Field(ge=1, le=MAX_ROUTES)
+    max_routes: int = Field(ge=MIN_ROUTES, le=MAX_ROUTES)
     # 仮定巡航速度（km/h）。各区間の通過予定時刻（探索時の風の時刻選択）・到達予想時刻の
     # 算出に使う。範囲と画面の既定値はOpenAPI生成物（route-generate-config.json）経由でフロントへ
     # 渡す唯一の情報源にする。

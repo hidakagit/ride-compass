@@ -2,7 +2,6 @@
 
 import math
 
-from app.domain.geo import SIXTEEN_POINT_LABELS
 from app.domain.strict_model import StrictModel
 from app.domain.twilight import Twilight
 
@@ -12,23 +11,6 @@ class WindDirection(StrictModel):
 
     deg: float
     label: str
-
-
-def wind_direction_from_jma_code(code: int | None) -> WindDirection | None:
-    """JMAアメダスのwindDirectionコード（0=静穏、1〜16=16方位）を角度と日本語ラベルへ
-    変換する。角度は0=北・時計回り（`wind.py: DepartureWind.direction_deg`と揃える）で、
-    code=16は360度ではなく0度（北）に正規化する。0（静穏、風速がほぼ0で方位不定）・None・
-    1〜16の範囲外のコードはNoneを返す（範囲外を別の方位として出すと、向かい風と追い風を取り違えさせる）。
-
-    角度とラベルを別々の関数で返さない——どちらも同じ1つのコードの読み替えで、分けると
-    「方位がある/ない」の判定と16方位の割当が2箇所に分かれ、片方だけずれても落ちない。
-    """
-    # JMA特有なのは番号の割当だけ（1=北北東からcode*22.5度で時計回りに進み、16=北で一周する）。
-    # 16で割った余りが北を0とした16方位の番号になり、呼び名は共通の並びから引く。
-    if code is None or not 1 <= code <= 16:
-        return None
-    index = code % 16
-    return WindDirection(deg=index * 22.5, label=SIXTEEN_POINT_LABELS[index])
 
 
 def apparent_temperature_from_amedas(
