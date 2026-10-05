@@ -10,7 +10,7 @@ import { notes } from "../src/rules.js";
 import { config, fakeGitHub } from "./fake-github.js";
 
 const task = (number, status, extra = {}) => ({ number, status, blocked: false, labels: [], urgent: false, priority: null, size: null, startOn: null, ...extra });
-const board = (...tasks) => ({ tasks, ranks: ["高", "中", "低"] });
+const board = (...tasks) => ({ tasks, ranks: ["上", "並", "下"] });
 const now = new Date("2026-10-03T15:30:00Z");
 
 test("19 枠は種類ごと: 上限から動いている数を引いた分だけ上から起こし、貸し借りしない", () => {
@@ -21,11 +21,11 @@ test("19 枠は種類ごと: 上限から動いている数を引いた分だけ
   assert.deepEqual([kinds.filter((k) => k === "作る").length, kinds.filter((k) => k === "確かめる").length], [make, check - 1]);
 });
 
-test("20 確かめるは検証中を全部、作るは前提が閉じ・開発機のラベルが無く・着手可能日が今日以前の未着手。並びは急ぎ・優先度・番号", () => {
+test("20 確かめるは検証中を全部、作るは前提が閉じ・開発機のラベルが無く・着手可能日が今日以前の未着手。並びは急ぎ・優先度（空は既定の位置）・番号", () => {
   const dev = config.coordinator.devLabel;
   const tasks = [task(1, config.todo, { blocked: true }), task(2, config.todo, { labels: [dev] }), task(3, config.todo, { startOn: "2026-10-05" }), task(4, config.todo, { startOn: "2026-10-04" }),
-    task(5, config.todo, { priority: "低" }), task(6, config.todo, { priority: "高" }), task(7, config.todo, { urgent: true }), task(8, config.review, { blocked: true, labels: [dev] }), task(9, config.working), task(10, config.todo)];
-  assert.deepEqual(ready(config, board(...tasks), [{ number: 10, kind: "作る" }], now).map((t) => t.number), [7, 6, 5, 4, 8]);
+    task(5, config.todo, { priority: "下" }), task(6, config.todo, { priority: "上" }), task(7, config.todo, { urgent: true }), task(8, config.review, { blocked: true, labels: [dev] }), task(9, config.working), task(10, config.todo)];
+  assert.deepEqual(ready(config, board(...tasks), [{ number: 10, kind: "作る" }], now).map((t) => t.number), [7, 6, 4, 8, 5]);
 });
 
 test("23 作業時間は作業の状態にいた区間の和で、回答待ち・未着手の待ち・記録の始まりより前の着手は数えない。想定は完成した同じ規模の作業時間を持つ直近の件の p90。記録は作業の状態のタスクとその規模の母集団の分だけ読む", async () => {

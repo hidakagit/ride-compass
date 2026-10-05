@@ -53,10 +53,10 @@ test("3 担当者はステータスの番で、手で変えても戻る", async 
   }
 });
 
-test("4 入口: ユーザーの起票と段階は未着手、Claude の起票は回答待ちで採否の問いをコメントに置く。優先度が空なら既定、段階は親の値", async () => {
+test("4 入口: ユーザーの起票と段階は未着手、Claude の起票は回答待ちで採否の問いをコメントに置く。段階でないものの優先度は書かず、段階は親の値", async () => {
   let gh = fakeGitHub({ issue: { number: 1, status: "中" } });
   await deliver("projects_v2_item", item({ action: "created" }));
-  assert.deepEqual([gh.issue.status, gh.issue.fields.重さ], ["前", "並"]);
+  assert.deepEqual([gh.issue.status, gh.issue.fields.重さ], ["前", undefined]);
   gh = fakeGitHub({ issue: { number: 3, author: "c" }, parent: { number: 1, fields: { 重さ: "上" } } });
   await deliver("projects_v2_item", item({ action: "created" }));
   assert.deepEqual([gh.issue.status, gh.issue.fields.重さ], ["前", "上"]);
