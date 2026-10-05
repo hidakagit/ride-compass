@@ -24,6 +24,7 @@ ROAD_SURFACE_TILE_MVT_SQL`）に既に焼き込まれているプロパティ名
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
+from itertools import groupby
 
 from typing import Literal, NamedTuple
 
@@ -64,6 +65,7 @@ from app.domain.material_sql import (
     tag_absent_is_false_sql,
 )
 from app.domain.traffic import (
+    INTERSECTION_DEGREE_THRESHOLD,
     POI_COUNT_KINDS,
     kind_map_sql,
     poi_density_material_id,
@@ -340,6 +342,16 @@ def _wind_drag_ratio_by_situation() -> dict[str, float]:
 
 
 _WIND_DRAG_RATIO_BY_SITUATION = _wind_drag_ratio_by_situation()
+
+
+def _track_grade_estimate_note() -> str:
+    """路面の見込みの説明文に載せる、等級から見込む区分の対応（例: 等級1→舗装、2・3→砂利・未舗装）。
+    等級の宣言（`TRACK_GRADES`）から組み、同じ区分へ写る続いた等級は1つにまとめる。"""
+    labels = {c.key: c.label for c in SURFACE_CLASSES}
+    return "等級" + "、".join(
+        f"{'・'.join(g.value.removeprefix('grade') for g in grades)}→{labels[surface_class]}"
+        for surface_class, grades in groupby(TRACK_GRADES, key=lambda g: g.surface_class)
+    )
 
 _RAIN_MATERIAL_NOTE = (
     "雨量計は0.5mm刻みで、それより弱い雨は観測されません。"
@@ -847,16 +859,16 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         material_id=WIND_DRAG_RATIO,
         label="風の追加負荷(倍率)",
         description=(
-            "出発時刻の風（気象庁の数値予報モデルの計算値。予報ではなく誤差を含みうる）・ルートの進行方向・想定速度から、"
+            "風（気象庁の数値予報モデルの計算値。予報ではなく誤差を含みうる）・進行方向・想定速度から、"
             "相対風速の二乗則で求めた空気抵抗の増分"
             f"（{_WIND_REFERENCE_SPEED_LABEL}で無風のときの空気抵抗を1とする倍率）。プラス=向かい風で重くなる、マイナス=追い風で楽になる、"
             "真横の風は小さなプラス。同じ風でも速く走るほど値が大きくなります。"
             f"目安（{_WIND_REFERENCE_SPEED_LABEL}）: "
             + "、".join(f"{situation}→{ratio}" for situation, ratio in _WIND_DRAG_RATIO_BY_SITUATION.items())
-            + "。"
+            + "。ルートでは各区間を通る見込みの時刻の風を使い、地図では選んだ時刻の風と指定した走行の向きを使います。"
         ),
         dtype="numeric",
-        # 気象は動的データ（出発時刻依存）のためタイルに焼き込めない（`domain/wind.py:
+        # 気象は動的データ（時刻依存）のためタイルに焼き込めない（`domain/wind.py:
         # wind_drag_ratio_array`がリクエスト時に計算する）。対応する一次属性も持たない
         # （動的気象は`PRIMARY_ATTRIBUTES`の対象外）。
         tile_property=None,
@@ -867,7 +879,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
             for situation, ratio in _WIND_DRAG_RATIO_BY_SITUATION.items()
         ],
         coverage=CoverageExcluded(
-            reason="出発時刻の風（数値予報モデルの計算値）・想定速度から都度計算する動的材料で、DBに静的な値を持たない",
+            reason="時刻ごとの風の予報（数値予報モデルの計算値）・想定速度から都度計算する動的材料で、DBに静的な値を持たない",
             missing_semantics="unknown",
         ),
     ),
@@ -921,7 +933,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "intersection_count_per_km": MaterialSpec(
         material_id="intersection_count_per_km",
         label="交差点密度",
-        description="接続する道路が3本以上ある交差点の1kmあたりの発生回数。",
+        description=f"接続する道路が{INTERSECTION_DEGREE_THRESHOLD}本以上ある交差点の1kmあたりの発生回数。",
         dtype="numeric",
         unit="回/km",
         additive=True,
@@ -1118,7 +1130,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         label="路面の見込み",
         description=(
             "路面の区分（surfaceタグ）を優先し、無ければ農道・林道の等級（tracktype）から見込んだ区分"
-            "（等級1→舗装、2・3→砂利・未舗装、4・5→土・草・泥・砂）。どちらも無い道は「不明」で、"
+            f"（{_track_grade_estimate_note()}）。どちらも無い道は「不明」で、"
             "農道・林道とそれ以外の道を分けます。走行モデルの転がり抵抗もこの値から決まります。"
         ),
         dtype="categorical",
