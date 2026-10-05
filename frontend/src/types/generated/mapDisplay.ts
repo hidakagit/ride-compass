@@ -645,8 +645,6 @@ export const mapDisplay = {
   },
   "point": {
     "radiusPx": 4,
-    "fatalRadiusPx": 6,
-    "nonFatalRadiusPx": 3,
     "strokeWidthPx": 1,
     "iconSizePx": 20,
     "opacityByLayer": {

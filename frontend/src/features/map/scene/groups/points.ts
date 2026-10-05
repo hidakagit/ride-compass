@@ -153,22 +153,15 @@ function iconImageExpression(layer: PointLayer, categories: readonly GlyphCatego
   return ["case", ...cases, ""];
 }
 
-/** 大きさで示す軸。色は先頭の軸が持つので、重大度は大きさだけで示す（色を取り合わない）。 */
+/** 大きさで示す軸。源泉が行に半径を付けた軸で、付けるのは点の軸のうち1本だけ。 */
 function sizeAxis(layer: PointLayer): PointAxis | undefined {
-  return layer.display_axes.find((axis) => axis.key === "severity");
+  return layer.display_axes.find((axis) => axis.categories.some((category) => "radius_px" in category));
 }
 
 /** 行が地図に描かれる半径。**凡例の見本も同じ関数を読む**——凡例が別に大きさを持つと、
- * 地図と食い違う。大きさの軸でない行は既定の半径。 */
-export function pointCategoryRadiusPx(
-  layer: PointLayer,
-  axis: PointAxis,
-  category: PointAxis["categories"][number],
-): number {
-  if (axis !== sizeAxis(layer)) return POINT.radiusPx;
-  return (category.values as readonly (string | boolean)[]).includes(true)
-    ? POINT.fatalRadiusPx
-    : POINT.nonFatalRadiusPx;
+ * 地図と食い違う。半径を持たない行は既定の半径。 */
+export function pointCategoryRadiusPx(category: PointAxis["categories"][number]): number {
+  return "radius_px" in category ? category.radius_px : POINT.radiusPx;
 }
 
 function radiusExpression(layer: PointLayer): unknown {
@@ -176,7 +169,7 @@ function radiusExpression(layer: PointLayer): unknown {
   if (axis === undefined) return POINT.radiusPx;
   const cases = axis.categories.flatMap((category) => [
     ["in", valueOf(axis), ["literal", [...category.values]]],
-    pointCategoryRadiusPx(layer, axis, category),
+    pointCategoryRadiusPx(category),
   ]);
   return ["case", ...cases, POINT.radiusPx];
 }

@@ -14,6 +14,8 @@ from app.domain.strict_model import StrictModel
 #: 重みの配分を画面で調整するとき、1軸へ寄せられる上限。要求の検証には使わない——既定の重みや
 #: 保存された配分がこれを超えていても生成は受け付ける。
 MAX_AXIS_WEIGHT = 0.6
+#: 既定の重みが0の軸を画面で入れたときの重み（配分を調整する前の出発点）。
+ENABLED_AXIS_WEIGHT = 0.1
 
 
 def published_axis_ids() -> set[str]:

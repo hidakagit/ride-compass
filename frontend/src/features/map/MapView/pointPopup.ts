@@ -17,9 +17,14 @@ function popupBody(lines: readonly string[]): HTMLDivElement {
 }
 
 /** 1行目は「<点の名前>: <区分の名前>」（区分の軸が複数なら「・」で並べる）。区分の名前は凡例と同じ宣言から引き、
- * 引けない値は「不明」にする（値は分類器が付ける内部名で、そのまま画面へ出さない）。 */
+ * 引けない値は「不明」にする（値は分類器が付ける内部名で、そのまま画面へ出さない）。続けて、宣言が点に添える事実を
+ * 「<名前>: <値>」で1行ずつ出す（値の無い事実は出さない）。 */
 export function buildPointPopupContent(
-  layer: { label: string; display_axes: readonly PointAxis[] },
+  layer: {
+    label: string;
+    display_axes: readonly PointAxis[];
+    point_facts: readonly { property: string; label: string }[];
+  },
   properties: Record<string, unknown>,
 ): HTMLDivElement {
   const names = layer.display_axes.map((axis) => {
@@ -27,7 +32,9 @@ export function buildPointPopupContent(
     return axis.categories.find((category) => category.values.some((v) => String(v) === value))?.label ?? "不明";
   });
   const lines = [`${layer.label}: ${names.join(" ・ ")}`];
-  // 発生年は区分ではなく、事故の点だけが持つ事実。
-  if (typeof properties.occurred_year === "number") lines.push(`発生年: ${properties.occurred_year}`);
+  for (const fact of layer.point_facts) {
+    const value = properties[fact.property];
+    if (value != null) lines.push(`${fact.label}: ${String(value)}`);
+  }
   return popupBody(lines);
 }

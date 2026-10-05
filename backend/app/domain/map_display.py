@@ -301,10 +301,8 @@ ROAD_INSPECTED_WIDTH_PX = 8
 #: 乗り換え帯の破線（`ROUTE_SPLICE_DASH`）より細かく刻み、操作の状態と見分けられるようにする。
 NO_DATA_DASH: tuple[float, ...] = (1, 2)
 
-#: 点。重大度は色ではなく大きさで示す（当事者の色と取り合わないため）。
+#: 丸い点の既定の半径。行ごとの大きさは表示の行（`DisplayCategorySpec.radius_px`）が持つ。
 POINT_RADIUS_PX = 4
-POINT_FATAL_RADIUS_PX = 6
-POINT_NON_FATAL_RADIUS_PX = 3
 POINT_STROKE_WIDTH_PX = 1
 #: 絵記号で描く点（行が`glyph`を持つ軸）の一辺。丸い点より大きくし、中の絵を読める大きさにする。
 POINT_ICON_SIZE_PX = 20

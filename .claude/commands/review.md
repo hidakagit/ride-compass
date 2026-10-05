@@ -150,7 +150,18 @@ python scripts/review_checks.py docs
      （SQL文字列・HTTP・ファイルパス）がdomainへ漏れている
    - 本番から到達しない口（テストからしか呼ばれない関数・引数、置き換えられた旧実装。テストが読むことを公開の理由に
      してよいもの——`docs/conventions/testing.md`「確かめる高さ」の (a)(b)——は除く）
-   - backendが決めるべき値をfrontendが計算し直している
+   - backendが決めるべき値をfrontendが計算し直している。
+     **frontendの層では、読む前に母集団を道具で取る**——読んで探すと回ごとに別の綴りで拾い、別の形が残る。
+     `node frontend/scripts/structure-population.mjs --axis-catalog <ファイル>`（軸カタログは本番のbackendの
+     `/api/axis-catalog`の応答。宛先は`docs/architecture/tech-stack.md`「本番の宛先」）で次の4つを列挙し、出た候補を
+     全件読んで、直す（起票）・既存のタスクへ寄せる・見送る（理由）を決める。範囲と拾う形の正本は道具の先頭
+       - (a) 文字列リテラル∩生成物の識別子（宣言の鍵を名指して1つを選ぶ。例: `windowHoursOf("linearRainband")`）
+       - (b) 画面の文∩本番の軸名・現象の語（文の中に宣言の事実を書き写す。例: 「死亡事故は円を大きく表示」）
+       - (c) 重み・閾値の文脈の数値リテラル（関数の中を含む。例: `lastWeights[axisId] || 0.1`）
+       - (d) 宣言の意味の鍵を名指す分岐（例: `axis.key === "severity"`・`values.includes(true)`）
+
+     候補の多くは偶然の一致と、型で縛られた形の判別（描き方の`kind`の分岐・キー操作）で、それは見送る。
+     件数が0の分類は、既知の1件を拾えるかで道具の穴を先に疑う
    - テストが本番で作れない状態を作る／本番の式・順序を写している
    - 生成物が逆向き（frontend→backend）に流れている
 3. 見つけた越境は「この1箇所」で止めず、**それを許している規則**（契約がどこにも書かれて
