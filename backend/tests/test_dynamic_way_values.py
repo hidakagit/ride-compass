@@ -10,7 +10,9 @@
 
 ここで見ないもの:
 - 地図の段の境界そのもの（どの軸が地図に塗れるか・境界の導出） → `test_axis_display.py`
-- 折れ線の得点・0次条件の評価（`domain/axis_definitions.py: evaluate_axis_values`） → `test_axis_definitions.py`
+- 折れ線の得点・0次条件の評価（`domain/axis_definitions.py: evaluate_axis_values`） → `test_axis_definitions.py`。
+  配る材料に置いた条件が当たる道の得点も見ない——条件は真偽・分類の材料にしか置けず（`check_axis_definition`）、
+  配る材料はどれも数値なので、本番の専用配信の軸で当たる条件は起こらない
 - 材料から配るサービスを選ぶこと・配信のAPI → `test_dedicated_way_values.py`・`test_region_routes.py`
 - 要求の条件の組み立て（`assemble_conditions`） → `test_region_routes.py`（配信と区間インスペクタの入口で）
 """
@@ -245,7 +247,8 @@ def test_a_condition_on_a_material_not_served_paints_nothing():
     assert transform_dedicated_way_values(definition, "num_live", VALUES) == {}
 
 
-def test_a_condition_on_the_served_material_is_evaluated():
+def test_a_condition_on_the_served_material_does_not_stop_the_painting():
+    """条件が配る材料にだけ置かれていれば、当たるかを決められるので塗る（ここで当たらない条件は得点を変えない）。"""
     definition = _axis(
         _line("num_live"), priority_overrides=[PriorityCondition(material="num_live", equals="x", value=0.0)]
     )

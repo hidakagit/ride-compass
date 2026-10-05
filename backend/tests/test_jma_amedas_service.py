@@ -147,9 +147,8 @@ def _service(http_client: httpx.AsyncClient) -> JmaAmedasService:
     )
 
 
-@pytest.fixture(autouse=True)
-def _empty_stores(fake_redis):
-    """Redisは空から始める。"""
+#: 観測値と雨の履歴はRedisに置くので、どのテストも空のRedisから始める。
+pytestmark = pytest.mark.usefixtures("fake_redis")
 
 
 @pytest.mark.parametrize(

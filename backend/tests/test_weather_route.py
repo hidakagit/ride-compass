@@ -13,6 +13,8 @@
 - 回数制限の窓 → `test_rate_limiter.py`
 - Cache-Control の値と、失敗の応答に付けないこと → `test_cache_policy.py`
 - 範囲外の緯度経度・有限でない間隔を断ること（`Query` の制約で、FastAPI が422で返す）
+- 点の数で断るときに格子の風を読みに行かないこと——読む先は手元に同期した予報のファイル（`infrastructure/msm_client.py`）で、
+  回数・課金の約束が無い読むだけの呼び出し。作る前に断る理由（点を作る処理がイベントループを止める）は実装のコメントが持つ
 """
 
 import math

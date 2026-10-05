@@ -10,6 +10,9 @@
 - 換算係数を収録年から導くこと → `test_material_catalog.py`
 - タイルの世代 → `test_derived_data_revision_service.py`・`test_derived_data_meta.py`
 - 軸の項目を応答へそのまま写すこと（表示名・重み・チップの欄等）——書き写しで、判断が無い
+- 画面へ配る較正値の顔ぶれ（`tuning.py: client_tuning_values`）——同じ関数がビルド時生成物の`client_tuning`も書き、
+  CI がその差分を落とす。画面が読む id は`frontend/src/lib/axisCatalog.ts: CLIENT_TUNING_IDS`が生成物の id に型で縛るので、
+  配る集合から抜けると型検査で落ちる（余分に配っても画面は壊れない）
 """
 
 import pytest

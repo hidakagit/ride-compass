@@ -14,8 +14,8 @@ DBから組むテストは、道とノードを取込の入口から入れ、派
 - 置いた道路網から探索範囲を切り出すこと → `test_road_network.py`
 - 形の署名の組み立て → `test_cache_identity.py`
 
-材料を束（`_MATERIAL_BATCH`区間）に分けて引くとき、束をまたいで分類の語彙を1つへ付け替えることは見ない
-——束の大きさは本物の定数のまま通し、その数の区間をテストのDBに作らない。
+材料を区間の束に分けて引くとき、束をまたいで行を続けて詰め、分類の語彙を1つへ付け替えることは、詰める部品
+（`MaterialColumns`）へ束を値で渡して見る——束の大きさ（20万区間）の区間をテストのDBに作らない。
 """
 
 import json
@@ -28,6 +28,7 @@ import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.batch import derive_cli
+from app.domain.attributes import CategoricalColumn, EdgeMaterialArrays
 from app.domain.road_network import RoadNetwork
 from app.infrastructure import road_network_store
 from app.infrastructure.road_graph_repository import RoadGraphRepository
@@ -203,6 +204,37 @@ def test_cleaning_up_after_start_removes_only_networks_of_other_shapes(store):
     assert freed == 15
     assert sorted(path.name for path in store.iterdir()) == sorted(
         [road_network_store.directory_name(2), "not-a-network", _other_shape(3)])
+
+
+# --- 束ごとの材料を詰める（DBを使わない） ---------------------------------------------
+
+
+def _batch(distance_m: list[float], surface: list[str | None]) -> EdgeMaterialArrays:
+    """区間ごとに距離と分類の材料1列だけが違う束。分類の語彙は束の中で現れた順に番号が付く。"""
+    n = len(distance_m)
+    nan = np.full(n, np.nan)
+    return EdgeMaterialArrays(
+        numeric_ids=("num",), numeric_values=np.array(distance_m).reshape(n, 1),
+        boolean_ids=(), boolean_values=np.zeros((n, 0), dtype=bool),
+        categorical_ids=("surface",), categorical_columns=(CategoricalColumn.encode(surface),),
+        hard_filter_ids=(), hard_filter_flags=np.zeros((n, 0), dtype=bool),
+        distance_m=np.array(distance_m), bearing_deg=nan, mid_lat=nan, mid_lon=nan,
+        elevation_present=np.zeros(n, dtype=bool), elevation_start_m=nan, elevation_end_m=nan,
+        elevation_gain_m=nan, elevation_loss_m=nan, elevation_max_grade=nan, elevation_min_grade=nan,
+    )
+
+
+def test_batches_fill_consecutive_rows_and_share_one_vocabulary():
+    """本番の道路網は束（20万区間）より大きく、束ごとに分類の語彙の番号が違う。"""
+    columns = road_network_store.MaterialColumns(4)
+    columns.add(_batch([1.0, 2.0], ["砂利", "舗装"]))
+    columns.add(_batch([3.0, 4.0], ["舗装", None]))
+
+    result = columns.result()
+    (vocab,) = result["categorical_vocab"]
+    assert result["distance_m"].tolist() == [1.0, 2.0, 3.0, 4.0]
+    assert result["numeric_values"][:, 0].tolist() == [1.0, 2.0, 3.0, 4.0]
+    assert [vocab[code] for code in result["categorical_codes"][:, 0]] == ["砂利", "舗装", "舗装", None]
 
 
 # --- DBから組む ---------------------------------------------------------------------

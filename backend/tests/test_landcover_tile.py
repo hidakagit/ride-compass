@@ -4,10 +4,12 @@
 - ラスタの読み取り・再投影・PNGへの描画 → `test_landcover_raster.py`
 - 配信の口（ズームの範囲・503） → `test_region_routes.py`
 - キャッシュの読み書きと空タイルの扱いの骨格 → `test_tile_serving.py`
+- 骨格へ渡すタイルの種類（`content_type`）——キャッシュの項目に書かれるだけで読み手が無く、応答の種類はルーターが
+  決める（`test_region_routes.py`）
 - ラスタ構成の指紋の作り方 → `test_landcover.py`
 
 ラスタ（`landcover_raster`の口）と、キャッシュを通す骨格（`serve_cached_tile`）は代役へ差し替え、
-本物の署名へ当てる（`bound`）。
+本物の署名へ当てる（`bound`）。範囲外の空のタイルのテストだけは骨格を本物で通す。
 """
 
 import logging
@@ -25,6 +27,8 @@ class Raster:
     def __init__(self, opened: list[str]):
         self.opened = list(opened)
         self.rendered: list[tuple[int, int, int]] = []
+        #: 描いた絵。None は範囲外で描けないこと。
+        self.drawn: bytes | None = b"png-bytes"
 
     def has_sources(self) -> bool:
         return bool(self.opened)
@@ -34,7 +38,7 @@ class Raster:
 
     def render_tile(self, z, x, y):
         self.rendered.append((z, x, y))
-        return b"png-bytes"
+        return self.drawn
 
 
 @pytest.fixture
@@ -68,6 +72,16 @@ async def test_a_tile_is_drawn_from_the_raster_through_the_cache(raster, served)
     assert response == service.TileResponse(content=b"png-bytes")
     assert raster.rendered == [(10, 905, 403)]
     assert served[0]["cache_path"].endswith("/10/905/403.png")
+
+
+async def test_outside_the_rasters_the_tile_is_the_clear_image_of_the_raster(raster):
+    """範囲外で描けないときは、ラスタの塗りと同じ形の透明なPNGを返し、ブラウザに持たせてよい。
+    キャッシュの骨格は本物を通す（空のタイルはディスクへ書かないので、ほかのテストへ残らない）。"""
+    raster.drawn = None
+
+    response = await service.get_landcover_tile(10, 905, 403)
+
+    assert response == service.TileResponse(content=RASTER.empty_tile_png(), cacheable=True)
 
 
 async def test_the_cache_key_follows_the_rasters_actually_opened(raster, served):
