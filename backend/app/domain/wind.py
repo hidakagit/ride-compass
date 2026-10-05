@@ -20,14 +20,14 @@ MAX_ASSUMED_SPEED_KMH = 60.0
 # よる推定誤差は同じビンへ収まる程度で足りる。
 ROUTE_DETOUR_RATIO = 1.3
 
+def kmh_to_ms(speed_kmh: float) -> float:
+    return speed_kmh / 3.6
+
+
 # 風の追加負荷（`wind_drag_ratio_array`）を無次元化する基準速度（m/s、時速20km）。
 # `ASSUMED_SPEED_KMH`とは独立の専用定数にする——既定の想定速度を変えても材料のスケール
 # （軸スタジオのbreakpointsが前提にする値域）がずれないようにするため。
-WIND_DRAG_REFERENCE_SPEED_MS = 20.0 / 3.6
-
-
-def kmh_to_ms(speed_kmh: float) -> float:
-    return speed_kmh / 3.6
+WIND_DRAG_REFERENCE_SPEED_MS = kmh_to_ms(20.0)
 
 
 def _wind_relative_angle_rad(wind_direction_deg, travel_bearing_deg) -> np.ndarray:

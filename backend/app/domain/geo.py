@@ -47,6 +47,20 @@ def km_per_degree_longitude(latitude: float) -> float:
     """
     return KM_PER_DEGREE_LATITUDE * max(math.cos(math.radians(latitude)), 1e-6)
 
+
+#: `degrees_covering_m`の箱が距離の判定を覆う緯度の上限（度）。これより極に近い所では箱が距離より狭くなり、
+#: 前置フィルタが黙って取りこぼす。
+COVERED_LATITUDE_LIMIT = 60.0
+
+
+def degrees_covering_m(radius_m: float) -> float:
+    """半径`radius_m`（m）の円を、緯度`COVERED_LATITUDE_LIMIT`までどこでも覆う度の幅。SQLの前置フィルタ
+    （`ST_Expand`の箱）を距離の判定より必ず広くするために使う。
+
+    経度1度は緯度1度より短いので、上限の緯度での経度1度で割れば経度・緯度のどちらの向きも覆う。
+    """
+    return radius_m / (km_per_degree_longitude(COVERED_LATITUDE_LIMIT) * 1000.0)
+
 #: 16方位の呼び名（0=北から時計回り）。8方位の呼び名はこの1つおきで、別に持たない——
 #: 片方だけ直すと、同じ向きを場所によって違う名前で出す。
 SIXTEEN_POINT_LABELS = [

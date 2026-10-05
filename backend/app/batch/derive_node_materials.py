@@ -16,6 +16,7 @@ import time
 import asyncpg
 
 from app.batch.common import reset_columns_sql
+from app.domain.geo import degrees_covering_m
 from app.infrastructure.source_models import NODES_SOURCE_SQL, WAYS_SOURCE_SQL
 from app.domain.traffic import (
     HIGHWAY_RANK,
@@ -96,9 +97,7 @@ async def derive(conn: asyncpg.Connection, signal_radius_m: float) -> int:
         await conn.execute(_SIGNAL_NODES)
         signals = await conn.fetchval("SELECT count(*) FROM _signal_nodes")
         await conn.execute("ANALYZE _signal_nodes")
-        # 緯度が高いほど1度は短い。取りこぼさないよう余裕を持たせる。
-        await conn.execute(_UPDATE_SIGNALS, signal_radius_m,
-                           signal_radius_m / 111_000.0 * 2.0)
+        await conn.execute(_UPDATE_SIGNALS, signal_radius_m, degrees_covering_m(signal_radius_m))
         await conn.execute(_UPDATE_MAX_RANK_TEMPLATE.format(values=values))
 
     logger.info("ノードの値を埋めた: 種別が付いた %d点 / 信号 %d点（半径 %.1fm） / %.1f秒",

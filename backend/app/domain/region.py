@@ -95,23 +95,24 @@ def tile_bounds_3857(z: int, x: int, y: int) -> tuple[float, float, float, float
 
 
 # Web Mercatorで表現できる緯度の限界。極ではmath.tan(lat)と1/math.cos(lat)が打ち消し合い、
-# _lonlat_to_tile_indexのmath.logが非正の値を受けてmath domain errorになる。
+# tile_positionのmath.logが非正の値を受けてmath domain errorになる。
 # BoundingBoxが許す±90度まではこの限界の外側にあるため、クランプしてから使う。
 MAX_MERCATOR_LATITUDE = 85.05112878
 
 
-def _lonlat_to_tile_index(lon: float, lat: float, z: int) -> tuple[int, int]:
-    """緯度経度からそれを含むXYZタイルのx,yを求める（tile_bounds_lonlatの逆関数）。"""
+def tile_position(lon: float, lat: float, z: int) -> tuple[float, float]:
+    """緯度経度のXYZタイル座標を小数のまま返す`(x, y)`（整数部がタイルの番号、小数部がタイルの中の位置。
+    `tile_bounds_lonlat`の逆）。緯度はWeb Mercatorの限界へクランプする。"""
     n = 2**z
-    x = int((lon + 180.0) / 360.0 * n)
+    x = (lon + 180.0) / 360.0 * n
     clamped_lat = max(-MAX_MERCATOR_LATITUDE, min(lat, MAX_MERCATOR_LATITUDE))
     lat_rad = math.radians(clamped_lat)
-    y = int((1.0 - math.log(math.tan(lat_rad) + 1.0 / math.cos(lat_rad)) / math.pi) / 2.0 * n)
+    y = (1.0 - math.log(math.tan(lat_rad) + 1.0 / math.cos(lat_rad)) / math.pi) / 2.0 * n
     return x, y
 
 
 def tile_position_sql(lon: str, lat: str, zoom: str) -> tuple[str, str]:
-    """`_lonlat_to_tile_index`と同じ式をSQLで書いたもの。経度・緯度の式`lon`・`lat`と
+    """`tile_position`と同じ式をSQLで書いたもの。経度・緯度の式`lon`・`lat`と
     ズームの式`zoom`から、タイル座標を小数のまま返す`(x, y)`の式（整数部がタイルの番号、
     小数部がタイルの中の位置）。緯度は丸めないため、Web Mercatorの限界の外を渡さないこと。"""
     scale = f"(2::double precision ^ {zoom})"
@@ -129,8 +130,8 @@ def tiles_covering_bbox(bbox: BoundingBox, z: int) -> list[tuple[int, int]]:
     倒れ、余分に1列・1行を含むだけ）。
     """
     n = 2**z
-    x_start, y_start = _lonlat_to_tile_index(bbox.min_longitude, bbox.max_latitude, z)
-    x_end, y_end = _lonlat_to_tile_index(bbox.max_longitude, bbox.min_latitude, z)
+    x_start, y_start = map(int, tile_position(bbox.min_longitude, bbox.max_latitude, z))
+    x_end, y_end = map(int, tile_position(bbox.max_longitude, bbox.min_latitude, z))
     x_start, x_end = sorted((max(0, min(x_start, n - 1)), max(0, min(x_end, n - 1))))
     y_start, y_end = sorted((max(0, min(y_start, n - 1)), max(0, min(y_end, n - 1))))
     return [(x, y) for x in range(x_start, x_end + 1) for y in range(y_start, y_end + 1)]

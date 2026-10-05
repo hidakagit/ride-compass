@@ -119,13 +119,10 @@ from app.services.weather_service import WeatherService
 
 # Road Graphを取得するbboxは、起点・経由地2点の外接矩形にこのマージンを足したもの。
 # 実際の道なりは直線距離の外接矩形からはみ出ることが多い（川・線路等を迂回する等）ため、
-# 探索が失敗しない程度の余裕を持たせる。半径に比例させつつ、最低値を設ける。
+# 探索が失敗しない程度の余裕を持たせる。半径に比例させつつ、最低値を設ける。経由地ルートは
+# 最低値だけを使う（経由地は起点からの半径に収まるとは限らないため半径比例は使えない）。
 _BBOX_MARGIN_RATIO = 0.3
 _BBOX_MARGIN_MIN_KM = 2.0
-
-# 経由地ルートのbboxマージン。ループ探索の_BBOX_MARGIN_MIN_KMと同じ「道なりが直線外接矩形から
-# はみ出る余裕」を固定値で持たせる（経由地は起点からの半径に収まるとは限らないため半径比例は使えない）。
-_WAYPOINT_BBOX_MARGIN_KM = 2.0
 
 # 一対全探索のコスト上限に掛ける余裕。Edge単位の丸めの積み上がりで上限ぎりぎりのNodeを
 # 取りこぼさないため。
@@ -420,7 +417,7 @@ class RoadGraphEngine:
         if waypoints:
             # ユーザー指定の経由地は起点から半径radius_km以内とは限らない
             # ため、周回探索の円を覆う矩形ではなく、複数点の外接矩形+固定マージンを使う。
-            bbox = bbox_covering_points([origin, *waypoints], _WAYPOINT_BBOX_MARGIN_KM)
+            bbox = bbox_covering_points([origin, *waypoints], _BBOX_MARGIN_MIN_KM)
         else:
             # 起点を中心とした円を覆う矩形。折返し点がどの方位に選ばれても、この1回の取得で足りる。
             margin_km = max(_BBOX_MARGIN_MIN_KM, radius_km * _BBOX_MARGIN_RATIO)

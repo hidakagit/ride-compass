@@ -1,6 +1,6 @@
 """`domain/geo.py`——球面の距離・方位・方位の呼び名と、多数の地点それぞれの最寄りの点。
 
-入口は`km_per_degree_longitude`・`compass_label`・`bearing_between`（と配列版）・`haversine_distance_km`（と配列版）・
+入口は`km_per_degree_longitude`・`degrees_covering_m`・`compass_label`・`bearing_between`（と配列版）・`haversine_distance_km`（と配列版）・
 `nearest_point_indices`・`nearest_point_index`。距離の性質（同じ点で0・三角不等式）・方位が別の道で求めた向きと合うこと・最寄りが本当に最も近いことは
 hypothesisで任意の地点について確かめ、絶対値は公開の事実（子午線の4分の1はおよそ1万km）と突き合わせる。
 
@@ -9,6 +9,7 @@ hypothesisで任意の地点について確かめ、絶対値は公開の事実�
 - 最寄りの点を雨・アメダス・暑さ指数の値へ使うこと → それぞれのサービスのテスト
 """
 
+import math
 from typing import NamedTuple
 
 import numpy as np
@@ -39,6 +40,37 @@ def test_the_rough_length_of_a_degree_stays_within_one_percent_of_the_true_dista
     true_km = geo.haversine_distance_km(Point(latitude, 0.0), Point(latitude, 1.0))
 
     assert geo.km_per_degree_longitude(latitude) == pytest.approx(true_km, rel=0.01)
+
+
+
+# --- degrees_covering_m ---
+
+# WGS84の楕円体（PostGISのgeographyが距離を測る面）の長半径（m）と離心率の2乗。
+_WGS84_SEMI_MAJOR_M = 6378137.0
+_WGS84_ECCENTRICITY_SQUARED = 0.00669437999014
+
+
+def _wgs84_degree_lengths_m(latitude: float) -> tuple[float, float]:
+    """楕円体の上の、緯度`latitude`での緯度1度・経度1度の長さ（m）。"""
+    phi = math.radians(latitude)
+    denominator = 1 - _WGS84_ECCENTRICITY_SQUARED * math.sin(phi) ** 2
+    meridian_m = _WGS84_SEMI_MAJOR_M * (1 - _WGS84_ECCENTRICITY_SQUARED) / denominator ** 1.5
+    prime_vertical_m = _WGS84_SEMI_MAJOR_M / math.sqrt(denominator)
+    return math.radians(1) * meridian_m, math.radians(1) * prime_vertical_m * math.cos(phi)
+
+
+@given(latitude=st.floats(min_value=-geo.COVERED_LATITUDE_LIMIT, max_value=geo.COVERED_LATITUDE_LIMIT))
+@example(latitude=0.0)
+@example(latitude=geo.COVERED_LATITUDE_LIMIT)
+def test_the_box_in_degrees_is_no_narrower_than_the_radius_up_to_the_latitude_limit(latitude):
+    """箱が距離より狭いと、SQLの前置フィルタが距離の判定の内側の行を黙って落とす。緯度1度は赤道で、
+    経度1度は上限の緯度で最も短い。"""
+    radius_m = 100.0
+    degrees = geo.degrees_covering_m(radius_m)
+    latitude_degree_m, longitude_degree_m = _wgs84_degree_lengths_m(latitude)
+
+    assert degrees * latitude_degree_m >= radius_m
+    assert degrees * longitude_degree_m >= radius_m
 
 
 # --- compass_label ---
