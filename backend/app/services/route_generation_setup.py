@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from app.domain.evaluation import resolve_penalty_strength
 from app.domain.hard_filters import DEFAULT_HARD_FILTERS
 from app.domain.route_preference import RoutePreference
-from app.domain.wind import ASSUMED_SPEED_KMH
 from app.services.graph_service import GraphService
 from app.services.road_graph_engine import RoadGraphEngine
 from app.services.route_generator import RouteGenerator
@@ -19,7 +18,6 @@ class RouteGenerationSetup:
     `route_preference`以降はレスポンスの条件エコーにもそのまま使う。
     """
 
-    engine: RoadGraphEngine
     generator: RouteGenerator
     route_preference: RoutePreference
     # 主観的割増と時間の換算レート（P）。
@@ -36,12 +34,12 @@ def assemble_route_generation_setup(
     graph_service: GraphService,
     weather_service: WeatherService,
     *,
-    preference_override: RoutePreference | None = None,
-    penalty_strength: float | None = None,
-    max_average_grade_percent: float | None = None,
-    hard_filters_override: frozenset[str] | None = None,
-    assumed_speed_kmh: float = ASSUMED_SPEED_KMH,
-    lens_axis_id: str | None = None,
+    preference_override: RoutePreference | None,
+    penalty_strength: float | None,
+    max_average_grade_percent: float | None,
+    hard_filters_override: frozenset[str] | None,
+    assumed_speed_kmh: float,
+    lens_axis_id: str | None,
 ) -> RouteGenerationSetup:
     """エンジンを組む唯一の入口。ルート生成・計測・テストのどれもここを通る。
 
@@ -62,7 +60,6 @@ def assemble_route_generation_setup(
         lens_axis_id=lens_axis_id,
     )
     return RouteGenerationSetup(
-        engine=engine,
         generator=RouteGenerator(engine),
         route_preference=preference,
         penalty_strength=resolved_penalty_strength,

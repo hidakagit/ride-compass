@@ -40,7 +40,6 @@ from app.infrastructure.source_models import WAYS_SOURCE_SQL
 # ここは測り方の実装だけを持ち、宣言は持たない。
 MATERIAL_COVERAGE_SPECS = material_coverage_specs()
 MATERIAL_COVERAGE_EXCLUSIONS = material_coverage_exclusions()
-MaterialCoverageSpec = WayMaterialCoverageSpec | EdgeMaterialCoverageSpec
 
 
 @dataclass(frozen=True)
@@ -52,10 +51,14 @@ class MaterialCoverageCounts:
     missing_by_material: dict[str, int]
 
 
-def build_way_coverage_sql(specs: dict[str, MaterialCoverageSpec] = MATERIAL_COVERAGE_SPECS):
+def build_way_coverage_sql():
     """way母集団の全材料を1回の走査で数えるSELECT文（`count(*) FILTER`列を材料ごとに並べる）。
     列別名は材料id（内部定数のみ、外部入力を連結しない）。"""
-    way_specs = {material_id: spec for material_id, spec in specs.items() if isinstance(spec, WayMaterialCoverageSpec)}
+    way_specs = {
+        material_id: spec
+        for material_id, spec in MATERIAL_COVERAGE_SPECS.items()
+        if isinstance(spec, WayMaterialCoverageSpec)
+    }
     columns = ", ".join(
         f"count(*) FILTER (WHERE {spec.missing_condition}) AS {material_id}"
         for material_id, spec in way_specs.items()
@@ -68,11 +71,11 @@ def build_way_coverage_sql(specs: dict[str, MaterialCoverageSpec] = MATERIAL_COV
     return text(sql)
 
 
-def build_edge_coverage_sql(specs: dict[str, MaterialCoverageSpec] = MATERIAL_COVERAGE_SPECS):
+def build_edge_coverage_sql():
     """edge母集団の全材料の「値ありEdge数」を1回の走査で数えるSELECT文。列別名は材料id。"""
     columns = ", ".join(
         f"count(*) FILTER (WHERE {spec.present_condition}) AS {material_id}"
-        for material_id, spec in specs.items()
+        for material_id, spec in MATERIAL_COVERAGE_SPECS.items()
         if isinstance(spec, EdgeMaterialCoverageSpec)
     )
     sql = (  # noqa: S608 固定の内部辞書のみ使用

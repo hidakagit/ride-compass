@@ -58,11 +58,7 @@ class MaterialCoverageReport(StrictModel):
 
 
 def build_material_coverage_report(counts: MaterialCoverageCounts, computed_at: datetime) -> MaterialCoverageReport:
-    """カタログの登録順のまま1材料1行にする。
-
-    集計対象・対象外のどちらの宣言にも無い材料は`ValueError`。材料を足して宣言を書き
-    忘れたことを、黙った空行にしない。
-    """
+    """カタログの登録順のまま1材料1行にする。"""
     entries: list[MaterialCoverageEntry] = []
     for material_id, spec in MATERIAL_CATALOG.items():
         coverage = MATERIAL_COVERAGE_SPECS.get(material_id)
@@ -83,14 +79,12 @@ def build_material_coverage_report(counts: MaterialCoverageCounts, computed_at: 
                 )
             )
             continue
-        excluded_reason = MATERIAL_COVERAGE_EXCLUSIONS.get(material_id)
-        if excluded_reason is None:
-            raise ValueError(
-                f"材料 '{material_id}' はMATERIAL_COVERAGE_SPECS/MATERIAL_COVERAGE_EXCLUSIONSのどちらにも未登録"
-            )
         entries.append(
             MaterialCoverageExcluded(
-                material_id=material_id, label=spec.full_label(), dtype=spec.dtype, excluded_reason=excluded_reason
+                material_id=material_id,
+                label=spec.full_label(),
+                dtype=spec.dtype,
+                excluded_reason=MATERIAL_COVERAGE_EXCLUSIONS[material_id],
             )
         )
     return MaterialCoverageReport(
