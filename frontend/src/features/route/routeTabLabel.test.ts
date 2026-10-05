@@ -66,15 +66,10 @@ describe("routeListEntries", () => {
 });
 
 describe("fastestRouteId・fastestDurationSeconds", () => {
-  it("所要時間が最も短い候補のidと所要時間", () => {
-    const routes = [route("a", 900), route("b", 600), route("c", 1200)];
-    expect(fastestRouteId(routes)).toBe("b");
-    expect(fastestDurationSeconds(routes)).toBe(600);
-  });
-
-  it("同着なら先に来た方", () => {
+  it("所要時間が最も短い候補のidと所要時間で、同着なら先に来た方", () => {
     const routes = [route("a", 900), route("b", 600), route("c", 600)];
     expect(fastestRouteId(routes)).toBe("b");
+    expect(fastestDurationSeconds(routes)).toBe(600);
   });
 
   it("所要時間の無い候補は比べない", () => {
@@ -92,11 +87,7 @@ describe("fastestRouteId・fastestDurationSeconds", () => {
 });
 
 describe("extraDurationLabel", () => {
-  it("基準線より余計にかかる分を、分へ四捨五入して「+N分」で書く", () => {
-    expect(extraDurationLabel(route("a", 600 + 12 * 60), 600)).toBe("+12分");
-  });
-
-  it("差が丸めて1分に満たなければnull、半分ちょうどからは「+1分」", () => {
+  it("基準線より余計にかかる分を分へ四捨五入し、1分に満たなければnull、半分ちょうどからは「+1分」", () => {
     expect(extraDurationLabel(route("a", 629), 600)).toBeNull();
     expect(extraDurationLabel(route("a", 630), 600)).toBe("+1分");
   });

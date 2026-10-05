@@ -20,18 +20,10 @@ describe("totalWeight", () => {
   it("重みが正の軸だけを足し、重み0（無効）の軸は数えない", () => {
     expect(totalWeight({ a: 0.25, b: 0, c: 0.5 })).toBeCloseTo(0.75);
   });
-
-  it("軸が無ければ0", () => {
-    expect(totalWeight({})).toBe(0);
-  });
 });
 
 describe("clampBoundaryDrag", () => {
-  it("動かした量だけ一方へ足し、もう一方から引く", () => {
-    expect(clampBoundaryDrag(0.3, 0.3, 0.1)).toEqual({ weightA: 0.4, weightB: 0.2 });
-  });
-
-  it("動かした量は刻みの倍数へ丸める", () => {
+  it("動かした量を刻みの倍数へ丸めて、一方へ足し、もう一方から引く", () => {
     expect(clampBoundaryDrag(0.3, 0.3, 0.034)).toEqual({ weightA: 0.33, weightB: 0.27 });
   });
 

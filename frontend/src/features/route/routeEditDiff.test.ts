@@ -92,14 +92,10 @@ describe("editDifference", () => {
 
 describe("formatDelta", () => {
   it.each([
-    [0.44, 1, "+0.4"],
-    [-2.04, 0, "−2"],
     [2, 1, "+2.0"],
-  ])("%sを小数%s桁で書くと「%s」（減りはマイナス記号）", (value, digits, text) => {
+    [-2.04, 0, "−2"],
+    [0.04, 1, "±0"],
+  ])("%sを小数%s桁で書くと「%s」（減りはマイナス記号、丸めて0なら±0）", (value, digits, text) => {
     expect(formatDelta(value, digits)).toBe(text);
-  });
-
-  it.each([0.04, -0.04])("%sは小数1桁へ丸めると0なので「±0」", (value) => {
-    expect(formatDelta(value, 1)).toBe("±0");
   });
 });

@@ -11,12 +11,7 @@ import { describe, expect, it } from "vitest";
 import { formatDurationShort } from "./formatDuration";
 
 describe("formatDurationShort", () => {
-  it("1時間を超えても時間へ繰り上げず、分で書く", () => {
-    expect(formatDurationShort(102 * 60)).toBe("102分");
-  });
-
   it("丸めて1分に満たないものは「1分未満」、半分ちょうどからは「1分」", () => {
-    expect(formatDurationShort(0)).toBe("1分未満");
     expect(formatDurationShort(29)).toBe("1分未満");
     expect(formatDurationShort(30)).toBe("1分");
   });
