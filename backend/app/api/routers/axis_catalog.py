@@ -184,6 +184,10 @@ class AxisCatalogEntry(StrictModel):
     # 配信サービスが受け取る条件の型から導く）。専用配信を持たない軸は空。受け取る側が
     # 「どの軸の取得に時刻・向き・想定速度を添えるか」を、axis_idで分岐せずここから決めるために配る。
     dynamic_way_value_conditions: list[WayValueConditionName]
+    # 専用way値配信が、走行方位しだいで値の決まらない道（値がnull）を返しうるか
+    # （`services/dedicated_way_values.py: dedicated_way_value_undetermined_by_bearing`）。trueの軸だけ、
+    # 地図の凡例が「向きで決まらない」の行を持つ（返さない軸に出すと、どの道も入らない行になる）。
+    dynamic_way_value_undetermined_by_bearing: bool
 
 
 class AxisCatalogResponse(StrictModel):
@@ -246,6 +250,9 @@ async def get_axis_catalog(region_service: RegionService = Depends(get_region_se
                 raw_value_total_unit=raw_value_total_unit(definition),
                 material_breakdown=_material_breakdown(definition),
                 dynamic_way_value_conditions=sources.dynamic_way_value_conditions[definition.axis_id],
+                dynamic_way_value_undetermined_by_bearing=(
+                    sources.dynamic_way_value_undetermined_by_bearing[definition.axis_id]
+                ),
             )
             for definition in published
         ],

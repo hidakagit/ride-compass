@@ -26,8 +26,8 @@ import { getQueryClient } from "@/lib/queryClient";
 
 interface DedicatedWayValuesResult {
   /** feature_key→値（複数タイルを統合済み）。評価軸グループのsetFeatureStateにそのまま
-   * 使える（鍵は路面タイルの`feature_key`と同じ文字列）。 */
-  values: ReadonlyMap<string, number>;
+   * 使える（鍵は路面タイルの`feature_key`と同じ文字列）。nullは、その走行方位では値が決まらない道。 */
+  values: ReadonlyMap<string, number | null>;
   /** 現在のビューポートぶんのフェッチが進行中か。falseへ戻るまでの間、
    * まだ一度も値を受け取っていないway（feature-stateキー未設定）は「取得中」、フェッチ
    * 完了後になお値を持たないwayは「その範囲に値が無い」と呼び出し側が区別できるようにする。 */

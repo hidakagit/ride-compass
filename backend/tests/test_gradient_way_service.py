@@ -2,7 +2,7 @@
 `conftest.py`のautouseがテストごとの一時ディレクトリへ差し替える。
 
 ここで見ないもの:
-- 実効勾配の式・直角で落とす幅 → `test_gradient.py`
+- 実効勾配の式・直角で値を決めない幅 → `test_gradient.py`
 - 鍵のどの部分が違っても別のエントリになること・置き場の失敗と失効 → `test_dynamic_way_value_cache.py`・`test_tile_persistent_cache.py`
 - 路面タイルの世代がDBの世代と形の署名を持つこと → `test_cache_identity.py`
 """
@@ -71,18 +71,19 @@ async def test_computes_effective_gradient_per_way():
     assert result == {1: expected_1, 2: expected_2}
 
 
-async def test_perpendicular_way_is_omitted_instead_of_zero():
-    """直角に近い道路は結果から落とす（地図では「データなし」）。
+async def test_perpendicular_way_is_undetermined_instead_of_zero_or_missing():
+    """直角に近い道路はNone（地図では「向きで決まらない」）。
 
-    0.0を返すと凡例の「平坦」の段へ入り、実際には急な坂の道が平坦な道と同じ色で塗られる。
+    0.0を返すと凡例の「平坦」の段へ入り、実際には急な坂の道が平坦な道と同じ色で塗られる。落とすと、
+    値の無い道（「データなし」）と見分けられない。
     """
-    # way1は走行方位と直角（落ちる）、way2は沿っている（残る）。
+    # way1は走行方位と直角、way2は沿っている。
     repository = FakeGradientInputsRepository(inputs={1: (15.0, 0.0), 2: (15.0, 90.0)})
     service = GradientWayService(repository=repository)
 
     result = await service.get_way_values(Z, X, Y, GradientConditions(90.0))
 
-    assert result == {2: 15.0}
+    assert result == {1: None, 2: 15.0}
 
 
 async def test_second_call_with_same_bearing_bucket_is_served_from_cache():

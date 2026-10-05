@@ -36,7 +36,14 @@ import {
   toggleHiddenKey,
   withHiddenKeys,
 } from "./legendFilters";
-import { DEFAULT_ROUTE_STYLE_MODE_ID, isRouteStyleModeId, lensLegend, lensOptions, paintedAxisId } from "./lens";
+import {
+  DEFAULT_ROUTE_STYLE_MODE_ID,
+  isRouteStyleModeId,
+  lensConditionsLabel,
+  lensLegend,
+  lensOptions,
+  paintedAxisId,
+} from "./lens";
 import type { HiddenLegendKeys, MapLook } from "./mapLook";
 import { deserializeLayerVisibility, overlayChips } from "./overlayChips";
 
@@ -176,6 +183,7 @@ export function useMapView({ hasSelectedRoute, hasDetail, ride, now, routeWeight
       keepAfterRoute,
       onKeepAfterRouteChange: setKeepAfterRoute,
       hasDetail,
+      conditions: lensConditionsLabel(painted, mapCatalog.dedicatedAxes, ride, now),
       dataStatus: lensFetch
         ? deriveFetchLayerStatus(
             lensFetch.loading,

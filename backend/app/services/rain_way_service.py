@@ -33,6 +33,7 @@ class RainWayService:
     #: 担当する材料id。インスタンスはそのうち1つ（`material_id`）の値を返す。
     material_ids = RAIN_MATERIAL_IDS
     conditions_type = RainConditions
+    undetermined_by_bearing = False
 
     def __init__(self, repository: RoadGraphRepository, weather_service: WeatherService, material_id: str):
         self._repository = repository

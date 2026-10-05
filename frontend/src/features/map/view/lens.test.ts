@@ -2,11 +2,11 @@
 import { describe, expect, it } from "vitest";
 
 import { mapCatalogOf } from "@/testing/mapAxisCatalog";
-import { LEGEND_NO_DATA_KEY } from "@/lib/mapDisplay/mapColorLegend";
+import { LEGEND_NO_DATA_KEY, LEGEND_UNDETERMINED_KEY } from "@/lib/mapDisplay/mapColorLegend";
 
 import { catalogEntry, dedicatedEntry, rampEntry, tileInput } from "@/testing/catalogAxes";
 import { matchesFilter as matches } from "@/testing/mapExpressions";
-import { isRouteStyleModeId, lensLegend, lensOptions, paintedAxisId } from "./lens";
+import { isRouteStyleModeId, lensConditionsLabel, lensLegend, lensOptions, paintedAxisId } from "./lens";
 
 /** 道の値として読む材料。 */
 const VALUE = "v";
@@ -92,6 +92,41 @@ describe("同じ軸の同じ段は、ルートを出す前と後で同じ行", (
     const shape = (hasDetail: boolean) =>
       lensLegend(axisId, hasDetail, sameBands).map(({ key, color, label }) => ({ key, color, label }));
     expect(shape(false)).toEqual(shape(true));
+  });
+});
+
+describe("走行方位で値が決まらない道の行", () => {
+  const undetermined = mapCatalogOf([
+    dedicatedEntry("by_bearing", [1], { dynamic_way_value_undetermined_by_bearing: true }),
+    dedicatedEntry("always", [1]),
+  ]);
+  const keys = (axisId: string, hasDetail: boolean) =>
+    lensLegend(axisId, hasDetail, undetermined).map((entry) => entry.key);
+
+  it("配信がその道を返しうる軸だけ、ルートの前の凡例で「データなし」の前に持つ", () => {
+    expect(keys("by_bearing", false).slice(-2)).toEqual([LEGEND_UNDETERMINED_KEY, LEGEND_NO_DATA_KEY]);
+    expect(keys("always", false)).not.toContain(LEGEND_UNDETERMINED_KEY);
+  });
+});
+
+describe("lensConditionsLabel（周りの道の色が拠る走る条件）", () => {
+  const conditional = mapCatalogOf([
+    dedicatedEntry("bearing_only", [1], { dynamic_way_value_conditions: ["bearing_deg"] }),
+    dedicatedEntry("all", [1], { dynamic_way_value_conditions: ["at", "bearing_deg", "speed_kmh"] }),
+    dedicatedEntry("none", [1]),
+    rampEntry("ramp", [1]),
+  ]).dedicatedAxes;
+  const now = new Date("2026-10-05T10:00:00Z");
+  const ride = { bearingDeg: 90, at: new Date("2026-10-05T10:30:00Z"), speedKmh: 22 };
+
+  it.each([
+    ["bearing_only", "東へ走る"],
+    ["all", "東へ走る・時速22km・19:30出発"],
+    ["none", null],
+    ["ramp", null],
+    [null, null],
+  ])("塗っている軸（%s）が使う条件だけを並べ、使わなければnull", (axisId, expected) => {
+    expect(lensConditionsLabel(axisId, conditional, ride, now)).toBe(expected);
   });
 });
 

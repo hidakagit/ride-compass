@@ -63,6 +63,7 @@ export function catalogEntry(
     raw_value_total_unit: null,
     material_breakdown: [],
     dynamic_way_value_conditions: [],
+    dynamic_way_value_undetermined_by_bearing: false,
     ...rest,
     display: { kind: "none", label: axisId, category: "roadCondition", tile_inputs: [], thresholds: [], ...display },
   };

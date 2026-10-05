@@ -56,7 +56,7 @@ def _key(
 
 async def get_tile_values(
     material_id: str, z: int, x: int, y: int, bearing_deg: float, *, surface_tile_version: str, value_shape: str,
-) -> dict[str, float] | None:
+) -> dict[str, float | None] | None:
     """該当バケットの`{フィーチャー鍵: 値}`。未キャッシュ・読み出し失敗はいずれもNone。
 
     値の無いタイルは空のdictとして返り、Noneとは別に扱われる（呼び出し元はNoneのときだけ計算し直す）。
@@ -71,7 +71,7 @@ async def set_tile_values(
     x: int,
     y: int,
     bearing_deg: float,
-    values: dict[str, float],
+    values: dict[str, float | None],
     ttl_seconds: int,
     *,
     surface_tile_version: str,

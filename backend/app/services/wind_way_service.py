@@ -44,6 +44,7 @@ class WindWayService:
     material_id = WIND_DRAG_RATIO
     material_ids = (WIND_DRAG_RATIO,)
     conditions_type = WindConditions
+    undetermined_by_bearing = False
 
     @classmethod
     def build(cls, repository: RoadGraphRepository, weather_service: WeatherService, material_id: str) -> "WindWayService":

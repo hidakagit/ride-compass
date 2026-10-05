@@ -112,6 +112,8 @@ export interface DedicatedWayValueAxis extends CatalogAxis {
   needsTime: boolean;
   needsBearing: boolean;
   needsSpeed: boolean;
+  /** 配信が、走行方位で値の決まらない道（値がnull）を返しうるか。trueの軸だけ凡例に「向きで決まらない」の行を持つ。 */
+  undeterminedByBearing: boolean;
   /** 地図に塗るときの表示宣言。軸と同じカタログの行から作るため、軸が在れば必ず在る。 */
   display: DedicatedWayValueDisplay;
 }
@@ -124,6 +126,7 @@ export function dedicatedWayValueAxesFromCatalogAxes(axes: readonly AxisCatalogE
       needsTime: axis.dynamic_way_value_conditions.includes("at"),
       needsBearing: axis.dynamic_way_value_conditions.includes("bearing_deg"),
       needsSpeed: axis.dynamic_way_value_conditions.includes("speed_kmh"),
+      undeterminedByBearing: axis.dynamic_way_value_undetermined_by_bearing,
       display: {
         kind: axis.map_value.kind,
         boundaries: axis.map_value_thresholds,

@@ -115,7 +115,8 @@ export async function fetchAxisInspector(
 // （ブラウザのキャッシュに載せない軽いJSONで、新しさはbackendが持つ）。
 
 interface DynamicWayValuesResult {
-  values: Record<string, number>;
+  /** feature_key→値。nullは、その走行方位では値が決まらない道（値の無い道は鍵ごと無い）。 */
+  values: Record<string, number | null>;
   /** 通信失敗（HTTPエラー・ネットワークエラー・タイムアウト）ならtrue。backendが正常応答で
    * 空オブジェクトを返した場合（対象範囲に本当にway_idが無い）はfalseのまま——呼び出し側が
    * 「取得失敗」と「本当に空」を区別できるようにする。 */

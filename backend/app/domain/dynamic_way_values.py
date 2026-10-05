@@ -257,24 +257,30 @@ def map_legend(definition: AxisDefinition) -> MapLegendScale:
 
 
 def transform_dedicated_way_values(
-    definition: AxisDefinition, material_id: str, values: dict[str, float]
-) -> dict[str, float]:
+    definition: AxisDefinition, material_id: str, values: Mapping[str, float | None]
+) -> dict[str, float | None]:
     """専用way値配信サービスが返した材料生値（`material_id`の値）を、地図が塗るべき値へ
     変換する。`map_value_kind`が`difficulty`なら軸スタジオの定義（breakpoints・
     priority_overrides）で評価した難易度、`signed_material`なら生値のまま。評価できない
     値（軸が他の材料も必須にしている等）はその道路を結果から除く（地図上は「データなし」）。
+    走行方位で決まらない値（None）は、Noneのまま返す（地図上は「向きで決まらない」）。
     タイル内の全道路を1回の配列評価で求める。
     """
     if map_value_kind(definition) == "signed_material":
-        return values
+        return dict(values)
     if any(override.material != material_id for override in definition.priority_overrides):
         # 配信が値を持つのは`material_id`だけで、ほかの材料に置いた0次条件は当たるかどうかを決められない。
         return {}
-    feature_keys = list(values)
+    known = {key: value for key, value in values.items() if value is not None}
+    feature_keys = list(known)
     difficulties = evaluate_axis_values(
-        definition, {material_id: [values[key] for key in feature_keys]}, len(feature_keys)
+        definition, {material_id: [known[key] for key in feature_keys]}, len(feature_keys)
     )
-    return {key: difficulty for key, difficulty in zip(feature_keys, difficulties) if difficulty is not None}
+    transformed: dict[str, float | None] = {key: None for key, value in values.items() if value is None}
+    transformed.update(
+        (key, difficulty) for key, difficulty in zip(feature_keys, difficulties) if difficulty is not None
+    )
+    return transformed
 
 
 def displayed_material_ids(weights: Mapping[str, float], lens_axis_id: str | None) -> set[str]:
