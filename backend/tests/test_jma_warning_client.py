@@ -30,7 +30,7 @@ def _warning_url(office_code: str) -> str:
 # --- 地域マスタ ---
 
 
-async def test_area_master_keeps_parent_and_name_of_each_level():
+async def test_area_master_keeps_the_parent_of_each_level():
     payload = {
         "centers": {"010300": {"name": "気象庁"}},
         "offices": {"130000": {"name": "東京都"}},
@@ -42,15 +42,15 @@ async def test_area_master_keeps_parent_and_name_of_each_level():
     master = await jma_warning_client.fetch_area_data(answering(json=payload), new_area_data_cache())
 
     assert master == AreaMaster(
-        class20s={"1310100": AreaEntry(parent="130011", name="千代田区")},
-        class15s={"130011": AreaEntry(parent="130010", name="２３区西部")},
-        class10s={"130010": AreaEntry(parent="130000", name="東京地方")},
+        class20s={"1310100": AreaEntry(parent="130011")},
+        class15s={"130011": AreaEntry(parent="130010")},
+        class10s={"130010": AreaEntry(parent="130000")},
     )
 
 
 async def test_area_master_tolerates_missing_or_malformed_sections(caplog):
-    """無い階層・辞書でない階層は空、辞書でない区域は載せず、載せなかった数を出す。親・名前の無い区域と、
-    文字列でない親・名前はNoneで持つ。"""
+    """無い階層・辞書でない階層は空、辞書でない区域は載せず、載せなかった数を出す。親の無い区域と、
+    文字列でない親はNoneで持つ。"""
     payload = {
         "class20s": {"1310100": {"name": "千代田区"}, "1310200": {"parent": ["130011"], "name": 1}, "9999999": "壊れた行"},
         "class15s": ["辞書でない"],
@@ -60,7 +60,7 @@ async def test_area_master_tolerates_missing_or_malformed_sections(caplog):
         master = await jma_warning_client.fetch_area_data(answering(json=payload), new_area_data_cache())
 
     assert master == AreaMaster(
-        class20s={"1310100": AreaEntry(parent=None, name="千代田区"), "1310200": AreaEntry(parent=None, name=None)},
+        class20s={"1310100": AreaEntry(parent=None), "1310200": AreaEntry(parent=None)},
         class15s={},
         class10s={},
     )
@@ -119,14 +119,13 @@ async def test_bulletins_are_read_per_document_of_the_office():
 
     assert bulletins == [
         WarningBulletin(
-            report_datetime="2026-08-29T17:00:00+09:00",
             class20_kinds={
                 "1310100": (AreaWarningKind(code="10", status="発表", additions=("土砂災害",)),),
                 "1310200": (AreaWarningKind(code=None, status="発表警報・注意報はなし", additions=()),),
             },
             class10_kinds={"130010": (AreaWarningKind(code="14", status="継続", additions=()),)},
         ),
-        WarningBulletin(report_datetime="2026-08-29T16:00:00+09:00", class20_kinds={}, class10_kinds={}),
+        WarningBulletin(class20_kinds={}, class10_kinds={}),
     ]
 
 
@@ -149,12 +148,11 @@ async def test_first_item_wins_when_an_area_appears_twice():
 
 async def test_malformed_parts_of_a_bulletin_are_skipped(caplog):
     """辞書でない電文・項目・種別、コードが文字列でない地域、コード・状態が文字列でない種別は載せず、
-    載せなかった数を出す。区域の項目・種別が配列でない・`warning`が無い・発表時刻が文字列でない電文は、
+    載せなかった数を出す。区域の項目・種別が配列でない・`warning`が無い電文は、
     その部分を空として持つ。付加事項は配列の中の文字列だけを持つ。"""
     payload = [
         "辞書でない電文",
         {
-            "reportDatetime": 20260829,
             "warning": {
                 "class20Items": [
                     "辞書でない項目",
@@ -185,7 +183,6 @@ async def test_malformed_parts_of_a_bulletin_are_skipped(caplog):
 
     assert bulletins == [
         WarningBulletin(
-            report_datetime=None,
             class20_kinds={
                 "1310200": (
                     AreaWarningKind(code="10", status="発表", additions=()),
@@ -195,7 +192,7 @@ async def test_malformed_parts_of_a_bulletin_are_skipped(caplog):
             },
             class10_kinds={},
         ),
-        WarningBulletin(report_datetime="2026-08-29T17:00:00+09:00", class20_kinds={}, class10_kinds={}),
+        WarningBulletin(class20_kinds={}, class10_kinds={}),
     ]
     assert "unreadable=7 bulletins=3" in caplog.text
 

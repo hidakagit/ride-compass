@@ -105,7 +105,6 @@ from app.domain.routing import (
     turn_expanded_path_from_state_to_source,
     turn_expanded_shortest_path,
 )
-from app.domain.weather import WeatherConditions
 from app.domain.wind import (
     ROUTE_DETOUR_RATIO,
     estimate_passage_hours,
@@ -160,7 +159,6 @@ class _RoadGraphContext:
 
     # 探索範囲の切り出し。ノードの番号・区間の元の行はこれが決める。
     road: RoadSlice
-    weather: WeatherConditions | None
     # 起点のノード番号（`road`の切り出しの番号）。
     origin_node: int
     # 1リクエスト内で繰り返す最寄りNodeの探索（prepareの起点・trace_loopの
@@ -221,7 +219,6 @@ class _SearchGraph:
     lazy_graph: LazyRoadGraph
     # bboxを覆うタイル集合（学習した迂回率の鍵）。
     tile_set: frozenset[tuple[int, int, int]]
-    weather: WeatherConditions | None
     # _RoadGraphContextと同じ意味（フィールドdocstring参照）。`outbound`は基準点（起点側の
     # 座標）から離れていくレグとして合成済みの配列。
     composer: LegCostComposer
@@ -303,7 +300,7 @@ class RoadGraphEngine:
             return None
 
         weather_started = time.monotonic()
-        weather = await self._weather_service.get_conditions(origin)
+        departure_wind = await self._weather_service.get_departure_wind(origin)
         # 探索範囲を覆う格子点ごとの時別風予報（MSMのローカルファイルから読む。外部API呼び出しは無い）。
         wind_series = await self._weather_service.get_wind_forecast_lattice(bbox)
         rain = await self._weather_service.get_station_rain_materials(datetime.now(JST))
@@ -331,7 +328,7 @@ class RoadGraphEngine:
         # 迂回率は同じ探索範囲で前回の往路木から学習した値があればそれを使う（無ければ既定値）。
         learned_detour_ratio = detour_ratio_cache.get_detour_ratio(tile_set)
         composer = LegCostComposer(
-            score_matrix, self._route_preference.weights, self._penalty_strength, hard_filter_excluded, weather,
+            score_matrix, self._route_preference.weights, self._penalty_strength, hard_filter_excluded, departure_wind,
             wind_series, start, self._assumed_speed_kmh, lazy_graph.edge_rows,
             detour_ratio=learned_detour_ratio if learned_detour_ratio is not None else ROUTE_DETOUR_RATIO,
             twilight_origin=origin,
@@ -361,7 +358,6 @@ class RoadGraphEngine:
             road=road,
             lazy_graph=lazy_graph,
             tile_set=tile_set,
-            weather=weather,
             composer=composer,
             outbound=outbound,
             node_lat=road.node_lat,
@@ -436,7 +432,6 @@ class RoadGraphEngine:
 
         return _RoadGraphContext(
             road=search.road,
-            weather=search.weather,
             origin_node=origin_node,
             node_index=node_index,
             lazy_graph=search.lazy_graph,

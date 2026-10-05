@@ -22,15 +22,13 @@ class ResolvedArea:
     class20_code: str
     class10_code: str
     office_code: str
-    class10_name: str
 
 
 @dataclass(frozen=True)
 class AreaEntry:
-    """地域マスタの1区域。親・名前の無い区域もある（外部のデータのため）。"""
+    """地域マスタの1区域。親の無い区域もある（外部のデータのため）。"""
 
     parent: str | None
-    name: str | None
 
 
 @dataclass(frozen=True)
@@ -70,12 +68,6 @@ def resolve_area(class20_code: str, master: AreaMaster) -> ResolvedArea | None:
 
     class10 = master.class10s[code]
     office_code = class10.parent
-    class10_name = class10.name
-    if office_code is None or class10_name is None:
+    if office_code is None:
         return None
-    return ResolvedArea(
-        class20_code=class20_code,
-        class10_code=code,
-        office_code=office_code,
-        class10_name=class10_name,
-    )
+    return ResolvedArea(class20_code=class20_code, class10_code=code, office_code=office_code)

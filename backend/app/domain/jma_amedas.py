@@ -16,7 +16,7 @@ class WindDirection(StrictModel):
 
 def wind_direction_from_jma_code(code: int | None) -> WindDirection | None:
     """JMAアメダスのwindDirectionコード（0=静穏、1〜16=16方位）を角度と日本語ラベルへ
-    変換する。角度は0=北・時計回り（`WeatherConditions.wind_direction_deg`と揃える）で、
+    変換する。角度は0=北・時計回り（`wind.py: DepartureWind.direction_deg`と揃える）で、
     code=16は360度ではなく0度（北）に正規化する。0（静穏、風速がほぼ0で方位不定）・None・
     1〜16の範囲外のコードはNoneを返す（範囲外を別の方位として出すと、向かい風と追い風を取り違えさせる）。
 
@@ -57,11 +57,6 @@ class AmedasObservation(StrictModel):
     このモデルに項目が無い。
     """
 
-    station_id: str
-    station_name: str
-    latitude: float
-    longitude: float
-    observed_at: str
     temperature_c: float | None
     apparent_temperature_c: float | None
     wind_speed_ms: float | None

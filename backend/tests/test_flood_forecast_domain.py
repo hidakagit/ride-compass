@@ -1,8 +1,7 @@
 """`domain/flood_forecast.py`——指定河川洪水予報の電文1件から、出発地点にかかる発表中の予報を取り出す。
 
 入口は`extract_active_flood_forecast`。コード対応表`FLOOD_CODE_LEVELS`（配信元の資料の写し）は差し替えず、本物の表の
-行から電文を組み立てる——どのコードがどの段かには踏み込まない。表の段そのものの不変条件（段が上がるほどバッジが
-重い）も本物の表で見る。
+行から電文を組み立てる——どのコードがどの段かには踏み込まない。
 
 ここで見ないもの:
 - 電文の形を`FloodBulletin`へ解くこと → `test_flood_client.py`
@@ -11,24 +10,12 @@
   `domain/warning_display.py`がimportの時点で全段を引いて確かめる
 """
 
-from typing import get_args
-
 import pytest
 
 from app.domain import flood_forecast
 from app.domain.flood_forecast import FloodBulletin, extract_active_flood_forecast
 
 ACTIVE, ACTIVE_LEVEL = next(iter(flood_forecast.FLOOD_CODE_LEVELS.items()))
-
-
-def test_a_higher_flood_level_always_shows_a_heavier_badge():
-    """段とバッジは別々に宣言している。軽いバッジが重い段に付くと、危険な氾濫を軽く見せる。"""
-    badge_order = get_args(flood_forecast.WarningBadgeLevel)
-    levels = sorted(set(flood_forecast.FLOOD_CODE_LEVELS.values()), key=lambda flood: flood.level)
-
-    ranks = [badge_order.index(flood.badge_level) for flood in levels]
-    assert len(levels) > 1
-    assert all(lighter < heavier for lighter, heavier in zip(ranks, ranks[1:]))
 
 
 def _bulletin(code: str | None, class20_codes=("1310100",), class10_codes=("130010",)) -> FloodBulletin:
@@ -39,7 +26,6 @@ def _bulletin(code: str | None, class20_codes=("1310100",), class10_codes=("1300
         river_code="850000",
         river_name="架空川",
         condition="氾濫のおそれ",
-        report_datetime="2026-07-01T10:00:00+09:00",
     )
 
 
@@ -49,12 +35,9 @@ def test_an_active_code_over_the_start_area_becomes_a_forecast_named_after_the_r
     assert forecast is not None
     assert forecast.model_dump() == {
         "river_code": "850000",
-        "river_name": "架空川",
-        "level": ACTIVE_LEVEL.level,
         "badge_level": ACTIVE_LEVEL.badge_level,
         "label": f"架空川{ACTIVE_LEVEL.suffix}",
         "condition": "氾濫のおそれ",
-        "report_datetime": "2026-07-01T10:00:00+09:00",
     }
 
 

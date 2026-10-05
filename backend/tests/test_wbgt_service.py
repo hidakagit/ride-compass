@@ -64,7 +64,6 @@ async def test_a_value_outside_the_provision_period_is_shown():
     assert result is not None and result.reading is not None
     assert result.reading.level == "severe_warning"
     assert result.reading.value == 30.0
-    assert result.reading.observed_at == "2026/10/28 09:00:00"
 
 
 @pytest.mark.parametrize("failure", [

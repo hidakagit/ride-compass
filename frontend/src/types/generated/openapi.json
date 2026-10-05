@@ -1875,14 +1875,6 @@
             "type": "string",
             "title": "River Code"
           },
-          "river_name": {
-            "type": "string",
-            "title": "River Name"
-          },
-          "level": {
-            "type": "integer",
-            "title": "Level"
-          },
           "badge_level": {
             "type": "string",
             "enum": [
@@ -1900,22 +1892,15 @@
           "condition": {
             "type": "string",
             "title": "Condition"
-          },
-          "report_datetime": {
-            "type": "string",
-            "title": "Report Datetime"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
           "river_code",
-          "river_name",
-          "level",
           "badge_level",
           "label",
-          "condition",
-          "report_datetime"
+          "condition"
         ],
         "title": "ActiveFloodForecast"
       },
@@ -1959,26 +1944,6 @@
       },
       "AmedasObservation": {
         "properties": {
-          "station_id": {
-            "type": "string",
-            "title": "Station Id"
-          },
-          "station_name": {
-            "type": "string",
-            "title": "Station Name"
-          },
-          "latitude": {
-            "type": "number",
-            "title": "Latitude"
-          },
-          "longitude": {
-            "type": "number",
-            "title": "Longitude"
-          },
-          "observed_at": {
-            "type": "string",
-            "title": "Observed At"
-          },
           "temperature_c": {
             "anyOf": [
               {
@@ -2058,11 +2023,6 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "station_id",
-          "station_name",
-          "latitude",
-          "longitude",
-          "observed_at",
           "temperature_c",
           "apparent_temperature_c",
           "wind_speed_ms",
@@ -4373,10 +4333,6 @@
             "type": "string",
             "title": "Last Run At"
           },
-          "data_end_at": {
-            "type": "string",
-            "title": "Data End At"
-          },
           "run_age_hours": {
             "type": "number",
             "title": "Run Age Hours"
@@ -4394,7 +4350,6 @@
         "type": "object",
         "required": [
           "last_run_at",
-          "data_end_at",
           "run_age_hours",
           "remaining_hours",
           "healthy"
@@ -5566,10 +5521,6 @@
           "value": {
             "type": "number",
             "title": "Value"
-          },
-          "observed_at": {
-            "type": "string",
-            "title": "Observed At"
           }
         },
         "additionalProperties": false,
@@ -5577,8 +5528,7 @@
         "required": [
           "level",
           "label",
-          "value",
-          "observed_at"
+          "value"
         ],
         "title": "WbgtReading"
       },
@@ -5604,29 +5554,6 @@
       },
       "WeatherConditions": {
         "properties": {
-          "temperature_c": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Temperature C"
-          },
-          "wind_speed_ms": {
-            "type": "number",
-            "title": "Wind Speed Ms"
-          },
-          "wind_direction_deg": {
-            "type": "number",
-            "title": "Wind Direction Deg"
-          },
-          "wind_direction_label": {
-            "type": "string",
-            "title": "Wind Direction Label"
-          },
           "precipitation_mm": {
             "anyOf": [
               {
@@ -5637,10 +5564,6 @@
               }
             ],
             "title": "Precipitation Mm"
-          },
-          "observed_at": {
-            "type": "string",
-            "title": "Observed At"
           },
           "twilight": {
             "anyOf": [
@@ -5699,12 +5622,7 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "temperature_c",
-          "wind_speed_ms",
-          "wind_direction_deg",
-          "wind_direction_label",
           "precipitation_mm",
-          "observed_at",
           "twilight",
           "precipitation_max_mm",
           "wind_speed_max_ms",
@@ -5754,28 +5672,6 @@
       },
       "WeatherWarnings": {
         "properties": {
-          "area_name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Area Name"
-          },
-          "report_datetime": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Report Datetime"
-          },
           "warnings": {
             "items": {
               "$ref": "#/components/schemas/ActiveWarning"
@@ -5787,8 +5683,6 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "area_name",
-          "report_datetime",
           "warnings"
         ],
         "title": "WeatherWarnings"

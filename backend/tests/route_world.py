@@ -145,7 +145,7 @@ class Weather:
         self._series = series
         self._rain = WeatherService()
 
-    async def get_conditions(self, origin):
+    async def get_departure_wind(self, origin):
         return None
 
     async def get_wind_forecast_lattice(self, bbox):

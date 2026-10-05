@@ -96,5 +96,5 @@ NOTHING = (_kind(None, "発表警報・注意報はなし"),)
 def test_the_area_item_is_used_and_the_subdivision_only_when_the_bulletin_has_no_area_item(
     class20_kinds, class10_kinds, expected
 ):
-    bulletin = WarningBulletin(report_datetime=None, class20_kinds=class20_kinds, class10_kinds=class10_kinds)
+    bulletin = WarningBulletin(class20_kinds=class20_kinds, class10_kinds=class10_kinds)
     assert bulletin.kinds_for("1310100", "130010") == expected

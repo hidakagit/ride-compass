@@ -49,7 +49,6 @@ async def test_an_operational_bulletin_is_read_into_its_fields():
     assert bulletin.class10_codes == ("130011",)
     assert bulletin.river_code == "8030100001"
     assert bulletin.river_name == "神田川"
-    assert bulletin.report_datetime == "2026-07-01T10:00:00+09:00"
 
 
 async def test_drills_and_entries_that_are_not_objects_are_left_out():
@@ -63,7 +62,7 @@ async def test_drills_and_entries_that_are_not_objects_are_left_out():
 @pytest.mark.parametrize("missing", ["absent", "null"])
 async def test_a_bulletin_missing_its_fields_is_still_read_with_empty_values(missing):
     """1件の欠けで、全国の一覧の取り出しごと落とさない。"""
-    fields = ("reportDatetime", "riverCode", "riverName", "class20Codes", "class10Codes", "item")
+    fields = ("riverCode", "riverName", "class20Codes", "class10Codes", "item")
     entry = {"status": "通常"} if missing == "absent" else {"status": "通常", **dict.fromkeys(fields)}
     client, _ = answering(json=[entry, KANDA])
 
@@ -71,7 +70,7 @@ async def test_a_bulletin_missing_its_fields_is_still_read_with_empty_values(mis
 
     assert sparse.code is None
     assert sparse.class20_codes == sparse.class10_codes == ()
-    assert sparse.river_code == sparse.river_name == sparse.condition == sparse.report_datetime == ""
+    assert sparse.river_code == sparse.river_name == sparse.condition == ""
     assert full.river_name == "神田川"
 
 

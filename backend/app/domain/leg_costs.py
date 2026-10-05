@@ -36,8 +36,7 @@ from app.domain.route import Coordinates, SegmentWind
 from app.domain.time_zone import JST
 from app.domain.traffic import POI_COUNT_KINDS, stop_count_material_ids, stop_seconds
 from app.domain.twilight import night_mask
-from app.domain.weather import WeatherConditions
-from app.domain.wind import WindForecastSeries, kmh_to_ms
+from app.domain.wind import DepartureWind, WindForecastSeries, kmh_to_ms
 
 
 # レグの中を時刻で区切るビンの幅（h）と本数の上限。**風の予報が1時間刻みのため、幅もそれに
@@ -169,7 +168,7 @@ class LegCostComposer:
         weights: dict[str, float],
         penalty_strength: float,
         hard_filter_excluded: np.ndarray,
-        weather: WeatherConditions | None,
+        departure_wind: DepartureWind | None,
         wind_series: WindForecastSeries | None,
         start: datetime,
         speed_kmh: float,
@@ -210,7 +209,7 @@ class LegCostComposer:
         self._weights = weights
         self._penalty_strength = penalty_strength
         self._hard_filter_excluded = hard_filter_excluded
-        self._weather = weather
+        self._departure_wind = departure_wind
         self._wind_series = wind_series
         # 各Edgeの中点に最も近い予報の格子点（切り出した区間の順）。
         self._wind_points = (
@@ -449,7 +448,7 @@ class LegCostComposer:
             {"night_only": night_mask(self._twilight_origin, self.start.replace(tzinfo=JST), hours)},
         )
         dynamic_context = DynamicAxisRequestContext(
-            bearing_deg=bearing, weather=self._weather,
+            bearing_deg=bearing, departure_wind=self._departure_wind,
             travel_speed_ms=kmh_to_ms(self.speed_kmh),
             wind_series=self._wind_series, start=self.start, passage_hours=passage,
             wind_points=None if self._wind_points is None else take(self._wind_points),
@@ -534,7 +533,7 @@ class LegCostComposer:
     @property
     def wind_unavailable(self) -> bool:
         """風の予報が無く、所要時間を無風で計算しているか（時別系列も出発時点の値も無い）。"""
-        return self._weather is None and self._wind_series is None
+        return self._departure_wind is None and self._wind_series is None
 
     def missing_travel_data_share(self, rows: np.ndarray) -> float | None:
         """切り出した区間の順の行`rows`のうち、所要時間の計算で勾配か停止要因の件数の値が無く、既定（平地・待ち無し）で
@@ -569,14 +568,14 @@ class LegCostComposer:
                     forecast_at=times[j].isoformat(timespec="minutes"),
                     extended=bool(clamped[j]) or beyond_bins[i],
                 )
-        if self._weather is not None:
+        if self._departure_wind is not None:
             # 時刻で引けなかった区間（出発時点の値で合成した区間と、時別系列が無いまま昼夜のために
             # 時刻で合成した区間）は、出発時点の風。
             for i, wind in enumerate(winds):
                 if wind is None:
                     winds[i] = SegmentWind(
-                        speed_ms=round(self._weather.wind_speed_ms, 1),
-                        direction_deg=round(self._weather.wind_direction_deg, 1),
+                        speed_ms=self._departure_wind.speed_ms,
+                        direction_deg=self._departure_wind.direction_deg,
                     )
         return winds
 

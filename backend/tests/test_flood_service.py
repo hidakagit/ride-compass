@@ -78,4 +78,4 @@ async def test_get_forecasts_collects_every_active_forecast_and_leaves_out_the_r
 
     result = await _service(monkeypatch, tmp_path, flood_documents=documents).get_forecasts(CHIYODA_POINT)
 
-    assert sorted(f.river_name for f in result.forecasts) == ["善福寺川", "神田川"]
+    assert sorted(f.river_code for f in result.forecasts) == ["830304004400", "830304004900"]

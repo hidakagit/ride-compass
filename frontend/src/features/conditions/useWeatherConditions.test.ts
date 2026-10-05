@@ -29,7 +29,7 @@ let observations: ReturnType<typeof onBackend>;
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
-  onBackend("GET", WEATHER, json({ temperature_c: 20 }));
+  onBackend("GET", WEATHER, json({ precipitation_mm: 20 }));
   observations = onBackend("GET", AMEDAS, json({ temperature_c: 21 }));
   onBackend("GET", WARNINGS, json(NO_WARNINGS));
   onBackend("GET", WBGT, json(NO_WBGT));
@@ -70,7 +70,7 @@ describe("useWeatherConditions 取得の時機", () => {
       Response.json({ warnings: [{ code: "03", name: `警報@${at(request)}`, level: "warning", additions: [] }] }),
     );
     onBackend("GET", WBGT, (request) =>
-      Response.json({ reading: { level: "warning", value: 29, label: `@${at(request)}`, observed_at: "" } }),
+      Response.json({ reading: { level: "warning", value: 29, label: `@${at(request)}` } }),
     );
     onBackend("GET", FLOOD, (request) =>
       Response.json({
@@ -118,7 +118,7 @@ describe("useWeatherConditions 取得の時機", () => {
     onBackend("GET", WEATHER, heldReplies().reply);
     rerender({ location: YOKOHAMA, ready: true });
     await vi.waitFor(() => expect(result.current.weatherLoading).toBe(true));
-    expect(result.current.weather).toEqual({ temperature_c: 20 });
+    expect(result.current.weather).toEqual({ precipitation_mm: 20 });
   });
 });
 
@@ -128,17 +128,17 @@ describe("useWeatherConditions 失敗の扱い", () => {
       "GET",
       WEATHER,
       inTurn(
-        Response.json({ temperature_c: 20 }),
+        Response.json({ precipitation_mm: 20 }),
         Response.json({ detail: "予報を取得できませんでした" }, { status: 502 }),
-        Response.json({ temperature_c: 20 }),
+        Response.json({ precipitation_mm: 20 }),
       ),
     );
     const { result } = render();
-    await vi.waitFor(() => expect(result.current.weather).toEqual({ temperature_c: 20 }));
+    await vi.waitFor(() => expect(result.current.weather).toEqual({ precipitation_mm: 20 }));
 
     act(() => vi.advanceTimersByTime(10 * 60 * 1000));
     await vi.waitFor(() => expect(result.current.weatherError).toBe("予報を取得できませんでした"));
-    expect(result.current.weather).toEqual({ temperature_c: 20 });
+    expect(result.current.weather).toEqual({ precipitation_mm: 20 });
 
     act(() => vi.advanceTimersByTime(10 * 60 * 1000));
     await vi.waitFor(() => expect(result.current.weatherError).toBeNull());
@@ -160,7 +160,7 @@ describe("useWeatherConditions 警報のバッジ", () => {
     onBackend(
       "GET",
       WBGT,
-      json({ reading: { level: "warning", value: 29.04, label: "厳重警戒", observed_at: "2026/08/22 18:00:00" } }),
+      json({ reading: { level: "warning", value: 29.04, label: "厳重警戒" } }),
     );
     onBackend(
       "GET",

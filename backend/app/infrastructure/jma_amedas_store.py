@@ -78,7 +78,7 @@ async def read_observation(station_id: str) -> AmedasObservation | None:
     if not fields:
         return None
     try:
-        return _observation_from_fields(station_id, fields)
+        return _observation_from_fields(fields)
     except (KeyError, ValueError) as exc:
         # Hashには版が無く、中身は**過去のコードが書いた形**である。必須フィールドが
         # 欠けた・型が変わった状態を無条件に展開すると、キャッシュの不整合が
@@ -91,8 +91,8 @@ async def read_observation(station_id: str) -> AmedasObservation | None:
         return None
 
 
-async def write_observations(observations: list[AmedasObservation]) -> None:
-    """観測所ごとに書き戻す。失敗は次のバッチで自己修復するため、記録だけして諦める。"""
+async def write_observations(observations: dict[str, AmedasObservation]) -> None:
+    """観測所ごと（観測所id → 観測値）に書き戻す。失敗は次のバッチで自己修復するため、記録だけして諦める。"""
     if not observations or not redis_available():
         return
     client = get_redis_client_or_none()
@@ -100,8 +100,8 @@ async def write_observations(observations: list[AmedasObservation]) -> None:
         return
     try:
         pipe = client.pipeline(transaction=False)
-        for observation in observations:
-            key = _observation_key(observation.station_id)
+        for station_id, observation in observations.items():
+            key = _observation_key(station_id)
             pipe.hset(key, mapping=_fields_from_observation(observation))
             pipe.expire(key, _OBSERVATION_TTL_SECONDS)
         await pipe.execute()
@@ -112,12 +112,8 @@ async def write_observations(observations: list[AmedasObservation]) -> None:
         record_redis_success()
 
 
-def _fields_from_observation(observation: AmedasObservation) -> dict[str, str | float]:
+def _fields_from_observation(observation: AmedasObservation) -> dict[str, str]:
     return {
-        "station_name": observation.station_name,
-        "latitude": observation.latitude,
-        "longitude": observation.longitude,
-        "observed_at": observation.observed_at,
         "temperature_c": _field_value(observation.temperature_c),
         "apparent_temperature_c": _field_value(observation.apparent_temperature_c),
         "wind_speed_ms": _field_value(observation.wind_speed_ms),
@@ -127,13 +123,8 @@ def _fields_from_observation(observation: AmedasObservation) -> dict[str, str | 
     }
 
 
-def _observation_from_fields(station_id: str, fields: dict) -> AmedasObservation:
+def _observation_from_fields(fields: dict) -> AmedasObservation:
     return AmedasObservation(
-        station_id=station_id,
-        station_name=fields["station_name"],
-        latitude=float(fields["latitude"]),
-        longitude=float(fields["longitude"]),
-        observed_at=fields["observed_at"],
         temperature_c=_optional_float(fields.get("temperature_c")),
         apparent_temperature_c=_optional_float(fields.get("apparent_temperature_c")),
         wind_speed_ms=_optional_float(fields.get("wind_speed_ms")),
