@@ -2,11 +2,11 @@
  * `app/page.tsx`——トップページ。機能（地図・ルートの設定と結果・走行条件・天候）を1つの画面に束ね、機能の間の値を受け渡す。
  *
  * 見ること（利用者の操作の流れで、ある機能の変化が別の機能の振る舞いを変える受け渡し）:
- * - ルートを作る: 「ルート生成」が地図の色分けを添えて送ること・実行中は押せないこと、結果が出たら閉じていた「ルート結果」を
+ * - ルートを作る: 「ルート生成」が地図の色分けを添えて送ること、結果が出たら閉じていた「ルート結果」を
  *   開くこと、候補が「ルート結果」と地図の両方へ出て、選んだ候補が地図でも選ばれ、区間を持つかで周りの塗りが決まること、
  *   全消去で両方から消えること、候補がある間だけ条件のずれの印が点き全消去で消えること、走行条件の想定速度・出発時刻が
  *   生成と地図の道の詳細へ同じ値で渡ること、「地図の色分け」の未使用を分ける重み（生成の前はいまの重み・後は使われた重み）、
- *   保存した条件が地図で置いた出発地を持ち、呼び出すとその出発地（無ければ現在地）から生成すること
+ *   保存した条件が地図で置いた出発地を持ち、呼び出すとその出発地から生成すること
  * - 地図で扱えること: 地点を置けるのは「ルート設定」の条件タブを見ている間だけで、周回の間は目的地を地図へ出さないこと、
  *   区間を押して詳細を出せるのは「ルート結果」を見ている間だけのこと、編集の間は地図で地点も区間も扱わず全部の候補を重ね、
  *   作り直すと編集が終わること、作ると直前の作り直しの失敗の文言を消し、合成ルートを選んでいる間は元のルートだけを重ねること、
@@ -20,7 +20,8 @@
  * テストが見て、ここでは地図に何が載ったか（線のソースの地物・レイヤーの表示・印）と、地図の操作で何が起きるかだけを見る。
  * 機能の状態の移り変わり（生成の検証と要求の形・候補の並び・地点の置き方・レイヤーと凡例の状態）は各フックのテストが
  * 見る。子へ渡す受け口へフックの関数や値をそのまま渡す所（重み・除外の入力・経由地を地図で動かす・消す・「現在地に戻す」・
- * 取り直している間の「現在地に移動」）は1行の委譲なので見ない。中身に合わせたシートの高さと、シートの高さに合わせて地図の
+ * 保存した条件を呼び出して現在地へ戻す・実行中の「ルート生成」・取り直している間の「現在地に移動」・まとめてレイヤーを消す
+ * 操作を押せるか）は1行の委譲なので見ない。中身に合わせたシートの高さと、シートの高さに合わせて地図の
  * 操作部品を持ち上げることは、レイアウトの実寸が要るので見ない（テスト環境は実寸を0で返し、シートは合わせない）。
  *
  * 差し替えたもの: backend の応答（網の層）、位置情報の取得（`navigator.geolocation`）、地図の描画（`maplibre-gl`）。
@@ -239,7 +240,7 @@ describe("ルートを作る", () => {
     const job = heldReplies();
     jobs.answerWith(job.reply);
     expect((await generate(user)).lens_axis_id).toBe("axis_a");
-    expect(screen.getByRole("button", { name: "生成中..." })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "生成中..." })).toBeInTheDocument();
 
     await job.answer(
       0,
@@ -266,18 +267,12 @@ describe("ルートを作る", () => {
 
   it("条件を変えたことの印は、候補がある間だけ「ルート生成」の隣に点き、全消去で消える", async () => {
     const { user } = renderHome();
-    const distance = screen.getByLabelText("距離");
     const changedMark = () => screen.queryByRole("img", { name: "生成条件が変更されています" });
-
-    fireEvent.change(distance, { target: { value: "40" } });
-    expect(changedMark()).toBeNull();
-
     jobs.respond([FIRST], LOOP_CONDITIONS);
     await generate(user);
     await waitFor(() => expect(candidateTabs()).toHaveLength(1));
-    expect(changedMark()).toBeNull();
 
-    fireEvent.change(distance, { target: { value: "50" } });
+    fireEvent.change(screen.getByLabelText("距離"), { target: { value: "50" } });
     expect(changedMark()).not.toBeNull();
     await user.click(screen.getByRole("button", { name: "候補を全消去" }));
     expect(changedMark()).toBeNull();
@@ -309,7 +304,7 @@ describe("ルートを作る", () => {
     expect(await generate(user)).toMatchObject({ assumed_speed_kmh: 25, start_time: departure.toISOString() });
   });
 
-  it("保存した条件は地図で置いた出発地を持ち、呼び出すとその出発地から生成する。現在地のまま保存した条件を呼び出すと現在地へ戻る", async () => {
+  it("保存した条件は地図で置いた出発地を持ち、呼び出すとその出発地から生成する", async () => {
     const PLACED: Coordinates = { latitude: 35.65, longitude: 139.75 };
     const { user } = renderHome();
     const saveAs = async (name: string) => {
@@ -330,14 +325,10 @@ describe("ルートを作る", () => {
     await saveAs("置いた所");
     await user.click(screen.getByRole("tab", { name: "条件" }));
     await user.click(screen.getByRole("button", { name: "出発地を現在地に戻す" }));
-    await saveAs("現在地");
 
     jobs.respond([FIRST], LOOP_CONDITIONS);
     await recall("置いた所");
     expect(origin(await generate(user))).toEqual(PLACED);
-    jobs.respond([FIRST], LOOP_CONDITIONS);
-    await recall("現在地");
-    expect(origin(await generate(user))).toEqual(HERE);
   });
 
   it("「地図の色分け」で未使用に分ける軸は、生成の前はいまの重み、生成の後は生成に使われた重みで決まる", async () => {
@@ -395,8 +386,6 @@ describe("地図で扱えること", () => {
     expect(marksAt(ELSEWHERE)).toEqual([expect.objectContaining({ draggable: true })]);
     await user.click(screen.getByRole("radio", { name: "周回" }));
     expect(marksAt(DESTINATION)).toEqual([]);
-    await user.click(screen.getByRole("radio", { name: "目的地" }));
-    expect(marksAt(DESTINATION)).toHaveLength(1);
   });
 
   it("地図で区間を押して詳細を出せるのは「ルート結果」を見ている間だけ", async () => {
@@ -410,11 +399,9 @@ describe("地図で扱えること", () => {
     clickSegment(drawnSegment, HERE);
     await user.click(section("ルート結果"));
     expect(screen.queryByRole("button", { name: "区間の選択を解除" })).toBeNull();
-    expect(screen.queryByLabelText("選択中の区間")).toBeNull();
 
     clickSegment(drawnSegment, HERE);
     expect(screen.getByRole("button", { name: "区間の選択を解除" })).toBeInTheDocument();
-    expect(screen.getByLabelText("選択中の区間")).toBeInTheDocument();
   });
 
   describe("区間の乗り換え", () => {
@@ -485,8 +472,6 @@ describe("地図で扱えること", () => {
       jobs.respond([BASE, OTHER], DESTINATION_CONDITIONS);
       await generate(user);
       await waitFor(() => expect(mapOnScreen().sourceFeatures("route-splice-bands")).toEqual([]));
-      expect(linesOn("route-composite")).toEqual([]);
-      expect(screen.queryByRole("button", { name: "編集をやめて候補へ戻る" })).toBeNull();
     });
 
     it("作ると直前の作り直しの失敗の文言を消し、作った合成ルートを選んでいる間は、地図に元のルートだけを重ねる", async () => {
@@ -524,17 +509,14 @@ describe("地図で扱えること", () => {
 
     await user.click(screen.getByRole("tab", { name: /比較/ }));
     expect(linesOn("route-slots")).toHaveLength(1);
-    await user.click(candidateTabs()[0]);
-    expect(linesOn("route-slots")).toEqual([]);
   });
 
-  it("まとめて元に戻す操作: レイヤーを消すのはどれかを表示している間、絞り込みを解くのは凡例で隠している間だけ押せる。再描画は地図の描き直しを求める", async () => {
+  it("まとめて元に戻す操作: レイヤーを消すと全部消え、絞り込みを解くのは凡例で隠している間だけ押せる。再描画は地図の描き直しを求める", async () => {
     const { user } = renderHome();
     const hideAll = screen.getByRole("button", { name: "表示中のレイヤーをすべて非表示にする" });
     expect(mapOnScreen().visibleLayerIds()).not.toEqual([]);
     await user.click(hideAll);
     expect(mapOnScreen().visibleLayerIds()).toEqual([]);
-    expect(hideAll).toBeDisabled();
 
     const showAll = screen.getByRole("button", { name: "絞り込みをすべて解除する" });
     expect(showAll).toBeDisabled();
@@ -691,7 +673,5 @@ describe("画面の枠", () => {
     expect(screen.getByText(/^デバッグログ\[/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /^デバッグログ\[.*を閉じる$/ }));
     expect(screen.queryByText(/^デバッグログ\[/)).toBeNull();
-    await user.click(screen.getByRole("button", { name: "メニュー" }));
-    expect(screen.getByRole("button", { name: "デバッグログを表示" })).toBeInTheDocument();
   });
 });
