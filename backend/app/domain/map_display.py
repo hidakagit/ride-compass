@@ -137,7 +137,7 @@ def _static_layer_ids() -> tuple[str, ...]:
 
 
 #: 地図に載るものの名前。軸スタジオ由来の軸は実行時に増えるためここには現れない。
-MAP_LAYER_IDS: tuple[str, ...] = (*_static_layer_ids(), *WEATHER_LAYER_GROUPS, ROUTE_LAYER_ID)
+_MAP_LAYER_IDS: tuple[str, ...] = (*_static_layer_ids(), *WEATHER_LAYER_GROUPS, ROUTE_LAYER_ID)
 
 
 class MapLayerSpec(NamedTuple):
@@ -161,7 +161,7 @@ def _tile_layer(attr_id: str, category: str) -> MapLayerSpec:
     return MapLayerSpec(tile_kind, category)
 
 
-#: `MAP_LAYER_IDS`の1つずつの宣言。**足りないと生成の時点で落ちる**（`MAP_LAYERS`）。
+#: `_MAP_LAYER_IDS`の1つずつの宣言。**足りないと生成の時点で落ちる**（`MAP_LAYERS`）。
 _LAYER_SPECS: dict[str, MapLayerSpec] = {
     "elevation": MapLayerSpec("gsiRelief", "terrain"),
     # 標高図（何mか）と区別できる名前にする（坂の在りかだけを塗る）。
@@ -197,9 +197,9 @@ def map_layer_label(layer_id: str, spec: MapLayerSpec) -> str:
         raise ValueError(f"地図レイヤー'{layer_id}'に名前が無い（一次属性でもない）")
     return attribute.label
 
-#: 地図に載るものの宣言（`MAP_LAYER_IDS`の順）。
+#: 地図に載るものの宣言（`_MAP_LAYER_IDS`の順）。
 MAP_LAYERS: tuple[tuple[str, MapLayerSpec], ...] = tuple(
-    (layer_id, _LAYER_SPECS[layer_id]) for layer_id in MAP_LAYER_IDS
+    (layer_id, _LAYER_SPECS[layer_id]) for layer_id in _MAP_LAYER_IDS
 )
 
 #: 軸スタジオ由来の軸のレイヤー。どちらも路面タイルの道へ色を塗る。ramp軸はタイルへ焼き込んだ

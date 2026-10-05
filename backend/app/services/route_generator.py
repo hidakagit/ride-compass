@@ -60,14 +60,14 @@ def applied_max_routes(max_routes: int, *, has_waypoints: bool) -> int:
 # 折返し点候補のプール上限: 距離フィルタや復路探索の失敗で落ちる分を見越して
 # max_routesの3倍（下限12・上限40）だけ選定し、合格が`max_routes`件に達した時点で
 # 早期停止する。
-TURNAROUND_POOL_FACTOR = 3
-TURNAROUND_POOL_MIN = 12
-TURNAROUND_POOL_MAX = 40
+_TURNAROUND_POOL_FACTOR = 3
+_TURNAROUND_POOL_MIN = 12
+_TURNAROUND_POOL_MAX = 40
 
 
 def turnaround_pool_size(max_routes: int) -> int:
     """`max_routes`件の合格候補を得るために選定する折返し点候補の件数。"""
-    return min(TURNAROUND_POOL_MAX, max(TURNAROUND_POOL_MIN, max_routes * TURNAROUND_POOL_FACTOR))
+    return min(_TURNAROUND_POOL_MAX, max(_TURNAROUND_POOL_MIN, max_routes * _TURNAROUND_POOL_FACTOR))
 
 
 #: 区間から候補単位へ集約する値（載せるフィールド → `segments`から作る関数）。

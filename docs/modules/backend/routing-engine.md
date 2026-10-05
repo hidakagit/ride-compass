@@ -765,7 +765,7 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
   方位タイブレークに使う）。
   採用済み集合はEdgeごとのuint64ビットマスク1本（bit `i`＝「採用済み`i`件目がこのEdgeを
   含む」、常駐メモリはEdge数×8B）で持つ——`max_count`（実際の呼び出し元の上限は
-  `TURNAROUND_POOL_MAX`=40・`MAX_ROUTES`=15）は64を超えられず、超える呼び出しは
+  `route_generator.py: _TURNAROUND_POOL_MAX`=40・`MAX_ROUTES`=15）は64を超えられず、超える呼び出しは
   `ValueError`になる。
 - `RoadGraphEngine.is_loop_too_similar`（`_loop_edge_lengths_by_
   physical_segment`）: 距離フィルタ合格後の候補が、既に採用済みの候補と周回全体
