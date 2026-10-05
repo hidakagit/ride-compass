@@ -17,7 +17,7 @@ from tests.fake_external_log import record_external_calls
 
 
 @pytest.fixture(params=["本物", "代役"])
-def logger(request, monkeypatch, empty_debug_counters):
+def logger(request, monkeypatch):
     """`log_external_call`と同じ口と、抜けたあとに記録された`fields`を読む関数。"""
     if request.param == "代役":
         module = SimpleNamespace(log_external_call=log_external_call)

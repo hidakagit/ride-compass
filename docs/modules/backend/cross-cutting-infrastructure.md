@@ -97,7 +97,8 @@ FastAPI(lifespan=lifespan)
         ├─ (2') 同じセッションで refresh_tuning_values() を呼び、較正値の上書きを重ねる
         │       （[ルーティングエンジン](routing-engine.md)参照）。行が無い・テーブルが
         │       無い場合は宣言の既定値のまま進み、値が壊れている行だけが起動を止める
-        ├─ (2'') スケジューラへ失敗の受け口（EVENT_JOB_ERROR）を付ける（下記「定期ジョブの失敗」）
+        ├─ (2'') スケジューラをここで作り（アプリの寿命の間だけ動くので、モジュールの大域に持たない）、
+        │       失敗の受け口（EVENT_JOB_ERROR）を付ける（下記「定期ジョブの失敗」）
         ├─ (3) APSchedulerでJMAアメダス定期更新ジョブを登録（interval分ごと＋
         │       next_run_time=nowで起動直後にも1回即時実行、コールドスタート対策）
         ├─ (4) 同じくAPSchedulerでJMA動的タイルの定期プリウォームジョブを登録
@@ -140,7 +141,7 @@ FastAPI(lifespan=lifespan)
 `_log_job_failure`（`EVENT_JOB_ERROR`の受け口）が`ridecompass.scheduler`へジョブidと例外を
 1行のWARNINGで出す——APScheduler側の名前は接頭辞`ridecompass.`から外れ、接頭辞単位で
 レベルを絞ると漏れるため（[logging.md](../../conventions/logging.md)「その他の運用上の注意」）。
-受け口はlifespanで付けるので、テストがスケジューラを差し替えても同じ受け口が付く。
+スケジューラも受け口もlifespanの中で作って付けるので、lifespanを通るたびに同じ受け口の付いた新しいスケジューラになる。
 
 ## 1プロセスの境界（`single_process.py`）
 

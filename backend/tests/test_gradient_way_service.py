@@ -85,11 +85,11 @@ async def test_perpendicular_way_is_omitted_instead_of_zero():
     assert result == {2: 15.0}
 
 
-@pytest.mark.usefixtures("empty_debug_counters")
 async def test_second_call_with_same_bearing_bucket_is_served_from_cache():
     # 直角に落ちない向きにする（空の結果同士を比べても、キャッシュの検査にならない）。
     repository = FakeGradientInputsRepository(inputs={1: (5.0, 30.0)})
     service = GradientWayService(repository=repository)
+    before = debug_log.get_stats().external.get("region:gradient-way-values")
 
     first = await service.get_way_values(Z, X, Y, GradientConditions(0.0))
     # wind_way_serviceと異なり、way一覧の取得もキャッシュした値に含まれる。DBの中身が変わっても、
@@ -98,9 +98,10 @@ async def test_second_call_with_same_bearing_bucket_is_served_from_cache():
     second = await service.get_way_values(Z, X, Y, GradientConditions(0.0))
 
     assert first == second
-    # 外した1回と当たった1回が、運用の統計のヒット率に載る。
-    stats = debug_log.get_stats().external["region:gradient-way-values"]
-    assert (stats.cache_misses, stats.cache_hits) == (1, 1)
+    # 外した1回と当たった1回が、運用の統計のヒット率に載る（集計はプロセスの寿命の間に足されるだけなので差で見る）。
+    after = debug_log.get_stats().external["region:gradient-way-values"]
+    counted_before = (before.cache_misses, before.cache_hits) if before else (0, 0)
+    assert (after.cache_misses - counted_before[0], after.cache_hits - counted_before[1]) == (1, 1)
 
 
 async def test_different_bearing_bucket_recomputes():

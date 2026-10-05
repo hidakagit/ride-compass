@@ -96,7 +96,7 @@ async def test_the_national_list_is_fetched_once_and_reused():
     [{"status_code": 500}, {"json": {"rivers": []}}, {"text": "<html>maintenance</html>"}],
     ids=["server-error", "not-a-list", "not-json"],
 )
-async def test_an_unusable_answer_gives_nothing_and_is_logged(response, caplog, empty_debug_counters):
+async def test_an_unusable_answer_gives_nothing_and_is_logged(response, caplog):
     client, _ = answering(**response)
 
     with caplog.at_level(logging.WARNING):

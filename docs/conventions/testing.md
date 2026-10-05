@@ -1046,9 +1046,9 @@ def test_xxx_is_rate_limited_per_client():
 `enforce_rate_limit`へ渡すものに合わせる。
 
 **テストは回数0から始まる。** 回数制限が読む時計は`conftest.py`が止めた時計へ替えてあり、
-autouseの`rate_limit_clock`がテストごとに1窓ぶん進めて前のテストの回数を窓の外へ出す。
+autouseの`monotonic_clock`がテストごとに1窓より長く進めて前のテストの回数を窓の外へ出す。
 回数の記録（`rate_limiter`の内部）は消し込まない・差し替えない——記録の持ち方を変えると
-テストが道連れになる。窓の境界を確かめるテストは`rate_limit_clock`を引数に取って進める
+テストが道連れになる。窓の境界を確かめるテストは`monotonic_clock`を引数に取って進める
 （`test_rate_limiter.py`）。
 
 実例: test_region_routes.py, test_weather_route.py, test_basemap_routes.py,
@@ -1324,9 +1324,9 @@ CSSの規則が当たる。開くたびに作り直される部品（ポップ�
 | 時計 | freezegun | フィクスチャ`clock`（`tests/conftest.py`）。`tick`・`move_to`で進める |
 | Redis | fakeredis | フィクスチャ`fake_redis`（`tests/conftest.py`）。接続の失敗は`redis_server.connected = False` |
 
-例外は回数制限の時計（`tests/conftest.py: RateLimitClock`）で、セッションを通して1本の時計を
-進め続ける必要がある。freezegunで同じことをするとセッションの間じゅう全テストの時刻が止まるため、
-回数制限のモジュールが読む時計だけを差し替えている。
+例外は窓・TTLを数える単調時計（`tests/conftest.py: MonotonicClock`。回数制限・外部I/Oの警告の抑制・
+データの世代の読み直しが読む）で、セッションを通して1本の時計を進め続ける必要がある。freezegunで
+同じことをするとセッションの間じゅう全テストの時刻が止まるため、これらのモジュールが読む時計だけを差し替えている。
 
 `admin_credentials`は、認証情報が設定されている前提に立つテストが引数で取る。ファイル内の
 全テストが管理画面APIを叩く場合もautouseで配らない——「誤った認証情報を拒む」は設定が無くても

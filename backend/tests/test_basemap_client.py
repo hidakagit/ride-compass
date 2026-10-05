@@ -47,7 +47,7 @@ def unreachable() -> respx.Router:
 
 
 @pytest.fixture
-def warnings(caplog, empty_debug_counters):
+def warnings(caplog):
     caplog.set_level(logging.WARNING)
     return lambda: [r for r in caplog.records if r.levelno >= logging.WARNING]
 
