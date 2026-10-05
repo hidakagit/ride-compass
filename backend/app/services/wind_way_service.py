@@ -98,7 +98,7 @@ class WindWayService:
             passage_hours = np.zeros(len(keys))
             context = DynamicAxisRequestContext(
                 bearing_deg=np.full(len(keys), conditions.bearing_deg, dtype=float),
-                weather=None,
+                departure_wind=None,
                 travel_speed_ms=kmh_to_ms(conditions.speed_kmh),
                 wind_series=series,
                 start=target,

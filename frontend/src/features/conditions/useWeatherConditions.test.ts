@@ -157,11 +157,7 @@ describe("useWeatherConditions 警報のバッジ", () => {
         ],
       }),
     );
-    onBackend(
-      "GET",
-      WBGT,
-      json({ reading: { level: "warning", value: 29.04, label: "厳重警戒" } }),
-    );
+    onBackend("GET", WBGT, json({ reading: { level: "warning", value: 29.04, label: "厳重警戒" } }));
     onBackend(
       "GET",
       FLOOD,
