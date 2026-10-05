@@ -183,13 +183,13 @@ class AxisInspectorRequest(StrictModel):
     feature_key: str | None = None
     # 進行方向に依存する材料（勾配・風）を出すのに要るもの。**1本の道は往復2方向で値が
     # 違う**ため、方向が決まらないと算出できない。地図が指定している値をそのまま送る
-    # （`/dynamic-way-values`へ送っているものと同じ）。省略するとその軸は「データなし」。
+    # （`/dynamic-way-values`へ送っているものと同じ）。時刻・速度を省くと、それを要る材料の軸は「データなし」。
     # `z`/`x`/`y`はクリックしたタイル——地図は既に知っており、way idから逆算するより
     # 確かで、同じタイルの値がキャッシュに載っていれば追加のDBアクセスも要らない。
-    z: int | None = None
-    x: int | None = None
-    y: int | None = None
-    bearing_deg: float | None = None
+    z: int
+    x: int
+    y: int
+    bearing_deg: float
     at: datetime | None = None
     speed_kmh: float | None = None
     # 合成に使う重み。利用者がいま設定している重み（ルート生成へ送るのと同じ形・同じ検証）を送る。省略すると既定の重み。
@@ -207,8 +207,8 @@ async def region_axis_inspector(
     合成コスト（取得可能な軸だけの参考値。重みは送られた`route_preference`、省略時は既定）を返す。
     POST+JSONボディ・osm_way_id完全一致で引く理由はRegionService.get_axis_inspectorの
     docstring参照（交差点付近での取り違え対策）。進行方向に依存する軸（勾配・風）は、
-    地図が指定している走行方位・時刻・想定速度を一緒に送れば算出できる。送らなければ
-    その軸はavailable=falseで返る。
+    地図が指定している走行方位・時刻・想定速度から算出する。時刻・速度を送らなければ、
+    それを要る軸はavailable=falseで返る。
     """
     # 座標なしの単発リクエストのためタイル向け_check_tile_rate_limit
     # （road_tile_rate_limit_per_minuteと結合）を流用せず、専用の設定値を直接使う

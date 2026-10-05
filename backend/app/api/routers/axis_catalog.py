@@ -194,7 +194,7 @@ class AxisCatalogResponse(StrictModel):
     tile_runtime_scales: dict[str, float] = {}
     # フロントが使う較正値（id → いま効いている値、`domain/tuning.py`が宣言）。管理画面から
     # 変えた値を**再デプロイなしに**画面へ届けるため、起動時に1回取るこのカタログへ相乗り
-    # させる（ビルド時生成物のroute-generate-config.jsonは取得できるまでの既定値を持つ）。
+    # させる（ビルド時生成物のroute-generate-config.jsonが持つ既定値は、画面がidの型にだけ使い、値は読まない）。
     client_tuning: dict[str, float] = {}
     # 配信するタイルの世代（系統名 → `<派生の世代>.<生データの世代>-<形の署名>`、`services/
     # tile_version_service.py`）。フロントはこれをタイルURLのクエリへ入れてブラウザの

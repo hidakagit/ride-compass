@@ -104,7 +104,7 @@ async def _open_route_generation_setup(
     preference_override: RoutePreference | None,
     penalty_strength: float | None,
     max_average_grade_percent: float | None,
-    hard_filters_override: frozenset[str] | None,
+    hard_filters: frozenset[str],
     assumed_speed_kmh: float,
     lens_axis_id: str | None,
 ) -> AsyncIterator[RouteGenerationSetup]:
@@ -116,7 +116,7 @@ async def _open_route_generation_setup(
             preference_override=preference_override,
             penalty_strength=penalty_strength,
             max_average_grade_percent=max_average_grade_percent,
-            hard_filters_override=hard_filters_override,
+            hard_filters=hard_filters,
             assumed_speed_kmh=assumed_speed_kmh,
             lens_axis_id=lens_axis_id,
         )
@@ -175,17 +175,15 @@ async def get_dedicated_way_value_service(
         yield factory(RoadGraphRepository(session), weather_service)
 
 
-async def get_directional_material_service(weather_service: WeatherService = Depends(get_weather_service)):
-    """区間インスペクタが足す専用配信の材料。値は地図のレンズと同じ経路で引く。"""
+async def get_axis_inspector_service(weather_service: WeatherService = Depends(get_weather_service)):
+    """区間インスペクタ。専用配信の材料（値は地図のレンズと同じ経路で引く）と道の内訳を、同じセッションで順に引く
+    ——別々に開くと、先に引いた材料のセッションが要求の終わりまで接続を持ったまま、内訳がもう1本を取る。"""
     async with get_session_factory()() as session:
-        yield DirectionalMaterialService(material_service_builder(RoadGraphRepository(session), weather_service))
-
-
-def get_axis_inspector_service(
-    region_service: RegionService = Depends(get_region_service),
-    directional_materials: DirectionalMaterialService = Depends(get_directional_material_service),
-) -> AxisInspectorService:
-    return AxisInspectorService(region_service, directional_materials)
+        repository = RoadGraphRepository(session)
+        yield AxisInspectorService(
+            RegionService(repository=repository),
+            DirectionalMaterialService(material_service_builder(repository, weather_service)),
+        )
 
 
 def get_basemap_client():

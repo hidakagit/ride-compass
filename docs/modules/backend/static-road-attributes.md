@@ -503,6 +503,7 @@ NULLの意味は列によって違う。「まだ計算していない」と「�
   進行方向に依存する材料（`dynamic_materials`）は、同じファイルの`AxisInspectorService.inspect`が
   専用配信の材料（`services/dedicated_way_values.py: DirectionalMaterialService`）から地図と同じ経路で引いてから渡す。
   ルーターは`inspect`を1回呼ぶだけで、2つの部品を束ねるのは`api/dependencies.py: get_axis_inspector_service`。
+  2つは同じセッションで順に引き、1回の内訳が持つDBの接続は1本（プールはタイル配信と分け合う）。
 - `get_accident_years()`: 事故データの収録年（今の派生の表を作った事故の取込の宣言。「事故の帰属」）。[軸スタジオ](axis-studio.md)の
   `GET /api/axis-catalog`がそのまま地図の説明文へ配り、年の数で割る実行時スケール定数も
   ここから組み立てる（読めず空なら定数を配らない）。

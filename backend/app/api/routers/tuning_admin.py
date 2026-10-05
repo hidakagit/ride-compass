@@ -10,7 +10,6 @@
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.admin_auth import require_admin_basic_auth
@@ -49,9 +48,9 @@ class TuningParameterView(StrictModel):
 
 
 class TuningUpdateRequest(StrictModel):
-    """1件の上書き。`value`を省略すると既定へ戻す。"""
+    """1件の上書き。`value`がnullなら既定へ戻す。"""
 
-    value: float | None = Field(default=None)
+    value: float | None
 
 
 def _view(param_id: str, overridden_ids: set[str]) -> TuningParameterView:
