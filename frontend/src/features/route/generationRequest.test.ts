@@ -37,7 +37,6 @@ describe("buildGenerateRequest", () => {
       longitude: 139.77,
       distance_km: 40,
       distance_tolerance_km: 5,
-      route_type: "loop",
       hard_filters: { exclude_a: true, exclude_b: false },
       max_routes: 3,
       assumed_speed_kmh: 22,

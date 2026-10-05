@@ -2792,47 +2792,19 @@
             "title": "Feature Key"
           },
           "z": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "integer",
             "title": "Z"
           },
           "x": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "integer",
             "title": "X"
           },
           "y": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "integer",
             "title": "Y"
           },
           "bearing_deg": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "number",
             "title": "Bearing Deg"
           },
           "at": {
@@ -2872,7 +2844,11 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "osm_way_id"
+          "osm_way_id",
+          "z",
+          "x",
+          "y",
+          "bearing_deg"
         ],
         "title": "AxisInspectorRequest"
       },
@@ -3532,18 +3508,6 @@
             "type": "integer",
             "title": "Errors"
           },
-          "cache_hits": {
-            "type": "integer",
-            "title": "Cache Hits"
-          },
-          "cache_misses": {
-            "type": "integer",
-            "title": "Cache Misses"
-          },
-          "total_ms": {
-            "type": "integer",
-            "title": "Total Ms"
-          },
           "max_ms": {
             "type": "integer",
             "title": "Max Ms"
@@ -3579,29 +3543,6 @@
                 "type": "null"
               }
             ]
-          },
-          "last_success_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Last Success At"
-          },
-          "retried_calls": {
-            "type": "integer",
-            "title": "Retried Calls"
-          },
-          "retry_attempts_total": {
-            "type": "integer",
-            "title": "Retry Attempts Total"
-          },
-          "stale_fallback_used": {
-            "type": "integer",
-            "title": "Stale Fallback Used"
           }
         },
         "additionalProperties": false,
@@ -3609,18 +3550,11 @@
         "required": [
           "calls",
           "errors",
-          "cache_hits",
-          "cache_misses",
-          "total_ms",
           "max_ms",
           "avg_ms",
           "cache_hit_rate",
           "error_types",
-          "last_error",
-          "last_success_at",
-          "retried_calls",
-          "retry_attempts_total",
-          "stale_fallback_used"
+          "last_error"
         ],
         "title": "ExternalCallStats"
       },
@@ -4815,14 +4749,7 @@
             "type": "number",
             "maximum": 50.0,
             "exclusiveMinimum": 0.0,
-            "title": "Distance Tolerance Km",
-            "default": 5.0
-          },
-          "route_type": {
-            "type": "string",
-            "const": "loop",
-            "title": "Route Type",
-            "default": "loop"
+            "title": "Distance Tolerance Km"
           },
           "route_preference": {
             "anyOf": [
@@ -4859,28 +4786,19 @@
             "title": "Max Average Grade Percent"
           },
           "hard_filters": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/HardFilterOverride"
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "$ref": "#/components/schemas/HardFilterOverride"
           },
           "max_routes": {
             "type": "integer",
             "maximum": 15.0,
             "minimum": 1.0,
-            "title": "Max Routes",
-            "default": 8
+            "title": "Max Routes"
           },
           "assumed_speed_kmh": {
             "type": "number",
             "maximum": 60.0,
             "minimum": 5.0,
-            "title": "Assumed Speed Kmh",
-            "default": 20.0
+            "title": "Assumed Speed Kmh"
           },
           "waypoints": {
             "anyOf": [
@@ -4919,15 +4837,8 @@
             "title": "Lens Axis Id"
           },
           "start_time": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date-time"
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "string",
+            "format": "date-time",
             "title": "Start Time"
           },
           "spliced_edge_ids": {
@@ -4951,7 +4862,12 @@
         "type": "object",
         "required": [
           "latitude",
-          "longitude"
+          "longitude",
+          "distance_tolerance_km",
+          "hard_filters",
+          "max_routes",
+          "assumed_speed_kmh",
+          "start_time"
         ],
         "title": "RouteGenerateRequest"
       },
@@ -5521,6 +5437,9 @@
         },
         "additionalProperties": false,
         "type": "object",
+        "required": [
+          "value"
+        ],
         "title": "TuningUpdateRequest"
       },
       "Twilight": {

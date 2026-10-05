@@ -136,8 +136,8 @@ Edgeコストは「探索範囲の静的Edge×公開軸スコア行列＋リク�
 合成した1本を全レグで共有する（追加コストゼロ）。**重みが0でも時刻ビンは畳まない**——走行モデル（向かい風は速度そのものを落とす）が
 時刻で変わるため、重み0を理由に時刻固定へ落とすと所要時間が狂う。時別系列があれば重みにもレンズにも依らず
 時刻で合成し、`lens_axis_id`が効くのは区間に載せる材料の集合（`displayed_material_ids`）だけである。
-仮定巡航速度は`RouteGenerateRequest.assumed_speed_kmh`（既定`ASSUMED_SPEED_KMH`）で
-リクエストごとに変えられ、通過予定時刻と風の材料`wind_drag_ratio`（走行速度依存）の
+仮定巡航速度は`RouteGenerateRequest.assumed_speed_kmh`（画面の既定`ASSUMED_SPEED_KMH`）で
+リクエストごとに送られ、通過予定時刻と風の材料`wind_drag_ratio`（走行速度依存）の
 両方に効く。迂回率（道なり距離÷直線距離）は定数ではなく実測値を使う。直線距離を走行時間へ直す係数
 として使うもので、`prepare`が同じ探索範囲（範囲を覆うz12タイル集合を鍵にする）で前回学習した値
 （無ければ`ROUTE_DETOUR_RATIO`）を合成器へ渡す。往路木を求めるたびに実測の中央値
@@ -203,7 +203,7 @@ RouteGenerator.generate_loops(origin, distance_km, distance_tolerance_km, max_ro
         │  （「同じ周回の逆回り」等を弾く）。このチェックを通過した候補数が
         │  max_routes件に達した時点で処理を打ち切る
         ▼
-  engine.evaluate_loops(context, traced, start_time)  # start_time=リクエストのstart_time（省略時はdatetime.now(JST)）、prepare(now=start_time)にも渡す
+  engine.evaluate_loops(context, traced, start_time)  # start_time=リクエストのstart_time（JSTへ直す）、prepare(now=start_time)にも渡す
         │  フィルタ通過候補だけに実ジオメトリ取得・標高・風・路面等の評価を行う
         ▼
   RouteGenerator._evaluate_and_aggregate() の集約段

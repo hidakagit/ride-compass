@@ -13,6 +13,8 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 
+from pydantic import Field
+
 from app.domain.strict_model import StrictModel
 
 logger = logging.getLogger("ridecompass.external")
@@ -37,9 +39,10 @@ class ExternalCallStats(StrictModel):
 
     calls: int
     errors: int
-    cache_hits: int
-    cache_misses: int
-    total_ms: int
+    # ヒット率・平均の計算元。応答には載せない（画面は率と平均を読む）。
+    cache_hits: int = Field(exclude=True)
+    cache_misses: int = Field(exclude=True)
+    total_ms: int = Field(exclude=True)
     max_ms: int
     avg_ms: int
     cache_hit_rate: float | None
@@ -47,10 +50,6 @@ class ExternalCallStats(StrictModel):
     # HTTPステータス（"http_429"）か例外クラス名のみの粗いラベルで、メッセージ本文・座標は含まない。
     error_types: dict[str, int]
     last_error: LastError | None
-    last_success_at: str | None
-    retried_calls: int
-    retry_attempts_total: int
-    stale_fallback_used: int
 
 
 class StatsSnapshot(StrictModel):
@@ -75,10 +74,6 @@ def _empty_stats() -> ExternalCallStats:
         cache_hit_rate=None,
         error_types={},
         last_error=None,
-        last_success_at=None,
-        retried_calls=0,
-        retry_attempts_total=0,
-        stale_fallback_used=0,
     )
 
 
@@ -144,29 +139,16 @@ def _record(category: str, elapsed_ms: int, fields: dict, error: bool) -> None:
         if stats is None:
             stats = _external_stats[category] = _empty_stats()
         stats.calls += 1
-        now_iso = datetime.now(UTC).isoformat()
         if error:
             stats.errors += 1
             error_type = fields.get("error_type") or "unknown"
             stats.error_types[error_type] = stats.error_types.get(error_type, 0) + 1
-            stats.last_error = LastError(type=error_type, at=now_iso)
-        else:
-            stats.last_success_at = now_iso
+            stats.last_error = LastError(type=error_type, at=datetime.now(UTC).isoformat())
         cache = fields.get("cache")
         if cache == "hit":
             stats.cache_hits += 1
         elif cache == "miss":
             stats.cache_misses += 1
-        # 429/ConnectTimeout等で再試行が発生した回数（最終的に成功した呼び出しも含む）。
-        # 「まだ成功はしているが上流が混み始めている」兆候を502化する前に把握できる。
-        retries = fields.get("retries")
-        if retries:
-            stats.retried_calls += 1
-            stats.retry_attempts_total += retries
-        # 「取得失敗時に古いキャッシュで代用した」回数。
-        fallback = fields.get("fallback")
-        if isinstance(fallback, str) and fallback.startswith("stale_cache"):
-            stats.stale_fallback_used += 1
         stats.total_ms += elapsed_ms
         stats.max_ms = max(stats.max_ms, elapsed_ms)
         stats.avg_ms = round(stats.total_ms / stats.calls)

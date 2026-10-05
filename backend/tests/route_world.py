@@ -15,7 +15,7 @@ import numpy as np
 from app.services.route_generation_setup import assemble_route_generation_setup
 from app.domain.geo import bearing_between, haversine_distance_km
 from app.domain.graph import node_key
-from app.domain.hard_filters import hard_filter_columns
+from app.domain.hard_filters import DEFAULT_HARD_FILTERS, hard_filter_columns
 from app.domain.cycling_speed import ROLLING_RESISTANCE_MATERIAL_ID
 from app.domain.material_catalog import GRADIENT_PERCENT
 from app.domain.road import UNKNOWN_ROAD_SURFACE
@@ -161,7 +161,7 @@ def generator_for(monkeypatch, network: RoadNetwork, avoid_weight: float, wind: 
     return assemble_route_generation_setup(
         GraphService(NetworkRepository(network)), Weather(wind),
         preference_override=RoutePreference(weights={AVOID_AXIS: avoid_weight}),
-        penalty_strength=1.0, max_average_grade_percent=None, hard_filters_override=None,
+        penalty_strength=1.0, max_average_grade_percent=None, hard_filters=DEFAULT_HARD_FILTERS,
         assumed_speed_kmh=20.0, lens_axis_id=None,
     ).generator
 

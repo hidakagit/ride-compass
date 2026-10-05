@@ -146,7 +146,6 @@ describe("送る要求", () => {
       longitude: ORIGIN.longitude,
       distance_km: 42,
       distance_tolerance_km: routeGenerateConfig.default_distance_tolerance_km,
-      route_type: "loop",
       hard_filters: DEFAULT_HARD_FILTERS,
       max_routes: 3,
       assumed_speed_kmh: 20,

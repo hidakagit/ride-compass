@@ -27,12 +27,12 @@ import httpx
 import pytest
 
 from app.api import dependencies
-from app.api.routers import routes
 from app.config import settings
 from app.domain.geo import haversine_distance_km
 from app.domain.hard_filters import DEFAULT_HARD_FILTERS, HARD_FILTER_NAMES
-from app.domain.route_request import MAX_SPLICED_EDGES, MAX_WAYPOINTS
+from app.domain.route_request import DEFAULT_DISTANCE_TOLERANCE_KM, DEFAULT_MAX_ROUTES, MAX_SPLICED_EDGES, MAX_WAYPOINTS
 from app.domain.tuning import TUNING_VALUES
+from app.domain.wind import ASSUMED_SPEED_KMH
 from app.infrastructure import rate_limiter, road_network_store
 from app.infrastructure.road_network_store import RoadNetworkUnavailableError
 from app.main import app
@@ -55,6 +55,14 @@ CLIENT_HOST = "127.0.0.1"
 FAR_AWAY = {"latitude": 35.80, "longitude": 139.80}  # 格子から約25km。道が無い
 BEYOND_REACH = {"latitude": 37.0, "longitude": 139.8}  # 格子から100km超
 JAPANESE = re.compile(r"[぀-ヿ一-鿿]")  # かな・漢字
+#: 画面がいつも送る欄（値は画面の既定）。
+ALWAYS_SENT = {
+    "distance_tolerance_km": DEFAULT_DISTANCE_TOLERANCE_KM,
+    "hard_filters": {name: name in DEFAULT_HARD_FILTERS for name in HARD_FILTER_NAMES},
+    "max_routes": DEFAULT_MAX_ROUTES,
+    "assumed_speed_kmh": ASSUMED_SPEED_KMH,
+    "start_time": "2026-09-22T08:00:00+09:00",
+}
 
 
 def _point(osm_node_id):
@@ -112,7 +120,7 @@ async def client(world):
 
 
 async def _post(client, **body):
-    return await client.post("/api/routes/generate", json={**_point(CENTER), "distance_km": 4.0, **body})
+    return await client.post("/api/routes/generate", json={**_point(CENTER), "distance_km": 4.0, **ALWAYS_SENT, **body})
 
 
 async def _wait(client, job_id):
@@ -191,12 +199,8 @@ async def test_the_defaults_that_were_applied_are_echoed(client):
     conditions = (await _generate(client))["result"]["conditions"]
 
     assert conditions["route_preference"] == {AVOID_AXIS: 0.0}
-    assert conditions["hard_filters"] == {name: name in DEFAULT_HARD_FILTERS for name in HARD_FILTER_NAMES}
-    assert conditions["max_routes"] == routes.DEFAULT_MAX_ROUTES
-    assert conditions["distance_tolerance_km"] == routes.DEFAULT_DISTANCE_TOLERANCE_KM
     assert conditions["waypoints"] is None and conditions["destination"] is None
     assert conditions["corrected_destination"] is None
-    assert datetime.fromisoformat(conditions["start_time"]).utcoffset().total_seconds() == 9 * 3600
 
 
 async def test_the_overrides_that_were_sent_are_echoed(client):

@@ -18,8 +18,6 @@ from app.config import settings
 from app.domain.hard_filters import HARD_FILTER_NAMES
 from app.domain.route_preference import RoutePreference, check_axis_weights, published_axis_ids
 from app.domain.route_request import (
-    DEFAULT_DISTANCE_TOLERANCE_KM,
-    DEFAULT_MAX_ROUTES,
     MAX_DISTANCE_TOLERANCE_KM,
     MAX_ROUTE_DISTANCE_KM,
     MAX_ROUTES,
@@ -34,7 +32,7 @@ from app.domain.route_request import (
     check_waypoint_count,
 )
 from app.domain.geo import haversine_distance_km
-from app.domain.wind import ASSUMED_SPEED_KMH, MAX_ASSUMED_SPEED_KMH, MIN_ASSUMED_SPEED_KMH
+from app.domain.wind import MAX_ASSUMED_SPEED_KMH, MIN_ASSUMED_SPEED_KMH
 from app.domain.route import Coordinates, RouteCandidate
 from app.infrastructure import job_registry
 from app.infrastructure.debug_log import record_rate_limit_rejection
@@ -112,8 +110,7 @@ class RouteGenerateRequest(StrictModel):
     # 周回の目標距離。経由地・目的地を置いたときは探索の範囲になり、置いた点からbackendが決める
     # （`_resolve_target`。送られた値は使わない）ため省略できる。
     distance_km: float | None = Field(default=None, gt=0, le=MAX_ROUTE_DISTANCE_KM)
-    distance_tolerance_km: float = Field(gt=0, le=MAX_DISTANCE_TOLERANCE_KM, default=DEFAULT_DISTANCE_TOLERANCE_KM)
-    route_type: Literal["loop"] = "loop"
+    distance_tolerance_km: float = Field(gt=0, le=MAX_DISTANCE_TOLERANCE_KM)
     # 評価重みのリクエスト単位の上書き（研究用）。省略時はAXIS_DEFINITIONS由来の既定値
     # （`RoutePreference()`）を使う。
     # 実際に適用された値はレスポンスのconditionsへエコーされる。
@@ -125,20 +122,19 @@ class RouteGenerateRequest(StrictModel):
     # 0次ハードフィルタの勾配しきい値（%、絶対値。省略時は除外なし。
     # `domain/hard_filters.py: compute_hard_filter_excluded`参照）。
     max_average_grade_percent: float | None = Field(ge=0, default=None)
-    # 0次ハードフィルタ名（no_bicycle/motorway/trunk）の個別ON/OFF上書き。
-    # 省略時は全フィルタ有効（DEFAULT_HARD_FILTERS）。
-    hard_filters: HardFilterOverride | None = None
+    # 0次ハードフィルタ名（no_bicycle/motorway/trunk）の個別ON/OFF。
+    hard_filters: HardFilterOverride
     # 返す周回候補の上限件数（フロンティア方式の折返し点候補から距離フィルタ合格・
     # overall_difficulty昇順の上位この件数を返す）。経由地の無い目的地ルート
     # （destination指定・waypoints未指定）はvia-node方式の代替経路にも同じ値が効く。
     # 経由地を1つ以上伴う経由地・目的地指定ルートでは無視される（常に1件、経由地が
-    # あるとレグごとに代替案が組合せで増えるため）。上限・既定値はOpenAPI生成物
+    # あるとレグごとに代替案が組合せで増えるため）。上限と画面の既定値はOpenAPI生成物
     # （route-generate-config.json）経由でフロントへ渡す唯一の情報源にする。
-    max_routes: int = Field(ge=1, le=MAX_ROUTES, default=DEFAULT_MAX_ROUTES)
+    max_routes: int = Field(ge=1, le=MAX_ROUTES)
     # 仮定巡航速度（km/h）。各区間の通過予定時刻（探索時の風の時刻選択）・到達予想時刻の
-    # 算出に使う。範囲・既定値はOpenAPI生成物（route-generate-config.json）経由でフロントへ
+    # 算出に使う。範囲と画面の既定値はOpenAPI生成物（route-generate-config.json）経由でフロントへ
     # 渡す唯一の情報源にする。
-    assumed_speed_kmh: float = Field(ge=MIN_ASSUMED_SPEED_KMH, le=MAX_ASSUMED_SPEED_KMH, default=ASSUMED_SPEED_KMH)
+    assumed_speed_kmh: float = Field(ge=MIN_ASSUMED_SPEED_KMH, le=MAX_ASSUMED_SPEED_KMH)
     # ユーザーが地図上で指定した経由地（起点→経由地1→...→起点の順で通過する単一経路を
     # 生成する）。指定時は周回候補の生成を行わない。bboxが際限なく広がらないよう、
     # 起点からdistance_km以内という緩いガードのみ課す（詳細な妥当性はルーティング自体の
@@ -151,9 +147,8 @@ class RouteGenerateRequest(StrictModel):
     # 選ばれていれば区間表示のためにレグごとの風で評価する（探索コストには影響しない）。
     # 未知のidや軸以外（総合難易度・なし）は無視される。
     lens_axis_id: str | None = None
-    # 出発時刻（省略時はサーバーの現在時刻）。風の時間変化評価（レグごとの通過予測時刻）の
-    # 起点になる。naive値はJSTとして扱う。
-    start_time: datetime | None = None
+    # 出発時刻。風の時間変化評価（レグごとの通過予測時刻）の起点になる。naive値はJSTとして扱う。
+    start_time: datetime
     # 区間の乗り換え: クライアントが候補の`edge_ids`から区間を差し替えて組み立てた経路。
     # 指定時は探索を行わず、この経路だけを既存候補と同じ経路で評価して1件返す
     # （`destination`が必須。`waypoints`・`max_routes`は使わない）。
@@ -215,9 +210,7 @@ class RouteGenerateRequest(StrictModel):
         return self._target
 
 
-def _resolve_start_time(value: datetime | None) -> datetime:
-    if value is None:
-        return datetime.now(JST)
+def _resolve_start_time(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=JST)
     return value.astimezone(JST)
@@ -373,7 +366,6 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest, open_set
         preference_override = (
             RoutePreference(weights=dict(request.route_preference.root)) if request.route_preference else None
         )
-        hard_filters_override = request.hard_filters.to_frozenset() if request.hard_filters else None
 
         job_registry.set_running(job_id)
         start_time = _resolve_start_time(request.start_time)
@@ -384,7 +376,7 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest, open_set
                 preference_override=preference_override,
                 penalty_strength=request.penalty_strength,
                 max_average_grade_percent=request.max_average_grade_percent,
-                hard_filters_override=hard_filters_override,
+                hard_filters=request.hard_filters.to_frozenset(),
                 assumed_speed_kmh=request.assumed_speed_kmh,
                 lens_axis_id=request.lens_axis_id,
             ),
