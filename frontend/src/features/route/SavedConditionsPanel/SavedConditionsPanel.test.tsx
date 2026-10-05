@@ -1,7 +1,8 @@
 /**
  * 「保存」タブ（`SavedConditionsPanel.tsx`）——保存の前に、保存する条件・重み・除外と出発地の扱いを並べ、名前の欄に
  * 仮の名前を入れて出し、そのまま・書き換えて保存できる。出発地は固定するかを選べ、選ぶまでは地図で置いたかで決まる。
- * 同じ名前があれば上書きと分かるように出す。保存した設定を並べ、開くと中身を読め、「呼び出す」で呼び出し、✕で消す。
+ * 同じ名前があれば上書きと分かるように出す。保存した設定を並べ、開くと中身を読め、「呼び出す」で呼び出し、✕は確認の窓で
+ * 「消す」を押したときだけ消す。
  *
  * ここで見ないもの:
  * - 説明の文の作り方（割合・除外の名前） → `savedConditions.test.ts`
@@ -9,7 +10,7 @@
  *
  * 差し替えたもの: 軸カタログの応答（網の層）。
  */
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -164,12 +165,20 @@ describe("保存した設定", () => {
     expect(screen.getByRole("status")).toHaveTextContent(expected);
   });
 
-  it("✕で、その行の名前を消す", async () => {
+  it("✕で、確認の窓の「消す」を押したときだけその行の名前を消す", async () => {
     const { onRemove, onRecall } = renderPanel([LOOP, TRIP]);
+    const confirmDialog = () => screen.getByRole("dialog", { name: "「週末」を消します" });
 
     await userEvent.click(screen.getByRole("button", { name: "「週末」を消す" }));
+    await userEvent.click(within(confirmDialog()).getByRole("button", { name: "キャンセル" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(onRemove).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: "「週末」を消す" }));
+    await userEvent.click(within(confirmDialog()).getByRole("button", { name: "消す" }));
 
     expect(onRemove).toHaveBeenCalledExactlyOnceWith("週末");
     expect(onRecall).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });

@@ -4,7 +4,7 @@
  * 見ること（利用者の操作の流れで、ある機能の変化が別の機能の振る舞いを変える受け渡し）:
  * - ルートを作る: 「ルート生成」が地図の色分けを添えて送ること、結果が出たら閉じていた「ルート結果」を
  *   開くこと、候補が「ルート結果」と地図の両方へ出て、選んだ候補が地図でも選ばれ、区間を持つかで周りの塗りが決まること、
- *   全消去で両方から消えること、候補がある間だけ条件のずれの印が点き全消去で消えること、走行条件の想定速度・出発時刻が
+ *   全消去は確認の窓で「消す」を押してから両方から消えること、候補がある間だけ条件のずれの印が点き全消去で消えること、走行条件の想定速度・出発時刻が
  *   生成と地図の道の詳細へ同じ値で渡ること、「地図の色分け」の未使用を分ける重み（生成の前はいまの重み・後は使われた重み）、
  *   保存した条件が地図で置いた出発地を持ち、呼び出すとその出発地から生成すること
  * - 地図で扱えること: 地点を置けるのは「ルート設定」の条件タブを見ている間だけで、周回の間は目的地を地図へ出さないこと、
@@ -220,6 +220,12 @@ function candidateTabs() {
   return within(screen.getByRole("tablist", { name: "ルート結果" })).getAllByRole("tab");
 }
 
+/** 全消去の確認の窓で「消す」を押す。 */
+async function confirmClear(user: ReturnType<typeof userEvent.setup>) {
+  const dialog = screen.getByRole("dialog", { name: "候補をすべて消します" });
+  await user.click(within(dialog).getByRole("button", { name: "消す" }));
+}
+
 function section(name: "ルート設定" | "ルート結果") {
   return screen.getByRole("button", { name });
 }
@@ -260,6 +266,8 @@ describe("ルートを作る", () => {
     expect(paints("axis_a")).toBe(true);
 
     await user.click(screen.getByRole("button", { name: "候補を全消去" }));
+    expect(routeLinesOnMap()).toHaveLength(2);
+    await confirmClear(user);
     expect(screen.queryByRole("tablist", { name: "ルート結果" })).toBeNull();
     expect(routeLinesOnMap()).toEqual([]);
     expect(screen.queryByRole("button", { name: "候補を全消去" })).toBeNull();
@@ -275,6 +283,7 @@ describe("ルートを作る", () => {
     fireEvent.change(screen.getByLabelText("距離"), { target: { value: "50" } });
     expect(changedMark()).not.toBeNull();
     await user.click(screen.getByRole("button", { name: "候補を全消去" }));
+    await confirmClear(user);
     expect(changedMark()).toBeNull();
   });
 
