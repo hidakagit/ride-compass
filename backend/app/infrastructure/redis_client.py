@@ -9,9 +9,9 @@ import time
 import redis.asyncio as redis
 
 from app.config import settings
+from app.infrastructure.debug_log import log_throttled_warning
 
-_text_client: redis.Redis | None = None
-_binary_client: redis.Redis | None = None
+_client: redis.Redis | None = None
 
 # 接続確立・コマンド応答の待ち上限。既定値のままだと疎通不能時の1回の失敗検知に数秒かかる。
 # Redisは常に同一ホスト（本番は`--network=host`）にあるため、正常時は決して到達しない
@@ -21,54 +21,39 @@ _SOCKET_TIMEOUT_SECONDS = 0.2
 
 CIRCUIT_COOLDOWN_SECONDS = 10.0
 _last_failure_at: float | None = None
-
-
-def _connect(*, decode_responses: bool) -> redis.Redis:
-    return redis.from_url(
-        settings.redis_url,
-        decode_responses=decode_responses,
-        socket_connect_timeout=_CONNECT_TIMEOUT_SECONDS,
-        socket_timeout=_SOCKET_TIMEOUT_SECONDS,
-        retry_on_timeout=False,
-    )
+_CLIENT_CATEGORY = "cache:redis-client"
 
 
 def get_redis_client_or_none() -> redis.Redis | None:
-    """共有クライアント（値を文字列で読み書きする）。取得できなければNone（呼び出し元は未キャッシュ扱いで進む）。
+    """共有クライアント。値は生のバイト列で読み書きし、文字列（JSON等）は使う側がその場でデコードする。
+    取得できなければNone（呼び出し元は未キャッシュ扱いで進む）。
 
     `redis.from_url()`はURLスキーム不正（`settings.redis_url`の設定ミス）等で同期的に
     例外を送出する。呼び出し元のtry/exceptはRedisコマンドの周りにあり、クライアント生成
     自体の例外はその外で起きるため、ここで捕まえないとタイル配信・ルート生成ごと落ちる。
     """
-    global _text_client
+    global _client
     try:
-        if _text_client is None:
-            _text_client = _connect(decode_responses=True)
-        return _text_client
-    except Exception:
+        if _client is None:
+            _client = redis.from_url(
+                settings.redis_url,
+                socket_connect_timeout=_CONNECT_TIMEOUT_SECONDS,
+                socket_timeout=_SOCKET_TIMEOUT_SECONDS,
+                retry_on_timeout=False,
+            )
+        return _client
+    except Exception as exc:  # noqa: BLE001 設定の誤りでも未キャッシュで進む
         record_redis_failure()
+        log_throttled_warning(_CLIENT_CATEGORY, "Redisのクライアントを作れません error=%r", exc)
         return None
 
 
-def get_redis_binary_client_or_none() -> redis.Redis | None:
-    """値を生のバイト列で読み書きする共有クライアント。接続先とサーキットブレーカーは文字列側と共有する。"""
-    global _binary_client
-    try:
-        if _binary_client is None:
-            _binary_client = _connect(decode_responses=False)
-        return _binary_client
-    except Exception:
-        record_redis_failure()
-        return None
-
-
-async def close_redis_clients() -> None:
+async def close_redis_client() -> None:
     """プロセス終了時に`process_resources.py: close_process_resources`から呼ぶ。次の取得で作り直す。"""
-    global _text_client, _binary_client
-    for client in (_text_client, _binary_client):
-        if client is not None:
-            await client.aclose()
-    _text_client = _binary_client = None
+    global _client
+    if _client is not None:
+        await _client.aclose()
+    _client = None
 
 
 def redis_available() -> bool:
