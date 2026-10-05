@@ -10,7 +10,7 @@
 """
 
 import pytest
-from hypothesis import given
+from hypothesis import example, given
 from hypothesis import strategies as st
 
 from app.domain import route
@@ -115,16 +115,6 @@ def test_difficulties_keep_one_decimal_and_physical_values_keep_four_significant
     assert route.merge_material_values(segments) == {"material_a": 1667.0}
 
 
-def test_route_raw_values_are_folded_into_bins_before_the_route():
-    """ビンを経て畳む。ビンの値はその中で値を持つ区間の平均で、ビンの重みはビン全体の距離。"""
-    raw_values = route.route_axis_raw_values([
-        (0.25, {"axis_a": 1.0}), (0.25, {}),  # 1つ目のビン（axis_a=1.0、重み0.5）
-        (0.5, {"axis_a": 4.0}),  # 2つ目のビン
-    ])
-
-    assert raw_values == {"axis_a": 2.5}
-
-
 @given(st.lists(
     st.tuples(
         st.floats(min_value=0.0, max_value=1.5).map(lambda distance: round(distance, 2)),
@@ -132,8 +122,12 @@ def test_route_raw_values_are_folded_into_bins_before_the_route():
     ),
     min_size=1, max_size=40,
 ))
+@example([(0.25, {"axis_a": 1.0}), (0.25, {}), (0.5, {"axis_a": 4.0})])
 def test_route_raw_values_match_the_mean_over_the_bins_of_the_segments(edges):
-    """区間の材料の値（同じ畳み方）を区間 → ビン → 候補と畳んだ値と、桁まで同じになる。"""
+    """区間の材料の値（同じ畳み方）を区間 → ビン → 候補と畳んだ値と、桁まで同じになる。
+
+    例は、値を持たない区間がビンの重みにだけ効く形（ビンを経ずに区間の距離で平均すると値が変わる）。
+    """
     segments = _segments([distance for distance, _ in edges], material_values=[values for _, values in edges])
 
     assert route.route_axis_raw_values(edges) == route.merge_material_values(route.aggregate_segments_into_bins(segments))
