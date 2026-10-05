@@ -83,7 +83,7 @@ async def repository(road_graph_session: AsyncSession) -> AxisDefinitionReposito
 async def test_a_written_definition_reads_back_with_every_field_and_its_order(repository, definition):
     await repository.upsert(definition, sort_order=3)
 
-    assert await repository.get("axis_a") == (definition, 3)
+    assert (await repository.list_all_with_sort_order()).get("axis_a") == (definition, 3)
 
 
 async def test_writing_an_existing_axis_replaces_every_field_and_its_order(repository):
@@ -92,7 +92,7 @@ async def test_writing_an_existing_axis_replaces_every_field_and_its_order(repos
 
     await repository.upsert(replacement, sort_order=7)
 
-    assert await repository.get("axis_a") == (replacement, 7)
+    assert (await repository.list_all_with_sort_order()).get("axis_a") == (replacement, 7)
     assert list(await repository.list_all()) == ["axis_a"]
 
 
@@ -112,7 +112,7 @@ async def test_deleting_tells_whether_there_was_an_axis_to_delete(repository):
     await repository.upsert(_linear("axis_a"), sort_order=1)
 
     assert await repository.delete("axis_a") is True
-    assert await repository.get("axis_a") is None
+    assert (await repository.list_all_with_sort_order()).get("axis_a") is None
     assert await repository.delete("axis_a") is False
 
 
@@ -120,9 +120,9 @@ async def test_writes_are_seen_by_others_only_after_the_commit(repository, road_
     await repository.upsert(_linear("axis_a"), sort_order=1)
 
     async with AsyncSession(road_graph_engine) as other:
-        assert await AxisDefinitionRepository(other).get("axis_a") is None
+        assert (await AxisDefinitionRepository(other).list_all_with_sort_order()).get("axis_a") is None
         await repository.commit()
-        assert await AxisDefinitionRepository(other).get("axis_a") == (_linear("axis_a"), 1)
+        assert (await AxisDefinitionRepository(other).list_all_with_sort_order()).get("axis_a") == (_linear("axis_a"), 1)
 
 
 async def test_the_write_lock_makes_a_second_writer_wait_until_the_first_commits(repository, road_graph_engine):

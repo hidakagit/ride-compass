@@ -4,7 +4,11 @@
 （生成物`route-generate-config.json`）の両方がここから読む。
 """
 
+from dataclasses import dataclass
+
 from pydantic_core import PydanticCustomError
+
+from app.domain.route import Coordinates
 
 # ルート生成距離の上限（km）。上限が無いと探索の範囲が際限なく広がり、道路網の読み込みが
 # 長時間止まりうる。30km規模までの検証実績に余裕を見た値。経由地・目的地は出発地からこの
@@ -41,3 +45,32 @@ def check_point_distance(farthest_km: float) -> None:
     """経由地・目的地のうち出発地から最も遠い点までの距離（km）が上限の中か。"""
     if farthest_km > MAX_ROUTE_DISTANCE_KM:
         raise request_error(f"経由地・目的地は出発地から{MAX_ROUTE_DISTANCE_KM}km以内に置いてください。")
+
+
+@dataclass(frozen=True)
+class LoopTarget:
+    """起点へ戻る周回候補を、目標距離で探す。"""
+
+    distance_km: float
+
+
+@dataclass(frozen=True)
+class WaypointsTarget:
+    """経由地・目的地を通る1本を探す。`distance_km`は置いた点から決めた探索の範囲。"""
+
+    distance_km: float
+    waypoints: list[Coordinates]
+    destination: Coordinates | None
+
+
+@dataclass(frozen=True)
+class SplicedTarget:
+    """区間を差し替えて組み立てた経路を、探索せずに評価する。目的地ルートだけが対象。"""
+
+    distance_km: float
+    destination: Coordinates
+    edge_ids: tuple[str, *tuple[str, ...]]
+
+
+# 検証を通った要求が何を生成するか。生成はこれだけを見て分岐する。
+RouteTarget = LoopTarget | WaypointsTarget | SplicedTarget

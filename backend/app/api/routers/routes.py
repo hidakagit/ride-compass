@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import math
-from dataclasses import dataclass
+from functools import partial
 from datetime import datetime
 from typing import Annotated, Literal, cast
 
@@ -23,6 +23,10 @@ from app.domain.route_request import (
     MAX_ROUTE_DISTANCE_KM,
     MAX_SPLICED_EDGES,
     MAX_WAYPOINTS,
+    LoopTarget,
+    RouteTarget,
+    SplicedTarget,
+    WaypointsTarget,
     check_point_distance,
     check_spliced_edge_count,
     check_waypoint_count,
@@ -32,7 +36,8 @@ from app.domain.wind import ASSUMED_SPEED_KMH, MAX_ASSUMED_SPEED_KMH, MIN_ASSUME
 from app.domain.route import Coordinates, RouteCandidate
 from app.infrastructure import job_registry
 from app.infrastructure.debug_log import record_rate_limit_rejection
-from app.services.route_generator import DEFAULT_MAX_ROUTES, MAX_ROUTES, applied_max_routes
+from app.services.route_generation_setup import generate_route_candidates
+from app.services.route_generator import DEFAULT_MAX_ROUTES, MAX_ROUTES
 from app.domain.strict_model import StrictModel
 
 router = APIRouter()
@@ -98,35 +103,6 @@ class HardFilterOverride(RootModel[dict[str, bool]]):
     @classmethod
     def from_frozenset(cls, active: frozenset[str]) -> "HardFilterOverride":
         return cls({name: name in active for name in sorted(HARD_FILTER_NAMES)})
-
-
-@dataclass(frozen=True)
-class LoopTarget:
-    """起点へ戻る周回候補を、目標距離で探す。"""
-
-    distance_km: float
-
-
-@dataclass(frozen=True)
-class WaypointsTarget:
-    """経由地・目的地を通る1本を探す。`distance_km`は置いた点から決めた探索の範囲。"""
-
-    distance_km: float
-    waypoints: list[Coordinates]
-    destination: Coordinates | None
-
-
-@dataclass(frozen=True)
-class SplicedTarget:
-    """区間を差し替えて組み立てた経路を、探索せずに評価する。目的地ルートだけが対象。"""
-
-    distance_km: float
-    destination: Coordinates
-    edge_ids: tuple[str, *tuple[str, ...]]
-
-
-# 検証を通った要求が何を生成するか。生成ジョブはこれだけを見て分岐する。
-RouteTarget = LoopTarget | WaypointsTarget | SplicedTarget
 
 
 class RouteGenerateRequest(StrictModel):
@@ -399,64 +375,46 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest, open_set
         hard_filters_override = request.hard_filters.to_frozenset() if request.hard_filters else None
 
         job_registry.set_running(job_id)
-        async with open_setup(
-            preference_override=preference_override,
-            penalty_strength=request.penalty_strength,
-            max_average_grade_percent=request.max_average_grade_percent,
-            hard_filters_override=hard_filters_override,
-            assumed_speed_kmh=request.assumed_speed_kmh,
-            lens_axis_id=request.lens_axis_id,
-        ) as setup:
-            origin = Coordinates(latitude=request.latitude, longitude=request.longitude)
-            start_time = _resolve_start_time(request.start_time)
-            max_routes = applied_max_routes(request.max_routes, has_waypoints=bool(request.waypoints))
-            target = request.target
-            if isinstance(target, SplicedTarget):
-                candidates = await setup.generator.generate_spliced_route(
-                    origin=origin,
-                    destination=target.destination,
-                    distance_km=target.distance_km,
-                    edge_ids=target.edge_ids,
-                    start_time=start_time,
-                )
-            elif isinstance(target, WaypointsTarget):
-                candidates = await setup.generator.generate_via_waypoints(
-                    origin=origin,
-                    waypoints=target.waypoints,
-                    distance_km=target.distance_km,
-                    destination=target.destination,
-                    max_routes=max_routes,
-                    start_time=start_time,
-                )
-            else:
-                candidates = await setup.generator.generate_loops(
-                    origin=origin,
-                    distance_km=target.distance_km,
-                    distance_tolerance_km=request.distance_tolerance_km,
-                    max_routes=max_routes,
-                    start_time=start_time,
-                )
-            response = RouteGenerateResponse(
-                routes=candidates,
-                no_candidates_reason=setup.generator.last_no_candidates_reason if not candidates else None,
-                conditions=GenerationConditions(
-                    latitude=request.latitude,
-                    longitude=request.longitude,
-                    distance_km=target.distance_km,
-                    distance_tolerance_km=request.distance_tolerance_km,
-                    route_preference=RoutePreferenceWeights(setup.route_preference.weights),
-                    penalty_strength=setup.penalty_strength,
-                    max_average_grade_percent=setup.max_average_grade_percent,
-                    hard_filters=HardFilterOverride.from_frozenset(setup.hard_filters),
-                    max_routes=max_routes,
-                    start_time=start_time,
-                    assumed_speed_kmh=setup.assumed_speed_kmh,
-                    waypoints=request.waypoints,
-                    destination=request.destination,
-                    corrected_destination=setup.generator.last_destination_correction,
-                    generated_at=datetime.now(JST).isoformat(),
-                ),
-            )
+        start_time = _resolve_start_time(request.start_time)
+        target = request.target
+        generated = await generate_route_candidates(
+            partial(
+                open_setup,
+                preference_override=preference_override,
+                penalty_strength=request.penalty_strength,
+                max_average_grade_percent=request.max_average_grade_percent,
+                hard_filters_override=hard_filters_override,
+                assumed_speed_kmh=request.assumed_speed_kmh,
+                lens_axis_id=request.lens_axis_id,
+            ),
+            origin=Coordinates(latitude=request.latitude, longitude=request.longitude),
+            target=target,
+            start_time=start_time,
+            max_routes=request.max_routes,
+            distance_tolerance_km=request.distance_tolerance_km,
+        )
+        applied = generated.conditions
+        response = RouteGenerateResponse(
+            routes=generated.candidates,
+            no_candidates_reason=generated.no_candidates_reason,
+            conditions=GenerationConditions(
+                latitude=request.latitude,
+                longitude=request.longitude,
+                distance_km=target.distance_km,
+                distance_tolerance_km=request.distance_tolerance_km,
+                route_preference=RoutePreferenceWeights(applied.route_preference.weights),
+                penalty_strength=applied.penalty_strength,
+                max_average_grade_percent=applied.max_average_grade_percent,
+                hard_filters=HardFilterOverride.from_frozenset(applied.hard_filters),
+                max_routes=generated.max_routes,
+                start_time=start_time,
+                assumed_speed_kmh=applied.assumed_speed_kmh,
+                waypoints=request.waypoints,
+                destination=request.destination,
+                corrected_destination=generated.corrected_destination,
+                generated_at=datetime.now(JST).isoformat(),
+            ),
+        )
         job_registry.set_done(job_id, response)
     except Exception:  # noqa: BLE001 バックグラウンドジョブの例外はここで必ず捕捉し記録する
         # ここは例外の種類を選ばず捕まえるため、DB接続やPostGISの例外もそのまま入る。

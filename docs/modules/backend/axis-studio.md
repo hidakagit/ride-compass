@@ -14,7 +14,7 @@
 | レイヤー | ファイル |
 |---|---|
 | domain | `axis_definitions.py`・`axis_display.py`・`axis_raw_value.py`・`axis_templates.py`・`registry.py` |
-| services | `axis_registry_service.py`・`axis_preview_service.py` |
+| services | `axis_registry_service.py`・`axis_preview_service.py`・`axis_catalog_service.py`（軸カタログが軸の宣言のほかに要る値——事故の収録年・タイルの世代・専用配信の条件——を1回で読む） |
 | infrastructure | `axis_definition_models.py`・`axis_definition_repository.py` |
 | api | `axis_admin.py`・`axis_catalog.py` |
 | scripts | `measure_axis_saturation.py`・`axis_apply.py` |
@@ -496,7 +496,8 @@ create/update/deleteは、確定する前に**書いた後の全軸**を起動�
 通らなくなる軸は、消す軸を指している軸だけである（判定のうち軸の集合で答えが変わるのは参照先の実在だけ）。
 
 いずれの書き込みも「DB commit → `refresh_axis_definitions`呼び出し」で完結する
-（1操作=1トランザクション）。
+（1操作=1トランザクション）。create/update/unpublishは書いた後の全軸を返し、管理APIの応答（公開したときの重みの割合）は
+それから組む——書いたあとに一覧を読み直さない。
 
 create/update/delete/unpublishはいずれも冒頭で`AxisDefinitionRepository.
 acquire_write_lock()`（PostgreSQLのトランザクションスコープadvisory lock）を呼び、

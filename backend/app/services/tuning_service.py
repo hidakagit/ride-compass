@@ -48,8 +48,8 @@ async def overridden_parameter_ids(session: AsyncSession) -> set[str]:
     return set(await read_overrides(session))
 
 
-async def save_override(session: AsyncSession, param_id: str, value: float | None) -> None:
-    """1件を上書きする（`value`が`None`なら既定へ戻す）。
+async def save_override(session: AsyncSession, param_id: str, value: float | None) -> set[str]:
+    """1件を上書きし（`value`が`None`なら既定へ戻す）、書いた後に既定から動かしてある較正値のidを返す。
 
     値の検算は`infrastructure`側（宣言の範囲・数値であること）が行い、ここは**取引の
     区切りと、書いた値をプロセスへ反映するところまで**を持つ。失敗したら書き込みごと
@@ -64,8 +64,10 @@ async def save_override(session: AsyncSession, param_id: str, value: float | Non
         else:
             await set_override(session, param_id, value)
         values = await load_tuning_values(session)
+        overridden = set(await read_overrides(session))
         await session.commit()
     except Exception:
         await session.rollback()
         raise
     _apply_tuning_values(values)
+    return overridden

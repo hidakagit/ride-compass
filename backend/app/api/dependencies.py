@@ -41,7 +41,7 @@ from app.services.flood_service import FloodService
 from app.services.graph_service import GraphService
 from app.services.jma_amedas_service import JmaAmedasService
 from app.services.material_coverage_service import MaterialCoverageService
-from app.services.region_service import RegionService
+from app.services.region_service import AxisInspectorService, RegionService
 from app.services.route_generation_setup import (
     RouteGenerationSetup,
     assemble_route_generation_setup,
@@ -179,6 +179,13 @@ async def get_directional_material_service(weather_service: WeatherService = Dep
     """区間インスペクタが足す専用配信の材料。値は地図のレンズと同じ経路で引く。"""
     async with get_session_factory()() as session:
         yield DirectionalMaterialService(material_service_builder(RoadGraphRepository(session), weather_service))
+
+
+def get_axis_inspector_service(
+    region_service: RegionService = Depends(get_region_service),
+    directional_materials: DirectionalMaterialService = Depends(get_directional_material_service),
+) -> AxisInspectorService:
+    return AxisInspectorService(region_service, directional_materials)
 
 
 def get_basemap_client():

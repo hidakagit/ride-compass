@@ -60,6 +60,7 @@ def events(monkeypatch):
     stub("set_override")
     stub("clear_override")
     stub("load_tuning_values", LOADED)
+    stub("read_overrides", {_PARAM: LOADED[_PARAM]})
     return recorded, failing
 
 
@@ -81,7 +82,7 @@ async def test_saving_loads_the_values_before_commit_and_only_swaps_them_in_afte
 
     # 読んで検算するのは確定の前（失敗すれば書き込みごと取り消せる）。確定の後は、その値への
     # 差し替えだけ——DBを読み直さず、DBに無い値がプロセスだけで効くこともない
-    assert recorded == [write, ("load_tuning_values",), ("commit", before)]
+    assert recorded == [write, ("load_tuning_values",), ("read_overrides",), ("commit", before)]
     assert TUNING_VALUES == LOADED
 
 

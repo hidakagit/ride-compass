@@ -500,6 +500,9 @@ NULLの意味は列によって違う。「まだ計算していない」と「�
   交差点付近で実際にクリックされたフィーチャーとは別の道路を拾いうるため採用しない）。
   一次属性→[評価・スコアリング](evaluation-scoring.md)の`axis_inspector_breakdown`で
   二次軸スコア・三次合成コスト（取得可能な軸だけの参考値）を返す。
+  進行方向に依存する材料（`dynamic_materials`）は、同じファイルの`AxisInspectorService.inspect`が
+  専用配信の材料（`services/dedicated_way_values.py: DirectionalMaterialService`）から地図と同じ経路で引いてから渡す。
+  ルーターは`inspect`を1回呼ぶだけで、2つの部品を束ねるのは`api/dependencies.py: get_axis_inspector_service`。
 - `get_accident_years()`: 事故データの収録年（今の派生の表を作った事故の取込の宣言。「事故の帰属」）。[軸スタジオ](axis-studio.md)の
   `GET /api/axis-catalog`がそのまま地図の説明文へ配り、年の数で割る実行時スケール定数も
   ここから組み立てる（読めず空なら定数を配らない）。

@@ -2,7 +2,7 @@
 
 確かめるのは、キャッシュ・補間・上流の結果がどの応答になるか（中身・404・502とブラウザに覚えさせる時間）、
 回数制限（429）をキャッシュの外れにだけ当てること、問い合わせの文字列を上流へ渡すこと、
-配信元が持たないズームを親タイルから補間して書き戻すこと（`services/jma_tile_interpolation_service.py`の段取りも
+配信元が持たないズームを親タイルから補間して書き戻すこと（`services/jma_tile_proxy_service.py`・`services/jma_tile_interpolation_service.py`の段取りも
 ここで通す）、インデックスの有無の応答。取得の口（`get_jma_tile_client`）は応答を差し替え、Redisは`fake_redis`で通す。
 
 ここで見ないもの:

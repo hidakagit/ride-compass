@@ -5,8 +5,8 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from app.api.dependencies import (
+    get_axis_inspector_service,
     get_dedicated_way_value_service,
-    get_directional_material_service,
     get_region_service,
 )
 from app.api.rate_limit import enforce_rate_limit
@@ -26,8 +26,8 @@ from app.domain.landcover import LANDCOVER_TILE_MAX_ZOOM, LANDCOVER_TILE_MIN_ZOO
 from app.infrastructure.media_types import PNG_CONTENT_TYPE
 from app.infrastructure.point_tile_layers import POINT_TILE_LAYERS
 from app.services.landcover_tile_service import get_landcover_tile
-from app.services.dedicated_way_values import DedicatedWayValueService, DirectionalMaterialService
-from app.services.region_service import RegionService
+from app.services.dedicated_way_values import DedicatedWayValueService
+from app.services.region_service import AxisInspectorService, RegionService
 from app.domain.strict_model import StrictModel
 
 router = APIRouter()
@@ -200,8 +200,7 @@ class AxisInspectorRequest(StrictModel):
 async def region_axis_inspector(
     body: AxisInspectorRequest,
     http_request: Request,
-    region_service: RegionService = Depends(get_region_service),
-    directional_material_service: DirectionalMaterialService = Depends(get_directional_material_service),
+    axis_inspector: AxisInspectorService = Depends(get_axis_inspector_service),
 ) -> AxisInspectorResult | None:
     """区間インスペクタ。クリックされた道路（osm_way_id）について、
     一次属性（highway/tags）→二次軸スコア（取得可能な軸のみ）→
@@ -215,8 +214,7 @@ async def region_axis_inspector(
     # （road_tile_rate_limit_per_minuteと結合）を流用せず、専用の設定値を直接使う
     # （config.py: axis_inspector_rate_limit_per_minuteのコメント参照）。
     enforce_rate_limit(http_request, "axis-inspector", settings.axis_inspector_rate_limit_per_minute)
-    dynamic = await directional_material_service.materials(
-        body.osm_way_id, body.feature_key, body.z, body.x, body.y,
-        body.at, body.bearing_deg, body.speed_kmh)
     preference = None if body.route_preference is None else RoutePreference(weights=dict(body.route_preference.root))
-    return await region_service.get_axis_inspector(body.osm_way_id, body.feature_key, dynamic, preference)
+    return await axis_inspector.inspect(
+        body.osm_way_id, body.feature_key, body.z, body.x, body.y,
+        body.at, body.bearing_deg, body.speed_kmh, preference)

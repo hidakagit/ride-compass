@@ -94,7 +94,7 @@ async def update_tuning_parameter(
         # 較正値の宣言に無いidは書かせない（較正値ではない固定値はこの逆引きに載らない）。
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"較正値がありません: {param_id}")
     try:
-        await save_override(session, param_id, request.value)
+        overridden = await save_override(session, param_id, request.value)
     except TuningOverrideError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
-    return _view(param_id, await overridden_parameter_ids(session))
+    return _view(param_id, overridden)

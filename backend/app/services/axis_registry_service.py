@@ -137,11 +137,8 @@ class AxisRegistryAdminService:
     async def list_all(self) -> dict[str, AxisDefinition]:
         return await self._repository.list_all()
 
-    async def get(self, axis_id: str) -> AxisDefinition | None:
-        existing = await self._repository.get(axis_id)
-        return existing[0] if existing else None
-
-    async def create(self, definition: AxisDefinition) -> None:
+    async def create(self, definition: AxisDefinition) -> dict[str, AxisDefinition]:
+        """軸を足し、足した後の全軸を返す。"""
         await self._repository.acquire_write_lock()
         existing = await self._repository.list_all_with_sort_order()
         if definition.axis_id in existing:
@@ -162,8 +159,10 @@ class AxisRegistryAdminService:
         await self._repository.upsert(definition, sort_order)
         await self._repository.commit()
         await refresh_axis_definitions(self._repository)
+        return after
 
-    async def update(self, axis_id: str, definition: AxisDefinition) -> None:
+    async def update(self, axis_id: str, definition: AxisDefinition) -> dict[str, AxisDefinition]:
+        """軸を書き換え、書き換えた後の全軸を返す。"""
         await self._repository.acquire_write_lock()
         existing = await self._repository.list_all_with_sort_order()
         if axis_id not in existing:
@@ -181,6 +180,7 @@ class AxisRegistryAdminService:
         await self._repository.upsert(definition, sort_order)
         await self._repository.commit()
         await refresh_axis_definitions(self._repository)
+        return after
 
     async def delete(self, axis_id: str) -> None:
         await self._repository.acquire_write_lock()
@@ -197,8 +197,8 @@ class AxisRegistryAdminService:
         await self._repository.commit()
         await refresh_axis_definitions(self._repository)
 
-    async def unpublish(self, axis_id: str) -> AxisDefinition:
-        """公開済み軸を下書きへ戻し、戻した後の定義を返す。`update()`が公開済み軸を一律拒否するための逃げ道。
+    async def unpublish(self, axis_id: str) -> dict[str, AxisDefinition]:
+        """公開済み軸を下書きへ戻し、戻した後の全軸を返す。`update()`が公開済み軸を一律拒否するための逃げ道。
 
         **フロント側が公開軸集合の変化に合わせてroutePreferenceのキーを自己修復すること**が
         前提。それが無いと、旧設定を保持したブラウザは次のルート生成で
@@ -209,10 +209,11 @@ class AxisRegistryAdminService:
         if axis_id not in existing:
             raise KeyError(axis_id)
         definition, sort_order = existing[axis_id]
+        existing_definitions = {aid: d for aid, (d, _) in existing.items()}
         if not definition.is_published:
-            return definition  # 既に下書きなら何もしない（べき等）
+            return existing_definitions  # 既に下書きなら何もしない（べき等）
         unpublished = definition.model_copy(update={"is_published": False})
         await self._repository.upsert(unpublished, sort_order)
         await self._repository.commit()
         await refresh_axis_definitions(self._repository)
-        return unpublished
+        return {**existing_definitions, axis_id: unpublished}

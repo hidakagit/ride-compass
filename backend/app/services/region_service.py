@@ -1,4 +1,5 @@
 from collections.abc import Awaitable, Callable
+from datetime import datetime
 from functools import partial
 
 from app.domain.axis_inspector import AxisInspectorResult, axis_inspector_breakdown
@@ -11,6 +12,7 @@ from app.infrastructure.point_tile_layers import PointTileLayer
 from app.infrastructure.road_graph_repository import ROAD_SURFACE_TILE_SHAPE, RoadGraphRepository
 from app.infrastructure.vector_tile import ROAD_SURFACE_LAYER_NAME, encode_empty_tile
 from app.infrastructure.media_types import MVT_CONTENT_TYPE
+from app.services.dedicated_way_values import DirectionalMaterialService
 from app.services.tile_serving import TileResponse, serve_cached_tile
 from app.services.tile_version_service import current_tile_versions, served_tile_version
 
@@ -208,3 +210,28 @@ class RegionService:
             if area is None:
                 log_throttled_warning("region:ingested-area", "道路の取込が成功した記録が無く、対象範囲が決まらない")
             return area
+
+
+class AxisInspectorService:
+    """区間インスペクタの段取り。進行方向に依存する材料を地図と同じ経路で引き、道の内訳へ合わせる。"""
+
+    def __init__(self, region_service: RegionService, directional_materials: DirectionalMaterialService):
+        self._region_service = region_service
+        self._directional_materials = directional_materials
+
+    async def inspect(
+        self,
+        osm_way_id: int,
+        feature_key: str | None,
+        z: int | None,
+        x: int | None,
+        y: int | None,
+        at: datetime | None,
+        bearing_deg: float | None,
+        speed_kmh: float | None,
+        preference: RoutePreference | None,
+    ) -> AxisInspectorResult | None:
+        dynamic = await self._directional_materials.materials(
+            osm_way_id, feature_key, z, x, y, at, bearing_deg, speed_kmh
+        )
+        return await self._region_service.get_axis_inspector(osm_way_id, feature_key, dynamic, preference)
