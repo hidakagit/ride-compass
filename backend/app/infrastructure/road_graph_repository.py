@@ -805,7 +805,7 @@ class RoadGraphRepository:
         できないときはway1本の値を使う——切り替えの規則はタイルと同じもので、揃えないと
         同じ場所で地図の色と内訳の数字が食い違う。
         """
-        fields = [key for key in LandcoverPercentages.model_fields if key.endswith("_percent")]
+        fields = list(LandcoverPercentages.model_fields)
         columns = ["lc_valid_pixels"] + [f"lc_{landcover_key(field)}" for field in fields]
         segment = parse_edge_feature_key(feature_key) if feature_key else None
         if segment is not None and segment[0] == osm_way_id:
@@ -822,7 +822,7 @@ class RoadGraphRepository:
         values = {field: getattr(row, f"lc_{landcover_key(field)}") for field in fields}
         if any(value is None for value in values.values()):
             return None
-        return LandcoverPercentages(valid_pixels=row.lc_valid_pixels, **values)
+        return LandcoverPercentages(**values)
 
     async def get_distinct_material_values(self, material_id: str) -> list[str]:
         """軸スタジオの値入力UX向け。highway/surface/smoothnessのようなオープンエンドな

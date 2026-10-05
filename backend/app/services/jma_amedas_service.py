@@ -142,7 +142,7 @@ class JmaAmedasService:
         latest_hour = latest_time.astimezone(JST).replace(minute=0, second=0, microsecond=0)
         hours = [latest_hour - timedelta(hours=back) for back in range(RAIN_HISTORY_HOURS)]
         stored = await jma_amedas_store.read_rain_history()
-        if stored is None and not jma_amedas_store.available():
+        if stored is jma_amedas_store.UNAVAILABLE:
             # 置き場が使えない間に全本を取り直すと、10分ごとに気象庁へ全本を問い合わせ続ける。
             return
         stored_hours = {} if stored is None else stored.hours
@@ -224,7 +224,7 @@ async def load_station_rain_materials(now: datetime, cache: TTLCache) -> Station
     materials = cache.get(_RAIN_MATERIALS_CACHE_KEY)
     if materials is None:
         history = await jma_amedas_store.read_rain_history()
-        if history is None or not history.stations:
+        if not isinstance(history, RainHistory) or not history.stations:
             return None
         materials = _station_rain_materials(history)
         cache[_RAIN_MATERIALS_CACHE_KEY] = materials

@@ -161,7 +161,6 @@ describe("MaterialCoveragePanel", () => {
           kind: "excluded",
           material_id: "out",
           label: "対象外",
-          dtype: "numeric",
           excluded_reason: "ルート文脈が要る",
         },
       ]),

@@ -66,7 +66,7 @@
 上流の報告は[openapi-ts/openapi-typescript#2632](https://github.com/openapi-ts/openapi-typescript/issues/2632)で、
 直す変更（#2673・#2842）は2026-09-27時点で取り込まれていない。0.16.0は同じ変換を持たず、実行時の実装は
 0.17.0と同じ（差は長さ0の応答の判定だけ）。`package.json`の`^0.16.0`は0.x系のキャレットなので0.17へは上がらない。
-**上げるときは、上げた先でタプルを含む応答（例: `/api/admin/material-catalog/{material_id}/distribution`の`bins`）の
+**上げるときは、上げた先でタプルを含む応答（例: `/api/admin/axis-definitions/preview-distribution`の`bins`）の
 推論した型がタプルのままかを`tsc --noEmit`で確かめる。**
 
 ## Windows: `uvicorn --reload`の多重プロセス

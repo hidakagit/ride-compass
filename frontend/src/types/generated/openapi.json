@@ -2114,31 +2114,6 @@
             "type": "array",
             "title": "Weather Layer Groups"
           },
-          "shape": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/BreakpointLinearShape-Output"
-              },
-              {
-                "$ref": "#/components/schemas/CategoricalShape-Output"
-              }
-            ],
-            "title": "Shape"
-          },
-          "display_thresholds_override": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "number"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Display Thresholds Override"
-          },
           "display_band_labels_override": {
             "anyOf": [
               {
@@ -2221,8 +2196,6 @@
           "show_map_icon",
           "primary_attribute_ids",
           "weather_layer_groups",
-          "shape",
-          "display_thresholds_override",
           "display_band_labels_override",
           "dedicated_way_value_layer",
           "map_paint",
@@ -2676,10 +2649,6 @@
             ],
             "title": "Difficulty"
           },
-          "weight": {
-            "type": "number",
-            "title": "Weight"
-          },
           "contribution": {
             "anyOf": [
               {
@@ -2697,7 +2666,6 @@
         "required": [
           "axis_id",
           "difficulty",
-          "weight",
           "contribution"
         ],
         "title": "AxisInspectorAxis"
@@ -3822,10 +3790,6 @@
       },
       "LandcoverPercentages": {
         "properties": {
-          "valid_pixels": {
-            "type": "integer",
-            "title": "Valid Pixels"
-          },
           "water_percent": {
             "type": "number",
             "title": "Water Percent"
@@ -3862,7 +3826,6 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "valid_pixels",
           "water_percent",
           "trees_percent",
           "flooded_veg_percent",
@@ -4116,15 +4079,6 @@
             "type": "string",
             "title": "Label"
           },
-          "dtype": {
-            "type": "string",
-            "enum": [
-              "numeric",
-              "boolean",
-              "categorical"
-            ],
-            "title": "Dtype"
-          },
           "excluded_reason": {
             "type": "string",
             "title": "Excluded Reason"
@@ -4136,7 +4090,6 @@
           "kind",
           "material_id",
           "label",
-          "dtype",
           "excluded_reason"
         ],
         "title": "MaterialCoverageExcluded"
@@ -4190,40 +4143,12 @@
       },
       "MaterialDistributionResponse": {
         "properties": {
-          "sample_ways": {
-            "type": "integer",
-            "title": "Sample Ways"
-          },
-          "total_km": {
-            "type": "number",
-            "title": "Total Km"
-          },
           "quantiles": {
             "additionalProperties": {
               "type": "number"
             },
             "type": "object",
             "title": "Quantiles"
-          },
-          "bins": {
-            "items": {
-              "prefixItems": [
-                {
-                  "type": "number"
-                },
-                {
-                  "type": "number"
-                },
-                {
-                  "type": "number"
-                }
-              ],
-              "type": "array",
-              "maxItems": 3,
-              "minItems": 3
-            },
-            "type": "array",
-            "title": "Bins"
           },
           "zero_share": {
             "type": "number",
@@ -4237,10 +4162,7 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "sample_ways",
-          "total_km",
           "quantiles",
-          "bins",
           "zero_share",
           "available"
         ],
@@ -5498,10 +5420,6 @@
             },
             "type": "array",
             "title": "Bins"
-          },
-          "zero_share": {
-            "type": "number",
-            "title": "Zero Share"
           }
         },
         "additionalProperties": false,
@@ -5510,8 +5428,7 @@
           "sample_ways",
           "total_km",
           "quantiles",
-          "bins",
-          "zero_share"
+          "bins"
         ],
         "title": "ValueDistribution"
       },

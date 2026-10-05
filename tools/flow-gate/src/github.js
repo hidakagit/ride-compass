@@ -62,6 +62,7 @@ export class GitHub {
 
 const TASK = `fragment Task on Issue { id number title body url state author { ... on User { databaseId } } parent { number }
   assignees(first: 5) { nodes { id login } } labels(first: 20) { nodes { name } }
+  blockedBy(first: 50) { nodes { number state } }
   lastClose: timelineItems(last: 1, itemTypes: [CLOSED_EVENT]) { nodes { ... on ClosedEvent { stateReason } } }
   comments(last: $c) { nodes { author { login } createdAt url body bodyHTML } }
   projectItems(first: 10) { nodes { id project { id } fieldValues(first: 30) { nodes {

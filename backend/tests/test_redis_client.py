@@ -1,16 +1,17 @@
-"""`infrastructure/redis_client.py`——Redisの共有クライアント（文字列・生のバイト列）と、共有のサーキットブレーカー。
+"""`infrastructure/redis_client.py`——Redisの共有クライアントと、サーキットブレーカー。
 
-クライアントはプロセス大域に1つずつ作られるので、テストごとに閉じる口（`close_redis_clients`）で作る前の状態に戻してから始め、同じ口で閉じる。
+クライアントはプロセス大域に1つ作られるので、テストごとに閉じる口（`close_redis_client`）で作る前の状態に戻してから始め、同じ口で閉じる。
 接続先は`config.py: settings`の`redis_url`を差し替えて与える。Redisの代わりに、接続を受けて何も答えない
 手元のソケットを立てる（待ちの上限は、答えない相手にしか現れない）。ブレーカーは
 `tests/conftest.py`のautouseが閉じた状態から始め、時計は`clock`で進める。
 
 ここで見ないもの:
-- ブレーカーが開いている間にRedisを呼ばずに未キャッシュへ進むこと・失敗と成功を記録する時機
-  → `test_redis_json_cache.py`（`jma_amedas_store.py`が自前で持つ骨格の分は、そのモジュールの入口のテスト）
+- ブレーカーが開いている間にRedisを呼ばずに未キャッシュへ進むこと・失敗と成功を記録する時機・値を文字列へ
+  デコードしないこと → `test_redis_json_cache.py`
 """
 
 import asyncio
+import logging
 import time
 
 import pytest
@@ -20,14 +21,11 @@ from app.config import settings
 from app.infrastructure import redis_client
 from app.infrastructure.redis_client import CIRCUIT_COOLDOWN_SECONDS
 
-CLIENTS = [redis_client.get_redis_client_or_none, redis_client.get_redis_binary_client_or_none]
-
-
 @pytest.fixture
 async def no_clients_yet():
-    await redis_client.close_redis_clients()
+    await redis_client.close_redis_client()
     yield
-    await redis_client.close_redis_clients()
+    await redis_client.close_redis_client()
 
 
 @pytest.fixture
@@ -68,39 +66,28 @@ def test_a_success_closes_the_breaker_at_once():
 
 
 @pytest.mark.usefixtures("no_clients_yet")
-@pytest.mark.parametrize("get_client", CLIENTS)
-def test_a_malformed_url_gives_no_client_and_opens_the_shared_breaker(monkeypatch, get_client):
-    """設定の誤りで落ちず、未キャッシュで進める。"""
+def test_a_malformed_url_gives_no_client_opens_the_breaker_and_warns(monkeypatch, caplog):
+    """設定の誤りで落ちず、未キャッシュで進める。誤りは警告で出す——黙って未キャッシュで進むと、どのキャッシュも効かないまま気づけない。"""
     monkeypatch.setattr(settings, "redis_url", "not-a-redis-url")
 
-    assert get_client() is None
+    with caplog.at_level(logging.WARNING):
+        assert redis_client.get_redis_client_or_none() is None
+
     assert not redis_client.redis_available()
+    assert "Redis" in caplog.text
 
 
 @pytest.mark.usefixtures("silent_redis")
-def test_each_kind_of_client_is_built_once():
-    text_client, binary_client = (get_client() for get_client in CLIENTS)
-
-    assert redis_client.get_redis_client_or_none() is text_client
-    assert redis_client.get_redis_binary_client_or_none() is binary_client
-    assert text_client is not binary_client
+def test_the_client_is_built_once():
+    assert redis_client.get_redis_client_or_none() is redis_client.get_redis_client_or_none()
 
 
 @pytest.mark.usefixtures("silent_redis")
-def test_the_text_client_decodes_values_and_the_binary_client_keeps_bytes():
-    text_client, binary_client = (get_client() for get_client in CLIENTS)
-
-    assert text_client.get_encoder().decode(b"value") == "value"
-    assert binary_client.get_encoder().decode(b"value") == b"value"
-
-
-@pytest.mark.usefixtures("silent_redis")
-@pytest.mark.parametrize("get_client", CLIENTS)
-async def test_a_redis_that_does_not_answer_fails_within_a_second(get_client):
+async def test_a_redis_that_does_not_answer_fails_within_a_second():
     """疎通しないRedisで数秒待つと、ルート生成やタイル配信の応答がその分だけ遅れる。"""
     started = time.monotonic()
 
     with pytest.raises(redis.exceptions.TimeoutError):
-        await get_client().ping()
+        await redis_client.get_redis_client_or_none().ping()
 
     assert time.monotonic() - started < 1.0

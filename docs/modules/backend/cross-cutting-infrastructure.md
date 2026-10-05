@@ -25,7 +25,7 @@ DB接続・Redis・HTTPクライアント・レート制限・ログ・デバッ
 | api/routers | `debug_admin.py` | `debug_mode`のランタイム切替・直近ログ取得 |
 | infrastructure | `database.py` | PostGIS接続（SQLAlchemy） |
 | infrastructure | `redis_client.py` | Redis共有クライアント |
-| infrastructure | `redis_json_cache.py` | Redisへ持つcache-asideの共通骨格（JSONと生のバイト列） |
+| infrastructure | `redis_json_cache.py` | Redisへ持つcache-asideの共通骨格（JSON・生のバイト列・Hash） |
 | infrastructure | `http_client.py` | 外部API向け共有HTTPクライアント |
 | infrastructure | `process_resources.py` | プロセスで持ち回る接続と資源（HTTP・Redis・DBのエンジン・土地被覆ラスタ・ディスクのキャッシュ）を、lifespanのシャットダウン段でまとめて閉じる |
 | infrastructure | `rate_limiter.py` | プロセス内メモリのみの移動窓レート制限 |
@@ -294,8 +294,13 @@ frontend側（`src/proxy.ts`）も同じ資格情報を別のBasic認証チェ�
 
 「Redisが使えるか確認→クライアント取得→`log_external_call`で計測→失敗は握り潰して
 未キャッシュ扱い→成否をサーキットブレーカーへ記録」という定型文を1本にまとめたもの。値の形で入口が分かれる——
-JSONは`get_json`/`set_json`、バイナリは文字列へデコードしない接続（`redis_client.py: get_redis_binary_client_or_none`）を
-通す`get_bytes`/`set_bytes`。`get_bytes`は呼び出し元の解釈関数へ生のバイト列を渡し、解釈できない値は未キャッシュ（miss）として扱う。呼び出し元はキー設計・TTL・値の意味づけだけを持つ。
+JSONは`get_json`/`set_json`、バイナリは`get_bytes`/`set_bytes`、観測所ごとのような複数の項目はHashの`get_hash`と、
+複数のキーのHashをTTLとともに1往復（pipeline）で書く`set_hashes`。接続は値を生のバイト列で返し、JSONはここでデコードする。
+`get_bytes`・`get_hash`は呼び出し元の解釈関数へ生のバイト列を渡し、解釈できない値は未キャッシュ（miss）として扱う。呼び出し元はキー設計・TTL・値の意味づけだけを持つ。
+
+読みの口は「値・保存なし（None）・取れない（`UNAVAILABLE`。冷却中・接続を作れない・コマンドの失敗）」の3通りを返す。
+保存なしなら上流から取り直して書けばよいが、取れない間に取り直すと上流へ同じ問い合わせを繰り返すので、
+取り直しの重い呼び出し元（アメダスの1時間雨量の履歴）はこれで分ける。分けない呼び出し元は両方を未キャッシュとして扱う。
 `simple_api_client.py: cached_fetch`がプロセス内`TTLCache`側で担っている役割の、Redis版。
 
 **fail-openが前提**: 扱うのはいずれも正本を持たないキャッシュのため、Redis障害・接続不能・
@@ -303,13 +308,13 @@ JSONは`get_json`/`set_json`、バイナリは文字列へデコードしない�
 経路へ進めるようにする。キャッシュの不調でアプリの機能を止めない。
 
 新しくRedisへ持つキャッシュはこれを使う（例: 気象庁タイル本体の`jma_tile_redis_cache`・在否インデックスの
-`jma_tile_index`）。タイル本体は値がバイナリ（PNG/PBF）なので`get_bytes`/`set_bytes`に乗せている。
+`jma_tile_index`・アメダスの`jma_amedas_store`）。タイル本体は値がバイナリ（PNG/PBF）なので`get_bytes`/`set_bytes`に乗せている。
 自前の骨格を持ってよい場合はdocs/conventions/caching.md「自前で骨格を書いてよい例外」が決める。
 
 ## Redisクライアント（`redis_client.py`、サーキットブレーカー）
 
-JMA気象データの短命キャッシュが使う共有接続。値を文字列で読み書きする接続と生のバイト列で読み書きする接続を
-1つずつ持ち、接続先とサーキットブレーカーは共有する。**接続/ソケットタイムアウトを明示的に0.2秒へ短縮**している（既定タイムアウトの
+JMA気象データの短命キャッシュが使う共有接続。値を生のバイト列で読み書きする接続を1本だけ持つ。
+接続を作れない（`redis_url`の誤り等）ときはサーキットブレーカーを開け、抑制付きWARNING（`cache:redis-client`）を出す。**接続/ソケットタイムアウトを明示的に0.2秒へ短縮**している（既定タイムアウトの
 ままだと疎通不能環境で1回の接続試行に数秒かかりうるため。ルート生成の
 ホットパスに乗ると「PostGIS往復を減らす」という本来の目的に反する遅延になる）。
 

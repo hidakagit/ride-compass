@@ -21,7 +21,7 @@ export interface CatalogAxis {
   /** 軸id。重みの辞書（`route_preference`）のキーでもある。 */
   axisId: string;
   label: string;
-  /** 狭い幅で軸を並べる場所（地図チップ・重みタブ）の名前。略名が無い軸は名前そのもの。 */
+  /** 地図チップ（固定幅のタイル）の名前。略名が無い軸は名前そのもの。 */
   chipLabel: string;
   description: string;
   /** 軸のアイコン（`components/ui/icons/axisIconPalette.tsx: axisIconFor`が引く）。未設定は汎用のアイコン。 */
