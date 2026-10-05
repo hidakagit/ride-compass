@@ -2,9 +2,8 @@
  * `AxisStudio.tsx`——軸スタジオの一覧と状態: 下書き・公開済みの一覧、どのモード（新規・編集・表示だけ編集・複製・
  * 調整）でフォームを開くか、保存・削除・非公開化・調整の結果をどう扱うか。
  *
- * フォーム（`AxisComposer`）は差し替え、渡したものを見て、保存（`onSave(payload, isNew)`）とやめる（`onCancelEdit`）
- * だけを呼ばせる。管理APIと軸カタログは網の層で応え、軸の定義は書いた結果が次に取る一覧へ出る代役にする。
- * 材料は本物の一覧（生成物）を通す。
+ * フォーム（`AxisComposer`）は本物を通し、渡したものをフォームの表示で見て、フォームの保存・やめるを押す。管理APIと
+ * 軸カタログは網の層で応え、軸の定義は書いた結果が次に取る一覧へ出る代役にする。材料は本物の一覧（生成物）を通す。
  *
  * ここで見ないもの:
  * - フォームの中身・検証・payloadの組み立て → `AxisComposer.test.tsx`
@@ -12,46 +11,12 @@
  */
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import { MATERIAL_CATALOG } from "@/lib/axisMaterialsCatalog";
 import { heldReplies, onSameOrigin, type SentRequest, serveAxisCatalog } from "@/testing/backendServer";
 import { catalogResponse, rampEntry } from "@/testing/catalogAxes";
 import type { AxisCatalogEntry, AxisDefinitionPayload, AxisDefinitionResponse } from "@/types/route";
-
-interface ComposerProps {
-  editing: AxisDefinitionResponse | null;
-  duplicateFrom: AxisDefinitionResponse | null;
-  otherAxes: readonly AxisDefinitionResponse[];
-  mapBandColors: ((boundaries: readonly number[]) => readonly string[]) | undefined;
-  mapValueUnit: string;
-  republishing: boolean;
-  onCancelEdit: () => void;
-  onSave: (payload: AxisDefinitionPayload, isNew: boolean) => Promise<void>;
-}
-const composer = vi.hoisted(() => ({ props: null as ComposerProps | null, saveError: null as string | null }));
-vi.mock("./AxisComposer", () => ({
-  default: (props: ComposerProps) => {
-    composer.props = props;
-    const source = props.editing ?? props.duplicateFrom;
-    const payload = { ...(source ?? {}), axis_id: source?.axis_id ?? "axis_new" } as AxisDefinitionPayload;
-    return (
-      <>
-        <button
-          type="button"
-          onClick={() => {
-            props.onSave(payload, props.editing === null).catch((error: Error) => (composer.saveError = error.message));
-          }}
-        >
-          フォームで保存
-        </button>
-        <button type="button" onClick={props.onCancelEdit}>
-          フォームでやめる
-        </button>
-      </>
-    );
-  },
-}));
 
 import AxisStudio from "./AxisStudio";
 
@@ -132,8 +97,14 @@ let catalogAxes: AxisCatalogEntry[] = [];
 beforeEach(() => {
   writes = serveAxisDefinitions([DRAFT, PUBLISHED, PUBLISHED_2]);
   catalogAxes = [];
-  composer.props = null;
-  composer.saveError = null;
+  // フォームの点数の節が描くと同時に取る分布・点数と、地図の段の判定（段にならない値なし）。
+  onSameOrigin("POST", `${DEFINITIONS}/preview-distribution`, () =>
+    Response.json({ sample_ways: 1, total_km: 1, quantiles: {}, bins: [[0, 2, 1]], zero_share: 0 }),
+  );
+  onSameOrigin("POST", `${DEFINITIONS}/preview-scores`, () => Response.json({ scores: [0], material_points: [] }));
+  onSameOrigin("POST", `${DEFINITIONS}/preview-display-thresholds`, () =>
+    Response.json({ dropped_on_map: [], bands_on_map: [0, 1] }),
+  );
 });
 
 /** 描いて、既定の一覧が届くまで待つ（`loaded: false`なら待たない。一覧を差し替えたテスト用）。 */
@@ -150,6 +121,10 @@ const sentIds = (sent: SentRequest[]) => sent.map(idOf);
 function rowOf(label: string): HTMLElement {
   return screen.getByText(label).closest("div.flex-wrap") as HTMLElement;
 }
+
+const saveButton = () => screen.getByRole("button", { name: /作成する|更新する/ });
+const labelField = () => screen.getByRole("textbox", { name: "表示名" });
+const REPUBLISH_NOTE = /保存すると公開へ戻ります/;
 
 async function openPublishedTab(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("tab", { name: /公開済み/ }));
@@ -195,7 +170,8 @@ describe("フォームを開くモード", () => {
     const user = await renderStudio();
     await user.click(screen.getByRole("button", { name: "+ 新しい軸を作る" }));
     expect(screen.getByRole("dialog", { name: "新しい軸を作る" })).toBeInTheDocument();
-    expect(composer.props).toMatchObject({ editing: null, duplicateFrom: null, republishing: false });
+    expect(labelField()).toHaveValue("");
+    expect(screen.getByRole("button", { name: "作成する" })).toBeInTheDocument();
   });
 
   it("下書きの軸の編集は、その軸の編集として開き、ほかの軸には一覧の全部を渡す", async () => {
@@ -203,8 +179,16 @@ describe("フォームを開くモード", () => {
     await user.click(within(rowOf("下書きの軸")).getByRole("button", { name: "編集" }));
 
     expect(screen.getByRole("dialog", { name: "軸を編集: 下書きの軸" })).toBeInTheDocument();
-    expect(composer.props).toMatchObject({ editing: DRAFT, duplicateFrom: null, republishing: false });
-    expect(composer.props!.otherAxes).toEqual([DRAFT, PUBLISHED, PUBLISHED_2]);
+    expect(labelField()).toHaveValue("下書きの軸");
+    expect(screen.queryByText(REPUBLISH_NOTE)).not.toBeInTheDocument();
+    const otherAxes = screen
+      .getByRole("combobox", { name: "点数のもとになるもの" })
+      .querySelector('optgroup[label="ほかの軸"]')!;
+    expect(
+      within(otherAxes as HTMLElement)
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual([expect.stringContaining("公開の軸"), expect.stringContaining("公開の軸2")]);
   });
 
   it("公開済みの軸の「表示だけ編集」は、表示の項目の編集として開く", async () => {
@@ -213,19 +197,21 @@ describe("フォームを開くモード", () => {
     await user.click(within(rowOf("公開の軸")).getByRole("button", { name: "表示だけ編集" }));
 
     expect(screen.getByRole("dialog", { name: "表示専用フィールドを編集: 公開の軸" })).toBeInTheDocument();
-    expect(composer.props).toMatchObject({ editing: PUBLISHED, republishing: false });
+    expect(screen.getByText(/地図表示に関わる項目のみ編集できます/)).toBeInTheDocument();
+    expect(screen.queryByText(REPUBLISH_NOTE)).not.toBeInTheDocument();
   });
 
   it.each([
-    ["下書き", "下書きの軸", DRAFT],
-    ["公開済み", "公開の軸", PUBLISHED],
-  ])("%sの軸の複製は、その軸を元にした新規のフォームとして開く", async (tab, label, source) => {
+    ["下書き", "下書きの軸"],
+    ["公開済み", "公開の軸"],
+  ])("%sの軸の複製は、その軸を元にした新規のフォームとして開く", async (tab, label) => {
     const user = await renderStudio();
     if (tab === "公開済み") await openPublishedTab(user);
     await user.click(within(await waitFor(() => rowOf(label))).getByRole("button", { name: "複製して新規作成" }));
 
     expect(screen.getByRole("dialog", { name: `「${label}」を複製して新しい軸を作る` })).toBeInTheDocument();
-    expect(composer.props).toMatchObject({ editing: null, duplicateFrom: source });
+    expect(labelField()).toHaveValue(label);
+    expect(screen.getByRole("button", { name: "作成する" })).toBeInTheDocument();
   });
 });
 
@@ -233,17 +219,18 @@ describe("保存", () => {
   it("新規の保存は作成し、一覧を取り直して閉じる", async () => {
     const user = await renderStudio();
     await user.click(screen.getByRole("button", { name: "+ 新しい軸を作る" }));
-    await user.click(screen.getByRole("button", { name: "フォームで保存" }));
+    await user.type(labelField(), "新しい軸");
+    await user.click(saveButton());
 
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    expect(writes.created.map(({ body }) => body)).toEqual([expect.objectContaining({ axis_id: "axis_new" })]);
+    expect(writes.created.map(({ body }) => body)).toEqual([expect.objectContaining({ label: "新しい軸" })]);
     expect(screen.getByRole("tab", { name: "下書き（2）" })).toBeInTheDocument();
   });
 
   it("編集の保存は、その軸を送られたとおりに更新して閉じる", async () => {
     const user = await renderStudio();
     await user.click(within(rowOf("下書きの軸")).getByRole("button", { name: "編集" }));
-    await user.click(screen.getByRole("button", { name: "フォームで保存" }));
+    await user.click(saveButton());
 
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(writes.updated.map((request) => [idOf(request), request.body])).toEqual([
@@ -255,17 +242,9 @@ describe("保存", () => {
     onSameOrigin("PUT", DEFINITION, () => failure("軸は公開済みです"));
     const user = await renderStudio();
     await user.click(within(rowOf("下書きの軸")).getByRole("button", { name: "編集" }));
-    await user.click(screen.getByRole("button", { name: "フォームで保存" }));
+    await user.click(saveButton());
 
-    await waitFor(() => expect(composer.saveError).toBe("軸は公開済みです"));
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
-  });
-
-  it("フォームでやめると閉じる", async () => {
-    const user = await renderStudio();
-    await user.click(screen.getByRole("button", { name: "+ 新しい軸を作る" }));
-    await user.click(screen.getByRole("button", { name: "フォームでやめる" }));
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(await within(screen.getByRole("dialog")).findByText("軸は公開済みです")).toBeInTheDocument();
   });
 });
 
@@ -279,17 +258,17 @@ describe("公開済みの軸を「調整する」", () => {
     const user = await renderStudio();
     await adjust(user);
 
-    await waitFor(() => expect(composer.props?.republishing).toBe(true));
+    // 表示専用でない編集の題名は、取り直した一覧で下書きになった軸を開いたことを示す。
+    expect(await screen.findByRole("dialog", { name: "軸を編集: 公開の軸" })).toBeInTheDocument();
+    expect(screen.getByText(REPUBLISH_NOTE)).toBeInTheDocument();
     expect(sentIds(writes.unpublished)).toEqual([PUBLISHED.axis_id]);
-    expect(composer.props!.editing).toEqual({ ...PUBLISHED, is_published: false });
-    expect(screen.getByRole("dialog", { name: "軸を編集: 公開の軸" })).toBeInTheDocument();
   });
 
   it("保存すると公開へ戻して更新し、下書きのままだとは言わない", async () => {
     const user = await renderStudio();
     await adjust(user);
-    await waitFor(() => expect(composer.props?.republishing).toBe(true));
-    await user.click(screen.getByRole("button", { name: "フォームで保存" }));
+    await screen.findByText(REPUBLISH_NOTE);
+    await user.click(saveButton());
 
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(writes.updated.map((request) => [idOf(request), request.body])).toEqual([
@@ -300,15 +279,15 @@ describe("公開済みの軸を「調整する」", () => {
 
   it.each([
     [
-      "フォームでやめる",
+      "編集をやめる",
       async (user: ReturnType<typeof userEvent.setup>) =>
-        user.click(screen.getByRole("button", { name: "フォームでやめる" })),
+        user.click(screen.getByRole("button", { name: "編集をやめる" })),
     ],
     ["Escapeで閉じる", async (user: ReturnType<typeof userEvent.setup>) => user.keyboard("{Escape}")],
   ])("保存せずに%sと、下書きのまま残ったことを知らせ、次に調整を始めると消す", async (_how, close) => {
     const user = await renderStudio();
     await adjust(user);
-    await waitFor(() => expect(composer.props?.republishing).toBe(true));
+    await screen.findByText(REPUBLISH_NOTE);
     await close(user);
 
     expect(await screen.findByText(/下書きへ戻したまま編集を終えました/)).toBeInTheDocument();
@@ -325,10 +304,11 @@ describe("公開済みの軸を「調整する」", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("ふつうの編集をやめても、下書きのまま残ったとは言わない", async () => {
+  it("ふつうの編集をやめると閉じ、下書きのまま残ったとは言わない", async () => {
     const user = await renderStudio();
     await user.click(within(rowOf("下書きの軸")).getByRole("button", { name: "編集" }));
-    await user.click(screen.getByRole("button", { name: "フォームでやめる" }));
+    await user.click(screen.getByRole("button", { name: "編集をやめる" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.queryByText(/下書きへ戻したまま編集を終えました/)).not.toBeInTheDocument();
   });
 });
@@ -401,22 +381,28 @@ describe("削除", () => {
   });
 });
 
-describe("段階プレビューの配色", () => {
-  async function openEdit() {
-    const user = await renderStudio();
-    await user.click(within(rowOf("下書きの軸")).getByRole("button", { name: "編集" }));
+describe("段階プレビューの配色と単位", () => {
+  /** フォームでしきい値を1つ入れ、段階プレビューを返す。 */
+  async function previewOf(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole("button", { name: "+ しきい値を自分で設定する" }));
+    await user.type(screen.getByRole("textbox", { name: "色分けのしきい値（まとめて入力）" }), "1");
+    return screen.getByLabelText(/色分けプレビュー/);
   }
 
-  it("地図に出る経路がまだ無い軸には、配色を渡さない（単位も空）", async () => {
-    await openEdit();
-    expect(composer.props!.mapBandColors).toBeUndefined();
-    expect(composer.props!.mapValueUnit).toBe("");
+  it("地図に出る経路がまだ無い軸には、配色も単位も渡さない", async () => {
+    const user = await renderStudio();
+    await user.click(within(rowOf("下書きの軸")).getByRole("button", { name: "編集" }));
+    const preview = await previewOf(user);
+    expect(preview).toHaveTextContent(/配色はまだ決まっていません/);
+    expect(preview).not.toHaveTextContent("km/h");
   });
 
-  it("複製のときは、複製元の軸の配色を使う", async () => {
-    catalogAxes = [rampEntry(DRAFT.axis_id, [])];
+  it("複製のときは、複製元の軸の配色と単位を使う", async () => {
+    catalogAxes = [rampEntry(DRAFT.axis_id, [], { map_value_unit: "km/h" })];
     const user = await renderStudio();
     await user.click(within(rowOf("下書きの軸")).getByRole("button", { name: "複製して新規作成" }));
-    await waitFor(() => expect(composer.props!.mapBandColors).toBeDefined());
+    const preview = await previewOf(user);
+    await waitFor(() => expect(preview.querySelectorAll("li > span[aria-hidden]")).toHaveLength(2));
+    expect(preview).toHaveTextContent("km/h");
   });
 });
