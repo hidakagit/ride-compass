@@ -62,7 +62,7 @@ export function landcoverTileUrl(): string {
   return `${tileBaseUrl()}${LANDCOVER_TILE_PATH}?v=${LANDCOVER_TILE_VERSION}`;
 }
 
-// 路面タイル（POIタイルも同じ）を要求するズーム範囲。正はbackendで、生成物で受け取る。
+// 路面タイル（点のタイルも同じ）を要求するズーム範囲。正はbackendで、生成物で受け取る。
 export const ROAD_TILE_MIN_ZOOM = regionTileConfig.road_tile_min_zoom;
 export const ROAD_TILE_MAX_ZOOM = regionTileConfig.road_tile_max_zoom;
 

@@ -1,7 +1,8 @@
 # ディレクトリ構成
 
 トップは`backend/`（FastAPI）・`frontend/`（Next.js）・`docs/`・`scripts/`（リポジトリ横断の
-CI・フック・開発環境の用意のスクリプト）。
+CI・フック・開発環境の用意のスクリプト）・`tools/`（アプリの外の運用の道具。`tools/flow-gate/`がタスクの流れの
+ゲートと回答フォームで、決まりは[flow.md](../conventions/flow.md)）。
 
 **個々のファイルがどのモジュールの責務かはここに書かない。**
 各モジュール設計書（索引は[docs/modules/README.md](../modules/README.md)）の対象ファイル表が
@@ -139,6 +140,8 @@ VMはデプロイのたびに作業コピー（`~/ridecompass-repo`）をその�
 - **`types/generated/`**: `export_openapi.py`の出力（OpenAPIスキーマと、材料カタログ・
   タイル世代等の付随生成物。backendと画面が同じ計算を持つところの「入力→答え」の表`*-expectations.json`も）。コミット対象で、CI（`ci.yml`）の`api-contract`ジョブがドリフトを検知する。
   OpenAPIスキーマは**契約だけ**を持ち、docstring由来の散文は載せない。
+- **`testing/`・`structure/`**: 層の外で、テストだけが読む。`testing/`はテストが共有する足場とフェイク、`structure/`は
+  ソースを読む検査（どちらも[testing.md](../conventions/testing.md)）。アプリのコードはここを読まない。
 
 **backendが持つ値の一覧・既定値をfrontendが手書きで複製しないこと**——複製すると片側だけ
 変えても全テストが緑のまま通り、キー集合の完全一致を要求するAPIでは全リクエストが422に

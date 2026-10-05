@@ -282,7 +282,8 @@ backendの中継は地物の404を覚えず、ブラウザにも覚えさせな�
    生成物経由で`DynamicWeatherLayerId`・`MapLayerId`になる）。`scripts/export_openapi.py`で
    生成物（`mapDisplay.ts: weatherElements`）を作り直す。自前のMSM格子から描くなら、
    `wind_grid.py: WindGridPoint`へ値フィールドを、`msm_client.py: MsmSeries`へ項目を、
-   `FORECAST_VARIABLES`へMSM変数とその項目の対応を足す（この経路は風・降水の格子の段限定）。MSMから描く要素の
+   `FORECAST_VARIABLES`へMSM変数とその項目の対応を足し、`services/weather_service.py: WeatherService.get_wind_grid`で
+   項目の値を地点ごとのフィールドへ詰める（この経路は風・降水の格子の段限定）。MSMから描く要素の
    説明文は「予報」と呼ばない（上の「責務」）
 2. `features/map/scene/groups/weather.ts`: 配信元のラスタ（`rasterTile`）なら何も足さない
    （見た目は共通の1つ）。それ以外は`DRAWINGS`へ見た目（`paint`・`layout`・`filter`・記号）を

@@ -170,7 +170,7 @@ axis_id → get_dedicated_way_value_service(axis_id) が軸の参照する材料
 - 静的な路面タイル（`/api/region/road-surface-tiles`、MVT）とは別経路——フロントは
   同じz/x/yに対して両方を取得し、MapLibreの`setFeatureState`で合成する
   （[map-axis-coloring.md](../frontend/map-axis-coloring.md)参照）。
-- 路面・POIタイルと同じレート制限・座標検証・DB接続プールのsemaphore
+- 路面・点のタイルと同じレート制限・座標検証・DB接続プールのsemaphore
   （`_region_tile_semaphore`、`config.py: road_tile_max_concurrent`）を共有する。
 
 ## キャッシュ（`infrastructure/dynamic_way_value_cache.py`）

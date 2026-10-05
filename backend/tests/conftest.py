@@ -347,10 +347,9 @@ def pytest_collection_modifyitems(config, items):
     _RESOLVED_DATABASE_URL = _prepare_worktree_database()
 
 
-# ローカル環境では新規DB接続の確立自体に1〜2秒かかる（実測、asyncpg接続確立コスト。
-# localhost/127.0.0.1どちらでも同程度でDNS起因ではない）。以前はテスト関数ごとに
-# エンジンを新規作成しており、規模の大きいtest_road_graph_repository.py（約80件）
-# だけで2分近く溶けていた。asyncpgの接続はイベントループに束縛されテスト関数ごとの
+# ローカル環境では新規DB接続の確立自体に1〜2秒かかり（asyncpgの接続確立のコストで、
+# DNS起因ではない）、テスト関数ごとにエンジンを作るとテストの多いファイルで分単位になる。
+# asyncpgの接続はイベントループに束縛されテスト関数ごとの
 # イベントループをまたいで使い回せないため、エンジンと（それが乗る）イベントループを
 # ファイル（モジュール）単位に広げ、ファイル内の全テストで1本の接続を使い回す。
 # これを使うテストファイル側は `pytestmark = pytest.mark.asyncio(loop_scope="module")`
