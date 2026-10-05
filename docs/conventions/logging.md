@@ -36,7 +36,7 @@ RideCompassのログは本番のbackendコンテナのログだけで障害調�
 自動集計される。
 
 - カテゴリ名は`ドメイン:サービス名`形式（例: `msm:read`, `weather:jma-tile`,
-  `basemap:openfreemap`）。
+  `basemap:openfreemap`）。`log_throttled_warning`のカテゴリも同じ形にする。
 - キャッシュを挟む場合は`fields["cache"] = "hit" / "miss"`を必ず設定する（ヒット率集計の元）。
 - 結果は`fields["result"] = "ok" / "error" / その他の状態`を設定する。HTTPステータスは
   `fields["status"]`、クォータ系ヘッダがあれば`fields["quota_remaining"]`等で残す。

@@ -14,7 +14,7 @@ from app.infrastructure.debug_log import log_throttled_warning
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
 CACHE_DIR = DATA_DIR / "tile_cache"
 
-_CATEGORY = "tile-cache"
+_CATEGORY = "cache:tile-disk"
 
 opened_cache: diskcache.Cache | None = None
 

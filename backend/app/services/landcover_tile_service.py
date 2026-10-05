@@ -14,7 +14,7 @@ from app.infrastructure.debug_log import log_throttled_warning
 from app.infrastructure.media_types import PNG_CONTENT_TYPE
 from app.services.tile_serving import TileResponse, serve_cached_tile
 
-_CATEGORY = "landcover-tile"
+_CATEGORY = "region:landcover-tile"
 
 #: タイルURLへ入る世代（配色・クラス構成と手書きリビジョンから決まる）。
 #:
