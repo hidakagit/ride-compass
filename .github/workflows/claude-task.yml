@@ -70,16 +70,9 @@ jobs:
         id: claim
         run: |
           if node tools/flow-gate/bin/claim.js "$ISSUE" "$KIND" "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"; then echo "go=true" >> "$GITHUB_OUTPUT"; fi
-      - name: PostgreSQL + PostGIS（ci.yml の backend と同じ）
-        if: steps.claim.outputs.go == 'true'
-        run: |
-          pg_lsclusters -h | while read -r ver name _; do sudo pg_dropcluster --stop "$ver" "$name"; done
-          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
-          sudo apt-get install -y --no-install-recommends postgresql-18 postgresql-18-postgis-3
-          sudo pg_ctlcluster 18 main start
-          sudo -u postgres psql -v ON_ERROR_STOP=1 -c "CREATE ROLE ridecompass LOGIN SUPERUSER PASSWORD 'ridecompass'"
-          sudo -u postgres createdb -O ridecompass ridecompass_test
-          sudo -u postgres psql -v ON_ERROR_STOP=1 -d ridecompass_test -c "CREATE EXTENSION postgis" -c "CREATE EXTENSION postgis_raster"
+      # ci.yml の backend と同じ PostgreSQL + PostGIS。
+      - if: steps.claim.outputs.go == 'true'
+        uses: ./.github/actions/postgis
       # Read が PDF をページで読むときに使う pdftoppm。apt の一覧は上の段の apt.postgresql.org.sh が更新してある。
       - name: poppler-utils（PDF のページの読み込み）
         if: steps.claim.outputs.go == 'true'

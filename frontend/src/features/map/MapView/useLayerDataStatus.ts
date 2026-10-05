@@ -107,7 +107,7 @@ interface UseLayerDataStatusArgs {
   onChange: (status: LayerDataStatusByLayer) => void;
 }
 
-// T87: レイヤーデータ状態（loading/empty/error）の状態管理・再計算・イベント配線をまとめて
+// レイヤーデータ状態（loading/empty/error）の状態管理・再計算・イベント配線をまとめて
 // 持つフック。呼び出し元（MapView.tsx）はmap.on("error"/"sourcedata"/"sourcedataloading"/
 // "moveend"/"zoomend"/"idle", ...)自体は自分で登録し（他の関心事のハンドラと同じ
 // 巨大useEffect内に既にあるため、登録自体を切り離すとかえって複雑になる）、各ハンドラの中で

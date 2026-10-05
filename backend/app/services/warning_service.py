@@ -6,7 +6,7 @@ import httpx
 from cachetools import TTLCache
 
 from app.domain.jma_area import ResolvedArea, resolve_area
-from app.domain.jma_warning import ActiveWarning, WarningBulletin, extract_active_warnings
+from app.domain.jma_warning import ActiveWarning, WarningBulletin, collect_active_warnings
 from app.domain.route import Coordinates
 from app.infrastructure.jma_area_boundaries import AreaBoundariesUnavailableError, find_class20_code
 from app.infrastructure.jma_warning_client import fetch_area_data, fetch_warning_documents
@@ -58,35 +58,11 @@ def _empty_warnings() -> WeatherWarnings:
 
 
 def _build_warnings(bulletins: list[WarningBulletin], resolved: ResolvedArea) -> WeatherWarnings:
-    """電文の一覧から、対象エリアぶんのアクティブな警報だけを集約する。
-
-    警報の種類ごとに電文が分かれているため、同じコードが複数の電文に現れうる。codeで
-    重複を排除し、採用した警報のうち最も新しい発表時刻を使う。
-    """
-    collected: dict[str, ActiveWarning] = {}
-    latest_report_datetime: str | None = None
-
-    for bulletin in bulletins:
-        kinds = bulletin.kinds_for(resolved.class20_code, resolved.class10_code)
-        if kinds is None:
-            continue
-
-        active = extract_active_warnings(kinds)
-        if not active:
-            continue
-
-        report_datetime = bulletin.report_datetime
-        if report_datetime is not None and (
-            latest_report_datetime is None or report_datetime > latest_report_datetime
-        ):
-            latest_report_datetime = report_datetime
-        for item in active:
-            collected[item.code] = item
-
-    if not collected:
+    warnings, report_datetime = collect_active_warnings(bulletins, resolved.class20_code, resolved.class10_code)
+    if not warnings:
         return _empty_warnings()
     return WeatherWarnings(
         area_name=resolved.class10_name,
-        report_datetime=latest_report_datetime,
-        warnings=list(collected.values()),
+        report_datetime=report_datetime,
+        warnings=warnings,
     )

@@ -28,7 +28,6 @@ DECLARED = {
     "t_even11": JmaElement("rasrf", ("targetTimes.json",), "latestFullRun", JmaTileSpec("even", 11)),
     "t_even12": JmaElement("risk", ("targetTimes.json",), "latest", JmaTileSpec("even", 12)),
     "t_vector": JmaElement("risk", ("targetTimes.json",), "latest", JmaTileSpec("even", 10, vector_layer="lines")),
-    "t_min6": JmaElement("risk", ("targetTimes.json",), "latest", JmaTileSpec("even", 10, min_zoom=6)),
     "t_points": JmaElement("nowc", ("targetTimes_N3.json",), "nowcast", data_delay_minutes=10),
 }
 
@@ -60,11 +59,10 @@ def test_stages_sharing_one_zoom_range_give_the_first_stage_spec():
     [
         ("rasterTile", ()),
         ("rasterTile", ["t_even10", "t_even12"]),
-        ("rasterTile", ["t_even10", "t_min6"]),
         ("vectorTile", ["t_vector", "t_even10"]),
         ("rasterTile", ["t_even10", "t_points"]),
     ],
-    ids=["no_delivery", "max_zooms_differ", "min_zooms_differ", "vector_layers_differ", "stage_not_delivered_as_tiles"],
+    ids=["no_delivery", "max_zooms_differ", "vector_layers_differ", "stage_not_delivered_as_tiles"],
 )
 def test_a_tile_element_whose_stages_cannot_share_one_source_is_refused(kind, jma_elements):
     with pytest.raises(ValueError):

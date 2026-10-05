@@ -135,9 +135,7 @@ WHERE c.osm_way_id = m.osm_way_id AND c.segment_index = m.segment_index
 """
 
 #: 自転車の関わった事故を、帰属の距離の内で最も近い区間へ1件だけ付ける。鍵の2列は同じ1回の
-#: 探索から取る——別々に探すと、等距離のタイで実在しない組を指しうる。近さは地上の距離（m）で
-#: 比べる。緯度経度の度のまま比べると経度1度が緯度1度より短いぶん東西の距離を長く見て、南北に
-#: 少し遠い区間へ付けてしまう。
+#: 探索から取る——別々に探すと、等距離のタイで実在しない組を指しうる。
 _EDGE_ACCIDENTS = f"""
 WITH nearest AS (
     SELECT CASE WHEN {FATAL_SQL} THEN $1 ELSE 1.0 END AS weight, n.osm_way_id, n.segment_index

@@ -45,9 +45,15 @@ const serveGrid = (...responses: WindGridPoint[][]) =>
 const serveDetail = (...responses: WindGridPoint[][]) =>
   onBackend("GET", DETAIL, inTurn(...responses.map((points) => gridResponse(...points))));
 
-// 取得の結果は網を通って届くので、偽にしていない時計で届くまでの間をおく。
-async function settle() {
-  await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+type Results = { current: ReturnType<typeof useWeatherGrid> };
+
+// 取得の結果は網を通って届くので、偽にしていない時計で、粗い格子と（ズームしていれば）詳細格子が届くまで待つ
+// （届くまでの時間は CI の負荷で変わる）。
+async function fetched(result: Results, zoomed = false) {
+  await vi.waitFor(() => {
+    expect(result.current.hasFetched).toBe(true);
+    if (zoomed) expect(result.current.detail).not.toBeNull();
+  });
 }
 
 beforeEach(() => {
@@ -74,7 +80,7 @@ function render(enabled: boolean, viewport: MapViewport | null) {
 describe("useWeatherGrid（風・延長降水予報の格子）", () => {
   it("有効なら粗い格子を取り、ズームしていなければ詳細格子は無い", async () => {
     const { result } = render(true, WIDE);
-    await settle();
+    await fetched(result);
     expect(result.current.grid.map((p) => p.latitude)).toEqual([35]);
     expect(result.current).toMatchObject({ detail: null, loading: false, error: null, hasFetched: true });
   });
@@ -82,39 +88,38 @@ describe("useWeatherGrid（風・延長降水予報の格子）", () => {
   it("取り直しで欠けた地点は、前回の値で補う", async () => {
     serveGrid([point(35, 139), point(35.1, 139)], [point(35, 139, 5)]);
     const { result } = render(true, WIDE);
-    await settle();
+    await fetched(result);
     act(() => vi.advanceTimersByTime(3 * 60 * 60 * 1000));
-    await settle();
-    expect(result.current.grid.map((p) => [p.latitude, p.wind_speed_ms[0]])).toEqual([
-      [35, 5],
-      [35.1, 1],
-    ]);
+    await vi.waitFor(() =>
+      expect(result.current.grid.map((p) => [p.latitude, p.wind_speed_ms[0]])).toEqual([
+        [35, 5],
+        [35.1, 1],
+      ]),
+    );
   });
 
   it("無効の間は「まだ取りに行っていない」とし、再び有効にしたら前に取った格子をすぐ出して裏で取り直す", async () => {
     serveGrid([point(35, 139)], [point(35, 139, 5)]);
     const { result, rerender } = render(true, WIDE);
-    await settle();
+    await fetched(result);
     rerender({ enabled: false, viewport: WIDE });
     expect(result.current).toMatchObject({ grid: [], loading: false, hasFetched: false });
 
     rerender({ enabled: true, viewport: WIDE });
     expect(result.current.grid.map((p) => p.wind_speed_ms[0])).toEqual([1]);
     expect(result.current).toMatchObject({ loading: false, hasFetched: true });
-    await settle();
-    expect(result.current.grid.map((p) => p.wind_speed_ms[0])).toEqual([5]);
+    await vi.waitFor(() => expect(result.current.grid.map((p) => p.wind_speed_ms[0])).toEqual([5]));
   });
 
   it("粗い格子が取れなければ文言を出す", async () => {
     onBackend("GET", GRID, () => Response.json({ detail: "気象格子を取れません" }, { status: 502 }));
     const { result } = render(true, WIDE);
-    await settle();
-    expect(result.current.error).toBe("気象格子を取れません");
+    await vi.waitFor(() => expect(result.current.error).toBe("気象格子を取れません"));
   });
 
   it("ズームインしている間は、画面付近の詳細格子をズームに応じた間隔で取る", async () => {
     const { result } = render(true, ZOOMED);
-    await settle();
+    await fetched(result, true);
     expect(result.current.detail?.points.map((p) => [p.latitude, p.longitude, p.wind_speed_ms[0], p.times])).toEqual([
       [35.6, 139.7, DETAIL_SPACING, HOURS],
       [35.62, 139.72, DETAIL_SPACING, HOURS],
@@ -124,15 +129,13 @@ describe("useWeatherGrid（風・延長降水予報の格子）", () => {
 
   it("ズームアウト・詳細の取得失敗では、詳細格子を捨てる", async () => {
     const { result, rerender } = render(true, ZOOMED);
-    await settle();
+    await fetched(result, true);
     rerender({ enabled: true, viewport: WIDE });
-    await settle();
-    expect(result.current.detail).toBeNull();
+    await vi.waitFor(() => expect(result.current.detail).toBeNull());
 
     onBackend("GET", DETAIL, () => Response.json({ detail: "詳細を取れません" }, { status: 502 }));
     rerender({ enabled: true, viewport: { ...ZOOMED, east: 139.73 } });
-    await settle();
-    expect(result.current.detail).toBeNull();
+    await vi.waitFor(() => expect(result.current.detail).toBeNull());
     expect(result.current.error).toBeNull();
   });
 
@@ -140,11 +143,12 @@ describe("useWeatherGrid（風・延長降水予報の格子）", () => {
     serveGrid([point(35, 139)], [point(35, 139, 3)]);
     serveDetail([point(35.61, 139.71)], [point(35.61, 139.71, 5)]);
     const { result } = render(true, ZOOMED);
-    await settle();
+    await fetched(result, true);
     act(() => vi.advanceTimersByTime(3 * 60 * 60 * 1000));
-    await settle();
-    expect(result.current.grid.map((p) => p.wind_speed_ms[0])).toEqual([3]);
-    expect(result.current.detail?.points.map((p) => p.wind_speed_ms[0])).toEqual([5]);
+    await vi.waitFor(() => {
+      expect(result.current.grid.map((p) => p.wind_speed_ms[0])).toEqual([3]);
+      expect(result.current.detail?.points.map((p) => p.wind_speed_ms[0])).toEqual([5]);
+    });
   });
 
   it("同じ間隔のまま動かしたときは、今の範囲に入る前回の地点だけを補い、間隔が変わったら補わない", async () => {
@@ -154,24 +158,24 @@ describe("useWeatherGrid（風・延長降水予報の格子）", () => {
       [point(35.61, 139.71, 9)],
     );
     const { result, rerender } = render(true, ZOOMED);
-    await settle();
+    await fetched(result, true);
 
     rerender({ enabled: true, viewport: { ...ZOOMED, north: 35.63 } });
-    await settle();
-    expect(result.current.detail?.points.map((p) => [p.latitude, p.wind_speed_ms[0]])).toEqual([
-      [35.61, 7],
-      [35.615, 1],
-    ]);
+    await vi.waitFor(() =>
+      expect(result.current.detail?.points.map((p) => [p.latitude, p.wind_speed_ms[0]])).toEqual([
+        [35.61, 7],
+        [35.615, 1],
+      ]),
+    );
 
     rerender({ enabled: true, viewport: { ...ZOOMED, zoom: 13 } });
-    await settle();
-    expect(result.current.detail?.points.map((p) => p.wind_speed_ms[0])).toEqual([9]);
+    await vi.waitFor(() => expect(result.current.detail?.points.map((p) => p.wind_speed_ms[0])).toEqual([9]));
     expect(result.current.detail?.spacingDeg).toBe(FINER_SPACING);
   });
 
   it("画面を動かして取り直している間は、前の範囲の詳細格子とその間隔を出したまま", async () => {
     const { result, rerender } = render(true, ZOOMED);
-    await settle();
+    await fetched(result, true);
     const held = heldReplies();
     onBackend("GET", DETAIL, held.reply);
     rerender({ enabled: true, viewport: { ...ZOOMED, zoom: 13 } });

@@ -45,29 +45,17 @@ SPLICED_ROUTE_ID = "route-spliced"
 # この値は経験的に調整してよい。
 TURNAROUND_RADIUS_RATIO = 0.4
 
-# 返す候補数の既定値と上限（APIの`max_routes`）。
-DEFAULT_MAX_ROUTES = 8
-MAX_ROUTES = 15
-# 経由地を伴う生成が返す候補の数。経由地があるとレグごとの代替が組合せで増えるため、候補数の
-# 指定を使わず単一経路にする（`generate_via_waypoints`）。
-ROUTES_WITH_WAYPOINTS = 1
-
-
-def applied_max_routes(max_routes: int, *, has_waypoints: bool) -> int:
-    """その生成で実際に使う候補数の上限。画面も同じ値を生成物で受け取り、候補数の入力欄に出す。"""
-    return ROUTES_WITH_WAYPOINTS if has_waypoints else max_routes
-
 # 折返し点候補のプール上限: 距離フィルタや復路探索の失敗で落ちる分を見越して
 # max_routesの3倍（下限12・上限40）だけ選定し、合格が`max_routes`件に達した時点で
 # 早期停止する。
-TURNAROUND_POOL_FACTOR = 3
-TURNAROUND_POOL_MIN = 12
-TURNAROUND_POOL_MAX = 40
+_TURNAROUND_POOL_FACTOR = 3
+_TURNAROUND_POOL_MIN = 12
+_TURNAROUND_POOL_MAX = 40
 
 
 def turnaround_pool_size(max_routes: int) -> int:
     """`max_routes`件の合格候補を得るために選定する折返し点候補の件数。"""
-    return min(TURNAROUND_POOL_MAX, max(TURNAROUND_POOL_MIN, max_routes * TURNAROUND_POOL_FACTOR))
+    return min(_TURNAROUND_POOL_MAX, max(_TURNAROUND_POOL_MIN, max_routes * _TURNAROUND_POOL_FACTOR))
 
 
 #: 区間から候補単位へ集約する値（載せるフィールド → `segments`から作る関数）。
@@ -339,7 +327,7 @@ class RouteGenerator:
 
         trace_started = time.monotonic()
         try:
-            traced = await self._engine.trace_loop(context, full_waypoints, bearing=None)
+            traced = await self._engine.trace_loop(context, full_waypoints)
         except RoutingError as exc:
             logger.warning(
                 "generate(via_waypoints) origin=%s waypoints=%d destination=%s -> trace failed: %s",

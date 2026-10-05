@@ -23,7 +23,7 @@
 **`tile_runtime_scales`**: 地図表示の導出は、タイルの生値を材料の値へ換算する係数が実行時に
 しか決まらない材料（`MaterialSpec.tile_property_runtime_scale`）も対象に含めるが、係数の源
 （事故の収録年）はDBにしか無いため、`domain/axis_display.py`の純粋関数では求められない。
-本エンドポイントがリクエスト毎に1回だけ`RegionService`経由で収録年を読み、係数は
+本エンドポイントがリクエスト毎に1回だけ`services/axis_catalog_service.py`経由で収録年を読み、係数は
 `domain/material_catalog.py: tile_runtime_scales`が材料の宣言から導く。フロントのJS式ビルダーが
 これを取得しタイル生値に掛け合わせる。
 """
@@ -57,7 +57,7 @@ from app.domain.dynamic_way_values import (
 )
 from app.domain.registry import AxisDisplaySpec
 from app.domain.tuning import client_tuning_values
-from app.services.dedicated_way_values import dedicated_way_value_conditions
+from app.services.axis_catalog_service import axis_catalog_sources
 from app.services.region_service import RegionService
 from app.domain.strict_model import StrictModel
 
@@ -212,13 +212,14 @@ async def get_axis_catalog(region_service: RegionService = Depends(get_region_se
     # services/axis_registry_service.py参照）のため、DBへは触れずプロセス内の値を
     # そのまま返す（評価ホットパスと同じ同期アクセス方式）。axis_display_for()・
     # primary_attribute_ids_for()も同様にプロセス内メモリだけを見る純粋関数のため、
-    # リクエスト毎に呼んでもコストは無視できる。事故の収録年と、それから導く換算係数だけがDBを見る。
-    accident_years = await region_service.get_accident_years()
+    # リクエスト毎に呼んでもコストは無視できる。事故の収録年と、それから導く換算係数・タイルの世代だけがDBを見る。
+    published = [definition for definition in AXIS_DEFINITIONS.values() if definition.is_published]
+    sources = await axis_catalog_sources(region_service, [definition.axis_id for definition in published])
 
     return AxisCatalogResponse(
         client_tuning=client_tuning_values(),
-        accident_years=accident_years,
-        tile_versions=await region_service.tile_versions(),
+        accident_years=sources.accident_years,
+        tile_versions=sources.tile_versions,
         axes=[
             AxisCatalogEntry(
                 axis_id=definition.axis_id,
@@ -244,10 +245,9 @@ async def get_axis_catalog(region_service: RegionService = Depends(get_region_se
                 raw_value_unit=raw_value_unit(definition),
                 raw_value_total_unit=raw_value_total_unit(definition),
                 material_breakdown=_material_breakdown(definition),
-                dynamic_way_value_conditions=dedicated_way_value_conditions(definition.axis_id),
+                dynamic_way_value_conditions=sources.dynamic_way_value_conditions[definition.axis_id],
             )
-            for definition in AXIS_DEFINITIONS.values()
-            if definition.is_published
+            for definition in published
         ],
-        tile_runtime_scales=tile_runtime_scales(accident_years),
+        tile_runtime_scales=tile_runtime_scales(sources.accident_years),
     )

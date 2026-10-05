@@ -37,12 +37,15 @@ class JmaTileSpec:
 
     zoom_use: ZoomUse
     max_native_zoom: int
-    min_zoom: int = 4
     #: ベクタタイル（.pbf）の中のレイヤー名。ラスタの要素はNone。
     vector_layer: str | None = None
     #: 降水の段の色（`domain/weather_display.py: JMA_PRECIPITATION_TILE_COLORS`）で塗った画像で、中継がアプリの降水の段の
     #: 色へ塗り替えて配る（`infrastructure/jma_tile_recolor.py`）。
     precipitation_colors: bool = False
+
+
+#: どの要素も配信元に実データがある最小ズーム。
+JMA_TILE_MIN_ZOOM = 4
 
 
 def effective_max_zoom(spec: JmaTileSpec) -> int:
@@ -310,7 +313,7 @@ def has_native_tile(spec: JmaTileSpec, zoom: int) -> bool:
 
     `zoom_use`の偶奇に合わないズームは、配信元が200を返しても中身は空タイルになる。
     """
-    if zoom < spec.min_zoom or zoom > effective_max_zoom(spec):
+    if zoom < JMA_TILE_MIN_ZOOM or zoom > effective_max_zoom(spec):
         return False
     if spec.zoom_use == "even":
         return zoom % 2 == 0
@@ -323,16 +326,39 @@ def source_zoom_for_interpolation(element_id: str, zoom: int) -> int | None:
     """`zoom`のタイルを補間するために取得すべき親ズーム。補間が不要／不可能ならNone。
 
     `zoom_use`が偶奇を限る要素では、実データを持つズームが1つおきに並ぶため、親は常に
-    `zoom - 1`（そこは必ず反対の偶奇になる）。親が`min_zoom`を下回る場合は補間できない
+    `zoom - 1`（そこは必ず反対の偶奇になる）。親が`JMA_TILE_MIN_ZOOM`を下回る場合は補間できない
     （拡大の元が無い）。上限を超えるズームはMapLibre側のoverzoomが担うため対象外。
     """
     element = JMA_ELEMENTS.get(element_id)
     spec = element.tile if element is not None else None
     if spec is None or spec.zoom_use == "all":
         return None
-    if zoom > effective_max_zoom(spec) or zoom < spec.min_zoom:
+    if zoom > effective_max_zoom(spec) or zoom < JMA_TILE_MIN_ZOOM:
         return None
     if has_native_tile(spec, zoom):
         return None
     parent = zoom - 1
-    return parent if parent >= spec.min_zoom else None
+    return parent if parent >= JMA_TILE_MIN_ZOOM else None
+
+
+def with_interpolated_zooms(
+    element_id: str, zooms: dict[int, list[list[int]]]
+) -> dict[int, list[list[int]]]:
+    """実データのあるズームの在否（ズーム→中身のあるタイルの`[x, y]`）に、補間で埋めるズームの在否を親から補う。
+
+    補間結果が空になるのは親が空のときだけなので、**親に中身のあるタイルの4象限**を
+    そのまま子ズームの中身ありとする（追加の取得は要らない）。
+    """
+    if not zooms:
+        return zooms
+    filled = dict(zooms)
+    for zoom in range(min(zooms) + 1, effective_max_zoom(jma_tile_spec(element_id)) + 1):
+        if source_zoom_for_interpolation(element_id, zoom) is None:
+            continue
+        parents = filled.get(zoom - 1)
+        if not parents:
+            continue
+        filled[zoom] = [
+            [x * 2 + dx, y * 2 + dy] for x, y in parents for dx in (0, 1) for dy in (0, 1)
+        ]
+    return filled

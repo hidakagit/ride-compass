@@ -391,7 +391,7 @@ class NodeSpatialIndex:
 
 # 1セルの一辺（度）。緯度で約1.1km四方。探索半径を広げるコストとバケット数のトレードオフを
 # 取った経験的な値で、極端に不適切でなければ結果は変わらない（速さだけが変わる）。
-_DEFAULT_NODE_INDEX_CELL_SIZE_DEG = 0.01
+_NODE_INDEX_CELL_SIZE_DEG = 0.01
 #: 索引が覆う範囲のどれだけ外側までを「隣」として許すか（セル数）。範囲の縁をわずかに
 #: 外した点まで弾くと、読み込んだ地図の端をクリックしただけでスナップできなくなる。
 _NEIGHBOR_CELL_TOLERANCE = 1
@@ -401,7 +401,6 @@ def build_node_spatial_index(
     latitude: np.ndarray,
     longitude: np.ndarray,
     candidates: np.ndarray | None,
-    cell_size_deg: float = _DEFAULT_NODE_INDEX_CELL_SIZE_DEG,
 ) -> NodeSpatialIndex:
     """ノードの座標からグリッドバケット索引を構築する。ノードが1つも無くても空の
     索引を返す（`find_nearest_node_indexed`がNoneを返す）。
@@ -412,6 +411,7 @@ def build_node_spatial_index(
     latitude = np.asarray(latitude, dtype=np.float64)
     longitude = np.asarray(longitude, dtype=np.float64)
     ids = np.arange(len(latitude)) if candidates is None else np.flatnonzero(candidates)
+    cell_size_deg = _NODE_INDEX_CELL_SIZE_DEG
     if len(ids) == 0:
         return NodeSpatialIndex(
             latitude=latitude, longitude=longitude, cell_size_deg=cell_size_deg,
@@ -937,8 +937,6 @@ class TurnExpandedTree:
 
     # 仮想始点から各状態への最小コスト。到達不能はinf。
     state_cost: np.ndarray
-    # 木の親となる状態。始点の区間・到達不能は-1。
-    predecessor: np.ndarray
     # 木に沿った実距離（m）の積算。到達不能はNaN。
     state_length_m: np.ndarray
     # 木に沿った所要時間（秒）の積算。到達不能はinf。
@@ -949,8 +947,8 @@ class TurnExpandedTree:
     # `node_best_state`に対応する実距離（m）・所要時間（秒）。到達不能はNaN。
     node_length_m: np.ndarray
     node_seconds: np.ndarray
-    # `predecessor`のPython list版（numpy配列への添字アクセスより、経路復元の
-    # ループが速い）。既定値を持たせない——省略できると、渡し忘れた木が黙って
+    # 木の親となる状態。始点の区間・到達不能は-1。Pythonのlistで持つ（numpy配列への添字アクセスより、
+    # 経路復元のループが速い）。既定値を持たせない——省略できると、渡し忘れた木が黙って
     # 「どの状態からも経路が1本も辿れない」ふるまいになる。
     predecessor_list: list[int] = field(repr=False, compare=False)
 
@@ -1030,7 +1028,7 @@ def build_turn_expanded_tree(
         (time.perf_counter() - fold_started) * 1000,
     )
     return TurnExpandedTree(
-        state_cost=state_cost, predecessor=predecessor, state_length_m=state_length_m,
+        state_cost=state_cost, state_length_m=state_length_m,
         state_seconds=state_seconds, node_cost=node_cost, node_best_state=node_best_state,
         node_length_m=node_length_m, node_seconds=node_seconds,
         predecessor_list=predecessor.tolist(),

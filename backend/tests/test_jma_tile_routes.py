@@ -2,7 +2,7 @@
 
 確かめるのは、キャッシュ・補間・上流の結果がどの応答になるか（中身・404・502とブラウザに覚えさせる時間）、
 回数制限（429）をキャッシュの外れにだけ当てること、問い合わせの文字列を上流へ渡すこと、
-配信元が持たないズームを親タイルから補間して書き戻すこと（`services/jma_tile_interpolation_service.py`の段取りも
+配信元が持たないズームを親タイルから補間して書き戻すこと（`services/jma_tile_proxy_service.py`・`services/jma_tile_interpolation_service.py`の段取りも
 ここで通す）、インデックスの有無の応答。取得の口（`get_jma_tile_client`）は応答を差し替え、Redisは`fake_redis`で通す。
 
 ここで見ないもの:
@@ -113,8 +113,8 @@ def test_jma_tile_proxy_is_rate_limited_per_client_on_cache_miss(monkeypatch):
 
 
 def test_jma_tile_proxy_cache_hit_does_not_consume_rate_limit(monkeypatch):
-    """キャッシュヒットはレート制限を一切消費しない（以前は消費しており、既にキャッシュ済みの
-    タイルへの往復パンだけで429になっていた——ユーザー報告の直接原因）。"""
+    """キャッシュヒットはレート制限を一切消費しない（消費すると、キャッシュ済みのタイルを
+    往復するだけのパンで429になる）。"""
     _answer(monkeypatch, cached=(b"\x89PNG", "image/png"))
 
     _fill_rate_limit_but_one()

@@ -18,12 +18,10 @@ class LoopTurnaround:
     """`select_loop_turnarounds`が返す折返し点候補。
 
     `bearing`は起点から見た折返し点の方位で、表示ラベル用であり候補選定には使わない。
-    `outbound_difficulty`は往路の距離加重平均difficulty（0-100、算出不能ならNone）。
     `data`は復路探索に使う中間データで、型は探索の実装が決める。
     """
 
     bearing: int
-    outbound_difficulty: float | None
     data: Any
 
 

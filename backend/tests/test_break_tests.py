@@ -126,6 +126,29 @@ def test_tests_failing_before_breaking_refuse_and_leave_the_implementation(repo)
     assert _git(repo, "status", "--short") == ""
 
 
+_BREAK_AT_IMPORT = ("def sign(x):", 'LIMIT = int("x")\n\n\ndef sign(x):')
+
+
+def test_a_breakage_stopping_at_conftest_import_is_reported_and_the_next_one_runs(repo, capsys):
+    _commit(repo, {"backend/tests/conftest.py": "import calc\n"})
+
+    code = _run(repo, [_entry(*_BREAK_AT_IMPORT, name="宣言"), _entry("x < 0", "x > 0")])
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "[1] 宣言\n  壊した所: backend/calc.py\n  テストの前に止まった（(b)）: ValueError: invalid literal" in out
+    assert "backend/tests/test_calc.py > test_negative" in out
+    assert "落ちなかった件: なし" in out
+    assert _git(repo, "status", "--short") == ""
+
+
+def test_tests_stopping_before_breaking_refuse(repo):
+    _commit(repo, {"backend/tests/conftest.py": "import calc\nint('x')\n"})
+
+    with pytest.raises(bt.Refused, match="結果を書かなかった"):
+        _run(repo, [_entry("x < 0", "x > 0")])
+
+
 def test_vitest_report_gives_failed_tests_and_files_that_failed_to_load(tmp_path):
     frontend = tmp_path / "frontend"
     report = {"testResults": [

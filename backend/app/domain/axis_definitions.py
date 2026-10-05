@@ -418,8 +418,8 @@ AXIS_DEFINITIONS: dict[str, AxisDefinition] = {}
 class AxisMaterialConflictError(ValueError):
     """新規/更新しようとした軸の材料が、既存の別軸と重複している場合に送出する。
 
-    「1つの材料は原則1つの軸だけが使う」原則を、ルーティング計算を駆動する
-    `AXIS_DEFINITIONS`への書き込み時に強制する（この原則の唯一の検査）。軸スタジオで
+    「1つの材料は原則1つの軸だけが使う」原則を、ルーティング計算を駆動する軸の集合の検査
+    （`check_axis_set`。起動時の読み込みと書き込みの両方が通す）で強制する。軸スタジオで
     任意の軸を登録できるため、既存軸が使う材料を新軸が黙って再利用し二重計上が混入する
     事故を構造的に防ぐ。
     """
@@ -808,6 +808,28 @@ def topological_axis_order(definitions: dict[str, AxisDefinition]) -> list[str]:
 
     _topological_order_cache[cache_key] = order
     return order
+
+
+def check_axis_set(definitions: dict[str, AxisDefinition]) -> None:
+    """軸の集合を受け入れるか。軸1本ずつの`check_axis_definition`では見えない、集合で決まる不変条件。
+
+    - 軸idが材料idと重ならない: 軸の評価結果は材料と同じ辞書へ書き戻されるため、重なると同名の材料の値を
+      黙って上書きし、それ以降に評価される軸が壊れる。
+    - 1つの材料を2つの軸で数えない（`check_material_exclusivity`）。重なりは後に並ぶ軸の誤りとして名指す
+      ——書き込みは書いた軸を最後に並べて渡すので、断りの文が書いた軸の側から読める。
+    - 組み合わせが輪にならない（`topological_axis_order`）。
+
+    起動時の読み込み（バックアップから戻した行も）と管理APIの書き込みの両方がこれを通す。内部軸を公開しないことは
+    含めない——時刻で変わる軸が公開軸を組み合わせる形（`_check_dynamic_and_static_materials_are_not_mixed`が案内する）を
+    拒むことになるため、書き込みの`check_internal_axis_not_published`だけが見る。
+    """
+    earlier: dict[str, AxisDefinition] = {}
+    for axis_id, definition in definitions.items():
+        if material_catalog.is_known_material(axis_id):
+            raise ValueError(f"axis_id={axis_id} は既存の材料idと衝突しています")
+        check_material_exclusivity(definition, earlier)
+        earlier[axis_id] = definition
+    topological_axis_order(definitions)
 
 
 # リクエストごとに値が変わりうる材料id（風向・風速・走行速度由来）。`MATERIAL_CATALOG`の

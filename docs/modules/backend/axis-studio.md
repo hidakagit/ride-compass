@@ -13,13 +13,13 @@
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `axis_definitions.py`・`axis_display.py`・`axis_raw_value.py`・`axis_templates.py`・`registry.py` |
-| services | `axis_registry_service.py`・`axis_preview_service.py` |
+| domain | `axis_definitions.py`・`axis_display.py`・`axis_raw_value.py`・`axis_templates.py`・`registry.py`・`value_distribution.py`（延長で重み付けた分位点とヒストグラム。分布の口の応答の型） |
+| services | `axis_registry_service.py`・`axis_preview_service.py`・`axis_catalog_service.py`（軸カタログが軸の宣言のほかに要る値——事故の収録年・タイルの世代・専用配信の条件——を1回で読む） |
 | infrastructure | `axis_definition_models.py`・`axis_definition_repository.py` |
 | api | `axis_admin.py`・`axis_catalog.py` |
 | scripts | `measure_axis_saturation.py`・`axis_apply.py` |
 
-## 分布プレビュー・材料の値の一覧（`services/axis_preview_service.py`）
+## 分布プレビュー・材料の値の一覧（`services/axis_preview_service.py`・`domain/value_distribution.py`）
 
 軸スタジオが折れ点を編集している最中に、**その設定で実データがどう分布するか**を返す。
 
@@ -364,7 +364,7 @@ DB側の値が変わっても追従しない。軸の中身が主題でないテ
 語彙は材料カタログと同じファイルのタプル`PRIMARY_ATTRIBUTES`が宣言し、同じ`attr_id`を2度宣言すると
 モジュールのimport時に落ちる（読む側はidで1件を引くため、後の宣言が黙って消える）。軸は含まない——
 材料が2つの軸へ跨がらないことの検査は`AXIS_DEFINITIONS`側の`check_material_exclusivity`/
-`AxisMaterialConflictError`（軸の書き込み時）だけが持つ。
+`AxisMaterialConflictError`（軸の集合の検査`check_axis_set`）だけが持つ。
 
 材料（`MaterialSpec.primary_attribute`）は一次属性を
 idの文字列ではなく宣言そのもので指す。材料が指す要素には`PRIMARY_ATTRIBUTES`の表の中で`:=`により
@@ -467,6 +467,22 @@ idのまま出す。書き込み時のガード・削除の断り（下の「書
   参照する材料も含める**。動的軸かどうかを判定する`_axes_depending_on_materials`が
   同じ導出を根拠にしているため、検証側だけ`shape.terms`に絞ると素通りした軸が実行時に落ちる。
 
+### 軸の集合の検査（`domain/axis_definitions.py: check_axis_set`）
+
+軸1本ずつでは決まらず、軸の集合で決まる不変条件。起動時の読み込み（バックアップから戻した行も）と管理APIの書き込みが
+同じ関数を通す。
+
+- 軸idが材料idと重ならない——軸の評価結果は材料と同じ辞書へ書き戻されるため、重なると同名の材料の値を黙って上書きする。
+- 1つの材料を2つの軸で数えない（`check_material_exclusivity`）。重なりは後に並ぶ軸の誤りとして名指す（作成・更新の書き込みは
+  書いた軸を最後に並べて渡す（`services/axis_registry_service.py: _check_loadable_after_write`）ので、断りの文が書いた軸の側から読める）。
+- 組み合わせが輪にならない（`topological_axis_order`）。
+
+書き込みの断りは例外の文（表示名で名指す）のまま返し、起動時の読み込みの失敗は例外が持つid（重なった2軸・輪の並び）で
+文を組み直す（`services/axis_registry_service.py: _loading_problem`。上の「検証の文」）。
+
+組み合わせに使われる軸を公開しないこと（`check_internal_axis_not_published`）は含めず、書き込みだけが見る——時刻で
+変わる軸が公開軸を組み合わせる形（上の動的材料と静的材料を混在させない条件が案内する形）を拒むことになるため。
+
 ### 書き込み時だけの検証（`AxisDefinitionPayload`）
 
 `dedicated_way_value_layer`を立てられるのは、フィーチャー→値配信の実装
@@ -479,13 +495,13 @@ idのまま出す。書き込み時のガード・削除の断り（下の「書
 
 | 操作 | ガード |
 |---|---|
-| create | axis_idが既存材料idと衝突していないか（衝突すると評価時に材料値を黙って上書きする）。材料の排他帰属。内部軸の誤公開防止。循環参照検出 |
-| update | 公開済みは原則拒否（`check_publish_immutability`）。ただし`candidate`引数を渡すと、表示専用フィールドのみの差分（`is_cosmetic_only_update`）なら公開済みでも許可する。材料の排他帰属。内部軸の誤公開防止。循環参照検出 |
+| create | axis_idの重複。内部軸の誤公開防止 |
+| update | 公開済みは原則拒否（`check_publish_immutability`）。ただし`candidate`引数を渡すと、表示専用フィールドのみの差分（`is_cosmetic_only_update`）なら公開済みでも許可する。内部軸の誤公開防止 |
 | delete | 公開済みは拒否 |
 | unpublish | `is_published`のみを変更する専用操作（`update()`は使えない、公開済みは拒否されるため） |
 
 create/update/deleteは、確定する前に**書いた後の全軸**を起動時の読み込みと同じ判定
-（0行と、`check_axis_definition`に通らない軸。`services/axis_registry_service.py: _rejected_axes`）へ通し、通らなければ確定しない。
+（0行と、`check_axis_definition`に通らない軸（`services/axis_registry_service.py: _rejected_axes`）と、下の軸の集合の検査）へ通し、通らなければ確定しない。
 確定してから反映（`refresh_axis_definitions`）で通らないと分かっても、行は既にDBにあり、次の起動が止まる。
 削除では、ほかの軸（材料・0次条件のどちらでも）が参照している軸と最後の1軸がこれで止まる——内部軸を
 整理するときは、参照している軸を先に直すか消す。判定を別に持たないので、読み込みの規則が増えれば
@@ -493,10 +509,11 @@ create/update/deleteは、確定する前に**書いた後の全軸**を起動�
 
 削除の断り（`services/axis_registry_service.py: _check_deletable`）は、消す軸と、それを組み合わせに使っている軸を
 表示名で名指し、先に外すか消すという次の手を書く。消す前の全軸は読み込みを通っているので、消した後に判定を
-通らなくなる軸は、消す軸を指している軸だけである（判定のうち軸の集合で答えが変わるのは参照先の実在だけ）。
+通らなくなる軸は、消す軸を指している軸だけである（判定のうち軸を減らして破れうるのは参照先の実在だけで、軸の集合の検査は軸を減らしても破れない）。
 
 いずれの書き込みも「DB commit → `refresh_axis_definitions`呼び出し」で完結する
-（1操作=1トランザクション）。
+（1操作=1トランザクション）。create/update/unpublishは書いた後の全軸を返し、管理APIの応答（公開したときの重みの割合）は
+それから組む——書いたあとに一覧を読み直さない。
 
 create/update/delete/unpublishはいずれも冒頭で`AxisDefinitionRepository.
 acquire_write_lock()`（PostgreSQLのトランザクションスコープadvisory lock）を呼び、

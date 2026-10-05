@@ -7,6 +7,8 @@ import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 export const WEIGHT_STEP = 0.01;
 const MIN_AXIS_WEIGHT = WEIGHT_STEP;
 export const MAX_AXIS_WEIGHT = routeGenerateConfig.max_axis_weight;
+/** 既定の重みが0の軸を入れたときの重み（backendの宣言）。 */
+export const ENABLED_AXIS_WEIGHT = routeGenerateConfig.enabled_axis_weight;
 
 function roundToStep(value: number): number {
   return Number(value.toFixed(2));

@@ -27,7 +27,14 @@ from app.domain.wind_grid import (  # noqa: E402
     WIND_GRID_DETAIL_MIN_SPACING_DEG,
     WIND_GRID_SPACING_DEG,
 )
-from app.domain.route_request import DEFAULT_DISTANCE_TOLERANCE_KM, MAX_ROUTE_DISTANCE_KM, MAX_WAYPOINTS  # noqa: E402
+from app.domain.route_request import (  # noqa: E402
+    DEFAULT_DISTANCE_TOLERANCE_KM,
+    DEFAULT_MAX_ROUTES,
+    MAX_ROUTE_DISTANCE_KM,
+    MAX_ROUTES,
+    MAX_WAYPOINTS,
+    ROUTES_WITH_WAYPOINTS,
+)
 from app.api.routers.axis_admin import AxisDefinitionPayload  # noqa: E402
 from app.api.routers.debug_admin import LogLevelName  # noqa: E402
 from app.infrastructure.source_models import SOURCE_RUN_STATUS_LABELS  # noqa: E402
@@ -78,8 +85,6 @@ from app.domain.map_display import (  # noqa: E402
     WEATHER_MARK_HALO_WIDTH_PX,
     WIND_FULL_SCALE_MS,
     WIND_ICON_SCALE_RANGE,
-    POINT_FATAL_RADIUS_PX,
-    POINT_NON_FATAL_RADIUS_PX,
     POINT_OPACITY_BY_ATTR,
     POINT_RADIUS_PX,
     POINT_ICON_SIZE_PX,
@@ -124,7 +129,7 @@ from app.domain.landcover import (  # noqa: E402
     LANDCOVER_TILE_MIN_ZOOM,
 )
 from app.services.landcover_tile_service import LANDCOVER_TILE_VERSION  # noqa: E402
-from app.domain.jma_tile_specs import effective_max_zoom  # noqa: E402
+from app.domain.jma_tile_specs import JMA_TILE_MIN_ZOOM, effective_max_zoom  # noqa: E402
 from app.domain.material_catalog import (  # noqa: E402
     MATERIAL_CATALOG,
     MISSING_SEMANTICS_DISPLAY,
@@ -134,16 +139,11 @@ from app.domain.material_catalog import (  # noqa: E402
 )
 from app.domain.region import ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM  # noqa: E402
 from app.domain.leg_costs import MAX_TIME_BINS, TIME_BIN_HOURS  # noqa: E402
-from app.services.route_generator import (  # noqa: E402
-    DEFAULT_MAX_ROUTES,
-    MAX_ROUTES,
-    ROUTES_WITH_WAYPOINTS,
-    SPLICED_ROUTE_ID,
-)
+from app.services.route_generator import SPLICED_ROUTE_ID  # noqa: E402
 from app.config import Settings  # noqa: E402
 from app.domain.loop_routing import WAYPOINTS_ROUTE_ID  # noqa: E402
 from app.domain.region import MAX_MERCATOR_LATITUDE  # noqa: E402
-from app.domain.route_preference import MAX_AXIS_WEIGHT  # noqa: E402
+from app.domain.route_preference import ENABLED_AXIS_WEIGHT, MAX_AXIS_WEIGHT  # noqa: E402
 from app.domain.tuning import client_tuning_values  # noqa: E402
 from app.domain.weather import PRECIPITATION_MIN_MM  # noqa: E402
 from app.infrastructure.msm_client import DEFAULT_UPDATE_INTERVAL_SECONDS as MSM_UPDATE_INTERVAL_SECONDS  # noqa: E402
@@ -253,7 +253,7 @@ def _weather_element_entry(element: WeatherElement) -> dict:
         "tile": None
         if tile is None
         else {
-            "minZoom": tile.min_zoom,
+            "minZoom": JMA_TILE_MIN_ZOOM,
             "maxZoom": effective_max_zoom(tile),
             "vectorLayer": tile.vector_layer,
         },
@@ -372,8 +372,6 @@ def main() -> None:
             },
             "point": {
                 "radiusPx": POINT_RADIUS_PX,
-                "fatalRadiusPx": POINT_FATAL_RADIUS_PX,
-                "nonFatalRadiusPx": POINT_NON_FATAL_RADIUS_PX,
                 "strokeWidthPx": POINT_STROKE_WIDTH_PX,
                 "iconSizePx": POINT_ICON_SIZE_PX,
                 "opacityByLayer": POINT_OPACITY_BY_ATTR,
@@ -565,6 +563,7 @@ def main() -> None:
             "spliced_route_id": SPLICED_ROUTE_ID,
             "waypoints_route_id": WAYPOINTS_ROUTE_ID,
             "max_axis_weight": MAX_AXIS_WEIGHT,
+            "enabled_axis_weight": ENABLED_AXIS_WEIGHT,
             "min_assumed_speed_kmh": MIN_ASSUMED_SPEED_KMH,
             "max_assumed_speed_kmh": MAX_ASSUMED_SPEED_KMH,
             # フロントのポーリングの打ち切り。backendが結果を持つ時間より長く待つと、

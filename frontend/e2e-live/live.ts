@@ -6,7 +6,7 @@ import regionTileConfig from "@/types/generated/region-tile-config.json";
 import { installMapFinder } from "../e2e/fixtures";
 import { installPageHelpers } from "../e2e/states";
 
-// 実backend・開発DBへ向けて回すe2eの共通の段取りと観測（docs/conventions/testing.md パターン4「走らせ方」）。
+// 実backend・開発DBへ向けて回すe2eの共通の段取りと観測（docs/conventions/testing-operations.md「E2E・画面の撮影の走らせ方」）。
 // 期待値は値そのものではなく性質（1件以上ある・2つの出どころが食い違わない・エラー0件）で書く。
 
 /** 手元のbackend。アプリのビルドが埋め込む向け先（`NEXT_PUBLIC_API_URL`の既定）と同じ。 */
@@ -208,7 +208,7 @@ export async function renderedRoads(page: Page, sourceId: string): Promise<Recor
 }
 
 /**
- * 幹の終点から枝を1本見て、元へ戻す。戻せたかはT1078と同じ指紋（開閉の値と倍率）で確かめ、戻らなければ違反として落とす。
+ * 幹の終点から枝を1本見て、元へ戻す。戻せたかは地図の指紋（`window.__e2e.settle()`の`fp`。開閉の値と倍率）で確かめ、戻らなければ違反として落とす。
  * 枝の失敗（`expect.soft`）は他の枝を止めない。
  */
 export async function branch(page: Page, name: string, body: () => Promise<void>, restore: () => Promise<void>) {

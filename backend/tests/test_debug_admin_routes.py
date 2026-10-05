@@ -51,7 +51,7 @@ def test_read_mode_reflects_current_state(admin_credentials):
     assert response.json() == {"debug_mode": True}
 
 
-# --- ログ取得（リングバッファ、T318のユースケース: containsで絞り込み） ---
+# --- ログ取得（リングバッファ、containsで絞り込み） ---
 
 
 def test_read_logs_filters_by_contains(admin_credentials):

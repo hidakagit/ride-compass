@@ -55,7 +55,7 @@ function isWeights(value: unknown): value is RoutePreferenceWeights {
     typeof value === "object" &&
     value !== null &&
     !Array.isArray(value) &&
-    Object.values(value).every((weight) => typeof weight === "number" && Number.isFinite(weight))
+    Object.values(value).every((weight) => typeof weight === "number" && Number.isFinite(weight) && weight >= 0)
   );
 }
 

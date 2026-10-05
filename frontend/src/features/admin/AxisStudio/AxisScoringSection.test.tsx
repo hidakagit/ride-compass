@@ -13,7 +13,7 @@
  * - 読むだけの問い合わせへ送ったか・何を送ったか（応答を与えるだけにする）
  */
 import { useState } from "react";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -109,7 +109,8 @@ function serveValues(materialId: string, response: MaterialValuesResponse) {
   );
 }
 
-/** 取得の応答が届くだけの間をおく。 */
+/** 取得の応答が届くだけの間をおく（出ないことを確かめるため。届いた値を確かめるときは、その値が出るまで待つ。届くまでの
+ * 時間は CI の負荷で変わる）。 */
 const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 50)));
 
 /** 点数は、分布が届いて階級の代表値が決まると、入力が落ち着くのを待って取り直す。その答えが届くまで待つ。 */
@@ -242,8 +243,10 @@ describe("折れ線の形", () => {
     renderSection(linearDraft({ terms: terms.map((term) => ({ ...term, required: true })) }));
     await settle();
     expect(screen.queryAllByRole("slider", { name: "係数(スライダー)" })).toHaveLength(ranges.length);
-    expect(screen.queryAllByText(/^実データ/).map((hint) => hint.textContent)).toEqual(
-      ranges.map((range) => `実データ: ${range}`),
+    await waitFor(() =>
+      expect(screen.queryAllByText(/^実データ/).map((hint) => hint.textContent)).toEqual(
+        ranges.map((range) => `実データ: ${range}`),
+      ),
     );
   });
 
@@ -555,7 +558,7 @@ describe("はい/いいえ・種類の形", () => {
       expect(screen.queryByRole("combobox", { name: "値の候補" })).not.toBeInTheDocument();
       await user.click(screen.getByRole("button", { name: /値ごとのスコアの説明/ }));
       expect(await screen.findByText(/タグ値と完全に一致する文字列/)).toBeInTheDocument();
-      expect(screen.queryByText(/候補を取得できませんでした/) !== null).toBe(reason);
+      await waitFor(() => expect(screen.queryByText(/候補を取得できませんでした/) !== null).toBe(reason));
     },
   );
 

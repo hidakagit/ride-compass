@@ -11,7 +11,8 @@ export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 1 : 0,
+  // 再試行しない（docs/conventions/testing.md「テストの足場で、本来のNGを覆わない」）。
+  retries: 0,
   // 1つのサーバーへ複数のChromiumが同時に地図（MapLibre・WASM）を読みに行くと、開発機では
   // ページ遷移とフックが30秒の枠を超える。CIのランナーはジョブ専有なので既定のまま。
   workers: process.env.CI ? undefined : 1,

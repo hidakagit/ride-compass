@@ -27,10 +27,11 @@ from app.domain.difficulty import OverallDifficulty
 from app.domain.errors import SearchAreaTooLargeError
 from app.domain.loop_routing import LoopTurnaround, TracedLoop
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
+from app.domain.route_request import DEFAULT_MAX_ROUTES, MAX_ROUTES
 from app.domain.time_zone import JST
 from app.services import route_generator
 from app.services.road_graph_engine import RoadGraphEngine
-from app.services.route_generator import DEFAULT_MAX_ROUTES, RouteGenerator
+from app.services.route_generator import RouteGenerator
 from tests.bound_fake import bound
 
 ORIGIN = Coordinates(latitude=35.6789, longitude=139.7712)
@@ -84,7 +85,7 @@ def _context(no_candidates_side=None) -> SimpleNamespace:
 
 def _turnaround(outcome: TracedLoop | Exception) -> LoopTurnaround:
     """復路探索の結果（または失敗）を`data`に抱えた折返し点。`data`はエンジンだけが読む。"""
-    return LoopTurnaround(bearing=0, outbound_difficulty=None, data=outcome)
+    return LoopTurnaround(bearing=0, data=outcome)
 
 
 _UNSET = object()
@@ -151,7 +152,7 @@ class FakeEngine:
         return [self.candidates[t.data[0]] for t in traced]
 
     @_engine_method
-    async def trace_loop(self, context, waypoints, bearing):
+    async def trace_loop(self, context, waypoints):
         if self.trace_error is not None:
             raise self.trace_error
         return self.waypoint_loop
@@ -270,10 +271,12 @@ async def test_evaluation_that_does_not_answer_every_route_is_an_error():
 # ---- 周回 ----
 
 
-def test_turnaround_pool_can_always_fill_the_requested_routes_and_is_capped():
-    for max_routes in range(1, route_generator.MAX_ROUTES + 1):
+def test_turnaround_pool_can_always_fill_the_requested_routes_and_fits_the_diverse_selection():
+    """折返し点の候補は、求める件数を下回らず、渡す先の多様な選定（`domain/routing.py: select_diverse_by_overlap`）が
+    採れる件数（採用済みを64bitのマスクで持つため64件）を超えない。"""
+    for max_routes in range(1, MAX_ROUTES + 1):
         pool = route_generator.turnaround_pool_size(max_routes)
-        assert max_routes <= pool <= route_generator.TURNAROUND_POOL_MAX
+        assert max_routes <= pool <= 64
 
 
 async def test_loops_without_turnarounds_say_how_far_was_searched(caplog):

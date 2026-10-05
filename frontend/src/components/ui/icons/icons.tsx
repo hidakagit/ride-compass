@@ -241,7 +241,7 @@ export function OnewayIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** 事故（外部静的データソース T50）: 衝突を示す星形バースト */
+/** 事故: 衝突を示す星形バースト */
 export function AccidentIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>

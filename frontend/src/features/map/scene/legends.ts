@@ -74,7 +74,7 @@ function pointAxisLegend(layer: (typeof POINT_LAYERS)[number], axis: PointAxis, 
             label: category.label,
             description: category.description,
             color: palette.semantic.legend_size_only,
-            diameterPx: 2 * pointCategoryRadiusPx(layer, axis, category),
+            diameterPx: 2 * pointCategoryRadiusPx(category),
           },
     ),
   };

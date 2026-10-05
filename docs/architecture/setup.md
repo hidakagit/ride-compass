@@ -4,7 +4,7 @@
 
 ## テスト
 
-手元で検査とテストを回すかと、回すときの範囲は[../conventions/testing.md](../conventions/testing.md)「手元の検査の回し方」が決める。
+手元で検査とテストを回すかと、回すときの範囲は[../conventions/testing-operations.md](../conventions/testing-operations.md)「手元の検査の回し方」が決める。
 ここには、回すときの開発機での前提と所要を置く。
 
 ```bash
@@ -20,7 +20,7 @@ backendのフルスイートは開発機で5〜10分かかる（CIは`-n auto`�
 
 PostGIS統合テスト（`road_graph_session`フィクスチャを使うもの。`postgis`マーカー付き）は、
 テスト専用DB（既定は作業ツリーごとのDB、`TEST_DATABASE_URL`で上書き可。
-[testing.md](../conventions/testing.md)「テストDBは作業ツリーごとに分かれる」）へ接続できないと
+[testing-operations.md](../conventions/testing-operations.md)「テストDBは作業ツリーごとに分かれる」）へ接続できないと
 落ちる（スキップにはしない。`backend/tests/conftest.py`）。DBの無い環境では
 `-m "not postgis"`で除外して回す。
 
@@ -31,6 +31,7 @@ PostGIS統合テスト（`road_graph_session`フィクスチャを使うもの�
 実行口で`scripts/checkout_freshness.py`を呼ぶ。HEAD が origin/master を含まなければ、master にいて追跡しているファイルに
 変更が無いときだけ早送りして進み、それ以外（別の枝・変更あり）は何コミット遅れかと追いつくコマンドを出して止まる。作業ブランチでも、origin/master の上に載っていれば止まらない。
 作業ツリーの変更は遅れに数えない。
+早送りを master にいて変更が無いときだけに絞るのは、ほかの枝・変更のある作業ツリーでは並行のセッションが作業中かもしれないため。
 
 | 道具 | 呼ぶところ | 版に左右される理由 |
 |---|---|---|
@@ -39,10 +40,6 @@ PostGIS統合テスト（`road_graph_session`フィクスチャを使うもの�
 
 開発機の手元のスクリプト（リポジトリに入れないもの）で本体のコードを流すものは、上の道具を経由するか、
 頭で`python <本体>/scripts/checkout_freshness.py`を打って終了コードを見る。
-
-`python scripts/checkout_freshness.py --sync`は、master にいて追跡しているファイルに変更が無いときだけ
-早送りし、結果を1行出す（ほかの枝・変更のある作業ツリーには触らない。並行のセッションが作業中かもしれない
-ため）。上の道具も、遅れていれば同じ条件で早送りしてから進む。
 
 ## Windowsの開発機でのBashの長さの上限
 

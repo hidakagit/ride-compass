@@ -16,6 +16,9 @@ testing.md「そのテストは要るか（3問を順に）」の、消す・ま
 - 壊す前に、全部の件のテストを壊さずに1回回し、落ちるものがあれば回さない（落ちていると、どの壊れ方でも落ちたと出る）。
 - 1件ずつ、実装の before を after へ置き換え → その件のテストだけを回す（frontend/ は vitest、backend/ は pytest）→ 元の中身を
   書き戻す → `git diff --exit-code HEAD -- <実装>` で戻ったことを見る。テストが止まっても止められても、書き戻してから終わる。
+- 壊した後にテストの道具が結果を書かずに止まったら（宣言を壊して `tests/conftest.py` の import で止まる等）、断らずに
+  止まり方の1行（pytest の `E` で始まる最初の行）を出し、その件を止まった（testing.md の (b)）として次の件へ進む。
+  壊す前の回しで結果を書かなかったときは、壊れ方と関わりなく止まっているので断る。
 - `--ref` を渡すと、その版の同じパスのテストを元の隣へ一時の名前で書き出して一緒に回し、前の版で落ちたテストを別に出す
   （前の版が落ちて今のテストが通れば、まとめた先が見ていない）。書き出したものは終わるときに消す。その版に無いテストの
   ファイル（新しく足したもの）は書き出さず、件ごとにその版に無いと出す（前の版はその壊れ方で何も落ちない）。
@@ -42,7 +45,18 @@ _KEYS = ("name", "file", "before", "after", "tests")
 
 
 class Refused(Exception):
-    """回さずに断る（一覧が合わない・壊す前に落ちる・戻らない・テストの道具が結果を書かない）。"""
+    """回さずに断る（一覧が合わない・壊す前に落ちる・壊す前にテストの道具が結果を書かない・戻らない）。"""
+
+
+class Stopped(Exception):
+    """テストの道具が結果を書く前に止まった（conftest の import で止まる等）。"""
+
+    def __init__(self, side: str, output: str):
+        super().__init__(f"{side} のテストが結果を書かなかった:\n{output}")
+        lines = [line for line in output.splitlines() if line.strip()]
+        errors = [line.removeprefix("E").strip() for line in lines if line.startswith("E ")]
+        # 止まり方の1行: pytest は例外を `E` の行で出す。無ければ最後の行
+        self.line = errors[0] if errors else (lines[-1] if lines else "（出力なし）")
 
 
 @dataclass(frozen=True)
@@ -174,7 +188,7 @@ def run_tests(repo: Path, tests: list[str], out: Path) -> list[tuple[str, str]]:
     result = subprocess.run(command, cwd=cwd, env=env, capture_output=True, text=True, encoding="utf-8",
                             errors="replace", check=False)
     if not report.exists():
-        raise Refused(f"{side} のテストが結果を書かなかった:\n{result.stdout}\n{result.stderr}")
+        raise Stopped(side, f"{result.stdout}\n{result.stderr}")
     if side == "frontend":
         return vitest_failures(json.loads(report.read_text(encoding="utf-8")), cwd)
     return pytest_failures(ET.parse(report).getroot())
@@ -190,7 +204,10 @@ def run(repo: Path, breakages: list[Breakage], ref: str | None) -> int:
     with tempfile.TemporaryDirectory() as directory, ref_copies(repo, ref, tests) as copies:
         out = Path(directory)
         copy_of = {test: copy for copy, test in copies.items()}
-        broken_before = [f for group in _by_side(tests + list(copies)) for f in run_tests(repo, group, out)]
+        try:
+            broken_before = [f for group in _by_side(tests + list(copies)) for f in run_tests(repo, group, out)]
+        except Stopped as stopped:
+            raise Refused(str(stopped)) from None
         if broken_before:
             raise Refused("壊す前に落ちるテストがあるので回さない:\n"
                           + "\n".join(f"  {file} > {name}" for file, name in broken_before))
@@ -198,9 +215,12 @@ def run(repo: Path, breakages: list[Breakage], ref: str | None) -> int:
         for number, b in enumerate(breakages, 1):
             path = repo / b.file
             original = path.read_bytes()
+            stopped = None
             try:
                 path.write_bytes(original.replace(b.before.encode("utf-8"), b.after.encode("utf-8"), 1))
                 failures = run_tests(repo, [*b.tests, *(copy_of[t] for t in b.tests if t in copy_of)], out)
+            except Stopped as error:
+                stopped, failures = error, []
             finally:
                 path.write_bytes(original)
             if _git(repo, "diff", "--quiet", "HEAD", "--", b.file).returncode != 0:
@@ -209,16 +229,19 @@ def run(repo: Path, breakages: list[Breakage], ref: str | None) -> int:
             before = sorted((copies[file], name) for file, name in failures if file in copies)
             print(f"[{number}] {b.name}")
             print(f"  壊した所: {b.file}")
-            print(f"  落ちた（作業ツリーのテスト）: {len(now)}本")
-            print("".join(f"    {file} > {name}\n" for file, name in now), end="")
-            if ref:
+            if stopped:
+                print(f"  テストの前に止まった（(b)）: {stopped.line}")
+            else:
+                print(f"  落ちた（作業ツリーのテスト）: {len(now)}本")
+                print("".join(f"    {file} > {name}\n" for file, name in now), end="")
+            if ref and not stopped:
                 print(f"  落ちた（{ref} のテスト）: {len(before)}本")
                 print("".join(f"    {file} > {name}\n" for file, name in before), end="")
                 absent = [test for test in b.tests if test not in copy_of]
                 if absent:
                     print(f"  {ref} に無いテストのファイル: {', '.join(absent)}")
             print("  実装は戻った")
-            if not now:
+            if not now and not stopped:
                 silent.append(f"[{number}] {b.name}")
     print(f"落ちなかった件: {'、'.join(silent) or 'なし'}")
     return 1 if silent else 0

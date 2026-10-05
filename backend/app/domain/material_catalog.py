@@ -38,7 +38,7 @@ from app.domain.landcover import (
     landcover_key,
     landcover_tile_property,
 )
-from app.domain.registry import DisplayAxisSpec, DisplayCategorySpec, PrimaryAttributeSpec
+from app.domain.registry import DisplayAxisSpec, DisplayCategorySpec, PointFactSpec, PrimaryAttributeSpec
 
 from app.domain.material_sql import (
     BICYCLE_NORMALIZED_SQL,
@@ -171,6 +171,8 @@ def _landcover_coverage(key: str) -> EdgeMaterialCoverageSpec:
 
 _CYCLEWAY_TAGS_ALL_ABSENT = " AND ".join(f"tags->>'{tag}' IS NULL" for tag in CYCLEWAY_TAG_NAMES)
 _CYCLEWAY_SOURCE = "OSM wayのタグ cycleway / cycleway:left / cycleway:right / cycleway:both（いずれも無い場合に欠損）"
+#: 生データの道は親の表のCHECK（`infrastructure/source_models.py: source_features_way_has_kind`）でhighwayを必ず持つ。
+_HIGHWAY_ALWAYS_PRESENT = "生データの道はDBの制約でhighwayタグを必ず持ち、欠損が無い"
 _EDGE_COUNTS_PRESENT_CONDITION = "em.intersection_count IS NOT NULL"
 _EDGE_COUNTS_SOURCE = "edge_materialsの数の列が埋まっているか"
 
@@ -251,9 +253,8 @@ class MaterialSpec(StrictModel):
     # この材料が読む自前のMSM格子の値（`weather_elements.py: GridValue`）。一次属性を持たない動的な材料の
     # 元データを、同じ格子の値を描く気象のチップ（`WeatherElement.grid_value`）が地図に見せる。
     weather_grid_value: GridValue | None = None
-    # この材料の値をDBから求めるSQL式。読み出し側（`road_graph_repository.py`）が
-    # エイリアス（区間なら`re`/`c`/`e`/`el`/`wl`/`d`、wayなら同名の別ソース）を用意し、
-    # この式をそのまま並べる。Noneは「SQLでは求められない」——リクエスト時に決まる風、
+    # この材料の値をDBから求めるSQL式。読み出し側がFROM句で固定の別名（`material_sql.py`の
+    # モジュールの説明の表）を用意し、この式をそのまま並べる。Noneは「SQLでは求められない」——リクエスト時に決まる風、
     # 評価へ配線していないDEFER材料。**材料の値の求め方をここ以外へ書かない**
     # （設計原則 構造仕様8。別の辞書へ分けると、材料を増やしたとき片方が取り残される）。
     value_sql: str | None = None
@@ -694,16 +695,19 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
                         label="死亡事故",
                         values=(True,),
                         description="死者が1人以上記録された事故[警察庁の交通事故統計の死者数]。",
+                        radius_px=6,
                     ),
                     DisplayCategorySpec(
                         key="non_fatal",
                         label="死亡以外",
                         values=(False,),
                         description="死者の記録が無い事故（負傷事故）。",
+                        radius_px=3,
                     ),
                 ),
             ),
         ),
+        point_facts=(PointFactSpec(property="occurred_year", label="発生年"),),
     ),
     _ATTR_INTERSECTION := PrimaryAttributeSpec(attr_id="intersection", label="交差点", geometry="point"),
     _ATTR_LANDCOVER := PrimaryAttributeSpec(attr_id="landcover", label="緑と水", geometry="area"),
@@ -1070,11 +1074,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         primary_attribute=_ATTR_HIGHWAY,
         value_labels=_HIGHWAY_VALUE_LABELS,
         value_sql=HIGHWAY_SQL,
-        coverage=WayMaterialCoverageSpec(
-                missing_condition=f"{HIGHWAY_SQL} IS NULL",
-                source="OSM wayのタグ highway",
-                missing_semantics="unknown",
-            ),
+        coverage=CoverageExcluded(reason=_HIGHWAY_ALWAYS_PRESENT, missing_semantics="unknown"),
     ),
     "surface": MaterialSpec(
         material_id="surface",
@@ -1145,12 +1145,8 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # 判定式はhighway生タグを見るが、意味的にはこの群の他の材料と同じ「自転車走行環境の
         # 分類」という1つのまとまりのため、cycleway_has_track等と同じ一次属性へ寄せる。
         primary_attribute=_ATTR_CYCLEWAY,
-        value_sql=tag_absent_is_false_sql(f"{HIGHWAY_SQL} = 'cycleway'"),
-        coverage=WayMaterialCoverageSpec(
-                missing_condition=f"{HIGHWAY_SQL} IS NULL",
-                source="OSM wayのタグ highway",
-                missing_semantics="definite",
-            ),
+        value_sql=f"{HIGHWAY_SQL} = 'cycleway'",
+        coverage=CoverageExcluded(reason=_HIGHWAY_ALWAYS_PRESENT, missing_semantics="definite"),
     ),
     "cycleway_has_track": MaterialSpec(
         material_id="cycleway_has_track",

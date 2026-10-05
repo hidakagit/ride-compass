@@ -18,6 +18,7 @@ import io
 
 import mapbox_vector_tile
 from PIL import Image
+from shapely import union_all
 from shapely.affinity import scale, translate
 from shapely.geometry import GeometryCollection, box, shape
 from shapely.geometry.base import BaseGeometry
@@ -82,15 +83,13 @@ def _same_family_parts(clipped: BaseGeometry, family: str) -> BaseGeometry | Non
 
     線を矩形で切ると、辺に接した箇所が点として混ざったGeometryCollectionになることがある。
     元が線なら線だけを残す（点は描画に寄与せず、MVTのエンコードでも型が揃わない）。
+    残る部分が複数ならMulti系の1つの形へまとめる（MVTはGeometryCollectionをエンコードできない）。
     """
     if clipped.is_empty:
         return None
     if isinstance(clipped, GeometryCollection):
         parts = [g for g in clipped.geoms if _geometry_family(g) == family and not g.is_empty]
-        if not parts:
-            return None
-        merged = GeometryCollection(parts)
-        return merged if len(parts) > 1 else parts[0]
+        return union_all(parts) if parts else None
     return clipped if _geometry_family(clipped) == family else None
 
 
