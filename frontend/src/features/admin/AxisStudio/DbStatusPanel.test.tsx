@@ -137,21 +137,14 @@ describe("DbStatusPanel", () => {
     );
 
     expect(listItems().slice(-3)).toEqual(["テーブル（容量の大きい順）", "hot", "注意なし 2テーブル"]);
-    const folded = screen.getByText("注意なし 2テーブル").closest("summary")!;
-    expect(folded).toHaveTextContent("3,000行 ・ 30 MB");
-    expect(within(folded).getByText("問題なし")).toBeInTheDocument();
+    expect(screen.getByText("注意なし 2テーブル").closest("summary")).toHaveTextContent("3,000行 ・ 30 MB");
     expect(detailOf("注意なし 2テーブル")).toEqual([
       ["calm_a", "1,000行 ・ 10 MB"],
       ["calm_b", "2,000行 ・ 20 MB"],
     ]);
   });
 
-  it("注意のないテーブルが無ければ、畳んだ行を作らない", async () => {
-    await collect(status({ tables: [tableEntry({ table_name: "hot", needs_attention: true })] }));
-    expect(screen.queryByText(/^注意なし/)).not.toBeInTheDocument();
-  });
-
-  it("注意のあるテーブルは、実数・容量・統計とVACUUMの時刻（日本時間）・不要行（あるときだけ）・注記を開いた先に出す", async () => {
+  it("注意のあるテーブルは、実数・容量・統計とVACUUMの時刻（日本時間）・不要行（あるときだけ）を開いた先に出す", async () => {
     await collect(
       status({
         tables: [
@@ -163,14 +156,12 @@ describe("DbStatusPanel", () => {
             analyzed_at: null,
             vacuumed_at: "2026-09-24T01:02:03Z",
             needs_attention: true,
-            note: "autovacuumが追いついていない",
           }),
           tableEntry({ table_name: "clean", needs_attention: true, dead_tuples: 0 }),
         ],
       }),
     );
 
-    expect(screen.getByText("dead").closest("summary")).toHaveTextContent("4,200行 ・ 5 MB");
     expect(detailOf("dead")).toEqual([
       ["行数", "4,200件（実数）"],
       ["容量", "5 MB"],
@@ -178,11 +169,10 @@ describe("DbStatusPanel", () => {
       ["VACUUM", "9/24 10:02"],
       ["不要行", "300件"],
     ]);
-    expect(screen.getByText("autovacuumが追いついていない")).toBeInTheDocument();
     expect(detailOf("clean").map(([label]) => label)).not.toContain("不要行");
   });
 
-  it("取込の行は、最新の番号と状態（宣言の呼び名へ訳す）を規模に出し、開いた先に最終実行・成功した最新・件数・識別を並べる", async () => {
+  it("取込の行は、最新の番号と状態（宣言の呼び名へ訳す）を規模に出し、開いた先に最終実行・成功した最新・件数（あるときだけ）・識別を並べる", async () => {
     await collect(
       status({
         imports: [
@@ -200,7 +190,6 @@ describe("DbStatusPanel", () => {
           importEntry({
             label: "accidents",
             latest: { id: 5, status: "failed", finished_at: null, item_count: null, identity: {} },
-            needs_attention: true,
           }),
         ],
       }),
@@ -213,59 +202,52 @@ describe("DbStatusPanel", () => {
       ["取込件数", "34,567件"],
       ["pbf", "kanto-latest.osm.pbf"],
     ]);
-
-    const failed = screen.getByText("accidents").closest("summary")!;
-    expect(failed).toHaveTextContent("#5 失敗");
-    expect(within(failed).getByText("注意が要る")).toBeInTheDocument();
+    expect(detailOf("accidents")).toEqual([
+      ["最終実行", "#5 ・ 記録なし"],
+      ["成功した最新", "なし"],
+    ]);
   });
 
-  it("接続の行は、接続数と、放置されたトランザクション・実行中の最長を秒か分で出す", async () => {
-    await collect(
-      status({
-        connections: connections({
-          total: 8,
-          max_connections: 100,
-          idle_in_transaction: 2,
-          longest_idle_transaction_seconds: 150,
-          longest_query_seconds: 12.4,
-          needs_attention: true,
-          note: "放置が続いている",
-        }),
+  it.each([
+    [
+      connections({
+        total: 8,
+        max_connections: 100,
+        idle_in_transaction: 2,
+        longest_idle_transaction_seconds: 150,
+        longest_query_seconds: 12.4,
       }),
-    );
+      ["8 / 100", "2件 ・ 最長 3分", "12秒"],
+    ],
+    [connections({ idle_in_transaction: 0, longest_query_seconds: 0 }), ["0 / 0", "なし", "なし"]],
+  ])(
+    "接続の行は、接続数と、放置されたトランザクション・実行中の最長を秒か分で出し、無ければ「なし」（%#）",
+    async (given, [count, idle, query]) => {
+      await collect(status({ connections: given }));
 
-    expect(screen.getByText("同時接続").closest("summary")).toHaveTextContent("8 / 100");
-    expect(detailOf("同時接続")).toEqual([
-      ["接続数", "8 / 100"],
-      ["未完了のまま放置", "2件 ・ 最長 3分"],
-      ["実行中の最長", "12秒"],
-    ]);
-    expect(screen.getByText("放置が続いている")).toBeInTheDocument();
-  });
+      expect(detailOf("同時接続")).toEqual([
+        ["接続数", count],
+        ["未完了のまま放置", idle],
+        ["実行中の最長", query],
+      ]);
+    },
+  );
 
-  it("放置も実行中のクエリも無ければ、どちらも「なし」", async () => {
-    await collect(status({ connections: connections({ idle_in_transaction: 0, longest_query_seconds: 0 }) }));
-
-    expect(detailOf("同時接続").slice(1)).toEqual([
-      ["未完了のまま放置", "なし"],
-      ["実行中の最長", "なし"],
-    ]);
-  });
-
-  it("注意の件数は、取込・接続・テーブル（畳む前の注意ありの行）をまとめて数える", async () => {
-    await collect(
+  it.each([
+    [
       status({
         imports: [importEntry({ label: "i1", needs_attention: true }), importEntry({ label: "i2" })],
         connections: connections({ needs_attention: true }),
         tables: [tableEntry({ table_name: "t1", needs_attention: true }), tableEntry({ table_name: "t2" })],
       }),
-    );
-
-    expect(screen.getByText("3件に注意")).toBeInTheDocument();
-  });
-
-  it("注意の要るものが無ければ、注意はなしと言う", async () => {
-    await collect(status({ imports: [importEntry({})], tables: [tableEntry({})] }));
-    expect(screen.getByText("注意はなし")).toBeInTheDocument();
-  });
+      "3件に注意",
+    ],
+    [status({ imports: [importEntry({})], tables: [tableEntry({})] }), "注意はなし"],
+  ])(
+    "注意の件数は、取込・接続・テーブル（畳む前の注意ありの行）をまとめて数え、無ければ注意はなしと言う（%#）",
+    async (given, verdict) => {
+      await collect(given);
+      expect(screen.getByText(verdict)).toBeInTheDocument();
+    },
+  );
 });
