@@ -36,6 +36,11 @@ export type MapLegendScale = components["schemas"]["MapLegendScale"];
 /** 総合難易度（軸ではない）の段の境界。backendが配る。軸の段は宣言の無い軸の既定もbackendが解いて軸ごとに返す。 */
 export const DEFAULT_DIFFICULTY_BOUNDARIES: readonly number[] = mapDisplay.valueScale.difficultyBoundaries;
 
+/** 難易度（得点・寄与・平均）を、backendが区別する桁で書く。 */
+export function formatDifficulty(value: number): string {
+  return value.toFixed(mapDisplay.valueScale.difficultyDecimals);
+}
+
 /** 総合難易度の凡例の目盛り（得点）。 */
 export const DIFFICULTY_LEGEND: MapLegendScale = { boundaries: [...DEFAULT_DIFFICULTY_BOUNDARIES], unit: null };
 

@@ -1,5 +1,6 @@
 // 風と降水が共有する格子の扱い（取り損ねた地点を補う・描く格子を時刻で選ぶ・詳細格子の間隔と範囲）と、風の矢印。
 
+import { mapDisplay } from "@/types/generated/mapDisplay";
 import palette from "@/types/generated/palette.json";
 import type { Bbox } from "@/services/weatherApi";
 import weatherScales from "@/types/generated/weather-scales.json";
@@ -96,19 +97,19 @@ export interface MapViewport {
   zoom: number;
 }
 
-// 詳細格子を取る最低のズーム（これ未満は広域の粗い格子で足りる）。
-export const WIND_DETAIL_MIN_ZOOM = 10;
-
 // ズームに応じた詳細格子の間隔。面で塗るセルは1点が受け持つ実面積なので、表示を縮めても隙間ができるだけ——ズームする
 // ほど間隔そのものを細かくする。段に分ける理由と下限はdocs/modules/frontend/dynamic-weather-layers.md「共通契約」1。
-// 境界は記号の拡大と同じ刻み。
-const WIND_GRID_DETAIL_SPACING_STOPS: readonly { zoom: number; spacingDeg: number }[] = [
-  { zoom: WIND_DETAIL_MIN_ZOOM, spacingDeg: 0.02 },
-  { zoom: 13, spacingDeg: 0.01 },
-  { zoom: 16, spacingDeg: 0.005 },
-  // 最も細かい段はbackendが受け付ける最小の間隔（これより細かく求めると断られる）。
-  { zoom: 19, spacingDeg: windGridConfig.detail_min_spacing_deg },
-];
+// 段の境界は気象の記号を拡大する段（backendの宣言）と同じ刻みで、段が1つ上がるごとに間隔を半分にし、backendが受け付ける
+// 最小の間隔（これより細かく求めると断られる）で止める。
+const WIND_GRID_DETAIL_COARSEST_SPACING_DEG = 0.02;
+const WIND_GRID_DETAIL_SPACING_STOPS: readonly { zoom: number; spacingDeg: number }[] =
+  mapDisplay.weather.markSizeByZoom.map(([zoom], step) => ({
+    zoom,
+    spacingDeg: Math.max(WIND_GRID_DETAIL_COARSEST_SPACING_DEG / 2 ** step, windGridConfig.detail_min_spacing_deg),
+  }));
+
+// 詳細格子を取る最低のズーム（これ未満は広域の粗い格子で足りる）。
+export const WIND_DETAIL_MIN_ZOOM = WIND_GRID_DETAIL_SPACING_STOPS[0].zoom;
 
 /** そのズームで詳細格子を求める間隔（度）。 */
 export function windGridDetailSpacingDegForZoom(zoom: number): number {

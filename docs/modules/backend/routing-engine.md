@@ -221,7 +221,7 @@ RouteGenerator.generate_loops(origin, distance_km, distance_tolerance_km, max_ro
   折返し点は往路の実距離が目標の半分付近にあり、直線距離はそれより短い[実道路の迂回率は
   概ね1.3]ため、0.5ではなく0.4から始める。半径不足時は一対全探索がbboxで自然に切れ
   リング[折返し候補の集合]が欠けるだけで壊れない）。
-- 候補数: `RouteGenerateRequest.max_routes`（`ge=1, le=MAX_ROUTES`[15],
+- 候補数: `RouteGenerateRequest.max_routes`（`ge=MIN_ROUTES`[1]・`le=MAX_ROUTES`[15]・
   `default=DEFAULT_MAX_ROUTES`[8]）。折返し点候補プールのサイズは
   `turnaround_pool_size(max_routes)`（`min(40, max(12, max_routes*3))`）。
 - `LoopTurnaround`: `bearing`（起点から見た折返し点の方位、表示ラベル用のみ）・`data`

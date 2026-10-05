@@ -33,6 +33,7 @@ from app.domain.route_request import (  # noqa: E402
     MAX_ROUTE_DISTANCE_KM,
     MAX_ROUTES,
     MAX_WAYPOINTS,
+    MIN_ROUTES,
     ROUTES_WITH_WAYPOINTS,
 )
 from app.api.routers.axis_admin import AxisDefinitionPayload  # noqa: E402
@@ -53,6 +54,7 @@ from app.domain.weather_elements import (  # noqa: E402
     weather_element_deliveries,
     weather_element_tile,
 )
+from app.domain.difficulty import DIFFICULTY_DECIMALS  # noqa: E402
 from app.domain.dynamic_way_values import DEFAULT_DIFFICULTY_BOUNDARIES  # noqa: E402
 from app.domain.map_display import (  # noqa: E402
     ALWAYS_SHOWN_ATTRIBUTIONS,
@@ -410,6 +412,8 @@ def main() -> None:
             },
             "valueScale": {
                 "difficultyBoundaries": list(DEFAULT_DIFFICULTY_BOUNDARIES),
+                # 難易度を区別する桁。画面の式（タイルから組む点数の丸め）と表示の桁がこれを読む。
+                "difficultyDecimals": DIFFICULTY_DECIMALS,
             },
             "route": {
                 "lineWidthsPx": ROUTE_LINE_WIDTHS_PX,
@@ -566,6 +570,7 @@ def main() -> None:
         ROUTE_GENERATE_CONFIG_PATH,
         {
             "max_distance_km": MAX_ROUTE_DISTANCE_KM,
+            "min_routes": MIN_ROUTES,
             "max_routes": MAX_ROUTES,
             "default_max_routes": DEFAULT_MAX_ROUTES,
             "routes_with_waypoints": ROUTES_WITH_WAYPOINTS,

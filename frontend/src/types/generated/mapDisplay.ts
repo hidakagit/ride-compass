@@ -849,7 +849,8 @@ export const mapDisplay = {
     "difficultyBoundaries": [
       33,
       66
-    ]
+    ],
+    "difficultyDecimals": 1
   },
   "route": {
     "lineWidthsPx": {

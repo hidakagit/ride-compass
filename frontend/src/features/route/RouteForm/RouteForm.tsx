@@ -10,6 +10,7 @@ import {
 } from "@/components/PinMark/PinMark";
 import type { PinRole } from "@/types/route";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
+import { MIN_DISTANCE_KM } from "@/features/route/savedConditions";
 import { fixedRouteCount, type RouteMode } from "./useRouteFormSubmit";
 import { Button } from "@/components/ui/Button/Button";
 import { Toggle } from "@/components/ui/Toggle/Toggle";
@@ -60,6 +61,7 @@ interface RouteFormProps {
 
 const MAX_DISTANCE_KM = routeGenerateConfig.max_distance_km;
 const DISTANCE_TOLERANCE_KM = routeGenerateConfig.default_distance_tolerance_km;
+const MIN_ROUTES = routeGenerateConfig.min_routes;
 const MAX_ROUTES = routeGenerateConfig.max_routes;
 const MAX_WAYPOINTS = routeGenerateConfig.max_waypoints;
 
@@ -229,7 +231,7 @@ export default function RouteForm({
                 variant="stepper"
                 size="sm"
                 onClick={() => stepMaxRoutes(-1)}
-                disabled={!maxRoutesRelevant || Number(maxRoutes) <= 1}
+                disabled={!maxRoutesRelevant || Number(maxRoutes) <= MIN_ROUTES}
                 aria-label="候補数を減らす"
                 usage="一度に作る候補の数を減らします。経由地を置いている間は変えられません。"
               >
@@ -261,7 +263,7 @@ export default function RouteForm({
                 <input
                   id="route-form-distance"
                   type="range"
-                  min={1}
+                  min={MIN_DISTANCE_KM}
                   max={MAX_DISTANCE_KM}
                   step={1}
                   value={distance}
