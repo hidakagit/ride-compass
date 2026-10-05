@@ -35,7 +35,8 @@ APIが受け取る重みの形を変えるとき、`dynamic_materials.py`は動�
 **タイルへ焼く式だけは符号化が違う**。`CASE WHEN 条件 THEN true END`で「該当しない」を
 NULLへ畳み、フィーチャーからキーを省いてタイルを軽くする。材料の値を求める式は
 タグが無ければ非該当（false）へ畳む（`tag_absent_is_false_sql`）——wayの行は必ずある
-（`road_edges.osm_way_id`がNOT NULL + FK）。**違うのは符号化だけで、条件は同じ式**:
+（`road_edges.osm_way_id`がNOT NULL + FK）。生データの道のCHECKで必ずある`highway`だけを読む式
+（`highway_is_cycleway`・0次フィルタ）は畳まない。**違うのは符号化だけで、条件は同じ式**:
 欠損を非該当として持つ真偽の材料（`material_array_group`が`"boolean"`の材料）のうち
 `tile_property`を持つものは、タイルの列を`CASE WHEN (value_sql) THEN true END`として
 カタログから組み立てる（`road_graph_repository.py: _BOOLEAN_TILE_COLUMNS_SQL`）。材料を
@@ -428,7 +429,8 @@ way粒度で引くときは、同じ式のまま`w`の行から同じ名前の�
   通常どおり評価される）。真偽の材料の配列上の欠損の持ち方（`MaterialSpec.bool_default`）は
   これから導く——`"unknown"`の材料は欠損を`NaN`で持ち、非該当（`false`）と混同しない。
 - `CoverageExcluded(reason=...)`: 集計対象外の材料とその理由（動的計算材料の
-  `wind_drag_ratio`、NOT NULL列由来の`oneway`等）。
+  `wind_drag_ratio`、NOT NULL列由来の`oneway`、生データの道のCHECK`source_features_way_has_kind`でhighwayを必ず持つ`highway`・`highway_is_cycleway`等）。
+  欠損し得ない材料を集計対象へ置かない——欠損の判定が常に0件を数える式になり、DBが持つ前提を式の側でもう一度持つことになる。
   管理画面はこの理由をそのまま表示する。
 - **どちらか一方を必ず持つことは型が保証する**: `MaterialSpec.coverage`は必須で、
   way単位・Edge単位・対象外の3択（`MaterialCoverage`）のいずれかしか取れない。
