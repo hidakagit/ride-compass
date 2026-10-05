@@ -7,6 +7,8 @@
 - 重みを使ったコストの合成 → `test_leg_costs.py`
 """
 
+import math
+
 import pytest
 from pydantic import ValidationError
 
@@ -41,9 +43,12 @@ def test_weights_left_out_are_filled_with_defaults_in_the_order_of_the_axes():
         {"axis_internal": 0.1},
         # 負の重みは合成の分母と分子の符号を食い違わせ、良い道ほど点が高くなる。
         {"axis_a": -0.1},
+        # NaN・無限大は合成difficultyと寄与を黙って欠損にする。NaNは負かどうかの比べをすり抜ける。
+        {"axis_a": math.nan},
+        {"axis_a": math.inf},
     ],
 )
-def test_weights_for_unpublished_axes_or_below_zero_are_refused(weights):
+def test_weights_for_unpublished_axes_or_below_zero_or_not_finite_are_refused(weights):
     with pytest.raises(ValueError):
         check_axis_weights(weights)
 
