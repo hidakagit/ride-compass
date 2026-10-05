@@ -245,16 +245,20 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    前の Pull Request が開いたまま残っていれば、新しく出さずに push し、撮り直したキャプチャを `gh pr comment --attach` で足す。
    本文を直すときは `gh issue edit <番号> -R hidakagit/ride-compass --body-file <ファイル>` で書き換える（`gh pr edit` と、欄を選ばない
    `gh pr view` は、レビューを頼んだチームの名前を問い合わせるため、組織を読む権限の無いトークンでは断られる）。
-   出したら（push したら）、Pull Request の CI の実行（master と合わせた版）の id を
-   `gh run list -R hidakagit/ride-compass --commit "$(git rev-parse HEAD)" --workflow ci.yml --event pull_request --json databaseId` で引き
+   出したら（push したら）、そのコミットで Pull Request の CI（master と合わせた版）が起きたかを
+   `gh run list -R hidakagit/ride-compass --commit "$(git rev-parse HEAD)" --event pull_request --json databaseId` で見る
    （ID は手で写さずにこの形で渡す——`--commit` は短い ID や後ろを補った ID に一致せず、実行があっても0件になり、まだ出ていないのと
-   見分けられない）。0件なら `gh pr view <番号> -R hidakagit/ride-compass --json mergeable` を見て、`CONFLICTING` なら待たずに下の
+   見分けられない。次の `gh pr checks` は、チェックが1件も無いと `--watch` でも待たずに `no required checks reported` で終わり、
+   Pull Request の最後のコミットのチェックを読むので、Pull Request の先頭が push したコミットへ移る前に打つと前のコミットの結果を出しうる。
+   この1件目を見てから打つ）。
+   0件なら `gh pr view <番号> -R hidakagit/ride-compass --json mergeable` を見て、`CONFLICTING` なら待たずに下の
    「落ちたら」と同じく master を取り込んで push する（master と競合した Pull Request には `pull_request` の実行が起きない。GitHub の公式の
    文書 Events that trigger workflows の `pull_request`）。それ以外（`MERGEABLE`・まだ決まっていない `UNKNOWN`）なら、同じ2つを打ち直す。
    打ち直しの前に `sleep` を置かない（`sleep 30; gh run list …` の形は、Claude Code 本体が担当の環境に無い道具（Monitor・裏で動かす Bash）を
-   案内して断ることがあり、断る条件は公式の文書に無い）。id が出たら、`gh run watch <id> --compact -i 30 -R hidakagit/ride-compass --exit-status`
-   で終わるまで前に出したまま待つ（Bash の `timeout` を上限の 600000 にして打つ。上限で止まったら同じコマンドを打ち直す。裏へ回して
-   知らせを待つと、そこで担当の実行が終わる。端末でない出力では見回りのたびに全部のジョブを書き直すので、`--compact -i 30` で出力を絞る）。
+   案内して断ることがあり、断る条件は公式の文書に無い）。id が出たら、`gh pr checks <番号> -R hidakagit/ride-compass --required --watch -i 30`
+   で必須のチェック全部（`ci.yml` の `ci-ok` だけでなく、別のワークフロー Docs Consistency のジョブも）が終わるまで前に出したまま待ち、
+   どれかが落ちれば 0 でない終わり方で落ちたチェックの名前が出る（Bash の `timeout` を上限の 600000 にして打つ。上限で止まったら同じコマンドを
+   打ち直す。裏へ回して知らせを待つと、そこで担当の実行が終わる）。
    Pull Request の実行は master と合わせた版を検査するので、作業ブランチの変更の誤りも、合流点の後に master へ入った変更との意味の
    競合（文字の競合なしに載せ直せて、合わせると落ちる）も、同じくここで落ちる。落ちたら `git merge origin/master` で今の master を取り込み、失敗を直して（手元で検査や
    テストを回すのは、この失敗を再現するときだけ。testing.md「テストが落ちたときの直し方」）、4 から続ける。
@@ -294,8 +298,9 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    `git checkout -B orch/tasks-<番号> origin/orch/tasks-<番号>`）。依存のファイルが master と違えば、作る担当の2のとおり入れ直す。Pull Request（`gh pr view <番号> -R hidakagit/ride-compass --json title,body,comments,reviews`。本文のキャプチャ・差分）・Pull Request の CI・issue の完了の条件・変更が届く範囲（要るなら画面）を
    確かめる。作る担当の報告を読み写さず、自分で見る（画面なら変更後を自分で撮る。作る担当の5と同じ道具・脚本・応答で撮り、
    変更前は撮り直さずに作る担当が貼った画像と比べる。作る担当がコメントに脚本を貼っていれば、作業ツリーの外へ写して同じ引数で撮る）。Pull Request が無ければ（手順が変わる前に
-   検証中になったもの）、作る担当の5のとおりに出してから確かめる。CI は Pull Request の実行（master と合わせた版。作る担当の5と
-   同じく `--event pull_request` で引く）が通っていることを見る。落ちていれば満たしていないとして 4 のとおり落ちたテストを書いて
+   検証中になったもの）、作る担当の5のとおりに出してから確かめる。CI は Pull Request の必須のチェック全部（master と合わせた版。
+   `ci.yml` の外の Docs Consistency のジョブも）が通っていることを、作る担当の5と同じ `gh pr checks <番号> -R hidakagit/ride-compass --required --watch -i 30`
+   で見る（`ci.yml` の実行だけを見ると、ほかの必須のチェックが落ちていてもマージで断られるまで気づかない）。落ちていれば満たしていないとして 4 のとおり落ちたテストを書いて
    閉じる（落ちたのが作業ブランチの変更か master との意味の競合かは見分けない。作る担当はどちらも master を取り込んでから直す）。`lost_constraints.py` も自分で回し、
    「消えた」制約に本文の処置が無ければ満たしていない。分布の前後は測らず、本文に前後の行が無いことを理由にしない（上の「分布の前後」）。
    **設計書の条件を1つ当てる**: 作り直しで落ちた条件（絞り込み・不変条件・制約）は、差分にも作る担当の報告にも1行も出ないので、
