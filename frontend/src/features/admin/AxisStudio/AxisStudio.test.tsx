@@ -99,7 +99,7 @@ beforeEach(() => {
   catalogAxes = [];
   // フォームの点数の節が描くと同時に取る分布・点数と、地図の段の判定（段にならない値なし）。
   onSameOrigin("POST", `${DEFINITIONS}/preview-distribution`, () =>
-    Response.json({ sample_ways: 1, total_km: 1, quantiles: {}, bins: [[0, 2, 1]], zero_share: 0 }),
+    Response.json({ sample_ways: 1, total_km: 1, quantiles: {}, bins: [[0, 2, 1]] }),
   );
   onSameOrigin("POST", `${DEFINITIONS}/preview-scores`, () => Response.json({ scores: [0], material_points: [] }));
   onSameOrigin("POST", `${DEFINITIONS}/preview-display-thresholds`, () =>

@@ -17,7 +17,7 @@ import { describe, expect, it } from "vitest";
 import { binMidpoints, distributionWarnings, scoreBands, type ValueDistribution } from "./scoreDistribution";
 
 function distribution(bins: [number, number, number][]): ValueDistribution {
-  return { sample_ways: 1, total_km: 1, quantiles: {}, bins, zero_share: 0 };
+  return { sample_ways: 1, total_km: 1, quantiles: {}, bins };
 }
 
 /** 点数が揃ったときの帯（揃わなければnullが返るので、ここで落とす）。 */

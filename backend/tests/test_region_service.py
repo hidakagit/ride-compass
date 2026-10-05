@@ -160,9 +160,7 @@ async def test_axis_inspector_combines_with_the_weights_it_is_given(direction_de
         12345, None, materials, RoutePreference(weights={axis.axis_id: 0.0})
     )
 
-    assert _inspected_axis(weighted, axis.axis_id).weight == 1.0
     assert _inspected_axis(weighted, axis.axis_id).contribution not in (None, 0)
-    assert _inspected_axis(ignored, axis.axis_id).weight == 0.0
     assert not _inspected_axis(ignored, axis.axis_id).contribution
 
 

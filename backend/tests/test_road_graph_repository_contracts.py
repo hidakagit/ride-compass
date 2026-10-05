@@ -323,8 +323,7 @@ async def test_accident_years_come_from_the_declared_profile(declared, years):
 def _landcover_row(valid_pixels=100, missing: str | None = None) -> _Row:
     values: dict[str, object] = {"lc_valid_pixels": valid_pixels}
     for name in LandcoverPercentages.model_fields:
-        if name.endswith("_percent"):
-            values[f"lc_{landcover_key(name)}"] = None if name == missing else 12.5
+        values[f"lc_{landcover_key(name)}"] = None if name == missing else 12.5
     return _Row(**values)
 
 

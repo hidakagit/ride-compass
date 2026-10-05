@@ -49,13 +49,6 @@ export function catalogEntry(overrides: EntryOverrides = {}): AxisCatalogEntry {
     show_map_icon: false,
     primary_attribute_ids: [],
     weather_layer_groups: [],
-    shape: {
-      kind: "breakpoint_linear",
-      terms: [],
-      preprocess: "identity",
-      breakpoints: [],
-    },
-    display_thresholds_override: null,
     display_band_labels_override: null,
     dedicated_way_value_layer: false,
     map_paint: {

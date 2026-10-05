@@ -52,10 +52,10 @@
 どちらも符号付き材料生値を塗る。
 
 **段階の境界は`map_paint.thresholds`（`GET /api/axis-catalog`）だけを使う。**
-`display_thresholds_override`は軸スタジオが編集した生値で、スケールは軸がramp表示を持つかで
+軸スタジオが編集したしきい値の上書きは生値で、スケールは軸がramp表示を持つかで
 変わる——ramp軸ではタイルの材料値を重み付き和にしたスケール（`buildAxisRampValueExpression`が
 組み立てる値、ルート前の`display.thresholds`が使う側）であり、難易度と直接は比べられない。
-backend（`domain/map_paint.py: map_paint`）が軸の折れ線で写してから返すため、
+backend（`domain/map_paint.py: map_paint`）が軸の折れ線で写してから返し、カタログは上書きの生の値を配らないため、
 フロントはスケールの判断を持たない。折れ線が飽和する範囲へ置かれた境界は同じスコアへ写り、
 その分だけ段階が減る。
 
