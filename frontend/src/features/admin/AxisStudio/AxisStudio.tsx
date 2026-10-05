@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs/Tabs";
-import { DialogContent, DialogRoot } from "@/components/ui/Dialog/Dialog";
+import { ConfirmDialog, DialogContent, DialogRoot } from "@/components/ui/Dialog/Dialog";
 import { MATERIAL_CATALOG, materialCatalogLabel } from "@/lib/axisMaterialsCatalog";
 import {
   createAxisDefinition,
@@ -325,32 +325,19 @@ export default function AxisStudio() {
         </DialogContent>
       </DialogRoot>
 
-      <DialogRoot
+      <ConfirmDialog
         open={confirmingDelete !== null}
-        onOpenChange={(open) => {
-          if (!open) setConfirmingDelete(null);
+        title={`「${confirmingDelete?.label ?? ""}」を削除します`}
+        confirmLabel="削除する"
+        onCancel={() => setConfirmingDelete(null)}
+        onConfirm={() => {
+          if (confirmingDelete === null) return;
+          setConfirmingDelete(null);
+          void handleDelete(confirmingDelete.axis_id);
         }}
       >
-        <DialogContent title={`「${confirmingDelete?.label ?? ""}」を削除します`}>
-          <p className={textVariants({ variant: "hint" })}>削除した軸は元に戻せません。</p>
-          <div className="mt-3 flex justify-end gap-2">
-            <Button size="sm" onClick={() => setConfirmingDelete(null)}>
-              キャンセル
-            </Button>
-            <Button
-              variant="danger"
-              size="sm"
-              onClick={() => {
-                if (confirmingDelete === null) return;
-                setConfirmingDelete(null);
-                void handleDelete(confirmingDelete.axis_id);
-              }}
-            >
-              削除する
-            </Button>
-          </div>
-        </DialogContent>
-      </DialogRoot>
+        削除した軸は元に戻せません。
+      </ConfirmDialog>
     </div>
   );
 }
