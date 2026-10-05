@@ -5,6 +5,7 @@ import { useState } from "react";
 import Disclosure from "@/components/Disclosure/Disclosure";
 import { Button } from "@/components/ui/Button/Button";
 import { Card } from "@/components/ui/Card/Card";
+import { ConfirmDialog } from "@/components/ui/Dialog/Dialog";
 import { Input } from "@/components/ui/Input/Input";
 import { textVariants } from "@/components/ui/Text/Text";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/ToggleGroup/ToggleGroup";
@@ -66,6 +67,8 @@ export default function SavedConditionsPanel({
   const [fixOriginDraft, setFixOriginDraft] = useState<boolean | null>(null);
   const fixOrigin = originKnown && (fixOriginDraft ?? originManual);
   const [recalled, setRecalled] = useState<SavedCondition | null>(null);
+  // ✕を押した設定の名前。確認の窓で「消す」を押すまで消さない。
+  const [removing, setRemoving] = useState<string | null>(null);
   const currentDescription = describeConditions(current, catalog);
 
   return (
@@ -189,7 +192,7 @@ export default function SavedConditionsPanel({
                         size="bare"
                         className="flex-none p-1 text-xs"
                         aria-label={`「${entry.name}」を消す`}
-                        onClick={() => onRemove(entry.name)}
+                        onClick={() => setRemoving(entry.name)}
                       >
                         ✕
                       </Button>
@@ -209,6 +212,19 @@ export default function SavedConditionsPanel({
           })}
         </ul>
       )}
+      <ConfirmDialog
+        open={removing !== null}
+        title={`「${removing ?? ""}」を消します`}
+        confirmLabel="消す"
+        onCancel={() => setRemoving(null)}
+        onConfirm={() => {
+          if (removing === null) return;
+          setRemoving(null);
+          onRemove(removing);
+        }}
+      >
+        消した設定は元に戻せません。
+      </ConfirmDialog>
     </div>
   );
 }
