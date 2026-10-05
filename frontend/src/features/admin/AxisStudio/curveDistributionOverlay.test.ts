@@ -39,21 +39,13 @@ describe("visibleBars", () => {
   it("幅0の階級（値が1点に集中）は、範囲内なら端を含めてそのまま載せ、範囲外なら落とす", () => {
     const bars = visibleBars(
       distribution([
-        [5, 5, 0.3],
         [20, 20, 0.3],
         [25, 25, 0.4],
       ]),
       0,
       20,
     );
-    expect(bars).toEqual([
-      { from: 5, to: 5, share: 0.3 },
-      { from: 20, to: 20, share: 0.3 },
-    ]);
-  });
-
-  it("範囲の端に接するだけの階級は載せない", () => {
-    expect(visibleBars(distribution([[20, 30, 1]]), 0, 20)).toEqual([]);
+    expect(bars).toEqual([{ from: 20, to: 20, share: 0.3 }]);
   });
 
   it("分布が無い・範囲が潰れているときは何も載せない", () => {

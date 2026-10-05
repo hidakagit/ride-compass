@@ -1,5 +1,5 @@
 /**
- * `features/admin/adminApi.ts`——管理画面のAPIクライアントが叩く先に受け手がいることと、応答や問い合わせを組み立てる部分。
+ * `features/admin/adminApi.ts`——管理画面のAPIクライアントが叩く先に受け手がいることと、backendへの疎通の判定。
  * 機能のクライアントと`app/`の口の両方を読むので、両方より上の`app/`に置く（機能は`app/`を読まない）。
  *
  * 叩く先の母集団はこのファイルがexportする関数の全部。1つずつ呼び、出た要求を受け手まで辿る:
@@ -13,6 +13,7 @@
  * ここで見ないもの:
  * - 転送そのもの（資格情報・本文・状態の受け渡し） → `app/admin/api/[...path]/route.test.ts`
  * - 骨格（失敗時の文言・204・ログ） → `lib/apiClient.ts`
+ * - 判断の無い詰め替え（応答の項目名・問い合わせの絞り込み） → 使う側（`useMapBandsOfThresholds.test.ts`・`BackendLogsPanel.test.tsx`）が網の層で見る
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -131,45 +132,9 @@ describe("叩く先", () => {
 function answer(body: unknown) {
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (request: Request) => {
-      recorded.push({ url: request.url, method: request.method, body: undefined, timeoutMs: undefined });
-      return Response.json(body);
-    }),
+    vi.fn(async () => Response.json(body)),
   );
 }
-
-describe("fetchMapBandsOfThresholds", () => {
-  it("地図で段にならない境界と、地図の各段が入力のどの段に当たるかを返す", async () => {
-    answer({ dropped_on_map: [2], bands_on_map: [0, 2] });
-    const request = {
-      axis_id: "a",
-      shape: { kind: "categorical" as const, material: "m", mapping: {} },
-      thresholds: [1, 2],
-    };
-    await expect(adminApi.fetchMapBandsOfThresholds(request)).resolves.toEqual({
-      droppedOnMap: [2],
-      bandsOnMap: [0, 2],
-    });
-  });
-});
-
-describe("getRecentLogs", () => {
-  it("指定した絞り込みだけを問い合わせへ付け、ログ行をそのまま返す", async () => {
-    answer(["line 1", "line 2"]);
-    await expect(adminApi.getRecentLogs({ limit: 200, contains: "jma tile", min_level: "WARNING" })).resolves.toEqual([
-      "line 1",
-      "line 2",
-    ]);
-    const query = new URL(recorded[0].url).searchParams;
-    expect(Object.fromEntries(query)).toEqual({ limit: "200", contains: "jma tile", min_level: "WARNING" });
-  });
-
-  it("絞り込みが無ければ問い合わせを付けない（backendの既定＝保持している全件）", async () => {
-    answer([]);
-    await adminApi.getRecentLogs({ contains: undefined, min_level: undefined, limit: undefined });
-    expect(recorded.map((r) => r.url).filter((url) => url.includes("?"))).toEqual([]);
-  });
-});
 
 describe("checkBackendHealth", () => {
   it("backendが status: ok を返したときだけ真で、ほかの応答も通信の失敗も偽（例外にしない）", async () => {
