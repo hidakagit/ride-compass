@@ -1,6 +1,6 @@
 import { test } from "@playwright/test";
 import { pathToFileURL } from "node:url";
-import { captureContext, type CaptureScript } from "./context";
+import { captureContext, routeToWorktreeBackend, type CaptureScript, type WorktreeBackend } from "./context";
 
 // 脚本で進めた画面を撮る段。入口は scripts/capture.mjs で、引数はそこが CAPTURE_OPTIONS に詰めて渡す。
 
@@ -8,6 +8,7 @@ interface CaptureOptions {
   script: string | null;
   out: string;
   mocked: boolean;
+  worktreeBackend: WorktreeBackend | null;
   viewport: { width: number; height: number };
   theme: "light" | "dark" | null;
 }
@@ -18,6 +19,7 @@ test("画面を撮る", async ({ page }) => {
   test.skip(!options, "CAPTURE_OPTIONS が無い（scripts/capture.mjs から起こす）");
   await page.setViewportSize(options.viewport);
   if (options.theme) await page.emulateMedia({ colorScheme: options.theme });
+  if (options.worktreeBackend) await routeToWorktreeBackend(page, options.worktreeBackend);
   const context = captureContext(page, { out: options.out, mocked: options.mocked });
   if (!options.script) {
     await context.open();

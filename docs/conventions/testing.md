@@ -1239,7 +1239,8 @@ CSSの規則が当たる。開くたびに作り直される部品（ポップ�
 - **画面を撮る道具は`frontend/capture/`に置き、`playwright.capture.config.ts`で走らせる。テストではなく、CIに載せない**
   （判定を持たず、画像を出すだけ。Pull Requestの修正前後のキャプチャに使う）。入口は`node scripts/capture.mjs`の1つで、引数と使い方は
   スクリプトの先頭にある。撮影は「開く版」（`--app`: 本番・作業ツリー・git の版）×「応答」（`--api`: e2e のモック
-  `frontend/e2e/fixtures.ts: installApiMocks`・本物の backend）×「脚本」（`frontend/capture/context.ts: CaptureScript`）に分かれ、
+  `frontend/e2e/fixtures.ts: installApiMocks`・本物の backend。`--backend` で選んだパスの頭だけを作業ツリーの backend が返す）×「脚本」
+  （`frontend/capture/context.ts: CaptureScript`）に分かれ、手元で起動する版には本番と同じ組の環境変数を渡す（`frontend` が読む環境変数を渡していなければ撮る前に止まる）。
   見せたい状態（位置・レイヤー・レンズ・凡例・応答の差し替え等）は引数でなく脚本で書く。脚本は受け取る口だけを使い何も読み込まないので、
   作業ツリーの外に置ける。地図を開く・レンズを選ぶ・読み終わりを待つ段取りは`e2e-live/live.ts`、画面を進める段取りは
   `e2e/fixtures.ts`・`e2e/states.ts`を使い、書き直さない。e2e の段取りと応答の雛形（`e2e/fixtures.ts`・`e2e/states.ts`・

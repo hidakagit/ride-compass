@@ -59,6 +59,8 @@ export interface CaptureContext {
    * URL が glob に当たる応答の本文を `transform` の返した JSON に替える。本物の応答を取ってから本文だけを替えるので、CORS 等の
    * ヘッダーは本物のまま残る（ヘッダーの無い応答で返すと、別オリジンの backend への取得としてブラウザが捨てる）。
    * 本物の backend へ向けたときに使う（モックの応答を替えるなら open の routes で page.route を足す。例は examples/axis-catalog.ts）。
+   * 本文を JSON として読み替えるだけなので、画像等の JSON でない応答は替えられない。作業ツリーの backend が変える、DB を読まない
+   * 経路の応答は、scripts/capture.mjs の --backend で作業ツリーの backend に返させる（例は examples/jma-precipitation.ts）。
    */
   patch(glob: string, transform: (json: unknown) => unknown): Promise<void>;
   /** 地図の全ソースの読み終わりまで待つ。 */
@@ -68,6 +70,40 @@ export interface CaptureContext {
 }
 
 export type CaptureScript = (context: CaptureContext) => Promise<void>;
+
+export interface WorktreeBackend {
+  /** 作業ツリーの backend（backend/scripts/serve_capture.py）のオリジン。 */
+  origin: string;
+  /** --api の backend のオリジン。 */
+  api: string;
+  /** 作業ツリーの backend に返させるパスの頭（scripts/capture.mjs の --backend）。 */
+  paths: string[];
+}
+
+/**
+ * 作業ツリーの backend の応答を待つ上限。気象庁のタイルの中継は気象庁への秒間上限を守って待つ（backend/app/config.py:
+ * jma_tile_upstream_max_requests_per_second）ので、地図が一度に取るタイルの数だけ待ちが積もる。
+ */
+const WORKTREE_BACKEND_TIMEOUT_MS = 5 * 60_000;
+
+/**
+ * ブラウザが --api の backend へ選んだパスの頭で取りに行くものを、作業ツリーの backend から取って返す。page.route の
+ * route.fetch は向け先のプロトコルを変えられない（本番の https から手元の http へ替えられない）ので、page.request で取る。
+ * 脚本の routes・patch より先に登録する（後から登録したルートが先に当たる）。
+ */
+export async function routeToWorktreeBackend(page: Page, { origin, api, paths }: WorktreeBackend): Promise<void> {
+  const apiOrigin = new URL(api).origin;
+  await page.route(
+    (url) => url.origin === apiOrigin && paths.some((head) => url.pathname.startsWith(head)),
+    async (route) => {
+      const url = new URL(route.request().url());
+      const response = await page.request.get(`${origin}${url.pathname}${url.search}`, {
+        timeout: WORKTREE_BACKEND_TIMEOUT_MS,
+      });
+      await route.fulfill({ response });
+    },
+  );
+}
 
 function fileName(name: string): string {
   return name.replace(/[\\/:*?"<>|\s]+/g, "_");

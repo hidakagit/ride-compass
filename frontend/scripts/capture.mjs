@@ -1,21 +1,25 @@
 // 画面を、選んだ版と応答で開き、脚本で進めた状態を撮る（Pull Request の修正前後のキャプチャ。docs/conventions/flow.md「作る担当」の5）。
 //
 //   node scripts/capture.mjs [--script <脚本のファイル>] [--app production|worktree|<git の版>] [--api mock|<backend のオリジン>]
-//     [--size <幅>x<高さ>] [--theme light|dark] [--out <出力のディレクトリ>] [--no-build]
+//     [--backend <パスの頭>]... [--size <幅>x<高さ>] [--theme light|dark] [--out <出力のディレクトリ>] [--no-build]
 //
 // --app は開く版: production は本番の frontend をそのまま開く（本番の backend を使うので --api を受けない）。worktree（既定）は
 // 作業ツリーの版を、<git の版>（例: origin/master）はその版を一時のディレクトリへ取り出して（作業ツリーは切り替えない）、ビルドして
 // 手元で起動する。取り出しとビルドは版の commit と --api ごとに使い回す。
 // --api は応答: mock（既定）は e2e/fixtures.ts: installApiMocks（backend も外部も要らない）。<backend のオリジン> は本物の backend で、
 // 地図の塗り（道路タイル）はこちらでしか出ない（本番の宛先は docs/architecture/tech-stack.md「本番の宛先」）。
+// 手元で起動する版には、本番と同じ組の環境変数（frontendEnv）を渡す。frontend のコードが読む環境変数がその組に無ければ、撮る前に止まる。
+// --backend は、ブラウザがそのパスの頭（例: /api/jma-tile/）で --api の backend へ取りに行くものだけを、作業ツリーの backend
+// （backend/scripts/serve_capture.py。DB を読まずに起動する）が返す。backend が変える応答のうち DB を読まない経路（タイルの中継等）を
+// 後の画面へ出すときに使い、何度でも付けられる。DB を読む経路の応答は、脚本の patch で替える。
 // 脚本は default export の関数（capture/context.ts: CaptureScript）で、受け取った口（open・openAdmin・chooseLens・openLegend・patch・
 // shot 等）だけを使い、何も読み込まない。管理画面は openAdmin で開く（モックの応答のときだけ。撮影用の資格情報はここが渡す）。
 // 作業ツリーの外に置いてよい（.ts も読める）。省略すると開いて1枚撮る。例は capture/examples/。
 // 撮る前に、宛先（本番の frontend・本物の backend）が応答するまで待ち、Playwright の Chromium と、Linux なら起こすのに要る依存と
 // 日本語のフォント（無いと文字が豆腐になる）を入れる。画像は <出力>/<版>/<番号>-<名前>.png。
 
-import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, openSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,10 +30,10 @@ const playwright = path.join(frontendRoot, "node_modules", "@playwright", "test"
 const PRODUCTION_FRONTEND = "https://ride-compass-frontend.onrender.com";
 /** e2e/fixtures.ts: installApiMocks が待ち受ける向け先。ビルドの環境変数に別の向け先があっても、モックへ向ける。 */
 const MOCKED_API = "http://localhost:8000";
-/** モックの応答のとき手元で起動する版へ渡す管理画面（src/proxy.ts）の資格情報。capture/context.ts: openAdmin が同じ環境変数から読む。 */
-const ADMIN_CREDENTIALS = { ADMIN_BASIC_AUTH_USERNAME: "capture", ADMIN_BASIC_AUTH_PASSWORD: "capture" };
 /** frontend/e2e（3100）・e2e-live（3200）・devサーバー（3000）と取り合わないポート。 */
 const LOCAL_PORT = "3300";
+/** --backend の作業ツリーの backend のポート。backend の開発（8000）・e2e-live（serve_e2e_live.py）と取り合わない。 */
+const WORKTREE_BACKEND_PORT = "8300";
 /** Render の無料のインスタンスは休止から起きるのに約1分かかる（https://render.com/docs/free）。その3倍まで待つ。 */
 const WAKE_LIMIT_MS = 3 * 60_000;
 
@@ -52,11 +56,42 @@ function run(command, args, { cwd = frontendRoot, env = {} } = {}) {
   return result.status ?? 1;
 }
 
+/**
+ * 手元で起動する版へ渡す環境変数。本番（Render のダッシュボードの値と Render が入れる RENDER_GIT_COMMIT。docs/architecture/tech-stack.md
+ * 「本番の宛先」）と同じく、API もタイルも backend へ直接向け、ビルド（NEXT_PUBLIC_ を埋め込む）と起動の両方へ渡す。管理画面
+ * （src/proxy.ts）の資格情報は撮影用の値で、capture/context.ts: openAdmin が同じ環境変数から読む。
+ */
+function frontendEnv(target, commit) {
+  return {
+    NEXT_PUBLIC_API_URL: target,
+    NEXT_PUBLIC_TILE_BASE_URL: target,
+    BACKEND_INTERNAL_URL: target,
+    ADMIN_BASIC_AUTH_USERNAME: "capture",
+    ADMIN_BASIC_AUTH_PASSWORD: "capture",
+    RENDER_GIT_COMMIT: commit,
+  };
+}
+
+/** 版の src が読む環境変数（process.env.<名前>）のうち、env に無いもの。渡し漏れは、撮った画面が本番と違うことでしか分からないため。 */
+function unpassedEnv(dir, env) {
+  const names = new Set();
+  for (const file of readdirSync(path.join(dir, "src"), { recursive: true })) {
+    if (!/\.(ts|tsx)$/.test(file)) continue;
+    for (const [, name] of readFileSync(path.join(dir, "src", file), "utf-8").matchAll(
+      /process\.env\.([A-Za-z_]\w*)/g,
+    )) {
+      names.add(name);
+    }
+  }
+  return [...names].filter((name) => !(name in env));
+}
+
 const { values } = parseArgs({
   options: {
     script: { type: "string" },
     app: { type: "string", default: "worktree" },
     api: { type: "string" },
+    backend: { type: "string", multiple: true, default: [] },
     size: { type: "string", default: "390x812" },
     theme: { type: "string" },
     out: { type: "string", default: path.join(os.tmpdir(), "ridecompass-capture") },
@@ -68,6 +103,8 @@ const production = values.app === "production";
 if (production && values.api) fail("--app production は本番の backend を使う（--api を外す）");
 const api = values.api?.replace(/\/+$/, "") ?? "mock";
 const mocked = !production && api === "mock";
+if (values.backend.length > 0 && (production || mocked))
+  fail("--backend は --api <backend のオリジン> と使う（選ばなかったパスは --api の backend が返す）");
 const script = values.script ? path.resolve(values.script) : null;
 if (script && !existsSync(script)) fail(`脚本が無い: ${script}`);
 const [width, height] = values.size.split("x").map(Number);
@@ -132,7 +169,7 @@ async function waitReady(name, url) {
   fail(`${name} が ${WAKE_LIMIT_MS / 60_000} 分たっても起きない（${url} の最後の応答: ${last}）`);
 }
 
-/** <git の版> の frontend を取り出して依存を入れ、そのディレクトリを返す。 */
+/** <git の版> の frontend を取り出して依存を入れ、そのディレクトリと版の commit を返す。 */
 function checkoutRef(ref) {
   let commit;
   try {
@@ -161,39 +198,55 @@ function checkoutRef(ref) {
     if (run("npm", ["ci", "--prefer-offline", "--no-audit", "--no-fund"], { cwd: dir }) !== 0)
       fail("依存を入れられない");
   }
-  return dir;
+  return { dir, commit };
 }
 
-/** ビルドに埋め込んだ向け先。同じ版でも --api が違えばビルドし直す。 */
-function builtFor(dir) {
-  const marker = path.join(dir, ".next", "capture-api");
+/** ビルドに埋め込んだ環境変数。同じ版でも --api が違えばビルドし直す。 */
+function builtWith(dir) {
+  const marker = path.join(dir, ".next", "capture-env");
   return existsSync(path.join(dir, ".next", "BUILD_ID")) && existsSync(marker) ? readFileSync(marker, "utf-8") : null;
 }
 
 prepareBrowser();
 
 let serverDir = null;
+let env = {};
 if (!production) {
-  serverDir = values.app === "worktree" ? frontendRoot : checkoutRef(values.app);
+  const checkout =
+    values.app === "worktree"
+      ? {
+          dir: frontendRoot,
+          commit: execFileSync("git", ["rev-parse", "HEAD"], { cwd: frontendRoot, encoding: "utf-8" }).trim(),
+        }
+      : checkoutRef(values.app);
+  serverDir = checkout.dir;
   const target = mocked ? MOCKED_API : api;
-  const reuse = values["no-build"] || (serverDir !== frontendRoot && builtFor(serverDir) === target);
+  env = frontendEnv(target, checkout.commit);
+  const unpassed = unpassedEnv(serverDir, env);
+  if (unpassed.length > 0)
+    fail(
+      `frontend が読む環境変数を手元の版へ渡していない: ${unpassed.join(" / ")}（scripts/capture.mjs: frontendEnv へ本番と同じ向きで足す）`,
+    );
+  const reuse = values["no-build"] || (serverDir !== frontendRoot && builtWith(serverDir) === JSON.stringify(env));
   if (!reuse) {
     console.log(`[capture] ${label} の版をビルドする（API: ${mocked ? "モック" : target}）`);
-    if (
-      run("npm", ["run", "build"], {
-        cwd: serverDir,
-        // タイルも本番の Render と同じく backend へ直接取りに行く（手元の版の rewrites に無いタイルがある）。
-        env: {
-          NEXT_PUBLIC_API_URL: target,
-          BACKEND_INTERNAL_URL: target,
-          ...(mocked ? {} : { NEXT_PUBLIC_TILE_BASE_URL: target }),
-        },
-      }) !== 0
-    ) {
-      fail("ビルドに失敗");
-    }
-    writeFileSync(path.join(serverDir, ".next", "capture-api"), target);
+    if (run("npm", ["run", "build"], { cwd: serverDir, env }) !== 0) fail("ビルドに失敗");
+    writeFileSync(path.join(serverDir, ".next", "capture-env"), JSON.stringify(env));
   }
+}
+
+let worktreeBackend = null;
+if (values.backend.length > 0) {
+  const log = path.join(os.tmpdir(), "ridecompass-capture-backend.log");
+  console.log(`[capture] 作業ツリーの backend を起こす（${values.backend.join(" / ")}。ログ: ${log}）`);
+  const logFd = openSync(log, "w");
+  const server = spawn("python", ["scripts/serve_capture.py", WORKTREE_BACKEND_PORT], {
+    cwd: path.join(path.dirname(frontendRoot), "backend"),
+    stdio: ["ignore", logFd, logFd],
+  });
+  process.on("exit", () => server.kill());
+  worktreeBackend = { origin: `http://localhost:${WORKTREE_BACKEND_PORT}`, api, paths: values.backend };
+  await waitReady("作業ツリーの backend", `${worktreeBackend.origin}/health`);
 }
 
 if (production) await waitReady("本番の frontend", `${PRODUCTION_FRONTEND}/api/version`);
@@ -203,11 +256,13 @@ const status = run(process.execPath, [playwright, "test", "-c", "playwright.capt
   env: {
     CAPTURE_BASE_URL: production ? PRODUCTION_FRONTEND : `http://localhost:${LOCAL_PORT}`,
     ...(serverDir ? { CAPTURE_LOCAL_PORT: LOCAL_PORT, CAPTURE_SERVER_DIR: serverDir } : {}),
-    ...(mocked ? ADMIN_CREDENTIALS : {}),
+    // 手元で起動する版は Playwright の webServer が起こし、環境変数を継ぐ。
+    ...env,
     CAPTURE_OPTIONS: JSON.stringify({
       script,
       out,
       mocked,
+      worktreeBackend,
       viewport: { width, height },
       theme: values.theme ?? null,
     }),
