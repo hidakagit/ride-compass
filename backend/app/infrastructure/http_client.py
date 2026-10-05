@@ -13,7 +13,7 @@ def get_http_client(timeout: float) -> httpx.AsyncClient:
 
 
 async def close_all_http_clients() -> None:
-    """プロセス終了時にmain.pyのlifespanシャットダウン段から呼ぶ。"""
+    """プロセス終了時に`process_resources.py: close_process_resources`から呼ぶ。"""
     for client in _clients.values():
         await client.aclose()
     _clients.clear()

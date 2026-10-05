@@ -26,6 +26,7 @@ DB接続・Redis・HTTPクライアント・レート制限・ログ・デバッ
 | infrastructure | `redis_client.py` | Redis共有クライアント |
 | infrastructure | `redis_json_cache.py` | Redisへ持つcache-asideの共通骨格（JSONと生のバイト列） |
 | infrastructure | `http_client.py` | 外部API向け共有HTTPクライアント |
+| infrastructure | `process_resources.py` | プロセスで持ち回る接続と資源（HTTP・Redis・DBのエンジン・土地被覆ラスタ）を、lifespanのシャットダウン段でまとめて閉じる |
 | infrastructure | `rate_limiter.py` | プロセス内メモリのみの移動窓レート制限 |
 | infrastructure | `request_log.py` | 1リクエスト=1行のHTTPアクセスサマリログ、ログ1行の書式（リクエストIDの差し込みとJSTでの時刻整形）、500応答へのリクエストIDの付与 |
 | infrastructure | `response_compression.py` | 応答のgzip圧縮（対象content-typeのみ） |
@@ -120,10 +121,8 @@ FastAPI(lifespan=lifespan)
       yield（アプリ稼働中）
         ▼
   シャットダウン: (1) APSchedulerを停止（`wait=False`）→
-                 (2) httpxクライアントを明示close（`close_all_http_clients`）→
-                 (3) Redisクライアントを閉じる（`close_redis_clients`）→
-                 (4) DBの2系統のエンジンを破棄（`dispose_engines`）→
-                 (5) 土地被覆ラスタを閉じる（`landcover_raster.py: close_sources`）
+                 (2) プロセスで持ち回る接続と資源を閉じる（`process_resources.py: close_process_resources`。
+                     httpxクライアント・Redisクライアント・DBの2系統のエンジン・土地被覆ラスタ）
 ```
 
 - ログレベルは`debug_mode`の値でINFO/DEBUGを切り替える（`main.py`のlogging.basicConfig）。

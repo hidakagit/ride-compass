@@ -105,7 +105,7 @@ def _open_sources() -> list[_RasterSource]:
 
 
 def close_sources() -> None:
-    """開いたラスタを閉じる。プロセス終了時にmain.pyのlifespanシャットダウン段から呼ぶ。次の読み取りで開き直す。"""
+    """開いたラスタを閉じる。プロセス終了時に`process_resources.py: close_process_resources`から呼ぶ。次の読み取りで開き直す。"""
     global _opened_sources
     with _sources_lock:
         for source in _opened_sources or []:

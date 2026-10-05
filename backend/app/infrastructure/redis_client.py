@@ -63,7 +63,7 @@ def get_redis_binary_client_or_none() -> redis.Redis | None:
 
 
 async def close_redis_clients() -> None:
-    """プロセス終了時にmain.pyのlifespanシャットダウン段から呼ぶ。次の取得で作り直す。"""
+    """プロセス終了時に`process_resources.py: close_process_resources`から呼ぶ。次の取得で作り直す。"""
     global _text_client, _binary_client
     for client in (_text_client, _binary_client):
         if client is not None:

@@ -46,7 +46,7 @@ def get_route_generation_session_factory() -> async_sessionmaker[AsyncSession]:
 
 
 async def dispose_engines() -> None:
-    """プロセス終了時にmain.pyのlifespanシャットダウン段から呼ぶ。次の取得で作り直す。"""
+    """プロセス終了時に`process_resources.py: close_process_resources`から呼ぶ。次の取得で作り直す。"""
     global _session_factory, _route_generation_session_factory
     for factory in (_session_factory, _route_generation_session_factory):
         if factory is not None:
