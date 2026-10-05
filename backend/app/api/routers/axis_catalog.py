@@ -65,7 +65,7 @@ def _material_breakdown(definition: AxisDefinition) -> list["AxisMaterialBreakdo
     フロントが飛ばす形にする。
     """
     entries = []
-    for share in axis_material_shares(definition):
+    for share in axis_material_shares(definition, AXIS_DEFINITIONS):
         spec = MATERIAL_CATALOG.get(share.material_id)
         if spec is None:
             continue

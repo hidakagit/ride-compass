@@ -27,6 +27,7 @@ Pythonの`round()`と同じ値へ丸める（`difficulty.py: round_difficulty_ar
 """
 
 import math
+import threading
 from collections.abc import Collection, Iterable
 from typing import Annotated, Literal, Mapping, Sequence, SupportsFloat, cast
 
@@ -414,6 +415,28 @@ class AxisDefinition(StrictModel):
 # （モジュールdocstring参照）。
 AXIS_DEFINITIONS: dict[str, AxisDefinition] = {}
 
+# 差し替え（`replace_axis_definitions`）と写し（`copy_axis_definitions`）を互いに排他にする。
+# 差し替えはイベントループで動くので、ループの上で読む側は途中を見ない。見うるのは
+# `asyncio.to_thread`の先で読む側だけで、そちらは写しを取って読む。
+_AXIS_DEFINITIONS_LOCK = threading.Lock()
+
+
+def replace_axis_definitions(definitions: Mapping[str, AxisDefinition]) -> None:
+    """`AXIS_DEFINITIONS`の中身を`definitions`へ差し替える（同じdictのまま。モジュールdocstring参照）。"""
+    with _AXIS_DEFINITIONS_LOCK:
+        AXIS_DEFINITIONS.clear()
+        AXIS_DEFINITIONS.update(definitions)
+
+
+def copy_axis_definitions() -> dict[str, AxisDefinition]:
+    """`AXIS_DEFINITIONS`の写し。別スレッドで軸を読む処理は、入口でこれを1回取り、終わりまでこれだけを読む。
+
+    `AXIS_DEFINITIONS`を直に読むと、読む間に軸の保存が差し替えて、鍵が欠ける（`KeyError`）・
+    回している辞書の大きさが変わる（`RuntimeError`）・読むたびに軸の集合が食い違う。
+    """
+    with _AXIS_DEFINITIONS_LOCK:
+        return dict(AXIS_DEFINITIONS)
+
 
 class AxisMaterialConflictError(ValueError):
     """新規/更新しようとした軸の材料が、既存の別軸と重複している場合に送出する。
@@ -780,9 +803,8 @@ def topological_axis_order(definitions: dict[str, AxisDefinition]) -> list[str]:
     スカラー評価がEdge単位（1ルート候補あたり
     最大数百回）で呼ぶホットパスのため、結果をプロセス内メモリでメモ化する。キーは
     各軸の`materials`（依存関係を決める唯一の入力）から導出した内容ベースの値であり、
-    `AXIS_DEFINITIONS`自体のオブジェクト同一性には依存しない（`refresh_axis_definitions`
-    [services/axis_registry_service.py]が`AXIS_DEFINITIONS.clear()`+`update()`で同一
-    オブジェクトのまま中身だけ差し替えるため、オブジェクトidベースのキーだと差し替え後も
+    `AXIS_DEFINITIONS`自体のオブジェクト同一性には依存しない（`replace_axis_definitions`が
+    同一オブジェクトのまま中身だけ差し替えるため、オブジェクトidベースのキーだと差し替え後も
     古いキャッシュを誤って返しうる）。循環参照（`AxisDependencyCycleError`）はキャッシュ
     しない（軸スタジオでの試行錯誤中に一時的な循環を経て修正された場合の再評価を妨げない
     ため）。
@@ -1003,7 +1025,7 @@ def evaluate_axes_values(materials: Mapping[str, Sequence[object]], length: int)
     評価できなかった公開軸も、キーを残して値をNoneにする（区間インスペクタの`available=False`・
     合成の分母からの除外がこれを前提にする）。
     """
-    evaluated = evaluate_axes_array(_axes_python_value_columns(materials, length))
+    evaluated = evaluate_axes_array(_axes_python_value_columns(materials, length), AXIS_DEFINITIONS)
     return {
         axis_id: _scores_or_none(evaluated[axis_id])
         for axis_id in topological_axis_order(AXIS_DEFINITIONS)
@@ -1018,7 +1040,7 @@ def evaluate_axes_inputs(materials: Mapping[str, Sequence[object]], length: int)
     この値が同じ道は、折れ点・対応表をどう置いても同じ得点になる（0次条件が当たる道を除く）。
     """
     columns = _axes_python_value_columns(materials, length)
-    with_axes: dict[str, MaterialColumn] = {**columns, **evaluate_axes_array(columns)}
+    with_axes: dict[str, MaterialColumn] = {**columns, **evaluate_axes_array(columns, AXIS_DEFINITIONS)}
     inputs: dict[str, list[object]] = {}
     for axis_id in topological_axis_order(AXIS_DEFINITIONS):
         definition = AXIS_DEFINITIONS[axis_id]
@@ -1046,14 +1068,16 @@ def _axes_python_value_columns(materials: Mapping[str, Sequence[object]], length
     return _python_value_columns(materials, leaf_ids, _term_material_ids(definitions), length)
 
 
-def evaluate_axes_array(materials: Mapping[str, MaterialColumn]) -> dict[str, np.ndarray]:
-    """`AXIS_DEFINITIONS`の全軸を依存順（内部軸→公開軸）で評価し、軸id→得点の辞書を返す。
+def evaluate_axes_array(
+    materials: Mapping[str, MaterialColumn], definitions: Mapping[str, AxisDefinition]
+) -> dict[str, np.ndarray]:
+    """`definitions`の全軸を依存順（内部軸→公開軸）で評価し、軸id→得点の辞書を返す。
     評価した軸の得点は、後の軸の材料として読まれる（他の軸を材料にする軸）。
     """
     with_axes: dict[str, MaterialColumn] = dict(materials)
     scores: dict[str, np.ndarray] = {}
-    for axis_id in topological_axis_order(AXIS_DEFINITIONS):
-        scores[axis_id] = with_axes[axis_id] = evaluate_axis_array(AXIS_DEFINITIONS[axis_id], with_axes)
+    for axis_id in topological_axis_order(definitions):
+        scores[axis_id] = with_axes[axis_id] = evaluate_axis_array(definitions[axis_id], with_axes)
     return scores
 
 
