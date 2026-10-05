@@ -87,13 +87,12 @@ def redis_server():
 @pytest.fixture
 async def fake_redis(monkeypatch, redis_server):
     """空のRedis。接続を作る所（`redis.asyncio.from_url`）を同じサーバのfakeredisへ差し、共有クライアントを
-    閉じる口（`redis_client.py: close_redis_clients`）で作る前に戻すので、`get_redis_client_or_none`・
-    `get_redis_binary_client_or_none`を読むどのモジュールからも同じものが見える。
-    返すのは文字列側のクライアント。"""
+    閉じる口（`redis_client.py: close_redis_client`）で作る前に戻すので、`get_redis_client_or_none`を読むどの
+    モジュールからも同じものが見える。返すのはその共有クライアントで、値は生のバイト列で返る。"""
     monkeypatch.setattr(redis.asyncio, "from_url", functools.partial(fakeredis.FakeAsyncRedis.from_url, server=redis_server))
-    await redis_client.close_redis_clients()
+    await redis_client.close_redis_client()
     yield redis_client.get_redis_client_or_none()
-    await redis_client.close_redis_clients()
+    await redis_client.close_redis_client()
 
 
 class MonotonicClock:

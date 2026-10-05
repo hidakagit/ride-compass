@@ -194,9 +194,10 @@ backendは1プロセスでしか正しく動かず、ワーカーを増やすと
 
 「Redisが使えるか確認 → クライアント取得 → `log_external_call`で計測 → 失敗は握り潰して
 未キャッシュ扱い → 成否をサーキットブレーカーへ記録」という14行ほどの定型文は、
-`redis_json_cache.py: get_json`/`redis_json_cache.py: set_json`が内包している。値がバイナリなら、同じ骨格を
-文字列へデコードしない接続で通す`redis_json_cache.py: get_bytes`/`redis_json_cache.py: set_bytes`を使う
-（base64にしてJSONへ包むと、ヒットのたびにデコードのCPUと約1.33倍の容量を払う）。**呼び出し元が持つのは
+`redis_json_cache.py: get_json`/`redis_json_cache.py: set_json`が内包している。値がバイナリなら
+`redis_json_cache.py: get_bytes`/`redis_json_cache.py: set_bytes`を使う
+（base64にしてJSONへ包むと、ヒットのたびにデコードのCPUと約1.33倍の容量を払う）。キーごとの項目を
+まとめて書くなら、Hashの`redis_json_cache.py: get_hash`/`redis_json_cache.py: set_hashes`（pipelineで1往復）を使う。**呼び出し元が持つのは
 キー設計・TTL・値の意味づけだけ**にする。
 
 **呼び出し元は`infrastructure/`のモジュールにする**。鍵・保存する形・TTL・保存した形の検査は
@@ -207,14 +208,14 @@ backendは1プロセスでしか正しく動かず、ワーカーを増やすと
 ```python
 from app.infrastructure.redis_json_cache import get_json, set_json
 
-value = await get_json(key, category="cache:xxx")            # ミス・障害はNone
+value = await get_json(key, category="cache:xxx")            # ミスはNone・障害はUNAVAILABLE
 await set_json(key, payload, ttl_seconds=TTL, category="cache:xxx")
 ```
 
 **自前で骨格を書いてよい例外**（該当する場合はその理由をモジュールのdocstringへ書く）:
 
-- `mget`/`pipeline`による一括読み書きが必要（1リクエストで数百キーを引く等）
-- キーの生存期間を個別に操作する必要がある（`ex`以外のRedis機能を使う）
+- 骨格に無い一括読み書きが必要（`mget`で1リクエストに数百キーを引く等）
+- キーの生存期間を個別に操作する必要がある（TTLの付与以外のRedis機能を使う）
 
 例外に当たる場合も、原則3（失敗の記録）と原則2（fail-open）は必ず満たす。
 
@@ -357,7 +358,7 @@ push型の無効化はfail-openと組み合わさると「伝え漏れても誰�
 
 ## 直接使ってよい場所
 
-`get_redis_client_or_none`・`get_redis_binary_client_or_none`・`record_redis_failure`・`record_redis_success`・`redis_available`を
+`get_redis_client_or_none`・`record_redis_failure`・`record_redis_success`・`redis_available`を
 直接呼んでよいファイルは`backend/tests/structure/test_redis_skeleton.py: ALLOWED`が持つ（骨格そのもの・
 その接続本体と、単一キーのJSON読み書きでは表現できないもの）。ここに無いファイルで使うと
 テストが落ちる。寄せられない事情があるなら、理由とともに`ALLOWED`へ足すこと。

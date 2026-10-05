@@ -9,7 +9,7 @@ import hashlib
 
 from app.infrastructure.jma_tile_content import is_empty_tile
 from app.infrastructure.jma_tile_recolor import RECOLOR_VERSION
-from app.infrastructure.redis_json_cache import get_bytes, set_bytes
+from app.infrastructure.redis_json_cache import UNAVAILABLE, get_bytes, set_bytes
 
 # 保存するのは中継が塗り替えたあとのタイルなので、塗り替えの版を鍵に入れる。
 _KEY_PREFIX = f"jma:tile:{RECOLOR_VERSION}"
@@ -56,7 +56,8 @@ async def get(path: str) -> tuple[bytes, str] | EmptyTile | None:
     """Redisキャッシュ済みなら(内容, Content-Type)または`EMPTY_TILE`を返す。
     未キャッシュ・Redis障害時はNone（呼び出し元は通常のオンデマンドフェッチへ
     フォールバックする）。"""
-    return await get_bytes(_key(path), decode=_decode, category=_CATEGORY, path=path)
+    cached = await get_bytes(_key(path), decode=_decode, category=_CATEGORY, path=path)
+    return None if cached is UNAVAILABLE else cached
 
 
 async def set(path: str, content: bytes, content_type: str) -> None:
