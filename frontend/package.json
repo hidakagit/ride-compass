@@ -36,7 +36,7 @@
     "lucide-react": "^1.48.0",
     "maplibre-gl": "^6.11.2",
     "next": "16.3.4",
-    "openapi-fetch": "^0.16.0",
+    "openapi-fetch": "^0.17.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-rnd": "^10.5.3",
