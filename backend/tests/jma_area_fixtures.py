@@ -4,7 +4,7 @@
 階層→発表文書」という同じ順で引くため、上流の代役の張り方も同じになる。差し替えるのは
 プロセス境界（区域の境界の置き場・気象庁への取得）だけで、応答の形を解くクライアントは本物を通す。
 
-既定は**区域が解決できる世界**で、テストが見る区域コード・地方名はここの名前で参照する
+既定は**区域が解決できる世界**で、テストが見る区域コードはここの名前で参照する
 （値を書き写すと、ここを変えたときに関係ないテストが落ちる）。
 """
 
@@ -18,14 +18,13 @@ from tests.fake_http import client_for
 
 CLASS20_CODE = "1310100"
 CLASS10_CODE = "130010"
-CLASS10_NAME = "東京地方"
 OFFICE_CODE = "130000"
 
 #: 地域マスタ（area.json）の千代田区から府県予報区までの行。項目は実際の応答の形のまま。
 AREA_DATA = {
     "class20s": {CLASS20_CODE: {"name": "千代田区", "enName": "Chiyoda City", "kana": "ちよだく", "parent": "130011"}},
     "class15s": {"130011": {"name": "２３区西部", "enName": "Western Region of 23 wards", "parent": CLASS10_CODE}},
-    "class10s": {CLASS10_CODE: {"name": CLASS10_NAME, "enName": "Tokyo Region", "parent": OFFICE_CODE}},
+    "class10s": {CLASS10_CODE: {"name": "東京地方", "enName": "Tokyo Region", "parent": OFFICE_CODE}},
 }
 
 CHIYODA_POINT = Coordinates(latitude=35.6812, longitude=139.7671)

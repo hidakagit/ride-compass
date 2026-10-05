@@ -206,7 +206,7 @@ bbox全体ぶんのコストをリクエストにつき1回だけnumpyで合成�
   [設計原則](../../architecture/design-principles.md)構造仕様8、フロントがramp軸をカタログ［`axisCatalog.rampAxes`］から列挙して塗るのと同種の汎用ディスパッチ）。
   `evaluate_dynamic_material_arrays`が全動的材料を評価する唯一の経路で、静的行列への
   動的軸合成（`evaluate_dynamic_axis_arrays`）もここを通るため、式が乖離しない。
-  `DynamicAxisRequestContext`は出発時点のスナップショット（`weather`）・走行速度
+  `DynamicAxisRequestContext`は出発時点の風のスナップショット（`departure_wind`）・走行速度
   （`travel_speed_ms`、m/s。既定値を持たない必須フィールドで、伝播漏れは構築時点で
   失敗する）に加え、時刻依存の材料向けに時別予報（`wind_series`、格子点ごと）・出発時刻
   （`start`）・Edgeごとの通過予定時刻（`passage_hours`）と最寄りの格子点（`wind_points`。どちらも

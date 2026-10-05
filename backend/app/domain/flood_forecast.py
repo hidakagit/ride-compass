@@ -20,19 +20,16 @@ from app.domain.strict_model import StrictModel
 
 
 class FloodLevel(NamedTuple):
-    """氾濫の段。バッジの見た目の語彙はJMA警報と共有するが、軸は別。
+    """氾濫の段。バッジの見た目の語彙はJMA警報と共有するが、軸は別。"""
 
-    `level`と`badge_level`は別々に書くため、段が上がるほどバッジが重いという並びは型では守られない。"""
-
-    level: int
     badge_level: WarningBadgeLevel
     suffix: str
 
 
-_WATCH = FloodLevel(2, "advisory", "氾濫注意報")
-_WARNING = FloodLevel(3, "warning", "氾濫警報")
-_DANGER = FloodLevel(4, "severe_warning", "氾濫危険警報")
-_EMERGENCY = FloodLevel(5, "emergency_warning", "氾濫特別警報")
+_WATCH = FloodLevel("advisory", "氾濫注意報")
+_WARNING = FloodLevel("warning", "氾濫警報")
+_DANGER = FloodLevel("severe_warning", "氾濫危険警報")
+_EMERGENCY = FloodLevel("emergency_warning", "氾濫特別警報")
 
 #: 段階ごとの表示名（警戒度バッジが出す語。domain/warning_display.py）。
 FLOOD_LEVEL_LABELS: dict[WarningBadgeLevel, str] = {
@@ -55,12 +52,9 @@ FLOOD_CODE_LEVELS: dict[str, FloodLevel] = {
 
 class ActiveFloodForecast(StrictModel):
     river_code: str
-    river_name: str
-    level: int
     badge_level: WarningBadgeLevel
     label: str
     condition: str
-    report_datetime: str
 
 
 @dataclass(frozen=True)
@@ -75,7 +69,6 @@ class FloodBulletin:
     river_code: str
     river_name: str
     condition: str
-    report_datetime: str
 
 
 def extract_active_flood_forecast(
@@ -95,10 +88,7 @@ def extract_active_flood_forecast(
 
     return ActiveFloodForecast(
         river_code=bulletin.river_code,
-        river_name=bulletin.river_name,
-        level=flood_level.level,
         badge_level=flood_level.badge_level,
         label=f"{bulletin.river_name}{flood_level.suffix}",
         condition=bulletin.condition,
-        report_datetime=bulletin.report_datetime,
     )

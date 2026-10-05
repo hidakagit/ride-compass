@@ -61,12 +61,7 @@ class TemperatureRange(StrictModel):
 
 
 class WeatherConditions(StrictModel):
-    temperature_c: float | None
-    wind_speed_ms: float
-    wind_direction_deg: float
-    wind_direction_label: str
     precipitation_mm: float | None
-    observed_at: str
     # 「今日」のパネル向けの1日1個の値。早朝（夜明け前）は遠い日没時刻より近い夜明け時刻の方が
     # 有益なため両方持つ。どちらを表示するかの判定はfrontend側が現在時刻と比較して行う。
     twilight: Twilight | None

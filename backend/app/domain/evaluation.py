@@ -56,7 +56,7 @@ def has_route_facing_raw_value(definition: AxisDefinition) -> bool:
     """その軸の生値を静的スコア行列の列として持つか。述語はここ1箇所だけが持つ。
 
     - 単位が定まらない軸（`raw_value_unit`がNone）は、数字を添えても読み手が意味を取れない。
-    - 動的材料（風）を参照する軸は対象外——静的スコア行列は`weather=None`で組み立てるため
+    - 動的材料（風）を参照する軸は対象外——静的スコア行列は風を持たずに組み立てるため
       生値がNaNになり、人へ見せる値にならない。
     """
     if raw_value_unit(definition) is None:
@@ -102,7 +102,7 @@ def route_facing_material_ids() -> list[str]:
 
     - categorical材料（`highway`等）。列は数値行列のため文字列を載せられない。
       値ごとの延長割合は別の器（`merge_material_category_shares`）が要る。
-    - 動的材料（風）。静的スコア行列は`weather=None`で組み立てるため全行NaNになる。
+    - 動的材料（風）。静的スコア行列は風を持たずに組み立てるため全行NaNになる。
     - 分解しない軸（参照材料が1件）。軸単位の生値（`axis_raw_arrays`）で足りる。
 
     軸が1つも参照していなくても、走行モデルが所要時間の算出に使う材料（停止の待ちは

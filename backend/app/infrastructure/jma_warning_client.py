@@ -51,7 +51,7 @@ def _parse_area_entries(section: object) -> dict[str, AreaEntry]:
     if not isinstance(section, dict):
         return {}
     return {
-        code: AreaEntry(parent=_str_or_none(entry.get("parent")), name=_str_or_none(entry.get("name")))
+        code: AreaEntry(parent=_str_or_none(entry.get("parent")))
         for code, entry in section.items()
         if isinstance(entry, dict)
     }
@@ -113,11 +113,9 @@ def _parse_bulletin(document: dict) -> tuple[WarningBulletin, int]:
     warning = document.get("warning")
     if not isinstance(warning, dict):
         warning = {}
-    report_datetime = document.get("reportDatetime")
     class20_kinds, skipped20 = _parse_area_items(warning.get("class20Items"))
     class10_kinds, skipped10 = _parse_area_items(warning.get("class10Items"))
     bulletin = WarningBulletin(
-        report_datetime=_str_or_none(report_datetime),
         class20_kinds=class20_kinds,
         class10_kinds=class10_kinds,
     )

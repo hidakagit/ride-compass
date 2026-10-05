@@ -62,12 +62,7 @@ const CATALOG = catalogResponse([rampEntry("axis_a", [25, 50, 75], { label: "軸
 
 // 予報と実測（ここでは中身を見ない）。
 const FORECAST: WeatherConditions = {
-  temperature_c: null,
-  wind_speed_ms: 0,
-  wind_direction_deg: 0,
-  wind_direction_label: "北",
   precipitation_mm: null,
-  observed_at: "2026-10-04T09:00:00+09:00",
   twilight: null,
   precipitation_max_mm: null,
   wind_speed_max_ms: null,
@@ -76,10 +71,6 @@ const FORECAST: WeatherConditions = {
   today_period_interval_hours: 2,
 };
 const OBSERVATION: AmedasObservation = {
-  station_id: "station",
-  station_name: "観測所",
-  ...HERE,
-  observed_at: "2026-10-04T09:00:00+09:00",
   temperature_c: null,
   apparent_temperature_c: null,
   wind_speed_ms: null,

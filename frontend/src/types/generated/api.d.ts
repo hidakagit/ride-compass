@@ -620,10 +620,6 @@ export interface components {
         ActiveFloodForecast: {
             /** River Code */
             river_code: string;
-            /** River Name */
-            river_name: string;
-            /** Level */
-            level: number;
             /**
              * Badge Level
              * @enum {string}
@@ -633,8 +629,6 @@ export interface components {
             label: string;
             /** Condition */
             condition: string;
-            /** Report Datetime */
-            report_datetime: string;
         };
         /** ActiveWarning */
         ActiveWarning: {
@@ -652,16 +646,6 @@ export interface components {
         };
         /** AmedasObservation */
         AmedasObservation: {
-            /** Station Id */
-            station_id: string;
-            /** Station Name */
-            station_name: string;
-            /** Latitude */
-            latitude: number;
-            /** Longitude */
-            longitude: number;
-            /** Observed At */
-            observed_at: string;
             /** Temperature C */
             temperature_c: number | null;
             /** Apparent Temperature C */
@@ -1483,8 +1467,6 @@ export interface components {
         MsmFreshnessResponse: {
             /** Last Run At */
             last_run_at: string;
-            /** Data End At */
-            data_end_at: string;
             /** Run Age Hours */
             run_age_hours: number;
             /** Remaining Hours */
@@ -1882,8 +1864,6 @@ export interface components {
             label: string;
             /** Value */
             value: number;
-            /** Observed At */
-            observed_at: string;
         };
         /** WbgtStatus */
         WbgtStatus: {
@@ -1891,18 +1871,8 @@ export interface components {
         };
         /** WeatherConditions */
         WeatherConditions: {
-            /** Temperature C */
-            temperature_c: number | null;
-            /** Wind Speed Ms */
-            wind_speed_ms: number;
-            /** Wind Direction Deg */
-            wind_direction_deg: number;
-            /** Wind Direction Label */
-            wind_direction_label: string;
             /** Precipitation Mm */
             precipitation_mm: number | null;
-            /** Observed At */
-            observed_at: string;
             twilight: components["schemas"]["Twilight"] | null;
             /** Precipitation Max Mm */
             precipitation_max_mm: number | null;
@@ -1925,10 +1895,6 @@ export interface components {
         };
         /** WeatherWarnings */
         WeatherWarnings: {
-            /** Area Name */
-            area_name: string | null;
-            /** Report Datetime */
-            report_datetime: string | null;
             /** Warnings */
             warnings: components["schemas"]["ActiveWarning"][];
         };

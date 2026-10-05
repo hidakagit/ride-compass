@@ -5,8 +5,8 @@ from __future__ import annotations
 import httpx
 from cachetools import TTLCache
 
-from app.domain.jma_area import ResolvedArea, resolve_area
-from app.domain.jma_warning import ActiveWarning, WarningBulletin, collect_active_warnings
+from app.domain.jma_area import resolve_area
+from app.domain.jma_warning import ActiveWarning, collect_active_warnings
 from app.domain.route import Coordinates
 from app.infrastructure.jma_area_boundaries import AreaBoundariesUnavailableError, find_class20_code
 from app.infrastructure.jma_warning_client import fetch_area_data, fetch_warning_documents
@@ -14,8 +14,6 @@ from app.domain.strict_model import StrictModel
 
 
 class WeatherWarnings(StrictModel):
-    area_name: str | None
-    report_datetime: str | None
     warnings: list[ActiveWarning]
 
 
@@ -36,7 +34,7 @@ class WarningService:
         except AreaBoundariesUnavailableError:
             return None
         if class20_code is None:
-            return _empty_warnings()
+            return WeatherWarnings(warnings=[])
 
         area_master = await fetch_area_data(self._http_client, self._area_data_cache)
         if area_master is None:
@@ -50,19 +48,6 @@ class WarningService:
         if bulletins is None:
             return None
 
-        return _build_warnings(bulletins, resolved)
-
-
-def _empty_warnings() -> WeatherWarnings:
-    return WeatherWarnings(area_name=None, report_datetime=None, warnings=[])
-
-
-def _build_warnings(bulletins: list[WarningBulletin], resolved: ResolvedArea) -> WeatherWarnings:
-    warnings, report_datetime = collect_active_warnings(bulletins, resolved.class20_code, resolved.class10_code)
-    if not warnings:
-        return _empty_warnings()
-    return WeatherWarnings(
-        area_name=resolved.class10_name,
-        report_datetime=report_datetime,
-        warnings=warnings,
-    )
+        return WeatherWarnings(
+            warnings=collect_active_warnings(bulletins, resolved.class20_code, resolved.class10_code)
+        )

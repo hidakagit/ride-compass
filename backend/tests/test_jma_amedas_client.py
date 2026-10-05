@@ -23,16 +23,16 @@ from tests.fake_http import answering, client_for
 # --- 観測所マスタ ---
 
 
-async def test_station_table_reads_degree_minute_coordinates_and_name():
+async def test_station_table_reads_degree_minute_coordinates():
     client = answering(json={"44132": {"kjName": "東京", "lat": [35, 41.5], "lon": [139, 45.0], "alt": 25}})
 
     stations = await jma_amedas_client.fetch_station_table(client, new_station_table_cache())
 
-    assert stations == {"44132": jma_amedas_client.AmedasStation(name="東京", latitude=35 + 41.5 / 60, longitude=139.75)}
+    assert stations == {"44132": jma_amedas_client.AmedasStation(latitude=35 + 41.5 / 60, longitude=139.75)}
 
 
-@pytest.mark.parametrize("missing", ["lat", "lon", "kjName"])
-async def test_station_without_coordinates_or_name_is_left_out(missing):
+@pytest.mark.parametrize("missing", ["lat", "lon"])
+async def test_station_without_coordinates_is_left_out(missing):
     entry = {"kjName": "某所", "lat": [35, 0.0], "lon": [139, 0.0]}
     del entry[missing]
     client = answering(json={"99999": entry, "44132": {"kjName": "東京", "lat": [35, 41.5], "lon": [139, 45.0]}})

@@ -91,7 +91,7 @@ class GatedWeather(Weather):
         super().__init__()
         self.gate = asyncio.Event()
 
-    async def get_conditions(self, origin):
+    async def get_departure_wind(self, origin):
         await self.gate.wait()
         return None
 
