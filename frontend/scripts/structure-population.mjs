@@ -1,6 +1,6 @@
 // 画面が backend の宣言を持ち直している形の候補を、構文木から列挙する（.claude/commands/review.md「構造の問い」の frontend の母集団）。
 //
-//   node scripts/structure-population.mjs [--axis-catalog <JSONのファイル>] [--only <a|b|c|d>] [--count]
+//   node scripts/structure-population.mjs [--axis-catalog <JSONのファイル>]
 //
 // 母集団は src の .ts・.tsx のうち、テスト（*.test.ts(x)）・テストの足場（src/testing・src/structure）・生成物（src/types/generated）を除いたもの。
 // 出すのは候補で、判じない（偶然の一致・型で縛られた分岐が混ざる）。どれを直すかは読む人が決める。
@@ -13,7 +13,6 @@
 //       名前が重み・閾値・上下限を表す宣言・引数の既定・代入の値になっているもの。
 //   (d) 宣言の意味の鍵を名指す分岐: 文字列リテラルと、鍵を表す名前（key・id・kind 等）の値を比べる式・そうした値で分ける switch の case と、
 //       値の並び（values・keys 等）が文字列・真偽の字句を含むかを見る `includes`。
-// --count は件数だけを出す。
 
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -26,7 +25,7 @@ const srcRoot = path.join(frontendRoot, "src");
 const generatedRoot = path.join(srcRoot, "types", "generated");
 
 const { values } = parseArgs({
-  options: { "axis-catalog": { type: "string" }, only: { type: "string" }, count: { type: "boolean" } },
+  options: { "axis-catalog": { type: "string" } },
 });
 
 function walk(dir) {
@@ -254,9 +253,9 @@ const LABELS = {
   c: "(c) 重み・閾値の文脈の数値リテラル",
   d: "(d) 宣言の意味の鍵を名指す分岐",
 };
-for (const kind of values.only ? [values.only] : Object.keys(found)) {
+for (const kind of Object.keys(found)) {
   console.log(
     `## ${LABELS[kind]}: ${found[kind].length}件${kind === "b" && !values["axis-catalog"] ? "（軸名なし: --axis-catalog を渡していない）" : ""}`,
   );
-  if (!values.count) for (const line of found[kind]) console.log(line);
+  for (const line of found[kind]) console.log(line);
 }
