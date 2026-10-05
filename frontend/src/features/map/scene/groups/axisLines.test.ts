@@ -6,7 +6,7 @@ import { mapDisplay } from "@/types/generated/mapDisplay";
 import palette from "@/types/generated/palette.json";
 
 import { rampAxesFromCatalogAxes } from "@/lib/mapDisplay/axisLayers";
-import { catalogEntry } from "@/testing/catalogAxes";
+import { catalogEntry, tileInput } from "@/testing/catalogAxes";
 import { evaluateExpression as evaluate } from "@/testing/mapExpressions";
 import axisRampExpectations from "@/types/generated/axis-ramp-expectations.json";
 import type { AxisCatalogEntry } from "@/types/route";
@@ -175,4 +175,20 @@ describe("ramp軸の式は、backendの表（形ごとの軸と道）で評価�
       }
     });
   }
+});
+
+describe("buildAxisRampUnknownExpression", () => {
+  it("換算の係数が届いていない材料を使う軸は、どの道も「不明」", () => {
+    const tile_inputs = [tileInput({ property: "v", weight: 1, needs_runtime_scale: true })];
+    const display = {
+      kind: "ramp" as const,
+      label: "scaled",
+      category: "roadCondition",
+      tile_inputs,
+      thresholds: [10],
+    };
+    const [axis] = rampAxesFromCatalogAxes([catalogEntry({ axis_id: "scaled", display })], {});
+
+    expect(evaluate(buildAxisRampUnknownExpression(axis), { v: 5 })).toBe(true);
+  });
 });

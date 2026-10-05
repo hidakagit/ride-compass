@@ -16,6 +16,14 @@ z15のタイルTを4つの区画に分け、製品ごとに値のある区画を
 | 下・左 | 10 | e | e | 10 |
 | 下・右の左寄り | e | e | 30 | 30（ズームの違う製品の画素を引ける） |
 | 下・右の右寄り | e | e | e | 無し（どの製品にも無い） |
+
+製品ごとのタイルがそれぞれ1行に入ることは、別々の製品から採る区画の値が見る。
+
+ここで見ないもの:
+- 橋・トンネルとみなすタグの値の一つずつ——値の並びは`domain/material_sql.py`が持ち、ここは橋と
+  トンネルの1つずつだけを通す
+- 橋・トンネルの区間の勾配の出し方 → `test_elevation_values.py`
+- 1枚の本文を画素の順に詰めること → `test_gsi_dem_tile.py`
 """
 
 from dataclasses import replace
@@ -149,14 +157,6 @@ async def elevation_conn(module_conn, tile_root):
     return conn
 
 
-async def test_each_product_the_origin_returned_becomes_its_own_row(elevation_conn):
-    """同じ地点に値を持つ製品は、1つに絞らずにそれぞれ1行になる。区域外の製品は行を持たない。"""
-    keys = await elevation_conn.fetch(
-        "SELECT natural_key FROM source_features WHERE source = 'dem' ORDER BY natural_key")
-    assert [r["natural_key"] for r in keys] == sorted([
-        f"dem5a/{ZOOM}/{X}/{Y}", f"dem5b/{ZOOM}/{X}/{Y}", "dem/{}/{}/{}".format(*PARENT)])
-
-
 async def test_each_pixel_takes_the_most_accurate_product_that_has_a_value(elevation_conn):
     rows = await elevation_conn.fetch(
         "SELECT osm_way_id, start_elevation_m, end_elevation_m FROM edge_materials"
@@ -197,11 +197,9 @@ VALLEY_PIXELS = ((40, 40), (40, 200), (40, 44))
 @pytest.mark.parametrize(("structure", "climb"), [
     ({"bridge": "viaduct"}, (0.0, 0.0)),
     ({"tunnel": "yes"}, (0.0, 0.0)),
-    ({"tunnel": "building_passage"}, (10.0, 10.0)),
 ])
 async def test_a_bridge_or_tunnel_does_not_climb_the_terrain_under_it(elevation_conn, structure, climb):
-    """浮いた橋・地中のトンネルの区間は、下の地表の起伏を上り下りに数えない。同じ形のタグの無い道と、
-    地表を通る値（建物の下の通路等）の道は数える。"""
+    """浮いた橋・地中のトンネルの区間は、下の地表の起伏を上り下りに数えない。同じ形のタグの無い道は数える。"""
     conn = elevation_conn
     await ingest_records("osm_way", [
         *(_way(way_id, pixels) for way_id, pixels, _ in CASES),

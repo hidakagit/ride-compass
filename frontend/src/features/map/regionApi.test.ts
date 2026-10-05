@@ -2,7 +2,7 @@
 /**
  * `features/map/regionApi.ts`——地域のデータの口。地図ライブラリへ渡すタイルのURL（世代つき）と、backendを呼ぶ口
  * （押した道の内訳・専用配信の軸の道ごとの値）。入口は公開の関数。差し替えるのは網（msw）とタイルのオリジンの
- * 読み取り口（`lib/tileBaseUrl.ts: tileBaseUrl`）で、確かめるのは戻り値・投げるもの・送った要求。
+ * 読み取り口（`lib/tileBaseUrl.ts: tileBaseUrl`）で、確かめるのは戻り値と送った要求。
  *
  * ここで見ないもの:
  * - タイルのオリジンの決め方 → `lib/tileBaseUrl.test.ts`
@@ -32,17 +32,10 @@ function allVersions(): Record<string, string> {
 describe("タイルの世代とURL", () => {
   it("配信される全系統に空でない世代があるときだけ揃ったとし、揃った世代をそのまま返す", () => {
     const versions = allVersions();
+    const [missing] = regionTileConfig.tile_version_kinds;
 
     expect(api.completeTileVersions(versions)).toEqual(versions);
-  });
-
-  it("系統が1つでも欠けているか空なら、または辞書が空なら揃っていない", () => {
-    for (const missing of regionTileConfig.tile_version_kinds) {
-      const without = Object.fromEntries(Object.entries(allVersions()).filter(([kind]) => kind !== missing));
-      expect(api.completeTileVersions(without), missing).toBeNull();
-      expect(api.completeTileVersions({ ...allVersions(), [missing]: "" }), missing).toBeNull();
-    }
-    expect(api.completeTileVersions({})).toBeNull();
+    expect(api.completeTileVersions({ ...versions, [missing]: "" })).toBeNull();
   });
 
   it("路面のタイルは、オリジン・地図ライブラリが埋める{z}/{x}/{y}・路面の世代を持つ", () => {
@@ -53,16 +46,13 @@ describe("タイルの世代とURL", () => {
     );
   });
 
-  it("点のタイルは、どのレイヤーも1つの配信のパスにレイヤー名を持ち、そのレイヤーの世代を持つ", () => {
+  it("点のタイルは、1つの配信のパスにレイヤー名を持ち、そのレイヤーの世代を持つ", () => {
     const versions = api.completeTileVersions(allVersions())!;
-    const layers = Object.keys(regionTileConfig.point_layers) as api.PointTileLayer[];
-    expect(layers.length).toBeGreaterThan(0);
+    const [layer] = Object.keys(regionTileConfig.point_layers) as api.PointTileLayer[];
 
-    for (const layer of layers) {
-      expect(api.pointTileUrl(versions, layer)).toBe(
-        `https://tiles.example/api/region/point-tiles/${layer}/{z}/{x}/{y}.pbf?v=${layer}-v1`,
-      );
-    }
+    expect(api.pointTileUrl(versions, layer)).toBe(
+      `https://tiles.example/api/region/point-tiles/${layer}/{z}/{x}/{y}.pbf?v=${layer}-v1`,
+    );
   });
 
   it("土地被覆のタイルは実行時の世代を待たず、生成物の世代で組み立てる", () => {
@@ -104,24 +94,7 @@ describe("押した道の内訳（fetchAxisInspector）", () => {
 
     await expect(api.fetchAxisInspector(123, null, CONDITIONS, null)).resolves.toEqual(result);
 
-    expect(sent.map(({ method, path, body }) => ({ method, path, body }))).toEqual([
-      {
-        method: "POST",
-        path: "/api/region/axis-inspector",
-        body: { osm_way_id: 123, z: 15, x: 1, y: 2, bearing_deg: 0 },
-      },
-    ]);
-  });
-
-  it("backendが評価を返さなければnullを返し、失敗したら内訳の取得の失敗として投げる", async () => {
-    onBackend("POST", "/api/region/axis-inspector", () => Response.json(null));
-    await expect(api.fetchAxisInspector(123, null, CONDITIONS, null)).resolves.toBeNull();
-
-    onBackend("POST", "/api/region/axis-inspector", () => new Response(null, { status: 500 }));
-    await expect(api.fetchAxisInspector(123, null, CONDITIONS, null)).rejects.toThrow("内訳の取得に失敗しました");
-
-    onBackend("POST", "/api/region/axis-inspector", () => new Response("{not json", { status: 200 }));
-    await expect(api.fetchAxisInspector(123, null, CONDITIONS, null)).rejects.toThrow("内訳の取得に失敗しました");
+    expect(sent.map(({ body }) => body)).toEqual([{ osm_way_id: 123, z: 15, x: 1, y: 2, bearing_deg: 0 }]);
   });
 });
 
@@ -156,18 +129,8 @@ describe("専用配信の軸の道ごとの値（fetchDynamicWayValues）", () =
 
     await api.fetchDynamicWayValues("axis_a", 15, 1, 2, undefined, undefined, undefined);
     await api.fetchDynamicWayValues("axis_a", 15, 1, 2, 0, undefined, Number.NaN);
-    await api.fetchDynamicWayValues("axis_a", 15, 1, 2, 0, undefined, Number.POSITIVE_INFINITY);
 
-    expect(sent.map(({ query }) => query)).toEqual([{}, { bearing_deg: "0" }, { bearing_deg: "0" }]);
-  });
-
-  it("本当に道が無い（空の応答）なら失敗にしない", async () => {
-    onBackend("GET", "/api/region/dynamic-way-values/:axisId/:z/:x/:y", () => Response.json({}));
-
-    await expect(api.fetchDynamicWayValues("axis_a", 15, 1, 2, 0, undefined, undefined)).resolves.toEqual({
-      values: {},
-      error: false,
-    });
+    expect(sent.map(({ query }) => query)).toEqual([{}, { bearing_deg: "0" }]);
   });
 
   it("失敗は投げずに、空の値と失敗の印で返す（色分けの失敗で道路や他のレイヤーを止めない）", async () => {

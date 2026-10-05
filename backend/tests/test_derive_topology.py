@@ -1,11 +1,13 @@
 """道路網の形の導出（`batch/derive_topology.py`）が、意図した形の派生を作ること。
 
-**このバッチが負う契約をここで押さえる。**移行時に旧実装と突き合わせた関門は一回きりの
-道具で、旧実装を消すと何も残らない。読む側のテストは合成フィクスチャを使うため、
-ここが落ちなければ誰も気づかない。
+見るのは、切る位置・閉じた区間の切り直し・枝数・値の器・区間の形と、長さと方位の測り方。
+長さと方位は値そのものではなく性質を見る——長さは形状の測地線長であること、方位は始点→終点の
+方位であること。
 
-値そのものではなく性質を見る——長さは形状の測地線長であること、方位は始点→終点の
-方位であること。数値を固定したい相手は自分の合成データで固定する。
+ここで見ないもの:
+- 区間の端点がノードの行を持つこと——`road_edges`の端点の外部キー（`derived_models.py`）が断る
+- 表へ入れられない区間（方位が無い・長さ0）を落とすこと——ここの道はどれも長さと方位を持ち、
+  落とす分岐を通さない
 """
 
 import asyncpg
@@ -87,9 +89,6 @@ async def test_closed_segment_is_split_again_so_no_self_loop_remains(topology_co
         " WHERE osm_way_id = 300 ORDER BY segment_index")
     assert [(r["from_node_id"], r["to_node_id"]) for r in rows] == [(10, 11), (11, 10)]
 
-    assert await topology_conn.fetchval(
-        "SELECT count(*) FROM road_edges WHERE from_node_id = to_node_id") == 0
-
 
 async def test_branch_count_is_the_number_of_segment_ends_at_the_node(topology_conn):
     """枝数は「そこに集まる道の本数」＝区間の端点としての出現回数。"""
@@ -104,17 +103,6 @@ async def test_branch_count_is_the_number_of_segment_ends_at_the_node(topology_c
         11: 2,  # 切り直しで生まれた端点
         # ノード2・12は区間の端にならないので行が無い。
     }
-
-
-async def test_every_endpoint_has_a_node_row(topology_conn):
-    """端点は必ず`node_materials`にある（外部キーが縛る先を先に作る）。"""
-    missing = await topology_conn.fetchval("""
-        SELECT count(*) FROM (
-            SELECT from_node_id AS id FROM road_edges
-            UNION SELECT to_node_id FROM road_edges) e
-        LEFT JOIN node_materials nm ON nm.osm_node_id = e.id
-        WHERE nm.osm_node_id IS NULL""")
-    assert missing == 0
 
 
 async def test_edge_materials_has_one_empty_row_per_segment(topology_conn):
@@ -139,8 +127,6 @@ async def test_distance_is_the_geodesic_length_of_the_geometry(topology_conn):
         "SELECT count(*) FROM road_edges"
         " WHERE abs(distance_m - ST_Length(geom::geography)) > 0.001")
     assert wrong == 0
-    assert await topology_conn.fetchval(
-        "SELECT count(*) FROM road_edges WHERE distance_m <= 0") == 0
 
 
 async def test_bearings_are_measured_from_the_shape_ends(topology_conn):

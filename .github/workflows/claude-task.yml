@@ -80,6 +80,10 @@ jobs:
           sudo -u postgres psql -v ON_ERROR_STOP=1 -c "CREATE ROLE ridecompass LOGIN SUPERUSER PASSWORD 'ridecompass'"
           sudo -u postgres createdb -O ridecompass ridecompass_test
           sudo -u postgres psql -v ON_ERROR_STOP=1 -d ridecompass_test -c "CREATE EXTENSION postgis" -c "CREATE EXTENSION postgis_raster"
+      # Read が PDF をページで読むときに使う pdftoppm。apt の一覧は上の段の apt.postgresql.org.sh が更新してある。
+      - name: poppler-utils（PDF のページの読み込み）
+        if: steps.claim.outputs.go == 'true'
+        run: sudo apt-get install -y --no-install-recommends poppler-utils
       - uses: actions/setup-python@v6
         if: steps.claim.outputs.go == 'true'
         with:
