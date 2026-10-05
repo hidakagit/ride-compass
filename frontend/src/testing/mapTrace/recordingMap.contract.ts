@@ -11,7 +11,7 @@
 export type MapStep = { readonly call: string; readonly args: readonly unknown[]; readonly source?: string };
 
 /** 載っているレイヤー1枚（背面から前面の順）。`paint` は名指しした項目だけを読む。 */
-export type MapLayerReading = {
+type MapLayerReading = {
   readonly id: string;
   readonly visibility: string;
   readonly paint: Readonly<Record<string, unknown>>;
