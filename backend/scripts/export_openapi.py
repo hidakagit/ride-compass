@@ -122,7 +122,7 @@ from app.domain.landcover import (  # noqa: E402
     LANDCOVER_TILE_MIN_ZOOM,
 )
 from app.services.landcover_tile_service import LANDCOVER_TILE_VERSION  # noqa: E402
-from app.domain.jma_tile_specs import effective_max_zoom  # noqa: E402
+from app.domain.jma_tile_specs import JMA_TILE_MIN_ZOOM, effective_max_zoom  # noqa: E402
 from app.domain.material_catalog import (  # noqa: E402
     MATERIAL_CATALOG,
     MISSING_SEMANTICS_DISPLAY,
@@ -251,7 +251,7 @@ def _weather_element_entry(element: WeatherElement) -> dict:
         "tile": None
         if tile is None
         else {
-            "minZoom": tile.min_zoom,
+            "minZoom": JMA_TILE_MIN_ZOOM,
             "maxZoom": effective_max_zoom(tile),
             "vectorLayer": tile.vector_layer,
         },

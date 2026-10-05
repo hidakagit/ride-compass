@@ -4,7 +4,7 @@
 
 ## テスト
 
-手元で検査とテストを回すかと、回すときの範囲は[../conventions/testing.md](../conventions/testing.md)「手元の検査の回し方」が決める。
+手元で検査とテストを回すかと、回すときの範囲は[../conventions/testing-operations.md](../conventions/testing-operations.md)「手元の検査の回し方」が決める。
 ここには、回すときの開発機での前提と所要を置く。
 
 ```bash
@@ -20,7 +20,7 @@ backendのフルスイートは開発機で5〜10分かかる（CIは`-n auto`�
 
 PostGIS統合テスト（`road_graph_session`フィクスチャを使うもの。`postgis`マーカー付き）は、
 テスト専用DB（既定は作業ツリーごとのDB、`TEST_DATABASE_URL`で上書き可。
-[testing.md](../conventions/testing.md)「テストDBは作業ツリーごとに分かれる」）へ接続できないと
+[testing-operations.md](../conventions/testing-operations.md)「テストDBは作業ツリーごとに分かれる」）へ接続できないと
 落ちる（スキップにはしない。`backend/tests/conftest.py`）。DBの無い環境では
 `-m "not postgis"`で除外して回す。
 

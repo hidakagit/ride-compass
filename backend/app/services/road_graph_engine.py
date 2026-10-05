@@ -664,10 +664,9 @@ class RoadGraphEngine:
         layer_key = np.where(pareto_layer >= 0, pareto_layer, np.iinfo(np.int32).max)
         order = np.lexsort((ring, closeness_key, difficulty_key, layer_key))[:_MAX_RING_CANDIDATES_EXAMINED]
         ranked = ring[order]
-        # difficulty_by_node／方位／近接判定用平面座標は、以降で実際に引かれうる`ranked`
+        # 方位／近接判定用平面座標は、以降で実際に引かれうる`ranked`
         # （上限_MAX_RING_CANDIDATES_EXAMINED件）ぶんだけ用意する。
         ranked_list = ranked.tolist()
-        difficulty_by_node = dict(zip(ranked_list, difficulty_key[order].tolist()))
         # 同点（difficulty_keyが等しい）候補はグループとして渡し、グループ内の試行順は
         # 「採用済み候補との方位角距離の最小値が最大」（最遠点貪欲法、方位は生成機構ではなく
         # 同点タイブレーク専用）で採用のたびに決め直す。difficulty群自体の順序（主キー）・
@@ -734,7 +733,6 @@ class RoadGraphEngine:
             turnarounds.append(
                 LoopTurnaround(
                     bearing=bearing,
-                    outbound_difficulty=float(difficulty_by_node[node_index]),
                     data=_TurnaroundData(
                         node=node_index, outbound_edge_indices=edges,
                         outbound_length_m=float(length[node_index]),

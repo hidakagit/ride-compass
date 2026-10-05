@@ -171,6 +171,8 @@ def _landcover_coverage(key: str) -> EdgeMaterialCoverageSpec:
 
 _CYCLEWAY_TAGS_ALL_ABSENT = " AND ".join(f"tags->>'{tag}' IS NULL" for tag in CYCLEWAY_TAG_NAMES)
 _CYCLEWAY_SOURCE = "OSM wayのタグ cycleway / cycleway:left / cycleway:right / cycleway:both（いずれも無い場合に欠損）"
+#: 生データの道は親の表のCHECK（`infrastructure/source_models.py: source_features_way_has_kind`）でhighwayを必ず持つ。
+_HIGHWAY_ALWAYS_PRESENT = "生データの道はDBの制約でhighwayタグを必ず持ち、欠損が無い"
 _EDGE_COUNTS_PRESENT_CONDITION = "em.intersection_count IS NOT NULL"
 _EDGE_COUNTS_SOURCE = "edge_materialsの数の列が埋まっているか"
 
@@ -1072,11 +1074,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         primary_attribute=_ATTR_HIGHWAY,
         value_labels=_HIGHWAY_VALUE_LABELS,
         value_sql=HIGHWAY_SQL,
-        coverage=WayMaterialCoverageSpec(
-                missing_condition=f"{HIGHWAY_SQL} IS NULL",
-                source="OSM wayのタグ highway",
-                missing_semantics="unknown",
-            ),
+        coverage=CoverageExcluded(reason=_HIGHWAY_ALWAYS_PRESENT, missing_semantics="unknown"),
     ),
     "surface": MaterialSpec(
         material_id="surface",
@@ -1147,12 +1145,8 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # 判定式はhighway生タグを見るが、意味的にはこの群の他の材料と同じ「自転車走行環境の
         # 分類」という1つのまとまりのため、cycleway_has_track等と同じ一次属性へ寄せる。
         primary_attribute=_ATTR_CYCLEWAY,
-        value_sql=tag_absent_is_false_sql(f"{HIGHWAY_SQL} = 'cycleway'"),
-        coverage=WayMaterialCoverageSpec(
-                missing_condition=f"{HIGHWAY_SQL} IS NULL",
-                source="OSM wayのタグ highway",
-                missing_semantics="definite",
-            ),
+        value_sql=f"{HIGHWAY_SQL} = 'cycleway'",
+        coverage=CoverageExcluded(reason=_HIGHWAY_ALWAYS_PRESENT, missing_semantics="definite"),
     ),
     "cycleway_has_track": MaterialSpec(
         material_id="cycleway_has_track",

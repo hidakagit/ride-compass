@@ -1,7 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
 // 実backend・開発DBへ向けて回すe2e（frontend/e2e-live/）。CIには載せない。何を守るか・前提・走らせ方・誰がいつ回すかは
-// docs/conventions/testing.md パターン4「走らせ方」。backendはここから起動しない——DBの向け先・.envは人ごとに違い、
+// docs/conventions/testing-operations.md「E2E・画面の撮影の走らせ方」。backendはここから起動しない——DBの向け先・.envは人ごとに違い、
 // 設定ファイルが向け先を決めることになるため。前提はglobalSetupが最初に確かめる。
 
 /** `frontend/e2e/`（3100）・devサーバー（3000）と取り合わないポート。backendの基礎地図のURLとCORSもこのオリジンに合わせる。 */
