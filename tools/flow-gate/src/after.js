@@ -7,9 +7,10 @@ const TRANSIENT = ["overloaded", "server_error"];
 
 // 担当の終わり方の見分け（{ to, reason, pause }）。to と reason は、作る担当のタスクが進行中のまま終わったときの行き先。
 // 利用の上限・認証は、続けて起こしても同じく止まるので、どちらの担当でも振り出しを止める（pause）。一時の失敗と Claude が
-// 起きる前に落ちたときは、戻すだけ。ラベル coordinator.devLabel を付けて返したなら、見回りが飛ばすので未着手へ戻す。持ち時間を
-// 超えた・Cancel された（ジョブの結果 cancelled）は担当の側の止まりなので落ちた。
-export function settle(config, { messages, startOn, labels, url, jobStatus, now = new Date() }) {
+// 起きる前に落ちたときは、戻すだけ。ラベル coordinator.devLabel を付けて返したなら、見回りが飛ばすので未着手へ戻す。着手可能日が
+// 先の日か、開いた前提（blockers。blocked by の issue の番号）があるなら、見回りがその日・前提が閉じるまで振り出さないので未着手へ
+// 戻す。持ち時間を超えた・Cancel された（ジョブの結果 cancelled）は担当の側の止まりなので落ちた。
+export function settle(config, { messages, startOn, labels, blockers, url, jobStatus, now = new Date() }) {
   const errors = jobStatus === "cancelled" ? [] : (messages ?? []).filter((m) => m?.type === "assistant" && m.error).map((m) => m.error);
   const quota = errors.find((e) => QUOTA.includes(e));
   const failed = quota ? `Claude の利用の上限か認証で止まった（${quota}）`
@@ -19,6 +20,7 @@ export function settle(config, { messages, startOn, labels, url, jobStatus, now 
   if (labels.includes(config.coordinator.devLabel)) return { to: config.todo, reason: `Actions の作る担当（実行 ${url}）が、ラベル「${config.coordinator.devLabel}」を付けて返した。開発機の対話のセッションで扱うので未着手へ戻す` };
   const until = waitsUntil(startOn, now);
   if (until) return { to: config.todo, reason: `Actions の作る担当（実行 ${url}）が、着手可能日 ${until} を入れて終えた。その日まで待つので未着手へ戻す` };
+  if (blockers.length) return { to: config.todo, reason: `Actions の作る担当（実行 ${url}）が、開いた前提 ${blockers.map((b) => `#${b}`).join("・")} を持って終えた。前提が閉じるまで待つので未着手へ戻す` };
   return { to: config.hold, reason: `Actions の作る担当（実行 ${url}）が、Pull Request も問いも出さずに終わった（結果: ${jobStatus}）` };
 }
 
