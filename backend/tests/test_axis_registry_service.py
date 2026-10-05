@@ -87,6 +87,21 @@ async def test_refresh_raises_when_axis_references_unknown_material(road_graph_s
     assert AXIS_DEFINITIONS == original
 
 
+async def test_refresh_raises_when_the_axes_together_break_an_invariant(road_graph_session):
+    # 1本ずつは通るが、集まると輪になる軸を、管理APIを通さずに書く（バックアップから戻した行）。
+    # 集合の検査の中身は`test_axis_definitions.py`が見る。
+    original = dict(AXIS_DEFINITIONS)
+    repository = AxisDefinitionRepository(road_graph_session)
+    await repository.upsert(axis_definition("axis_a", material="axis_b"), sort_order=0)
+    await repository.upsert(axis_definition("axis_b", material="axis_a"), sort_order=1)
+    await repository.commit()
+
+    with pytest.raises(AxisDefinitionSyncError, match="輪になっています"):
+        await refresh_axis_definitions(repository)
+
+    assert AXIS_DEFINITIONS == original
+
+
 # --- AxisRegistryAdminService（管理APIのユースケース層） ---
 
 
