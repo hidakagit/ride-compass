@@ -59,8 +59,6 @@ from app.infrastructure.vector_tile import (
 
 logger = logging.getLogger("ridecompass.road_graph_repository")
 
-_CACHED_GRAPH_VERSION = "cached"
-
 #: 1文へ載せるidの数。1配列=1パラメータなので上限ではなく転送量の都合で切る。
 ID_CHUNK_SIZE = 50_000
 

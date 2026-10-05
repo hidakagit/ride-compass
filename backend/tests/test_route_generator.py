@@ -84,7 +84,7 @@ def _context(no_candidates_side=None) -> SimpleNamespace:
 
 def _turnaround(outcome: TracedLoop | Exception) -> LoopTurnaround:
     """復路探索の結果（または失敗）を`data`に抱えた折返し点。`data`はエンジンだけが読む。"""
-    return LoopTurnaround(bearing=0, outbound_difficulty=None, data=outcome)
+    return LoopTurnaround(bearing=0, data=outcome)
 
 
 _UNSET = object()

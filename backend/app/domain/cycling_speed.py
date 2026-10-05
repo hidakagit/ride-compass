@@ -64,11 +64,11 @@ class RiderProfile:
     """走行モデルの個人パラメータ。利用者が入力するのは巡航速度だけで、残りは標準値。"""
 
     cruise_speed_kmh: float
-    # 標準値は宣言（`domain/tuning.py`）が持つ。既定を評価するのは**生成のたび**で、
+    # 標準値は宣言（`domain/tuning.py`）が持ち、作り手は渡さない。読むのは**生成のたび**で、
     # import時ではない——import時に束ねると、管理画面から変えた値が効かない。
-    cda_m2: float = field(default_factory=lambda: tuning_value("speed.cda_m2"))
-    crr: float = field(default_factory=lambda: tuning_value("speed.crr"))
-    mass_kg: float = field(default_factory=lambda: tuning_value("speed.mass_kg"))
+    cda_m2: float = field(init=False, default_factory=lambda: tuning_value("speed.cda_m2"))
+    crr: float = field(init=False, default_factory=lambda: tuning_value("speed.crr"))
+    mass_kg: float = field(init=False, default_factory=lambda: tuning_value("speed.mass_kg"))
 
     @property
     def cruise_speed_ms(self) -> float:

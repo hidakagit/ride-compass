@@ -224,8 +224,7 @@ RouteGenerator.generate_loops(origin, distance_km, distance_tolerance_km, max_ro
 - 候補数: `RouteGenerateRequest.max_routes`（`ge=1, le=MAX_ROUTES`[15],
   `default=DEFAULT_MAX_ROUTES`[8]）。折返し点候補プールのサイズは
   `turnaround_pool_size(max_routes)`（`min(40, max(12, max_routes*3))`）。
-- `LoopTurnaround`: `bearing`（起点から見た折返し点の方位、表示ラベル用のみ）・
-  `outbound_difficulty`（往路の距離加重平均difficulty、ランキング指標）・`data`
+- `LoopTurnaround`: `bearing`（起点から見た折返し点の方位、表示ラベル用のみ）・`data`
   （エンジン固有、復路探索に使う。road_graphエンジンでは往路の実距離[m]も
   `data.outbound_length_m`として持つ）。
 - `TracedLoop.bearing = None`は経由地（waypoints）指定ルートを表す（周回候補と異なり
@@ -846,7 +845,7 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
 - **生値・材料値に無限大は来ない**。材料の値式は区間の長さが0なら割らずに欠損にし
   （`domain/material_catalog.py`・`material_sql.py`の密度の式）、動的材料（風）は定数で割り、
   生値は材料の値と参照先の軸の得点の重み付き和である。欠損（NaN）は区間を組み立てる`road_graph_engine`が落とす。
-  有効数字の丸め（`_round_significant`）が非有限値をそのまま返す分岐は、この前提の下では通らない。
+  有効数字の丸め（`_round_significant`）は非有限値を受け付けず、この前提が崩れると例外で落ちる。
 
 ### `domain/geo.py`・`domain/errors.py`
 
