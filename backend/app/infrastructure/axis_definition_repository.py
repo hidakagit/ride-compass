@@ -70,15 +70,6 @@ class AxisDefinitionRepository:
         )
         return {row.axis_id: (_row_to_definition(row), row.sort_order) for row in rows}
 
-    async def get(self, axis_id: str) -> tuple[AxisDefinition, int] | None:
-        """定義とsort_orderの組。updateがsort_orderを維持するために使う。"""
-        row = (
-            await self._session.execute(select(AxisDefinitionRow).where(AxisDefinitionRow.axis_id == axis_id))
-        ).scalar_one_or_none()
-        if row is None:
-            return None
-        return _row_to_definition(row), row.sort_order
-
     async def upsert(self, definition: AxisDefinition, sort_order: int) -> None:
         values = {**_row_values(definition), "sort_order": sort_order, "updated_at": datetime.now(timezone.utc)}
         stmt = pg_insert(AxisDefinitionRow).values(**values)

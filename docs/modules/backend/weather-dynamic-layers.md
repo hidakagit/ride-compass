@@ -34,7 +34,7 @@ MSMは数値予報モデルの出力で観測値・公式発表の代わりに�
 | レイヤー | ファイル |
 |---|---|
 | domain | `msm.py`（MSM格子の幾何・双一次補間）・`jma_tile_specs.py`（配信元の要素ごとの宣言`JMA_ELEMENTS`。要素1件がパスの系統・時刻一覧のファイルと読み方・タイルで配るならズームとベクタのレイヤー名と降水の段の色で塗った画像か・配信の遅れを持つ（遅れは画面だけが読み、プリウォームの読み方は持たないので、タイルで配る要素には宣言できない）。ほかに系統ごとの時刻一覧の更新間隔。読み方に従って時刻一覧の行をコマにする`read_target_times`と、配信元のパスの形——時刻一覧のパス・コマのパスのテンプレート`jma_url_template`・タイルのパスの組み立て`jma_tile_path`と読み戻し`read_jma_tile_path`——も持つ）・`weather_elements.py`（動的気象で地図に描くものの宣言。要素ごとに、選んだ時刻に描くコマの規則と、自前の格子から描くなら読む値、配信元が段の色を焼き込むなら塗る段（`weather_display.py`の段の名前。画面の凡例と説明文がこれでまとめる）も持つ。時刻の段をつないだとき各段が最初に描くコマを求める`stage_first_frames`も持つ。画面へは生成物で届き、本番プロセスではプリウォームが温める要素をここから導く。**本番が読むため**、本番が読まない表示値の宣言`map_display.py`とは別のファイルに置く——デプロイの要否はファイル単位で決まる）・`weather.py`・`jma_amedas.py`・`jma_suikei.py`（推計気象分布（天気）の時刻一覧とタイルのパス・地点を含むタイルと画素・凡例の色から空の区分への読み替え。地図に重ねる`JMA_ELEMENTS`のタイルとは画素数と座標の数え方が違うので、宣言に入れずに持つ）・`jma_area.py`・`jma_warning.py`・`wbgt.py`・`twilight.py`・`flood_forecast.py`・`terrain_rgb.py`（Terrain-RGBの刻みと原点。画面が標高を読み戻す係数として生成物へ出る）・`gsi_tiles.py`（国土地理院タイルの製品ごとの事実——実データを持つズーム範囲・上流のパス・出典表記。中継ルートと画面へ配るURLは受ける層の`api/routers/gsi_tile.py`が上流のパスから導く）・`weather_display.py`（気象の値を色へ写す段と、天気コードの分類と名前。段は値の昇順でなければ読み込んだ時点で落とす——画面はこの順のまま塗り分けの式を組み、MapLibreの`step`式は昇順でないと式ごと失敗してレイヤーが黙って消える。画面へは`scripts/export_openapi.py`の生成物で届き、本番プロセスは気象庁の降水のタイルの塗り替え（`jma_tile_recolor.py`）で降水の段と気象庁の色を読む）・`warning_display.py`（警戒度バッジの出所ごとの段階の呼び名と色。暑さ指数・氾濫の呼び名はそれぞれの段階の宣言から読む。本番プロセスは読まず、生成物`vocabulary.ts`だけが届く） |
-| services | `weather_service.py`・`jma_amedas_service.py`・`wbgt_service.py`・`warning_service.py`・`flood_service.py`・`jma_tile_prewarm_service.py`（定期プリウォームバッチ）・`jma_tile_interpolation_service.py`（配信元が持たないズームの補間の段取り）・`terrain_tile_service.py`（地理院の標高タイルをTerrain-RGBへ変換して配信） |
+| services | `weather_service.py`・`jma_amedas_service.py`・`wbgt_service.py`・`warning_service.py`・`flood_service.py`・`jma_tile_prewarm_service.py`（定期プリウォームバッチ）・`jma_tile_proxy_service.py`（タイルの中継の段取り。キャッシュ→補間と書き戻し→上流）・`jma_tile_interpolation_service.py`（配信元が持たないズームの補間の段取り）・`terrain_tile_service.py`（地理院の標高タイルをTerrain-RGBへ変換して配信） |
 | infrastructure | `msm_client.py`（MSMの同期・読み出し）・`jma_tile_client.py`・`jma_tile_redis_cache.py`（タイル本体のRedis cache-aside）・`jma_tile_interpolation.py`（配信元が持たないズームの補間）・`jma_tile_index.py`（在否インデックス）・`jma_tile_content.py`（タイルが空かどうかの判定。キャッシュと在否インデックスが共有する）・`jma_tile_recolor.py`（気象庁の降水のタイルの色をアプリの降水の段の色へ塗り替える、後述）・`jma_amedas_client.py`・`jma_suikei_client.py`（推計気象分布（天気）の地点の画素の色。時刻一覧とタイルは`JmaTileClient`を通る）・`jma_amedas_store.py`（アメダスの観測値と1時間雨量の履歴のRedisの置き場。鍵・項目名・TTL・保存した形の検査を持ち、サービスとは値でやり取りする）・`jma_warning_client.py`・`wbgt_client.py`・`flood_client.py`・`basemap_client.py`・`gsi_tile_client.py`・`simple_api_client.py`（TTLキャッシュで持つクライアントが共有する定型文、後述）・`gsi_dem_png.py`（地理院の標高タイルをTerrain-RGBのPNGへ詰め直す、後述）・`jma_area_boundaries.py`（地点→区域のコード。気象庁の区域の境界をディスクから読む、後述） |
 | api | `weather.py`・`jma_tile.py`・`basemap.py`・`gsi_tile.py` |
 | scripts | `fetch_jma_area_boundaries.py`（気象庁の区域の境界を取得し、`jma_area_boundaries.py`が読む形で置く。デプロイが呼ぶ） |
@@ -140,10 +140,10 @@ MSMは数値予報モデルの出力で観測値・公式発表の代わりに�
 塗りとも同じ色で続く。補間（後述）は塗り替えたあとの親を切り出すので、補間したタイルも同じ色になる。段に無い色の画素は
 替えずに残してWARNINGを出し（配信元が配色を変えた印）、読めない画像はWARNINGを出してそのまま配る。
 
-**レート制限（300/分）の適用順序**: `jma_tile.py`は`JmaTileClient.get_cached(path)`で
-まずキャッシュのみを参照し、ヒットすればレート制限を一切経由せず返す。ミスのときだけ
-`enforce_rate_limit`→`JmaTileClient.fetch(path)`（外部フェッチ＋キャッシュ書き戻し）を
-呼ぶ。`JmaTileClient.get(path)`（`get_cached`→ミスなら`fetch`の一括呼び出し）はレート
+**レート制限（300/分）の適用順序**: 中継の段取り（`services/jma_tile_proxy_service.py: proxied_tile`）は
+`JmaTileClient.get_cached(path)`でまずキャッシュのみを参照し、ヒットすればレート制限を一切経由せず返す。
+ミスのときだけ、`jma_tile.py`が渡した歯止め（`enforce_rate_limit`）を呼んでから、補間（後述）か
+`JmaTileClient.fetch(path)`（外部フェッチ＋キャッシュ書き戻し）へ進む。`JmaTileClient.get(path)`（`get_cached`→ミスなら`fetch`の一括呼び出し）はレート
 制限の適用順序を気にしない呼び出し元（プリウォームバッチ・テスト等）向けに残している。
 
 **フェイルステータスの使い分け**: `fetch`は上流の404を`JmaTileNotFoundError`
@@ -233,8 +233,8 @@ MapLibreのソース設定は連続したズーム区間しか表現できず「
 要求されたズームに実データが無い場合（`source_zoom_for_interpolation`が
 親ズームを返す場合）、1段上のタイルから該当象限を切り出して2倍にしたタイルを返す。
 ラスタ（PNG）とベクタ（MVT）の両方が対象。段取り（親の取得・ラスタかベクタかの選択・失敗時の扱い）は
-サービスが持ち、`jma_tile.py`はその結果をキャッシュへ書き戻して応答するだけ——同じ補間が要る別の経路も
-ルーターを経ずに作れる。
+サービスが持ち、結果のキャッシュへの書き戻しは中継の段取り（`jma_tile_proxy_service.py`）が行う——同じ補間が要る
+別の経路もルーターを経ずに作れる。
 
 - 親タイルの取得は`JmaTileClient.get()`を通すため、Redisキャッシュ・レート制限・上流への
   秒間上限がそのまま効く。補間結果は`JmaTileClient.store()`で**元のパスのキー**へ書き戻し、
