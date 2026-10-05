@@ -67,13 +67,12 @@ def elevation(edge_id, **fields):
 def turn_tree(state_count, *, node_cost, node_length_m, node_seconds, node_best_state):
     """一対全木。エンジンが読むのはNode側だけで、状態側を辿る経路の復元は各テストが差し替えるため、
     状態側はどの状態にも届いていない値（inf・NaN・-1）で埋める。"""
-    predecessor = np.full(state_count, -1, dtype=np.int64)
     return TurnExpandedTree(
-        state_cost=np.full(state_count, np.inf), predecessor=predecessor,
+        state_cost=np.full(state_count, np.inf),
         state_length_m=np.full(state_count, np.nan), state_seconds=np.full(state_count, np.nan),
         node_cost=np.asarray(node_cost, dtype=float), node_best_state=np.asarray(node_best_state, dtype=np.int64),
         node_length_m=np.asarray(node_length_m, dtype=float), node_seconds=np.asarray(node_seconds, dtype=float),
-        predecessor_list=predecessor.tolist(),
+        predecessor_list=[-1] * state_count,
     )
 
 

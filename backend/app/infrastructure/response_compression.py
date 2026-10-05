@@ -57,13 +57,8 @@ class _ContentTypeGZipResponder(GZipResponder):
 class ContentTypeGZipMiddleware(GZipMiddleware):
     """`Accept-Encoding: gzip`のリクエストに対し、圧縮対象content-typeの応答だけをgzipする。"""
 
-    def __init__(
-        self,
-        app: ASGIApp,
-        minimum_size: int = DEFAULT_MINIMUM_SIZE,
-        compresslevel: int = DEFAULT_COMPRESS_LEVEL,
-    ) -> None:
-        super().__init__(app, minimum_size=minimum_size, compresslevel=compresslevel)
+    def __init__(self, app: ASGIApp) -> None:
+        super().__init__(app, minimum_size=DEFAULT_MINIMUM_SIZE, compresslevel=DEFAULT_COMPRESS_LEVEL)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] == "http" and "gzip" in Headers(scope=scope).get("Accept-Encoding", ""):

@@ -27,7 +27,6 @@ from app.domain.road_network import RoadNetwork
 from app.domain.route import Coordinates
 from app.domain.wind import WindForecastSeries, WindLattice
 from app.domain.time_zone import JST
-from app.services.route_generator import RouteGenerator
 from tests import rain_history_fake
 from tests.axis_system_fixture import replaced_axis_definitions
 from tests.route_world import (
@@ -45,7 +44,7 @@ from tests.route_world import (
     SOUTH_WEST,
     at,
     avoid_axis_declared,
-    engine_for,
+    generator_for,
     grid_network,
     ways_of,
 )
@@ -63,7 +62,7 @@ def engine_over(monkeypatch, avoid_axis):
     """道路網から、本物のエンジンの上に戦略層（`RouteGenerator`）を組む。軸は`avoid_axis`の1本。"""
 
     def build(network: RoadNetwork, *, avoid_weight: float = 0.0, wind: WindForecastSeries | None = None):
-        return RouteGenerator(engine_for(monkeypatch, network, avoid_weight, wind))
+        return generator_for(monkeypatch, network, avoid_weight, wind)
 
     return build
 
