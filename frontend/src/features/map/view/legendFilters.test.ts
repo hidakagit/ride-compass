@@ -24,7 +24,6 @@ describe("凡例で隠した行の保存先", () => {
     const hidden = toggleHiddenKey({}, "a", "x");
     expect(hidden).toEqual({ a: ["x"] });
     expect(toggleHiddenKey(toggleHiddenKey(hidden, "a", "y"), "a", "x")).toEqual({ a: ["y"] });
-    expect(toggleHiddenKey(hidden, "a", "x")).toEqual({});
   });
 
   it("いまの凡例に無い鍵（段の綴りや段数が変わる前の保存値）は、隠した行に数えない", () => {

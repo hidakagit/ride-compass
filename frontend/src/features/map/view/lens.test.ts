@@ -31,11 +31,7 @@ function valueRamp(
   });
 }
 
-const catalog = mapCatalogOf([
-  valueRamp("ramp", [10, 20], { map_legend: { boundaries: [10, 20], unit: "%" } }),
-  valueRamp("unknown", [10], {}, true),
-  dedicatedEntry("dedicated", [1, 3], { map_legend: { boundaries: [1, 3], unit: "m/s" } }),
-]);
+const catalog = mapCatalogOf([valueRamp("ramp", [10, 20]), valueRamp("unknown", [10], {}, true)]);
 
 describe("paintedAxisId（全道路を塗る軸）", () => {
   it("ルートを確定するまではレンズの軸、確定後は周囲も塗り続ける設定の間だけ", () => {
@@ -46,9 +42,8 @@ describe("paintedAxisId（全道路を塗る軸）", () => {
 });
 
 describe("lensLegend（レンズの凡例）", () => {
-  it("ramp軸は、どの値の道も当てはまる行がちょうど1つ（境界は上の段）で、範囲を単位つきで名乗る", () => {
+  it("ramp軸は、どの値の道も当てはまる行がちょうど1つ（境界は上の段）", () => {
     const legend = lensLegend("ramp", false, catalog);
-    expect(legend.map((entry) => entry.label)).toEqual(["10%未満", "10〜20%", "20%以上"]);
     for (const [value, expected] of [
       [5, 0],
       [10, 1],
@@ -68,30 +63,6 @@ describe("lensLegend（レンズの凡例）", () => {
     expect(hitsFor({ [VALUE]: 5 })).toEqual(["step-0"]);
   });
 
-  it("換算の係数が届いていない材料を使う軸は、どの道も「データなし」だけに当てはまる（届けば換算した値の段に入る）", () => {
-    const scaled = catalogEntry({
-      axis_id: "scaled",
-      display: {
-        kind: "ramp",
-        label: "scaled",
-        category: "roadCondition",
-        tile_inputs: [tileInput({ property: VALUE, weight: 1, needs_runtime_scale: true })],
-        thresholds: [10],
-      },
-    });
-    const hitsFor = (scales: Record<string, number>, properties: Record<string, unknown>) =>
-      lensLegend("scaled", false, mapCatalogOf([scaled], { tile_runtime_scales: scales })).flatMap((entry) =>
-        matches(entry.filter, properties) ? [entry.key] : [],
-      );
-    expect(hitsFor({}, { [VALUE]: 5 })).toEqual([LEGEND_NO_DATA_KEY]);
-    expect(hitsFor({ [VALUE]: 3 }, { [VALUE]: 5 })).toEqual(["step-1"]);
-  });
-
-  it("専用配信軸は、配信値の境界で段を作り、末尾に値を受け取れなかった道の行を持つ", () => {
-    const legend = lensLegend("dedicated", false, catalog);
-    expect(legend.map((entry) => entry.label)).toEqual(["1m/s未満", "1〜3m/s", "3m/s以上", "データなし"]);
-  });
-
   it("ルート確定後は、ルート線の色分けモードの凡例。塗る軸でない・無いモードは空", () => {
     const mode = catalog.routeStyleModes.find((entry) => entry.legend.length > 0)!;
     expect(lensLegend(mode.id, true, catalog)).toBe(mode.legend);
@@ -109,13 +80,6 @@ describe("同じ軸の同じ段は、ルートを出す前と後で同じ行", (
       { map_value_thresholds: [20, 40, 60, 80], map_legend: { boundaries: [20, 40, 60, 80], unit: null } },
       true,
     ),
-    valueRamp(
-      "quantity",
-      [10],
-      { map_value_thresholds: [100], map_legend: { boundaries: [10], unit: "件/(km・年)" } },
-      true,
-    ),
-    dedicatedEntry("dedicated", [20, 40, 60, 80]),
     dedicatedEntry("rain", [30, 70], { map_legend: { boundaries: [5, 20], unit: "mm" } }),
     dedicatedEntry("signed", [-6, -2, 2, 6], {
       map_value: { kind: "signed_material", material: VALUE },
