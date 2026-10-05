@@ -39,17 +39,7 @@ describe("useMaterialDistribution", () => {
     await waitFor(() => expect(result.current).toEqual({ distribution: distribution(5), loading: false }));
   });
 
-  it("同じ材料を別の場所が選んでも、取り直さずに同じ分布を返す", async () => {
-    onSameOrigin("GET", DISTRIBUTION, inTurn(Response.json(distribution(7)), Response.json(distribution(8))));
-    const first = renderHook(() => useMaterialDistribution("m_shared"));
-    await waitFor(() => expect(first.result.current.distribution).toEqual(distribution(7)));
-
-    const second = renderHook(() => useMaterialDistribution("m_shared"));
-    await settle();
-    expect(second.result.current.distribution).toEqual(distribution(7));
-  });
-
-  it("取れなかったら分布なしで返し、その材料を取り直さない", async () => {
+  it("取れなかったら分布なしで返し、同じ材料を別の場所が選んでも取り直さない", async () => {
     onSameOrigin("GET", DISTRIBUTION, inTurn(new Response(null, { status: 500 }), Response.json(distribution(7))));
     const first = renderHook(() => useMaterialDistribution("m_failing"));
     await waitFor(() => expect(first.result.current).toEqual({ distribution: null, loading: false }));

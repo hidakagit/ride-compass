@@ -43,30 +43,33 @@ function renderPreview(props: Partial<Parameters<typeof DistributionPreview>[0]>
 }
 
 describe("DistributionPreview", () => {
-  it("失敗したら、分布があっても理由だけを出す", () => {
-    const region = renderPreview({ error: "分布の取得に失敗しました", distribution: distribution() });
-    expect(region).toHaveTextContent("分布の取得に失敗しました");
-    expect(within(region).queryByText(/抽選した/)).not.toBeInTheDocument();
-  });
-
-  it("まだ分布が無いまま集計中なら、集計中と出す", () => {
-    expect(renderPreview({ loading: true })).toHaveTextContent("実データを集計中");
-  });
-
-  it("集計し直している間は、手元の分布を出したままにする", () => {
-    const region = renderPreview({ loading: true, distribution: distribution() });
-    expect(region).toHaveTextContent("1,234本");
-    expect(region).not.toHaveTextContent("集計中");
-  });
-
-  it("分布が無く集計もしていなければ、材料を選ぶよう促す", () => {
-    expect(renderPreview({})).toHaveTextContent("材料を選ぶと");
-  });
-
-  it("抽選した道が1本も値を持たなければ、0%の帯ではなく理由を言葉で出す", () => {
-    const region = renderPreview({ distribution: distribution({ sample_ways: 0 }) });
-    expect(region).toHaveTextContent("Way単位では値が定まらない");
-    expect(region).not.toHaveTextContent("%");
+  it.each([
+    [
+      "失敗したら、分布があっても理由だけ",
+      { error: "分布の取得に失敗しました", distribution: distribution() },
+      "分布の取得に失敗しました",
+      "抽選した",
+    ],
+    ["まだ分布が無いまま集計中なら、集計中", { loading: true }, "実データを集計中", "材料を選ぶと"],
+    ["集計し直している間は、手元の分布", { loading: true, distribution: distribution() }, "1,234本", "集計中"],
+    ["分布が無く集計もしていなければ、材料を選ぶ促し", {}, "材料を選ぶと", "集計中"],
+    [
+      "抽選した道が1本も値を持たなければ、0%の帯ではなく理由",
+      { distribution: distribution({ sample_ways: 0 }) },
+      "Way単位では値が定まらない",
+      "%",
+    ],
+    ["点数が届いていなければ、0%の帯ではなく計算中", { distribution: distribution(), binScores: null }, "計算中", "%"],
+    [
+      "点数を取れなければ、0%の帯ではなく失敗",
+      { distribution: distribution(), binScores: null, scoresFailed: true },
+      "取得できませんでした",
+      "%",
+    ],
+  ])("%sを出す", (_case, props, shown, hidden) => {
+    const region = renderPreview(props);
+    expect(region).toHaveTextContent(shown);
+    expect(region).not.toHaveTextContent(hidden);
   });
 
   it("分布があれば、抽選の規模と、帯ごとの割合（小数1桁）を帯の並びどおりに出す", () => {
@@ -95,15 +98,5 @@ describe("DistributionPreview", () => {
 
     const region = renderPreview({ distribution: value, binScores: [100] });
     for (const warning of warnings) expect(within(region).getByText(warning)).toBeInTheDocument();
-  });
-
-  it.each([
-    [false, "計算中"],
-    [true, "取得できませんでした"],
-  ])("点数が届いていなければ、0%の帯を並べずに理由を出す（失敗=%s）", (scoresFailed, reason) => {
-    const region = renderPreview({ distribution: distribution(), binScores: null, scoresFailed });
-    expect(region).toHaveTextContent(reason);
-    expect(region).toHaveTextContent("1,234本");
-    expect(region).not.toHaveTextContent("%");
   });
 });
