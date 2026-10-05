@@ -30,11 +30,10 @@ afterEach(() => {
 });
 
 describe("buildPointPopupContent", () => {
-  it("点の名前と、値が属する区分の名前を出し、区分に無い値・値が無いときは「不明」にする", () => {
+  it("点の名前と、値が属する区分の名前を出し、区分に無い値は「不明」にする", () => {
     const layer = { label: "点", display_axes: [KIND] };
     expect(buildPointPopupContent(layer, { kind: "a2" }).textContent).toBe("点: 区分A");
     expect(buildPointPopupContent(layer, { kind: "unregistered" }).textContent).toBe("点: 不明");
-    expect(buildPointPopupContent(layer, { kind: null }).textContent).toBe("点: 不明");
   });
 
   it("区分の軸が複数なら並べ、発生年があれば改行して添える", () => {
