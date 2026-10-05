@@ -10,11 +10,10 @@
 
 import inspect
 
-import pytest
-
 from app.domain.rain import HOURS_SINCE_RAIN, RAIN_HISTORY_HOURS, rain_window_material_id
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.rain_way_service import RainConditions, RainWayService
+from app.services.weather_service import WeatherService
 from tests import rain_history_fake
 
 Z, X, Y = 14, 14551, 6447
@@ -38,42 +37,42 @@ class FakeMidpointsRepository:
         return self._midpoints
 
 
-@pytest.fixture
-def empty_rain_history(monkeypatch, fake_redis):
-    rain_history_fake.forget_rain_materials(monkeypatch)
+async def _observe(rain_mm: dict[str, float | None]):
+    await rain_history_fake.observe(STATIONS, rain_mm)
 
 
-async def _observe(monkeypatch, rain_mm: dict[str, float | None]):
-    await rain_history_fake.observe(monkeypatch, STATIONS, rain_mm)
+def _service(repository, material_id: str) -> RainWayService:
+    """観測所ごとの材料の値の保持は`WeatherService`の実体が持つので、組み立てるたびに空から始まる。"""
+    return RainWayService(repository, WeatherService(), material_id)
 
 
-async def test_each_road_takes_the_value_of_its_nearest_rain_gauge(monkeypatch, empty_rain_history):
-    await _observe(monkeypatch, {"44132": 2.0, "46106": 0.5})
+async def test_each_road_takes_the_value_of_its_nearest_rain_gauge(fake_redis):
+    await _observe({"44132": 2.0, "46106": 0.5})
     repository = FakeMidpointsRepository({"tokyo": (35.68, 139.77), "yokohama": (35.45, 139.64)})
 
-    values = await RainWayService(repository, rain_window_material_id(3)).get_way_values(Z, X, Y, RainConditions())
+    values = await _service(repository, rain_window_material_id(3)).get_way_values(Z, X, Y, RainConditions())
 
     assert values == {"tokyo": 6.0, "yokohama": 1.5}
 
 
-async def test_a_gauge_with_a_missing_reading_leaves_its_roads_without_a_value(monkeypatch, empty_rain_history):
+async def test_a_gauge_with_a_missing_reading_leaves_its_roads_without_a_value(fake_redis):
     """最寄りの雨量計が欠測の道は、値を持たずに結果から落ちる（地図では「データなし」）。"""
-    await _observe(monkeypatch, {"44132": None, "46106": 0.0})
+    await _observe({"44132": None, "46106": 0.0})
     repository = FakeMidpointsRepository({"tokyo": (35.68, 139.77), "yokohama": (35.45, 139.64)})
 
-    values = await RainWayService(repository, HOURS_SINCE_RAIN).get_way_values(Z, X, Y, RainConditions())
+    values = await _service(repository, HOURS_SINCE_RAIN).get_way_values(Z, X, Y, RainConditions())
 
     assert values == {"yokohama": float(RAIN_HISTORY_HOURS)}
 
 
-async def test_no_history_yet_gives_no_values(empty_rain_history):
+async def test_no_history_yet_gives_no_values(fake_redis):
     repository = FakeMidpointsRepository({"tokyo": (35.68, 139.77)})
 
-    assert await RainWayService(repository, rain_window_material_id(1)).get_way_values(Z, X, Y, RainConditions()) == {}
+    assert await _service(repository, rain_window_material_id(1)).get_way_values(Z, X, Y, RainConditions()) == {}
 
 
-async def test_outside_the_imported_area_gives_no_values(monkeypatch, empty_rain_history):
-    await _observe(monkeypatch, {"44132": 2.0})
+async def test_outside_the_imported_area_gives_no_values(fake_redis):
+    await _observe({"44132": 2.0})
 
-    service = RainWayService(FakeMidpointsRepository(None), rain_window_material_id(1))
+    service = _service(FakeMidpointsRepository(None), rain_window_material_id(1))
     assert await service.get_way_values(Z, X, Y, RainConditions()) == {}

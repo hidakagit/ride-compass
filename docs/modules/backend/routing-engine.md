@@ -421,8 +421,8 @@ idを`route-destination-00..`へ振り直すが、
 時別の風の予報・雨の観測の履歴。ログの`weather_ms`がこの段）。静的スコア行列は、切り出した区間の材料
 （`material_arrays_of`、分類の材料は語彙への番号のまま）に、区間の中点に最も近い雨量計の今の観測
 （雨の材料、`domain/rain.py: rain_material_columns`。地図の雨と同じ関数・同じ観測）を足して
-`build_static_edge_score_matrix`で求める。雨は出発時刻ではなく今の観測で、履歴は`load_station_rain_materials`が
-Redisから読み（プロセス内に5分持つ）、無い・古ければ雨の材料は欠損のまま組む（WARNINGを抑制付きで出し、
+`build_static_edge_score_matrix`で求める。雨は出発時刻ではなく今の観測で、履歴は`WeatherService.get_station_rain_materials`が
+Redisから読み（実体の中に5分持つ）、無い・古ければ雨の材料は欠損のまま組む（WARNINGを抑制付きで出し、
 INFOサマリの`rain_hour=none`で分かる。雨を読む軸だけがその生成で「データなし」になる）。行列はキャッシュしない
 ——軸定義の編集と雨の観測がそのまま次の生成に効き、軸定義の世代を突き合わせる仕組みが要らない。
 続けて0次フィルタの除外（`compute_hard_filter_excluded`）を決めて

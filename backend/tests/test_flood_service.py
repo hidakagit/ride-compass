@@ -11,12 +11,18 @@
 import pytest
 
 from app.infrastructure import jma_area_boundaries
+from app.infrastructure.flood_client import new_flood_cache
+from app.infrastructure.jma_warning_client import new_area_data_cache
 from app.services.flood_service import FloodService
 from tests.jma_area_fixtures import CHIYODA_POINT, CLASS10_CODE, CLASS20_CODE, OFFSHORE_POINT, area_lookup_upstream
 
 
 def _service(monkeypatch, tmp_path, **kwargs) -> FloodService:
-    return FloodService(http_client=area_lookup_upstream(monkeypatch, tmp_path, **kwargs))
+    return FloodService(
+        area_lookup_upstream(monkeypatch, tmp_path, **kwargs),
+        area_data_cache=new_area_data_cache(),
+        flood_cache=new_flood_cache(),
+    )
 
 
 def _bulletin(**overrides) -> dict:

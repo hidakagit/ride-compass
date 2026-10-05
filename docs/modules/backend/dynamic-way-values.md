@@ -287,7 +287,7 @@ values = {feature_key: round(value, 1) for feature_key, value in effective if va
 
 ```
 get_way_values(z, x, y, ...)
-  ├─ jma_amedas_service.load_station_rain_materials(今) → 観測所ごとの材料の値（無い・古ければ{}）
+  ├─ WeatherService.get_station_rain_materials(今) → 観測所ごとの材料の値（無い・古ければ{}）
   ├─ get_feature_midpoints_in_tile → 鍵ごとの中ほど（カバレッジ外・空は{}、DB障害も{}）
   ├─ rain_material_columns（domain/rain.py）: 中ほどに最も近い雨量計の値
   └─ 欠測（NaN）の道は結果から除く
@@ -302,7 +302,7 @@ get_way_values(z, x, y, ...)
 - **ルートの区間も同じ関数で、区間の中点の値を引く**（[ルーティングエンジン](routing-engine.md)
   「`prepare(origin, radius_km, waypoints=None)`」）。区間単位のズームのフィーチャーの中ほどはルートの区間の中点と同じ点なので、地図の色と
   ルートの区間の値は同じ雨量計の同じ観測になる。
-- 観測所ごとの材料の値は`load_station_rain_materials`がRedisの履歴から組み立て、プロセス内に5分持つ
+- 観測所ごとの材料の値は`jma_amedas_service.py: load_station_rain_materials`がRedisの履歴から組み立て、`WeatherService`の実体の中に5分持つ
   （タイル1枚ごとに全観測所×全時間の履歴を読み直さない）。履歴の取り方は
   [気象・動的レイヤー](weather-dynamic-layers.md)「`JmaAmedasService`」。
 - **材料の値は観測どおりの量**（mm・時間）で、どこからを濡れているとみなすかは軸の折れ点が決める。

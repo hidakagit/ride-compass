@@ -6,6 +6,7 @@ import logging
 from datetime import datetime, timedelta
 
 import httpx
+from cachetools import TTLCache
 import numpy as np
 
 from app.domain.warning_levels import WarningBadgeLevel
@@ -39,8 +40,10 @@ def _empty_status() -> WbgtStatus:
 
 
 class WbgtService:
-    def __init__(self, http_client: httpx.AsyncClient):
+    def __init__(self, http_client: httpx.AsyncClient, *, point_master_cache: TTLCache, forecast_cache: TTLCache):
         self._http_client = http_client
+        self._point_master_cache = point_master_cache
+        self._forecast_cache = forecast_cache
 
     async def get_status(self, point: Coordinates, now: datetime) -> WbgtStatus | None:
         """出発地点の`now`（JST）時点の暑さ指数警戒レベルを取得する。
@@ -63,7 +66,7 @@ class WbgtService:
         )
 
     async def _current_forecast(self, point: Coordinates, now: datetime) -> WbgtForecast | None:
-        points = await fetch_point_master(self._http_client)
+        points = await fetch_point_master(self._http_client, self._point_master_cache)
         if not points:
             return None
 
@@ -76,7 +79,7 @@ class WbgtService:
         nearest = points[nearest_index]
 
         range_from = now - timedelta(hours=_FORECAST_SEARCH_WINDOW_HOURS)
-        forecasts = await fetch_forecast(self._http_client, nearest.no, range_from, now)
+        forecasts = await fetch_forecast(self._http_client, nearest.no, range_from, now, self._forecast_cache)
         if forecasts is None:
             return None
         if not forecasts and is_within_provision_period(now):

@@ -33,10 +33,18 @@ _STATION_TABLE_CACHE_TTL_SECONDS = 24 * 60 * 60
 # 最新観測時刻の一覧は10分更新のアメダスの鮮度に合わせた短いTTL。
 _LATEST_TIME_CACHE_TTL_SECONDS = 5 * 60
 
-station_table_cache: TTLCache = TTLCache(maxsize=1, ttl=_STATION_TABLE_CACHE_TTL_SECONDS)
-latest_time_cache: TTLCache = TTLCache(maxsize=1, ttl=_LATEST_TIME_CACHE_TTL_SECONDS)
 _STATION_TABLE_CACHE_KEY = "stations"
 _LATEST_TIME_CACHE_KEY = "latest_time"
+
+
+def new_station_table_cache() -> TTLCache:
+    """`fetch_station_table`へ渡すキャッシュ。リクエストをまたいで持つのは組み立てる側（`api/dependencies.py`）。"""
+    return TTLCache(maxsize=1, ttl=_STATION_TABLE_CACHE_TTL_SECONDS)
+
+
+def new_latest_time_cache() -> TTLCache:
+    """`fetch_latest_observation_time`へ渡すキャッシュ。リクエストをまたいで持つのは組み立てる側（`api/dependencies.py`）。"""
+    return TTLCache(maxsize=1, ttl=_LATEST_TIME_CACHE_TTL_SECONDS)
 
 
 @dataclass(frozen=True)
@@ -101,7 +109,7 @@ def _parse_reading(raw: dict) -> AmedasReading:
     )
 
 
-async def fetch_station_table(client: httpx.AsyncClient) -> dict[str, AmedasStation] | None:
+async def fetch_station_table(client: httpx.AsyncClient, cache: TTLCache) -> dict[str, AmedasStation] | None:
     """観測所マスタ（観測所id → 観測所）を取得する。"""
 
     async def fetch() -> dict[str, AmedasStation]:
@@ -112,12 +120,10 @@ async def fetch_station_table(client: httpx.AsyncClient) -> dict[str, AmedasStat
             raise UnexpectedShapeError(f"station table is {type(payload).__name__}")
         return _parse_station_table(payload)
 
-    return await cached_fetch(
-        "weather:jma-amedas-stations", fetch, cache=station_table_cache, key=_STATION_TABLE_CACHE_KEY
-    )
+    return await cached_fetch("weather:jma-amedas-stations", fetch, cache=cache, key=_STATION_TABLE_CACHE_KEY)
 
 
-async def fetch_latest_observation_time(client: httpx.AsyncClient) -> datetime | None:
+async def fetch_latest_observation_time(client: httpx.AsyncClient, cache: TTLCache) -> datetime | None:
     """最新の観測時刻を返す。
 
     レスポンスはJSON配列ではなく、ISO時刻文字列1個だけのプレーンテキスト
@@ -141,7 +147,7 @@ async def fetch_latest_observation_time(client: httpx.AsyncClient) -> datetime |
     return await cached_fetch(
         "weather:jma-amedas-latest-time",
         fetch,
-        cache=latest_time_cache,
+        cache=cache,
         key=_LATEST_TIME_CACHE_KEY,
         catch=(httpx.HTTPError,),
     )

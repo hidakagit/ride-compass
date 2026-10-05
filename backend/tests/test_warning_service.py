@@ -12,6 +12,7 @@
 import pytest
 
 from app.infrastructure import jma_area_boundaries
+from app.infrastructure.jma_warning_client import new_area_data_cache, new_warning_cache
 from app.services.warning_service import WarningService
 from tests.jma_area_fixtures import (
     CHIYODA_POINT,
@@ -24,7 +25,11 @@ from tests.jma_area_fixtures import (
 
 
 def _service(monkeypatch, tmp_path, **kwargs) -> WarningService:
-    return WarningService(http_client=area_lookup_upstream(monkeypatch, tmp_path, **kwargs))
+    return WarningService(
+        area_lookup_upstream(monkeypatch, tmp_path, **kwargs),
+        area_data_cache=new_area_data_cache(),
+        warning_cache=new_warning_cache(),
+    )
 
 
 async def test_get_warnings_returns_empty_when_the_point_is_in_no_area(monkeypatch, tmp_path):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import httpx
+from cachetools import TTLCache
 
 from app.domain.flood_forecast import ActiveFloodForecast, extract_active_flood_forecast
 from app.domain.jma_area import resolve_area
@@ -18,8 +19,10 @@ class FloodForecasts(StrictModel):
 
 
 class FloodService:
-    def __init__(self, http_client: httpx.AsyncClient):
+    def __init__(self, http_client: httpx.AsyncClient, *, area_data_cache: TTLCache, flood_cache: TTLCache):
         self._http_client = http_client
+        self._area_data_cache = area_data_cache
+        self._flood_cache = flood_cache
 
     async def get_forecasts(self, point: Coordinates) -> FloodForecasts | None:
         """出発地点近傍の指定河川洪水予報を取得する。
@@ -34,7 +37,7 @@ class FloodService:
         if class20_code is None:
             return FloodForecasts(forecasts=[])
 
-        area_master = await fetch_area_data(self._http_client)
+        area_master = await fetch_area_data(self._http_client, self._area_data_cache)
         if area_master is None:
             return None
 
@@ -42,7 +45,7 @@ class FloodService:
         if resolved is None:
             return None
 
-        bulletins = await fetch_flood_documents(self._http_client)
+        bulletins = await fetch_flood_documents(self._http_client, self._flood_cache)
         if bulletins is None:
             return None
 
