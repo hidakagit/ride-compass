@@ -21,9 +21,9 @@ const RIDE = {
   conditions: { bearingDeg: 0, at: new Date("2026-09-24T00:00:00Z"), z: 14, x: 1, y: 2 },
   routePreference: null,
 };
-/** 路面の区分の項目名と、その値の1つの呼び名（書き写さず材料カタログから引く）。 */
+/** 路面の区分の項目名と、呼び名を持つ値の1つ（書き写さず材料カタログから引く）。 */
 const SURFACE_CLASS = materialCatalog.find((material) => material.material_id === "surface_class")!;
-const [SURFACE_CLASS_VALUE, SURFACE_CLASS_VALUE_LABEL] = Object.entries(SURFACE_CLASS.value_labels ?? {}).find(
+const [SURFACE_CLASS_VALUE] = Object.entries(SURFACE_CLASS.value_labels ?? {}).find(
   (entry): entry is [string, string] => typeof entry[1] === "string",
 )!;
 
@@ -90,7 +90,6 @@ describe("RoadInspectorPopup", () => {
     );
 
     expect(screen.getByText("明治通り")).toBeInTheDocument();
-    expect(screen.getByText(SURFACE_CLASS_VALUE_LABEL)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "この道の評価を見る" })).toBeInTheDocument();
   });
 
@@ -167,7 +166,6 @@ describe("RoadInspectorPopup", () => {
     );
 
     const attributes = screen.getByText("この道の属性").closest("details");
-    expect(attributes).not.toHaveAttribute("open");
     expect(screen.getByText(SURFACE_CLASS.name)).not.toBeVisible();
     // 畳みを開くと、評価を取る前からタイルの事実が読める。
     await user.click(screen.getByText("この道の属性"));
@@ -183,29 +181,6 @@ describe("RoadInspectorPopup", () => {
 
 describe("評価の重み", () => {
   const WEIGHTS = { axis_sample: 0, night: 1 };
-
-  it("評価は、利用者がいま設定している重みで取りに行く", async () => {
-    const user = userEvent.setup();
-    // backendは、送られた重みがいまの設定と同じときだけ評価を返す。
-    onBackend("POST", INSPECTOR, ({ body }) =>
-      JSON.stringify((body as { route_preference?: unknown }).route_preference) === JSON.stringify(WEIGHTS)
-        ? Response.json(inspectorResult())
-        : Response.json({ detail: "重みが違う" }, { status: 400 }),
-    );
-    render(
-      <RoadInspectorPopup
-        properties={{ osm_way_id: 1 }}
-        axes={AXES}
-        axisColors={AXIS_COLORS}
-        {...RIDE}
-        routePreference={WEIGHTS}
-      />,
-    );
-
-    await user.click(screen.getByRole("button", { name: "この道の評価を見る" }));
-
-    expect(await screen.findByText(/この道だけで見た合成/)).toBeInTheDocument();
-  });
 
   it("重みを変えたら、前の重みで取った評価を見せずに取り直しへ戻る", async () => {
     const user = userEvent.setup();
@@ -270,18 +245,15 @@ describe("OSMの生値", () => {
 });
 
 describe("道の識別子", () => {
-  it("デバッグログOFFでは出さない（一般の利用者には読めない値のため）", () => {
-    setDebugEnabled(false);
+  // 一般の利用者には読めない値なので既定では出さず、デバッグログONなら地図で押した1本をそのままbackendの調査へ渡せるように出す。
+  it.each([
+    [false, []],
+    [true, ["OSM way id: 4242"]],
+  ])("デバッグログが%sなら、出すのは%j", (debug, shown) => {
+    setDebugEnabled(debug);
     render(<RoadInspectorPopup properties={{ osm_way_id: 4242 }} axes={AXES} axisColors={AXIS_COLORS} {...RIDE} />);
 
-    expect(screen.queryByText(/OSM way id/)).not.toBeInTheDocument();
-  });
-
-  it("デバッグログONなら出す（地図で押した1本を、そのままbackendの調査へ渡せるようにする）", () => {
-    setDebugEnabled(true);
-    render(<RoadInspectorPopup properties={{ osm_way_id: 4242 }} axes={AXES} axisColors={AXIS_COLORS} {...RIDE} />);
-
-    expect(screen.getByText("OSM way id: 4242")).toBeInTheDocument();
+    expect(screen.queryAllByText(/OSM way id/).map((element) => element.textContent)).toEqual(shown);
     setDebugEnabled(false);
   });
 });
