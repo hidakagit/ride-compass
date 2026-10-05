@@ -29,7 +29,7 @@ class EmptyTile:
 
     配信された一時点に対する結果のため、再フェッチしても変わらない。実際のタイル内容と同じキー・TTLで
     保持し、次回以降は上流へ問い合わせず即座に返せるようにする。配信前にも返る404（コマごとの地物）は
-    確定しないので、この事実として持たない（`domain/jma_tile_specs.py: is_final_absence`）。"""
+    確定しないので、この事実として持たない（`infrastructure/jma_tile_paths.py: is_final_absence`）。"""
 
 
 EMPTY_TILE = EmptyTile()

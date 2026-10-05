@@ -37,7 +37,7 @@ class WeatherService:
             return await msm_client.read_series(
                 np.array([point.latitude], dtype=float), np.array([point.longitude], dtype=float)
             )
-        except (MsmUnavailableError, OSError, ValueError, KeyError):
+        except MsmUnavailableError:
             return None
 
     async def get_conditions(self, point: Coordinates) -> WeatherConditions | None:
@@ -67,19 +67,19 @@ class WeatherService:
         latitudes, longitudes = lattice.coordinates()
         try:
             series = await msm_client.read_series(latitudes, longitudes)
-        except (MsmUnavailableError, OSError, ValueError, KeyError):
+        except MsmUnavailableError:
             return None
         if not series.times:
             return None
         speed, direction = wind_speed_and_direction(series.wind_u_ms, series.wind_v_ms)
         return WindForecastSeries(
-            times=[datetime.fromisoformat(t) for t in series.times],
+            times=series.times,
             speed_ms=speed,
             direction_deg=direction,
             lattice=lattice,
         )
 
-    async def get_wind_grid(self, points: list[Coordinates]) -> tuple[list[str], list[WindGridPoint | None]]:
+    async def get_wind_grid(self, points: list[Coordinates]) -> tuple[list[datetime], list[WindGridPoint | None]]:
         """複数地点の時間別風向・風速・降水量をまとめて取得する。特定時刻1点へ収束させず、
         予報期間ぶんの時系列をそのまま返す。
 
@@ -92,7 +92,7 @@ class WeatherService:
         longitudes = np.array([point.longitude for point in points], dtype=float)
         try:
             series = await msm_client.read_series(latitudes, longitudes)
-        except (MsmUnavailableError, OSError, ValueError, KeyError):
+        except MsmUnavailableError:
             return [], [None] * len(points)
         if not series.times:
             return [], [None] * len(points)
@@ -126,7 +126,7 @@ class WeatherService:
 
         return WeatherConditions(
             precipitation_mm=round(float(precipitation[0]), 2),
-            twilight=sunrise_sunset_jst(point, datetime.fromisoformat(times[0]).date()),
+            twilight=sunrise_sunset_jst(point, times[0].date()),
             precipitation_max_mm=daily_max(precipitation, today),
             wind_speed_max_ms=daily_max(speed, today),
             temperature_range=daily_range(temperature, today),

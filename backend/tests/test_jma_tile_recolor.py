@@ -11,8 +11,8 @@ import io
 import pytest
 from PIL import Image, ImageColor
 
-from app.domain.weather_display import JMA_PRECIPITATION_TILE_COLORS, PRECIPITATION_COLOR_STOPS
-from app.infrastructure.jma_tile_recolor import recolored
+from app.domain.weather_display import PRECIPITATION_COLOR_STOPS
+from app.infrastructure.jma_tile_recolor import JMA_PRECIPITATION_TILE_COLORS, recolored
 
 FRAME = "bosai/jmatile/data/nowc/20260101000000/none/20260101000500/surf"
 PRECIPITATION = f"{FRAME}/hrpns/6/57/25.png"

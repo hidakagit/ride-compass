@@ -7,7 +7,6 @@ from app.api.cache_policy import IMMUTABLE_TILE, JMA_NOT_YET_DELIVERED, JMA_TARG
 from app.api.dependencies import get_jma_tile_client
 from app.api.rate_limit import enforce_rate_limit
 from app.config import settings
-from app.domain.jma_tile_specs import is_final_absence
 from app.infrastructure.jma_tile_client import (
     EmptyTile,
     JmaTileClient,
@@ -15,6 +14,7 @@ from app.infrastructure.jma_tile_client import (
     is_target_times_path,
 )
 from app.infrastructure.jma_tile_index import JmaTileIndex, get_index
+from app.infrastructure.jma_tile_paths import is_final_absence
 from app.domain.strict_model import StrictModel
 from app.services.jma_tile_proxy_service import proxied_tile
 

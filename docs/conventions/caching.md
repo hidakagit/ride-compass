@@ -344,7 +344,7 @@ push型の無効化はfail-openと組み合わさると「伝え漏れても誰�
 
 **「元データの世代」には、どの元データを開いていたかも含む。** 土地被覆タイルは
 `LULC_RASTER_PATHS`（環境変数）で開くGeoTIFFが決まり、1枚足せば継ぎ目のタイルの絵が
-変わる。ラスタ構成の指紋（`domain/landcover.py: raster_set_fingerprint`）をディスクの鍵へ
+変わる。ラスタ構成の指紋（`infrastructure/cache_identity.py: raster_set_fingerprint`）をディスクの鍵へ
 入れて、構成が変われば別の鍵になるようにしてある。**この指紋はURLへは入れられない**
 ——URLの世代は生成物（`region-tile-config.json`）を通してフロントへ渡り、生成はビルド機で
 行うため、環境ごとに違う値を入れるとビルド機の設定で生成物が決まってしまう。そのぶん

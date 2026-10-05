@@ -6,7 +6,7 @@
 
 JMAの観測値エンドポイントは1地点だけを絞り込めず全国分を1レスポンスで返すため、取得は
 `refresh_all_stations`（main.pyの定期バッチが呼ぶ）が一括で担い、`get_nearest_observation`
-（リクエスト経路）はRedis読み取り専用である。推計気象分布の色を取るクライアントと空の区分への読み替え、
+（リクエスト経路）はRedis読み取り専用である。推計気象分布の色を取って区分へ読み替えるクライアントと、
 観測値と雨の履歴の置き場は、自分のテストを持たないのでここで入口から通す。
 
 ここで見ないもの:
@@ -27,7 +27,6 @@ import respx
 from PIL import Image
 
 from app.domain.jma_amedas import apparent_temperature_from_amedas
-from app.domain.jma_suikei import SUIKEI_TARGET_TIMES_PATH
 from app.domain.rain import HOURS_SINCE_RAIN, RAIN_HISTORY_HOURS, RAIN_HISTORY_MAX_AGE, rain_window_material_id
 from app.domain.route import Coordinates
 from app.domain.time_zone import JST
@@ -120,7 +119,7 @@ def _router(
     else:
         latest.respond(text=latest_time)
     upstream.get(url__startswith=prefix).mock(side_effect=observation)
-    target_times = upstream.get(f"{jma_tile_client.UPSTREAM_HOST}/{SUIKEI_TARGET_TIMES_PATH}")
+    target_times = upstream.get(f"{SUIKEI_ROOT}/targetTimes.json")
     if suikei_target_times is None:
         target_times.mock(side_effect=httpx.ConnectError)
     else:
