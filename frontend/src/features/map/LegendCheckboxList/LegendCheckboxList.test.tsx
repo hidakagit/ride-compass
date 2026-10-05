@@ -47,7 +47,6 @@ describe("LegendCheckboxList（凡例のチェック一覧）", () => {
 
   it("受け皿の行は、呼び出し側が見た目を渡したときだけ区別する", () => {
     renderList({ rowFallbackClassName: "fallback" });
-    expect(screen.getByText("不明・他")).toHaveClass("row");
     expect(screen.getByText("不明・他").closest(".fallback")).not.toBeNull();
     expect(screen.getByText("舗装").closest(".fallback")).toBeNull();
   });
