@@ -143,7 +143,7 @@ describe("選ぶ", () => {
     expect(result.current.usedWeights).toEqual(WEIGHTS);
   });
 
-  it("編集で作ったルートをさらに編集したものは、次の番号で足し、元はその編集", () => {
+  it("編集で作ったルートをさらに編集したものは、次の番号で足し、元はその編集。生成した候補を選び直すと編集として返さない", () => {
     const rendered = renderResults();
     generated(rendered);
     act(() => rendered.result.current.addEdit(SPLICED, "r1"));
@@ -154,16 +154,9 @@ describe("選ぶ", () => {
     expect(result.current.routes.map((route) => route.id)).toEqual(["r1", "r2", `${PREFIX}-1`, `${PREFIX}-2`]);
     expect(result.current.selectedEdit?.number).toBe(2);
     expect(result.current.selectedEdit?.origin?.id).toBe(`${PREFIX}-1`);
-  });
 
-  it("生成した候補を選んでいる間は、編集で作ったものとして返さない", () => {
-    const rendered = renderResults();
-    generated(rendered);
-    act(() => rendered.result.current.addEdit(SPLICED, "r1"));
-
-    act(() => rendered.result.current.selectTab("r1"));
-
-    expect(rendered.result.current.selectedEdit).toBeNull();
+    act(() => result.current.selectTab("r1"));
+    expect(result.current.selectedEdit).toBeNull();
   });
 });
 

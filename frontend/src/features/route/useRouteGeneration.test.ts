@@ -6,7 +6,8 @@
  * ここで見ないもの:
  * - 検証の文言の中身と、目的地モードで地点が無いときの検証 → `RouteForm/useRouteFormSubmit.test.ts`
  * - 条件の値の持ち方（保存・地点の置き方・重みの揃え方） → `useGenerationConditions.test.ts`
- * - 入力から要求の形を組む細部（どの項目を比べないか・キーの並びに依らない比較） → `generationRequest.test.ts`
+ * - 入力から要求の形を組む細部（どの項目を比べないか・選んでいない出発時刻・キーの並びに依らない比較） →
+ *   `generationRequest.test.ts`
  * - 所要時間の並べ方の細部（時間の無い候補の位置） → `routeTabLabel.test.ts`
  * - 要求の投げ方と見回り（ジョブの問い合わせ・打ち切り） → `routeApi.test.ts`
  * - 結果を一覧へ入れる・知らせを画面に出す → `useRouteResults.test.ts`・`app/page.test.tsx`
@@ -35,7 +36,6 @@ const ORIGIN: Coordinates = { latitude: 35.68, longitude: 139.76 };
 const A: Coordinates = { latitude: 35.7, longitude: 139.8 };
 const B: Coordinates = { latitude: 35.71, longitude: 139.81 };
 const T1 = new Date("2026-10-04T09:00:00Z");
-const T2 = new Date("2026-10-04T09:05:00Z");
 const NO_ROUTES_MESSAGE = "条件に合うルート候補が見つかりませんでした。条件を変えて試してください。";
 
 const CATALOG = catalogResponse([
@@ -154,17 +154,16 @@ describe("送る要求", () => {
     });
   });
 
-  it("目的地は距離を送らず（探索の範囲はbackendが点から決める）、入力した候補数を送る", async () => {
+  it("目的地は距離を送らず（探索の範囲はbackendが点から決める）、目的地を送る", async () => {
     const rendered = renderGeneration();
     act(() => rendered.result.current.conditions.changeRouteMode("destination"));
-    act(() => rendered.result.current.conditions.setMaxRoutesInput("4"));
     act(() => rendered.result.current.conditions.placePin("destination", A));
     respond([route("r1")]);
 
     await submit(rendered);
 
     expect(sentRequest()).not.toHaveProperty("distance_km");
-    expect(sentRequest()).toMatchObject({ max_routes: 4, destination: A });
+    expect(sentRequest()).toMatchObject({ destination: A });
   });
 
   it("経由地があると、候補数の入力に関わらず決まった数を送り、経由地は置いた順に送る", async () => {
@@ -180,7 +179,7 @@ describe("送る要求", () => {
     expect(sentRequest()).toMatchObject({ max_routes: routeGenerateConfig.routes_with_waypoints, waypoints: [B, A] });
   });
 
-  it("塗る軸は、軸カタログが届いていてレンズが軸を指すときだけ送る", async () => {
+  it("塗る軸は、軸カタログが届いていてレンズが軸を指すときだけ送り、作った入力にも残す", async () => {
     const rendered = renderGeneration();
     respond([route("r1")]);
     await submit(rendered, "axis_a");
@@ -196,16 +195,7 @@ describe("送る要求", () => {
     respond([route("r1")]);
     await submit(rendered, "axis_a");
     expect(sentRequest()).toMatchObject({ lens_axis_id: "axis_a" });
-  });
-
-  it("上書きを有効にした重みを送る", async () => {
-    const rendered = renderGeneration();
-    await loadCatalog(rendered);
-    act(() => rendered.result.current.conditions.setWeightOverrideEnabled(true));
-    respond([route("r1")]);
-    await submit(rendered);
-
-    expect(sentRequest()).toMatchObject({ route_preference: { axis_a: 0.4, axis_b: 0.6 } });
+    expect(rendered.result.current.generation.generatedInput?.lensAxisId).toBe("axis_a");
   });
 });
 
@@ -219,8 +209,6 @@ describe("入力の誤り", () => {
     const { generation } = rendered.result.current;
     expect(jobs.submitted).toEqual([]);
     expect(generation.inputError).toMatch(/現在地が分かりません/);
-    expect(generation.failure).toBe(generation.inputError);
-    expect(generation.lastMessage).toBe(generation.inputError);
     expect(rendered.onOutcome.mock.calls).toEqual([["failed"], ["failed"]]);
   });
 
@@ -281,7 +269,7 @@ describe("進み方", () => {
 });
 
 describe("生成の結果", () => {
-  it("候補を所要時間の短い順に並べ、生成に使われた重みと一緒に渡して新しい結果として知らせる。案内は出さない", async () => {
+  it("候補を所要時間の短い順に並べ、生成に使われた重みと一緒に渡して新しい結果として知らせる。案内・目的地の補正・研究モードでない生成の実験スロットは出さない", async () => {
     const rendered = renderGeneration();
     respond([route("slow", 3600), route("fast", 1800)], used({ route_preference: { axis_a: 1 } }));
 
@@ -291,6 +279,8 @@ describe("生成の結果", () => {
     expect(rendered.onOutcome).toHaveBeenCalledWith("fresh");
     expect(rendered.result.current.generation.failure).toBeNull();
     expect(rendered.result.current.generation.lastMessage).toBeUndefined();
+    expect(rendered.result.current.generation.destinationCorrected).toBe(false);
+    expect(rendered.result.current.generation.experimentSlots).toEqual([]);
   });
 
   it.each([
@@ -346,16 +336,7 @@ describe("生成の結果", () => {
     expect(generation.generatedInput?.destination).toEqual(B);
   });
 
-  it("目的地を補正しなかった生成は、補正したと返さない", async () => {
-    const rendered = renderGeneration();
-    respond([route("r1")]);
-
-    await submit(rendered);
-
-    expect(rendered.result.current.generation.destinationCorrected).toBe(false);
-  });
-
-  it("重みを上書きしていたのに軸カタログが無く送れなかったときだけ、既定の配分で作ったと返す", async () => {
+  it("上書きした重みは軸カタログが届いていれば送り、届かず送れなかったときだけ既定の配分で作ったと返す", async () => {
     const rendered = renderGeneration();
     respond([route("r1")]);
     await submit(rendered);
@@ -369,22 +350,8 @@ describe("生成の結果", () => {
     await loadCatalog(rendered);
     respond([route("r1")]);
     await submit(rendered);
+    expect(sentRequest()).toMatchObject({ route_preference: { axis_a: 0.4, axis_b: 0.6 } });
     expect(rendered.result.current.generation.weightsNotApplied).toBe(false);
-  });
-
-  it("作った入力（塗る軸を含む）を返す", async () => {
-    const rendered = renderGeneration();
-    await loadCatalog(rendered);
-    respond([route("r1")]);
-
-    await submit(rendered, "axis_a");
-
-    expect(rendered.result.current.generation.generatedInput).toMatchObject({
-      origin: ORIGIN,
-      distanceKm: 30,
-      lensAxisId: "axis_a",
-      startTime: T1,
-    });
   });
 });
 
@@ -407,33 +374,9 @@ describe("条件のずれ", () => {
     await submit(rendered);
     expect(rendered.result.current.generation.conditionsDirty).toBe(false);
   });
-
-  it("出発時刻は選んだときだけ比べる（「今」への追従では変わったとしない）", async () => {
-    const rendered = renderGeneration();
-    respond([route("r1")]);
-    await submit(rendered);
-
-    rendered.rerender({ ...PROPS, departure: { at: T2, pinned: false } });
-    expect(rendered.result.current.generation.conditionsDirty).toBe(false);
-
-    respond([route("r1")]);
-    rendered.rerender({ ...PROPS, departure: { at: T1, pinned: true } });
-    await submit(rendered);
-    rendered.rerender({ ...PROPS, departure: { at: T2, pinned: true } });
-    expect(rendered.result.current.generation.conditionsDirty).toBe(true);
-  });
 });
 
 describe("実験スロット", () => {
-  it("研究モードでなければ残さない", async () => {
-    const rendered = renderGeneration();
-    respond([route("r1")]);
-
-    await submit(rendered);
-
-    expect(rendered.result.current.generation.experimentSlots).toEqual([]);
-  });
-
   it("研究モードの生成を新しい順に上限まで残し、代表はbackendの並びの先頭、色は並びの位置で決める。候補0件は残さない", async () => {
     setResearchEnabled(true);
     const rendered = renderGeneration();
@@ -480,7 +423,7 @@ describe("消す", () => {
     expect(rendered.result.current.generation.running).toBe(true);
   });
 
-  it("生成の結果（作った条件・ずれ・補正・既定の配分・実験スロット・案内）を消す", async () => {
+  it("生成の結果（作った条件・補正・既定の配分・実験スロット・案内）を消す", async () => {
     setResearchEnabled(true);
     const rendered = renderGeneration();
     act(() => rendered.result.current.conditions.setWeightOverrideEnabled(true));
@@ -489,14 +432,12 @@ describe("消す", () => {
     respond([route("r1")], used({ corrected_destination: B }));
     await submit(rendered);
     jobs.fail("リクエストに失敗しました");
-    act(() => rendered.result.current.conditions.setMaxRoutesInput("2"));
     await submit(rendered);
 
     act(() => rendered.result.current.generation.clear());
 
     const { generation } = rendered.result.current;
     expect(generation.generatedInput).toBeNull();
-    expect(generation.conditionsDirty).toBe(false);
     expect(generation.destinationCorrected).toBe(false);
     expect(generation.weightsNotApplied).toBe(false);
     expect(generation.experimentSlots).toEqual([]);

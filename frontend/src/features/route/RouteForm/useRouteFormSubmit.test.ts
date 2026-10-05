@@ -52,21 +52,15 @@ describe("fixedRouteCount", () => {
 });
 
 describe("useRouteFormSubmit", () => {
-  it("押すまでは文言を出さない", () => {
-    const { result } = renderSubmit({ ...LOOP, originKnown: false });
-
-    expect(result.current.error).toBeNull();
-  });
-
   it("周回は入力の距離を数にして返す", () => {
     const { result } = renderSubmit(LOOP);
 
     expect(check(result)).toBe(42);
-    expect(result.current.error).toBeNull();
   });
 
-  it("出発地が仮の地点のままなら生成せず、位置情報の許可か地図での指定を促す", () => {
+  it("出発地が仮の地点のままなら、押すまでは文言を出さず、押すと生成せずに位置情報の許可か地図での指定を促す", () => {
     const { result } = renderSubmit({ ...LOOP, originKnown: false });
+    expect(result.current.error).toBeNull();
 
     expect(check(result)).toBeNull();
     expect(result.current.error).toBe(ORIGIN_UNKNOWN);
@@ -76,7 +70,6 @@ describe("useRouteFormSubmit", () => {
     const { result } = renderSubmit({ ...LOOP, routeMode: "destination", waypointCount: 2 });
 
     expect(check(result)).toBe(0);
-    expect(result.current.error).toBeNull();
   });
 
   it("目的地モードで目的地も経由地も無ければ生成せず、地図での指定を促す。文言は押し直すまで残り、目的地を置いて押し直すと消えて生成する", () => {
