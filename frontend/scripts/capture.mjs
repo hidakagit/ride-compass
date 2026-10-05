@@ -19,7 +19,7 @@
 // 日本語のフォント（無いと文字が豆腐になる）を入れる。画像は <出力>/<版>/<番号>-<名前>.png。
 
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, openSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -181,7 +181,10 @@ function checkoutRef(ref) {
     fail(`--app の版が無い: ${ref}（git fetch origin の後に打ち直す）`);
   }
   const dir = path.join(os.tmpdir(), `ridecompass-capture-${commit.slice(0, 12)}`, "frontend");
-  if (!existsSync(path.join(dir, "package.json"))) {
+  // 取り出しと依存の導入が両方通った後にだけ印を書く。途中で落ちた残り（欠けた展開・入れかけの node_modules）は消して始めから。
+  const ready = path.join(dir, ".capture-ready");
+  if (!existsSync(ready)) {
+    rmSync(dir, { recursive: true, force: true });
     mkdirSync(dir, { recursive: true });
     // git archive はサブディレクトリから打つとその下へ絞るので、リポジトリの根から打つ。
     const archive = spawnSync("git", ["archive", `${commit}:frontend`], {
@@ -192,11 +195,10 @@ function checkoutRef(ref) {
     // 展開の先は引数でなく作業ディレクトリで渡す: Git Bash の GNU tar は `C:` を含むパスを別のマシンの名前と読んで開けない。
     const extract = spawnSync("tar", ["-x", "-f", "-"], { cwd: dir, input: archive.stdout });
     if (extract.status !== 0) fail(`${ref} の frontend を展開できない: ${extract.stderr}`);
-  }
-  if (!existsSync(path.join(dir, "node_modules"))) {
     console.log(`[capture] ${ref}（${commit.slice(0, 12)}）の依存を入れる: ${dir}`);
     if (run("npm", ["ci", "--prefer-offline", "--no-audit", "--no-fund"], { cwd: dir }) !== 0)
       fail("依存を入れられない");
+    writeFileSync(ready, "");
   }
   return { dir, commit };
 }
