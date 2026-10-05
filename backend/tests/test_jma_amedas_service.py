@@ -183,8 +183,6 @@ async def test_get_nearest_observation_reads_from_redis_without_fetching():
     assert upstream.calls
     assert all(str(call.request.url).startswith(SUIKEI_ROOT) for call in upstream.calls)
     assert result is not None
-    assert result.station_id == "44132"
-    assert result.station_name == "東京"
     assert result.temperature_c == 26.5
     assert result.apparent_temperature_c == apparent_temperature_from_amedas(26.5, 70, 3.5)
     assert result.wind_speed_ms == 3.5

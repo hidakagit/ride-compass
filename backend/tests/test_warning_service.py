@@ -17,7 +17,6 @@ from app.services.warning_service import WarningService
 from tests.jma_area_fixtures import (
     CHIYODA_POINT,
     CLASS10_CODE,
-    CLASS10_NAME,
     CLASS20_CODE,
     OFFSHORE_POINT,
     area_lookup_upstream,
@@ -36,7 +35,6 @@ async def test_get_warnings_returns_empty_when_the_point_is_in_no_area(monkeypat
     result = await _service(monkeypatch, tmp_path).get_warnings(OFFSHORE_POINT)
     assert result is not None
     assert result.warnings == []
-    assert result.area_name is None
 
 
 @pytest.mark.parametrize("failure", [
@@ -83,9 +81,6 @@ async def test_get_warnings_merges_across_documents_and_dedupes(monkeypatch, tmp
 
     result = await _service(monkeypatch, tmp_path, warning_documents=documents).get_warnings(CHIYODA_POINT)
 
-    assert result.area_name == CLASS10_NAME
-    # 最新（20時発表の電文は対象コードを含まないため寄与しない）はcode43の電文の18:09。
-    assert result.report_datetime == "2026-08-22T18:09:00+09:00"
     assert sorted(w.code for w in result.warnings) == ["14", "43"]
 
 
@@ -100,5 +95,3 @@ async def test_get_warnings_returns_empty_when_no_active_cycling_relevant_codes(
     result = await _service(monkeypatch, tmp_path, warning_documents=documents).get_warnings(CHIYODA_POINT)
 
     assert result.warnings == []
-    assert result.area_name is None
-    assert result.report_datetime is None

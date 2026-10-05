@@ -64,12 +64,7 @@ GRID_POINT = WindGridPoint(
 )
 
 CONDITIONS = WeatherConditions(
-    temperature_c=24.6,
-    wind_speed_ms=2.5,
-    wind_direction_deg=69,
-    wind_direction_label="東",
     precipitation_mm=0.5,
-    observed_at="2026-08-13T21:15",
     twilight=Twilight(sunrise="2026-08-13T05:12", sunset="2026-08-13T18:41"),
     wind_speed_max_ms=5.5,
     precipitation_max_mm=None,
@@ -78,32 +73,22 @@ CONDITIONS = WeatherConditions(
     today_periods=[WeatherPeriodOutlook(period="12:00", temperature_c=27.0, precipitation_mm=0.4)],
 )
 WARNINGS = WeatherWarnings(
-    area_name="東京地方",
-    report_datetime="2026-08-22T18:09:00+09:00",
     warnings=[ActiveWarning(code="14", name="雷注意報", level="advisory", additions=["竜巻"])],
 )
 WBGT = WbgtStatus(
-    reading=WbgtReading(level="severe_warning", label="厳重警戒", value=30.0, observed_at="2026/08/22 18:00:00")
+    reading=WbgtReading(level="severe_warning", label="厳重警戒", value=30.0)
 )
 FLOODS = FloodForecasts(
     forecasts=[
         ActiveFloodForecast(
             river_code="830304004400",
-            river_name="神田川",
-            level=4,
             badge_level="severe_warning",
             label="神田川氾濫危険警報",
             condition="レベル４氾濫危険警報（発表）",
-            report_datetime="2026-08-22T17:50:00+09:00",
         )
     ]
 )
 AMEDAS = AmedasObservation(
-    station_id="44132",
-    station_name="東京",
-    latitude=35.69,
-    longitude=139.76,
-    observed_at="2026-08-29T12:00:00+09:00",
     temperature_c=26.5,
     apparent_temperature_c=27.8,
     wind_speed_ms=3.5,

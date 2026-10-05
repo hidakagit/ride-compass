@@ -29,7 +29,6 @@ class WbgtReading(StrictModel):
     level: WarningBadgeLevel
     label: str
     value: float
-    observed_at: str
 
 
 class WbgtStatus(StrictModel):
@@ -63,9 +62,7 @@ class WbgtService:
         if level_info is None:
             return _empty_status()
         level, label = level_info
-        return WbgtStatus(
-            reading=WbgtReading(level=level, label=label, value=forecast.wbgt, observed_at=forecast.forecast_time_text)
-        )
+        return WbgtStatus(reading=WbgtReading(level=level, label=label, value=forecast.wbgt))
 
     async def _current_forecast(self, point: Coordinates, now: datetime) -> WbgtForecast | None:
         points = await fetch_point_master(self._http_client, self._point_master_cache)

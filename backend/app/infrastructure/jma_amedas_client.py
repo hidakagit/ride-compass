@@ -27,7 +27,7 @@ REQUEST_TIMEOUT = httpx.Timeout(connect=3.0, read=5.0, write=5.0, pool=5.0)
 #: 気象庁アメダスの配信間隔（毎正時から10分おき）。
 AMEDAS_REFRESH_INTERVAL_MINUTES = 10
 
-# 観測所マスタ（緯度経度・名称）は行政区画変更等でしか変わらない静的に近いデータのため、
+# 観測所マスタ（緯度経度）は行政区画変更等でしか変わらない静的に近いデータのため、
 # jma_warning_client.pyのarea.jsonと同じ長寿命TTL。
 _STATION_TABLE_CACHE_TTL_SECONDS = 24 * 60 * 60
 # 最新観測時刻の一覧は10分更新のアメダスの鮮度に合わせた短いTTL。
@@ -49,7 +49,6 @@ def new_latest_time_cache() -> TTLCache:
 
 @dataclass(frozen=True)
 class AmedasStation:
-    name: str
     latitude: float
     longitude: float
 
@@ -77,15 +76,14 @@ def _degree_minute(value: list) -> float:
 
 
 def _parse_station_table(payload: dict) -> dict[str, AmedasStation]:
-    """座標か名称の無い観測所は載せない（最寄りにも、雨の履歴の座標にも使えない）。"""
+    """座標の無い観測所は載せない（最寄りにも、雨の履歴の座標にも使えない）。"""
     stations = {}
     for station_id, entry in payload.items():
         lat = entry.get("lat")
         lon = entry.get("lon")
-        name = entry.get("kjName")
-        if not lat or not lon or not name:
+        if not lat or not lon:
             continue
-        stations[station_id] = AmedasStation(name=name, latitude=_degree_minute(lat), longitude=_degree_minute(lon))
+        stations[station_id] = AmedasStation(latitude=_degree_minute(lat), longitude=_degree_minute(lon))
     return stations
 
 

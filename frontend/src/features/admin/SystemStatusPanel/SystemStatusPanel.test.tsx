@@ -139,7 +139,6 @@ describe("SystemStatusPanel", () => {
   it("予報の同期は、backendが鮮度を返したときだけ出し、滞っていれば警告する", async () => {
     const msm = {
       last_run_at: "2026-09-24T00:00:00Z",
-      data_end_at: "2026-09-26T00:00:00Z",
       run_age_hours: 3,
       remaining_hours: 45,
     };

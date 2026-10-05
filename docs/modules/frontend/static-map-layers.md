@@ -29,7 +29,7 @@
 | `features/map/layers/landcoverClasses.ts` | 土地被覆のクラス（表示名・色・割合列・地図に塗るか）。backendのレジストリ由来の生成物（`landcover-classes.json`）を読むだけの薄い層で、凡例（レイヤーの記述子）と区間インスペクタ（`RoadInspectorPopup.tsx`）が共有する。色は地図タイルの塗りと同じ値のため、凡例と地図がずれない。**凡例は塗るクラスだけ**（`LANDCOVER_PAINTED_CLASSES`）——塗らないクラスを並べると色見本があるのに地図のどこにも無い表になる。区間インスペクタは数値なので全クラスを出す |
 | `features/map/layers/primaryAttributes.ts` | 一次属性のカタログと、二次軸→一次属性の導出（軸増減時の観測データ連動表示に使用） |
 | `features/map/secondaryAxes.ts` | 「推定指標（合成）」チップグループの軸一覧生成。軸の共通の項目（略名・アイコン・パネル説明・材料の一次属性等）は`lib/catalogAxis.ts`から受け、足すのは対応`MapLayerId`。`show_map_icon`による除外を持つ |
-| `features/map/layers/mapLayers.ts` | レイヤーカタログ本体（`MapLayerDescriptor[]`）・地図上チップの最上位グループ（`MAP_OVERLAY_GROUP_ORDER`が正本。現在は道路/環境/スポット）判定・軸スタジオ由来レイヤーの除外判定・`deriveFetchLayerStatus`（MapLibreのソースイベントを経由しないレイヤーのデータ状態判定）。チップの説明に並べる点の種別名は、凡例と同じ先頭の軸の行の名前を生成物の一次属性から引く。**`layers/`は`scene/`を読まない**（`scene/`が`layers/`を読む一方向） |
+| `features/map/layers/mapLayers.ts` | レイヤーカタログ本体（`MapLayerDescriptor[]`）・地図上チップの最上位グループ（`MAP_OVERLAY_GROUP_ORDER`が正本。現在は道路/環境/スポット）判定・軸スタジオ由来レイヤーの除外判定・`deriveFetchLayerStatus`（MapLibreのソースイベントを経由しないレイヤーのデータ状態判定）。静的なレイヤーは源泉の宣言（生成物`mapDisplay.layers`）の並びを列挙して組み、足すのはアイコン（`STATIC_LAYER_ICONS`）と表示専用の凡例（`READ_ONLY_LEGENDS`）だけ。名前・略名・説明・(i)の文は源泉が持ち、説明の差し込み口だけを軸カタログの値で埋める（下記「説明文に評価の名前を書き込まない」）。**`layers/`は`scene/`を読まない**（`scene/`が`layers/`を読む一方向） |
 | `features/map/scene/mapScene.ts` | 地図に載っているべきものの宣言の型（ソース・レイヤー・feature-state）と、重なりの段（`MAP_SCENE_TIERS`）・押せるレイヤーの引き方 |
 | `features/map/scene/applyMapScene.ts` | 宣言を地図へ当てる唯一の実装（`addSource`/`addLayer`/`setPaintProperty`/`setFilter`/`setFeatureState`）。前回の宣言との差分だけを当て、段の順に差し込む |
 | `features/map/MapView/MapView.tsx`（静的レイヤーの箇所のみ） | 画面の状態をsceneの入力へ渡す配線・押された点や道の判定とポップアップ・レイヤーのデータ取得状態の算出元（`buildLayerDataSources`）。レイヤーの描画コードは持たない |
@@ -43,7 +43,7 @@
 | `features/map/MapView/roadFacts.ts` | クリックした道の「事実」（例: 道路名・路面の区分・農道・林道の等級・トンネル）をタイルのプロパティから組み立てる純関数。項目名と値の呼び名、タイルのどの属性を読むか（`tile_property`）は材料カタログ（生成物`material-catalog.json`）から引く。材料の外の列（識別子・道路名）の名前は生成物`region-tile-config.json`の`road_surface.properties`から引き、押した道のway_id・フィーチャーの鍵もここの関数（`roadWayId`・`roadFeatureKey`）で読む。該当しない項目は行ごと出さない（「なし」が並ぶと該当する項目が埋もれる）。路面の区分だけは値が無くても「不明」として出す——どの道でも最初に見たい項目で、行ごと消すと「舗装されていない」と読める |
 | `types/traffic.ts` | 停止要因POI・補給休憩POIの`kind`列挙型定義 |
 | `features/map/regionApi.ts`（`roadSurfaceTileUrl`/`pointTileUrl`とタイル世代の判定） | ベクタタイルのURLテンプレート（`fetchDynamicWayValues`は[地図: 軸・ルート色分け](map-axis-coloring.md)の管轄）。点のレイヤーはどれも1つの配信（backend `GET /api/region/point-tiles/{layer}/...`）で、URLはレイヤー名（生成物`region-tile-config.json`の`point_layers`の鍵。タイルの世代の系統の名前でもある）で組み、source-layer名も同じ一覧から読む。世代はbackendから実行時に届き、**全系統が揃ったもの（`completeTileVersions`だけが作る`TileVersions`）でしかURLを組み立てない** |
-| `features/map/mapAxisCatalog.ts`・`useMapAxisCatalog.ts` | 軸カタログの応答のうち、地図だけが読むもの（ramp軸・専用配信の軸・推定指標のチップ・ルートの色分けモード・事故の収録年・タイルの世代）を導く純関数と、共有の軸カタログと同じ取得（`hooks/useAxisCatalog.ts: useAxisCatalogSelect`）から引くフック。地図がソースを作れるかの判定と、チップの縮退表示は、どちらもここのタイルの世代1つを見る |
+| `features/map/mapAxisCatalog.ts`・`useMapAxisCatalog.ts` | 軸カタログの応答のうち、地図が読むもの（公開中の軸・ramp軸・専用配信の軸・推定指標のチップ・ルートの色分けモード・事故の収録年・タイルの世代と、それらから組んだレイヤーの一覧`layers`。一覧を組むのは応答1つにつき1回で、地図と`useMapView`は同じものを読む）を導く純関数と、共有の軸カタログと同じ取得（`hooks/useAxisCatalog.ts: useAxisCatalogSelect`）から引くフック。地図がソースを作れるかの判定と、チップの縮退表示は、どちらもここのタイルの世代1つを見る |
 | `lib/tileBaseUrl.ts` | タイル配信元オリジンの決定（既定はフロント自身のオリジン＝rewrites経由、`NEXT_PUBLIC_TILE_BASE_URL`設定時はbackend直接）。路面/POI/事故タイル・基礎地図スタイル（`MapView.tsx: mapStyleUrl`）・国土地理院色別標高図・JMA動的タイル（[動的気象レイヤー](dynamic-weather-layers.md)）が共通に使う |
 | `next.config.ts`（`frontend/`直下） | フロント自身のオリジンへ来たタイル類（基礎地図・路面・POI・事故等）の要求をbackendへ転送するrewritesと、その転送を打ち切るまでの時間（`experimental.proxyTimeout`） |
 | `features/map/MapOverlayControls/` | 地図上チップ（フローティングUI）。グループへの束ね方と並びはレイヤーカタログ（`mapOverlayGroupFor`・`MAP_OVERLAY_GROUP_ORDER`）から導き、開いたグループ（同時に開けるのは`MAP_OVERLAY_MAX_EXPANDED_GROUPS`まで）と「表示する項目を選ぶ」で隠した項目を次の訪問でも保つ。▶（凡例）・つまみの付いた横線（表示する項目を選ぶ、`DisplayItemsIcon`）で開くパネルは`ui/Popover`（Radix）で、位置取り・画面端での縮み・外を押すと閉じる（同時に開くのは1つ）はライブラリが持つ。**ⓘは説明を開く記号にだけ使う**——「表示する項目」の一覧の各行にも説明のⓘが並ぶため、入口までⓘにすると1つのパネルの中で同じ記号が「選ぶ」と「説明」の2つの意味になる。開いた一覧の先頭には「表示する項目」の見出しを出す（押す前のtitleはスマホでは出ない） |
@@ -97,26 +97,30 @@ backendから取り、タイル本体はrewrites経由に戻る。
 
 ## レイヤーを1枚足すときに触る場所
 
-源泉（backendの`domain/map_display.py`）へ描き方以外の宣言（種別・情報源・性質・既定表示・名前。一次属性を描く
-レイヤーの名前は属性の名前で、書かない）を1行、
-記述子（`mapLayers.ts: MapLayerDescriptor`）へ見せ方を1エントリ足し、そのレイヤーの描き方を
+源泉（backendの`domain/map_display.py: _LAYER_SPECS`）へ描き方以外の宣言（種別・情報源・性質・既定表示・名前・略名・説明・(i)の文。
+一次属性を描くレイヤーの名前は属性の名前で、書かない）を1件、
+`mapLayers.ts`へアイコン（`STATIC_LAYER_ICONS`。表示専用の凡例があれば`READ_ONLY_LEGENDS`も）を1行足し、そのレイヤーの描き方を
 家族の宣言（`features/map/scene/groups/*.ts`。道路の線なら`roadLines.ts`、点なら`points.ts`、
 面なら`areaRasters.ts`）へ足す。描き方の分類・色が源泉（backendの一次属性カタログ）の行で
 決まる家族では、源泉へ1行足せば宣言が導かれる。新しい家族そのものを足すときだけ、
-`buildScene.ts`の家族の並びへ1行足す。アイコン・表示専用の凡例は記述子、情報源は源泉の宣言、
+`buildScene.ts`の家族の並びへ1行足す。アイコン・表示専用の凡例は`mapLayers.ts`、情報源・説明は源泉の宣言、
 重なりの段は家族の宣言が持ち、**描画側に
 レイヤーidの対応表を持たない**——対応表に書き足す形だと、忘れても汎用の既定値で描けて
 しまい「他のレイヤーと見分けが付かないアイコン」「状態ドットが永久に出ない」「初回描画だけ
-重なりがずれる」という、画面を細かく見ないと気づけない壊れ方になる。記述子の側は必須
-フィールドのため、書き忘れは型検査が落とす。
+重なりがずれる」という、画面を細かく見ないと気づけない壊れ方になる。アイコンの表はレイヤーの名前を
+全部持つ型（`Record`）のため、書き忘れは型検査が落とす。源泉の宣言の過不足と説明の書き忘れは生成の時点で落ちる
+（`map_display.py: MAP_LAYERS`）。
 
 **描き方の宣言の書き忘れだけは機械が検知しない**。記述子だけ足すと、チップはONになり凡例も
 出るのに地図には何も出ない。
 
 ## 説明文に評価の名前を書き込まない
 
-レイヤーの説明（`description`・`panelHint`）が評価に触れるときは、評価の名前を文に直書きせず、軸カタログから
-**そのレイヤーの元データを材料に持つ公開中の評価**を引いて差し込む（`mapLayers.ts: buildMapLayers`）。引き方は
+レイヤーの説明（`description`・`panelHint`）は源泉（`domain/map_display.py: MapLayerSpec`）が文として持ち、軸カタログ（実行時の
+応答）から来る値だけを差し込み口（`LayerTextSlot`。評価の名前・事故の収録年・ルートの色分けで選べるもの）にする
+（[設計原則](../../architecture/design-principles.md)「1つの値の中で混ざるときは、部分ごとに問う」）。口を埋めるのは画面（`mapLayers.ts: buildMapLayers`）で、値が空の口は前後の文ごと出さない。
+評価に触れるときは、評価の名前を文に直書きせず、軸カタログから
+**そのレイヤーの元データを材料に持つ公開中の評価**を引いて差し込む。引き方は
 軸の`primaryAttributeIds`（一次属性を描くレイヤーは名前が属性idと同じ）と`weatherLayerGroups`（一次属性を
 持たない動的な材料の元データを描く気象のチップ。例: 風の材料と風の矢印）で、どちらもbackendが軸の材料から導く。
 当てはまる評価が無ければ評価に触れる一文ごと出さない。評価は軸スタジオで公開・改名・撤去されるため、
@@ -125,7 +129,7 @@ backendから取り、タイル本体はrewrites経由に戻る。
 ## 表示専用の凡例（`MapLayerDescriptor.readOnlyLegend`）
 
 配信元が色を焼き込み済みでカテゴリ単位に選べないレイヤー（土地被覆・降水ナウキャスト・
-風の矢印等）は、▶パネルに出す凡例を記述子が宣言する。絞り込める凡例は`hiddenKeys`と保存先の
+風の矢印等）は、▶パネルに出す凡例を`mapLayers.ts: READ_ONLY_LEGENDS`が宣言する。絞り込める凡例は`hiddenKeys`と保存先の
 `axisId`を持ち、`scene/legends.ts`が出す——**型の上で分けてあるので、ここへ絞り込める
 つもりの凡例を書いても黙って読み取り専用にはならない**。
 
@@ -725,7 +729,7 @@ E2Eの`e2e/map-runtime.spec.ts`「宣言された地図レイヤーを全部ON�
 そもそも配られない（[静的道路属性](../backend/static-road-attributes.md)）。2つを別の行に
 分けるのは、同じ確からしさに見せないため。
 
-補給休憩の説明文（`mapLayers.ts`の`panelHint`）が、コンビニは目安に使いやすく、自販機・トイレ・給水・駐輪場は閉店・撤去に
+補給休憩の説明文（`domain/map_display.py`の`panel_hint`）が、コンビニは目安に使いやすく、自販機・トイレ・給水・駐輪場は閉店・撤去に
 データが追いついていないことがあると書き分けるのは、OSMの要素の最終編集日時の差による。関東全域の抽出（2026-08）で、
 コンビニは直近2年以内に編集されたものが62.4%だったのに対し、ほかの4種は5年以上編集されていないものが58〜59%だった
 （実地の確認日のタグ`check_date`・`survey:date`は2〜11%にしか付かないので、最終編集日時で見た）。

@@ -24,8 +24,7 @@ from app.domain.attributes import CategoricalColumn
 from app.domain.evaluation import StaticEdgeScoreMatrix
 from app.domain.leg_costs import LegCostComposer
 from app.domain.route import Coordinates
-from app.domain.weather import PERIOD_INTERVAL_HOURS, WeatherConditions
-from app.domain.wind import WindForecastSeries, WindLattice
+from app.domain.wind import DepartureWind, WindForecastSeries, WindLattice
 from tests.axis_system_fixture import axis_definition, replaced_axis_definitions
 
 START = datetime(2026, 10, 3, 9, 0)
@@ -72,13 +71,8 @@ def _matrix(n: int, *, distance=1000.0, gradient=0.0, bearing=NORTH, surface="pa
     )
 
 
-def _weather(speed_ms: float, from_deg: float = NORTH) -> WeatherConditions:
-    return WeatherConditions(
-        temperature_c=None, wind_speed_ms=speed_ms, wind_direction_deg=from_deg, wind_direction_label="北",
-        precipitation_mm=None, observed_at=START.isoformat(), twilight=None, precipitation_max_mm=None,
-        wind_speed_max_ms=None, temperature_range=None, today_periods=[],
-        today_period_interval_hours=PERIOD_INTERVAL_HOURS,
-    )
+def _departure_wind(speed_ms: float, from_deg: float = NORTH) -> DepartureWind:
+    return DepartureWind(speed_ms=speed_ms, direction_deg=from_deg)
 
 
 def _series(speeds_by_hour: list[float], from_deg: float = NORTH) -> WindForecastSeries:
@@ -91,13 +85,13 @@ def _series(speeds_by_hour: list[float], from_deg: float = NORTH) -> WindForecas
     )
 
 
-def _composer(matrix: StaticEdgeScoreMatrix, *, weights=None, penalty=0.0, excluded=None, weather=None,
+def _composer(matrix: StaticEdgeScoreMatrix, *, weights=None, penalty=0.0, excluded=None, departure_wind=None,
               series=None, lazy=None) -> LegCostComposer:
     n = len(matrix.distance_m)
     return LegCostComposer(
         matrix, weights or {}, penalty,
         np.zeros(n, dtype=bool) if excluded is None else np.asarray(excluded, dtype=bool),
-        weather, series, START, CRUISE_KMH,
+        departure_wind, series, START, CRUISE_KMH,
         np.arange(n) if lazy is None else np.asarray(lazy), detour_ratio=1.3, twilight_origin=PLACE,
     )
 
@@ -149,17 +143,17 @@ def test_an_excluded_segment_cannot_be_passed():
 def test_the_wind_at_departure_slows_a_segment_against_it_and_helps_one_with_it():
     calm = _snapshot(_matrix(1)).travel_seconds_full[0]
 
-    leg = _snapshot(_matrix(2, bearing=[NORTH, SOUTH]), weather=_weather(5.0, from_deg=NORTH))
+    leg = _snapshot(_matrix(2, bearing=[NORTH, SOUTH]), departure_wind=_departure_wind(5.0, from_deg=NORTH))
 
     assert leg.travel_seconds_full[0] > calm > leg.travel_seconds_full[1]
 
 
 @pytest.mark.parametrize(
-    ("weather", "series", "unavailable"),
-    [(None, None, True), (_weather(0.0), None, False), (None, _series([0.0, 0.0]), False)],
+    ("departure_wind", "series", "unavailable"),
+    [(None, None, True), (_departure_wind(0.0), None, False), (None, _series([0.0, 0.0]), False)],
 )
-def test_the_travel_time_is_marked_when_no_wind_was_available(weather, series, unavailable):
-    assert _composer(_matrix(1), weather=weather, series=series).wind_unavailable is unavailable
+def test_the_travel_time_is_marked_when_no_wind_was_available(departure_wind, series, unavailable):
+    assert _composer(_matrix(1), departure_wind=departure_wind, series=series).wind_unavailable is unavailable
 
 
 # --- コストと表示の値 ---------------------------------------------------------
@@ -190,7 +184,7 @@ def test_the_cost_is_the_travel_time_raised_by_the_weighted_difficulty(wind_axis
 def test_an_axis_that_reads_the_wind_scores_a_headwind_above_a_tailwind(wind_axis):
     matrix = _matrix(2, bearing=[NORTH, SOUTH], axes={WIND_AXIS: np.nan})
 
-    leg = _snapshot(matrix, weights={WIND_AXIS: 1.0}, weather=_weather(5.0, from_deg=NORTH))
+    leg = _snapshot(matrix, weights={WIND_AXIS: 1.0}, departure_wind=_departure_wind(5.0, from_deg=NORTH))
 
     assert leg.axis_arrays[WIND_AXIS][0] > leg.axis_arrays[WIND_AXIS][1]
     assert leg_costs.material_value_at(leg, WIND_DRAG, 0) > 0 > leg_costs.material_value_at(leg, WIND_DRAG, 1)
@@ -240,7 +234,7 @@ def test_the_search_order_holds_only_the_segments_on_the_search_graph():
 
 
 def test_without_an_hourly_forecast_every_leg_shares_one_composition():
-    composer = _composer(_matrix(1), weather=_weather(3.0))
+    composer = _composer(_matrix(1), departure_wind=_departure_wind(3.0))
 
     outbound = composer.compose("outbound", None, 0.0, +1, duration_hours=3.0)
     inbound = composer.compose("inbound", None, 2.0, -1, duration_hours=3.0)
@@ -423,7 +417,7 @@ def test_the_wind_of_a_segment_is_the_forecast_at_its_passage():
 
 
 def test_a_segment_without_a_passage_shows_the_wind_at_departure():
-    composer = _composer(_matrix(2), weather=_weather(3.04, from_deg=271.06))
+    composer = _composer(_matrix(2), departure_wind=_departure_wind(3.0, from_deg=271.1))
 
     winds = composer.winds_at([0, 1], [None, 0.5], [False, False])
 

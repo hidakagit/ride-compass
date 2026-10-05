@@ -37,7 +37,6 @@ import {
   pinMarkText,
 } from "@/components/PinMark/PinMark";
 import {
-  buildMapLayers,
   type MapLayerDataSource,
   type MapLayerDescriptor,
   type LayerDataStatusByLayer,
@@ -374,11 +373,7 @@ export default function MapView({
   const [originMark, setOriginMark] = useState<{ element: HTMLDivElement; color: string } | null>(null);
   const catalog = useAxisCatalog();
   const mapCatalog = useMapAxisCatalog();
-  const mapLayerCatalog = useMemo(
-    () => buildMapLayers({ ...mapCatalog, axes: catalog.axes }),
-    [mapCatalog, catalog.axes],
-  );
-  const layerDataSources = useMemo(() => buildLayerDataSources(mapLayerCatalog), [mapLayerCatalog]);
+  const layerDataSources = useMemo(() => buildLayerDataSources(mapCatalog.layers), [mapCatalog.layers]);
   // 詳細を見ている道。強調も scene の一部として当てる。
   const inspectedWayId = roadPopup ? roadWayId(roadPopup.properties) : null;
   // 地図に載るもの全部の入力。**ここが scene の唯一の組み立て口**。

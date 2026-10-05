@@ -66,7 +66,6 @@ def _forecast(reference_time: str, forecast_time: datetime | None, wbgt: float |
     return WbgtForecast(
         reference_time=reference_time,
         forecast_time=forecast_time,
-        forecast_time_text=None if forecast_time is None else forecast_time.isoformat(),
         wbgt=wbgt,
     )
 

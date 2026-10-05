@@ -138,6 +138,15 @@ class WindLattice:
 
 
 @dataclass(frozen=True)
+class DepartureWind:
+    """出発地点の出発時点の風（MSMの時系列の先頭）。時別の系列が無いとき、全区間へ一様に使う。"""
+
+    speed_ms: float
+    #: 風が吹いてくる方位（0=北・時計回り）。
+    direction_deg: float
+
+
+@dataclass(frozen=True)
 class WindForecastSeries:
     """格子点ごとの時別風向・風速の予報系列（1時間刻み、`times`はタイムゾーン無しのローカル時刻[JST]）。探索前に
     各Edgeの通過予定時刻へ対応する風を引くために使う。`speed_ms`・`direction_deg`は（格子点, 時刻）。

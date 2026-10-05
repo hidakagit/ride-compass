@@ -19,8 +19,7 @@ from app.domain.axis_definitions import (
     evaluate_axis_array,
 )
 from app.domain.material_catalog import WIND_DRAG_RATIO
-from app.domain.weather import WeatherConditions
-from app.domain.wind import WindForecastSeries, wind_components, wind_drag_ratio_from_components
+from app.domain.wind import DepartureWind, WindForecastSeries, wind_components, wind_drag_ratio_from_components
 
 
 @dataclass(frozen=True)
@@ -33,13 +32,13 @@ class DynamicAxisRequestContext:
     """
 
     bearing_deg: np.ndarray
-    weather: WeatherConditions | None
+    departure_wind: DepartureWind | None
     # 走行速度（m/s、リクエスト単位）。既定値を置かないのは、走行速度に依存する材料へ
     # 伝播漏れがあったとき既定値で黙って計算せず、構築時点で失敗させるため。
     travel_speed_ms: float
     # 時刻依存の材料向け: 格子点ごとの時別予報系列と、各Edgeの通過予定時刻（`start`からの経過
     # 時間[h]、`bearing_deg`と同じ行順）と、各Edgeに最も近い格子点の番号（同じ行順）。4つとも揃っていれば
-    # Edgeごとに通過予定時刻の値を引き、揃っていなければ`weather`（出発時点のスナップショット）を全Edgeへ一様に使う。
+    # Edgeごとに通過予定時刻の値を引き、揃っていなければ`departure_wind`（出発時点のスナップショット）を全Edgeへ一様に使う。
     wind_series: WindForecastSeries | None
     start: datetime | None
     passage_hours: np.ndarray | None
@@ -56,9 +55,9 @@ class DynamicAxisRequestContext:
             and self.wind_points is not None
         ):
             speed, direction = self.wind_series.sample(self.start, self.passage_hours, self.wind_points)
-        elif self.weather is not None:
-            speed = np.asarray(self.weather.wind_speed_ms, dtype=float)
-            direction = np.asarray(self.weather.wind_direction_deg, dtype=float)
+        elif self.departure_wind is not None:
+            speed = np.asarray(self.departure_wind.speed_ms, dtype=float)
+            direction = np.asarray(self.departure_wind.direction_deg, dtype=float)
         else:
             return None
         return wind_components(speed, direction, self.bearing_deg)

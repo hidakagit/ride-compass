@@ -57,6 +57,7 @@ from app.domain.dynamic_way_values import DEFAULT_DIFFICULTY_BOUNDARIES  # noqa:
 from app.domain.map_display import (  # noqa: E402
     ALWAYS_SHOWN_ATTRIBUTIONS,
     AXIS_LAYER_SPECS,
+    LayerText,
     LEGEND_SHARED_ROWS,
     MAP_LAYER_CATEGORIES,
     MAP_LAYERS,
@@ -225,6 +226,11 @@ def _map_layer_entry(spec: MapLayerSpec) -> dict:
     }
 
 
+def _layer_text(text: LayerText) -> list:
+    """説明の文。文はそのまま、差し込み口は名前と前後の文の組にする。"""
+    return [part if isinstance(part, str) else part._asdict() for part in text]
+
+
 def _weather_element_entry(element: WeatherElement) -> dict:
     tile = weather_element_tile(element)
     return {
@@ -347,7 +353,14 @@ def main() -> None:
             "layerKinds": list(MAP_LAYER_KINDS),
             # 地図に載るものの、描き方以外の宣言（種別・情報源・性質・既定表示）。
             "layers": [
-                {"id": layer_id, "label": map_layer_label(layer_id, spec), **_map_layer_entry(spec)}
+                {
+                    "id": layer_id,
+                    "label": map_layer_label(layer_id, spec),
+                    **_map_layer_entry(spec),
+                    "chipLabel": spec.chip_label,
+                    "description": _layer_text(spec.description),
+                    "panelHint": _layer_text(spec.panel_hint) or None,
+                }
                 for layer_id, spec in MAP_LAYERS
             ],
             "axisLayers": {kind: _map_layer_entry(spec) for kind, spec in AXIS_LAYER_SPECS.items()},
