@@ -9,9 +9,9 @@ r"""起こし直したテストを機械で監査する。報告の自己申告�
 - ③ テストが触る`<対象>.X`の内訳（自ファイル定義／他モジュール由来）。他モジュール由来は
   1件ずつ「差し替えのseamか、責務外か」を人が言う。`scripts/`の道具はテストが`sys.path`へ足して
   素で`import <道具名>`するので、その名前も対象として読む
-- ④ 実装へ1行も入らないテスト（`--cov-context=test`で実測する。**静的解析は誤検知する**
-  ——`setattr(mod, ...)`の形やヘルパ経由を数え落とした実績が2回ある）
-- ⑤ 行・分岐カバレッジ
+- ④ 実装へ1行も入らないテストと、入るがそのテストだけが通す行が0行のテスト（`--cov-context=test`で
+  実測する。**静的解析は誤検知する**——`setattr(mod, ...)`の形やヘルパ経由を数え落とした実績が2回ある）
+- ⑤ 行・分岐カバレッジと、テストファイルごとの項目・`test_`の関数・行（空行とコメントを除く）の数
 - ⑥ 対象の公開の名前ごとの`app`・`scripts`・`benchmarks`での参照数（対象の外/中）と、どちらも0の
   「テストからしか使われない候補」。ASTで数えるので、文字列で指す参照とフレームワークが規約で呼ぶものは0に見える
 
@@ -27,9 +27,11 @@ r"""起こし直したテストを機械で監査する。報告の自己申告�
     .venv\Scripts\python.exe scripts\audit_test_rewrite.py --ref origin/master app/domain/traffic.py tests/test_traffic.py
 
 `--ref`は起こし直す前の値を同じ実行で測る。その版を一時の作業ツリーへ取り出して同じ母集団で④⑤を測り、
-前と後の行・分岐カバレッジと、後で新たに未到達になった行・分岐を並べる。作業ツリーは終わるときに消す
-（テストが落ちても）。前の版のテスト名は出さない（起こし直しの手順1〜3では旧版を開かないため）。
-その版に無いテストファイルは前の測りから外し、外したことを出す。PostGISのテストは、前の版でも今の
+前と後の行・分岐カバレッジ・④の数・テストファイルごとの数と、後で新たに未到達になった行・分岐を並べる。
+作業ツリーは終わるときに消す（テストが落ちても）。前の版のテスト名は出さない（起こし直しの手順1〜3では
+旧版を開かないため）。母集団は前と後を合わせて渡し、その版に無いテストファイルは前の測りから、作業ツリーに
+無い（消した・改名した）テストファイルは後の測りから外し、外したことを出す。改名は前の名と後の名を
+両方渡す。どちらにも無いファイルは止める。PostGISのテストは、前の版でも今の
 作業ツリーと同じテスト用DBへ繋ぐ（一時の作業ツリー専用のDBは、作業ツリーを消しても残るため作らせない）。
 
 `--no-jit`は`NUMBA_DISABLE_JIT=1`を立てる。`njit`の中はcoverage.pyが追えないため、
@@ -258,28 +260,52 @@ def passed_test_ids(pytest_output: str) -> set[str]:
     return ids
 
 
-def tests_that_never_enter_the_implementation(
-    coverage_db: Path, implementation: str, executed: set[str]
-) -> tuple[list[str], int]:
-    """`--cov-context=test`の記録から、対象ファイルの行を1度も実行しないテストを引く。
+def lines_by_test(coverage_db: Path, implementation: Path) -> dict[str, set[int]]:
+    """`--cov-context=test`の記録から、テストごとに対象ファイルで実行した行を引く。
 
-    **分母は実行されたテストの一覧から取る。** coverage.pyは何も記録しなかった文脈を
-    記録に残さないため、記録だけを分母にすると、実装へ入らないテストほど分母からも消える。
+    coverage.pyは何も記録しなかった文脈を記録に残さないため、実装へ入らないテストはここに現れない。
     """
-    entered: set[str] = set()
+    lines: dict[str, set[int]] = defaultdict(set)
     if coverage_db.exists():
         data = CoverageData(basename=str(coverage_db))
         data.read()
-        target = implementation.replace("\\", "/")
         for path in data.measured_files():
-            if path.replace("\\", "/").endswith(target):
-                entered.update(
-                    context.split("|")[0]
-                    for contexts in data.contexts_by_lineno(path).values()
-                    for context in contexts
-                    if "::" in context
-                )
-    return sorted(executed - entered), len(executed)
+            if Path(path).resolve() == implementation:
+                for line, contexts in data.contexts_by_lineno(path).items():
+                    for context in contexts:
+                        if "::" in context:
+                            lines[context.split("|")[0]].add(line)
+    return lines
+
+
+def tests_without_own_lines(executed: set[str], lines: dict[str, set[int]]) -> tuple[list[str], list[str]]:
+    """実装へ1行も入らないテスト（④）と、入るがそのテストだけが通す行を持たないテスト。
+
+    **分母は実行されたテストの一覧から取る。** 記録だけを分母にすると、実装へ入らないテストほど分母からも消える。
+    """
+    reached: dict[int, int] = defaultdict(int)
+    for test_lines in lines.values():
+        for line in test_lines:
+            reached[line] += 1
+    dead = sorted(executed - lines.keys())
+    shared = sorted(
+        test for test in executed & lines.keys() if all(reached[line] > 1 for line in lines[test])
+    )
+    return dead, shared
+
+
+def test_file_sizes(backend: Path, tests: list[str], executed: set[str]) -> dict[str, tuple[int, int, int]]:
+    """テストファイルごとの（実行した項目の数, `test_`で始まる関数の数, 空行とコメントだけの行を除いた行数）。"""
+    sizes: dict[str, tuple[int, int, int]] = {}
+    for test in tests:
+        source = (backend / test).read_text(encoding="utf-8")
+        functions = sum(
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test_")
+            for node in ast.walk(ast.parse(source))
+        )
+        lines = sum(bool(line.strip()) and not line.strip().startswith("#") for line in source.splitlines())
+        sizes[test] = (sum(test_id.split("::", 1)[0] == test for test_id in executed), functions, lines)
+    return sizes
 
 
 def test_database_unreachable(backend: Path) -> str | None:
@@ -324,7 +350,9 @@ class Measurement:
     missing_lines: frozenset[int]
     missing_branches: frozenset[tuple[int, int]]
     dead: list[str]
+    without_own_lines: list[str]
     executed: int
+    test_files: dict[str, tuple[int, int, int]]
 
 
 def rate(covered: int, total: int) -> str:
@@ -348,23 +376,26 @@ def run_pytest(
     return subprocess.run(
         [sys.executable, "-m", "pytest", *tests, "-q", "-rA", *([] if with_postgis else ["-m", "not postgis"]),
          "-p", "no:randomly",
-         f"--cov={cov_dir}", "--cov-branch", "--cov-context=test", "--cov-report=term-missing",
+         f"--cov={cov_dir}", "--cov-branch", "--cov-context=test",
          f"--cov-report=json:{report}"],
         cwd=backend, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
 
 
-def measurement(backend: Path, report: Path, implementation: str, pytest_output: str) -> Measurement:
-    """pytestの実行が残したカバレッジから、対象ファイルの④⑤を読む。
+def measurement(
+    backend: Path, report: Path, implementation: str, tests: list[str], pytest_output: str
+) -> Measurement:
+    """pytestの実行が残したカバレッジから、対象ファイルの④⑤とテストファイルごとの数を読む。
 
-    `--cov`に親ディレクトリを渡すので、テストが1行も通らなかった実装も報告に載る。
+    `--cov`に親ディレクトリを渡すので、テストが1行も通らなかった実装も報告に載る。報告の鍵は、backendの外
+    （`../scripts/`）の実装では絶対パスになるため、解決したパスで引く。
     """
+    target = (backend / implementation).resolve()
     files = json.loads(report.read_text(encoding="utf-8"))["files"]
-    data = next(f for path, f in files.items() if path.replace("\\", "/") == implementation)
+    data = next(f for path, f in files.items() if (backend / path).resolve() == target)
     summary = data["summary"]
-    dead, executed = tests_that_never_enter_the_implementation(
-        backend / ".coverage", implementation, passed_test_ids(pytest_output)
-    )
+    executed = passed_test_ids(pytest_output)
+    dead, without_own_lines = tests_without_own_lines(executed, lines_by_test(backend / ".coverage", target))
     return Measurement(
         covered_lines=summary["covered_lines"],
         statements=summary["num_statements"],
@@ -373,7 +404,9 @@ def measurement(backend: Path, report: Path, implementation: str, pytest_output:
         missing_lines=frozenset(data["missing_lines"]),
         missing_branches=frozenset((a, b) for a, b in data["missing_branches"]),
         dead=dead,
-        executed=executed,
+        without_own_lines=without_own_lines,
+        executed=len(executed),
+        test_files=test_file_sizes(backend, tests, executed),
     )
 
 
@@ -428,7 +461,7 @@ def compare_with_ref(
                     ):
                         print("     " + line, file=sys.stderr)
                 return 1
-            before = measurement(before_backend, report, implementation, result.stdout)
+            before = measurement(before_backend, report, implementation, present, result.stdout)
     except subprocess.CalledProcessError as exc:
         print(f"     前の版を取り出せない: {' '.join(exc.cmd)}\n     {exc.stderr.strip()}", file=sys.stderr)
         return 1
@@ -439,6 +472,15 @@ def compare_with_ref(
     print(f"     分岐:   {rate(before.covered_branches, before.branches)}"
           f" → {rate(after.covered_branches, after.branches)}")
     print(f"     ④ 実装へ1行も入らないテスト: {len(before.dead)} → {len(after.dead)}")
+    print(f"     そのテストだけが通す行が0行のテスト（④を含む）: {len(before.dead) + len(before.without_own_lines)}"
+          f" → {len(after.dead) + len(after.without_own_lines)}")
+    print("     テストファイルごと（項目・test_の関数・空行とコメントを除いた行。無い側は -）:")
+    for test in sorted(before.test_files.keys() | after.test_files.keys()):
+        sides = [measured.test_files.get(test) for measured in (before, after)]
+        print(f"       {test}: " + "  ".join(
+            f"{name} {' → '.join('-' if side is None else str(side[i]) for side in sides)}"
+            for i, name in enumerate(("項目", "関数", "行"))
+        ))
     same_implementation = subprocess.run(
         ["git", "diff", "--quiet", ref, "--", implementation], cwd=backend, capture_output=True,
     ).returncode == 0
@@ -471,16 +513,35 @@ def main() -> int:
         return 1
     backend = Path(args.backend).resolve()
     impl_path = backend / args.implementation
-    for path in (impl_path, *(backend / test for test in args.tests)):
-        if not path.exists():
-            print(f"見つからない: {path}", file=sys.stderr)
-            return 1
+    if not impl_path.exists():
+        print(f"見つからない: {impl_path}", file=sys.stderr)
+        return 1
+    tests = [test.replace("\\", "/") for test in args.tests]
+    missing = [test for test in tests if not (backend / test).exists()]
+    # 消した・改名したテストは前の版にだけある。前の測りにだけ入れ、後の測り（①〜⑤）から外す。
+    only_before = [
+        test for test in missing
+        if args.ref and subprocess.run(
+            ["git", "cat-file", "-e", f"{args.ref}:./{test}"], cwd=backend, capture_output=True,
+        ).returncode == 0
+    ]
+    not_found = [test for test in missing if test not in only_before]
+    if not_found:
+        print(f"見つからない（作業ツリーにも{'、' + args.ref + ' にも' if args.ref else ''}無い）:"
+              f" {' '.join(not_found)}", file=sys.stderr)
+        return 1
+    after_tests = [test for test in tests if test not in only_before]
+    if not after_tests:
+        print("作業ツリーに母集団のテストが1本も無い。後の値は測れない", file=sys.stderr)
+        return 1
     implementation = args.implementation.replace("\\", "/")
     module = implementation.removesuffix(".py").replace("/", ".")
     cov_dir = implementation.rsplit("/", 1)[0]
 
     print(f"対象:     {args.implementation}")
-    print(f"テスト:   {' '.join(args.tests)}")
+    print(f"テスト:   {' '.join(after_tests)}")
+    if only_before:
+        print(f"前の版にだけあるテスト（後の測りから外し、前の測りにだけ入れる）: {' '.join(only_before)}")
     print(f"--cov:    {cov_dir}（親ディレクトリで測り、対象ファイルへ絞る）")
     unreachable = test_database_unreachable(backend)
     if unreachable:
@@ -497,7 +558,7 @@ def main() -> int:
     print(f"\n① 実装の変更: {'**あり** → ' + status if status else 'なし'}")
 
     defined, imported = module_symbols(impl_path)
-    for test in args.tests:
+    for test in after_tests:
         tree = ast.parse((backend / test).read_text(encoding="utf-8"))
         print(f"\n--- {test}")
         seams = monkeypatch_seams(tree)
@@ -551,12 +612,10 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="ridecompass-audit-") as work_dir:
         work = Path(work_dir)
         report = work / "after.json"
-        result = run_pytest(backend, args.tests, cov_dir, env, not unreachable, report)
+        result = run_pytest(backend, after_tests, cov_dir, env, not unreachable, report)
         lines = result.stdout.splitlines()
         for line in lines:
-            if line.replace("\\", "/").startswith(implementation + " ") or (
-                line.startswith("=") and (" passed" in line or " failed" in line or " error" in line)
-            ):
+            if line.startswith("=") and (" passed" in line or " failed" in line or " error" in line):
                 print("     " + line.strip())
         if result.returncode != 0:
             print("\n     テストが緑でない。監査の残りは当てにならない。pytestの出力の末尾:", file=sys.stderr)
@@ -564,13 +623,22 @@ def main() -> int:
                 print("     " + line, file=sys.stderr)
             return 1
 
-        after = measurement(backend, report, implementation, result.stdout)
+        after = measurement(backend, report, implementation, after_tests, result.stdout)
         print(f"\n④ 実装へ1行も入らないテスト: {len(after.dead)} / {after.executed}")
         for name in after.dead:
-            print("     " + (name if len(args.tests) > 1 else name.split("::", 1)[1]))
+            print("     " + (name if len(after_tests) > 1 else name.split("::", 1)[1]))
+        print(f"   実装へ入るが、そのテストだけが通す行が0行のテスト: {len(after.without_own_lines)} / {after.executed}")
+        for name in after.without_own_lines:
+            print("     " + (name if len(after_tests) > 1 else name.split("::", 1)[1]))
+        print(f"\n⑤ 行:   {rate(after.covered_lines, after.statements)}"
+              f"  未到達: {line_ranges(after.missing_lines)}")
+        print(f"   分岐: {rate(after.covered_branches, after.branches)}  未到達: "
+              + (", ".join(f"{a}->{b}" for a, b in sorted(after.missing_branches)) or "なし"))
+        for test, (items, functions, test_lines) in after.test_files.items():
+            print(f"   {test}: 項目 {items}  test_の関数 {functions}  行 {test_lines}（空行とコメントを除く）")
 
         if args.ref and compare_with_ref(
-            backend, args.ref, args.tests, implementation, cov_dir, env, not unreachable, after, work
+            backend, args.ref, tests, implementation, cov_dir, env, not unreachable, after, work
         ):
             return 1
 
