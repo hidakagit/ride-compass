@@ -183,6 +183,18 @@ async def test_update_rejects_publishing_axis_another_axis_reads(road_graph_sess
     assert AXIS_DEFINITIONS["base_axis"].is_published is False
 
 
+async def test_update_accepts_cosmetic_edit_of_published_axis_another_axis_reads(road_graph_session):
+    # 公開の不変性・内部軸の公開・書いた後の読み込みの3つのガードを、表示だけの直しがどれも通る。
+    repository = AxisDefinitionRepository(road_graph_session)
+    service = AxisRegistryAdminService(repository)
+    await service.create(axis_definition("base_axis", material="oneway", is_published=True))
+    await service.create(axis_definition("dependent_axis", material="base_axis"))
+
+    await service.update("base_axis", axis_definition("base_axis", material="oneway", is_published=True, chip_label="基"))
+
+    assert AXIS_DEFINITIONS["base_axis"].chip_label == "基"
+
+
 async def test_update_rejects_cycle_between_two_axes(road_graph_session):
     repository = AxisDefinitionRepository(road_graph_session)
     service = AxisRegistryAdminService(repository)

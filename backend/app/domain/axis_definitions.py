@@ -625,8 +625,13 @@ def check_internal_axis_not_published(candidate: AxisDefinition, existing: dict[
     """`candidate`が`existing`内の他の軸（自分自身を除く）から軸参照（内部軸）として
     使われているにもかかわらず、is_published=Trueで保存しようとしていないか検査する。
     非公開のままなら常に許可する（早期return）。
+
+    断るのは公開へ切り替える書き込みだけで、`existing`にある書く前の版が既に公開中なら許可する。
+    時刻で変わる軸が公開軸を組み合わせる形（`check_axis_set`のdocstring参照）では、組み合わせに
+    使われる軸が公開中のまま残り、その表示だけの直し（`check_publish_immutability`が許す差分）も保存する。
     """
-    if not candidate.is_published:
+    previous = existing.get(candidate.axis_id)
+    if not candidate.is_published or (previous is not None and previous.is_published):
         return
     known_axis_ids = set(existing) | {candidate.axis_id}
     for other_id, other in existing.items():
