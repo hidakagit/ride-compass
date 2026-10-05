@@ -5,15 +5,17 @@ import WindBearingSlider from "@/features/conditions/WindBearingSlider/WindBeari
 import { WindDirectionArrowIcon } from "@/components/ui/icons/icons";
 import { Button } from "@/components/ui/Button/Button";
 import { mapOverlayEdge } from "@/lib/mapOverlayEdges";
+import { useAxisCatalog } from "@/hooks/useAxisCatalog";
+import { axisNamesUsing } from "@/lib/catalogAxis";
 
 interface TravelBearingControlProps {
   value: number;
   onChange: (bearingDeg: number) => void;
 }
 
-// 風・勾配で共有する走行方位（`features/conditions/useRideConditions.ts: bearingDeg`）を設定する唯一の入り口。
+// 向きで値の変わる評価が共有する走行方位（`features/conditions/useRideConditions.ts: bearingDeg`）を設定する唯一の入り口。
 // MapLibreのズーム+/−・回転コントロール（地図右上、既定でmap.addControlされる）の
-// すぐ下に置くことで、「地図の向き」と「走行方位（風・勾配の評価に使う向き）」という
+// すぐ下に置くことで、「地図の向き」と「走行方位（向きで値の変わる評価に使う向き）」という
 // 別概念を並べて示す。幅・高さ・アイコンの大きさは右上の列の共通値
 // （globals.css: --map-ctrl-*）に合わせてある。
 //
@@ -24,6 +26,11 @@ interface TravelBearingControlProps {
 // 手動設定する値の表示専用。誤解防止のための説明文言は添えない——操作を妨げないことを
 // 優先する。
 export default function TravelBearingControl({ value, onChange }: TravelBearingControlProps) {
+  // 向きで値の変わる評価の名前は軸カタログから引く。無ければ評価に触れる文を出さない。
+  const bearingAxes = axisNamesUsing(useAxisCatalog().axes, "bearing_deg");
+  const evaluationUsage = bearingAxes
+    ? `${bearingAxes}で周りの道を色分けするときと、道の評価を見るときの走る向きを決めます。ルートの評価は、ルートを実際に走る向きで決まります。`
+    : "";
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -32,7 +39,7 @@ export default function TravelBearingControl({ value, onChange }: TravelBearingC
           size="mapCtrl"
           className="absolute top-[var(--map-ctrl-stack-top)] right-[var(--map-ctrl-margin)] z-[var(--z-map-control)]"
           aria-label="走行方位を設定"
-          usage="風と勾配で周りの道を色分けするときと、道の評価を見るときの走る向きを決めます。ルートの評価は、ルートを実際に走る向きで決まります。地図や端末の向きとは連動しません。"
+          usage={`${evaluationUsage}地図や端末の向きとは連動しません。`}
           {...mapOverlayEdge("right")}
         >
           <span

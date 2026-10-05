@@ -16,6 +16,7 @@ import { textVariants } from "@/components/ui/Text/Text";
 import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
 import { CLIENT_TUNING_IDS, clientTuningValue, type AxisCatalog } from "@/lib/axisCatalog";
+import { axisNamesUsing } from "@/lib/catalogAxis";
 
 const MIN_SPEED_KMH = routeGenerateConfig.min_assumed_speed_kmh;
 const MAX_SPEED_KMH = routeGenerateConfig.max_assumed_speed_kmh;
@@ -48,8 +49,8 @@ function riderDefaultsOf(catalog: AxisCatalog) {
   return { massKg, cdaM2, maxDescentKmh, walkingKmh };
 }
 
-// 地図右上の走行条件アイコン列。走行条件（出発時刻・想定速度）は評価軸の風（通過予測時刻・
-// 風の抵抗）と気象レイヤーの表示時刻の両方が参照する共有stateのため、ルート設定フォームでは
+// 地図右上の走行条件アイコン列。走行条件（出発時刻・想定速度）は時刻・速さで値の変わる評価と
+// 気象レイヤーの表示時刻の両方が参照する共有stateのため、ルート設定フォームでは
 // なく地図上に常時置き、アイコンをタップしてその場で変えられるようにする。TravelBearingControl
 // と同じ列の幅のアイコンボタンに揃え、アイコンの下へ現在値を出す。表示・読み上げ
 // （aria-label）・ホバー（title）は同じ文字列から作る（page.tsxがTravelBearingControlの直下へ積む）。
@@ -71,7 +72,10 @@ export default function RideConditionBar({
   const departureFrames = useMemo(() => buildDepartureFrames(departureTimeline), [departureTimeline]);
   const nowIndex = departureAnchor ? nearestTimeIndex(departureTimeline, departureAnchor) : 0;
   const speedInputId = useId();
-  const riderDefaults = riderDefaultsOf(useAxisCatalog());
+  const axisCatalog = useAxisCatalog();
+  const riderDefaults = riderDefaultsOf(axisCatalog);
+  // 出発時刻で値の変わる評価の名前は軸カタログから引く。無ければ評価に触れない。
+  const timeAxes = axisNamesUsing(axisCatalog.axes, "at");
   const departureInputId = useId();
   // 出発時刻の文言は描いた時刻で決まる。ページはビルド時に描かれるので、サーバーとハイドレーションの描画では
   // 出さず、ハイドレーションのあとに出す（出すとビルドの時刻の文言とずれ、ハイドレーションが不一致で失敗する）。
@@ -98,7 +102,7 @@ export default function RideConditionBar({
             className="h-auto min-h-[var(--map-ctrl-button-size)] flex-col gap-px py-[3px]"
             aria-label={`${departureName}（タップで変更）`}
             title={departureName}
-            usage="出発する日時を決めます。風・雨の表示の時刻と、ルートの風の評価・到達予想の時刻に使います。"
+            usage={`出発する日時を決めます。地図の気象の表示の時刻と、ルートの${timeAxes ? `${timeAxes}の評価・` : ""}到達予想の時刻に使います。`}
           >
             <ClockIcon />
             {/* 別の日は「9/24 12:40」になるため、列の幅に収まるよう日付と時刻を2行に分ける。 */}
