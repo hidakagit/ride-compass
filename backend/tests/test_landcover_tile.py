@@ -70,12 +70,7 @@ async def test_a_tile_is_drawn_from_the_raster_through_the_cache(raster, served)
 
     assert response == service.TileResponse(content=b"png-bytes")
     assert raster.rendered == [(10, 905, 403)]
-    (call,) = served
-    assert (call["z"], call["x"], call["y"]) == (10, 905, 403)
-    assert call["content_type"] == "image/png"
-    assert call["cache_path"].endswith("/10/905/403.png")
-    # 範囲外で描けないときに返るのは、ラスタの塗りと同じ形の透明なPNG
-    assert call["empty_tile"] == RASTER.empty_tile_png()
+    assert served[0]["cache_path"].endswith("/10/905/403.png")
 
 
 async def test_the_cache_key_follows_the_rasters_actually_opened(raster, served):

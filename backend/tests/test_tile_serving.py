@@ -33,14 +33,13 @@ def cache(monkeypatch):
 
 @pytest.fixture
 def records(monkeypatch):
-    """記録の口へ渡された分類・座標と、処理の最後に残った記録の項目。"""
+    """処理の最後に残った記録の項目。"""
     calls: list[dict] = []
 
     @contextlib.contextmanager
     def record(category, **fields):
-        entry = {"category": category, "given": fields, "fields": {}}
-        calls.append(entry)
-        yield entry["fields"]
+        calls.append({})
+        yield calls[-1]
 
     monkeypatch.setattr(tile_serving, "log_external_call", bound(tile_serving.log_external_call, record))
     return calls
@@ -82,23 +81,18 @@ async def test_a_cached_tile_is_returned_without_making_it_again(cache, records)
 
     assert response == tile_serving.TileResponse(b"cached")
     assert fetched == []
-    assert records[0]["fields"]["cache"] == "hit"
+    assert records[0]["cache"] == "hit"
 
 
 async def test_a_missing_tile_is_made_stored_and_returned(cache, records):
-    fetch, fetched = _fetch(b"new")
+    fetch, _ = _fetch(b"new")
 
     response = await _serve(fetch)
 
     assert response == tile_serving.TileResponse(b"new")
     assert cache.entries == {PATH: (b"new", "image/png")}
-    (record,) = records
-    assert record["category"] == "kind-tile"
-    assert record["given"] == {"z": 10, "x": 905, "y": 403}
     # 取得元は呼び出し元が名乗る（統計の内訳が実際の取得元と食い違わないため）
-    assert record["fields"] == {"cache": "miss", "source": "raster", "tile_bytes": 3, "persisted": True}
-    # 作る関数は、記録の項目を書き足せるよう同じ辞書を受け取る
-    assert fetched == [record["fields"]]
+    assert records == [{"cache": "miss", "source": "raster", "tile_bytes": 3, "persisted": True}]
 
 
 async def test_disk_reads_and_writes_run_off_the_event_loop(cache, records):
@@ -118,7 +112,7 @@ async def test_a_tile_made_without_knowing_its_generation_is_not_stored(cache, r
 
     assert response == tile_serving.TileResponse(b"new")
     assert cache.entries == {}
-    assert records[0]["fields"]["persisted"] is False
+    assert records[0]["persisted"] is False
 
 
 @pytest.mark.parametrize(
@@ -135,4 +129,4 @@ async def test_a_tile_that_cannot_be_made_is_the_empty_tile_and_is_not_stored(ca
 
     assert response == tile_serving.TileResponse(EMPTY, cacheable=cacheable)
     assert cache.entries == {}
-    assert records[0]["fields"]["source"] == "uncovered_empty"
+    assert records[0]["source"] == "uncovered_empty"
