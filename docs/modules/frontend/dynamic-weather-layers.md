@@ -211,8 +211,8 @@ disasterSourceLegendAxis`が作り、隠したソースは他の凡例絞り込�
 そのもので、画面は単位の対応表を持たない。時刻一覧を取る単位はファイルで、同じファイルを読む
 配信要素どうしは1つの取得を共有する（下記）。
 
-チップの説明文と表示専用の凡例も要素の宣言から組み立てる（`mapLayers.ts`）。説明は要素の`label`を、描くコマの規則
-（`frameRule.kind`）ごとにまとめて並べ、規則ごとの言い回し（時刻に連動・直近の観測・現在の危険度のみ）だけを画面が持つ。
+チップの説明文と表示専用の凡例も要素の宣言から組み立てる（説明はbackendの`domain/map_display.py`、凡例は`mapLayers.ts`）。説明は要素の`label`を、描くコマの規則
+（`frameRule.kind`）ごとにまとめて並べ、規則ごとの言い回し（時刻に連動・直近の観測・現在の危険度のみ）を同じ`map_display.py`が持つ。
 凡例は要素が宣言する塗る段（`levelScale`。生成物`weather-scales.json`の鍵）ごとに1ブロックで、見出しはその段で塗る要素の
 `label`の並び。段の数と名前は凡例に並ぶので説明文に書かない——要素を足す・名前や規則を変えると説明と凡例が追従し、
 文だけが古くなることは無い。「表示する情報」の色見本も同じ`levelScale`の注意を促す段から引き、段を持たない要素
@@ -290,7 +290,7 @@ backendの中継は地物の404を覚えず、ブラウザにも覚えさせな�
    1件足す——鍵は生成物から導かれるため、足し忘れると型検査が落ちる。ソース名・ソースの宣言・
    レイヤー・記号の絵の登録はここから導かれる
 3. 新しいチップを足したときだけ: backendの`domain/map_display.py`へ種別・情報源（`ownFetch`）・
-   性質（`dynamic`）を1行、`mapLayers.ts`へ記述子（アイコン・凡例）を1エントリ足す
+   性質（`dynamic`）・名前・説明を1件、`mapLayers.ts`へアイコン（表示専用の凡例があれば凡例も）を1行足す
 4. 新しい種類を足したときだけ: 時刻一覧の読み方なら`jmaDelivery.ts`の読み方の表と、同じ読み方でプリウォームの
    フレームを選ぶbackendの`jma_tile_specs.py: read_target_times`（[動的気象レイヤー（backend）](../backend/weather-dynamic-layers.md)
    「定期プリウォーム」）と、両方が同じコマを出すことを確かめる表の場面（`scripts/cross_language_expectations.py: jma_expectations`）、コマの規則なら
