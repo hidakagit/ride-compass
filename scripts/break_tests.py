@@ -54,7 +54,7 @@ class Breakage:
 
 
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, encoding="utf-8")
+    return subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, encoding="utf-8", check=False)
 
 
 def _side(test: str) -> str:
@@ -169,7 +169,7 @@ def run_tests(repo: Path, tests: list[str], out: Path) -> list[tuple[str, str]]:
     # 古いと見分けられず、壊す前のバイトコードが使われて壊れ方が効かない。
     env = {**os.environ, "PYTHONPYCACHEPREFIX": tempfile.mkdtemp(dir=out)}
     result = subprocess.run(command, cwd=cwd, env=env, capture_output=True, text=True, encoding="utf-8",
-                            errors="replace")
+                            errors="replace", check=False)
     if not report.exists():
         raise Refused(f"{side} のテストが結果を書かなかった:\n{result.stdout}\n{result.stderr}")
     if side == "frontend":
