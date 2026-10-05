@@ -32,21 +32,23 @@ APIが受け取る重みの形を変えるとき、`dynamic_materials.py`は動�
 ある別名だけを読むことも同じファイルが見る——値の表は別名を値で与えるため、綴りの合わない列や、
 経路に無い別名（路面タイルの`re`等）を読む式は、値の表だけでは見つからない。
 
-**タイルへ焼く式だけは符号化が違う**。`CASE WHEN 条件 THEN true END`で「該当しない」を
-NULLへ畳み、フィーチャーからキーを省いてタイルを軽くする。材料の値を求める式は
-タグが無ければ非該当（false）へ畳む（`tag_absent_is_false_sql`）——wayの行は必ずある
-（`road_edges.osm_way_id`がNOT NULL + FK）。生データの道のCHECKで必ずある`highway`だけを読む式
-（`highway_is_cycleway`・0次フィルタ）は畳まない。**違うのは符号化だけで、条件は同じ式**:
-欠損を非該当として持つ真偽の材料（`material_array_group`が`"boolean"`の材料）のうち
-`tile_property`を持つものは、タイルの列を`CASE WHEN (value_sql) THEN true END`として
-カタログから組み立てる（`road_graph_repository.py: _BOOLEAN_TILE_COLUMNS_SQL`）。材料を
-1つ足せばタイルにも列が増え、条件を直せば地図と評価が一緒に変わる（タイルの形の署名も変わり、
-配信中のタイルは作り直しになる）。この形が成り立つのは値式が`w`だけを読むときで、タイルの
-FROM句に`re`は無い。欠損を「不明」として持つ真偽の材料（`material_array_group`が`"numeric"`へ回すもの）は
-この列の組み立ての対象外で、タイルへ焼くなら「不明」を値として持つ分類の材料にする（例: 路面の見込み）。
-分類の材料（タグの値やその区分。`material_array_group`が`"categorical"`）も、`tile_property`を持つものは
-値式をそのまま焼く列をカタログから組み立てる（`_CATEGORICAL_TILE_COLUMNS_SQL`）——材料を1つ足せば
-地図のレイヤーと道の詳細が読む列も増える。
+**タイルへ焼く列は、値式を載せ方で包むだけ**。`tile_property`を持つ全材料について、タイルの列を
+`domain/material_catalog.py: tile_column_sql`が値式から組み、路面タイルの文
+（`road_graph_repository.py: ROAD_SURFACE_TILE_MVT_SQL`）は`material_tile_columns`をそのまま並べる——材料を1つ足せば
+タイルにも列が増え、式を直せば地図と評価が一緒に変わる（タイルの形の署名も変わり、配信中のタイルは作り直しになる）。
+`tile_property`を持つ材料は値式を必ず持つ（宣言の検証が断る）。載せ方は型ごとに決まる:
+
+| 型 | 載せ方 |
+|---|---|
+| 真偽 | 欠損を非該当として持つ材料（`bool_default`が`"false"`）は`CASE WHEN (value_sql) THEN true END`。「該当しない」をNULLへ畳み、フィーチャーからキーを省いてタイルを軽くする。欠損を「不明」として持つ材料は値式をそのまま載せ、キーの無い道を地図が不明として読む（`axis_display.py: _boolean_score_tile_input`の`has_unknown_fallback`） |
+| 分類 | 値式をそのまま |
+| 数値 | `MaterialSpec.tile_encoding`の形（丸めの桁・0の省略・倍精度）で包む。例: 密度は小数1桁へ丸め、0を省く |
+
+タイルの文は、値式が読む別名をフィーチャーの単位で与える。区間単位のフィーチャーは`em`が`edge_materials`の行・
+`re`の長さが区間の長さ、way丸ごとのフィーチャーは`em`が`way_materials`の同じ名前の列（無い列はNULL）・`re`の長さが
+wayの長さ（0はNULL）になる——件数と長さは必ず同じ側から取る。実行時の係数で割る材料
+（`tile_property_runtime_scale`）は割る前の値を焼き、係数の源が値式で読むSQLの引数
+（`TILE_RUNTIME_SCALE_SQL_PARAMS`）をタイルの文では1で束ねる（`tile_unscaled_sql_params`）。
 
 ## 0次ハードフィルタ（`domain/hard_filters.py`）
 
@@ -315,12 +317,13 @@ MaterialSpec]`が単一ソース。
 | `unit` | 値の単位（凡例・比較パネル等の数値表示用、無次元・真偽値・カテゴリ値は空文字）。生成物`material-catalog.json`がfrontendへ届け、frontendは単位を持たない（唯一の正）。**`label`へ単位を書かない**——ラベルと単位を別々に組み立てる画面で「制限速度(km/h) 35km/h」のように二重になる |
 | `additive` | 同じ単位の他の材料と**足し合わせて意味を持つ量**か（示量／示強の区別）。個数と、それを同じ距離で割った密度はTrue。%・km/h・倍率のような割合・率はFalse。`raw_value_unit`が2項以上の和を見せてよいかの判定に使う |
 | `total_unit` | 生値へ走行距離を掛けた**総量**を出すときの単位（出す意味が無ければ`None`）。`additive`とは別の問い——事故密度（件/[km・年]）は足せるが、総量に比べる尺度が無い。|
-| `tile_property` | MVTタイルへ既に焼き込み済みのプロパティ名。`None`は「タイル非依存」（地図レイヤーのramp自動生成の対象になりえない） |
+| `tile_property` | MVTタイルへ既に焼き込み済みのプロパティ名。`None`は「タイル非依存」（地図レイヤーのramp自動生成の対象になりえない）。列は`value_sql`から組む（上の「タイルへ焼く列」） |
+| `tile_encoding` | 数値の材料をタイルへ載せる形（`TileEncoding`: 丸めの桁・0の省略・倍精度）。ST_AsMVTはnumeric型を文字列で載せるため、丸めた値は倍精度へ戻す |
 | `tile_property_runtime_scale` | タイル側の生値を材料の値へ換算する係数が実行時にしか決まらないときの、係数の源（例: 事故の収録年数の逆数）。地図表示の自動導出はこの材料のタイル入力に`needs_runtime_scale`の印を付け、係数は`GET /api/axis-catalog`の`tile_runtime_scales`（`domain/material_catalog.py: tile_runtime_scales`が宣言から導く）で配る。ほかの軸が参照する折れ点の軸の材料だと、その参照は地図に畳めない（タイル入力は係数を掛ける前に折れ点を当てる形を表せない） |
 | `tile_property_direction_dependent` | 値が進行方向によって変わる（有向）か。地図のrampレイヤーは単色の線という前提のため、これがTrueの材料を含む軸もramp自動導出を拒否する |
 | `primary_attribute` | 対応する一次属性（`PRIMARY_ATTRIBUTES`の宣言そのもの。idの文字列では指さない。[軸スタジオ](axis-studio.md)「一次属性の語彙」節）。材料idと一次属性id（frontendの`primaryAttributes.ts`が使う名前空間）は名前が異なるため明示的に対応させる |
 | `weather_grid_value` | 材料が読む自前のMSM格子の値（例: 風）。一次属性を持たない動的な材料の元データを、同じ格子の値を描く気象のチップ（`domain/weather_elements.py: WeatherElement.grid_value`）が地図に見せる。`GET /api/axis-catalog`はこれを軸ごとに`weather_layer_groups`へ解決し、地図の説明文がその評価の名前を差し込む |
-| `value_sql` | その材料の値をDBから求めるSQL式。`None`は「SQLでは求められない」（リクエスト時に決まる風、評価へ配線していないトリガー付きDEFER） |
+| `value_sql` | その材料の値をDBから求めるSQL式。`None`は「SQLでは求められない」（リクエスト時に決まる風、評価へ配線していないトリガー付きDEFER）。タイルへ焼く材料は必ず持つ |
 | `coverage` | 欠損率の測り方。way単位・区間単位・対象外の3択で、**どれかを必ず持つ**（どちらの一覧にも載っていない材料を型として作れなくする） |
 | `bool_default` | `dtype="boolean"`の材料が欠損を取りうるときの配列上の扱い。`"false"`（真偽の行列へ載せる）か`"nan"`（不明を非該当と混同しないため数値の行列へ載せる）で、数値的に等価ではない。**宣言ではなく`coverage.missing_semantics`から導くプロパティ**（`"unknown"`なら`"nan"`）——欠損の意味を2か所に宣言すると、片方だけ書き換えたときに画面と評価が食い違う |
 | `value_labels` | categorical材料の値ごとの日本語ラベル対訳表（生成物`material-catalog.json`と`GET /api/admin/material-catalog/{id}/values`が届ける） |

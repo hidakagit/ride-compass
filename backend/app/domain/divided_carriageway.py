@@ -101,6 +101,6 @@ def divided_sql(row: str, candidates: str) -> str:
            )"""
 
 
-def map_oneway_sql(direction: str, divided: str) -> str:
-    """地図に一方通行として出すかのSQL式。上下線が分かれた道の片側は外す。"""
+def oneway_material_sql(direction: str, divided: str) -> str:
+    """一方通行の道かのSQL式（材料`oneway`の値）。上下線が分かれた道の片側は外す。"""
     return f"{one_way_sql(direction)} AND NOT COALESCE({divided}, false)"

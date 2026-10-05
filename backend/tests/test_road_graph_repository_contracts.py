@@ -6,6 +6,7 @@
 - 逆向きに辿ったときの列の読み替え規則
 - 行から探索用グラフ・材料の行列を組む部分
 - 取込範囲の外（None）と、範囲内で0件（空）の区別
+- 路面タイルの材料の列を、どの材料についても値式から組むこと
 
 ここで見ないもの:
 - 材料の値式そのもの → `test_material_values.py`、欠損率 → `test_material_coverage.py`
@@ -30,7 +31,7 @@ from app.domain.attributes import CategoricalColumn
 from app.domain.graph import LeanEdge
 from app.domain.hard_filters import hard_filter_columns
 from app.domain.landcover import LandcoverPercentages, landcover_key
-from app.domain.material_catalog import material_array_columns
+from app.domain.material_catalog import MATERIAL_CATALOG, material_array_columns, tile_column_sql
 from app.domain.region import BoundingBox
 from app.infrastructure import road_graph_repository
 from app.infrastructure.derived_models import EdgeMaterialRow
@@ -386,6 +387,19 @@ async def test_tile_inside_the_imported_area_is_bytes_even_without_features(tile
     repo, _ = _repo([_Row(covered=True, tile=tile)])
 
     assert await _read_mvt(repo) == payload
+
+
+def test_every_material_on_the_road_tile_is_baked_from_its_value_expression():
+    """地図の色と評価は、同じ材料なら同じ求め方から出る。タイルの列を手で書くと、値式を直しても地図だけが
+    古い求め方のまま残る。"""
+    sql = str(road_graph_repository.ROAD_SURFACE_TILE_MVT_SQL)
+    on_tile = [spec for spec in MATERIAL_CATALOG.values() if spec.tile_property is not None]
+
+    assert on_tile
+    for spec in on_tile:
+        column = tile_column_sql(spec)
+        assert f"({spec.value_sql})" in column, spec.material_id
+        assert f"{column} AS {spec.tile_property}" in sql, spec.material_id
 
 
 async def test_feature_keys_are_returned_as_text():

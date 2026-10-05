@@ -81,7 +81,7 @@ CI・フック・開発環境の用意のスクリプト）・`tools/`（アプ�
 - **`infrastructure/`**: DB・外部API・キャッシュ・ログといった外側との接続。外部の応答の形を
   解くこと、表と列を名指しするSQL文、ORMの宣言が属する。キャッシュの鍵の組み立ては
   `cache_identity.py`が唯一の正本。業務の判断は持たず`domain/`から読む。SQL文に判断のリテラルを
-  持たないのは`batch/`と同じ（例: 路面タイルの一方通行`divided_carriageway.py: map_oneway_sql`）。
+  持たないのは`batch/`と同じ（例: 一方通行の材料の値式`divided_carriageway.py: oneway_material_sql`）。
   - **Redisの接続（`redis_client.py`・`redis_json_cache.py`）を読むのはこの層だけ**。上の層
     （`main.py`・`api/`・`services/`・`batch/`）が直にimportすると、`backend/.importlinter`の
     `forbidden`契約で`lint-imports`が落ちる。この層のモジュールを通して読むのはよい。

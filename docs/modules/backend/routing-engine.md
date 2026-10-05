@@ -892,10 +892,10 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
 
 #### 派生delivery系クエリ（wind/gradient/road surface）
 
-`ROAD_SURFACE_TILE_MVT_SQL`（路面・道路種別・制限速度等の材料タグをPostGIS側で
-ST_AsMVT丸ごと生成）・`_FEATURE_MIDPOINTS_IN_TILE_SQL`（wind、道路自身の方位角は使わず鍵ごとに
+`ROAD_SURFACE_TILE_MVT_SQL`（路面・道路種別・制限速度等の材料の値をPostGIS側で
+ST_AsMVT丸ごと生成。列は材料の値式から組む。[評価・スコアリング](evaluation-scoring.md)「タイルへ焼く列」）・`_FEATURE_MIDPOINTS_IN_TILE_SQL`（wind、道路自身の方位角は使わず鍵ごとに
 中ほど＝両端の平均の緯度経度を返す。区間の中ほどは探索の`mid_lat`/`mid_lon`と同じ点）・`_FEATURE_GRADIENT_INPUTS_IN_TILE_SQL`（gradient。そのフィーチャーに属する
-区間の値を長さで重み付けて平均する——区間単位のズームでは区間1本の値そのもの、way単位の
+区間の勾配の値式を長さで重み付けて平均する（`domain/material_sql.py: aligned_length_weighted_mean_sql`）——区間単位のズームでは区間1本の値そのもの、way単位の
 ズームではwayの全区間をならした値になる。区間の勾配はジオメトリの始点→終点を正とするため、
 フィーチャーの基準方位とのcosの符号で向きを揃えてから平均する）は、いずれも
 `COVERAGE_SQL`（取込の宣言した範囲か）をMVT生成と同じ1クエリへ畳み込み、1タイル1DB往復に

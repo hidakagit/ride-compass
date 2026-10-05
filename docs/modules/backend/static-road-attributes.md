@@ -10,7 +10,7 @@ OSM由来の道路データ（PBF取込）・警察庁事故データ・土地�
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `road.py`・`attributes.py`・`accident.py`・`traffic.py`（OSMタグの解釈と分類。停止要因・補給POIの種別、通行方向、道の階級）・`landcover.py`（土地被覆クラス別割合の算出と、数える帯の幅。割合の列・焼き込み列の名前の規則。評価軸の材料）・`divided_carriageway.py`（上下線が分かれた道の片側かのしきい値と判定のSQL式、地図の一方通行の式）・`map_display.py`・`display_palette.py`（地図の束ね方・レイヤーごとの種別と情報源と既定表示と名前と説明・常に出す出典・描く寸法と配色。**本番プロセスは読まず**、`scripts/export_openapi.py`の生成物を経由してだけ画面へ届く。読み方は[地図: 静的レイヤー](../frontend/static-map-layers.md)）（[region.py](routing-engine.md)は別モジュール管轄）・`db_status.py`（本番DBの数を「注意が要るか」へ読むしきい値と判定） |
+| domain | `road.py`・`attributes.py`・`accident.py`・`traffic.py`（OSMタグの解釈と分類。停止要因・補給POIの種別、通行方向、道の階級）・`landcover.py`（土地被覆クラス別割合の算出と、数える帯の幅。割合の列・焼き込み列の名前の規則。評価軸の材料）・`divided_carriageway.py`（上下線が分かれた道の片側かのしきい値と判定のSQL式、一方通行の材料の値式）・`map_display.py`・`display_palette.py`（地図の束ね方・レイヤーごとの種別と情報源と既定表示と名前と説明・常に出す出典・描く寸法と配色。**本番プロセスは読まず**、`scripts/export_openapi.py`の生成物を経由してだけ画面へ届く。読み方は[地図: 静的レイヤー](../frontend/static-map-layers.md)）（[region.py](routing-engine.md)は別モジュール管轄）・`db_status.py`（本番DBの数を「注意が要るか」へ読むしきい値と判定） |
 | services | `region_service.py`・`landcover_tile_service.py`（土地被覆ラスタタイルの配信）・`derived_data_freshness_service.py`（派生データ鮮度台帳）・`tile_version_service.py`（配信するタイル世代の組み立て。形の署名とDBの派生データ・生データの世代から作る）・`derived_data_revision_service.py`（DBの派生データ・生データの世代をTTL付きで読み直す。別コンテナのバッチが書き直したことにbackendが気づく唯一の経路で、タイル世代の組み立て等の配信側が読む）・`db_status_service.py`（本番DBの数を読み、domainの`db_status.py`の判定で注意の印を付けたレポートにする。レポートの型は応答の型を兼ねる） |
 | infrastructure | `vector_tile.py`・`tile_cache.py`・`region_tile_cache.py`（地域タイルのディスクの口。鍵・キャッシュ確認→取得→書き戻しの骨格・旧世代の掃除）・`landcover_raster.py`（土地被覆GeoTIFFの読み取り・再投影・着色）・`source_models.py`（外部ソースの生データを、ソースによらない1つの形で持つ。点・線・ラスタのタイルを同じ骨格へ載せ、取込1回ぶんを`source_runs`が記録する。コードが名指すソース名と取込の状態の綴り［`Source`・`SourceRunStatus`］、ソースごとの生データを読む副問い合わせ、ソースの成功した最新の取込を指す副問い合わせ［`latest_succeeded_run_sql`。派生の基準・取込の範囲はここから読む］、全ソースの成功した最新の取込［`LATEST_SUCCEEDED_RUNS_SQL`。派生の作り直しが記録する］、成功した取込の数［`succeeded_run_count`。生データの世代］もここが持つ）・`derived_models.py`（生データから導いたもの。粒度ごとに1表で、バッチが1つ増えても表は増えない）・`orm_base.py`（ORMの基底。どのモデルからも辿れる位置に置き、モデル同士がimportで絡まないようにする。全表を載せたmetadata［`declared_metadata`。importの有無で表が欠けないよう、全表を見る側はここを通す］と、取り直せない表の印［`IRREPLACEABLE`］・派生の表の印［`DERIVED`。派生の作り直しが写す表と鮮度台帳が数える表はここから導く］もここが持つ）・`point_tile_layers.py`（点のタイルのレイヤーの宣言。名前・source-layer名・焼き込むSQL。配信・世代の表・生成物はここから組み立てる）・`derived_data_freshness.py`（派生データ鮮度台帳）・`db_status.py`（本番DBの状態＝取込runの最終実行・テーブルの実数と容量・統計とVACUUMの鮮度・接続）・`proj_data.py`（rasterioが参照するPROJデータをrasterio同梱のものへ固定する。別インストールの`proj.db`を掴むとEPSG解決が失敗するため、rasterioのimport前に呼ぶ） |
 | api | `region.py`（路面/点/動的材料/土地被覆タイル・区間インスペクタ）・`_tile_http.py`（タイルの口が共有する座標検証と応答組み立て）・`derived_data_freshness.py`（`GET /api/admin/derived-data/freshness`、Basic認証必須）・`db_status.py`（`GET /api/admin/db-status`、同） |
@@ -333,7 +333,7 @@ reset_columns_sql`。戻す値は、未計算のNULL・「無い」を表す0や
 
 OSMは中央分離帯のある道路の上下線を別々のwayとして持ち、その一本ずつに`oneway=yes`を
 付ける。そのため`direction`だけでは「一方通行規制の道」と「上下線が分かれた道の片側」を
-区別できず、一方通行レイヤーが後者まで塗る。
+区別できず、一方通行の材料（地図の一方通行レイヤーと評価）が後者まで一方通行に数える。
 
 判定は3条件のORで、上から順に確からしい（しきい値と式は`domain/divided_carriageway.py: divided_sql`。
 段`derive_way_materials.py`は、式が読む値の表（`facts_sql`の列）を作って式を差し込むだけ）。
@@ -633,7 +633,7 @@ PBF取込時にしか変わらないため、再訪時の同一タイル再取�
 | `attributes.py` | `ElevationAttribute`（同じ地形を逆方向に走った値も自分で導く`reversed_as`）・探索が読む材料の配列（`EdgeMaterialArrays`）と標高計算のSQL（[elevation.md](elevation.md)が主に扱う） |
 | `accident.py` | 警察庁の事故を道路へ帰属させ数えるときの判断。生データの列から判定を組み立てるSQL断片・帰属の距離・重み付けの定数（本票の度分秒の読み取りは取込のアダプタ`npa_honhyo.py`が持つ） |
 | `traffic.py` | OSMタグの解釈。停止要因POI・補給休憩POIの種別の引き当て（`TAG_KIND_RULES`・`tag_kind_sql`）、信号の判定（`TRAFFIC_SIGNAL_SQL`）、取込が道の頂点でなくても採る補給・休憩のタグ（`SUPPLY_POI_TAGS`・`has_supply_poi_tag`）、停止要因の数える種別への畳み方と信号の読み替え（`COUNT_KIND_OF`・`count_kind_sql`・`stop_kind_sql`）、通行方向の解決（`DIRECTION_RULES`・`direction_sql`）と片方向にだけ通れるかの式（`one_way_sql`）、交差点判定の次数しきい値、停止要因の場所・交差点を端で分け持つ割合（`PLACE_SHARE_PER_END`・`place_count_sql`）、交差点の階級（`HIGHWAY_RANK`）。取込のタグ（取込のアダプタが1件ずつ当てる）を除き、派生バッチへSQLとして渡す表と式で、タグを読むためだけに行を取り出さない |
-| `divided_carriageway.py` | 上下線が分かれた道の片側かのしきい値と判定のSQL式（`divided_sql`）。路面タイルの一方通行（`map_oneway_sql`）は、片方向にだけ通れる道（`traffic.py: one_way_sql`）から上下線の片側を外す |
+| `divided_carriageway.py` | 上下線が分かれた道の片側かのしきい値と判定のSQL式（`divided_sql`）。材料`oneway`の値式（`oneway_material_sql`。地図の一方通行と評価が同じ式を読む）は、片方向にだけ通れる道（`traffic.py: one_way_sql`）から上下線の片側を外す |
 
 `traffic.py: TAG_KIND_RULES`は信号・横断歩道・一時停止・徐行（`highway=*`）・踏切
 （`railway=*`）・車止め（`barrier=*`）・減速構造（`traffic_calming=*`）を停止要因として、

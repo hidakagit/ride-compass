@@ -9,7 +9,7 @@ SQLの中の条件はPythonのカバレッジに現れないので、式をテ�
 - 区間（`re`）・区間の値（`em`）: 派生の段が書く表の行の型（`road_edges`・`edge_materials`）で値を与える。
   値そのものの出し方（件数を数える等）は派生の段の責務なので、ここでは作らない。
 
-部品の節は架空のタグ・路面の区分で確かめる。カタログの節だけは、カタログに直に書かれた式（部品を使わないもの）を
+部品の節は架空のタグ・路面の区分で、タイルへの載せ方の節は架空の材料で確かめる。カタログの節だけは、カタログに直に書かれた式（部品を使わないもの）を
 本物の材料のidで引く——そこでは、その材料が何を返すかがテストの関心である。
 
 カタログの全部の式が、読み出しの各経路（`infrastructure/road_graph_repository.py: RoadGraphRepository`の区間の材料・
@@ -29,7 +29,14 @@ import pytest
 from sqlalchemy import text
 
 from app.domain import material_sql
-from app.domain.material_catalog import ACCIDENT_COUNT_PER_KM_YEAR, material_value_sql
+from app.domain.material_catalog import (
+    ACCIDENT_COUNT_PER_KM_YEAR,
+    CoverageExcluded,
+    MaterialSpec,
+    TileEncoding,
+    material_value_sql,
+    tile_column_sql,
+)
 from app.domain.region import BoundingBox
 from app.domain.road import SurfaceClass, TrackGrade
 from app.infrastructure.source_models import WAYS_SOURCE_SQL
@@ -199,6 +206,31 @@ async def test_a_shared_pedestrian_path_is_a_footway_or_path_that_lets_bicycles_
     })
 
     assert values == {1: True, 2: False, 3: False, 4: False}
+
+
+# --- タイルへの載せ方（domain/material_catalog.py: tile_column_sql） ---------------------------
+
+
+_DENSITY = {"dtype": "numeric", "value_sql": "em.accident_count / (re.distance_m / 1000.0)",
+            "tile_encoding": TileEncoding(round_digits=1, omit_zero=True)}
+_HAS_ANY = {"dtype": "boolean", "value_sql": "em.accident_count > 0"}
+
+
+@pytest.mark.parametrize(("fields", "missing", "count", "expected"), [
+    (_DENSITY, "unknown", 5.0, "double precision:1.3"),  # ST_AsMVTはnumericを文字列で載せる。地図は数として読めない
+    (_DENSITY, "unknown", 0.1, "double precision:null"),  # 丸めて0になる値はキーごと省く（地図は欠損を0として読む）
+    (_HAS_ANY, "definite", 0.0, "boolean:null"),  # 非該当はキーごと省く（地図は欠損を非該当として読む）
+    (_HAS_ANY, "unknown", 0.0, "boolean:false"),  # 地図はキーの無い道を不明として読むので、偽は載せる
+], ids=["rounded", "zero", "definite-false", "unknown-false"])
+async def test_a_value_goes_on_the_tile_in_the_form_the_map_reads(road_graph_session, fields, missing, count, expected):
+    material = MaterialSpec(material_id="material_a", label="材料A", description="説明", tile_property="material_a",
+                            coverage=CoverageExcluded(reason="試し", missing_semantics=missing), **fields)
+    column = tile_column_sql(material)
+
+    value = await _edge_value(road_graph_session, f"pg_typeof({column})::text || ':' || coalesce(({column})::text, 'null')",
+                              distance_m=4000.0, accident_count=count)
+
+    assert value == expected
 
 
 # --- 読み出しの経路（infrastructure/road_graph_repository.py） -----------------------------
