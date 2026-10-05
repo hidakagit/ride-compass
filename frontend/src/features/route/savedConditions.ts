@@ -139,7 +139,7 @@ function weightsDescription(routePreference: RoutePreferenceWeights | null, cata
   const total = totalWeight(weights);
   const shares = catalog.axes
     .filter((axis) => weights[axis.axisId] > 0)
-    .map((axis) => ({ label: axis.chipLabel, pct: Math.round((weights[axis.axisId] / total) * 100) }))
+    .map((axis) => ({ label: axis.label, pct: Math.round((weights[axis.axisId] / total) * 100) }))
     .sort((a, b) => b.pct - a.pct);
   return shares.length === 0 ? kind : `${kind}（${shares.map(({ label, pct }) => `${label} ${pct}%`).join("・")}）`;
 }

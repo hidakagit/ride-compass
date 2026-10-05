@@ -153,7 +153,6 @@ export default function RouteSettingsPanel({
   function renderLegendChip(axis: CatalogAxis, weight: number) {
     const checked = weight > 0;
     const color = catalog.axisColors[axis.axisId];
-    const label = axis.chipLabel;
     return (
       <span key={axis.axisId} className={legendChipClass} data-checked={checked}>
         <Toggle
@@ -167,7 +166,7 @@ export default function RouteSettingsPanel({
           <span aria-hidden="true" className={legendIconClass} style={{ color }}>
             <AxisIcon axis={axis} />
           </span>
-          <span>{label}</span>
+          <span>{axis.label}</span>
           {checked && (
             <span className="text-[length:var(--font-size-sm)] font-semibold tabular-nums">
               {Math.round(sharePct(weight))}%
