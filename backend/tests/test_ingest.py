@@ -1,5 +1,6 @@
 """取込の共通経路（`ingest.ingest_source`）が、行の多さ・大きさに比例してメモリを抱えないこと。
 途中で落ちた取込が、行を元のまま残して失敗のrunを記録すること。取込の間は派生の作り直しが止まること。
+アダプタが必ず持つと宣言した列が空の行を、区画が断ること。
 
 本番の取込は上限つきの使い捨てコンテナで走り、標高のタイルは1件が約0.26MB（256×256画素のint32）ある。
 ここでは同じ大きさの行を数百件、本物の入口へ流し、取込の間のPythonの確保の最大が、流した総量より
@@ -29,6 +30,7 @@ from app.batch.ingest import (
     partition_table_name,
 )
 from app.batch.source_profile import NoFields, SourceProfile, SourceSpec, load_source_profile
+from app.infrastructure.source_models import SourceFeatureRow
 from tests.conftest import postgis_database_url
 
 # road_graph_session（conftest.py）と同じDBを使うため、docs/conventions/testing.mdのパターン2どおり
@@ -40,6 +42,8 @@ pytestmark = [
 ]
 
 SOURCE = "ingest_probe"
+#: 必ず持つ列を宣言したアダプタで初めて取り込むソース（区画は作るときにだけ制約を持つ）。
+REQUIRED_SOURCE = "ingest_probe_required"
 #: 標高タイル1枚のraster（256×256画素のint32）と同じ大きさ。
 ROW_BYTES = 256 * 256 * 4
 ROWS = 300
@@ -64,8 +68,9 @@ async def conn(road_graph_engine):
     try:
         yield connection
     finally:
-        await connection.execute(f'DROP TABLE IF EXISTS "{partition_table_name(SOURCE)}"')
-        await connection.execute("DELETE FROM source_runs WHERE source = $1", SOURCE)
+        for source in (SOURCE, REQUIRED_SOURCE):
+            await connection.execute(f'DROP TABLE IF EXISTS "{partition_table_name(source)}"')
+            await connection.execute("DELETE FROM source_runs WHERE source = $1", source)
         await connection.close()
 
 
@@ -127,3 +132,13 @@ async def test_a_rebuild_is_refused_while_an_import_runs(conn, monkeypatch):
 
     monkeypatch.setitem(ADAPTERS, "rebuild", RegisteredAdapter(read=rebuild_meanwhile, rows=NoFields, grid=NoFields))
     await ingest_source(conn, _only(SOURCE, "rebuild"), SOURCE)
+
+
+async def test_a_row_missing_a_column_the_adapter_requires_is_refused(conn, monkeypatch):
+    async def without_payload(spec, profile, origin):
+        yield SourceRecord(natural_key="1", geom_wkb=POINT_WKB, attrs={})
+
+    monkeypatch.setitem(ADAPTERS, "without_payload", RegisteredAdapter(
+        read=without_payload, rows=NoFields, grid=NoFields, required=(SourceFeatureRow.payload,)))
+    with pytest.raises(asyncpg.NotNullViolationError, match="payload"):
+        await ingest_source(conn, _only(REQUIRED_SOURCE, "without_payload"), REQUIRED_SOURCE)

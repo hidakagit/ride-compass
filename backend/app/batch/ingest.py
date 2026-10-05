@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 import asyncpg
+from sqlalchemy.orm import InstrumentedAttribute
 
 from app.batch.common import PROGRESS_INTERVAL_SECONDS, SOURCE_DATA_LOCK, format_progress
 from app.batch.source_profile import NoFields, SourceProfile, SourceSpec
@@ -66,17 +67,21 @@ class RegisteredAdapter:
     #: プロファイルの`rows`/`grid`の型。読み込みはこのフィールドにある欄だけを受け付ける。
     rows: type
     grid: type
+    #: このアダプタのソースの行が必ず持つ列（`SourceFeatureRow`の空を許す列）。取込が区画を作るときに
+    #: NOT NULLで張り、`scripts/schema_gap.py`が実DBの区画と比べる。
+    required: tuple[InstrumentedAttribute[Any], ...] = ()
 
 
 ADAPTERS: dict[str, RegisteredAdapter] = {}
 
 
-def register_adapter(name: str, *, rows: type = NoFields,
-                     grid: type = NoFields) -> Callable[[SourceAdapter], SourceAdapter]:
+def register_adapter(name: str, *, rows: type = NoFields, grid: type = NoFields,
+                     required: tuple[InstrumentedAttribute[Any], ...] = ()
+                     ) -> Callable[[SourceAdapter], SourceAdapter]:
     def decorate(fn: SourceAdapter) -> SourceAdapter:
         if name in ADAPTERS:
             raise ValueError(f"アダプタ名が重複しています: {name}")
-        ADAPTERS[name] = RegisteredAdapter(read=fn, rows=rows, grid=grid)
+        ADAPTERS[name] = RegisteredAdapter(read=fn, rows=rows, grid=grid, required=required)
         return fn
 
     return decorate
@@ -96,17 +101,25 @@ def partition_table_name(source: str) -> str:
     return f"source_features_{source}"
 
 
-async def _ensure_partition(conn: asyncpg.Connection, source: str) -> None:
+def partition_required_columns(spec: SourceSpec) -> tuple[str, ...]:
+    """そのソースの区画が NOT NULL で持つ列（親の表が NOT NULL の列を除く）。アダプタの宣言から導く。"""
+    return tuple(column.key for column in ADAPTERS[spec.adapter].required)
+
+
+async def _ensure_partition(conn: asyncpg.Connection, spec: SourceSpec) -> None:
     """そのソースの子パーティションを用意する。
 
     どのソースが在るかはデータで決まるため、宣言（ORMモデル）ではなく取込の側が作る。
     空間の索引は親の表の宣言（`infrastructure/source_models.py: SourceFeatureRow`）にあり、PostgreSQLが
-    子パーティションへ張る。
+    子パーティションへ張る。アダプタが必ず持つと宣言した列は、作るときにNOT NULLで張る。在る区画へは
+    張り直さない——張るには区画を読み通す排他ロックが要る。在る区画の欠けは`scripts/schema_gap.py`が出す。
     """
-    table = partition_table_name(source)
+    table = partition_table_name(spec.name)
+    required = partition_required_columns(spec)
+    columns = f" ({', '.join(f'{column} NOT NULL' for column in required)})" if required else ""
     await conn.execute(
         f'CREATE TABLE IF NOT EXISTS "{table}" '
-        f"PARTITION OF source_features FOR VALUES IN ($tag${source}$tag$)"
+        f"PARTITION OF source_features{columns} FOR VALUES IN ($tag${spec.name}$tag$)"
     )
 
 
@@ -172,7 +185,7 @@ async def _ingest(conn: asyncpg.Connection, profile: SourceProfile, source_name:
     spec = profile.source(source_name)
     adapter = ADAPTERS[spec.adapter].read
 
-    await _ensure_partition(conn, spec.name)
+    await _ensure_partition(conn, spec)
     origin: dict[str, Any] = {}
     run_id = await _open_run(conn, spec, profile, origin)
     started = time.perf_counter()

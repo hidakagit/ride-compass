@@ -33,7 +33,7 @@ from shapely.geometry import LineString, Point, Polygon
 from app.batch.ingest import SourceRecord, file_origin, register_adapter
 from app.batch.source_profile import SourceProfile, SourceProfileError, SourceSpec
 from app.domain.traffic import has_supply_poi_tag
-from app.infrastructure.source_models import WAY_KIND_TAG
+from app.infrastructure.source_models import WAY_KIND_TAG, SourceFeatureRow
 
 logger = logging.getLogger("ridecompass.ingest.osm_pbf")
 
@@ -202,7 +202,7 @@ def _pbf_origin(path: Path) -> dict[str, Any]:
     return origin
 
 
-@register_adapter("osm_pbf_way", rows=OsmWayRows)
+@register_adapter("osm_pbf_way", rows=OsmWayRows, required=(SourceFeatureRow.payload,))
 async def read_osm_ways(spec: SourceSpec, profile: SourceProfile,
                         origin: dict[str, Any]) -> AsyncIterator[SourceRecord]:
     from app.batch.pbf_source import stream_ways
