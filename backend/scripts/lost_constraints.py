@@ -7,7 +7,9 @@ r"""2つの版のORM宣言を突き合わせ、消えた制約を出す。
 
 見るもの: 表・主キー・外部キー（ON DELETE込み）・一意（一意インデックスを含む）・CHECK・
 NOT NULL・表に付けた生のDDL（`event.listen(..., DDL(...))`）。制約の名前は見ない——書き直しで
-名前だけ変わったものを消えたと数えないため。
+名前だけ変わったものを消えたと数えないため。一意インデックスの列は一意制約と同じく列名で書き、
+部分一意インデックスは条件を後ろに付ける——同じ列の一意を制約とインデックスの間で書き換えても
+差が出ず、部分へ弱めた書き換えは消えたと出るように。
 
 見ないもの: SQLの文の中の絞り込み（WHERE・JOINの条件）。SQLは断片をつないで組み立てる形が
 多く、文字列から構文木を取れないものが残るため、期待値テストで守る。
@@ -41,7 +43,7 @@ TABLE = "表"
 
 def constraint_items(metadatas) -> set[Item]:
     """宣言された表と制約を`(種類, 表, 中身)`へ揃える。"""
-    from sqlalchemy import CheckConstraint, ForeignKeyConstraint, PrimaryKeyConstraint, UniqueConstraint
+    from sqlalchemy import CheckConstraint, Column, ForeignKeyConstraint, PrimaryKeyConstraint, UniqueConstraint
     from sqlalchemy.schema import DDL
 
     items: set[Item] = set()
@@ -63,7 +65,9 @@ def constraint_items(metadatas) -> set[Item]:
                     items.add(("CHECK", name, " ".join(str(con.sqltext).split())))
             for index in table.indexes:
                 if index.unique:
-                    items.add(("一意", name, "(" + ",".join(str(e) for e in index.expressions) + ")"))
+                    cols = "(" + ",".join(e.name if isinstance(e, Column) else str(e) for e in index.expressions) + ")"
+                    where = index.dialect_options["postgresql"]["where"]
+                    items.add(("一意", name, cols if where is None else f"{cols} WHERE {' '.join(str(where).split())}"))
             for listener in table.dispatch.after_create:
                 ddl = getattr(listener, "__self__", listener)
                 if isinstance(ddl, DDL):

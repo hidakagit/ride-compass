@@ -4,7 +4,7 @@
 実行口（`main`）は、確かめる担当が Pull Request ごとに本物の2つの版へ流す（docs/conventions/flow.md「確かめる担当」の1）。
 """
 
-from sqlalchemy import BigInteger, CheckConstraint, Column, ForeignKey, Index, MetaData, Table
+from sqlalchemy import BigInteger, CheckConstraint, Column, ForeignKey, Index, MetaData, Table, UniqueConstraint, text
 
 from scripts.lost_constraints import constraint_items, lost
 
@@ -44,6 +44,27 @@ def test_a_constraint_that_only_changed_its_name_is_not_lost() -> None:
           Index("ix_new", "distance_m", unique=True))
 
     assert lost(constraint_items([before]), constraint_items([after])) == []
+
+
+def _edges(metadata: MetaData, *unique) -> Table:
+    return Table("edges", metadata, Column("edge_id", BigInteger, primary_key=True),
+                 Column("from_node", BigInteger), Column("to_node", BigInteger), *unique)
+
+
+def test_a_unique_constraint_rewritten_as_a_unique_index_on_the_same_columns_is_not_lost() -> None:
+    before, after = MetaData(), MetaData()
+    _edges(before, UniqueConstraint("from_node", "to_node"))
+    _edges(after, Index("ix_edges_nodes", "from_node", "to_node", unique=True))
+
+    assert constraint_items([before]) == constraint_items([after])
+
+
+def test_a_unique_constraint_narrowed_to_a_partial_unique_index_is_lost() -> None:
+    before, after = MetaData(), MetaData()
+    _edges(before, UniqueConstraint("from_node", "to_node"))
+    _edges(after, Index("ix_edges_nodes", "from_node", "to_node", unique=True, postgresql_where=text("from_node > 0")))
+
+    assert lost(constraint_items([before]), constraint_items([after])) == [("一意", "edges", "(from_node,to_node)")]
 
 
 def test_a_dropped_table_is_reported_as_one_line() -> None:
