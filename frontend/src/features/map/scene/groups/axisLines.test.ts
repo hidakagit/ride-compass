@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 
-import { LEGEND_NO_DATA_KEY } from "@/lib/mapDisplay/mapColorLegend";
+import { LEGEND_NO_DATA_KEY, LEGEND_UNDETERMINED_KEY } from "@/lib/mapDisplay/mapColorLegend";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import palette from "@/types/generated/palette.json";
 
@@ -131,6 +131,48 @@ describe("配信された値で塗る軸", () => {
 
   it("取得中の道は取得中の色で、「データなし」を隠していても残す", () => {
     expect(color(delivered(true), [LEGEND_NO_DATA_KEY], {})).toBe(palette.semantic.loading);
+  });
+
+  describe("走行方位で値が決まらない道（配信の値がnull）", () => {
+    const values = new Map<string, number | null>([
+      ["perpendicular", null],
+      ["along", 15],
+    ]);
+    /** 配信の値を地図へ載せたとき、その道が受け取るfeature-stateで塗った色。 */
+    const colorOf = (featureId: string, hidden: readonly string[] = []) => {
+      const state: AxisLineState = {
+        sourceLayer: "road",
+        axes: [
+          {
+            axisId: "ax",
+            visible: true,
+            bands: THREE_BANDS,
+            value: { kind: "delivered", values, loading: false },
+            hiddenBandKeys: hidden,
+            underlay: false,
+          },
+        ],
+      };
+      const group = axisLineGroup.build(state);
+      const featureState = Object.fromEntries(
+        [...(group.sources[0].featureStates ?? [])].flatMap(([key, byFeature]) =>
+          byFeature.has(featureId) ? [[key, byFeature.get(featureId)]] : [],
+        ),
+      );
+      return evaluate(group.layers[0].paint?.["line-color"], {}, featureState);
+    };
+
+    it("「データなし」ではなく「向きで決まらない」の色で塗り、値のある道は段の色のまま", () => {
+      expect(colorOf("perpendicular")).toBe(palette.semantic.undetermined);
+      expect(colorOf("along")).toBe("#f59e0b");
+      expect(colorOf("absent")).toBe(palette.semantic.no_data);
+    });
+
+    it("凡例で「向きで決まらない」を隠すとその道だけが透明になり、「データなし」を隠しても残る", () => {
+      expect(colorOf("perpendicular", [LEGEND_UNDETERMINED_KEY])).toBe(TRANSPARENT);
+      expect(colorOf("absent", [LEGEND_UNDETERMINED_KEY])).toBe(palette.semantic.no_data);
+      expect(colorOf("perpendicular", [LEGEND_NO_DATA_KEY])).toBe(palette.semantic.undetermined);
+    });
   });
 });
 

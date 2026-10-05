@@ -68,7 +68,7 @@ function render(initialProps: Props) {
     { initialProps },
   );
 }
-const wayKeys = (values: ReadonlyMap<string, number> | undefined) => [...(values?.keys() ?? [])];
+const wayKeys = (values: ReadonlyMap<string, number | null> | undefined) => [...(values?.keys() ?? [])];
 
 describe("useDedicatedWayValues（専用配信の値）", () => {
   it("画面を覆うタイルごとに軸の値を取り、1つにまとめる", async () => {

@@ -224,6 +224,22 @@ def test_get_axis_catalog_names_the_query_params_the_map_sends_for_a_dedicated_a
     assert set(entry["dynamic_way_value_conditions"]) == conditions
 
 
+# 「向きで決まらない」の凡例の行は、配信がその道を返しうる軸だけが持つ（返さない軸に出すと、どの道も入らない行になる）。
+@pytest.mark.parametrize(
+    ("material", "dedicated", "undetermined"),
+    [("gradient_percent", True, True), ("wind_drag_ratio", True, False), ("gradient_percent", False, False)],
+)
+def test_get_axis_catalog_tells_which_dedicated_axis_can_leave_a_road_undetermined_by_the_bearing(
+    client, material, dedicated, undetermined
+):
+    axis = axis_definition("axis_any_name", material=material, is_published=True, dedicated_way_value_layer=dedicated)
+    with replaced_axis_definitions({axis.axis_id: axis}):
+        response = client.get("/api/axis-catalog")
+
+    (entry,) = response.json()["axes"]
+    assert entry["dynamic_way_value_undetermined_by_bearing"] is undetermined
+
+
 def test_get_axis_catalog_includes_raw_value_unit(client, catalog_axes):
     # 得点の隣へ生値を出すための単位（domain/axis_raw_value.py: raw_value_unit）。
     # 勾配は単一材料をそのまま使うので%、内部軸を合成する軸は単位が定まらずnull。

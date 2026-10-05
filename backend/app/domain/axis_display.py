@@ -55,12 +55,14 @@ def _drop_thresholds_that_share_a_score(
     区別できない差に境界を引くと、色は変わるのに評価は同じという見分けを地図が見せる。
     さらにルート線は難易度で塗るためその段を作れず、ルート前後で段の数が食い違う
     （`domain/dynamic_way_values.py: map_value_thresholds`と対で読むこと）。
+    折れ線の最も低い得点も、最初の境界の手前の段として数える——その得点へ写る境界の下には、
+    得点で入る道が無い（凡例に「0点未満」のような届かない段が出る）。
     """
     kept: list[float] = []
-    seen: list[float] = []
+    seen: list[float] = [min(shape.score_at(x) for x, _ in shape.breakpoints)]
     for threshold in thresholds:
         score = shape.score_at(threshold)
-        if seen and score <= seen[-1]:
+        if score <= seen[-1]:
             continue
         seen.append(score)
         kept.append(threshold)

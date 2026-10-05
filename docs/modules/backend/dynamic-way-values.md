@@ -80,6 +80,10 @@ frontendはどのクエリパラメータをどの軸のリクエストへ載せ
 - 載せない条件は、地図でその入力を変えても再取得しない（勾配は時刻スライダーで取り直さない）。
 - 例: 風は時刻・走行方位・想定速度、勾配は走行方位だけ（標高・道路の向きは時刻で変わらない）、雨は
   何も載せない（今の観測を示し、出発時刻・方位では変わらない）。
+- 同じ並べ方で`dynamic_way_value_undetermined_by_bearing`（`dedicated_way_value_undetermined_by_bearing`）も配る。
+  配信のサービスが`undetermined_by_bearing`で宣言する、走行方位で値の決まらない道（値が`null`）を返しうるか
+  で、frontendはtrueの軸の凡例にだけ「向きで決まらない」の行（`domain/map_display.py: LEGEND_SHARED_ROWS`）を
+  足す。返しうるのは勾配だけ。
 - `dedicated_way_value_layer=True`は軸スタジオで立てられるフラグで、配信を実装した材料を
   参照する軸なら、名前が何であってもコード変更なしにこの配信経路へ載る。
 
@@ -150,17 +154,19 @@ axis_id → get_dedicated_way_value_service(axis_id) が軸の参照する材料
   同じ坂が方位次第で緩く見え、ルート評価（`average_grade`をそのまま読む）とも食い違う。
   風（`wind_drag_ratio`）は風向が進行方向と独立に決まるためcos投影が正しく、ここは同型に
   できない。
-- **指定方位に対して直角に近い道路は、勾配の値を持たせずに結果から落とす**
-  （`domain/gradient.py: effective_gradient`がNoneを返す。地図では「データなし」）。直角付近はその道を
+- **指定方位に対して直角に近い道路は、勾配の値を`null`で配る**
+  （`domain/gradient.py: effective_gradient`がNoneを返す。地図では「向きで決まらない」）。直角付近はその道を
   どちら向きに辿るかが決まらず符号を選べない。0%として配ると、実際には急な坂の道が凡例の
   「平坦」の段へ入り、平坦な道と同じ色で塗られる——言えるのは「勾配を示せない」であって
-  「平坦だ」ではない。落とす幅（`LENS_PERPENDICULAR_BAND_DEG`）は実地を見て決め直す値。
+  「平坦だ」ではない。結果から落とすと、値の無い道（「データなし」）と見分けられない。
+  `null`にする幅（`LENS_PERPENDICULAR_BAND_DEG`）は実地を見て決め直す値。区間インスペクタは`null`の材料を
+  値の無い材料と同じく足さない。
 - 各サービスは`material_id`属性で自分が返す生値の材料idを宣言し、routerはそれを軸定義の
   どの材料として評価するかに使う。勾配は`gradient_percent`固定、風は`wind_drag_ratio`固定
   （走行速度依存、`speed_kmh`必須）。
   キャッシュは生値のまま持つため、軸スタジオでbreakpointsを変えてもキャッシュを捨てずに
   次の応答から反映される。評価できない値（軸が他の材料も必須にしている等）はその道路を
-  結果から除く（地図上は「データなし」）。
+  結果から除く（地図上は「データなし」）。`null`（走行方位で決まらない）は`null`のまま返す。
 - `GET /api/axis-catalog`は同じ判定を`map_value`・`map_value_unit`（材料カタログの
   `MaterialSpec.unit`、難易度は空文字）・`map_legend`として公開し、frontendは色式を前の2つから、
   凡例の段の範囲の文字を`map_legend`から組み立てる（ルート確定の前後とも）。ramp軸は`axis_display.py: axis_display_for`が符号を畳む形を外すため
@@ -193,7 +199,7 @@ axis_id → get_dedicated_way_value_service(axis_id) が軸の参照する材料
 
 **材料単位の失効は鍵で表す**。`value_shape`は材料のサービスが必須キーワードで渡し、勾配は
 `services/gradient_way_service.py: GRADIENT_VALUE_SHAPE`（入力のSQLの署名
-`infrastructure/road_graph_repository.py: FEATURE_GRADIENT_INPUTS_SHAPE`・直角付近を落とす幅・丸めの桁を
+`infrastructure/road_graph_repository.py: FEATURE_GRADIENT_INPUTS_SHAPE`・直角付近で値を決めない幅・丸めの桁を
 機械で署名し、式を変えたときだけ手で上げるリビジョンを添えたもの）。材料の計算を変えたデプロイの直後から、その材料のエントリだけが読まれなくなり、
 他の材料のエントリは残る。タグで消す方式（起動時に材料ごと`evict`）にしないのは、デプロイで入れ替わるまで
 旧コンテナが同じ置き場へ古い計算の値を書き続け、消した直後に同じ鍵へ戻るため。読まれなくなったエントリは
@@ -321,12 +327,12 @@ get_way_values(z, x, y, ...)
 | 関数 | 意味 | 符号 |
 |---|---|---|
 | `wind_drag_ratio_array`／`wind_drag_ratio`（`wind.py`） | 走行方位・風向風速・走行速度から、相対風速ベクトルの二乗則で無風時に対する空気抵抗の増分（時速20km無風の抵抗を1とする倍率、`WIND_DRAG_REFERENCE_SPEED_MS`） | 正=向かい風、負=追い風、純横風は小さな正。速いほど同じ風で大きい |
-| `GradientCalculator.effective_gradient`（`gradient.py`） | 道路自身の勾配・向きと走行方位から実効勾配 | 正=登り、負=下り（大きさは道路自身の勾配のまま。直角付近はNoneで、呼び出し側が落とす） |
+| `GradientCalculator.effective_gradient`（`gradient.py`） | 道路自身の勾配・向きと走行方位から実効勾配 | 正=登り、負=下り（大きさは道路自身の勾配のまま。直角付近はNoneで、配信は`null`として配る） |
 
 `wind_drag_ratio_array`は走行方位との角度差を係数として物理量へ反映するが、
 **`effective_gradient`は角度で大きさを変えない**——道路自身の勾配をそのまま使い、走行方位で
 決めるのは符号（登り／下り）だけ。示せない向き（直角に近く、どちら向きに辿るかが決まらない）
-では同じ関数がNoneを返し、値そのものが配られない。同じ道路の逆方向（forward/backward）の
+では同じ関数がNoneを返し、値は`null`として配られる。同じ道路の逆方向（forward/backward）の
 `road_edges`行を使っても勾配の結果は変わらない（向きと勾配の符号が二重に反転して相殺する）。
 `wind_drag_ratio_array`は横風0のとき1次元式`sign(x)·x² − v²`（x=走行速度+
 向かい風成分）と一致し、追い風が走行速度を超える領域も連続。引数はスカラー・配列どちらも

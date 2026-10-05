@@ -231,6 +231,13 @@ def test_a_feature_the_axis_cannot_evaluate_is_left_unpainted():
     assert result == {"way:2": 50.0}
 
 
+def test_a_feature_undetermined_by_the_bearing_stays_undetermined():
+    """地図では「向きで決まらない」になり、値の無い道（鍵ごと無い）と見分けられる。"""
+    result = transform_dedicated_way_values(_axis(_line("num_live")), "num_live", {"way:1": None, "way:2": 5.0})
+
+    assert result == {"way:1": None, "way:2": 50.0}
+
+
 def test_an_axis_that_also_needs_a_material_not_served_paints_nothing():
     """配信が値を持つのは1つの材料だけ。必須の別の材料が無ければ、どの道も評価できない。"""
     definition = _axis(_line("num_live", "num_other"))

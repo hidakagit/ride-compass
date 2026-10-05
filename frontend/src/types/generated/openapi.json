@@ -772,7 +772,14 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": {
-                    "type": "number"
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   },
                   "title": "Response Region Dedicated Way Values Api Region Dynamic Way Values  Axis Id   Z   X   Y  Get"
                 }
@@ -2262,6 +2269,10 @@
             },
             "type": "array",
             "title": "Dynamic Way Value Conditions"
+          },
+          "dynamic_way_value_undetermined_by_bearing": {
+            "type": "boolean",
+            "title": "Dynamic Way Value Undetermined By Bearing"
           }
         },
         "additionalProperties": false,
@@ -2290,7 +2301,8 @@
           "raw_value_unit",
           "raw_value_total_unit",
           "material_breakdown",
-          "dynamic_way_value_conditions"
+          "dynamic_way_value_conditions",
+          "dynamic_way_value_undetermined_by_bearing"
         ],
         "title": "AxisCatalogEntry"
       },

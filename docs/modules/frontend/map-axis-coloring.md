@@ -19,7 +19,7 @@
 | `features/map/layers/dynamicWayValues.ts` | タイル座標計算・複数タイル応答の統合（材料非依存の共通部分） |
 | `lib/mapDisplay/axisLayers.ts`（`RampAxis`関連のみ） | 軸カタログ→ramp軸一覧の変換（`rampAxesFromCatalogAxes`）。段の色は持たない（`valueScale.ts: rampAxisBands`）。値が無い道の色は`palette.json: semantic.no_data`を別名を付けずに指す。ramp軸自体の全面的な生成ロジックは主に[地図: 静的レイヤー・道路表示](static-map-layers.md)の管轄 |
 | `lib/mapDisplay/mapColorLegend.ts` | 地図上の色分け凡例（`MapColorLegendBand`型・`buildRangeLegendBands`・`rangeStepLabel`）の共通ロジックと、値が無い行（`NO_DATA_LEGEND_BAND`）。凡例を作る関数（`features/map/view/lens.ts`）・道の属性の凡例（`features/map/scene/legends.ts`）と管理画面が使う |
-| `features/map/LensControl/LensControl.tsx` | レンズ（地図を何で塗るか）の唯一の入口。画面での名前は「地図の色分け」（見出し・読み上げ名。「レンズ」はコードの中の名前で、画面には出さない）。地図上部中央のピルが現在のレンズと凡例を示し、タップで単一選択の札の並び（なし／総合難易度／評価に使用中の軸／未使用の軸。スマホの幅でも地図の塗りが窓の外に見えるよう、札と凡例を横へ流して窓を低く保つ）と「ルート後も周囲の道路を薄く塗る」トグルを開く（選択肢・凡例は`features/map/view/useMapView.ts`が組み立て、`page.tsx`はそのまま渡す） |
+| `features/map/LensControl/LensControl.tsx` | レンズ（地図を何で塗るか）の唯一の入口。画面での名前は「地図の色分け」（見出し・読み上げ名。「レンズ」はコードの中の名前で、画面には出さない）。地図上部中央のピルが現在のレンズと凡例を示し、タップで単一選択の札の並び（なし／総合難易度／評価に使用中の軸／未使用の軸。スマホの幅でも地図の塗りが窓の外に見えるよう、札と凡例を横へ流して窓を低く保つ）と「ルート後も周囲の道路を薄く塗る」トグルを開く（選択肢・凡例は`features/map/view/useMapView.ts`が組み立て、`page.tsx`はそのまま渡す）。周りの道を走る条件で塗っている間は、その条件の文（`view/lens.ts: lensConditionsLabel`）をピルと開いた先に出す |
 | `features/map/layers/mapLayers.ts` | `isAxisStudioLayer`（記述子の印で判定。地図上チップの一覧`overlayChips`が除くのに使う）・専用配信軸のレイヤーIDの導出（`dedicatedWayValueMapLayerId`） |
 | `features/map/MapView/MapView.tsx`（専用way値配信軸・ルート線の区間クリックの箇所のみ） | 画面の状態を宣言の入力へ渡すだけの配線（下記「MapView.tsx側の配線」）。軸ごとの処理は持たない |
 | `features/map/scene/groups/routes.ts` | 色分け線そのものを引く側。レンズの配色式・凡例フィルタを受け取ってMapLibreの線レイヤーへ流す |
@@ -74,7 +74,14 @@ backend（`domain/dynamic_way_values.py: map_value_thresholds`）が軸の折れ
 選べ、重みが0の軸は`LensControl`が「未使用」の見出しの下へ並べる（項目ごとの札は付けない——見出しと札の
 二重になる）。分ける重みは、生成後は生成に使われた重み、生成前は今の設定の重み（重みタブが薄く出す軸と
 同じ。`features/map/view/lens.ts: lensOptions`）——重みを変えずに生成すれば、前後で並びが変わらない。ルート前に塗る手段（ramp・専用配信）を
-持たない軸は「ルート後のみ」バッジ付きで選べるが、ルート前は何も塗らない。
+持たない軸と総合難易度（ルートの線にだけ色を付ける）は「ルート後のみ」バッジ付きで選べるが、ルート前は何も塗らない。
+ルート前は、選んでいるレンズがそれならピルにも同じバッジを付ける（既定のレンズは総合難易度で、初めて開いた人には道に
+色が無い）。
+
+**周りの道の色が拠る走る条件は、画面に出す**（`view/lens.ts: lensConditionsLabel`。例:「北へ走る・時速20km・19:30出発」）。
+専用配信の軸で周りの道を塗っている間、その軸が載せる条件（`needsBearing`・`needsSpeed`・`needsTime`）だけを並べ、
+`LensControl`がピルと開いた先に出す。走行方位は右上の別の操作で決め、保存されない——出さないと、見えない条件で
+同じ道の色が変わる。
 
 **レンズ状態は1つ**（`features/map/view/useMapView.ts: lens`、`"none" | "difficulty" | axis_id`。
 localStorageキーは`ridecompass:route-style-mode`）。ルート前は全道路、ルート後はルート線を
@@ -162,11 +169,14 @@ ramp軸の値と「不明」の式（`buildAxisRampValueExpression`・`buildAxis
 - **値が無い道は薄く、値を持つ道は濃く塗る**（濃さは源泉が配る
   `mapDisplay.road.unknownOpacity`/`knownOpacity`をそのまま使い、
   地図全体の「薄い＝対象外、濃い＝分類あり」という読み方に揃える）。
-  **暗黙の前提**: 配信値が無い道には、標高が計算されていない道と、
-  勾配のように向きを指定する軸で**その向きに対して直角に近く値を示せない道**
-  （backend `domain/gradient.py: effective_gradient`がNoneを返す）が同じnullとして届く。配信側が
-  種類を持たないため地図では区別できない。方位を1つ指定すると後者が街区の
-  半分近くを占めうるため、薄くしないと値のある道がそこへ埋もれる。
+  方位を1つ指定すると、勾配の軸では**その向きに対して直角に近く値を示せない道**（backend
+  `domain/gradient.py: effective_gradient`がNoneを返し、配信は値`null`で届く）が街区の半分近くを占めうるため、
+  薄くしないと値のある道がそこへ埋もれる。
+- **走行方位で値が決まらない道（配信の値が`null`）は、「データなし」と別の色で塗る**（`palette.semantic.undetermined`）。
+  feature-stateは値と別のキー（`axisLines.ts: axisUndeterminedStateKey`）に載せる——値と同じキーへ番兵の文字列で
+  載せると、段の大小比較に文字列が混ざる。凡例の行は`mapColorLegend.ts: UNDETERMINED_LEGEND_BAND`（鍵
+  `LEGEND_UNDETERMINED_KEY`）で、軸カタログの`dynamic_way_value_undetermined_by_bearing`がtrueの軸の、ルート前の
+  凡例にだけ足す（`view/lens.ts`。ルートの線は実際に走る向きで決まるので持たない）。
   取得中は薄くしない——取得中の色が見えなくなり「取得中」と「対象外」の区別が付かなくなる。
 - **凡例で隠した段は、値の届き方によらず色を透明にして下の路面レイヤーを見せる。**
   **feature-state経由の値はMapLibreの`filter`から読めない**ので、配信値の軸に合わせてramp軸も
