@@ -21,7 +21,6 @@
 
 import inspect
 from datetime import datetime, timezone
-from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -43,10 +42,8 @@ from app.infrastructure.point_tile_layers import POINT_TILE_LAYERS
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.tile_serving import TileResponse
 from app.domain.dynamic_way_values import transform_dedicated_way_values
-from app.services import dedicated_way_values
 from app.services.dedicated_way_values import DirectionalMaterialService
 from app.services.gradient_way_service import GradientConditions
-from app.services.weather_service import WeatherService
 from app.services.wind_way_service import WindConditions
 from app.main import app
 from app.api.routers import region as region_router
@@ -255,24 +252,16 @@ TILE = {"z": 14, "x": 14551, "y": 6447}
         ({**TILE, "bearing_deg": 90.0, "speed_kmh": 20.0}, {"gradient_percent": 2.0, "wind_drag_ratio": 1.0}),
     ],
 )
-def test_region_axis_inspector_leaves_out_materials_whose_conditions_are_missing(monkeypatch, given, found):
+def test_region_axis_inspector_leaves_out_materials_whose_conditions_are_missing(given, found):
     fake = FakeRegionService(axis_inspector_result=None)
+    services = {
+        "wind_drag_ratio": FakeDynamicWayValueService({"12345": 1.0}, "wind_drag_ratio", WindConditions),
+        "gradient_percent": FakeDynamicWayValueService({"12345": 2.0}, "gradient_percent", GradientConditions),
+    }
     app.dependency_overrides[get_region_service] = lambda: fake
     app.dependency_overrides[get_directional_material_service] = lambda: DirectionalMaterialService(
-        object(), WeatherService()
+        services.__getitem__
     )
-    for service in (
-        FakeDynamicWayValueService({"12345": 1.0}, "wind_drag_ratio", WindConditions),
-        FakeDynamicWayValueService({"12345": 2.0}, "gradient_percent", GradientConditions),
-    ):
-        monkeypatch.setitem(
-            dedicated_way_values.DEDICATED_WAY_VALUE_SERVICES_BY_MATERIAL,
-            service.material_id,
-            SimpleNamespace(
-                conditions_type=service.conditions_type,
-                build=lambda repository, weather_service, material_id, service=service: service,
-            ),
-        )
 
     try:
         response = client.post("/api/region/axis-inspector", json={"osm_way_id": 12345, **given})

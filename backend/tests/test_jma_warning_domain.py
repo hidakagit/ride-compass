@@ -1,8 +1,8 @@
 """`domain/jma_warning.py`——警報・注意報の電文の1地域ぶんから、サイクリングに関わる発表中のものを取り出す。
 
-入口は`extract_active_warnings`（種別→発表中の警報と、その警戒の段）・`WarningBulletin.kinds_for`
-（電文から地点の種別を引く）。コード表`WARNING_KINDS`は配信元の資料の写し
-（本番の正本を持つ宣言のデータ）なので中身に踏み込まず、架空のコードを足して与える。
+入口は`extract_active_warnings`（種別→発表中の警報）・`warning_level`（種別の名称→警戒の段）・`WarningBulletin.kinds_for`
+（電文から地点の種別を引く）。コード表`WARNING_KINDS`（配信元の資料の写し）は差し替えず、本物の表の行から種別を
+組み立てる——どのコードが何の種別かには踏み込まない。
 
 ここで見ないもの:
 - 電文の形を`WarningBulletin`へ解くこと → `test_jma_warning_client.py`
@@ -13,60 +13,56 @@ import logging
 
 import pytest
 
-from app.domain import jma_warning
-from app.domain.jma_warning import AreaWarningKind, WarningBulletin, WarningKind, extract_active_warnings
+from app.domain.jma_warning import (
+    WARNING_KINDS,
+    AreaWarningKind,
+    WarningBulletin,
+    extract_active_warnings,
+    warning_level,
+)
 
-CODES = {
-    "t_advisory": WarningKind("架空注意報"),
-    "t_warning": WarningKind("架空警報"),
-    "t_danger": WarningKind("架空危険警報"),
-    "t_emergency": WarningKind("架空特別警報"),
-    "t_irrelevant": WarningKind("架空の関わらない警報", relevant_to_cycling=False),
-}
-
-
-@pytest.fixture
-def _codes(monkeypatch):
-    for code, kind in CODES.items():
-        monkeypatch.setitem(jma_warning.WARNING_KINDS, code, kind)
+RELEVANT, OTHER_RELEVANT = [code for code, kind in WARNING_KINDS.items() if kind.relevant_to_cycling][:2]
+IRRELEVANT = next(code for code, kind in WARNING_KINDS.items() if not kind.relevant_to_cycling)
 
 
 def _kind(code: str | None, status: str | None = "発表", additions: tuple[str, ...] = ()) -> AreaWarningKind:
     return AreaWarningKind(code=code, status=status, additions=additions)
 
 
-@pytest.mark.usefixtures("_codes")
 @pytest.mark.parametrize(
-    ("code", "level"),
+    ("name", "level"),
     [
-        ("t_advisory", "advisory"),
-        ("t_warning", "warning"),
-        ("t_danger", "severe_warning"),
-        ("t_emergency", "emergency_warning"),
+        ("架空注意報", "advisory"),
+        ("架空警報", "warning"),
+        ("架空危険警報", "severe_warning"),
+        ("架空特別警報", "emergency_warning"),
     ],
 )
-def test_the_level_is_read_from_the_name(code, level):
+def test_the_level_is_read_from_the_name(name, level):
     """危険警報（警戒レベル4）は警報と特別警報の間。どちらの名称も「警報」を含む。"""
-    assert [warning.level for warning in extract_active_warnings([_kind(code)])] == [level]
+    assert warning_level(name) == level
 
 
-@pytest.mark.usefixtures("_codes")
+def _issued(code: str, additions: list[str]) -> dict:
+    name = WARNING_KINDS[code].name
+    return {"code": code, "name": name, "level": warning_level(name), "additions": additions}
+
+
 def test_issued_and_continuing_warnings_come_out_in_order_with_their_name_level_and_additions():
-    warnings = extract_active_warnings([_kind("t_emergency", "継続", ("土砂災害",)), _kind("t_advisory", "発表")])
+    warnings = extract_active_warnings([_kind(OTHER_RELEVANT, "継続", ("土砂災害",)), _kind(RELEVANT, "発表")])
 
     assert [warning.model_dump() for warning in warnings] == [
-        {"code": "t_emergency", "name": "架空特別警報", "level": "emergency_warning", "additions": ["土砂災害"]},
-        {"code": "t_advisory", "name": "架空注意報", "level": "advisory", "additions": []},
+        _issued(OTHER_RELEVANT, ["土砂災害"]),
+        _issued(RELEVANT, []),
     ]
 
 
-@pytest.mark.usefixtures("_codes")
 @pytest.mark.parametrize(
     "kind",
     [
-        _kind("t_warning", "解除"),
+        _kind(RELEVANT, "解除"),
         _kind(None, "発表警報・注意報はなし"),
-        _kind("t_irrelevant", "発表"),
+        _kind(IRRELEVANT, "発表"),
     ],
     ids=["lifted", "nothing_issued", "not_relevant_to_cycling"],
 )
@@ -74,13 +70,12 @@ def test_lifted_absent_and_irrelevant_kinds_are_left_out(kind):
     assert extract_active_warnings([kind]) == []
 
 
-@pytest.mark.usefixtures("_codes")
 def test_an_issued_code_missing_from_the_table_is_left_out_with_a_warning(caplog):
     """表が配信元より古くなった印として、運用者に見えるように出す。"""
     with caplog.at_level(logging.WARNING, logger="ridecompass.jma_warning"):
-        warnings = extract_active_warnings([_kind("t_unknown"), _kind("t_warning")])
+        warnings = extract_active_warnings([_kind("t_unknown"), _kind(RELEVANT)])
 
-    assert [warning.code for warning in warnings] == ["t_warning"]
+    assert [warning.code for warning in warnings] == [RELEVANT]
     assert any("t_unknown" in record.getMessage() for record in caplog.records)
 
 
