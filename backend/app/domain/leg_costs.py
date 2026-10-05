@@ -33,7 +33,6 @@ from app.domain.difficulty import axis_contributions_at_row, axis_weighted_sums
 from app.domain.dynamic_materials import DynamicAxisRequestContext, evaluate_dynamic_axis_arrays
 from app.domain.evaluation import AxisComposition, StaticEdgeScoreMatrix, compose_costs_from_axis_matrix
 from app.domain.route import Coordinates, SegmentWind
-from app.domain.time_zone import JST
 from app.domain.traffic import POI_COUNT_KINDS, stop_count_material_ids, stop_seconds
 from app.domain.twilight import night_mask
 from app.domain.wind import DepartureWind, WindForecastSeries, kmh_to_ms
@@ -445,7 +444,7 @@ class LegCostComposer:
         hours = np.zeros(len(bearing)) if passage is None else passage
         weights = time_scoped_weights(
             self._weights,
-            {"night_only": night_mask(self._twilight_origin, self.start.replace(tzinfo=JST), hours)},
+            {"night_only": night_mask(self._twilight_origin, self.start, hours)},
         )
         dynamic_context = DynamicAxisRequestContext(
             bearing_deg=bearing, departure_wind=self._departure_wind,

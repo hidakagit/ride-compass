@@ -9,8 +9,6 @@ NULLの意味・被覆の親の導き方、ソースごとの鮮度（DBで）�
 - 集計SQLが未計算と確定した値なしを分けて数えること → `test_derive_landcover.py`（有効画素の足りない区間をDBで数える）
 """
 
-from dataclasses import replace
-
 import asyncpg
 import pytest
 
@@ -118,8 +116,8 @@ async def test_作り直しに使った取込が成功した最新の取込で�
 
 # --- レポートの組み立て -----------------------------------------------------
 
-def _table() -> TableFreshness:
-    return TableFreshness(table_name="t", row_count=1, columns=(), coverage=None)
+def _table(*, columns: tuple[ColumnCompleteness, ...] = (), coverage: Coverage | None = None) -> TableFreshness:
+    return TableFreshness(table_name="t", row_count=1, columns=columns, coverage=coverage)
 
 
 # --- 被覆（行そのものが無いケース）---------------------------------------
@@ -156,16 +154,16 @@ async def test_生データの母数は覆うと宣言したソースの行だ�
 @pytest.mark.parametrize(("missing", "expected"), [(0, False), (1, True)])
 def test_行が欠けたかは被覆の欠けの件数で決まる(missing, expected):
     """行が無ければ値の列もNULLにならないので、完成度では分からない。"""
-    table = replace(_table(), coverage=Coverage(parent="osm_way", parent_row_count=10,
+    table = _table(coverage=Coverage(parent="osm_way", parent_row_count=10,
                                                 missing_rows=missing))
     assert table.has_missing_rows is expected
 
 
 @pytest.mark.parametrize(("table", "expected"), [
-    (replace(_table(), coverage=Coverage(parent="osm_way", parent_row_count=10, missing_rows=1)), True),
-    (replace(_table(), columns=(ColumnCompleteness(column="c", uncalculated_count=3, absent_count=0),)),
+    (_table(coverage=Coverage(parent="osm_way", parent_row_count=10, missing_rows=1)), True),
+    (_table(columns=(ColumnCompleteness(column="c", uncalculated_count=3, absent_count=0),)),
      True),                 # 値の列に未計算が残る
-    (replace(_table(), columns=(ColumnCompleteness(column="c", uncalculated_count=0, absent_count=3),)),
+    (_table(columns=(ColumnCompleteness(column="c", uncalculated_count=0, absent_count=3),)),
      False),                # 確定した値なしは作り直しでは埋まらない
 ], ids=["行が欠ける", "未計算", "確定した値なし"])
 def test_作り直しが要るかはレポートが決める(table, expected):

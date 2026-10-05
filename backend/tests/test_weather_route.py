@@ -1,18 +1,18 @@
 """`api/routers/weather.py`——天気・警報・暑さ指数・洪水予報・アメダスと、風の格子の経路。
 
 経路ごとに受け渡し（サービスの答えが応答に出ること・回数制限）を1本ずつ通し、ルーターが自分で持つ判断
-（取れなかったら502・格子が全滅したら502・対象範囲が読めなければ502・表示範囲・間隔・点の数で断る）を見る。
+（取れなかったら502・格子が読めなければ502・対象範囲が読めなければ502・表示範囲・間隔・点の数で断る）を見る。
 サービスと対象範囲（`get_ingested_area`）は依存の差し替えで与える。
 
 ここで見ないもの:
-- 予報・警報・暑さ指数・洪水予報・アメダスを取って組み立てること、格子の地点ごとの失敗を None にすること
+- 予報・警報・暑さ指数・洪水予報・アメダスを取って組み立てること、格子が読めないことを None にすること
   → 各サービスのテスト（`test_weather_service.py`・`test_warning_service.py`・`test_wbgt_service.py`・
   `test_flood_service.py`・`test_jma_amedas_service.py`）
 - 格子点の位置と数え方 → `test_wind_grid.py`
 - 対象範囲を読むこと → `test_ingested_area.py`
 - 回数制限の窓 → `test_rate_limiter.py`
 - Cache-Control の値と、失敗の応答に付けないこと → `test_cache_policy.py`
-- 範囲外の緯度経度・有限でない間隔を断ること（`Query` の制約で、FastAPI が422で返す）
+- 範囲外の緯度経度・有限でない間隔を断ること（`domain/geo.py: Latitude`・`Longitude` と `Query` の制約で、FastAPI が422で返す）
 - 点の数で断るときに格子の風を読みに行かないこと——読む先は手元に同期した予報のファイル（`infrastructure/msm_client.py`）で、
   回数・課金の約束が無い読むだけの呼び出し。作る前に断る理由（点を作る処理がイベントループを止める）は実装のコメントが持つ
 """
@@ -41,6 +41,7 @@ from app.domain.wind_grid import (
     WIND_GRID_DETAIL_MAX_POINTS,
     WIND_GRID_DETAIL_MIN_SPACING_DEG,
     WindGridPoint,
+    WindGridResponse,
     generate_wind_grid_detail_points,
     generate_wind_grid_points,
 )
@@ -114,7 +115,7 @@ def _box(min_lon: float, min_lat: float, max_lon: float, max_lat: float) -> Boun
 
 class FakeService:
     """天気の各サービスの代役。地点を問う口は与えた答えを返す。格子の口は受け取った点を残し、
-    先頭の点だけを `grid_point` で返す（残りは取れなかった地点。`grid_point` が None なら全滅）。"""
+    `grid_point` 1点の格子を返す（`grid_point` が None なら読めなかった格子）。"""
 
     def __init__(self, answer=None, grid_point=None):
         self._answer = answer
@@ -138,7 +139,7 @@ class FakeService:
 
     async def get_wind_grid(self, points):
         self.received.append(points)
-        return TIMES, [self._grid_point] + [None] * (len(points) - 1)
+        return None if self._grid_point is None else WindGridResponse(times=TIMES, points=[self._grid_point])
 
 
 @pytest.fixture(autouse=True)
@@ -213,7 +214,7 @@ def test_each_route_is_rate_limited_per_client(ingested_area, path, params, depe
     assert client.get(path, params=params).status_code == 429
 
 
-def test_the_wind_grid_covers_the_area_and_leaves_out_points_that_could_not_be_obtained(ingested_area):
+def test_the_wind_grid_covers_the_area_and_returns_what_was_read(ingested_area):
     service = _serve_weather(FakeService(grid_point=GRID_POINT))
 
     response = client.get("/api/weather/wind-grid")
@@ -223,9 +224,7 @@ def test_the_wind_grid_covers_the_area_and_leaves_out_points_that_could_not_be_o
     assert response.json() == {"times": TIMES, "points": [GRID_POINT.model_dump(mode="json")]}
 
 
-def test_the_detail_grid_covers_the_view_at_the_spacing_and_leaves_out_points_that_could_not_be_obtained(
-    ingested_area,
-):
+def test_the_detail_grid_covers_the_view_at_the_spacing_and_returns_what_was_read(ingested_area):
     view = {"min_lon": 139.70, "min_lat": 35.70, "max_lon": 139.72, "max_lat": 35.72}
     service = _serve_weather(FakeService(grid_point=GRID_POINT))
 
@@ -237,8 +236,8 @@ def test_the_detail_grid_covers_the_view_at_the_spacing_and_leaves_out_points_th
 
 
 @pytest.mark.parametrize(("path", "params"), [("/api/weather/wind-grid", {}), ("/api/weather/wind-grid-detail", VIEW)])
-def test_a_grid_whose_every_point_failed_is_a_failure(ingested_area, path, params):
-    """全地点が取れない（数値予報の同期が済んでいない等）のを空の格子で返すと、画面は風が無いのと区別できない。"""
+def test_a_grid_that_could_not_be_read_is_a_failure(ingested_area, path, params):
+    """格子が読めない（数値予報の同期が済んでいない等）のを空の格子で返すと、画面は風が無いのと区別できない。"""
     _serve_weather(FakeService(grid_point=None))
 
     response = client.get(path, params=params)

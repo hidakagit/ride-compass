@@ -3,12 +3,12 @@ import logging
 import math
 from functools import partial
 from datetime import datetime
-from typing import Annotated, Literal, cast
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import Field, PrivateAttr, RootModel, field_validator, model_validator
 
-from app.domain.time_zone import JST
+from app.domain.time_zone import JST, as_jst
 from app.api.dependencies import (
     RouteGenerationSetupOpener,
     get_route_generation_setup_opener,
@@ -31,7 +31,7 @@ from app.domain.route_request import (
     check_spliced_edge_count,
     check_waypoint_count,
 )
-from app.domain.geo import haversine_distance_km
+from app.domain.geo import Latitude, Longitude, haversine_distance_km
 from app.domain.wind import MAX_ASSUMED_SPEED_KMH, MIN_ASSUMED_SPEED_KMH
 from app.domain.route import Coordinates, RouteCandidate
 from app.infrastructure import job_registry
@@ -105,8 +105,8 @@ class HardFilterOverride(RootModel[dict[str, bool]]):
 
 
 class RouteGenerateRequest(StrictModel):
-    latitude: float = Field(ge=-90, le=90)
-    longitude: float = Field(ge=-180, le=180)
+    latitude: Latitude
+    longitude: Longitude
     # 周回の目標距離。経由地・目的地を置いたときは探索の範囲になり、置いた点からbackendが決める
     # （`_resolve_target`。送られた値は使わない）ため省略できる。
     distance_km: float | None = Field(default=None, gt=0, le=MAX_ROUTE_DISTANCE_KM)
@@ -176,7 +176,8 @@ class RouteGenerateRequest(StrictModel):
     @model_validator(mode="after")
     def _resolve_target(self) -> "RouteGenerateRequest":
         # 経由地・目的地を置いたときの距離は探索の範囲と「点が遠すぎないか」の検査に使う値で、最も遠い点より
-        # 必ず長くする。周回では距離が目標そのものなので送られた値が要る。
+        # 長くする（ただし上限`MAX_ROUTE_DISTANCE_KM`を超えないので、最も遠い点が上限ちょうどなら等しい）。
+        # 周回では距離が目標そのものなので送られた値が要る。
         points = [*(self.waypoints or []), *([self.destination] if self.destination else [])]
         if not points:
             if self.spliced_edge_ids:
@@ -208,12 +209,6 @@ class RouteGenerateRequest(StrictModel):
     def target(self) -> RouteTarget:
         """検証を通った要求が何を生成するか（周回・経由地と目的地・差し替えた経路）。"""
         return self._target
-
-
-def _resolve_start_time(value: datetime) -> datetime:
-    if value.tzinfo is None:
-        return value.replace(tzinfo=JST)
-    return value.astimezone(JST)
 
 
 class GenerationConditions(StrictModel):
@@ -344,11 +339,10 @@ async def get_generate_job(job_id: str) -> RouteGenerateJobStatusResponse:
             detail="ジョブが見つかりません[完了から時間が経過して破棄された、"
             "またはサーバーが再起動された可能性があります]",
         )
-    if record.status == "done":
+    if isinstance(record, job_registry.JobDone):
         return RouteGenerateJobDone(result=record.result)
-    if record.status == "failed":
-        # `job_registry.set_failed`は理由を必ず受け取る。
-        return RouteGenerateJobFailed(error=cast(str, record.error))
+    if isinstance(record, job_registry.JobFailed):
+        return RouteGenerateJobFailed(error=record.error)
     return RouteGenerateJobPending(status=record.status)
 
 
@@ -368,7 +362,7 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest, open_set
         )
 
         job_registry.set_running(job_id)
-        start_time = _resolve_start_time(request.start_time)
+        start_time = as_jst(request.start_time)
         target = request.target
         generated = await generate_route_candidates(
             partial(

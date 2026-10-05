@@ -11,6 +11,7 @@ from app.domain.difficulty import (
     round_difficulty,
     weighted_mean_by_distance,
 )
+from app.domain.geo import Latitude, Longitude
 from app.domain.strict_model import StrictModel
 
 
@@ -33,8 +34,8 @@ LineStringGeometry = Annotated[
 
 
 class Coordinates(StrictModel):
-    latitude: float = Field(ge=-90, le=90)
-    longitude: float = Field(ge=-180, le=180)
+    latitude: Latitude
+    longitude: Longitude
 
 
 class SegmentWind(StrictModel):

@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.domain.strict_model import StrictModel
 from app.infrastructure import derived_models
 from app.infrastructure import source_models
 from app.infrastructure.derived_data_meta import DerivedSourceRunRow
@@ -126,8 +127,13 @@ def absent_condition(table, name: str) -> str:
     return "FALSE"
 
 
-@dataclass(frozen=True)
-class ColumnCompleteness:
+class ColumnCompleteness(StrictModel, frozen=True):
+    """値の列1本ぶんの完成度。
+
+    NULLには「まだ計算していない」と「確定して値が無い」がある。どちらの件数も持ち、
+    作り直しが要る側に数えるのは前者だけ。
+    """
+
     column: str
     #: NULLのうち、まだ計算していない行の数。
     uncalculated_count: int
@@ -135,19 +141,18 @@ class ColumnCompleteness:
     absent_count: int
 
 
-@dataclass(frozen=True)
-class Coverage:
+class Coverage(StrictModel, frozen=True):
     """親に対して行が欠けていないか。"""
 
     #: 母数の呼び名（生データのソース名、または親の表名）。
     parent: str
     parent_row_count: int
-    #: 親にあって、この表に対応する行が無い件数。
+    #: 親にあって、この表に対応する行が無い件数。覆うはずの表で1件でもあれば作り直しが要る。鮮度・完成度は
+    #: これを見つけられない（行が無ければ古くもなければNULLでもない）。
     missing_rows: int
 
 
-@dataclass(frozen=True)
-class TableFreshness:
+class TableFreshness(StrictModel, frozen=True):
     table_name: str
     row_count: int
     columns: tuple[ColumnCompleteness, ...]
@@ -159,18 +164,12 @@ class TableFreshness:
         return self.coverage is not None and self.coverage.missing_rows > 0
 
 
-@dataclass(frozen=True)
-class SourceFreshness:
+class SourceFreshness(StrictModel, frozen=True):
     source: str
     #: 今の派生の表を作った取込。まだ作り直しに使っていなければNone。
     derived_run_id: int | None
     #: そのソースの成功した最新の取込。1度も成功していなければNone。
     latest_run_id: int | None
-
-    @property
-    def needs_rebuild(self) -> bool:
-        """作り直しに使った取込が、成功した最新の取込でない（どちらかが無いときも）。"""
-        return self.latest_run_id is None or self.derived_run_id != self.latest_run_id
 
 
 @dataclass(frozen=True)

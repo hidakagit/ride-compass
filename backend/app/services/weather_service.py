@@ -6,12 +6,15 @@ from app.domain.rain import StationRainMaterials
 from app.domain.msm import wind_speed_and_direction
 from app.domain.route import Coordinates
 from app.domain.twilight import sunrise_sunset_jst
-from app.domain.weather import PERIOD_INTERVAL_HOURS, WeatherConditions, daily_max, daily_range, period_outlooks, today_indices
+from app.domain.weather import (
+    PERIOD_INTERVAL_HOURS, WeatherConditions, daily_max, daily_range, period_outlooks, rounded_or_none, rounded_rows,
+    today_indices,
+)
 from app.domain.region import BoundingBox
 from app.domain.wind import (
     WIND_FORECAST_LAT_STEP_DEG, WIND_FORECAST_LON_STEP_DEG, DepartureWind, WindForecastSeries, WindLattice,
 )
-from app.domain.wind_grid import WindGridPoint
+from app.domain.wind_grid import WindGridPoint, WindGridResponse
 from app.infrastructure import msm_client
 from app.infrastructure.msm_client import MsmSeries, MsmUnavailableError
 from app.services.jma_amedas_service import load_station_rain_materials, new_rain_materials_cache
@@ -79,31 +82,30 @@ class WeatherService:
             lattice=lattice,
         )
 
-    async def get_wind_grid(self, points: list[Coordinates]) -> tuple[list[str], list[WindGridPoint | None]]:
+    async def get_wind_grid(self, points: list[Coordinates]) -> WindGridResponse | None:
         """複数地点の時間別風向・風速・降水量をまとめて取得する。特定時刻1点へ収束させず、
         予報期間ぶんの時系列をそのまま返す。
 
-        時刻配列は全地点で共通のため、戻り値の先頭要素として1本だけ返す（応答サイズ削減）。
-        MSMを読めない場合は時刻列を空、全地点をNoneとして返す。
+        MSMは全地点を1回で読むため、読めないときは地点ごとではなく格子ごと読めない（None）。
         """
         if not points:
-            return [], []
+            return WindGridResponse(times=[], points=[])
         latitudes = np.array([point.latitude for point in points], dtype=float)
         longitudes = np.array([point.longitude for point in points], dtype=float)
         try:
             series = await msm_client.read_series(latitudes, longitudes)
         except (MsmUnavailableError, OSError, ValueError, KeyError):
-            return [], [None] * len(points)
+            return None
         if not series.times:
-            return [], [None] * len(points)
+            return None
 
         speed, direction = wind_speed_and_direction(series.wind_u_ms, series.wind_v_ms)
         # 数万要素をPythonのループで丸めると地点数に比例して重くなるため、配列のまま
         # まとめて丸めてからリストへ変換する。
-        speeds = np.round(speed, 2).tolist()
-        directions = np.round(direction, 1).tolist()
-        precipitations = np.round(series.precipitation_mm, 2).tolist()
-        results: list[WindGridPoint | None] = [
+        speeds = rounded_rows(speed, 2)
+        directions = rounded_rows(direction, 1)
+        precipitations = rounded_rows(series.precipitation_mm, 2)
+        results = [
             WindGridPoint(
                 latitude=point.latitude,
                 longitude=point.longitude,
@@ -113,7 +115,7 @@ class WeatherService:
             )
             for index, point in enumerate(points)
         ]
-        return series.times, results
+        return WindGridResponse(times=series.times, points=results)
 
     def _conditions_from_series(self, point: Coordinates, series: MsmSeries) -> WeatherConditions:
         """MSMの時系列（1地点ぶん）から「今日」のパネル向けの値を組み立てる。時系列の先頭（現在時刻の
@@ -125,7 +127,7 @@ class WeatherService:
         today = today_indices(times)
 
         return WeatherConditions(
-            precipitation_mm=round(float(precipitation[0]), 2),
+            precipitation_mm=rounded_or_none(precipitation[0], 2),
             twilight=sunrise_sunset_jst(point, datetime.fromisoformat(times[0]).date()),
             precipitation_max_mm=daily_max(precipitation, today),
             wind_speed_max_ms=daily_max(speed, today),

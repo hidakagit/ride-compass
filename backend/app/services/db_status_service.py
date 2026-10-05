@@ -9,62 +9,37 @@ from datetime import datetime
 
 from app.domain.db_status import connection_attention, table_attention
 from app.domain.strict_model import StrictModel
-from app.infrastructure.db_status import DbStatusCounts, DbStatusQuery
+from app.infrastructure.db_status import (
+    ConnectionCounts,
+    DbStatusCounts,
+    DbStatusQuery,
+    ImportRunCounts,
+    TableCounts,
+)
 from app.infrastructure.debug_log import log_external_call
 from app.infrastructure.source_models import SOURCE_RUN_STATUS_LABELS, SourceRunStatus
 
 logger = logging.getLogger("ridecompass.db_status")
 
-class LatestRunEntry(StrictModel):
-    id: int
-    status: str
-    #: 走っている間はNone。
-    finished_at: datetime | None
-    #: runを識別する情報（PBF名・対象年・種別など、テーブルごとに中身が違う）。
-    identity: dict[str, str]
-    item_count: int | None
-
-
-class SucceededRunEntry(StrictModel):
-    id: int
-    finished_at: datetime
-
-
-class ImportRunEntry(StrictModel):
+class ImportRunEntry(ImportRunCounts):
     """生データ取込1種別の最終実行。派生データの世代比較はこの記録を基準にするため、
     ここが失敗したままだと鮮度の判定そのものが古い基準の上で行われる。"""
 
-    label: str
-    #: 最新のrun。
-    latest: LatestRunEntry
-    #: 成功した最新のrun。成功が1件も無ければNone。
-    latest_succeeded: SucceededRunEntry | None
     #: 最新runが成功していない。
     needs_attention: bool
     note: str
 
 
-class TableEntry(StrictModel):
+class TableEntry(TableCounts):
     """テーブル1つの実数・容量とメンテナンス状態。行数は統計値ではなく実数を数えている
     （統計はANALYZE前のテーブルで大きくずれ、取り込み漏れの検出に使えないため）。"""
 
-    table_name: str
-    row_count: int
-    total_bytes: int
-    dead_tuples: int
-    analyzed_at: datetime | None
-    vacuumed_at: datetime | None
     #: 統計が一度も取られていない、または不要行が溜まっている。
     needs_attention: bool
     note: str
 
 
-class ConnectionEntry(StrictModel):
-    total: int
-    max_connections: int
-    idle_in_transaction: int
-    longest_idle_transaction_seconds: float
-    longest_query_seconds: float
+class ConnectionEntry(ConnectionCounts):
     needs_attention: bool
     note: str
 
@@ -77,59 +52,27 @@ class DbStatusReport(StrictModel):
     database_bytes: int
 
 
-def _import_entry(counts) -> ImportRunEntry:
-    failed = counts.latest_status != SourceRunStatus.SUCCEEDED
+def _import_entry(counts: ImportRunCounts) -> ImportRunEntry:
+    status = counts.latest.status
+    failed = status != SourceRunStatus.SUCCEEDED
     note = ""
     if failed:
-        note = f"最後の取込が「{SOURCE_RUN_STATUS_LABELS.get(counts.latest_status, counts.latest_status)}」。"
+        note = f"最後の取込が「{SOURCE_RUN_STATUS_LABELS.get(status, status)}」。"
         if counts.latest_succeeded is not None:
             note += f"派生データの基準は成功した#{counts.latest_succeeded.id}のままで、それ以降の取り込みは反映されていない"
         else:
             note += "成功した取込が1件も無い"
-    return ImportRunEntry(
-        label=counts.label,
-        latest=LatestRunEntry(
-            id=counts.latest_id,
-            status=counts.latest_status,
-            finished_at=counts.latest_finished_at,
-            identity=dict(counts.latest_identity),
-            item_count=counts.latest_item_count,
-        ),
-        latest_succeeded=(
-            None
-            if counts.latest_succeeded is None
-            else SucceededRunEntry(id=counts.latest_succeeded.id, finished_at=counts.latest_succeeded.finished_at)
-        ),
-        needs_attention=failed,
-        note=note,
-    )
+    return ImportRunEntry(**dict(counts), needs_attention=failed, note=note)
 
 
-def _table_entry(counts) -> TableEntry:
+def _table_entry(counts: TableCounts) -> TableEntry:
     reasons = table_attention(counts.row_count, counts.dead_tuples, analyzed=counts.analyzed_at is not None)
-    return TableEntry(
-        table_name=counts.table_name,
-        row_count=counts.row_count,
-        total_bytes=counts.total_bytes,
-        dead_tuples=counts.dead_tuples,
-        analyzed_at=counts.analyzed_at,
-        vacuumed_at=counts.vacuumed_at,
-        needs_attention=bool(reasons),
-        note="／".join(reasons),
-    )
+    return TableEntry(**dict(counts), needs_attention=bool(reasons), note="／".join(reasons))
 
 
-def _connection_entry(counts) -> ConnectionEntry:
+def _connection_entry(counts: ConnectionCounts) -> ConnectionEntry:
     reasons = connection_attention(counts.total, counts.max_connections, counts.longest_idle_transaction_seconds)
-    return ConnectionEntry(
-        total=counts.total,
-        max_connections=counts.max_connections,
-        idle_in_transaction=counts.idle_in_transaction,
-        longest_idle_transaction_seconds=counts.longest_idle_transaction_seconds,
-        longest_query_seconds=counts.longest_query_seconds,
-        needs_attention=bool(reasons),
-        note="／".join(reasons),
-    )
+    return ConnectionEntry(**dict(counts), needs_attention=bool(reasons), note="／".join(reasons))
 
 
 def build_db_status_report(counts: DbStatusCounts, computed_at: datetime) -> DbStatusReport:

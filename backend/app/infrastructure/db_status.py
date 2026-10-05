@@ -19,6 +19,7 @@ from datetime import datetime
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.domain.strict_model import StrictModel
 from app.infrastructure.source_models import latest_succeeded_run_by_column_sql
 
 
@@ -52,29 +53,33 @@ WHERE datname = current_database() AND pid <> pg_backend_pid()
 """
 
 
-@dataclass(frozen=True)
-class SucceededRunCounts:
+class LatestRunCounts(StrictModel, frozen=True):
+    id: int
+    status: str
+    #: 走っている間はNone。
+    finished_at: datetime | None
+    #: runを識別する情報（PBF名・対象年・種別など、テーブルごとに中身が違う。`source_runs.origin`をそのまま文字列化したもの）。
+    identity: dict[str, str]
+    item_count: int | None
+
+
+class SucceededRunCounts(StrictModel, frozen=True):
     id: int
     #: 成功のrunは、閉じるときに状態と一緒に書かれる（`batch/ingest.py: _close_run`）ので必ずある。
     finished_at: datetime
 
 
-@dataclass(frozen=True)
-class ImportRunCounts:
-    """取込1ソースぶんの生値。`latest`は成否を問わない最新、`latest_succeeded`は成功した最新。"""
+class ImportRunCounts(StrictModel, frozen=True):
+    """取込1ソースぶんの生値。"""
 
     label: str
-    latest_id: int
-    latest_status: str
-    latest_finished_at: datetime | None
-    #: そのrunが何を取りに行ったか（`source_runs.origin`をそのまま文字列化したもの）。
-    latest_identity: dict[str, str]
-    latest_item_count: int | None
+    #: 成否を問わない最新のrun。
+    latest: LatestRunCounts
+    #: 成功した最新のrun。成功が1件も無ければNone。
     latest_succeeded: SucceededRunCounts | None
 
 
-@dataclass(frozen=True)
-class TableCounts:
+class TableCounts(StrictModel, frozen=True):
     table_name: str
     row_count: int
     total_bytes: int
@@ -83,8 +88,7 @@ class TableCounts:
     vacuumed_at: datetime | None
 
 
-@dataclass(frozen=True)
-class ConnectionCounts:
+class ConnectionCounts(StrictModel, frozen=True):
     total: int
     max_connections: int
     idle_in_transaction: int
@@ -128,14 +132,16 @@ class DbStatusQuery:
         imports = tuple(
             ImportRunCounts(
                 label=row["source"],
-                latest_id=int(row["latest_id"]),
-                latest_status=str(row["latest_status"]),
-                latest_finished_at=row["latest_finished_at"],
-                latest_identity={key: str(value) for key, value in row["latest_origin"].items()},
-                latest_item_count=row["latest_counts"].get("records"),
+                latest=LatestRunCounts(
+                    id=int(row["latest_id"]),
+                    status=str(row["latest_status"]),
+                    finished_at=row["latest_finished_at"],
+                    identity={key: str(value) for key, value in row["latest_origin"].items()},
+                    item_count=row["latest_counts"].get("records"),
+                ),
                 latest_succeeded=(None if row["latest_succeeded_id"] is None
-                                  else SucceededRunCounts(int(row["latest_succeeded_id"]),
-                                                          row["latest_succeeded_finished_at"])),
+                                  else SucceededRunCounts(id=int(row["latest_succeeded_id"]),
+                                                          finished_at=row["latest_succeeded_finished_at"])),
             )
             for row in (await self._session.execute(text(_IMPORT_RUNS_SQL))).mappings().all()
         )

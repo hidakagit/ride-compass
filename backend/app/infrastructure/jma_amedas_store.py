@@ -161,7 +161,10 @@ async def read_rain_history() -> RainHistory | None:
                 station_id: (float(latitude), float(longitude))
                 for station_id, (latitude, longitude) in stored["stations"].items()
             },
-            hours={_hour_from_key(hour): dict(rain) for hour, rain in stored["hours"].items()},
+            hours={
+                _hour_from_key(hour): {station_id: None if mm is None else float(mm) for station_id, mm in rain.items()}
+                for hour, rain in stored["hours"].items()
+            },
         )
     except (KeyError, TypeError, ValueError, AttributeError) as exc:
         log_throttled_warning(

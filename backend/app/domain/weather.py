@@ -1,3 +1,4 @@
+import math
 from datetime import datetime
 
 import numpy as np
@@ -91,9 +92,23 @@ def today_indices(times: list[str]) -> list[int]:
     return [index for index, t in enumerate(times) if datetime.fromisoformat(t).date() == today]
 
 
+def rounded_or_none(value: float, digits: int) -> float | None:
+    """`value`を`digits`桁へ丸めた値。格子の欠損（NaN）はNone。"""
+    return None if math.isnan(value) else round(float(value), digits)
+
+
+def rounded_rows(values: np.ndarray, digits: int) -> list[list[float | None]]:
+    """(地点, 時刻)の配列を地点ごとのリストへ丸める。格子の欠損（NaN）はNone。"""
+    rounded = np.round(values, digits).astype(object)
+    rounded[np.isnan(values)] = None
+    return rounded.tolist()
+
+
 def daily_max(values: np.ndarray, indices: list[int]) -> float | None:
-    """`indices`の時刻の最大値（小数1桁）。時刻が無ければNone。"""
-    return None if not indices else round(float(np.max(values[indices])), 1)
+    """`indices`の時刻の最大値（小数1桁）。時刻が無いか、格子の欠損（NaN）を含めばNone。"""
+    if not indices or np.isnan(values[indices]).any():
+        return None
+    return round(float(np.max(values[indices])), 1)
 
 
 def daily_range(temperature: np.ndarray, indices: list[int]) -> TemperatureRange | None:
@@ -117,8 +132,8 @@ def period_outlooks(times: list[str], temperature: np.ndarray, precipitation: np
         results.append(
             WeatherPeriodOutlook(
                 period=datetime.fromisoformat(times[index]).strftime("%H:%M"),
-                temperature_c=round(float(temperature[index]), 1),
-                precipitation_mm=round(float(precipitation[index]), 2),
+                temperature_c=rounded_or_none(temperature[index], 1),
+                precipitation_mm=rounded_or_none(precipitation[index], 2),
             )
         )
     return results

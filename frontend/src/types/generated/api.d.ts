@@ -1013,8 +1013,8 @@ export interface components {
                 [key: string]: number;
             };
         };
-        /** ColumnEntry */
-        ColumnEntry: {
+        /** ColumnCompleteness */
+        ColumnCompleteness: {
             /** Column */
             column: string;
             /** Uncalculated Count */
@@ -1046,8 +1046,8 @@ export interface components {
             /** Longitude */
             longitude: number;
         };
-        /** CoverageEntry */
-        CoverageEntry: {
+        /** Coverage */
+        Coverage: {
             /** Parent */
             parent: string;
             /** Parent Row Count */
@@ -1204,8 +1204,8 @@ export interface components {
         ImportRunEntry: {
             /** Label */
             label: string;
-            latest: components["schemas"]["LatestRunEntry"];
-            latest_succeeded: components["schemas"]["SucceededRunEntry"] | null;
+            latest: components["schemas"]["LatestRunCounts"];
+            latest_succeeded: components["schemas"]["SucceededRunCounts"] | null;
             /** Needs Attention */
             needs_attention: boolean;
             /** Note */
@@ -1299,8 +1299,8 @@ export interface components {
             /** At */
             at: string;
         };
-        /** LatestRunEntry */
-        LatestRunEntry: {
+        /** LatestRunCounts */
+        LatestRunCounts: {
             /** Id */
             id: number;
             /** Status */
@@ -1731,8 +1731,8 @@ export interface components {
             /** Needs Rebuild */
             needs_rebuild: boolean;
         };
-        /** SucceededRunEntry */
-        SucceededRunEntry: {
+        /** SucceededRunCounts */
+        SucceededRunCounts: {
             /** Id */
             id: number;
             /**
@@ -1916,11 +1916,11 @@ export interface components {
             /** Longitude */
             longitude: number;
             /** Wind Speed Ms */
-            wind_speed_ms: number[];
+            wind_speed_ms: (number | null)[];
             /** Wind Direction Deg */
-            wind_direction_deg: number[];
+            wind_direction_deg: (number | null)[];
             /** Precipitation Mm */
-            precipitation_mm: number[];
+            precipitation_mm: (number | null)[];
         };
         /** WindGridResponse */
         WindGridResponse: {
@@ -1954,9 +1954,9 @@ export interface components {
             table_name: string;
             /** Row Count */
             row_count: number;
-            coverage: components["schemas"]["CoverageEntry"] | null;
             /** Columns */
-            columns: components["schemas"]["ColumnEntry"][];
+            columns: components["schemas"]["ColumnCompleteness"][];
+            coverage: components["schemas"]["Coverage"] | null;
             /** Needs Rebuild */
             needs_rebuild: boolean;
         };

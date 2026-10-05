@@ -358,11 +358,17 @@ async def test_rain_materials_are_not_served_from_a_stale_history():
     assert await load_station_rain_materials(maps.latest_hour + RAIN_HISTORY_MAX_AGE + timedelta(minutes=1), cache) is None
 
 
-async def test_a_rain_history_stored_in_a_shape_that_cannot_be_read_serves_no_materials(fake_redis):
+@pytest.mark.parametrize("unreadable", ["latest_hour", "rainfall"])
+async def test_a_rain_history_stored_in_a_shape_that_cannot_be_read_serves_no_materials(fake_redis, unreadable):
     """保存した形は過去のコードが書いたもの。読めないまま展開すると、地図とルートの生成が500で落ちる。"""
     now = datetime.now(JST)
     await _rain_service(RainMaps(_latest_hour(now), rain_by_back={})).refresh_all_stations()
     (key,) = [key for key in await fake_redis.keys() if await fake_redis.type(key) == "string"]
-    await fake_redis.set(key, json.dumps({"latest_hour": "yesterday", "stations": {"44132": [35.69, 139.76]}, "hours": {}}))
+    stored = json.loads(await fake_redis.get(key))
+    if unreadable == "latest_hour":
+        stored["latest_hour"] = "yesterday"
+    else:
+        stored["hours"] = {stored["latest_hour"]: {station: "大雨" for station in stored["stations"]}}
+    await fake_redis.set(key, json.dumps(stored))
 
     assert await load_station_rain_materials(now, new_rain_materials_cache()) is None

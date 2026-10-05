@@ -1,9 +1,9 @@
 import math
 from collections.abc import Sequence
 
-from pydantic import Field, model_validator
+from pydantic import model_validator
 
-from app.domain.geo import KM_PER_DEGREE_LATITUDE, LatLon, km_per_degree_longitude
+from app.domain.geo import KM_PER_DEGREE_LATITUDE, Latitude, LatLon, Longitude, km_per_degree_longitude
 from app.domain.strict_model import StrictModel
 
 # 路面の地域レイヤーが配信されるXYZズームの範囲。MapLibreはminzoom未満でタイルを
@@ -21,10 +21,10 @@ class BoundingBox(StrictModel):
     黙って別の場所を指す。
     """
 
-    min_latitude: float = Field(ge=-90.0, le=90.0)
-    min_longitude: float = Field(ge=-180.0, le=180.0)
-    max_latitude: float = Field(ge=-90.0, le=90.0)
-    max_longitude: float = Field(ge=-180.0, le=180.0)
+    min_latitude: Latitude
+    min_longitude: Longitude
+    max_latitude: Latitude
+    max_longitude: Longitude
 
     @model_validator(mode="after")
     def _check_increasing(self) -> "BoundingBox":

@@ -101,15 +101,16 @@ class WindGridPoint(StrictModel):
 
     latitude: float
     longitude: float
-    wind_speed_ms: list[float]
-    wind_direction_deg: list[float]
-    precipitation_mm: list[float]
+    # 格子の欠損（NaN）の時刻はNone。
+    wind_speed_ms: list[float | None]
+    wind_direction_deg: list[float | None]
+    precipitation_mm: list[float | None]
 
 
 class WindGridResponse(StrictModel):
     """`/api/weather/wind-grid`・`wind-grid-detail`の応答本体。`times`は全格子点で共通の
     時刻配列を1本だけ持つ（各`WindGridPoint`は自分の値配列のみを持ち、インデックスは
-    `times`と揃っている）。全地点取得失敗等で`points`が空の場合は`times`も空になる。"""
+    `times`と揃っている）。格子点が1つも無いときは`points`も`times`も空になる。"""
 
     times: list[str]
     points: list[WindGridPoint]

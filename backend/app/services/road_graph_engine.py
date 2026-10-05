@@ -32,7 +32,7 @@ from datetime import datetime, timedelta
 
 import numpy as np
 
-from app.domain.time_zone import JST
+from app.domain.time_zone import JST, as_series_time
 from app.domain.traffic import highway_rank
 from app.domain.tuning import tuning_value
 from app.domain.cycling_speed import top_speed_kmh
@@ -312,8 +312,8 @@ class RoadGraphEngine:
         materials_started = time.monotonic()
         score_matrix, rain_ms = await asyncio.to_thread(_static_score_matrix, road, rain)
         materials_ms = round((time.monotonic() - materials_started) * 1000)
-        # 通過予定時刻の基準（出発時刻）。時別系列はJSTのローカル時刻のため揃える。
-        start = now.astimezone(JST).replace(tzinfo=None)
+        # 通過予定時刻の基準（出発時刻）。
+        start = as_series_time(now)
 
         # --- bbox全体ぶんのコスト配列の合成（レグごと。まず起点から離れる往路レグ） ---
         cost_started = time.monotonic()
