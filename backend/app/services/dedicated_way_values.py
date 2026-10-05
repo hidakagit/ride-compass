@@ -163,11 +163,11 @@ class DirectionalMaterialService:
         self,
         osm_way_id: int,
         feature_key: str | None,
-        z: int | None,
-        x: int | None,
-        y: int | None,
+        z: int,
+        x: int,
+        y: int,
         at: datetime | None,
-        bearing_deg: float | None,
+        bearing_deg: float,
         speed_kmh: float | None,
     ) -> dict[str, float]:
         """専用配信の材料を、指定された条件でまとめて引く。
@@ -182,8 +182,6 @@ class DirectionalMaterialService:
         値は地図のレンズが引くのと同じ経路（同じキャッシュ）から取るので、**地図の色と
         内訳が一致する**。
         """
-        if z is None or x is None or y is None:
-            return {}
         materials = {material for material in map(_served_material_of, AXIS_DEFINITIONS) if material is not None}
         query = WayValueQuery(at=at, bearing_deg=bearing_deg, speed_kmh=speed_kmh)
 

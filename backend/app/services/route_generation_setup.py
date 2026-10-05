@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from app.domain.evaluation import resolve_penalty_strength
-from app.domain.hard_filters import DEFAULT_HARD_FILTERS
 from app.domain.route import Coordinates, RouteCandidate
 from app.domain.route_preference import RoutePreference
 from app.domain.route_request import RouteTarget, SplicedTarget, WaypointsTarget, applied_max_routes
@@ -46,7 +45,7 @@ def assemble_route_generation_setup(
     preference_override: RoutePreference | None,
     penalty_strength: float | None,
     max_average_grade_percent: float | None,
-    hard_filters_override: frozenset[str] | None,
+    hard_filters: frozenset[str],
     assumed_speed_kmh: float,
     lens_axis_id: str | None,
 ) -> RouteGenerationSetup:
@@ -56,7 +55,6 @@ def assemble_route_generation_setup(
     レスポンスのconditionsへも同じ値をエコーする（画面が見る値と探索が使う値を分けない）。
     """
     preference = preference_override or RoutePreference()
-    hard_filters = hard_filters_override if hard_filters_override is not None else DEFAULT_HARD_FILTERS
     resolved_penalty_strength = resolve_penalty_strength(penalty_strength)
     engine = RoadGraphEngine(
         graph_service,

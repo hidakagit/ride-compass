@@ -2,12 +2,12 @@
 （`log_throttled_warning`）、429の記録（`record_rate_limit_rejection`）と、それらの集計（`get_stats`）。
 
 集計と警告の窓はプロセスの寿命の間残るので、テストごとに別のカテゴリ（`cat`）で数える。経過の時間と警告の窓は
-`monotonic_clock`で、失敗・成功の時刻は`clock`で進める。
+`monotonic_clock`で、失敗の時刻は`clock`で進める。
 ログは`caplog`で読む。
 
 ここで見ないもの:
 - 集計が`/api/debug/stats`の応答へどう出るか → `test_debug_stats_route.py`
-- どの呼び出し元がどのカテゴリ・cache・retries・fallbackを書くか → 呼び出し元のテスト（例: `test_simple_api_client.py`）
+- どの呼び出し元がどのカテゴリ・cache・resultを書くか → 呼び出し元のテスト（例: `test_simple_api_client.py`）
 """
 
 import logging
@@ -58,14 +58,13 @@ def call(category: str, elapsed_seconds: float = 0.0, monotonic_clock=None, **re
 
 
 class TestCounting:
-    def test_a_successful_call_is_counted_with_its_time(self, cat, clock, monotonic_clock):
+    def test_a_successful_call_is_counted_with_its_time(self, cat, monotonic_clock):
         call(cat, 0.1, monotonic_clock)
         call(cat, 0.3, monotonic_clock)
 
         stats = get_stats().external[cat]
         assert (stats.calls, stats.errors) == (2, 0)
         assert (stats.total_ms, stats.max_ms, stats.avg_ms) == (400, 300, 200)
-        assert stats.last_success_at == FROZEN_AT
         assert stats.last_error is None
 
     @pytest.mark.parametrize(
@@ -78,22 +77,6 @@ class TestCounting:
 
         stats = get_stats().external[cat]
         assert (stats.cache_hits, stats.cache_misses, stats.cache_hit_rate) == counted
-
-    def test_only_calls_that_retried_count_as_retried(self, cat):
-        call(cat, retries=2)
-        call(cat, retries=0)
-
-        stats = get_stats().external[cat]
-        assert (stats.retried_calls, stats.retry_attempts_total) == (1, 2)
-
-    @pytest.mark.parametrize(
-        ("fallback", "counted"),
-        [("stale_cache:redis", 1), ("default_value", 0), (True, 0)],
-    )
-    def test_only_a_stale_cache_fallback_counts_as_one(self, cat, fallback, counted):
-        call(cat, fallback=fallback)
-
-        assert get_stats().external[cat].stale_fallback_used == counted
 
     def test_categories_are_counted_apart_and_listed_in_name_order(self, cat):
         a, b = f"{cat}/basemap:a", f"{cat}/weather:b"
@@ -126,7 +109,6 @@ class TestFailures:
         stats = get_stats().external[cat]
         assert (stats.calls, stats.errors, stats.error_types) == (1, 1, {"ValueError": 1})
         assert (stats.last_error.type, stats.last_error.at) == ("ValueError", FROZEN_AT)
-        assert stats.last_success_at is None
         assert any("error after" in message for message in warnings_of(logs))
 
     def test_an_http_error_is_counted_by_its_status_without_the_url(self, cat):
@@ -158,9 +140,7 @@ class TestFailures:
         clock.tick(60)
         call(cat)
 
-        stats = get_stats().external[cat]
-        assert stats.last_error.at == FROZEN_AT
-        assert stats.last_success_at == "2026-01-01T00:01:00+00:00"
+        assert get_stats().external[cat].last_error.at == FROZEN_AT
 
 
 class TestLogLines:

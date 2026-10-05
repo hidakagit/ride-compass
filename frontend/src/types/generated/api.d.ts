@@ -910,13 +910,13 @@ export interface components {
             /** Feature Key */
             feature_key?: string | null;
             /** Z */
-            z?: number | null;
+            z: number;
             /** X */
-            x?: number | null;
+            x: number;
             /** Y */
-            y?: number | null;
+            y: number;
             /** Bearing Deg */
-            bearing_deg?: number | null;
+            bearing_deg: number;
             /** At */
             at?: string | null;
             /** Speed Kmh */
@@ -1164,12 +1164,6 @@ export interface components {
             calls: number;
             /** Errors */
             errors: number;
-            /** Cache Hits */
-            cache_hits: number;
-            /** Cache Misses */
-            cache_misses: number;
-            /** Total Ms */
-            total_ms: number;
             /** Max Ms */
             max_ms: number;
             /** Avg Ms */
@@ -1181,14 +1175,6 @@ export interface components {
                 [key: string]: number;
             };
             last_error: components["schemas"]["LastError"] | null;
-            /** Last Success At */
-            last_success_at: string | null;
-            /** Retried Calls */
-            retried_calls: number;
-            /** Retry Attempts Total */
-            retry_attempts_total: number;
-            /** Stale Fallback Used */
-            stale_fallback_used: number;
         };
         /** FloodForecasts */
         FloodForecasts: {
@@ -1623,40 +1609,28 @@ export interface components {
             longitude: number;
             /** Distance Km */
             distance_km?: number | null;
-            /**
-             * Distance Tolerance Km
-             * @default 5
-             */
+            /** Distance Tolerance Km */
             distance_tolerance_km: number;
-            /**
-             * Route Type
-             * @default loop
-             * @constant
-             */
-            route_type: "loop";
             route_preference?: components["schemas"]["RoutePreferenceWeights"] | null;
             /** Penalty Strength */
             penalty_strength?: number | null;
             /** Max Average Grade Percent */
             max_average_grade_percent?: number | null;
-            hard_filters?: components["schemas"]["HardFilterOverride"] | null;
-            /**
-             * Max Routes
-             * @default 8
-             */
+            hard_filters: components["schemas"]["HardFilterOverride"];
+            /** Max Routes */
             max_routes: number;
-            /**
-             * Assumed Speed Kmh
-             * @default 20
-             */
+            /** Assumed Speed Kmh */
             assumed_speed_kmh: number;
             /** Waypoints */
             waypoints?: components["schemas"]["Coordinates"][] | null;
             destination?: components["schemas"]["Coordinates"] | null;
             /** Lens Axis Id */
             lens_axis_id?: string | null;
-            /** Start Time */
-            start_time?: string | null;
+            /**
+             * Start Time
+             * Format: date-time
+             */
+            start_time: string;
             /** Spliced Edge Ids */
             spliced_edge_ids?: string[] | null;
         };
@@ -1860,7 +1834,7 @@ export interface components {
         /** TuningUpdateRequest */
         TuningUpdateRequest: {
             /** Value */
-            value?: number | null;
+            value: number | null;
         };
         /** Twilight */
         Twilight: {

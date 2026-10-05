@@ -32,7 +32,7 @@ DB接続・Redis・HTTPクライアント・レート制限・ログ・デバッ
 | infrastructure | `request_log.py` | 1リクエスト=1行のHTTPアクセスサマリログ、ログ1行の書式（リクエストIDの差し込みとJSTでの時刻整形）、500応答へのリクエストIDの付与 |
 | infrastructure | `response_compression.py` | 応答のgzip圧縮（対象content-typeのみ） |
 | infrastructure | `media_types.py` | 自前で作って配るタイルのメディアタイプ（MVT・PNG）。作る側・配る側・gzipの対象の判定が同じ値を読む |
-| infrastructure | `debug_log.py` | 外部I/O（外部API・タイル/標高キャッシュ）イベントのログと集計。集計の型（`ExternalCallStats`）はプロセス内のカウンタと`/api/debug/stats`の応答が共有する |
+| infrastructure | `debug_log.py` | 外部I/O（外部API・タイル/標高キャッシュ）イベントのログと集計。集計の型（`ExternalCallStats`）はプロセス内のカウンタと`/api/debug/stats`の応答が共有する（ヒット率・平均の計算元の回数・合計時間は応答に載せない） |
 | infrastructure | `debug_control.py` | `debug_mode`のランタイム切替・直近ログの保持 |
 | infrastructure | `admin_data_backup.py` | 管理データのバックアップが最後に置けてからの時間（`/health`が返す）。下の「取り直せない管理データのバックアップ」 |
 | infrastructure | `job_registry.py` | 汎用の非同期ジョブレジストリ（プロセス内メモリのみ） |
@@ -473,15 +473,12 @@ push型更新と同じ前提）。`JobStatus = "queued"|"running"|"done"|"failed
 ## ログ集計の詳細（`debug_log.py: log_external_call`）
 
 `log_external_call(category, **fields)`はコンテキストマネージャで、`yield`されたdictへ
-呼び出し元が`cache="hit"/"miss"`・`result="ok"/"error"`・`retries=N`等を追記してから抜けると、
+呼び出し元が`cache="hit"/"miss"`・`result="ok"/"error"`等を追記してから抜けると、
 完了ログと`/api/debug/stats`の集計へ反映される。
 
 - 例外発生、または`fields["result"]=="error"`は抑制付きWARNINGで**常時**出力する。
   例外を捕まえて既定値へ倒す呼び出し元は`mark_failed(fields, exc)`で失敗を記録する
   （結果・例外の詳細・種別のラベルをまとめて書く。警告は抜けるときにここが出す）。
 - 成功はDEBUG（`debug_mode`時のみ実質出力）。
-- 集計（`/api/debug/stats`）にはカテゴリ単位で呼び出し数・エラー数・キャッシュhit/miss・
-  平均/最大所要時間に加え、`retried_calls`/`retry_attempts_total`（再試行回数）・
-  `stale_fallback_used`（`fields["fallback"]`が`"stale_cache"`で始まる場合、古い
-  キャッシュで代用した回数）・直近のエラー種別/時刻も
-  含む。
+- 集計（`/api/debug/stats`）はカテゴリ単位で呼び出し数・エラー数・キャッシュのヒット率・
+  平均/最大所要時間・エラー種別ごとの件数・直近のエラー種別/時刻を持つ。

@@ -51,7 +51,7 @@ HARD_FILTER_LABELS: dict[str, str] = {
 # ——キー完全一致で検証するため、片方だけ増えた瞬間にすべてのルート生成が422になる。
 HARD_FILTER_NAMES: frozenset[str] = frozenset({*HARD_FILTER_TAG_PREDICATE_SQL, *HARD_FILTER_HIGHWAY_TYPES})
 
-# 既定レシピは全フィルタを常時有効にする。「受け付けるキー」と「既定でONのキー」は別の
+# 画面の既定は全フィルタを有効にする。「受け付けるキー」と「既定でONのキー」は別の
 # 概念で、たまたま一致している。
 DEFAULT_HARD_FILTERS: frozenset[str] = HARD_FILTER_NAMES
 

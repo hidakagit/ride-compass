@@ -574,8 +574,8 @@ def main() -> None:
             "wind_forecast_hours_per_leg": MAX_TIME_BINS * TIME_BIN_HOURS,
             # 区間の風を引く時刻の刻み（時刻ビンの幅）。区間の詳細の説明が評価の刻みを数字で示す。
             "wind_time_bin_hours": TIME_BIN_HOURS,
-            # フロントが使う較正値の**既定**（`domain/tuning.py`の宣言そのまま）。
-            # 実際に効いている値はGET /api/axis-catalogが返し、これはそれを取れるまでの値。
+            # フロントが使う較正値の**既定**（`domain/tuning.py`の宣言そのまま）。フロントはidの型にだけ使い、
+            # 値は読まない——効いている値はGET /api/axis-catalogが返し、取れるまではその値を使う機能を出さない。
             "client_tuning": client_tuning_values(),
             # 0次ハードフィルタのキー一覧・画面に出す名前・既定値。backendは`_check_filter_keys`で
             # **キー集合の完全一致**を要求するため、frontendが手書きで持っていると

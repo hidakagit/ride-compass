@@ -37,15 +37,10 @@ export function buildGenerateRequest(input: GenerationInput): RouteGenerateReque
     longitude: input.origin.longitude,
     ...(input.distanceKm !== null ? { distance_km: input.distanceKm } : {}),
     distance_tolerance_km: input.distanceToleranceKm,
-    route_type: "loop",
     // 主観と時間の換算レート（P）は**送らない**。このAPIでは省略が「較正値から読む」の
     // 合図で、画面から変える手段が無いのに値を載せると、管理画面で調整しても効かなくなる。
     // 画面から変えられるようになるまでは省略する。
-    // hard_filtersは一般向けルート設定画面（RouteSettingsPanel）が常時操作する対象の
-    // ため、重み上書きのようなトグルを介さず常に送る（既定値はbackendの
-    // DEFAULT_HARD_FILTERSと一致するため挙動は変わらない）。
     hard_filters: input.hardFilters,
-    // RouteGenerateRequest.max_routesは既定値を持つがrequiredのため、モードに関わらず常に送る。
     max_routes: input.maxRoutes,
     assumed_speed_kmh: input.assumedSpeedKmh,
     start_time: input.startTime.toISOString(),
