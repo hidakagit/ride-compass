@@ -1,10 +1,10 @@
-// 約束 19・20・23（見回りの判断と状況の更新。src/dispatch.js）を確かめる。設定は架空のもの（fake-github.js: config）を渡し、差し替えるのは
+// 約束 19・20・23・25（見回りの判断と状況の更新。src/dispatch.js）を確かめる。設定は架空のもの（fake-github.js: config）を渡し、差し替えるのは
 // GitHub（網）だけ。確かめるのは約束の結果（振り出す番号・At risk かどうか・書いたかどうか）。
 // ここで見ないもの: 状況の更新の文言・見回りのワークフローの止める（無効・止める時刻。bin/dispatch.js が読む値で決まる）・
 // 同じタスクの実行が1本ずつ動くこと（担当のワークフローの concurrency。GitHub の動き）・本番の /health を読むこと（readBackup。変数と網を読むだけ）。
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { pick, putStatus, ready, summary, workload } from "../src/dispatch.js";
+import { pick, putStatus, readActive, ready, summary, workload } from "../src/dispatch.js";
 import { GitHub } from "../src/github.js";
 import { notes } from "../src/rules.js";
 import { config, fakeGitHub } from "./fake-github.js";
@@ -26,6 +26,17 @@ test("20 確かめるは検証中を全部、作るは前提が閉じ・開発�
   const tasks = [task(1, config.todo, { blocked: true }), task(2, config.todo, { labels: [dev] }), task(3, config.todo, { startOn: "2026-10-05" }), task(4, config.todo, { startOn: "2026-10-04" }),
     task(5, config.todo, { priority: "下" }), task(6, config.todo, { priority: "上" }), task(7, config.todo, { urgent: true }), task(8, config.review, { blocked: true, labels: [dev] }), task(9, config.working), task(10, config.todo)];
   assert.deepEqual(ready(config, board(...tasks), [{ number: 10, kind: "作る" }], now).map((t) => t.number), [7, 6, 4, 8, 5]);
+});
+
+test("25 動いている実行は、終わっていない状態ごとに全部のページを読む: 新しい順の先頭100件より後ろの実行も落とさない", async () => {
+  // 新しい順に、終わった150件・前の実行を待つ120件（2ページ）・長く動く1件（全体の271件目）。
+  const all = [...Array.from({ length: 150 }, (_, k) => ({ id: k, status: "completed" })), ...Array.from({ length: 120 }, (_, k) => ({ id: 1000 + k, status: "pending" })), { id: 9999, status: "in_progress" }];
+  const get = async (path) => {
+    const q = new URL(path, "https://api.example").searchParams;
+    const [n, p] = [Number(q.get("per_page")), Number(q.get("page"))];
+    return { workflow_runs: all.filter((r) => r.status === q.get("status")).slice((p - 1) * n, p * n) };
+  };
+  assert.deepEqual((await readActive(get, config)).map((r) => r.id).sort((a, b) => a - b), all.filter((r) => r.status !== "completed").map((r) => r.id));
 });
 
 test("23 作業時間は作業の状態にいた区間の和で、回答待ち・未着手の待ち・記録の始まりより前の着手は数えない。想定は完成した同じ規模の作業時間を持つ直近の件の p90。記録は作業の状態のタスクとその規模の母集団の分だけ読む", async () => {
