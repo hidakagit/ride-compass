@@ -69,7 +69,7 @@ jobs:
             # するため、実際にビルドしたHEADのSHAを明示的にコンテナへ渡す（`config.py:
             # settings.git_commit`参照）。
             GIT_COMMIT=$(git rev-parse HEAD)
-            # CORS_ALLOWED_ORIGINSの自己修復（改善計画T315）: この値はgit管理外の
+            # CORS_ALLOWED_ORIGINSの自己修復: この値はgit管理外の
             # VM上の環境変数ファイルで手動管理されており、本番フロントのオリジンと
             # 食い違うと「ブラウザから直接叩くAPI（例: POST /api/routes/generate）だけが
             # TypeError: Failed to fetchで即時失敗するが、サーバー間通信を使う画面

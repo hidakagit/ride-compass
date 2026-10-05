@@ -35,7 +35,7 @@ RideCompassのログは本番のbackendコンテナのログだけで障害調�
 `/api/debug/stats`の統計（呼び出し数・エラー数・キャッシュヒット率・平均/最大所要時間）にも
 自動集計される。
 
-- カテゴリ名は`ドメイン:サービス名`形式（例: `msm:read`, `elevation:gsi-dem`,
+- カテゴリ名は`ドメイン:サービス名`形式（例: `msm:read`, `weather:jma-tile`,
   `basemap:openfreemap`）。
 - キャッシュを挟む場合は`fields["cache"] = "hit" / "miss"`を必ず設定する（ヒット率集計の元）。
 - 結果は`fields["result"] = "ok" / "error" / その他の状態`を設定する。HTTPステータスは
@@ -58,7 +58,8 @@ RideCompassのログは本番のbackendコンテナのログだけで障害調�
   `tile_persistent_cache.py`（ディスクI/O、失敗しうる）は`log_external_call`を経由せず、成功を専用loggerの
   DEBUG、失敗を`log_throttled_warning`で出す——`dynamic_way_value_cache.py`を
   読む配信サービス（`gradient_way_service.py`等）が`log_external_call`で囲み、そちらがhit/missを
-  数えるため、下の層で二重に数えない。
+  数えるため、下の層で二重に数えない。`tile_cache.py`（タイルの生バイトのディスクキャッシュ）も同じ形で、失敗を
+  `log_throttled_warning`で出し、hit/missは読むクライアント（`basemap_client.py`等）の`log_external_call`が数える。
 
 ### 429拒否 → `record_rate_limit_rejection`
 
@@ -80,8 +81,7 @@ RideCompassのログは本番のbackendコンテナのログだけで障害調�
   `request_log.py: JstLogFormatter`が行い、書式（`LOG_FORMAT`）も同モジュールが1つだけ持つ。
 - フロントのデバッグログはブラウザのローカル時刻。両者を並べて読むために時間帯を揃えてある。
 - コンテナの`TZ`は変えない（素の`datetime.now()`の意味まで変わり、スケジューラ・DBへ書く
-  時刻へ波及するため）。詳細は[modules/backend/cross-cutting-infrastructure.md]
-  (modules/backend/cross-cutting-infrastructure.md)参照。
+  時刻へ波及するため）。詳細は[modules/backend/cross-cutting-infrastructure.md](../modules/backend/cross-cutting-infrastructure.md)参照。
 
 ### 処理ステージのサマリ
 

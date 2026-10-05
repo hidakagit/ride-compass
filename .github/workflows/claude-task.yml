@@ -98,6 +98,10 @@ jobs:
       - if: steps.claim.outputs.go == 'true'
         run: npm ci
         working-directory: frontend
+      # e2e を手元で回すための Playwright の Chromium（ci.yml の e2e と同じ入れ方）。
+      - if: steps.claim.outputs.go == 'true'
+        run: npx playwright install --with-deps chromium
+        working-directory: frontend
       - name: git の名義
         if: steps.claim.outputs.go == 'true'
         run: |
