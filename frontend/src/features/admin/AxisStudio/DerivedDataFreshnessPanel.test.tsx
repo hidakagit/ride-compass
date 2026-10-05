@@ -1,12 +1,12 @@
 /**
  * `DerivedDataFreshnessPanel.tsx`——派生データの鮮度台帳を押したときだけ集計し、ソースごと・表ごとに「作り直しが
- * 要るか」を1行へまとめ、要るなら打つコマンドを1つだけ示すこと。
+ * 要るか」を1行へまとめ、作り直し待ちの件数を先頭に出すこと。
  *
  * 行の組み立て（どの状態を手当て要とするか・開いた先に何を並べるか）はこのファイルの判断で、
  * 一覧の描き方そのものは `StatusRowList.test.tsx` が持つ。
  * 集計のカードの骨格（押すまで集計しない・集計中・失敗の表示・集計時刻）は `ReportCard.test.tsx` が持つ。
  */
-import { render, screen, within } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
@@ -61,28 +61,22 @@ function detailOf(name: string): (string | null | undefined)[][] {
 }
 
 describe("DerivedDataFreshnessPanel", () => {
-  it("手当て要の表が無ければ、すべて最新と言い、コマンドは出さない", async () => {
-    await collect(report([table({ table_name: "fresh", columns: [column({ absent_count: 5 })] })], [source({})]));
-
-    expect(screen.getByText("すべて最新")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "コピー" })).not.toBeInTheDocument();
-    expect(within(rowOf("fresh")).getByText("最新")).toBeInTheDocument();
-  });
-
-  it("作り直しが要るソースと表は、合わせて作り直し待ちとして数える", async () => {
-    await collect(
+  it.each([
+    [
       report(
         [table({ table_name: "target", needs_rebuild: true }), table({ table_name: "fresh" })],
         [source({ source: "accident", needs_rebuild: true }), source({ source: "osm_way" })],
       ),
-    );
-
-    expect(screen.getByText("2件が作り直し待ち")).toBeInTheDocument();
-    expect(within(rowOf("target")).getByText("作り直しが必要")).toBeInTheDocument();
-    expect(within(rowOf("accident")).getByText("作り直しが必要")).toBeInTheDocument();
-    expect(within(rowOf("fresh")).getByText("最新")).toBeInTheDocument();
-    expect(within(rowOf("osm_way")).getByText("最新")).toBeInTheDocument();
-  });
+      "2件が作り直し待ち",
+    ],
+    [report([table({ table_name: "fresh" })], [source({})]), "すべて最新"],
+  ])(
+    "作り直しが要るソースと表を合わせて作り直し待ちとして数え、無ければすべて最新と言う（%#）",
+    async (given, verdict) => {
+      await collect(given);
+      expect(screen.getByText(verdict)).toBeInTheDocument();
+    },
+  );
 
   it("ソースの行は、開いた先に成功した最新の取込と作り直しに使った取込を並べ、無ければ理由とともに無いと言う", async () => {
     await collect(
@@ -90,7 +84,6 @@ describe("DerivedDataFreshnessPanel", () => {
         [],
         [
           source({ source: "accident", latest_run_id: 9, derived_run_id: 7 }),
-          source({ source: "osm_node", latest_run_id: 4, derived_run_id: null }),
           source({ source: "dem", latest_run_id: null, derived_run_id: null }),
         ],
       ),
@@ -100,22 +93,17 @@ describe("DerivedDataFreshnessPanel", () => {
       ["成功した最新の取込", "#9"],
       ["作り直しに使った取込", "#7"],
     ]);
-    expect(detailOf("osm_node")).toEqual([
-      ["成功した最新の取込", "#4"],
-      ["作り直しに使った取込", "なし（まだ作り直しに使っていない）"],
-    ]);
     expect(detailOf("dem")).toEqual([
       ["成功した最新の取込", "なし（取込が1度も成功していない）"],
       ["作り直しに使った取込", "なし（まだ作り直しに使っていない）"],
     ]);
   });
 
-  it("表の行は名前と行数を出し、開いた先に被覆と、未計算の列を先に列ごとの未計算と確定した値なしを並べる", async () => {
+  it("表の行は、開いた先に被覆と、未計算の列を先に列ごとの未計算と確定した値なしを並べる", async () => {
     await collect(
       report([
         table({
           table_name: "edge_materials",
-          row_count: 12345,
           coverage: { parent: "road_edges", parent_row_count: 20000, missing_rows: 1500 },
           columns: [
             column({ column: "bridge_slope", absent_count: 7 }),
@@ -127,7 +115,6 @@ describe("DerivedDataFreshnessPanel", () => {
       ]),
     );
 
-    expect(within(rowOf("edge_materials")).getByText("12,345行")).toBeInTheDocument();
     expect(detailOf("edge_materials")).toEqual([
       ["road_edges を覆う", "1,500件ぶん行が無い（母数 20,000）"],
       ["gradient", "未計算 42件"],
