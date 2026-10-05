@@ -5,6 +5,7 @@
 作った取込を記録し、生データが記録から変わっていれば途中から流さない・取込と同時に走らない・
 管理画面で変えた較正値を段へ渡す——を見る。
 段は本物を通し、読み手の目で見るための覗き窓だけを段の後ろに挟む。
+見ないもの: 取込の間に作り直しが止まること → `test_ingest.py`。
 """
 
 import asyncpg
@@ -12,14 +13,13 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.batch import derive_cli, derive_topology
+from app.batch import derive_cli
 from app.batch.common import asyncpg_dsn
 from app.batch.source_adapters.npa_honhyo import HonhyoRows
 from app.domain.accident import BICYCLE_PARTY_TYPE_CODES
 from app.domain.material_catalog import ACCIDENT_COUNT_PER_KM_YEAR
 from app.infrastructure import derived_data_meta, road_network_store
 from app.infrastructure.road_graph_repository import RoadGraphRepository
-from app.infrastructure.source_models import LATEST_SUCCEEDED_RUNS_SQL
 from tests.conftest import postgis_database_url
 from tests.source_ingest import ingest_records, point_record, way_record
 
@@ -32,11 +32,12 @@ pytestmark = [
 BASE_LON, BASE_LAT = 139.70, 35.68
 STEP = 0.001
 
-#: (道, 参照ノード列, タグ)。道100は一方通行で、作り直すと通行方向が変わる。
+#: (道, 参照ノード列, タグ)。道100を一方通行にして取り直すと、作り直しで通行方向が変わる。
 WAYS = (
-    (100, [1, 2, 3], {"highway": "residential", "oneway": "yes"}),
+    (100, [1, 2, 3], {"highway": "residential"}),
     (200, [3, 4], {"highway": "residential"}),
 )
+ONEWAY = {"oneway": "yes"}
 DERIVED = ("edge_materials", "way_materials", "road_edges", "node_materials")
 
 
@@ -55,6 +56,14 @@ ORDER BY 1, 2, 3
 """
 
 
+async def _ingest_ways(conn: asyncpg.Connection, way_100_tags: dict[str, str] | None = None) -> int:
+    """`WAYS`を取り込み、`run_id`を返す。`way_100_tags`は道100のタグに足す。"""
+    return await ingest_records("osm_way", [
+        way_record(way_id, [_point(n) for n in node_ids], node_ids,
+                   {**tags, **(way_100_tags or {})} if way_id == 100 else tags)
+        for way_id, node_ids, tags in WAYS], conn=conn)
+
+
 def _dsn() -> str:
     return asyncpg_dsn(postgis_database_url())
 
@@ -65,8 +74,7 @@ async def _revision(conn: asyncpg.Connection) -> int | None:
 
 @pytest_asyncio.fixture(loop_scope="module")
 async def derived_before(road_graph_engine, monkeypatch, tmp_path):
-    """作り直す前の状態: 区間まで作り、道の値は通行方向が既定（両方向）のまま。今の生データから作った記録がある。
-    道路網の置き場は一時ディレクトリ。
+    """作り直す前の状態: 今の生データから最初の段まで作り直し、世代1の表と道路網がある。道路網の置き場は一時ディレクトリ。
 
     `road_graph_engine`に依存するのはスキーマを作らせるため。
     """
@@ -75,12 +83,8 @@ async def derived_before(road_graph_engine, monkeypatch, tmp_path):
     try:
         await conn.execute("TRUNCATE " + ", ".join(DERIVED) + ", source_features, source_runs, derived_data_meta CASCADE")
         await ingest_records("osm_node", [point_record(n, *_point(n)) for n in range(1, 5)], conn=conn)
-        await ingest_records("osm_way", [
-            way_record(way_id, [_point(n) for n in node_ids], node_ids, tags)
-            for way_id, node_ids, tags in WAYS], conn=conn)
-        await derive_topology.derive(conn)
-        await conn.execute("INSERT INTO derived_data_meta (id, revision) VALUES (1, 5)")
-        await conn.execute(f"INSERT INTO derived_source_runs (source, run_id) {LATEST_SUCCEEDED_RUNS_SQL}")
+        await _ingest_ways(conn)
+        assert await derive_cli.run(postgis_database_url(), None) == 0
         yield conn
     finally:
         await conn.execute("DROP SCHEMA IF EXISTS " + derive_cli.WORK_SCHEMA + " CASCADE")
@@ -105,6 +109,7 @@ async def test_readers_see_the_previous_tables_until_the_swap_and_the_rebuilt_on
     """段が書き終えても、入れ替えまでは読み手は前の表を読む。入れ替えの後は、前から開いている接続の
     準備済みの文も作り直した表を読み、世代が1つ進み、その世代の道路網は作り直した表から作られている。"""
     structure_before = await derived_before.fetch(_STRUCTURE_SQL, list(DERIVED))
+    await _ingest_ways(derived_before, ONEWAY)
     reader = await asyncpg.connect(_dsn())
     try:
         direction = await reader.prepare("SELECT direction FROM way_materials WHERE osm_way_id = $1")
@@ -115,16 +120,16 @@ async def test_readers_see_the_previous_tables_until_the_swap_and_the_rebuilt_on
 
         _observe_after("ways", monkeypatch, observe)
 
-        assert await derive_cli.run(postgis_database_url(), "ways") == 0
+        assert await derive_cli.run(postgis_database_url(), None) == 0
 
-        assert seen_while_rebuilding == [("both", 5)]
+        assert seen_while_rebuilding == [("both", 1)]
         assert await direction.fetchval(100) == "forward"
-        assert await _revision(reader) == 6
+        assert await _revision(reader) == 2
     finally:
         await reader.close()
 
     network = road_network_store.load(road_network_store.latest_directory())
-    assert network.revision == 6
+    assert network.revision == 2
     directions = set(zip(network.edge_way_id.tolist(), network.edge_forward.tolist(), strict=True))
     assert (100, False) not in directions
     assert (200, False) in directions
@@ -134,19 +139,10 @@ async def test_readers_see_the_previous_tables_until_the_swap_and_the_rebuilt_on
         "SELECT count(*) FROM pg_namespace WHERE nspname = $1", derive_cli.WORK_SCHEMA) == 0
 
 
-async def test_rebuilding_from_the_first_stage_keeps_the_tables_and_their_constraints(derived_before):
-    """最初の段から流しても、区間・ノード・道の行を外部キーごと作り直して入れ替えられる。"""
-    structure_before = await derived_before.fetch(_STRUCTURE_SQL, list(DERIVED))
-
-    assert await derive_cli.run(postgis_database_url(), None) == 0
-
-    rows = await derived_before.fetch("SELECT osm_way_id, direction FROM way_materials ORDER BY osm_way_id")
-    assert [(r["osm_way_id"], r["direction"]) for r in rows] == [(100, "forward"), (200, "both")]
-    assert await derived_before.fetch(_STRUCTURE_SQL, list(DERIVED)) == structure_before
-
-
 async def test_a_failed_rebuild_changes_nothing_readers_see(derived_before, monkeypatch):
     """途中で落ちたら、表も世代も道路網の置き場も前のまま。作業用のスキーマは残らない。"""
+    network_before = road_network_store.latest_directory()
+    await _ingest_ways(derived_before, ONEWAY)
 
     async def fail():
         raise RuntimeError("段の後で落ちた")
@@ -154,12 +150,12 @@ async def test_a_failed_rebuild_changes_nothing_readers_see(derived_before, monk
     _observe_after("ways", monkeypatch, fail)
 
     with pytest.raises(RuntimeError, match="段の後で落ちた"):
-        await derive_cli.run(postgis_database_url(), "ways")
+        await derive_cli.run(postgis_database_url(), None)
 
     assert await derived_before.fetchval(
         "SELECT direction FROM way_materials WHERE osm_way_id = 100") == "both"
-    assert await _revision(derived_before) == 5
-    assert road_network_store.latest_directory() is None
+    assert await _revision(derived_before) == 1
+    assert road_network_store.latest_directory() == network_before
     assert await derived_before.fetchval(
         "SELECT count(*) FROM pg_namespace WHERE nspname = $1", derive_cli.WORK_SCHEMA) == 0
 
@@ -232,9 +228,7 @@ async def test_the_accident_density_is_divided_by_the_years_of_the_import_that_w
 
 async def test_a_rebuild_records_the_latest_succeeded_import_of_every_source(derived_before):
     """入れ替えた後、全ソースの成功した最新の取込が、今の表を作った取込として記録されている。後から失敗した取込は記録しない。"""
-    way_run = await ingest_records("osm_way", [
-        way_record(way_id, [_point(n) for n in node_ids], node_ids, tags)
-        for way_id, node_ids, tags in WAYS], conn=derived_before)
+    way_run = await _ingest_ways(derived_before)
     node_run = await ingest_records("osm_node", [point_record(n, *_point(n)) for n in range(1, 5)],
                                     conn=derived_before)
 
@@ -252,17 +246,15 @@ async def test_a_rebuild_records_the_latest_succeeded_import_of_every_source(der
 
 async def test_rebuilding_from_a_stage_stops_after_an_import_until_rebuilt_from_the_first_stage(derived_before):
     """生データを取り直した後は、途中の段からは流さず何も変えない。最初から流した後は、途中の段から流せる。"""
-    await ingest_records("osm_way", [
-        way_record(way_id, [_point(n) for n in node_ids], node_ids, tags)
-        for way_id, node_ids, tags in WAYS], conn=derived_before)
+    await _ingest_ways(derived_before)
 
     with pytest.raises(RuntimeError, match="--from を外して最初から流す"):
         await derive_cli.run(postgis_database_url(), "ways")
-    assert await _revision(derived_before) == 5
+    assert await _revision(derived_before) == 1
 
     assert await derive_cli.run(postgis_database_url(), None) == 0
     assert await derive_cli.run(postgis_database_url(), "ways") == 0
-    assert await _revision(derived_before) == 7
+    assert await _revision(derived_before) == 3
 
 
 async def test_an_import_is_refused_while_a_rebuild_runs(derived_before, monkeypatch):
