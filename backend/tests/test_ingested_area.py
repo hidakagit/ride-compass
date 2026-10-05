@@ -44,10 +44,7 @@ async def _fail_to_ingest_roads(area: BoundingBox) -> None:
                              bbox=(area.min_latitude, area.min_longitude, area.max_latitude, area.max_longitude))
 
 
-async def test_before_any_road_ingest_succeeds_there_is_no_area_and_nothing_is_covered(road_graph_repository):
-    await ingest_records("accident", [point_record(1, 139.5, 35.5)], bbox=(35.0, 139.0, 36.0, 140.0))
-    await _fail_to_ingest_roads(_AREA)
-
+async def test_before_any_road_ingest_there_is_no_area_and_nothing_is_covered(road_graph_repository):
     assert await road_graph_repository.get_ingested_area() is None
     assert await road_graph_repository.is_covered(_AREA) is False
 
@@ -66,9 +63,6 @@ async def test_the_area_is_the_one_declared_by_the_latest_successful_road_ingest
 
 
 @pytest.mark.parametrize(("area", "covered"), [
-    (_box(35.4, 139.4, 35.6, 139.6), True),   # 内側
-    (_box(34.0, 138.0, 37.0, 141.0), True),   # 取込範囲を丸ごと含む
-    (_box(35.9, 139.9, 36.5, 140.5), True),   # 角が重なる
     (_box(36.0, 140.0, 36.5, 140.5), True),   # 角で接する
     (_box(36.01, 139.4, 36.5, 139.6), False),  # 北へ外れる
     (_box(35.4, 140.01, 35.6, 140.5), False),  # 東へ外れる

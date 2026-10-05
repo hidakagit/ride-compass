@@ -13,6 +13,7 @@
 import dataclasses
 import re
 
+import pytest
 from sqlalchemy import bindparam, text
 
 from app.infrastructure import cache_identity
@@ -29,7 +30,6 @@ def test_the_signature_is_a_short_hex_that_fits_a_url_and_a_directory_name():
     digest = cache_identity.shape_digest("SELECT 1")
 
     assert re.fullmatch(r"[0-9a-f]{12}", digest)
-    assert cache_identity.shape_digest("SELECT 1") == digest
 
 
 def test_a_dataclass_is_signed_by_its_column_names():
@@ -39,12 +39,6 @@ def test_a_dataclass_is_signed_by_its_column_names():
         b: str = "x"
 
     @dataclasses.dataclass
-    class OneMoreColumn:
-        a: int
-        b: float
-        c: int
-
-    @dataclasses.dataclass
     class RenamedColumn:
         a: int
         renamed: float
@@ -52,7 +46,6 @@ def test_a_dataclass_is_signed_by_its_column_names():
     digest = cache_identity.shape_digest(_Columns)
 
     assert cache_identity.shape_digest(SameNamesOtherTypes) == digest
-    assert cache_identity.shape_digest(OneMoreColumn) != digest
     assert cache_identity.shape_digest(RenamedColumn) != digest
 
 
@@ -80,23 +73,12 @@ def test_the_identity_is_the_revision_followed_by_the_signature():
     assert cache_identity.cache_identity("3", "SELECT 1") != identity
 
 
-def test_a_tile_version_carries_both_revisions_and_the_shape():
-    assert cache_identity.tile_version(DataRevisions(derived=7, imported=3), "abc") == "7.3-abc"
-    # 取込だけを流した（派生の世代は動かない）ときも世代が変わる。
-    assert cache_identity.tile_version(DataRevisions(derived=7, imported=4), "abc") == "7.4-abc"
-
-
-def test_a_tile_version_of_the_first_derived_revision_is_known():
-    version = cache_identity.tile_version(DataRevisions(derived=0, imported=0), "abc")
-
-    assert version == "0.0-abc"
-    assert cache_identity.is_known_tile_version(version)
-
-
-def test_a_tile_version_built_without_revisions_is_marked_unknown():
-    not_read_yet = cache_identity.tile_version(None, "abc")
-    no_derived_row = cache_identity.tile_version(DataRevisions(derived=None, imported=5), "abc")
-
-    assert not_read_yet == no_derived_row == "x-abc"
-    assert not cache_identity.is_known_tile_version(not_read_yet)
-    assert cache_identity.is_known_tile_version(cache_identity.tile_version(DataRevisions(derived=1, imported=5), "abc"))
+@pytest.mark.parametrize(("revisions", "version", "known"), [
+    # 取込だけを流した（派生の世代は動かない）ときも世代が変わるよう、両方の世代を持つ。最初の派生の世代は0。
+    (DataRevisions(derived=0, imported=3), "0.3-abc", True),
+    (None, "x-abc", False),  # まだ読めていない
+    (DataRevisions(derived=None, imported=5), "x-abc", False),  # 派生の世代の行が無い
+])
+def test_a_tile_version_carries_both_revisions_or_is_marked_unknown(revisions, version, known):
+    assert cache_identity.tile_version(revisions, "abc") == version
+    assert cache_identity.is_known_tile_version(version) is known

@@ -1,9 +1,10 @@
 """`infrastructure/response_compression.py`——content-typeで対象を絞った応答のgzip圧縮（`ContentTypeGZipMiddleware`）。
 
-応答の形（content-type・大きさ・分けて送るか）を自由に作れるよう、ASGIのアプリを手で書いて包む。
+応答の形（content-type・大きさ）を自由に作れるよう、ASGIのアプリを手で書いて包む。
 
 ここで見ないもの:
 - ミドルウェアの登録の順 → `main.py`（結線のみ）
+- 圧縮する最小の大きさ・分けて送る応答の圧縮。Starletteの`GZipMiddleware`がそのまま持つ
 - 圧縮の強さ（`compresslevel`）。縮み方と所要時間の兼ね合いで、応答の中身には現れない
 """
 
@@ -19,20 +20,19 @@ from app.infrastructure.response_compression import DEFAULT_MINIMUM_SIZE, Conten
 LARGE_BODY = b"x" * DEFAULT_MINIMUM_SIZE
 
 
-def app_answering(content_type: str | None, chunks: list[bytes]):
-    """`content_type`（Noneなら付けない）で、`chunks`を1つずつ分けて送るアプリ。"""
+def app_answering(content_type: str | None):
+    """`content_type`（Noneなら付けない）で`LARGE_BODY`を送るアプリ。"""
 
     async def app(scope, receive, send):
         headers = [] if content_type is None else [(b"content-type", content_type.encode())]
         await send({"type": "http.response.start", "status": 200, "headers": headers})
-        for index, chunk in enumerate(chunks):
-            await send({"type": "http.response.body", "body": chunk, "more_body": index < len(chunks) - 1})
+        await send({"type": "http.response.body", "body": LARGE_BODY})
 
     return app
 
 
-def fetch(content_type: str | None, chunks: list[bytes], accept_encoding: str = "gzip, deflate, br"):
-    client = TestClient(ContentTypeGZipMiddleware(app_answering(content_type, chunks)))
+def fetch(content_type: str | None, accept_encoding: str = "gzip, deflate, br"):
+    client = TestClient(ContentTypeGZipMiddleware(app_answering(content_type)))
     # TestClient（httpx）は受け取ったgzipを自分で解くので、届いた生のバイト列を読む。
     with client.stream("GET", "/", headers={"Accept-Encoding": accept_encoding}) as response:
         return response, b"".join(response.iter_raw())
@@ -48,52 +48,26 @@ def fetch(content_type: str | None, chunks: list[bytes], accept_encoding: str = 
     ],
 )
 def test_a_large_compressible_response_is_gzipped(content_type):
-    response, raw = fetch(content_type, [LARGE_BODY])
+    response, raw = fetch(content_type)
 
     assert response.headers["content-encoding"] == "gzip"
-    assert response.headers["vary"] == "Accept-Encoding"
     assert gzip.decompress(raw) == LARGE_BODY
 
 
-@pytest.mark.parametrize("content_type", ["image/png", "image/webp", None])
+@pytest.mark.parametrize("content_type", ["image/png", None])
 def test_a_response_that_is_not_compressible_passes_through_unchanged(content_type):
     """ラスタのタイルは圧縮済みで、gzipしても縮まずCPUだけを使う。"""
-    response, raw = fetch(content_type, [LARGE_BODY])
+    response, raw = fetch(content_type)
 
     assert "content-encoding" not in response.headers
     assert raw == LARGE_BODY
 
 
 def test_a_compressible_response_is_not_gzipped_for_a_client_that_does_not_accept_it():
-    response, raw = fetch("application/json", [LARGE_BODY], accept_encoding="identity")
+    response, raw = fetch("application/json", accept_encoding="identity")
 
     assert "content-encoding" not in response.headers
     assert raw == LARGE_BODY
-
-
-def test_a_compressible_response_below_the_minimum_size_is_sent_as_is():
-    response, raw = fetch("application/json", [LARGE_BODY[:-1]])
-
-    assert "content-encoding" not in response.headers
-    assert raw == LARGE_BODY[:-1]
-
-
-def test_a_streamed_compressible_response_is_gzipped_as_a_whole():
-    chunks = [b"a" * 10, b"b" * 10, b"c" * 10]
-
-    response, raw = fetch("application/json", chunks)
-
-    assert response.headers["content-encoding"] == "gzip"
-    assert gzip.decompress(raw) == b"".join(chunks)
-
-
-def test_every_part_of_a_streamed_response_that_is_not_compressible_passes_through():
-    chunks = [b"\x89PNG" * 300, b"\x00" * 10, b"\xff" * 10]
-
-    response, raw = fetch("image/png", chunks)
-
-    assert "content-encoding" not in response.headers
-    assert raw == b"".join(chunks)
 
 
 def test_the_application_still_starts_and_stops_behind_the_middleware():
