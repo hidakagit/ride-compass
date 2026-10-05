@@ -14,7 +14,7 @@
  * 違反（どれか1つ）:
  * 1. 反復対象がその場で`.filter(...)`を経ている（絞った後の母集団に名前が無く、空でないことを主張できない）
  * 2. ループ本体の条件を通らないと確かめに届かない——片側にだけ確かめがある`if`・三項・`catch`・
- *    `&&`/`||`/`??`の右側、または本体の`continue`・`break`（`.forEach`ではコールバック直下の`return`）
+ *    `&&`/`||`/`??`の右側、または本体の`continue`・`break`・`return`（入れ子の関数の中のものは除く）
  * 3. 反復対象の名前が`.filter(...)`で束ねられていて、同じ関数（テストのコールバック）に、その名前か、
  *    件数を変えずにそれを写した名前が空でないことの主張が無い。主張として読む形:
  *    `expect(xs).toHaveLength(n)`（n>0）・`expect(xs).not.toHaveLength(0)`・
@@ -275,11 +275,10 @@ function gatedOnOneSide(assertion: ts.Node, body: ts.Node): boolean {
   return false;
 }
 
-function isGated(body: ts.Node, isCallback: boolean): boolean {
+function isGated(body: ts.Node): boolean {
   let gated = false;
   const visit = (node: ts.Node) => {
-    if (ts.isContinueStatement(node) || ts.isBreakStatement(node)) gated = true;
-    if (isCallback && ts.isReturnStatement(node)) gated = true;
+    if (ts.isContinueStatement(node) || ts.isBreakStatement(node) || ts.isReturnStatement(node)) gated = true;
     if (isAssertionCall(node) && gatedOnOneSide(node, body)) gated = true;
   };
   visit(body);
@@ -297,11 +296,11 @@ function assertedTruth(matcher: string, argument: ts.Expression | undefined): bo
   return undefined;
 }
 
-type ElementCheck = { iterable: ts.Expression; body?: ts.Node; isCallback: boolean };
+type ElementCheck = { iterable: ts.Expression; body?: ts.Node };
 
 function elementCheck(node: ts.Node): ElementCheck | undefined {
   if ((ts.isForOfStatement(node) || ts.isForInStatement(node)) && containsAssertion(node.statement)) {
-    return { iterable: node.expression, body: node.statement, isCallback: false };
+    return { iterable: node.expression, body: node.statement };
   }
   if (
     ts.isCallExpression(node) &&
@@ -314,7 +313,7 @@ function elementCheck(node: ts.Node): ElementCheck | undefined {
       (ts.isArrowFunction(callback) || ts.isFunctionExpression(callback)) &&
       containsAssertion(callback.body)
     ) {
-      return { iterable: node.expression.expression, body: callback.body, isCallback: true };
+      return { iterable: node.expression.expression, body: callback.body };
     }
   }
   const call = matcherCall(node);
@@ -325,7 +324,7 @@ function elementCheck(node: ts.Node): ElementCheck | undefined {
   if ((quantifier !== "every" && quantifier !== "some") || truthy === undefined) return undefined;
   // 空の配列では every が真・some が偽になるので、その向きを主張していれば空で素通りする
   if ((quantifier === "every") === (truthy !== call.negated)) {
-    return { iterable: call.subject.expression.expression, isCallback: false };
+    return { iterable: call.subject.expression.expression };
   }
   return undefined;
 }
@@ -349,7 +348,7 @@ function findVacuousLoops(file: string, text: string): Finding[] {
         const names = filteredNames(check.iterable, node);
         if (names && !hasNonEmptyAssertion(enclosingFunction(node), names)) report(node, NOT_ASSERTED);
       }
-      if (check.body && isGated(check.body, check.isCallback)) report(node, GATED);
+      if (check.body && isGated(check.body)) report(node, GATED);
     }
     ts.forEachChild(node, visit);
   };
@@ -401,6 +400,7 @@ describe("要素ごとの確かめが空の母集団で素通りしない", () =
       expect(reasons(`for (const x of xs) { try { run(x); } catch { expect(x).toBe(1); } }`)).toEqual([GATED]);
       expect(reasons(`for (const x of xs) { if (!x.a) continue; expect(x).toBe(1); }`)).toEqual([GATED]);
       expect(reasons(`for (const x of xs) { if (!x.a) break; expect(x).toBe(1); }`)).toEqual([GATED]);
+      expect(reasons(`for (const x of xs) { if (!x.a) return; expect(x).toBe(1); }`)).toEqual([GATED]);
       expect(reasons(`xs.forEach((x) => { if (!x.a) return; expect(x).toBe(1); });`)).toEqual([GATED]);
     });
 

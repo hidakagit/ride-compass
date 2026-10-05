@@ -4,16 +4,15 @@
 チェックアウトで打った道具は、古いコードで判定し、本番へ古いコードを流す。結果がコードの版に
 左右される道具は、実行口でここを呼んで、遅れていれば止まる。
 
-    python scripts/checkout_freshness.py          # 遅れていれば理由と追いつくコマンドを出して終了コード1
-    python scripts/checkout_freshness.py --sync   # SessionStart フック用。下の条件のときだけ早送りし、結果を1行出す
+    python scripts/checkout_freshness.py   # 遅れていれば理由と追いつくコマンドを出して終了コード1
 
 遅れの定義は「origin/master が HEAD の祖先でない」。作業ブランチでも、origin/master の上に
 載っていれば遅れていない。作業ツリーの変更は遅れに数えない——作業ツリーの変更は今まさに
 確かめたいコードであり、古いコードではないため。
 
-早送り（`--sync`）は、master にいて、追跡しているファイルに変更が無いときだけ打つ。ほかの枝・
-変更のある作業ツリーには触らず、遅れを出すだけにする——並行のセッションが同じ作業ツリーで
-作業している最中かもしれないため。
+実行口から呼ぶ`require_current`は、遅れていれば早送りしてから進む。早送りは、master にいて、
+追跡しているファイルに変更が無いときだけ打つ。ほかの枝・変更のある作業ツリーには触らず、遅れを
+出して止まる——並行のセッションが同じ作業ツリーで作業している最中かもしれないため。
 """
 
 from __future__ import annotations
@@ -76,47 +75,27 @@ def staleness(repo: Path = REPO_ROOT) -> str | None:
             f"古いコードで判定しないよう止まる。追いつく: {_catch_up_command(repo)}")
 
 
-def _fast_forward(repo: Path) -> str | None:
-    """master にいて変更が無ければ早送りする。早送りしたら None、しなければ（できなければ）その理由。"""
+def _fast_forward(repo: Path) -> bool:
+    """master にいて変更が無ければ早送りする。早送りできたかを返す。"""
     if _branch(repo) != BRANCH or _dirty(repo):
-        return "master でないか変更があるので触らない"
-    result = _git(repo, "merge", "-q", "--ff-only", UPSTREAM)
-    if result.returncode == 0:
-        return None
-    return "早送りできなかった（" + (result.stderr.strip().splitlines() or [f"終了コード {result.returncode}"])[-1] + "）"
+        return False
+    return _git(repo, "merge", "-q", "--ff-only", UPSTREAM).returncode == 0
 
 
 def require_current(repo: Path = REPO_ROOT) -> None:
     """遅れていれば、master にいて変更が無いときだけ早送りして進む。追いつけなければ（確かめられなければ）説明を出して止まる。"""
     behind = _behind(repo)
-    if isinstance(behind, int) and behind and _fast_forward(repo) is None:
+    if isinstance(behind, int) and behind and _fast_forward(repo):
         print(f"{repo} を {UPSTREAM} へ {behind} コミット早送りした", file=sys.stderr)
     message = staleness(repo)
     if message:
         raise SystemExit(message)
 
 
-def sync(repo: Path = REPO_ROOT) -> str:
-    """master にいて変更が無ければ早送りする。何をしたか（しなかったか）を1行で返す。"""
-    behind = _behind(repo)
-    if isinstance(behind, str):
-        return f"チェックアウトの遅れ: 確かめられなかった（{behind}）"
-    if not behind:
-        return f"チェックアウトの遅れ: なし（{UPSTREAM} を含む）"
-    skipped = _fast_forward(repo)
-    if skipped is None:
-        return f"チェックアウトの遅れ: {UPSTREAM} へ {behind} コミット早送りした"
-    return f"チェックアウトの遅れ: {UPSTREAM} より {behind} コミット遅れ（{skipped}）。追いつく: {_catch_up_command(repo)}"
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--sync", action="store_true", help="条件を満たすときだけ早送りし、結果を1行出す（常に0で終わる）")
-    args = parser.parse_args(argv)
-    if args.sync:
-        print(sync())
-        return 0
+    parser.parse_args(argv)
     message = staleness()
     if message:
         print(message, file=sys.stderr)

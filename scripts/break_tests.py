@@ -17,7 +17,8 @@ testing.md「そのテストは要るか（3問を順に）」の、消す・ま
 - 1件ずつ、実装の before を after へ置き換え → その件のテストだけを回す（frontend/ は vitest、backend/ は pytest）→ 元の中身を
   書き戻す → `git diff --exit-code HEAD -- <実装>` で戻ったことを見る。テストが止まっても止められても、書き戻してから終わる。
 - `--ref` を渡すと、その版の同じパスのテストを元の隣へ一時の名前で書き出して一緒に回し、前の版で落ちたテストを別に出す
-  （前の版が落ちて今のテストが通れば、まとめた先が見ていない）。書き出したものは終わるときに消す。
+  （前の版が落ちて今のテストが通れば、まとめた先が見ていない）。書き出したものは終わるときに消す。その版に無いテストの
+  ファイル（新しく足したもの）は書き出さず、件ごとにその版に無いと出す（前の版はその壊れ方で何も落ちない）。
 - 件ごとに落ちたテストの名前を出し、最後に今のテストが1本も落ちなかった件を並べる。そうした件があれば終了コード 1、断ったら 2。
 - テストの結果は標準出力から拾わず、作業ツリーの外の一時のファイルへ書かせて読む（vitest の JSON・pytest の JUnit XML）。
   frontend の vitest の設定は JSON の報告を作業ツリーの中へ書くので、標準出力には出ない。
@@ -100,11 +101,13 @@ def ref_copy(test: str) -> str:
 def ref_copies(repo: Path, ref: str | None, tests: list[str]) -> Iterator[dict[str, str]]:
     """--ref の版のテストを書き出し、一時の名前から元のパスへの対応を渡す。抜けるときに消す。"""
     written: dict[str, str] = {}
+    if ref and _git(repo, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}").returncode != 0:
+        raise Refused(f"版が無い: {ref}")
     try:
         for test in tests if ref else []:
             shown = _git(repo, "show", f"{ref}:{test}")
-            if shown.returncode != 0:
-                raise Refused(f"{ref} にテストが無い: {test}")
+            if shown.returncode != 0:  # その版に無いテストのファイルは、前の版では何も見ていない
+                continue
             copy = ref_copy(test)
             if (repo / copy).exists():
                 raise Refused(f"一時の名前が既にある: {copy}")
@@ -211,6 +214,9 @@ def run(repo: Path, breakages: list[Breakage], ref: str | None) -> int:
             if ref:
                 print(f"  落ちた（{ref} のテスト）: {len(before)}本")
                 print("".join(f"    {file} > {name}\n" for file, name in before), end="")
+                absent = [test for test in b.tests if test not in copy_of]
+                if absent:
+                    print(f"  {ref} に無いテストのファイル: {', '.join(absent)}")
             print("  実装は戻った")
             if not now:
                 silent.append(f"[{number}] {b.name}")

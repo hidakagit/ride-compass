@@ -43,6 +43,8 @@ describe("maplibre-gl の代役", () => {
     map.on("click", onMap);
     map.on("click", "routes", onRoutes);
     map.on("click", "bands", onBands);
+    map.addLayer({ id: "routes", type: "line", source: "routes" });
+    map.addLayer({ id: "bands", type: "line", source: "bands" });
 
     mapOnScreen().click(AT, [{ layer: "routes", properties: { index: 1 } }]);
 
@@ -68,6 +70,16 @@ describe("maplibre-gl の代役", () => {
     map.setStyle("https://tiles.test/style.json?t=1");
     expect(mapOnScreen().sourceFeatures("routes")).toEqual([]);
     expect(mapOnScreen().styles).toEqual(["https://tiles.test/style.json", "https://tiles.test/style.json?t=1"]);
+    map.remove();
+  });
+
+  it("無い・隠したレイヤーの地物は押せない（MapLibre は押した所に返さない）", () => {
+    const map = drawMap();
+    map.addLayer({ id: "hidden", type: "line", source: "routes", layout: { visibility: "none" } });
+
+    for (const layer of ["missing", "hidden"]) {
+      expect(() => mapOnScreen().click(AT, [{ layer, properties: {} }])).toThrow("描かれていないレイヤー");
+    }
     map.remove();
   });
 

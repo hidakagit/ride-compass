@@ -2,7 +2,7 @@
  * `RouteSettingsPanel/RouteSettingsPanel.tsx`——「重み」タブ。配分の帯（区間・区切りのドラッグと矢印キー）と軸のチップ。
  *
  * 見るもの: 軸一覧を取れないときの告知と再試行、公開軸ごとのチップ（有効な軸を先に・割合・押して有効/無効）、
- * 有効に戻したときの重み（既定が0なら決まった小さな値、既定が後から変わったときの追い方と帯で動かした値）、
+ * 有効に戻したときの重み（既定が0なら backend が宣言する値、既定が後から変わったときの追い方と帯で動かした値）、
  * 帯に置く有効な軸と、区間に書く文字の落とし方（境界ちょうどの割合）、区切り（隣り合う有効な軸ごと・累積の割合）を矢印キーと
  * ドラッグで動かして上がる2軸の重み、重みを変えると上書きの状態にすること。
  *
@@ -21,7 +21,7 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { WEIGHT_STEP } from "@/features/route/routeWeightShare";
+import { ENABLED_AXIS_WEIGHT, WEIGHT_STEP } from "@/features/route/routeWeightShare";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
 import { inTurn, onBackend, serveAxisCatalog } from "@/testing/backendServer";
 import { catalogEntry, catalogResponse } from "@/testing/catalogAxes";
@@ -146,14 +146,19 @@ describe("RouteSettingsPanel 軸のチップ", () => {
     expect(onOverrideEnabledChange).toHaveBeenCalledExactlyOnceWith(true);
   });
 
-  it("既定の重みが0の軸を有効にすると、0.1にする", async () => {
+  it("既定の重みが0の軸を有効にすると、backendが宣言する入れたときの重みにする", async () => {
     serveCatalog();
     const { onRoutePreferenceChange } = renderPanel({ width: 0.5, traffic: 0.3, slope: 0.2, light: 0 });
     await chipsShown();
 
     await userEvent.click(chip("街灯を有効にする"));
 
-    expect(onRoutePreferenceChange).toHaveBeenLastCalledWith({ width: 0.5, traffic: 0.3, slope: 0.2, light: 0.1 });
+    expect(onRoutePreferenceChange).toHaveBeenLastCalledWith({
+      width: 0.5,
+      traffic: 0.3,
+      slope: 0.2,
+      light: ENABLED_AXIS_WEIGHT,
+    });
   });
 
   it("既定の重みが後から変わったら、動かしていない軸の戻し先はその値に、動かした軸は動かした値のままにする", async () => {

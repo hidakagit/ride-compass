@@ -131,7 +131,7 @@ async def _products_in_priority(conn: asyncpg.Connection) -> list[tuple[str, int
     return [(p, zooms[p][0]) for p in PRODUCT_PRIORITY if p in zooms]
 
 
-async def derive_elevation(conn: asyncpg.Connection) -> int:
+async def _derive_elevation(conn: asyncpg.Connection) -> int:
     started = time.perf_counter()
     products = await _products_in_priority(conn)
     await conn.execute(_RESET_ELEVATION)
@@ -256,7 +256,7 @@ FROM (
 
 async def derive(conn: asyncpg.Connection) -> None:
     async with conn.transaction():
-        await derive_elevation(conn)
+        await _derive_elevation(conn)
         await derive_landcover(conn)
         await conn.execute(_reset_landcover_sql("way_materials"))
         await conn.execute(_way_rollup_sql())

@@ -169,10 +169,11 @@ describe("useStoredBooleanState", () => {
   });
 
   it("真偽値でない保存値は、既定値として扱う", () => {
+    // 真と読める値を、既定値の偽と並べる（既定値と同じ値にすると、真偽へ読み替える作りと見分けない）。
     window.localStorage.setItem(KEY, '"true"');
 
-    const { result } = renderHook(() => useStoredBooleanState(KEY, true));
+    const { result } = renderHook(() => useStoredBooleanState(KEY, false));
 
-    expect(result.current[0]).toBe(true);
+    expect(result.current[0]).toBe(false);
   });
 });

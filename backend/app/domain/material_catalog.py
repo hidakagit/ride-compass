@@ -38,7 +38,7 @@ from app.domain.landcover import (
     landcover_key,
     landcover_tile_property,
 )
-from app.domain.registry import DisplayAxisSpec, DisplayCategorySpec, PrimaryAttributeSpec
+from app.domain.registry import DisplayAxisSpec, DisplayCategorySpec, PointFactSpec, PrimaryAttributeSpec
 
 from app.domain.material_sql import (
     BICYCLE_NORMALIZED_SQL,
@@ -694,16 +694,19 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
                         label="死亡事故",
                         values=(True,),
                         description="死者が1人以上記録された事故[警察庁の交通事故統計の死者数]。",
+                        radius_px=6,
                     ),
                     DisplayCategorySpec(
                         key="non_fatal",
                         label="死亡以外",
                         values=(False,),
                         description="死者の記録が無い事故（負傷事故）。",
+                        radius_px=3,
                     ),
                 ),
             ),
         ),
+        point_facts=(PointFactSpec(property="occurred_year", label="発生年"),),
     ),
     _ATTR_INTERSECTION := PrimaryAttributeSpec(attr_id="intersection", label="交差点", geometry="point"),
     _ATTR_LANDCOVER := PrimaryAttributeSpec(attr_id="landcover", label="緑と水", geometry="area"),

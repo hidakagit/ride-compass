@@ -270,10 +270,12 @@ async def test_evaluation_that_does_not_answer_every_route_is_an_error():
 # ---- 周回 ----
 
 
-def test_turnaround_pool_can_always_fill_the_requested_routes_and_is_capped():
+def test_turnaround_pool_can_always_fill_the_requested_routes_and_fits_the_diverse_selection():
+    """折返し点の候補は、求める件数を下回らず、渡す先の多様な選定（`domain/routing.py: select_diverse_by_overlap`）が
+    採れる件数（採用済みを64bitのマスクで持つため64件）を超えない。"""
     for max_routes in range(1, route_generator.MAX_ROUTES + 1):
         pool = route_generator.turnaround_pool_size(max_routes)
-        assert max_routes <= pool <= route_generator.TURNAROUND_POOL_MAX
+        assert max_routes <= pool <= 64
 
 
 async def test_loops_without_turnarounds_say_how_far_was_searched(caplog):

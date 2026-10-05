@@ -9,6 +9,9 @@
  * ここで見ないもの:
  * - 下書きからpayloadを組み立てて送ること（素通しの項目を含む往復） → `AxisComposer.test.tsx`
  * - しきい値の入力欄と段階プレビュー → `AxisMapDisplaySection.test.tsx`
+ * - しきい値のまとめ入力の区切りの種類ごと（全角の「，」「、」等）と、小数・負の数 → 区切りは書かれた並び
+ *   （`/[,，、\s]+/`）の値ごとで宣言の書き写し、小数・負は`Number.isFinite`の真の側で、どちらも残した行と同じ側
+ *   （testing.md「そのテストは要るか」の表の行の決まり）
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 

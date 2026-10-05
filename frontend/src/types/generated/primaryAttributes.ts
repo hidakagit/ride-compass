@@ -4,6 +4,7 @@ export const primaryAttributes = [
     "attr_id": "highway",
     "label": "道路の種類",
     "geometry": "line",
+    "point_facts": [],
     "tile_kind": "road_surface",
     "display_axes": [
       {
@@ -82,6 +83,7 @@ export const primaryAttributes = [
     "attr_id": "lanes",
     "label": "車線数",
     "geometry": "line",
+    "point_facts": [],
     "tile_kind": null,
     "display_axes": []
   },
@@ -89,6 +91,7 @@ export const primaryAttributes = [
     "attr_id": "maxspeed",
     "label": "制限速度",
     "geometry": "line",
+    "point_facts": [],
     "tile_kind": null,
     "display_axes": []
   },
@@ -96,6 +99,7 @@ export const primaryAttributes = [
     "attr_id": "cycleway",
     "label": "自転車インフラ",
     "geometry": "line",
+    "point_facts": [],
     "tile_kind": null,
     "display_axes": []
   },
@@ -103,6 +107,7 @@ export const primaryAttributes = [
     "attr_id": "surface",
     "label": "路面の種類",
     "geometry": "line",
+    "point_facts": [],
     "tile_kind": "road_surface",
     "display_axes": [
       {
@@ -164,6 +169,7 @@ export const primaryAttributes = [
     "attr_id": "tracktype",
     "label": "農道・林道の等級",
     "geometry": "line",
+    "point_facts": [],
     "tile_kind": "road_surface",
     "display_axes": [
       {
@@ -225,6 +231,7 @@ export const primaryAttributes = [
     "attr_id": "motor_vehicle_access",
     "label": "自動車通行可否",
     "geometry": "line",
+    "point_facts": [],
     "tile_kind": null,
     "display_axes": []
   },
@@ -232,6 +239,7 @@ export const primaryAttributes = [
     "attr_id": "lit",
     "label": "街灯",
     "geometry": "line",
+    "point_facts": [],
     "tile_kind": null,
     "display_axes": []
   },
@@ -239,6 +247,7 @@ export const primaryAttributes = [
     "attr_id": "tunnel",
     "label": "トンネル",
     "geometry": "line",
+    "point_facts": [],
     "tile_kind": "road_surface",
     "display_axes": [
       {
@@ -264,6 +273,7 @@ export const primaryAttributes = [
     "attr_id": "oneway",
     "label": "一方通行",
     "geometry": "line",
+    "point_facts": [],
     "tile_kind": "road_surface",
     "display_axes": [
       {
@@ -289,6 +299,7 @@ export const primaryAttributes = [
     "attr_id": "elevation",
     "label": "標高図",
     "geometry": "area",
+    "point_facts": [],
     "tile_kind": null,
     "display_axes": []
   },
@@ -296,6 +307,7 @@ export const primaryAttributes = [
     "attr_id": "stop_poi",
     "label": "停止要因",
     "geometry": "point",
+    "point_facts": [],
     "tile_kind": "poi",
     "display_axes": [
       {
@@ -376,6 +388,12 @@ export const primaryAttributes = [
     "attr_id": "accident_point",
     "label": "事故[警察庁統計]",
     "geometry": "point",
+    "point_facts": [
+      {
+        "property": "occurred_year",
+        "label": "発生年"
+      }
+    ],
     "tile_kind": "accident",
     "display_axes": [
       {
@@ -415,7 +433,8 @@ export const primaryAttributes = [
             "values": [
               true
             ],
-            "description": "死者が1人以上記録された事故[警察庁の交通事故統計の死者数]。"
+            "description": "死者が1人以上記録された事故[警察庁の交通事故統計の死者数]。",
+            "radius_px": 6
           },
           {
             "key": "non_fatal",
@@ -423,7 +442,8 @@ export const primaryAttributes = [
             "values": [
               false
             ],
-            "description": "死者の記録が無い事故（負傷事故）。"
+            "description": "死者の記録が無い事故（負傷事故）。",
+            "radius_px": 3
           }
         ],
         "missing_semantics": null
@@ -434,6 +454,7 @@ export const primaryAttributes = [
     "attr_id": "intersection",
     "label": "交差点",
     "geometry": "point",
+    "point_facts": [],
     "tile_kind": null,
     "display_axes": []
   },
@@ -441,6 +462,7 @@ export const primaryAttributes = [
     "attr_id": "landcover",
     "label": "緑と水",
     "geometry": "area",
+    "point_facts": [],
     "tile_kind": null,
     "display_axes": []
   },
@@ -448,6 +470,7 @@ export const primaryAttributes = [
     "attr_id": "supply_poi",
     "label": "補給・休憩ポイント",
     "geometry": "point",
+    "point_facts": [],
     "tile_kind": "poi",
     "display_axes": [
       {

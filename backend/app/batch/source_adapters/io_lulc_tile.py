@@ -16,6 +16,7 @@ from app.batch.ingest import SourceRecord, file_origin, register_adapter
 from app.batch.source_adapters.raster_wkb import tile_bbox_wkb, tile_raster_wkb
 from app.batch.source_profile import SourceProfile, SourceSpec
 from app.domain.region import BoundingBox, tiles_covering_bbox
+from app.infrastructure.source_models import SourceFeatureRow
 
 logger = logging.getLogger("ridecompass.ingest.io_lulc_tile")
 
@@ -27,7 +28,7 @@ class LulcGrid:
     zoom: int
 
 
-@register_adapter("io_lulc_tile", grid=LulcGrid)
+@register_adapter("io_lulc_tile", grid=LulcGrid, required=(SourceFeatureRow.rast,))
 async def read_lulc_tiles(spec: SourceSpec, profile: SourceProfile,
                           origin: dict[str, Any]) -> AsyncIterator[SourceRecord]:
     # rasterioのimport順の制約（PROJデータの固定）を持つモジュールを経由して読む。

@@ -30,7 +30,7 @@ import { CLIENT_TUNING_IDS } from "@/lib/axisCatalog";
 import { heldReplies, serveAxisCatalog } from "@/testing/backendServer";
 import { catalogEntry, catalogResponse } from "@/testing/catalogAxes";
 import { serveGenerationJobs } from "@/testing/generationJobs";
-import { makeRouteCandidate } from "@/testing/routeFixtures";
+import { makeRouteCandidate, routeThrough, type Places } from "@/testing/routeFixtures";
 import type { GenerationConditions, RouteCandidate } from "@/types/route";
 
 import { useSpliceSession } from "./useSpliceSession";
@@ -40,61 +40,34 @@ const CATALOG = catalogResponse([catalogEntry({ axis_id: "axis_a", default_weigh
 });
 const CATALOG_WITHOUT_MIN_STRETCH = catalogResponse([catalogEntry({ axis_id: "axis_a", default_weight: 1 })]);
 
-// 地点（[経度, 緯度]）。P0→P1→P2→P3が元の道で、P1とP2の間を、QかRを通る別の道が結ぶ。
-const P0 = [139.7, 35.6];
-const P1 = [139.71, 35.6];
-const P2 = [139.72, 35.6];
-const P3 = [139.73, 35.6];
-const Q = [139.715, 35.61];
-const R = [139.715, 35.605];
+// 地点（[経度, 緯度]）。n0→n1→n2→n3が元の道で、n1とn2の間を、nqかnrを通る別の道が結ぶ。
+const PLACES: Places = {
+  n0: [139.7, 35.6],
+  n1: [139.71, 35.6],
+  n2: [139.72, 35.6],
+  n3: [139.73, 35.6],
+  nq: [139.715, 35.61],
+  nr: [139.715, 35.605],
+};
 
-/** Edge 1本ごとに地点1つずつ進む候補。`stops`は通る地点の名前と位置（最後は終点）。 */
-function routeThrough(id: string, edgeIds: string[], stops: [string, number[]][]): RouteCandidate {
-  return makeRouteCandidate({
-    id,
-    edge_ids: edgeIds,
-    node_ids: stops.map(([node]) => node),
-    edge_point_offsets: stops.map((_, index) => index),
-    geometry: { type: "LineString", coordinates: stops.map(([, position]) => position) },
-  });
+/** 地点を順に通る候補。Edgeの境界の位置は座標の位置と食い違う（`testing/routeFixtures.ts: routeThrough`）。 */
+function route(id: string, names: readonly string[]): RouteCandidate {
+  return makeRouteCandidate({ id, ...routeThrough(PLACES, names) });
 }
 
-// 元: P1→P2を1本（e2）で進む。
-const BASE = routeThrough(
-  "base",
-  ["e1", "e2", "e3"],
-  [
-    ["n0", P0],
-    ["n1", P1],
-    ["n2", P2],
-    ["n3", P3],
-  ],
-);
-// 別の道: P1→Q→P2（q1・q2）。
-const VIA_Q = routeThrough(
-  "via-q",
-  ["e1", "q1", "q2", "e3"],
-  [
-    ["n0", P0],
-    ["n1", P1],
-    ["nq", Q],
-    ["n2", P2],
-    ["n3", P3],
-  ],
-);
-// Qまでは同じで、Q→P2をRを通って進む（r1・r2）。Qの道へ乗り換えた後に、次の分かれ道になる。
-const VIA_Q_R = routeThrough(
-  "via-q-r",
-  ["e1", "q1", "r1", "r2", "e3"],
-  [
-    ["n0", P0],
-    ["n1", P1],
-    ["nq", Q],
-    ["nr", R],
-    ["n2", P2],
-    ["n3", P3],
-  ],
-);
+/** 地点を順に通る線の座標。 */
+const line = (...names: string[]) => routeThrough(PLACES, names).geometry.coordinates;
+/** 地点を順に通るEdge id。 */
+const edges = (...names: string[]) => routeThrough(PLACES, names).edge_ids;
+
+// 元: n1→n2を1本で進む。
+const BASE = route("base", ["n0", "n1", "n2", "n3"]);
+// 別の道: n1→nq→n2。
+const VIA_Q = route("via-q", ["n0", "n1", "nq", "n2", "n3"]);
+// nqまでは同じで、nq→n2をnrを通って進む。nqの道へ乗り換えた後に、次の分かれ道になる。
+const VIA_Q_R = route("via-q-r", ["n0", "n1", "nq", "nr", "n2", "n3"]);
+// 評価が返す、どの候補とも違う道。
+const ELSEWHERE = edges("n0", "n1", "nq", "n3");
 
 const BASIS: GenerationInput = {
   origin: { latitude: 35.6, longitude: 139.7 },
@@ -240,33 +213,35 @@ describe("編集", () => {
       hasAlternatives: true,
       preview: null,
     });
-    expect(result.current.map.splicedRoute).toEqual([P0, P1, P2, P3]);
-    expect(result.current.map.spliceStretches.map((stretch) => stretch.coordinates)).toEqual([[P1, Q, P2]]);
+    expect(result.current.map.splicedRoute).toEqual(line("n0", "n1", "n2", "n3"));
+    expect(result.current.map.spliceStretches.map((stretch) => stretch.coordinates)).toEqual([line("n1", "nq", "n2")]);
   });
 
   it("乗り換え先を選ぶとその道へ乗り換え、乗り換えた経路から次の乗り換え先を出す。1つ戻す・全部戻すで戻る", async () => {
     const rendered = renderSplice({ routes: [BASE, VIA_Q, VIA_Q_R] });
     await startEditing(rendered);
     const viaQ = rendered.result.current.map.spliceStretches.findIndex(
-      (stretch) => JSON.stringify(stretch.coordinates) === JSON.stringify([P1, Q, P2]),
+      (stretch) => JSON.stringify(stretch.coordinates) === JSON.stringify(line("n1", "nq", "n2")),
     );
 
     tapStretch(rendered, viaQ);
     expect(rendered.result.current.panel?.appliedCount).toBe(1);
-    expect(rendered.result.current.map.splicedRoute).toEqual([P0, P1, Q, P2, P3]);
-    expect(rendered.result.current.map.spliceStretches.map((stretch) => stretch.coordinates)).toEqual([[Q, R, P2]]);
+    expect(rendered.result.current.map.splicedRoute).toEqual(line("n0", "n1", "nq", "n2", "n3"));
+    expect(rendered.result.current.map.spliceStretches.map((stretch) => stretch.coordinates)).toEqual([
+      line("nq", "nr", "n2"),
+    ]);
 
     tapStretch(rendered);
     expect(rendered.result.current.panel?.appliedCount).toBe(2);
-    expect(rendered.result.current.map.splicedRoute).toEqual([P0, P1, Q, R, P2, P3]);
+    expect(rendered.result.current.map.splicedRoute).toEqual(line("n0", "n1", "nq", "nr", "n2", "n3"));
 
     act(() => rendered.result.current.panel?.onUndo());
     expect(rendered.result.current.panel?.appliedCount).toBe(1);
-    expect(rendered.result.current.map.splicedRoute).toEqual([P0, P1, Q, P2, P3]);
+    expect(rendered.result.current.map.splicedRoute).toEqual(line("n0", "n1", "nq", "n2", "n3"));
 
     act(() => rendered.result.current.panel?.onReset());
     expect(rendered.result.current.panel?.appliedCount).toBe(0);
-    expect(rendered.result.current.map.splicedRoute).toEqual([P0, P1, P2, P3]);
+    expect(rendered.result.current.map.splicedRoute).toEqual(line("n0", "n1", "n2", "n3"));
   });
 
   it("地図から知らない乗り換え先が届いても何も変えない", async () => {
@@ -328,7 +303,7 @@ describe("差分を見る", () => {
     const rendered = renderSplice();
     await startEditing(rendered);
     tapStretch(rendered);
-    const result = evaluated(["e1", "q1", "q2", "e3"]);
+    const result = evaluated(VIA_Q.edge_ids);
     respond([result]);
 
     await press(rendered.result.current.panel?.onPreview);
@@ -341,7 +316,7 @@ describe("差分を見る", () => {
       assumed_speed_kmh: BASIS.assumedSpeedKmh,
       route_preference: BASIS.routePreference,
       destination: { ...BASIS.destination },
-      spliced_edge_ids: ["e1", "q1", "q2", "e3"],
+      spliced_edge_ids: VIA_Q.edge_ids,
     });
     expect(rendered.result.current.panel?.preview).toEqual(result);
 
@@ -380,7 +355,7 @@ describe("差分を見る", () => {
     expect(jobs.submitted).toHaveLength(1);
 
     await act(async () => {
-      await pending.resolve([evaluated(["e1", "q1", "q2", "e3"])]);
+      await pending.resolve([evaluated(VIA_Q.edge_ids)]);
       await first;
     });
     expect(rendered.result.current.panel?.previewing).toBe(false);
@@ -422,7 +397,7 @@ describe("差分を見る", () => {
 
     act(() => rendered.result.current.panel?.onCancel());
     await act(async () => {
-      await pending.resolve([evaluated(["e1", "q1", "q2", "e3"])]);
+      await pending.resolve([evaluated(VIA_Q.edge_ids)]);
       await first;
     });
     expect(rendered.result.current.editingRoute).toBeNull();
@@ -439,7 +414,7 @@ describe("作成", () => {
     const rendered = renderSplice();
     await startEditing(rendered);
     tapStretch(rendered);
-    const created = evaluated(["e1", "q1", "x", "e3"]);
+    const created = evaluated(ELSEWHERE);
     const pending = deferredEvaluation();
     let applying: unknown;
     act(() => {
@@ -458,6 +433,20 @@ describe("作成", () => {
     expect(rendered.result.current.editingRoute).toBeNull();
   });
 
+  it("差分を見た組み合わせは、作るときに投げ直さず、見た評価で作る", async () => {
+    const rendered = renderSplice();
+    await startEditing(rendered);
+    tapStretch(rendered);
+    const created = evaluated(ELSEWHERE);
+    respond([created]);
+
+    await press(rendered.result.current.panel?.onPreview);
+    await press(rendered.result.current.panel?.onApply);
+
+    expect(jobs.submitted).toHaveLength(1);
+    expect(rendered.onApplied).toHaveBeenCalledWith({ created, originId: "base" });
+  });
+
   it("作った経路が既にある候補と同じ道なら、作らずにその候補を渡す", async () => {
     const rendered = renderSplice();
     await startEditing(rendered);
@@ -473,7 +462,7 @@ describe("作成", () => {
     const rendered = renderSplice();
     await startEditing(rendered);
     tapStretch(rendered);
-    respond([evaluated(["e1", "q1", "x", "e3"])]);
+    respond([evaluated(ELSEWHERE)]);
 
     await act(async () => {
       const apply = rendered.result.current.panel?.onApply;
@@ -510,7 +499,7 @@ describe("作成", () => {
     expect(rendered.result.current.panel?.error).toBe(message);
     expect(rendered.result.current.panel?.applying).toBe(false);
 
-    respond([evaluated(["e1", "q1", "x", "e3"])]);
+    respond([evaluated(ELSEWHERE)]);
     await press(rendered.result.current.panel?.onApply);
     expect(rendered.onApplied).toHaveBeenCalledTimes(1);
   });

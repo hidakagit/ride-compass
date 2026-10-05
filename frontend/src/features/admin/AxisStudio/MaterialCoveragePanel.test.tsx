@@ -4,6 +4,10 @@
  *
  * 群の見出し・説明と母集団の名前はbackendの宣言（生成物 `vocabulary.ts`）が配るため、期待値もそこから引く。
  * 集計のカードの骨格（押すまで集計しない・集計中・失敗の表示・集計時刻）は `ReportCard.test.tsx` が持つ。
+ *
+ * ここで見ないもの:
+ * - 材料名の説明（`title`）に判定根拠を出すこと → 受けた判定根拠をそのまま属性へ渡す1行の委譲（testing.md「そのテストは
+ *   要るか」の1問目）
  */
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";

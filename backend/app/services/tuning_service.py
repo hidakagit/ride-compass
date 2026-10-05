@@ -25,7 +25,7 @@ from app.infrastructure.tuning_overrides import (
 logger = logging.getLogger("ridecompass.tuning")
 
 
-def apply_tuning_values(values: dict[str, float]) -> None:
+def _apply_tuning_values(values: dict[str, float]) -> None:
     """`load_tuning_values`が作った値を、プロセス内の`TUNING_VALUES`へ反映する。
 
     **中身だけを差し替える**（辞書そのものを作り直すと、import済みの参照が古い辞書を
@@ -40,7 +40,7 @@ def apply_tuning_values(values: dict[str, float]) -> None:
 
 async def refresh_tuning_values(session: AsyncSession) -> None:
     """DBの上書きを読み、プロセス内の`TUNING_VALUES`へ反映する（起動時の読み込み）。"""
-    apply_tuning_values(await load_tuning_values(session))
+    _apply_tuning_values(await load_tuning_values(session))
 
 
 async def overridden_parameter_ids(session: AsyncSession) -> set[str]:
@@ -68,4 +68,4 @@ async def save_override(session: AsyncSession, param_id: str, value: float | Non
     except Exception:
         await session.rollback()
         raise
-    apply_tuning_values(values)
+    _apply_tuning_values(values)

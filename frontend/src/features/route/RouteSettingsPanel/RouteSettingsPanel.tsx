@@ -3,7 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
 import { axisIconFor } from "@/components/ui/icons/axisIconPalette";
-import { MAX_AXIS_WEIGHT, WEIGHT_STEP, clampBoundaryDrag, totalWeight } from "@/features/route/routeWeightShare";
+import {
+  ENABLED_AXIS_WEIGHT,
+  MAX_AXIS_WEIGHT,
+  WEIGHT_STEP,
+  clampBoundaryDrag,
+  totalWeight,
+} from "@/features/route/routeWeightShare";
 import { retryAxisCatalogFetch, useAxisCatalog } from "@/hooks/useAxisCatalog";
 import type { CatalogAxis } from "@/lib/catalogAxis";
 import type { RoutePreferenceWeights } from "@/types/route";
@@ -71,7 +77,7 @@ export default function RouteSettingsPanel({
 
   // 覚えた重みは既定か、帯で動かした値（下限より上）なので、0になるのは既定の重みが0の軸だけ。
   function handleToggle(axisId: string, checked: boolean) {
-    const restored = checked ? lastWeights[axisId] || 0.1 : 0;
+    const restored = checked ? lastWeights[axisId] || ENABLED_AXIS_WEIGHT : 0;
     handlePreferenceChange({ ...routePreference, [axisId]: restored });
   }
 

@@ -98,7 +98,7 @@ _TRAFFIC_CALMING_VALUES: frozenset[str] = frozenset(
     }
 )
 
-# 停止要因POIのkind正準集合（SQL側のkindフィルタ用）。補給POI（SupplyPoiKind）も同じ
+# 停止要因POIのkind正準集合（SQL側のkindフィルタ用）。補給POI（_SupplyPoiKind）も同じ
 # `node_materials.kind`に入っているため、kindを絞らないCOUNTは停止密度へコンビニ・
 # 自販機を誤算入する。停止要因を数える・まとめるSQLは必ずこの集合でフィルタする。
 #
@@ -213,14 +213,14 @@ def place_count_sql(inside_ends: str) -> str:
     return f"CASE {inside_ends} WHEN 0 THEN 1.0 WHEN 1 THEN {PLACE_SHARE_PER_END} ELSE 0 END"
 
 
-SupplyPoiKind = Literal[
+_SupplyPoiKind = Literal[
     "convenience", "vending_drinks", "vending_unknown", "toilets", "drinking_water", "bicycle_parking"
 ]
 
 #: `node_materials.kind`の語彙。`tag_kind_sql`が付けうる種別で、表の検査制約もここから作る。
-NODE_KINDS: frozenset[str] = STOP_POI_KINDS | frozenset(get_args(SupplyPoiKind))
+NODE_KINDS: frozenset[str] = STOP_POI_KINDS | frozenset(get_args(_SupplyPoiKind))
 
-_AMENITY_SUPPLY_KINDS: dict[str, SupplyPoiKind] = {
+_AMENITY_SUPPLY_KINDS: dict[str, _SupplyPoiKind] = {
     "toilets": "toilets",
     "drinking_water": "drinking_water",
     "bicycle_parking": "bicycle_parking",
@@ -305,7 +305,7 @@ _VENDING_MACHINE = ("amenity", "vending_machine")
 #: 補給・休憩の種別が付きうるタグ（タグ名, 値）。自販機は何を売るかによらず含む。
 SUPPLY_POI_TAGS: frozenset[tuple[str, str]] = frozenset(
     (tag_key, value) for tag_key, value, kind, _priority in TAG_KIND_RULES
-    if kind in get_args(SupplyPoiKind)) | {_VENDING_MACHINE}
+    if kind in get_args(_SupplyPoiKind)) | {_VENDING_MACHINE}
 
 
 def has_supply_poi_tag(tags: Mapping[str, str]) -> bool:

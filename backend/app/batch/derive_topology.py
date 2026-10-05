@@ -41,7 +41,6 @@ CROSS JOIN LATERAL (
           |  get_byte(w.payload, i * 8    )::bigint) ORDER BY i) AS node_ids
   FROM generate_series(0, octet_length(w.payload) / 8 - 1) AS i
 ) d
-WHERE w.payload IS NOT NULL
 """
 
 #: 切る位置は両端と「2本以上の道が通るノード」。始点と終点が同じになる区間は、閉じた線に
