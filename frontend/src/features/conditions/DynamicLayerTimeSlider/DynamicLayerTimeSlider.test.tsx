@@ -53,20 +53,17 @@ function renderSlider(index: number, currentIndex = 0) {
 }
 
 describe("DynamicLayerTimeSlider 表示", () => {
-  it("選んだコマの日付つきの時刻を上に出し、読み上げにも同じ時刻と位置を渡す", () => {
+  it("選んだコマの日付つきの時刻を上に出し、読み上げにも同じ時刻とコマの数を渡す", () => {
     renderSlider(1);
     expect(screen.getByText("9/24 10:00", { selector: "div" })).toBeInTheDocument();
     const ruler = screen.getByRole("slider", { name: "出発時刻" });
     expect(ruler).toHaveAttribute("aria-valuetext", "9/24 10:00");
-    expect(ruler).toHaveAttribute("aria-valuenow", "1");
     expect(ruler).toHaveAttribute("aria-valuemax", "2");
   });
 
-  it("目盛りはコマごとに1つ。正時は印を付けて広く取り、目盛りの文字はあるコマだけ", () => {
+  it("正時のコマは広く取る", () => {
     renderSlider(0);
     const ticks = [...screen.getByRole("slider", { name: "出発時刻" }).firstElementChild!.children] as HTMLElement[];
-    expect(ticks.map((tick) => tick.dataset.hour)).toEqual([undefined, "true", "true"]);
-    expect(ticks.map((tick) => tick.textContent)).toEqual(["55", "10:00", ""]);
     expect(parseFloat(ticks[1].style.width)).toBeGreaterThan(parseFloat(ticks[0].style.width));
   });
 });

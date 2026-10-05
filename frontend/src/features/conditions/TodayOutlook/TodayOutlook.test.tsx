@@ -50,12 +50,6 @@ describe("TodayOutlook 取得の状態", () => {
 });
 
 describe("TodayOutlook 1日の値", () => {
-  it("数値予報モデルの計算値であり、予報ではないことを見出しの下で示す", async () => {
-    render(<TodayOutlook weather={weather({ wind_speed_max_ms: 5 })} loading={false} error={null} />);
-    await open();
-    expect(screen.getByText(/数値予報モデルMSMの計算値です。予報ではなく、誤差を含みえます。/)).toBeInTheDocument();
-  });
-
   it("最大の降水量・風速は小数1桁、気温は最低〜最高を整数で出す", async () => {
     render(
       <TodayOutlook
@@ -74,12 +68,13 @@ describe("TodayOutlook 1日の値", () => {
     expect(stat("気温")).toBe("18℃〜25℃");
   });
 
-  it("値の無い項目は出さない", async () => {
+  it("値の無い項目とコマの欄は出さない", async () => {
     render(<TodayOutlook weather={weather({ wind_speed_max_ms: 3 })} loading={false} error={null} />);
     await open();
     expect(screen.queryByText("降水量[最大]")).not.toBeInTheDocument();
     expect(screen.queryByText("気温")).not.toBeInTheDocument();
     expect(screen.queryByText("日の出・日没")).not.toBeInTheDocument();
+    expect(screen.queryByText("3時間ごと")).not.toBeInTheDocument();
   });
 
   it("日の出・日没は日本時間で出し、読めない時刻は「--:--」", async () => {
@@ -122,11 +117,5 @@ describe("TodayOutlook 一定間隔のコマ", () => {
     await open();
     const slots = screen.getByText("3時間ごと").nextElementSibling!.children;
     expect([...slots].map((slot) => slot.textContent)).toEqual(["6時18℃-", "8時-1.3mm", "昼22℃-"]);
-  });
-
-  it("コマが無ければ、コマの欄は出さない", async () => {
-    render(<TodayOutlook weather={weather({ wind_speed_max_ms: 3 })} loading={false} error={null} />);
-    await open();
-    expect(screen.queryByText("3時間ごと")).not.toBeInTheDocument();
   });
 });

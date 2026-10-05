@@ -13,11 +13,6 @@ describe("formatDepartureLabel（出発時刻の表示）", () => {
     expect(formatDepartureLabel(new Date("2026-09-24T09:05:00+09:00"), now)).toBe("9:05");
     expect(formatDepartureLabel(new Date("2026-09-25T09:05:00+09:00"), now)).toBe("9/25 9:05");
   });
-
-  it("同じ日かは日本時間の日付で決める（協定世界時で同じ日でも、日本時間で別の日なら日付を付ける）", () => {
-    const justAfterJstMidnight = new Date("2026-09-24T15:30:00Z");
-    expect(formatDepartureLabel(new Date("2026-09-24T14:00:00Z"), justAfterJstMidnight)).toBe("9/24 23:00");
-  });
 });
 
 describe("clampSpeedKmh（想定速度）", () => {

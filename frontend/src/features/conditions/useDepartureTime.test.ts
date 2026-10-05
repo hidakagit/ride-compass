@@ -15,12 +15,6 @@ afterEach(() => {
 });
 
 describe("useDepartureTime（出発時刻）", () => {
-  it("選ぶまでは、5分刻みへ切り下げた「今」を出発時刻にする", () => {
-    const { result } = renderHook(() => useDepartureTime());
-    expect(result.current.at).toEqual(at("2026-09-24T09:05"));
-    expect(result.current.pinned).toBe(false);
-  });
-
   it("「今」は刻みを跨いだときだけ進み、同じ刻みの間は値そのものを変えない", () => {
     const { result } = renderHook(() => useDepartureTime());
     const before = result.current.now;

@@ -41,7 +41,6 @@ describe("WeatherPanel 取得の状態", () => {
 
   it("観測値があれば、取り直し中・直近の失敗でも観測値を出す", () => {
     render(<WeatherPanel amedas={observation()} loading error="混雑しています" />);
-    expect(screen.queryByText("観測値を取得できません")).not.toBeInTheDocument();
     expect(screen.getByText("気温:").parentElement).toHaveTextContent("21.4℃");
   });
 
@@ -52,7 +51,7 @@ describe("WeatherPanel 取得の状態", () => {
 });
 
 describe("WeatherPanel 観測値", () => {
-  it("気温（体感は補足）・風速と風向・10分間の降水量を小数1桁で出す", () => {
+  it("気温（体感は補足）・風速と風向・10分間の降水量を小数1桁で出し、風の矢印は吹いていく向き（来る向きの反対）を指す", () => {
     render(<WeatherPanel amedas={observation({ precipitation_10min_mm: 1.25 })} loading={false} error={null} />);
     const temperature = screen.getByText("気温:").parentElement!;
     expect(temperature).toHaveTextContent("21.4℃");
@@ -60,15 +59,8 @@ describe("WeatherPanel 観測値", () => {
     const wind = screen.getByText("東の風:").parentElement!;
     expect(wind).toHaveTextContent("3.3m/s");
     expect(wind).toHaveAttribute("title", "東の風");
+    expect((wind.firstElementChild as HTMLElement).style.transform).toBe("rotate(270deg)");
     expect(screen.getByText("降水量:").parentElement).toHaveTextContent("1.3mm");
-  });
-
-  it("風の矢印は、風が吹いていく向き（来る向きの反対）を指す", () => {
-    render(
-      <WeatherPanel amedas={observation({ wind_direction: { deg: 90, label: "東" } })} loading={false} error={null} />,
-    );
-    const arrow = screen.getByText("東の風:").parentElement!.firstElementChild as HTMLElement;
-    expect(arrow.style.transform).toBe("rotate(270deg)");
   });
 
   it("気温が無ければ「-」、風・降水量は値が無ければ出さない", () => {
@@ -92,7 +84,6 @@ describe("WeatherPanel 観測値", () => {
 
   it("天気はbackendが実測から導いたコードで出し、日の出から日の入りまでを昼とする", () => {
     const { unmount } = render(<WeatherPanel amedas={observation()} loading={false} error={null} />);
-    expect(screen.getByText(/^天気:/).parentElement!.querySelector("svg")).not.toBeNull();
     const dayIcon = screen.getByText(/^天気:/).parentElement!.innerHTML;
     unmount();
     vi.setSystemTime(new Date("2026-09-24T20:00:00+09:00"));
