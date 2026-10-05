@@ -81,7 +81,11 @@ TEST_PREFIXES = ("frontend/src/testing/", "frontend/src/structure/")
 #: ここで宣言する置き場は、どれも追跡下のファイルに当たる（`backend/tests/test_review_checks.py`）。
 PRODUCT_PREFIXES = ("backend/app/", "frontend/src/")
 GENERATED_PREFIXES = ("frontend/src/types/generated/",)
-TASKFLOW_PREFIXES = ("tools/flow-gate/", ".github/workflows/claude-")
+#: タスク管理の置き場の正本は CI 側（`.github/taskflow-paths`。製品の CI はここだけの変更で重い検査を飛ばす）。
+TASKFLOW_PREFIXES = tuple(
+    line for line in (REPO_ROOT / ".github" / "taskflow-paths").read_text(encoding="utf-8").splitlines()
+    if line.strip() and not line.startswith("#")
+)
 
 #: この行数以上のファイルは、個別閾値（size_thresholds.json）を持つまで毎回発火する。
 #: 越えた周期だけ鳴らすと、分類で閾値を決めなかったファイルが以後+15%の成長でしか

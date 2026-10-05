@@ -8,7 +8,7 @@
 - **手元とCIで同じ答えを2回買わない**: CIはPull Requestで毎回、変更が届く側の静的検査（`.github/workflows/ci.yml`の
   ジョブ（backend・frontend）がテスト（`pytest`・`npm test`）より前に回す段・`api-contract`のOpenAPI生成物のドリフト・
   `.github/workflows/docs-consistency.yml`の段）とフルスイートを回す（[flow.md](flow.md)「作る担当」の4・5）。
-  文書や運用の道具だけの変更では、`ci.yml: changes`ジョブが重い検査を飛ばす（[tech-stack.md](../architecture/tech-stack.md)「CIの実行枠（リポジトリがpublicである間の前提）」）。
+  文書や運用の道具・タスク管理だけの変更では、`ci.yml: changes`ジョブが重い検査を飛ばす（[tech-stack.md](../architecture/tech-stack.md)「CIの実行枠（リポジトリがpublicである間の前提）」）。
   masterでは`ci.yml`のbackend〜e2e-scanが通るまでbackend・frontendのデプロイを起動しない（下の「検査の置き場」）。手元では、CIの結論より先に
   知らないと作業が無駄になる答えだけを、その答えに要る最小の範囲で取る。
 - **回してよい場面は3つ**。どれでもなければ回さずにpushし、CIの結論を待つ。
@@ -48,8 +48,8 @@
 | 層 | 回すもの | 担うこと |
 |---|---|---|
 | 手元 | 上の「手元の検査の回し方」 | CIの失敗の再現・書いているテストの動作・怪しいところの念押し（どれも届く範囲だけ） |
-| 作業ブランチ（`orch/**`）のCI | `ci.yml`の全ジョブと`docs-consistency.yml`（Pull Requestで走る。作業ブランチへのpushでは走らない。文書や運用の道具だけの変更では`ci.yml: changes`ジョブが重い検査を飛ばす） | 静的検査とフルスイート（Linuxでの結果）。masterと合わせた版で、masterへ入れてよいかの判定 |
-| masterのCI | 同じ`ci.yml`と`docs-consistency.yml` | 作業ブランチで個別に通ったコミットを組み合わせた木の検査。`ci.yml`のbackend〜e2e-scanが通るまでbackend・frontendのデプロイは起動しない（flow-gate・文書の検査は待たない。**本番へ出る前の門はここ**） |
+| 作業ブランチ（`orch/**`）のCI | `ci.yml`の全ジョブと`docs-consistency.yml`・`claude-gate.yml`（Pull Requestで走る。作業ブランチへのpushでは走らない。文書や運用の道具・タスク管理だけの変更では`ci.yml: changes`ジョブが重い検査を飛ばす） | 静的検査とフルスイート（Linuxでの結果）。masterと合わせた版で、masterへ入れてよいかの判定 |
+| masterのCI | 同じ`ci.yml`と`docs-consistency.yml`・`claude-gate.yml` | 作業ブランチで個別に通ったコミットを組み合わせた木の検査。`ci.yml`のbackend〜e2e-scanが通るまでbackend・frontendのデプロイは起動しない（flow-gate・文書の検査は待たない。**本番へ出る前の門はここ**） |
 
 - **コミット・pushの直前（gitのフック）には検査を置かない。** CIと同じ検査をpushの直前に置くと、作業ブランチへのpushの
   たびに手元で同じ答えを買い直す。何を見ているかの正本は`scripts/review_checks.py`と各CIの段で、ここへ写さない。
