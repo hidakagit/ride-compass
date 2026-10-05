@@ -18,7 +18,7 @@ def test_every_benchmark_entry_states_which_revision_it_measured():
     assert modules, "実行口を持つベンチマークが1つも無い（母集団の導出が壊れている）"
     missing = [
         p.name for p in modules
-        if not re.search(r"^\s+(?:announce_revision|require_current_revision)\(\)$",
+        if not re.search(r"^\s+announce_revision\(\)$",
                          p.read_text(encoding="utf-8"), re.M)
     ]
     assert not missing, f"素性を出さない実行口: {missing}"
