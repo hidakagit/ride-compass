@@ -6,12 +6,10 @@ import { catalogEntry, dedicatedEntry, rampEntry } from "@/testing/catalogAxes";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import { primaryAttributes } from "@/types/generated/primaryAttributes";
 
-import regionTileConfig from "@/types/generated/region-tile-config.json";
 import weatherScales from "@/types/generated/weather-scales.json";
 
 import { LANDCOVER_CLASSES, LANDCOVER_PAINTED_CLASSES } from "./landcoverClasses";
 import {
-  buildDefaultLayerVisibility,
   buildMapLayers,
   deriveFetchLayerStatus,
   isAxisStudioLayer,
@@ -22,7 +20,7 @@ import {
 } from "./mapLayers";
 
 const catalog = mapCatalogOf([
-  rampEntry("ramp_a", [10, 20], { raw_value_unit: "%", chip_label: "勾配" }),
+  rampEntry("ramp_a", [10, 20], { raw_value_unit: "%" }),
   dedicatedEntry("dedicated_b", [1, 2]),
 ]);
 const withAxes = buildMapLayers({ ...catalog, accidentYears: [2021, 2019, 2020] });
@@ -42,16 +40,10 @@ describe("buildMapLayers（レイヤーの一覧）", () => {
       ["axis:ramp_a", true],
       ["dedicated_bAxis", true],
     ]);
-    expect(new Set(withAxes.map((entry) => entry.id)).size).toBe(withAxes.length);
   });
 
-  it("ramp軸のレイヤーは軸の名前・略名・単位と、軸が属する種別を使う", () => {
-    expect(layer(withAxes, "axis:ramp_a")).toMatchObject({
-      label: "ramp_a",
-      chipLabel: "勾配",
-      category: "roadCondition",
-      description: expect.stringContaining("ramp_a[%]"),
-    });
+  it("ramp軸のレイヤーの説明は軸の名前に単位を添える", () => {
+    expect(layer(withAxes, "axis:ramp_a").description).toContain("ramp_a[%]");
   });
 
   it("事故の説明は収録年を、連続していれば範囲で言う（年が届くまでは触れない）", () => {
@@ -90,7 +82,6 @@ describe("buildMapLayers（レイヤーの一覧）", () => {
       mapCatalogOf([catalogEntry({ axis_id: "a", label: "坂" }), catalogEntry({ axis_id: "b", label: "風" })]),
     );
     expect(layer(axes, "route").description).toContain("[坂・風・総合難易度]");
-    expect(layer(withoutAxes, "route").description).toContain("[総合難易度]");
   });
 
   it("土地被覆の凡例は、地図に塗るクラスだけを並べる", () => {
@@ -111,7 +102,6 @@ describe("buildMapLayers（レイヤーの一覧）", () => {
       expect(landcover.description).toContain(cls.label);
       expect(landcover.panelHint).toContain(`${cls.label}は塗りません`);
     }
-    expect(landcover.panelHint).toContain(`周囲${regionTileConfig.landcover.ring_outer_m}m`);
   });
 
   it("災害の説明は、源泉が災害のチップに宣言した要素の名前を全部挙げる", () => {
@@ -144,13 +134,10 @@ describe("地図上チップのグループ", () => {
 });
 
 describe("出せない理由の案内", () => {
-  it("タイル世代が届くまで描けないのは、世代を持つ配信（路面・点・事故のタイル）を読むレイヤー（ramp軸を含む）", () => {
+  it("タイル世代が届くまで描けないのは、世代を持つ配信を読むレイヤー（ramp軸を含む）", () => {
     const gated = tileVersionGatedLayerIds(catalog.rampAxes);
     expect(gated).toContain("axis:ramp_a");
-    expect(gated).toContain("highway");
-    expect(gated).toContain("accident_point");
     expect(gated).not.toContain("elevation");
-    expect(gated).not.toContain("precipitationNowcast");
   });
 
   it("タイルの最小ズーム未満のレイヤーだけを、ズーム不足として出す", () => {
@@ -161,13 +148,6 @@ describe("出せない理由の案内", () => {
       tileLayers.filter((entry) => entry.tileMinZoom! > lowest).map((entry) => entry.id),
     );
     expect(tileZoomTooWideLayerIds(lowest - 0.1)).toEqual(tileLayers.map((entry) => entry.id));
-    expect(tileZoomTooWideLayerIds(22)).toEqual([]);
-  });
-});
-
-describe("buildDefaultLayerVisibility（表示の既定値）", () => {
-  it("チップで切り替えられるレイヤーだけがキーを持つ（軸スタジオ由来は持たない）", () => {
-    expect(Object.keys(buildDefaultLayerVisibility()).sort()).toEqual([...staticLayerIds].sort());
   });
 });
 

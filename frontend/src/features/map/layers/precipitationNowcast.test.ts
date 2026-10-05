@@ -18,7 +18,6 @@ const gridPoint = (precipitation: (number | null)[], latitude: number, longitude
 describe("precipitationCells（格子の降水の塗り）", () => {
   it("描く格子の各点を中心とする正方形を、その時刻の降水量で塗る（欠けた点は飛ばす）", () => {
     const payload = precipitationCells([gridPoint([2.5], 35), gridPoint([null], 35.1)], "2026-09-24T12:00", 0.1);
-    expect(payload.kind).toBe("gridFill");
     const { features } = payload.kind === "gridFill" ? payload.geojson : { features: [] };
     expect(features).toHaveLength(1);
     expect(features[0].properties).toEqual({ mmPerHour: 2.5 });

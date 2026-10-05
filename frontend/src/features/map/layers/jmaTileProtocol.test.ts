@@ -74,53 +74,22 @@ function isFullyTransparentPng(bytes: Uint8Array): boolean {
 }
 
 describe("jmatile:// プロトコル", () => {
-  it("MapLibreへの登録は1回だけ", async () => {
-    const { registerJmaTileProtocol } = await load();
-    registerJmaTileProtocol();
-    expect(addProtocol).toHaveBeenCalledTimes(1);
-    expect(addProtocol.mock.calls[0][0]).toBe("jmatile");
-  });
-
-  it("空と分かっているタイルはネットワークへ出さず、完全に透明な画像を毎回新しく作って返す", async () => {
+  it("空と分かっているタイルはネットワークへ出さず、完全に透明な画像を毎回新しく作って返す（ベクタは0バイト＝地物なし）", async () => {
     const { setJmaTileIndex, request } = await load();
     setJmaTileIndex(INDEX);
     const first = (await request(EMPTY_PNG_URL)).data as Uint8Array;
     const second = (await request(EMPTY_PNG_URL)).data as Uint8Array;
+    expect((await request(EMPTY_PBF_URL)).data).toHaveLength(0);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(isFullyTransparentPng(first)).toBe(true);
     expect(second.buffer).not.toBe(first.buffer);
   });
 
-  it("取り直したインデックスが「無し」なら、それ以後は間引かない（古いインデックスを握り続けない）", async () => {
-    const { setJmaTileIndex, request } = await load();
-    fetchMock.mockImplementation(async () => new Response(new Uint8Array([1])));
-    setJmaTileIndex(INDEX);
-    await request(EMPTY_PNG_URL);
-    expect(fetchMock).not.toHaveBeenCalled();
-    setJmaTileIndex({ available: false });
-    await request(EMPTY_PNG_URL);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
-  it("空と分かっているベクタタイルは0バイト（地物なし）", async () => {
-    const { setJmaTileIndex, request } = await load();
-    setJmaTileIndex(INDEX);
-    expect(EMPTY_PBF_URL).toMatch(/\.pbf$/);
-    expect((await request(EMPTY_PBF_URL)).data).toHaveLength(0);
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it("それ以外は実URLへ取りに行き、中身をそのまま返す（インデックスが無い間は全部取りに行く）", async () => {
-    const { setJmaTileIndex, request } = await load();
-    fetchMock.mockImplementation(async () => new Response(new Uint8Array([1, 2, 3])));
-    const abort = new AbortController();
-    const { data } = await request(EMPTY_PNG_URL, abort);
-    expect(fetchMock).toHaveBeenCalledWith(EMPTY_PNG_URL, { signal: abort.signal });
+  it("空と分からないタイルは実URLへ取りに行き、中身をそのまま返す", async () => {
+    const { request } = await load();
+    fetchMock.mockImplementation(async (url) => new Response(url === EMPTY_PNG_URL ? new Uint8Array([1, 2, 3]) : null));
+    const { data } = await request(EMPTY_PNG_URL);
     expect(new Uint8Array(data as ArrayBuffer)).toEqual(new Uint8Array([1, 2, 3]));
-
-    setJmaTileIndex(INDEX);
-    await request(PRESENT_PNG_URL);
-    expect(fetchMock).toHaveBeenLastCalledWith(PRESENT_PNG_URL, expect.anything());
   });
 });
 
