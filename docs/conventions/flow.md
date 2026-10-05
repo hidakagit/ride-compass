@@ -221,10 +221,10 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
      問い直さない。確かめの行（コードを変えないタスクなら残りの行）にチェックを付け、経緯に答えを1行足して、残りが無ければ
      `GH_TOKEN=$FLOW_BOT_TOKEN gh issue close <番号> -R ridecompass/ride-compass-tasks --reason completed` で閉じる。補足に直してほしい点が書かれていたときだけ、それを残りとして済ませてから閉じる。
 4. `tasks#<番号>:` の件名でコミットし、`git push origin orch/tasks-<番号>` で push する。静的検査とテストを手元で回す場面と範囲は
-   testing.md「手元の検査の回し方」だけが決め、全体は CI に任せる。作業ブランチの強制 push は
+   testing-operations.md「手元の検査の回し方」だけが決め、全体は CI に任せる。作業ブランチの強制 push は
    コードのリポジトリの規則で断られる（一度 push したコミットは、ほかの者のものも消せない）ので、直しは足すコミットにする。
    master に入るコミットは、5 の Pull Request の題名と本文から作られる（確かめる担当が squash でマージする）。CI は 5 の
-   Pull Request の実行だけを待つ（作業ブランチへの push で走るかは testing.md「検査の置き場（手元・作業ブランチのCI・masterのCI）」）。
+   Pull Request の実行だけを待つ（作業ブランチへの push で走るかは testing-operations.md「検査の置き場（手元・作業ブランチのCI・masterのCI）」）。
 5. コードのリポジトリに Pull Request を出す（`gh pr create --base master --head orch/tasks-<番号>`。
    コードのリポジトリは hidakagit のものなので、hidakagit の名義で打つ。担当は gh の既定（`GH_TOKEN`）が `CODE_TOKEN`
    （「担当」の「名義」）、開発機の対話のセッションは gh のログインのままでよい）。
@@ -277,7 +277,7 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    並ぶジョブ（`ci-ok`）は前のジョブが終わるまでチェックが作られず、その前にほかの必須のチェックが通ると待ち終えてしまうため。
    Pull Request の実行は master と合わせた版を検査するので、作業ブランチの変更の誤りも、合流点の後に master へ入った変更との意味の
    競合（文字の競合なしに載せ直せて、合わせると落ちる）も、同じくここで落ちる。落ちたら `git merge origin/master` で今の master を取り込み、失敗を直して（手元で回す場面と範囲は
-   testing.md「手元の検査の回し方」で、この失敗の再現はその1。直し方は testing.md「テストが落ちたときの直し方」）、4 から続ける。
+   testing-operations.md「手元の検査の回し方」で、この失敗の再現はその1。直し方は testing.md「テストが落ちたときの直し方」）、4 から続ける。
 6. issue の本文を直し（経緯・完了の条件のチェック。マージのあとでないとできない条件だけをチェックの無いまま残す）、
    Pull Request へのリンクをコメントに書いて報告する。Pull Request を出すと、ゲートが検証中へ動かし、確かめる担当に渡る。
 
@@ -463,7 +463,7 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
 |---|---|---|
 | タスクを持つ | 担当のワークフローが持つ（「1つのタスクを触るのは1者だけ」） | `hold.js` で持つ（下の「持つ」） |
 | 進行中へ動かす | 引き受ける段（`claim.js`）が動かし、着手のコメントを書く | 持ってから `move.js <番号> 進行中 <理由>` で、理由のコメントを付けて動かす（作業時間の記録の入りになる。「様子を見る」） |
-| 依存 | 担当のワークフローが入れてある（作る担当の2） | 要る道具を動かすとき（画面を撮る・testing.md「手元の検査の回し方」の場面で検査やテストを回す等）だけ、作業ツリーごとに `npm ci --prefix frontend` から入れる（docs/architecture/setup.md「作業ツリーどうしで node_modules を共有しない」）。backend は testing.md「開発機でのbackendテストの回し方」 |
+| 依存 | 担当のワークフローが入れてある（作る担当の2） | 要る道具を動かすとき（画面を撮る・testing-operations.md「手元の検査の回し方」の場面で検査やテストを回す等）だけ、作業ツリーごとに `npm ci --prefix frontend` から入れる（docs/architecture/setup.md「作業ツリーどうしで node_modules を共有しない」）。backend は testing-operations.md「開発機でのbackendテストの回し方」 |
 | 本番 | 接続情報を持たない。読むのが要れば「開発機が要る」で返し、書く操作は問いで頼む（「自動で進めないもの」） | 接続情報があり、読める（`run_probe.py`）。本番へ書く操作は、ユーザーが打つスクリプトにして頼む（下の「本番へ書く」） |
 | マージ | 確かめる担当がマージする | ユーザーの指示があれば、対話のセッションがマージする。ワークフローのファイル（`.github/workflows/`）を変える Pull Request は、開発機の gh のトークンに `workflow` の権限が無いので、ユーザーがブラウザでマージする |
 | 答え | 回答フォーム（「問い」） | ユーザーがチャットで決めたことを、Claude が issue に記録する（「答え」） |

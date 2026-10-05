@@ -155,14 +155,15 @@ class Weather:
         return await self._rain.get_station_rain_materials(now)
 
 
-def engine_for(monkeypatch, network: RoadNetwork, avoid_weight: float, wind: WindForecastSeries | None):
-    """道路網を全体の配列として読ませ、本物の`GraphService`とエンジンを組む。"""
+def generator_for(monkeypatch, network: RoadNetwork, avoid_weight: float, wind: WindForecastSeries | None):
+    """道路網を全体の配列として読ませ、本物の`GraphService`とエンジンの上に戦略層（`RouteGenerator`）を組む。"""
     monkeypatch.setattr(road_network_store, "current", lambda: network)
     return assemble_route_generation_setup(
         GraphService(NetworkRepository(network)), Weather(wind),
         preference_override=RoutePreference(weights={AVOID_AXIS: avoid_weight}),
-        penalty_strength=1.0, assumed_speed_kmh=20.0,
-    ).engine
+        penalty_strength=1.0, max_average_grade_percent=None, hard_filters_override=None,
+        assumed_speed_kmh=20.0, lens_axis_id=None,
+    ).generator
 
 
 @contextmanager

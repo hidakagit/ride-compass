@@ -78,7 +78,7 @@ def ordered_colors(count: int) -> list[str]:
     ]
 
 
-def nominal_colors(hue_slot: int, count: int, tone: str | None = None) -> list[str]:
+def nominal_colors(hue_slot: int, count: int, tone: str | None) -> list[str]:
     """順序を持たない列挙の1軸ぶん。起点から色相環を行数で等分する。**同じ起点・同じ行数・同じ段なら
     常に同じ色**（行を足すと、その軸の色は配り直される）。"""
     if not 0 <= hue_slot < NOMINAL_HUE_SLOTS:

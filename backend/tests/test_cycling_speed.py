@@ -8,6 +8,8 @@
 - 風を進行方向の成分と横成分へ分けること → `test_wind.py`
 """
 
+from unittest.mock import patch
+
 import numpy as np
 import pytest
 from hypothesis import given
@@ -27,6 +29,12 @@ def _kmh(name: str) -> float:
     return cycling_speed.tuning_value(name) / 3.6
 
 
+def _rider(cruise_speed_kmh: float, **standard: float) -> RiderProfile:
+    """標準値（`cda_m2`・`crr`・`mass_kg`）を、管理画面から変えるのと同じ較正値で変えて作る。"""
+    with patch.dict(TUNING_VALUES, {f"speed.{name}": value for name, value in standard.items()}):
+        return RiderProfile(cruise_speed_kmh=cruise_speed_kmh)
+
+
 def _speed(profile: RiderProfile, grade: float = 0.0, headwind: float = 0.0, crosswind: float = 0.0,
            crr: float | None = None) -> float:
     model = SegmentSpeedModel(profile, np.array([grade]), np.array([profile.crr if crr is None else crr]))
@@ -35,7 +43,7 @@ def _speed(profile: RiderProfile, grade: float = 0.0, headwind: float = 0.0, cro
 
 def test_the_power_of_a_rider_cruising_at_20kmh_is_that_of_an_easy_ride():
     """CdA 0.32m²・Crr 0.005・総質量80kgで20km/hを保つ出力は、走行方程式で約55W（趣味の自転車のゆっくりした巡航）。"""
-    profile = RiderProfile(cruise_speed_kmh=20.0, cda_m2=0.32, crr=0.005, mass_kg=80.0)
+    profile = _rider(20.0, cda_m2=0.32, crr=0.005, mass_kg=80.0)
 
     assert cycling_speed.wheel_power_w(profile) == pytest.approx(55.4, abs=0.5)
 
@@ -52,7 +60,7 @@ def test_the_standard_values_follow_the_values_changed_from_the_admin_screen(mon
 
 
 profiles = st.builds(
-    RiderProfile,
+    _rider,
     # ルート生成の要求が受け付ける巡航速度の全範囲（下りの上限より速い巡航を含む）。
     cruise_speed_kmh=st.floats(min_value=MIN_ASSUMED_SPEED_KMH, max_value=MAX_ASSUMED_SPEED_KMH),
     cda_m2=st.floats(min_value=0.2, max_value=0.6),
@@ -95,15 +103,15 @@ RIDER = RiderProfile(cruise_speed_kmh=20.0)
 def test_the_same_headwind_takes_a_larger_share_from_a_slower_rider():
     """向かい風5m/sで、巡航20km/hの人は42%、30km/hの人は33%落ちる（向かい風への強さの差は巡航速度の差として式から出る）。"""
     for cruise_kmh, share in ((20.0, 0.42), (30.0, 0.33)):
-        rider = RiderProfile(cruise_speed_kmh=cruise_kmh, cda_m2=0.32, crr=0.005, mass_kg=80.0)
+        rider = _rider(cruise_kmh, cda_m2=0.32, crr=0.005, mass_kg=80.0)
 
         assert 1 - _speed(rider, headwind=5.0) / rider.cruise_speed_ms == pytest.approx(share, abs=0.01)
 
 
 def test_at_the_same_cruise_speed_a_heavier_rider_climbs_slower():
     """平地では重さのぶん踏む力も増えるが、登りでは重さそのものを持ち上げる。"""
-    light = RiderProfile(cruise_speed_kmh=20.0, mass_kg=60.0)
-    heavy = RiderProfile(cruise_speed_kmh=20.0, mass_kg=100.0)
+    light = _rider(20.0, mass_kg=60.0)
+    heavy = _rider(20.0, mass_kg=100.0)
 
     assert _speed(heavy, grade=0.06) < _speed(light, grade=0.06)
 

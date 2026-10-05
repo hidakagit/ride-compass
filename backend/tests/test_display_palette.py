@@ -99,7 +99,7 @@ def test_only_the_first_axis_with_a_palette_gets_colors():
 
     main, size = resolved_display_axes(attribute)
 
-    assert [c["color"] for c in main["categories"]] == nominal_colors(4, 3)
+    assert [c["color"] for c in main["categories"]] == nominal_colors(4, 3, None)
     assert all("color" not in c for c in size["categories"])
     assert "palette" not in main and "hue_slot" not in main
 
@@ -150,7 +150,7 @@ def test_an_ordered_axis_of_one_row_still_has_a_color():
 @pytest.mark.parametrize("slot", [-1, display_palette.NOMINAL_HUE_SLOTS])
 def test_a_hue_slot_outside_the_wheel_is_refused(slot):
     with pytest.raises(ValueError):
-        nominal_colors(slot, 3)
+        nominal_colors(slot, 3, None)
 
 
 @pytest.mark.parametrize("tone", [None, "dark", "light"])

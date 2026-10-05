@@ -31,7 +31,6 @@ from app.domain import routing
 from app.domain.geo import haversine_distance_km_array
 from app.domain.route import Coordinates
 from app.domain.wind import WindForecastSeries, WindLattice
-from app.services.route_generator import RouteGenerator
 from tests.route_world import (
     BASE_LAT,
     BASE_LON,
@@ -40,7 +39,7 @@ from tests.route_world import (
     SOUTH_WEST,
     at,
     avoid_axis_declared,
-    engine_for,
+    generator_for,
     grid_network,
 )
 
@@ -1236,7 +1235,7 @@ async def test_route_generation_calls_from_python_only_the_jit_that_the_image_ba
         lattice=WindLattice(south=BASE_LAT, west=BASE_LON, lat_step=0.018, lon_step=0.022, rows=2, cols=2),
     )
     with avoid_axis_declared():
-        generator = RouteGenerator(engine_for(monkeypatch, grid_network(), 0.0, wind))
+        generator = generator_for(monkeypatch, grid_network(), 0.0, wind)
         departure = datetime(2026, 9, 22, 8, tzinfo=timezone(timedelta(hours=9)))
         assert await generator.generate_loops(at(CENTER), 4.0, 1.5, max_routes=3, start_time=departure)
         assert await generator.generate_via_waypoints(

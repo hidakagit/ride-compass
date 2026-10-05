@@ -2,6 +2,8 @@
 
 .claude/settings.json の hooks から、次の出来事で打つ（標準入力でフックの JSON を受け取る。公式「Hooks reference」）:
 - Stop・SubagentStop: その手番の最後の文（`last_assistant_message`）を見る。英語の文があれば終わらせない（`decision: block`）。
+  止めて書き直させた続きの手番（`stop_hook_active`）では止めない——止め続けると、英語の文が要る場面で手番が終わらない
+  （公式「Hooks reference」の Stop の入力）。
 - PreToolUse: 道具を打つ直前に書いた文（記録 `transcript_path` の、前の道具の結果より後に書いた文の塊）を見る。英語の文があれば
   その道具を打たせない（`permissionDecision: deny`）。書き直した文が記録に足されると、次の打ち直しは通る。
 
@@ -10,12 +12,15 @@
 """
 
 import json
+import os
 import re
 import sys
 
 JAPANESE = re.compile(r"[぀-ヿ㐀-鿿ｦ-ﾟ]")
 WORD = re.compile(r"(?<![\w/.#@-])[A-Za-z]{2,}(?![\w/.#@-])")
 MIN_WORDS = 5
+TAIL_LINES = 200
+CHUNK_BYTES = 64 * 1024
 
 
 def english_lines(text: str) -> list[str]:
@@ -26,10 +31,26 @@ def english_lines(text: str) -> list[str]:
             if not JAPANESE.search(line) and len(WORD.findall(line)) >= MIN_WORDS]
 
 
+def tail_lines(path: str, count: int) -> list[str]:
+    """ファイルの最後の count 行。長いセッションの記録は数十MBになるので、末尾から塊ずつ読む。"""
+    with open(path, "rb") as f:
+        end = f.seek(0, os.SEEK_END)
+        chunks: list[bytes] = []
+        newlines = 0
+        # 改行が count より多く集まれば、塊の頭で切れた行（とそこで切れた文字）を捨てても count 行が残る。
+        while end > 0 and newlines <= count:
+            start = max(0, end - CHUNK_BYTES)
+            f.seek(start)
+            chunks.append(f.read(end - start))
+            newlines += chunks[-1].count(b"\n")
+            end = start
+    data = b"".join(reversed(chunks))
+    return [line.decode("utf-8") for line in data.splitlines()[-count:]]
+
+
 def last_text_before_tool(transcript_path: str) -> str:
     """記録の末尾から、前の道具の結果（またはユーザーの発言）より後にアシスタントが書いた文を集める。"""
-    with open(transcript_path, encoding="utf-8") as f:
-        entries = [json.loads(line) for line in f.read().splitlines()[-200:] if line.strip()]
+    entries = [json.loads(line) for line in tail_lines(transcript_path, TAIL_LINES) if line.strip()]
     texts: list[str] = []
     for entry in reversed(entries):
         content = (entry.get("message") or {}).get("content")
@@ -52,7 +73,7 @@ def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8")
     hook = json.load(sys.stdin)
     event = hook.get("hook_event_name")
-    if event in ("Stop", "SubagentStop"):
+    if event in ("Stop", "SubagentStop") and not hook.get("stop_hook_active"):
         lines = english_lines(hook.get("last_assistant_message") or "")
         if lines:
             print(json.dumps({"decision": "block", "reason": reason(lines)}, ensure_ascii=False))

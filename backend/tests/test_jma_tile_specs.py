@@ -24,7 +24,7 @@ ELEMENTS = {
     "ras": JmaElement("nowc", ("targetTimes_N1.json", "targetTimes_N2.json"), "nowcast", JmaTileSpec("even", 10)),
     "ras2": JmaElement("risk", ("targetTimes.json",), "latest", JmaTileSpec("even", 11)),
     "vec": JmaElement("risk", ("targetTimes.json",), "latest", JmaTileSpec("even", 11, vector_layer="lines")),
-    "oddz": JmaElement("rasrf", ("targetTimes.json",), "latestFullRun", JmaTileSpec("odd", 9, min_zoom=4)),
+    "oddz": JmaElement("rasrf", ("targetTimes.json",), "latestFullRun", JmaTileSpec("odd", 9)),
     "allz": JmaElement("rasrf", ("targetTimes.json",), "latest", JmaTileSpec("all", 8)),
     "pts": JmaElement("nowc", ("targetTimes_N3.json",), "nowcast", data_delay_minutes=10),
 }
@@ -49,9 +49,9 @@ def test_the_usable_maximum_zoom_drops_to_the_parity_the_source_draws(zoom_use, 
 @pytest.mark.parametrize(
     ("spec", "native_zooms"),
     [
-        (JmaTileSpec("even", 11, min_zoom=4), {4, 6, 8, 10}),
-        (JmaTileSpec("odd", 10, min_zoom=4), {5, 7, 9}),
-        (JmaTileSpec("all", 8, min_zoom=5), {5, 6, 7, 8}),
+        (JmaTileSpec("even", 11), {4, 6, 8, 10}),
+        (JmaTileSpec("odd", 10), {5, 7, 9}),
+        (JmaTileSpec("all", 8), {4, 5, 6, 7, 8}),
     ],
     ids=["even", "odd", "all"],
 )

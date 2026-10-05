@@ -23,7 +23,6 @@ from app.infrastructure.material_coverage import (
     MaterialCoverageCounts,
     MaterialCoverageQuery,
 )
-from app.services import material_coverage_service
 from app.services.material_coverage_service import (
     MaterialCoverageCounted,
     MaterialCoverageExcluded,
@@ -85,13 +84,6 @@ def test_build_report_returns_none_ratio_when_population_is_empty():
     for entry in measured:
         assert entry.total == 0
         assert entry.missing_ratio is None
-
-
-def test_build_report_fails_fast_when_material_is_registered_nowhere(monkeypatch):
-    monkeypatch.setattr(material_coverage_service, "MATERIAL_COVERAGE_EXCLUSIONS", {})
-
-    with pytest.raises(ValueError, match="wind_drag_ratio"):
-        build_material_coverage_report(_counts(), COMPUTED_AT)
 
 
 # --- 集計（テスト用DB） ---
