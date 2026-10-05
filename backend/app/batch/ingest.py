@@ -24,10 +24,9 @@ from pathlib import Path
 from typing import Any
 
 import asyncpg
-
-from app.batch.common import PROGRESS_INTERVAL_SECONDS, SOURCE_DATA_LOCK, format_progress
 from sqlalchemy.orm import InstrumentedAttribute
 
+from app.batch.common import PROGRESS_INTERVAL_SECONDS, SOURCE_DATA_LOCK, format_progress
 from app.batch.source_profile import NoFields, SourceProfile, SourceSpec
 from app.infrastructure.source_models import SourceRunStatus
 
