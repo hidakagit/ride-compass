@@ -7,11 +7,8 @@
 
 from __future__ import annotations
 
-import os
 import subprocess
 from dataclasses import dataclass
-
-SKIP_ENV = "BENCH_SKIP_REVISION_CHECK"
 
 
 @dataclass(frozen=True)
@@ -56,10 +53,10 @@ def describe(state: RevisionState) -> str:
 
 
 def stale_reason(state: RevisionState) -> str | None:
-    """測る前に止めるべき理由。問題が無ければNone。
+    """配信元と違うコミットを測っているときの警告の文。問題が無ければNone。
 
-    配信元を引けない（ネットワーク断・gitが無い）ときは止めない——測れないことより、
-    測れるのに測らせないことの害が大きい。素性は`describe`が出力へ残す。
+    配信元を引けない（ネットワーク断・gitが無い）ときは警告しない——古いかを決められない。
+    素性は`describe`が出力へ残す。
     """
     if state.head is None or state.remote_head is None:
         return None
@@ -68,7 +65,7 @@ def stale_reason(state: RevisionState) -> str | None:
             f"作業コピーが配信元と違うコミットです（手元 {state.head[:12]} / "
             f"origin/master {state.remote_head[:12]}）。古いコードを測ると、誤りではなく"
             "もっともらしい数字が出ます。`git fetch origin master && git reset --hard origin/master`"
-            f"で揃えるか、意図した計測なら環境変数 {SKIP_ENV}=1 を付けて実行してください。"
+            "で揃えてください。"
         )
     return None
 
@@ -86,16 +83,3 @@ def announce_revision() -> RevisionState:
     if reason is not None:
         print(f"警告: {reason}")
     return state
-
-
-def require_current_revision() -> RevisionState:
-    """素性を1行出し、古ければ止める。`BENCH_SKIP_REVISION_CHECK=1`で止めない。"""
-    state = read_revision_state()
-    print(describe(state))
-    reason = stale_reason(state)
-    if reason is None:
-        return state
-    if os.environ.get(SKIP_ENV):
-        print(f"警告: {reason}")
-        return state
-    raise SystemExit(reason)
