@@ -369,6 +369,8 @@ DI工場（`api/dependencies.py`）がプロセスに1つ持ってクライア�
   土砂災害・高潮・暴風/暴風雪・波浪・大雪・その他の注意報を別電文（VPWW55〜61）として
   発表するため、`_build_warnings`は電文配列全件を走査してcode単位で重複排除する。
   電文の形（`warning.class20Items`等）は`jma_warning_client.py`が`domain/jma_warning.py: WarningBulletin`（地域→種別）へ解く。
+  形の合わない電文・項目・種別は飛ばして残りで答え（付加事項だけが壊れた種別は付加事項を空にして残す）、飛ばした数を
+  取得1回につき1行のWARNINGで出す。
   区域の項目がある電文はその中身（「なし」でも）を使い、区域の項目が無い電文だけを二次細分区域で探す（`WarningBulletin.kinds_for`）。
 
 - **`WbgtService`**: 最寄りの情報提供地点（`domain/geo.py: nearest_point_index`）の環境省WBGT予報から、最も近い時刻の値を選ぶ（`domain/wbgt.py: current_forecast`）。
