@@ -95,9 +95,9 @@ const kindOf = (config, status) => ({ [config.todo]: "作る", [config.review]: 
 export const runOf = (title) => (/^#(\d+) (\S+)$/.exec(title ?? "") ?? []).slice(1);
 
 // 振り出せるもの: 確かめるは検証中の全部。作るは未着手のうち、前提が全部閉じ、ラベル coordinator.devLabel が無く、着手可能日が
-// 今日以前のもの。動いている番号は除く。並びは「急ぎ」→ 優先度の欄の選択肢の順 → 番号の小さい順。
+// 今日以前のもの。動いている番号は除く。並びは「急ぎ」→ 優先度の欄の選択肢の順（空は project.unsetPriority の位置）→ 番号の小さい順。
 export function ready(config, { tasks, ranks }, running, now = new Date()) {
-  const rank = (p) => (ranks.includes(p) ? ranks.indexOf(p) : ranks.length);
+  const rank = (p) => ranks.indexOf(p ?? config.project.unsetPriority);
   return tasks
     .filter((t) => kindOf(config, t.status) && !running.some((r) => r.number === t.number))
     .filter((t) => t.status === config.review || (!t.blocked && !t.labels.includes(config.coordinator.devLabel) && !waitsUntil(t.startOn, now)))
