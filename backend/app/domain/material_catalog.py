@@ -327,8 +327,6 @@ class MaterialSpec(StrictModel):
             raise ValueError(f"{self.material_id}: value_labelsはcategorical材料の値にだけ付く")
         if self.reference_points and self.dtype != "numeric":
             raise ValueError(f"{self.material_id}: reference_pointsは数値材料の折れ点編集にだけ効く")
-        if self.tile_encoding != TileEncoding() and self.dtype != "numeric":
-            raise ValueError(f"{self.material_id}: tile_encodingは数値材料のタイルの列にだけ効く")
         if self.tile_property is not None and self.value_sql is None:
             # タイルの列は値式から組む（`tile_column_sql`）。式を持たない材料の列は手で書くしかなく、
             # 地図と評価が別々の求め方になる。
@@ -1402,13 +1400,12 @@ def tile_runtime_scales(accident_years: Sequence[int]) -> dict[str, float]:
 def tile_column_sql(spec: MaterialSpec) -> str:
     """材料をタイルの列へ焼く式。値式を包むだけで、値の求め方を書かない——地図と評価が同じ式を読む。
 
-    真偽は、欠損を非該当として持つなら該当だけを`true`で載せ、非該当はNULLにしてフィーチャーからキーを省く
-    （タイルが軽くなる）。欠損を不明として持つなら偽も載せ、キーの無い道を地図が不明として読む
-    （`axis_display.py: _boolean_score_tile_input`）。分類は値をそのまま、数値は`tile_encoding`の形で載せる。
+    真偽は該当だけを`true`で載せ、非該当はNULLにしてフィーチャーからキーを省く（タイルが軽くなる）。
+    分類は値をそのまま、数値は`tile_encoding`の形で載せる。
     """
     value = f"({spec.value_sql})"
     if spec.dtype == "boolean":
-        return value if spec.bool_default == "nan" else f"CASE WHEN {value} THEN true END"
+        return f"CASE WHEN {value} THEN true END"
     encoding = spec.tile_encoding
     if encoding.round_digits is not None:
         value = f"round({value}::numeric, {encoding.round_digits})"

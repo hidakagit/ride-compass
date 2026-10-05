@@ -40,7 +40,7 @@ APIが受け取る重みの形を変えるとき、`dynamic_materials.py`は動�
 
 | 型 | 載せ方 |
 |---|---|
-| 真偽 | 欠損を非該当として持つ材料（`bool_default`が`"false"`）は`CASE WHEN (value_sql) THEN true END`。「該当しない」をNULLへ畳み、フィーチャーからキーを省いてタイルを軽くする。欠損を「不明」として持つ材料は値式をそのまま載せ、キーの無い道を地図が不明として読む（`axis_display.py: _boolean_score_tile_input`の`has_unknown_fallback`） |
+| 真偽 | `CASE WHEN (value_sql) THEN true END`。「該当しない」をNULLへ畳み、フィーチャーからキーを省いてタイルを軽くする。欠損を「不明」として持つ真偽の材料（`bool_default`が`"nan"`）はこの載せ方の対象外で、タイルへ焼くなら「不明」を値として持つ分類の材料にする（例: 路面の見込み） |
 | 分類 | 値式をそのまま |
 | 数値 | `MaterialSpec.tile_encoding`の形（丸めの桁・0の省略・倍精度）で包む。例: 密度は小数1桁へ丸め、0を省く |
 

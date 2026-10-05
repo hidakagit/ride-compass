@@ -220,8 +220,7 @@ _HAS_ANY = {"dtype": "boolean", "value_sql": "em.accident_count > 0"}
     (_DENSITY, "unknown", 5.0, "double precision:1.3"),  # ST_AsMVTはnumericを文字列で載せる。地図は数として読めない
     (_DENSITY, "unknown", 0.1, "double precision:null"),  # 丸めて0になる値はキーごと省く（地図は欠損を0として読む）
     (_HAS_ANY, "definite", 0.0, "boolean:null"),  # 非該当はキーごと省く（地図は欠損を非該当として読む）
-    (_HAS_ANY, "unknown", 0.0, "boolean:false"),  # 地図はキーの無い道を不明として読むので、偽は載せる
-], ids=["rounded", "zero", "definite-false", "unknown-false"])
+], ids=["rounded", "zero", "definite-false"])
 async def test_a_value_goes_on_the_tile_in_the_form_the_map_reads(road_graph_session, fields, missing, count, expected):
     material = MaterialSpec(material_id="material_a", label="材料A", description="説明", tile_property="material_a",
                             coverage=CoverageExcluded(reason="試し", missing_semantics=missing), **fields)
