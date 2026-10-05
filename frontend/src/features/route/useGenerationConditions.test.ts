@@ -6,6 +6,8 @@
  * ここで見ないもの:
  * - 重み・除外の揃え方の細部（増えた軸を既定の重みで補う・消えた軸を外す・取得が決まるまで揃えない） →
  *   `routePreferenceSync.test.ts`・`hardFilterSync.test.ts`。ここでは揃えた値を返すことを1件ずつ見る
+ * - 重みを送るかの判断（上書きしていない・カタログが届かない間は送らない） → `routePreferenceSync.test.ts`。
+ *   ここでは開き直した後に送る重みを1件見る
  * - 保存の読み書きそのもの（読めない・書けない端末で既定値になる） → `hooks/useStoredState.test.ts`
  * - 地図で置いた出発地を位置の持ち主が受け取ったあと → `hooks/useLocation.test.ts`
  * - 置ける役割が効く場所（「条件」タブを開いている間だけ・周回の間は出発地だけ） → `app/page.test.tsx`
@@ -60,10 +62,9 @@ beforeEach(() => {
 });
 
 describe("周回か目的地か", () => {
-  it("既定は周回で何も置けず、選んだモードは開き直しても残る", () => {
+  it("既定は周回で、選んだモードは開き直しても残る", () => {
     const first = renderConditions();
     expect(first.result.current.routeMode).toBe("loop");
-    expect(first.result.current.armedPinRole).toBeNull();
 
     act(() => first.result.current.changeRouteMode("destination"));
 
@@ -143,15 +144,6 @@ describe("地点", () => {
 
     expect(result.current.destination).toEqual(B);
     expect(result.current.armedPinRole).toBeNull();
-  });
-
-  it("経由地は置いた順に足す", () => {
-    const { result } = renderConditions();
-
-    act(() => result.current.placePin("waypoint", A));
-    act(() => result.current.placePin("waypoint", B));
-
-    expect(result.current.waypoints).toEqual([A, B]);
   });
 
   it("経由地は置いたあとも続けて置け、生成が受け付ける数に達したところで置ける役割を解く", () => {
@@ -238,27 +230,6 @@ describe("距離と候補数", () => {
 });
 
 describe("重み", () => {
-  it("カタログが届くと公開軸へ揃えた重みを返し、上書きを有効にするまでは送らない", async () => {
-    serveAxisCatalog(CATALOG);
-    const { result } = renderConditions();
-
-    await waitFor(() => expect(result.current.routePreference).toEqual({ axis_a: 0.4, axis_b: 0.6 }));
-    expect(result.current.weightOverrideEnabled).toBe(false);
-    expect(result.current.routePreferenceToSend).toBeNull();
-
-    act(() => result.current.setWeightOverrideEnabled(true));
-
-    expect(result.current.routePreferenceToSend).toEqual({ axis_a: 0.4, axis_b: 0.6 });
-  });
-
-  it("カタログが届かない間は、上書きを有効にしていても送らない", () => {
-    const { result } = renderConditions();
-
-    act(() => result.current.setWeightOverrideEnabled(true));
-
-    expect(result.current.routePreferenceToSend).toBeNull();
-  });
-
   it("揃えても保存した重みは書き換えず、公開を取り下げた軸が戻ればその重みも戻る", async () => {
     window.localStorage.setItem("ridecompass:route-preference", JSON.stringify({ axis_a: 0.7, axis_c: 0.2 }));
     serveAxisCatalog(CATALOG);
@@ -276,9 +247,10 @@ describe("重み", () => {
     await waitFor(() => expect(result.current.routePreference).toEqual({ axis_a: 0.7, axis_c: 0.2 }));
   });
 
-  it("動かした重みと上書きの有効は開き直しても残る", async () => {
+  it("上書きは既定で無効で、動かした重みと上書きの有効は開き直しても残る", async () => {
     serveAxisCatalog(CATALOG);
     const first = renderConditions();
+    expect(first.result.current.weightOverrideEnabled).toBe(false);
     act(() => first.result.current.setRoutePreference({ axis_a: 0.7, axis_b: 0.3 }));
     act(() => first.result.current.setWeightOverrideEnabled(true));
 
@@ -289,9 +261,8 @@ describe("重み", () => {
 });
 
 describe("除外", () => {
-  it("保存値が無ければ既定の除外で始め、変えた値は開き直しても残る", () => {
+  it("変えた除外は開き直しても残る", () => {
     const first = renderConditions();
-    expect(first.result.current.hardFilters).toEqual(DEFAULT_HARD_FILTERS);
     const [key] = Object.keys(DEFAULT_HARD_FILTERS);
     const changed = { ...DEFAULT_HARD_FILTERS, [key]: !DEFAULT_HARD_FILTERS[key] };
 

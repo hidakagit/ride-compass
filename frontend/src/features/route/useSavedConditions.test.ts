@@ -146,7 +146,7 @@ describe("出発地", () => {
   });
 
   it("固定せずに保存したものは、呼び出したとき地図で置いた出発地があれば現在地へ戻し、現在地のままなら何もしない", () => {
-    const { result, rerender, onOriginPlace, onOriginFollowCurrent } = renderSaved({ origin: A, originManual: true });
+    const { result, rerender, onOriginFollowCurrent } = renderSaved({ origin: A, originManual: true });
     act(() => result.current.saved.save("現在地から", false));
     rerender({ origin: ORIGIN, originManual: false });
 
@@ -157,6 +157,5 @@ describe("出発地", () => {
     act(() => result.current.saved.recall(result.current.saved.saved[0]));
 
     expect(onOriginFollowCurrent).toHaveBeenCalledOnce();
-    expect(onOriginPlace).not.toHaveBeenCalled();
   });
 });

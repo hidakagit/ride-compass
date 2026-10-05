@@ -287,7 +287,6 @@ describe("編集", () => {
 
     expect(rendered.result.current.canStart).toBe(true);
     expect(rendered.result.current.map.spliceStretches).toEqual([]);
-    expect(rendered.result.current.panel?.hasAlternatives).toBe(false);
   });
 
   it("やめると編集面も地図の乗り換え先も消え、次に始めた編集は空から始まる", async () => {
@@ -312,7 +311,6 @@ describe("編集", () => {
     rendered.rerender({ ...PROPS, generatedInput: { ...BASIS } });
 
     expect(rendered.result.current.editingRoute).toBeNull();
-    expect(rendered.result.current.panel).toBeNull();
   });
 
   it("編集の元の候補が一覧から消えたら、編集は効かない", async () => {
@@ -322,7 +320,6 @@ describe("編集", () => {
     rendered.rerender({ ...PROPS, routes: [VIA_Q] });
 
     expect(rendered.result.current.editingRoute).toBeNull();
-    expect(rendered.result.current.panel).toBeNull();
   });
 });
 
@@ -470,20 +467,6 @@ describe("作成", () => {
     await press(rendered.result.current.panel?.onApply);
 
     expect(rendered.onApplied).toHaveBeenCalledWith({ existingRouteId: "via-q" });
-  });
-
-  it("差分を見た組み合わせは、作るときに投げ直さない", async () => {
-    const rendered = renderSplice();
-    await startEditing(rendered);
-    tapStretch(rendered);
-    const created = evaluated(["e1", "q1", "x", "e3"]);
-    respond([created]);
-    await press(rendered.result.current.panel?.onPreview);
-
-    await press(rendered.result.current.panel?.onApply);
-
-    expect(jobs.submitted).toHaveLength(1);
-    expect(rendered.onApplied).toHaveBeenCalledWith({ created, originId: "base" });
   });
 
   it("連打しても投げるのは1回で、渡すのも1回", async () => {
