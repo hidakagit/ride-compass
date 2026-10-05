@@ -2,14 +2,15 @@
  * `RouteSettingsPanel/RouteSettingsPanel.tsx`——「重み」タブ。配分の帯（区間・区切りのドラッグと矢印キー）と軸のチップ。
  *
  * 見るもの: 軸一覧を取れないときの告知と再試行、公開軸ごとのチップ（有効な軸を先に・割合・押して有効/無効）、
- * 有効に戻したときの重み（既定が0なら決まった小さな値、既定が後から変わったときの追い方と帯で動かした値）、帯の(i)の上限、
- * 帯の区間の幅と、区間に書く文字の落とし方（境界ちょうどの割合）、区切り（隣り合う有効な軸ごと・累積の割合）を矢印キーと
+ * 有効に戻したときの重み（既定が0なら決まった小さな値、既定が後から変わったときの追い方と帯で動かした値）、
+ * 帯に置く有効な軸と、区間に書く文字の落とし方（境界ちょうどの割合）、区切り（隣り合う有効な軸ごと・累積の割合）を矢印キーと
  * ドラッグで動かして上がる2軸の重み、重みを変えると上書きの状態にすること。
  *
  * ここで見ないもの: 区切りを動かした量を範囲へ寄せて刻みへ丸めること → `features/route/routeWeightShare.test.ts`。
  * 受け取る重みを公開軸へ揃えること → `features/route/routePreferenceSync.test.ts`（このパネルは揃った値を受け取る）。
- * 無効な軸のチップを薄くすること（クラスで付ける見た目）。軸カタログの値をそのまま渡すもの（チップの印と帯の区間の色・
- * (i)の奥の軸の説明）と、区切りの値の範囲（書いた定数）。
+ * 再試行で取れたかどうか → `hooks/useAxisCatalog.test.ts`。無効な軸のチップを薄くすること（クラスで付ける見た目）。
+ * 軸カタログの値をそのまま渡すもの（チップの印と帯の区間の色・(i)の奥の軸の説明）、割合に%を付けて渡す区間の幅、
+ * 書いた定数を差し込むだけのもの（帯の(i)の奥の上限・区切りの値の範囲）。
  *
  * 差し替えたもの: 軸カタログの応答（網の層）はテストが決め、軸は架空のもの
  * （`testing/catalogAxes.ts`）。帯の実寸はテスト環境に無いので、ドラッグのテストだけ帯の`getBoundingClientRect`を決める。
@@ -24,7 +25,6 @@ import { WEIGHT_STEP } from "@/features/route/routeWeightShare";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
 import { inTurn, onBackend, serveAxisCatalog } from "@/testing/backendServer";
 import { catalogEntry, catalogResponse } from "@/testing/catalogAxes";
-import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import type { RoutePreferenceWeights } from "@/types/route";
 
 import RouteSettingsPanel from "./RouteSettingsPanel";
@@ -89,7 +89,7 @@ function boundary(name: string) {
 }
 
 describe("RouteSettingsPanel 軸一覧を取れないとき", () => {
-  it("重みが反映されないことと再試行を出し、再試行で取り直して届いたら告知を消す", async () => {
+  it("重みが反映されないことと再試行を出し、再試行を押すと取り直して告知を下ろす", async () => {
     onBackend(
       "GET",
       "/api/axis-catalog",
@@ -104,8 +104,6 @@ describe("RouteSettingsPanel 軸一覧を取れないとき", () => {
     await userEvent.click(screen.getByRole("button", { name: "再試行" }));
 
     await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
-    const catalog = renderHook(() => useAxisCatalog());
-    await waitFor(() => expect(catalog.result.current.loaded).toBe(true));
   });
 });
 
@@ -189,33 +187,6 @@ describe("RouteSettingsPanel 軸のチップ", () => {
 });
 
 describe("RouteSettingsPanel 配分の帯", () => {
-  it("帯の(i)の奥に、1つの軸へ置ける重みの上限を書く", async () => {
-    serveCatalog();
-    renderPanel({ width: 0.5, traffic: 0.3, slope: 0.2, light: 0 });
-    await chipsShown();
-
-    await userEvent.click(screen.getByRole("button", { name: "重みの配分の説明を表示" }));
-
-    expect(
-      await screen.findByText(new RegExp(`${Math.round(routeGenerateConfig.max_axis_weight * 100)}%まで`)),
-    ).toBeInTheDocument();
-  });
-
-  it("有効な軸ごとに、取り分の幅の区間を並べる", async () => {
-    serveCatalog();
-    renderPanel({ width: 0.5, traffic: 0, slope: 0.3, light: 0.2 });
-    await chipsShown();
-
-    for (const [title, width] of [
-      ["道幅 50%", "50%"],
-      ["勾配 30%", "30%"],
-      ["街灯 20%", "20%"],
-    ]) {
-      expect(screen.getByTitle(title)).toHaveStyle({ width });
-    }
-    expect(screen.queryByTitle(/^交通/)).not.toBeInTheDocument();
-  });
-
   it("区間には、10%以上ならアイコンと%を、6%以上なら数だけを書き、それより狭ければ書かない", async () => {
     serveCatalog();
     renderPanel({ width: 0.79, traffic: 0.1, slope: 0.06, light: 0.05 });
@@ -232,7 +203,7 @@ describe("RouteSettingsPanel 配分の帯", () => {
     }
   });
 
-  it("隣り合う有効な軸の間ごとに、2軸の配分を動かす区切りを、左からの累積の割合（0〜100）の位置で出す", async () => {
+  it("帯には有効な軸だけを置き、隣り合う有効な軸の間ごとに、2軸の配分を動かす区切りを累積の割合（0〜100）の位置で出す", async () => {
     serveCatalog();
     renderPanel({ width: 0.5, traffic: 0, slope: 0.3, light: 0.2 });
     await chipsShown();
@@ -242,6 +213,7 @@ describe("RouteSettingsPanel 配分の帯", () => {
       ["道幅と勾配の配分", "50"],
       ["勾配と街灯の配分", "80"],
     ]);
+    expect(screen.queryByTitle(/^交通/)).not.toBeInTheDocument();
   });
 
   it("区切りで右・上の矢印は右の軸から左の軸へ1刻み移し、左・下の矢印は戻す。ほかの軸は変えず、上書きの状態にする", async () => {
@@ -290,33 +262,24 @@ describe("RouteSettingsPanel 配分の帯", () => {
     return (clientX: number) => act(() => void window.dispatchEvent(new PointerEvent("pointermove", { clientX })));
   }
 
-  it("区切りをドラッグすると、押した位置からの幅を帯の幅に対する重みへ換算して2軸の間で移し、指を離したら止まる", async () => {
-    serveCatalog();
-    const { onRoutePreferenceChange } = renderPanel({ width: 0.4, traffic: 0.3, slope: 0.3, light: 0 });
-    await chipsShown();
+  it.each(["pointerup", "pointercancel"])(
+    "区切りをドラッグすると、押した位置からの幅を帯の幅に対する重みへ換算して2軸の間で移し、%sで止まる",
+    async (end) => {
+      serveCatalog();
+      const { onRoutePreferenceChange } = renderPanel({ width: 0.4, traffic: 0.3, slope: 0.3, light: 0 });
+      await chipsShown();
 
-    // 帯200pxが重みの合計1.0なので、1pxが0.005。
-    const moveTo = await startDrag("道幅と交通の配分", 200, 100);
-    moveTo(110);
-    moveTo(120);
-    act(() => void window.dispatchEvent(new PointerEvent("pointerup")));
-    moveTo(150);
+      // 帯200pxが重みの合計1.0なので、1pxが0.005。
+      const moveTo = await startDrag("道幅と交通の配分", 200, 100);
+      moveTo(110);
+      moveTo(120);
+      act(() => void window.dispatchEvent(new PointerEvent(end)));
+      moveTo(150);
 
-    expect(onRoutePreferenceChange.mock.calls.map(([next]) => next)).toEqual([
-      { width: 0.45, traffic: 0.25, slope: 0.3, light: 0 },
-      { width: 0.5, traffic: 0.2, slope: 0.3, light: 0 },
-    ]);
-  });
-
-  it("ドラッグは、指の操作が取り消されても止まる", async () => {
-    serveCatalog();
-    const { onRoutePreferenceChange } = renderPanel({ width: 0.4, traffic: 0.3, slope: 0.3, light: 0 });
-    await chipsShown();
-
-    const moveTo = await startDrag("道幅と交通の配分", 200, 100);
-    act(() => void window.dispatchEvent(new PointerEvent("pointercancel")));
-    moveTo(150);
-
-    expect(onRoutePreferenceChange).not.toHaveBeenCalled();
-  });
+      expect(onRoutePreferenceChange.mock.calls.map(([next]) => next)).toEqual([
+        { width: 0.45, traffic: 0.25, slope: 0.3, light: 0 },
+        { width: 0.5, traffic: 0.2, slope: 0.3, light: 0 },
+      ]);
+    },
+  );
 });

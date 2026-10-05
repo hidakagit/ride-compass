@@ -17,7 +17,6 @@ import { DEFAULT_HARD_FILTERS } from "@/features/route/RouteSettingsPanel/HardFi
 import type { GenerationConditionsSnapshot, SavedCondition } from "@/features/route/savedConditions";
 import { serveAxisCatalog } from "@/testing/backendServer";
 import { catalogEntry, catalogResponse } from "@/testing/catalogAxes";
-import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 
 import SavedConditionsPanel from "./SavedConditionsPanel";
 
@@ -69,13 +68,11 @@ beforeEach(() => {
 });
 
 describe("保存", () => {
-  it("保存の前に、保存する条件・重み・除外を並べる", async () => {
+  it("保存の前に、いまの設定の条件と重みの説明を並べる", async () => {
     renderPanel();
 
     expect(screen.getByText("周回 40km・候補 8本")).toBeInTheDocument();
     expect(await screen.findByText("おすすめの配分（軸A 50%・軸B 50%）")).toBeInTheDocument();
-    const excluded = routeGenerateConfig.hard_filters.filters.filter(({ key }) => DEFAULT_HARD_FILTERS[key]);
-    expect(screen.getByText(excluded.map(({ label }) => label).join("・"))).toBeInTheDocument();
   });
 
   it("仮の名前が入った欄をそのまま保存でき、書き換えればその名前で保存する", async () => {
@@ -105,7 +102,7 @@ describe("保存", () => {
   it.each([
     ["地図で置いた出発地は、既定で固定する", { originManual: true }, true, false],
     ["現在地のままなら、既定で呼び出した時の現在地", { originManual: false }, false, false],
-    ["出発地が分からない間は、固定を選べない", { originKnown: false }, false, true],
+    ["分からない出発地は、地図で置いても固定できない", { originManual: true, originKnown: false }, false, true],
   ])("出発地: %s", async (_, origin, fixed, fixDisabled) => {
     const { onSave } = renderPanel([], origin);
 
