@@ -85,6 +85,11 @@ class WbgtForecast:
     wbgt: float | None
 
 
+# 発表（reference_time）は概ね毎時だが遅延もありうるため、直近この時間幅で発表時刻を
+# 検索する（1〜2時間の遅延は起こりうる前提で余裕を持たせる）。
+FORECAST_SEARCH_WINDOW_HOURS = 6
+
+
 def current_forecast(forecasts: list[WbgtForecast], now: datetime) -> WbgtForecast | None:
     """最新の発表回に絞ったうえで、現在時刻に最も近い対象時刻の予測を選ぶ。
 

@@ -20,7 +20,7 @@ from app.api.dependencies import get_material_coverage_service, get_road_graph_r
 from app.domain.material_catalog import MATERIAL_CATALOG
 from app.infrastructure.material_coverage import MATERIAL_COVERAGE_SPECS, MaterialCoverageCounts
 from app.main import app
-from app.services.axis_preview_service import EMPTY_DISTRIBUTION, ValueDistribution
+from app.domain.value_distribution import EMPTY_DISTRIBUTION, ValueDistribution
 from app.services.material_coverage_service import build_material_coverage_report
 from tests.admin_auth import AUTH_HEADERS
 
