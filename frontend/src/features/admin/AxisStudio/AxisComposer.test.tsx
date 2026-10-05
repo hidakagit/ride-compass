@@ -1,9 +1,8 @@
 /**
  * `AxisComposer.tsx`——軸を作る1画面のフォームの状態・保存前の検証・送るpayloadの組み立てと、節の組み立て。
  *
- * 節（点数の決め方・地図表示と公開）は差し替え、この画面が節へ何を渡し、節から何を受けるかだけを見る。
- * 検証に掛ける状態は、節を操作せずに編集対象の軸（`editing`）で与える。地図の段の判定の取得も差し替える。
- * 材料は本物の一覧（生成物）を通す。
+ * 節（点数の決め方・地図表示と公開）と地図の段の判定の取得は本物を通し、backendの応答（網の層）だけを与える。
+ * 節へ渡したものは節の表示で、節から受けたものは保存で見る。材料は本物の一覧（生成物）を通す。
  *
  * ここで見ないもの:
  * - 軸と下書きの相互変換そのもの → `axisDraft.test.ts`
@@ -13,54 +12,16 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MATERIAL_CATALOG, type AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
+import { onSameOrigin } from "@/testing/backendServer";
 import type { AxisDefinitionPayload, AxisDefinitionResponse } from "@/types/route";
 
-import { emptyDraft, type Draft } from "./axisDraft";
-
-const bands = vi.hoisted(() => ({
-  requests: [] as unknown[],
-  result: { droppedOnMap: [], bandsOnMap: null } as unknown,
-}));
-vi.mock("@/features/admin/useMapBandsOfThresholds", () => ({
-  useMapBandsOfThresholds: (request: unknown) => {
-    bands.requests.push(request);
-    return bands.result;
-  },
-}));
-
-type Props = Record<string, unknown> & { draft: Draft; setDraft: (update: (d: Draft) => Draft) => void };
-const sections = vi.hoisted(() => ({ scoring: null as Props | null, display: null as Props | null }));
-vi.mock("./AxisScoringSection", () => ({
-  AxisScoringSection: (props: Props) => {
-    sections.scoring = props;
-    return null;
-  },
-}));
-vi.mock("./AxisMapDisplaySection", () => ({
-  AxisMapDisplaySection: (props: Props & { onThresholdErrorChange: (error: string | null) => void }) => {
-    sections.display = props;
-    return (
-      <>
-        <button type="button" onClick={() => props.onThresholdErrorChange("しきい値を読めません")}>
-          しきい値の誤りを伝える
-        </button>
-        <button type="button" onClick={() => props.onThresholdErrorChange(null)}>
-          しきい値の誤りなしを伝える
-        </button>
-        <button type="button" onClick={() => props.setDraft((d) => ({ ...d, isPublished: true }))}>
-          公開にする
-        </button>
-      </>
-    );
-  },
-}));
-
 import AxisComposer from "./AxisComposer";
+import { emptyDraft, parseThresholdList } from "./axisDraft";
 
 const materialOf = (dtype: AxisMaterialOption["dtype"]) => MATERIAL_CATALOG.find((m) => m.dtype === dtype)!;
 const NUM = materialOf("numeric");
@@ -129,11 +90,21 @@ function renderComposer(props: ComposerProps = {}) {
 
 const submitButton = () => screen.getByRole("button", { name: /作成する|更新する|保存中/ });
 
+const PREVIEW_DISPLAY_THRESHOLDS = "/admin/api/axis-definitions/preview-display-thresholds";
+const thresholdInput = () => screen.getByRole("textbox", { name: "色分けのしきい値（まとめて入力）" });
+
+/** 点数の節が描くと同時に取る分布・点数と、地図の段の判定（段にならない値なし）に応える。 */
 beforeEach(() => {
-  bands.requests = [];
-  bands.result = { droppedOnMap: [], bandsOnMap: null };
-  sections.scoring = null;
-  sections.display = null;
+  onSameOrigin("POST", "/admin/api/axis-definitions/preview-distribution", () =>
+    Response.json({ sample_ways: 1, total_km: 1, quantiles: {}, bins: [[0, 2, 1]], zero_share: 0 }),
+  );
+  onSameOrigin("POST", "/admin/api/axis-definitions/preview-scores", () =>
+    Response.json({ scores: [0], material_points: [] }),
+  );
+  onSameOrigin("POST", PREVIEW_DISPLAY_THRESHOLDS, ({ body }) => {
+    const { thresholds } = body as { thresholds: number[] };
+    return Response.json({ dropped_on_map: [], bands_on_map: [...thresholds, 0].map((_, i) => i) });
+  });
 });
 
 describe("保存するpayload", () => {
@@ -202,45 +173,36 @@ describe("保存するpayload", () => {
 });
 
 describe("保存前の検証", () => {
-  it("地図表示の節が、しきい値の入力を読めないと伝えている間は、その理由で止め、読めたら送る", async () => {
-    const { user, onSave } = renderComposer({ editing: axis({ display_thresholds_override: [1] }) });
-    await user.click(screen.getByRole("button", { name: "しきい値の誤りを伝える" }));
+  it.each([
+    ["下書きの軸", false],
+    ["公開済みの軸（表示だけ編集）", true],
+  ])("%sで、しきい値の入力を読めない間は、その理由で止め、読めたら送る", async (_case, isPublished) => {
+    const { user, onSave } = renderComposer({
+      editing: axis({ is_published: isPublished, display_thresholds_override: [1] }),
+    });
+    await user.type(thresholdInput(), ", x");
+    const message = parseThresholdList("1, x").error!;
     await user.click(submitButton());
-    expect(await screen.findByText("しきい値を読めません")).toBeInTheDocument();
+    // 節が入力欄の下に出す理由と、保存を止めた理由の2つ。
+    expect(await screen.findAllByText(message)).toHaveLength(2);
     expect(onSave).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole("button", { name: "しきい値の誤りなしを伝える" }));
+    await user.clear(thresholdInput());
+    await user.type(thresholdInput(), "1");
     await user.click(submitButton());
     await waitFor(() => expect(onSave).toHaveBeenCalled());
-    expect(screen.queryByText("しきい値を読めません")).not.toBeInTheDocument();
+    expect(screen.queryByText(message)).not.toBeInTheDocument();
   });
 });
 
 describe("公開済みの軸（表示だけ編集）", () => {
-  it("表示の項目しか変えられないと言い、基本の項目と点数の節を出さず、表示の節へ制限を伝える", () => {
+  it("表示の項目しか変えられないと言い、基本の項目と点数の節を出さず、表示の節では公開を切り替えさせない", () => {
     renderComposer({ editing: axis({ is_published: true }) });
     expect(screen.getByText(/地図表示に関わる項目のみ編集できます/)).toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "表示名" })).not.toBeInTheDocument();
-    expect(sections.scoring).toBeNull();
-    expect(sections.display!.restrictedDisplayOnly).toBe(true);
-  });
-
-  it("描いていない節は検証せず、表示の節の入力の読み取りの誤りだけで止める", async () => {
-    const first = await (async () => {
-      const { user, onSave, unmount } = renderComposer({ editing: axis({ is_published: true, label: "" }) });
-      await user.click(submitButton());
-      await waitFor(() => expect(onSave).toHaveBeenCalled());
-      return unmount;
-    })();
-    first();
-
-    const { user, onSave } = renderComposer({
-      editing: axis({ is_published: true, display_thresholds_override: [1] }),
-    });
-    await user.click(screen.getByRole("button", { name: "しきい値の誤りを伝える" }));
-    await user.click(submitButton());
-    expect(await screen.findByText("しきい値を読めません")).toBeInTheDocument();
-    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.queryByRole("combobox", { name: "点数のもとになるもの" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "+ しきい値を自分で設定する" })).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: "公開する" })).not.toBeInTheDocument();
   });
 });
 
@@ -278,39 +240,40 @@ describe("保存の操作", () => {
 });
 
 describe("節へ渡すもの", () => {
-  it("点数の節へは、材料と、編集中の軸自身を除いたほかの軸（点数の材料として）を渡す", () => {
-    const self = axis({ axis_id: "axis_edit" });
-    const other = axis({ axis_id: "axis_other", label: "ほかの軸", description: "ほかの説明" });
+  it("点数の節へは、編集中の軸自身を除いたほかの軸を、点数のもとの候補として渡す", () => {
+    const self = axis({ axis_id: "axis_edit", label: "自分の軸" });
+    const other = axis({ axis_id: "axis_other", label: "ほかの軸" });
     renderComposer({ editing: self, otherAxes: [self, other] });
 
-    expect(sections.scoring!.materialOptions).toEqual(MATERIAL_CATALOG);
-    expect(sections.scoring!.axisTermOptions).toEqual([
-      { id: "axis_other", label: "ほかの軸", name: "ほかの軸", description: "ほかの説明", dtype: "numeric", unit: "" },
-    ]);
+    const group = screen
+      .getByRole("combobox", { name: "点数のもとになるもの" })
+      .querySelector('optgroup[label="ほかの軸"]')!;
+    expect(
+      within(group as HTMLElement)
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual([expect.stringContaining("ほかの軸")]);
   });
 
-  it("表示の節へは、編集中の軸・調整中か・段の配色と単位・地図の段の判定を渡す", () => {
-    const editing = axis();
-    const mapBandColors = () => [];
-    bands.result = { droppedOnMap: [3], bandsOnMap: [0] };
-    renderComposer({ editing, republishing: true, mapBandColors, mapValueUnit: "km/h" });
-
-    expect(sections.display).toMatchObject({
-      editing,
+  it("表示の節へは、編集中の軸・調整中か・段の配色と単位と、編集中のしきい値を問った地図の段の判定を渡す", async () => {
+    onSameOrigin("POST", PREVIEW_DISPLAY_THRESHOLDS, () =>
+      Response.json({ dropped_on_map: [3], bands_on_map: [0, 1] }),
+    );
+    const mapBandColors = (boundaries: readonly number[]) => [...boundaries, 0].map(() => "rgb(9, 9, 9)");
+    renderComposer({
+      editing: axis({ display_thresholds_override: [1, 3] }),
       republishing: true,
-      restrictedDisplayOnly: false,
       mapBandColors,
       mapValueUnit: "km/h",
-      mapBands: { droppedOnMap: [3], bandsOnMap: [0] },
     });
-  });
 
-  it.each([
-    ["上書きしていない", axis({ display_thresholds_override: null })],
-    ["上書きが空", axis({ display_thresholds_override: [] })],
-  ])("しきい値を%sときは、地図の段を問わない", (_case, editing) => {
-    renderComposer({ editing });
-    expect(bands.requests.at(-1)).toBeNull();
+    expect(screen.getByText(/地図表示用のデータ取得経路が用意されていません/)).toBeInTheDocument();
+    expect(screen.getByText(/保存すると公開へ戻ります/)).toBeInTheDocument();
+    expect(await screen.findByText("地図では効かない: 3")).toBeInTheDocument();
+    const preview = screen.getByLabelText("色分けプレビュー（2段階）");
+    expect(preview).toHaveTextContent("km/h");
+    const swatches = Array.from(preview.querySelectorAll("li > span[aria-hidden]")) as HTMLElement[];
+    expect(swatches.map((swatch) => swatch.style.background)).toEqual(["rgb(9, 9, 9)", "rgb(9, 9, 9)"]);
   });
 });
 
@@ -328,7 +291,7 @@ describe("既定重みの参考表示", () => {
       axis({ axis_id: "axis_d", is_published: false }),
     ];
     const { user } = renderComposer({ editing: self, otherAxes: others });
-    await user.click(screen.getByRole("button", { name: "公開にする" }));
+    await user.click(screen.getByRole("checkbox", { name: "公開する" }));
 
     expect(screen.getByText(/参考:/)).toHaveTextContent("（2軸）の重み合計に対して約40.0%");
   });
@@ -336,7 +299,7 @@ describe("既定重みの参考表示", () => {
   it("割合が無い（重みの合計が0）なら、割合を出さない", async () => {
     const self = axis({ is_published: false, weight_share_when_published: null });
     const { user } = renderComposer({ editing: self, otherAxes: [self] });
-    await user.click(screen.getByRole("button", { name: "公開にする" }));
+    await user.click(screen.getByRole("checkbox", { name: "公開する" }));
 
     expect(screen.queryByText(/参考:/)).not.toBeInTheDocument();
     expect(screen.queryByText(/現在非公開のため/)).not.toBeInTheDocument();

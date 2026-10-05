@@ -29,7 +29,6 @@ interface HarnessProps {
   restrictedDisplayOnly?: boolean;
   republishing?: boolean;
   mapBandColors?: (boundaries: readonly number[]) => readonly string[];
-  mapValueUnit?: string;
   mapBands?: MapBandsJudgement;
 }
 
@@ -39,7 +38,6 @@ function Harness({
   restrictedDisplayOnly = false,
   republishing = false,
   mapBandColors,
-  mapValueUnit = "",
   mapBands = { droppedOnMap: [], bandsOnMap: null, failed: false },
 }: HarnessProps) {
   const [draft, setDraft] = useState(initial);
@@ -53,7 +51,7 @@ function Harness({
         restrictedDisplayOnly={restrictedDisplayOnly}
         republishing={republishing}
         mapBandColors={mapBandColors}
-        mapValueUnit={mapValueUnit}
+        mapValueUnit=""
         mapBands={mapBands}
         onThresholdErrorChange={onThresholdErrorChange}
       />
@@ -135,13 +133,6 @@ describe("色分けしきい値", () => {
   it("入力欄は、下書きのしきい値をまとめた形で始まる", () => {
     renderSection({ initial: draftWith({ displayThresholdsOverride: [1, 2.5] }) });
     expect(thresholdInput()).toHaveValue("1, 2.5");
-  });
-
-  it("読めた入力は下書きへ入れ、誤りなしを親へ伝える", async () => {
-    const user = renderSection({ initial: draftWith({ displayThresholdsOverride: [] }) });
-    await typeThresholds(user, "1 3");
-    expect(draft().displayThresholdsOverride).toEqual([1, 3]);
-    expect(onThresholdErrorChange).toHaveBeenLastCalledWith(null);
   });
 
   it("読めない入力は下書きへ入れず（直前の並びを残す）、理由を出して親へ伝える。直せば理由は消える", async () => {
@@ -245,11 +236,6 @@ describe("段階プレビュー", () => {
     render(<Harness initial={initial} />);
     expect(screen.queryByText(note)).not.toBeInTheDocument();
   });
-
-  it("段のレンジへ、渡された単位を添える", () => {
-    renderSection({ initial: draftWith({ displayThresholdsOverride: [10] }), mapValueUnit: "km/h" });
-    expect(preview()).toHaveTextContent("km/h");
-  });
 });
 
 describe("体感ラベル", () => {
@@ -317,14 +303,12 @@ describe("公開", () => {
     expect(draft().isPublished).toBe(true);
   });
 
-  it("公開済みの軸を表示だけ編集している間は、公開の切り替えを出さない", () => {
-    renderSection({ restrictedDisplayOnly: true });
+  it.each([
+    ["公開済みの軸を表示だけ編集している間は、出さない", { restrictedDisplayOnly: true }, false],
+    ["「調整する」で下書きへ戻している間は、出さずに、保存すると公開へ戻ると言う", { republishing: true }, true],
+  ])("公開の切り替えを、%s", (_case, props, saysRepublish) => {
+    renderSection(props);
     expect(screen.queryByRole("checkbox", { name: "公開する" })).not.toBeInTheDocument();
-  });
-
-  it("「調整する」で下書きへ戻している間は、切り替えの代わりに、保存すると公開へ戻ると言う", () => {
-    renderSection({ republishing: true });
-    expect(screen.queryByRole("checkbox", { name: "公開する" })).not.toBeInTheDocument();
-    expect(screen.getByText(/保存すると公開へ戻ります/)).toBeInTheDocument();
+    expect(screen.queryByText(/保存すると公開へ戻ります/) !== null).toBe(saysRepublish);
   });
 });
