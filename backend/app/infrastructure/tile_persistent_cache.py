@@ -23,14 +23,14 @@ CACHE_DIR = DATA_DIR / "tile_persistent_cache"
 
 _CATEGORY = "cache:tile-persistent"
 
-opened_cache: diskcache.Cache | None = None
+_opened_cache: diskcache.Cache | None = None
 
 
 def cache() -> diskcache.Cache:
     """遅延生成した共有キャッシュ。同じディレクトリを複数プロセスから開いてよい。"""
-    global opened_cache
-    if opened_cache is None:
-        opened_cache = diskcache.Cache(
+    global _opened_cache
+    if _opened_cache is None:
+        _opened_cache = diskcache.Cache(
             str(CACHE_DIR),
             size_limit=settings.tile_persistent_cache_size_limit_mb * 1024 * 1024,
             eviction_policy="least-recently-used",
@@ -38,7 +38,15 @@ def cache() -> diskcache.Cache:
             # 以前張ったタグの索引が書き込みのたびに更新され続ける。
             tag_index=False,
         )
-    return opened_cache
+    return _opened_cache
+
+
+def close() -> None:
+    """開いたキャッシュを閉じる（プロセスの終わりに`process_resources.py`が呼ぶ）。次の読み書きで開き直す。"""
+    global _opened_cache
+    if _opened_cache is not None:
+        _opened_cache.close()
+        _opened_cache = None
 
 
 def get_by_key(key: tuple) -> Any | None:

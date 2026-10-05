@@ -3,12 +3,12 @@
 ここで見ないもの:
 - ラスタの読み取り・再投影・PNGへの描画 → `test_landcover_raster.py`
 - 配信の口（ズームの範囲・503） → `test_region_routes.py`
-- キャッシュの読み書きと空タイルの扱いの骨格 → `test_tile_serving.py`
+- キャッシュの読み書きと空タイルの扱いの骨格 → `test_region_tile_cache.py`
 - 骨格へ渡すタイルの種類（`content_type`）——キャッシュの項目に書かれるだけで読み手が無く、応答の種類はルーターが
   決める（`test_region_routes.py`）
 - ラスタ構成の指紋の作り方 → `test_landcover.py`
 
-ラスタ（`landcover_raster`の口）と、キャッシュを通す骨格（`serve_cached_tile`）は代役へ差し替え、
+ラスタ（`landcover_raster`の口）と、キャッシュを通す骨格（`serve_region_tile`）は代役へ差し替え、
 本物の署名へ当てる（`bound`）。範囲外の空のタイルのテストだけは骨格を本物で通す。
 """
 
@@ -16,6 +16,7 @@ import logging
 import pytest
 
 from app.infrastructure import debug_log
+from app.infrastructure.cache_identity import LANDCOVER_TILE_VERSION
 from app.services import landcover_tile_service as service
 from tests.bound_fake import bound
 
@@ -59,7 +60,7 @@ def served(monkeypatch):
         content = await kwargs["fetch_tile"]({})
         return service.TileResponse(content=content)
 
-    monkeypatch.setattr(service, "serve_cached_tile", bound(service.serve_cached_tile, serve))
+    monkeypatch.setattr(service, "serve_region_tile", bound(service.serve_region_tile, serve))
     return calls
 
 
@@ -71,7 +72,7 @@ async def test_a_tile_is_drawn_from_the_raster_through_the_cache(raster, served)
 
     assert response == service.TileResponse(content=b"png-bytes")
     assert raster.rendered == [(10, 905, 403)]
-    assert served[0]["cache_path"].endswith("/10/905/403.png")
+    assert (served[0]["z"], served[0]["x"], served[0]["y"]) == (10, 905, 403)
 
 
 async def test_outside_the_rasters_the_tile_is_the_clear_image_of_the_raster(raster):
@@ -91,7 +92,7 @@ async def test_the_cache_key_follows_the_rasters_actually_opened(raster, served)
     raster.opened = ["/other/zone54.tif", "/other/zone53.tif"]
     await service.get_landcover_tile(10, 905, 403)
 
-    first, added, reordered = (call["cache_path"] for call in served)
+    first, added, reordered = (call["generation"] for call in served)
     # ラスタを1枚足したら別の鍵——継ぎ目のタイルが古い絵（片側が透明）を返し続けない
     assert added != first
     # 同じ構成なら置き場所・並びに依らず同じ鍵
@@ -101,7 +102,7 @@ async def test_the_cache_key_follows_the_rasters_actually_opened(raster, served)
 async def test_the_cache_key_carries_the_tile_version(raster, served):
     await service.get_landcover_tile(10, 905, 403)
 
-    assert f"/v{service.LANDCOVER_TILE_VERSION}/" in served[0]["cache_path"]
+    assert served[0]["generation"].startswith(f"{LANDCOVER_TILE_VERSION}/")
 
 
 # ---- ラスタが1枚も無いとき ----
