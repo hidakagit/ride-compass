@@ -398,7 +398,7 @@ describe("段階プレビューの配色と単位", () => {
   });
 
   it("複製のときは、複製元の軸の配色と単位を使う", async () => {
-    catalogAxes = [rampEntry(DRAFT.axis_id, [], { map_value_unit: "km/h" })];
+    catalogAxes = [rampEntry(DRAFT.axis_id, [], { map_paint: { unit: "km/h" } })];
     const user = await renderStudio();
     await user.click(within(rowOf("下書きの軸")).getByRole("button", { name: "複製して新規作成" }));
     const preview = await previewOf(user);

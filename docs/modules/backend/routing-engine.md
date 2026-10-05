@@ -123,10 +123,10 @@ Edgeコストは「探索範囲の静的Edge×公開軸スコア行列＋リク�
 そのレグの配列から値を読む（探索と表示の一致、[設計原則](../../architecture/design-principles.md)10）。
 `RouteSegmentDetail.material_values`/`RouteCandidate.material_values`（重み>0の公開軸が
 参照する材料id→値、`AXIS_DEFINITIONS`の`materials`プロパティから導出、
-`dynamic_way_values.py: displayed_material_ids`が集合を決める）は、動的材料（風等）は`material_arrays`から
+`evaluation.py: displayed_material_ids`が集合を決める）は、動的材料（風等）は`material_arrays`から
 （`material_value_at`）、静的材料（`gradient_percent`）はEdgeごとに計算済みの値を
 そのまま読む。`displayed_material_ids`はリクエストの`lens_axis_id`（地図のレンズが表示を
-要求している軸）が符号付き材料の軸（`map_value_kind`が`signed_material`）を指す場合、
+要求している軸）が符号付き材料を塗る軸（`map_paint.py: map_paint`の`value`）を指す場合、
 その軸の材料も重みに関わらず含める（地図の色分けが重み0の軸でも成立するため）。
 逆回り候補はレグ割当ても反転する（先に走る側が往路配列、`reverse_leg_assignment`）。レグ番号は走行順に振られるため、Edge列の反転と同時に番号自体も`max_leg - leg`へ振り直す。探索範囲を覆う格子点ごとの時別風予報
 （`WeatherService.get_wind_forecast_lattice`。格子はMSMと同じ細かさ、`domain/wind.py: WindLattice`・
