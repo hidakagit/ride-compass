@@ -140,11 +140,11 @@ export async function readBackup(repo, config) {
   }
 }
 
-// バックアップについて気づくべきこと（無ければ null）。止まった・記録が無い・読めない、のどれも出す。
+// バックアップについて気づくべきこと（無ければ null）。止まった・記録が無いか印のファイルが読めない・/health を読めない、のどれも出す。
 function backupNote(max, { error, hours }) {
   if (error) return `読めなかった: ${error}`;
   if (hours === undefined) return "読めなかった: /health に admin_data_backup_age_hours が無い";
-  if (hours === null) return "記録が無い（まだ1回も置けていない）";
+  if (hours === null) return "記録が無いか読めない（まだ1回も置けていない・印のファイルが壊れた。理由は backend のログ）";
   return hours > max ? `${hours}時間前から置けていない（上限 ${max}時間）` : null;
 }
 

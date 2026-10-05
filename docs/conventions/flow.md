@@ -535,7 +535,7 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
   - **振り出せる仕事があるのに空いた枠**: その理由（見回りのワークフローが無効・止める時刻）。
   - **落ちた実行**: 開いたタスクの一番新しい担当の実行が失敗で終わっているもの（次の実行が走れば消える）。
   - **管理データのバックアップ**: 本番の backend の `/health` の `admin_data_backup_age_hours`（最後に置けてからの時間）が
-    `coordinator.backupMaxHours` を超えた・記録が無い（null）・読めない（`tools/flow-gate/src/dispatch.js: readBackup`）。宛先はコードの
+    `coordinator.backupMaxHours` を超えた・記録が無いか印のファイルが読めない（null）・読めない（`tools/flow-gate/src/dispatch.js: readBackup`）。宛先はコードの
     リポジトリの変数 `coordinator.backendVariable` から読む（道具に宛先を書かない。docs/architecture/tech-stack.md「本番の宛先」）。
     仕組みは deployment-sync.md 付録「管理データのバックアップ」。
 - **ゲートの失敗**: ゲートは状態を守ることだけをし、出来事の処理の例外は Cloudflare の記録（Workers の Logs）にだけ残す。
