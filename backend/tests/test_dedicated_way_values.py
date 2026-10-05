@@ -15,11 +15,7 @@ from typing import get_args
 import pytest
 
 from app.domain.dynamic_way_values import WayValueConditionName, WayValueQuery
-from app.services.dedicated_way_values import (
-    DEDICATED_WAY_VALUE_SERVICES,
-    DEDICATED_WAY_VALUE_SERVICES_BY_MATERIAL,
-    services_by_material,
-)
+from app.services.dedicated_way_values import DEDICATED_WAY_VALUE_SERVICES, services_by_material
 from app.domain.material_catalog import is_known_material
 from app.services.weather_service import WeatherService
 
@@ -28,10 +24,11 @@ def test_every_service_material_id_is_a_known_material():
     """`material_id`は材料カタログの既知材料であること（軸idを誤って渡すと
     `transform_dedicated_way_values`が軸を評価できず無音で全道路が色なしになる）。"""
     weather_service = WeatherService()
-    for material_id, service_type in DEDICATED_WAY_VALUE_SERVICES_BY_MATERIAL.items():
-        service = service_type.build(object(), weather_service, material_id=material_id)
-        assert service.material_id == material_id
-        assert is_known_material(material_id)
+    for service_type in DEDICATED_WAY_VALUE_SERVICES:
+        for material_id in service_type.material_ids:
+            service = service_type.build(object(), weather_service, material_id=material_id)
+            assert service.material_id == material_id
+            assert is_known_material(material_id)
 
 
 def test_every_service_takes_only_conditions_the_request_carries():

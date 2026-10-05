@@ -85,7 +85,7 @@ def services_by_material(
     return by_material
 
 
-DEDICATED_WAY_VALUE_SERVICES_BY_MATERIAL = services_by_material(DEDICATED_WAY_VALUE_SERVICES)
+_SERVICES_BY_MATERIAL = services_by_material(DEDICATED_WAY_VALUE_SERVICES)
 
 
 def served_dedicated_way_value_material(materials: Iterable[str]) -> str | None:
@@ -95,7 +95,7 @@ def served_dedicated_way_value_material(materials: Iterable[str]) -> str | None:
     その軸を評価しきれない。どちらも「実装が無い」として扱う（書き込み時の検証が拒否し、
     配信側は404）。
     """
-    served = {material for material in materials if material in DEDICATED_WAY_VALUE_SERVICES_BY_MATERIAL}
+    served = {material for material in materials if material in _SERVICES_BY_MATERIAL}
     return next(iter(served)) if len(served) == 1 else None
 
 
@@ -108,7 +108,16 @@ def _served_material_of(axis_id: str) -> str | None:
 
 
 def _factory_of(material: str) -> DedicatedWayValueServiceFactory:
-    return partial(DEDICATED_WAY_VALUE_SERVICES_BY_MATERIAL[material].build, material_id=material)
+    return partial(_SERVICES_BY_MATERIAL[material].build, material_id=material)
+
+
+#: 材料id→その材料の配信サービス。
+MaterialServiceBuilder = Callable[[str], DedicatedWayValueService[Any]]
+
+
+def material_service_builder(repository: RoadGraphRepository, weather_service: WeatherService) -> MaterialServiceBuilder:
+    """材料ごとの配信サービスを、同じリポジトリ・気象サービスで組み立てる。"""
+    return lambda material: _factory_of(material)(repository, weather_service)
 
 
 def dedicated_way_value_factory(axis_id: str) -> DedicatedWayValueServiceFactory | None:
@@ -127,16 +136,15 @@ def dedicated_way_value_conditions(axis_id: str) -> list[WayValueConditionName]:
     material = _served_material_of(axis_id)
     if material is None:
         return []
-    conditions_type = DEDICATED_WAY_VALUE_SERVICES_BY_MATERIAL[material].conditions_type
+    conditions_type = _SERVICES_BY_MATERIAL[material].conditions_type
     return [cast(WayValueConditionName, field.name) for field in fields(conditions_type)]
 
 
 class DirectionalMaterialService:
     """区間インスペクタが足す専用配信の材料（進行方向に依存する勾配・風、観測で変わる雨等）を引く。"""
 
-    def __init__(self, repository: RoadGraphRepository, weather_service: WeatherService):
-        self._repository = repository
-        self._weather_service = weather_service
+    def __init__(self, build_service: MaterialServiceBuilder):
+        self._build_service = build_service
 
     async def materials(
         self,
@@ -169,7 +177,7 @@ class DirectionalMaterialService:
         key = feature_key or str(osm_way_id)
         found: dict[str, float] = {}
         for material in materials:
-            service = _factory_of(material)(self._repository, self._weather_service)
+            service = self._build_service(material)
             conditions = assemble_conditions(service.conditions_type, query)
             if isinstance(conditions, MissingConditions):
                 continue

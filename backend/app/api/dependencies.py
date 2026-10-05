@@ -31,7 +31,11 @@ from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.infrastructure.wbgt_client import new_forecast_cache, new_point_master_cache
 from app.services.axis_registry_service import AxisRegistryAdminService
 from app.services.db_status_service import DbStatusService
-from app.services.dedicated_way_values import DirectionalMaterialService, dedicated_way_value_factory
+from app.services.dedicated_way_values import (
+    DirectionalMaterialService,
+    dedicated_way_value_factory,
+    material_service_builder,
+)
 from app.services.derived_data_freshness_service import DerivedDataFreshnessService
 from app.services.flood_service import FloodService
 from app.services.graph_service import GraphService
@@ -174,7 +178,7 @@ async def get_dedicated_way_value_service(
 async def get_directional_material_service(weather_service: WeatherService = Depends(get_weather_service)):
     """区間インスペクタが足す専用配信の材料。値は地図のレンズと同じ経路で引く。"""
     async with get_session_factory()() as session:
-        yield DirectionalMaterialService(RoadGraphRepository(session), weather_service)
+        yield DirectionalMaterialService(material_service_builder(RoadGraphRepository(session), weather_service))
 
 
 def get_basemap_client():
