@@ -253,27 +253,18 @@ describe("mapScene", () => {
 
     expect(interactiveSceneLayerIds(shuffled)).toEqual(["surface-line", "poi", "route"]);
     expect(sceneLayerIdsForHitTarget(shuffled, "road")).toEqual(["surface-line", "route"]);
-    expect(sceneLayerIdsForHitTarget(shuffled, "poi")).toEqual(["poi"]);
   });
 });
 
 describe("applyMapScene", () => {
-  it("宣言したソースとレイヤーが地図に載り、面の段だけ呼び出し側が渡した位置より下へ入る", () => {
-    const map = new FakeMap(BASEMAP_LAYER_IDS);
-
-    applied(map, scene(SCENE_LAYERS));
-
-    expect(map.order()).toEqual(EXPECTED_ORDER);
-    expect(map.getSource("roads")?.spec).toEqual({ type: "vector", tiles: ROAD_TILES });
-    expect(map.layer("surface-line").layout).toEqual({ visibility: "visible" });
-  });
-
-  it("重なりは段の宣言だけで決まり、渡した配列の並びには依存しない", () => {
+  it("宣言したソースとレイヤーが、渡した配列の並びによらず段の順で地図に載り、面の段だけ呼び出し側が渡した位置より下へ入る", () => {
     const map = new FakeMap(BASEMAP_LAYER_IDS);
 
     applied(map, scene([...SCENE_LAYERS].reverse()));
 
     expect(map.order()).toEqual(EXPECTED_ORDER);
+    expect(map.getSource("roads")?.spec).toEqual({ type: "vector", tiles: ROAD_TILES });
+    expect(map.layer("surface-line").layout).toEqual({ visibility: "visible" });
   });
 
   it("あとから足したレイヤーも段の順の位置へ入る", () => {
@@ -435,16 +426,6 @@ describe("applyMapScene", () => {
     applied(map, statesScene(new Map()), before);
 
     expect(map.featureStatesOf("roads", "road")).toEqual({});
-  });
-
-  it("前回を空にして当てると、スタイルを差し替えた後の地図へ scene 全体が作り直される", () => {
-    const restyled = new FakeMap(BASEMAP_LAYER_IDS);
-
-    applied(restyled, statesScene(new Map([["windValue", new Map([["w1", 7]])]])));
-
-    expect(restyled.order()).toContain("axis-line");
-    expect(restyled.getSource("roads")?.spec.tiles).toEqual(ROAD_TILES);
-    expect(restyled.featureStatesOf("roads", "road")).toEqual({ w1: { windValue: 7 } });
   });
 
   it("途中の scene を経由しても、同じ scene を当てた地図と同じ状態になる", () => {

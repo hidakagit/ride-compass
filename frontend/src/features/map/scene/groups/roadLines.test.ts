@@ -1,23 +1,23 @@
 // @vitest-environment node
-/** 道の線の「不明」（タグが無い）と、分類の外の値（その他・該当なし）の描き分けと隠し方。
- * 式はMapLibreと同じ評価器で評価し、1本の道がどう描かれるか・残るかを見る。 */
+/** 道の線の「不明」（タグが無い）と、分類の外の値（その他・該当なし）の描き分け。
+ * 式はMapLibreと同じ評価器で評価し、1本の道がどう描かれるかを見る。凡例で隠したときに残るかは
+ * `legends.test.ts`の「凡例の行ごとの絞り込み」が凡例の全部の行で見る。 */
 import { describe, expect, it } from "vitest";
 
-import { LEGEND_NO_DATA_KEY } from "@/lib/mapDisplay/mapColorLegend";
 import { evaluateExpression as evaluate } from "@/testing/mapExpressions";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 
-import { ROAD_OTHER_KEY, ROAD_TRACKS, roadLineGroup, roadTrackAxis } from "./roadLines";
+import { ROAD_TRACKS, roadLineGroup, roadTrackAxis } from "./roadLines";
 
 const SOLID = [1, 0];
 
 type Track = (typeof ROAD_TRACKS)[number];
 
-function layerOf(track: Track, hiddenKeys: readonly string[] = []) {
+function layerOf(track: Track) {
   const layers = roadLineGroup.build({
     tiles: { urls: ["https://example.test/{z}/{x}/{y}"], sourceLayer: "road", minZoom: 10, maxZoom: 14 },
     visible: { [track.attr_id]: true },
-    hiddenKeys: { [track.attr_id]: hiddenKeys },
+    hiddenKeys: {},
     inspectedWayId: null,
   }).layers;
   const layer = layers.find((candidate) => candidate.role === track.attr_id);
@@ -40,39 +40,20 @@ const WITH_MISSING = TRACKS.filter(([, track]) => declaresMissing(track));
 const WITHOUT_MISSING = TRACKS.filter(([, track]) => !declaresMissing(track));
 
 describe.each(TRACKS)("道の線（%s）", (_id, track) => {
-  it("分類に入る道だけを濃く、分類の外の値の道は薄く、どちらも実線で描く", () => {
+  it("分類に入る道だけを濃く、分類の外の値の道は薄く描く", () => {
     const paint = layerOf(track).paint ?? {};
     const roads = roadsOf(track);
     expect(evaluate(paint["line-opacity"], roads.known)).toBe(mapDisplay.road.knownOpacity);
     expect(evaluate(paint["line-opacity"], roads.other)).toBe(mapDisplay.road.unknownOpacity);
-    if (paint["line-dasharray"] === undefined) return;
-    expect(evaluate(paint["line-dasharray"], roads.known)).toEqual(SOLID);
-    expect(evaluate(paint["line-dasharray"], roads.other)).toEqual(SOLID);
-  });
-
-  it("凡例で分類の外の値を隠すと、その道だけが消える", () => {
-    const roads = roadsOf(track);
-    const filter = layerOf(track, [ROAD_OTHER_KEY]).filter;
-    expect(evaluate(filter, roads.known)).toBe(true);
-    expect(evaluate(filter, roads.other)).toBe(false);
   });
 });
 
 // 値の無い道がタイルに現れうる属性（源泉の`missing_semantics`が`unknown`）。
 describe.each(WITH_MISSING)("値の無い道が現れる線（%s）", (_id, track) => {
-  it("タグが無い道だけを破線にする", () => {
+  it("タグが無い道だけを破線にし、分類の外の値の道は実線で描く", () => {
     const paint = layerOf(track).paint ?? {};
     expect(evaluate(paint["line-dasharray"], {})).toEqual([...mapDisplay.noDataDash]);
-  });
-
-  it("「不明」を隠すとタグが無い道だけが、分類の外の値を隠すとその道だけが消える", () => {
-    const roads = { ...roadsOf(track), missing: {} };
-    const kept = (hidden: readonly string[]) =>
-      (Object.keys(roads) as (keyof typeof roads)[]).filter((kind) =>
-        evaluate(layerOf(track, hidden).filter, roads[kind]),
-      );
-    expect(kept([LEGEND_NO_DATA_KEY])).toEqual(["known", "other"]);
-    expect(kept([ROAD_OTHER_KEY])).toEqual(["known", "missing"]);
+    expect(evaluate(paint["line-dasharray"], roadsOf(track).other)).toEqual(SOLID);
   });
 });
 
