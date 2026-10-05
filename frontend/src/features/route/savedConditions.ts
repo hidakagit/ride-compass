@@ -27,16 +27,25 @@ export interface SavedCondition extends GenerationConditionsSnapshot {
   name: string;
 }
 
+/** 距離の入力の下限（km）。backendは0より大きい距離を受け付け、画面は1km刻みで選ばせるので、その最小の値。 */
+export const MIN_DISTANCE_KM = 1;
+
 /** 距離の入力として受け付ける値か（画面の範囲内の数値）。範囲が縮んだ後でも、範囲外の距離が復元されて送られない。 */
 export function acceptedDistanceInput(raw: string): string | null {
   const parsed = Number(raw);
-  return Number.isFinite(parsed) && parsed >= 1 && parsed <= routeGenerateConfig.max_distance_km ? raw : null;
+  return Number.isFinite(parsed) && parsed >= MIN_DISTANCE_KM && parsed <= routeGenerateConfig.max_distance_km
+    ? raw
+    : null;
 }
 
 /** 候補数の入力として受け付ける値か。 */
 export function acceptedMaxRoutesInput(raw: string): string | null {
   const parsed = Number(raw);
-  return Number.isInteger(parsed) && parsed >= 1 && parsed <= routeGenerateConfig.max_routes ? raw : null;
+  return Number.isInteger(parsed) &&
+    parsed >= routeGenerateConfig.min_routes &&
+    parsed <= routeGenerateConfig.max_routes
+    ? raw
+    : null;
 }
 
 function isCoordinates(value: unknown): value is Coordinates {

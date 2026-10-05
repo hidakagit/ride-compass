@@ -2,6 +2,7 @@
 
 import { formatMaterialValue, materialCatalogName, type AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
 import type { CatalogAxis } from "@/lib/catalogAxis";
+import { formatDifficulty } from "@/lib/mapDisplay/valueScale";
 import type { ExperimentSlot } from "@/types/experimentSlot";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/Table/Table";
 import { textVariants } from "@/components/ui/Text/Text";
@@ -59,7 +60,8 @@ function buildMaterialValueRows(slots: ExperimentSlot[], materials: readonly Axi
 // 全軸を合成した総合難易度。軸には紐づかないので、表の末尾へ固定する。
 const OVERALL_DIFFICULTY_ROW: MetricRow = {
   label: "総合難易度[絶対基準]",
-  format: (s) => s.topCandidate.overall_difficulty?.average.toFixed(1) ?? "—",
+  format: (s) =>
+    s.topCandidate.overall_difficulty ? formatDifficulty(s.topCandidate.overall_difficulty.average) : "—",
 };
 
 // 軸ごとの難易度（0〜100の距離加重平均）の行。どれかの回が値を持つ軸だけ、カタログの並びで。
@@ -70,7 +72,7 @@ function buildAxisDifficultyRows(slots: ExperimentSlot[], axes: readonly Catalog
       label: axis.label,
       format: (slot: ExperimentSlot) => {
         const value = slot.topCandidate.axis_difficulties[axis.axisId];
-        return value != null ? value.toFixed(1) : "—";
+        return value != null ? formatDifficulty(value) : "—";
       },
     }));
 }

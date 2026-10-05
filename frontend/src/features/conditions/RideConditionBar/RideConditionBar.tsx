@@ -1,6 +1,6 @@
 "use client";
 
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/Popover/Popover";
+import { Popover, PopoverContent, PopoverTrigger, POPOVER_COLLISION_PADDING_PX } from "@/components/ui/Popover/Popover";
 import { useId, useMemo, useState, useSyncExternalStore } from "react";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import { clampSpeedKmh, formatDepartureLabel } from "@/features/conditions/rideConditions";
@@ -116,8 +116,7 @@ export default function RideConditionBar({
           className="flex max-w-[var(--radix-popover-content-available-width)] flex-col items-end gap-1"
           side="bottom"
           align="end"
-          sideOffset={6}
-          collisionPadding={8}
+          collisionPadding={POPOVER_COLLISION_PADDING_PX}
         >
           <Input
             id={departureInputId}
@@ -163,7 +162,12 @@ export default function RideConditionBar({
             </span>
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="flex flex-col gap-2 px-2 py-1.5" side="bottom" align="end" collisionPadding={8}>
+        <PopoverContent
+          className="flex flex-col gap-2 px-2 py-1.5"
+          side="bottom"
+          align="end"
+          collisionPadding={POPOVER_COLLISION_PADDING_PX}
+        >
           <div className="flex items-center gap-2">
             <input
               type="range"
