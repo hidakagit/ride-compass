@@ -1,7 +1,7 @@
 """JMAアメダス観測値APIのクライアント。
 
 `jma_warning_client.py`と同じ「JMA公式の非公開だが広く使われているエンドポイント」を使う。
-応答の形（キー名・[度, 分]の座標・[値, 品質フラグ]の観測値）はここで解き、呼び出し元
+応答の形（キー名・[度, 分]の座標・[値, 品質フラグ]の観測値・16方位のコード）はここで解き、呼び出し元
 （`jma_amedas_service.py`）へは`AmedasStation`・`AmedasReading`の値で渡す。
 取得失敗時はNoneを返し、呼び出し元が「観測値なし」として扱う。
 """
@@ -12,6 +12,8 @@ from datetime import datetime
 import httpx
 from cachetools import TTLCache
 
+from app.domain.geo import SIXTEEN_POINT_LABELS
+from app.domain.jma_amedas import WindDirection
 from app.domain.time_zone import JST
 from app.infrastructure.simple_api_client import UnexpectedShapeError, cached_fetch
 
@@ -60,8 +62,8 @@ class AmedasReading:
     temperature_c: float | None
     humidity_percent: float | None
     wind_speed_ms: float | None
-    #: 気象庁の16方位コード（0=静穏）。角度への読み替えは`domain/jma_amedas.py: wind_direction_from_jma_code`。
-    wind_direction_code: int | None
+    #: 静穏（方位不定）・欠測ならNone。
+    wind_direction: WindDirection | None
     precipitation_10min_mm: float | None
     #: その時刻に終わる1時間の雨量。正時の観測値だけが持つ。
     precipitation_1h_mm: float | None
@@ -94,13 +96,26 @@ def _first_value(pair: list | None) -> float | None:
     return pair[0]
 
 
+def _wind_direction(code: float | None) -> WindDirection | None:
+    """気象庁の風向コード（0=静穏、1〜16=16方位）を、風の来る向きの角度（0=北・時計回り。
+    `domain/wind.py: DepartureWind.direction_deg`と揃える）と呼び名へ。0（静穏、風速がほぼ0で方位不定）・
+    欠測・1〜16の範囲外はNone（範囲外を別の方位として出すと、向かい風と追い風を取り違えさせる）。
+
+    角度と呼び名を別々の関数で読まない——どちらも同じ1つのコードの読み替えで、分けると方位の有無の判定と
+    16方位の割当が2か所に分かれ、片方だけずれても落ちない。"""
+    # 番号は1=北北東からcode*22.5度で時計回りに進み、16=北で一周する。16で割った余りが北を0とした16方位の番号になる。
+    if code is None or not 1 <= code <= 16:
+        return None
+    index = int(code) % 16
+    return WindDirection(deg=index * 22.5, label=SIXTEEN_POINT_LABELS[index])
+
+
 def _parse_reading(raw: dict) -> AmedasReading:
-    wind_direction = _first_value(raw.get("windDirection"))
     return AmedasReading(
         temperature_c=_first_value(raw.get("temp")),
         humidity_percent=_first_value(raw.get("humidity")),
         wind_speed_ms=_first_value(raw.get("wind")),
-        wind_direction_code=None if wind_direction is None else int(wind_direction),
+        wind_direction=_wind_direction(_first_value(raw.get("windDirection"))),
         precipitation_10min_mm=_first_value(raw.get("precipitation10m")),
         precipitation_1h_mm=_first_value(raw.get("precipitation1h")),
         reports_precipitation_1h="precipitation1h" in raw,

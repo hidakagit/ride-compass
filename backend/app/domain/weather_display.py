@@ -45,7 +45,7 @@ class RiskLevel(NamedTuple):
     color: str
 
 
-#: 降水の強さ（mm/h）。段の区切りは気象庁の降水のタイル（`JMA_PRECIPITATION_TILE_COLORS`）と同じで、中継がその色を
+#: 降水の強さ（mm/h）。段の区切りは気象庁の降水のタイルと同じで、中継（`infrastructure/jma_tile_recolor.py`）がその色を
 #: ここの色へ塗り替えるため、気象庁のタイル・自前の格子の塗り・凡例が同じ段で読める。背景と同じ色にすると
 #: 「降っていない」と見分けが付かないため、いちばん弱い段も色を持つ。10mm/h以上の名前は気象庁「雨の強さと降り方」の
 #: 分類、それ未満は公式の区分が無いため自前で名付ける。
@@ -58,12 +58,6 @@ PRECIPITATION_COLOR_STOPS: tuple[ValueColorStop, ...] = ascending_stops(
     ValueColorStop(30, "#f97316", "激しい雨"),
     ValueColorStop(50, "#dc2626", "非常に激しい雨"),
     ValueColorStop(80, "#9333ea", "猛烈な雨"),
-)
-
-#: 気象庁の降水のタイル（降水ナウキャスト・降水短時間予報）が段を塗る色を、`PRECIPITATION_COLOR_STOPS`と同じ段の順に
-#: 並べたもの。配信元のタイルのパレットの色で、中継（`infrastructure/jma_tile_recolor.py`）が段ごとに1対1で塗り替える。
-JMA_PRECIPITATION_TILE_COLORS: tuple[str, ...] = (
-    "#f2f2ff", "#a0d2ff", "#218cff", "#0041ff", "#faf500", "#ff9900", "#ff2800", "#b40068",
 )
 
 #: 風速（m/s）。段の切れ目はビューフォート風力階級の上限で、名前は自転車で走るときの
