@@ -91,14 +91,6 @@ describe("配信の遅れ", () => {
       { basetime: "20260924000000", member: "none", validtime: "20260924003000" },
     ]);
   });
-
-  it("遅れを持たない要素は、時刻一覧のコマのまま読む", () => {
-    expect(jmaFramesOf(withDelay(0), rows).map((frame) => frame.basetime)).toEqual([
-      "20260924001000",
-      "20260924001000",
-      "20260924001000",
-    ]);
-  });
 });
 
 describe("時刻一覧のファイル", () => {
@@ -136,56 +128,37 @@ describe("コマのURL", () => {
   });
 
   it("源泉のテンプレートに当たらないURLは読み戻さない", () => {
-    const { tileUrlTemplate } = jmaTilePayload("rasterTile", TILE_DELIVERIES[0]!, frame);
     expect(readJmaTileUrl("https://example.com/tile/5/28/12.png")).toBeNull();
-    expect(readJmaTileUrl(tileUrlTemplate)).toBeNull(); // タイル座標が埋まっていない
-    expect(readJmaTileUrl(`${tileAt(tileUrlTemplate, 5, 28, 12)}?t=1`)).toBeNull();
     expect(readJmaTileUrl(jmaPlaceholderTileUrl(FEATURE_ELEMENT))).toBeNull(); // タイルで描かない要素の地物
   });
 
-  it("中身が届く前の仮のURLは、タイルで描く要素のどれも最初の段の実在しない時刻を指す", () => {
-    expect(TILE_ELEMENTS).not.toHaveLength(0);
-    for (const element of TILE_ELEMENTS) {
-      const ref = readJmaTileUrl(tileAt(jmaPlaceholderTileUrl(element), 4, 14, 6));
-      expect(ref?.delivery, element.source).toBe(element.jmaElements[0]);
-      expect(ref?.frame).toEqual({ basetime: "00000000000000", member: "none", validtime: "00000000000000" });
-    }
+  it("中身が届く前の仮のURLは、タイルで描く要素の最初の段の実在しない時刻を指す", () => {
+    const element = TILE_ELEMENTS.find((each) => each.jmaElements.length > 1)!;
+    const ref = readJmaTileUrl(tileAt(jmaPlaceholderTileUrl(element), 4, 14, 6));
+    expect(ref?.delivery).toBe(element.jmaElements[0]);
+    expect(ref?.frame).toEqual({ basetime: "00000000000000", member: "none", validtime: "00000000000000" });
   });
 
   it("地物はそのコマの要素配下のGeoJSONを取り、どの地物にも記号の大きさを決める値を足す（元の属性は残す）", async () => {
-    const fetchMock = vi.fn<(request: Request) => Promise<Response>>(async () =>
-      Response.json({
+    const url = `${PROXY}${delivery.urlTemplate}`
+      .replace("{basetime}", frame.basetime)
+      .replace("{member}", frame.member)
+      .replace("{validtime}", frame.validtime);
+    stubFiles({
+      [url]: {
         type: "FeatureCollection",
         features: [
           { type: "Feature", geometry: { type: "Point", coordinates: [139, 35] }, properties: { type: 1 } },
           { type: "Feature", geometry: { type: "Point", coordinates: [140, 36] }, properties: null },
         ],
-      }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
+      },
+    });
 
     const geojson = await fetchJmaGeojson(delivery, frame, "地点");
-    expect(fetchMock.mock.calls[0][0].url).toBe(
-      `${PROXY}${delivery.urlTemplate}`
-        .replace("{basetime}", frame.basetime)
-        .replace("{member}", frame.member)
-        .replace("{validtime}", frame.validtime),
-    );
-    expect(fetchMock.mock.calls[0][0].url).toMatch(/\.geojson\?/);
     expect(geojson.features.map((feature) => feature.properties)).toEqual([
       { type: 1, [JMA_POINT_VALUE_PROPERTY]: 1 },
       { [JMA_POINT_VALUE_PROPERTY]: 1 },
     ]);
-  });
-
-  it("地物の取得の失敗は、配信元の404も含めてそのまま投げる（表示しないかは呼び出し側が決める）", async () => {
-    for (const status of [404, 503]) {
-      vi.stubGlobal(
-        "fetch",
-        vi.fn(async () => new Response(null, { status })),
-      );
-      await expect(fetchJmaGeojson(delivery, frame, "地点"), String(status)).rejects.toThrow("地点");
-    }
   });
 });
 

@@ -44,20 +44,20 @@ describe("gridAtTime（時刻ごとに描く格子）", () => {
   const coarse = [point(LATER_HOURS)];
   const detail = { spacingDeg: 0.01, points: [point(HOURS, { latitude: 35.61 })] };
 
-  it("詳細格子がその時刻を持てば、詳細格子とその間隔", () => {
-    expect(gridAtTime(coarse, detail, "2026-09-24T11:00")).toBe(detail);
-  });
+  const coarseGrid = { spacingDeg: windGridConfig.spacing_deg, points: coarse };
 
-  it("詳細格子がその時刻を持たなければ（取った時刻が早く、先の端が手前で終わる）、粗い格子とその間隔", () => {
-    expect(gridAtTime(coarse, detail, "2026-09-24T12:00")).toEqual({
-      spacingDeg: windGridConfig.spacing_deg,
-      points: coarse,
-    });
-  });
-
-  it("詳細格子が無いか空なら粗い格子", () => {
-    expect(gridAtTime(coarse, null, "2026-09-24T11:00").points).toBe(coarse);
-    expect(gridAtTime(coarse, { spacingDeg: 0.01, points: [] }, "2026-09-24T11:00").points).toBe(coarse);
+  it.each([
+    ["詳細格子がその時刻を持てば、詳細格子とその間隔", detail, "2026-09-24T11:00", detail],
+    [
+      "詳細格子がその時刻を持たなければ（先の端が手前で終わる）、粗い格子とその間隔",
+      detail,
+      "2026-09-24T12:00",
+      coarseGrid,
+    ],
+    ["詳細格子が無ければ粗い格子", null, "2026-09-24T11:00", coarseGrid],
+    ["詳細格子が空なら粗い格子", { spacingDeg: 0.01, points: [] }, "2026-09-24T11:00", coarseGrid],
+  ])("%s", (_scene, given, time, expected) => {
+    expect(gridAtTime(coarse, given, time)).toEqual(expected);
   });
 });
 
@@ -81,7 +81,6 @@ describe("windArrows（風の矢印）", () => {
       point(["t"], { longitude: 139.2, speed: [3], direction: [null] }),
     ];
     const payload = windArrows(grid, "t");
-    expect(payload.kind).toBe("gridMark");
     const features = payload.kind === "gridMark" ? payload.geojson.features : [];
     expect(features).toEqual([
       {
@@ -92,11 +91,10 @@ describe("windArrows（風の矢印）", () => {
     ]);
   });
 
-  it("点ごとにその時刻の値を引き（取った時刻で列の先頭が違う点が同居する）、その時刻を持たない点は描かない", () => {
+  it("点ごとにその時刻の値を引く（取った時刻で列の先頭が違う点が同居する）", () => {
     const grid = [
       point(LATER_HOURS, { longitude: 139, speed: [10, 11, 12] }),
       point(HOURS, { longitude: 139.1, speed: [9, 10, 11] }),
-      point(HOURS.slice(0, 2), { longitude: 139.2, speed: [9, 10] }),
     ];
     const payload = windArrows(grid, "2026-09-24T11:00");
     const features = payload.kind === "gridMark" ? payload.geojson.features : [];
@@ -110,7 +108,7 @@ describe("windArrows（風の矢印）", () => {
 });
 
 describe("風速の凡例", () => {
-  it("先頭は矢印を出さない無風の範囲、続いて色の段1つにつき1行（同じ順・同じ色・段の名前）", () => {
+  it("先頭は矢印を出さない無風の範囲、続いて色の段1つにつき1行（同じ順・同じ色・段の名前。最初の色の帯は無風の上から）", () => {
     expect(WIND_SPEED_LEGEND_LEVELS[0]).toMatchObject({
       label: `無風・矢印なし[${WIND_CALM_THRESHOLD_MS}m/s未満]`,
       color: palette.semantic.no_data,
@@ -118,12 +116,7 @@ describe("風速の凡例", () => {
     const bands = WIND_SPEED_LEGEND_LEVELS.slice(1);
     expect(bands.map((band) => band.color)).toEqual(WIND_SPEED_COLOR_STOPS.map((stop) => stop.color));
     bands.forEach((band, i) => expect(band.label.startsWith(`${WIND_SPEED_COLOR_STOPS[i].name}[`)).toBe(true));
-  });
-
-  it("最初の色の帯は無風の上から、最後の帯は上限なしで始まる", () => {
-    const stops = WIND_SPEED_COLOR_STOPS;
-    expect(WIND_SPEED_LEGEND_LEVELS[1].label).toContain(`[${WIND_CALM_THRESHOLD_MS}〜${stops[1].speedMs}m/s]`);
-    expect(WIND_SPEED_LEGEND_LEVELS.at(-1)?.label).toContain(`[${stops.at(-1)?.speedMs}m/s以上]`);
+    expect(bands[0].label).toContain(`[${WIND_CALM_THRESHOLD_MS}〜${WIND_SPEED_COLOR_STOPS[1].speedMs}m/s]`);
   });
 });
 

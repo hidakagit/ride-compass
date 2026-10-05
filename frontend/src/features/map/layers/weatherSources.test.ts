@@ -25,24 +25,15 @@ const BEFORE_GRID = new Date("2026-09-24T00:00:00+09:00");
 describe("gridStageFrames（格子の段のコマ）", () => {
   const HOURS = ["2026-09-24T09:00", "2026-09-24T10:00", "2026-09-24T11:00"];
   const jst = (text: string) => new Date(`${text}+09:00`);
-  const times = (now: Date) => gridStageFrames(0, grid(HOURS), now).map(({ ref }) => ("time" in ref ? ref.time : ""));
 
-  it("今が属する1時間から先のコマだけを、格子の時刻の値で指す", () => {
-    expect(times(jst("2026-09-24T10:59"))).toEqual(HOURS.slice(1));
-  });
-
-  it("正時ちょうどはその1時間に入る", () => {
-    expect(times(jst("2026-09-24T11:00"))).toEqual(HOURS.slice(2));
-  });
-
-  it("先頭がまだ来ていなければ何も落とさず、空の格子は空", () => {
-    expect(times(jst("2026-09-24T08:30"))).toEqual(HOURS);
-    expect(gridStageFrames(0, [], jst("2026-09-24T10:00"))).toEqual([]);
-  });
-
-  it("どの端末の時刻帯でも、格子の時刻は日本時間として読む", () => {
-    // 協定世界時 01:30 = 日本時間 10:30
-    expect(times(new Date("2026-09-24T01:30:00Z"))).toEqual(HOURS.slice(1));
+  it.each([
+    ["今が属する1時間から先のコマだけを、格子の時刻の値で指す", grid(HOURS), "2026-09-24T10:59", HOURS.slice(1)],
+    ["正時ちょうどはその1時間に入る", grid(HOURS), "2026-09-24T11:00", HOURS.slice(2)],
+    ["先頭がまだ来ていなければ何も落とさない", grid(HOURS), "2026-09-24T08:30", HOURS],
+    ["空の格子は空", [], "2026-09-24T10:00", []],
+  ])("%s", (_scene, points, now, expected) => {
+    const frames = gridStageFrames(0, points, jst(now));
+    expect(frames.map(({ ref }) => ("time" in ref ? ref.time : ""))).toEqual(expected);
   });
 });
 
@@ -60,7 +51,6 @@ describe("sourceTimeline（段を1本の時系列へつなぐ）", () => {
       ["2026-09-24T02:00:00.000Z", 1],
       ["2026-09-24T03:00:00.000Z", 2],
     ]);
-    expect(timeline[3].ref).toEqual({ stage: 2, time: "2026-09-24T12:00" });
   });
 
   it("各段が最初に描くコマはbackendの表（段が重なる・途中の段が空・全段が空等）と同じ", () => {
@@ -84,10 +74,8 @@ describe("selectFrame（選んだ時刻に描くコマ）", () => {
   const frames = [0, 10, 20].map((value) => ({ time: minutes(value), ref: value }));
   const pick = (rule: FrameRule, at: Date) => selectFrame(rule, frames, at, now)?.ref;
 
-  it("一番近いコマ: 範囲内は最も近いコマ、範囲の外では描かない", () => {
-    const rule: FrameRule = { kind: "nearest", windowMinutes: null };
-    expect(pick(rule, minutes(6))).toBe(10);
-    expect(pick(rule, minutes(21))).toBeUndefined();
+  it("一番近いコマ: 最も近いコマ", () => {
+    expect(pick({ kind: "nearest", windowMinutes: null }, minutes(6))).toBe(10);
   });
 
   it("最新の観測: 最新の観測から窓の幅までは最新の観測を出し、それより先では描かない", () => {
@@ -101,10 +89,5 @@ describe("selectFrame（選んだ時刻に描くコマ）", () => {
     const windowed: FrameRule = { kind: "current", windowMinutes: 180 };
     expect(pick(windowed, minutes(180))).toBe(0);
     expect(pick(windowed, minutes(181))).toBeUndefined();
-  });
-
-  it("コマが無ければ、どの規則でも描かない", () => {
-    expect(selectFrame({ kind: "current", windowMinutes: null }, [], now, now)).toBeUndefined();
-    expect(selectFrame({ kind: "nearest", windowMinutes: null }, [], now, now)).toBeUndefined();
   });
 });

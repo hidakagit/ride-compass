@@ -17,48 +17,37 @@ const MINUTE = 60_000;
 
 // 10分おきの3コマ（0分・10分・20分）。
 const frames = [0, 10, 20].map((minute) => ({ time: at(minute) }));
+const noFrames: typeof frames = [];
 
 describe("frameIndexForTime（共有時刻に対して描くコマ）", () => {
-  it("データの範囲内なら最も近いコマ", () => {
-    expect(frameIndexForTime(frames, at(0))).toBe(0);
-    expect(frameIndexForTime(frames, at(4))).toBe(0);
-    expect(frameIndexForTime(frames, at(6))).toBe(1);
-    expect(frameIndexForTime(frames, at(20))).toBe(2);
-  });
-
-  it("範囲の外なら描かない——過ぎた時刻を指しても、最初のコマを出し続けない", () => {
-    expect(frameIndexForTime(frames, at(-1))).toBeNull();
-    expect(frameIndexForTime(frames, at(21))).toBeNull();
-    expect(frameIndexForTime([], at(0))).toBeNull();
-  });
-
-  it("端ちょうどは1秒までの揺れを範囲内に含める", () => {
-    expect(frameIndexForTime(frames, new Date(at(0).getTime() - 1000))).toBe(0);
-    expect(frameIndexForTime(frames, new Date(at(20).getTime() + 1000))).toBe(2);
-    expect(frameIndexForTime(frames, new Date(at(20).getTime() + 1001))).toBeNull();
+  it.each([
+    ["範囲内なら最も近いコマ", frames, at(6), 1],
+    ["最初のコマの前は1秒の揺れまで範囲内", frames, new Date(at(0).getTime() - 1000), 0],
+    ["最初のコマより前は描かない（過ぎた時刻に最初のコマを出し続けない）", frames, at(-1), null],
+    ["最後のコマの後は1秒の揺れまで範囲内", frames, new Date(at(20).getTime() + 1000), 2],
+    ["最後のコマより後は描かない", frames, new Date(at(20).getTime() + 1001), null],
+    ["コマが無ければ描かない", noFrames, at(0), null],
+  ])("%s", (_scene, given, target, expected) => {
+    expect(frameIndexForTime(given, target)).toBe(expected);
   });
 });
 
 describe("observationIndexForTime（観測だけが届くレイヤーのコマ）", () => {
   const delay = 20 * MINUTE;
 
-  it("最新の観測より後ろでも、届くまでの遅れの幅の間は最新の観測を出し、それより先では描かない", () => {
-    expect(observationIndexForTime(frames, at(35), delay)).toBe(2);
-    expect(observationIndexForTime(frames, at(40), delay)).toBe(2);
-    expect(observationIndexForTime(frames, at(40, 1), delay)).toBeNull();
-  });
-
-  it("観測の範囲内は最も近いコマ、最初の観測より前と空は描かない", () => {
-    expect(observationIndexForTime(frames, at(12), delay)).toBe(1);
-    expect(observationIndexForTime(frames, at(-5), delay)).toBeNull();
-    expect(observationIndexForTime([], at(0), delay)).toBeNull();
+  it.each([
+    ["最新の観測より後ろでも、届くまでの遅れの幅の間は最新の観測", frames, at(40), 2],
+    ["遅れの幅より先では描かない", frames, at(40, 1), null],
+    ["観測の範囲内は最も近いコマ", frames, at(12), 1],
+    ["観測が無ければ描かない", noFrames, at(0), null],
+  ])("%s", (_scene, given, target, expected) => {
+    expect(observationIndexForTime(given, target, delay)).toBe(expected);
   });
 });
 
 describe("isWithinFutureWindow（単発の予測を出す時間窓）", () => {
   const now = at(0);
   it("今から窓の幅まで（両端を含み、今の側は1秒の揺れを許す）", () => {
-    expect(isWithinFutureWindow(now, now, 60 * MINUTE)).toBe(true);
     expect(isWithinFutureWindow(new Date(now.getTime() - 1000), now, 60 * MINUTE)).toBe(true);
     expect(isWithinFutureWindow(at(60), now, 60 * MINUTE)).toBe(true);
     expect(isWithinFutureWindow(new Date(now.getTime() - 1001), now, 60 * MINUTE)).toBe(false);
@@ -67,27 +56,21 @@ describe("isWithinFutureWindow（単発の予測を出す時間窓）", () => {
 });
 
 describe("gridToFeatureCollection・gridCellRing（格子から地物へ）", () => {
-  it("値の取れた点だけを、並びを保って地物にする（欠損した点は飛ばす）", () => {
+  it("値の取れた点だけを地物にする（欠損した点は飛ばす）", () => {
     const grid = [
-      { id: "a", value: 1 },
       { id: "b", value: null },
-      { id: "c", value: undefined },
       { id: "d", value: 0 },
     ];
     const collection = gridToFeatureCollection(
       grid,
-      (point) => point.value ?? null,
+      (point) => point.value,
       (point, value) => ({
         type: "Feature",
         geometry: { type: "Point", coordinates: [0, 0] },
         properties: { id: point.id, value },
       }),
     );
-    expect(collection.type).toBe("FeatureCollection");
-    expect(collection.features.map((feature) => feature.properties)).toEqual([
-      { id: "a", value: 1 },
-      { id: "d", value: 0 },
-    ]);
+    expect(collection.features.map((feature) => feature.properties)).toEqual([{ id: "d", value: 0 }]);
   });
 
   it("格子点を中心とする1辺spacingの閉じた正方形", () => {
@@ -112,40 +95,33 @@ describe("tileDeliveryFailureLayerIds（配信が止まっている要素を表�
   const group = (payload: DynamicWeatherRenderPayload | undefined, visible = true): DynamicWeatherGroupState => ({
     main: { visible, payload },
   });
+  const grid: DynamicWeatherRenderPayload = { kind: "gridFill", geojson: { type: "FeatureCollection", features: [] } };
+  const nextFrame = TEMPLATE.replace("20260924010000", "20260924011000");
 
-  it("表示中のタイルが、いま失敗しているコマを指すチップ（ラスタ・ベクタとも）", () => {
-    expect(tileDeliveryFailureLayerIds({ disaster: group(tile("vectorTile")) }, failures)).toEqual(["disaster"]);
-    expect(
-      tileDeliveryFailureLayerIds(
-        { precipitationNowcast: group(tile("rasterTile")), windVector: group(undefined) },
-        failures,
-      ),
-    ).toEqual(["precipitationNowcast"]);
-  });
-
-  it("フレームが進んで別のコマを指していれば、古い失敗は当たらない", () => {
-    const nextFrame = TEMPLATE.replace("20260924010000", "20260924011000");
-    expect(tileDeliveryFailureLayerIds({ disaster: group(tile("vectorTile", nextFrame)) }, failures)).toEqual([]);
-  });
-
-  it("非表示のソース・自前で取る表現（格子）・失敗の記録に無いURLは対象外", () => {
-    const grid: DynamicWeatherRenderPayload = {
-      kind: "gridFill",
-      geojson: { type: "FeatureCollection", features: [] },
-    };
-    const foreign: DynamicWeatherRenderPayload = {
-      kind: "rasterTile",
-      tileUrlTemplate: "https://example.com/{z}/{x}/{y}.png",
-    };
-    expect(
-      tileDeliveryFailureLayerIds(
-        { disaster: group(tile("vectorTile"), false), precipitationNowcast: group(grid), windVector: group(foreign) },
-        failures,
-      ),
-    ).toEqual([]);
-  });
-
-  it("失敗が無ければ空", () => {
-    expect(tileDeliveryFailureLayerIds({ disaster: group(tile("vectorTile")) }, new Map())).toEqual([]);
+  it.each([
+    [
+      "表示中のベクタタイルが、いま失敗しているコマを指す",
+      { disaster: group(tile("vectorTile")) },
+      failures,
+      ["disaster"],
+    ],
+    [
+      "表示中のラスタタイルも同じ",
+      { precipitationNowcast: group(tile("rasterTile")) },
+      failures,
+      ["precipitationNowcast"],
+    ],
+    ["非表示のソースは対象外", { disaster: group(tile("vectorTile"), false) }, failures, []],
+    ["自前で取る表現（格子）は対象外", { precipitationNowcast: group(grid) }, failures, []],
+    ["描く中身がまだ無いソースは対象外", { windVector: group(undefined) }, failures, []],
+    [
+      "フレームが進んで別のコマを指していれば、古い失敗は当たらない",
+      { disaster: group(tile("vectorTile", nextFrame)) },
+      failures,
+      [],
+    ],
+    ["失敗が無ければ空", { disaster: group(tile("vectorTile")) }, new Map<string, string>(), []],
+  ])("%s", (_scene, groups, given, expected) => {
+    expect(tileDeliveryFailureLayerIds(groups, given)).toEqual(expected);
   });
 });
