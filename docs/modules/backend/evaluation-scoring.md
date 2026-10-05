@@ -256,7 +256,8 @@ bbox全体ぶんのコストをリクエストにつき1回だけnumpyで合成�
 集約で積み上がるため、2本のままにしている。
 
 同じ集約を軸の**生値**（折れ点を通す前の値、`StaticEdgeScoreMatrix.axis_raw_values`）にも
-掛ける（`RouteSegmentDetail.axis_raw_values`→`merge_axis_raw_values`→
+掛ける。区間の応答は生値を持たず、エンジンがEdge単位の生値を区間と同じ切り方でビンへ畳んでから
+候補全体へ畳む（`road_graph_engine.py: _build_candidate`→`route.py: route_axis_raw_values`→
 `RouteCandidate.axis_raw_values`）。得点0-100は目盛りの引き方に依存する相対評価のため、
 軸単体で経路を判断するには絶対値が要る。生値を持つのは単位が定まる軸
 （[軸スタジオ](axis-studio.md)「生値の単位」節）だけで、かつリクエストごとに変わる

@@ -1487,10 +1487,6 @@ export interface components {
             };
             /** Elevation Gain M */
             elevation_gain_m: number | null;
-            /** Min Elevation M */
-            min_elevation_m: number | null;
-            /** Max Elevation M */
-            max_elevation_m: number | null;
             /** Segments */
             segments: components["schemas"]["RouteSegmentDetail"][];
             overall_difficulty: components["schemas"]["OverallDifficulty"] | null;
@@ -1641,10 +1637,6 @@ export interface components {
             };
             /** Material Values */
             material_values: {
-                [key: string]: number;
-            };
-            /** Axis Raw Values */
-            axis_raw_values: {
                 [key: string]: number;
             };
             /** Difficulty */

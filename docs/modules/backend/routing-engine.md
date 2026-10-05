@@ -815,8 +815,8 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
   符号付き材料（`gradient_percent`等）は符号付きが正準契約**——絶対値ではない。
   ルート線の色分けがこの符号を読む）・`RouteCandidate`。
 - `aggregate_segments_into_bins`（500m区間ビニング）・`merge_axis_difficulties`・
-  `merge_axis_contributions`・`merge_axis_raw_values`・`merge_material_values`・
-  `merge_material_category_shares`・`_merge_segment_bin`。**`RouteSegmentDetail`の
+  `merge_axis_contributions`・`merge_material_values`・
+  `merge_material_category_shares`・`route_axis_raw_values`・`_merge_segment_bin`。**`RouteSegmentDetail`の
   フィールドは、ビンへの畳み方（`BIN_FIELD_MERGERS`）を必ず宣言する**。`_merge_segment_bin`は
   この表だけからビンを組み立て、辞書フィールドの畳み方（キーごとの距離加重平均、
   `BIN_DICT_FIELD_MERGERS`）も、形・位置・距離のように個別に畳むものも同じ表に載る。

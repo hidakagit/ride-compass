@@ -356,7 +356,7 @@ RAIN_GAUGES = {
 
 
 async def test_each_segment_is_scored_with_the_rain_at_the_gauge_nearest_its_midpoint(engine_over, fake_redis):
-    """雨の材料は区間の中点に最も近い雨量計の今の観測で、道の材料と同じく区間の得点と生値（mm）に載る
+    """雨の材料は区間の中点に最も近い雨量計の今の観測で、道の材料と同じく区間の得点とルートの生値（mm）に載る
     ——雨と道の材料を1つの軸で足すこともできる。南西→南東の最速は道100（西の雨量計）と道101（東の雨量計）で、
     西では1時間1.0mmの雨が続き、東は降っていない。"""
     await rain_history_fake.observe(RAIN_GAUGES, {"west": 1.0, "east": 0.0})
@@ -370,7 +370,8 @@ async def test_each_segment_is_scored_with_the_rain_at_the_gauge_nearest_its_mid
     # 3時間の雨量は1時間1.0mmの3本ぶん。道101の避けたい材料1は、雨の0mmに足されて10点になる。
     assert [segment.axis_difficulties["rain"] for segment in fastest.segments] == [30.0, 0.0]
     assert [segment.axis_difficulties["rain_and_bad"] for segment in fastest.segments] == [30.0, 10.0]
-    assert [segment.axis_raw_values["rain"] for segment in fastest.segments] == [3.0, 0.0]
+    assert fastest.axis_raw_values["rain"] == pytest.approx(
+        3.0 * fastest.segments[0].distance_km / sum(segment.distance_km for segment in fastest.segments), rel=1e-3)
 
 
 async def test_without_an_observation_history_only_the_rain_axis_has_no_data(engine_over, fake_redis):

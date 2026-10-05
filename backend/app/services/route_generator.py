@@ -23,7 +23,6 @@ from app.domain.loop_routing import TracedLoop
 if TYPE_CHECKING:
     from app.services.road_graph_engine import RoadGraphEngine, _RoadGraphContext
 from app.domain.route import (
-    merge_axis_raw_values,
     Coordinates,
     RouteCandidate,
     merge_axis_contributions,
@@ -65,13 +64,12 @@ SEGMENT_AGGREGATES: dict[str, Callable[[list[Any]], Any]] = {
     # ルート単位の絶対基準。エンジン非依存のため、engine実装側には持たせない。
     "overall_difficulty": lambda segments: overall_difficulty([(s.difficulty, s.distance_km) for s in segments]),
     "axis_difficulties": merge_axis_difficulties,
-    # 軸単体で経路を判断するための絶対値。
-    "axis_raw_values": merge_axis_raw_values,
     # overall_difficultyの内訳。合計は丸め誤差を除いてoverall_difficultyと一致する。
     "axis_contributions": merge_axis_contributions,
     # 数値材料の集約。**categorical材料の延長割合はここで触らない**——`segments`は既に
     # 約500m単位へ畳まれており、代表値からでは正しい割合を作れない（エンジンがビニングの
     # 前に計算して`RouteCandidate`へ載せている。`road_graph_engine.py: _build_candidate`）。
+    # 軸の生値（`axis_raw_values`）も区間が持たないため、同じくエンジンが載せる。
     "material_values": merge_material_values,
 }
 
