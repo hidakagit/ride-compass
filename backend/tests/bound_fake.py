@@ -12,11 +12,10 @@ import inspect
 def bound(real, fake):
     """`fake`を、`real`の署名で引数を確かめてから呼ぶ関数にして返す。
 
-    numbaでコンパイルした関数は`py_func`の署名を使う。`fake`が非同期関数なら、返す関数も
-    非同期にする（呼び出し側が`iscoroutinefunction`で扱いを分けるため）。名前・`__module__`は
-    `fake`のものを引き継ぐ（差し替えた先を`__module__`で見分けるテストがある）。
+    `fake`が非同期関数なら、返す関数も非同期にする（呼び出し側が`iscoroutinefunction`で扱いを
+    分けるため）。名前・`__module__`は`fake`のものを引き継ぐ（差し替えた先を`__module__`で見分けるテストがある）。
     """
-    signature = inspect.signature(getattr(real, "py_func", real))
+    signature = inspect.signature(real)
 
     if inspect.iscoroutinefunction(fake):
 

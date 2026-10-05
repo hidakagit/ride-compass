@@ -91,6 +91,8 @@ export function createRecordingMap(options: { styleReady?: boolean } = {}) {
       beforeId?: string,
     ) => {
       record("addLayer", spec.id, beforeId ?? null, spec);
+      // MapLibreは、前に置く相手が無いレイヤーをエラーの出来事にして載せない。
+      if (beforeId !== undefined && indexOf(beforeId) < 0) return;
       const layout = { ...((spec.layout as Record<string, unknown>) ?? {}) };
       insert(
         {
