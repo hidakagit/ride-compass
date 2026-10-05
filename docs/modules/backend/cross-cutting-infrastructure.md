@@ -219,9 +219,8 @@ None）へ倒す箇所は、`except Exception`ではなくこのタプルだけ�
 ## レート制限の集約（`api/rate_limit.py: enforce_rate_limit`）
 
 `check_rate_limit`→超過時の記録→`HTTPException(429)`という一連の処理を
-`enforce_rate_limit(request, prefix, limit_per_minute)`へ集約している。`weather.py`・
-`basemap.py`・`jma_tile.py`・`gsi_tile.py`・`accidents.py`・`routes.py`の各routerが
-これを直接呼び、`region.py`は路面・POI・専用way値配信で同じ上限を共有するため
+`enforce_rate_limit(request, prefix, limit_per_minute)`へ集約している。routerはこれを直接呼び
+（`weather.py`・`routes.py`等）、`region.py`は路面・点のタイル・専用way値配信で同じ上限を共有するため
 `_check_tile_rate_limit`という薄いラッパー経由で呼ぶ。DI工場ではなく、ルーターが要求ごとに`prefix`と上限を
 変えて普通に呼ぶ関数なので、`dependencies.py`（公開関数は注入の口だけ）と分けて置く。`prefix`はレート制限キー・
 rejection集計カテゴリの両方を兼ねる。
@@ -461,9 +460,9 @@ push型更新と同じ前提）。`JobStatus = "queued"|"running"|"done"|"failed
 - ジョブ本体（ルート生成）が読む状態は、webプロセスの中にある（道路網全体の配列・軸定義と較正値。
   管理APIの書き込みで読み直す）。別プロセスのワーカーはそれを共有できず、同じものを別に持って別に
   読み直すことになる——上の「1プロセスの境界」が止めている形そのもの。
-- Redisは失っても困らないキャッシュだけを置くfail-openの層で、ルート生成はRedisを使わない
-  （[ルート生成エンジン](routing-engine.md)「キャッシュ」）。ジョブの列をRedisへ置くと、Redisの障害が
-  生成の失敗になる。
+- Redisは失っても困らないキャッシュだけを置くfail-openの層で、ルート生成はRedisが落ちていても
+  雨の材料を欠損にして続く（[ルート生成エンジン](routing-engine.md)「キャッシュ」）。ジョブの列をRedisへ置くと、
+  Redisの障害が生成の失敗になる。
 
 代わりに失うもの: ジョブはプロセスの再起動（デプロイ）で消える。
 
