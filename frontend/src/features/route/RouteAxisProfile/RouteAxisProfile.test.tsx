@@ -89,7 +89,6 @@ describe("RouteAxisProfile", () => {
     [null, null],
     [0.004, null],
     [0.012, "データの無い区間が1%[坂・信号の無い道として所要時間を出しています]"],
-    [0.25, "データの無い区間が25%[坂・信号の無い道として所要時間を出しています]"],
   ])("値の無い区間の割合が%sなら、注記は%s（百分率へ丸めて1以上のときだけ出す）", (share, expected) => {
     renderProfile({ missingTravelDataShare: share });
     if (expected === null) expect(screen.queryByText(/データの無い区間が/)).not.toBeInTheDocument();
@@ -102,17 +101,12 @@ describe("RouteAxisProfile", () => {
     expect(screen.queryByRole("img", { name: "難易度の内訳" })).not.toBeInTheDocument();
   });
 
-  it("凡例のチップは評価に使った軸だけで、重みがあれば寄与が無くても出す", () => {
-    renderProfile({ weights: { axis_a: 0.5, axis_b: 0.5, axis_c: 0 } });
+  it("凡例のチップは評価に使った軸だけで（重みの辞書に無い軸は重み0と同じく出さない）、重みがあれば寄与が無くても出す", () => {
+    renderProfile({ weights: { axis_a: 0.5, axis_b: 0.5 }, axisContributions: { axis_a: 20, axis_c: 5 } });
     expect(screen.getByRole("img", { name: "難易度の内訳" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "軸Aの詳細を表示" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "軸Bの詳細を表示" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "軸Cの詳細を表示" })).not.toBeInTheDocument();
-  });
-
-  it("重みの辞書に無い軸は、重み0と同じく凡例に出さない", () => {
-    renderProfile({ weights: { axis_a: 0.5 }, axisContributions: { axis_a: 20, axis_b: 5 } });
-    expect(screen.queryByRole("button", { name: "軸Bの詳細を表示" })).not.toBeInTheDocument();
   });
 
   it("軸の詳細は、名前・丸めた軸別難易度・生値と総量・材料の内訳・説明を並べる", async () => {

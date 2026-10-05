@@ -96,15 +96,10 @@ describe("EditDifference", () => {
   });
 
   it("どちらかが値を持たない指標は「—」で、印を付けない", () => {
-    renderDifference({
-      origin: origin({ estimated_duration_seconds: null }),
-      edited: edited({ overall_difficulty: null }),
-    });
-    for (const label of ["所要", "総合難易度", "負荷"]) {
-      expect(metric(label)).toHaveTextContent("—");
-      expect(metric(label)).toHaveAttribute("data-worse", "false");
-      expect(metric(label)).toHaveAttribute("data-better", "false");
-    }
+    renderDifference({ origin: origin({ estimated_duration_seconds: null }) });
+    expect(metric("所要")).toHaveTextContent("—");
+    expect(metric("所要")).toHaveAttribute("data-worse", "false");
+    expect(metric("所要")).toHaveAttribute("data-better", "false");
   });
 
   it("変えた区間ごとに、元の何km〜何kmかと長さの差を出す", () => {

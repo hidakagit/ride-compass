@@ -97,13 +97,9 @@ describe("ComparisonPanel", () => {
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
   });
 
-  it("2回以上なら、何回分を並べているかを添える", () => {
-    renderPanel([FIRST, SECOND, slot("third", "2026-10-04T02:00:00Z", {})]);
-    expect(screen.getByText(/直近3回の生成結果を並べています/)).toBeInTheDocument();
-  });
-
-  it("列は回ごとで、見出しは生成した時刻（日本時間の時:分）、補足に正確な時刻とその回の重みを持つ", () => {
+  it("列は回ごとで、見出しは生成した時刻（日本時間の時:分）、補足に正確な時刻とその回の重みを持ち、何回分かを添える", () => {
     renderPanel([FIRST, SECOND]);
+    expect(screen.getByText(/直近2回の生成結果を並べています/)).toBeInTheDocument();
     const headers = within(screen.getAllByRole("row")[0]).getAllByRole("columnheader").slice(1);
     expect(headers.map((header) => header.textContent)).toEqual(["09:05", "10:30"]);
     // 名前を引けない軸は軸idを出さず、件数だけにする。
