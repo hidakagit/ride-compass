@@ -247,7 +247,7 @@ async def _read_nodes(repository: RoadGraphRepository) -> dict[str, np.ndarray]:
 async def _read_directed_edges(repository: RoadGraphRepository, node_osm_id: np.ndarray) -> dict[str, Any]:
     """区間を有向の行へ広げる。一方通行は走れる向きだけ、端点のノードが無い区間は落とし、落とした
     有向の行の数を`dropped_without_endpoint`で返す（道の行が無い区間は`_NETWORK_EDGES_SQL`の結合で既に落ちている）。"""
-    highway_vocab: dict[str | None, int] = {None: 0}
+    highway_vocab: dict[str, int] = {}
     dropped_without_endpoint = 0
     parts: dict[str, list[np.ndarray]] = {
         name: [] for name in ("way", "segment", "forward", "from", "to", "highway",

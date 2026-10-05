@@ -81,14 +81,19 @@ def material_value_checks(table: str) -> tuple[CheckConstraint, ...]:
     読み出し側が毎回この条件を書かずに済むように、入れられない側で止める。
     """
     total = " + ".join(_LANDCOVER_COLUMNS)
+    shares = ", ".join(_LANDCOVER_COLUMNS)
     return (
         *(CheckConstraint(f"{column} >= 0", name=f"{table}_{column}_not_negative")
           for column in (*_COUNT_COLUMNS, "lc_valid_pixels")),
         *(CheckConstraint(f"{column} BETWEEN 0 AND 100", name=f"{table}_{column}_is_percent")
           for column in _LANDCOVER_COLUMNS),
+        # 割合は有効画素が正の行だけが全部持ち、そのとき合計が100。式がNULLになる形（`IS NULL OR …`）にしない
+        # ——CHECKはNULLを通すので、割合が1つ欠けた行が合計のNULLで通る。
         CheckConstraint(
-            f"lc_valid_pixels IS NULL OR abs(({total}) - 100) <= {_PERCENT_SUM_TOLERANCE}",
-            name=f"{table}_landcover_sums_to_100"),
+            f"CASE WHEN coalesce(lc_valid_pixels, 0) > 0"
+            f" THEN num_nulls({shares}) = 0 AND abs(({total}) - 100) <= {_PERCENT_SUM_TOLERANCE}"
+            f" ELSE num_nonnulls({shares}) = 0 END",
+            name=f"{table}_landcover_shares_follow_valid_pixels"),
     )
 
 
@@ -165,6 +170,10 @@ class EdgeMaterialRow(Base):
             ondelete="CASCADE",
         ),
         *material_value_checks("edge_materials"),
+        # 標高の段は4列を1文で書き、戻すときも4列を空にする。読み手は標高の有無を始点の列だけで見る。
+        CheckConstraint(
+            "num_nonnulls(start_elevation_m, end_elevation_m, elevation_gain_m, elevation_loss_m) IN (0, 4)",
+            name="edge_materials_elevation_all_or_none"),
         {"info": DERIVED},
     )
 

@@ -130,20 +130,10 @@ def test_the_reverse_swaps_the_ends_and_turns_climbs_into_descents():
     }
 
 
-def test_missing_values_stay_missing_in_the_reverse():
-    missing = ElevationAttribute(
-        edge_id="1:0:f",
-        start_elevation_m=None,
-        end_elevation_m=30.0,
-        elevation_gain_m=None,
-        elevation_loss_m=None,
-        average_grade=None,
-        max_grade=9.0,
-        min_grade=None,
-    )
+def test_missing_grades_stay_missing_in_the_reverse():
+    missing = climb().model_copy(update={"average_grade": None, "min_grade": None})
 
     reverse = missing.reversed_as("1:0:r")
 
-    assert (reverse.start_elevation_m, reverse.end_elevation_m) == (30.0, None)
     assert (reverse.average_grade, reverse.max_grade, reverse.min_grade) == (None, None, -9.0)
 

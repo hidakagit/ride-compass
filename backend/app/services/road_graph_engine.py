@@ -1803,13 +1803,8 @@ def aggregate_elevation(edges: list[LeanEdge], elevation_by_edge: dict) -> dict:
     attrs = [elevation_by_edge.get(edge.edge_id) for edge in edges]
     valid = [a for a in attrs if a is not None]
 
-    gains = [a.elevation_gain_m for a in valid if a.elevation_gain_m is not None]
-    elevations: list[float] = []
-    for a in valid:
-        if a.start_elevation_m is not None:
-            elevations.append(a.start_elevation_m)
-        if a.end_elevation_m is not None:
-            elevations.append(a.end_elevation_m)
+    gains = [a.elevation_gain_m for a in valid]
+    elevations = [e for a in valid for e in (a.start_elevation_m, a.end_elevation_m)]
 
     return {
         "elevation_gain_m": _rounded_or_none(sum, gains),

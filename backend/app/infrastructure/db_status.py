@@ -55,7 +55,7 @@ WHERE datname = current_database() AND pid <> pg_backend_pid()
 @dataclass(frozen=True)
 class SucceededRunCounts:
     id: int
-    #: 成功のrunは、閉じるときに状態と一緒に書かれる（`batch/ingest.py: _close_run`）ので必ずある。
+    #: 閉じたrunは必ず持つ（表の制約`source_runs_finished_when_closed`）。
     finished_at: datetime
 
 

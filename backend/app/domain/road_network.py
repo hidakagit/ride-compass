@@ -39,7 +39,7 @@ class RoadNetwork:
     edge_to: np.ndarray  # int32
     # 道路の種別（`highway`タグ）の語彙への番号。
     edge_highway: np.ndarray  # int16
-    highway_vocab: tuple[str | None, ...]
+    highway_vocab: tuple[str, ...]
     # 区間の形の外接矩形。範囲の切り出しに使う。
     edge_min_lon: np.ndarray  # float64
     edge_min_lat: np.ndarray
@@ -191,10 +191,10 @@ def elevation_attribute(network: RoadNetwork, row: int, edge_id: str) -> Elevati
     grade_column = network.numeric_ids.index(GRADIENT_PERCENT)
     return ElevationAttribute(
         edge_id=edge_id,
-        start_elevation_m=_none_if_nan(network.elevation_start_m[row]),
-        end_elevation_m=_none_if_nan(network.elevation_end_m[row]),
-        elevation_gain_m=_none_if_nan(network.elevation_gain_m[row]),
-        elevation_loss_m=_none_if_nan(network.elevation_loss_m[row]),
+        start_elevation_m=float(network.elevation_start_m[row]),
+        end_elevation_m=float(network.elevation_end_m[row]),
+        elevation_gain_m=float(network.elevation_gain_m[row]),
+        elevation_loss_m=float(network.elevation_loss_m[row]),
         average_grade=_none_if_nan(network.numeric_values[row, grade_column]),
         max_grade=_none_if_nan(network.elevation_max_grade[row]),
         min_grade=_none_if_nan(network.elevation_min_grade[row]),

@@ -924,7 +924,7 @@ export interface components {
         /** AxisInspectorResult */
         AxisInspectorResult: {
             /** Highway */
-            highway: string | null;
+            highway: string;
             /** Tags */
             tags: {
                 [key: string]: string;

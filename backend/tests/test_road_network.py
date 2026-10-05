@@ -69,8 +69,8 @@ def network() -> RoadNetwork:
         edge_forward=np.array([forward for _, _, forward, *_ in EDGES], dtype=bool),
         edge_from=edge_from,
         edge_to=edge_to,
-        edge_highway=np.ones(n, dtype=np.int16),
-        highway_vocab=(None, "residential"),
+        edge_highway=np.zeros(n, dtype=np.int16),
+        highway_vocab=("residential",),
         edge_min_lon=np.minimum(lon[edge_from], lon[edge_to]),
         edge_min_lat=np.minimum(lat[edge_from], lat[edge_to]),
         edge_max_lon=np.maximum(lon[edge_from], lon[edge_to]),
@@ -89,10 +89,10 @@ def network() -> RoadNetwork:
         mid_lat=lat[edge_from],
         mid_lon=(lon[edge_from] + lon[edge_to]) / 2,
         elevation_present=np.array([True, True, True, False, True]),
-        elevation_start_m=np.array([10.0, 22.0, 5.0, NAN, NAN]),
+        elevation_start_m=np.array([10.0, 22.0, 5.0, NAN, 5.0]),
         elevation_end_m=np.array([22.0, 10.0, 5.0, NAN, 8.0]),
-        elevation_gain_m=np.array([12.0, 0.0, 0.0, NAN, NAN]),
-        elevation_loss_m=np.array([0.0, 12.0, 0.0, NAN, NAN]),
+        elevation_gain_m=np.array([12.0, 0.0, 0.0, NAN, 3.0]),
+        elevation_loss_m=np.array([0.0, 12.0, 0.0, NAN, 0.0]),
         elevation_max_grade=np.array([4.0, -2.0, 0.0, NAN, NAN]),
         elevation_min_grade=np.array([2.0, -4.0, 0.0, NAN, NAN]),
     )
@@ -169,11 +169,10 @@ def test_the_elevation_attribute_reads_the_average_grade_from_the_material():
     }
 
 
-def test_values_missing_in_the_arrays_are_none_in_the_attribute():
+def test_grades_missing_in_the_arrays_are_none_in_the_attribute():
     attribute = elevation_attribute(network(), 4, "30:1:f")
 
     assert attribute is not None
-    assert attribute.start_elevation_m is None
     assert attribute.max_grade is None
 
 

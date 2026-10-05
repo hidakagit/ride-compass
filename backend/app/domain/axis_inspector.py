@@ -38,7 +38,7 @@ class InspectorComposite(StrictModel):
 
 
 class AxisInspectorResult(StrictModel):
-    highway: str | None
+    highway: str
     tags: dict[str, str]
     axes: list[AxisInspectorAxis]
     #: 1つも取得できなければNone。
@@ -50,7 +50,7 @@ class AxisInspectorResult(StrictModel):
 
 
 def axis_inspector_breakdown(
-    highway: str | None,
+    highway: str,
     tags: dict[str, str],
     materials: dict[str, object],
     landcover: LandcoverPercentages | None,

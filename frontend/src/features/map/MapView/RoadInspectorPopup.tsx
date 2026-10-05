@@ -187,7 +187,7 @@ function RoadAttributeRows({
     if (!rows.some((row) => row.label === label)) rows.push({ label, value });
   };
   if (result !== null) {
-    add(PRIMARY_ATTRIBUTE_LABELS.highway, result.highway ?? "不明");
+    add(PRIMARY_ATTRIBUTE_LABELS.highway, result.highway);
     for (const [key, value] of Object.entries(result.tags)) {
       const label = PRIMARY_ATTRIBUTE_LABELS[key];
       if (label === undefined) others.push([key, value]);

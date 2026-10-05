@@ -38,7 +38,7 @@ DEAD_TUPLE_WARN_MIN_ROWS = 1_000
 class LatestRunEntry(StrictModel):
     id: int
     status: str
-    #: 走っている間はNone。
+    #: 閉じていない（`running`の）間だけNone（表の制約`source_runs_finished_when_closed`）。
     finished_at: datetime | None
     #: runを識別する情報（PBF名・対象年・種別など、テーブルごとに中身が違う）。
     identity: dict[str, str]
