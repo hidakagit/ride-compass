@@ -14,14 +14,14 @@ import logging
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
     AxisDefinition,
+    AxisDependencyCycleError,
+    AxisMaterialConflictError,
     check_axis_definition,
+    check_axis_set,
     check_internal_axis_not_published,
-    check_material_exclusivity,
     check_publish_immutability,
     named_references,
-    topological_axis_order,
 )
-from app.domain.material_catalog import is_known_material
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
 
 logger = logging.getLogger("ridecompass.axis_registry")
@@ -55,8 +55,8 @@ def _rejected_axes(definitions: dict[str, AxisDefinition]) -> dict[str, str]:
 def _loading_problem(definitions: dict[str, AxisDefinition]) -> str | None:
     """起動時の読み込みがこの軸の集合を受け入れない理由。受け入れるならNone。運用者が読む文で、軸はidで名指す。
 
-    管理APIの書き込みも確定する前の状態を同じ判定（0行と`_rejected_axes`）へ通すが、断りの文は画面に出るため
-    書き込みの側で書く（`_check_loadable_after_write`・`AxisRegistryAdminService.delete`）。
+    管理APIの書き込みも確定する前の状態を同じ判定（0行と`_rejected_axes`と`check_axis_set`）へ通すが、断りの文は
+    画面に出るため書き込みの側で書く（`_check_loadable_after_write`・`AxisRegistryAdminService.delete`）。
     """
     if not definitions:
         return (
@@ -67,7 +67,18 @@ def _loading_problem(definitions: dict[str, AxisDefinition]) -> str | None:
     if rejected:
         reasons = "／".join(f"{axis_id}: {reason}" for axis_id, reason in rejected.items())
         return f"アプリが受け入れない軸があります（{reasons}）"
-    return None
+    try:
+        check_axis_set(definitions)
+    except AxisMaterialConflictError as error:
+        materials = ", ".join(sorted(error.overlapping_materials))
+        reason = f"{error.axis_id}: 材料 {materials} を {error.conflicting_axis_id} も使っています"
+    except AxisDependencyCycleError as error:
+        reason = f"組み合わせが輪になっています {'→'.join(error.cycle)}"
+    except ValueError as error:  # 軸idと材料idの衝突。文が軸をidで名指している
+        reason = str(error)
+    else:
+        return None
+    return f"アプリが受け入れない軸の組み合わせがあります（{reason}）"
 
 
 async def refresh_axis_definitions(repository: AxisDefinitionRepository) -> None:
@@ -88,20 +99,27 @@ async def refresh_axis_definitions(repository: AxisDefinitionRepository) -> None
     AXIS_DEFINITIONS.update(definitions)
 
 
-def _check_loadable_after_write(after: dict[str, AxisDefinition]) -> None:
-    """作成・更新の後の全軸が起動時の読み込みを通るか。軸を足す・差し替える書き込みなので、0行にはならない。"""
+def _check_loadable_after_write(after: dict[str, AxisDefinition], written_axis_id: str) -> None:
+    """作成・更新の後の全軸が起動時の読み込みを通るか。軸を足す・差し替える書き込みなので、0行にはならない。
+
+    集合の誤り（`check_axis_set`）は、その文のまま断る。材料の重なりは後に並ぶ軸の誤りとして名指されるので、
+    書いた軸を最後に並べて渡す——並び順のまま渡すと、前に並ぶ軸を直したときに、直した軸を「すでに使っている軸」と名指す。
+    """
     rejected = _rejected_axes(after)
     if rejected:
         reasons = "／".join(f"{named_references([axis_id], after)}: {reason}" for axis_id, reason in rejected.items())
         raise ValueError(f"この変更を確定すると、次の起動で読み込めない軸ができるため確定しません（{reasons}）")
+    others = {axis_id: d for axis_id, d in after.items() if axis_id != written_axis_id}
+    check_axis_set({**others, written_axis_id: after[written_axis_id]})
 
 
 def _check_deletable(axis_id: str, existing: dict[str, AxisDefinition]) -> None:
     """消した後の全軸を起動時の読み込みが受け入れるか。受け入れないのは、最後の1軸を消すときと、
     ほかの軸が組み合わせに使っている軸を消すとき。
 
-    消す前の全軸は読み込みを通っている（起動と書き込みのたびに確かめている）。読み込みの判定のうち軸の集合に
-    よって答えが変わるのは参照先の実在だけなので、消した後に通らなくなる軸は、消す軸を指している軸である。
+    消す前の全軸は読み込みを通っている（起動と書き込みのたびに確かめている）。読み込みの判定のうち軸を減らして
+    破れうるのは参照先の実在だけ（集合の判定`check_axis_set`は、軸を減らしても破れない）なので、消した後に
+    通らなくなる軸は、消す軸を指している軸である。
     """
     name = named_references([axis_id], existing)
     after = {aid: d for aid, d in existing.items() if aid != axis_id}
@@ -124,7 +142,7 @@ class AxisRegistryAdminService:
 
     書き込みは1操作=1トランザクションで確定し、直後に`refresh_axis_definitions`で
     プロセス内へ反映する。作成・更新・削除は、確定する前に書いた後の全軸を起動時の読み込みと
-    同じ判定（0行と`_rejected_axes`）へ通す。
+    同じ判定（0行と`_rejected_axes`と`check_axis_set`）へ通す。
 
     書き込む操作はいずれも「読む→Python側で検証する→書く」の形のため、先頭で
     `acquire_write_lock`を取ってその全体を直列化する（取らないとTOCTOUで検証をすり抜ける。
@@ -143,18 +161,10 @@ class AxisRegistryAdminService:
         existing = await self._repository.list_all_with_sort_order()
         if definition.axis_id in existing:
             raise ValueError(f"axis_id={definition.axis_id} は既に存在します")
-        # 軸の評価結果は材料と同じ辞書へ書き戻されるため、axis_idが材料idと衝突すると
-        # 同名の生材料値を黙って上書きし、それ以降に評価される軸が壊れる。axis_idは
-        # updateで変えられないため、この検査はcreate時だけでよい。
-        if is_known_material(definition.axis_id):
-            raise ValueError(f"axis_id={definition.axis_id} は既存の材料idと衝突しています")
-        # 新規軸が既存軸の材料を黙って再利用し、二重計上が混入するのを防ぐ。
         existing_definitions = {aid: d for aid, (d, _) in existing.items()}
-        check_material_exclusivity(definition, existing_definitions)
         check_internal_axis_not_published(definition, existing_definitions)
         after = {**existing_definitions, definition.axis_id: definition}
-        _check_loadable_after_write(after)
-        topological_axis_order(after)
+        _check_loadable_after_write(after, definition.axis_id)
         sort_order = max((order for _, order in existing.values()), default=-1) + 1
         await self._repository.upsert(definition, sort_order)
         await self._repository.commit()
@@ -172,11 +182,9 @@ class AxisRegistryAdminService:
         # 未公開を装って公開済み軸の更新を通す抜け道になる。
         check_publish_immutability(existing_definition, "updated", definition)
         existing_definitions = {aid: d for aid, (d, _) in existing.items()}
-        check_material_exclusivity(definition, existing_definitions)
         check_internal_axis_not_published(definition, existing_definitions)
         after = {**existing_definitions, axis_id: definition}
-        _check_loadable_after_write(after)
-        topological_axis_order(after)
+        _check_loadable_after_write(after, axis_id)
         await self._repository.upsert(definition, sort_order)
         await self._repository.commit()
         await refresh_axis_definitions(self._repository)
