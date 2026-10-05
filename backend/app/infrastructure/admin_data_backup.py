@@ -9,6 +9,8 @@ from datetime import datetime
 
 from app.infrastructure.tile_cache import DATA_DIR
 
+#: 本番の読み手はこのファイルだけだが、テストがディスク（プロセス境界）の置き場を一時ディレクトリへ差し替えるために公開する
+#: （testing.md「確かめる高さ」の例外）。置き場を引数で受けると、本番がいつも同じ置き場を渡すだけの、テストのための口になる。
 MARKER_PATH = DATA_DIR / "admin_data_backup_at"
 
 

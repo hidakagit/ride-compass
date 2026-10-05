@@ -6,16 +6,18 @@
 - HTTPの受け口（404・422への写し替え・一覧の並び） → `test_tuning_admin_routes.py`
 
 下の読み書き（`infrastructure/tuning_overrides.py`）とセッションは、呼ばれた順を1本の記録へ残す代役へ
-差し替える。下の関数の代役は本物の署名へ当てる（`bound`）。
+差し替える。下の関数の代役は本物の署名へ当てる（`bound`）。プロセスへ反映したかは、プロセス内の`TUNING_VALUES`で見る。
 """
 
 import pytest
 
+from app.domain.tuning import TUNING_PARAMETERS, TUNING_VALUES
 from app.services import tuning_service
 from tests.bound_fake import bound
 
-#: 書いた後の上書きを読んで検算した結果（`load_tuning_values`の代役が返す）。
-LOADED = {"speed.crr": 0.006}
+_PARAM = "speed.crr"
+#: 書いた後の上書きを読んで検算した結果（`load_tuning_values`の代役が返す）。宣言の既定から1つだけ動かした値。
+LOADED = {**{parameter.id: parameter.default for parameter in TUNING_PARAMETERS}, _PARAM: 0.006}
 
 
 class Session:
@@ -28,7 +30,8 @@ class Session:
     async def commit(self):
         if self.fail_on_commit:
             raise RuntimeError("commitできない")
-        self.events.append("commit")
+        # 確定の時点のプロセスの値も残す（差し替えは確定の後）。
+        self.events.append(("commit", TUNING_VALUES[_PARAM]))
 
     async def rollback(self):
         self.events.append("rollback")
@@ -36,7 +39,12 @@ class Session:
 
 @pytest.fixture
 def events(monkeypatch):
-    """下の読み書きを代役へ差し替え、呼ばれた順を返す。`failing`へ名前を入れるとその段が失敗する。"""
+    """下の読み書きを代役へ差し替え、呼ばれた順を返す。`failing`へ名前を入れるとその段が失敗する。
+
+    プロセス内の`TUNING_VALUES`は、テストの後に元の値へ戻す。
+    """
+    for param_id, value in TUNING_VALUES.items():
+        monkeypatch.setitem(TUNING_VALUES, param_id, value)
     recorded: list = []
     failing: set[str] = set()
 
@@ -49,13 +57,9 @@ def events(monkeypatch):
 
         monkeypatch.setattr(tuning_service, name, bound(getattr(tuning_service, name), call))
 
-    def apply(values):
-        recorded.append(("apply_tuning_values", values))
-
     stub("set_override")
     stub("clear_override")
     stub("load_tuning_values", LOADED)
-    monkeypatch.setattr(tuning_service, "apply_tuning_values", bound(tuning_service.apply_tuning_values, apply))
     return recorded, failing
 
 
@@ -71,11 +75,14 @@ async def test_saving_loads_the_values_before_commit_and_only_swaps_them_in_afte
     recorded, _ = events
     session = Session(recorded)
 
-    await tuning_service.save_override(session, "speed.crr", value)
+    before = TUNING_VALUES[_PARAM]
+
+    await tuning_service.save_override(session, _PARAM, value)
 
     # 読んで検算するのは確定の前（失敗すれば書き込みごと取り消せる）。確定の後は、その値への
     # 差し替えだけ——DBを読み直さず、DBに無い値がプロセスだけで効くこともない
-    assert recorded == [write, ("load_tuning_values",), "commit", ("apply_tuning_values", LOADED)]
+    assert recorded == [write, ("load_tuning_values",), ("commit", before)]
+    assert TUNING_VALUES == LOADED
 
 
 @pytest.mark.parametrize(
@@ -90,11 +97,12 @@ async def test_a_failed_save_is_rolled_back_raised_and_not_applied(events, value
     recorded, failing = events
     session = Session(recorded, fail_on_commit=failing_step == "commit")
     failing.add(failing_step)
+    before = dict(TUNING_VALUES)
 
     with pytest.raises(RuntimeError):
-        await tuning_service.save_override(session, "speed.crr", value)
+        await tuning_service.save_override(session, _PARAM, value)
 
     # 半分だけ書けた状態を反映すると、DBと動いている値が食い違う
     assert recorded[-1] == "rollback"
-    assert "commit" not in recorded
-    assert ("apply_tuning_values", LOADED) not in recorded
+    assert ("commit", before[_PARAM]) not in recorded
+    assert TUNING_VALUES == before

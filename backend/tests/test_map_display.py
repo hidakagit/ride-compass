@@ -83,7 +83,8 @@ def test_names_that_are_pointed_at_are_not_repeated(declarations):
 
 def test_no_layer_appears_twice():
     """一次属性・気象のグループ・ルートの名前が重なると、同じ名前のレイヤーが2つ並ぶ。"""
-    assert len(set(map_display.MAP_LAYER_IDS)) == len(map_display.MAP_LAYER_IDS)
+    layer_ids = [layer_id for layer_id, _ in map_display.MAP_LAYERS]
+    assert len(set(layer_ids)) == len(layer_ids)
 
 
 #: ズームから値への曲線（数の組の並び）。名前で拾わず、形で拾う。

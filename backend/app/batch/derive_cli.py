@@ -68,6 +68,9 @@ logger = logging.getLogger("ridecompass.derive_cli")
 #: 段は接続と、いま効くべき較正値（id → 値）を受ける。
 Stage = Callable[[asyncpg.Connection, Mapping[str, float]], Awaitable[object]]
 
+#: 本番の読み手はこのファイルだけだが、テストが段の後ろに覗き窓・失敗を挟むために公開する（testing.md「確かめる高さ」の
+#: 例外）: 入れ替えまでは読み手が前の表を読むこと・途中で落ちても読み手の見るものが何も変わらないことは、段と段の
+#: 間に入らないと作れず、入口（`run`）の引数で段を受けると、本番がいつも同じ表を渡すだけのテストのための口になる。
 STAGES: tuple[tuple[str, Stage], ...] = (
     ("topology", lambda conn, tuning: derive_topology.derive(conn)),
     ("nodes", lambda conn, tuning: derive_node_materials.derive(
@@ -79,7 +82,7 @@ STAGES: tuple[tuple[str, Stage], ...] = (
 
 #: 作り直す間の表を置くスキーマ。同時に2本走ると互いの表を消し合うため、作り直しは排他の鍵
 #: （`SOURCE_DATA_LOCK`）を取って1本に限る。
-WORK_SCHEMA = "derived_rebuild"
+_WORK_SCHEMA = "derived_rebuild"
 
 #: 入れ替えが読み手を待つ上限。入れ替えは表の排他ロックを取り、待つ間は後から来た読み手も
 #: 後ろに並ぶ——長く読む相手（道路網の配列を作るデプロイの前処理等）がいると、その間の
@@ -124,29 +127,29 @@ async def _copy_to_work_schema(conn: asyncpg.Connection, tables: list[str]) -> N
     await conn.execute("SET search_path = public")
     constraints = await conn.fetch(_CONSTRAINTS_SQL, tables)
     indexes = await conn.fetch(_INDEXES_SQL, tables)
-    await conn.execute(f"DROP SCHEMA IF EXISTS {WORK_SCHEMA} CASCADE")
-    await conn.execute(f"CREATE SCHEMA {WORK_SCHEMA}")
+    await conn.execute(f"DROP SCHEMA IF EXISTS {_WORK_SCHEMA} CASCADE")
+    await conn.execute(f"CREATE SCHEMA {_WORK_SCHEMA}")
     for table in tables:
         await conn.execute(
-            f"CREATE TABLE {WORK_SCHEMA}.{table} (LIKE public.{table} INCLUDING ALL EXCLUDING INDEXES)")
-        await conn.execute(f"INSERT INTO {WORK_SCHEMA}.{table} SELECT * FROM public.{table}")
-    await conn.execute(f"SET search_path = {WORK_SCHEMA}, public")
+            f"CREATE TABLE {_WORK_SCHEMA}.{table} (LIKE public.{table} INCLUDING ALL EXCLUDING INDEXES)")
+        await conn.execute(f"INSERT INTO {_WORK_SCHEMA}.{table} SELECT * FROM public.{table}")
+    await conn.execute(f"SET search_path = {_WORK_SCHEMA}, public")
     for row in constraints:
         await conn.execute(f'ALTER TABLE {row["table_name"]} ADD CONSTRAINT {row["name"]} {row["definition"]}')
     for row in indexes:
         qualified = f" ON public.{row['table_name']} "
         if qualified not in row["definition"]:
             raise RuntimeError(f"索引の定義を読み替えられない: {row['definition']}")
-        await conn.execute(row["definition"].replace(qualified, f" ON {WORK_SCHEMA}.{row['table_name']} ", 1))
+        await conn.execute(row["definition"].replace(qualified, f" ON {_WORK_SCHEMA}.{row['table_name']} ", 1))
     await conn.execute("ANALYZE " + ", ".join(tables))
     logger.info("派生の表を作業用のスキーマ %s へ写した / %s",
-                WORK_SCHEMA, format_duration(time.perf_counter() - started))
+                _WORK_SCHEMA, format_duration(time.perf_counter() - started))
 
 
 async def _build_road_network(database_url: str, revision: int) -> Path:
     """作業用のスキーマの表から道路網の配列を作り、読み手がまだ拾わない名前で置く。"""
     started = time.perf_counter()
-    async with batch_session_factory(database_url, schema=WORK_SCHEMA) as session_factory:
+    async with batch_session_factory(database_url, schema=_WORK_SCHEMA) as session_factory:
         async with session_factory() as session:
             network = await road_network_store.build(RoadGraphRepository(session), revision)
     pending = road_network_store.write_pending(network)
@@ -163,7 +166,7 @@ async def _swap(conn: asyncpg.Connection, tables: list[str], revision: int) -> N
                 await conn.execute(f"SET LOCAL lock_timeout = '{_SWAP_LOCK_TIMEOUT}'")
                 await conn.execute("DROP TABLE " + ", ".join(f"public.{table}" for table in tables))
                 for table in tables:
-                    await conn.execute(f"ALTER TABLE {WORK_SCHEMA}.{table} SET SCHEMA public")
+                    await conn.execute(f"ALTER TABLE {_WORK_SCHEMA}.{table} SET SCHEMA public")
                 bumped = await derived_data_meta.bump_revision(conn)
                 if bumped != revision:
                     raise RuntimeError(
@@ -218,10 +221,10 @@ async def run(database_url: str, start_from: str | None) -> int:
         if pending is not None:
             shutil.rmtree(pending, ignore_errors=True)
         try:
-            await conn.execute(f"DROP SCHEMA IF EXISTS {WORK_SCHEMA} CASCADE")
+            await conn.execute(f"DROP SCHEMA IF EXISTS {_WORK_SCHEMA} CASCADE")
         except (asyncpg.PostgresError, OSError):
             logger.warning("作業用のスキーマ %s を消せなかった（次の作り直しの最初に消す）",
-                           WORK_SCHEMA, exc_info=True)
+                           _WORK_SCHEMA, exc_info=True)
         await conn.close()
     logger.info("派生を作り直して入れ替えた: %s / 派生データの世代 %d / %s",
                 "→".join(names[begin:]), revision, format_duration(time.perf_counter() - started))

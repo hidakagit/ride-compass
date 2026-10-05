@@ -32,7 +32,7 @@ from app.domain.material_catalog import (
     WayMaterialCoverageSpec,
 )
 from app.domain.registry import PrimaryAttributeSpec
-from app.domain.traffic import STOP_POI_KINDS, SupplyPoiKind
+from app.domain.traffic import NODE_KINDS, STOP_POI_KINDS
 
 ATTR_A = PrimaryAttributeSpec(attr_id="attr_a", label="属性A", geometry="line", tile_kind="road_surface")
 ATTR_B = PrimaryAttributeSpec(attr_id="attr_b", label="属性B", geometry="line", tile_kind="road_surface")
@@ -258,7 +258,7 @@ def test_a_line_axis_knows_what_a_missing_value_means(attr):
 
 @pytest.mark.parametrize(
     ("attr_id", "kinds"),
-    [("stop_poi", STOP_POI_KINDS), ("supply_poi", set(get_args(SupplyPoiKind)))],
+    [("stop_poi", STOP_POI_KINDS), ("supply_poi", NODE_KINDS - STOP_POI_KINDS)],
 )
 def test_the_rows_of_a_point_layer_cover_every_kind_it_draws(attr_id, kinds):
     """行に無い種別の点は地図から消え、凡例にも出ない。種別に無い行は何も塗らない。種別の分類は取込が持ち、

@@ -32,6 +32,8 @@ from app.infrastructure.road_graph_repository import NETWORK_SQL_SOURCES, RoadGr
 
 logger = logging.getLogger("ridecompass.road_network")
 
+#: 本番の読み手はこのファイルだけだが、テストがディスク（プロセス境界）の置き場を一時ディレクトリへ差し替えるために公開する
+#: （testing.md「確かめる高さ」の例外）。置き場を引数で受けると、本番がいつも同じ置き場を渡すだけの、テストのための口になる。
 ROOT = Path(__file__).resolve().parent.parent.parent / "data" / "road_network"
 
 NETWORK_SHAPE = shape_digest(RoadNetwork, *NETWORK_SQL_SOURCES)
@@ -48,7 +50,7 @@ def directory_name(revision: int | None) -> str:
     return f"{NETWORK_SHAPE}-r{'x' if revision is None else revision}"
 
 
-def latest_directory() -> Path | None:
+def _latest_directory() -> Path | None:
     """形の署名が一致するもののうち、世代が最も新しい置き場。無ければNone。
 
     世代が読めなかったDBで作ったもの（`-rx`）は、世代のあるものより古いとみなす。
@@ -73,7 +75,7 @@ def save(network: RoadNetwork) -> Path:
 
 
 def write_pending(network: RoadNetwork) -> Path:
-    """読み手（`latest_directory`）が拾わない名前で書き、そのディレクトリを返す。`publish`で世代の名前にする。"""
+    """読み手（`_latest_directory`）が拾わない名前で書き、そのディレクトリを返す。`publish`で世代の名前にする。"""
     ROOT.mkdir(parents=True, exist_ok=True)
     temporary = ROOT / f".{directory_name(network.revision)}.tmp-{os.getpid()}"
     shutil.rmtree(temporary, ignore_errors=True)
@@ -133,7 +135,7 @@ def current() -> RoadNetwork:
     読むのはメモリマップを開くだけなので、見るたびの費用はディレクトリの一覧程度に収まる。
     """
     global _loaded
-    latest = latest_directory()
+    latest = _latest_directory()
     if latest is None:
         raise RoadNetworkUnavailableError(
             f"道路網の置き場がありません（{ROOT}、形の署名 {NETWORK_SHAPE}）。scripts/build_road_network.py で作る")

@@ -32,6 +32,8 @@ from app.infrastructure.debug_log import log_external_call
 logger = logging.getLogger("ridecompass.msm_client")
 
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
+#: 本番の読み手はこのファイルだけだが、テストがディスク（プロセス境界）の置き場を一時ディレクトリへ差し替えるために公開する
+#: （testing.md「確かめる高さ」の例外）。置き場を引数で受けると、本番がいつも同じ置き場を渡すだけの、テストのための口になる。
 MSM_DIR = DATA_DIR / "msm"
 # 置き場の中の名前。パスはチャンク（`_chunk_path`）と同じく、使うたびに`MSM_DIR`から作る。
 _META_FILE_NAME = "meta.json"
