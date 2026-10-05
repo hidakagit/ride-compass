@@ -15,7 +15,8 @@
   `backend/scripts/export_openapi.py`→`cd frontend && npm run generate:api`を実行し、
   `git diff --exit-code -- frontend/src/types/generated/`がクリーンであることを確認する。
 - **規模M以上でAPI・ドメイン概念・レイヤー種を新設するタスクは、完了条件へ
-  docs/architecture/追従を既定で含める**。docs（「現状」記述）はコード変更と
+  docs/architecture/・docs/modules/の追従を既定で含める**。今のコードの動き（「現状」）はdocs/modules/が持ち、
+  docs/architecture/は構造の約束と外部の制約を持つ（docs/architecture/README.md「書き分け」）。どちらもコード変更と
   同一コミットで更新する。
 - **既存の仕組みと技術的に別方式の新しい配信・レンダリング機構（例: タイル焼き込み済み
   ramp軸に対する、フィーチャーの鍵で値を配る`dedicated_way_value_layer`）を新設するときは、
@@ -30,6 +31,8 @@
   削除=unpublish→DELETE、公開軸の調整=unpublish→PUT→republish）経由で行う。**
   **正本は本番DBだけ**で、リポジトリは軸の写しを持たない——スキーマはORMの宣言から
   `create_tables()`が作り、軸の中身は実行時の`GET /api/axis-catalog`がフロントへ配る。
+  `create_tables()`はまっさらなDB向けで、本番の既存の表は宣言を変えても追従しない。差は人が本番で埋め、
+  デプロイが入れ替えの後に測る（docs/architecture/tech-stack.md「デプロイの反映確認（backend/frontendで注入元が異なる）」の`schema_gap.py`）。
   ビルド時の生成物（`frontend/src/types/generated/`）はすべてコードの宣言から決まり、
   DBを読まない。取り直せない管理データのバックアップは付録の「管理データのバックアップ」。
   完了扱いにする条件は下の「本番へ効かせたい軸定義の変更は、本番の管理APIへ入れる」
@@ -41,8 +44,9 @@
   DB移行より先にmasterへ入れると、新コードが本番DBに残る旧形式データを読めず、
   `refresh_axis_definitions`等のfail-fast設計により本番backendが起動失敗する。
   対応順序は事前に次のいずれかを選ぶこと: 1) 本番DBのデータ移行を先に完了させてから
-  マージ、2) 移行を即座に行えない場合は`workflow_dispatch`のみで手動デプロイへ切り替える、
-  3) 新旧両方の形式を一時的に許容する後方互換コードを経由して段階的に移行する。
+  マージ（移行を即座に行えなければ、終わるまでmasterへ入れずに待つ——masterのCIが通れば必ず
+  デプロイされ、自動のデプロイを止める仕組みは無い）、2) 新旧両方の形式を一時的に許容する後方互換コードを
+  経由して段階的に移行する。
 
 ## 派生データの作り直し
 
@@ -189,7 +193,9 @@
      sudo -u postgres pg_restore --clean --if-exists --single-transaction --dbname=<DB名> /tmp/admin-data.dump
      ```
   3. 取り込んで派生を作る: `python scripts/bootstrap_database.py --from ingest`（外部ソースのファイルは先に
-     手元へ写しておく。何を写すかは`bootstrap_database.py`の冒頭）
+     手元へ写しておく。何を写すかは`bootstrap_database.py`の冒頭）。このコンテナには
+     `-v /home/ubuntu/ridecompass-raster:/app/raster:ro`も足す——土地被覆の取込はラスタを読み、
+     ラスタはDBと別にVMに置く（`deploy-backend.yml`が取得してbackendへ同じ形で載せる）
   4. backendのコンテナを起動し直し（`sudo docker restart ridecompass-backend`、コンテナが無ければ
      `deploy-backend.yml`を`workflow_dispatch`で打つ）、戻ったことを確かめる:
      ```

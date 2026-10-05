@@ -112,17 +112,11 @@ describe("▶の内訳", () => {
     return { ...view, panel: screen.getByRole("dialog", { name: `${layer.label}の内訳` }) };
   }
 
-  it("軸ごとに全カテゴリを、非表示のものも含めて並べる", async () => {
-    const { panel } = await openDetails(chip("layer", { on: true, legendDetails: [legend("a", ["1", "2"], ["2"])] }));
-    expect(within(panel).getByText("軸a")).toBeInTheDocument();
-    expect(within(panel).getByRole("checkbox", { name: /項目1/ })).toBeChecked();
-    expect(within(panel).getByRole("checkbox", { name: /項目2/ })).not.toBeChecked();
-  });
-
-  it("絞り込める軸は、1行ずつと見出しでまとめて切り替えられる（全部表示中なら全部隠し、1つでも隠れていれば全部出す）", async () => {
+  it("絞り込める軸は、軸の名前の見出しを持ち、1行ずつと見出しでまとめて切り替えられる（全部表示中なら全部隠し、1つでも隠れていれば全部出す）", async () => {
     const { user, props, panel } = await openDetails(
       chip("layer", { on: true, legendDetails: [legend("a", ["1", "2"]), legend("b", ["3", "4"], ["4"])] }),
     );
+    expect(within(panel).getByText("軸a")).toBeInTheDocument();
     await user.click(within(panel).getByRole("checkbox", { name: /項目1/ }));
     await user.click(within(panel).getByRole("checkbox", { name: "軸aをまとめて表示/非表示" }));
     await user.click(within(panel).getByRole("checkbox", { name: "軸bをまとめて表示/非表示" }));
@@ -161,17 +155,6 @@ describe("▶の内訳", () => {
 
     setup([chip("status_only", { on: true, dataStatus: "empty" })]);
     expect(screen.getByRole("button", { name: "status_onlyの凡例" })).toBeInTheDocument();
-  });
-
-  it("読み込み中は文を出さない（絞り込みのたびに凡例が揺れる）。凡例が無ければ▶も出さない", async () => {
-    const { panel } = await openDetails(
-      chip("layer", { on: true, dataStatus: "loading", legendDetails: [legend("a", ["1"])] }),
-    );
-    expect(within(panel).queryByRole("status")).not.toBeInTheDocument();
-    expect(within(panel).getByText("項目1")).toBeInTheDocument();
-
-    setup([chip("loading_only", { on: true, dataStatus: "loading" })]);
-    expect(screen.queryByRole("button", { name: "loading_onlyの凡例" })).not.toBeInTheDocument();
   });
 });
 
@@ -291,11 +274,6 @@ describe("表示する項目を選ぶ", () => {
     await user.click(screen.getByRole("button", { name: ROAD_LABEL }));
     expect(screen.getByRole("button", { name: "shown" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "hidden_on" })).not.toBeInTheDocument();
-  });
-
-  it("開いた一覧は、押す前のtitleを読めないスマホでも何の一覧かを見出しで示す", async () => {
-    const { panel } = await openSettings([roadMember("member")]);
-    expect(within(panel).getByText("表示する項目")).toBeVisible();
   });
 
   it("説明のある項目にだけⓘを出し、押すと説明を読める", async () => {

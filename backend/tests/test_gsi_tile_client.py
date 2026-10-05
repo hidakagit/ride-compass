@@ -38,7 +38,7 @@ def unreachable() -> respx.Router:
 
 
 @pytest.fixture
-def warnings(caplog, empty_debug_counters):
+def warnings(caplog):
     caplog.set_level(logging.WARNING)
     return lambda: [r for r in caplog.records if r.levelno >= logging.WARNING]
 
@@ -80,5 +80,5 @@ async def test_an_upstream_failure_gives_nothing_is_logged_and_is_not_remembered
     not_found = LRUCache(maxsize=16)
 
     assert await client(router, not_found).get(RELIEF) is None
-    assert [r for r in warnings() if "gsi-relief-tile" in r.getMessage()]
+    assert [r for r in warnings() if "gsi:relief-tile" in r.getMessage()]
     assert await client(router, not_found).get(RELIEF) == (b"\x89PNG", "image/png")

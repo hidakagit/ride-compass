@@ -1,6 +1,6 @@
 """`infrastructure/http_client.py`——外部APIへの共有HTTPクライアント（`get_http_client`・`close_all_http_clients`）。
 
-共有のクライアントはプロセス大域に溜まるので、テストごとに空の置き場から始め、閉じる口で片付ける。
+共有のクライアントはプロセス大域に溜まるので、テストごとに閉じる口で空にしてから始め、同じ口で片付ける。
 
 ここで見ないもの:
 - クライアントを通した外部APIの呼び出し → 各クライアントのテスト（例: `test_simple_api_client.py`）
@@ -13,8 +13,8 @@ from app.infrastructure import http_client
 
 
 @pytest.fixture(autouse=True)
-async def empty_clients(monkeypatch):
-    monkeypatch.setattr(http_client, "clients", {})
+async def empty_clients():
+    await http_client.close_all_http_clients()
     yield
     await http_client.close_all_http_clients()
 

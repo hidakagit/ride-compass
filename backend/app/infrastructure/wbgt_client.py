@@ -37,14 +37,22 @@ REQUEST_TIMEOUT = httpx.Timeout(connect=3.0, read=8.0, write=5.0, pool=5.0)
 logger = logging.getLogger("ridecompass.wbgt_client")
 
 _POINT_MASTER_CACHE_KEY = "point_master"
-point_master_cache: TTLCache = TTLCache(maxsize=1, ttl=_POINT_MASTER_CACHE_TTL_SECONDS)
-# forecast_no単位の粒度でキャッシュする（地点ごとに問い合わせ元の緯度経度は丸められて
-# 同じ地点へ収束するため、地点番号キーで十分にキャッシュが効く）。maxsizeは全国の
-# 情報提供地点数（約840地点）に十分な余裕を持たせた値。
-forecast_cache: TTLCache = TTLCache(maxsize=2048, ttl=_FORECAST_CACHE_TTL_SECONDS)
 
 
-async def fetch_point_master(client: httpx.AsyncClient) -> list[WbgtPoint] | None:
+def new_point_master_cache() -> TTLCache:
+    """`fetch_point_master`へ渡すキャッシュ。リクエストをまたいで持つのは組み立てる側（`api/dependencies.py`）。"""
+    return TTLCache(maxsize=1, ttl=_POINT_MASTER_CACHE_TTL_SECONDS)
+
+
+def new_forecast_cache() -> TTLCache:
+    """`fetch_forecast`へ渡すキャッシュ。リクエストをまたいで持つのは組み立てる側（`api/dependencies.py`）。"""
+    # forecast_no単位の粒度でキャッシュする（地点ごとに問い合わせ元の緯度経度は丸められて
+    # 同じ地点へ収束するため、地点番号キーで十分にキャッシュが効く）。maxsizeは全国の
+    # 情報提供地点数（約840地点）に十分な余裕を持たせた値。
+    return TTLCache(maxsize=2048, ttl=_FORECAST_CACHE_TTL_SECONDS)
+
+
+async def fetch_point_master(client: httpx.AsyncClient, cache: TTLCache) -> list[WbgtPoint] | None:
     """情報提供地点マスタ（全国約840地点）を取得する。運用終了済み地点
     （End Year-End Month-End Dayが"9999-99-99"以外）は除外する。"""
 
@@ -53,9 +61,7 @@ async def fetch_point_master(client: httpx.AsyncClient) -> list[WbgtPoint] | Non
         response.raise_for_status()
         return _parse_point_master(response.text)
 
-    return await cached_fetch(
-        "weather:wbgt-point-master", fetch, cache=point_master_cache, key=_POINT_MASTER_CACHE_KEY
-    )
+    return await cached_fetch("weather:wbgt-point-master", fetch, cache=cache, key=_POINT_MASTER_CACHE_KEY)
 
 
 def _parse_point_master(csv_text: str) -> list[WbgtPoint]:
@@ -124,7 +130,7 @@ def _parse_forecast(entry: dict) -> WbgtForecast | None:
 
 
 async def fetch_forecast(
-    client: httpx.AsyncClient, wbgt_no: str, range_from: datetime, range_to: datetime
+    client: httpx.AsyncClient, wbgt_no: str, range_from: datetime, range_to: datetime, cache: TTLCache
 ) -> list[WbgtForecast] | None:
     """指定地点の暑さ指数予測値列（3時間刻み、翌々日まで）を取得する。
 
@@ -163,7 +169,7 @@ async def fetch_forecast(
     return await cached_fetch(
         "weather:wbgt-forecast",
         fetch,
-        cache=forecast_cache,
+        cache=cache,
         key=wbgt_no,
         wbgt_no=wbgt_no,
     )

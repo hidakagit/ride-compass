@@ -299,8 +299,9 @@ backendの答え、タイルで配る要素ごとのタイルのパスを`script
 待機する。プリウォームバッチの同時実行数制御（`_MAX_CONCURRENCY=8`）だけでは総
 スループット（秒間リクエスト数）自体は制御できないため、`fetch`という「実際にJMAへ
 問い合わせる唯一の関数」1箇所に置くことで、プリウォーム・オンデマンドどちらの経路も
-一律にこの上限へ従う。直前フェッチ時刻はモジュールレベルの状態として持つ
-（`JmaTileClient`はリクエストごとに使い捨てでインスタンス化されるため）。プロセスをまたいでは
+一律にこの上限へ従う。直前フェッチ時刻は時刻一覧のキャッシュと一緒に`jma_tile_client.py: JmaTileSharedState`が持ち、
+DI工場（`api/dependencies.py`）がプロセスに1つ持ってクライアントへ渡す（`JmaTileClient`はリクエストごとに使い捨てで
+作られるため。アメダスのサービスが推計気象分布を読むクライアントも同じものを受ける）。プロセスをまたいでは
 効かないため、ワーカーを複数にした起動は`single_process.py`が止める
 （[横断的な基盤](cross-cutting-infrastructure.md)「1プロセスの境界」）。
 
@@ -311,6 +312,7 @@ backendの答え、タイルで配る要素ごとのタイルのパスを`script
 | `get_conditions(point)` | `/api/weather`エンドポイント・`RoadGraphEngine`の起点判定 | 時系列の先頭（現在時刻の正時） | 同じJST暦日の残りの最大・最小。最低・最高気温は同じ系列から一緒に決まるため1つの任意の項目（`temperature_range`）で持ち、格子の欠損（NaN）を含めば丸ごとNone。日の出/日没は`twilight.py`で計算 |
 | `get_wind_forecast_lattice(bbox)` | `RoadGraphEngine`の探索前コスト合成（Edgeごとの通過予定時刻・最寄りの格子点の風）と、ルートを出す前の地図の風（`WindWayService`） | 範囲を覆う格子点ごとの時別風向・風速の系列（JST）。格子は緯度・経度0度から数えた固定の線に揃う。MSMから読む | 対象外 |
 | `get_wind_grid(points)` | 風グリッド・降水の格子の段の地図レイヤー | 予報期間ぶんの時系列。MSMから読む | 対象外 |
+| `get_station_rain_materials(now)` | ルートを出す前の地図の雨（`RainWayService`）と`RoadGraphEngine`の気象の段 | 今の観測（アメダスの1時間雨量の履歴。`jma_amedas_service.py: load_station_rain_materials`）。求めた値は実体の中に5分持つので、DI工場（`api/dependencies.py: get_weather_service`）は実体をプロセスに1つ持つ | 対象外 |
 
 ## その他のサービス
 
@@ -350,7 +352,7 @@ backendの答え、タイルで配る要素ごとのタイルのパスを`script
   10分ごとに全本を問い合わせ続けるため）。保存した形が今のコードで読めない履歴は、無いものとして扱う
   （WARNINGを出し、雨の材料は配らない）。値`[値, フラグ]`の値がnullのもの（欠測。フラグの公式の意味は
   未確認）は欠測として持ち、雨量の項目を持たない観測所（雨量計が無い）は載せない。
-  読む側（`load_station_rain_materials`、[動的材料・フィーチャー値配信](dynamic-way-values.md)の
+  読む側（`load_station_rain_materials`。`WeatherService.get_station_rain_materials`を通して、[動的材料・フィーチャー値配信](dynamic-way-values.md)の
   `RainWayService`と、ルートの探索範囲を組む`RoadGraphEngine`の気象の段が使う）は、最新の正時が
   `domain/rain.py: RAIN_HISTORY_MAX_AGE`より古い履歴を配らない——バッチが止まったまま古い雨量を今の値として塗らない・
   ルートの評価に使わないため。
@@ -437,7 +439,9 @@ backendの答え、タイルで配る要素ごとのタイルのパスを`script
 `UnexpectedShapeError`（`ValueError`のサブクラス）を`fetch`内から送出すると、`catch`の指定に
 関わらず常にNoneへ倒れ、失敗として記録される。呼び出し元によって
 捕捉すべき例外の範囲が異なる（例: `.json()`を呼ばないアメダスの最新時刻は`httpx.HTTPError`だけを
-対象にする）ため、`catch`引数で個別に指定できる。`jma_tile_client.py`/
+対象にする）ため、`catch`引数で個別に指定できる。キャッシュは取得の関数が引数で受け、作り方（件数の上限・TTL）は
+各クライアントの`new_…_cache`が持つ。リクエストをまたいで持つのはDI工場（`api/dependencies.py`）で、地域マスタ
+（area.json）は警報と洪水予報が同じものを使う。`jma_tile_client.py`/
 `basemap_client.py`/`gsi_tile_client.py`（TTLCache以外のキャッシュバックエンド）は
 対象外のまま各自の実装を維持する。
 

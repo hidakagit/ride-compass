@@ -183,7 +183,7 @@ class DbStatusService:
 
     async def get_status_report(self) -> DbStatusReport:
         started = time.monotonic()
-        with log_external_call("db_status", operation="fetch_counts") as fields:
+        with log_external_call("admin:db-status", operation="fetch_counts") as fields:
             counts = await self._repository.fetch_counts()
             fields["tables"] = len(counts.tables)
         report = build_db_status_report(counts, datetime.now().astimezone())

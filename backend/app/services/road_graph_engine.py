@@ -100,7 +100,6 @@ from app.infrastructure import detour_ratio_cache
 from app.infrastructure.debug_log import log_throttled_warning
 from app.services.graph_service import GraphService
 from app.domain.loop_routing import LoopTurnaround, TracedLoop, candidate_identity
-from app.services.jma_amedas_service import load_station_rain_materials
 from app.services.weather_service import WeatherService
 
 # Road Graphを取得するbboxは、起点・経由地2点の外接矩形にこのマージンを足したもの。
@@ -339,7 +338,7 @@ class RoadGraphEngine:
         weather = await self._weather_service.get_conditions(origin)
         # 探索範囲を覆う格子点ごとの時別風予報（MSMのローカルファイルから読む。外部API呼び出しは無い）。
         wind_series = await self._weather_service.get_wind_forecast_lattice(bbox)
-        rain = await load_station_rain_materials(datetime.now(JST))
+        rain = await self._weather_service.get_station_rain_materials(datetime.now(JST))
         weather_ms = round((time.monotonic() - weather_started) * 1000)
         if rain is None:
             log_throttled_warning("engine:rain-materials", "雨の観測の履歴が無いか古いため、雨の材料を欠損として探索範囲を組む")

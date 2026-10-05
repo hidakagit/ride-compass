@@ -102,8 +102,8 @@ issue の番号ごと）が持つ。同じタスクの実行（作る・確か�
   1. 引き受ける（`tools/flow-gate/bin/claim.js`）: 作るなら未着手 → 進行中へ動かせたときだけ、確かめるなら検証中のときだけ進み、
      issue に着手（担当の種類・実行へのリンク）を書く。同じタスクの実行は1本ずつ動く（「1つのタスクを触るのは1者だけ」）ので、
      待っていた実行は前の実行が終わってからここで照らされ、行き先が無ければ何もせず終わる。
-  2. 準備: `ci.yml` の backend と同じ PostgreSQL + PostGIS、Read が PDF をページで読むための `poppler-utils`、backend と frontend の依存を入れ、
-     担当の権限（「担当の権限」）を渡す。
+  2. 準備: `ci.yml` の backend と同じ PostgreSQL + PostGIS、Read が PDF をページで読むための `poppler-utils`、backend と frontend の依存、
+     e2e を手元で回すための Playwright の Chromium（`ci.yml` の e2e と同じ入れ方）を入れ、担当の権限（「担当の権限」）を渡す。
   3. 担当を起こす。持ち時間はジョブの `timeout-minutes` で、超えると Actions がジョブを止める。担当の実行は、担当が手番を終えた
      最初の発言で終わる（連携 `anthropics/claude-code-action` は SDK の最初の結果で抜け、裏で動かしたシェルはその数秒後に止まる）。
      裏の処理の知らせで起こし直されることは無いので、裏で動かす道具（Bash の `run_in_background`・Monitor・ScheduleWakeup・
@@ -118,7 +118,7 @@ issue の番号ごと）が持つ。同じタスクの実行（作る・確か�
      止まるので、振り出しを `coordinator.pauseMinutes` の間止める（コードのリポジトリの変数 `coordinator.pauseVariable` に止める時刻を
      置き、振り出しがそれを読む）。それ以外で作る担当のタスクが進行中のまま（PR も問いも出さずに終わった・持ち時間を超えた・
      Cancel された）なら、落ちたとみなして理由を書いて保留にする（保留から出すのはユーザー。作業ブランチに push 済みの分から
-     続けられる）。段階に分けて終えたときは、`stage.js` が親を未着手へ戻しているので動かさない（「段階に分ける」）。着手可能日が今日より先なら、その日まで待つと決めて終えたので理由を書いて未着手へ戻す（見回りがその日まで振り出さない）。確かめる担当のタスクは動かさない（検証中はキューに残り、次に起こし直される）。続けて、どちらの担当でも手番の記録（実行のファイル）を
+     続けられる）。段階に分けて終えたときは、`stage.js` が親を未着手へ戻しているので動かさない（「段階に分ける」）。ラベル「開発機が要る」（`coordinator.devLabel`）が付いていれば、開発機が要るとして返したので理由を書いて未着手へ戻す（見回りが飛ばす。下の「開発機が要る」）。着手可能日が今日より先なら、その日まで待つと決めて終えたので理由を書いて未着手へ戻す（見回りがその日まで振り出さない）。確かめる担当のタスクは動かさない（検証中はキューに残り、次に起こし直される）。続けて、どちらの担当でも手番の記録（実行のファイル）を
      gzip して置き場のリリースへ置く（`tools/flow-gate/src/after.js: keepLog`。リリースは日（UTC）ごとに1つ）。最後に、どちらの担当でも issue に
      終わりのコメントを書く（`tools/flow-gate/src/after.js: endReport`）。目的は、その回にやったことの要約で、読み手は後から確かめる
      ユーザーと後の担当（作る・確かめる・開発機の対話のセッション）。書くのは、担当の最後の発言（担当が書く要約。下の「作る担当・確かめる
@@ -161,10 +161,11 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    issue にコメントで書いて終える）。無ければ `git checkout -B orch/tasks-<番号> origin/master`。前の担当の残り
    （`wip/tasks-<番号>-*` の枝。担当のワークフローの後始末の4）があれば読んで要るものを取り込み、取り込んだら枝を消す
    （`git push origin --delete wip/tasks-<番号>-<時刻>`）。
-2. backend と frontend の依存とテスト用の DB は、担当のワークフローが入れてある（backend は `python`、frontend は `frontend/node_modules`）。
+2. backend と frontend の依存とテスト用の DB は、担当のワークフローが入れてある（backend は `python`、frontend は `frontend/node_modules` と Playwright の Chromium）。
    入れたのは master の版の依存のファイルからなので、1 のあと `git diff --name-only origin/master -- backend/requirements*.txt frontend/package-lock.json`
    で作業ブランチとの違いを見る。backend のファイルが出たら `python -m pip install -q -r backend/requirements-batch.txt -r backend/requirements-dev.txt`、
-   `frontend/package-lock.json` が出たら `npm ci --prefix frontend` で入れ直す（作業の途中で依存のファイルを変えたときも同じ）。
+   `frontend/package-lock.json` が出たら `npm ci --prefix frontend` と `npx --prefix frontend playwright install chromium` で入れ直す（Chromium は
+   `@playwright/test` の版ごとに別のものが要る。作業の途中で依存のファイルを変えたときも同じ）。
 3. issue の本文とコメント（`GH_TOKEN=$FLOW_BOT_TOKEN gh issue view <番号> -R ridecompass/ride-compass-tasks --json title,body,comments --jq '.title, .body, (.comments[] | "--- \(.author.login) \(.createdAt)", .body)'`。
    `--comments` は端末でない出力ではコメントだけを出し、本文を出さない。答えのコメント・やり直しなら前の Pull Request のコメントも）を読み、CLAUDE.md と規約のとおりに作る。
    - ユーザーの判断が要るところは「問い」の形で書いて `ask.js` で問い、そこで終える（答えは次の起動で拾われる）。
@@ -245,16 +246,22 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    前の Pull Request が開いたまま残っていれば、新しく出さずに push し、撮り直したキャプチャを `gh pr comment --attach` で足す。
    本文を直すときは `gh issue edit <番号> -R hidakagit/ride-compass --body-file <ファイル>` で書き換える（`gh pr edit` と、欄を選ばない
    `gh pr view` は、レビューを頼んだチームの名前を問い合わせるため、組織を読む権限の無いトークンでは断られる）。
-   出したら（push したら）、Pull Request の CI の実行（master と合わせた版）の id を
-   `gh run list -R hidakagit/ride-compass --commit "$(git rev-parse HEAD)" --workflow ci.yml --event pull_request --json databaseId` で引き
+   出したら（push したら）、Pull Request の CI の実行（master と合わせた版。`ci.yml` と Docs Consistency のどちらも）の id を
+   `gh run list -R hidakagit/ride-compass --commit "$(git rev-parse HEAD)" --event pull_request --json databaseId` で引き
    （ID は手で写さずにこの形で渡す——`--commit` は短い ID や後ろを補った ID に一致せず、実行があっても0件になり、まだ出ていないのと
-   見分けられない）。0件なら `gh pr view <番号> -R hidakagit/ride-compass --json mergeable` を見て、`CONFLICTING` なら待たずに下の
+   見分けられない）。
+   0件なら `gh pr view <番号> -R hidakagit/ride-compass --json mergeable` を見て、`CONFLICTING` なら待たずに下の
    「落ちたら」と同じく master を取り込んで push する（master と競合した Pull Request には `pull_request` の実行が起きない。GitHub の公式の
    文書 Events that trigger workflows の `pull_request`）。それ以外（`MERGEABLE`・まだ決まっていない `UNKNOWN`）なら、同じ2つを打ち直す。
    打ち直しの前に `sleep` を置かない（`sleep 30; gh run list …` の形は、Claude Code 本体が担当の環境に無い道具（Monitor・裏で動かす Bash）を
-   案内して断ることがあり、断る条件は公式の文書に無い）。id が出たら、`gh run watch <id> --compact -i 30 -R hidakagit/ride-compass --exit-status`
+   案内して断ることがあり、断る条件は公式の文書に無い）。id が出たら、出た id ごとに `gh run watch <id> --compact -i 30 -R hidakagit/ride-compass --exit-status`
    で終わるまで前に出したまま待つ（Bash の `timeout` を上限の 600000 にして打つ。上限で止まったら同じコマンドを打ち直す。裏へ回して
    知らせを待つと、そこで担当の実行が終わる。端末でない出力では見回りのたびに全部のジョブを書き直すので、`--compact -i 30` で出力を絞る）。
+   全部が終わったら、`gh pr checks <番号> -R hidakagit/ride-compass --required` で必須のチェックが全部 `pass` で、出た名前が
+   ルールセットの必須のチェック（`gh api repos/hidakagit/ride-compass/rules/branches/master --jq '.[] | select(.type=="required_status_checks") | .parameters.required_status_checks[].context'`）
+   と揃っていることを見る。揃っていなければまだ起きていない実行があるので、`gh run list` から打ち直す。`ci.yml` の実行だけを見ると、
+   別のワークフローの必須のチェックが落ちていてもマージで断られるまで気づかない。`gh pr checks --watch` で待たないのは、`needs` で後ろに
+   並ぶジョブ（`ci-ok`）は前のジョブが終わるまでチェックが作られず、その前にほかの必須のチェックが通ると待ち終えてしまうため。
    Pull Request の実行は master と合わせた版を検査するので、作業ブランチの変更の誤りも、合流点の後に master へ入った変更との意味の
    競合（文字の競合なしに載せ直せて、合わせると落ちる）も、同じくここで落ちる。落ちたら `git merge origin/master` で今の master を取り込み、失敗を直して（手元で検査や
    テストを回すのは、この失敗を再現するときだけ。testing.md「テストが落ちたときの直し方」）、4 から続ける。
@@ -294,8 +301,9 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    `git checkout -B orch/tasks-<番号> origin/orch/tasks-<番号>`）。依存のファイルが master と違えば、作る担当の2のとおり入れ直す。Pull Request（`gh pr view <番号> -R hidakagit/ride-compass --json title,body,comments,reviews`。本文のキャプチャ・差分）・Pull Request の CI・issue の完了の条件・変更が届く範囲（要るなら画面）を
    確かめる。作る担当の報告を読み写さず、自分で見る（画面なら変更後を自分で撮る。作る担当の5と同じ道具・脚本・応答で撮り、
    変更前は撮り直さずに作る担当が貼った画像と比べる。作る担当がコメントに脚本を貼っていれば、作業ツリーの外へ写して同じ引数で撮る）。Pull Request が無ければ（手順が変わる前に
-   検証中になったもの）、作る担当の5のとおりに出してから確かめる。CI は Pull Request の実行（master と合わせた版。作る担当の5と
-   同じく `--event pull_request` で引く）が通っていることを見る。落ちていれば満たしていないとして 4 のとおり落ちたテストを書いて
+   検証中になったもの）、作る担当の5のとおりに出してから確かめる。CI は Pull Request の必須のチェック全部（master と合わせた版。
+   `ci.yml` の外の Docs Consistency のジョブも）が通っていることを、作る担当の5と同じく実行を待ってから必須のチェックをルールセットと
+   突き合わせて見る。落ちていれば満たしていないとして 4 のとおり落ちたテストを書いて
    閉じる（落ちたのが作業ブランチの変更か master との意味の競合かは見分けない。作る担当はどちらも master を取り込んでから直す）。`lost_constraints.py` も自分で回し、
    「消えた」制約に本文の処置が無ければ満たしていない。分布の前後は測らず、本文に前後の行が無いことを理由にしない（上の「分布の前後」）。
    **設計書の条件を1つ当てる**: 作り直しで落ちた条件（絞り込み・不変条件・制約）は、差分にも作る担当の報告にも1行も出ないので、
@@ -314,7 +322,7 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    **消した・まとめたテストを壊れ方で確かめる**: CI・行と分岐のカバレッジ・`lost_constraints.py` は、残す側が消したテストと同じ行を
    通れば変わらないので、残す側が結果を見ていなくても出ない。差分が表の行へまとめた・狭い方を消したテストを持つなら、Pull Request の
    検証にある壊れ方（[testing.md](testing.md)「そのテストは要るか（3問を順に）」の、消す・まとめる前の段の4）から1つ以上を選び、
-   同じ段の2・3のとおり実装のその行を一時に変えて残す側のテストのファイルだけを回し、落ちるかを見て戻す。検証に消した・まとめた
+   同じ段の2・3のとおり実装のその行を一時に変えて残す側のテストのファイルだけを回し、落ちるかを見て戻す（`scripts/break_tests.py` で流す）。検証に消した・まとめた
    テストの壊れ方が無い（合流点がその段より前の Pull Request も同じ。作る担当は master を取り込んでから書く）か、選んだ壊れ方で
    残す側が通れば満たしていない。
    **書き込みのある道具を流す**: 本物の GitHub へ書く道具（`tools/flow-gate/bin/`）の振る舞いは、写しを作って書き込みを差し替えずに、
@@ -360,7 +368,7 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    - 合流点の同じ行を両側が変えた・消した: 新しい行を書かないと解けない（並べると同じ決まりが2通りに書かれる）。
 
    どの塊も上の2つまでで解けたら、「競合を解く」のとおりに解き、`git push origin orch/tasks-<番号>` で push し、
-   `gh pr checks <番号> -R hidakagit/ride-compass --watch --required` で必須のチェックを待ってから、5 のとおりマージする
+   作る担当の5と同じく実行を待って必須のチェックを見てから、5 のとおりマージする
    （両側の変えた行がどれもそのまま残るので、確かめた中身と master の変更はどちらも書いたとおりに残る。確かめ直さず、並べたことで
    壊れたものは必須のチェックで見る）。新しい行を書かないと解けない塊が1つでもあれば、`git merge --abort` で戻し、どのファイルの
    どこが重なったかを書いて「競合」として閉じる（4 と同じ。作る担当が取り込んで出し直す）。
@@ -620,6 +628,13 @@ Claude は、タスクの issue のコメントに残った答えだけを判断
 - 段階を作るときは、兄弟の段階どうしの直す場所（「前後関係と組」の「探す」）を照らし、重なるなら前後関係の向きで先の段階を
   後の段階の前提にする（`stage.js` の「前の段階の番号」で渡す）。同時に作った段階は互いを照らされないまま並び、同じファイルを
   別々に書き換えて片方が作り直しになる。
+  前提を張るのは、直す場所（対象のファイル・節）が重なる段階どうしか、前の段階の成果が後の段階の材料になる（「前後関係と組」の
+  前後関係に当たる）ときだけにする。どちらでもなければ前提を張らずに並べる——張ると見回りが1件ずつしか振り出さず、並べて
+  進められる段階が前の段階の終わりを待つ。「念のため」「層の順に」は張る理由にしない。
+  - **寄せる先**: ある段階の書き換えをほかのファイル（上の入口のテスト等）へ寄せるかもしれないときは、寄せる先のファイルを対象に
+    含む段階どうしだけを前後にする。対象に含まないなら、寄せる書き込みは起きないものとして張らない。作る途中で寄せることに
+    なったら、その段階の作る担当が寄せる先を自分の直す場所に足して「前後関係と組」の「探す」のとおり照らし、重なる開いた段階と張る。
+  - 段階の本文のやることの最後に、前提を張った理由（重なった直す場所の名前か、成果を材料にする前の段階）か「重なりなし」を1行書く。
 - 道具は親にもその段階を blocked by で張り、親が進行中なら未着手へ戻す。親は段階が全部閉じるまで、前提待ちとして振り出されない。
   sub-issue（親子の印）はボードで進み具合を見せるためだけのもので、流れは blocked by だけで決まる。
 - 親の本文の「やること」に段階の番号を並べる。
@@ -682,6 +697,10 @@ dependencies」）。前提が開いている未着手は、見回りが飛ば�
     - **`--limit` を付ける**: 付けないと30件で黙って切れる（`gh issue list --help` の `--limit`）。
   - 着手したタスクに、まだ閉じていない前提が見つかったら、張ったうえで問う（未着手の答えなら、前提が閉じるまで待つ）。
     自分のタスクがほかの issue の先に当たるなら、張るだけで続ける。
+  - 着手のあとでほかの担当が自分のタスクに前提を張ったら、上の「向き」と同じ基準で決める。前提の結果しだいで自分の作業が
+    要らなくなる・作り直しになるなら、自分で見つけた前提と同じに扱って問う。同じ文書の行が重なるだけ（前提の中身に依らない）なら
+    問わずに、前提が変える行を避けて進める（重なった行は、後からマージされる側が「競合を解く」のとおりに合わせる）。そう判じた
+    理由（何が重なり、なぜ中身に依らないか）を自分のタスクの issue の経緯に書く。
 
 ## 保留と棚卸
 
@@ -741,7 +760,8 @@ dependencies」）。前提が開いている未着手は、見回りが飛ば�
 - ラベルはユーザーが付ける札（例: 急ぎ）。状態・操作待ちのように、ステータスと問いで表せるものはラベルにしない。「急ぎ」はユーザーの「急いで」の依頼で、振り出しは優先度の欄より先に並べる。「開発機が要る」は担当かユーザーが付け、振り出しはそのタスクを飛ばす（「担当」）。回答フォームは、置き場に定義されたラベルを
   名前を持たずに全部出す。規模の決め方は下の「規模の札」。前提は blocked by で付ける（「前後関係と組」）。
 - **規模の札**は、結果の変更の広がりで決まる: 実装＋テストの変更行（追加＋削除、生成物を除く）が200以下ならS・
-  1000以下ならM・超えればL。本番DBへ書くタスク（移行ファイルを足す・本番で書き込む）は行数によらずL。Project の欄「規模」（S・M・L）は
+  1000以下ならM・超えればL。実装とテストはコードのファイルで、CI・デプロイ・担当の手順そのものであるワークフローを含み、
+  設定（JSON・YAML 等）を含まない（分け方は `scripts/review_checks.py: change_kind` が総量の計測と共に持つ）。本番DBへ書くタスク（移行ファイルを足す・本番で書き込む）は行数によらずL。Project の欄「規模」（S・M・L）は
   起票時の予想で、起票の本文に根拠を1行添える——①調べないと分からない部分は先に調べる段階として切り、その段階はS
   ②本番DBへ書く予定ならL。ファイルを置き換える作業（テストの起こし直し等）は、③より先に、置き換えるファイルの今の行数×2
   （旧版の削除と新版の追加）を変更行の見込みとして、上の変更行の閾値で札を決める。置き換えずに1本ずつ見て減らす作業（テストの

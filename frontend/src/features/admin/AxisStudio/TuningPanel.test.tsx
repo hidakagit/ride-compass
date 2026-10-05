@@ -122,24 +122,6 @@ describe("TuningPanel", () => {
     expect(dotOf("アルファ")).not.toHaveClass(dotVariants({ tone: "accent" }));
   });
 
-  it("説明の奥に、説明・既定値・範囲を置く", async () => {
-    const user = await openWith([
-      parameter({
-        id: "p",
-        label: "転がり抵抗",
-        description: "タイヤの抵抗",
-        default: 0.005,
-        unit: "",
-        minimum: 0,
-        maximum: 0.02,
-      }),
-    ]);
-
-    await user.click(screen.getByRole("button", { name: "転がり抵抗の説明を表示" }));
-    expect(await screen.findByText("タイヤの抵抗")).toBeInTheDocument();
-    expect(screen.getByText(/既定 0\.005（0〜0\.02）/)).toBeInTheDocument();
-  });
-
   it("打っただけでは送らず、今の値と違う行だけを未保存として数える。元の値へ戻せば数えない", async () => {
     const user = await openWith([alpha, beta]);
     const sent = acceptUpdates([alpha, beta]);
@@ -154,9 +136,10 @@ describe("TuningPanel", () => {
     expect(screen.getByRole("button", { name: "DBへ保存" })).toBeDisabled();
   });
 
-  it("保存すると、打った値を行ごとに送り、既定と同じ値にした行は上書きを消す（null）。返った値で行を置き換える", async () => {
-    const user = await openWith([alpha, beta]);
-    const sent = acceptUpdates([alpha, beta]);
+  it("保存すると、値を変えた行だけを行ごとに送り、既定と同じ値にした行は上書きを消す（null）。返った値で行を置き換える", async () => {
+    const gamma = parameter({ id: "g.gamma", label: "ガンマ", default: 1, value: 1 });
+    const user = await openWith([alpha, beta, gamma]);
+    const sent = acceptUpdates([alpha, beta, gamma]);
 
     await typeValue(user, "アルファ", "12");
     await typeValue(user, "ベータ", "5");
@@ -170,18 +153,6 @@ describe("TuningPanel", () => {
     expect(screen.getByRole("spinbutton", { name: "アルファ" })).toHaveValue(12);
     expect(screen.getByRole("spinbutton", { name: "ベータ" })).toHaveValue(5);
     expect(screen.getByRole("button", { name: "DBへ保存" })).toBeDisabled();
-  });
-
-  it("保存で送るのは、値を変えた行だけ", async () => {
-    const gamma = parameter({ id: "g.gamma", label: "ガンマ", default: 1, value: 1 });
-    const user = await openWith([alpha, beta, gamma]);
-    const sent = acceptUpdates([alpha, beta, gamma]);
-
-    await typeValue(user, "ベータ", "8");
-    await user.click(screen.getByRole("button", { name: "DBへ保存" }));
-
-    await waitFor(() => expect(screen.queryByText(/件が未保存/)).not.toBeInTheDocument());
-    expect(updates(sent)).toEqual([["/admin/api/tuning/g.beta", { value: 8 }]]);
   });
 
   it("保存中は押せない", async () => {

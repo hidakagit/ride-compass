@@ -17,9 +17,7 @@ import logging
 from app.infrastructure import tile_cache
 
 
-def test_a_disk_that_refuses_turns_reads_into_misses_and_writes_into_warnings(
-    tmp_path, monkeypatch, caplog, empty_debug_counters
-):
+def test_a_disk_that_refuses_turns_reads_into_misses_and_writes_into_warnings(tmp_path, monkeypatch, caplog):
     """キャッシュに読めない・書けないことは、配信を止める理由にならない。"""
     not_a_directory = tmp_path / "file"
     not_a_directory.write_bytes(b"")

@@ -10,7 +10,6 @@
 
 import httpx
 import respx
-from cachetools import TTLCache
 from shapely.geometry import box
 
 from app.domain.route import Coordinates
@@ -47,7 +46,7 @@ def area_lookup_upstream(
 
     境界はディスクから読む本物を通す（置き場だけを`tmp_path`へ移す）。代役は地域マスタ・
     `OFFICE_CODE`の警報・洪水予報をURLで返し（Noneなら接続の失敗）、それ以外のURL（別の府県予報区の
-    警報等）を引かれたら落ちる。クライアントのプロセス内キャッシュは空にする。
+    警報等）を引かれたら落ちる。
     """
     boundary_path = tmp_path / "boundaries.json"
     jma_area_boundaries.write_boundaries(
@@ -56,9 +55,6 @@ def area_lookup_upstream(
                            CHIYODA_POINT.longitude + 0.01, CHIYODA_POINT.latitude + 0.01)},
     )
     monkeypatch.setattr(jma_area_boundaries, "BOUNDARY_PATH", boundary_path)
-    monkeypatch.setattr(jma_warning_client, "area_data_cache", TTLCache(maxsize=1, ttl=60))
-    monkeypatch.setattr(jma_warning_client, "warning_cache", TTLCache(maxsize=8, ttl=60))
-    monkeypatch.setattr(flood_client, "flood_cache", TTLCache(maxsize=1, ttl=60))
 
     payloads = {
         jma_warning_client.JMA_AREA_JSON_URL: area_data,

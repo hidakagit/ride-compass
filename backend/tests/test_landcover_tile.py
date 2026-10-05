@@ -7,7 +7,7 @@
 - ラスタ構成の指紋の作り方 → `test_landcover.py`
 
 ラスタ（`landcover_raster`の口）と、キャッシュを通す骨格（`serve_cached_tile`）は代役へ差し替え、
-本物の署名へ当てる（`bound`）。警告の抑制の窓は、テストごとに空から始める（`empty_debug_counters`）。
+本物の署名へ当てる（`bound`）。
 """
 
 import logging
@@ -18,9 +18,6 @@ from app.services import landcover_tile_service as service
 from tests.bound_fake import bound
 
 RASTER = service.landcover_raster
-
-pytestmark = pytest.mark.usefixtures("empty_debug_counters")
-
 
 class Raster:
     """ラスタの口の代役。開けているパスと、描いた絵を持つ。"""
@@ -114,8 +111,8 @@ async def test_without_any_raster_there_is_no_tile_and_the_cause_is_logged(
 
     # 範囲外の空タイルとは区別する（空を返すと、地図は空なのに正常に見える）
     assert served == []
-    (record,) = [r for r in caplog.records if r.name == debug_log.logger.name]
-    assert cause in record.getMessage()
+    # 前のテストで抑えた件数の知らせが、窓が替わって最初の警告の前に出ることがあるので、原因を持つ行で読む。
+    assert [r for r in caplog.records if r.name == debug_log.logger.name and cause in r.getMessage()]
 
 
 async def test_the_missing_raster_warning_is_not_repeated_for_every_tile(raster, served, caplog):

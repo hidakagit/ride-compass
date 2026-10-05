@@ -69,7 +69,8 @@ undefinedにする）。パスの`{名前}`へ入る値は呼び出し口が1区
 取得（GET）の多くは文言を`errorLabel`から「◯◯の取得/解析に失敗しました」で組み立てる（`getOptions`）。通信の失敗は
 openapi-fetchのmiddlewareの`onError`で包み直し、本文の解析の失敗は応答が届いた後の例外として見分ける（`onResponse`で
 届いたことを記録する）。HTTPの失敗は呼び出し口が例外にせず`error`として返すので、骨格が`detail`から文言を作って投げる。
-呼び出し口は作った時点の`fetch`を握るので、呼ぶたびに`globalThis.fetch`を引く関数を渡している（テストが差し替えた`fetch`を届けるため）。
+呼び出し口は作った時点の`fetch`を握るので、呼ぶたびに`globalThis.fetch`を引く関数を渡している——テストの網（msw）は
+テストのファイルがこのモジュールを読み込んだ後（`vitest.setup.ts`の`beforeAll`）に`globalThis.fetch`を差し替えるため。
 
 `x-request-id`とHTTPステータスは失敗のdebugLogに残す。`x-request-id`は投げる`Error`の`message`には入れない。
 HTTPステータスが`message`に入るのは、応答に`detail`が無い（JSONでない本文を含む）ときに`messages.failure`へ

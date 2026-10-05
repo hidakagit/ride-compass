@@ -3,7 +3,8 @@
  * `app/admin/api/[...path]/route.ts`——`/admin/api/<X>`への要求を、資格情報を付けてbackendの`/api/admin/<X>`へ
  * そのまま渡し、応答をそのまま返すこと。
  *
- * 母集団はbackendの契約（生成物`openapi.json`）にある管理APIの操作の全部。
+ * 母集団はbackendの契約（生成物`openapi.json`）にある管理APIのメソッドの全部。口はパスごとに振る舞いを変えないので、
+ * メソッドごとに操作を1つ、区間の値を持つパスがあればそれを選ぶ。
  *
  * ここで見ないもの:
  * - 管理画面のクライアントが叩く先・待ち時間 → `app/admin/adminApi.test.ts`
@@ -26,9 +27,14 @@ const handlers = route as unknown as Record<string, (request: Request) => Promis
 const openApi: { paths: Record<string, Record<string, unknown>> } = JSON.parse(
   readFileSync(join(__dirname, "../../../../types/generated/openapi.json"), "utf-8"),
 );
-const operations = Object.entries(openApi.paths)
+const adminOperations = Object.entries(openApi.paths)
   .filter(([path]) => path.startsWith("/api/admin/"))
   .flatMap(([path, ops]) => Object.keys(ops).map((method) => [method.toUpperCase(), path] as const));
+const operations = [...new Set(adminOperations.map(([method]) => method))].map(
+  (method) =>
+    adminOperations.find(([m, path]) => m === method && path.includes("{")) ??
+    adminOperations.find(([m]) => m === method)!,
+);
 
 interface Forwarded {
   url: string;

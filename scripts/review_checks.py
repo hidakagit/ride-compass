@@ -68,24 +68,27 @@ MARKDOWN_LINK_RE = re.compile(r"\[[^\]]*\]\(([^)\s#]+)(?:#[^)]*)?\)")
 #: 雛形の綴り。「タスク番号1件=1ファイル」等を説明するためのもので、実在しなくてよい。
 PLACEHOLDER_RE = re.compile(r"Txxx|YYYY-MM-DD|<[^>]+>")
 
-CODE_SUFFIXES = (".py", ".ts", ".tsx", ".js", ".mjs", ".mts", ".sh", ".bat")
+CODE_SUFFIXES = (".py", ".ts", ".tsx", ".js", ".mjs", ".mts", ".sh", ".bat", ".css")
 #: ワークフローの YAML は CI・デプロイ・担当の実行の手順そのものなので、コードとして数える。
 WORKFLOW_PREFIXES = (".github/workflows/",)
-#: 総量の「実装」のうち、製品の挙動を持たない部分。製品の増減が生成物・運用の道具の増減に
-#: 埋もれないよう、総量の前回比で分けて出す。道具は運用・計測・検査の道具と、テストの実行の足場
-#: （テストのファイル名を持たないE2Eの共通部品・テストランナーの設定・CIのワークフロー）と、
-#: リポジトリの直下に置くコード（開発機での起動の道具）。
+#: テストのファイル名を持たないテストの足場の置き場（`/tests/`・`/test/`の外にあるもの）。
+TEST_PREFIXES = ("frontend/src/testing/", "frontend/src/structure/")
+#: 総量の「実装」の内訳は置き場で決める。製品は本番で動くコードの置き場で、ほかの実装は
+#: 道具（運用・計測・検査の道具・E2Eの共通部品・テストランナーとビルドの設定・CIのワークフロー・
+#: 開発機での起動の道具）。道具の置き場を列挙しないのは、道具が改名・新設されても製品へ
+#: 落ちないため。製品の増減が生成物・道具の増減に埋もれないよう、総量の前回比で分けて出す。
 #: タスク管理は製品と無関係に作り直されるので、道具の増減に混ぜずに分ける。
+#: ここで宣言する置き場は、どれも追跡下のファイルに当たる（`backend/tests/test_review_checks.py`）。
+PRODUCT_PREFIXES = ("backend/app/", "frontend/src/")
 GENERATED_PREFIXES = ("frontend/src/types/generated/",)
 TASKFLOW_PREFIXES = ("tools/flow-gate/", ".github/workflows/claude-")
-TOOLING_PREFIXES = ("scripts/", "backend/scripts/", "backend/benchmarks/", "backend/ops/",
-                    "frontend/e2e", "frontend/playwright", "frontend/vitest", "frontend/eslint",
-                    "frontend/capture/", "frontend/scripts/capture-", ".github/workflows/")
 
 #: この行数以上のファイルは、個別閾値（size_thresholds.json）を持つまで毎回発火する。
 #: 越えた周期だけ鳴らすと、分類で閾値を決めなかったファイルが以後+15%の成長でしか
 #: 鳴らなくなり、周期ごとの複利で黙って膨らむ。
 LARGE_FILE_LINES = 1000
+#: 前回比の発火（+15%）に要る増分の下限。小さいファイルは数十行の増分でも率が大きく出る。
+GROWTH_MIN_LINES = 50
 #: 個別閾値は自動では下がらない。到達率がこれを下回ったら、下げるか外すかを判断する。
 THRESHOLD_SLACK_RATIO = 0.5
 
@@ -224,7 +227,8 @@ def files_at(sha: str) -> list[str]:
 
 
 def is_test(path: str) -> bool:
-    return ".test." in path or ".spec." in path or "/tests/" in path or "/test/" in path
+    return (".test." in path or ".spec." in path or "/tests/" in path or "/test/" in path
+            or path.startswith(TEST_PREFIXES))
 
 
 def is_code(path: str) -> bool:
@@ -250,9 +254,9 @@ def implementation_part(path: str) -> str:
         return "うち生成物"
     if path.startswith(TASKFLOW_PREFIXES):
         return "うちタスク管理"
-    if "/" not in path or path.startswith(TOOLING_PREFIXES):
-        return "うち道具"
-    return "うち製品"
+    if path.startswith(PRODUCT_PREFIXES):
+        return "うち製品"
+    return "うち道具"
 
 
 def volume_totals(counts: dict[str, int]) -> dict[str, int]:
@@ -300,7 +304,7 @@ def cmd_size(args: argparse.Namespace) -> int:
             continue
         p = prev.get(f)
         reasons = []
-        if p is not None and p > 0 and (cur - p) / p >= 0.15:
+        if p is not None and p > 0 and (cur - p) / p >= 0.15 and cur - p >= GROWTH_MIN_LINES:
             reasons.append(f"+{(cur - p) / p * 100:.0f}%")
         if th is None and cur >= LARGE_FILE_LINES:
             reasons.append(f"{LARGE_FILE_LINES:,}行以上・閾値未設定")
@@ -407,16 +411,15 @@ def merge_base(base: str, head: str) -> str:
 
 
 def change_kind(path: str) -> str:
-    """変更の行数を分ける種別。規模の札は実装とテストだけで決まる（docs/conventions/flow.md「規模の札」）。"""
+    """変更の行数を分ける種別。規模の札は実装とテストだけで決まる（docs/conventions/flow.md「規模の札」）。
+
+    実装とテストは総量と同じ分け方（`volume_kind`）で、コードでないファイルは設定。
+    """
     if path.startswith(GENERATED_PREFIXES) or path.endswith(GENERATED_NAMES):
         return "生成物"
     if path.endswith(".md"):
         return "文書"
-    if is_test(path):
-        return "テスト"
-    if path.startswith((".github/", ".claude/")):
-        return "設定"
-    return "実装"
+    return volume_kind(path) or "設定"
 
 
 def cmd_change(args: argparse.Namespace) -> int:

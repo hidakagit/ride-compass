@@ -421,8 +421,8 @@ idを`route-destination-00..`へ振り直すが、
 時別の風の予報・雨の観測の履歴。ログの`weather_ms`がこの段）。静的スコア行列は、切り出した区間の材料
 （`material_arrays_of`、分類の材料は語彙への番号のまま）に、区間の中点に最も近い雨量計の今の観測
 （雨の材料、`domain/rain.py: rain_material_columns`。地図の雨と同じ関数・同じ観測）を足して
-`build_static_edge_score_matrix`で求める。雨は出発時刻ではなく今の観測で、履歴は`load_station_rain_materials`が
-Redisから読み（プロセス内に5分持つ）、無い・古ければ雨の材料は欠損のまま組む（WARNINGを抑制付きで出し、
+`build_static_edge_score_matrix`で求める。雨は出発時刻ではなく今の観測で、履歴は`WeatherService.get_station_rain_materials`が
+Redisから読み（実体の中に5分持つ）、無い・古ければ雨の材料は欠損のまま組む（WARNINGを抑制付きで出し、
 INFOサマリの`rain_hour=none`で分かる。雨を読む軸だけがその生成で「データなし」になる）。行列はキャッシュしない
 ——軸定義の編集と雨の観測がそのまま次の生成に効き、軸定義の世代を突き合わせる仕組みが要らない。
 続けて0次フィルタの除外（`compute_hard_filter_excluded`）を決めて
@@ -537,7 +537,7 @@ Nodeを「リング」として抽出する。**距離は最短実距離では�
 追加探索が発生しない:
 
 1. 起点からの前向き木（`select_loop_turnarounds`と同じ`build_turn_expanded_tree`）を求める。
-   目的地に一番近いNode（`find_nearest_node_indexed`、次数1以上のみが候補[T256]）が
+   目的地に一番近いNode（`find_nearest_node_indexed`、次数1以上のみが候補）が
    この前向き木で到達不能な場合（歩道橋・私有地内通路等、メインの道路網から孤立した
    小さな塊へスナップされたケース）、`find_nearest_node_indexed`へ「前向き木が届くNode」
    だけを候補にする`allowed`と、補正の上限`_MAX_DESTINATION_CORRECTION_KM`を渡して再スナップする（実際の座標は
@@ -935,16 +935,16 @@ backendは置き場を読むだけで、読むのは`current()`の1か所であ�
 （生成は失敗する。作るのは前処理かバッチ）。起動後に、今の形の署名でない置き場を消す（`prune_other_shapes`。
 入れ替わるまでは旧コンテナが読んでいるため、起動後にだけ消す）。
 
-### キャッシュ（ルート生成はRedisを使わない）
+### キャッシュ（ルート生成はキャッシュをRedisへ置かない）
 
-ルート生成の経路で使うキャッシュはプロセス内メモリとディスクだけで、Redisを経由しない。
+ルート生成の経路で使うキャッシュはプロセス内メモリとディスクだけで、Redisへ置かない。Redisから読むのは
+雨の観測の履歴だけで、無ければ雨の材料を欠損にして生成を続ける（上の`_build_search_graph`の段）。
 
 | 層 | 対象 | 実装 |
 |---|---|---|
 | プロセス内（1つだけ、全リクエストが共有） | 道路網全体の配列（メモリマップ） | `road_network_store.py: current` |
 | プロセス内（件数上限LRU） | 探索範囲ごとに学習した迂回率 | `detour_ratio_cache.py` |
 | ディスク | 道路網全体の配列（プロセス再起動をまたぐ。世代ごとの置き場） | `road_network_store.py` |
-| ディスク | 標高DEMタイル | `tile_cache.py` |
 
 探索用グラフ・CSR・索引・ターン構造・静的スコア行列はキャッシュせず、生成のたびに切り出しから組む。
 範囲ごとに持つと、範囲を変えながら生成が続くだけで常駐が積み上がるため。

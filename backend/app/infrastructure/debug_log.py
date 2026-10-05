@@ -83,11 +83,11 @@ def _empty_stats() -> ExternalCallStats:
 
 
 _lock = threading.Lock()
-external_stats: dict[str, ExternalCallStats] = {}
+_external_stats: dict[str, ExternalCallStats] = {}
 # category -> 429拒否数(record_rate_limit_rejection)
-rate_limit_rejections: dict[str, int] = {}
+_rate_limit_rejections: dict[str, int] = {}
 # category -> [window_start(monotonic), emitted_count, suppressed_count]
-warn_windows: dict[str, list[float]] = {}
+_warn_windows: dict[str, list[float]] = {}
 
 
 def error_type_label(exc: BaseException) -> str:
@@ -119,12 +119,12 @@ def _throttled_warning(category: str, message: str, *args: object) -> None:
     suppression_notice: int | None = None
     with _lock:
         now = time.monotonic()
-        window = warn_windows.get(category)
+        window = _warn_windows.get(category)
         if window is None or now - window[0] >= WARN_WINDOW_SECONDS:
             if window is not None and window[2]:
                 suppression_notice = int(window[2])
             window = [now, 0, 0]
-            warn_windows[category] = window
+            _warn_windows[category] = window
         if window[1] < WARN_BURST_PER_WINDOW:
             window[1] += 1
             emit = True
@@ -140,9 +140,9 @@ def _throttled_warning(category: str, message: str, *args: object) -> None:
 
 def _record(category: str, elapsed_ms: int, fields: dict, error: bool) -> None:
     with _lock:
-        stats = external_stats.get(category)
+        stats = _external_stats.get(category)
         if stats is None:
-            stats = external_stats[category] = _empty_stats()
+            stats = _external_stats[category] = _empty_stats()
         stats.calls += 1
         now_iso = datetime.now(UTC).isoformat()
         if error:
@@ -201,7 +201,7 @@ def record_rate_limit_rejection(category: str, client_id: str, limit: str) -> No
     limitは"120/min"・"concurrent=2"のような人間可読の上限表記。
     """
     with _lock:
-        rate_limit_rejections[category] = rate_limit_rejections.get(category, 0) + 1
+        _rate_limit_rejections[category] = _rate_limit_rejections.get(category, 0) + 1
     _throttled_warning(f"ratelimit:{category}", "[ratelimit:%s] rejected client=%s limit=%s", category, client_id, limit)
 
 
@@ -210,8 +210,8 @@ def get_stats() -> StatsSnapshot:
     実行中のカウンタと共有しない複製を返す。"""
     with _lock:
         return StatsSnapshot(
-            external={category: stats.model_copy(deep=True) for category, stats in sorted(external_stats.items())},
-            rate_limit_rejections=dict(rate_limit_rejections),
+            external={category: stats.model_copy(deep=True) for category, stats in sorted(_external_stats.items())},
+            rate_limit_rejections=dict(_rate_limit_rejections),
         )
 
 

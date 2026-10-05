@@ -19,7 +19,6 @@ from app.domain.time_zone import JST
 from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
 from app.infrastructure.debug_log import log_external_call, log_throttled_warning, mark_failed
 from app.infrastructure.road_graph_repository import RoadGraphRepository
-from app.services.jma_amedas_service import load_station_rain_materials
 from app.services.weather_service import WeatherService
 
 _CATEGORY = "region:rain-way-values"
@@ -35,14 +34,15 @@ class RainWayService:
     material_ids = RAIN_MATERIAL_IDS
     conditions_type = RainConditions
 
-    def __init__(self, repository: RoadGraphRepository, material_id: str):
+    def __init__(self, repository: RoadGraphRepository, weather_service: WeatherService, material_id: str):
         self._repository = repository
+        self._weather_service = weather_service
         self.material_id = material_id
 
     @classmethod
     def build(cls, repository: RoadGraphRepository, weather_service: WeatherService, material_id: str) -> "RainWayService":
         """登録テーブルから呼ぶための統一シグネチャ。依存の要否はサービスごとに違う。"""
-        return cls(repository=repository, material_id=material_id)
+        return cls(repository=repository, weather_service=weather_service, material_id=material_id)
 
     async def get_way_values(self, z: int, x: int, y: int, conditions: RainConditions) -> dict[str, float]:
         """指定タイル内のフィーチャーごとの雨の材料値を返す。
@@ -51,7 +51,7 @@ class RainWayService:
         """
         bbox = tile_bounds_lonlat(z, x, y)
         with log_external_call(_CATEGORY, z=z, x=x, y=y, material=self.material_id) as fields:
-            stations = await load_station_rain_materials(datetime.now(JST))
+            stations = await self._weather_service.get_station_rain_materials(datetime.now(JST))
             if stations is None:
                 fields["rain_history"] = "unavailable"
                 log_throttled_warning(_CATEGORY, "雨の材料配信の観測履歴が無いか古い z=%d x=%d y=%d", z, x, y)

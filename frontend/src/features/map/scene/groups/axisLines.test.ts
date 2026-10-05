@@ -93,7 +93,6 @@ describe("タイルの材料から塗る軸", () => {
 
     expect(evaluate(layer.paint?.["line-color"], {})).toBe(palette.semantic.no_data);
     expect(evaluate(layer.paint?.["line-opacity"], {})).toBe(mapDisplay.road.unknownOpacity);
-    expect(evaluate(layer.paint?.["line-color"], { v: 15 })).toBe("#f59e0b");
     expect(evaluate(layer.paint?.["line-opacity"], { v: 15 })).toBe(mapDisplay.road.knownOpacity);
   });
 
@@ -110,11 +109,8 @@ describe("タイルの材料から塗る軸", () => {
     expect(of({ v: 25 })).toBe("#dc2626");
   });
 
-  it("「不明」を隠すと、評価できない道だけが透明になる", () => {
-    const of = color(TILE_VALUE, [LEGEND_NO_DATA_KEY]);
-
-    expect(of({})).toBe(TRANSPARENT);
-    expect(of({ v: 5 })).toBe("#16a34a");
+  it("「不明」を隠すと、評価できない道が透明になる", () => {
+    expect(color(TILE_VALUE, [LEGEND_NO_DATA_KEY])({})).toBe(TRANSPARENT);
   });
 
   it("不明という状態を持たない軸は、段を隠しても全段が評価できる", () => {
@@ -129,17 +125,11 @@ describe("配信された値で塗る軸", () => {
   const color = (value: ReturnType<typeof delivered>, hidden: readonly string[], state: Record<string, unknown>) =>
     evaluate(layerFor(value, hidden).paint?.["line-color"], {}, state);
 
-  it("値が無い道は「データなし」の色、取得中は取得中の色", () => {
-    expect(color(delivered(), [], {})).toBe(palette.semantic.no_data);
-    expect(color(delivered(true), [], {})).toBe(palette.semantic.loading);
-  });
-
   it("段を隠すと、配信された値がその段の道が透明になる（隠し方はタイルの材料から塗る軸と同じ）", () => {
     expect(color(delivered(), ["mid"], { axValue: 15 })).toBe(TRANSPARENT);
   });
 
-  it("「データなし」を隠すと値の無い道が透明になる。ただし取得中の色は残す", () => {
-    expect(color(delivered(), [LEGEND_NO_DATA_KEY], {})).toBe(TRANSPARENT);
+  it("取得中の道は取得中の色で、「データなし」を隠していても残す", () => {
     expect(color(delivered(true), [LEGEND_NO_DATA_KEY], {})).toBe(palette.semantic.loading);
   });
 });

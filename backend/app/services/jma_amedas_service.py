@@ -42,13 +42,27 @@ from app.infrastructure.debug_log import log_throttled_warning
 logger = logging.getLogger("ridecompass.jma_amedas_service")
 
 _RAIN_MATERIALS_CACHE_TTL_SECONDS = 5 * 60
-rain_materials_cache: TTLCache = TTLCache(maxsize=1, ttl=_RAIN_MATERIALS_CACHE_TTL_SECONDS)
 _RAIN_MATERIALS_CACHE_KEY = "rain_materials"
 
 
+def new_rain_materials_cache() -> TTLCache:
+    """`load_station_rain_materials`へ渡すキャッシュ。リクエストをまたいで持つのは`WeatherService`の実体。"""
+    return TTLCache(maxsize=1, ttl=_RAIN_MATERIALS_CACHE_TTL_SECONDS)
+
+
 class JmaAmedasService:
-    def __init__(self, http_client: httpx.AsyncClient):
+    def __init__(
+        self,
+        http_client: httpx.AsyncClient,
+        tile_client: JmaTileClient,
+        *,
+        station_table_cache: TTLCache,
+        latest_time_cache: TTLCache,
+    ):
         self._http_client = http_client
+        self._tile_client = tile_client
+        self._station_table_cache = station_table_cache
+        self._latest_time_cache = latest_time_cache
 
     async def get_nearest_observation(self, point: Coordinates) -> AmedasObservation | None:
         """最寄り観測所を解決し、保存済みの観測値に地点の日の出・日没と天気コードを入れて返す。観測値はJMAへ
@@ -57,7 +71,7 @@ class JmaAmedasService:
         バッチがまだ一度も成功していない・Redisが不通・最寄り観測所が必要なセンサーを
         持たない種別（雨量計のみ等）のいずれもNone。
         """
-        stations = await jma_amedas_client.fetch_station_table(self._http_client)
+        stations = await jma_amedas_client.fetch_station_table(self._http_client, self._station_table_cache)
         if not stations:
             return None
         station_ids = list(stations)
@@ -75,9 +89,7 @@ class JmaAmedasService:
         # 日の出/日没は最寄り観測所ではなく**クエリ地点**に対して計算する（観測所境界
         # 付近でのズレを避ける）。外部への問い合わせを伴わないため都度計算でよい。
         today = datetime.now(JST).date()
-        color = await jma_suikei_client.fetch_weather_color(
-            JmaTileClient(self._http_client), point.latitude, point.longitude
-        )
+        color = await jma_suikei_client.fetch_weather_color(self._tile_client, point.latitude, point.longitude)
         sky = None if color is None else sky_from_color(*color)
         return observation.model_copy(
             update={
@@ -95,11 +107,13 @@ class JmaAmedasService:
         例外を投げずWARNINGだけを出す——例外にしないため、ここで出さないと「1件も書けて
         いないバッチ」が無警告のまま繰り返される。
         """
-        stations = await jma_amedas_client.fetch_station_table(self._http_client)
+        stations = await jma_amedas_client.fetch_station_table(self._http_client, self._station_table_cache)
         if not stations:
             logger.warning("アメダス観測所マスタの取得に失敗しました（全滅バッチ）")
             return 0
-        latest_time = await jma_amedas_client.fetch_latest_observation_time(self._http_client)
+        latest_time = await jma_amedas_client.fetch_latest_observation_time(
+            self._http_client, self._latest_time_cache
+        )
         if latest_time is None:
             logger.warning("アメダス最新観測時刻の取得に失敗しました（全滅バッチ）")
             return 0
@@ -204,23 +218,23 @@ def _hourly_rain(observation_map: dict[str, AmedasReading]) -> dict[str, float |
     }
 
 
-async def load_station_rain_materials(now: datetime) -> StationRainMaterials | None:
+async def load_station_rain_materials(now: datetime, cache: TTLCache) -> StationRainMaterials | None:
     """観測所ごとの雨の材料（`domain/rain.py`）。保存済みの履歴だけを読み、気象庁へは問い合わせない。
 
     履歴がまだ無い（バッチが一度も成功していない・Redisが不通）・最新の正時が古い
     （`domain/rain.py: is_rain_history_current`）ときはNone。
 
-    求めた値はプロセス内に`_RAIN_MATERIALS_CACHE_TTL_SECONDS`だけ持つ——地図のタイル1枚ごとに
+    求めた値は`cache`（`new_rain_materials_cache`）に`_RAIN_MATERIALS_CACHE_TTL_SECONDS`だけ持つ——地図のタイル1枚ごとに
     全観測所×`RAIN_HISTORY_HOURS`本の履歴を読み直さないため。履歴が新しい正時を得てから
     地図に出るまで、この時間だけ遅れうる。
     """
-    materials = rain_materials_cache.get(_RAIN_MATERIALS_CACHE_KEY)
+    materials = cache.get(_RAIN_MATERIALS_CACHE_KEY)
     if materials is None:
         history = await jma_amedas_store.read_rain_history()
         if history is None or not history.stations:
             return None
         materials = _station_rain_materials(history)
-        rain_materials_cache[_RAIN_MATERIALS_CACHE_KEY] = materials
+        cache[_RAIN_MATERIALS_CACHE_KEY] = materials
     if not is_rain_history_current(materials.latest_hour, now):
         log_throttled_warning(
             "weather:jma-amedas-rain-history",

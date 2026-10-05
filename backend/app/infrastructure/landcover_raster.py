@@ -59,7 +59,7 @@ class _RasterSource:
     lock: threading.Lock
 
 
-opened_sources: list[_RasterSource] | None = None
+_opened_sources: list[_RasterSource] | None = None
 _sources_lock = threading.Lock()
 #: 1枚も開けなかったときに、次に開き直すまで待つ秒数。**失敗を記憶し続けない**——デプロイは
 #: ラスタの取得とコンテナ入れ替えを別のステップで行うため、起動時に無くても後から現れる。
@@ -86,13 +86,13 @@ def _open_sources() -> list[_RasterSource]:
     デプロイはラスタの取得とコンテナ入れ替えを別のステップで行うため、起動時に無くても
     後から現れる——記憶してしまうと、そのプロセスが生きている間ずっと配信できない。
     """
-    global opened_sources, _last_open_attempt
+    global _opened_sources, _last_open_attempt
     with _sources_lock:
-        if opened_sources:
-            return opened_sources
+        if _opened_sources:
+            return _opened_sources
         now = time.monotonic()
-        if opened_sources is not None and now - _last_open_attempt < _RETRY_OPEN_AFTER_SECONDS:
-            return opened_sources
+        if _opened_sources is not None and now - _last_open_attempt < _RETRY_OPEN_AFTER_SECONDS:
+            return _opened_sources
         _last_open_attempt = now
         opened: list[_RasterSource] = []
         for path in settings.lulc_raster_paths_list:
@@ -100,8 +100,17 @@ def _open_sources() -> list[_RasterSource]:
                 opened.append(_RasterSource(rasterio.open(path), threading.Lock()))
             except (OSError, rasterio.errors.RasterioIOError) as exc:
                 logger.warning("土地被覆ラスタを開けません path=%s error=%r", path, exc)
-        opened_sources = opened
-        return opened_sources
+        _opened_sources = opened
+        return _opened_sources
+
+
+def close_sources() -> None:
+    """開いたラスタを閉じる。プロセス終了時に`process_resources.py: close_process_resources`から呼ぶ。次の読み取りで開き直す。"""
+    global _opened_sources
+    with _sources_lock:
+        for source in _opened_sources or []:
+            source.dataset.close()
+        _opened_sources = None
 
 
 def _read_decimated(source: _RasterSource, bounds: tuple[float, float, float, float]):

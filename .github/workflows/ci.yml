@@ -116,7 +116,7 @@ jobs:
       # 層の向き（上の層だけが下の層を読む）を止める。契約はbackend/.importlinter、各層が持つものは
       # docs/architecture/directory-layout.md。
       - run: lint-imports
-      # -n auto（pytest-xdist、改善計画T233フォローアップ）でCPUコア数ぶん並列化する。
+      # -n auto（pytest-xdist）でCPUコア数ぶん並列化する。
       # PostGIS統合テストは全ファイルxdist_group="postgis"で同一workerへ固定済み
       # （同じridecompass_test DBへの同時TRUNCATEレースを防ぐ、docs/conventions/testing.mdパターン2）
       # なので、それら以外のテストだけが安全に並列化される。上記コメント参照:
@@ -266,7 +266,7 @@ jobs:
       - run: |
           [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = "false" ]
   # タスクの流れのゲート（tools/flow-gate/）を、master に入ったら公開する（Cloudflare の公式の wrangler-action）。
-  # 公開の直後に、開いた issue を全部、今の規則が書くはずの姿（担当者・本文の先頭・問いの形）へ揃える（揃っていれば何も書かない）。
+  # 公開の直後に、開いた issue を全部、今の規則が書くはずの姿（担当者・本文の先頭）へ揃える（揃っていれば何も書かない）。
   deploy-gate:
     needs: [ci-ok]
     if: github.event_name == 'push'

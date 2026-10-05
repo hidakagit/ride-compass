@@ -92,14 +92,12 @@ WARNING_KINDS: dict[str, WarningKind] = {
 ACTIVE_STATUSES = frozenset({"発表", "継続"})
 
 
-def warning_level(code: str) -> WarningBadgeLevel:
-    """コードから警戒レベル（バッジの色分けに使う）を導出する。対応表に無いコードは
-    KeyError——呼び出し側は必ず`WARNING_KINDS`で引いた後に呼ぶ。
+def warning_level(name: str) -> WarningBadgeLevel:
+    """種別の名称から警戒レベル（バッジの色分けに使う）を導出する。
 
     レベルを別テーブルとして二重管理せず、名称文字列（「特別警報」「危険警報」「警報」を
     含むか）から導出する（片側import）。危険警報（警戒レベル4）は警報と特別警報の間の段。
     「危険警報」「特別警報」はどちらも「警報」を含むため、「警報」より先に見る。"""
-    name = WARNING_KINDS[code].name
     if "特別警報" in name:
         return "emergency_warning"
     if "危険警報" in name:
@@ -160,7 +158,7 @@ def extract_active_warnings(kinds: Iterable[AreaWarningKind]) -> list[ActiveWarn
             ActiveWarning(
                 code=code,
                 name=registered.name,
-                level=warning_level(code),
+                level=warning_level(registered.name),
                 additions=list(kind.additions),
             )
         )

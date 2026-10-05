@@ -1,4 +1,5 @@
 import asyncio
+import functools
 import hashlib
 import os
 import re
@@ -15,6 +16,7 @@ import fakeredis
 import freezegun
 import pytest
 import pytest_asyncio
+import redis.asyncio
 from hypothesis import settings as hypothesis_settings
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -82,36 +84,19 @@ def redis_server():
 
 
 @pytest.fixture
-def fake_redis(monkeypatch, redis_server):
-    """空のRedis。共有クライアント（`app/infrastructure/redis_client.py: text_client`・
-    `app/infrastructure/redis_client.py: binary_client`）を同じサーバのfakeredisへ差すので、
-    `get_redis_client_or_none`・`get_redis_binary_client_or_none`を読むどのモジュールからも同じものが見える。
+async def fake_redis(monkeypatch, redis_server):
+    """空のRedis。接続を作る所（`redis.asyncio.from_url`）を同じサーバのfakeredisへ差し、共有クライアントを
+    閉じる口（`redis_client.py: close_redis_clients`）で作る前に戻すので、`get_redis_client_or_none`・
+    `get_redis_binary_client_or_none`を読むどのモジュールからも同じものが見える。
     返すのは文字列側のクライアント。"""
-    fake = fakeredis.FakeAsyncRedis(server=redis_server, decode_responses=True)
-    monkeypatch.setattr(redis_client, "text_client", fake)
-    monkeypatch.setattr(redis_client, "binary_client", fakeredis.FakeAsyncRedis(server=redis_server))
-    return fake
+    monkeypatch.setattr(redis.asyncio, "from_url", functools.partial(fakeredis.FakeAsyncRedis.from_url, server=redis_server))
+    await redis_client.close_redis_clients()
+    yield redis_client.get_redis_client_or_none()
+    await redis_client.close_redis_clients()
 
 
-@pytest.fixture(autouse=True)
-def _unread_derived_data_revision(monkeypatch):
-    """データの世代はまだ読んでいない状態から始める。読んだ世代とTTLはプロセス内のモジュール変数に
-    残り、前のテストが読んだ世代のままTTLの内側に入ると、後のテストのリポジトリは世代を聞かれず、鍵も
-    ディスクへ残すかも前のテストで決まる。"""
-    monkeypatch.setattr(derived_data_revision_service, "next_check_at", 0.0)
-    monkeypatch.setattr(derived_data_revision_service, "last_read_revisions", None)
-
-
-@pytest.fixture
-def empty_debug_counters(monkeypatch):
-    """外部I/Oの集計と警告の抑制窓（infrastructure/debug_log.py）を空から始める。
-    どちらもプロセス内のモジュール変数で、前のテストが数えた分が残る。"""
-    for name in ("external_stats", "rate_limit_rejections", "warn_windows"):
-        monkeypatch.setattr(debug_log, name, {})
-
-
-class RateLimitClock:
-    """回数制限が読む時計。止まっていて、進めたぶんだけ進む。"""
+class MonotonicClock:
+    """回数制限・外部I/Oの記録・データの世代の読み直しが読む単調時計。止まっていて、進めたぶんだけ進む。"""
 
     def __init__(self) -> None:
         self._now = 0.0
@@ -124,27 +109,37 @@ class RateLimitClock:
 
 
 @pytest.fixture(autouse=True, scope="session")
-def _rate_limit_clock_for_the_session():
-    """回数制限（infrastructure/rate_limiter.py）が読む時計を、テストが進める時計へ替える。
+def _monotonic_clock_for_the_session():
+    """回数制限・外部I/Oの記録・データの世代の読み直しが読む時計を、テストが進める時計へ替える。
 
-    戻すのはセッションの終わりだけ。途中で実時計へ戻すと、進めた時計で数えた回数が
-    未来の時刻として窓の中に残り、後のテストの上限に食い込む。
+    戻すのはセッションの終わりだけ。途中で実時計へ戻すと、進めた時計で数えた回数・窓の始まり・TTLが
+    未来の時刻として残り、後のテストに食い込む。freezegun（`clock`）はこの時計を動かさない——止めた時刻は
+    2026年の暦の秒で、実時計の単調時計より大きいので、戻った後の窓・TTLが明けなくなる。
     """
-    clock = RateLimitClock()
+    clock = MonotonicClock()
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(rate_limiter, "time", clock)
+        patch.setattr(debug_log, "time", clock)
+        patch.setattr(derived_data_revision_service, "time", clock)
         yield clock
 
 
 @pytest.fixture(autouse=True)
-def rate_limit_clock(_rate_limit_clock_for_the_session) -> RateLimitClock:
-    """テストごとに1窓ぶん進め、前のテストが数えた回数を窓の外へ出す。
+def monotonic_clock(_monotonic_clock_for_the_session) -> MonotonicClock:
+    """テストごとに、回数制限の窓・警告の抑制の窓・データの世代のTTLのどれよりも長く進める。
 
-    回数の記録は接続元（TestClientでは常に`testclient`）ごとのプロセス大域にあり、進めないと
-    前のテストのリクエストが今のテストの上限に食い込む。記録そのものには触らない。
+    どれもプロセス大域の記録で、進めないと前のテストの回数が今のテストの上限に食い込み、前のテストの
+    窓の中で警告が抑えられ、前のテストが読んだ世代のままTTLの内側でリポジトリが世代を聞かれない。
+    記録そのものには触らない。
     """
-    clock = _rate_limit_clock_for_the_session
-    clock.advance(rate_limiter.WINDOW_SECONDS)
+    clock = _monotonic_clock_for_the_session
+    clock.advance(
+        max(
+            rate_limiter.WINDOW_SECONDS,
+            debug_log.WARN_WINDOW_SECONDS,
+            settings.derived_data_revision_check_interval_seconds,
+        )
+    )
     return clock
 
 

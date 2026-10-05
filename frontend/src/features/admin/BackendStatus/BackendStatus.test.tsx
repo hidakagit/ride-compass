@@ -18,15 +18,12 @@ describe("BackendStatus", () => {
     expect(screen.getByText("サーバー接続を確認中…")).toBeInTheDocument();
   });
 
-  it("疎通できればOK", async () => {
-    onBackend("GET", "/health", () => Response.json({ status: "ok" }));
+  it.each([
+    ["サーバー接続: OK", () => Response.json({ status: "ok" })],
+    ["サーバーに接続できません", () => new Response(null, { status: 503 })],
+  ])("疎通の答えが来たら「%s」と出す", async (shown, reply) => {
+    onBackend("GET", "/health", reply);
     render(<BackendStatus />);
-    expect(await screen.findByText("サーバー接続: OK")).toBeInTheDocument();
-  });
-
-  it("疎通できなければ、接続できないと出す", async () => {
-    onBackend("GET", "/health", () => new Response(null, { status: 503 }));
-    render(<BackendStatus />);
-    expect(await screen.findByText("サーバーに接続できません")).toBeInTheDocument();
+    expect(await screen.findByText(shown)).toBeInTheDocument();
   });
 });

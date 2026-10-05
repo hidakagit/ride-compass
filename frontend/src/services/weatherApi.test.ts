@@ -9,7 +9,7 @@
  * - 地点を問い合わせるほかの口（アメダス・警報・暑さ指数・河川氾濫）と気象庁タイルの在否 → 地点を項目へ載せる形は天候と
  *   同じで、要求は取った値を使う側のテストが網の層で通す
  * - 取った値を画面の状態へ載せること → `features/conditions/useWeatherConditions.test.ts`・
- *   `features/map/useWeatherGrid.test.ts`・`features/map/useJmaTileIndex.test.ts`
+ *   `features/map/useWeatherGrid.test.ts`
  */
 import { describe, expect, it } from "vitest";
 

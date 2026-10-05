@@ -5,8 +5,7 @@
 風・勾配・雨のような、タイルへ焼けない材料（時々刻々変わる・向きに依存する）について、ルート
 未確定時に視界内の全道路へ値を配信する。配信の単位は路面タイルのフィーチャーと同じで、
 ズームによってway丸ごとにも区間（road_edges）にもなる——このモジュールはどちらかを
-知る必要がなく、タイルと同じ`feature_key`を鍵として扱う（[static-road-attributes.md]
-(static-road-attributes.md)の`EDGE_UNIT_MIN_ZOOM`参照）。ルート確定後の風はルーティングエンジンが
+知る必要がなく、タイルと同じ`feature_key`を鍵として扱う（[static-road-attributes.md](static-road-attributes.md)の`EDGE_UNIT_MIN_ZOOM`参照）。ルート確定後の風はルーティングエンジンが
 求める（後述「ルート確定後の風の評価」）。前後で違うのは走行方位（前は利用者が決めた1つの方位、後は
 区間を実際に走る向き）と予報の範囲の外の時刻の扱いだけで、予報の地点と時刻の選び方・式は同じ。
 
@@ -32,15 +31,15 @@ get_feature_gradient_inputs_in_tile`・`get_feature_midpoints_in_tile`は
 | id | 何を指すか | 実体 | 出てくる場所 |
 |---|---|---|---|
 | **軸id** (`axis_id`) | 評価軸そのもの。軸スタジオでDBの行として増減する | `axis_definitions.axis_id` | APIのパスパラメータ、`AXIS_DEFINITIONS`のキー |
-| **材料id** (`material_id`) | サービスが返す生値が軸定義のどの材料か。例: `wind_drag_ratio`・`gradient_percent`・`rain_24h_mm` | `material_catalog.py`のキー | 各サービスの`material_ids`クラス属性（担当する材料）と組み立てたインスタンスの`material_id`、`DEDICATED_WAY_VALUE_SERVICES_BY_MATERIAL`のキー、キャッシュの名前空間、`transform_dedicated_way_values`の第2引数 |
+| **材料id** (`material_id`) | サービスが返す生値が軸定義のどの材料か。例: `wind_drag_ratio`・`gradient_percent`・`rain_24h_mm` | `material_catalog.py`のキー | 各サービスの`material_ids`クラス属性（担当する材料）と組み立てたインスタンスの`material_id`、`_SERVICES_BY_MATERIAL`のキー、キャッシュの名前空間、`transform_dedicated_way_values`の第2引数 |
 
 **実装は軸idを持たない。** 軸とサービスは、軸定義が参照する材料（`AxisDefinition.materials`）と
 サービスの`material_id`の突き合わせで結ばれる。材料はコードが正本（GUIから増減しない）なので、
 実装が材料の名前を知るのは、DBの行で増減する軸の名前を知るのとは違う。公開済みの軸は直さずに
 複製して改良するため、軸の名前で結ぶと複製した軸が配信されない。
 
-`tests/test_dedicated_way_values.py`が、登録キーで組み立てたサービスの`material_id`が
-そのキーであること・材料カタログの既知材料であること・1つの材料を2つのサービスが担当すると
+`tests/test_dedicated_way_values.py`が、担当する材料で組み立てたサービスの`material_id`が
+その材料であること・材料カタログの既知材料であること・1つの材料を2つのサービスが担当すると
 登録時に落ちることを検査する。
 
 ## 軸登録と要求の条件（`domain/dynamic_way_values.py`・`services/dedicated_way_values.py`）
@@ -95,7 +94,7 @@ frontendはどのクエリパラメータをどの軸のリクエストへ載せ
 | `displayed_material_ids(weights, lens_axis_id)` | 区間表示へ載せる材料（[routing-engine.md](routing-engine.md)） |
 | `transform_dedicated_way_values(definition, material_id, values)` | 生値→地図表示値。`difficulty`は`evaluate_axis_values`でタイル内の全道路を1回の配列評価、`signed_material`は素通し。`material_id`以外の材料に0次条件を置いた軸は全道路を落とす——配信はその材料の値しか持たず、条件が当たるかを決められない |
 
-`services/dedicated_way_values.py: DEDICATED_WAY_VALUE_SERVICES_BY_MATERIAL`は、材料id→担当するサービス実装本体
+`services/dedicated_way_values.py: _SERVICES_BY_MATERIAL`は、材料id→担当するサービス実装本体
 （`WindWayService`/`GradientWayService`/`RainWayService`）のdictで、配信の組み立てと地図が載せる条件の導出がここから引く。こちらはPython実装本体
 （コンストラクタ）の登録のため軸スタジオの宣言だけでは代替できず、**新しい計算の材料**の配信には
 コード変更が要る（同じ材料を参照する軸を増やすのには要らない）。実装は担当する材料のクラス属性
@@ -287,7 +286,7 @@ values = {feature_key: round(value, 1) for feature_key, value in effective if va
 
 ```
 get_way_values(z, x, y, ...)
-  ├─ jma_amedas_service.load_station_rain_materials(今) → 観測所ごとの材料の値（無い・古ければ{}）
+  ├─ WeatherService.get_station_rain_materials(今) → 観測所ごとの材料の値（無い・古ければ{}）
   ├─ get_feature_midpoints_in_tile → 鍵ごとの中ほど（カバレッジ外・空は{}、DB障害も{}）
   ├─ rain_material_columns（domain/rain.py）: 中ほどに最も近い雨量計の値
   └─ 欠測（NaN）の道は結果から除く
@@ -302,7 +301,7 @@ get_way_values(z, x, y, ...)
 - **ルートの区間も同じ関数で、区間の中点の値を引く**（[ルーティングエンジン](routing-engine.md)
   「`prepare(origin, radius_km, waypoints=None)`」）。区間単位のズームのフィーチャーの中ほどはルートの区間の中点と同じ点なので、地図の色と
   ルートの区間の値は同じ雨量計の同じ観測になる。
-- 観測所ごとの材料の値は`load_station_rain_materials`がRedisの履歴から組み立て、プロセス内に5分持つ
+- 観測所ごとの材料の値は`jma_amedas_service.py: load_station_rain_materials`がRedisの履歴から組み立て、`WeatherService`の実体の中に5分持つ
   （タイル1枚ごとに全観測所×全時間の履歴を読み直さない）。履歴の取り方は
   [気象・動的レイヤー](weather-dynamic-layers.md)「`JmaAmedasService`」。
 - **材料の値は観測どおりの量**（mm・時間）で、どこからを濡れているとみなすかは軸の折れ点が決める。

@@ -18,9 +18,10 @@ from app.config import settings
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
 from app.infrastructure.database import get_session_factory
 from app.infrastructure.debug_control import install_ring_buffer_handler
-from app.infrastructure.http_client import close_all_http_clients, get_http_client
+from app.infrastructure.http_client import get_http_client
 from app.infrastructure import road_network_store
 from app.infrastructure.msm_client import refresh as refresh_msm
+from app.infrastructure.process_resources import close_process_resources
 from app.infrastructure.request_log import (
     format_log_lines,
     request_log_middleware,
@@ -56,9 +57,6 @@ logging.getLogger("ridecompass.startup").info(
     "ルート生成にはDATABASE_URL(%s)への実接続が必須です。",
     settings.database_url.split("@")[-1] if "@" in settings.database_url else "設定値",
 )
-
-scheduler = AsyncIOScheduler()
-
 
 def _log_job_failure(event: JobExecutionEvent) -> None:
     """定期ジョブの失敗を`ridecompass.scheduler`へWARNINGで残す。
@@ -123,6 +121,8 @@ async def lifespan(app: FastAPI):
         # 較正値は行が1つも無ければ宣言どおりの既定値のまま動く（壊れた値の行だけが起動を止める）。
         await refresh_tuning_values(session)
 
+    # 定期ジョブはアプリの寿命の間だけ動くので、スケジューラもこの寿命の中で作る。
+    scheduler = AsyncIOScheduler()
     scheduler.add_listener(_log_job_failure, EVENT_JOB_ERROR)
     # next_run_time=nowで起動直後にも1回実行し、次の定期実行までキャッシュが空のまま
     # 502を返し続けるのを避ける。
@@ -159,7 +159,7 @@ async def lifespan(app: FastAPI):
     yield
     # 先に定期ジョブを止める。逆にすると、閉じたあとに走り出したジョブが閉じたクライアントで外部を呼ぶ。
     scheduler.shutdown(wait=False)
-    await close_all_http_clients()
+    await close_process_resources()
 
 
 app = FastAPI(title="RideCompass API", lifespan=lifespan)

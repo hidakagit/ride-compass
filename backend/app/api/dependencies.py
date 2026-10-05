@@ -20,14 +20,22 @@ from app.infrastructure.basemap_client import BasemapClient
 from app.infrastructure.database import get_route_generation_session_factory, get_session_factory
 from app.infrastructure.db_status import DbStatusQuery
 from app.infrastructure.derived_data_freshness import DerivedDataFreshnessQuery
+from app.infrastructure.flood_client import new_flood_cache
 from app.infrastructure.gsi_tile_client import NOT_FOUND_MAX_ENTRIES, GsiTileClient
 from app.infrastructure.http_client import get_http_client
-from app.infrastructure.jma_tile_client import JmaTileClient
+from app.infrastructure.jma_amedas_client import new_latest_time_cache, new_station_table_cache
+from app.infrastructure.jma_tile_client import JmaTileClient, JmaTileSharedState
+from app.infrastructure.jma_warning_client import new_area_data_cache, new_warning_cache
 from app.infrastructure.material_coverage import MaterialCoverageQuery
 from app.infrastructure.road_graph_repository import RoadGraphRepository
+from app.infrastructure.wbgt_client import new_forecast_cache, new_point_master_cache
 from app.services.axis_registry_service import AxisRegistryAdminService
 from app.services.db_status_service import DbStatusService
-from app.services.dedicated_way_values import DirectionalMaterialService, dedicated_way_value_factory
+from app.services.dedicated_way_values import (
+    DirectionalMaterialService,
+    dedicated_way_value_factory,
+    material_service_builder,
+)
 from app.services.derived_data_freshness_service import DerivedDataFreshnessService
 from app.services.flood_service import FloodService
 from app.services.graph_service import GraphService
@@ -43,26 +51,45 @@ from app.services.wbgt_service import WbgtService
 from app.services.weather_service import WeatherService
 
 
+#: 気象の取得のプロセス内キャッシュ。サービス・クライアントはリクエストごとに作られるため、プロセスの側で持つ。
+#: 地域マスタは警報と洪水予報で共有する。
+_area_data_cache = new_area_data_cache()
+_warning_cache = new_warning_cache()
+_flood_cache = new_flood_cache()
+_station_table_cache = new_station_table_cache()
+_latest_time_cache = new_latest_time_cache()
+_point_master_cache = new_point_master_cache()
+_forecast_cache = new_forecast_cache()
+_jma_tile_shared = JmaTileSharedState()
+#: 雨の材料を実体の中に持つため、プロセスに1つ。
+_weather_service = WeatherService()
+
+
+def get_weather_service():
+    return _weather_service
+
+
 # 以下のJMA/GSI系サービスはいずれも軽量なJSON・CSVしか取りに行かないため、共有の
 # httpx.AsyncClient（同じタイムアウト）を使い回す。
-def get_weather_service():
-    return WeatherService()
-
-
 def get_warning_service():
-    return WarningService(get_http_client(10.0))
+    return WarningService(get_http_client(10.0), area_data_cache=_area_data_cache, warning_cache=_warning_cache)
 
 
 def get_amedas_service():
-    return JmaAmedasService(get_http_client(10.0))
+    return JmaAmedasService(
+        get_http_client(10.0),
+        JmaTileClient(get_http_client(10.0), _jma_tile_shared),
+        station_table_cache=_station_table_cache,
+        latest_time_cache=_latest_time_cache,
+    )
 
 
 def get_wbgt_service():
-    return WbgtService(get_http_client(10.0))
+    return WbgtService(get_http_client(10.0), point_master_cache=_point_master_cache, forecast_cache=_forecast_cache)
 
 
 def get_flood_service():
-    return FloodService(get_http_client(10.0))
+    return FloodService(get_http_client(10.0), area_data_cache=_area_data_cache, flood_cache=_flood_cache)
 
 
 @asynccontextmanager
@@ -151,7 +178,7 @@ async def get_dedicated_way_value_service(
 async def get_directional_material_service(weather_service: WeatherService = Depends(get_weather_service)):
     """区間インスペクタが足す専用配信の材料。値は地図のレンズと同じ経路で引く。"""
     async with get_session_factory()() as session:
-        yield DirectionalMaterialService(RoadGraphRepository(session), weather_service)
+        yield DirectionalMaterialService(material_service_builder(RoadGraphRepository(session), weather_service))
 
 
 def get_basemap_client():
@@ -159,7 +186,7 @@ def get_basemap_client():
 
 
 def get_jma_tile_client():
-    return JmaTileClient(get_http_client(15.0))
+    return JmaTileClient(get_http_client(15.0), _jma_tile_shared)
 
 
 #: 整備区域外の記憶。クライアントはリクエストごとに作られるため、プロセスの側で持つ。

@@ -1,7 +1,7 @@
 """`infrastructure/flood_client.py`——指定河川洪水予報の全国の電文一覧を引き、電文の形を解く。
 
 入口は`fetch_flood_documents`。網は respx の経路（`tests/fake_http.py: client_for`）で通す。
-一覧はプロセス内のTTLキャッシュに残るので、テストごとに空から始める。
+キャッシュは呼ぶ側が渡すもので、テストごとに新しく作る。
 
 ここで見ないもの:
 - コードの意味（発表・解除の区別）と出発地点への該当 → `test_flood_forecast_domain.py`
@@ -16,6 +16,7 @@ import pytest
 import respx
 
 from app.infrastructure import flood_client
+from app.infrastructure.flood_client import new_flood_cache
 from tests.fake_http import client_for
 
 URL = "https://www.jma.go.jp/bosai/flood/data/r8/flood_xml.json"
@@ -31,13 +32,6 @@ KANDA = {
 }
 
 
-@pytest.fixture(autouse=True)
-def _empty_bulletin_cache():
-    flood_client.flood_cache.clear()
-    yield
-    flood_client.flood_cache.clear()
-
-
 def answering(**response) -> tuple[httpx.AsyncClient, respx.Route]:
     router = respx.Router()
     route = router.get(URL).respond(**response)
@@ -47,7 +41,7 @@ def answering(**response) -> tuple[httpx.AsyncClient, respx.Route]:
 async def test_an_operational_bulletin_is_read_into_its_fields():
     client, _ = answering(json=[KANDA])
 
-    (bulletin,) = await flood_client.fetch_flood_documents(client)
+    (bulletin,) = await flood_client.fetch_flood_documents(client, new_flood_cache())
 
     assert bulletin.code == "52"
     assert bulletin.condition == "氾濫危険情報"
@@ -61,7 +55,7 @@ async def test_an_operational_bulletin_is_read_into_its_fields():
 async def test_drills_and_entries_that_are_not_objects_are_left_out():
     client, _ = answering(json=[{**KANDA, "status": "訓練"}, "broken", KANDA])
 
-    bulletins = await flood_client.fetch_flood_documents(client)
+    bulletins = await flood_client.fetch_flood_documents(client, new_flood_cache())
 
     assert [b.river_name for b in bulletins] == ["神田川"]
 
@@ -73,7 +67,7 @@ async def test_a_bulletin_missing_its_fields_is_still_read_with_empty_values(mis
     entry = {"status": "通常"} if missing == "absent" else {"status": "通常", **dict.fromkeys(fields)}
     client, _ = answering(json=[entry, KANDA])
 
-    sparse, full = await flood_client.fetch_flood_documents(client)
+    sparse, full = await flood_client.fetch_flood_documents(client, new_flood_cache())
 
     assert sparse.code is None
     assert sparse.class20_codes == sparse.class10_codes == ()
@@ -84,8 +78,10 @@ async def test_a_bulletin_missing_its_fields_is_still_read_with_empty_values(mis
 async def test_the_national_list_is_fetched_once_and_reused():
     client, route = answering(json=[KANDA])
 
-    first = await flood_client.fetch_flood_documents(client)
-    second = await flood_client.fetch_flood_documents(client)
+    cache = new_flood_cache()
+
+    first = await flood_client.fetch_flood_documents(client, cache)
+    second = await flood_client.fetch_flood_documents(client, cache)
 
     assert first == second
     assert route.call_count == 1
@@ -96,10 +92,10 @@ async def test_the_national_list_is_fetched_once_and_reused():
     [{"status_code": 500}, {"json": {"rivers": []}}, {"text": "<html>maintenance</html>"}],
     ids=["server-error", "not-a-list", "not-json"],
 )
-async def test_an_unusable_answer_gives_nothing_and_is_logged(response, caplog, empty_debug_counters):
+async def test_an_unusable_answer_gives_nothing_and_is_logged(response, caplog):
     client, _ = answering(**response)
 
     with caplog.at_level(logging.WARNING):
-        assert await flood_client.fetch_flood_documents(client) is None
+        assert await flood_client.fetch_flood_documents(client, new_flood_cache()) is None
 
     assert [r for r in caplog.records if r.levelno >= logging.WARNING and "weather:jma-flood" in r.getMessage()]

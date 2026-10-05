@@ -11,10 +11,10 @@ from datetime import datetime
 
 import pytest
 import respx
-from cachetools import TTLCache
 
 from app.domain.time_zone import JST
 from app.infrastructure import wbgt_client
+from app.infrastructure.wbgt_client import new_forecast_cache, new_point_master_cache
 from tests.fake_http import answering, client_for
 
 #: 地点マスタCSVの列数（先頭行がヘッダー、使うのは地点番号・観測所名・緯度経度・終了日）。
@@ -24,15 +24,6 @@ _ACTIVE = "9999-99-99"
 #: 発表時刻の検索範囲。呼び出し元は「現在時刻を含む直近N時間」を渡す。
 _RANGE_FROM = datetime(2026, 7, 1, 0, 0, tzinfo=JST)
 _RANGE_TO = datetime(2026, 7, 1, 9, 0, tzinfo=JST)
-
-
-@pytest.fixture(autouse=True)
-def _clear_module_caches():
-    """プロセス内TTLCacheはテスト間で持ち越される。モジュールが持つキャッシュを
-    名前で並べずに走査して空にする（キャッシュが増えても取りこぼさない）。"""
-    for value in vars(wbgt_client).values():
-        if isinstance(value, TTLCache):
-            value.clear()
 
 
 def _row(no, name, lat_deg, lat_min, lon_deg, lon_min, end_date):
@@ -58,7 +49,7 @@ def _csv(rows):
 async def test_point_master_converts_degrees_and_minutes():
     client = answering(text=_csv([_row("11001", "宗谷岬", "45", "31.2", "141", "56.1", _ACTIVE)]))
 
-    points = await wbgt_client.fetch_point_master(client)
+    points = await wbgt_client.fetch_point_master(client, new_point_master_cache())
 
     assert len(points) == 1
     assert points[0].no == "11001"
@@ -79,7 +70,7 @@ async def test_point_master_excludes_retired_points_without_counting_them_as_unr
     )
 
     with caplog.at_level(logging.WARNING, logger="ridecompass.wbgt_client"):
-        points = await wbgt_client.fetch_point_master(client)
+        points = await wbgt_client.fetch_point_master(client, new_point_master_cache())
 
     assert [point.no for point in points] == ["44132"]
     assert caplog.records == []
@@ -92,7 +83,7 @@ async def test_point_master_does_not_count_a_trailing_blank_line_as_unreadable(c
     )
 
     with caplog.at_level(logging.WARNING, logger="ridecompass.wbgt_client"):
-        points = await wbgt_client.fetch_point_master(client)
+        points = await wbgt_client.fetch_point_master(client, new_point_master_cache())
 
     assert [point.no for point in points] == ["44132"]
     assert caplog.records == []
@@ -107,7 +98,7 @@ async def test_point_master_skips_unreadable_rows_and_says_so(caplog, unreadable
     client = answering(text=_csv([unreadable, _row("44132", "東京", "35", "41.4", "139", "45.6", _ACTIVE)]))
 
     with caplog.at_level(logging.WARNING, logger="ridecompass.wbgt_client"):
-        points = await wbgt_client.fetch_point_master(client)
+        points = await wbgt_client.fetch_point_master(client, new_point_master_cache())
 
     assert [point.no for point in points] == ["44132"]
     assert "unreadable=1 rows=2" in caplog.text
@@ -119,7 +110,7 @@ async def test_point_master_trims_surrounding_whitespace():
         text=_csv([_row(" 44132 ", " 東京 ", " 35 ", " 41.4 ", " 139 ", " 45.6 ", f" {_ACTIVE} ")])
     )
 
-    points = await wbgt_client.fetch_point_master(client)
+    points = await wbgt_client.fetch_point_master(client, new_point_master_cache())
 
     assert [(point.no, point.name) for point in points] == [("44132", "東京")]
 
@@ -129,14 +120,16 @@ async def test_point_master_is_cached_across_calls():
     upstream.route().respond(text=_csv([_row("44132", "東京", "35", "41.4", "139", "45.6", _ACTIVE)]))
     client = client_for(upstream)
 
-    await wbgt_client.fetch_point_master(client)
-    await wbgt_client.fetch_point_master(client)
+    cache = new_point_master_cache()
+
+    await wbgt_client.fetch_point_master(client, cache)
+    await wbgt_client.fetch_point_master(client, cache)
 
     assert upstream.calls.call_count == 1
 
 
 async def test_point_master_http_error_returns_none():
-    assert await wbgt_client.fetch_point_master(answering(500)) is None
+    assert await wbgt_client.fetch_point_master(answering(500), new_point_master_cache()) is None
 
 
 def _forecast_row(**overrides):
@@ -164,7 +157,9 @@ def _success(*rows):
 
 async def test_a_forecast_is_read_into_its_times_and_the_index_divided_by_ten():
     """配信元は暑さ指数を10倍した整数文字列で返す（"280"→28.0）。"""
-    (forecast,) = await wbgt_client.fetch_forecast(_success(_forecast_row()), "44132", _RANGE_FROM, _RANGE_TO)
+    (forecast,) = await wbgt_client.fetch_forecast(
+        _success(_forecast_row()), "44132", _RANGE_FROM, _RANGE_TO, new_forecast_cache()
+    )
 
     assert forecast == wbgt_client.WbgtForecast(
         reference_time="2026/07/01 08:00:00",
@@ -176,7 +171,7 @@ async def test_a_forecast_is_read_into_its_times_and_the_index_divided_by_ten():
 
 async def test_a_forecast_without_a_reference_time_is_left_out():
     result = await wbgt_client.fetch_forecast(
-        _success(_forecast_row(reference_time=None)), "44132", _RANGE_FROM, _RANGE_TO
+        _success(_forecast_row(reference_time=None)), "44132", _RANGE_FROM, _RANGE_TO, new_forecast_cache()
     )
 
     assert result == []
@@ -186,7 +181,7 @@ async def test_a_forecast_without_a_reference_time_is_left_out():
 async def test_a_forecast_time_that_cannot_be_read_is_absent_but_the_row_stays(forecast_time):
     """行は最新の発表回を決めるのに数える。落とすと、古い発表回の値を今の値として選びうる。"""
     (forecast,) = await wbgt_client.fetch_forecast(
-        _success(_forecast_row(forecast_time=forecast_time)), "44132", _RANGE_FROM, _RANGE_TO
+        _success(_forecast_row(forecast_time=forecast_time)), "44132", _RANGE_FROM, _RANGE_TO, new_forecast_cache()
     )
 
     assert forecast.forecast_time is None
@@ -196,7 +191,7 @@ async def test_a_forecast_time_that_cannot_be_read_is_absent_but_the_row_stays(f
 @pytest.mark.parametrize("value", [None, "abc"])
 async def test_a_value_that_cannot_be_read_is_absent(value):
     (forecast,) = await wbgt_client.fetch_forecast(
-        _success(_forecast_row(forecast_val=value)), "44132", _RANGE_FROM, _RANGE_TO
+        _success(_forecast_row(forecast_val=value)), "44132", _RANGE_FROM, _RANGE_TO, new_forecast_cache()
     )
 
     assert forecast.wbgt is None
@@ -206,7 +201,7 @@ async def test_forecast_requests_a_continuous_range():
     """`date_search_type=3`（特定時刻）は発表が無いと空を返すため、連続期間で引く。"""
     upstream = _success_upstream(_forecast_row())
 
-    await wbgt_client.fetch_forecast(client_for(upstream), "44132", _RANGE_FROM, _RANGE_TO)
+    await wbgt_client.fetch_forecast(client_for(upstream), "44132", _RANGE_FROM, _RANGE_TO, new_forecast_cache())
 
     assert dict(upstream.calls.last.request.url.params) == {
         "location_type": "1",
@@ -221,7 +216,7 @@ async def test_forecast_requests_a_continuous_range():
 async def test_a_forecast_response_that_is_not_a_successful_series_returns_none(body):
     client = answering(json=body)
 
-    assert await wbgt_client.fetch_forecast(client, "44132", _RANGE_FROM, _RANGE_TO) is None
+    assert await wbgt_client.fetch_forecast(client, "44132", _RANGE_FROM, _RANGE_TO, new_forecast_cache()) is None
 
 
 async def test_forecast_cache_key_is_the_point_number_only():
@@ -229,9 +224,13 @@ async def test_forecast_cache_key_is_the_point_number_only():
     upstream = _success_upstream(_forecast_row())
     client = client_for(upstream)
 
-    await wbgt_client.fetch_forecast(client, "44132", _RANGE_FROM, _RANGE_TO)
-    await wbgt_client.fetch_forecast(client, "44132", datetime(2026, 7, 1, 3, tzinfo=JST), datetime(2026, 7, 1, 12, tzinfo=JST))
+    cache = new_forecast_cache()
+
+    await wbgt_client.fetch_forecast(client, "44132", _RANGE_FROM, _RANGE_TO, cache)
+    await wbgt_client.fetch_forecast(
+        client, "44132", datetime(2026, 7, 1, 3, tzinfo=JST), datetime(2026, 7, 1, 12, tzinfo=JST), cache
+    )
     assert upstream.calls.call_count == 1
 
-    await wbgt_client.fetch_forecast(client, "44136", _RANGE_FROM, _RANGE_TO)
+    await wbgt_client.fetch_forecast(client, "44136", _RANGE_FROM, _RANGE_TO, cache)
     assert upstream.calls.call_count == 2

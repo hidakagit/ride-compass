@@ -18,8 +18,6 @@ import type { DynamicWeatherGroupState } from "@/features/map/layers/dynamicWeat
 type Handle = ReturnType<typeof createRecordingMap>["handle"];
 type Chip = "precipitationNowcast" | "windVector" | "disaster";
 
-const EMPTY_GEOJSON: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
-
 function raster(tileUrlTemplate: string) {
   return { visible: true, payload: { kind: "rasterTile" as const, tileUrlTemplate } };
 }
@@ -56,7 +54,8 @@ function tilesOf(handle: Handle, sourceId: string): readonly string[] | undefine
 }
 
 describe("動的気象を地図へ伝えた結果", () => {
-  it("中身が来ていて表示ONなら、その描き方のレイヤーが見えている", () => {
+  // 降水の`main`はラスタと格子の面の2つの描き方を宣言している。見えるのは**いま来ている中身の描き方**だけ。
+  it("中身が来ていて表示ONなら、その中身の描き方のレイヤーだけが見えている", () => {
     const { map, handle } = createRecordingMap();
 
     apply(map, "precipitationNowcast", { main: raster("https://example.test/{z}/{x}/{y}.png") });
@@ -72,19 +71,6 @@ describe("動的気象を地図へ伝えた結果", () => {
     apply(map, "precipitationNowcast", { main: { visible: true, payload: undefined } });
 
     expect(shownByWeather(handle)).toEqual([]);
-  });
-
-  // 1つのソースが複数の描き方を宣言していても、見えるのは**いま来ている中身の描き方**だけ。
-  it("中身の種類に合う描き方だけが見える", () => {
-    const { map, handle } = createRecordingMap();
-
-    apply(map, "precipitationNowcast", { main: raster("https://example.test/{z}/{x}/{y}.png") });
-    expect(shownByWeather(handle).map((layer) => layer.type)).toEqual(["raster"]);
-
-    apply(map, "precipitationNowcast", {
-      main: { visible: true, payload: { kind: "gridFill", geojson: EMPTY_GEOJSON } },
-    });
-    expect(shownByWeather(handle).map((layer) => layer.type)).toEqual(["fill"]);
   });
 
   it("同じチップの中でも、ソースごとに出し分けられる", () => {

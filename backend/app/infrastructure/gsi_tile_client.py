@@ -43,7 +43,7 @@ class GsiTileClient:
     async def get(self, path: str) -> tuple[bytes, str] | GsiTileNotFound | None:
         if path in self._not_found_paths:
             return GSI_TILE_NOT_FOUND
-        with log_external_call("gsi-relief-tile", path=path) as fields:
+        with log_external_call("gsi:relief-tile", path=path) as fields:
             # tile_cacheの読み書きは同期的なディスクI/O。basemap_client.pyと同じ理由
             # （多数のタイルリクエストが同時に来るとイベントループをブロックする）で
             # asyncio.to_threadへ逃がす。

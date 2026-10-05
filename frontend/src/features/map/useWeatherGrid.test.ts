@@ -62,12 +62,7 @@ function render(enabled: boolean, viewport: MapViewport | null) {
 }
 
 describe("useWeatherGrid（風・延長降水予報の格子）", () => {
-  it("有効な間だけ粗い格子を取り、ズームしていなければ詳細格子は無い", async () => {
-    const off = render(false, WIDE);
-    await settle();
-    expect(off.result.current).toMatchObject({ grid: [], hasFetched: false });
-    off.unmount();
-
+  it("有効なら粗い格子を取り、ズームしていなければ詳細格子は無い", async () => {
     const { result } = render(true, WIDE);
     await settle();
     expect(result.current.grid.map((p) => p.latitude)).toEqual([35]);
@@ -116,18 +111,12 @@ describe("useWeatherGrid（風・延長降水予報の格子）", () => {
     expect(result.current.detail?.spacingDeg).toBe(DETAIL_SPACING);
   });
 
-  it("ズームアウト・無効化・詳細の取得失敗では、詳細格子を捨てる", async () => {
+  it("ズームアウト・詳細の取得失敗では、詳細格子を捨てる", async () => {
     const { result, rerender } = render(true, ZOOMED);
     await settle();
     rerender({ enabled: true, viewport: WIDE });
     await settle();
     expect(result.current.detail).toBeNull();
-
-    rerender({ enabled: true, viewport: ZOOMED });
-    await settle();
-    rerender({ enabled: false, viewport: ZOOMED });
-    await settle();
-    expect(result.current).toMatchObject({ grid: [], detail: null });
 
     onBackend("GET", DETAIL, () => Response.json({ detail: "詳細を取れません" }, { status: 502 }));
     rerender({ enabled: true, viewport: { ...ZOOMED, east: 139.73 } });

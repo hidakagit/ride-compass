@@ -11,18 +11,18 @@ DB_UNAVAILABLE_ERRORS: tuple[type[Exception], ...] = (SQLAlchemyError, OSError)
 
 # エンジン（コネクションプール）は系統ごとにアプリ全体で1つだけ生成し、セッションファクトリが持つ。
 # create_async_engineは遅延接続のため、DBが実際に起動していなくてもこの時点では失敗しない。
-session_factory: async_sessionmaker[AsyncSession] | None = None
+_session_factory: async_sessionmaker[AsyncSession] | None = None
 
 
 def get_session_factory() -> async_sessionmaker[AsyncSession]:
-    global session_factory
-    if session_factory is None:
+    global _session_factory
+    if _session_factory is None:
         # command_timeout: 路面タイルのバースト（短時間の連続パン/ズーム）でDB側が混雑すると
         # クエリが数分返らないことがあり、上限が無いとリクエストが無期限にハングする。
         # ここで出るTimeoutErrorはDB_UNAVAILABLE_ERRORSに入るため、タイル配信は空タイルへ劣化する。
         engine = create_async_engine(settings.database_url, pool_pre_ping=True, connect_args={"command_timeout": 20})
-        session_factory = async_sessionmaker(engine, expire_on_commit=False)
-    return session_factory
+        _session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    return _session_factory
 
 
 # ルート生成と、全表走査を伴う管理APIの集計が使う。生成は1件の間ずっと1本の接続を持つため、
@@ -30,16 +30,25 @@ def get_session_factory() -> async_sessionmaker[AsyncSession]:
 # ためで、生成のクエリ（取込範囲の判定・確定した経路の形の取り直し）はこの上限に近づかない。
 ROUTE_GENERATION_COMMAND_TIMEOUT_SECONDS = 180
 
-route_generation_session_factory: async_sessionmaker[AsyncSession] | None = None
+_route_generation_session_factory: async_sessionmaker[AsyncSession] | None = None
 
 
 def get_route_generation_session_factory() -> async_sessionmaker[AsyncSession]:
-    global route_generation_session_factory
-    if route_generation_session_factory is None:
+    global _route_generation_session_factory
+    if _route_generation_session_factory is None:
         engine = create_async_engine(
             settings.database_url,
             pool_pre_ping=True,
             connect_args={"command_timeout": ROUTE_GENERATION_COMMAND_TIMEOUT_SECONDS},
         )
-        route_generation_session_factory = async_sessionmaker(engine, expire_on_commit=False)
-    return route_generation_session_factory
+        _route_generation_session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    return _route_generation_session_factory
+
+
+async def dispose_engines() -> None:
+    """プロセス終了時に`process_resources.py: close_process_resources`から呼ぶ。次の取得で作り直す。"""
+    global _session_factory, _route_generation_session_factory
+    for factory in (_session_factory, _route_generation_session_factory):
+        if factory is not None:
+            await factory.kw["bind"].dispose()
+    _session_factory = _route_generation_session_factory = None

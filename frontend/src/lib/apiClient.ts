@@ -8,7 +8,7 @@ import type { paths } from "@/types/generated/api";
 // backendのAPIを呼ぶ口と、全呼び出しが共有する骨格（開始・通信の失敗・HTTPの失敗・解析の失敗・成功をdebugLogへ残し、
 // 失敗を日本語の文言の`Error`で投げる）。パス・問い合わせ・本文・応答の型はopenapi-fetchがOpenAPIの生成物から推論する。
 
-/** 呼ぶたびに`globalThis.fetch`を引く（作った時点の関数を握ると、差し替えた`fetch`が届かない）。 */
+/** 呼ぶたびに`globalThis.fetch`を引く（作った時点の関数を握ると、このモジュールを読み込んだ後に`fetch`を差し替える網（テストのmsw）が届かない）。 */
 const fetchNow = (request: Request) => fetch(request);
 
 /** backendを直接呼ぶ口。 */

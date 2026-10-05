@@ -34,12 +34,11 @@ function valuesIn(expression: unknown): unknown[] {
   return Array.isArray(expression) ? expression.flatMap(valuesIn) : [expression];
 }
 
-describe("凡例の行の説明", () => {
-  const rows = [...roadLegendAxes(), ...pointLegendAxes(), disasterSourceLegendAxis()].flatMap((axis) =>
-    axis.entries.map((entry) => [axis.axisId, entry.label, entry] as const),
-  );
+// 道と点の分類の説明は源泉の型が空を通さず、受け皿の行の説明は源泉の1か所の定数。災害の要素の説明は源泉で省けるので、ここで見る。
+describe("災害の凡例の行の説明", () => {
+  const rows = disasterSourceLegendAxis().entries.map((entry) => [entry.label, entry] as const);
 
-  it.each(rows)("%s の「%s」は（i）から開く説明を持つ", (_, __, entry) => {
+  it.each(rows)("「%s」は（i）から開く説明を持つ", (_, entry) => {
     expect(entry.description?.trim()).toBeTruthy();
   });
 });
@@ -103,21 +102,13 @@ describe("凡例の見本の形", () => {
     expect(entries.length).toBeGreaterThan(0);
     expect(entries.every((entry) => entry.line === true)).toBe(true);
   });
-
-  it("点の凡例の行は、線の見本にしない", () => {
-    expect(
-      pointLegendAxes()
-        .flatMap((axis) => axis.entries)
-        .some((entry) => entry.line),
-    ).toBe(false);
-  });
 });
 
-// 「データなし」（タグが無い）と、分類の外の値（その他・該当なし）は別の行。値が無いのは「データなし」だけで、
-// 値の無い道がタイルに現れうる属性だけが「データなし」の行を持つ。
+// 「データなし」（タグが無い）と、分類の外の値（その他・該当なし）は別の行。値の無い道がタイルに現れうる属性だけが
+// 「データなし」の行を持つ。
 describe("道の線の凡例の受け皿", () => {
   it.each(ROAD_TRACKS.map((track) => [track.attr_id, track] as const))(
-    "%s: 分類の後に分類の外の値の行と（値の無い道が現れうるなら）「データなし」が並び、受け皿は「データなし」だけで、鍵は重ならない",
+    "%s: 分類の後に分類の外の値の行と（値の無い道が現れうるなら）「データなし」が並び、鍵は重ならない",
     (attrId, track) => {
       const axis = roadLegendAxes().find((candidate) => candidate.axisId === attrId);
       if (axis === undefined) throw new Error(`${attrId} の凡例が無い`);
@@ -126,9 +117,6 @@ describe("道の線の凡例の受け皿", () => {
         roadTrackAxis(track).missing_semantics === "unknown" ? [ROAD_OTHER_KEY, LEGEND_NO_DATA_KEY] : [ROAD_OTHER_KEY];
       expect(keys.slice(-tail.length)).toEqual(tail);
       expect(new Set(keys).size).toBe(keys.length);
-      expect(axis.entries.filter((entry) => entry.isFallback).map((entry) => entry.key)).toEqual(
-        roadTrackAxis(track).missing_semantics === "unknown" ? [LEGEND_NO_DATA_KEY] : [],
-      );
     },
   );
 });

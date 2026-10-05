@@ -37,15 +37,11 @@ describe("useMaterialValues", () => {
     expect(result.current.unavailable).toBe(false);
   });
 
-  it("backendが値一覧を出せない（DB障害等）と答えたら、出せなかったとして返す", async () => {
-    onSameOrigin("GET", VALUES, () => Response.json(response([], false)));
-    const { result } = renderHook(() => useMaterialValues("cat_a"));
-    await waitFor(() => expect(result.current.unavailable).toBe(true));
-    expect(result.current.values).toEqual([]);
-  });
-
-  it("取得に失敗したら、出せなかったとして返す", async () => {
-    onSameOrigin("GET", VALUES, () => new Response(null, { status: 500 }));
+  it.each([
+    ["backendが値一覧を出せない（DB障害等）と答えた", () => Response.json(response([], false))],
+    ["取得に失敗した", () => new Response(null, { status: 500 })],
+  ])("%sら、出せなかったとして返す", async (_case, reply) => {
+    onSameOrigin("GET", VALUES, reply);
     const { result } = renderHook(() => useMaterialValues("cat_a"));
     await waitFor(() => expect(result.current).toEqual({ values: [], unavailable: true }));
   });

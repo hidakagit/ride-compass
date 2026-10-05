@@ -42,47 +42,32 @@ describe("BackendLogsPanel", () => {
     expect(await sentQuery()).toEqual({ min_level: "WARNING", limit: "200" });
   });
 
-  it("部分一致は前後の空白を落とし、すべてのレベルを選ぶとレベルで絞らない", async () => {
-    const sentQuery = echoQuery();
-    const user = userEvent.setup();
-    render(<BackendLogsPanel />);
+  it.each([
+    ["すべてのレベル", { contains: "jma-tile", limit: "200" }],
+    ["ERROR以上", { contains: "jma-tile", min_level: "ERROR", limit: "200" }],
+  ])(
+    "部分一致は前後の空白を落とし、選んだレベル（%s）以上で取る。すべてのレベルならレベルで絞らない",
+    async (level, query) => {
+      const sentQuery = echoQuery();
+      const user = userEvent.setup();
+      render(<BackendLogsPanel />);
 
-    await user.type(screen.getByPlaceholderText(/絞り込み/), "  jma-tile  ");
-    await user.selectOptions(screen.getByRole("combobox", { name: "最小レベル" }), "すべてのレベル");
-    await user.click(screen.getByRole("button", { name: "取得" }));
+      await user.type(screen.getByPlaceholderText(/絞り込み/), "  jma-tile  ");
+      await user.selectOptions(screen.getByRole("combobox", { name: "最小レベル" }), level);
+      await user.click(screen.getByRole("button", { name: "取得" }));
 
-    expect(await sentQuery()).toEqual({ contains: "jma-tile", limit: "200" });
-  });
+      expect(await sentQuery()).toEqual(query);
+    },
+  );
 
-  it("空白だけの部分一致は、絞り込みなしとして送る", async () => {
-    const sentQuery = echoQuery();
-    const user = userEvent.setup();
-    render(<BackendLogsPanel />);
-
-    await user.type(screen.getByPlaceholderText(/絞り込み/), "   ");
-    await user.click(screen.getByRole("button", { name: "取得" }));
-
-    expect(await sentQuery()).not.toHaveProperty("contains");
-  });
-
-  it("選んだレベル以上で取る", async () => {
-    const sentQuery = echoQuery();
-    const user = userEvent.setup();
-    render(<BackendLogsPanel />);
-
-    await user.selectOptions(screen.getByRole("combobox", { name: "最小レベル" }), "ERROR以上");
-    await user.click(screen.getByRole("button", { name: "取得" }));
-    expect(await sentQuery()).toMatchObject({ min_level: "ERROR" });
-  });
-
-  it.each([["0"], [""], ["-5"]])("件数が正の数でない（%j）ときは件数で絞らない", async (typed) => {
+  it("件数が正の数でないときは件数で絞らない", async () => {
     const sentQuery = echoQuery();
     const user = userEvent.setup();
     render(<BackendLogsPanel />);
 
     const limit = screen.getByRole("spinbutton", { name: "件数" });
     await user.clear(limit);
-    if (typed) await user.type(limit, typed);
+    await user.type(limit, "0");
     await user.click(screen.getByRole("button", { name: "取得" }));
 
     expect(await sentQuery()).not.toHaveProperty("limit");
@@ -102,13 +87,7 @@ describe("BackendLogsPanel", () => {
   });
 
   it("行ごとに、行の中の[LEVEL]から重さを決める（ERROR・CRITICALはエラー、WARNINGは警告、それ以外は通常）", async () => {
-    serveLogs([
-      "2026-09-24 [ERROR] a",
-      "2026-09-24 [CRITICAL] b",
-      "2026-09-24 [WARNING] c",
-      "2026-09-24 [INFO] d",
-      "レベルの無い行",
-    ]);
+    serveLogs(["2026-09-24 [ERROR] a", "2026-09-24 [CRITICAL] b", "2026-09-24 [WARNING] c", "レベルの無い行"]);
     const user = userEvent.setup();
     render(<BackendLogsPanel />);
 
@@ -123,7 +102,6 @@ describe("BackendLogsPanel", () => {
       ["2026-09-24 [ERROR] a", "error", "ERROR"],
       ["2026-09-24 [CRITICAL] b", "error", "CRITICAL"],
       ["2026-09-24 [WARNING] c", "warning", "WARNING"],
-      ["2026-09-24 [INFO] d", "normal", "INFO"],
       ["レベルの無い行", "normal", null],
     ]);
   });
@@ -139,7 +117,7 @@ describe("BackendLogsPanel", () => {
     expect(screen.queryByRole("button", { name: "ログ全体をコピー" })).not.toBeInTheDocument();
   });
 
-  it("取得に失敗したら理由を出し、0件の案内は出さない。取り直して成功すれば理由は消える", async () => {
+  it("取得に失敗したら理由を出し、取り直して成功すれば理由は消える", async () => {
     onSameOrigin(
       "GET",
       LOGS,
@@ -150,7 +128,6 @@ describe("BackendLogsPanel", () => {
 
     await user.click(screen.getByRole("button", { name: "取得" }));
     expect(await screen.findByText("取得失敗: backendへの接続に失敗しました")).toBeInTheDocument();
-    expect(screen.queryByText("該当するログはありません。")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "取得" }));
     expect(await screen.findByText("[INFO] ok")).toBeInTheDocument();

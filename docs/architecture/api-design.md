@@ -21,7 +21,7 @@ backendが公開するHTTP APIの**全体の形**と、エンドポイントを�
 | 天候・防災バッジ | `/api/weather/*` | 不要 | 502（警報系の空応答は「出ていない」だけ） |
 | 地図タイル | `/api/region/*-tiles`・`/api/basemap/*`・`/api/jma-tile/*`・`/api/gsi-*-tile/*` | 不要 | 空タイル／502 |
 | 軸カタログ | `/api/axis-catalog` | 不要（読み取り専用） | 502 |
-| 管理 | `/api/admin/*` | HTTP Basic必須 | 401／404／422 |
+| 管理 | `/api/admin/*` | HTTP Basic必須 | 401／404／422／503（DBの障害） |
 
 ## 全体に効く約束
 

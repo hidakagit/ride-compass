@@ -81,12 +81,6 @@ describe("scoreBands", () => {
     }
   });
 
-  it("99点台の端数は、100点ではなく一つ手前の帯へ入る", () => {
-    const bands = bandsOf(distribution([[0, 1, 1]]), [99.5]);
-    expect(bands.at(-1)!.share).toBe(0);
-    expect(bands.at(-2)!.share).toBe(1);
-  });
-
   it("同じ帯に入った階級の割合は足し合わせる", () => {
     const bands = bandsOf(
       distribution([

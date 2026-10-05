@@ -71,7 +71,7 @@ describe("BreakpointCurveEditor", () => {
     ]);
   });
 
-  it("ボタンを押したままドラッグすると、指の位置を横軸の刻み・整数のスコアへ丸めて渡し、動かしている間は値を出す", () => {
+  it("ボタンを押したままドラッグすると、指の位置を横軸の刻み・整数のスコアへ丸めて渡し、動かしている間は値を出す。押していない移動では動かさない", () => {
     const { onChangePoint, svg } = renderEditor();
     svg.getBoundingClientRect = () => ({ left: 0, top: 0, width: 400, height: 160 }) as DOMRect;
     const handle = screen.getAllByRole("slider")[0];
@@ -89,28 +89,18 @@ describe("BreakpointCurveEditor", () => {
 
     fireEvent.pointerUp(handle);
     expect(svg).not.toHaveTextContent("0 → 0");
+
+    fireEvent.pointerMove(handle, { buttons: 0, clientX: 100, clientY: 50 });
+    expect(onChangePoint).toHaveBeenCalledTimes(2);
   });
 
-  it("ボタンを押していない移動では動かさない", () => {
-    const { onChangePoint } = renderEditor();
-    fireEvent.pointerMove(screen.getAllByRole("slider")[0], { buttons: 0, clientX: 100, clientY: 50 });
-    expect(onChangePoint).not.toHaveBeenCalled();
-  });
-
-  it("参考点の範囲を渡すと、横軸を折れ点ではなくその範囲（前後1割の余白つき）で決める", () => {
-    const { svg } = renderEditor({ referenceRange: { min: 100, max: 200 } });
-    const labels = tickLabels(svg).map(Number);
-    expect(labels.length).toBeGreaterThan(0);
-    expect(Math.min(...labels)).toBeGreaterThanOrEqual(90);
-    expect(Math.max(...labels)).toBeLessThanOrEqual(210);
-    expect(labels).toContain(200);
-  });
-
-  it("参考点が無ければ、横軸は折れ点の範囲で決める", () => {
-    const { svg } = renderEditor();
-    const labels = tickLabels(svg).map(Number);
-    expect(Math.min(...labels)).toBe(0);
-    expect(Math.max(...labels)).toBe(10);
+  it.each([
+    ["参考点の範囲を渡すと、横軸を折れ点ではなくその範囲（前後1割の余白つき）", { min: 100, max: 200 }, [90, 210], 200],
+    ["参考点が無ければ、横軸を折れ点の範囲", undefined, [0, 10], 10],
+  ])("%sで決める", (_case, referenceRange, [low, high], edge) => {
+    const labels = tickLabels(renderEditor({ referenceRange }).svg).map(Number);
+    expect(labels).toContain(edge);
+    expect(labels.every((label) => label >= low && label <= high)).toBe(true);
   });
 
   it("参考点が無く折れ点の横軸がすべて同じ値でも、その値に目盛りを置いて描く", () => {

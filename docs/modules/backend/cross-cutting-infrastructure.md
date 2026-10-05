@@ -26,6 +26,7 @@ DB接続・Redis・HTTPクライアント・レート制限・ログ・デバッ
 | infrastructure | `redis_client.py` | Redis共有クライアント |
 | infrastructure | `redis_json_cache.py` | Redisへ持つcache-asideの共通骨格（JSONと生のバイト列） |
 | infrastructure | `http_client.py` | 外部API向け共有HTTPクライアント |
+| infrastructure | `process_resources.py` | プロセスで持ち回る接続と資源（HTTP・Redis・DBのエンジン・土地被覆ラスタ）を、lifespanのシャットダウン段でまとめて閉じる |
 | infrastructure | `rate_limiter.py` | プロセス内メモリのみの移動窓レート制限 |
 | infrastructure | `request_log.py` | 1リクエスト=1行のHTTPアクセスサマリログ、ログ1行の書式（リクエストIDの差し込みとJSTでの時刻整形）、500応答へのリクエストIDの付与 |
 | infrastructure | `response_compression.py` | 応答のgzip圧縮（対象content-typeのみ） |
@@ -96,7 +97,8 @@ FastAPI(lifespan=lifespan)
         ├─ (2') 同じセッションで refresh_tuning_values() を呼び、較正値の上書きを重ねる
         │       （[ルーティングエンジン](routing-engine.md)参照）。行が無い・テーブルが
         │       無い場合は宣言の既定値のまま進み、値が壊れている行だけが起動を止める
-        ├─ (2'') スケジューラへ失敗の受け口（EVENT_JOB_ERROR）を付ける（下記「定期ジョブの失敗」）
+        ├─ (2'') スケジューラをここで作り（アプリの寿命の間だけ動くので、モジュールの大域に持たない）、
+        │       失敗の受け口（EVENT_JOB_ERROR）を付ける（下記「定期ジョブの失敗」）
         ├─ (3) APSchedulerでJMAアメダス定期更新ジョブを登録（interval分ごと＋
         │       next_run_time=nowで起動直後にも1回即時実行、コールドスタート対策）
         ├─ (4) 同じくAPSchedulerでJMA動的タイルの定期プリウォームジョブを登録
@@ -120,7 +122,8 @@ FastAPI(lifespan=lifespan)
       yield（アプリ稼働中）
         ▼
   シャットダウン: (1) APSchedulerを停止（`wait=False`）→
-                 (2) httpxクライアントを明示close（`close_all_http_clients`）
+                 (2) プロセスで持ち回る接続と資源を閉じる（`process_resources.py: close_process_resources`。
+                     httpxクライアント・Redisクライアント・DBの2系統のエンジン・土地被覆ラスタ）
 ```
 
 - ログレベルは`debug_mode`の値でINFO/DEBUGを切り替える（`main.py`のlogging.basicConfig）。
@@ -138,7 +141,7 @@ FastAPI(lifespan=lifespan)
 `_log_job_failure`（`EVENT_JOB_ERROR`の受け口）が`ridecompass.scheduler`へジョブidと例外を
 1行のWARNINGで出す——APScheduler側の名前は接頭辞`ridecompass.`から外れ、接頭辞単位で
 レベルを絞ると漏れるため（[logging.md](../../conventions/logging.md)「その他の運用上の注意」）。
-受け口はlifespanで付けるので、テストがスケジューラを差し替えても同じ受け口が付く。
+スケジューラも受け口もlifespanの中で作って付けるので、lifespanを通るたびに同じ受け口の付いた新しいスケジューラになる。
 
 ## 1プロセスの境界（`single_process.py`）
 
@@ -216,9 +219,8 @@ None）へ倒す箇所は、`except Exception`ではなくこのタプルだけ�
 ## レート制限の集約（`api/rate_limit.py: enforce_rate_limit`）
 
 `check_rate_limit`→超過時の記録→`HTTPException(429)`という一連の処理を
-`enforce_rate_limit(request, prefix, limit_per_minute)`へ集約している。`weather.py`・
-`basemap.py`・`jma_tile.py`・`gsi_tile.py`・`accidents.py`・`routes.py`の各routerが
-これを直接呼び、`region.py`は路面・POI・専用way値配信で同じ上限を共有するため
+`enforce_rate_limit(request, prefix, limit_per_minute)`へ集約している。routerはこれを直接呼び
+（`weather.py`・`routes.py`等）、`region.py`は路面・点のタイル・専用way値配信で同じ上限を共有するため
 `_check_tile_rate_limit`という薄いラッパー経由で呼ぶ。DI工場ではなく、ルーターが要求ごとに`prefix`と上限を
 変えて普通に呼ぶ関数なので、`dependencies.py`（公開関数は注入の口だけ）と分けて置く。`prefix`はレート制限キー・
 rejection集計カテゴリの両方を兼ねる。
@@ -317,7 +319,7 @@ JMA気象データの短命キャッシュが使う共有接続。値を文字�
 ## HTTPクライアントの共有（`http_client.py`）
 
 `get_http_client(timeout)`が、timeoutの値ごとに`httpx.AsyncClient`を1つだけ生成して
-キャッシュする（`clients: dict[float, httpx.AsyncClient]`）。`httpx.AsyncClient`の生成は
+キャッシュする。`httpx.AsyncClient`の生成は
 SSLコンテキスト構築（CA証明書バンドルの読み込み・パース）を伴い環境によっては高コストに
 なりうるため、リクエストごとの新規生成をやめプロセス全体で使い回す（`main.py`の
 lifespanが起動時に主要なtimeout値[10.0/15.0]を事前ウォームアップするのもこのため）。
@@ -458,9 +460,9 @@ push型更新と同じ前提）。`JobStatus = "queued"|"running"|"done"|"failed
 - ジョブ本体（ルート生成）が読む状態は、webプロセスの中にある（道路網全体の配列・軸定義と較正値。
   管理APIの書き込みで読み直す）。別プロセスのワーカーはそれを共有できず、同じものを別に持って別に
   読み直すことになる——上の「1プロセスの境界」が止めている形そのもの。
-- Redisは失っても困らないキャッシュだけを置くfail-openの層で、ルート生成はRedisを使わない
-  （[ルート生成エンジン](routing-engine.md)「キャッシュ」）。ジョブの列をRedisへ置くと、Redisの障害が
-  生成の失敗になる。
+- Redisは失っても困らないキャッシュだけを置くfail-openの層で、ルート生成はRedisが落ちていても
+  雨の材料を欠損にして続く（[ルート生成エンジン](routing-engine.md)「キャッシュ」）。ジョブの列をRedisへ置くと、
+  Redisの障害が生成の失敗になる。
 
 代わりに失うもの: ジョブはプロセスの再起動（デプロイ）で消える。
 

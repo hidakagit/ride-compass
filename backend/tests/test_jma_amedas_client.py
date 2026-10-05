@@ -16,17 +16,8 @@ import pytest
 import respx
 
 from app.infrastructure import jma_amedas_client
+from app.infrastructure.jma_amedas_client import new_latest_time_cache, new_station_table_cache
 from tests.fake_http import answering, client_for
-
-
-@pytest.fixture(autouse=True)
-def _empty_caches():
-    """観測所マスタと最新時刻のキャッシュはプロセス内のモジュール変数に残るため、テストごとに空にする。"""
-    jma_amedas_client.station_table_cache.clear()
-    jma_amedas_client.latest_time_cache.clear()
-    yield
-    jma_amedas_client.station_table_cache.clear()
-    jma_amedas_client.latest_time_cache.clear()
 
 
 # --- 観測所マスタ ---
@@ -35,7 +26,7 @@ def _empty_caches():
 async def test_station_table_reads_degree_minute_coordinates_and_name():
     client = answering(json={"44132": {"kjName": "東京", "lat": [35, 41.5], "lon": [139, 45.0], "alt": 25}})
 
-    stations = await jma_amedas_client.fetch_station_table(client)
+    stations = await jma_amedas_client.fetch_station_table(client, new_station_table_cache())
 
     assert stations == {"44132": jma_amedas_client.AmedasStation(name="東京", latitude=35 + 41.5 / 60, longitude=139.75)}
 
@@ -46,7 +37,7 @@ async def test_station_without_coordinates_or_name_is_left_out(missing):
     del entry[missing]
     client = answering(json={"99999": entry, "44132": {"kjName": "東京", "lat": [35, 41.5], "lon": [139, 45.0]}})
 
-    stations = await jma_amedas_client.fetch_station_table(client)
+    stations = await jma_amedas_client.fetch_station_table(client, new_station_table_cache())
 
     assert list(stations) == ["44132"]
 
@@ -58,8 +49,10 @@ async def test_station_table_is_fetched_once_while_cached():
     )
     client = client_for(router)
 
-    first = await jma_amedas_client.fetch_station_table(client)
-    second = await jma_amedas_client.fetch_station_table(client)
+    cache = new_station_table_cache()
+
+    first = await jma_amedas_client.fetch_station_table(client, cache)
+    second = await jma_amedas_client.fetch_station_table(client, cache)
 
     assert second == first
     assert route.call_count == 1
@@ -74,7 +67,7 @@ async def test_station_table_is_fetched_once_while_cached():
     ],
 )
 async def test_station_table_failure_is_none(response):
-    assert await jma_amedas_client.fetch_station_table(answering(**response)) is None
+    assert await jma_amedas_client.fetch_station_table(answering(**response), new_station_table_cache()) is None
 
 
 # --- 最新の観測時刻 ---
@@ -83,7 +76,7 @@ async def test_station_table_failure_is_none(response):
 async def test_latest_time_is_the_offset_aware_time_in_the_plain_text():
     client = answering(text="2026-08-29T17:00:00+09:00\n")
 
-    observed_at = await jma_amedas_client.fetch_latest_observation_time(client)
+    observed_at = await jma_amedas_client.fetch_latest_observation_time(client, new_latest_time_cache())
 
     assert observed_at == datetime(2026, 8, 29, 8, 0, tzinfo=timezone.utc)
     assert observed_at.utcoffset() == timedelta(hours=9)
@@ -94,8 +87,10 @@ async def test_latest_time_is_fetched_once_while_cached():
     route = router.get(jma_amedas_client.AMEDAS_LATEST_TIME_URL).respond(text="2026-08-29T17:00:00+09:00")
     client = client_for(router)
 
-    await jma_amedas_client.fetch_latest_observation_time(client)
-    await jma_amedas_client.fetch_latest_observation_time(client)
+    cache = new_latest_time_cache()
+
+    await jma_amedas_client.fetch_latest_observation_time(client, cache)
+    await jma_amedas_client.fetch_latest_observation_time(client, cache)
 
     assert route.call_count == 1
 
@@ -109,7 +104,7 @@ async def test_latest_time_is_fetched_once_while_cached():
     ],
 )
 async def test_latest_time_failure_is_none(response):
-    assert await jma_amedas_client.fetch_latest_observation_time(answering(**response)) is None
+    assert await jma_amedas_client.fetch_latest_observation_time(answering(**response), new_latest_time_cache()) is None
 
 
 # --- 観測値 ---

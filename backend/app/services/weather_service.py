@@ -3,6 +3,7 @@ from datetime import datetime
 import numpy as np
 
 from app.domain.geo import compass_label
+from app.domain.rain import StationRainMaterials
 from app.domain.msm import wind_speed_and_direction
 from app.domain.route import Coordinates
 from app.domain.twilight import sunrise_sunset_jst
@@ -12,14 +13,23 @@ from app.domain.wind import WIND_FORECAST_LAT_STEP_DEG, WIND_FORECAST_LON_STEP_D
 from app.domain.wind_grid import WindGridPoint
 from app.infrastructure import msm_client
 from app.infrastructure.msm_client import MsmSeries, MsmUnavailableError
+from app.services.jma_amedas_service import load_station_rain_materials, new_rain_materials_cache
 
 
 class WeatherService:
-    """地点の天候・予報を気象庁MSMから読む。
+    """地点の天候・予報を気象庁MSMから読み、雨の観測の材料をアメダスの履歴から読む。
 
     現在値として扱うのは常に時系列の先頭（現在時刻の正時）で、任意の時刻は指定できない。
     日の出・日没は外部に問い合わせず`domain/twilight.py`で計算する。
+    雨の材料は実体の中にしばらく持つため、組み立てる側（`api/dependencies.py`）が実体をプロセスに1つ持つ。
     """
+
+    def __init__(self) -> None:
+        self._rain_materials_cache = new_rain_materials_cache()
+
+    async def get_station_rain_materials(self, now: datetime) -> StationRainMaterials | None:
+        """観測所ごとの雨の材料（`jma_amedas_service.py: load_station_rain_materials`）。地図の雨とルートの雨が同じ値を読む。"""
+        return await load_station_rain_materials(now, self._rain_materials_cache)
 
     async def _read_point(self, point: Coordinates) -> MsmSeries | None:
         try:

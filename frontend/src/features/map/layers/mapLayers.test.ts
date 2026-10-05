@@ -13,6 +13,8 @@ import {
   buildMapLayers,
   deriveFetchLayerStatus,
   isAxisStudioLayer,
+  LAYER_DATA_STATUS_LABELS,
+  layerDataStatusNotice,
   mapOverlayGroupFor,
   tileVersionGatedLayerIds,
   tileZoomTooWideLayerIds,
@@ -158,5 +160,15 @@ describe("deriveFetchLayerStatus（自前で取るレイヤーの取得状態）
     expect(deriveFetchLayerStatus(false, null, false, true)).toBe("empty");
     expect(deriveFetchLayerStatus(false, null, false, false)).toBeUndefined();
     expect(deriveFetchLayerStatus(false, null, true, true)).toBeUndefined();
+  });
+});
+
+describe("layerDataStatusNotice（取得状態を開いた先で読ませる文）", () => {
+  it.each([
+    [undefined, null],
+    ["loading", null],
+    ["error", LAYER_DATA_STATUS_LABELS.error],
+  ] as const)("状態が%sなら%sを出す（読み込み中は絞り込みのたびに揺れるので出さない）", (status, notice) => {
+    expect(layerDataStatusNotice(status)).toBe(notice);
   });
 });
