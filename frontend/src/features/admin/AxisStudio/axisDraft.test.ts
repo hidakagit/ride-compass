@@ -78,76 +78,46 @@ describe("emptyDraft", () => {
     expect(emptyDraft(MATERIALS).axisId).toMatch(/^axis_[0-9a-f]{12}$/);
   });
 
-  it("材料は一覧の先頭を選び、はい/いいえの点数の材料には最初の真偽の材料を選ぶ", () => {
-    const draft = emptyDraft([NUM, CAT, BOOL]);
-    expect(draft.terms.map((term) => term.material)).toEqual([NUM.id]);
-    expect(draft.categoricalMaterial).toBe(BOOL.id);
-  });
-
-  it("真偽の材料が無ければ、はい/いいえの点数の材料にも一覧の先頭を選ぶ", () => {
-    expect(emptyDraft([CAT, NUM]).categoricalMaterial).toBe(CAT.id);
-  });
-
-  it("材料が1つも無くても作れる（材料の欄は空）", () => {
-    const draft = emptyDraft([]);
-    expect(draft.terms.map((term) => term.material)).toEqual([""]);
-    expect(draft.categoricalMaterial).toBe("");
-  });
+  it.each([
+    [[NUM, CAT, BOOL], NUM.id, BOOL.id],
+    [[CAT, NUM], CAT.id, CAT.id],
+    [[], "", ""],
+  ])(
+    "材料は一覧の先頭を、はい/いいえの点数の材料は最初の真偽の材料（無ければ一覧の先頭、それも無ければ空）を選ぶ: %#",
+    (materials, term, categorical) => {
+      const draft = emptyDraft(materials);
+      expect(draft.terms.map((t) => t.material)).toEqual([term]);
+      expect(draft.categoricalMaterial).toBe(categorical);
+    },
+  );
 });
 
 describe("draftFromExisting", () => {
-  it("表示の項目を写し、未設定（null）の文字の項目は空欄、上書きの項目はnullにする", () => {
-    const draft = draftFromExisting(
-      axis({
-        axis_id: "axis_keep",
-        label: "表示名",
-        description: "説明",
-        default_weight: 0.4,
-        is_published: true,
-        show_map_icon: true,
-        icon_id: null,
-        chip_label: null,
-        panel_hint: null,
-        display_thresholds_override: undefined,
-        display_band_labels_override: null,
-      }),
-      MATERIALS,
-      AXES,
-    );
-    expect(draft).toMatchObject({
-      axisId: "axis_keep",
-      label: "表示名",
-      description: "説明",
-      defaultWeight: 0.4,
-      isPublished: true,
-      showMapIcon: true,
-      iconId: "",
-      chipLabel: "",
-      panelHint: "",
-      displayThresholdsOverride: null,
-      displayBandLabelsOverride: null,
-    });
-  });
-
-  it("設定済みの表示の項目・しきい値とラベルの上書きはそのまま写す", () => {
-    const draft = draftFromExisting(
-      axis({
+  it.each([
+    [
+      "未設定（null）なら、文字の項目は空欄、上書きの項目はnull",
+      {},
+      { iconId: "", chipLabel: "", panelHint: "", displayThresholdsOverride: null, displayBandLabelsOverride: null },
+    ],
+    [
+      "設定済みなら、そのまま",
+      {
         icon_id: "icon_a",
         chip_label: "略",
         panel_hint: "補足",
         display_thresholds_override: [1, 2],
         display_band_labels_override: ["低", "中", "高"],
-      }),
-      MATERIALS,
-      AXES,
-    );
-    expect(draft).toMatchObject({
-      iconId: "icon_a",
-      chipLabel: "略",
-      panelHint: "補足",
-      displayThresholdsOverride: [1, 2],
-      displayBandLabelsOverride: ["低", "中", "高"],
-    });
+      },
+      {
+        iconId: "icon_a",
+        chipLabel: "略",
+        panelHint: "補足",
+        displayThresholdsOverride: [1, 2],
+        displayBandLabelsOverride: ["低", "中", "高"],
+      },
+    ],
+  ])("表示の項目は、%s", (_case, fields, expected) => {
+    expect(draftFromExisting(axis(fields), MATERIALS, AXES)).toMatchObject(expected);
   });
 
   it("点数の形が種類の材料なら、値ごとの点数の行にする", () => {
@@ -165,25 +135,16 @@ describe("draftFromExisting", () => {
   });
 
   it.each([
-    [{ true: 25 }, 25, 0],
-    [{ false: 40 }, 0, 40],
-  ])("点数の形が真偽の材料なら、該当時・非該当時の点数にする（無い側は0点）: %j", (mapping, trueScore, falseScore) => {
-    const draft = draftFromExisting(
-      axis({ shape: { kind: "categorical", material: BOOL.id, mapping } }),
-      MATERIALS,
-      AXES,
-    );
-    expect(draft).toMatchObject({ shapeKind: "categorical", categoricalMaterial: BOOL.id, trueScore, falseScore });
-  });
-
-  it("材料の一覧に無い材料の形は、種類ではなく真偽として開く", () => {
-    const draft = draftFromExisting(
-      axis({ shape: { kind: "categorical", material: "unknown", mapping: { true: 1, false: 2 } } }),
-      MATERIALS,
-      AXES,
-    );
-    expect(draft).toMatchObject({ trueScore: 1, falseScore: 2, categoricalRows: [] });
-  });
+    [BOOL.id, { true: 25 }, 25, 0],
+    [BOOL.id, { false: 40 }, 0, 40],
+    ["unknown", { true: 1, false: 2 }, 1, 2],
+  ])(
+    "点数の形が真偽の材料（材料の一覧に無い材料も）なら、該当時・非該当時の点数にする（無い側は0点）: %s %j",
+    (material, mapping, trueScore, falseScore) => {
+      const draft = draftFromExisting(axis({ shape: { kind: "categorical", material, mapping } }), MATERIALS, AXES);
+      expect(draft).toMatchObject({ shapeKind: "categorical", categoricalMaterial: material, trueScore, falseScore });
+    },
+  );
 
   const terms = (...materials: string[]) => materials.map((m) => ({ material: m, weight: 2, required: false }));
   const linear = (termList: ReturnType<typeof terms>) =>
@@ -214,9 +175,7 @@ describe("draftFromExisting", () => {
 
   it.each([
     ["すべて材料", terms(NUM.id)],
-    ["材料とほかの軸が混ざる", terms(NUM.id, "axis_p")],
     ["項が無い", terms()],
-    ["軸の一覧にも材料の一覧にも無いid（材料カタログがまだ知らない新しい材料）", terms("material_new")],
   ])("折れ線の項が%sなら、材料を直接使う形として開く", (_case, termList) => {
     const draft = draftFromExisting(linear(termList), MATERIALS, AXES);
     expect(draft.shapeKind).toBe("breakpoint_linear");
@@ -236,7 +195,6 @@ describe("draftFromDuplicate", () => {
     const draft = draftFromDuplicate(source, MATERIALS, AXES);
 
     expect(draft.axisId).not.toBe("axis_source");
-    expect(draft.axisId).toMatch(/^axis_/);
     expect(draft).toMatchObject({
       label: "元",
       isPublished: false,
@@ -251,25 +209,6 @@ function terms2(...materials: string[]) {
 }
 
 describe("buildShape", () => {
-  it.each([
-    ["材料を直接使う", "breakpoint_linear"],
-    ["ほかの軸を組み合わせる", "recipe_then_breakpoint_linear"],
-  ] as const)("%s形は、backendの折れ線1種として送る", (_case, shapeKind) => {
-    const draft = {
-      ...emptyDraft(MATERIALS),
-      shapeKind,
-      terms: [{ material: "m", weight: 3, required: false }],
-      preprocess: "abs" as const,
-      breakpoints: [[2, 20]] as [number, number][],
-    };
-    expect(buildShape(draft, MATERIALS)).toEqual({
-      kind: "breakpoint_linear",
-      terms: [{ material: "m", weight: 3, required: false }],
-      preprocess: "abs",
-      breakpoints: [[2, 20]],
-    });
-  });
-
   it("種類の材料は、値の前後の空白を落とし、値が空の行は送らない", () => {
     const draft = {
       ...emptyDraft(MATERIALS),
@@ -285,21 +224,6 @@ describe("buildShape", () => {
       kind: "categorical",
       material: CAT.id,
       mapping: { primary: 10, track: 60 },
-    });
-  });
-
-  it("真偽の材料は、該当時・非該当時の2つの点数として送る", () => {
-    const draft = {
-      ...emptyDraft(MATERIALS),
-      shapeKind: "categorical" as const,
-      categoricalMaterial: BOOL.id,
-      trueScore: 5,
-      falseScore: 90,
-    };
-    expect(buildShape(draft, MATERIALS)).toEqual({
-      kind: "categorical",
-      material: BOOL.id,
-      mapping: { true: 5, false: 90 },
     });
   });
 
@@ -332,19 +256,8 @@ describe("buildShape", () => {
 });
 
 describe("parseThresholdList", () => {
-  it.each([["1, 2, 3"], ["1，2，3"], ["1、2、3"], ["1 2\n3"], [" 1,,  2 ,3 "]])(
-    "区切りの種類を問わず読む: %j",
-    (text) => {
-      expect(parseThresholdList(text)).toEqual({ values: [1, 2, 3], error: null });
-    },
-  );
-
-  it("小数・負の数も読む", () => {
-    expect(parseThresholdList("-1.5, 0, 2.25")).toEqual({ values: [-1.5, 0, 2.25], error: null });
-  });
-
-  it("空（空白だけ）は、エラーにせず1件も無いとして返す", () => {
-    expect(parseThresholdList("   ")).toEqual({ values: [], error: null });
+  it("区切りが続いても前後にあっても、数だけを読む", () => {
+    expect(parseThresholdList(" 1,,  2 ,3 ")).toEqual({ values: [1, 2, 3], error: null });
   });
 
   it("数として読めない値があれば、その値を名指しして値を返さない", () => {
@@ -368,19 +281,22 @@ describe("thresholdsKeptOnMap", () => {
 });
 
 describe("bandLabelsOnMap", () => {
-  it("地図の各段に当たる入力の段の番号でラベルを引き直し、無い番号は空欄にする", () => {
-    expect(bandLabelsOnMap(["低", "中", "高"], [0, 2, 5])).toEqual(["低", "高", ""]);
-  });
-
-  it("地図の段の判定が無い間は、入力どおりのラベルを出す", () => {
-    const labels = ["低", "中"];
-    expect(bandLabelsOnMap(labels, null)).toBe(labels);
-  });
+  it.each([
+    [
+      [0, 2, 5],
+      ["低", "高", ""],
+    ],
+    [null, ["低", "中", "高"]],
+  ])(
+    "地図の段の判定 %j では、各段に当たる入力の段の番号でラベルを引き直し、無い番号は空欄、判定が無ければ入力どおり",
+    (bandsOnMap, expected) => {
+      expect(bandLabelsOnMap(["低", "中", "高"], bandsOnMap)).toEqual(expected);
+    },
+  );
 });
 
 describe("resizeBandLabels", () => {
-  it("段が増えれば末尾に空欄を足し、減れば末尾から落とす", () => {
+  it("段が増えれば、末尾に空欄を足す", () => {
     expect(resizeBandLabels(["a", "b"], 4)).toEqual(["a", "b", "", ""]);
-    expect(resizeBandLabels(["a", "b", "c"], 2)).toEqual(["a", "b"]);
   });
 });

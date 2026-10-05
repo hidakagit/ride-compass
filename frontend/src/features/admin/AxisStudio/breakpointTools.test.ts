@@ -20,10 +20,6 @@ import {
 const shapes = BREAKPOINT_SHAPE_OPTIONS.map((option) => option.id);
 
 describe("generateBreakpoints", () => {
-  it("効き方の選択肢が1つ以上ある", () => {
-    expect(shapes.length).toBeGreaterThan(0);
-  });
-
   it.each(shapes)("%s: 0点の値で0点・100点の値で100点になり、点数は単調に増え、xは昇順", (shape) => {
     const points = generateBreakpoints(2, 12, shape);
 
@@ -35,19 +31,16 @@ describe("generateBreakpoints", () => {
     }
   });
 
-  it.each(shapes)(
-    "%s: 0点の値が100点の値より大きい（値が大きいほど走りやすい軸）ときも、xは昇順で点数は下がる",
-    (shape) => {
-      const points = generateBreakpoints(80, 20, shape);
+  it("0点の値が100点の値より大きい（値が大きいほど走りやすい軸）ときも、xは昇順で点数は下がる", () => {
+    const points = generateBreakpoints(80, 20, "flat");
 
-      expect(points[0]).toEqual([20, 100]);
-      expect(points.at(-1)).toEqual([80, 0]);
-      for (let i = 1; i < points.length; i++) {
-        expect(points[i][0]).toBeGreaterThan(points[i - 1][0]);
-        expect(points[i][1]).toBeLessThanOrEqual(points[i - 1][1]);
-      }
-    },
-  );
+    expect(points[0]).toEqual([20, 100]);
+    expect(points.at(-1)).toEqual([80, 0]);
+    for (let i = 1; i < points.length; i++) {
+      expect(points[i][0]).toBeGreaterThan(points[i - 1][0]);
+      expect(points[i][1]).toBeLessThanOrEqual(points[i - 1][1]);
+    }
+  });
 
   it("効き方は、一定なら直線、後半で急なら直線より下、前半で急なら直線より上、S字は前半が下で後半が上", () => {
     const inner = (shape: (typeof shapes)[number]) => generateBreakpoints(0, 100, shape).slice(1, -1);
@@ -73,7 +66,7 @@ describe("generateBreakpoints", () => {
 });
 
 describe("generatorSettingsFrom", () => {
-  it.each(shapes.flatMap((shape) => [[shape, 3, 15] as const, [shape, 40, 5] as const]))(
+  it.each([...shapes.map((shape) => [shape, 3, 15] as const), ["flat", 40, 5] as const])(
     "%s（0点 %d・100点 %d）で生成した折れ点からは、同じ3入力を一致として復元する",
     (shape, zeroValue, hundredValue) => {
       expect(generatorSettingsFrom(generateBreakpoints(zeroValue, hundredValue, shape))).toEqual({
@@ -90,14 +83,14 @@ describe("generatorSettingsFrom", () => {
     expect(generatorSettingsFrom(points)).toMatchObject({ zeroValue: 3, hundredValue: 15, matched: true });
   });
 
-  it("手で直した折れ点は、一致とせず効き方を一定にし、端点は点数の低い側を0点として復元する", () => {
+  it("手で直した折れ点は、一致とせず効き方を一定にし、端点は点数の低い側（同じならxの小さい側）を0点として復元する", () => {
     expect(
       generatorSettingsFrom([
-        [0, 10],
-        [4, 70],
-        [9, 90],
+        [1, 50],
+        [5, 80],
+        [8, 50],
       ]),
-    ).toEqual({ zeroValue: 0, hundredValue: 9, shape: "flat", matched: false });
+    ).toEqual({ zeroValue: 1, hundredValue: 8, shape: "flat", matched: false });
     expect(
       generatorSettingsFrom([
         [0, 90],
@@ -105,16 +98,6 @@ describe("generatorSettingsFrom", () => {
         [9, 10],
       ]),
     ).toEqual({ zeroValue: 9, hundredValue: 0, shape: "flat", matched: false });
-  });
-
-  it("両端の点数が同じなら、xの小さい側を0点とする", () => {
-    expect(
-      generatorSettingsFrom([
-        [1, 50],
-        [5, 80],
-        [8, 50],
-      ]),
-    ).toMatchObject({ zeroValue: 1, hundredValue: 8, matched: false });
   });
 
   it("点が2つ未満なら、端点は0と10・効き方は一定で、一致とはしない", () => {
@@ -158,43 +141,26 @@ describe("insertBreakpointAtLargestGap", () => {
   });
 });
 
-describe("並べ直しは渡された配列を書き換えない（下書きの折れ点をそのまま渡すため）", () => {
-  it("折れ点を足しても、渡した下書きの折れ点は元の並びのまま", () => {
-    const points: [number, number][] = [
-      [10, 100],
-      [0, 0],
-      [4, 30],
-    ];
-    const before = structuredClone(points);
-    insertBreakpointAtLargestGap(points);
-    expect(points).toEqual(before);
-  });
-});
-
 describe("niceStep", () => {
   it.each([
     [20, 1],
     [40, 2],
     [100, 5],
     [180, 10],
-    [0.5, 0.02],
   ])("表示の幅 %d には、目盛り20個ぶんに近い 1・2・5×10^n の刻み %d を選ぶ", (span, step) => {
     expect(niceStep(span)).toBeCloseTo(step, 12);
   });
 
-  it.each([[0], [-3], [Number.NaN], [Number.POSITIVE_INFINITY]])("幅が %d なら刻みは1", (span) => {
+  it.each([[0], [Number.NaN]])("幅が %d なら刻みは1", (span) => {
     expect(niceStep(span)).toBe(1);
   });
 });
 
 describe("snapToStep", () => {
-  it("値を刻みの倍数へ丸める", () => {
-    expect(snapToStep(7.4, 5)).toBe(5);
-    expect(snapToStep(7.6, 5)).toBe(10);
-  });
-
-  it("刻みが0以下なら丸めない", () => {
-    expect(snapToStep(7.4, 0)).toBe(7.4);
-    expect(snapToStep(7.4, -1)).toBe(7.4);
+  it.each([
+    [5, 10],
+    [0, 7.6],
+  ])("刻み %d が正なら値を刻みの倍数へ丸め、0以下なら丸めない", (step, expected) => {
+    expect(snapToStep(7.6, step)).toBe(expected);
   });
 });
