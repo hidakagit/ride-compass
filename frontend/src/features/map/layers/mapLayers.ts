@@ -1,12 +1,11 @@
-// 地図レイヤーのカタログ。地図のチップとその▶パネルがこの並びを列挙して描く。種別・情報源・性質・既定の表示は
-// 源泉（backendの`domain/map_display.py`）が宣言し、ここは見せ方（名前・アイコン・説明・表示専用の凡例）だけを足す。
+// 地図レイヤーのカタログ。地図のチップとその▶パネルがこの並びを列挙して描く。種別・情報源・性質・既定の表示・名前・
+// 説明は源泉（backendの`domain/map_display.py`）が宣言し、ここはアイコンと表示専用の凡例だけを足す。
 // 地図に描く宣言（`scene/groups/`、絞り込める凡例は`scene/legends.ts`）は別に要る——書き忘れるとチップはONになり
 // 凡例も出るのに、地図には何も出ない。
 
 import weatherScales from "@/types/generated/weather-scales.json";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import regionTileConfig from "@/types/generated/region-tile-config.json";
-import { primaryAttributes } from "@/types/generated/primaryAttributes";
 import { axisIconFor } from "@/components/ui/icons/axisIconPalette";
 import {
   AccidentIcon,
@@ -27,22 +26,13 @@ import {
   type MapIconComponent,
 } from "@/components/ui/icons/icons";
 import type { LegendEntry } from "@/lib/mapDisplay/legendFilter";
-import { LANDCOVER_CLASSES, LANDCOVER_PAINTED_CLASSES } from "./landcoverClasses";
+import { LANDCOVER_PAINTED_CLASSES } from "./landcoverClasses";
 import { PRECIPITATION_INTENSITY_LEVELS } from "./precipitationNowcast";
 import { WIND_SPEED_LEGEND_LEVELS } from "./windLayer";
 import { axisMapLayerId, type AxisMapLayerId, type RampAxis } from "@/lib/mapDisplay/axisLayers";
-import type { AxisCatalog } from "@/lib/axisCatalog";
 import type { MapAxisCatalog } from "@/features/map/mapAxisCatalog";
 import type { CatalogAxis } from "@/lib/catalogAxis";
 import { FIXED_LENS_LABELS, LENS_DIFFICULTY_ID } from "@/lib/mapDisplay/routeStyleModes";
-
-/** チップの説明文へ差し込む種別名の並び（凡例と同じ、先頭の軸の行から作る）。区切りが読点なのは、名前が中黒を含むため。 */
-function pointKindList(role: string): string {
-  return primaryAttributes
-    .find((attr) => attr.attr_id === role)!
-    .display_axes[0]!.categories.map((category) => category.label)
-    .join("、");
-}
 
 /** 源泉が宣言する、地図に載るものの名前。 */
 type StaticMapLayerId = (typeof mapDisplay.layers)[number]["id"];
@@ -96,33 +86,6 @@ function labelList(elements: readonly WeatherElementDeclaration[]): string {
   return [...new Set(elements.map((element) => element.label))].join("・");
 }
 
-/** 災害の要素を、描くコマの規則ごとに言う語（短い説明・長い説明）。並びが説明の並びになる。 */
-const DISASTER_FRAME_RULE_WORDING: Record<
-  WeatherElementDeclaration["frameRule"]["kind"],
-  { readonly brief: string; readonly detail: string }
-> = {
-  nearest: {
-    brief: "時刻に連動",
-    detail: "は時刻スライダーに連動し、実況[直近]から60分先までを切り替えて確認できます。",
-  },
-  latestObservation: {
-    brief: "直近の観測",
-    detail: "は観測だけのため、最新の観測より先の時刻には出ません。",
-  },
-  current: {
-    brief: "現在の危険度のみ",
-    detail: "は色分けした現在の危険度で、「現在の危険度」単一値のみの配信のため時刻スライダーには連動しません。",
-  },
-};
-
-/** 災害の要素の名前を、描くコマの規則ごとにまとめた並び（要素の無い規則は出さない）。 */
-const DISASTER_BY_FRAME_RULE = Object.entries(DISASTER_FRAME_RULE_WORDING)
-  .map(([kind, wording]) => ({
-    wording,
-    labels: labelList(DISASTER_ELEMENTS.filter((element) => element.frameRule.kind === kind)),
-  }))
-  .filter((group) => group.labels !== "");
-
 /** 災害の凡例。同じ段で塗る要素の名前を見出しにして、段を並べる（並びは要素が最初に現れた順）。 */
 function disasterLegendBlocks(): ReadOnlyLegendBlock[] {
   const scales = [...new Set(DISASTER_ELEMENTS.flatMap((element) => element.levelScale ?? []))];
@@ -131,6 +94,82 @@ function disasterLegendBlocks(): ReadOnlyLegendBlock[] {
     legend: readOnlyEntries(weatherScales[scale]),
   }));
 }
+
+/** 源泉が宣言するレイヤーのアイコン。省略できない（描く側の対応表で引く形だと、書き忘れても汎用のアイコンで
+ * 見分けの付かないまま出続ける）。 */
+const STATIC_LAYER_ICONS: Record<StaticMapLayerId, MapIconComponent> = {
+  elevation: ElevationIcon,
+  hillshade: HillshadeIcon,
+  landcover: LandcoverIcon,
+  highway: RoadIcon,
+  surface: RoadSurfaceIcon,
+  tracktype: TrackGradeIcon,
+  tunnel: TunnelIcon,
+  oneway: OnewayIcon,
+  stop_poi: StopPoiIcon,
+  supply_poi: SupplyPoiIcon,
+  accident_point: AccidentIcon,
+  precipitationNowcast: RaindropIcon,
+  windVector: WindIcon,
+  disaster: ShieldIcon,
+  route: RouteIcon,
+};
+
+/** ▶を開いたときの表示専用の凡例。無いレイヤーは絞り込める凡例か、画面の状態から組む凡例を持つ。 */
+const READ_ONLY_LEGENDS: Partial<Record<StaticMapLayerId, readonly ReadOnlyLegendBlock[]>> = {
+  landcover: [
+    {
+      label: "",
+      legend: LANDCOVER_PAINTED_CLASSES.map((cls) => ({
+        key: cls.percentField,
+        label: cls.label,
+        description: cls.description,
+        color: cls.color,
+        filter: UNUSED_LEGEND_FILTER,
+      })),
+    },
+  ],
+  // 1つのチップのまま、時刻の段ごとに配信元を切り替える（段は源泉が宣言する）。
+  precipitationNowcast: [
+    {
+      label: "",
+      legend: readOnlyEntries(PRECIPITATION_INTENSITY_LEVELS),
+    },
+    {
+      label: `線状降水帯予測マップ[現在〜${LINEAR_RAINBAND_HOURS}時間先のみ]`,
+      // 色は配信元の塗り色そのもの。矩形に見えることも書く（細かい雨域と重なると描画の不具合に見える）。
+      legend: [
+        {
+          key: "linearRainband",
+          label: `今後${LINEAR_RAINBAND_HOURS}時間以内に大雨のおそれ[矩形の予測領域]`,
+          color: weatherScales.linear_rainband_color,
+          filter: UNUSED_LEGEND_FILTER,
+        },
+      ],
+    },
+    {
+      label: "線状降水帯の雨域[実況〜30分先のみ]",
+      // 文言は配信元の公式の画面の凡例に合わせる。
+      legend: [
+        {
+          key: "linearRainbandArea",
+          label: "大雨災害発生の危険度が急激に高まっている線状降水帯の雨域[赤い輪郭線]",
+          color: weatherScales.linear_rainband_outline_color,
+          filter: UNUSED_LEGEND_FILTER,
+        },
+      ],
+    },
+  ],
+  // 道路の色分け（向かい風・追い風）と別の配色なので、凡例は「矢印[風速]」と明示する。
+  windVector: [
+    {
+      label: "矢印[風速]",
+      legend: readOnlyEntries(WIND_SPEED_LEGEND_LEVELS),
+    },
+  ],
+  // 配信元が色を焼き込んだ画像なので絞り込めない。
+  disaster: disasterLegendBlocks(),
+};
 
 /** そのレイヤーの絵がどこから来るか。取得状態はここから導く（同じタイルを読むレイヤーは同時に空・失敗になる）。
  * `ownFetch`はMapLibreのソースを経由せず自前で取るもので、取得状態はそのフェッチ自身が出す。 */
@@ -216,10 +255,26 @@ function declaredLayer(spec: {
   };
 }
 
-/** 源泉が宣言するレイヤー。名前も源泉が持つ（一次属性を描くものは属性の名前）。 */
-function staticLayer(id: StaticMapLayerId): { id: StaticMapLayerId; label: string } & LayerDeclaration {
-  const layer = mapDisplay.layers.find((candidate) => candidate.id === id)!;
-  return { id, label: layer.label, ...declaredLayer(layer) };
+/** 源泉の説明の文の差し込み口。 */
+type LayerTextSlot = Extract<
+  NonNullable<(typeof mapDisplay.layers)[number]["description" | "panelHint"]>[number],
+  { name: string }
+>;
+
+type LayerTextPart = string | LayerTextSlot;
+
+/** 説明の文の差し込み口の名前（源泉が宣言する）。 */
+type LayerTextSlotName = LayerTextSlot["name"];
+
+/** 源泉の説明の文の差し込み口を埋める。値が空の口は、前後の文ごと出さない。 */
+function fillLayerText(text: readonly LayerTextPart[], values: Readonly<Record<LayerTextSlotName, string>>): string {
+  return text
+    .map((part) => {
+      if (typeof part === "string") return part;
+      const value = values[part.name];
+      return value ? `${part.before}${value}${part.after}` : "";
+    })
+    .join("");
 }
 
 /** 収録年の言い方（連続なら範囲、飛んでいれば並べる）。年は取込の宣言が正本で、軸カタログが運ぶ。 */
@@ -232,7 +287,7 @@ function coverageYearsLabel(years: readonly number[]): string {
 }
 
 /** レイヤーの一覧を組むのに要る軸カタログの項目。 */
-type LayerCatalog = Pick<AxisCatalog, "axes"> & Pick<MapAxisCatalog, "rampAxes" | "dedicatedAxes" | "accidentYears">;
+type LayerCatalog = Pick<MapAxisCatalog, "axes" | "rampAxes" | "dedicatedAxes" | "accidentYears">;
 
 const NO_AXES: LayerCatalog = { axes: [], rampAxes: [], dedicatedAxes: [], accidentYears: [] };
 
@@ -252,127 +307,23 @@ export function buildMapLayers({
 }: LayerCatalog): readonly MapLayerDescriptor[] {
   // 取れていないときは年に触れない（既定の年を出すと、それが正しいように見える）。
   const accidentCoverage = coverageYearsLabel(accidentYears);
-  const tunnelAxes = axisNamesReading(axes, "tunnel");
-  const stopPoiAxes = axisNamesReading(axes, "stop_poi");
-  const windAxes = axisNamesReading(axes, "windVector");
+  // 並びはレンズの選択肢と同じ（公開中の評価と総合難易度）。
   const routeLenses = [...axes.map((axis) => axis.label), FIXED_LENS_LABELS[LENS_DIFFICULTY_ID]].join("・");
-  // 面で塗らない土地被覆の分類（区間インスペクタの割合には出る）。塗らないのは、広い範囲を単色で覆って基礎地図を
-  // 隠すわりに何も足さない分類だけ（源泉`domain/landcover.py: LandcoverClass.painted`）。
-  const unpaintedLandcover = LANDCOVER_CLASSES.filter((cls) => !cls.painted)
-    .map((cls) => cls.label)
-    .join("・");
+  const staticLayers = mapDisplay.layers.map((layer): MapLayerDescriptor => {
+    const slots = { axes: axisNamesReading(axes, layer.id), accidentYears: accidentCoverage, routeLenses };
+    return {
+      id: layer.id,
+      label: layer.label,
+      ...declaredLayer(layer),
+      chipLabel: layer.chipLabel ?? undefined,
+      icon: STATIC_LAYER_ICONS[layer.id],
+      readOnlyLegend: READ_ONLY_LEGENDS[layer.id],
+      description: fillLayerText(layer.description, slots),
+      panelHint: layer.panelHint ? fillLayerText(layer.panelHint, slots) : undefined,
+    };
+  });
   return [
-    {
-      ...staticLayer("elevation"),
-      icon: ElevationIcon,
-      description: "国土地理院の色別標高図を重ねる",
-      panelHint: "国土地理院の色別標高図を重ねる",
-    },
-    {
-      ...staticLayer("hillshade"),
-      icon: HillshadeIcon,
-      description: "斜面に陰影を付ける[平地は塗らない]",
-      panelHint: "国土地理院の標高データから斜面の陰影を作る。平らな所は塗らないため、下の地図の色が残る",
-    },
-    {
-      ...staticLayer("landcover"),
-      readOnlyLegend: [
-        {
-          label: "",
-          legend: LANDCOVER_PAINTED_CLASSES.map((cls) => ({
-            key: cls.percentField,
-            label: cls.label,
-            description: cls.description,
-            color: cls.color,
-            filter: UNUSED_LEGEND_FILTER,
-          })),
-        },
-      ],
-      icon: LandcoverIcon,
-      description: `周囲の緑・水辺・農地を面で重ねる${unpaintedLandcover ? `[${unpaintedLandcover}は塗らない]` : ""}`,
-      panelHint:
-        "衛星画像から分類した10m四方ごとの土地の使われ方です。1区画に1種類だけが入るため、" +
-        `評価軸が使う「道路の周囲${regionTileConfig.landcover.ring_outer_m}mの割合」とは違い、混ざらずそのまま見えます。` +
-        (unpaintedLandcover
-          ? `${unpaintedLandcover}は塗りません——広い範囲を単色で覆い、基礎地図を隠すだけになるためです。` +
-            `区間インスペクタの内訳には${unpaintedLandcover}も出ます。`
-          : ""),
-    },
-    {
-      ...staticLayer("highway"),
-      icon: RoadIcon,
-      chipLabel: "道路種別",
-      description: "道路の種類を色で表示[幹線道路ほど濃い紫・農道や林道ほど明るい水色]",
-      panelHint:
-        "OSMのhighwayタグを区分にまとめて色分けしています。幹線道路が最も濃く、下位の道ほど明るい色です。" +
-        "「路面」「トンネル」等と一緒に表示すると、同じ道に線を横へ並べて描きます。",
-    },
-    {
-      ...staticLayer("surface"),
-      icon: RoadSurfaceIcon,
-      chipLabel: "路面",
-      description: "路面の材質を色で表示[舗装・砂利・土など]",
-      panelHint:
-        "OSMのsurfaceタグ[路面の材質]を区分にまとめて色分けしています。タグの無い道は「データなし」[灰色の薄い破線]、" +
-        "区分に当てはまらない値の道は「その他」[灰色]で出します[データなしは未舗装という意味ではありません]。",
-    },
-    {
-      ...staticLayer("tracktype"),
-      icon: TrackGradeIcon,
-      chipLabel: "等級",
-      description: "農道・林道の路面の等級を色で表示[1=固く締まった路面ほど濃く、5=柔らかい土・草ほど明るい色]",
-      panelHint:
-        "OSMのtracktypeタグ[農道・林道の路面の固さの等級]を色分けしています。路面の材質[surfaceタグ]とは別のタグで、" +
-        "材質のタグが無い農道・林道にも付いていることがあります。タグの無い道は「データなし」[灰色の薄い破線]です。",
-    },
-    {
-      ...staticLayer("tunnel"),
-      icon: TunnelIcon,
-      description: "トンネル区間[OSMのtunnelタグ]を色分け表示",
-      panelHint: "OSMのtunnelタグが該当する区間です。" + (tunnelAxes ? `評価${tunnelAxes}の材料の1つです。` : ""),
-    },
-    {
-      ...staticLayer("oneway"),
-      icon: OnewayIcon,
-      description: "来た道を戻れない区間を色分け表示",
-      panelHint:
-        "その向きにしか通れない区間です。上下線が分かれているだけの道[逆方向が数m隣にある]" +
-        "は除いてあります。ルート探索は既に一方通行の向きを守っており[逆走経路自体が" +
-        "生成されません]、このレイヤーは表示のみで評価には影響しません。",
-    },
-    {
-      ...staticLayer("stop_poi"),
-      icon: StopPoiIcon,
-      description: `${pointKindList("stop_poi")}の位置を種別ごとに色分け表示`,
-      panelHint:
-        `${pointKindList("stop_poi")}の位置です。` +
-        (stopPoiAxes
-          ? `評価${stopPoiAxes}が近傍のこれらを数えて算出しているものを、種別ごとの色分けで直接確認できます。`
-          : ""),
-    },
-    {
-      ...staticLayer("supply_poi"),
-      icon: SupplyPoiIcon,
-      chipLabel: "補給休憩",
-      description: `${pointKindList("supply_poi")}の位置を種別ごとに色分け表示`,
-      // 種別ごとの鮮度の差を書く根拠は docs/modules/frontend/static-map-layers.md「点で示すもの」。
-      panelHint:
-        `${pointKindList("supply_poi")}の位置です。自販機は飲み物が買えると分かって` +
-        "いるものだけを「飲料自販機」として出し、売っているものが分からないものは薄い色の" +
-        "「自販機(中身不明)」として区別します[たばこ・切符の機械は出しません]。" +
-        "コンビニはOSMデータの更新が比較的新しく目安として使いやすい一方、自販機・トイレ・" +
-        "給水・駐輪場は閉店・撤去にデータが追いついていないことがあります。現地の状況と" +
-        "異なる場合があることをご留意ください。",
-    },
-    {
-      ...staticLayer("accident_point"),
-      icon: AccidentIcon,
-      chipLabel: "事故",
-      description: `警察庁交通事故統計オープンデータ${accidentCoverage ? `[${accidentCoverage}]` : ""}の発生地点を表示`,
-      panelHint:
-        `警察庁が公開する交通事故統計オープンデータ[本票${accidentCoverage ? `、${accidentCoverage}` : ""}]の` +
-        "発生地点です。死亡事故[事故後24時間以内]は円を大きく表示します。",
-    },
+    ...staticLayers,
     // ramp軸は軸カタログから作る（軸を公開すればここを変えずに現れる）。
     ...rampAxes.map((axis): MapLayerDescriptor => ({
       id: axisMapLayerId(axis.axisId),
@@ -385,89 +336,6 @@ export function buildMapLayers({
       description: `${axis.label}${axis.rawValueUnit ? `[${axis.rawValueUnit}]` : ""}をway単位の事前集計から色分け表示`,
       panelHint: axis.panelHint,
     })),
-    {
-      // 1つのチップのまま、時刻の段ごとに配信元を切り替える（段は源泉が宣言する）。
-      ...staticLayer("precipitationNowcast"),
-      readOnlyLegend: [
-        {
-          label: "",
-          legend: readOnlyEntries(PRECIPITATION_INTENSITY_LEVELS),
-        },
-        {
-          label: `線状降水帯予測マップ[現在〜${LINEAR_RAINBAND_HOURS}時間先のみ]`,
-          // 色は配信元の塗り色そのもの。矩形に見えることも書く（細かい雨域と重なると描画の不具合に見える）。
-          legend: [
-            {
-              key: "linearRainband",
-              label: `今後${LINEAR_RAINBAND_HOURS}時間以内に大雨のおそれ[矩形の予測領域]`,
-              color: weatherScales.linear_rainband_color,
-              filter: UNUSED_LEGEND_FILTER,
-            },
-          ],
-        },
-        {
-          label: "線状降水帯の雨域[実況〜30分先のみ]",
-          // 文言は配信元の公式の画面の凡例に合わせる。
-          legend: [
-            {
-              key: "linearRainbandArea",
-              label: "大雨災害発生の危険度が急激に高まっている線状降水帯の雨域[赤い輪郭線]",
-              color: weatherScales.linear_rainband_outline_color,
-              filter: UNUSED_LEGEND_FILTER,
-            },
-          ],
-        },
-      ],
-      icon: RaindropIcon,
-      chipLabel: "降水",
-      // 15時間より先は数値予報モデル（MSM）の計算値なので「予報」と呼ばない
-      // （docs/architecture/data-sources.md「気象業務法の予報業務許可」節）。
-      description:
-        "気象庁の降水ナウキャスト・降水短時間予報・線状降水帯予測マップ・線状降水帯の雨域と、数値予報モデルが計算した降水量を重ねて表示" +
-        "[実況〜60分先は5分刻み、60分〜15時間先は気象庁の降水短時間予報、以降は気象庁の数値予報モデルMSMの" +
-        `計算値を1時間刻みで、予報ではなく誤差を含みうる。線状降水帯予測マップは現在〜${LINEAR_RAINBAND_HOURS}時間先、線状降水帯の雨域は` +
-        "実況〜30分先の間だけ追加で重畳]",
-      panelHint:
-        "気象庁の高解像度降水ナウキャストです。ONにすると地図上に時刻スライダーが現れ、" +
-        "実況[直近]から60分先までの雨雲の分布を切り替えて確認できます。60分より先は、" +
-        "同じ気象庁の降水短時間予報へ自動的に切り替わり、15時間先まで" +
-        "確認できます——こちらは実況の外挿ではなく数値予報モデルによる予測のため、先に" +
-        "なるほど不確実性が増します。15時間より先は、風と同じ仕組み[気象庁の数値予報モデルMSMが" +
-        "格子点ごとに計算した降水量]で、格子を降水強度に応じた色で塗る表示へさらに切り替わり、" +
-        "1〜3日先まで確認できます[降水短時間予報よりも粗い5kmメッシュのモデルの計算値で、予報ではなく" +
-        `誤差を含みえます]。加えて、現在〜${LINEAR_RAINBAND_HOURS}時間先の` +
-        `間だけ、気象庁の線状降水帯予測マップを重ねて表示します[今後${LINEAR_RAINBAND_HOURS}時間以内に大雨の` +
-        "おそれがある領域を赤で示すもので、予測は格子単位のため矩形に見えます。" +
-        "今まさに発生している線状降水帯の雨域を示すものではありません]。" +
-        "今まさに発生している線状降水帯は、実況から30分先までの間、その雨域を赤い輪郭線で重ねます" +
-        "[気象庁が線状降水帯を解析しているときだけ出ます]。" +
-        "非公式の内部APIを利用している実況・60分先までの" +
-        "部分・線状降水帯予測マップ・線状降水帯の雨域は、取得に失敗することがあります。",
-    },
-    {
-      ...staticLayer("windVector"),
-      // 道路の色分け（向かい風・追い風）と別の配色なので、凡例は「矢印[風速]」と明示する。
-      readOnlyLegend: [
-        {
-          label: "矢印[風速]",
-          legend: readOnlyEntries(WIND_SPEED_LEGEND_LEVELS),
-        },
-      ],
-      icon: WindIcon,
-      chipLabel: "風",
-      description:
-        "気象庁の数値予報モデルMSMが計算した風向・風速を矢印で表示[1〜3日先まで。予報ではなく誤差を含みうる]",
-      panelHint:
-        "気象庁MSM[メソ数値予報モデル、5kmメッシュ]が計算した風向・風速を格子点で矢印表示します。" +
-        "モデルの計算値で、予報ではなく、誤差を含みえます。" +
-        "矢印の向きが風向、長さ・太さ・色の濃淡が風速の強さを表します。ごく弱い風の地点は" +
-        "矢印を表示しません。ONにすると地図上に時刻スライダーが現れ、1時間刻みで切り替えられます" +
-        "[先まで見られる範囲は配信中の計算値の長さによって1〜3日の間で変わります]。" +
-        (windAxes
-          ? `走行方位に対する向かい風/追い風の強さは、地図上部中央の「地図の色分け」で評価${windAxes}を選ぶと、` +
-            "道路の色分けとして別途確認できます。"
-          : ""),
-    },
     // 専用配信の軸。チップには出ないが、地図の組み立てが情報源をここから引く（無いと描く時点で落ちる）。
     ...dedicatedAxes.map((axis): MapLayerDescriptor => ({
       id: dedicatedWayValueMapLayerId(axis.axisId),
@@ -479,29 +347,6 @@ export function buildMapLayers({
       description: `${axis.label}を視界内の全道路へ一律に線色分け表示`,
       panelHint: axis.panelHint,
     })),
-    {
-      // 回避するしかない危険なので、評価軸には入れず表示だけにする。
-      ...staticLayer("disaster"),
-      icon: ShieldIcon,
-      chipLabel: "災害",
-      // 要素の名前と、時刻に対する振る舞いは要素の宣言から組み立てる。段の数と名前は凡例に並ぶので文に書かない。
-      description:
-        `気象庁の${DISASTER_BY_FRAME_RULE.map((group) => group.labels).join("・")}をまとめて表示` +
-        `[${DISASTER_BY_FRAME_RULE.map((group) => `${group.labels}は${group.wording.brief}`).join("、")}]`,
-      panelHint:
-        "気象庁の防災情報をまとめて表示します。" +
-        DISASTER_BY_FRAME_RULE.map((group) => group.labels + group.wording.detail).join("") +
-        "平常時は危険度ゼロの領域が透明のため、ONのままでも地図の見た目は" +
-        "変わりません。非公式の内部APIを利用しているため、取得に失敗することがあります。",
-      // 配信元が色を焼き込んだ画像なので絞り込めない。
-      readOnlyLegend: disasterLegendBlocks(),
-    },
-    {
-      ...staticLayer("route"),
-      icon: RouteIcon,
-      // 並びはレンズの選択肢と同じ（公開中の評価と総合難易度）。
-      description: `選択中ルート沿いの情報[${routeLenses}]を色分け表示`,
-    },
   ];
 }
 

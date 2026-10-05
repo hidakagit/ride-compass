@@ -11,7 +11,6 @@ import { useMemo, useState, type ComponentProps } from "react";
 import type LensControl from "@/features/map/LensControl/LensControl";
 import {
   buildDefaultLayerVisibility,
-  buildMapLayers,
   deriveFetchLayerStatus,
   tileVersionGatedLayerIds,
   tileZoomTooWideLayerIds,
@@ -155,7 +154,7 @@ export function useMapView({
   const lensHidden = presentHiddenKeys(legend, hiddenKeysOf(hidden, lens));
   const lensFetch = dedicatedWayValues.get(lens);
   const chips = overlayChips({
-    layers: buildMapLayers({ ...mapCatalog, axes: catalog.axes }),
+    layers: mapCatalog.layers,
     visibility: layerVisibility,
     hidden,
     // ルート線の凡例はレンズと同じ保存先なので、どちらで隠しても同じ段が隠れる。

@@ -4,11 +4,10 @@ import { describe, expect, it } from "vitest";
 import { mapCatalogOf } from "@/testing/mapAxisCatalog";
 import { catalogEntry, dedicatedEntry, rampEntry } from "@/testing/catalogAxes";
 import { mapDisplay } from "@/types/generated/mapDisplay";
-import { primaryAttributes } from "@/types/generated/primaryAttributes";
 
 import weatherScales from "@/types/generated/weather-scales.json";
 
-import { LANDCOVER_CLASSES, LANDCOVER_PAINTED_CLASSES } from "./landcoverClasses";
+import { LANDCOVER_PAINTED_CLASSES } from "./landcoverClasses";
 import {
   buildMapLayers,
   deriveFetchLayerStatus,
@@ -32,10 +31,6 @@ const layer = (layers: readonly MapLayerDescriptor[], id: string) => layers.find
 const staticLayerIds: readonly string[] = mapDisplay.layers.map((entry) => entry.id);
 
 describe("buildMapLayers（レイヤーの一覧）", () => {
-  it("源泉が地図に載せると宣言したものは、どれも1つずつ記述子を持つ", () => {
-    expect(withoutAxes.map((entry) => entry.id).sort()).toEqual([...staticLayerIds].sort());
-  });
-
   it("軸を渡すと、ramp軸と専用配信軸のレイヤーが軸ごとに別の名前で加わる（どちらも軸スタジオ由来）", () => {
     const added = withAxes.filter((entry) => !staticLayerIds.includes(entry.id));
     expect(added.map((entry) => [entry.id, isAxisStudioLayer(entry)])).toEqual([
@@ -53,14 +48,6 @@ describe("buildMapLayers（レイヤーの一覧）", () => {
     expect(layer(withYears([2018, 2020]), "accident_point").description).toContain("[2018・2020年]");
     expect(layer(withYears([2020]), "accident_point").description).toContain("[2020年]");
     expect(layer(withoutAxes, "accident_point").description).not.toContain("[");
-  });
-
-  it("停止要因・補給休憩の説明は、凡例と同じ種別名（先頭の軸の行の名前）を並べる", () => {
-    for (const id of ["stop_poi", "supply_poi"]) {
-      const description = layer(withoutAxes, id).description;
-      const [axis] = primaryAttributes.find((attr) => attr.attr_id === id)!.display_axes;
-      for (const category of axis!.categories) expect(description).toContain(category.label);
-    }
   });
 
   it("説明は、そのレイヤーの元データを材料に持つ公開中の評価を名前で挙げ、無ければ評価に触れない", () => {
@@ -94,26 +81,6 @@ describe("buildMapLayers（レイヤーの一覧）", () => {
   it("土地被覆の凡例の行は、どれも（i）から開く説明を持つ", () => {
     const [block] = layer(withoutAxes, "landcover").readOnlyLegend ?? [];
     for (const entry of block.legend) expect(entry.description?.trim()).toBeTruthy();
-  });
-
-  it("土地被覆の説明は、塗らない分類と、評価が土地被覆を数える帯の幅を源泉から出す", () => {
-    const landcover = layer(withoutAxes, "landcover");
-    const unpainted = LANDCOVER_CLASSES.filter((entry) => !entry.painted);
-    expect(unpainted.length).toBeGreaterThan(0);
-    for (const cls of unpainted) {
-      expect(landcover.description).toContain(cls.label);
-      expect(landcover.panelHint).toContain(`${cls.label}は塗りません`);
-    }
-  });
-
-  it("災害の説明は、源泉が災害のチップに宣言した要素の名前を全部挙げる", () => {
-    const disaster = layer(withoutAxes, "disaster");
-    const elements = mapDisplay.weatherElements.filter((element) => element.group === "disaster");
-    expect(elements.length).toBeGreaterThan(0);
-    for (const element of elements) {
-      expect(disaster.description).toContain(element.label);
-      expect(disaster.panelHint).toContain(element.label);
-    }
   });
 
   it("災害の凡例は、要素が塗る段ごとに1つ並び、見出しにその段で塗る要素の名前が入る", () => {

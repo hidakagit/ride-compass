@@ -397,7 +397,7 @@ isAxisStudioLayer`により地図上チップ（`MapOverlayControls.tsx`）に�
 
 | 追従するもの | 導出元 |
 |---|---|
-| `MapLayerId`・`MapLayerDescriptor`（地図UIからの除外を含む） | `buildMapLayers(rampAxes, dedicatedAxes)` |
+| `MapLayerId`・`MapLayerDescriptor`（地図UIからの除外を含む） | 地図の軸カタログの`layers`（`buildMapLayers`） |
 | MapLibreの線レイヤー・色式・濃さ・feature-state | `scene/applyToMap.ts: sceneInputsFrom`が`dedicatedAxes`を評価軸の線（`scene/groups/axisLines.ts`）の入力へ移す |
 | 表示ON/OFF（レンズ選択） | 塗っている軸（`useMapView`の`paintedAxisId`）から`scene/applyToMap.ts`が導く |
 | way値のフェッチとクエリパラメータの取捨 | `useDedicatedWayValues` + 軸カタログの`dynamic_way_value_conditions`（`axisLayers.ts`が`needsTime`/`needsBearing`/`needsSpeed`へ移す） |
