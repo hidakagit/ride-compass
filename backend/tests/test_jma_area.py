@@ -7,8 +7,6 @@
 - area.jsonの形を`AreaMaster`へ解くこと → `test_jma_warning_client.py`
 """
 
-import logging
-
 import pytest
 
 from app.domain.jma_area import AreaEntry, AreaMaster, ResolvedArea, resolve_area
@@ -36,16 +34,10 @@ def test_an_area_is_resolved_by_following_class15_parents_up_to_the_subdivision(
     assert resolve_area("1310100", master) == EXPECTED
 
 
-def test_an_area_missing_from_the_master_is_unresolved_with_a_warning(caplog):
-    """区域の境界と地域マスタは別々に配られ、片方だけが区域の変更に追いつくと起きる。"""
-    with caplog.at_level(logging.WARNING, logger="ridecompass.jma_area"):
-        assert resolve_area("1310100", _master({})) is None
-    assert any("1310100" in record.getMessage() for record in caplog.records)
-
-
 @pytest.mark.parametrize(
     ("class20s", "class15s", "class10s"),
     [
+        ({}, {}, CLASS10),
         ({"1310100": AreaEntry(parent=None)}, {}, CLASS10),
         ({"1310100": AreaEntry(parent="missing")}, {}, CLASS10),
         ({"1310100": AreaEntry(parent="a")}, {"a": AreaEntry(parent=None)}, CLASS10),
@@ -57,6 +49,7 @@ def test_an_area_missing_from_the_master_is_unresolved_with_a_warning(caplog):
         ({"1310100": AreaEntry(parent="130010")}, {}, {"130010": AreaEntry(parent=None)}),
     ],
     ids=[
+        "area_missing_from_the_master",
         "area_without_parent",
         "parent_in_no_level",
         "class15_without_parent",

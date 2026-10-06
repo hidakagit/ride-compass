@@ -80,7 +80,7 @@ async def test_boundaries_are_read_once_and_kept(two_areas):
 
 async def test_missing_boundaries_raise_and_warn_until_they_are_written(boundary_path, caplog):
     """置き場に無ければ、区域なし（None）ではなく読めない例外とWARNING。置いたあとは再起動せずに引ける。"""
-    with caplog.at_level(logging.WARNING, logger="ridecompass.jma_area_boundaries"):
+    with caplog.at_level(logging.WARNING, logger="ridecompass.external"):
         with pytest.raises(jma_area_boundaries.AreaBoundariesUnavailableError):
             await jma_area_boundaries.find_class20_code(35.65, 139.7)
     assert [record.levelno for record in caplog.records] == [logging.WARNING]

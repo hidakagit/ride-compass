@@ -174,7 +174,7 @@ class RegionService:
                 mark_failed(fields, exc)
                 return None
             fields["lookup"] = "ok"
-            highway, tags, _surface = way_tags_result
+            highway, tags = way_tags_result
             combined = {**(materials or {}), **(dynamic_materials or {})}
             return axis_inspector_breakdown(
                 highway, tags, combined, landcover, preference or RoutePreference(),

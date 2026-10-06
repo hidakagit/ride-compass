@@ -777,20 +777,20 @@ class RoadGraphRepository:
 
     async def get_way_tags_by_osm_way_id(
         self, osm_way_id: int
-    ) -> tuple[str, dict[str, str], str | None] | None:
-        """osm_way_id完全一致で(highway, tags, surface)を返す。道は種別を必ず持つ（`source_features_way_has_kind`）。
+    ) -> tuple[str, dict[str, str]] | None:
+        """osm_way_id完全一致で(highway, tags)を返す。道は種別を必ず持つ（`source_features_way_has_kind`）。
 
         空間マッチ（半径内最近傍）は、交差点付近など複数の道路が近接する場所で、実際に
         クリックされたフィーチャーとは別の道路を拾いうる。フィーチャーが指す行そのものを
         引き直すことで、この不整合を構造的に防ぐ。
         """
         row = (await self._session.execute(text(f"""
-            SELECT w.highway, w.tags, w.surface
+            SELECT w.highway, w.tags
             FROM {ways_lookup_sql(":osm_way_id")} w
         """), {"osm_way_id": str(osm_way_id)})).first()
         if row is None:
             return None
-        return (row.highway, row.tags, row.surface)
+        return (row.highway, row.tags)
 
     async def get_feature_landcover(
         self, osm_way_id: int, feature_key: str | None
@@ -891,7 +891,7 @@ class RoadGraphRepository:
         self, z: int, x: int, y: int, bbox: BoundingBox
     ) -> dict[str, tuple[float, float]] | None:
         """勾配配信層向けに、フィーチャーごとの`(gradient_percent, road_bearing_deg)`を返す。
-        勾配・向きのいずれかが欠損している区間は除外する。"""
+        勾配の無い区間は平均から除き、向き（両端を結ぶ方位）が定まらないフィーチャーは返さない。"""
         result = await self._session.execute(
             _FEATURE_GRADIENT_INPUTS_IN_TILE_SQL, self._tile_params(z, x, y, bbox))
         covered, inputs = result.one()

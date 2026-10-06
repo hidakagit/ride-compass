@@ -632,7 +632,7 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
 重みをそのまま、日中に通る区間では0倍にする。通る時刻は風と同じもの（上記「レグ内の時刻ビン」: ビンの
 開始時刻、目的地から遡る木は区間ごとの通過時刻、スナップショットは出発時刻）で、合成器が
 `_evaluate`の中で`domain/twilight.py: night_mask`と`domain/axis_definitions.py: time_scoped_weights`から
-区間ごとの重みの配列を作る。`time_scoped_weights`が`AxisDefinition.time_scope`を持つ軸を汎用的に判定するため、
+区間ごとの重みの配列を作る（時間帯を持つ軸に重みがあるときだけ。無ければ昼夜は合成に効かないので、夜の判定を作らない）。`time_scoped_weights`が`AxisDefinition.time_scope`を持つ軸を汎用的に判定するため、
 軸idのハードコードは無い。探索のコストと区間の表示（合成difficulty・寄与度）は同じ重みの配列を読むので、
 日没をまたぐルートでは日没前の区間には夜間軸が寄与せず、日没後の区間には寄与する。
 

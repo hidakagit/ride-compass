@@ -14,7 +14,6 @@ Redis）と、気象庁への秒間上限がそのまま効く。タイル1枚�
 """
 
 import io
-import logging
 from typing import NamedTuple, cast
 
 from PIL import Image
@@ -22,10 +21,9 @@ from PIL import Image
 from app.domain.jma_tile_specs import JmaFrame, read_target_times
 from app.domain.region import tile_position
 from app.domain.weather import SuikeiWeather
+from app.infrastructure.debug_log import log_throttled_warning
 from app.infrastructure.jma_tile_client import JmaTileClient, get_target_times
 from app.infrastructure.jma_tile_redis_cache import EmptyTile
-
-logger = logging.getLogger("ridecompass.jma_suikei_client")
 
 #: 時刻一覧に載る天気の要素id。
 _WEATHER_ELEMENT = "wthr"
@@ -34,6 +32,7 @@ _TARGET_TIMES_PATH = f"{_ROOT}/targetTimes.json"
 # 設定ファイルの`maxNativeZoom`（画像が実在する最大ズーム）。`zoomUse="even"`とも合う。
 _ZOOM = 10
 _TILE_SIZE = 512
+_CATEGORY = "weather:jma-suikei"
 
 _WEATHER_BY_COLOR: dict[tuple[int, int, int], SuikeiWeather] = {
     (255, 170, 0): "clear",
@@ -77,7 +76,8 @@ def _weather_from_color(red: int, green: int, blue: int, alpha: int) -> SuikeiWe
         return None
     weather = _WEATHER_BY_COLOR.get((red, green, blue))
     if weather is None:
-        logger.warning(
+        log_throttled_warning(
+            _CATEGORY,
             "推計気象分布（天気）の凡例に無い色です rgb=(%d, %d, %d)（infrastructure/jma_suikei_client.py: _WEATHER_BY_COLOR）",
             red, green, blue,
         )
@@ -89,10 +89,11 @@ async def fetch_weather(client: JmaTileClient, latitude: float, longitude: float
     rows = await get_target_times(client, _TARGET_TIMES_PATH)
     frames = [] if rows is None else read_target_times("latest", rows, _WEATHER_ELEMENT)
     if not frames:
-        logger.warning("推計気象分布（天気）の時刻一覧を読めませんでした path=%s", _TARGET_TIMES_PATH)
+        log_throttled_warning(_CATEGORY, "推計気象分布（天気）の時刻一覧を読めませんでした path=%s", _TARGET_TIMES_PATH)
         return None
     pixel = _pixel(latitude, longitude)
-    raw = await client.get(_tile_path(frames[0], pixel))
+    path = _tile_path(frames[0], pixel)
+    raw = await client.get(path)
     if raw is None or isinstance(raw, EmptyTile):
         return None
     content, _content_type = raw
@@ -100,6 +101,6 @@ async def fetch_weather(client: JmaTileClient, latitude: float, longitude: float
         with Image.open(io.BytesIO(content)) as image:
             red, green, blue, alpha = cast(tuple[int, int, int, int], image.convert("RGBA").getpixel((pixel.column, pixel.row)))
     except Exception as exc:  # noqa: BLE001 壊れた画像は「空が分からない」に倒し、応答の残りは返す
-        logger.warning("推計気象分布（天気）のタイルを読めませんでした tile=%s error=%r", pixel, exc)
+        log_throttled_warning(_CATEGORY, "推計気象分布（天気）のタイルを読めませんでした path=%s error=%r", path, exc)
         return None
     return _weather_from_color(red, green, blue, alpha)
