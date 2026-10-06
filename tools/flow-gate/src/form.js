@@ -1,9 +1,8 @@
 // 回答フォーム。回答待ちのときだけ開く。答えのコメントは hidakagit の名義（env.FORM_TOKEN）で書き、遷移はゲートが書く。
 import { Gate } from "./gate.js";
 import { GitHub } from "./github.js";
-import { answerBody, bodyRest, checkAll, judge, nextChoices, normalize, parseQuestion, remaining } from "./rules.js";
+import { answerBody, bodyRest, checkAll, judge, nextChoices, normalize, parseQuestion, remaining, SCAN } from "./rules.js";
 
-const SCAN = 30; // 問いを探すために読むコメントの件数
 const RECENT = 5; // 材料に載せる最近のコメントの件数（上に出した問いのコメントは数えない）
 // 案のどれでもないときの答え（補足に進め方を書く）。案のある問いでだけ、案の最後に並べる。
 const NONE = "どれでもない（補足に書く）";
