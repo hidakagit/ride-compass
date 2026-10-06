@@ -328,7 +328,10 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
 1. 作業ブランチを取る（`git fetch origin` と
    `git checkout -B orch/tasks-<番号> origin/orch/tasks-<番号>`）。依存のファイルが master と違えば、作る担当の2のとおり入れ直す。Pull Request（`gh pr view <番号> -R hidakagit/ride-compass --json title,body,comments,reviews`。本文のキャプチャ・差分）・Pull Request の CI・issue の完了の条件・変更が届く範囲（要るなら画面）を
    確かめる。作る担当の報告を読み写さず、自分で見る（画面なら変更後を自分で撮る。作る担当の5と同じ道具・脚本・応答で撮り、
-   変更前は撮り直さずに作る担当が貼った画像と比べる。作る担当がコメントに脚本を貼っていれば、作業ツリーの外へ写して同じ引数で撮る）。Pull Request が無ければ（ボードで
+   変更前は撮り直さずに作る担当が貼った画像と比べる。作る担当がコメントに脚本を貼っていれば、作業ツリーの外へ写して同じ引数で撮る）。
+   貼った画像は、`gh api repos/hidakagit/ride-compass/issues/<Pull Request の番号>/comments --jq '.[].body'` で添付の URL
+   （`https://github.com/user-attachments/assets/…`）を拾い、`curl -sSL -o <作業ツリーの外のファイル> <URL>` で取り出して Read で見る。
+   コードのリポジトリは公開なので、添付は認証なしで取れる（公式の文書「Attaching files」）。トークンを付けない（付けた `curl` は判定役に断られた）。Pull Request が無ければ（ボードで
    検証中へ動かした等）、作る担当の5のとおりに出してから確かめる。CI は Pull Request の必須のチェック全部（master と合わせた版。
    `ci.yml` の外の Docs Consistency・Claude Gate のジョブも）が通っていることを、作る担当の5と同じく実行を待ってから必須のチェックをルールセットと
    突き合わせて見る。落ちていれば満たしていないとして 4 のとおり落ちたテストを書いて
