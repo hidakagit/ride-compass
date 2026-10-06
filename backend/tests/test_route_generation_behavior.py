@@ -13,6 +13,7 @@
 道路網と、それをエンジンへ渡す道具は`tests/route_world.py`が持つ（HTTPの入口のテストと共有）。
 """
 
+import logging
 import math
 from datetime import datetime, timedelta, timezone
 
@@ -178,13 +179,18 @@ async def test_spliced_route_is_evaluated_as_sent(engine_over):
     ],
 )
 async def test_a_spliced_route_that_does_not_run_from_the_origin_to_the_destination_is_refused(
-        engine_over, origin, destination, edges):
+        engine_over, caplog, origin, destination, edges):
+    """断った理由は常時のログに残すが、ノードのOSMのidは詳しい記録（DEBUG）にだけ載せる（公開の地図で地点をそのまま引けるため）。"""
     generator = engine_over(grid_network())
     (candidate, *_) = await generator.generate_via_waypoints(
         at(SOUTH_WEST), [], 4.0, destination=at(NORTH_EAST), max_routes=1, start_time=DEPARTURE)
 
-    assert await generator.generate_spliced_route(
-        at(origin), at(destination), 4.0, edges(candidate.edge_ids), start_time=DEPARTURE) == []
+    with caplog.at_level(logging.DEBUG):
+        assert await generator.generate_spliced_route(
+            at(origin), at(destination), 4.0, edges(candidate.edge_ids), start_time=DEPARTURE) == []
+
+    levels = [r.levelno for r in caplog.records if "osm-node-" in r.getMessage()]
+    assert levels and set(levels) == {logging.DEBUG}
 
 
 # --- 候補の選び方 ---
