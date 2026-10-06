@@ -47,7 +47,7 @@ export default function HeaderMenu({
           size="sm"
           aria-label="メニュー"
           className="shrink-0"
-          usage="使い方の説明・研究モードの切り替えを開きます。"
+          usage="使い方の説明・研究モードの切り替えなどを開きます。"
         >
           <MenuIcon size={15} />
         </Button>
@@ -65,10 +65,7 @@ export default function HeaderMenu({
           <HelpIcon size={15} />
           使い方を見る
         </Button>
-        <label
-          className={toggleVariants({ variant: "menu" })}
-          data-usage="作ったルートを実験スロットに残し、候補を見比べる「比較」のタブ・地図への重ね描き・区間の材料の値を出します。"
-        >
+        <label className={toggleVariants({ variant: "menu" })}>
           <Checkbox
             checked={researchEnabled}
             onCheckedChange={setResearchEnabled}

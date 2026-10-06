@@ -211,10 +211,7 @@ export default function LensControl({
             )}
             {unused.map(renderAxis)}
           </ToggleGroup>
-          <label
-            className="mt-2 flex items-center gap-1.5 border-t border-dashed border-[var(--color-border)] pt-2"
-            data-usage="ルートを作った後も、周りの道路を今の色分けで薄く塗ります。外すと、ルートの線だけに色を付けます。"
-          >
+          <label className="mt-2 flex items-center gap-1.5 border-t border-dashed border-[var(--color-border)] pt-2">
             <Checkbox
               checked={keepAfterRoute}
               onCheckedChange={onKeepAfterRouteChange}
