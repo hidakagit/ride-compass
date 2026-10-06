@@ -242,13 +242,11 @@ describe("進み方", () => {
     await job.answer(0, Response.json({ status: "queued" }));
     await flush();
     expect(rendered.result.current.generation.progressLabel).toBe("順番待ち...");
-    expect(rendered.result.current.generation.queued).toBe(true);
 
     await act(() => vi.advanceTimersByTimeAsync(2600));
     await job.answer(1, Response.json({ status: "running" }));
     await flush();
     expect(rendered.result.current.generation.progressLabel).toBe("生成中...(3秒経過)");
-    expect(rendered.result.current.generation.queued).toBe(false);
 
     await act(() => vi.advanceTimersByTimeAsync(1500));
     await job.answer(

@@ -25,7 +25,7 @@ import { withJmaTileProtocol } from "@/features/map/layers/jmaTileProtocol";
 import { areaLayerAnchor, prepareBasemapForAreaLayers, runWhenStyleReady } from "@/features/map/layers/mapStyleOps";
 import { primaryAttributeIdsToLayerIds } from "@/features/map/layers/primaryAttributes";
 import { ROUTE_ARROW_ICON_ID, createRouteArrowIcon } from "@/features/map/layers/routeArrowIcon";
-import { LENS_NEUTRAL_COLOR, type LensId, type RouteStyleMode } from "@/lib/mapDisplay/routeStyleModes";
+import type { LensId, RouteStyleMode } from "@/lib/mapDisplay/routeStyleModes";
 import type { SecondaryAxisSummary } from "@/features/map/secondaryAxes";
 import type { ExperimentSlot } from "@/types/experimentSlot";
 import type { RouteCandidate } from "@/types/route";
@@ -109,20 +109,14 @@ function routeStateFrom(props: SceneWiringProps): RouteState {
   const { look } = props;
   const visible = look.layerVisibility.route === true;
   const selected = props.routes.find((route) => route.id === props.selectedRouteId) ?? null;
-  // モードが1つも配られていない間（軸カタログの取得前）は、色分けの指定が無い状態として
-  // 参考線と同じ単色で描く。
-  const modes = props.catalog.routeStyleModes;
-  const mode = modes.length > 0 ? getRouteStyleMode(modes, look.lens) : null;
+  const mode = getRouteStyleMode(props.catalog.routeStyleModes, look.lens);
   const segments = visible ? (selected?.segments ?? []) : [];
   const bands = visible ? props.spliceStretches : [];
   const composite = visible ? props.splicedRoute : null;
-  const hiddenBandFilter =
-    mode === null
-      ? null
-      : (buildLegendFilterExpression(
-          mode.legend,
-          look.hiddenLegendKeys[look.lens] ?? NO_KEYS,
-        ) as maplibregl.FilterSpecification | null);
+  const hiddenBandFilter = buildLegendFilterExpression(
+    mode.legend,
+    look.hiddenLegendKeys[look.lens] ?? NO_KEYS,
+  ) as maplibregl.FilterSpecification | null;
   return {
     visible,
     candidates: props.routes.map((route) => ({
@@ -141,8 +135,8 @@ function routeStateFrom(props: SceneWiringProps): RouteState {
         properties,
       };
     }),
-    segmentColor: (mode?.colorExpression ?? LENS_NEUTRAL_COLOR) as maplibregl.ExpressionSpecification,
-    ...(mode?.noDataExpression === undefined
+    segmentColor: mode.colorExpression as maplibregl.ExpressionSpecification,
+    ...(mode.noDataExpression === undefined
       ? {}
       : { segmentNoData: mode.noDataExpression as maplibregl.ExpressionSpecification }),
     ...(hiddenBandFilter === null ? {} : { hiddenBandFilter }),
@@ -322,7 +316,7 @@ function getRouteStyleMode(modes: readonly RouteStyleMode[], id: LensId): RouteS
   // 軸の非公開等でidのモードが消えていたら先頭へ倒す。選択中の色分けが黙って変わるため警告を残す。
   debugLog(
     "map:route-style-mode",
-    `route style mode "${id}" not found, falling back to "${modes[0]?.id ?? "(no modes)"}"`,
+    `route style mode "${id}" not found, falling back to "${modes[0].id}"`,
     { requestedId: id, availableIds: modes.map((mode) => mode.id) },
     "warn",
   );

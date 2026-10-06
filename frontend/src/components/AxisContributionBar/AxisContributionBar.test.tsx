@@ -4,7 +4,7 @@
  *
  * 見るもの: 寄与のある軸だけを`axes`の順に帯へ積むこと、帯の長さと添える値（0〜100へ寄せる）、軸の色と
  * 色の無い軸の色、凡例に並ぶ軸（既定・`legendAxes`・`renderDetail`がnullを返した軸）とチップに出す値、
- * 詳細のある軸のチップを、詳細を開くボタンにすること、寄与が1つも無ければ何も描かないこと。
+ * チップを、詳細を開くボタンにすること、寄与が1つも無ければ何も描かないこと。
  *
  * ここで見ないもの: 軸のアイコンの引き方 → `components/ui/icons/axisIconPalette.tsx`。詳細の中身 → 呼び出し側
  * （`features/route/RouteOutcome`等）。チップを押すと詳細が出ること → `components/ui/InfoPopover/InfoPopover.tsx`
@@ -27,7 +27,20 @@ const COLORS = { axis_a: "rgb(10, 20, 30)", axis_b: "rgb(40, 50, 60)", axis_c: "
 type Props = React.ComponentProps<typeof AxisContributionBar>;
 
 function renderBar(props: Partial<Props> = {}) {
-  return render(<AxisContributionBar axes={[A, B, C]} contributions={{}} axisColors={COLORS} {...props} />);
+  return render(
+    <AxisContributionBar
+      axes={[A, B, C]}
+      contributions={{}}
+      axisColors={COLORS}
+      renderDetail={(axis) => `${axis.label}の中身`}
+      {...props}
+    />,
+  );
+}
+
+/** 凡例のチップ（詳細を開くボタン）。 */
+function chip(label: string): HTMLElement {
+  return screen.getByRole("button", { name: `${label}の詳細を表示` });
 }
 
 /** 帯の一片（名前と値を`title`に持つ）を、帯に積まれた順に。 */
@@ -54,11 +67,7 @@ describe("hasContribution", () => {
 
 describe("AxisContributionBar", () => {
   it("寄与のある軸が無ければ、凡例の軸や詳細があっても何も描かない", () => {
-    const { container } = renderBar({
-      contributions: { axis_a: 0 },
-      legendAxes: [A, B],
-      renderDetail: () => "詳細",
-    });
+    const { container } = renderBar({ contributions: { axis_a: 0 }, legendAxes: [A, B] });
 
     expect(container).toBeEmptyDOMElement();
   });
@@ -79,8 +88,8 @@ describe("AxisContributionBar", () => {
       ["軸A 100.0", "100%"],
       ["軸B 0.0", "0%"],
     ]);
-    expect(screen.getByRole("img", { name: "軸A" })).toHaveTextContent("120.0");
-    expect(screen.getByRole("img", { name: "軸B" })).toHaveTextContent("-5.0");
+    expect(chip("軸A")).toHaveTextContent("120.0");
+    expect(chip("軸B")).toHaveTextContent("-5.0");
   });
 
   it("帯と凡例は軸の色で塗り、色の無い軸はどれも同じ色にする", () => {
@@ -88,20 +97,22 @@ describe("AxisContributionBar", () => {
 
     const [a, b, c] = segments();
     expect(a.style.background).toBe(COLORS.axis_a);
-    expect(chipColor(screen.getByRole("img", { name: "軸A" }))).toBe(COLORS.axis_a);
+    expect(chipColor(chip("軸A"))).toBe(COLORS.axis_a);
     expect(b.style.background).not.toBe("");
     expect(b.style.background).not.toBe(COLORS.axis_a);
     expect(c.style.background).toBe(b.style.background);
-    expect(chipColor(screen.getByRole("img", { name: "軸B" }))).toBe(b.style.background);
+    expect(chipColor(chip("軸B"))).toBe(b.style.background);
   });
 
-  it("凡例の軸を渡さなければ、帯に積んだ軸だけを名前の付いたチップにして値を出す", () => {
+  it("凡例の軸を渡さなければ、帯に積んだ軸だけを詳細を開くチップにして値を出す", () => {
     renderBar({ contributions: { axis_a: 30, axis_c: 12.34 } });
 
     const chips = within(screen.getByRole("list")).getAllByRole("listitem");
-    expect(chips.map((chip) => [within(chip).getByRole("img").getAttribute("aria-label"), chip.textContent])).toEqual([
-      ["軸A", "30.0"],
-      ["軸C", "12.3"],
+    expect(
+      chips.map((item) => [within(item).getByRole("button").getAttribute("aria-label"), item.textContent]),
+    ).toEqual([
+      ["軸Aの詳細を表示", "30.0"],
+      ["軸Cの詳細を表示", "12.3"],
     ]);
   });
 
@@ -109,14 +120,16 @@ describe("AxisContributionBar", () => {
     renderBar({ contributions: { axis_a: 30 }, legendAxes: [C, A, B] });
 
     const chips = within(screen.getByRole("list")).getAllByRole("listitem");
-    expect(chips.map((chip) => [within(chip).getByRole("img").getAttribute("aria-label"), chip.textContent])).toEqual([
-      ["軸C", ""],
-      ["軸A", "30.0"],
-      ["軸B", ""],
+    expect(
+      chips.map((item) => [within(item).getByRole("button").getAttribute("aria-label"), item.textContent]),
+    ).toEqual([
+      ["軸Cの詳細を表示", ""],
+      ["軸Aの詳細を表示", "30.0"],
+      ["軸Bの詳細を表示", ""],
     ]);
   });
 
-  it("詳細を渡すと、詳細がnullの軸は凡例から落とし、ほかのチップは詳細を開くボタンにする", () => {
+  it("詳細がnullの軸は凡例から落とす", () => {
     renderBar({
       contributions: { axis_a: 30, axis_b: 5 },
       legendAxes: [A, B, C],
@@ -124,7 +137,7 @@ describe("AxisContributionBar", () => {
     });
 
     const chips = within(screen.getByRole("list")).getAllByRole("listitem");
-    expect(chips.map((chip) => within(chip).getByRole("button").getAttribute("aria-label"))).toEqual([
+    expect(chips.map((item) => within(item).getByRole("button").getAttribute("aria-label"))).toEqual([
       "軸Aの詳細を表示",
       "軸Cの詳細を表示",
     ]);

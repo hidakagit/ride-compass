@@ -5,8 +5,7 @@
  * 見出しの文言をトリガーの手前に出すこと。
  *
  * ここで見ないもの: トリガーの中身の差し替え（`triggerContent`）——ボタンの中へそのまま置くだけ。
- * 見出しを見た目だけ隠す指定（`hideLabel`）——隠すのはTailwindの`sr-only`で、テスト環境は規則を作らない。
- * 浮きパネルの置き方（`side`・`align`・`sideOffset`）——Radix Popoverの振る舞いで、テスト環境に実寸が無い。
+ * 浮きパネルの置き方（`side`）——Radix Popoverの振る舞いで、テスト環境に実寸が無い。
  */
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";

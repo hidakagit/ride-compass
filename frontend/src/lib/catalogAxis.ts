@@ -28,8 +28,6 @@ export interface CatalogAxis {
   iconId?: string;
   /** 表示の設定パネルでこの軸の行の(i)が出す、descriptionより詳しい説明。 */
   panelHint?: string;
-  /** 専用の配信で、ルートの前から地図の道路を塗れるか（地図の表示の種類からは導けない）。 */
-  dedicatedWayValueLayer: boolean;
   mapValueKind: MapValueKind;
   mapValueUnit: string;
   /** 折れ点を通す前の生値の単位。単位が定まる軸だけが持ち、ルート結果は得点の隣に生値を出す（得点は目盛りの引き方で
@@ -66,7 +64,6 @@ export function catalogAxisFromEntry(axis: AxisCatalogEntry): CatalogAxis {
     description: axis.description,
     iconId: axis.icon_id ?? undefined,
     panelHint: axis.panel_hint ?? undefined,
-    dedicatedWayValueLayer: axis.dedicated_way_value_layer,
     mapValueKind: axis.map_paint.value.kind,
     mapValueUnit: axis.map_paint.unit,
     rawValueUnit: axis.raw_value_unit,

@@ -222,8 +222,6 @@ export function useRouteGeneration({
   return {
     submit,
     running,
-    /** 順番待ちか（実行中のうち）。 */
-    queued: progress?.status === "queued",
     /** 実行中の進み方の文言（進み方がまだ届いていなければundefined）。 */
     progressLabel:
       progress?.status === "queued"

@@ -76,7 +76,8 @@ export function useGenerationConditions({ onOriginPlace }: GenerationConditionsI
     chosenPinRole === undefined ? pinRoleOnEnter(routeMode, destination, waypoints.length) : chosenPinRole;
 
   // 武装中の役割の地点として地図のタップを受ける。経由地だけは置いたあとも武装を続ける
-  // （続けて何地点も置くのが普通の使い方で、1つ置くたびに押し直させない）。上限に達したら武装を解き、超える点は置かない。
+  // （続けて何地点も置くのが普通の使い方で、1つ置くたびに押し直させない）。上限に達したら武装を解く（解けた行は押せないので、
+  // 超える点は置かれない）。
   const placePin = useCallback(
     (role: PinRole, point: Coordinates) => {
       if (role === "origin") {
@@ -89,7 +90,7 @@ export function useGenerationConditions({ onOriginPlace }: GenerationConditionsI
         setArmedPinRole(null);
         return;
       }
-      setWaypoints((prev) => (prev.length >= routeGenerateConfig.max_waypoints ? prev : [...prev, point]));
+      setWaypoints((prev) => [...prev, point]);
       if (waypoints.length + 1 >= routeGenerateConfig.max_waypoints) setArmedPinRole(null);
     },
     [onOriginPlace, waypoints.length],

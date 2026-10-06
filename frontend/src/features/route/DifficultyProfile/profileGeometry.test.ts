@@ -36,10 +36,10 @@ describe("profileColumns", () => {
   it("区間の長さを順に積み上げて、柱の始まりと終わりの距離にする", () => {
     const segments = [segment({ distance_km: 0.5 }), segment({ distance_km: 0.25 }), segment({ distance_km: 0.4 })];
     const columns = profileColumns(segments);
-    expect(columns.map(({ index, startKm, endKm }) => [index, startKm, endKm])).toEqual([
-      [0, 0, 0.5],
-      [1, 0.5, 0.75],
-      [2, 0.75, 1.15],
+    expect(columns.map(({ startKm, endKm }) => [startKm, endKm])).toEqual([
+      [0, 0.5],
+      [0.5, 0.75],
+      [0.75, 1.15],
     ]);
     expect(columns.map((c) => c.segment)).toEqual(segments);
   });
