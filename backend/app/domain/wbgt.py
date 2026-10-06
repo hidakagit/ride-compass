@@ -15,6 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
+from app.domain.time_zone import as_series_time
 from app.domain.warning_levels import WarningBadgeLevel
 
 _WEDNESDAY = 2
@@ -98,7 +99,7 @@ def current_forecast(forecasts: list[WbgtForecast], now: datetime) -> WbgtForeca
         return None
     latest_reference_time = max(forecast.reference_time for forecast in forecasts)
 
-    now_naive = now.replace(tzinfo=None)
+    now_naive = as_series_time(now)
     best: WbgtForecast | None = None
     best_diff: float | None = None
     for forecast in forecasts:

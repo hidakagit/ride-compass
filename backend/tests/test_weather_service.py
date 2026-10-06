@@ -17,6 +17,7 @@ from app.domain.region import BoundingBox
 from app.domain.route import Coordinates
 from app.domain.weather import TemperatureRange
 from app.domain.wind import DepartureWind
+from app.domain.wind_grid import WindGridResponse
 from app.infrastructure import msm_client
 from app.infrastructure.msm_client import MsmSeries, MsmUnavailableError
 from app.services.weather_service import WeatherService
@@ -103,6 +104,23 @@ async def test_a_missing_hour_leaves_the_temperature_range_out(monkeypatch):
     assert conditions.temperature_range is None
 
 
+async def test_a_missing_value_is_absent_rather_than_nan(monkeypatch):
+    """格子の欠損（NaN）を含む値は無い（None）。NaN のまま組むと、型が約束しない値が欄に入る。"""
+    nan = float("nan")
+    _patch_read_series(
+        monkeypatch, times=["2026-09-07T13:00", "2026-09-07T14:00"],
+        precipitation=[nan, 0.0], temperature=[nan, 20.0], u=[nan, 1.0],
+    )
+
+    conditions = await WeatherService().get_conditions(POINT)
+
+    assert conditions.precipitation_mm is None
+    assert conditions.precipitation_max_mm is None
+    assert conditions.wind_speed_max_ms is None
+    assert conditions.today_periods[0].temperature_c is None
+    assert conditions.today_periods[0].precipitation_mm is None
+
+
 async def test_get_conditions_builds_two_hourly_periods(monkeypatch):
     times = [f"2026-09-07T{hour:02d}:00" for hour in range(6, 22)]
     _patch_read_series(monkeypatch, times=times, temperature=[20.0 + i for i in range(len(times))])
@@ -143,9 +161,10 @@ async def test_get_wind_grid_builds_speed_and_direction_from_msm(monkeypatch):
     # 北風（v=-1, u=0）は「北から吹いてくる」ため風向0度、風速1.0 m/s になる。
     _patch_read_series(monkeypatch, times=["2026-09-07T13:00"], u=[0.0], v=[-1.0], precipitation=[0.4])
 
-    times, results = await WeatherService().get_wind_grid([POINT, OTHER_POINT])
+    grid = await WeatherService().get_wind_grid([POINT, OTHER_POINT])
 
-    assert times == [datetime(2026, 9, 7, 13, 0)]
+    assert grid.times == [datetime(2026, 9, 7, 13, 0)]
+    results = grid.points
     assert len(results) == 2
     assert results[0].latitude == POINT.latitude
     assert results[0].longitude == POINT.longitude
@@ -154,17 +173,27 @@ async def test_get_wind_grid_builds_speed_and_direction_from_msm(monkeypatch):
     assert results[0].precipitation_mm == [0.4]
 
 
-async def test_get_wind_grid_returns_all_none_when_msm_unavailable(monkeypatch):
+async def test_a_missing_value_in_the_grid_is_absent_rather_than_nan(monkeypatch):
+    """格子の欠損（NaN）の時刻は値が無い（None）。画面はその時刻の点を飛ばす。"""
+    nan = float("nan")
+    _patch_read_series(monkeypatch, times=["2026-09-07T13:00", "2026-09-07T14:00"], u=[nan, 0.0], v=[nan, -1.0],
+                       precipitation=[nan, 0.4])
+
+    point = (await WeatherService().get_wind_grid([POINT])).points[0]
+
+    assert point.wind_speed_ms == [None, 1.0]
+    assert point.wind_direction_deg == [None, 0.0]
+    assert point.precipitation_mm == [None, 0.4]
+
+
+async def test_get_wind_grid_returns_none_when_msm_unavailable(monkeypatch):
     _patch_unavailable(monkeypatch)
 
-    times, results = await WeatherService().get_wind_grid([POINT, OTHER_POINT])
-
-    assert times == []
-    assert results == [None, None]
+    assert await WeatherService().get_wind_grid([POINT, OTHER_POINT]) is None
 
 
 async def test_get_wind_grid_returns_empty_for_empty_points():
-    assert await WeatherService().get_wind_grid([]) == ([], [])
+    assert await WeatherService().get_wind_grid([]) == WindGridResponse(times=[], points=[])
 
 
 ROUTE_BBOX = BoundingBox(min_latitude=35.0, min_longitude=139.0, max_latitude=35.12, max_longitude=139.1)

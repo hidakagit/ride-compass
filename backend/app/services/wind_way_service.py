@@ -14,7 +14,7 @@ from datetime import datetime
 import numpy as np
 
 from app.domain.dynamic_materials import DynamicAxisRequestContext, evaluate_dynamic_material_arrays
-from app.domain.time_zone import JST
+from app.domain.time_zone import JST, as_series_time
 from app.domain.material_catalog import WIND_DRAG_RATIO
 from app.domain.region import BoundingBox, tile_bounds_lonlat
 from app.domain.wind import kmh_to_ms
@@ -57,10 +57,7 @@ class WindWayService:
         取込範囲外・風データ取得不能・予報の範囲の外の時刻はいずれも空dictへ倒し、「この道路に
         色が付かない」という劣化で済ませる。
         """
-        # 予報の時刻はJSTのローカル時刻。tz付きの時刻はtzinfoを剥がすだけだと時差ぶんずれる。
-        target = conditions.at or datetime.now(JST)
-        if target.tzinfo is not None:
-            target = target.astimezone(JST).replace(tzinfo=None)
+        target = as_series_time(conditions.at or datetime.now(JST))
         bbox = tile_bounds_lonlat(z, x, y)
 
         with log_external_call(_CATEGORY, z=z, x=x, y=y) as fields:
