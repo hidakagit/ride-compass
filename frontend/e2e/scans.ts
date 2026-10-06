@@ -307,7 +307,8 @@ export async function pinchOpen(client: CDPSession, x: number, y: number): Promi
  * 観点2（部品の検査）: 地図のcanvas以外の部品から始めたピンチが、ページ全体の拡大にならないか（地図の上の
  * ピンチが地図を拡大することは map-runtime.spec.ts が見る）。対象は、見えている要素の中心点で最前面になる要素
  * （指が実際に触れる要素）。指は1回の移動で画面の左右の端まで開く——ブラウザがピンチとして扱うかが見えれば足り、
- * 移動を分けても検知は変わらない。拡大したら倍率を戻す（戻らなければ座標がずれるので、残りは未検査として打ち切る）。
+ * 移動を分けても検知は変わらない。指はつまみ・スライダーを動かしうるので、ピンチの間は画面の状態を止める
+ * （`window.__e2e.isolate`）。拡大したら倍率を戻す（戻らなければ座標がずれるので、残りは未検査として打ち切る）。
  */
 export async function scanPinch(page: Page, client: CDPSession): Promise<{ checked: number; problems: string[] }> {
   const width = await page.evaluate(() => window.innerWidth);
@@ -329,6 +330,7 @@ export async function scanPinch(page: Page, client: CDPSession): Promise<{ check
   });
   const problems: string[] = [];
   for (const [index, target] of targets.entries()) {
+    await page.evaluate(({ x, y }) => window.__e2e.isolate(x, y), target);
     await client.send("Input.dispatchTouchEvent", {
       type: "touchStart",
       touchPoints: [
@@ -344,6 +346,7 @@ export async function scanPinch(page: Page, client: CDPSession): Promise<{ check
       ],
     });
     await client.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await page.evaluate(() => window.__e2e.release());
     const scale = await page.evaluate(() => window.__e2e.stableScale());
     if (scale === 1) continue;
     problems.push(

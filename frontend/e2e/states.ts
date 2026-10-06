@@ -58,6 +58,11 @@ interface PageHelpers {
   center(id: number): Spot | null;
   settle(): Promise<{ ok: boolean; fp: string }>;
   stableScale(): Promise<number>;
+  /** 検査のタッチが画面の状態を変えないようにする。(x, y)の入力欄の値を覚え、アプリへのタッチ・ポインタ・入力の
+   * イベントを止める（ページの拡大はブラウザが`touch-action`で決めるので、止めても変わらない）。 */
+  isolate(x: number, y: number): void;
+  /** isolateをやめ、覚えた入力欄の値を戻す（ブラウザの既定の動きでスライダーのつまみが動くため）。 */
+  release(): void;
 }
 
 declare global {
@@ -138,6 +143,26 @@ export function installPageHelpers(): void {
       `倍率 ${window.visualViewport?.scale ?? 1}`,
     ].join("\n");
   const frame = () => new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+  // アプリより先に入れるので、windowの捕捉の段でアプリのどの受け口よりも先に呼ばれる。
+  let held: { input: HTMLInputElement; value: string } | null = null;
+  let isolating = false;
+  for (const type of [
+    "touchstart",
+    "touchmove",
+    "touchend",
+    "touchcancel",
+    "pointerdown",
+    "pointermove",
+    "pointerup",
+    "pointercancel",
+    "input",
+    "change",
+  ]) {
+    window.addEventListener(type, (event) => isolating && event.stopImmediatePropagation(), {
+      capture: true,
+      passive: true,
+    });
+  }
 
   window.__e2e = {
     componentKey,
@@ -212,6 +237,16 @@ export function installPageHelpers(): void {
         previous = scale;
       }
       return previous;
+    },
+    isolate(x, y) {
+      const hit = document.elementFromPoint(x, y);
+      held = hit instanceof HTMLInputElement ? { input: hit, value: hit.value } : null;
+      isolating = true;
+    },
+    release() {
+      isolating = false;
+      if (held) held.input.value = held.value;
+      held = null;
     },
   };
 }
