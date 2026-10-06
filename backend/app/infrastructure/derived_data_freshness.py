@@ -25,12 +25,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.domain.strict_model import StrictModel
 from app.infrastructure import source_models
 from app.infrastructure.derived_data_meta import DerivedColumnRow, DerivedSourceRunRow
-from app.infrastructure.orm_base import DERIVED_KEY, Base
+from app.infrastructure.orm_base import DERIVED_KEY, declared_metadata
 
 
 def derived_tables() -> list:
     """表の印（`orm_base.py: DERIVED`）を持つ表（＝派生データ）。"""
-    return [table for table in Base.metadata.sorted_tables
+    return [table for table in declared_metadata().sorted_tables
             if table.info.get(DERIVED_KEY)]
 
 
