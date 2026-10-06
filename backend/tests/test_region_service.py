@@ -105,7 +105,7 @@ class _FakeWayRepository(RoadGraphRepository):
         self._materials = materials or {}
 
     async def get_way_tags_by_osm_way_id(self, osm_way_id):
-        return ("primary", {}, None)
+        return ("primary", {})
 
     async def get_accident_years_covered(self):
         return 1
