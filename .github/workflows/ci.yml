@@ -40,6 +40,14 @@ on:
   pull_request:
   workflow_dispatch:
 
+# 同じ ref（master・Pull Request ごと）の実行は1本ずつ動かし、待ちは一番新しい1件だけにする（既定の queue: single。
+# 新しい実行が来ると古い待ちは取り消される。GitHub の公式の文書「Control the concurrency of workflows and jobs」）。
+# 後のコミットは前の変更を全部含むので、古いコミットの実行は要らない。Pull Request は走っている実行も取り消し、
+# master は走っている実行を最後まで走らせる（デプロイは同じ実行の中で走るので、途中で切らない）。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   changes:
     runs-on: ubuntu-latest

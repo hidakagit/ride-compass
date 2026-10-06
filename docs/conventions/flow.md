@@ -213,7 +213,7 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
      に当たるファイルがあるときだけ見る）。`git merge-base --is-ancestor <マージのコミット> <本番の commit>` が 0 で終われば出ている
      （本番の commit が手元に無ければ先に `git fetch origin`）。出ていなければ、マージのコミットの master の CI を 5 と同じく（`--event pull_request` を付けずに）引いて
      終わるまで待ち、見直す（CI の `deploy-frontend`・`deploy-backend` は、出したコミットが本番の `commit` になるまで待って終わる。
-     デプロイのジョブが取り消しで終わったのは後のコミットのデプロイに順番を譲ったときで、そのときは master の先頭の CI を同じく待つ）。それでも出ていなければ、そのことを判断材料に書いて問う。判断材料には、ユーザーが自分で版を見分ける方法
+     デプロイのジョブが取り消しで終わったのは後のコミットのデプロイに順番を譲ったとき、実行ごと取り消しで終わったのは待ちの間に後のマージの実行と入れ替わったとき（`ci.yml` の `concurrency`）で、どちらも master の先頭の CI を同じく待つ）。それでも出ていなければ、そのことを判断材料に書いて問う。判断材料には、ユーザーが自分で版を見分ける方法
      として、開く URL と、見た時点の `commit`・`started_at` を書く（出ていれば「`started_at` がこの時刻以降なら修正を含む版」、
      出ていなければ「`commit` がこの値から変わっていれば修正を含む版」。本番へはマージの後の master しか出ないため）。残りが無くなれば
      `GH_TOKEN=$FLOW_BOT_TOKEN gh issue close <番号> -R ridecompass/ride-compass-tasks --reason completed` で閉じる（ゲートが、残りが無いことを照らしてから完了にする）。
