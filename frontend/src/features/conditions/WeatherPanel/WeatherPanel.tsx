@@ -68,7 +68,7 @@ export default function WeatherPanel({ amedas, loading, error }: WeatherPanelPro
       ? [{ term: "風", value: `${direction.label}の風 ${amedas.wind_speed_ms.toFixed(1)}m/s` }]
       : []),
     ...(amedas.precipitation_10min_mm != null
-      ? [{ term: "直近10分間の降水量", value: `${amedas.precipitation_10min_mm.toFixed(1)}mm` }]
+      ? [{ term: "降水量", value: `${amedas.precipitation_10min_mm.toFixed(1)}mm（直近10分間）` }]
       : []),
     ...(weatherDisplay != null ? [{ term: "天気", value: weatherDisplay.label }] : []),
   ];

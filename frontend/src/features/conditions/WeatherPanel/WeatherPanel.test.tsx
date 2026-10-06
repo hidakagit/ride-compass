@@ -135,7 +135,7 @@ describe("WeatherPanel 観測の出所", () => {
     expect(panel).toHaveTextContent("練馬11:50");
     expect(panel).toHaveTextContent("気温21.4℃（体感 20.0℃）");
     expect(panel).toHaveTextContent("風東の風 3.3m/s");
-    expect(panel).toHaveTextContent("直近10分間の降水量1.3mm");
+    expect(panel).toHaveTextContent("降水量1.3mm（直近10分間）");
     expect(panel).toHaveTextContent(`天気${WEATHER_CATEGORY_LABEL.clear}`);
   });
 
