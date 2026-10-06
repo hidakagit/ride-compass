@@ -1014,14 +1014,19 @@ export interface components {
                 [key: string]: number;
             };
         };
-        /** ColumnCompleteness */
-        ColumnCompleteness: {
+        /** ColumnNulls */
+        ColumnNulls: {
             /** Column */
             column: string;
-            /** Uncalculated Count */
-            uncalculated_count: number;
-            /** Absent Count */
-            absent_count: number;
+            /** Null Count */
+            null_count: number;
+        };
+        /** ColumnsChange */
+        ColumnsChange: {
+            /** Added */
+            added: string[];
+            /** Removed */
+            removed: string[];
         };
         /** ConnectionEntry */
         ConnectionEntry: {
@@ -1046,15 +1051,6 @@ export interface components {
             latitude: number;
             /** Longitude */
             longitude: number;
-        };
-        /** Coverage */
-        Coverage: {
-            /** Parent */
-            parent: string;
-            /** Parent Row Count */
-            parent_row_count: number;
-            /** Missing Rows */
-            missing_rows: number;
         };
         /** DbStatusReport */
         DbStatusReport: {
@@ -1943,8 +1939,8 @@ export interface components {
             /** Row Count */
             row_count: number;
             /** Columns */
-            columns: components["schemas"]["ColumnCompleteness"][];
-            coverage: components["schemas"]["Coverage"] | null;
+            columns: components["schemas"]["ColumnNulls"][];
+            columns_change: components["schemas"]["ColumnsChange"] | null;
             /** Needs Rebuild */
             needs_rebuild: boolean;
         };

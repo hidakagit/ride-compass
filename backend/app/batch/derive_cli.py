@@ -8,9 +8,10 @@
     .venv\\Scripts\\python.exe -m app.batch.derive_cli --from counts
 
 途中から流し直すのは、ある段のやり方だけを変えたとき（分類器を直した・しきい値を
-変えた）。`--from`はその段から後ろを全部流す。生データを取り直したときは最初から通す——
-`--from`は、全ソースの成功した最新の取込が前の作り直しの記録（`derived_source_runs`）と
-同じときだけ流し、違えば止まる（流すと、前の段が古い取込から作った値のまま残る）。
+変えた）。`--from`はその段から後ろを全部流す。生データを取り直したとき・派生の表の列を足した・消したときは
+最初から通す——`--from`は、全ソースの成功した最新の取込と派生の表の宣言の列が前の作り直しの記録
+（`derived_source_runs`・`derived_columns`）と同じときだけ流し、違えば止まる（流すと、前の段が古い取込から
+作った値や、前の段が書く足した列のNULLが残る）。
 作り直しは取込と同時に走らない（`common.py: SOURCE_DATA_LOCK`）。
 
 後ろの段がみな直前の段の値を読むわけではない。面を線へ落とす段（`raster`）はノードの値も
@@ -59,7 +60,7 @@ from app.batch.common import (  # noqa: E402
 )
 from app.infrastructure.tuning_overrides import load_tuning_values  # noqa: E402
 from app.infrastructure import derived_data_meta, road_network_store  # noqa: E402
-from app.infrastructure.derived_data_freshness import derived_tables  # noqa: E402
+from app.infrastructure.derived_data_freshness import declared_columns, derived_tables  # noqa: E402
 from app.infrastructure.road_graph_repository import RoadGraphRepository  # noqa: E402
 from app.infrastructure.source_models import LATEST_SUCCEEDED_RUNS_SQL  # noqa: E402
 
@@ -191,8 +192,11 @@ async def _read_tuning(database_url: str) -> dict[str, float]:
 async def run(database_url: str, start_from: str | None) -> int:
     names = [name for name, _ in STAGES]
     begin = names.index(start_from) if start_from else 0
-    # 作った取込の記録も写す——事故密度の分母がそこから読まれ、写しから作る道路網の配列も数と同じ取込の年で割るため。
-    tables = [*(table.name for table in derived_tables()), derived_data_meta.DerivedSourceRunRow.__tablename__]
+    # 作った取込と列の記録も写す——事故密度の分母が取込の記録から読まれ、写しから作る道路網の配列も数と同じ取込の年で
+    # 割るため。どちらの記録も派生の表と一緒に入れ替わる。
+    tables = [*(table.name for table in derived_tables()), derived_data_meta.DerivedSourceRunRow.__tablename__,
+              derived_data_meta.DerivedColumnRow.__tablename__]
+    columns = declared_columns()
     tuning = await _read_tuning(database_url)
     conn = await asyncpg.connect(asyncpg_dsn(database_url))
     if not await conn.fetchval("SELECT pg_try_advisory_lock(hashtext($1))", SOURCE_DATA_LOCK):
@@ -202,10 +206,12 @@ async def run(database_url: str, start_from: str | None) -> int:
     started = time.perf_counter()
     try:
         runs = {row["source"]: row["run_id"] for row in await conn.fetch(LATEST_SUCCEEDED_RUNS_SQL)}
-        if start_from and runs != await derived_data_meta.read_source_runs(conn):
-            raise RuntimeError("生データが前の作り直しから変わっている。--from を外して最初から流す")
+        if start_from and (runs != await derived_data_meta.read_source_runs(conn)
+                           or columns != await derived_data_meta.read_columns(conn)):
+            raise RuntimeError("生データか派生の表の列が前の作り直しから変わっている。--from を外して最初から流す")
         await _copy_to_work_schema(conn, tables)
         await derived_data_meta.replace_source_runs(conn, runs)
+        await derived_data_meta.replace_columns(conn, columns)
         for index, (name, stage) in enumerate(STAGES[begin:], start=1):
             stage_started = time.perf_counter()
             logger.info("段 %s を開始（%d/%d）", name, index, len(STAGES) - begin)
