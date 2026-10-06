@@ -55,6 +55,8 @@ export interface CaptureContext {
   openLegend(chip: string, row?: string): Promise<Locator>;
   /** 地図の上の経度・緯度の点を押す。その点が画面の外か、地図の上に別の部品が重なっていれば止める。 */
   clickMap(lngLat: [number, number]): Promise<void>;
+  /** 地図の見えている所（部品に覆われていない所）へ経度・緯度の点を寄せてから押す。点が画面の外や部品の下に来うるときに使う。 */
+  clickVisible(lngLat: [number, number]): Promise<void>;
   /**
    * URL が glob に当たる応答の本文を `transform` の返した JSON に替える。本物の応答を取ってから本文だけを替えるので、CORS 等の
    * ヘッダーは本物のまま残る（ヘッダーの無い応答で返すと、別オリジンの backend への取得としてブラウザが捨てる）。
@@ -230,6 +232,9 @@ export function captureContext(page: Page, { out, mocked }: { out: string; mocke
     },
     async clickMap(lngLat) {
       await fixtures.clickMap(page, lngLat);
+    },
+    async clickVisible(lngLat) {
+      await states.clickVisible(page, lngLat);
     },
     async patch(glob, transform) {
       await page.route(glob, async (route) => {
