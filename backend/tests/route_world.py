@@ -110,7 +110,7 @@ def grid_network(
         bearing_deg=np.array([bearing_between(a, b) for a, b in points]),
         mid_lat=(lat[tail] + lat[head]) / 2, mid_lon=(lon[tail] + lon[head]) / 2,
         elevation_present=np.zeros(n, dtype=bool),
-        elevation_start_m=nan, elevation_end_m=nan, elevation_gain_m=nan, elevation_loss_m=nan,
+        elevation_gain_m=nan, elevation_loss_m=nan,
         elevation_max_grade=nan, elevation_min_grade=nan,
     )
 

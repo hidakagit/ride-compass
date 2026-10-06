@@ -1,8 +1,8 @@
 """`domain/route.py`——区間（交差点の間）を`SEGMENT_BIN_DISTANCE_KM`ごとのビンへ束ねる`aggregate_segments_into_bins`と、
-区間の値を候補全体へ畳む`merge_*`。
+区間の値を候補全体へ畳む`merge_*`と、Edge単位の軸の生値を候補全体へ畳む`route_axis_raw_values`。
 
-入口は`aggregate_segments_into_bins`・`merge_axis_difficulties`・`merge_axis_contributions`・`merge_axis_raw_values`・
-`merge_material_values`・`merge_material_category_shares`。応答の型（`RouteCandidate`等）の検証はPydanticが持つ。
+入口は`aggregate_segments_into_bins`・`merge_axis_difficulties`・`merge_axis_contributions`・
+`merge_material_values`・`merge_material_category_shares`・`route_axis_raw_values`。応答の型（`RouteCandidate`等）の検証はPydanticが持つ。
 
 ここで見ないもの:
 - 区間の値をコスト配列から読んで区間を組み立てること → `test_road_graph_engine.py`
@@ -10,7 +10,7 @@
 """
 
 import pytest
-from hypothesis import given
+from hypothesis import example, given
 from hypothesis import strategies as st
 
 from app.domain import route
@@ -82,14 +82,12 @@ def test_each_value_of_a_bin_is_averaged_over_the_segments_that_have_it():
         [0.1, 0.3, 0.2],
         axis_difficulties=[{"axis_a": 10.0}, {"axis_a": 30.0, "axis_b": 50.0}, {}],
         axis_contributions=[{"axis_a": 4.0}, {"axis_a": 8.0}, {}],
-        axis_raw_values=[{"axis_a": 1.0}, {}, {"axis_a": 2.0}],
         material_values=[{}, {}, {"material_a": 7.0}],
     ))
 
     merged = bins[0]
     assert merged.axis_difficulties == {"axis_a": 25.0, "axis_b": 50.0}
     assert merged.axis_contributions == {"axis_a": 7.0}
-    assert merged.axis_raw_values == {"axis_a": pytest.approx(1.667, abs=1e-3)}
     assert merged.material_values == {"material_a": 7.0}
 
 
@@ -109,14 +107,30 @@ def test_difficulties_keep_one_decimal_and_physical_values_keep_four_significant
         [0.1, 0.2],
         axis_difficulties=[{"axis_a": 10.0}, {"axis_a": 20.0}],
         axis_contributions=[{"axis_a": 10.0}, {"axis_a": 20.0}],
-        axis_raw_values=[{"axis_a": 0.000123}, {"axis_a": 0.000456}],
         material_values=[{"material_a": 1000.0}, {"material_a": 2000.0}],
     )
 
     assert route.merge_axis_difficulties(segments) == {"axis_a": 16.7}
     assert route.merge_axis_contributions(segments) == {"axis_a": 16.7}
-    assert route.merge_axis_raw_values(segments) == {"axis_a": 0.0003450}
     assert route.merge_material_values(segments) == {"material_a": 1667.0}
+
+
+@given(st.lists(
+    st.tuples(
+        st.floats(min_value=0.0, max_value=1.5).map(lambda distance: round(distance, 2)),
+        st.dictionaries(st.sampled_from(["axis_a", "axis_b"]), st.floats(min_value=-50.0, max_value=50.0)),
+    ),
+    min_size=1, max_size=40,
+))
+@example([(0.25, {"axis_a": 1.0}), (0.25, {}), (0.5, {"axis_a": 4.0})])
+def test_route_raw_values_match_the_mean_over_the_bins_of_the_segments(edges):
+    """区間の材料の値（同じ畳み方）を区間 → ビン → 候補と畳んだ値と、桁まで同じになる。
+
+    例は、値を持たない区間がビンの重みにだけ効く形（ビンを経ずに区間の距離で平均すると値が変わる）。
+    """
+    segments = _segments([distance for distance, _ in edges], material_values=[values for _, values in edges])
+
+    assert route.route_axis_raw_values(edges) == route.merge_material_values(route.aggregate_segments_into_bins(segments))
 
 
 def test_a_value_of_zero_stays_zero():

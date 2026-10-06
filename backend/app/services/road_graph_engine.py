@@ -26,13 +26,13 @@ import itertools
 import logging
 import math
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 
 import numpy as np
 
-from app.domain.time_zone import JST
+from app.domain.time_zone import JST, as_series_time
 from app.domain.traffic import highway_rank
 from app.domain.tuning import tuning_value
 from app.domain.cycling_speed import top_speed_kmh
@@ -67,6 +67,7 @@ from app.domain.route import (
     RouteSegmentDetail,
     aggregate_segments_into_bins,
     merge_material_category_shares,
+    route_axis_raw_values,
 )
 from app.domain.route_search import (
     ALTERNATIVE_MAX_STRETCH,
@@ -312,8 +313,8 @@ class RoadGraphEngine:
         materials_started = time.monotonic()
         score_matrix, rain_ms = await asyncio.to_thread(_static_score_matrix, road, rain)
         materials_ms = round((time.monotonic() - materials_started) * 1000)
-        # 通過予定時刻の基準（出発時刻）。時別系列はJSTのローカル時刻のため揃える。
-        start = now.astimezone(JST).replace(tzinfo=None)
+        # 通過予定時刻の基準（出発時刻）。
+        start = as_series_time(now)
 
         # --- bbox全体ぶんのコスト配列の合成（レグごと。まず起点から離れる往路レグ） ---
         cost_started = time.monotonic()
@@ -1240,8 +1241,7 @@ class RoadGraphEngine:
         # 区間と標高属性を引数で受けるのは、逆回り候補も同じ組み立てを通すため。
         # distance_km・bearingは同じ物理経路なので順方向の`traced`のものをそのまま使う。
         geometry, edge_point_offsets = concat_edge_geometries(edges_in_path)
-        elevation_stats = aggregate_elevation(edges_in_path, elevation_by_edge)
-        segments, segment_categories = self._build_segment_details(
+        segments, segment_categories, segment_raw_values = self._build_segment_details(
             edges_in_path, path, elevation_by_edge, context, start_time, leg_of_edge
         )
         rows = np.asarray([_slice_row(context, index) for index in path], dtype=np.int64)
@@ -1249,6 +1249,9 @@ class RoadGraphEngine:
         # 計算すると、ビンの代表値を1つ選ぶ形になり割合がビンの粒度へ量子化される。
         material_category_shares = merge_material_category_shares(
             zip((segment.distance_km for segment in segments), segment_categories)
+        )
+        axis_raw_values = route_axis_raw_values(
+            list(zip((segment.distance_km for segment in segments), segment_raw_values))
         )
         # 返すsegmentsは集約する。Edge単位のままだとペイロードとフロントの描画費用が嵩む。
         segments = aggregate_segments_into_bins(segments)
@@ -1265,10 +1268,11 @@ class RoadGraphEngine:
             ),
             segments=segments,
             material_category_shares=material_category_shares,
+            axis_raw_values=axis_raw_values,
             estimated_duration_seconds=self._estimate_duration_seconds(context, edges_in_path, path, leg_of_edge),
             wind_unavailable=context.composer.wind_unavailable,
             missing_travel_data_share=context.composer.missing_travel_data_share(rows) if len(rows) else None,
-            **elevation_stats,
+            elevation_gain_m=route_elevation_gain(edges_in_path, elevation_by_edge),
         )
 
     def _estimate_duration_seconds(
@@ -1346,10 +1350,10 @@ class RoadGraphEngine:
         context: _RoadGraphContext,
         start_time: datetime,
         leg_of_edge: list[int],
-    ) -> tuple[list[RouteSegmentDetail], list[dict[str, str]]]:
-        """区間ごとの表示値と、区間ごとのcategorical材料の値（材料id→値）を組み立てる。
-        後者は平均できず区間の器（ビンへ畳まれる）に載せられないため、候補全体の延長割合へ
-        畳む`_build_candidate`へ並びのまま渡す。
+    ) -> tuple[list[RouteSegmentDetail], list[dict[str, str]], list[dict[str, float]]]:
+        """区間ごとの表示値と、区間ごとのcategorical材料の値（材料id→値）・軸の生値（axis_id→値）を組み立てる。
+        categorical材料の値は平均できず区間の器（ビンへ畳まれる）に載せられないため、軸の生値は画面が
+        候補全体の値しか読まないため、どちらも候補全体へ畳む`_build_candidate`へ並びのまま渡す。
 
         軸別スコア・合成difficulty・寄与度・材料値は、
         そのEdgeが探索されたレグ（`leg_of_edge`）の合成済み配列（`context.legs`、
@@ -1358,6 +1362,7 @@ class RoadGraphEngine:
         """
         segments = []
         segment_categories: list[dict[str, str]] = []
+        segment_raw_values: list[dict[str, float]] = []
         cumulative_km = 0.0
         active_material_ids = displayed_material_ids(context.composer.weights, self._lens_axis_id)
         passages = self._route_passages(context, edges, path, leg_of_edge)
@@ -1395,11 +1400,11 @@ class RoadGraphEngine:
             axis_contributions = values.axis_contributions_at(value_row)
             # 折れ点を通す前の生値。静的スコア行列が持つ列をそのまま読む
             # （動的材料を参照する軸は行列側で除外済み）。
-            axis_raw_values = {
+            segment_raw_values.append({
                 axis_id: float(arr[row])
                 for axis_id, arr in leg.axis_raw_arrays.items()
                 if not math.isnan(arr[row])
-            }
+            })
             difficulty_value = values.difficulty_array[value_row]
             composite_difficulty_value = None if math.isnan(difficulty_value) else float(difficulty_value)
             material_values = {
@@ -1439,7 +1444,6 @@ class RoadGraphEngine:
                     distance_km=round(distance_km, 2),
                     estimated_arrival_time=arrival_time.isoformat(),
                     axis_difficulties=axis_scores,
-                    axis_raw_values=axis_raw_values,
                     axis_contributions=axis_contributions,
                     material_values=material_values,
                     difficulty=composite_difficulty_value,
@@ -1448,7 +1452,7 @@ class RoadGraphEngine:
             )
             cumulative_km += distance_km
 
-        return segments, segment_categories
+        return segments, segment_categories, segment_raw_values
 
 
 def _values_at_passages(
@@ -1760,27 +1764,13 @@ def concat_edge_geometries(edges: list[LeanEdge]) -> tuple[dict, list[int]]:
     return {"type": "LineString", "coordinates": coordinates}, offsets
 
 
-def aggregate_elevation(edges: list[LeanEdge], elevation_by_edge: dict) -> dict:
-    attrs = [elevation_by_edge.get(edge.edge_id) for edge in edges]
-    valid = [a for a in attrs if a is not None]
-
-    gains = [a.elevation_gain_m for a in valid if a.elevation_gain_m is not None]
-    elevations: list[float] = []
-    for a in valid:
-        if a.start_elevation_m is not None:
-            elevations.append(a.start_elevation_m)
-        if a.end_elevation_m is not None:
-            elevations.append(a.end_elevation_m)
-
-    return {
-        "elevation_gain_m": _rounded_or_none(sum, gains),
-        "min_elevation_m": _rounded_or_none(min, elevations),
-        "max_elevation_m": _rounded_or_none(max, elevations),
-    }
-
-
-def _rounded_or_none(aggregate: Callable[[list[float]], float], values: list[float]) -> float | None:
-    """値が1つも無ければNone（0mと「標高が取れなかった」を分ける）。小数1桁へ丸める。"""
-    return round(aggregate(values), 1) if values else None
+def route_elevation_gain(edges: list[LeanEdge], elevation_by_edge: dict) -> float | None:
+    """経路の獲得標高（m、小数1桁）。値が1つも無ければNone（0mと「標高が取れなかった」を分ける）。"""
+    gains = [
+        attribute.elevation_gain_m
+        for edge in edges
+        if (attribute := elevation_by_edge.get(edge.edge_id)) is not None and attribute.elevation_gain_m is not None
+    ]
+    return round(sum(gains), 1) if gains else None
 
 

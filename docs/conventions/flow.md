@@ -660,6 +660,13 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
   いるか・なぜ決める必要があるかを入れる。画面の見た目・情報量に関わる判断は、変更前と変更後の画面かモックを添える。
   画像を付けるときは、画像ごとに画面で見える見出しを付ける。
   推奨は判断材料の最後に理由と一緒に書く。
+- **画像の載せ方**: `ask.js` は文だけを書き、画像を載せられない。問う前に、画像だけのコメントを
+  `GH_TOKEN=$FLOW_BOT_TOKEN gh issue comment <番号> -R ridecompass/ride-compass-tasks --body-file <何の画像かの説明> --attach '<画像>#<見出し>' …`
+  で書く（画像はコメントの末尾に、見出しを代替の文にして並ぶ。`gh issue comment --help` の `--attach`）。出たコメントの id で
+  `GH_TOKEN=$FLOW_BOT_TOKEN gh api repos/ridecompass/ride-compass-tasks/issues/comments/<id> --jq .body` を読み、`https://github.com/user-attachments/assets/…`
+  の URL を判断材料の `![<見出し>](<URL>)` で指す（回答フォームは判断材料を GitHub の Markdown の描き方で HTML にし、非公開の画像も
+  開いた時点から5分有効の URL で出る）。開発機の対話のセッションがチャットで問うときも、画像は同じく issue に載せる（答えの
+  記録と同じ issue に残る。issue の外のもの（claude.ai の Artifact 等）は、操作して見せたいときに画像へ足すだけにする）。
 - **製品の言葉で書く**: 実装の語（関数名・引数名）・固有名詞・タスク番号に頼らない。
 - **案**: 自分の領分（どう直すか・書き方）を案に入れない。案の文と実際に当てる作業を一致させる。
 

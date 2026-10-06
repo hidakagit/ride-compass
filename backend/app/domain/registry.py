@@ -35,7 +35,7 @@ class DisplayCategorySpec(StrictModel):
     """
 
     key: str
-    label: str
+    label: str = Field(min_length=1)
     values: tuple[str | bool, ...]
     #: 凡例の行の（i）から開く、この行に何が入るかの説明。利用者の言葉で書き、OSMのタグは括弧で添える程度にする。
     description: str = Field(min_length=1)

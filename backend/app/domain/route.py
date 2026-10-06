@@ -1,7 +1,7 @@
 import math
 from collections import defaultdict
 
-from typing import Annotated, Any, Callable, Iterable, Mapping
+from typing import Annotated, Any, Callable, Iterable, Mapping, TypeVar
 
 from pydantic import Field, WithJsonSchema
 
@@ -11,6 +11,7 @@ from app.domain.difficulty import (
     round_difficulty,
     weighted_mean_by_distance,
 )
+from app.domain.geo import Latitude, Longitude
 from app.domain.strict_model import StrictModel
 
 
@@ -33,8 +34,8 @@ LineStringGeometry = Annotated[
 
 
 class Coordinates(StrictModel):
-    latitude: float = Field(ge=-90, le=90)
-    longitude: float = Field(ge=-180, le=180)
+    latitude: Latitude
+    longitude: Longitude
 
 
 class SegmentWind(StrictModel):
@@ -79,9 +80,6 @@ class RouteSegmentDetail(StrictModel):
     axis_contributions: dict[str, float] = Field(default_factory=dict)
     # 重み>0の公開軸が参照する材料id→値。評価に使っていない軸の材料は出ない。
     material_values: dict[str, float] = Field(default_factory=dict)
-    # axis_id→折れ点を通す前の生値。単位が定まる軸だけが持つ。得点（0-100）は目盛りの
-    # 引き方に依存する相対評価のため、軸単体で経路を判断するにはこの絶対値が要る。
-    axis_raw_values: dict[str, float] = Field(default_factory=dict)
     difficulty: float | None = None
     # この区間の評価に使った風（到達予想の時刻に通るとして引いた予報）。風を持たない生成ではNone。
     wind: SegmentWind | None = None
@@ -101,8 +99,6 @@ class RouteCandidate(StrictModel):
     distance_km: float
     geometry: LineStringGeometry
     elevation_gain_m: float | None = None
-    min_elevation_m: float | None = None
-    max_elevation_m: float | None = None
     segments: list[RouteSegmentDetail] = Field(default_factory=list)
     overall_difficulty: OverallDifficulty | None = None
     # 所要時間の見積もり（秒）。区間の走行時間（走行モデル: 巡航速度・勾配・風から求めた
@@ -117,8 +113,10 @@ class RouteCandidate(StrictModel):
     # 合計は丸め誤差を除いて`overall_difficulty`と一致する。フロントの「内訳（重み付き
     # 寄与度）」表示はこれをそのまま使い、ルート設定の重みを使った独自再計算はしない。
     axis_contributions: dict[str, float] = Field(default_factory=dict)
+    # axis_id→折れ点を通す前の生値。単位が定まる軸だけが持つ。得点（0-100）は目盛りの
+    # 引き方に依存する相対評価のため、軸単体で経路を判断するにはこの絶対値が要る。
     # 単位は`GET /api/axis-catalog`の`raw_value_unit`が持ち、「◯◯/km」なら走行距離を
-    # 掛けて経路全体の実数（例: 止まる回数）にできる。
+    # 掛けて経路全体の実数（例: 止まる回数）にできる。区間の値は持たない（`route_axis_raw_values`）。
     axis_raw_values: dict[str, float] = Field(default_factory=dict)
     material_values: dict[str, float] = Field(default_factory=dict)
     # categorical材料id→{値: その値が占める延長割合(0〜1)}。平均できない材料の内訳。
@@ -157,23 +155,27 @@ def aggregate_segments_into_bins(segments: list[RouteSegmentDetail]) -> list[Rou
     最後のビンは`SEGMENT_BIN_DISTANCE_KM`未満でも単独で残す（切り捨てると経路全体の距離が
     合わなくなる）。
     """
-    if not segments:
-        return []
+    return [_merge_segment_bin(bin_segments) for bin_segments in _split_into_bins(segments, lambda s: s.distance_km)]
 
-    bins: list[list[RouteSegmentDetail]] = []
-    current_bin: list[RouteSegmentDetail] = []
+
+_T = TypeVar("_T")
+
+
+def _split_into_bins(items: list[_T], distance_km: Callable[[_T], float]) -> list[list[_T]]:
+    """連続する`items`を、累積距離が`SEGMENT_BIN_DISTANCE_KM`に達するごとに切る。最後の端数も1つのビンにする。"""
+    bins: list[list[_T]] = []
+    current_bin: list[_T] = []
     current_bin_distance = 0.0
-    for segment in segments:
-        current_bin.append(segment)
-        current_bin_distance += segment.distance_km
+    for item in items:
+        current_bin.append(item)
+        current_bin_distance += distance_km(item)
         if current_bin_distance >= SEGMENT_BIN_DISTANCE_KM:
             bins.append(current_bin)
             current_bin = []
             current_bin_distance = 0.0
     if current_bin:
         bins.append(current_bin)
-
-    return [_merge_segment_bin(bin_segments) for bin_segments in bins]
+    return bins
 
 
 def _concat_segment_geometries(segments: list[RouteSegmentDetail]) -> dict | None:
@@ -212,21 +214,26 @@ def _merge_axis_value_dict(
 ) -> dict[str, float]:
     """複数の`RouteSegmentDetail`が持つキー→float辞書（`field_getter`で指定）を、
     キーごとに距離加重平均へ集約する共通ロジック（`merge_axis_difficulties`/
-    `merge_axis_contributions`/`merge_axis_raw_values`/`merge_material_values`の共有実装）。
+    `merge_axis_contributions`/`merge_material_values`の共有実装）。
     渡されたsegments群のどの区間にも無いキーは結果にも含めない
     （各フィールド共通の「データ無しはキーを持たない」規約）。
 
     `round_value`は集約後の丸め方。**0〜100のdifficulty系と、スケールが軸ごとに違う
     物理量（生値・材料値）とで必要な粒度が違う**ため、呼び出し側が指定する。
     """
-    axis_ids = {axis_id for s in segments for axis_id in field_getter(s)}
+    return _merge_weighted_dicts([(s.distance_km, field_getter(s)) for s in segments], round_value)
+
+
+def _merge_weighted_dicts(
+    items: list[tuple[float, Mapping[str, float]]], round_value: Callable[[float], float]
+) -> dict[str, float]:
+    """（距離km, キー→値）の並びを、キーごとに距離加重平均へ畳む。キーの無い項目はそのキーの平均に入れない。"""
+    keys = {key for _, values in items for key in values}
     merged: dict[str, float] = {}
-    for axis_id in axis_ids:
-        value = weighted_mean_by_distance(
-            [(field_getter(s).get(axis_id), s.distance_km) for s in segments]
-        )
+    for key in keys:
+        value = weighted_mean_by_distance([(values.get(key), distance) for distance, values in items])
         if value is not None:
-            merged[axis_id] = round_value(value)
+            merged[key] = round_value(value)
     return merged
 
 
@@ -239,11 +246,21 @@ def merge_axis_difficulties(segments: list[RouteSegmentDetail]) -> dict[str, flo
     return _merge_axis_value_dict(segments, lambda s: s.axis_difficulties)
 
 
-def merge_axis_raw_values(segments: list[RouteSegmentDetail]) -> dict[str, float]:
-    """`RouteSegmentDetail.axis_raw_values`をaxis_idごとに距離加重平均へ集約する
-    （`merge_axis_difficulties`と同じ集約方法）。単位が「◯◯/km」の軸なら、この値へ
-    走行距離を掛けると経路全体での実数（例: 止まる回数）になる。"""
-    return _merge_axis_value_dict(segments, lambda s: s.axis_raw_values, _round_significant)
+def route_axis_raw_values(edges: list[tuple[float, Mapping[str, float]]]) -> dict[str, float]:
+    """Edge単位の（距離km, axis_id→生値）を、候補全体の`RouteCandidate.axis_raw_values`へ畳む。
+
+    区間（`aggregate_segments_into_bins`）と同じ切り方でビンへ畳んでから、ビンを距離加重平均する——
+    ほかの候補単位の値（`axis_difficulties`等）がビンへ畳んだ区間から作られるのと、平均の取り方を揃える。
+    距離はビンの区間の`distance_km`と同じ丸めた値を渡すこと。
+    """
+    bins = _split_into_bins(edges, lambda edge: edge[0])
+    return _merge_weighted_dicts(
+        [
+            (round(sum(distance for distance, _ in bin_edges), 2), _merge_weighted_dicts(bin_edges, _round_significant))
+            for bin_edges in bins
+        ],
+        _round_significant,
+    )
 
 
 def merge_axis_contributions(segments: list[RouteSegmentDetail]) -> dict[str, float]:
@@ -294,7 +311,6 @@ def merge_material_category_shares(
 BIN_DICT_FIELD_MERGERS: dict[str, Callable[[list[RouteSegmentDetail]], dict[str, float]]] = {
     "axis_difficulties": merge_axis_difficulties,
     "axis_contributions": merge_axis_contributions,
-    "axis_raw_values": merge_axis_raw_values,
     "material_values": merge_material_values,
 }
 

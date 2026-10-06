@@ -39,6 +39,7 @@ def _material(material_id, dtype="numeric", *, tile=True, unit="") -> MaterialSp
         dtype=dtype,
         unit=unit,
         tile_property=f"{material_id}_tile" if tile else None,
+        value_sql=f"w.{material_id}",
         coverage=CoverageExcluded(reason="架空", missing_semantics="definite"),
     )
 
@@ -62,8 +63,7 @@ def axes(monkeypatch) -> dict[str, AxisDefinition]:
     saved: dict[str, AxisDefinition] = {}
     for module in (map_paint_module, axis_display, axis_raw_value):
         monkeypatch.setattr(module, "MATERIAL_CATALOG", CATALOG)
-    for module in (axis_display, axis_raw_value):
-        monkeypatch.setattr(module, "AXIS_DEFINITIONS", saved)
+    monkeypatch.setattr(axis_display, "AXIS_DEFINITIONS", saved)
     return saved
 
 

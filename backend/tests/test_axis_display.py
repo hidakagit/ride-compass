@@ -41,6 +41,7 @@ def _material(material_id, dtype, *, tile=True, unknown=False, **fields) -> Mate
         description="架空の材料",
         dtype=dtype,
         tile_property=f"{material_id}_tile" if tile else None,
+        value_sql=f"w.{material_id}",
         coverage=CoverageExcluded(reason="架空", missing_semantics="unknown" if unknown else "definite"),
         **fields,
     )

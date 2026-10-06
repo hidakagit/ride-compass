@@ -815,8 +815,8 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
   符号付き材料（`gradient_percent`等）は符号付きが正準契約**——絶対値ではない。
   ルート線の色分けがこの符号を読む）・`RouteCandidate`。
 - `aggregate_segments_into_bins`（500m区間ビニング）・`merge_axis_difficulties`・
-  `merge_axis_contributions`・`merge_axis_raw_values`・`merge_material_values`・
-  `merge_material_category_shares`・`_merge_segment_bin`。**`RouteSegmentDetail`の
+  `merge_axis_contributions`・`merge_material_values`・
+  `merge_material_category_shares`・`route_axis_raw_values`・`_merge_segment_bin`。**`RouteSegmentDetail`の
   フィールドは、ビンへの畳み方（`BIN_FIELD_MERGERS`）を必ず宣言する**。`_merge_segment_bin`は
   この表だけからビンを組み立て、辞書フィールドの畳み方（キーごとの距離加重平均、
   `BIN_DICT_FIELD_MERGERS`）も、形・位置・距離のように個別に畳むものも同じ表に載る。
@@ -852,7 +852,7 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
 ### `domain/geo.py`・`domain/errors.py`
 
 `geo.py`は球面三角法の地理計算——2地点の球面距離と初期方位角、それを多数の地点へまとめて求める配列版、
-角度から方位の呼び名への変換（例: `haversine_distance_km`・`compass_label`）、距離を度の幅へ直す目安（`KM_PER_DEGREE_LATITUDE`・`km_per_degree_longitude`と、SQLの前置フィルタの箱を距離の判定より必ず広くする`degrees_covering_m`）——と、多数の地点それぞれに最も近い点を球面の距離で選ぶ`nearest_point_indices`（1地点の口`nearest_point_index`。雨の材料・アメダス・暑さ指数の最寄りがすべてここを通る）を持つ。方位の呼び名は
+角度から方位の呼び名への変換（例: `haversine_distance_km`・`compass_label`）、距離を度の幅へ直す目安（`KM_PER_DEGREE_LATITUDE`・`km_per_degree_longitude`と、SQLの前置フィルタの箱を距離の判定より必ず広くする`degrees_covering_m`）——と、多数の地点それぞれに最も近い点を球面の距離で選ぶ`nearest_point_indices`（1地点の口`nearest_point_index`。雨の材料・アメダス・暑さ指数の最寄りがすべてここを通る。点が1つも無ければ断るので、無いときの答えは呼び手が決める）を持つ。緯度・経度の値の範囲（`Latitude`・`Longitude`）もここが持ち、`Coordinates`・`BoundingBox`・HTTPの要求の緯度経度がこの型で書く。方位の呼び名は
 16方位の並び（`SIXTEEN_POINT_LABELS`）1つだけを持ち、8方位（`COMPASS_LABELS`）はその1つおきとして導く——アメダスの
 16方位の風向（`infrastructure/jma_amedas_client.py`）もこの並びを引くので、同じ向きが画面の場所によって違う名前にならない。`LatLon`（`Protocol`）・
 `LatLonPoint`（`NamedTuple`）は`Coordinates`（Pydantic、API境界の入力検証用）を経由
@@ -892,12 +892,12 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
 
 #### 派生delivery系クエリ（wind/gradient/road surface）
 
-`ROAD_SURFACE_TILE_MVT_SQL`（路面・道路種別・制限速度等の材料タグをPostGIS側で
-ST_AsMVT丸ごと生成）・`_FEATURE_MIDPOINTS_IN_TILE_SQL`（wind、道路自身の方位角は使わず鍵ごとに
+`ROAD_SURFACE_TILE_MVT_SQL`（路面・道路種別・制限速度等の材料の値をPostGIS側で
+ST_AsMVT丸ごと生成。列は材料の値式から組む。[評価・スコアリング](evaluation-scoring.md)「タイルへ焼く列」）・`_FEATURE_MIDPOINTS_IN_TILE_SQL`（wind、道路自身の方位角は使わず鍵ごとに
 中ほど＝両端の平均の緯度経度を返す。区間の中ほどは探索の`mid_lat`/`mid_lon`と同じ点）・`_FEATURE_GRADIENT_INPUTS_IN_TILE_SQL`（gradient。そのフィーチャーに属する
-区間の値を長さで重み付けて平均する——区間単位のズームでは区間1本の値そのもの、way単位の
-ズームではwayの全区間をならした値になる。区間の勾配はジオメトリの始点→終点を正とするため、
-フィーチャーの基準方位とのcosの符号で向きを揃えてから平均する）は、いずれも
+区間の勾配の値式を長さで重み付けて平均する（`domain/material_sql.py: length_weighted_mean_sql`）——区間単位のズームでは区間1本の値そのもの、way単位の
+ズームではwayの全区間をならした値になる。区間は道の並びの順に切られ、どの区間の勾配も道と同じ向きを正とするため、
+向きを揃え直さずに平均する）は、いずれも
 `COVERAGE_SQL`（取込の宣言した範囲か）をMVT生成と同じ1クエリへ畳み込み、1タイル1DB往復に
 まとめる設計を共有する（点のタイルのSQLも同じ判定を読む。[静的道路属性](static-road-attributes.md)「点のタイル」）。カバレッジ外はNone、カバレッジ内で0件なら空、という契約で呼び出し側
 （`RegionService`）が空タイルと区別する。いずれも**同じ`_TILE_FEATURE_SOURCE_SQL`から

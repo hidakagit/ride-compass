@@ -34,12 +34,12 @@ from app.domain.route import RouteCandidate, RouteSegmentDetail
 from app.domain.routing import NodeJunction, TurnExpandedTree
 from app.services.road_graph_engine import (
     add_terminal_candidate,
-    aggregate_elevation,
     concat_edge_geometries,
     order_by_bearing_spread,
     pick_better_candidate,
     reverse_elevation_by_edge,
     reverse_leg_assignment,
+    route_elevation_gain,
 )
 
 
@@ -121,42 +121,34 @@ def test_concat_edge_geometries_keeps_both_points_when_edges_do_not_touch():
 # --------------------------------------------------------------------------------------
 
 
-def test_aggregate_elevation_collects_only_present_values():
-    """欠損は集計の母集団から外す（0として数えると獲得標高が実態より小さく、最低標高が0mに出る）。"""
+def test_route_elevation_gain_sums_only_present_values():
+    """欠損は集計の母集団から外す。"""
 
     edges = [lean_edge("e1"), lean_edge("e2"), lean_edge("e3"), lean_edge("e4")]
     attributes = {
-        "e1": elevation("e1", start_elevation_m=10.0, end_elevation_m=20.0, elevation_gain_m=10.0),
-        "e2": elevation("e2", start_elevation_m=None, end_elevation_m=5.0, elevation_gain_m=None),
-        "e4": elevation("e4", start_elevation_m=30.0, end_elevation_m=None, elevation_gain_m=2.0),
+        "e1": elevation("e1", elevation_gain_m=10.0),
+        "e2": elevation("e2", elevation_gain_m=None),
+        "e4": elevation("e4", elevation_gain_m=2.0),
     }
 
-    assert aggregate_elevation(edges, attributes) == {
-        "elevation_gain_m": 12.0,
-        "min_elevation_m": 5.0,
-        "max_elevation_m": 30.0,
-    }
+    assert route_elevation_gain(edges, attributes) == 12.0
 
 
-def test_aggregate_elevation_without_any_value_is_none_not_zero():
+def test_route_elevation_gain_without_any_value_is_none_not_zero():
     """標高が1つも取れなかった経路は、0mではなく「取れなかった」として返す。"""
-    assert aggregate_elevation([lean_edge("e1")], {}) == {
-        "elevation_gain_m": None,
-        "min_elevation_m": None,
-        "max_elevation_m": None,
-    }
+    assert route_elevation_gain([lean_edge("e1")], {}) is None
 
 
 def test_reverse_elevation_by_edge_pairs_the_path_in_reverse_order():
     """逆方向Edgeの並びは順方向の逆。対応がずれると別の坂の値が付く。"""
     forward_edges = [lean_edge("f1"), lean_edge("f2")]
     reverse_edges = [lean_edge("r2"), lean_edge("r1")]
-    attributes = {"f2": elevation("f2", start_elevation_m=1.0, end_elevation_m=9.0)}
+    attributes = {"f2": elevation("f2", elevation_gain_m=1.0, elevation_loss_m=9.0)}
 
     result = reverse_elevation_by_edge(forward_edges, reverse_edges, attributes)
 
     assert set(result) == {"r2"}
-    assert result["r2"].start_elevation_m == 9.0
+    assert result["r2"].elevation_gain_m == 9.0
 
 
 # --------------------------------------------------------------------------------------

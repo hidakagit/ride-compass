@@ -78,7 +78,7 @@ def test_no_forecasts_select_nothing():
 
 
 def test_the_forecast_nearest_to_now_is_selected_whether_before_or_after():
-    """今は時刻を持つが、対象時刻はJSTの素の時刻。比べる前に揃える。"""
+    """今はタイムゾーンを持つ（JSTとは限らない）が、対象時刻はJSTの素の時刻。比べる前に揃える。"""
     before = _forecast("2026070112", datetime(2026, 7, 1, 13, 0))
     after = _forecast("2026070112", datetime(2026, 7, 1, 14, 0))
     far = _forecast("2026070112", datetime(2026, 7, 1, 18, 0))
@@ -86,6 +86,7 @@ def test_the_forecast_nearest_to_now_is_selected_whether_before_or_after():
 
     later_now = datetime(2026, 7, 1, 13, 40, tzinfo=JST)
     assert current_forecast([before, after], later_now) is after
+    assert current_forecast([before, after], later_now.astimezone(timezone.utc)) is after
 
 
 def test_only_the_latest_issue_is_considered_even_if_an_older_one_is_nearer():

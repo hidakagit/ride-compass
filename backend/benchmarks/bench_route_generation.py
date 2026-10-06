@@ -34,6 +34,7 @@ from datetime import datetime
 from app.api.dependencies import get_route_generation_setup_opener
 from app.batch.common import asyncpg_dsn
 from app.config import settings
+from app.domain.hard_filters import DEFAULT_HARD_FILTERS
 from app.domain.route import Coordinates
 from app.domain.time_zone import JST
 from app.domain.wind import ASSUMED_SPEED_KMH
@@ -138,10 +139,10 @@ async def main() -> int:
     records: list[dict[str, object]] = []
 
     await refresh_axis_registry()
-    # 評価条件を省いた生成の要求と同じ値で組む。
+    # 評価条件を省いた生成の要求と、画面の既定の除外で組む。
     async with get_route_generation_setup_opener()(
         preference_override=None, penalty_strength=None, max_average_grade_percent=None,
-        hard_filters_override=None, assumed_speed_kmh=ASSUMED_SPEED_KMH, lens_axis_id=None,
+        hard_filters=DEFAULT_HARD_FILTERS, assumed_speed_kmh=ASSUMED_SPEED_KMH, lens_axis_id=None,
     ) as setup:
         generator = setup.generator
         for index in range(runs):

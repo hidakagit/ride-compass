@@ -552,8 +552,9 @@ MSM（`.om`形式、CC-BY-4.0）をローカルへ同期して読む。予報を
 （`wind_speed_and_direction`）、風向は「吹いてくる方位」で返す。
 
 **読めないときの振る舞い**: 同期が済んでいない・配信元の予報終端が現在時刻へ追いついた・置き場のファイルが
-読めない場合は`MsmUnavailableError`（サービスはこの1つだけを受ける）。`WeatherService.get_wind_grid`はこれを全地点Noneへ変換し、
-ルーターが502を返す（`_reject_if_all_points_failed`）。ルート評価の風
+読めない場合は`MsmUnavailableError`（サービスはこの1つだけを受ける）。`WeatherService.get_wind_grid`は全地点を1回で読むので、
+これを格子ごと読めない（None）へ変換し、ルーターが502を返す（`_require_grid`）。格子の欠損（NaN）は値ごとにNoneで返し、
+画面はその時刻の点を飛ばす。ルート評価の風
 （`get_wind_forecast_lattice`）はNoneを返し、呼び出し元は出発時点の値（`get_departure_wind`）へ倒すが、
 そちらも同じMSMを読むため同時に読めず、**所要時間は無風で計算される**。候補はそのことを`wind_unavailable`で持ち、画面が候補の中身で知らせる
 （`domain/leg_costs.py: LegCostComposer.wind_unavailable`。時別の系列も出発時点の値も無いとき）。読めなかった原因は、`read_series`を囲む`log_external_call`

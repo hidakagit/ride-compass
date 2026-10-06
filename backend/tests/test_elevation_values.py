@@ -174,7 +174,8 @@ async def test_segments_are_computed_separately(road_graph_session):
 
 
 def attribute(row: dict, edge_id: str) -> ElevationAttribute:
-    return ElevationAttribute(edge_id=edge_id, **row)
+    """SQLの行のうち、属性が持つ欄（始点・終点の標高は派生の表にだけ残る）。"""
+    return ElevationAttribute(edge_id=edge_id, **{name: row[name] for name in ElevationAttribute.model_fields.keys() - {"edge_id"}})
 
 
 async def test_running_the_vertices_backwards_gives_the_reverse_of_the_attribute(road_graph_session):

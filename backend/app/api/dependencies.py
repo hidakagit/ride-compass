@@ -7,7 +7,7 @@ MSMの同期）だけは`main.py`が組み立てる。
 """
 
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from typing import AsyncIterator, Callable
+from typing import AsyncIterator, Protocol
 
 from cachetools import LRUCache
 from fastapi import Depends
@@ -122,7 +122,17 @@ async def _open_route_generation_setup(
         )
 
 
-RouteGenerationSetupOpener = Callable[..., AbstractAsyncContextManager[RouteGenerationSetup]]
+class RouteGenerationSetupOpener(Protocol):
+    def __call__(
+        self,
+        *,
+        preference_override: RoutePreference | None,
+        penalty_strength: float | None,
+        max_average_grade_percent: float | None,
+        hard_filters: frozenset[str],
+        assumed_speed_kmh: float,
+        lens_axis_id: str | None,
+    ) -> AbstractAsyncContextManager[RouteGenerationSetup]: ...
 
 
 def get_route_generation_setup_opener() -> RouteGenerationSetupOpener:

@@ -3038,7 +3038,7 @@
         ],
         "title": "CategoricalShape"
       },
-      "ColumnEntry": {
+      "ColumnCompleteness": {
         "properties": {
           "column": {
             "type": "string",
@@ -3060,7 +3060,7 @@
           "uncalculated_count",
           "absent_count"
         ],
-        "title": "ColumnEntry"
+        "title": "ColumnCompleteness"
       },
       "ConnectionEntry": {
         "properties": {
@@ -3129,7 +3129,7 @@
         ],
         "title": "Coordinates"
       },
-      "CoverageEntry": {
+      "Coverage": {
         "properties": {
           "parent": {
             "type": "string",
@@ -3151,7 +3151,7 @@
           "parent_row_count",
           "missing_rows"
         ],
-        "title": "CoverageEntry"
+        "title": "Coverage"
       },
       "DbStatusReport": {
         "properties": {
@@ -3610,12 +3610,12 @@
             "title": "Label"
           },
           "latest": {
-            "$ref": "#/components/schemas/LatestRunEntry"
+            "$ref": "#/components/schemas/LatestRunCounts"
           },
           "latest_succeeded": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/SucceededRunEntry"
+                "$ref": "#/components/schemas/SucceededRunCounts"
               },
               {
                 "type": "null"
@@ -3856,7 +3856,7 @@
         ],
         "title": "LastError"
       },
-      "LatestRunEntry": {
+      "LatestRunCounts": {
         "properties": {
           "id": {
             "type": "integer",
@@ -3906,7 +3906,7 @@
           "identity",
           "item_count"
         ],
-        "title": "LatestRunEntry"
+        "title": "LatestRunCounts"
       },
       "MapLegendScale": {
         "properties": {
@@ -4383,28 +4383,6 @@
             ],
             "title": "Elevation Gain M"
           },
-          "min_elevation_m": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Min Elevation M"
-          },
-          "max_elevation_m": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Max Elevation M"
-          },
           "segments": {
             "items": {
               "$ref": "#/components/schemas/RouteSegmentDetail"
@@ -4517,8 +4495,6 @@
           "distance_km",
           "geometry",
           "elevation_gain_m",
-          "min_elevation_m",
-          "max_elevation_m",
           "segments",
           "overall_difficulty",
           "estimated_duration_seconds",
@@ -4889,13 +4865,6 @@
             "type": "object",
             "title": "Material Values"
           },
-          "axis_raw_values": {
-            "additionalProperties": {
-              "type": "number"
-            },
-            "type": "object",
-            "title": "Axis Raw Values"
-          },
           "difficulty": {
             "anyOf": [
               {
@@ -4932,7 +4901,6 @@
           "axis_difficulties",
           "axis_contributions",
           "material_values",
-          "axis_raw_values",
           "difficulty",
           "wind"
         ],
@@ -5117,7 +5085,7 @@
         ],
         "title": "SourceEntry"
       },
-      "SucceededRunEntry": {
+      "SucceededRunCounts": {
         "properties": {
           "id": {
             "type": "integer",
@@ -5135,7 +5103,7 @@
           "id",
           "finished_at"
         ],
-        "title": "SucceededRunEntry"
+        "title": "SucceededRunCounts"
       },
       "TemperatureRange": {
         "properties": {
@@ -5648,21 +5616,42 @@
           },
           "wind_speed_ms": {
             "items": {
-              "type": "number"
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "type": "array",
             "title": "Wind Speed Ms"
           },
           "wind_direction_deg": {
             "items": {
-              "type": "number"
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "type": "array",
             "title": "Wind Direction Deg"
           },
           "precipitation_mm": {
             "items": {
-              "type": "number"
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "type": "array",
             "title": "Precipitation Mm"
@@ -5779,22 +5768,22 @@
             "type": "integer",
             "title": "Row Count"
           },
+          "columns": {
+            "items": {
+              "$ref": "#/components/schemas/ColumnCompleteness"
+            },
+            "type": "array",
+            "title": "Columns"
+          },
           "coverage": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/CoverageEntry"
+                "$ref": "#/components/schemas/Coverage"
               },
               {
                 "type": "null"
               }
             ]
-          },
-          "columns": {
-            "items": {
-              "$ref": "#/components/schemas/ColumnEntry"
-            },
-            "type": "array",
-            "title": "Columns"
           },
           "needs_rebuild": {
             "type": "boolean",
@@ -5806,8 +5795,8 @@
         "required": [
           "table_name",
           "row_count",
-          "coverage",
           "columns",
+          "coverage",
           "needs_rebuild"
         ],
         "title": "TableEntry"

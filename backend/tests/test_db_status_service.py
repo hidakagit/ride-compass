@@ -13,6 +13,7 @@ from app.infrastructure.db_status import (
     ConnectionCounts,
     DbStatusCounts,
     ImportRunCounts,
+    LatestRunCounts,
     SucceededRunCounts,
     TableCounts,
 )
@@ -42,8 +43,9 @@ def _connections(*, total: int = 2, longest_idle: float = 0.0) -> ConnectionCoun
 
 
 def _import(status: str, succeeded: SucceededRunCounts | None) -> ImportRunCounts:
-    return ImportRunCounts(label="OSM取込", latest_id=5, latest_status=status, latest_finished_at=AT,
-                           latest_identity={}, latest_item_count=None, latest_succeeded=succeeded)
+    return ImportRunCounts(label="OSM取込",
+                           latest=LatestRunCounts(id=5, status=status, finished_at=AT, identity={}, item_count=None),
+                           latest_succeeded=succeeded)
 
 
 def _report(*, tables=(), connections=None, imports=()):
@@ -89,9 +91,9 @@ def test_connections_need_attention_when_a_transaction_is_left_open_or_slots_run
 
 def test_a_failed_import_says_which_run_the_derived_data_still_stands_on():
     (failed, never, succeeded) = _report(imports=[
-        _import("failed", SucceededRunCounts(4, AT)),
+        _import("failed", SucceededRunCounts(id=4, finished_at=AT)),
         _import("failed", None),
-        _import("succeeded", SucceededRunCounts(5, AT)),
+        _import("succeeded", SucceededRunCounts(id=5, finished_at=AT)),
     ]).imports
 
     assert failed.needs_attention and "#4" in failed.note
