@@ -19,6 +19,8 @@ import shapely
 from cachetools import LRUCache, cached
 from shapely.geometry.base import BaseGeometry
 
+from app.infrastructure.debug_log import log_throttled_warning
+
 logger = logging.getLogger("ridecompass.jma_area_boundaries")
 
 #: 配布元（気象庁「予報区等GISデータ」）の版。版の一覧と更新の履歴は
@@ -87,7 +89,8 @@ async def find_class20_code(lat: float, lon: float) -> str | None:
     try:
         boundaries = await asyncio.to_thread(load_boundaries, BOUNDARY_PATH)
     except (OSError, ValueError, shapely.errors.GEOSException) as exc:
-        logger.warning(
+        log_throttled_warning(
+            "weather:jma-area-boundaries",
             "区域の境界を読めないため警報・洪水予報の区域を引けません path=%s error=%r"
             "（scripts/fetch_jma_area_boundaries.pyで取得する）",
             BOUNDARY_PATH, exc,

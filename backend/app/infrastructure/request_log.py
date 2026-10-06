@@ -16,9 +16,18 @@ from app.domain.time_zone import JST
 
 access_logger = logging.getLogger("ridecompass.access")
 
-# タイル系は通常操作でも毎分数百リクエストになるため、成功時のアクセスログは
-# DEBUG(debug_mode時のみ実質出力)へ落とし、ログを埋めないようにする。
-HIGH_FREQUENCY_PATH_PREFIXES = ("/api/basemap", "/api/region/road-surface-tiles")
+# タイル系は通常操作でも毎分数百リクエストになるため、成功と「そのタイルは無い」404のアクセスログは
+# DEBUG(debug_mode時のみ実質出力)へ落とし、ログを埋めないようにする。どれもGETだけの経路。
+HIGH_FREQUENCY_PATH_PREFIXES = (
+    "/api/basemap/",
+    "/api/region/road-surface-tiles/",
+    "/api/region/point-tiles/",
+    "/api/region/landcover-tiles/",
+    "/api/region/dynamic-way-values/",
+    "/api/jma-tile/",
+    "/api/gsi-relief-tile/",
+    "/api/gsi-terrain-tile/",
+)
 
 
 #: ログ1行の書式。`%(correlation_id)s`は`format_log_lines`が付けるフィルタが入れる。
@@ -60,19 +69,19 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> Respo
     )
 
 
-def access_level(method: str, path: str, status_code: int) -> int:
+def access_level(path: str, status_code: int) -> int:
     if status_code >= 500:
         return logging.ERROR
     if status_code == 429:
         # 429はrecord_rate_limit_rejection(debug_log.py)が抑制付きWARNINGで別途記録する
         # ため、アクセスログ側で重ねてWARNINGにしない。
         return logging.DEBUG
+    # 疎な格子・整備区域の外・配信前のタイルは404が正常系として視界の分だけ並ぶ
+    # （api/cache_policy.py: JMA_TILE_NOT_FOUND・JMA_NOT_YET_DELIVERED・GSI_TILE_NOT_FOUND）。
+    if path.startswith(HIGH_FREQUENCY_PATH_PREFIXES) and (status_code < 400 or status_code == 404):
+        return logging.DEBUG
     if status_code >= 400:
         return logging.WARNING
-    # DEBUGへ落とすのは高頻度なタイル**取得**(GET)のみ。同じプレフィックス配下でも
-    # 状態を変える操作(POST /api/admin/basemap/refresh のキャッシュ全消去等)は常時INFOで残す。
-    if method == "GET" and path.startswith(HIGH_FREQUENCY_PATH_PREFIXES):
-        return logging.DEBUG
     return logging.INFO
 
 
@@ -93,7 +102,7 @@ async def request_log_middleware(request: Request, call_next) -> Response:
         raise
     elapsed_ms = round((time.monotonic() - started) * 1000)
     access_logger.log(
-        access_level(request.method, request.url.path, response.status_code),
+        access_level(request.url.path, response.status_code),
         "%s %s -> %d in %dms client=%s",
         request.method,
         request.url.path,

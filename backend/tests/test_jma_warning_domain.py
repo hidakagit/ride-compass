@@ -9,8 +9,6 @@
 - 地点から区域を引くこと・電文を全件走査して集めること → `test_warning_service.py`
 """
 
-import logging
-
 import pytest
 
 from app.domain.jma_warning import (
@@ -63,20 +61,12 @@ def test_issued_and_continuing_warnings_come_out_in_order_with_their_name_level_
         _kind(RELEVANT, "解除"),
         _kind(None, "発表警報・注意報はなし"),
         _kind(IRRELEVANT, "発表"),
+        _kind("t_unknown", "発表"),
     ],
-    ids=["lifted", "nothing_issued", "not_relevant_to_cycling"],
+    ids=["lifted", "nothing_issued", "not_relevant_to_cycling", "missing_from_the_table"],
 )
-def test_lifted_absent_and_irrelevant_kinds_are_left_out(kind):
+def test_lifted_absent_irrelevant_and_unknown_kinds_are_left_out(kind):
     assert extract_active_warnings([kind]) == []
-
-
-def test_an_issued_code_missing_from_the_table_is_left_out_with_a_warning(caplog):
-    """表が配信元より古くなった印として、運用者に見えるように出す。"""
-    with caplog.at_level(logging.WARNING, logger="ridecompass.jma_warning"):
-        warnings = extract_active_warnings([_kind("t_unknown"), _kind(RELEVANT)])
-
-    assert [warning.code for warning in warnings] == [RELEVANT]
-    assert any("t_unknown" in record.getMessage() for record in caplog.records)
 
 
 AREA = (_kind("t_warning"),)

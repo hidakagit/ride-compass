@@ -8,6 +8,8 @@
 - 地点から区域を引くこと → `test_jma_area_boundaries.py`
 """
 
+import logging
+
 import pytest
 
 from app.infrastructure import jma_area_boundaries
@@ -53,6 +55,14 @@ async def test_get_forecasts_returns_empty_when_the_point_is_in_no_area(monkeypa
 async def test_get_forecasts_is_unknown_rather_than_empty_when_a_step_fails(monkeypatch, tmp_path, failure):
     """取れなかったことを「予報なし」と同じ空で返すと、画面は氾濫予報が出ていないと見せる。"""
     assert await _service(monkeypatch, tmp_path, **failure).get_forecasts(CHIYODA_POINT) is None
+
+
+async def test_get_forecasts_names_the_area_the_master_cannot_follow(monkeypatch, tmp_path, caplog):
+    """区域の境界と地域マスタは別々に配られ、片方だけが区域の変更に追いつくと起きる。運用者が気づけるように出す。"""
+    with caplog.at_level(logging.WARNING, logger="ridecompass.external"):
+        await _service(monkeypatch, tmp_path, class20_code="9999900").get_forecasts(CHIYODA_POINT)
+
+    assert any("9999900" in record.getMessage() for record in caplog.records)
 
 
 async def test_get_forecasts_is_unknown_when_area_boundaries_are_unreadable(monkeypatch, tmp_path):

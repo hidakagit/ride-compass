@@ -93,7 +93,7 @@ async def test_no_issuance_is_logged_only_inside_the_period(caplog, now, logged)
     期間の外の発表の無い成功は正常で、出すと冬のあいだ出続ける。"""
     service, _ = _service(forecast=[])
 
-    with caplog.at_level("WARNING", logger="ridecompass.wbgt_service"):
+    with caplog.at_level("WARNING", logger="ridecompass.external"):
         await service.get_status(POINT, now=now)
 
     assert any("発表がありません" in record.getMessage() for record in caplog.records) is logged

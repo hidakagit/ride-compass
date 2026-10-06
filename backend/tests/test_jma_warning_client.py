@@ -197,6 +197,22 @@ async def test_malformed_parts_of_a_bulletin_are_skipped(caplog):
     assert "unreadable=7 bulletins=3" in caplog.text
 
 
+@pytest.mark.parametrize(("status", "logged"), [("発表", True), ("解除", False)], ids=["issued", "lifted"])
+async def test_an_issued_code_missing_from_the_table_is_logged_once_per_fetch(caplog, status, logged):
+    """表が配信元のコード表より古くなった印として、運用者に見えるように出す。電文ごとに出すと、同じコードが
+    種類の別の電文に並ぶたびに重なる。発表中でないものは画面へ出ないので、表に無くても出さない。"""
+    kinds = [{"code": "t_unknown", "status": status}]
+    payload = [
+        {"warning": {"class20Items": [{"areaCode": "1310100", "kinds": kinds}]}},
+        {"warning": {"class10Items": [{"areaCode": "130010", "kinds": kinds}]}},
+    ]
+
+    with caplog.at_level(logging.WARNING, logger="ridecompass.jma_warning_client"):
+        await jma_warning_client.fetch_warning_documents(answering(json=payload), "130000", new_warning_cache())
+
+    assert [record.getMessage().count("t_unknown") for record in caplog.records] == ([1] if logged else [])
+
+
 async def test_bulletins_are_cached_per_office():
     router = respx.Router()
     tokyo = router.get(_warning_url("130000")).respond(json=[])

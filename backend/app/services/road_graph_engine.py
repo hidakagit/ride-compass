@@ -796,7 +796,7 @@ class RoadGraphEngine:
             destination = _node_coordinates(context, destination_index)
             context.destination_correction = destination
             logger.warning(
-                "select_via_nodes corrected destination to nearest accessible node lat=%.5f lon=%.5f",
+                "select_via_nodes corrected destination to nearest accessible node lat=%.2f lon=%.2f",
                 destination.latitude, destination.longitude,
             )
 

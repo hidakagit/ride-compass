@@ -15,7 +15,7 @@ from app.api.rate_limit import client_id
 def test_a_request_without_a_client_falls_back_to_a_shared_key_with_a_warning(caplog):
     request = Request({"type": "http", "client": None, "headers": []})
 
-    with caplog.at_level(logging.WARNING, logger="ridecompass.rate_limit"):
+    with caplog.at_level(logging.WARNING, logger="ridecompass.external"):
         result = client_id(request)
 
     assert result == "unknown"

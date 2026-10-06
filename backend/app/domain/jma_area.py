@@ -11,11 +11,7 @@ JMA警報API（r8スキーマ）は府県予報区単位（例: 東京都全体�
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
-
-logger = logging.getLogger("ridecompass.jma_area")
-
 
 @dataclass(frozen=True)
 class ResolvedArea:
@@ -45,8 +41,6 @@ def resolve_area(class20_code: str, master: AreaMaster) -> ResolvedArea | None:
     辿れなければNoneを返す。"""
     class20 = master.class20s.get(class20_code)
     if class20 is None:
-        # 区域の境界と地域マスタは別々に配られるため、片方だけが区域の変更に追いついていると起きる。
-        logger.warning("区域の境界が返したコードが地域マスタ(area.json)に無い class20=%s", class20_code)
         return None
 
     # class15→class10まで親を辿る。区域によってはclass20の親が既にclass10自身になっている

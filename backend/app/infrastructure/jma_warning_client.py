@@ -12,7 +12,7 @@ import httpx
 from cachetools import TTLCache
 
 from app.domain.jma_area import AreaEntry, AreaMaster
-from app.domain.jma_warning import AreaWarningKind, WarningBulletin
+from app.domain.jma_warning import ACTIVE_STATUSES, WARNING_KINDS, AreaWarningKind, WarningBulletin
 from app.infrastructure.simple_api_client import UnexpectedShapeError, cached_fetch
 
 JMA_AREA_JSON_URL = "https://www.jma.go.jp/bosai/common/const/area.json"
@@ -132,7 +132,21 @@ def _parse_bulletins(payload: list, office_code: str) -> list[WarningBulletin]:
             "気象庁の警報の電文に読めない部分があり読み飛ばしました unreadable=%d bulletins=%d office=%s",
             unreadable, len(payload), office_code,
         )
-    return [bulletin for bulletin, _ in parsed]
+    bulletins = [bulletin for bulletin, _ in parsed]
+    # 発表中なのに表に無いコードは、写した表が配信元のコード表より古くなった印。画面へは出さずに飛ばす。
+    unknown = sorted({
+        kind.code
+        for bulletin in bulletins
+        for kinds in (*bulletin.class20_kinds.values(), *bulletin.class10_kinds.values())
+        for kind in kinds
+        if kind.code is not None and kind.status in ACTIVE_STATUSES and kind.code not in WARNING_KINDS
+    })
+    if unknown:
+        logger.warning(
+            "警報・注意報のコード表に無いコードが発表中 codes=%s office=%s（domain/jma_warning.py: WARNING_KINDS）",
+            unknown, office_code,
+        )
+    return bulletins
 
 
 async def fetch_area_data(client: httpx.AsyncClient, cache: TTLCache) -> AreaMaster | None:
