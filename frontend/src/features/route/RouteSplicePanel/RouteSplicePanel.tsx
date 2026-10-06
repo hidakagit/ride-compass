@@ -27,7 +27,7 @@ interface RouteSplicePanelProps {
   onReset: () => void;
   /** 「差分を見る」で評価した、いまの組み合わせの候補。まだ見ていなければnull。 */
   preview: RouteCandidate | null;
-  /** 評価した組み合わせと同じ道を通る、一覧の候補の名前。無ければnull（作成すると、新しく足さずにこの候補を選ぶ）。 */
+  /** 評価した組み合わせと同じ道を通る、一覧の候補の名前。無ければnull（あれば作成の操作は、新しく足さずにこの候補を選ぶ切り替えになる）。 */
   sameRouteName: string | null;
   /** 差分の評価を待っている間はtrue。 */
   previewing: boolean;
@@ -160,16 +160,19 @@ export default function RouteSplicePanel({
             >
               <RouteDiffIcon size={18} />
             </Button>
-            <Button
-              size="panelIcon"
-              onClick={onApply}
-              disabled={appliedCount === 0 || busy}
-              aria-busy={applying}
-              aria-label="新しいルートを作成"
-              usage="いまの乗り換えで作ったルートを、合成ルートに加えます。元のルートは残ります。"
-            >
-              <NewRouteIcon size={18} />
-            </Button>
+            {/* 同じ道なら押しても新しく足さずにその候補を選ぶので、作成を出さず、知らせの行の切り替えに替える。 */}
+            {sameRouteName === null && (
+              <Button
+                size="panelIcon"
+                onClick={onApply}
+                disabled={appliedCount === 0 || busy}
+                aria-busy={applying}
+                aria-label="新しいルートを作成"
+                usage="いまの乗り換えで作ったルートを、合成ルートに加えます。元のルートは残ります。"
+              >
+                <NewRouteIcon size={18} />
+              </Button>
+            )}
           </div>
         )}
       </div>
@@ -268,7 +271,18 @@ export default function RouteSplicePanel({
           )}
 
           {sameRouteName !== null && (
-            <p className={textVariants({ variant: "hint" })}>この組み合わせは「{sameRouteName}」と同じ道です</p>
+            <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+              <p className={textVariants({ variant: "hint" })}>この組み合わせは「{sameRouteName}」と同じ道です</p>
+              <Button
+                size="sm"
+                onClick={onApply}
+                disabled={busy}
+                aria-busy={applying}
+                usage="編集を閉じて、この組み合わせと同じ道の候補を選びます。"
+              >
+                「{sameRouteName}」に切り替える
+              </Button>
+            </div>
           )}
 
           {error && <ErrorText>{error}</ErrorText>}
