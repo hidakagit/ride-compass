@@ -67,7 +67,6 @@ const LANDCOVER_SOURCE: MapSceneSource = {
 
 function fillLayer(id: string, color = "#222222"): MapSceneLayer {
   return {
-    role: id,
     spec: { id, type: "fill", source: "landcover", paint: { "fill-color": color } },
     tier: "area",
     visible: true,
@@ -77,7 +76,6 @@ function fillLayer(id: string, color = "#222222"): MapSceneLayer {
 
 function lineLayer(id: string, tier: MapSceneTier, overrides: Partial<MapSceneLayer> = {}): MapSceneLayer {
   return {
-    role: id,
     spec: {
       id,
       type: "line",
@@ -191,7 +189,6 @@ describe("applyMapScene", () => {
     const { map, handle } = createRecordingMap({ basemapLayerIds: BASEMAP_LAYER_IDS });
     const before = scene([
       lineLayer("surface-line", "observedLine", {
-        role: "surface-line",
         spec: {
           id: "surface-line",
           type: "line",
@@ -208,7 +205,6 @@ describe("applyMapScene", () => {
       map,
       scene([
         lineLayer("surface-line", "observedLine", {
-          role: "surface-line",
           spec: {
             id: "surface-line",
             type: "line",
