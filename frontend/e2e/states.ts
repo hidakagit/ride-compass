@@ -265,7 +265,7 @@ export async function installSpliceMocks(page: Page): Promise<void> {
  * 地図が見えている点（浮いた部品・シート・案内に覆われていない点）のうち真ん中に近い所へ、経度・緯度の点を寄せてから押す
  * （地図は生成した候補へ寄るので、そのままでは点が画面の外や部品の下に来うる）。
  */
-async function clickVisible(page: Page, lngLat: readonly [number, number]): Promise<void> {
+export async function clickVisible(page: Page, lngLat: readonly [number, number]): Promise<void> {
   await page.evaluate(
     (center) => {
       const map = window.__liveMap();
