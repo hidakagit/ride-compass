@@ -34,7 +34,6 @@ function makeSegment(index: number, coordinates: [number, number][]) {
     estimated_arrival_time: null,
     axis_difficulties: {},
     material_values: {},
-    axis_raw_values: {},
     axis_contributions: {},
     difficulty: 20 + index * 30,
     wind: null,
@@ -63,8 +62,6 @@ function makeRouteCandidate(
       ],
     },
     elevation_gain_m: 120,
-    min_elevation_m: 10,
-    max_elevation_m: 45,
     // 選択中候補の区間色分け線は区間が無いと描かれない。
     // 地図の描画に関わる検証（縁取り等）が成り立つよう、最小限の2区間を持たせる。
     segments: [

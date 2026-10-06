@@ -4383,28 +4383,6 @@
             ],
             "title": "Elevation Gain M"
           },
-          "min_elevation_m": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Min Elevation M"
-          },
-          "max_elevation_m": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Max Elevation M"
-          },
           "segments": {
             "items": {
               "$ref": "#/components/schemas/RouteSegmentDetail"
@@ -4517,8 +4495,6 @@
           "distance_km",
           "geometry",
           "elevation_gain_m",
-          "min_elevation_m",
-          "max_elevation_m",
           "segments",
           "overall_difficulty",
           "estimated_duration_seconds",
@@ -4889,13 +4865,6 @@
             "type": "object",
             "title": "Material Values"
           },
-          "axis_raw_values": {
-            "additionalProperties": {
-              "type": "number"
-            },
-            "type": "object",
-            "title": "Axis Raw Values"
-          },
           "difficulty": {
             "anyOf": [
               {
@@ -4932,7 +4901,6 @@
           "axis_difficulties",
           "axis_contributions",
           "material_values",
-          "axis_raw_values",
           "difficulty",
           "wind"
         ],

@@ -89,8 +89,6 @@ def network() -> RoadNetwork:
         mid_lat=lat[edge_from],
         mid_lon=(lon[edge_from] + lon[edge_to]) / 2,
         elevation_present=np.array([True, True, True, False, True]),
-        elevation_start_m=np.array([10.0, 22.0, 5.0, NAN, NAN]),
-        elevation_end_m=np.array([22.0, 10.0, 5.0, NAN, 8.0]),
         elevation_gain_m=np.array([12.0, 0.0, 0.0, NAN, NAN]),
         elevation_loss_m=np.array([0.0, 12.0, 0.0, NAN, NAN]),
         elevation_max_grade=np.array([4.0, -2.0, 0.0, NAN, NAN]),
@@ -159,8 +157,6 @@ def test_the_elevation_attribute_reads_the_average_grade_from_the_material():
     assert attribute is not None
     assert attribute.model_dump() == {
         "edge_id": "10:0:f",
-        "start_elevation_m": 10.0,
-        "end_elevation_m": 22.0,
         "elevation_gain_m": 12.0,
         "elevation_loss_m": 0.0,
         "average_grade": 3.0,
@@ -173,7 +169,7 @@ def test_values_missing_in_the_arrays_are_none_in_the_attribute():
     attribute = elevation_attribute(network(), 4, "30:1:f")
 
     assert attribute is not None
-    assert attribute.start_elevation_m is None
+    assert attribute.elevation_gain_m is None
     assert attribute.max_grade is None
 
 

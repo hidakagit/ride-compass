@@ -219,12 +219,12 @@ async def test_hard_filter_flags_are_named_by_their_filter():
 
 class _EchoingArraysSession:
     """材料配列のクエリに、受け取った区間をそのまま値として返すセッション（DBの`WITH ORDINALITY`の代わり）。
-    way・区間の番号・向きを、それぞれ距離・始点の標高・標高の有無の列に入れる。"""
+    way・区間の番号・向きを、それぞれ距離・獲得標高・標高の有無の列に入れる。"""
 
     async def execute(self, statement, params):
         count = len(params["way_ids"])
         return _Result([_arrays_row(count, {"distance_m": params["way_ids"],
-                                            "elevation_start_m": params["segment_indexes"],
+                                            "elevation_gain_m": params["segment_indexes"],
                                             "elevation_present": params["forwards"]})])
 
 
@@ -239,15 +239,14 @@ async def test_rows_keep_the_order_of_the_given_edges_across_chunks():
         way_ids, segment_indexes, forwards, 1)
 
     assert arrays.distance_m.tolist() == way_ids
-    assert arrays.elevation_start_m.tolist() == segment_indexes
+    assert arrays.elevation_gain_m.tolist() == segment_indexes
     assert arrays.elevation_present.tolist() == forwards
 
 
 async def test_paired_edge_columns_are_not_swapped():
-    """取り違えても型では落ちない対だけを見る（緯度と経度・始点と終点・登りと下り）。"""
+    """取り違えても型では落ちない対だけを見る（緯度と経度・登りと下り）。"""
     repo, _ = _repo([_arrays_row(1, {
         "mid_lat": [35.5], "mid_lon": [139.5],
-        "elevation_start_m": [5.0], "elevation_end_m": [7.0],
         "elevation_gain_m": [2.0], "elevation_loss_m": [1.0],
         "elevation_max_grade": [3.0], "elevation_min_grade": [-4.0],
     })])
@@ -255,7 +254,6 @@ async def test_paired_edge_columns_are_not_swapped():
     arrays = await repo.get_edge_material_arrays([1], [0], [True], 1)
 
     assert (arrays.mid_lat[0], arrays.mid_lon[0]) == (35.5, 139.5)
-    assert (arrays.elevation_start_m[0], arrays.elevation_end_m[0]) == (5.0, 7.0)
     assert (arrays.elevation_gain_m[0], arrays.elevation_loss_m[0]) == (2.0, 1.0)
     assert (arrays.elevation_max_grade[0], arrays.elevation_min_grade[0]) == (3.0, -4.0)
 

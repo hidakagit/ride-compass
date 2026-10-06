@@ -42,7 +42,6 @@ const SEGMENT: SelectedRouteSegment = {
     axis_difficulties: {},
     axis_contributions: {},
     material_values: {},
-    axis_raw_values: {},
     difficulty: null,
     wind: null,
   },

@@ -61,9 +61,7 @@ class RoadNetwork:
     mid_lat: np.ndarray
     mid_lon: np.ndarray
     elevation_present: np.ndarray  # bool
-    elevation_start_m: np.ndarray  # float64, NaN=欠損
-    elevation_end_m: np.ndarray
-    elevation_gain_m: np.ndarray
+    elevation_gain_m: np.ndarray  # float64, NaN=欠損
     elevation_loss_m: np.ndarray
     elevation_max_grade: np.ndarray
     elevation_min_grade: np.ndarray
@@ -176,7 +174,6 @@ def material_arrays_of(road: RoadSlice) -> EdgeMaterialArrays:
         distance_m=take(network.distance_m), bearing_deg=take(network.bearing_deg),
         mid_lat=take(network.mid_lat), mid_lon=take(network.mid_lon),
         elevation_present=take(network.elevation_present),
-        elevation_start_m=take(network.elevation_start_m), elevation_end_m=take(network.elevation_end_m),
         elevation_gain_m=take(network.elevation_gain_m), elevation_loss_m=take(network.elevation_loss_m),
         elevation_max_grade=take(network.elevation_max_grade),
         elevation_min_grade=take(network.elevation_min_grade),
@@ -191,8 +188,6 @@ def elevation_attribute(network: RoadNetwork, row: int, edge_id: str) -> Elevati
     grade_column = network.numeric_ids.index(GRADIENT_PERCENT)
     return ElevationAttribute(
         edge_id=edge_id,
-        start_elevation_m=_none_if_nan(network.elevation_start_m[row]),
-        end_elevation_m=_none_if_nan(network.elevation_end_m[row]),
         elevation_gain_m=_none_if_nan(network.elevation_gain_m[row]),
         elevation_loss_m=_none_if_nan(network.elevation_loss_m[row]),
         average_grade=_none_if_nan(network.numeric_values[row, grade_column]),
