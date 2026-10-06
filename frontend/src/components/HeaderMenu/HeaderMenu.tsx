@@ -65,7 +65,10 @@ export default function HeaderMenu({
           <HelpIcon size={15} />
           使い方を見る
         </Button>
-        <label className={toggleVariants({ variant: "menu" })}>
+        <label
+          className={toggleVariants({ variant: "menu" })}
+          data-usage="作ったルートを実験スロットに残し、候補を見比べる「比較」のタブ・地図への重ね描き・区間の材料の値を出します。"
+        >
           <Checkbox
             checked={researchEnabled}
             onCheckedChange={setResearchEnabled}

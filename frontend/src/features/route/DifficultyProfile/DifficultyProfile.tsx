@@ -130,6 +130,7 @@ export default function DifficultyProfile({
         role="slider"
         tabIndex={0}
         aria-label="道のりに沿った難易度（動かすと、その地点を地図に出す）"
+        data-usage="横が道のり、縦がその区間の難易度で、塗った面積がルートの負荷です。なぞるか押して離すと、その地点を地図に印で出し、下にその区間の詳細を出します。"
         aria-valuemin={0}
         aria-valuemax={Math.round(routeKm * 10) / 10}
         aria-valuenow={Math.round((cursorKm ?? selectedColumn?.startKm ?? 0) * 10) / 10}
