@@ -4,6 +4,7 @@
  * 区間を乗り換え先として地図へ出す。乗り換え・1つ戻す・全部戻す・やめるができ、組み合わせた経路は表示中の候補を
  * 作った生成の入力でbackendに評価させ（同じ組み合わせは投げ直さない。評価が既にある候補と同じ道ならその候補も渡す）、
  * 「作成」で作った経路か同じ道の既存の候補を渡して編集を終える。編集は始めたときの生成に結びつき、抜けると中身ごと消える。
+ * 評価を待つ間に作り直す・消す・やめる・始め直すと、届いた評価は何も書かない。
  *
  * ここで見ないもの:
  * - 乗り換え先の求め方の細部（区間の割り方・下限・折り返しを出さない・重なる代替のまとめ方・形の継ぎ方） →
@@ -421,6 +422,28 @@ describe("差分を見る", () => {
     expect(rendered.result.current.panel?.preview).toBeNull();
     expect(rendered.result.current.panel?.previewing).toBe(false);
   });
+
+  it("評価を待っている間に作り直して編集を始め直したら、あとから届いた評価を新しい編集へ書かない", async () => {
+    const rendered = renderSplice();
+    await startEditing(rendered);
+    tapStretch(rendered);
+    const pending = deferredEvaluation();
+    let first: unknown;
+    act(() => {
+      first = rendered.result.current.panel?.onPreview();
+    });
+
+    rendered.rerender({ ...PROPS, generatedInput: { ...BASIS } });
+    await startEditing(rendered);
+    tapStretch(rendered);
+    await act(async () => {
+      await pending.resolve([evaluated(VIA_Q.edge_ids)]);
+      await first;
+    });
+
+    expect(rendered.result.current.panel?.preview).toBeNull();
+    expect(rendered.result.current.panel?.previewing).toBe(false);
+  });
 });
 
 describe("作成", () => {
@@ -486,6 +509,55 @@ describe("作成", () => {
     expect(jobs.submitted).toHaveLength(1);
     expect(rendered.onApplyStart).toHaveBeenCalledTimes(1);
     expect(rendered.onApplied).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    {
+      label: "作り直す",
+      interrupt: (rendered: Rendered) => rendered.rerender({ ...PROPS, generatedInput: { ...BASIS } }),
+    },
+    { label: "全部消す", interrupt: (rendered: Rendered) => rendered.rerender({ ...PROPS, generatedInput: null }) },
+    { label: "編集をやめる", interrupt: (rendered: Rendered) => act(() => rendered.result.current.panel?.onCancel()) },
+  ])("評価を待っている間に「$label」と、あとから届いた評価で作らない", async ({ interrupt }) => {
+    const rendered = renderSplice();
+    await startEditing(rendered);
+    tapStretch(rendered);
+    const pending = deferredEvaluation();
+    let applying: unknown;
+    act(() => {
+      applying = rendered.result.current.panel?.onApply();
+    });
+
+    interrupt(rendered);
+    await act(async () => {
+      await pending.resolve([evaluated(ELSEWHERE)]);
+      await applying;
+    });
+
+    expect(rendered.onApplied).not.toHaveBeenCalled();
+    expect(rendered.result.current.editingRoute).toBeNull();
+  });
+
+  it("評価を待っている間に作り直して編集を始め直したら、あとから届いた評価で作らず、始め直した編集を閉じない", async () => {
+    const rendered = renderSplice();
+    await startEditing(rendered);
+    tapStretch(rendered);
+    const pending = deferredEvaluation();
+    let applying: unknown;
+    act(() => {
+      applying = rendered.result.current.panel?.onApply();
+    });
+
+    rendered.rerender({ ...PROPS, generatedInput: { ...BASIS } });
+    await startEditing(rendered);
+    await act(async () => {
+      await pending.resolve([evaluated(ELSEWHERE)]);
+      await applying;
+    });
+
+    expect(rendered.onApplied).not.toHaveBeenCalled();
+    expect(rendered.result.current.editingRoute).toEqual(BASE);
+    expect(rendered.result.current.panel?.applying).toBe(false);
   });
 
   it("乗り換えていない間は作らず、知らせもしない", async () => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 import { SPLICED_ROUTE_ID_PREFIX } from "@/features/route/routeTabLabel";
 import type { RouteCandidate, RoutePreferenceWeights, SelectedRouteSegment } from "@/types/route";
@@ -27,6 +27,8 @@ export function useRouteResults() {
   const [generated, setGenerated] = useState<RouteCandidate[]>([]);
   // 作った順。生成し直す・消すと一緒に消える（編集は元にした生成に結びつく）。
   const [edits, setEdits] = useState<EditedRoute[]>([]);
+  // 次に作るルートの番号。足すときに選ぶidを同じ操作の中で決めるため、一覧の長さでなくここから振る（一覧と一緒に1へ戻す）。
+  const nextEditNumber = useRef(1);
   // 選んだルートと、乗り換えで作った経路が既にあるこのルートと同じ道だったために選んだのか。どの操作で選び直しても外れる。
   const [selection, setSelection] = useState<{ routeId: string | null; reused: boolean }>(NO_SELECTION);
   const selectedRouteId = selection.routeId;
@@ -42,6 +44,7 @@ export function useRouteResults() {
   const replaceWithGenerated = useCallback((generated: RouteCandidate[], routePreference: RoutePreferenceWeights) => {
     setGenerated(generated);
     setEdits([]);
+    nextEditNumber.current = 1;
     setSelection({ routeId: generated[0]?.id ?? null, reused: false });
     // 比較を開いたまま生成したら新しい候補へ戻す（比較表が残ると、生成が効かなかったように見える）。
     setComparisonTabActive(false);
@@ -51,21 +54,19 @@ export function useRouteResults() {
   }, []);
 
   /** 区間の乗り換えで作ったルートを足して選ぶ。idは画面が振る（backendは同じ値を毎回返す）。 */
-  const addEdit = useCallback(
-    (route: RouteCandidate, originId: string) => {
-      const number = edits.length + 1;
-      const id = `${SPLICED_ROUTE_ID_PREFIX}-${number}`;
-      setEdits([...edits, { route: { ...route, id }, originId, number }]);
-      setSelection({ routeId: id, reused: false });
-      setSelectedRouteSegment(null);
-    },
-    [edits],
-  );
+  const addEdit = useCallback((route: RouteCandidate, originId: string) => {
+    const number = nextEditNumber.current++;
+    const id = `${SPLICED_ROUTE_ID_PREFIX}-${number}`;
+    setEdits((current) => [...current, { route: { ...route, id }, originId, number }]);
+    setSelection({ routeId: id, reused: false });
+    setSelectedRouteSegment(null);
+  }, []);
 
   /** 候補・選択・使われた重みを消す。 */
   const clear = useCallback(() => {
     setGenerated([]);
     setEdits([]);
+    nextEditNumber.current = 1;
     setSelection(NO_SELECTION);
     setComparisonTabActive(false);
     setUsedWeights(null);

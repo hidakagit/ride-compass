@@ -3,6 +3,7 @@
 import { useCallback, useMemo, useRef, useState, type ComponentProps } from "react";
 
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
+import { useIsomorphicLayoutEffect } from "@/hooks/useIsomorphicLayoutEffect";
 import { CLIENT_TUNING_IDS, clientTuningValue } from "@/lib/axisCatalog";
 import { buildGenerateRequest, type GenerationInput } from "@/features/route/generationRequest";
 import { generateRoutes } from "@/features/route/routeApi";
@@ -24,6 +25,8 @@ const withoutError = (task: SpliceTask): SpliceTask => (task.status === "idle" ?
 
 /** 区間の乗り換えの編集1回ぶん。 */
 interface SpliceSession {
+  /** 始めた1回の印。同じ候補・同じ生成から始め直しても別の印になり、評価を待つ間に始め直した編集を前の編集と見分ける。 */
+  token: symbol;
   /** 編集を始めたときの候補を作った生成。作り直す・消すと、この編集は効かなくなる（候補のidは作り直しでも
    * 同じ値が振られうるため、idだけでは別の候補を指したまま残る）。 */
   basis: GenerationInput;
@@ -115,6 +118,13 @@ export function useSpliceSession({
   // 「新しいルートを作る」の実行中。stateと違い同じタスク内ですぐ読めるので、連打の2回目をここで止める。
   const applyingRef = useRef(false);
   const setSpliceTask = (task: SpliceTask) => updateSplice((current) => ({ ...current, task }));
+  // いま効いている編集。評価を待った後は、押した時点に閉じ込めた値ではなくこれを見る（待つ間に作り直す・消す・やめる・
+  // 始め直すと、押した編集はもう効いていない）。描画の確定と同時に控え、確定の後に届いた評価が前の値を読まないようにする。
+  const liveSplice = useRef<SpliceSession | null>(null);
+  useIsomorphicLayoutEffect(() => {
+    liveSplice.current = splice;
+  });
+  const isLive = (token: symbol) => liveSplice.current?.token === token;
 
   // 編集中の候補は`routes`から引く——候補が入れ替わったときに編集だけが残ると、地図の地点の編集・候補の選択が
   // 黙って効かないままになる。
@@ -205,7 +215,8 @@ export function useSpliceSession({
 
   // 選んだ組み合わせをbackendで評価する（frontendは経路を組み立てるだけ）。差分の表示と「作る」で同じものを使い、
   // 評価済みなら投げ直さない。
-  async function evaluateSplicedRoute(): Promise<RouteCandidate | null> {
+  // 評価を待つ間に編集が効かなくなったら、評価を捨てて何も書かない（`stale`）。
+  async function evaluateSplicedRoute(): Promise<RouteCandidate | null | "stale"> {
     if (!splice || !editingRoute || appliedAlternatives.length === 0 || !splicedShape) return null;
     const cached = splice.previews[spliceChoiceKey];
     if (cached) return cached;
@@ -215,6 +226,7 @@ export function useSpliceSession({
       ...buildGenerateRequest(splice.basis),
       spliced_edge_ids: splicedShape.edgeIds,
     });
+    if (!isLive(splice.token)) return "stale";
     const spliced = candidates[0] ?? null;
     if (spliced)
       updateSplice((current) => ({ ...current, previews: { ...current.previews, [spliceChoiceKey]: spliced } }));
@@ -223,13 +235,15 @@ export function useSpliceSession({
 
   // 作る前に、この組み合わせで何が変わるかを見る（評価はbackendでしか出せないので、押したときだけ投げる）。
   async function handlePreviewSplice() {
-    if (!editingRoute || appliedAlternatives.length === 0 || spliceTask.status === "previewing") return;
+    if (!splice || !editingRoute || appliedAlternatives.length === 0 || spliceTask.status === "previewing") return;
+    const { token } = splice;
     setSpliceTask({ status: "previewing" });
     try {
       const spliced = await evaluateSplicedRoute();
+      if (spliced === "stale") return;
       setSpliceTask(spliced ? SPLICE_IDLE : { status: "idle", error: "組み合わせたルートを評価できませんでした" });
     } catch (error) {
-      setSpliceTask({ status: "idle", error: spliceFailureMessage(error) });
+      if (isLive(token)) setSpliceTask({ status: "idle", error: spliceFailureMessage(error) });
     }
   }
 
@@ -237,12 +251,14 @@ export function useSpliceSession({
     // 連打で2本入るのを防ぐ（ボタンを押せなくするのは再描画を待つため、その前の2回目は通る）。
     if (applyingRef.current) return;
     // 前提の確認は印を立てる前に済ませる（立ててから抜けると、印が立ったままこの操作が二度と効かなくなる）。
-    if (!editingRoute || appliedAlternatives.length === 0) return;
+    if (!splice || !editingRoute || appliedAlternatives.length === 0) return;
+    const { token } = splice;
     applyingRef.current = true;
     setSpliceTask({ status: "applying" });
     onApplyStart();
     try {
       const spliced = await evaluateSplicedRoute();
+      if (spliced === "stale") return;
       if (!spliced) {
         setSpliceTask({ status: "idle", error: "組み合わせたルートを評価できませんでした" });
         return;
@@ -252,7 +268,7 @@ export function useSpliceSession({
       onApplied(sameRoute ? { existingRouteId: sameRoute.id } : { created: spliced, originId: editingRoute.id });
       setSplice(null);
     } catch (error) {
-      setSpliceTask({ status: "idle", error: spliceFailureMessage(error) });
+      if (isLive(token)) setSpliceTask({ status: "idle", error: spliceFailureMessage(error) });
     } finally {
       applyingRef.current = false;
     }
@@ -266,7 +282,8 @@ export function useSpliceSession({
     canStart:
       Boolean(generatedInput?.destination) && routes.length > 1 && hasSelectedRoute && minStretchKm !== undefined,
     start: (routeId) => {
-      if (generatedInput) setSplice({ basis: generatedInput, routeId, applied: [], previews: {}, task: SPLICE_IDLE });
+      if (generatedInput)
+        setSplice({ token: Symbol(), basis: generatedInput, routeId, applied: [], previews: {}, task: SPLICE_IDLE });
     },
     map: {
       spliceStretches: spliceStretchFeatures,

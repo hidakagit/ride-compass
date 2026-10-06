@@ -21,7 +21,7 @@ import { catalogEntry, catalogResponse } from "@/testing/catalogAxes";
 
 import SavedConditionsPanel from "./SavedConditionsPanel";
 
-const CURRENT: Omit<GenerationConditionsSnapshot, "origin"> = {
+const CURRENT: GenerationConditionsSnapshot = {
   routeMode: "loop",
   distance: "40",
   maxRoutes: "8",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
+import { useCallback } from "react";
 
 import { useStoredState } from "@/hooks/useStoredState";
 import type { GenerationConditionsState } from "@/features/route/useGenerationConditions";
@@ -8,7 +8,6 @@ import {
   readSavedConditions,
   suggestedConditionName,
   withSavedCondition,
-  type GenerationConditionsSnapshot,
   type SavedCondition,
 } from "@/features/route/savedConditions";
 import type { Coordinates } from "@/types/route";
@@ -41,28 +40,8 @@ export function useSavedConditions({
     deserialize: readSavedConditions,
   });
 
-  // 出発地は保存のときに固定するかを選ぶので、ここには持たない。
-  const current: Omit<GenerationConditionsSnapshot, "origin"> = useMemo(
-    () => ({
-      routeMode: conditions.routeMode,
-      distance: conditions.distanceInput,
-      maxRoutes: conditions.maxRoutesInput,
-      waypoints: conditions.waypoints,
-      destination: conditions.destination,
-      routePreference: conditions.weightOverrideEnabled ? conditions.routePreference : null,
-      hardFilters: conditions.hardFilters,
-    }),
-    [
-      conditions.routeMode,
-      conditions.distanceInput,
-      conditions.maxRoutesInput,
-      conditions.waypoints,
-      conditions.destination,
-      conditions.weightOverrideEnabled,
-      conditions.routePreference,
-      conditions.hardFilters,
-    ],
-  );
+  // 出発地は保存のときに固定するかを選ぶので、いまの条件には持たない。
+  const { snapshot: current, restore } = conditions;
   const suggestedName = suggestedConditionName(current);
 
   // 名前が空なら仮の名前で保存する。固定しない出発地は、呼び出した時の現在地から作る印（null）で保存する。
@@ -74,7 +53,6 @@ export function useSavedConditions({
     [current, origin, suggestedName, setSaved],
   );
 
-  const { restore } = conditions;
   const recall = useCallback(
     (entry: SavedCondition) => {
       restore(entry);

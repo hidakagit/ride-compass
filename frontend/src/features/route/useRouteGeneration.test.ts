@@ -333,6 +333,40 @@ describe("生成の結果", () => {
     expect(generation.generatedInput?.destination).toEqual(B);
   });
 
+  it("生成を待つ間に目的地を置き直したら、補正後の地点で置き直した目的地を上書きせず、条件が変わったと返す", async () => {
+    const rendered = renderGeneration();
+    act(() => rendered.result.current.conditions.changeRouteMode("destination"));
+    act(() => rendered.result.current.conditions.placePin("destination", A));
+    const job = heldReplies();
+    jobs.answerWith(job.reply);
+    let generating: Promise<void> = Promise.resolve();
+    act(() => {
+      generating = rendered.result.current.generation.submit(LENS_NONE_ID);
+    });
+
+    const moved: Coordinates = { latitude: 35.72, longitude: 139.82 };
+    act(() => rendered.result.current.conditions.placePin("destination", moved));
+    await act(async () => {
+      await job.answer(
+        0,
+        Response.json({
+          status: "done",
+          result: {
+            routes: [route("r1")],
+            conditions: used({ destination: A, corrected_destination: B }),
+            no_candidates_reason: null,
+          },
+        }),
+      );
+      await generating;
+    });
+
+    const { conditions, generation } = rendered.result.current;
+    expect(conditions.destination).toEqual(moved);
+    expect(generation.generatedInput?.destination).toEqual(B);
+    expect(generation.conditionsDirty).toBe(true);
+  });
+
   it("上書きした重みは軸カタログが届いていれば送り、届かず送れなかったときだけ既定の配分で作ったと返す", async () => {
     const rendered = renderGeneration();
     respond([route("r1")]);
