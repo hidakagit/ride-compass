@@ -115,9 +115,8 @@ export function useSpliceSession({
   const editingRouteId = splice?.routeId ?? null;
   const appliedAlternatives = splice?.applied ?? NO_ALTERNATIVES;
   const spliceTask = splice?.task ?? SPLICE_IDLE;
-  // 「新しいルートを作る」を実行中の編集の印。stateと違い同じタスク内ですぐ読めるので、連打の2回目をここで止める
-  // （編集ごとに持つので、待つ間に始め直した編集の「作成」は止めない）。
-  const applyingRef = useRef<symbol | null>(null);
+  // 「新しいルートを作る」の実行中。stateと違い同じタスク内ですぐ読めるので、連打の2回目をここで止める。
+  const applyingRef = useRef(false);
   const setSpliceTask = (task: SpliceTask) => updateSplice((current) => ({ ...current, task }));
   // いま効いている編集。評価を待った後は、押した時点に閉じ込めた値ではなくこれを見る（待つ間に作り直す・消す・やめる・
   // 始め直すと、押した編集はもう効いていない）。描画の確定と同時に控え、確定の後に届いた評価が前の値を読まないようにする。
@@ -246,10 +245,11 @@ export function useSpliceSession({
 
   async function handleApplySplice() {
     // 連打で2本入るのを防ぐ（ボタンを押せなくするのは再描画を待つため、その前の2回目は通る）。
+    if (applyingRef.current) return;
     // 前提の確認は印を立てる前に済ませる（立ててから抜けると、印が立ったままこの操作が二度と効かなくなる）。
-    if (!splice || !editingRoute || appliedAlternatives.length === 0 || applyingRef.current === splice.token) return;
+    if (!splice || !editingRoute || appliedAlternatives.length === 0) return;
     const { token } = splice;
-    applyingRef.current = token;
+    applyingRef.current = true;
     setSpliceTask({ status: "applying" });
     onApplyStart();
     try {
@@ -266,7 +266,7 @@ export function useSpliceSession({
     } catch (error) {
       if (isLive(token)) setSpliceTask({ status: "idle", error: spliceFailureMessage(error) });
     } finally {
-      if (applyingRef.current === token) applyingRef.current = null;
+      applyingRef.current = false;
     }
   }
 
