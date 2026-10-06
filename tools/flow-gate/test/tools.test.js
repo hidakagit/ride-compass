@@ -9,9 +9,9 @@ import { GitHub } from "../src/github.js";
 import { askTask, moveTask } from "../src/move.js";
 import { config, fakeGitHub } from "./fake-github.js";
 
-test("18 後始末: 上限・認証は戻して振り出しを止め、一時の失敗と起きる前の落ちは戻すだけ、開発機が要るのラベル・着手可能日が先・開いた前提があれば戻し、それ以外は保留", () => {
+test("18 後始末: 上限・認証は戻して振り出しを止め、一時の失敗と起きる前の落ちは戻すだけ、開発機が要るのラベル・着手可能日が先・開いた前提があれば戻し、それ以外は保留。作業ブランチの開いた Pull Request があれば、どの終わり方でも検証中", () => {
   const said = (error) => [{ type: "assistant", error }];
-  const at = (messages, extra = {}) => settle(config, { messages, startOn: null, labels: [], blockers: [], url: "u", jobStatus: "success", now: new Date("2026-10-03T15:30:00Z"), ...extra });
+  const at = (messages, extra = {}) => settle(config, { messages, startOn: null, labels: [], blockers: [], pullRequest: null, url: "u", jobStatus: "success", now: new Date("2026-10-03T15:30:00Z"), ...extra });
   assert.deepEqual([at(said("rate_limit")).to, at(said("rate_limit")).pause], [config.todo, true]);
   for (const m of [said("overloaded"), null]) assert.deepEqual([at(m).to, Boolean(at(m).pause)], [config.todo, false]);
   assert.equal(at([], { startOn: "2026-10-05" }).to, config.todo);
@@ -19,6 +19,9 @@ test("18 後始末: 上限・認証は戻して振り出しを止め、一時の
   assert.equal(at([], { blockers: [7] }).to, config.todo);
   assert.equal(at([]).to, config.hold);
   for (const m of [said("rate_limit"), null]) assert.equal(at(m, { jobStatus: "cancelled" }).to, config.hold);
+  const opened = { pullRequest: { number: 3, html_url: "p" } };
+  for (const [m, extra] of [[[], {}], [[], { jobStatus: "cancelled" }], [null, {}], [[], { blockers: [7] }]]) assert.equal(at(m, { ...opened, ...extra }).to, config.review);
+  assert.deepEqual([at(said("rate_limit"), opened).to, at(said("rate_limit"), opened).pause], [config.review, true]);
 });
 
 test("24 手番の記録: 日ごとのリリースに付き、無ければ作り、並んで作られて作れなければ先に作られたものへ付ける", async () => {

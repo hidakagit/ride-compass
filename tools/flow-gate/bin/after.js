@@ -1,6 +1,6 @@
 // 担当のワークフロー（.github/workflows/claude-task.yml）の後始末。担当が落ちても止められても走る。終わり方（src/after.js: settle）で、
 // 利用の上限・認証なら振り出しを止め（コードのリポジトリの変数 coordinator.pauseVariable に止める時刻を置く）、作る担当のタスクが
-// 進行中のままなら動かし、どちらの担当でも手番の記録を置き場のリリースへ置いて、issue に終わりを書く。
+// 進行中のままなら動かし（作業ブランチの開いた Pull Request があれば検証中へ）、どちらの担当でも手番の記録を置き場のリリースへ置いて、issue に終わりを書く。
 import { existsSync, readFileSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import { endReport, keepLog, settle } from "../src/after.js";
@@ -18,8 +18,13 @@ const repo = code();
 const done = [];
 const note = (line) => (console.log(`${dry ? "（試し）" : ""}${line}`), done.push(line));
 const task = (await readTask(gh, config, { number: Number(number) })).issue;
+const moves = kind === "作る" && task?.status === config.working;
+const { repository, branchPrefix } = config.code;
+const head = `${repository.split("/")[0]}:${branchPrefix}${number}`;
+const [pullRequest = null] = moves ? await repo.rest("GET", `/repos/${repository}/pulls?state=open&head=${encodeURIComponent(head)}`)
+  .catch((e) => (note(`開いた Pull Request を読めなかった（${e.message}）`), [])) : [];
 const step = settle(config, { messages, startOn: task?.fields[config.project.startField], labels: task?.labels.nodes.map((l) => l.name) ?? [],
-  blockers: (task?.blockedBy.nodes ?? []).filter((b) => b.state !== "CLOSED").map((b) => b.number), url, jobStatus });
+  blockers: (task?.blockedBy.nodes ?? []).filter((b) => b.state !== "CLOSED").map((b) => b.number), pullRequest, url, jobStatus });
 
 if (step.pause) {
   const { pauseVariable: name, pauseMinutes } = config.coordinator;
@@ -29,7 +34,7 @@ if (step.pause) {
     .catch(() => repo.rest("POST", path, { name, value: until }))
     .then(() => `振り出しを ${until} まで止めた`, (e) => `振り出しを止められなかった（${e.message}）`));
 }
-if (kind === "作る" && task?.status === config.working)
+if (moves)
   note(await moveTask(gh, config, Number(number), step.to, { comment: notes.reason(step.to, step.reason), dryRun: dry }).catch((e) => `${step.to}へ動かさなかった（${e.message}）`));
 else note(`${task?.status ?? "置き場に無い"}なので動かさなかった`);
 
