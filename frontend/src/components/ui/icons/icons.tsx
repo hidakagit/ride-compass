@@ -15,6 +15,7 @@ import {
   Gauge,
   Info,
   Layers,
+  MapPin,
   Moon,
   Play,
   RotateCw,
@@ -517,3 +518,5 @@ export const MenuIcon = fromLucide(EllipsisVertical);
 export const DownloadIcon = fromLucide(Download);
 export const SpeedGaugeIcon = fromLucide(Gauge);
 export const HelpIcon = fromLucide(CircleQuestionMark);
+/** 地図で選んでいる区間の地点。 */
+export const SelectedSpotIcon = fromLucide(MapPin);
