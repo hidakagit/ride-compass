@@ -1,6 +1,6 @@
 """軸カタログの公開読み取りAPI。
 
-一般向けのルート設定画面・研究モードの画面が、評価軸の一覧
+一般向けのルート設定画面が、評価軸の一覧
 （label/description/category/default_weight）を取得するための読み取り専用・認可不要の
 エンドポイント。書き込みは`api/routers/axis_admin.py`（認可必須）が担う。
 

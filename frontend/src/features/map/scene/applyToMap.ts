@@ -26,7 +26,6 @@ import { areaLayerAnchor, prepareBasemapForAreaLayers, runWhenStyleReady } from 
 import { primaryAttributeIdsToLayerIds } from "@/features/map/layers/primaryAttributes";
 import { ROUTE_ARROW_ICON_ID, createRouteArrowIcon } from "@/features/map/layers/routeArrowIcon";
 import type { LensId, RouteStyleMode } from "@/lib/mapDisplay/routeStyleModes";
-import type { ExperimentSlot } from "@/types/experimentSlot";
 import type { RouteCandidate } from "@/types/route";
 import { dedicatedAxisBands, rampAxisBands, type ValueBand } from "@/lib/mapDisplay/valueScale";
 import { tileBaseUrl } from "@/lib/tileBaseUrl";
@@ -94,7 +93,6 @@ type SceneWiringProps = {
   readonly spliceStretches: readonly SpliceStretchInput[];
   /** 編集中に「いま作っているルート」として描く座標列（編集していなければnull）。 */
   readonly splicedRoute: readonly GeoJSON.Position[] | null;
-  readonly experimentSlots: readonly ExperimentSlot[];
   /** タイルの世代。全系統が揃うまで`null`。 */
   readonly tileVersions: TileVersions | null;
   /** 詳細を見ている道（ポップアップが開いている間だけ非null）。 */
@@ -143,10 +141,6 @@ function routeStateFrom(props: SceneWiringProps): RouteState {
       properties: { index: band.index },
     })),
     composite: composite !== null && composite.length > 1 ? { path: composite as unknown as RoutePath } : null,
-    comparisonSlots: props.experimentSlots.map((slot) => ({
-      path: slot.topCandidate.geometry.coordinates as unknown as RoutePath,
-      color: slot.color,
-    })),
     arrowIconImage: ROUTE_ARROW_ICON_ID,
   };
 }

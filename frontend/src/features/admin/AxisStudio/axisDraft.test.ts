@@ -31,7 +31,7 @@ import {
 } from "./axisDraft";
 
 function material(id: string, dtype: AxisMaterialOption["dtype"]): AxisMaterialOption {
-  return { id, label: id, name: id, description: "", dtype, unit: "" };
+  return { id, label: id, description: "", dtype, unit: "" };
 }
 
 const NUM = material("num_a", "numeric");

@@ -25,7 +25,6 @@ export function sceneState(overrides: SceneStateOverrides = {}): SceneState {
     selectedRouteId: null,
     spliceStretches: [],
     splicedRoute: null,
-    experimentSlots: [],
     tileVersions: READY_TILE_VERSIONS,
     inspectedWayId: null,
     ...rest,

@@ -1,27 +1,25 @@
-# 開発者/研究者機能（frontend）
+# 開発者機能（frontend）
 
 ## 責務
 
 `/admin`（`app/admin/page.tsx`、Basic認証保護下）にある開発者向け補助機能（ログ表示・
-システム状況・評価重みの実験的上書き）と、一般公開ページ`page.tsx`（`/`、認証なし）の
-ヘッダーメニューから直接操作できる機能（デバッグログ表示・研究モードON/OFF）。
+システム状況）と、一般公開ページ`page.tsx`（`/`、認証なし）のヘッダーメニューから直接操作
+できる機能（デバッグログ表示）。
 
 **対象ファイル**
 
 | ファイル | 責務 | マウント先 |
 |---|---|---|
 | `app/admin/page.tsx` | `/admin`のタブ構成を束ねるコンポジションルート（開いたときは軸スタジオのタブ） | 独立URL |
-| `components/HeaderMenu/HeaderMenu.tsx` | 使い方の説明の入口（「使い方を見る」。[ページ全体構成](page-composition.md)「使い方の説明」）・研究モードON/OFF・デバッグログ表示を1個のメニューアイコンへ集約したRadix Popover | `page.tsx`（`/`）のヘッダー |
+| `components/HeaderMenu/HeaderMenu.tsx` | 使い方の説明の入口（「使い方を見る」。[ページ全体構成](page-composition.md)「使い方の説明」）・デバッグログ表示を1個のメニューアイコンへ集約したRadix Popover | `page.tsx`（`/`）のヘッダー |
 | `features/admin/DebugPanel/DebugPanel.tsx` | デバッグログ表示のON/OFFトグル | `/admin`「開発者」タブ |
 | `components/DebugConsole/DebugConsole.tsx` | 地図イベント・外部API呼び出しの詳細ログを時系列表示するフローティングパネル。**表示中の行をそのままの形でコピーできる**（絞り込みを無視して全件にすると、絞って見つけた数行を渡したいときに関係ない行まで混ざる） | `page.tsx`（`/`）、`HeaderMenu`から開閉 |
 | `features/admin/SystemStatusPanel/SystemStatusPanel.tsx` | backend `/api/debug/stats`の集計・フロントバージョン・予報（MSM）の同期鮮度を表示するフローティングパネル | `/admin`「開発者」タブ |
 | `features/admin/BackendStatus/BackendStatus.tsx` | バックエンドの死活確認の簡易表示 | `/admin`「開発者」タブ |
 | `features/admin/BackendLogsPanel/BackendLogsPanel.tsx` | backend `GET /api/admin/debug/logs`の直近ログをレベル（DEBUG〜CRITICAL）・部分一致で絞り込んで表示するパネル。取得は「取得」ボタン押下時のみ（ポーリングなし） | `/admin`「開発者」タブ |
-| `features/admin/ResearchPanel/ResearchPanel.tsx` | 研究モードの現在値（ON/OFF）の読み取り専用表示 | `/admin`「研究」タブ |
 | `components/FloatingPanel/FloatingPanel.tsx` | `DebugConsole`/`SystemStatusPanel`が共有するドラッグ可能な浮動パネルの共通シェル（`react-rnd`ベース） | 両パネルの実装基盤 |
 | `hooks/useCopyToClipboard.ts` | クリップボードへの書き込みと結果表示（コピー済み・失敗）。Clipboard APIは[SecureContext]のため、httpのIPアクセス等では`navigator.clipboard`自体がundefinedになる——`.catch()`はPromiseの拒否しか捕まえず、プロパティアクセスの同期TypeErrorをtryで受けないとボタンが無反応のままになる。失敗は握り潰さず文言を返す | `DebugConsole`・`BackendLogsPanel` |
 | `hooks/useDebugLog.ts`・`lib/debugLog.ts` | デバッグモードON/OFF状態・ログエントリのシングルストア（`useSyncExternalStore`） | |
-| `hooks/useResearchMode.ts`・`lib/researchMode.ts` | 研究モードON/OFF状態の同型シングルストア | |
 | `app/api/version/route.ts` | フロントエンドのビルドバージョンを返すNext.js route handler（`SystemStatusPanel`が読む） | |
 
 ## `/admin`とpage.tsx（`/`）の境界
@@ -34,17 +32,12 @@ app/admin/page.tsx（独立URL、Basic認証保護下）
   ├─ タブ「データ保守」: DerivedDataFreshnessPanel（派生データの鮮度台帳）+ DbStatusPanel
   │                     （本番DBの状態）+ TileCachePanel（タイルファイルキャッシュの全消去、
   │                     いずれも本モジュール対象外）
-  ├─ タブ「研究」　　　: ResearchPanel（読み取り専用表示）
   └─ タブ「開発者」　　: DebugPanel + BackendStatus + SystemStatusPanel + BackendLogsPanel
 
 app/page.tsx（メインページ、地図を持つ、認証なし）
-  └─ header: HeaderMenu（研究モードON/OFFのトグル本体・デバッグログ表示ボタン）
+  └─ header: HeaderMenu（使い方を見る・デバッグログ表示ボタン）
        └─ DebugConsole（debugEnabled時のみHeaderMenuに項目表示、開閉はheader直下で管理）
 ```
-
-研究モードON/OFFの操作は`HeaderMenu`（`/`、認証なし）が正であり、`/admin`の
-`ResearchPanel`は現在値の読み取り専用表示のみを持つ（`researchMode.ts`のフラグ自体は
-`/`・`/admin`のどちらからも`useResearchEnabled()`で参照できる共有state）。
 
 `DebugConsole`（デバッグログの表示自体）は`/`に残る——地図インスタンスに紐づく情報の
 ため、地図を持たない`/admin`へ移すと記録先（`lib/debugLog.ts`のシングルトン）がタブ間で
@@ -63,20 +56,6 @@ localStorage経由で`/`側へ共有される（`HeaderMenu`はデバッグロ�
    `console.debug`/`warn`/`error`にも同時出力）。
 3. **パネルの開閉**（`app/page.tsx: debugConsoleOpen`）: `DebugConsole`自体の表示/非表示。
    デバッグモードONでも常時パネルを占有させない、記録の有効/無効とは独立したstate。
-
-## 研究モード（`HeaderMenu.tsx`でON/OFF、`useResearchEnabled()`で参照）
-
-ONにすると生成（`features/route/useRouteGeneration.ts`）が生成した結果が実験スロット（同じフックの
-`experimentSlots`、最大3件）へ記録され、比較タブ（`ComparisonPanel`、ルート結果の
-タブ列で候補タブ群の末尾に並ぶ。researchEnabledの間だけ現れる）・地図の重ね描き
-（`MapView`の`experimentSlots` prop）に使えるように
-なり、選んだ区間の詳細へ材料の生値（`material_values`）も並ぶ——いずれも一般公開ページの機能として認証なしで直接利用できる（気軽に試せる比較
-機能という位置づけ）。評価軸の重み（`route_preference`）自体は一般向けルート設定画面
-（`RouteSettingsPanel`）が常時編集する状態で、研究モードON/OFFとは独立している。
-
-トグル本体は`app/page.tsx: HeaderMenu`にあり、`/admin`の`ResearchPanel`は同じフラグ
-（`researchMode.ts`）の現在値を読むだけの表示専用コンポーネント。デバッグモード
-（ログ表示専任）とは独立した別のトグル。
 
 ## 暗黙の前提
 

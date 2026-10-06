@@ -116,7 +116,6 @@ from app.domain.weather_display import (  # noqa: E402
     WIND_SPEED_COLOR_STOPS,
 )
 from app.domain.display_palette import (  # noqa: E402
-    COMPARISON_SLOT_COLORS,
     SEMANTIC_COLORS,
     resolved_display_axes,
 )
@@ -330,7 +329,6 @@ def main() -> None:
         PALETTE_PATH,
         {
             "semantic": SEMANTIC_COLORS,
-            "comparison_slots": list(COMPARISON_SLOT_COLORS),
         },
     )
     # 地図に出すものの最上位の束ね方（domain/map_display.py）。並びがチップの並び順。

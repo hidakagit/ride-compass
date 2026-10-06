@@ -28,7 +28,7 @@ import { AxisScoringSection } from "./AxisScoringSection";
 import { scoreBands, type ValueDistribution } from "./scoreDistribution";
 
 function option(overrides: Partial<AxisMaterialOption> & Pick<AxisMaterialOption, "id" | "dtype">): AxisMaterialOption {
-  return { label: overrides.id, name: overrides.id, description: `${overrides.id}の説明文`, unit: "", ...overrides };
+  return { label: overrides.id, description: `${overrides.id}の説明文`, unit: "", ...overrides };
 }
 
 const NUM = option({

@@ -6,7 +6,7 @@
  * 超えて書き込みだけが投げるときも、止めたブラウザと同じ受け止めに入るので別に作らない。
  *
  * ここで見ないもの:
- * - 読んだ値で初期値を決めるシングルトン → `lib/debugLog.test.ts`・`lib/researchMode.test.ts`
+ * - 読んだ値で初期値を決めるシングルトン → `lib/debugLog.test.ts`
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 
