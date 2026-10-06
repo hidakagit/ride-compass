@@ -1092,9 +1092,9 @@ class RoadGraphEngine:
         resolved = [_lazy_index_of(context, edge_id) for edge_id in edge_ids]
         unknown = [edge_id for edge_id, index in zip(edge_ids, resolved, strict=True) if index is None]
         if unknown:
-            raise RoutingError(
-                f"経路に未知のEdgeが含まれています count={len(unknown)} first={unknown[0]}"
-            )
+            # 区間の鍵はOSMの道のidを含むため、常時のログへ載る例外の文には件数だけを書く（logging.md 基本原則4）。
+            logger.debug("経路に未知のEdgeが含まれています first=%s", unknown[0])
+            raise RoutingError(f"経路に未知のEdgeが含まれています count={len(unknown)}")
         path = [index for index in resolved if index is not None]
         lazy_graph = context.lazy_graph
         tails = [int(lazy_graph.edge_from[index]) for index in path]

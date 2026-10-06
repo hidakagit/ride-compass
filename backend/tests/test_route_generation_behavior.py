@@ -15,6 +15,7 @@
 
 import logging
 import math
+import re
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
@@ -176,11 +177,12 @@ async def test_spliced_route_is_evaluated_as_sent(engine_over):
         (SOUTH_WEST, NORTH_EAST, lambda edge_ids: edge_ids[:1] + edge_ids[2:]),  # 途中で途切れる
         (CENTER, NORTH_EAST, lambda edge_ids: edge_ids),  # 起点が違う
         (SOUTH_WEST, SOUTH_EAST, lambda edge_ids: edge_ids),  # 終点が違う
+        (SOUTH_WEST, NORTH_EAST, lambda edge_ids: [*edge_ids, "way-999-seg0-fwd"]),  # 道路網に無い区間を含む
     ],
 )
-async def test_a_spliced_route_that_does_not_run_from_the_origin_to_the_destination_is_refused(
+async def test_a_spliced_route_the_road_network_cannot_trace_is_refused(
         engine_over, caplog, origin, destination, edges):
-    """断った理由は常時のログに残すが、ノードのOSMのidは詳しい記録（DEBUG）にだけ載せる（公開の地図で地点をそのまま引けるため）。"""
+    """断った理由は常時のログに残すが、ノード・区間のOSMのidは詳しい記録（DEBUG）にだけ載せる（公開の地図で場所をそのまま引けるため）。"""
     generator = engine_over(grid_network())
     (candidate, *_) = await generator.generate_via_waypoints(
         at(SOUTH_WEST), [], 4.0, destination=at(NORTH_EAST), max_routes=1, start_time=DEPARTURE)
@@ -189,7 +191,7 @@ async def test_a_spliced_route_that_does_not_run_from_the_origin_to_the_destinat
         assert await generator.generate_spliced_route(
             at(origin), at(destination), 4.0, edges(candidate.edge_ids), start_time=DEPARTURE) == []
 
-    levels = [r.levelno for r in caplog.records if "osm-node-" in r.getMessage()]
+    levels = [r.levelno for r in caplog.records if re.search(r"osm-node-|way-\d", r.getMessage())]
     assert levels and set(levels) == {logging.DEBUG}
 
 
