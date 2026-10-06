@@ -191,7 +191,6 @@ export default function LensControl({
             value={lens}
             onValueChange={(id) => select(id as LensId)}
             aria-label={LENS_SCREEN_NAME}
-            usage="地図をこの評価で色分けします。「評価に使用中」は今の重みで道選びに使っている評価です。「ルート後のみ」は、ルートを作った後だけルートの線に色が付きます。"
           >
             {renderOption(LENS_NONE_ID, FIXED_LENS_LABELS[LENS_NONE_ID], LENS_NEUTRAL_COLOR)}
             {renderOption(

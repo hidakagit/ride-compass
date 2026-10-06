@@ -33,7 +33,6 @@ export default function LegendRow({
           aria-expanded={open}
           aria-controls={open ? descriptionId : undefined}
           aria-label={`${entry.label}の説明を${open ? "隠す" : "表示"}`}
-          usage="この行に何が入るかの説明を開きます。"
           onClick={() => setOpen((current) => !current)}
         >
           <InfoIcon />
