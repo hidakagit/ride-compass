@@ -29,6 +29,7 @@ import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
+from typing import NoReturn
 
 import numpy as np
 
@@ -775,20 +776,22 @@ class RoadGraphEngine:
                 if reached_nodes == 0:
                     finite_cost_ratio = float(np.mean(np.isfinite(outbound.cost_bins_lazy)))
                     context.no_candidates_side = "origin"
+                    logger.debug("select_via_nodes origin_node=%s", _node_key_of(context.road, context.origin_node))
                     logger.warning(
                         "select_via_nodes origin reaches no node origin_node=%s out_edges=%d "
                         "finite_cost_ratio=%.3f nodes=%d",
-                        _node_key_of(context.road, context.origin_node),
+                        _node_label(context, context.origin_node),
                         int(_origin_states(context.statics, context.origin_node).size),
                         finite_cost_ratio,
                         int(forward_tree.node_cost.size),
                     )
                 else:
                     context.no_candidates_side = "destination"
+                    logger.debug("select_via_nodes destination_node=%s", _node_key_of(context.road, destination_index))
                     logger.warning(
                         "select_via_nodes no accessible node near destination destination_node=%s "
                         "reached_nodes=%d/%d",
-                        _node_key_of(context.road, destination_index), reached_nodes,
+                        _node_label(context, destination_index), reached_nodes,
                         int(forward_tree.node_cost.size),
                     )
                 return []
@@ -981,7 +984,8 @@ class RoadGraphEngine:
             time_bins, outbound.bin_seconds,
         )
         if not edges:
-            logger.warning("select_fastest_route no path to destination=%s", _node_key_of(context.road, destination_index))
+            logger.debug("select_fastest_route destination_node=%s", _node_key_of(context.road, destination_index))
+            logger.warning("select_fastest_route no path to destination=%s", _node_label(context, destination_index))
             return None
 
         seconds = [float(outbound.travel_seconds_lazy[index]) for index in edges]
@@ -1096,22 +1100,15 @@ class RoadGraphEngine:
         tails = [int(lazy_graph.edge_from[index]) for index in path]
         heads = [int(lazy_graph.edge_to[index]) for index in path]
         if tails[0] != context.origin_node:
-            raise RoutingError(
-                f"経路が起点から始まっていません expected={_node_key_of(context.road, context.origin_node)} "
-                f"actual={_node_key_of(context.road, tails[0])}"
-            )
+            _refuse_at_nodes(context, "経路が起点から始まっていません", expected=context.origin_node, actual=tails[0])
         for index, (head, following_tail) in enumerate(zip(heads, tails[1:])):
             if head != following_tail:
-                raise RoutingError(
-                    f"経路がつながっていません index={index} to_node={_node_key_of(context.road, head)} "
-                    f"next_from_node={_node_key_of(context.road, following_tail)}"
+                _refuse_at_nodes(
+                    context, f"経路がつながっていません index={index}", to_node=head, next_from_node=following_tail,
                 )
         destination_node = find_nearest_node_indexed(context.node_index, destination)
         if destination_node is not None and heads[-1] != destination_node:
-            raise RoutingError(
-                f"経路が目的地に着いていません expected={_node_key_of(context.road, destination_node)} "
-                f"actual={_node_key_of(context.road, heads[-1])}"
-            )
+            _refuse_at_nodes(context, "経路が目的地に着いていません", expected=destination_node, actual=heads[-1])
 
         lengths = context.statics.edge_length_m[path].tolist()
         total_m = sum(lengths)
@@ -1496,6 +1493,17 @@ def _network_row(context: _RoadGraphContext, index: int) -> int:
 
 def _node_key_of(road: RoadSlice, node: int) -> str:
     return node_key(int(road.network.node_osm_id[road.nodes[node]]))
+
+
+def _node_label(context: _RoadGraphContext, node: int) -> str:
+    """常時のログに書くノードの地点。小数2桁の緯度経度で、OSMのidは書かない（logging.md 基本原則4）。"""
+    return f"({float(context.node_lat[node]):.2f},{float(context.node_lon[node]):.2f})"
+
+
+def _refuse_at_nodes(context: _RoadGraphContext, message: str, **nodes: int) -> NoReturn:
+    """経路の形を断る。例外の文は常時のログへ載るため地点は`_node_label`で書き、OSMのidはDEBUGにだけ出す。"""
+    logger.debug("%s %s", message, " ".join(f"{name}={_node_key_of(context.road, n)}" for name, n in nodes.items()))
+    raise RoutingError(f"{message} " + " ".join(f"{name}={_node_label(context, n)}" for name, n in nodes.items()))
 
 
 def _node_coordinates(context: _RoadGraphContext, node: int) -> Coordinates:
