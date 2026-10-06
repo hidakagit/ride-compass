@@ -9,10 +9,13 @@ const TRANSIENT = ["overloaded", "server_error"];
 // 利用の上限・認証は、続けて起こしても同じく止まるので、どちらの担当でも振り出しを止める（pause）。一時の失敗と Claude が
 // 起きる前に落ちたときは、戻すだけ。ラベル coordinator.devLabel を付けて返したなら、見回りが飛ばすので未着手へ戻す。着手可能日が
 // 先の日か、開いた前提（blockers。blocked by の issue の番号）があるなら、見回りがその日・前提が閉じるまで振り出さないので未着手へ
-// 戻す。持ち時間を超えた・Cancel された（ジョブの結果 cancelled）は担当の側の止まりなので落ちた。
-export function settle(config, { messages, startOn, labels, blockers, url, jobStatus, now = new Date() }) {
+// 戻す。持ち時間を超えた・Cancel された（ジョブの結果 cancelled）は担当の側の止まりなので落ちた。作業ブランチの開いた Pull Request
+// （pullRequest。{ number, html_url } か null）があれば、ゲートが開いた出来事を受け損ねたので、ゲートと同じく検証中へ入れる
+// （止まり方は問わない。上限・認証なら pause は残す）。
+export function settle(config, { messages, startOn, labels, blockers, pullRequest, url, jobStatus, now = new Date() }) {
   const errors = jobStatus === "cancelled" ? [] : (messages ?? []).filter((m) => m?.type === "assistant" && m.error).map((m) => m.error);
   const quota = errors.find((e) => QUOTA.includes(e));
+  if (pullRequest) return { to: config.review, pause: Boolean(quota), reason: `Actions の作る担当（実行 ${url}）が Pull Request [#${pullRequest.number}](${pullRequest.html_url}) を出したが、検証中へ入らないまま終わった。開いているので検証中へ入れる` };
   const failed = quota ? `Claude の利用の上限か認証で止まった（${quota}）`
     : !messages && jobStatus !== "cancelled" ? "担当が動けなかった（実行のファイルが無い）"
     : errors.find((e) => TRANSIENT.includes(e)) ? `Claude のサーバーの一時の失敗で止まった（${errors.find((e) => TRANSIENT.includes(e))}）` : null;
