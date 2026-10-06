@@ -1,12 +1,13 @@
-// 約束 18・24（担当の後始末の行き先と手番の記録の置き場。src/after.js: settle・keepLog）を確かめる。設定は架空のもの（fake-github.js: config）を
-// 渡し、24 は GitHub（網）だけを差し替える。
-// ここで見ないもの: 終わりのコメントの中身（文言で、`bin/after.js --dry-run` が出す姿で見る）・ステータスを動かす道具（src/move.js）は表の照らし
-// （rules.js: judge）を呼ぶだけなので、照らしは gate.test.js が見る。
+// 約束 18・24（担当の後始末の行き先と手番の記録の置き場。src/after.js: settle・keepLog）・26（GitHub の一時的な失敗。src/github.js: GitHub）・
+// 27（問いの打ち直し。src/move.js: askTask）を確かめる。設定は架空のもの（fake-github.js: config）を渡し、24・26・27 は GitHub（網）だけを差し替える。
+// ここで見ないもの: 終わりのコメントの中身（文言で、`bin/after.js --dry-run` が出す姿で見る）・ステータスを動かす道具（src/move.js）の表の照らし
+// （rules.js: judge を呼ぶだけなので、照らしは gate.test.js が見る）・打ち直しの回数と間（公式の SDK の既定を写した値で、約束ではない）。
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { keepLog, settle } from "../src/after.js";
 import { GitHub } from "../src/github.js";
-import { config } from "./fake-github.js";
+import { askTask, moveTask } from "../src/move.js";
+import { config, fakeGitHub } from "./fake-github.js";
 
 test("18 後始末: 上限・認証は戻して振り出しを止め、一時の失敗と起きる前の落ちは戻すだけ、開発機が要るのラベル・着手可能日が先・開いた前提があれば戻し、それ以外は保留", () => {
   const said = (error) => [{ type: "assistant", error }];
@@ -44,4 +45,39 @@ test("24 手番の記録: 日ごとのリリースに付き、無ければ作り
     const r = await at([], { race });
     assert.deepEqual([r.tags, r.uploads.map((u) => u.to)], [["turns-2026-10-04"], ["/0"]]);
   }
+});
+
+test("26 GitHub の一時的な失敗（5xx・接続の失敗・GraphQL の「Something went wrong」）は、読むだけの要求なら打ち直して書き終え、書く要求は打ち直さない", async () => {
+  const at = async (fail, { writes = false } = {}) => {
+    const gh = fakeGitHub({ issue: { number: 7, status: config.todo } });
+    const fake = globalThis.fetch;
+    let failed = false;
+    globalThis.fetch = async (url, init) => {
+      if (failed || JSON.parse(init.body).query.startsWith("mutation") !== writes) return fake(url, init);
+      failed = true;
+      return fail();
+    };
+    const done = await moveTask(new GitHub("bot-token"), config, 7, config.working).then(() => true, () => false);
+    return [done, gh.issue.status, gh.writes.length];
+  };
+  const bad = () => new Response("bad gateway", { status: 502 });
+  for (const fail of [bad, () => Promise.reject(new TypeError("fetch failed")), () => Response.json({ errors: [{ message: "Something went wrong while executing your query. Please try again." }] })])
+    assert.deepEqual(await at(fail), [true, config.working, 1]);
+  assert.deepEqual(await at(() => new Response("{}", { status: 404 })), [false, config.todo, 0]);
+  assert.deepEqual(await at(bad, { writes: true }), [false, config.todo, 0]);
+});
+
+test("27 問いは、答えの無い最新の問いが同じ文なら書き直さずに回答待ちへ動かす: 書いたあとに落ちた打ちを打ち直しても問いは1つ", async () => {
+  const question = "## 問い\nどちらにするか";
+  const answer = "## 回答\n**どちらにするか**\n\n次のステータス: 前";
+  const at = async (status, comments) => {
+    const gh = fakeGitHub({ issue: { number: 7, status, comments: comments.map((body) => ({ author: "c", body })) } });
+    await askTask(new GitHub("bot-token"), config, 7, question);
+    return [gh.issue.status, gh.issue.comments.filter((c) => c.body === question).length];
+  };
+  assert.deepEqual(await at(config.working, []), [config.waiting, 1]);
+  assert.deepEqual(await at(config.working, [question]), [config.waiting, 1]);
+  assert.deepEqual(await at(config.waiting, [question]), [config.waiting, 1]);
+  assert.deepEqual(await at(config.waiting, ["## 問い\n別の問い"]), [config.waiting, 1]);
+  assert.deepEqual(await at(config.todo, [question, answer]), [config.waiting, 2]);
 });

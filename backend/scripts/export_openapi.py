@@ -135,9 +135,9 @@ from app.domain.material_catalog import (  # noqa: E402
     MATERIAL_CATALOG,
     MISSING_SEMANTICS_DISPLAY,
     POPULATION_LABELS,
-    PRIMARY_ATTRIBUTES,
     display_axis_missing_semantics,
 )
+from app.domain.primary_attributes import PRIMARY_ATTRIBUTES  # noqa: E402
 from app.domain.region import ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM  # noqa: E402
 from app.domain.leg_costs import MAX_TIME_BINS, TIME_BIN_HOURS  # noqa: E402
 from app.config import Settings  # noqa: E402
@@ -520,7 +520,7 @@ def main() -> None:
         PRIMARY_ATTRIBUTES_PATH,
         "primaryAttributes",
         # 一次属性カタログ（地図レイヤー階層の次数反転）。宣言
-        # （`domain/material_catalog.py: PRIMARY_ATTRIBUTES`）だけから決まり、DBを読まない。各軸の
+        # （`domain/primary_attributes.py: PRIMARY_ATTRIBUTES`）だけから決まり、DBを読まない。各軸の
         # `primary_attribute_ids`は実行時の`GET /api/axis-catalog`が配るため、フロントは
         # この一覧のlabel（正式名）と突き合わせて1次↔2次の双方向導出ができる。
         # 宣言をそのまま配る。色だけは宣言に無いので`resolved_display_axes`が決め、値が欠けたときの意味は

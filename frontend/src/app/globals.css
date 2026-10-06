@@ -335,10 +335,10 @@
   /* 全<button>へ一律に44pxを掛けない（部品が意図して持つ大きさを詳細度で潰す）。44pxが要る主要な導線は、
      その部品自身が持つ（docs/modules/frontend/frontend-design-system.md 8節）。 */
 
-  /* 下部シートの中のチェックボックスは1.4rem角にする（ラベルを含む行全体がタップ領域になる。下の
-     labelの規則）。余白と最小の高さはCheckbox自身が持つので、ここは大きさだけを持つ。 */
+  /* 下部シートの中のチェックボックスは見た目の四角を1.4rem角にする（ラベルを含む行全体がタップ領域になる。下の
+     labelの規則）。押す所の大きさ・余白と最小の高さはCheckbox自身が持つので、ここは中の四角の大きさだけを持つ。 */
   .app-bottom-sheet input[type="checkbox"],
-  .app-bottom-sheet [role="checkbox"] {
+  .app-bottom-sheet [role="checkbox"] > span {
     width: 1.4rem;
     height: 1.4rem;
   }

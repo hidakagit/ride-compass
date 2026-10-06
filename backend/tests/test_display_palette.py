@@ -2,7 +2,7 @@
 
 入口は`resolved_display_axes`（行の色を解決した表示定義。画面へ配る形）と、その色を作る`ordered_colors`・
 `nominal_colors`、役割ごとの色`SEMANTIC_COLORS`。前半は架空の属性で色の配り方を、後半は本番の一次属性の宣言
-（`domain/material_catalog.py: PRIMARY_ATTRIBUTES`）に配った色が地図の上で読めること
+（`domain/primary_attributes.py: PRIMARY_ATTRIBUTES`）に配った色が地図の上で読めること
 （`docs/modules/frontend/static-map-layers.md`の配色の読み方）を確かめる。
 
 コントラスト比はWCAG 2.xの相対輝度の比、色の離れ具合はCIE76のΔE（CIELab・D65）。どちらも公開の定義から
@@ -22,7 +22,7 @@ import pytest
 from app.domain import display_palette
 from app.domain.display_palette import SEMANTIC_COLORS, nominal_colors, ordered_colors, resolved_display_axes
 from app.domain.map_display import ROAD_UNKNOWN_OPACITY
-from app.domain.material_catalog import PRIMARY_ATTRIBUTES
+from app.domain.primary_attributes import PRIMARY_ATTRIBUTES
 from app.domain.registry import DisplayAxisSpec, DisplayCategorySpec, PrimaryAttributeSpec
 
 GROUND = SEMANTIC_COLORS["basemap_ground"]

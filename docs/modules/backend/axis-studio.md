@@ -13,7 +13,7 @@
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `axis_definitions.py`・`axis_display.py`・`map_paint.py`（地図が軸について塗るもの）・`axis_raw_value.py`・`axis_templates.py`・`registry.py`・`value_distribution.py`（延長で重み付けた分位点とヒストグラム。分布の口の応答の型） |
+| domain | `axis_definitions.py`・`axis_display.py`・`map_paint.py`（地図が軸について塗るもの）・`axis_raw_value.py`・`axis_templates.py`・`registry.py`・`primary_attributes.py`（一次属性の語彙の宣言）・`value_distribution.py`（延長で重み付けた分位点とヒストグラム。分布の口の応答の型） |
 | services | `axis_registry_service.py`・`axis_preview_service.py`・`axis_catalog_service.py`（軸カタログが軸の宣言のほかに要る値——事故の収録年・タイルの世代・専用配信の条件——を1回で読む） |
 | infrastructure | `axis_definition_models.py`・`axis_definition_repository.py` |
 | api | `axis_admin.py`・`axis_catalog.py` |
@@ -389,18 +389,18 @@ DB側の値が変わっても追従しない。軸の中身が主題でないテ
 `GET /api/axis-catalog`が`material_breakdown`として、材料id・表示名・型・単位・
 正規化重みの並びで配信する（フロントは材料の対応表も並べ替えも持たない）。
 
-## 一次属性の語彙（`domain/material_catalog.py: PRIMARY_ATTRIBUTES`、別系統）
+## 一次属性の語彙（`domain/primary_attributes.py: PRIMARY_ATTRIBUTES`、別系統）
 
 **`AXIS_DEFINITIONS`とは別の、一次属性の語彙**。型（`PrimaryAttributeSpec`）は`domain/registry.py`が持つ。
-語彙は材料カタログと同じファイルのタプル`PRIMARY_ATTRIBUTES`が宣言し、同じ`attr_id`を2度宣言すると
+語彙はタプル`PRIMARY_ATTRIBUTES`が宣言し、同じ`attr_id`を2度宣言すると
 モジュールのimport時に落ちる（読む側はidで1件を引くため、後の宣言が黙って消える）。軸は含まない——
 材料が2つの軸へ跨がらないことの検査は`AXIS_DEFINITIONS`側の`check_material_exclusivity`/
 `AxisMaterialConflictError`（軸の集合の検査`check_axis_set`）だけが持つ。
 
 材料（`MaterialSpec.primary_attribute`）は一次属性を
 idの文字列ではなく宣言そのもので指す。材料が指す要素には`PRIMARY_ATTRIBUTES`の表の中で`:=`により
-名前を付け、材料はその名前を書く——名前は表の要素にしか付かないので、表に無い一次属性を指す材料は
-書けない（書けばモジュールのimport時に未定義の名前で落ち、`ruff`も未定義名として出す）。
+名前を付け、材料カタログはその名前をimportして書く——名前は表の要素にしか付かないので、表に無い一次属性を指す材料は
+書けない（書けば材料カタログのimport時に無い名前のimportで落ちる）。
 既存の一次属性を指す材料を足すときは、材料の宣言だけで済む。逆向き（材料を1つも持たない一次属性）は
 許す: 地図の分類としてだけ存在し（例: 補給・休憩ポイント）、軸の`primary_attribute_ids`には
 現れないため評価に効かない。一次属性が複数の材料に共有される（例: `landcover`は土地被覆の区分ごとの材料が指す）ため、

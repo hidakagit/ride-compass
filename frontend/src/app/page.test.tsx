@@ -264,15 +264,17 @@ describe("ルートを作る", () => {
     expect(screen.queryByRole("button", { name: "候補を全消去" })).toBeNull();
   });
 
-  it("条件を変えたことの印は、候補がある間だけ「ルート生成」の隣に点き、全消去で消える", async () => {
+  it("条件を変えたことの印は、候補がある間だけ「ルート生成」の隣に点き、押すと意味が開き、全消去で消える", async () => {
     const { user } = renderHome();
-    const changedMark = () => screen.queryByRole("img", { name: "生成条件が変更されています" });
+    const changedMark = () => screen.queryByRole("button", { name: "生成条件の変更を表示" });
     jobs.respond([FIRST], LOOP_CONDITIONS);
     await generate(user);
     await waitFor(() => expect(candidateTabs()).toHaveLength(1));
 
     fireEvent.change(screen.getByLabelText("距離"), { target: { value: "50" } });
-    expect(changedMark()).not.toBeNull();
+    await user.click(changedMark()!);
+    expect(screen.getByRole("dialog")).toHaveTextContent("生成条件が変更されています");
+    await user.keyboard("{Escape}");
     await user.click(screen.getByRole("button", { name: "候補を全消去" }));
     await confirmClear(user);
     expect(changedMark()).toBeNull();

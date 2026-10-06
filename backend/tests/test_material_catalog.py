@@ -8,7 +8,7 @@
 - `tile_runtime_scales`: タイルの生値に掛ける、実行時に決まる係数
 
 カタログの中身は架空の材料（`num_a` 等）へ差し替えて与える。後ろの2節だけは本番の宣言（材料のカタログと
-一次属性の表示の行）そのものを読み、型でも導出でも保証されない不変条件を確かめる。
+`domain/primary_attributes.py`の一次属性の表示の行）そのものを読み、型でも導出でも保証されない不変条件を確かめる。
 
 ここで見ないもの:
 - 材料の値を求めるSQLが返す値 → `test_material_values.py`
@@ -31,6 +31,7 @@ from app.domain.material_catalog import (
     MaterialSpec,
     WayMaterialCoverageSpec,
 )
+from app.domain.primary_attributes import PRIMARY_ATTRIBUTES
 from app.domain.registry import PrimaryAttributeSpec
 from app.domain.traffic import NODE_KINDS, STOP_POI_KINDS
 
@@ -173,11 +174,11 @@ def test_every_population_and_missing_semantics_has_a_heading():
 
 # --- 本番の一次属性の表示の宣言 -----------------------------------------------------
 
-DISPLAYED = [attr for attr in material_catalog.PRIMARY_ATTRIBUTES if attr.display_axes]
+DISPLAYED = [attr for attr in PRIMARY_ATTRIBUTES if attr.display_axes]
 
 
 def row_values(attr_id: str) -> set:
-    attribute = next(attr for attr in material_catalog.PRIMARY_ATTRIBUTES if attr.attr_id == attr_id)
+    attribute = next(attr for attr in PRIMARY_ATTRIBUTES if attr.attr_id == attr_id)
     return {value for category in attribute.display_axes[0].categories for value in category.values}
 
 
