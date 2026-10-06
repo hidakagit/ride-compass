@@ -370,7 +370,6 @@ class MaterialColumns:
 _MATERIAL_ARRAY_FIELDS = (
     "numeric_values", "boolean_values", "hard_filter_flags", "distance_m", "bearing_deg", "mid_lat", "mid_lon",
     "elevation_present", "elevation_gain_m", "elevation_loss_m",
-    "elevation_max_grade", "elevation_min_grade",
 )
 
 

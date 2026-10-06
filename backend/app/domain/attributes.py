@@ -10,7 +10,7 @@ from app.domain.strict_model import StrictModel
 class ElevationAttribute(StrictModel):
     """Edgeへ紐付ける標高属性。Edge本体（domain/graph.py）とは独立して保持する。
 
-    average_grade/max_grade/min_gradeは符号付き（登り=正、下り=負）。勾配は値が取れなかった欄がNone。
+    average_gradeは符号付き（登り=正、下り=負）で、値が取れなかった区間はNone。
     獲得・喪失標高は揃って入る（表の制約`edge_materials_elevation_all_or_none`が区間の標高の4列を揃える）。
     """
 
@@ -18,22 +18,16 @@ class ElevationAttribute(StrictModel):
     elevation_gain_m: float
     elevation_loss_m: float
     average_grade: float | None
-    max_grade: float | None
-    min_grade: float | None
 
     def reversed_as(self, reverse_edge_id: str) -> "ElevationAttribute":
         """同じ地形を逆方向に走った区間（`reverse_edge_id`）の値。標高は進行方向に依存しないため
-        代数的に厳密に決まる: 獲得標高↔喪失標高の入れ替え、平均勾配の符号反転、
-        最大/最小勾配の符号反転＋入れ替え（`elevation_values_sql`が区間の頂点列を進行方向の順で
-        積算するため、逆順に辿ると各区間の勾配の符号がすべて反転し、max/minも入れ替わる）。
+        代数的に厳密に決まる: 獲得標高↔喪失標高の入れ替え、平均勾配の符号反転。
         """
         return ElevationAttribute(
             edge_id=reverse_edge_id,
             elevation_gain_m=self.elevation_loss_m,
             elevation_loss_m=self.elevation_gain_m,
             average_grade=-self.average_grade if self.average_grade is not None else None,
-            max_grade=-self.min_grade if self.min_grade is not None else None,
-            min_grade=-self.max_grade if self.max_grade is not None else None,
         )
 
 
@@ -126,8 +120,6 @@ class EdgeMaterialArrays:
     elevation_present: np.ndarray  # dtype=bool
     elevation_gain_m: np.ndarray  # dtype=float64, NaN=欠損
     elevation_loss_m: np.ndarray
-    elevation_max_grade: np.ndarray
-    elevation_min_grade: np.ndarray
 
     def __len__(self) -> int:
         return len(self.distance_m)
@@ -150,8 +142,8 @@ def elevation_values_sql(vertices: str) -> str:
 
     `vertices`は`(osm_way_id, segment_index, ord, lon, lat, elev, on_structure)`を返す関係。
     `elev`がNULLの頂点は評価から外す。**外した後に隣り合う2点でも、元の点列では間に欠損を
-    挟んでいることがある**——そのまま隣接扱いすると、欠損区間の起伏が均された勾配として
-    混入する。距離（両端の座標は常に既知）と、獲得/消失/勾配（欠損を挟むと信頼できない）を
+    挟んでいることがある**——そのまま隣接扱いすると、欠損区間の起伏が均された差として
+    混入する。距離（両端の座標は常に既知）と、獲得/消失（欠損を挟むと信頼できない）を
     分け、元の点列でも真に隣接していたペアだけを後者へ寄与させる。
 
     `on_structure`（橋・高架・トンネル）は**両端だけ**を使う。配信元のDEMは地表面の値で
@@ -187,13 +179,11 @@ pairs AS (
 agg AS (
     SELECT osm_way_id, segment_index, sum(d) AS total_d,
            coalesce(sum(greatest(diff, 0))  FILTER (WHERE adjacent), 0) AS gain,
-           coalesce(sum(greatest(-diff, 0)) FILTER (WHERE adjacent), 0) AS loss,
-           max(diff / d * 100) FILTER (WHERE adjacent AND d > 0) AS max_g,
-           min(diff / d * 100) FILTER (WHERE adjacent AND d > 0) AS min_g
+           coalesce(sum(greatest(-diff, 0)) FILTER (WHERE adjacent), 0) AS loss
     FROM pairs GROUP BY osm_way_id, segment_index),
 raw AS (
     SELECT e.osm_way_id, e.segment_index, e.on_structure, e.start_e, e.end_e,
-           a.gain, a.loss, a.max_g, a.min_g,
+           a.gain, a.loss,
            CASE WHEN a.total_d > 0
                  AND abs((e.end_e - e.start_e) / a.total_d * 100)
                      <= {MAX_PLAUSIBLE_AVERAGE_GRADE_PERCENT}
@@ -207,8 +197,6 @@ SELECT osm_way_id, segment_index,
                    ELSE gain END)::numeric, 1)  AS elevation_gain_m,
        round((CASE WHEN on_structure THEN greatest(start_e - end_e, 0)
                    ELSE loss END)::numeric, 1)  AS elevation_loss_m,
-       round(avg_g::numeric, 2) AS average_grade,
-       round((CASE WHEN on_structure THEN avg_g ELSE max_g END)::numeric, 2) AS max_grade,
-       round((CASE WHEN on_structure THEN avg_g ELSE min_g END)::numeric, 2) AS min_grade
+       round(avg_g::numeric, 2) AS average_grade
 FROM raw
 """

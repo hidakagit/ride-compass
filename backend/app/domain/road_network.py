@@ -63,8 +63,6 @@ class RoadNetwork:
     elevation_present: np.ndarray  # bool
     elevation_gain_m: np.ndarray  # float64, NaN=欠損
     elevation_loss_m: np.ndarray
-    elevation_max_grade: np.ndarray
-    elevation_min_grade: np.ndarray
 
     def __post_init__(self) -> None:
         """行数と列数が揃っていることを、組み立てた場所で確かめる。
@@ -175,8 +173,6 @@ def material_arrays_of(road: RoadSlice) -> EdgeMaterialArrays:
         mid_lat=take(network.mid_lat), mid_lon=take(network.mid_lon),
         elevation_present=take(network.elevation_present),
         elevation_gain_m=take(network.elevation_gain_m), elevation_loss_m=take(network.elevation_loss_m),
-        elevation_max_grade=take(network.elevation_max_grade),
-        elevation_min_grade=take(network.elevation_min_grade),
     )
 
 
@@ -191,8 +187,6 @@ def elevation_attribute(network: RoadNetwork, row: int, edge_id: str) -> Elevati
         elevation_gain_m=float(network.elevation_gain_m[row]),
         elevation_loss_m=float(network.elevation_loss_m[row]),
         average_grade=_none_if_nan(network.numeric_values[row, grade_column]),
-        max_grade=_none_if_nan(network.elevation_max_grade[row]),
-        min_grade=_none_if_nan(network.elevation_min_grade[row]),
     )
 
 

@@ -413,16 +413,16 @@ def _material_values_from_row(row: Row) -> dict[str, object]:
 
 #: 逆向きに辿ったときに入れ替わる／符号が反転する列。標高は地形の物理量で進行方向に
 #: 依存しないため、この変換は厳密に正しい（形状点列を逆順に辿ると各区間の差分の符号が
-#: すべて反転し、最大と最小も入れ替わる）。
+#: すべて反転する）。
 #: 逆向きで入れ替わる語の対。列名がこの規則に従う限り、対応表を手で並べる必要がない。
-_REVERSING_TOKEN_PAIRS = (("start_", "end_"), ("_gain_", "_loss_"), ("max_", "min_"))
+_REVERSING_TOKEN_PAIRS = (("start_", "end_"), ("_gain_", "_loss_"))
 
 
 def reversed_material_expression(name: str) -> str | None:
     """逆向きの枝でこの列へ入る式。向きで変わらない列はNone。
 
     対になる語を入れ替え、`_grade`で終わる量は符号を返す。形状点列を逆順に辿ると各区間の
-    差分の符号がすべて反転し、最大と最小も入れ替わる。
+    差分の符号がすべて反転する。
     """
     swapped = name
     for first, second in _REVERSING_TOKEN_PAIRS:
@@ -480,8 +480,6 @@ _EXTRA_MATERIAL_ARRAY_COLUMNS: dict[str, str] = {
     "elevation_present": "em.start_elevation_m IS NOT NULL",
     "elevation_gain_m": "em.elevation_gain_m",
     "elevation_loss_m": "em.elevation_loss_m",
-    "elevation_max_grade": "em.max_grade",
-    "elevation_min_grade": "em.min_grade",
 }
 
 #: 列の並びは渡した3つ組の位置で固定する。**road_edgesへLEFT JOINする**——行が無い区間で
@@ -733,8 +731,6 @@ class RoadGraphRepository:
             elevation_present=np.array([bool(v) for v in raw["elevation_present"]], dtype=bool),
             elevation_gain_m=_float_array(raw["elevation_gain_m"]),
             elevation_loss_m=_float_array(raw["elevation_loss_m"]),
-            elevation_max_grade=_float_array(raw["elevation_max_grade"]),
-            elevation_min_grade=_float_array(raw["elevation_min_grade"]),
         )
 
     async def get_way_material_values(

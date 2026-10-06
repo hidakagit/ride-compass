@@ -102,7 +102,7 @@ FROM _vertex v LEFT JOIN _vertex_elev e ON e.vid = v.vid
 """
 
 _ELEVATION_COLUMNS = ("start_elevation_m", "end_elevation_m", "elevation_gain_m",
-                      "elevation_loss_m", "average_grade", "max_grade", "min_grade")
+                      "elevation_loss_m", "average_grade")
 
 _RESET_ELEVATION = reset_columns_sql("edge_materials", dict.fromkeys(_ELEVATION_COLUMNS, "NULL"))
 

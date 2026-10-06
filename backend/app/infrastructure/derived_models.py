@@ -192,12 +192,9 @@ class EdgeMaterialRow(Base):
     end_elevation_m: Mapped[float | None] = mapped_column(REAL, nullable=True)
     elevation_gain_m: Mapped[float | None] = mapped_column(REAL, nullable=True)
     elevation_loss_m: Mapped[float | None] = mapped_column(REAL, nullable=True)
-    # 標高が付いた区間でも、勾配は値を持たないことがある（`domain/attributes.py: elevation_values_sql`）:
-    # 両端の差が道としてありえない勾配になる区間は平均を、欠けた頂点を挟まずに隣り合う2点が無い区間は
-    # 最大・最小を持たない。橋・高架・トンネルの最大・最小は平均で代えるので、平均と一緒に欠ける。
+    # 標高が付いた区間でも、両端の差が道としてありえない勾配になる区間は平均勾配を持たない
+    # （`domain/attributes.py: elevation_values_sql`）。
     average_grade: Mapped[float | None] = mapped_column(REAL, nullable=True, info=ABSENT_OK)
-    max_grade: Mapped[float | None] = mapped_column(REAL, nullable=True, info=ABSENT_OK)
-    min_grade: Mapped[float | None] = mapped_column(REAL, nullable=True, info=ABSENT_OK)
 
     lc_valid_pixels: Mapped[int | None] = mapped_column(Integer, nullable=True)
     lc_water: Mapped[float | None] = mapped_column(REAL, nullable=True, info=_LANDCOVER_SHARE)

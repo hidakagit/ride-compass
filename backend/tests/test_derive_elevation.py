@@ -171,8 +171,8 @@ async def test_rerun_without_a_product_keeps_no_value_only_that_product_gave(ele
     conn = elevation_conn
 
     async def elevations() -> dict[int, float | None]:
-        rows = await conn.fetch("SELECT osm_way_id, start_elevation_m, max_grade FROM edge_materials")
-        assert all((r["start_elevation_m"] is None) == (r["max_grade"] is None) for r in rows)
+        rows = await conn.fetch("SELECT osm_way_id, start_elevation_m, average_grade FROM edge_materials")
+        assert all(r["average_grade"] is None for r in rows if r["start_elevation_m"] is None)
         return {r["osm_way_id"]: r["start_elevation_m"] for r in rows}
 
     async def rerun() -> dict[int, float | None]:
