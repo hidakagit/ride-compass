@@ -6,7 +6,7 @@ import { GuideText } from "@/components/ui/GuideText/GuideText";
 import { cardVariants } from "@/components/ui/Card/Card";
 import { textVariants } from "@/components/ui/Text/Text";
 import { MenuIcon } from "@/components/ui/icons/icons";
-import { PIN_MARK_BACKGROUND, PinMark } from "@/components/PinMark/PinMark";
+import { ORIGIN_MARK_FALLBACK_COLOR, PIN_MARK_BACKGROUND, PinMark } from "@/components/PinMark/PinMark";
 import { useStoredBooleanState } from "@/hooks/useStoredState";
 import { useIsomorphicLayoutEffect } from "@/hooks/useIsomorphicLayoutEffect";
 import { cn } from "@/lib/cn";
@@ -18,13 +18,16 @@ const TITLE_ID = "first-visit-intro-title";
 interface FirstVisitIntroProps {
   /** 最初の一手の場所を、スマホ（下部タブ）とPC（左のパネル）で言い分ける。 */
   isMobile: boolean;
+  /** 最初の位置の取得が決着して、位置が分からないと分かったか。真の間は出発地の印が灰色の仮の地点なので、
+   * 「地図で選ぶ」で置く手順を案内する（決着するまでは「はじめは現在地」のまま）。 */
+  locationUnknown: boolean;
 }
 
 /**
  * 初めて開いたときだけ地図の上に出す案内。閉じるとこの端末では次から出ない。
  * 保存値の復元はマウント後なので、マウントするまで出さない（出すとSSRのHTMLに載り、閉じた人にも一瞬見える）。
  */
-export default function FirstVisitIntro({ isMobile }: FirstVisitIntroProps) {
+export default function FirstVisitIntro({ isMobile, locationUnknown }: FirstVisitIntroProps) {
   const [closed, setClosed] = useStoredBooleanState(FIRST_VISIT_INTRO_STORAGE_KEY, false);
   const [mounted, setMounted] = useState(false);
   useIsomorphicLayoutEffect(() => setMounted(true), []);
@@ -56,9 +59,13 @@ export default function FirstVisitIntro({ isMobile }: FirstVisitIntroProps) {
             className="inline-flex shrink-0 rounded-full p-0.5 shadow-sm"
             style={{ background: PIN_MARK_BACKGROUND.origin }}
           >
-            <PinMark role="origin" size={14} />
+            <PinMark role="origin" size={14} color={locationUnknown ? ORIGIN_MARK_FALLBACK_COLOR : undefined} />
           </span>
-          <span>この印が出発地です（はじめは現在地）。地図の上でつかんで動かせます。</span>
+          <span>
+            {locationUnknown
+              ? "現在地が分からないため、この灰色の印は仮の地点です。「ルート設定」の出発地の「地図で選ぶ」を押して地図をタップすると、そこが出発地になります。"
+              : "この印が出発地です（はじめは現在地）。地図の上でつかんで動かせます。"}
+          </span>
         </li>
         <li>
           <GuideText

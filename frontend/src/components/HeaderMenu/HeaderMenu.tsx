@@ -47,7 +47,7 @@ export default function HeaderMenu({
           size="sm"
           aria-label="メニュー"
           className="shrink-0"
-          usage="使い方の説明・研究モードの切り替えを開きます。"
+          usage="使い方の説明・研究モードの切り替えなどを開きます。"
         >
           <MenuIcon size={15} />
         </Button>
