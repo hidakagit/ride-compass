@@ -8,6 +8,8 @@ import type { RouteCandidate, RoutePreferenceWeights, SelectedRouteSegment } fro
 /** 「ルート結果」の比較タブの値（候補のタブの値は候補のid）。 */
 export const COMPARISON_TAB = "comparison";
 
+const NO_SELECTION = { routeId: null, reused: false };
+
 /** 区間の乗り換えで作ったルート。元にしたルートとは別の1本で、元を上書きしない。 */
 export interface EditedRoute {
   route: RouteCandidate;
@@ -25,7 +27,9 @@ export function useRouteResults() {
   const [generated, setGenerated] = useState<RouteCandidate[]>([]);
   // 作った順。生成し直す・消すと一緒に消える（編集は元にした生成に結びつく）。
   const [edits, setEdits] = useState<EditedRoute[]>([]);
-  const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
+  // 選んだルートと、乗り換えで作った経路が既にあるこのルートと同じ道だったために選んだのか。どの操作で選び直しても外れる。
+  const [selection, setSelection] = useState<{ routeId: string | null; reused: boolean }>(NO_SELECTION);
+  const selectedRouteId = selection.routeId;
   // 地図で押した区間。ある間、「ルート結果」はルート全体の代わりにこの区間の内訳を出す。候補を切り替える・
   // 作り直す・消すと外す（別の候補の区間を指したまま残らない）。
   const [selectedRouteSegment, setSelectedRouteSegment] = useState<SelectedRouteSegment | null>(null);
@@ -38,7 +42,7 @@ export function useRouteResults() {
   const replaceWithGenerated = useCallback((generated: RouteCandidate[], routePreference: RoutePreferenceWeights) => {
     setGenerated(generated);
     setEdits([]);
-    setSelectedRouteId(generated[0]?.id ?? null);
+    setSelection({ routeId: generated[0]?.id ?? null, reused: false });
     // 比較を開いたまま生成したら新しい候補へ戻す（比較表が残ると、生成が効かなかったように見える）。
     setComparisonTabActive(false);
     // 候補が入れ替わると、押していた区間も意味を失う。
@@ -52,7 +56,7 @@ export function useRouteResults() {
       const number = edits.length + 1;
       const id = `${SPLICED_ROUTE_ID_PREFIX}-${number}`;
       setEdits([...edits, { route: { ...route, id }, originId, number }]);
-      setSelectedRouteId(id);
+      setSelection({ routeId: id, reused: false });
       setSelectedRouteSegment(null);
     },
     [edits],
@@ -62,7 +66,7 @@ export function useRouteResults() {
   const clear = useCallback(() => {
     setGenerated([]);
     setEdits([]);
-    setSelectedRouteId(null);
+    setSelection(NO_SELECTION);
     setComparisonTabActive(false);
     setUsedWeights(null);
     setSelectedRouteSegment(null);
@@ -75,8 +79,15 @@ export function useRouteResults() {
       setComparisonTabActive(true);
     } else {
       setComparisonTabActive(false);
-      setSelectedRouteId(value);
+      setSelection({ routeId: value, reused: false });
     }
+  }, []);
+
+  /** 乗り換えで作った経路が既にある候補と同じ道だったので、足さずにその候補を選ぶ。 */
+  const selectReused = useCallback((routeId: string) => {
+    setSelectedRouteSegment(null);
+    setComparisonTabActive(false);
+    setSelection({ routeId, reused: true });
   }, []);
 
   const routes = useMemo(() => [...generated, ...edits.map((edit) => edit.route)], [generated, edits]);
@@ -92,6 +103,8 @@ export function useRouteResults() {
     generated,
     edits,
     selectedRouteId,
+    /** 選んだ候補が、乗り換えで作った経路と同じ道だったために選んだものならそのid。 */
+    reusedRouteId: selection.reused ? selectedRouteId : null,
     selectedCandidate,
     /** 選んだルートが編集で作ったものなら、その編集と元のルート。 */
     selectedEdit,
@@ -105,6 +118,7 @@ export function useRouteResults() {
     addEdit,
     clear,
     selectTab,
+    selectReused,
   };
 }
 

@@ -88,8 +88,8 @@ export interface SpliceSessionView {
   /** 候補を元に編集を始める（空から始まる）。 */
   start: (routeId: string) => void;
   map: SpliceMapProps;
-  /** 編集面（`RouteSplicePanel`）へ渡す値。編集していなければnull。 */
-  panel: ComponentProps<typeof RouteSplicePanel> | null;
+  /** 編集面（`RouteSplicePanel`）へ渡す値。編集していなければnull。同じ道の候補は名前を持たないidで渡す（名前は一覧が付ける）。 */
+  panel: (Omit<ComponentProps<typeof RouteSplicePanel>, "sameRouteName"> & { sameRouteId: string | null }) | null;
 }
 
 /**
@@ -179,6 +179,10 @@ export function useSpliceSession({
     [spliceGroups, routes],
   );
 
+  // 全部を1つの候補の道へ乗り換えると、既にある候補そのものになる。
+  const sameRouteAs = (candidate: RouteCandidate) =>
+    routes.find((route) => route.edge_ids.join(",") === candidate.edge_ids.join(",")) ?? null;
+
   // 適用した順で識別する。同じ位置でも積み上げた経緯が違えば別の経路になるため順番を含める。
   const spliceChoiceKey = appliedAlternatives
     .map((item, index) => `${index}:${item.candidateId}:${item.stretch.start}-${item.stretch.end}`)
@@ -243,8 +247,8 @@ export function useSpliceSession({
         setSpliceTask({ status: "idle", error: "組み合わせたルートを評価できませんでした" });
         return;
       }
-      // 全部を1つの候補の道へ乗り換えると、既にある候補そのものになる。そのときは並べずにその候補を選ぶ。
-      const sameRoute = routes.find((route) => route.edge_ids.join(",") === spliced.edge_ids.join(","));
+      // 既にある候補と同じ道なら、並べずにその候補を選ぶ。
+      const sameRoute = sameRouteAs(spliced);
       onApplied(sameRoute ? { existingRouteId: sameRoute.id } : { created: spliced, originId: editingRoute.id });
       setSplice(null);
     } catch (error) {
@@ -285,6 +289,7 @@ export function useSpliceSession({
               })),
             onReset: () => updateSplice((current) => ({ ...current, applied: [], task: withoutError(current.task) })),
             preview: splicePreview,
+            sameRouteId: splicePreview ? (sameRouteAs(splicePreview)?.id ?? null) : null,
             previewing: spliceTask.status === "previewing",
             onPreview: handlePreviewSplice,
             onApply: handleApplySplice,

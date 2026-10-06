@@ -28,6 +28,8 @@ interface RouteSplicePanelProps {
   onReset: () => void;
   /** 「差分を見る」で評価した、いまの組み合わせの候補。まだ見ていなければnull。 */
   preview: RouteCandidate | null;
+  /** 評価した組み合わせと同じ道を通る、一覧の候補の名前。無ければnull（作成すると、新しく足さずにこの候補を選ぶ）。 */
+  sameRouteName: string | null;
   /** 差分の評価を待っている間はtrue。 */
   previewing: boolean;
   /** いまの組み合わせを評価して結果を出す。 */
@@ -77,6 +79,7 @@ export default function RouteSplicePanel({
   onUndo,
   onReset,
   preview,
+  sameRouteName,
   previewing,
   onPreview,
   onApply,
@@ -111,7 +114,7 @@ export default function RouteSplicePanel({
   const metrics: { label: string; base: string | null; after: string | null; delta: number | null }[] = [
     {
       label: "距離",
-      base: `${displayed.distance_km.toFixed(1)}`,
+      base: `${displayed.distance_km.toFixed(1)}km`,
       after: preview ? `${preview.distance_km.toFixed(1)}km` : null,
       delta: preview ? preview.distance_km - displayed.distance_km : null,
     },
@@ -296,6 +299,10 @@ export default function RouteSplicePanel({
                 ＋
               </span>
             </div>
+          )}
+
+          {sameRouteName !== null && (
+            <p className={textVariants({ variant: "hint" })}>この組み合わせは「{sameRouteName}」と同じ道です</p>
           )}
 
           {error && <ErrorText>{error}</ErrorText>}

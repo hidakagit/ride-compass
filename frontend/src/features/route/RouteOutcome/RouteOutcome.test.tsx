@@ -3,14 +3,15 @@
  *
  * 見るもの:
  * - 候補が無い間の案内（生成中の進み方・直近の案内・生成前）と、候補がある間の作り直しの失敗・条件のずれ・
- *   既定の配分で作ったこと・目的地の補正の知らせ（作り直しの失敗を出している間は条件のずれを重ねない）
+ *   既定の配分で作ったこと・目的地の補正の知らせ（作り直しの失敗を出している間は条件のずれを重ねない）、乗り換えで
+ *   作った経路と同じ道だったので選んだ候補の知らせと、その行を見える位置へ出すこと
  * - 候補の一覧: 一番上の列の見出し、群（最速・生成した候補・合成）の間の区切りの線と名前の列の印（意味を読み上げの
  *   名前に持つ）、行に出す名前・距離・最速の所要時間・ほかの候補の余計にかかる時間・総合難易度（無ければ「—」）、
  *   選ばれているタブ（選んだ候補・無ければ先頭・比較を見ている間は比較）と、タブを押したときに上がる操作
  * - 選んだ候補の中身: 合成（始められるときだけ）・GPXの操作、編集で作ったルートの「元との違い」の元と名前、
  *   道のりのグラフ（横軸・押した区間・動かして選ぶこと）、区間を押している間の地点・到達予想・解除・
- *   区間の風と内訳（チップから開く軸の詳細を含む）と研究モードの材料の値、押していない間の内訳、
- *   編集中は編集面だけを出すこと
+ *   区間の総合難易度（全部0なら0であることの文）・風・内訳（チップから開く軸の詳細を含む）と研究モードの材料の値、
+ *   押していない間の内訳、編集中は編集面だけを出し、同じ道の候補を一覧の名前で渡すこと
  * - 研究モードの比較タブと、比較表に並ぶ軸（どれかの回で重みが0より大きかった軸）
  *
  * ここで見ないもの: 一覧の並び・群・名前・最速と余計にかかる時間の決め方 → `features/route/routeTabLabel.ts`。
@@ -29,7 +30,6 @@ import userEvent from "@testing-library/user-event";
 import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type RouteSplicePanel from "@/features/route/RouteSplicePanel/RouteSplicePanel";
 import { downloadGpx } from "@/features/route/gpxExport";
 import type { GenerationInput } from "@/features/route/generationRequest";
 import { SPLICED_ROUTE_ID_PREFIX } from "@/features/route/routeTabLabel";
@@ -77,7 +77,10 @@ const SLOW = route("slow", { distance_km: 20, estimated_duration_seconds: 2520, 
 
 function resultsOf(
   state: Partial<
-    Pick<RouteResults, "generated" | "edits" | "selectedRouteId" | "comparisonTabActive" | "selectedRouteSegment">
+    Pick<
+      RouteResults,
+      "generated" | "edits" | "selectedRouteId" | "reusedRouteId" | "comparisonTabActive" | "selectedRouteSegment"
+    >
   > = {},
 ): RouteResults {
   const generated = state.generated ?? [];
@@ -91,6 +94,7 @@ function resultsOf(
     generated,
     edits,
     selectedRouteId,
+    reusedRouteId: state.reusedRouteId ?? null,
     selectedCandidate,
     selectedEdit: edit ? { ...edit, origin: routes.find((candidate) => candidate.id === edit.originId) ?? null } : null,
     hasDetail: (selectedCandidate?.segments.length ?? 0) > 0,
@@ -102,6 +106,7 @@ function resultsOf(
     addEdit: vi.fn(),
     clear: vi.fn(),
     selectTab: vi.fn(),
+    selectReused: vi.fn(),
   };
 }
 
@@ -232,6 +237,14 @@ describe("候補の上の知らせ", () => {
       }
     },
   );
+
+  it("乗り換えで作った経路と同じ道だったので選んだ候補は、一覧の名前で知らせ、その行を見える位置へ出す", () => {
+    const scrolled = vi.spyOn(HTMLElement.prototype, "scrollIntoView");
+    renderOutcome({ results: resultsOf({ generated: [FAST, SLOW], selectedRouteId: "slow", reusedRouteId: "slow" }) });
+
+    expect(screen.getByText("作った組み合わせは「2」と同じ道なので、「2」を選びました")).toBeInTheDocument();
+    expect(scrolled.mock.contexts).toEqual([screen.getByRole("tab", { name: /^2 / })]);
+  });
 });
 
 describe("候補の一覧", () => {
@@ -366,8 +379,19 @@ describe("選んだ候補の中身", () => {
     renderOutcome({ results: resultsOf({ generated: [FAST], selectedRouteSegment: segmentSelection() }) });
     expect(screen.getByText("3.3 km地点")).toBeInTheDocument();
     expect(screen.getByText("到達予想 09:42")).toBeInTheDocument();
-    expect(screen.queryByText("総合難易度")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "総合難易度の説明" })).not.toBeInTheDocument();
     expect(screen.getByText(/^出発時点の風: .+ 3\.0m\/s$/)).toBeInTheDocument();
+  });
+
+  it.each([
+    ["寄与のある", { difficulty: 12.4, axis_contributions: { axis_a: 12.4 } }, "12", false],
+    ["寄与が全部0の", { difficulty: 0, axis_contributions: { axis_a: 0 } }, "0", true],
+    ["算出できなかった", { difficulty: null, axis_contributions: {} }, "—", false],
+  ])("%s区間は総合難易度を出し、全部0のときだけ0であることを文で言う", (_, segment, shown, allZero) => {
+    renderOutcome({ results: resultsOf({ generated: [FAST], selectedRouteSegment: segmentSelection(segment) }) });
+
+    expect(screen.getByText("総合難易度").parentElement).toHaveTextContent(`総合難易度${shown}/100`);
+    expect(screen.queryByText("どの評価も0（易しい）") !== null).toBe(allZero);
   });
 
   it("区間の内訳のチップから開く詳細は、候補全体ではなくその区間の軸別難易度を出す", async () => {
@@ -429,14 +453,15 @@ describe("選んだ候補の中身", () => {
     expect(lines[0].textContent?.startsWith(`${known.name}: 1.5`)).toBe(true);
   });
 
-  it("編集している間は、一覧の代わりに編集面だけを出す", () => {
-    const panel: ComponentProps<typeof RouteSplicePanel> = {
-      displayed: FAST,
+  it("編集している間は、一覧の代わりに編集面だけを出し、同じ道の候補は一覧の名前で渡す", () => {
+    const panel: Splice["panel"] = {
+      displayed: { ...FAST, edge_ids: ["e1"] },
       appliedCount: 0,
       hasAlternatives: true,
       onUndo: vi.fn(),
       onReset: vi.fn(),
       preview: null,
+      sameRouteId: "slow",
       previewing: false,
       onPreview: vi.fn(),
       onApply: vi.fn(),
@@ -452,6 +477,7 @@ describe("選んだ候補の中身", () => {
     });
     expect(screen.getByRole("region", { name: "区間の乗り換え" })).toBeInTheDocument();
     expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+    expect(screen.getByText("この組み合わせは「2」と同じ道です")).toBeInTheDocument();
   });
 });
 

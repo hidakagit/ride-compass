@@ -36,6 +36,8 @@ import {
   PinMark,
   pinMarkText,
 } from "@/components/PinMark/PinMark";
+import { SelectedSpotIcon } from "@/components/ui/icons/icons";
+import palette from "@/types/generated/palette.json";
 import {
   type MapLayerDataSource,
   type MapLayerDescriptor,
@@ -371,6 +373,8 @@ export default function MapView({
   const [roadPopupContainer, setRoadPopupContainer] = useState<HTMLDivElement | null>(null);
   // 出発地点の印の器（Markerの要素）と、中身の印の色。
   const [originMark, setOriginMark] = useState<{ element: HTMLDivElement; color: string } | null>(null);
+  // 選んでいる区間の印の器（Markerの要素）。中身はアイコン集の形をportalで描く。
+  const [selectedSegmentMark, setSelectedSegmentMark] = useState<HTMLDivElement | null>(null);
   const catalog = useAxisCatalog();
   const mapCatalog = useMapAxisCatalog();
   const layerDataSources = useMemo(() => buildLayerDataSources(mapCatalog.layers), [mapCatalog.layers]);
@@ -817,13 +821,13 @@ export default function MapView({
     const applySelectedSegmentMarker = () => {
       selectedSegmentMarkerRef.current?.remove();
       selectedSegmentMarkerRef.current = null;
+      setSelectedSegmentMark(null);
       if (!selectedRouteSegment) return;
 
       const el = document.createElement("div");
-      el.textContent = "📍";
       // touch-action:noneの理由は経由地マーカーと同じ。
-      el.style.cssText =
-        "font-size:26px; line-height:1; cursor:pointer; filter:drop-shadow(0 1px 2px rgba(0,0,0,0.5)); touch-action:none;";
+      el.style.cssText = `display:flex; color:${palette.semantic.inspected}; cursor:pointer; filter:drop-shadow(0 1px 2px rgba(0,0,0,0.5)); touch-action:none;`;
+      setSelectedSegmentMark(el);
       el.setAttribute("aria-label", "選択中の区間");
       el.addEventListener("click", (event) => {
         event.stopPropagation();
@@ -950,6 +954,7 @@ export default function MapView({
         )}
       {originMark !== null &&
         createPortal(<PinMark role="origin" size={20} color={originMark.color} />, originMark.element)}
+      {selectedSegmentMark !== null && createPortal(<SelectedSpotIcon size={26} />, selectedSegmentMark)}
     </div>
   );
 }

@@ -4,7 +4,7 @@
  * 見るもの: 見出し（戻る・回数）と操作（1つ戻す・全部戻す・差分・作成）の出し方・押せる条件・上がる操作、区間を
  * 持たない候補の書き方、指標（距離・所要・総合難易度・負荷）の元・編集後・差の書き方と、表示する桁で丸めた差で決める
  * 良し悪しの印、寄与度が動いた軸の棒（出す境界・読み上げの並び・左右・長さ）と下に書く大きい軸、状態ごとの案内、
- * 合成の失敗。
+ * 既にある候補と同じ道であることの知らせ、合成の失敗。
  *
  * ここで見ないもの: どの区間を乗り換えるか・差分と作成の評価 → `features/route/useSpliceSession.test.ts`。
  * 差の表記（符号・桁）→ `features/route/routeEditDiff.test.ts`。所要の表記 → `features/route/formatDuration.test.ts`。
@@ -51,6 +51,7 @@ function renderPanel(props: Partial<Props> = {}) {
       appliedCount={0}
       hasAlternatives
       preview={null}
+      sameRouteName={null}
       previewing={false}
       applying={false}
       error={null}
@@ -140,7 +141,7 @@ describe("RouteSplicePanel 指標", () => {
     renderPanel({ appliedCount: 1 });
 
     expect(["距離", "所要", "総合難易度", "負荷"].map((label) => metric(label).base.textContent)).toEqual([
-      "12.3",
+      "12.3km",
       "30分",
       "40",
       "301",
@@ -240,6 +241,15 @@ describe("RouteSplicePanel 案内", () => {
 
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
     expect(screen.getByText(/乗り換えた結果が出ます/)).toHaveTextContent("差分を見るを押すと、乗り換えた結果が出ます");
+  });
+
+  it.each([
+    ["2", ["この組み合わせは「2」と同じ道です"]],
+    [null, []],
+  ])("評価した組み合わせと同じ道の候補（%s）があるときだけ、その名前で同じ道だと出す", (sameRouteName, notes) => {
+    renderPanel({ appliedCount: 1, sameRouteName });
+
+    expect(screen.queryAllByText(/と同じ道です$/).map((note) => note.textContent)).toEqual(notes);
   });
 
   it.each([
