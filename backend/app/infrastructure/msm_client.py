@@ -24,7 +24,7 @@ import httpx
 import numpy as np
 from omfiles import OmFileReader
 
-from app.domain.time_zone import JST
+from app.domain.time_zone import JST, as_series_time
 from app.config import settings
 from app.domain.msm import MsmGrid, MsmWindow
 from app.infrastructure.debug_log import log_external_call
@@ -347,7 +347,7 @@ def _read_series_sync(latitudes: np.ndarray, longitudes: np.ndarray, hours: int,
             block = _read_block(variable, chunk_number, window, t0, t1)
             series[variable].append(window.interpolate(block))
         times.extend(
-            datetime.fromtimestamp(chunk_begin + hour * 3600, JST).replace(tzinfo=None) for hour in range(t0, t1)
+            as_series_time(datetime.fromtimestamp(chunk_begin + hour * 3600, JST)) for hour in range(t0, t1)
         )
         cursor = chunk_begin + t1 * 3600
 
