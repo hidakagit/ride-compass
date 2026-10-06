@@ -23,7 +23,7 @@ import numpy as np
 from astral import Observer
 from astral.sun import sun
 
-from app.domain.time_zone import JST
+from app.domain.time_zone import JST, as_jst
 from app.domain.route import Coordinates
 from app.domain.strict_model import StrictModel
 
@@ -35,12 +35,12 @@ _SEARCH_WINDOW_DAYS = 2
 
 def night_mask(coordinates: Coordinates, start: datetime, hours: np.ndarray) -> np.ndarray:
     """`start`から`hours`時間後の各時刻が、`coordinates`地点の市民薄明の外（夜間）かどうか（`hours`と同じ並び）。
-    `start`がtz-naiveならUTCとみなす。極夜・白夜等、市民薄明が定義できない緯度と、前後の薄明の
+    `start`がtz-naiveならJSTとみなす（`time_zone.as_jst`）。極夜・白夜等、市民薄明が定義できない緯度と、前後の薄明の
     出来事で挟めない時刻・NaNはFalse（夜として扱わない）に倒す。
 
     薄明の出来事は`hours`の範囲を覆う日数ぶんだけ1回求め、各時刻は直前の出来事の種別で決める
     ——区間ごとに天文計算を回さない（探索範囲の区間は数万本ある）。"""
-    start_utc = start.astimezone(timezone.utc) if start.tzinfo else start.replace(tzinfo=timezone.utc)
+    start_utc = as_jst(start).astimezone(timezone.utc)
     hours = np.asarray(hours, dtype=float)
     finite = hours[np.isfinite(hours)]
     if finite.size == 0:

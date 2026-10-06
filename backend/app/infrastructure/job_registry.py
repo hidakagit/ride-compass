@@ -13,8 +13,6 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Literal
 
-JobStatus = Literal["queued", "running", "done", "failed"]
-
 # 完了したジョブを保持する時間。掃除は次の`create_job()`のついでに行う（`rate_limiter.py`と
 # 同じ方式で、定期タスクを持たない）。フロントはこれを生成物`route-generate-config.json`から
 # 受け取り、ポーリングの打ち切りに使う——短くすると待機上限も一緒に縮む。
@@ -23,12 +21,27 @@ JobStatus = Literal["queued", "running", "done", "failed"]
 JOB_TTL_SECONDS = 600.0
 
 
-@dataclass
-class JobRecord:
-    status: JobStatus = "queued"
-    finished_at: float | None = None
-    result: Any = None
-    error: str | None = None
+@dataclass(frozen=True)
+class JobPending:
+    status: Literal["queued", "running"] = "queued"
+
+
+@dataclass(frozen=True)
+class JobDone:
+    result: Any
+    finished_at: float
+    status: Literal["done"] = "done"
+
+
+@dataclass(frozen=True)
+class JobFailed:
+    error: str
+    finished_at: float
+    status: Literal["failed"] = "failed"
+
+
+#: ジョブの状態。終わった状態だけが終わった時刻を持ち、失敗だけが理由を持つ。
+JobRecord = JobPending | JobDone | JobFailed
 
 
 _JOBS: dict[str, JobRecord] = {}
@@ -38,7 +51,7 @@ def create_job() -> str:
     """新規ジョブを"queued"状態で登録し、job_idを返す。"""
     _purge_expired()
     job_id = uuid.uuid4().hex
-    _JOBS[job_id] = JobRecord()
+    _JOBS[job_id] = JobPending()
     return job_id
 
 
@@ -47,21 +60,15 @@ def get_job(job_id: str) -> JobRecord | None:
 
 
 def set_running(job_id: str) -> None:
-    _JOBS[job_id].status = "running"
+    _JOBS[job_id] = JobPending(status="running")
 
 
 def set_done(job_id: str, result: Any) -> None:
-    record = _JOBS[job_id]
-    record.status = "done"
-    record.result = result
-    record.finished_at = time.monotonic()
+    _JOBS[job_id] = JobDone(result=result, finished_at=time.monotonic())
 
 
 def set_failed(job_id: str, error: str) -> None:
-    record = _JOBS[job_id]
-    record.status = "failed"
-    record.error = error
-    record.finished_at = time.monotonic()
+    _JOBS[job_id] = JobFailed(error=error, finished_at=time.monotonic())
 
 
 def _purge_expired() -> None:
@@ -69,7 +76,7 @@ def _purge_expired() -> None:
     expired = [
         job_id
         for job_id, record in _JOBS.items()
-        if record.finished_at is not None and now - record.finished_at > JOB_TTL_SECONDS
+        if not isinstance(record, JobPending) and now - record.finished_at > JOB_TTL_SECONDS
     ]
     for job_id in expired:
         del _JOBS[job_id]

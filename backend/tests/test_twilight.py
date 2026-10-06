@@ -48,12 +48,12 @@ def test_night_is_when_the_sun_is_lower_than_six_degrees_below_the_horizon(place
     assert night_mask(place, start, np.array(hours)).tolist() == [altitude < -6.0 for altitude in altitudes]
 
 
-def test_a_naive_time_is_read_as_utc():
-    """到達時刻の計算はUTCで揃っている。3時はUTCなら東京の正午、JSTなら夜。"""
+def test_a_naive_time_is_read_as_jst():
+    """予報の系列の時刻（タイムゾーンの無いJST）をそのまま渡せる。3時はJSTなら夜、UTCなら東京の正午。"""
     naive = datetime(2026, 7, 1, 3, 0)
 
-    assert is_night(TOKYO, naive) is False
-    assert is_night(TOKYO, naive.replace(tzinfo=JST)) is True
+    assert is_night(TOKYO, naive) is True
+    assert is_night(TOKYO, naive.replace(tzinfo=timezone.utc)) is False
 
 
 @pytest.mark.parametrize(

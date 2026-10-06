@@ -1,9 +1,15 @@
 import math
-from typing import NamedTuple, Protocol
+from typing import Annotated, NamedTuple, Protocol
 
 import numpy as np
+from pydantic import Field
 
 EARTH_RADIUS_KM = 6371.0
+
+# 緯度・経度の値の範囲。モデルの欄にもHTTPのクエリにもこの型で書く。クエリでは既定値に`Query()`を
+# 置かない——置くとFastAPIがこの型の範囲を読まず、範囲の外の値が黙って通る。
+Latitude = Annotated[float, Field(ge=-90, le=90)]
+Longitude = Annotated[float, Field(ge=-180, le=180)]
 
 
 class LatLon(Protocol):
@@ -149,7 +155,10 @@ def nearest_point_indices(
     最寄りになりうる点」だけを候補に残してから、地点ごとに候補の中で比べる。候補は、粗い格子で全点から
     絞ったものを、細かい格子でさらに絞る（どちらの段でも、最寄りの点は候補から落ちない）。
     内積は1の近くで浮動小数の刻みが粗く、約10cmより近い差は区別しない（同じ距離として先に並んだ点を選ぶ）。
+    点は1つ以上要る（無いときの答えは呼び手が決める。1地点の口`nearest_point_index`はNone）。
     """
+    if len(point_latitudes) == 0:
+        raise ValueError("最寄りを選ぶ点が1つも無い")
     latitudes = np.asarray(latitudes, dtype=float)
     longitudes = np.asarray(longitudes, dtype=float)
     if len(latitudes) == 0:

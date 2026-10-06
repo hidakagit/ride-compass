@@ -15,6 +15,7 @@ from app.infrastructure.db_status import (
     ConnectionCounts,
     DbStatusCounts,
     ImportRunCounts,
+    LatestRunCounts,
     SucceededRunCounts,
     TableCounts,
 )
@@ -43,12 +44,11 @@ def _counts() -> DbStatusCounts:
         imports=(
             ImportRunCounts(
                 label="OSM取込",
-                latest_id=4,
-                latest_status="succeeded",
-                latest_finished_at=COMPUTED_AT,
-                latest_identity={"pbf_name": "kanto-latest.osm.pbf"},
-                latest_item_count=1_329_632,
-                latest_succeeded=SucceededRunCounts(4, COMPUTED_AT),
+                latest=LatestRunCounts(
+                    id=4, status="succeeded", finished_at=COMPUTED_AT,
+                    identity={"pbf_name": "kanto-latest.osm.pbf"}, item_count=1_329_632,
+                ),
+                latest_succeeded=SucceededRunCounts(id=4, finished_at=COMPUTED_AT),
             ),
         ),
         tables=(
