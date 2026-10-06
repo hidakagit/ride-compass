@@ -777,8 +777,8 @@ class RoadGraphRepository:
 
     async def get_way_tags_by_osm_way_id(
         self, osm_way_id: int
-    ) -> tuple[str | None, dict[str, str], str | None] | None:
-        """osm_way_id完全一致で(highway, tags, surface)を返す。
+    ) -> tuple[str, dict[str, str], str | None] | None:
+        """osm_way_id完全一致で(highway, tags, surface)を返す。道は種別を必ず持つ（`source_features_way_has_kind`）。
 
         空間マッチ（半径内最近傍）は、交差点付近など複数の道路が近接する場所で、実際に
         クリックされたフィーチャーとは別の道路を拾いうる。フィーチャーが指す行そのものを
@@ -813,11 +813,10 @@ class RoadGraphRepository:
             row = (await self._session.execute(
                 text(f"SELECT {', '.join(columns)} FROM way_materials WHERE osm_way_id = :osm_way_id"),
                 {"osm_way_id": osm_way_id})).first()
-        if row is None or row.lc_valid_pixels is None:
+        # 割合は有効画素が正の行だけが全部持つ（表の制約`landcover_shares_follow_valid_pixels`）。
+        if row is None or not row.lc_valid_pixels:
             return None
         values = {field: getattr(row, f"lc_{landcover_key(field)}") for field in fields}
-        if any(value is None for value in values.values()):
-            return None
         return LandcoverPercentages(**values)
 
     async def get_distinct_material_values(self, material_id: str) -> list[str]:

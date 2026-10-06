@@ -70,8 +70,8 @@ def _network(revision: int | None, distance_m: float = 100.0) -> RoadNetwork:
         edge_forward=np.array([True, False]),
         edge_from=np.array([0, 1], dtype=np.int32),
         edge_to=np.array([1, 0], dtype=np.int32),
-        edge_highway=np.array([1, 1], dtype=np.int16),
-        highway_vocab=(None, "residential"),
+        edge_highway=np.array([0, 0], dtype=np.int16),
+        highway_vocab=("residential",),
         edge_min_lon=np.array([139.0, 139.0]),
         edge_min_lat=np.array([35.0, 35.0]),
         edge_max_lon=np.array([139.001, 139.001]),
@@ -302,8 +302,7 @@ async def test_the_network_is_built_from_the_derived_tables_with_one_row_per_dri
         ]
         assert "端点のノードが無く落とした有向の区間=2" in caplog.text
 
-        # 道路の種別は語彙への番号で、番号0は値なし。
-        assert network.highway_vocab[0] is None
+        # 道路の種別は語彙への番号。
         assert [network.highway_vocab[code] for code in network.edge_highway] == [
             "residential"] * 4 + ["primary", "residential", "tertiary", "tertiary"]
 
@@ -338,11 +337,11 @@ async def test_a_network_already_placed_for_the_current_revision_is_not_built_ag
     session_factory = async_sessionmaker(road_graph_engine)
     placed = await road_network_store.ensure_current(session_factory)
     manifest = json.loads((placed / "manifest.json").read_text(encoding="utf-8"))
-    (placed / "manifest.json").write_text(json.dumps({**manifest, "highway_vocab": [None, "置いたまま"]}),
+    (placed / "manifest.json").write_text(json.dumps({**manifest, "highway_vocab": ["置いたまま"]}),
                                           encoding="utf-8")
 
     assert await road_network_store.ensure_current(session_factory) == placed
-    assert road_network_store.current().highway_vocab == (None, "置いたまま")
+    assert road_network_store.current().highway_vocab == ("置いたまま",)
 
 
 @_on_test_db

@@ -1769,7 +1769,7 @@ def route_elevation_gain(edges: list[LeanEdge], elevation_by_edge: dict) -> floa
     gains = [
         attribute.elevation_gain_m
         for edge in edges
-        if (attribute := elevation_by_edge.get(edge.edge_id)) is not None and attribute.elevation_gain_m is not None
+        if (attribute := elevation_by_edge.get(edge.edge_id)) is not None
     ]
     return round(sum(gains), 1) if gains else None
 

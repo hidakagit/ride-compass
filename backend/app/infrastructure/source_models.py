@@ -86,6 +86,10 @@ class SourceRunRow(Base):
         CheckConstraint(
             "status IN (" + ", ".join(f"'{s}'" for s in SourceRunStatus) + ")",
             name="source_runs_status_known"),
+        # 閉じたrunだけが終わった時刻を持つ。読み手は成功のrunの時刻を必ずあるものとして読む。
+        CheckConstraint(
+            f"(status = '{SourceRunStatus.RUNNING}') = (finished_at IS NULL)",
+            name="source_runs_finished_when_closed"),
     )
 
     run_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)

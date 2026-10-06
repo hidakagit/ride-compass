@@ -258,9 +258,9 @@ HIGHWAY_RANK: dict[str, int] = {
 MAJOR_CROSSING_MIN_RANK = HIGHWAY_RANK["tertiary"]
 
 
-def highway_rank(highway: str | None) -> int:
+def highway_rank(highway: str) -> int:
     """OSMのhighwayタグ生値を階級順へ写す。自転車道・歩道・未知の値は0（最下位）。"""
-    return HIGHWAY_RANK.get(highway or "", 0)
+    return HIGHWAY_RANK.get(highway, 0)
 
 
 # OSMのoneway値のうち「逆方向への通行不可」を意味するもの。

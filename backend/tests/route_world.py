@@ -97,7 +97,7 @@ def grid_network(
         edge_way_id=ways, edge_segment=np.zeros(n, dtype=np.int32),
         edge_forward=np.array([f for _w, f, _a, _b in rows]),
         edge_from=tail, edge_to=head,
-        edge_highway=np.ones(n, dtype=np.int16), highway_vocab=(None, "residential"),
+        edge_highway=np.zeros(n, dtype=np.int16), highway_vocab=("residential",),
         edge_min_lon=np.minimum(lon[tail], lon[head]), edge_min_lat=np.minimum(lat[tail], lat[head]),
         edge_max_lon=np.maximum(lon[tail], lon[head]), edge_max_lat=np.maximum(lat[tail], lat[head]),
         numeric_ids=(BAD_MATERIAL, GRADIENT_PERCENT, *stop_count_material_ids()),

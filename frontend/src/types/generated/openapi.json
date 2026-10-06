@@ -2751,14 +2751,7 @@
       "AxisInspectorResult": {
         "properties": {
           "highway": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "string",
             "title": "Highway"
           },
           "tags": {

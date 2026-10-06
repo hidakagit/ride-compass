@@ -56,7 +56,7 @@ WHERE datname = current_database() AND pid <> pg_backend_pid()
 class LatestRunCounts(StrictModel, frozen=True):
     id: int
     status: str
-    #: 走っている間はNone。
+    #: 閉じていない（`running`の）間だけNone（表の制約`source_runs_finished_when_closed`）。
     finished_at: datetime | None
     #: runを識別する情報（PBF名・対象年・種別など、テーブルごとに中身が違う。`source_runs.origin`をそのまま文字列化したもの）。
     identity: dict[str, str]
@@ -65,7 +65,7 @@ class LatestRunCounts(StrictModel, frozen=True):
 
 class SucceededRunCounts(StrictModel, frozen=True):
     id: int
-    #: 成功のrunは、閉じるときに状態と一緒に書かれる（`batch/ingest.py: _close_run`）ので必ずある。
+    #: 閉じたrunは必ず持つ（表の制約`source_runs_finished_when_closed`）。
     finished_at: datetime
 
 

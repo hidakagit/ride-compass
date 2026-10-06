@@ -1,8 +1,10 @@
-"""取込・派生の段がSQLで直接書く語彙の列（`infrastructure/derived_models.py: vocabulary_check`）に、宣言の外の値を
-DBが入れさせないこと。
+"""取込・派生の段がSQLで直接書く列に、宣言の外の値をDBが入れさせないこと。語彙の列
+（`infrastructure/derived_models.py: vocabulary_check`）と、列の組（土地被覆の割合と有効画素・標高の4列・取込のrunの
+状態と終わった時刻）。
 
 段はdomainの検査を通らずに書くため、入らないことはDBが断ることでしか確かめられない。
-値の母集団（語彙）はdomainの宣言から導かれ、分類器が実際に付ける値は全部通る。
+値の母集団（語彙）はdomainの宣言から導かれ、分類器が実際に付ける値は全部通る。組の制約を通す側は、本物の段が書く行で
+段のテスト（`test_derive_landcover.py`・`test_derive_elevation.py`・`test_ingest.py`）が通す。
 
 ここで見ないもの:
 - 制約を1つ宣言しただけのもの（区間から道の行への外部キー・種別の無い道・世代の2行目・軸の並び順の一意）
@@ -18,6 +20,7 @@ import pytest_asyncio
 
 from app.batch import derive_topology
 from app.batch.common import asyncpg_dsn
+from app.domain.landcover import PERCENT_CLASSES, landcover_key
 from app.domain.traffic import TAG_KIND_RULES, tag_kind_sql
 from tests.conftest import postgis_database_url
 from tests.source_ingest import ingest_records, point_record, way_record
@@ -71,6 +74,28 @@ async def _write(conn: asyncpg.Connection, sql: str, *args) -> None:
     "UPDATE node_materials SET kind = 'not_a_kind'",
 ])
 async def test_value_outside_the_vocabulary_is_refused(conn, sql):
+    with pytest.raises(asyncpg.CheckViolationError):
+        await _write(conn, sql)
+
+
+_SHARES = ", ".join(f"lc_{landcover_key(name)} = 0" for name, _ in PERCENT_CLASSES)
+
+
+@pytest.mark.parametrize("sql", [
+    # 有効画素が正なのに割合が空。割合の合計がNULLになり、`IS NULL OR …`の形では通っていた
+    "UPDATE edge_materials SET lc_valid_pixels = 100",
+    # 有効画素が正で、割合が全部あるのに合計が100でない
+    f"UPDATE edge_materials SET lc_valid_pixels = 100, {_SHARES}",
+    # 有効画素が無いのに割合がある
+    "UPDATE edge_materials SET lc_water = 100",
+    # 道も区間と同じ制約を持つ
+    "UPDATE way_materials SET lc_valid_pixels = 100",
+    "UPDATE edge_materials SET start_elevation_m = 10",
+    # 閉じたrunが終わった時刻を持たない・閉じていないrunが終わった時刻を持つ
+    "UPDATE source_runs SET finished_at = NULL",
+    "UPDATE source_runs SET status = 'running'",
+])
+async def test_a_row_breaking_a_column_group_is_refused(conn, sql):
     with pytest.raises(asyncpg.CheckViolationError):
         await _write(conn, sql)
 
