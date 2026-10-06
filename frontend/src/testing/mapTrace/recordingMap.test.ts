@@ -35,10 +35,9 @@ describe("地図の代役は、本物と同じ呼び出しで同じものを載�
           filter: layer.filter,
         };
       }),
-      featureStates: expected.featureStates.map(({ source, id }) => ({
-        source,
-        id,
-        state: { ...handle.featureState(source, String(id)) },
+      featureStates: expected.featureStates.map((entry) => ({
+        ...entry,
+        state: { ...handle.featureState(entry.source, String(entry.id)) },
       })),
       sourceData: expected.sourceData.map(({ source }) => ({ source, data: handle.sourceContent(source)?.data })),
     };
