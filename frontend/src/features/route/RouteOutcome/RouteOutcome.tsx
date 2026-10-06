@@ -24,9 +24,8 @@ import { formatDurationShort } from "@/features/route/formatDuration";
 import { downloadGpx, MAX_GPX_TRACK_POINTS } from "@/features/route/gpxExport";
 import EditDifference from "@/features/route/EditDifference/EditDifference";
 import {
-  extraDurationLabel,
-  fastestDurationSeconds,
-  fastestRouteId,
+  durationBaseline,
+  durationDifferenceLabel,
   routeListEntries,
   type RouteListGroup,
 } from "@/features/route/routeTabLabel";
@@ -36,7 +35,7 @@ import type { SpliceSessionView } from "@/features/route/useSpliceSession";
 import type { RouteCandidate, RoutePreferenceWeights } from "@/types/route";
 
 const CANDIDATE_TAB_USAGE =
-  "この候補を地図と内訳に出します。名前の稲妻の印は最も早く着く最速ルート、合成の印は区間を乗り換えて作った合成ルートで、番号だけのものは生成した候補です。列は距離（km）・時間（最も早い候補は所要時間、ほかは最速より余計にかかる時間）・総合難易度です。";
+  "この候補を地図と内訳に出します。名前の稲妻の印は最も早く着く最速ルート、合成の印は区間を乗り換えて作った合成ルートで、番号だけのものは生成した候補です。列は距離（km）・時間（最速ルート［無ければ最も早い候補］は所要時間、ほかはそれとの差で、速ければ−）・総合難易度です。";
 
 /** 名前の列で群を見分ける印と、その意味（指を置いたときの吹き出しと読み上げの名前）。生成した候補は印を持たない。 */
 const GROUP_MARKS: Partial<Record<RouteListGroup, { Icon: typeof FastestRouteIcon; meaning: string }>> = {
@@ -66,7 +65,6 @@ interface RouteOutcomeProps {
     | "weightsNotApplied"
     | "destinationCorrected"
     | "experimentSlots"
-    | "generatedInput"
   >;
   splice: Pick<SpliceSessionView, "canStart" | "start" | "panel">;
   /** 軸を「未使用」と分ける重み（`useRoutePlanner.ts: routeWeights`）。 */
@@ -163,13 +161,7 @@ export default function RouteOutcome({ results, generation, splice, routeWeights
 
   // 候補ごとのタブ＋「比較」タブの1列で、タブの切り替えが候補の切り替えを兼ねる。
   function renderRouteOutcomeSectionBody() {
-    // 所要時間だけで選んだ1本を生成が必ず含めるのは、経由地の無い目的地ルートだけ。
-    const input = generation.generatedInput;
-    const entries = routeListEntries(
-      results.generated,
-      results.edits,
-      input !== null && input.destination !== null && input.waypoints.length === 0,
-    );
+    const entries = routeListEntries(results.generated, results.edits);
     const nameOf = (routeId: string) => entries.find((entry) => entry.route.id === routeId)?.name ?? "";
     // 編集中は同じ場所が編集面になる（「ルート編集」という別の置き場を持たない）。元は1本に固定で、相手を
     // 選び直しても変わらない。
@@ -180,8 +172,7 @@ export default function RouteOutcome({ results, generation, splice, routeWeights
 
     const showComparisonTab = researchEnabled;
     const outerTabValue = comparisonTabActive ? COMPARISON_TAB : (selectedRouteId ?? routes[0].id);
-    const fastestSeconds = fastestDurationSeconds(routes);
-    const fastestRouteIdInList = fastestRouteId(routes);
+    const baseline = durationBaseline(routes);
     // 道のりのグラフの横軸の右端。候補どうしで同じ物差しにし、面積（負荷）を見比べられるようにする。
     const longestDistanceKm = Math.max(0, ...routes.map((route) => route.distance_km));
 
@@ -263,11 +254,11 @@ export default function RouteOutcome({ results, generation, splice, routeWeights
                         {route.distance_km.toFixed(1)}
                         <span className="sr-only">km</span>
                       </span>{" "}
-                      {/* 最速の候補はその所要時間、他の候補はそこから何分余計にかかるか（見比べる場所に置く）。 */}
+                      {/* 基準線の候補はその所要時間、他の候補はそれとの差（見比べる場所に置く）。 */}
                       <span className="text-right font-normal text-[var(--color-muted-strong)] tabular-nums">
-                        {route.id === fastestRouteIdInList && fastestSeconds !== null
-                          ? formatDurationShort(fastestSeconds)
-                          : extraDurationLabel(route, fastestSeconds)}
+                        {route.id === baseline?.id
+                          ? formatDurationShort(baseline.seconds)
+                          : durationDifferenceLabel(route, baseline?.seconds ?? null)}
                       </span>{" "}
                       {/* 算出できなかった候補は「—」（0と欠損を同じ見た目にしない）。 */}
                       <span className="text-right font-normal text-[var(--color-muted-strong)] tabular-nums">

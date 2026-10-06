@@ -38,7 +38,7 @@ APIを呼ぶ）・「データ保守」タブ（派生データ鮮度台帳の�
 | `features/admin/useMaterialDistribution.ts` | 材料1件の値の分布を取得。同じ材料を複数行が選んでも、画面を開いている間に取りに行くのは1回（取れなかったことも覚える） |
 | `features/admin/AxisStudio/breakpointTools.ts` | 折れ点の自動生成・区分線形補間・追加位置決定・ドラッグスナップ刻み幅算出（DOM非依存の純粋関数、`AxisComposer.tsx`が使う） |
 | `features/admin/AxisStudio/MaterialCoveragePanel.tsx` | 「材料」タブ本体。材料ごとの欠損割合を「欠損時の扱い」でグループに分けた表（各グループ内は欠損割合降順）と集計対象外材料の理由一覧。グループの見出し・説明と母集団の名前はbackendの宣言（`domain/material_catalog.py: MISSING_SEMANTICS_DISPLAY`・`domain/material_catalog.py: POPULATION_LABELS`）が生成物`vocabulary.ts`で配る |
-| `features/admin/AxisStudio/DerivedDataFreshnessPanel.tsx` | 「データ保守」タブ本体。ソースごとの鮮度（成功した最新の取込と作り直しに使った取込）と、派生テーブルごとの被覆（親に対して行が無い件数）・完成度（値の列の未計算と確定した値なしの件数）を、それぞれ1行へまとめて表示。対象の表・列はbackendが宣言から導く（表の印を持つ表が派生データ）。作り直しが要るかもbackendが決め（`needs_rebuild`）、画面は理由を問わずそれで数える |
+| `features/admin/AxisStudio/DerivedDataFreshnessPanel.tsx` | 「データ保守」タブ本体。ソースごとの鮮度（成功した最新の取込と作り直しに使った取込）と、派生テーブルごとの列の比較（作ったときの列と今の宣言の列。値の列ごとの値なしの件数は参考）を、それぞれ1行へまとめて表示。対象の表・列はbackendが宣言から導く（表の印を持つ表が派生データ）。作り直しが要るかもbackendが決め（`needs_rebuild`）、画面は理由を問わずそれで数える |
 | `features/admin/AxisStudio/DbStatusPanel.tsx` | 「データ保守」タブ・本番DBの状態。取込runの最終実行・テーブルの実数と容量・統計とVACUUMの鮮度・接続を1件1行で出す |
 | `features/admin/AxisStudio/StatusRowList.tsx` | 上記2パネルが共有する点検の行の一覧（状態の丸・名前・規模、開くと項目と値）と、結果の一言（手当てが要れば目立たせる） |
 | `features/admin/AxisStudio/ReportCard.tsx` | 集計のパネル（材料の欠損割合・派生データ鮮度台帳・本番DBの状態）が共有するカード。見出しとⓘ・「集計する」ボタン・集計中と失敗の表示・集計の時刻（日本時間）を持ち、中身の描画は各パネルが渡す。件数と時点の書式（`formatCount`・`formatMoment`）もここに置く |
@@ -329,16 +329,18 @@ backend `GET /api/admin/material-catalog/coverage`の
 backend `GET /api/admin/derived-data/freshness`の
 レスポンス（`DerivedDataFreshnessResponse`、生成型）をそのまま一覧にする。
 `MaterialCoveragePanel`（完成度、値がNULL/未取得か）とは別の切り口——派生を作った生データの取込が、
-ソースごとに成功した最新の取込より古いままではないか、という鮮度を見る。
+ソースごとに成功した最新の取込より古いままではないか、派生の表を作ったときの列が今の宣言の列と違わないか、
+という鮮度を見る。
 
 - 集計後の先頭に**作り直しが要る件数と、作り直しの手順の在り処**（`docs/conventions/deployment-sync.md`
   「派生データの作り直し」）を置く。**行ごとにバッチ名を散らさない**——古い理由がどれであっても利用者が
   打つのは同じ1コマンドのため。本番で打つ形（本番VMのパス・コンテナ名）は運用の知識なので画面に持たない。
-- 一覧はソースの鮮度（取込の世代比較）と、表の被覆・完成度を**同じ見た目の1行**へ揃え、「取込」と「派生の表」の
+- 一覧はソースの鮮度（取込の世代比較）と、表の列の比較を**同じ見た目の1行**へ揃え、「取込」と「派生の表」の
   2つのまとまりに並べる（`sourceRows`がソースごとの`sources`を、`tableRows`が表ごとの`tables`を
   `StatusRowList.tsx: StatusRow`へ写す）。読み手が知りたいのは「作り直しが要るか」で
-  あり、判定方式の違いは開いた先に書けばよい。run番号・列ごとの件数・判定の但し書きは
-  `<details>`の中で、タップしたときだけ出す。
+  あり、判定方式の違いは開いた先に書けばよい。run番号・足した／消した列・判定の但し書きは
+  `<details>`の中で、タップしたときだけ出す。列ごとの値なしの件数も開いた先に参考として出し、判定には
+  使わない（作り直した後の値なしは作り直しでは埋まらない。[静的道路属性](../backend/static-road-attributes.md)「派生データ鮮度台帳」）。
 - **表（`<table>`）を使わない。** 列を横に並べるとモバイルでは横スクロールの中へ数字が隠れ、
   「比較対象」の列だけが見える状態になる。ラベルと値を縦に積み、値だけが折り返す形にする。
 - 対象の表と列はbackendがORMの宣言から導き（`infrastructure/derived_data_freshness.py:

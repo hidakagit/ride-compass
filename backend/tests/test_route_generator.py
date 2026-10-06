@@ -75,6 +75,14 @@ def _keys(candidates: list[RouteCandidate]) -> list[str]:
     return [c.edge_ids[0] for c in candidates]
 
 
+def _identities(candidates: list[RouteCandidate]) -> list[tuple[str, str, str]]:
+    return [(c.id, c.kind, c.direction_label) for c in candidates]
+
+
+def _fastest_keys(candidates: list[RouteCandidate]) -> list[str]:
+    return [c.edge_ids[0] for c in candidates if c.is_fastest]
+
+
 def _loop(key: str, distance_km: float = 10.0, bearing: int | None = 0) -> TracedLoop:
     return TracedLoop(bearing=bearing, distance_km=distance_km, data=[key], leg_of_edge=[0])
 
@@ -356,10 +364,15 @@ async def test_loops_are_ordered_easiest_first_and_ties_by_closeness_to_target()
 
     result = await RouteGenerator(engine).generate_loops(ORIGIN, 10.0, 1.0, max_routes=4, start_time=START)
 
-    # 総合難易度の昇順。同点は目標距離に近い順、算出できない候補は末尾
-    assert [c.direction_label for c in result] == ["方位-easy", "方位-near", "方位-far", "方位-unknown"]
-    # idは最終の順位で振り直す（方位ラベルはエンジンが付けたまま）
-    assert [c.id for c in result] == ["route-00", "route-01", "route-02", "route-03"]
+    # 総合難易度の昇順。同点は目標距離に近い順、算出できない候補は末尾。idは最終の順位から作り、
+    # 名前はエンジンが方位から付けたまま。周回は最速の印を持たない
+    assert _identities(result) == [
+        ("loop-00", "loop", "方位-easy"),
+        ("loop-01", "loop", "方位-near"),
+        ("loop-02", "loop", "方位-far"),
+        ("loop-03", "loop", "方位-unknown"),
+    ]
+    assert _fastest_keys(result) == []
 
 
 @pytest.mark.parametrize(
@@ -392,8 +405,8 @@ async def test_loops_that_all_fall_out_say_why(outcomes, reason, caplog):
 @pytest.mark.parametrize(
     ("destination", "labels"),
     [
-        (None, ("engine-w", "方位-w")),  # 起点へ戻る経路は、エンジンが付けたidと方位ラベルのまま
-        (DESTINATION, ("route-destination", "目的地ルート")),
+        (None, ("waypoints-00", "waypoints", "経由地ルート")),
+        (DESTINATION, ("waypoints-00", "waypoints", "目的地ルート")),
     ],
 )
 async def test_waypoint_route_is_labelled_as_a_destination_route_only_when_it_ends_at_one(destination, labels):
@@ -404,7 +417,7 @@ async def test_waypoint_route_is_labelled_as_a_destination_route_only_when_it_en
     )
 
     # 経由地があるときは、候補数の指定によらず1本
-    assert [(c.id, c.direction_label) for c in result] == [labels]
+    assert _identities(result) == [labels]
 
 
 async def test_waypoints_that_cannot_be_connected_give_no_candidates_and_say_why(caplog):
@@ -428,7 +441,7 @@ async def test_spliced_route_is_labelled():
 
     result = await RouteGenerator(engine).generate_spliced_route(ORIGIN, DESTINATION, 10.0, ["e1", "e2"], START)
 
-    assert [(c.id, c.direction_label) for c in result] == [(route_generator.SPLICED_ROUTE_ID, "組み合わせたルート")]
+    assert _identities(result) == [("spliced-00", "spliced", "組み合わせたルート")]
 
 
 async def test_spliced_route_that_does_not_connect_says_so_without_internal_ids(caplog):
@@ -468,8 +481,12 @@ async def test_destination_adds_the_fastest_route_and_orders_all_easiest_first()
     result = await _destination_routes(engine, max_routes=3)
 
     assert _keys(result) == ["easy", "fastest", "hard"]
-    assert [c.id for c in result] == ["route-destination-00", "route-destination-01", "route-destination-02"]
-    assert {c.direction_label for c in result} == {"目的地ルート"}
+    assert _identities(result) == [
+        ("destination-00", "destination", "目的地ルート"),
+        ("destination-01", "destination", "目的地ルート"),
+        ("destination-02", "destination", "目的地ルート"),
+    ]
+    assert _fastest_keys(result) == ["fastest"]
 
 
 async def test_destination_does_not_add_the_fastest_twice_when_an_alternative_is_already_it():
@@ -482,16 +499,19 @@ async def test_destination_does_not_add_the_fastest_twice_when_an_alternative_is
     result = await _destination_routes(engine, max_routes=3)
 
     assert _keys(result) == ["easy", "hard"]
+    assert _fastest_keys(result) == ["hard"]
 
 
 @pytest.mark.parametrize(
-    ("max_routes", "expected"),
+    ("max_routes", "expected", "fastest"),
     [
-        (2, ["easy", "fastest"]),  # 難易度で最下位の基準線を残し、その次に難しい候補を切る
-        (1, ["easy"]),  # 1本だけ返すときは基準線を残さない——軸の重みが結果に現れなくなる
+        (2, ["easy", "fastest"], ["fastest"]),  # 難易度で最下位の基準線を残し、その次に難しい候補を切る
+        (1, ["easy"], []),  # 1本だけ返すときは基準線を残さない——軸の重みが結果に現れなくなる
     ],
 )
-async def test_destination_cuts_the_hardest_routes_but_keeps_the_fastest_unless_returning_one(max_routes, expected):
+async def test_destination_cuts_the_hardest_routes_but_keeps_the_fastest_unless_returning_one(
+    max_routes, expected, fastest
+):
     engine = FakeEngine(
         via=[_loop("hard"), _loop("easy")],
         fastest=_loop("fastest"),
@@ -505,12 +525,26 @@ async def test_destination_cuts_the_hardest_routes_but_keeps_the_fastest_unless_
     result = await _destination_routes(engine, max_routes=max_routes)
 
     assert _keys(result) == expected
+    assert _fastest_keys(result) == fastest
+
+
+async def test_destination_does_not_mark_the_fastest_when_it_is_the_only_route():
+    engine = FakeEngine(via=[_loop("a")], fastest=_loop("a"), candidates={"a": _candidate("a")})
+
+    result = await _destination_routes(engine, max_routes=3)
+
+    # 比べる相手が無いので基準にしない
+    assert _keys(result) == ["a"]
+    assert _fastest_keys(result) == []
 
 
 async def test_destination_without_a_fastest_route_returns_the_alternatives():
-    engine = FakeEngine(via=[_loop("a")], candidates={"a": _candidate("a")})
+    engine = FakeEngine(via=[_loop("a"), _loop("b")], candidates={"a": _candidate("a"), "b": _candidate("b")})
 
-    assert _keys(await _destination_routes(engine, max_routes=3)) == ["a"]
+    result = await _destination_routes(engine, max_routes=3)
+
+    assert _keys(result) == ["a", "b"]
+    assert _fastest_keys(result) == []
 
 
 @pytest.mark.parametrize(

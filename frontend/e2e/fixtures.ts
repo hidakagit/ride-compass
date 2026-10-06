@@ -130,6 +130,8 @@ function weatherConditionsFixture(): WeatherConditions {
 // 要る——無いと常設ヘッダーが欄の欠けたデータを受け取り、tscでは気づけない。
 function amedasObservationFixture(): AmedasObservation {
   return {
+    station_name: "観測所",
+    observed_at: "2026-01-01T12:00:00+09:00",
     temperature_c: 18.5,
     apparent_temperature_c: null,
     wind_speed_ms: 2.1,

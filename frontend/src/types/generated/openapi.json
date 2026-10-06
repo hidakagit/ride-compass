@@ -1944,6 +1944,15 @@
       },
       "AmedasObservation": {
         "properties": {
+          "station_name": {
+            "type": "string",
+            "title": "Station Name"
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Observed At"
+          },
           "temperature_c": {
             "anyOf": [
               {
@@ -2023,6 +2032,8 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
+          "station_name",
+          "observed_at",
           "temperature_c",
           "apparent_temperature_c",
           "wind_speed_ms",
@@ -2929,29 +2940,49 @@
         ],
         "title": "CategoricalShape"
       },
-      "ColumnCompleteness": {
+      "ColumnNulls": {
         "properties": {
           "column": {
             "type": "string",
             "title": "Column"
           },
-          "uncalculated_count": {
+          "null_count": {
             "type": "integer",
-            "title": "Uncalculated Count"
-          },
-          "absent_count": {
-            "type": "integer",
-            "title": "Absent Count"
+            "title": "Null Count"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
           "column",
-          "uncalculated_count",
-          "absent_count"
+          "null_count"
         ],
-        "title": "ColumnCompleteness"
+        "title": "ColumnNulls"
+      },
+      "ColumnsChange": {
+        "properties": {
+          "added": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Added"
+          },
+          "removed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Removed"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "added",
+          "removed"
+        ],
+        "title": "ColumnsChange"
       },
       "ConnectionEntry": {
         "properties": {
@@ -3019,30 +3050,6 @@
           "longitude"
         ],
         "title": "Coordinates"
-      },
-      "Coverage": {
-        "properties": {
-          "parent": {
-            "type": "string",
-            "title": "Parent"
-          },
-          "parent_row_count": {
-            "type": "integer",
-            "title": "Parent Row Count"
-          },
-          "missing_rows": {
-            "type": "integer",
-            "title": "Missing Rows"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "parent",
-          "parent_row_count",
-          "missing_rows"
-        ],
-        "title": "Coverage"
       },
       "DbStatusReport": {
         "properties": {
@@ -4230,11 +4237,28 @@
         "properties": {
           "id": {
             "type": "string",
-            "title": "Id"
+            "title": "Id",
+            "default": ""
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "loop",
+              "waypoints",
+              "destination",
+              "spliced"
+            ],
+            "title": "Kind",
+            "default": "loop"
           },
           "direction_label": {
             "type": "string",
             "title": "Direction Label"
+          },
+          "is_fastest": {
+            "type": "boolean",
+            "title": "Is Fastest",
+            "default": false
           },
           "distance_km": {
             "type": "number",
@@ -4382,7 +4406,9 @@
         "type": "object",
         "required": [
           "id",
+          "kind",
           "direction_label",
+          "is_fastest",
           "distance_km",
           "geometry",
           "elevation_gain_m",
@@ -5661,15 +5687,15 @@
           },
           "columns": {
             "items": {
-              "$ref": "#/components/schemas/ColumnCompleteness"
+              "$ref": "#/components/schemas/ColumnNulls"
             },
             "type": "array",
             "title": "Columns"
           },
-          "coverage": {
+          "columns_change": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Coverage"
+                "$ref": "#/components/schemas/ColumnsChange"
               },
               {
                 "type": "null"
@@ -5687,7 +5713,7 @@
           "table_name",
           "row_count",
           "columns",
-          "coverage",
+          "columns_change",
           "needs_rebuild"
         ],
         "title": "TableEntry"

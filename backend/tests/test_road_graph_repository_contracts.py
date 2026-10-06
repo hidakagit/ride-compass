@@ -342,7 +342,7 @@ async def test_landcover_is_read_at_the_unit_the_map_paints(feature_key, segment
     assert session.params[0].get("segment_index") == segment_index
 
 
-@pytest.mark.parametrize("row", [None, _landcover_row(valid_pixels=0)])
+@pytest.mark.parametrize("row", [None, _landcover_row(valid_pixels=None)])
 async def test_incomplete_landcover_is_not_reported(row):
     """行が無い・有効画素が足りなかった区間で0%と答えると、内訳が「すべて未分類」に見える。"""
     repo, _ = _repo([] if row is None else [row])

@@ -6,9 +6,8 @@ import ErrorText from "@/features/route/ErrorText/ErrorText";
 import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
 import { NewRouteIcon, RouteDiffIcon, UndoAllIcon, UndoIcon } from "@/components/ui/icons/icons";
 import type { CatalogAxis } from "@/lib/catalogAxis";
-import { formatDelta, roundToDigits } from "@/features/route/routeEditDiff";
-import { formatDurationShort } from "@/features/route/formatDuration";
-import type { OverallDifficulty, RouteCandidate } from "@/types/route";
+import { formatDelta, formatMetric, metricDifferences, roundToDigits } from "@/features/route/routeEditDiff";
+import type { RouteCandidate } from "@/types/route";
 import { Button } from "@/components/ui/Button/Button";
 import { GuideText } from "@/components/ui/GuideText/GuideText";
 import { textVariants } from "@/components/ui/Text/Text";
@@ -52,10 +51,6 @@ const MIN_CONTRIBUTION_DELTA = 0.1;
 /** 差分バーの下へ数値を書く軸の数。大きい順。 */
 const LABELLED_DELTA_COUNT = 2;
 
-function digitsOf(label: string): number {
-  return label === "距離" ? 1 : 0;
-}
-
 /** 元→編集後で寄与度が動いた軸（大きい順）。減った軸は負、増えた軸は正。 */
 function contributionDeltas(
   base: Record<string, number>,
@@ -97,39 +92,8 @@ export default function RouteSplicePanel({
   const deltas = preview ? contributionDeltas(displayed.axis_contributions, preview.axis_contributions, axes) : [];
   const scale = deltas.reduce((max, item) => Math.max(max, Math.abs(item.delta)), 0);
 
-  const duration = (seconds: number | null | undefined) => (seconds != null ? formatDurationShort(seconds) : null);
-  const rounded = (value: number | null | undefined) => (value != null ? `${Math.round(value)}` : null);
-  const difficultyMetric = (label: string, key: keyof OverallDifficulty) => {
-    const base = displayed.overall_difficulty;
-    const after = preview?.overall_difficulty;
-    return {
-      label,
-      base: rounded(base?.[key]),
-      after: rounded(after?.[key]),
-      delta: base != null && after != null ? after[key] - base[key] : null,
-    };
-  };
-
   // 1セルに「元→編集後 差」を収める（列見出しを持たないぶん1行減る）。
-  const metrics: { label: string; base: string | null; after: string | null; delta: number | null }[] = [
-    {
-      label: "距離",
-      base: `${displayed.distance_km.toFixed(1)}km`,
-      after: preview ? `${preview.distance_km.toFixed(1)}km` : null,
-      delta: preview ? preview.distance_km - displayed.distance_km : null,
-    },
-    {
-      label: "所要",
-      base: duration(displayed.estimated_duration_seconds),
-      after: duration(preview?.estimated_duration_seconds),
-      delta:
-        preview?.estimated_duration_seconds != null && displayed.estimated_duration_seconds != null
-          ? (preview.estimated_duration_seconds - displayed.estimated_duration_seconds) / 60
-          : null,
-    },
-    difficultyMetric("総合難易度", "average"),
-    difficultyMetric("負荷", "load"),
-  ];
+  const metrics = metricDifferences(displayed, preview);
   const halves = [metrics.slice(0, 2), metrics.slice(2)];
 
   return (
@@ -224,28 +188,30 @@ export default function RouteSplicePanel({
                 key={index}
               >
                 {half.map((metric) => {
-                  const shown = metric.delta != null ? roundToDigits(metric.delta, digitsOf(metric.label)) : null;
+                  const shown = metric.delta != null ? roundToDigits(metric.delta, metric.digits) : null;
                   return (
                     <Fragment key={metric.label}>
                       <dt className={textVariants({ variant: "note" })}>{metric.label}</dt>
-                      <dd className="m-0 text-right text-[var(--color-muted)]">{metric.base ?? "—"}</dd>
+                      <dd className="m-0 text-right text-[var(--color-muted)]">
+                        {metric.base === null ? "—" : formatMetric(metric, metric.base)}
+                      </dd>
                       {/* 評価前は矢印も出さない（行き先が無いのに→だけ残ると読み手が待たされる）。 */}
                       <dd className={cn(textVariants({ variant: "note" }), "m-0")} aria-hidden="true">
-                        {metric.after ? "→" : ""}
+                        {metric.after !== null ? "→" : ""}
                       </dd>
                       <dd
                         className="m-0 font-bold data-[better=true]:text-[var(--color-accent)] data-[worse=true]:text-[var(--color-route-splice)]"
                         data-worse={shown != null && shown > 0}
                         data-better={shown != null && shown < 0}
                       >
-                        {metric.after ?? ""}
+                        {metric.after !== null ? formatMetric(metric, metric.after) : ""}
                       </dd>
                       <dd
                         className="m-0 text-[length:var(--font-size-xs)] data-[better=true]:text-[var(--color-accent)] data-[worse=true]:text-[var(--color-route-splice)]"
                         data-worse={shown != null && shown > 0}
                         data-better={shown != null && shown < 0}
                       >
-                        {metric.delta != null ? formatDelta(metric.delta, digitsOf(metric.label)) : ""}
+                        {metric.delta != null ? formatDelta(metric.delta, metric.digits) : ""}
                       </dd>
                     </Fragment>
                   );

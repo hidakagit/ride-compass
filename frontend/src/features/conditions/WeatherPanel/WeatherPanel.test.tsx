@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AmedasObservation } from "@/types/weather";
@@ -9,6 +10,8 @@ const NOW = new Date("2026-09-24T12:00:00+09:00");
 
 const observation = (overrides: Partial<AmedasObservation> = {}) =>
   ({
+    station_name: "東京",
+    observed_at: "2026-09-24T11:50:00+09:00",
     temperature_c: 21.44,
     apparent_temperature_c: 19.96,
     wind_speed_ms: 3.25,
@@ -110,5 +113,24 @@ describe("WeatherPanel 観測値", () => {
       />,
     );
     expect(screen.queryByText(/^天気:/)).not.toBeInTheDocument();
+  });
+});
+
+describe("WeatherPanel 観測の出所", () => {
+  it("観測値を押すと、アメダスの観測であることと観測所名・観測の時刻（日本時間）が開く", async () => {
+    render(
+      <WeatherPanel
+        amedas={observation({ station_name: "練馬", observed_at: "2026-09-24T02:50:00Z" })}
+        loading={false}
+        error={null}
+      />,
+    );
+    expect(screen.queryByText("アメダスの観測")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /気温:/ }));
+
+    const panel = screen.getByRole("dialog");
+    expect(panel).toHaveTextContent("アメダスの観測");
+    expect(panel).toHaveTextContent("練馬11:50");
   });
 });

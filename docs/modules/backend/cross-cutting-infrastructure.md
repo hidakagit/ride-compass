@@ -75,7 +75,7 @@ DB接続・Redis・HTTPクライアント・レート制限・ログ・デバッ
   要求と応答の両方に現れるモデル（軸の形等）は、FastAPIが`<名前>-Input`と`<名前>-Output`に分けて書き出す。
 - **応答の項目がnullになるかを同じ応答の別の項目が決めるなら、形で表す**——状態ごとのモデルの共用体
   （例: `api/routers/routes.py: RouteGenerateJobDone`）か、一緒に在る項目を1つのモデルへまとめた任意の項目
-  （例: `infrastructure/derived_data_freshness.py: Coverage`）。項目ごとの`X | None`で並べると、
+  （例: `infrastructure/derived_data_freshness.py: ColumnsChange`）。項目ごとの`X | None`で並べると、
   画面は起きない組み合わせまで分岐と既定値で受けることになる。
 - 環境変数を読む`config.py: Settings`だけは対象外。プロセスの環境変数には無関係なものが
   常に含まれるため`extra="ignore"`でなければ起動しない。

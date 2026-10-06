@@ -7,11 +7,6 @@
 from dataclasses import dataclass
 from typing import Any
 
-from app.domain.geo import compass_label
-
-#: 経由地・目的地を置いたルートのid。方位を持たないため、画面はタブに順位番号を付けず`direction_label`を出す。
-WAYPOINTS_ROUTE_ID = "route-waypoints"
-
 
 @dataclass
 class LoopTurnaround:
@@ -45,13 +40,3 @@ class TracedLoop:
     # 区間表示が黙って出る（探索と表示が別の配列を読む）。
     leg_of_edge: list[int]
 
-
-def candidate_identity(bearing: int | None) -> dict[str, str]:
-    """方位から候補のid・方位ラベルを導出する。
-
-    ここで振るidは一時的なもので、`generate_loops`が最終順位で振り直す——同じ方位に
-    複数の候補が並びうるため、方位由来のidは一意にならない。
-    """
-    if bearing is None:
-        return {"id": WAYPOINTS_ROUTE_ID, "direction_label": "経由地ルート"}
-    return {"id": f"route-{bearing:03d}", "direction_label": compass_label(bearing)}

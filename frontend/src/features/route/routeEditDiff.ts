@@ -18,12 +18,41 @@ interface ChangedStretch {
   lengthDiffKm: number;
 }
 
-/** 元との差（編集後 − 元）。値を持たない側があればnull。 */
+/** 編集の前後で見比べる指標の1つ。`value`は表示の単位（所要は分）で、値が無ければnull。 */
+interface EditMetric {
+  label: string;
+  /** 表示の桁。差を丸めて色を決めるのも同じ桁。 */
+  digits: number;
+  unit: string;
+  value: (route: RouteCandidate) => number | null;
+}
+
+/** 見比べる指標（ルート結果と同じ項目）。編集面とできたルートの「元との違い」がこの1つの表を読む。 */
+const EDIT_METRICS: readonly EditMetric[] = [
+  { label: "距離", digits: 1, unit: "km", value: (route) => route.distance_km },
+  {
+    label: "所要",
+    digits: 0,
+    unit: "分",
+    value: (route) => (route.estimated_duration_seconds === null ? null : route.estimated_duration_seconds / 60),
+  },
+  { label: "総合難易度", digits: 0, unit: "", value: (route) => route.overall_difficulty?.average ?? null },
+  { label: "負荷", digits: 0, unit: "", value: (route) => route.overall_difficulty?.load ?? null },
+];
+
+/** 指標1つの元・編集後と差（編集後 − 元）。値を持たない側があれば差はnull。 */
+export interface MetricDifference {
+  label: string;
+  digits: number;
+  unit: string;
+  base: number | null;
+  after: number | null;
+  delta: number | null;
+}
+
+/** 元との差。 */
 export interface EditDifference {
-  distanceKm: number;
-  durationSeconds: number | null;
-  difficulty: number | null;
-  load: number | null;
+  metrics: MetricDifference[];
   /** 起点に近い順。 */
   stretches: ChangedStretch[];
 }
@@ -35,8 +64,18 @@ function kmAtEdge(shape: Shape, cumulativeKm: readonly number[], index: number):
   return cumulativeKm[shape.edge_point_offsets[index]];
 }
 
-function diffOf(after: number | null | undefined, before: number | null | undefined): number | null {
-  return after === null || after === undefined || before === null || before === undefined ? null : after - before;
+/** 指標ごとの元・編集後と差。編集後がまだ無ければ（評価する前）元の値だけを持つ。 */
+export function metricDifferences(origin: RouteCandidate, edited: RouteCandidate | null): MetricDifference[] {
+  return EDIT_METRICS.map(({ value, ...metric }) => {
+    const base = value(origin);
+    const after = edited === null ? null : value(edited);
+    return { ...metric, base, after, delta: base === null || after === null ? null : after - base };
+  });
+}
+
+/** 指標の値の表記（例: `12.3km`・`38分`・`42`）。 */
+export function formatMetric(metric: Pick<MetricDifference, "digits" | "unit">, value: number): string {
+  return `${value.toFixed(metric.digits)}${metric.unit}`;
 }
 
 export function editDifference(origin: RouteCandidate, edited: RouteCandidate): EditDifference {
@@ -50,13 +89,7 @@ export function editDifference(origin: RouteCandidate, edited: RouteCandidate): 
     const editedEndKm = kmAtEdge(edited, editedKm, pair.target.end);
     return { startKm, endKm, lengthDiffKm: editedEndKm - editedStartKm - (endKm - startKm) };
   });
-  return {
-    distanceKm: edited.distance_km - origin.distance_km,
-    durationSeconds: diffOf(edited.estimated_duration_seconds, origin.estimated_duration_seconds),
-    difficulty: diffOf(edited.overall_difficulty?.average, origin.overall_difficulty?.average),
-    load: diffOf(edited.overall_difficulty?.load, origin.overall_difficulty?.load),
-    stretches,
-  };
+  return { metrics: metricDifferences(origin, edited), stretches };
 }
 
 /** 表示する桁で丸めた差。色を変えるかどうかも**この値**で決める——生の差で判断すると、

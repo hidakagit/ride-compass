@@ -2,37 +2,28 @@
 （`services/derived_data_freshness_service.py: build_freshness_report`）の契約。
 
 この台帳は**対象を宣言から導く**（表の印`orm_base.py: DERIVED`を持つ表が派生データ）。表や列が増えても
-手当てが要らないことが値打ちなので、ここで見るのは個々の表の名前ではなく、導出の規則である: 派生の表・値の列・
-NULLの意味・被覆の親の導き方、ソースごとの鮮度（DBで）、作り直しが要るかの判定。
-
-ここで見ないもの:
-- 集計SQLが未計算と確定した値なしを分けて数えること → `test_derive_landcover.py`（有効画素の足りない区間をDBで数える）
+手当てが要らないことが値打ちなので、ここで見るのは個々の表の名前ではなく、導出の規則である: 派生の表・値の列、
+ソースごとの鮮度と表ごとの列の記録との比べ（DBで）、作り直した直後に値や行の無い道・区間があっても作り直しを求めないこと。
 """
 
 import asyncpg
 import pytest
 
+from app.batch import derive_cli
 from app.batch.common import asyncpg_dsn
-from app.infrastructure import derived_data_meta, derived_models
+from app.infrastructure import derived_data_meta, derived_models, road_network_store
 from app.infrastructure.derived_data_freshness import (
-    ColumnCompleteness,
-    Coverage,
-    DerivedDataFreshness,
+    ColumnsChange,
     DerivedDataFreshnessQuery,
-    TableFreshness,
-    absent_condition,
-    build_coverage_sql,
-    covered_source,
-    coverage_parent,
+    declared_columns,
     derived_tables,
-    parent_derived_table,
     value_columns,
 )
 from app.infrastructure.orm_base import Base
 from app.infrastructure.source_models import Source
 from app.services.derived_data_freshness_service import build_freshness_report
 from tests.conftest import postgis_database_url
-from tests.source_ingest import ingest_records, point_record
+from tests.source_ingest import ingest_records, point_record, way_record
 
 from datetime import datetime, timezone
 
@@ -64,21 +55,6 @@ def test_値の列は鍵を除いた列():
 
     assert values
     assert keys.isdisjoint(values)
-
-
-# --- NULLの意味 -------------------------------------------------------------
-
-@pytest.mark.parametrize(("marked", "condition"), [
-    # 印の付け忘れは「鳴りすぎる」側へ倒れる。黙って見逃す側へ倒れてはいけない。
-    (lambda info: not info, "FALSE"),
-    # `ABSENT_OK`を付けた列（橋の勾配・指定のない道など）。
-    (lambda info: info.get("null_means_absent"), "TRUE"),
-], ids=["印の無い列は未計算", "確定して値が無い列は数えない"])
-def test_NULLを確定して値なしと読むかは列の印で決まる(marked, condition):
-    table, name = next((table, name) for table in DERIVED for name in value_columns(table)
-                       if marked(table.c[name].info))
-
-    assert absent_condition(table, name) == condition
 
 
 # --- ソースごとの鮮度 -------------------------------------------------------
@@ -114,60 +90,57 @@ async def test_作り直しに使った取込が成功した最新の取込で�
     ]
 
 
-# --- レポートの組み立て -----------------------------------------------------
+# --- 表ごとの列 -------------------------------------------------------------
 
-def _table(*, columns: tuple[ColumnCompleteness, ...] = (), coverage: Coverage | None = None) -> TableFreshness:
-    return TableFreshness(table_name="t", row_count=1, columns=columns, coverage=coverage)
-
-
-# --- 被覆（行そのものが無いケース）---------------------------------------
-
-def test_覆うことを宣言しない表は母数を持たない():
-    """印の無い表まで測ると、設計どおり行を作らなかったぶんが欠けとして鳴り続ける。"""
-    table = next(t for t in DERIVED if covered_source(t) is None and parent_derived_table(t) is None)
-
-    assert build_coverage_sql(table) is None
-    assert coverage_parent(table) is None
-
-
-def test_親は自分の主キーが指す先だけ():
-    """主キー以外の列のFK（区間の端点→ノード）を母数にすると、覆っていない側を欠けとして
-    数える。`road_edges`は端点で`node_materials`を指すが、親ではない。"""
-    children = [(table, parent) for table in DERIVED if (parent := parent_derived_table(table)) is not None]
-    assert children, "親を持つ派生表が1つも無い"
-    for table, (_, columns) in children:
-        assert [child for _, child in columns] == [c.name for c in table.primary_key.columns]
+async def _report(session):
+    freshness = await DerivedDataFreshnessQuery(session).get_freshness()
+    return build_freshness_report(freshness, datetime(2026, 1, 1, tzinfo=timezone.utc))
 
 
 @on_postgis
-async def test_生データの母数は覆うと宣言したソースの行だけを数える(road_graph_session):
-    """絞らないと`source_features`の全ソース（標高タイル・事故点）まで母数に入る。"""
-    await ingest_records(Source.ACCIDENT, [point_record(1, 139.7, 35.6)])
+async def test_作り直した後に列を足した表と消した表と列の記録が無い表は作り直しが要る(road_graph_session):
+    """列を足した表は足した列が全行NULLのまま、消した表は作ったときと宣言が違う。記録の無い表は、どの列で作ったかが分からない。"""
+    added, removed, same, *unrecorded = DERIVED
+    declared = declared_columns()
+    dropped = value_columns(added)[0]
+    conn = await asyncpg.connect(asyncpg_dsn(postgis_database_url()))
+    try:
+        await derived_data_meta.replace_columns(conn, {
+            added.name: declared[added.name] - {dropped},
+            removed.name: declared[removed.name] | {"removed_column"},
+            same.name: declared[same.name],
+        })
+    finally:
+        await conn.close()
 
-    freshness = await DerivedDataFreshnessQuery(road_graph_session).get_freshness()
+    report = await _report(road_graph_session)
 
-    counts = [table.coverage.parent_row_count for table in freshness.tables if table.coverage is not None]
-    assert counts
-    assert all(count == 0 for count in counts)
-
-
-@pytest.mark.parametrize(("missing", "expected"), [(0, False), (1, True)])
-def test_行が欠けたかは被覆の欠けの件数で決まる(missing, expected):
-    """行が無ければ値の列もNULLにならないので、完成度では分からない。"""
-    table = _table(coverage=Coverage(parent="osm_way", parent_row_count=10,
-                                                missing_rows=missing))
-    assert table.has_missing_rows is expected
+    assert unrecorded
+    assert [(t.table_name, t.columns_change, t.needs_rebuild) for t in report.tables] == [
+        (added.name, ColumnsChange(added=(dropped,), removed=()), True),
+        (removed.name, ColumnsChange(added=(), removed=("removed_column",)), True),
+        (same.name, ColumnsChange(added=(), removed=()), False),
+        *((table.name, None, True) for table in unrecorded),
+    ]
 
 
-@pytest.mark.parametrize(("table", "expected"), [
-    (_table(coverage=Coverage(parent="osm_way", parent_row_count=10, missing_rows=1)), True),
-    (_table(columns=(ColumnCompleteness(column="c", uncalculated_count=3, absent_count=0),)),
-     True),                 # 値の列に未計算が残る
-    (_table(columns=(ColumnCompleteness(column="c", uncalculated_count=0, absent_count=3),)),
-     False),                # 確定した値なしは作り直しでは埋まらない
-], ids=["行が欠ける", "未計算", "確定した値なし"])
-def test_作り直しが要るかはレポートが決める(table, expected):
-    entry = build_freshness_report(DerivedDataFreshness(sources=(), tables=(table,)),
-                                   datetime(2026, 1, 1, tzinfo=timezone.utc)).tables[0]
+@on_postgis
+async def test_作り直した直後は値や行の無い道と区間があっても作り直しを求めない(road_graph_session, monkeypatch, tmp_path):
+    """区間に切れない道（同じ位置に点が重なる）は派生の表に行を持たず、標高と土地被覆のタイルが無い区間は値を持たない。
+    どちらも作り直した結果なので、作り直しても消えない「作り直しが必要」を出さない。"""
+    monkeypatch.setattr(road_network_store, "ROOT", tmp_path / "road_network")
+    points = {1: (139.700, 35.680), 2: (139.701, 35.681), 3: (139.702, 35.680), 4: (139.702, 35.680)}
+    await ingest_records(Source.OSM_NODE, [point_record(n, *point) for n, point in points.items()])
+    await ingest_records(Source.OSM_WAY, [
+        way_record(way_id, [points[n] for n in nodes], nodes) for way_id, nodes in ((100, [1, 2]), (200, [3, 4]))])
+    assert await derive_cli.run(postgis_database_url(), None) == 0
 
-    assert entry.needs_rebuild is expected
+    report = await _report(road_graph_session)
+
+    tables = {table.table_name: table for table in report.tables}
+    nulls = {column.column: column.null_count for column in tables[derived_models.EdgeMaterialRow.__tablename__].columns}
+    # 前提: 道200は道1本の表に行が無く、道100の区間は標高も土地被覆も持たない。
+    assert tables[derived_models.WayMaterialRow.__tablename__].row_count == 1
+    assert (nulls["start_elevation_m"], nulls["lc_valid_pixels"]) == (1, 1)
+    assert [source.source for source in report.sources if source.needs_rebuild] == []
+    assert [table.table_name for table in report.tables if table.needs_rebuild] == []

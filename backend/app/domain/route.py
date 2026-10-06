@@ -1,7 +1,7 @@
 import math
 from collections import defaultdict
 
-from typing import Annotated, Any, Callable, Iterable, Mapping, TypeVar
+from typing import Annotated, Any, Callable, Iterable, Literal, Mapping, TypeVar
 
 from pydantic import Field, WithJsonSchema
 
@@ -85,6 +85,11 @@ class RouteSegmentDetail(StrictModel):
     wind: SegmentWind | None = None
 
 
+#: 候補の種類。周回（方位を持つ）・経由地（指定した経由地を順に通る1本。目的地の有無を問わない）・
+#: 目的地（経由地の無い目的地への互いに異なる経路）・合成（区間を乗り換えて組み立てた経路）。
+RouteKind = Literal["loop", "waypoints", "destination", "spliced"]
+
+
 class RouteCandidate(StrictModel):
     """1本のルート候補。
 
@@ -94,8 +99,14 @@ class RouteCandidate(StrictModel):
     集約したもので、「データ無しはキーを持たない」規約も引き継ぐ。
     """
 
-    id: str
+    # 応答の中で一意のid・種類・名前・最速の印は、`services/route_generator.py: _label`だけが付ける。エンジンが
+    # 組み立てる時点では並びも種類も決まっておらず、idと種類は既定のまま、名前は周回の方位だけを持つ。
+    id: str = ""
+    kind: RouteKind = "loop"
     direction_label: str
+    # 所要時間だけで探した1本（基準線）。経由地の無い目的地の生成で、比べる相手があるときだけ1本に付く。
+    # 画面はこの1本を一覧の「最速」に置き、時間の列の基準にする。
+    is_fastest: bool = False
     distance_km: float
     geometry: LineStringGeometry
     elevation_gain_m: float | None = None

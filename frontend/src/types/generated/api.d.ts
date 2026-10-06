@@ -646,6 +646,13 @@ export interface components {
         };
         /** AmedasObservation */
         AmedasObservation: {
+            /** Station Name */
+            station_name: string;
+            /**
+             * Observed At
+             * Format: date-time
+             */
+            observed_at: string;
             /** Temperature C */
             temperature_c: number | null;
             /** Apparent Temperature C */
@@ -976,14 +983,19 @@ export interface components {
                 [key: string]: number;
             };
         };
-        /** ColumnCompleteness */
-        ColumnCompleteness: {
+        /** ColumnNulls */
+        ColumnNulls: {
             /** Column */
             column: string;
-            /** Uncalculated Count */
-            uncalculated_count: number;
-            /** Absent Count */
-            absent_count: number;
+            /** Null Count */
+            null_count: number;
+        };
+        /** ColumnsChange */
+        ColumnsChange: {
+            /** Added */
+            added: string[];
+            /** Removed */
+            removed: string[];
         };
         /** ConnectionEntry */
         ConnectionEntry: {
@@ -1008,15 +1020,6 @@ export interface components {
             latitude: number;
             /** Longitude */
             longitude: number;
-        };
-        /** Coverage */
-        Coverage: {
-            /** Parent */
-            parent: string;
-            /** Parent Row Count */
-            parent_row_count: number;
-            /** Missing Rows */
-            missing_rows: number;
         };
         /** DbStatusReport */
         DbStatusReport: {
@@ -1442,10 +1445,24 @@ export interface components {
         };
         /** RouteCandidate */
         RouteCandidate: {
-            /** Id */
+            /**
+             * Id
+             * @default
+             */
             id: string;
+            /**
+             * Kind
+             * @default loop
+             * @enum {string}
+             */
+            kind: "loop" | "waypoints" | "destination" | "spliced";
             /** Direction Label */
             direction_label: string;
+            /**
+             * Is Fastest
+             * @default false
+             */
+            is_fastest: boolean;
             /** Distance Km */
             distance_km: number;
             /** Geometry */
@@ -1891,8 +1908,8 @@ export interface components {
             /** Row Count */
             row_count: number;
             /** Columns */
-            columns: components["schemas"]["ColumnCompleteness"][];
-            coverage: components["schemas"]["Coverage"] | null;
+            columns: components["schemas"]["ColumnNulls"][];
+            columns_change: components["schemas"]["ColumnsChange"] | null;
             /** Needs Rebuild */
             needs_rebuild: boolean;
         };

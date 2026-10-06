@@ -44,7 +44,7 @@ MSMは数値予報モデルの出力で観測値・公式発表の代わりに�
 | ファイル | 役割 | 消費側 |
 |---|---|---|
 | `weather.py` | 天候のPydanticモデル（`WeatherConditions`・`WeatherPeriodOutlook`。MSMの計算値）と「今日」のパネルの読み方（時系列の先頭と同じ暦日の時刻・日次の最大と範囲・一定間隔のコマ（間隔は応答にも載る））、アメダスの10分間の実測（降水量・気温）と推計気象分布の区分からWMO天気コードを導く`derive_observed_weather_code`（降っているかと雨・雪は観測所の実測が、降っていないときの晴れ・くもりは推計気象分布が決め、推計の雨・雪の区分はくもりに数える。日照時間は夜は空によらず0になるので使わない。「降っていない」の境`PRECIPITATION_MIN_MM`は、「今日」のパネルの降水量の「-」と地図の降水の塗りにも生成物で届く） | `weather_service.py`・`jma_amedas.py` |
-| `jma_amedas.py` | 風の来る向き`WindDirection`（16方位コードからの読み替えは`jma_amedas_client.py`。静穏・欠測・範囲外のコードは方位なし。呼び名は`domain/geo.py: SIXTEEN_POINT_LABELS`から引く）・体感温度計算（BOM式）・`AmedasObservation`モデル（天気コード`weather_code`はリクエストの地点の推計気象分布で決まるため、日の出・日没と同じく応答のたびにサービスが入れ、Redisには持たない） | `jma_amedas_service.py` |
+| `jma_amedas.py` | 風の来る向き`WindDirection`（16方位コードからの読み替えは`jma_amedas_client.py`。静穏・欠測・範囲外のコードは方位なし。呼び名は`domain/geo.py: SIXTEEN_POINT_LABELS`から引く）・体感温度計算（BOM式）・`AmedasObservation`モデル（観測所名と観測の時刻は観測所ごとに決まり、Redisに持つ。天気コード`weather_code`はリクエストの地点の推計気象分布で決まるため、日の出・日没と同じく応答のたびにサービスが入れ、Redisには持たない） | `jma_amedas_service.py` |
 | `jma_area.py` | 区域（class20）のコード→JMA警報エリア（class20→class15→class10→office）の親子関係解決。辿る地域マスタは`AreaMaster`（area.jsonの形は`jma_warning_client.py`が解く。区域の名前は読まず、二次細分区域は親の府県予報区があれば解決する） | `warning_service.py`・`flood_service.py` |
 | `jma_warning.py` | JMA警報コード表（配信元のコード表の写し。発表中なのに表に無いコードは捨てる。写しが古くなった印のWARNINGは`jma_warning_client.py`が取得1回につき出す）・電文1件`WarningBulletin`と、区域の種別の引き方（区域の項目が無い電文だけを二次細分区域で引く）・アクティブ警報抽出（電文の1地域ぶんの種別`AreaWarningKind`から）・警戒度の段（名称から導く。危険警報＝警戒レベル4は警報と特別警報の間の段で、氾濫危険警報と同じ段） | `warning_service.py` |
 | `wbgt.py` | WBGT警戒レベル判定（熱中症予防運動指針の5段階閾値）・提供期間判定・段階の表示名（`WBGT_LEVEL_LABELS`）・情報提供地点`WbgtPoint`と予測値`WbgtForecast`・今の予測の選び方（`current_forecast`） | `wbgt_service.py`・`warning_display.py` |
@@ -325,7 +325,8 @@ DI工場（`api/dependencies.py`）がプロセスに1つ持ってクライア�
   [度, 分]の座標・[値, 品質フラグ]の観測値・16方位の風向のコード・URLに載せる時刻の書式）はクライアントが解き・組み立て
   （`jma_amedas_client.py: AmedasStation`・`jma_amedas_client.py: AmedasReading`。時刻は`datetime`で受け渡す）、
   Redisの鍵と保存する形は`jma_amedas_store.py`が持つ。サービスは値だけを読む。鍵の観測所idは値に持たず、書くときに観測所id→観測値で渡す。座標の無い観測所は
-  観測所マスタの時点で落ちる（最寄りにも雨の履歴の座標にも使えないため）。名称は読まない（画面に出さないので、名称の有無で落とさない）。最寄りの観測所は、雨の材料・暑さ指数の
+  観測所マスタの時点で落ちる（最寄りにも雨の履歴の座標にも使えないため）。名前（`kjName`）の無い観測所も落ちる（ヘッダーに観測所名を出すため。
+  2026-10-07 の実物では全観測所が持つ）。観測所名と観測の時刻（最新の観測時刻）は、バッチが観測値と一緒に Hash へ書く。最寄りの観測所は、雨の材料・暑さ指数の
   情報提供地点と同じ`domain/geo.py: nearest_point_index`（球面の距離）で選ぶ。
 
   **天気コードの晴れ・くもり**: 応答のたびに、リクエストの地点を含む推計気象分布（天気）の最新のタイル

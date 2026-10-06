@@ -24,17 +24,6 @@ interface EditDifferenceProps {
  */
 export default function EditDifference({ originName, origin, edited, onShowOrigin }: EditDifferenceProps) {
   const difference = editDifference(origin, edited);
-  const metrics: { label: string; value: number | null; digits: number; unit: string }[] = [
-    { label: "距離", value: difference.distanceKm, digits: 1, unit: "km" },
-    {
-      label: "所要",
-      value: difference.durationSeconds === null ? null : difference.durationSeconds / 60,
-      digits: 0,
-      unit: "分",
-    },
-    { label: "総合難易度", value: difference.difficulty, digits: 0, unit: "" },
-    { label: "負荷", value: difference.load, digits: 0, unit: "" },
-  ];
 
   return (
     <section
@@ -55,8 +44,8 @@ export default function EditDifference({ originName, origin, edited, onShowOrigi
         <span className="whitespace-nowrap">から{difference.stretches.length}区間</span>
       </p>
       <dl className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-0.5">
-        {metrics.map((metric) => {
-          const shown = metric.value === null ? null : roundToDigits(metric.value, metric.digits);
+        {difference.metrics.map((metric) => {
+          const shown = metric.delta === null ? null : roundToDigits(metric.delta, metric.digits);
           return (
             <Fragment key={metric.label}>
               <dt className={textVariants({ variant: "note" })}>{metric.label}</dt>
@@ -65,7 +54,7 @@ export default function EditDifference({ originName, origin, edited, onShowOrigi
                 data-worse={shown !== null && shown > 0}
                 data-better={shown !== null && shown < 0}
               >
-                {metric.value === null ? "—" : `${formatDelta(metric.value, metric.digits)}${metric.unit}`}
+                {metric.delta === null ? "—" : `${formatDelta(metric.delta, metric.digits)}${metric.unit}`}
               </dd>
             </Fragment>
           );

@@ -71,6 +71,8 @@ const FORECAST: WeatherConditions = {
   today_period_interval_hours: 2,
 };
 const OBSERVATION: AmedasObservation = {
+  station_name: "観測所",
+  observed_at: "2026-01-01T12:00:00+09:00",
   temperature_c: null,
   apparent_temperature_c: null,
   wind_speed_ms: null,
