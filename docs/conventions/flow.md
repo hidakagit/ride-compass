@@ -225,8 +225,8 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
      問い直さない。確かめの行（コードを変えないタスクなら残りの行）にチェックを付け、経緯に答えを1行足して、残りが無ければ
      `GH_TOKEN=$FLOW_BOT_TOKEN gh issue close <番号> -R ridecompass/ride-compass-tasks --reason completed` で閉じる。補足に直してほしい点が書かれていたときだけ、それを残りとして済ませてから閉じる。
 4. `tasks#<番号>:` の件名でコミットし、`git push origin orch/tasks-<番号>` で push する（断られたら、まず「担当の変更でない断り」に
-   当たるかを見る。着手のあとに master が workflow を変えていると、workflow を触っていなくても断られる）。静的検査とテストを手元で回す場面と範囲は
-   testing-operations.md「手元の検査の回し方」だけが決め、全体は CI に任せる。作業ブランチの強制 push は
+   当たるかを見る。着手のあとに master が workflow を変えていると、workflow を触っていなくても断られる）。静的検査とテストを手元で回す場面と範囲と、
+   コミットの前に frontend で変えたファイルへかける整形は、testing-operations.md「手元の検査の回し方」だけが決め、全体は CI に任せる。作業ブランチの強制 push は
    コードのリポジトリの規則で断られる（一度 push したコミットは、ほかの者のものも消せない）ので、直しは足すコミットにする。
    master に入るコミットは、5 の Pull Request の題名と本文から作られる（確かめる担当が squash でマージする）。CI は 5 の
    Pull Request の実行だけを待つ（作業ブランチへの push で走るかは testing-operations.md「検査の置き場（手元・作業ブランチのCI・masterのCI）」）。

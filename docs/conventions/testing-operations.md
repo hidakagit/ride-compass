@@ -21,6 +21,12 @@
 - **回さないもの**: フルスイート（backendの`tests`全体・frontendの`vitest run`全体）と、pushの前の念のための全体。
   1行・1ファイル変えただけで全体を流し直さない——全体の答えはCIが同じPull Requestで出す。静的検査も、1の再現と
   下の`tsc`の例外のほかは回さない。
+- **コミットの前に、frontendで変えたファイルへ整形をかける**: CIの`format:check`（`frontend/package.json`）が見る
+  `src/**/*.{ts,tsx,css}`に当たる変えたファイルへ、`./node_modules/.bin/prettier --write <変えたファイル>`をかけてからコミットする。
+  これは検査ではなく直しで、CIと同じ答えを先に買わない——答え（落ちる・通る）を見るのではなく、ファイルをCIが通す形に
+  書き換えるだけで、中身は変わらず、待ちも要らない。かけないと、整形だけの誤りがPull RequestのCIで初めて落ち、直すための
+  取り込み・push・CIの待ちがもう1往復かかる。`src`は全部がprettierの形に揃っている（CIが毎回見る）ので、変えていない行は
+  書き換わらない。`format:check`（`--check`）は回さない（答えを見るだけで直さない）。backendは下のとおり`ruff format`をかけない。
 - 回すときは、どの場面でも次のとおりにする。
   - **範囲の例**: backend `pytest backend/tests/<テストのファイル> -q`、frontend `./node_modules/.bin/vitest run <該当ファイル>`。
     **frontendのコマンドに`npx`を付けない**（ツールはローカルにあり、`npx`は毎回パッケージ解決をやり直す）。**例外は`tsc --noEmit`**で、
