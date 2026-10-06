@@ -116,7 +116,7 @@
 | `category` | "観測"\|"推定"\|"動的" | 分類 |
 | `is_published` | bool | true=一般公開、false=下書き（軸スタジオのみで見える） |
 | `priority_overrides` | list[PriorityCondition] | 0次条件（下記） |
-| `icon_id`/`chip_label`/`panel_hint`/`show_map_icon` | | 地図チップ表示要素 |
+| `icon_id` | str\|None | ルート設定・ルート結果の評価の内訳で名前に添えるアイコン（未設定は汎用のアイコン） |
 | `time_scope` | "always"\|"night_only" | 特定時間帯のみ重みを持つか |
 | `display_thresholds_override` | list[float]\|None | 色分けしきい値の上書き |
 | `display_band_labels_override` | list[str]\|None | 段階ごとの体感ラベルの上書き（例:「強い向かい風」）。設定する場合は`display_thresholds_override`も設定済みで要素数が段階数（しきい値数+1）と一致すること |
@@ -127,10 +127,6 @@
 - `time_scope`: `time_scoped_weights()`が`active_scopes`に含まれない軸の重みを0にする。
   別の時間帯依存軸（例: 通勤ラッシュ限定）を足すときも、増やすのはこの値だけで
   エンジン側のコードは変わらない。
-- `show_map_icon`: 地図上チップから軸を丸ごと除外する。専用レイヤーの有無
-  （`display.kind`）とは独立に効くため、kind別の分岐を新設しなくてよい。
-  **`show_map_icon=true`のまま専用レイヤーを持たない軸へ、代替の説明文は用意しない**
-  ——存在理由が自明でなくなったら`false`にして表示自体を止める。
 
 ### `AxisShape`（評価式、2プリミティブ）
 
@@ -423,7 +419,7 @@ idの文字列ではなく宣言そのもので指す。材料が指す要素に
 |---|---|---|
 | `GET /api/admin/axis-definitions`・`/{axis_id}` | Basic認証必須 | 一覧・単体取得。レスポンスは`display`（`axis_display_for()`の計算結果）も含む——下書き軸の自己診断（地図表示データがまだ用意されていないか）のため。`weight_share_when_published`（保存した既定の重みで公開したとき、公開軸の重みの合計に占める割合。総合難易度と同じ分母、`difficulty.weight_share`）も含み、作成・更新・非公開化の応答も同じ値を返す |
 | `POST /api/admin/axis-definitions` | Basic認証必須 | 作成 |
-| `PUT /api/admin/axis-definitions/{axis_id}` | Basic認証必須 | 更新（公開済みは原則拒否。ただし表示専用フィールド[`icon_id`/`chip_label`/`panel_hint`/`show_map_icon`/`display_thresholds_override`/`display_band_labels_override`]のみの差分は例外的に許可） |
+| `PUT /api/admin/axis-definitions/{axis_id}` | Basic認証必須 | 更新（公開済みは原則拒否。ただし表示専用フィールド[`icon_id`/`display_thresholds_override`/`display_band_labels_override`]のみの差分は例外的に許可） |
 | `DELETE /api/admin/axis-definitions/{axis_id}` | Basic認証必須 | 削除 |
 | `POST /api/admin/axis-definitions/{axis_id}/unpublish` | Basic認証必須 | 公開済み軸を下書きへ戻す（`is_published`以外は変更しない） |
 | `POST /api/admin/axis-definitions/preview-display-thresholds` | Basic認証必須 | 編集中の軸で、上書きしたしきい値のうち地図が段にしないものと、地図の各段に当たる入力の段（DBを読まない） |
@@ -453,8 +449,7 @@ idの文字列ではなく宣言そのもので指す。材料が指す要素に
 - `display_thresholds_override`は設定する場合、空でなく厳密な昇順。
 - `display_band_labels_override`は設定する場合、`display_thresholds_override`も
   設定済みで、要素数が段階数（`len(display_thresholds_override)+1`）と一致すること。
-- `axis_id`・`label`・材料idは空文字でないこと、`default_weight`は非負、`chip_label`は
-  1〜4文字。重み・係数にNaN・無限大を許さない（軸の得点も合成difficultyも黙ってNaNになり、
+- `axis_id`・`label`・材料idは空文字でないこと、`default_weight`は非負。重み・係数にNaN・無限大を許さない（軸の得点も合成difficultyも黙ってNaNになり、
   欠損と区別できなくなるため）。
 
 ### 検証の文
@@ -472,15 +467,13 @@ idのまま出す。書き込み時のガード・削除の断り（下の「書
 
 ### 軸の外に照らす値の不変条件（`domain/axis_definitions.py: check_axis_definition`）
 
-材料カタログ・ほかの軸に照らす値の不変条件と、地図チップへ出す名前の長さ。**書き手を問わず成り立つべきもの**
+材料カタログ・ほかの軸に照らす値の不変条件。**書き手を問わず成り立つべきもの**
 なので、管理APIの本文（`AxisDefinitionPayload`）も、起動時の読み込み
 （`services/axis_registry_service.py: refresh_axis_definitions`）も同じ関数を通す——管理APIを通らずに書かれた
 行（バックアップからの復元）も、次の起動で書き込み時と同じ検査に止まる（通らなければ起動しない）。軸の参照として受け入れるのは、管理APIでは今の`AXIS_DEFINITIONS`、
 読み込みでは同じ読み込み結果の軸。モデルの検証に置かないのは、保存済みの行を読み出す管理APIの一覧・単体取得が、
 通らなくなった行（材料をカタログから外した後の軸等）もそのまま見せて直させる必要があるため。
 
-- `chip_label`未設定時は`label`自体が4文字以下であること——未設定だと`label`がそのまま
-  地図チップへ出るため（地図チップへ出ない内部軸・`show_map_icon=false`の軸にも課す）。
 - shapeが参照する材料・軸参照が既知であること、材料のdtype（numeric/boolean/
   categorical）がshape種別の前提と一致すること（`CategoricalShape`は
   boolean/categorical材料、`BreakpointLinearShape`はnumeric/boolean材料）。

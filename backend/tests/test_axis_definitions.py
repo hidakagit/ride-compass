@@ -177,12 +177,6 @@ def refused_by_check(definition: AxisDefinition, fragment: str, axes=None) -> No
 
 @pytest.mark.usefixtures("catalog")
 class TestCheckAxisDefinition:
-    def test_a_label_on_the_map_chip_fits_its_tile(self):
-        axis_definitions.check_axis_definition(axis(label="四文字軸"), {})
-        axis_definitions.check_axis_definition(axis(label="五文字の軸", chip_label="略称"), {})
-
-        refused_by_check(axis(label="五文字の軸"), "略称")
-
     @pytest.mark.parametrize(
         ("definition", "fragment"),
         [
@@ -282,9 +276,6 @@ class TestPublishImmutability:
         shown_differently = published.model_copy(
             update={
                 "icon_id": "icon",
-                "chip_label": "略",
-                "panel_hint": "説明",
-                "show_map_icon": False,
                 "display_thresholds_override": [1.0],
                 "display_band_labels_override": ["弱", "強"],
             }
@@ -393,7 +384,7 @@ class TestInternalAxisPublish:
     def test_an_axis_another_axis_reads_that_is_already_published_may_stay_published(self):
         # 時刻で変わる軸が組み合わせる公開軸の、表示だけの直し。公開へ切り替える書き込みではない。
         axis_definitions.check_internal_axis_not_published(
-            axis("inner", is_published=True, chip_label="内"),
+            axis("inner", is_published=True, icon_id="内"),
             {**self.EXISTING, "inner": axis("inner", is_published=True)},
         )
 

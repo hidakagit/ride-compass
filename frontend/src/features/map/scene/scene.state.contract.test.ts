@@ -8,7 +8,7 @@ import { latest, validateStyleMin } from "@maplibre/maplibre-gl-style-spec";
 import { describe, expect, it } from "vitest";
 
 import { createRecordingMap } from "@/testing/mapTrace/recordingMap";
-import { catalogEntry, tileInput } from "@/testing/catalogAxes";
+import { catalogEntry, rampEntry, tileInput } from "@/testing/catalogAxes";
 import { dedicatedWayValueAxesFromCatalogAxes, rampAxesFromCatalogAxes } from "@/lib/mapDisplay/axisLayers";
 import { AREA_SOURCE_ID } from "@/features/map/scene/groups/areaRasters";
 import { POINT_LAYERS, POINT_TILE_SOURCES } from "@/features/map/scene/groups/points";
@@ -145,6 +145,21 @@ describe("状態を地図へ伝えた結果", () => {
       expect(handle.featureState(ROAD_LINE_SOURCE_ID, "w1")).toEqual({ ded1Value: 3, ded2Value: 7 });
       expect(handle.layer(axisLayerId("ded1"))?.visibility).toBe("visible");
       expect(handle.layer(axisLayerId("ded2"))?.visibility).toBe("none");
+    });
+
+    it("塗っているramp軸は、その材料のレイヤーが出ている間だけ下敷きになる", () => {
+      const rampAxes = rampAxesFromCatalogAxes([rampEntry("paved", [50], { primary_attribute_ids: ["surface"] })], {});
+      const opacityWith = (surface: boolean) => {
+        const { map, handle } = createRecordingMap();
+        rebuild(
+          map as never,
+          sceneState({ catalog: { rampAxes }, look: { paintedAxisId: "paved", layerVisibility: { surface } } }),
+        );
+        return handle.layer(axisLayerId("paved"))?.paint["line-opacity"];
+      };
+
+      expect(opacityWith(true)).toBe(mapDisplay.road.underlayOpacity);
+      expect(opacityWith(false)).not.toBe(mapDisplay.road.underlayOpacity);
     });
   });
 });

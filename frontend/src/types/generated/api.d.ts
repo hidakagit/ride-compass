@@ -677,12 +677,6 @@ export interface components {
             display: components["schemas"]["AxisDisplaySpec"];
             /** Icon Id */
             icon_id: string | null;
-            /** Chip Label */
-            chip_label: string | null;
-            /** Panel Hint */
-            panel_hint: string | null;
-            /** Show Map Icon */
-            show_map_icon: boolean;
             /** Primary Attribute Ids */
             primary_attribute_ids: string[];
             /** Weather Layer Groups */
@@ -764,15 +758,6 @@ export interface components {
             priority_overrides?: components["schemas"]["PriorityCondition"][];
             /** Icon Id */
             icon_id?: string | null;
-            /** Chip Label */
-            chip_label?: string | null;
-            /** Panel Hint */
-            panel_hint?: string | null;
-            /**
-             * Show Map Icon
-             * @default true
-             */
-            show_map_icon: boolean;
             /**
              * Time Scope
              * @default always
@@ -819,15 +804,6 @@ export interface components {
             priority_overrides: components["schemas"]["PriorityCondition"][];
             /** Icon Id */
             icon_id: string | null;
-            /** Chip Label */
-            chip_label: string | null;
-            /** Panel Hint */
-            panel_hint: string | null;
-            /**
-             * Show Map Icon
-             * @default true
-             */
-            show_map_icon: boolean;
             /**
              * Time Scope
              * @default always
@@ -854,13 +830,6 @@ export interface components {
              * @enum {string}
              */
             kind: "ramp" | "none";
-            /** Label */
-            label: string;
-            /**
-             * Category
-             * @default trafficSafety
-             */
-            category: string;
             /** Tile Inputs */
             tile_inputs: components["schemas"]["TileInputSpec"][];
             /** Thresholds */

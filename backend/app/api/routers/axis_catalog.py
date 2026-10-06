@@ -108,15 +108,8 @@ class AxisCatalogEntry(StrictModel):
     category: AxisCategory
     default_weight: float
     display: AxisDisplaySpec
-    # 地図チップ表示要素（軸自身のデータ[domain/axis_definitions.py:
-    # AxisDefinition]として持つ）。全てNone可（未設定はフロント側の汎用
-    # フォールバックに委ねる）。
+    # 未設定はフロント側の汎用のアイコンに委ねる（domain/axis_definitions.py: AxisDefinition.icon_idのdocstring参照）。
     icon_id: str | None
-    chip_label: str | None
-    panel_hint: str | None
-    # falseなら地図上チップの一覧からこの軸を丸ごと除外する
-    # （domain/axis_definitions.py: AxisDefinition.show_map_iconのdocstring参照）。
-    show_map_icon: bool
     # この軸が参照する材料を、対応する一次属性id（domain/registry.py:
     # PrimaryAttributeSpec.attr_id。ビルド時の生成物が配る一次属性と同じ名前空間）へ
     # 解決したもの（重複除去、対応が無い材料[動的気象・未登録一次属性]・他の軸を参照する
@@ -206,9 +199,6 @@ async def get_axis_catalog(region_service: RegionService = Depends(get_region_se
                 default_weight=definition.default_weight,
                 display=axis_display_for(definition),
                 icon_id=definition.icon_id,
-                chip_label=definition.chip_label,
-                panel_hint=definition.panel_hint,
-                show_map_icon=definition.show_map_icon,
                 primary_attribute_ids=primary_attribute_ids_for(definition),
                 weather_layer_groups=weather_layer_groups_for(definition),
                 display_band_labels_override=map_band_labels(definition),

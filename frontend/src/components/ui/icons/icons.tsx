@@ -99,10 +99,9 @@ export function LandcoverIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** 二次軸rampレイヤーの汎用フォールバック: 密度の濃淡を表す棒グラフ。各軸は`icon_id`
+/** 評価軸の汎用のアイコン: 密度の濃淡を表す棒グラフ。各軸は`icon_id`
  * （軸自身のデータ）でaxisIconPalette.tsxの固定パレットから専用アイコンを選べる。
- * この汎用形はicon_id未設定の軸（まだ専用アイコンを選んでいないramp軸・単独チップ）
- * 向けのフォールバックとして残す。 */
+ * この汎用形はicon_id未設定の軸向けのフォールバックとして残す。 */
 export function AxisRampIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>

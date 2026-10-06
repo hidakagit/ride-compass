@@ -44,9 +44,6 @@ export function catalogEntry(overrides: EntryOverrides = {}): AxisCatalogEntry {
     category: "推定",
     default_weight: 0,
     icon_id: null,
-    chip_label: null,
-    panel_hint: null,
-    show_map_icon: false,
     primary_attribute_ids: [],
     weather_layer_groups: [],
     display_band_labels_override: null,
@@ -65,7 +62,7 @@ export function catalogEntry(overrides: EntryOverrides = {}): AxisCatalogEntry {
     dynamic_way_value_conditions: [],
     dynamic_way_value_undetermined_by_bearing: false,
     ...rest,
-    display: { kind: "none", label: axisId, category: "roadCondition", tile_inputs: [], thresholds: [], ...display },
+    display: { kind: "none", tile_inputs: [], thresholds: [], ...display },
   };
 }
 
@@ -73,7 +70,7 @@ export function catalogEntry(overrides: EntryOverrides = {}): AxisCatalogEntry {
 export function rampEntry(axisId: string, thresholds: number[], overrides: EntryOverrides = {}) {
   return catalogEntry({
     axis_id: axisId,
-    display: { kind: "ramp", label: axisId, category: "roadCondition", tile_inputs: [tileInput()], thresholds },
+    display: { kind: "ramp", tile_inputs: [tileInput()], thresholds },
     ...overrides,
     map_paint: { legend: { boundaries: thresholds, unit: null }, ...overrides.map_paint },
   });

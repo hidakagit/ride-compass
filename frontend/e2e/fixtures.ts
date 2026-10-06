@@ -163,7 +163,6 @@ export function defaultAxisCatalogFixture(): components["schemas"]["AxisCatalogR
     {
       ...catalogEntry({
         axis_id: "ramp",
-        show_map_icon: true,
         display: { kind: "ramp", tile_inputs: [tileInput({ property: "v", weight: 1 })], thresholds: [50] },
       }),
       default_weight: 0,

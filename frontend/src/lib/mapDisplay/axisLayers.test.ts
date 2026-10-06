@@ -32,8 +32,6 @@ describe("rampAxesFromCatalogAxes", () => {
     const entry = rampEntry("a", [1], {
       display: {
         kind: "ramp",
-        label: "a",
-        category: "roadCondition",
         thresholds: [1],
         tile_inputs: [
           tileInput({ property: "scaled", weight: 2, needs_runtime_scale: true }),

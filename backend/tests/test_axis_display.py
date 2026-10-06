@@ -108,7 +108,7 @@ def test_an_axis_the_tile_cannot_reproduce_is_not_drawn(definition):
     """地図の色がルート選び・区間の内訳と食い違うくらいなら、地図に出さない。"""
     display = axis_display_for(definition)
 
-    assert (display.kind, display.label, display.tile_inputs, display.thresholds) == ("none", "軸A", [], [])
+    assert (display.kind, display.tile_inputs, display.thresholds) == ("none", [], [])
 
 
 def test_a_categorical_axis_over_another_axis_is_not_drawn(axes):
