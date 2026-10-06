@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CLIENT_TUNING_IDS } from "@/lib/axisCatalog";
 import { getQueryClient } from "@/lib/queryClient";
 import { serveAxisCatalog } from "@/testing/backendServer";
-import { catalogResponse } from "@/testing/catalogAxes";
+import { catalogResponse, dedicatedEntry } from "@/testing/catalogAxes";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 
 import RideConditionBar from "./RideConditionBar";
@@ -62,6 +62,25 @@ describe("RideConditionBar 出発時刻", () => {
     expect(input).toHaveValue("2026-09-24T09:05");
     fireEvent.change(input, { target: { value: "2026-09-26T07:30" } });
     expect(props.onDepartureTimeChange).toHaveBeenCalledWith(jst("2026-09-26T07:30"));
+  });
+
+  it.each([
+    [
+      "出発時刻で値の変わる評価があれば、その名前で",
+      ["at", "bearing_deg"],
+      "ルートの「評価A」の評価・到達予想の時刻に使います。",
+    ],
+    ["無ければ評価に触れずに", ["bearing_deg"], "ルートの到達予想の時刻に使います。"],
+  ] as const)("出発時刻の説明は、%s何に使うかを書く", async (_case, conditions, tail) => {
+    serveAxisCatalog(
+      catalogResponse([dedicatedEntry("a", [1], { label: "評価A", dynamic_way_value_conditions: [...conditions] })]),
+    );
+    renderBar();
+    await waitFor(() => expect(getQueryClient().isFetching()).toBe(0));
+    expect(screen.getByRole("button", { name: /^出発時刻:/ })).toHaveAttribute(
+      "data-usage",
+      `出発する日時を決めます。地図の気象の表示の時刻と、${tail}`,
+    );
   });
 
   it("入力欄を空にしても、出発時刻は変えない", async () => {

@@ -31,7 +31,7 @@ import { PRECIPITATION_INTENSITY_LEVELS } from "./precipitationNowcast";
 import { WIND_SPEED_LEGEND_LEVELS } from "./windLayer";
 import { axisMapLayerId, type AxisMapLayerId, type RampAxis } from "@/lib/mapDisplay/axisLayers";
 import type { MapAxisCatalog } from "@/features/map/mapAxisCatalog";
-import type { CatalogAxis } from "@/lib/catalogAxis";
+import { axisNamesInText, type CatalogAxis } from "@/lib/catalogAxis";
 import { FIXED_LENS_LABELS, LENS_DIFFICULTY_ID } from "@/lib/mapDisplay/routeStyleModes";
 
 /** 源泉が宣言する、地図に載るものの名前。 */
@@ -293,10 +293,9 @@ const NO_AXES: LayerCatalog = { axes: [], rampAxes: [], dedicatedAxes: [], accid
 
 /** そのレイヤーが見せる元データを材料に持つ公開中の評価の名前（「A」「B」）。無ければ空文字で、呼ぶ側は評価に触れる一文を出さない。 */
 function axisNamesReading(axes: readonly CatalogAxis[], layerId: StaticMapLayerId): string {
-  return axes
-    .filter((axis) => axis.primaryAttributeIds.includes(layerId) || axis.weatherLayerGroups.includes(layerId))
-    .map((axis) => `「${axis.label}」`)
-    .join("");
+  return axisNamesInText(
+    axes.filter((axis) => axis.primaryAttributeIds.includes(layerId) || axis.weatherLayerGroups.includes(layerId)),
+  );
 }
 
 export function buildMapLayers({

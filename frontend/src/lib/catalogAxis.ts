@@ -42,6 +42,20 @@ export interface CatalogAxis {
   primaryAttributeIds: readonly string[];
   /** 軸の材料の元データを描く気象のチップ（一次属性を持たない動的な材料の分）。 */
   weatherLayerGroups: readonly string[];
+  /** 道の値を求めるのに要る走る条件（走行方位・想定速度・出発時刻）。条件で値の変わる軸だけが持ち、ほかは空。 */
+  wayValueConditions: readonly WayValueCondition[];
+}
+
+type WayValueCondition = AxisCatalogEntry["dynamic_way_value_conditions"][number];
+
+/** 走る条件の1つで値の変わる軸の名前を、文へ差し込む形（「A」「B」）で並べる。無ければ空文字で、呼ぶ側は評価に触れる句を出さない。 */
+export function axisNamesUsing(axes: readonly CatalogAxis[], condition: WayValueCondition): string {
+  return axisNamesInText(axes.filter((axis) => axis.wayValueConditions.includes(condition)));
+}
+
+/** 文へ差し込む評価の名前の並び（「A」「B」）。評価の名前を文に直書きせず、軸カタログから引いてこの形で入れる。 */
+export function axisNamesInText(axes: readonly CatalogAxis[]): string {
+  return axes.map((axis) => `「${axis.label}」`).join("");
 }
 
 export function catalogAxisFromEntry(axis: AxisCatalogEntry): CatalogAxis {
@@ -67,5 +81,6 @@ export function catalogAxisFromEntry(axis: AxisCatalogEntry): CatalogAxis {
     })),
     primaryAttributeIds: axis.primary_attribute_ids,
     weatherLayerGroups: axis.weather_layer_groups,
+    wayValueConditions: axis.dynamic_way_value_conditions,
   };
 }
