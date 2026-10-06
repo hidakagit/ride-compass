@@ -260,7 +260,7 @@ export default function AxisStudio() {
                 <Button
                   size="sm"
                   onClick={() => setEditingAxisId(def.axis_id)}
-                  title="材料・計算式・重みは変更できません。地図チップ・色分けしきい値等の表示専用フィールドのみ編集できます"
+                  title="材料・計算式・重みは変更できません。アイコン・色分けしきい値等の表示専用フィールドのみ編集できます"
                 >
                   表示だけ編集
                 </Button>

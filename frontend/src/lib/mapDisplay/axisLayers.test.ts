@@ -5,8 +5,9 @@
  * 戻り値のうち地図の表示の項目。軸は`testing/catalogAxes.ts`の雛形で組む（実際の公開軸を使わない）。
  *
  * ここで見ないもの:
- * - 名前・略名・単位など軸に共通の項目を行から移すこと → `lib/catalogAxis.test.ts`
- * - 表示の宣言の項目（分類・段の境界・凡例の目盛り・体感ラベル・タイルの入力）をそのまま移すこと → 移した軸で道を塗る式と
+ * - 名前・単位など軸に共通の項目を行から移すこと（`lib/catalogAxis.ts`）→ 判断が無く、移した項目を描く部品
+ *   （`components/AxisContributionBar`等）が通す
+ * - 表示の宣言の項目（段の境界・凡例の目盛り・体感ラベル・タイルの入力）をそのまま移すこと → 移した軸で道を塗る式と
  *   凡例（`features/map/scene/groups/axisLines.test.ts`の backend の表・`features/map/view/lens.test.ts`）が通す
  * - 地図のレイヤーの鍵（`axisMapLayerId`）→ 文字列の組み立てだけで、レイヤーの登録と可視の切り替えのテストが通す
  */
@@ -32,8 +33,6 @@ describe("rampAxesFromCatalogAxes", () => {
     const entry = rampEntry("a", [1], {
       display: {
         kind: "ramp",
-        label: "a",
-        category: "roadCondition",
         thresholds: [1],
         tile_inputs: [
           tileInput({ property: "scaled", weight: 2, needs_runtime_scale: true }),

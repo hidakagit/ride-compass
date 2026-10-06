@@ -258,11 +258,9 @@ def axis_display_for(definition: AxisDefinition) -> AxisDisplaySpec:
     """
     ramp = _derive_ramp_inputs(definition.axis_id, definition.shape, definition.priority_overrides)
     if ramp is None:
-        return AxisDisplaySpec(kind="none", label=definition.label)
+        return AxisDisplaySpec(kind="none")
     thresholds = _map_band_thresholds(ramp, definition.shape, definition.display_thresholds_override)
-    return AxisDisplaySpec(
-        kind="ramp", label=definition.label, tile_inputs=ramp.tile_inputs, thresholds=thresholds
-    )
+    return AxisDisplaySpec(kind="ramp", tile_inputs=ramp.tile_inputs, thresholds=thresholds)
 
 
 def bands_the_map_keeps(

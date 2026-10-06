@@ -247,10 +247,6 @@ def named_references(refs: Iterable[str], axes: Mapping[str, "AxisDefinition"]) 
     return "".join(f"「{name(ref)}」" for ref in refs)
 
 
-#: 地図チップに出す名前の上限（文字数）。地図チップは固定サイズのタイルで、これを超えるとはみ出す。
-MAP_CHIP_LABEL_MAX_LENGTH = 4
-
-
 class AxisDefinition(StrictModel):
     """1つの評価軸の宣言（ADRの`AxisDefinition`スキーマ）。
 
@@ -285,7 +281,7 @@ class AxisDefinition(StrictModel):
     # 負の重みは合成difficultyの分母（重みの総和）と分子の符号を食い違わせ、良い経路ほど
     # 高い点数になる。上限は設けない（極端な値は利用者の選択として通す）。
     default_weight: float = Field(ge=0)
-    #: 空を許すと、ルート設定画面にも地図チップにも名前の出ない軸を登録できてしまう。
+    #: 空を許すと、ルート設定画面にもルート結果にも名前の出ない軸を登録できてしまう。
     label: str = Field(min_length=1)
     description: str = ""
     # 軸スタジオが作る軸は常に「推定」（複数材料を判定式で合成する軸）。「観測」（タグ・POIを
@@ -302,21 +298,9 @@ class AxisDefinition(StrictModel):
     # 0次条件（軸の通常計算より前に評価される優先確定ルール）。空リストは
     # 「無し」（shapeだけで評価）で、対象外の軸の挙動には影響しない。
     priority_overrides: list[PriorityCondition] = Field(default_factory=list)
-    # 地図チップ表示要素。軸自身のデータとして持たせる。全て未設定＝Noneが既定で、
-    # フロント側は未設定を「汎用フォールバックを使う」の意味で扱う（機能は壊れない）。
     icon_id: str | None = None
-    """地図チップのアイコンのid。画面が持つ固定のパレットから選び、画面の知らないid・未設定は
-    汎用のアイコンで出る。パレットへ形を足すには画面のコード変更が要る。"""
-    chip_label: str | None = Field(default=None, min_length=1, max_length=MAP_CHIP_LABEL_MAX_LENGTH)
-    """地図チップの略称。地図チップは固定サイズのタイルで、5文字以上はレイアウトが崩れる。
-    未設定はlabelをそのまま使う——labelには長さの制約が無いため、地図チップに出す軸を
-    作るときはこちらを明示する（`check_axis_definition`が要求する）。"""
-    panel_hint: str | None = None
-    """地図の「表示する項目を選ぶ」設定パネル向けの噛み砕いた
-    説明文。未設定はdescriptionをそのまま使う（開発者向けの技術説明のため読みにくい場合がある）。"""
-    show_map_icon: bool = True
-    """falseなら地図上チップの一覧からこの軸を丸ごと除外する（`GET /api/axis-catalog`の
-    `show_map_icon`として配り、絞り込むのは受け取る側）。"""
+    """ルート設定・ルート結果の評価の内訳で軸の名前に添えるアイコンのid。画面が持つ固定のパレットから選び、
+    画面の知らないid・未設定は汎用のアイコンで出る。パレットへ形を足すには画面のコード変更が要る。"""
     time_scope: Literal["always", "night_only"] = "always"
     """この軸の重みが常に有効か、特定の時間帯でのみ有効かの宣言。
     「`time_scope != "always"`な軸の重みを、その時間帯に区間を通るときだけ残し、ほかは0倍にする」
@@ -499,9 +483,6 @@ class AxisPublishedImmutableError(ValueError):
 _COSMETIC_ONLY_FIELDS = frozenset(
     {
         "icon_id",
-        "chip_label",
-        "panel_hint",
-        "show_map_icon",
         "display_thresholds_override",
         "display_band_labels_override",
     }
@@ -665,7 +646,7 @@ def check_internal_axis_not_published(candidate: AxisDefinition, existing: dict[
 
 
 def check_axis_definition(definition: AxisDefinition, axes: Mapping[str, AxisDefinition]) -> None:
-    """軸の値の不変条件のうち、軸の外（材料カタログ・ほかの軸）に照らすものと、地図チップへ出す名前の長さ。
+    """軸の値の不変条件のうち、軸の外（材料カタログ・ほかの軸）に照らすもの。
 
     書き手を問わず成り立つべきもので、管理APIの本文（`AxisDefinitionPayload`）も、起動時の読み込み
     （`services/axis_registry_service.py: refresh_axis_definitions`。バックアップから戻した行もここで初めて通る）も通す。`AxisDefinition`の
@@ -674,19 +655,8 @@ def check_axis_definition(definition: AxisDefinition, axes: Mapping[str, AxisDef
 
     `axes`は、材料idでない参照を軸の参照として受け入れる軸（誤りの文ではその表示名で名指す）。誤りは`axis_error`。
     """
-    _check_map_chip_name(definition)
     _check_dynamic_and_static_materials_are_not_mixed(definition)
     _check_references(definition, axes)
-
-
-def _check_map_chip_name(definition: AxisDefinition) -> None:
-    """`chip_label`未設定の軸は`label`をそのまま地図チップへ出すため、labelも上限の文字数以内でなければ
-    固定サイズのタイルからはみ出す。"""
-    if definition.chip_label is None and len(definition.label) > MAP_CHIP_LABEL_MAX_LENGTH:
-        raise axis_error(
-            f"表示名が{MAP_CHIP_LABEL_MAX_LENGTH}文字を超えています（{len(definition.label)}文字）。"
-            f"地図チップの略称（{MAP_CHIP_LABEL_MAX_LENGTH}文字以内）を設定してください。"
-        )
 
 
 def _check_dynamic_and_static_materials_are_not_mixed(definition: AxisDefinition) -> None:

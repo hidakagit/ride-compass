@@ -4,8 +4,10 @@ import { describe, expect, it } from "vitest";
 import {
   buildDefaultLayerVisibility,
   buildMapLayers,
+  isAxisStudioLayer,
   TILE_VERSIONS_MISSING_NOTICE,
   TILE_ZOOM_TOO_WIDE_NOTICE,
+  type ChipLayerDescriptor,
 } from "@/features/map/layers/mapLayers";
 import { roadLegendAxes } from "@/features/map/scene/legends";
 
@@ -15,6 +17,7 @@ import { deserializeLayerVisibility, overlayChips } from "./overlayChips";
 
 const catalog = mapCatalogOf([rampEntry("ramp_a", [1]), dedicatedEntry("dedicated_b", [1])]);
 const LAYERS = buildMapLayers(catalog);
+const CHIP_LAYERS = LAYERS.filter((layer): layer is ChipLayerDescriptor => !isAxisStudioLayer(layer));
 
 type Options = Parameters<typeof overlayChips>[0];
 function chips(options: Partial<Options> = {}) {
@@ -42,9 +45,9 @@ describe("overlayChips（地図上チップの状態）", () => {
 
   it("表示状態をそのまま映し、略名が無ければ正式名で出す", () => {
     const list = chips({ visibility: { ...buildDefaultLayerVisibility(), surface: true } });
-    const surface = LAYERS.find((layer) => layer.id === "surface")!;
+    const surface = CHIP_LAYERS.find((layer) => layer.id === "surface")!;
     expect(chipOf(list, "surface")).toMatchObject({ on: true, chipLabel: surface.chipLabel });
-    const withoutChipLabel = LAYERS.find((layer) => layer.chipLabel === undefined && layer.id !== "route")!;
+    const withoutChipLabel = CHIP_LAYERS.find((layer) => layer.chipLabel === undefined && layer.id !== "route")!;
     expect(chipOf(list, withoutChipLabel.id).chipLabel).toBe(withoutChipLabel.label);
   });
 

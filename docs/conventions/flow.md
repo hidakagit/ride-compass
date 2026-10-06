@@ -213,7 +213,7 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
      に当たるファイルがあるときだけ見る）。`git merge-base --is-ancestor <マージのコミット> <本番の commit>` が 0 で終われば出ている
      （本番の commit が手元に無ければ先に `git fetch origin`）。出ていなければ、マージのコミットの master の CI を 5 と同じく（`--event pull_request` を付けずに）引いて
      終わるまで待ち、見直す（CI の `deploy-frontend`・`deploy-backend` は、出したコミットが本番の `commit` になるまで待って終わる。
-     デプロイのジョブが取り消しで終わったのは後のコミットのデプロイに順番を譲ったときで、そのときは master の先頭の CI を同じく待つ）。それでも出ていなければ、そのことを判断材料に書いて問う。判断材料には、ユーザーが自分で版を見分ける方法
+     デプロイのジョブが取り消しで終わったのは後のコミットのデプロイに順番を譲ったとき、実行ごと取り消しで終わったのは待ちの間に後のマージの実行と入れ替わったとき（`ci.yml` の `concurrency`）で、どちらも master の先頭の CI を同じく待つ）。それでも出ていなければ、そのことを判断材料に書いて問う。判断材料には、ユーザーが自分で版を見分ける方法
      として、開く URL と、見た時点の `commit`・`started_at` を書く（出ていれば「`started_at` がこの時刻以降なら修正を含む版」、
      出ていなければ「`commit` がこの値から変わっていれば修正を含む版」。本番へはマージの後の master しか出ないため）。残りが無くなれば
      `GH_TOKEN=$FLOW_BOT_TOKEN gh issue close <番号> -R ridecompass/ride-compass-tasks --reason completed` で閉じる（ゲートが、残りが無いことを照らしてから完了にする）。
@@ -241,7 +241,7 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    - 増減: `python scripts/review_checks.py change` の出力の行（出た規模の札で Project の欄も付け直す）
    - 検証: 下の確かめ方と、`backend/scripts/lost_constraints.py` が出した「消えた」制約の1件ずつの処置（移した先・意図して
      外した理由。書き直しで落ちた制約は差分に1行も出ないため）
-   画面の変更は、修正前後のキャプチャを Pull Request のコメントに貼る（`gh pr comment <番号> --attach <前の画像> --attach <後の画像>`。
+   画面の変更は、修正前後のキャプチャを Pull Request のコメントに貼る（`gh pr comment <番号> --attach <画像>` を1枚ずつ。下の「貼り方」。
    画面・幅など、何を撮ったかを添える。画像はコミットに残さない）。画面は `node frontend/scripts/capture.mjs --script <脚本>` で撮る
      （開く版を `--app`、応答を `--api` で選び、見せたい状態までは脚本で進める。脚本の口と使い方はスクリプトの先頭、例は
      `frontend/capture/examples/`。脚本は作業ツリーの外に置いてよい。外に置いた脚本は確かめる担当に届かないので、キャプチャと同じ
@@ -257,6 +257,18 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
      本番の版は master より遅れていることがある。本番の版（`/api/version` の `commit`）と作業ブランチの合流点
      （`git merge-base HEAD origin/master`）の間で frontend が変わっていて（`git diff --name-only <本番の commit> <合流点> -- frontend`）、
      それが撮る画面に関わるなら、前に作業ツリーの変更でない差が混ざるので、前は本番の代わりに `--app <合流点> --api <本番の backend>` で撮る。
+     **貼り方**: `--attach` は1回の `gh pr comment` に1枚だけ付け、2枚目からは別のコメントで足す。gh は画像を1枚ずつ順に上げ、
+     最初の失敗で止まり、上がった分だけでコメントを書いて終了コード 1 で終わる（gh のソース `internal/attachments/attach.go`）ので、
+     まとめて上げると1枚の失敗で残りが載らず、打ち直すと載った分が重なる。失敗したら文言で分ける（同じソースの `client.go`）:
+     - `attaching files requires write access to the repository`: 名義の誤り（上がり先は書く権限の無いトークンに 404 を返す）。`GH_TOKEN` を見直す。
+     - `rate limited`: 出た時間だけ待って打ち直す。
+     - `failed to upload <画像>: HTTP 5xx` 等、ほかの文言: 上がり先の側の失敗（名義・権限なら上の 404 になる）。同じコマンドを3回まで
+       打ち直す。3回とも落ちたら、その画像を置き場の issue へ
+       `GH_TOKEN=$FLOW_BOT_TOKEN gh issue comment <issue の番号> -R ridecompass/ride-compass-tasks --body-file <説明> --attach '<画像>#<見出し>'`
+       で貼り、Pull Request のコメントに、貼れなかったこと（出た文言・打った回数）とそのコメントへのリンクを書いて進める。置き場は
+       非公開なので、その画像は `GH_TOKEN=$FLOW_BOT_TOKEN gh api repos/ridecompass/ride-compass-tasks/issues/comments/<コメントの id> -H 'Accept: application/vnd.github.html+json' --jq .body_html`
+       が出す `https://private-user-images.githubusercontent.com/…` の URL（`&amp;` を `&` に戻す）を、トークンを付けない `curl -sSL` で
+       取り出す（URL は短い間しか効かないので、取るたびに引き直す）。
      画面に出ない変更は、確かめ方と根拠（実行したコマンドと出た値・読んだ公式の文書）を検証に書く。
    Pull Request の題名・本文・コメントは公開のリポジトリに載るので、打ったコマンドを写すときも本番の宛先は値を書かず、
    `--api <本番の backend>` のように tech-stack.md「本番の宛先」の名で書く（値を含む書き込みは、自動モードの判定に
@@ -328,7 +340,10 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
 1. 作業ブランチを取る（`git fetch origin` と
    `git checkout -B orch/tasks-<番号> origin/orch/tasks-<番号>`）。依存のファイルが master と違えば、作る担当の2のとおり入れ直す。Pull Request（`gh pr view <番号> -R hidakagit/ride-compass --json title,body,comments,reviews`。本文のキャプチャ・差分）・Pull Request の CI・issue の完了の条件・変更が届く範囲（要るなら画面）を
    確かめる。作る担当の報告を読み写さず、自分で見る（画面なら変更後を自分で撮る。作る担当の5と同じ道具・脚本・応答で撮り、
-   変更前は撮り直さずに作る担当が貼った画像と比べる。作る担当がコメントに脚本を貼っていれば、作業ツリーの外へ写して同じ引数で撮る）。Pull Request が無ければ（ボードで
+   変更前は撮り直さずに作る担当が貼った画像と比べる。作る担当がコメントに脚本を貼っていれば、作業ツリーの外へ写して同じ引数で撮る）。
+   貼った画像は、`gh api repos/hidakagit/ride-compass/issues/<Pull Request の番号>/comments --jq '.[].body'` で添付の URL
+   （`https://github.com/user-attachments/assets/…`）を拾い、`curl -sSL -o <作業ツリーの外のファイル> <URL>` で取り出して Read で見る。
+   コードのリポジトリは公開なので、添付は認証なしで取れる（公式の文書「Attaching files」）。トークンを付けない（付けた `curl` は判定役に断られた）。貼れずに置き場の issue へ貼った画像は、作る担当の5の「貼り方」のとおり取り出す。Pull Request が無ければ（ボードで
    検証中へ動かした等）、作る担当の5のとおりに出してから確かめる。CI は Pull Request の必須のチェック全部（master と合わせた版。
    `ci.yml` の外の Docs Consistency・Claude Gate のジョブも）が通っていることを、作る担当の5と同じく実行を待ってから必須のチェックをルールセットと
    突き合わせて見る。落ちていれば満たしていないとして 4 のとおり落ちたテストを書いて
@@ -357,8 +372,11 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    なく中の表の行ごとに数える（テストの実行が数える本数と同じ）。その数が Pull Request の検証の表（[testing.md](testing.md)「そのテストは要るか（3問を順に）」の、
    消す・まとめる前の段の4）の行の数と合わなければ、満たしていない。合えば、表の (a)〜(c) の行から1つ以上を選び、同じ段の2・3の
    とおり実装のその行を一時に変えて残す側のテストのファイル（(b) なら止める検査）だけを回し、表に書いた結果になるかを見て戻す
-   （`scripts/break_tests.py` で流す。(c) は `--ref`）。検証に消した・まとめたテストの表が無い（合流点がその段より前の Pull Request も
-   同じ。作る担当は master を取り込んでから書く）か、選んだ行が表に書いた結果にならなければ満たしていない。
+   （`scripts/break_tests.py` で流す。(c) は `--ref`）。(a)〜(c) の行が無く、約束ごと消した行（同じ段の1）があれば、
+   その行から1つ以上を選び、行が名指した消した実装の名前が後の版の実装とテストに無い（`git grep -n -w <名前> HEAD -- backend frontend` が
+   0件）ことと、行が指す約束が本文の課題の「消した約束」か「変えた約束」にあることを見る（変えた約束なら、行が名指した新しい約束を
+   見るテストは上の「足した行を約束に当てる」で当てる）。検証に消した・まとめたテストの表が無い（合流点がその段より前の Pull Request も
+   同じ。作る担当は master を取り込んでから書く）か、選んだ行が表に書いた結果にならない・名前が後の版に残る・約束が課題に無ければ満たしていない。
    **書き込みのある道具を流す**: 本物の GitHub へ書く道具（`tools/flow-gate/bin/`）の振る舞いは、写しを作って書き込みを差し替えずに、
    道具の試しの形で流す。後始末は `node tools/flow-gate/bin/after.js --dry-run <issue の番号> <作る|確かめる> <実行のファイル> <実行の URL> <ジョブの結果>`
    （実行のファイルは、確かめたい終わり方の発言の並び（例: 利用の上限の `error` を持つ発言）を作業ツリーの外に書いて渡す）、振り出しは
@@ -368,10 +386,11 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    （WebFetch の道具にその URL を渡す）で読む。文書も、公式が GitHub のリポジトリに置いているものはこの形で読む。
 2. 確かめた結果を、満たしていてもいなくても issue にコメントで書く（見出し「確かめた結果」）。完了の条件の1件ごとに、
    何をどう見て（実行したコマンド・開いた画面）何が出たかを書き、撮った画面は Pull Request へ `gh pr comment --attach` で貼る
-   （添える説明の中の本番の宛先は、作る担当の5と同じく値を書かず名で書く）。
+   （貼り方と貼れないときの扱い・添える説明の中の本番の宛先は、作る担当の5と同じ）。
    設計書の条件は、選んだ条件（文書と節）・確かめた方法・出た値を書く。足した行と約束の突き合わせは、どの約束にも
    当たらなかった行があれば、その行と理由を書く。消した・まとめたテストは、数えた本数と表の行の数・選んだ壊れ方（実装のファイルと変えた行）・回した残す側の
-   テストのファイル・落ちたテストの名前（通ったなら通ったこと）を書く。ここに書いたことだけが、確かめた証拠として残る。
+   テストのファイル・落ちたテストの名前（通ったなら通ったこと）を書く。約束ごと消した行を選んだなら、選んだ行・打った `git grep` と
+   件数・当たった課題の約束の行を書く。ここに書いたことだけが、確かめた証拠として残る。
 3. ユーザーが見るべきだと判断したら（利用者から見える振る舞い・モジュールの設計が変わる等）、完了の条件に確かめてもらう行
    （`- [ ] ユーザーが確かめる: …`）を足し、理由を書く。マージは確認を待たない。
    マージしたあと、残りがユーザーの確かめの行だけなら、同じ回で `ask.js` で問う（作る担当を起こし直さない）。
@@ -623,7 +642,8 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
 開発機の対話のセッションが道具で問いを残して終える（ユーザーがあとで答える）ときは、チャットに回答フォームの直リンク
 （`flow.config.json: urls.form` の `/answer?issue=<番号>`）を1件1行で添える。
 
-道具は形を照らしてから、問いをコメントに書き、回答待ちへ動かす。回答待ちの間は、ゲートが本文の先頭に「回答する」のボタンの画像
+道具は形を照らしてから、問いをコメントに書き、回答待ちへ動かす。道具が途中で落ちたら、同じ問いのファイルで打ち直す
+（答えの無い最新の問いが同じ文なら、書き直さずに動かすだけにする。`tools/flow-gate/src/move.js: askTask`）。回答待ちの間は、ゲートが本文の先頭に「回答する」のボタンの画像
 （リンク付き。スマホのアプリでも押せる。GitHub の画面そのものにはボタンを足せない）を置く。回答フォームは、その issue の最新の
 「## 問い」のコメントを読み、上から問いの文 → 判断材料（開いて）・issue の本文（ゲートの印の間を除く）と最近のコメント
 （上に出した問いのコメントを除く。件数は `tools/flow-gate/src/form.js: RECENT`。新しいものが上。畳んで）→ 回答（案があれば案から1つか「どれでもない（補足に書く）」・補足は任意）→ 次のステータス
@@ -661,8 +681,9 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
   画像を付けるときは、画像ごとに画面で見える見出しを付ける。
   推奨は判断材料の最後に理由と一緒に書く。
 - **画像の載せ方**: `ask.js` は文だけを書き、画像を載せられない。問う前に、画像だけのコメントを
-  `GH_TOKEN=$FLOW_BOT_TOKEN gh issue comment <番号> -R ridecompass/ride-compass-tasks --body-file <何の画像かの説明> --attach '<画像>#<見出し>' …`
-  で書く（画像はコメントの末尾に、見出しを代替の文にして並ぶ。`gh issue comment --help` の `--attach`）。出たコメントの id で
+  `GH_TOKEN=$FLOW_BOT_TOKEN gh issue comment <番号> -R ridecompass/ride-compass-tasks --body-file <何の画像かの説明> --attach '<画像>#<見出し>'`
+  で1枚ずつ書く（画像はコメントの末尾に、見出しを代替の文にして並ぶ。`gh issue comment --help` の `--attach`。1枚ずつにする理由と
+  失敗したときの扱いは「担当」の作る担当の5の「貼り方」）。出たコメントの id で
   `GH_TOKEN=$FLOW_BOT_TOKEN gh api repos/ridecompass/ride-compass-tasks/issues/comments/<id> --jq .body` を読み、`https://github.com/user-attachments/assets/…`
   の URL を判断材料の `![<見出し>](<URL>)` で指す（回答フォームは判断材料を GitHub の Markdown の描き方で HTML にし、非公開の画像も
   開いた時点から5分有効の URL で出る）。開発機の対話のセッションがチャットで問うときも、画像は同じく issue に載せる（答えの

@@ -35,14 +35,11 @@ function axis(overrides: Partial<AxisDefinitionResponse> = {}): AxisDefinitionRe
     weight_share_when_published: null,
     priority_overrides: [],
     icon_id: null,
-    chip_label: null,
-    panel_hint: null,
     display_thresholds_override: null,
     display_band_labels_override: null,
     category: "推定",
     default_weight: 0.2,
     is_published: false,
-    show_map_icon: true,
     time_scope: "always",
     dedicated_way_value_layer: false,
     shape: {
@@ -54,7 +51,7 @@ function axis(overrides: Partial<AxisDefinitionResponse> = {}): AxisDefinitionRe
         [10, 100],
       ],
     },
-    display: { kind: "none", label: "", category: "", tile_inputs: [], thresholds: [] },
+    display: { kind: "none", tile_inputs: [], thresholds: [] },
     ...overrides,
   };
 }
@@ -120,9 +117,6 @@ describe("保存するpayload", () => {
       time_scope: "night_only",
       dedicated_way_value_layer: true,
       icon_id: "icon_a",
-      chip_label: "略",
-      panel_hint: "補足",
-      show_map_icon: false,
       display_thresholds_override: [1, 2],
       display_band_labels_override: ["a", "b", "c"],
       description: "説明",
@@ -146,14 +140,14 @@ describe("保存するpayload", () => {
     }
   });
 
-  it("表示名・略称・説明文は前後の空白を落とし、空の略称・説明文・アイコンは未設定（null）で送る", async () => {
+  it("表示名は前後の空白を落とし、空のアイコンは未設定（null）で送る", async () => {
     const { user, onSave } = renderComposer({
-      editing: axis({ label: "  名前  ", chip_label: " 略 ", panel_hint: "   ", icon_id: "" }),
+      editing: axis({ label: "  名前  ", icon_id: "" }),
     });
     await user.click(submitButton());
 
     await waitFor(() => expect(onSave).toHaveBeenCalled());
-    expect(onSave.mock.calls[0][0]).toMatchObject({ label: "名前", chip_label: "略", panel_hint: null, icon_id: null });
+    expect(onSave.mock.calls[0][0]).toMatchObject({ label: "名前", icon_id: null });
   });
 
   it("表示名・説明・既定重みを下書きへ入れて送る", async () => {

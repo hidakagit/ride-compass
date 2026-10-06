@@ -48,7 +48,7 @@ def test_categories_come_out_in_the_same_order_whatever_order_they_were_given_in
 
 def test_a_ramp_display_with_nothing_to_read_from_the_tile_is_refused():
     with pytest.raises(ValidationError, match="nothing to read"):
-        AxisDisplaySpec(kind="ramp", label="軸", thresholds=[1.0])
+        AxisDisplaySpec(kind="ramp", thresholds=[1.0])
 
 
 @pytest.mark.parametrize(
@@ -58,18 +58,18 @@ def test_a_ramp_display_with_nothing_to_read_from_the_tile_is_refused():
 def test_a_display_that_is_not_drawn_refuses_a_ramp_payload(payload):
     """`kind`だけを見てレイヤーを作るため、中身との食い違いは「地図に出ているのに塗られない」に化ける。"""
     with pytest.raises(ValidationError, match="kind=none"):
-        AxisDisplaySpec(kind="none", label="軸", **payload)
+        AxisDisplaySpec(kind="none", **payload)
 
 
 def test_band_boundaries_that_do_not_rise_are_refused():
     """昇順でない境界は画面のstep式が読めず、境界が1つ先の帯へ吸われる。同じ値も昇順でない。"""
     with pytest.raises(ValidationError, match="not ascending"):
-        AxisDisplaySpec(kind="ramp", label="軸", tile_inputs=[TileInputSpec(property="p")], thresholds=[1.0, 1.0])
+        AxisDisplaySpec(kind="ramp", tile_inputs=[TileInputSpec(property="p")], thresholds=[1.0, 1.0])
 
 
 def test_displays_that_agree_with_their_kind_are_accepted():
-    ramp = AxisDisplaySpec(kind="ramp", label="軸", tile_inputs=[TileInputSpec(property="p")], thresholds=[1.0, 2.0])
-    none = AxisDisplaySpec(kind="none", label="軸")
+    ramp = AxisDisplaySpec(kind="ramp", tile_inputs=[TileInputSpec(property="p")], thresholds=[1.0, 2.0])
+    none = AxisDisplaySpec(kind="none")
 
     assert ramp.thresholds == [1.0, 2.0]
     assert none.tile_inputs == [] and none.thresholds == []

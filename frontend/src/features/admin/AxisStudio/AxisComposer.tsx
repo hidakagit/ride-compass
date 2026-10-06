@@ -149,10 +149,6 @@ export default function AxisComposer({
       // 空文字列は「未設定」の意味でnullへ変換する（trim()の理由はlabelと同じ、
       // 空白のみの入力を未設定扱いにする）。
       icon_id: draft.iconId.trim() === "" ? null : draft.iconId,
-      chip_label: draft.chipLabel.trim() === "" ? null : draft.chipLabel.trim(),
-      panel_hint: draft.panelHint.trim() === "" ? null : draft.panelHint.trim(),
-      // 地図上にアイコンを表示するかどうかのON/OFF（既定true）。
-      show_map_icon: draft.showMapIcon,
       display_thresholds_override: draft.displayThresholdsOverride,
       display_band_labels_override: draft.displayBandLabelsOverride,
     };

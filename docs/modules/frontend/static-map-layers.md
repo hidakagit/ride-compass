@@ -28,8 +28,7 @@
 | `lib/mapDisplay/legendFilter.ts` | 凡例の行の型（`LegendEntry`）と、凡例で隠した行を落とす絞り込み式の組み立て（ルート線のモードが使う） |
 | `features/map/layers/landcoverClasses.ts` | 土地被覆のクラス（表示名・色・割合列・地図に塗るか）。backendのレジストリ由来の生成物（`landcover-classes.json`）を読むだけの薄い層で、凡例（レイヤーの記述子）と区間インスペクタ（`RoadInspectorPopup.tsx`）が共有する。色は地図タイルの塗りと同じ値のため、凡例と地図がずれない。**凡例は塗るクラスだけ**（`LANDCOVER_PAINTED_CLASSES`）——塗らないクラスを並べると色見本があるのに地図のどこにも無い表になる。区間インスペクタは数値なので全クラスを出す |
 | `features/map/layers/primaryAttributes.ts` | 一次属性のカタログと、二次軸→一次属性の導出（軸増減時の観測データ連動表示に使用） |
-| `features/map/secondaryAxes.ts` | 「推定指標（合成）」チップグループの軸一覧生成。軸の共通の項目（略名・アイコン・パネル説明・材料の一次属性等）は`lib/catalogAxis.ts`から受け、足すのは対応`MapLayerId`。`show_map_icon`による除外を持つ |
-| `features/map/layers/mapLayers.ts` | レイヤーカタログ本体（`MapLayerDescriptor[]`）・地図上チップの最上位グループ（`MAP_OVERLAY_GROUP_ORDER`が正本。現在は道路/環境/スポット）判定・軸スタジオ由来レイヤーの除外判定・`deriveFetchLayerStatus`（MapLibreのソースイベントを経由しないレイヤーのデータ状態判定）。静的なレイヤーは源泉の宣言（生成物`mapDisplay.layers`）の並びを列挙して組み、足すのはアイコン（`STATIC_LAYER_ICONS`）と表示専用の凡例（`READ_ONLY_LEGENDS`）だけ。名前・略名・説明・(i)の文は源泉が持ち、説明の差し込み口だけを軸カタログの値で埋める（下記「説明文に評価の名前を書き込まない」）。**`layers/`は`scene/`を読まない**（`scene/`が`layers/`を読む一方向） |
+| `features/map/layers/mapLayers.ts` | レイヤーカタログ本体（`MapLayerDescriptor[]`）・地図上チップの最上位グループ（`MAP_OVERLAY_GROUP_ORDER`が正本。現在は道路/環境/スポット）判定・軸スタジオ由来レイヤーの除外判定（軸スタジオ由来のレイヤーはチップに出ないので、名前・アイコン・説明を持たず、idと源泉の宣言だけを持つ`AxisStudioLayerDescriptor`）・`deriveFetchLayerStatus`（MapLibreのソースイベントを経由しないレイヤーのデータ状態判定）。静的なレイヤーは源泉の宣言（生成物`mapDisplay.layers`）の並びを列挙して組み、足すのはアイコン（`STATIC_LAYER_ICONS`）と表示専用の凡例（`READ_ONLY_LEGENDS`）だけ。名前・略名・説明・(i)の文は源泉が持ち、説明の差し込み口だけを軸カタログの値で埋める（下記「説明文に評価の名前を書き込まない」）。**`layers/`は`scene/`を読まない**（`scene/`が`layers/`を読む一方向） |
 | `features/map/scene/mapScene.ts` | 地図に載っているべきものの宣言の型（ソース・レイヤー・feature-state）と、重なりの段（`MAP_SCENE_TIERS`）・押せるレイヤーの引き方 |
 | `features/map/scene/applyMapScene.ts` | 宣言を地図へ当てる唯一の実装（`addSource`/`addLayer`/`setPaintProperty`/`setFilter`/`setFeatureState`）。前回の宣言との差分だけを当て、段の順に差し込む |
 | `features/map/MapView/MapView.tsx`（静的レイヤーの箇所のみ） | 画面の状態をsceneの入力へ渡す配線・押された点や道の判定とポップアップ・レイヤーのデータ取得状態の算出元（`buildLayerDataSources`）。レイヤーの描画コードは持たない |
@@ -351,7 +350,7 @@ MSMを配るOpen-MeteoのCC BY 4.0も、リンク付きのクレジット・ラ�
 いるとき」だけ太く半透明な下敷きになる。材料が1つも表示されていなければ通常の太さ・
 不透明度で表示する——常に下敷きにすると、道路網が密な都市部では下敷きの重なりだけで地図
 全体がぼやける。「どの一次属性がどの二次軸の材料か」の解決はsceneの入口
-（`scene/applyToMap.ts`）が、地図の軸カタログの`secondaryAxes`の`primaryAttributeIds`とレイヤーの
+（`scene/applyToMap.ts`）が、地図の軸カタログの`rampAxes`の`primaryAttributeIds`とレイヤーの
 ON/OFFから行う（画面の側は下敷きの有無を知らない）。
 
 **見た目の値は、すべて宣言そのものが持つ**。下敷きの太さ・不透明度も、絞り込みも、
@@ -472,9 +471,9 @@ backendが200で応答する窓では、カタログは取得済みなのに世�
 ramp軸[`dataNature==="composite"`]）はチップの一覧（`features/map/view/overlayChips.ts: overlayChips`）が
 **束ねる前に1か所で**除く（地図上チップのどこにも出さない。表示はレンズが持つ）。
 
-**暗黙の前提**: `mapOverlayGroupFor`は`category`しか見ないので、軸スタジオ由来のレイヤーを渡すと
-グループへ紛れ込む（例: `category`を`trafficSafety`にした軸は、事故・停止要因の層と同じ値になる）。
-チップの一覧を通さずにレイヤーを束ねる場所を作るなら、同じ除外を先に通す。
+**暗黙の前提**: `mapOverlayGroupFor`は`category`しか見ないので、軸スタジオ由来のレイヤーは中分類を
+持たない（源泉の`axisLayers`の宣言が中分類を空にする）ことでどのグループにも入らない。チップの一覧を通さずに
+レイヤーを束ねる場所を作るなら、同じ除外を先に通す。
 
 グループは表示上のまとまりだけを表し、**どのレイヤーも複数同時にONにできる**。重なって
 読みにくくなった場合は、各チップの▶パネルで要素・カテゴリ単位に絞り込む（下記「凡例
