@@ -25,7 +25,7 @@ const AXES = [axis("axis_sample", "見本の軸", "車の通行量の説明"), a
 const AXIS_COLORS: Record<string, string> = { axis_sample: "#111111", night: "#222222" };
 /** 地図がいつも渡す走行の条件（押した点のタイル込み）と重み（nullは既定の重み）。 */
 const RIDE = {
-  conditions: { bearingDeg: 0, at: new Date("2026-09-24T00:00:00Z"), z: 14, x: 1, y: 2 },
+  conditions: { bearingDeg: 0, at: new Date("2026-09-24T00:00:00Z"), speedKmh: 20, z: 14, x: 1, y: 2 },
   routePreference: null,
 };
 /** 路面の区分の項目名と、呼び名を持つ値の1つ（書き写さず材料カタログから引く）。 */
@@ -222,7 +222,7 @@ describe("評価の重み", () => {
 });
 
 describe("評価の走行の条件", () => {
-  const CONDITIONS = { bearingDeg: 0, at: new Date("2026-09-24T00:00:00Z"), z: 14, x: 1, y: 2 };
+  const CONDITIONS = { bearingDeg: 0, at: new Date("2026-09-24T00:00:00Z"), speedKmh: 20, z: 14, x: 1, y: 2 };
   const props = { properties: { osm_way_id: 1 }, axes: AXES, axisColors: AXIS_COLORS, ...RIDE };
 
   it("開いている間に出発時刻が進んでも、押したときの条件で取った評価を出し続ける", async () => {

@@ -27,8 +27,8 @@ interface AxisContributionBarProps {
   /** 凡例に並べる軸。省略すると帯に出る軸だけ。公開軸すべてを渡すと、寄与が0・欠損の軸も凡例に残る
    * （効くはずの軸が効かなかったことも判断の材料になる）。 */
   legendAxes?: readonly CatalogAxis[];
-  /** 凡例のチップを押して開く、その軸の詳細。nullを返した軸は凡例から落ちる。省略するとどのチップも押せない。 */
-  renderDetail?: (axis: CatalogAxis) => ReactNode | null;
+  /** 凡例のチップを押して開く、その軸の詳細。nullを返した軸は凡例から落ちる。 */
+  renderDetail: (axis: CatalogAxis) => ReactNode | null;
 }
 
 const FALLBACK_COLOR = palette.semantic.neutral;
@@ -70,45 +70,34 @@ export default function AxisContributionBar({
       </div>
       <ul className={legendChipsClass}>
         {(legendAxes ?? rows)
-          .map((axis) => ({ axis, detail: renderDetail?.(axis) ?? null }))
-          .filter(({ detail }) => renderDetail == null || detail !== null)
+          .map((axis) => ({ axis, detail: renderDetail(axis) }))
+          .filter(({ detail }) => detail !== null)
           .map(({ axis, detail }) => {
             const color = axisColors[axis.axisId] ?? FALLBACK_COLOR;
             // 名前は出さずアイコンと値だけ（狭い幅では名前がそのまま行数になる）。名前は説明とaria-labelが持つ。
             const Icon = axisIconFor(axis.iconId);
-            const body = (
-              <>
-                <span aria-hidden="true" className={legendIconClass} style={{ color }}>
-                  <Icon size={14} />
-                </span>
-                {hasContribution(contributions, axis.axisId) && (
-                  <span className="text-[var(--color-muted)] tabular-nums">
-                    {formatDifficulty(contributions[axis.axisId])}
-                  </span>
-                )}
-              </>
-            );
             return (
               <li key={axis.axisId} className={legendChipClass}>
-                {detail === null ? (
-                  <span className={legendChipBodyClass} title={axis.label} aria-label={axis.label} role="img">
-                    {body}
-                  </span>
-                ) : (
-                  <InfoPopover
-                    triggerClassName={cn(legendChipBodyClass, "cursor-pointer [&>svg]:text-[var(--color-muted)]")}
-                    triggerAriaLabel={`${axis.label}の詳細`}
-                    // 押せることを(i)で示す（輪郭の濃さだけでは伝わらない）。
-                    triggerContent={
-                      <>
-                        {body}
-                        <InfoIcon size={12} />
-                      </>
-                    }
-                  >
-                    {detail}
-                  </InfoPopover>
-                )}
+                <InfoPopover
+                  triggerClassName={cn(legendChipBodyClass, "cursor-pointer [&>svg]:text-[var(--color-muted)]")}
+                  triggerAriaLabel={`${axis.label}の詳細`}
+                  // 押せることを(i)で示す（輪郭の濃さだけでは伝わらない）。
+                  triggerContent={
+                    <>
+                      <span aria-hidden="true" className={legendIconClass} style={{ color }}>
+                        <Icon size={14} />
+                      </span>
+                      {hasContribution(contributions, axis.axisId) && (
+                        <span className="text-[var(--color-muted)] tabular-nums">
+                          {formatDifficulty(contributions[axis.axisId])}
+                        </span>
+                      )}
+                      <InfoIcon size={12} />
+                    </>
+                  }
+                >
+                  {detail}
+                </InfoPopover>
               </li>
             );
           })}

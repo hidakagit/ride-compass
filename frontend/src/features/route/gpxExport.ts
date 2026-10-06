@@ -60,20 +60,16 @@ function markKeptPoints(points: readonly PlanePoint[], toleranceM: number): bool
   return kept;
 }
 
-/** 座標列を`maxPoints`以下へ間引く。残す点は折れ線の形から選ぶ（両端を結んだ線分からのずれが
+/** 座標列を`MAX_GPX_TRACK_POINTS`以下へ間引く。残す点は折れ線の形から選ぶ（両端を結んだ線分からのずれが
  * 大きい点を残す）ため、残る点の間隔より短い区間に収まった曲がりも直線へ潰れない。
- * `maxPoints`以下ならそのまま返す。 */
-function simplifyCoordinates(
-  coordinates: readonly GeoJSON.Position[],
-  maxPoints: number = MAX_GPX_TRACK_POINTS,
-): GeoJSON.Position[] {
-  if (coordinates.length <= maxPoints) return [...coordinates];
+ * `MAX_GPX_TRACK_POINTS`以下ならそのまま返す。 */
+function simplifyCoordinates(coordinates: readonly GeoJSON.Position[]): GeoJSON.Position[] {
+  if (coordinates.length <= MAX_GPX_TRACK_POINTS) return [...coordinates];
   const points = toLocalPlane(coordinates);
   // 両端は常に残るため、許容するずれを増やし続ければ2点まで減らせる（＝必ず収まる）。
-  const limit = Math.max(2, maxPoints);
   let tolerance = SIMPLIFY_TOLERANCE_M;
   let kept = markKeptPoints(points, tolerance);
-  while (kept.filter(Boolean).length > limit) {
+  while (kept.filter(Boolean).length > MAX_GPX_TRACK_POINTS) {
     tolerance *= 2;
     kept = markKeptPoints(points, tolerance);
   }

@@ -9,11 +9,6 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchMaterialDistribution, type MaterialDistribution } from "@/features/admin/adminApi";
 import { getQueryClient } from "@/lib/queryClient";
 
-interface MaterialDistributionResult {
-  distribution: MaterialDistribution | null;
-  loading: boolean;
-}
-
 /** 値域は編集の補助情報のため、取得できなければ黙って出さない（他の欄の編集を妨げない）。失敗そのものは
  *  クライアントの骨格がdebugLogへ残す。取得できなかったこと（null）も値として覚える——覚えないと、値を
  *  持たない材料へマウントのたびに同じ失敗リクエストを投げ続ける。 */
@@ -26,8 +21,8 @@ async function fetchOrNull(materialId: string): Promise<MaterialDistribution | n
 }
 
 /** 同じ材料を複数の行が選んでも、開いている間に取りに行くのは1回（材料の分布は編集の間に変わらない）。 */
-export function useMaterialDistribution(materialId: string | undefined): MaterialDistributionResult {
-  const { data, isLoading } = useQuery(
+export function useMaterialDistribution(materialId: string | undefined): MaterialDistribution | null {
+  const { data } = useQuery(
     {
       queryKey: ["material-distribution", materialId],
       queryFn: () => fetchOrNull(materialId ?? ""),
@@ -37,5 +32,5 @@ export function useMaterialDistribution(materialId: string | undefined): Materia
     },
     getQueryClient(),
   );
-  return { distribution: data ?? null, loading: isLoading };
+  return data ?? null;
 }

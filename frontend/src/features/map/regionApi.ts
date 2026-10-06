@@ -70,8 +70,8 @@ export const ROAD_TILE_MAX_ZOOM = regionTileConfig.road_tile_max_zoom;
  * 同じ値で、これを送らないと**1本の道が往復2方向で違う値を持つ**軸を算出できない。 */
 export interface RideConditions {
   bearingDeg: number;
-  at?: Date;
-  speedKmh?: number;
+  at: Date;
+  speedKmh: number;
 }
 
 /** 上記に、クリックされた点を含む道路タイルを足したもの（レンズが引いたのと同じタイルを
@@ -99,8 +99,8 @@ export async function fetchAxisInspector(
     x: conditions.x,
     y: conditions.y,
     bearing_deg: conditions.bearingDeg,
-    ...(conditions.at != null ? { at: conditions.at.toISOString() } : {}),
-    ...(conditions.speedKmh != null ? { speed_kmh: conditions.speedKmh } : {}),
+    at: conditions.at.toISOString(),
+    speed_kmh: conditions.speedKmh,
   };
   return requestApi((init) => backendApi.POST("/api/region/axis-inspector", { body, ...init }), {
     timeoutMs: DEFAULT_API_TIMEOUT_MS,

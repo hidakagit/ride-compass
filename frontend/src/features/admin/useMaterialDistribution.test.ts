@@ -26,26 +26,28 @@ describe("useMaterialDistribution", () => {
   it("材料が無ければ取りに行かない", async () => {
     const { result } = renderHook(() => useMaterialDistribution(undefined));
     await act(async () => {});
-    expect(result.current).toEqual({ distribution: null, loading: false });
+    expect(result.current).toBeNull();
   });
 
-  it("取っている間は読み込み中で、届いたら分布を返す", async () => {
+  it("取っている間は分布なしで、届いたら分布を返す", async () => {
     const held = heldReplies();
     onSameOrigin("GET", DISTRIBUTION, held.reply);
     const { result } = renderHook(() => useMaterialDistribution("m_loading"));
 
-    await waitFor(() => expect(result.current.loading).toBe(true));
+    await waitFor(() => expect(held.arrived()).toBe(1));
+    expect(result.current).toBeNull();
     await held.answer(0, Response.json(distribution(5)));
-    await waitFor(() => expect(result.current).toEqual({ distribution: distribution(5), loading: false }));
+    await waitFor(() => expect(result.current).toEqual(distribution(5)));
   });
 
   it("取れなかったら分布なしで返し、同じ材料を別の場所が選んでも取り直さない", async () => {
     onSameOrigin("GET", DISTRIBUTION, inTurn(new Response(null, { status: 500 }), Response.json(distribution(7))));
     const first = renderHook(() => useMaterialDistribution("m_failing"));
-    await waitFor(() => expect(first.result.current).toEqual({ distribution: null, loading: false }));
+    await settle();
+    expect(first.result.current).toBeNull();
 
     const second = renderHook(() => useMaterialDistribution("m_failing"));
     await settle();
-    expect(second.result.current).toEqual({ distribution: null, loading: false });
+    expect(second.result.current).toBeNull();
   });
 });

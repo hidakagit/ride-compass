@@ -188,11 +188,7 @@ export default function Home() {
   const routeOutcomeActive = isMobile ? mobileSheet === "routeOutcome" : !sidebarCollapsed && outcomeOpen;
   const pointEditingEnabled = routeSettingsActive && settingsTab === "generate" && editingRoute === null;
   const routeInspectionEnabled = routeOutcomeActive && editingRoute === null;
-  // 周回で置けるのは出発地だけ（経由地・目的地は周回の間は地図に出さず送らない）。
-  const pinPlacementArmedRole =
-    pointEditingEnabled && (conditions.routeMode === "destination" || conditions.armedPinRole === "origin")
-      ? conditions.armedPinRole
-      : null;
+  const pinPlacementArmedRole = pointEditingEnabled ? conditions.armedPinRole : null;
 
   // 地図のチップ列は、下部の行（時刻スライダー等）の高さを知らない。地図の枠へ実測の高さをCSS変数で渡す。
   const mapPaneRef = useRef<HTMLDivElement>(null);

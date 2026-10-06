@@ -6,8 +6,6 @@
  * ここで見ないもの:
  * - 名前を出すこと・押すと説明が出ること・(i)の開閉で名前が「表示」「隠す」に変わること・浮きパネルの置き方
  *   → `components/ui/InfoPopover/InfoPopover.tsx`（この部品は名前と説明をそのまま渡し、開閉の状態を持たない）
- * - 名前を見た目だけ隠す指定（`hideLabel`）——隠すのはTailwindの`sr-only`で、テスト環境は規則を作らない。
- *   読み上げの名前は隠しても変わらない
  */
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";

@@ -23,7 +23,6 @@ type ProfileSegment = Pick<
 /** 区間1本ぶんの柱。`startKm`は区間の長さを積み上げた値（丸めた累積距離は使わない——丸めの分だけ柱の間に隙間ができる）。 */
 type ProfileColumn<S extends ProfileSegment = ProfileSegment> = {
   readonly segment: S;
-  readonly index: number;
   readonly startKm: number;
   readonly endKm: number;
 };
@@ -31,9 +30,9 @@ type ProfileColumn<S extends ProfileSegment = ProfileSegment> = {
 export function profileColumns<S extends ProfileSegment>(segments: readonly S[]): ProfileColumn<S>[] {
   const columns: ProfileColumn<S>[] = [];
   let km = 0;
-  segments.forEach((segment, index) => {
+  segments.forEach((segment) => {
     const length = Math.max(0, segment.distance_km);
-    columns.push({ segment, index, startKm: km, endKm: km + length });
+    columns.push({ segment, startKm: km, endKm: km + length });
     km += length;
   });
   return columns;

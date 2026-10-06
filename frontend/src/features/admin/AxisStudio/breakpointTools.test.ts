@@ -67,41 +67,40 @@ describe("generateBreakpoints", () => {
 
 describe("generatorSettingsFrom", () => {
   it.each([...shapes.map((shape) => [shape, 3, 15] as const), ["flat", 40, 5] as const])(
-    "%s（0点 %d・100点 %d）で生成した折れ点からは、同じ3入力を一致として復元する",
+    "%s（0点 %d・100点 %d）で生成した折れ点からは、同じ3入力を復元する",
     (shape, zeroValue, hundredValue) => {
       expect(generatorSettingsFrom(generateBreakpoints(zeroValue, hundredValue, shape))).toEqual({
         zeroValue,
         hundredValue,
         shape,
-        matched: true,
       });
     },
   );
 
   it("並びが崩れていても、並べ直してから復元する", () => {
     const points = generateBreakpoints(3, 15, "front_loaded").reverse();
-    expect(generatorSettingsFrom(points)).toMatchObject({ zeroValue: 3, hundredValue: 15, matched: true });
+    expect(generatorSettingsFrom(points)).toEqual({ zeroValue: 3, hundredValue: 15, shape: "front_loaded" });
   });
 
-  it("手で直した折れ点は、一致とせず効き方を一定にし、端点は点数の低い側（同じならxの小さい側）を0点として復元する", () => {
+  it("手で直した折れ点は、効き方を一定にし、端点は点数の低い側（同じならxの小さい側）を0点として復元する", () => {
     expect(
       generatorSettingsFrom([
         [1, 50],
         [5, 80],
         [8, 50],
       ]),
-    ).toEqual({ zeroValue: 1, hundredValue: 8, shape: "flat", matched: false });
+    ).toEqual({ zeroValue: 1, hundredValue: 8, shape: "flat" });
     expect(
       generatorSettingsFrom([
         [0, 90],
         [4, 30],
         [9, 10],
       ]),
-    ).toEqual({ zeroValue: 9, hundredValue: 0, shape: "flat", matched: false });
+    ).toEqual({ zeroValue: 9, hundredValue: 0, shape: "flat" });
   });
 
-  it("点が2つ未満なら、端点は0と10・効き方は一定で、一致とはしない", () => {
-    expect(generatorSettingsFrom([[5, 50]])).toEqual({ zeroValue: 0, hundredValue: 10, shape: "flat", matched: false });
+  it("点が2つ未満なら、端点は0と10・効き方は一定にする", () => {
+    expect(generatorSettingsFrom([[5, 50]])).toEqual({ zeroValue: 0, hundredValue: 10, shape: "flat" });
   });
 });
 

@@ -16,9 +16,9 @@ export function mapOverlayEdge(edge: Edge): { [MAP_OVERLAY_EDGE_ATTRIBUTE]: Edge
 }
 
 /** 印の付いた部品が、地図の各辺から内側へどこまで覆っているか(px)。大きさの無い（隠れている）部品は数えない。 */
-export function measureMapOverlayEdges(canvas: DOMRect, root: ParentNode = document): RouteFitObscuredPx {
+export function measureMapOverlayEdges(canvas: DOMRect): RouteFitObscuredPx {
   const obscured: RouteFitObscuredPx = {};
-  for (const element of root.querySelectorAll(`[${MAP_OVERLAY_EDGE_ATTRIBUTE}]`)) {
+  for (const element of document.querySelectorAll(`[${MAP_OVERLAY_EDGE_ATTRIBUTE}]`)) {
     const rect = element.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) continue;
     const depth: Record<Edge, number> = {

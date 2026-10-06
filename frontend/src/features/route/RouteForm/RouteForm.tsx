@@ -104,7 +104,7 @@ export default function RouteForm({
     extra: React.ReactNode,
     /** 武装中に値の代わりに出す文言。置いた数を隠さないため、経由地は件数を添える。 */
     armedHint: string = "地図をタップ",
-    usage?: string,
+    usage: string,
     /** 上限まで置いてあり、これ以上置けない（武装できない）。 */
     full: boolean = false,
   ) {

@@ -58,18 +58,16 @@ export function generateBreakpoints(
  * どれか1つに触れた瞬間にその値で折れ点が作り直される。較正済みの端点が黙って消えるため、
  * 入力欄は必ずいまの折れ点から導く。
  *
- * `matched`は「いまの折れ点が、この3入力から生成したものとぴったり一致するか」。
- * falseなら手で編集された（あるいは別の手順で作られた）折れ点で、効き方は復元できない
- * ——そのときも端点だけは正しく復元し、効き方は`flat`を初期値にする。 */
+ * 3入力から生成したものとぴったり一致しない折れ点は、手で編集された（あるいは別の手順で作られた）もので、
+ * 効き方は復元できない——そのときも端点だけは正しく復元し、効き方は`flat`を初期値にする。 */
 export function generatorSettingsFrom(breakpoints: readonly [number, number][]): {
   zeroValue: number;
   hundredValue: number;
   shape: BreakpointShape;
-  matched: boolean;
 } {
   const sorted = sortBreakpoints(breakpoints);
   if (sorted.length < 2) {
-    return { zeroValue: 0, hundredValue: 10, shape: "flat", matched: false };
+    return { zeroValue: 0, hundredValue: 10, shape: "flat" };
   }
   const lowX = sorted[0][0];
   const highX = sorted[sorted.length - 1][0];
@@ -83,7 +81,7 @@ export function generatorSettingsFrom(breakpoints: readonly [number, number][]):
       const candidate = generateBreakpoints(zeroValue, hundredValue, id);
       if (candidate.length !== sorted.length) continue;
       if (candidate.every(([x, y], i) => x === sorted[i][0] && y === sorted[i][1])) {
-        return { zeroValue, hundredValue, shape: id, matched: true };
+        return { zeroValue, hundredValue, shape: id };
       }
     }
   }
@@ -93,7 +91,6 @@ export function generatorSettingsFrom(breakpoints: readonly [number, number][]):
     zeroValue: sorted[zeroSide][0],
     hundredValue: sorted[zeroSide === 0 ? sorted.length - 1 : 0][0],
     shape: "flat",
-    matched: false,
   };
 }
 

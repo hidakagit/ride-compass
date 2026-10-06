@@ -31,7 +31,6 @@ interface RecordingMap {
   sourceContent(sourceId: string): { data?: unknown; tiles?: readonly string[] } | undefined;
   /** スタイルを差し替えたときの状態（このアプリが足したものが消える）。 */
   dropEverything(): void;
-  reset(): void;
 }
 
 /** `map`として実装へ渡す値と、記録を読む側のハンドルを返す。 */
@@ -187,14 +186,6 @@ export function createRecordingMap(options: { styleReady?: boolean } = {}) {
       content.clear();
       featureStates = new Map();
       trace.push({ call: "__styleReplaced", args: [] });
-    },
-    reset: () => {
-      layers = [];
-      sources = new Map();
-      sourceHandles = new Map();
-      content.clear();
-      featureStates = new Map();
-      trace.length = 0;
     },
   };
 

@@ -10,14 +10,11 @@
  *   ここでは開き直した後に送る重みを1件見る
  * - 保存の読み書きそのもの（読めない・書けない端末で既定値になる） → `hooks/useStoredState.test.ts`
  * - 地図で置いた出発地を位置の持ち主が受け取ったあと → `hooks/useLocation.test.ts`
- * - 置ける役割が効く場所（「条件」タブを開いている間だけ・周回の間は出発地だけ） → `app/page.test.tsx`
+ * - 置ける役割が効く場所（「条件」タブを開いている間だけ） → `app/page.test.tsx`
  * - 条件を生成へ送る形 → `useRouteGeneration.test.ts`
  *
  * 差し替えたもの: 軸カタログの応答（網の層）。保存はテスト環境の`localStorage`を
  * 本物のまま使い、開き直しは同じ保存の上でフックを描き直して作る。
- *
- * 経由地の上限を超えて置かせない分岐（`placePin`の`prev.length >= max_waypoints`）は通さない: 上限に達すると置ける
- * 役割を解き、経由地の行も押せなくなる（`RouteForm/RouteForm.test.tsx`）ので、上限のあとに経由地を置く操作は作れない。
  */
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";

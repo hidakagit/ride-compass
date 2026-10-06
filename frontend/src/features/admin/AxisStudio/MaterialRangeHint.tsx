@@ -20,7 +20,7 @@ export function MaterialRangeHint({
   /** 置き場所（行内での回り込み等）は呼び出し側が足す。この部品は中身だけを持つ。 */
   className?: string;
 }) {
-  const { distribution } = useMaterialDistribution(materialId);
+  const distribution = useMaterialDistribution(materialId);
   if (!distribution?.available) return null;
   const parts = SHOWN.filter((q) => distribution.quantiles[q] !== undefined).map(
     (q) => `${q}=${distribution.quantiles[q]}`,

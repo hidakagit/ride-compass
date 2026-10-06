@@ -21,7 +21,6 @@ interface DisclosureProps {
    * 押すと開閉に巻き込まれる）。 */
   trailing?: ReactNode;
   children: ReactNode;
-  defaultOpen?: boolean;
   /** 渡すと呼ぶ側が開閉の状態を持つ（onOpenChangeと対で使う）。 */
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -40,7 +39,6 @@ export default function Disclosure({
   summary,
   trailing,
   children,
-  defaultOpen,
   open,
   onOpenChange,
   usage,
@@ -49,7 +47,7 @@ export default function Disclosure({
   const controlledProps =
     open !== undefined
       ? { value: open ? ITEM_VALUE : "", onValueChange: handleValueChange }
-      : { defaultValue: defaultOpen ? ITEM_VALUE : "", onValueChange: handleValueChange };
+      : { onValueChange: handleValueChange };
 
   const trigger = (
     <Accordion.Header className={cn("m-0 [font:inherit]", !trailing && headerClassName)}>

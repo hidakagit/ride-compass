@@ -21,18 +21,18 @@ interface PinMarkProps {
   /** 経由地の中に出す番号（地図は訪問順、パネルの行は件数）。 */
   label?: string;
   /** 出発地の印の大きさ（px）。 */
-  size?: number;
+  size: number;
   /** 出発地の印の色。 */
   color?: string;
 }
 
 /** 経由地・目的地の印は文字だけなので、地図のピンはこれを要素の文字として入れる。 */
-export function pinMarkText(role: Exclude<PinRole, "origin">, label?: string): string {
+export function pinMarkText(role: Exclude<PinRole, "origin">, label: string | undefined): string {
   return role === "destination" ? "⚑" : (label ?? "");
 }
 
 /** 印の中身。パネルの行と、地図の出発地のピン（Markerの要素へportalで差し込む）が使う。 */
-export function PinMark({ role, label, size = 20, color = ORIGIN_MARK_COLOR }: PinMarkProps) {
+export function PinMark({ role, label, size, color = ORIGIN_MARK_COLOR }: PinMarkProps) {
   if (role !== "origin") return pinMarkText(role, label);
   return (
     <span className="inline-flex" style={{ color }}>

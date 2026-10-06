@@ -62,7 +62,7 @@ describe("タイルの世代とURL", () => {
 });
 
 describe("押した道の内訳（fetchAxisInspector）", () => {
-  const CONDITIONS = { z: 15, x: 1, y: 2, bearingDeg: 0 };
+  const CONDITIONS = { z: 15, x: 1, y: 2, bearingDeg: 0, at: new Date("2026-10-01T00:30:00Z"), speedKmh: 20 };
 
   it("押した地物・重み・タイルと走行の条件を、backendの項目名で送る", async () => {
     const sent = onBackend("POST", "/api/region/axis-inspector", () => Response.json({}));
@@ -87,13 +87,15 @@ describe("押した道の内訳（fetchAxisInspector）", () => {
     });
   });
 
-  it("地物・重み・時刻・速度が無ければ、その項目を送らない（重みはbackendの既定に任せる）", async () => {
+  it("地物・重みが無ければ、その項目を送らない（重みはbackendの既定に任せる）", async () => {
     const result = { composite_difficulty: 42 };
     const sent = onBackend("POST", "/api/region/axis-inspector", () => Response.json(result));
 
     await expect(api.fetchAxisInspector(123, null, CONDITIONS, null)).resolves.toEqual(result);
 
-    expect(sent.map(({ body }) => body)).toEqual([{ osm_way_id: 123, z: 15, x: 1, y: 2, bearing_deg: 0 }]);
+    expect(sent.map(({ body }) => body)).toEqual([
+      { osm_way_id: 123, z: 15, x: 1, y: 2, bearing_deg: 0, at: "2026-10-01T00:30:00.000Z", speed_kmh: 20 },
+    ]);
   });
 });
 
