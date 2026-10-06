@@ -65,7 +65,11 @@ describe("RideConditionBar 出発時刻", () => {
   });
 
   it.each([
-    ["出発時刻で値の変わる評価があれば、その名前で", ["at", "bearing_deg"], "ルートの「評価A」の評価・到達予想の時刻に使います。"],
+    [
+      "出発時刻で値の変わる評価があれば、その名前で",
+      ["at", "bearing_deg"],
+      "ルートの「評価A」の評価・到達予想の時刻に使います。",
+    ],
     ["無ければ評価に触れずに", ["bearing_deg"], "ルートの到達予想の時刻に使います。"],
   ] as const)("出発時刻の説明は、%s何に使うかを書く", async (_case, conditions, tail) => {
     serveAxisCatalog(
