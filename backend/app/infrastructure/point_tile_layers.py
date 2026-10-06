@@ -18,7 +18,7 @@ from sqlalchemy.dialects.postgresql import ARRAY
 
 from app.domain.accident import BICYCLE_PARTY_TYPE_CODES, FATAL_SQL, bicycle_sql
 from app.domain.geo import degrees_covering_m
-from app.domain.material_catalog import stop_poi_map_group_sql
+from app.domain.primary_attributes import stop_poi_map_group_sql
 from app.domain.registry import TileKind
 from app.domain.traffic import POI_CLUSTER_EPS_M, STOP_POI_KINDS, stop_kind_sql
 from app.infrastructure.cache_identity import shape_digest

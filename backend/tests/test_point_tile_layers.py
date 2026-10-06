@@ -13,7 +13,7 @@ import dataclasses
 
 from sqlalchemy import text
 
-from app.domain.material_catalog import PRIMARY_ATTRIBUTES
+from app.domain.primary_attributes import PRIMARY_ATTRIBUTES
 from app.infrastructure.point_tile_layers import POINT_TILE_LAYERS
 from app.infrastructure.vector_tile import ROAD_SURFACE_LAYER_NAME
 

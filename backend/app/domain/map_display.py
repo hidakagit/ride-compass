@@ -8,7 +8,7 @@ from typing import Literal, NamedTuple
 
 from app.domain.gsi_tiles import TERRAIN_MIN_ZOOM
 from app.domain.landcover import LANDCOVER_CLASSES, LANDCOVER_RING_OUTER_M, LANDCOVER_TILE_MIN_ZOOM
-from app.domain.material_catalog import PRIMARY_ATTRIBUTES
+from app.domain.primary_attributes import PRIMARY_ATTRIBUTES
 from app.domain.region import ROAD_TILE_MIN_ZOOM
 from app.domain.weather_elements import WEATHER_ELEMENTS, WEATHER_LAYER_GROUPS, FrameRuleKind
 
