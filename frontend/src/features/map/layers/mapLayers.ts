@@ -51,7 +51,7 @@ export const MAP_LAYER_CATEGORY_ORDER: readonly MapLayerCategory[] = mapDisplay.
 );
 
 /** 生データか、複数の要因から計算した推定指標（合成）か、時刻で中身が変わるデータか。 */
-export type MapLayerDataNature = (typeof mapDisplay.layerDataNatures)[number];
+type MapLayerDataNature = (typeof mapDisplay.layerDataNatures)[number];
 
 /** 絞り込めない表示専用の凡例の1ブロック（配信元が色を焼き込んだラスタ等）。絞り込める凡例は`scene/legends.ts`が出す。 */
 interface ReadOnlyLegendBlock {
