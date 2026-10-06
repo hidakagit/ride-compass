@@ -401,8 +401,8 @@ Basic認証必須）はサーバー側のファイルキャッシュしか消せ
 |---|---|
 | ステータス5xx | ERROR |
 | ステータス429 | DEBUG（`record_rate_limit_rejection`が抑制付きWARNINGで別途記録するため、ここでは重ねない） |
-| ステータス4xx（429以外） | WARNING |
-| GET かつ`/api/basemap`・`/api/region/road-surface-tiles`配下（高頻度タイル取得） | DEBUG |
+| タイルの経路（`HIGH_FREQUENCY_PATH_PREFIXES`。どれもGETだけ）の成功と404（疎な格子・整備区域の外・配信前のタイルでは正常系） | DEBUG |
+| ステータス4xx（429以外。タイルの経路の404を除く） | WARNING |
 | それ以外 | INFO |
 
 未処理例外はスタックトレース付きERRORで記録してから再送出する（`HTTPException`は

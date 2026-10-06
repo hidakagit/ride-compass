@@ -1,13 +1,9 @@
 """ルーターが要求ごとに呼ぶper-IPレート制限（超過を429へ翻訳する）。"""
 
-import logging
-
 from fastapi import HTTPException, Request
 
-from app.infrastructure.debug_log import record_rate_limit_rejection
+from app.infrastructure.debug_log import log_throttled_warning, record_rate_limit_rejection
 from app.infrastructure.rate_limiter import check_rate_limit
-
-logger = logging.getLogger("ridecompass.rate_limit")
 
 
 def client_id(request: Request) -> str:
@@ -20,7 +16,9 @@ def client_id(request: Request) -> str:
     無関係なクライアントの通信量が合算される。プロキシ構成の調査に使えるよう記録する。
     """
     if request.client is None:
-        logger.warning("request.client is None; rate-limit key falls back to shared 'unknown' bucket")
+        log_throttled_warning(
+            "ratelimit:unknown-client", "request.client is None; rate-limit key falls back to shared 'unknown' bucket"
+        )
         return "unknown"
     return request.client.host
 

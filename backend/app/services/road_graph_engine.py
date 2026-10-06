@@ -796,7 +796,7 @@ class RoadGraphEngine:
             destination = _node_coordinates(context, destination_index)
             context.destination_correction = destination
             logger.warning(
-                "select_via_nodes corrected destination to nearest accessible node lat=%.5f lon=%.5f",
+                "select_via_nodes corrected destination to nearest accessible node lat=%.2f lon=%.2f",
                 destination.latitude, destination.longitude,
             )
 
@@ -1769,7 +1769,7 @@ def route_elevation_gain(edges: list[LeanEdge], elevation_by_edge: dict) -> floa
     gains = [
         attribute.elevation_gain_m
         for edge in edges
-        if (attribute := elevation_by_edge.get(edge.edge_id)) is not None and attribute.elevation_gain_m is not None
+        if (attribute := elevation_by_edge.get(edge.edge_id)) is not None
     ]
     return round(sum(gains), 1) if gains else None
 

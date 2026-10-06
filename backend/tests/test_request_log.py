@@ -49,19 +49,21 @@ def test_access_log_line_carries_the_request_id(caplog):
 
 
 @pytest.mark.parametrize(
-    ("method", "path", "status_code", "level"),
+    ("path", "status_code", "level"),
     [
-        # タイル系(高頻度)のGET成功はDEBUG、通常エンドポイントの成功はINFO。
-        ("GET", "/api/basemap/tiles/1", 200, logging.DEBUG),
-        ("GET", "/api/axis-catalog", 200, logging.INFO),
+        # タイル系(高頻度)の成功と「そのタイルは無い」404はDEBUG、通常エンドポイントの成功はINFO。
+        ("/api/basemap/tiles/1", 200, logging.DEBUG),
+        ("/api/jma-tile/bosai/jmatile/data/1.png", 404, logging.DEBUG),
+        ("/api/jma-tile-index", 200, logging.INFO),
         # 4xxはWARNING(ただし429は別途record_rate_limit_rejectionが出すためDEBUG)、5xxはERROR。
-        ("POST", "/api/routes/generate", 400, logging.WARNING),
-        ("POST", "/api/routes/generate", 429, logging.DEBUG),
-        ("GET", "/api/basemap/tiles/1", 502, logging.ERROR),
+        ("/api/gsi-terrain-tile/20/1/1.png", 400, logging.WARNING),
+        ("/api/routes/generate", 404, logging.WARNING),
+        ("/api/routes/generate", 429, logging.DEBUG),
+        ("/api/basemap/tiles/1", 502, logging.ERROR),
     ],
 )
-def test_access_level_policy(method, path, status_code, level):
-    assert access_level(method, path, status_code) == level
+def test_access_level_policy(path, status_code, level):
+    assert access_level(path, status_code) == level
 
 
 def test_unhandled_exception_logged_as_error_with_traceback(caplog):

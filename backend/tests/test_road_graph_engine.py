@@ -59,9 +59,10 @@ def lean_edge(edge_id, from_node_id="n0", to_node_id="n1", *, distance_m=100.0, 
 
 
 def elevation(edge_id, **fields):
-    """テストが名指さない欄は、値が取れなかった（None）として埋める。"""
-    missing = dict.fromkeys(ElevationAttribute.model_fields.keys() - {"edge_id"} - fields.keys())
-    return ElevationAttribute(edge_id=edge_id, **missing, **fields)
+    """テストが名指さない欄は、獲得・喪失標高は0m、勾配は値が取れなかった（None）として埋める。"""
+    ends = {"elevation_gain_m": 0.0, "elevation_loss_m": 0.0}
+    grades = dict.fromkeys(ElevationAttribute.model_fields.keys() - {"edge_id"} - ends.keys())
+    return ElevationAttribute(edge_id=edge_id, **{**ends, **grades, **fields})
 
 
 def turn_tree(state_count, *, node_cost, node_length_m, node_seconds, node_best_state):
@@ -122,12 +123,11 @@ def test_concat_edge_geometries_keeps_both_points_when_edges_do_not_touch():
 
 
 def test_route_elevation_gain_sums_only_present_values():
-    """欠損は集計の母集団から外す。"""
+    """標高の無い区間は集計の母集団から外す。"""
 
     edges = [lean_edge("e1"), lean_edge("e2"), lean_edge("e3"), lean_edge("e4")]
     attributes = {
         "e1": elevation("e1", elevation_gain_m=10.0),
-        "e2": elevation("e2", elevation_gain_m=None),
         "e4": elevation("e4", elevation_gain_m=2.0),
     }
 

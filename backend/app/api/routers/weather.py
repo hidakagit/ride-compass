@@ -1,4 +1,3 @@
-import logging
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -29,13 +28,13 @@ from app.domain.wind_grid import (
     generate_wind_grid_detail_points,
     generate_wind_grid_points,
 )
+from app.infrastructure.debug_log import log_throttled_warning
 from app.services.flood_service import FloodForecasts, FloodService
 from app.services.warning_service import WarningService, WeatherWarnings
 from app.services.wbgt_service import WbgtService, WbgtStatus
 from app.services.jma_amedas_service import JmaAmedasService
 from app.services.weather_service import WeatherService
 
-logger = logging.getLogger("ridecompass.weather")
 
 router = APIRouter()
 
@@ -132,7 +131,7 @@ def _require_grid(label: str, grid: WindGridResponse | None) -> WindGridResponse
     """読めなかった格子（MSMの同期が未完了・予報が現在時刻へ追いついていない等）は502。空の格子で返すと、
     画面は風が無いのと区別できない。"""
     if grid is None:
-        logger.warning("%s: 格子を読めませんでした（MSM未同期の可能性）", label)
+        log_throttled_warning(f"weather:{label}", "%s: 格子を読めませんでした（MSM未同期の可能性）", label)
         raise HTTPException(status_code=502, detail="気象データの取得に失敗しました")
     return grid
 

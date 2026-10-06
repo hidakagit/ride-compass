@@ -231,9 +231,8 @@ class LegCostComposer:
         # 風の時別系列があれば常に時変化合成する。風は軸（主観的な避けたさ）である前に
         # **走行モデルの入力**（向かい風で実際に遅くなる）のため、軸の重みが0でも時刻で
         # 引き直す必要がある。時間帯を持つ軸は重みがあるときだけ、通過時刻の昼夜で合成が変わる。
-        self.time_varying = wind_series is not None or any(
-            weights.get(axis_id, 0.0) > 0 for axis_id in time_scoped_axes
-        )
+        self._time_scope_weighted = any(weights.get(axis_id, 0.0) > 0 for axis_id in time_scoped_axes)
+        self.time_varying = wind_series is not None or self._time_scope_weighted
         self._cache: dict[tuple, LegCostArrays] = {}
         self._fixed_axis_sums_cache: tuple[np.ndarray, np.ndarray] | None = None
         self._travel_inputs_cache: tuple[SegmentSpeedModel, np.ndarray] | None = None
@@ -441,11 +440,15 @@ class LegCostComposer:
         当て直すために使う。時間帯を持つ軸の重みは、区間ごとの通過時刻（スナップショットは出発時刻）の昼夜で決める。"""
         take = _row_taker(rows)
         bearing = take(self._score_matrix.bearing_deg)
-        hours = np.zeros(len(bearing)) if passage is None else passage
-        weights = time_scoped_weights(
-            self._weights,
-            {"night_only": night_mask(self._twilight_origin, self.start, hours)},
-        )
+        # 時間帯を持つ軸に重みが無ければ昼夜は合成に効かないので、全区間ぶんの夜の判定を作らない
+        # （風の時別系列があると、ビンごとに走る）。
+        weights: Mapping[str, float | np.ndarray] = self._weights
+        if self._time_scope_weighted:
+            hours = np.zeros(len(bearing)) if passage is None else passage
+            weights = time_scoped_weights(
+                self._weights,
+                {"night_only": night_mask(self._twilight_origin, self.start, hours)},
+            )
         dynamic_context = DynamicAxisRequestContext(
             bearing_deg=bearing, departure_wind=self._departure_wind,
             travel_speed_ms=kmh_to_ms(self.speed_kmh),

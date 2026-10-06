@@ -10,12 +10,13 @@ from app.domain.strict_model import StrictModel
 class ElevationAttribute(StrictModel):
     """Edgeへ紐付ける標高属性。Edge本体（domain/graph.py）とは独立して保持する。
 
-    average_grade/max_grade/min_gradeは符号付き（登り=正、下り=負）。値が取れなかった欄はNone。
+    average_grade/max_grade/min_gradeは符号付き（登り=正、下り=負）。勾配は値が取れなかった欄がNone。
+    獲得・喪失標高は揃って入る（表の制約`edge_materials_elevation_all_or_none`が区間の標高の4列を揃える）。
     """
 
     edge_id: str
-    elevation_gain_m: float | None
-    elevation_loss_m: float | None
+    elevation_gain_m: float
+    elevation_loss_m: float
     average_grade: float | None
     max_grade: float | None
     min_grade: float | None

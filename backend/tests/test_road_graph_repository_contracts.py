@@ -319,10 +319,11 @@ async def test_accident_years_come_from_the_declared_profile(declared, years):
 # --- 土地被覆の内訳 -----------------------------------------------------------
 
 
-def _landcover_row(valid_pixels=100, missing: str | None = None) -> _Row:
+def _landcover_row(valid_pixels: int | None = 100) -> _Row:
+    """表が入れる形の行。割合は有効画素が正の行だけが持つ。"""
     values: dict[str, object] = {"lc_valid_pixels": valid_pixels}
     for name in LandcoverPercentages.model_fields:
-        values[f"lc_{landcover_key(name)}"] = None if name == missing else 12.5
+        values[f"lc_{landcover_key(name)}"] = 12.5 if valid_pixels else None
     return _Row(**values)
 
 
@@ -344,10 +345,9 @@ async def test_landcover_is_read_at_the_unit_the_map_paints(feature_key, segment
     assert session.params[0].get("segment_index") == segment_index
 
 
-@pytest.mark.parametrize("row", [None, _landcover_row(valid_pixels=None),
-                                 _landcover_row(missing="water_percent")])
+@pytest.mark.parametrize("row", [None, _landcover_row(valid_pixels=0)])
 async def test_incomplete_landcover_is_not_reported(row):
-    """画素が無い・割合が欠けている区間で0%と答えると、内訳が「すべて未分類」に見える。"""
+    """行が無い・有効画素が足りなかった区間で0%と答えると、内訳が「すべて未分類」に見える。"""
     repo, _ = _repo([] if row is None else [row])
 
     assert await repo.get_feature_landcover(123, None) is None
