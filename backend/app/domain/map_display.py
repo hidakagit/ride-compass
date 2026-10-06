@@ -494,7 +494,6 @@ ROUTE_LINE_WIDTHS_PX: dict[str, float] = {
     "selectedHalo": 10,
     "splice": 3,
     "composite": 7,
-    "slot": 4,
     "detail": 6,
 }
 
@@ -502,16 +501,14 @@ ROUTE_LINE_WIDTHS_PX: dict[str, float] = {
 #: 古い値で残ると、線が縁からはみ出す。
 CASING_MARGIN_PX = 4
 ROUTE_CASING_WIDTHS_PX: dict[str, float] = {
-    role: ROUTE_LINE_WIDTHS_PX[role] + CASING_MARGIN_PX for role in ("composite", "slot", "detail")
+    role: ROUTE_LINE_WIDTHS_PX[role] + CASING_MARGIN_PX for role in ("composite", "detail")
 }
 
-#: 線の濃さ（役割ごと）。候補の参考線は選んだ候補より薄く、比較スロットは下の道が透ける濃さにする。
+#: 線の濃さ（役割ごと）。候補の参考線は選んだ候補より薄くする。
 ROUTE_LINE_OPACITIES: dict[str, float] = {
     "selectedHalo": 0.25,
     "splice": 0.75,
     "candidate": 0.65,
-    "slot": 0.85,
-    "slotCasing": 0.85,
     "arrowHalo": 0.95,
 }
 

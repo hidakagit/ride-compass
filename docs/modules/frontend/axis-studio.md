@@ -45,7 +45,7 @@ APIを呼ぶ）・「データ保守」タブ（派生データ鮮度台帳の�
 | `features/admin/AxisStudio/TileCachePanel.tsx` | 「データ保守」タブの2枚目。サーバー側のタイルファイルキャッシュ（基礎地図・路面と点のタイルが共有）を全消去する操作パネル。全利用者へ影響するため入口はここだけに持つ |
 | `features/admin/AxisStudio/TuningPanel.tsx` | 「較正値」タブ本体。走ってみて決める値をデプロイなしで編集する。**並べる項目はbackendが宣言から導く**ため画面側に一覧を持たず、効き方（`effect`）ごとに見出しを分けて「変えたのに効かない」群がそれと分かるようにする。1件=1行で、説明と既定値・範囲は(i)の奥（他の管理パネルと同じ省スペースの作り）。入力は打っただけでは送らず「DBへ保存」でまとめて書き、既定と同じ値にして保存した行は上書きを消す（DBへ残るのは動かしたぶんだけ） |
 | `features/admin/useMaterialValues.ts` | `GET /api/admin/material-catalog/{material_id}/values`取得（`adminApi.ts: getMaterialValues`）。categorical材料の候補選択セレクトに使う実データ値一覧 |
-| `lib/axisMaterialsCatalog.ts` | 材料の一覧（`MATERIAL_CATALOG`。生成物`material-catalog.json`から作る）と型（`AxisMaterialOption`）、材料idを表示へ変える関数。`materialCatalogLabel`（論理名 - 物理名、軸スタジオ専用）/`materialCatalogName`（論理名だけ。カタログに無いidはundefinedで、呼び出し側はその材料を出さない）/`formatMaterialValue`。後の2つは軸スタジオ外（[ルート設定・結果パネル](route-settings-and-results.md)のComparisonPanel、`features/route/RouteOutcome/RouteOutcome.tsx`の区間クリック詳細）が`material_values`のラベル・単位表記に使う共用ヘルパー |
+| `lib/axisMaterialsCatalog.ts` | 材料の一覧（`MATERIAL_CATALOG`。生成物`material-catalog.json`から作る）と型（`AxisMaterialOption`）、材料idを表示へ変える関数（`materialCatalogLabel`: 論理名 - 物理名）・選択肢の表記（`materialOptionText`） |
 | `components/ui/icons/axisIconPalette.tsx` | 軸のアイコンの固定パレット（`icon_id`→アイコンコンポーネント） |
 | `components/ui/FieldLabel/FieldLabel.tsx` | 情報アイコン付きラベルの共有UI部品（ルート設定とも共有） |
 

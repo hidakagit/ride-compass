@@ -1,12 +1,12 @@
 /**
  * 「ルート結果」の状態（`useRouteResults.ts`）——生成した候補・編集で作ったルート・選んだルート・地図で押した区間・
- * 比較タブを見ているか・生成に使われた重みを返す。生成の結果で入れ替えると先頭を選び、編集で作ったルートは元を
+ * 生成に使われた重みを返す。生成の結果で入れ替えると先頭を選び、編集で作ったルートは元を
  * 上書きせず作った順の番号で足して選ぶ。乗り換えで作った経路と同じ道の候補は、同じ道で選んだと分かる形で選ぶ。
  * タブを選び替える・入れ替える・消すと、押した区間を外す。
  *
  * ここで見ないもの:
  * - 候補の並び（所要時間の短い順）・一覧の見出しと名前 → `useRouteGeneration.test.ts`・`routeTabLabel.test.ts`
- * - 状態の描き方（タブ・比較表・区間の詳細・元との違い） → `RouteOutcome/RouteOutcome.test.tsx`・`EditDifference/EditDifference.test.tsx`
+ * - 状態の描き方（タブ・区間の詳細・元との違い） → `RouteOutcome/RouteOutcome.test.tsx`・`EditDifference/EditDifference.test.tsx`
  * - 生成・乗り換えの結果を入れる受け渡しと、地図に描くルート → `app/page.test.tsx`
  *
  * 編集の元が一覧に無いとき（`selectedEdit.origin`がnull）は通さない: 編集は一覧にあるルートからしか作れず、一覧を
@@ -18,7 +18,7 @@ import { describe, expect, it } from "vitest";
 import { makeRouteCandidate } from "@/testing/routeFixtures";
 import type { RouteCandidate, SelectedRouteSegment } from "@/types/route";
 
-import { COMPARISON_TAB, useRouteResults } from "./useRouteResults";
+import { useRouteResults } from "./useRouteResults";
 
 const WEIGHTS = { axis_a: 0.3, axis_b: 0.7 };
 
@@ -63,11 +63,10 @@ function pressSegment(rendered: Rendered) {
 }
 
 describe("生成の結果", () => {
-  it("一覧を入れ替えて先頭を選び、使われた重みを持つ。編集で作ったルート・比較タブ・押した区間は外す", () => {
+  it("一覧を入れ替えて先頭を選び、使われた重みを持つ。編集で作ったルート・押した区間は外す", () => {
     const rendered = renderResults();
     generated(rendered);
     act(() => rendered.result.current.addEdit(SPLICED, "r1"));
-    act(() => rendered.result.current.selectTab(COMPARISON_TAB));
     pressSegment(rendered);
     const next = makeRouteCandidate({ id: "r3" });
 
@@ -76,7 +75,6 @@ describe("生成の結果", () => {
     const { result } = rendered;
     expect(result.current.routes).toEqual([next, FIRST]);
     expect(result.current.selectedCandidate).toEqual(next);
-    expect(result.current.comparisonTabActive).toBe(false);
     expect(result.current.selectedRouteSegment).toBeNull();
     expect(result.current.usedWeights).toEqual({ axis_a: 1 });
   });
@@ -94,20 +92,13 @@ describe("生成の結果", () => {
 });
 
 describe("選ぶ", () => {
-  it("比較タブを見ている間も選んだ候補を保ち、候補のタブへ切り替えるとそれを選ぶ。どちらへ切り替えても押した区間は外す", () => {
+  it("候補のタブへ切り替えるとそれを選び、押した区間は外す", () => {
     const rendered = renderResults();
     generated(rendered);
     act(() => rendered.result.current.selectTab("r2"));
     pressSegment(rendered);
 
-    act(() => rendered.result.current.selectTab(COMPARISON_TAB));
-    expect(rendered.result.current.comparisonTabActive).toBe(true);
-    expect(rendered.result.current.selectedCandidate).toEqual(SECOND);
-    expect(rendered.result.current.selectedRouteSegment).toBeNull();
-
-    pressSegment(rendered);
     act(() => rendered.result.current.selectTab("r1"));
-    expect(rendered.result.current.comparisonTabActive).toBe(false);
     expect(rendered.result.current.selectedCandidate).toEqual(FIRST);
     expect(rendered.result.current.selectedRouteSegment).toBeNull();
   });
@@ -122,10 +113,9 @@ describe("選ぶ", () => {
     expect(rendered.result.current.hasDetail).toBe(true);
   });
 
-  it("編集で作ったルートは元を上書きせず、作った順の番号のidで足して選び、押した区間を外す。比較タブと使われた重みは変えない", () => {
+  it("編集で作ったルートは元を上書きせず、作った順の番号のidで足して選び、押した区間を外す。使われた重みは変えない", () => {
     const rendered = renderResults();
     generated(rendered);
-    act(() => rendered.result.current.selectTab(COMPARISON_TAB));
     pressSegment(rendered);
 
     act(() => rendered.result.current.addEdit(SPLICED, "r2"));
@@ -138,7 +128,6 @@ describe("選ぶ", () => {
     expect(result.current.selectedCandidate).toEqual(first);
     expect(result.current.selectedEdit).toEqual({ route: first, originId: "r2", number: 1, origin: SECOND });
     expect(result.current.selectedRouteSegment).toBeNull();
-    expect(result.current.comparisonTabActive).toBe(true);
     expect(result.current.usedWeights).toEqual(WEIGHTS);
   });
 
@@ -176,10 +165,9 @@ describe("選ぶ", () => {
     expect(rendered.result.current.selectedRouteId).toBe("spliced-1");
   });
 
-  it("乗り換えで作った経路と同じ道の候補は、選んで比較タブと押した区間を外し、同じ道で選んだと返す。選び直すと返さない", () => {
+  it("乗り換えで作った経路と同じ道の候補は、選んで押した区間を外し、同じ道で選んだと返す。選び直すと返さない", () => {
     const rendered = renderResults();
     generated(rendered);
-    act(() => rendered.result.current.selectTab(COMPARISON_TAB));
     pressSegment(rendered);
 
     act(() => rendered.result.current.selectReused("r2"));
@@ -187,7 +175,6 @@ describe("選ぶ", () => {
     const { result } = rendered;
     expect(result.current.selectedCandidate).toEqual(SECOND);
     expect(result.current.reusedRouteId).toBe("r2");
-    expect(result.current.comparisonTabActive).toBe(false);
     expect(result.current.selectedRouteSegment).toBeNull();
 
     act(() => result.current.selectTab("r2"));
@@ -196,11 +183,10 @@ describe("選ぶ", () => {
 });
 
 describe("消す", () => {
-  it("候補・編集で作ったルート・選択・押した区間・比較タブ・使われた重みを消す", () => {
+  it("候補・編集で作ったルート・選択・押した区間・使われた重みを消す", () => {
     const rendered = renderResults();
     generated(rendered);
     act(() => rendered.result.current.addEdit(SPLICED, "r1"));
-    act(() => rendered.result.current.selectTab(COMPARISON_TAB));
     pressSegment(rendered);
 
     act(() => rendered.result.current.clear());
@@ -209,7 +195,6 @@ describe("消す", () => {
     expect(result.current.routes).toEqual([]);
     expect(result.current.selectedRouteId).toBeNull();
     expect(result.current.selectedRouteSegment).toBeNull();
-    expect(result.current.comparisonTabActive).toBe(false);
     expect(result.current.usedWeights).toBeNull();
   });
 });

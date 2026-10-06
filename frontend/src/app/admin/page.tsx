@@ -5,7 +5,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs/T
 import BackendStatus from "@/features/admin/BackendStatus/BackendStatus";
 import DebugPanel from "@/features/admin/DebugPanel/DebugPanel";
 import BackendLogsPanel from "@/features/admin/BackendLogsPanel/BackendLogsPanel";
-import ResearchPanel from "@/features/admin/ResearchPanel/ResearchPanel";
 import SystemStatusPanel from "@/features/admin/SystemStatusPanel/SystemStatusPanel";
 import AxisStudio from "@/features/admin/AxisStudio/AxisStudio";
 import MaterialCoveragePanel from "@/features/admin/AxisStudio/MaterialCoveragePanel";
@@ -20,7 +19,7 @@ import { textVariants } from "@/components/ui/Text/Text";
 import { cn } from "@/lib/cn";
 import { cardVariants } from "@/components/ui/Card/Card";
 
-// 軸スタジオ・研究モード・開発者向け機能をまとめた独立URLの管理画面。一般向けメイン
+// 軸スタジオ・開発者向け機能をまとめた独立URLの管理画面。一般向けメイン
 // ページ（/）とはURLレベルで分離しており、権限制御はこのルーティング境界
 // （src/proxy.ts、matcher: ["/admin","/admin/:path*"]）にHTTP Basic認証として敷いている
 // （環境変数ADMIN_BASIC_AUTH_USERNAME/PASSWORD未設定時は常に到達不可）。
@@ -30,7 +29,7 @@ export default function AdminPage() {
 
   return (
     <div className="mx-auto flex w-full min-w-0 max-w-3xl flex-col gap-4 p-4">
-      <h1 className={textVariants({ variant: "title" })}>軸スタジオ・研究/開発者ツール</h1>
+      <h1 className={textVariants({ variant: "title" })}>軸スタジオ・開発者ツール</h1>
 
       <Tabs className="flex flex-col gap-3" defaultValue="axisStudio">
         <TabsList>
@@ -38,7 +37,6 @@ export default function AdminPage() {
           <TabsTrigger value="materials">材料</TabsTrigger>
           <TabsTrigger value="tuning">較正値</TabsTrigger>
           <TabsTrigger value="maintenance">データ保守</TabsTrigger>
-          <TabsTrigger value="research">研究</TabsTrigger>
           <TabsTrigger value="developer">開発者</TabsTrigger>
         </TabsList>
 
@@ -58,10 +56,6 @@ export default function AdminPage() {
           <DerivedDataFreshnessPanel />
           <DbStatusPanel />
           <TileCachePanel />
-        </TabsContent>
-
-        <TabsContent className={cn(cardVariants({ variant: "outline" }), "flex flex-col gap-3")} value="research">
-          <ResearchPanel />
         </TabsContent>
 
         <TabsContent className={cn(cardVariants({ variant: "outline" }), "flex flex-col gap-3")} value="developer">

@@ -4,9 +4,6 @@ import { useCallback, useMemo, useRef, useState } from "react";
 
 import type { RouteCandidate, RoutePreferenceWeights, SelectedRouteSegment } from "@/types/route";
 
-/** 「ルート結果」の比較タブの値（候補のタブの値は候補のid）。 */
-export const COMPARISON_TAB = "comparison";
-
 const NO_SELECTION = { routeId: null, reused: false };
 
 /** 合成で作ったルートのidの頭。作った順の番号を足して、同じ生成の中で重ならないようにする。 */
@@ -22,8 +19,8 @@ export interface EditedRoute {
 }
 
 /**
- * 「ルート結果」の状態: 生成した候補・編集で作ったルート・選んだルート・地図で押した区間・比較タブを見ているか・
- * 生成に使われた重み。生成と区間の乗り換えが結果を入れ、「ルート結果」の部品と地図が読む。
+ * 「ルート結果」の状態: 生成した候補・編集で作ったルート・選んだルート・地図で押した区間・生成に使われた重み。
+ * 生成と区間の乗り換えが結果を入れ、「ルート結果」の部品と地図が読む。
  */
 export function useRouteResults() {
   const [generated, setGenerated] = useState<RouteCandidate[]>([]);
@@ -37,8 +34,6 @@ export function useRouteResults() {
   // 地図で押した区間。ある間、「ルート結果」はルート全体の代わりにこの区間の内訳を出す。候補を切り替える・
   // 作り直す・消すと外す（別の候補の区間を指したまま残らない）。
   const [selectedRouteSegment, setSelectedRouteSegment] = useState<SelectedRouteSegment | null>(null);
-  // 「比較」タブを見ているか。選んだ候補は比較を見ている間も保ち、戻ったときにそのまま選ばれている。
-  const [comparisonTabActive, setComparisonTabActive] = useState(false);
   // 生成に使われた重み（利用者の重みは生成後も変わりうる）。
   const [usedWeights, setUsedWeights] = useState<RoutePreferenceWeights | null>(null);
 
@@ -48,8 +43,6 @@ export function useRouteResults() {
     setEdits([]);
     nextEditNumber.current = 1;
     setSelection({ routeId: generated[0]?.id ?? null, reused: false });
-    // 比較を開いたまま生成したら新しい候補へ戻す（比較表が残ると、生成が効かなかったように見える）。
-    setComparisonTabActive(false);
     // 候補が入れ替わると、押していた区間も意味を失う。
     setSelectedRouteSegment(null);
     setUsedWeights(routePreference);
@@ -70,26 +63,19 @@ export function useRouteResults() {
     setEdits([]);
     nextEditNumber.current = 1;
     setSelection(NO_SELECTION);
-    setComparisonTabActive(false);
     setUsedWeights(null);
     setSelectedRouteSegment(null);
   }, []);
 
-  /** 候補のタブか比較タブを選ぶ。どちらでも押していた区間は外す。 */
-  const selectTab = useCallback((value: string) => {
+  /** 候補のタブを選ぶ。押していた区間は外す。 */
+  const selectTab = useCallback((routeId: string) => {
     setSelectedRouteSegment(null);
-    if (value === COMPARISON_TAB) {
-      setComparisonTabActive(true);
-    } else {
-      setComparisonTabActive(false);
-      setSelection({ routeId: value, reused: false });
-    }
+    setSelection({ routeId, reused: false });
   }, []);
 
   /** 乗り換えで作った経路が既にある候補と同じ道だったので、足さずにその候補を選ぶ。 */
   const selectReused = useCallback((routeId: string) => {
     setSelectedRouteSegment(null);
-    setComparisonTabActive(false);
     setSelection({ routeId, reused: true });
   }, []);
 
@@ -115,7 +101,6 @@ export function useRouteResults() {
     hasDetail: (selectedCandidate?.segments.length ?? 0) > 0,
     selectedRouteSegment,
     selectSegment: setSelectedRouteSegment,
-    comparisonTabActive,
     usedWeights,
     replaceWithGenerated,
     addEdit,

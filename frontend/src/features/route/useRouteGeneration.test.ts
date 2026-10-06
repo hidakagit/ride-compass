@@ -1,7 +1,7 @@
 /**
  * ルート生成（`useRouteGeneration.ts`）——押した「生成」を検証して、いまの条件からbackendへ要求を送り、実行中の進み方・
- * 直近の案内（候補0件の理由・失敗の文言・入力の誤り）・表示中の候補を作った条件といまの条件のずれ・研究モードの実験
- * スロットを返す。結果は所要時間の短い順に並べて渡し、押した1回の結果の種類（新しい結果か失敗か）を知らせる。
+ * 直近の案内（候補0件の理由・失敗の文言・入力の誤り）・表示中の候補を作った条件といまの条件のずれを返す。結果は
+ * 所要時間の短い順に並べて渡し、押した1回の結果の種類（新しい結果か失敗か）を知らせる。
  *
  * ここで見ないもの:
  * - 検証の文言の中身と、目的地モードで地点が無いときの検証 → `RouteForm/useRouteFormSubmit.test.ts`
@@ -20,12 +20,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_HARD_FILTERS } from "@/features/route/RouteSettingsPanel/HardFilterPanel";
 import { LENS_DIFFICULTY_ID, LENS_NONE_ID } from "@/lib/mapDisplay/routeStyleModes";
-import { setResearchEnabled } from "@/lib/researchMode";
 import { heldReplies, onBackend } from "@/testing/backendServer";
 import { catalogEntry, catalogResponse } from "@/testing/catalogAxes";
 import { serveGenerationJobs } from "@/testing/generationJobs";
 import { makeRouteCandidate } from "@/testing/routeFixtures";
-import { EXPERIMENT_SLOT_COLORS, MAX_EXPERIMENT_SLOTS } from "@/types/experimentSlot";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import type { Coordinates, GenerationConditions, RouteCandidate } from "@/types/route";
 
@@ -125,7 +123,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  setResearchEnabled(false);
   vi.useRealTimers();
 });
 
@@ -266,7 +263,7 @@ describe("進み方", () => {
 });
 
 describe("生成の結果", () => {
-  it("候補を所要時間の短い順に並べ、生成に使われた重みと一緒に渡して新しい結果として知らせる。案内・目的地の補正・研究モードでない生成の実験スロットは出さない", async () => {
+  it("候補を所要時間の短い順に並べ、生成に使われた重みと一緒に渡して新しい結果として知らせる。案内・目的地の補正は出さない", async () => {
     const rendered = renderGeneration();
     respond([route("slow", 3600), route("fast", 1800)], used({ route_preference: { axis_a: 1 } }));
 
@@ -277,7 +274,6 @@ describe("生成の結果", () => {
     expect(rendered.result.current.generation.failure).toBeNull();
     expect(rendered.result.current.generation.lastMessage).toBeUndefined();
     expect(rendered.result.current.generation.destinationCorrected).toBe(false);
-    expect(rendered.result.current.generation.experimentSlots).toEqual([]);
   });
 
   it.each([
@@ -407,35 +403,6 @@ describe("条件のずれ", () => {
   });
 });
 
-describe("実験スロット", () => {
-  it("研究モードの生成を新しい順に上限まで残し、代表はbackendの並びの先頭、色は並びの位置で決める。候補0件は残さない", async () => {
-    setResearchEnabled(true);
-    const rendered = renderGeneration();
-    const runs = Array.from({ length: MAX_EXPERIMENT_SLOTS + 1 }, (_, i) => ({
-      conditions: used({ generated_at: `2026-10-04T09:0${i}:00Z` }),
-      // backendの並び（難易度の低い順）の先頭を、所要時間では後ろになる候補にする。
-      top: route(`top-${i}`, 3600),
-    }));
-    for (const run of runs) {
-      respond([run.top, route("fast", 1800)], run.conditions);
-      await submit(rendered);
-    }
-    respond([], used());
-    await submit(rendered);
-
-    const slots = rendered.result.current.generation.experimentSlots;
-    expect(slots.map((slot) => slot.topCandidate.id)).toEqual(
-      runs
-        .slice(-MAX_EXPERIMENT_SLOTS)
-        .reverse()
-        .map((run) => run.top.id),
-    );
-    expect(slots[0].conditions).toEqual(runs.at(-1)?.conditions);
-    expect(slots.map((slot) => slot.color)).toEqual(EXPERIMENT_SLOT_COLORS.slice(0, MAX_EXPERIMENT_SLOTS));
-    expect(new Set(slots.map((slot) => slot.id)).size).toBe(MAX_EXPERIMENT_SLOTS);
-  });
-});
-
 describe("消す", () => {
   it("案内を消す。実行中は何もしない", async () => {
     const rendered = renderGeneration();
@@ -454,8 +421,7 @@ describe("消す", () => {
     expect(rendered.result.current.generation.running).toBe(true);
   });
 
-  it("生成の結果（作った条件・補正・既定の配分・実験スロット・案内）を消す", async () => {
-    setResearchEnabled(true);
+  it("生成の結果（作った条件・補正・既定の配分・案内）を消す", async () => {
     const rendered = renderGeneration();
     act(() => rendered.result.current.conditions.setWeightOverrideEnabled(true));
     act(() => rendered.result.current.conditions.changeRouteMode("destination"));
@@ -471,7 +437,6 @@ describe("消す", () => {
     expect(generation.generatedInput).toBeNull();
     expect(generation.destinationCorrected).toBe(false);
     expect(generation.weightsNotApplied).toBe(false);
-    expect(generation.experimentSlots).toEqual([]);
     expect(generation.failure).toBeNull();
   });
 });

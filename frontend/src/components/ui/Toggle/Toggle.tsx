@@ -11,7 +11,7 @@ import { cn } from "@/lib/cn";
 // 押下状態は呼び出し側が`pressed`で完全に持ち、`onClick`で変える（`onPressedChange`を使わない）。
 // `<summary>`の中に置く呼び出し側が`event.preventDefault()`で親のdetails開閉を止めることがあり、
 // Radixは既定動作を止められたイベントでは内部の切り替えを飛ばすため。
-export const toggleVariants = cva(
+const toggleVariants = cva(
   "inline-flex shrink-0 cursor-pointer items-center justify-center gap-1 whitespace-nowrap border transition-colors disabled:cursor-default disabled:text-[var(--color-neutral)]",
   {
     variants: {

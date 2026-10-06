@@ -7,15 +7,14 @@
  *   作った経路と同じ道だったので選んだ候補の知らせと、その行を見える位置へ出すこと
  * - 候補の一覧: 一番上の列の見出し、群（最速・生成した候補・合成）の間の区切りの線と名前の列の印（意味を読み上げの
  *   名前に持つ）、行に出す名前・距離・基準線の所要時間・ほかの候補の基準線との差・総合難易度（無ければ「—」）、
- *   選ばれているタブ（選んだ候補・無ければ先頭・比較を見ている間は比較）と、タブを押したときに上がる操作
+ *   選ばれているタブ（選んだ候補・無ければ先頭）と、タブを押したときに上がる操作
  * - 選んだ候補の中身: 合成（始められるときだけ）・GPXの操作、編集で作ったルートの「元との違い」の元と名前、
  *   道のりのグラフ（横軸・押した区間・動かして選ぶこと）、区間を押している間の地点・到達予想・解除・
- *   区間の総合難易度（全部0なら0であることの文）・風・内訳（チップから開く軸の詳細を含む）と研究モードの材料の値、
+ *   区間の総合難易度（全部0なら0であることの文）・風・内訳（チップから開く軸の詳細を含む）、
  *   押していない間の内訳、編集中は編集面だけを出し、同じ道の候補を一覧の名前で渡すこと
- * - 研究モードの比較タブと、比較表に並ぶ軸（どれかの回で重みが0より大きかった軸）
  *
  * ここで見ないもの: 一覧の並び・群・名前・基準線と差の決め方 → `features/route/routeTabLabel.ts`。
- * 結果の状態の移り変わり → `features/route/useRouteResults.ts`。子の部品（比較表・道のりのグラフ・内訳・寄与の帯・
+ * 結果の状態の移り変わり → `features/route/useRouteResults.ts`。子の部品（道のりのグラフ・内訳・寄与の帯・
  * 元との違い・区間の風・編集面）は本物を描き、ここでは受け渡し（親の値が子のどこに出るか・子の操作で親の何が変わるか）
  * だけを見る。子が値をどう描くか（書式・並び・空のときの案内）は各部品のテストが見る。値を子・文へそのまま渡すだけの所
  * （内訳の生値・材料の値・所要の前提の知らせ・内訳に渡す重み・GPXの使い方の点の上限等）は1行の委譲なので見ない。
@@ -31,13 +30,10 @@ import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { downloadGpx } from "@/features/route/gpxExport";
-import { COMPARISON_TAB, type EditedRoute, type RouteResults } from "@/features/route/useRouteResults";
-import { MATERIAL_CATALOG } from "@/lib/axisMaterialsCatalog";
-import { setResearchEnabled } from "@/lib/researchMode";
+import type { EditedRoute, RouteResults } from "@/features/route/useRouteResults";
 import { serveAxisCatalog } from "@/testing/backendServer";
 import { catalogEntry, catalogOf, catalogResponse } from "@/testing/catalogAxes";
-import { makeGenerationConditions, makeRouteCandidate, makeRouteSegment } from "@/testing/routeFixtures";
-import type { ExperimentSlot } from "@/types/experimentSlot";
+import { makeRouteCandidate, makeRouteSegment } from "@/testing/routeFixtures";
 import type { RouteCandidate, RouteSegmentDetail, SelectedRouteSegment } from "@/types/route";
 import RouteOutcome from "./RouteOutcome";
 
@@ -58,7 +54,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  setResearchEnabled(false);
   vi.clearAllMocks();
 });
 
@@ -75,10 +70,7 @@ const SLOW = route("slow", { distance_km: 20, estimated_duration_seconds: 2520, 
 
 function resultsOf(
   state: Partial<
-    Pick<
-      RouteResults,
-      "generated" | "edits" | "selectedRouteId" | "reusedRouteId" | "comparisonTabActive" | "selectedRouteSegment"
-    >
+    Pick<RouteResults, "generated" | "edits" | "selectedRouteId" | "reusedRouteId" | "selectedRouteSegment">
   > = {},
 ): RouteResults {
   const generated = state.generated ?? [];
@@ -98,7 +90,6 @@ function resultsOf(
     hasDetail: (selectedCandidate?.segments.length ?? 0) > 0,
     selectedRouteSegment: state.selectedRouteSegment ?? null,
     selectSegment: vi.fn(),
-    comparisonTabActive: state.comparisonTabActive ?? false,
     usedWeights: null,
     replaceWithGenerated: vi.fn(),
     addEdit: vi.fn(),
@@ -119,7 +110,6 @@ function generationOf(overrides: Partial<Generation> = {}): Generation {
     conditionsDirty: false,
     weightsNotApplied: false,
     destinationCorrected: false,
-    experimentSlots: [],
     ...overrides,
   };
 }
@@ -397,30 +387,6 @@ describe("選んだ候補の中身", () => {
     expect(results.selectSegment).toHaveBeenCalledWith(null);
   });
 
-  it("研究モードの間だけ、区間の材料の値を名前を引けるものだけ並べる", () => {
-    const known = MATERIAL_CATALOG[0];
-    const selected = segmentSelection({ material_values: { [known.id]: 1.5, not_a_material: 2 } });
-    const { unmount } = render(
-      <RouteOutcome
-        results={resultsOf({ generated: [FAST], selectedRouteSegment: selected })}
-        generation={generationOf()}
-        splice={{ canStart: false, start: vi.fn(), panel: null }}
-        routeWeights={{}}
-      />,
-    );
-    // 材料の値の行は「名前: 値」の文を自分で持つ（内訳のチップの行は文を持たない）。
-    const materialLines = () =>
-      screen.queryAllByText((content, element) => element?.tagName === "LI" && content !== "");
-    expect(materialLines()).toHaveLength(0);
-    unmount();
-
-    setResearchEnabled(true);
-    renderOutcome({ results: resultsOf({ generated: [FAST], selectedRouteSegment: selected }) });
-    const lines = materialLines();
-    expect(lines).toHaveLength(1);
-    expect(lines[0].textContent?.startsWith(`${known.name}: 1.5`)).toBe(true);
-  });
-
   it("編集している間は、一覧の代わりに編集面だけを出し、同じ道の候補は一覧の名前で渡す", () => {
     const panel: Splice["panel"] = {
       displayed: { ...FAST, edge_ids: ["e1"] },
@@ -446,60 +412,5 @@ describe("選んだ候補の中身", () => {
     expect(screen.getByRole("region", { name: "区間の乗り換え" })).toBeInTheDocument();
     expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
     expect(screen.getByText("この組み合わせは「2」と同じ道です")).toBeInTheDocument();
-  });
-});
-
-describe("研究モードの比較", () => {
-  /** 回が無い間の比較表の案内。 */
-  const COMPARISON_GUIDE = /その回の結果がここへ積まれます/;
-
-  function slot(id: string, routePreference: Record<string, number>): ExperimentSlot {
-    return {
-      id,
-      color: "",
-      conditions: makeGenerationConditions({ route_preference: routePreference }),
-      topCandidate: route(id, { axis_difficulties: { axis_a: 10, axis_b: 20, axis_c: 30 } }),
-    };
-  }
-
-  it("研究モードでなければ比較タブを出さない", () => {
-    renderOutcome({ results: resultsOf({ generated: [FAST] }) });
-    expect(screen.queryByRole("tab", { name: "比較" })).not.toBeInTheDocument();
-    expect(screen.queryByText(COMPARISON_GUIDE)).not.toBeInTheDocument();
-  });
-
-  it("比較タブを末尾に出し、開いていない間も比較表を描いておく", () => {
-    setResearchEnabled(true);
-    renderOutcome({ results: resultsOf({ generated: [FAST] }) });
-    const tabs = screen.getAllByRole("tab");
-    expect(tabs.at(-1)).toHaveTextContent("比較");
-    expect(tabs.at(-1)).toHaveAttribute("aria-selected", "false");
-    expect(screen.getByText(COMPARISON_GUIDE)).toBeInTheDocument();
-  });
-
-  it("比較を見ている間は、選んだ候補ではなく比較タブが選ばれている", () => {
-    setResearchEnabled(true);
-    renderOutcome({ results: resultsOf({ generated: [FAST], selectedRouteId: "fast", comparisonTabActive: true }) });
-    expect(screen.getByRole("tab", { name: "比較" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("tab", { name: /^1 / })).toHaveAttribute("aria-selected", "false");
-  });
-
-  it("比較タブを押すと、比較タブの選択を上げる", async () => {
-    setResearchEnabled(true);
-    const { results } = renderOutcome({ results: resultsOf({ generated: [FAST] }) });
-    await userEvent.click(screen.getByRole("tab", { name: "比較" }));
-    expect(results.selectTab).toHaveBeenCalledWith(COMPARISON_TAB);
-  });
-
-  it("比較表には、どれかの回で重みが0より大きかった軸だけを並べる", async () => {
-    setResearchEnabled(true);
-    const slots = [slot("one", { axis_a: 0.5, axis_b: 0 }), slot("two", { axis_c: 0.2 })];
-    renderOutcome({
-      results: resultsOf({ generated: [FAST], comparisonTabActive: true }),
-      generation: generationOf({ experimentSlots: slots }),
-    });
-    expect(await screen.findByRole("rowheader", { name: "軸A" })).toBeInTheDocument();
-    expect(screen.getByRole("rowheader", { name: "軸C" })).toBeInTheDocument();
-    expect(screen.queryByRole("rowheader", { name: "軸B" })).not.toBeInTheDocument();
   });
 });

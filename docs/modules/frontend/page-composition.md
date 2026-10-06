@@ -4,8 +4,7 @@
 
 `app/page.tsx`がアプリのコンポジションルート。地図（`MapView`）・ルート設定/
 結果パネル（`RouteSettingsPanel`・`RouteForm`・`RouteAxisProfile`）・地図
-オーバーレイ制御（`MapOverlayControls`）・研究モードの比較表
-（`ComparisonPanel`）を1つのReactツリーへ束ねる。**`page.tsx`が持つのは画面の枠（どの区分・シートを開いているか）と、
+オーバーレイ制御（`MapOverlayControls`）を1つのReactツリーへ束ねる。**`page.tsx`が持つのは画面の枠（どの区分・シートを開いているか）と、
 機能の間の値の受け渡しだけ**で、機能の状態の遷移・入力の組み立て・描く中身の判断はその機能のフック・部品が持つ
 （[ディレクトリ構成](../../architecture/directory-layout.md)の`app/`の約束）——機能は互いを読まないため、ある機能の状態を
 別の機能へ渡す（ルートの候補を地図へ等）のはページの仕事として残る。Next.jsのApp Router
@@ -213,8 +212,7 @@ backendも日本時間で扱う。`domain/time_zone.py`）。暦と時刻の取�
 | 地図本体 | `features/map/MapView/MapView`（全静的/動的レイヤーのMapLibre実装本体） |
 | 地図オーバーレイ制御 | `MapOverlayControls`（地図上チップ）・`TravelBearingControl`（走行方位ダイヤルの地図右上アイコン）・`LensControl`（地図上部中央のレンズ選択ピル）・`RideConditionBar`（走行方位アイコン直下、地図右上の走行条件アイコン列、出発時刻・想定速度） |
 | ルート設定 | `RouteForm`（モード切替/距離/候補件数/生成ボタン）・`RouteSettingsPanel`（0次除外・軸選択・重み） |
-| ルート結果 | `features/route/RouteOutcome/RouteOutcome.tsx`（「ルート結果」の中身: 空の状態・候補の一覧［縦タブ］・候補の操作・区間の詳細・比較・編集面）・`RouteAxisProfile`（候補ごとのタブの中身、軸別難易度） |
-| 研究モード | `ComparisonPanel`（実験スロット比較表） |
+| ルート結果 | `features/route/RouteOutcome/RouteOutcome.tsx`（「ルート結果」の中身: 空の状態・候補の一覧［縦タブ］・候補の操作・区間の詳細・編集面）・`RouteAxisProfile`（候補ごとのタブの中身、軸別難易度） |
 | レイアウト | `BottomSheet`（モバイル下部シート） |
 
 ## page.tsxの状態管理
@@ -227,8 +225,8 @@ backendも日本時間で扱う。`domain/time_zone.py`）。暦と時刻の取�
 `page.tsx`は変わらない。**区間の乗り換え**は`features/route/useSpliceSession.ts`が持ち、`page.tsx`は
 候補の一覧と生成の入力を渡して、地図へ渡す値と編集面へ渡す値を受け取る。
 **生成の条件**（「ルート設定」の入力）は`features/route/useGenerationConditions.ts`、**生成**（送信・進み方・案内・
-条件のずれ・実験スロット）は`features/route/useRouteGeneration.ts`、**走行条件**は`features/conditions/useRideConditions.ts`が持つ。
-**結果**（候補・選択・地図で押した区間・比較タブ・生成に使われた重み）は`features/route/useRouteResults.ts`が持ち、
+条件のずれ）は`features/route/useRouteGeneration.ts`、**走行条件**は`features/conditions/useRideConditions.ts`が持つ。
+**結果**（候補・選択・地図で押した区間・生成に使われた重み）は`features/route/useRouteResults.ts`が持ち、
 結果・生成・乗り換えの3つは`features/route/useRoutePlanner.ts`がつなぐ（作った候補を結果へ入れる・全消去で両方を消す等。
 `page.tsx`はこの1つを呼び、出来事は1本の`onOutcome`で受ける）。地図のレンズは生成の送信の引数で渡すので、ルートの機能は
 地図の見え方を読まず、地図の見え方がルートの機能の値（候補を選んだか・「未使用」を分ける重み）を読む一方向になる。「ルート結果」の中身は`features/route/RouteOutcome/RouteOutcome.tsx`が結果・生成・乗り換えの値から描く。
@@ -334,8 +332,7 @@ localStorageへの保存・復元を1箇所に集約する。
 毎回初期化し、ルート設定パネルが操作する評価の設定（重み・0次除外）は保存する——同じ
 パネルに並ぶ設定の片方だけが消えると、利用者は何が残るかを予測できない。
 
-Reactの外（モジュール評価時に初期値を決めるシングルトン。`lib/debugLog.ts`・
-`lib/researchMode.ts`）は`useStoredState`を使えないため、`lib/safeStorage.ts`の
+Reactの外（モジュール評価時に初期値を決めるシングルトン。`lib/debugLog.ts`）は`useStoredState`を使えないため、`lib/safeStorage.ts`の
 `readStoredValue`/`writeStoredValue`を通す。サイトデータを全面ブロックした環境では
 `getItem`/`setItem`ではなく`window.localStorage`のゲッター自体がSecurityErrorを投げ、
 モジュール評価時にこれを浴びると例外を受け止める場所が無く、そのモジュールを読む
@@ -451,8 +448,7 @@ propでヘッダ右側・閉じるボタンの手前へ要素を差し込む（�
 生成された後は、Radix Tabs（`@radix-ui/react-tabs`）1段のフラットなタブ列を描画する。生成した候補の並び順は
 **最速の印の1本が先頭、残りは所要時間の短い順**（`routeTabLabel.ts: orderGenerated`。同着は受け取った並び＝backendの総合難易度の昇順を保つ）。
 生成の結果を受け取ったときに並べ直してから`useRouteResults.ts: generated`へ入れるので、一覧・最初に
-選ぶ候補（先頭＝最速の1本か、最も早く着く候補）・行の番号が同じ並びになる。研究モードの実験スロットの代表だけは、backendの並びの
-先頭（総合難易度が最小）を使う。
+選ぶ候補（先頭＝最速の1本か、最も早く着く候補）・行の番号が同じ並びになる。
 **一覧の並び・群・名前は`routeTabLabel.ts: routeListEntries`が決める**。並びは最速ルート → 生成した候補 → 合成ルートで、
 最速ルートはbackendが最速の印を付けた1本（経由地の無い目的地ルートの生成で、所要時間だけで探した1本）で、先頭に置く
 （比べる基準の1本が合成の前後で動かずに一番上にある）。群・名前・最速は候補の種類（`kind`）と印だけで決め、idの文字列や
@@ -464,20 +460,15 @@ propでヘッダ右側・閉じるボタンの手前へ要素を差し込む（�
 列の見出し（km・時間・難易度）を1行だけ置き、行は名前・距離（kmを書かない）・時間・総合難易度の数値（算出できなかった候補は
 「—」）の列にそろえる——タブを開かずに候補どうしを見比べられるようにするため。列は一覧全体の格子（行は`subgrid`）で
 そろえ、一覧の幅は列が折り返さずに収まる最小にする。経由地
-地を通る1本（種類`waypoints`。目的地の有無を問わない）は常に1件で順位の概念が無いため、番号の代わりにbackendが付けた
+を通る1本（種類`waypoints`。目的地の有無を問わない）は常に1件で順位の概念が無いため、番号の代わりにbackendが付けた
 direction_label[「経由地ルート」「目的地ルート」]をそのまま表示する。
 基準線（上の時間の列の基準。`durationBaseline`）の時間の列には
 その所要時間を、他の候補には基準線との差[`+12分`・`−3分`]を出す
 [`features/route/routeTabLabel.ts`]——軸設定に沿ったルートを走る対価であり、候補を見比べる
-タブ列に無いと比較のたびにタブを開き直すことになるため）＋「比較」
-（`ComparisonPanel`、`researchEnabled`の間だけ末尾に追加。実験スロット2件未満の
-自己ガードは`ComparisonPanel`自身が持つため、非アクティブ中も状態更新を止めないよう
-`forceMount`でマウントし続け、`[data-state="inactive"]`のCSSで非表示にする）で構成
-される（「ルート選択」のような候補一覧をまとめる中間タブは無い）。候補数
+タブ列に無いと比較のたびにタブを開き直すことになるため。「ルート選択」のような候補一覧をまとめる中間タブは無い。候補数
 （`RouteForm`で指定する`max_routes`件＋経由地/目的地ルート）がシートの高さを超える場合は
 候補一覧の中だけが縦スクロールする（右の中身はスクロールしない）。`routes`・`selectedRouteId`・
-`comparisonTabActive`・生成に使われた重みに加え、生成の側の作った条件と
-`experimentSlots`（比較タブ・地図重ね描き用の履歴）も同時に空にする（`useRoutePlanner.ts: clear`→`useRouteGeneration.ts: clear`）。
+生成に使われた重みに加え、生成の側の作った条件も同時に空にする（`useRoutePlanner.ts: clear`→`useRouteGeneration.ts: clear`）。
 
 `conditionsDirty`（表示中の候補を作った条件と現在のフォーム値のずれ）は、
 `features/route/generationRequest.ts`が組み立てる比較キーの一致で決まる。**送るpayloadと比較キーを
@@ -508,16 +499,10 @@ backendが最寄りのアクセス可能な地点へ補正した場合のヒン�
 `RouteAxisProfile`側（総合難易度の表示の隣、`InfoPopover`）にあり、候補タブごとに
 繰り返し表示される。デスクトップは「ルート結果」`Disclosure`の`trailing`、モバイルは
 BottomSheetの`headerAction`propとして同じヘルパーを渡す（`routes.length > 0`の間のみ）。
-候補タブ列のvalue体系はroute idと`features/route/useRouteResults.ts: COMPARISON_TAB`。
+候補タブ列のvalueはroute id。
 編集で作ったルートを選んでいる間は、中身の先頭に「元との違い」（`features/route/EditDifference/EditDifference.tsx`）を出し、
 地図には元のルートだけを参考線として重ねる（`useRoutePlanner.ts: mapRoutes`。ほかの候補まで並ぶと、変えた区間がどれとの差か
 読めない）。編集している間は乗り換え先を探すため、全部の候補を参考線にする。
-
-外側タブの選択値は`selectedRouteId`（候補タブ選択時）と`comparisonTabActive`
-（比較タブ選択時）を組み合わせて求める。`selectedRouteId`自体は比較タブを見ている間も
-「最後に見ていた候補」を保持し続け、地図の色分け対象・`selectedCandidate`等の使われ方は
-タブ構成に関わらず変わらない（比較タブから候補タブへ戻ると、見ていた候補がそのまま
-選択された状態に戻る）。
 
 候補タブの中身（`Tabs.Content`）は、上の候補の操作・元との違い・道のりのグラフの下に`RouteAxisProfile`を置く（地図で区間を押している間は、その代わりに区間の詳細）。`RouteAxisProfile`は
 総合難易度の表示・軸別内訳
@@ -530,10 +515,6 @@ composite_difficulty`と同じ考え方で軸の重みを反映した寄与度�
 「このルートで何が効いたか」が読めなくなる（design-principles.md「消さずに薄くする」の例外）。
 重みはあるが寄与が0・欠損の軸はチップとして残る（効くはずの軸が効かなかったことも
 判断材料のため）。地図の色分け（レンズ）を選ぶ操作はここには無い（`LensControl`）。
-
-`ComparisonPanel`へ渡す`axes`は、表示中のいずれかの実験スロットで生成時点の重み
-（`ExperimentSlot.conditions.route_preference`）が>0だった軸に絞り込む（現在のライブな
-`routePreference`ではない）。
 
 ## `MapView`（`features/map/MapView/MapView.tsx`）との境界
 

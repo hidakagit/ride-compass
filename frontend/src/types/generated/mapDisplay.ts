@@ -858,20 +858,16 @@ export const mapDisplay = {
       "selectedHalo": 10,
       "splice": 3,
       "composite": 7,
-      "slot": 4,
       "detail": 6
     },
     "casingWidthsPx": {
       "composite": 11,
-      "slot": 8,
       "detail": 10
     },
     "opacities": {
       "selectedHalo": 0.25,
       "splice": 0.75,
       "candidate": 0.65,
-      "slot": 0.85,
-      "slotCasing": 0.85,
       "arrowHalo": 0.95
     },
     "spliceDash": [

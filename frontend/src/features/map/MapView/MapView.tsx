@@ -25,7 +25,6 @@ import type {
   RouteSegmentDetail,
   SelectedRouteSegment,
 } from "@/types/route";
-import type { ExperimentSlot } from "@/types/experimentSlot";
 import { ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM } from "@/features/map/regionApi";
 import type { RideConditions } from "@/features/map/regionApi";
 import { tileContainingLonLat, type TileXY } from "@/features/map/layers/dynamicWayValues";
@@ -300,8 +299,6 @@ interface MapViewProps {
   rideConditions: RideConditions;
   /** 利用者がいま設定している重み（ルート生成へ送るのと同じもの）。道の詳細の評価に使う。nullなら既定の重み。 */
   routePreference: RoutePreferenceWeights | null;
-  /** 実験スロット。デバッグモードOFFの間は空。 */
-  experimentSlots: ExperimentSlot[];
   /** 押して選んでいる区間。地図は押した地点に印を立てるだけで、内訳は下部のシートが出す（地図上の
    * ポップアップはモバイルでシートに隠れる）。 */
   selectedRouteSegment: SelectedRouteSegment | null;
@@ -341,7 +338,6 @@ export default function MapView({
   look,
   rideConditions,
   routePreference,
-  experimentSlots,
   selectedRouteSegment,
   onRouteSegmentSelect,
   waypoints,
@@ -390,11 +386,10 @@ export default function MapView({
         selectedRouteId,
         spliceStretches,
         splicedRoute,
-        experimentSlots,
         tileVersions: mapCatalog.tileVersions,
         inspectedWayId,
       }),
-    [look, mapCatalog, routes, selectedRouteId, spliceStretches, splicedRoute, experimentSlots, inspectedWayId],
+    [look, mapCatalog, routes, selectedRouteId, spliceStretches, splicedRoute, inspectedWayId],
   );
   const scene = useMemo(() => buildMapScene(sceneInputs), [sceneInputs]);
   // 押せるのは scene が当たり判定を宣言したレイヤーだけ。

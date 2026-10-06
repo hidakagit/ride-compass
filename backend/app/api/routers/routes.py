@@ -112,7 +112,7 @@ class RouteGenerateRequest(StrictModel):
     # （`_resolve_target`。送られた値は使わない）ため省略できる。
     distance_km: float | None = Field(default=None, gt=0, le=MAX_ROUTE_DISTANCE_KM)
     distance_tolerance_km: float = Field(gt=0, le=MAX_DISTANCE_TOLERANCE_KM)
-    # 評価重みのリクエスト単位の上書き（研究用）。省略時はAXIS_DEFINITIONS由来の既定値
+    # 評価重みのリクエスト単位の上書き。省略時はAXIS_DEFINITIONS由来の既定値
     # （`RoutePreference()`）を使う。
     # 実際に適用された値はレスポンスのconditionsへエコーされる。
     route_preference: RoutePreferenceWeights | None = None
@@ -213,7 +213,7 @@ class RouteGenerateRequest(StrictModel):
 
 
 class GenerationConditions(StrictModel):
-    """この生成に実際に適用された条件のエコー（実験の記録・再現用、研究IF改善 §10-6）。
+    """この生成に実際に適用された条件のエコー（再現用）。
 
     route_preference は「リクエストで上書きされた値」または「既定値」のうち実際に
     使われた方。レスポンスJSONを保存すれば、同じ条件をroute_preferenceとしてそのまま

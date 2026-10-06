@@ -43,7 +43,6 @@ import { useWeatherConditions } from "@/features/conditions/useWeatherConditions
 import { axisCatalogFetchFailure, useAxisCatalog } from "@/hooks/useAxisCatalog";
 import DebugConsole from "@/components/DebugConsole/DebugConsole";
 import { useDebugEnabled } from "@/hooks/useDebugLog";
-import { useResearchEnabled } from "@/hooks/useResearchMode";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useElementHeightCssVar } from "@/hooks/useElementHeightCssVar";
 import { useLocation } from "@/hooks/useLocation";
@@ -139,7 +138,6 @@ export default function Home() {
 
   const debugEnabled = useDebugEnabled();
   const [debugConsoleOpen, setDebugConsoleOpen] = useState(false);
-  const researchEnabled = useResearchEnabled();
   // 説明を見る状態（ヘッダーのメニューの「使い方を見る」で入る）。
   const [usageGuideActive, setUsageGuideActive] = useState(false);
 
@@ -507,8 +505,6 @@ export default function Home() {
             look={mapView.look}
             rideConditions={ride.ride}
             routePreference={conditions.routePreferenceToSend}
-            // 実験スロットは「比較」を見ている間だけ地図へ重ねる（それ以外は選んだルートの色分けと紛らわしい）。
-            experimentSlots={researchEnabled && results.comparisonTabActive ? generation.experimentSlots : []}
             selectedRouteSegment={results.selectedRouteSegment}
             onRouteSegmentSelect={(selection) => {
               if (!routeInspectionEnabled) return;

@@ -140,9 +140,6 @@ SEMANTIC_COLORS: dict[str, str] = {
     "pin_destination": "#059669",
 }
 
-#: 比較スロットの色。並べて見分けられることだけが要件で、順序の意味は持たない。
-COMPARISON_SLOT_COLORS: tuple[str, ...] = ("#16a34a", "#ea580c", "#9333ea")
-
 def resolved_display_axes(attr: PrimaryAttributeSpec) -> list[dict]:
     """行の色を解決した表示定義。**色は宣言に無い**ので、配る直前にここで決める。
 
