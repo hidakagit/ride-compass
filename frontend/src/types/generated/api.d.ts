@@ -646,6 +646,13 @@ export interface components {
         };
         /** AmedasObservation */
         AmedasObservation: {
+            /** Station Name */
+            station_name: string;
+            /**
+             * Observed At
+             * Format: date-time
+             */
+            observed_at: string;
             /** Temperature C */
             temperature_c: number | null;
             /** Apparent Temperature C */
