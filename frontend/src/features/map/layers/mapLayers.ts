@@ -6,7 +6,6 @@
 import weatherScales from "@/types/generated/weather-scales.json";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import regionTileConfig from "@/types/generated/region-tile-config.json";
-import { axisIconFor } from "@/components/ui/icons/axisIconPalette";
 import {
   AccidentIcon,
   ElevationIcon,
@@ -52,7 +51,7 @@ export const MAP_LAYER_CATEGORY_ORDER: readonly MapLayerCategory[] = mapDisplay.
 );
 
 /** 生データか、複数の要因から計算した推定指標（合成）か、時刻で中身が変わるデータか。 */
-export type MapLayerDataNature = (typeof mapDisplay.layerDataNatures)[number];
+type MapLayerDataNature = (typeof mapDisplay.layerDataNatures)[number];
 
 /** 絞り込めない表示専用の凡例の1ブロック（配信元が色を焼き込んだラスタ等）。絞り込める凡例は`scene/legends.ts`が出す。 */
 interface ReadOnlyLegendBlock {
@@ -190,22 +189,19 @@ const GROUP_BY_CATEGORY: Readonly<Record<string, MapOverlayGroup>> = Object.from
 );
 
 /** 軸スタジオ由来のレイヤー（ramp軸・専用配信の軸）か。地図のチップに出さない。idの集合でなく記述子の印で決める。 */
-export function isAxisStudioLayer(layer: {
-  id: MapLayerId;
-  dataNature?: MapLayerDataNature;
-  axisStudioLayer?: boolean;
-}): boolean {
+export function isAxisStudioLayer(layer: MapLayerDescriptor): layer is AxisStudioLayerDescriptor {
   return layer.axisStudioLayer === true || layer.dataNature === "composite";
 }
 
-/** チップが属するグループ。中分類だけで決めるので、軸スタジオ由来のレイヤー（中分類が観測のレイヤーと重なりうる）は
- * 渡さない——チップの一覧（`features/map/view/overlayChips.ts: overlayChips`）が先に除く。 */
+/** チップが属するグループ。中分類だけで決めるので、軸スタジオ由来のレイヤーは渡さない——チップの一覧
+ * （`features/map/view/overlayChips.ts: overlayChips`）が先に除く。 */
 export function mapOverlayGroupFor(layer: { category?: MapLayerCategory }): MapOverlayGroup | undefined {
   if (layer.category === undefined) return undefined;
   return GROUP_BY_CATEGORY[layer.category];
 }
 
-export interface MapLayerDescriptor {
+/** チップに出るレイヤー。 */
+export interface ChipLayerDescriptor {
   id: MapLayerId;
   label: string;
   /** チップの下の短い名前（チップの幅は文字数で決まるので、長い名前はここで縮める）。無ければlabel。 */
@@ -217,8 +213,7 @@ export interface MapLayerDescriptor {
   dataSource: MapLayerDataSource;
   /** ▶を開いたときの表示専用の凡例。無いレイヤーは絞り込める凡例か、画面の状態から組む凡例を持つ。 */
   readOnlyLegend?: readonly ReadOnlyLegendBlock[];
-  /** 専用配信の軸から作ったレイヤーか（ramp軸は`dataNature`の合成で同じ判定を受ける）。 */
-  axisStudioLayer?: boolean;
+  axisStudioLayer?: never;
   /** 中分類（グループの判定・グループ内の並び・小見出し）。ルートは持たない。 */
   category?: MapLayerCategory;
   dataNature?: MapLayerDataNature;
@@ -232,9 +227,19 @@ export interface MapLayerDescriptor {
 }
 
 type LayerDeclaration = Pick<
-  MapLayerDescriptor,
+  ChipLayerDescriptor,
   "dataSource" | "kind" | "category" | "dataNature" | "defaultOn" | "tileMinZoom"
 >;
+
+/** 軸スタジオ由来のレイヤー。チップに出ない（表示はレンズだけが決める）ので、名前・アイコン・説明を持たず、
+ * 地図の組み立てが情報源を引くためのidと源泉の宣言だけを持つ。 */
+export interface AxisStudioLayerDescriptor extends LayerDeclaration {
+  id: MapLayerId;
+  /** 専用配信の軸から作ったレイヤーか（ramp軸は`dataNature`の合成で同じ判定を受ける）。 */
+  axisStudioLayer?: true;
+}
+
+export type MapLayerDescriptor = ChipLayerDescriptor | AxisStudioLayerDescriptor;
 
 /** 源泉が宣言する、描き方以外のもの（種別・情報源・性質・既定表示）。最小ズームは情報源が持つ。 */
 function declaredLayer(spec: {
@@ -308,7 +313,7 @@ export function buildMapLayers({
   const accidentCoverage = coverageYearsLabel(accidentYears);
   // 並びはレンズの選択肢と同じ（公開中の評価と総合難易度）。
   const routeLenses = [...axes.map((axis) => axis.label), FIXED_LENS_LABELS[LENS_DIFFICULTY_ID]].join("・");
-  const staticLayers = mapDisplay.layers.map((layer): MapLayerDescriptor => {
+  const staticLayers = mapDisplay.layers.map((layer): ChipLayerDescriptor => {
     const slots = { axes: axisNamesReading(axes, layer.id), accidentYears: accidentCoverage, routeLenses };
     return {
       id: layer.id,
@@ -324,27 +329,15 @@ export function buildMapLayers({
   return [
     ...staticLayers,
     // ramp軸は軸カタログから作る（軸を公開すればここを変えずに現れる）。
-    ...rampAxes.map((axis): MapLayerDescriptor => ({
+    ...rampAxes.map((axis): AxisStudioLayerDescriptor => ({
       id: axisMapLayerId(axis.axisId),
       ...declaredLayer(mapDisplay.axisLayers.ramp),
-      icon: axisIconFor(axis.iconId),
-      label: axis.label,
-      chipLabel: axis.chipLabel,
-      category: axis.category as MapLayerCategory,
-      // 単位が定まらない軸は空の[]を出さない。
-      description: `${axis.label}${axis.rawValueUnit ? `[${axis.rawValueUnit}]` : ""}をway単位の事前集計から色分け表示`,
-      panelHint: axis.panelHint,
     })),
     // 専用配信の軸。チップには出ないが、地図の組み立てが情報源をここから引く（無いと描く時点で落ちる）。
-    ...dedicatedAxes.map((axis): MapLayerDescriptor => ({
+    ...dedicatedAxes.map((axis): AxisStudioLayerDescriptor => ({
       id: dedicatedWayValueMapLayerId(axis.axisId),
       ...declaredLayer(mapDisplay.axisLayers.dedicated),
-      icon: axisIconFor(undefined),
-      label: `${axis.label}[評価軸]`,
-      chipLabel: axis.chipLabel,
       axisStudioLayer: true,
-      description: `${axis.label}を視界内の全道路へ一律に線色分け表示`,
-      panelHint: axis.panelHint,
     })),
   ];
 }

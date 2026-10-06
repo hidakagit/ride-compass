@@ -190,9 +190,9 @@ async def test_update_accepts_cosmetic_edit_of_published_axis_another_axis_reads
     await service.create(axis_definition("base_axis", material="oneway", is_published=True))
     await service.create(axis_definition("dependent_axis", material="base_axis"))
 
-    await service.update("base_axis", axis_definition("base_axis", material="oneway", is_published=True, chip_label="基"))
+    await service.update("base_axis", axis_definition("base_axis", material="oneway", is_published=True, icon_id="基"))
 
-    assert AXIS_DEFINITIONS["base_axis"].chip_label == "基"
+    assert AXIS_DEFINITIONS["base_axis"].icon_id == "基"
 
 
 async def test_update_rejects_cycle_between_two_axes(road_graph_session):

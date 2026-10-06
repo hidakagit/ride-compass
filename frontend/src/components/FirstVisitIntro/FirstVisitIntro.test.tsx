@@ -2,6 +2,7 @@
  * `components/FirstVisitIntro/FirstVisitIntro.tsx`——初めて開いたときだけ地図の上に出す案内。
  *
  * 見るもの: 閉じたことが無ければ見出しを名前に持つ案内を出すこと、最初の一手の場所をスマホとPCで言い分けること、
+ * 位置が分からないと分かったら出発地の行を「地図で選ぶ」の手順にすること、
  * ✕と「はじめる」のどちらで閉じても消え、この端末では次に開いても出ないこと。
  *
  * ここで見ないもの:
@@ -28,7 +29,7 @@ afterEach(() => {
 
 describe("FirstVisitIntro", () => {
   it("閉じたことが無ければ、見出しを名前に持つ案内を出す", () => {
-    render(<FirstVisitIntro isMobile={false} />);
+    render(<FirstVisitIntro isMobile={false} locationUnknown={false} />);
 
     expect(intro()).toBeInTheDocument();
   });
@@ -37,19 +38,31 @@ describe("FirstVisitIntro", () => {
     [true, "下の「ルート設定」を開いて距離を決め、ルート生成を押すと、ルートの候補が地図に出ます。"],
     [false, "左の「ルート設定」で距離を決め、ルート生成を押すと、ルートの候補が地図に出ます。"],
   ])("スマホ（%s）かで、最初の一手の場所を言い分ける", (isMobile, firstStep) => {
-    render(<FirstVisitIntro isMobile={isMobile} />);
+    render(<FirstVisitIntro isMobile={isMobile} locationUnknown={false} />);
 
     expect(screen.getByText(/ルートの候補が地図に出ます/)).toHaveTextContent(firstStep);
   });
 
+  it.each([
+    [false, "この印が出発地です（はじめは現在地）。地図の上でつかんで動かせます。"],
+    [
+      true,
+      "現在地が分からないため、この灰色の印は仮の地点です。「ルート設定」の出発地の「地図で選ぶ」を押して地図をタップすると、そこが出発地になります。",
+    ],
+  ])("位置が分からないと分かったか（%s）で、出発地の行を言い分ける", (locationUnknown, originLine) => {
+    render(<FirstVisitIntro isMobile={false} locationUnknown={locationUnknown} />);
+
+    expect(screen.getByText(/出発地/)).toHaveTextContent(originLine);
+  });
+
   it.each(["案内を閉じる", "はじめる"])("「%s」を押すと消え、次に開いても出ない", async (name) => {
-    const view = render(<FirstVisitIntro isMobile={false} />);
+    const view = render(<FirstVisitIntro isMobile={false} locationUnknown={false} />);
 
     await userEvent.click(screen.getByRole("button", { name }));
 
     expect(intro()).not.toBeInTheDocument();
     view.unmount();
-    render(<FirstVisitIntro isMobile={false} />);
+    render(<FirstVisitIntro isMobile={false} locationUnknown={false} />);
     expect(intro()).not.toBeInTheDocument();
   });
 });

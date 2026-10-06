@@ -25,36 +25,27 @@ function sourceRows(report: DerivedDataFreshnessResponse): StatusRow[] {
   }));
 }
 
-function nullsOf(column: DerivedDataFreshnessResponse["tables"][number]["columns"][number]): string {
-  return [
-    ...(column.uncalculated_count > 0 ? [`未計算 ${formatCount(column.uncalculated_count)}件`] : []),
-    ...(column.absent_count > 0 ? [`値なし ${formatCount(column.absent_count)}件（確定）`] : []),
-  ].join(" / ");
-}
-
 /** 表1つぶんの状態。作り直しが要るかはbackendが決め（`needs_rebuild`）、理由の違いは開いた先の中身で表す。 */
 function tableRows(report: DerivedDataFreshnessResponse): StatusRow[] {
   return report.tables.map((table) => {
-    const incomplete = table.columns.filter((column) => column.uncalculated_count > 0);
-    const absent = table.columns.filter((column) => column.uncalculated_count === 0 && column.absent_count > 0);
+    const change = table.columns_change;
     return {
       name: table.table_name,
       scale: `${formatCount(table.row_count)}行`,
       flagged: table.needs_rebuild,
       detail: [
-        // 行そのものが欠けるケース。完成度（NULL）では表に出ない。
-        ...(table.coverage === null
-          ? []
+        ...(change === null
+          ? [{ label: "作ったときの列", value: "記録なし（列を記録する作り直しをまだしていない）" }]
           : [
-              {
-                label: `${table.coverage.parent} を覆う`,
-                value:
-                  table.coverage.missing_rows > 0
-                    ? `${formatCount(table.coverage.missing_rows)}件ぶん行が無い（母数 ${formatCount(table.coverage.parent_row_count)}）`
-                    : `欠けなし（母数 ${formatCount(table.coverage.parent_row_count)}）`,
-              },
+              ...(change.added.length > 0 ? [{ label: "作り直しの後に足した列", value: change.added.join("、") }] : []),
+              ...(change.removed.length > 0
+                ? [{ label: "作り直しの後に消した列", value: change.removed.join("、") }]
+                : []),
             ]),
-        ...[...incomplete, ...absent].map((column) => ({ label: column.column, value: nullsOf(column) })),
+        // 参考。作り直した結果の値なし（区間に切れない道・標高の取れない区間等）も数に出るので、判定には使わない。
+        ...table.columns
+          .filter((column) => column.null_count > 0)
+          .map((column) => ({ label: column.column, value: `値なし ${formatCount(column.null_count)}件` })),
       ],
     };
   });
@@ -72,9 +63,10 @@ export default function DerivedDataFreshnessPanel() {
         <>
           取り込んだ生データ（OSM・事故など）が新しくなったのに、そこから計算した派生データが
           古いまま残っていないかを、ソースごとに今の派生を作った取込と成功した最新の取込を比べて
-          機械判定する。対象の表はbackendの宣言（ORM）が決めるため、表や列が増減しても一覧は自動で
-          追従する。あわせて値の列ごとに未計算の件数を数える——「確定して値が無い」もの（橋の勾配・
-          指定のない道・有効画素が足りない土地被覆など）は数に出すが作り直しの対象にはしない。
+          機械判定する。表ごとには、今の表を作ったときの列と今のbackendの宣言（ORM）の列を比べ、
+          最後の作り直しの後に列を足した・消した表を作り直しの対象にする。値の列ごとの値なしの件数は
+          参考として出す——作り直しは全部の表を作り直して入れ替えるので、作り直した後の値なし（区間に
+          切れない道・標高の取れない区間・土地被覆のタイルが無い区間など）は作り直しでは埋まらない。
           DB全体の走査を伴うため集計には時間がかかる。
         </>
       }

@@ -249,12 +249,6 @@ DEM_TILES_SQL = _raster_tiles_sql(Source.DEM)
 LANDCOVER_TILES_SQL = _raster_tiles_sql(Source.LULC)
 
 
-def source_keys_sql(source: Source) -> str:
-    """そのソースの生データの識別子（`natural_key`、text）を全件指す副問い合わせ。
-    派生が生データを1件残らず覆うかを数える読み手（鮮度台帳）向け。"""
-    return f"(SELECT natural_key FROM {_TABLE} WHERE source = '{source}')"
-
-
 # 圧縮しない指定は型では表せないので、表を作った直後に当てる。親へ当てれば以後の
 # パーティションも引き継ぐ。
 for _column in ("payload", "rast"):

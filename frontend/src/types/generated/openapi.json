@@ -2085,32 +2085,6 @@
             ],
             "title": "Icon Id"
           },
-          "chip_label": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Chip Label"
-          },
-          "panel_hint": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Panel Hint"
-          },
-          "show_map_icon": {
-            "type": "boolean",
-            "title": "Show Map Icon"
-          },
           "primary_attribute_ids": {
             "items": {
               "type": "string"
@@ -2202,9 +2176,6 @@
           "default_weight",
           "display",
           "icon_id",
-          "chip_label",
-          "panel_hint",
-          "show_map_icon",
           "primary_attribute_ids",
           "weather_layer_groups",
           "display_band_labels_override",
@@ -2337,35 +2308,6 @@
             ],
             "title": "Icon Id"
           },
-          "chip_label": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 4,
-                "minLength": 1
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Chip Label"
-          },
-          "panel_hint": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Panel Hint"
-          },
-          "show_map_icon": {
-            "type": "boolean",
-            "title": "Show Map Icon",
-            "default": true
-          },
           "time_scope": {
             "type": "string",
             "enum": [
@@ -2486,35 +2428,6 @@
             ],
             "title": "Icon Id"
           },
-          "chip_label": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 4,
-                "minLength": 1
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Chip Label"
-          },
-          "panel_hint": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Panel Hint"
-          },
-          "show_map_icon": {
-            "type": "boolean",
-            "title": "Show Map Icon",
-            "default": true
-          },
           "time_scope": {
             "type": "string",
             "enum": [
@@ -2585,9 +2498,6 @@
           "is_published",
           "priority_overrides",
           "icon_id",
-          "chip_label",
-          "panel_hint",
-          "show_map_icon",
           "time_scope",
           "display_thresholds_override",
           "display_band_labels_override",
@@ -2606,16 +2516,6 @@
               "none"
             ],
             "title": "Kind"
-          },
-          "label": {
-            "type": "string",
-            "minLength": 1,
-            "title": "Label"
-          },
-          "category": {
-            "type": "string",
-            "title": "Category",
-            "default": "trafficSafety"
           },
           "tile_inputs": {
             "items": {
@@ -2636,8 +2536,6 @@
         "type": "object",
         "required": [
           "kind",
-          "label",
-          "category",
           "tile_inputs",
           "thresholds"
         ],
@@ -3042,29 +2940,49 @@
         ],
         "title": "CategoricalShape"
       },
-      "ColumnCompleteness": {
+      "ColumnNulls": {
         "properties": {
           "column": {
             "type": "string",
             "title": "Column"
           },
-          "uncalculated_count": {
+          "null_count": {
             "type": "integer",
-            "title": "Uncalculated Count"
-          },
-          "absent_count": {
-            "type": "integer",
-            "title": "Absent Count"
+            "title": "Null Count"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
           "column",
-          "uncalculated_count",
-          "absent_count"
+          "null_count"
         ],
-        "title": "ColumnCompleteness"
+        "title": "ColumnNulls"
+      },
+      "ColumnsChange": {
+        "properties": {
+          "added": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Added"
+          },
+          "removed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Removed"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "added",
+          "removed"
+        ],
+        "title": "ColumnsChange"
       },
       "ConnectionEntry": {
         "properties": {
@@ -3132,30 +3050,6 @@
           "longitude"
         ],
         "title": "Coordinates"
-      },
-      "Coverage": {
-        "properties": {
-          "parent": {
-            "type": "string",
-            "title": "Parent"
-          },
-          "parent_row_count": {
-            "type": "integer",
-            "title": "Parent Row Count"
-          },
-          "missing_rows": {
-            "type": "integer",
-            "title": "Missing Rows"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "parent",
-          "parent_row_count",
-          "missing_rows"
-        ],
-        "title": "Coverage"
       },
       "DbStatusReport": {
         "properties": {
@@ -5793,15 +5687,15 @@
           },
           "columns": {
             "items": {
-              "$ref": "#/components/schemas/ColumnCompleteness"
+              "$ref": "#/components/schemas/ColumnNulls"
             },
             "type": "array",
             "title": "Columns"
           },
-          "coverage": {
+          "columns_change": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Coverage"
+                "$ref": "#/components/schemas/ColumnsChange"
               },
               {
                 "type": "null"
@@ -5819,7 +5713,7 @@
           "table_name",
           "row_count",
           "columns",
-          "coverage",
+          "columns_change",
           "needs_rebuild"
         ],
         "title": "TableEntry"

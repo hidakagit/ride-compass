@@ -28,15 +28,15 @@ function table(overrides: Partial<Table>): Table {
   return {
     table_name: "derived_a",
     row_count: 0,
-    coverage: null,
     columns: [],
+    columns_change: { added: [], removed: [] },
     needs_rebuild: false,
     ...overrides,
   };
 }
 
 function column(overrides: Partial<Column>): Column {
-  return { column: "value_a", uncalculated_count: 0, absent_count: 0, ...overrides };
+  return { column: "value_a", null_count: 0, ...overrides };
 }
 
 function report(tables: Table[], sources: Source[] = []): DerivedDataFreshnessResponse {
@@ -99,39 +99,28 @@ describe("DerivedDataFreshnessPanel", () => {
     ]);
   });
 
-  it("表の行は、開いた先に被覆と、未計算の列を先に列ごとの未計算と確定した値なしを並べる", async () => {
+  it("表の行は、開いた先に作り直しの後に足した列・消した列と、値なしのある列の件数を並べる", async () => {
     await collect(
       report([
         table({
           table_name: "edge_materials",
-          coverage: { parent: "road_edges", parent_row_count: 20000, missing_rows: 1500 },
-          columns: [
-            column({ column: "bridge_slope", absent_count: 7 }),
-            column({ column: "gradient", uncalculated_count: 42 }),
-            column({ column: "lc_trees", uncalculated_count: 3, absent_count: 5 }),
-            column({ column: "complete_col" }),
-          ],
+          columns_change: { added: ["new_a", "new_b"], removed: ["old_a"] },
+          columns: [column({ column: "start_elevation_m", null_count: 1500 }), column({ column: "complete_col" })],
         }),
       ]),
     );
 
     expect(detailOf("edge_materials")).toEqual([
-      ["road_edges を覆う", "1,500件ぶん行が無い（母数 20,000）"],
-      ["gradient", "未計算 42件"],
-      ["lc_trees", "未計算 3件 / 値なし 5件（確定）"],
-      ["bridge_slope", "値なし 7件（確定）"],
+      ["作り直しの後に足した列", "new_a、new_b"],
+      ["作り直しの後に消した列", "old_a"],
+      ["start_elevation_m", "値なし 1,500件"],
     ]);
   });
 
-  it("親に欠けが無ければ母数とともにそう言い、親を覆うことを宣言していない表には被覆の項目を出さない", async () => {
-    await collect(
-      report([
-        table({ table_name: "t", coverage: { parent: "osm_way", parent_row_count: 3000, missing_rows: 0 } }),
-        table({ table_name: "plain", coverage: null }),
-      ]),
-    );
+  it("作ったときの列の記録が無い表はそう言い、列の変化も値なしも無い表には何も並べない", async () => {
+    await collect(report([table({ table_name: "t", columns_change: null }), table({ table_name: "plain" })]));
 
-    expect(detailOf("t")).toEqual([["osm_way を覆う", "欠けなし（母数 3,000）"]]);
+    expect(detailOf("t")).toEqual([["作ったときの列", "記録なし（列を記録する作り直しをまだしていない）"]]);
     expect(detailOf("plain")).toEqual([]);
   });
 });

@@ -684,12 +684,6 @@ export interface components {
             display: components["schemas"]["AxisDisplaySpec"];
             /** Icon Id */
             icon_id: string | null;
-            /** Chip Label */
-            chip_label: string | null;
-            /** Panel Hint */
-            panel_hint: string | null;
-            /** Show Map Icon */
-            show_map_icon: boolean;
             /** Primary Attribute Ids */
             primary_attribute_ids: string[];
             /** Weather Layer Groups */
@@ -771,15 +765,6 @@ export interface components {
             priority_overrides?: components["schemas"]["PriorityCondition"][];
             /** Icon Id */
             icon_id?: string | null;
-            /** Chip Label */
-            chip_label?: string | null;
-            /** Panel Hint */
-            panel_hint?: string | null;
-            /**
-             * Show Map Icon
-             * @default true
-             */
-            show_map_icon: boolean;
             /**
              * Time Scope
              * @default always
@@ -826,15 +811,6 @@ export interface components {
             priority_overrides: components["schemas"]["PriorityCondition"][];
             /** Icon Id */
             icon_id: string | null;
-            /** Chip Label */
-            chip_label: string | null;
-            /** Panel Hint */
-            panel_hint: string | null;
-            /**
-             * Show Map Icon
-             * @default true
-             */
-            show_map_icon: boolean;
             /**
              * Time Scope
              * @default always
@@ -861,13 +837,6 @@ export interface components {
              * @enum {string}
              */
             kind: "ramp" | "none";
-            /** Label */
-            label: string;
-            /**
-             * Category
-             * @default trafficSafety
-             */
-            category: string;
             /** Tile Inputs */
             tile_inputs: components["schemas"]["TileInputSpec"][];
             /** Thresholds */
@@ -1014,14 +983,19 @@ export interface components {
                 [key: string]: number;
             };
         };
-        /** ColumnCompleteness */
-        ColumnCompleteness: {
+        /** ColumnNulls */
+        ColumnNulls: {
             /** Column */
             column: string;
-            /** Uncalculated Count */
-            uncalculated_count: number;
-            /** Absent Count */
-            absent_count: number;
+            /** Null Count */
+            null_count: number;
+        };
+        /** ColumnsChange */
+        ColumnsChange: {
+            /** Added */
+            added: string[];
+            /** Removed */
+            removed: string[];
         };
         /** ConnectionEntry */
         ConnectionEntry: {
@@ -1046,15 +1020,6 @@ export interface components {
             latitude: number;
             /** Longitude */
             longitude: number;
-        };
-        /** Coverage */
-        Coverage: {
-            /** Parent */
-            parent: string;
-            /** Parent Row Count */
-            parent_row_count: number;
-            /** Missing Rows */
-            missing_rows: number;
         };
         /** DbStatusReport */
         DbStatusReport: {
@@ -1943,8 +1908,8 @@ export interface components {
             /** Row Count */
             row_count: number;
             /** Columns */
-            columns: components["schemas"]["ColumnCompleteness"][];
-            coverage: components["schemas"]["Coverage"] | null;
+            columns: components["schemas"]["ColumnNulls"][];
+            columns_change: components["schemas"]["ColumnsChange"] | null;
             /** Needs Rebuild */
             needs_rebuild: boolean;
         };

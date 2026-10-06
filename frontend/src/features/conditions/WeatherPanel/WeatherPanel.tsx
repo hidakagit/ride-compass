@@ -77,9 +77,9 @@ export default function WeatherPanel({ amedas, loading, error }: WeatherPanelPro
               <ThermometerIcon size={16} />
               <span className="sr-only">気温: </span>
               {/* 数値と単位は1つのspanにまとめて.statのgapが間に入らないようにする
-            （flexboxのgapは直接の子要素すべての間に均等に効くため、数値と単位を別々の
-            子要素のままにすると、アイコン↔数値と同じ間隔が数値↔単位にも入ってしまい
-            意図しない余白になる）。 */}
+              （flexboxのgapは直接の子要素すべての間に均等に効くため、数値と単位を別々の
+              子要素のままにすると、アイコン↔数値と同じ間隔が数値↔単位にも入ってしまい
+              意図しない余白になる）。 */}
               <span>
                 {amedas.temperature_c != null ? amedas.temperature_c.toFixed(1) : "-"}
                 <span className="text-[0.8em] font-normal text-[var(--color-muted)]">℃</span>

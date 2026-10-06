@@ -95,7 +95,7 @@ describe("suggestedConditionName", () => {
 
 describe("describeConditions", () => {
   const CATALOG = catalogOf([
-    catalogEntry({ axis_id: "axis_a", label: "軸A", chip_label: "A", default_weight: 0.25 }),
+    catalogEntry({ axis_id: "axis_a", label: "軸A", default_weight: 0.25 }),
     catalogEntry({ axis_id: "axis_b", label: "軸B", default_weight: 0.75 }),
     catalogEntry({ axis_id: "axis_c", label: "軸C", default_weight: 0 }),
   ]);

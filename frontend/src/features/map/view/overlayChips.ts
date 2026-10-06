@@ -11,6 +11,7 @@ import {
   TILE_VERSIONS_MISSING_NOTICE,
   TILE_ZOOM_TOO_WIDE_NOTICE,
   type LayerDataStatusByLayer,
+  type ChipLayerDescriptor,
   type MapLayerDescriptor,
   type MapLayerId,
   type MapLayerVisibility,
@@ -28,7 +29,7 @@ interface ChipLegend {
   axisId?: string;
 }
 
-function chipLegends(layer: MapLayerDescriptor, screenLegends: readonly ChipLegend[]): ChipLegend[] {
+function chipLegends(layer: ChipLayerDescriptor, screenLegends: readonly ChipLegend[]): ChipLegend[] {
   return [
     ...[...roadLegendAxes(), ...pointLegendAxes(), disasterSourceLegendAxis()]
       .filter((axis) => axis.layerId === layer.id)
@@ -56,7 +57,7 @@ export function overlayChips(options: {
 }): OverlayLayerChip[] {
   const { hidden, catalogSettled } = options;
   return options.layers
-    .filter((layer) => !isAxisStudioLayer(layer))
+    .filter((layer): layer is ChipLayerDescriptor => !isAxisStudioLayer(layer))
     .map((layer) => {
       const versionMissing = options.versionMissingLayerIds.includes(layer.id);
       return {

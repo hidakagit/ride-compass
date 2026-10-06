@@ -39,8 +39,6 @@ edge_materials（start/end・gain/loss・average）
 標高そのもの（start/end・gain/loss）は残す。0次ハードフィルタは値の無い区間を
 除外しない（`domain/hard_filters.py`）ため、誤った値で黙って経路から外すより安全側になる。
 
-この列のNULLは鮮度台帳で「未計算」として数えない（`derived_models.py: ABSENT_OK`）。
-
 ## 橋・高架・トンネル
 
 DEMが返すのは地表面の標高で、桁や坑道の高さではない——谷を渡る橋なら谷底の起伏を、山を

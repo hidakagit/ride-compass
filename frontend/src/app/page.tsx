@@ -528,7 +528,7 @@ export default function Home() {
 
           <MapOverlayControls {...mapView.overlayControls} />
 
-          <FirstVisitIntro isMobile={isMobile} />
+          <FirstVisitIntro isMobile={isMobile} locationUnknown={locationFailure !== null} />
 
           {usageGuideActive && <UsageGuide onEnd={() => setUsageGuideActive(false)} />}
 

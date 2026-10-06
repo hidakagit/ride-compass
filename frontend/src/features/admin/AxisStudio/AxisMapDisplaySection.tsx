@@ -1,15 +1,13 @@
 "use client";
 
-// 軸スタジオの「地図の色分け・チップ・公開」の節。しきい値はまとめて入力し、その場で
+// 軸スタジオの「地図の色分け・アイコン・公開」の節。しきい値はまとめて入力し、その場で
 // 段階の並びと色を出す——色は地図の凡例と同じ関数で作るため、ここで見えているものと
 // 地図がずれない。
 
-import axisPayloadConfig from "@/types/generated/axis-payload-config.json";
 import { useState } from "react";
 import { bandLabelsForBandCount, buildRangeLegendBands } from "@/lib/mapDisplay/mapColorLegend";
 import { AXIS_ICON_PALETTE, axisIconFor } from "@/components/ui/icons/axisIconPalette";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
-import { FieldLabel } from "@/components/ui/FieldLabel/FieldLabel";
 import type { AxisDefinitionResponse } from "@/types/route";
 import { InfoPopoverButton, SectionLabel } from "./AxisFormFields";
 import type { MapBandsJudgement } from "@/features/admin/useMapBandsOfThresholds";
@@ -22,15 +20,11 @@ import {
   type Draft,
 } from "./axisDraft";
 import { Button } from "@/components/ui/Button/Button";
-import { Input, Select, Textarea } from "@/components/ui/Input/Input";
+import { Input, Select } from "@/components/ui/Input/Input";
 import { textVariants } from "@/components/ui/Text/Text";
 import { calloutVariants } from "@/components/ui/Callout/Callout";
 import { cn } from "@/lib/cn";
 import { cardVariants } from "@/components/ui/Card/Card";
-import { fieldClass } from "@/components/ui/Input/Input";
-
-/** 地図チップの名前の上限（backendの宣言`MAP_CHIP_LABEL_MAX_LENGTH`）。 */
-const CHIP_LABEL_MAX_LENGTH = axisPayloadConfig.chip_label_max_length;
 
 interface AxisMapDisplaySectionProps {
   draft: Draft;
@@ -269,63 +263,24 @@ export function AxisMapDisplaySection({
 
         <div className={cn(cardVariants({ variant: "muted" }), "flex flex-col gap-2")}>
           <SectionLabel
-            label="地図チップ表示要素(任意)"
-            description="いずれも未設定のままでよい（アイコンは汎用アイコン、略称は表示名(label)、レイヤー一覧の説明は説明(description)がそれぞれ代わりに使われる）。"
+            label="アイコン(任意)"
+            description="ルート設定と、ルート結果・道の詳細の評価の内訳で、評価の名前に添えるアイコン。既存の意匠から選ぶ（新しい形状の追加はコード変更が必要）。未設定のままなら汎用アイコンが使われる。"
           />
-          <label className="inline-flex items-center gap-1 text-[length:var(--font-size-sm)]">
-            <Checkbox
-              checked={draft.showMapIcon}
-              onCheckedChange={(next) => setDraft((d) => ({ ...d, showMapIcon: next }))}
-              aria-label="地図に出す"
-            />
-            地図に出す（オフにすると地図上チップにこの軸が現れなくなります）
-          </label>
-          <div className={fieldClass}>
-            <FieldLabel
-              label="アイコン"
-              description="地図チップに表示するアイコン。既存の意匠から選ぶ（新しい形状の追加はコード変更が必要）。"
-            />
-            <div className="flex flex-wrap items-center gap-3">
-              <Select
-                value={draft.iconId}
-                aria-label="アイコン"
-                onChange={(e) => setDraft((d) => ({ ...d, iconId: e.target.value }))}
-              >
-                <option value="">（未設定、汎用アイコン）</option>
-                {Object.entries(AXIS_ICON_PALETTE).map(([iconId, entry]) => (
-                  <option key={iconId} value={iconId}>
-                    {entry.label}
-                  </option>
-                ))}
-              </Select>
-              {renderIconPreview()}
-            </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <Select
+              value={draft.iconId}
+              aria-label="アイコン"
+              onChange={(e) => setDraft((d) => ({ ...d, iconId: e.target.value }))}
+            >
+              <option value="">（未設定、汎用アイコン）</option>
+              {Object.entries(AXIS_ICON_PALETTE).map(([iconId, entry]) => (
+                <option key={iconId} value={iconId}>
+                  {entry.label}
+                </option>
+              ))}
+            </Select>
+            {renderIconPreview()}
           </div>
-
-          <div className={fieldClass}>
-            <FieldLabel
-              label="チップの略称"
-              description={`${CHIP_LABEL_MAX_LENGTH}文字以内（地図チップは固定サイズのタイルのため必須の上限。未設定時は表示名(label)がそのまま使われるが、正式名が${CHIP_LABEL_MAX_LENGTH}文字を超える場合はここで略称を設定すること）。略称が出るのは地図チップだけで、ほかの画面は表示名で出るため、略称は表示名を縮めたものにし、意味を狭めたり言い換えたりしない（例: 「自転車インフラ」を「自転車道」にしない）。`}
-            />
-            <Input
-              type="text"
-              value={draft.chipLabel}
-              aria-label="チップの略称"
-              onChange={(e) => setDraft((d) => ({ ...d, chipLabel: e.target.value }))}
-              maxLength={CHIP_LABEL_MAX_LENGTH}
-              placeholder="例: 未舗装"
-            />
-          </div>
-
-          <label className={fieldClass}>
-            地図のレイヤー一覧向け説明文(panel_hint)
-            <Textarea
-              value={draft.panelHint}
-              onChange={(e) => setDraft((d) => ({ ...d, panelHint: e.target.value }))}
-              rows={2}
-              placeholder="一般ユーザー向けに噛み砕いた説明文（未設定時は説明(description)がそのまま使われる）"
-            />
-          </label>
         </div>
 
         {/* 制限モード（公開済み軸を表示専用フィールドだけ編集）では

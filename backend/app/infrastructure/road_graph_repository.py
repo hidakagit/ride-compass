@@ -149,7 +149,7 @@ _TILE_FEATURE_SOURCE_SQL = f"""
     WHERE :z >= {EDGE_UNIT_MIN_ZOOM}
       AND ST_Intersects(re.geom, ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326))
     UNION ALL
-    -- 区間を1本も持たないway（座標が判明しているノードが2点未満のway等）は、区間単位の
+    -- 区間を1本も持たないway（同じ位置に点が重なり長さ0の区間しか作れないway等）は、区間単位の
     -- ズームでもway丸ごとで出す。**落とすと、その道はズームを上げたときだけ地図から
     -- 消える**——引いた表示には出ているのに拡大すると無くなる見え方は、データが無いこと
     -- よりも壊れて見える。
