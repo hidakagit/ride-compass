@@ -241,7 +241,7 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    - 増減: `python scripts/review_checks.py change` の出力の行（出た規模の札で Project の欄も付け直す）
    - 検証: 下の確かめ方と、`backend/scripts/lost_constraints.py` が出した「消えた」制約の1件ずつの処置（移した先・意図して
      外した理由。書き直しで落ちた制約は差分に1行も出ないため）
-   画面の変更は、修正前後のキャプチャを Pull Request のコメントに貼る（`gh pr comment <番号> --attach <前の画像> --attach <後の画像>`。
+   画面の変更は、修正前後のキャプチャを Pull Request のコメントに貼る（`gh pr comment <番号> --attach <画像>` を1枚ずつ。下の「貼り方」。
    画面・幅など、何を撮ったかを添える。画像はコミットに残さない）。画面は `node frontend/scripts/capture.mjs --script <脚本>` で撮る
      （開く版を `--app`、応答を `--api` で選び、見せたい状態までは脚本で進める。脚本の口と使い方はスクリプトの先頭、例は
      `frontend/capture/examples/`。脚本は作業ツリーの外に置いてよい。外に置いた脚本は確かめる担当に届かないので、キャプチャと同じ
@@ -257,6 +257,18 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
      本番の版は master より遅れていることがある。本番の版（`/api/version` の `commit`）と作業ブランチの合流点
      （`git merge-base HEAD origin/master`）の間で frontend が変わっていて（`git diff --name-only <本番の commit> <合流点> -- frontend`）、
      それが撮る画面に関わるなら、前に作業ツリーの変更でない差が混ざるので、前は本番の代わりに `--app <合流点> --api <本番の backend>` で撮る。
+     **貼り方**: `--attach` は1回の `gh pr comment` に1枚だけ付け、2枚目からは別のコメントで足す。gh は画像を1枚ずつ順に上げ、
+     最初の失敗で止まり、上がった分だけでコメントを書いて終了コード 1 で終わる（gh のソース `internal/attachments/attach.go`）ので、
+     まとめて上げると1枚の失敗で残りが載らず、打ち直すと載った分が重なる。失敗したら文言で分ける（同じソースの `client.go`）:
+     - `attaching files requires write access to the repository`: 名義の誤り（上がり先は書く権限の無いトークンに 404 を返す）。`GH_TOKEN` を見直す。
+     - `rate limited`: 出た時間だけ待って打ち直す。
+     - `failed to upload <画像>: HTTP 5xx` 等、ほかの文言: 上がり先の側の失敗（名義・権限なら上の 404 になる）。同じコマンドを3回まで
+       打ち直す。3回とも落ちたら、その画像を置き場の issue へ
+       `GH_TOKEN=$FLOW_BOT_TOKEN gh issue comment <issue の番号> -R ridecompass/ride-compass-tasks --body-file <説明> --attach '<画像>#<見出し>'`
+       で貼り、Pull Request のコメントに、貼れなかったこと（出た文言・打った回数）とそのコメントへのリンクを書いて進める。置き場は
+       非公開なので、その画像は `GH_TOKEN=$FLOW_BOT_TOKEN gh api repos/ridecompass/ride-compass-tasks/issues/comments/<コメントの id> -H 'Accept: application/vnd.github.html+json' --jq .body_html`
+       が出す `https://private-user-images.githubusercontent.com/…` の URL（`&amp;` を `&` に戻す）を、トークンを付けない `curl -sSL` で
+       取り出す（URL は短い間しか効かないので、取るたびに引き直す）。
      画面に出ない変更は、確かめ方と根拠（実行したコマンドと出た値・読んだ公式の文書）を検証に書く。
    Pull Request の題名・本文・コメントは公開のリポジトリに載るので、打ったコマンドを写すときも本番の宛先は値を書かず、
    `--api <本番の backend>` のように tech-stack.md「本番の宛先」の名で書く（値を含む書き込みは、自動モードの判定に
@@ -331,7 +343,7 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    変更前は撮り直さずに作る担当が貼った画像と比べる。作る担当がコメントに脚本を貼っていれば、作業ツリーの外へ写して同じ引数で撮る）。
    貼った画像は、`gh api repos/hidakagit/ride-compass/issues/<Pull Request の番号>/comments --jq '.[].body'` で添付の URL
    （`https://github.com/user-attachments/assets/…`）を拾い、`curl -sSL -o <作業ツリーの外のファイル> <URL>` で取り出して Read で見る。
-   コードのリポジトリは公開なので、添付は認証なしで取れる（公式の文書「Attaching files」）。トークンを付けない（付けた `curl` は判定役に断られた）。Pull Request が無ければ（ボードで
+   コードのリポジトリは公開なので、添付は認証なしで取れる（公式の文書「Attaching files」）。トークンを付けない（付けた `curl` は判定役に断られた）。貼れずに置き場の issue へ貼った画像は、作る担当の5の「貼り方」のとおり取り出す。Pull Request が無ければ（ボードで
    検証中へ動かした等）、作る担当の5のとおりに出してから確かめる。CI は Pull Request の必須のチェック全部（master と合わせた版。
    `ci.yml` の外の Docs Consistency・Claude Gate のジョブも）が通っていることを、作る担当の5と同じく実行を待ってから必須のチェックをルールセットと
    突き合わせて見る。落ちていれば満たしていないとして 4 のとおり落ちたテストを書いて
@@ -371,7 +383,7 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    （WebFetch の道具にその URL を渡す）で読む。文書も、公式が GitHub のリポジトリに置いているものはこの形で読む。
 2. 確かめた結果を、満たしていてもいなくても issue にコメントで書く（見出し「確かめた結果」）。完了の条件の1件ごとに、
    何をどう見て（実行したコマンド・開いた画面）何が出たかを書き、撮った画面は Pull Request へ `gh pr comment --attach` で貼る
-   （添える説明の中の本番の宛先は、作る担当の5と同じく値を書かず名で書く）。
+   （貼り方と貼れないときの扱い・添える説明の中の本番の宛先は、作る担当の5と同じ）。
    設計書の条件は、選んだ条件（文書と節）・確かめた方法・出た値を書く。足した行と約束の突き合わせは、どの約束にも
    当たらなかった行があれば、その行と理由を書く。消した・まとめたテストは、数えた本数と表の行の数・選んだ壊れ方（実装のファイルと変えた行）・回した残す側の
    テストのファイル・落ちたテストの名前（通ったなら通ったこと）を書く。ここに書いたことだけが、確かめた証拠として残る。
@@ -664,8 +676,9 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
   画像を付けるときは、画像ごとに画面で見える見出しを付ける。
   推奨は判断材料の最後に理由と一緒に書く。
 - **画像の載せ方**: `ask.js` は文だけを書き、画像を載せられない。問う前に、画像だけのコメントを
-  `GH_TOKEN=$FLOW_BOT_TOKEN gh issue comment <番号> -R ridecompass/ride-compass-tasks --body-file <何の画像かの説明> --attach '<画像>#<見出し>' …`
-  で書く（画像はコメントの末尾に、見出しを代替の文にして並ぶ。`gh issue comment --help` の `--attach`）。出たコメントの id で
+  `GH_TOKEN=$FLOW_BOT_TOKEN gh issue comment <番号> -R ridecompass/ride-compass-tasks --body-file <何の画像かの説明> --attach '<画像>#<見出し>'`
+  で1枚ずつ書く（画像はコメントの末尾に、見出しを代替の文にして並ぶ。`gh issue comment --help` の `--attach`。1枚ずつにする理由と
+  失敗したときの扱いは「担当」の作る担当の5の「貼り方」）。出たコメントの id で
   `GH_TOKEN=$FLOW_BOT_TOKEN gh api repos/ridecompass/ride-compass-tasks/issues/comments/<id> --jq .body` を読み、`https://github.com/user-attachments/assets/…`
   の URL を判断材料の `![<見出し>](<URL>)` で指す（回答フォームは判断材料を GitHub の Markdown の描き方で HTML にし、非公開の画像も
   開いた時点から5分有効の URL で出る）。開発機の対話のセッションがチャットで問うときも、画像は同じく issue に載せる（答えの
