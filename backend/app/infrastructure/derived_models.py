@@ -32,34 +32,8 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.infrastructure.orm_base import DERIVED, Base
-from app.infrastructure.source_models import Source
 from app.domain.landcover import PERCENT_CLASSES, landcover_key
 from app.domain.traffic import DIRECTIONS, NODE_KINDS, POI_COUNT_KINDS, poi_count_column
-
-#: NULLが「まだ計算していない」ではなく「確定して値が無い」を意味する列に付ける印。
-#: 鮮度台帳（`derived_data_freshness.py`）はこの印のある列を未計算として数えない——
-#: 付け忘れても安全側（未計算として鳴る）に倒れる。
-ABSENT_OK = {"null_means_absent": True}
-
-#: `ABSENT_OK`の、同じ行の別の列に値があるときだけ効く形。その列がNULLの行は、まだ計算していない。
-ABSENT_WHEN_SET_KEY = "null_means_absent_when_set"
-
-#: 土地被覆の割合の列に付ける印。割合を出さなかった区間・道（有効画素が下限に足りない）は、段が
-#: `lc_valid_pixels`へ0を書き、割合をNULLのままにする（`batch/derive_raster_materials.py`）。
-_LANDCOVER_SHARE = {ABSENT_WHEN_SET_KEY: "lc_valid_pixels"}
-
-
-def covers(source: Source) -> dict[str, str]:
-    """「この列の値は、その生データのソースを1件残らず覆う」という宣言。
-
-    鮮度台帳が母数（`source_features`のそのソースの行数）と突き合わせ、派生の**行が
-    そもそも無い**ケースを数える。鮮度（世代）と完成度（値のNULL）はどちらもこれを
-    見つけられない——行が無ければ古くもなければNULLでもない。
-
-    覆わないことが設計である表には付けない（`node_materials`）。
-    """
-    return {"covers_source": source}
-
 
 #: 数えた値は負にならない。未計算はNULLで表すので、0と取り違える余地も無い。
 #: 件数は小数を持つ——区間の端に乗るものは前後の区間が0.5ずつ持つ（`batch/derive_counts.py`）。
@@ -127,8 +101,7 @@ class RoadEdgeRow(Base):
     #: 親の道。区間は道を切って作る派生なので、対応する道が必ずあり、**`way_materials`に
     #: 行がある**——読み手が道の値を内部結合で引ける（`derive_topology`が道の行を先に入れる）。
     osm_way_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("way_materials.osm_way_id"), primary_key=True, autoincrement=False,
-        info=covers(Source.OSM_WAY))
+        BigInteger, ForeignKey("way_materials.osm_way_id"), primary_key=True, autoincrement=False)
     #: 道の何番目の区間か。
     segment_index: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
 
@@ -153,10 +126,10 @@ class RoadEdgeRow(Base):
 
 
 class EdgeMaterialRow(Base):
-    """区間に付く値。**未計算はNULL**。
+    """区間に付く値。**値が無ければNULL**。
 
-    行は`road_edges`と同時に作り、値を出すバッチがそれぞれ自分の列を埋める。どの列が
-    まだ埋まっていないかは「その列がNULLの行数」で一様に数えられる。
+    行は`road_edges`と同時に作り、値を出す段がそれぞれ自分の列を埋める。値を出せない区間（標高が取れない・
+    土地被覆のタイルが無い等）の列はNULLのまま残る。
 
     標高は順方向の値だけ持つ。逆向きは読み出し時に入れ替えと符号反転で導く
     （始点↔終点、上り↔下り、平均勾配は符号反転）。
@@ -194,17 +167,17 @@ class EdgeMaterialRow(Base):
     elevation_loss_m: Mapped[float | None] = mapped_column(REAL, nullable=True)
     # 標高が付いた区間でも、両端の差が道としてありえない勾配になる区間は平均勾配を持たない
     # （`domain/attributes.py: elevation_values_sql`）。
-    average_grade: Mapped[float | None] = mapped_column(REAL, nullable=True, info=ABSENT_OK)
+    average_grade: Mapped[float | None] = mapped_column(REAL, nullable=True)
 
     lc_valid_pixels: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    lc_water: Mapped[float | None] = mapped_column(REAL, nullable=True, info=_LANDCOVER_SHARE)
-    lc_trees: Mapped[float | None] = mapped_column(REAL, nullable=True, info=_LANDCOVER_SHARE)
-    lc_flooded_veg: Mapped[float | None] = mapped_column(REAL, nullable=True, info=_LANDCOVER_SHARE)
-    lc_crops: Mapped[float | None] = mapped_column(REAL, nullable=True, info=_LANDCOVER_SHARE)
-    lc_built: Mapped[float | None] = mapped_column(REAL, nullable=True, info=_LANDCOVER_SHARE)
-    lc_bare: Mapped[float | None] = mapped_column(REAL, nullable=True, info=_LANDCOVER_SHARE)
-    lc_snow_ice: Mapped[float | None] = mapped_column(REAL, nullable=True, info=_LANDCOVER_SHARE)
-    lc_rangeland: Mapped[float | None] = mapped_column(REAL, nullable=True, info=_LANDCOVER_SHARE)
+    lc_water: Mapped[float | None] = mapped_column(REAL, nullable=True)
+    lc_trees: Mapped[float | None] = mapped_column(REAL, nullable=True)
+    lc_flooded_veg: Mapped[float | None] = mapped_column(REAL, nullable=True)
+    lc_crops: Mapped[float | None] = mapped_column(REAL, nullable=True)
+    lc_built: Mapped[float | None] = mapped_column(REAL, nullable=True)
+    lc_bare: Mapped[float | None] = mapped_column(REAL, nullable=True)
+    lc_snow_ice: Mapped[float | None] = mapped_column(REAL, nullable=True)
+    lc_rangeland: Mapped[float | None] = mapped_column(REAL, nullable=True)
 
 
 class WayMaterialRow(Base):
@@ -225,7 +198,7 @@ class WayMaterialRow(Base):
     )
 
     osm_way_id: Mapped[int] = mapped_column(
-        BigInteger, primary_key=True, autoincrement=False, info=covers(Source.OSM_WAY))
+        BigInteger, primary_key=True, autoincrement=False)
 
     accident_count: Mapped[float | None] = mapped_column(REAL, nullable=True)
     intersection_count: Mapped[float | None] = mapped_column(REAL, nullable=True)
@@ -236,14 +209,14 @@ class WayMaterialRow(Base):
     poi_barrier: Mapped[float | None] = mapped_column(REAL, nullable=True)
 
     lc_valid_pixels: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    lc_water: Mapped[float | None] = mapped_column(REAL, nullable=True, info=_LANDCOVER_SHARE)
-    lc_trees: Mapped[float | None] = mapped_column(REAL, nullable=True, info=_LANDCOVER_SHARE)
-    lc_flooded_veg: Mapped[float | None] = mapped_column(REAL, nullable=True, info=_LANDCOVER_SHARE)
-    lc_crops: Mapped[float | None] = mapped_column(REAL, nullable=True, info=_LANDCOVER_SHARE)
-    lc_built: Mapped[float | None] = mapped_column(REAL, nullable=True, info=_LANDCOVER_SHARE)
-    lc_bare: Mapped[float | None] = mapped_column(REAL, nullable=True, info=_LANDCOVER_SHARE)
-    lc_snow_ice: Mapped[float | None] = mapped_column(REAL, nullable=True, info=_LANDCOVER_SHARE)
-    lc_rangeland: Mapped[float | None] = mapped_column(REAL, nullable=True, info=_LANDCOVER_SHARE)
+    lc_water: Mapped[float | None] = mapped_column(REAL, nullable=True)
+    lc_trees: Mapped[float | None] = mapped_column(REAL, nullable=True)
+    lc_flooded_veg: Mapped[float | None] = mapped_column(REAL, nullable=True)
+    lc_crops: Mapped[float | None] = mapped_column(REAL, nullable=True)
+    lc_built: Mapped[float | None] = mapped_column(REAL, nullable=True)
+    lc_bare: Mapped[float | None] = mapped_column(REAL, nullable=True)
+    lc_snow_ice: Mapped[float | None] = mapped_column(REAL, nullable=True)
+    lc_rangeland: Mapped[float | None] = mapped_column(REAL, nullable=True)
 
     #: 通行方向（forward/backward/both）。タグからの判断なので、生データではなくここに置く。
     #: 探索が有向グラフをメモリ上で組むときに、逆向きの枝を作ってよいかを決める。
@@ -257,8 +230,7 @@ class NodeMaterialRow(Base):
     """ノードに付く値。
 
     行を持つのは「グラフの頂点になる点」か「種別が付く点」だけで、ただの形状頂点は
-    持たない。**生データのノードを覆わない**ため`covers`を付けない（付けると、設計どおり
-    行を作らなかったぶんが欠けとして鳴り続ける）。
+    持たない。**生データのノードを覆わない**。
 
     `branch_count`は**そこに集まる道の本数**。グラフの位相としての次数（隣接する頂点の
     数）とは別物で、2本の枝が同じ次の交差点へ向かうと次数は1つに潰れる。交差点の密度を
@@ -272,7 +244,7 @@ class NodeMaterialRow(Base):
 
     #: 分類器が付ける種別（信号・横断歩道・車止め・コンビニ等）。ただの形状頂点・
     #: 交差点はどの種別にも当たらずNULLになる。
-    kind: Mapped[str | None] = mapped_column(String, nullable=True, info=ABSENT_OK)
+    kind: Mapped[str | None] = mapped_column(String, nullable=True)
     # 既定値はDB側に持つ。ORMの`default=`はPython経由の挿入にしか効かず、取込や導出が
     # 生SQLで書く行に適用されない。
     branch_count: Mapped[int] = mapped_column(

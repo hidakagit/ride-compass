@@ -27,7 +27,7 @@ class SourceEntry(SourceFreshness):
 
 
 class TableEntry(TableFreshness):
-    #: 作り直しが要る（値の列に未計算が残る・親に対して行が欠ける のどちらか）。
+    #: 作り直しが要る（今の表を作ったときの列の記録が無い・記録が今の宣言の列と違う のどちらか）。
     #: 画面は理由を問わずこれで表を「作り直しが必要」に数える。
     needs_rebuild: bool
 
@@ -53,10 +53,8 @@ def build_freshness_report(
         tables=[
             TableEntry(
                 **dict(table),
-                needs_rebuild=(
-                    table.has_missing_rows
-                    or any(column.uncalculated_count > 0 for column in table.columns)
-                ),
+                needs_rebuild=(table.columns_change is None
+                               or bool(table.columns_change.added or table.columns_change.removed)),
             )
             for table in freshness.tables
         ],
@@ -75,14 +73,11 @@ class DerivedDataFreshnessService:
             freshness = await self._repository.get_freshness()
             fields["tables"] = len(freshness.tables)
         report = build_freshness_report(freshness, datetime.now(timezone.utc))
-        stale = sum(1 for source in report.sources if source.needs_rebuild)
-        incomplete = sum(1 for table in report.tables
-                         for column in table.columns if column.uncalculated_count > 0)
-        missing = sum(table.coverage.missing_rows for table in report.tables if table.coverage)
+        stale_sources = sum(1 for source in report.sources if source.needs_rebuild)
+        stale_tables = sum(1 for table in report.tables if table.needs_rebuild)
         logger.info(
-            "derived data freshness computed tables=%d stale_sources=%d incomplete_columns=%d "
-            "missing_rows=%d elapsed_ms=%d",
-            len(report.tables), stale, incomplete, missing,
+            "derived data freshness computed tables=%d stale_sources=%d stale_tables=%d elapsed_ms=%d",
+            len(report.tables), stale_sources, stale_tables,
             round((time.monotonic() - started) * 1000),
         )
         return report

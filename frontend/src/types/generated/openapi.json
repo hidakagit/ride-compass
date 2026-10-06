@@ -3031,29 +3031,49 @@
         ],
         "title": "CategoricalShape"
       },
-      "ColumnCompleteness": {
+      "ColumnNulls": {
         "properties": {
           "column": {
             "type": "string",
             "title": "Column"
           },
-          "uncalculated_count": {
+          "null_count": {
             "type": "integer",
-            "title": "Uncalculated Count"
-          },
-          "absent_count": {
-            "type": "integer",
-            "title": "Absent Count"
+            "title": "Null Count"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
           "column",
-          "uncalculated_count",
-          "absent_count"
+          "null_count"
         ],
-        "title": "ColumnCompleteness"
+        "title": "ColumnNulls"
+      },
+      "ColumnsChange": {
+        "properties": {
+          "added": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Added"
+          },
+          "removed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Removed"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "added",
+          "removed"
+        ],
+        "title": "ColumnsChange"
       },
       "ConnectionEntry": {
         "properties": {
@@ -3121,30 +3141,6 @@
           "longitude"
         ],
         "title": "Coordinates"
-      },
-      "Coverage": {
-        "properties": {
-          "parent": {
-            "type": "string",
-            "title": "Parent"
-          },
-          "parent_row_count": {
-            "type": "integer",
-            "title": "Parent Row Count"
-          },
-          "missing_rows": {
-            "type": "integer",
-            "title": "Missing Rows"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "parent",
-          "parent_row_count",
-          "missing_rows"
-        ],
-        "title": "Coverage"
       },
       "DbStatusReport": {
         "properties": {
@@ -5763,15 +5759,15 @@
           },
           "columns": {
             "items": {
-              "$ref": "#/components/schemas/ColumnCompleteness"
+              "$ref": "#/components/schemas/ColumnNulls"
             },
             "type": "array",
             "title": "Columns"
           },
-          "coverage": {
+          "columns_change": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Coverage"
+                "$ref": "#/components/schemas/ColumnsChange"
               },
               {
                 "type": "null"
@@ -5789,7 +5785,7 @@
           "table_name",
           "row_count",
           "columns",
-          "coverage",
+          "columns_change",
           "needs_rebuild"
         ],
         "title": "TableEntry"

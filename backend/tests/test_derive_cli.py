@@ -2,7 +2,7 @@
 
 段そのものの値の出し方は段ごとのテスト（`test_derive_*.py`）が持つ。ここは入口が負う契約——
 作業用のスキーマで作り、1つのトランザクションで入れ替え、世代を進め、その中身から作った道路網を置く・
-作った取込を記録し、生データが記録から変わっていれば途中から流さない・取込と同時に走らない・
+作った取込を記録し、生データか派生の表の列が記録から変わっていれば途中から流さない・取込と同時に走らない・
 管理画面で変えた較正値を段へ渡す——を見る。
 段は本物を通し、読み手の目で見るための覗き窓だけを段の後ろに挟む。
 見ないもの: 取込の間に作り直しが止まること → `test_ingest.py`。
@@ -260,9 +260,17 @@ async def test_a_rebuild_records_the_latest_succeeded_import_of_every_source(der
     assert await derived_data_meta.read_source_runs(derived_before) == {"osm_way": way_run, "osm_node": node_run}
 
 
-async def test_rebuilding_from_a_stage_stops_after_an_import_until_rebuilt_from_the_first_stage(derived_before):
-    """生データを取り直した後は、途中の段からは流さず何も変えない。最初から流した後は、途中の段から流せる。"""
-    await _ingest_ways(derived_before)
+async def _record_a_column_added_after_the_rebuild(conn: asyncpg.Connection) -> None:
+    """最後の作り直しの後に、道1本の表へ列を1本足した（作ったときの列の記録に、今の宣言の列が1本無い）。"""
+    columns = await derived_data_meta.read_columns(conn)
+    await derived_data_meta.replace_columns(conn, {**columns, "way_materials": columns["way_materials"] - {"divided"}})
+
+
+@pytest.mark.parametrize("change", [_ingest_ways, _record_a_column_added_after_the_rebuild],
+                         ids=["生データを取り直した", "派生の表の列を足した"])
+async def test_rebuilding_from_a_stage_stops_after_a_change_until_rebuilt_from_the_first_stage(derived_before, change):
+    """生データを取り直した・派生の表の列を足した後は、途中の段からは流さず何も変えない。最初から流した後は、途中の段から流せる。"""
+    await change(derived_before)
 
     with pytest.raises(RuntimeError, match="--from を外して最初から流す"):
         await derive_cli.run(postgis_database_url(), "ways")

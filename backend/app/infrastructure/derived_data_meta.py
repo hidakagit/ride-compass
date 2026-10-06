@@ -1,4 +1,4 @@
-"""派生データの世代（1行のみ、id=1固定）と、今の派生の表を作った取込（`derived_source_runs`）。
+"""派生データの世代（1行のみ、id=1固定）と、今の派生の表を作った取込（`derived_source_runs`）・列（`derived_columns`）。
 
 派生の作り直し（`app/batch/derive_cli.py`）が作り直した表を入れ替えるたびにインクリメントする単調カウンタ。
 道路網全体の配列の置き場の名前（`road_network_store.py`）と、配信する地図タイルの世代
@@ -14,6 +14,7 @@
 派生の世代がNoneになる。
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 import asyncpg
@@ -48,6 +49,21 @@ class DerivedSourceRunRow(Base):
 
     source: Mapped[str] = mapped_column(String, primary_key=True)
     run_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("source_runs.run_id"), nullable=False)
+
+
+class DerivedColumnRow(Base):
+    """今の`public`の派生の表を作ったときの、表ごとの列（ORMの宣言）。表と列ごとに1行。
+
+    作り直しは全部の段を作業用のスキーマで流して表ごと入れ替えるので、入れ替えた後の値のNULLは「計算した結果、
+    値が無い」しかない。作り直しが要るのは、取込が変わったとき（`derived_source_runs`）と、最後の作り直しの後に
+    派生の表の列を足した・消したとき（足した列は全行がNULLのまま）だけで、後者をこの記録と今の宣言の比べで出す
+    （`derived_data_freshness.py`）。`derived_source_runs`と同じく作業用のスキーマへ写して書き、表ごと入れ替える。
+    """
+
+    __tablename__ = "derived_columns"
+
+    table_name: Mapped[str] = mapped_column(String, primary_key=True)
+    column_name: Mapped[str] = mapped_column(String, primary_key=True)
 
 
 @dataclass(frozen=True)
@@ -92,3 +108,19 @@ async def replace_source_runs(conn: asyncpg.Connection, runs: dict[str, int]) ->
     await conn.execute(f"DELETE FROM {DerivedSourceRunRow.__tablename__}")
     await conn.executemany(
         f"INSERT INTO {DerivedSourceRunRow.__tablename__} (source, run_id) VALUES ($1, $2)", runs.items())
+
+
+async def read_columns(conn: asyncpg.Connection) -> dict[str, frozenset[str]]:
+    """今の派生の表を作ったときの列（表の名前 → 列の名前）。"""
+    columns: dict[str, set[str]] = {}
+    for row in await conn.fetch(f"SELECT table_name, column_name FROM {DerivedColumnRow.__tablename__}"):
+        columns.setdefault(row["table_name"], set()).add(row["column_name"])
+    return {table: frozenset(names) for table, names in columns.items()}
+
+
+async def replace_columns(conn: asyncpg.Connection, columns: Mapping[str, frozenset[str]]) -> None:
+    """派生の表を作ったときの列を`columns`へ置き換える。"""
+    await conn.execute(f"DELETE FROM {DerivedColumnRow.__tablename__}")
+    await conn.executemany(
+        f"INSERT INTO {DerivedColumnRow.__tablename__} (table_name, column_name) VALUES ($1, $2)",
+        [(table, name) for table, names in columns.items() for name in sorted(names)])
