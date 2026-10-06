@@ -28,7 +28,7 @@ interface WeatherPanelProps {
 // 日の出/日没は1日1個の値のため、このバーではなく「今日」パネル（TodayOutlook）が持つ
 // ——バーは走行中に何度も見る瞬間値だけに絞る。
 //
-// 観測であること・観測所名・観測の時刻は、バーを押すと開くパネルに出す。390pxの幅ではヘッダーに
+// 観測であること・観測所名・観測の時刻と、数値ごとの意味は、バーを押すと開くパネルに出す。390pxの幅ではヘッダーに
 // 足す余地が無く、バーへ並べると右の警報のバッジが画面の外へ押し出される。
 function isCurrentlyDay(twilight: { sunrise: string; sunset: string } | null): boolean {
   if (twilight === null) return true;
@@ -52,11 +52,26 @@ export default function WeatherPanel({ amedas, loading, error }: WeatherPanelPro
     return null;
   }
 
-  const temperatureTitle =
-    amedas.apparent_temperature_c != null ? `体感 ${amedas.apparent_temperature_c.toFixed(1)}℃` : undefined;
+  const temperature = amedas.temperature_c != null ? amedas.temperature_c.toFixed(1) : "-";
   const direction = amedas.wind_direction;
 
   const weatherDisplay = getAmedasWeatherDisplay(amedas.weather_code, isCurrentlyDay(amedas.twilight));
+
+  const meanings: { term: string; value: string }[] = [
+    {
+      term: "気温",
+      value:
+        `${temperature}℃` +
+        (amedas.apparent_temperature_c != null ? `（体感 ${amedas.apparent_temperature_c.toFixed(1)}℃）` : ""),
+    },
+    ...(amedas.wind_speed_ms != null && direction !== null
+      ? [{ term: "風", value: `${direction.label}の風 ${amedas.wind_speed_ms.toFixed(1)}m/s` }]
+      : []),
+    ...(amedas.precipitation_10min_mm != null
+      ? [{ term: "直近10分間の降水量", value: `${amedas.precipitation_10min_mm.toFixed(1)}mm` }]
+      : []),
+    ...(weatherDisplay != null ? [{ term: "天気", value: weatherDisplay.label }] : []),
+  ];
 
   return (
     <Popover>
@@ -70,10 +85,7 @@ export default function WeatherPanel({ amedas, loading, error }: WeatherPanelPro
           {/* 気温・風向風速・降水量・天気アイコンをアイコン+数値だけの統計チップとして1行に並べる
               （はみ出した分は横へ流し、ヘッダーを2行にしない）。ボタンの中に置くのでdivでなくspan。 */}
           <span className="flex flex-nowrap items-center gap-2 overflow-x-auto text-[var(--foreground)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&_svg]:shrink-0">
-            <span
-              className="inline-flex flex-shrink-0 items-center gap-1 whitespace-nowrap text-[length:var(--font-size-md)] font-semibold"
-              title={temperatureTitle}
-            >
+            <span className="inline-flex flex-shrink-0 items-center gap-1 whitespace-nowrap text-[length:var(--font-size-md)] font-semibold">
               <ThermometerIcon size={16} />
               <span className="sr-only">気温: </span>
               {/* 数値と単位は1つのspanにまとめて.statのgapが間に入らないようにする
@@ -81,7 +93,7 @@ export default function WeatherPanel({ amedas, loading, error }: WeatherPanelPro
             子要素のままにすると、アイコン↔数値と同じ間隔が数値↔単位にも入ってしまい
             意図しない余白になる）。 */}
               <span>
-                {amedas.temperature_c != null ? amedas.temperature_c.toFixed(1) : "-"}
+                {temperature}
                 <span className="text-[0.8em] font-normal text-[var(--color-muted)]">℃</span>
               </span>
             </span>
@@ -89,10 +101,7 @@ export default function WeatherPanel({ amedas, loading, error }: WeatherPanelPro
             <span className="w-px flex-shrink-0 self-stretch bg-[var(--color-border)]" aria-hidden="true" />
 
             {amedas.wind_speed_ms != null && direction !== null && (
-              <span
-                className="inline-flex flex-shrink-0 items-center gap-1 whitespace-nowrap text-[length:var(--font-size-md)] font-semibold"
-                title={`${direction.label}の風`}
-              >
+              <span className="inline-flex flex-shrink-0 items-center gap-1 whitespace-nowrap text-[length:var(--font-size-md)] font-semibold">
                 <span
                   className="inline-flex transition-transform duration-200"
                   style={{ transform: `rotate(${direction.deg + 180}deg)` }}
@@ -110,10 +119,7 @@ export default function WeatherPanel({ amedas, loading, error }: WeatherPanelPro
             {amedas.precipitation_10min_mm != null && (
               <>
                 <span className="w-px flex-shrink-0 self-stretch bg-[var(--color-border)]" aria-hidden="true" />
-                <span
-                  className="inline-flex flex-shrink-0 items-center gap-1 whitespace-nowrap text-[length:var(--font-size-md)] font-semibold"
-                  title="直近10分間の降水量"
-                >
+                <span className="inline-flex flex-shrink-0 items-center gap-1 whitespace-nowrap text-[length:var(--font-size-md)] font-semibold">
                   <RaindropIcon size={16} />
                   <span className="sr-only">降水量: </span>
                   <span>
@@ -127,10 +133,7 @@ export default function WeatherPanel({ amedas, loading, error }: WeatherPanelPro
             {weatherDisplay != null && (
               <>
                 <span className="w-px flex-shrink-0 self-stretch bg-[var(--color-border)]" aria-hidden="true" />
-                <span
-                  className="inline-flex flex-shrink-0 items-center gap-1 whitespace-nowrap text-[length:var(--font-size-md)] font-semibold"
-                  title={weatherDisplay.label}
-                >
+                <span className="inline-flex flex-shrink-0 items-center gap-1 whitespace-nowrap text-[length:var(--font-size-md)] font-semibold">
                   <weatherDisplay.Icon size={16} />
                   <span className="sr-only">天気: {weatherDisplay.label}</span>
                 </span>
@@ -145,6 +148,14 @@ export default function WeatherPanel({ amedas, loading, error }: WeatherPanelPro
           {amedas.station_name}
           <span className="ml-2 tabular-nums">{formatJstHourMinute(new Date(amedas.observed_at))}</span>
         </p>
+        <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 text-[length:var(--font-size-sm)]">
+          {meanings.map(({ term, value }) => (
+            <div key={term} className="contents">
+              <dt className="text-[var(--color-muted)]">{term}</dt>
+              <dd className="m-0 tabular-nums">{value}</dd>
+            </div>
+          ))}
+        </dl>
         <p className={cn(textVariants({ variant: "note" }), "mt-1")}>
           最寄りの観測所で測った値です。「今日」はモデルの計算値で、この観測とは別のものです。
         </p>

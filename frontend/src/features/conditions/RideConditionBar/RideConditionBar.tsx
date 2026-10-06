@@ -181,7 +181,7 @@ export default function RideConditionBar({
               step={1}
               value={speedKmh}
               onChange={(e) => onSpeedKmhChange(clampSpeedKmh(Number(e.target.value)))}
-              className="min-w-32 flex-1"
+              className="h-6 min-w-32 flex-1"
             />
             <NumberInput
               commitOn="commit"

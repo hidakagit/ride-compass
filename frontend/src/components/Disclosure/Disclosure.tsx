@@ -51,7 +51,10 @@ export default function Disclosure({
 
   const trigger = (
     <Accordion.Header className={cn("m-0 [font:inherit]", !trailing && headerClassName)}>
-      <Accordion.Trigger className={cn("block w-full cursor-pointer text-left", triggerClassName)} data-usage={usage}>
+      <Accordion.Trigger
+        className={cn("block min-h-6 w-full cursor-pointer text-left", triggerClassName)}
+        data-usage={usage}
+      >
         {summary}
       </Accordion.Trigger>
     </Accordion.Header>

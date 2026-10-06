@@ -158,7 +158,7 @@ export default function BottomSheet({
     >
       {/* 高さを変える帯。全幅の帯は小さいボタンより押し外しにくいため、縦は44pxより薄くして地図を空ける。 */}
       <div
-        className="flex w-full flex-shrink-0 cursor-ns-resize touch-none items-center justify-center py-2 before:h-1 before:w-9 before:rounded-sm before:bg-[var(--color-border-strong)] before:content-[''] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-accent)]"
+        className="flex w-full flex-shrink-0 cursor-ns-resize touch-none items-center justify-center py-2.5 before:h-1 before:w-9 before:rounded-sm before:bg-[var(--color-border-strong)] before:content-[''] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-accent)]"
         role="separator"
         aria-orientation="horizontal"
         aria-label="パネルの高さを変更"

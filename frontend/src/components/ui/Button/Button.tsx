@@ -6,8 +6,9 @@ import { cn } from "@/lib/cn";
 // 1つを選ぶ`ToggleGroup`・`Tabs`を使う（見た目はここだけが決める）。
 //
 // 色は必ずvar(--color-*)をTailwindの任意値記法で参照する(docs/modules/frontend/frontend-design-system.md)。
+// 押す所はどの大きさでも24px四方以上（min-h-6 min-w-6。WCAG 2.2 達成基準 2.5.8）。
 export const buttonVariants = cva(
-  "inline-flex shrink-0 cursor-pointer items-center justify-center gap-1 whitespace-nowrap border font-normal leading-none transition-colors disabled:cursor-default disabled:opacity-50 [&_svg]:shrink-0",
+  "inline-flex min-h-6 min-w-6 shrink-0 cursor-pointer items-center justify-center gap-1 whitespace-nowrap border font-normal leading-none transition-colors disabled:cursor-default disabled:opacity-50 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
