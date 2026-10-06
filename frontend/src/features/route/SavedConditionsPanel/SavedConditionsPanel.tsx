@@ -21,7 +21,7 @@ import { cn } from "@/lib/cn";
 interface SavedConditionsPanelProps {
   saved: SavedCondition[];
   /** いまの設定（出発地を除く）。保存の前に、何が保存されるかを並べる。 */
-  current: Omit<GenerationConditionsSnapshot, "origin">;
+  current: GenerationConditionsSnapshot;
   /** 名前の欄に最初から入れておく仮の名前（いまの条件から作る）。 */
   suggestedName: string;
   /** 出発地を地図で置いたか（置いていれば、出発地を固定して保存するのが既定）。 */

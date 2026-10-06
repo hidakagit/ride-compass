@@ -80,8 +80,9 @@ export function useRouteGeneration({
   // 実験スロット: 研究モードの生成結果の直近数件（地図の重ね描き・比較表）。
   const [experimentSlots, setExperimentSlots] = useState<ExperimentSlot[]>([]);
 
-  const { routeMode, waypoints, destination, maxRoutesInput, hardFilters, routePreferenceToSend } = conditions;
-  // いまのフォームから生成の入力を組み立てる。`lens`は地図のレンズ、`destinationOverride`はbackendが補正した目的地。
+  const { routePreferenceToSend } = conditions;
+  const { routeMode, waypoints, destination, maxRoutes, hardFilters } = conditions.snapshot;
+  // いまの条件から生成の入力を組み立てる。`lens`は地図のレンズ、`destinationOverride`はbackendが補正した目的地。
   const buildCurrentGenerationInput = useCallback(
     (distanceKm: number, lens: string, destinationOverride?: Coordinates): GenerationInput => {
       const effectiveDestination = destinationOverride ?? destination;
@@ -92,7 +93,7 @@ export function useRouteGeneration({
         // 点を置いたときの探索の範囲はbackendが点から決めるため、距離は送らない。
         distanceKm: routeMode === "destination" && destinationModePoints.length > 0 ? null : distanceKm,
         distanceToleranceKm: routeGenerateConfig.default_distance_tolerance_km,
-        maxRoutes: fixedRouteCount(routeMode, waypoints.length) ?? Number(maxRoutesInput),
+        maxRoutes: fixedRouteCount(routeMode, waypoints.length) ?? Number(maxRoutes),
         assumedSpeedKmh,
         startTime: departure.at,
         startTimePinned: departure.pinned,
@@ -109,7 +110,7 @@ export function useRouteGeneration({
       waypoints,
       destination,
       origin,
-      maxRoutesInput,
+      maxRoutes,
       assumedSpeedKmh,
       departure.at,
       departure.pinned,
@@ -124,7 +125,7 @@ export function useRouteGeneration({
   const conditionsDirty =
     generatedConditions != null &&
     hasRoutes &&
-    generationConditionsKey(buildCurrentGenerationInput(Number(conditions.distanceInput), LENS_NONE_ID)) !==
+    generationConditionsKey(buildCurrentGenerationInput(Number(conditions.snapshot.distance), LENS_NONE_ID)) !==
       generatedConditions.key;
 
   async function generate(distanceKm: number, lens: string) {
@@ -139,9 +140,11 @@ export function useRouteGeneration({
       } = await generateRoutes(buildGenerateRequest(generationInput), (progress) =>
         setGeneration({ status: "running", progress }),
       );
-      // backendが目的地を補正したら、地図のピンも実際に使われた地点へ合わせる。
-      if (used.corrected_destination) {
-        conditions.setDestination(used.corrected_destination);
+      // backendが目的地を補正したら、地図のピンも実際に使われた地点へ合わせる。待つ間に置き直したピンは、利用者が
+      // 次に使う地点なので動かさない（送った目的地のままのときだけ書き換える）。
+      const corrected = used.corrected_destination;
+      if (corrected) {
+        conditions.setDestination((current) => (current === generationInput.destination ? corrected : current));
       }
       // 一覧は所要時間の短い順。
       onGenerated(orderByDuration(candidates), used.route_preference);
@@ -188,7 +191,7 @@ export function useRouteGeneration({
   }
 
   const routeFormSubmit = useRouteFormSubmit({
-    distance: conditions.distanceInput,
+    distance: conditions.snapshot.distance,
     routeMode,
     waypointCount: waypoints.length,
     destinationSet: destination !== null,

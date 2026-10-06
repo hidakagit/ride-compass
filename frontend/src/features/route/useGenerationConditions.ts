@@ -25,6 +25,11 @@ const ROUTE_MODE_STORAGE_KEY = "ridecompass:route-mode";
 const DISTANCE_STORAGE_KEY = "ridecompass:distance-km";
 const MAX_ROUTES_STORAGE_KEY = "ridecompass:max-routes";
 
+/** 形の項目ごとに入れ方を呼ぶ。入れ方の表は形と同じキーを全部持つ型なので、形に項目を足すと入れ方が要る。 */
+function applyEachField<T extends object>(apply: { [K in keyof T]-?: (value: T[K]) => void }, value: T) {
+  for (const key in apply) apply[key](value[key]);
+}
+
 // モードに入ったとき（切り替えた・開き直した）に置ける役割。目的地モードで何も置いていなければ、次のタップで目的地を
 // 置ける。既に置いてあれば、次のタップは経由地の追加かもしれないので自動では武装しない（目的地が意図せず上書きされる）。
 function pinRoleOnEnter(mode: RouteMode, destination: Coordinates | null, waypointCount: number): PinRole | null {
@@ -145,24 +150,55 @@ export function useGenerationConditions({ onOriginPlace }: GenerationConditionsI
     },
   );
 
+  // いまの条件を、保存・呼び出しと同じ形1つで返す（保存・生成の入力・保存の説明はこれを読む）。
+  const snapshot: GenerationConditionsSnapshot = useMemo(
+    () => ({
+      routeMode,
+      distance: distanceInput,
+      maxRoutes: maxRoutesInput,
+      waypoints,
+      destination,
+      routePreference: weightOverrideEnabled ? routePreference : null,
+      hardFilters,
+    }),
+    [
+      routeMode,
+      distanceInput,
+      maxRoutesInput,
+      waypoints,
+      destination,
+      weightOverrideEnabled,
+      routePreference,
+      hardFilters,
+    ],
+  );
+
   // 保存した条件で入れ替える（出発地は位置の持ち主が受け取るので、呼び出し側が渡す）。地点を入れ替えたので、置ける役割は
   // 選び直させる。
   const restore = useCallback(
-    (saved: Omit<GenerationConditionsSnapshot, "origin">) => {
-      setRouteMode(saved.routeMode);
-      setDistanceInput(saved.distance);
-      setMaxRoutesInput(saved.maxRoutes);
-      setWaypoints(saved.waypoints);
-      setDestination(saved.destination);
+    (saved: GenerationConditionsSnapshot) => {
+      applyEachField<GenerationConditionsSnapshot>(
+        {
+          routeMode: setRouteMode,
+          distance: setDistanceInput,
+          maxRoutes: setMaxRoutesInput,
+          waypoints: setWaypoints,
+          destination: setDestination,
+          routePreference: (weights) => {
+            if (weights !== null) setRoutePreference(weights);
+            setWeightOverrideEnabled(weights !== null);
+          },
+          hardFilters: setHardFilters,
+        },
+        saved,
+      );
       setArmedPinRole(null);
-      if (saved.routePreference !== null) setRoutePreference(saved.routePreference);
-      setWeightOverrideEnabled(saved.routePreference !== null);
-      setHardFilters(saved.hardFilters);
     },
     [setRouteMode, setDistanceInput, setMaxRoutesInput, setRoutePreference, setWeightOverrideEnabled, setHardFilters],
   );
 
   return {
+    snapshot,
     restore,
     routeMode,
     changeRouteMode,

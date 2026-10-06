@@ -157,6 +157,24 @@ describe("選ぶ", () => {
     act(() => result.current.selectTab("r1"));
     expect(result.current.selectedEdit).toBeNull();
   });
+
+  it("前の描画で受け取った口で足しても、その後に足した編集・入れ替えた一覧を前へ戻さず、番号は入れ替えると1から振り直す", () => {
+    const rendered = renderResults();
+    generated(rendered);
+    const { addEdit } = rendered.result.current;
+
+    act(() => addEdit(SPLICED, "r1"));
+    act(() => addEdit(SPLICED, "r2"));
+    expect(rendered.result.current.edits.map((edit) => [edit.number, edit.originId])).toEqual([
+      [1, "r1"],
+      [2, "r2"],
+    ]);
+
+    generated(rendered);
+    act(() => addEdit(SPLICED, "r2"));
+    expect(rendered.result.current.routes.map((route) => route.id)).toEqual(["r1", "r2", `${PREFIX}-1`]);
+    expect(rendered.result.current.selectedRouteId).toBe(`${PREFIX}-1`);
+  });
 });
 
 describe("消す", () => {

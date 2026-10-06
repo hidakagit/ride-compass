@@ -490,7 +490,7 @@ backendの決まった数）ので、その条件で候補数の入力を変え�
 backendが最寄りのアクセス可能な地点へ補正した場合のヒントを出す（`useRouteGeneration.ts`の
 `destinationCorrected`）。補正時は地図上の目的地ピンも
 生成が実際に使われた地点（`conditions.corrected_destination`）へ動かす
-（ピンの位置と生成されたルートの終点がずれて見えないようにする）。
+（ピンの位置と生成されたルートの終点がずれて見えないようにする）。生成を待つ間に置き直したピンは動かさない。
 
 「ルート結果」ヘッダの操作枠（`renderRouteResultHeaderActions()`）には**候補すべてに効く操作だけ**を置く
 （「全消去」、`ClearRoutesIcon`、`useRoutePlanner.ts: clear`。押すと確認の窓`Dialog/Dialog.tsx: ConfirmDialog`を出し、「消す」を押したときだけ消す——
