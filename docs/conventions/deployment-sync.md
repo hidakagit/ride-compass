@@ -147,6 +147,9 @@
      Allow dynamic-group ridecompass-vm to manage objects in compartment <コンパートメント名> where all {target.bucket.name='ridecompass-admin-data', request.permission='OBJECT_CREATE'}
      ```
      動的グループをDefault以外のアイデンティティ・ドメインに作ったときは、`dynamic-group '<ドメイン名>'/'ridecompass-vm'`と書く。
+     バケットがテナンシのルートのコンパートメントにあるときは、`in compartment <コンパートメント名>`の代わりに`in tenancy`と書く
+     （ルートは`compartment`で名指せず、コンソールが`Compartment {<ルートの名前>} does not exist or is not part of the policy compartment subtree`で断る。
+     場所の書き方は公式の文書「Policy Syntax」の Location）。5.も同じ。
   4. VMで設定ファイルを置き、ユニットを登録し、1回打って確かめてからtimerを有効にする（ユニットはデプロイが
      揃える作業コピーのものを`systemctl link`で指す）:
      ```
@@ -167,6 +170,7 @@
      ```
      Allow service objectstorage-<リージョン> to manage object-family in compartment <コンパートメント名>
      ```
+     バケットがルートのコンパートメントにあるときは、3.と同じく`in tenancy`と書く。
      続けて Storage → Buckets → バケット → Policies の「Lifecycle policy rules」で Create Rule を押し、Lifecycle action を
      Delete・日数を30・Object name filters の prefix を`admin-data/`にして作る。規則が効き始めるまで最大24時間かかる（同じ文書）。
   6. 見回りに宛先を教える: コードのリポジトリの Settings → Secrets and variables → Actions → Variables で、変数
