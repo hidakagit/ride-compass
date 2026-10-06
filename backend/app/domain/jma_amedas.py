@@ -1,7 +1,6 @@
 """JMAアメダス観測値のドメインモデル。"""
 
 import math
-
 from datetime import datetime
 
 from app.domain.strict_model import StrictModel
