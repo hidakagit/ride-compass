@@ -49,18 +49,15 @@ function axis(overrides: Partial<AxisDefinitionResponse> = {}): AxisDefinitionRe
     weight_share_when_published: null,
     priority_overrides: [],
     icon_id: null,
-    chip_label: null,
-    panel_hint: null,
     display_thresholds_override: null,
     display_band_labels_override: null,
     category: "推定",
     default_weight: 0,
     is_published: false,
-    show_map_icon: false,
     time_scope: "always",
     dedicated_way_value_layer: false,
     shape: { kind: "breakpoint_linear", terms: [], preprocess: "identity", breakpoints: [] },
-    display: { kind: "none", label: "", category: "", tile_inputs: [], thresholds: [] },
+    display: { kind: "none", tile_inputs: [], thresholds: [] },
     ...overrides,
   };
 }
@@ -100,21 +97,17 @@ describe("draftFromExisting", () => {
     [
       "未設定（null）なら、文字の項目は空欄、上書きの項目はnull",
       {},
-      { iconId: "", chipLabel: "", panelHint: "", displayThresholdsOverride: null, displayBandLabelsOverride: null },
+      { iconId: "", displayThresholdsOverride: null, displayBandLabelsOverride: null },
     ],
     [
       "設定済みなら、そのまま",
       {
         icon_id: "icon_a",
-        chip_label: "略",
-        panel_hint: "補足",
         display_thresholds_override: [1, 2],
         display_band_labels_override: ["低", "中", "高"],
       },
       {
         iconId: "icon_a",
-        chipLabel: "略",
-        panelHint: "補足",
         displayThresholdsOverride: [1, 2],
         displayBandLabelsOverride: ["低", "中", "高"],
       },

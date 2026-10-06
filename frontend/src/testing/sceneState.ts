@@ -41,7 +41,6 @@ export function sceneState(overrides: SceneStateOverrides = {}): SceneState {
       rampAxes: [],
       dedicatedAxes: [],
       routeStyleModes: ROUTE_STYLE_MODES_WITHOUT_AXES,
-      secondaryAxes: [],
       ...catalog,
     },
   };

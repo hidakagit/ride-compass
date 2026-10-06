@@ -23,8 +23,6 @@ function valueRamp(
     ...overrides,
     display: {
       kind: "ramp",
-      label: axisId,
-      category: "roadCondition",
       tile_inputs: [tileInput({ property: VALUE, weight: 1, has_unknown_fallback: hasUnknownFallback })],
       thresholds,
     },

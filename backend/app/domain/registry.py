@@ -198,8 +198,6 @@ class AxisDisplaySpec(StrictModel):
     """
 
     kind: Literal["ramp", "none"]
-    label: str = Field(min_length=1)
-    category: str = "trafficSafety"
     tile_inputs: list[TileInputSpec] = Field(default_factory=list)
     thresholds: list[float] = Field(default_factory=list)
 
@@ -210,10 +208,10 @@ class AxisDisplaySpec(StrictModel):
         """
         if self.kind == "ramp":
             if not self.tile_inputs:
-                raise ValueError(f"ramp display '{self.label}' has nothing to read from the tile")
+                raise ValueError("ramp display has nothing to read from the tile")
         elif self.tile_inputs or self.thresholds:
-            raise ValueError(f"display '{self.label}' is kind=none but carries a ramp payload")
+            raise ValueError("display is kind=none but carries a ramp payload")
         if any(b <= a for a, b in zip(self.thresholds, self.thresholds[1:])):
             # 昇順でない段はフロントのstep式が読めず、境界が1つ先の帯へ吸われる。
-            raise ValueError(f"display '{self.label}' thresholds are not ascending: {self.thresholds}")
+            raise ValueError(f"display thresholds are not ascending: {self.thresholds}")
         return self

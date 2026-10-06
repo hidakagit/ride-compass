@@ -85,18 +85,15 @@ function editingAxis(kind: "ramp" | "none"): AxisDefinitionResponse {
     weight_share_when_published: null,
     priority_overrides: [],
     icon_id: null,
-    chip_label: null,
-    panel_hint: null,
     display_thresholds_override: null,
     display_band_labels_override: null,
     category: "推定",
     default_weight: 0,
     is_published: false,
-    show_map_icon: true,
     time_scope: "always",
     dedicated_way_value_layer: false,
     shape: { kind: "breakpoint_linear", terms: [], preprocess: "identity", breakpoints: [] },
-    display: { kind, label: "", category: "", tile_inputs: [], thresholds: [] },
+    display: { kind, tile_inputs: [], thresholds: [] },
   };
 }
 
@@ -275,18 +272,15 @@ describe("体感ラベル", () => {
   });
 });
 
-describe("チップの表示要素", () => {
-  it("地図に出すか・アイコン・略称・レイヤー一覧の説明を下書きへ入れる", async () => {
+describe("アイコン", () => {
+  it("選んだアイコンを下書きへ入れる", async () => {
     const iconIds = Object.keys(AXIS_ICON_PALETTE);
     expect(iconIds.length).toBeGreaterThan(0);
-    const user = renderSection({ initial: draftWith({ showMapIcon: true }) });
+    const user = renderSection();
 
-    await user.click(screen.getByRole("checkbox", { name: "地図に出す" }));
     await user.selectOptions(screen.getByRole("combobox", { name: "アイコン" }), iconIds[0]);
-    await user.type(screen.getByRole("textbox", { name: "チップの略称" }), "略称");
-    await user.type(screen.getByRole("textbox", { name: /panel_hint/ }), "説明");
 
-    expect(draft()).toMatchObject({ showMapIcon: false, iconId: iconIds[0], chipLabel: "略称", panelHint: "説明" });
+    expect(draft().iconId).toBe(iconIds[0]);
   });
 
   it("アイコンは未設定（汎用）も選べる", async () => {

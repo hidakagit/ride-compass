@@ -26,7 +26,6 @@ import { areaLayerAnchor, prepareBasemapForAreaLayers, runWhenStyleReady } from 
 import { primaryAttributeIdsToLayerIds } from "@/features/map/layers/primaryAttributes";
 import { ROUTE_ARROW_ICON_ID, createRouteArrowIcon } from "@/features/map/layers/routeArrowIcon";
 import type { LensId, RouteStyleMode } from "@/lib/mapDisplay/routeStyleModes";
-import type { SecondaryAxisSummary } from "@/features/map/secondaryAxes";
 import type { RouteCandidate } from "@/types/route";
 import { dedicatedAxisBands, rampAxisBands, type ValueBand } from "@/lib/mapDisplay/valueScale";
 import { tileBaseUrl } from "@/lib/tileBaseUrl";
@@ -87,7 +86,6 @@ type SceneWiringProps = {
     readonly rampAxes: readonly RampAxis[];
     readonly dedicatedAxes: readonly DedicatedWayValueAxis[];
     readonly routeStyleModes: readonly RouteStyleMode[];
-    readonly secondaryAxes: readonly SecondaryAxisSummary[];
   };
   readonly routes: readonly RouteCandidate[];
   readonly selectedRouteId: string | null;
@@ -157,7 +155,7 @@ function axisLineBands(bands: readonly ValueBand[]): AxisBand[] {
 function underlaidAxisIds(props: SceneWiringProps): ReadonlySet<string> {
   const visible = props.look.layerVisibility;
   return new Set(
-    props.catalog.secondaryAxes
+    props.catalog.rampAxes
       .filter((axis) => primaryAttributeIdsToLayerIds(axis.primaryAttributeIds).some((id) => visible[id]))
       .map((axis) => axis.axisId),
   );

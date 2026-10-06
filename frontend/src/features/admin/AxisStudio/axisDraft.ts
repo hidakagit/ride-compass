@@ -64,9 +64,6 @@ type EditedPayloadKey =
   | "shape"
   | "is_published"
   | "icon_id"
-  | "chip_label"
-  | "panel_hint"
-  | "show_map_icon"
   | "display_thresholds_override"
   | "display_band_labels_override";
 
@@ -131,13 +128,8 @@ export interface Draft {
   /** 公開状態。trueにすると一般向けGET /api/axis-catalogへ現れ、以後
    * backend側で更新・削除が拒否される（不変制約）ため、確定前によく確認してからONにする。 */
   isPublished: boolean;
-  /** 地図チップ表示要素（未設定は空文字列で表し、送信時にnullへ変換する）。 */
+  /** 軸のアイコン（未設定は空文字列で表し、送信時にnullへ変換する）。 */
   iconId: string;
-  chipLabel: string;
-  panelHint: string;
-  /** この軸のアイコンを地図上チップに表示するかどうか。
-   * 既定true（表示する）。 */
-  showMapIcon: boolean;
   /** 地図の色分けしきい値だけを差し替える軽量な上書き。未設定(null)は自動導出した
    * しきい値をそのまま使う。数値の配列を直接編集するシンプルなUIでこのフォームで
    * 直接編集できる（domain/axis_definitions.py:
@@ -172,9 +164,6 @@ export function emptyDraft(materialOptions: readonly AxisMaterialOption[]): Draf
     categoricalRows: [],
     isPublished: false,
     iconId: "",
-    chipLabel: "",
-    panelHint: "",
-    showMapIcon: true,
     displayThresholdsOverride: null,
     displayBandLabelsOverride: null,
     passthrough: { ...DEFAULT_PASSTHROUGH_FIELDS },
@@ -197,9 +186,6 @@ export function draftFromExisting(
     defaultWeight: def.default_weight,
     isPublished: def.is_published,
     iconId: def.icon_id ?? "",
-    chipLabel: def.chip_label ?? "",
-    panelHint: def.panel_hint ?? "",
-    showMapIcon: def.show_map_icon,
     displayThresholdsOverride: def.display_thresholds_override ?? null,
     displayBandLabelsOverride: def.display_band_labels_override ?? null,
     passthrough: pickPassthroughFields(def),

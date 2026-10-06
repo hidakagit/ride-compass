@@ -24,6 +24,7 @@ from sqlalchemy.exc import DBAPIError
 
 from app.api.routers import axis_admin
 from app.domain.axis_definitions import REQUEST_DYNAMIC_MATERIAL_IDS
+from app.domain.axis_display import axis_display_for
 from app.domain.material_catalog import MATERIAL_CATALOG
 from app.domain.value_distribution import ValueDistribution
 from tests.admin_auth import AUTH_HEADERS
@@ -63,6 +64,11 @@ def payload(axis_id="a", **fields):
 
 def stored(axis_id="a", **fields):
     return axis_admin.AxisDefinition.model_validate(payload(axis_id, **fields))
+
+
+def display_of(definition):
+    """応答に添える地図の表示（JSON の形）。"""
+    return axis_display_for(definition).model_dump(mode="json")
 
 
 class FakeAxisRegistry:
@@ -197,7 +203,10 @@ class TestRead:
 
         body = client.get(BASE).json()
 
-        assert [(item["axis_id"], item["display"]["label"]) for item in body] == [("a", "軸A"), ("b", "軸B")]
+        assert [(item["axis_id"], item["display"]) for item in body] == [
+            ("a", display_of(registry.axes["a"])),
+            ("b", display_of(registry.axes["b"])),
+        ]
 
     def test_get_returns_the_axis_with_its_map_display(self, client, registry):
         registry.axes["a"] = stored()
@@ -205,7 +214,7 @@ class TestRead:
         body = client.get(BASE + "/a").json()
 
         assert body["axis_id"] == "a"
-        assert body["display"]["label"] == "軸A"
+        assert body["display"] == display_of(stored())
 
     def test_an_axis_whose_material_left_the_catalog_can_still_be_read(self, client, registry):
         """読み出しは保存済みの内容を返すだけで、書き込み時の検証をやり直さない。"""
@@ -221,7 +230,7 @@ class TestWrite:
         response = client.post(BASE, json=payload())
 
         assert response.status_code == 201
-        assert response.json()["display"]["label"] == "軸A"
+        assert response.json()["display"] == display_of(stored())
         ((name, definition),) = registry.writes
         assert (name, type(definition)) == ("create", axis_admin.AxisDefinition)
 
@@ -284,7 +293,7 @@ class TestWrite:
 
         body = client.post(BASE + "/a/unpublish").json()
 
-        assert (body["is_published"], body["display"]["label"]) == (False, "軸A")
+        assert (body["is_published"], body["display"]) == (False, display_of(stored()))
 
 
 class TestPayloadValidation:
