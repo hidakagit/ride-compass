@@ -22,17 +22,18 @@ from sqlalchemy import Row, TextClause, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from app.domain.attributes import CategoricalColumn, EdgeMaterialArrays
-from app.domain.divided_carriageway import map_oneway_sql
 from app.domain.graph import LeanEdge, edge_feature_key_sql, edge_key, node_key, parse_edge_feature_key
 from app.domain.hard_filters import HARD_FILTER_VALUE_SQL, hard_filter_columns
-from app.domain.landcover import PERCENT_CLASSES, LandcoverPercentages, landcover_key, landcover_tile_property
+from app.domain.landcover import LandcoverPercentages, landcover_key
 from app.domain.material_catalog import (
+    GRADIENT_PERCENT,
     MATERIAL_CATALOG,
     material_array_columns,
-    material_array_group,
+    material_tile_columns,
     material_value_sql,
+    tile_unscaled_sql_params,
 )
-from app.domain.material_sql import LANES_COUNT_CASE_SQL, MAXSPEED_KMH_CASE_SQL
+from app.domain.material_sql import aligned_length_weighted_mean_sql
 from app.infrastructure.source_models import (
     WAYS_SOURCE_SQL,
     Source,
@@ -42,11 +43,6 @@ from app.infrastructure.source_models import (
     ways_source_sql,
 )
 from app.domain.region import BoundingBox
-from app.domain.traffic import (
-    POI_COUNT_KINDS,
-    poi_count_column,
-    poi_density_material_id,
-)
 from app.infrastructure import derived_data_meta
 from app.infrastructure.cache_identity import shape_digest
 from app.infrastructure.derived_models import EdgeMaterialRow, WayMaterialRow
@@ -166,80 +162,53 @@ _TILE_FEATURE_SOURCE_SQL = f"""
 """
 
 
-def _density_column_sql(column: str, precision: int) -> str:
-    """件数をkm正規化した密度の式。
+#: `em`をway粒度で作るときの列。`edge_materials`と`way_materials`で同じ名前の列はway側の
+#: 値を、way側に無い列（標高）はNULLを返す——列の一覧を書かず、宣言から導く。
+_WAY_EM_COLUMNS = [c.name for c in EdgeMaterialRow.__table__.columns
+                   if c.name not in ("osm_way_id", "segment_index")]
+_WAY_MATERIAL_COLUMNS = {c.name for c in WayMaterialRow.__table__.columns}
 
-    **そのフィーチャーが表す単位から出す**。区間単位のフィーチャーは`edge_materials`の
-    件数をその区間の長さで、way丸ごとのフィーチャーは`way_materials`の件数をwayの長さで
-    割る——件数と長さは必ず同じ側から取る（片方だけ区間にすると、区間の件数をway全体の
-    長さで割った無意味な値になる）。
-
-    ST_AsMVTはnumeric型をtextへフォールバックするため、丸めた後にdouble precisionへ
-    キャストする。0はNULLIFでプロパティ自体を省く（大多数が0のためタイルが軽くなる。
-    フロントは欠損=0として扱う）。
-    """
-    return f"""
-                        NULLIF(round((CASE
-                            WHEN src.segment_index IS NOT NULL
-                            THEN em.{column} * 1000.0 / src.length_m
-                            ELSE wm.{column} * 1000.0 / NULLIF(ST_Length(w.geom::geography), 0)
-                        END)::numeric, {precision}), 0)::double precision"""
-
-
-#: 停止要因の種別別密度。列名は材料id（`poi_<種別>_per_km`）と同じにして対応を自明にする。
-#: `POI_COUNT_KINDS`から生成するので、キーを増やしてもこの式は変わらない。
-_POI_TILE_COLUMNS_SQL = "".join(
-    _density_column_sql(poi_count_column(kind), 1) + f" AS {poi_density_material_id(kind)},"
-    for kind in POI_COUNT_KINDS
+#: タイルのフィーチャーの`em`。区間単位のフィーチャーは`edge_materials`の行、way丸ごとのフィーチャーは
+#: `way_materials`の同じ名前の列（無い列はNULL）——件数と長さ（`re`）は必ず同じ側から取る。片方だけ区間に
+#: すると、区間の件数をway全体の長さで割った無意味な値になる。
+_TILE_EM_SQL = ", ".join(
+    f"CASE WHEN src.segment_index IS NOT NULL THEN e.{name}"
+    + (f" ELSE wm.{name}" if name in _WAY_MATERIAL_COLUMNS else "")
+    + f" END AS {name}"
+    for name in _WAY_EM_COLUMNS
 )
 
-#: 土地被覆の焼き込み列。材料の`tile_property`と同じ名前（`landcover_tile_property`）にし、クラスの
-#: 宣言（`domain/landcover.py: PERCENT_CLASSES`）から組み立てる——手で並べると、クラスを
-#: 1つ足したときに「材料は地図レンズを持つのに列が無い」形で静かに空になる。
-_LANDCOVER_TILE_COLUMNS_SQL = (",\n").join(
-    f"                        (CASE WHEN src.segment_index IS NOT NULL "
-    f"THEN em.lc_{landcover_key(field)} ELSE wm.lc_{landcover_key(field)} END)::double precision"
-    f" AS {landcover_tile_property(field)}"
-    for field, _ in PERCENT_CLASSES
-)
-
-#: 欠損を非該当として持つ真偽の材料の焼き込み列。条件は材料の値式をそのまま使い、
-#: 真でなければNULLへ畳んでフィーチャーからキーを省く。値式は`w`だけを読むものに限って
-#: 成り立つ——タイルのFROM句に`re`は無く、way丸ごとのフィーチャーでは`em`がNULLになる。
-_BOOLEAN_TILE_COLUMNS_SQL = (",\n").join(
-    f"                    CASE WHEN {spec.value_sql} THEN true END AS {spec.tile_property}"
-    for spec in MATERIAL_CATALOG.values()
-    if material_array_group(spec) == "boolean"
-    and spec.tile_property is not None and spec.value_sql is not None
-)
-
-#: 分類の材料（タグの値・その区分）の焼き込み列。値式をそのまま焼く——道路種別や路面の区分は道1本の
-#: 値で、式が`w`だけを読むため、区間単位でもway丸ごとでも同じ値になる。
-_CATEGORICAL_TILE_COLUMNS_SQL = (",\n").join(
-    f"                    {spec.value_sql} AS {spec.tile_property}"
-    for spec in MATERIAL_CATALOG.values()
-    if material_array_group(spec) == "categorical"
-    and spec.tile_property is not None and spec.value_sql is not None
-)
-
-#: タイルが材料を引くためのJOIN。区間単位のフィーチャーだけが`em`に一致し、way丸ごとの
-#: フィーチャーは`wm`側へ落ちる。区間を持たない道は`way_materials`にも行が無いので、`wm`も外部結合にする。
+#: タイルが材料を引くためのJOIN。値式が読む別名（`w`・`wm`・`em`・`re`）をフィーチャーの単位で与え、
+#: 区間でもway丸ごとでも同じ値式を使う。`re`は長さだけを持ち、way丸ごとのフィーチャーはwayの長さ
+#: （0はNULL）にする。区間を持たない道は`way_materials`にも行が無いので、`wm`も外部結合にする。
 _TILE_MATERIAL_JOINS = f"""
                     JOIN LATERAL {ways_lookup_sql('src.osm_way_id')} w ON true
                     LEFT JOIN way_materials wm ON wm.osm_way_id = src.osm_way_id
-                    LEFT JOIN edge_materials em
-                           ON em.osm_way_id = src.osm_way_id
-                          AND em.segment_index = src.segment_index
+                    LEFT JOIN edge_materials e
+                           ON e.osm_way_id = src.osm_way_id
+                          AND e.segment_index = src.segment_index
+                    CROSS JOIN LATERAL (SELECT {_TILE_EM_SQL}) em
+                    CROSS JOIN LATERAL (
+                        SELECT CASE WHEN src.segment_index IS NOT NULL THEN src.length_m
+                                    ELSE NULLIF(ST_Length(w.geom::geography), 0) END AS distance_m
+                    ) re
 """
+
+#: 材料の焼き込み列。`tile_property`を持つ全材料について、値式から組んだ式を並べる
+#: （`domain/material_catalog.py: material_tile_columns`）。列を手で書くと、地図と評価が別々の求め方になる。
+_MATERIAL_TILE_COLUMNS_SQL = ",\n".join(
+    f"                    {expression} AS {tile_property}"
+    for tile_property, expression in material_tile_columns().items()
+)
 
 # 路面タイル（MVT）をPostGIS側で丸ごと生成する。転送は完成済みタイル1個（数十KB）で済み、
 # エンコードはPostGISのC実装が担う。bbox内の全way行をPythonへ転送してshapelyでdecode→
 # encodeする構成だと、行転送とGILを握るCPU処理で数秒かかる。
 #
 # **最終値（軸の得点）を焼かない。** タイルは全利用者で共有してキャッシュされるため、
-# 判定基準を変えるたびに世界中のタイルを作り直すことになる。焼くのは材料タグと、レシピに
-# 依存しない静的な事実（密度・土地被覆）だけで、最終値はフロントとルート採点がそれぞれ
-# 同じ材料から計算する。
+# 判定基準を変えるたびに世界中のタイルを作り直すことになる。焼くのは材料の値（レシピに
+# 依存しない静的な事実）だけで、最終値はフロントとルート採点がそれぞれ同じ材料から計算する。
+# 実行時にしか決まらない係数で割る材料は、割る前の値を焼く（係数の引数を1で束ねる）。
 #
 # カバレッジ判定も同じクエリへ畳み込み、1タイルあたりのDB往復を1回にする。CASE式は条件が
 # falseの分岐を評価しないため、カバレッジ外ではMVT生成のサブクエリ自体が実行されない。
@@ -264,20 +233,7 @@ ROAD_SURFACE_TILE_MVT_SQL = text(
                     -- 持たない**ため、埋め込む側は必ずエスケープする。
                     NULLIF(btrim(w.tags->>'name'), '') AS {ROAD_FEATURE_PROPERTIES['name']},
                     NULLIF(btrim(w.tags->>'ref'), '') AS {ROAD_FEATURE_PROPERTIES['ref']},
-{_CATEGORICAL_TILE_COLUMNS_SQL},
-{_BOOLEAN_TILE_COLUMNS_SQL},
-                    -- 一方通行（表示専用）。上下線が分かれた道の片側は外す——道路としては
-                    -- 双方向で、逆方向は数m隣にある。
-                    CASE WHEN {map_oneway_sql("wm.direction", "wm.divided")}
-                         THEN true END AS oneway,
-                    -- ST_AsMVTはnumeric型を認識せずtextへフォールバックするため、
-                    -- integerへキャストしてから焼き込む。
-                    {MAXSPEED_KMH_CASE_SQL} AS maxspeed_kmh,
-                    {LANES_COUNT_CASE_SQL} AS lanes_count,
-                    {_density_column_sql("accident_count", 2)} AS accident_per_km,
-                    {_density_column_sql("intersection_count", 1)}
-                        AS intersection_per_km,{_POI_TILE_COLUMNS_SQL}
-{_LANDCOVER_TILE_COLUMNS_SQL}
+{_MATERIAL_TILE_COLUMNS_SQL}
                 FROM ({_TILE_FEATURE_SOURCE_SQL}) src
                 {_TILE_MATERIAL_JOINS}
             ) mvt
@@ -285,7 +241,7 @@ ROAD_SURFACE_TILE_MVT_SQL = text(
         ) END AS tile
     FROM coverage
     """
-)
+).bindparams(**tile_unscaled_sql_params())
 
 
 # 鍵→動的値配信層（風、「評価軸」グループ）。**タイルと同じソース**から鍵の一覧を引く。
@@ -319,16 +275,12 @@ _FEATURE_MIDPOINTS_IN_TILE_SQL = text(
 # 鍵→勾配配信層。勾配は「道路自身の向き」が本質的に必要な材料（風とは異なる性質）のため、
 # 鍵ごとに`(gradient_percent, road_bearing_deg)`を返す。
 #
-# 値は**そのフィーチャーに属する区間の、長さで重み付けた平均**。区間単位のズームでは属する
+# 値は**そのフィーチャーに属する区間の勾配の値式を、フィーチャーの基準方位へ向きを揃えて長さで重み付けた
+# 平均**（`domain/material_sql.py: aligned_length_weighted_mean_sql`）。区間単位のズームでは属する
 # 区間が1本なのでその区間の値そのものになり、way単位のズームではwayの全区間をならした値に
-# なる。1区間の外れ値がway全体を染めることは無い。
-#
-# **符号付きで平均するため、結果はwayの両端の標高差と一致する**（各区間の勾配へ長さを掛ける
-# と長さが約分され、標高差の総和だけが残る）。崖を下って上り返す道は打ち消し合って0%になる。
-#
-# 向きを揃えてから平均する。区間の勾配はジオメトリの始点→終点を正とするため、フィーチャーの
-# 基準方位とのcosの符号で揃える。基準方位が定まらない閉じた道（始点＝終点）は値を返さない
-# ——どちら向きに辿るかが決まらず、0%として配ると平坦と読まれる。
+# なる。1区間の外れ値がway全体を染めることは無い。基準方位が定まらない閉じた道（始点＝終点）は
+# 値を返さない——どちら向きに辿るかが決まらず、0%として配ると平坦と読まれる。
+_GRADIENT_SQL = material_value_sql()[GRADIENT_PERCENT]
 _FEATURE_GRADIENT_INPUTS_IN_TILE_SQL = text(
     f"""
     WITH coverage AS ({COVERAGE_SQL})
@@ -342,11 +294,8 @@ _FEATURE_GRADIENT_INPUTS_IN_TILE_SQL = text(
             FROM (
                 SELECT
                     src.feature_key,
-                    round((sum(em.average_grade
-                               * sign(cos(radians(re.bearing_deg) - ref.azimuth))
-                               * re.distance_m)
-                           / sum(re.distance_m))::numeric, 2)::double precision
-                        AS average_grade,
+                    round(({aligned_length_weighted_mean_sql(_GRADIENT_SQL, "ref.azimuth")})::numeric, 2)
+                        ::double precision AS average_grade,
                     degrees(ref.azimuth) AS bearing_deg
                 FROM ({_TILE_FEATURE_SOURCE_SQL}) src
                 CROSS JOIN LATERAL (
@@ -360,7 +309,7 @@ _FEATURE_GRADIENT_INPUTS_IN_TILE_SQL = text(
                  AND (src.segment_index IS NULL OR re.segment_index = src.segment_index)
                 JOIN edge_materials em
                   ON em.osm_way_id = re.osm_way_id AND em.segment_index = re.segment_index
-                WHERE em.average_grade IS NOT NULL
+                WHERE ({_GRADIENT_SQL}) IS NOT NULL
                   AND ref.azimuth IS NOT NULL
                 GROUP BY src.feature_key, ref.azimuth
             ) t
@@ -386,11 +335,6 @@ FEATURE_GRADIENT_INPUTS_SHAPE = shape_digest(_FEATURE_GRADIENT_INPUTS_IN_TILE_SQ
 # way粒度では区間そのものの値（長さ・標高）が無いため、`re`と`em`はway単位の値かNULLを
 # 返す1行にする。
 
-#: `em`をway粒度で作るときの列。`edge_materials`と`way_materials`で同じ名前の列はway側の
-#: 値を、way側に無い列（標高）はNULLを返す——列の一覧を書かず、宣言から導く。
-_WAY_EM_COLUMNS = [c.name for c in EdgeMaterialRow.__table__.columns
-                   if c.name not in ("osm_way_id", "segment_index")]
-_WAY_MATERIAL_COLUMNS = {c.name for c in WayMaterialRow.__table__.columns}
 _WAY_ALIAS_EM_SQL = ", ".join(
     (f"wm2.{name} AS {name}" if name in _WAY_MATERIAL_COLUMNS
      else f"NULL::double precision AS {name}")
