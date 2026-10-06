@@ -54,6 +54,7 @@ import { useMapView } from "@/features/map/view/useMapView";
 import { textVariants } from "@/components/ui/Text/Text";
 import { cardVariants } from "@/components/ui/Card/Card";
 import { dotVariants } from "@/components/ui/Dot/Dot";
+import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
 
 const GENERATE_OPEN_STORAGE_KEY = "ridecompass:generate-open";
 const OUTCOME_OPEN_STORAGE_KEY = "ridecompass:outcome-open";
@@ -279,12 +280,12 @@ export default function Home() {
       <div className="flex items-center gap-2">
         {/* 条件を変えている本人は設定の側を見ているので、押すべきボタンの隣でも知らせる。 */}
         {generation.conditionsDirty && (
-          <span
-            className={dotVariants({ tone: "warning" })}
-            role="img"
-            aria-label="生成条件が変更されています"
-            title="生成条件が変更されています"
-          />
+          <InfoPopover
+            triggerAriaLabel="生成条件の変更"
+            triggerContent={<span className={dotVariants({ tone: "warning" })} />}
+          >
+            生成条件が変更されています。表示中の候補は変更前の条件で作ったものです。
+          </InfoPopover>
         )}
         <Button
           variant="primary"

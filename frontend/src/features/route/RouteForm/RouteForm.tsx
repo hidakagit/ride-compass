@@ -268,7 +268,7 @@ export default function RouteForm({
                   step={1}
                   value={distance}
                   onChange={(e) => onDistanceChange(e.target.value)}
-                  className="min-w-0 flex-1"
+                  className="h-6 min-w-0 flex-1"
                   data-usage={`周回するルートの長さを決めます。作る候補は、この距離の±${DISTANCE_TOLERANCE_KM}kmに入るものだけです。`}
                 />
                 <span className="min-w-[3.5em] flex-shrink-0 text-right tabular-nums">{distance}km</span>

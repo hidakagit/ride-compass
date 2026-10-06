@@ -51,7 +51,9 @@ interface AXNode {
 
 /**
  * 観点1（配置の検査）: ページが横にスクロールしないこと、操作できる部品が画面の横幅からはみ出さないこと、
- * 操作できる部品の中心点（押す点）が祖先に切り取られていないこと。
+ * 操作できる部品の中心点（押す点）が祖先に切り取られていないこと、操作できる部品の箱が24px四方以上であること
+ * （WCAG 2.2 達成基準 2.5.8 Target Size (Minimum)。https://www.w3.org/TR/WCAG22/#target-size-minimum の例外のうち、
+ * 見るのを外すのはブラウザが描く部品（User agent control）だけで、間隔で補う形（Spacing）等は使わない）。
  * 部品はブラウザが計算したロール（アクセシビリティツリー）で決める。部品が横スクロールする容器（祖先の計算後の
  * `overflow-x`が`auto`・`scroll`。縦にスクロールする容器も計算後は`auto`になる）の中にあれば、容器を
  * スクロールすれば届くので、部品の代わりに最も近いその容器が画面の横幅に収まるかを見る（件数は`viaContainer`）。
@@ -139,11 +141,22 @@ export async function scanLayout(
           }
           if (scrolls(style.overflowY)) reachY = true;
         }
+        // 入力欄の中の欄・▼の印のように、ブラウザが入力欄の内側に描く部品は大きさを作り手が決めないので見ない
+        // （達成基準 2.5.8 の User agent control の例外）。
+        const root = el.getRootNode();
+        const drawnByBrowser = root instanceof ShadowRoot && root.host.shadowRoot === null &&
+          ["INPUT", "SELECT", "TEXTAREA", "VIDEO", "AUDIO"].includes(root.host.tagName);
+        let small = "";
+        if (!drawnByBrowser && (box.width < 24 || box.height < 24)) {
+          const name = el.getAttribute("aria-label") ?? (el.textContent ?? "").trim().slice(0, 20);
+          small = el.tagName.toLowerCase() + ' "' + name + '" の押す所が24px四方に満たない（' +
+            Math.round(box.width * 10) / 10 + "×" + Math.round(box.height * 10) / 10 + "px）";
+        }
         if (container) {
           const outer = container.getBoundingClientRect();
-          return { via: true, problems: [fits(outer) ? "" : "容器 " + describe(container, outer), clipped] };
+          return { via: true, problems: [fits(outer) ? "" : "容器 " + describe(container, outer), clipped, small] };
         }
-        return { via: false, problems: [fits(box) ? "" : describe(el, box), clipped] };
+        return { via: false, problems: [fits(box) ? "" : describe(el, box), clipped, small] };
       });
     }`,
   })) as { result: { value: ({ via: boolean; problems: string[] } | null)[] } };

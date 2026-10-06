@@ -108,7 +108,7 @@ export default function RouteSplicePanel({
         <Button
           variant="ghost"
           size="bare"
-          className="px-0.5 text-[15px]"
+          className="-ml-2 px-0.5 text-[15px]"
           aria-label="編集をやめて候補へ戻る"
           onClick={onCancel}
         >
@@ -118,7 +118,8 @@ export default function RouteSplicePanel({
           区間の乗り換え
         </h3>
         {/* 使い方は画面へ書かずここへ置く（設計原則「冗長なものは削る」）。 */}
-        <InfoPopover triggerAriaLabel="区間の乗り換えの説明">
+        {/* 押す所（24px四方）の余りを両脇の間に重ね、デスクトップのパネルの幅に1行で収める。「‹」は余りをカードの余白へ寄せる。 */}
+        <InfoPopover triggerAriaLabel="区間の乗り換えの説明" triggerClassName="-mx-1">
           地図の破線が、いまの道から乗り換えられる先です。タップするとそこへ乗り換わり、その先に
           分かれ道があれば次の破線が出ます。太い線が、いま作っているルートです。軸の棒は中央が0で、左[−]へ
           伸びた軸ほど難易度が下がり、右[＋]へ伸びた軸ほど上がっています。
