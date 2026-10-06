@@ -141,15 +141,15 @@ def landcover_value_sql(key: str) -> str:
     return f"em.lc_{key}"
 
 
-def aligned_length_weighted_mean_sql(value: str, reference_azimuth: str) -> str:
-    """区間の向きのある値（`value`。ジオメトリの始点→終点を正とする勾配等）を、基準の方位
-    `reference_azimuth`（ラジアン）へ向きを揃えてから区間の長さで重み付けた平均の集約式。
-    `GROUP BY`の中で、平均する区間を`re`・`em`として並べた行に対して使う。
+def length_weighted_mean_sql(value: str) -> str:
+    """区間の値（`value`）を区間の長さで重み付けた平均の集約式。`GROUP BY`の中で、平均する区間を
+    `re`・`em`として並べた行に対して使う。
 
-    向きは区間の方位とのcosの符号で揃える。勾配なら、各区間の勾配へ長さを掛けると長さが約分されて
-    標高差だけが残るため、全区間の向きが基準と揃う（cosが正）なら結果は両端の標高差を全長で割った値と
-    一致する（崖を下って上り返す道は打ち消し合って0になる）。値の無い区間は呼び出し側が除く——残すと
-    分母の長さだけに数えられる。
+    向きのある値（ジオメトリの始点→終点を正とする勾配等）も、同じ道の区間ならそのまま平均する。区間は
+    道の点を並びの順に切ったもの（`batch/derive_topology.py`）で、どの区間も道と同じ向きを正とする。
+    勾配なら、各区間の勾配へ長さを掛けると長さが約分されて標高差だけが残り、結果は両端の標高差を全長で
+    割った値になる（崖を下って上り返す道は打ち消し合って0になる）。区間の方位で向きを揃え直すと、
+    つづら折りのように道の両端を結ぶ方位から90度より大きく離れる区間の符号が反転し、登り続ける道が
+    0%近くに打ち消し合う。値の無い区間は呼び出し側が除く——残すと分母の長さだけに数えられる。
     """
-    return (f"sum(({value}) * sign(cos(radians(re.bearing_deg) - {reference_azimuth})) * re.distance_m)"
-            " / sum(re.distance_m)")
+    return f"sum(({value}) * re.distance_m) / sum(re.distance_m)"

@@ -33,7 +33,7 @@ from app.domain.material_catalog import (
     material_value_sql,
     tile_unscaled_sql_params,
 )
-from app.domain.material_sql import aligned_length_weighted_mean_sql
+from app.domain.material_sql import length_weighted_mean_sql
 from app.infrastructure.source_models import (
     WAYS_SOURCE_SQL,
     Source,
@@ -275,8 +275,8 @@ _FEATURE_MIDPOINTS_IN_TILE_SQL = text(
 # 鍵→勾配配信層。勾配は「道路自身の向き」が本質的に必要な材料（風とは異なる性質）のため、
 # 鍵ごとに`(gradient_percent, road_bearing_deg)`を返す。
 #
-# 値は**そのフィーチャーに属する区間の勾配の値式を、フィーチャーの基準方位へ向きを揃えて長さで重み付けた
-# 平均**（`domain/material_sql.py: aligned_length_weighted_mean_sql`）。区間単位のズームでは属する
+# 値は**そのフィーチャーに属する区間の勾配の値式を長さで重み付けた平均**
+# （`domain/material_sql.py: length_weighted_mean_sql`）。区間単位のズームでは属する
 # 区間が1本なのでその区間の値そのものになり、way単位のズームではwayの全区間をならした値に
 # なる。1区間の外れ値がway全体を染めることは無い。基準方位が定まらない閉じた道（始点＝終点）は
 # 値を返さない——どちら向きに辿るかが決まらず、0%として配ると平坦と読まれる。
@@ -294,7 +294,7 @@ _FEATURE_GRADIENT_INPUTS_IN_TILE_SQL = text(
             FROM (
                 SELECT
                     src.feature_key,
-                    round(({aligned_length_weighted_mean_sql(_GRADIENT_SQL, "ref.azimuth")})::numeric, 2)
+                    round(({length_weighted_mean_sql(_GRADIENT_SQL)})::numeric, 2)
                         ::double precision AS average_grade,
                     degrees(ref.azimuth) AS bearing_deg
                 FROM ({_TILE_FEATURE_SOURCE_SQL}) src
