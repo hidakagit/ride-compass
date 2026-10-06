@@ -237,7 +237,7 @@ TravelBearingControl.tsx`（`page.tsx`から直接importされ地図上に置か
   見せない。0%は判断の材料にならないため出さない。どちらもbackendがEdge単位で数えた値をそのまま使う。
 - **総合難易度**: `RouteCandidate.overall_difficulty.average`（絶対基準0-100の軸重み付き合成値）を
   表示する。下記内訳の合計そのものであり、内訳の1項目としては扱わない。候補タブの並び順は
-  この値ではなく所要時間の短い順（[ページ全体構成・状態管理](page-composition.md)参照）。数字の隣に(i)説明ポップオーバー
+  この値ではなく最速の印の1本が先頭、残りは所要時間の短い順（`routeTabLabel.ts: orderGenerated`。[ページ全体構成・状態管理](page-composition.md)参照）。数字の隣に(i)説明ポップオーバー
   （このコンポーネント自身が持つ、負荷の説明と同じ形）を置く。
 - **軸別内訳（重み付き寄与度）**: `RouteCandidate.axis_contributions`（axis_id→重み付き
   寄与度0-100、backend側で区間ごとの合成に使ったのと同じ重み配分を軸別に分解しルート
