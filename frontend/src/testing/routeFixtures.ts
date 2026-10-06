@@ -11,7 +11,9 @@ import type { GenerationConditions, RouteCandidate, RouteSegmentDetail } from "@
 export function makeRouteCandidate(overrides: Partial<RouteCandidate> = {}): RouteCandidate {
   return {
     id: "",
+    kind: "loop",
     direction_label: "",
+    is_fastest: false,
     distance_km: 0,
     geometry: { type: "LineString", coordinates: [] },
     elevation_gain_m: null,

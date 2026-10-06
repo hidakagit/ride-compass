@@ -2,13 +2,15 @@
 
 import { useCallback, useMemo, useRef, useState } from "react";
 
-import { SPLICED_ROUTE_ID_PREFIX } from "@/features/route/routeTabLabel";
 import type { RouteCandidate, RoutePreferenceWeights, SelectedRouteSegment } from "@/types/route";
 
 /** 「ルート結果」の比較タブの値（候補のタブの値は候補のid）。 */
 export const COMPARISON_TAB = "comparison";
 
 const NO_SELECTION = { routeId: null, reused: false };
+
+/** 合成で作ったルートのidの頭。作った順の番号を足して、同じ生成の中で重ならないようにする。 */
+const EDIT_ID_PREFIX = "spliced";
 
 /** 区間の乗り換えで作ったルート。元にしたルートとは別の1本で、元を上書きしない。 */
 export interface EditedRoute {
@@ -40,7 +42,7 @@ export function useRouteResults() {
   // 生成に使われた重み（利用者の重みは生成後も変わりうる）。
   const [usedWeights, setUsedWeights] = useState<RoutePreferenceWeights | null>(null);
 
-  /** 生成の結果で一覧を入れ替える。最初に選ぶのは先頭（最も早く着く候補）。 */
+  /** 生成の結果で一覧を入れ替える。最初に選ぶのは先頭（最速の1本か、最も早く着く候補）。 */
   const replaceWithGenerated = useCallback((generated: RouteCandidate[], routePreference: RoutePreferenceWeights) => {
     setGenerated(generated);
     setEdits([]);
@@ -56,7 +58,7 @@ export function useRouteResults() {
   /** 区間の乗り換えで作ったルートを足して選ぶ。idは画面が振る（backendは同じ値を毎回返す）。 */
   const addEdit = useCallback((route: RouteCandidate, originId: string) => {
     const number = nextEditNumber.current++;
-    const id = `${SPLICED_ROUTE_ID_PREFIX}-${number}`;
+    const id = `${EDIT_ID_PREFIX}-${number}`;
     setEdits((current) => [...current, { route: { ...route, id }, originId, number }]);
     setSelection({ routeId: id, reused: false });
     setSelectedRouteSegment(null);

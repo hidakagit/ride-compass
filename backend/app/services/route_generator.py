@@ -25,17 +25,13 @@ if TYPE_CHECKING:
 from app.domain.route import (
     Coordinates,
     RouteCandidate,
+    RouteKind,
     merge_axis_contributions,
     merge_axis_difficulties,
     merge_material_values,
 )
 
 logger = logging.getLogger("ridecompass.generate")
-
-# 区間を乗り換えて作ったルートのid。frontendは`route-generate-config.json`経由で
-# 受け取る（一覧で生成候補と見分けるための接頭辞。両側で別々に書くと、片方だけ改名した
-# ときに合成ルートが「ただの候補」として並ぶ）。
-SPLICED_ROUTE_ID = "route-spliced"
 
 # Road Graph取得bboxの半径ヒューリスティック（目標距離に対する比率）。折返し点は往路の
 # 実距離が目標の半分付近にあり、直線距離は迂回率のぶんそれより短いため、0.5より小さく取る
@@ -72,6 +68,28 @@ SEGMENT_AGGREGATES: dict[str, Callable[[list[Any]], Any]] = {
     # 軸の生値（`axis_raw_values`）も区間が持たないため、同じくエンジンが載せる。
     "material_values": merge_material_values,
 }
+
+
+def _label(
+    candidates: list[RouteCandidate],
+    kind: RouteKind,
+    name: str | None = None,
+    fastest: RouteCandidate | None = None,
+) -> list[RouteCandidate]:
+    """候補へ応答のid・種類・名前・最速の印をまとめて付ける。候補を返す経路はすべて最後にここを通る。
+
+    idは種類と並びの位置から作り、応答の中で一意になる。`name`を渡さなければエンジンが方位から付けた名前のまま。
+    最速の印は`fastest`と同じオブジェクトの1本にだけ付く。
+    """
+    return [
+        candidate.model_copy(update={
+            "id": f"{kind}-{rank:02d}",
+            "kind": kind,
+            "is_fastest": candidate is fastest,
+            **({"direction_label": name} if name is not None else {}),
+        })
+        for rank, candidate in enumerate(candidates)
+    ]
 
 
 def _difficulty_order(candidate: RouteCandidate) -> float:
@@ -262,11 +280,8 @@ class RouteGenerator:
 
         # 同点は上記の「目標距離に近い順」を安定ソートで引き継ぐ。
         candidates.sort(key=_difficulty_order)
-        # 最終順位でidを振り直す（同じ方位に複数候補が並びうるため方位由来のidは一意にならない。
-        # direction_labelはエンジンが方位から付けた表示用ラベルのまま）。
-        candidates = [
-            candidate.model_copy(update={"id": f"route-{rank:02d}"}) for rank, candidate in enumerate(candidates)
-        ]
+        # 名前はエンジンが方位から付けたもの（同じ方位に複数並びうるので、idは並びの位置から作る）。
+        candidates = _label(candidates, "loop")
         evaluate_ms = round((time.monotonic() - evaluate_started) * 1000)
         total_ms = round((time.monotonic() - started) * 1000)
 
@@ -337,11 +352,8 @@ class RouteGenerator:
 
         evaluate_started = time.monotonic()
         candidates = await self._evaluate_and_aggregate(context, [traced], start_time)
-        if destination is not None:
-            candidates = [
-                c.model_copy(update={"id": "route-destination", "direction_label": "目的地ルート"})
-                for c in candidates
-            ]
+        # 常に1本で順位を持たないので、画面は番号でなくこの名前を出す。
+        candidates = _label(candidates, "waypoints", "目的地ルート" if destination is not None else "経由地ルート")
         evaluate_ms = round((time.monotonic() - evaluate_started) * 1000)
         total_ms = round((time.monotonic() - started) * 1000)
 
@@ -400,10 +412,7 @@ class RouteGenerator:
 
         evaluate_started = time.monotonic()
         candidates = await self._evaluate_and_aggregate(context, [traced], start_time)
-        candidates = [
-            candidate.model_copy(update={"id": SPLICED_ROUTE_ID, "direction_label": "組み合わせたルート"})
-            for candidate in candidates
-        ]
+        candidates = _label(candidates, "spliced", "組み合わせたルート")
         evaluate_ms = round((time.monotonic() - evaluate_started) * 1000)
         logger.info(
             "generate(spliced) origin=%s edges=%d -> distance_km=%.1f "
@@ -426,7 +435,7 @@ class RouteGenerator:
         `select_via_nodes`が確定済みの経路だけを返すため、候補ごとの再探索・失敗スキップが
         無く「選定→評価」の2段で済む。
 
-        所要時間が最短の経路を基準線として必ず1本含める（件数を切るときも残す）。軸の重みを
+        所要時間が最短の経路を基準線として必ず1本含め（件数を切るときも残す）、最速の印を付ける。軸の重みを
         すべて0にしたときの経路であり、軸設定に沿った候補が何分余計にかかるかを対価として
         読めるようにするため。並びは周回と同じ総合難易度の昇順で、基準線も難易度の位置に並ぶ。
         """
@@ -476,8 +485,7 @@ class RouteGenerator:
 
         evaluate_started = time.monotonic()
         candidates = await self._evaluate_and_aggregate(context, traced, start_time)
-        # 基準線は応答に印を持たない（候補として並べるだけで、どれと比べるかは受け取る側が
-        # 決める）。件数を切るときに残すためだけに、オブジェクトの同一性で覚えておく。
+        # 件数を切るときに残し、印を付けるために、基準線をオブジェクトの同一性で覚えておく。
         baseline = candidates[fastest_index] if fastest_index is not None else None
         candidates.sort(key=_difficulty_order)
         # max_routesを超えたぶんは難易度の高い側から切るが、基準線は難易度で最下位でも残す。
@@ -490,10 +498,10 @@ class RouteGenerator:
             droppable = [i for i, c in enumerate(candidates) if not (keep_fastest and c is baseline)]
             dropped = set(droppable[-excess:])
             candidates = [c for i, c in enumerate(candidates) if i not in dropped]
-        candidates = [
-            candidate.model_copy(update={"id": f"route-destination-{rank:02d}", "direction_label": "目的地ルート"})
-            for rank, candidate in enumerate(candidates)
-        ]
+        # 印も同じ理由で、比べる相手が残ったときだけ付ける（1本だけなら何とも比べない）。
+        candidates = _label(
+            candidates, "destination", "目的地ルート", fastest=baseline if len(candidates) >= 2 else None,
+        )
         evaluate_ms = round((time.monotonic() - evaluate_started) * 1000)
         total_ms = round((time.monotonic() - started) * 1000)
 

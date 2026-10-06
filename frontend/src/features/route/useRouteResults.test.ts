@@ -16,17 +16,16 @@ import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { makeRouteCandidate } from "@/testing/routeFixtures";
-import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import type { RouteCandidate, SelectedRouteSegment } from "@/types/route";
 
 import { COMPARISON_TAB, useRouteResults } from "./useRouteResults";
 
-const PREFIX = routeGenerateConfig.spliced_route_id;
 const WEIGHTS = { axis_a: 0.3, axis_b: 0.7 };
 
 const FIRST = makeRouteCandidate({ id: "r1", distance_km: 30 });
 const SECOND = makeRouteCandidate({ id: "r2", distance_km: 32 });
-const SPLICED = makeRouteCandidate({ id: PREFIX, distance_km: 31 });
+// backendは合成のルートへ毎回同じidを付ける
+const SPLICED = makeRouteCandidate({ id: "spliced-00", kind: "spliced", distance_km: 31 });
 
 const SEGMENT: SelectedRouteSegment = {
   latitude: 35.6,
@@ -132,7 +131,7 @@ describe("選ぶ", () => {
     act(() => rendered.result.current.addEdit(SPLICED, "r2"));
 
     const { result } = rendered;
-    const first = { ...SPLICED, id: `${PREFIX}-1` };
+    const first = { ...SPLICED, id: "spliced-1" };
     expect(result.current.routes).toEqual([FIRST, SECOND, first]);
     expect(result.current.generated).toEqual([FIRST, SECOND]);
     expect(result.current.edits).toEqual([{ route: first, originId: "r2", number: 1 }]);
@@ -148,12 +147,12 @@ describe("選ぶ", () => {
     generated(rendered);
     act(() => rendered.result.current.addEdit(SPLICED, "r1"));
 
-    act(() => rendered.result.current.addEdit(SPLICED, `${PREFIX}-1`));
+    act(() => rendered.result.current.addEdit(SPLICED, "spliced-1"));
 
     const { result } = rendered;
-    expect(result.current.routes.map((route) => route.id)).toEqual(["r1", "r2", `${PREFIX}-1`, `${PREFIX}-2`]);
+    expect(result.current.routes.map((route) => route.id)).toEqual(["r1", "r2", "spliced-1", "spliced-2"]);
     expect(result.current.selectedEdit?.number).toBe(2);
-    expect(result.current.selectedEdit?.origin?.id).toBe(`${PREFIX}-1`);
+    expect(result.current.selectedEdit?.origin?.id).toBe("spliced-1");
 
     act(() => result.current.selectTab("r1"));
     expect(result.current.selectedEdit).toBeNull();
@@ -173,8 +172,8 @@ describe("選ぶ", () => {
 
     generated(rendered);
     act(() => addEdit(SPLICED, "r2"));
-    expect(rendered.result.current.routes.map((route) => route.id)).toEqual(["r1", "r2", `${PREFIX}-1`]);
-    expect(rendered.result.current.selectedRouteId).toBe(`${PREFIX}-1`);
+    expect(rendered.result.current.routes.map((route) => route.id)).toEqual(["r1", "r2", "spliced-1"]);
+    expect(rendered.result.current.selectedRouteId).toBe("spliced-1");
   });
 
   it("乗り換えで作った経路と同じ道の候補は、選んで比較タブと押した区間を外し、同じ道で選んだと返す。選び直すと返さない", () => {

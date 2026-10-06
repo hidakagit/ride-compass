@@ -212,7 +212,7 @@ RouteGenerator.generate_loops(origin, distance_km, distance_tolerance_km, max_ro
         │  1メソッドを通るため、集約を増やしてもここだけに書けば全経路へ効く
         ▼
   candidates.sort(overall_difficulty昇順[小数1桁]、同点は目標距離に近い順、Noneは末尾)
-        │  idをroute-00..へ振り直す（本数は上の逐次処理がmax_routes件で止めている）
+        │  _labelがid（loop-00..）と種類を付ける（本数は上の逐次処理がmax_routes件で止めている）
         ▼
   RouteCandidate一覧
 ```
@@ -350,14 +350,14 @@ import済みの参照が古い辞書を指したままになる）。差し替�
 
 - **経由地が無い（起点→目的地のみ）**: `_generate_destination_routes`が
   `engine.select_via_nodes`（via-node方式、後述）で`max_routes`件まで互いに異なる
-  代替経路を生成する。`overall_difficulty`昇順（`generate_loops`と同じ規約）で
-  `id="route-destination-00"`形式へ振り直し、`direction_label="目的地ルート"`を
-  全件に付ける。
+  代替経路を生成する。`overall_difficulty`昇順（`generate_loops`と同じ規約）に並べ、種類`destination`と
+  `direction_label="目的地ルート"`を全件に付ける（下の「応答の候補のid・種類・最速の印」）。
   併せて`engine.select_fastest_route`（所要時間だけで選ぶ、後述）を1本必ず含める。
   軸設定に沿った候補が基準線からどれだけ余計にかかるかを読むための基準である。
-  他の候補と同じ経路になった場合は候補を増やさない。**応答は基準線に印を付けない**——
-  どれと比べるかは受け取る側が一覧の所要時間から決める（周回・区間を乗り換えて作った候補も
-  同じ判定に入るため、目的地モードの探索だけが知る印を配っても読み手がいない）。
+  他の候補と同じ経路になった場合は候補を増やさない。**応答は基準線に最速の印（`is_fastest`）を付ける**——
+  画面はこの1本を一覧の「最速」に置き、時間の列の基準にする。見積もりの所要時間は探索と別の時刻の風で
+  数えるため、ほかの候補の方が速く見積もられることがあり、一覧の所要時間から決め直すと印と基準が別の
+  1本になりうる。返す候補が1本だけのときは比べる相手が無いので付けない。
   **基準線も他の候補と同じ難易度順の位置に並ぶ**——並びの
   先頭は周回と同じく最も易しい候補で、先頭を「その回の代表」として読む側（研究モードの
   比較）が目的地モードでも同じ意味で読める。件数は`max_routes`を超えず、切るのは
@@ -368,8 +368,9 @@ import済みの参照が古い辞書を指したままになる）。差し替�
 - **経由地が1つ以上ある**: レグごとに代替案が組合せで増えるためv1では対象にせず、
   従来どおり`trace_loop`で単一経路を生成する（候補数は指定によらず`route_request.py:
   applied_max_routes`が`ROUTES_WITH_WAYPOINTS`に決め、生成条件の応答にもその値が載る。画面は同じ値を
-  生成物`route-generate-config.json`の`routes_with_waypoints`で受け取る。終点到達後に
-  `id="route-destination"`/`direction_label="目的地ルート"`へ上書き、id採番はしない）。
+  生成物`route-generate-config.json`の`routes_with_waypoints`で受け取る）。常に1本で順位を持たないので、種類
+  `waypoints`と、目的地があれば`direction_label="目的地ルート"`・無ければ`"経由地ルート"`を付け、画面は番号の代わりに
+  この名前を出す。
 
 ## 応答の候補の並び順
 
@@ -383,13 +384,19 @@ import済みの参照が古い辞書を指したままになる）。差し替�
 同じ値になる場合、結果は実質的に目標距離に近い順になる。異なるリクエスト間でも同じ
 絶対基準で比較できる。
 
-`generate_loops`は並べた後、idを`route-00..`へ振り直す（本数は折返し点を試す段階で`max_routes`件に達したところで
-止めており、並べた後に切る段は無い）
-（同じ方位に複数候補が並びうるため方位由来のidは一意にならない。`direction_label`は
-エンジンが方位から付けた表示用ラベルのまま）。経由地の無い目的地ルートも同じ規約で
-idを`route-destination-00..`へ振り直すが、
+`generate_loops`の本数は折返し点を試す段階で`max_routes`件に達したところで止めており、並べた後に切る段は無い。
+経由地の無い目的地ルートも同じ規約で並べるが、
 「目標距離」という概念自体が無いため同点タイブレークは持たない（`select_via_nodes`の
 `select_diverse_by_overlap`が既に決定的な順序で候補を返す）。
+
+## 応答の候補のid・種類・最速の印
+
+候補のid・種類（`kind`: 周回`loop`・経由地`waypoints`・目的地`destination`・合成`spliced`）・方位を持たない候補の名前・
+最速の印（`is_fastest`）は、どの入口でも並べ終えた最後に`route_generator.py: _label`が1か所で付ける。idは
+`<種類>-<並びの位置>`（例: `loop-00`・`destination-01`）で、応答の中で一意になる（同じ方位に複数候補が並びうるため、
+方位からは作らない）。エンジン（`_build_candidate`）は並びも種類も知らないので、方位を持つ候補の`direction_label`
+（`domain/geo.py: compass_label`）だけを付け、idと種類は`RouteCandidate`の既定のまま返す。画面は一覧の群・名前・
+最速を種類と印だけで決め、idの文字列や要求の形から決め直さない。
 
 ## RoadGraphEngine（`road_graph_engine.py`）
 
