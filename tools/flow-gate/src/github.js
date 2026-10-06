@@ -2,6 +2,24 @@
 const API = "https://api.github.com";
 const b64url = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 const tokens = new Map();
+// 一時的な失敗（5xx・接続の失敗・GraphQL の「Something went wrong while executing your query」）を打ち直すまでの秒数。数と間と、
+// GraphQL のどの失敗を一時的とみるかは、GitHub の公式の SDK の打ち直し（octokit/plugin-retry.js の既定）に合わせる。
+const AGAIN = [1, 4, 9];
+const transient = (message) => Object.assign(new Error(message), { transient: true });
+
+// 読むだけの要求（read）は、一時的な失敗なら AGAIN の間をあけて打ち直す。書く要求は打ち直さない——失敗の応答でも書き込みが
+// 通っていることがある（問いのコメントと移動を1回で書いた要求が 502 を受け、コメントは書かれていた）。打ち直して同じ結果に
+// なるようにするのは、書く側の道具が持つ（move.js: askTask）。
+async function again(read, call) {
+  for (let i = 0; ; i++) {
+    try {
+      return await call();
+    } catch (e) {
+      if (!read || !e.transient || i === AGAIN.length) throw e;
+      await new Promise((r) => setTimeout(r, AGAIN[i] * 1e3));
+    }
+  }
+}
 
 export class GitHub {
   constructor(token) {
@@ -24,14 +42,19 @@ export class GitHub {
   }
 
   // path は API の中の道か、応答が返した URL（リリースの upload_url 等）。type が JSON でなければ body をそのまま送る。
-  async text(method, path, body, type = "application/json") {
+  // read（既定は GET）は読むだけの要求で、一時的な失敗なら打ち直す（again）。
+  text(method, path, body, type = "application/json", read = method === "GET") {
+    return again(read, () => this.once(method, path, body, type));
+  }
+
+  async once(method, path, body, type) {
     const res = await fetch(path.startsWith("https://") ? path : API + path, {
       method,
       headers: { authorization: `Bearer ${this.token}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28", "user-agent": "ridecompass-gate", "content-type": type },
       body: body && type === "application/json" ? JSON.stringify(body) : body,
-    });
+    }).catch((e) => { throw transient(e.message); });
     const text = await res.text();
-    if (!res.ok) throw new Error(`GitHub ${method} ${path}: ${res.status} ${text.slice(0, 200)}`);
+    if (!res.ok) throw Object.assign(new Error(`GitHub ${method} ${path}: ${res.status} ${text.slice(0, 200)}`), { transient: res.status >= 500 });
     return text;
   }
 
@@ -42,13 +65,16 @@ export class GitHub {
 
   // Markdown を GitHub の issue と同じ描き方で HTML にする（危ない HTML は GitHub が取り除く）。
   markdown(text, repository) {
-    return this.text("POST", "/markdown", { text, mode: "gfm", context: repository });
+    return this.text("POST", "/markdown", { text, mode: "gfm", context: repository }, undefined, true);
   }
 
-  async gql(query, variables = {}) {
-    const r = await this.rest("POST", "/graphql", { query, variables });
-    if (r.errors) throw new Error(`GitHub GraphQL: ${r.errors.map((e) => e.message).join(" / ")}`);
-    return r.data;
+  gql(query, variables = {}) {
+    return again(query.startsWith("query"), async () => {
+      const r = JSON.parse(await this.once("POST", "/graphql", { query, variables }, "application/json"));
+      if (!r.errors) return r.data;
+      const message = r.errors.map((e) => e.message).join(" / ");
+      throw Object.assign(new Error(`GitHub GraphQL: ${message}`), { transient: /Something went wrong while executing your query/.test(message) });
+    });
   }
 
   // 書き込み（[名前, 入力] の並び）を1回の要求で、並べた順に行う。

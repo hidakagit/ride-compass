@@ -2,6 +2,7 @@
 
 // 画面や Windows から書かれた本文は改行の前に \r が重なって届くことがある。
 export const normalize = (text) => (text ?? "").replace(/\r+\n/g, "\n");
+export const SCAN = 30; // 今の問いを探すために読むコメントの件数（回答フォーム・ask.js）
 
 // 誰の番かはステータスだけで決まる（flow.config.json: owner）。閉じたものは誰の番でもない。
 export const ownerOf = (config, issue) => (issue.state === "OPEN" ? (config.owner[issue.status] ?? null) : null);
