@@ -78,8 +78,6 @@ def arrays() -> EdgeMaterialArrays:
         elevation_present=np.zeros(n, dtype=bool),
         elevation_gain_m=nan,
         elevation_loss_m=nan,
-        elevation_max_grade=nan,
-        elevation_min_grade=nan,
     )
 
 
@@ -106,8 +104,6 @@ def climb() -> ElevationAttribute:
         elevation_gain_m=25.0,
         elevation_loss_m=5.0,
         average_grade=4.0,
-        max_grade=9.0,
-        min_grade=-2.0,
     )
 
 
@@ -119,15 +115,11 @@ def test_the_reverse_turns_climbs_into_descents():
         "elevation_gain_m": 5.0,
         "elevation_loss_m": 25.0,
         "average_grade": -4.0,
-        "max_grade": 2.0,  # 逆向きの最急の登りは、順向きの最急の下り
-        "min_grade": -9.0,
     }
 
 
 def test_missing_grades_stay_missing_in_the_reverse():
-    missing = climb().model_copy(update={"average_grade": None, "min_grade": None})
+    missing = climb().model_copy(update={"average_grade": None})
 
-    reverse = missing.reversed_as("1:0:r")
-
-    assert (reverse.average_grade, reverse.max_grade, reverse.min_grade) == (None, None, -9.0)
+    assert missing.reversed_as("1:0:r").average_grade is None
 

@@ -69,8 +69,6 @@ async def test_a_road_that_climbs_and_descends_counts_both(road_graph_session):
     assert row["elevation_gain_m"] == pytest.approx(rise(6), abs=0.05)
     assert row["elevation_loss_m"] == pytest.approx(rise(2), abs=0.05)
     assert row["average_grade"] == pytest.approx(2.0, abs=0.005)
-    assert row["max_grade"] == pytest.approx(6.0, abs=0.005)
-    assert row["min_grade"] == pytest.approx(-2.0, abs=0.005)
 
 
 async def test_values_are_rounded_to_a_tenth_of_a_metre_and_a_hundredth_of_a_percent(road_graph_session):
@@ -81,14 +79,12 @@ async def test_values_are_rounded_to_a_tenth_of_a_metre_and_a_hundredth_of_a_per
 
 
 async def test_a_vertex_without_elevation_is_left_out(road_graph_session):
-    """欠損を挟んだ2点の差は獲得・喪失・最急に入れない。両端の値と平均勾配は欠損の外から出る。"""
+    """欠損を挟んだ2点の差は獲得・喪失に入れない。両端の値と平均勾配は欠損の外から出る。"""
     row = await one(road_graph_session, [100.0, None, 100.0 + rise(5, 2), 100.0 + rise(5, 2) + rise(1)])
 
     assert row["start_elevation_m"] == 100.0
     assert row["elevation_gain_m"] == pytest.approx(rise(1), abs=0.05)
     assert row["elevation_loss_m"] == 0.0
-    assert row["max_grade"] == pytest.approx(1.0, abs=0.005)
-    assert row["min_grade"] == pytest.approx(1.0, abs=0.005)
     assert row["average_grade"] == pytest.approx((rise(5, 2) + rise(1)) / (3 * STEP_M) * 100, abs=0.005)
 
 
@@ -112,18 +108,16 @@ async def test_gaps_only_between_known_vertices_give_no_climb_but_still_an_avera
     row = await one(road_graph_session, [100.0, None, 100.0 + rise(3, 2)])
 
     assert (row["elevation_gain_m"], row["elevation_loss_m"]) == (0.0, 0.0)
-    assert (row["max_grade"], row["min_grade"]) == (None, None)
     assert row["average_grade"] == pytest.approx(3.0, abs=0.005)
 
 
 async def test_a_structure_uses_only_its_two_ends(road_graph_session):
-    """橋の途中の頂点は下の谷を指すので、谷の起伏を獲得・喪失・最急に入れない。"""
+    """橋の途中の頂点は下の谷を指すので、谷の起伏を獲得・喪失に入れない。"""
     row = await one(road_graph_session, [100.0, 60.0, 70.0, 100.0 + rise(1, 3)], on_structure=True)
 
     assert row["elevation_gain_m"] == pytest.approx(rise(1, 3), abs=0.05)
     assert row["elevation_loss_m"] == 0.0
     assert row["average_grade"] == pytest.approx(1.0, abs=0.005)
-    assert row["max_grade"] == row["min_grade"] == row["average_grade"]
 
 
 async def test_a_descending_structure_counts_only_the_loss(road_graph_session):
@@ -131,7 +125,6 @@ async def test_a_descending_structure_counts_only_the_loss(road_graph_session):
 
     assert row["elevation_gain_m"] == 0.0
     assert row["elevation_loss_m"] == pytest.approx(rise(2, 2), abs=0.05)
-    assert row["max_grade"] == row["min_grade"] == pytest.approx(-2.0, abs=0.005)
 
 
 @pytest.mark.parametrize(
@@ -142,15 +135,11 @@ async def test_a_descending_structure_counts_only_the_loss(road_graph_session):
     ],
 )
 async def test_an_implausible_average_grade_has_no_value(road_graph_session, percent, kept):
-    """平均勾配が公道としてありえない区間は、平均勾配を持たない（構造物なら最急も平均から出るので持たない）。
-    獲得・喪失と両端の標高はそのまま出る。"""
-    plain = await one(road_graph_session, [0.0, rise(percent)])
-    structure = await one(road_graph_session, [0.0, rise(percent)], on_structure=True)
+    """平均勾配が公道としてありえない区間は、平均勾配を持たない。獲得・喪失と両端の標高はそのまま出る。"""
+    row = await one(road_graph_session, [0.0, rise(percent)])
 
-    assert (plain["average_grade"] is not None) is kept
-    assert (structure["max_grade"] is not None) is kept
-    assert plain["max_grade"] == pytest.approx(percent, abs=0.005)
-    assert plain["elevation_gain_m"] + plain["elevation_loss_m"] == pytest.approx(abs(rise(percent)), abs=0.05)
+    assert (row["average_grade"] is not None) is kept
+    assert row["elevation_gain_m"] + row["elevation_loss_m"] == pytest.approx(abs(rise(percent)), abs=0.05)
 
 
 async def test_vertices_at_the_same_place_give_no_grade(road_graph_session):
@@ -162,7 +151,7 @@ async def test_vertices_at_the_same_place_give_no_grade(road_graph_session):
     [row] = (await road_graph_session.execute(text(elevation_values_sql(relation)))).mappings().all()
 
     assert float(row["elevation_gain_m"]) == 2.0
-    assert (row["average_grade"], row["max_grade"], row["min_grade"]) == (None, None, None)
+    assert row["average_grade"] is None
 
 
 async def test_segments_are_computed_separately(road_graph_session):

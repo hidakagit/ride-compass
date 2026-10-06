@@ -107,8 +107,7 @@ def _repo(*results) -> tuple[RoadGraphRepository, _FakeSession]:
 
 @pytest.mark.parametrize(("name", "expression"), [
     ("start_a", "m.end_a"),
-    # 勾配は符号を返す。対の語を持てば入れ替えもする
-    ("max_grade", "-m.min_grade"),
+    # 勾配は符号を返す
     ("a_grade", "-m.a_grade"),
     # 向きで変わらない列
     ("a_count", None),
@@ -248,14 +247,12 @@ async def test_paired_edge_columns_are_not_swapped():
     repo, _ = _repo([_arrays_row(1, {
         "mid_lat": [35.5], "mid_lon": [139.5],
         "elevation_gain_m": [2.0], "elevation_loss_m": [1.0],
-        "elevation_max_grade": [3.0], "elevation_min_grade": [-4.0],
     })])
 
     arrays = await repo.get_edge_material_arrays([1], [0], [True], 1)
 
     assert (arrays.mid_lat[0], arrays.mid_lon[0]) == (35.5, 139.5)
     assert (arrays.elevation_gain_m[0], arrays.elevation_loss_m[0]) == (2.0, 1.0)
-    assert (arrays.elevation_max_grade[0], arrays.elevation_min_grade[0]) == (3.0, -4.0)
 
 
 # --- way粒度の読み出し --------------------------------------------------------
