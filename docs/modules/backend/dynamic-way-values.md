@@ -18,7 +18,7 @@
 | infrastructure | `dynamic_way_value_cache.py`（勾配のみ。ディスク経由）・`tile_persistent_cache.py`（呼び出し元が設計したタプルの鍵でPythonオブジェクトを置く汎用のディスクキャッシュ。`diskcache`の包み） |
 | api | `region.py`（`GET /api/region/dynamic-way-values/{axis_id}/...`）・`dependencies.py`（`get_dedicated_way_value_service`・`get_axis_inspector_service`） |
 
-勾配材料の入力（`edge_materials.average_grade`・`road_edges.bearing_deg`）を
+勾配材料の入力（`edge_materials.average_grade`とフィーチャーの方位）を
 DBから取り出す`infrastructure/road_graph_repository.py:
 get_feature_gradient_inputs_in_tile`・`get_feature_midpoints_in_tile`は
 [routing-engine.md](routing-engine.md)が主管するファイルに属する。
@@ -246,18 +246,16 @@ docs/conventions/caching.md「キャッシュしないという選択」）。
 向きで値が決まる）。
 
 入力は`RoadGraphRepository.get_feature_gradient_inputs_in_tile`が返す`(gradient_percent,
-road_bearing_deg)`のフィーチャー単位dict（`edge_materials.average_grade`と
-`road_edges.bearing_deg`をJOINしたSQL）。区間単位のズームではその区間の実際の勾配が
+road_bearing_deg)`のフィーチャー単位dict（勾配は属する区間の`edge_materials.average_grade`から、
+方位はフィーチャーのジオメトリの両端を結ぶ方位）。区間単位のズームではその区間の実際の勾配が
 そのまま返り、way単位のズームでは**区間を長さで重み付けて平均した値**が代表になる
 （上の「フィーチャーの値」節と同じ規則。1区間の外れ値がway全体を染めない）。
 
-**暗黙の前提（モジュール間の隠れた依存）**: このJOINは`em.average_grade IS NOT NULL`を
+**暗黙の前提（モジュール間の隠れた依存）**: この入力のSQLは`em.average_grade IS NOT NULL`を
 要求するため、[elevation.md](elevation.md)の
 派生（`derive_raster_materials.py`）が該当区間の勾配を出していない（または勾配を出さないと
 決めた区間）の場合、その鍵は勾配タイルの結果から静かに除外される——エラーには
-ならず、単に地図上でその道路に勾配の色が付かないだけに留まる。区間は向きを持たない1行で、
-勾配はジオメトリの始点→終点を正とするため、フィーチャーの基準方位とのcosの符号で向きを
-揃えてから平均する。
+ならず、単に地図上でその道路に勾配の色が付かないだけに留まる。
 
 ```python
 effective = (

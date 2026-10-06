@@ -891,7 +891,7 @@ class RoadGraphRepository:
         self, z: int, x: int, y: int, bbox: BoundingBox
     ) -> dict[str, tuple[float, float]] | None:
         """勾配配信層向けに、フィーチャーごとの`(gradient_percent, road_bearing_deg)`を返す。
-        勾配・向きのいずれかが欠損している区間は除外する。"""
+        勾配の無い区間は平均から除き、向き（両端を結ぶ方位）が定まらないフィーチャーは返さない。"""
         result = await self._session.execute(
             _FEATURE_GRADIENT_INPUTS_IN_TILE_SQL, self._tile_params(z, x, y, bbox))
         covered, inputs = result.one()
