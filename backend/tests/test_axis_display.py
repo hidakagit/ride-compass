@@ -9,7 +9,7 @@
 ここで見ないもの:
 - 地図表示の宣言の型の検証（形の重複・`kind`と中身の食い違い・境界の昇順） → `test_registry.py`
 - 折れ線の得点そのもの（`domain/axis_definitions.py: BreakpointLinearShape.score_at`） → `test_axis_definitions.py`
-- ルート線の段の境界（`domain/dynamic_way_values.py: map_value_thresholds`） → `test_dynamic_way_values.py`
+- ルート線の段の境界（`domain/map_paint.py: map_paint`） → `test_map_paint.py`
 """
 
 import pytest
@@ -41,6 +41,7 @@ def _material(material_id, dtype, *, tile=True, unknown=False, **fields) -> Mate
         description="架空の材料",
         dtype=dtype,
         tile_property=f"{material_id}_tile" if tile else None,
+        value_sql=f"w.{material_id}",
         coverage=CoverageExcluded(reason="架空", missing_semantics="unknown" if unknown else "definite"),
         **fields,
     )
@@ -277,7 +278,8 @@ def _line_and_boundaries(draw):
 
 @given(line_and_boundaries=_line_and_boundaries())
 def test_the_map_keeps_the_boundaries_whose_score_rises_and_labels_every_band_it_keeps(line_and_boundaries):
-    """残る境界の得点は上がり続け、落ちる境界の得点は直前に残した境界の得点を上回らない。体感ラベルは地図の段の数だけ配る。"""
+    """残る境界の得点は折れ線の最も低い得点から上がり続け、落ちる境界の得点は直前に残した境界の得点（無ければ
+    最も低い得点）を上回らない。体感ラベルは地図の段の数だけ配る。"""
     line, boundaries = line_and_boundaries
     definition = _axis(
         line,
@@ -287,11 +289,11 @@ def test_the_map_keeps_the_boundaries_whose_score_rises_and_labels_every_band_it
 
     kept = axis_display_for(definition).thresholds
 
+    lowest = min(line.score_at(x) for x, _ in line.breakpoints)
     scores = [line.score_at(boundary) for boundary in kept]
-    assert kept[0] == boundaries[0]
-    assert all(lower < upper for lower, upper in zip(scores, scores[1:]))
+    assert all(lower < upper for lower, upper in zip([lowest, *scores], scores))
     for dropped in thresholds_the_map_drops("axis_a", line, [], boundaries):
-        last_kept_below = max(boundary for boundary in kept if boundary < dropped)
-        assert line.score_at(dropped) <= line.score_at(last_kept_below)
+        below = [line.score_at(boundary) for boundary in kept if boundary < dropped]
+        assert line.score_at(dropped) <= max([lowest, *below])
     assert kept == [b for b in boundaries if b not in thresholds_the_map_drops("axis_a", line, [], boundaries)]
     assert len(map_band_labels(definition) or []) == len(kept) + 1

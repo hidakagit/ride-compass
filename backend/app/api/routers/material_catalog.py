@@ -30,12 +30,8 @@ from app.api.dependencies import get_material_coverage_service, get_road_graph_r
 from app.domain.material_catalog import MATERIAL_CATALOG, is_known_material
 from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
 from app.infrastructure.road_graph_repository import RoadGraphRepository
-from app.services.axis_preview_service import (
-    EMPTY_DISTRIBUTION,
-    ValueDistribution,
-    material_value_distribution,
-    material_values,
-)
+from app.domain.value_distribution import EMPTY_SPREAD, ValueSpread
+from app.services.axis_preview_service import material_value_distribution, material_values
 from app.services.material_coverage_service import MaterialCoverageReport, MaterialCoverageService
 from app.domain.strict_model import StrictModel
 
@@ -60,8 +56,8 @@ class MaterialValuesResponse(StrictModel):
     values: list[MaterialValueEntry]
 
 
-class MaterialDistributionResponse(ValueDistribution):
-    """材料の値の分布（延長で重み付け）。`available=false`は数値材料でなく、分布は空。"""
+class MaterialDistributionResponse(ValueSpread):
+    """材料の値の分位点とゼロの割合（延長で重み付け）。`available=false`は数値材料でなく、どちらも空。"""
 
     available: bool
 
@@ -84,7 +80,7 @@ async def get_material_distribution(
         raise HTTPException(status_code=404, detail=f"unknown material '{material_id}'")
     distribution = await material_value_distribution(repository, material_id)
     if distribution is None:
-        return MaterialDistributionResponse(available=False, **EMPTY_DISTRIBUTION.model_dump())
+        return MaterialDistributionResponse(available=False, **EMPTY_SPREAD.model_dump())
     return MaterialDistributionResponse(available=True, **distribution.model_dump())
 
 

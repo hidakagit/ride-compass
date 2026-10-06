@@ -39,13 +39,12 @@ function inspectorResult(): AxisInspectorResult {
     highway: "residential",
     tags: { lit: "yes", name: "明治通り" },
     axes: [
-      { axis_id: "axis_sample", difficulty: 60, weight: 1, contribution: 30 },
-      { axis_id: "night", difficulty: 20, weight: 1, contribution: 10 },
-      { axis_id: "gradient", difficulty: null, weight: 1, contribution: null },
+      { axis_id: "axis_sample", difficulty: 60, contribution: 30 },
+      { axis_id: "night", difficulty: 20, contribution: 10 },
+      { axis_id: "gradient", difficulty: null, contribution: null },
     ],
     composite_difficulty: { value: 40, covered_weight_fraction: 0.8 },
     landcover: {
-      valid_pixels: 500,
       water_percent: 0,
       trees_percent: 20,
       flooded_veg_percent: 0,
@@ -117,7 +116,7 @@ describe("RoadInspectorPopup", () => {
     // 寄与度バーの凡例は軸アイコン＋値（ルート結果と同じ部品）。
     expect(await screen.findByText("30.0")).toBeInTheDocument();
     expect(screen.getByText("10.0")).toBeInTheDocument();
-    // 進む向きが決まらないと出せない軸（勾配）はそもそも並ばない。
+    // この道に値の出ない軸（勾配）はそもそも並ばない。
     expect(screen.queryByLabelText("勾配の詳細を表示")).not.toBeInTheDocument();
   });
 
@@ -137,6 +136,24 @@ describe("RoadInspectorPopup", () => {
 
     expect(await screen.findByText(/この道だけで見た合成: 40\.0\/100/)).toBeInTheDocument();
     expect(screen.getByText(/重みの約80%/)).toBeInTheDocument();
+  });
+
+  it("出す割合が100%に丸まるなら、一部の軸だけだという注記を添えない", async () => {
+    const user = userEvent.setup();
+    serveInspector({ ...inspectorResult(), composite_difficulty: { value: 40, covered_weight_fraction: 0.996 } });
+    render(
+      <RoadInspectorPopup
+        properties={{ osm_way_id: 1, surface_class: SURFACE_CLASS_VALUE }}
+        axes={AXES}
+        axisColors={AXIS_COLORS}
+        {...RIDE}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "この道の評価を見る" }));
+
+    expect(await screen.findByText(/この道だけで見た合成: 40\.0\/100/)).toBeInTheDocument();
+    expect(screen.queryByText(/重みの約/)).not.toBeInTheDocument();
   });
 
   it("カタログ外の生タグは畳んで置く（数が読めないため、開いたときだけ縦に伸ばす）", async () => {

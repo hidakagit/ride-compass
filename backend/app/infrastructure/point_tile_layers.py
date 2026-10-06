@@ -16,8 +16,10 @@ from dataclasses import dataclass
 from sqlalchemy import Float, Text, TextClause, bindparam, text
 from sqlalchemy.dialects.postgresql import ARRAY
 
-from app.domain.accident import BICYCLE_PARTY_TYPE_CODES, FATAL_SQL, OCCURRED_YEAR_SQL, bicycle_sql
+from app.domain.accident import BICYCLE_PARTY_TYPE_CODES, FATAL_SQL, bicycle_sql
+from app.domain.geo import degrees_covering_m
 from app.domain.material_catalog import stop_poi_map_group_sql
+from app.domain.registry import TileKind
 from app.domain.traffic import POI_CLUSTER_EPS_M, STOP_POI_KINDS, stop_kind_sql
 from app.infrastructure.cache_identity import shape_digest
 from app.infrastructure.road_graph_repository import COVERAGE_SQL
@@ -27,7 +29,7 @@ from app.infrastructure.source_models import ACCIDENTS_SOURCE_SQL, NODES_SOURCE_
 @dataclass(frozen=True)
 class PointTileLayer:
     #: 配信のパス・タイルの世代の系統・キャッシュのパスに入る名前。一次属性の`tile_kind`はこの名前を指す。
-    name: str
+    name: TileKind
     #: タイルの中のレイヤー名（MapLibreのsource-layer）。空タイルもこの名前を名乗る。
     source_layer: str
     sql: TextClause
@@ -44,8 +46,9 @@ _POI_KIND_EXPR = stop_kind_sql("nm")
 _POI_GROUP_EXPR = stop_poi_map_group_sql("nm")
 
 #: クラスタ化のためにタイルの外側も読む幅（度）。タイル境界で塊が切れると、同じ交差点が
-#: 隣り合うタイルで別々の点になる。`POI_CLUSTER_EPS_M`より十分広く取る。
-_POI_CLUSTER_PAD_DEG = 0.001
+#: 隣り合うタイルで別々の点になる。境目の外へ`POI_CLUSTER_EPS_M`ずつ2つ先まで連なる点を読む
+#: （塊の間隔はWeb Mercatorのmで測り、その1mは地面では1m以下なので、地面のmで覆えば足りる）。
+_POI_CLUSTER_PAD_DEG = degrees_covering_m(2 * POI_CLUSTER_EPS_M)
 
 # 停止要因POI・補給POIを1タイルへ焼き込む。
 _POI_TILE_MVT_SQL = text(
@@ -103,6 +106,8 @@ _POI_TILE_MVT_SQL = text(
 
 # 事故。表示に使う値（死亡事故か・自転車が絡むか・発生年）は生データの列から都度導く。判定の
 # 規則は`domain/accident.py`が持ち、集計（`derive_counts.py`）と同じものを使う。
+#: 発生年（本票の列名。全角空白を含む）。
+_OCCURRED_YEAR_SQL = "(a.attrs->>'発生日時　　年')::int"
 _ACCIDENT_TILE_MVT_SQL = text(
     f"""
     SELECT
@@ -115,7 +120,7 @@ _ACCIDENT_TILE_MVT_SQL = text(
                     ) AS geom,
                     {bicycle_sql(":bicycle_party_types")} AS involves_bicycle,
                     {FATAL_SQL} AS fatal,
-                    {OCCURRED_YEAR_SQL} AS occurred_year
+                    {_OCCURRED_YEAR_SQL} AS occurred_year
                 FROM {ACCIDENTS_SOURCE_SQL} a
                 WHERE ST_Intersects(a.geom, ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326))
             ) mvt

@@ -26,12 +26,12 @@ HALF_BUCKET = BEARING_BUCKET_DEG / 2
 
 
 async def store(bearing_deg: float = 0.0) -> None:
-    await set_tile_values(**KEY, bearing_deg=bearing_deg, values=VALUES, ttl_seconds=3600, **VERSIONS)
+    await set_tile_values(**KEY, bearing_deg=bearing_deg, values=VALUES, **VERSIONS)
 
 
 async def test_a_tile_whose_features_all_came_out_without_a_value_is_remembered_as_empty():
     """空も計算の結果で、未キャッシュと取り違えると値の無いタイルを毎回計算し直す。"""
-    await set_tile_values(**KEY, bearing_deg=0.0, values={}, ttl_seconds=3600, **VERSIONS)
+    await set_tile_values(**KEY, bearing_deg=0.0, values={}, **VERSIONS)
 
     assert await get_tile_values(**KEY, bearing_deg=0.0, **VERSIONS) == {}
 

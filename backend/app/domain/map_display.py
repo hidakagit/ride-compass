@@ -4,13 +4,13 @@
 軸スタジオ由来の軸はここに載らない（運用で増減し、出すかは軸自身の設定が決める）。
 """
 
-from typing import NamedTuple
+from typing import Literal, NamedTuple
 
 from app.domain.gsi_tiles import TERRAIN_MIN_ZOOM
-from app.domain.landcover import LANDCOVER_TILE_MIN_ZOOM
+from app.domain.landcover import LANDCOVER_CLASSES, LANDCOVER_RING_OUTER_M, LANDCOVER_TILE_MIN_ZOOM
 from app.domain.material_catalog import PRIMARY_ATTRIBUTES
 from app.domain.region import ROAD_TILE_MIN_ZOOM
-from app.domain.weather_elements import WEATHER_LAYER_GROUPS
+from app.domain.weather_elements import WEATHER_ELEMENTS, WEATHER_LAYER_GROUPS, FrameRuleKind
 
 
 class OverlayGroup(NamedTuple):
@@ -53,6 +53,11 @@ LEGEND_SHARED_ROWS: dict[str, LegendSharedRow] = {
         "データなし",
         "元にする地図のデータに値が無く、どの行にも分けられない道。道が無いのではなく、値が分からないことを"
         "破線で示す。",
+    ),
+    "undetermined": LegendSharedRow(
+        "向きで決まらない",
+        "選んだ走行方位とほぼ直角に交わり、その向きでは値が決まらない道（勾配なら、登りか下りかが決まらない）。"
+        "データが無いのではなく、走行方位を変えると色が付く。",
     ),
 }
 
@@ -137,7 +142,27 @@ def _static_layer_ids() -> tuple[str, ...]:
 
 
 #: 地図に載るものの名前。軸スタジオ由来の軸は実行時に増えるためここには現れない。
-MAP_LAYER_IDS: tuple[str, ...] = (*_static_layer_ids(), *WEATHER_LAYER_GROUPS, ROUTE_LAYER_ID)
+_MAP_LAYER_IDS: tuple[str, ...] = (*_static_layer_ids(), *WEATHER_LAYER_GROUPS, ROUTE_LAYER_ID)
+
+
+#: 説明の文の差し込み口の名前。どれも軸カタログ（実行時の応答）から来る値で、画面が埋める。
+#: `axes`はそのレイヤーの元データを材料に持つ公開中の評価の名前、`accidentYears`は事故の収録年、
+#: `routeLenses`はルートの色分けで選べるもの（公開中の評価と総合難易度）。
+LayerTextSlotName = Literal["axes", "accidentYears", "routeLenses"]
+
+
+class LayerTextSlot(NamedTuple):
+    """説明の文の差し込み口。値が空なら、前後の文（`before`・`after`）ごと出さない——評価が1つも無いのに
+    「評価の材料です」と書かない、収録年が届く前に空の[]を出さない。"""
+
+    name: LayerTextSlotName
+    before: str = ""
+    after: str = ""
+
+
+#: 説明の文。地図で何が見えるかの文と、軸カタログから差し込む部分を並べる（設計原則「1つの値の中で混ざるときは、
+#: 部分ごとに問う」）。
+LayerText = tuple[str | LayerTextSlot, ...]
 
 
 class MapLayerSpec(NamedTuple):
@@ -152,39 +177,281 @@ class MapLayerSpec(NamedTuple):
     default_on: bool = False
     #: 名前。一次属性を描くレイヤーは書かない——属性の名前をそのまま使う（`map_layer_label`）。
     label: str | None = None
+    #: チップの下の短い名前（チップの幅は文字数で決まるので、長い名前はここで縮める）。無ければ名前。
+    chip_label: str | None = None
+    #: ONにすると何が出るかの短い説明（チップのtitle）。地図に載るものは必ず持つ（`MAP_LAYERS`）。
+    #: 軸スタジオ由来の軸の説明は軸から作る。
+    description: LayerText = ()
+    #: 表示の設定パネルで項目の(i)が出す、descriptionより詳しい説明。
+    panel_hint: LayerText = ()
 
 
-def _tile_layer(attr_id: str, category: str) -> MapLayerSpec:
+def _tile_layer(
+    attr_id: str,
+    category: str,
+    *,
+    description: LayerText,
+    panel_hint: LayerText,
+    chip_label: str | None = None,
+) -> MapLayerSpec:
     """タイルで配る一次属性のレイヤー。情報源は属性自身が宣言するタイルの系統。"""
     tile_kind = next(attr.tile_kind for attr in PRIMARY_ATTRIBUTES if attr.attr_id == attr_id)
     assert tile_kind is not None, attr_id
-    return MapLayerSpec(tile_kind, category)
+    return MapLayerSpec(
+        tile_kind, category, chip_label=chip_label, description=description, panel_hint=panel_hint
+    )
 
 
-#: `MAP_LAYER_IDS`の1つずつの宣言。**足りないと生成の時点で落ちる**（`MAP_LAYERS`）。
+def _point_kind_list(attr_id: str) -> str:
+    """説明へ差し込む点の種別名の並び（凡例と同じ、先頭の軸の行）。区切りが読点なのは、名前が中黒を含むため。"""
+    attribute = next(attr for attr in PRIMARY_ATTRIBUTES if attr.attr_id == attr_id)
+    return "、".join(category.label for category in attribute.display_axes[0].categories)
+
+
+#: 面で塗らない土地被覆の分類（区間インスペクタの割合には出る）。
+_UNPAINTED_LANDCOVER = "・".join(cls.label for cls in LANDCOVER_CLASSES if not cls.painted)
+
+
+def _window_hours(source: str) -> str:
+    """名前付きソースを重ねる幅（「今」から何時間先まで）。要素の描くコマの規則が宣言する値。"""
+    minutes = next(element.frame_rule.window_minutes for element in WEATHER_ELEMENTS if element.source == source)
+    if minutes is None:
+        raise ValueError(f"{source}は重ねる幅を宣言していない")
+    return f"{minutes / 60:g}"
+
+
+_LINEAR_RAINBAND_HOURS = _window_hours("linearRainband")
+
+
+def _label_list(labels: list[str]) -> str:
+    """名前の並び。同じ名前を名乗る要素（描き方違いの同じ名前付きソース）は1つにする。"""
+    return "・".join(dict.fromkeys(labels))
+
+
+#: 災害の要素を、描くコマの規則ごとに言う語（短い説明・長い説明）。並びが説明の並びになる。
+_DISASTER_FRAME_RULE_WORDING: dict[FrameRuleKind, tuple[str, str]] = {
+    "nearest": ("時刻に連動", "は時刻スライダーに連動し、実況[直近]から60分先までを切り替えて確認できます。"),
+    "latestObservation": ("直近の観測", "は観測だけのため、最新の観測より先の時刻には出ません。"),
+    "current": (
+        "現在の危険度のみ",
+        "は色分けした現在の危険度で、「現在の危険度」単一値のみの配信のため時刻スライダーには連動しません。",
+    ),
+}
+
+#: 災害の要素の名前を、描くコマの規則ごとにまとめた並び（要素の無い規則は出さない）。
+_DISASTER_BY_FRAME_RULE: list[tuple[str, str, str]] = [
+    (labels, brief, detail)
+    for kind, (brief, detail) in _DISASTER_FRAME_RULE_WORDING.items()
+    if (
+        labels := _label_list(
+            [element.label for element in WEATHER_ELEMENTS if element.group == "disaster" and element.frame_rule.kind == kind]
+        )
+    )
+]
+
+
+#: `_MAP_LAYER_IDS`の1つずつの宣言。並びがチップの並び（種別の中の順）になる。**過不足は生成の時点で落ちる**（`MAP_LAYERS`）。
 _LAYER_SPECS: dict[str, MapLayerSpec] = {
-    "elevation": MapLayerSpec("gsiRelief", "terrain"),
+    "elevation": MapLayerSpec(
+        "gsiRelief",
+        "terrain",
+        description=("国土地理院の色別標高図を重ねる",),
+        panel_hint=("国土地理院の色別標高図を重ねる",),
+    ),
     # 標高図（何mか）と区別できる名前にする（坂の在りかだけを塗る）。
-    HILLSHADE_LAYER_ID: MapLayerSpec("gsiTerrain", "terrain", label="起伏"),
-    "landcover": MapLayerSpec("landcoverRaster", "terrain"),
-    "highway": _tile_layer("highway", "roadCondition"),
-    "surface": _tile_layer("surface", "roadCondition"),
-    "tracktype": _tile_layer("tracktype", "roadCondition"),
-    "tunnel": _tile_layer("tunnel", "roadCondition"),
-    "oneway": _tile_layer("oneway", "roadCondition"),
-    "stop_poi": _tile_layer("stop_poi", "trafficSafety"),
-    "supply_poi": _tile_layer("supply_poi", "amenity"),
-    "accident_point": _tile_layer("accident_point", "trafficSafety"),
-    "precipitationNowcast": MapLayerSpec("ownFetch", "weather", data_nature="dynamic", label="降水ナウキャスト"),
+    HILLSHADE_LAYER_ID: MapLayerSpec(
+        "gsiTerrain",
+        "terrain",
+        label="起伏",
+        description=("斜面に陰影を付ける[平地は塗らない]",),
+        panel_hint=("国土地理院の標高データから斜面の陰影を作る。平らな所は塗らないため、下の地図の色が残る",),
+    ),
+    # 塗らないのは、広い範囲を単色で覆って基礎地図を隠すわりに何も足さない分類だけ（`LandcoverClass.painted`）。
+    "landcover": MapLayerSpec(
+        "landcoverRaster",
+        "terrain",
+        description=(f"周囲の緑・水辺・農地を面で重ねる{f'[{_UNPAINTED_LANDCOVER}は塗らない]' if _UNPAINTED_LANDCOVER else ''}",),
+        panel_hint=(
+            "衛星画像から分類した10m四方ごとの土地の使われ方です。1区画に1種類だけが入るため、"
+            f"評価軸が使う「道路の周囲{LANDCOVER_RING_OUTER_M:g}mの割合」とは違い、混ざらずそのまま見えます。"
+            + (
+                f"{_UNPAINTED_LANDCOVER}は塗りません——広い範囲を単色で覆い、基礎地図を隠すだけになるためです。"
+                f"区間インスペクタの内訳には{_UNPAINTED_LANDCOVER}も出ます。"
+                if _UNPAINTED_LANDCOVER
+                else ""
+            ),
+        ),
+    ),
+    "highway": _tile_layer(
+        "highway",
+        "roadCondition",
+        chip_label="道路種別",
+        description=("道路の種類を色で表示[幹線道路ほど濃い紫・農道や林道ほど明るい水色]",),
+        panel_hint=(
+            "OSMのhighwayタグを区分にまとめて色分けしています。幹線道路が最も濃く、下位の道ほど明るい色です。"
+            "「路面」「トンネル」等と一緒に表示すると、同じ道に線を横へ並べて描きます。",
+        ),
+    ),
+    "surface": _tile_layer(
+        "surface",
+        "roadCondition",
+        chip_label="路面",
+        description=("路面の材質を色で表示[舗装・砂利・土など]",),
+        panel_hint=(
+            "OSMのsurfaceタグ[路面の材質]を区分にまとめて色分けしています。タグの無い道は「データなし」[灰色の薄い破線]、"
+            "区分に当てはまらない値の道は「その他」[灰色]で出します[データなしは未舗装という意味ではありません]。",
+        ),
+    ),
+    "tracktype": _tile_layer(
+        "tracktype",
+        "roadCondition",
+        chip_label="等級",
+        description=("農道・林道の路面の等級を色で表示[1=固く締まった路面ほど濃く、5=柔らかい土・草ほど明るい色]",),
+        panel_hint=(
+            "OSMのtracktypeタグ[農道・林道の路面の固さの等級]を色分けしています。路面の材質[surfaceタグ]とは別のタグで、"
+            "材質のタグが無い農道・林道にも付いていることがあります。タグの無い道は「データなし」[灰色の薄い破線]です。",
+        ),
+    ),
+    "tunnel": _tile_layer(
+        "tunnel",
+        "roadCondition",
+        description=("トンネル区間[OSMのtunnelタグ]を色分け表示",),
+        panel_hint=("OSMのtunnelタグが該当する区間です。", LayerTextSlot("axes", "評価", "の材料の1つです。")),
+    ),
+    "oneway": _tile_layer(
+        "oneway",
+        "roadCondition",
+        description=("来た道を戻れない区間を色分け表示",),
+        panel_hint=(
+            "その向きにしか通れない区間です。上下線が分かれているだけの道[逆方向が数m隣にある]"
+            "は除いてあります。ルート探索は既に一方通行の向きを守っており[逆走経路自体が"
+            "生成されません]、このレイヤーは表示のみで評価には影響しません。",
+        ),
+    ),
+    "stop_poi": _tile_layer(
+        "stop_poi",
+        "trafficSafety",
+        description=(f"{_point_kind_list('stop_poi')}の位置を種別ごとに色分け表示",),
+        panel_hint=(
+            f"{_point_kind_list('stop_poi')}の位置です。",
+            LayerTextSlot("axes", "評価", "が近傍のこれらを数えて算出しているものを、種別ごとの色分けで直接確認できます。"),
+        ),
+    ),
+    # 種別ごとの鮮度の差を書く根拠は docs/modules/frontend/static-map-layers.md「点で示すもの」。
+    "supply_poi": _tile_layer(
+        "supply_poi",
+        "amenity",
+        chip_label="補給休憩",
+        description=(f"{_point_kind_list('supply_poi')}の位置を種別ごとに色分け表示",),
+        panel_hint=(
+            f"{_point_kind_list('supply_poi')}の位置です。自販機は飲み物が買えると分かって"
+            "いるものだけを「飲料自販機」として出し、売っているものが分からないものは薄い色の"
+            "「自販機(中身不明)」として区別します[たばこ・切符の機械は出しません]。"
+            "コンビニはOSMデータの更新が比較的新しく目安として使いやすい一方、自販機・トイレ・"
+            "給水・駐輪場は閉店・撤去にデータが追いついていないことがあります。現地の状況と"
+            "異なる場合があることをご留意ください。",
+        ),
+    ),
+    "accident_point": _tile_layer(
+        "accident_point",
+        "trafficSafety",
+        chip_label="事故",
+        description=(
+            "警察庁交通事故統計オープンデータ",
+            LayerTextSlot("accidentYears", "[", "]"),
+            "の発生地点を表示",
+        ),
+        panel_hint=(
+            "警察庁が公開する交通事故統計オープンデータ[本票",
+            LayerTextSlot("accidentYears", "、"),
+            "]の発生地点です。死亡事故[事故後24時間以内]は円を大きく表示します。",
+        ),
+    ),
+    # 15時間より先は数値予報モデル（MSM）の計算値なので「予報」と呼ばない
+    # （docs/architecture/data-sources.md「気象業務法の予報業務許可」節）。
+    "precipitationNowcast": MapLayerSpec(
+        "ownFetch",
+        "weather",
+        data_nature="dynamic",
+        label="降水ナウキャスト",
+        chip_label="降水",
+        description=(
+            "気象庁の降水ナウキャスト・降水短時間予報・線状降水帯予測マップ・線状降水帯の雨域と、数値予報モデルが計算した降水量を重ねて表示"
+            "[実況〜60分先は5分刻み、60分〜15時間先は気象庁の降水短時間予報、以降は気象庁の数値予報モデルMSMの"
+            f"計算値を1時間刻みで、予報ではなく誤差を含みうる。線状降水帯予測マップは現在〜{_LINEAR_RAINBAND_HOURS}時間先、線状降水帯の雨域は"
+            "実況〜30分先の間だけ追加で重畳]",
+        ),
+        panel_hint=(
+            "気象庁の高解像度降水ナウキャストです。ONにすると地図上に時刻スライダーが現れ、"
+            "実況[直近]から60分先までの雨雲の分布を切り替えて確認できます。60分より先は、"
+            "同じ気象庁の降水短時間予報へ自動的に切り替わり、15時間先まで"
+            "確認できます——こちらは実況の外挿ではなく数値予報モデルによる予測のため、先に"
+            "なるほど不確実性が増します。15時間より先は、風と同じ仕組み[気象庁の数値予報モデルMSMが"
+            "格子点ごとに計算した降水量]で、格子を降水強度に応じた色で塗る表示へさらに切り替わり、"
+            "1〜3日先まで確認できます[降水短時間予報よりも粗い5kmメッシュのモデルの計算値で、予報ではなく"
+            f"誤差を含みえます]。加えて、現在〜{_LINEAR_RAINBAND_HOURS}時間先の"
+            f"間だけ、気象庁の線状降水帯予測マップを重ねて表示します[今後{_LINEAR_RAINBAND_HOURS}時間以内に大雨の"
+            "おそれがある領域を赤で示すもので、予測は格子単位のため矩形に見えます。"
+            "今まさに発生している線状降水帯の雨域を示すものではありません]。"
+            "今まさに発生している線状降水帯は、実況から30分先までの間、その雨域を赤い輪郭線で重ねます"
+            "[気象庁が線状降水帯を解析しているときだけ出ます]。"
+            "非公式の内部APIを利用している実況・60分先までの"
+            "部分・線状降水帯予測マップ・線状降水帯の雨域は、取得に失敗することがあります。",
+        ),
+    ),
     # 道路の色分け（向かい風・追い風）と見分けられる名前にする。
-    "windVector": MapLayerSpec("ownFetch", "weather", data_nature="dynamic", label="風[矢印]"),
+    "windVector": MapLayerSpec(
+        "ownFetch",
+        "weather",
+        data_nature="dynamic",
+        label="風[矢印]",
+        chip_label="風",
+        description=("気象庁の数値予報モデルMSMが計算した風向・風速を矢印で表示[1〜3日先まで。予報ではなく誤差を含みうる]",),
+        panel_hint=(
+            "気象庁MSM[メソ数値予報モデル、5kmメッシュ]が計算した風向・風速を格子点で矢印表示します。"
+            "モデルの計算値で、予報ではなく、誤差を含みえます。"
+            "矢印の向きが風向、長さ・太さ・色の濃淡が風速の強さを表します。ごく弱い風の地点は"
+            "矢印を表示しません。ONにすると地図上に時刻スライダーが現れ、1時間刻みで切り替えられます"
+            "[先まで見られる範囲は配信中の計算値の長さによって1〜3日の間で変わります]。",
+            LayerTextSlot(
+                "axes",
+                "走行方位に対する向かい風/追い風の強さは、地図上部中央の「地図の色分け」で評価",
+                "を選ぶと、道路の色分けとして別途確認できます。",
+            ),
+        ),
+    ),
     # 予兆が出てからONにするのでは手遅れになるため既定ONにする。危険度が出ている間は広い範囲が
     # 塗られ、他の面レイヤー（緑と水・標高図）も基礎地図の色も覆われるが、危険度ゼロの領域は
     # 配信元のタイルが透明なので、影響が出るのは警戒度が上がっている間だけ。そのときは防災の
-    # 情報を優先する（利用者はチップをOFFにすれば戻せる）。
-    "disaster": MapLayerSpec("ownFetch", "disaster", data_nature="dynamic", default_on=True, label="災害"),
+    # 情報を優先する（利用者はチップをOFFにすれば戻せる）。回避するしかない危険なので、評価軸には入れず表示だけにする。
+    # 要素の名前と、時刻に対する振る舞いは要素の宣言から組み立てる。段の数と名前は凡例に並ぶので文に書かない。
+    "disaster": MapLayerSpec(
+        "ownFetch",
+        "disaster",
+        data_nature="dynamic",
+        default_on=True,
+        label="災害",
+        chip_label="災害",
+        description=(
+            f"気象庁の{'・'.join(labels for labels, _, _ in _DISASTER_BY_FRAME_RULE)}をまとめて表示"
+            f"[{'、'.join(f'{labels}は{brief}' for labels, brief, _ in _DISASTER_BY_FRAME_RULE)}]",
+        ),
+        panel_hint=(
+            "気象庁の防災情報をまとめて表示します。"
+            + "".join(labels + detail for labels, _, detail in _DISASTER_BY_FRAME_RULE)
+            + "平常時は危険度ゼロの領域が透明のため、ONのままでも地図の見た目は"
+            "変わりません。非公式の内部APIを利用しているため、取得に失敗することがあります。",
+        ),
+    ),
     # 候補を出したら見えている必要がある（探索の結果そのもの）。
-    ROUTE_LAYER_ID: MapLayerSpec("ownFetch", None, kind="dynamic", default_on=True, label="ルート"),
+    ROUTE_LAYER_ID: MapLayerSpec(
+        "ownFetch",
+        None,
+        kind="dynamic",
+        default_on=True,
+        label="ルート",
+        description=("選択中ルート沿いの情報", LayerTextSlot("routeLenses", "[", "]"), "を色分け表示"),
+    ),
 }
 
 
@@ -197,10 +464,20 @@ def map_layer_label(layer_id: str, spec: MapLayerSpec) -> str:
         raise ValueError(f"地図レイヤー'{layer_id}'に名前が無い（一次属性でもない）")
     return attribute.label
 
-#: 地図に載るものの宣言（`MAP_LAYER_IDS`の順）。
-MAP_LAYERS: tuple[tuple[str, MapLayerSpec], ...] = tuple(
-    (layer_id, _LAYER_SPECS[layer_id]) for layer_id in MAP_LAYER_IDS
-)
+
+def _map_layers() -> tuple[tuple[str, MapLayerSpec], ...]:
+    """宣言を`_MAP_LAYER_IDS`と突き合わせる。名前の重なり（一次属性・気象のグループ・ルートが同じ名前）・
+    宣言の過不足・説明の書き忘れは、どれも生成の時点で落とす。"""
+    if sorted(_MAP_LAYER_IDS) != sorted(_LAYER_SPECS):
+        raise ValueError(f"地図レイヤーの宣言が名前と合わない: {sorted(_MAP_LAYER_IDS)} / {sorted(_LAYER_SPECS)}")
+    undescribed = [layer_id for layer_id, spec in _LAYER_SPECS.items() if not spec.description]
+    if undescribed:
+        raise ValueError(f"地図レイヤーに説明が無い: {undescribed}")
+    return tuple(_LAYER_SPECS.items())
+
+
+#: 地図に載るものの宣言（`_LAYER_SPECS`の順）。
+MAP_LAYERS: tuple[tuple[str, MapLayerSpec], ...] = _map_layers()
 
 #: 軸スタジオ由来の軸のレイヤー。どちらも路面タイルの道へ色を塗る。ramp軸はタイルへ焼き込んだ
 #: 一次属性を合成した値（composite）、専用配信の軸は時刻で変わる値（dynamic）を読む。
@@ -301,10 +578,8 @@ ROAD_INSPECTED_WIDTH_PX = 8
 #: 乗り換え帯の破線（`ROUTE_SPLICE_DASH`）より細かく刻み、操作の状態と見分けられるようにする。
 NO_DATA_DASH: tuple[float, ...] = (1, 2)
 
-#: 点。重大度は色ではなく大きさで示す（当事者の色と取り合わないため）。
+#: 丸い点の既定の半径。行ごとの大きさは表示の行（`DisplayCategorySpec.radius_px`）が持つ。
 POINT_RADIUS_PX = 4
-POINT_FATAL_RADIUS_PX = 6
-POINT_NON_FATAL_RADIUS_PX = 3
 POINT_STROKE_WIDTH_PX = 1
 #: 絵記号で描く点（行が`glyph`を持つ軸）の一辺。丸い点より大きくし、中の絵を読める大きさにする。
 POINT_ICON_SIZE_PX = 20

@@ -772,7 +772,14 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": {
-                    "type": "number"
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   },
                   "title": "Response Region Dedicated Way Values Api Region Dynamic Way Values  Axis Id   Z   X   Y  Get"
                 }
@@ -1868,14 +1875,6 @@
             "type": "string",
             "title": "River Code"
           },
-          "river_name": {
-            "type": "string",
-            "title": "River Name"
-          },
-          "level": {
-            "type": "integer",
-            "title": "Level"
-          },
           "badge_level": {
             "type": "string",
             "enum": [
@@ -1893,22 +1892,15 @@
           "condition": {
             "type": "string",
             "title": "Condition"
-          },
-          "report_datetime": {
-            "type": "string",
-            "title": "Report Datetime"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
           "river_code",
-          "river_name",
-          "level",
           "badge_level",
           "label",
-          "condition",
-          "report_datetime"
+          "condition"
         ],
         "title": "ActiveFloodForecast"
       },
@@ -1952,26 +1944,6 @@
       },
       "AmedasObservation": {
         "properties": {
-          "station_id": {
-            "type": "string",
-            "title": "Station Id"
-          },
-          "station_name": {
-            "type": "string",
-            "title": "Station Name"
-          },
-          "latitude": {
-            "type": "number",
-            "title": "Latitude"
-          },
-          "longitude": {
-            "type": "number",
-            "title": "Longitude"
-          },
-          "observed_at": {
-            "type": "string",
-            "title": "Observed At"
-          },
           "temperature_c": {
             "anyOf": [
               {
@@ -2051,11 +2023,6 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "station_id",
-          "station_name",
-          "latitude",
-          "longitude",
-          "observed_at",
           "temperature_c",
           "apparent_temperature_c",
           "wind_speed_ms",
@@ -2147,31 +2114,6 @@
             "type": "array",
             "title": "Weather Layer Groups"
           },
-          "shape": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/BreakpointLinearShape-Output"
-              },
-              {
-                "$ref": "#/components/schemas/CategoricalShape-Output"
-              }
-            ],
-            "title": "Shape"
-          },
-          "display_thresholds_override": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "number"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Display Thresholds Override"
-          },
           "display_band_labels_override": {
             "anyOf": [
               {
@@ -2190,37 +2132,8 @@
             "type": "boolean",
             "title": "Dedicated Way Value Layer"
           },
-          "map_value": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/DifficultyMapValue"
-              },
-              {
-                "$ref": "#/components/schemas/SignedMaterialMapValue"
-              }
-            ],
-            "title": "Map Value",
-            "discriminator": {
-              "propertyName": "kind",
-              "mapping": {
-                "difficulty": "#/components/schemas/DifficultyMapValue",
-                "signed_material": "#/components/schemas/SignedMaterialMapValue"
-              }
-            }
-          },
-          "map_value_unit": {
-            "type": "string",
-            "title": "Map Value Unit"
-          },
-          "map_value_thresholds": {
-            "items": {
-              "type": "number"
-            },
-            "type": "array",
-            "title": "Map Value Thresholds"
-          },
-          "map_legend": {
-            "$ref": "#/components/schemas/MapLegendScale"
+          "map_paint": {
+            "$ref": "#/components/schemas/MapPaint"
           },
           "raw_value_unit": {
             "anyOf": [
@@ -2262,6 +2175,10 @@
             },
             "type": "array",
             "title": "Dynamic Way Value Conditions"
+          },
+          "dynamic_way_value_undetermined_by_bearing": {
+            "type": "boolean",
+            "title": "Dynamic Way Value Undetermined By Bearing"
           }
         },
         "additionalProperties": false,
@@ -2279,18 +2196,14 @@
           "show_map_icon",
           "primary_attribute_ids",
           "weather_layer_groups",
-          "shape",
-          "display_thresholds_override",
           "display_band_labels_override",
           "dedicated_way_value_layer",
-          "map_value",
-          "map_value_unit",
-          "map_value_thresholds",
-          "map_legend",
+          "map_paint",
           "raw_value_unit",
           "raw_value_total_unit",
           "material_breakdown",
-          "dynamic_way_value_conditions"
+          "dynamic_way_value_conditions",
+          "dynamic_way_value_undetermined_by_bearing"
         ],
         "title": "AxisCatalogEntry"
       },
@@ -2736,10 +2649,6 @@
             ],
             "title": "Difficulty"
           },
-          "weight": {
-            "type": "number",
-            "title": "Weight"
-          },
           "contribution": {
             "anyOf": [
               {
@@ -2757,7 +2666,6 @@
         "required": [
           "axis_id",
           "difficulty",
-          "weight",
           "contribution"
         ],
         "title": "AxisInspectorAxis"
@@ -2780,47 +2688,19 @@
             "title": "Feature Key"
           },
           "z": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "integer",
             "title": "Z"
           },
           "x": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "integer",
             "title": "X"
           },
           "y": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "integer",
             "title": "Y"
           },
           "bearing_deg": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "number",
             "title": "Bearing Deg"
           },
           "at": {
@@ -2860,7 +2740,11 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "osm_way_id"
+          "osm_way_id",
+          "z",
+          "x",
+          "y",
+          "bearing_deg"
         ],
         "title": "AxisInspectorRequest"
       },
@@ -3513,18 +3397,6 @@
             "type": "integer",
             "title": "Errors"
           },
-          "cache_hits": {
-            "type": "integer",
-            "title": "Cache Hits"
-          },
-          "cache_misses": {
-            "type": "integer",
-            "title": "Cache Misses"
-          },
-          "total_ms": {
-            "type": "integer",
-            "title": "Total Ms"
-          },
           "max_ms": {
             "type": "integer",
             "title": "Max Ms"
@@ -3560,29 +3432,6 @@
                 "type": "null"
               }
             ]
-          },
-          "last_success_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Last Success At"
-          },
-          "retried_calls": {
-            "type": "integer",
-            "title": "Retried Calls"
-          },
-          "retry_attempts_total": {
-            "type": "integer",
-            "title": "Retry Attempts Total"
-          },
-          "stale_fallback_used": {
-            "type": "integer",
-            "title": "Stale Fallback Used"
           }
         },
         "additionalProperties": false,
@@ -3590,18 +3439,11 @@
         "required": [
           "calls",
           "errors",
-          "cache_hits",
-          "cache_misses",
-          "total_ms",
           "max_ms",
           "avg_ms",
           "cache_hit_rate",
           "error_types",
-          "last_error",
-          "last_success_at",
-          "retried_calls",
-          "retry_attempts_total",
-          "stale_fallback_used"
+          "last_error"
         ],
         "title": "ExternalCallStats"
       },
@@ -3941,10 +3783,6 @@
       },
       "LandcoverPercentages": {
         "properties": {
-          "valid_pixels": {
-            "type": "integer",
-            "title": "Valid Pixels"
-          },
           "water_percent": {
             "type": "number",
             "title": "Water Percent"
@@ -3981,7 +3819,6 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "valid_pixels",
           "water_percent",
           "trees_percent",
           "flooded_veg_percent",
@@ -4093,6 +3930,51 @@
         ],
         "title": "MapLegendScale"
       },
+      "MapPaint": {
+        "properties": {
+          "value": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DifficultyMapValue"
+              },
+              {
+                "$ref": "#/components/schemas/SignedMaterialMapValue"
+              }
+            ],
+            "title": "Value",
+            "discriminator": {
+              "propertyName": "kind",
+              "mapping": {
+                "difficulty": "#/components/schemas/DifficultyMapValue",
+                "signed_material": "#/components/schemas/SignedMaterialMapValue"
+              }
+            }
+          },
+          "unit": {
+            "type": "string",
+            "title": "Unit"
+          },
+          "thresholds": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Thresholds"
+          },
+          "legend": {
+            "$ref": "#/components/schemas/MapLegendScale"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "value",
+          "unit",
+          "thresholds",
+          "legend"
+        ],
+        "title": "MapPaint"
+      },
       "MaterialCoverageCounted": {
         "properties": {
           "kind": {
@@ -4190,15 +4072,6 @@
             "type": "string",
             "title": "Label"
           },
-          "dtype": {
-            "type": "string",
-            "enum": [
-              "numeric",
-              "boolean",
-              "categorical"
-            ],
-            "title": "Dtype"
-          },
           "excluded_reason": {
             "type": "string",
             "title": "Excluded Reason"
@@ -4210,7 +4083,6 @@
           "kind",
           "material_id",
           "label",
-          "dtype",
           "excluded_reason"
         ],
         "title": "MaterialCoverageExcluded"
@@ -4264,40 +4136,12 @@
       },
       "MaterialDistributionResponse": {
         "properties": {
-          "sample_ways": {
-            "type": "integer",
-            "title": "Sample Ways"
-          },
-          "total_km": {
-            "type": "number",
-            "title": "Total Km"
-          },
           "quantiles": {
             "additionalProperties": {
               "type": "number"
             },
             "type": "object",
             "title": "Quantiles"
-          },
-          "bins": {
-            "items": {
-              "prefixItems": [
-                {
-                  "type": "number"
-                },
-                {
-                  "type": "number"
-                },
-                {
-                  "type": "number"
-                }
-              ],
-              "type": "array",
-              "maxItems": 3,
-              "minItems": 3
-            },
-            "type": "array",
-            "title": "Bins"
           },
           "zero_share": {
             "type": "number",
@@ -4311,10 +4155,7 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "sample_ways",
-          "total_km",
           "quantiles",
-          "bins",
           "zero_share",
           "available"
         ],
@@ -4420,10 +4261,6 @@
             "type": "string",
             "title": "Last Run At"
           },
-          "data_end_at": {
-            "type": "string",
-            "title": "Data End At"
-          },
           "run_age_hours": {
             "type": "number",
             "title": "Run Age Hours"
@@ -4441,7 +4278,6 @@
         "type": "object",
         "required": [
           "last_run_at",
-          "data_end_at",
           "run_age_hours",
           "remaining_hours",
           "healthy"
@@ -4539,28 +4375,6 @@
               }
             ],
             "title": "Elevation Gain M"
-          },
-          "min_elevation_m": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Min Elevation M"
-          },
-          "max_elevation_m": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Max Elevation M"
           },
           "segments": {
             "items": {
@@ -4674,8 +4488,6 @@
           "distance_km",
           "geometry",
           "elevation_gain_m",
-          "min_elevation_m",
-          "max_elevation_m",
           "segments",
           "overall_difficulty",
           "estimated_duration_seconds",
@@ -4796,14 +4608,7 @@
             "type": "number",
             "maximum": 50.0,
             "exclusiveMinimum": 0.0,
-            "title": "Distance Tolerance Km",
-            "default": 5.0
-          },
-          "route_type": {
-            "type": "string",
-            "const": "loop",
-            "title": "Route Type",
-            "default": "loop"
+            "title": "Distance Tolerance Km"
           },
           "route_preference": {
             "anyOf": [
@@ -4840,28 +4645,19 @@
             "title": "Max Average Grade Percent"
           },
           "hard_filters": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/HardFilterOverride"
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "$ref": "#/components/schemas/HardFilterOverride"
           },
           "max_routes": {
             "type": "integer",
             "maximum": 15.0,
             "minimum": 1.0,
-            "title": "Max Routes",
-            "default": 8
+            "title": "Max Routes"
           },
           "assumed_speed_kmh": {
             "type": "number",
             "maximum": 60.0,
             "minimum": 5.0,
-            "title": "Assumed Speed Kmh",
-            "default": 20.0
+            "title": "Assumed Speed Kmh"
           },
           "waypoints": {
             "anyOf": [
@@ -4900,15 +4696,8 @@
             "title": "Lens Axis Id"
           },
           "start_time": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date-time"
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "string",
+            "format": "date-time",
             "title": "Start Time"
           },
           "spliced_edge_ids": {
@@ -4932,7 +4721,12 @@
         "type": "object",
         "required": [
           "latitude",
-          "longitude"
+          "longitude",
+          "distance_tolerance_km",
+          "hard_filters",
+          "max_routes",
+          "assumed_speed_kmh",
+          "start_time"
         ],
         "title": "RouteGenerateRequest"
       },
@@ -5064,13 +4858,6 @@
             "type": "object",
             "title": "Material Values"
           },
-          "axis_raw_values": {
-            "additionalProperties": {
-              "type": "number"
-            },
-            "type": "object",
-            "title": "Axis Raw Values"
-          },
           "difficulty": {
             "anyOf": [
               {
@@ -5107,7 +4894,6 @@
           "axis_difficulties",
           "axis_contributions",
           "material_values",
-          "axis_raw_values",
           "difficulty",
           "wind"
         ],
@@ -5502,6 +5288,9 @@
         },
         "additionalProperties": false,
         "type": "object",
+        "required": [
+          "value"
+        ],
         "title": "TuningUpdateRequest"
       },
       "Twilight": {
@@ -5592,10 +5381,6 @@
             },
             "type": "array",
             "title": "Bins"
-          },
-          "zero_share": {
-            "type": "number",
-            "title": "Zero Share"
           }
         },
         "additionalProperties": false,
@@ -5604,8 +5389,7 @@
           "sample_ways",
           "total_km",
           "quantiles",
-          "bins",
-          "zero_share"
+          "bins"
         ],
         "title": "ValueDistribution"
       },
@@ -5628,10 +5412,6 @@
           "value": {
             "type": "number",
             "title": "Value"
-          },
-          "observed_at": {
-            "type": "string",
-            "title": "Observed At"
           }
         },
         "additionalProperties": false,
@@ -5639,8 +5419,7 @@
         "required": [
           "level",
           "label",
-          "value",
-          "observed_at"
+          "value"
         ],
         "title": "WbgtReading"
       },
@@ -5666,29 +5445,6 @@
       },
       "WeatherConditions": {
         "properties": {
-          "temperature_c": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Temperature C"
-          },
-          "wind_speed_ms": {
-            "type": "number",
-            "title": "Wind Speed Ms"
-          },
-          "wind_direction_deg": {
-            "type": "number",
-            "title": "Wind Direction Deg"
-          },
-          "wind_direction_label": {
-            "type": "string",
-            "title": "Wind Direction Label"
-          },
           "precipitation_mm": {
             "anyOf": [
               {
@@ -5699,10 +5455,6 @@
               }
             ],
             "title": "Precipitation Mm"
-          },
-          "observed_at": {
-            "type": "string",
-            "title": "Observed At"
           },
           "twilight": {
             "anyOf": [
@@ -5761,12 +5513,7 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "temperature_c",
-          "wind_speed_ms",
-          "wind_direction_deg",
-          "wind_direction_label",
           "precipitation_mm",
-          "observed_at",
           "twilight",
           "precipitation_max_mm",
           "wind_speed_max_ms",
@@ -5816,28 +5563,6 @@
       },
       "WeatherWarnings": {
         "properties": {
-          "area_name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Area Name"
-          },
-          "report_datetime": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Report Datetime"
-          },
           "warnings": {
             "items": {
               "$ref": "#/components/schemas/ActiveWarning"
@@ -5849,8 +5574,6 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "area_name",
-          "report_datetime",
           "warnings"
         ],
         "title": "WeatherWarnings"

@@ -10,7 +10,7 @@ import { bandLabelsForBandCount, buildRangeLegendBands, type MapColorLegendBand 
 
 /** 地図がその軸について塗る値の種類（正本はbackend）。`difficulty`は評価済みの0〜100、`signed_material`は
  * 向きの符号が意味を持つ材料1つの生値（勾配等）。 */
-export type MapValueKind = components["schemas"]["AxisCatalogEntry"]["map_value"]["kind"];
+export type MapValueKind = components["schemas"]["MapPaint"]["value"]["kind"];
 
 const COLOR_EASY = palette.semantic.evaluation_good;
 /** 符号付き材料の負側（下り坂等、走行が楽になる側）の色。 */
@@ -35,6 +35,11 @@ export type MapLegendScale = components["schemas"]["MapLegendScale"];
 
 /** 総合難易度（軸ではない）の段の境界。backendが配る。軸の段は宣言の無い軸の既定もbackendが解いて軸ごとに返す。 */
 export const DEFAULT_DIFFICULTY_BOUNDARIES: readonly number[] = mapDisplay.valueScale.difficultyBoundaries;
+
+/** 難易度（得点・寄与・平均）を、backendが区別する桁で書く。 */
+export function formatDifficulty(value: number): string {
+  return value.toFixed(mapDisplay.valueScale.difficultyDecimals);
+}
 
 /** 総合難易度の凡例の目盛り（得点）。 */
 export const DIFFICULTY_LEGEND: MapLegendScale = { boundaries: [...DEFAULT_DIFFICULTY_BOUNDARIES], unit: null };

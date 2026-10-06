@@ -26,7 +26,7 @@ import itertools
 import logging
 import math
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 
@@ -37,10 +37,14 @@ from app.domain.traffic import highway_rank
 from app.domain.tuning import tuning_value
 from app.domain.cycling_speed import top_speed_kmh
 from app.domain.attributes import ElevationAttribute
-from app.domain.dynamic_way_values import displayed_material_ids
 from app.domain.difficulty import DIFFICULTY_QUANTUM, distance_weighted_difficulty, round_difficulty_array
 from app.domain.errors import RoutingError
-from app.domain.evaluation import StaticEdgeScoreMatrix, build_static_edge_score_matrix, difficulty_from_cost
+from app.domain.evaluation import (
+    StaticEdgeScoreMatrix,
+    build_static_edge_score_matrix,
+    difficulty_from_cost,
+    displayed_material_ids,
+)
 from app.domain.hard_filters import compute_hard_filter_excluded, compute_routable_nodes
 from app.domain.leg_costs import LegCostArrays, LegCostComposer, RowValues, material_value_at
 from app.domain.material_catalog import GRADIENT_PERCENT
@@ -63,6 +67,22 @@ from app.domain.route import (
     RouteSegmentDetail,
     aggregate_segments_into_bins,
     merge_material_category_shares,
+    route_axis_raw_values,
+)
+from app.domain.route_search import (
+    ALTERNATIVE_MAX_STRETCH,
+    LOOP_MAX_OVERLAP_RATIO,
+    LOOP_TO_OUTBOUND_RATIO_MAX,
+    LOOP_TO_OUTBOUND_RATIO_MIN,
+    MAX_DESTINATION_CORRECTION_KM,
+    MIN_TURNAROUND_SEPARATION_KM,
+    PARETO_DISTANCE_QUANTUM_M,
+    RETRACE_PENALTY_MULTIPLIER,
+    RING_CENTER_RATIO,
+    TURNAROUND_MAX_OVERLAP_RATIO,
+    TURNAROUND_RELAXED_OVERLAP_RATIO,
+    VIA_NODE_MAX_OVERLAP_RATIO,
+    VIA_NODE_RELAXED_OVERLAP_RATIO,
 )
 from app.domain.routing import (
     LazyRoadGraph,
@@ -90,7 +110,6 @@ from app.domain.routing import (
     turn_expanded_path_from_state_to_source,
     turn_expanded_shortest_path,
 )
-from app.domain.weather import WeatherConditions
 from app.domain.wind import (
     ROUTE_DETOUR_RATIO,
     estimate_passage_hours,
@@ -104,72 +123,22 @@ from app.services.weather_service import WeatherService
 
 # Road Graphを取得するbboxは、起点・経由地2点の外接矩形にこのマージンを足したもの。
 # 実際の道なりは直線距離の外接矩形からはみ出ることが多い（川・線路等を迂回する等）ため、
-# 探索が失敗しない程度の余裕を持たせる。半径に比例させつつ、最低値を設ける。
+# 探索が失敗しない程度の余裕を持たせる。半径に比例させつつ、最低値を設ける。経由地ルートは
+# 最低値だけを使う（経由地は起点からの半径に収まるとは限らないため半径比例は使えない）。
 _BBOX_MARGIN_RATIO = 0.3
 _BBOX_MARGIN_MIN_KM = 2.0
 
-# 経由地ルートのbboxマージン。ループ探索の_BBOX_MARGIN_MIN_KMと同じ「道なりが直線外接矩形から
-# はみ出る余裕」を固定値で持たせる（経由地は起点からの半径に収まるとは限らないため半径比例は使えない）。
-_WAYPOINT_BBOX_MARGIN_KM = 2.0
-
-# --- フロンティア方式の折返し点選定・復路探索のパラメータ ---
-# 復路探索の間、往路Edge（＋同一Node対の逆方向Edge）のコストへ掛ける倍率。infにはしない
-# （復路が往路を戻る以外に道が無い区間[袋小路等]は通れる必要がある）。
-_RETRACE_PENALTY_MULTIPLIER = 8.0
-# 折返し点候補同士の最小距離（km）。近接Nodeは同じ周回の変種にしかならないため間引く。
-_MIN_TURNAROUND_SEPARATION_KM = 1.5
-# 折返し点候補の往路同士の重複率（距離加重）の上限。同一コリドー上の候補が上位を独占し
-# 往路の大半を共有する似た周回がn件並ぶのを防ぐ。プールが埋まらない場合は緩和値で再試行。
-_TURNAROUND_MAX_OVERLAP_RATIO = 0.6
-_TURNAROUND_RELAXED_OVERLAP_RATIO = 0.85
-# 採用済み候補との周回全体（往路＋復路、進行方向無視）の重複率上限。
-# 往路だけを見る_TURNAROUND_MAX_OVERLAP_RATIOより緩め——「同じ周回の逆回り」（往路と復路が
-# 入れ替わっただけ）や「往路は違うが復路が同じ裏道へ収束する」周回を弾くための、
-# より緩い最終チェック。
-_LOOP_MAX_OVERLAP_RATIO = 0.7
-# ランキング上位から間引き判定にかけるリングNode数の上限（往路の経路復元コストの上限）。
-_MAX_RING_CANDIDATES_EXAMINED = 4000
-# 周回全長／往路実距離の比の想定範囲。往路は軸コスト最適経路、復路はその往路を避けて探索
-# するため、復路は往路と同程度以上に長くなる。上下限は解析的には決まらず、実分布から置く。
-# リング（折返し候補の往路実距離の範囲）は、この比で周回全長が目標±許容に
-# 収まるよう`[(目標-許容)/MIN, (目標+許容)/MAX]`に置く（許容が狭く範囲が反転する場合は
-# `目標/2 ± 許容/2`へ戻す）。
-_LOOP_TO_OUTBOUND_RATIO_MIN = 2.0
-_LOOP_TO_OUTBOUND_RATIO_MAX = 2.3
-# リング中心（タイブレーク「リング中心に近い順」の基準）の比率。上下限の単純平均ではなく
-# 目標距離をこの比率で割った値を使う——許容が目標距離以上のとき下限が0でクランプされ、
-# 上下限の算術平均だと中心が0付近まで引き下げられ極端に短い往路が上位に来るため。
-_RING_CENTER_RATIO = (_LOOP_TO_OUTBOUND_RATIO_MIN + _LOOP_TO_OUTBOUND_RATIO_MAX) / 2.0
 # 一対全探索のコスト上限に掛ける余裕。Edge単位の丸めの積み上がりで上限ぎりぎりのNodeを
 # 取りこぼさないため。
 _COST_LIMIT_SLACK = 1.01
-# 候補選定（`pareto_layer_index`）で「実質同じ」とみなす距離の粒度。往路実距離200m
-# （周回全長では約400m差、体感で選び分ける単位より細かい）。難易度の粒度は難易度の桁
-# （`DIFFICULTY_QUANTUM`）。細かすぎると互いに非劣解な候補が全件残ってフィルタとして働かず、
-# 粗すぎると候補が減りすぎる。
-_PARETO_DISTANCE_QUANTUM_M = 200.0
-
-# --- 目的地ルート（via-node方式、経由地無し）の代替経路選定パラメータ ---
-# via-node候補（前向き木＋後ろ向き木の合成経路）の長さが、最も合成コストの低い経路の
-# 長さの何倍までを候補にするか。
-_ALTERNATIVE_MAX_STRETCH = 1.3
-# 採用済み候補との経路全体（前向き＋後ろ向き）の重複率上限。_TURNAROUND_MAX_OVERLAP_RATIO/
-# _TURNAROUND_RELAXED_OVERLAP_RATIOと同じ役割・同じ値を使う（周回の往路間引きと同じ
-# 「同一コリドー上の候補を間引く」意図のため、値を変える理由が無い）。
-_VIA_NODE_MAX_OVERLAP_RATIO = _TURNAROUND_MAX_OVERLAP_RATIO
-_VIA_NODE_RELAXED_OVERLAP_RATIO = _TURNAROUND_RELAXED_OVERLAP_RATIO
+# ランキング上位から間引き判定にかけるリングNode数の上限（往路の経路復元コストの上限）。
+_MAX_RING_CANDIDATES_EXAMINED = 4000
 # ランキング上位から間引き判定にかけるvia-node候補数の上限（_MAX_RING_CANDIDATES_EXAMINEDと
 # 同じ役割）。目的地ルートのbboxは周回より小さいため周回より小さい上限にする。
 _MAX_VIA_NODE_CANDIDATES_EXAMINED = 2000
 
 logger = logging.getLogger("ridecompass.graph")
 
-#: 目的地が起点から到達できないとき、「到達できる最寄りNode」へ寄せてよい上限（km）。
-#: 補正の狙いは、タップした先が本線から孤立した小塊だった場合にすぐ近くの本線へ移すこと
-#: なので、それより遠くへ動かすと利用者が指した覚えのない場所を通るルートになる
-#: （補正後の座標は`corrected_destination`として返すが、動いたことが分かっても
-#: 指した場所とは別物である事実は変わらない）。
-_MAX_DESTINATION_CORRECTION_KM = 1.0
 
 
 @dataclass(frozen=True)
@@ -192,7 +161,6 @@ class _RoadGraphContext:
 
     # 探索範囲の切り出し。ノードの番号・区間の元の行はこれが決める。
     road: RoadSlice
-    weather: WeatherConditions | None
     # 起点のノード番号（`road`の切り出しの番号）。
     origin_node: int
     # 1リクエスト内で繰り返す最寄りNodeの探索（prepareの起点・trace_loopの
@@ -253,7 +221,6 @@ class _SearchGraph:
     lazy_graph: LazyRoadGraph
     # bboxを覆うタイル集合（学習した迂回率の鍵）。
     tile_set: frozenset[tuple[int, int, int]]
-    weather: WeatherConditions | None
     # _RoadGraphContextと同じ意味（フィールドdocstring参照）。`outbound`は基準点（起点側の
     # 座標）から離れていくレグとして合成済みの配列。
     composer: LegCostComposer
@@ -335,7 +302,7 @@ class RoadGraphEngine:
             return None
 
         weather_started = time.monotonic()
-        weather = await self._weather_service.get_conditions(origin)
+        departure_wind = await self._weather_service.get_departure_wind(origin)
         # 探索範囲を覆う格子点ごとの時別風予報（MSMのローカルファイルから読む。外部API呼び出しは無い）。
         wind_series = await self._weather_service.get_wind_forecast_lattice(bbox)
         rain = await self._weather_service.get_station_rain_materials(datetime.now(JST))
@@ -363,7 +330,7 @@ class RoadGraphEngine:
         # 迂回率は同じ探索範囲で前回の往路木から学習した値があればそれを使う（無ければ既定値）。
         learned_detour_ratio = detour_ratio_cache.get_detour_ratio(tile_set)
         composer = LegCostComposer(
-            score_matrix, self._route_preference.weights, self._penalty_strength, hard_filter_excluded, weather,
+            score_matrix, self._route_preference.weights, self._penalty_strength, hard_filter_excluded, departure_wind,
             wind_series, start, self._assumed_speed_kmh, lazy_graph.edge_rows,
             detour_ratio=learned_detour_ratio if learned_detour_ratio is not None else ROUTE_DETOUR_RATIO,
             twilight_origin=origin,
@@ -393,7 +360,6 @@ class RoadGraphEngine:
             road=road,
             lazy_graph=lazy_graph,
             tile_set=tile_set,
-            weather=weather,
             composer=composer,
             outbound=outbound,
             node_lat=road.node_lat,
@@ -452,7 +418,7 @@ class RoadGraphEngine:
         if waypoints:
             # ユーザー指定の経由地は起点から半径radius_km以内とは限らない
             # ため、周回探索の円を覆う矩形ではなく、複数点の外接矩形+固定マージンを使う。
-            bbox = bbox_covering_points([origin, *waypoints], _WAYPOINT_BBOX_MARGIN_KM)
+            bbox = bbox_covering_points([origin, *waypoints], _BBOX_MARGIN_MIN_KM)
         else:
             # 起点を中心とした円を覆う矩形。折返し点がどの方位に選ばれても、この1回の取得で足りる。
             margin_km = max(_BBOX_MARGIN_MIN_KM, radius_km * _BBOX_MARGIN_RATIO)
@@ -468,7 +434,6 @@ class RoadGraphEngine:
 
         return _RoadGraphContext(
             road=search.road,
-            weather=search.weather,
             origin_node=origin_node,
             node_index=node_index,
             lazy_graph=search.lazy_graph,
@@ -486,7 +451,6 @@ class RoadGraphEngine:
         self,
         context: _RoadGraphContext,
         waypoints: list[Coordinates],
-        bearing: int | None,
     ) -> TracedLoop:
         """指定地点列を順にA*で結ぶ（経由地・目的地指定ルート）。
 
@@ -498,7 +462,7 @@ class RoadGraphEngine:
         for point in waypoints[1:-1]:
             node = find_nearest_node_indexed(context.node_index, point)
             if node is None:
-                raise RoutingError(f"direction {bearing}: could not snap waypoints to road graph")
+                raise RoutingError("could not snap waypoints to road graph")
             interior_nodes.append(node)
         # 終点が起点と同一座標（周回）ならprepareで特別扱い済みの
         # context.origin_nodeをそのまま再利用する（起終点を同じNodeに揃えないと周回が
@@ -510,7 +474,7 @@ class RoadGraphEngine:
         else:
             snapped = find_nearest_node_indexed(context.node_index, end_point)
             if snapped is None:
-                raise RoutingError(f"direction {bearing}: could not snap destination to road graph")
+                raise RoutingError("could not snap destination to road graph")
             end_node = snapped
         node_sequence = [context.origin_node, *interior_nodes, end_node]
 
@@ -547,17 +511,17 @@ class RoadGraphEngine:
         trace_started = time.monotonic()
         segment_paths = _trace_segments()
         trace_wall_ms = round((time.monotonic() - trace_started) * 1000)
-        logger.info("trace_loop direction=%s wall_ms=%d", bearing, trace_wall_ms)
+        logger.info("trace_loop wall_ms=%d", trace_wall_ms)
         if segment_paths is None:
-            raise RoutingError(f"direction {bearing}: no path found between waypoints")
+            raise RoutingError("no path found between waypoints")
 
         path = [index for segment in segment_paths for index in segment]
         if not path:
-            raise RoutingError(f"direction {bearing}: resulting path has no edges")
+            raise RoutingError("resulting path has no edges")
         leg_of_edge = [
             leg_index for leg_index, segment_path in enumerate(segment_paths) for _ in segment_path
         ]
-        return TracedLoop(bearing=bearing, distance_km=_path_km(context, path), data=path, leg_of_edge=leg_of_edge)
+        return TracedLoop(bearing=None, distance_km=_path_km(context, path), data=path, leg_of_edge=leg_of_edge)
 
     async def select_loop_turnarounds(
         self,
@@ -572,27 +536,27 @@ class RoadGraphEngine:
            軸重み付きコスト）を1回だけ求める。探索はコスト上限
            （リング上限の距離を最低速度で秒へ直し×(1+P)。リング内のNodeを取りこぼさない
            上界）で打ち切る。
-        2. 木に沿った往路の**実距離**が`[(目標-許容)/_LOOP_TO_OUTBOUND_RATIO_MIN,
-           (目標+許容)/_LOOP_TO_OUTBOUND_RATIO_MAX]`に入るNodeを「リング」として抽出する
+        2. 木に沿った往路の**実距離**が`[(目標-許容)/LOOP_TO_OUTBOUND_RATIO_MIN,
+           (目標+許容)/LOOP_TO_OUTBOUND_RATIO_MAX]`に入るNodeを「リング」として抽出する
            （最短実距離ではなく軸コスト最適経路の実距離で定義する——重みを極端に振った
            設定ほど往路が遠回りするため、最短実距離基準だと往路だけで目標の半分を超え
            距離フィルタで全滅する）。
         3. 往路の時間加重平均difficulty `(cost/seconds - 1)/P`（コスト式の逆算、
            overall_difficultyと同じ物差し）の昇順に並べる。同点（小数1桁）は
            「往路実距離がリング中心に近い順」、さらにNode index順で決定的にする。
-        4. 上位から順に、既採用候補と往路の重複率が`_TURNAROUND_MAX_OVERLAP_RATIO`を
-           超えるもの・`_MIN_TURNAROUND_SEPARATION_KM`より近いものを飛ばして`pool_size`件
+        4. 上位から順に、既採用候補と往路の重複率が`TURNAROUND_MAX_OVERLAP_RATIO`を
+           超えるもの・`MIN_TURNAROUND_SEPARATION_KM`より近いものを飛ばして`pool_size`件
            採る（同一コリドー上の隣接Nodeが上位を独占し似た周回が並ぶのを防ぐ）。
-           埋まらなければ閾値を`_TURNAROUND_RELAXED_OVERLAP_RATIO`へ緩めてやり直す。
+           埋まらなければ閾値を`TURNAROUND_RELAXED_OVERLAP_RATIO`へ緩めてやり直す。
         """
         target_m = distance_km * 1000.0
         tolerance_m = distance_tolerance_km * 1000.0
-        ring_lower_m = max(0.0, (target_m - tolerance_m) / _LOOP_TO_OUTBOUND_RATIO_MIN)
-        ring_upper_m = (target_m + tolerance_m) / _LOOP_TO_OUTBOUND_RATIO_MAX
+        ring_lower_m = max(0.0, (target_m - tolerance_m) / LOOP_TO_OUTBOUND_RATIO_MIN)
+        ring_upper_m = (target_m + tolerance_m) / LOOP_TO_OUTBOUND_RATIO_MAX
         if ring_lower_m > ring_upper_m:
             ring_lower_m = max(0.0, (target_m - tolerance_m) / 2.0)
             ring_upper_m = (target_m + tolerance_m) / 2.0
-        ring_center_m = target_m / _RING_CENTER_RATIO
+        ring_center_m = target_m / RING_CENTER_RATIO
         statics = context.statics
         # 往路レグを、見込み所要時間（目標距離の半分÷巡航速度）ぶんの時刻ビンで組み直す。
         # 木は出発からの経過時間を持ち回れるため、風を推定ではなく実際の経過時間で引ける。
@@ -657,17 +621,16 @@ class RoadGraphEngine:
         # 短すぎる往路（起点のすぐ近くで折り返す周回）も長すぎる往路も対称に扱われる。
         pareto_layer = pareto_layer_index(
             closeness_key, difficulty,
-            quantum_a=_PARETO_DISTANCE_QUANTUM_M, quantum_b=DIFFICULTY_QUANTUM,
+            quantum_a=PARETO_DISTANCE_QUANTUM_M, quantum_b=DIFFICULTY_QUANTUM,
             max_items=pool_size,
         )
         # 層に入らなかった候補（-1）は難易度順で最後尾へ回す。
         layer_key = np.where(pareto_layer >= 0, pareto_layer, np.iinfo(np.int32).max)
         order = np.lexsort((ring, closeness_key, difficulty_key, layer_key))[:_MAX_RING_CANDIDATES_EXAMINED]
         ranked = ring[order]
-        # difficulty_by_node／方位／近接判定用平面座標は、以降で実際に引かれうる`ranked`
+        # 方位／近接判定用平面座標は、以降で実際に引かれうる`ranked`
         # （上限_MAX_RING_CANDIDATES_EXAMINED件）ぶんだけ用意する。
         ranked_list = ranked.tolist()
-        difficulty_by_node = dict(zip(ranked_list, difficulty_key[order].tolist()))
         # 同点（difficulty_keyが等しい）候補はグループとして渡し、グループ内の試行順は
         # 「採用済み候補との方位角距離の最小値が最大」（最遠点貪欲法、方位は生成機構ではなく
         # 同点タイブレーク専用）で採用のたびに決め直す。difficulty群自体の順序（主キー）・
@@ -701,7 +664,7 @@ class RoadGraphEngine:
         # 円筒近似で足りる）、平方距離をPythonのfloat演算で比べる——候補ごとにnumpyの
         # haversineを呼ぶと、1回あたりの呼び出し費用が候補数ぶん積み上がる。`far_enough`が
         # 引くのは`ranked`のNodeだけなので、座標変換もそのぶんに限る。
-        min_separation_sq = _MIN_TURNAROUND_SEPARATION_KM ** 2
+        min_separation_sq = MIN_TURNAROUND_SEPARATION_KM ** 2
         lat0 = float(context.node_lat[context.origin_node])
         km_per_deg_lon = km_per_degree_longitude(lat0)
         ranked_lat = context.node_lat[ranked] * KM_PER_DEGREE_LATITUDE
@@ -721,7 +684,7 @@ class RoadGraphEngine:
         # 閾値を昇順に渡すと、埋まらなかったときの緩和までを1回の呼び出しで行う。
         selected = select_diverse_by_overlap(
             [], outbound_edges, statics.edge_length_m,
-            [_TURNAROUND_MAX_OVERLAP_RATIO, _TURNAROUND_RELAXED_OVERLAP_RATIO], pool_size, far_enough,
+            [TURNAROUND_MAX_OVERLAP_RATIO, TURNAROUND_RELAXED_OVERLAP_RATIO], pool_size, far_enough,
             tie_groups=tie_groups, prefer=prefer,
         )
 
@@ -734,7 +697,6 @@ class RoadGraphEngine:
             turnarounds.append(
                 LoopTurnaround(
                     bearing=bearing,
-                    outbound_difficulty=float(difficulty_by_node[node_index]),
                     data=_TurnaroundData(
                         node=node_index, outbound_edge_indices=edges,
                         outbound_length_m=float(length[node_index]),
@@ -761,7 +723,7 @@ class RoadGraphEngine:
         追加探索が発生しない。
 
         1. 全Nodeについて経由路長`len_f+len_b`・合成コスト`cost_f+cost_b`をベクトル計算し、
-           合成コスト最小のNode（"最良路"）の長さの`_ALTERNATIVE_MAX_STRETCH`倍以内の
+           合成コスト最小のNode（"最良路"）の長さの`ALTERNATIVE_MAX_STRETCH`倍以内の
            Nodeだけを候補にする。
         2. 平均difficulty`(合成コスト/経由路長-1)/P`昇順に並べる。ただし最良路のNodeは常に
            先頭へ回す——合成コスト最小であっても、伸び率の許す範囲でより平均difficultyの
@@ -803,7 +765,7 @@ class RoadGraphEngine:
             corrected_node = find_nearest_node_indexed(
                 context.node_index, destination,
                 allowed=np.isfinite(forward_tree.node_cost),
-                max_distance_km=_MAX_DESTINATION_CORRECTION_KM,
+                max_distance_km=MAX_DESTINATION_CORRECTION_KM,
             )
             if corrected_node is None:
                 # Noneは「この距離の中にアクセス可能なNodeが無い」。到達Node数が0なら壊れて
@@ -899,7 +861,7 @@ class RoadGraphEngine:
 
         best_index = int(np.argmin(np.where(reachable, combined_cost, np.inf)))
         best_length_m = float(combined_length[best_index])
-        within_stretch = reachable & (combined_length <= best_length_m * _ALTERNATIVE_MAX_STRETCH)
+        within_stretch = reachable & (combined_length <= best_length_m * ALTERNATIVE_MAX_STRETCH)
         # 打ち切りは**並べてから**行う（周回の折返し点選定と同じ規則）。Node index順で先に
         # 切ると、良い候補が後ろのindexに居るだけで検討対象から外れる。
         candidates = np.flatnonzero(within_stretch)
@@ -908,11 +870,11 @@ class RoadGraphEngine:
         difficulty_key = round_difficulty_array(difficulty)
         # 周回の折返し点選定と同じく、経路長・difficultyのパレート非劣解を先に並べる
         # （難易度は距離加重平均のため、遠回りするほど下がる。目的地ルートは目標距離を
-        # 持たず_ALTERNATIVE_MAX_STRETCH倍以内という上限だけが効くぶん、難易度単独で
+        # 持たずALTERNATIVE_MAX_STRETCH倍以内という上限だけが効くぶん、難易度単独で
         # 並べると伸び率上限いっぱいの遠回りが上位を占めやすい）。
         pareto_layer = pareto_layer_index(
             combined_length[candidates], difficulty,
-            quantum_a=_PARETO_DISTANCE_QUANTUM_M, quantum_b=DIFFICULTY_QUANTUM,
+            quantum_a=PARETO_DISTANCE_QUANTUM_M, quantum_b=DIFFICULTY_QUANTUM,
             max_items=max_routes,
         )
         layer_key = np.where(pareto_layer >= 0, pareto_layer, np.iinfo(np.int32).max)
@@ -961,7 +923,7 @@ class RoadGraphEngine:
 
         selected = select_diverse_by_overlap(
             ranked, full_edges, context.statics.edge_length_m,
-            [_VIA_NODE_MAX_OVERLAP_RATIO, _VIA_NODE_RELAXED_OVERLAP_RATIO], max_routes,
+            [VIA_NODE_MAX_OVERLAP_RATIO, VIA_NODE_RELAXED_OVERLAP_RATIO], max_routes,
         )
 
         traced: list[TracedLoop] = []
@@ -1048,7 +1010,7 @@ class RoadGraphEngine:
         復路（折返し点→起点のA*）を継いで周回にする。
 
         復路探索の間だけ、往路Edge＋同一Node対の逆方向Edgeのコストを
-        `_RETRACE_PENALTY_MULTIPLIER`倍へ**差し替え**、探索後に元へ戻す。配列ごとコピーすると
+        `RETRACE_PENALTY_MULTIPLIER`倍へ**差し替え**、探索後に元へ戻す。配列ごとコピーすると
         候補の数だけbbox全体ぶんの複製を払うため、触るのは往路Edgeの列だけにする。時刻ビンを
         張った復路では全ビンの同じ列をまとめて差し替える——どの時刻に通っても「往路をなぞる」
         ことに変わりはない。
@@ -1077,7 +1039,7 @@ class RoadGraphEngine:
         penalized_columns = np.fromiter(penalized, dtype=np.int64, count=len(penalized))
         original = cost_bins[:, penalized_columns].copy()
         try:
-            cost_bins[:, penalized_columns] = original * _RETRACE_PENALTY_MULTIPLIER
+            cost_bins[:, penalized_columns] = original * RETRACE_PENALTY_MULTIPLIER
             return_edge_index_list = turn_expanded_shortest_path(
                 context.turn_structure, cost_bins, _heuristic_seconds(_origin_estimate(context), context.composer.speed_kmh),
                 _origin_states(context.statics, data.node),
@@ -1173,7 +1135,7 @@ class RoadGraphEngine:
         self, context: _RoadGraphContext, candidate: TracedLoop, accepted: list[TracedLoop]
     ) -> bool:
         """`candidate`が`accepted`のいずれかと、周回全体（往路＋復路）で
-        `_LOOP_MAX_OVERLAP_RATIO`を超えて重複するか。進行方向を無視して
+        `LOOP_MAX_OVERLAP_RATIO`を超えて重複するか。進行方向を無視して
         比較するため、「同じ周回の逆回り」（往路と復路が入れ替わっただけ）や「往路は違うが
         復路が同じ裏道へ収束する」周回のどちらも同じ判定で弾ける。`TracedLoop.data`は
         区間の番号列（往路＋復路、`trace_loop_from_turnaround`/`trace_loop`参照）。
@@ -1188,7 +1150,7 @@ class RoadGraphEngine:
             other_keys = _loop_edge_lengths_by_physical_segment(context, other.data)
             shared = sum(length for key, length in candidate_lengths.items() if key in other_keys)
             ratio = shared / total
-            if ratio > _LOOP_MAX_OVERLAP_RATIO:
+            if ratio > LOOP_MAX_OVERLAP_RATIO:
                 logger.debug(
                     "loop dedup rejected bearing=%d overlap_ratio=%.2f vs accepted bearing=%s",
                     candidate.bearing, ratio, other.bearing,
@@ -1279,8 +1241,7 @@ class RoadGraphEngine:
         # 区間と標高属性を引数で受けるのは、逆回り候補も同じ組み立てを通すため。
         # distance_km・bearingは同じ物理経路なので順方向の`traced`のものをそのまま使う。
         geometry, edge_point_offsets = concat_edge_geometries(edges_in_path)
-        elevation_stats = aggregate_elevation(edges_in_path, elevation_by_edge)
-        segments, segment_categories = self._build_segment_details(
+        segments, segment_categories, segment_raw_values = self._build_segment_details(
             edges_in_path, path, elevation_by_edge, context, start_time, leg_of_edge
         )
         rows = np.asarray([_slice_row(context, index) for index in path], dtype=np.int64)
@@ -1288,6 +1249,9 @@ class RoadGraphEngine:
         # 計算すると、ビンの代表値を1つ選ぶ形になり割合がビンの粒度へ量子化される。
         material_category_shares = merge_material_category_shares(
             zip((segment.distance_km for segment in segments), segment_categories)
+        )
+        axis_raw_values = route_axis_raw_values(
+            list(zip((segment.distance_km for segment in segments), segment_raw_values))
         )
         # 返すsegmentsは集約する。Edge単位のままだとペイロードとフロントの描画費用が嵩む。
         segments = aggregate_segments_into_bins(segments)
@@ -1304,10 +1268,11 @@ class RoadGraphEngine:
             ),
             segments=segments,
             material_category_shares=material_category_shares,
+            axis_raw_values=axis_raw_values,
             estimated_duration_seconds=self._estimate_duration_seconds(context, edges_in_path, path, leg_of_edge),
             wind_unavailable=context.composer.wind_unavailable,
             missing_travel_data_share=context.composer.missing_travel_data_share(rows) if len(rows) else None,
-            **elevation_stats,
+            elevation_gain_m=route_elevation_gain(edges_in_path, elevation_by_edge),
         )
 
     def _estimate_duration_seconds(
@@ -1385,10 +1350,10 @@ class RoadGraphEngine:
         context: _RoadGraphContext,
         start_time: datetime,
         leg_of_edge: list[int],
-    ) -> tuple[list[RouteSegmentDetail], list[dict[str, str]]]:
-        """区間ごとの表示値と、区間ごとのcategorical材料の値（材料id→値）を組み立てる。
-        後者は平均できず区間の器（ビンへ畳まれる）に載せられないため、候補全体の延長割合へ
-        畳む`_build_candidate`へ並びのまま渡す。
+    ) -> tuple[list[RouteSegmentDetail], list[dict[str, str]], list[dict[str, float]]]:
+        """区間ごとの表示値と、区間ごとのcategorical材料の値（材料id→値）・軸の生値（axis_id→値）を組み立てる。
+        categorical材料の値は平均できず区間の器（ビンへ畳まれる）に載せられないため、軸の生値は画面が
+        候補全体の値しか読まないため、どちらも候補全体へ畳む`_build_candidate`へ並びのまま渡す。
 
         軸別スコア・合成difficulty・寄与度・材料値は、
         そのEdgeが探索されたレグ（`leg_of_edge`）の合成済み配列（`context.legs`、
@@ -1397,6 +1362,7 @@ class RoadGraphEngine:
         """
         segments = []
         segment_categories: list[dict[str, str]] = []
+        segment_raw_values: list[dict[str, float]] = []
         cumulative_km = 0.0
         active_material_ids = displayed_material_ids(context.composer.weights, self._lens_axis_id)
         passages = self._route_passages(context, edges, path, leg_of_edge)
@@ -1434,11 +1400,11 @@ class RoadGraphEngine:
             axis_contributions = values.axis_contributions_at(value_row)
             # 折れ点を通す前の生値。静的スコア行列が持つ列をそのまま読む
             # （動的材料を参照する軸は行列側で除外済み）。
-            axis_raw_values = {
+            segment_raw_values.append({
                 axis_id: float(arr[row])
                 for axis_id, arr in leg.axis_raw_arrays.items()
                 if not math.isnan(arr[row])
-            }
+            })
             difficulty_value = values.difficulty_array[value_row]
             composite_difficulty_value = None if math.isnan(difficulty_value) else float(difficulty_value)
             material_values = {
@@ -1478,7 +1444,6 @@ class RoadGraphEngine:
                     distance_km=round(distance_km, 2),
                     estimated_arrival_time=arrival_time.isoformat(),
                     axis_difficulties=axis_scores,
-                    axis_raw_values=axis_raw_values,
                     axis_contributions=axis_contributions,
                     material_values=material_values,
                     difficulty=composite_difficulty_value,
@@ -1487,7 +1452,7 @@ class RoadGraphEngine:
             )
             cumulative_km += distance_km
 
-        return segments, segment_categories
+        return segments, segment_categories, segment_raw_values
 
 
 def _values_at_passages(
@@ -1799,22 +1764,13 @@ def concat_edge_geometries(edges: list[LeanEdge]) -> tuple[dict, list[int]]:
     return {"type": "LineString", "coordinates": coordinates}, offsets
 
 
-def aggregate_elevation(edges: list[LeanEdge], elevation_by_edge: dict) -> dict:
-    attrs = [elevation_by_edge.get(edge.edge_id) for edge in edges]
-    valid = [a for a in attrs if a is not None]
-
-    gains = [a.elevation_gain_m for a in valid]
-    elevations = [e for a in valid for e in (a.start_elevation_m, a.end_elevation_m)]
-
-    return {
-        "elevation_gain_m": _rounded_or_none(sum, gains),
-        "min_elevation_m": _rounded_or_none(min, elevations),
-        "max_elevation_m": _rounded_or_none(max, elevations),
-    }
-
-
-def _rounded_or_none(aggregate: Callable[[list[float]], float], values: list[float]) -> float | None:
-    """値が1つも無ければNone（0mと「標高が取れなかった」を分ける）。小数1桁へ丸める。"""
-    return round(aggregate(values), 1) if values else None
+def route_elevation_gain(edges: list[LeanEdge], elevation_by_edge: dict) -> float | None:
+    """経路の獲得標高（m、小数1桁）。値が1つも無ければNone（0mと「標高が取れなかった」を分ける）。"""
+    gains = [
+        attribute.elevation_gain_m
+        for edge in edges
+        if (attribute := elevation_by_edge.get(edge.edge_id)) is not None
+    ]
+    return round(sum(gains), 1) if gains else None
 
 

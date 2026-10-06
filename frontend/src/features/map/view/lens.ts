@@ -4,8 +4,11 @@
  * 分岐は持たない——軸を公開すれば、ここへ何も足さずに選択肢と塗り分けへ現れる。
  */
 import type { DedicatedWayValueAxis, RampAxis } from "@/lib/mapDisplay/axisLayers";
-import type { DedicatedWayValueDisplay } from "@/lib/mapDisplay/dedicatedWayValueLayer";
-import { NO_DATA_LEGEND_BAND, type MapColorLegendBand } from "@/lib/mapDisplay/mapColorLegend";
+import {
+  NO_DATA_LEGEND_BAND,
+  UNDETERMINED_LEGEND_BAND,
+  type MapColorLegendBand,
+} from "@/lib/mapDisplay/mapColorLegend";
 import { dedicatedAxisBands, rampAxisBands } from "@/lib/mapDisplay/valueScale";
 import { buildAxisRampUnknownExpression, buildAxisRampValueExpression } from "@/features/map/scene/groups/axisLines";
 import type { LegendEntry } from "@/lib/mapDisplay/legendFilter";
@@ -17,10 +20,29 @@ import {
 } from "@/lib/mapDisplay/routeStyleModes";
 import type { LensOption } from "@/features/map/LensControl/LensControl";
 import type { CatalogAxis } from "@/lib/catalogAxis";
+import { cardinalLabel } from "@/lib/cardinalLabel";
 
 /** 全道路を塗っている軸。ルート確定後は、周囲も塗り続ける設定の間だけ塗る。 */
 export function paintedAxisId(lens: LensId, hasDetail: boolean, keepAfterRoute: boolean): LensId | null {
   return !hasDetail || keepAfterRoute ? lens : null;
+}
+
+/** 周りの道の色が拠る走る条件の文（例:「北へ走る・時速20km・19:30出発」）。塗っている軸が使う条件だけを、軸カタログの
+ * 宣言から並べる。塗っている軸が条件を使わなければnull——画面に出ていない条件で、同じ道の色が変わって見えないように出す。 */
+export function lensConditionsLabel(
+  paintedAxis: LensId | null,
+  dedicatedAxes: readonly DedicatedWayValueAxis[],
+  ride: { bearingDeg: number; speedKmh: number },
+  departureLabel: string,
+): string | null {
+  const axis = dedicatedAxes.find((candidate) => candidate.axisId === paintedAxis);
+  if (axis === undefined) return null;
+  const parts = [
+    axis.needsBearing ? `${cardinalLabel(ride.bearingDeg)}へ走る` : null,
+    axis.needsSpeed ? `時速${ride.speedKmh}km` : null,
+    axis.needsTime ? `${departureLabel}出発` : null,
+  ].filter((part) => part !== null);
+  return parts.length > 0 ? parts.join("・") : null;
 }
 
 /** レンズの凡例。地図がいま塗っているものの凡例だけを出す——塗っていない間に出すと、
@@ -38,7 +60,7 @@ export function lensLegend(
   const ramp = catalog.rampAxes.find((axis) => axis.axisId === lens);
   if (ramp) return buildAxisRampLegend(ramp);
   const dedicated = catalog.dedicatedAxes.find((axis) => axis.axisId === lens);
-  if (dedicated) return dedicatedWayValueLegend(dedicated.display);
+  if (dedicated) return dedicatedWayValueLegend(dedicated);
   return [];
 }
 
@@ -88,9 +110,11 @@ function buildAxisRampLegend(axis: RampAxis): LegendEntry[] {
 /** 地図上の色分け凡例。地図の線と同じ配色・しきい値から段階ラベル付きの凡例を組み立てる。
  * 段階ラベル（bandLabels）は要素数が段階数と一致する間だけ数値レンジの前に添える
  * （不一致な保存データへの防御）。末尾の「データなし」は値を受け取れなかった道路の受け皿で、
- * ルート確定後のルート線の凡例（`routeStyleModes.ts`）と段階の並び・キーを揃える。 */
-function dedicatedWayValueLegend(display: DedicatedWayValueDisplay): MapColorLegendBand[] {
-  return [...dedicatedAxisBands(display).map(({ key, label, color }) => ({ key, label, color })), NO_DATA_LEGEND_BAND];
+ * ルート確定後のルート線の凡例（`routeStyleModes.ts`）と段階の並び・キーを揃える。
+ * 「向きで決まらない」は、配信がその道を返しうる軸だけに足す（ルートの線は実際に走る向きで決まるので持たない）。 */
+function dedicatedWayValueLegend(axis: DedicatedWayValueAxis): MapColorLegendBand[] {
+  const bands = dedicatedAxisBands(axis.display).map(({ key, label, color }) => ({ key, label, color }));
+  return [...bands, ...(axis.undeterminedByBearing ? [UNDETERMINED_LEGEND_BAND] : []), NO_DATA_LEGEND_BAND];
 }
 
 // 既定のレンズは総合難易度（軸の公開状態に依存せず常に存在するモード）。

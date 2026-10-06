@@ -62,7 +62,7 @@ export function landcoverTileUrl(): string {
   return `${tileBaseUrl()}${LANDCOVER_TILE_PATH}?v=${LANDCOVER_TILE_VERSION}`;
 }
 
-// 路面タイル（POIタイルも同じ）を要求するズーム範囲。正はbackendで、生成物で受け取る。
+// 路面タイル（点のタイルも同じ）を要求するズーム範囲。正はbackendで、生成物で受け取る。
 export const ROAD_TILE_MIN_ZOOM = regionTileConfig.road_tile_min_zoom;
 export const ROAD_TILE_MAX_ZOOM = regionTileConfig.road_tile_max_zoom;
 
@@ -115,7 +115,8 @@ export async function fetchAxisInspector(
 // （ブラウザのキャッシュに載せない軽いJSONで、新しさはbackendが持つ）。
 
 interface DynamicWayValuesResult {
-  values: Record<string, number>;
+  /** feature_key→値。nullは、その走行方位では値が決まらない道（値の無い道は鍵ごと無い）。 */
+  values: Record<string, number | null>;
   /** 通信失敗（HTTPエラー・ネットワークエラー・タイムアウト）ならtrue。backendが正常応答で
    * 空オブジェクトを返した場合（対象範囲に本当にway_idが無い）はfalseのまま——呼び出し側が
    * 「取得失敗」と「本当に空」を区別できるようにする。 */

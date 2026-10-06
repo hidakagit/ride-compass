@@ -53,6 +53,7 @@ describe("readSavedConditions", () => {
     ["座標でない出発地", { origin: { latitude: "35" } }],
     ["上限を超える経由地", { waypoints: Array(routeGenerateConfig.max_waypoints + 1).fill(POINT) }],
     ["数でない重み", { routePreference: { axis_a: "0.7" } }],
+    ["負の重み", { routePreference: { axis_a: -0.1 } }],
     ["除外が無い", { hardFilters: null }],
   ])("%sの件だけを捨て、ほかの件は残す", (_, broken) => {
     const other = { ...ENTRY, name: "別の件" };
@@ -108,12 +109,12 @@ describe("describeConditions", () => {
   });
 
   it.each([
-    ["上書きしない重みは、既定の配分を割合の大きい順に", null, CATALOG, "おすすめの配分（軸B 75%・A 25%）"],
+    ["上書きしない重みは、既定の配分を割合の大きい順に", null, CATALOG, "おすすめの配分（軸B 75%・軸A 25%）"],
     [
       "上書きした重みは、公開軸へ揃えて（無い軸は既定・消えた軸は外す）",
       { axis_a: 0.75, axis_gone: 1 },
       CATALOG,
-      "自分で変えた配分（A 50%・軸B 50%）",
+      "自分で変えた配分（軸A 50%・軸B 50%）",
     ],
     ["軸カタログが届く前は、配分の種類だけ", { axis_a: 1 }, EMPTY_CATALOG, "自分で変えた配分"],
   ])("重み: %s", (_, routePreference, catalog, expected) => {

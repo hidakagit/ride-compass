@@ -8,11 +8,12 @@ from datetime import datetime
 from apscheduler.events import EVENT_JOB_ERROR, JobExecutionEvent
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from asgi_correlation_id import CorrelationIdMiddleware
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.cache_policy import CachePolicyMiddleware
 from app.api.dependencies import get_amedas_service, get_ingested_area, get_jma_tile_client
+from app.api.finite_json_body import reject_non_finite_json_body
 from app.api.routers import api_router
 from app.config import settings
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
@@ -20,6 +21,8 @@ from app.infrastructure.database import get_session_factory
 from app.infrastructure.debug_control import install_ring_buffer_handler
 from app.infrastructure.http_client import get_http_client
 from app.infrastructure import road_network_store
+from app.infrastructure.region_tile_cache import PRUNE_INTERVAL_HOURS
+from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.infrastructure.msm_client import refresh as refresh_msm
 from app.infrastructure.process_resources import close_process_resources
 from app.infrastructure.request_log import (
@@ -33,6 +36,7 @@ from app.infrastructure.jma_amedas_client import AMEDAS_REFRESH_INTERVAL_MINUTES
 from app.services.axis_registry_service import refresh_axis_definitions
 from app.services.tuning_service import refresh_tuning_values
 from app.services.jma_tile_prewarm_service import prewarm_jma_tiles
+from app.services.tile_version_service import prune_other_tile_generations
 
 logging.basicConfig(level=logging.DEBUG if settings.debug_mode else logging.INFO)
 for _handler in logging.getLogger().handlers:
@@ -105,6 +109,16 @@ async def _prune_stale_disk_generations_job() -> None:
         )
 
 
+async def _prune_stale_region_tiles_job() -> None:
+    """いま配っていない世代の地域タイル（路面・点・土地被覆）をディスクから消す。"""
+    async with get_session_factory()() as session:
+        removed = await prune_other_tile_generations(RoadGraphRepository(session))
+    if removed:
+        logging.getLogger("ridecompass.disk_generation_prune").info(
+            "地域タイルの旧世代を削除しました removed=%d", removed
+        )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     require_single_worker(sys.argv, os.environ)
@@ -155,6 +169,14 @@ async def lifespan(app: FastAPI):
         run_date=datetime.now(),
         id="prune_stale_disk_generations",
     )
+    # 地域タイルの世代は再起動なしにも変わる（派生の作り直し・取込）ので、起動直後のあとも定期に回す。
+    scheduler.add_job(
+        _prune_stale_region_tiles_job,
+        trigger="interval",
+        hours=PRUNE_INTERVAL_HOURS,
+        next_run_time=datetime.now(),
+        id="prune_stale_region_tiles",
+    )
     scheduler.start()
     yield
     # 先に定期ジョブを止める。逆にすると、閉じたあとに走り出したジョブが閉じたクライアントで外部を呼ぶ。
@@ -162,7 +184,7 @@ async def lifespan(app: FastAPI):
     await close_process_resources()
 
 
-app = FastAPI(title="RideCompass API", lifespan=lifespan)
+app = FastAPI(title="RideCompass API", lifespan=lifespan, dependencies=[Depends(reject_non_finite_json_body)])
 
 app.add_middleware(
     CORSMiddleware,

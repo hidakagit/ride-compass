@@ -1,9 +1,11 @@
 from collections.abc import Awaitable, Callable
+from datetime import datetime
 from functools import partial
 
 from app.domain.axis_inspector import AxisInspectorResult, axis_inspector_breakdown
 from app.domain.route_preference import RoutePreference
 from app.domain.region import BoundingBox, tile_bounds_lonlat
+from app.domain.registry import TileKind
 from app.infrastructure.cache_identity import is_known_tile_version
 from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
 from app.infrastructure.debug_log import log_external_call, log_throttled_warning, mark_failed
@@ -11,7 +13,8 @@ from app.infrastructure.point_tile_layers import PointTileLayer
 from app.infrastructure.road_graph_repository import ROAD_SURFACE_TILE_SHAPE, RoadGraphRepository
 from app.infrastructure.vector_tile import ROAD_SURFACE_LAYER_NAME, encode_empty_tile
 from app.infrastructure.media_types import MVT_CONTENT_TYPE
-from app.services.tile_serving import TileResponse, serve_cached_tile
+from app.infrastructure.region_tile_cache import TileResponse, serve_region_tile
+from app.services.dedicated_way_values import DirectionalMaterialService
 from app.services.tile_version_service import current_tile_versions, served_tile_version
 
 # z・x・yとその範囲（経度・緯度）から、PostGISが生成したタイル1枚を返す読み出し。
@@ -32,7 +35,7 @@ class RegionService:
     def __init__(self, repository: RoadGraphRepository):
         self._repository = repository
 
-    async def tile_versions(self) -> dict[str, str]:
+    async def tile_versions(self) -> dict[TileKind, str]:
         """系統名→配信する世代（`services/tile_version_service.py`）。
 
         DBの口（`repository`）を外へ出さずにここで閉じる。**外へ出すと、呼び出し側が
@@ -68,7 +71,7 @@ class RegionService:
         self,
         *,
         read_tile: _TileReader,
-        layer: str,
+        kind: TileKind,
         shape: str,
         empty_tile: bytes,
         external_call_name: str,
@@ -89,23 +92,25 @@ class RegionService:
             return postgis_tile
 
         version = await served_tile_version(self._repository, shape)
-        return await serve_cached_tile(
+        return await serve_region_tile(
+            kind=kind,
+            generation=version,
             z=z,
             x=x,
             y=y,
-            cache_path=f"region/{layer}/v{version}/{z}/{x}/{y}.pbf",
+            extension="pbf",
             empty_tile=empty_tile,
             content_type=MVT_CONTENT_TYPE,
             external_call_name=external_call_name,
             fetch_tile=fetch_tile,
-            # 世代を読めていない間はディスクへ残さない（tile_servingのdocstring参照）。
+            # 世代を読めていない間はディスクへ残さない（`serve_region_tile`のdocstring参照）。
             persist=is_known_tile_version(version),
         )
 
     async def get_road_surface_tile(self, z: int, x: int, y: int) -> TileResponse:
         return await self._get_tile(
             read_tile=self._repository.get_road_surface_tile_mvt,
-            layer="road-surface",
+            kind="road_surface",
             shape=ROAD_SURFACE_TILE_SHAPE,
             empty_tile=encode_empty_tile(ROAD_SURFACE_LAYER_NAME),
             external_call_name="region:road-surface-tile",
@@ -119,7 +124,7 @@ class RegionService:
         """点のレイヤー（`infrastructure/point_tile_layers.py`）のタイル。どのレイヤーも同じ道で配る。"""
         return await self._get_tile(
             read_tile=partial(self._repository.get_tile_mvt, layer.sql, layer.source_layer),
-            layer=layer.name,
+            kind=layer.name,
             shape=layer.shape,
             empty_tile=encode_empty_tile(layer.source_layer),
             external_call_name=f"region:{layer.name}-tile",
@@ -208,3 +213,28 @@ class RegionService:
             if area is None:
                 log_throttled_warning("region:ingested-area", "道路の取込が成功した記録が無く、対象範囲が決まらない")
             return area
+
+
+class AxisInspectorService:
+    """区間インスペクタの段取り。進行方向に依存する材料を地図と同じ経路で引き、道の内訳へ合わせる。"""
+
+    def __init__(self, region_service: RegionService, directional_materials: DirectionalMaterialService):
+        self._region_service = region_service
+        self._directional_materials = directional_materials
+
+    async def inspect(
+        self,
+        osm_way_id: int,
+        feature_key: str | None,
+        z: int,
+        x: int,
+        y: int,
+        at: datetime | None,
+        bearing_deg: float,
+        speed_kmh: float | None,
+        preference: RoutePreference | None,
+    ) -> AxisInspectorResult | None:
+        dynamic = await self._directional_materials.materials(
+            osm_way_id, feature_key, z, x, y, at, bearing_deg, speed_kmh
+        )
+        return await self._region_service.get_axis_inspector(osm_way_id, feature_key, dynamic, preference)

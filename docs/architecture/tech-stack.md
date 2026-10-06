@@ -22,6 +22,8 @@
 | 天候（実測）・防災 | 気象庁の公開API（アメダス・警報・ナウキャスト・キキクル・洪水予報）・環境省WBGT | 予報と統合しない。数値予報モデルの出力は公式発表の代わりにならない |
 | 標高 | 国土地理院DEMタイル（APIキー不要、日本国内限定） | 評価の材料（勾配）は取込バッチだけが叩き、**ルート生成・評価が実行時に取りに行く経路は無い**。地図の地形の表示は、backendが実行時に取りに行って中継し、ディスクに持つ |
 | 土地被覆 | Esri × Impact Observatory の10m LULC（GeoTIFF） | リポジトリに持たず、デプロイがVMへ取得して読み取り専用でマウントする |
+| 管理データの退避先 | Oracle Cloud Object Storage（非公開のバケット） | 本番VMのtimerが取り直せない管理データを置き、バケットのライフサイクルの規則が古いものを消す。仕組みと登録の手順は[deployment-sync.md](../conventions/deployment-sync.md)付録「管理データのバックアップ」 |
+| タスクの流れのゲート | Cloudflare Workers（`tools/flow-gate/wrangler.toml`。Webhookを受けるWorkerと、Cloudflare Accessで守る回答フォームのWorker） | アプリの外の運用の道具で、本番の利用者の経路に無い。公開するトークンは下の「秘密の値とトークン」、決まりは[flow.md](../conventions/flow.md) |
 
 ## 地図タイルプロバイダ
 
@@ -64,7 +66,7 @@
 上流の報告は[openapi-ts/openapi-typescript#2632](https://github.com/openapi-ts/openapi-typescript/issues/2632)で、
 直す変更（#2673・#2842）は2026-09-27時点で取り込まれていない。0.16.0は同じ変換を持たず、実行時の実装は
 0.17.0と同じ（差は長さ0の応答の判定だけ）。`package.json`の`^0.16.0`は0.x系のキャレットなので0.17へは上がらない。
-**上げるときは、上げた先でタプルを含む応答（例: `/api/admin/material-catalog/{material_id}/distribution`の`bins`）の
+**上げるときは、上げた先でタプルを含む応答（例: `/api/admin/axis-definitions/preview-distribution`の`bins`）の
 推論した型がタプルのままかを`tsc --noEmit`で確かめる。**
 
 ## Windows: `uvicorn --reload`の多重プロセス
@@ -173,8 +175,8 @@ importすると、その変更だけが本番へ届かなくなる**（エラー
   「Deploying a specific commit」）。
 - **出すかは本番の`/api/version`の`commit`で決める。** CIを通ったコミットが本番のコミットか、その祖先なら出さない
   （後から終わった古いCIの実行）。本番のコミットが読めない・履歴に無いときは出す。backendと違い変更のパスでは
-  振り分けない——重い検査が走ったmasterのコミットは全部出す（文書だけの変更は`ci.yml`の`changes`が重い検査ごと
-  飛ばすので、デプロイも起動しない）。
+  振り分けない——重い検査が走ったmasterのコミットは全部出す（文書やタスク管理だけの変更は`ci.yml`の`changes`が
+  重い検査ごと飛ばすので、デプロイも起動しない）。
 - **出したあと、本番の`/api/version`がそのコミットになるまで待つ。** Renderは最後に頼まれたデプロイを出す
   （同じ文書の「Handling overlapping deploys」）ので、待たずに次へ進むと古いコミットが新しいコミットを上書きしうる。
   判定・フック・待ちは1つのジョブで1本ずつ走る。上限（30分）までに変わらなければジョブを落とす——Renderのビルドか
@@ -199,15 +201,19 @@ publicリポジトリで標準のGitHubホストランナーを使う実行を�
 
 この前提の上で、CIは次のように組んである。
 
-- どの出来事でCIが走るかはdocs/conventions/testing.md「検査の置き場（手元・作業ブランチのCI・masterのCI）」が持つ。
+- どの出来事でCIが走るかはdocs/conventions/testing-operations.md「検査の置き場（手元・作業ブランチのCI・masterのCI）」が持つ。
   作業ブランチへのpushで走らせないのは、検査はPull Requestの実行で済み、誰も待たないpushの実行で枠を使わないため。
   backendの本番へのデプロイは、masterへの
   pushでCIが通ったときだけ`ci.yml`から呼ばれる（上の「デプロイの反映確認」）。
 - 同じブランチへの新しいpushで古い実行を打ち切らない。打ち切ると、そのコミットのCIの結論が残らない。
 - ジョブの分け方・キャッシュ・文書や運用の道具だけの変更で重い検査を飛ばす範囲（`ci.yml: changes`ジョブの
   `case`）は、所要時間と同時実行の枠で決める（理由は各ワークフローのコメント）。
+- **タスク管理は製品のCIと分ける。** タスク管理の置き場（`.github/taskflow-paths`。ゲートの`tools/flow-gate/`と
+  担当のワークフロー）の検査とゲートの公開は`claude-gate.yml`が持ち、`ci.yml`はその置き場を読まない。そのため
+  `ci.yml: changes`はその置き場だけの変更で重い検査を飛ばし、backend・frontendのデプロイも起動しない。
+  置き場の定義は、総量の計測（`scripts/review_checks.py: TASKFLOW_PREFIXES`）も同じファイルから読む。
 - **ワークフローは`paths`で飛ばさず、いつも起こす。** コードのリポジトリは、master へ入れる前に必須チェック
-  （`ci.yml`の`ci-ok`と`docs-consistency.yml`のジョブ）が通ることを求める。ワークフローごと飛ばすと必須チェックが Pending のまま残り、
+  （`ci.yml`の`ci-ok`・`docs-consistency.yml`のジョブ・`claude-gate.yml`の`flow-gate`）が通ることを求める。ワークフローごと飛ばすと必須チェックが Pending のまま残り、
   Pull Request がマージできない（公式の「Troubleshooting required status checks」）。重い検査を飛ばすのは
   `changes`ジョブが決め、ジョブの`if`で飛ばしたものはスキップとして必須チェックを通る。
 - **飛ばす範囲は、その検査が読む対象から導く。** 飛ばしてよいのは、`ci.yml`のどの検査も読まないパスだけ。
@@ -235,7 +241,7 @@ CIだけに置いているため、CIの分数が尽きると検査そのもの�
 | hidakagit/ride-compassのActionsの秘密の値 | `CODE_TOKEN` | hidakagitが作ったfine-grained `ride-compass-actions`。Resource ownerはhidakagitで、届くのはhidakagit/ride-compassだけ。Actions・Contents・Issues・Pull requests・Variablesは読み書き、Commit statusesは読むだけ。期限は未記録 | `claude-task.yml`（checkout・Claudeの連携・ghの既定）・`claude-dispatch.yml`（盤面を読み担当を起こす・次の見回りを起こす） |
 | 同 | `FLOW_BOT_TOKEN` | hidakagit-botが作ったfine-grained。届くのはridecompass/ride-compass-tasksだけ。Contentsは読み書き（担当の手番の記録をリリースへ置く）。期限2027-09-29 | 担当と流れの道具が置き場へ書く・ゲートの公開のあと`refresh.js`。開発機ではユーザー環境変数の同じ名前 |
 | 同 | `CLAUDE_CODE_OAUTH_TOKEN` | Claudeの契約のトークン（GitHubのトークンではない） | `claude-task.yml` |
-| 同 | `CLOUDFLARE_API_TOKEN`・`CLOUDFLARE_ACCOUNT_ID` | Cloudflare | ゲートと回答フォームの公開（`ci.yml`） |
+| 同 | `CLOUDFLARE_API_TOKEN`・`CLOUDFLARE_ACCOUNT_ID` | Cloudflare | ゲートと回答フォームの公開（`claude-gate.yml`） |
 | 同 | `ORACLE_VM_HOST`・`ORACLE_VM_SSH_KEY` | 本番のVM | backendのデプロイ |
 | 同 | `RENDER_FRONTEND_DEPLOY_HOOK_URL` | Render | frontendのデプロイ |
 | ゲートのWorker（`ridecompass-gate`） | `APP_ID`・`APP_KEY`・`WEBHOOK_SECRET` | GitHub Appの鍵とWebhookの秘密 | ゲート |

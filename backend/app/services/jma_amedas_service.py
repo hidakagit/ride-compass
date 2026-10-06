@@ -24,12 +24,7 @@ from cachetools import TTLCache
 from app.domain.rain import RAIN_HISTORY_HOURS, StationRainMaterials, is_rain_history_current, rain_material_values
 from app.domain.time_zone import JST
 from app.domain.geo import nearest_point_index
-from app.domain.jma_amedas import (
-    AmedasObservation,
-    apparent_temperature_from_amedas,
-    wind_direction_from_jma_code,
-)
-from app.domain.jma_suikei import sky_from_color
+from app.domain.jma_amedas import AmedasObservation, apparent_temperature_from_amedas
 from app.domain.route import Coordinates
 from app.domain.twilight import sunrise_sunset_jst
 from app.domain.weather import derive_observed_weather_code
@@ -89,13 +84,12 @@ class JmaAmedasService:
         # 日の出/日没は最寄り観測所ではなく**クエリ地点**に対して計算する（観測所境界
         # 付近でのズレを避ける）。外部への問い合わせを伴わないため都度計算でよい。
         today = datetime.now(JST).date()
-        color = await jma_suikei_client.fetch_weather_color(self._tile_client, point.latitude, point.longitude)
-        sky = None if color is None else sky_from_color(*color)
+        suikei = await jma_suikei_client.fetch_weather(self._tile_client, point.latitude, point.longitude)
         return observation.model_copy(
             update={
                 "twilight": sunrise_sunset_jst(point, today),
                 "weather_code": derive_observed_weather_code(
-                    observation.precipitation_10min_mm, sky, observation.temperature_c
+                    observation.precipitation_10min_mm, suikei, observation.temperature_c
                 ),
             }
         )
@@ -122,11 +116,9 @@ class JmaAmedasService:
             logger.warning("アメダス観測値マップの取得に失敗しました（全滅バッチ）time=%s", latest_time.isoformat())
             return 0
 
-        observations = [
-            _observation(station_id, station, reading, latest_time.isoformat())
-            for station_id, reading in observation_map.items()
-            if (station := stations.get(station_id)) is not None
-        ]
+        observations = {
+            station_id: _observation(reading) for station_id, reading in observation_map.items() if station_id in stations
+        }
         await jma_amedas_store.write_observations(observations)
         await self._refresh_rain_history(stations, latest_time, observation_map)
         return len(observations)
@@ -144,7 +136,7 @@ class JmaAmedasService:
         latest_hour = latest_time.astimezone(JST).replace(minute=0, second=0, microsecond=0)
         hours = [latest_hour - timedelta(hours=back) for back in range(RAIN_HISTORY_HOURS)]
         stored = await jma_amedas_store.read_rain_history()
-        if stored is None and not jma_amedas_store.available():
+        if stored is jma_amedas_store.UNAVAILABLE:
             # 置き場が使えない間に全本を取り直すと、10分ごとに気象庁へ全本を問い合わせ続ける。
             return
         stored_hours = {} if stored is None else stored.hours
@@ -188,19 +180,14 @@ class JmaAmedasService:
         )
 
 
-def _observation(station_id: str, station: AmedasStation, reading: AmedasReading, observed_at: str) -> AmedasObservation:
+def _observation(reading: AmedasReading) -> AmedasObservation:
     return AmedasObservation(
-        station_id=station_id,
-        station_name=station.name,
-        latitude=station.latitude,
-        longitude=station.longitude,
-        observed_at=observed_at,
         temperature_c=reading.temperature_c,
         apparent_temperature_c=apparent_temperature_from_amedas(
             reading.temperature_c, reading.humidity_percent, reading.wind_speed_ms
         ),
         wind_speed_ms=reading.wind_speed_ms,
-        wind_direction=wind_direction_from_jma_code(reading.wind_direction_code),
+        wind_direction=reading.wind_direction,
         precipitation_10min_mm=reading.precipitation_10min_mm,
         # クエリ地点依存のためバッチ時点では決められない。
         twilight=None,
@@ -231,7 +218,7 @@ async def load_station_rain_materials(now: datetime, cache: TTLCache) -> Station
     materials = cache.get(_RAIN_MATERIALS_CACHE_KEY)
     if materials is None:
         history = await jma_amedas_store.read_rain_history()
-        if history is None or not history.stations:
+        if not isinstance(history, RainHistory) or not history.stations:
             return None
         materials = _station_rain_materials(history)
         cache[_RAIN_MATERIALS_CACHE_KEY] = materials

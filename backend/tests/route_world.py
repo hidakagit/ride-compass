@@ -15,7 +15,7 @@ import numpy as np
 from app.services.route_generation_setup import assemble_route_generation_setup
 from app.domain.geo import bearing_between, haversine_distance_km
 from app.domain.graph import node_key
-from app.domain.hard_filters import hard_filter_columns
+from app.domain.hard_filters import DEFAULT_HARD_FILTERS, hard_filter_columns
 from app.domain.cycling_speed import ROLLING_RESISTANCE_MATERIAL_ID
 from app.domain.material_catalog import GRADIENT_PERCENT
 from app.domain.road import UNKNOWN_ROAD_SURFACE
@@ -110,7 +110,7 @@ def grid_network(
         bearing_deg=np.array([bearing_between(a, b) for a, b in points]),
         mid_lat=(lat[tail] + lat[head]) / 2, mid_lon=(lon[tail] + lon[head]) / 2,
         elevation_present=np.zeros(n, dtype=bool),
-        elevation_start_m=nan, elevation_end_m=nan, elevation_gain_m=nan, elevation_loss_m=nan,
+        elevation_gain_m=nan, elevation_loss_m=nan,
         elevation_max_grade=nan, elevation_min_grade=nan,
     )
 
@@ -145,7 +145,7 @@ class Weather:
         self._series = series
         self._rain = WeatherService()
 
-    async def get_conditions(self, origin):
+    async def get_departure_wind(self, origin):
         return None
 
     async def get_wind_forecast_lattice(self, bbox):
@@ -155,14 +155,15 @@ class Weather:
         return await self._rain.get_station_rain_materials(now)
 
 
-def engine_for(monkeypatch, network: RoadNetwork, avoid_weight: float, wind: WindForecastSeries | None):
-    """道路網を全体の配列として読ませ、本物の`GraphService`とエンジンを組む。"""
+def generator_for(monkeypatch, network: RoadNetwork, avoid_weight: float, wind: WindForecastSeries | None):
+    """道路網を全体の配列として読ませ、本物の`GraphService`とエンジンの上に戦略層（`RouteGenerator`）を組む。"""
     monkeypatch.setattr(road_network_store, "current", lambda: network)
     return assemble_route_generation_setup(
         GraphService(NetworkRepository(network)), Weather(wind),
         preference_override=RoutePreference(weights={AVOID_AXIS: avoid_weight}),
-        penalty_strength=1.0, assumed_speed_kmh=20.0,
-    ).engine
+        penalty_strength=1.0, max_average_grade_percent=None, hard_filters=DEFAULT_HARD_FILTERS,
+        assumed_speed_kmh=20.0, lens_axis_id=None,
+    ).generator
 
 
 @contextmanager

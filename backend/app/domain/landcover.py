@@ -8,9 +8,7 @@ Esri×Impact Observatory Sentinel-2 10m Annual LULCの画素値ヒストグラ�
 何が難易度に寄与しているか分からなくなるため。
 """
 
-import hashlib
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 from pydantic import create_model
@@ -130,18 +128,14 @@ def landcover_tile_property(percent_field: str) -> str:
     """材料の`tile_property`と、路面タイルへ焼き込む列の名前（`crops_pct`）。両者が同じ名前で初めて地図が塗れる。"""
     return f"{landcover_key(percent_field)}_pct"
 
-#: 材料の割合列（`lc_*`）＋`lc_valid_pixels`と1対1のモデル。**クラスの宣言から作る**
+#: 材料の割合列（`lc_*`）と1対1のモデル。**クラスの宣言から作る**
 #: ——手で並べると、宣言したクラスに対応する項目が無いまま集計だけが走り、その列の
 #: 割合がどこへも入らない（SQLは列を吐き、読む側はその名前を知らない）。
-class _LandcoverValidPixels(StrictModel):
-    valid_pixels: int
-
-
 _PERCENT_FIELDS: dict[str, Any] = {name: (float, ...) for name, _ in PERCENT_CLASSES}
 
 LandcoverPercentages = create_model(
     "LandcoverPercentages",
-    __base__=_LandcoverValidPixels,
+    __base__=StrictModel,
     **_PERCENT_FIELDS,
 )
 
@@ -155,18 +149,6 @@ LandcoverPercentages = create_model(
 # UTMゾーン1枚ぶんで、これより広い表示では面が画面の一部を塗るだけになり読み取れない。
 LANDCOVER_TILE_MIN_ZOOM = 6
 LANDCOVER_TILE_MAX_ZOOM = 14
-
-
-def raster_set_fingerprint(raster_paths: list[str]) -> str:
-    """ラスタ構成の指紋（ファイル名の集合から決まる短い文字列）。
-
-    土地被覆の派生物は、どのラスタを開いていたかに従属する。「値なし」はその構成で
-    そう確定したという意味しか持たず、ラスタを1枚足せば境界またぎ・範囲外だった場所は
-    値を持ちうる。指紋を派生物の鍵へ入れておけば、構成が変わった時点で古い結果が
-    使われなくなる。順序には依存させない（同じ集合をどの順で渡しても同じ指紋になる）。
-    """
-    joined = "\n".join(sorted(Path(path).name for path in raster_paths))
-    return hashlib.sha256(joined.encode("utf-8")).hexdigest()[:16]
 
 
 def class_percentages_sql(counts: str) -> str:

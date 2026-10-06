@@ -31,6 +31,7 @@ from app.infrastructure.road_graph_repository import (
 )
 from app.config import settings
 from app.services import derived_data_revision_service
+from scripts.schema_gap import collect_gaps
 from tests.admin_auth import ADMIN_PASSWORD, ADMIN_USERNAME
 
 # hypothesisは1例ごとに壁時計の締め切り（既定200ms）を持ち、超えると落とす。共有のランナーでは同じ例の所要時間が
@@ -86,13 +87,12 @@ def redis_server():
 @pytest.fixture
 async def fake_redis(monkeypatch, redis_server):
     """空のRedis。接続を作る所（`redis.asyncio.from_url`）を同じサーバのfakeredisへ差し、共有クライアントを
-    閉じる口（`redis_client.py: close_redis_clients`）で作る前に戻すので、`get_redis_client_or_none`・
-    `get_redis_binary_client_or_none`を読むどのモジュールからも同じものが見える。
-    返すのは文字列側のクライアント。"""
+    閉じる口（`redis_client.py: close_redis_client`）で作る前に戻すので、`get_redis_client_or_none`を読むどの
+    モジュールからも同じものが見える。返すのはその共有クライアントで、値は生のバイト列で返る。"""
     monkeypatch.setattr(redis.asyncio, "from_url", functools.partial(fakeredis.FakeAsyncRedis.from_url, server=redis_server))
-    await redis_client.close_redis_clients()
+    await redis_client.close_redis_client()
     yield redis_client.get_redis_client_or_none()
-    await redis_client.close_redis_clients()
+    await redis_client.close_redis_client()
 
 
 class MonotonicClock:
@@ -148,20 +148,19 @@ _DISK_CACHES = {"tile_persistent_cache": tile_persistent_cache, "tile_cache": ti
 
 @contextmanager
 def _disk_caches_in(patch: pytest.MonkeyPatch, directory_of):
-    """ディスクのキャッシュの置き場を差し替え、抜けるときに開いたキャッシュを閉じる。
+    """ディスクのキャッシュの置き場を差し替え、差し替える前と抜けるときに開いたキャッシュを閉じる。
 
-    キャッシュは最初に使われたときに開かれ、モジュール変数に残る。閉じずに置き場を戻すと、
+    キャッシュは最初に使われたときに開かれ、置き場を差し替えても開き直さない。閉じずに置き場を変えると、
     開いたままのSQLiteが次の置き場を使うはずの呼び出しへそのまま渡る。
     """
     for name, module in _DISK_CACHES.items():
+        module.close()
         patch.setattr(module, "CACHE_DIR", directory_of(name))
-        patch.setattr(module, "opened_cache", None)
     try:
         yield
     finally:
         for module in _DISK_CACHES.values():
-            if module.opened_cache is not None:
-                module.opened_cache.close()
+            module.close()
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -191,7 +190,7 @@ def _use_temp_disk_cache_dirs(tmp_path, monkeypatch, _keep_disk_caches_out_of_th
 
 # road_graph_repository.pyのPostGIS統合テスト専用の接続先。開発機で稼働中の実DB
 # (ridecompass, backend/.envのDATABASE_URLが指す先)とは別のテスト専用DBを使う
-# (docs/osm-pbf-import.md関連の進行中データに触れないため)。ローカルでのみ実行する
+# (取り込んだ実データに触れないため)。ローカルでのみ実行する
 # 前提で、環境変数postgis_database_url()で上書き可能にしておく（CIはこの経路で注入する）。
 TEST_DATABASE_SERVER = "postgresql+asyncpg://ridecompass:ridecompass@localhost:5432"
 #: 作業ツリーの場所を書いておくDB。消してよいかの判断に使う（drop_orphan_test_databases.py）。
@@ -223,12 +222,12 @@ TEMPLATE_TEST_DATABASE = "ridecompass_test_template"
 #: 42P04（duplicate_database）ではなく23505（unique_violation、pg_databaseの一意索引違反）を
 #: 返すことがある。**片方だけを捕まえると、並行実行のときだけ退避してしまう。**
 ALREADY_CREATED = (asyncpg.DuplicateDatabaseError, asyncpg.UniqueViolationError)
-#: 拡張が持ち込んだ表（`spatial_ref_sys`等）以外の、アプリ側の表。落とす対象を名前で
+#: 拡張が持ち込んだ表（`spatial_ref_sys`等）以外の、アプリ側の表（パーティションの親を含む）。落とす対象を名前で
 #: 並べずに依存関係から導く（表が増えてもこの問い合わせは追従する）。
 APP_TABLES_SQL = """
 SELECT c.relname FROM pg_class c
 JOIN pg_namespace n ON n.oid = c.relnamespace
-WHERE n.nspname = 'public' AND c.relkind = 'r'
+WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')
   AND NOT EXISTS (
     SELECT 1 FROM pg_depend d JOIN pg_extension e ON e.oid = d.refobjid
     WHERE d.objid = c.oid AND d.deptype = 'e')
@@ -347,10 +346,9 @@ def pytest_collection_modifyitems(config, items):
     _RESOLVED_DATABASE_URL = _prepare_worktree_database()
 
 
-# ローカル環境では新規DB接続の確立自体に1〜2秒かかる（実測、asyncpg接続確立コスト。
-# localhost/127.0.0.1どちらでも同程度でDNS起因ではない）。以前はテスト関数ごとに
-# エンジンを新規作成しており、規模の大きいtest_road_graph_repository.py（約80件）
-# だけで2分近く溶けていた。asyncpgの接続はイベントループに束縛されテスト関数ごとの
+# ローカル環境では新規DB接続の確立自体に1〜2秒かかり（asyncpgの接続確立のコストで、
+# DNS起因ではない）、テスト関数ごとにエンジンを作るとテストの多いファイルで分単位になる。
+# asyncpgの接続はイベントループに束縛されテスト関数ごとの
 # イベントループをまたいで使い回せないため、エンジンと（それが乗る）イベントループを
 # ファイル（モジュール）単位に広げ、ファイル内の全テストで1本の接続を使い回す。
 # これを使うテストファイル側は `pytestmark = pytest.mark.asyncio(loop_scope="module")`
@@ -387,6 +385,13 @@ async def road_graph_engine():
         except Exception:  # noqa: BLE001
             pass
     await create_tables(engine)
+    # create_tables()は在る表を直さないので、前の実行が宣言と違う形で残した表（表を入れ替える実装を壊して回した・
+    # ORMの宣言を一時に壊して回した）のまま走ってしまう。宣言と差があれば、表を消して今の宣言から作り直す。
+    async with engine.connect() as conn:
+        gaps = await conn.run_sync(collect_gaps)
+    if gaps:
+        await _clear_app_tables(postgis_database_url())
+        await create_tables(engine)
     # 前の実行が片付けの前に殺されると（時間切れ・中断）、その行がDBに残る。残った行は
     # 次の実行で最初に走るテストだけを落とし、そのテストの片付けで消える——単独で回すと
     # 通る失敗になる。ファイルの最初に消しておけば、どの実行も空から始まる。

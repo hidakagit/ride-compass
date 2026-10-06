@@ -21,7 +21,7 @@ from app.domain.accident import (
     FATAL_SQL,
     bicycle_sql,
 )
-from app.domain.geo import KM_PER_DEGREE_LATITUDE
+from app.domain.geo import degrees_covering_m
 from app.infrastructure.source_models import (
     ACCIDENTS_SOURCE_SQL,
     WAYS_SOURCE_SQL,
@@ -135,9 +135,7 @@ WHERE c.osm_way_id = m.osm_way_id AND c.segment_index = m.segment_index
 """
 
 #: 自転車の関わった事故を、帰属の距離の内で最も近い区間へ1件だけ付ける。鍵の2列は同じ1回の
-#: 探索から取る——別々に探すと、等距離のタイで実在しない組を指しうる。近さは地上の距離（m）で
-#: 比べる。緯度経度の度のまま比べると経度1度が緯度1度より短いぶん東西の距離を長く見て、南北に
-#: 少し遠い区間へ付けてしまう。
+#: 探索から取る——別々に探すと、等距離のタイで実在しない組を指しうる。
 _EDGE_ACCIDENTS = f"""
 WITH nearest AS (
     SELECT CASE WHEN {FATAL_SQL} THEN $1 ELSE 1.0 END AS weight, n.osm_way_id, n.segment_index
@@ -174,8 +172,6 @@ WHERE s.osm_way_id = w.osm_way_id
 
 async def derive(conn: asyncpg.Connection) -> None:
     started = time.perf_counter()
-    # 事故の前置フィルタの箱。経度1度は緯度1度より短いので半径の2倍の度で取る（緯度60度まで円を含む）。
-    degrees = ACCIDENT_MATCH_MAX_DISTANCE_M / (KM_PER_DEGREE_LATITUDE * 1000.0) * 2.0
 
     # 事故の行と、それを入れた取込を同じ時点から読む（間に取込が入れ替えても食い違わない）。
     async with conn.transaction(isolation="repeatable_read"):
@@ -192,7 +188,7 @@ async def derive(conn: asyncpg.Connection) -> None:
         await conn.execute(_EDGE_RESET)
         await conn.execute(_EDGE_STOP_COUNTS)
         await conn.execute(_EDGE_INTERSECTIONS, INTERSECTION_DEGREE_THRESHOLD)
-        await conn.execute(_EDGE_ACCIDENTS, ACCIDENT_FATAL_WEIGHT, degrees,
+        await conn.execute(_EDGE_ACCIDENTS, ACCIDENT_FATAL_WEIGHT, degrees_covering_m(ACCIDENT_MATCH_MAX_DISTANCE_M),
                            ACCIDENT_MATCH_MAX_DISTANCE_M, sorted(BICYCLE_PARTY_TYPE_CODES))
         await conn.execute(_WAY_FROM_EDGES)
         await conn.execute("ANALYZE way_materials")

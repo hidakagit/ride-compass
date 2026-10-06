@@ -35,7 +35,7 @@ interface AxisComposerProps {
    * 実際の地図と同じ色で描くために親が渡す。地図に出る経路がまだ決まっていない軸
    * （下書き・ramp表示も専用配信も持たない軸）ではundefinedで、プレビューは色を持たない。 */
   mapBandColors: ((boundaries: readonly number[]) => readonly string[]) | undefined;
-  /** 段階プレビューのレンジに添える単位（軸カタログのmap_value_unit、無ければ空）。 */
+  /** 段階プレビューのレンジに添える単位（軸カタログのmap_paint.unit、無ければ空）。 */
   mapValueUnit: string;
   /** 既定重み(default_weight)欄に「他の公開軸の重みに対して何%か」を参考表示するための、
    * この軸以外を含む全軸一覧（AxisStudio.tsxが一覧取得済みのものをそのまま渡す）。 */

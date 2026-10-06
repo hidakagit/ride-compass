@@ -1,4 +1,4 @@
-"""`services/weather_service.py`——MSMの読み出しから、地点の天候・風の格子・風の予報の系列を組み立てる。
+"""`services/weather_service.py`——MSMの読み出しから、地点の天候・出発時点の風・風の格子・風の予報の系列を組み立てる。
 
 MSMの読み出し（`msm_client.read_series`）だけを差し替え、domainの計算は本物を通す。「今日」のパネルの
 読み方（`domain/weather.py`の今日の範囲・日次の値・コマ）は、ここで入口から見る。
@@ -16,6 +16,7 @@ import numpy as np
 from app.domain.region import BoundingBox
 from app.domain.route import Coordinates
 from app.domain.weather import TemperatureRange
+from app.domain.wind import DepartureWind
 from app.infrastructure import msm_client
 from app.infrastructure.msm_client import MsmSeries, MsmUnavailableError
 from app.services.weather_service import WeatherService
@@ -32,7 +33,7 @@ def _series(times, *, u=None, v=None, precipitation=None, temperature=None, coun
         return np.tile(np.array(values if values is not None else [default] * n, dtype=float), (count, 1))
 
     return MsmSeries(
-        times=times,
+        times=[datetime.fromisoformat(t) for t in times],
         wind_u_ms=column(u, 0.0),
         wind_v_ms=column(v, 0.0),
         precipitation_mm=column(precipitation, 0.0),
@@ -55,25 +56,25 @@ def _patch_unavailable(monkeypatch):
 
 
 async def test_get_conditions_reports_the_first_hour_as_current(monkeypatch):
-    _patch_read_series(
-        monkeypatch,
-        times=["2026-09-07T13:00", "2026-09-07T14:00"],
-        u=[3.0, 0.0],
-        v=[0.0, 0.0],
-        temperature=[24.6, 25.0],
-        precipitation=[0.2, 0.0],
-    )
+    _patch_read_series(monkeypatch, times=["2026-09-07T13:00", "2026-09-07T14:00"], precipitation=[0.2, 0.0])
 
     conditions = await WeatherService().get_conditions(POINT)
 
-    assert conditions.observed_at == "2026-09-07T13:00"
-    assert conditions.temperature_c == 24.6
-    assert conditions.wind_speed_ms == 3.0
-    # 東西成分だけの風（u=3）は西から吹くため270度。
-    assert conditions.wind_direction_deg == 270.0
-    assert conditions.wind_direction_label == "西"
     assert conditions.precipitation_mm == 0.2
     assert conditions.twilight.sunrise.startswith("2026-09-07T0")
+
+
+async def test_the_departure_wind_is_the_first_hour_rounded_to_a_tenth(monkeypatch):
+    """経路の計算が全区間へ一様に使う出発時点の風。東西成分だけの風（u=3.04）は西から吹くため270度。"""
+    _patch_read_series(monkeypatch, times=["2026-09-07T13:00", "2026-09-07T14:00"], u=[3.04, 9.0], v=[0.0, 0.0])
+
+    assert await WeatherService().get_departure_wind(POINT) == DepartureWind(speed_ms=3.0, direction_deg=270.0)
+
+
+async def test_the_departure_wind_is_none_when_msm_unavailable(monkeypatch):
+    _patch_unavailable(monkeypatch)
+
+    assert await WeatherService().get_departure_wind(POINT) is None
 
 
 async def test_get_conditions_aggregates_today_only(monkeypatch):
@@ -144,7 +145,7 @@ async def test_get_wind_grid_builds_speed_and_direction_from_msm(monkeypatch):
 
     times, results = await WeatherService().get_wind_grid([POINT, OTHER_POINT])
 
-    assert times == ["2026-09-07T13:00"]
+    assert times == [datetime(2026, 9, 7, 13, 0)]
     assert len(results) == 2
     assert results[0].latitude == POINT.latitude
     assert results[0].longitude == POINT.longitude

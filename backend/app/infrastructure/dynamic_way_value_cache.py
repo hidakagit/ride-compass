@@ -23,7 +23,7 @@
 その場で失敗する（静かに古い値を配るより良い）。
 
 向きはバケットへ丸めてからキーにする。スライダーの連続値をそのままキーへ使うとヒット率が
-ほぼ0になるため。TTLは呼び出し元（材料のサービス）が渡す。
+ほぼ0になるため。
 """
 
 import asyncio
@@ -34,6 +34,10 @@ from app.infrastructure import tile_persistent_cache
 _KEY_PREFIX = "dynway"
 
 BEARING_BUCKET_DEG = 5
+
+# 勾配の入力は道路の向きと標高で決まりほぼ不変のため、鮮度の制約が無い。長く持って
+# DBへの再問い合わせを抑える。正本を持たないキャッシュで、期限切れ後は再計算されるだけ。
+_TTL_SECONDS = 24 * 3600
 
 
 def bearing_bucket(bearing_deg: float) -> int:
@@ -56,7 +60,7 @@ def _key(
 
 async def get_tile_values(
     material_id: str, z: int, x: int, y: int, bearing_deg: float, *, surface_tile_version: str, value_shape: str,
-) -> dict[str, float] | None:
+) -> dict[str, float | None] | None:
     """該当バケットの`{フィーチャー鍵: 値}`。未キャッシュ・読み出し失敗はいずれもNone。
 
     値の無いタイルは空のdictとして返り、Noneとは別に扱われる（呼び出し元はNoneのときだけ計算し直す）。
@@ -71,12 +75,11 @@ async def set_tile_values(
     x: int,
     y: int,
     bearing_deg: float,
-    values: dict[str, float],
-    ttl_seconds: int,
+    values: dict[str, float | None],
     *,
     surface_tile_version: str,
     value_shape: str,
 ) -> None:
     """新規に計算できた`{フィーチャー鍵: 値}`をディスクへ書き戻す。"""
     key = _key(material_id, z, x, y, bearing_deg, surface_tile_version, value_shape)
-    await asyncio.to_thread(tile_persistent_cache.set_by_key, key, dict(values), expire=ttl_seconds)
+    await asyncio.to_thread(tile_persistent_cache.set_by_key, key, dict(values), expire=_TTL_SECONDS)

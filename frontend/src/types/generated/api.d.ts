@@ -620,10 +620,6 @@ export interface components {
         ActiveFloodForecast: {
             /** River Code */
             river_code: string;
-            /** River Name */
-            river_name: string;
-            /** Level */
-            level: number;
             /**
              * Badge Level
              * @enum {string}
@@ -633,8 +629,6 @@ export interface components {
             label: string;
             /** Condition */
             condition: string;
-            /** Report Datetime */
-            report_datetime: string;
         };
         /** ActiveWarning */
         ActiveWarning: {
@@ -652,16 +646,6 @@ export interface components {
         };
         /** AmedasObservation */
         AmedasObservation: {
-            /** Station Id */
-            station_id: string;
-            /** Station Name */
-            station_name: string;
-            /** Latitude */
-            latitude: number;
-            /** Longitude */
-            longitude: number;
-            /** Observed At */
-            observed_at: string;
             /** Temperature C */
             temperature_c: number | null;
             /** Apparent Temperature C */
@@ -703,21 +687,11 @@ export interface components {
             primary_attribute_ids: string[];
             /** Weather Layer Groups */
             weather_layer_groups: string[];
-            /** Shape */
-            shape: components["schemas"]["BreakpointLinearShape-Output"] | components["schemas"]["CategoricalShape-Output"];
-            /** Display Thresholds Override */
-            display_thresholds_override: number[] | null;
             /** Display Band Labels Override */
             display_band_labels_override: string[] | null;
             /** Dedicated Way Value Layer */
             dedicated_way_value_layer: boolean;
-            /** Map Value */
-            map_value: components["schemas"]["DifficultyMapValue"] | components["schemas"]["SignedMaterialMapValue"];
-            /** Map Value Unit */
-            map_value_unit: string;
-            /** Map Value Thresholds */
-            map_value_thresholds: number[];
-            map_legend: components["schemas"]["MapLegendScale"];
+            map_paint: components["schemas"]["MapPaint"];
             /** Raw Value Unit */
             raw_value_unit: string | null;
             /** Raw Value Total Unit */
@@ -726,6 +700,8 @@ export interface components {
             material_breakdown: components["schemas"]["AxisMaterialBreakdownEntry"][];
             /** Dynamic Way Value Conditions */
             dynamic_way_value_conditions: ("at" | "bearing_deg" | "speed_kmh")[];
+            /** Dynamic Way Value Undetermined By Bearing */
+            dynamic_way_value_undetermined_by_bearing: boolean;
         };
         /** AxisCatalogResponse */
         AxisCatalogResponse: {
@@ -896,8 +872,6 @@ export interface components {
             axis_id: string;
             /** Difficulty */
             difficulty: number | null;
-            /** Weight */
-            weight: number;
             /** Contribution */
             contribution: number | null;
         };
@@ -908,13 +882,13 @@ export interface components {
             /** Feature Key */
             feature_key?: string | null;
             /** Z */
-            z?: number | null;
+            z: number;
             /** X */
-            x?: number | null;
+            x: number;
             /** Y */
-            y?: number | null;
+            y: number;
             /** Bearing Deg */
-            bearing_deg?: number | null;
+            bearing_deg: number;
             /** At */
             at?: string | null;
             /** Speed Kmh */
@@ -1162,12 +1136,6 @@ export interface components {
             calls: number;
             /** Errors */
             errors: number;
-            /** Cache Hits */
-            cache_hits: number;
-            /** Cache Misses */
-            cache_misses: number;
-            /** Total Ms */
-            total_ms: number;
             /** Max Ms */
             max_ms: number;
             /** Avg Ms */
@@ -1179,14 +1147,6 @@ export interface components {
                 [key: string]: number;
             };
             last_error: components["schemas"]["LastError"] | null;
-            /** Last Success At */
-            last_success_at: string | null;
-            /** Retried Calls */
-            retried_calls: number;
-            /** Retry Attempts Total */
-            retry_attempts_total: number;
-            /** Stale Fallback Used */
-            stale_fallback_used: number;
         };
         /** FloodForecasts */
         FloodForecasts: {
@@ -1307,8 +1267,6 @@ export interface components {
         };
         /** LandcoverPercentages */
         LandcoverPercentages: {
-            /** Valid Pixels */
-            valid_pixels: number;
             /** Water Percent */
             water_percent: number;
             /** Trees Percent */
@@ -1354,6 +1312,16 @@ export interface components {
             boundaries: number[];
             /** Unit */
             unit: string | null;
+        };
+        /** MapPaint */
+        MapPaint: {
+            /** Value */
+            value: components["schemas"]["DifficultyMapValue"] | components["schemas"]["SignedMaterialMapValue"];
+            /** Unit */
+            unit: string;
+            /** Thresholds */
+            thresholds: number[];
+            legend: components["schemas"]["MapLegendScale"];
         };
         /** MaterialCoverageCounted */
         MaterialCoverageCounted: {
@@ -1401,11 +1369,6 @@ export interface components {
             material_id: string;
             /** Label */
             label: string;
-            /**
-             * Dtype
-             * @enum {string}
-             */
-            dtype: "numeric" | "boolean" | "categorical";
             /** Excluded Reason */
             excluded_reason: string;
         };
@@ -1425,20 +1388,10 @@ export interface components {
         };
         /** MaterialDistributionResponse */
         MaterialDistributionResponse: {
-            /** Sample Ways */
-            sample_ways: number;
-            /** Total Km */
-            total_km: number;
             /** Quantiles */
             quantiles: {
                 [key: string]: number;
             };
-            /** Bins */
-            bins: [
-                number,
-                number,
-                number
-            ][];
             /** Zero Share */
             zero_share: number;
             /** Available */
@@ -1495,8 +1448,6 @@ export interface components {
         MsmFreshnessResponse: {
             /** Last Run At */
             last_run_at: string;
-            /** Data End At */
-            data_end_at: string;
             /** Run Age Hours */
             run_age_hours: number;
             /** Remaining Hours */
@@ -1536,10 +1487,6 @@ export interface components {
             };
             /** Elevation Gain M */
             elevation_gain_m: number | null;
-            /** Min Elevation M */
-            min_elevation_m: number | null;
-            /** Max Elevation M */
-            max_elevation_m: number | null;
             /** Segments */
             segments: components["schemas"]["RouteSegmentDetail"][];
             overall_difficulty: components["schemas"]["OverallDifficulty"] | null;
@@ -1621,40 +1568,28 @@ export interface components {
             longitude: number;
             /** Distance Km */
             distance_km?: number | null;
-            /**
-             * Distance Tolerance Km
-             * @default 5
-             */
+            /** Distance Tolerance Km */
             distance_tolerance_km: number;
-            /**
-             * Route Type
-             * @default loop
-             * @constant
-             */
-            route_type: "loop";
             route_preference?: components["schemas"]["RoutePreferenceWeights"] | null;
             /** Penalty Strength */
             penalty_strength?: number | null;
             /** Max Average Grade Percent */
             max_average_grade_percent?: number | null;
-            hard_filters?: components["schemas"]["HardFilterOverride"] | null;
-            /**
-             * Max Routes
-             * @default 8
-             */
+            hard_filters: components["schemas"]["HardFilterOverride"];
+            /** Max Routes */
             max_routes: number;
-            /**
-             * Assumed Speed Kmh
-             * @default 20
-             */
+            /** Assumed Speed Kmh */
             assumed_speed_kmh: number;
             /** Waypoints */
             waypoints?: components["schemas"]["Coordinates"][] | null;
             destination?: components["schemas"]["Coordinates"] | null;
             /** Lens Axis Id */
             lens_axis_id?: string | null;
-            /** Start Time */
-            start_time?: string | null;
+            /**
+             * Start Time
+             * Format: date-time
+             */
+            start_time: string;
             /** Spliced Edge Ids */
             spliced_edge_ids?: string[] | null;
         };
@@ -1702,10 +1637,6 @@ export interface components {
             };
             /** Material Values */
             material_values: {
-                [key: string]: number;
-            };
-            /** Axis Raw Values */
-            axis_raw_values: {
                 [key: string]: number;
             };
             /** Difficulty */
@@ -1858,7 +1789,7 @@ export interface components {
         /** TuningUpdateRequest */
         TuningUpdateRequest: {
             /** Value */
-            value?: number | null;
+            value: number | null;
         };
         /** Twilight */
         Twilight: {
@@ -1892,8 +1823,6 @@ export interface components {
                 number,
                 number
             ][];
-            /** Zero Share */
-            zero_share: number;
         };
         /** WbgtReading */
         WbgtReading: {
@@ -1906,8 +1835,6 @@ export interface components {
             label: string;
             /** Value */
             value: number;
-            /** Observed At */
-            observed_at: string;
         };
         /** WbgtStatus */
         WbgtStatus: {
@@ -1915,18 +1842,8 @@ export interface components {
         };
         /** WeatherConditions */
         WeatherConditions: {
-            /** Temperature C */
-            temperature_c: number | null;
-            /** Wind Speed Ms */
-            wind_speed_ms: number;
-            /** Wind Direction Deg */
-            wind_direction_deg: number;
-            /** Wind Direction Label */
-            wind_direction_label: string;
             /** Precipitation Mm */
             precipitation_mm: number | null;
-            /** Observed At */
-            observed_at: string;
             twilight: components["schemas"]["Twilight"] | null;
             /** Precipitation Max Mm */
             precipitation_max_mm: number | null;
@@ -1949,10 +1866,6 @@ export interface components {
         };
         /** WeatherWarnings */
         WeatherWarnings: {
-            /** Area Name */
-            area_name: string | null;
-            /** Report Datetime */
-            report_datetime: string | null;
             /** Warnings */
             warnings: components["schemas"]["ActiveWarning"][];
         };
@@ -2469,7 +2382,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        [key: string]: number;
+                        [key: string]: number | null;
                     };
                 };
             };

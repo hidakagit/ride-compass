@@ -20,6 +20,8 @@ from typing import Final
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from app.infrastructure import jma_tile_redis_cache
+
 
 @dataclass(frozen=True)
 class CachePolicy:
@@ -48,8 +50,8 @@ class CachePolicy:
 #: 配信元が更新しない静的データ（例: 国土地理院の標高タイルと、その変換結果）。
 PERMANENT = CachePolicy(max_age_seconds=24 * 60 * 60, immutable=True)
 #: URLに`basetime`/`validtime`を含み内容が確定して以後変化しないタイル（気象庁）。
-#: `max-age`は`jma_tile_redis_cache.py`のTTLと揃える。
-IMMUTABLE_TILE = CachePolicy(max_age_seconds=20 * 60, immutable=True)
+#: サーバーが持つ時間（Redis）とブラウザに持たせる時間を同じにする。
+IMMUTABLE_TILE = CachePolicy(max_age_seconds=jma_tile_redis_cache.TTL_SECONDS, immutable=True)
 #: 取込バッチが走るまで変化しないタイル（路面・事故・POI・土地被覆など）。
 BATCH_TILE = CachePolicy(max_age_seconds=60 * 60)
 #: 基礎地図（OpenFreeMap）。管理画面のタイルキャッシュ全消去
@@ -79,7 +81,7 @@ JMA_TARGET_TIMES = CachePolicy(max_age_seconds=60)
 #: 404が正常系として多数発生するため、再要求させない効果はタイル本体と変わらない。
 JMA_TILE_NOT_FOUND = CachePolicy(max_age_seconds=10 * 60)
 #: 気象庁のコマごとの地物（GeoJSON）の404。配信元はそのコマを配信するまで404を返すため確定しておらず、
-#: 覚えると配信された後もその間は画面へ届かない（`domain/jma_tile_specs.py: is_final_absence`）。
+#: 覚えると配信された後もその間は画面へ届かない（`infrastructure/jma_tile_paths.py: is_final_absence`）。
 JMA_NOT_YET_DELIVERED = CachePolicy(max_age_seconds=None)
 #: 地理院タイルの恒久404（整備区域外）。同じ事実は`gsi_tile_client.py`がプロセス内に
 #: 持ち、上流へ問い合わせ直さない。**ブラウザにも伝える**——MapLibreの`raster-dem`は

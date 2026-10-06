@@ -27,7 +27,6 @@ from app.domain.road_network import RoadNetwork
 from app.domain.route import Coordinates
 from app.domain.wind import WindForecastSeries, WindLattice
 from app.domain.time_zone import JST
-from app.services.route_generator import RouteGenerator
 from tests import rain_history_fake
 from tests.axis_system_fixture import replaced_axis_definitions
 from tests.route_world import (
@@ -45,7 +44,7 @@ from tests.route_world import (
     SOUTH_WEST,
     at,
     avoid_axis_declared,
-    engine_for,
+    generator_for,
     grid_network,
     ways_of,
 )
@@ -63,7 +62,7 @@ def engine_over(monkeypatch, avoid_axis):
     """道路網から、本物のエンジンの上に戦略層（`RouteGenerator`）を組む。軸は`avoid_axis`の1本。"""
 
     def build(network: RoadNetwork, *, avoid_weight: float = 0.0, wind: WindForecastSeries | None = None):
-        return RouteGenerator(engine_for(monkeypatch, network, avoid_weight, wind))
+        return generator_for(monkeypatch, network, avoid_weight, wind)
 
     return build
 
@@ -357,7 +356,7 @@ RAIN_GAUGES = {
 
 
 async def test_each_segment_is_scored_with_the_rain_at_the_gauge_nearest_its_midpoint(engine_over, fake_redis):
-    """雨の材料は区間の中点に最も近い雨量計の今の観測で、道の材料と同じく区間の得点と生値（mm）に載る
+    """雨の材料は区間の中点に最も近い雨量計の今の観測で、道の材料と同じく区間の得点とルートの生値（mm）に載る
     ——雨と道の材料を1つの軸で足すこともできる。南西→南東の最速は道100（西の雨量計）と道101（東の雨量計）で、
     西では1時間1.0mmの雨が続き、東は降っていない。"""
     await rain_history_fake.observe(RAIN_GAUGES, {"west": 1.0, "east": 0.0})
@@ -371,7 +370,8 @@ async def test_each_segment_is_scored_with_the_rain_at_the_gauge_nearest_its_mid
     # 3時間の雨量は1時間1.0mmの3本ぶん。道101の避けたい材料1は、雨の0mmに足されて10点になる。
     assert [segment.axis_difficulties["rain"] for segment in fastest.segments] == [30.0, 0.0]
     assert [segment.axis_difficulties["rain_and_bad"] for segment in fastest.segments] == [30.0, 10.0]
-    assert [segment.axis_raw_values["rain"] for segment in fastest.segments] == [3.0, 0.0]
+    assert fastest.axis_raw_values["rain"] == pytest.approx(
+        3.0 * fastest.segments[0].distance_km / sum(segment.distance_km for segment in fastest.segments), rel=1e-3)
 
 
 async def test_without_an_observation_history_only_the_rain_axis_has_no_data(engine_over, fake_redis):

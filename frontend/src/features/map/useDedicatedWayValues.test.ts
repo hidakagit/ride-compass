@@ -43,10 +43,18 @@ function serveWayValues(failsAt: (x: number) => boolean = () => false) {
   });
 }
 
-// 取得の結果は網を通って届くので、偽にしていない時計で届くまでの間をおく。
-async function settle() {
-  await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+type Results = { current: ReturnType<typeof useDedicatedWayValues> };
+
+// 取得の結果は網を通って届くので、偽にしていない時計で、どの軸も取り終えるまで待つ（届くまでの時間は CI の負荷で変わる）。
+async function fetched(result: Results) {
+  await vi.waitFor(() => {
+    expect(result.current.size).toBeGreaterThan(0);
+    for (const axis of result.current.values()) expect(axis).toMatchObject({ loading: false, hasFetched: true });
+  });
 }
+
+/** 取り直しが起きていれば応答が届くだけの間をおく（起きないことを確かめるため）。 */
+const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 50)));
 
 beforeEach(() => {
   serveWayValues();
@@ -60,12 +68,12 @@ function render(initialProps: Props) {
     { initialProps },
   );
 }
-const wayKeys = (values: ReadonlyMap<string, number> | undefined) => [...(values?.keys() ?? [])];
+const wayKeys = (values: ReadonlyMap<string, number | null> | undefined) => [...(values?.keys() ?? [])];
 
 describe("useDedicatedWayValues（専用配信の値）", () => {
   it("画面を覆うタイルごとに軸の値を取り、1つにまとめる", async () => {
     const { result } = render({ axes: [STATIC], viewport: VIEWPORT, bearing: 90, at: AT });
-    await settle();
+    await fetched(result);
     const values = result.current.get("static")!.values;
     expect(new Set(values.values()).size).toBeGreaterThan(1);
     expect([...values].every(([key, x]) => key.startsWith(`static@${x}@`))).toBe(true);
@@ -74,7 +82,7 @@ describe("useDedicatedWayValues（専用配信の値）", () => {
 
   it("時刻・向き・想定速度は、要ると宣言した軸のリクエストにだけ載せる", async () => {
     const { result } = render({ axes: dedicatedAxes, viewport: VIEWPORT, bearing: 90, at: AT, speed: 22 });
-    await settle();
+    await fetched(result);
     const conditionsOf = (axisId: string) =>
       new Set(wayKeys(result.current.get(axisId)?.values).map((key) => key.split("@")[2]));
     expect(conditionsOf("timed")).toEqual(new Set([`90|${AT.toISOString()}|22`]));
@@ -83,7 +91,7 @@ describe("useDedicatedWayValues（専用配信の値）", () => {
 
   it("入力が変わった軸だけを取り直し、取り直す間は前の値を残して読み込み中にする", async () => {
     const { result, rerender } = render({ axes: dedicatedAxes, viewport: VIEWPORT, bearing: 90, at: AT });
-    await settle();
+    await fetched(result);
     const staticBefore = result.current.get("static");
     const held = heldReplies();
     onBackend("GET", WAY_VALUES, held.reply);
@@ -95,13 +103,12 @@ describe("useDedicatedWayValues（専用配信の値）", () => {
     expect(result.current.get("static")).toBe(staticBefore);
 
     for (let index = 0; index < held.arrived(); index += 1) await held.answer(index, Response.json({ next: 1 }));
-    await settle();
-    expect(result.current.get("timed")?.loading).toBe(false);
+    await vi.waitFor(() => expect(result.current.get("timed")?.loading).toBe(false));
   });
 
   it("入力が何も変わらなければ取り直さず、結果の参照も変えない", async () => {
     const { result, rerender } = render({ axes: dedicatedAxes, viewport: VIEWPORT, bearing: 90, at: AT });
-    await settle();
+    await fetched(result);
     const before = result.current;
     rerender({ axes: dedicatedAxes, viewport: { ...VIEWPORT }, bearing: 90, at: AT });
     await settle();
@@ -111,19 +118,18 @@ describe("useDedicatedWayValues（専用配信の値）", () => {
   it("取得に失敗した軸は、入力が同じでも次に取り直すときに一緒に取り直す", async () => {
     serveWayValues(() => true);
     const { result, rerender } = render({ axes: dedicatedAxes, viewport: VIEWPORT, bearing: 0, at: AT });
-    await settle();
+    await fetched(result);
     expect(result.current.get("static")?.error).toBe(true);
     serveWayValues();
     rerender({ axes: dedicatedAxes, viewport: VIEWPORT, bearing: 90, at: AT });
-    await settle();
-    expect(result.current.get("static")?.error).toBe(false);
+    await vi.waitFor(() => expect(result.current.get("static")?.error).toBe(false));
     expect(result.current.get("static")?.values.size).toBeGreaterThan(0);
   });
   it("対象から外れた軸の結果は落とし、画面が無くなれば空へ戻す", async () => {
     const { result, rerender } = render({ axes: dedicatedAxes, viewport: VIEWPORT, bearing: 0, at: AT });
-    await settle();
+    await fetched(result);
     rerender({ axes: [STATIC], viewport: VIEWPORT, bearing: 0, at: AT });
-    await settle();
+    await fetched(result);
     expect([...result.current.keys()]).toEqual(["static"]);
     rerender({ axes: [STATIC], viewport: null, bearing: 0, at: AT });
     await settle();

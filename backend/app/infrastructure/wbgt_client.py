@@ -124,9 +124,7 @@ def _parse_forecast(entry: dict) -> WbgtForecast | None:
         wbgt: float | None = float(entry["forecast_val"]) / 10.0
     except (KeyError, TypeError, ValueError):
         wbgt = None
-    return WbgtForecast(
-        reference_time=reference_time, forecast_time=forecast_time, forecast_time_text=raw_time, wbgt=wbgt
-    )
+    return WbgtForecast(reference_time=reference_time, forecast_time=forecast_time, wbgt=wbgt)
 
 
 async def fetch_forecast(

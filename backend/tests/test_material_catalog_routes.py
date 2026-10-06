@@ -20,7 +20,7 @@ from app.api.dependencies import get_material_coverage_service, get_road_graph_r
 from app.domain.material_catalog import MATERIAL_CATALOG
 from app.infrastructure.material_coverage import MATERIAL_COVERAGE_SPECS, MaterialCoverageCounts
 from app.main import app
-from app.services.axis_preview_service import EMPTY_DISTRIBUTION, ValueDistribution
+from app.domain.value_distribution import EMPTY_SPREAD, ValueSpread
 from app.services.material_coverage_service import build_material_coverage_report
 from tests.admin_auth import AUTH_HEADERS
 
@@ -92,7 +92,7 @@ def test_get_material_values_the_db_could_not_read_is_unavailable(admin_credenti
 @pytest.mark.parametrize(
     ("result", "available"),
     [
-        (ValueDistribution(sample_ways=3, total_km=1.2, quantiles={"p50": 10.0}, bins=[(0.0, 1.0, 1.0)], zero_share=0.0), True),
+        (ValueSpread(quantiles={"p50": 10.0}, zero_share=0.25), True),
         (None, False),
     ],
     ids=["分布がある", "数値の材料でない"],
@@ -109,7 +109,7 @@ def test_material_distribution_answers_the_distribution_or_that_there_is_none(
 
     response = client.get("/api/admin/material-catalog/surface/distribution", headers=AUTH_HEADERS)
 
-    assert response.json() == {"available": available, **(result or EMPTY_DISTRIBUTION).model_dump(mode="json")}
+    assert response.json() == {"available": available, **(result or EMPTY_SPREAD).model_dump(mode="json")}
 
 
 # --- 材料ごとの欠損割合 ---

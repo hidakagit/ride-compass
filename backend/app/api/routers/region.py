@@ -5,8 +5,8 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from app.api.dependencies import (
+    get_axis_inspector_service,
     get_dedicated_way_value_service,
-    get_directional_material_service,
     get_region_service,
 )
 from app.api.rate_limit import enforce_rate_limit
@@ -26,8 +26,8 @@ from app.domain.landcover import LANDCOVER_TILE_MAX_ZOOM, LANDCOVER_TILE_MIN_ZOO
 from app.infrastructure.media_types import PNG_CONTENT_TYPE
 from app.infrastructure.point_tile_layers import POINT_TILE_LAYERS
 from app.services.landcover_tile_service import get_landcover_tile
-from app.services.dedicated_way_values import DedicatedWayValueService, DirectionalMaterialService
-from app.services.region_service import RegionService
+from app.services.dedicated_way_values import DedicatedWayValueService
+from app.services.region_service import AxisInspectorService, RegionService
 from app.domain.strict_model import StrictModel
 
 router = APIRouter()
@@ -130,11 +130,12 @@ async def region_dedicated_way_values(
     at: datetime | None = None,
     speed_kmh: float | None = None,
     service: DedicatedWayValueService[Any] | None = Depends(get_dedicated_way_value_service),
-) -> dict[str, float]:
+) -> dict[str, float | None]:
     """「評価軸」グループとしての動的材料（風・勾配・雨等）。指定タイル内のフィーチャーごとの
     値（風=wind_drag_ratio[backend/app/domain/wind.py]、勾配=effective_gradient
     [backend/app/domain/gradient.py]、雨=最寄りの雨量計の観測[backend/app/domain/rain.py]）を
-    まとめて返す軽量なJSONエンドポイント。この
+    まとめて返す軽量なJSONエンドポイント。値がnullの道は、その走行方位では値が決まらない道（勾配の
+    直角付近）で、値の無い道（鍵ごと無い）とは別に塗る。この
     エンドポイントはルート未確定時（視界内の全道路への一律適用）専用——ルート確定後は
     ルート自身の実進行方向・実到達時刻/実値から計算済みの`axis_difficulties`
     （`RouteSegmentDetail`）を使うため、フロントはこのエンドポイントを呼ばない。
@@ -183,13 +184,13 @@ class AxisInspectorRequest(StrictModel):
     feature_key: str | None = None
     # 進行方向に依存する材料（勾配・風）を出すのに要るもの。**1本の道は往復2方向で値が
     # 違う**ため、方向が決まらないと算出できない。地図が指定している値をそのまま送る
-    # （`/dynamic-way-values`へ送っているものと同じ）。省略するとその軸は「データなし」。
+    # （`/dynamic-way-values`へ送っているものと同じ）。時刻・速度を省くと、それを要る材料の軸は「データなし」。
     # `z`/`x`/`y`はクリックしたタイル——地図は既に知っており、way idから逆算するより
     # 確かで、同じタイルの値がキャッシュに載っていれば追加のDBアクセスも要らない。
-    z: int | None = None
-    x: int | None = None
-    y: int | None = None
-    bearing_deg: float | None = None
+    z: int
+    x: int
+    y: int
+    bearing_deg: float
     at: datetime | None = None
     speed_kmh: float | None = None
     # 合成に使う重み。利用者がいま設定している重み（ルート生成へ送るのと同じ形・同じ検証）を送る。省略すると既定の重み。
@@ -200,23 +201,21 @@ class AxisInspectorRequest(StrictModel):
 async def region_axis_inspector(
     body: AxisInspectorRequest,
     http_request: Request,
-    region_service: RegionService = Depends(get_region_service),
-    directional_material_service: DirectionalMaterialService = Depends(get_directional_material_service),
+    axis_inspector: AxisInspectorService = Depends(get_axis_inspector_service),
 ) -> AxisInspectorResult | None:
     """区間インスペクタ。クリックされた道路（osm_way_id）について、
     一次属性（highway/tags）→二次軸スコア（取得可能な軸のみ）→
     合成コスト（取得可能な軸だけの参考値。重みは送られた`route_preference`、省略時は既定）を返す。
     POST+JSONボディ・osm_way_id完全一致で引く理由はRegionService.get_axis_inspectorの
     docstring参照（交差点付近での取り違え対策）。進行方向に依存する軸（勾配・風）は、
-    地図が指定している走行方位・時刻・想定速度を一緒に送れば算出できる。送らなければ
-    その軸はavailable=falseで返る。
+    地図が指定している走行方位・時刻・想定速度から算出する。時刻・速度を送らなければ、
+    それを要る軸はavailable=falseで返る。
     """
     # 座標なしの単発リクエストのためタイル向け_check_tile_rate_limit
     # （road_tile_rate_limit_per_minuteと結合）を流用せず、専用の設定値を直接使う
     # （config.py: axis_inspector_rate_limit_per_minuteのコメント参照）。
     enforce_rate_limit(http_request, "axis-inspector", settings.axis_inspector_rate_limit_per_minute)
-    dynamic = await directional_material_service.materials(
-        body.osm_way_id, body.feature_key, body.z, body.x, body.y,
-        body.at, body.bearing_deg, body.speed_kmh)
     preference = None if body.route_preference is None else RoutePreference(weights=dict(body.route_preference.root))
-    return await region_service.get_axis_inspector(body.osm_way_id, body.feature_key, dynamic, preference)
+    return await axis_inspector.inspect(
+        body.osm_way_id, body.feature_key, body.z, body.x, body.y,
+        body.at, body.bearing_deg, body.speed_kmh, preference)

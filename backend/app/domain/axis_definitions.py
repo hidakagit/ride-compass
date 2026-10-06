@@ -27,6 +27,7 @@ Pythonの`round()`と同じ値へ丸める（`difficulty.py: round_difficulty_ar
 """
 
 import math
+import threading
 from collections.abc import Collection, Iterable
 from typing import Annotated, Literal, Mapping, Sequence, SupportsFloat, cast
 
@@ -414,12 +415,34 @@ class AxisDefinition(StrictModel):
 # （モジュールdocstring参照）。
 AXIS_DEFINITIONS: dict[str, AxisDefinition] = {}
 
+# 差し替え（`replace_axis_definitions`）と写し（`copy_axis_definitions`）を互いに排他にする。
+# 差し替えはイベントループで動くので、ループの上で読む側は途中を見ない。見うるのは
+# `asyncio.to_thread`の先で読む側だけで、そちらは写しを取って読む。
+_AXIS_DEFINITIONS_LOCK = threading.Lock()
+
+
+def replace_axis_definitions(definitions: Mapping[str, AxisDefinition]) -> None:
+    """`AXIS_DEFINITIONS`の中身を`definitions`へ差し替える（同じdictのまま。モジュールdocstring参照）。"""
+    with _AXIS_DEFINITIONS_LOCK:
+        AXIS_DEFINITIONS.clear()
+        AXIS_DEFINITIONS.update(definitions)
+
+
+def copy_axis_definitions() -> dict[str, AxisDefinition]:
+    """`AXIS_DEFINITIONS`の写し。別スレッドで軸を読む処理は、入口でこれを1回取り、終わりまでこれだけを読む。
+
+    `AXIS_DEFINITIONS`を直に読むと、読む間に軸の保存が差し替えて、鍵が欠ける（`KeyError`）・
+    回している辞書の大きさが変わる（`RuntimeError`）・読むたびに軸の集合が食い違う。
+    """
+    with _AXIS_DEFINITIONS_LOCK:
+        return dict(AXIS_DEFINITIONS)
+
 
 class AxisMaterialConflictError(ValueError):
     """新規/更新しようとした軸の材料が、既存の別軸と重複している場合に送出する。
 
-    「1つの材料は原則1つの軸だけが使う」原則を、ルーティング計算を駆動する
-    `AXIS_DEFINITIONS`への書き込み時に強制する（この原則の唯一の検査）。軸スタジオで
+    「1つの材料は原則1つの軸だけが使う」原則を、ルーティング計算を駆動する軸の集合の検査
+    （`check_axis_set`。起動時の読み込みと書き込みの両方が通す）で強制する。軸スタジオで
     任意の軸を登録できるため、既存軸が使う材料を新軸が黙って再利用し二重計上が混入する
     事故を構造的に防ぐ。
     """
@@ -625,8 +648,13 @@ def check_internal_axis_not_published(candidate: AxisDefinition, existing: dict[
     """`candidate`が`existing`内の他の軸（自分自身を除く）から軸参照（内部軸）として
     使われているにもかかわらず、is_published=Trueで保存しようとしていないか検査する。
     非公開のままなら常に許可する（早期return）。
+
+    断るのは公開へ切り替える書き込みだけで、`existing`にある書く前の版が既に公開中なら許可する。
+    時刻で変わる軸が公開軸を組み合わせる形（`check_axis_set`のdocstring参照）では、組み合わせに
+    使われる軸が公開中のまま残り、その表示だけの直し（`check_publish_immutability`が許す差分）も保存する。
     """
-    if not candidate.is_published:
+    previous = existing.get(candidate.axis_id)
+    if not candidate.is_published or (previous is not None and previous.is_published):
         return
     known_axis_ids = set(existing) | {candidate.axis_id}
     for other_id, other in existing.items():
@@ -775,9 +803,8 @@ def topological_axis_order(definitions: dict[str, AxisDefinition]) -> list[str]:
     スカラー評価がEdge単位（1ルート候補あたり
     最大数百回）で呼ぶホットパスのため、結果をプロセス内メモリでメモ化する。キーは
     各軸の`materials`（依存関係を決める唯一の入力）から導出した内容ベースの値であり、
-    `AXIS_DEFINITIONS`自体のオブジェクト同一性には依存しない（`refresh_axis_definitions`
-    [services/axis_registry_service.py]が`AXIS_DEFINITIONS.clear()`+`update()`で同一
-    オブジェクトのまま中身だけ差し替えるため、オブジェクトidベースのキーだと差し替え後も
+    `AXIS_DEFINITIONS`自体のオブジェクト同一性には依存しない（`replace_axis_definitions`が
+    同一オブジェクトのまま中身だけ差し替えるため、オブジェクトidベースのキーだと差し替え後も
     古いキャッシュを誤って返しうる）。循環参照（`AxisDependencyCycleError`）はキャッシュ
     しない（軸スタジオでの試行錯誤中に一時的な循環を経て修正された場合の再評価を妨げない
     ため）。
@@ -808,6 +835,28 @@ def topological_axis_order(definitions: dict[str, AxisDefinition]) -> list[str]:
 
     _topological_order_cache[cache_key] = order
     return order
+
+
+def check_axis_set(definitions: dict[str, AxisDefinition]) -> None:
+    """軸の集合を受け入れるか。軸1本ずつの`check_axis_definition`では見えない、集合で決まる不変条件。
+
+    - 軸idが材料idと重ならない: 軸の評価結果は材料と同じ辞書へ書き戻されるため、重なると同名の材料の値を
+      黙って上書きし、それ以降に評価される軸が壊れる。
+    - 1つの材料を2つの軸で数えない（`check_material_exclusivity`）。重なりは後に並ぶ軸の誤りとして名指す
+      ——書き込みは書いた軸を最後に並べて渡すので、断りの文が書いた軸の側から読める。
+    - 組み合わせが輪にならない（`topological_axis_order`）。
+
+    起動時の読み込み（バックアップから戻した行も）と管理APIの書き込みの両方がこれを通す。内部軸を公開しないことは
+    含めない——時刻で変わる軸が公開軸を組み合わせる形（`_check_dynamic_and_static_materials_are_not_mixed`が案内する）を
+    拒むことになるため、書き込みの`check_internal_axis_not_published`だけが見る。
+    """
+    earlier: dict[str, AxisDefinition] = {}
+    for axis_id, definition in definitions.items():
+        if material_catalog.is_known_material(axis_id):
+            raise ValueError(f"axis_id={axis_id} は既存の材料idと衝突しています")
+        check_material_exclusivity(definition, earlier)
+        earlier[axis_id] = definition
+    topological_axis_order(definitions)
 
 
 # リクエストごとに値が変わりうる材料id（風向・風速・走行速度由来）。`MATERIAL_CATALOG`の
@@ -976,7 +1025,7 @@ def evaluate_axes_values(materials: Mapping[str, Sequence[object]], length: int)
     評価できなかった公開軸も、キーを残して値をNoneにする（区間インスペクタの`available=False`・
     合成の分母からの除外がこれを前提にする）。
     """
-    evaluated = evaluate_axes_array(_axes_python_value_columns(materials, length))
+    evaluated = evaluate_axes_array(_axes_python_value_columns(materials, length), AXIS_DEFINITIONS)
     return {
         axis_id: _scores_or_none(evaluated[axis_id])
         for axis_id in topological_axis_order(AXIS_DEFINITIONS)
@@ -991,7 +1040,7 @@ def evaluate_axes_inputs(materials: Mapping[str, Sequence[object]], length: int)
     この値が同じ道は、折れ点・対応表をどう置いても同じ得点になる（0次条件が当たる道を除く）。
     """
     columns = _axes_python_value_columns(materials, length)
-    with_axes: dict[str, MaterialColumn] = {**columns, **evaluate_axes_array(columns)}
+    with_axes: dict[str, MaterialColumn] = {**columns, **evaluate_axes_array(columns, AXIS_DEFINITIONS)}
     inputs: dict[str, list[object]] = {}
     for axis_id in topological_axis_order(AXIS_DEFINITIONS):
         definition = AXIS_DEFINITIONS[axis_id]
@@ -1019,14 +1068,16 @@ def _axes_python_value_columns(materials: Mapping[str, Sequence[object]], length
     return _python_value_columns(materials, leaf_ids, _term_material_ids(definitions), length)
 
 
-def evaluate_axes_array(materials: Mapping[str, MaterialColumn]) -> dict[str, np.ndarray]:
-    """`AXIS_DEFINITIONS`の全軸を依存順（内部軸→公開軸）で評価し、軸id→得点の辞書を返す。
+def evaluate_axes_array(
+    materials: Mapping[str, MaterialColumn], definitions: dict[str, AxisDefinition]
+) -> dict[str, np.ndarray]:
+    """`definitions`の全軸を依存順（内部軸→公開軸）で評価し、軸id→得点の辞書を返す。
     評価した軸の得点は、後の軸の材料として読まれる（他の軸を材料にする軸）。
     """
     with_axes: dict[str, MaterialColumn] = dict(materials)
     scores: dict[str, np.ndarray] = {}
-    for axis_id in topological_axis_order(AXIS_DEFINITIONS):
-        scores[axis_id] = with_axes[axis_id] = evaluate_axis_array(AXIS_DEFINITIONS[axis_id], with_axes)
+    for axis_id in topological_axis_order(definitions):
+        scores[axis_id] = with_axes[axis_id] = evaluate_axis_array(definitions[axis_id], with_axes)
     return scores
 
 

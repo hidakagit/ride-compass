@@ -270,8 +270,8 @@ if _DUPLICATE_IDS:
     raise ValueError(f"較正値のidが重複している: {', '.join(_DUPLICATE_IDS)}")
 
 #: いま効いている値（id → 値）。既定で初期化し、DBの上書きを読み込んだときに**中身だけ**を
-#: 差し替える（束縛済みの参照先が古いままにならないよう、`.clear()`+`.update()`で更新する。
-#: `services/axis_registry_service.py`が`AXIS_DEFINITIONS`へ採っているのと同じ流儀）。
+#: 差し替える（束縛済みの参照先が古いままにならないよう、`.update()`で更新する。鍵は宣言の全idで
+#: 変わらないので、`.clear()`は挟まない——理由は`services/tuning_service.py: _apply_tuning_values`）。
 TUNING_VALUES: dict[str, float] = {p.id: p.default for p in TUNING_PARAMETERS}
 
 

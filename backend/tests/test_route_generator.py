@@ -27,10 +27,11 @@ from app.domain.difficulty import OverallDifficulty
 from app.domain.errors import SearchAreaTooLargeError
 from app.domain.loop_routing import LoopTurnaround, TracedLoop
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
+from app.domain.route_request import DEFAULT_MAX_ROUTES, MAX_ROUTES
 from app.domain.time_zone import JST
 from app.services import route_generator
 from app.services.road_graph_engine import RoadGraphEngine
-from app.services.route_generator import DEFAULT_MAX_ROUTES, RouteGenerator
+from app.services.route_generator import RouteGenerator
 from tests.bound_fake import bound
 
 ORIGIN = Coordinates(latitude=35.6789, longitude=139.7712)
@@ -84,7 +85,7 @@ def _context(no_candidates_side=None) -> SimpleNamespace:
 
 def _turnaround(outcome: TracedLoop | Exception) -> LoopTurnaround:
     """復路探索の結果（または失敗）を`data`に抱えた折返し点。`data`はエンジンだけが読む。"""
-    return LoopTurnaround(bearing=0, outbound_difficulty=None, data=outcome)
+    return LoopTurnaround(bearing=0, data=outcome)
 
 
 _UNSET = object()
@@ -151,7 +152,7 @@ class FakeEngine:
         return [self.candidates[t.data[0]] for t in traced]
 
     @_engine_method
-    async def trace_loop(self, context, waypoints, bearing):
+    async def trace_loop(self, context, waypoints):
         if self.trace_error is not None:
             raise self.trace_error
         return self.waypoint_loop
@@ -236,18 +237,16 @@ async def test_candidate_values_are_rebuilt_from_its_segments(segments, expected
     assert candidate.overall_difficulty == expected
 
 
-async def test_per_axis_values_are_rebuilt_from_its_segments_but_category_shares_are_kept():
-    """軸ごとの値（画面の内訳・生の値・材料の値）も区間から作り直す。延長割合はエンジンが区間を畳む前に作った値で、
-    畳んだ区間からは正しく作れないので、エンジンの値のまま配る。"""
+async def test_per_axis_values_are_rebuilt_from_its_segments_but_category_shares_and_raw_values_are_kept():
+    """軸ごとの値（画面の内訳・材料の値）も区間から作り直す。延長割合と軸の生の値はエンジンが区間を畳む前の値から
+    作った値で、区間からは作れないので、エンジンの値のまま配る。"""
     stale = {"x": 99.0}
     segments = [
-        _segment(10.0, axis_difficulties={"a": 10.0}, axis_contributions={"a": 10.0},
-                 axis_raw_values={"a": 10.0}, material_values={"a": 10.0}),
-        _segment(30.0, axis_difficulties={"a": 30.0}, axis_contributions={"a": 30.0},
-                 axis_raw_values={"a": 30.0}, material_values={"a": 30.0}),
+        _segment(10.0, axis_difficulties={"a": 10.0}, axis_contributions={"a": 10.0}, material_values={"a": 10.0}),
+        _segment(30.0, axis_difficulties={"a": 30.0}, axis_contributions={"a": 30.0}, material_values={"a": 30.0}),
     ]
     evaluated = _candidate("e1", segments=segments, axis_difficulties=stale, axis_contributions=stale,
-                           axis_raw_values=stale, material_values=stale,
+                           axis_raw_values={"a": 5.0}, material_values=stale,
                            material_category_shares={"surface": {"asphalt": 1.0}})
     engine = FakeEngine(candidates={"e1": evaluated})
 
@@ -255,7 +254,7 @@ async def test_per_axis_values_are_rebuilt_from_its_segments_but_category_shares
 
     assert candidate.axis_difficulties == {"a": 20.0}
     assert candidate.axis_contributions == {"a": 20.0}
-    assert candidate.axis_raw_values == {"a": 20.0}
+    assert candidate.axis_raw_values == {"a": 5.0}
     assert candidate.material_values == {"a": 20.0}
     assert candidate.material_category_shares == {"surface": {"asphalt": 1.0}}
 
@@ -270,10 +269,12 @@ async def test_evaluation_that_does_not_answer_every_route_is_an_error():
 # ---- 周回 ----
 
 
-def test_turnaround_pool_can_always_fill_the_requested_routes_and_is_capped():
-    for max_routes in range(1, route_generator.MAX_ROUTES + 1):
+def test_turnaround_pool_can_always_fill_the_requested_routes_and_fits_the_diverse_selection():
+    """折返し点の候補は、求める件数を下回らず、渡す先の多様な選定（`domain/routing.py: select_diverse_by_overlap`）が
+    採れる件数（採用済みを64bitのマスクで持つため64件）を超えない。"""
+    for max_routes in range(1, MAX_ROUTES + 1):
         pool = route_generator.turnaround_pool_size(max_routes)
-        assert max_routes <= pool <= route_generator.TURNAROUND_POOL_MAX
+        assert max_routes <= pool <= 64
 
 
 async def test_loops_without_turnarounds_say_how_far_was_searched(caplog):

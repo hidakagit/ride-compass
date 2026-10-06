@@ -79,10 +79,13 @@ class WbgtForecast:
     reference_time: str
     #: 予測の対象時刻（JSTの素の時刻）。読めない行はNone。
     forecast_time: datetime | None
-    #: 対象時刻の配信元の表記（応答へそのまま出す）。
-    forecast_time_text: str | None
     #: 暑さ指数。値が無い・読めない行はNone。
     wbgt: float | None
+
+
+# 発表（reference_time）は概ね毎時だが遅延もありうるため、直近この時間幅で発表時刻を
+# 検索する（1〜2時間の遅延は起こりうる前提で余裕を持たせる）。
+FORECAST_SEARCH_WINDOW_HOURS = 6
 
 
 def current_forecast(forecasts: list[WbgtForecast], now: datetime) -> WbgtForecast | None:

@@ -16,7 +16,7 @@
 | domain | `wind.py`・`wind_grid.py`・`gradient.py`・`rain.py`（雨の材料の宣言——窓の長さの一覧——と、1時間雨量の履歴から材料の値を求める計算・配ってよい履歴の古さ）・`dynamic_way_values.py` |
 | services | `wind_way_service.py`・`gradient_way_service.py`・`rain_way_service.py`・`dedicated_way_values.py`（材料→配信の実装の表、軸の材料から実装を選ぶこと、区間インスペクタが足す材料をまとめて引くこと） |
 | infrastructure | `dynamic_way_value_cache.py`（勾配のみ。ディスク経由）・`tile_persistent_cache.py`（呼び出し元が設計したタプルの鍵でPythonオブジェクトを置く汎用のディスクキャッシュ。`diskcache`の包み） |
-| api | `region.py`（`GET /api/region/dynamic-way-values/{axis_id}/...`）・`dependencies.py`（`get_dedicated_way_value_service`・`get_directional_material_service`） |
+| api | `region.py`（`GET /api/region/dynamic-way-values/{axis_id}/...`）・`dependencies.py`（`get_dedicated_way_value_service`・`get_axis_inspector_service`） |
 
 勾配材料の入力（`edge_materials.average_grade`・`road_edges.bearing_deg`）を
 DBから取り出す`infrastructure/road_graph_repository.py:
@@ -80,19 +80,19 @@ frontendはどのクエリパラメータをどの軸のリクエストへ載せ
 - 載せない条件は、地図でその入力を変えても再取得しない（勾配は時刻スライダーで取り直さない）。
 - 例: 風は時刻・走行方位・想定速度、勾配は走行方位だけ（標高・道路の向きは時刻で変わらない）、雨は
   何も載せない（今の観測を示し、出発時刻・方位では変わらない）。
+- 同じ並べ方で`dynamic_way_value_undetermined_by_bearing`（`dedicated_way_value_undetermined_by_bearing`）も配る。
+  配信のサービスが`undetermined_by_bearing`で宣言する、走行方位で値の決まらない道（値が`null`）を返しうるか
+  で、frontendはtrueの軸の凡例にだけ「向きで決まらない」の行（`domain/map_display.py: LEGEND_SHARED_ROWS`）を
+  足す。返しうるのは勾配だけ。
 - `dedicated_way_value_layer=True`は軸スタジオで立てられるフラグで、配信を実装した材料を
   参照する軸なら、名前が何であってもコード変更なしにこの配信経路へ載る。
 
-同じモジュールが、軸について地図が塗る値の種類を軸定義から決める:
+同じモジュールが、配った材料の生値を地図が塗る値へ写す。塗る値の種類（難易度か符号付き材料か）・段の境界・凡例の目盛りは
+`domain/map_paint.py: map_paint`が決める（[axis-studio.md](axis-studio.md)「地図が塗るもの」）。
 
 | 関数 | 意味 |
 |---|---|
-| `map_value_kind(definition)` | 0次条件（`priority_overrides`）を持たず、`BreakpointLinearShape`かつ`preprocess="abs"`かつterms単数で、その項が材料（`MATERIAL_CATALOG`にある）を指すなら`signed_material`、それ以外は`difficulty`。項は軸を指すこともあり、その値は参照先の得点で符号にも単位にも材料の意味が無い。0次条件を持つ軸の生値は、条件の当たる道でも生値のままで評価と食い違う |
-| `map_value(definition)` | 種類と、`signed_material`なら生値を塗る材料をまとめた値（`DifficultyMapValue`・`SignedMaterialMapValue`の判別共用体）。材料は`signed_material`のときだけ在る |
-| `map_value_unit(definition)` | `signed_material`なら材料カタログの`unit`、`difficulty`は空文字 |
-| `map_legend(definition)` | 凡例が段の境界を書く目盛り（`MapLegendScale`: `map_value_thresholds`と同じ件数の境界と単位）。`signed_material`は塗る値そのもの（材料の単位）。`difficulty`の軸のうち、得点が単位の定まる生値（`axis_raw_value.py: raw_value_unit`）から0次条件なし・符号を畳まずに作られ、その量について狭く増える（折れ線の節の得点が狭く昇順）軸は、境界を量で書く（例: 雨は5・20・50mm）。それ以外は得点（単位null。画面は「影響 33点未満」と書く）。塗るのは得点でも量で書いてよいのは、狭く増える間だけ「得点 f(a)以上 f(b)未満」と「量 a以上 b未満」が同じ道を指すため。量の境界は折れ線の下端より上・上端以下に限る（外では得点が端に張り付く） |
-| `displayed_material_ids(weights, lens_axis_id)` | 区間表示へ載せる材料（[routing-engine.md](routing-engine.md)） |
-| `transform_dedicated_way_values(definition, material_id, values)` | 生値→地図表示値。`difficulty`は`evaluate_axis_values`でタイル内の全道路を1回の配列評価、`signed_material`は素通し。`material_id`以外の材料に0次条件を置いた軸は全道路を落とす——配信はその材料の値しか持たず、条件が当たるかを決められない |
+| `transform_dedicated_way_values(definition, material_id, values)` | 生値→地図表示値。塗る値が難易度なら`evaluate_axis_values`でタイル内の全道路を1回の配列評価、符号付き材料なら素通し。`material_id`以外の材料に0次条件を置いた軸は全道路を落とす——配信はその材料の値しか持たず、条件が当たるかを決められない |
 
 `services/dedicated_way_values.py: _SERVICES_BY_MATERIAL`は、材料id→担当するサービス実装本体
 （`WindWayService`/`GradientWayService`/`RainWayService`）のdictで、配信の組み立てと地図が載せる条件の導出がここから引く。こちらはPython実装本体
@@ -121,56 +121,46 @@ axis_id → get_dedicated_way_value_service(axis_id) が軸の参照する材料
           同じもので、ズームによって区間・wayのどちらかになる）
 ```
 
-- 応答は材料の生値ではなく**地図が塗る値**。`map_value_kind(definition)`が`difficulty`の軸
+- 応答は材料の生値ではなく**地図が塗る値**。`map_paint`の塗る値が難易度の軸
   （風等）は軸定義（breakpoints・priority_overrides）で評価した難易度0〜100、
-  `signed_material`の軸（勾配: 単一材料・`preprocess="abs"`）は符号付き材料生値のまま。
+  符号付き材料の軸（勾配: 単一材料・`preprocess="abs"`）は符号付き材料生値のまま。
   ルート確定後のルート線色分け（`axis_difficulties`／符号付き材料の直読み）と同じ
   スケールになる。
-- 段階の境界は`map_value_thresholds(definition)`が同じスケールへ揃えて返す。**段そのものを
-  決めるのはここではなく`axis_display.py: axis_display_for`**（ルート確定前の全道路を
-  塗る境界）で、ここはその値を軸の折れ線で写すだけ。写さずに配ると、材料の単位で書かれた
-  境界が0〜100と比べられ、ルート線が全区間ひとつのバンドへ落ちる。
-  **上書きの有無で経路を分けない**——上書きを設定していない軸だけがNoneを返して読む側の
-  既定値へ転落すると、その軸だけルート確定の前後で段の数も意味も食い違う。境界を宣言していない
-  難易度の軸も、既定の境界（`DEFAULT_DIFFICULTY_BOUNDARIES`）をここで解いて返す——読む側に既定を持たせない。
-  ただし境界を宣言していない専用配信の軸のうち、凡例を量で書ける軸（上の`map_legend`）は、折れ線の節
-  （軸が「どの量から効きが変わるか」を宣言したもの）で切る——3等分の境界を量へ戻すと半端な量
-  （雨なら6.1mm等）になる。
-- **フィーチャーの値は、属する区間を長さで重み付けて平均したもの**
-  （`_FEATURE_GRADIENT_INPUTS_IN_TILE_SQL`）。区間単位のズームでは属する区間が1本なので
+- 段階の境界も`map_paint`が同じスケールへ揃えて返す（[axis-studio.md](axis-studio.md)「地図が塗るもの」）。
+- **フィーチャーの値は、属する区間の勾配の値式を長さで重み付けて平均したもの**
+  （`_FEATURE_GRADIENT_INPUTS_IN_TILE_SQL`。集約の式は`domain/material_sql.py: aligned_length_weighted_mean_sql`）。区間単位のズームでは属する区間が1本なので
   その区間の値そのもの、way単位のズームではwayの全区間をならした値になる。1区間の外れ値が
   way全体を染めることは無い（19mの区間の値で2kmの幹線が塗られていた）。符号付きで平均する
-  ため結果はwayの両端の標高差と一致し、**崖を下って上り返す道は打ち消し合って0%になる**
-  （絶対値で平均すれば打ち消さないが符号が失われ、登り／下りの塗り分けができない）。
-  向きは各区間をフィーチャーの基準方位（ジオメトリの始点→終点）へ揃えてから平均する——
-  `road_edges`は同じ区間を両方向2行で持ち、そのまま足すと必ず0になるため。
+  ため、全区間の向きが基準と揃う道では結果がwayの両端の標高差と一致し、**崖を下って上り返す道は
+  打ち消し合って0%になる**（絶対値で平均すれば打ち消さないが符号が失われ、登り／下りの塗り分けができない）。
+  向きは各区間の方位とフィーチャーの基準方位（ジオメトリの始点→終点）とのcosの符号で揃えてから平均する。
 - **勾配では、走行方位は符号だけを決める**（`domain/gradient.py`）。道路は道路に沿ってしか
   走れず、その道を走るときの進行方向は道路の向きそのもののため、方位が決められるのは
   「どちら向きに辿るか」だけで、坂の急さは変わらない。角度差を係数に掛ける（cos投影）と
   同じ坂が方位次第で緩く見え、ルート評価（`average_grade`をそのまま読む）とも食い違う。
   風（`wind_drag_ratio`）は風向が進行方向と独立に決まるためcos投影が正しく、ここは同型に
   できない。
-- **指定方位に対して直角に近い道路は、勾配の値を持たせずに結果から落とす**
-  （`domain/gradient.py: effective_gradient`がNoneを返す。地図では「データなし」）。直角付近はその道を
+- **指定方位に対して直角に近い道路は、勾配の値を`null`で配る**
+  （`domain/gradient.py: effective_gradient`がNoneを返す。地図では「向きで決まらない」）。直角付近はその道を
   どちら向きに辿るかが決まらず符号を選べない。0%として配ると、実際には急な坂の道が凡例の
   「平坦」の段へ入り、平坦な道と同じ色で塗られる——言えるのは「勾配を示せない」であって
-  「平坦だ」ではない。落とす幅（`LENS_PERPENDICULAR_BAND_DEG`）は実地を見て決め直す値。
+  「平坦だ」ではない。結果から落とすと、値の無い道（「データなし」）と見分けられない。
+  `null`にする幅（`LENS_PERPENDICULAR_BAND_DEG`）は実地を見て決め直す値。区間インスペクタは`null`の材料を
+  値の無い材料と同じく足さない。
 - 各サービスは`material_id`属性で自分が返す生値の材料idを宣言し、routerはそれを軸定義の
   どの材料として評価するかに使う。勾配は`gradient_percent`固定、風は`wind_drag_ratio`固定
   （走行速度依存、`speed_kmh`必須）。
   キャッシュは生値のまま持つため、軸スタジオでbreakpointsを変えてもキャッシュを捨てずに
   次の応答から反映される。評価できない値（軸が他の材料も必須にしている等）はその道路を
-  結果から除く（地図上は「データなし」）。
-- `GET /api/axis-catalog`は同じ判定を`map_value`・`map_value_unit`（材料カタログの
-  `MaterialSpec.unit`、難易度は空文字）・`map_legend`として公開し、frontendは色式を前の2つから、
-  凡例の段の範囲の文字を`map_legend`から組み立てる（ルート確定の前後とも）。ramp軸は`axis_display.py: axis_display_for`が符号を畳む形を外すため
-  いつも`difficulty`で、画面はramp軸の配色もこれから引く（[地図: 軸・ルート色分け](../frontend/map-axis-coloring.md)参照）。
+  結果から除く（地図上は「データなし」）。`null`（走行方位で決まらない）は`null`のまま返す。
+- `GET /api/axis-catalog`は同じ値を`map_paint`として公開し、frontendは色式と凡例の段の範囲の文字をそこから
+  組み立てる（ルート確定の前後とも。[地図: 軸・ルート色分け](../frontend/map-axis-coloring.md)参照）。
 
 - ルート確定後は呼ばれない専用エンドポイント（フロントは`axis_difficulties`を使う）。
 - 静的な路面タイル（`/api/region/road-surface-tiles`、MVT）とは別経路——フロントは
   同じz/x/yに対して両方を取得し、MapLibreの`setFeatureState`で合成する
   （[map-axis-coloring.md](../frontend/map-axis-coloring.md)参照）。
-- 路面・POIタイルと同じレート制限・座標検証・DB接続プールのsemaphore
+- 路面・点のタイルと同じレート制限・座標検証・DB接続プールのsemaphore
   （`_region_tile_semaphore`、`config.py: road_tile_max_concurrent`）を共有する。
 
 ## キャッシュ（`infrastructure/dynamic_way_value_cache.py`）
@@ -193,7 +183,7 @@ axis_id → get_dedicated_way_value_service(axis_id) が軸の参照する材料
 
 **材料単位の失効は鍵で表す**。`value_shape`は材料のサービスが必須キーワードで渡し、勾配は
 `services/gradient_way_service.py: GRADIENT_VALUE_SHAPE`（入力のSQLの署名
-`infrastructure/road_graph_repository.py: FEATURE_GRADIENT_INPUTS_SHAPE`・直角付近を落とす幅・丸めの桁を
+`infrastructure/road_graph_repository.py: FEATURE_GRADIENT_INPUTS_SHAPE`・直角付近で値を決めない幅・丸めの桁を
 機械で署名し、式を変えたときだけ手で上げるリビジョンを添えたもの）。材料の計算を変えたデプロイの直後から、その材料のエントリだけが読まれなくなり、
 他の材料のエントリは残る。タグで消す方式（起動時に材料ごと`evict`）にしないのは、デプロイで入れ替わるまで
 旧コンテナが同じ置き場へ古い計算の値を書き続け、消した直後に同じ鍵へ戻るため。読まれなくなったエントリは
@@ -208,8 +198,7 @@ TTLで失効し、書き込みのたびに`diskcache`が失効したものを消
 再計算も発生しない。時刻・想定速度は鍵に入れない——キャッシュする勾配はどちらにも依らず、
 依る材料（風）はキャッシュしない。時刻・速度に依る材料をキャッシュするときは、その要素を鍵へ足す。
 
-値は`{feature_key: 値}`のdict。TTLは呼び出し元が渡す（勾配=`GRADIENT_TILE_VALUES_TTL_SECONDS`
-＝24時間）。正本を持たないキャッシュで、読み書きに失敗しても未キャッシュ扱いで実計算へ進む。
+値は`{feature_key: 値}`のdict。TTLはこのモジュールが持つ（24時間。勾配の入力は道の向きと標高で決まりほぼ変わらない）。正本を持たないキャッシュで、読み書きに失敗しても未キャッシュ扱いで実計算へ進む。
 このモジュール自身は`log_external_call`で囲まない。hit/missは呼び出し元のサービスが自分の
 `log_external_call`の`fields["cache"]`へ書き、`/api/debug/stats`のそのカテゴリのヒット率に載る
 （[docs/conventions/logging.md](../../conventions/logging.md)「外部API・キャッシュアクセス」節）。
@@ -321,12 +310,12 @@ get_way_values(z, x, y, ...)
 | 関数 | 意味 | 符号 |
 |---|---|---|
 | `wind_drag_ratio_array`／`wind_drag_ratio`（`wind.py`） | 走行方位・風向風速・走行速度から、相対風速ベクトルの二乗則で無風時に対する空気抵抗の増分（時速20km無風の抵抗を1とする倍率、`WIND_DRAG_REFERENCE_SPEED_MS`） | 正=向かい風、負=追い風、純横風は小さな正。速いほど同じ風で大きい |
-| `GradientCalculator.effective_gradient`（`gradient.py`） | 道路自身の勾配・向きと走行方位から実効勾配 | 正=登り、負=下り（大きさは道路自身の勾配のまま。直角付近はNoneで、呼び出し側が落とす） |
+| `GradientCalculator.effective_gradient`（`gradient.py`） | 道路自身の勾配・向きと走行方位から実効勾配 | 正=登り、負=下り（大きさは道路自身の勾配のまま。直角付近はNoneで、配信は`null`として配る） |
 
 `wind_drag_ratio_array`は走行方位との角度差を係数として物理量へ反映するが、
 **`effective_gradient`は角度で大きさを変えない**——道路自身の勾配をそのまま使い、走行方位で
 決めるのは符号（登り／下り）だけ。示せない向き（直角に近く、どちら向きに辿るかが決まらない）
-では同じ関数がNoneを返し、値そのものが配られない。同じ道路の逆方向（forward/backward）の
+では同じ関数がNoneを返し、値は`null`として配られる。同じ道路の逆方向（forward/backward）の
 `road_edges`行を使っても勾配の結果は変わらない（向きと勾配の符号が二重に反転して相殺する）。
 `wind_drag_ratio_array`は横風0のとき1次元式`sign(x)·x² − v²`（x=走行速度+
 向かい風成分）と一致し、追い風が走行速度を超える領域も連続。引数はスカラー・配列どちらも

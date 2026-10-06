@@ -139,3 +139,17 @@ def landcover_value_sql(key: str) -> str:
     """区間単位の土地被覆。道1本の値へは落とさない——区間の値は全区間ぶん計算されており、
     落とす先は「同じ道の平均」でしかない（区間ごとの違いを消す）。"""
     return f"em.lc_{key}"
+
+
+def aligned_length_weighted_mean_sql(value: str, reference_azimuth: str) -> str:
+    """区間の向きのある値（`value`。ジオメトリの始点→終点を正とする勾配等）を、基準の方位
+    `reference_azimuth`（ラジアン）へ向きを揃えてから区間の長さで重み付けた平均の集約式。
+    `GROUP BY`の中で、平均する区間を`re`・`em`として並べた行に対して使う。
+
+    向きは区間の方位とのcosの符号で揃える。勾配なら、各区間の勾配へ長さを掛けると長さが約分されて
+    標高差だけが残るため、全区間の向きが基準と揃う（cosが正）なら結果は両端の標高差を全長で割った値と
+    一致する（崖を下って上り返す道は打ち消し合って0になる）。値の無い区間は呼び出し側が除く——残すと
+    分母の長さだけに数えられる。
+    """
+    return (f"sum(({value}) * sign(cos(radians(re.bearing_deg) - {reference_azimuth})) * re.distance_m)"
+            " / sum(re.distance_m)")

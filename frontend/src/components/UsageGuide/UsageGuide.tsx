@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/Popover/Popover";
+import { Popover, PopoverAnchor, PopoverContent, POPOVER_COLLISION_PADDING_PX } from "@/components/ui/Popover/Popover";
 import { Button } from "@/components/ui/Button/Button";
 import { GuideText } from "@/components/ui/GuideText/GuideText";
 import { textVariants } from "@/components/ui/Text/Text";
@@ -46,11 +46,29 @@ export default function UsageGuide({ onEnd }: UsageGuideProps) {
   useEffect(() => {
     let down: { x: number; y: number } | null = null;
 
-    const choose = (pressed: EventTarget | null) => {
+    const choose = (pressed: EventTarget | null, end: () => void) => {
       const found = pressed instanceof Element ? usageTargetOf(pressed) : null;
       if (found) setTarget(found);
       // 説明を出している間に部品の外を押したら、説明を閉じる（ほかの浮きパネルと同じ）。
-      else if (targetRef.current) onEndRef.current();
+      else if (targetRef.current) end();
+    };
+    // 離したときに閉じると、その押し操作の残りのマウスの出来事（click 等）は閉じたあとに届くので、click まで止め続ける。
+    // click の来ない押し方（タッチの長押し等）でも残らないよう、次の押し操作かキー操作で止めるのをやめる。
+    const endByPress = () => {
+      const swallow = (event: Event) => {
+        event.stopPropagation();
+        event.preventDefault();
+        if (event.type === "click") release();
+      };
+      const release = () => {
+        for (const type of MOUSE_EVENTS) window.removeEventListener(type, swallow, true);
+        window.removeEventListener("pointerdown", release, true);
+        window.removeEventListener("keydown", release, true);
+      };
+      for (const type of MOUSE_EVENTS) window.addEventListener(type, swallow, true);
+      window.addEventListener("pointerdown", release, true);
+      window.addEventListener("keydown", release, true);
+      onEndRef.current();
     };
     const onPointerDown = (event: PointerEvent) => {
       if (isInGuide(event)) return;
@@ -66,7 +84,7 @@ export default function UsageGuide({ onEnd }: UsageGuideProps) {
       down = null;
       if (start === null) return;
       if (Math.hypot((event.clientX ?? 0) - start.x, (event.clientY ?? 0) - start.y) > TAP_SLOP_PX) return;
-      choose(event.target);
+      choose(event.target, endByPress);
     };
     const onPointerCancel = () => {
       down = null;
@@ -91,7 +109,7 @@ export default function UsageGuide({ onEnd }: UsageGuideProps) {
       if (event.key === "Enter" || event.key === " ") {
         event.stopPropagation();
         event.preventDefault();
-        choose(document.activeElement);
+        choose(document.activeElement, () => onEndRef.current());
       } else if (VALUE_KEYS.has(event.key)) {
         event.stopPropagation();
         event.preventDefault();
@@ -163,7 +181,7 @@ export default function UsageGuide({ onEnd }: UsageGuideProps) {
           {...{ [USAGE_GUIDE_ATTRIBUTE]: "" }}
           layer="guide"
           className="flex max-w-72 flex-col gap-1"
-          collisionPadding={8}
+          collisionPadding={POPOVER_COLLISION_PADDING_PX}
           aria-label="使い方の説明"
         >
           <div className="flex items-start justify-between gap-2">

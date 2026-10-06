@@ -6,7 +6,7 @@
 
 ここで見ないもの:
 - 地図表示の導出と段のラベル → `test_axis_display.py`、一次属性 → `test_axis_hierarchy.py`、
-  塗る値の種類と単位 → `test_dynamic_way_values.py`
+  塗る値の種類と単位 → `test_map_paint.py`
 - 換算係数を収録年から導くこと → `test_material_catalog.py`
 - タイルの世代 → `test_derived_data_revision_service.py`・`test_derived_data_meta.py`
 - 軸の項目を応答へそのまま写すこと（表示名・重み・チップの欄等）——書き写しで、判断が無い
@@ -162,7 +162,7 @@ def test_each_axis_carries_what_the_domain_derives_for_it(client, catalog_axes):
     assert categorical["display"]["tile_inputs"][0]["property"] == MATERIAL_CATALOG[SURFACE_ESTIMATE].tile_property
     assert categorical["primary_attribute_ids"] == ["surface"]
     signed = entries["axis_way_value_signed"]
-    assert (signed["map_value"], signed["map_value_unit"]) == (
+    assert (signed["map_paint"]["value"], signed["map_paint"]["unit"]) == (
         {"kind": "signed_material", "material": "gradient_percent"},
         "%",
     )
@@ -224,6 +224,22 @@ def test_get_axis_catalog_names_the_query_params_the_map_sends_for_a_dedicated_a
     assert set(entry["dynamic_way_value_conditions"]) == conditions
 
 
+# 「向きで決まらない」の凡例の行は、配信がその道を返しうる軸だけが持つ（返さない軸に出すと、どの道も入らない行になる）。
+@pytest.mark.parametrize(
+    ("material", "dedicated", "undetermined"),
+    [("gradient_percent", True, True), ("wind_drag_ratio", True, False), ("gradient_percent", False, False)],
+)
+def test_get_axis_catalog_tells_which_dedicated_axis_can_leave_a_road_undetermined_by_the_bearing(
+    client, material, dedicated, undetermined
+):
+    axis = axis_definition("axis_any_name", material=material, is_published=True, dedicated_way_value_layer=dedicated)
+    with replaced_axis_definitions({axis.axis_id: axis}):
+        response = client.get("/api/axis-catalog")
+
+    (entry,) = response.json()["axes"]
+    assert entry["dynamic_way_value_undetermined_by_bearing"] is undetermined
+
+
 def test_get_axis_catalog_includes_raw_value_unit(client, catalog_axes):
     # 得点の隣へ生値を出すための単位（domain/axis_raw_value.py: raw_value_unit）。
     # 勾配は単一材料をそのまま使うので%、内部軸を合成する軸は単位が定まらずnull。
@@ -234,8 +250,7 @@ def test_get_axis_catalog_includes_raw_value_unit(client, catalog_axes):
 
 
 def test_get_axis_catalog_includes_material_breakdown(client, catalog_axes):
-    # 単位が定まらない軸は、材料まで分解した内訳を持つ（得点だけでは軸単体で判断できない、
-    # docs/records/tasks/T689.md）。並びは正規化重みの降順で、フロントは並べ替えを持たない。
+    # 単位が定まらない軸は、材料まで分解した内訳を持つ（得点だけでは軸単体で判断できない）。並びは正規化重みの降順で、フロントは並べ替えを持たない。
     entries = _entries(client)
     # 単位が定まる軸は分解しない（軸単位の生値で足りる）。
     assert entries["axis_way_value_signed"]["material_breakdown"] == []

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { HttpResponse } from "msw";
 
+import { getQueryClient } from "@/lib/queryClient";
 import { heldReplies, inTurn, onBackend } from "@/testing/backendServer";
 
 import { useWeatherConditions } from "./useWeatherConditions";
@@ -28,7 +29,7 @@ let observations: ReturnType<typeof onBackend>;
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
-  onBackend("GET", WEATHER, json({ temperature_c: 20 }));
+  onBackend("GET", WEATHER, json({ precipitation_mm: 20 }));
   observations = onBackend("GET", AMEDAS, json({ temperature_c: 21 }));
   onBackend("GET", WARNINGS, json(NO_WARNINGS));
   onBackend("GET", WBGT, json(NO_WBGT));
@@ -39,11 +40,13 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-/** 取りに行く・応答を反映する、の非同期の段を最後まで進める（時間の早送りは取り直しの間隔だけ）。取得の結果は
- * 網を通って届くので、偽にしていない時計で届くまでの間をおく。 */
-async function settle() {
-  await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
-}
+// 取得の結果は網を通って届くので、偽にしていない時計で、取りに行った口が全部答え終えるまで待つ（届くまでの時間は
+// CI の負荷で変わる。時間の早送りは取り直しの間隔だけ）。答え終える前に間隔を早送りすると、取り直しが取得中の
+// ものに重なって要求を出さない。
+const fetched = () => vi.waitFor(() => expect(getQueryClient().isFetching()).toBe(0));
+
+/** 取りに行っていれば応答が届くだけの間をおく（取りに行かないことを確かめるため）。 */
+const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 50)));
 
 function render(location = TOKYO, ready = true) {
   return renderHook(({ location, ready }) => useWeatherConditions(location, ready), {
@@ -67,7 +70,7 @@ describe("useWeatherConditions 取得の時機", () => {
       Response.json({ warnings: [{ code: "03", name: `警報@${at(request)}`, level: "warning", additions: [] }] }),
     );
     onBackend("GET", WBGT, (request) =>
-      Response.json({ reading: { level: "warning", value: 29, label: `@${at(request)}`, observed_at: "" } }),
+      Response.json({ reading: { level: "warning", value: 29, label: `@${at(request)}` } }),
     );
     onBackend("GET", FLOOD, (request) =>
       Response.json({
@@ -75,50 +78,47 @@ describe("useWeatherConditions 取得の時機", () => {
       }),
     );
     const { result } = render();
-    await settle();
     const tokyo = `${TOKYO.latitude},${TOKYO.longitude}`;
-    expect(result.current.weather).toEqual({ place: tokyo });
-    expect(result.current.amedas).toEqual({ place: tokyo });
-    expect(result.current.warningBadgeItems.map((item) => item.label)).toEqual([
-      `警報@${tokyo}`,
-      `暑さ指数@${tokyo}`,
-      `氾濫@${tokyo}`,
-    ]);
+    await vi.waitFor(() => {
+      expect(result.current.weather).toEqual({ place: tokyo });
+      expect(result.current.amedas).toEqual({ place: tokyo });
+      expect(result.current.warningBadgeItems.map((item) => item.label)).toEqual([
+        `警報@${tokyo}`,
+        `暑さ指数@${tokyo}`,
+        `氾濫@${tokyo}`,
+      ]);
+    });
   });
 
   it("位置が変わったら、緯度・経度のどちらだけの違いでも新しい位置で取り直す", async () => {
     onBackend("GET", WEATHER, ({ query }) => Response.json({ place: `${query.latitude},${query.longitude}` }));
     const { result, rerender } = render();
-    await settle();
+    await fetched();
     for (const moved of [
       { ...TOKYO, longitude: YOKOHAMA.longitude },
       { latitude: YOKOHAMA.latitude, longitude: YOKOHAMA.longitude },
     ]) {
       rerender({ location: moved, ready: true });
-      await settle();
-      expect(result.current.weather).toEqual({ place: `${moved.latitude},${moved.longitude}` });
+      await vi.waitFor(() => expect(result.current.weather).toEqual({ place: `${moved.latitude},${moved.longitude}` }));
     }
   });
 
   // 取り直す回数はbackendの回数制限（429）に効くので、届いた要求を数える。
   it("開いたままでも10分ごとに取り直す", async () => {
     render();
-    await settle();
+    await fetched();
     expect(observations).toHaveLength(1);
     act(() => vi.advanceTimersByTime(10 * 60 * 1000));
-    await settle();
-    expect(observations).toHaveLength(2);
+    await vi.waitFor(() => expect(observations).toHaveLength(2));
   });
 
   it("取り終えたら読み込み中を下ろし、位置を変えて取り直す間は前の位置の値のまま読み込み中にする", async () => {
     const { result, rerender } = render();
-    await settle();
-    expect(result.current.weatherLoading).toBe(false);
+    await vi.waitFor(() => expect(result.current.weatherLoading).toBe(false));
     onBackend("GET", WEATHER, heldReplies().reply);
     rerender({ location: YOKOHAMA, ready: true });
-    await settle();
-    expect(result.current.weather).toEqual({ temperature_c: 20 });
-    expect(result.current.weatherLoading).toBe(true);
+    await vi.waitFor(() => expect(result.current.weatherLoading).toBe(true));
+    expect(result.current.weather).toEqual({ precipitation_mm: 20 });
   });
 });
 
@@ -128,23 +128,20 @@ describe("useWeatherConditions 失敗の扱い", () => {
       "GET",
       WEATHER,
       inTurn(
-        Response.json({ temperature_c: 20 }),
+        Response.json({ precipitation_mm: 20 }),
         Response.json({ detail: "予報を取得できませんでした" }, { status: 502 }),
-        Response.json({ temperature_c: 20 }),
+        Response.json({ precipitation_mm: 20 }),
       ),
     );
     const { result } = render();
-    await settle();
-    expect(result.current.weather).toEqual({ temperature_c: 20 });
+    await vi.waitFor(() => expect(result.current.weather).toEqual({ precipitation_mm: 20 }));
 
     act(() => vi.advanceTimersByTime(10 * 60 * 1000));
-    await settle();
-    expect(result.current.weatherError).toBe("予報を取得できませんでした");
-    expect(result.current.weather).toEqual({ temperature_c: 20 });
+    await vi.waitFor(() => expect(result.current.weatherError).toBe("予報を取得できませんでした"));
+    expect(result.current.weather).toEqual({ precipitation_mm: 20 });
 
     act(() => vi.advanceTimersByTime(10 * 60 * 1000));
-    await settle();
-    expect(result.current.weatherError).toBeNull();
+    await vi.waitFor(() => expect(result.current.weatherError).toBeNull());
   });
 });
 
@@ -160,11 +157,7 @@ describe("useWeatherConditions 警報のバッジ", () => {
         ],
       }),
     );
-    onBackend(
-      "GET",
-      WBGT,
-      json({ reading: { level: "warning", value: 29.04, label: "厳重警戒", observed_at: "2026/08/22 18:00:00" } }),
-    );
+    onBackend("GET", WBGT, json({ reading: { level: "warning", value: 29.04, label: "厳重警戒" } }));
     onBackend(
       "GET",
       FLOOD,
@@ -173,40 +166,42 @@ describe("useWeatherConditions 警報のバッジ", () => {
       }),
     );
     const { result } = render();
-    await settle();
-    expect(result.current.warningBadgeItems).toEqual([
-      {
-        id: "03",
-        label: "大雨警報",
-        level: "warning",
-        source: "jma",
-        title: "付随事項: 土砂災害・浸水害",
-      },
-      { id: "10", label: "雷注意報", level: "advisory", source: "jma" },
-      { id: "wbgt", label: "暑さ指数厳重警戒", level: "warning", source: "wbgt", title: "暑さ指数 29.0" },
-      { id: "flood-r1", label: "多摩川氾濫警戒", level: "warning", source: "flood", title: "氾濫警戒情報" },
-    ]);
+    await vi.waitFor(() =>
+      expect(result.current.warningBadgeItems).toEqual([
+        {
+          id: "03",
+          label: "大雨警報",
+          level: "warning",
+          source: "jma",
+          title: "付随事項: 土砂災害・浸水害",
+        },
+        { id: "10", label: "雷注意報", level: "advisory", source: "jma" },
+        { id: "wbgt", label: "暑さ指数厳重警戒", level: "warning", source: "wbgt", title: "暑さ指数 29.0" },
+        { id: "flood-r1", label: "多摩川氾濫警戒", level: "warning", source: "flood", title: "氾濫警戒情報" },
+      ]),
+    );
   });
 
   it("取得に失敗した出所はバッジを出さず、失敗として名前と理由を渡す（「警告なし」と読ませない）", async () => {
     onBackend("GET", WARNINGS, json({ warnings: [{ code: "03", name: "大雨警報", level: "warning", additions: [] }] }));
     const { result } = render();
-    await settle();
-    expect(result.current.warningBadgeItems).toHaveLength(1);
+    await fetched();
+    await vi.waitFor(() => expect(result.current.warningBadgeItems).toHaveLength(1));
 
     onBackend("GET", WARNINGS, failure("取得できませんでした。"));
     onBackend("GET", FLOOD, () => HttpResponse.error());
     act(() => vi.advanceTimersByTime(10 * 60 * 1000));
-    await settle();
+    await vi.waitFor(() =>
+      expect(result.current.warningFetchFailures).toMatchObject([
+        {
+          id: "jma",
+          label: "警報・注意報",
+          detail: "取得できませんでした。",
+          effect: "出ていてもバッジは表示されません。",
+        },
+        { id: "flood", label: "河川氾濫予報", detail: "河川氾濫予報の取得に失敗しました[通信エラー]" },
+      ]),
+    );
     expect(result.current.warningBadgeItems).toEqual([]);
-    expect(result.current.warningFetchFailures).toMatchObject([
-      {
-        id: "jma",
-        label: "警報・注意報",
-        detail: "取得できませんでした。",
-        effect: "出ていてもバッジは表示されません。",
-      },
-      { id: "flood", label: "河川氾濫予報", detail: "河川氾濫予報の取得に失敗しました[通信エラー]" },
-    ]);
   });
 });

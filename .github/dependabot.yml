@@ -1,5 +1,5 @@
-# 依存関係の既知脆弱性・更新をDependabotへ検知させる（改善計画「別の切り口」対応）。
-# 自動マージはしない。PRが立ったらCI（backend/frontend/api-contract）のgreenを確認して取り込む。
+# 依存関係の既知脆弱性・更新をDependabotへ検知させる。
+# 自動マージはしない。取り込み方は docs/conventions/flow.md「作る担当」の、依存の版上げを取り込むタスク。
 version: 2
 updates:
   - package-ecosystem: npm

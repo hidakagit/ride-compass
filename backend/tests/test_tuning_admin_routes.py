@@ -59,6 +59,7 @@ class Store:
             raise self.error
         self.saved.append((session, param_id, value))
         self.overridden.add(param_id)
+        return set(self.overridden)
 
 
 @pytest.fixture

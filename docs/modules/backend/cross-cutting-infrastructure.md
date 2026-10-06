@@ -19,19 +19,20 @@ DB接続・Redis・HTTPクライアント・レート制限・ログ・デバッ
 | api | `admin_auth.py` | 管理API共通の認可境界 |
 | api | `cache_policy.py` | 応答の`Cache-Control`（パスとポリシーの対応表・付与ミドルウェア） |
 | api | `dependencies.py`（横断的な部分のみ、他は各モジュール参照） | DI工場（公開関数は注入の口だけ） |
+| api | `finite_json_body.py` | 要求の本文のNaN・無限大を、アプリ全体の依存として経路の処理より前に422で断る（Starletteの本文の読み方はJSONの外の`NaN`・`Infinity`を通す） |
 | api | `rate_limit.py` | per-IPレート制限（`enforce_rate_limit`集約・`client_id`） |
 | api/routers | `health.py` | `/health`・`/api/debug/stats` |
 | api/routers | `debug_admin.py` | `debug_mode`のランタイム切替・直近ログ取得 |
 | infrastructure | `database.py` | PostGIS接続（SQLAlchemy） |
 | infrastructure | `redis_client.py` | Redis共有クライアント |
-| infrastructure | `redis_json_cache.py` | Redisへ持つcache-asideの共通骨格（JSONと生のバイト列） |
+| infrastructure | `redis_json_cache.py` | Redisへ持つcache-asideの共通骨格（JSON・生のバイト列・Hash） |
 | infrastructure | `http_client.py` | 外部API向け共有HTTPクライアント |
-| infrastructure | `process_resources.py` | プロセスで持ち回る接続と資源（HTTP・Redis・DBのエンジン・土地被覆ラスタ）を、lifespanのシャットダウン段でまとめて閉じる |
+| infrastructure | `process_resources.py` | プロセスで持ち回る接続と資源（HTTP・Redis・DBのエンジン・土地被覆ラスタ・ディスクのキャッシュ）を、lifespanのシャットダウン段でまとめて閉じる |
 | infrastructure | `rate_limiter.py` | プロセス内メモリのみの移動窓レート制限 |
 | infrastructure | `request_log.py` | 1リクエスト=1行のHTTPアクセスサマリログ、ログ1行の書式（リクエストIDの差し込みとJSTでの時刻整形）、500応答へのリクエストIDの付与 |
 | infrastructure | `response_compression.py` | 応答のgzip圧縮（対象content-typeのみ） |
 | infrastructure | `media_types.py` | 自前で作って配るタイルのメディアタイプ（MVT・PNG）。作る側・配る側・gzipの対象の判定が同じ値を読む |
-| infrastructure | `debug_log.py` | 外部I/O（外部API・タイル/標高キャッシュ）イベントのログと集計。集計の型（`ExternalCallStats`）はプロセス内のカウンタと`/api/debug/stats`の応答が共有する |
+| infrastructure | `debug_log.py` | 外部I/O（外部API・タイル/標高キャッシュ）イベントのログと集計。集計の型（`ExternalCallStats`）はプロセス内のカウンタと`/api/debug/stats`の応答が共有する（ヒット率・平均の計算元の回数・合計時間は応答に載せない） |
 | infrastructure | `debug_control.py` | `debug_mode`のランタイム切替・直近ログの保持 |
 | infrastructure | `admin_data_backup.py` | 管理データのバックアップが最後に置けてからの時間（`/health`が返す）。下の「取り直せない管理データのバックアップ」 |
 | infrastructure | `job_registry.py` | 汎用の非同期ジョブレジストリ（プロセス内メモリのみ） |
@@ -48,11 +49,9 @@ DB接続・Redis・HTTPクライアント・レート制限・ログ・デバッ
 | scripts | `run_probe.py` | 調査用のスクリプトを本番DBに対して走らせる（手元のPythonから本番DBを引くか、本番のbackendコンテナの中で走らせる）。手元実行では接続文字列をSQLAlchemy用と素のasyncpg用の両方の形で環境変数へ渡す。プローブの後ろに書いた引数はそのままプローブへ渡す |
 | scripts | `derived_distribution.py` | 派生の表の値の列ごとに、値のある割合と、型に応じた分布（数: 0でない割合・合計・分位・最大、真偽: 真の割合、文字: 種類の数）を1列1行で出す。表と列は`infrastructure/derived_data_freshness.py: derived_tables`・`value_columns`から導く。`--column`を付けなければ全部の値の列を測る。本番の派生の作り直しの前後を並べるための道具（[deployment-sync.md](../../conventions/deployment-sync.md)「派生データの作り直し」）。本番DBへは`run_probe.py`で当てる |
 | scripts | `_prod_env.py` | 本番へつなぐ道具（`run_probe.py`・`axis_apply.py`等）が共有する、手元の接続情報（`backend/.env.oracle.local`）の読み方。worktreeから打ったときは本体のチェックアウト側のファイルを読む（gitignore対象のファイルはworktreeへ写らない）。接続情報を渡す前に、このチェックアウトがorigin/masterより遅れていれば止まる（[setup.md](../../architecture/setup.md)「開発機の本体のチェックアウトの遅れ」） |
-| scripts | `check_db_connection.py` | `DATABASE_URL`（既定は`.env`）へつながるかだけを確かめる |
 | scripts | `drop_orphan_test_databases.py` | 作業ツリーごとに作られるPostGIS統合テストのDBのうち、作業ツリーが無くなったものを出し、`--drop`で落とす。どの作業ツリーのものかはDB自身のコメントから読む（名前から推測しない） |
 | scripts | `serve_e2e_live.py` | e2e-live（`frontend/e2e-live/`）のために、この作業ツリーのbackendを開発DBへ向けて空いたポートで起動し、路面タイルに道が出る起点を開発DBの区間から選んで、ビルドと実行のコマンドを出す（手順の正本は[testing.md](../../conventions/testing.md)） |
 | scripts | `serve_capture.py` | 撮影の道具（`frontend/scripts/capture.mjs`の`--backend`）のために、この作業ツリーのbackendを、起動の段（DBの軸定義の読み込み・定期ジョブ）を外して起動する。ルーターとミドルウェアは`main.py: app`のまま。DBを読む経路は失敗するので、撮影の道具はDBを読まない経路（タイルの中継等）だけをここへ向ける |
-| scripts | `dead_code_survey.py` | 本番の入力の源流（`scripts/`・`benchmarks/`・`main.py`とアプリの起動・ルートハンドラ等の入口）から参照をたどり、たどり着かない`app/`の定義を出す。テストは源流に含めない。曖昧な参照は生きている側へ倒す |
 | scripts | `audit_test_rewrite.py` | 実装から起こし直したテストを外から測る（実装を変えていないか・テストが読む`app.*`・対象の属性の出どころ・seams 数・実装へ1行も入らないテスト・そのテストだけが通す行が0行のテスト・カバレッジ・テストファイルごとの項目と関数と行の数・テストからしか使われない公開の名前の候補。テストは対象を読む母集団を並べて渡す。PostGISのテストはテスト用DBへ繋がるときだけ含める。`--ref`で前の版を一時の作業ツリーへ取り出して同じ母集団で測り、前後のカバレッジ・数と新たに未到達になった行を並べる。作業ツリーに無く前の版にあるテスト（消した・改名した）は前の測りにだけ入れる）。起こし直しの手順は[testing.md](../../conventions/testing.md) |
 
 ## Pydanticモデルの基底（`domain/strict_model.py`）
@@ -108,9 +107,12 @@ FastAPI(lifespan=lifespan)
         ├─ (5) 同じくAPSchedulerで気象庁MSM（風・降水の予報）の.omファイル定期同期ジョブを
         │       登録（interval=msm_sync_interval_minutes分＋next_run_time=now。初回は
         │       ローカルにファイルが無く、完了するまで風グリッド・ルート評価の風が使えない）
-        └─ (6) 同じくAPSchedulerでディスク永続キャッシュの旧世代掃除ジョブを登録
-                （trigger="date"で起動直後に1回だけ。世代を上げたデプロイの直後がこの
-                タイミングに当たる、docs/conventions/caching.md「無効化」参照）
+        ├─ (6) 同じくAPSchedulerでディスク永続キャッシュの旧世代掃除ジョブを登録
+        │       （trigger="date"で起動直後に1回だけ。世代を上げたデプロイの直後がこの
+        │       タイミングに当たる、docs/conventions/caching.md「無効化」参照）
+        └─ (7) 同じくAPSchedulerで地域タイルの旧世代掃除ジョブを登録（interval=24時間＋
+                next_run_time=now。世代は派生の作り直し・取込でも再起動なしに変わるため定期に回す。
+                [静的道路属性](static-road-attributes.md)「共通骨格」の旧世代の掃除）
         ▼
   CORSMiddleware → ContentTypeGZipMiddleware（応答のgzip圧縮）
             → CachePolicyMiddleware（Cache-Control付与、下記「Cache-Controlの一元化」節）
@@ -118,12 +120,14 @@ FastAPI(lifespan=lifespan)
             → CorrelationIdMiddleware（リクエストID付与、最も外側）
         ▼
   api_router（api/routers/__init__.py、全routerを集約）
+        │  全経路に掛かる依存（FastAPI(dependencies=...)）: reject_non_finite_json_body（finite_json_body.py）が
+        │  本文のNaN・無限大を経路の処理（管理APIの認可を含む）より前に422で断る
         ▼
       yield（アプリ稼働中）
         ▼
   シャットダウン: (1) APSchedulerを停止（`wait=False`）→
                  (2) プロセスで持ち回る接続と資源を閉じる（`process_resources.py: close_process_resources`。
-                     httpxクライアント・Redisクライアント・DBの2系統のエンジン・土地被覆ラスタ）
+                     httpxクライアント・Redisクライアント・DBの2系統のエンジン・土地被覆ラスタ・ディスクのキャッシュ）
 ```
 
 - ログレベルは`debug_mode`の値でINFO/DEBUGを切り替える（`main.py`のlogging.basicConfig）。
@@ -258,7 +262,7 @@ frontend側（`src/proxy.ts`）も同じ資格情報を別のBasic認証チェ�
 
 | エンドポイント | 認可 | 内容 |
 |---|---|---|
-| `GET /health` | 不要 | `status`・`commit`（デプロイされたコミットSHA）・`started_at`・`admin_data_backup_age_hours`（管理データのバックアップが最後に置けてからの時間。記録が無ければnull。下の「取り直せない管理データのバックアップ」） |
+| `GET /health` | 不要 | `status`・`commit`（デプロイされたコミットSHA）・`started_at`・`admin_data_backup_age_hours`（管理データのバックアップが最後に置けてからの時間。記録が無いか印のファイルが読めなければnull（読めない理由はWARNINGのログ）。下の「取り直せない管理データのバックアップ」） |
 | `GET /api/debug/stats` | 不要（集計値のみ、秘匿情報なし） | `debug_log.py`の集計（呼び出し数・エラー数・ヒット率・所要時間・429拒否数）と、予報（MSM）の同期の鮮度 |
 
 どちらも集計値だけで機微情報を含まないため無認証。本番DBがコードの期待に追いついているか
@@ -290,8 +294,13 @@ frontend側（`src/proxy.ts`）も同じ資格情報を別のBasic認証チェ�
 
 「Redisが使えるか確認→クライアント取得→`log_external_call`で計測→失敗は握り潰して
 未キャッシュ扱い→成否をサーキットブレーカーへ記録」という定型文を1本にまとめたもの。値の形で入口が分かれる——
-JSONは`get_json`/`set_json`、バイナリは文字列へデコードしない接続（`redis_client.py: get_redis_binary_client_or_none`）を
-通す`get_bytes`/`set_bytes`。`get_bytes`は呼び出し元の解釈関数へ生のバイト列を渡し、解釈できない値は未キャッシュ（miss）として扱う。呼び出し元はキー設計・TTL・値の意味づけだけを持つ。
+JSONは`get_json`/`set_json`、バイナリは`get_bytes`/`set_bytes`、観測所ごとのような複数の項目はHashの`get_hash`と、
+複数のキーのHashをTTLとともに1往復（pipeline）で書く`set_hashes`。接続は値を生のバイト列で返し、JSONはここでデコードする。
+`get_bytes`・`get_hash`は呼び出し元の解釈関数へ生のバイト列を渡し、解釈できない値は未キャッシュ（miss）として扱う。呼び出し元はキー設計・TTL・値の意味づけだけを持つ。
+
+読みの口は「値・保存なし（None）・取れない（`UNAVAILABLE`。冷却中・接続を作れない・コマンドの失敗）」の3通りを返す。
+保存なしなら上流から取り直して書けばよいが、取れない間に取り直すと上流へ同じ問い合わせを繰り返すので、
+取り直しの重い呼び出し元（アメダスの1時間雨量の履歴）はこれで分ける。分けない呼び出し元は両方を未キャッシュとして扱う。
 `simple_api_client.py: cached_fetch`がプロセス内`TTLCache`側で担っている役割の、Redis版。
 
 **fail-openが前提**: 扱うのはいずれも正本を持たないキャッシュのため、Redis障害・接続不能・
@@ -299,13 +308,13 @@ JSONは`get_json`/`set_json`、バイナリは文字列へデコードしない�
 経路へ進めるようにする。キャッシュの不調でアプリの機能を止めない。
 
 新しくRedisへ持つキャッシュはこれを使う（例: 気象庁タイル本体の`jma_tile_redis_cache`・在否インデックスの
-`jma_tile_index`）。タイル本体は値がバイナリ（PNG/PBF）なので`get_bytes`/`set_bytes`に乗せている。
+`jma_tile_index`・アメダスの`jma_amedas_store`）。タイル本体は値がバイナリ（PNG/PBF）なので`get_bytes`/`set_bytes`に乗せている。
 自前の骨格を持ってよい場合はdocs/conventions/caching.md「自前で骨格を書いてよい例外」が決める。
 
 ## Redisクライアント（`redis_client.py`、サーキットブレーカー）
 
-JMA気象データの短命キャッシュが使う共有接続。値を文字列で読み書きする接続と生のバイト列で読み書きする接続を
-1つずつ持ち、接続先とサーキットブレーカーは共有する。**接続/ソケットタイムアウトを明示的に0.2秒へ短縮**している（既定タイムアウトの
+JMA気象データの短命キャッシュが使う共有接続。値を生のバイト列で読み書きする接続を1本だけ持つ。
+接続を作れない（`redis_url`の誤り等）ときはサーキットブレーカーを開け、抑制付きWARNING（`cache:redis-client`）を出す。**接続/ソケットタイムアウトを明示的に0.2秒へ短縮**している（既定タイムアウトの
 ままだと疎通不能環境で1回の接続試行に数秒かかりうるため。ルート生成の
 ホットパスに乗ると「PostGIS往復を減らす」という本来の目的に反する遅延になる）。
 
@@ -469,15 +478,12 @@ push型更新と同じ前提）。`JobStatus = "queued"|"running"|"done"|"failed
 ## ログ集計の詳細（`debug_log.py: log_external_call`）
 
 `log_external_call(category, **fields)`はコンテキストマネージャで、`yield`されたdictへ
-呼び出し元が`cache="hit"/"miss"`・`result="ok"/"error"`・`retries=N`等を追記してから抜けると、
+呼び出し元が`cache="hit"/"miss"`・`result="ok"/"error"`等を追記してから抜けると、
 完了ログと`/api/debug/stats`の集計へ反映される。
 
 - 例外発生、または`fields["result"]=="error"`は抑制付きWARNINGで**常時**出力する。
   例外を捕まえて既定値へ倒す呼び出し元は`mark_failed(fields, exc)`で失敗を記録する
   （結果・例外の詳細・種別のラベルをまとめて書く。警告は抜けるときにここが出す）。
 - 成功はDEBUG（`debug_mode`時のみ実質出力）。
-- 集計（`/api/debug/stats`）にはカテゴリ単位で呼び出し数・エラー数・キャッシュhit/miss・
-  平均/最大所要時間に加え、`retried_calls`/`retry_attempts_total`（再試行回数）・
-  `stale_fallback_used`（`fields["fallback"]`が`"stale_cache"`で始まる場合、古い
-  キャッシュで代用した回数）・直近のエラー種別/時刻も
-  含む。
+- 集計（`/api/debug/stats`）はカテゴリ単位で呼び出し数・エラー数・キャッシュのヒット率・
+  平均/最大所要時間・エラー種別ごとの件数・直近のエラー種別/時刻を持つ。

@@ -11,7 +11,7 @@
 from dataclasses import fields
 from datetime import datetime
 from functools import partial
-from typing import Any, Callable, Iterable, Protocol, TypeVar, cast
+from typing import Any, Callable, Iterable, Mapping, Protocol, TypeVar, cast
 
 from app.domain.axis_definitions import AXIS_DEFINITIONS
 from app.domain.dynamic_way_values import (
@@ -40,7 +40,9 @@ class DedicatedWayValueService(Protocol[_Conditions]):
     material_id: str
     conditions_type: type[_Conditions]
 
-    async def get_way_values(self, z: int, x: int, y: int, conditions: _Conditions) -> dict[str, float]: ...
+    async def get_way_values(self, z: int, x: int, y: int, conditions: _Conditions) -> Mapping[str, float | None]:
+        """フィーチャーの鍵→値。Noneは、その道の値が走行方位で決まらないこと（値が無い道は鍵ごと除く）。"""
+        ...
 
 
 DedicatedWayValueServiceFactory = Callable[[RoadGraphRepository, WeatherService], DedicatedWayValueService[Any]]
@@ -54,6 +56,11 @@ class DedicatedWayValueServiceType(Protocol):
 
     @property
     def conditions_type(self) -> type: ...
+
+    @property
+    def undetermined_by_bearing(self) -> bool:
+        """走行方位しだいで値の決まらない道（`get_way_values`のNone）を返しうるか。"""
+        ...
 
     def build(
         self, repository: RoadGraphRepository, weather_service: WeatherService, material_id: str
@@ -140,6 +147,12 @@ def dedicated_way_value_conditions(axis_id: str) -> list[WayValueConditionName]:
     return [cast(WayValueConditionName, field.name) for field in fields(conditions_type)]
 
 
+def dedicated_way_value_undetermined_by_bearing(axis_id: str) -> bool:
+    """この軸の配信が、走行方位しだいで値の決まらない道を返しうるか。専用配信の軸でなければFalse。"""
+    material = _served_material_of(axis_id)
+    return material is not None and _SERVICES_BY_MATERIAL[material].undetermined_by_bearing
+
+
 class DirectionalMaterialService:
     """区間インスペクタが足す専用配信の材料（進行方向に依存する勾配・風、観測で変わる雨等）を引く。"""
 
@@ -150,18 +163,18 @@ class DirectionalMaterialService:
         self,
         osm_way_id: int,
         feature_key: str | None,
-        z: int | None,
-        x: int | None,
-        y: int | None,
+        z: int,
+        x: int,
+        y: int,
         at: datetime | None,
-        bearing_deg: float | None,
+        bearing_deg: float,
         speed_kmh: float | None,
     ) -> dict[str, float]:
         """専用配信の材料を、指定された条件でまとめて引く。
 
         進行方向に依存する材料は**1本の道が往復2方向で値が違う**ため、方向が決まらないと算出できない。
-        サービスが要る条件（`assemble_conditions`）が揃った材料だけを引き、揃わない材料は飛ばす
-        （呼び出し側では「データなし」になる）。
+        サービスが要る条件（`assemble_conditions`）が揃った材料だけを引き、揃わない材料と、その向きでは
+        値が決まらない材料は飛ばす（呼び出し側では「データなし」になる）。
 
         **軸を名指ししない**——専用配信を持つ軸を回し、それぞれが参照する材料を引く。軸が増えても
         ここは変わらない。同じ材料を参照する軸が複数あっても、材料ごとに1回だけ引く。
@@ -169,8 +182,6 @@ class DirectionalMaterialService:
         値は地図のレンズが引くのと同じ経路（同じキャッシュ）から取るので、**地図の色と
         内訳が一致する**。
         """
-        if z is None or x is None or y is None:
-            return {}
         materials = {material for material in map(_served_material_of, AXIS_DEFINITIONS) if material is not None}
         query = WayValueQuery(at=at, bearing_deg=bearing_deg, speed_kmh=speed_kmh)
 
@@ -181,7 +192,7 @@ class DirectionalMaterialService:
             conditions = assemble_conditions(service.conditions_type, query)
             if isinstance(conditions, MissingConditions):
                 continue
-            values = await service.get_way_values(z, x, y, conditions)
-            if key in values:
-                found[material] = values[key]
+            value = (await service.get_way_values(z, x, y, conditions)).get(key)
+            if value is not None:
+                found[material] = value
         return found

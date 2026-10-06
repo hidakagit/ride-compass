@@ -13,13 +13,15 @@ import type { MapSceneFeatureStates, MapSceneFeatureStateValue } from "@/feature
 import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "@/features/map/scene/mapSceneGroups";
 import type { RampAxis } from "@/lib/mapDisplay/axisLayers";
 import { noDataDashExpression } from "@/features/map/scene/sceneBuilders";
-import { LEGEND_NO_DATA_KEY } from "@/lib/mapDisplay/mapColorLegend";
+import { LEGEND_NO_DATA_KEY, LEGEND_UNDETERMINED_KEY } from "@/lib/mapDisplay/mapColorLegend";
 
 import { ROAD_LINE_SOURCE_ID, ROAD_TRACKS } from "./roadLines";
 
 /** 材料が同時に出ているときの下敷き。**材料の線が全部出たときの帯幅**から決まるので、
  * トラックが増えれば自動で広がる（直書きすると追従しない）。 */
 const UNDERLAY_WIDTH_PX = (ROAD_TRACKS.length - 1) * mapDisplay.road.trackOffsetStepPx + mapDisplay.road.lineWidthPx;
+/** 点数を難易度の桁へ丸めるときに掛ける数。 */
+const DIFFICULTY_SCALE = 10 ** mapDisplay.valueScale.difficultyDecimals;
 /** 段1つぶん。境界は下限で、判定は`>= 下限`・`< 次の下限`。 */
 export type AxisBand = {
   readonly key: string;
@@ -32,8 +34,9 @@ type AxisValueSource =
    * 倒してあるため null にならず、評価できない道は `unknown`（真になる式）が示す。
    * 不明という状態を持たない軸は null。 */
   | { readonly kind: "tile"; readonly expression: unknown; readonly unknown: unknown }
-  /** 配信された値。feature-state で載せるため、絞り込みからは読めない。値が無い道は null。 */
-  | { readonly kind: "delivered"; readonly values: ReadonlyMap<string, number>; readonly loading: boolean };
+  /** 配信された値。feature-state で載せるため、絞り込みからは読めない。値が無い道は鍵ごと無く、
+   * 走行方位で値が決まらない道は null。 */
+  | { readonly kind: "delivered"; readonly values: ReadonlyMap<string, number | null>; readonly loading: boolean };
 
 export type AxisLineState = {
   readonly axes: readonly {
@@ -52,6 +55,11 @@ export type AxisLineState = {
 /** feature-state のキー。軸idから機械的に決める（同じソースへ複数の軸が値を載せるため）。 */
 function axisFeatureStateKey(axisId: string): string {
   return `${axisId}Value`;
+}
+
+/** 走行方位で値が決まらない道の feature-state のキー。値と同じキーへ番兵で載せると、段の大小比較に文字列が混ざる。 */
+function axisUndeterminedStateKey(axisId: string): string {
+  return `${axisId}Undetermined`;
 }
 
 function valueExpression(axisId: string, value: AxisValueSource): unknown {
@@ -86,6 +94,15 @@ function colorExpression(axisId: string, axis: AxisLineState["axes"][number]): u
   }
   const missing = missingCondition(axisId, axis.value);
   if (missing === null) return ["case", ...cases, palette.semantic.no_data];
+  const undetermined =
+    axis.value.kind === "delivered"
+      ? [
+          ["boolean", ["feature-state", axisUndeterminedStateKey(axisId)], false],
+          axis.hiddenBandKeys.includes(LEGEND_UNDETERMINED_KEY)
+            ? palette.semantic.hidden
+            : palette.semantic.undetermined,
+        ]
+      : [];
   // 取得中の色は「値なし」を隠していても残す——消すと「まだ来ていない」と「隠した」が
   // 区別できなくなる。
   const missingColor = loading
@@ -93,14 +110,21 @@ function colorExpression(axisId: string, axis: AxisLineState["axes"][number]): u
     : axis.hiddenBandKeys.includes(LEGEND_NO_DATA_KEY)
       ? palette.semantic.hidden
       : palette.semantic.no_data;
-  return ["case", missing, missingColor, ...cases, palette.semantic.no_data];
+  return ["case", ...undetermined, missing, missingColor, ...cases, palette.semantic.no_data];
 }
 
 function featureStatesFor(state: AxisLineState): MapSceneFeatureStates {
   const states = new Map<string, ReadonlyMap<string, MapSceneFeatureStateValue>>();
   for (const axis of state.axes) {
     if (axis.value.kind !== "delivered") continue;
-    states.set(axisFeatureStateKey(axis.axisId), axis.value.values);
+    const values = new Map<string, number>();
+    const undetermined = new Map<string, true>();
+    for (const [featureId, value] of axis.value.values) {
+      if (value === null) undetermined.set(featureId, true);
+      else values.set(featureId, value);
+    }
+    states.set(axisFeatureStateKey(axis.axisId), values);
+    states.set(axisUndeterminedStateKey(axis.axisId), undetermined);
   }
   return states;
 }
@@ -200,9 +224,9 @@ export function buildAxisRampValueExpression(axis: RampAxis): unknown[] {
     }
     if (input.breakpoints) {
       // 欠損は寄与0にする。coalesceで端へ倒すとinterpolateが端の値（例: -1）を返し、寄与0にならない。
-      // 点数は小数1桁へ丸める（ちょうど半分の丸めの向きは、2進の値で丸める評価と違いうる）。
+      // 点数は難易度の桁へ丸める（ちょうど半分の丸めの向きは、2進の値で丸める評価と違いうる）。
       const interpolated = ["interpolate", ["linear"], ["get", input.property], ...input.breakpoints.flat()];
-      const score = ["/", ["round", ["*", interpolated, 10]], 10];
+      const score = ["/", ["round", ["*", interpolated, DIFFICULTY_SCALE]], DIFFICULTY_SCALE];
       const value = input.weight === 1 ? score : ["*", score, input.weight];
       return ["case", ["!", ["has", input.property]], 0, value];
     }

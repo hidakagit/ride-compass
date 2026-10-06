@@ -9,14 +9,14 @@ import hashlib
 
 from app.infrastructure.jma_tile_content import is_empty_tile
 from app.infrastructure.jma_tile_recolor import RECOLOR_VERSION
-from app.infrastructure.redis_json_cache import get_bytes, set_bytes
+from app.infrastructure.redis_json_cache import UNAVAILABLE, get_bytes, set_bytes
 
 # 保存するのは中継が塗り替えたあとのタイルなので、塗り替えの版を鍵に入れる。
 _KEY_PREFIX = f"jma:tile:{RECOLOR_VERSION}"
 _CATEGORY = "cache:jma-tile-redis"
 # プリウォーム間隔（jma_tile_prewarm_service.py、10分）より余裕を持たせ、1回のプリウォーム
 # 失敗・遅延で即座に空にならないようにする。
-_TTL_SECONDS = 20 * 60
+TTL_SECONDS = 20 * 60
 
 
 class EmptyTile:
@@ -29,7 +29,7 @@ class EmptyTile:
 
     配信された一時点に対する結果のため、再フェッチしても変わらない。実際のタイル内容と同じキー・TTLで
     保持し、次回以降は上流へ問い合わせず即座に返せるようにする。配信前にも返る404（コマごとの地物）は
-    確定しないので、この事実として持たない（`domain/jma_tile_specs.py: is_final_absence`）。"""
+    確定しないので、この事実として持たない（`infrastructure/jma_tile_paths.py: is_final_absence`）。"""
 
 
 EMPTY_TILE = EmptyTile()
@@ -56,7 +56,8 @@ async def get(path: str) -> tuple[bytes, str] | EmptyTile | None:
     """Redisキャッシュ済みなら(内容, Content-Type)または`EMPTY_TILE`を返す。
     未キャッシュ・Redis障害時はNone（呼び出し元は通常のオンデマンドフェッチへ
     フォールバックする）。"""
-    return await get_bytes(_key(path), decode=_decode, category=_CATEGORY, path=path)
+    cached = await get_bytes(_key(path), decode=_decode, category=_CATEGORY, path=path)
+    return None if cached is UNAVAILABLE else cached
 
 
 async def set(path: str, content: bytes, content_type: str) -> None:
@@ -70,9 +71,9 @@ async def set(path: str, content: bytes, content_type: str) -> None:
         await set_empty(path)
         return
     value = content_type.encode("latin-1", errors="replace") + b"\0" + content
-    await set_bytes(_key(path), value, ttl_seconds=_TTL_SECONDS, category=_CATEGORY, path=path)
+    await set_bytes(_key(path), value, ttl_seconds=TTL_SECONDS, category=_CATEGORY, path=path)
 
 
 async def set_empty(path: str) -> None:
     """このパスに描くものが無いと確認したときに呼ぶ（上流の確定した404、または200で返った空タイル）。"""
-    await set_bytes(_key(path), b"", ttl_seconds=_TTL_SECONDS, category=_CATEGORY, path=path)
+    await set_bytes(_key(path), b"", ttl_seconds=TTL_SECONDS, category=_CATEGORY, path=path)

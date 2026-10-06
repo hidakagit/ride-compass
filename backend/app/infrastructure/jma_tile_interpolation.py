@@ -18,22 +18,24 @@ import io
 
 import mapbox_vector_tile
 from PIL import Image
+from shapely import union_all
 from shapely.affinity import scale, translate
 from shapely.geometry import GeometryCollection, box, shape
 from shapely.geometry.base import BaseGeometry
 
-from app.domain.jma_tile_specs import JmaTile, jma_tile_path, jma_tile_spec, read_jma_tile_path, tile_extension
+from app.domain.jma_tile_specs import JmaTile, jma_tile_path
+from app.infrastructure.jma_tile_paths import read_jma_tile_path
 
 class TileCoords:
     """タイルパスから読み取った座標と、親タイルのパスを組み立てる手段。"""
 
-    def __init__(self, tile: JmaTile):
+    def __init__(self, tile: JmaTile, ext: str):
         self._tile = tile
         self.element = tile.element_id
         self.z = tile.z
         self.x = tile.x
         self.y = tile.y
-        self.ext = tile_extension(jma_tile_spec(tile.element_id))
+        self.ext = ext
 
     def parent_path(self) -> str:
         """1段上（z-1）のタイルのパス。"""
@@ -48,7 +50,8 @@ class TileCoords:
 def parse_tile_path(path: str) -> TileCoords | None:
     """タイルパスを解析する。タイル以外（時刻一覧・地点のGeoJSON等）と宣言の無い要素はNone。"""
     tile = read_jma_tile_path(path)
-    return None if tile is None else TileCoords(tile)
+    # 読み戻せたパスはテンプレートどおりに拡張子（ベクタは`pbf`、ラスタは`png`）で終わる。
+    return None if tile is None else TileCoords(tile, path.rsplit(".", 1)[1])
 
 
 def crop_and_upscale(parent_png: bytes, quadrant: tuple[int, int]) -> bytes:
@@ -82,15 +85,13 @@ def _same_family_parts(clipped: BaseGeometry, family: str) -> BaseGeometry | Non
 
     線を矩形で切ると、辺に接した箇所が点として混ざったGeometryCollectionになることがある。
     元が線なら線だけを残す（点は描画に寄与せず、MVTのエンコードでも型が揃わない）。
+    残る部分が複数ならMulti系の1つの形へまとめる（MVTはGeometryCollectionをエンコードできない）。
     """
     if clipped.is_empty:
         return None
     if isinstance(clipped, GeometryCollection):
         parts = [g for g in clipped.geoms if _geometry_family(g) == family and not g.is_empty]
-        if not parts:
-            return None
-        merged = GeometryCollection(parts)
-        return merged if len(parts) > 1 else parts[0]
+        return union_all(parts) if parts else None
     return clipped if _geometry_family(clipped) == family else None
 
 

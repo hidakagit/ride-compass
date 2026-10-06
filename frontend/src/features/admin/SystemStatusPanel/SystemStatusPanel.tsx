@@ -132,15 +132,9 @@ export default function SystemStatusPanel({ open, onClose }: SystemStatusPanelPr
               </TableHead>
               <TableBody>
                 {externalEntries.map(([category, s]) => {
-                  // エラーセルのtitleに内訳（原因別件数・再試行状況・stale代用回数）を出す。
+                  // エラーセルのtitleに原因別件数を出す。
                   // 一覧に列を増やさずとも「429かタイムアウトか」等をホバーで確認できるようにする。
                   const errorTypeParts = Object.entries(s.error_types).map(([type, count]) => `${type}:${count}`);
-                  if (s.retried_calls > 0) {
-                    errorTypeParts.push(`再試行あり ${s.retried_calls}件(延べ${s.retry_attempts_total}回)`);
-                  }
-                  if (s.stale_fallback_used > 0) {
-                    errorTypeParts.push(`古いキャッシュで代用 ${s.stale_fallback_used}件`);
-                  }
                   return (
                     <TableRow
                       key={category}

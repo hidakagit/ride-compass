@@ -23,7 +23,6 @@ function distribution(overrides: Partial<ValueDistribution> = {}): ValueDistribu
       [0, 0, 0.25],
       [40, 60, 0.75],
     ],
-    zero_share: 0.25,
     ...overrides,
   };
 }

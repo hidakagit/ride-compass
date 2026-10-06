@@ -166,8 +166,15 @@ def test_a_line_keeps_only_its_line_parts_when_it_also_touches_the_edge_at_a_poi
     assert [(f["properties"]["name"], f["geometry"]["type"]) for f in features] == [("crossing", "LineString")]
 
 
-def test_a_line_split_into_several_pieces_keeps_every_piece():
-    line = LineString([(100, 3000), (100, 1000), (1500, 1000), (1500, 3000)])
+@pytest.mark.parametrize(
+    "line",
+    [
+        LineString([(100, 3000), (100, 1000), (1500, 1000), (1500, 3000)]),
+        # 割れたうえで縁に1点だけ触れると、切り出しは線2本と点の混ざったものになる。
+        LineString([(100, 3000), (100, 1000), (1500, 1000), (1500, 3000), (2500, 3000), (HALF + EXTENT // 128, 3500), (2500, 3800)]),
+    ],
+)
+def test_a_line_split_into_several_pieces_keeps_every_piece(line):
     parent = mvt(feature(line))
 
     [piece] = decoded(crop_and_upscale_mvt(parent, (0, 0)))["flood"]["features"]

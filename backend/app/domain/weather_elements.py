@@ -187,7 +187,7 @@ def weather_element_tile(element: WeatherElement) -> JmaTileSpec | None:
     if not element.jma_elements:
         raise ValueError(f"タイルで描く要素に配信要素idが無い: {element.group}/{element.source}")
     specs = [jma_tile_spec(element_id) for element_id in element.jma_elements]
-    shapes = {(spec.min_zoom, effective_max_zoom(spec), spec.vector_layer) for spec in specs}
+    shapes = {(effective_max_zoom(spec), spec.vector_layer) for spec in specs}
     if len(shapes) > 1:
         raise ValueError(f"時刻の段の間でタイルのズーム範囲が食い違う: {element.group}/{element.source} {shapes}")
     return specs[0]

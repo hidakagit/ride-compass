@@ -78,7 +78,7 @@ def ordered_colors(count: int) -> list[str]:
     ]
 
 
-def nominal_colors(hue_slot: int, count: int, tone: str | None = None) -> list[str]:
+def nominal_colors(hue_slot: int, count: int, tone: str | None) -> list[str]:
     """順序を持たない列挙の1軸ぶん。起点から色相環を行数で等分する。**同じ起点・同じ行数・同じ段なら
     常に同じ色**（行を足すと、その軸の色は配り直される）。"""
     if not 0 <= hue_slot < NOMINAL_HUE_SLOTS:
@@ -102,6 +102,9 @@ SEMANTIC_COLORS: dict[str, str] = {
     # **取得中と対象外は見分けられる明度差を保つ**（同じに見えると「壊れている」と読まれる）。
     "no_data": "#9ca3af",
     "loading": "#d1d5db",
+    # 走行方位で値が決まらない道。値が無い道（no_data）と見分けるため、灰色の系統から外し、評価・下りの配色の
+    # どれにも寄らない紫にする。
+    "undetermined": "#a78bfa",
     "hidden": "rgba(0,0,0,0)",
     # 利用者が作った線。基礎地図の主要道路（暖色系）に溶け込まない寒色を参考線に、
     # 乗り換えと合成には暖色を使う。

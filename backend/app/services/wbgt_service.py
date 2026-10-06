@@ -12,13 +12,15 @@ import numpy as np
 from app.domain.warning_levels import WarningBadgeLevel
 from app.domain.route import Coordinates
 from app.domain.geo import nearest_point_index
-from app.domain.wbgt import WbgtForecast, current_forecast, is_within_provision_period, wbgt_level
+from app.domain.wbgt import (
+    FORECAST_SEARCH_WINDOW_HOURS,
+    WbgtForecast,
+    current_forecast,
+    is_within_provision_period,
+    wbgt_level,
+)
 from app.infrastructure.wbgt_client import fetch_forecast, fetch_point_master
 from app.domain.strict_model import StrictModel
-
-# 発表（reference_time）は概ね毎時だが遅延もありうるため、直近この時間幅で発表時刻を
-# 検索する（1〜2時間の遅延は起こりうる前提で余裕を持たせる）。
-_FORECAST_SEARCH_WINDOW_HOURS = 6
 
 logger = logging.getLogger("ridecompass.wbgt_service")
 
@@ -27,7 +29,6 @@ class WbgtReading(StrictModel):
     level: WarningBadgeLevel
     label: str
     value: float
-    observed_at: str
 
 
 class WbgtStatus(StrictModel):
@@ -61,9 +62,7 @@ class WbgtService:
         if level_info is None:
             return _empty_status()
         level, label = level_info
-        return WbgtStatus(
-            reading=WbgtReading(level=level, label=label, value=forecast.wbgt, observed_at=forecast.forecast_time_text)
-        )
+        return WbgtStatus(reading=WbgtReading(level=level, label=label, value=forecast.wbgt))
 
     async def _current_forecast(self, point: Coordinates, now: datetime) -> WbgtForecast | None:
         points = await fetch_point_master(self._http_client, self._point_master_cache)
@@ -78,7 +77,7 @@ class WbgtService:
             return None
         nearest = points[nearest_index]
 
-        range_from = now - timedelta(hours=_FORECAST_SEARCH_WINDOW_HOURS)
+        range_from = now - timedelta(hours=FORECAST_SEARCH_WINDOW_HOURS)
         forecasts = await fetch_forecast(self._http_client, nearest.no, range_from, now, self._forecast_cache)
         if forecasts is None:
             return None

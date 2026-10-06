@@ -6,6 +6,7 @@ OSMは中央分離帯のある道路の上下線を別々のwayとして持ち�
 逆方向は数m隣にある）。判定は逆向きに並走する相方の有無で行う。
 """
 
+from app.domain.geo import degrees_covering_m
 from app.domain.traffic import DIRECTION_BACKWARD, one_way_sql
 
 #: 同じ路線番号/名前を持つ相方を探すときの横方向の距離（m）。名前が一致している時点で
@@ -16,12 +17,6 @@ NAMED_GAP_M = 40.0
 #: と、街区を挟んで並ぶ別々の一方通行路地の間隔（中央値20m弱）が分布として分かれる、
 #: その谷間に置く値。
 GEOMETRIC_GAP_M = 15.0
-
-#: 前置フィルタの箱を度へ直すときの、1度あたりの距離（m）。**距離の判定より必ず広い箱に
-#: なるよう小さめに取る**——箱の方が狭いと、距離をいくつに設定しても箱の大きさが実効の
-#: 上限になり、しきい値を緩めても何も変わらない。関東の緯度では経度1度が89〜91kmのため、
-#: 80,000mなら常に広い側へ倒れる。
-PREFILTER_METERS_PER_DEGREE = 80_000.0
 
 #: 「逆向き」と見なす進行方位の差の許容（度、180度からのずれ）。カーブの途中で上下線の
 #: 向きがずれるぶんを吸収する。
@@ -58,8 +53,9 @@ def divided_sql(row: str, candidates: str) -> str:
     `facts_sql`の列を持つ。
     """
     fractions = ", ".join(str(f) for f in SAMPLE_FRACTIONS)
-    named_deg = NAMED_GAP_M / PREFILTER_METERS_PER_DEGREE
-    geometric_deg = GEOMETRIC_GAP_M / PREFILTER_METERS_PER_DEGREE
+    # 前置フィルタの箱は距離の判定より必ず広く取る——箱の方が狭いと、箱の大きさが距離の実効の上限になる。
+    named_deg = degrees_covering_m(NAMED_GAP_M)
+    geometric_deg = degrees_covering_m(GEOMETRIC_GAP_M)
     tag_values = ", ".join(f"'{value}'" for value in TAG_VALUES)
     antiparallel = _antiparallel_sql(row)
     return f"""{one_way_sql(f"{row}.direction")} AND {row}.travel_deg IS NOT NULL AND (
@@ -101,6 +97,6 @@ def divided_sql(row: str, candidates: str) -> str:
            )"""
 
 
-def map_oneway_sql(direction: str, divided: str) -> str:
-    """地図に一方通行として出すかのSQL式。上下線が分かれた道の片側は外す。"""
+def oneway_material_sql(direction: str, divided: str) -> str:
+    """一方通行の道かのSQL式（材料`oneway`の値）。上下線が分かれた道の片側は外す。"""
     return f"{one_way_sql(direction)} AND NOT COALESCE({divided}, false)"

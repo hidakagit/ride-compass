@@ -51,14 +51,14 @@ HARD_FILTER_LABELS: dict[str, str] = {
 # ——キー完全一致で検証するため、片方だけ増えた瞬間にすべてのルート生成が422になる。
 HARD_FILTER_NAMES: frozenset[str] = frozenset({*HARD_FILTER_TAG_PREDICATE_SQL, *HARD_FILTER_HIGHWAY_TYPES})
 
-# 既定レシピは全フィルタを常時有効にする。「受け付けるキー」と「既定でONのキー」は別の
+# 画面の既定は全フィルタを有効にする。「受け付けるキー」と「既定でONのキー」は別の
 # 概念で、たまたま一致している。
 DEFAULT_HARD_FILTERS: frozenset[str] = HARD_FILTER_NAMES
 
 
 def _highway_is_one_of_sql(highway_types: frozenset[str]) -> str:
     listed = ", ".join(f"'{value}'" for value in sorted(highway_types))
-    return f"COALESCE({HIGHWAY_SQL} IN ({listed}), false)"
+    return f"{HIGHWAY_SQL} IN ({listed})"
 
 
 # フィルタ名→「その区間が該当するか」をSQLで表す式。材料を読むクエリがこの名前のまま
@@ -108,18 +108,13 @@ def compute_hard_filter_excluded(
 
     `hard_filter_flags`は`HARD_FILTER_NAMES`のフィルタ名→該当フラグ配列で、**キー集合の
     完全一致を要求する**——欠けたフィルタは黙って無効になり、高速道路や`bicycle=no`の道が
-    そのまま候補へ入る。`hard_filters`の名前も同じ理由で宣言に無いものを拒む
-    （綴り間違いが「そのフィルタを切った」と区別できない）。フィルタを1つ増やしても
-    この関数は変わらない。
+    そのまま候補へ入る。フィルタを1つ増やしてもこの関数は変わらない。
     """
     if set(hard_filter_flags) != HARD_FILTER_NAMES:
         raise ValueError(
             f"0次フィルタの列が宣言と違います 不足={sorted(HARD_FILTER_NAMES - set(hard_filter_flags))} "
             f"未知={sorted(set(hard_filter_flags) - HARD_FILTER_NAMES)}"
         )
-    unknown = hard_filters - HARD_FILTER_NAMES
-    if unknown:
-        raise ValueError(f"宣言に無い0次フィルタ名: {sorted(unknown)}")
     excluded = np.zeros(len(gradient_percent), dtype=bool)
     for filter_name, flags in hard_filter_flags.items():
         if filter_name in hard_filters:

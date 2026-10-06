@@ -13,6 +13,11 @@
 services/weather_service.pyのget_wind_grid、APIエンドポイントはapi/routers/weather.py）。
 """
 
+from datetime import datetime
+from typing import Annotated
+
+from pydantic import PlainSerializer
+
 from app.domain.region import BoundingBox
 from app.domain.route import Coordinates
 from app.domain.strict_model import StrictModel
@@ -111,5 +116,6 @@ class WindGridResponse(StrictModel):
     時刻配列を1本だけ持つ（各`WindGridPoint`は自分の値配列のみを持ち、インデックスは
     `times`と揃っている）。全地点取得失敗等で`points`が空の場合は`times`も空になる。"""
 
-    times: list[str]
+    #: JSTのローカル時刻を分までのISO文字列（タイムゾーン指定なし）で出す。画面の時刻の読み方と揃える。
+    times: list[Annotated[datetime, PlainSerializer(lambda moment: moment.strftime("%Y-%m-%dT%H:%M"), return_type=str)]]
     points: list[WindGridPoint]

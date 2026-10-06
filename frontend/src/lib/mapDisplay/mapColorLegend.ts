@@ -16,7 +16,7 @@ export interface MapColorLegendBand {
 
 /** 段階の安定キー。**ルート確定前の全道路の塗りとルート確定後のルート線が同じ段階を同じ
  * キーで指す**ため、片方で非表示にした段階はもう片方でも非表示のまま引き継がれる
- * （どちらも同じ`map_value_thresholds`で同じ順に段階を並べる）。 */
+ * （どちらも同じ`map_paint.thresholds`で同じ順に段階を並べる）。 */
 function legendBandKey(index: number): string {
   return `step-${index}`;
 }
@@ -30,6 +30,18 @@ export const NO_DATA_LEGEND_BAND: MapColorLegendBand = {
   key: LEGEND_NO_DATA_KEY,
   ...mapDisplay.legendSharedRows.noData,
   color: palette.semantic.no_data,
+  isFallback: true,
+};
+
+/** 走行方位で値が決まらない地物の段階キー。 */
+export const LEGEND_UNDETERMINED_KEY = "undetermined";
+
+/** 走行方位で値が決まらない地物の行。値が無い行（`NO_DATA_LEGEND_BAND`）とは別の色で、配信がその地物を返しうる軸
+ * （軸カタログの`dynamic_way_value_undetermined_by_bearing`）の凡例にだけ出す。 */
+export const UNDETERMINED_LEGEND_BAND: MapColorLegendBand = {
+  key: LEGEND_UNDETERMINED_KEY,
+  ...mapDisplay.legendSharedRows.undetermined,
+  color: palette.semantic.undetermined,
   isFallback: true,
 };
 

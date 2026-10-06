@@ -2,21 +2,30 @@
 
 入口は`map_layer_label`（レイヤーの名前）と、生成物として画面へ配る宣言そのもの。宣言どうしは名前（`key`）で
 指し合い、型はその名前が実在することを保証しないので、指した先があることを確かめる。描く寸法の値そのものは見ない
-（宣言の書き写しになる）。
+（宣言の書き写しになる）。レイヤーの説明は、ほかの宣言から差し込む部分だけを見る。
 
 ここで見ないもの:
 - 気象の要素の宣言（チップ・名前付きソース・コマの規則）→ `test_weather_elements.py`
 - 一次属性の行の色と、値の無い道の線が地色から見えること → `test_display_palette.py`
 - 一次属性の表示の行の宣言 → `test_material_catalog.py`
 - 宣言を生成物へ書き出すこと → `scripts/export_openapi.py`の生成物のドリフト検査
+- 説明の差し込み口を軸カタログの値で埋めること → frontend `mapLayers.test.ts`
 """
 
 import pytest
 
 from app.domain import map_display
+from app.domain.landcover import LANDCOVER_CLASSES
 from app.domain.map_display import MapLayerSpec, map_layer_label
+from app.domain.weather_elements import WEATHER_ELEMENTS
 
 ALL_SPECS = [spec for _, spec in map_display.MAP_LAYERS] + list(map_display.AXIS_LAYER_SPECS.values())
+LAYERS = dict(map_display.MAP_LAYERS)
+
+
+def text_of(layer_id: str, field: str) -> str:
+    """説明の文のうち、差し込み口を除いた文。"""
+    return "".join(part for part in getattr(LAYERS[layer_id], field) if isinstance(part, str))
 
 
 def keys(declarations) -> list[str]:
@@ -81,9 +90,33 @@ def test_names_that_are_pointed_at_are_not_repeated(declarations):
     assert len(set(keys(declarations))) == len(declarations)
 
 
-def test_no_layer_appears_twice():
-    """一次属性・気象のグループ・ルートの名前が重なると、同じ名前のレイヤーが2つ並ぶ。"""
-    assert len(set(map_display.MAP_LAYER_IDS)) == len(map_display.MAP_LAYER_IDS)
+@pytest.mark.parametrize("layer_id", ["stop_poi", "supply_poi"])
+def test_point_layers_list_the_kinds_by_the_names_of_the_legend_rows(layer_id):
+    """凡例と違う名前で種別を挙げると、説明に書いた種別を凡例で探せない。"""
+    attribute = next(attr for attr in map_display.PRIMARY_ATTRIBUTES if attr.attr_id == layer_id)
+
+    for category in attribute.display_axes[0].categories:
+        assert category.label in text_of(layer_id, "description")
+
+
+def test_landcover_text_names_the_classes_it_does_not_paint():
+    """塗らない分類を書かないと、その分類の土地が地図で空白に見える理由が分からない。"""
+    unpainted = [cls.label for cls in LANDCOVER_CLASSES if not cls.painted]
+    assert unpainted
+
+    for label in unpainted:
+        assert label in text_of("landcover", "description")
+        assert f"{label}は塗りません" in text_of("landcover", "panel_hint")
+
+
+def test_disaster_text_names_every_element_of_the_disaster_chip():
+    """要素を足しても説明に名前が出ないと、チップが何を出すのか読めない。"""
+    elements = [element for element in WEATHER_ELEMENTS if element.group == "disaster"]
+    assert elements
+
+    for element in elements:
+        assert element.label in text_of("disaster", "description")
+        assert element.label in text_of("disaster", "panel_hint")
 
 
 #: ズームから値への曲線（数の組の並び）。名前で拾わず、形で拾う。

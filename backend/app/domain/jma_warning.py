@@ -129,7 +129,6 @@ class WarningBulletin:
     """警報・注意報の電文1件。地域のコード→その地域の種別。電文が地域の項目を持たない
     （例: 高潮の電文は対象外の地域の区域を載せないことがある）なら、その地域のキーが無い。"""
 
-    report_datetime: str | None
     class20_kinds: dict[str, tuple[AreaWarningKind, ...]]
     class10_kinds: dict[str, tuple[AreaWarningKind, ...]]
 
@@ -163,3 +162,23 @@ def extract_active_warnings(kinds: Iterable[AreaWarningKind]) -> list[ActiveWarn
             )
         )
     return result
+
+
+def collect_active_warnings(
+    bulletins: Iterable[WarningBulletin], class20_code: str, class10_code: str
+) -> list[ActiveWarning]:
+    """電文の一覧から、対象エリアぶんのアクティブな警報を返す。
+
+    警報の種類ごとに電文が分かれているため、同じコードが複数の電文に現れうる。codeで重複を除く。
+    """
+    collected: dict[str, ActiveWarning] = {}
+
+    for bulletin in bulletins:
+        kinds = bulletin.kinds_for(class20_code, class10_code)
+        if kinds is None:
+            continue
+
+        for item in extract_active_warnings(kinds):
+            collected[item.code] = item
+
+    return list(collected.values())

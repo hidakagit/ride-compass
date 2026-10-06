@@ -233,7 +233,7 @@ class TestReading:
 
         series = await _read(msm_dir, _points(SOUTH_WEST), 3)
 
-        assert series.times == ["2026-09-22T05:00", "2026-09-22T06:00", "2026-09-22T07:00"]
+        assert series.times == [datetime(2026, 9, 22, 5, 0), datetime(2026, 9, 22, 6, 0), datetime(2026, 9, 22, 7, 0)]
         assert all(getattr(series, field).shape == (1, 3) for field in msm_client.FORECAST_VARIABLES.values())
 
     async def test_each_point_is_interpolated_between_the_grid_points_around_it(self, tmp_path, msm_dir):
@@ -257,7 +257,7 @@ class TestReading:
     async def test_meta_information_without_a_bbox_cannot_be_read(self, tmp_path, msm_dir):
         await _synced(tmp_path, msm_dir, _meta(crs_wkt='GEOGCRS["x"]'))
 
-        with pytest.raises(ValueError):
+        with pytest.raises(MsmUnavailableError):
             await _read(msm_dir, _points(SOUTH_WEST), 3)
 
     async def test_a_series_crossing_into_the_next_chunk_continues_from_it(self, tmp_path, msm_dir):
@@ -265,7 +265,7 @@ class TestReading:
 
         series = await _read(msm_dir, _points(SOUTH_WEST), 6)
 
-        assert series.times[3:] == ["2026-09-22T08:00", "2026-09-22T09:00", "2026-09-22T10:00"]
+        assert series.times[3:] == [datetime(2026, 9, 22, 8, 0), datetime(2026, 9, 22, 9, 0), datetime(2026, 9, 22, 10, 0)]
         assert series.precipitation_mm[0].tolist() == [2.0, 3.0, 4.0, 5.0, 1000.0, 1001.0]
 
     async def test_a_series_stops_where_the_forecast_ends(self, tmp_path, msm_dir):
@@ -274,7 +274,7 @@ class TestReading:
 
         series = await _read(msm_dir, _points(SOUTH_WEST), 24)
 
-        assert series.times == ["2026-09-22T05:00", "2026-09-22T06:00"]
+        assert series.times == [datetime(2026, 9, 22, 5, 0), datetime(2026, 9, 22, 6, 0)]
 
     async def test_a_forecast_that_ended_before_now_cannot_be_read(self, tmp_path, msm_dir):
         await _synced(tmp_path, msm_dir, _meta(data_end_time=NOW - NOW % 3600))

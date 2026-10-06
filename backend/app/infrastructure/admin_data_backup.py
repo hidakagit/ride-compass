@@ -7,15 +7,26 @@
 
 from datetime import datetime
 
+from app.infrastructure.debug_log import log_throttled_warning
 from app.infrastructure.tile_cache import DATA_DIR
 
+#: 本番の読み手はこのファイルだけだが、テストがディスク（プロセス境界）の置き場を一時ディレクトリへ差し替えるために公開する
+#: （testing.md「確かめる高さ」の例外）。置き場を引数で受けると、本番がいつも同じ置き場を渡すだけの、テストのための口になる。
 MARKER_PATH = DATA_DIR / "admin_data_backup_at"
 
 
 def backup_age_hours(now: datetime) -> float | None:
-    """最後に置けてからの時間。記録が無ければNone（手元の開発環境・まだ1回も置けていない本番）。"""
+    """最後に置けてからの時間。記録が無い（手元の開発環境・まだ1回も置けていない本番）か、読めなければNone。"""
     try:
         placed_at = datetime.fromisoformat(MARKER_PATH.read_text().strip())
+        if placed_at.tzinfo is None:
+            raise ValueError(f"時差の無い時刻 {placed_at.isoformat()}")
     except FileNotFoundError:
+        return None
+    except (OSError, ValueError) as exc:
+        # `/health`が毎回読むので、ここで落とすとそれを待つデプロイと見回りまで止まる。読めない理由はここでしか分からない。
+        log_throttled_warning(
+            "admin-data-backup", "管理データのバックアップの印のファイルが読めない path=%s error=%r", MARKER_PATH, exc
+        )
         return None
     return (now - placed_at).total_seconds() / 3600

@@ -12,19 +12,17 @@ const nextConfig: NextConfig = {
     proxyTimeout: 60_000,
   },
   // 基礎地図タイルをバックエンド経由でキャッシュしつつ、ブラウザからは常にフロントエンドと
-  // 同一オリジンで見えるようにする。地図タイルをAPI呼び出しと別オリジンの
-  // tiles.openfreemap.orgから直接取得していた頃と違い、両方をバックエンドの同一オリジンから
-  // 取得するようにした結果、ブラウザのオリジン単位の同時接続数上限（HTTP/1.1で6本程度）を
-  // 大量のタイルリクエストが埋めてしまい、ルート生成APIの呼び出しが数十秒詰まる問題が
-  // 実機確認で発覚した。タイルをフロントエンドのオリジン経由に分離し、APIコールの接続枠と
-  // 競合しないようにする。
+  // 同一オリジンで見えるようにする。タイルとAPI呼び出しを同じバックエンドのオリジンから取ると、
+  // ブラウザのオリジン単位の同時接続数上限（HTTP/1.1で6本程度）を大量のタイルリクエストが埋め、
+  // ルート生成APIの呼び出しが数十秒詰まる。タイルをフロントエンドのオリジン経由に分離し、
+  // APIコールの接続枠と競合しないようにする。
   async rewrites() {
     return [
       {
         source: "/api/basemap/:path*",
         destination: `${BACKEND_INTERNAL_URL}/api/basemap/:path*`,
       },
-      // 路面の地域レイヤー（Step10）もMapLibreのvector sourceとしてパン/ズームのたびに
+      // 路面の地域レイヤーもMapLibreのvector sourceとしてパン/ズームのたびに
       // 多数のタイルリクエストが飛ぶため、基礎地図タイルと同じ理由でフロントエンドの
       // 同一オリジン経由にする（バックエンドAPI呼び出しとの接続数競合を避ける）。
       {
@@ -41,17 +39,15 @@ const nextConfig: NextConfig = {
         source: "/api/region/landcover-tiles/:path*",
         destination: `${BACKEND_INTERNAL_URL}/api/region/landcover-tiles/:path*`,
       },
-      // JMA動的タイル系レイヤー（降水ナウキャスト・rasrf・雷/竜巻ナウキャスト・キキクル・
-      // 線状降水帯予測マップ、改善計画T412）。従来は各ユーザーのブラウザがJMAの非公式内部API
-      // （jma.go.jp）へ直接fetchしており、利用者数に比例してJMA側への負荷が線形に増える上、
-      // 同一タイルの再取得もキャッシュされず毎回JMAへ実問い合わせしていた。他のタイル系と
-      // 同じくバックエンド経由（キャッシュ付き）・同一オリジンへ切り替える。
+      // JMA動的タイル系レイヤー（降水ナウキャスト等）。ブラウザからJMAの非公式内部API（jma.go.jp）へ
+      // 直接取りに行くと、利用者数に比例してJMA側への負荷が増え、同一タイルも毎回JMAへ問い合わせる。
+      // 他のタイル系と同じくバックエンド経由（キャッシュ付き）・同一オリジンにする。
       {
         source: "/api/jma-tile/:path*",
         destination: `${BACKEND_INTERNAL_URL}/api/jma-tile/:path*`,
       },
-      // 国土地理院 色別標高図タイル（改善計画T572）も他のタイル系と同じくバックエンド経由
-      // （永続ファイルキャッシュ付き）・同一オリジンへ切り替える。
+      // 国土地理院 色別標高図タイルも他のタイル系と同じくバックエンド経由
+      // （永続ファイルキャッシュ付き）・同一オリジンにする。
       {
         source: "/api/gsi-relief-tile/:path*",
         destination: `${BACKEND_INTERNAL_URL}/api/gsi-relief-tile/:path*`,

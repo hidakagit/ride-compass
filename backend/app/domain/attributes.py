@@ -11,12 +11,10 @@ class ElevationAttribute(StrictModel):
     """Edgeへ紐付ける標高属性。Edge本体（domain/graph.py）とは独立して保持する。
 
     average_grade/max_grade/min_gradeは符号付き（登り=正、下り=負）。勾配は値が取れなかった欄がNone。
-    標高の4欄は揃って入る（表の制約`edge_materials_elevation_all_or_none`）。
+    獲得・喪失標高は揃って入る（表の制約`edge_materials_elevation_all_or_none`が区間の標高の4列を揃える）。
     """
 
     edge_id: str
-    start_elevation_m: float
-    end_elevation_m: float
     elevation_gain_m: float
     elevation_loss_m: float
     average_grade: float | None
@@ -25,14 +23,12 @@ class ElevationAttribute(StrictModel):
 
     def reversed_as(self, reverse_edge_id: str) -> "ElevationAttribute":
         """同じ地形を逆方向に走った区間（`reverse_edge_id`）の値。標高は進行方向に依存しないため
-        代数的に厳密に決まる: 獲得標高↔喪失標高・始点↔終点の入れ替え、平均勾配の符号反転、
+        代数的に厳密に決まる: 獲得標高↔喪失標高の入れ替え、平均勾配の符号反転、
         最大/最小勾配の符号反転＋入れ替え（`elevation_values_sql`が区間の頂点列を進行方向の順で
         積算するため、逆順に辿ると各区間の勾配の符号がすべて反転し、max/minも入れ替わる）。
         """
         return ElevationAttribute(
             edge_id=reverse_edge_id,
-            start_elevation_m=self.end_elevation_m,
-            end_elevation_m=self.start_elevation_m,
             elevation_gain_m=self.elevation_loss_m,
             elevation_loss_m=self.elevation_gain_m,
             average_grade=-self.average_grade if self.average_grade is not None else None,
@@ -128,9 +124,7 @@ class EdgeMaterialArrays:
     mid_lat: np.ndarray  # dtype=float64
     mid_lon: np.ndarray  # dtype=float64
     elevation_present: np.ndarray  # dtype=bool
-    elevation_start_m: np.ndarray  # dtype=float64, NaN=欠損
-    elevation_end_m: np.ndarray
-    elevation_gain_m: np.ndarray
+    elevation_gain_m: np.ndarray  # dtype=float64, NaN=欠損
     elevation_loss_m: np.ndarray
     elevation_max_grade: np.ndarray
     elevation_min_grade: np.ndarray

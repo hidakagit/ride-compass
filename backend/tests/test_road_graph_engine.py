@@ -34,12 +34,12 @@ from app.domain.route import RouteCandidate, RouteSegmentDetail
 from app.domain.routing import NodeJunction, TurnExpandedTree
 from app.services.road_graph_engine import (
     add_terminal_candidate,
-    aggregate_elevation,
     concat_edge_geometries,
     order_by_bearing_spread,
     pick_better_candidate,
     reverse_elevation_by_edge,
     reverse_leg_assignment,
+    route_elevation_gain,
 )
 
 
@@ -59,8 +59,8 @@ def lean_edge(edge_id, from_node_id="n0", to_node_id="n1", *, distance_m=100.0, 
 
 
 def elevation(edge_id, **fields):
-    """テストが名指さない欄は、標高の4欄は0m、勾配は値が取れなかった（None）として埋める。"""
-    ends = {"start_elevation_m": 0.0, "end_elevation_m": 0.0, "elevation_gain_m": 0.0, "elevation_loss_m": 0.0}
+    """テストが名指さない欄は、獲得・喪失標高は0m、勾配は値が取れなかった（None）として埋める。"""
+    ends = {"elevation_gain_m": 0.0, "elevation_loss_m": 0.0}
     grades = dict.fromkeys(ElevationAttribute.model_fields.keys() - {"edge_id"} - ends.keys())
     return ElevationAttribute(edge_id=edge_id, **{**ends, **grades, **fields})
 
@@ -68,13 +68,12 @@ def elevation(edge_id, **fields):
 def turn_tree(state_count, *, node_cost, node_length_m, node_seconds, node_best_state):
     """一対全木。エンジンが読むのはNode側だけで、状態側を辿る経路の復元は各テストが差し替えるため、
     状態側はどの状態にも届いていない値（inf・NaN・-1）で埋める。"""
-    predecessor = np.full(state_count, -1, dtype=np.int64)
     return TurnExpandedTree(
-        state_cost=np.full(state_count, np.inf), predecessor=predecessor,
+        state_cost=np.full(state_count, np.inf),
         state_length_m=np.full(state_count, np.nan), state_seconds=np.full(state_count, np.nan),
         node_cost=np.asarray(node_cost, dtype=float), node_best_state=np.asarray(node_best_state, dtype=np.int64),
         node_length_m=np.asarray(node_length_m, dtype=float), node_seconds=np.asarray(node_seconds, dtype=float),
-        predecessor_list=predecessor.tolist(),
+        predecessor_list=[-1] * state_count,
     )
 
 
@@ -123,41 +122,33 @@ def test_concat_edge_geometries_keeps_both_points_when_edges_do_not_touch():
 # --------------------------------------------------------------------------------------
 
 
-def test_aggregate_elevation_collects_only_present_values():
-    """標高の無い区間は集計の母集団から外す（0として数えると最低標高が0mに出る）。"""
+def test_route_elevation_gain_sums_only_present_values():
+    """標高の無い区間は集計の母集団から外す。"""
 
     edges = [lean_edge("e1"), lean_edge("e2"), lean_edge("e3"), lean_edge("e4")]
     attributes = {
-        "e1": elevation("e1", start_elevation_m=10.0, end_elevation_m=20.0, elevation_gain_m=10.0),
-        "e4": elevation("e4", start_elevation_m=30.0, end_elevation_m=5.0, elevation_gain_m=2.0),
+        "e1": elevation("e1", elevation_gain_m=10.0),
+        "e4": elevation("e4", elevation_gain_m=2.0),
     }
 
-    assert aggregate_elevation(edges, attributes) == {
-        "elevation_gain_m": 12.0,
-        "min_elevation_m": 5.0,
-        "max_elevation_m": 30.0,
-    }
+    assert route_elevation_gain(edges, attributes) == 12.0
 
 
-def test_aggregate_elevation_without_any_value_is_none_not_zero():
+def test_route_elevation_gain_without_any_value_is_none_not_zero():
     """標高が1つも取れなかった経路は、0mではなく「取れなかった」として返す。"""
-    assert aggregate_elevation([lean_edge("e1")], {}) == {
-        "elevation_gain_m": None,
-        "min_elevation_m": None,
-        "max_elevation_m": None,
-    }
+    assert route_elevation_gain([lean_edge("e1")], {}) is None
 
 
 def test_reverse_elevation_by_edge_pairs_the_path_in_reverse_order():
     """逆方向Edgeの並びは順方向の逆。対応がずれると別の坂の値が付く。"""
     forward_edges = [lean_edge("f1"), lean_edge("f2")]
     reverse_edges = [lean_edge("r2"), lean_edge("r1")]
-    attributes = {"f2": elevation("f2", start_elevation_m=1.0, end_elevation_m=9.0)}
+    attributes = {"f2": elevation("f2", elevation_gain_m=1.0, elevation_loss_m=9.0)}
 
     result = reverse_elevation_by_edge(forward_edges, reverse_edges, attributes)
 
     assert set(result) == {"r2"}
-    assert result["r2"].start_elevation_m == 9.0
+    assert result["r2"].elevation_gain_m == 9.0
 
 
 # --------------------------------------------------------------------------------------

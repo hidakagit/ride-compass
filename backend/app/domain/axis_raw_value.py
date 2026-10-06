@@ -4,10 +4,10 @@
 単位が定まる軸には生値を単位付きで添え、定まらない軸には材料の内訳を添える。
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 from app.domain.axis_definitions import (
-    AXIS_DEFINITIONS,
     AxisDefinition,
     BreakpointLinearShape,
 )
@@ -84,8 +84,10 @@ def _shape_terms(definition: AxisDefinition) -> list[tuple[str, float]]:
     return [(shape.material, 1.0)]
 
 
-def axis_material_shares(definition: AxisDefinition) -> list[AxisMaterialShare]:
-    """単位が定まらない軸のために、軸を材料まで分解して占有率を出す。
+def axis_material_shares(
+    definition: AxisDefinition, definitions: Mapping[str, AxisDefinition]
+) -> list[AxisMaterialShare]:
+    """単位が定まらない軸のために、軸を材料まで分解して占有率を出す。参照先の軸は`definitions`から引く。
 
     辿る先は必ず材料で、途中の軸の得点は結果に含めない——較正に依存する数字を内訳へ
     混ぜると、この関数が避けようとしている問題が入れ子で再発する。
@@ -110,7 +112,7 @@ def axis_material_shares(definition: AxisDefinition) -> list[AxisMaterialShare]:
             return
         for ref, weight in terms:
             share = inherited * abs(weight) / total
-            referenced_axis = AXIS_DEFINITIONS.get(ref)
+            referenced_axis = definitions.get(ref)
             if referenced_axis is not None:
                 walk(referenced_axis, share, depth + 1, next_visited)
             elif ref not in shares:

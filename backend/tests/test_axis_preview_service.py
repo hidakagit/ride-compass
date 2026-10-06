@@ -1,5 +1,6 @@
-"""`services/axis_preview_service.py`——延長で重み付けた分布（`weighted_distribution`）と分位点（`weighted_quantiles`）、
-軸の下書きの形で道の標本から求める生値の分布（`raw_value_distribution`）。
+"""`domain/value_distribution.py`——延長で重み付けた分布（`weighted_distribution`）・分位点（`weighted_quantiles`）・
+分位点とゼロの割合（`weighted_spread`）、
+`services/axis_preview_service.py`——軸の下書きの形で道の標本から求める生値の分布（`raw_value_distribution`）。
 
 ここで見ないもの:
 - 軸の生値（重み付き和・欠損・前処理・対応表の軸に生値が無いこと） → `test_axis_definitions.py`
@@ -10,7 +11,8 @@
 import pytest
 
 from app.domain.axis_definitions import BreakpointLinearShape, MaterialTerm
-from app.services.axis_preview_service import raw_value_distribution, weighted_distribution, weighted_quantiles
+from app.domain.value_distribution import weighted_distribution, weighted_quantiles, weighted_spread
+from app.services.axis_preview_service import raw_value_distribution
 
 
 def test_quantiles_weight_by_length_not_by_way_count():
@@ -48,16 +50,21 @@ class TestDistribution:
         assert result.bins[-1][2] == pytest.approx(50.0 / 9950.0, abs=1e-5)
         assert sum(b[2] for b in result.bins) == pytest.approx(1.0, abs=1e-4)
 
+    def test_all_samples_at_zero_do_not_divide_by_zero(self):
+        result = weighted_distribution([(100.0, 0.0), (100.0, 0.0)])
+        assert result.total_km == pytest.approx(0.2)
+        assert result.bins[0][2] == pytest.approx(1.0)
+
+
+class TestSpread:
     def test_zero_share_counts_only_exact_zero(self):
         # 「ゼロ」は値がちょうど0のこと。負の値を混ぜても割合は変わらない。
         pairs = [(100.0, 0.0), (100.0, -5.0), (100.0, 3.0), (100.0, 0.0)]
-        result = weighted_distribution(pairs)
-        assert result.zero_share == pytest.approx(0.5)
+        assert weighted_spread(pairs).zero_share == pytest.approx(0.5)
 
-    def test_all_samples_at_zero_do_not_divide_by_zero(self):
-        result = weighted_distribution([(100.0, 0.0), (100.0, 0.0)])
-        assert result.zero_share == pytest.approx(1.0)
-        assert result.total_km == pytest.approx(0.2)
+    def test_no_values_give_no_quantiles_and_no_zero_share(self):
+        result = weighted_spread([])
+        assert (result.quantiles, result.zero_share) == ({}, 0.0)
 
 
 def test_the_draft_shape_gives_raw_values_before_its_breakpoints_and_skips_ways_without_them():

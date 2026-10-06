@@ -20,9 +20,6 @@ import {
 // 段階ごとに各部品1回。観点2（ピンチ）はタッチの文脈（モバイル幅）だけで見る。
 // 幅ごとに1本にしてあり、CIでは幅ごとに別のジョブで走らせる。
 
-// APIをモックして決定的に動くので、失敗時に再試行しても同じ結果になり、所要だけが倍になる。
-test.describe.configure({ retries: 0 });
-
 for (const width of Object.keys(WIDTHS) as WidthName[]) {
   test(`全状態の走査: ${width}`, async ({ browser }) => {
     test.setTimeout(220_000);

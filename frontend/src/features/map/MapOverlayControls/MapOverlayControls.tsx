@@ -32,7 +32,7 @@ import {
   type MapIconComponent,
 } from "@/components/ui/icons/icons";
 import { Button } from "@/components/ui/Button/Button";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/Popover/Popover";
+import { Popover, PopoverContent, PopoverTrigger, POPOVER_COLLISION_PADDING_PX } from "@/components/ui/Popover/Popover";
 import { cn } from "@/lib/cn";
 import { Dot } from "@/components/ui/Dot/Dot";
 import { cardVariants } from "@/components/ui/Card/Card";
@@ -356,7 +356,7 @@ function DetailPopover({
       <PopoverContent
         side={side}
         align="start"
-        collisionPadding={8}
+        collisionPadding={POPOVER_COLLISION_PADDING_PX}
         aria-label={regionLabel}
         className={DETAIL_PANEL_CLASS}
       >
@@ -563,7 +563,7 @@ export default function MapOverlayControls({
             {members.map((member) => {
               const hiddenKey = `${group}:${member.id}`;
               const hidden = hiddenIds.has(hiddenKey);
-              const name = member.chipLabel;
+              const name = member.label;
               return (
                 <li key={member.id} className="flex items-center gap-1.5 text-[length:var(--font-size-sm)]">
                   <Checkbox

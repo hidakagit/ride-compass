@@ -13,9 +13,13 @@ import {
 } from "@/lib/mapDisplay/routeStyleModes";
 import { completeTileVersions, type TileVersions } from "@/features/map/regionApi";
 import { secondaryAxesFromCatalogAxes, type SecondaryAxisSummary } from "@/features/map/secondaryAxes";
+import { buildMapLayers, type MapLayerDescriptor } from "@/features/map/layers/mapLayers";
+import { catalogAxisFromEntry, type CatalogAxis } from "@/lib/catalogAxis";
 import type { AxisCatalogResponse } from "@/types/route";
 
 export interface MapAxisCatalog {
+  /** 公開中の軸（共有の軸カタログと同じ導出）。地図の説明文が評価の名前を差し込み、レンズが選択肢を作る。 */
+  axes: readonly CatalogAxis[];
   /** 地図のramp表示を持つ軸。 */
   rampAxes: readonly RampAxis[];
   /** 専用のフィーチャー→値配信レイヤーを持つ軸。レイヤー登録・カタログ・可視性・フェッチの
@@ -31,25 +35,33 @@ export interface MapAxisCatalog {
   accidentYears: readonly number[];
   /** タイルの世代。全系統が揃うまで`null`で、その間は地図がタイルのソースを作らない。 */
   tileVersions: TileVersions | null;
+  /** 地図に載るものの一覧。上の軸と収録年から、応答1つにつき1回だけ組む。 */
+  layers: readonly MapLayerDescriptor[];
 }
 
 // 取得できるまでは軸が1つも無く、タイルの世代も無い状態（ビルド時の写しで埋めない）。
+const NO_LAYER_AXES = { axes: [], rampAxes: [], dedicatedAxes: [], accidentYears: [] };
+
 export const EMPTY_MAP_AXIS_CATALOG: MapAxisCatalog = {
-  rampAxes: [],
-  dedicatedAxes: [],
+  ...NO_LAYER_AXES,
   secondaryAxes: [],
   routeStyleModes: ROUTE_STYLE_MODES_WITHOUT_AXES,
-  accidentYears: [],
   tileVersions: null,
+  layers: buildMapLayers(NO_LAYER_AXES),
 };
 
 export function mapAxisCatalogFromResponse(response: AxisCatalogResponse): MapAxisCatalog {
-  return {
+  const layerAxes = {
+    axes: response.axes.map(catalogAxisFromEntry),
     rampAxes: rampAxesFromCatalogAxes(response.axes, response.tile_runtime_scales),
     dedicatedAxes: dedicatedWayValueAxesFromCatalogAxes(response.axes),
+    accidentYears: response.accident_years,
+  };
+  return {
+    ...layerAxes,
     secondaryAxes: secondaryAxesFromCatalogAxes(response.axes),
     routeStyleModes: routeStyleModesFromCatalogAxes(response.axes),
-    accidentYears: response.accident_years,
     tileVersions: completeTileVersions(response.tile_versions),
+    layers: buildMapLayers(layerAxes),
   };
 }

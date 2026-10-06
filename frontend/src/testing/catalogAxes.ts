@@ -9,6 +9,12 @@ import type { AxisCatalogEntry, AxisCatalogResponse } from "@/types/route";
 
 type TileInput = AxisCatalogEntry["display"]["tile_inputs"][number];
 
+/** 軸1本の上書き。地図の表示の宣言（`display`）と地図が塗るもの（`map_paint`）は一部だけを上書きできる。 */
+type EntryOverrides = Partial<Omit<AxisCatalogEntry, "display" | "map_paint">> & {
+  display?: Partial<AxisCatalogEntry["display"]>;
+  map_paint?: Partial<AxisCatalogEntry["map_paint"]>;
+};
+
 /** 数値の材料をそのまま足すタイルの入力。 */
 export function tileInput(overrides: Partial<TileInput> = {}): TileInput {
   return {
@@ -25,14 +31,12 @@ export function tileInput(overrides: Partial<TileInput> = {}): TileInput {
   };
 }
 
-/** 軸1本。地図の表示の宣言（`display`）は一部だけを上書きできる。 */
-export function catalogEntry(
-  overrides: Partial<Omit<AxisCatalogEntry, "display">> & { display?: Partial<AxisCatalogEntry["display"]> } = {},
-): AxisCatalogEntry {
-  const { display, ...rest } = overrides;
+/** 軸1本。 */
+export function catalogEntry(overrides: EntryOverrides = {}): AxisCatalogEntry {
+  const { display, map_paint: mapPaint, ...rest } = overrides;
   const axisId = rest.axis_id ?? "";
   // 境界を宣言していない軸にbackendが入れる既定の境界（空の境界は塗りの式にならない）。
-  const mapValueThresholds = rest.map_value_thresholds ?? [...mapDisplay.valueScale.difficultyBoundaries];
+  const thresholds = mapPaint?.thresholds ?? [...mapDisplay.valueScale.difficultyBoundaries];
   return {
     axis_id: axisId,
     label: axisId,
@@ -45,46 +49,43 @@ export function catalogEntry(
     show_map_icon: false,
     primary_attribute_ids: [],
     weather_layer_groups: [],
-    shape: {
-      kind: "breakpoint_linear",
-      terms: [],
-      preprocess: "identity",
-      breakpoints: [],
-    },
-    display_thresholds_override: null,
     display_band_labels_override: null,
     dedicated_way_value_layer: false,
-    map_value: { kind: "difficulty" },
-    map_value_unit: "",
-    map_value_thresholds: mapValueThresholds,
-    // 凡例は塗る値の境界を得点として書く（量で書く軸は呼び出し側が上書きする）。
-    map_legend: { boundaries: mapValueThresholds, unit: null },
+    map_paint: {
+      value: { kind: "difficulty" },
+      unit: "",
+      thresholds,
+      // 凡例は塗る値の境界を得点として書く（量で書く軸は呼び出し側が上書きする）。
+      legend: { boundaries: thresholds, unit: null },
+      ...mapPaint,
+    },
     raw_value_unit: null,
     raw_value_total_unit: null,
     material_breakdown: [],
     dynamic_way_value_conditions: [],
+    dynamic_way_value_undetermined_by_bearing: false,
     ...rest,
     display: { kind: "none", label: axisId, category: "roadCondition", tile_inputs: [], thresholds: [], ...display },
   };
 }
 
 /** タイルへ焼いた材料で塗るramp軸。 */
-export function rampEntry(axisId: string, thresholds: number[], overrides: Partial<AxisCatalogEntry> = {}) {
+export function rampEntry(axisId: string, thresholds: number[], overrides: EntryOverrides = {}) {
   return catalogEntry({
     axis_id: axisId,
     display: { kind: "ramp", label: axisId, category: "roadCondition", tile_inputs: [tileInput()], thresholds },
-    map_legend: { boundaries: thresholds, unit: null },
     ...overrides,
+    map_paint: { legend: { boundaries: thresholds, unit: null }, ...overrides.map_paint },
   });
 }
 
 /** 配信された値で塗る専用配信軸。 */
-export function dedicatedEntry(axisId: string, thresholds: number[], overrides: Partial<AxisCatalogEntry> = {}) {
+export function dedicatedEntry(axisId: string, thresholds: number[], overrides: EntryOverrides = {}) {
   return catalogEntry({
     axis_id: axisId,
     dedicated_way_value_layer: true,
-    map_value_thresholds: thresholds,
     ...overrides,
+    map_paint: { thresholds, ...overrides.map_paint },
   });
 }
 

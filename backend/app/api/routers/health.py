@@ -17,7 +17,6 @@ class MsmFreshnessResponse(StrictModel):
     ログ（WARNING）だけでなく外からも確認できるようにする。未同期のときはnull。"""
 
     last_run_at: str
-    data_end_at: str
     run_age_hours: float
     remaining_hours: float
     healthy: bool
@@ -70,7 +69,6 @@ def _msm_freshness_response() -> MsmFreshnessResponse | None:
         return None
     return MsmFreshnessResponse(
         last_run_at=current.last_run_at.isoformat(),
-        data_end_at=current.data_end_at.isoformat(),
         run_age_hours=round(current.run_age_hours, 1),
         remaining_hours=round(current.remaining_hours, 1),
         healthy=current.is_healthy,

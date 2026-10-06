@@ -10,7 +10,6 @@
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.admin_auth import require_admin_basic_auth
@@ -49,9 +48,9 @@ class TuningParameterView(StrictModel):
 
 
 class TuningUpdateRequest(StrictModel):
-    """1件の上書き。`value`を省略すると既定へ戻す。"""
+    """1件の上書き。`value`がnullなら既定へ戻す。"""
 
-    value: float | None = Field(default=None)
+    value: float | None
 
 
 def _view(param_id: str, overridden_ids: set[str]) -> TuningParameterView:
@@ -94,7 +93,7 @@ async def update_tuning_parameter(
         # 較正値の宣言に無いidは書かせない（較正値ではない固定値はこの逆引きに載らない）。
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"較正値がありません: {param_id}")
     try:
-        await save_override(session, param_id, request.value)
+        overridden = await save_override(session, param_id, request.value)
     except TuningOverrideError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
-    return _view(param_id, await overridden_parameter_ids(session))
+    return _view(param_id, overridden)

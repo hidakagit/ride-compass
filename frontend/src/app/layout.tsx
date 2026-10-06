@@ -20,10 +20,8 @@ export const metadata: Metadata = {
 
 // viewport meta（width=device-width）が無いと、スマホブラウザは既定の仮想ビューポート
 // （多くは980px幅）でレイアウトを解釈してからページ全体を縮小表示する。この場合
-// globals.cssの@media (max-width: 640px)が実デバイス幅ではなくその仮想980px基準で
-// 評価されるため、スマホ実機で常にfalseとなりサイドバーのドロワー化（position:fixed）が
-// 一切発動せず、サイドバーが通常のflexアイテムとして幅を占有し地図が右へ押しやられる
-// レイアウト崩れが実機でのみ発生していた（実機スクリーンショットで確認）。
+// globals.cssの幅のメディアクエリが実デバイス幅ではなくその仮想幅で評価され、スマホでも
+// モバイルの配置にならない（開発者ツールの端末の模擬では再現しないことがある）。
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,

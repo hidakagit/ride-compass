@@ -17,7 +17,8 @@ from app.api.admin_auth import require_admin_basic_auth
 from app.api.dependencies import get_road_graph_repository
 from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
 from app.infrastructure.road_graph_repository import RoadGraphRepository
-from app.services.axis_preview_service import ValueDistribution, axis_raw_value_distribution
+from app.domain.value_distribution import ValueDistribution
+from app.services.axis_preview_service import axis_raw_value_distribution
 from app.api.dependencies import get_axis_registry_admin_service
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
@@ -154,10 +155,6 @@ def _to_response(definition: AxisDefinition, definitions: Mapping[str, AxisDefin
     )
 
 
-async def _all_definitions(service: "AxisRegistryAdminService") -> Mapping[str, AxisDefinition]:
-    return await _guard_db_errors(service.list_all())
-
-
 @router.get("")
 async def list_axis_definitions(
     service: AxisRegistryAdminService = Depends(get_axis_registry_admin_service),
@@ -170,10 +167,10 @@ async def list_axis_definitions(
 async def get_axis_definition(
     axis_id: str, service: AxisRegistryAdminService = Depends(get_axis_registry_admin_service)
 ) -> AxisDefinitionResponse:
-    definition = await _guard_db_errors(service.get(axis_id))
-    if definition is None:
+    definitions = await _guard_db_errors(service.list_all())
+    if axis_id not in definitions:
         raise _axis_not_found()
-    return _to_response(definition, await _all_definitions(service))
+    return _to_response(definitions[axis_id], definitions)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -182,10 +179,10 @@ async def create_axis_definition(
 ) -> AxisDefinitionResponse:
     definition = payload.to_definition()
     try:
-        await _guard_db_errors(service.create(definition))
+        definitions = await _guard_db_errors(service.create(definition))
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    return _to_response(definition, await _all_definitions(service))
+    return _to_response(definition, definitions)
 
 
 @router.put("/{axis_id}")
@@ -200,14 +197,14 @@ async def update_axis_definition(
         )
     definition = payload.to_definition()
     try:
-        await _guard_db_errors(service.update(axis_id, definition))
+        definitions = await _guard_db_errors(service.update(axis_id, definition))
     except KeyError as exc:
         raise _axis_not_found() from exc
     except ValueError as exc:
         # 公開済み軸の更新拒否（AxisPublishedImmutableError）と材料の
         # 排他チェック（AxisMaterialConflictError）の両方がここを通る。
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    return _to_response(definition, await _all_definitions(service))
+    return _to_response(definition, definitions)
 
 
 @router.delete("/{axis_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -231,10 +228,10 @@ async def unpublish_axis_definition(
     フィールドは一切変更しない、「公開済みは編集不可」原則を保ったまま公開フラグの
     反転だけに穴を開ける）。下書きへ戻った軸は通常のPUTで再編集・再公開できる。"""
     try:
-        definition = await _guard_db_errors(service.unpublish(axis_id))
+        definitions = await _guard_db_errors(service.unpublish(axis_id))
     except KeyError as exc:
         raise _axis_not_found() from exc
-    return _to_response(definition, await _all_definitions(service))
+    return _to_response(definitions[axis_id], definitions)
 
 
 class AxisPreviewRequest(StrictModel):

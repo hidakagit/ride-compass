@@ -63,7 +63,6 @@ def test_a_branch_on_top_of_the_latest_master_is_current(clones):
     _commit(work, "c.txt", "3\n")
 
     assert cf.staleness(work) is None
-    assert "なし" in cf.sync(work)
 
 
 def test_a_checkout_behind_master_reports_the_count_and_the_fast_forward_command(clones):
@@ -86,7 +85,6 @@ def test_require_current_fast_forwards_a_clean_master_and_goes_on(clones):
 
 
 def test_require_current_stops_on_a_master_with_changes(clones):
-    # 早送りしない場面（変更のある master・ほかの枝）の分け方は sync のテストが見る。
     work, other = clones
     _advance_master(other)
     (work / "a.txt").write_text("changed\n", encoding="utf-8")
@@ -94,37 +92,14 @@ def test_require_current_stops_on_a_master_with_changes(clones):
         cf.require_current(work)
 
 
-def test_sync_fast_forwards_a_clean_master(clones):
-    work, other = clones
-    head = _advance_master(other)
-
-    assert "1 コミット早送りした" in cf.sync(work)
-    assert _git(work, "rev-parse", "HEAD") == head
-
-
-def test_sync_leaves_a_master_with_changes_untouched(clones):
-    work, other = clones
-    before = _git(work, "rev-parse", "HEAD")
-    _advance_master(other)
-    (work / "a.txt").write_text("changed\n", encoding="utf-8")
-
-    line = cf.sync(work)
-
-    assert "1 コミット遅れ" in line
-    assert "片付けてから" in line
-    assert _git(work, "rev-parse", "HEAD") == before
-
-
-def test_sync_leaves_another_branch_untouched_and_suggests_a_rebase(clones):
+def test_require_current_stops_on_another_branch_without_touching_it(clones):
     work, other = clones
     _git(work, "checkout", "-q", "-b", "feature")
     before = _git(work, "rev-parse", "HEAD")
     _advance_master(other)
 
-    line = cf.sync(work)
-
-    assert "1 コミット遅れ" in line
-    assert "rebase origin/master" in line
+    with pytest.raises(SystemExit, match="rebase origin/master"):
+        cf.require_current(work)
     assert _git(work, "rev-parse", "HEAD") == before
 
 
@@ -133,6 +108,5 @@ def test_a_checkout_that_cannot_reach_origin_stops_as_unverified(clones):
     _git(work, "remote", "set-url", "origin", str(work.parent / "missing.git"))
 
     assert "確かめられない" in cf.staleness(work)
-    assert "確かめられなかった" in cf.sync(work)
     with pytest.raises(SystemExit):
         cf.require_current(work)

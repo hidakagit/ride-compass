@@ -18,14 +18,16 @@ const repo = code();
 const done = [];
 const note = (line) => (console.log(`${dry ? "（試し）" : ""}${line}`), done.push(line));
 const task = (await readTask(gh, config, { number: Number(number) })).issue;
-const step = settle(config, { messages, startOn: task?.fields[config.project.startField], labels: task?.labels.nodes.map((l) => l.name) ?? [], url, jobStatus });
+const step = settle(config, { messages, startOn: task?.fields[config.project.startField], labels: task?.labels.nodes.map((l) => l.name) ?? [],
+  blockers: (task?.blockedBy.nodes ?? []).filter((b) => b.state !== "CLOSED").map((b) => b.number), url, jobStatus });
 
 if (step.pause) {
   const { pauseVariable: name, pauseMinutes } = config.coordinator;
   const until = new Date(Date.now() + pauseMinutes * 60e3).toISOString();
   const path = `/repos/${config.code.repository}/actions/variables`;
-  if (!dry) await repo.rest("PATCH", `${path}/${name}`, { name, value: until }).catch(() => repo.rest("POST", path, { name, value: until }));
-  note(`振り出しを ${until} まで止めた`);
+  note(dry ? `振り出しを ${until} まで止めた` : await repo.rest("PATCH", `${path}/${name}`, { name, value: until })
+    .catch(() => repo.rest("POST", path, { name, value: until }))
+    .then(() => `振り出しを ${until} まで止めた`, (e) => `振り出しを止められなかった（${e.message}）`));
 }
 if (kind === "作る" && task?.status === config.working)
   note(await moveTask(gh, config, Number(number), step.to, { comment: notes.reason(step.to, step.reason), dryRun: dry }).catch((e) => `${step.to}へ動かさなかった（${e.message}）`));

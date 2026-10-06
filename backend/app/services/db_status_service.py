@@ -1,39 +1,19 @@
-"""本番DBの状態を「注意が要るか」まで判定してレポートにするサービス層。
+"""本番DBの数を読み、注意が要るかの印を付けたレポートにするサービス層。
 
-**判定のしきい値はこのモジュールが持つ**。しきい値そのものより「なぜその値か」が重要なため、
-定数ごとに根拠を書く。レポートの型は`GET /api/admin/db-status`の応答の型を兼ねる。
+レポートの型は`GET /api/admin/db-status`の応答の型を兼ねる。
 """
 
 import logging
 import time
 from datetime import datetime
 
+from app.domain.db_status import connection_attention, table_attention
 from app.domain.strict_model import StrictModel
 from app.infrastructure.db_status import DbStatusCounts, DbStatusQuery
 from app.infrastructure.debug_log import log_external_call
 from app.infrastructure.source_models import SOURCE_RUN_STATUS_LABELS, SourceRunStatus
 
 logger = logging.getLogger("ridecompass.db_status")
-
-#: `idle in transaction`がこれより長く続いていれば注意。放置されたトランザクションは
-#: VACUUMが古い行を回収するのを止め、テーブルを肥大化させる。冷えた状態のルート生成でも
-#: 数分で終わるため、正常な処理がこの長さを超えることは無い。
-IDLE_TRANSACTION_WARN_SECONDS = 600.0
-
-#: 接続数がmax_connectionsのこの割合を超えたら注意（残り枠が尽きると新規接続が失敗する）。
-CONNECTION_USAGE_WARN_RATIO = 0.8
-
-#: 不要行（dead tuple）が行全体のこの割合を超えたら注意。VACUUMが追いついていない。
-DEAD_TUPLE_WARN_RATIO = 0.2
-
-#: 統計が無いことを注意として出す行数の下限。これを下回るテーブルは、プランナが行数を
-#: どう推定しても全走査で足りるため実行計画が変わらない——注意を出しても打つ手が無い。
-STATISTICS_WARN_MIN_ROWS = 10_000
-
-#: 不要行を注意として出す絶対数の下限。割合だけで見ると、行数の少ないテーブルが常に注意に
-#: なるが、回収できる容量が無く行動につながらない。
-DEAD_TUPLE_WARN_MIN_ROWS = 1_000
-
 
 class LatestRunEntry(StrictModel):
     id: int
@@ -126,15 +106,7 @@ def _import_entry(counts) -> ImportRunEntry:
 
 
 def _table_entry(counts) -> TableEntry:
-    reasons: list[str] = []
-    if counts.analyzed_at is None and counts.row_count >= STATISTICS_WARN_MIN_ROWS:
-        reasons.append(
-            "統計を一度も取っていない（プランナの行数推定が実数から外れ、クエリが遅いプランを選びうる）"
-        )
-    live = max(counts.row_count, 1)
-    dead_ratio = counts.dead_tuples / (live + counts.dead_tuples)
-    if counts.dead_tuples >= DEAD_TUPLE_WARN_MIN_ROWS and dead_ratio > DEAD_TUPLE_WARN_RATIO:
-        reasons.append(f"不要行が{counts.dead_tuples:,}件（VACUUMが追いついていない）")
+    reasons = table_attention(counts.row_count, counts.dead_tuples, analyzed=counts.analyzed_at is not None)
     return TableEntry(
         table_name=counts.table_name,
         row_count=counts.row_count,
@@ -148,14 +120,7 @@ def _table_entry(counts) -> TableEntry:
 
 
 def _connection_entry(counts) -> ConnectionEntry:
-    reasons: list[str] = []
-    if counts.longest_idle_transaction_seconds > IDLE_TRANSACTION_WARN_SECONDS:
-        minutes = counts.longest_idle_transaction_seconds / 60
-        reasons.append(
-            f"開いたまま放置されたトランザクションが{minutes:.0f}分（VACUUMが古い行を回収できず肥大化する）"
-        )
-    if counts.max_connections and counts.total / counts.max_connections > CONNECTION_USAGE_WARN_RATIO:
-        reasons.append(f"接続が{counts.total}/{counts.max_connections}（残り枠が尽きると新規接続が失敗する）")
+    reasons = connection_attention(counts.total, counts.max_connections, counts.longest_idle_transaction_seconds)
     return ConnectionEntry(
         total=counts.total,
         max_connections=counts.max_connections,

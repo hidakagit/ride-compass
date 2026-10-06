@@ -36,8 +36,9 @@
 
 1. **格子単位は統一**: 全レイヤーが同じ固定ラティス（緯度・経度0度から数える。敷く範囲はbackendの対象範囲。間隔は粗い格子の
    `windLayer.ts: WIND_GRID_SPACING_DEG`と、ズームの段ごとの詳細格子`windGridDetailSpacingDegForZoom`）を共有する。
-   詳細格子の段の境界と間隔は見た目の判断なので画面が持ち、backendは下限（生成物の`detail_min_spacing_deg`）以上の
-   間隔を受け付ける。連続にせず段に分けるのは、同じ段の中では間隔が変わらず、取り損ねた点を前回の値で補えるため
+   詳細格子の段の境界は気象の記号を拡大する段（生成物の`mapDisplay.weather.markSizeByZoom`）と同じ刻みで、最初の段の
+   ズームから詳細格子を取る。間隔は見た目の判断なので画面が持ち（最初の段の間隔と、段が1つ上がるごとに半分）、backendは
+   下限（生成物の`detail_min_spacing_deg`）以上の間隔を受け付ける（画面は下限で止める）。連続にせず段に分けるのは、同じ段の中では間隔が変わらず、取り損ねた点を前回の値で補えるため
    （`useWeatherGrid.ts`は同じ間隔で最後に届いた詳細格子から、今の範囲の中の点だけを補う。間隔の違う格子からは補わない）。
    フェッチも共有（`features/map/useWeatherGrid.ts`、風の矢印と降水の格子の段のどちらか一方でも
    ONなら1回のフェッチで両方をカバーする）。格子の値はbackendが気象庁MSM（手元へ同期したファイル）から
@@ -211,8 +212,8 @@ disasterSourceLegendAxis`が作り、隠したソースは他の凡例絞り込�
 そのもので、画面は単位の対応表を持たない。時刻一覧を取る単位はファイルで、同じファイルを読む
 配信要素どうしは1つの取得を共有する（下記）。
 
-チップの説明文と表示専用の凡例も要素の宣言から組み立てる（`mapLayers.ts`）。説明は要素の`label`を、描くコマの規則
-（`frameRule.kind`）ごとにまとめて並べ、規則ごとの言い回し（時刻に連動・直近の観測・現在の危険度のみ）だけを画面が持つ。
+チップの説明文と表示専用の凡例も要素の宣言から組み立てる（説明はbackendの`domain/map_display.py`、凡例は`mapLayers.ts`）。説明は要素の`label`を、描くコマの規則
+（`frameRule.kind`）ごとにまとめて並べ、規則ごとの言い回し（時刻に連動・直近の観測・現在の危険度のみ）を同じ`map_display.py`が持つ。
 凡例は要素が宣言する塗る段（`levelScale`。生成物`weather-scales.json`の鍵）ごとに1ブロックで、見出しはその段で塗る要素の
 `label`の並び。段の数と名前は凡例に並ぶので説明文に書かない——要素を足す・名前や規則を変えると説明と凡例が追従し、
 文だけが古くなることは無い。「表示する情報」の色見本も同じ`levelScale`の注意を促す段から引き、段を持たない要素
@@ -282,14 +283,15 @@ backendの中継は地物の404を覚えず、ブラウザにも覚えさせな�
    生成物経由で`DynamicWeatherLayerId`・`MapLayerId`になる）。`scripts/export_openapi.py`で
    生成物（`mapDisplay.ts: weatherElements`）を作り直す。自前のMSM格子から描くなら、
    `wind_grid.py: WindGridPoint`へ値フィールドを、`msm_client.py: MsmSeries`へ項目を、
-   `FORECAST_VARIABLES`へMSM変数とその項目の対応を足す（この経路は風・降水の格子の段限定）。MSMから描く要素の
+   `FORECAST_VARIABLES`へMSM変数とその項目の対応を足し、`services/weather_service.py: WeatherService.get_wind_grid`で
+   項目の値を地点ごとのフィールドへ詰める（この経路は風・降水の格子の段限定）。MSMから描く要素の
    説明文は「予報」と呼ばない（上の「責務」）
 2. `features/map/scene/groups/weather.ts`: 配信元のラスタ（`rasterTile`）なら何も足さない
    （見た目は共通の1つ）。それ以外は`DRAWINGS`へ見た目（`paint`・`layout`・`filter`・記号）を
    1件足す——鍵は生成物から導かれるため、足し忘れると型検査が落ちる。ソース名・ソースの宣言・
    レイヤー・記号の絵の登録はここから導かれる
 3. 新しいチップを足したときだけ: backendの`domain/map_display.py`へ種別・情報源（`ownFetch`）・
-   性質（`dynamic`）を1行、`mapLayers.ts`へ記述子（アイコン・凡例）を1エントリ足す
+   性質（`dynamic`）・名前・説明を1件、`mapLayers.ts`へアイコン（表示専用の凡例があれば凡例も）を1行足す
 4. 新しい種類を足したときだけ: 時刻一覧の読み方なら`jmaDelivery.ts`の読み方の表と、同じ読み方でプリウォームの
    フレームを選ぶbackendの`jma_tile_specs.py: read_target_times`（[動的気象レイヤー（backend）](../backend/weather-dynamic-layers.md)
    「定期プリウォーム」）と、両方が同じコマを出すことを確かめる表の場面（`scripts/cross_language_expectations.py: jma_expectations`）、コマの規則なら

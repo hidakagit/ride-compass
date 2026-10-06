@@ -25,7 +25,7 @@ from sqlalchemy.exc import DBAPIError
 from app.api.routers import axis_admin
 from app.domain.axis_definitions import REQUEST_DYNAMIC_MATERIAL_IDS
 from app.domain.material_catalog import MATERIAL_CATALOG
-from app.services.axis_preview_service import ValueDistribution
+from app.domain.value_distribution import ValueDistribution
 from tests.admin_auth import AUTH_HEADERS
 from tests.bound_fake import bound
 
@@ -81,25 +81,23 @@ class FakeAxisRegistry:
     @property
     def writes(self) -> list[tuple]:
         """受けた呼び出しのうち書き込み（応答に重みの割合を添えるための一覧の読み取りを除く）。"""
-        return [call for call in self.calls if call[0] not in ("list_all", "get")]
+        return [call for call in self.calls if call[0] != "list_all"]
 
     async def list_all(self):
         self._record("list_all")
         return dict(self.axes)
 
-    async def get(self, axis_id):
-        self._record("get", axis_id)
-        return self.axes.get(axis_id)
-
     async def create(self, definition):
         self._record("create", definition)
         self.axes[definition.axis_id] = definition
+        return dict(self.axes)
 
     async def update(self, axis_id, definition):
         self._record("update", axis_id, definition)
         if axis_id not in self.axes:
             raise KeyError(axis_id)
         self.axes[axis_id] = definition
+        return dict(self.axes)
 
     async def delete(self, axis_id):
         self._record("delete", axis_id)
@@ -108,7 +106,7 @@ class FakeAxisRegistry:
     async def unpublish(self, axis_id):
         self._record("unpublish", axis_id)
         self.axes[axis_id] = self.axes[axis_id].model_copy(update={"is_published": False})
-        return self.axes[axis_id]
+        return dict(self.axes)
 
 
 @pytest.fixture
@@ -123,7 +121,7 @@ def seams(monkeypatch):
 
     async def axis_raw_value_distribution(repository, shape):
         return ValueDistribution(
-            sample_ways=3, total_km=1.5, quantiles={"p50": 2.0}, bins=[(0.0, 4.0, 1.0)], zero_share=0.25
+            sample_ways=3, total_km=1.5, quantiles={"p50": 2.0}, bins=[(0.0, 4.0, 1.0)]
         )
 
     fakes = {
@@ -177,7 +175,7 @@ def send(client, method, path):
 def test_a_database_failure_becomes_a_503_on_every_route_that_reads_it(client, registry, monkeypatch, method, path):
     failure = DBAPIError("SELECT 1", {}, Exception("接続できない"))
     registry.axes["a"] = stored()
-    registry.errors = {name: failure for name in ("list_all", "get", "create", "update", "delete", "unpublish")}
+    registry.errors = {name: failure for name in ("list_all", "create", "update", "delete", "unpublish")}
 
     async def failing_distribution(repository, shape):
         raise failure
@@ -336,7 +334,6 @@ class TestPreviews:
             "total_km": 1.5,
             "quantiles": {"p50": 2.0},
             "bins": [[0.0, 4.0, 1.0]],
-            "zero_share": 0.25,
         }
 
     def test_display_thresholds_answer_which_bands_the_map_drops_and_keeps(self, client):

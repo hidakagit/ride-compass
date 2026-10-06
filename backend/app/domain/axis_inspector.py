@@ -21,7 +21,6 @@ class AxisInspectorAxis(StrictModel):
     axis_id: str
     #: 材料が足りず評価できなければNone。
     difficulty: float | None
-    weight: float
     # この軸が合成スコアへ持ち込んでいる量（重み付き寄与度、`composite_difficulty`と同じ
     # 分母で正規化した値）。ルート結果の`axis_contributions`と同じ読み方にするため、
     # 重みを掛ける計算はサーバー側に置く。
@@ -77,7 +76,6 @@ def axis_inspector_breakdown(
         AxisInspectorAxis(
             axis_id=axis_id,
             difficulty=score,
-            weight=weights.get(axis_id, 0.0),
             contribution=contributions[axis_id],
         )
         for axis_id, score in scores.items()

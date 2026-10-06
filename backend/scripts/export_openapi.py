@@ -27,7 +27,15 @@ from app.domain.wind_grid import (  # noqa: E402
     WIND_GRID_DETAIL_MIN_SPACING_DEG,
     WIND_GRID_SPACING_DEG,
 )
-from app.domain.route_request import DEFAULT_DISTANCE_TOLERANCE_KM, MAX_ROUTE_DISTANCE_KM, MAX_WAYPOINTS  # noqa: E402
+from app.domain.route_request import (  # noqa: E402
+    DEFAULT_DISTANCE_TOLERANCE_KM,
+    DEFAULT_MAX_ROUTES,
+    MAX_ROUTE_DISTANCE_KM,
+    MAX_ROUTES,
+    MAX_WAYPOINTS,
+    MIN_ROUTES,
+    ROUTES_WITH_WAYPOINTS,
+)
 from app.api.routers.axis_admin import AxisDefinitionPayload  # noqa: E402
 from app.api.routers.debug_admin import LogLevelName  # noqa: E402
 from app.infrastructure.source_models import SOURCE_RUN_STATUS_LABELS  # noqa: E402
@@ -46,10 +54,12 @@ from app.domain.weather_elements import (  # noqa: E402
     weather_element_deliveries,
     weather_element_tile,
 )
-from app.domain.dynamic_way_values import DEFAULT_DIFFICULTY_BOUNDARIES  # noqa: E402
+from app.domain.difficulty import DIFFICULTY_DECIMALS  # noqa: E402
+from app.domain.map_paint import DEFAULT_DIFFICULTY_BOUNDARIES  # noqa: E402
 from app.domain.map_display import (  # noqa: E402
     ALWAYS_SHOWN_ATTRIBUTIONS,
     AXIS_LAYER_SPECS,
+    LayerText,
     LEGEND_SHARED_ROWS,
     MAP_LAYER_CATEGORIES,
     MAP_LAYERS,
@@ -78,8 +88,6 @@ from app.domain.map_display import (  # noqa: E402
     WEATHER_MARK_HALO_WIDTH_PX,
     WIND_FULL_SCALE_MS,
     WIND_ICON_SCALE_RANGE,
-    POINT_FATAL_RADIUS_PX,
-    POINT_NON_FATAL_RADIUS_PX,
     POINT_OPACITY_BY_ATTR,
     POINT_RADIUS_PX,
     POINT_ICON_SIZE_PX,
@@ -123,8 +131,8 @@ from app.domain.landcover import (  # noqa: E402
     LANDCOVER_TILE_MAX_ZOOM,
     LANDCOVER_TILE_MIN_ZOOM,
 )
-from app.services.landcover_tile_service import LANDCOVER_TILE_VERSION  # noqa: E402
-from app.domain.jma_tile_specs import effective_max_zoom  # noqa: E402
+from app.infrastructure.cache_identity import LANDCOVER_TILE_VERSION  # noqa: E402
+from app.domain.jma_tile_specs import JMA_TILE_MIN_ZOOM, effective_max_zoom  # noqa: E402
 from app.domain.material_catalog import (  # noqa: E402
     MATERIAL_CATALOG,
     MISSING_SEMANTICS_DISPLAY,
@@ -134,16 +142,11 @@ from app.domain.material_catalog import (  # noqa: E402
 )
 from app.domain.region import ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM  # noqa: E402
 from app.domain.leg_costs import MAX_TIME_BINS, TIME_BIN_HOURS  # noqa: E402
-from app.services.route_generator import (  # noqa: E402
-    DEFAULT_MAX_ROUTES,
-    MAX_ROUTES,
-    ROUTES_WITH_WAYPOINTS,
-    SPLICED_ROUTE_ID,
-)
+from app.services.route_generator import SPLICED_ROUTE_ID  # noqa: E402
 from app.config import Settings  # noqa: E402
 from app.domain.loop_routing import WAYPOINTS_ROUTE_ID  # noqa: E402
 from app.domain.region import MAX_MERCATOR_LATITUDE  # noqa: E402
-from app.domain.route_preference import MAX_AXIS_WEIGHT  # noqa: E402
+from app.domain.route_preference import ENABLED_AXIS_WEIGHT, MAX_AXIS_WEIGHT  # noqa: E402
 from app.domain.tuning import client_tuning_values  # noqa: E402
 from app.domain.weather import PRECIPITATION_MIN_MM  # noqa: E402
 from app.infrastructure.msm_client import DEFAULT_UPDATE_INTERVAL_SECONDS as MSM_UPDATE_INTERVAL_SECONDS  # noqa: E402
@@ -225,6 +228,11 @@ def _map_layer_entry(spec: MapLayerSpec) -> dict:
     }
 
 
+def _layer_text(text: LayerText) -> list:
+    """説明の文。文はそのまま、差し込み口は名前と前後の文の組にする。"""
+    return [part if isinstance(part, str) else part._asdict() for part in text]
+
+
 def _weather_element_entry(element: WeatherElement) -> dict:
     tile = weather_element_tile(element)
     return {
@@ -253,7 +261,7 @@ def _weather_element_entry(element: WeatherElement) -> dict:
         "tile": None
         if tile is None
         else {
-            "minZoom": tile.min_zoom,
+            "minZoom": JMA_TILE_MIN_ZOOM,
             "maxZoom": effective_max_zoom(tile),
             "vectorLayer": tile.vector_layer,
         },
@@ -347,7 +355,14 @@ def main() -> None:
             "layerKinds": list(MAP_LAYER_KINDS),
             # 地図に載るものの、描き方以外の宣言（種別・情報源・性質・既定表示）。
             "layers": [
-                {"id": layer_id, "label": map_layer_label(layer_id, spec), **_map_layer_entry(spec)}
+                {
+                    "id": layer_id,
+                    "label": map_layer_label(layer_id, spec),
+                    **_map_layer_entry(spec),
+                    "chipLabel": spec.chip_label,
+                    "description": _layer_text(spec.description),
+                    "panelHint": _layer_text(spec.panel_hint) or None,
+                }
                 for layer_id, spec in MAP_LAYERS
             ],
             "axisLayers": {kind: _map_layer_entry(spec) for kind, spec in AXIS_LAYER_SPECS.items()},
@@ -372,8 +387,6 @@ def main() -> None:
             },
             "point": {
                 "radiusPx": POINT_RADIUS_PX,
-                "fatalRadiusPx": POINT_FATAL_RADIUS_PX,
-                "nonFatalRadiusPx": POINT_NON_FATAL_RADIUS_PX,
                 "strokeWidthPx": POINT_STROKE_WIDTH_PX,
                 "iconSizePx": POINT_ICON_SIZE_PX,
                 "opacityByLayer": POINT_OPACITY_BY_ATTR,
@@ -399,6 +412,8 @@ def main() -> None:
             },
             "valueScale": {
                 "difficultyBoundaries": list(DEFAULT_DIFFICULTY_BOUNDARIES),
+                # 難易度を区別する桁。画面の式（タイルから組む点数の丸め）と表示の桁がこれを読む。
+                "difficultyDecimals": DIFFICULTY_DECIMALS,
             },
             "route": {
                 "lineWidthsPx": ROUTE_LINE_WIDTHS_PX,
@@ -555,6 +570,7 @@ def main() -> None:
         ROUTE_GENERATE_CONFIG_PATH,
         {
             "max_distance_km": MAX_ROUTE_DISTANCE_KM,
+            "min_routes": MIN_ROUTES,
             "max_routes": MAX_ROUTES,
             "default_max_routes": DEFAULT_MAX_ROUTES,
             "routes_with_waypoints": ROUTES_WITH_WAYPOINTS,
@@ -565,6 +581,7 @@ def main() -> None:
             "spliced_route_id": SPLICED_ROUTE_ID,
             "waypoints_route_id": WAYPOINTS_ROUTE_ID,
             "max_axis_weight": MAX_AXIS_WEIGHT,
+            "enabled_axis_weight": ENABLED_AXIS_WEIGHT,
             "min_assumed_speed_kmh": MIN_ASSUMED_SPEED_KMH,
             "max_assumed_speed_kmh": MAX_ASSUMED_SPEED_KMH,
             # フロントのポーリングの打ち切り。backendが結果を持つ時間より長く待つと、
@@ -575,8 +592,8 @@ def main() -> None:
             "wind_forecast_hours_per_leg": MAX_TIME_BINS * TIME_BIN_HOURS,
             # 区間の風を引く時刻の刻み（時刻ビンの幅）。区間の詳細の説明が評価の刻みを数字で示す。
             "wind_time_bin_hours": TIME_BIN_HOURS,
-            # フロントが使う較正値の**既定**（`domain/tuning.py`の宣言そのまま）。
-            # 実際に効いている値はGET /api/axis-catalogが返し、これはそれを取れるまでの値。
+            # フロントが使う較正値の**既定**（`domain/tuning.py`の宣言そのまま）。フロントはidの型にだけ使い、
+            # 値は読まない——効いている値はGET /api/axis-catalogが返し、取れるまではその値を使う機能を出さない。
             "client_tuning": client_tuning_values(),
             # 0次ハードフィルタのキー一覧・画面に出す名前・既定値。backendは`_check_filter_keys`で
             # **キー集合の完全一致**を要求するため、frontendが手書きで持っていると

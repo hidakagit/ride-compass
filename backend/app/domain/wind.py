@@ -7,8 +7,8 @@ import numpy as np
 from app.domain.geo import haversine_distance_km_array
 from app.domain.route import Coordinates
 
-# 仮定巡航速度（km/h）の既定値。区間ごとの推定到達時刻と、風の追加負荷
-# （`wind_drag_ratio_array`の走行速度）の算出に使う。リクエストごとに上書きできる
+# 仮定巡航速度（km/h）の画面の既定値。区間ごとの推定到達時刻と、風の追加負荷
+# （`wind_drag_ratio_array`の走行速度）の算出に使う速度は、要求ごとに送られる
 # （範囲は下記MIN/MAX）。風・勾配に依存しない一律の定数として扱うことが前提——速度を風で
 # 可変にすると「時刻の算出に速度が要り、速度が風（時刻依存）に影響される」循環が生まれる。
 ASSUMED_SPEED_KMH = 20.0
@@ -20,14 +20,14 @@ MAX_ASSUMED_SPEED_KMH = 60.0
 # よる推定誤差は同じビンへ収まる程度で足りる。
 ROUTE_DETOUR_RATIO = 1.3
 
+def kmh_to_ms(speed_kmh: float) -> float:
+    return speed_kmh / 3.6
+
+
 # 風の追加負荷（`wind_drag_ratio_array`）を無次元化する基準速度（m/s、時速20km）。
 # `ASSUMED_SPEED_KMH`とは独立の専用定数にする——既定の想定速度を変えても材料のスケール
 # （軸スタジオのbreakpointsが前提にする値域）がずれないようにするため。
-WIND_DRAG_REFERENCE_SPEED_MS = 20.0 / 3.6
-
-
-def kmh_to_ms(speed_kmh: float) -> float:
-    return speed_kmh / 3.6
+WIND_DRAG_REFERENCE_SPEED_MS = kmh_to_ms(20.0)
 
 
 def _wind_relative_angle_rad(wind_direction_deg, travel_bearing_deg) -> np.ndarray:
@@ -138,6 +138,15 @@ class WindLattice:
 
 
 @dataclass(frozen=True)
+class DepartureWind:
+    """出発地点の出発時点の風（MSMの時系列の先頭）。時別の系列が無いとき、全区間へ一様に使う。"""
+
+    speed_ms: float
+    #: 風が吹いてくる方位（0=北・時計回り）。
+    direction_deg: float
+
+
+@dataclass(frozen=True)
 class WindForecastSeries:
     """格子点ごとの時別風向・風速の予報系列（1時間刻み、`times`はタイムゾーン無しのローカル時刻[JST]）。探索前に
     各Edgeの通過予定時刻へ対応する風を引くために使う。`speed_ms`・`direction_deg`は（格子点, 時刻）。
@@ -178,6 +187,11 @@ class WindForecastSeries:
         """`sample`が引く予報の時刻と、系列の範囲の外で端の時刻へ寄せたか（予報の先を延ばして使っている）。"""
         index, clamped = self._sample_index(start, passage_hours)
         return [self.times[i] for i in index], clamped
+
+    def covers(self, at: datetime) -> bool:
+        """`at`に最も近い時刻が系列の範囲の中にあるか（端の値で延ばさずに引けるか）。"""
+        _, clamped = self._sample_index(at, np.zeros(1))
+        return not bool(clamped[0])
 
 
 def estimate_passage_hours(

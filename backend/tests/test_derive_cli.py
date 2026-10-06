@@ -68,12 +68,29 @@ def _dsn() -> str:
     return asyncpg_dsn(postgis_database_url())
 
 
+async def _schemas(conn: asyncpg.Connection) -> set[str]:
+    """一時の表のスキーマ（接続ごとに作られ、残る）を除いたスキーマ。作り直しが作業用のスキーマを残さないことを見る。"""
+    return {row["nspname"] for row in await conn.fetch(
+        "SELECT nspname FROM pg_namespace"
+        " WHERE nspname NOT LIKE 'pg\\_temp\\_%' AND nspname NOT LIKE 'pg\\_toast\\_temp\\_%'")}
+
+
 async def _revision(conn: asyncpg.Connection) -> int | None:
     return await conn.fetchval("SELECT revision FROM derived_data_meta")
 
 
 @pytest_asyncio.fixture(loop_scope="module")
-async def derived_before(road_graph_engine, monkeypatch, tmp_path):
+async def schemas_at_start(road_graph_engine) -> set[str]:
+    """作り直しを1度も走らせる前のスキーマ。作り直しが作業用のスキーマを残さないことは、これと比べて見る。"""
+    conn = await asyncpg.connect(_dsn())
+    try:
+        return await _schemas(conn)
+    finally:
+        await conn.close()
+
+
+@pytest_asyncio.fixture(loop_scope="module")
+async def derived_before(road_graph_engine, schemas_at_start, monkeypatch, tmp_path):
     """作り直す前の状態: 今の生データから最初の段まで作り直し、世代1の表と道路網がある。道路網の置き場は一時ディレクトリ。
 
     `road_graph_engine`に依存するのはスキーマを作らせるため。
@@ -87,7 +104,8 @@ async def derived_before(road_graph_engine, monkeypatch, tmp_path):
         assert await derive_cli.run(postgis_database_url(), None) == 0
         yield conn
     finally:
-        await conn.execute("DROP SCHEMA IF EXISTS " + derive_cli.WORK_SCHEMA + " CASCADE")
+        for left in await _schemas(conn) - schemas_at_start:
+            await conn.execute(f'DROP SCHEMA "{left}" CASCADE')
         await conn.execute("TRUNCATE " + ", ".join(DERIVED) + ", source_features, source_runs, derived_data_meta CASCADE")
         await conn.close()
 
@@ -105,7 +123,7 @@ def _observe_after(stage_name: str, monkeypatch, observe) -> None:
 
 
 async def test_readers_see_the_previous_tables_until_the_swap_and_the_rebuilt_ones_after(
-        derived_before, monkeypatch):
+        derived_before, schemas_at_start, monkeypatch):
     """段が書き終えても、入れ替えまでは読み手は前の表を読む。入れ替えの後は、前から開いている接続の
     準備済みの文も作り直した表を読み、世代が1つ進み、その世代の道路網は作り直した表から作られている。"""
     structure_before = await derived_before.fetch(_STRUCTURE_SQL, list(DERIVED))
@@ -128,20 +146,19 @@ async def test_readers_see_the_previous_tables_until_the_swap_and_the_rebuilt_on
     finally:
         await reader.close()
 
-    network = road_network_store.load(road_network_store.latest_directory())
+    network = road_network_store.current()
     assert network.revision == 2
     directions = set(zip(network.edge_way_id.tolist(), network.edge_forward.tolist(), strict=True))
     assert (100, False) not in directions
     assert (200, False) in directions
     # 入れ替えた表は、前の表と同じ名前の索引・制約を持つ。
     assert await derived_before.fetch(_STRUCTURE_SQL, list(DERIVED)) == structure_before
-    assert await derived_before.fetchval(
-        "SELECT count(*) FROM pg_namespace WHERE nspname = $1", derive_cli.WORK_SCHEMA) == 0
+    assert await _schemas(derived_before) == schemas_at_start
 
 
-async def test_a_failed_rebuild_changes_nothing_readers_see(derived_before, monkeypatch):
+async def test_a_failed_rebuild_changes_nothing_readers_see(derived_before, schemas_at_start, monkeypatch):
     """途中で落ちたら、表も世代も道路網の置き場も前のまま。作業用のスキーマは残らない。"""
-    network_before = road_network_store.latest_directory()
+    network_before = sorted(road_network_store.ROOT.iterdir())
     await _ingest_ways(derived_before, ONEWAY)
 
     async def fail():
@@ -155,9 +172,8 @@ async def test_a_failed_rebuild_changes_nothing_readers_see(derived_before, monk
     assert await derived_before.fetchval(
         "SELECT direction FROM way_materials WHERE osm_way_id = 100") == "both"
     assert await _revision(derived_before) == 1
-    assert road_network_store.latest_directory() == network_before
-    assert await derived_before.fetchval(
-        "SELECT count(*) FROM pg_namespace WHERE nspname = $1", derive_cli.WORK_SCHEMA) == 0
+    assert sorted(road_network_store.ROOT.iterdir()) == network_before
+    assert await _schemas(derived_before) == schemas_at_start
 
 
 async def _nodes_with_signal(conn: asyncpg.Connection) -> set[int]:
@@ -197,7 +213,7 @@ async def test_the_accident_density_is_divided_by_the_years_of_the_import_that_w
             return await RoadGraphRepository(session).get_accident_years()
 
     def density_on_way_100() -> float:
-        network = road_network_store.load(road_network_store.latest_directory())
+        network = road_network_store.current()
         column = network.numeric_ids.index(ACCIDENT_COUNT_PER_KM_YEAR)
         return float(network.numeric_values[network.edge_way_id == 100, column].max())
 

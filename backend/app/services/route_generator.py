@@ -23,7 +23,6 @@ from app.domain.loop_routing import TracedLoop
 if TYPE_CHECKING:
     from app.services.road_graph_engine import RoadGraphEngine, _RoadGraphContext
 from app.domain.route import (
-    merge_axis_raw_values,
     Coordinates,
     RouteCandidate,
     merge_axis_contributions,
@@ -45,29 +44,17 @@ SPLICED_ROUTE_ID = "route-spliced"
 # この値は経験的に調整してよい。
 TURNAROUND_RADIUS_RATIO = 0.4
 
-# 返す候補数の既定値と上限（APIの`max_routes`）。
-DEFAULT_MAX_ROUTES = 8
-MAX_ROUTES = 15
-# 経由地を伴う生成が返す候補の数。経由地があるとレグごとの代替が組合せで増えるため、候補数の
-# 指定を使わず単一経路にする（`generate_via_waypoints`）。
-ROUTES_WITH_WAYPOINTS = 1
-
-
-def applied_max_routes(max_routes: int, *, has_waypoints: bool) -> int:
-    """その生成で実際に使う候補数の上限。画面も同じ値を生成物で受け取り、候補数の入力欄に出す。"""
-    return ROUTES_WITH_WAYPOINTS if has_waypoints else max_routes
-
 # 折返し点候補のプール上限: 距離フィルタや復路探索の失敗で落ちる分を見越して
 # max_routesの3倍（下限12・上限40）だけ選定し、合格が`max_routes`件に達した時点で
 # 早期停止する。
-TURNAROUND_POOL_FACTOR = 3
-TURNAROUND_POOL_MIN = 12
-TURNAROUND_POOL_MAX = 40
+_TURNAROUND_POOL_FACTOR = 3
+_TURNAROUND_POOL_MIN = 12
+_TURNAROUND_POOL_MAX = 40
 
 
 def turnaround_pool_size(max_routes: int) -> int:
     """`max_routes`件の合格候補を得るために選定する折返し点候補の件数。"""
-    return min(TURNAROUND_POOL_MAX, max(TURNAROUND_POOL_MIN, max_routes * TURNAROUND_POOL_FACTOR))
+    return min(_TURNAROUND_POOL_MAX, max(_TURNAROUND_POOL_MIN, max_routes * _TURNAROUND_POOL_FACTOR))
 
 
 #: 区間から候補単位へ集約する値（載せるフィールド → `segments`から作る関数）。
@@ -77,13 +64,12 @@ SEGMENT_AGGREGATES: dict[str, Callable[[list[Any]], Any]] = {
     # ルート単位の絶対基準。エンジン非依存のため、engine実装側には持たせない。
     "overall_difficulty": lambda segments: overall_difficulty([(s.difficulty, s.distance_km) for s in segments]),
     "axis_difficulties": merge_axis_difficulties,
-    # 軸単体で経路を判断するための絶対値。
-    "axis_raw_values": merge_axis_raw_values,
     # overall_difficultyの内訳。合計は丸め誤差を除いてoverall_difficultyと一致する。
     "axis_contributions": merge_axis_contributions,
     # 数値材料の集約。**categorical材料の延長割合はここで触らない**——`segments`は既に
     # 約500m単位へ畳まれており、代表値からでは正しい割合を作れない（エンジンがビニングの
     # 前に計算して`RouteCandidate`へ載せている。`road_graph_engine.py: _build_candidate`）。
+    # 軸の生値（`axis_raw_values`）も区間が持たないため、同じくエンジンが載せる。
     "material_values": merge_material_values,
 }
 
@@ -184,7 +170,6 @@ class RouteGenerator:
         started = time.monotonic()
         # 常時出るサマリログ用に座標を2桁(≈1km)へ丸める(debug_log.pyの方針と同じ)。
         origin_label = f"({origin.latitude:.2f},{origin.longitude:.2f})"
-        self.last_no_candidates_reason = None
 
         context = await self._prepare(
             origin, radius_km, start_time, None, origin_label=origin_label,
@@ -322,7 +307,6 @@ class RouteGenerator:
         radius_km = distance_km * TURNAROUND_RADIUS_RATIO
         started = time.monotonic()
         origin_label = f"({origin.latitude:.2f},{origin.longitude:.2f})"
-        self.last_no_candidates_reason = None
         end_point = destination if destination is not None else origin
         full_waypoints = [origin, *waypoints, end_point]
         # bboxが目的地もカバーするよう、prepareへ渡す点集合に含める。
@@ -339,7 +323,7 @@ class RouteGenerator:
 
         trace_started = time.monotonic()
         try:
-            traced = await self._engine.trace_loop(context, full_waypoints, bearing=None)
+            traced = await self._engine.trace_loop(context, full_waypoints)
         except RoutingError as exc:
             logger.warning(
                 "generate(via_waypoints) origin=%s waypoints=%d destination=%s -> trace failed: %s",
@@ -387,8 +371,6 @@ class RouteGenerator:
         radius_km = distance_km * TURNAROUND_RADIUS_RATIO
         started = time.monotonic()
         origin_label = f"({origin.latitude:.2f},{origin.longitude:.2f})"
-        self.last_no_candidates_reason = None
-        self.last_destination_correction = None
 
         context = await self._prepare(
             origin, radius_km, start_time, [destination], origin_label=origin_label,
@@ -451,8 +433,6 @@ class RouteGenerator:
         radius_km = distance_km * TURNAROUND_RADIUS_RATIO
         started = time.monotonic()
         origin_label = f"({origin.latitude:.2f},{origin.longitude:.2f})"
-        self.last_no_candidates_reason = None
-        self.last_destination_correction = None
 
         context = await self._prepare(
             origin, radius_km, start_time, [destination], origin_label=origin_label,

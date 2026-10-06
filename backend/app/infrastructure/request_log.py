@@ -34,8 +34,6 @@ class JstLogFormatter(logging.Formatter):
 
     def formatTime(self, record: logging.LogRecord, datefmt: str | None = None) -> str:
         at = datetime.fromtimestamp(record.created, JST)
-        if datefmt:
-            return at.strftime(datefmt)
         return f"{at.strftime('%Y-%m-%d %H:%M:%S')},{int(record.msecs):03d}{at.strftime('%z')}"
 
 

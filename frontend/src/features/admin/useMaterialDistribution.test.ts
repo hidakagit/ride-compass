@@ -16,7 +16,7 @@ import { useMaterialDistribution } from "./useMaterialDistribution";
 const DISTRIBUTION = "/admin/api/material-catalog/:materialId/distribution";
 
 function distribution(p50: number): MaterialDistribution {
-  return { available: true, sample_ways: 1, total_km: 1, quantiles: { p50 }, bins: [], zero_share: 0 };
+  return { available: true, quantiles: { p50 }, zero_share: 0 };
 }
 
 /** 取り直しが起きていれば応答が届くだけの間をおく（起きないことを確かめるため）。 */

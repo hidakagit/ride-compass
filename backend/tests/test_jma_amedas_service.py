@@ -6,7 +6,7 @@
 
 JMAの観測値エンドポイントは1地点だけを絞り込めず全国分を1レスポンスで返すため、取得は
 `refresh_all_stations`（main.pyの定期バッチが呼ぶ）が一括で担い、`get_nearest_observation`
-（リクエスト経路）はRedis読み取り専用である。推計気象分布の色を取るクライアントと空の区分への読み替え、
+（リクエスト経路）はRedis読み取り専用である。推計気象分布の色を取って区分へ読み替えるクライアントと、
 観測値と雨の履歴の置き場は、自分のテストを持たないのでここで入口から通す。
 
 ここで見ないもの:
@@ -27,11 +27,11 @@ import respx
 from PIL import Image
 
 from app.domain.jma_amedas import apparent_temperature_from_amedas
-from app.domain.jma_suikei import SUIKEI_TARGET_TIMES_PATH
 from app.domain.rain import HOURS_SINCE_RAIN, RAIN_HISTORY_HOURS, RAIN_HISTORY_MAX_AGE, rain_window_material_id
 from app.domain.route import Coordinates
 from app.domain.time_zone import JST
 from app.infrastructure import jma_amedas_client, jma_tile_client
+from app.infrastructure.debug_log import get_stats
 from app.infrastructure.jma_amedas_client import new_latest_time_cache, new_station_table_cache
 from app.infrastructure.jma_tile_client import JmaTileClient, JmaTileSharedState
 from app.services.jma_amedas_service import JmaAmedasService, load_station_rain_materials, new_rain_materials_cache
@@ -120,7 +120,7 @@ def _router(
     else:
         latest.respond(text=latest_time)
     upstream.get(url__startswith=prefix).mock(side_effect=observation)
-    target_times = upstream.get(f"{jma_tile_client.UPSTREAM_HOST}/{SUIKEI_TARGET_TIMES_PATH}")
+    target_times = upstream.get(f"{SUIKEI_ROOT}/targetTimes.json")
     if suikei_target_times is None:
         target_times.mock(side_effect=httpx.ConnectError)
     else:
@@ -183,8 +183,6 @@ async def test_get_nearest_observation_reads_from_redis_without_fetching():
     assert upstream.calls
     assert all(str(call.request.url).startswith(SUIKEI_ROOT) for call in upstream.calls)
     assert result is not None
-    assert result.station_id == "44132"
-    assert result.station_name == "東京"
     assert result.temperature_c == 26.5
     assert result.apparent_temperature_c == apparent_temperature_from_amedas(26.5, 70, 3.5)
     assert result.wind_speed_ms == 3.5
@@ -192,6 +190,20 @@ async def test_get_nearest_observation_reads_from_redis_without_fetching():
     assert result.precipitation_10min_mm == 0.0
     # 日の出・日没はRedisには無く、クエリ地点に対してその場で計算される。
     assert result.twilight is not None
+
+
+async def test_observation_reads_and_writes_are_counted_in_the_stats():
+    """置き場の不調は`/api/debug/stats`で見る。集計に載らないと、Redisが落ちても観測値が出ないだけで気づけない。"""
+    category = "cache:jma-amedas-redis"
+    before = get_stats().external.get(category)
+    service = _service(_upstream())
+
+    await service.refresh_all_stations()
+    await service.get_nearest_observation(POINT)
+
+    after = get_stats().external[category]
+    assert after.calls - (before.calls if before else 0) == 2
+    assert after.cache_hits - (before.cache_hits if before else 0) == 1
 
 
 async def _nearest(**answers):
@@ -364,7 +376,7 @@ async def test_a_rain_history_stored_in_a_shape_that_cannot_be_read_serves_no_ma
     """保存した形は過去のコードが書いたもの。読めないまま展開すると、地図とルートの生成が500で落ちる。"""
     now = datetime.now(JST)
     await _rain_service(RainMaps(_latest_hour(now), rain_by_back={})).refresh_all_stations()
-    (key,) = [key for key in await fake_redis.keys() if await fake_redis.type(key) == "string"]
+    (key,) = [key for key in await fake_redis.keys() if await fake_redis.type(key) == b"string"]
     await fake_redis.set(key, json.dumps({"latest_hour": "yesterday", "stations": {"44132": [35.69, 139.76]}, "hours": {}}))
 
     assert await load_station_rain_materials(now, new_rain_materials_cache()) is None

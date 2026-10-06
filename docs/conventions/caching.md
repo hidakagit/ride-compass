@@ -115,15 +115,20 @@ Redisを選ぶと、RAMを恒久的に占有したうえで`volatile-lru`の退�
    退避の順（`eviction_policy`）で持つ。**自前で書かない**。退避の順は読み方で選ぶ——`least-recently-used`は
    読むたびに書き込みが走るため、地図の読み込みで大量に読まれる`tile_cache`は書いた順（`least-recently-stored`）にしている）
 2. **世代交代で不要になった実体を消す手段**と、それを**どこで呼ぶか**（上限に達するまで
-   居座るため、上限とは別に要る。道路網の配列の置き場は、作ったときと起動後に消している。下記「無効化」）
+   居座るため、上限とは別に要る。道路網の配列の置き場は、作ったときと起動後に、地域タイルは起動直後と定期に消している。下記「無効化」）
 3. 使用量が想定内に収まっているかを確認する方法
+
+鍵・読み書きの骨格・掃除は`infrastructure/`のモジュールが持ち（例: 地域タイルは`region_tile_cache.py`）、`services/`とは値で
+やり取りする。Redisと同じく、上の層が`tile_cache.py`・`tile_persistent_cache.py`を直にimportすると`lint-imports`が落ちる
+（[directory-layout.md](../architecture/directory-layout.md)「backend」）。
 
 現在のディスク保持（本番実測、2026-09-07）:
 
 | 用途 | 実測 | 置き場所の判断 | 掃除の有無 |
 |---|---|---|---|
 | `tile_cache`（基礎地図・DEM・色別標高図の生バイト） | 11MB | ○ 外部由来で不変・TTL不要 | ○ 容量上限（`tile_cache_size_limit_mb`）を超えると`diskcache`が書いた時刻の古い順に退避する。**実測に対して1桁の余裕があり現状は発火しない**——伸び続けたときの頭打ちで、鍵に世代を持たないこの置き場では世代単位に消せないため |
-| `tile_cache`のうち土地被覆タイル（PNG） | 関東本土を全ズーム（z6〜z14）描き切って45MB・21,264枚（2026-09-16実測、1枚あたりz14で1.7KB・z9で14KB。実際は要求されたタイルだけなのでこれは上限） | ○ 同上。ラスタ構成ごとに鍵が割れるため、構成を変えるとこの上限ぶんが世代ごとに積む | ○ 同じ容量上限の対象（構成の変更は年次の差し替え程度の頻度のため、これも通常は発火しない） |
+| `tile_cache`のうち土地被覆タイル（PNG） | 関東本土を全ズーム（z6〜z14）描き切って45MB・21,264枚（2026-09-16実測、1枚あたりz14で1.7KB・z9で14KB。実際は要求されたタイルだけなのでこれは上限） | ○ 同上。ラスタ構成ごとに鍵が割れる | ○ 起動直後と24時間ごとに、今開けているラスタ構成でない世代を消す（下記「無効化」）。容量上限の対象でもある |
+| `tile_cache`のうち地域のMVTタイル（路面・点。鍵`region/<系統>/v<世代>/…`） | 未計測 | ○ PostGISから焼き直す費用を払わずに配る。世代の中では不変 | ○ 起動直後と24時間ごとに、配っていない世代を消す（下記「無効化」）。容量上限の対象でもある |
 | `msm`（予報の`.om`ファイル） | 87MB | ○ 大きくTTLに馴染まない | ○ 同期のたびに予報窓の外を削除 |
 | `tile_persistent_cache`（way_id別の動的値のpickle） | 未計測 | ○ 再計算の費用を払わずプロセスをまたぐ | ○ 容量上限＋`expire`による失効 |
 | `road_network`（取込範囲全体の道路網の配列、世代ごとの置き場） | 置き場1.6GB（2026-09-26、本番DBから本番VMの使い捨てコンテナで作成） | ○ 作るのに数分・プロセスをまたいで全員が読む。メモリマップで開くため、使う列だけがRAMに載る | ○ 作ったときに同じ形の古い世代を削除、起動後に形の違う置き場を削除 |
@@ -189,9 +194,10 @@ backendは1プロセスでしか正しく動かず、ワーカーを増やすと
 
 「Redisが使えるか確認 → クライアント取得 → `log_external_call`で計測 → 失敗は握り潰して
 未キャッシュ扱い → 成否をサーキットブレーカーへ記録」という14行ほどの定型文は、
-`redis_json_cache.py: get_json`/`redis_json_cache.py: set_json`が内包している。値がバイナリなら、同じ骨格を
-文字列へデコードしない接続で通す`redis_json_cache.py: get_bytes`/`redis_json_cache.py: set_bytes`を使う
-（base64にしてJSONへ包むと、ヒットのたびにデコードのCPUと約1.33倍の容量を払う）。**呼び出し元が持つのは
+`redis_json_cache.py: get_json`/`redis_json_cache.py: set_json`が内包している。値がバイナリなら
+`redis_json_cache.py: get_bytes`/`redis_json_cache.py: set_bytes`を使う
+（base64にしてJSONへ包むと、ヒットのたびにデコードのCPUと約1.33倍の容量を払う）。キーごとの項目を
+まとめて書くなら、Hashの`redis_json_cache.py: get_hash`/`redis_json_cache.py: set_hashes`（pipelineで1往復）を使う。**呼び出し元が持つのは
 キー設計・TTL・値の意味づけだけ**にする。
 
 **呼び出し元は`infrastructure/`のモジュールにする**。鍵・保存する形・TTL・保存した形の検査は
@@ -202,14 +208,14 @@ backendは1プロセスでしか正しく動かず、ワーカーを増やすと
 ```python
 from app.infrastructure.redis_json_cache import get_json, set_json
 
-value = await get_json(key, category="cache:xxx")            # ミス・障害はNone
+value = await get_json(key, category="cache:xxx")            # ミスはNone・障害はUNAVAILABLE
 await set_json(key, payload, ttl_seconds=TTL, category="cache:xxx")
 ```
 
 **自前で骨格を書いてよい例外**（該当する場合はその理由をモジュールのdocstringへ書く）:
 
-- `mget`/`pipeline`による一括読み書きが必要（1リクエストで数百キーを引く等）
-- キーの生存期間を個別に操作する必要がある（`ex`以外のRedis機能を使う）
+- 骨格に無い一括読み書きが必要（`mget`で1リクエストに数百キーを引く等）
+- キーの生存期間を個別に操作する必要がある（TTLの付与以外のRedis機能を使う）
 
 例外に当たる場合も、原則3（失敗の記録）と原則2（fail-open）は必ず満たす。
 
@@ -314,6 +320,12 @@ push型の無効化はfail-openと組み合わさると「伝え漏れても誰�
 旧コンテナが読んでいるため起動後にだけ消す）。新しくディスクへ世代番号を使うキャッシュを作るときは、
 同じ掃除の導線を用意すること。
 
+地域タイル（路面・点・土地被覆）は、起動直後と24時間ごとに、今配っている世代の鍵でないものを消す
+（`region_tile_cache.py: prune_other_generations`、`main.py`の定期ジョブ）。世代は派生の作り直し・取込でも再起動なしに
+変わるため、起動時だけでは足りない。世代を読めていない系統（DBの世代が読めない・土地被覆のラスタが1枚も開けない）は
+消さず、系統の表に無い系統（改名・廃止）の鍵は消す。入れ替わりの間は旧コンテナが前の世代を読み書きしているが、
+消してもそのタイルが冷えるだけで、配信は壊れない（道路網の配列と違い、開いたまま読まれる実体ではない）。
+
 **世代が変わった直後の地図のタイルは、事前に焼かない。** 配信するタイルの鍵は世代から組む
 （`services/tile_version_service.py: tile_version`）ので、世代が変わるとディスクのタイルは全部冷え、
 各タイルは最初に要求されたときに焼かれる。それでも焼いておかないのは、待ちが小さく、まれだから:
@@ -333,7 +345,7 @@ push型の無効化はfail-openと組み合わさると「伝え漏れても誰�
 
 **「元データの世代」には、どの元データを開いていたかも含む。** 土地被覆タイルは
 `LULC_RASTER_PATHS`（環境変数）で開くGeoTIFFが決まり、1枚足せば継ぎ目のタイルの絵が
-変わる。ラスタ構成の指紋（`domain/landcover.py: raster_set_fingerprint`）をディスクの鍵へ
+変わる。ラスタ構成の指紋（`infrastructure/cache_identity.py: raster_set_fingerprint`）をディスクの鍵へ
 入れて、構成が変われば別の鍵になるようにしてある。**この指紋はURLへは入れられない**
 ——URLの世代は生成物（`region-tile-config.json`）を通してフロントへ渡り、生成はビルド機で
 行うため、環境ごとに違う値を入れるとビルド機の設定で生成物が決まってしまう。そのぶん
@@ -346,7 +358,7 @@ push型の無効化はfail-openと組み合わさると「伝え漏れても誰�
 
 ## 直接使ってよい場所
 
-`get_redis_client_or_none`・`get_redis_binary_client_or_none`・`record_redis_failure`・`record_redis_success`・`redis_available`を
+`get_redis_client_or_none`・`record_redis_failure`・`record_redis_success`・`redis_available`を
 直接呼んでよいファイルは`backend/tests/structure/test_redis_skeleton.py: ALLOWED`が持つ（骨格そのもの・
 その接続本体と、単一キーのJSON読み書きでは表現できないもの）。ここに無いファイルで使うと
 テストが落ちる。寄せられない事情があるなら、理由とともに`ALLOWED`へ足すこと。

@@ -42,7 +42,7 @@ APIを呼ぶ）・「データ保守」タブ（派生データ鮮度台帳の�
 | `features/admin/AxisStudio/DbStatusPanel.tsx` | 「データ保守」タブ・本番DBの状態。取込runの最終実行・テーブルの実数と容量・統計とVACUUMの鮮度・接続を1件1行で出す |
 | `features/admin/AxisStudio/StatusRowList.tsx` | 上記2パネルが共有する点検の行の一覧（状態の丸・名前・規模、開くと項目と値）と、結果の一言（手当てが要れば目立たせる） |
 | `features/admin/AxisStudio/ReportCard.tsx` | 集計のパネル（材料の欠損割合・派生データ鮮度台帳・本番DBの状態）が共有するカード。見出しとⓘ・「集計する」ボタン・集計中と失敗の表示・集計の時刻（日本時間）を持ち、中身の描画は各パネルが渡す。件数と時点の書式（`formatCount`・`formatMoment`）もここに置く |
-| `features/admin/AxisStudio/TileCachePanel.tsx` | 「データ保守」タブの2枚目。サーバー側のタイルファイルキャッシュ（基礎地図・路面/事故/POIタイルが共有）を全消去する操作パネル。全利用者へ影響するため入口はここだけに持つ |
+| `features/admin/AxisStudio/TileCachePanel.tsx` | 「データ保守」タブの2枚目。サーバー側のタイルファイルキャッシュ（基礎地図・路面と点のタイルが共有）を全消去する操作パネル。全利用者へ影響するため入口はここだけに持つ |
 | `features/admin/AxisStudio/TuningPanel.tsx` | 「較正値」タブ本体。走ってみて決める値をデプロイなしで編集する。**並べる項目はbackendが宣言から導く**ため画面側に一覧を持たず、効き方（`effect`）ごとに見出しを分けて「変えたのに効かない」群がそれと分かるようにする。1件=1行で、説明と既定値・範囲は(i)の奥（他の管理パネルと同じ省スペースの作り）。入力は打っただけでは送らず「DBへ保存」でまとめて書き、既定と同じ値にして保存した行は上書きを消す（DBへ残るのは動かしたぶんだけ） |
 | `features/admin/useMaterialValues.ts` | `GET /api/admin/material-catalog/{material_id}/values`取得（`adminApi.ts: getMaterialValues`）。categorical材料の候補選択セレクトに使う実データ値一覧 |
 | `lib/axisMaterialsCatalog.ts` | 材料の一覧（`MATERIAL_CATALOG`。生成物`material-catalog.json`から作る）と型（`AxisMaterialOption`）、材料idを表示へ変える関数。`materialCatalogLabel`（論理名 - 物理名、軸スタジオ専用）/`materialCatalogName`（論理名だけ。カタログに無いidはundefinedで、呼び出し側はその材料を出さない）/`formatMaterialValue`。後の2つは軸スタジオ外（[ルート設定・結果パネル](route-settings-and-results.md)のComparisonPanel、`features/route/RouteOutcome/RouteOutcome.tsx`の区間クリック詳細）が`material_values`のラベル・単位表記に使う共用ヘルパー |
@@ -122,7 +122,7 @@ listAxisDefinitions() ──→ definitions（全軸）
 - 削除できるか（ほかの軸が参照している軸・最後の1軸は消せない）は画面で判定しない。backendが
   起動時の読み込みと同じ判定で断り（[軸スタジオ（backend）](../backend/axis-studio.md)「書き込み時のガード」）、
   画面はその理由を一覧の上の誤りとしてそのまま出す。
-- 「削除」は押しただけでは消さず、確認（`components/ui/Dialog`）で「削除する」を押したときだけ
+- 「削除」は押しただけでは消さず、確認（`Dialog/Dialog.tsx: ConfirmDialog`）で「削除する」を押したときだけ
   削除のAPIを呼ぶ。消した軸を戻す手段が無く、下書きには折れ点を実データで調整した手間が入って
   いるため、同じ行に並ぶ「編集」「複製して新規作成」との押し間違いで失わせない。確認は消せるかを
   判定しない（判定は上のとおりbackendが持ち、断られたら確認を閉じたあと一覧の上に理由が出る）。
@@ -437,9 +437,9 @@ backend `POST /api/admin/basemap/refresh`を呼び、
 
 入力した内容は`renderBandPreview`がその場で段階の並びとして描く。段階ラベルの組み立ては
 地図の凡例と同じ`mapColorLegend.ts: buildRangeLegendBands`を通し（レンジの数字は入力した目盛りで書く。
-地図の凡例は軸カタログの`map_legend`の目盛りで書くため、得点で書く軸では数字が違う）、色は親（`AxisStudio`）が
+地図の凡例は軸カタログの`map_paint.legend`の目盛りで書くため、得点で書く軸では数字が違う）、色は親（`AxisStudio`）が
 軸カタログの分類から決めて渡す（どちらも地図と同じ`bandColorsFor`で、値の種類は軸カタログの
-`map_value.kind`。[地図: 軸・ルート色分け](map-axis-coloring.md)参照）。**軸スタジオ側は
+`map_paint.value.kind`。[地図: 軸・ルート色分け](map-axis-coloring.md)参照）。**軸スタジオ側は
 「その軸がどちらの経路で地図に出るか」の判定を持たない**——カタログの実際の分類を引くため、
 プレビューの色と地図の色がずれない。地図に出る経路がまだ無い軸（下書き等）は色を持たず、
 その旨を注記する。

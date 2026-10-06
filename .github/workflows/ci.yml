@@ -13,14 +13,13 @@
 # - e2e-scan: e2eのうち全状態の走査を、幅ごとの別ジョブで走らせる（1本の中で画面の状態を辿るため、
 #   分けられる単位は幅）。
 # - changes: 変更されたパスから、重い検査（backend〜e2e-scan）を走らせるかを決める。文書（docs/**・*.md）・
-#   Claude Codeの設定（.claude/**）・運用の道具（scripts/ のうちテストとデプロイが読まないもの）だけの変更では
-#   走らせない。飛ばしてよいのは、このワークフローの検査が読まないものだけで、読む範囲がディレクトリに限られる
-#   検査は、そのディレクトリを先に当てて入れ直す（frontend/src/structure/caseOnlyPaths.test.ts は frontend/src の下の
-#   .md も読む）。全ての文書を読む検査（backend/tests/structure/test_named_references.py）と運用の道具の静的検査は、
+#   Claude Codeの設定（.claude/**）・運用の道具（scripts/ のうちテストとデプロイが読まないもの）・タスク管理
+#   （.github/taskflow-paths の置き場。検査と公開は claude-gate.yml）だけの変更では走らせない。飛ばしてよいのは、
+#   このワークフローの検査が読まないものだけで、読む範囲がディレクトリに限られる検査は、そのディレクトリを先に当てて
+#   入れ直す（frontend/src/structure/caseOnlyPaths.test.ts は frontend/src の下の .md も読む）。全ての文書を読む検査（backend/tests/structure/test_named_references.py）と運用の道具の静的検査は、
 #   常に走る docs-consistency.yml が持つ。決め方は docs/architecture/tech-stack.md「CIの実行枠」。
 # - ci-ok: コードのリポジトリの必須チェックに置く1本。上のどれかが失敗・取り消しなら落ち、スキップは通す
 #   （必須にするのをこの1本にまとめると、ジョブを足し引きしても必須チェックの設定を変えずに済む）。
-# - deploy-gate: masterへのpushで ci-ok が通り、tools/flow-gate/ が変わっていれば、ゲートを Cloudflare へ公開する。
 # - deploy-backend・deploy-frontend: masterへのpushで上の全ジョブが通ったときだけ、backend・frontendを本番へ出す
 #   （出すかの判定と手順は deploy-backend.yml・deploy-frontend.yml）。**本番へ出る前の検査はこのワークフロー**で、
 #   どれかが赤ならデプロイは起動しない。
@@ -55,13 +54,16 @@ jobs:
           if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}"; then
             echo "heavy=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
+          mapfile -t taskflow < <(grep -Ev '^(#|[[:space:]]*$)' .github/taskflow-paths)
           heavy=false
           while IFS= read -r f; do
             case "$f" in
-              frontend/src/*) heavy=true ;;
-              docs/*|*.md|.claude/*|scripts/size_thresholds.json|scripts/remote_dev/*) ;;
-              *) heavy=true ;;
+              frontend/src/*) heavy=true; continue ;;
+              docs/*|*.md|.claude/*|scripts/size_thresholds.json|scripts/remote_dev/*) continue ;;
             esac
+            skip=false
+            for p in "${taskflow[@]}"; do [[ "$f" == "$p"* ]] && skip=true; done
+            $skip || heavy=true
           done < <(git diff --name-only "$BASE" "$GITHUB_SHA")
           echo "heavy=$heavy" >> "$GITHUB_OUTPUT"
 
@@ -79,20 +81,7 @@ jobs:
       DATABASE_URL: postgresql+asyncpg://ridecompass:ridecompass@localhost:5432/ridecompass_test
     steps:
       - uses: actions/checkout@v5
-      # 本番と同じ配布元（PostgreSQL公式のaptリポジトリ）から同じパッケージを入れる。GEOS・PROJも
-      # PGDGの版（本番もPGDGの版を使っている）。
-      # postgis/postgisのイメージはamd64しか配っていないため、arm64ではサービスコンテナにできない。
-      # ランナーに入っている別の版のクラスタは5432番を塞ぐため、先に落とす。
-      - name: PostgreSQL + PostGIS（本番と同じ版）
-        run: |
-          pg_lsclusters -h | while read -r ver name _; do sudo pg_dropcluster --stop "$ver" "$name"; done
-          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
-          sudo apt-get install -y --no-install-recommends postgresql-18 postgresql-18-postgis-3
-          sudo pg_ctlcluster 18 main start
-          sudo -u postgres psql -v ON_ERROR_STOP=1 -c "CREATE ROLE ridecompass LOGIN SUPERUSER PASSWORD 'ridecompass'"
-          sudo -u postgres createdb -O ridecompass ridecompass_test
-          sudo -u postgres psql -v ON_ERROR_STOP=1 -d ridecompass_test -c "CREATE EXTENSION postgis" -c "CREATE EXTENSION postgis_raster"
-          echo "::notice title=DB::$(sudo -u postgres psql -d ridecompass_test -Atc "SELECT version() || ' / PostGIS ' || postgis_lib_version() || ' / GEOS ' || postgis_geos_version() || ' / PROJ ' || split_part(postgis_proj_version(), ' ', 1) || ' / ' || postgis_gdal_version()")"
+      - uses: ./.github/actions/postgis
       - uses: actions/setup-python@v6
         with:
           # 本番のイメージ（backend/Dockerfile）と同じ3.12系に固定する
@@ -182,7 +171,7 @@ jobs:
       # LayoutProps等のNext.jsが生成するグローバル型（.next/types/、tsconfigのincludeに
       # 含まれる）を作る。ローカルはnext devの実行で自然に生成済みだが、CIのクリーン
       # チェックアウトには無く、無いままだとtscが「Cannot find name 'LayoutProps'」で
-      # 失敗する（初回CI実行で発覚）。next typegenはフルビルドなしで型だけを生成する。
+      # 失敗する。next typegenはフルビルドなしで型だけを生成する。
       - run: npx next typegen
       - run: npx tsc --noEmit
       - run: npm test
@@ -241,71 +230,13 @@ jobs:
           name: playwright-report-scan-${{ matrix.width }}
           path: frontend/playwright-report/
           retention-days: 7
-  # タスク管理のゲート（tools/flow-gate/）。lint が構文と import の解決（無いファイル・無い名前）を動かさずに見る。
-  # テストは部品（src/）しか読み込まないので、道具（bin/）の静的な誤りは lint だけが落とす。
-  flow-gate:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: tools/flow-gate
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: tools/flow-gate/package-lock.json
-      - run: npm ci
-      - run: npm run lint
-      - run: npm test
   ci-ok:
-    needs: [changes, backend, api-contract, frontend, e2e, e2e-scan, flow-gate]
+    needs: [changes, backend, api-contract, frontend, e2e, e2e-scan]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - run: |
           [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = "false" ]
-  # タスクの流れのゲート（tools/flow-gate/）を、master に入ったら公開する（Cloudflare の公式の wrangler-action）。
-  # 公開の直後に、開いた issue を全部、今の規則が書くはずの姿（担当者・本文の先頭）へ揃える（揃っていれば何も書かない）。
-  deploy-gate:
-    needs: [ci-ok]
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-      - id: diff
-        env:
-          BEFORE: ${{ github.event.before }}
-        run: |
-          if [ -z "$BEFORE" ] || ! git cat-file -e "$BEFORE^{commit}" || git diff --name-only "$BEFORE" "$GITHUB_SHA" -- tools/flow-gate | grep -q .; then
-            echo "gate=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "gate=false" >> "$GITHUB_OUTPUT"
-          fi
-      - if: steps.diff.outputs.gate == 'true'
-        uses: cloudflare/wrangler-action@v4
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: tools/flow-gate
-          command: deploy
-      - if: steps.diff.outputs.gate == 'true'
-        uses: cloudflare/wrangler-action@v4
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: tools/flow-gate
-          command: deploy --env form
-      - if: steps.diff.outputs.gate == 'true'
-        uses: actions/setup-node@v5
-        with:
-          node-version: 22
-      - if: steps.diff.outputs.gate == 'true'
-        env:
-          FLOW_BOT_TOKEN: ${{ secrets.FLOW_BOT_TOKEN }}
-        run: node tools/flow-gate/bin/refresh.js
   deploy-backend:
     needs: [backend, api-contract, frontend, e2e, e2e-scan]
     if: github.event_name == 'push'
