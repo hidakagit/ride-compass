@@ -36,7 +36,6 @@ afterEach(() => {
 const WIDTH = catalogEntry({
   axis_id: "width",
   label: "道幅",
-  chip_label: "幅",
   description: "道の広さを見ます。",
   default_weight: 0.5,
 });

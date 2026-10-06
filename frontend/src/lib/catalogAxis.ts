@@ -1,6 +1,6 @@
 // 軸カタログ（`GET /api/axis-catalog`）の1行を、画面が読む形へ移す。**行から移すのはここの1か所だけ**——
-// 重みを付けられる軸の一覧・ramp軸・専用配信の軸・地図のチップの軸は、どれもこの形に自分の用途の項目を足した型で、
-// 共通の項目（名前・略名・アイコン・説明・単位・内訳）を自前で写さない。写すと、同じ行の略名の補い方が型ごとに食い違う。
+// 重みを付けられる軸の一覧・ramp軸・専用配信の軸は、どれもこの形に自分の用途の項目を足した型で、
+// 共通の項目（名前・アイコン・説明・単位・内訳）を自前で写さない。写すと、同じ行の欠けた項目の補い方が型ごとに食い違う。
 import type { MapValueKind } from "@/lib/mapDisplay/valueScale";
 import type { AxisCatalogEntry } from "@/types/route";
 
@@ -21,13 +21,9 @@ export interface CatalogAxis {
   /** 軸id。重みの辞書（`route_preference`）のキーでもある。 */
   axisId: string;
   label: string;
-  /** 地図チップ（固定幅のタイル）の名前。略名が無い軸は名前そのもの。 */
-  chipLabel: string;
   description: string;
   /** 軸のアイコン（`components/ui/icons/axisIconPalette.tsx: axisIconFor`が引く）。未設定は汎用のアイコン。 */
   iconId?: string;
-  /** 表示の設定パネルでこの軸の行の(i)が出す、descriptionより詳しい説明。 */
-  panelHint?: string;
   mapValueKind: MapValueKind;
   mapValueUnit: string;
   /** 折れ点を通す前の生値の単位。単位が定まる軸だけが持ち、ルート結果は得点の隣に生値を出す（得点は目盛りの引き方で
@@ -60,10 +56,8 @@ export function catalogAxisFromEntry(axis: AxisCatalogEntry): CatalogAxis {
   return {
     axisId: axis.axis_id,
     label: axis.label,
-    chipLabel: axis.chip_label ?? axis.label,
     description: axis.description,
     iconId: axis.icon_id ?? undefined,
-    panelHint: axis.panel_hint ?? undefined,
     mapValueKind: axis.map_paint.value.kind,
     mapValueUnit: axis.map_paint.unit,
     rawValueUnit: axis.raw_value_unit,

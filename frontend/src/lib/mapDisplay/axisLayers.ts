@@ -39,7 +39,6 @@ interface AxisTileInput {
 
 /** 地図のramp表示を持つ軸。 */
 export interface RampAxis extends CatalogAxis {
-  category: string;
   tileInputs: readonly AxisTileInput[];
   /** 昇順の色段階境界値。値 < thresholds[0] が最も低い段階 */
   thresholds: readonly number[];
@@ -53,7 +52,7 @@ export interface RampAxis extends CatalogAxis {
 
 /** 公開軸の表示名の辞書（軸id→軸定義の`label`）。**ここに無い軸idを画面へ出さない**——
  * 引けなかったときに軸idで埋めると、内部名（例: `wind`）がそのまま画面に出る。
- * 軸の名前は軸定義の`label`だけが持つ（地図表示の`display.label`は地図に出る軸にしか無い）。 */
+ * 軸の名前は軸定義の`label`だけが持つ。 */
 export function axisLabelsFromCatalogAxes(axes: readonly AxisCatalogEntry[]): Record<string, string> {
   return Object.fromEntries(axes.map((axis) => [axis.axis_id, axis.label]));
 }
@@ -72,7 +71,6 @@ export function rampAxesFromCatalogAxes(
     .filter((axis) => axis.display.kind === "ramp")
     .map((axis) => ({
       ...catalogAxisFromEntry(axis),
-      category: axis.display.category,
       tileInputs: axis.display.tile_inputs.map((input) => ({
         property: input.property,
         ...(input.needs_runtime_scale

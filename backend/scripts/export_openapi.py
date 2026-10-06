@@ -39,7 +39,6 @@ from app.domain.route_request import (  # noqa: E402
 from app.api.routers.axis_admin import AxisDefinitionPayload  # noqa: E402
 from app.api.routers.debug_admin import LogLevelName  # noqa: E402
 from app.infrastructure.source_models import SOURCE_RUN_STATUS_LABELS  # noqa: E402
-from app.domain.axis_definitions import MAP_CHIP_LABEL_MAX_LENGTH  # noqa: E402
 from app.infrastructure.point_tile_layers import POINT_TILE_LAYERS  # noqa: E402
 from app.infrastructure.vector_tile import ROAD_FEATURE_PROPERTIES, ROAD_SURFACE_LAYER_NAME  # noqa: E402
 from app.main import app  # noqa: E402
@@ -549,7 +548,7 @@ def main() -> None:
             "detail_max_points": WIND_GRID_DETAIL_MAX_POINTS,
         },
     )
-    # 軸スタジオが送る軸の既定値と、地図チップの名前の上限。画面は編集欄を持たない項目を新規の軸で
+    # 軸スタジオが送る軸の既定値。画面は編集欄を持たない項目を新規の軸で
     # この既定値のまま送る（写しを持つと、backendの既定を変えたとき新規の軸だけ古い値で作られる）。
     _write_json(
         AXIS_PAYLOAD_CONFIG_PATH,
@@ -559,7 +558,6 @@ def main() -> None:
                 for name, field in AxisDefinitionPayload.model_fields.items()
                 if not field.is_required()
             },
-            "chip_label_max_length": MAP_CHIP_LABEL_MAX_LENGTH,
         },
     )
     # ルート生成の上限・既定値。frontendが独立にハードコードすると、backendだけ変えた

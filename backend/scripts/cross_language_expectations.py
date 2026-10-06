@@ -311,7 +311,6 @@ def _referenced_axis_rows() -> dict:
     )
     display = AxisDisplaySpec(
         kind="ramp",
-        label="referenced",
         tile_inputs=[
             TileInputSpec(property=_tile_property("maxspeed_kmh"), breakpoints=inner.breakpoints, weight=outer_weight),
             TileInputSpec(property=_tile_property("intersection_count_per_km")),

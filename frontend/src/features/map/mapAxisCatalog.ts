@@ -12,7 +12,6 @@ import {
   type RouteStyleMode,
 } from "@/lib/mapDisplay/routeStyleModes";
 import { completeTileVersions, type TileVersions } from "@/features/map/regionApi";
-import { secondaryAxesFromCatalogAxes, type SecondaryAxisSummary } from "@/features/map/secondaryAxes";
 import { buildMapLayers, type MapLayerDescriptor } from "@/features/map/layers/mapLayers";
 import { catalogAxisFromEntry, type CatalogAxis } from "@/lib/catalogAxis";
 import type { AxisCatalogResponse } from "@/types/route";
@@ -25,8 +24,6 @@ export interface MapAxisCatalog {
   /** 専用のフィーチャー→値配信レイヤーを持つ軸。レイヤー登録・カタログ・可視性・フェッチの
    * 全てがこの一覧から導出される。 */
   dedicatedAxes: readonly DedicatedWayValueAxis[];
-  /** 二次軸(推定指標)一覧。地図チップの「推定指標」グループが読む。 */
-  secondaryAxes: readonly SecondaryAxisSummary[];
   /** ルート地図の色分けモード一覧。公開軸を無条件で含む。取得できるまでは軸に依らない
    * モードだけ（`ROUTE_STYLE_MODES_WITHOUT_AXES`）。 */
   routeStyleModes: readonly RouteStyleMode[];
@@ -44,7 +41,6 @@ const NO_LAYER_AXES = { axes: [], rampAxes: [], dedicatedAxes: [], accidentYears
 
 export const EMPTY_MAP_AXIS_CATALOG: MapAxisCatalog = {
   ...NO_LAYER_AXES,
-  secondaryAxes: [],
   routeStyleModes: ROUTE_STYLE_MODES_WITHOUT_AXES,
   tileVersions: null,
   layers: buildMapLayers(NO_LAYER_AXES),
@@ -59,7 +55,6 @@ export function mapAxisCatalogFromResponse(response: AxisCatalogResponse): MapAx
   };
   return {
     ...layerAxes,
-    secondaryAxes: secondaryAxesFromCatalogAxes(response.axes),
     routeStyleModes: routeStyleModesFromCatalogAxes(response.axes),
     tileVersions: completeTileVersions(response.tile_versions),
     layers: buildMapLayers(layerAxes),
