@@ -51,6 +51,7 @@ def new_latest_time_cache() -> TTLCache:
 
 @dataclass(frozen=True)
 class AmedasStation:
+    name: str
     latitude: float
     longitude: float
 
@@ -78,14 +79,16 @@ def _degree_minute(value: list) -> float:
 
 
 def _parse_station_table(payload: dict) -> dict[str, AmedasStation]:
-    """座標の無い観測所は載せない（最寄りにも、雨の履歴の座標にも使えない）。"""
+    """座標の無い観測所は載せない（最寄りにも、雨の履歴の座標にも使えない）。名前の無い観測所も載せない
+    （画面のヘッダーに観測所名を出すため）。"""
     stations = {}
     for station_id, entry in payload.items():
+        name = entry.get("kjName")
         lat = entry.get("lat")
         lon = entry.get("lon")
-        if not lat or not lon:
+        if not name or not lat or not lon:
             continue
-        stations[station_id] = AmedasStation(latitude=_degree_minute(lat), longitude=_degree_minute(lon))
+        stations[station_id] = AmedasStation(name=name, latitude=_degree_minute(lat), longitude=_degree_minute(lon))
     return stations
 
 

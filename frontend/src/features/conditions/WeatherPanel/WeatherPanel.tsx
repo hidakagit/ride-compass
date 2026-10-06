@@ -1,4 +1,10 @@
+"use client";
+
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/Popover/Popover";
 import { RaindropIcon, ThermometerIcon, WindDirectionArrowIcon } from "@/components/ui/icons/icons";
+import { Button } from "@/components/ui/Button/Button";
+import { formatJstHourMinute } from "@/lib/time";
+import { cn } from "@/lib/cn";
 import type { AmedasObservation } from "@/types/weather";
 import { getAmedasWeatherDisplay } from "./amedasWeatherIcon";
 import { textVariants } from "@/components/ui/Text/Text";
@@ -21,6 +27,9 @@ interface WeatherPanelProps {
 //
 // 日の出/日没は1日1個の値のため、このバーではなく「今日」パネル（TodayOutlook）が持つ
 // ——バーは走行中に何度も見る瞬間値だけに絞る。
+//
+// 観測であること・観測所名・観測の時刻は、バーを押すと開くパネルに出す。390pxの幅ではヘッダーに
+// 足す余地が無く、バーへ並べると右の警報のバッジが画面の外へ押し出される。
 function isCurrentlyDay(twilight: { sunrise: string; sunset: string } | null): boolean {
   if (twilight === null) return true;
   const now = Date.now();
@@ -50,75 +59,96 @@ export default function WeatherPanel({ amedas, loading, error }: WeatherPanelPro
   const weatherDisplay = getAmedasWeatherDisplay(amedas.weather_code, isCurrentlyDay(amedas.twilight));
 
   return (
-    // 気温・風向風速・降水量・天気アイコンをアイコン+数値だけの統計チップとして1行に並べる
-    // （はみ出した分は横へ流し、ヘッダーを2行にしない）。
-    <div className="flex flex-nowrap items-center gap-2 overflow-x-auto text-[var(--foreground)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&_svg]:shrink-0">
-      <span
-        className="inline-flex flex-shrink-0 items-center gap-1 whitespace-nowrap text-[length:var(--font-size-md)] font-semibold"
-        title={temperatureTitle}
-      >
-        <ThermometerIcon size={16} />
-        <span className="sr-only">気温: </span>
-        {/* 数値と単位は1つのspanにまとめて.statのgapが間に入らないようにする
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          variant="ghost"
+          size="bare"
+          className="min-w-0 rounded-sm"
+          usage="ヘッダーの天気がどの観測所のいつの観測かを開きます。"
+        >
+          {/* 気温・風向風速・降水量・天気アイコンをアイコン+数値だけの統計チップとして1行に並べる
+              （はみ出した分は横へ流し、ヘッダーを2行にしない）。ボタンの中に置くのでdivでなくspan。 */}
+          <span className="flex flex-nowrap items-center gap-2 overflow-x-auto text-[var(--foreground)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&_svg]:shrink-0">
+            <span
+              className="inline-flex flex-shrink-0 items-center gap-1 whitespace-nowrap text-[length:var(--font-size-md)] font-semibold"
+              title={temperatureTitle}
+            >
+              <ThermometerIcon size={16} />
+              <span className="sr-only">気温: </span>
+              {/* 数値と単位は1つのspanにまとめて.statのgapが間に入らないようにする
             （flexboxのgapは直接の子要素すべての間に均等に効くため、数値と単位を別々の
             子要素のままにすると、アイコン↔数値と同じ間隔が数値↔単位にも入ってしまい
             意図しない余白になる）。 */}
-        <span>
-          {amedas.temperature_c != null ? amedas.temperature_c.toFixed(1) : "-"}
-          <span className="text-[0.8em] font-normal text-[var(--color-muted)]">℃</span>
-        </span>
-      </span>
-
-      <span className="w-px flex-shrink-0 self-stretch bg-[var(--color-border)]" aria-hidden="true" />
-
-      {amedas.wind_speed_ms != null && direction !== null && (
-        <span
-          className="inline-flex flex-shrink-0 items-center gap-1 whitespace-nowrap text-[length:var(--font-size-md)] font-semibold"
-          title={`${direction.label}の風`}
-        >
-          <span
-            className="inline-flex transition-transform duration-200"
-            style={{ transform: `rotate(${direction.deg + 180}deg)` }}
-          >
-            <WindDirectionArrowIcon size={16} />
-          </span>
-          <span className="sr-only">{direction.label}の風: </span>
-          <span>
-            {amedas.wind_speed_ms.toFixed(1)}
-            <span className="text-[0.8em] font-normal text-[var(--color-muted)]">m/s</span>
-          </span>
-        </span>
-      )}
-
-      {amedas.precipitation_10min_mm != null && (
-        <>
-          <span className="w-px flex-shrink-0 self-stretch bg-[var(--color-border)]" aria-hidden="true" />
-          <span
-            className="inline-flex flex-shrink-0 items-center gap-1 whitespace-nowrap text-[length:var(--font-size-md)] font-semibold"
-            title="直近10分間の降水量"
-          >
-            <RaindropIcon size={16} />
-            <span className="sr-only">降水量: </span>
-            <span>
-              {amedas.precipitation_10min_mm.toFixed(1)}
-              <span className="text-[0.8em] font-normal text-[var(--color-muted)]">mm</span>
+              <span>
+                {amedas.temperature_c != null ? amedas.temperature_c.toFixed(1) : "-"}
+                <span className="text-[0.8em] font-normal text-[var(--color-muted)]">℃</span>
+              </span>
             </span>
-          </span>
-        </>
-      )}
 
-      {weatherDisplay != null && (
-        <>
-          <span className="w-px flex-shrink-0 self-stretch bg-[var(--color-border)]" aria-hidden="true" />
-          <span
-            className="inline-flex flex-shrink-0 items-center gap-1 whitespace-nowrap text-[length:var(--font-size-md)] font-semibold"
-            title={weatherDisplay.label}
-          >
-            <weatherDisplay.Icon size={16} />
-            <span className="sr-only">天気: {weatherDisplay.label}</span>
+            <span className="w-px flex-shrink-0 self-stretch bg-[var(--color-border)]" aria-hidden="true" />
+
+            {amedas.wind_speed_ms != null && direction !== null && (
+              <span
+                className="inline-flex flex-shrink-0 items-center gap-1 whitespace-nowrap text-[length:var(--font-size-md)] font-semibold"
+                title={`${direction.label}の風`}
+              >
+                <span
+                  className="inline-flex transition-transform duration-200"
+                  style={{ transform: `rotate(${direction.deg + 180}deg)` }}
+                >
+                  <WindDirectionArrowIcon size={16} />
+                </span>
+                <span className="sr-only">{direction.label}の風: </span>
+                <span>
+                  {amedas.wind_speed_ms.toFixed(1)}
+                  <span className="text-[0.8em] font-normal text-[var(--color-muted)]">m/s</span>
+                </span>
+              </span>
+            )}
+
+            {amedas.precipitation_10min_mm != null && (
+              <>
+                <span className="w-px flex-shrink-0 self-stretch bg-[var(--color-border)]" aria-hidden="true" />
+                <span
+                  className="inline-flex flex-shrink-0 items-center gap-1 whitespace-nowrap text-[length:var(--font-size-md)] font-semibold"
+                  title="直近10分間の降水量"
+                >
+                  <RaindropIcon size={16} />
+                  <span className="sr-only">降水量: </span>
+                  <span>
+                    {amedas.precipitation_10min_mm.toFixed(1)}
+                    <span className="text-[0.8em] font-normal text-[var(--color-muted)]">mm</span>
+                  </span>
+                </span>
+              </>
+            )}
+
+            {weatherDisplay != null && (
+              <>
+                <span className="w-px flex-shrink-0 self-stretch bg-[var(--color-border)]" aria-hidden="true" />
+                <span
+                  className="inline-flex flex-shrink-0 items-center gap-1 whitespace-nowrap text-[length:var(--font-size-md)] font-semibold"
+                  title={weatherDisplay.label}
+                >
+                  <weatherDisplay.Icon size={16} />
+                  <span className="sr-only">天気: {weatherDisplay.label}</span>
+                </span>
+              </>
+            )}
           </span>
-        </>
-      )}
-    </div>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent layer="header" className="w-64 max-w-[calc(100vw-2*var(--space-3))]" side="bottom" align="start">
+        <p className={cn(textVariants({ variant: "note" }), "font-bold tracking-wide")}>アメダスの観測</p>
+        <p className="text-[length:var(--font-size-md)] font-semibold">
+          {amedas.station_name}
+          <span className="ml-2 tabular-nums">{formatJstHourMinute(new Date(amedas.observed_at))}</span>
+        </p>
+        <p className={cn(textVariants({ variant: "note" }), "mt-1")}>
+          最寄りの観測所で測った値です。「今日」はモデルの計算値で、この観測とは別のものです。
+        </p>
+      </PopoverContent>
+    </Popover>
   );
 }

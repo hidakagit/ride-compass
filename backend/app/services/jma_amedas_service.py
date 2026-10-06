@@ -117,7 +117,9 @@ class JmaAmedasService:
             return 0
 
         observations = {
-            station_id: _observation(reading) for station_id, reading in observation_map.items() if station_id in stations
+            station_id: _observation(stations[station_id], latest_time, reading)
+            for station_id, reading in observation_map.items()
+            if station_id in stations
         }
         await jma_amedas_store.write_observations(observations)
         await self._refresh_rain_history(stations, latest_time, observation_map)
@@ -180,8 +182,10 @@ class JmaAmedasService:
         )
 
 
-def _observation(reading: AmedasReading) -> AmedasObservation:
+def _observation(station: AmedasStation, observed_at: datetime, reading: AmedasReading) -> AmedasObservation:
     return AmedasObservation(
+        station_name=station.name,
+        observed_at=observed_at,
         temperature_c=reading.temperature_c,
         apparent_temperature_c=apparent_temperature_from_amedas(
             reading.temperature_c, reading.humidity_percent, reading.wind_speed_ms

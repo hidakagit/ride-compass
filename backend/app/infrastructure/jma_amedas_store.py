@@ -89,6 +89,8 @@ async def write_observations(observations: dict[str, AmedasObservation]) -> None
 
 def _fields_from_observation(observation: AmedasObservation) -> dict[str, str]:
     return {
+        "station_name": observation.station_name,
+        "observed_at": observation.observed_at.isoformat(),
         "temperature_c": _field_value(observation.temperature_c),
         "apparent_temperature_c": _field_value(observation.apparent_temperature_c),
         "wind_speed_ms": _field_value(observation.wind_speed_ms),
@@ -100,6 +102,8 @@ def _fields_from_observation(observation: AmedasObservation) -> dict[str, str]:
 
 def _observation_from_fields(fields: dict[str, str]) -> AmedasObservation:
     return AmedasObservation(
+        station_name=fields["station_name"],
+        observed_at=datetime.fromisoformat(fields["observed_at"]),
         temperature_c=_optional_float(fields.get("temperature_c")),
         apparent_temperature_c=_optional_float(fields.get("apparent_temperature_c")),
         wind_speed_ms=_optional_float(fields.get("wind_speed_ms")),

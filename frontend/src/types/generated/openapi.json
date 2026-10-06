@@ -1944,6 +1944,15 @@
       },
       "AmedasObservation": {
         "properties": {
+          "station_name": {
+            "type": "string",
+            "title": "Station Name"
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Observed At"
+          },
           "temperature_c": {
             "anyOf": [
               {
@@ -2023,6 +2032,8 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
+          "station_name",
+          "observed_at",
           "temperature_c",
           "apparent_temperature_c",
           "wind_speed_ms",

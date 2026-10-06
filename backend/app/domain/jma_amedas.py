@@ -2,6 +2,8 @@
 
 import math
 
+from datetime import datetime
+
 from app.domain.strict_model import StrictModel
 from app.domain.twilight import Twilight
 
@@ -39,6 +41,10 @@ class AmedasObservation(StrictModel):
     このモデルに項目が無い。
     """
 
+    #: 観測所名（気象庁の観測所の表の漢字の名前）。
+    station_name: str
+    #: 観測の時刻（気象庁の最新の観測時刻）。
+    observed_at: datetime
     temperature_c: float | None
     apparent_temperature_c: float | None
     wind_speed_ms: float | None

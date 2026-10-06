@@ -36,6 +36,7 @@ from app.domain.flood_forecast import ActiveFloodForecast
 from app.domain.jma_amedas import AmedasObservation, WindDirection
 from app.domain.jma_warning import ActiveWarning
 from app.domain.region import BoundingBox
+from app.domain.time_zone import JST
 from app.domain.twilight import Twilight
 from app.domain.weather import TemperatureRange, WeatherConditions, WeatherPeriodOutlook
 from app.domain.wind_grid import (
@@ -91,6 +92,8 @@ FLOODS = FloodForecasts(
     ]
 )
 AMEDAS = AmedasObservation(
+    station_name="東京",
+    observed_at=datetime(2026, 8, 29, 12, 0, tzinfo=JST),
     temperature_c=26.5,
     apparent_temperature_c=27.8,
     wind_speed_ms=3.5,
