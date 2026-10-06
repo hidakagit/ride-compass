@@ -46,7 +46,7 @@ MSMは数値予報モデルの出力で観測値・公式発表の代わりに�
 | `weather.py` | 天候のPydanticモデル（`WeatherConditions`・`WeatherPeriodOutlook`。MSMの計算値）と「今日」のパネルの読み方（時系列の先頭と同じ暦日の時刻・日次の最大と範囲・一定間隔のコマ（間隔は応答にも載る））、アメダスの10分間の実測（降水量・気温）と推計気象分布の区分からWMO天気コードを導く`derive_observed_weather_code`（降っているかと雨・雪は観測所の実測が、降っていないときの晴れ・くもりは推計気象分布が決め、推計の雨・雪の区分はくもりに数える。日照時間は夜は空によらず0になるので使わない。「降っていない」の境`PRECIPITATION_MIN_MM`は、「今日」のパネルの降水量の「-」と地図の降水の塗りにも生成物で届く） | `weather_service.py`・`jma_amedas.py` |
 | `jma_amedas.py` | 風の来る向き`WindDirection`（16方位コードからの読み替えは`jma_amedas_client.py`。静穏・欠測・範囲外のコードは方位なし。呼び名は`domain/geo.py: SIXTEEN_POINT_LABELS`から引く）・体感温度計算（BOM式）・`AmedasObservation`モデル（天気コード`weather_code`はリクエストの地点の推計気象分布で決まるため、日の出・日没と同じく応答のたびにサービスが入れ、Redisには持たない） | `jma_amedas_service.py` |
 | `jma_area.py` | 区域（class20）のコード→JMA警報エリア（class20→class15→class10→office）の親子関係解決。辿る地域マスタは`AreaMaster`（area.jsonの形は`jma_warning_client.py`が解く。区域の名前は読まず、二次細分区域は親の府県予報区があれば解決する） | `warning_service.py`・`flood_service.py` |
-| `jma_warning.py` | JMA警報コード表（配信元のコード表の写し。発表中なのに表に無いコードは、写しが古くなった印としてWARNINGを出して捨てる）・電文1件`WarningBulletin`と、区域の種別の引き方（区域の項目が無い電文だけを二次細分区域で引く）・アクティブ警報抽出（電文の1地域ぶんの種別`AreaWarningKind`から）・警戒度の段（名称から導く。危険警報＝警戒レベル4は警報と特別警報の間の段で、氾濫危険警報と同じ段） | `warning_service.py` |
+| `jma_warning.py` | JMA警報コード表（配信元のコード表の写し。発表中なのに表に無いコードは捨てる。写しが古くなった印のWARNINGは`jma_warning_client.py`が取得1回につき出す）・電文1件`WarningBulletin`と、区域の種別の引き方（区域の項目が無い電文だけを二次細分区域で引く）・アクティブ警報抽出（電文の1地域ぶんの種別`AreaWarningKind`から）・警戒度の段（名称から導く。危険警報＝警戒レベル4は警報と特別警報の間の段で、氾濫危険警報と同じ段） | `warning_service.py` |
 | `wbgt.py` | WBGT警戒レベル判定（熱中症予防運動指針の5段階閾値）・提供期間判定・段階の表示名（`WBGT_LEVEL_LABELS`）・情報提供地点`WbgtPoint`と予測値`WbgtForecast`・今の予測の選び方（`current_forecast`） | `wbgt_service.py`・`warning_display.py` |
 | `flood_forecast.py` | JMA指定河川洪水予報コード表・アクティブ予報抽出（電文1件`FloodBulletin`から。電文の形は`flood_client.py`が解く）・段階の表示名（`FLOOD_LEVEL_LABELS`） | `flood_service.py`・`warning_display.py` |
 | `twilight.py` | 市民薄明による夜間判定（`night_mask`、時刻の配列をまとめて判定）・日の出日没計算（`sunrise_sunset_jst`） | `jma_amedas_service.py`（表示用）・[routing-engine.md](routing-engine.md)のroad_graphエンジン（night軸の動的化） |
@@ -334,7 +334,8 @@ DI工場（`api/dependencies.py`）がプロセスに1つ持ってクライア�
   `JmaTileClient`のキャッシュ（時刻一覧はプロセス内で2分、タイルはRedisで20分）と気象庁への秒間上限を通る。
   推計の雨・雪の区分は空のくもりに数える（降っているかは観測所が決めるため）。時刻一覧・タイルが取れない・
   透明（推計の範囲の外）・凡例に無い色のときは空が分からず、降っていなければ天気コードだけがNoneになる
-  （観測値は返す）。凡例に無い色は配信元が配色を変えた印なのでWARNINGを出す。
+  （観測値は返す）。凡例に無い色は配信元が配色を変えた印なので抑制付きのWARNING（`log_throttled_warning`）を出す——応答のたびに通るため、
+  抑制が無いと配色が変わった間は要求ごとに1行出る。時刻一覧・タイルを読めないときの警告も同じ。
 
   **暗黙の前提**: `refresh_all_stations`はリクエスト経路からは呼ばれない。`app/main.py`の
   lifespan内でAPScheduler（`AsyncIOScheduler`）へ`interval`トリガー
@@ -373,7 +374,8 @@ DI工場（`api/dependencies.py`）がプロセスに1つ持ってクライア�
   発表するため、`domain/jma_warning.py: collect_active_warnings`は電文配列全件を走査してcode単位で重複排除する。
   電文の形（`warning.class20Items`等）は`jma_warning_client.py`が`domain/jma_warning.py: WarningBulletin`（地域→種別）へ解く。
   形の合わない電文・項目・種別は飛ばして残りで答え（付加事項だけが壊れた種別は付加事項を空にして残す）、飛ばした数を
-  取得1回につき1行のWARNINGで出す。
+  取得1回につき1行のWARNINGで出す。発表中なのにコード表（`domain/jma_warning.py: WARNING_KINDS`）に無いコードも、
+  画面へは出さずに、そのコードを取得1回につき1行のWARNINGで出す（表の写しが古くなった印）。
   区域の項目がある電文はその中身（「なし」でも）を使い、区域の項目が無い電文だけを二次細分区域で探す（`WarningBulletin.kinds_for`）。
 
 - **`WbgtService`**: 最寄りの情報提供地点（`domain/geo.py: nearest_point_index`）の環境省WBGT予報から、最も近い時刻の値を選ぶ（`domain/wbgt.py: current_forecast`）。
@@ -391,7 +393,7 @@ DI工場（`api/dependencies.py`）がプロセスに1つ持ってクライア�
   その項目をNoneで持つ（最新の発表回を決めるのには数え、選ぶ対象からは外れる）。
   提供期間の中で地点マスタ・予測が取れない、検索窓に発表が無い、選んだ予測の値が読めないときは、今の警戒レベルが
   分からないとしてNone（ルーターが502）を返す。期間の中で発表が無いのは配信の止まりで、
-  取得の失敗（クライアントがWARNINGを出す）とは別にWARNINGを出す。期間初日は最初の発表
+  取得の失敗（クライアントがWARNINGを出す）とは別に抑制付きのWARNINGを出す（空の予測は1時間キャッシュされ、その間の要求ごとに通る）。期間初日は最初の発表
   （配信元の記録では3時）までの数時間、検索窓に発表が無く「未取得」になる。
 
 - **`FloodService`**: 河川洪水予報。`WarningService`と同じ`jma_area.resolve_area`を
@@ -411,16 +413,17 @@ DI工場（`api/dependencies.py`）がプロセスに1つ持ってクライア�
 |---|---|
 | 配布元の版 | `jma_area_boundaries.SOURCE_URL`（配布ページの版ごとのzip。ファイル名が版を表す） |
 | 置き場 | `backend/data/jma_area/<版の名前>.json`（本番はホスト側へマウントされ、デプロイをまたいで残る）。区域のコード→境界（WKB） |
-| 作る時機 | `scripts/fetch_jma_area_boundaries.py`。置き場に今の版があれば何もしない。デプロイがコンテナを入れ替える前に毎回呼ぶので、本番で効くのは初回と版を上げたときだけ。開発機では手で1回打つ（打つまで警報・洪水予報は502で、画面に「未取得」が出て、引くたびにWARNINGが出る） |
+| 作る時機 | `scripts/fetch_jma_area_boundaries.py`。置き場に今の版があれば何もしない。デプロイがコンテナを入れ替える前に毎回呼ぶので、本番で効くのは初回と版を上げたときだけ。開発機では手で1回打つ（打つまで警報・洪水予報は502で、画面に「未取得」が出て、引くたびに抑制付きのWARNINGが出る） |
 | 変換 | 配布元のシェープファイルを読み、コードが空の図形（北方領土・帰属の決まっていない埋立地等）を落とし、区域ごとに許容誤差`SIMPLIFY_TOLERANCE_DEG`で簡略化する。元の頂点は1,400万を超え、そのままではbackendのメモリを数百MB使う（簡略化後は置き場のファイルが約66MB、読み込むと常駐が約80MB増え、読み込みに5〜10秒。開発機の実測） |
 | 引き方 | 含む区域を引き、無ければ`NEAREST_LIMIT_DEG`以内の最寄りの区域へ寄せる。簡略化で隣の区域との間に隙間ができるうえ、海岸の区域は岸壁・橋の上を含まないことがある。寄せる距離を超えて離れた地点（遠い海上）は区域なし |
-| 読み込み | 最初に引いたときにプロセス内へ1回だけ読む（イベントループの外で）。読めなければWARNINGを出して`AreaBoundariesUnavailableError`を送出する（区域なしとは分ける。区域なしは警報なしとして返る） |
+| 読み込み | 最初に引いたときにプロセス内へ1回だけ読む（イベントループの外で）。読めなければ抑制付きのWARNINGを出して`AreaBoundariesUnavailableError`を送出する（区域なしとは分ける。区域なしは警報なしとして返る） |
 
 **版の上げ方**（区域の変更・市町村の合併）: 配布ページの更新履歴に「市町村等（気象警報等）」の
 更新が載ったら、`SOURCE_URL`を新しい版のzipへ書き換えてデプロイする。置き場の名前が変わるため
 デプロイが新しい版を取り直し、古い版のファイルは同じスクリプトが消す。区域の境界と地域マスタ
 （area.json、実行時に取得）は別々に配られるため、境界だけが古いと、境界が返したコードを地域マスタで
-辿れなくなる——このとき`jma_area.resolve_area`がWARNING（「地域マスタ(area.json)に無い」）を出す。
+辿れなくなる——このとき`warning_service.py`・`flood_service.py`が抑制付きのWARNING（「地域マスタ(area.json)で警報のエリアへ辿れない」）を出す
+（`jma_area.resolve_area`はdomainで、抑制の仕組み（infrastructure）を読めないため、Noneを返すだけにする）。
 配布ページは発表区域の変更の前に、変更後の版を「以降」の注記付きで先に置くことがある。版を
 選ぶときは注記の日付と、今の地域マスタのコードに合う版かを見る。
 

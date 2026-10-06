@@ -15,15 +15,12 @@ r8警報API（jma_warning_client.py）が返す電文配列の全件を走査す
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import NamedTuple
 
 from app.domain.warning_levels import WarningBadgeLevel
 from app.domain.strict_model import StrictModel
-
-logger = logging.getLogger("ridecompass.jma_warning")
 
 
 class WarningKind(NamedTuple):
@@ -147,11 +144,7 @@ def extract_active_warnings(kinds: Iterable[AreaWarningKind]) -> list[ActiveWarn
         if code is None or kind.status not in ACTIVE_STATUSES:
             continue
         registered = WARNING_KINDS.get(code)
-        if registered is None:
-            # 発表中なのに表に無いコードは、写した表が配信元のコード表より古くなった印。
-            logger.warning("警報・注意報のコード表に無いコードが発表中: code=%s（domain/jma_warning.py: WARNING_KINDS）", code)
-            continue
-        if not registered.relevant_to_cycling:
+        if registered is None or not registered.relevant_to_cycling:
             continue
         result.append(
             ActiveWarning(

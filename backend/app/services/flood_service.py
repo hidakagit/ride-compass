@@ -9,6 +9,7 @@ from app.domain.flood_forecast import ActiveFloodForecast, extract_active_flood_
 from app.domain.jma_area import resolve_area
 from app.domain.route import Coordinates
 from app.infrastructure.flood_client import fetch_flood_documents
+from app.infrastructure.debug_log import log_throttled_warning
 from app.infrastructure.jma_area_boundaries import AreaBoundariesUnavailableError, find_class20_code
 from app.infrastructure.jma_warning_client import fetch_area_data
 from app.domain.strict_model import StrictModel
@@ -43,6 +44,9 @@ class FloodService:
 
         resolved = resolve_area(class20_code, area_master)
         if resolved is None:
+            log_throttled_warning(
+                "weather:jma-area", "区域の境界が返したコードを地域マスタ(area.json)で警報のエリアへ辿れない class20=%s", class20_code
+            )
             return None
 
         bulletins = await fetch_flood_documents(self._http_client, self._flood_cache)

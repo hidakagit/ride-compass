@@ -1,4 +1,3 @@
-import logging
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -27,13 +26,13 @@ from app.domain.wind_grid import (
     generate_wind_grid_detail_points,
     generate_wind_grid_points,
 )
+from app.infrastructure.debug_log import log_throttled_warning
 from app.services.flood_service import FloodForecasts, FloodService
 from app.services.warning_service import WarningService, WeatherWarnings
 from app.services.wbgt_service import WbgtService, WbgtStatus
 from app.services.jma_amedas_service import JmaAmedasService
 from app.services.weather_service import WeatherService
 
-logger = logging.getLogger("ridecompass.weather")
 
 router = APIRouter()
 
@@ -137,7 +136,7 @@ def _reject_if_all_points_failed(label: str, points: list, grid: list) -> None:
     None）を返す契約のため、`grid`が空のまま（=呼び出し自体が行われていない等）の
     ケースは対象外にする（`grid and`のチェック）。"""
     if points and grid and all(point is None for point in grid):
-        logger.warning("%s: 全%d地点が取得失敗しました（MSM未同期の可能性）", label, len(points))
+        log_throttled_warning(f"weather:{label}", "%s: 全%d地点が取得失敗しました（MSM未同期の可能性）", label, len(points))
         raise HTTPException(status_code=502, detail="気象データの取得に失敗しました")
 
 
