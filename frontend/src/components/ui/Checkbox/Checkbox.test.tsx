@@ -18,9 +18,9 @@ describe("Checkbox", () => {
     [true, false],
   ])("入っている状態が%sのとき、押すと%sが渡る", async (checked, next) => {
     const onCheckedChange = vi.fn();
-    render(<Checkbox checked={checked} onCheckedChange={onCheckedChange} aria-label="研究モード" />);
+    render(<Checkbox checked={checked} onCheckedChange={onCheckedChange} aria-label="項目" />);
 
-    await userEvent.click(screen.getByRole("checkbox", { name: "研究モード" }));
+    await userEvent.click(screen.getByRole("checkbox", { name: "項目" }));
 
     expect(onCheckedChange).toHaveBeenCalledWith(next);
   });

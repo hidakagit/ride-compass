@@ -224,7 +224,6 @@ describe("レイヤーを横断する要求", () => {
       },
       routes: [candidate] as never,
       selectedRouteId: "a",
-      experimentSlots: [{ color: "#16a34a", topCandidate: candidate }] as never,
     });
   }
 

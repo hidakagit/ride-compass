@@ -98,7 +98,7 @@ class PrimaryAttributeSpec(StrictModel):
     """
 
     attr_id: str
-    #: 空を許すと、地図チップ・サイドバー・研究タブが名前を引けない属性を登録できてしまう。
+    #: 空を許すと、地図チップ・サイドバーが名前を引けない属性を登録できてしまう。
     label: str = Field(min_length=1)
     geometry: PrimaryAttributeGeometry
     display_axes: tuple[DisplayAxisSpec, ...] = ()

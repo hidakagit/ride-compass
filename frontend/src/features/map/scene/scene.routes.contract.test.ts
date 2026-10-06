@@ -6,7 +6,7 @@
  * 要求することになる。
  *
  * ここで見ないもの:
- * - ルートのレイヤーの重なり順（縁取り→色分け線→当たり判定→矢印・ハローは候補線の下・比較スロットは候補線と区間の間） →
+ * - ルートのレイヤーの重なり順（縁取り→色分け線→当たり判定→矢印・ハローは候補線の下） →
  *   `groups/routes.ts`の宣言の並びそのもの（testing.md「そのテストは要るか」の1問目の「並びそのもので順序を表す」）。
  *   同じ段の中を宣言の順で載せ、届く順によらないことは`applyMapScene.test.ts`が見る
  */
@@ -29,7 +29,6 @@ const NO_ROUTES: RouteState = {
   segmentColor: "#16a34a",
   spliceBands: [],
   composite: null,
-  comparisonSlots: [],
   arrowIconImage: "arrow",
 };
 

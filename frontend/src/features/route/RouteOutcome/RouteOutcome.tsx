@@ -10,11 +10,8 @@ import { DownloadIcon, FastestRouteIcon, RouteSpliceIcon } from "@/components/ui
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs/Tabs";
 import { textVariants } from "@/components/ui/Text/Text";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
-import { useResearchEnabled } from "@/hooks/useResearchMode";
-import { formatMaterialValue, MATERIAL_CATALOG, materialCatalogName } from "@/lib/axisMaterialsCatalog";
 import { cn } from "@/lib/cn";
 import { formatJstHourMinute } from "@/lib/time";
-import ComparisonPanel from "@/features/route/ComparisonPanel/ComparisonPanel";
 import DifficultyProfile from "@/features/route/DifficultyProfile/DifficultyProfile";
 import AxisDetail from "@/features/route/RouteAxisProfile/AxisDetail";
 import RouteAxisProfile from "@/features/route/RouteAxisProfile/RouteAxisProfile";
@@ -30,7 +27,7 @@ import {
   type RouteListGroup,
 } from "@/features/route/routeTabLabel";
 import type { useRouteGeneration } from "@/features/route/useRouteGeneration";
-import { COMPARISON_TAB, type RouteResults } from "@/features/route/useRouteResults";
+import type { RouteResults } from "@/features/route/useRouteResults";
 import type { SpliceSessionView } from "@/features/route/useSpliceSession";
 import type { RouteCandidate, RoutePreferenceWeights } from "@/types/route";
 
@@ -54,7 +51,7 @@ type RouteGeneration = ReturnType<typeof useRouteGeneration>;
 
 interface RouteOutcomeProps {
   results: RouteResults;
-  /** 生成の進み方・案内・条件のずれ・実験スロット。 */
+  /** 生成の進み方・案内・条件のずれ。 */
   generation: Pick<
     RouteGeneration,
     | "running"
@@ -64,7 +61,6 @@ interface RouteOutcomeProps {
     | "conditionsDirty"
     | "weightsNotApplied"
     | "destinationCorrected"
-    | "experimentSlots"
   >;
   splice: Pick<SpliceSessionView, "canStart" | "start" | "panel">;
   /** 軸を「未使用」と分ける重み（`useRoutePlanner.ts: routeWeights`）。 */
@@ -73,12 +69,11 @@ interface RouteOutcomeProps {
 
 /**
  * 「ルート結果」の中身（デスクトップの区分・モバイルのシートの両方）: 生成前・生成中・失敗の案内、候補の一覧（縦のタブ）と
- * 選んだ候補の中身・地図で押した区間の詳細、研究モードの比較、編集中は区間の乗り換えの編集面。
+ * 選んだ候補の中身・地図で押した区間の詳細、編集中は区間の乗り換えの編集面。
  */
 export default function RouteOutcome({ results, generation, splice, routeWeights }: RouteOutcomeProps) {
   const axisCatalog = useAxisCatalog();
-  const researchEnabled = useResearchEnabled();
-  const { routes, selectedRouteId, comparisonTabActive, selectedRouteSegment, reusedRouteId } = results;
+  const { routes, selectedRouteId, selectedRouteSegment, reusedRouteId } = results;
   // 乗り換えで作った経路と同じ道だったので選んだ行。一覧の見える範囲の外にあっても、選んだことが見えるように出す。
   const reusedRowRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -159,7 +154,7 @@ export default function RouteOutcome({ results, generation, splice, routeWeights
     );
   }
 
-  // 候補ごとのタブ＋「比較」タブの1列で、タブの切り替えが候補の切り替えを兼ねる。
+  // 候補ごとのタブの1列で、タブの切り替えが候補の切り替えを兼ねる。
   function renderRouteOutcomeSectionBody() {
     const entries = routeListEntries(results.generated, results.edits);
     const nameOf = (routeId: string) => entries.find((entry) => entry.route.id === routeId)?.name ?? "";
@@ -170,8 +165,6 @@ export default function RouteOutcome({ results, generation, splice, routeWeights
       return <RouteSplicePanel {...panel} sameRouteName={sameRouteId === null ? null : nameOf(sameRouteId)} />;
     }
 
-    const showComparisonTab = researchEnabled;
-    const outerTabValue = comparisonTabActive ? COMPARISON_TAB : (selectedRouteId ?? routes[0].id);
     const baseline = durationBaseline(routes);
     // 道のりのグラフの横軸の右端。候補どうしで同じ物差しにし、面積（負荷）を見比べられるようにする。
     const longestDistanceKm = Math.max(0, ...routes.map((route) => route.distance_km));
@@ -203,7 +196,7 @@ export default function RouteOutcome({ results, generation, splice, routeWeights
           className="flex min-h-0 flex-row items-stretch gap-2 max-mobile:flex-auto"
           // 候補は横並びでは幅に収まらず溢れて消えるため、1行1候補の縦並びにし、行へ距離と難易度を並べる。
           orientation="vertical"
-          value={outerTabValue}
+          value={selectedRouteId ?? routes[0].id}
           onValueChange={results.selectTab}
         >
           {/* 狭幅では下部シートの高さいっぱいまで伸ばし、はみ出す候補は一覧の中だけを縦スクロールさせる——一覧に固定の
@@ -269,11 +262,6 @@ export default function RouteOutcome({ results, generation, splice, routeWeights
                   </Fragment>
                 );
               })}
-              {showComparisonTab && (
-                <TabsTrigger className="col-span-full" value={COMPARISON_TAB}>
-                  比較
-                </TabsTrigger>
-              )}
             </TabsList>
           </div>
           <div className="min-w-0 flex-auto">
@@ -342,21 +330,6 @@ export default function RouteOutcome({ results, generation, splice, routeWeights
                         />
                       )}
                     />
-                    {researchEnabled && Object.keys(selectedRouteSegment.segment.material_values).length > 0 && (
-                      <ul className={cn(textVariants({ variant: "hint" }), "m-0 flex list-none flex-col gap-0.5 p-0")}>
-                        {/* 名前を引けない材料は出さない——材料idは内部名。 */}
-                        {Object.entries(selectedRouteSegment.segment.material_values).flatMap(([materialId, value]) => {
-                          const name = materialCatalogName(materialId, MATERIAL_CATALOG);
-                          return name === undefined
-                            ? []
-                            : [
-                                <li key={materialId}>
-                                  {name}: {formatMaterialValue(materialId, value, MATERIAL_CATALOG)}
-                                </li>,
-                              ];
-                        })}
-                      </ul>
-                    )}
                   </div>
                 ) : (
                   <RouteAxisProfile
@@ -377,24 +350,6 @@ export default function RouteOutcome({ results, generation, splice, routeWeights
                 )}
               </TabsContent>
             ))}
-            {showComparisonTab && (
-              // 開いていない間も描いておき、隠すだけにする。
-              <TabsContent
-                className="flex flex-col gap-2 data-[state=inactive]:hidden"
-                value={COMPARISON_TAB}
-                forceMount
-              >
-                {/* 比較の軸は各スロットを作ったときの重みで選ぶ（いまの重みで絞ると、重みを0にした軸の差が比較から消える）。 */}
-                <ComparisonPanel
-                  slots={generation.experimentSlots}
-                  axisLabels={axisCatalog.axisLabels}
-                  axes={axisCatalog.axes.filter((axis) =>
-                    generation.experimentSlots.some((slot) => (slot.conditions.route_preference[axis.axisId] ?? 0) > 0),
-                  )}
-                  materials={MATERIAL_CATALOG}
-                />
-              </TabsContent>
-            )}
           </div>
         </Tabs>
       </>

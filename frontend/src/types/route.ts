@@ -50,8 +50,7 @@ export type RoutePreferenceWeights = Schemas["RoutePreferenceWeights"];
 // 0次ハードフィルタ(自転車通行禁止/高速道路/幹線道路)の個別ON/OFF上書き。
 export type HardFilterOverride = Schemas["HardFilterOverride"];
 
-// 実際に適用された条件のエコー（研究インターフェース改善 §10-6）。実験スロットの
-// 保持・比較表・再現性メモの入力になる。
+// 実際に適用された条件のエコー。
 export type GenerationConditions = Schemas["GenerationConditions"];
 
 // 軸カタログ。GET /api/axis-catalogのレスポンス。軸スタジオが管理API経由でDBへ追加した

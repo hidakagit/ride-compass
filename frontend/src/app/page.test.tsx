@@ -10,7 +10,7 @@
  * - 地図で扱えること: 地点を置けるのは「ルート設定」の条件タブを見ている間だけで、周回の間は目的地を地図へ出さないこと、
  *   区間を押して詳細を出せるのは「ルート結果」を見ている間だけのこと、編集の間は地図で地点も区間も扱わず全部の候補を重ね、
  *   作り直すと編集が終わること、作ると直前の作り直しの失敗の文言を消し、合成ルートを選んでいる間は元のルートだけを重ねること、
- *   研究モードの実験スロットは「比較」を見ている間だけ重ねること、地図の下のまとめて元に戻す操作
+ *   地図の下のまとめて元に戻す操作
  * - 画面の枠: スマホの下部タブとシート（1枚ずつ開く・地点を扱える間・結果の合図・入力の誤り・ルートを収めるときに避ける
  *   シートの高さ・高さの保存と保存値の検査）、区分の開閉の保存、ヘッダーの「未取得」に並ぶ出所と「現在地に移動」の失敗、
  *   メニューから入る使い方の説明とデバッグログ
@@ -35,7 +35,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { clampSheetHeightVh, DEFAULT_SHEET_HEIGHT_VH } from "@/components/BottomSheet/BottomSheet";
 import { CLIENT_TUNING_IDS } from "@/lib/axisCatalog";
 import { setDebugEnabled } from "@/lib/debugLog";
-import { setResearchEnabled } from "@/lib/researchMode";
 import { heldReplies, onBackend, onSameOrigin, serveAxisCatalog } from "@/testing/backendServer";
 import { catalogEntry, catalogResponse, rampEntry } from "@/testing/catalogAxes";
 import { serveGenerationJobs } from "@/testing/generationJobs";
@@ -113,7 +112,6 @@ beforeEach(() => {
 
 afterEach(() => {
   document.documentElement.style.removeProperty("--is-mobile");
-  setResearchEnabled(false);
   setDebugEnabled(false);
 });
 
@@ -500,20 +498,6 @@ describe("地図で扱えること", () => {
       expect(created).not.toEqual(OTHER.geometry.coordinates);
       expect(screen.queryByText(/作り直せませんでした/)).toBeNull();
     });
-  });
-
-  it("研究モードの実験スロットは、「比較」を見ている間だけ地図へ重ねる", async () => {
-    const { user } = renderHome();
-    await user.click(screen.getByRole("button", { name: "メニュー" }));
-    await user.click(screen.getByRole("checkbox", { name: "研究モード[実験スロット・比較・材料値]" }));
-    await user.keyboard("{Escape}");
-    jobs.respond([FIRST], LOOP_CONDITIONS);
-    await generate(user);
-    await waitFor(() => expect(candidateTabs().length).toBeGreaterThan(1));
-    expect(linesOn("route-slots")).toEqual([]);
-
-    await user.click(screen.getByRole("tab", { name: /比較/ }));
-    expect(linesOn("route-slots")).toHaveLength(1);
   });
 
   it("まとめて元に戻す操作: レイヤーを消すと全部消え、絞り込みを解くのは凡例で隠している間だけ押せる。再描画は地図の描き直しを求める", async () => {

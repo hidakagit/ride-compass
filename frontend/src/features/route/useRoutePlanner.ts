@@ -49,8 +49,7 @@ export function useRoutePlanner({ conditions, onOutcome, ...generationInputs }: 
     },
   });
 
-  /** 生成したルート（候補・選択・作った条件・実験スロット・案内）を消す。地点のピンは消さない。実験スロットも地図へ
-   * 重ね描きされるので一緒に消す（押した見た目どおり地図が空になる）。 */
+  /** 生成したルート（候補・選択・作った条件・案内）を消す。地点のピンは消さない。 */
   const clear = useCallback(() => {
     clearResults();
     clearGeneration();

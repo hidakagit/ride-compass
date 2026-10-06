@@ -1,5 +1,5 @@
 /** ルート（候補の参考線・選択中候補・区間の色分け・乗り換えの帯・合成ルート・
- * 比較スロット・進行方向の矢印）。
+ * 進行方向の矢印）。
  *
  * **重なりはこのファイルの宣言の並びだけが決める**（背面→前面）。押したときに拾う対象は
  * 見た目の線とは別の透明な線が持つ——見た目の太さと、指で押せる幅を別々に決めるため。
@@ -30,8 +30,6 @@ export const ROUTE_HIT_TARGET = "route";
 export const ROUTE_HIT_TARGET_SEGMENT = "routeSegment";
 export const ROUTE_HIT_TARGET_SPLICE_BAND = "routeSpliceBand";
 
-const SLOT_COLOR_PROPERTY = "slotColor";
-
 type Shape = { readonly path: RoutePath; readonly properties?: Readonly<Record<string, unknown>> };
 
 export type RouteState = {
@@ -47,7 +45,6 @@ export type RouteState = {
   readonly hiddenBandFilter?: FilterSpecification;
   readonly spliceBands: readonly Shape[];
   readonly composite: Shape | null;
-  readonly comparisonSlots: readonly { readonly path: RoutePath; readonly color: string }[];
   /** 進行方向の矢印の絵。色を持たないシルエット（SDF）であること——色はレイヤーが決める。 */
   readonly arrowIconImage: string;
 };
@@ -58,7 +55,6 @@ const SOURCE = {
   segments: sceneSourceId("route-segments"),
   spliceBands: sceneSourceId("route-splice-bands"),
   composite: sceneSourceId("route-composite"),
-  slots: sceneSourceId("route-slots"),
 } as const;
 
 function line(path: RoutePath, properties: Readonly<Record<string, unknown>> = {}): Feature<LineString> {
@@ -110,11 +106,6 @@ export const routeGroup = declareGroup<RouteState>((state) => {
       spec: { type: "geojson" },
       data: collection(state.composite === null ? [] : [line(state.composite.path, state.composite.properties)]),
     },
-    {
-      id: SOURCE.slots,
-      spec: { type: "geojson" },
-      data: collection(state.comparisonSlots.map((s) => line(s.path, { [SLOT_COLOR_PROPERTY]: s.color }))),
-    },
   ];
 
   const withBandFilter = (entry: SceneLayerEntry): SceneLayerEntry =>
@@ -144,30 +135,6 @@ export const routeGroup = declareGroup<RouteState>((state) => {
         "line-color": palette.semantic.route_candidate,
         "line-width": ROUTE.lineWidthsPx.candidate,
         "line-opacity": ROUTE.opacities.candidate,
-      },
-    },
-    {
-      role: "slotCasing",
-      tier: "route",
-      source: SOURCE.slots,
-      type: "line",
-      visible: state.visible,
-      paint: {
-        "line-color": palette.semantic.route_casing,
-        "line-width": ROUTE.casingWidthsPx.slot,
-        "line-opacity": ROUTE.opacities.slotCasing,
-      },
-    },
-    {
-      role: "slotLine",
-      tier: "route",
-      source: SOURCE.slots,
-      type: "line",
-      visible: state.visible,
-      paint: {
-        "line-color": ["get", SLOT_COLOR_PROPERTY],
-        "line-width": ROUTE.lineWidthsPx.slot,
-        "line-opacity": ROUTE.opacities.slot,
       },
     },
     {

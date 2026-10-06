@@ -3,7 +3,6 @@
 import { useCallback, useState } from "react";
 
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
-import { useResearchEnabled } from "@/hooks/useResearchMode";
 import { debugLog } from "@/lib/debugLog";
 import { LENS_DIFFICULTY_ID, LENS_NONE_ID } from "@/lib/mapDisplay/routeStyleModes";
 import { fixedRouteCount, useRouteFormSubmit } from "@/features/route/RouteForm/useRouteFormSubmit";
@@ -16,7 +15,6 @@ import { generateRoutes, type GenerationProgress } from "@/features/route/routeA
 import { orderGenerated } from "@/features/route/routeTabLabel";
 import type { GenerationConditionsState } from "@/features/route/useGenerationConditions";
 import type { Coordinates, RouteCandidate, RoutePreferenceWeights } from "@/types/route";
-import { EXPERIMENT_SLOT_COLORS, MAX_EXPERIMENT_SLOTS, type ExperimentSlot } from "@/types/experimentSlot";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 
 /** 直近の生成の案内。失敗は前の候補を残したまま出すため、候補0件の理由と分けて持つ。 */
@@ -60,7 +58,7 @@ export type RouteOutcomeKind = "fresh" | "failed";
 
 /**
  * ルート生成: 検証と送信、実行中の進み方、直近の案内（候補0件の理由・失敗の文言）、表示中の候補を作った条件と
- * いまのフォームのずれ、研究モードの実験スロット。入力は生成と「条件が変わったか」の判定が同じ関数で組み立てる。
+ * いまのフォームのずれ。入力は生成と「条件が変わったか」の判定が同じ関数で組み立てる。
  */
 export function useRouteGeneration({
   conditions,
@@ -73,12 +71,9 @@ export function useRouteGeneration({
   onOutcome,
 }: RouteGenerationInputs) {
   const axisCatalog = useAxisCatalog();
-  const researchEnabled = useResearchEnabled();
   // 実行中は順番待ちか実行中かと経過時間をボタンへ出し、終わった後は直近の案内を「ルート結果」欄に残す。
   const [generation, setGeneration] = useState<Generation>(GENERATION_IDLE);
   const [generatedConditions, setGeneratedConditions] = useState<GeneratedConditions | null>(null);
-  // 実験スロット: 研究モードの生成結果の直近数件（地図の重ね描き・比較表）。
-  const [experimentSlots, setExperimentSlots] = useState<ExperimentSlot[]>([]);
 
   const { routePreferenceToSend } = conditions;
   const { routeMode, waypoints, destination, maxRoutes, hardFilters } = conditions.snapshot;
@@ -163,21 +158,6 @@ export function useRouteGeneration({
           kind: "empty",
           message: noCandidatesReason ?? "条件に合うルート候補が見つかりませんでした。条件を変えて試してください。",
         };
-      } else if (researchEnabled) {
-        // 研究モードの生成だけを実験スロットへ残す。代表は難易度が最小の候補（backendの並びの先頭。一覧の並びとは別で、
-        // 後で選び直しても変えない）。
-        setExperimentSlots((prev) => {
-          const next: ExperimentSlot = {
-            id: `slot-${used.generated_at}-${Math.random().toString(36).slice(2, 8)}`,
-            color: EXPERIMENT_SLOT_COLORS[0],
-            conditions: used,
-            topCandidate: candidates[0],
-          };
-          // 色は並びの位置で決める（最新が先頭の色）。
-          return [next, ...prev]
-            .slice(0, MAX_EXPERIMENT_SLOTS)
-            .map((slot, i) => ({ ...slot, color: EXPERIMENT_SLOT_COLORS[i % EXPERIMENT_SLOT_COLORS.length] }));
-        });
       }
       onOutcome("fresh");
     } catch (error) {
@@ -211,10 +191,9 @@ export function useRouteGeneration({
     [],
   );
 
-  /** 生成の結果（作った条件・実験スロット・案内）を消す。 */
+  /** 生成の結果（作った条件・案内）を消す。 */
   const clear = useCallback(() => {
     setGeneratedConditions(null);
-    setExperimentSlots([]);
     // 消した候補に向けた作り直しの失敗は、生成前の案内の場所へ持ち越さない。
     clearNotice();
   }, [clearNotice]);
@@ -245,7 +224,6 @@ export function useRouteGeneration({
     weightsNotApplied: generatedConditions?.weightsNotApplied ?? false,
     /** 表示中の候補を作った生成の入力（生成していなければnull）。 */
     generatedInput: generatedConditions?.input ?? null,
-    experimentSlots,
     clearNotice,
     clear,
   };
