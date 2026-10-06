@@ -150,7 +150,9 @@ def scores(values) -> list:
 class TestEvaluateAllAxes:
     def test_an_axis_reads_the_score_of_the_axis_it_refers_to(self):
         with replaced_axis_definitions(axes(axis("outer", "inner", published=True), axis("inner", "num_a"))):
-            result = axis_definitions.evaluate_axes_array({"num_a": np.array([0.5, 2.0, NAN])})
+            result = axis_definitions.evaluate_axes_array(
+                {"num_a": np.array([0.5, 2.0, NAN])}, axis_definitions.AXIS_DEFINITIONS
+            )
 
         assert scores(result["inner"]) == [5.0, 20.0, None]
         assert scores(result["outer"]) == [50.0, 100.0, None]

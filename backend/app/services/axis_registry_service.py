@@ -3,7 +3,7 @@
 `AXIS_DEFINITIONS`は評価ホットパスから同期的に読まれる。DBを正本にしつつその同期アクセスを
 変えずに済ませるため、**モジュールレベルの同じdictオブジェクトをin-placeで書き換える**。
 辞書自体を再代入すると`from ... import AXIS_DEFINITIONS`で束縛済みの参照先が古いままになる
-ため、必ず`.clear()`+`.update()`で中身だけを差し替えること。
+ため、必ず`replace_axis_definitions`で中身だけを差し替えること（別スレッドの読みとの排他もそこが持つ）。
 
 反映はプロセス単位で、他プロセスでの編集はこのプロセスへ届かない（単一プロセスデプロイが
 前提）。
@@ -12,7 +12,6 @@
 import logging
 
 from app.domain.axis_definitions import (
-    AXIS_DEFINITIONS,
     AxisDefinition,
     AxisDependencyCycleError,
     AxisMaterialConflictError,
@@ -21,6 +20,7 @@ from app.domain.axis_definitions import (
     check_internal_axis_not_published,
     check_publish_immutability,
     named_references,
+    replace_axis_definitions,
 )
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
 
@@ -95,8 +95,7 @@ async def refresh_axis_definitions(repository: AxisDefinitionRepository) -> None
     if problem is not None:
         raise AxisDefinitionSyncError(f"軸定義DBを読み込めません: {problem}")
     logger.info("軸定義をDBから読み込みました axes=%d", len(definitions))
-    AXIS_DEFINITIONS.clear()
-    AXIS_DEFINITIONS.update(definitions)
+    replace_axis_definitions(definitions)
 
 
 def _check_loadable_after_write(after: dict[str, AxisDefinition], written_axis_id: str) -> None:

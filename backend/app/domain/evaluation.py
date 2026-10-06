@@ -37,6 +37,7 @@ from app.domain.axis_definitions import (
     REQUEST_DYNAMIC_MATERIAL_IDS,
     AxisDefinition,
     axis_raw_value_array,
+    copy_axis_definitions,
     has_axis_raw_value_array,
     evaluate_axes_array,
     topological_axis_order,
@@ -66,33 +67,33 @@ def has_route_facing_raw_value(definition: AxisDefinition) -> bool:
     return not (set(definition.materials) & REQUEST_DYNAMIC_MATERIAL_IDS)
 
 
-def route_facing_raw_axis_ids() -> list[str]:
+def route_facing_raw_axis_ids(definitions: dict[str, AxisDefinition]) -> list[str]:
     """静的スコア行列が生値の列として持つ軸id（**並びも含めた唯一の定義元**）。"""
     return [
         axis_id
-        for axis_id in topological_axis_order(AXIS_DEFINITIONS)
-        if AXIS_DEFINITIONS[axis_id].is_published
-        and has_route_facing_raw_value(AXIS_DEFINITIONS[axis_id])
-        and has_axis_raw_value_array(AXIS_DEFINITIONS[axis_id])
+        for axis_id in topological_axis_order(definitions)
+        if definitions[axis_id].is_published
+        and has_route_facing_raw_value(definitions[axis_id])
+        and has_axis_raw_value_array(definitions[axis_id])
     ]
 
 
-def _published_axis_leaf_material_ids() -> list[str]:
+def _published_axis_leaf_material_ids(definitions: dict[str, AxisDefinition]) -> list[str]:
     """公開軸を依存順に辿り、分解された葉の材料idを安定順で返す。
 
     下の2本（数値列とcategorical列）が同じ順序で列を組み立てるための土台。
     """
     seen: dict[str, None] = {}
-    for axis_id in topological_axis_order(AXIS_DEFINITIONS):
-        definition = AXIS_DEFINITIONS[axis_id]
+    for axis_id in topological_axis_order(definitions):
+        definition = definitions[axis_id]
         if not definition.is_published:
             continue
-        for entry in axis_material_shares(definition):
+        for entry in axis_material_shares(definition, definitions):
             seen.setdefault(entry.material_id, None)
     return list(seen)
 
 
-def route_facing_material_ids() -> list[str]:
+def route_facing_material_ids(definitions: dict[str, AxisDefinition]) -> list[str]:
     """内訳として経路へ運ぶ材料id（安定順）。
 
     単位が定まらない軸（合成軸・真偽値やカテゴリの材料を持つ軸）は`axis_raw_arrays`へ
@@ -114,7 +115,7 @@ def route_facing_material_ids() -> list[str]:
     seen: dict[str, None] = {}
     for material_id in stop_count_material_ids():
         seen.setdefault(material_id, None)
-    for material_id in _published_axis_leaf_material_ids():
+    for material_id in _published_axis_leaf_material_ids(definitions):
         spec = MATERIAL_CATALOG.get(material_id)
         if spec is None or spec.dtype == "categorical":
             continue
@@ -124,7 +125,7 @@ def route_facing_material_ids() -> list[str]:
     return list(seen)
 
 
-def route_facing_categorical_material_ids() -> list[str]:
+def route_facing_categorical_material_ids(definitions: dict[str, AxisDefinition]) -> list[str]:
     """内訳として経路へ運ぶcategorical材料id（安定順）。
 
     `route_facing_material_ids`のcategorical版。数値行列には文字列を載せられないため、
@@ -135,7 +136,7 @@ def route_facing_categorical_material_ids() -> list[str]:
     軸が参照していなくても常に含める（理由は`route_facing_material_ids`の停止の待ちと同じ）。
     """
     seen: dict[str, None] = {ROLLING_RESISTANCE_MATERIAL_ID: None}
-    for material_id in _published_axis_leaf_material_ids():
+    for material_id in _published_axis_leaf_material_ids(definitions):
         spec = MATERIAL_CATALOG.get(material_id)
         if spec is None or spec.dtype != "categorical":
             continue
@@ -165,7 +166,7 @@ def displayed_material_ids(weights: Mapping[str, float], lens_axis_id: str | Non
         # 軸参照を辿った先の材料（合成軸の内訳、`axis_material_shares`）。
         # `definition.materials`は1段しか見ないため、これが無いと車の圧迫感のように
         # 内部軸を経由する軸の内訳が1件も運ばれない。
-        material_ids.update(entry.material_id for entry in axis_material_shares(definition))
+        material_ids.update(entry.material_id for entry in axis_material_shares(definition, AXIS_DEFINITIONS))
     if lens_axis_id is not None:
         lens_definition = AXIS_DEFINITIONS.get(lens_axis_id)
         if lens_definition is not None and isinstance(map_paint(lens_definition).value, SignedMaterialMapValue):
@@ -398,33 +399,35 @@ def build_static_edge_score_matrix(
     **動的材料（風）の列は常にNaN**。風は区間の通過時刻で変わるため、この行列では値を持てず、
     リクエスト時に`evaluate_dynamic_axis_arrays`が該当列を通過時刻ごとに上書きする。
     """
+    # 軸の保存がこの間に`AXIS_DEFINITIONS`を差し替えても、この行列の列は1つの軸の集合から組む。
+    definitions = copy_axis_definitions()
     n = len(materials)
     material_arrays = _empty_material_arrays(n)
     material_arrays.update(materials.columns())
     material_arrays.update(observed_materials)
     material_arrays.update({material_id: np.full(n, np.nan) for material_id in REQUEST_DYNAMIC_MATERIAL_IDS})
-    axis_scores_by_id = evaluate_axes_array(material_arrays)
+    axis_scores_by_id = evaluate_axes_array(material_arrays, definitions)
     # 合成の対象（axis_arrays）は公開軸だけ。内部軸は公開軸の材料として読まれるだけで、
     # 利用者の重みの対象ではない。
     axis_arrays = {
         axis_id: axis_scores_by_id[axis_id]
-        for axis_id in topological_axis_order(AXIS_DEFINITIONS)
-        if AXIS_DEFINITIONS[axis_id].is_published
+        for axis_id in topological_axis_order(definitions)
+        if definitions[axis_id].is_published
     }
     material_arrays_with_axes = {**material_arrays, **axis_scores_by_id}
     axis_raw_arrays: dict[str, np.ndarray] = {}
-    for axis_id in route_facing_raw_axis_ids():
-        raw = axis_raw_value_array(AXIS_DEFINITIONS[axis_id], material_arrays_with_axes)
+    for axis_id in route_facing_raw_axis_ids(definitions):
+        raw = axis_raw_value_array(definitions[axis_id], material_arrays_with_axes)
         assert raw is not None, f"route_facing_raw_axis_idsが返した{axis_id}の生値が作れない"
         axis_raw_arrays[axis_id] = raw
     material_value_arrays = {
         material_id: np.asarray(values, dtype=float)
-        for material_id in route_facing_material_ids()
+        for material_id in route_facing_material_ids(definitions)
         if isinstance(values := material_arrays.get(material_id), np.ndarray)
     }
     categorical_material_columns = {
         material_id: column
-        for material_id in route_facing_categorical_material_ids()
+        for material_id in route_facing_categorical_material_ids(definitions)
         if isinstance(column := material_arrays.get(material_id), CategoricalColumn)
     }
 

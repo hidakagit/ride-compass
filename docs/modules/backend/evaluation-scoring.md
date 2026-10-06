@@ -187,7 +187,9 @@ bbox全体ぶんのコストをリクエストにつき1回だけnumpyで合成�
 - **`build_static_edge_score_matrix`**: 生成のたびに、切り出した探索範囲の材料
   （`GraphService.get_search_slice`）と雨の観測（`RoadGraphEngine`の気象の段）から`StaticEdgeScoreMatrix`（Edge×公開軸の静的スコア行列＋distance_m・
   bearing_deg・0次フィルタ判定用の生配列、行は切り出した区間の順）を構築する。キャッシュしない——
-  軸定義の編集がそのまま次の生成に効く。
+  軸定義の編集がそのまま次の生成に効く。`asyncio.to_thread`の先で組むため、軸定義は入口で写し
+  （`axis_definitions.py: copy_axis_definitions`）を1回取り、組み終えるまでそれだけを読む（軸の保存と重なっても、
+  列は1つの軸の集合から組まれる。[軸スタジオ](axis-studio.md)「ライフサイクル」）。
   分類の材料（`highway`・路面の見込み等）は、道路網の置き場が持つ語彙への番号の列
   （`domain/attributes.py: CategoricalColumn`）のまま受け取って運ぶ。軸の対応表・0次条件・走行モデルの
   転がり抵抗は、語彙の値ごとに1回引いた表を番号で配る——区間ごとに値の文字列へ戻して1件ずつ引くと、
