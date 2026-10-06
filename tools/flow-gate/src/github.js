@@ -9,7 +9,7 @@ const transient = (message) => Object.assign(new Error(message), { transient: tr
 
 // 読むだけの要求（read）は、一時的な失敗なら AGAIN の間をあけて打ち直す。書く要求は打ち直さない——失敗の応答でも書き込みが
 // 通っていることがある（問いのコメントと移動を1回で書いた要求が 502 を受け、コメントは書かれていた）。打ち直して同じ結果に
-// なるようにするのは、書く側の道具が持つ（move.js: askTask）。
+// なるようにするのは、書く側の道具が持つ（src/move.js: askTask）。
 async function again(read, call) {
   for (let i = 0; ; i++) {
     try {
