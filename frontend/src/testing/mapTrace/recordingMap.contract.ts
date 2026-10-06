@@ -20,9 +20,10 @@ type MapLayerReading = {
 
 export type MapReading = {
   readonly layers: readonly MapLayerReading[];
-  /** 名指しした地物の状態（消えていれば空）。 */
+  /** 名指しした地物の状態（消えていれば空）。ベクタのソースは `sourceLayer` で読む。 */
   readonly featureStates: readonly {
     readonly source: string;
+    readonly sourceLayer?: string;
     readonly id: number;
     readonly state: Record<string, unknown>;
   }[];
@@ -91,6 +92,23 @@ export const MAP_CONTRACT: readonly MapContractCase[] = [
     },
   },
   {
+    name: "塗り・絞り込みに null を渡すと、その指定が外れる",
+    steps: [
+      ADD_POINTS,
+      {
+        call: "addLayer",
+        args: [{ ...circle("a"), paint: { "circle-radius": 4 }, filter: ["==", ["get", "kind"], "a"] }],
+      },
+      { call: "setPaintProperty", args: ["a", "circle-radius", null] },
+      { call: "setFilter", args: ["a", null] },
+    ],
+    expected: {
+      layers: [{ id: "a", visibility: "visible", paint: { "circle-radius": undefined }, filter: undefined }],
+      featureStates: [],
+      sourceData: [],
+    },
+  },
+  {
     name: "地物の状態は鍵ごとに重ね、鍵を名指しして消すとその鍵だけが消える",
     steps: [
       { call: "addSource", args: ["points", { type: "geojson", data: { ...EMPTY, features: [point(1), point(2)] } }] },
@@ -122,6 +140,23 @@ export const MAP_CONTRACT: readonly MapContractCase[] = [
       featureStates: [
         { source: "points", id: 1, state: {} },
         { source: "others", id: 1, state: { hover: true } },
+      ],
+      sourceData: [],
+    },
+  },
+  {
+    name: "ベクタのソースの地物の状態は、source-layer を名指ししたときだけ置き・消せる",
+    steps: [
+      { call: "addSource", args: ["tiles", { type: "vector", tiles: ["https://tiles.test/{z}/{x}/{y}.pbf"] }] },
+      { call: "setFeatureState", args: [{ source: "tiles", sourceLayer: "road", id: 1 }, { hover: true }] },
+      { call: "setFeatureState", args: [{ source: "tiles", id: 2 }, { hover: true }] },
+      { call: "removeFeatureState", args: [{ source: "tiles", id: 1 }, "hover"] },
+    ],
+    expected: {
+      layers: [],
+      featureStates: [
+        { source: "tiles", sourceLayer: "road", id: 1, state: { hover: true } },
+        { source: "tiles", sourceLayer: "road", id: 2, state: {} },
       ],
       sourceData: [],
     },

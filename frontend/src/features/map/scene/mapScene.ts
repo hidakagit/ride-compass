@@ -68,9 +68,6 @@ export type MapSceneLayer = {
    * 「今は条件なし」と「外側が管理しているので触るな」が区別できなくなる。
    */
   readonly spec: LayerSpecification;
-  /** 宣言したときの役割。**idの綴りを知らなくても引ける**ようにここへ残す
-   * （idはソース名＋役割で、ソース名は宣言側が決める）。 */
-  readonly role: string;
   /** 同じ id で段を変えない（重なりは足された時点の段で決まる）。 */
   readonly tier: MapSceneTier;
   readonly visible: boolean;

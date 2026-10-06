@@ -17,6 +17,7 @@ import { applyMapScene } from "@/features/map/scene/applyMapScene";
 import { EMPTY_MAP_SCENE, type MapScene } from "@/features/map/scene/mapScene";
 import { routeGroup, type RoutePath, type RouteState } from "@/features/map/scene/groups/routes";
 import { composeScene } from "@/features/map/scene/mapSceneGroups";
+import { sceneLayerId } from "@/features/map/scene/sceneBuilders";
 
 type RoutePathShape = RouteState["segments"][number];
 
@@ -32,14 +33,14 @@ const NO_ROUTES: RouteState = {
   arrowIconImage: "arrow",
 };
 
-const DECLARED_SCENE = composeScene([routeGroup], NO_ROUTES);
+const DECLARED_LAYERS = routeGroup.build(NO_ROUTES).layers;
 
-/** 役割からレイヤーidを引く。**綴りを組み立て直さない**——idはソース名＋役割で、ソース名は
- * 宣言する側が決めるため、外から組み直すと規則を変えたときにここだけ古い綴りで残る。 */
+/** 役割からレイヤーidを引く。**ソース名を書き写さない**——ソース名は宣言する側が決めるため、
+ * 宣言のソース名を本番と同じ規則に通す。外で綴ると、綴りを変えたときにここだけ古い綴りで残る。 */
 function routeSceneLayerId(role: string): string {
-  const layer = DECLARED_SCENE.layers.find((candidate) => candidate.role === role);
-  if (layer === undefined) throw new Error(`役割${role}のレイヤーが宣言に無い`);
-  return layer.spec.id;
+  const entry = DECLARED_LAYERS.find((candidate) => candidate.role === role);
+  if (entry === undefined) throw new Error(`役割${role}のレイヤーが宣言に無い`);
+  return sceneLayerId(entry.source, entry.role);
 }
 
 const PATH: RoutePath = [

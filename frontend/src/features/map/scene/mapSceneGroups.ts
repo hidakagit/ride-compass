@@ -81,7 +81,6 @@ export function composeScene<State>(groups: readonly SceneGroup<State>[], state:
 
 function toSceneLayer(entry: SceneLayerEntry): MapSceneLayer {
   return {
-    role: entry.role,
     spec: layerSpec({
       id: sceneLayerId(entry.source, entry.role),
       type: entry.type,
