@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AmedasObservation } from "@/types/weather";
 
 import WeatherPanel from "./WeatherPanel";
+import { WEATHER_CATEGORY_LABEL } from "./weatherCode";
 
 const NOW = new Date("2026-09-24T12:00:00+09:00");
 
@@ -54,14 +55,11 @@ describe("WeatherPanel 取得の状態", () => {
 });
 
 describe("WeatherPanel 観測値", () => {
-  it("気温（体感は補足）・風速と風向・10分間の降水量を小数1桁で出し、風の矢印は吹いていく向き（来る向きの反対）を指す", () => {
+  it("気温・風速と風向・10分間の降水量を小数1桁で出し、風の矢印は吹いていく向き（来る向きの反対）を指す", () => {
     render(<WeatherPanel amedas={observation({ precipitation_10min_mm: 1.25 })} loading={false} error={null} />);
-    const temperature = screen.getByText("気温:").parentElement!;
-    expect(temperature).toHaveTextContent("21.4℃");
-    expect(temperature).toHaveAttribute("title", "体感 20.0℃");
+    expect(screen.getByText("気温:").parentElement).toHaveTextContent("21.4℃");
     const wind = screen.getByText("東の風:").parentElement!;
     expect(wind).toHaveTextContent("3.3m/s");
-    expect(wind).toHaveAttribute("title", "東の風");
     expect((wind.firstElementChild as HTMLElement).style.transform).toBe("rotate(270deg)");
     expect(screen.getByText("降水量:").parentElement).toHaveTextContent("1.3mm");
   });
@@ -80,7 +78,6 @@ describe("WeatherPanel 観測値", () => {
       />,
     );
     expect(screen.getByText("気温:").parentElement).toHaveTextContent("-℃");
-    expect(screen.getByText("気温:").parentElement).not.toHaveAttribute("title");
     expect(screen.queryByText(/の風:/)).not.toBeInTheDocument();
     expect(screen.queryByText("降水量:")).not.toBeInTheDocument();
   });
@@ -117,10 +114,14 @@ describe("WeatherPanel 観測値", () => {
 });
 
 describe("WeatherPanel 観測の出所", () => {
-  it("観測値を押すと、アメダスの観測であることと観測所名・観測の時刻（日本時間）が開く", async () => {
+  it("観測値を押すと、アメダスの観測であることと観測所名・観測の時刻（日本時間）、数値ごとの意味が開く", async () => {
     render(
       <WeatherPanel
-        amedas={observation({ station_name: "練馬", observed_at: "2026-09-24T02:50:00Z" })}
+        amedas={observation({
+          station_name: "練馬",
+          observed_at: "2026-09-24T02:50:00Z",
+          precipitation_10min_mm: 1.25,
+        })}
         loading={false}
         error={null}
       />,
@@ -132,5 +133,34 @@ describe("WeatherPanel 観測の出所", () => {
     const panel = screen.getByRole("dialog");
     expect(panel).toHaveTextContent("アメダスの観測");
     expect(panel).toHaveTextContent("練馬11:50");
+    expect(panel).toHaveTextContent("気温21.4℃（体感 20.0℃）");
+    expect(panel).toHaveTextContent("風東の風 3.3m/s");
+    expect(panel).toHaveTextContent("降水量1.3mm（直近10分間）");
+    expect(panel).toHaveTextContent(`天気${WEATHER_CATEGORY_LABEL.clear}`);
+  });
+
+  it("体感温度・風・降水量・天気が無ければ、パネルにもその行を出さない", async () => {
+    render(
+      <WeatherPanel
+        amedas={observation({
+          temperature_c: null,
+          apparent_temperature_c: null,
+          wind_speed_ms: null,
+          precipitation_10min_mm: null,
+          weather_code: null,
+        })}
+        loading={false}
+        error={null}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: /気温:/ }));
+
+    const panel = screen.getByRole("dialog");
+    expect(panel).toHaveTextContent("気温-℃");
+    expect(panel).not.toHaveTextContent("体感");
+    expect(panel).not.toHaveTextContent("風");
+    expect(panel).not.toHaveTextContent("降水量");
+    expect(panel).not.toHaveTextContent("天気");
   });
 });

@@ -417,7 +417,7 @@ DBの`ROUTE_GENERATION_COMMAND_TIMEOUT_SECONDS`はクエリ1本ごとの上限�
 同じ場所）にあり、どのタブを見ていても押せる（`app/page.tsx: renderRouteSectionHeaderActions`）。検証エラーは本文でもボタンの隣でもなく
 「ルート結果」欄へ出す（[page-composition.md](page-composition.md)の「生成に関する
 フィードバックの置き場」参照）。同じ見出し行には、生成条件が表示中の候補とずれている間だけ
-印（`conditionsDirty`）を出す——条件を変えている本人は設定側を見ているため。検証・送信ロジック自体は
+印（`conditionsDirty`）を出す——条件を変えている本人は設定側を見ているため。印は押すと意味が開く（`InfoPopover`の中身を印に差し替えたもの）。検証・送信ロジック自体は
 `useRouteFormSubmit`（`{error, check}`を返す）へ切り出し、生成（`useRouteGeneration.ts: submit`）が検証して送る。
 `page.tsx`はヘッダーのボタンからその送信を、地図のレンズを引数にして呼ぶ（塗る軸は押した時点のレンズで決まり、
 「条件が変わったか」の比較には入らないので、生成のフックは地図の見え方を読まない）。候補数の指定が効くか（効かないならbackendの決まった数）は

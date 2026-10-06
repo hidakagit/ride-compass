@@ -21,8 +21,9 @@ const groupVariants = cva("inline-flex", {
   defaultVariants: { variant: "segmented" },
 });
 
+// 押す所は24px四方以上（`Button`と同じ）。
 const itemVariants = cva(
-  "inline-flex cursor-pointer items-center whitespace-nowrap border-0 transition-colors disabled:cursor-default disabled:opacity-50",
+  "inline-flex min-h-6 min-w-6 cursor-pointer items-center whitespace-nowrap border-0 transition-colors disabled:cursor-default disabled:opacity-50",
   {
     variants: {
       variant: {
