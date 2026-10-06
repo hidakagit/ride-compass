@@ -6,7 +6,7 @@
  *   既定の配分で作ったこと・目的地の補正の知らせ（作り直しの失敗を出している間は条件のずれを重ねない）、乗り換えで
  *   作った経路と同じ道だったので選んだ候補の知らせと、その行を見える位置へ出すこと
  * - 候補の一覧: 一番上の列の見出し、群（最速・生成した候補・合成）の間の区切りの線と名前の列の印（意味を読み上げの
- *   名前に持つ）、行に出す名前・距離・最速の所要時間・ほかの候補の余計にかかる時間・総合難易度（無ければ「—」）、
+ *   名前に持つ）、行に出す名前・距離・基準線の所要時間・ほかの候補の基準線との差・総合難易度（無ければ「—」）、
  *   選ばれているタブ（選んだ候補・無ければ先頭・比較を見ている間は比較）と、タブを押したときに上がる操作
  * - 選んだ候補の中身: 合成（始められるときだけ）・GPXの操作、編集で作ったルートの「元との違い」の元と名前、
  *   道のりのグラフ（横軸・押した区間・動かして選ぶこと）、区間を押している間の地点・到達予想・解除・
@@ -14,7 +14,7 @@
  *   押していない間の内訳、編集中は編集面だけを出し、同じ道の候補を一覧の名前で渡すこと
  * - 研究モードの比較タブと、比較表に並ぶ軸（どれかの回で重みが0より大きかった軸）
  *
- * ここで見ないもの: 一覧の並び・群・名前・最速と余計にかかる時間の決め方 → `features/route/routeTabLabel.ts`。
+ * ここで見ないもの: 一覧の並び・群・名前・基準線と差の決め方 → `features/route/routeTabLabel.ts`。
  * 結果の状態の移り変わり → `features/route/useRouteResults.ts`。子の部品（比較表・道のりのグラフ・内訳・寄与の帯・
  * 元との違い・区間の風・編集面）は本物を描き、ここでは受け渡し（親の値が子のどこに出るか・子の操作で親の何が変わるか）
  * だけを見る。子が値をどう描くか（書式・並び・空のときの案内）は各部品のテストが見る。値を子・文へそのまま渡すだけの所
@@ -31,8 +31,6 @@ import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { downloadGpx } from "@/features/route/gpxExport";
-import type { GenerationInput } from "@/features/route/generationRequest";
-import { SPLICED_ROUTE_ID_PREFIX } from "@/features/route/routeTabLabel";
 import { COMPARISON_TAB, type EditedRoute, type RouteResults } from "@/features/route/useRouteResults";
 import { MATERIAL_CATALOG } from "@/lib/axisMaterialsCatalog";
 import { setResearchEnabled } from "@/lib/researchMode";
@@ -122,28 +120,9 @@ function generationOf(overrides: Partial<Generation> = {}): Generation {
     weightsNotApplied: false,
     destinationCorrected: false,
     experimentSlots: [],
-    generatedInput: null,
     ...overrides,
   };
 }
-
-/** 生成に使った入力。経由地・目的地だけを変える。 */
-function inputOf(overrides: Pick<GenerationInput, "destination" | "waypoints">): GenerationInput {
-  return {
-    origin: { latitude: 35, longitude: 139 },
-    distanceKm: null,
-    distanceToleranceKm: 0,
-    maxRoutes: 3,
-    assumedSpeedKmh: 20,
-    startTime: new Date(0),
-    hardFilters: {},
-    lensAxisId: null,
-    routePreference: null,
-    startTimePinned: false,
-    ...overrides,
-  };
-}
-const DESTINATION_INPUT = inputOf({ destination: { latitude: 35.1, longitude: 139.1 }, waypoints: [] });
 
 type Splice = ComponentProps<typeof RouteOutcome>["splice"];
 
@@ -248,38 +227,27 @@ describe("候補の上の知らせ", () => {
 });
 
 describe("候補の一覧", () => {
-  it.each([
-    ["入力の無い", null],
-    [
-      "経由地を伴う目的地ルートの",
-      inputOf({ destination: { latitude: 35.1, longitude: 139.1 }, waypoints: [{ latitude: 35, longitude: 139.05 }] }),
-    ],
-  ])("%s生成は最速を分けず、番号・距離・時間・難易度の列だけで並べ、区切りの線も群の印も出さない", (_, input) => {
-    renderOutcome({
-      results: resultsOf({ generated: [FAST, SLOW] }),
-      generation: generationOf({ generatedInput: input }),
-    });
+  it("最速の印の無い生成は最速を分けず、番号・距離・時間・難易度の列だけで並べ、区切りの線も群の印も出さない", () => {
+    renderOutcome({ results: resultsOf({ generated: [FAST, SLOW] }) });
     expect(listTexts()).toEqual([HEADER, "1 10.0km 30分 難易度42", "2 20.0km +12分 難易度—"]);
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
   });
 
-  it("最速・生成した候補・合成がそろうと、その順に並べて群の間に線を引き、最速と合成は名前の列の印に意味を持つ", () => {
+  it("最速・生成した候補・合成がそろうと、その順に並べて群の間に線を引き、最速と合成は名前の列の印に意味を持ち、時間の列は最速の行と比べる", () => {
+    // 合成の方が最速の行より速く見積もられても、比べる基準は最速の行のまま
     const edit: EditedRoute = {
-      route: route(`${SPLICED_ROUTE_ID_PREFIX}-1`, { distance_km: 12, estimated_duration_seconds: 2700 }),
+      route: route("spliced-1", { distance_km: 12, estimated_duration_seconds: 1620 }),
       originId: "fast",
       number: 1,
     };
-    renderOutcome({
-      results: resultsOf({ generated: [SLOW, FAST], edits: [edit] }),
-      generation: generationOf({ generatedInput: DESTINATION_INPUT }),
-    });
+    renderOutcome({ results: resultsOf({ generated: [SLOW, { ...FAST, is_fastest: true }], edits: [edit] }) });
     expect(listTexts()).toEqual([
       HEADER,
       " 10.0km 30分 難易度42",
       "―",
       "1 20.0km +12分 難易度—",
       "―",
-      "1 12.0km +15分 難易度—",
+      "1 12.0km −3分 難易度—",
     ]);
     const [fastest, , spliced] = screen.getAllByRole("tab");
     expect(within(fastest).getByRole("img", { name: "最速ルート" })).toHaveAttribute("title", "最速ルート");
@@ -324,7 +292,7 @@ describe("選んだ候補の中身", () => {
   });
 
   it("編集で作ったルートには、元とその一覧での名前で「元との違い」を出し、「元を見る」で元のタブを選ぶ", async () => {
-    const edited = route(`${SPLICED_ROUTE_ID_PREFIX}-1`, { distance_km: 12 });
+    const edited = route("spliced-1", { distance_km: 12 });
     const { results } = renderOutcome({
       results: resultsOf({
         generated: [FAST, SLOW],
@@ -340,7 +308,7 @@ describe("選んだ候補の中身", () => {
   });
 
   it("生成した候補・元が一覧に無い編集には「元との違い」を出さない", () => {
-    const orphan = route(`${SPLICED_ROUTE_ID_PREFIX}-1`);
+    const orphan = route("spliced-1");
     renderOutcome({
       results: resultsOf({
         generated: [FAST],

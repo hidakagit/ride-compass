@@ -1,8 +1,8 @@
 // @vitest-environment node
 /**
  * `features/route/routeEditDiff.ts`——編集で作ったルートが元から何を変えたか。
- * - `editDifference`: 距離・所要時間・総合難易度・負荷の差（編集後 − 元。どちらかに値が無ければnull）と、2本のEdgeの差から
- *   求めた変えた区間（元の始点からの位置と、長さの差）
+ * - `editDifference`: 距離・所要（分）・総合難易度・負荷の元・編集後と差（編集後 − 元。どちらかに値が無ければnull）と、
+ *   2本のEdgeの差から求めた変えた区間（元の始点からの位置と、長さの差）。指標は編集面と同じ1つの表（`metricDifferences`）から作る
  * - `formatDelta`: 差を表示の桁で丸めて符号付きで書く。丸めて0なら「±0」
  *
  * 経路はbackendの契約どおりの形を`testing/routeFixtures.ts: routeThrough`で地点の並びから組む。
@@ -17,7 +17,7 @@ import { cumulativeDistancesKm } from "@/features/route/geoDistance";
 import { makeRouteCandidate, routeThrough, type Places } from "@/testing/routeFixtures";
 import type { RouteCandidate } from "@/types/route";
 
-import { editDifference, formatDelta } from "./routeEditDiff";
+import { editDifference, formatDelta, type MetricDifference } from "./routeEditDiff";
 
 // 東西に並ぶ元の道（A〜F）と、その北の地点（P〜R）。
 const PLACES: Places = {
@@ -34,6 +34,11 @@ const PLACES: Places = {
 
 function route(names: string, overrides: Partial<RouteCandidate> = {}): RouteCandidate {
   return makeRouteCandidate({ ...routeThrough(PLACES, [...names]), ...overrides });
+}
+
+/** 指標の名前 → 差。 */
+function deltasOf(metrics: MetricDifference[]): Record<string, number | null> {
+  return Object.fromEntries(metrics.map((metric) => [metric.label, metric.delta]));
 }
 
 /** 地点の並びをたどった長さ（km）。 */
@@ -53,11 +58,11 @@ describe("editDifference", () => {
       estimated_duration_seconds: 3300,
       overall_difficulty: { average: 35, load: 752.5 },
     });
-    expect(editDifference(origin, edited)).toMatchObject({
-      distanceKm: 1.5,
-      durationSeconds: -300,
-      difficulty: -5,
-      load: -47.5,
+    expect(deltasOf(editDifference(origin, edited).metrics)).toEqual({
+      距離: 1.5,
+      所要: -5,
+      総合難易度: -5,
+      負荷: -47.5,
     });
   });
 
@@ -71,7 +76,11 @@ describe("editDifference", () => {
       [withValues, withoutValues],
       [withoutValues, withValues],
     ]) {
-      expect(editDifference(origin, edited)).toMatchObject({ durationSeconds: null, difficulty: null, load: null });
+      expect(deltasOf(editDifference(origin, edited).metrics)).toMatchObject({
+        所要: null,
+        総合難易度: null,
+        負荷: null,
+      });
     }
   });
 

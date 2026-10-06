@@ -1,16 +1,12 @@
-import routeGenerateConfig from "@/types/generated/route-generate-config.json";
+import type { RouteCandidate } from "@/types/route";
 
 // 候補タブの表記を組み立てる純関数。
 //
-// タブは候補どうしを見比べる場所のため、「基準線からどれだけ余計にかかるか」はここに出す
+// タブは候補どうしを見比べる場所のため、「基準線とどれだけ違うか」はここに出す
 // （タブの中身を開かないと分からないと、比較のたびに開き直すことになる）。
-
-/** 区間を乗り換えて作ったルートのid接頭辞。**backendが付ける値**（route_generator.py:
- * generate_spliced_route）で、同じ生成結果へ複数追加できるようフロントが作った順の番号を足す。 */
-export const SPLICED_ROUTE_ID_PREFIX = routeGenerateConfig.spliced_route_id;
-
-// 経由地ルートのid（常に1件、「方位」という概念が無いため順位番号の代わりに名前を出す）。
-const NON_DIRECTIONAL_ROUTE_IDS = new Set([routeGenerateConfig.waypoints_route_id]);
+//
+// 候補の種類と最速の印は**backendが付ける値**（route_generator.py: _label）で、ここは読むだけ。idの文字列や
+// 生成の要求の形から種類を決め直さない。
 
 /** 一覧の群。並びは最速 → 生成した候補 → 合成で、群が変わる所に区切りの線を引く。 */
 export type RouteListGroup = "fastest" | "generated" | "spliced";
@@ -26,27 +22,29 @@ interface RouteListEntry<T> {
   label: string;
 }
 
-/** 一覧の先頭に置く、所要時間だけで選んだ候補の名前。 */
+/** 一覧の先頭に置く、所要時間だけで探した候補の名前。 */
 const FASTEST_ROUTE_NAME = "最速";
+
+type ListedRoute = Pick<RouteCandidate, "id" | "kind" | "direction_label" | "is_fastest">;
 
 /**
  * 「ルート結果」の一覧の並びと名前。
  *
- * `pinsFastest`（生成が所要時間だけで選んだ1本を必ず含める目的地ルート）なら、最も早く着く生成候補を「最速」として
- * 先頭に置き、残りの生成候補に1から番号を振り、合成で作ったルートを作った順に「合成N」で続ける。比べる基準の1本を、
- * 合成の前後で動かさずに一番上へ置くため。
+ * 最速の印の付いた1本を「最速」として先頭に置き、残りの生成候補に1から番号を振り、合成で作ったルートを作った順に
+ * 「合成N」で続ける。比べる基準の1本を、合成の前後で動かさずに一番上へ置くため。経由地を通る1本は常に1本で
+ * 順位を持たないので、番号の代わりにbackendが付けた名前を出す。
  */
-export function routeListEntries<
-  T extends { id: string; direction_label: string; estimated_duration_seconds: number | null },
->(generated: readonly T[], edits: readonly { route: T; number: number }[], pinsFastest: boolean): RouteListEntry<T>[] {
-  const pinnedId = pinsFastest ? fastestRouteId(generated) : null;
+export function routeListEntries<T extends ListedRoute>(
+  generated: readonly T[],
+  edits: readonly { route: T; number: number }[],
+): RouteListEntry<T>[] {
   const fastest = generated
-    .filter((route) => route.id === pinnedId)
+    .filter((route) => route.is_fastest)
     .map((route) => ({ route, group: "fastest" as const, name: FASTEST_ROUTE_NAME, label: "" }));
   const numbered = generated
-    .filter((route) => route.id !== pinnedId)
+    .filter((route) => !route.is_fastest)
     .map((route, index) => {
-      const name = NON_DIRECTIONAL_ROUTE_IDS.has(route.id) ? route.direction_label : `${index + 1}`;
+      const name = route.kind === "waypoints" ? route.direction_label : `${index + 1}`;
       return { route, group: "generated" as const, name, label: name };
     });
   const spliced = edits.map(({ route, number }) => ({
@@ -58,17 +56,20 @@ export function routeListEntries<
   return [...fastest, ...numbered, ...spliced];
 }
 
-type TimedRoute = { id: string; estimated_duration_seconds: number | null };
+type TimedRoute = Pick<RouteCandidate, "id" | "estimated_duration_seconds" | "is_fastest">;
 
 /**
- * 一覧の中で最も所要時間が短い候補（＝基準線）。候補が1件以下、または所要時間を持つ
- * 候補が無ければnull（比べる相手が無い）。
- *
- * 一覧の中だけで決める——周回・目的地のどちらでも、区間を乗り換えて作った候補を含めて
- * 「何と比べた+N分か」を同じ判定で出すため。同着は先に来た方（並び順は総合難易度の昇順なので、易しい方）。
+ * 時間の列の基準線（そのidと所要時間）。最速の印の付いた1本があればそれ（一覧の「最速」と同じ1本と比べる）、
+ * 無ければ一覧の中で最も所要時間が短い候補（同着は先に来た方）。候補が1件以下・基準線の所要時間が無いならnull
+ * （比べる相手が無い）。
  */
-function fastestRoute(routes: readonly TimedRoute[]): { id: string; seconds: number } | null {
+export function durationBaseline(routes: readonly TimedRoute[]): { id: string; seconds: number } | null {
   if (routes.length < 2) return null;
+  const marked = routes.find((route) => route.is_fastest);
+  if (marked) {
+    const seconds = marked.estimated_duration_seconds;
+    return seconds === null ? null : { id: marked.id, seconds };
+  }
   let best: { id: string; seconds: number } | null = null;
   for (const route of routes) {
     const seconds = route.estimated_duration_seconds;
@@ -78,41 +79,38 @@ function fastestRoute(routes: readonly TimedRoute[]): { id: string; seconds: num
   return best;
 }
 
-/** 基準線のid。基準線が無ければnull。 */
-export function fastestRouteId(routes: readonly TimedRoute[]): string | null {
-  return fastestRoute(routes)?.id ?? null;
-}
-
-/** 基準線の所要時間（秒）。基準線が無ければnull。 */
-export function fastestDurationSeconds(routes: readonly TimedRoute[]): number | null {
-  return fastestRoute(routes)?.seconds ?? null;
-}
-
 /**
- * 基準線より何分余計にかかるかの表記（例: `+12分`・`+107分`）。基準線が無い・自分の所要時間が
- * 無い・差が丸めて1分未満のときはnull（0を並べても判断材料にならない。自分が基準線の
- * ときも差0なのでここに入る）。
+ * 基準線との差の表記（例: `+12分`・`+107分`・`−3分`。基準線より速く見積もられた候補は−）。基準線が無い・自分の
+ * 所要時間が無い・差が丸めて1分未満のときはnull（0を並べても判断材料にならない。自分が基準線のときも差0なので
+ * ここに入る）。
  */
-export function extraDurationLabel(
+export function durationDifferenceLabel(
   route: { estimated_duration_seconds: number | null },
-  fastestSeconds: number | null,
+  baselineSeconds: number | null,
 ): string | null {
-  if (fastestSeconds === null) return null;
+  if (baselineSeconds === null) return null;
   const seconds = route.estimated_duration_seconds;
   if (seconds === null) return null;
-  const extraMinutes = Math.round((seconds - fastestSeconds) / 60);
-  if (extraMinutes < 1) return null;
-  return `+${extraMinutes}分`;
+  const minutes = Math.round((seconds - baselineSeconds) / 60);
+  if (minutes === 0) return null;
+  return `${minutes > 0 ? "+" : "−"}${Math.abs(minutes)}分`;
 }
 
 /**
- * 生成した候補の並び: 所要時間の短い順。所要時間の無い候補は末尾。同じ所要時間は受け取った並び（backendの総合難易度の
- * 昇順）を保つので、同着なら易しい方が先。
+ * 生成した候補の並び: 最速の印の付いた1本を先頭に、残りを所要時間の短い順。所要時間の無い候補は末尾。同じ所要時間は
+ * 受け取った並び（backendの総合難易度の昇順）を保つので、同着なら易しい方が先。
  */
-export function orderByDuration<T extends { estimated_duration_seconds: number | null }>(routes: readonly T[]): T[] {
+export function orderGenerated<T extends Pick<RouteCandidate, "estimated_duration_seconds" | "is_fastest">>(
+  routes: readonly T[],
+): T[] {
   const secondsOf = (route: T) => route.estimated_duration_seconds ?? Number.POSITIVE_INFINITY;
   return routes
     .map((route, index) => ({ route, index }))
-    .sort((a, b) => secondsOf(a.route) - secondsOf(b.route) || a.index - b.index)
+    .sort(
+      (a, b) =>
+        Number(b.route.is_fastest) - Number(a.route.is_fastest) ||
+        secondsOf(a.route) - secondsOf(b.route) ||
+        a.index - b.index,
+    )
     .map(({ route }) => route);
 }

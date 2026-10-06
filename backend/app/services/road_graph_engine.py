@@ -54,6 +54,7 @@ from app.domain.geo import (
     KM_PER_DEGREE_LATITUDE,
     bearing_between,
     bearing_between_array,
+    compass_label,
     haversine_distance_km,
     haversine_distance_km_array,
     km_per_degree_longitude,
@@ -119,7 +120,7 @@ from app.domain.wind import (
 from app.infrastructure import detour_ratio_cache
 from app.infrastructure.debug_log import log_throttled_warning
 from app.services.graph_service import GraphService
-from app.domain.loop_routing import LoopTurnaround, TracedLoop, candidate_identity
+from app.domain.loop_routing import LoopTurnaround, TracedLoop
 from app.services.weather_service import WeatherService
 
 # Road Graphを取得するbboxは、起点・経由地2点の外接矩形にこのマージンを足したもの。
@@ -1254,7 +1255,8 @@ class RoadGraphEngine:
         segments = aggregate_segments_into_bins(segments)
 
         return RouteCandidate(
-            **candidate_identity(traced.bearing),
+            # 方位を持たない経路の名前は、種類と一緒に`route_generator.py: _label`が付ける。
+            direction_label=compass_label(traced.bearing) if traced.bearing is not None else "",
             distance_km=traced.distance_km,
             geometry=geometry,
             edge_ids=[edge.edge_id for edge in edges_in_path],

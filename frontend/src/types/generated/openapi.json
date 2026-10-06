@@ -4332,11 +4332,28 @@
         "properties": {
           "id": {
             "type": "string",
-            "title": "Id"
+            "title": "Id",
+            "default": ""
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "loop",
+              "waypoints",
+              "destination",
+              "spliced"
+            ],
+            "title": "Kind",
+            "default": "loop"
           },
           "direction_label": {
             "type": "string",
             "title": "Direction Label"
+          },
+          "is_fastest": {
+            "type": "boolean",
+            "title": "Is Fastest",
+            "default": false
           },
           "distance_km": {
             "type": "number",
@@ -4484,7 +4501,9 @@
         "type": "object",
         "required": [
           "id",
+          "kind",
           "direction_label",
+          "is_fastest",
           "distance_km",
           "geometry",
           "elevation_gain_m",

@@ -13,7 +13,7 @@ import {
   type GenerationInput,
 } from "@/features/route/generationRequest";
 import { generateRoutes, type GenerationProgress } from "@/features/route/routeApi";
-import { orderByDuration } from "@/features/route/routeTabLabel";
+import { orderGenerated } from "@/features/route/routeTabLabel";
 import type { GenerationConditionsState } from "@/features/route/useGenerationConditions";
 import type { Coordinates, RouteCandidate, RoutePreferenceWeights } from "@/types/route";
 import { EXPERIMENT_SLOT_COLORS, MAX_EXPERIMENT_SLOTS, type ExperimentSlot } from "@/types/experimentSlot";
@@ -49,7 +49,7 @@ interface RouteGenerationInputs {
   assumedSpeedKmh: number;
   /** 候補が並んでいるか（「条件が変わった」は比べる候補があるときだけ出す）。 */
   hasRoutes: boolean;
-  /** 生成の結果（所要時間の短い順に並べた候補と、backendが生成に使った重み）。候補0件でも呼ぶ。 */
+  /** 生成の結果（最速の1本を先頭に、残りを所要時間の短い順に並べた候補と、backendが生成に使った重み）。候補0件でも呼ぶ。 */
   onGenerated: (routes: RouteCandidate[], routePreference: RoutePreferenceWeights) => void;
   /** 押した「生成」の結果（候補・候補0件・失敗・入力の誤り）。どれも「ルート結果」でしか中身が見えない。 */
   onOutcome: (outcome: RouteOutcomeKind) => void;
@@ -146,8 +146,8 @@ export function useRouteGeneration({
       if (corrected) {
         conditions.setDestination((current) => (current === generationInput.destination ? corrected : current));
       }
-      // 一覧は所要時間の短い順。
-      onGenerated(orderByDuration(candidates), used.route_preference);
+      // 一覧は最速の1本を先頭に、残りは所要時間の短い順。
+      onGenerated(orderGenerated(candidates), used.route_preference);
       // 補正があったら補正後の地点で入力を組み直す（ピンも動かしたので、直後に「条件が変わった」にならない）。
       const generatedInput = used.corrected_destination
         ? buildCurrentGenerationInput(distanceKm, lens, used.corrected_destination)
