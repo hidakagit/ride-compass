@@ -40,7 +40,7 @@ class WeatherService:
             return await msm_client.read_series(
                 np.array([point.latitude], dtype=float), np.array([point.longitude], dtype=float)
             )
-        except (MsmUnavailableError, OSError, ValueError, KeyError):
+        except MsmUnavailableError:
             return None
 
     async def get_conditions(self, point: Coordinates) -> WeatherConditions | None:
@@ -70,13 +70,13 @@ class WeatherService:
         latitudes, longitudes = lattice.coordinates()
         try:
             series = await msm_client.read_series(latitudes, longitudes)
-        except (MsmUnavailableError, OSError, ValueError, KeyError):
+        except MsmUnavailableError:
             return None
         if not series.times:
             return None
         speed, direction = wind_speed_and_direction(series.wind_u_ms, series.wind_v_ms)
         return WindForecastSeries(
-            times=[datetime.fromisoformat(t) for t in series.times],
+            times=series.times,
             speed_ms=speed,
             direction_deg=direction,
             lattice=lattice,
@@ -94,7 +94,7 @@ class WeatherService:
         longitudes = np.array([point.longitude for point in points], dtype=float)
         try:
             series = await msm_client.read_series(latitudes, longitudes)
-        except (MsmUnavailableError, OSError, ValueError, KeyError):
+        except MsmUnavailableError:
             return None
         if not series.times:
             return None
@@ -128,7 +128,7 @@ class WeatherService:
 
         return WeatherConditions(
             precipitation_mm=rounded_or_none(precipitation[0], 2),
-            twilight=sunrise_sunset_jst(point, datetime.fromisoformat(times[0]).date()),
+            twilight=sunrise_sunset_jst(point, times[0].date()),
             precipitation_max_mm=daily_max(precipitation, today),
             wind_speed_max_ms=daily_max(speed, today),
             temperature_range=daily_range(temperature, today),

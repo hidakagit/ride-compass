@@ -20,6 +20,8 @@ import { ROAD_LINE_SOURCE_ID, ROAD_TRACKS } from "./roadLines";
 /** 材料が同時に出ているときの下敷き。**材料の線が全部出たときの帯幅**から決まるので、
  * トラックが増えれば自動で広がる（直書きすると追従しない）。 */
 const UNDERLAY_WIDTH_PX = (ROAD_TRACKS.length - 1) * mapDisplay.road.trackOffsetStepPx + mapDisplay.road.lineWidthPx;
+/** 点数を難易度の桁へ丸めるときに掛ける数。 */
+const DIFFICULTY_SCALE = 10 ** mapDisplay.valueScale.difficultyDecimals;
 /** 段1つぶん。境界は下限で、判定は`>= 下限`・`< 次の下限`。 */
 export type AxisBand = {
   readonly key: string;
@@ -222,9 +224,9 @@ export function buildAxisRampValueExpression(axis: RampAxis): unknown[] {
     }
     if (input.breakpoints) {
       // 欠損は寄与0にする。coalesceで端へ倒すとinterpolateが端の値（例: -1）を返し、寄与0にならない。
-      // 点数は小数1桁へ丸める（ちょうど半分の丸めの向きは、2進の値で丸める評価と違いうる）。
+      // 点数は難易度の桁へ丸める（ちょうど半分の丸めの向きは、2進の値で丸める評価と違いうる）。
       const interpolated = ["interpolate", ["linear"], ["get", input.property], ...input.breakpoints.flat()];
-      const score = ["/", ["round", ["*", interpolated, 10]], 10];
+      const score = ["/", ["round", ["*", interpolated, DIFFICULTY_SCALE]], DIFFICULTY_SCALE];
       const value = input.weight === 1 ? score : ["*", score, input.weight];
       return ["case", ["!", ["has", input.property]], 0, value];
     }

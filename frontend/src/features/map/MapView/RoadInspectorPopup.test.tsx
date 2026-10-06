@@ -138,6 +138,24 @@ describe("RoadInspectorPopup", () => {
     expect(screen.getByText(/重みの約80%/)).toBeInTheDocument();
   });
 
+  it("出す割合が100%に丸まるなら、一部の軸だけだという注記を添えない", async () => {
+    const user = userEvent.setup();
+    serveInspector({ ...inspectorResult(), composite_difficulty: { value: 40, covered_weight_fraction: 0.996 } });
+    render(
+      <RoadInspectorPopup
+        properties={{ osm_way_id: 1, surface_class: SURFACE_CLASS_VALUE }}
+        axes={AXES}
+        axisColors={AXIS_COLORS}
+        {...RIDE}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "この道の評価を見る" }));
+
+    expect(await screen.findByText(/この道だけで見た合成: 40\.0\/100/)).toBeInTheDocument();
+    expect(screen.queryByText(/重みの約/)).not.toBeInTheDocument();
+  });
+
   it("カタログ外の生タグは畳んで置く（数が読めないため、開いたときだけ縦に伸ばす）", async () => {
     const user = userEvent.setup();
     serveInspector(inspectorResult());

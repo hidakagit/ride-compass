@@ -23,18 +23,19 @@ from shapely.affinity import scale, translate
 from shapely.geometry import GeometryCollection, box, shape
 from shapely.geometry.base import BaseGeometry
 
-from app.domain.jma_tile_specs import JmaTile, jma_tile_path, jma_tile_spec, read_jma_tile_path, tile_extension
+from app.domain.jma_tile_specs import JmaTile, jma_tile_path
+from app.infrastructure.jma_tile_paths import read_jma_tile_path
 
 class TileCoords:
     """タイルパスから読み取った座標と、親タイルのパスを組み立てる手段。"""
 
-    def __init__(self, tile: JmaTile):
+    def __init__(self, tile: JmaTile, ext: str):
         self._tile = tile
         self.element = tile.element_id
         self.z = tile.z
         self.x = tile.x
         self.y = tile.y
-        self.ext = tile_extension(jma_tile_spec(tile.element_id))
+        self.ext = ext
 
     def parent_path(self) -> str:
         """1段上（z-1）のタイルのパス。"""
@@ -49,7 +50,8 @@ class TileCoords:
 def parse_tile_path(path: str) -> TileCoords | None:
     """タイルパスを解析する。タイル以外（時刻一覧・地点のGeoJSON等）と宣言の無い要素はNone。"""
     tile = read_jma_tile_path(path)
-    return None if tile is None else TileCoords(tile)
+    # 読み戻せたパスはテンプレートどおりに拡張子（ベクタは`pbf`、ラスタは`png`）で終わる。
+    return None if tile is None else TileCoords(tile, path.rsplit(".", 1)[1])
 
 
 def crop_and_upscale(parent_png: bytes, quadrant: tuple[int, int]) -> bytes:

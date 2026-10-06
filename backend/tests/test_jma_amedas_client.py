@@ -1,13 +1,14 @@
 """`infrastructure/jma_amedas_client.py`——気象庁アメダスの観測所マスタ・最新時刻・観測値の取得と、応答の形の解き方。
 
 入口は`fetch_station_table`・`fetch_latest_observation_time`・`fetch_observation_map`の3つで、気象庁の代役（respx）へ
-本物の`httpx.AsyncClient`を向けて呼ぶ。見るのは、返る値（`AmedasStation`・`AmedasReading`・時刻）と、取得に失敗したときの
+本物の`httpx.AsyncClient`を向けて呼ぶ。見るのは、返る値（`AmedasStation`・`AmedasReading`（風向コードの読み替えを含む）・時刻）と、取得に失敗したときの
 None、プロセス内キャッシュで上流を引き直さないこと。
 
 ここで見ないもの:
 - キャッシュの骨格（失敗をキャッシュしない・該当なしのNoneもキャッシュする・ログの`fields`）→ `test_simple_api_client.py`
 - 観測値をRedisへ置く・最寄りの観測所を選ぶ・雨の履歴 → `test_jma_amedas_service.py`
-- 風向コードの読み替え・体感温度 → `test_jma_amedas.py`
+- 体感温度 → `test_jma_amedas.py`
+- 16方位の呼び名の並び（`domain/geo.py: SIXTEEN_POINT_LABELS`） → `test_geo.py`
 """
 
 from datetime import datetime, timedelta, timezone
@@ -15,6 +16,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 import respx
 
+from app.domain.jma_amedas import WindDirection
 from app.infrastructure import jma_amedas_client
 from app.infrastructure.jma_amedas_client import new_latest_time_cache, new_station_table_cache
 from tests.fake_http import answering, client_for
@@ -136,7 +138,7 @@ async def test_observation_map_is_requested_by_the_jst_time():
             temperature_c=21.3,
             humidity_percent=68,
             wind_speed_ms=3.2,
-            wind_direction_code=8,
+            wind_direction=WindDirection(deg=180.0, label="南"),
             precipitation_10min_mm=0.5,
             precipitation_1h_mm=2.0,
             reports_precipitation_1h=True,
@@ -155,7 +157,7 @@ async def test_reading_without_a_sensor_has_none_and_no_hourly_rain():
             temperature_c=None,
             humidity_percent=None,
             wind_speed_ms=None,
-            wind_direction_code=None,
+            wind_direction=None,
             precipitation_10min_mm=0.0,
             precipitation_1h_mm=None,
             reports_precipitation_1h=False,
@@ -173,11 +175,39 @@ async def test_missing_value_is_none_but_the_hourly_rain_item_is_still_reported(
         temperature_c=None,
         humidity_percent=None,
         wind_speed_ms=None,
-        wind_direction_code=None,
+        wind_direction=None,
         precipitation_10min_mm=None,
         precipitation_1h_mm=None,
         reports_precipitation_1h=True,
     )
+
+
+async def _wind_direction(code) -> WindDirection | None:
+    client = answering(json={"44132": {"windDirection": [code, 0]}})
+    readings = await jma_amedas_client.fetch_observation_map(client, datetime(2026, 8, 29, 8, 0, tzinfo=timezone.utc))
+    assert readings is not None
+    return readings["44132"].wind_direction
+
+
+@pytest.mark.parametrize(
+    ("code", "deg", "label"),
+    [(1, 22.5, "北北東"), (16, 0.0, "北")],
+)
+async def test_jma_wind_codes_read_as_the_direction_the_wind_comes_from(code, deg, label):
+    """気象庁の番号は1=北北東から時計回りで16=北。北は360度ではなく0度。"""
+    assert await _wind_direction(code) == WindDirection(deg=deg, label=label)
+
+
+@pytest.mark.parametrize("code", [None, 0, 17])
+async def test_calm_missing_and_out_of_range_codes_have_no_direction(code):
+    """0は静穏（方位不定）。範囲外を別の方位として出すと向かい風と追い風を取り違えさせる。"""
+    assert await _wind_direction(code) is None
+
+
+async def test_the_sixteen_codes_go_round_clockwise_in_equal_steps():
+    degrees = [(await _wind_direction(code)).deg for code in range(1, 17)]  # type: ignore[union-attr]
+    steps = [(later - earlier) % 360 for earlier, later in zip(degrees, degrees[1:] + degrees[:1], strict=True)]
+    assert steps == [22.5] * 16
 
 
 @pytest.mark.parametrize(

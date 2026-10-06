@@ -1,20 +1,22 @@
-"""`domain/weather.py`——アメダスの実測と推計気象分布の空から天気コードを導く。
+"""`domain/weather.py`——アメダスの実測と推計気象分布の区分から天気コードを導く。
 
 入口は`derive_observed_weather_code`。「今日」のパネルの読み方（今日の範囲・日次の値・コマ）は
 `test_weather_service.py`が入口から見る。
 
 ここで見ないもの:
-- 観測値と推計気象分布の空がこの規則へ渡り、応答に出ること → `test_jma_amedas_service.py`
+- 観測値と推計気象分布の区分がこの規則へ渡り、応答に出ること → `test_jma_amedas_service.py`
 """
+
+from typing import get_args
 
 import pytest
 
-from app.domain.weather import derive_observed_weather_code
+from app.domain.weather import SuikeiWeather, derive_observed_weather_code
 from app.domain.weather_display import WEATHER_CATEGORIES
 
 
 @pytest.mark.parametrize(
-    ("precipitation_10min", "sky", "temperature", "expected"),
+    ("precipitation_10min", "suikei", "temperature", "expected"),
     [
         (0.0, "clear", 20.0, 0),
         (0.0, "cloudy", 20.0, 3),
@@ -27,8 +29,8 @@ from app.domain.weather_display import WEATHER_CATEGORIES
         (0.0, None, 20.0, None),  # 降水なしで空が分からなければ判定材料が無い
     ],
 )
-def test_derive_observed_weather_code(precipitation_10min, sky, temperature, expected):
-    assert derive_observed_weather_code(precipitation_10min, sky, temperature) == expected
+def test_derive_observed_weather_code(precipitation_10min, suikei, temperature, expected):
+    assert derive_observed_weather_code(precipitation_10min, suikei, temperature) == expected
 
 
 def test_weather_categories_hold_exactly_the_derived_codes():
@@ -37,9 +39,9 @@ def test_weather_categories_hold_exactly_the_derived_codes():
     区分・気温の雨と雪の両側を掃く。"""
     precipitations = [None, *(step / 100 for step in range(201))]
     derived = {
-        derive_observed_weather_code(precipitation, sky, temperature)
+        derive_observed_weather_code(precipitation, suikei, temperature)
         for precipitation in precipitations
-        for sky in (None, "clear", "cloudy")
+        for suikei in (None, *get_args(SuikeiWeather))
         for temperature in (None, -5.0, 0.0, 0.1, 20.0)
     } - {None}
     categorized = {code for category in WEATHER_CATEGORIES for code in category.codes}

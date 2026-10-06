@@ -81,7 +81,7 @@ JMA_TARGET_TIMES = CachePolicy(max_age_seconds=60)
 #: 404が正常系として多数発生するため、再要求させない効果はタイル本体と変わらない。
 JMA_TILE_NOT_FOUND = CachePolicy(max_age_seconds=10 * 60)
 #: 気象庁のコマごとの地物（GeoJSON）の404。配信元はそのコマを配信するまで404を返すため確定しておらず、
-#: 覚えると配信された後もその間は画面へ届かない（`domain/jma_tile_specs.py: is_final_absence`）。
+#: 覚えると配信された後もその間は画面へ届かない（`infrastructure/jma_tile_paths.py: is_final_absence`）。
 JMA_NOT_YET_DELIVERED = CachePolicy(max_age_seconds=None)
 #: 地理院タイルの恒久404（整備区域外）。同じ事実は`gsi_tile_client.py`がプロセス内に
 #: 持ち、上流へ問い合わせ直さない。**ブラウザにも伝える**——MapLibreの`raster-dem`は

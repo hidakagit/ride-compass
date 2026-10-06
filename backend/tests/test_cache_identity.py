@@ -1,6 +1,6 @@
 """`infrastructure/cache_identity.py`——キャッシュ鍵（形の署名・配信するタイルの世代）の組み立て。
 
-入口は`shape_digest`・`cache_identity`・`tile_version`・`is_known_tile_version`。署名の材料は
+入口は`shape_digest`・`cache_identity`・`tile_version`・`is_known_tile_version`・`raster_set_fingerprint`（開いているラスタの構成の指紋）。署名の材料は
 架空のdataclassとSQLで与え、本番の表・SQLの中身には踏み込まない。
 
 ここで見ないもの:
@@ -14,6 +14,8 @@ import dataclasses
 import re
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 from sqlalchemy import bindparam, text
 
 from app.infrastructure import cache_identity
@@ -82,3 +84,22 @@ def test_the_identity_is_the_revision_followed_by_the_signature():
 def test_a_tile_version_carries_both_revisions_or_is_marked_unknown(revisions, version, known):
     assert cache_identity.tile_version(revisions, "abc") == version
     assert cache_identity.is_known_tile_version(version) is known
+
+
+def test_the_fingerprint_reads_only_the_file_names():
+    assert cache_identity.raster_set_fingerprint(["/data/a/10N.tif", "/data/b/11N.tif"]) == (
+        cache_identity.raster_set_fingerprint(["other/10N.tif", "11N.tif"])
+    )
+
+
+def test_adding_a_raster_changes_the_fingerprint():
+    assert cache_identity.raster_set_fingerprint(["10N.tif"]) != cache_identity.raster_set_fingerprint(
+        ["10N.tif", "11N.tif"]
+    )
+
+
+@given(names=st.lists(st.from_regex(r"[0-9A-Z]{2,4}\.tif", fullmatch=True), min_size=1, unique=True), data=st.data())
+def test_the_order_of_the_rasters_does_not_change_the_fingerprint(names, data):
+    shuffled = data.draw(st.permutations(names))
+
+    assert cache_identity.raster_set_fingerprint(shuffled) == cache_identity.raster_set_fingerprint(names)

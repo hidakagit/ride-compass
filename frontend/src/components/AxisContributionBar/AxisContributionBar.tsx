@@ -7,6 +7,7 @@ import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
 import { axisIconFor } from "@/components/ui/icons/axisIconPalette";
 import { InfoIcon } from "@/components/ui/icons/icons";
 import type { CatalogAxis } from "@/lib/catalogAxis";
+import { formatDifficulty } from "@/lib/mapDisplay/valueScale";
 import {
   legendChipBodyClass,
   legendChipClass,
@@ -62,7 +63,7 @@ export default function AxisContributionBar({
               key={axis.axisId}
               className="h-full"
               style={{ width: `${value}%`, background: color }}
-              title={`${axis.label} ${value.toFixed(1)}`}
+              title={`${axis.label} ${formatDifficulty(value)}`}
             />
           );
         })}
@@ -82,7 +83,7 @@ export default function AxisContributionBar({
                 </span>
                 {hasContribution(contributions, axis.axisId) && (
                   <span className="text-[var(--color-muted)] tabular-nums">
-                    {contributions[axis.axisId].toFixed(1)}
+                    {formatDifficulty(contributions[axis.axisId])}
                   </span>
                 )}
               </>

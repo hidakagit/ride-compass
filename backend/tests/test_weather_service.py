@@ -34,7 +34,7 @@ def _series(times, *, u=None, v=None, precipitation=None, temperature=None, coun
         return np.tile(np.array(values if values is not None else [default] * n, dtype=float), (count, 1))
 
     return MsmSeries(
-        times=times,
+        times=[datetime.fromisoformat(t) for t in times],
         wind_u_ms=column(u, 0.0),
         wind_v_ms=column(v, 0.0),
         precipitation_mm=column(precipitation, 0.0),
@@ -163,7 +163,7 @@ async def test_get_wind_grid_builds_speed_and_direction_from_msm(monkeypatch):
 
     grid = await WeatherService().get_wind_grid([POINT, OTHER_POINT])
 
-    assert grid.times == ["2026-09-07T13:00"]
+    assert grid.times == [datetime(2026, 9, 7, 13, 0)]
     results = grid.points
     assert len(results) == 2
     assert results[0].latitude == POINT.latitude
