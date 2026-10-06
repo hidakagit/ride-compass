@@ -2,5 +2,5 @@
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "entry": ["scripts/audit-test-rewrite.mjs", "scripts/capture.mjs", "scripts/structure-population.mjs", "capture/examples/*.ts"],
   "ignoreBinaries": ["fc-list"],
-  "playwright": { "config": ["playwright.config.ts", "playwright.live.config.ts", "playwright.capture.config.ts"] }
+  "playwright": { "config": ["playwright.config.ts", "playwright.live.config.ts", "playwright.capture.config.ts", "playwright.no-server.config.ts"] }
 }

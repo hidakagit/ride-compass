@@ -243,6 +243,8 @@ DBを使うテストを手元で回さずに実装を変えてテストを直し
 - specだけを直して回し直すときは、直前のビルドを使って
   `./node_modules/.bin/playwright test e2e/<ファイル>`でよい。`frontend/src`を変えたら
   `npm run test:e2e`からやり直す（直前のビルドは変更前のコードである）。
+- アプリを開かないspec（`playwright.no-server.config.ts: testMatch`）は、ビルドもサーバーの起動も無しで
+  `./node_modules/.bin/playwright test -c playwright.no-server.config.ts`で回せる。CIは`playwright.config.ts`でこれらも回す。
 - 開発機ではworkers=1で走る（`playwright.config.ts`）。1つのサーバーへ複数のChromiumが
   同時に地図を読みに行くと、ページ遷移とフックが30秒の枠を超える。
 - **実データ・実backendで見る系統は、`frontend/e2e-live/`に置き、`playwright.live.config.ts`で
