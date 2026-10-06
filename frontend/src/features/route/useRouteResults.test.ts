@@ -1,7 +1,8 @@
 /**
  * 「ルート結果」の状態（`useRouteResults.ts`）——生成した候補・編集で作ったルート・選んだルート・地図で押した区間・
  * 比較タブを見ているか・生成に使われた重みを返す。生成の結果で入れ替えると先頭を選び、編集で作ったルートは元を
- * 上書きせず作った順の番号で足して選ぶ。タブを選び替える・入れ替える・消すと、押した区間を外す。
+ * 上書きせず作った順の番号で足して選ぶ。乗り換えで作った経路と同じ道の候補は、同じ道で選んだと分かる形で選ぶ。
+ * タブを選び替える・入れ替える・消すと、押した区間を外す。
  *
  * ここで見ないもの:
  * - 候補の並び（所要時間の短い順）・一覧の見出しと名前 → `useRouteGeneration.test.ts`・`routeTabLabel.test.ts`
@@ -174,6 +175,24 @@ describe("選ぶ", () => {
     act(() => addEdit(SPLICED, "r2"));
     expect(rendered.result.current.routes.map((route) => route.id)).toEqual(["r1", "r2", `${PREFIX}-1`]);
     expect(rendered.result.current.selectedRouteId).toBe(`${PREFIX}-1`);
+  });
+
+  it("乗り換えで作った経路と同じ道の候補は、選んで比較タブと押した区間を外し、同じ道で選んだと返す。選び直すと返さない", () => {
+    const rendered = renderResults();
+    generated(rendered);
+    act(() => rendered.result.current.selectTab(COMPARISON_TAB));
+    pressSegment(rendered);
+
+    act(() => rendered.result.current.selectReused("r2"));
+
+    const { result } = rendered;
+    expect(result.current.selectedCandidate).toEqual(SECOND);
+    expect(result.current.reusedRouteId).toBe("r2");
+    expect(result.current.comparisonTabActive).toBe(false);
+    expect(result.current.selectedRouteSegment).toBeNull();
+
+    act(() => result.current.selectTab("r2"));
+    expect(result.current.reusedRouteId).toBeNull();
   });
 });
 

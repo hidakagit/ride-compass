@@ -1,8 +1,8 @@
 "use client";
 
-import { Fragment } from "react";
+import { Fragment, useEffect, useRef } from "react";
 
-import AxisContributionBar from "@/components/AxisContributionBar/AxisContributionBar";
+import AxisContributionBar, { hasContribution } from "@/components/AxisContributionBar/AxisContributionBar";
 import ErrorText from "@/features/route/ErrorText/ErrorText";
 import { Button } from "@/components/ui/Button/Button";
 import { GuideText } from "@/components/ui/GuideText/GuideText";
@@ -80,7 +80,12 @@ interface RouteOutcomeProps {
 export default function RouteOutcome({ results, generation, splice, routeWeights }: RouteOutcomeProps) {
   const axisCatalog = useAxisCatalog();
   const researchEnabled = useResearchEnabled();
-  const { routes, selectedRouteId, comparisonTabActive, selectedRouteSegment } = results;
+  const { routes, selectedRouteId, comparisonTabActive, selectedRouteSegment, reusedRouteId } = results;
+  // 乗り換えで作った経路と同じ道だったので選んだ行。一覧の見える範囲の外にあっても、選んだことが見えるように出す。
+  const reusedRowRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (reusedRouteId !== null) reusedRowRef.current?.scrollIntoView({ block: "nearest" });
+  }, [reusedRouteId]);
 
   // 「ルート結果」に候補が無いときの中身（生成前・生成中・失敗）。候補0件で生成前の案内へ戻ると、押したのに何も
   // 起きていないように見える。
@@ -158,11 +163,6 @@ export default function RouteOutcome({ results, generation, splice, routeWeights
 
   // 候補ごとのタブ＋「比較」タブの1列で、タブの切り替えが候補の切り替えを兼ねる。
   function renderRouteOutcomeSectionBody() {
-    // 編集中は同じ場所が編集面になる（「ルート編集」という別の置き場を持たない）。元は1本に固定で、相手を
-    // 選び直しても変わらない。
-    if (splice.panel) return <RouteSplicePanel {...splice.panel} />;
-
-    const showComparisonTab = researchEnabled;
     // 所要時間だけで選んだ1本を生成が必ず含めるのは、経由地の無い目的地ルートだけ。
     const input = generation.generatedInput;
     const entries = routeListEntries(
@@ -171,6 +171,14 @@ export default function RouteOutcome({ results, generation, splice, routeWeights
       input !== null && input.destination !== null && input.waypoints.length === 0,
     );
     const nameOf = (routeId: string) => entries.find((entry) => entry.route.id === routeId)?.name ?? "";
+    // 編集中は同じ場所が編集面になる（「ルート編集」という別の置き場を持たない）。元は1本に固定で、相手を
+    // 選び直しても変わらない。
+    if (splice.panel) {
+      const { sameRouteId, ...panel } = splice.panel;
+      return <RouteSplicePanel {...panel} sameRouteName={sameRouteId === null ? null : nameOf(sameRouteId)} />;
+    }
+
+    const showComparisonTab = researchEnabled;
     const outerTabValue = comparisonTabActive ? COMPARISON_TAB : (selectedRouteId ?? routes[0].id);
     const fastestSeconds = fastestDurationSeconds(routes);
     const fastestRouteIdInList = fastestRouteId(routes);
@@ -193,6 +201,11 @@ export default function RouteOutcome({ results, generation, splice, routeWeights
         {generation.destinationCorrected && (
           <p className="m-0 text-[length:var(--font-size-sm)] text-[var(--color-warning-strong)]">
             指定した地点は自転車で行けない場所だったため、近くのアクセス可能な地点へ補正しました。
+          </p>
+        )}
+        {reusedRouteId !== null && (
+          <p className={cn(textVariants({ variant: "hint" }), "m-0")}>
+            作った組み合わせは「{nameOf(reusedRouteId)}」と同じ道なので、「{nameOf(reusedRouteId)}」を選びました
           </p>
         )}
         <Tabs
@@ -233,6 +246,7 @@ export default function RouteOutcome({ results, generation, splice, routeWeights
                     )}
                     {/* セルの間の空白は格子には出ず、読み上げの名前でだけ項目を区切る。 */}
                     <TabsTrigger
+                      ref={route.id === reusedRouteId ? reusedRowRef : undefined}
                       value={route.id}
                       usage={CANDIDATE_TAB_USAGE}
                       className="col-span-full grid grid-cols-subgrid"
@@ -311,6 +325,21 @@ export default function RouteOutcome({ results, generation, splice, routeWeights
                       </Button>
                     </div>
                     <SegmentWind wind={selectedRouteSegment.segment.wind} />
+                    {/* 内訳の帯は寄与が無いと何も描かないので、総合難易度を常に出し、全部0なら0であることを文で言う
+                        （何も出ないと、壊れたのと見分けがつかない）。算出できなかった区間は「—」。 */}
+                    <span className="inline-flex items-baseline gap-0.5">
+                      <span className={textVariants({ variant: "hint" })}>総合難易度</span>
+                      <span className="font-semibold">
+                        {selectedRouteSegment.segment.difficulty === null
+                          ? "—"
+                          : Math.round(selectedRouteSegment.segment.difficulty)}
+                      </span>
+                      <span className={textVariants({ variant: "hint" })}>/100</span>
+                    </span>
+                    {selectedRouteSegment.segment.difficulty !== null &&
+                      !Object.keys(selectedRouteSegment.segment.axis_contributions).some((axisId) =>
+                        hasContribution(selectedRouteSegment.segment.axis_contributions, axisId),
+                      ) && <p className={cn(textVariants({ variant: "hint" }), "m-0")}>どの評価も0（易しい）</p>}
                     <AxisContributionBar
                       axes={axisCatalog.axes}
                       contributions={selectedRouteSegment.segment.axis_contributions}

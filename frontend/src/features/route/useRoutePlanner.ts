@@ -26,7 +26,7 @@ interface RoutePlannerInputs {
  */
 export function useRoutePlanner({ conditions, onOutcome, ...generationInputs }: RoutePlannerInputs) {
   const results = useRouteResults();
-  const { replaceWithGenerated, addEdit, selectTab, clear: clearResults } = results;
+  const { replaceWithGenerated, addEdit, selectReused, clear: clearResults } = results;
 
   const generation = useRouteGeneration({
     conditions,
@@ -44,7 +44,7 @@ export function useRoutePlanner({ conditions, onOutcome, ...generationInputs }: 
     onApplyStart: clearNotice,
     onApplied: (applied) => {
       if ("created" in applied) addEdit(applied.created, applied.originId);
-      else selectTab(applied.existingRouteId);
+      else selectReused(applied.existingRouteId);
       onOutcome("fresh");
     },
   });

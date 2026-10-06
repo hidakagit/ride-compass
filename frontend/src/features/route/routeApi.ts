@@ -54,13 +54,16 @@ export async function generateRoutes(
   request: RouteGenerateRequest,
   onProgress?: (progress: GenerationProgress) => void,
 ): Promise<GenerateRoutesResult> {
-  // 文言は「リクエストに失敗しました」に留め、詳細はbackendのdetailに委ねる。
+  // 文言は失敗したことと次の手に留め、詳細はbackendのdetailに委ねる。
   const { job_id: jobId } = await requestApi(
     (init) => backendApi.POST("/api/routes/generate", { body: request, ...init }),
     {
       timeoutMs: DEFAULT_API_TIMEOUT_MS,
       category: "api:route",
-      messages: { failure: "リクエストに失敗しました", parseFailure: "サーバーからの応答の解析に失敗しました" },
+      messages: {
+        failure: "リクエストに失敗しました。時間をおいて再度お試しください",
+        parseFailure: "サーバーからの応答の解析に失敗しました",
+      },
       requestMeta: { body: request },
     },
   );

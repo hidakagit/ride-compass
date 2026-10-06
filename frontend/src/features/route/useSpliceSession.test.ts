@@ -2,9 +2,9 @@
  * 区間の乗り換えの編集（`useSpliceSession.ts`）——目的地の生成で候補が2本以上あり、候補を選んでいて、区間を割る下限を
  * 引けるときだけ始められる。始めると元の候補を編集面と地図（いま作っているルート）へ渡し、他の候補が別の道を通る
  * 区間を乗り換え先として地図へ出す。乗り換え・1つ戻す・全部戻す・やめるができ、組み合わせた経路は表示中の候補を
- * 作った生成の入力でbackendに評価させ（同じ組み合わせは投げ直さない）、「作成」で作った経路か同じ道の既存の候補を
- * 渡して編集を終える。編集は始めたときの生成に結びつき、抜けると中身ごと消える。評価を待つ間に作り直す・消す・やめる・
- * 始め直すと、届いた評価は何も書かない。
+ * 作った生成の入力でbackendに評価させ（同じ組み合わせは投げ直さない。評価が既にある候補と同じ道ならその候補も渡す）、
+ * 「作成」で作った経路か同じ道の既存の候補を渡して編集を終える。編集は始めたときの生成に結びつき、抜けると中身ごと消える。
+ * 評価を待つ間に作り直す・消す・やめる・始め直すと、届いた評価は何も書かない。
  *
  * ここで見ないもの:
  * - 乗り換え先の求め方の細部（区間の割り方・下限・折り返しを出さない・重なる代替のまとめ方・形の継ぎ方） →
@@ -328,6 +328,20 @@ describe("差分を見る", () => {
     expect(rendered.result.current.panel?.preview).toEqual(result);
     await press(rendered.result.current.panel?.onPreview);
     expect(jobs.submitted).toHaveLength(1);
+  });
+
+  it.each([
+    ["既にある候補と同じ道なら、その候補", VIA_Q.edge_ids, "via-q"],
+    ["どの候補とも違う道なら、無いこと", ELSEWHERE, null],
+  ])("評価した組み合わせが%sを編集面へ渡す", async (_, edgeIds, sameRouteId) => {
+    const rendered = renderSplice();
+    await startEditing(rendered);
+    tapStretch(rendered);
+    respond([evaluated(edgeIds)]);
+
+    await press(rendered.result.current.panel?.onPreview);
+
+    expect(rendered.result.current.panel?.sameRouteId).toBe(sameRouteId);
   });
 
   it("乗り換えていない間は評価しない", async () => {
