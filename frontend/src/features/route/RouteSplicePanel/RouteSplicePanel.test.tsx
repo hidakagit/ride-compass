@@ -143,7 +143,7 @@ describe("RouteSplicePanel 指標", () => {
     expect(["距離", "所要", "総合難易度", "負荷"].map((label) => metric(label).base.textContent)).toEqual([
       "12.3km",
       "30分",
-      "40",
+      "40.4",
       "301",
     ]);
     for (const label of ["距離", "所要", "総合難易度", "負荷"]) {
@@ -157,7 +157,7 @@ describe("RouteSplicePanel 指標", () => {
       edge_ids: ["e1", "e4", "e3"],
       distance_km: 13,
       estimated_duration_seconds: 1500,
-      overall_difficulty: { average: 40.6, load: 280.2 },
+      overall_difficulty: { average: 40.44, load: 280.2 },
     });
     renderPanel({ appliedCount: 1, preview });
 
@@ -168,8 +168,8 @@ describe("RouteSplicePanel 指標", () => {
     expect(rows).toEqual([
       ["距離", "→", "13.0km", "+0.7", "悪い", "悪い"],
       ["所要", "→", "25分", "−5", "良い", "良い"],
-      // 差0.2は0桁で書くと0になるので、良し悪しを言わない。
-      ["総合難易度", "→", "41", "±0", "なし", "なし"],
+      // 差0.04は1桁で書くと0になるので、良し悪しを言わない。
+      ["総合難易度", "→", "40.4", "±0", "なし", "なし"],
       ["負荷", "→", "280", "−20", "良い", "良い"],
     ]);
   });
@@ -193,7 +193,7 @@ describe("RouteSplicePanel 指標", () => {
     });
     expect(rows).toEqual([
       ["—", "25分", ""],
-      ["—", "40", ""],
+      ["—", "40.0", ""],
     ]);
   });
 });

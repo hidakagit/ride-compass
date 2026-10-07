@@ -176,7 +176,7 @@ class RouteGenerator:
                 log_label, origin_label, log_detail, round((time.monotonic() - started) * 1000),
             )
             self.last_no_candidates_reason = (
-                f"起点{origin_label}付近の道路データが未整備のため、{failure_phrase}")
+                f"起点付近の道路データが未整備のため、{failure_phrase}")
         return context
 
     async def generate_loops(
@@ -470,7 +470,7 @@ class RouteGenerator:
                 origin_label, max_routes, side or "unknown", prepare_ms, select_ms,
             )
             self.last_no_candidates_reason = (
-                f"起点{origin_label}から走り出せる道が見つかりませんでした。"
+                "起点から走り出せる道が見つかりませんでした。"
                 "出発地を道路沿いへ動かしてお試しください。"
                 if side == "origin"
                 else "指定した目的地までの経路が見つかりませんでした。地点や除外する道路の設定を変えてお試しください。"
