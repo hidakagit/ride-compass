@@ -87,7 +87,7 @@ function boundary(name: string) {
   return screen.getByRole("slider", { name });
 }
 
-describe("RouteSettingsPanel 軸一覧を取れないとき", () => {
+describe("RouteSettingsPanel 評価軸の一覧を取れないとき", () => {
   it("重みが反映されないことと再試行を出し、再試行を押すと取り直して告知を下ろす", async () => {
     onBackend(
       "GET",
@@ -97,7 +97,7 @@ describe("RouteSettingsPanel 軸一覧を取れないとき", () => {
     renderPanel({});
 
     expect(await screen.findByRole("status")).toHaveTextContent(
-      "軸一覧を取得できませんでした。地図の道路・POI・事故は表示できず、このまま生成すると重み配分は反映されずサーバー既定の配分で探索します。",
+      "評価軸の一覧を取得できませんでした。地図の道路・スポットを表示できません。ルートは重み配分を変えていても反映できず、既定の配分で作ります。ルートの合成も使えません。",
     );
 
     await userEvent.click(screen.getByRole("button", { name: "再試行" }));

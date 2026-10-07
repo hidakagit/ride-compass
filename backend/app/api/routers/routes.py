@@ -337,8 +337,8 @@ async def get_generate_job(job_id: str) -> RouteGenerateJobStatusResponse:
     if record is None:
         raise HTTPException(
             status_code=404,
-            detail="ジョブが見つかりません[完了から時間が経過して破棄された、"
-            "またはサーバーが再起動された可能性があります]",
+            detail="ルート生成の結果が見つかりません[完了から時間が経って消えたか、"
+            "アプリが再起動した可能性があります]",
         )
     if isinstance(record, job_registry.JobDone):
         return RouteGenerateJobDone(result=record.result)

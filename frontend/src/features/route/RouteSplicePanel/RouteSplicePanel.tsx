@@ -121,8 +121,8 @@ export default function RouteSplicePanel({
         {/* 押す所（24px四方）の余りを両脇の間に重ね、デスクトップのパネルの幅に1行で収める。「‹」は余りをカードの余白へ寄せる。 */}
         <InfoPopover triggerAriaLabel="区間の乗り換えの説明" triggerClassName="-mx-1">
           地図の破線が、いまの道から乗り換えられる先です。タップするとそこへ乗り換わり、その先に
-          分かれ道があれば次の破線が出ます。太い線が、いま作っているルートです。軸の棒は中央が0で、左[−]へ
-          伸びた軸ほど難易度が下がり、右[＋]へ伸びた軸ほど上がっています。
+          分かれ道があれば次の破線が出ます。太い線が、いま作っているルートです。評価軸の棒は中央が0で、左[−]へ
+          伸びた評価軸ほど難易度が下がり、右[＋]へ伸びた評価軸ほど上がっています。
         </InfoPopover>
         {appliedCount > 0 && (
           <span className={cn(textVariants({ variant: "hint" }), "ml-1 whitespace-nowrap")}>{appliedCount}回</span>
@@ -179,7 +179,7 @@ export default function RouteSplicePanel({
       </div>
 
       {unavailable ? (
-        <p className={textVariants({ variant: "hint" })}>この候補は経路のEdge情報を持たないため、区間を出せません。</p>
+        <p className={textVariants({ variant: "hint" })}>この候補は通る道の並びを持たないため、区間を出せません。</p>
       ) : (
         <>
           {/* 指標はルート結果と同じ項目。2列×2行で、元→編集後の位置を縦に揃える。 */}

@@ -129,7 +129,7 @@ describe("RouteSplicePanel 見出しと操作", () => {
   it("区間を持たない候補では、操作と指標を出さずに区間を出せないことを書き、戻る操作は残す", () => {
     renderPanel({ displayed: { ...DISPLAYED, edge_ids: [] }, appliedCount: 1 });
 
-    expect(screen.getByText("この候補は経路のEdge情報を持たないため、区間を出せません。")).toBeInTheDocument();
+    expect(screen.getByText("この候補は通る道の並びを持たないため、区間を出せません。")).toBeInTheDocument();
     for (const name of ACTIONS) expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
     expect(screen.queryByText("距離", { selector: "dt" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "編集をやめて候補へ戻る" })).toBeInTheDocument();
