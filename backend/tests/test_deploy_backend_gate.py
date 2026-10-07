@@ -6,19 +6,14 @@
 読まれていないことは`tests/structure/test_deploy_exclusions.py`が見る。
 """
 
-import importlib.util
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
-_SPEC = importlib.util.spec_from_file_location(
-    "deploy_backend_gate", Path(__file__).resolve().parents[2] / "scripts" / "deploy_backend_gate.py"
-)
-gate = importlib.util.module_from_spec(_SPEC)
-sys.modules["deploy_backend_gate"] = gate
-_SPEC.loader.exec_module(gate)
+from tests.script_module import load_script
+
+gate = load_script("deploy_backend_gate")
 
 
 @pytest.mark.parametrize(
