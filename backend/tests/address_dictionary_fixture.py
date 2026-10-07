@@ -40,6 +40,9 @@ OSAKA_HONMACHI = Place("本町", AddressLevel.OAZA, 135.50814, 34.683563)
 #: 合併で無くなった市の大字（埼玉県岩槻市本町）と、今の住所の大字（埼玉県さいたま市岩槻区本町）。位置は同じ。
 IWATSUKI_HONMACHI = Place("本町", AddressLevel.OAZA, 139.693159, 35.947813)
 FORMER_IWATSUKI_HONMACHI = Place("本町", AddressLevel.OAZA, 139.693159, 35.947813, note="ref:埼玉県さいたま市岩槻区本町")
+#: 名前が「大字」だけの大字（埼玉県川口市大字）。名前を標準化すると空になり、索引の鍵も空の文字列になるので、配布の辞書と
+#: 同じく、何も当たらない入力にも当たった文字列が空の結果として返る。
+KAWAGUCHI_OAZA = Place("大字", AddressLevel.OAZA, 139.741148, 35.862285)
 
 PLACES = (
     Place("東京都", AddressLevel.PREF, 139.69178, 35.68963, (
@@ -51,6 +54,7 @@ PLACES = (
             Place("岩槻区", AddressLevel.WARD, 139.694182, 35.949882, (IWATSUKI_HONMACHI,)),
         )),
         Place("岩槻市", AddressLevel.CITY, 139.694182, 35.949882, (FORMER_IWATSUKI_HONMACHI,)),
+        Place("川口市", AddressLevel.CITY, 139.724171, 35.807741, (KAWAGUCHI_OAZA,)),
     )),
     Place("大阪府", AddressLevel.PREF, 135.51931, 34.68692, (
         Place("大阪市", AddressLevel.CITY, 135.502046, 34.693891, (
