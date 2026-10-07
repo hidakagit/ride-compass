@@ -795,7 +795,8 @@ HTMLでもよい。第三者が書ける値——`?? 生値`の
   [ページ構成](page-composition.md)・[地図: 軸・ルート色分け](map-axis-coloring.md)に近い。
   区間クリック時の詳細表示（地点・到達予想時刻・軸別内訳）はボトムシート側
   （[ルート設定・結果パネル](route-settings-and-results.md)のRouteAxisProfile）が持ち、
-  地図上（`MapView.tsx: handleRouteSegmentClick`）は軽量なマーカーを立てるのみで
+  地図上は、押された区間を`MapView.tsx: handleRouteSegmentClick`が選んだ区間として渡し、
+  `useMapMarkers.tsx: applySelectedSegmentMarker`が軽量なマーカーを立てるのみで
   テキストポップアップを持たない。押された区間から読み戻す`feature.properties`は、軸別内訳等の
   入れ子のオブジェクトもオブジェクトのまま届く（MapLibre v6は内部表現へ移すときに印付きのJSON文字列へ
   直し、読み戻すときに自分で戻す。`maplibre-gl/src/util/vectortile_to_geojson.ts`）ので、読む側で戻さない。
