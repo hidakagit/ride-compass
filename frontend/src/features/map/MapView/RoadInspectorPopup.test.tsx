@@ -39,7 +39,7 @@ function inspectorResult(): AxisInspectorResult {
     highway: "residential",
     tags: { lit: "yes", name: "明治通り" },
     axes: [
-      { axis_id: "axis_sample", difficulty: 60, contribution: 30 },
+      { axis_id: "axis_sample", difficulty: 57.8, contribution: 30 },
       { axis_id: "night", difficulty: 20, contribution: 10 },
       { axis_id: "gradient", difficulty: null, contribution: null },
     ],
@@ -116,6 +116,9 @@ describe("RoadInspectorPopup", () => {
     // 寄与度バーの凡例は軸アイコン＋値（ルート結果と同じ部品）。
     expect(await screen.findByText("30.0")).toBeInTheDocument();
     expect(screen.getByText("10.0")).toBeInTheDocument();
+    // チップから開く詳細は、その軸の難易度をルート結果と同じ桁で出す。
+    await user.click(screen.getByRole("button", { name: "見本の軸の詳細を表示" }));
+    expect(screen.getByText("この評価軸の難易度 57.8/100")).toBeInTheDocument();
     // この道に値の出ない軸（勾配）はそもそも並ばない。
     expect(screen.queryByLabelText("勾配の詳細を表示")).not.toBeInTheDocument();
   });
