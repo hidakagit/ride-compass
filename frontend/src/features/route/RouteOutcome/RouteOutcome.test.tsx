@@ -349,7 +349,7 @@ describe("選んだ候補の中身", () => {
     renderOutcome({ results: resultsOf({ generated: [FAST], selectedRouteSegment: segmentSelection(segment) }) });
 
     expect(screen.getByText("総合難易度").parentElement).toHaveTextContent(`総合難易度${shown}/100`);
-    expect(screen.queryByText("どの評価も0（易しい）") !== null).toBe(allZero);
+    expect(screen.queryByText("どの評価軸も0（易しい）") !== null).toBe(allZero);
   });
 
   it("区間の内訳のチップから開く詳細は、候補全体ではなくその区間の軸別難易度を出す", async () => {
@@ -360,7 +360,7 @@ describe("選んだ候補の中身", () => {
     });
     renderOutcome({ results: resultsOf({ generated: [candidate], selectedRouteSegment: selected }) });
     await userEvent.click(await screen.findByRole("button", { name: "軸Aの詳細を表示" }));
-    expect(screen.getByRole("dialog")).toHaveTextContent("軸A軸別難易度 72/100");
+    expect(screen.getByRole("dialog")).toHaveTextContent("軸Aこの評価軸の難易度 72/100");
     await userEvent.click(screen.getByRole("button", { name: "軸Aの詳細を隠す" }));
     await userEvent.click(screen.getByRole("button", { name: "軸Bの詳細を表示" }));
     expect(screen.getByRole("dialog")).toHaveTextContent("軸Bデータなし");
