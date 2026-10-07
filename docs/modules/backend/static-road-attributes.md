@@ -304,7 +304,7 @@ reset_columns_sql`。戻す値は、未計算のNULL・「無い」を表す0や
 等距離の区間が複数あるとき（交差点のノードの真上の事故等）は、区間の鍵（道id・区間番号）が
 小さい方へ付ける——流し直すたびに付く先が変わらないようにするため。
 
-**数えるのは自転車が関与した事故だけ**（`domain/accident.py: bicycle_sql`）。自転車ルート案内で自動車
+**数えるのは自転車が関与した事故だけ**（`domain/accident.py: BICYCLE_SQL`）。自転車ルート案内で自動車
 どうしの事故まで数えると、避けるべき場所がずれる。密度は収録年数で割って「件/(km・年)」
 へ正規化する——年次を1つ足したときに全区間の値が一斉に増えないようにするため。
 
@@ -635,7 +635,7 @@ PBF取込時にしか変わらないため、再訪時の同一タイル再取�
 |---|---|
 | `road.py` | 路面を表すタグの読み方の正準定義（surfaceの区分`SURFACE_CLASSES`、tracktypeの等級`TRACK_GRADES`と、2つを合成した路面の見込み`SURFACE_ESTIMATES`）。材料の値式・PostGIS側MVT生成SQL・地図の表示行・値の呼び名・走行モデルの転がり抵抗が共有する単一ソース |
 | `attributes.py` | `ElevationAttribute`（同じ地形を逆方向に走った値も自分で導く`reversed_as`）・探索が読む材料の配列（`EdgeMaterialArrays`）と標高計算のSQL（[elevation.md](elevation.md)が主に扱う） |
-| `accident.py` | 警察庁の事故を道路へ帰属させ数えるときの判断。生データの列から判定を組み立てるSQL断片・帰属の距離・重み付けの定数（本票の度分秒の読み取りは取込のアダプタ`npa_honhyo.py`が持つ） |
+| `accident.py` | 警察庁の事故を道路へ帰属させ数えるときの判断。生データの列から判定を組み立てるSQL断片・自転車とみなす当事者種別・帰属の距離・重み付けの定数（本票の度分秒の読み取りは取込のアダプタ`npa_honhyo.py`が、本票の列名と当事者種別のコードの読み替えは`infrastructure/source_models.py: ACCIDENTS_SOURCE_SQL`が持つ） |
 | `traffic.py` | OSMタグの解釈。停止要因POI・補給休憩POIの種別の引き当て（`TAG_KIND_RULES`・`tag_kind_sql`）、信号の判定（`TRAFFIC_SIGNAL_SQL`）、取込が道の頂点でなくても採る補給・休憩のタグ（`SUPPLY_POI_TAGS`・`has_supply_poi_tag`）、停止要因の数える種別への畳み方と信号の読み替え（`COUNT_KIND_OF`・`count_kind_sql`・`stop_kind_sql`）、通行方向の解決（`DIRECTION_RULES`・`direction_sql`）と片方向にだけ通れるかの式（`one_way_sql`）・道の形の向きと逆向きのそれぞれに通れるか（`travel_allowed`）、交差点判定の次数しきい値、停止要因の場所・交差点を端で分け持つ割合（`PLACE_SHARE_PER_END`・`place_count_sql`）、交差点の階級（`HIGHWAY_RANK`）。取込のタグ（取込のアダプタが1件ずつ当てる）を除き、派生バッチへSQLとして渡す表と式で、タグを読むためだけに行を取り出さない |
 | `divided_carriageway.py` | 上下線が分かれた道の片側かのしきい値と判定のSQL式（`divided_sql`）。材料`oneway`の値式（`oneway_material_sql`。地図の一方通行と評価が同じ式を読む）は、片方向にだけ通れる道（`traffic.py: one_way_sql`）から上下線の片側を外す |
 

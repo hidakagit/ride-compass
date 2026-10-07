@@ -91,7 +91,10 @@ async def test_get_warnings_merges_across_documents_and_dedupes(monkeypatch, tmp
 
     result = await _service(monkeypatch, tmp_path, warning_documents=documents).get_warnings(CHIYODA_POINT)
 
-    assert sorted(w.code for w in result.warnings) == ["14", "43"]
+    assert sorted((w.code, w.name, w.level) for w in result.warnings) == [
+        ("14", "雷注意報", "advisory"),
+        ("43", "大雨危険警報", "severe_warning"),
+    ]
 
 
 async def test_get_warnings_returns_empty_when_no_active_cycling_relevant_codes(monkeypatch, tmp_path):
