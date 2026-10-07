@@ -58,15 +58,16 @@ def material_value_checks(table: str) -> tuple[CheckConstraint, ...]:
     shares = ", ".join(_LANDCOVER_COLUMNS)
     return (
         *(CheckConstraint(f"{column} >= 0", name=f"{table}_{column}_not_negative")
-          for column in (*_COUNT_COLUMNS, "lc_valid_pixels")),
+          for column in _COUNT_COLUMNS),
         *(CheckConstraint(f"{column} BETWEEN 0 AND 100", name=f"{table}_{column}_is_percent")
           for column in _LANDCOVER_COLUMNS),
-        # 割合は有効画素が正の行だけが全部持ち、そのとき合計が100。式がNULLになる形（`IS NULL OR …`）にしない
-        # ——CHECKはNULLを通すので、割合が1つ欠けた行が合計のNULLで通る。
+        # 有効画素がNULLなら割合も全部NULL、値があれば正で、割合を全部持ち合計が100。読み手は有効画素がNULLかだけで
+        # 割合の有無を決める。式がNULLになる形（`IS NULL OR …`）にしない——CHECKはNULLを通すので、割合が1つ欠けた行が
+        # 合計のNULLで通る。
         CheckConstraint(
-            f"CASE WHEN coalesce(lc_valid_pixels, 0) > 0"
-            f" THEN num_nulls({shares}) = 0 AND abs(({total}) - 100) <= {_PERCENT_SUM_TOLERANCE}"
-            f" ELSE num_nonnulls({shares}) = 0 END",
+            f"CASE WHEN lc_valid_pixels IS NULL THEN num_nonnulls({shares}) = 0"
+            f" ELSE lc_valid_pixels > 0 AND num_nulls({shares}) = 0"
+            f" AND abs(({total}) - 100) <= {_PERCENT_SUM_TOLERANCE} END",
             name=f"{table}_landcover_shares_follow_valid_pixels"),
     )
 
@@ -147,6 +148,9 @@ class EdgeMaterialRow(Base):
         CheckConstraint(
             "num_nonnulls(start_elevation_m, end_elevation_m, elevation_gain_m, elevation_loss_m) IN (0, 4)",
             name="edge_materials_elevation_all_or_none"),
+        # 勾配は標高の段が4列と一緒に書く。標高があっても勾配を持たない区間はある（`average_grade`の列）。
+        CheckConstraint("average_grade IS NULL OR start_elevation_m IS NOT NULL",
+                        name="edge_materials_grade_needs_elevation"),
         {"info": DERIVED},
     )
 

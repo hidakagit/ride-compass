@@ -11,7 +11,7 @@ runの記録・パーティション・入れ替えは本物を通す。外部�
 変えた後の全行を渡して入れ直す。失敗したrunは、途中で例外を投げる`records`を渡して作る。
 """
 
-from collections.abc import AsyncIterator, Iterable, Sequence
+from collections.abc import AsyncIterator, Callable, Iterable, Sequence
 from dataclasses import replace
 from typing import Any
 
@@ -21,9 +21,11 @@ from shapely.geometry import LineString, Point
 
 from app.batch.common import asyncpg_dsn
 from app.batch.ingest import ADAPTERS, RegisteredAdapter, SourceRecord, ingest_source
-from app.batch.source_adapters.raster_wkb import tile_bbox_wkb
+from app.batch.source_adapters.gsi_dem_tile import NODATA, SCALE, pack_elevations
+from app.batch.source_adapters.raster_wkb import tile_bbox_wkb, tile_raster_wkb
 from app.batch.source_adapters.osm_pbf import way_payload
 from app.batch.source_profile import NoFields, SourceProfile, SourceSpec, Target, load_source_profile
+from app.domain.region import BoundingBox, tile_bounds_lonlat, tiles_covering_bbox
 from app.infrastructure.source_models import WAY_KIND_TAG
 from tests.conftest import postgis_database_url
 
@@ -52,6 +54,33 @@ def tile_record(key: str, zoom: int, x: int, y: int, rast: bytes,
                 attrs: dict[str, Any]) -> SourceRecord:
     """面のソース（例: `lulc`）のタイル1枚。"""
     return SourceRecord(natural_key=key, geom_wkb=tile_bbox_wkb(zoom, x, y), attrs=attrs, rast=rast)
+
+
+#: 標高のタイル1枚の1辺の画素数。読み手はタイルの`attrs`の幅で画素の番地を出すので、配信元の幅に揃えなくてよい。
+_DEM_TILE_PIXELS = 256
+
+
+def dem_tile_records(product: str, zoom: int, bbox: BoundingBox,
+                     elevation: Callable[[float, float], float | None]) -> list[SourceRecord]:
+    """標高（`dem`）の`product`の、`bbox`を覆うズーム`zoom`のタイル。画素の値は、画素の中心の (経度, 緯度) を
+    `elevation`へ渡して決める（Noneは欠測）。画素の詰め方は取込のアダプタ（`gsi_dem_tile.pack_elevations`）を通す。"""
+    records = []
+    for x, y in tiles_covering_bbox(bbox, zoom):
+        pixel = _DEM_TILE_PIXELS
+        # z+8のタイル1枚が、ちょうどzのタイルの1画素に当たる。
+        centers = [tile_bounds_lonlat(zoom + 8, x * pixel + i, y * pixel + i) for i in range(pixel)]
+        lons = [(b.min_longitude + b.max_longitude) / 2 for b in centers]
+        lats = [(b.min_latitude + b.max_latitude) / 2 for b in centers]
+        text = "\n".join(
+            ",".join("e" if (v := elevation(lon, lat)) is None else f"{v:.2f}" for lon in lons)
+            for lat in lats) + "\n"
+        pixels, missing = pack_elevations(text)
+        records.append(SourceRecord(
+            natural_key=f"{product}/{zoom}/{x}/{y}", geom_wkb=tile_bbox_wkb(zoom, x, y),
+            attrs={"product": product, "z": zoom, "x": x, "y": y, "width": pixel, "scale": SCALE, "missing": missing},
+            rast=tile_raster_wkb(pixels, zoom=zoom, x=x, y=y, width=pixel, height=pixel,
+                                 dtype="int32_le", nodata=NODATA)))
+    return records
 
 
 def _profile(source: str, bbox: tuple[float, float, float, float] | None, rows: Any) -> SourceProfile:

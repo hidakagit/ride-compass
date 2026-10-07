@@ -231,12 +231,12 @@ async def derive_landcover(conn: asyncpg.Connection) -> int:
 def _way_rollup_sql() -> str:
     """道の値は区間から導く。長さで重み付けた平均にするのは、どちらも割合のため。"""
     columns = [column for _, column in _landcover_columns()]
-    # 0〜100へ丸め込む。入力が割合である以上、加重平均が範囲外へ出るのはREALの丸めだけ。
-    # 表の制約が受け取れる値にして渡す。
-    # 割合を持つ区間が1本も無い道は集約に出ず、有効画素も割合もNULLのまま残る。
+    # 有効画素のある区間は割合を全部持つ（表の制約）ので、集める区間はどの列も同じ。割合を持つ区間が1本も無い道は
+    # 集約に出ず、有効画素も割合もNULLのまま残る。倍精度で平均してからREALの列へ入れる——REALのまま足すと
+    # 丸めで100をわずかに超え、表の制約に断られる。
     averaged = ", ".join(
-        f"least(100, greatest(0, sum(m.{c} * e.distance_m)"
-        f" / sum(e.distance_m) FILTER (WHERE m.{c} IS NOT NULL))) AS {c}" for c in columns)
+        f"sum(m.{c}::double precision * e.distance_m) / sum(e.distance_m::double precision) AS {c}"
+        for c in columns)
     assigned = ", ".join(f"{c} = s.{c}" for c in columns)
     return f"""
 UPDATE way_materials w SET lc_valid_pixels = s.lc_valid_pixels, {assigned}
