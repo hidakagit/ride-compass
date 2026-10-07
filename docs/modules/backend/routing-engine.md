@@ -212,7 +212,7 @@ RouteGenerator.generate_loops(origin, distance_km, distance_tolerance_km, max_ro
         │  1メソッドを通るため、集約を増やしてもここだけに書けば全経路へ効く
         ▼
   candidates.sort(overall_difficulty昇順[小数1桁]、同点は目標距離に近い順、Noneは末尾)
-        │  _labelがid（loop-00..）と種類を付ける（本数は上の逐次処理がmax_routes件で止めている）
+        │  _labelがid（loop-00..）と種類を付けてRouteDraftからRouteCandidateにする（本数は上の逐次処理がmax_routes件で止めている）
         ▼
   RouteCandidate一覧
 ```
@@ -394,8 +394,8 @@ import済みの参照が古い辞書を指したままになる）。差し替�
 最速の印（`is_fastest`）は、どの入口でも並べ終えた最後に`route_generator.py: _label`が1か所で付ける。idは
 `<種類>-<並びの位置>`（例: `loop-00`・`destination-01`）で、応答の中で一意になる（同じ方位に複数候補が並びうるため、
 方位からは作らない）。エンジン（`_build_candidate`）は並びも種類も知らないので、方位を持つ候補の`direction_label`
-（`domain/geo.py: compass_label`）だけを付け、idと種類は`RouteCandidate`の既定のまま返す。画面は一覧の群・名前・
-最速を種類と印だけで決め、idの文字列や要求の形から決め直さない。
+（`domain/geo.py: compass_label`）だけを付けた`RouteDraft`を返す。id・種類・最速の印は`RouteCandidate`だけが必須の欄として持ち、
+`_label`を通らずに応答の候補は作れない。画面は一覧の群・名前・最速を種類と印だけで決め、idの文字列や要求の形から決め直さない。
 
 ## RoadGraphEngine（`road_graph_engine.py`）
 
@@ -819,7 +819,8 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
 
 - `Coordinates`・`RouteSegmentDetail`（**material_valuesに入る
   符号付き材料（`gradient_percent`等）は符号付きが正準契約**——絶対値ではない。
-  ルート線の色分けがこの符号を読む）・`RouteCandidate`。
+  ルート線の色分けがこの符号を読む）・`RouteDraft`（エンジンが組み立てる途中の経路）・`RouteCandidate`（`RouteDraft`に
+  応答のid・種類・最速の印を足したもの）。
 - `aggregate_segments_into_bins`（500m区間ビニング）・`merge_axis_difficulties`・
   `merge_axis_contributions`・`merge_material_values`・
   `merge_material_category_shares`・`route_axis_raw_values`・`_merge_segment_bin`。**`RouteSegmentDetail`の
@@ -847,7 +848,7 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
   受け取って評価し直す**——ステートレスのため、経路の指定はこの形でしか受けられない。
 - **categorical材料の延長割合はビニングより前に畳む**。ビンの代表値を1つ選ぶ形だと割合が
   500m単位へ量子化されるため、`road_graph_engine`が`aggregate_segments_into_bins`の前に
-  `merge_material_category_shares`を呼び、結果を`RouteCandidate`へ載せる。
+  `merge_material_category_shares`を呼び、結果を`RouteDraft`へ載せる。
   `route_generator`の後段はこの値に触らない（触ると、区間側が空になっている以上
   必ず`{}`で上書きされる）。
 - **生値・材料値に無限大は来ない**。材料の値式は区間の長さが0なら割らずに欠損にし

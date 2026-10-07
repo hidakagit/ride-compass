@@ -1445,24 +1445,8 @@ export interface components {
         };
         /** RouteCandidate */
         RouteCandidate: {
-            /**
-             * Id
-             * @default
-             */
-            id: string;
-            /**
-             * Kind
-             * @default loop
-             * @enum {string}
-             */
-            kind: "loop" | "waypoints" | "destination" | "spliced";
             /** Direction Label */
             direction_label: string;
-            /**
-             * Is Fastest
-             * @default false
-             */
-            is_fastest: boolean;
             /** Distance Km */
             distance_km: number;
             /** Geometry */
@@ -1513,6 +1497,15 @@ export interface components {
             edge_point_offsets: number[];
             /** Node Ids */
             node_ids: string[];
+            /** Id */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "loop" | "waypoints" | "destination" | "spliced";
+            /** Is Fastest */
+            is_fastest: boolean;
         };
         /** RouteGenerateJobCreatedResponse */
         RouteGenerateJobCreatedResponse: {
