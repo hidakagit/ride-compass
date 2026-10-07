@@ -29,10 +29,23 @@ export async function hold(gh, config, number, wait) {
   }
 }
 
-// その番号の種類「開発機」の終わっていない実行を全部取り消す。読み直してから取り消すので、一時的な失敗なら丸ごと打ち直しても
-// 二重にならない。
-export async function release(gh, config, number) {
+// 手放すときに、取り消したあと止まったかを読み直す回数（wait を挟む）。
+export const STOP_TRIES = 30;
+
+// 持った実行（id）を取り消し、止まるまで wait を挟んで読み直して、最後に読んだ実行を返す。状態で絞った一覧は起きた直後の実行を
+// まだ出さないことがあり（持ってから十数秒で手放すと、in_progress の一覧に無く取り消しが空振りした）、一覧で探さずに id で打つ。
+// 読み直してから取り消すので、一時的な失敗なら丸ごと打ち直しても二重にならない。tries 回読み直しても止まらなければ、終わっていない
+// 実行のまま返す（ブラウザで止めるか、ジョブの上限まで待つかは打った者が決める）。
+export async function release(gh, config, number, id, wait, tries = STOP_TRIES) {
+  const path = `/repos/${config.code.repository}/actions/runs/${id}`;
+  const [n, kind] = runOf((await gh.rest("GET", path)).display_title);
+  if (Number(n) !== Number(number) || kind !== "開発機") throw new Error(`実行 ${id} は #${number} の種類「開発機」の実行ではない`);
   await again(true, async () => {
-    for (const r of await holds(gh, config, number)) await gh.rest("POST", `/repos/${config.code.repository}/actions/runs/${r.id}/cancel`);
+    if ((await gh.rest("GET", path)).status !== "completed") await gh.rest("POST", `${path}/cancel`);
   });
+  for (let i = 0; ; i++) {
+    const run = await gh.rest("GET", path);
+    if (run.status === "completed" || i === tries) return run;
+    await wait();
+  }
 }
