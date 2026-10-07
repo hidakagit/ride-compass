@@ -2,8 +2,8 @@
 
 履歴は一時的なgitリポジトリで作る。
 
-ここで見ないもの: `docs`はCI（Docs Consistency）が本物のリポジトリへ毎回流す。`size`・`trigger`は周期レビューで
-人が読む出力で、ここでは通さない。
+ここで見ないもの: `docs`はCI（Docs Consistency）が本物のリポジトリへ毎回流す。`trigger`と、`size`の表・発火は
+周期レビューで人が読む出力で、ここでは通さない。`size`の「閾値の見直し」は、緩んだ閾値に誰も気づかなくなるので通す。
 """
 
 import argparse
@@ -132,3 +132,16 @@ _DECLARED_PREFIXES = sorted(
 def test_each_declared_place_holds_a_tracked_file(prefix):
     """置き場を改名・撤去すると、その置き場で分けていたファイルが黙って別の種別へ落ちる。"""
     assert any(f.startswith(prefix) for f in rc.tracked_files()), f"{prefix} に当たる追跡ファイルが無い"
+
+
+def test_size_lists_thresholds_looser_than_the_growth_from_the_current_lines(repo, monkeypatch, capsys):
+    # 縮んだファイルの閾値が、今の行数から増える側の発火（+15%）で付け直す値より緩ければ見直しに出す。
+    _commit(repo, {"app/shrunk.py": "a\n" * 400, "app/kept.py": "b\n" * 400})
+    thresholds = repo / "size_thresholds.json"
+    thresholds.write_text('{"thresholds": {"app/shrunk.py": 800, "app/kept.py": 500}}', encoding="utf-8")
+    monkeypatch.setattr(rc, "SIZE_THRESHOLDS", thresholds)
+
+    assert rc.cmd_size(argparse.Namespace(top=5)) == 0
+    out = capsys.readouterr().out
+
+    assert "閾値の見直し（今の行数+15%を100行に切り上げた値より緩い・削除済み） 1件: app/shrunk.py（800→500）" in out
