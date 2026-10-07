@@ -6,6 +6,7 @@ import { CLIENT_TUNING_IDS } from "@/lib/axisCatalog";
 import { getQueryClient } from "@/lib/queryClient";
 import { serveAxisCatalog } from "@/testing/backendServer";
 import { catalogResponse, dedicatedEntry } from "@/testing/catalogAxes";
+import { jst } from "@/testing/jst";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 
 import RideConditionBar from "./RideConditionBar";
@@ -16,7 +17,6 @@ vi.mock("embla-carousel-react", () => ({
 }));
 vi.mock("embla-carousel-wheel-gestures", () => ({ WheelGesturesPlugin: () => ({}) }));
 
-const jst = (text: string) => new Date(`${text}+09:00`);
 const NOW = jst("2026-09-24T09:07");
 const { max_assumed_speed_kmh: MAX } = routeGenerateConfig;
 

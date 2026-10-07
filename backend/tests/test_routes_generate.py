@@ -33,7 +33,7 @@ from app.domain.hard_filters import DEFAULT_HARD_FILTERS, HARD_FILTER_NAMES
 from app.domain.route_request import DEFAULT_DISTANCE_TOLERANCE_KM, DEFAULT_MAX_ROUTES, MAX_SPLICED_EDGES, MAX_WAYPOINTS
 from app.domain.tuning import TUNING_VALUES
 from app.domain.route_request import ASSUMED_SPEED_KMH
-from app.infrastructure import rate_limiter, road_network_store
+from app.infrastructure import rate_limiter
 from app.infrastructure.road_network_store import RoadNetworkUnavailableError
 from app.main import app
 from app.services.graph_service import GraphService
@@ -48,6 +48,7 @@ from tests.route_world import (
     at,
     avoid_axis_declared,
     grid_network,
+    serve_road_network,
 )
 
 #: ASGIの代役がHTTPの相手として名乗る番地（レート制限の鍵になる）。
@@ -105,7 +106,7 @@ def world(monkeypatch):
     async def open_setup(**options):
         yield assemble_route_generation_setup(GraphService(NetworkRepository(world.network)), world.weather, **options)
 
-    monkeypatch.setattr(road_network_store, "current", world.current)
+    serve_road_network(monkeypatch, world.current)
     monkeypatch.setitem(app.dependency_overrides, dependencies.get_route_generation_setup_opener, lambda: open_setup)
     with avoid_axis_declared():
         yield world

@@ -22,9 +22,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_HARD_FILTERS } from "@/features/route/RouteSettingsPanel/HardFilterPanel";
 import { LENS_DIFFICULTY_ID, LENS_NONE_ID } from "@/lib/mapDisplay/routeStyleModes";
 import { heldReplies, onBackend } from "@/testing/backendServer";
-import { catalogEntry, catalogResponse } from "@/testing/catalogAxes";
+import { TWO_AXIS_CATALOG } from "@/testing/catalogAxes";
 import { serveGenerationJobs } from "@/testing/generationJobs";
-import { makeRouteCandidate } from "@/testing/routeFixtures";
+import { makeGenerationConditions, makeRouteCandidate } from "@/testing/routeFixtures";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import type { Coordinates, GenerationConditions, RouteCandidate } from "@/types/route";
 
@@ -36,11 +36,6 @@ const A: Coordinates = { latitude: 35.7, longitude: 139.8 };
 const B: Coordinates = { latitude: 35.71, longitude: 139.81 };
 const T1 = new Date("2026-10-04T09:00:00Z");
 const NO_ROUTES_MESSAGE = "条件に合うルート候補が見つかりませんでした。条件を変えて試してください。";
-
-const CATALOG = catalogResponse([
-  catalogEntry({ axis_id: "axis_a", default_weight: 0.4 }),
-  catalogEntry({ axis_id: "axis_b", default_weight: 0.6 }),
-]);
 
 interface Props {
   originKnown: boolean;
@@ -77,24 +72,20 @@ function route(id: string, seconds: number | null = null): RouteCandidate {
 
 /** backendが返す生成の条件（`conditions`）。 */
 function used(overrides: Partial<GenerationConditions> = {}): GenerationConditions {
-  return {
+  return makeGenerationConditions({
     latitude: ORIGIN.latitude,
     longitude: ORIGIN.longitude,
     distance_km: 30,
     distance_tolerance_km: routeGenerateConfig.default_distance_tolerance_km,
     route_preference: { axis_a: 0.5, axis_b: 0.5 },
     penalty_strength: 1,
-    max_average_grade_percent: null,
     hard_filters: DEFAULT_HARD_FILTERS,
     max_routes: routeGenerateConfig.default_max_routes,
     start_time: T1.toISOString(),
     assumed_speed_kmh: 20,
-    waypoints: null,
-    destination: null,
-    corrected_destination: null,
     generated_at: "2026-10-04T09:00:30Z",
     ...overrides,
-  };
+  });
 }
 
 let jobs: ReturnType<typeof serveGenerationJobs>;
@@ -111,7 +102,7 @@ let catalog: ReturnType<typeof heldReplies>;
 
 /** 描画のときに投げた軸カタログの取得を届ける。 */
 async function loadCatalog(rendered: Rendered) {
-  await act(() => catalog.answer(0, Response.json(CATALOG)));
+  await act(() => catalog.answer(0, Response.json(TWO_AXIS_CATALOG)));
   await waitFor(() => expect(rendered.result.current.conditions.routePreference).toEqual({ axis_a: 0.4, axis_b: 0.6 }));
 }
 

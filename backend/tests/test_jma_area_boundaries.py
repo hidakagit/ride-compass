@@ -1,6 +1,6 @@
 """`infrastructure/jma_area_boundaries.py`——置き場の区域の境界から、地点が属する区域（area.jsonのclass20）のコードを引く。
 
-入口は`find_class20_code`で、境界は`write_boundaries`で置き場（`BOUNDARY_PATH`を`tmp_path`へ移す）に書いたものを
+入口は`find_class20_code`で、境界は`write_boundaries`で置き場（`tests/conftest.py: boundary_path`）に書いたものを
 本物の読み込みで読む。区域は架空のコードと矩形で作る。見るのは、境界を一度だけ読んで持つことと、境界を読めない
 とき（区域なしとは別の例外とWARNING）。地点から区域を引く規則（含む区域・寄せる距離の内側の最寄りの区域・
 どこにも入らない地点のNone）は、境界を直接与えた`AreaBoundaries.find`の性質で見る。
@@ -26,13 +26,6 @@ LIMIT = jma_area_boundaries.NEAREST_LIMIT_DEG
 #: 経度方向に長い矩形（緯度35.6〜35.7・経度139.6〜139.9）を東西に分けた区域。緯度と経度を取り違えると外れる。
 WEST = box(139.6, 35.6, 139.75, 35.7)
 EAST = box(139.75 + LIMIT, 35.6, 139.9, 35.7)
-
-
-@pytest.fixture
-def boundary_path(monkeypatch, tmp_path):
-    path = tmp_path / "jma_area" / "boundaries.json"
-    monkeypatch.setattr(jma_area_boundaries, "BOUNDARY_PATH", path)
-    return path
 
 
 @pytest.fixture

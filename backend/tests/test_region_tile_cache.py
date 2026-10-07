@@ -6,11 +6,10 @@
 - 記録した項目のログ・統計への出し方 → `test_debug_log.py`
 
 骨格のテストは、ディスクのキャッシュ（`tile_cache`の読み書き）と記録の口（`log_external_call`）を代役へ差し替え、
-本物の署名へ当てる（`bound`）。旧世代の掃除のテストは、ディスクを本物で通し（置き場は`tests/conftest.py`が
+キャッシュの代役は本物の署名へ当てる（`bound`）。旧世代の掃除のテストは、ディスクを本物で通し（置き場は`tests/conftest.py`が
 テストごとの一時ディレクトリへ向けてある）、ラスタの口だけを代役にする。
 """
 
-import contextlib
 import threading
 
 import pytest
@@ -19,6 +18,7 @@ from app.infrastructure import region_tile_cache, tile_cache
 from app.infrastructure.cache_identity import UNKNOWN_REVISION, region_tile_key
 from app.infrastructure.debug_log import mark_failed
 from tests.bound_fake import bound
+from tests.fake_external_log import record_external_calls
 from tests.fake_tile_cache import FakeTileCache
 
 EMPTY = b"empty-tile"
@@ -37,16 +37,8 @@ def cache(monkeypatch):
 
 @pytest.fixture
 def records(monkeypatch):
-    """処理の最後に残った記録の項目。"""
-    calls: list[dict] = []
-
-    @contextlib.contextmanager
-    def record(category, **fields):
-        calls.append({})
-        yield calls[-1]
-
-    monkeypatch.setattr(region_tile_cache, "log_external_call", bound(region_tile_cache.log_external_call, record))
-    return calls
+    """記録の口へ渡った呼び出しと、処理の最後に残った項目。"""
+    return record_external_calls(monkeypatch, region_tile_cache)
 
 
 def _fetch(result, failure=None):
@@ -82,7 +74,7 @@ async def test_a_cached_tile_is_returned_without_making_it_again(cache, records)
 
     assert response == region_tile_cache.TileResponse(b"cached")
     assert fetched == []
-    assert records[0]["cache"] == "hit"
+    assert records[0].fields["cache"] == "hit"
 
 
 async def test_a_missing_tile_is_made_stored_and_returned(cache, records):
@@ -93,7 +85,10 @@ async def test_a_missing_tile_is_made_stored_and_returned(cache, records):
     assert response == region_tile_cache.TileResponse(b"new")
     assert cache.entries == {KEY: (b"new", "image/png")}
     # 取得元は呼び出し元が名乗る（統計の内訳が実際の取得元と食い違わないため）
-    assert records == [{"cache": "miss", "source": "raster", "tile_bytes": 3, "persisted": True}]
+    assert [call.fields for call in records] == [{
+        "z": TILE["z"], "x": TILE["x"], "y": TILE["y"],
+        "cache": "miss", "source": "raster", "tile_bytes": 3, "persisted": True,
+    }]
 
 
 async def test_disk_reads_and_writes_run_off_the_event_loop(cache, records):
@@ -113,7 +108,7 @@ async def test_a_tile_made_without_knowing_its_generation_is_not_stored(cache, r
 
     assert response == region_tile_cache.TileResponse(b"new")
     assert cache.entries == {}
-    assert records[0]["persisted"] is False
+    assert records[0].fields["persisted"] is False
 
 
 @pytest.mark.parametrize(
@@ -130,7 +125,7 @@ async def test_a_tile_that_cannot_be_made_is_the_empty_tile_and_is_not_stored(ca
 
     assert response == region_tile_cache.TileResponse(EMPTY, cacheable=cacheable)
     assert cache.entries == {}
-    assert records[0]["source"] == "uncovered_empty"
+    assert records[0].fields["source"] == "uncovered_empty"
 
 
 # ---- 旧世代の掃除 ----

@@ -2,9 +2,10 @@
 // 時刻はどれも時点（オフセット付き）で与え、期待値はテストを動かす環境の時刻帯によらない。
 import { describe, expect, it } from "vitest";
 
+import { jst } from "@/testing/jst";
+
 import { buildDepartureFrames, buildDepartureTimeline } from "./departureTimeline";
 
-const jst = (text: string) => new Date(`${text}+09:00`);
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 

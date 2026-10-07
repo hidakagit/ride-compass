@@ -33,8 +33,7 @@ OFFSHORE_POINT = Coordinates(latitude=34.0, longitude=141.0)
 
 
 def area_lookup_upstream(
-    monkeypatch,
-    tmp_path,
+    boundary_path,
     *,
     class20_code=CLASS20_CODE,
     area_data=AREA_DATA,
@@ -43,17 +42,15 @@ def area_lookup_upstream(
 ) -> httpx.AsyncClient:
     """区域の境界を`CHIYODA_POINT`を囲む1区域だけにし、気象庁の代役を返す。
 
-    境界はディスクから読む本物を通す（置き場だけを`tmp_path`へ移す）。代役は地域マスタ・
+    境界は置き場（`boundary_path`。`tests/conftest.py`の同じ名前のフィクスチャ）へ書き、ディスクから読む本物を通す。代役は地域マスタ・
     `OFFICE_CODE`の警報・洪水予報をURLで返し（Noneなら接続の失敗）、それ以外のURL（別の府県予報区の
     警報等）を引かれたら落ちる。
     """
-    boundary_path = tmp_path / "boundaries.json"
     jma_area_boundaries.write_boundaries(
         boundary_path,
         {class20_code: box(CHIYODA_POINT.longitude - 0.01, CHIYODA_POINT.latitude - 0.01,
                            CHIYODA_POINT.longitude + 0.01, CHIYODA_POINT.latitude + 0.01)},
     )
-    monkeypatch.setattr(jma_area_boundaries, "BOUNDARY_PATH", boundary_path)
 
     payloads = {
         jma_warning_client.JMA_AREA_JSON_URL: area_data,

@@ -10,13 +10,10 @@
   落とす分岐を通さない
 """
 
-import asyncpg
 import pytest
 import pytest_asyncio
 
 from app.batch import derive_topology
-from app.batch.common import asyncpg_dsn
-from tests.conftest import postgis_database_url
 from tests.source_ingest import ingest_records, way_record
 
 # road_graph_session（conftest.py）と同じDBを使うため、docs/conventions/testing.mdのパターン2どおり
@@ -39,33 +36,22 @@ WAYS: tuple[tuple[int, list[int]], ...] = (
     (300, [10, 11, 12, 10]),
 )
 
+
 #: ノードidから座標を作る。閉じる道の終端だけ始点と同じ位置へ戻す。
 def _point(node_id: int, ordinal: int) -> tuple[float, float]:
     index = 0 if node_id == 10 and ordinal == 3 else node_id
     return (BASE_LON + STEP * index, BASE_LAT + STEP * (index % 3))
 
 
-TABLES = ("edge_materials", "way_materials", "road_edges", "node_materials",
-          "source_features", "source_runs")
-
-
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
-async def topology_conn(road_graph_engine):
-    """`road_graph_engine`に依存するのは接続のためではなく、**スキーマを作らせるため**。
-    このファイルは生のasyncpgで繋ぐので、テーブルを作る経路をどこかで通さないと、
-    まっさらなDB（CI）では最初の文から落ちる。
-    """
-    conn = await asyncpg.connect(asyncpg_dsn(postgis_database_url()))
-    try:
-        await conn.execute("TRUNCATE " + ", ".join(TABLES) + " CASCADE")
-        await ingest_records("osm_way", [
-            way_record(way_id, [_point(n, i) for i, n in enumerate(node_ids)], node_ids)
-            for way_id, node_ids in WAYS], conn=conn)
-        await derive_topology.derive(conn)
-        yield conn
-    finally:
-        await conn.execute("TRUNCATE " + ", ".join(TABLES) + " CASCADE")
-        await conn.close()
+async def topology_conn(derive_conn):
+    """道を取り込み、区間まで作った状態。"""
+    conn = derive_conn
+    await ingest_records("osm_way", [
+        way_record(way_id, [_point(n, i) for i, n in enumerate(node_ids)], node_ids)
+        for way_id, node_ids in WAYS], conn=conn)
+    await derive_topology.derive(conn)
+    return conn
 
 
 async def test_splits_where_two_ways_pass_the_same_node(topology_conn):

@@ -9,7 +9,13 @@ from collections.abc import Mapping
 from contextlib import contextmanager
 from typing import Any
 
-from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisDefinition, BreakpointLinearShape, MaterialTerm
+from app.domain.axis_definitions import (
+    AXIS_DEFINITIONS,
+    AxisDefinition,
+    AxisShape,
+    BreakpointLinearShape,
+    MaterialTerm,
+)
 
 
 def axis_definition(axis_id: str, *, material: str = "material_a", **fields: Any) -> AxisDefinition:
@@ -17,13 +23,18 @@ def axis_definition(axis_id: str, *, material: str = "material_a", **fields: Any
 
     既定は型を満たすためだけの値（架空の材料1つを読む区分線形・重み0・下書き）で、本番の
     軸を模さない。見たい性質（材料・重み・公開・表示や配信の印）は呼び出し側が引数で書く。
-    shapeそのものを見るテストは、この関数を使わずに自分で組み立てる。
+    shapeそのものを見るテストは`shaped_axis`で組み立てる。
     """
     return AxisDefinition(
         axis_id=axis_id,
         shape=BreakpointLinearShape(terms=[MaterialTerm(material=material)], breakpoints=[(0.0, 0.0), (1.0, 100.0)]),
         **{"default_weight": 0.0, "label": "軸", **fields},
     )
+
+
+def shaped_axis(shape: AxisShape, axis_id: str = "axis_a", **fields: Any) -> AxisDefinition:
+    """shape（得点の付け方）がテストの主題の軸を1本作る。重みと表示名は型を満たすための値。"""
+    return AxisDefinition(axis_id=axis_id, shape=shape, default_weight=1.0, label="軸A", **fields)
 
 
 @contextmanager

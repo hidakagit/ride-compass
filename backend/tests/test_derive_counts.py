@@ -12,7 +12,6 @@ import pytest
 import pytest_asyncio
 
 from app.batch import derive_counts, derive_node_materials, derive_topology
-from app.batch.common import asyncpg_dsn
 from app.domain.accident import (
     ACCIDENT_FATAL_WEIGHT,
     ACCIDENT_MATCH_MAX_DISTANCE_M,
@@ -22,7 +21,7 @@ from app.domain.geo import KM_PER_DEGREE_LATITUDE, km_per_degree_longitude
 from app.domain.traffic import POI_COUNT_KINDS, poi_count_column
 from app.domain.tuning import TUNING_PARAMETERS_BY_ID
 from app.infrastructure.source_models import ACCIDENTS_SOURCE_SQL, PARTY_TYPE_CODES
-from tests.conftest import postgis_database_url
+from tests.conftest import empty_ingested_tables
 from tests.source_ingest import ingest_records, point_record, way_record
 
 # road_graph_session（conftest.py）と同じDBを使うため、docs/conventions/testing.mdのパターン2どおり
@@ -51,9 +50,6 @@ BESIDE_WAY = (BASE_LON + STEP * 2, BASE_LAT + STEP)
 BICYCLE_PARTY = PARTY_TYPE_CODES[PartyType.BICYCLE]
 OTHER_PARTY = "59"
 CROSSING = {"highway": "crossing"}
-
-TABLES = ("edge_materials", "way_materials", "road_edges", "node_materials",
-          "source_features", "source_runs")
 
 
 def _point(node_id: int) -> tuple[float, float]:
@@ -108,22 +104,11 @@ async def _stop_counts(conn: asyncpg.Connection) -> dict[int, dict[str, float]]:
     return {r["osm_way_id"]: {kind: r[c] for kind, c in columns.items() if r[c]} for r in rows}
 
 
-@pytest_asyncio.fixture(scope="module", loop_scope="module")
-async def module_conn(road_graph_engine):
-    """`road_graph_engine`に依存するのはスキーマを作らせるため（`test_derive_topology.py`と同じ）。"""
-    conn = await asyncpg.connect(asyncpg_dsn(postgis_database_url()))
-    try:
-        yield conn
-    finally:
-        await conn.execute("TRUNCATE " + ", ".join(TABLES) + " CASCADE")
-        await conn.close()
-
-
 @pytest_asyncio.fixture(loop_scope="module")
-async def counts_conn(module_conn):
+async def counts_conn(derive_conn):
     """テストごとに同じ生データから作り直す。どのテストも生データと派生の表を書き換えるため。"""
-    conn = module_conn
-    await conn.execute("TRUNCATE " + ", ".join(TABLES) + " CASCADE")
+    conn = derive_conn
+    await empty_ingested_tables(conn)
     await ingest_records("osm_way", [_road(*way) for way in WAYS], conn=conn)
     await _ingest_accidents(conn)
     await derive_topology.derive(conn)

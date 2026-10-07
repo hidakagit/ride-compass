@@ -15,7 +15,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { makeRouteCandidate } from "@/testing/routeFixtures";
+import { makeRouteCandidate, makeRouteSegment } from "@/testing/routeFixtures";
 import type { RouteCandidate, SelectedRouteSegment } from "@/types/route";
 
 import { useRouteResults } from "./useRouteResults";
@@ -30,7 +30,7 @@ const SPLICED = makeRouteCandidate({ id: "spliced-00", kind: "spliced", distance
 const SEGMENT: SelectedRouteSegment = {
   latitude: 35.6,
   longitude: 139.7,
-  segment: {
+  segment: makeRouteSegment({
     geometry: { type: "LineString", coordinates: [] },
     start_latitude: 35.6,
     start_longitude: 139.7,
@@ -38,13 +38,7 @@ const SEGMENT: SelectedRouteSegment = {
     end_longitude: 139.71,
     cumulative_distance_km: 0.5,
     distance_km: 0.5,
-    estimated_arrival_time: null,
-    axis_difficulties: {},
-    axis_contributions: {},
-    material_values: {},
-    difficulty: null,
-    wind: null,
-  },
+  }),
 };
 
 function renderResults() {

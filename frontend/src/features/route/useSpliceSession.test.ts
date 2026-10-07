@@ -31,8 +31,8 @@ import { CLIENT_TUNING_IDS } from "@/lib/axisCatalog";
 import { heldReplies, serveAxisCatalog } from "@/testing/backendServer";
 import { catalogEntry, catalogResponse } from "@/testing/catalogAxes";
 import { serveGenerationJobs } from "@/testing/generationJobs";
-import { makeRouteCandidate, routeThrough, type Places } from "@/testing/routeFixtures";
-import type { GenerationConditions, RouteCandidate } from "@/types/route";
+import { makeGenerationConditions, makeRouteCandidate, routeThrough, type Places } from "@/testing/routeFixtures";
+import type { RouteCandidate } from "@/types/route";
 
 import { useSpliceSession } from "./useSpliceSession";
 
@@ -89,23 +89,19 @@ const BASIS: GenerationInput = {
 };
 
 // 評価の応答に付く生成の条件（乗り換えは読まない）。
-const CONDITIONS: GenerationConditions = {
+const CONDITIONS = makeGenerationConditions({
   latitude: BASIS.origin.latitude,
   longitude: BASIS.origin.longitude,
-  distance_km: 0,
   distance_tolerance_km: BASIS.distanceToleranceKm,
   route_preference: { axis_a: 1 },
   penalty_strength: 1,
-  max_average_grade_percent: null,
   hard_filters: BASIS.hardFilters,
   max_routes: BASIS.maxRoutes,
   start_time: BASIS.startTime.toISOString(),
   assumed_speed_kmh: BASIS.assumedSpeedKmh,
-  waypoints: null,
   destination: BASIS.destination,
-  corrected_destination: null,
   generated_at: "2026-10-04T09:00:30Z",
-};
+});
 
 type Props = Pick<Parameters<typeof useSpliceSession>[0], "routes" | "generatedInput" | "hasSelectedRoute">;
 

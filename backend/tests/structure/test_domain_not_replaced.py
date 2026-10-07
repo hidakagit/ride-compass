@@ -19,56 +19,12 @@
 from __future__ import annotations
 
 import ast
-from collections.abc import Iterator
 from pathlib import Path
 
-from tests.structure.source_symbols import Scope, SourceTree, Symbol
+from tests.structure.source_symbols import Scope, SourceTree, replaced, replacement_calls
 
 BACKEND_ROOT = Path(__file__).resolve().parent.parent.parent
 DOMAIN = "app.domain"
-
-
-def _replacement_calls(tree: ast.Module) -> Iterator[tuple[ast.Call, ast.AST]]:
-    """差し替えの呼び出しと、それを含む最上位の定義（関数・クラス。無ければモジュール）。"""
-    for top in tree.body:
-        for node in ast.walk(top):
-            if not isinstance(node, ast.Call) or not node.args:
-                continue
-            func = node.func
-            name = func.attr if isinstance(func, ast.Attribute) else func.id if isinstance(func, ast.Name) else None
-            if name in ("setattr", "patch", "object"):
-                yield node, top
-
-
-def _string_literals(node: ast.AST) -> set[str]:
-    return {n.value for n in ast.walk(node) if isinstance(n, ast.Constant) and isinstance(n.value, str)}
-
-
-def _replaced(scope: Scope, call: ast.Call, enclosing: ast.AST) -> Iterator[tuple[str, Symbol]]:
-    """呼び出しが差し替える名前（`持ち主.名前`）と、その名前が今指しているもの。"""
-    first = call.args[0]
-    if isinstance(first, ast.Constant) and isinstance(first.value, str):
-        split = scope.source.dotted(first.value)
-        if split is None:
-            return
-        owner, names = split[0], [split[1]]
-        owner_text = first.value.rsplit(".", 1)[0]
-    else:
-        if len(call.args) < 2:
-            return
-        owner = scope.resolve(first)
-        if owner is None:
-            return
-        owner_text = ast.unparse(first)
-        name = call.args[1]
-        if isinstance(name, ast.Constant) and isinstance(name.value, str):
-            names = [name.value]
-        else:
-            names = sorted(_string_literals(enclosing))
-    for attribute in names:
-        target = scope.source.attribute(owner, attribute)
-        if target is not None:
-            yield f"{owner_text}.{attribute}", target
 
 
 def domain_replacements(root: Path) -> list[str]:
@@ -80,8 +36,8 @@ def domain_replacements(root: Path) -> list[str]:
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
         scope = Scope(source, source.module_of(path), tree)
-        for call, enclosing in _replacement_calls(tree):
-            for text, target in _replaced(scope, call, enclosing):
+        for call, enclosing in replacement_calls(tree):
+            for text, target in replaced(scope, call, enclosing):
                 if target.kind in ("function", "class") and (
                     target.module == DOMAIN or target.module.startswith(f"{DOMAIN}.")
                 ):

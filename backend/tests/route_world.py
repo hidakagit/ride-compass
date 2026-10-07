@@ -7,6 +7,7 @@
 `test_routing.py`（生成の経路がPythonから呼ぶJIT）。
 """
 
+from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import replace
 
@@ -154,9 +155,14 @@ class Weather:
         return await self._rain.get_station_rain_materials(now)
 
 
+def serve_road_network(monkeypatch, current: Callable[[], RoadNetwork]) -> None:
+    """道路網全体の配列を置き場から読まず、`current`が返すものとして読ませる（`road_network_store.current`の差し替え）。"""
+    monkeypatch.setattr(road_network_store, "current", current)
+
+
 def generator_for(monkeypatch, network: RoadNetwork, avoid_weight: float, wind: WindForecastSeries | None):
     """道路網を全体の配列として読ませ、本物の`GraphService`とエンジンの上に戦略層（`RouteGenerator`）を組む。"""
-    monkeypatch.setattr(road_network_store, "current", lambda: network)
+    serve_road_network(monkeypatch, lambda: network)
     return assemble_route_generation_setup(
         GraphService(NetworkRepository(network)), Weather(wind),
         preference_override=RoutePreference(weights={AVOID_AXIS: avoid_weight}),

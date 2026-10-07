@@ -3,8 +3,7 @@
 from pathlib import Path
 
 #: 本番の読み手はこのファイルだけだが、テストがディスク（プロセス境界）の置き場を差し替えて上限を与えるために公開する
-#: （testing.md「確かめる高さ」の例外）。上限か置き場を引数で受けると、本番がいつも同じ置き場を渡すだけの、テストの
-#: ための口になる。
+#: （testing.md「確かめる高さ」の (c)）。
 CGROUP_MEMORY_MAX = Path("/sys/fs/cgroup/memory.max")
 
 

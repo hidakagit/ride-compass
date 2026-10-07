@@ -35,7 +35,7 @@ from app.infrastructure.road_graph_repository import NETWORK_SQL_SOURCES, RoadGr
 logger = logging.getLogger("ridecompass.road_network")
 
 #: 本番の読み手はこのファイルだけだが、テストがディスク（プロセス境界）の置き場を一時ディレクトリへ差し替えるために公開する
-#: （testing.md「確かめる高さ」の例外）。置き場を引数で受けると、本番がいつも同じ置き場を渡すだけの、テストのための口になる。
+#: （testing.md「確かめる高さ」の (c)）。
 ROOT = Path(__file__).resolve().parent.parent.parent / "data" / "road_network"
 
 NETWORK_SHAPE = shape_digest(RoadNetwork, *NETWORK_SQL_SOURCES)
