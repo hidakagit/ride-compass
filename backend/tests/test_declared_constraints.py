@@ -1,5 +1,5 @@
 """取込・派生の段がSQLで直接書く列に、宣言の外の値をDBが入れさせないこと。語彙の列
-（`infrastructure/derived_models.py: vocabulary_check`）と、列の組（土地被覆の割合と有効画素・標高の4列・取込のrunの
+（`infrastructure/derived_models.py: vocabulary_check`）と、列の組（土地被覆の割合と有効画素・標高の4列と勾配・取込のrunの
 状態と終わった時刻）。
 
 段はdomainの検査を通らずに書くため、入らないことはDBが断ることでしか確かめられない。
@@ -78,9 +78,13 @@ _SHARES = ", ".join(f"lc_{landcover_key(name)} = 0" for name, _ in PERCENT_CLASS
     f"UPDATE edge_materials SET lc_valid_pixels = 100, {_SHARES}",
     # 有効画素が無いのに割合がある
     "UPDATE edge_materials SET lc_water = 100",
+    # 有効画素が0。割合が全部空でも、0と「値が無い」の2通りの綴りができる
+    "UPDATE edge_materials SET lc_valid_pixels = 0",
     # 道も区間と同じ制約を持つ
     "UPDATE way_materials SET lc_valid_pixels = 100",
     "UPDATE edge_materials SET start_elevation_m = 10",
+    # 標高の無い区間の勾配
+    "UPDATE edge_materials SET average_grade = 1",
     # 閉じたrunが終わった時刻を持たない・閉じていないrunが終わった時刻を持つ
     "UPDATE source_runs SET finished_at = NULL",
     "UPDATE source_runs SET status = 'running'",

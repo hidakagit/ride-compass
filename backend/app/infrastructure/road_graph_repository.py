@@ -799,8 +799,8 @@ class RoadGraphRepository:
             row = (await self._session.execute(
                 text(f"SELECT {', '.join(columns)} FROM way_materials WHERE osm_way_id = :osm_way_id"),
                 {"osm_way_id": osm_way_id})).first()
-        # 割合は有効画素が正の行だけが全部持つ（表の制約`landcover_shares_follow_valid_pixels`）。
-        if row is None or not row.lc_valid_pixels:
+        # 割合は有効画素のある行だけが全部持つ（表の制約`landcover_shares_follow_valid_pixels`）。
+        if row is None or row.lc_valid_pixels is None:
             return None
         values = {field: getattr(row, f"lc_{landcover_key(field)}") for field in fields}
         return LandcoverPercentages(**values)
