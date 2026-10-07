@@ -60,7 +60,8 @@ def _search(path: Path, query: str) -> list[PlaceCandidate]:
     tree = open_dictionary(path)
     nodes: dict[int, AddressNode] = {}
     for result in tree.searchNode(query):
-        # 何も当たらない入力にも、当たった文字列が空の結果（辞書の先頭の節）が1件返る。
+        # 何も当たらない入力にも、当たった文字列が空の結果が1件返る（名前が「大字」だけの節は、標準化した名前が空で、
+        # 空の索引の鍵がどの入力の頭にも当たる）。
         if not result.matched:
             continue
         # 旧い節を置き換えた今の節は、同じ入力でそのまま当たっていることがある。
