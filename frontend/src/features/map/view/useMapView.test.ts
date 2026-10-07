@@ -74,7 +74,7 @@ describe("useMapView", () => {
     expect(result.current.look.lens).toBe(lens);
   });
 
-  it("レンズを選ぶとルートのレイヤーを表示し、ルートの確定後に周りを塗らない設定なら全道路を塗らない", async () => {
+  it("レンズを選ぶとルートのレイヤーを表示し、ルートの確定後に周りを塗らない設定なら全道路を塗らない", () => {
     serve();
     const { result, rerender } = render();
     act(() => result.current.overlayControls.onToggle("route", false));
@@ -150,7 +150,7 @@ describe("useMapView", () => {
     expect(result.current.look.hiddenLegendKeys).toEqual({});
   });
 
-  it("災害のチップの凡例で隠した情報は描かず、絞り込み中に数える", async () => {
+  it("災害のチップの凡例で隠した情報は描かず、絞り込み中に数える", () => {
     serve();
     const { result } = render();
 
@@ -180,7 +180,7 @@ describe("useMapView", () => {
     expect(chip(result, "disaster")?.legendDetails?.[0].hiddenKeys).toEqual(["heavyRain"]);
   });
 
-  it("表示中のレイヤーをすべて非表示にでき、地図へは中身が変わるか再描画を頼んだときだけ新しい値を渡す", async () => {
+  it("表示中のレイヤーをすべて非表示にでき、地図へは中身が変わるか再描画を頼んだときだけ新しい値を渡す", () => {
     serve();
     const { result, rerender } = render();
     expect(result.current.bulk.anyLayerOn).toBe(true);
@@ -224,7 +224,7 @@ describe("useMapView", () => {
     },
   );
 
-  it("ルートの線の凡例は、ルートが確定してからルートのチップに出す", async () => {
+  it("ルートの線の凡例は、ルートが確定してからルートのチップに出す", () => {
     serve();
     const { result, rerender } = render();
     expect(chip(result, "route")?.legendDetails).toEqual([]);
