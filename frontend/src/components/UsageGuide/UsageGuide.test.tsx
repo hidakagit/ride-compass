@@ -392,6 +392,7 @@ describe("UsageGuide", () => {
         const [active, setActive] = useState(true);
         return (
           <>
+            <p>本文の文字</p>
             <Button usage="いまの条件で候補を作ります。">生成</Button>
             <Popover>
               <PopoverTrigger asChild>
@@ -456,9 +457,16 @@ describe("UsageGuide", () => {
     });
 
     it.each([
-      ["「やめる」", async () => userEvent.click(screen.getByRole("button", { name: "やめる" }))],
-      ["Esc", async () => userEvent.keyboard("{Escape}")],
-    ])("%sで終えると、浮きパネルも閉じる", async (_, operate) => {
+      ["「やめる」で", async () => userEvent.click(screen.getByRole("button", { name: "やめる" }))],
+      ["Escで", async () => userEvent.keyboard("{Escape}")],
+      [
+        "中の部品の説明を出している間に部品の外を押して",
+        async () => {
+          await userEvent.click(screen.getByRole("button", { name: "速く" }));
+          await userEvent.click(screen.getByText("本文の文字"));
+        },
+      ],
+    ])("%s終えると、浮きパネルも閉じる", async (_, operate) => {
       const { onEnd } = renderPopoverScreen();
       await openInside();
 
