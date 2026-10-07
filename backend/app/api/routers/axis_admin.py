@@ -14,12 +14,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import Field, field_validator, model_validator
 
 from app.api.admin_auth import require_admin_basic_auth
-from app.api.dependencies import get_road_graph_repository
+from app.api.dependencies import get_axis_preview_service, get_axis_registry_admin_service
 from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
-from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.domain.value_distribution import ValueDistribution
-from app.services.axis_preview_service import axis_raw_value_distribution
-from app.api.dependencies import get_axis_registry_admin_service
+from app.services.axis_preview_service import AxisPreviewService
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
     axis_error,
@@ -32,9 +30,9 @@ from app.domain.axis_definitions import (
     first_term_points,
     named_references,
     referenced_materials,
+    weight_share_when_published,
 )
 from app.domain.axis_display import axis_display_for, bands_the_map_keeps, thresholds_the_map_drops
-from app.domain.difficulty import weight_share
 from app.domain.registry import AxisDisplaySpec
 from app.services.axis_registry_service import AxisRegistryAdminService
 from app.services.dedicated_way_values import served_dedicated_way_value_material
@@ -143,15 +141,10 @@ class AxisDefinitionResponse(AxisDefinition):
 def _to_response(definition: AxisDefinition, definitions: Mapping[str, AxisDefinition]) -> AxisDefinitionResponse:
     """`AxisDefinitionResponse`は`AxisDefinition`へ`display`と`weight_share_when_published`を足すだけなので、
     フィールドを手書き列挙せずmodel_dump()経由で展開する。`definitions`は割合の分母を作る全軸。"""
-    other_published = [
-        other.default_weight
-        for axis_id, other in definitions.items()
-        if other.is_published and axis_id != definition.axis_id
-    ]
     return AxisDefinitionResponse(
         **definition.model_dump(),
         display=axis_display_for(definition),
-        weight_share_when_published=weight_share(definition.default_weight, other_published),
+        weight_share_when_published=weight_share_when_published(definition, definitions),
     )
 
 
@@ -244,7 +237,7 @@ class AxisPreviewRequest(StrictModel):
 @router.post("/preview-distribution")
 async def preview_axis_distribution(
     payload: AxisPreviewRequest,
-    repository: RoadGraphRepository = Depends(get_road_graph_repository),
+    preview: AxisPreviewService = Depends(get_axis_preview_service),
 ) -> ValueDistribution:
     """編集中の`shape`で、実データの生値（折れ点を通す前）がどう分布するかを返す。
 
@@ -252,7 +245,7 @@ async def preview_axis_distribution(
     ルートを見るまで結果が分からない。この分布に折れ点を当てはめれば、「延長の何%が
     満点に張り付くか」が編集中に分かる。
     """
-    return await _guard_db_errors(axis_raw_value_distribution(repository, payload.shape))
+    return await _guard_db_errors(preview.raw_value_distribution(payload.shape))
 
 
 class ScoresPreviewRequest(StrictModel):

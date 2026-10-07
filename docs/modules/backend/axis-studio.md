@@ -14,7 +14,7 @@
 | レイヤー | ファイル |
 |---|---|
 | domain | `axis_definitions.py`・`axis_display.py`・`map_paint.py`（地図が軸について塗るもの）・`axis_raw_value.py`・`axis_templates.py`・`registry.py`・`primary_attributes.py`（一次属性の語彙の宣言）・`value_distribution.py`（延長で重み付けた分位点とヒストグラム。分布の口の応答の型） |
-| services | `axis_registry_service.py`・`axis_preview_service.py`・`axis_catalog_service.py`（軸カタログが軸の宣言のほかに要る値——事故の収録年・タイルの世代・専用配信の条件——を1回で読む） |
+| services | `axis_registry_service.py`・`axis_preview_service.py` |
 | infrastructure | `axis_definition_models.py`・`axis_definition_repository.py` |
 | api | `axis_admin.py`・`axis_catalog.py` |
 | scripts | `measure_axis_saturation.py`・`axis_apply.py` |
@@ -47,10 +47,10 @@
 |---|---|---|
 | `POST /api/admin/axis-definitions/preview-distribution` | Basic認証 | 編集中の`shape`の生値の分布 |
 | `GET /api/admin/material-catalog/{material_id}/distribution` | Basic認証 | 材料1件の値の分位と`zero_share`（数値材料のみ、それ以外は`available=false`） |
-| `GET /api/admin/material-catalog/{material_id}/values` | Basic認証 | 材料1件のDBに実際にある値の一覧（`material_values`。[評価・スコアリング](evaluation-scoring.md)の材料カタログのAPI） |
+| `GET /api/admin/material-catalog/{material_id}/values` | Basic認証 | 材料1件のDBに実際にある値の一覧（`AxisPreviewService.material_values`。[評価・スコアリング](evaluation-scoring.md)の材料カタログのAPI） |
 
-どれも実データを全体から読むため、`repository`はルート生成用の長い`command_timeout`の
-セッションで受け取る（`api/dependencies.py: get_road_graph_repository`）。値の一覧は索引の効かない
+どれも実データを全体から読むため、`AxisPreviewService`はルート生成用の長い`command_timeout`の
+セッションで組む（`api/dependencies.py: get_axis_preview_service`）。値の一覧は索引の効かない
 `SELECT DISTINCT`で、タイル配信用の短い上限では最後まで走らない。
 
 
