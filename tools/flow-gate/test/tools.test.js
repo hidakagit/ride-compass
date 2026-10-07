@@ -91,8 +91,9 @@ test("27 問いは、答えの無い最新の問いが同じ文なら書き直�
   assert.deepEqual(await at(config.todo, [question, answer]), [config.waiting, 2]);
 });
 
-test("28 開発機の対話のセッションが持つ: 待ちの開発機の実行は持っているに数えずに待ち直し、待ちと手放しは GitHub の一時的な失敗1回で落ちない", async () => {
-  // runs は担当のワークフローの実行（later は読まれたときに移る状態）。fail に挙げた要求（方法と道の頭）は、1回目だけ 502 を返す。
+test("28 開発機の対話のセッションが持つ: 待ちの開発機の実行は持っているに数えずに待ち直し、手放しは持った実行を一覧に出なくても取り消して止まるまで待ち、待ちと手放しは GitHub の一時的な失敗1回で落ちない", async () => {
+  // runs は担当のワークフローの実行（later は読まれたときに移る状態で、並びなら読まれるたびに1つずつ移る。unlisted は状態で絞った一覧にまだ出ない、stuck は取り消しても
+  // 止まらない）。fail に挙げた要求（方法と道の頭）は、1回目だけ 502 を返す。
   const at = (runs, fail = []) => {
     const s = { runs, sent: [] };
     globalThis.fetch = async (url, init = {}) => {
@@ -105,23 +106,23 @@ test("28 開発機の対話のセッションが持つ: 待ちの開発機の実
       }
       s.sent.push(call);
       const run = s.runs.find((r) => path.endsWith(`/actions/runs/${r.id}`) || path.endsWith(`/actions/runs/${r.id}/cancel`));
-      if (path.endsWith("/w.yml/runs")) return Response.json({ workflow_runs: Number(q.get("page")) > 1 ? [] : s.runs.filter((r) => r.status === q.get("status")) });
+      if (path.endsWith("/w.yml/runs")) return Response.json({ workflow_runs: Number(q.get("page")) > 1 ? [] : s.runs.filter((r) => !r.unlisted && r.status === q.get("status")) });
       if (path.endsWith("/w.yml/dispatches")) {
         s.runs.push({ id: 100, status: "queued", later: "in_progress", display_title: `#${JSON.parse(init.body).inputs.issue} 開発機` });
         return Response.json({ workflow_run_id: 100 });
       }
       if (path.endsWith("/cancel")) {
-        Object.assign(run, { status: "completed", conclusion: "cancelled" });
+        if (!run.stuck) Object.assign(run, { later: ["in_progress", "completed"], conclusion: "cancelled" });
         return new Response(null, { status: 202 });
       }
-      run.status = run.later ?? run.status;
+      run.status = (Array.isArray(run.later) ? run.later.shift() : run.later) ?? run.status;
       return Response.json(run);
     };
     return s;
   };
   const gh = new GitHub("code-token");
   const wait = async () => {};
-  const run = (id, number, kind, status, later) => ({ id, status, later, display_title: `#${number} ${kind}` });
+  const run = (id, number, kind, status, later, extra) => ({ id, status, later, display_title: `#${number} ${kind}`, ...extra });
 
   // 待ちの開発機の実行（前に打って落ちた自分のもの）は持っているに数えず、起こし直さずにそれが動き始めるまで待つ。
   let s = at([run(1, 7, "開発機", "pending", "in_progress"), run(2, 8, "開発機", "in_progress")]);
@@ -134,10 +135,15 @@ test("28 開発機の対話のセッションが持つ: 待ちの開発機の実
   s = at([run(5, 7, "作る", "in_progress")], ["GET /repos/o/code/actions/workflows/w.yml/runs", "GET /repos/o/code/actions/runs/100"]);
   r = await hold(gh, config, 7, wait);
   assert.deepEqual([r.mine.id, r.mine.status], [100, "in_progress"]);
-  // 手放しは、その番号の開発機の実行だけを取り消し、取り消しが 502 を受けても落ちない。
-  s = at([run(6, 7, "開発機", "in_progress"), run(7, 7, "作る", "pending"), run(8, 8, "開発機", "in_progress")], ["POST /repos/o/code/actions/runs/6/cancel"]);
-  await release(gh, config, 7);
-  assert.deepEqual(s.runs.map((x) => x.status), ["completed", "pending", "in_progress"]);
+  // 手放しは、持った実行が一覧にまだ出なくても取り消し、止まるまで読み直す。取り消しが 502 を受けても落ちない。
+  s = at([run(6, 7, "開発機", "in_progress", undefined, { unlisted: true }), run(8, 8, "開発機", "in_progress")], ["POST /repos/o/code/actions/runs/6/cancel"]);
+  r = await release(gh, config, 7, 6, wait);
+  assert.deepEqual([r.status, r.conclusion, s.runs.map((x) => x.status)], ["completed", "cancelled", ["completed", "in_progress"]]);
+  // 取り消しても止まらなければ、終わっていない実行を返す。その番号の開発機の実行でなければ取り消さない。
+  s = at([run(9, 7, "開発機", "in_progress", undefined, { stuck: true }), run(10, 8, "開発機", "in_progress")]);
+  assert.equal((await release(gh, config, 7, 9, wait, 2)).status, "in_progress");
+  await assert.rejects(release(gh, config, 7, 10, wait));
+  assert.equal(s.runs[1].status, "in_progress");
 });
 
 test("29 流し直すのは、取り消されたジョブがどれも段0で注記にランナーが付かなかったとあり、ほかに段を走らせて落ちたのがまとめのジョブだけのときで、流し直しは上限まで", () => {
