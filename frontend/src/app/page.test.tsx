@@ -422,6 +422,8 @@ describe("地図で扱えること", () => {
 
     function through(id: string, edgeIds: string[], points: number[][], overrides: Partial<RouteCandidate> = {}) {
       return route(id, {
+        kind: "destination",
+        spliceable: true,
         edge_ids: edgeIds,
         node_ids: points.map((point) => point.join(",")),
         edge_point_offsets: points.map((_, index) => index),

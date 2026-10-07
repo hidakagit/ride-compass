@@ -14,6 +14,7 @@ export function makeRouteCandidate(overrides: Partial<RouteCandidate> = {}): Rou
     kind: "loop",
     direction_label: "",
     is_fastest: false,
+    spliceable: false,
     distance_km: 0,
     geometry: { type: "LineString", coordinates: [] },
     elevation_gain_m: null,

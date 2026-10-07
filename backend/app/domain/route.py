@@ -99,10 +99,13 @@ class RouteCandidate(StrictModel):
     集約したもので、「データ無しはキーを持たない」規約も引き継ぐ。
     """
 
-    # 応答の中で一意のid・種類・名前・最速の印は、`services/route_generator.py: _label`だけが付ける。エンジンが
+    # 応答の中で一意のid・種類・名前・最速の印・乗り換えの可否は、`services/route_generator.py: _label`だけが付ける。エンジンが
     # 組み立てる時点では並びも種類も決まっておらず、idと種類は既定のまま、名前は周回の方位だけを持つ。
     id: str = ""
     kind: RouteKind = "loop"
+    # この候補を元に区間を乗り換えられるか（目的地を持つ生成の候補だけ。合成の要求は目的地を要る:
+    # `api/routers/routes.py: RouteGenerateRequest._resolve_target`）。画面は生成の入力から決め直さずにこれを読む。
+    spliceable: bool = False
     direction_label: str
     # 所要時間だけで探した1本（基準線）。経由地の無い目的地の生成で、比べる相手があるときだけ1本に付く。
     # 画面はこの1本を一覧の「最速」に置き、時間の列の基準にする。

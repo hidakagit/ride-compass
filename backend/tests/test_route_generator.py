@@ -75,8 +75,9 @@ def _keys(candidates: list[RouteCandidate]) -> list[str]:
     return [c.edge_ids[0] for c in candidates]
 
 
-def _identities(candidates: list[RouteCandidate]) -> list[tuple[str, str, str]]:
-    return [(c.id, c.kind, c.direction_label) for c in candidates]
+def _identities(candidates: list[RouteCandidate]) -> list[tuple[str, str, str, bool]]:
+    """候補ごとの（id・種類・名前・乗り換えの元にできるか）。"""
+    return [(c.id, c.kind, c.direction_label, c.spliceable) for c in candidates]
 
 
 def _fastest_keys(candidates: list[RouteCandidate]) -> list[str]:
@@ -365,12 +366,12 @@ async def test_loops_are_ordered_easiest_first_and_ties_by_closeness_to_target()
     result = await RouteGenerator(engine).generate_loops(ORIGIN, 10.0, 1.0, max_routes=4, start_time=START)
 
     # 総合難易度の昇順。同点は目標距離に近い順、算出できない候補は末尾。idは最終の順位から作り、
-    # 名前はエンジンが方位から付けたまま。周回は最速の印を持たない
+    # 名前はエンジンが方位から付けたまま。周回は最速の印を持たず、乗り換えの元にできない（起点へ戻れる保証が無くなる）
     assert _identities(result) == [
-        ("loop-00", "loop", "方位-easy"),
-        ("loop-01", "loop", "方位-near"),
-        ("loop-02", "loop", "方位-far"),
-        ("loop-03", "loop", "方位-unknown"),
+        ("loop-00", "loop", "方位-easy", False),
+        ("loop-01", "loop", "方位-near", False),
+        ("loop-02", "loop", "方位-far", False),
+        ("loop-03", "loop", "方位-unknown", False),
     ]
     assert _fastest_keys(result) == []
 
@@ -405,11 +406,11 @@ async def test_loops_that_all_fall_out_say_why(outcomes, reason, caplog):
 @pytest.mark.parametrize(
     ("destination", "labels"),
     [
-        (None, ("waypoints-00", "waypoints", "経由地ルート")),
-        (DESTINATION, ("waypoints-00", "waypoints", "目的地ルート")),
+        (None, ("waypoints-00", "waypoints", "経由地ルート", False)),
+        (DESTINATION, ("waypoints-00", "waypoints", "目的地ルート", True)),
     ],
 )
-async def test_waypoint_route_is_labelled_as_a_destination_route_only_when_it_ends_at_one(destination, labels):
+async def test_waypoint_route_is_a_spliceable_destination_route_only_when_it_ends_at_one(destination, labels):
     engine = FakeEngine(waypoint_loop=_loop("w", bearing=None), candidates={"w": _candidate("w")})
 
     result = await RouteGenerator(engine).generate_via_waypoints(
@@ -441,7 +442,7 @@ async def test_spliced_route_is_labelled():
 
     result = await RouteGenerator(engine).generate_spliced_route(ORIGIN, DESTINATION, 10.0, ["e1", "e2"], START)
 
-    assert _identities(result) == [("spliced-00", "spliced", "組み合わせたルート")]
+    assert _identities(result) == [("spliced-00", "spliced", "組み合わせたルート", True)]
 
 
 async def test_spliced_route_that_does_not_connect_says_so_without_internal_ids(caplog):
@@ -482,9 +483,9 @@ async def test_destination_adds_the_fastest_route_and_orders_all_easiest_first()
 
     assert _keys(result) == ["easy", "fastest", "hard"]
     assert _identities(result) == [
-        ("destination-00", "destination", "目的地ルート"),
-        ("destination-01", "destination", "目的地ルート"),
-        ("destination-02", "destination", "目的地ルート"),
+        ("destination-00", "destination", "目的地ルート", True),
+        ("destination-01", "destination", "目的地ルート", True),
+        ("destination-02", "destination", "目的地ルート", True),
     ]
     assert _fastest_keys(result) == ["fastest"]
 
