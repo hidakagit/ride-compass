@@ -76,9 +76,8 @@ function frontendEnv(target, commit) {
 function unpassedEnv(dir, env) {
   const names = new Set();
   for (const file of readdirSync(path.join(dir, "src"), { recursive: true })) {
-    if (!/\.(ts|tsx)$/.test(file)) continue;
-    // テストと、テストだけが読む層（structure/・testing/）は画面に載らない。テストは中の文字列にも process.env を書く。
-    if (/\.test\.tsx?$/.test(file) || /^(structure|testing)[\\/]/.test(file)) continue;
+    // テストはビルドに入らず、足場の文字列に書いた process.env を読まない。
+    if (!/\.(ts|tsx)$/.test(file) || /\.test\.tsx?$/.test(file)) continue;
     for (const [, name] of readFileSync(path.join(dir, "src", file), "utf-8").matchAll(
       /process\.env\.([A-Za-z_]\w*)/g,
     )) {
