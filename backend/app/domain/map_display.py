@@ -152,8 +152,8 @@ LayerTextSlotName = Literal["axes", "accidentYears", "routeLenses"]
 
 
 class LayerTextSlot(NamedTuple):
-    """説明の文の差し込み口。値が空なら、前後の文（`before`・`after`）ごと出さない——評価が1つも無いのに
-    「評価の材料です」と書かない、収録年が届く前に空の[]を出さない。"""
+    """説明の文の差し込み口。値が空なら、前後の文（`before`・`after`）ごと出さない——評価軸が1つも無いのに
+    「評価軸の材料です」と書かない、収録年が届く前に空の[]を出さない。"""
 
     name: LayerTextSlotName
     before: str = ""
@@ -276,7 +276,7 @@ _LAYER_SPECS: dict[str, MapLayerSpec] = {
             f"評価軸が使う「道路の周囲{LANDCOVER_RING_OUTER_M:g}mの割合」とは違い、混ざらずそのまま見えます。"
             + (
                 f"{_UNPAINTED_LANDCOVER}は塗りません——広い範囲を単色で覆い、基礎地図を隠すだけになるためです。"
-                f"区間インスペクタの内訳には{_UNPAINTED_LANDCOVER}も出ます。"
+                f"地図の道を押して開く内訳には{_UNPAINTED_LANDCOVER}も出ます。"
                 if _UNPAINTED_LANDCOVER
                 else ""
             ),
@@ -316,7 +316,7 @@ _LAYER_SPECS: dict[str, MapLayerSpec] = {
         "tunnel",
         "roadCondition",
         description=("トンネル区間[OSMのtunnelタグ]を色分け表示",),
-        panel_hint=("OSMのtunnelタグが該当する区間です。", LayerTextSlot("axes", "評価", "の材料の1つです。")),
+        panel_hint=("OSMのtunnelタグが該当する区間です。", LayerTextSlot("axes", "評価軸", "の材料の1つです。")),
     ),
     "oneway": _tile_layer(
         "oneway",
@@ -334,7 +334,7 @@ _LAYER_SPECS: dict[str, MapLayerSpec] = {
         description=(f"{_point_kind_list('stop_poi')}の位置を種別ごとに色分け表示",),
         panel_hint=(
             f"{_point_kind_list('stop_poi')}の位置です。",
-            LayerTextSlot("axes", "評価", "が近傍のこれらを数えて算出しているものを、種別ごとの色分けで直接確認できます。"),
+            LayerTextSlot("axes", "評価軸", "が近傍のこれらを数えて算出しているものを、種別ごとの色分けで直接確認できます。"),
         ),
     ),
     # 種別ごとの鮮度の差を書く根拠は docs/modules/frontend/static-map-layers.md「点で示すもの」。
@@ -415,7 +415,7 @@ _LAYER_SPECS: dict[str, MapLayerSpec] = {
             "[先まで見られる範囲は配信中の計算値の長さによって1〜3日の間で変わります]。",
             LayerTextSlot(
                 "axes",
-                "走行方位に対する向かい風/追い風の強さは、地図上部中央の「地図の色分け」で評価",
+                "走行方位に対する向かい風/追い風の強さは、地図上部中央の「地図の色分け」で評価軸",
                 "を選ぶと、道路の色分けとして別途確認できます。",
             ),
         ),

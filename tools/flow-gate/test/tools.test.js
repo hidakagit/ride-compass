@@ -1,11 +1,13 @@
 // 約束 18・24（担当の後始末の行き先と手番の記録の置き場。src/after.js: settle・keepLog）・26（GitHub の一時的な失敗。src/github.js: GitHub）・
-// 27（問いの打ち直し。src/move.js: askTask）を確かめる。設定は架空のもの（fake-github.js: config）を渡し、24・26・27 は GitHub（網）だけを差し替える。
+// 27（問いの打ち直し。src/move.js: askTask）・28（開発機の対話のセッションが持つ・手放す。src/hold.js）を確かめる。設定は架空のもの
+// （fake-github.js: config）を渡し、24・26・27・28 は GitHub（網）だけを差し替える。
 // ここで見ないもの: 終わりのコメントの中身（文言で、`bin/after.js --dry-run` が出す姿で見る）・ステータスを動かす道具（src/move.js）の表の照らし
 // （rules.js: judge を呼ぶだけなので、照らしは gate.test.js が見る）・打ち直しの回数と間（公式の SDK の既定を写した値で、約束ではない）。
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { keepLog, settle } from "../src/after.js";
 import { GitHub } from "../src/github.js";
+import { hold, release } from "../src/hold.js";
 import { askTask, moveTask } from "../src/move.js";
 import { config, fakeGitHub } from "./fake-github.js";
 
@@ -83,4 +85,53 @@ test("27 問いは、答えの無い最新の問いが同じ文なら書き直�
   assert.deepEqual(await at(config.waiting, [question]), [config.waiting, 1]);
   assert.deepEqual(await at(config.waiting, ["## 問い\n別の問い"]), [config.waiting, 1]);
   assert.deepEqual(await at(config.todo, [question, answer]), [config.waiting, 2]);
+});
+
+test("28 開発機の対話のセッションが持つ: 待ちの開発機の実行は持っているに数えずに待ち直し、待ちと手放しは GitHub の一時的な失敗1回で落ちない", async () => {
+  // runs は担当のワークフローの実行（later は読まれたときに移る状態）。fail に挙げた要求（方法と道の頭）は、1回目だけ 502 を返す。
+  const at = (runs, fail = []) => {
+    const s = { runs, sent: [] };
+    globalThis.fetch = async (url, init = {}) => {
+      const { pathname: path, searchParams: q } = new URL(url);
+      const call = `${init.method} ${path}`;
+      const k = fail.findIndex((f) => call.startsWith(f));
+      if (k >= 0) {
+        fail.splice(k, 1);
+        return new Response("bad gateway", { status: 502 });
+      }
+      s.sent.push(call);
+      const run = s.runs.find((r) => path.endsWith(`/actions/runs/${r.id}`) || path.endsWith(`/actions/runs/${r.id}/cancel`));
+      if (path.endsWith("/w.yml/runs")) return Response.json({ workflow_runs: Number(q.get("page")) > 1 ? [] : s.runs.filter((r) => r.status === q.get("status")) });
+      if (path.endsWith("/w.yml/dispatches")) {
+        s.runs.push({ id: 100, status: "queued", later: "in_progress", display_title: `#${JSON.parse(init.body).inputs.issue} 開発機` });
+        return Response.json({ workflow_run_id: 100 });
+      }
+      if (path.endsWith("/cancel")) {
+        Object.assign(run, { status: "completed", conclusion: "cancelled" });
+        return new Response(null, { status: 202 });
+      }
+      run.status = run.later ?? run.status;
+      return Response.json(run);
+    };
+    return s;
+  };
+  const gh = new GitHub("code-token");
+  const wait = async () => {};
+  const run = (id, number, kind, status, later) => ({ id, status, later, display_title: `#${number} ${kind}` });
+
+  // 待ちの開発機の実行（前に打って落ちた自分のもの）は持っているに数えず、起こし直さずにそれが動き始めるまで待つ。
+  let s = at([run(1, 7, "開発機", "pending", "in_progress"), run(2, 8, "開発機", "in_progress")]);
+  let r = await hold(gh, config, 7, wait);
+  assert.deepEqual([r.held, r.mine.id, r.mine.status, s.sent.filter((c) => c.startsWith("POST"))], [undefined, 1, "in_progress", []]);
+  // 動いている開発機の実行だけが持っている。
+  s = at([run(3, 7, "開発機", "in_progress"), run(4, 7, "作る", "pending")]);
+  assert.equal((await hold(gh, config, 7, wait)).held.id, 3);
+  // 無ければ起こし、起こした実行を待つ。一覧の読みと待ちの読みが1回ずつ 502 を受けても落ちない。
+  s = at([run(5, 7, "作る", "in_progress")], ["GET /repos/o/code/actions/workflows/w.yml/runs", "GET /repos/o/code/actions/runs/100"]);
+  r = await hold(gh, config, 7, wait);
+  assert.deepEqual([r.mine.id, r.mine.status], [100, "in_progress"]);
+  // 手放しは、その番号の開発機の実行だけを取り消し、取り消しが 502 を受けても落ちない。
+  s = at([run(6, 7, "開発機", "in_progress"), run(7, 7, "作る", "pending"), run(8, 8, "開発機", "in_progress")], ["POST /repos/o/code/actions/runs/6/cancel"]);
+  await release(gh, config, 7);
+  assert.deepEqual(s.runs.map((x) => x.status), ["completed", "pending", "in_progress"]);
 });

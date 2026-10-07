@@ -28,11 +28,14 @@ from app.domain.wind_grid import (  # noqa: E402
     WIND_GRID_SPACING_DEG,
 )
 from app.domain.route_request import (  # noqa: E402
+    ASSUMED_SPEED_KMH,
     DEFAULT_DISTANCE_TOLERANCE_KM,
     DEFAULT_MAX_ROUTES,
+    MAX_ASSUMED_SPEED_KMH,
     MAX_ROUTE_DISTANCE_KM,
     MAX_ROUTES,
     MAX_WAYPOINTS,
+    MIN_ASSUMED_SPEED_KMH,
     MIN_ROUTES,
     ROUTES_WITH_WAYPOINTS,
 )
@@ -42,7 +45,6 @@ from app.infrastructure.source_models import SOURCE_RUN_STATUS_LABELS  # noqa: E
 from app.infrastructure.point_tile_layers import POINT_TILE_LAYERS  # noqa: E402
 from app.infrastructure.vector_tile import ROAD_FEATURE_PROPERTIES, ROAD_SURFACE_LAYER_NAME  # noqa: E402
 from app.main import app  # noqa: E402
-from app.domain.wind import ASSUMED_SPEED_KMH, MAX_ASSUMED_SPEED_KMH, MIN_ASSUMED_SPEED_KMH  # noqa: E402
 from app.domain.hard_filters import DEFAULT_HARD_FILTERS, HARD_FILTER_LABELS, HARD_FILTER_NAMES  # noqa: E402
 from app.domain.geo import COMPASS_LABELS  # noqa: E402
 from cross_language_expectations import EXPECTATIONS  # noqa: E402

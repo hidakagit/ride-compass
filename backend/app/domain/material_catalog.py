@@ -23,6 +23,7 @@ ROAD_SURFACE_TILE_MVT_SQL`）に既に焼き込まれているプロパティ名
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from decimal import ROUND_HALF_UP, Decimal
 from itertools import groupby
 
 from typing import Literal, NamedTuple
@@ -69,6 +70,7 @@ from app.domain.material_sql import (
     TRACKTYPE_NORMALIZED_SQL,
     cycleway_has_value_sql,
     landcover_value_sql,
+    per_km_value_sql,
     poi_density_value_sql,
     BRIDGE_NORMALIZED_SQL,
     CYCLEWAY_TAG_NAMES,
@@ -96,7 +98,7 @@ from app.domain.road import (
 from app.domain.rain import HOURS_SINCE_RAIN, RAIN_HISTORY_HOURS, RAIN_WINDOW_HOURS, rain_window_material_id
 from app.domain.weather import PRECIPITATION_MIN_MM
 from app.domain.weather_elements import GridValue
-from app.domain.wind import WIND_DRAG_REFERENCE_SPEED_MS, wind_drag_ratio
+from app.domain.wind import WIND_DRAG_REFERENCE_SPEED_KMH, WIND_DRAG_REFERENCE_SPEED_MS, wind_drag_ratio
 from app.domain.strict_model import StrictModel
 
 Population = Literal["way", "edge"]
@@ -176,8 +178,8 @@ def _landcover_coverage(key: str) -> EdgeMaterialCoverageSpec:
     """土地被覆1クラスの欠損判定。クラスごとに書き写すと、増えたときここだけ取り残される。
 
     **値を読む列そのものを数える**（`landcover_value_sql`と同じ`edge_materials.lc_*`）。
-    別の表を数えると、値が空でも「揃っている」と報告しうる。列がNULLなのは
-    「未計算」か「算出不能（ラスタ範囲外等）」で、どちらも値が無いことに変わりはない。
+    別の表を数えると、値が空でも「揃っている」と報告しうる。列がNULLなら値が無い
+    （NULLの意味は`docs/modules/backend/static-road-attributes.md`「値が無ければNULL」）。
     """
     return EdgeMaterialCoverageSpec(
         present_condition=f"{landcover_value_sql(key)} IS NOT NULL",
@@ -361,7 +363,7 @@ class MaterialSpec(StrictModel):
             return "false"  # bool配列を作らない材料では参照されない
         return "nan" if self.coverage.missing_semantics == "unknown" else "false"
 
-_WIND_REFERENCE_SPEED_LABEL = f"時速{WIND_DRAG_REFERENCE_SPEED_MS * 3.6:.0f}km"
+_WIND_REFERENCE_SPEED_LABEL = f"時速{WIND_DRAG_REFERENCE_SPEED_KMH:g}km"
 
 
 def _wind_drag_ratio_by_situation() -> dict[str, float]:
@@ -623,7 +625,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_encoding=_DENSITY_TILE_ENCODING,
         primary_attribute=ATTR_INTERSECTION,
         reference_points=_INTERSECTION_COUNT_PER_KM_REFERENCE_POINTS,
-        value_sql="em.intersection_count / (re.distance_m / 1000.0)",
+        value_sql=per_km_value_sql("em.intersection_count"),
         coverage=EdgeMaterialCoverageSpec(
                 present_condition=_EDGE_COUNTS_PRESENT_CONDITION,
                 source=_EDGE_COUNTS_SOURCE,
@@ -643,8 +645,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_encoding=TileEncoding(round_digits=2, omit_zero=True),
         primary_attribute=ATTR_ACCIDENT_POINT,
         reference_points=_ACCIDENT_COUNT_PER_KM_YEAR_REFERENCE_POINTS,
-        value_sql="CASE WHEN :accident_years > 0 "
-        "THEN em.accident_count / (re.distance_m / 1000.0) / :accident_years END",
+        value_sql=f"CASE WHEN :accident_years > 0 THEN {per_km_value_sql('em.accident_count')} / :accident_years END",
         coverage=EdgeMaterialCoverageSpec(
                 present_condition=_EDGE_COUNTS_PRESENT_CONDITION,
                 source=_EDGE_COUNTS_SOURCE,
@@ -1077,6 +1078,24 @@ def tile_column_sql(spec: MaterialSpec) -> str:
         value = f"NULLIF({value}, 0)"
     if encoding.round_digits is not None or encoding.double:
         value = f"({value})::double precision"
+    return value
+
+
+def tile_property_value(spec: MaterialSpec, value: object) -> object:
+    """材料の値`value`を`tile_column_sql`が焼いたときにタイルへ載る値。Noneはキーごと載らない。
+
+    丸めはPostgreSQLの`round(numeric)`に合わせる: 倍精度を有効数字15桁でnumericへ移し、0から遠い側へ丸める
+    （Pythonの`round`は偶数の側へ丸め、2進の誤差も拾うので、1.25が1.2になる）。
+    """
+    if value is None:
+        return None
+    if spec.dtype == "boolean":
+        return True if value else None
+    encoding = spec.tile_encoding
+    if encoding.round_digits is not None:
+        value = float(Decimal(f"{value:.15g}").quantize(Decimal(1).scaleb(-encoding.round_digits), ROUND_HALF_UP))
+    if encoding.omit_zero and value == 0:
+        return None
     return value
 
 

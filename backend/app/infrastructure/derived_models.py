@@ -35,7 +35,7 @@ from app.infrastructure.orm_base import DERIVED, Base
 from app.domain.landcover import PERCENT_CLASSES, landcover_key
 from app.domain.traffic import DIRECTIONS, NODE_KINDS, POI_COUNT_KINDS, poi_count_column
 
-#: 数えた値は負にならない。未計算はNULLで表すので、0と取り違える余地も無い。
+#: 数えた値は負にならない。0は数えた結果の「1つも無い」で、値が無いNULLとは別の値として持つ。
 #: 件数は小数を持つ——区間の端に乗るものは前後の区間が0.5ずつ持つ（`batch/derive_counts.py`）。
 _COUNT_COLUMNS = ("accident_count", "intersection_count") + tuple(
     poi_count_column(kind) for kind in sorted(POI_COUNT_KINDS))
