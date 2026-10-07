@@ -2714,6 +2714,11 @@
           },
           "dtype": {
             "type": "string",
+            "enum": [
+              "numeric",
+              "boolean",
+              "categorical"
+            ],
             "title": "Dtype"
           },
           "unit": {
@@ -4296,6 +4301,11 @@
             "title": "Kind",
             "default": "loop"
           },
+          "spliceable": {
+            "type": "boolean",
+            "title": "Spliceable",
+            "default": false
+          },
           "direction_label": {
             "type": "string",
             "title": "Direction Label"
@@ -4452,6 +4462,7 @@
         "required": [
           "id",
           "kind",
+          "spliceable",
           "direction_label",
           "is_fastest",
           "distance_km",

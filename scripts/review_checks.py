@@ -91,10 +91,19 @@ TASKFLOW_PREFIXES = tuple(
 #: 越えた周期だけ鳴らすと、分類で閾値を決めなかったファイルが以後+15%の成長でしか
 #: 鳴らなくなり、周期ごとの複利で黙って膨らむ。
 LARGE_FILE_LINES = 1000
-#: 前回比の発火（+15%）に要る増分の下限。小さいファイルは数十行の増分でも率が大きく出る。
+#: 前回比の発火の増加率（%）。個別閾値の見直しも同じ率を縮む側に当てる。
+GROWTH_PERCENT = 15
+#: 前回比の発火に要る増分の下限。小さいファイルは数十行の増分でも率が大きく出る。
 GROWTH_MIN_LINES = 50
-#: 個別閾値は自動では下がらない。到達率がこれを下回ったら、下げるか外すかを判断する。
-THRESHOLD_SLACK_RATIO = 0.5
+#: 個別閾値の刻み。閾値は今の行数+GROWTH_PERCENTをこの刻みへ切り上げた値に置く。
+THRESHOLD_STEP_LINES = 100
+
+
+def fitted_threshold(lines: int) -> int:
+    """今の行数に置く個別閾値。個別閾値は自動では下がらないので、置いた閾値がこれより
+    緩くなったら（縮んだ）見直しに出し、下げるか外すかを判断する。"""
+    step = THRESHOLD_STEP_LINES
+    return -(-lines * (100 + GROWTH_PERCENT) // (100 * step)) * step
 
 
 def git(*args: str, check: bool = True) -> str:
@@ -308,7 +317,7 @@ def cmd_size(args: argparse.Namespace) -> int:
             continue
         p = prev.get(f)
         reasons = []
-        if p is not None and p > 0 and (cur - p) / p >= 0.15 and cur - p >= GROWTH_MIN_LINES:
+        if p is not None and p > 0 and (cur - p) * 100 >= GROWTH_PERCENT * p and cur - p >= GROWTH_MIN_LINES:
             reasons.append(f"+{(cur - p) / p * 100:.0f}%")
         if th is None and cur >= LARGE_FILE_LINES:
             reasons.append(f"{LARGE_FILE_LINES:,}行以上・閾値未設定")
@@ -316,8 +325,8 @@ def cmd_size(args: argparse.Namespace) -> int:
             reasons.append(f"閾値{th:,}超過")
         if reasons:
             fired.append(f)
-        if th and cur / th < THRESHOLD_SLACK_RATIO:
-            slack.append(f"{f}（{cur / th:.0%}）")
+        if th and th > fitted_threshold(cur):
+            slack.append(f"{f}（{th}→{fitted_threshold(cur)}）")
         delta = f"{cur - p:+d}" if p is not None else "新規"
         rate = f"{cur / th:.0%}" if th else "-"
         print(f"| {f} | {cur:,} | {p if p is not None else '-'} | {delta} | {th or '-'} | "
@@ -327,7 +336,8 @@ def cmd_size(args: argparse.Namespace) -> int:
     for f in fired:
         if f in on_fire:
             print(f"  - {f} の既定の対応: {on_fire[f]}")
-    print(f"閾値の見直し（到達率{THRESHOLD_SLACK_RATIO:.0%}未満・削除済み） {len(slack)}件: "
+    print(f"閾値の見直し（今の行数+{GROWTH_PERCENT}%を{THRESHOLD_STEP_LINES}行に切り上げた値より緩い・削除済み） "
+          f"{len(slack)}件: "
           + (", ".join(slack) if slack else "なし"))
     if not base_sha:
         print("（周期レビューのタグが無いため前回比は出していない）")

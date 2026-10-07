@@ -4,6 +4,8 @@
 実DBとの一致は`backend/scripts/schema_gap.py`が測る。
 """
 
+import importlib
+
 from sqlalchemy import MetaData
 from sqlalchemy.orm import DeclarativeBase
 
@@ -24,18 +26,23 @@ class Base(DeclarativeBase):
     pass
 
 
+#: 表を宣言するモジュールの全部。足し忘れは`tests/structure/test_table_modules.py`が落とす（`Base.metadata`の
+#: 中身は同じ実行でほかに誰がimportしたかで変わるので、テストの集まりの中では欠けが出ない）。
+TABLE_MODULES = (
+    "app.infrastructure.axis_definition_models",
+    "app.infrastructure.derived_data_meta",
+    "app.infrastructure.derived_models",
+    "app.infrastructure.source_models",
+    "app.infrastructure.tuning_overrides",
+)
+
+
 def declared_metadata() -> MetaData:
     """ORMが宣言する全表を載せた`Base.metadata`。
 
     `Base.metadata`には**importしたモジュールの表しか載らない**。全表を見る側（スキーマの作成・
-    実DBとの突き合わせ・バックアップ）は、呼び出し側のimport次第で表が静かに欠けないよう、ここを通す。
+    実DBとの突き合わせ・バックアップ・テストの片付け）は、呼び出し側のimport次第で表が静かに欠けないよう、ここを通す。
     """
-    from app.infrastructure import (  # noqa: F401
-        axis_definition_models,
-        derived_data_meta,
-        derived_models,
-        source_models,
-        tuning_overrides,
-    )
-
+    for module in TABLE_MODULES:
+        importlib.import_module(module)
     return Base.metadata

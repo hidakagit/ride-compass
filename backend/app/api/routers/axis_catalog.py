@@ -39,7 +39,7 @@ from app.domain.axis_definitions import (
     published_axis_definitions,
     weather_layer_groups_for,
 )
-from app.domain.material_catalog import MATERIAL_CATALOG, tile_runtime_scales
+from app.domain.material_catalog import MATERIAL_CATALOG, MaterialDType, tile_runtime_scales
 from app.domain.axis_raw_value import RawValueUnits, axis_material_shares, raw_value_units
 from app.domain.dynamic_way_values import WayValueConditionName
 from app.domain.map_paint import MapPaint, map_paint
@@ -83,8 +83,8 @@ class AxisMaterialBreakdownEntry(StrictModel):
     material_id: str
     #: 材料の表示名（`MaterialSpec.label`）。フロントは対応表を持たない。
     label: str
-    #: 値の型。`numeric`＝距離加重平均＋単位、`boolean`＝該当区間の延長割合。
-    dtype: str
+    #: 値の型。`numeric`＝距離加重平均＋単位、`boolean`＝該当区間の延長割合、`categorical`＝値ごとの延長割合。
+    dtype: MaterialDType
     #: numeric材料の単位。真偽値材料は空文字。
     unit: str
     #: 各階層で正規化した重みの積（0〜1）。並び順の根拠を画面側でも示せるよう返す。

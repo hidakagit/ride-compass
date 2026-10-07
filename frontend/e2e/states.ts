@@ -336,10 +336,18 @@ export async function clickVisible(page: Page, lngLat: readonly [number, number]
 export async function splice(page: Page, width: WidthName): Promise<void> {
   const result = routeGenerateResponseFixture();
   result.routes = [
-    makeRouteCandidate({ ...routeThrough(SPLICE_PLACES, ["S", "N1", "N2", "D"]), id: "route-1", distance_km: 3.1 }),
+    makeRouteCandidate({
+      ...routeThrough(SPLICE_PLACES, ["S", "N1", "N2", "D"]),
+      id: "route-1",
+      kind: "destination",
+      spliceable: true,
+      distance_km: 3.1,
+    }),
     makeRouteCandidate({
       ...routeThrough(SPLICE_PLACES, ["S", "N1", "VIA", "N2", "D"]),
       id: "route-2",
+      kind: "destination",
+      spliceable: true,
       distance_km: 3.6,
     }),
   ];

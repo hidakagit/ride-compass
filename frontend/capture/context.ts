@@ -35,7 +35,7 @@ export interface CaptureContext {
   expect: typeof expect;
   /** e2e/fixtures.ts の段取りと応答（openMobileSheet・generateRoutes・doneJobFixture 等）。 */
   fixtures: typeof fixtures;
-  /** e2e/states.ts の全状態の走査の段取り（installSpliceMocks・splice 等）。 */
+  /** e2e/states.ts の全状態の走査の段取り（installScanMocks・splice 等）。 */
   states: typeof states;
   /** src/testing/catalogAxes.ts の軸の雛形（catalogEntry・rampEntry 等）。モックの軸カタログを組むときに fixtures.axisCatalogFixture へ渡す。 */
   catalogAxes: typeof catalogAxes;
