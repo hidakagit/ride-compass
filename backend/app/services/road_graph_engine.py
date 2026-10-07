@@ -52,7 +52,6 @@ from app.domain.geo import (
     bearing_between_array,
     compass_degrees,
     compass_label,
-    haversine_distance_km,
 )
 from app.domain.graph import LeanEdge, edge_key, node_key, parse_edge_key
 from app.domain.region import BoundingBox, bbox_covering_points
@@ -74,11 +73,11 @@ from app.domain.route_search import (
     DETOUR_RATIO_MIN_ROAD_M,
     LOOP_MAX_OVERLAP_RATIO,
     MAX_DESTINATION_CORRECTION_KM,
-    RETRACE_PENALTY_MULTIPLIER,
     TURNAROUND_MAX_OVERLAP_RATIO,
     TURNAROUND_RELAXED_OVERLAP_RATIO,
     VIA_NODE_MAX_OVERLAP_RATIO,
     VIA_NODE_RELAXED_OVERLAP_RATIO,
+    EdgePassage,
     alternative_via_nodes,
     best_first,
     heuristic_seconds,
@@ -88,7 +87,10 @@ from app.domain.route_search import (
     order_by_bearing_spread,
     pick_better_candidate,
     rank_by_pareto_layers,
+    retrace_penalized,
     reverse_leg_assignment,
+    ring_closeness_m,
+    route_passages,
     straight_distances_m,
     turnaround_ring_m,
     turnaround_separation,
@@ -113,16 +115,19 @@ from app.domain.routing import (
     overlap_ratio,
     physical_overlap_ratio,
     select_diverse_by_overlap,
-    time_bin_of,
     turn_expanded_path_edge_indices,
     turn_expanded_path_from_state,
     turn_expanded_path_from_state_to_source,
     turn_expanded_shortest_path,
 )
 from app.domain.wind import (
-    ROUTE_DETOUR_RATIO,
+    cruise_hours,
+    detour_ratio_or_default,
     estimate_passage_hours,
+    is_usable_detour_ratio,
     kmh_to_ms,
+    reached_or_estimated_hours,
+    straight_line_hours,
 )
 from app.infrastructure import detour_ratio_cache
 from app.infrastructure.debug_log import log_throttled_warning
@@ -147,20 +152,6 @@ _MAX_RING_CANDIDATES_EXAMINED = 4000
 _MAX_VIA_NODE_CANDIDATES_EXAMINED = 2000
 
 logger = logging.getLogger("ridecompass.graph")
-
-
-@dataclass(frozen=True)
-class _EdgePassage:
-    """経路上の1区間を、探索と同じ規則でたどったときの時刻。"""
-
-    # 探索がこの区間に使った時刻ビン。
-    time_bin: int
-    # 出発から、この区間に入るまでの秒（走行と、曲がる待ちを含む）。到達予想はこれから出す。
-    elapsed_seconds: float
-    # この区間を走る秒（探索と同じビンの値。有限でなければ巡航速度で走ったものとして数える）。
-    seconds: float
-    # レグの時刻ビンの範囲の先で、最後のビンをそのまま使った区間。
-    beyond_bins: bool
 
 
 @dataclass
@@ -340,7 +331,7 @@ class RoadGraphEngine:
         composer = LegCostComposer(
             score_matrix, self._route_preference.weights, self._penalty_strength, hard_filter_excluded, departure_wind,
             wind_series, start, self._assumed_speed_kmh, lazy_graph.edge_rows,
-            detour_ratio=learned_detour_ratio if learned_detour_ratio is not None else ROUTE_DETOUR_RATIO,
+            detour_ratio=detour_ratio_or_default(learned_detour_ratio),
             twilight_origin=origin,
         )
         outbound = composer.compose("outbound", origin, 0.0, +1)
@@ -498,7 +489,7 @@ class RoadGraphEngine:
                 else:
                     leg = context.composer.compose(
                         f"leg{leg_index}", _node_coordinates(context, from_node),
-                        cumulative_m / 1000 / context.composer.speed_kmh, +1,
+                        cruise_hours(cumulative_m / 1000, context.composer.speed_kmh), +1,
                     )
                     context.legs.append(leg)
                 segment_path = turn_expanded_shortest_path(
@@ -605,14 +596,11 @@ class RoadGraphEngine:
         # 復路レグ: 起点へ向かうレグとして、周回の総所要時間（目標距離÷仮定速度）を起点への
         # 到着予定時刻に置いて合成する（距離フィルタが目標±許容を強制するため定数扱いできる）。
         inbound = context.composer.compose(
-            "inbound", context.origin, distance_km / context.composer.speed_kmh, -1,
+            "inbound", context.origin, cruise_hours(distance_km, context.composer.speed_kmh), -1,
             duration_hours=leg_duration_hours(distance_km, context.composer.speed_kmh),
         )
         context.legs = [context.legs[0], inbound]
-        closeness_key = np.abs(ring_length - ring_center_m)
-        # 第1指標に往路実距離そのものではなくリング中心からのずれを使うのは、周回では
-        # 距離が「短いほど良い」ではなく「目標に近いほど良い」ためで、これにより目標より
-        # 短すぎる往路（起点のすぐ近くで折り返す周回）も長すぎる往路も対称に扱われる。
+        closeness_key = ring_closeness_m(ring_length, ring_center_m)
         ranking = rank_by_pareto_layers(
             ring, closeness_key, tree.node_cost[ring], tree.node_seconds[ring], self._penalty_strength,
             max_items=pool_size, max_examined=_MAX_RING_CANDIDATES_EXAMINED, tie_by_distance=True,
@@ -716,9 +704,8 @@ class RoadGraphEngine:
         # 往路レグを、起点→目的地の見込み所要時間ぶんの時刻ビンで組み直す。
         outbound = context.composer.compose(
             "outbound", context.origin, 0.0, +1,
-            duration_hours=(
-                context.composer.detour_ratio * haversine_distance_km(context.origin, destination)
-                / context.composer.speed_kmh
+            duration_hours=straight_line_hours(
+                context.origin, destination, context.composer.speed_kmh, context.composer.detour_ratio,
             ),
         )
         context.legs = [outbound]
@@ -778,8 +765,8 @@ class RoadGraphEngine:
         inbound_detour_ratio = _learn_detour_ratio(context, detour_ratio_median)
         # 後ろ向き木は目的地へ向かうレグ: 目的地を基準点に、到着予定時刻を
         # 「起点〜目的地の直線距離×迂回率÷仮定速度」に置いて合成する。
-        arrival_hours = (
-            inbound_detour_ratio * haversine_distance_km(context.origin, destination) / context.composer.speed_kmh
+        arrival_hours = straight_line_hours(
+            context.origin, destination, context.composer.speed_kmh, inbound_detour_ratio,
         )
         # 後ろ向き木は時刻ラベルを持てない（目的地から遡るため各状態の到達時刻が決まらない）。
         # 代わりに、前向き木が出した「起点からその区間へ実際に到達する時間」を通過時刻として
@@ -794,7 +781,7 @@ class RoadGraphEngine:
         )
         inbound = context.composer.compose(
             "inbound", destination, arrival_hours, -1,
-            passage_hours=np.where(np.isfinite(forward_hours), forward_hours, fallback_hours),
+            passage_hours=reached_or_estimated_hours(forward_hours, fallback_hours),
         )
         context.legs = [context.legs[0], inbound]
         backward_tree = await asyncio.to_thread(
@@ -988,7 +975,7 @@ class RoadGraphEngine:
         penalized_columns = np.fromiter(penalized, dtype=np.int64, count=len(penalized))
         original = cost_bins[:, penalized_columns].copy()
         try:
-            cost_bins[:, penalized_columns] = original * RETRACE_PENALTY_MULTIPLIER
+            cost_bins[:, penalized_columns] = retrace_penalized(original)
             return_edge_index_list = turn_expanded_shortest_path(
                 context.turn_structure, cost_bins, heuristic_seconds(_origin_estimate(context), context.composer.speed_kmh),
                 _origin_states(context.statics, data.node),
@@ -1058,7 +1045,7 @@ class RoadGraphEngine:
         total_m = sum(lengths)
         leg_of_edge = leg_of_edge_by_half(lengths)
         if max(leg_of_edge) > 0 and len(context.legs) < 2:
-            total_hours = total_m / 1000 / context.composer.speed_kmh
+            total_hours = cruise_hours(total_m / 1000, context.composer.speed_kmh)
             context.legs = [
                 context.legs[0],
                 context.composer.compose(
@@ -1220,60 +1207,12 @@ class RoadGraphEngine:
 
     def _route_passages(
         self, context: _RoadGraphContext, edges: list[LeanEdge], path: list[int], leg_of_edge: list[int]
-    ) -> list[_EdgePassage]:
-        """経路を探索と同じ規則でたどり、区間ごとに時刻ビンと出発からの秒を決める。
-
-        探索（`domain/routing.py`の前向きDijkstra・A*）はレグの中の経過時間でビンを選ぶ: レグの最初の区間は
-        ビン0、次の区間は前の区間を抜けた時点（曲がる待ちを足す前）の経過時間のビン。区間ごとの秒は、探索の
-        コストの下地になっている配列（`LegCostArrays.travel_bins_lazy`、走行モデル＋停止の待ち）を
-        そのビンで読む——表示の時刻と探索の時刻を別々に計算すると、片方だけ直したときに静かに食い違う。
-        出発からの秒は、レグをまたいで走行と曲がる待ち（`TurnExpandedStructure`）を積む。
-
-        走行時間が有限でない区間は巡航速度で走ったものとして数える——0にすると所要時間が
-        実態より短く出る。
-        """
-        fallback_ms = kmh_to_ms(context.composer.speed_kmh)
-        waits = self._turn_waits_along(context, path)
-        passages: list[_EdgePassage] = []
-        elapsed = 0.0
-        leg_elapsed = 0.0
-        previous_leg: int | None = None
-        for i, (edge, index, leg_index) in enumerate(zip(edges, path, leg_of_edge)):
-            leg = context.legs[leg_index]
-            if leg_index != previous_leg:
-                leg_elapsed = 0.0
-                previous_leg = leg_index
-            bin_count = leg.travel_bins_lazy.shape[0]
-            time_bin = time_bin_of(leg_elapsed, leg.bin_seconds, bin_count)
-            seconds = float(
-                leg.travel_seconds_full[_slice_row(context, index)] if bin_count == 1
-                else leg.travel_bins_lazy[time_bin, index]
-            )
-            if not np.isfinite(seconds):
-                seconds = edge.distance_m / fallback_ms
-            passages.append(_EdgePassage(
-                time_bin=time_bin, elapsed_seconds=elapsed, seconds=seconds,
-                beyond_bins=bin_count > 1 and leg_elapsed >= bin_count * leg.bin_seconds,
-            ))
-            wait = waits[i] if i < len(waits) else 0.0
-            leg_elapsed += seconds + (wait if i + 1 < len(edges) and leg_of_edge[i + 1] == leg_index else 0.0)
-            elapsed += seconds + wait
-        return passages
-
-    def _turn_waits_along(self, context: _RoadGraphContext, path: list[int]) -> list[float]:
-        """経路に沿った遷移ごとのターンの待ち（秒、区間の数−1個）。遷移は`TurnExpandedStructure`から引く。
-        区間の番号がそのまま探索の状態。"""
-        structure = context.turn_structure
-        states = path
-        waits: list[float] = []
-        for previous, following in zip(states, states[1:]):
-            wait = 0.0
-            for entry in range(structure.indptr[previous], structure.indptr[previous + 1]):
-                if structure.target_state[entry] == following:
-                    wait = float(structure.turn_seconds[entry])
-                    break
-            waits.append(wait)
-        return waits
+    ) -> list[EdgePassage]:
+        """経路を探索と同じ規則でたどった区間ごとの時刻（`domain/route_search.py: route_passages`）。"""
+        return route_passages(
+            context.legs, context.turn_structure, path, [_slice_row(context, index) for index in path],
+            [edge.distance_m for edge in edges], leg_of_edge, context.composer.speed_kmh,
+        )
 
     def _build_segment_details(
         self,
@@ -1389,7 +1328,7 @@ class RoadGraphEngine:
 
 
 def _values_at_passages(
-    context: _RoadGraphContext, rows: list[int], leg_of_edge: list[int], passages: list[_EdgePassage]
+    context: _RoadGraphContext, rows: list[int], leg_of_edge: list[int], passages: list[EdgePassage]
 ) -> dict[int, tuple[RowValues, int]]:
     """ビンが2本以上あるレグの区間を、探索が使ったビンの時刻で合成し直す（区間の添字→（値, 値の中の位置））。
     同じレグ・同じビンの区間はまとめて1回で合成する。"""
@@ -1407,7 +1346,7 @@ def _values_at_passages(
     return timed
 
 
-def _passage_hours_of(context: _RoadGraphContext, row: int, leg_index: int, passage: _EdgePassage) -> float | None:
+def _passage_hours_of(context: _RoadGraphContext, row: int, leg_index: int, passage: EdgePassage) -> float | None:
     """その区間の評価に使った通過時刻（出発からの経過[h]）。出発時点の値で合成したレグはNone。"""
     leg = context.legs[leg_index]
     if leg.bin_start_hours:
@@ -1505,7 +1444,7 @@ def _median_detour_ratio(context: _RoadGraphContext, node_indices: np.ndarray, l
 def _learn_detour_ratio(context: _RoadGraphContext, measured: float) -> float:
     """実測の迂回率が有効なら探索範囲（タイル集合）の学習値として保存し、そのまま返す。
     無効（NaN・非正）なら合成に使っている現在の値（学習値または既定値）を返す。"""
-    if not math.isfinite(measured) or measured <= 0:
+    if not is_usable_detour_ratio(measured):
         return context.composer.detour_ratio
     detour_ratio_cache.set_detour_ratio(context.tile_set, measured)
     return measured

@@ -16,9 +16,10 @@ from app.domain.geo import (
     haversine_distance_km_array,
     km_per_degree_longitude,
 )
+from app.domain.leg_costs import LegCostArrays
 from app.domain.route import RouteCandidate
-from app.domain.routing import pareto_layer_index
-from app.domain.wind import kmh_to_ms
+from app.domain.routing import TurnExpandedStructure, pareto_layer_index, time_bin_of
+from app.domain.wind import cruise_hours, kmh_to_ms
 
 # --- フロンティア方式の折返し点選定・復路探索 ---
 # 復路探索の間、往路Edge（＋同一Node対の逆方向Edge）のコストへ掛ける倍率。infにはしない
@@ -91,6 +92,20 @@ def turnaround_ring_m(distance_km: float, tolerance_km: float) -> tuple[float, f
         lower_m = max(0.0, (target_m - tolerance_m) / 2.0)
         upper_m = (target_m + tolerance_m) / 2.0
     return lower_m, upper_m, target_m / RING_CENTER_RATIO
+
+
+def ring_closeness_m(ring_length_m: np.ndarray, ring_center_m: float) -> np.ndarray:
+    """折返し点候補の往路実距離の、リング中心からのずれ（m）。候補の並べ方（`rank_by_pareto_layers`）の第1指標。
+
+    往路実距離そのものではなく中心からのずれを使うのは、周回では距離が「短いほど良い」ではなく「目標に
+    近いほど良い」ためで、目標より短すぎる往路（起点のすぐ近くで折り返す周回）も長すぎる往路も対称に扱われる。
+    """
+    return np.abs(ring_length_m - ring_center_m)
+
+
+def retrace_penalized(costs: np.ndarray) -> np.ndarray:
+    """復路探索の間に、往路の区間（と同じNode対の逆向きの区間）へ置くコスト。"""
+    return costs * RETRACE_PENALTY_MULTIPLIER
 
 
 @dataclass(frozen=True)
@@ -245,6 +260,7 @@ def leg_of_edge_by_half(weights: Sequence[float]) -> list[int]:
 
     区間より前の重み（走行秒か距離）の累積が全体の半分に届いていなければ往路、届いていれば復路
     ——レグが表す「走り始めの時刻帯／走り終わりの時刻帯」の近似が入れ替わる点として中間を採る。
+    重みが全部0の経路（長さ0の区間だけ）は全部を復路にする（距離の重みが無く、どちらでも結果に効かない）。
     """
     half = sum(weights) / 2
     leg_of_edge, travelled = [], 0.0
@@ -255,8 +271,82 @@ def leg_of_edge_by_half(weights: Sequence[float]) -> list[int]:
 
 
 def leg_duration_hours(route_km: float, speed_kmh: float) -> float:
-    """1本のレグの見込み所要時間（時間）。レグは経路の半分なので、全長の半分を巡航速度で割る。"""
-    return route_km / 2 / speed_kmh
+    """1本のレグの見込み所要時間（時間）。レグは経路の半分なので、全長の半分を巡航速度で走るとみなす。"""
+    return cruise_hours(route_km / 2, speed_kmh)
+
+
+@dataclass(frozen=True)
+class EdgePassage:
+    """経路の1区間を、探索と同じ規則でたどった時刻（`route_passages`）。"""
+
+    # 探索がこの区間に使った時刻ビン。
+    time_bin: int
+    # 出発から、この区間に入るまでの秒（走行と、曲がる待ちを含む）。到達予想はこれから出す。
+    elapsed_seconds: float
+    # この区間を走る秒（探索と同じビンの値。有限でなければ巡航速度で走ったものとして数える）。
+    seconds: float
+    # レグの時刻ビンの範囲の先で、最後のビンをそのまま使った区間。
+    beyond_bins: bool
+
+
+def turn_waits_along(structure: TurnExpandedStructure, path: Sequence[int]) -> list[float]:
+    """経路に沿った遷移ごとのターンの待ち（秒、区間の数−1個）。区間の番号がそのまま探索の状態。"""
+    waits: list[float] = []
+    for previous, following in zip(path, path[1:]):
+        wait = 0.0
+        for entry in range(structure.indptr[previous], structure.indptr[previous + 1]):
+            if structure.target_state[entry] == following:
+                wait = float(structure.turn_seconds[entry])
+                break
+        waits.append(wait)
+    return waits
+
+
+def route_passages(
+    legs: Sequence[LegCostArrays],
+    structure: TurnExpandedStructure,
+    path: Sequence[int],
+    rows: Sequence[int],
+    distances_m: Sequence[float],
+    leg_of_edge: Sequence[int],
+    speed_kmh: float,
+) -> list[EdgePassage]:
+    """経路を探索と同じ規則でたどり、区間ごとに時刻ビンと出発からの秒を決める。
+
+    `path`は区間の番号（探索の行）、`rows`は同じ区間の切り出した区間の行、`distances_m`は区間の長さ。
+    探索（`domain/routing.py`の前向きDijkstra・A*）はレグの中の経過時間でビンを選ぶ: レグの最初の区間は
+    ビン0、次の区間は前の区間を抜けた時点（曲がる待ちを足す前）の経過時間のビン。区間ごとの秒は、探索の
+    コストの下地になっている配列（`LegCostArrays.travel_bins_lazy`、走行モデル＋停止の待ち）を
+    そのビンで読む——表示の時刻と探索の時刻を別々に計算すると、片方だけ直したときに静かに食い違う。
+    出発からの秒は、レグをまたいで走行と曲がる待ち（`TurnExpandedStructure`）を積む。
+
+    走行時間が有限でない区間は巡航速度で走ったものとして数える——0にすると所要時間が
+    実態より短く出る。
+    """
+    fallback_ms = kmh_to_ms(speed_kmh)
+    waits = turn_waits_along(structure, path)
+    passages: list[EdgePassage] = []
+    elapsed = 0.0
+    leg_elapsed = 0.0
+    previous_leg: int | None = None
+    for i, (index, row, distance_m, leg_index) in enumerate(zip(path, rows, distances_m, leg_of_edge)):
+        leg = legs[leg_index]
+        if leg_index != previous_leg:
+            leg_elapsed = 0.0
+            previous_leg = leg_index
+        bin_count = leg.travel_bins_lazy.shape[0]
+        time_bin = time_bin_of(leg_elapsed, leg.bin_seconds, bin_count)
+        seconds = float(leg.travel_seconds_full[row] if bin_count == 1 else leg.travel_bins_lazy[time_bin, index])
+        if not np.isfinite(seconds):
+            seconds = distance_m / fallback_ms
+        passages.append(EdgePassage(
+            time_bin=time_bin, elapsed_seconds=elapsed, seconds=seconds,
+            beyond_bins=bin_count > 1 and leg_elapsed >= bin_count * leg.bin_seconds,
+        ))
+        wait = waits[i] if i < len(waits) else 0.0
+        leg_elapsed += seconds + (wait if i + 1 < len(path) and leg_of_edge[i + 1] == leg_index else 0.0)
+        elapsed += seconds + wait
+    return passages
 
 
 def best_first(ranked: list[int], best: int) -> list[int]:

@@ -71,7 +71,7 @@ Edgeコストは「探索範囲の静的Edge×公開軸スコア行列＋リク�
 
 時刻ラベルを持てない探索（目的地から遡る木）はレグの中間地点が入るビンを代表として読む。
 **表示（区間の値・到達予想・所要）は代表ビンを読まない**——経路を探索と同じ規則でたどり
-（`_route_passages`: レグの最初の区間はビン0、次の区間は前の区間を抜けた時点［曲がる待ちを足す前］の
+（`domain/route_search.py: route_passages`: レグの最初の区間はビン0、次の区間は前の区間を抜けた時点［曲がる待ちを足す前］の
 経過時間のビン、区間の秒はそのビンの`travel_bins_lazy`）、区間ごとに探索が使ったビンを決める。
 到達予想と所要はこのたどりの時計（走行モデル＋停止の待ち＋曲がる待ち）で出すので、最後の区間の
 到達予想＋その区間の秒が所要に一致する。ビンが2本以上あるレグの区間は、経路上の行だけをそのビンの
@@ -98,7 +98,9 @@ Edgeコストは「探索範囲の静的Edge×公開軸スコア行列＋リク�
 （`direction=+1`は基準点から離れるレグ、`-1`は基準点へ向かうレグで`offset_hours`が到着予定時刻）。
 ビンを刻むレグは各ビンの開始時刻を全区間の通過時刻として合成し、時刻ラベルを持てない目的地から遡る木だけは
 区間ごとの通過時刻（`passage_hours`。前向き木の実際の到達時間、届かない区間だけ
-`domain/wind.py: estimate_passage_hours`の直線距離からの推定）で1本に合成する。
+`domain/wind.py: estimate_passage_hours`の直線距離からの推定。選び方は`reached_or_estimated_hours`）で1本に合成する。
+レグの時刻を置く見込み（全長の半分・起点〜目的地の道なり距離を巡航速度で走るとみなす）は`domain/wind.py: cruise_hours`の1つの模型で、
+起点〜目的地は`straight_line_hours`。
 
 **時刻ビンごとに行うのは、その時刻の風と昼夜に依る計算だけ**。時刻に依らない計算——走行モデルの出力と速度に
 依らない抵抗（`domain/cycling_speed.py: SegmentSpeedModel`）・停止の待ち——はリクエストに1回だけ求めて
@@ -140,10 +142,10 @@ Edgeコストは「探索範囲の静的Edge×公開軸スコア行列＋リク�
 リクエストごとに送られ、通過予定時刻と風の材料`wind_drag_ratio`（走行速度依存）の
 両方に効く。迂回率（道なり距離÷直線距離）は定数ではなく実測値を使う。直線距離を走行時間へ直す係数
 として使うもので、`prepare`が同じ探索範囲（範囲を覆う`DETOUR_RATIO_SHARING_ZOOM`のタイル集合を鍵にする）で前回学習した値
-（無ければ`ROUTE_DETOUR_RATIO`）を合成器へ渡す。往路木を求めるたびに実測の中央値
+（無ければ`ROUTE_DETOUR_RATIO`。`domain/wind.py: detour_ratio_or_default`）を合成器へ渡す。往路木を求めるたびに実測の中央値
 （周回はリングNode、目的地ルートは起点から`DETOUR_RATIO_MIN_ROAD_M`以上の到達Node）を測って
 `detour_ratio_cache.set_detour_ratio`へ学習値として保存し（`domain/route_search.py: median_detour_ratio`・
-`_learn_detour_ratio`）、目的地ルートの後ろ向きレグはその場で測った値で到着予定時刻を置く。
+`_learn_detour_ratio`。NaN・非正の実測は使わない＝`domain/wind.py: is_usable_detour_ratio`）、目的地ルートの後ろ向きレグはその場で測った値で到着予定時刻を置く。
 **周回の復路レグは迂回率を読まない**——総所要時間は目標距離÷仮定速度で決まる（距離
 フィルタが目標±許容を強制する）。運用時は`_build_search_graph`のINFOサマリ
 （`time_varying`・`speed_kmh`・`detour_ratio=値(learned|default)`）、
@@ -174,7 +176,7 @@ Edgeコストは「探索範囲の静的Edge×公開軸スコア行列＋リク�
 
 第1層だけでは候補が数件にしかならない（2次元のパレートフロントは点の数が増えても
 ほとんど大きくならない）ため、プールが埋まるまで層を重ねる。第1指標が往路実距離そのもの
-ではなくリング中心からのずれなのは、周回では距離が「短いほど良い」ではなく「目標に近い
+ではなくリング中心からのずれ（`domain/route_search.py: ring_closeness_m`）なのは、周回では距離が「短いほど良い」ではなく「目標に近い
 ほど良い」ため——目標より短すぎる往路（起点のすぐ近くで折り返す周回）も長すぎる往路も
 対称に扱う。目的地ルートは目標距離を持たないため、そちらは経路長そのものを第1指標にする
 （`select_via_nodes`）。
@@ -532,7 +534,7 @@ Nodeを「リング」として抽出する。**距離は最短実距離では�
 
 往路は一対全木上の経路そのもの（`turn_expanded_path_edge_indices`で復元、A*での再探索はしない
 ——同じコスト配列でA*をかけ直しても同じ経路になるため）。復路探索の間だけ、往路Edge＋
-同一Node対の逆方向Edgeのコストを共有`cost_lazy`上で`RETRACE_PENALTY_MULTIPLIER`倍へ
+同一Node対の逆方向Edgeのコストを共有`cost_lazy`上で`RETRACE_PENALTY_MULTIPLIER`倍（`domain/route_search.py: retrace_penalized`）へ
 **差し替え**（infにはしない——復路が往路を戻る以外に道が無い区間[袋小路等]は通れる必要が
 ある）、A*（復路の目的地は常に起点のため、ヒューリスティック配列はリクエストで1回だけ
 計算し全候補で共有する）で探索した後、`try`/`finally`で元の値へ復元する。この差し替えはawaitを挟まない同期区間で完結し、復路探索が同期・直列実行
