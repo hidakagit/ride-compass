@@ -178,14 +178,15 @@ describe("地点", () => {
     expect(onOriginPlace).toHaveBeenCalledWith(A);
     expect(result.current.routeMode).toBe("loop");
 
+    // 経由地は地図のタップなら置いたあとも置く状態を続けるので、検索で置いたときに解けるかはここで分かる。
+    act(() => result.current.armPinRole("waypoint"));
     act(() => result.current.placeFound("waypoint", B));
     expect(result.current.routeMode).toBe("destination");
     expect(result.current.waypoints).toEqual([B]);
+    expect(result.current.armedPinRole).toBeNull();
 
-    act(() => result.current.armPinRole("waypoint"));
     act(() => result.current.placeFound("destination", C));
     expect(result.current.destination).toEqual(C);
-    expect(result.current.armedPinRole).toBeNull();
   });
 
   it("地点は保存せず、開き直すと置いていない状態から始まる", () => {
