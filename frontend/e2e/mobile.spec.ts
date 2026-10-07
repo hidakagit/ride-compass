@@ -1,6 +1,13 @@
 import { expect, test } from "@playwright/test";
 import { catalogEntry, tileInput } from "@/testing/catalogAxes";
-import { MOBILE_VIEWPORT, axisCatalogFixture, openMobileApp } from "./fixtures";
+import {
+  MOBILE_VIEWPORT,
+  axisCatalogFixture,
+  doneJobFixture,
+  generateRoutes,
+  openMobileApp,
+  routeGenerateResponseFixture,
+} from "./fixtures";
 
 // モバイル（390px）で、要素が幅に収まり押せること（パターン4 観点1）。要素は画面外へ
 // 出てもアクセシビリティツリーに残るため、役割・名前では捕まらない。幅と座標を実測する。
@@ -85,4 +92,55 @@ test("モバイル: レンズの凡例が、段階の細かい軸でも幅に収
 
   expect(rows.length).toBeGreaterThan(0);
   expect(rows.filter((row) => row.overflowPx > 0 || row.beyondViewportPx > 0)).toEqual([]);
+});
+
+/** 候補0件の理由。1行に収まらない長さにして、折り返した全体が見えるかを見る（本番の文は使わない）。 */
+const LONG_NO_CANDIDATES_REASON =
+  "出発地の近くに、条件に合う道路がありませんでした。距離を変えるか、除外した道路の種類を減らしてから試してください。";
+
+// 押した「生成」の結果の1行は、「ルート設定」の本文をどこまで送っていても、▷を押したその場で読める所に出る。
+// 本文の中に置くと、送った分だけ画面の外へ出てもアクセシビリティツリーには残るので、座標で見る。
+test("モバイル: 候補0件の理由が、「ルート設定」の本文を下へ送っても見出しの下で幅に収まって見える", async ({
+  page,
+}) => {
+  await openMobileApp(page, {
+    // 本文が箱に収まらず送れる高さ（いちばん低いシート）にする（高さを決めていないと中身に合わせて伸びる）。
+    storedState: { "ridecompass:mobile-sheet-height-vh": "20" },
+    routes: (page) =>
+      page.route("**/api/routes/generate/*", (route) =>
+        route.fulfill({
+          json: doneJobFixture({
+            ...routeGenerateResponseFixture(),
+            routes: [],
+            no_candidates_reason: LONG_NO_CANDIDATES_REASON,
+          }),
+        }),
+      ),
+  });
+  const sheet = await generateRoutes(page);
+  const note = sheet.getByText(LONG_NO_CANDIDATES_REASON);
+  await expect(note).toBeVisible();
+
+  // 本文（スクロールする箱）を一番下まで送る。
+  const scrolled = await sheet.evaluate((dialog) => {
+    const body = [...dialog.querySelectorAll<HTMLElement>("*")].find(
+      (el) => getComputedStyle(el).overflowY === "auto" && el.scrollHeight > el.clientHeight,
+    );
+    if (!body) return false;
+    body.scrollTop = body.scrollHeight;
+    return true;
+  });
+  expect(scrolled).toBe(true);
+
+  const placement = await note.evaluate((el) => {
+    const box = el.getBoundingClientRect();
+    const dialogBox = el.closest('[role="dialog"]')?.getBoundingClientRect();
+    const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+    return {
+      insideSheet: dialogBox !== undefined && box.top >= dialogBox.top && box.bottom <= dialogBox.bottom,
+      withinWidth: box.left >= 0 && box.right <= window.innerWidth && el.scrollWidth <= el.clientWidth,
+      onTop: hit !== null && el.contains(hit),
+    };
+  });
+  expect(placement).toEqual({ insideSheet: true, withinWidth: true, onTop: true });
 });
