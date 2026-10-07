@@ -1,10 +1,10 @@
 /**
- * `PlaceSearch/PlaceSearch.tsx`——住所を入れて引き、候補（表示名・種類・当たった段）を並べ、選んだ候補を出発地・経由地・
- * 目的地のどれかとして置く。置いたあとは、当たった段が粗ければピンを直すように出す。引けないとき・当たらないときはそう出す。
+ * `PlaceSearch/PlaceSearch.tsx`——住所を入れて引き、候補（表示名・種類・当たった段）を並べ、選んだ候補を目的地・出発地・
+ * 経由地のどれかとして置く。置いたあとは、当たった段が粗ければピンを直すように出す。引けないとき・当たらないときはそう出す。
+ * 経由地が上限なら経由地には置けない。地図に重ねて出す一覧と案内は閉じられる。
  *
  * ここで見ないもの:
  * - 周回で経由地・目的地を選んだときのモードの切り替えと、置ける状態を解くこと → `features/route/useGenerationConditions.test.ts`
- * - 経由地が上限のときに経由地を選べないこと → `RouteForm/RouteForm.test.tsx`（上限かを決めるのは`RouteForm`）
  * - 置いた地点へ地図を寄せること・地図の上でピンを動かすこと → `e2e/map-runtime.spec.ts`
  *
  * 差し替えたもの: 検索の口の応答（網の層）。
@@ -33,9 +33,9 @@ const AZA: PlaceCandidate = {
   longitude: 139.764,
 };
 
-function renderSearch() {
+function renderSearch({ waypointsFull = false } = {}) {
   const onPlace = vi.fn();
-  render(<PlaceSearch onPlace={onPlace} waypointsFull={false} />);
+  render(<PlaceSearch onPlace={onPlace} waypointsFull={waypointsFull} />);
   return { onPlace };
 }
 
@@ -59,7 +59,7 @@ describe("PlaceSearch", () => {
     ).toEqual([`${BLOCK.name}住所街区・地番`, `${AZA.name}住所字・丁目`]);
 
     await userEvent.click(within(list).getByRole("button", { name: new RegExp(AZA.name) }));
-    await userEvent.click(screen.getByRole("button", { name: "目的地にする" }));
+    await userEvent.click(screen.getByRole("button", { name: "目的地へ" }));
 
     expect(onPlace).toHaveBeenCalledExactlyOnceWith("destination", {
       latitude: AZA.latitude,
@@ -73,12 +73,28 @@ describe("PlaceSearch", () => {
     // 街区まで当たった地点は、直せることだけを出す。
     await searchFor("1-9");
     await userEvent.click(await screen.findByRole("button", { name: new RegExp(BLOCK.name) }));
-    await userEvent.click(screen.getByRole("button", { name: "経由地にする" }));
+    await userEvent.click(screen.getByRole("button", { name: "経由地へ" }));
 
     expect(onPlace).toHaveBeenLastCalledWith("waypoint", { latitude: BLOCK.latitude, longitude: BLOCK.longitude });
     expect(screen.getByRole("status")).toHaveTextContent(
       `「${BLOCK.name}」を経由地に足しました。地図のピンをつかんで動かすと直せます。`,
     );
+
+    // 案内は地図に重なるので、閉じて地図を空けられる。
+    await userEvent.click(screen.getByRole("button", { name: "検索の結果を閉じる" }));
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("経由地が上限なら経由地には置けず、ほかの役割には置ける", async () => {
+    onBackend("GET", "/api/place-search", () => Response.json({ candidates: [BLOCK] }));
+    const { onPlace } = renderSearch({ waypointsFull: true });
+
+    await searchFor("丸の内");
+    await userEvent.click(await screen.findByRole("button", { name: new RegExp(BLOCK.name) }));
+
+    expect(screen.getByRole("button", { name: "経由地は上限まで置いてあります" })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: "出発地へ" }));
+    expect(onPlace).toHaveBeenCalledExactlyOnceWith("origin", { latitude: BLOCK.latitude, longitude: BLOCK.longitude });
   });
 
   it("当たらなければそう出し、検索が使えなければ口の文を出す", async () => {

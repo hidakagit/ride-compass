@@ -166,7 +166,7 @@ test("住所の検索で目的地に置いた地点は地図のその位置に�
   await page.getByRole("searchbox", { name: "住所で探す" }).fill("王子");
   await page.getByRole("searchbox", { name: "住所で探す" }).press("Enter");
   await page.getByRole("button", { name: new RegExp(candidate.name) }).click();
-  await page.getByRole("button", { name: "目的地にする" }).click();
+  await page.getByRole("button", { name: "目的地へ" }).click();
 
   // ピンの位置（印の要素の中心）が、地図がその地点を描く位置にある。寄せる動きが終わるまで待つ。
   const pin = page.locator(".maplibregl-marker", { hasText: "⚑" });
