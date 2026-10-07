@@ -109,7 +109,8 @@ class TrackGrade(NamedTuple):
     value: str
     label: str
     surface_class: str
-    #: 地図の凡例の行が開く説明。OSMの定義（Key:tracktype）の中身を利用者の言葉にしたもの。
+    #: 地図の凡例の行が開く説明の、意味の文（末尾の句点と元のタグは凡例の行が添える）。OSMの定義（Key:tracktype）の
+    #: 中身を利用者の言葉にしたもの。
     description: str
 
 
@@ -118,23 +119,23 @@ class TrackGrade(NamedTuple):
 TRACK_GRADES: tuple[TrackGrade, ...] = (
     TrackGrade(
         "grade1", "1 舗装・固く締まる", "paved",
-        "固い路面の農道・林道。多くは舗装されている[OSM の tracktype=grade1]。",
+        "固い路面の農道・林道。多くは舗装されている",
     ),
     TrackGrade(
         "grade2", "2 砂利[未舗装]", "gravel",
-        "おおむね固い未舗装の農道・林道。砂や土の混じった砂利道が多い[OSM の tracktype=grade2]。",
+        "おおむね固い未舗装の農道・林道。砂や土の混じった砂利道が多い",
     ),
     TrackGrade(
         "grade3", "3 砂利と土が半々", "gravel",
-        "固い部分と柔らかい部分が半々の未舗装の農道・林道[OSM の tracktype=grade3]。",
+        "固い部分と柔らかい部分が半々の未舗装の農道・林道",
     ),
     TrackGrade(
         "grade4", "4 土・草が主", "soil",
-        "土・砂・草が主で、固い部分が少し混じる未舗装の農道・林道[OSM の tracktype=grade4]。",
+        "土・砂・草が主で、固い部分が少し混じる未舗装の農道・林道",
     ),
     TrackGrade(
         "grade5", "5 土・草・砂", "soil",
-        "固い材料が無く、締まっていない土・砂・草の農道・林道[OSM の tracktype=grade5]。",
+        "固い材料が無く、締まっていない土・砂・草の農道・林道",
     ),
 )
 

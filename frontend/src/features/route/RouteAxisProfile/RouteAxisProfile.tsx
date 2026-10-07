@@ -10,6 +10,12 @@ import { formatAxisRawValue, formatCategoryBreakdown, formatMaterialBreakdown } 
 import { textVariants } from "@/components/ui/Text/Text";
 import { cn } from "@/lib/cn";
 import { formatDifficulty, formatLoad } from "@/lib/mapDisplay/valueScale";
+import routeGenerateConfig from "@/types/generated/route-generate-config.json";
+
+/** 区間ごとに速度を変える条件の名前（backendの走行モデルが宣言する並び）。 */
+const SPEED_CONDITIONS = routeGenerateConfig.segment_speed_conditions.join("・");
+/** 総合難易度（平均）と負荷（総量）の数え方の文。backendが式の横で持つ。 */
+const DIFFICULTY_WORDING = routeGenerateConfig.overall_difficulty_wording;
 
 interface RouteAxisProfileProps {
   /** 公開軸すべて（軸カタログの順序・ラベルの正本）。重みによる絞り込みは行わない。 */
@@ -114,7 +120,7 @@ export default function RouteAxisProfile({
               <span className={textVariants({ variant: "hint" })}>/100</span>
               <InfoPopover triggerAriaLabel="総合難易度の説明">
                 <p>
-                  区間ごとの難しさを距離で重みづけて平均した値です。長く走っても難しさが同じなら増えません。
+                  {DIFFICULTY_WORDING.average}
                   評価軸の重み配分を反映していて、下の内訳の合計とほぼ一致します。候補の一覧は、最速ルートのほかは所要時間の短い順に並びます。
                 </p>
               </InfoPopover>
@@ -125,8 +131,8 @@ export default function RouteAxisProfile({
                 <span className="text-[1.05rem] font-semibold">{formatDurationShort(estimatedDurationSeconds)}</span>
                 <InfoPopover triggerAriaLabel="所要時間の説明">
                   <p>
-                    走行時間[勾配・風・想定した巡航速度から区間ごとに計算]に、信号などで止まる
-                    待ちと、交差点で曲がる待ちを足した見積もりです。実際の信号のタイミングや 走り方で変わります。
+                    {`走行時間[${SPEED_CONDITIONS}と想定した巡航速度から区間ごとに計算]に、`}
+                    信号などで止まる待ちと、交差点で曲がる待ちを足した見積もりです。実際の信号のタイミングや走り方で変わります。
                   </p>
                 </InfoPopover>
               </span>
@@ -138,13 +144,13 @@ export default function RouteAxisProfile({
               <span className="text-[1.05rem] font-semibold">{formatLoad(overallDifficulty.load)}</span>
               <InfoPopover triggerAriaLabel="負荷の説明">
                 <p>
-                  総合難易度に距離を掛けた総量で、走り切るまでのしんどさの目安です。
-                  平均は遠回りして難所を避けるほど下がりますが、負荷は走った分だけ増えます。
+                  {DIFFICULTY_WORDING.load}
                   難所を通っても短いルートと、遠回りで易しいルートを見比べるときに使ってください。
                 </p>
                 <p>
                   上のグラフは横が距離、縦が区間ごとの難易度で、塗られた面積がこの負荷にあたります
-                  [色ごとの面積がその評価軸の負荷]。灰色は値の無い区間で、平均の高さで数えています。
+                  [色ごとの面積がその評価軸の負荷]。灰色は値の無い区間で、平均の高さで描いています。
+                  {DIFFICULTY_WORDING.missing}
                 </p>
               </InfoPopover>
             </span>

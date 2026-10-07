@@ -27,27 +27,15 @@
 """
 
 import asyncio
-import math
 
+from app.domain.dynamic_way_values import bearing_bucket
 from app.infrastructure import tile_persistent_cache
 
 _KEY_PREFIX = "dynway"
 
-BEARING_BUCKET_DEG = 5
-
 # 勾配の入力は道路の向きと標高で決まりほぼ不変のため、鮮度の制約が無い。長く持って
 # DBへの再問い合わせを抑える。正本を持たないキャッシュで、期限切れ後は再計算されるだけ。
 _TTL_SECONDS = 24 * 3600
-
-
-def bearing_bucket(bearing_deg: float) -> int:
-    """向き（度、範囲外は正規化）をバケット番号へ丸める。360度は0度と同じバケットになる。
-
-    組み込み`round()`は偶数への銀行丸めで境界のバケット幅が理論値からずれるため、
-    `math.floor(x+0.5)`で境界幅を均一にする。
-    """
-    normalized = bearing_deg % 360
-    return math.floor(normalized / BEARING_BUCKET_DEG + 0.5) % (360 // BEARING_BUCKET_DEG)
 
 
 def _key(

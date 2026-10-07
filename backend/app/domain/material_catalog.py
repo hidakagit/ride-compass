@@ -33,8 +33,6 @@ from pydantic import ConfigDict, Field, field_validator, model_validator
 from app.domain.landcover import (
     LANDCOVER_CLASSES,
     LANDCOVER_RING_OUTER_M,
-    LULC_BARE,
-    LULC_FLOODED_VEG,
     LandcoverClass,
     landcover_key,
     landcover_tile_property,
@@ -501,18 +499,11 @@ _SMOOTHNESS_VALUE_LABELS: dict[str, str] = {
 }
 
 
-#: 表示名だけでは何を含むか読み取れないクラスの補足。材料の説明文で表示名の後ろへ括弧書きで添える。
-_LANDCOVER_CLASS_NOTES: dict[int, str] = {
-    LULC_BARE: "河川敷・造成地等",
-    LULC_FLOODED_VEG: "冠水植生",
-}
-
-
 def _landcover_description(cls: LandcoverClass) -> str:
-    note = _LANDCOVER_CLASS_NOTES.get(cls.value)
+    """表示名だけでは何を含むか読み取れないので、地図の凡例と同じ分類の説明を添える。"""
     return (
         "衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、"
-        f"道路周囲{LANDCOVER_RING_OUTER_M:g}mリング内の{cls.label}{f'（{note}）' if note else ''}の割合(%)。"
+        f"道路周囲{LANDCOVER_RING_OUTER_M:g}mリング内の{cls.label}の割合(%)。{cls.label}は、{cls.description}"
     )
 
 

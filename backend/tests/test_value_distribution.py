@@ -1,6 +1,5 @@
 """`domain/value_distribution.py`——延長で重み付けた分布（`weighted_distribution`）・分位点（`weighted_quantiles`）・
-分位点とゼロの割合（`weighted_spread`）、
-`services/axis_preview_service.py`——軸の下書きの形で道の標本から求める生値の分布（`raw_value_distribution`）。
+分位点とゼロの割合（`weighted_spread`）と、軸の下書きの形で道の標本から求める生値の分布（`raw_value_distribution`）。
 
 ここで見ないもの:
 - 軸の生値（重み付き和・欠損・前処理・対応表の軸に生値が無いこと） → `test_axis_definitions.py`
@@ -11,8 +10,12 @@
 import pytest
 
 from app.domain.axis_definitions import BreakpointLinearShape, MaterialTerm
-from app.domain.value_distribution import weighted_distribution, weighted_quantiles, weighted_spread
-from app.services.axis_preview_service import raw_value_distribution
+from app.domain.value_distribution import (
+    raw_value_distribution,
+    weighted_distribution,
+    weighted_quantiles,
+    weighted_spread,
+)
 
 
 def test_quantiles_weight_by_length_not_by_way_count():

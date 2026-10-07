@@ -19,9 +19,10 @@ from hypothesis import assume, given
 from hypothesis import strategies as st
 from shapely.geometry import box
 
+from app.domain.jma_area import NEAREST_LIMIT_DEG
 from app.infrastructure import jma_area_boundaries
 
-LIMIT = jma_area_boundaries.NEAREST_LIMIT_DEG
+LIMIT = NEAREST_LIMIT_DEG
 
 #: 経度方向に長い矩形（緯度35.6〜35.7・経度139.6〜139.9）を東西に分けた区域。緯度と経度を取り違えると外れる。
 WEST = box(139.6, 35.6, 139.75, 35.7)

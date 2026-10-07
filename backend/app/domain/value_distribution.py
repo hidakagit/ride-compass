@@ -6,6 +6,7 @@
 
 import numpy as np
 
+from app.domain.axis_definitions import AxisShape, raw_values, referenced_materials
 from app.domain.strict_model import StrictModel
 
 # 生値のヒストグラムの階級数。フロントが折れ点を当てはめる粒度で、細かすぎても
@@ -101,3 +102,13 @@ def weighted_spread(pairs: list[tuple[float, float]]) -> ValueSpread:
     return ValueSpread(
         quantiles=weighted_quantiles(pairs, _QUANTILE_TARGETS, digits=3), zero_share=round(zero_share, 5)
     )
+
+
+def raw_value_distribution(shape: AxisShape, sample: list[tuple[float, dict[str, object]]]) -> ValueDistribution:
+    """道の標本（`(長さm, 材料id→値)`）から、`shape`の生値の延長で重み付けた分布。生値を出せない道は数えない。"""
+    material_ids = referenced_materials(shape, [])
+    values = raw_values(
+        shape, {m: [materials.get(m) for _, materials in sample] for m in material_ids}, len(sample)
+    )
+    pairs = [(length_m, value) for (length_m, _), value in zip(sample, values) if value is not None]
+    return weighted_distribution(pairs)

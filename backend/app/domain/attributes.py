@@ -36,6 +36,8 @@ class ElevationAttribute(StrictModel):
 # 超えた区間は値を持たせず「データなし」にする——0次ハードフィルタは値の無い区間を
 # 除外しない（`domain/hard_filters.py`）ので、誤った値で黙って経路から外すより安全側になる。
 MAX_PLAUSIBLE_AVERAGE_GRADE_PERCENT = 40.0
+#: 平均勾配（%）を保存・配信する桁。
+AVERAGE_GRADE_DECIMALS = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,6 +199,6 @@ SELECT osm_way_id, segment_index,
                    ELSE gain END)::numeric, 1)  AS elevation_gain_m,
        round((CASE WHEN on_structure THEN greatest(start_e - end_e, 0)
                    ELSE loss END)::numeric, 1)  AS elevation_loss_m,
-       round(avg_g::numeric, 2) AS average_grade
+       round(avg_g::numeric, {AVERAGE_GRADE_DECIMALS}) AS average_grade
 FROM raw
 """
