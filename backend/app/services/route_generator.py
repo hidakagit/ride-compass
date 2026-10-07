@@ -75,8 +75,10 @@ def _label(
     kind: RouteKind,
     name: str | None = None,
     fastest: RouteCandidate | None = None,
+    *,
+    spliceable: bool,
 ) -> list[RouteCandidate]:
-    """候補へ応答のid・種類・名前・最速の印をまとめて付ける。候補を返す経路はすべて最後にここを通る。
+    """候補へ応答のid・種類・名前・最速の印・乗り換えの可否をまとめて付ける。候補を返す経路はすべて最後にここを通る。
 
     idは種類と並びの位置から作り、応答の中で一意になる。`name`を渡さなければエンジンが方位から付けた名前のまま。
     最速の印は`fastest`と同じオブジェクトの1本にだけ付く。
@@ -86,6 +88,7 @@ def _label(
             "id": f"{kind}-{rank:02d}",
             "kind": kind,
             "is_fastest": candidate is fastest,
+            "spliceable": spliceable,
             **({"direction_label": name} if name is not None else {}),
         })
         for rank, candidate in enumerate(candidates)
@@ -281,7 +284,7 @@ class RouteGenerator:
         # 同点は上記の「目標距離に近い順」を安定ソートで引き継ぐ。
         candidates.sort(key=_difficulty_order)
         # 名前はエンジンが方位から付けたもの（同じ方位に複数並びうるので、idは並びの位置から作る）。
-        candidates = _label(candidates, "loop")
+        candidates = _label(candidates, "loop", spliceable=False)
         evaluate_ms = round((time.monotonic() - evaluate_started) * 1000)
         total_ms = round((time.monotonic() - started) * 1000)
 
@@ -353,7 +356,10 @@ class RouteGenerator:
         evaluate_started = time.monotonic()
         candidates = await self._evaluate_and_aggregate(context, [traced], start_time)
         # 常に1本で順位を持たないので、画面は番号でなくこの名前を出す。
-        candidates = _label(candidates, "waypoints", "目的地ルート" if destination is not None else "経由地ルート")
+        candidates = _label(
+            candidates, "waypoints", "目的地ルート" if destination is not None else "経由地ルート",
+            spliceable=destination is not None,
+        )
         evaluate_ms = round((time.monotonic() - evaluate_started) * 1000)
         total_ms = round((time.monotonic() - started) * 1000)
 
@@ -412,7 +418,7 @@ class RouteGenerator:
 
         evaluate_started = time.monotonic()
         candidates = await self._evaluate_and_aggregate(context, [traced], start_time)
-        candidates = _label(candidates, "spliced", "組み合わせたルート")
+        candidates = _label(candidates, "spliced", "組み合わせたルート", spliceable=True)
         evaluate_ms = round((time.monotonic() - evaluate_started) * 1000)
         logger.info(
             "generate(spliced) origin=%s edges=%d -> distance_km=%.1f "
@@ -501,6 +507,7 @@ class RouteGenerator:
         # 印も同じ理由で、比べる相手が残ったときだけ付ける（1本だけなら何とも比べない）。
         candidates = _label(
             candidates, "destination", "目的地ルート", fastest=baseline if len(candidates) >= 2 else None,
+            spliceable=True,
         )
         evaluate_ms = round((time.monotonic() - evaluate_started) * 1000)
         total_ms = round((time.monotonic() - started) * 1000)

@@ -5,6 +5,8 @@
 // 単位が定まらない軸（合成軸・真偽値の軸）はbackendが軸カタログの`raw_value_units.unit`にnullを返すため、
 // ここへは来ない。
 
+import type { AxisMaterialBreakdown } from "@/lib/catalogAxis";
+
 /**
  * 表示文を組み立てる。`rawValue`は距離加重平均の生値、`distanceKm`は経路の走行距離。
  *
@@ -49,7 +51,7 @@ function formatNumber(value: number): string {
  * 呼び出し側が飛ばす。
  */
 export function formatMaterialBreakdown(
-  entry: { label: string; dtype: string; unit: string },
+  entry: Pick<AxisMaterialBreakdown, "label" | "dtype" | "unit">,
   value: number | undefined,
 ): string | null {
   if (value == null) return null;

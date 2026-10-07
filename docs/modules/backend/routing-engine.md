@@ -391,11 +391,12 @@ import済みの参照が古い辞書を指したままになる）。差し替�
 ## 応答の候補のid・種類・最速の印
 
 候補のid・種類（`kind`: 周回`loop`・経由地`waypoints`・目的地`destination`・合成`spliced`）・方位を持たない候補の名前・
-最速の印（`is_fastest`）は、どの入口でも並べ終えた最後に`route_generator.py: _label`が1か所で付ける。idは
+最速の印（`is_fastest`）・乗り換えの元にできるか（`spliceable`。目的地を持つ生成の候補だけで、上の`spliced_edge_ids`が
+`destination`を要るのと同じ条件）は、どの入口でも並べ終えた最後に`route_generator.py: _label`が1か所で付ける。idは
 `<種類>-<並びの位置>`（例: `loop-00`・`destination-01`）で、応答の中で一意になる（同じ方位に複数候補が並びうるため、
 方位からは作らない）。エンジン（`_build_candidate`）は並びも種類も知らないので、方位を持つ候補の`direction_label`
 （`domain/geo.py: compass_label`）だけを付け、idと種類は`RouteCandidate`の既定のまま返す。画面は一覧の群・名前・
-最速を種類と印だけで決め、idの文字列や要求の形から決め直さない。
+最速と乗り換えの入口を種類と印だけで決め、idの文字列や要求の形から決め直さない。
 
 ## RoadGraphEngine（`road_graph_engine.py`）
 

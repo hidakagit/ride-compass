@@ -884,8 +884,11 @@ export interface components {
             material_id: string;
             /** Label */
             label: string;
-            /** Dtype */
-            dtype: string;
+            /**
+             * Dtype
+             * @enum {string}
+             */
+            dtype: "numeric" | "boolean" | "categorical";
             /** Unit */
             unit: string;
             /** Share */
@@ -1460,6 +1463,11 @@ export interface components {
              * @enum {string}
              */
             kind: "loop" | "waypoints" | "destination" | "spliced";
+            /**
+             * Spliceable
+             * @default false
+             */
+            spliceable: boolean;
             /** Direction Label */
             direction_label: string;
             /**
