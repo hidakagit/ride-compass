@@ -186,23 +186,27 @@ def _arrays_row(count: int, values: dict[str, list] | None = None) -> _Row:
 
 
 async def test_material_values_land_in_the_matrix_of_their_dtype():
-    """真偽と分類を数値の行列へ混ぜられないため、dtypeで3つに分かれる。"""
-    numeric_ids, boolean_ids, categorical_ids = material_array_columns()
-    assert numeric_ids and boolean_ids and categorical_ids, "dtypeごとの材料が揃っていない"
-    numeric, boolean, categorical = numeric_ids[0], boolean_ids[0], categorical_ids[0]
-    repo, _ = _repo([_arrays_row(2, {numeric: [1.5, None], boolean: [True, None],
-                                     categorical: ["value_a", None]})])
+    """分類を数値の行列へ混ぜられないため、数値と分類の2つに分かれる。真偽は数値の行列に1.0/0.0で載る。"""
+    numeric_ids, categorical_ids = material_array_columns()
+    boolean = next(m for m in numeric_ids if MATERIAL_CATALOG[m].dtype == "boolean")
+    numeric = next(m for m in numeric_ids if MATERIAL_CATALOG[m].dtype == "numeric")
+    assert categorical_ids, "分類の材料が無い"
+    categorical = categorical_ids[0]
+    repo, _ = _repo([_arrays_row(3, {numeric: [1.5, None, None], boolean: [True, False, None],
+                                     categorical: ["value_a", None, None]})])
 
-    arrays = await repo.get_edge_material_arrays([1, 1], [0, 1], [True, True], 5)
+    arrays = await repo.get_edge_material_arrays([1, 1, 1], [0, 1, 2], [True, True, True], 5)
 
     assert arrays.columns()[numeric][0] == 1.5
     # 欠損は0ではなくNaN。0で埋めると「値が無い」が「一番良い値」として採点される。
     assert np.isnan(arrays.columns()[numeric][1])
-    assert arrays.columns()[boolean].tolist() == [True, False]
+    # 真偽の欠損（道の生データが無い区間）も、非該当（0.0）ではなく不明（NaN）。
+    assert arrays.columns()[boolean][:2].tolist() == [1.0, 0.0]
+    assert np.isnan(arrays.columns()[boolean][2])
     # 分類の材料は語彙への番号の列で、値へ戻すと行ごとの値（値なしはNone）になる。
     column = arrays.columns()[categorical]
     assert isinstance(column, CategoricalColumn)
-    assert [column.value_at(row) for row in range(len(column))] == ["value_a", None]
+    assert [column.value_at(row) for row in range(len(column))] == ["value_a", None, None]
 
 
 async def test_hard_filter_flags_are_named_by_their_filter():

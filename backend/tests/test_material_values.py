@@ -141,6 +141,16 @@ async def test_a_tag_with_the_value_is_true_and_an_absent_tag_is_false(road_grap
     assert values == {1: True, 2: False, 3: False}
 
 
+async def test_a_tag_condition_is_unknown_where_the_road_has_no_raw_way(road_graph_session):
+    """取込で消えた道を、派生を作り直すまで区間が指し続ける（区間の材料の読み手は`w`を外部結合する）。
+    道が無いことは、タグが無いこと（非該当）ではない。"""
+    row = await road_graph_session.execute(text(
+        f"SELECT ({material_sql.tag_is_value_sql('tag_a', 'yes')})"
+        f" FROM (VALUES (1)) AS edge(id) LEFT JOIN {WAYS_SOURCE_SQL} w ON false"))
+
+    assert row.scalar_one() is None
+
+
 async def test_a_cycleway_value_on_any_side_counts(road_graph_session):
     values = await _way_values(road_graph_session, material_sql.cycleway_has_value_sql("value_a", "value_b"), {
         1: {"cycleway:both": " Value_B "},

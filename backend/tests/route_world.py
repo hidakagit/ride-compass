@@ -103,7 +103,6 @@ def grid_network(
         edge_max_lon=np.maximum(lon[tail], lon[head]), edge_max_lat=np.maximum(lat[tail], lat[head]),
         numeric_ids=(BAD_MATERIAL, GRADIENT_PERCENT, *stop_count_material_ids()),
         numeric_values=np.column_stack([bad, gradient, *(stop_count for _ in stop_count_material_ids())]),
-        boolean_ids=(), boolean_values=np.zeros((n, 0), dtype=bool),
         categorical_ids=(ROLLING_RESISTANCE_MATERIAL_ID,), categorical_codes=np.ones((n, 1), dtype=np.int16),
         categorical_vocab=((None, UNKNOWN_ROAD_SURFACE.key),),
         hard_filter_ids=hard_filter_ids, hard_filter_flags=flags,

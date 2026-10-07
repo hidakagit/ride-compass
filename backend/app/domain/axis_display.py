@@ -81,10 +81,11 @@ def _boolean_terms_thresholds(weights: list[float], cap: float) -> list[float]:
 
 def _boolean_score_tile_input(spec: MaterialSpec, true_score: float, false_score: float) -> TileInputSpec:
     """真偽値の材料をタイル入力へ写す。**真偽値の入力を作るのはここだけ**——タイルに値が
-    無いことが「不明」を意味するか「false」を意味するかは材料の`bool_default`だけが知って
-    おり、組み立てが2か所に分かれると片方が灰色の不明帯を落とす。
+    無いことが「不明」を意味するか「false」を意味するかは材料の`coverage.missing_semantics`だけが
+    知っており、組み立てが2か所に分かれると片方が灰色の不明帯を落とす。タイルは道の生データのある道
+    だけを載せるので、効くのはタグの不在の意味だけになる。
     """
-    has_unknown_fallback = spec.bool_default == "nan"
+    has_unknown_fallback = spec.coverage.missing_semantics == "unknown"
     assert spec.tile_property is not None  # 呼び出し元で保証済み
     return TileInputSpec(
         property=spec.tile_property,

@@ -85,15 +85,15 @@ MaterialColumn = np.ndarray | CategoricalColumn
 
 @dataclass(frozen=True, slots=True)
 class EdgeMaterialArrays:
-    """区間の材料を、**dtypeごとに1つの2次元配列**で保持する表現。
+    """区間の材料を、**数値（真偽を含む）は1つの2次元配列**で保持する表現。
 
     値はDBが導出したものをそのまま受ける（`MaterialSpec.value_sql`）。
     区間ごとのPythonオブジェクトを経由しない。
 
     材料ごとに別々の配列を持たず、`StaticEdgeScoreMatrix`と同じ「値の行列＋idの並び」の形に
     する。材料が増えてもフィールドは増えず、列の追加は`*_ids`が1つ伸びるだけになる。
-    dtypeで3つに分かれるのは、真偽とカテゴリを数値の行列へ混ぜられないため（分け方は
-    `MaterialSpec.dtype`と`bool_default`が決める。`material_array_group`が唯一の判定）。
+    数値と分類の2つに分かれるのは、カテゴリを数値の行列へ混ぜられないため（真偽の材料は数値の行列に
+    1.0/0.0/NaNで載る。分け方は`material_catalog.material_array_columns`が唯一の判定）。
     カテゴリは列ごとに語彙が違うため、行列ではなく列ごとの`CategoricalColumn`で持つ。
 
     0次ハードフィルタの生フラグを同じ1回のクエリで求めてここへ持たせるのは、別に引くと
@@ -106,8 +106,6 @@ class EdgeMaterialArrays:
 
     numeric_ids: tuple[str, ...]
     numeric_values: np.ndarray  # shape=(n, len(numeric_ids)), float64, NaN=欠損
-    boolean_ids: tuple[str, ...]
-    boolean_values: np.ndarray  # shape=(n, len(boolean_ids)), bool
     categorical_ids: tuple[str, ...]
     categorical_columns: tuple[CategoricalColumn, ...]  # categorical_idsと同じ並び
     # 0次ハードフィルタの生フラグ。フィルタ名がそのまま列で、`domain/hard_filters.py:
@@ -130,7 +128,6 @@ class EdgeMaterialArrays:
         """材料id→その列。行列の列はビューのためコピーしない。"""
         return {
             **{m: self.numeric_values[:, i] for i, m in enumerate(self.numeric_ids)},
-            **{m: self.boolean_values[:, i] for i, m in enumerate(self.boolean_ids)},
             **dict(zip(self.categorical_ids, self.categorical_columns, strict=True)),
         }
 
