@@ -15,7 +15,7 @@ from app.infrastructure.vector_tile import ROAD_SURFACE_LAYER_NAME, encode_empty
 from app.infrastructure.media_types import MVT_CONTENT_TYPE
 from app.infrastructure.region_tile_cache import TileResponse, serve_region_tile
 from app.services.dedicated_way_values import DirectionalMaterialService
-from app.services.tile_version_service import current_tile_versions, served_tile_version
+from app.services.tile_version_service import current_tile_versions, prune_other_tile_generations, served_tile_version
 
 # z・x・yとその範囲（経度・緯度）から、PostGISが生成したタイル1枚を返す読み出し。
 _TileReader = Callable[[int, int, int, BoundingBox], Awaitable[bytes | None]]
@@ -45,6 +45,11 @@ class RegionService:
         タイムアウトが違う。
         """
         return await current_tile_versions(self._repository)
+
+    async def prune_other_tile_generations(self) -> int:
+        """いま配っていない世代の地域タイル（路面・点・土地被覆）をディスクから消し、消した数を返す
+        （`services/tile_version_service.py`）。"""
+        return await prune_other_tile_generations(self._repository)
 
     async def _tile_from_repository(
         self, read_tile: _TileReader, z: int, x: int, y: int, fields: dict

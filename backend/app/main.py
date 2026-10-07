@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.admin_db_errors import install_admin_db_unavailable_handler
 from app.api.cache_policy import CachePolicyMiddleware
-from app.api.dependencies import get_amedas_service, get_ingested_area, get_jma_tile_client
+from app.api.dependencies import get_amedas_service, get_jma_tile_client, open_region_service
 from app.api.finite_json_body import reject_non_finite_json_body
 from app.api.routers import api_router
 from app.config import settings
@@ -23,7 +23,6 @@ from app.infrastructure.debug_control import install_ring_buffer_handler
 from app.infrastructure.http_client import get_http_client
 from app.infrastructure import road_network_store
 from app.infrastructure.region_tile_cache import PRUNE_INTERVAL_HOURS
-from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.infrastructure.msm_client import refresh as refresh_msm
 from app.infrastructure.process_resources import close_process_resources
 from app.infrastructure.request_log import (
@@ -37,7 +36,6 @@ from app.infrastructure.jma_amedas_client import AMEDAS_REFRESH_INTERVAL_MINUTES
 from app.services.axis_registry_service import refresh_axis_definitions
 from app.services.tuning_service import refresh_tuning_values
 from app.services.jma_tile_prewarm_service import prewarm_jma_tiles
-from app.services.tile_version_service import prune_other_tile_generations
 
 logging.basicConfig(level=logging.DEBUG if settings.debug_mode else logging.INFO)
 for _handler in logging.getLogger().handlers:
@@ -82,8 +80,9 @@ async def _refresh_amedas_job() -> None:
 
 
 async def _prewarm_jma_tile_job() -> None:
-    """対象範囲が読めなければ温めない（原因は`get_ingested_area`がWARNINGで残す）。"""
-    area = await get_ingested_area()
+    """対象範囲が読めなければ温めない（原因は`RegionService.get_ingested_area`がWARNINGで残す）。"""
+    async with open_region_service() as region_service:
+        area = await region_service.get_ingested_area()
     if area is not None:
         await prewarm_jma_tiles(get_jma_tile_client(), area)
 
@@ -112,8 +111,8 @@ async def _prune_stale_disk_generations_job() -> None:
 
 async def _prune_stale_region_tiles_job() -> None:
     """いま配っていない世代の地域タイル（路面・点・土地被覆）をディスクから消す。"""
-    async with get_session_factory()() as session:
-        removed = await prune_other_tile_generations(RoadGraphRepository(session))
+    async with open_region_service() as region_service:
+        removed = await region_service.prune_other_tile_generations()
     if removed:
         logging.getLogger("ridecompass.disk_generation_prune").info(
             "地域タイルの旧世代を削除しました removed=%d", removed

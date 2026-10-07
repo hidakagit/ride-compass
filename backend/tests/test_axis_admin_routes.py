@@ -13,8 +13,8 @@
 ここで見るのは、口ごとの受け渡し（無い軸・断られた書き込みを状態コードへ変えること・
 応答に地図表示を添えること）と、ルーターが自分で持つ検証（URLと本文の軸の一致・配信の実装の有無）。
 
-**ルーターが名前空間に持つ外向きの参照は差し替える**——軸の集合・配信実装の有無・分布の計算（DB）。
-どれも読むだけなので、応答を差し替えるだけで呼ばれ方は見ない。
+**ルーターが名前空間に持つ外向きの参照は差し替える**——軸の集合・配信実装の有無。注入するサービス（軸の書き込み・
+分布の計算（DB））は依存の差し替えで与える。どれも読むだけなので、応答を差し替えるだけで呼ばれ方は見ない。
 地図表示の導出（domain）と材料カタログは本物を通し、材料は性質ごとに本物のカタログから選ぶ。
 """
 
@@ -45,7 +45,6 @@ RAMP_NUM = next(
     if MATERIAL_CATALOG[m].tile_property and not MATERIAL_CATALOG[m].tile_property_direction_dependent
 )
 REFERENCED_AXIS = "ref"
-REPOSITORY = object()
 
 
 def linear_shape(*materials):
@@ -120,31 +119,37 @@ def registry():
     return FakeAxisRegistry()
 
 
+class FakePreview:
+    """分布の計算（`AxisPreviewService`）の代役。"""
+
+    async def raw_value_distribution(self, shape):
+        return ValueDistribution(sample_ways=3, total_km=1.5, quantiles={"p50": 2.0}, bins=[(0.0, 4.0, 1.0)])
+
+
+@pytest.fixture
+def preview():
+    return FakePreview()
+
+
 @pytest.fixture
 def seams(monkeypatch):
     def served_dedicated_way_value_material(materials):
         return NUM_A if list(materials) == [NUM_A] else None
 
-    async def axis_raw_value_distribution(repository, shape):
-        return ValueDistribution(
-            sample_ways=3, total_km=1.5, quantiles={"p50": 2.0}, bins=[(0.0, 4.0, 1.0)]
-        )
-
-    fakes = {
-        "served_dedicated_way_value_material": served_dedicated_way_value_material,
-        "axis_raw_value_distribution": axis_raw_value_distribution,
-    }
-    for name, fake in fakes.items():
-        monkeypatch.setattr(axis_admin, name, bound(getattr(axis_admin, name), fake))
+    monkeypatch.setattr(
+        axis_admin,
+        "served_dedicated_way_value_material",
+        bound(axis_admin.served_dedicated_way_value_material, served_dedicated_way_value_material),
+    )
     monkeypatch.setattr(axis_admin, "AXIS_DEFINITIONS", {REFERENCED_AXIS: stored(REFERENCED_AXIS)})
 
 
 @pytest.fixture
-def app(registry, seams):
+def app(registry, preview, seams):
     app = FastAPI()
     app.include_router(axis_admin.router)
     app.dependency_overrides[axis_admin.get_axis_registry_admin_service] = lambda: registry
-    app.dependency_overrides[axis_admin.get_road_graph_repository] = lambda: REPOSITORY
+    app.dependency_overrides[axis_admin.get_axis_preview_service] = lambda: preview
     return app
 
 

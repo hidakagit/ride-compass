@@ -1,8 +1,9 @@
 """`api/routers/weather.py`——天気・警報・暑さ指数・洪水予報・アメダスと、風の格子の経路。
 
-経路ごとに受け渡し（サービスの答えが応答に出ること・回数制限）を1本ずつ通し、ルーターが自分で持つ判断
-（取れなかったら502・格子が読めなければ502・対象範囲が読めなければ502・表示範囲・間隔・点の数で断る）を見る。
-サービスと対象範囲（`get_ingested_area`）は依存の差し替えで与える。
+経路ごとに受け渡し（サービスの答えが応答に出ること・回数制限）を1本ずつ通し、ルーターと風の格子のサービス
+（`services/wind_grid_service.py`）が持つ判断（取れなかったら502・格子が読めなければ502・対象範囲が読めなければ502・
+表示範囲・間隔・点の数で断る）を、この経路から見る。
+サービスは依存の差し替えで与え、対象範囲は風の格子のサービスへ渡す地域サービスのフェイクで与える。
 
 ここで見ないもの:
 - 予報・警報・暑さ指数・洪水予報・アメダスを取って組み立てること、格子が読めないことを None にすること
@@ -18,18 +19,20 @@
 """
 
 import math
+from contextlib import asynccontextmanager
 from datetime import datetime
 
 import pytest
+from fastapi import Depends
 from fastapi.testclient import TestClient
 
 from app.api.dependencies import (
     get_amedas_service,
     get_flood_service,
-    get_ingested_area,
     get_warning_service,
     get_wbgt_service,
     get_weather_service,
+    get_wind_grid_service,
 )
 from app.config import settings
 from app.domain.flood_forecast import ActiveFloodForecast
@@ -52,10 +55,11 @@ from app.main import app
 from app.services.flood_service import FloodForecasts
 from app.services.warning_service import WeatherWarnings
 from app.services.wbgt_service import WbgtReading, WbgtStatus
+from app.services.wind_grid_service import WindGridService
 
 client = TestClient(app)
 
-#: 格子を敷く対象範囲。本物はDBの取込の記録から読む（`get_ingested_area`）ので、ここではテストが与える。
+#: 格子を敷く対象範囲。本物はDBの取込の記録から読む（`RegionService.get_ingested_area`）ので、ここではテストが与える。
 AREA = BoundingBox(min_latitude=34.9, min_longitude=138.4, max_latitude=37.2, max_longitude=140.9)
 #: 対象範囲の内側の表示範囲。
 VIEW = {"min_lon": 139.70, "min_lat": 35.60, "max_lon": 139.90, "max_lat": 35.80}
@@ -155,10 +159,31 @@ def _clear_dependency_overrides():
     app.dependency_overrides.clear()
 
 
+class FakeRegionService:
+    def __init__(self, area: BoundingBox | None):
+        self._area = area
+
+    async def get_ingested_area(self):
+        return self._area
+
+
+def _serve_area(area: BoundingBox | None) -> None:
+    """風の格子を敷く対象範囲。気象サービスは`get_weather_service`の差し替えを受ける。"""
+
+    @asynccontextmanager
+    async def open_region_service():
+        yield FakeRegionService(area)
+
+    def wind_grid_service(weather_service=Depends(get_weather_service)):
+        return WindGridService(weather_service, open_region_service)
+
+    app.dependency_overrides[get_wind_grid_service] = wind_grid_service
+
+
 @pytest.fixture
 def ingested_area():
     """風の格子を敷く対象範囲（`AREA`）。"""
-    app.dependency_overrides[get_ingested_area] = lambda: AREA
+    _serve_area(AREA)
 
 
 def _serve_weather(service: FakeService) -> FakeService:
@@ -256,7 +281,7 @@ def test_a_grid_that_could_not_be_read_is_a_failure(ingested_area, path, params)
 def test_the_grid_is_a_failure_when_the_area_cannot_be_read(path, params):
     """対象範囲が読めない（DB障害・道路を未取込）ときは格子を組めない。空の格子で返すと、画面は風が無いのと区別できない。"""
     _serve_weather(FakeService(grid_point=GRID_POINT))
-    app.dependency_overrides[get_ingested_area] = lambda: None
+    _serve_area(None)
 
     response = client.get(path, params=params)
 

@@ -60,8 +60,8 @@ export function catalogAxisFromEntry(axis: AxisCatalogEntry): CatalogAxis {
     iconId: axis.icon_id ?? undefined,
     mapValueKind: axis.map_paint.value.kind,
     mapValueUnit: axis.map_paint.unit,
-    rawValueUnit: axis.raw_value_unit,
-    rawValueTotalUnit: axis.raw_value_total_unit,
+    rawValueUnit: axis.raw_value_units.unit,
+    rawValueTotalUnit: axis.raw_value_units.total_unit,
     materialBreakdown: axis.material_breakdown.map((entry) => ({
       materialId: entry.material_id,
       label: entry.label,

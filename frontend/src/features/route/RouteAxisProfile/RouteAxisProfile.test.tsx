@@ -115,8 +115,7 @@ describe("RouteAxisProfile", () => {
         axis_id: "axis_a",
         label: "軸A",
         description: "軸Aの説明",
-        raw_value_unit: "回/km",
-        raw_value_total_unit: "回",
+        raw_value_units: { unit: "回/km", total_unit: "回" },
         material_breakdown: [
           { material_id: "lit", label: "街灯あり", dtype: "boolean", unit: "", share: 0.5, value_labels: {} },
           { material_id: "absent", label: "値の来ない材料", dtype: "numeric", unit: "m", share: 0.2, value_labels: {} },
