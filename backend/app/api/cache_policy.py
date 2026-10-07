@@ -59,6 +59,9 @@ BATCH_TILE = CachePolicy(max_age_seconds=60 * 60)
 #: ブラウザの保持分へ手が届かないため、消した効果が各利用者の画面へ現れるのはこの
 #: `max-age`ぶん遅れる。押す頻度と表示速度の釣り合いで10分にしてある。
 BASEMAP = CachePolicy(max_age_seconds=10 * 60)
+#: 配布物の版が変わるまで答えが変わらない引き当て（地点の検索。住所の辞書の入れ替えは年1回、対象範囲は取込のときにしか
+#: 変わらない）。caching.md「TTLの決め方」の「ほぼ不変なマスタ」。
+MASTER_LOOKUP = CachePolicy(max_age_seconds=24 * 60 * 60)
 #: 数分の再利用で表示が古くならないもの（例: 風グリッド・材料タイル・天候予報）。
 SHORT = CachePolicy(max_age_seconds=5 * 60)
 #: 数分で変わりうる警戒情報・実測値。
@@ -123,6 +126,8 @@ ROUTE_POLICIES: Final[tuple[tuple[str, CachePolicy], ...]] = (
     ("/api/weather/flood-forecast", VOLATILE),
     ("/api/weather/amedas", VOLATILE),
     ("/api/weather", SHORT),
+    # 地点の検索（URLに入力の文字列を含むため入力ごとに別エントリになる）
+    ("/api/place-search", MASTER_LOOKUP),
     # ルート生成（POSTはそもそもキャッシュされないが、進捗のGETは明示的に禁じる）
     ("/api/routes/", NO_STORE),
     ("/api/region/axis-inspector", NO_STORE),

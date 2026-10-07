@@ -17,7 +17,7 @@ APP_DIR = Path(__file__).resolve().parents[2] / "app"
 
 # 外部ライブラリが自分で作るロガー。こちらが名指しするのはレベル制御のためで、
 # アプリのログ出力そのものではないため命名規約の対象外。
-EXTERNAL_LIBRARY_LOGGERS = {"httpx"}
+EXTERNAL_LIBRARY_LOGGERS = {"httpx", "jageocoder.itaiji"}
 
 
 def _sources() -> list[tuple[str, str]]:

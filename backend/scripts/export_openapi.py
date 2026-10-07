@@ -47,6 +47,12 @@ from app.infrastructure.vector_tile import ROAD_FEATURE_PROPERTIES, ROAD_SURFACE
 from app.main import app  # noqa: E402
 from app.domain.hard_filters import DEFAULT_HARD_FILTERS, HARD_FILTER_LABELS, HARD_FILTER_NAMES  # noqa: E402
 from app.domain.geo import COMPASS_LABELS  # noqa: E402
+from app.domain.place_search import (  # noqa: E402
+    PLACE_KIND_LABELS,
+    PLACE_MATCH_LEVEL_LABELS,
+    PlaceKind,
+    PlaceMatchLevel,
+)
 from cross_language_expectations import EXPECTATIONS  # noqa: E402
 from app.domain.weather_elements import (  # noqa: E402
     WEATHER_ELEMENTS,
@@ -444,6 +450,11 @@ def main() -> None:
             ],
             # 取込のrunの状態の呼び名（DB状態の「最後の取込」）。宣言に無い状態は画面が生のまま出す。
             "sourceRunStatuses": [{"key": key, "label": label} for key, label in SOURCE_RUN_STATUS_LABELS.items()],
+            # 地点の検索の候補の種類と、当たった段（粗い→細かい）の呼び名。
+            "placeKinds": [{"key": key, "label": PLACE_KIND_LABELS[key]} for key in get_args(PlaceKind)],
+            "placeMatchLevels": [
+                {"key": key, "label": PLACE_MATCH_LEVEL_LABELS[key]} for key in get_args(PlaceMatchLevel)
+            ],
         },
     )
     # 気象の値を色へ写す段（domain/weather_display.py）。危険度・雷・竜巻は配信元が

@@ -34,3 +34,6 @@ redis==5.2.1
 apscheduler==3.11.0
 # リクエストIDの引き継ぎ・発行・応答ヘッダとログ行への付与（main.py・infrastructure/request_log.py）。
 asgi-correlation-id==5.0.1
+# 住所の辞書を手元で引く（infrastructure/address_dictionary.py）。配布の辞書は版ごとに読めるライブラリの版が
+# 決まっていて（`_v22`の辞書は2.2.xだけ。同梱のREADME）、辞書の版を上げるときにここも合わせる。
+jageocoder==2.2.1.1
