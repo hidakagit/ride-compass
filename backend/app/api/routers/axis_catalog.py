@@ -23,7 +23,7 @@
 **`tile_runtime_scales`**: 地図表示の導出は、タイルの生値を材料の値へ換算する係数が実行時に
 しか決まらない材料（`MaterialSpec.tile_property_runtime_scale`）も対象に含めるが、係数の源
 （事故の収録年）はDBにしか無いため、`domain/axis_display.py`の純粋関数では求められない。
-本エンドポイントがリクエスト毎に1回だけ`services/axis_catalog_service.py`経由で収録年を読み、係数は
+本エンドポイントがリクエスト毎に1回だけ地域サービス（`services/region_service.py`）から収録年を読み、係数は
 `domain/material_catalog.py: tile_runtime_scales`が材料の宣言から導く。フロントのJS式ビルダーが
 これを取得しタイル生値に掛け合わせる。
 """
@@ -36,6 +36,7 @@ from app.domain.axis_definitions import (
     AxisCategory,
     AxisDefinition,
     primary_attribute_ids_for,
+    published_axis_definitions,
     weather_layer_groups_for,
 )
 from app.domain.material_catalog import MATERIAL_CATALOG, tile_runtime_scales
@@ -43,7 +44,7 @@ from app.domain.axis_raw_value import RawValueUnits, axis_material_shares, raw_v
 from app.domain.dynamic_way_values import WayValueConditionName
 from app.domain.map_paint import MapPaint, map_paint
 from app.domain.tuning import client_tuning_values
-from app.services.axis_catalog_service import axis_catalog_sources
+from app.services.dedicated_way_values import dedicated_way_value_layers
 from app.services.region_service import RegionService
 from app.domain.strict_model import StrictModel
 
@@ -130,12 +131,12 @@ class AxisCatalogEntry(StrictModel):
     # 並びは正規化重みの降順で、フロントは先頭から順に出す（並べ替えを持たない）。
     material_breakdown: list[AxisMaterialBreakdownEntry]
     # 専用way値配信（`GET /api/region/dynamic-way-values/{axis_id}`）へ地図がこの軸について
-    # 載せるクエリパラメータの名前（`services/dedicated_way_values.py: dedicated_way_value_conditions`。
+    # 載せるクエリパラメータの名前（`services/dedicated_way_values.py: DedicatedWayValueLayer`。
     # 配信サービスが受け取る条件の型から導く）。専用配信を持たない軸は空。受け取る側が
     # 「どの軸の取得に時刻・向き・想定速度を添えるか」を、axis_idで分岐せずここから決めるために配る。
     dynamic_way_value_conditions: list[WayValueConditionName]
     # 専用way値配信が、走行方位しだいで値の決まらない道（値がnull）を返しうるか
-    # （`services/dedicated_way_values.py: dedicated_way_value_undetermined_by_bearing`）。trueの軸だけ、
+    # （`services/dedicated_way_values.py: DedicatedWayValueLayer`）。trueの軸だけ、
     # 地図の凡例が「向きで決まらない」の行を持つ（返さない軸に出すと、どの道も入らない行になる）。
     dynamic_way_value_undetermined_by_bearing: bool
 
@@ -167,13 +168,14 @@ async def get_axis_catalog(region_service: RegionService = Depends(get_region_se
     # そのまま返す（評価ホットパスと同じ同期アクセス方式）。map_paint()・
     # primary_attribute_ids_for()も同様にプロセス内メモリだけを見る純粋関数のため、
     # リクエスト毎に呼んでもコストは無視できる。事故の収録年と、それから導く換算係数・タイルの世代だけがDBを見る。
-    published = [definition for definition in AXIS_DEFINITIONS.values() if definition.is_published]
-    sources = await axis_catalog_sources(region_service, [definition.axis_id for definition in published])
+    accident_years = await region_service.get_accident_years()
+    tile_versions = await region_service.tile_versions()
+    way_value_layers = dedicated_way_value_layers()
 
     return AxisCatalogResponse(
         client_tuning=client_tuning_values(),
-        accident_years=sources.accident_years,
-        tile_versions=sources.tile_versions,
+        accident_years=accident_years,
+        tile_versions=tile_versions,
         axes=[
             AxisCatalogEntry(
                 axis_id=definition.axis_id,
@@ -188,12 +190,10 @@ async def get_axis_catalog(region_service: RegionService = Depends(get_region_se
                 map_paint=map_paint(definition),
                 raw_value_units=raw_value_units(definition),
                 material_breakdown=_material_breakdown(definition),
-                dynamic_way_value_conditions=sources.dynamic_way_value_conditions[definition.axis_id],
-                dynamic_way_value_undetermined_by_bearing=(
-                    sources.dynamic_way_value_undetermined_by_bearing[definition.axis_id]
-                ),
+                dynamic_way_value_conditions=way_value_layers[definition.axis_id].conditions,
+                dynamic_way_value_undetermined_by_bearing=way_value_layers[definition.axis_id].undetermined_by_bearing,
             )
-            for definition in published
+            for definition in published_axis_definitions()
         ],
-        tile_runtime_scales=tile_runtime_scales(sources.accident_years),
+        tile_runtime_scales=tile_runtime_scales(accident_years),
     )
