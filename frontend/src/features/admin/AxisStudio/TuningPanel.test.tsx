@@ -165,6 +165,22 @@ describe("TuningPanel", () => {
     expect(await screen.findByRole("button", { name: "保存中…" })).toBeDisabled();
   });
 
+  it("保存を待つ間に打ち直した値は消さず、未保存として残す", async () => {
+    const held = heldReplies();
+    const user = await openWith([alpha]);
+    onSameOrigin("PUT", UPDATE, held.reply);
+
+    await typeValue(user, "アルファ", "12");
+    await user.click(screen.getByRole("button", { name: "DBへ保存" }));
+    await screen.findByRole("button", { name: "保存中…" });
+    await typeValue(user, "アルファ", "15");
+    await held.answer(0, Response.json({ ...alpha, value: 12, overridden: true }));
+
+    expect(await screen.findByRole("button", { name: "DBへ保存" })).toBeEnabled();
+    expect(screen.getByRole("spinbutton", { name: "アルファ" })).toHaveValue(15);
+    expect(screen.getByText("1件が未保存")).toBeInTheDocument();
+  });
+
   it("保存に失敗したら理由を出し、打った値は残す（読み込み直しの口は出さない）。直して保存し直せる", async () => {
     const user = await openWith([alpha]);
     onSameOrigin(
