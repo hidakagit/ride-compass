@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from app.batch.common import asyncpg_dsn
 from app.infrastructure import debug_log, rate_limiter, redis_client, tile_cache, tile_persistent_cache
-from app.infrastructure.orm_base import Base
+from app.infrastructure.orm_base import declared_metadata
 from app.infrastructure.road_graph_repository import (
     REQUIRED_EXTENSIONS,
     RoadGraphRepository,
@@ -253,7 +253,7 @@ async def _ensure_template_database(conn) -> None:
 async def _clear_app_tables(url: str) -> None:
     """複製に引き継がれたアプリ側の表を落とす。
 
-    テストは自分でテーブルを作る（`Base.metadata.create_all`）ので、複製元に残っていた
+    テストは自分でテーブルを作る（`declared_metadata().create_all`）ので、複製元に残っていた
     表と行が初期状態に混ざらないようにする。落とす対象は名前で並べず、**拡張が持ち込んだ
     表（`spatial_ref_sys`等）ではないこと**から導く。
     """
@@ -403,7 +403,7 @@ async def road_graph_engine():
 
 async def _delete_app_rows(engine) -> None:
     async with engine.begin() as conn:
-        for table in reversed(Base.metadata.sorted_tables):
+        for table in reversed(declared_metadata().sorted_tables):
             await conn.execute(table.delete())
 
 
