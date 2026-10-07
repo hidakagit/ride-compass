@@ -14,7 +14,7 @@ import { cn } from "@/lib/cn";
 import { formatDifficulty } from "@/lib/mapDisplay/valueScale";
 import { formatJstHourMinute } from "@/lib/time";
 import DifficultyProfile from "@/features/route/DifficultyProfile/DifficultyProfile";
-import AxisDetail from "@/features/route/RouteAxisProfile/AxisDetail";
+import AxisDetail from "@/components/AxisContributionBar/AxisDetail";
 import RouteAxisProfile from "@/features/route/RouteAxisProfile/RouteAxisProfile";
 import RouteSplicePanel from "@/features/route/RouteSplicePanel/RouteSplicePanel";
 import SegmentWind from "@/features/route/SegmentWind/SegmentWind";
