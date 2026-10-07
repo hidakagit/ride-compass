@@ -209,7 +209,6 @@ describe("入力の誤り", () => {
     await submit(rendered);
 
     expect(rendered.result.current.generation.failure).toMatch(/現在地が分かりません/);
-    expect(rendered.result.current.generation.lastMessage).toMatch(/現在地が分かりません/);
   });
 });
 
@@ -265,7 +264,6 @@ describe("生成の結果", () => {
     expect(rendered.onOutcome).toHaveBeenCalledWith("fresh");
     expect(rendered.result.current.generation.outcome).toEqual({ kind: "generated", count: 2 });
     expect(rendered.result.current.generation.failure).toBeNull();
-    expect(rendered.result.current.generation.lastMessage).toBeUndefined();
     expect(rendered.result.current.generation.destinationCorrected).toBe(false);
   });
 
@@ -285,7 +283,6 @@ describe("生成の結果", () => {
     expect(rendered.onGenerated).toHaveBeenCalledWith([], used().route_preference);
     expect(rendered.onOutcome).toHaveBeenCalledWith("empty");
     expect(rendered.result.current.generation.outcome).toEqual({ kind: "empty", message });
-    expect(rendered.result.current.generation.lastMessage).toBe(message);
     expect(rendered.result.current.generation.failure).toBeNull();
   });
 
@@ -297,7 +294,6 @@ describe("生成の結果", () => {
     await submit(rendered);
 
     expect(rendered.result.current.generation.failure).toBe(message);
-    expect(rendered.result.current.generation.lastMessage).toBe(message);
     expect(rendered.result.current.generation.outcome).toEqual({ kind: "failed", message });
     expect(rendered.onOutcome).toHaveBeenCalledWith("failed");
     expect(rendered.onGenerated).not.toHaveBeenCalled();
@@ -407,7 +403,7 @@ describe("消す", () => {
 
     act(() => rendered.result.current.generation.clearNotice());
     expect(rendered.result.current.generation.failure).toBeNull();
-    expect(rendered.result.current.generation.lastMessage).toBeUndefined();
+    expect(rendered.result.current.generation.outcome).toBeNull();
 
     jobs.keepRunning();
     act(() => {

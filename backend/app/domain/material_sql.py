@@ -103,8 +103,9 @@ _CYCLEWAY_TAGS_ARRAY_SQL = "ARRAY[" + ", ".join(f"lower(btrim(w.tags->>'{tag}'))
 
 
 def tag_absent_is_false_sql(condition: str) -> str:
-    """タグが無ければ非該当（false）。**wayの行は必ずある**——区間はwayの派生で、
-    `road_edges.osm_way_id`がNOT NULL + FKのため「wayの行が無い区間」は作れない。"""
+    """タグが無ければ非該当（false）。式は`w`の行の有無を見ず、行が無い区間でもfalseになる。
+    行が無い区間はありうる——`road_edges.osm_way_id`の外部キーは`way_materials`へ向き、道の生データへは
+    向かないため、取込で消えた道を、派生を作り直すまでの区間が指し続ける。"""
     return f"COALESCE({condition}, false)"
 
 

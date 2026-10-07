@@ -222,8 +222,6 @@ export function useRouteGeneration({
     outcome,
     /** 押した「生成」が通らなかった理由（入力の誤り・生成の失敗）。候補がある間も、前の候補の上に出す。 */
     failure: outcome?.kind === "failed" ? outcome.message : null,
-    /** 候補が無いときに出す直近の案内（入力の誤りを先に）。 */
-    lastMessage: outcome && outcome.kind !== "generated" ? outcome.message : undefined,
     conditionsDirty,
     destinationCorrected: generatedConditions?.destinationCorrected ?? false,
     weightsNotApplied: generatedConditions?.weightsNotApplied ?? false,

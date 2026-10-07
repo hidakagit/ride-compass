@@ -72,13 +72,11 @@ function frontendEnv(target, commit) {
   };
 }
 
-/**
- * 版の src が読む環境変数（process.env.<名前>）のうち、env に無いもの。渡し漏れは、撮った画面が本番と違うことでしか分からないため。
- * テストのファイル（*.test.ts・*.test.tsx）はビルドに載らず、中の文字列が写したコードを持つこともあるので読まない。
- */
+/** 版の src が読む環境変数（process.env.<名前>）のうち、env に無いもの。渡し漏れは、撮った画面が本番と違うことでしか分からないため。 */
 function unpassedEnv(dir, env) {
   const names = new Set();
   for (const file of readdirSync(path.join(dir, "src"), { recursive: true })) {
+    // テストはビルドに入らず、足場の文字列に書いた process.env を読まない。
     if (!/\.(ts|tsx)$/.test(file) || /\.test\.tsx?$/.test(file)) continue;
     for (const [, name] of readFileSync(path.join(dir, "src", file), "utf-8").matchAll(
       /process\.env\.([A-Za-z_]\w*)/g,
