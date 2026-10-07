@@ -15,6 +15,8 @@ interface BottomSheetProps {
   headerAction: React.ReactNode;
   /** 見出しのすぐ右に置くもの（中身を切り替えるタブ等、右の操作と役割が違うもの）。 */
   headerLead?: React.ReactNode;
+  /** 見出しの行のすぐ下に置く知らせ。本文と違ってスクロールせず、見出しの行の操作の結果をいつも見える所に出す。 */
+  headerNote?: React.ReactNode;
   children: React.ReactNode;
   /** いま出している高さ（vh）。開いたときに中身へ合わせ直すので、利用者の恒久の設定ではない。 */
   heightVh: number;
@@ -59,6 +61,7 @@ export default function BottomSheet({
   titleId,
   headerAction,
   headerLead,
+  headerNote,
   children,
   heightVh,
   onHeightChange,
@@ -88,7 +91,8 @@ export default function BottomSheet({
   useEffect(() => {
     if (!open) return;
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      // シートの中から開いた窓（Radix）は、捕捉の段で受けたEscで自分を閉じて既定の動きを止める。そのEscでシートまで閉じない。
+      if (e.key === "Escape" && !e.defaultPrevented) onClose();
     }
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
@@ -195,6 +199,7 @@ export default function BottomSheet({
           </Button>
         </div>
       </div>
+      {headerNote && <div className="flex-shrink-0 px-3 pt-2">{headerNote}</div>}
       {/* 本文のスクロールが下スワイプの判定まで届かないようにする（届くとスクロールしただけで閉じる）。 */}
       <div
         ref={bodyRef}

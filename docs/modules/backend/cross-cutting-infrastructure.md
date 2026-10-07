@@ -17,6 +17,7 @@ DB接続・Redis・HTTPクライアント・レート制限・ログ・デバッ
 | domain | `warning_levels.py` | 警戒度バッジ4段階（`WarningBadgeLevel`）の正準定義。JMA警報・WBGT・河川氾濫予報が判定根拠は別々のまま同じ語彙を返す |
 | domain | `strict_model.py` | 全Pydanticモデルの基底（`StrictModel`）。未知のフィールドを黙って捨てず例外にする |
 | api | `admin_auth.py` | 管理API共通の認可境界 |
+| api | `admin_db_errors.py` | 管理APIのDB障害を、どの口でも503で返すアプリ単位の例外の扱い（下の「DB障害として扱う例外」） |
 | api | `cache_policy.py` | 応答の`Cache-Control`（パスとポリシーの対応表・付与ミドルウェア） |
 | api | `dependencies.py`（横断的な部分のみ、他は各モジュール参照） | DI工場（公開関数は注入の口だけ） |
 | api | `finite_json_body.py` | 要求の本文のNaN・無限大を、アプリ全体の依存として経路の処理より前に422で断る（Starletteの本文の読み方はJSONの外の`NaN`・`Infinity`を通す） |
@@ -210,7 +211,9 @@ composeのfrontendの公開先に従う値で、既定値（手元で`next dev`�
 None）へ倒す箇所は、`except Exception`ではなくこのタプルだけを捕まえる。実装の誤り
 （`TypeError`・`AttributeError`等）は捕まえず、500として表へ出す——空へ倒すと応答は正常の
 形のまま「データなし」に見え、誰も気づかない。
-空へ倒さずに503で知らせる口（管理APIの集計・軸の編集）も、捕まえるのは同じタプルである。
+管理API（`/api/admin/...`）は空へ倒さず、口では捕まえずに、`api/admin_db_errors.py`がアプリ単位の例外の扱いで
+同じタプルだけを503にする（口ごとに書くと、書き忘れた口だけが500になる）。管理API以外の経路で捕まえなかった
+ものは、送り直して500のまま表へ出す。
 
 中身はSQLAlchemy 2.1＋asyncpgで例外がどう届くかから決まっている（ソースで確認）:
 

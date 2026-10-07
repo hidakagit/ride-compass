@@ -37,11 +37,15 @@ export function DialogContent({ title, children, className }: DialogContentProps
       >
         <RadixDialog.Title className="text-[length:var(--font-size-md)] font-semibold">{title}</RadixDialog.Title>
         <div className="mt-3">{children}</div>
-        <RadixDialog.Close
-          aria-label="閉じる"
-          className="absolute right-3 top-3 rounded-sm text-[length:var(--font-size-md)] text-[var(--foreground)]"
-        >
-          ✕
+        <RadixDialog.Close asChild>
+          <Button
+            variant="ghost"
+            size="bare"
+            aria-label="閉じる"
+            className="absolute right-2 top-2 rounded-sm text-[length:var(--font-size-md)] text-[var(--foreground)]"
+          >
+            ✕
+          </Button>
         </RadixDialog.Close>
       </RadixDialog.Content>
     </RadixDialog.Portal>

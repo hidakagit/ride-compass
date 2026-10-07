@@ -4,7 +4,7 @@
 キャッシュは呼ぶ側が渡すもので、テストごとに新しく作る。
 
 ここで見ないもの:
-- コードの意味（発表・解除の区別）と出発地点への該当 → `test_flood_forecast_domain.py`
+- 出発地点への該当と、段の呼び名 → `test_flood_forecast_domain.py`
 - キャッシュの期限切れ・失敗の記録の骨格 → `simple_api_client.py: cached_fetch`の持ち物で、
   期限そのものは`cachetools`が持つ
 """
@@ -28,7 +28,7 @@ KANDA = {
     "riverName": "神田川",
     "class20Codes": ["1310100", "1310200"],
     "class10Codes": ["130011"],
-    "item": {"code": "52", "condition": "氾濫危険情報"},
+    "item": {"code": "40", "condition": "氾濫危険情報"},
 }
 
 
@@ -43,7 +43,7 @@ async def test_an_operational_bulletin_is_read_into_its_fields():
 
     (bulletin,) = await flood_client.fetch_flood_documents(client, new_flood_cache())
 
-    assert bulletin.code == "52"
+    assert bulletin.level == "severe_warning"
     assert bulletin.condition == "氾濫危険情報"
     assert bulletin.class20_codes == ("1310100", "1310200")
     assert bulletin.class10_codes == ("130011",)
@@ -68,10 +68,20 @@ async def test_a_bulletin_missing_its_fields_is_still_read_with_empty_values(mis
 
     sparse, full = await flood_client.fetch_flood_documents(client, new_flood_cache())
 
-    assert sparse.code is None
+    assert sparse.level is None
     assert sparse.class20_codes == sparse.class10_codes == ()
     assert sparse.river_code == sparse.river_name == sparse.condition == ""
     assert full.river_name == "神田川"
+
+
+@pytest.mark.parametrize("code", ["10", 40], ids=["lifted", "not_a_string"])
+async def test_a_code_that_is_not_an_active_state_has_no_level(code):
+    """完全解除のコード（配信元の資料の表２）は発表中の段を持たない。"""
+    client, _ = answering(json=[{**KANDA, "item": {"code": code}}])
+
+    (bulletin,) = await flood_client.fetch_flood_documents(client, new_flood_cache())
+
+    assert bulletin.level is None
 
 
 async def test_the_national_list_is_fetched_once_and_reused():

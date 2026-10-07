@@ -1,6 +1,7 @@
 import asyncio
 import functools
 import hashlib
+import logging
 import os
 import re
 from contextlib import contextmanager
@@ -45,6 +46,21 @@ def admin_credentials(monkeypatch):
     """管理画面APIのBasic認証を、テスト用の固定の認証情報で通るようにする。"""
     monkeypatch.setattr(settings, "admin_basic_auth_username", ADMIN_USERNAME)
     monkeypatch.setattr(settings, "admin_basic_auth_password", ADMIN_PASSWORD)
+
+
+@pytest.fixture
+def restore_debug_mode():
+    """debug_modeの切替の口を叩いたテストのあとで、debug_modeとルートロガーのレベルを元に戻す。
+
+    どちらもプロセス全体で共有される可変状態で、残すと後のテストのログの拾い方が変わる
+    （ルートロガーがINFOのままだと、`caplog.at_level`の外で出たINFOまで拾われる）。
+    """
+    original_debug_mode = settings.debug_mode
+    original_level = logging.getLogger().level
+    yield
+    settings.debug_mode = original_debug_mode
+    logging.getLogger().setLevel(original_level)
+
 
 @pytest.fixture(autouse=True)
 def _closed_redis_circuit_breaker():

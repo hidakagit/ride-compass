@@ -20,8 +20,8 @@ backendが公開するHTTP APIの**全体の形**と、エンドポイントを�
 | ルート生成 | `/api/routes/generate` | 不要 | ジョブの`error` |
 | 天候・防災バッジ | `/api/weather/*` | 不要 | 502（警報系の空応答は「出ていない」だけ） |
 | 地図タイル | `/api/region/*-tiles`・`/api/basemap/*`・`/api/jma-tile/*`・`/api/gsi-*-tile/*` | 不要 | 空タイル／502 |
-| 軸カタログ | `/api/axis-catalog` | 不要（読み取り専用） | 502 |
-| 管理 | `/api/admin/*` | HTTP Basic必須 | 401／404／422／503（DBの障害） |
+| 軸カタログ | `/api/axis-catalog` | 不要（読み取り専用） | DBから読む値（事故の収録年・タイルの世代）だけ空へ倒す |
+| 管理 | `/api/admin/*` | HTTP Basic必須 | 401／404／422／503（DBの障害。どの口も`api/admin_db_errors.py`の1か所で返す） |
 
 ## 全体に効く約束
 

@@ -10,9 +10,8 @@ from app.domain.road import SURFACE_CLASSES, TRACK_GRADES, surface_class_descrip
 from app.domain.traffic import kind_map_sql, stop_kind_sql
 
 
-#: 一次属性の宣言。材料が指す要素には、表の中で`:=`により名前を付ける——名前は表の要素にしか
-#: 付かないため、材料が表に無い一次属性を指すことは無い（指そうとすると材料カタログの import の時点で落ちる。
-#: import の一覧に無い名前を足せば ImportError、一覧に足さずに書けば NameError と ruff の F821）。
+#: 一次属性の宣言。材料が指す要素には、表の中で`:=`により名前を付ける（材料が表の要素そのものを指すことは
+#: `domain/material_catalog.py: MaterialSpec`の検証が守る）。
 #: 材料を1つも持たない属性（どの軸からも参照されず評価に効かない）も同じ表に並ぶ——
 #: 材料を持つかどうかは材料カタログを引けば分かるため、表を分けない。
 PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (

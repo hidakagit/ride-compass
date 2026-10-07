@@ -43,7 +43,7 @@ APIを呼ぶ）・「データ保守」タブ（派生データ鮮度台帳の�
 | `features/admin/AxisStudio/StatusRowList.tsx` | 上記2パネルが共有する点検の行の一覧（状態の丸・名前・規模、開くと項目と値）と、結果の一言（手当てが要れば目立たせる） |
 | `features/admin/AxisStudio/ReportCard.tsx` | 集計のパネル（材料の欠損割合・派生データ鮮度台帳・本番DBの状態）が共有するカード。見出しとⓘ・「集計する」ボタン・集計中と失敗の表示・集計の時刻（日本時間）を持ち、中身の描画は各パネルが渡す。件数と時点の書式（`formatCount`・`formatMoment`）もここに置く |
 | `features/admin/AxisStudio/TileCachePanel.tsx` | 「データ保守」タブの2枚目。サーバー側のタイルファイルキャッシュ（基礎地図・路面と点のタイルが共有）を全消去する操作パネル。全利用者へ影響するため入口はここだけに持つ |
-| `features/admin/AxisStudio/TuningPanel.tsx` | 「較正値」タブ本体。走ってみて決める値をデプロイなしで編集する。**並べる項目はbackendが宣言から導く**ため画面側に一覧を持たず、効き方（`effect`）ごとに見出しを分けて「変えたのに効かない」群がそれと分かるようにする。1件=1行で、説明と既定値・範囲は(i)の奥（他の管理パネルと同じ省スペースの作り）。入力は打っただけでは送らず「DBへ保存」でまとめて書き、既定と同じ値にして保存した行は上書きを消す（DBへ残るのは動かしたぶんだけ） |
+| `features/admin/AxisStudio/TuningPanel.tsx` | 「較正値」タブ本体。走ってみて決める値をデプロイなしで編集する。**並べる項目はbackendが宣言から導く**ため画面側に一覧を持たず、効き方（`effect`）ごとに見出しを分けて「変えたのに効かない」群がそれと分かるようにする。1件=1行で、説明と既定値・範囲は(i)の奥（他の管理パネルと同じ省スペースの作り）。入力は打っただけでは送らず「DBへ保存」でまとめて書き、既定と同じ値にして保存した行は上書きを消す（DBへ残るのは動かしたぶんだけ）。保存を待つ間に打ち直した値は、未保存として残す |
 | `features/admin/useMaterialValues.ts` | `GET /api/admin/material-catalog/{material_id}/values`取得（`adminApi.ts: getMaterialValues`）。categorical材料の候補選択セレクトに使う実データ値一覧 |
 | `lib/axisMaterialsCatalog.ts` | 材料の一覧（`MATERIAL_CATALOG`。生成物`material-catalog.json`から作る）と型（`AxisMaterialOption`）、材料idを表示へ変える関数（`materialCatalogLabel`: 論理名 - 物理名）・選択肢の表記（`materialOptionText`） |
 | `components/ui/icons/axisIconPalette.tsx` | 軸のアイコンの固定パレット（`icon_id`→アイコンコンポーネント） |
@@ -104,6 +104,8 @@ listAxisDefinitions() ──→ definitions（全軸）
 一度下書きへ戻す必要がある。「調整する」ボタンはその手順（非公開化→編集→保存時に再公開）を
 1操作に畳む。編集を中断した場合は下書きのまま残るため、**その事実を必ず知らせる**
 （黙って非公開になると一般ユーザー向けの軸カタログから消えたことに気づけない）。
+下書きへ戻すのを待つ間に別のフォームを開いていたら、そのフォームを替えず（打ちかけの入力が消える）、下書きのまま
+残ったことを同じく知らせる。保存を待つ間に閉じて別のフォームを開いていたら、保存が済んでもそのフォームは閉じない。
 
 **赤（誤りの色）は、操作・保存・取得が失敗したときだけに使う。** 失敗ではない知らせ（例: 中断して下書きのまま
 残った・地図では効かない値がある）は、注意の色（`ui/Callout`の`warning`。

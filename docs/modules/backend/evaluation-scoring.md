@@ -445,8 +445,8 @@ way粒度で引くときは、同じ式のまま`w`の行から同じ名前の�
 - **どちらか一方を必ず持つことは型が保証する**: `MaterialSpec.coverage`は必須で、
   way単位・Edge単位・対象外の3択（`MaterialCoverage`）のいずれかしか取れない。
   「どちらの一覧にも載っていない材料」を作れないため、網羅性を確かめるテストは要らない。
-- `MaterialCoverageService.get_material_coverage`はDB例外を握りつぶさず伝播させ、router側で
-  503へ変換する（診断用APIのため空レポートへ倒して「欠損0件」に見せない）。
+- `MaterialCoverageService.get_material_coverage`はDB例外を握りつぶさず伝播させ、管理API共通の例外の扱い
+  （`api/admin_db_errors.py`）が503で返す（診断用APIのため空レポートへ倒して「欠損0件」に見せない）。
   `api/dependencies.py: get_material_coverage_service`はルート生成用の長い
   `command_timeout`（180秒）を持つセッションを渡す（全表走査がタイル配信用の20秒を
   超えうるため）。

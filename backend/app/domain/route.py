@@ -133,7 +133,7 @@ class RouteCandidate(StrictModel):
     axis_contributions: dict[str, float] = Field(default_factory=dict)
     # axis_id→折れ点を通す前の生値。単位が定まる軸だけが持つ。得点（0-100）は目盛りの
     # 引き方に依存する相対評価のため、軸単体で経路を判断するにはこの絶対値が要る。
-    # 単位は`GET /api/axis-catalog`の`raw_value_unit`が持ち、「◯◯/km」なら走行距離を
+    # 単位は`GET /api/axis-catalog`の`raw_value_units.unit`が持ち、`total_unit`のある軸は走行距離を
     # 掛けて経路全体の実数（例: 止まる回数）にできる。区間の値は持たない（`route_axis_raw_values`）。
     axis_raw_values: dict[str, float] = Field(default_factory=dict)
     material_values: dict[str, float] = Field(default_factory=dict)

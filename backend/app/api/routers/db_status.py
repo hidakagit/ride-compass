@@ -6,14 +6,13 @@
 トランザクションが放置されていないか。
 
 認可を要求する理由・DB例外の扱いは`get_derived_data_freshness`と同じ（全表走査を伴うため
-認可なしに公開しない、DB例外は503へ変換し空レポートへ倒さない）。
+認可なしに公開しない、DB例外は空レポートへ倒さず503（`api/admin_db_errors.py`）で返す）。
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends
 
 from app.api.admin_auth import require_admin_basic_auth
 from app.api.dependencies import get_db_status_service
-from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
 from app.services.db_status_service import DbStatusReport, DbStatusService
 
 router = APIRouter(dependencies=[Depends(require_admin_basic_auth)])
@@ -26,10 +25,4 @@ router = APIRouter(dependencies=[Depends(require_admin_basic_auth)])
 async def get_db_status(
     service: DbStatusService = Depends(get_db_status_service),
 ) -> DbStatusReport:
-    try:
-        return await service.get_status_report()
-    except DB_UNAVAILABLE_ERRORS as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="DB状態の集計に失敗しました（DB接続と、テーブルが作られているかを確認してください）",
-        ) from exc
+    return await service.get_status_report()

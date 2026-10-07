@@ -11,7 +11,7 @@
  *   区間を押して詳細を出せるのは「ルート結果」を見ている間だけのこと、編集の間は地図で地点も区間も扱わず全部の候補を重ね、
  *   作り直すと編集が終わること、作ると直前の作り直しの失敗の文言を消し、合成ルートを選んでいる間は元のルートだけを重ねること、
  *   地図の下のまとめて元に戻す操作
- * - 画面の枠: スマホの下部タブとシート（1枚ずつ開く・地点を扱える間・結果の合図・入力の誤り・ルートを収めるときに避ける
+ * - 画面の枠: スマホの下部タブとシート（1枚ずつ開く・地点を扱える間・結果の合図・押した結果の1行・ルートを収めるときに避ける
  *   シートの高さ・高さの保存と保存値の検査）、区分の開閉の保存、ヘッダーの「未取得」に並ぶ出所と「現在地に移動」の失敗、
  *   メニューから入る使い方の説明とデバッグログ
  *
@@ -528,7 +528,7 @@ describe("地図で扱えること", () => {
 });
 
 describe("画面の枠", () => {
-  it("スマホでは下部タブでシートを1枚ずつ開き、地図で地点を扱えるのは「ルート設定」の条件タブを開いている間だけ。結果の合図は「ルート結果」を開くまで残り、入力の誤りは「ルート設定」にも出す", async () => {
+  it("スマホでは下部タブでシートを1枚ずつ開き、地図で地点を扱えるのは「ルート設定」の条件タブを開いている間だけ。結果の合図は「ルート結果」を開くまで残り、押した結果（件数・候補0件の理由・入力の誤り）は「ルート設定」にも1行で出す。候補0件の合図は成功と見分ける", async () => {
     installGeolocation(null);
     useMobileLayout();
     const { user } = renderHome();
@@ -554,6 +554,8 @@ describe("画面の枠", () => {
     jobs.respond([FIRST], LOOP_CONDITIONS);
     expect(await generate(user)).toMatchObject({ latitude: HERE.latitude, longitude: HERE.longitude });
     await waitFor(() => expect(outcomeTab).toHaveAccessibleDescription("新しい結果があります"));
+    expect(within(settingsSheet).getByText(/^候補を1件作りました/)).toBeInTheDocument();
+    expect(within(settingsSheet).queryByText(/^現在地が分かりません/)).toBeNull();
     // ルートは、開いているシートが覆う高さ（画面の半分）を避けて収める。
     const { padding } = mapOnScreen().fits.at(-1) as { padding: { top: number; bottom: number } };
     expect(padding.bottom - padding.top).toBe(window.innerHeight * 0.5);
@@ -569,6 +571,12 @@ describe("画面の枠", () => {
     await user.click(settingsTab());
     fireEvent.change(screen.getByLabelText("距離"), { target: { value: "50" } });
     expect(outcomeTab).toHaveAccessibleDescription("生成条件が変更されています");
+    jobs.respond([], LOOP_CONDITIONS, "起点の近くに道路データがありません");
+    await generate(user);
+    await waitFor(() => expect(outcomeTab).toHaveAccessibleDescription("候補が見つかりませんでした"));
+    expect(
+      within(screen.getByRole("dialog", { name: "ルート設定" })).getByText("起点の近くに道路データがありません"),
+    ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "ルート設定", expanded: true }));
     expect(screen.queryByRole("dialog")).toBeNull();
   });

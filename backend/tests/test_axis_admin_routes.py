@@ -8,8 +8,9 @@
 - 下書きの点数の計算と段の境界の並びの検証の入力違い → `test_axis_definitions.py`
 - 分布の計算 → `test_value_distribution.py`
 - 認可（どの口もBasic認証の依存を持つこと・その依存が拒むこと） → `test_admin_route_authorization.py`
+- DBの失敗の503 → `test_admin_db_unavailable.py`
 
-ここで見るのは、口ごとの受け渡し（DBの例外・無い軸・断られた書き込みを状態コードへ変えること・
+ここで見るのは、口ごとの受け渡し（無い軸・断られた書き込みを状態コードへ変えること・
 応答に地図表示を添えること）と、ルーターが自分で持つ検証（URLと本文の軸の一致・配信の実装の有無）。
 
 **ルーターが名前空間に持つ外向きの参照は差し替える**——軸の集合・配信実装の有無。注入するサービス（軸の書き込み・
@@ -20,7 +21,6 @@
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy.exc import DBAPIError
 
 from app.api.routers import axis_admin
 from app.domain.axis_definitions import REQUEST_DYNAMIC_MATERIAL_IDS
@@ -120,14 +120,9 @@ def registry():
 
 
 class FakePreview:
-    """分布の計算（`AxisPreviewService`）の代役。`error`を置くとDB障害として送出する。"""
-
-    def __init__(self):
-        self.error: Exception | None = None
+    """分布の計算（`AxisPreviewService`）の代役。"""
 
     async def raw_value_distribution(self, shape):
-        if self.error is not None:
-            raise self.error
         return ValueDistribution(sample_ways=3, total_km=1.5, quantiles={"p50": 2.0}, bins=[(0.0, 4.0, 1.0)])
 
 
@@ -161,44 +156,6 @@ def app(registry, preview, seams):
 @pytest.fixture
 def client(app, admin_credentials):
     return TestClient(app, headers=AUTH_HEADERS)
-
-
-# 口ごとの(本文, DBが落ちたときの状態コード)。母集団は`router.routes`から取るので、口を足して
-# ここへ足し忘れるとKeyErrorで落ちる。
-ROUTE_CASES = {
-    ("GET", BASE): (None, 503),
-    ("POST", BASE): (payload(), 503),
-    ("GET", BASE + "/{axis_id}"): (None, 503),
-    ("PUT", BASE + "/{axis_id}"): (payload(), 503),
-    ("DELETE", BASE + "/{axis_id}"): (None, 503),
-    ("POST", BASE + "/{axis_id}/unpublish"): (None, 503),
-    ("POST", BASE + "/preview-distribution"): ({"shape": linear_shape(NUM_A)}, 503),
-    ("POST", BASE + "/preview-display-thresholds"): (
-        {"axis_id": "a", "shape": linear_shape(NUM_A), "thresholds": [1.0]},
-        200,
-    ),
-    ("POST", BASE + "/preview-scores"): ({"shape": linear_shape(NUM_A), "xs": [0.5]}, 200),
-}
-ROUTES = [(method, route.path) for route in axis_admin.router.routes for method in sorted(route.methods)]
-
-
-def send(client, method, path):
-    body, _ = ROUTE_CASES[(method, path)]
-    return client.request(method, path.replace("{axis_id}", "a"), json=body)
-
-
-@pytest.mark.parametrize(("method", "path"), ROUTES)
-def test_a_database_failure_becomes_a_503_on_every_route_that_reads_it(client, registry, preview, method, path):
-    failure = DBAPIError("SELECT 1", {}, Exception("接続できない"))
-    registry.axes["a"] = stored()
-    registry.errors = {name: failure for name in ("list_all", "create", "update", "delete", "unpublish")}
-    preview.error = failure
-
-    response = send(client, method, path)
-
-    assert response.status_code == ROUTE_CASES[(method, path)][1]
-    if response.status_code == 503:
-        assert "軸定義DBへのアクセスに失敗しました" in response.json()["detail"]
 
 
 class TestRead:
