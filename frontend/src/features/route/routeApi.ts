@@ -62,7 +62,7 @@ export async function generateRoutes(
       category: "api:route",
       messages: {
         failure: "リクエストに失敗しました。時間をおいて再度お試しください",
-        parseFailure: "サーバーからの応答の解析に失敗しました",
+        parseFailure: "ルート生成の応答の解析に失敗しました",
       },
       requestMeta: { body: request },
     },

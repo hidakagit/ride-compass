@@ -48,7 +48,7 @@ from pydantic_core import PydanticCustomError
 
 from app.domain.attributes import CategoricalColumn, MaterialColumn
 from app.domain.axis_templates import evaluate_breakpoint_linear, evaluate_categorical
-from app.domain.difficulty import round_difficulty_array
+from app.domain.difficulty import round_difficulty_array, weight_share
 from app.domain import material_catalog
 from app.domain.material_catalog import WIND_DRAG_RATIO
 from app.domain.strict_model import StrictModel
@@ -883,19 +883,28 @@ def dynamic_axis_topological_order(definitions: dict[str, AxisDefinition]) -> li
     return order
 
 
+def published_axis_definitions(definitions: Mapping[str, AxisDefinition] | None = None) -> list[AxisDefinition]:
+    """公開軸（`is_published=True`）を宣言の順に。`definitions`を省くと今の`AXIS_DEFINITIONS`。
+
+    内部軸（`is_published=False`）は一般ユーザーの重み付け対象外で、軸カタログにも出ない。"""
+    return [definition for definition in (AXIS_DEFINITIONS if definitions is None else definitions).values()
+            if definition.is_published]
+
+
 def default_axis_weights() -> dict[str, float]:
     """axis_idキーの既定重み辞書（APIで上書きされる前の値、`RoutePreference`の
     既定値）。値は各軸の`default_weight`で、`GET /api/axis-catalog`が軸ごとに配る
-    `default_weight`と同じ。
+    `default_weight`と同じ。公開軸だけを持つ（`published_axis_definitions`）。
+    `RoutePreference`のバリデーション（未知のaxis_idを拒否）もこの集合と整合させる。"""
+    return {definition.axis_id: definition.default_weight for definition in published_axis_definitions()}
 
-    内部軸（`is_published=False`）は一般ユーザーの重み付け対象外のため
-    除外する。`RoutePreference`のバリデーション（未知のaxis_idを拒否）もこの集合と
-    整合させる。"""
-    return {
-        axis_id: definition.default_weight
-        for axis_id, definition in AXIS_DEFINITIONS.items()
-        if definition.is_published
-    }
+
+def weight_share_when_published(definition: AxisDefinition, definitions: Mapping[str, AxisDefinition]) -> float | None:
+    """`definition`を（保存した既定の重みで）公開したとき、公開軸の既定の重みの合計に占める割合。公開済みの軸は今の
+    割合。分母は`definitions`の公開軸で、合計が0ならNone（`difficulty.weight_share`）。"""
+    others = [other.default_weight for other in published_axis_definitions(definitions)
+              if other.axis_id != definition.axis_id]
+    return weight_share(definition.default_weight, others)
 
 
 def time_scoped_weights(

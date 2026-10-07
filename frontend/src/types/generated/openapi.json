@@ -513,6 +513,8 @@
             "required": true,
             "schema": {
               "type": "integer",
+              "maximum": 15,
+              "minimum": 12,
               "title": "Z"
             }
           },
@@ -522,6 +524,7 @@
             "required": true,
             "schema": {
               "type": "integer",
+              "minimum": 0,
               "title": "X"
             }
           },
@@ -531,6 +534,7 @@
             "required": true,
             "schema": {
               "type": "integer",
+              "minimum": 0,
               "title": "Y"
             }
           }
@@ -576,6 +580,8 @@
             "required": true,
             "schema": {
               "type": "integer",
+              "maximum": 15,
+              "minimum": 12,
               "title": "Z"
             }
           },
@@ -585,6 +591,7 @@
             "required": true,
             "schema": {
               "type": "integer",
+              "minimum": 0,
               "title": "X"
             }
           },
@@ -594,6 +601,7 @@
             "required": true,
             "schema": {
               "type": "integer",
+              "minimum": 0,
               "title": "Y"
             }
           }
@@ -630,6 +638,8 @@
             "required": true,
             "schema": {
               "type": "integer",
+              "maximum": 14,
+              "minimum": 6,
               "title": "Z"
             }
           },
@@ -639,6 +649,7 @@
             "required": true,
             "schema": {
               "type": "integer",
+              "minimum": 0,
               "title": "X"
             }
           },
@@ -648,6 +659,7 @@
             "required": true,
             "schema": {
               "type": "integer",
+              "minimum": 0,
               "title": "Y"
             }
           }
@@ -693,6 +705,8 @@
             "required": true,
             "schema": {
               "type": "integer",
+              "maximum": 15,
+              "minimum": 12,
               "title": "Z"
             }
           },
@@ -702,6 +716,7 @@
             "required": true,
             "schema": {
               "type": "integer",
+              "minimum": 0,
               "title": "X"
             }
           },
@@ -711,6 +726,7 @@
             "required": true,
             "schema": {
               "type": "integer",
+              "minimum": 0,
               "title": "Y"
             }
           },
@@ -721,7 +737,9 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "number"
+                  "type": "number",
+                  "minimum": 0,
+                  "exclusiveMaximum": 360
                 },
                 {
                   "type": "null"
@@ -754,7 +772,9 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "number"
+                  "type": "number",
+                  "maximum": 60.0,
+                  "minimum": 5.0
                 },
                 {
                   "type": "null"
@@ -1013,6 +1033,8 @@
             "required": true,
             "schema": {
               "type": "integer",
+              "maximum": 14,
+              "minimum": 2,
               "title": "Z"
             }
           },
@@ -1022,6 +1044,7 @@
             "required": true,
             "schema": {
               "type": "integer",
+              "minimum": 0,
               "title": "X"
             }
           },
@@ -1031,6 +1054,7 @@
             "required": true,
             "schema": {
               "type": "integer",
+              "minimum": 0,
               "title": "Y"
             }
           }
@@ -2071,9 +2095,6 @@
             "type": "number",
             "title": "Default Weight"
           },
-          "display": {
-            "$ref": "#/components/schemas/AxisDisplaySpec"
-          },
           "icon_id": {
             "anyOf": [
               {
@@ -2099,20 +2120,6 @@
             "type": "array",
             "title": "Weather Layer Groups"
           },
-          "display_band_labels_override": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Display Band Labels Override"
-          },
           "dedicated_way_value_layer": {
             "type": "boolean",
             "title": "Dedicated Way Value Layer"
@@ -2120,27 +2127,8 @@
           "map_paint": {
             "$ref": "#/components/schemas/MapPaint"
           },
-          "raw_value_unit": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Raw Value Unit"
-          },
-          "raw_value_total_unit": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Raw Value Total Unit"
+          "raw_value_units": {
+            "$ref": "#/components/schemas/RawValueUnits"
           },
           "material_breakdown": {
             "items": {
@@ -2174,15 +2162,12 @@
           "description",
           "category",
           "default_weight",
-          "display",
           "icon_id",
           "primary_attribute_ids",
           "weather_layer_groups",
-          "display_band_labels_override",
           "dedicated_way_value_layer",
           "map_paint",
-          "raw_value_unit",
-          "raw_value_total_unit",
+          "raw_value_units",
           "material_breakdown",
           "dynamic_way_value_conditions",
           "dynamic_way_value_undetermined_by_bearing"
@@ -2598,18 +2583,24 @@
           },
           "z": {
             "type": "integer",
+            "maximum": 15.0,
+            "minimum": 12.0,
             "title": "Z"
           },
           "x": {
             "type": "integer",
+            "minimum": 0.0,
             "title": "X"
           },
           "y": {
             "type": "integer",
+            "minimum": 0.0,
             "title": "Y"
           },
           "bearing_deg": {
             "type": "number",
+            "exclusiveMaximum": 360.0,
+            "minimum": 0.0,
             "title": "Bearing Deg"
           },
           "at": {
@@ -2627,7 +2618,9 @@
           "speed_kmh": {
             "anyOf": [
               {
-                "type": "number"
+                "type": "number",
+                "maximum": 60.0,
+                "minimum": 5.0
               },
               {
                 "type": "null"
@@ -3868,6 +3861,23 @@
           },
           "legend": {
             "$ref": "#/components/schemas/MapLegendScale"
+          },
+          "tiles": {
+            "$ref": "#/components/schemas/AxisDisplaySpec"
+          },
+          "band_labels": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Band Labels"
           }
         },
         "additionalProperties": false,
@@ -3876,7 +3886,9 @@
           "value",
           "unit",
           "thresholds",
-          "legend"
+          "legend",
+          "tiles",
+          "band_labels"
         ],
         "title": "MapPaint"
       },
@@ -4232,6 +4244,39 @@
           "value"
         ],
         "title": "PriorityCondition"
+      },
+      "RawValueUnits": {
+        "properties": {
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "total_unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Unit"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "unit",
+          "total_unit"
+        ],
+        "title": "RawValueUnits"
       },
       "RouteCandidate": {
         "properties": {

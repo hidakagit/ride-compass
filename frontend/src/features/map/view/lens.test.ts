@@ -21,10 +21,13 @@ function valueRamp(
   return catalogEntry({
     axis_id: axisId,
     ...overrides,
-    display: {
-      kind: "ramp",
-      tile_inputs: [tileInput({ property: VALUE, weight: 1, has_unknown_fallback: hasUnknownFallback })],
-      thresholds,
+    map_paint: {
+      ...overrides.map_paint,
+      tiles: {
+        kind: "ramp",
+        tile_inputs: [tileInput({ property: VALUE, weight: 1, has_unknown_fallback: hasUnknownFallback })],
+        thresholds,
+      },
     },
   });
 }

@@ -190,7 +190,7 @@ describe("ramp軸の式は、backendの表（形ごとの軸と道）で評価�
   for (const { axis: name, display, runtime_scales, roads } of axes) {
     it(name, () => {
       const [axis] = rampAxesFromCatalogAxes(
-        [catalogEntry({ axis_id: "table", display: display as AxisCatalogEntry["display"] })],
+        [catalogEntry({ axis_id: "table", map_paint: { tiles: display as AxisCatalogEntry["map_paint"]["tiles"] } })],
         runtime_scales,
       );
       const unknownExpression = buildAxisRampUnknownExpression(axis);
@@ -219,7 +219,7 @@ describe("buildAxisRampUnknownExpression", () => {
       tile_inputs,
       thresholds: [10],
     };
-    const [axis] = rampAxesFromCatalogAxes([catalogEntry({ axis_id: "scaled", display })], {});
+    const [axis] = rampAxesFromCatalogAxes([catalogEntry({ axis_id: "scaled", map_paint: { tiles: display } })], {});
 
     expect(evaluate(buildAxisRampUnknownExpression(axis), { v: 5 })).toBe(true);
   });

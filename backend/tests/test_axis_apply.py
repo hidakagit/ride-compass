@@ -9,7 +9,7 @@
   （構造が守る）。壊れた JSON は、定義として読めない JSON と同じ断り（`load_definition`の1つの except）の同じ側
 
 **本番の管理APIと軸カタログは代役にする**（網の境界）。代役は、公開済みの軸の更新・削除を409で拒み、
-単体取得の応答に算出項目を足し、軸カタログは公開の軸だけを体感ラベルを引き直して返す——道具が前提にする管理APIの約束だけを持つ。
+単体取得の応答に算出項目を足し、軸カタログは公開の軸だけを、体感ラベルを地図の段へ引き直した`map_paint`へ移して返す——道具が前提にする管理APIの約束だけを持つ。
 """
 
 import json
@@ -93,8 +93,9 @@ class AdminApi:
 
     def _catalog_entry(self, axis: dict) -> dict:
         labels = axis.get("display_band_labels_override")
-        reshaped = None if labels is None else labels[:1]
-        return {**axis, "display_band_labels_override": reshaped, "raw_value_unit": None, **self.catalog_overrides.get(axis["axis_id"], {})}
+        entry = {key: value for key, value in axis.items() if key != "display_band_labels_override"}
+        paint = {"band_labels": None if labels is None else labels[:1]}
+        return {**entry, "map_paint": paint, "raw_value_units": {"unit": None}, **self.catalog_overrides.get(axis["axis_id"], {})}
 
 
 @pytest.fixture

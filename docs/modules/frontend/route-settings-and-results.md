@@ -191,7 +191,7 @@ TravelBearingControl.tsx`（`page.tsx`から直接importされ地図上に置か
 
 - **軸の詳細（凡例チップから開く）**: 中身は軸別難易度（`RouteCandidate.axis_difficulties`、
   四捨五入、重みを掛ける前）＋生値＋材料内訳＋軸の説明。**チップの数字（重み付き寄与度）とは
-  別の値**であることが分かるよう「軸別難易度 N/100」と単位付きで書く。寄与度バーの凡例
+  別の値**であることが分かるよう「この評価軸の難易度 N/100」と単位付きで書く。寄与度バーの凡例
   （`AxisContributionBar`の`renderDetail`）と、下記の「寄与が出ていない軸」のチップの
   どちらから開いても同じ中身を出す（軸の詳細の出どころは1つ）。名前・軸別難易度・説明の形は
   `AxisDetail.tsx`が持ち、区間の詳細のチップも同じ形で開く（下記「区間クリック詳細」）。押せることは
@@ -202,10 +202,10 @@ TravelBearingControl.tsx`（`page.tsx`から直接importされ地図上に置か
   よって違う形・違う色に見えると、設定した軸と結果に出ている軸が同じものだと読み取れない。
   重みは入っているのに値が来ない軸のチップは押せるままで、詳細が「データなし」を示す。
 - **生値（詳細の中）**: 折れ点を通す前の生値を詳細へ単位付きで出す
-  （`RouteCandidate.axis_raw_values` × `AxisCatalogEntry.raw_value_unit`、
+  （`RouteCandidate.axis_raw_values` × `AxisCatalogEntry.raw_value_units.unit`、
   `axisRawValue.ts: formatAxisRawValue`）。候補の走行距離を掛けた総量も続ける
   （例:「0.8回/km・約26回」）——ただし**総量が読み手の判断を変える軸だけ**で、その判断は
-  `AxisCatalogEntry.raw_value_total_unit`が持つ（「約3322度曲がる」には比べる尺度が無い）。得点0-100は目盛りの引き方に依存する相対評価
+  `AxisCatalogEntry.raw_value_units.total_unit`が持つ（「約3322度曲がる」には比べる尺度が無い）。得点0-100は目盛りの引き方に依存する相対評価
   でしかなく、それだけでは軸単体で経路の良し悪しを判断できないため
   （[設計原則](../../architecture/design-principles.md)11）。
 - **内訳（詳細の中）**: 材料まで分解した絶対量を「この軸の内訳: ...」として全件出す
@@ -289,7 +289,7 @@ non-nullの間、「ルート結果」タブはルート全体の内訳の代わ
 (i)の説明がレグごとに追う時間を生成物`route-generate-config.json`の`wind_forecast_hours_per_leg`から出す）＋
 `AxisContributionBar`（区間の`axis_contributions`）を表示し、×ボタンで
 `selectedRouteSegment`をnullへ戻すとルート全体表示に復帰する。`AxisContributionBar`は寄与が1つも無いと何も描かないので、
-寄与が全部0の区間は「どの評価も0（易しい）」と文で言う——内訳も数字も出ないと、壊れたのと見分けがつかない。内訳のチップはルート全体の内訳・道の詳細と同じく
+寄与が全部0の区間は「どの評価軸も0（易しい）」と文で言う——内訳も数字も出ないと、壊れたのと見分けがつかない。内訳のチップはルート全体の内訳・道の詳細と同じく
 (i)付きで、押すと軸の名前・**その区間の**軸別難易度（`RouteSegmentDetail.axis_difficulties`）・説明が開く（`AxisDetail.tsx`）
 ——チップは名前を文字で出さないため、押して開けないとマウスを重ねられないスマホでは軸の名前が分からない。
 生値・材料の値は区間の詳細には出さない（設計原則「数値は3層で見せる」の、区間の詳細は得点まで）。

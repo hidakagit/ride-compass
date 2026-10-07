@@ -5,6 +5,10 @@
 受ける層（`api/routers/gsi_tile.py`）がここの上流のパスから導く。
 """
 
+from typing import Annotated
+
+from pydantic import Field
+
 #: 色別標高図。上流のパスと、配信元が実データを持つ上限。
 RELIEF_UPSTREAM_PATH = "xyz/relief/{z}/{x}/{y}.png"
 RELIEF_MAX_ZOOM = 15
@@ -17,3 +21,4 @@ RELIEF_ATTRIBUTION = (
 TERRAIN_UPSTREAM_PATH = "xyz/dem_png/{z}/{x}/{y}.png"
 TERRAIN_MIN_ZOOM = 2
 TERRAIN_MAX_ZOOM = 14
+TerrainTileZoom = Annotated[int, Field(ge=TERRAIN_MIN_ZOOM, le=TERRAIN_MAX_ZOOM)]
