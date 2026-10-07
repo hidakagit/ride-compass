@@ -170,6 +170,24 @@ describe("地点", () => {
     expect(result.current.destination).toBeNull();
   });
 
+  it("検索で選んだ経由地・目的地は、周回なら目的地へ切り替えて置き、地図のタップで置く状態を解く。出発地はモードを変えない", () => {
+    const { result, onOriginPlace } = renderConditions();
+    act(() => result.current.armPinRole("origin"));
+
+    act(() => result.current.placeFound("origin", A));
+    expect(onOriginPlace).toHaveBeenCalledWith(A);
+    expect(result.current.routeMode).toBe("loop");
+
+    act(() => result.current.placeFound("waypoint", B));
+    expect(result.current.routeMode).toBe("destination");
+    expect(result.current.waypoints).toEqual([B]);
+
+    act(() => result.current.armPinRole("waypoint"));
+    act(() => result.current.placeFound("destination", C));
+    expect(result.current.destination).toEqual(C);
+    expect(result.current.armedPinRole).toBeNull();
+  });
+
   it("地点は保存せず、開き直すと置いていない状態から始まる", () => {
     const first = renderConditions();
     act(() => first.result.current.placePin("waypoint", A));

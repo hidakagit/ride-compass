@@ -4,13 +4,15 @@
  *
  * 見るもの: モードの切り替えで上がるモード、候補数のステッパー（今の件数・1件ずつの増減・端で押せない・経由地があると
  * 決まった件数で押せず、理由の(i)を置く）、周回の距離のスライダーで上がる値、モードごとに出す距離と地点の行、
- * 地点の行が出す値と出発地の印の色、押したときに上がる役割・消す/戻す操作、タブを切り替えても各タブの中身を外さないこと。
+ * 地点の行が出す値と出発地の印の色、押したときに上がる役割・消す/戻す操作、住所の検索で選んだ候補で上がる役割と位置（経由地が
+ * 上限なら経由地に選べない）、タブを切り替えても各タブの中身を外さないこと。
  *
  * ここで見ないもの: タブの列と選んだタブ、どのタブの中身が見えるか（スタイルで隠す）→ `app/page.tsx`。
  * 書いた定数や受け取った値をそのまま渡すもの（スライダーの範囲・刻み・今の値と km の表記・候補の距離の幅、行頭の印の
  * 役割ごとの背景色、選んでいるモード、(i)の奥の理由の文）。
  * 経由地のある目的地で何件に決まるか → `RouteForm/useRouteFormSubmit.test.ts`（このファイルは決まった数を生成物から読む）。
  * 地点を置ける状態をどう決めるか → `features/route/useGenerationConditions.test.ts`。
+ * 検索の候補の並べ方・置いたあとの文・引けない・当たらないとき → `PlaceSearch/PlaceSearch.test.tsx`。
  *
  * タブの中身を描くには`Tabs`の中に置く必要があるので、テストが`page.tsx`の代わりに`Tabs`で包む。
  */
@@ -21,7 +23,9 @@ import { describe, expect, it, vi } from "vitest";
 
 import { ORIGIN_MARK_COLOR, ORIGIN_MARK_FALLBACK_COLOR } from "@/components/PinMark/PinMark";
 import { Tabs } from "@/components/ui/Tabs/Tabs";
+import { onBackend } from "@/testing/backendServer";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
+import type { PlaceCandidate } from "@/types/route";
 
 import RouteForm, { type SettingsTab } from "./RouteForm";
 
@@ -51,6 +55,14 @@ function waypointsOf(count: number) {
 
 const DESTINATION = { latitude: 35.1, longitude: 139.1 };
 
+const CANDIDATE: PlaceCandidate = {
+  kind: "address",
+  level: "block",
+  name: "東京都千代田区丸の内一丁目9番",
+  latitude: 35.681,
+  longitude: 139.767,
+};
+
 function renderForm(options: Options = {}, tab: SettingsTab = "generate") {
   const handlers = {
     setDistanceInput: vi.fn(),
@@ -59,10 +71,20 @@ function renderForm(options: Options = {}, tab: SettingsTab = "generate") {
     clearWaypoints: vi.fn(),
     clearDestination: vi.fn(),
     onOriginReset: vi.fn(),
+    onPlaceFound: vi.fn(),
     armPinRole: vi.fn(),
   };
   const element = (nextTab: SettingsTab) => {
-    const { originManual, originLocated, onOriginReset, weightsPanel, exclusionsPanel, savedPanel, ...conditions } = {
+    const {
+      originManual,
+      originLocated,
+      onOriginReset,
+      onPlaceFound,
+      weightsPanel,
+      exclusionsPanel,
+      savedPanel,
+      ...conditions
+    } = {
       ...BASE,
       ...handlers,
       ...options,
@@ -74,6 +96,7 @@ function renderForm(options: Options = {}, tab: SettingsTab = "generate") {
           originManual={originManual}
           originLocated={originLocated}
           onOriginReset={onOriginReset}
+          onPlaceFound={onPlaceFound}
           weightsPanel={weightsPanel}
           exclusionsPanel={exclusionsPanel}
           savedPanel={savedPanel}
@@ -264,6 +287,26 @@ describe("RouteForm 経由地の行", () => {
       expect(screen.getByRole("button", { name: "経由地をクリア" })).toBeInTheDocument();
     },
   );
+});
+
+describe("RouteForm 住所の検索", () => {
+  it("どちらのモードにも出し、選んだ候補は役割と位置で上げる。経由地が上限なら経由地には選べない", async () => {
+    onBackend("GET", "/api/place-search", () => Response.json({ candidates: [CANDIDATE] }));
+    const { onPlaceFound } = renderForm({
+      routeMode: "loop",
+      waypoints: waypointsOf(routeGenerateConfig.max_waypoints),
+    });
+
+    await userEvent.type(screen.getByRole("searchbox", { name: "住所で探す" }), "丸の内{Enter}");
+    await userEvent.click(await screen.findByRole("button", { name: new RegExp(CANDIDATE.name) }));
+
+    expect(screen.getByRole("button", { name: "経由地は上限まで置いてあります" })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: "出発地にする" }));
+    expect(onPlaceFound).toHaveBeenCalledExactlyOnceWith("origin", {
+      latitude: CANDIDATE.latitude,
+      longitude: CANDIDATE.longitude,
+    });
+  });
 });
 
 describe("RouteForm 目的地の行", () => {
