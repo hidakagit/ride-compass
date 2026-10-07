@@ -26,6 +26,7 @@ from app.domain.axis_definitions import (
     CategoricalShape,
     MaterialTerm,
 )
+from app.domain.axis_raw_value import RawValueUnits
 from app.domain.material_catalog import MATERIAL_CATALOG, SURFACE_ESTIMATE
 from app.infrastructure.derived_data_meta import DataRevisions
 from app.main import app
@@ -159,7 +160,7 @@ def test_each_axis_carries_what_the_domain_derives_for_it(client, catalog_axes):
     entries = _entries(client)
 
     categorical = entries["axis_categorical"]
-    assert categorical["display"]["tile_inputs"][0]["property"] == MATERIAL_CATALOG[SURFACE_ESTIMATE].tile_property
+    assert categorical["map_paint"]["tiles"]["tile_inputs"][0]["property"] == MATERIAL_CATALOG[SURFACE_ESTIMATE].tile_property
     assert categorical["primary_attribute_ids"] == ["surface"]
     signed = entries["axis_way_value_signed"]
     assert (signed["map_paint"]["value"], signed["map_paint"]["unit"]) == (
@@ -180,7 +181,7 @@ def _runtime_scaled_tile_properties(body) -> set[str]:
     return {
         tile_input["property"]
         for entry in body["axes"]
-        for tile_input in entry["display"]["tile_inputs"]
+        for tile_input in entry["map_paint"]["tiles"]["tile_inputs"]
         if tile_input["needs_runtime_scale"]
     }
 
@@ -241,12 +242,18 @@ def test_get_axis_catalog_tells_which_dedicated_axis_can_leave_a_road_undetermin
 
 
 def test_get_axis_catalog_includes_raw_value_unit(client, catalog_axes):
-    # 得点の隣へ生値を出すための単位（domain/axis_raw_value.py: raw_value_unit）。
+    # 得点の隣へ生値を出すための単位（domain/axis_raw_value.py: raw_value_units）。
     # 勾配は単一材料をそのまま使うので%、内部軸を合成する軸は単位が定まらずnull。
     entries = _entries(client)
-    assert entries["axis_way_value_signed"]["raw_value_unit"] == "%"
+    assert entries["axis_way_value_signed"]["raw_value_units"]["unit"] == "%"
     # 材料ごとに重みを変えて足す軸は、和がどの単位でも読めない——nullになる。
-    assert entries["axis_optional_terms"]["raw_value_unit"] is None
+    assert entries["axis_optional_terms"]["raw_value_units"] == {"unit": None, "total_unit": None}
+
+
+def test_a_total_unit_without_a_raw_value_unit_cannot_be_served():
+    """総量は生値に距離を掛けたものなので、生値の単位の無い総量の単位は掛ける元の無い総量を画面に出させる。"""
+    with pytest.raises(ValueError, match="without a raw value unit"):
+        RawValueUnits(unit=None, total_unit="回")
 
 
 def test_get_axis_catalog_includes_material_breakdown(client, catalog_axes):

@@ -8,8 +8,9 @@ check_tile_index`が持ち、ここでは入口ごとにそれを使っている
 区間インスペクタが条件の揃った材料だけを足すこと（`services/dedicated_way_values.py: DirectionalMaterialService`）、
 種類ごとに別に数えるレート制限。
 
-差し替えるのは、注入されるサービス（`RegionService`・配信サービス。区間インスペクタは、代役の`RegionService`と材料で
-組んだ本物の`AxisInspectorService`を注入する）・土地被覆のタイルの取得・道路網の読み出し・レート制限の記録だけ。
+差し替えるのは、注入されるサービス（`RegionService`・配信サービス。地図のレンズは配信サービスの代役で組んだ本物の
+`AxisWayValueLens`を、区間インスペクタは代役の`RegionService`と材料で組んだ本物の`AxisInspectorService`を注入する）・
+土地被覆のタイルの取得・道路網の読み出し・レート制限の記録だけ。
 
 ここで見ないもの:
 - タイルの中身とキャッシュ → `test_region_service.py`・`test_landcover_tile.py`
@@ -43,7 +44,7 @@ from app.infrastructure.point_tile_layers import POINT_TILE_LAYERS
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.infrastructure.region_tile_cache import TileResponse
 from app.domain.dynamic_way_values import transform_dedicated_way_values
-from app.services.dedicated_way_values import DirectionalMaterialService
+from app.services.dedicated_way_values import AxisWayValueLens, DirectionalMaterialService
 from app.services.region_service import AxisInspectorService
 from app.services.gradient_way_service import GradientConditions
 from app.services.wind_way_service import WindConditions
@@ -147,7 +148,7 @@ def test_region_tiles_hand_the_services_mvt_over(path, cacheable, requested, cac
 )
 def test_region_requests_outside_each_quantitys_range_are_refused(path, inspected):
     app.dependency_overrides[get_region_service] = lambda: FakeRegionService()
-    app.dependency_overrides[get_dedicated_way_value_service] = lambda: FakeDynamicWayValueService()
+    app.dependency_overrides[get_dedicated_way_value_service] = lambda: _lens(SIGNED, FakeDynamicWayValueService())
     app.dependency_overrides[get_axis_inspector_service] = lambda: AxisInspectorService(
         FakeRegionService(), NoDirectionalMaterials()
     )
@@ -182,7 +183,7 @@ def test_each_kind_of_region_request_is_counted_on_its_own():
     road = "/api/region/road-surface-tiles/14/14551/6447.pbf"
     point = "/api/region/point-tiles/{}/14/14551/6447.pbf"
     app.dependency_overrides[get_region_service] = lambda: FakeRegionService()
-    app.dependency_overrides[get_dedicated_way_value_service] = lambda: FakeDynamicWayValueService()
+    app.dependency_overrides[get_dedicated_way_value_service] = lambda: _lens(SIGNED, FakeDynamicWayValueService())
     app.dependency_overrides[get_axis_inspector_service] = lambda: AxisInspectorService(
         FakeRegionService(), NoDirectionalMaterials()
     )
@@ -313,6 +314,12 @@ class FakeDynamicWayValueService:
         return self._values
 
 
+def _lens(axis_id: str, service: FakeDynamicWayValueService) -> AxisWayValueLens:
+    return AxisWayValueLens(axis_id, service)
+
+
+SIGNED = "axis_way_value_signed"
+
 #: 専用way値配信を持つ軸。時刻・方位・速度を要るもの（得点を塗る）と、方位だけを要るもの
 #: （符号付きの生値を塗る）の2本。
 DEDICATED_AXES = {
@@ -367,7 +374,7 @@ def test_region_dedicated_way_values_returns_map_values_json(axis_id, material_i
     raw = {"1": 2.0, "2": -1.5}
     expected = transform_dedicated_way_values(AXIS_DEFINITIONS[axis_id], material_id, raw)
     fake = FakeDynamicWayValueService(values=dict(raw), material_id=material_id, conditions_type=type(conditions))
-    app.dependency_overrides[get_dedicated_way_value_service] = lambda: fake
+    app.dependency_overrides[get_dedicated_way_value_service] = lambda: _lens(axis_id, fake)
 
     try:
         response = client.get(f"/api/region/dynamic-way-values/{axis_id}/14/14551/6447", params=params)
@@ -382,7 +389,7 @@ def test_region_dedicated_way_values_returns_map_values_json(axis_id, material_i
 @pytest.mark.usefixtures("dedicated_axes")
 def test_region_dedicated_way_values_names_the_missing_condition():
     fake = FakeDynamicWayValueService(material_id="wind_drag_ratio", conditions_type=WindConditions)
-    app.dependency_overrides[get_dedicated_way_value_service] = lambda: fake
+    app.dependency_overrides[get_dedicated_way_value_service] = lambda: _lens("axis_way_value_scored", fake)
 
     try:
         response = client.get(

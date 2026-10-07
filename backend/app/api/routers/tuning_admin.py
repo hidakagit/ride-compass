@@ -10,19 +10,12 @@
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.api.admin_auth import require_admin_basic_auth
-from app.api.dependencies import get_tuning_session
+from app.api.dependencies import get_tuning_service
 from app.domain.strict_model import StrictModel
-from app.domain.tuning import (
-    TUNING_PARAMETERS,
-    TUNING_PARAMETERS_BY_ID,
-    TuningEffect,
-    tuning_value,
-)
+from app.domain.tuning import TUNING_PARAMETERS_BY_ID, tuning_parameters_by_effect, tuning_value
 from app.infrastructure.tuning_overrides import TuningOverrideError
-from app.services.tuning_service import overridden_parameter_ids, save_override
+from app.services.tuning_service import TuningService
 
 router = APIRouter(prefix="/api/admin/tuning", tags=["tuning-admin"], dependencies=[Depends(require_admin_basic_auth)])
 
@@ -72,28 +65,25 @@ def _view(param_id: str, overridden_ids: set[str]) -> TuningParameterView:
 
 @router.get("", response_model=list[TuningParameterView])
 async def list_tuning_parameters(
-    session: AsyncSession = Depends(get_tuning_session),
+    service: TuningService = Depends(get_tuning_service),
 ) -> list[TuningParameterView]:
-    overridden = await overridden_parameter_ids(session)
-    # **効き方の順に並べて返す**（`TuningEffect`の宣言順）。画面はこの順のまま
-    # まとめるだけで、並び順の知識を持たない。同じ効き方の中は宣言順のまま。
-    effects = list(TuningEffect)
-    ordered = sorted(TUNING_PARAMETERS, key=lambda p: effects.index(p.effect))
-    return [_view(p.id, overridden) for p in ordered]
+    """較正値を効き方の順（`tuning_parameters_by_effect`）に返す。"""
+    overridden = await service.overridden_parameter_ids()
+    return [_view(p.id, overridden) for p in tuning_parameters_by_effect()]
 
 
 @router.put("/{param_id}", response_model=TuningParameterView)
 async def update_tuning_parameter(
     param_id: str,
     request: TuningUpdateRequest,
-    session: AsyncSession = Depends(get_tuning_session),
+    service: TuningService = Depends(get_tuning_service),
 ) -> TuningParameterView:
     parameter = TUNING_PARAMETERS_BY_ID.get(param_id)
     if parameter is None:
         # 較正値の宣言に無いidは書かせない（較正値ではない固定値はこの逆引きに載らない）。
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"較正値がありません: {param_id}")
     try:
-        overridden = await save_override(session, param_id, request.value)
+        overridden = await service.save_override(param_id, request.value)
     except TuningOverrideError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     return _view(param_id, overridden)

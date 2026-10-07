@@ -446,7 +446,7 @@ OSMは中央分離帯のある道路の上下線を別々のwayとして持ち�
 （`region_tile_cache.py: landcover_generation`。下の「土地被覆ラスタタイル」）。
 
 **旧世代の掃除**（`region_tile_cache.py: prune_other_generations`）: 起動直後と`PRUNE_INTERVAL_HOURS`ごとに、
-`main.py`の定期ジョブが`tile_version_service.py: prune_other_tile_generations`を呼び、今配っている世代の鍵でない地域タイルを消す。
+`main.py`の定期ジョブが`RegionService.prune_other_tile_generations`（中身は`tile_version_service.py`の同名の関数）を呼び、今配っている世代の鍵でない地域タイルを消す。
 世代を読めていない系統（`x-`の世代・土地被覆のラスタが1枚も開けない）は消さず、系統の表に無い系統の鍵は消す。
 同じ置き場の基礎地図・地理院のタイル（鍵が`region/`で始まらない）には触らない。理由は[キャッシュ方針](../../conventions/caching.md)「無効化」。
 
@@ -476,7 +476,7 @@ OSMは中央分離帯のある道路の上下線を別々のwayとして持ち�
 
 - **カバレッジはマーカーの表ではなく取込の宣言から決まる**（成功した最新の道路の取込の`source_runs.profile`の
   `target.bbox`）。道路網は取込・派生バッチが範囲全体ぶん先に作るため、タイル配信側に
-  「無ければ作る」経路は無い。同じ範囲を`get_ingested_area`がサービスの対象範囲として返し、風の格子と気象庁タイルの
+  「無ければ作る」経路は無い。同じ範囲を`RegionService.get_ingested_area`がサービスの対象範囲として返し、風の格子と気象庁タイルの
   プリウォームが敷く範囲に使う（[気象・動的レイヤー](weather-dynamic-layers.md)「格子を敷く範囲」）。
 - **タイル世代**: 焼き込むMVT生成SQLから導く**形の署名**（`ROAD_SURFACE_TILE_SHAPE`等、
   `infrastructure/cache_identity.py`）と、**DBの世代**の2つで決まる（`<派生の世代>.<生データの世代>-<形の署名>`）。

@@ -6,12 +6,13 @@
 
 from typing import Annotated, Literal, cast
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from app.domain.axis_definitions import AxisDefinition, BreakpointLinearShape
-from app.domain.axis_display import axis_display_for
+from app.domain.axis_display import axis_display_for, map_band_labels
 from app.domain.axis_raw_value import raw_value_unit
 from app.domain.material_catalog import MATERIAL_CATALOG
+from app.domain.registry import AxisDisplaySpec
 from app.domain.strict_model import StrictModel
 
 #: 難易度（0〜100）の段の境界。軸が宣言していないときに使う。**値ではなく等分の規則**
@@ -52,7 +53,8 @@ class MapLegendScale(StrictModel):
 
 
 class MapPaint(StrictModel):
-    """地図がこの軸について塗るもの。"""
+    """地図がこの軸について塗るもの。段の並び（境界・凡例・タイルの境界・ラベル）はどれも同じ段を
+    下から数えて並べ、読む側は段の番号で引き合わせる。"""
 
     value: MapValue
     #: 地図の凡例に添える単位。難易度は無次元（空文字）、符号付き材料は材料カタログの単位。
@@ -62,23 +64,47 @@ class MapPaint(StrictModel):
     thresholds: list[float]
     #: 凡例が上の境界を書く目盛り。ルート確定の前と後で同じ段を同じ文字で書く。
     legend: MapLegendScale
+    #: ルート確定前に全道路をタイルの値で塗る式と、その値（材料の目盛り）での段の境界
+    #: （`axis_display_for`）。タイルで塗れない軸（専用way値配信・地図に出ない軸）は`kind="none"`。
+    tiles: AxisDisplaySpec
+    #: 段ごとの体感ラベル（`map_band_labels`）。上書きの無い軸はNoneで、凡例は段の範囲だけを書く。
+    band_labels: list[str] | None
+
+    @model_validator(mode="after")
+    def _check_bands_line_up(self) -> "MapPaint":
+        """段の並びの件数を揃える。1つでも食い違うと、読む側が同じ番号で引いた境界・ラベルが
+        別の段のものになり、ルート確定の前に隠した段が生成後に別の段へ化ける。"""
+        bands = len(self.thresholds) + 1
+        counts = {"legend boundaries": len(self.legend.boundaries) + 1}
+        if self.tiles.kind == "ramp":
+            counts["tile thresholds"] = len(self.tiles.thresholds) + 1
+        if self.band_labels is not None:
+            counts["band labels"] = len(self.band_labels)
+        mismatched = {name: count for name, count in counts.items() if count != bands}
+        if mismatched:
+            raise ValueError(f"map bands do not line up: {bands} bands from thresholds, but {mismatched}")
+        return self
 
 
 def map_paint(definition: AxisDefinition) -> MapPaint:
     """地図がこの軸について塗るもの。"""
+    tiles = axis_display_for(definition)
     value = _map_value(definition)
-    quantity = _quantity_boundaries(definition)
-    thresholds = _thresholds(definition, value, quantity)
+    quantity = _quantity_boundaries(definition, tiles)
+    thresholds = _thresholds(definition, tiles, value, quantity)
+    band_labels = map_band_labels(definition)
     if isinstance(value, SignedMaterialMapValue):
         unit = MATERIAL_CATALOG[value.material].unit
-        return MapPaint(
-            value=value, unit=unit, thresholds=thresholds, legend=MapLegendScale(boundaries=thresholds, unit=unit)
-        )
-    if quantity is None:
-        legend = MapLegendScale(boundaries=thresholds, unit=None)
+        legend = MapLegendScale(boundaries=thresholds, unit=unit)
     else:
-        legend = MapLegendScale(boundaries=quantity[0], unit=quantity[1])
-    return MapPaint(value=value, unit="", thresholds=thresholds, legend=legend)
+        unit = ""
+        if quantity is None:
+            legend = MapLegendScale(boundaries=thresholds, unit=None)
+        else:
+            legend = MapLegendScale(boundaries=quantity[0], unit=quantity[1])
+    return MapPaint(
+        value=value, unit=unit, thresholds=thresholds, legend=legend, tiles=tiles, band_labels=band_labels
+    )
 
 
 def _map_value(definition: AxisDefinition) -> MapValue:
@@ -112,7 +138,7 @@ def _signed_thresholds_from_breakpoints(shape: BreakpointLinearShape) -> list[fl
     return [-x for x in reversed(knots)] + knots
 
 
-def _quantity_boundaries(definition: AxisDefinition) -> tuple[list[float], str] | None:
+def _quantity_boundaries(definition: AxisDefinition, tiles: AxisDisplaySpec) -> tuple[list[float], str] | None:
     """難易度の段の境界を、得点を作る前の量（単位つき）で書けるなら、その量と単位。
 
     書けるのは、得点が単位のある量（`raw_value_unit`）から作られ、その量について狭く増えるときだけ。
@@ -136,9 +162,8 @@ def _quantity_boundaries(definition: AxisDefinition) -> tuple[list[float], str] 
     knots = sorted(shape.breakpoints)
     if any(lower[1] >= upper[1] for lower, upper in zip(knots, knots[1:])):
         return None
-    display = axis_display_for(definition)
-    if display.kind == "ramp":
-        boundaries = list(display.thresholds)
+    if tiles.kind == "ramp":
+        boundaries = list(tiles.thresholds)
     elif definition.display_thresholds_override is None:
         boundaries = [x for x, _ in knots[1:]]
     else:
@@ -149,14 +174,17 @@ def _quantity_boundaries(definition: AxisDefinition) -> tuple[list[float], str] 
 
 
 def _thresholds(
-    definition: AxisDefinition, value: MapValue, quantity: tuple[list[float], str] | None
+    definition: AxisDefinition,
+    tiles: AxisDisplaySpec,
+    value: MapValue,
+    quantity: tuple[list[float], str] | None,
 ) -> list[float]:
     """`value`の種類が示すスケールでの段の境界。
 
     **ルート確定前の全道路の塗りと、確定後のルート線は同じ段で塗る。** 前者は材料の
     重み付き和を、後者は0〜100の難易度を塗るため、同じ段を両方の目盛りで言い直す必要が
-    ある。ここが返すのは後者の目盛りでの境界で、前者の境界（`axis_display_for`が持つ
-    しきい値）を軸の折れ線で写したものである——写さずに渡すと、材料の単位で書かれた境界が
+    ある。ここが返すのは後者の目盛りでの境界で、前者の境界（`tiles`のしきい値）を
+    軸の折れ線で写したものである——写さずに渡すと、材料の単位で書かれた境界が
     難易度と比べられ、ルート線が全区間ひとつのバンドへ落ちる。
 
     `CategoricalShape`の値は初めからスコアと同じスケールのため写さない。ramp表示を持たない
@@ -164,8 +192,7 @@ def _thresholds(
     上書きの無い専用配信の軸のうち、得点を単位のある量から作る軸は、折れ線の節で切る
     （`quantity`。凡例が段を量で書けるように）。
     """
-    display = axis_display_for(definition)
-    if display.kind != "ramp":
+    if tiles.kind != "ramp":
         override = definition.display_thresholds_override
         if override is not None:
             return list(override)
@@ -179,7 +206,7 @@ def _thresholds(
         return list(DEFAULT_DIFFICULTY_BOUNDARIES)
     shape = definition.shape
     if not isinstance(shape, BreakpointLinearShape):
-        return list(display.thresholds)
+        return list(tiles.thresholds)
     if shape.preprocess != "identity":
         # 符号を畳む軸の折れ線は材料の目盛りを写せない（負の境界が正の側へ折り返る）。
         # 地図に塗れる軸を符号を畳まない形に限るのは`axis_display_for`で、そちらが変わったときに
@@ -188,4 +215,4 @@ def _thresholds(
             f"axis '{definition.axis_id}': ramp display on a shape that folds the sign "
             f"(preprocess={shape.preprocess!r}); its thresholds cannot be mapped"
         )
-    return [shape.score_at(threshold) for threshold in display.thresholds]
+    return [shape.score_at(threshold) for threshold in tiles.thresholds]

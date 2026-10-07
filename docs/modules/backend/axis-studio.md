@@ -14,7 +14,7 @@
 | レイヤー | ファイル |
 |---|---|
 | domain | `axis_definitions.py`・`axis_display.py`・`map_paint.py`（地図が軸について塗るもの）・`axis_raw_value.py`・`axis_templates.py`・`registry.py`・`primary_attributes.py`（一次属性の語彙の宣言）・`value_distribution.py`（延長で重み付けた分位点とヒストグラム。分布の口の応答の型） |
-| services | `axis_registry_service.py`・`axis_preview_service.py`・`axis_catalog_service.py`（軸カタログが軸の宣言のほかに要る値——事故の収録年・タイルの世代・専用配信の条件——を1回で読む） |
+| services | `axis_registry_service.py`・`axis_preview_service.py` |
 | infrastructure | `axis_definition_models.py`・`axis_definition_repository.py` |
 | api | `axis_admin.py`・`axis_catalog.py` |
 | scripts | `measure_axis_saturation.py`・`axis_apply.py` |
@@ -47,10 +47,10 @@
 |---|---|---|
 | `POST /api/admin/axis-definitions/preview-distribution` | Basic認証 | 編集中の`shape`の生値の分布 |
 | `GET /api/admin/material-catalog/{material_id}/distribution` | Basic認証 | 材料1件の値の分位と`zero_share`（数値材料のみ、それ以外は`available=false`） |
-| `GET /api/admin/material-catalog/{material_id}/values` | Basic認証 | 材料1件のDBに実際にある値の一覧（`material_values`。[評価・スコアリング](evaluation-scoring.md)の材料カタログのAPI） |
+| `GET /api/admin/material-catalog/{material_id}/values` | Basic認証 | 材料1件のDBに実際にある値の一覧（`AxisPreviewService.material_values`。[評価・スコアリング](evaluation-scoring.md)の材料カタログのAPI） |
 
-どれも実データを全体から読むため、`repository`はルート生成用の長い`command_timeout`の
-セッションで受け取る（`api/dependencies.py: get_road_graph_repository`）。値の一覧は索引の効かない
+どれも実データを全体から読むため、`AxisPreviewService`はルート生成用の長い`command_timeout`の
+セッションで組む（`api/dependencies.py: get_axis_preview_service`）。値の一覧は索引の効かない
 `SELECT DISTINCT`で、タイル配信用の短い上限では最後まで走らない。
 
 
@@ -309,8 +309,8 @@ DB側の値が変わっても追従しない。軸の中身が主題でないテ
 （`display_band_labels_override`）は人が刻んだ境界の段ごとに付くため、境界が落ちると件数が
 地図の段数と合わない。境界が落ちてまとまった段は、その下端で始まる入力の段として扱い、その段の
 ラベルを持つ（`bands_the_map_keeps`が地図の各段に当たる入力の段の番号を返す。下端が同じ値なので、
-地図の凡例のレンジとラベルが食い違わない）。軸カタログの`display_band_labels_override`は
-生の上書きではなくこの引き直した値（`map_band_labels`）で、件数は地図の段数と一致する。
+地図の凡例のレンジとラベルが食い違わない）。軸カタログは生の上書きではなくこの引き直した値
+（`map_band_labels`）を、地図が塗るものの`band_labels`（下の「地図が塗るもの」）で配る。
 軸スタジオの段階プレビューも同じ番号を問い合わせの応答（`bands_on_map`）で受け取る。
 
 **地図の式が評価と同じ値を出すことは、表で確かめる。** 導出の形ごと（例: 真偽の材料・分類の未登録の値・
@@ -342,7 +342,13 @@ DB側の値が変わっても追従しない。軸の中身が主題でないテ
 | `value` | 塗る値の種類（`DifficultyMapValue`・`SignedMaterialMapValue`の判別共用体）。0次条件（`priority_overrides`）を持たず、`BreakpointLinearShape`かつ`preprocess="abs"`かつterms単数で、その項が材料（`MATERIAL_CATALOG`にある）を指すなら符号付き材料（生値を塗る材料を名指す）、それ以外は難易度。項は軸を指すこともあり、その値は参照先の得点で符号にも単位にも材料の意味が無い。0次条件を持つ軸の生値は、条件の当たる道でも生値のままで評価と食い違う。ramp軸は`axis_display_for`が符号を畳む形を外すため、いつも難易度 |
 | `unit` | 符号付き材料なら材料カタログの`unit`、難易度は空文字 |
 | `thresholds` | `value`のスケールでの段の境界（下記） |
+| `tiles` | ルート確定前に全道路をタイルの値で塗る式と、その値（材料の目盛り）での段の境界（`axis_display_for`の`AxisDisplaySpec`）。タイルで塗れない軸（専用way値配信・地図に出ない軸）は`kind="none"` |
+| `band_labels` | 段ごとの体感ラベル（上の「段が落ちても、体感ラベルは地図の段へ引き直して配る」の`map_band_labels`）。上書きの無い軸はnull |
 | `legend` | 凡例が段の境界を書く目盛り（`MapLegendScale`: `thresholds`と同じ件数の境界と単位）。符号付き材料は塗る値そのもの（材料の単位）。難易度の軸のうち、得点が単位の定まる生値（`raw_value_unit`）から0次条件なし・符号を畳まずに作られ、その量について狭く増える（折れ線の節の得点が狭く昇順）軸は、境界を量で書く（例: 雨は5・20・50mm）。それ以外は得点（単位null。画面は「影響 33点未満」と書く）。塗るのは得点でも量で書いてよいのは、狭く増える間だけ「得点 f(a)以上 f(b)未満」と「量 a以上 b未満」が同じ道を指すため。量の境界は折れ線の下端より上・上端以下に限る（外では得点が端に張り付く） |
+
+**段の並びの件数は値が揃える。** 読む側は段の番号で境界・凡例・タイルの境界・体感ラベルを引き合わせるので、
+`MapPaint`は作るときに、`thresholds`の件数+1（段の数）と、`legend`の境界の件数+1・`tiles`がrampならその境界の件数+1・
+`band_labels`があればその件数が揃っているかを確かめ、揃わなければ送出する（揃わない値を軸カタログへ出さない）。
 
 段の境界（`thresholds`）:
 
@@ -356,7 +362,7 @@ DB側の値が変わっても追従しない。軸の中身が主題でないテ
   ここで解いて返す——読む側に既定を持たせない。ただし凡例を量で書ける軸（上の`legend`）は、折れ線の節（軸が「どの量から
   効きが変わるか」を宣言したもの）で切る——3等分の境界を量へ戻すと半端な量（雨なら6.1mm等）になる。
 
-### 生値の単位（`raw_value_unit`）
+### 生値の単位（`raw_value_units`）
 
 `axis_raw_value.py`が、軸の**生値**（折れ点を通す前の`terms`重み付き和）の単位を導出する。
 `BreakpointLinearShape`で、重み0以外の全termが下の条件をすべて満たすときだけ単位を返す。
@@ -370,7 +376,10 @@ DB側の値が変わっても追従しない。軸の中身が主題でないテ
 | 重みが1以外の項を含む（負の重みを含む） | 生値は`Σ(材料値 × weight)`なので、1以外の重みは材料の値をスケールし直した量になり、材料の単位では読めない（重み付きの「1kmあたり1.5回として数えた踏切」を含む和は、実際の回/kmではない）。本番の停止密度がこの形で`None`になる |
 | 2項以上で`additive`でない材料を含む | **単位が揃っていても和の意味は保証されない**。%・km/h・倍率のような割合・率は、母数の違うものを足しても何も表さない（`樹木% + 建物%`のような被覆率どうしの和が実例）。足せるのは回・件・個のような個数と、それを同じ距離で割った密度だけ（`MaterialSpec.additive`）。項が1つなら和ではないためこの条件は課さない |
 
-`GET /api/axis-catalog`が`raw_value_unit`として配信し、
+`raw_value_units`は、この単位と、生値へ走行距離を掛けた総量の単位（重み0以外の項の材料の`total_unit`が1つに揃うときだけ。
+[evaluation-scoring.md](evaluation-scoring.md)の材料の`total_unit`）を1つの値（`RawValueUnits`）で返す。総量の単位は生値の
+単位がある軸にだけ付き、生値の単位の無い総量の単位は値が断る。
+`GET /api/axis-catalog`がこれを`raw_value_units`として配信し、
 [ルート設定・ルート結果（frontend）](../frontend/route-settings-and-results.md)が
 得点の隣へ生値を添えるのに使う。単位の無い数字は読み手が意味を取れないため出さない。
 地図の凡例も、得点が単位の定まる生値について狭く増える軸では、段を生値の量と単位で書く

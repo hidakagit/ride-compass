@@ -338,7 +338,7 @@ class MaterialSpec(StrictModel):
         黙って何も出さない（値の目安が空の折れ点編集、対訳の効かない値の候補）。"""
         if self.total_unit is not None and not self.unit:
             # 総量は生値へ距離を掛けた量で、単位の無い材料には掛ける相手が無い
-            # （`axis_raw_value.py: raw_value_total_unit`は`unit`が空の軸を先に落とす）。
+            # （`axis_raw_value.py: raw_value_units`は`unit`が空の軸の総量を先に落とす）。
             raise ValueError(f"{self.material_id}: total_unitはunitを持つ材料にだけ置ける")
         if self.value_labels and self.dtype != "categorical":
             raise ValueError(f"{self.material_id}: value_labelsはcategorical材料の値にだけ付く")

@@ -32,7 +32,7 @@ class TuningEffect(Enum):
     値は出るが「何をすれば効くのか」だけが失われる、という形で壊れる。メンバーは値と
     見出しの2つを必ず書くので、書き忘れはこのクラスの定義時に落ちる。
 
-    宣言の順がそのまま画面の並び順になる（`api/routers/tuning_admin.py`）。
+    宣言の順がそのまま画面の並び順になる（`tuning_parameters_by_effect`）。
     """
 
     def __new__(cls, value: str, title: str) -> "TuningEffect":
@@ -283,6 +283,13 @@ def tuning_value(param_id: str) -> float:
         raise KeyError(f"較正値の宣言に無いid: {param_id}") from None
 
 
+def tuning_parameters_by_effect() -> list[TuningParameter]:
+    """較正値の宣言を効き方の順（`TuningEffect`の宣言順）に並べる。同じ効き方の中は宣言順のまま。
+    管理画面はこの順のまままとめるだけで、並び順の知識を持たない。"""
+    effects = list(TuningEffect)
+    return sorted(TUNING_PARAMETERS, key=lambda parameter: effects.index(parameter.effect))
+
+
 def client_tuning_values() -> dict[str, float]:
     """フロントへ配る較正値（id → いま効いている値）。
 
@@ -304,5 +311,6 @@ __all__ = [
     "TuningEffect",
     "TuningParameter",
     "stop_seconds_parameter_id",
+    "tuning_parameters_by_effect",
     "tuning_value",
 ]
