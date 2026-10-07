@@ -11,6 +11,7 @@ from asgi_correlation_id import CorrelationIdMiddleware
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.admin_db_errors import install_admin_db_unavailable_handler
 from app.api.cache_policy import CachePolicyMiddleware
 from app.api.dependencies import get_amedas_service, get_ingested_area, get_jma_tile_client
 from app.api.finite_json_body import reject_non_finite_json_body
@@ -206,5 +207,6 @@ app.middleware("http")(request_log_middleware)
 app.add_middleware(CorrelationIdMiddleware)
 # 未処理例外(500)発生時もX-Request-IDヘッダを付ける。
 app.add_exception_handler(Exception, unhandled_exception_handler)
+install_admin_db_unavailable_handler(app)
 
 app.include_router(api_router)

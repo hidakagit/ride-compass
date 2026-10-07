@@ -23,12 +23,11 @@ highway/surface/smoothnessのようなOSMタグの生値でオープンエンド
 認可を要求する理由は`get_material_coverage`のdocstring参照。
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.admin_auth import require_admin_basic_auth
 from app.api.dependencies import get_material_coverage_service, get_road_graph_repository
 from app.domain.material_catalog import MATERIAL_CATALOG, is_known_material
-from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.domain.value_distribution import EMPTY_SPREAD, ValueSpread
 from app.services.axis_preview_service import material_value_distribution, material_values
@@ -127,12 +126,5 @@ async def get_material_coverage(
     読み取り専用のAPIだがBasic認証を要求する:
     道の生データと区間の材料の全表走査を伴う重いクエリで、認可なしに公開すると
     繰り返し呼ばれるだけでDBを圧迫できてしまう（管理画面`/admin`からのみ使う想定）。
-    DB例外は`axis_admin.py`と同じく503へ変換する（診断用APIのため空レポートへ倒さない）。
     """
-    try:
-        return await service.get_material_coverage()
-    except DB_UNAVAILABLE_ERRORS as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="材料の欠損割合の集計に失敗しました（DB接続と、テーブルが作られているかを確認してください）",
-        ) from exc
+    return await service.get_material_coverage()
