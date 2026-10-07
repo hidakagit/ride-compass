@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from sqlalchemy import Float, Text, TextClause, bindparam, text
 from sqlalchemy.dialects.postgresql import ARRAY
 
-from app.domain.accident import BICYCLE_PARTY_TYPE_CODES, FATAL_SQL, bicycle_sql
+from app.domain.accident import BICYCLE_SQL, FATAL_SQL
 from app.domain.geo import degrees_covering_m
 from app.domain.primary_attributes import stop_poi_map_group_sql
 from app.domain.registry import TileKind
@@ -106,8 +106,6 @@ _POI_TILE_MVT_SQL = text(
 
 # 事故。表示に使う値（死亡事故か・自転車が絡むか・発生年）は生データの列から都度導く。判定の
 # 規則は`domain/accident.py`が持ち、集計（`derive_counts.py`）と同じものを使う。
-#: 発生年（本票の列名。全角空白を含む）。
-_OCCURRED_YEAR_SQL = "(a.attrs->>'発生日時　　年')::int"
 _ACCIDENT_TILE_MVT_SQL = text(
     f"""
     SELECT
@@ -118,17 +116,15 @@ _ACCIDENT_TILE_MVT_SQL = text(
                     ST_AsMVTGeom(
                         ST_Transform(a.geom, 3857), ST_TileEnvelope(:z, :x, :y), :extent, 256, true
                     ) AS geom,
-                    {bicycle_sql(":bicycle_party_types")} AS involves_bicycle,
+                    {BICYCLE_SQL} AS involves_bicycle,
                     {FATAL_SQL} AS fatal,
-                    {_OCCURRED_YEAR_SQL} AS occurred_year
+                    a.occurred_year
                 FROM {ACCIDENTS_SOURCE_SQL} a
                 WHERE ST_Intersects(a.geom, ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326))
             ) mvt
             WHERE mvt.geom IS NOT NULL
         ) AS tile
     """
-).bindparams(
-    bindparam("bicycle_party_types", value=sorted(BICYCLE_PARTY_TYPE_CODES), type_=ARRAY(Text()))
 )
 
 #: 名前→点のレイヤー。
