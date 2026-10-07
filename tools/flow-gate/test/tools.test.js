@@ -1,5 +1,5 @@
 // 約束 18・24（担当の後始末の行き先と手番の記録の置き場。src/after.js: settle・keepLog）・26（GitHub の一時的な失敗。src/github.js: GitHub）・
-// 27（問いの打ち直し。src/move.js: askTask）・28（開発機の対話のセッションが持つ・手放す。src/hold.js）・29（ランナーが付かずに取り消された
+// 27（問いの打ち直し。src/move.js: askTask）・28（開発機の対話のセッションが持つ・手放す。src/hold.js）・29（直すもの無しに取り消された
 // 実行の見分け。src/rerun.js: verdict）・30（画像の貼り方。src/attach.js: attach）を確かめる。設定は架空のもの（fake-github.js: config）を渡し、
 // 24・26・27・28 は GitHub（網）だけを、30 は gh を打つ口と待つ口だけを差し替える。
 // ここで見ないもの: 終わりのコメントの中身（文言で、`bin/after.js --dry-run` が出す姿で見る）・ステータスを動かす道具（src/move.js）の表の照らし
@@ -146,7 +146,7 @@ test("28 開発機の対話のセッションが持つ: 待ちの開発機の実
   assert.deepEqual([s.runs[1].status, s.runs[2].status, s.sent.filter((c) => /runs\/1[01]\/cancel/.test(c))], ["in_progress", "in_progress", []]);
 });
 
-test("29 流し直すのは、取り消されたジョブがどれも段0で注記にランナーが付かなかったとあり、ほかに段を走らせて落ちたのがまとめのジョブだけのときで、流し直しは上限まで", () => {
+test("29 流し直すのは、取り消されたジョブがどれも段0で注記にランナーが付かなかったとあるか、注記に持ち時間を超えたとあり、ほかに段を走らせて落ちたのがまとめのジョブだけのときで、流し直しは上限まで", () => {
   const job = (id, name, conclusion, steps = 0) => ({ id, name, conclusion, steps: Array(steps).fill({}) });
   const run = (attempt = 1, status = "completed") => ({ status, run_attempt: attempt });
   const note = { 1: ["警告", "The job was not acquired by Runner of type hosted even after multiple attempts"] };
@@ -157,6 +157,9 @@ test("29 流し直すのは、取り消されたジョブがどれも段0で注�
   assert.equal(at(cancelled, note, run(RERUNS + 1)), "使い切った");
   assert.equal(at(cancelled, { 1: ["警告"] }), "落ちた"); // 注記にランナーの文が無い
   assert.equal(at([job(1, "e2e", "cancelled", 3), job(2, config.code.gather, "failure", 2)]), "落ちた"); // 段を走らせてから取り消された
+  const timedOut = [job(1, "e2e", "cancelled", 3), job(2, config.code.gather, "failure", 2)];
+  assert.equal(at(timedOut, { 1: ["The job has exceeded the maximum execution time of 40m0s", "The operation was canceled."] }), "流す");
+  assert.equal(at(timedOut, { 1: ["The job has exceeded the maximum execution time of 40m0s"] }, run(RERUNS + 1)), "使い切った");
   assert.equal(at([...cancelled, job(5, "frontend", "failure", 4)]), "落ちた"); // ほかに落ちたジョブがある
   assert.equal(at([job(2, config.code.gather, "failure", 2)]), "落ちた"); // 取り消されたジョブが無い
   assert.equal(at(cancelled, note, run(1, "in_progress")), "終わっていない");
