@@ -11,6 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs/T
 import { textVariants } from "@/components/ui/Text/Text";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
 import { cn } from "@/lib/cn";
+import { formatDifficulty } from "@/lib/mapDisplay/valueScale";
 import { formatJstHourMinute } from "@/lib/time";
 import DifficultyProfile from "@/features/route/DifficultyProfile/DifficultyProfile";
 import AxisDetail from "@/features/route/RouteAxisProfile/AxisDetail";
@@ -256,7 +257,7 @@ export default function RouteOutcome({ results, generation, splice, routeWeights
                       {/* 算出できなかった候補は「—」（0と欠損を同じ見た目にしない）。 */}
                       <span className="text-right font-normal text-[var(--color-muted-strong)] tabular-nums">
                         <span className="sr-only">難易度</span>
-                        {route.overall_difficulty === null ? "—" : Math.round(route.overall_difficulty.average)}
+                        {route.overall_difficulty === null ? "—" : formatDifficulty(route.overall_difficulty.average)}
                       </span>
                     </TabsTrigger>
                   </Fragment>
@@ -311,7 +312,7 @@ export default function RouteOutcome({ results, generation, splice, routeWeights
                       <span className="font-semibold">
                         {selectedRouteSegment.segment.difficulty === null
                           ? "—"
-                          : Math.round(selectedRouteSegment.segment.difficulty)}
+                          : formatDifficulty(selectedRouteSegment.segment.difficulty)}
                       </span>
                       <span className={textVariants({ variant: "hint" })}>/100</span>
                     </span>

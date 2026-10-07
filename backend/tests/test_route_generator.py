@@ -35,7 +35,6 @@ from app.services.route_generator import RouteGenerator
 from tests.bound_fake import bound
 
 ORIGIN = Coordinates(latitude=35.6789, longitude=139.7712)
-ORIGIN_LABEL = "(35.68,139.77)"  # 常時出るログ・利用者向けの理由は座標を小数2桁で出す
 WAYPOINT = Coordinates(latitude=35.69, longitude=139.78)
 DESTINATION = Coordinates(latitude=35.70, longitude=139.80)
 START = datetime(2026, 9, 24, 8, 0, tzinfo=JST)
@@ -214,7 +213,7 @@ async def test_missing_road_data_gives_no_candidates_and_says_why(entrance, phra
     with caplog.at_level(logging.WARNING, logger=route_generator.logger.name):
         assert await ENTRANCES[entrance](generator, start_time=START) == []
 
-    assert generator.last_no_candidates_reason == f"起点{ORIGIN_LABEL}付近の道路データが未整備のため、{phrase}"
+    assert generator.last_no_candidates_reason == f"起点付近の道路データが未整備のため、{phrase}"
     assert _warnings(caplog)
 
 
@@ -553,7 +552,7 @@ async def test_destination_without_a_fastest_route_returns_the_alternatives():
     [
         (
             "origin",
-            f"起点{ORIGIN_LABEL}から走り出せる道が見つかりませんでした。出発地を道路沿いへ動かしてお試しください。",
+            "起点から走り出せる道が見つかりませんでした。出発地を道路沿いへ動かしてお試しください。",
         ),
         (
             "destination",

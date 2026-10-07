@@ -233,7 +233,8 @@ RouteGenerator.generate_loops(origin, distance_km, distance_tolerance_km, max_ro
   書き換える同期処理のため`asyncio.gather`による並列化の余地は無い）。距離フィルタ合格が
   `max_routes`件に達した時点で処理を打ち切る。
 - 候補0件になった理由は`RouteGenerator.last_no_candidates_reason`に人間可読な文字列で
-  残り、`RouteGenerateResponse.no_candidates_reason`としてクライアントへ返る。
+  残り、`RouteGenerateResponse.no_candidates_reason`としてクライアントへ返る。文は利用者の語で書き、
+  ログ用の座標のラベル（`origin_label`）を差し込まない（座標はログにだけ出す）。
 
 ### `generate_spliced_route`（区間の乗り換え）
 

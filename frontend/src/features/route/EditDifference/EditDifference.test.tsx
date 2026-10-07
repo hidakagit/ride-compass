@@ -56,7 +56,7 @@ function edited(overrides: Partial<RouteCandidate> = {}): RouteCandidate {
     id: "edited",
     distance_km: 12.34,
     estimated_duration_seconds: 3000,
-    overall_difficulty: { average: 40.2, load: 380 },
+    overall_difficulty: { average: 40.04, load: 380 },
     geometry: DETOUR,
     edge_ids: ["a", "x", "y", "z", "c"],
     edge_point_offsets: [0, 1, 2, 3, 4, 5],
