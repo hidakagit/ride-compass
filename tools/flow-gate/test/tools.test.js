@@ -139,11 +139,11 @@ test("28 開発機の対話のセッションが持つ: 待ちの開発機の実
   s = at([run(6, 7, "開発機", "in_progress", undefined, { unlisted: true }), run(8, 8, "開発機", "in_progress")], ["POST /repos/o/code/actions/runs/6/cancel"]);
   r = await release(gh, config, 7, 6, wait);
   assert.deepEqual([r.status, r.conclusion, s.runs.map((x) => x.status)], ["completed", "cancelled", ["completed", "in_progress"]]);
-  // 取り消しても止まらなければ、終わっていない実行を返す。その番号の開発機の実行でなければ取り消さない。
-  s = at([run(9, 7, "開発機", "in_progress", undefined, { stuck: true }), run(10, 8, "開発機", "in_progress")]);
+  // 取り消しても止まらなければ、終わっていない実行を返す。その番号の開発機の実行でなければ（別の番号の開発機・同じ番号の作る担当）取り消さない。
+  s = at([run(9, 7, "開発機", "in_progress", undefined, { stuck: true }), run(10, 8, "開発機", "in_progress"), run(11, 7, "作る", "in_progress")]);
   assert.equal((await release(gh, config, 7, 9, wait, 2)).status, "in_progress");
-  await assert.rejects(release(gh, config, 7, 10, wait));
-  assert.equal(s.runs[1].status, "in_progress");
+  for (const id of [10, 11]) await assert.rejects(release(gh, config, 7, id, wait));
+  assert.deepEqual([s.runs[1].status, s.runs[2].status, s.sent.filter((c) => /runs\/1[01]\/cancel/.test(c))], ["in_progress", "in_progress", []]);
 });
 
 test("29 流し直すのは、取り消されたジョブがどれも段0で注記にランナーが付かなかったとあり、ほかに段を走らせて落ちたのがまとめのジョブだけのときで、流し直しは上限まで", () => {
