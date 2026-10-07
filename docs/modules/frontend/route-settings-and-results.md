@@ -227,11 +227,15 @@ TravelBearingControl.tsx`（`page.tsx`から直接importされ地図上に置か
   出す。**並べ替えはしない**: 受け取った並びをそのまま使う（順序は配る側が決める）。
   値が来ない材料（categorical材料は数値列に載らない）は飛ばす。
 - **負荷（難易度×距離）**: `RouteCandidate.overall_difficulty.load`を総合難易度の隣へ併記する
-  （(i)で意味を説明する）。総合難易度が距離で正規化された平均であるのに対しこちらは総量で、
+  （(i)で意味を説明する。平均・総量・値の無い区間の数え方の文は、式の横で backend が持つ`domain/difficulty.py: OVERALL_DIFFICULTY_WORDING`を
+  生成物`route-generate-config.json`の`overall_difficulty_wording`から差し込み、画面はグラフと内訳を指す文だけを足す）。
+  総合難易度が距離で正規化された平均であるのに対しこちらは総量で、
   「難所を通っても短いルート」と「遠回りで易しいルート」を見比べるための値
   （[評価・スコアリング](../backend/evaluation-scoring.md)「ルート単位の集約」節参照）。
   候補の並び順には影響しない。**数値と併せて、上の道のりのグラフ（`DifficultyProfile`）が面積で同じことを表す**
   ——負荷は総合難易度に距離を掛けただけの派生量のため、独立した数値として並べるだけでは平均と総量の関係が読めない。
+- **所要時間の説明**: (i)は、区間ごとに速度を変える条件の名前を走行モデルの宣言（`domain/cycling_speed.py: SEGMENT_SPEED_CONDITIONS`。
+  生成物`route-generate-config.json`の`segment_speed_conditions`）から差し込む。想定速度の(i)（`RideConditionBar`）も同じ並びを使う。
 - **所要時間の前提が崩れたことの注記**: 所要時間のすぐ下に、`RouteCandidate.wind_unavailable`なら「風のモデルの計算値を
   使えなかったため、無風として所要時間を出しています」、`missing_travel_data_share`（勾配か停止要因の件数の値が無く、
   平地・待ち無しとして数えた区間の距離の割合）が丸めて1%以上なら「データの無い区間が◯%」を出す——黙って短い所要時間を

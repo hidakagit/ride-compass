@@ -25,7 +25,7 @@ export const mapDisplay = {
     },
     "noData": {
       "label": "データなし",
-      "description": "元にする地図のデータに値が無く、どの行にも分けられない道。道が無いのではなく、値が分からないことを破線で示す。"
+      "description": "元にする地図のデータに値が無く、どの行にも分けられない道。道が無いのではなく、値が分からない。"
     },
     "undetermined": {
       "label": "向きで決まらない",
@@ -156,10 +156,10 @@ export const mapDisplay = {
       "defaultOn": false,
       "chipLabel": "道路種別",
       "description": [
-        "道路の種類を色で表示[幹線道路ほど濃い紫・農道や林道ほど明るい水色]"
+        "道路の種類を色で表示[「幹線道路」ほど濃い紫、「農道・林道」ほど明るい水色]"
       ],
       "panelHint": [
-        "OSMのhighwayタグを区分にまとめて色分けしています。幹線道路が最も濃く、下位の道ほど明るい色です。「路面」「トンネル」等と一緒に表示すると、同じ道に線を横へ並べて描きます。"
+        "OSMのhighwayタグを区分にまとめて色分けしています。「幹線道路」が最も濃く、下位の道ほど明るい色です。ほかの道路のレイヤーと一緒に表示すると、同じ道に線を横へ並べて描きます。"
       ]
     },
     {
@@ -175,7 +175,7 @@ export const mapDisplay = {
         "路面の材質を色で表示[舗装・砂利・土など]"
       ],
       "panelHint": [
-        "OSMのsurfaceタグ[路面の材質]を区分にまとめて色分けしています。タグの無い道は「データなし」[灰色の薄い破線]、区分に当てはまらない値の道は「その他」[灰色]で出します[データなしは未舗装という意味ではありません]。"
+        "OSMのsurfaceタグ[路面の材質]を区分にまとめて色分けしています。タグの無い道は「データなし」、区分に当てはまらない値の道は「その他」で出します[データなしは未舗装という意味ではありません]。"
       ]
     },
     {
@@ -188,10 +188,10 @@ export const mapDisplay = {
       "defaultOn": false,
       "chipLabel": "等級",
       "description": [
-        "農道・林道の路面の等級を色で表示[1=固く締まった路面ほど濃く、5=柔らかい土・草ほど明るい色]"
+        "農道・林道の路面の等級を色で表示[「1 舗装・固く締まる」ほど濃い紫、「5 土・草・砂」ほど明るい水色]"
       ],
       "panelHint": [
-        "OSMのtracktypeタグ[農道・林道の路面の固さの等級]を色分けしています。路面の材質[surfaceタグ]とは別のタグで、材質のタグが無い農道・林道にも付いていることがあります。タグの無い道は「データなし」[灰色の薄い破線]です。"
+        "OSMのtracktypeタグ[農道・林道の路面の固さの等級]を色分けしています。路面の材質[surfaceタグ]とは別のタグで、材質のタグが無い農道・林道にも付いていることがあります。タグの無い道は「データなし」です。"
       ]
     },
     {
@@ -265,7 +265,7 @@ export const mapDisplay = {
         "コンビニ、飲料自販機、自販機(中身不明)、トイレ、給水、駐輪場の位置を種別ごとに色分け表示"
       ],
       "panelHint": [
-        "コンビニ、飲料自販機、自販機(中身不明)、トイレ、給水、駐輪場の位置です。自販機は飲み物が買えると分かっているものだけを「飲料自販機」として出し、売っているものが分からないものは薄い色の「自販機(中身不明)」として区別します[たばこ・切符の機械は出しません]。コンビニはOSMデータの更新が比較的新しく目安として使いやすい一方、自販機・トイレ・給水・駐輪場は閉店・撤去にデータが追いついていないことがあります。現地の状況と異なる場合があることをご留意ください。"
+        "コンビニ、飲料自販機、自販機(中身不明)、トイレ、給水、駐輪場の位置です。自販機は飲み物が買えると分かっているものだけを「飲料自販機」として出し、売っているものが分からないものは「自販機(中身不明)」として区別します[たばこ・切符の機械は出しません]。コンビニはOSMデータの更新が比較的新しく目安として使いやすい一方、自販機・トイレ・給水・駐輪場は閉店・撤去にデータが追いついていないことがあります。現地の状況と異なる場合があることをご留意ください。"
       ]
     },
     {
@@ -293,7 +293,7 @@ export const mapDisplay = {
           "before": "、",
           "after": ""
         },
-        "]の発生地点です。死亡事故[事故後24時間以内]は円を大きく表示します。"
+        "]の発生地点です。死亡事故は円を大きく表示します。"
       ]
     },
     {
@@ -328,8 +328,8 @@ export const mapDisplay = {
         "気象庁MSM[メソ数値予報モデル、5kmメッシュ]が計算した風向・風速を格子点で矢印表示します。モデルの計算値で、予報ではなく、誤差を含みえます。矢印の向きが風向、長さ・太さ・色の濃淡が風速の強さを表します。ごく弱い風の地点は矢印を表示しません。ONにすると地図上に時刻スライダーが現れ、1時間刻みで切り替えられます[先まで見られる範囲は配信中の計算値の長さによって1〜3日の間で変わります]。",
         {
           "name": "axes",
-          "before": "走行方位に対する向かい風/追い風の強さは、地図上部中央の「地図の色分け」で評価軸",
-          "after": "を選ぶと、道路の色分けとして別途確認できます。"
+          "before": "走行方位に対する向かい風/追い風の強さは、道路の色分けで評価軸",
+          "after": "を選ぶと別途確認できます。"
         }
       ]
     },
@@ -414,7 +414,8 @@ export const mapDisplay = {
           "urlTemplate": "bosai/jmatile/data/nowc/{basetime}/{member}/{validtime}/surf/hrpns/{z}/{x}/{y}.png",
           "reader": "nowcast",
           "refreshIntervalMs": 300000,
-          "dataDelayMinutes": 0
+          "dataDelayMinutes": 0,
+          "forecastMinutes": 60
         },
         {
           "id": "rasrf",
@@ -424,7 +425,8 @@ export const mapDisplay = {
           "urlTemplate": "bosai/jmatile/data/rasrf/{basetime}/{member}/{validtime}/surf/rasrf/{z}/{x}/{y}.png",
           "reader": "latestFullRun",
           "refreshIntervalMs": 600000,
-          "dataDelayMinutes": 0
+          "dataDelayMinutes": 0,
+          "forecastMinutes": 900
         }
       ],
       "tile": {
@@ -469,7 +471,8 @@ export const mapDisplay = {
           "urlTemplate": "bosai/jmatile/data/rasrf/{basetime}/{member}/{validtime}/surf/sjfcstmap/{z}/{x}/{y}.png",
           "reader": "latest",
           "refreshIntervalMs": 600000,
-          "dataDelayMinutes": 0
+          "dataDelayMinutes": 0,
+          "forecastMinutes": null
         }
       ],
       "tile": {
@@ -499,7 +502,8 @@ export const mapDisplay = {
           "urlTemplate": "bosai/jmatile/data/nowc/{basetime}/{member}/{validtime}/surf/slmcs_unify/data.geojson?id=slmcs_unify",
           "reader": "nowcast",
           "refreshIntervalMs": 300000,
-          "dataDelayMinutes": 10
+          "dataDelayMinutes": 10,
+          "forecastMinutes": null
         }
       ],
       "tile": null
@@ -525,7 +529,8 @@ export const mapDisplay = {
           "urlTemplate": "bosai/jmatile/data/nowc/{basetime}/{member}/{validtime}/surf/slmcs_unifyfcst/data.geojson?id=slmcs_unifyfcst",
           "reader": "nowcast",
           "refreshIntervalMs": 300000,
-          "dataDelayMinutes": 10
+          "dataDelayMinutes": 10,
+          "forecastMinutes": 30
         }
       ],
       "tile": null
@@ -566,7 +571,8 @@ export const mapDisplay = {
           "urlTemplate": "bosai/jmatile/data/risk/{basetime}/{member}/{validtime}/surf/rain_mesh/{z}/{x}/{y}.png",
           "reader": "latest",
           "refreshIntervalMs": 600000,
-          "dataDelayMinutes": 0
+          "dataDelayMinutes": 0,
+          "forecastMinutes": null
         }
       ],
       "tile": {
@@ -596,7 +602,8 @@ export const mapDisplay = {
           "urlTemplate": "bosai/jmatile/data/risk/{basetime}/{member}/{validtime}/surf/land/{z}/{x}/{y}.png",
           "reader": "latest",
           "refreshIntervalMs": 600000,
-          "dataDelayMinutes": 0
+          "dataDelayMinutes": 0,
+          "forecastMinutes": null
         }
       ],
       "tile": {
@@ -626,7 +633,8 @@ export const mapDisplay = {
           "urlTemplate": "bosai/jmatile/data/risk/{basetime}/{member}/{validtime}/surf/inund/{z}/{x}/{y}.png",
           "reader": "latest",
           "refreshIntervalMs": 600000,
-          "dataDelayMinutes": 0
+          "dataDelayMinutes": 0,
+          "forecastMinutes": null
         }
       ],
       "tile": {
@@ -646,7 +654,7 @@ export const mapDisplay = {
       },
       "gridValue": null,
       "levelScale": "thunder_activity",
-      "description": "雷の激しさと雷が起こる可能性を、活動度の段階で示す気象庁の実況と1時間先までの予測。",
+      "description": "雷の激しさと雷が起こる可能性を、活動度の段階で示す気象庁の実況と60分先までの予測。",
       "jmaElements": [
         {
           "id": "thns",
@@ -656,7 +664,8 @@ export const mapDisplay = {
           "urlTemplate": "bosai/jmatile/data/nowc/{basetime}/{member}/{validtime}/surf/thns/{z}/{x}/{y}.png",
           "reader": "nowcast",
           "refreshIntervalMs": 300000,
-          "dataDelayMinutes": 0
+          "dataDelayMinutes": 0,
+          "forecastMinutes": 60
         }
       ],
       "tile": {
@@ -676,7 +685,7 @@ export const mapDisplay = {
       },
       "gridValue": null,
       "levelScale": "tornado_potential",
-      "description": "竜巻などの激しい突風が起こりやすい所を、確度の段階で示す気象庁の実況と1時間先までの予測。",
+      "description": "竜巻などの激しい突風が起こりやすい所を、確度の段階で示す気象庁の実況と60分先までの予測。",
       "jmaElements": [
         {
           "id": "trns",
@@ -686,7 +695,8 @@ export const mapDisplay = {
           "urlTemplate": "bosai/jmatile/data/nowc/{basetime}/{member}/{validtime}/surf/trns/{z}/{x}/{y}.png",
           "reader": "nowcast",
           "refreshIntervalMs": 300000,
-          "dataDelayMinutes": 0
+          "dataDelayMinutes": 0,
+          "forecastMinutes": 60
         }
       ],
       "tile": {
@@ -716,7 +726,8 @@ export const mapDisplay = {
           "urlTemplate": "bosai/jmatile/data/risk/{basetime}/{member}/{validtime}/surf/flood/{z}/{x}/{y}.pbf",
           "reader": "latest",
           "refreshIntervalMs": 600000,
-          "dataDelayMinutes": 0
+          "dataDelayMinutes": 0,
+          "forecastMinutes": null
         }
       ],
       "tile": {
@@ -746,7 +757,8 @@ export const mapDisplay = {
           "urlTemplate": "bosai/jmatile/data/nowc/{basetime}/{member}/{validtime}/surf/liden/data.geojson?id=liden",
           "reader": "nowcast",
           "refreshIntervalMs": 300000,
-          "dataDelayMinutes": 0
+          "dataDelayMinutes": 0,
+          "forecastMinutes": null
         }
       ],
       "tile": null

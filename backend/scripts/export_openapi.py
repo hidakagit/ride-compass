@@ -55,7 +55,8 @@ from app.domain.weather_elements import (  # noqa: E402
     weather_element_deliveries,
     weather_element_tile,
 )
-from app.domain.difficulty import DIFFICULTY_DECIMALS  # noqa: E402
+from app.domain.cycling_speed import SEGMENT_SPEED_CONDITIONS  # noqa: E402
+from app.domain.difficulty import DIFFICULTY_DECIMALS, OVERALL_DIFFICULTY_WORDING  # noqa: E402
 from app.domain.map_paint import DEFAULT_DIFFICULTY_BOUNDARIES  # noqa: E402
 from app.domain.map_display import (  # noqa: E402
     ALWAYS_SHOWN_ATTRIBUTIONS,
@@ -132,7 +133,7 @@ from app.domain.landcover import (  # noqa: E402
     LANDCOVER_TILE_MIN_ZOOM,
 )
 from app.infrastructure.cache_identity import LANDCOVER_TILE_VERSION  # noqa: E402
-from app.domain.jma_tile_specs import JMA_TILE_MIN_ZOOM, effective_max_zoom  # noqa: E402
+from app.domain.jma_tile_specs import JMA_ELEMENTS, JMA_TILE_MIN_ZOOM, effective_max_zoom  # noqa: E402
 from app.domain.material_catalog import (  # noqa: E402
     MATERIAL_CATALOG,
     MISSING_SEMANTICS_DISPLAY,
@@ -252,6 +253,8 @@ def _weather_element_entry(element: WeatherElement) -> dict:
                 "reader": delivery.reader,
                 "refreshIntervalMs": delivery.refresh_interval_seconds * 1000,
                 "dataDelayMinutes": delivery.data_delay_minutes,
+                # 予測が届く先（分）。凡例が「実況〜N分先」と書く。
+                "forecastMinutes": JMA_ELEMENTS[delivery.element_id].forecast_minutes,
             }
             for delivery in weather_element_deliveries(element)
         ],
@@ -529,7 +532,8 @@ def main() -> None:
         # その値を載せる材料の宣言から引く（地図の凡例が「不明」を出すかを決める）。
         [
             {
-                **attr.model_dump(exclude={"display_axes"}),
+                # 点の不透明度は地図の見た目の宣言として`mapDisplay`の`point.opacityByLayer`が配る。
+                **attr.model_dump(exclude={"display_axes", "point_opacity"}),
                 "display_axes": [
                     {**axis, "missing_semantics": display_axis_missing_semantics(attr, axis["property"])}
                     for axis in resolved_display_axes(attr)
@@ -586,6 +590,10 @@ def main() -> None:
             "wind_forecast_hours_per_leg": MAX_TIME_BINS * TIME_BIN_HOURS,
             # 区間の風を引く時刻の刻み（時刻ビンの幅）。区間の詳細の説明が評価の刻みを数字で示す。
             "wind_time_bin_hours": TIME_BIN_HOURS,
+            # 区間ごとに速度を変える条件の名前（走行モデルの並び）。所要時間の説明が差し込む。
+            "segment_speed_conditions": list(SEGMENT_SPEED_CONDITIONS),
+            # ルート全体の難易度（平均・総量）の数え方の文。結果の難易度の説明が差し込む。
+            "overall_difficulty_wording": OVERALL_DIFFICULTY_WORDING,
             # フロントが使う較正値の**既定**（`domain/tuning.py`の宣言そのまま）。フロントはidの型にだけ使い、
             # 値は読まない——効いている値はGET /api/axis-catalogが返し、取れるまではその値を使う機能を出さない。
             "client_tuning": client_tuning_values(),

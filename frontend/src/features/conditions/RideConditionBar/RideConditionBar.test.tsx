@@ -15,6 +15,11 @@ vi.mock("embla-carousel-react", () => ({
   default: () => [() => {}, { scrollTo: vi.fn(), on: vi.fn(), off: vi.fn(), selectedScrollSnap: () => 0 }],
 }));
 vi.mock("embla-carousel-wheel-gestures", () => ({ WheelGesturesPlugin: () => ({}) }));
+// 速度を変える条件の並びはbackendの走行モデルの宣言。架空の並びへ差し替え、説明がそれを書くことを見る。
+vi.mock("@/types/generated/route-generate-config.json", async (importOriginal) => {
+  const original = await importOriginal<{ default: typeof routeGenerateConfig }>();
+  return { default: { ...original.default, segment_speed_conditions: ["条件ア", "条件イ"] } };
+});
 
 const jst = (text: string) => new Date(`${text}+09:00`);
 const NOW = jst("2026-09-24T09:07");
@@ -140,6 +145,13 @@ describe("RideConditionBar 想定速度", () => {
     await userEvent.clear(input);
     await userEvent.type(input, `${MAX + 10}{Enter}`);
     expect(props.onSpeedKmhChange).toHaveBeenCalledWith(MAX);
+  });
+
+  it("(i)の奥に、走行モデルが速度を変える条件として宣言する並びを書く", async () => {
+    renderBar();
+    await userEvent.click(screen.getByRole("button", { name: /^想定速度:/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "想定速度の説明を表示" }));
+    expect(await screen.findByText(/区間ごとの条件ア・条件イで速度を変えて計算します/)).toBeInTheDocument();
   });
 
   it("(i)の奥に、軸カタログが配る体格・機材の標準値を書く", async () => {

@@ -41,6 +41,10 @@ GRAVITY_M_S2 = 9.80665
 # 一方、反復の中で配列を確保し直さないため回数を減らしても速くならない（実測）。
 SPEED_SOLVE_ITERATIONS = 12
 
+#: 区間ごとに速度を変える道と天気の条件の、画面で呼ぶ名前（走行方程式の重力・空気抵抗・転がり抵抗の順）。
+#: 画面の所要時間の説明はこの並びを差し込む。方程式に条件を足したら、ここにも足す。
+SEGMENT_SPEED_CONDITIONS: tuple[str, ...] = ("坂", "風", "路面")
+
 # 路面の見込みを持つ材料id。走行モデルはこれを**軸の構成と無関係に**必要とする
 # （`domain/traffic.py: stop_count_material_ids`と同じ理由）。
 ROLLING_RESISTANCE_MATERIAL_ID = SURFACE_ESTIMATE
