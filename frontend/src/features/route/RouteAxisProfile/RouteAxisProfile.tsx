@@ -9,6 +9,7 @@ import AxisDetail from "./AxisDetail";
 import { formatAxisRawValue, formatCategoryBreakdown, formatMaterialBreakdown } from "./axisRawValue";
 import { textVariants } from "@/components/ui/Text/Text";
 import { cn } from "@/lib/cn";
+import { formatDifficulty, formatLoad } from "@/lib/mapDisplay/valueScale";
 
 interface RouteAxisProfileProps {
   /** 公開軸すべて（軸カタログの順序・ラベルの正本）。重みによる絞り込みは行わない。 */
@@ -109,7 +110,7 @@ export default function RouteAxisProfile({
           <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
             <span className="inline-flex flex-shrink-0 items-baseline gap-0.5">
               <span className={textVariants({ variant: "hint" })}>総合難易度</span>
-              <span className="text-[1.05rem] font-semibold">{Math.round(overallDifficulty.average)}</span>
+              <span className="text-[1.05rem] font-semibold">{formatDifficulty(overallDifficulty.average)}</span>
               <span className={textVariants({ variant: "hint" })}>/100</span>
               <InfoPopover triggerAriaLabel="総合難易度の説明">
                 <p>
@@ -134,7 +135,7 @@ export default function RouteAxisProfile({
               {/* 「難易度×距離」という中身は説明（ⓘ）が持つ。狭い右カラムで折り返す
                 ぶんだけ縦を食うため、見出しは短い語に留める。 */}
               <span className={textVariants({ variant: "hint" })}>負荷</span>
-              <span className="text-[1.05rem] font-semibold">{Math.round(overallDifficulty.load)}</span>
+              <span className="text-[1.05rem] font-semibold">{formatLoad(overallDifficulty.load)}</span>
               <InfoPopover triggerAriaLabel="負荷の説明">
                 <p>
                   総合難易度に距離を掛けた総量で、走り切るまでのしんどさの目安です。
