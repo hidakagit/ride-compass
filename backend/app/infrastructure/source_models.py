@@ -29,6 +29,7 @@ from sqlalchemy.sql.selectable import ScalarSelect
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.domain.accident import PartyType
 from app.infrastructure.orm_base import Base
 
 
@@ -234,8 +235,29 @@ def nodes_lookup_sql(key_expr: str) -> str:
     return f"({_NODES_SELECT} WHERE source = '{Source.OSM_NODE}' AND natural_key = ({key_expr})::text)"
 
 
-#: 事故の生データ（1件=1点）。判定の式（`domain/accident.py`）が読む別名`a`の中身。
-ACCIDENTS_SOURCE_SQL = f"(SELECT geom, attrs FROM {_TABLE} WHERE source = '{Source.ACCIDENT}')"
+#: 本票の当事者種別のコード（警察庁のコード表 31_koudohyou_toujisyasyuetu.csv。
+#: https://www.npa.go.jp/publications/statistics/koutsuu/opendata/koudohyou/）→判定が名指す種別。
+PARTY_TYPE_CODES: dict[PartyType, str] = {PartyType.BICYCLE: "51", PartyType.POWER_ASSISTED_BICYCLE: "52"}
+
+
+def _party_type_sql(column: str) -> str:
+    """当事者種別の列を`PartyType`の値へ読み替える式。表に無いコードは`OTHER`、列が無ければNULL。"""
+    raw = f"attrs->>'{column}'"
+    whens = " ".join(f"WHEN '{code}' THEN '{party}'" for party, code in PARTY_TYPE_CODES.items())
+    return f"CASE WHEN {raw} IS NOT NULL THEN CASE {raw} {whens} ELSE '{PartyType.OTHER}' END END"
+
+
+#: 事故の生データ（1件=1点）。判定の式（`domain/accident.py`）が読む別名`a`の中身。本票CSVの列名（日本語。
+#: 取込は列を捨てずに`attrs`へ入れる）はここだけが名指し、式へは読み替えた列で渡す。死者数と発生年は
+#: ゼロ埋めの数字列で入っている。
+ACCIDENTS_SOURCE_SQL = (
+    "(SELECT geom,"
+    " (attrs->>'死者数')::int AS deaths,"
+    f" {_party_type_sql('当事者種別（当事者A）')} AS party_type_a,"
+    f" {_party_type_sql('当事者種別（当事者B）')} AS party_type_b,"
+    " (attrs->>'発生日時　　年')::int AS occurred_year"
+    f" FROM {_TABLE} WHERE source = '{Source.ACCIDENT}')"
+)
 
 
 def _raster_tiles_sql(source: Source) -> str:

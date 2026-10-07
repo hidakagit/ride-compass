@@ -16,12 +16,12 @@ from app.batch.common import asyncpg_dsn
 from app.domain.accident import (
     ACCIDENT_FATAL_WEIGHT,
     ACCIDENT_MATCH_MAX_DISTANCE_M,
-    BICYCLE_PARTY_TYPE_CODES,
+    PartyType,
 )
 from app.domain.geo import KM_PER_DEGREE_LATITUDE, km_per_degree_longitude
 from app.domain.traffic import POI_COUNT_KINDS, poi_count_column
 from app.domain.tuning import TUNING_PARAMETERS_BY_ID
-from app.infrastructure.source_models import ACCIDENTS_SOURCE_SQL
+from app.infrastructure.source_models import ACCIDENTS_SOURCE_SQL, PARTY_TYPE_CODES
 from tests.conftest import postgis_database_url
 from tests.source_ingest import ingest_records, point_record, way_record
 
@@ -48,7 +48,7 @@ TIED_NODE = 3
 BESIDE_WAY = (BASE_LON + STEP * 2, BASE_LAT + STEP)
 
 #: 自転車の当事者種別と、自転車ではない軽車両（その他）の当事者種別。
-BICYCLE_PARTY = min(BICYCLE_PARTY_TYPE_CODES)
+BICYCLE_PARTY = PARTY_TYPE_CODES[PartyType.BICYCLE]
 OTHER_PARTY = "59"
 CROSSING = {"highway": "crossing"}
 

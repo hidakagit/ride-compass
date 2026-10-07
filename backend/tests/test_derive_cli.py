@@ -16,10 +16,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.batch import derive_cli
 from app.batch.common import asyncpg_dsn
 from app.batch.source_adapters.npa_honhyo import HonhyoRows
-from app.domain.accident import BICYCLE_PARTY_TYPE_CODES
+from app.domain.accident import PartyType
 from app.domain.material_catalog import ACCIDENT_COUNT_PER_KM_YEAR
 from app.infrastructure import derived_data_meta, road_network_store
 from app.infrastructure.road_graph_repository import RoadGraphRepository
+from app.infrastructure.source_models import PARTY_TYPE_CODES
 from tests.conftest import postgis_database_url
 from tests.source_ingest import ingest_records, point_record, way_record
 
@@ -219,7 +220,7 @@ async def test_the_accident_density_is_divided_by_the_years_of_the_import_that_w
 
     # 道100の途中のノード2の上で、自転車の関わった事故が1件。
     accident = point_record("on-way-100", *_point(2), {
-        "当事者種別（当事者A）": min(BICYCLE_PARTY_TYPE_CODES), "当事者種別（当事者B）": "59", "死者数": "000"})
+        "当事者種別（当事者A）": PARTY_TYPE_CODES[PartyType.BICYCLE], "当事者種別（当事者B）": "59", "死者数": "000"})
     await ingest_records("accident", [accident], conn=derived_before, rows=HonhyoRows(years=[2024]))
     assert await derive_cli.run(postgis_database_url(), None) == 0
     one_year = density_on_way_100()

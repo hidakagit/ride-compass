@@ -1,7 +1,8 @@
 /**
  * ルート生成（`useRouteGeneration.ts`）——押した「生成」を検証して、いまの条件からbackendへ要求を送り、実行中の進み方・
  * 直近の案内（候補0件の理由・失敗の文言・入力の誤り）・表示中の候補を作った条件といまの条件のずれを返す。結果は
- * 所要時間の短い順に並べて渡し、押した1回の結果の種類（新しい結果か失敗か）を知らせる。
+ * 所要時間の短い順に並べて渡し、押した1回の結果の種類（候補・候補0件・失敗）を知らせて、直近の結果（件数・0件の理由・
+ * 失敗）を返す。
  *
  * ここで見ないもの:
  * - 検証の文言の中身と、目的地モードで地点が無いときの検証 → `RouteForm/useRouteFormSubmit.test.ts`
@@ -204,7 +205,7 @@ describe("入力の誤り", () => {
 
     const { generation } = rendered.result.current;
     expect(jobs.submitted).toEqual([]);
-    expect(generation.inputError).toMatch(/現在地が分かりません/);
+    expect(generation.outcome).toEqual({ kind: "failed", message: expect.stringMatching(/^現在地が分かりません/) });
     expect(rendered.onOutcome.mock.calls).toEqual([["failed"], ["failed"]]);
   });
 
@@ -271,6 +272,7 @@ describe("生成の結果", () => {
 
     expect(rendered.onGenerated).toHaveBeenCalledWith([route("fast", 1800), route("slow", 3600)], { axis_a: 1 });
     expect(rendered.onOutcome).toHaveBeenCalledWith("fresh");
+    expect(rendered.result.current.generation.outcome).toEqual({ kind: "generated", count: 2 });
     expect(rendered.result.current.generation.failure).toBeNull();
     expect(rendered.result.current.generation.lastMessage).toBeUndefined();
     expect(rendered.result.current.generation.destinationCorrected).toBe(false);
@@ -283,14 +285,15 @@ describe("生成の結果", () => {
       message: "目的地へ行ける道が見つかりませんでした",
     },
     { label: "理由が届かなければ決まった文言", reason: undefined, message: NO_ROUTES_MESSAGE },
-  ])("候補0件は、「$label」を案内に出して新しい結果として知らせ、失敗とは扱わない", async ({ reason, message }) => {
+  ])("候補0件は、「$label」を案内に出して候補0件として知らせ、失敗とは扱わない", async ({ reason, message }) => {
     const rendered = renderGeneration();
     respond([], used(), reason);
 
     await submit(rendered);
 
     expect(rendered.onGenerated).toHaveBeenCalledWith([], used().route_preference);
-    expect(rendered.onOutcome).toHaveBeenCalledWith("fresh");
+    expect(rendered.onOutcome).toHaveBeenCalledWith("empty");
+    expect(rendered.result.current.generation.outcome).toEqual({ kind: "empty", message });
     expect(rendered.result.current.generation.lastMessage).toBe(message);
     expect(rendered.result.current.generation.failure).toBeNull();
   });
@@ -304,6 +307,7 @@ describe("生成の結果", () => {
 
     expect(rendered.result.current.generation.failure).toBe(message);
     expect(rendered.result.current.generation.lastMessage).toBe(message);
+    expect(rendered.result.current.generation.outcome).toEqual({ kind: "failed", message });
     expect(rendered.onOutcome).toHaveBeenCalledWith("failed");
     expect(rendered.onGenerated).not.toHaveBeenCalled();
 
@@ -312,6 +316,7 @@ describe("生成の結果", () => {
       void rendered.result.current.generation.submit(LENS_NONE_ID);
     });
     expect(rendered.result.current.generation.failure).toBeNull();
+    expect(rendered.result.current.generation.outcome).toBeNull();
   });
 
   it("backendが目的地を補正したら、置いた目的地を補正後の地点へ動かして知らせ、条件が変わったとは扱わない", async () => {
