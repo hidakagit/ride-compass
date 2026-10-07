@@ -174,34 +174,3 @@ def replacement_calls(tree: ast.Module) -> Iterator[tuple[ast.Call, ast.AST]]:
             name = func.attr if isinstance(func, ast.Attribute) else func.id if isinstance(func, ast.Name) else None
             if name in ("setattr", "patch", "object"):
                 yield node, top
-
-
-def string_literals(node: ast.AST) -> set[str]:
-    return {n.value for n in ast.walk(node) if isinstance(n, ast.Constant) and isinstance(n.value, str)}
-
-
-def replaced(scope: Scope, call: ast.Call, enclosing: ast.AST) -> Iterator[tuple[str, Symbol]]:
-    """呼び出しが差し替える名前（`持ち主.名前`）と、その名前が今指しているもの。"""
-    first = call.args[0]
-    if isinstance(first, ast.Constant) and isinstance(first.value, str):
-        split = scope.source.dotted(first.value)
-        if split is None:
-            return
-        owner, names = split[0], [split[1]]
-        owner_text = first.value.rsplit(".", 1)[0]
-    else:
-        if len(call.args) < 2:
-            return
-        owner = scope.resolve(first)
-        if owner is None:
-            return
-        owner_text = ast.unparse(first)
-        name = call.args[1]
-        if isinstance(name, ast.Constant) and isinstance(name.value, str):
-            names = [name.value]
-        else:
-            names = sorted(string_literals(enclosing))
-    for attribute in names:
-        target = scope.source.attribute(owner, attribute)
-        if target is not None:
-            yield f"{owner_text}.{attribute}", target

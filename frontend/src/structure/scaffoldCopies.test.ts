@@ -18,7 +18,9 @@
  *    差し替えられるもの）を、別の中身で`vi.mock`するか、足場が代役として出す名前の型（`Map`等）へ値を`as`で当てる。
  * 4. 自前のモジュールの差し替え: `@/`か相対のパスで指す`src`のモジュールを`vi.mock`する。差し替えてよい境界のうち、
  *    環境変数の読み取り口（`process.env`を読むモジュール）とファイルを落とす関数（`URL.createObjectURL`を呼ぶ
- *    モジュール）は除く。
+ *    モジュール）は除く。子の部品の差し替え（差し替えの中身が部品の名前（大文字で始まり、全部が大文字でない名前）
+ *    だけを置き換えるもの）も除く——testing.md は条件（子の中身がテスト環境に無い境界を要し、境界の側で差し替え
+ *    られない）を満たす子の差し替えを許し、その条件は構文木から決まらない。
  *
  * **判定しない形**: 関数の中の定義。組み立て関数の項目の一部だけを持つリテラル（関心のある項目だけを書いた入力）と、
  * 上書きを受けない部品の関数（`routeThrough`等、型の一部を組むもの）。代役の無い型（`FilterSpecification`等の値の型）への`as`。
@@ -196,6 +198,23 @@ function viMocks(file: ts.SourceFile): { specifier: string; factory: ts.Expressi
   return out;
 }
 
+/** 差し替えの中身が返すオブジェクトが、部品の名前（`MapView`等。`MAX_ZOOM`等の定数でない大文字始まり）だけを置き換えるか。 */
+function replacesOnlyComponents(factory: ts.Expression | undefined): boolean {
+  if (!factory || !(ts.isArrowFunction(factory) || ts.isFunctionExpression(factory))) return false;
+  let body: ts.Node = factory.body;
+  if (ts.isBlock(body)) {
+    const last = body.statements.at(-1);
+    if (!last || !ts.isReturnStatement(last) || !last.expression) return false;
+    body = last.expression;
+  }
+  while (ts.isParenthesizedExpression(body)) body = body.expression;
+  if (!ts.isObjectLiteralExpression(body)) return false;
+  const names = body.properties.flatMap((property) =>
+    ts.isSpreadAssignment(property) ? [] : [property.name && ts.isIdentifier(property.name) ? property.name.text : ""],
+  );
+  return names.length > 0 && names.every((name) => /^[A-Z]/.test(name) && name !== name.toUpperCase());
+}
+
 /** `() => import("@/testing/…")`の形の差し替えなら、読む足場のパス（`src/testing/…`）。 */
 function scaffoldImported(factory: ts.Expression | undefined): string | undefined {
   if (!factory || !ts.isArrowFunction(factory) || !ts.isExpression(factory.body)) return undefined;
@@ -295,9 +314,11 @@ function ownModuleMocks(sources: Source[]): Finding[] {
   return sources
     .filter(({ path }) => isTest(path))
     .flatMap(({ path, file }) =>
-      viMocks(file).flatMap(({ specifier, node }) => {
+      viMocks(file).flatMap(({ specifier, factory, node }) => {
         const target = resolveOwn(path, specifier, paths);
-        return target && !isBoundary(target) ? [{ file: path, line: lineOf(file, node), reason: specifier }] : [];
+        return target && !isBoundary(target) && !replacesOnlyComponents(factory)
+          ? [{ file: path, line: lineOf(file, node), reason: specifier }]
+          : [];
       }),
     );
 }
@@ -333,7 +354,7 @@ describe("共有の足場の写し", () => {
     expect(lines(found.standIns)).toEqual([]);
   });
 
-  it("自前のモジュールを差し替えない（境界の表の読み取り口・ファイルを落とす関数を除く）。例外の表は実態と揃う", () => {
+  it("自前のモジュールを差し替えない（境界の表の読み取り口・ファイルを落とす関数・子の部品を除く）。例外の表は実態と揃う", () => {
     expect(lines(found.ownMocks)).toEqual([]);
     expect(found.staleExceptions).toEqual([]);
   });
@@ -403,7 +424,7 @@ describe("検査が効いていること", () => {
     ).toMatchObject({ standIns: ['src/b.test.ts:2: vi.mock("maplibre-gl")', "src/b.test.ts:3: as LibreMap"] });
   });
 
-  it("自前のモジュールの差し替えを@/と相対のパスで落とし、環境変数の読み取り口・ファイルを落とす関数・パッケージは落とさない", () => {
+  it("自前のモジュールの差し替えを@/と相対のパスで落とし、環境変数の読み取り口・ファイルを落とす関数・子の部品・パッケージは落とさない", () => {
     expect(
       within({
         "src/hooks/useValue.ts": `export const useValue = () => 1;\n`,
@@ -415,10 +436,19 @@ describe("検査が効いていること", () => {
           `vi.mock("@/lib/env");`,
           `vi.mock("../lib/save");`,
           `vi.mock("embla-carousel-react");`,
+          `vi.mock("@/hooks/useValue", () => ({ ValueView: () => null }));`,
+          `vi.mock("@/hooks/useValue", async () => ({ ...(await vi.importActual("@/hooks/useValue")), ValueView: () => null }));`,
+          `vi.mock("@/hooks/useValue", () => ({ ValueView: () => null, useValue: () => 2 }));`,
+          `vi.mock("@/hooks/useValue", () => ({ MAX_VALUE: 2 }));`,
         ].join("\n"),
       }),
     ).toMatchObject({
-      ownMocks: ["src/hooks/useValue.test.ts:1: @/hooks/useValue", "src/hooks/useValue.test.ts:2: ./useValue"],
+      ownMocks: [
+        "src/hooks/useValue.test.ts:1: @/hooks/useValue",
+        "src/hooks/useValue.test.ts:2: ./useValue",
+        "src/hooks/useValue.test.ts:8: @/hooks/useValue",
+        "src/hooks/useValue.test.ts:9: @/hooks/useValue",
+      ],
     });
   });
 });
