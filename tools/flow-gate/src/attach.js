@@ -14,8 +14,7 @@ export function classify(stderr, now = Date.now()) {
   if (!limited[1]) return { wait: WAIT };
   // retry-after は秒の数なら「N seconds」、日時ならそのままの値で出る。
   const seconds = /^(\d+) seconds/.exec(limited[1]);
-  const until = Date.parse(limited[1]);
-  return { wait: seconds ? Number(seconds[1]) : Number.isNaN(until) ? WAIT : Math.max(0, Math.ceil((until - now) / 1e3)) };
+  return { wait: seconds ? Number(seconds[1]) : Math.max(0, Math.ceil((Date.parse(limited[1]) - now) / 1e3)) };
 }
 
 // run(引数, 名義) は gh を打って { status, stdout, stderr } を返す（名義は "code" か "bot"）。sleep(秒) は待つ。images は
@@ -23,7 +22,7 @@ export function classify(stderr, now = Date.now()) {
 export async function attach({ run, sleep, code, tasks, pr, issue, images }) {
   const said = [];
   for (const image of images) {
-    const title = image.includes("#") ? image.slice(image.indexOf("#") + 1) : image;
+    const title = image.slice(image.indexOf("#") + 1);
     const errors = [];
     while (errors.length < TRIES) {
       const r = run(["pr", "comment", String(pr), "-R", code, "--body", title, "--attach", image], "code");

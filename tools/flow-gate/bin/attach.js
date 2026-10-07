@@ -6,7 +6,7 @@ import { attach } from "../src/attach.js";
 import { args, bot, code, config, isNumber } from "./cli.js";
 
 const { rest: [pr, issue, ...images] } = args("node tools/flow-gate/bin/attach.js <Pull Request の番号> <issue の番号> <画像>#<見出し>...",
-  (a) => isNumber(a[0]) && isNumber(a[1]) && a.length > 2);
+  (a) => isNumber(a[0]) && isNumber(a[1]) && a.length > 2 && a.slice(2).every((i) => i.includes("#")));
 const tokens = { code: code().token, bot: bot().token };
 const run = (a, as) => spawnSync("gh", a, { encoding: "utf8", env: { ...process.env, GH_TOKEN: tokens[as] } });
 const sleep = (s) => new Promise((r) => setTimeout(r, s * 1e3));
