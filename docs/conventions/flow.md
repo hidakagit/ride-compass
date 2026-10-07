@@ -54,7 +54,7 @@
 `origin/master` と違えば（master で道具が変わる前に作った作業ブランチ・追いついていない本体のチェックアウト等）、道具が master の版を
 一時の場所へ取り出して打ち直し、そのことを1行出す（`tools/flow-gate/bin/cli.js`）。試し（`--dry-run`）は書かないので作業ツリーの版で
 動き、道具を変える作業ブランチでは、変えた道具を試しの形で流して確かめる（「書き込みのある道具を流す」）。試しを持つのは
-`move.js`・`after.js`・`dispatch.js`・`refresh.js` だけで、ほかの道具（`ask.js`・`field.js`・`stage.js`・`claim.js`・`hold.js`）は
+`move.js`・`after.js`・`dispatch.js`・`refresh.js`・`rerun.js` だけで、ほかの道具（`ask.js`・`field.js`・`stage.js`・`claim.js`・`hold.js`・`attach.js`）は
 `--dry-run` を読み捨てて、作業ツリーの版で本当に書く。
 
 - 未着手 → 進行中: 担当のワークフローが、最初の段（引き受ける）で動かす（「担当」）。開発機の対話のセッションは、タスクを持ってから
@@ -246,11 +246,11 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    - 増減: `python scripts/review_checks.py change` の出力の行（出た規模の札で Project の欄も付け直す）
    - 検証: 下の確かめ方と、`backend/scripts/lost_constraints.py` が出した「消えた」制約の1件ずつの処置（移した先・意図して
      外した理由。書き直しで落ちた制約は差分に1行も出ないため）
-   画面の変更は、修正前後のキャプチャを Pull Request のコメントに貼る（`gh pr comment <番号> --attach <画像>` を1枚ずつ。下の「貼り方」。
-   画面・幅など、何を撮ったかを添える。画像はコミットに残さない）。画面は `node frontend/scripts/capture.mjs --script <脚本>` で撮る
+   画面の変更は、修正前後のキャプチャを Pull Request のコメントに貼る（`node tools/flow-gate/bin/attach.js <Pull Request の番号> <issue の番号> '<画像>#<見出し>' ...`。
+   見出しに画面・幅など、何を撮ったかを書く。下の「貼り方」。画像はコミットに残さない）。画面は `node frontend/scripts/capture.mjs --script <脚本>` で撮る
      （開く版を `--app`、応答を `--api` で選び、見せたい状態までは脚本で進める。脚本の口と使い方はスクリプトの先頭、例は
-     `frontend/capture/examples/`。脚本は作業ツリーの外に置いてよい。外に置いた脚本は確かめる担当に届かないので、キャプチャと同じ
-     コメントに、`<details>` で畳んだコードの囲みで脚本の全文と打った `capture.mjs` の引数を貼る。脚本は何も読み込まないので、モックへ
+     `frontend/capture/examples/`。脚本は作業ツリーの外に置いてよい。外に置いた脚本は確かめる担当に届かないので、キャプチャの
+     あとのコメントに、`<details>` で畳んだコードの囲みで脚本の全文と打った `capture.mjs` の引数を貼る。脚本は何も読み込まないので、モックへ
      足した応答も脚本の `patch` ごと貼れる）。前は本番を撮り（`--app production`。ビルドしない）、後は
      `--api <本番の backend>`（作業ツリーの版を手元でビルドし、本番の backend へ向ける。宛先は docs/architecture/tech-stack.md「本番の宛先」）で、
      前と同じ脚本で撮る。前後が同じ backend を使うので、地図の塗り（道路タイルを持つ本物の backend でしか出ない）も、それ以外の画面
@@ -262,15 +262,10 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
      本番の版は master より遅れていることがある。本番の版（`/api/version` の `commit`）と作業ブランチの合流点
      （`git merge-base HEAD origin/master`）の間で frontend が変わっていて（`git diff --name-only <本番の commit> <合流点> -- frontend`）、
      それが撮る画面に関わるなら、前に作業ツリーの変更でない差が混ざるので、前は本番の代わりに `--app <合流点> --api <本番の backend>` で撮る。
-     **貼り方**: `--attach` は1回の `gh pr comment` に1枚だけ付け、2枚目からは別のコメントで足す。gh は画像を1枚ずつ順に上げ、
-     最初の失敗で止まり、上がった分だけでコメントを書いて終了コード 1 で終わる（gh のソース `internal/attachments/attach.go`）ので、
-     まとめて上げると1枚の失敗で残りが載らず、打ち直すと載った分が重なる。失敗したら文言で分ける（同じソースの `client.go`）:
-     - `attaching files requires write access to the repository`: 名義の誤り（上がり先は書く権限の無いトークンに 404 を返す）。`GH_TOKEN` を見直す。
-     - `rate limited`: 出た時間だけ待って打ち直す。
-     - `failed to upload <画像>: HTTP 5xx` 等、ほかの文言: 上がり先の側の失敗（名義・権限なら上の 404 になる）。同じコマンドを3回まで
-       打ち直す。3回とも落ちたら、その画像を置き場の issue へ
-       `GH_TOKEN=$FLOW_BOT_TOKEN gh issue comment <issue の番号> -R ridecompass/ride-compass-tasks --body-file <説明> --attach '<画像>#<見出し>'`
-       で貼り、Pull Request のコメントに、貼れなかったこと（出た文言・打った回数）とそのコメントへのリンクを書いて進める。置き場は
+     **貼り方**: `attach.js` は画像を1枚ずつ別のコメントで貼り、落ちた打ちを gh の文言で分けて打ち直す（分け方・回数・1枚ずつに
+     する理由は `tools/flow-gate/src/attach.js`）。名義の誤りで止まったら `GH_TOKEN` を見直す。打ち直しを使い切った画像は置き場の
+     issue へ貼られ、Pull Request にそのコメントへのリンクが書かれる（出力のその行の末尾に「置き場の issue へ」と出る）。置き場の
+     issue へも貼れずに止まったら、出た行を 6 の報告に書いて進める。置き場は
        非公開なので、その画像は `GH_TOKEN=$FLOW_BOT_TOKEN gh api repos/ridecompass/ride-compass-tasks/issues/comments/<コメントの id> -H 'Accept: application/vnd.github.html+json' --jq .body_html`
        が出す `https://private-user-images.githubusercontent.com/…` の URL（`&amp;` を `&` に戻す）を、トークンを付けない `curl -sSL` で
        取り出す（URL は短い間しか効かないので、取るたびに引き直す）。
@@ -278,7 +273,7 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    Pull Request の題名・本文・コメントは公開のリポジトリに載るので、打ったコマンドを写すときも本番の宛先は値を書かず、
    `--api <本番の backend>` のように tech-stack.md「本番の宛先」の名で書く（値を含む書き込みは、自動モードの判定に
    `[Excess Sensitive Detail]` で断られうる。`--attach` の付いた書き込みそのものは断られない）。
-   前の Pull Request が開いたまま残っていれば、新しく出さずに push し、撮り直したキャプチャを `gh pr comment --attach` で足す。
+   前の Pull Request が開いたまま残っていれば、新しく出さずに push し、撮り直したキャプチャを `attach.js` で足す。
    本文を直すときは `gh issue edit <番号> -R hidakagit/ride-compass --body-file <ファイル>` で書き換える（`gh pr edit` と、欄を選ばない
    `gh pr view` は、レビューを頼んだチームの名前を問い合わせるため、組織を読む権限の無いトークンでは断られる）。
    出したら（push したら）、Pull Request の CI の実行（master と合わせた版。`ci.yml`・Docs Consistency・Claude Gate のどれも）の id を
@@ -302,14 +297,13 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    testing-operations.md「手元の検査の回し方」で、この失敗の再現はその1。直し方は testing.md「テストが落ちたときの直し方」）、4 から続ける。
    **ランナーが付かずに取り消されたチェック**: GitHub Actions の障害の間は、ジョブがランナーを待ったあと段を1つも走らせずに
    取り消し（`cancelled`）で終わることがある。直すものが無いので「落ちたら」に当てず、流し直す。必須のチェックが `pass` でない
-   実行ごとに、ジョブを `gh run view <id> -R hidakagit/ride-compass --json jobs --jq '.jobs[] | select(.conclusion != "success" and .conclusion != "skipped") | "\(.databaseId) \(.name) \(.conclusion) 段=\(.steps|length)"'`
-   で並べ、`cancelled` のジョブの注記を `gh api repos/hidakagit/ride-compass/check-runs/<ジョブの id>/annotations --jq '.[].message'` で読む。
-   `cancelled` のジョブがどれも段が0で、注記に `The job was not acquired by Runner` を含み（ほかの警告の注記も並ぶ）、段を走らせて
-   落ちたジョブが `needs` の結果だけを見る `ci-ok` のほかに無ければ、ランナーが付かなかったものとして
-   `gh run rerun <id> --failed -R hidakagit/ride-compass` で流し直し（取り消しのジョブと、それに `needs` で続くジョブだけが走り直す。
-   実行が終わる前は `This workflow is already running` で断られるので、`gh run watch` で終わるのを待ってから打つ）、`gh run watch` から待ち直す。
-   流し直しは実行ごとに3回まで。3回流し直しても同じ取り消しで終わったら、Pull Request を開いたまま、6 の報告に実行の id・取り消された
-   ジョブ・注記・流し直した回数を書いて終える（タスクは検証中のまま残り、確かめる担当が同じ扱いで続ける）。
+   実行ごとに `node tools/flow-gate/bin/rerun.js <id>` を打つ（見分けと、実行ごとに3回までの数えは `tools/flow-gate/src/rerun.js`）。
+   終わりの値で次を決める:
+   - 0: 取り消しのジョブと、それに `needs` で続くジョブだけを流し直したので、`gh run watch` から待ち直す。
+   - 1: ランナーが付かなかった取り消しではないので、「落ちたら」に当てる。
+   - 3: 3回流し直しても同じ取り消しで終わった。Pull Request を開いたまま、6 の報告に実行の id と道具が出した行を書いて終える
+     （タスクは検証中のまま残り、確かめる担当が同じ扱いで続ける）。
+   - 4: 実行がまだ終わっていないので、`gh run watch` で終わるのを待ってから打ち直す。
 6. issue の本文を直し（経緯・完了の条件のチェック。マージのあとでないとできない条件だけをチェックの無いまま残す）、
    Pull Request へのリンクをコメントに書いて報告する。Pull Request を出すと、ゲートが検証中へ動かし、確かめる担当に渡る。
 
@@ -357,8 +351,8 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    突き合わせて見る。落ちていれば満たしていないとして 4 のとおり落ちたテストを書いて
    閉じる（落ちたのが作業ブランチの変更か master との意味の競合かは見分けない。作る担当はどちらも master を取り込んでから直す）。
    ランナーが付かずに取り消されたチェックは落ちたものに当てず、作る担当の5の「ランナーが付かずに取り消されたチェック」のとおり
-   見分けて実行ごとに3回まで流し直す。3回流し直しても同じ取り消しで終わったら、マージも閉じもせず、2 の結果に実行の id・取り消された
-   ジョブ・注記・流し直した回数を書いて終える（タスクは検証中のまま残り、次の確かめる担当が続ける）。`lost_constraints.py` も自分で回し、
+   `rerun.js` で見分けて流し直す。終わりの値が 3（流し直しを使い切った）なら、マージも閉じもせず、2 の結果に実行の id と道具が出した行を
+   書いて終える（タスクは検証中のまま残り、次の確かめる担当が続ける）。`lost_constraints.py` も自分で回し、
    「消えた」制約に本文の処置が無ければ満たしていない。分布の前後は測らず、本文に前後の行が無いことを理由にしない（上の「分布の前後」）。
    **設計書の条件を1つ当てる**: 作り直しで落ちた条件（絞り込み・不変条件・制約）は、差分にも作る担当の報告にも1行も出ないので、
    報告の主張ではなく設計書を基準にする。差分が変えた関数・SQL・材料のファイルを `docs/modules/*.md` の対象ファイル表で引き
@@ -397,7 +391,7 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    **外部の公式のソース・文書を読む**: GitHub にある公式のリポジトリのファイルを、`WebFetch https://raw.githubusercontent.com/<所有者>/<リポジトリ>/<版>/<パス>`
    （WebFetch の道具にその URL を渡す）で読む。文書も、公式が GitHub のリポジトリに置いているものはこの形で読む。
 2. 確かめた結果を、満たしていてもいなくても issue にコメントで書く（見出し「確かめた結果」）。完了の条件の1件ごとに、
-   何をどう見て（実行したコマンド・開いた画面）何が出たかを書き、撮った画面は Pull Request へ `gh pr comment --attach` で貼る
+   何をどう見て（実行したコマンド・開いた画面）何が出たかを書き、撮った画面は Pull Request へ `attach.js` で貼る
    （貼り方と貼れないときの扱い・添える説明の中の本番の宛先は、作る担当の5と同じ）。
    設計書の条件は、選んだ条件（文書と節）・確かめた方法・出た値を書く。足した行と約束の突き合わせは、どの約束にも
    当たらなかった行があれば、その行と理由を書く。消した・まとめたテストは、数えた本数と表の行の数・選んだ壊れ方（実装のファイルと変えた行）・回した残す側の
@@ -699,7 +693,7 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
 - **画像の載せ方**: `ask.js` は文だけを書き、画像を載せられない。問う前に、画像だけのコメントを
   `GH_TOKEN=$FLOW_BOT_TOKEN gh issue comment <番号> -R ridecompass/ride-compass-tasks --body-file <何の画像かの説明> --attach '<画像>#<見出し>'`
   で1枚ずつ書く（画像はコメントの末尾に、見出しを代替の文にして並ぶ。`gh issue comment --help` の `--attach`。1枚ずつにする理由と
-  失敗したときの扱いは「担当」の作る担当の5の「貼り方」）。出たコメントの id で
+  落ちた打ちの文言の分け方は `tools/flow-gate/src/attach.js`）。出たコメントの id で
   `GH_TOKEN=$FLOW_BOT_TOKEN gh api repos/ridecompass/ride-compass-tasks/issues/comments/<id> --jq .body` を読み、`https://github.com/user-attachments/assets/…`
   の URL を判断材料の `![<見出し>](<URL>)` で指す（回答フォームは判断材料を GitHub の Markdown の描き方で HTML にし、非公開の画像も
   開いた時点から5分有効の URL で出る）。開発機の対話のセッションがチャットで問うときも、画像は同じく issue に載せる（答えの
