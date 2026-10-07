@@ -1,7 +1,7 @@
 """`api/routers/gsi_tile.py`——地理院の色別標高図の中継と、標高タイル（Terrain-RGB）の配信。
 
 確かめるのは、取得の結果（中身・整備区域外・失敗）がどの応答になるかと、整備区域外の404をブラウザにも
-覚えさせること、回数制限（429）、標高タイルのズームの範囲（400）。取得の口（`get_gsi_tile_client`）は応答を差し替える。
+覚えさせること、回数制限（429）、標高タイルのズームと座標の範囲（422）。取得の口（`get_gsi_tile_client`）は応答を差し替える。
 
 ここで見ないもの:
 - 配信元への取得・ディスクへの記憶・整備区域外の見分け → `test_gsi_tile_client.py`
@@ -84,4 +84,5 @@ def test_標高タイルは配信元がデータを持たないズームを拒�
     # 配信元はz14までしか実データを持たない。範囲外をそのまま上流へ投げない。
     _answer(monkeypatch, (b"", "image/png"))
 
-    assert client.get("/api/gsi-terrain-tile/16/58211/25802.png").status_code == 400
+    assert client.get("/api/gsi-terrain-tile/16/58211/25802.png").status_code == 422
+    assert client.get(f"/api/gsi-terrain-tile/14/{2**14}/6450.png").status_code == 422
