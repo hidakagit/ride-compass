@@ -591,7 +591,7 @@
     "material_id": "tracktype",
     "label": "農道・林道の等級 - tracktype",
     "name": "農道・林道の等級",
-    "description": "OSMの農道・林道の路面等級タグ(tracktype)の値（grade1=固く締まった路面〜grade5=柔らかい土・草）。路面の区分とは別のタグです。surfaceタグの無い道では、路面の見込みを等級から決めます。",
+    "description": "OSMの農道・林道の路面等級タグ(tracktype)の値（grade1=1 舗装・固く締まる〜grade5=5 土・草・砂）。路面の区分とは別のタグです。surfaceタグの無い道では、路面の見込みを等級から決めます。",
     "dtype": "categorical",
     "unit": "",
     "reference_points": [],

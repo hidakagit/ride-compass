@@ -7,12 +7,17 @@
 書き足す場所は無い（`TUNING_PARAMETERS`に載っているものだけを返す——較正値ではない固定値は
 使う側のモジュールに置いたままで、このAPIからは見えない（物理定数を出すと模型を壊せ、
 資源の上限を出すと本番を止められる）。
+
+**名前に添える対象（どの路面・どの停止要因の値か）は、値を使う側の宣言から引く**。`domain/tuning.py`は
+その宣言を読めない（循環する）ので、ここで添える。
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from app.api.admin_auth import require_admin_basic_auth
 from app.api.dependencies import get_tuning_service
+from app.domain.road import rolling_resistance_subjects
 from app.domain.strict_model import StrictModel
+from app.domain.traffic import stop_seconds_subjects
 from app.domain.tuning import TUNING_PARAMETERS_BY_ID, tuning_parameters_by_effect, tuning_value
 from app.infrastructure.tuning_overrides import TuningOverrideError
 from app.services.tuning_service import TuningService
@@ -48,9 +53,10 @@ class TuningUpdateRequest(StrictModel):
 
 def _view(param_id: str, overridden_ids: set[str]) -> TuningParameterView:
     parameter = TUNING_PARAMETERS_BY_ID[param_id]
+    subjects = {**rolling_resistance_subjects(), **stop_seconds_subjects()}.get(param_id)
     return TuningParameterView(
         id=parameter.id,
-        label=parameter.label,
+        label=f"{parameter.label}（{'／'.join(subjects)}）" if subjects else parameter.label,
         unit=parameter.unit,
         description=parameter.description,
         default=parameter.default,

@@ -792,7 +792,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         label="路面の区分",
         description=(
             "OSMの路面種別タグ(surface)を、走りやすさの違いが出る区分へ束ねた値（例: 舗装・砂利・土）。"
-            "区分に当てはまらない値は「その他」です。"
+            f"区分に当てはまらない値は「{SURFACE_OTHER_LABEL}」です。"
         ),
         dtype="categorical",
         tile_property="surface_class",
@@ -923,7 +923,8 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         material_id="tracktype",
         label="農道・林道の等級",
         description=(
-            "OSMの農道・林道の路面等級タグ(tracktype)の値（grade1=固く締まった路面〜grade5=柔らかい土・草）。"
+            "OSMの農道・林道の路面等級タグ(tracktype)の値"
+            f"（{TRACK_GRADES[0].value}={TRACK_GRADES[0].label}〜{TRACK_GRADES[-1].value}={TRACK_GRADES[-1].label}）。"
             "路面の区分とは別のタグです。surfaceタグの無い道では、路面の見込みを等級から決めます。"
         ),
         dtype="categorical",

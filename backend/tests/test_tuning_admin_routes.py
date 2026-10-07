@@ -1,17 +1,18 @@
 """`api/routers/tuning_admin.py`——較正値の一覧と上書きの管理API。
 
-ここで見るもの: 一覧の並び（効き方ごと）・いま効いている値と上書き済みかの印・上書きを保存して読み直した結果・
-宣言に無いidと保存側が断った値の状態コード。
+ここで見るもの: 一覧の並び（効き方ごと）・いま効いている値と上書き済みかの印・名前に添える、値を使う側の
+宣言（路面の見込み・停止要因の種別）の名前・上書きを保存して読み直した結果・宣言に無いidと保存側が断った値の状態コード。
 
 ここで見ないもの:
 - すべての口に認証が要ること → `test_admin_route_authorization.py`（`/api/admin/`配下の全ルートを走査する）
 - 認証情報の照合そのもの（誤った・未設定の認証情報） → `admin_auth`のテスト
 - 上書きの保存と、範囲の外・数値でない値の判定 → `services/tuning_service.py`・`infrastructure/tuning_overrides.py`のテスト
 - 較正値の宣言の中身 → `domain/tuning.py`のテスト
-- 宣言の項目（表示名・単位・範囲・効き方の名前）を応答へそのまま写すこと——書き写しで、判断が無い
+- 宣言の項目（単位・範囲・効き方の名前）を応答へそのまま写すこと——書き写しで、判断が無い
 
 **宣言は本物の宣言から作った架空の較正値へ差し替える**（`dataclasses.replace`で本物の型のまま、
-効き方と並びだけをテストが決める）。いま効いている値は`TUNING_VALUES`へ差し込む。上書きの読み書き
+効き方と並びだけをテストが決める）。値を使う側の宣言（路面の見込み・停止要因の種別）も、名前を見るテストでは
+架空のものへ差し替える。いま効いている値は`TUNING_VALUES`へ差し込む。上書きの読み書き
 （`TuningService`）は依存の差し替えで与える。読み出しは応答を差し替えるだけで、呼ばれ方は見ない。
 """
 
@@ -22,7 +23,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api.routers import tuning_admin
-from app.domain import tuning
+from app.domain import road, traffic, tuning
+from app.domain.road import SurfaceEstimate
 from app.domain.tuning import TUNING_VALUES
 from tests.admin_auth import AUTH_HEADERS
 
@@ -109,6 +111,24 @@ def test_list_shows_the_current_value_and_whether_it_is_overridden(client, decla
     views = {p["id"]: p for p in client.get("/api/admin/tuning").json()}
 
     assert [(views[i]["value"], views[i]["overridden"]) for i in ("a", "b")] == [(11.0, True), (12.0, False)]
+
+
+def test_list_names_the_surfaces_and_stop_kinds_that_use_a_value(client, declarations, monkeypatch):
+    stop = _declared(tuning.stop_seconds_parameter_id("k"), tuning.TuningEffect.IMMEDIATE)
+    monkeypatch.setattr(tuning, "TUNING_PARAMETERS", (*declarations, stop))
+    monkeypatch.setitem(tuning_admin.TUNING_PARAMETERS_BY_ID, stop.id, stop)
+    monkeypatch.setitem(TUNING_VALUES, stop.id, 1.0)
+    monkeypatch.setattr(road, "SURFACE_ESTIMATES", (SurfaceEstimate("x", "区分X", "a"), SurfaceEstimate("y", "区分Y", "a")))
+    monkeypatch.setattr(traffic, "POI_COUNT_KINDS", {"k": "種別K"})
+
+    labels = {p["id"]: p["label"] for p in client.get("/api/admin/tuning").json()}
+
+    assert labels == {
+        "a": "表示名-a（区分X／区分Y）",
+        "b": "表示名-b",
+        "c": "表示名-c",
+        stop.id: f"表示名-{stop.id}（種別K）",
+    }
 
 
 # ---- 上書き ----
