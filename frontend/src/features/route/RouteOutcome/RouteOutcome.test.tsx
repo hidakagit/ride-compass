@@ -219,7 +219,7 @@ describe("候補の上の知らせ", () => {
 describe("候補の一覧", () => {
   it("最速の印の無い生成は最速を分けず、番号・距離・時間・難易度の列だけで並べ、区切りの線も群の印も出さない", () => {
     renderOutcome({ results: resultsOf({ generated: [FAST, SLOW] }) });
-    expect(listTexts()).toEqual([HEADER, "1 10.0km 30分 難易度42", "2 20.0km +12分 難易度—"]);
+    expect(listTexts()).toEqual([HEADER, "1 10.0km 30分 難易度41.6", "2 20.0km +12分 難易度—"]);
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
   });
 
@@ -233,7 +233,7 @@ describe("候補の一覧", () => {
     renderOutcome({ results: resultsOf({ generated: [SLOW, { ...FAST, is_fastest: true }], edits: [edit] }) });
     expect(listTexts()).toEqual([
       HEADER,
-      " 10.0km 30分 難易度42",
+      " 10.0km 30分 難易度41.6",
       "―",
       "1 20.0km +12分 難易度—",
       "―",
@@ -329,7 +329,7 @@ describe("選んだ候補の中身", () => {
   it("区間を押していない間は、候補の総合難易度の内訳を出す", () => {
     const candidate = route("fast", { overall_difficulty: { average: 30, load: 300 } });
     renderOutcome({ results: resultsOf({ generated: [candidate] }) });
-    expect(screen.getByText("総合難易度").parentElement).toHaveTextContent("総合難易度30/100");
+    expect(screen.getByText("総合難易度").parentElement).toHaveTextContent("総合難易度30.0/100");
     expect(screen.queryByRole("button", { name: "区間の選択を解除" })).not.toBeInTheDocument();
   });
 
@@ -342,8 +342,8 @@ describe("選んだ候補の中身", () => {
   });
 
   it.each([
-    ["寄与のある", { difficulty: 12.4, axis_contributions: { axis_a: 12.4 } }, "12", false],
-    ["寄与が全部0の", { difficulty: 0, axis_contributions: { axis_a: 0 } }, "0", true],
+    ["寄与のある", { difficulty: 12.4, axis_contributions: { axis_a: 12.4 } }, "12.4", false],
+    ["寄与が全部0の", { difficulty: 0, axis_contributions: { axis_a: 0 } }, "0.0", true],
     ["算出できなかった", { difficulty: null, axis_contributions: {} }, "—", false],
   ])("%s区間は総合難易度を出し、全部0のときだけ0であることを文で言う", (_, segment, shown, allZero) => {
     renderOutcome({ results: resultsOf({ generated: [FAST], selectedRouteSegment: segmentSelection(segment) }) });
@@ -360,7 +360,7 @@ describe("選んだ候補の中身", () => {
     });
     renderOutcome({ results: resultsOf({ generated: [candidate], selectedRouteSegment: selected }) });
     await userEvent.click(await screen.findByRole("button", { name: "軸Aの詳細を表示" }));
-    expect(screen.getByRole("dialog")).toHaveTextContent("軸Aこの評価軸の難易度 72/100");
+    expect(screen.getByRole("dialog")).toHaveTextContent("軸Aこの評価軸の難易度 72.4/100");
     await userEvent.click(screen.getByRole("button", { name: "軸Aの詳細を隠す" }));
     await userEvent.click(screen.getByRole("button", { name: "軸Bの詳細を表示" }));
     expect(screen.getByRole("dialog")).toHaveTextContent("軸Bデータなし");

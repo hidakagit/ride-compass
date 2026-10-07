@@ -115,7 +115,7 @@ export default function RoadInspectorPopup({
                 return (
                   <>
                     <span className="font-semibold">{axis.label}</span>
-                    <span className="text-[length:var(--font-size-sm)]">{`この評価軸の難易度 ${Math.round(found.difficulty)}/100`}</span>
+                    <span className="text-[length:var(--font-size-sm)]">{`この評価軸の難易度 ${formatDifficulty(found.difficulty)}/100`}</span>
                     <span className={textVariants({ variant: "hint" })}>{axis.description}</span>
                   </>
                 );
