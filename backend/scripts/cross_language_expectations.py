@@ -14,8 +14,10 @@ from app.domain.axis_definitions import (
     BreakpointLinearShape,
     CategoricalShape,
     MaterialTerm,
+    copy_axis_definitions,
     evaluate_axis_values,
     raw_values,
+    replace_axis_definitions,
 )
 from app.domain.axis_display import axis_display_for
 from app.domain.geo import COMPASS_LABELS, LatLonPoint, compass_label, haversine_distance_km
@@ -27,8 +29,8 @@ from app.domain.jma_tile_specs import (
     jma_tile_path,
     read_target_times,
 )
-from app.domain.material_catalog import MATERIAL_CATALOG, tile_runtime_scales
-from app.domain.registry import AxisDisplaySpec, TileInputSpec
+from app.domain.material_catalog import MATERIAL_CATALOG, tile_property_value, tile_runtime_scales
+from app.domain.registry import AxisDisplaySpec
 from app.domain.weather_elements import stage_first_frames
 from app.infrastructure.jma_tile_client import parse_target_times
 
@@ -246,18 +248,17 @@ def _tile_property(material_id: str) -> str:
 
 
 def _tile_properties(road: _Road, scales: Mapping[str, float]) -> dict[str, object]:
-    """材料の値を、路面タイルへ焼いたときのプロパティにする（`infrastructure/road_graph_repository.py:
-    ROAD_SURFACE_TILE_MVT_SQL`の形）。欠損・偽・数値の0はキーごと載らない（密度の0はNULLIFで省く）。
-    実行時の係数が要る材料は、材料の値を係数で割り戻したタイルの生値で載る。"""
+    """材料の値を、路面タイルへ焼いたときのプロパティにする。実行時の係数が要る材料は、材料の値を係数で
+    割り戻したタイルの生値を焼く。"""
     properties: dict[str, object] = {}
     for material_id, value in road.items():
-        if value is None or value is False or value == 0:
-            continue
         tile_property = _tile_property(material_id)
-        if tile_property in scales:
+        if tile_property in scales and value is not None:
             assert isinstance(value, float)
             value = value / scales[tile_property]
-        properties[tile_property] = value
+        baked = tile_property_value(MATERIAL_CATALOG[material_id], value)
+        if baked is not None:
+            properties[tile_property] = baked
     return properties
 
 
@@ -300,8 +301,8 @@ def _derived_axis_rows(name: str, shape: AxisShape, roads: dict[str, _Road]) -> 
 
 
 def _referenced_axis_rows() -> dict:
-    """他の軸を参照する項（地図では`TileInputSpec.breakpoints`）。参照先は`AXIS_DEFINITIONS`（DBから読む）に
-    無いと導出できないため、表示は導出が作るのと同じ形で組む。答えは参照先の点数を材料にした外側の和。"""
+    """他の軸を参照する項（地図では`TileInputSpec.breakpoints`）。導出は`AXIS_DEFINITIONS`（DBから読む）にある軸だけを
+    参照先として辿るので、表示を導く間だけ参照先を置く。答えは参照先の点数を材料にした外側の和。"""
     inner = _linear(MaterialTerm(material="maxspeed_kmh"), breakpoints=[(30.0, 0.0), (60.0, 50.0), (90.0, 100.0)])
     outer_weight = 0.5
     outer = _linear(
@@ -309,14 +310,12 @@ def _referenced_axis_rows() -> dict:
         MaterialTerm(material="intersection_count_per_km"),
         breakpoints=[(0.0, 0.0), (60.0, 100.0)],
     )
-    display = AxisDisplaySpec(
-        kind="ramp",
-        tile_inputs=[
-            TileInputSpec(property=_tile_property("maxspeed_kmh"), breakpoints=inner.breakpoints, weight=outer_weight),
-            TileInputSpec(property=_tile_property("intersection_count_per_km")),
-        ],
-        thresholds=[x for x, _ in outer.breakpoints[1:]],
-    )
+    original = copy_axis_definitions()
+    replace_axis_definitions({"inner": _axis("inner", inner)})
+    try:
+        display = axis_display_for(_axis("outer", outer))
+    finally:
+        replace_axis_definitions(original)
 
     def answer(road: _Road) -> float | None:
         materials = {material_id: [value] for material_id, value in road.items()}
@@ -348,7 +347,7 @@ def axis_ramp_expectations() -> dict[str, list[dict]]:
                 ),
                 {
                     "両方ある": {"built_percent": 40.0, "trees_percent": 10.0},
-                    "片方が0（タイルに載らない）": {"built_percent": 0.0, "trees_percent": 20.0},
+                    "片方が0": {"built_percent": 0.0, "trees_percent": 20.0},
                 },
             ),
             _derived_axis_rows(

@@ -27,7 +27,8 @@ def kmh_to_ms(speed_kmh: float) -> float:
 # 風の追加負荷（`wind_drag_ratio_array`）を無次元化する基準速度（m/s、時速20km）。
 # `ASSUMED_SPEED_KMH`とは独立の専用定数にする——既定の想定速度を変えても材料のスケール
 # （軸スタジオのbreakpointsが前提にする値域）がずれないようにするため。
-WIND_DRAG_REFERENCE_SPEED_MS = kmh_to_ms(20.0)
+WIND_DRAG_REFERENCE_SPEED_KMH = 20.0
+WIND_DRAG_REFERENCE_SPEED_MS = kmh_to_ms(WIND_DRAG_REFERENCE_SPEED_KMH)
 
 
 def _wind_relative_angle_rad(wind_direction_deg, travel_bearing_deg) -> np.ndarray:
@@ -80,7 +81,8 @@ def wind_drag_ratio(wind_speed_ms: float, wind_direction_deg: float, travel_bear
 
 
 #: 道の風を引く予報の格子点の間隔（度）。MSMの格子（緯度0.05度・経度0.0625度、`domain/msm.py`）と同じ
-#: 細かさ——これより細かくしても補間の点が増えるだけで、予報の解像度は上がらない。
+#: 細かさ——これより細かくしても補間の点が増えるだけで、予報の解像度は上がらない。MSMの格子が変わっても、値は
+#: 実際の格子（`MsmGrid`）から補間するので狂わず、細かさが合わなくなるだけのため、配信元のメタ情報からは導かない。
 WIND_FORECAST_LAT_STEP_DEG = 0.05
 WIND_FORECAST_LON_STEP_DEG = 0.0625
 
