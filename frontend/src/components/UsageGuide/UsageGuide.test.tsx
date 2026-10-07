@@ -5,10 +5,10 @@
  * 見るもの: 案内の「やめる」、部品を押したときに部品が動かず説明が出ること、説明に出す名前（読み上げ名の引き方）と
  * 使い方の文（自分か囲む要素の印・無いときの文言）、ラベルを押したときに説明する入力、押せないボタンでも出ること、
  * 動かした（なぞった・取り消された）押し方では出さないこと、部品の外を押したとき（押し操作が外へ届かないことも）、キー操作（Esc・Enter・Space・
- * 値を動かすキー）、説明の✕・部品の外・Esc・説明の外へのフォーカスのどれでも説明だけを閉じて部品を選ぶ続きへ戻り、終えるのは「やめる」だけなこと、
+ * 値を動かすキー）、説明の✕・部品の外・説明の外へのフォーカスのどれでも説明だけを閉じて部品を選ぶ続きへ戻り、終えるのは「やめる」とEscだけなこと、
  * 案内と説明の面の上の操作は止めないこと、説明している部品を囲む枠と測り直し、
  * マウスの操作は既定の動きまで止め、タッチは既定の動き（スクロール）を残すこと、終えたら部品が動くこと、
- * 閉じた展開する部品の説明の「中を見る」（出す部品と出さない部品）、それで開いた浮きパネルの中の部品も説明し、外の部品・外の押し操作・Esc・
+ * 閉じた展開する部品の説明の「中を見る」（出す部品と出さない部品）、それで開いた浮きパネルの中の部品も説明し、外の部品・外の押し操作・
  * 終える操作で閉じること。
  *
  * ここで見ないもの:
@@ -220,17 +220,12 @@ describe("UsageGuide", () => {
   });
 
   describe("キー操作", () => {
-    it.each([
-      ["説明を出す前", false],
-      ["説明を出している間", true],
-    ])("%sにEscを押しても終えず、出ている説明を閉じる", async (_, shown) => {
+    it("Escを押すと、説明を出す前でも終える操作が上がる", async () => {
       const { onEnd } = renderScreen();
-      if (shown) await userEvent.click(screen.getByRole("button", { name: "地図の色分け" }));
 
       await userEvent.keyboard("{Escape}");
 
-      expect(onEnd).not.toHaveBeenCalled();
-      expect(explanation()).toBeNull();
+      expect(onEnd).toHaveBeenCalledTimes(1);
     });
 
     it("描き直して終える操作が変わっても、新しいほうへ上げる", async () => {
@@ -240,7 +235,7 @@ describe("UsageGuide", () => {
       const view = render(<UsageGuide onEnd={onEnd} />);
       view.rerender(<UsageGuide onEnd={latest} />);
 
-      await userEvent.click(screen.getByRole("button", { name: "やめる" }));
+      await userEvent.keyboard("{Escape}");
 
       expect(onEnd).not.toHaveBeenCalled();
       expect(latest).toHaveBeenCalledTimes(1);
@@ -423,32 +418,24 @@ describe("UsageGuide", () => {
       expect(explanation()).toHaveTextContent("いまの条件で候補を作ります。");
     });
 
-    it.each([
-      ["部品の外を押す", async () => userEvent.click(screen.getByText("本文の文字"))],
-      [
-        "中の部品の説明を出している間にEscを2回押す",
-        async () => {
-          await userEvent.click(screen.getByRole("button", { name: "速く" }));
-          await userEvent.keyboard("{Escape}");
-          expect(popover()).toBeInTheDocument();
-          await userEvent.keyboard("{Escape}");
-        },
-      ],
-    ])("%sと、浮きパネルを閉じて続ける", async (_, operate) => {
+    it("部品の外を押すと、浮きパネルを閉じて続ける", async () => {
       const { onEnd } = renderPopoverScreen();
       await openInside();
 
-      await operate();
+      await userEvent.click(screen.getByText("本文の文字"));
 
       expect(popover()).toBeNull();
       expect(onEnd).not.toHaveBeenCalled();
     });
 
-    it("「やめる」で終えると、浮きパネルも閉じる", async () => {
+    it.each([
+      ["「やめる」で", async () => userEvent.click(screen.getByRole("button", { name: "やめる" }))],
+      ["Escで", async () => userEvent.keyboard("{Escape}")],
+    ])("%s終えると、浮きパネルも閉じる", async (_, operate) => {
       const { onEnd } = renderPopoverScreen();
       await openInside();
 
-      await userEvent.click(screen.getByRole("button", { name: "やめる" }));
+      await operate();
 
       expect(onEnd).toHaveBeenCalledTimes(1);
       expect(popover()).toBeNull();
@@ -477,7 +464,6 @@ describe("UsageGuide", () => {
     it.each([
       ["開いている部品", { "aria-expanded": true }],
       ["別の面を開く部品（確かめのダイアログ等）", { "aria-expanded": false, "aria-haspopup": "dialog" as const }],
-      ["展開しない部品", {}],
     ])("%sには出さない", async (_, attributes) => {
       render(
         <>

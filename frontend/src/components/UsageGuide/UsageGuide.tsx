@@ -30,7 +30,7 @@ const TOUCH_EVENTS = ["touchstart", "touchmove", "touchend"] as const;
 const PANEL_OFFSET_PX = 6;
 
 interface UsageGuideProps {
-  /** 説明を見る状態を終える（「やめる」を押したときだけ）。 */
+  /** 説明を見る状態を終える（「やめる」・Escのときだけ）。 */
   onEnd: () => void;
 }
 
@@ -65,15 +65,14 @@ function pressThrough(element: Element, opening: RefObject<Opening>) {
   }
 }
 
-/** 「中を見る」で開いた浮きパネルを、後に開いたものから閉じる。`keep`を中に持つものとその外側は残す。残したものがあれば true。 */
-function closeOpened(opening: RefObject<Opening>, keep?: Element): boolean {
+/** 「中を見る」で開いた浮きパネルを、後に開いたものから閉じる。`keep`を中に持つものとその外側は残す。 */
+function closeOpened(opening: RefObject<Opening>, keep?: Element) {
   for (const opener of [...opening.current.openers].reverse()) {
     const panel = openedPanelOf(opener);
     if (panel === null) continue;
-    if (keep !== undefined && panel.contains(keep)) return true;
+    if (keep !== undefined && panel.contains(keep)) return;
     pressThrough(opener, opening);
   }
-  return false;
 }
 
 /** 説明を見る状態を終える。「中を見る」で開いた浮きパネルも一緒に閉じる。 */
@@ -103,7 +102,7 @@ function pressablePartsBesides(target: Element, panel: Element): DOMRect[] {
 /**
  * 説明を見る状態。出している間は、画面のどの部品を押しても部品は動かず、押した部品の使い方を出す。
  * 押す操作は窓の捕捉段階で1か所で止めるので、部品の側は止め方を持たない（持つのは使い方の文だけ）。
- * 終えるのは案内の「やめる」だけで、ほかの抜け方（部品の外を押す・Esc・説明の外へのフォーカス）は説明だけを閉じる。
+ * 終えるのは案内の「やめる」とEscだけで、ほかの抜け方（部品の外を押す・説明の外へのフォーカス）は説明だけを閉じる。
  * 案内は画面の上の中央に浮かべ、つまみで動かせる。説明の面は、ほかの部品と案内にできるだけ重ねない所へ出す。
  */
 export default function UsageGuide({ onEnd }: UsageGuideProps) {
@@ -117,11 +116,9 @@ export default function UsageGuide({ onEnd }: UsageGuideProps) {
     alignOffset: 0,
   });
   const onEndRef = useRef(onEnd);
-  const targetRef = useRef<UsageTarget | null>(null);
   const opening = useRef<Opening>({ openers: [], passing: false });
   useEffect(() => {
     onEndRef.current = onEnd;
-    targetRef.current = target;
   });
 
   useEffect(() => {
@@ -173,12 +170,10 @@ export default function UsageGuide({ onEnd }: UsageGuideProps) {
       event.stopPropagation();
     };
     const onKeyDown = (event: KeyboardEvent) => {
-      // Escは、出ている説明を、無ければ「中を見る」で開いた浮きパネルを閉じる。
       if (event.key === "Escape") {
         event.stopPropagation();
         event.preventDefault();
-        if (targetRef.current) setTarget(null);
-        else closeOpened(opening);
+        endGuide(opening, onEndRef);
         return;
       }
       if (isInGuide(event)) return;
