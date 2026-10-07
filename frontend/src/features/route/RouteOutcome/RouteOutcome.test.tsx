@@ -105,7 +105,7 @@ function generationOf(overrides: Partial<Generation> = {}): Generation {
   return {
     running: false,
     progressLabel: undefined,
-    lastMessage: undefined,
+    outcome: null,
     failure: null,
     conditionsDirty: false,
     weightsNotApplied: false,
@@ -160,14 +160,18 @@ describe("候補が無い間", () => {
   });
 
   it("進み方の届く前の生成中は「生成中...」で、直近の案内より先に出す", () => {
-    renderOutcome({ generation: generationOf({ running: true, lastMessage: "前回の失敗" }) });
+    renderOutcome({ generation: generationOf({ running: true, outcome: { kind: "failed", message: "前回の失敗" } }) });
     expect(screen.getByText("生成中...")).toBeInTheDocument();
     expect(screen.queryByText("前回の失敗")).not.toBeInTheDocument();
   });
 
-  it("生成していない間は、直近の案内（失敗・候補0件の理由）をエラーとして出す", () => {
-    renderOutcome({ generation: generationOf({ lastMessage: "候補が見つかりませんでした" }) });
-    expect(screen.getByRole("alert")).toHaveTextContent("候補が見つかりませんでした");
+  it.each([
+    { kind: "failed" as const, role: "alert", other: "status" },
+    { kind: "empty" as const, role: "status", other: "alert" },
+  ])("生成していない間は、直近の案内を出し、失敗だけをエラーとして出す（$kind）", ({ kind, role, other }) => {
+    renderOutcome({ generation: generationOf({ outcome: { kind, message: "候補が見つかりませんでした" } }) });
+    expect(screen.getByRole(role)).toHaveTextContent("候補が見つかりませんでした");
+    expect(screen.queryByRole(other)).not.toBeInTheDocument();
   });
 
   it("案内が無ければ、生成を押すと候補が並ぶことを案内する", () => {
