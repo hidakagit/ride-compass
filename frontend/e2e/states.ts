@@ -1,7 +1,9 @@
 import { expect, type Page } from "@playwright/test";
+import { catalogEntry } from "@/testing/catalogAxes";
 import { makeRouteCandidate, routeThrough, type Places } from "@/testing/routeFixtures";
 import {
   MOBILE_VIEWPORT,
+  axisCatalogFixture,
   clickMap,
   defaultAxisCatalogFixture,
   doneJobFixture,
@@ -289,9 +291,15 @@ const SPLICE_PLACES: Places = {
   D: [139.7466, 35.7622],
 };
 
-/** 乗り換えの入口が出る軸カタログ（区間を割る下限の較正値がある）。アプリを開く前に入れる。 */
-export async function installSpliceMocks(page: Page): Promise<void> {
-  const catalog = defaultAxisCatalogFixture();
+/**
+ * 走査の軸カタログ。アプリを開く前に入れる。本番と同じく重みのある軸を3つ持つ（重みのある軸が2つ以上のときだけ
+ * 出る部品があり、既定の1軸では走査に入らない）。乗り換えの入口が出るように、区間を割る下限の較正値を持つ。
+ */
+export async function installScanMocks(page: Page): Promise<void> {
+  const catalog = axisCatalogFixture([
+    ...defaultAxisCatalogFixture().axes,
+    ...["first", "second", "third"].map((axisId) => ({ ...catalogEntry({ axis_id: axisId }), default_weight: 1 / 3 })),
+  ]);
   catalog.client_tuning = { "splice.min_stretch_km": 0 };
   await page.route(`${API_BASE}/api/axis-catalog*`, (route) => route.fulfill({ json: catalog }));
 }
