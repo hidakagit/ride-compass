@@ -1,10 +1,10 @@
 /**
- * `components/FloatingPanel/FloatingPanel.tsx`——開発者向けパネルの、画面に浮かぶ殻。
+ * `components/FloatingPanel/FloatingPanel.tsx`——開発者向けパネルと使い方の説明の案内の、画面に浮かぶ殻。
  *
- * 見るもの: 閉じている間は何も出さないこと、閉じるボタン（名前は見出しから作る）で閉じる操作が上がること、
+ * 見るもの: 閉じている間は何も出さないこと、閉じるボタン（名前は見出しから作る。文字を渡せばその文字）で閉じる操作が上がること、
  * 開いたときに横は画面の中央・縦は指定の高さへ置くこと。
  *
- * ここで見ないもの: 見出し・見出しの操作・中身・本文の高さの上限——受け取ったものをそのまま置くだけ。
+ * ここで見ないもの: 見出し・見出しの操作・中身・本文の高さの上限・重なり順——受け取ったものをそのまま置くだけ。
  * つまみでのドラッグと、画面の外へ出ないこと——react-rndの振る舞い。幅（`widthRem`と画面幅の小さいほう）
  * ——幅の式は`min()`の中にCSS変数を持ち、テスト環境（happy-dom）はその宣言を捨てて残さない。
  *
@@ -68,6 +68,14 @@ describe("FloatingPanel", () => {
     const { onClose } = renderPanel();
 
     await userEvent.click(screen.getByRole("button", { name: "デバッグログを閉じる" }));
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("閉じるボタンの文字を渡すと、その文字のボタンで閉じる操作が上がる", async () => {
+    const { onClose } = renderPanel({ closeLabel: "やめる" });
+
+    await userEvent.click(screen.getByRole("button", { name: "やめる" }));
 
     expect(onClose).toHaveBeenCalledTimes(1);
   });

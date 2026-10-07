@@ -48,7 +48,7 @@ export default function HeaderMenu({
         side="bottom"
         align="end"
         // メニューが閉じきり、フォーカスを開くボタンへ戻してから入る。先に入ると、閉じる動きの間に部品を押して出た
-        // 説明の面が、あとから戻るフォーカスを外への移りと読んで説明を見る状態ごと終える。
+        // 説明の面が、あとから戻るフォーカスを外への移りと読んで閉じる。
         onCloseAutoFocus={(event) => {
           if (!startingGuide.current) return;
           startingGuide.current = false;
