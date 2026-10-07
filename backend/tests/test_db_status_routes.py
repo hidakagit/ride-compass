@@ -1,14 +1,12 @@
-"""`GET /api/admin/db-status`のルートテスト: レポートを応答へ受け渡す・DB例外だけを503にする。
+"""`GET /api/admin/db-status`のルートテスト: レポートを応答へ受け渡す。
 
-ここで見ないもの: 認可 → `test_admin_route_authorization.py`、どの例外をDB障害に数えるか → `test_database.py`、
+ここで見ないもの: 認可 → `test_admin_route_authorization.py`、DB障害の503 → `test_admin_db_unavailable.py`、
 注意が要るかの判断（しきい値） → `test_db_status_service.py`（ここではレポートを作る関数の結果がそのまま応答になることだけを見る）
 """
 
 from datetime import datetime, timezone
 
-import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy.exc import DBAPIError
 
 from app.api.dependencies import get_db_status_service
 from app.infrastructure.db_status import (
@@ -29,13 +27,10 @@ COMPUTED_AT = datetime(2026, 9, 14, tzinfo=timezone.utc)
 
 
 class _StubService:
-    def __init__(self, counts: DbStatusCounts | None = None, error: Exception | None = None):
+    def __init__(self, counts: DbStatusCounts):
         self._counts = counts
-        self._error = error
 
     async def get_status_report(self):
-        if self._error is not None:
-            raise self._error
         return build_db_status_report(self._counts, COMPUTED_AT)
 
 
@@ -86,19 +81,3 @@ def test_returns_the_report(admin_credentials):
     body = client.get(STATUS_URL, headers=AUTH_HEADERS).json()
 
     assert body == build_db_status_report(_counts(), COMPUTED_AT).model_dump(mode="json")
-
-
-def test_db_error_becomes_503_instead_of_an_empty_report(admin_credentials):
-    # 診断用APIのため、空のレポートへ倒すと「問題なし」に見えてしまう。
-    _override(_StubService(error=DBAPIError("stmt", {}, Exception("boom"))))
-
-    response = client.get(STATUS_URL, headers=AUTH_HEADERS)
-
-    assert response.status_code == 503
-
-
-def test_an_implementation_error_is_not_reported_as_the_db_being_down(admin_credentials):
-    _override(_StubService(error=TypeError("wrong arguments")))
-
-    with pytest.raises(TypeError):
-        client.get(STATUS_URL, headers=AUTH_HEADERS)
