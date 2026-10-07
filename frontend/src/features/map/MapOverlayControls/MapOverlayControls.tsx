@@ -174,7 +174,10 @@ function LegendDetails({
   onAxisSetHidden: (axisId: string, hiddenKeys: string[]) => void;
 }) {
   return (
-    <div className="flex flex-col gap-2">
+    <div
+      className="flex flex-col gap-2"
+      data-usage="チェックを外した段階は、地図から隠れます。見出しのチェックで、その全部をまとめて切り替えます。"
+    >
       {axes.map((axis, axisIndex) => (
         <div key={axis.axisId ?? axisIndex} className="flex flex-col gap-1">
           {axis.axisId ? (
@@ -559,7 +562,10 @@ export default function MapOverlayControls({
           <div className="mb-1 text-[length:var(--font-size-xs)] font-bold text-[var(--color-neutral)]">
             表示する項目
           </div>
-          <ul className="m-0 flex list-none flex-col gap-0.5 p-0">
+          <ul
+            className="m-0 flex list-none flex-col gap-0.5 p-0"
+            data-usage="チェックを外した項目は、このまとまりを開いても並べません。地図に出していれば消えます。"
+          >
             {members.map((member) => {
               const hiddenKey = `${group}:${member.id}`;
               const hidden = hiddenIds.has(hiddenKey);

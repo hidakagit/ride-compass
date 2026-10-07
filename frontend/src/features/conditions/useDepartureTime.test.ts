@@ -1,13 +1,13 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { useDepartureTime } from "./useDepartureTime";
+import { jst } from "@/testing/jst";
 
-const at = (text: string) => new Date(`${text}+09:00`);
+import { useDepartureTime } from "./useDepartureTime";
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
-  vi.setSystemTime(at("2026-09-24T09:07:20"));
+  vi.setSystemTime(jst("2026-09-24T09:07:20"));
 });
 
 afterEach(() => {
@@ -21,24 +21,24 @@ describe("useDepartureTime（出発時刻）", () => {
     act(() => vi.advanceTimersByTime(60_000));
     expect(result.current.now).toBe(before);
     act(() => vi.advanceTimersByTime(3 * 60_000));
-    expect(result.current.at).toEqual(at("2026-09-24T09:10"));
+    expect(result.current.at).toEqual(jst("2026-09-24T09:10"));
   });
 
   it("選んだ時刻は、時間が経っても動かさない", () => {
     const { result } = renderHook(() => useDepartureTime());
-    act(() => result.current.setAt(at("2026-09-24T15:30")));
+    act(() => result.current.setAt(jst("2026-09-24T15:30")));
     act(() => vi.advanceTimersByTime(30 * 60_000));
-    expect(result.current.at).toEqual(at("2026-09-24T15:30"));
+    expect(result.current.at).toEqual(jst("2026-09-24T15:30"));
     expect(result.current.pinned).toBe(true);
-    expect(result.current.now).toEqual(at("2026-09-24T09:35"));
+    expect(result.current.now).toEqual(jst("2026-09-24T09:35"));
   });
 
   it("「今」への追従へ戻すと、その時点の「今」になる", () => {
     const { result } = renderHook(() => useDepartureTime());
-    act(() => result.current.setAt(at("2026-09-24T15:30")));
-    vi.setSystemTime(at("2026-09-24T09:21:00"));
+    act(() => result.current.setAt(jst("2026-09-24T15:30")));
+    vi.setSystemTime(jst("2026-09-24T09:21:00"));
     act(() => result.current.followNow());
-    expect(result.current.at).toEqual(at("2026-09-24T09:20"));
+    expect(result.current.at).toEqual(jst("2026-09-24T09:20"));
     expect(result.current.pinned).toBe(false);
   });
 });

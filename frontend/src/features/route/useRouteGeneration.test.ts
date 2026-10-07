@@ -1,7 +1,8 @@
 /**
  * ルート生成（`useRouteGeneration.ts`）——押した「生成」を検証して、いまの条件からbackendへ要求を送り、実行中の進み方・
  * 直近の案内（候補0件の理由・失敗の文言・入力の誤り）・表示中の候補を作った条件といまの条件のずれを返す。結果は
- * 所要時間の短い順に並べて渡し、押した1回の結果の種類（新しい結果か失敗か）を知らせる。
+ * 所要時間の短い順に並べて渡し、押した1回の結果の種類（候補・候補0件・失敗）を知らせて、直近の結果（件数・0件の理由・
+ * 失敗）を返す。
  *
  * ここで見ないもの:
  * - 検証の文言の中身と、目的地モードで地点が無いときの検証 → `RouteForm/useRouteFormSubmit.test.ts`
@@ -21,9 +22,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_HARD_FILTERS } from "@/features/route/RouteSettingsPanel/HardFilterPanel";
 import { LENS_DIFFICULTY_ID, LENS_NONE_ID } from "@/lib/mapDisplay/routeStyleModes";
 import { heldReplies, onBackend } from "@/testing/backendServer";
-import { catalogEntry, catalogResponse } from "@/testing/catalogAxes";
+import { TWO_AXIS_CATALOG } from "@/testing/catalogAxes";
 import { serveGenerationJobs } from "@/testing/generationJobs";
-import { makeRouteCandidate } from "@/testing/routeFixtures";
+import { makeGenerationConditions, makeRouteCandidate } from "@/testing/routeFixtures";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import type { Coordinates, GenerationConditions, RouteCandidate } from "@/types/route";
 
@@ -35,11 +36,6 @@ const A: Coordinates = { latitude: 35.7, longitude: 139.8 };
 const B: Coordinates = { latitude: 35.71, longitude: 139.81 };
 const T1 = new Date("2026-10-04T09:00:00Z");
 const NO_ROUTES_MESSAGE = "条件に合うルート候補が見つかりませんでした。条件を変えて試してください。";
-
-const CATALOG = catalogResponse([
-  catalogEntry({ axis_id: "axis_a", default_weight: 0.4 }),
-  catalogEntry({ axis_id: "axis_b", default_weight: 0.6 }),
-]);
 
 interface Props {
   originKnown: boolean;
@@ -76,24 +72,20 @@ function route(id: string, seconds: number | null = null): RouteCandidate {
 
 /** backendが返す生成の条件（`conditions`）。 */
 function used(overrides: Partial<GenerationConditions> = {}): GenerationConditions {
-  return {
+  return makeGenerationConditions({
     latitude: ORIGIN.latitude,
     longitude: ORIGIN.longitude,
     distance_km: 30,
     distance_tolerance_km: routeGenerateConfig.default_distance_tolerance_km,
     route_preference: { axis_a: 0.5, axis_b: 0.5 },
     penalty_strength: 1,
-    max_average_grade_percent: null,
     hard_filters: DEFAULT_HARD_FILTERS,
     max_routes: routeGenerateConfig.default_max_routes,
     start_time: T1.toISOString(),
     assumed_speed_kmh: 20,
-    waypoints: null,
-    destination: null,
-    corrected_destination: null,
     generated_at: "2026-10-04T09:00:30Z",
     ...overrides,
-  };
+  });
 }
 
 let jobs: ReturnType<typeof serveGenerationJobs>;
@@ -110,7 +102,7 @@ let catalog: ReturnType<typeof heldReplies>;
 
 /** 描画のときに投げた軸カタログの取得を届ける。 */
 async function loadCatalog(rendered: Rendered) {
-  await act(() => catalog.answer(0, Response.json(CATALOG)));
+  await act(() => catalog.answer(0, Response.json(TWO_AXIS_CATALOG)));
   await waitFor(() => expect(rendered.result.current.conditions.routePreference).toEqual({ axis_a: 0.4, axis_b: 0.6 }));
 }
 
@@ -204,7 +196,7 @@ describe("入力の誤り", () => {
 
     const { generation } = rendered.result.current;
     expect(jobs.submitted).toEqual([]);
-    expect(generation.inputError).toMatch(/現在地が分かりません/);
+    expect(generation.outcome).toEqual({ kind: "failed", message: expect.stringMatching(/^現在地が分かりません/) });
     expect(rendered.onOutcome.mock.calls).toEqual([["failed"], ["failed"]]);
   });
 
@@ -217,7 +209,6 @@ describe("入力の誤り", () => {
     await submit(rendered);
 
     expect(rendered.result.current.generation.failure).toMatch(/現在地が分かりません/);
-    expect(rendered.result.current.generation.lastMessage).toMatch(/現在地が分かりません/);
   });
 });
 
@@ -271,8 +262,8 @@ describe("生成の結果", () => {
 
     expect(rendered.onGenerated).toHaveBeenCalledWith([route("fast", 1800), route("slow", 3600)], { axis_a: 1 });
     expect(rendered.onOutcome).toHaveBeenCalledWith("fresh");
+    expect(rendered.result.current.generation.outcome).toEqual({ kind: "generated", count: 2 });
     expect(rendered.result.current.generation.failure).toBeNull();
-    expect(rendered.result.current.generation.lastMessage).toBeUndefined();
     expect(rendered.result.current.generation.destinationCorrected).toBe(false);
   });
 
@@ -283,15 +274,15 @@ describe("生成の結果", () => {
       message: "目的地へ行ける道が見つかりませんでした",
     },
     { label: "理由が届かなければ決まった文言", reason: undefined, message: NO_ROUTES_MESSAGE },
-  ])("候補0件は、「$label」を案内に出して新しい結果として知らせ、失敗とは扱わない", async ({ reason, message }) => {
+  ])("候補0件は、「$label」を案内に出して候補0件として知らせ、失敗とは扱わない", async ({ reason, message }) => {
     const rendered = renderGeneration();
     respond([], used(), reason);
 
     await submit(rendered);
 
     expect(rendered.onGenerated).toHaveBeenCalledWith([], used().route_preference);
-    expect(rendered.onOutcome).toHaveBeenCalledWith("fresh");
-    expect(rendered.result.current.generation.lastMessage).toBe(message);
+    expect(rendered.onOutcome).toHaveBeenCalledWith("empty");
+    expect(rendered.result.current.generation.outcome).toEqual({ kind: "empty", message });
     expect(rendered.result.current.generation.failure).toBeNull();
   });
 
@@ -303,7 +294,7 @@ describe("生成の結果", () => {
     await submit(rendered);
 
     expect(rendered.result.current.generation.failure).toBe(message);
-    expect(rendered.result.current.generation.lastMessage).toBe(message);
+    expect(rendered.result.current.generation.outcome).toEqual({ kind: "failed", message });
     expect(rendered.onOutcome).toHaveBeenCalledWith("failed");
     expect(rendered.onGenerated).not.toHaveBeenCalled();
 
@@ -312,6 +303,7 @@ describe("生成の結果", () => {
       void rendered.result.current.generation.submit(LENS_NONE_ID);
     });
     expect(rendered.result.current.generation.failure).toBeNull();
+    expect(rendered.result.current.generation.outcome).toBeNull();
   });
 
   it("backendが目的地を補正したら、置いた目的地を補正後の地点へ動かして知らせ、条件が変わったとは扱わない", async () => {
@@ -411,7 +403,7 @@ describe("消す", () => {
 
     act(() => rendered.result.current.generation.clearNotice());
     expect(rendered.result.current.generation.failure).toBeNull();
-    expect(rendered.result.current.generation.lastMessage).toBeUndefined();
+    expect(rendered.result.current.generation.outcome).toBeNull();
 
     jobs.keepRunning();
     act(() => {

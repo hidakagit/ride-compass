@@ -8,15 +8,13 @@
 - 入れ替えと同じトランザクションで進むこと・作り直しに使った取込の記録 → `test_derive_cli.py`
 """
 
-import asyncpg
 import pytest
 
-from app.batch.common import asyncpg_dsn
 from app.config import settings
 from app.infrastructure import derived_data_meta
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.region_service import RegionService
-from tests.conftest import postgis_database_url
+from tests.conftest import raw_connection
 from tests.source_ingest import ingest_records, point_record
 
 pytestmark = [
@@ -27,11 +25,8 @@ pytestmark = [
 
 
 async def _bump_revision() -> int:
-    conn = await asyncpg.connect(asyncpg_dsn(postgis_database_url()))
-    try:
+    async with raw_connection() as conn:
         return await derived_data_meta.bump_revision(conn)
-    finally:
-        await conn.close()
 
 
 async def test_first_bump_creates_the_revision_and_later_bumps_advance_it(road_graph_session):

@@ -11,7 +11,7 @@ Tailwindのユーティリティで書く。CSS Modulesは使わない（CSSの�
 
 | レイヤー | ファイル |
 |---|---|
-| components/ui（部品） | `Button/Button.tsx`（押すと1回動く。`variant`が役割、`size`が大きさ。`type`未指定時は`"button"`）・`Toggle/Toggle.tsx`（押して切り替える。押下状態は呼び出し側が持つ）・`ToggleGroup/ToggleGroup.tsx`（並んだ選択肢から1つを選ぶ。選んでいるものは外れない）・`Tabs/Tabs.tsx`（タブの列とタブの見た目。Root・ContentはRadixのものを出す）・`Popover/Popover.tsx`（押すと開く浮きパネル。中身はdocument.body直下へ描く。画面の端へ寄せて開くものが端と空ける幅は`POPOVER_COLLISION_PADDING_PX`）・`Input/Input.tsx`（1行・複数行・選択の入力欄。3つとも同じ枠）・`NumberInput/NumberInput.tsx`（入力途中の文字を部品が持つ数値欄。打つたびに渡すか、欄を離れたとき・Enterで渡すかを選ぶ）・`Text/Text.tsx`（文字の役割ごとの大きさ・太さ・色）・`Table/Table.tsx`（一覧表）・`Card/Card.tsx`（ひとまとまりの面）・`Callout/Callout.tsx`（本文の中の注意の1かたまり）・`Badge/Badge.tsx`（名前の横に添える札）・`GuideText/GuideText.tsx`（案内の文。アイコンだけの操作の名前をアイコンにして描く。5-1）・`Dot/Dot.tsx`（状態の小さな丸）・`LogLine/LogLine.tsx`（ログの1行）・`Dialog/Dialog.tsx`（`title`必須でアクセシブル名を型で強制。消す前の確認の窓`ConfirmDialog`も持つ）・`Checkbox/Checkbox.tsx`・`AxisLegend/axisLegend.ts`（軸の帯グラフと軸チップの形。重み配分の設定とルート結果の内訳が共有する） |
+| components/ui（部品） | `Button/Button.tsx`（押すと1回動く。`variant`が役割、`size`が大きさ。`type`未指定時は`"button"`）・`Toggle/Toggle.tsx`（押して切り替える。押下状態は呼び出し側が持つ）・`ToggleGroup/ToggleGroup.tsx`（並んだ選択肢から1つを選ぶ。選んでいるものは外れない）・`Tabs/Tabs.tsx`（タブの列とタブの見た目。Root・ContentはRadixのものを出す）・`Popover/Popover.tsx`（押すと開く浮きパネル。中身はdocument.body直下へ描く。開くボタン`PopoverTrigger`は印`data-usage-opens`を付け、説明を見る状態がその説明に「中を見る」を出す。画面の端へ寄せて開くものが端と空ける幅は`POPOVER_COLLISION_PADDING_PX`）・`Input/Input.tsx`（1行・複数行・選択の入力欄。3つとも同じ枠）・`NumberInput/NumberInput.tsx`（入力途中の文字を部品が持つ数値欄。打つたびに渡すか、欄を離れたとき・Enterで渡すかを選ぶ）・`Text/Text.tsx`（文字の役割ごとの大きさ・太さ・色）・`Table/Table.tsx`（一覧表）・`Card/Card.tsx`（ひとまとまりの面）・`Callout/Callout.tsx`（本文の中の注意の1かたまり）・`Badge/Badge.tsx`（名前の横に添える札）・`GuideText/GuideText.tsx`（案内の文。アイコンだけの操作の名前をアイコンにして描く。5-1）・`Dot/Dot.tsx`（状態の小さな丸）・`LogLine/LogLine.tsx`（ログの1行）・`Dialog/Dialog.tsx`（`title`必須でアクセシブル名を型で強制。消す前の確認の窓`ConfirmDialog`も持つ）・`Checkbox/Checkbox.tsx`・`AxisLegend/axisLegend.ts`（軸の帯グラフと軸チップの形。重み配分の設定とルート結果の内訳が共有する） |
 | lib | `cn.ts`（`clsx`で条件付きclassNameをまとめ、`tailwind-merge`で同じプロパティを指すクラスの後勝ちを解決する）・`paletteCssVariables.ts`（backendが配る色のうちCSSから参照するものを、CSS変数として流す） |
 | app | `globals.css`（デザイントークン・`@theme`登録・リセット・レスポンシブレイアウト・MapLibreのDOM上書き。下記8節） |
 
@@ -121,6 +121,8 @@ Tailwindのユーティリティで書く。CSS Modulesは使わない（CSSの�
 - **消すと戻せず、作り直しに手間のかかるものを消す操作は、`Dialog/Dialog.tsx: ConfirmDialog`を通す**（確かめるボタンを
   押したときだけ消す）。押し間違い1回で失わせないため。消した後に戻す知らせ（元に戻す）は持たない——知らせは数秒で消え、
   走行中のスマホでは見落とすと戻せない。すぐ置き直せるもの（経由地・目的地のクリア等）には付けない。
+  開くボタンには`aria-haspopup="dialog"`と、窓が開いている間`true`の`aria-expanded`を付ける（全状態の走査がこれで窓を辿る。
+  [testing.md](../../conventions/testing.md)パターン4「走査する画面の状態は、画面から辿る」）。
 
 ## 5-1. パネルの操作ボタンの形
 
@@ -153,6 +155,22 @@ Tailwindのユーティリティで書く。CSS Modulesは使わない（CSSの�
   ツリー上でも`getByRole(name)`でも区別できず、テストは「どちらかに当たった」状態で通る。
 - **UIの文言に開発用語を出さない。** 「デフォルト」「フォールバック」「キャッシュ」などは、
   初見の利用者が意味を取れる表現へ置き換える。
+
+## 5-4. 画面の語
+
+**利用者に見せる概念は、下の表の語1つで呼ぶ。** 同じものを画面ごとに別の語で呼ぶと、利用者は別のものだと読む。
+frontendの文言（管理画面を除く）と、backendが配る文（`domain/map_display.py`の説明の文・画面に出るエラーの`detail`）の
+どちらにも効く。表に無い概念を画面に足すときは、行を足してから書く。
+
+| 概念 | 画面の語 | 使わない語 |
+|---|---|---|
+| 道の走りにくさを測る観点の1つ（勾配・舗装質等。重みを配る単位） | 評価軸 | 評価・軸 |
+| 評価軸で道・ルートを測ること、その結果 | 評価（「評価する」「道の評価」） | 評価軸の意味では使わない |
+| 0〜100の走りにくさ（評価軸ごとの値も、重みで合わせた値も） | 難易度（評価軸ごとは「この評価軸の難易度」） | 合成・スコア・コスト |
+| 候補の区間をほかの候補の道へ乗り換えて作ったルート | 合成ルート（作る操作は「ルートを合成」） | 難易度の意味では「合成」を使わない |
+| 地図に点で出す場所（停止要因・補給・事故） | スポット | POI |
+| 利用者が変えていないときに使う値 | 既定（既定の配分・既定値） | デフォルト・サーバー既定 |
+| ルートを作り、データを配る側 | アプリ（主語に要るときだけ） | サーバー・ジョブ |
 
 ## 5-5. ブラウザ・ライブラリの既定に踏まれる所
 

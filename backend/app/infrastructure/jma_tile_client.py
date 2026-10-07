@@ -85,9 +85,8 @@ class JmaTileClient:
 
     async def get_cached(self, path: str) -> tuple[bytes, str] | EmptyTile | None:
         """キャッシュのみを参照する（外部フェッチはしない）。
-        `jma_tile.py`がレート制限を適用する前にこれを呼び、ヒットすればレート制限を
-        一切経由せず即座に返せるようにする。`EmptyTile`（描くものが無いと確認済み）が
-        返ることもあり、その場合`jma_tile.py`は上流へ問い合わせずそのまま404を返す。"""
+        ヒットしたものは呼び出し側の歯止め（レート制限）を経由せずに返してよい。`EmptyTile`
+        （描くものが無いと確認済み）が返ることもあり、そのとき上流へ問い合わせる必要は無い。"""
         is_target_times = is_target_times_path(path)
         with log_external_call("weather:jma-tile", path=path) as fields:
             if is_target_times:
@@ -100,7 +99,7 @@ class JmaTileClient:
 
     async def fetch(self, path: str) -> tuple[bytes, str] | None:
         """キャッシュを一切参照せず外部フェッチのみ行い、結果をキャッシュへ書き戻す。
-        呼び出し元（`jma_tile.py`）はレート制限を適用済みである前提。
+        呼び出し側の歯止め（レート制限）は、ここを呼ぶ前に済んでいる前提。
         実際にJMAへ問い合わせる直前で`JmaTileSharedState.wait_for_upstream_rate_limit`を待つ（プリウォーム
         バッチ・オンデマンドのfetch双方が経由するこの関数1箇所に置くことで、呼び出し元を
         問わずJMAへの総リクエスト数を一律に抑える）。待機自体は「実フェッチ」の所要時間

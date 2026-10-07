@@ -35,7 +35,7 @@ export interface CaptureContext {
   expect: typeof expect;
   /** e2e/fixtures.ts の段取りと応答（openMobileSheet・generateRoutes・doneJobFixture 等）。 */
   fixtures: typeof fixtures;
-  /** e2e/states.ts の全状態の走査の段取り（installSpliceMocks・splice 等）。 */
+  /** e2e/states.ts の全状態の走査の段取り（installScanMocks・splice 等）。 */
   states: typeof states;
   /** src/testing/catalogAxes.ts の軸の雛形（catalogEntry・rampEntry 等）。モックの軸カタログを組むときに fixtures.axisCatalogFixture へ渡す。 */
   catalogAxes: typeof catalogAxes;
@@ -57,6 +57,12 @@ export interface CaptureContext {
   clickMap(lngLat: [number, number]): Promise<void>;
   /** 地図の見えている所（部品に覆われていない所）へ経度・緯度の点を寄せてから押す。点が画面の外や部品の下に来うるときに使う。 */
   clickVisible(lngLat: [number, number]): Promise<void>;
+  /**
+   * 地図に描かれた、押すと開くもの（道の詳細・点の詳細・ルートの区間・乗り換えの帯等）を、経度・緯度を渡さずに1つ押す。
+   * `target` は地図の当たり判定の対象の名前（例: "road"）で、いまの地図に無い名前を渡すと押せる名前を並べて止まる。持つレイヤーが
+   * 非表示・画面に描かれていないときも止まるので、open の layers・位置・倍率で描かれる状態にしてから呼ぶ（例は examples/road-detail.ts）。
+   */
+  clickFeature(target: string): Promise<void>;
   /**
    * URL が glob に当たる応答の本文を `transform` の返した JSON に替える。本物の応答を取ってから本文だけを替えるので、CORS 等の
    * ヘッダーは本物のまま残る（ヘッダーの無い応答で返すと、別オリジンの backend への取得としてブラウザが捨てる）。
@@ -235,6 +241,11 @@ export function captureContext(page: Page, { out, mocked }: { out: string; mocke
     },
     async clickVisible(lngLat) {
       await states.clickVisible(page, lngLat);
+    },
+    async clickFeature(target) {
+      // 生成・レイヤーの切り替えの直後は、まだ描かれていない。
+      await settle();
+      await fixtures.clickFeature(page, target);
     },
     async patch(glob, transform) {
       await page.route(glob, async (route) => {

@@ -1,7 +1,7 @@
 """`infrastructure/road_network_store.py`——取込範囲全体の道路網をDBから組み、ディスクの置き場へ置き、読む。
 
 入口は`ensure_current`（DBから組んで置く）・`write_pending`と`publish`（派生の作り直しが置く2段）・`save`・
-`current`（読む）・`prune_other_shapes`（起動後の片付け）。置き場（`ROOT`）はテストごとの一時ディレクトリへ差し替える。
+`current`（読む）・`prune_other_shapes`（起動後の片付け）。置き場（`ROOT`）はテストごとの一時ディレクトリ（`tests/conftest.py: road_network_root`）。
 
 DBから組むテストは、道とノードを取込の入口から入れ、派生の作り直し（`batch/derive_cli.py: run`）で区間と材料まで
 作ってから組む（本番で作れる行だけを使う。docs/conventions/testing.md パターン8）。置き場を読み書きするテストは、
@@ -47,10 +47,9 @@ def _on_test_db(test):
 
 
 @pytest.fixture(autouse=True)
-def store(monkeypatch, tmp_path):
-    """置き場を空の一時ディレクトリにする（前のテストが読み込んだ道路網は置き場の場所が違うので使われない）。"""
-    monkeypatch.setattr(road_network_store, "ROOT", tmp_path / "road_network")
-    return tmp_path / "road_network"
+def store(road_network_root):
+    """置き場を空の一時ディレクトリにする（`tests/conftest.py: road_network_root`）。"""
+    return road_network_root
 
 
 # --- 置き場の読み書き（DBを使わない） -------------------------------------------------
@@ -78,8 +77,6 @@ def _network(revision: int | None, distance_m: float = 100.0) -> RoadNetwork:
         edge_max_lat=np.array([35.001, 35.001]),
         numeric_ids=("num_a",),
         numeric_values=np.array([[1.5], [np.nan]]),
-        boolean_ids=("bool_a",),
-        boolean_values=np.array([[True], [False]]),
         categorical_ids=("cat_a", "cat_b"),
         categorical_codes=np.array([[1, 0], [2, 1]], dtype=np.int16),
         categorical_vocab=((None, "x", "y"), (None, "z")),
@@ -211,7 +208,6 @@ def _batch(distance_m: list[float], surface: list[str | None]) -> EdgeMaterialAr
     nan = np.full(n, np.nan)
     return EdgeMaterialArrays(
         numeric_ids=("num",), numeric_values=np.array(distance_m).reshape(n, 1),
-        boolean_ids=(), boolean_values=np.zeros((n, 0), dtype=bool),
         categorical_ids=("surface",), categorical_columns=(CategoricalColumn.encode(surface),),
         hard_filter_ids=(), hard_filter_flags=np.zeros((n, 0), dtype=bool),
         distance_m=np.array(distance_m), bearing_deg=nan, mid_lat=nan, mid_lon=nan,

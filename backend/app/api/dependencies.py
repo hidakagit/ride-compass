@@ -2,6 +2,8 @@
 
 サービスの組み立て方（どのクライアント・タイムアウト・リポジトリを注入するか）はここに集約する。
 公開関数は注入の口だけで、ルーターは`Depends`で受け取る（部品を束ねる判断は`services/`が持つ）。
+配るのは組み立てた部品（サービスの実体・素通しの中継のクライアント・開き方）だけで、セッション・リポジトリ・
+呼び出しの結果は配らない（docs/architecture/directory-layout.md「backend」の`api/`）。
 定期ジョブも同じ部品ならここの口を呼ぶ。HTTPの経路に無い部品（起動時の軸定義・較正値の読み込み、
 MSMの同期）だけは`main.py`が組み立てる。
 """
@@ -13,7 +15,6 @@ from cachetools import LRUCache
 from fastapi import Depends
 
 from app.config import settings
-from app.domain.region import BoundingBox
 from app.domain.route_preference import RoutePreference
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
 from app.infrastructure.basemap_client import BasemapClient
@@ -29,11 +30,12 @@ from app.infrastructure.jma_warning_client import new_area_data_cache, new_warni
 from app.infrastructure.material_coverage import MaterialCoverageQuery
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.infrastructure.wbgt_client import new_forecast_cache, new_point_master_cache
+from app.services.axis_preview_service import AxisPreviewService
 from app.services.axis_registry_service import AxisRegistryAdminService
 from app.services.db_status_service import DbStatusService
 from app.services.dedicated_way_values import (
     DirectionalMaterialService,
-    dedicated_way_value_factory,
+    axis_way_value_lens,
     material_service_builder,
 )
 from app.services.derived_data_freshness_service import DerivedDataFreshnessService
@@ -41,14 +43,17 @@ from app.services.flood_service import FloodService
 from app.services.graph_service import GraphService
 from app.services.jma_amedas_service import JmaAmedasService
 from app.services.material_coverage_service import MaterialCoverageService
+from app.services.place_search_service import PlaceSearchService
 from app.services.region_service import AxisInspectorService, RegionService
 from app.services.route_generation_setup import (
     RouteGenerationSetup,
     assemble_route_generation_setup,
 )
+from app.services.tuning_service import TuningService
 from app.services.warning_service import WarningService
 from app.services.wbgt_service import WbgtService
 from app.services.weather_service import WeatherService
+from app.services.wind_grid_service import WindGridService
 
 
 #: 気象の取得のプロセス内キャッシュ。サービス・クライアントはリクエストごとに作られるため、プロセスの側で持つ。
@@ -144,45 +149,46 @@ def get_route_generation_setup_opener() -> RouteGenerationSetupOpener:
     return _open_route_generation_setup
 
 
-async def get_road_graph_repository():
-    """`RoadGraphRepository`を直接使いたい読み取り専用の管理API向け。
-
-    利用者はいずれも全表走査寄りのため、タイル配信保護用の短いcommand_timeoutで
-    キャンセルされないようルート生成用のセッション工場を使う。
-    """
+async def get_axis_preview_service():
+    """軸スタジオの実データの読み出し。全表走査寄りのため、タイル配信保護用の短いcommand_timeoutで
+    キャンセルされないようルート生成用のセッション工場を使う。"""
     async with get_route_generation_session_factory()() as session:
-        yield RoadGraphRepository(session)
+        yield AxisPreviewService(RoadGraphRepository(session))
 
 
-async def get_region_service():
+@asynccontextmanager
+async def open_region_service() -> AsyncIterator[RegionService]:
+    """地域サービスの開き方。HTTPの要求の外（定期ジョブ）と、読む間だけセッションを持ちたいサービスが開く。"""
     async with get_session_factory()() as session:
         yield RegionService(repository=RoadGraphRepository(session))
 
 
-async def get_ingested_area() -> BoundingBox | None:
-    """サービスの対象範囲（`RegionService.get_ingested_area`）。読めなければNone。"""
-    async with get_session_factory()() as session:
-        return await RegionService(repository=RoadGraphRepository(session)).get_ingested_area()
+async def get_region_service():
+    async with open_region_service() as region_service:
+        yield region_service
+
+
+def get_wind_grid_service(weather_service: WeatherService = Depends(get_weather_service)):
+    return WindGridService(weather_service, open_region_service)
+
+
+def get_place_search_service():
+    return PlaceSearchService(open_region_service)
 
 
 async def get_dedicated_way_value_service(
     axis_id: str,
     weather_service: WeatherService = Depends(get_weather_service),
 ):
-    """フィーチャー→動的値配信層の、軸id駆動な単一の注入点。
+    """地図のレンズ（軸の値の専用配信）の、軸id駆動な単一の注入点。
 
     `axis_id`はパスパラメータで、ルーター側と同名でなければFastAPIが解決できない。
     router側で軸ごとのサービスをそれぞれ`Depends`するとリクエストごとにDBセッションが
-    重複して開くため、この関数自体が分岐して1セッションで済ませる。配信できない`axis_id`には
+    重複して開くため、この関数自体が軸から配信を選んで1セッションで済ませる。配信できない`axis_id`には
     Noneを返し、呼び出し元が404を返す。
     """
-    factory = dedicated_way_value_factory(axis_id)
-    if factory is None:
-        yield None
-        return
-
     async with get_session_factory()() as session:
-        yield factory(RoadGraphRepository(session), weather_service)
+        yield axis_way_value_lens(axis_id, RoadGraphRepository(session), weather_service)
 
 
 async def get_axis_inspector_service(weather_service: WeatherService = Depends(get_weather_service)):
@@ -220,9 +226,9 @@ async def get_axis_registry_admin_service():
         yield AxisRegistryAdminService(AxisDefinitionRepository(session))
 
 
-async def get_tuning_session():
+async def get_tuning_service():
     async with get_session_factory()() as session:
-        yield session
+        yield TuningService(session)
 
 
 async def get_material_coverage_service():

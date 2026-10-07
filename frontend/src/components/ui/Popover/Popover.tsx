@@ -8,7 +8,14 @@ import { cn } from "@/lib/cn";
 // 押すと開く浮きパネル。開閉・位置取り・外側を押したら閉じる・Escで閉じるはRadix Popoverが持つ。
 // 中身はdocument.body直下へ描く（呼び出し側がoverflowで切り取る容器の中にあっても欠けない）。
 export const Popover = RadixPopover.Root;
-export const PopoverTrigger = RadixPopover.Trigger;
+/** 押すと開くボタン。印（`data-usage-opens`）を持ち、説明を見る状態（`components/UsageGuide/UsageGuide.tsx`）は
+ * この部品の説明に「中を見る」を出す。 */
+export const PopoverTrigger = forwardRef<
+  HTMLButtonElement,
+  React.ComponentPropsWithoutRef<typeof RadixPopover.Trigger>
+>(function PopoverTrigger(props, ref) {
+  return <RadixPopover.Trigger ref={ref} data-usage-opens="" {...props} />;
+});
 /** 押した部品以外の位置へ開くときの目印（`virtualRef`で要素を指す）。 */
 export const PopoverAnchor = RadixPopover.Anchor;
 

@@ -175,7 +175,7 @@ def displayed_material_ids(weights: Mapping[str, float], lens_axis_id: str | Non
 
 
 def _empty_material_arrays(n: int) -> dict[str, MaterialColumn]:
-    """`MATERIAL_CATALOG`全材料ぶんの配列を、材料ごとの既定値（NaN/False/値なし）で確保する。
+    """`MATERIAL_CATALOG`全材料ぶんの配列を、材料ごとの既定値（NaN/値なし）で確保する。
 
     **SQL式（`value_sql`）を持たない材料の列も確保する**。持たない材料（トリガー付きDEFER）を
     `MaterialTerm`等で参照する軸は軸スタジオから素朴に作れてしまい
@@ -188,9 +188,7 @@ def _empty_material_arrays(n: int) -> dict[str, MaterialColumn]:
     for spec in MATERIAL_CATALOG.values():
         if spec.dtype == "categorical":
             arrays[spec.material_id] = CategoricalColumn(np.zeros(n, dtype=np.int16), (None,))
-        elif spec.dtype == "boolean" and spec.bool_default == "false":
-            arrays[spec.material_id] = np.zeros(n, dtype=bool)
-        else:  # numeric、またはbool_default="nan"のboolean
+        else:  # numeric・boolean（真偽も数値の行列と同じく1.0/0.0/NaNで持つ）
             arrays[spec.material_id] = np.full(n, np.nan)
     return arrays
 

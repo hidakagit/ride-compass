@@ -180,6 +180,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/place-search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["search_places_api_place_search_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/region/road-surface-tiles/{z}/{x}/{y}.pbf": {
         parameters: {
             query?: never;
@@ -681,22 +697,16 @@ export interface components {
             category: "観測" | "推定" | "動的";
             /** Default Weight */
             default_weight: number;
-            display: components["schemas"]["AxisDisplaySpec"];
             /** Icon Id */
             icon_id: string | null;
             /** Primary Attribute Ids */
             primary_attribute_ids: string[];
             /** Weather Layer Groups */
             weather_layer_groups: string[];
-            /** Display Band Labels Override */
-            display_band_labels_override: string[] | null;
             /** Dedicated Way Value Layer */
             dedicated_way_value_layer: boolean;
             map_paint: components["schemas"]["MapPaint"];
-            /** Raw Value Unit */
-            raw_value_unit: string | null;
-            /** Raw Value Total Unit */
-            raw_value_total_unit: string | null;
+            raw_value_units: components["schemas"]["RawValueUnits"];
             /** Material Breakdown */
             material_breakdown: components["schemas"]["AxisMaterialBreakdownEntry"][];
             /** Dynamic Way Value Conditions */
@@ -890,8 +900,11 @@ export interface components {
             material_id: string;
             /** Label */
             label: string;
-            /** Dtype */
-            dtype: string;
+            /**
+             * Dtype
+             * @enum {string}
+             */
+            dtype: "numeric" | "boolean" | "categorical";
             /** Unit */
             unit: string;
             /** Share */
@@ -1294,6 +1307,9 @@ export interface components {
             /** Thresholds */
             thresholds: number[];
             legend: components["schemas"]["MapLegendScale"];
+            tiles: components["schemas"]["AxisDisplaySpec"];
+            /** Band Labels */
+            band_labels: string[] | null;
         };
         /** MaterialCoverageCounted */
         MaterialCoverageCounted: {
@@ -1434,6 +1450,30 @@ export interface components {
             /** Load */
             load: number;
         };
+        /** PlaceCandidate */
+        PlaceCandidate: {
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "address";
+            /**
+             * Level
+             * @enum {string}
+             */
+            level: "prefecture" | "county" | "city" | "ward" | "oaza" | "aza" | "block" | "building";
+            /** Name */
+            name: string;
+            /** Latitude */
+            latitude: number;
+            /** Longitude */
+            longitude: number;
+        };
+        /** PlaceSearchResult */
+        PlaceSearchResult: {
+            /** Candidates */
+            candidates: components["schemas"]["PlaceCandidate"][];
+        };
         /** PriorityCondition */
         PriorityCondition: {
             /** Material */
@@ -1442,6 +1482,13 @@ export interface components {
             equals: string;
             /** Value */
             value: number;
+        };
+        /** RawValueUnits */
+        RawValueUnits: {
+            /** Unit */
+            unit: string | null;
+            /** Total Unit */
+            total_unit: string | null;
         };
         /** RouteCandidate */
         RouteCandidate: {
@@ -1456,6 +1503,11 @@ export interface components {
              * @enum {string}
              */
             kind: "loop" | "waypoints" | "destination" | "spliced";
+            /**
+             * Spliceable
+             * @default false
+             */
+            spliceable: boolean;
             /** Direction Label */
             direction_label: string;
             /**
@@ -2230,6 +2282,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WindGridResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    search_places_api_place_search_get: {
+        parameters: {
+            query: {
+                q: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlaceSearchResult"];
                 };
             };
             /** @description Validation Error */

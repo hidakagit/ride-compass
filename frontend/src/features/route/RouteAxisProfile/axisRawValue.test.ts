@@ -2,7 +2,7 @@
 /**
  * `features/route/RouteAxisProfile/axisRawValue.ts`——軸の生値と内訳を表示の文へ整える。
  * - `formatAxisRawValue`: 生値を単位付きで書き、総量の単位が来た軸だけ走行距離を掛けた総量（約N）を添える
- * - `formatMaterialBreakdown`: 真偽の材料は該当区間の延長割合、数値の材料は値と単位。ほかの型と値の無い材料は出さない
+ * - `formatMaterialBreakdown`: 真偽の材料は該当区間の延長割合、数値の材料は値と単位。カテゴリの材料と値の無い材料は出さない
  * - `formatCategoryBreakdown`: 受け取った並びの先頭の値を、対訳（無ければタグ値のまま）と割合で書く
  * 数値の桁は値の大きさで決まる（10以上は整数・1以上は小数1桁・1未満は有効数字2桁）。
  *
@@ -46,13 +46,18 @@ describe("formatAxisRawValue", () => {
 });
 
 describe("formatMaterialBreakdown", () => {
-  const lit = { label: "街灯あり", dtype: "boolean", unit: "" };
+  const lit = { label: "街灯あり", dtype: "boolean" as const, unit: "" };
 
   it.each([
     ["真偽の材料は、該当区間の延長割合を%で書く", lit, 0.675, "街灯あり 68%"],
-    ["数値の材料は、値と単位を書く", { label: "制限速度", dtype: "numeric", unit: "km/h" }, 42.3, "制限速度 42km/h"],
+    [
+      "数値の材料は、値と単位を書く",
+      { label: "制限速度", dtype: "numeric" as const, unit: "km/h" },
+      42.3,
+      "制限速度 42km/h",
+    ],
     ["値の無い材料は出さない", lit, undefined, null],
-    ["数値でも真偽でもない型の材料は出さない", { label: "道の種類", dtype: "categorical", unit: "" }, 1, null],
+    ["カテゴリの材料は出さない", { label: "道の種類", dtype: "categorical" as const, unit: "" }, 1, null],
   ])("%s", (_label, entry, value, text) => {
     expect(formatMaterialBreakdown(entry, value)).toBe(text);
   });

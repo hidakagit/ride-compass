@@ -276,11 +276,15 @@ export function useSpliceSession({
 
   return {
     editingRoute,
-    // 編集できるのは目的地のルートだけ（周回は乗り換えると起点へ戻れる保証が無い）。表示中の候補を作った生成で見る
-    // （いまのピンで見ると、周回へ切り替えた後も編集が出て、評価の要求が目的地無しで弾かれる）。
+    // 編集できるかはbackendが候補ごとに返す印で見る（目的地を持つ生成の候補だけ。周回は乗り換えると起点へ戻れる
+    // 保証が無い）。いまのピンで見ると、周回へ切り替えた後も編集が出て、評価の要求が目的地無しで弾かれる。
     // 区間を割る下限を引けない間（軸カタログが取れていない）も出さない。取れていないことはヘッダーの印が知らせる。
     canStart:
-      Boolean(generatedInput?.destination) && routes.length > 1 && hasSelectedRoute && minStretchKm !== undefined,
+      generatedInput !== null &&
+      routes.length > 1 &&
+      routes.every((route) => route.spliceable) &&
+      hasSelectedRoute &&
+      minStretchKm !== undefined,
     start: (routeId) => {
       if (generatedInput)
         setSplice({ token: Symbol(), basis: generatedInput, routeId, applied: [], previews: {}, task: SPLICE_IDLE });

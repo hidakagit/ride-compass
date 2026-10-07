@@ -11,9 +11,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { heldReplies, inTurn, onBackend } from "@/testing/backendServer";
 import type { WindGridPoint } from "@/types/weather";
 
-// 待ち時間の間引き自体はuseDebouncedValueの持ち物。ここは値が届いた後の振る舞いを見る。
-vi.mock("@/hooks/useDebouncedValue", () => ({ MAP_FETCH_DEBOUNCE_MS: 0, useDebouncedValue: <T>(value: T) => value }));
-
 import { windGridDetailSpacingDegForZoom, type MapViewport } from "@/features/map/layers/windLayer";
 
 import { useWeatherGrid } from "./useWeatherGrid";
@@ -47,8 +44,8 @@ const serveDetail = (...responses: WindGridPoint[][]) =>
 
 type Results = { current: ReturnType<typeof useWeatherGrid> };
 
-// 取得の結果は網を通って届くので、偽にしていない時計で、粗い格子と（ズームしていれば）詳細格子が届くまで待つ
-// （届くまでの時間は CI の負荷で変わる）。
+// 範囲の変化を取得へ渡すまでの間引きは偽の時計で待ち（`vi.waitFor`が確かめのたびに偽の時計を進める）、取得の結果は
+// 網を通って、粗い格子と（ズームしていれば）詳細格子が届くまで待つ（届くまでの時間は CI の負荷で変わる）。
 async function fetched(result: Results, zoomed = false) {
   await vi.waitFor(() => {
     expect(result.current.hasFetched).toBe(true);
@@ -57,7 +54,7 @@ async function fetched(result: Results, zoomed = false) {
 }
 
 beforeEach(() => {
-  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout"] });
   serveGrid([point(35, 139)]);
   // 詳細格子は、問い合わせた範囲の南西と北東の角の2点を、問い合わせた間隔を風速にして返す。
   onBackend("GET", DETAIL, ({ query }) =>

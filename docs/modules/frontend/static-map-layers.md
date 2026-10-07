@@ -25,6 +25,7 @@
 | `features/map/scene/buildScene.ts` | 地図に載るもの全部を1つのsceneへ組み立てる唯一の口（`buildMapScene`）。受け取るのは実行時にしか決まらない値だけで、見た目の値は各グループが持つ。家族を1つ足すのはここの並びへ1行足すこと |
 | `features/map/scene/applyToMap.ts` | 画面の状態を地図へ当てる唯一の入口（状態→各家族の入力`sceneInputsFrom`→`buildMapScene`→`applyMapScene`）。作り直しも同じ道を通り、空から当て直すだけが違う。**再描画で失われる表示状態（filter・feature-state・visibility）を持つ描画は、ここから辿れる位置へ置く**——辿れないものは`setStyle()`後に作り直されない。**入力の型はsceneの側で宣言する**（`MapView`のpropsから借りると、sceneと`MapView`が互いをimportし合う） |
 | `features/map/maplibreWorker.ts` | MapLibreのWorkerの場所を、ビルド前に静的配信へ複製したもの（`scripts/copy-maplibre-worker.mjs`）へ向ける。地図を作る前に呼ばないと、Workerがバンドラの解決できないURLを読みに行き、スタイル処理とタイル取得が止まる |
+| `lib/mapDisplay/tileVersionGated.ts` | タイルの世代が届くまで要求できない情報源の集合（`TILE_VERSION_GATED_SOURCES`）と、それを読むレイヤーを持つチップのグループの名前（`tileVersionGatedGroupLabels`）。地図のレイヤーと、軸一覧を取れないことを告げる文（`hooks/useAxisCatalog.ts`）が同じ集合を読む |
 | `lib/mapDisplay/legendFilter.ts` | 凡例の行の型（`LegendEntry`）と、凡例で隠した行を落とす絞り込み式の組み立て（ルート線のモードが使う） |
 | `features/map/layers/landcoverClasses.ts` | 土地被覆のクラス（表示名・色・割合列・地図に塗るか）。backendのレジストリ由来の生成物（`landcover-classes.json`）を読むだけの薄い層で、凡例（レイヤーの記述子）と区間インスペクタ（`RoadInspectorPopup.tsx`）が共有する。色は地図タイルの塗りと同じ値のため、凡例と地図がずれない。**凡例は塗るクラスだけ**（`LANDCOVER_PAINTED_CLASSES`）——塗らないクラスを並べると色見本があるのに地図のどこにも無い表になる。区間インスペクタは数値なので全クラスを出す |
 | `features/map/layers/primaryAttributes.ts` | 一次属性のカタログと、二次軸→一次属性の導出（軸増減時の観測データ連動表示に使用） |
@@ -38,7 +39,7 @@
 | `features/map/MapView/pointPopup.ts` | 点データ（事故・POI）をクリックしたときのポップアップ本文。「点の名前: 区分の名前」を、凡例と同じ点の宣言（`POINT_LAYERS`の`display_axes`）から組み、続けて宣言（`point_facts`）が点に添える事実（事故の発生年等）を値のあるものだけ並べる。値をテキストノードで入れたDOMを組み、`Popup.setDOMContent()`へ渡す（下記「ポップアップへOSMタグの生値を出すときはHTMLとして解釈させない」） |
 | `features/map/MapView/RoadInspectorPopup.tsx` | 道をクリックしたときの詳細（**Reactで描き、MapLibreのPopupへportalで差し込む**）。開いたときに見せるのは名前と評価だけで、属性（タイルの事実と、評価を取ったときに届くタグ。**同じ項目は1度だけ**）と周囲の土地被覆は畳む——地図の上の小さな枠に収めるため。中身の高さには上限を付けて中でスクロールさせ、中身が伸び縮みしたら置く向きを決め直す（MapLibreのPopupは地図が動いたときにしか決め直さず、開いた後に伸びた中身が画面の外へはみ出す）。評価は押したときだけ取りに行き（backend `POST /api/region/axis-inspector`、[静的道路属性・タイル配信](../backend/static-road-attributes.md)参照）、**利用者がいま設定している重み**（ルート生成へ送るのと同じ`routePreferenceToSend`の値）で計算させる——既定の重みで見せると、重みを0にした軸まで効いて見える。重みを変えたら、前の重みの評価を見せずに取り直しへ戻す。走行の条件は押したときのものに留める——出発時刻は「今」へ
 5分刻みで進むので、今の条件で引き直すと開いている間に評価が消える。評価は道・条件・重みをキーにキャッシュへ残り、
-同じ道を同じ条件・重みで開き直したときは押さずに前の評価を出す。軸ごとの効き方は**ルート結果と同じ`AxisContributionBar`**で出す——同じものを別の見た目で見せると読み方を2つ覚えることになる。寄与度はbackendが返す値をそのまま使い、フロントで重みを掛け直さない。**デバッグログONのときだけ`osm_way_id`を出す**——値がおかしい道を見つけたとき、地図で押した1本をそのままbackendの調査へ渡せるようにする。一般の利用者には読めない値のため常時は出さない |
+同じ道を同じ条件・重みで開き直したときは押さずに前の評価を出す。軸ごとの効き方は**ルート結果と同じ`AxisContributionBar`**で、チップから開く軸の詳細も同じ`AxisDetail`で出す——同じものを別の見た目で見せると読み方を2つ覚えることになる。寄与度はbackendが返す値をそのまま使い、フロントで重みを掛け直さない。**デバッグログONのときだけ`osm_way_id`を出す**——値がおかしい道を見つけたとき、地図で押した1本をそのままbackendの調査へ渡せるようにする。一般の利用者には読めない値のため常時は出さない |
 | `features/map/MapView/roadFacts.ts` | クリックした道の「事実」（例: 道路名・路面の区分・農道・林道の等級・トンネル）をタイルのプロパティから組み立てる純関数。項目名と値の呼び名、タイルのどの属性を読むか（`tile_property`）は材料カタログ（生成物`material-catalog.json`）から引く。材料の外の列（識別子・道路名）の名前は生成物`region-tile-config.json`の`road_surface.properties`から引き、押した道のway_id・フィーチャーの鍵もここの関数（`roadWayId`・`roadFeatureKey`）で読む。該当しない項目は行ごと出さない（「なし」が並ぶと該当する項目が埋もれる）。路面の区分だけは値が無くても「不明」として出す——どの道でも最初に見たい項目で、行ごと消すと「舗装されていない」と読める |
 | `types/traffic.ts` | 停止要因POI・補給休憩POIの`kind`列挙型定義 |
 | `features/map/regionApi.ts`（`roadSurfaceTileUrl`/`pointTileUrl`とタイル世代の判定） | ベクタタイルのURLテンプレート（`fetchDynamicWayValues`は[地図: 軸・ルート色分け](map-axis-coloring.md)の管轄）。点のレイヤーはどれも1つの配信（backend `GET /api/region/point-tiles/{layer}/...`）で、URLはレイヤー名（生成物`region-tile-config.json`の`point_layers`の鍵。タイルの世代の系統の名前でもある）で組み、source-layer名も同じ一覧から読む。世代はbackendから実行時に届き、**全系統が揃ったもの（`completeTileVersions`だけが作る`TileVersions`）でしかURLを組み立てない** |
@@ -124,6 +125,11 @@ backendから取り、タイル本体はrewrites経由に戻る。
 持たない動的な材料の元データを描く気象のチップ。例: 風の材料と風の矢印）で、どちらもbackendが軸の材料から導く。
 当てはまる評価が無ければ評価に触れる一文ごと出さない。評価は軸スタジオで公開・改名・撤去されるため、
 直書きした名前は運用で黙って嘘になる。ルートの説明が並べる色分けも、レンズの選択肢と同じ公開中の評価と総合難易度から作る。
+
+コードの宣言にある事実（凡例の行の名前・順序の色の両端の呼び名・点の大きさ・予測が届く先）も文に写さず、源泉が文を組むときに
+宣言から引く（`map_display.py: ordered_ends_text`・`size_text`・`_row_label`、`weather_elements.py: forecast_reach`）。
+凡例の行の説明の元のタグも、行の値（道路種別・等級）かタグ→種別の表（`domain/traffic.py: TAG_KIND_RULES`）と信号の読み替え（`kinds_shown_as`）から組む
+（`primary_attributes.py: _tag_row`・`_kind_row`）。凡例の見本が示す見た目（色の灰・破線）と、画面の部品の名前・位置は文に書かない。
 
 ## 表示専用の凡例（`MapLayerDescriptor.readOnlyLegend`）
 
@@ -234,7 +240,7 @@ DOM/MapLibreを一切知らない。`MapView.tsx`は画面の状態をsceneの�
 
 MapLibreはソースへ渡した`attribution`を**そのソースが地図に載っている間だけ**出す。評価軸・
 ルートの計算・常設の表示（ヘッダーの天気・警戒度バッジ）へ常時使っているデータ（道路網・標高・事故・土地被覆・
-気象庁の観測と警報・風のMSM・暑さ指数等）の出典をソース側へ付けると、
+気象庁の観測と警報・風のMSM・暑さ指数・地点の検索で引く住所の辞書等）の出典をソース側へ付けると、
 そのレイヤーを消した瞬間に出典も消える。常時使うデータの出典はbackendが一覧として宣言し（生成物`mapDisplay.ts: alwaysShownAttributions`）、`MapView`が
 AttributionControlの`customAttribution`へ渡して、どのレイヤーを出しているかと関係なく出す。データ源を足す人は
 backendの同じ場所で出典も足す。ソース側の`attribution`に
@@ -249,6 +255,9 @@ MSMを配るOpen-MeteoのCC BY 4.0も、リンク付きのクレジット・ラ�
 提供元のサイトが掲げる指針の段階で出す（値を変えない）ので、出典だけを書く。規約が示す書き方は記載例で、
 書式（括弧・語順）は定めていない（警察庁ウェブサイト利用規約の「出典記載例」。2026-09-27に確認）ので、表記の括弧は
 画面の文言の決まり（半角の`[]`）に従う。
+住所の辞書は例外で、配布物に同梱のREADMEが「利用者から見えるところ」に書く**文言そのもの**を指定しているので、
+括弧も語順もその文言のまま出す（文言はbackendの`domain/place_search.py: ADDRESS_DICTIONARY_ATTRIBUTION`が持ち、
+辞書の版を上げるときにREADMEに合わせる）。
 
 基礎地図（OpenFreeMap / OpenMapTiles）は常時表記へ書かない——配信元のTileJSONが`attribution`を
 持っており、MapLibreが同じ場所へ出す。書くと同じ出典が2回並ぶ。
@@ -450,13 +459,13 @@ backendが200で応答する窓では、カタログは取得済みなのに世�
 
 宣言は源泉に1つ。タイルで配る情報源は**世代を配るタイルの系統の名前**を名乗る（backendの
 `map_display.py`が一次属性の`tile_kind`から導く）ので、世代を要る情報源は系統の一覧
-（生成物`region-tile-config.json`の`tile_version_kinds`）そのものになる。どのレイヤーがその
+（生成物`region-tile-config.json`の`tile_version_kinds`。`lib/mapDisplay/tileVersionGated.ts`が読む）そのものになる。どのレイヤーがその
 情報源を読むかも源泉の宣言で、レイヤーごとに「世代を要るか」は持たない——2つ持たせると
 ずれたときに「描けていないのにチップが黙る」。
 
 同じ失敗の再試行導線は常設ヘッダーの「未取得」の印（[ページ全体構成](page-composition.md)「失敗・空・待ちの
 伝え方」）と[ルート設定・結果パネル](route-settings-and-results.md)の重みタブにある（軸一覧の取得失敗として
-告知する）。地図側は理由を出すだけで、再試行ボタンは置かない。
+告知する。描けないものの名前は、世代を要るレイヤーを持つチップのグループの名前から作る）。地図側は理由を出すだけで、再試行ボタンは置かない。
 
 **暗黙の前提**: 軸スタジオ由来のレイヤー（ramp軸・専用way値配信軸）も同じ路面タイルを
 共有するため同じズームで消えるが、地図上チップを持たないため案内の出し先が無い。
@@ -696,7 +705,7 @@ E2Eの`e2e/map-runtime.spec.ts`「宣言された地図レイヤーを全部ON�
 しまう（backendの`test_material_catalog.py`が確かめる）。地図が行の値ごとに見本と同じ色・同じ絵記号の絵を引くことは
 `scene/legends.test.ts`が確かめる。
 
-**点の不透明度はレイヤーごとに源泉が宣言する**（`domain/map_display.py: POINT_OPACITY_BY_ATTR`。生成物`mapDisplay.point.opacityByLayer`）。
+**点の不透明度はレイヤーごとに源泉が宣言する**（一次属性の行の`point_opacity`、無ければ既定。`domain/map_display.py: POINT_OPACITY_BY_ATTR`。生成物`mapDisplay.point.opacityByLayer`）。
 画面は自分の名前で引くだけで、点の種類の名前で分岐しない。点のレイヤーを足して宣言に無ければ、生成物の型で型検査が落ちる。
 
 **重大度は円の大きさでも示すが、絞り込みの軸としても独立に持つ。** 大きさは「死亡事故だけを
@@ -789,7 +798,8 @@ HTMLでもよい。第三者が書ける値——`?? 生値`の
   [ページ構成](page-composition.md)・[地図: 軸・ルート色分け](map-axis-coloring.md)に近い。
   区間クリック時の詳細表示（地点・到達予想時刻・軸別内訳）はボトムシート側
   （[ルート設定・結果パネル](route-settings-and-results.md)のRouteAxisProfile）が持ち、
-  地図上（`MapView.tsx: handleRouteSegmentClick`）は軽量なマーカーを立てるのみで
+  地図上は、押された区間を`MapView.tsx: handleRouteSegmentClick`が選んだ区間として渡し、
+  `useMapMarkers.tsx: applySelectedSegmentMarker`が軽量なマーカーを立てるのみで
   テキストポップアップを持たない。押された区間から読み戻す`feature.properties`は、軸別内訳等の
   入れ子のオブジェクトもオブジェクトのまま届く（MapLibre v6は内部表現へ移すときに印付きのJSON文字列へ
   直し、読み戻すときに自分で戻す。`maplibre-gl/src/util/vectortile_to_geojson.ts`）ので、読む側で戻さない。

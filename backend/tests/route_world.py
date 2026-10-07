@@ -7,6 +7,7 @@
 `test_routing.py`（生成の経路がPythonから呼ぶJIT）。
 """
 
+from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import replace
 
@@ -102,7 +103,6 @@ def grid_network(
         edge_max_lon=np.maximum(lon[tail], lon[head]), edge_max_lat=np.maximum(lat[tail], lat[head]),
         numeric_ids=(BAD_MATERIAL, GRADIENT_PERCENT, *stop_count_material_ids()),
         numeric_values=np.column_stack([bad, gradient, *(stop_count for _ in stop_count_material_ids())]),
-        boolean_ids=(), boolean_values=np.zeros((n, 0), dtype=bool),
         categorical_ids=(ROLLING_RESISTANCE_MATERIAL_ID,), categorical_codes=np.ones((n, 1), dtype=np.int16),
         categorical_vocab=((None, UNKNOWN_ROAD_SURFACE.key),),
         hard_filter_ids=hard_filter_ids, hard_filter_flags=flags,
@@ -154,9 +154,14 @@ class Weather:
         return await self._rain.get_station_rain_materials(now)
 
 
+def serve_road_network(monkeypatch, current: Callable[[], RoadNetwork]) -> None:
+    """道路網全体の配列を置き場から読まず、`current`が返すものとして読ませる（`road_network_store.current`の差し替え）。"""
+    monkeypatch.setattr(road_network_store, "current", current)
+
+
 def generator_for(monkeypatch, network: RoadNetwork, avoid_weight: float, wind: WindForecastSeries | None):
     """道路網を全体の配列として読ませ、本物の`GraphService`とエンジンの上に戦略層（`RouteGenerator`）を組む。"""
-    monkeypatch.setattr(road_network_store, "current", lambda: network)
+    serve_road_network(monkeypatch, lambda: network)
     return assemble_route_generation_setup(
         GraphService(NetworkRepository(network)), Weather(wind),
         preference_override=RoutePreference(weights={AVOID_AXIS: avoid_weight}),

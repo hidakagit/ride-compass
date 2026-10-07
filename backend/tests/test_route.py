@@ -5,7 +5,7 @@
 `merge_material_values`・`merge_material_category_shares`・`route_axis_raw_values`。応答の型（`RouteCandidate`等）の検証はPydanticが持つ。
 
 ここで見ないもの:
-- 区間の値をコスト配列から読んで区間を組み立てること → `test_road_graph_engine.py`
+- 区間の値をコスト配列から読んで区間を組み立てること → `test_route_generation_behavior.py`
 - 候補全体へ畳んだ値を候補へ載せること → `test_route_generator.py`
 """
 

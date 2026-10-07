@@ -19,6 +19,7 @@ import shapely
 from cachetools import LRUCache, cached
 from shapely.geometry.base import BaseGeometry
 
+from app.domain.jma_area import NEAREST_LIMIT_DEG
 from app.infrastructure.debug_log import log_throttled_warning
 
 logger = logging.getLogger("ridecompass.jma_area_boundaries")
@@ -29,11 +30,6 @@ SOURCE_URL = "https://www.data.jma.go.jp/developer/gis/20260226_AreaInformationC
 
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "jma_area"
 BOUNDARY_PATH = DATA_DIR / (SOURCE_URL.rsplit("/", 1)[1].removesuffix(".zip") + ".json")
-
-#: どの区域にも入らない地点を、最も近い区域へ寄せる距離の上限（度。おおむね1km）。境界は簡略化して
-#: 持つため隣の区域との間に隙間ができ、海岸の区域は岸壁・橋の上を含まないことがある。
-NEAREST_LIMIT_DEG = 0.01
-
 
 class AreaBoundaries:
     def __init__(self, codes: list[str], geometries: list[BaseGeometry]):

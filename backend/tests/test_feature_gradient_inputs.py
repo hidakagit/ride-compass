@@ -11,16 +11,13 @@
 - 取込範囲の外・結果の形 → `test_road_graph_repository_contracts.py`
 """
 
-import asyncpg
 import pytest
 from sqlalchemy import text
 
 from app.batch import derive_raster_materials, derive_topology
 from app.batch.dem_tile_store import PRODUCT_PRIORITY
-from app.batch.common import asyncpg_dsn
-from app.domain.region import BoundingBox
-from app.infrastructure.road_graph_repository import EDGE_UNIT_MIN_ZOOM
-from tests.conftest import postgis_database_url
+from app.domain.region import EDGE_UNIT_MIN_ZOOM, BoundingBox
+from tests.conftest import raw_connection
 from tests.source_ingest import dem_tile_records, ingest_records, way_record
 
 pytestmark = [
@@ -49,12 +46,9 @@ async def _ingest_switchback(session) -> dict[int, tuple[float, float]]:
         way_record(2, [SWITCHBACK[1], (139.706, 35.6795)], [2, 9]),
     ], bbox=(AREA.min_latitude, AREA.min_longitude, AREA.max_latitude, AREA.max_longitude))
     await ingest_records("dem", dem_tile_records(PRODUCT_PRIORITY[0], 15, AREA, _climbing_north))
-    conn = await asyncpg.connect(asyncpg_dsn(postgis_database_url()))
-    try:
+    async with raw_connection() as conn:
         await derive_topology.derive(conn)
         await derive_raster_materials.derive(conn)
-    finally:
-        await conn.close()
     rows = await session.execute(
         text("SELECT e.segment_index, e.distance_m, m.average_grade FROM road_edges e JOIN edge_materials m"
              " USING (osm_way_id, segment_index) WHERE e.osm_way_id = :way"), {"way": SWITCHBACK_WAY_ID})

@@ -40,9 +40,12 @@ APIが受け取る重みの形を変えるとき、`dynamic_materials.py`は動�
 
 | 型 | 載せ方 |
 |---|---|
-| 真偽 | `CASE WHEN (value_sql) THEN true END`。「該当しない」をNULLへ畳み、フィーチャーからキーを省いてタイルを軽くする。欠損を「不明」として持つ真偽の材料（`bool_default`が`"nan"`）はこの載せ方の対象外で、タイルへ焼くなら「不明」を値として持つ分類の材料にする（例: 路面の見込み） |
+| 真偽 | `CASE WHEN (value_sql) THEN true END`。「該当しない」をNULLへ畳み、フィーチャーからキーを省いてタイルを軽くする。タグの不在を「不明」とする真偽の材料（`coverage.missing_semantics`が`"unknown"`）はこの載せ方の対象外で、タイルへ焼くなら「不明」を値として持つ分類の材料にする（例: 路面の見込み） |
 | 分類 | 値式をそのまま |
 | 数値 | `MaterialSpec.tile_encoding`の形（丸めの桁・0の省略・倍精度）で包む。例: 密度は小数1桁へ丸め、0を省く |
+
+材料の値1つがタイルにどう載るかを、`tile_property_value`がPythonの値で返す（画面へ配る期待値の表がタイルのプロパティを作るのに読む）。
+SQLの式と値の関数が同じ値を出すことは、`tests/test_material_values.py`が同じあるべき値を両方へ当てて見る。
 
 タイルの文は、値式が読む別名をフィーチャーの単位で与える。区間単位のフィーチャーは`em`が`edge_materials`の行・
 `re`の長さが区間の長さ、way丸ごとのフィーチャーは`em`が`way_materials`の同じ名前の列（無い列はNULL）・`re`の長さが
@@ -328,7 +331,6 @@ MaterialSpec]`が単一ソース。
 | `weather_grid_value` | 材料が読む自前のMSM格子の値（例: 風）。一次属性を持たない動的な材料の元データを、同じ格子の値を描く気象のチップ（`domain/weather_elements.py: WeatherElement.grid_value`）が地図に見せる。`GET /api/axis-catalog`はこれを軸ごとに`weather_layer_groups`へ解決し、地図の説明文がその評価の名前を差し込む |
 | `value_sql` | その材料の値をDBから求めるSQL式。`None`は「SQLでは求められない」（リクエスト時に決まる風、評価へ配線していないトリガー付きDEFER）。タイルへ焼く材料は必ず持つ |
 | `coverage` | 欠損率の測り方。way単位・区間単位・対象外の3択で、**どれかを必ず持つ**（どちらの一覧にも載っていない材料を型として作れなくする） |
-| `bool_default` | `dtype="boolean"`の材料が欠損を取りうるときの配列上の扱い。`"false"`（真偽の行列へ載せる）か`"nan"`（不明を非該当と混同しないため数値の行列へ載せる）で、数値的に等価ではない。**宣言ではなく`coverage.missing_semantics`から導くプロパティ**（`"unknown"`なら`"nan"`）——欠損の意味を2か所に宣言すると、片方だけ書き換えたときに画面と評価が食い違う |
 | `value_labels` | categorical材料の値ごとの日本語ラベル対訳表（生成物`material-catalog.json`と`GET /api/admin/material-catalog/{id}/values`が届ける） |
 | `reference_points` | 軸スタジオの折れ点編集を助ける「値の目安」一覧（`MaterialReferencePoint`のlabel/value）。値域が直感的でない材料（風等）ほど有用で、真偽値・categorical材料や単純な材料は空リストのままでよい。換算式はbackendだけが持ち、値はここで計算済みのものを持たせる |
 
@@ -372,7 +374,7 @@ MaterialSpec]`が単一ソース。
   **1つの軸で複数のクラスを足さないこと**——割合の合計が100%へ固定されているため
   同じ地面を二重に数える（[設計原則](../../architecture/design-principles.md)構造仕様14）。
 - 値式は`domain/material_sql.py`の組み立て関数から作る（タグの正規化・タグ値の一致・
-  数値パース・件数の密度化・wayの行の有無）。同じ判定を材料ごとに書き写さないため、
+  数値パース・件数の密度化・タグが無いときの非該当）。同じ判定を材料ごとに書き写さないため、
   判定を直すと全材料へ同時に効く。
 
 ### 値式が参照するエイリアス
@@ -391,9 +393,11 @@ way粒度で引くときは、同じ式のまま`w`の行から同じ名前の�
 （`road_graph_repository.py: way_from_clause`）。`em`はway側の同名列かNULLを返す1行になる
 ため、区間にしか無い値（標高）はNULLになる。
 
-**行の有無と値の有無を分ける。** `w`の行が無い（未取込の地域・PBF再取込の途中）ときは
-タグ由来の材料がすべて不明（NULL）になり、行があればタグが無くても非該当（false）として
-確定する（`tag_absent_is_false_sql`）。件数も同じで、集計行が無ければ不明、行があれば
+**行の有無と値の有無を分ける。** `w`の行が無い（求めた区間がDBに無い・取込で消えた道を、派生を
+作り直すまでの区間が指す）ときはタグ由来の材料が不明（NULL）になり、行があればタグが無くても非該当（false）として
+確定する（`tag_absent_is_false_sql`。真偽の材料（照明・橋・トンネル・自転車道の有無等）が使う）。ルート選びの配列でも
+真偽の材料は数値の行列に1.0/0.0で載り、不明は`NaN`のまま届く（`material_catalog.material_array_columns`）——真偽の行列に
+載せると欠損を持てず、不明が非該当に化ける。件数も同じで、集計行が無ければ不明、行があれば
 載っていないキーは0件。集計前を0件として読むと、全区間が「停止要因ゼロ＝最も易しい」と
 評価されてルート選択が静かに歪む。
 
@@ -410,7 +414,7 @@ way粒度で引くときは、同じ式のまま`w`の行から同じ名前の�
 
 | エンドポイント | 認可 | 内容 |
 |---|---|---|
-| `GET /api/admin/material-catalog/{material_id}/values` | HTTP Basic | categorical材料の実データ値一覧（`services/axis_preview_service.py: material_values`経由、未知idは404・値一覧を持たない材料は空リスト・DB障害やタイムアウトは`available=false`）。索引の効かない`SELECT DISTINCT`をルート生成用の長い`command_timeout`のセッションで実行する。繰り返し呼ばれるだけで接続を占有できるため、`coverage`と同じく認可を課す |
+| `GET /api/admin/material-catalog/{material_id}/values` | HTTP Basic | categorical材料の実データ値一覧（`services/axis_preview_service.py: AxisPreviewService`経由、未知idは404・値一覧を持たない材料は空リスト・DB障害やタイムアウトは`available=false`）。索引の効かない`SELECT DISTINCT`をルート生成用の長い`command_timeout`のセッションで実行する。繰り返し呼ばれるだけで接続を占有できるため、`coverage`と同じく認可を課す |
 | `GET /api/admin/material-catalog/coverage` | Basic認証必須 | 材料ごとの欠損割合（下記）。全表走査を伴うため認可なしには公開しない |
 
 ## 材料の欠損割合（`infrastructure/material_coverage.py`・`services/material_coverage_service.py`）
@@ -428,13 +432,13 @@ way粒度で引くときは、同じ式のまま`w`の行から同じ名前の�
 | `"way"` | 生の道の全行（`infrastructure/source_models.py: WAYS_SOURCE_SQL`） | `missing_condition`（生の道の列・`tags` JSONBのみで構成したSQL真偽式、`domain/material_sql.py`の共有断片から組み立てる）。全way材料を`count(*) FILTER`で1回の走査にまとめる（`build_way_coverage_sql`、`FROM {WAYS_SOURCE_SQL} AS w`）。判定式は[routing-engine.md](routing-engine.md)の`ROAD_SURFACE_TILE_MVT_SQL`と同じPython定数を参照するため、独立した2つの文字列を突き合わせる形の整合性テストは持たない（同じ定数を使う構成自体が一致を保証する） |
 | `"edge"` | `road_edges`全行 | `present_condition`（`edge_materials AS em`の1行が値を持つときに真のSQL条件式）。全edge材料を`count(*) FILTER`で1回の走査にまとめる（`build_edge_coverage_sql`）。`edge_materials`の`(osm_way_id, segment_index)`は`road_edges`へのFK（ON DELETE CASCADE）のため、値が埋まっている行数をそのまま「値ありEdge数」として使いJOINを省く |
 
-- **「行がある」と「値がある」を混同しない**。派生テーブルが「行が無い＝未計算」と
-  「列がNULL＝算出不能」を区別するなら（土地被覆の`lc_*`がそう）、行の有無だけで数えると
-  値がNULLの行を「データあり」と数えてしまう。判定は評価が実際に読む**列**のNULLまで見る。
+- **「行がある」と「値がある」を混同しない**。派生の表は区間ごとに行を持ち、値を出せない列は
+  NULLのまま残す（土地被覆の`lc_*`がそう。NULLの意味は[静的道路属性](static-road-attributes.md)「値が無ければNULL」）。
+  行の有無だけで数えると、値がNULLの行を「データあり」と数えてしまう。判定は評価が実際に読む**列**のNULLまで見る。
 - `missing_semantics`: `"unknown"`（欠損は不明値[NaN/None]として扱われ、その材料を使う軸は
   評価対象外になる）／`"definite"`（欠損は確定値[タグ不在=非該当等]として扱われ、軸は
-  通常どおり評価される）。真偽の材料の配列上の欠損の持ち方（`MaterialSpec.bool_default`）は
-  これから導く——`"unknown"`の材料は欠損を`NaN`で持ち、非該当（`false`）と混同しない。
+  通常どおり評価される）。宣言はタグの不在の意味で、値の式がそれに合わせて`NULL`か`false`を返し、配列では読み替えない
+  （真偽の材料はどちらでも数値の行列へ載り、`NULL`を`NaN`で持つ）。地図の不明の帯（`axis_display.py`）もこの宣言から引く。
 - `CoverageExcluded(reason=...)`: 集計対象外の材料とその理由（動的計算材料の
   `wind_drag_ratio`、NOT NULL列由来の`oneway`、生データの道のCHECK`source_features_way_has_kind`でhighwayを必ず持つ`highway`・`highway_is_cycleway`等）。
   欠損し得ない材料を集計対象へ置かない——欠損の判定が常に0件を数える式になり、DBが持つ前提を式の側でもう一度持つことになる。
@@ -442,8 +446,8 @@ way粒度で引くときは、同じ式のまま`w`の行から同じ名前の�
 - **どちらか一方を必ず持つことは型が保証する**: `MaterialSpec.coverage`は必須で、
   way単位・Edge単位・対象外の3択（`MaterialCoverage`）のいずれかしか取れない。
   「どちらの一覧にも載っていない材料」を作れないため、網羅性を確かめるテストは要らない。
-- `MaterialCoverageService.get_material_coverage`はDB例外を握りつぶさず伝播させ、router側で
-  503へ変換する（診断用APIのため空レポートへ倒して「欠損0件」に見せない）。
+- `MaterialCoverageService.get_material_coverage`はDB例外を握りつぶさず伝播させ、管理API共通の例外の扱い
+  （`api/admin_db_errors.py`）が503で返す（診断用APIのため空レポートへ倒して「欠損0件」に見せない）。
   `api/dependencies.py: get_material_coverage_service`はルート生成用の長い
   `command_timeout`（180秒）を持つセッションを渡す（全表走査がタイル配信用の20秒を
   超えうるため）。

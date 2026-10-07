@@ -39,7 +39,7 @@ function inspectorResult(): AxisInspectorResult {
     highway: "residential",
     tags: { lit: "yes", name: "明治通り" },
     axes: [
-      { axis_id: "axis_sample", difficulty: 60, contribution: 30 },
+      { axis_id: "axis_sample", difficulty: 57.8, contribution: 30 },
       { axis_id: "night", difficulty: 20, contribution: 10 },
       { axis_id: "gradient", difficulty: null, contribution: null },
     ],
@@ -116,6 +116,9 @@ describe("RoadInspectorPopup", () => {
     // 寄与度バーの凡例は軸アイコン＋値（ルート結果と同じ部品）。
     expect(await screen.findByText("30.0")).toBeInTheDocument();
     expect(screen.getByText("10.0")).toBeInTheDocument();
+    // チップから開く詳細は、その軸の難易度をルート結果と同じ桁で出す。
+    await user.click(screen.getByRole("button", { name: "見本の軸の詳細を表示" }));
+    expect(screen.getByText("この評価軸の難易度 57.8/100")).toBeInTheDocument();
     // この道に値の出ない軸（勾配）はそもそも並ばない。
     expect(screen.queryByLabelText("勾配の詳細を表示")).not.toBeInTheDocument();
   });
@@ -134,7 +137,7 @@ describe("RoadInspectorPopup", () => {
 
     await user.click(screen.getByRole("button", { name: "この道の評価を見る" }));
 
-    expect(await screen.findByText(/この道だけで見た合成: 40\.0\/100/)).toBeInTheDocument();
+    expect(await screen.findByText(/この道だけで見た難易度: 40\.0\/100/)).toBeInTheDocument();
     expect(screen.getByText(/重みの約80%/)).toBeInTheDocument();
   });
 
@@ -152,7 +155,7 @@ describe("RoadInspectorPopup", () => {
 
     await user.click(screen.getByRole("button", { name: "この道の評価を見る" }));
 
-    expect(await screen.findByText(/この道だけで見た合成: 40\.0\/100/)).toBeInTheDocument();
+    expect(await screen.findByText(/この道だけで見た難易度: 40\.0\/100/)).toBeInTheDocument();
     expect(screen.queryByText(/重みの約/)).not.toBeInTheDocument();
   });
 
@@ -212,11 +215,11 @@ describe("評価の重み", () => {
     const props = { properties: { osm_way_id: 1 }, axes: AXES, axisColors: AXIS_COLORS, ...RIDE };
     const { rerender } = render(<RoadInspectorPopup {...props} routePreference={WEIGHTS} />);
     await user.click(screen.getByRole("button", { name: "この道の評価を見る" }));
-    await waitFor(() => expect(screen.getByText(/この道だけで見た合成/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/この道だけで見た難易度/)).toBeInTheDocument());
 
     rerender(<RoadInspectorPopup {...props} routePreference={{ axis_sample: 1, night: 1 }} />);
 
-    expect(screen.queryByText(/この道だけで見た合成/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/この道だけで見た難易度/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "この道の評価を見る" })).toBeInTheDocument();
   });
 });
@@ -230,11 +233,11 @@ describe("評価の走行の条件", () => {
     serveInspector(inspectorResult());
     const { rerender } = render(<RoadInspectorPopup {...props} conditions={CONDITIONS} />);
     await user.click(screen.getByRole("button", { name: "この道の評価を見る" }));
-    await screen.findByText(/この道だけで見た合成/);
+    await screen.findByText(/この道だけで見た難易度/);
 
     rerender(<RoadInspectorPopup {...props} conditions={{ ...CONDITIONS, at: new Date("2026-09-24T00:05:00Z") }} />);
 
-    expect(screen.getByText(/この道だけで見た合成/)).toBeInTheDocument();
+    expect(screen.getByText(/この道だけで見た難易度/)).toBeInTheDocument();
   });
 
   it("同じ道を同じ条件・重みで開き直したときは、取り直さずに前の評価を出す", async () => {
@@ -242,12 +245,12 @@ describe("評価の走行の条件", () => {
     serveInspector(inspectorResult());
     const first = render(<RoadInspectorPopup {...props} conditions={CONDITIONS} />);
     await user.click(screen.getByRole("button", { name: "この道の評価を見る" }));
-    await screen.findByText(/この道だけで見た合成/);
+    await screen.findByText(/この道だけで見た難易度/);
     first.unmount();
 
     render(<RoadInspectorPopup {...props} conditions={{ ...CONDITIONS }} />);
 
-    expect(screen.getByText(/この道だけで見た合成/)).toBeInTheDocument();
+    expect(screen.getByText(/この道だけで見た難易度/)).toBeInTheDocument();
   });
 });
 

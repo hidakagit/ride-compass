@@ -9,10 +9,9 @@ import pytest
 import pytest_asyncio
 
 from app.batch import derive_node_materials, derive_topology
-from app.batch.common import asyncpg_dsn
 from app.domain.traffic import HIGHWAY_RANK
 from app.domain.tuning import TUNING_PARAMETERS_BY_ID
-from tests.conftest import postgis_database_url
+from tests.conftest import empty_ingested_tables
 from tests.source_ingest import ingest_records, point_record, way_record
 
 # road_graph_session（conftest.py）と同じDBを使うため、docs/conventions/testing.mdのパターン2どおり
@@ -41,9 +40,6 @@ NODES: tuple[tuple[int, float, float, dict[str, str]], ...] = (
     (9, BASE_LON + STEP * 5 + NEAR, BASE_LAT, {"highway": "traffic_signals"}),
 )
 
-TABLES = ("edge_materials", "way_materials", "road_edges", "node_materials",
-          "source_features", "source_runs")
-
 
 async def _ingest(conn: asyncpg.Connection, *, way_tags: dict[int, dict[str, str]] | None = None,
                   node_tags: dict[int, dict[str, str]] | None = None) -> None:
@@ -63,22 +59,11 @@ async def _signals(conn: asyncpg.Connection) -> dict[int, bool]:
     return {r["osm_node_id"]: r["has_traffic_signals"] for r in rows}
 
 
-@pytest_asyncio.fixture(scope="module", loop_scope="module")
-async def module_conn(road_graph_engine):
-    """`road_graph_engine`に依存するのはスキーマを作らせるため（`test_derive_topology.py`と同じ）。"""
-    conn = await asyncpg.connect(asyncpg_dsn(postgis_database_url()))
-    try:
-        yield conn
-    finally:
-        await conn.execute("TRUNCATE " + ", ".join(TABLES) + " CASCADE")
-        await conn.close()
-
-
 @pytest_asyncio.fixture(loop_scope="module")
-async def node_conn(module_conn):
+async def node_conn(derive_conn):
     """テストごとに同じ生データから作り直す。生データのタグを書き換えるテストがあるため。"""
-    conn = module_conn
-    await conn.execute("TRUNCATE " + ", ".join(TABLES) + " CASCADE")
+    conn = derive_conn
+    await empty_ingested_tables(conn)
     await _ingest(conn)
     await derive_topology.derive(conn)
     await derive_node_materials.derive(conn, RADIUS_M)

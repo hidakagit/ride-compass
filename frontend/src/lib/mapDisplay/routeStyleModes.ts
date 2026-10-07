@@ -89,7 +89,7 @@ function buildRangeSteppedMode(options: {
 
 // 公開軸1本のモード。塗る値の種類・単位・しきい値はbackendが決め、ルート前の専用配信の塗りと同じ尺度・配色になる。
 function routeColorableModeFromAxis(axis: AxisCatalogEntry): RouteStyleMode {
-  const { value: mapValue, thresholds: boundaries, legend } = axis.map_paint;
+  const { value: mapValue, thresholds: boundaries, legend, band_labels: bandLabels } = axis.map_paint;
   // 生値を塗る材料はbackendが名指す（`map_paint.value.material`）。
   if (mapValue.kind === "signed_material") {
     return buildRangeSteppedMode({
@@ -99,7 +99,7 @@ function routeColorableModeFromAxis(axis: AxisCatalogEntry): RouteStyleMode {
       kind: mapValue.kind,
       boundaries,
       legend,
-      bandLabels: axis.display_band_labels_override,
+      bandLabels,
     });
   }
   return buildRangeSteppedMode({
@@ -109,7 +109,7 @@ function routeColorableModeFromAxis(axis: AxisCatalogEntry): RouteStyleMode {
     kind: "difficulty",
     boundaries,
     legend,
-    bandLabels: axis.display_band_labels_override,
+    bandLabels,
   });
 }
 

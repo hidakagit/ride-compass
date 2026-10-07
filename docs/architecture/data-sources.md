@@ -42,10 +42,38 @@ git grep -h -o -E "https?://[a-zA-Z0-9.-]+" -- backend/app backend/scripts front
 | 気象庁MSM（Open-MeteoがAWS Open Dataで公開する前処理済みデータ） | `backend/app/infrastructure/msm_client.py`（`msm_base_url`） | 配布物はCC BY 4.0（Open-Meteo）。元データは気象庁の利用条件（PDL1.0）に従い、**気象業務法の制約**（第17条 予報業務の許可）が別にかかる——格子の値をどう扱えば許可が要るかは下の「気象業務法の予報業務許可」節 | Open-Meteo分は可。気象業務法との関係は**要確認**（公式の文書で決まらない部分があり、気象庁への照会が要る。許可の要否は有償・無償で変わらないため、無償で公開している今も同じ問い） | Open-Meteoへのクレジット（表示箇所の近くにリンク）＋気象庁の出典 | [Open-Meteo licence](https://open-meteo.com/en/licence)・[open-data](https://github.com/open-meteo/open-data)・[気象庁 copyright](https://www.jma.go.jp/jma/en/copyright.html)・[予報業務許可Q&A](https://www.jma.go.jp/jma/kishou/minkan/q_a_m.html) | 2026-09-26 |
 | 気象庁ホームページの防災情報（アメダス・警報・ナウキャスト・キキクル・洪水予報・推計気象分布等のJSON・タイル） | `backend/app/infrastructure/`の`jma_*`・`flood_client.py` | 気象庁ホームページ利用規約（PDL1.0準拠）。**気象業務法の制約**（第17条 予報業務の許可・第23条 警報の制限）が別にかかる。アメダスの観測を累計して評価の材料（雨の材料）にするのと、推計気象分布（天気。実況で予報ではない）の地点の区分を晴れ・くもりに読み替えて観測所の降水と合わせ、天気のアイコンにするのと、降水ナウキャスト・降水短時間予報のタイルの色を、段をそのままにアプリの段の色へ1対1で塗り替えて重ねるのは加工に当たり、規約は出典と加工した旨の記載で加工を認める（観測値の加工についての別段の定めは無い）。塗り替えが気象業務法の上で「そのまま掲載」に入るかは、下の「気象業務法の予報業務許可」節の書いていないこと。出発時刻の予報で延ばす使い方は、下の「気象業務法の予報業務許可」節の確認が先 | 可（気象業務法の範囲で） | 出典。加工した場合は**加工した旨** | [利用規約](https://www.jma.go.jp/jma/kishou/info/coment.html)・[推計気象分布の解説](https://www.jma.go.jp/jma/kishou/know/suikei_kishou/kaisetsu.html) | 2026-10-05 |
 | 暑さ指数（WBGT、環境省 熱中症予防情報サイト） | `backend/app/infrastructure/wbgt_client.py`（予測値API・情報提供地点マスタCSV） | サイトの利用規約（PDL1.0準拠）。規約が適用外として挙げるのはメール配信サービスと「電子情報提供サービス」（事業者向けのCSVファイル提供）で、使っている予測値API（`api/v1/getForecastData`）と地点マスタCSVは別の「暑さ指数の実況値・予測値ダウンロード」の側にあり、適用外に挙がっていない。同サイトのよくある質問は、アプリで使うならこのWebAPIを案内している。自動化ツールからの高頻度アクセスは控えるよう求めている | 可 | 出典（例: 「出典：環境省熱中症予防情報サイト（当該ページのURL）」）。加工した場合は出典とは別に加工した旨 | [ご利用にあたって](https://www.wbgt.env.go.jp/tos.php)・[実況値・予測値ダウンロード](https://www.wbgt.env.go.jp/wbgt_data_download.php)・[API仕様書](https://www.wbgt.env.go.jp/man15NH/wbgt_data_api_service_manual.pdf)・[よくある質問](https://www.wbgt.env.go.jp/faq2.php)・[電子情報提供サービス](https://www.wbgt.env.go.jp/data_service.php) | 2026-09-26 |
+| 住所の辞書（jageocoder 用住所データベース 街区レベル、株式会社情報試作室。元データは国土交通省の位置参照情報・Geolonia 住所データ・デジタル庁のアドレス・ベース・レジストリ（町字マスター）・日本郵便の郵便番号データ・歴史的行政区域データセットβ版） | `backend/scripts/fetch_address_dictionary.py`（取得）、`backend/app/infrastructure/address_dictionary.py`（地点の検索） | 配布物に同梱のREADME（jageocoder 用住所データベース利用規約（街区レベル））。商用・非商用とも可（反社会的勢力・法令または公序良俗に違反する目的・データの提供者が不適切と判断した者の利用を除く）。サーバへ置くときはREADMEをデータと同じ場所に置く。READMEの文言を書けば国土交通省の利用規約も満たす（README）。アドレス・ベース・レジストリはPDL1.0で、地番マスターに掛かる登記所備付地図データ利用規約は、辞書が使う町字マスターには掛からない | 可 | 利用者から見える所に、READMEが指定する文言（「位置参照情報（大字町丁目・街区レベル）令和6年」（国土交通省）…をもとに、株式会社情報試作室が加工した jageocoder 用住所データベース（街区レベル）を利用）。文言は版ごとに変わる（下の「版を持つ配布物の入れ替え」） | [配布](https://www.info-proto.com/static/jageocoder/)・[jageocoder](https://github.com/t-sagara/jageocoder)・[アドレス・ベース・レジストリの利用規約](https://www.digital.go.jp/policies/base_registry_address_tos/) | 2026-10-07 |
 
 公共データ利用規約（PDL1.0）は商用利用を認め、CC BY 4.0と互換である
 （[デジタル庁](https://www.digital.go.jp/resources/open_data/public_data_license_v1.0)）。
 どの提供元も、加工したものを国が作成したかのように見せることを禁じている。
+
+## 版を持つ配布物の入れ替え
+
+配布元が版ごとのファイルで配り、コードが版を1か所で名指して取りに行くものの、版と入れ替えの手順。
+
+### 住所の辞書（jageocoder 用住所データベース 街区レベル）
+
+| 項目 | 内容 |
+|---|---|
+| 今の版 | `20260417`（`backend/app/domain/place_search.py: ADDRESS_DICTIONARY_URL`の`gaiku_all_v22.20260417.zip`） |
+| 配布の頻度 | 年1回の見込み（配布の版の日付: 2021年に7回・2022年に3回・2023年に5回・2024年に5回のあと、2025-04-23・2026-04-17。元データの位置参照情報も年1回の更新） |
+| 新しい版の見つけ方 | [配布の一覧](https://www.info-proto.com/static/jageocoder/)に日付のディレクトリが増える。その下の`v2/`に`gaiku_all_v<NN>.<日付>.zip` |
+
+入れ替えの手順:
+
+1. 新しい版の`v2/`の一覧で、街区までの全国の辞書のファイル名を読む。末尾の`_v<NN>`（`v22`等）が、その辞書を読める
+   `jageocoder`の版（2.2.xなら`v22`）を表す（同梱のREADMEの「データ形式について」）。
+2. zipを取って同梱のREADMEを読み、利用条件と「利用者から見えるところ」に書く文言が変わっていないかを見る。
+3. `ADDRESS_DICTIONARY_URL`を新しい版のzipへ書き換え、文言が変わっていれば`ADDRESS_DICTIONARY_ATTRIBUTION`を
+   READMEの文言へ合わせる（生成物`mapDisplay.ts`を作り直す）。`_v<NN>`が変わっていれば、`backend/requirements.txt`の
+   `jageocoder`をその版へ上げる。この表の「今の版」と、上の表の行の確認日も直す。
+4. マージすると、デプロイが新しい版を取り（置き場の名前が版で変わる。取って入れるので数十秒）、コンテナの入れ替えのあとの
+   検索は新しい版を引く。入れ替えまでは古いコンテナが古い版を引き続け、古い版は次のデプロイで同じスクリプトが消す
+   （それまで本番の置き場に2つの版が並ぶ。1つ入れて約1.4GB）。
+5. 本番の`/api/place-search?q=東京都新宿区西新宿2-8-1`が候補を返すことを見る。
+
+次の入れ替えは、着手可能日を入れた issue で待つ（置き場のリポジトリ）。
 
 ## 気象業務法の予報業務許可
 

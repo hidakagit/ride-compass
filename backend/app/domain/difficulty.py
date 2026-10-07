@@ -236,6 +236,18 @@ class OverallDifficulty(StrictModel):
     load: float
 
 
+#: ルート全体の難易度の数え方を利用者に言う文（下の`overall_difficulty`の式の言い換え。式を変えたら、ここも変える）。
+#: 画面は自分の部品（グラフ・内訳）を指す文だけを足す。
+OVERALL_DIFFICULTY_WORDING: dict[str, str] = {
+    "average": "区間ごとの難易度を距離で重みづけて平均した値です。長く走っても難しさが同じなら増えません。",
+    "load": (
+        "平均に距離[km]を掛けた総量で、走り切るまでのしんどさの目安です。"
+        "平均は遠回りして難所を避けるほど下がりますが、総量は走った分だけ増えます。"
+    ),
+    "missing": "値の無い区間は、平均の難易度の区間として数えます。",
+}
+
+
 def overall_difficulty(segments: list[tuple[float | None, float]]) -> OverallDifficulty | None:
     """(区間difficulty, 区間distance_km)のリストからルート全体の難易度を求める。
     値のある区間が無ければNone。

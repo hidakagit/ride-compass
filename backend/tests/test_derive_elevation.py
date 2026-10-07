@@ -33,11 +33,10 @@ import pytest
 import pytest_asyncio
 
 from app.batch import dem_tile_store, derive_raster_materials, derive_topology
-from app.batch.common import asyncpg_dsn
 from app.batch.ingest import ingest_source
 from app.batch.source_profile import Target, load_source_profile
 from app.domain.region import tile_bounds_lonlat
-from tests.conftest import postgis_database_url
+from tests.conftest import empty_ingested_tables
 from tests.source_ingest import ingest_records, way_record
 
 # road_graph_session（conftest.py）と同じDBを使うため、docs/conventions/testing.mdのパターン2どおり
@@ -52,9 +51,6 @@ pytestmark = [
 ZOOM, X, Y = 15, 29100, 12902
 PARENT = (14, X // 2, Y // 2)
 SIZE = 256
-
-TABLES = ("edge_materials", "way_materials", "road_edges", "node_materials",
-          "source_features", "source_runs")
 
 #: 区画ごとの (wayのid, 頂点を置くTの画素(行, 列)の組, 採られるはずの標高)。
 CASES = (
@@ -133,22 +129,11 @@ def tile_root(tmp_path_factory):
     return root
 
 
-@pytest_asyncio.fixture(scope="module", loop_scope="module")
-async def module_conn(road_graph_engine):
-    """`road_graph_engine`に依存するのはスキーマを作らせるため（`test_derive_topology.py`と同じ）。"""
-    conn = await asyncpg.connect(asyncpg_dsn(postgis_database_url()))
-    try:
-        yield conn
-    finally:
-        await conn.execute("TRUNCATE " + ", ".join(TABLES) + " CASCADE")
-        await conn.close()
-
-
 @pytest_asyncio.fixture(loop_scope="module")
-async def elevation_conn(module_conn, tile_root):
+async def elevation_conn(derive_conn, tile_root):
     """テストごとに同じタイルから取り込み直す。製品を抜いて取り込み直すテストがあるため。"""
-    conn = module_conn
-    await conn.execute("TRUNCATE " + ", ".join(TABLES) + " CASCADE")
+    conn = derive_conn
+    await empty_ingested_tables(conn)
     await _ingest_dem(conn, tile_root)
     await ingest_records("osm_way", [_way(way_id, pixels) for way_id, pixels, _ in CASES], conn=conn)
     async with conn.transaction():

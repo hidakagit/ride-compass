@@ -7,12 +7,14 @@ import { axisCatalogFromResponse, type AxisCatalog } from "@/lib/axisCatalog";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import type { AxisCatalogEntry, AxisCatalogResponse } from "@/types/route";
 
-type TileInput = AxisCatalogEntry["display"]["tile_inputs"][number];
+type MapPaint = AxisCatalogEntry["map_paint"];
+type TileInput = MapPaint["tiles"]["tile_inputs"][number];
 
-/** 軸1本の上書き。地図の表示の宣言（`display`）と地図が塗るもの（`map_paint`）は一部だけを上書きできる。 */
-type EntryOverrides = Partial<Omit<AxisCatalogEntry, "display" | "map_paint">> & {
-  display?: Partial<AxisCatalogEntry["display"]>;
-  map_paint?: Partial<AxisCatalogEntry["map_paint"]>;
+/** 軸1本の上書き。地図が塗るもの（`map_paint`）とその中のタイルの塗り（`tiles`）、生値の単位（`raw_value_units`）は
+ * 一部だけを上書きできる。 */
+type EntryOverrides = Partial<Omit<AxisCatalogEntry, "map_paint" | "raw_value_units">> & {
+  map_paint?: Partial<Omit<MapPaint, "tiles">> & { tiles?: Partial<MapPaint["tiles"]> };
+  raw_value_units?: Partial<AxisCatalogEntry["raw_value_units"]>;
 };
 
 /** 数値の材料をそのまま足すタイルの入力。 */
@@ -33,10 +35,10 @@ export function tileInput(overrides: Partial<TileInput> = {}): TileInput {
 
 /** 軸1本。 */
 export function catalogEntry(overrides: EntryOverrides = {}): AxisCatalogEntry {
-  const { display, map_paint: mapPaint, ...rest } = overrides;
+  const { map_paint: { tiles, ...mapPaint } = {}, raw_value_units: rawValueUnits, ...rest } = overrides;
   const axisId = rest.axis_id ?? "";
   // 境界を宣言していない軸にbackendが入れる既定の境界（空の境界は塗りの式にならない）。
-  const thresholds = mapPaint?.thresholds ?? [...mapDisplay.valueScale.difficultyBoundaries];
+  const thresholds = mapPaint.thresholds ?? [...mapDisplay.valueScale.difficultyBoundaries];
   return {
     axis_id: axisId,
     label: axisId,
@@ -46,7 +48,6 @@ export function catalogEntry(overrides: EntryOverrides = {}): AxisCatalogEntry {
     icon_id: null,
     primary_attribute_ids: [],
     weather_layer_groups: [],
-    display_band_labels_override: null,
     dedicated_way_value_layer: false,
     map_paint: {
       value: { kind: "difficulty" },
@@ -54,15 +55,15 @@ export function catalogEntry(overrides: EntryOverrides = {}): AxisCatalogEntry {
       thresholds,
       // 凡例は塗る値の境界を得点として書く（量で書く軸は呼び出し側が上書きする）。
       legend: { boundaries: thresholds, unit: null },
+      band_labels: null,
       ...mapPaint,
+      tiles: { kind: "none", tile_inputs: [], thresholds: [], ...tiles },
     },
-    raw_value_unit: null,
-    raw_value_total_unit: null,
+    raw_value_units: { unit: null, total_unit: null, ...rawValueUnits },
     material_breakdown: [],
     dynamic_way_value_conditions: [],
     dynamic_way_value_undetermined_by_bearing: false,
     ...rest,
-    display: { kind: "none", tile_inputs: [], thresholds: [], ...display },
   };
 }
 
@@ -70,9 +71,12 @@ export function catalogEntry(overrides: EntryOverrides = {}): AxisCatalogEntry {
 export function rampEntry(axisId: string, thresholds: number[], overrides: EntryOverrides = {}) {
   return catalogEntry({
     axis_id: axisId,
-    display: { kind: "ramp", tile_inputs: [tileInput()], thresholds },
     ...overrides,
-    map_paint: { legend: { boundaries: thresholds, unit: null }, ...overrides.map_paint },
+    map_paint: {
+      legend: { boundaries: thresholds, unit: null },
+      ...overrides.map_paint,
+      tiles: { kind: "ramp", tile_inputs: [tileInput()], thresholds, ...overrides.map_paint?.tiles },
+    },
   });
 }
 
@@ -100,6 +104,13 @@ export function catalogResponse(
     ...overrides,
   };
 }
+
+/** 既定の重みが違う2軸（`axis_a`が0.4・`axis_b`が0.6）だけの応答。生成の条件の重みが、カタログの既定から
+ * 始まること・保存から戻ることを見るテストが使う。 */
+export const TWO_AXIS_CATALOG = catalogResponse([
+  catalogEntry({ axis_id: "axis_a", default_weight: 0.4 }),
+  catalogEntry({ axis_id: "axis_b", default_weight: 0.6 }),
+]);
 
 /** 本番と同じ`axisCatalogFromResponse`を通したカタログ。 */
 export function catalogOf(entries: readonly AxisCatalogEntry[]): AxisCatalog {

@@ -58,7 +58,12 @@ function CoverageTable({ entries }: { entries: readonly CountedEntry[] }) {
             key={entry.material_id}
             data-affects-evaluation={String(GROUP_BY_SEMANTICS[entry.missing_semantics]?.affectsEvaluation)}
           >
-            <TableCell title={entry.source}>{entry.label}</TableCell>
+            <TableCell>
+              {entry.label}
+              <span className={cn(textVariants({ variant: "note" }), "block [overflow-wrap:anywhere]")}>
+                {entry.source}
+              </span>
+            </TableCell>
             <TableCell>{POPULATION_LABELS[entry.population]}</TableCell>
             <TableCell>
               <div className="flex min-w-32 flex-col gap-0.5">

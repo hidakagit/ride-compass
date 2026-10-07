@@ -45,6 +45,8 @@ class Settings(BaseSettings):
     weather_wbgt_rate_limit_per_minute: int = 30
     weather_flood_forecast_rate_limit_per_minute: int = 30
     weather_amedas_rate_limit_per_minute: int = 30
+    # 地点の検索は入力のたびに（デバウンス済みとはいえ）呼ばれる。1件は手元の辞書を引くだけ（数ms〜200ms前後）。
+    place_search_rate_limit_per_minute: int = 60
     # ルート生成は最も高コストなエンドポイント（1件で数秒〜数十秒CPUを使い、探索範囲に比例して
     # メモリを使う）のため、per-IPレート制限に加えプロセス全体の同時実行数も絞る。
     # 1回の生成が扱える探索範囲の上限（`graph_service`）は、メモリ上限をこの件数で割って決まる。

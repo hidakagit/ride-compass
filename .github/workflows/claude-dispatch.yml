@@ -45,9 +45,16 @@ jobs:
         env:
           FLOW_BOT_TOKEN: ${{ secrets.FLOW_BOT_TOKEN }}
           GH_TOKEN: ${{ secrets.CODE_TOKEN }}
-      # GITHUB_TOKEN で起こした実行は新しい実行を作らないので、hidakagit のトークンで起こす。
+      # GITHUB_TOKEN で起こした実行は新しい実行を作らないので、hidakagit のトークンで起こす。GitHub の一時的な失敗で連鎖が
+      # 止まらないように、src/github.js: AGAIN と同じ間で打ち直す（起きていたのに失敗が返っても、待つ見回りは上の concurrency で
+      # 1つだけ残るので二重にならない）。
       - name: 次の見回りを起こす
         if: ${{ success() && steps.watch.outputs.stopped != 'true' }}
-        run: gh workflow run claude-dispatch.yml -R "$GITHUB_REPOSITORY" --ref master
+        run: |
+          for wait in 1 4 9; do
+            gh workflow run claude-dispatch.yml -R "$GITHUB_REPOSITORY" --ref master && exit 0
+            sleep "$wait"
+          done
+          gh workflow run claude-dispatch.yml -R "$GITHUB_REPOSITORY" --ref master
         env:
           GH_TOKEN: ${{ secrets.CODE_TOKEN }}

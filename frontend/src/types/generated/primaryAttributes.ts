@@ -321,7 +321,7 @@ export const primaryAttributes = [
             "values": [
               "traffic_signals"
             ],
-            "description": "信号機。信号付きの横断歩道もここに入る[OSM の highway=traffic_signals など]。",
+            "description": "信号機。信号付きの横断歩道もここに入る[OSM の highway=traffic_signals・crossing]。",
             "color": "#885270"
           },
           {
@@ -433,7 +433,7 @@ export const primaryAttributes = [
             "values": [
               true
             ],
-            "description": "死者が1人以上記録された事故[警察庁の交通事故統計の死者数]。",
+            "description": "死者が1人以上記録された事故[事故後24時間以内の死者。警察庁の交通事故統計の死者数]。",
             "radius_px": 6
           },
           {

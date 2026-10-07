@@ -19,7 +19,6 @@ from app.domain.graph import LeanEdge, edge_key, node_key
 from app.domain.material_catalog import GRADIENT_PERCENT
 from app.domain.region import BoundingBox
 from app.domain.traffic import stop_count_material_ids
-from app.infrastructure import road_network_store
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from tests.conftest import postgis_database_url
 from tests.route_world import (
@@ -103,8 +102,7 @@ async def test_the_stand_in_repository_returns_each_direction_from_its_start_to_
 @pytest.mark.xdist_group(name="postgis")
 @pytest.mark.postgis
 async def test_the_real_repository_returns_each_direction_from_its_start_to_its_end(
-        road_graph_repository: RoadGraphRepository, monkeypatch, tmp_path):
-    monkeypatch.setattr(road_network_store, "ROOT", tmp_path / "road_network")
+        road_graph_repository: RoadGraphRepository, road_network_root):
     await ingest_records("osm_node", [point_record(n, COORDINATES[n][1], COORDINATES[n][0]) for n in (START, END)])
     await ingest_records("osm_way", [way_record(
         WAY, [(COORDINATES[n][1], COORDINATES[n][0]) for n in (START, END)], [START, END], {"highway": "residential"})])

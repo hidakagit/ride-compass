@@ -19,10 +19,8 @@ import pytest
 import pytest_asyncio
 
 from app.batch import derive_topology
-from app.batch.common import asyncpg_dsn
 from app.domain.landcover import PERCENT_CLASSES, landcover_key
 from app.domain.traffic import TAG_KIND_RULES, tag_kind_sql
-from tests.conftest import postgis_database_url
 from tests.source_ingest import ingest_records, point_record, way_record
 
 # road_graph_session（conftest.py）と同じDBを使うため、docs/conventions/testing.mdのパターン2どおり
@@ -38,25 +36,17 @@ STEP = 0.001
 WAY_ID = 100
 NODE_IDS = [1, 2]
 
-TABLES = ("edge_materials", "way_materials", "road_edges", "node_materials",
-          "source_features", "source_runs")
-
 
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
-async def conn(road_graph_engine):
-    """道1本を取り込み、区間まで作った状態。`road_graph_engine`に依存するのはスキーマを作らせるため。"""
-    connection = await asyncpg.connect(asyncpg_dsn(postgis_database_url()))
-    try:
-        await connection.execute("TRUNCATE " + ", ".join(TABLES) + " CASCADE")
-        await ingest_records("osm_node", [
-            point_record(n, BASE_LON + STEP * n, BASE_LAT) for n in NODE_IDS], conn=connection)
-        await ingest_records("osm_way", [way_record(
-            WAY_ID, [(BASE_LON + STEP * n, BASE_LAT) for n in NODE_IDS], NODE_IDS)], conn=connection)
-        await derive_topology.derive(connection)
-        yield connection
-    finally:
-        await connection.execute("TRUNCATE " + ", ".join(TABLES) + " CASCADE")
-        await connection.close()
+async def conn(derive_conn):
+    """道1本を取り込み、区間まで作った状態。"""
+    connection = derive_conn
+    await ingest_records("osm_node", [
+        point_record(n, BASE_LON + STEP * n, BASE_LAT) for n in NODE_IDS], conn=connection)
+    await ingest_records("osm_way", [way_record(
+        WAY_ID, [(BASE_LON + STEP * n, BASE_LAT) for n in NODE_IDS], NODE_IDS)], conn=connection)
+    await derive_topology.derive(connection)
+    return connection
 
 
 async def _write(conn: asyncpg.Connection, sql: str, *args) -> None:

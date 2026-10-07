@@ -10,7 +10,7 @@ import {
   clampBoundaryDrag,
   totalWeight,
 } from "@/features/route/routeWeightShare";
-import { retryAxisCatalogFetch, useAxisCatalog } from "@/hooks/useAxisCatalog";
+import { axisCatalogFetchFailure, retryAxisCatalogFetch, useAxisCatalog } from "@/hooks/useAxisCatalog";
 import type { CatalogAxis } from "@/lib/catalogAxis";
 import type { RoutePreferenceWeights } from "@/types/route";
 import { Button } from "@/components/ui/Button/Button";
@@ -43,6 +43,7 @@ export default function RouteSettingsPanel({
   onOverrideEnabledChange,
 }: RouteSettingsPanelProps) {
   const catalog = useAxisCatalog();
+  const catalogFailure = axisCatalogFetchFailure(catalog);
   const handlePreferenceChange = (next: RoutePreferenceWeights) => {
     if (!overrideEnabled) onOverrideEnabledChange(true);
     onRoutePreferenceChange(next);
@@ -160,7 +161,7 @@ export default function RouteSettingsPanel({
           className={cn(legendChipBodyClass, "cursor-pointer")}
           pressed={checked}
           aria-label={checked ? `${axis.label}を無効にする` : `${axis.label}を有効にする`}
-          usage="この評価を道選びに使う・使わないを切り替えます。数字は重みの割合で、上の帯の境目を動かして変えます。"
+          usage="この評価軸を道選びに使う・使わないを切り替えます。数字は重みの割合で、上の帯の境目を動かして変えます。"
           onClick={() => handleToggle(axis.axisId, !checked)}
         >
           <span aria-hidden="true" className={legendIconClass} style={{ color }}>
@@ -185,9 +186,8 @@ export default function RouteSettingsPanel({
 
   return (
     <div className="flex flex-col gap-3">
-      {/* 軸カタログが取れないと重みは送られず（backendの既定で探す）、同じ応答が運ぶタイルの世代も無いので地図の
-          道路・POI・事故も出ない。重みを触っている人へ、何が起きるかと再試行をここでも見せる。 */}
-      {catalog.failed && (
+      {/* 重みを触っている人へ、何が起きるかと再試行を常設ヘッダーの印と同じ文でここでも見せる。 */}
+      {catalogFailure !== null && (
         <p
           className={cn(
             calloutVariants({ tone: "warning" }),
@@ -195,11 +195,7 @@ export default function RouteSettingsPanel({
           )}
           role="status"
         >
-          <span>
-            {/* JSXの改行は半角スペースになるので、文字列として繋ぐ。 */}
-            {"軸一覧を取得できませんでした。地図の道路・POI・事故は表示できず、このまま生成すると" +
-              "重み配分は反映されずサーバー既定の配分で探索します。"}
-          </span>
+          <span>{`${catalogFailure.label}を取得できませんでした。${catalogFailure.effect}`}</span>
           <Button variant="warning" size="xs" onClick={retryAxisCatalogFetch}>
             再試行
           </Button>
@@ -207,9 +203,9 @@ export default function RouteSettingsPanel({
       )}
       <div className="flex flex-col gap-1.5">
         <div className="flex items-center gap-1">
-          <p className={textVariants({ variant: "hint" })}>評価の重みの配分</p>
+          <p className={textVariants({ variant: "hint" })}>評価軸の重みの配分</p>
           <InfoPopover triggerAriaLabel="重みの配分の説明">
-            帯の境目を動かして、評価ごとの重みの割合を変えます。1つの評価に置ける重みは
+            帯の境目を動かして、評価軸ごとの重みの割合を変えます。1つの評価軸に置ける重みは
             {Math.round(MAX_AXIS_WEIGHT * 100)}%までで、境目はそこで止まります。
           </InfoPopover>
         </div>
@@ -248,7 +244,7 @@ export default function RouteSettingsPanel({
             return (
               <div
                 key={`boundary-${left.axisId}-${right.axis.axisId}`}
-                className="absolute -top-1.5 -bottom-1.5 flex w-4 -translate-x-1/2 cursor-col-resize touch-none items-center justify-center after:h-3.5 after:w-0.5 after:rounded-[1px] after:bg-[var(--color-surface)] after:shadow-[0_0_0_1px_var(--color-border-strong)] after:content-[''] hover:after:bg-[var(--color-accent)] hover:after:shadow-[0_0_0_1px_var(--color-accent)] focus-visible:outline-none focus-visible:after:bg-[var(--color-accent)] focus-visible:after:shadow-[0_0_0_1px_var(--color-accent)]"
+                className="absolute -top-1.5 -bottom-1.5 flex w-6 -translate-x-1/2 cursor-col-resize touch-none items-center justify-center after:h-3.5 after:w-0.5 after:rounded-[1px] after:bg-[var(--color-surface)] after:shadow-[0_0_0_1px_var(--color-border-strong)] after:content-[''] hover:after:bg-[var(--color-accent)] hover:after:shadow-[0_0_0_1px_var(--color-accent)] focus-visible:outline-none focus-visible:after:bg-[var(--color-accent)] focus-visible:after:shadow-[0_0_0_1px_var(--color-accent)]"
                 style={{ left: `${cumulativePct}%` }}
                 role="slider"
                 aria-label={`${left.label}と${right.axis.label}の配分`}
@@ -256,7 +252,7 @@ export default function RouteSettingsPanel({
                 aria-valuemax={100}
                 aria-valuenow={Math.round(cumulativePct)}
                 tabIndex={0}
-                data-usage="左右に動かして、両隣の評価の重みの割合を変えます。"
+                data-usage="左右に動かして、両隣の評価軸の重みの割合を変えます。"
                 onPointerDown={(e) => startBoundaryDrag(e, left.axisId, leftWeight, right.axis.axisId, right.weight)}
                 onKeyDown={(e) => handleBoundaryKeyDown(e, left.axisId, leftWeight, right.axis.axisId, right.weight)}
               />

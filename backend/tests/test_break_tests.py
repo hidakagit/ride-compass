@@ -6,44 +6,32 @@
 道具の実行口（`main`）。
 """
 
-import importlib.util
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
-_SPEC = importlib.util.spec_from_file_location(
-    "break_tests", Path(__file__).resolve().parents[2] / "scripts" / "break_tests.py"
-)
-bt = importlib.util.module_from_spec(_SPEC)
-sys.modules["break_tests"] = bt
-_SPEC.loader.exec_module(bt)
+from tests.git_repo import git
+from tests.script_module import load_script
+
+bt = load_script("break_tests")
 
 _CALC = 'def sign(x):\n    return "neg" if x < 0 else "pos"\n'
 _NEGATIVE = 'from calc import sign\n\n\ndef test_negative():\n    assert sign(-1) == "neg"\n'
 _BOTH = _NEGATIVE + '\n\ndef test_positive():\n    assert sign(1) == "pos"\n'
 
 
-def _git(repo: Path, *args: str) -> str:
-    return subprocess.run(
-        ["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", *args],
-        cwd=repo, check=True, capture_output=True, text=True, encoding="utf-8",
-    ).stdout.strip()
-
-
 def _commit(repo: Path, files: dict[str, str]) -> None:
     for name, text in files.items():
         (repo / name).parent.mkdir(parents=True, exist_ok=True)
         (repo / name).write_text(text, encoding="utf-8")
-        _git(repo, "add", name)
-    _git(repo, "commit", "-q", "-m", "c")
+        git(repo, "add", name)
+    git(repo, "commit", "-q", "-m", "c")
 
 
 @pytest.fixture
 def repo(tmp_path):
     """前の版（HEAD~1）は正負の両方を見るテスト、今の版（HEAD）は負だけを見るテストを持つ。"""
-    _git(tmp_path, "init", "-q", "-b", "master")
+    git(tmp_path, "init", "-q", "-b", "master")
     _commit(tmp_path, {"backend/calc.py": _CALC, "backend/tests/test_calc.py": _BOTH})
     _commit(tmp_path, {"backend/tests/test_calc.py": _NEGATIVE})
     return tmp_path
@@ -66,7 +54,7 @@ def test_names_the_failed_tests_and_restores_the_implementation(repo, capsys):
     assert "backend/tests/test_calc.py > test_negative" in out
     assert "落ちなかった件: なし" in out
     assert (repo / "backend/calc.py").read_text(encoding="utf-8") == _CALC
-    assert _git(repo, "status", "--short") == ""
+    assert git(repo, "status", "--short") == ""
 
 
 def test_a_breakage_no_test_catches_is_listed_and_exits_1(repo, capsys):
@@ -83,7 +71,7 @@ def test_ref_runs_the_old_tests_beside_and_removes_them(repo, capsys):
     assert code == 1
     assert "落ちた（作業ツリーのテスト）: 0本" in out
     assert "落ちた（HEAD~1 のテスト）: 1本\n    backend/tests/test_calc.py > test_positive" in out
-    assert _git(repo, "status", "--short") == ""
+    assert git(repo, "status", "--short") == ""
 
 
 def test_ref_without_the_test_file_runs_only_the_current_one(repo, capsys):
@@ -123,7 +111,7 @@ def test_tests_failing_before_breaking_refuse_and_leave_the_implementation(repo)
 
     with pytest.raises(bt.Refused, match="壊す前に落ちる"):
         _run(repo, [_entry("x < 0", "x > 0")])
-    assert _git(repo, "status", "--short") == ""
+    assert git(repo, "status", "--short") == ""
 
 
 _BREAK_AT_IMPORT = ("def sign(x):", 'LIMIT = int("x")\n\n\ndef sign(x):')
@@ -139,7 +127,7 @@ def test_a_breakage_stopping_at_conftest_import_is_reported_and_the_next_one_run
     assert "[1] 宣言\n  壊した所: backend/calc.py\n  テストの前に止まった（(b)）: ValueError: invalid literal" in out
     assert "backend/tests/test_calc.py > test_negative" in out
     assert "落ちなかった件: なし" in out
-    assert _git(repo, "status", "--short") == ""
+    assert git(repo, "status", "--short") == ""
 
 
 def test_tests_stopping_before_breaking_refuse(repo):

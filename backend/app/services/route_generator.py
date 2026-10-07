@@ -19,6 +19,12 @@ from typing import TYPE_CHECKING, Any
 from app.domain.difficulty import overall_difficulty
 from app.domain.errors import RoutingError, SearchAreaTooLargeError
 from app.domain.loop_routing import TracedLoop
+from app.domain.route_search import (
+    by_closeness_to_target,
+    difficulty_order,
+    fits_loop_distance,
+    keep_routes_with_baseline,
+)
 
 if TYPE_CHECKING:
     from app.services.road_graph_engine import RoadGraphEngine, _RoadGraphContext
@@ -75,8 +81,10 @@ def _label(
     kind: RouteKind,
     name: str | None = None,
     fastest: RouteCandidate | None = None,
+    *,
+    spliceable: bool,
 ) -> list[RouteCandidate]:
-    """候補へ応答のid・種類・名前・最速の印をまとめて付ける。候補を返す経路はすべて最後にここを通る。
+    """候補へ応答のid・種類・名前・最速の印・乗り換えの可否をまとめて付ける。候補を返す経路はすべて最後にここを通る。
 
     idは種類と並びの位置から作り、応答の中で一意になる。`name`を渡さなければエンジンが方位から付けた名前のまま。
     最速の印は`fastest`と同じオブジェクトの1本にだけ付く。
@@ -86,18 +94,11 @@ def _label(
             "id": f"{kind}-{rank:02d}",
             "kind": kind,
             "is_fastest": candidate is fastest,
+            "spliceable": spliceable,
             **({"direction_label": name} if name is not None else {}),
         })
         for rank, candidate in enumerate(candidates)
     ]
-
-
-def _difficulty_order(candidate: RouteCandidate) -> float:
-    """候補を返す並びの鍵。周回・目的地とも総合難易度の昇順で、先頭が最も易しい候補という
-    契約で配る。平均は難易度の桁へ丸めてあるので、その桁で同点になる。算出不能の候補は末尾へ回す。"""
-    if candidate.overall_difficulty is None:
-        return float("inf")
-    return candidate.overall_difficulty.average
 
 
 class RouteGenerator:
@@ -173,7 +174,7 @@ class RouteGenerator:
                 log_label, origin_label, log_detail, round((time.monotonic() - started) * 1000),
             )
             self.last_no_candidates_reason = (
-                f"起点{origin_label}付近の道路データが未整備のため、{failure_phrase}")
+                f"起点付近の道路データが未整備のため、{failure_phrase}")
         return context
 
     async def generate_loops(
@@ -241,7 +242,7 @@ class RouteGenerator:
                 failed += 1
                 logger.error("trace turnaround bearing=%d unexpected error", turnaround.bearing, exc_info=True)
                 continue
-            if abs(loop.distance_km - distance_km) > distance_tolerance_km:
+            if not fits_loop_distance(loop.distance_km, distance_km, distance_tolerance_km):
                 filtered_out += 1
                 logger.debug(
                     "distance filter rejected bearing=%d distance_km=%.1f (target=%.1f±%.1f)",
@@ -256,10 +257,7 @@ class RouteGenerator:
             traced.append(loop)
         trace_ms = round((time.monotonic() - trace_started) * 1000)
 
-        # 評価前に目標距離に近い順へ並べておく（最終順序はoverall_difficultyで決まるが、
-        # 同点[小数1桁]の候補はこの順で並ぶ——周囲に重みを振った軸のデータが無く全候補が
-        # 同じdifficultyになる場合、結果は実質的に目標距離に近い順になる）。
-        traced.sort(key=lambda t: abs(t.distance_km - distance_km))
+        traced = by_closeness_to_target(traced, distance_km)
 
         if not traced:
             logger.warning(
@@ -279,9 +277,9 @@ class RouteGenerator:
         candidates = await self._evaluate_and_aggregate(context, traced, start_time)
 
         # 同点は上記の「目標距離に近い順」を安定ソートで引き継ぐ。
-        candidates.sort(key=_difficulty_order)
+        candidates.sort(key=difficulty_order)
         # 名前はエンジンが方位から付けたもの（同じ方位に複数並びうるので、idは並びの位置から作る）。
-        candidates = _label(candidates, "loop")
+        candidates = _label(candidates, "loop", spliceable=False)
         evaluate_ms = round((time.monotonic() - evaluate_started) * 1000)
         total_ms = round((time.monotonic() - started) * 1000)
 
@@ -353,7 +351,10 @@ class RouteGenerator:
         evaluate_started = time.monotonic()
         candidates = await self._evaluate_and_aggregate(context, [traced], start_time)
         # 常に1本で順位を持たないので、画面は番号でなくこの名前を出す。
-        candidates = _label(candidates, "waypoints", "目的地ルート" if destination is not None else "経由地ルート")
+        candidates = _label(
+            candidates, "waypoints", "目的地ルート" if destination is not None else "経由地ルート",
+            spliceable=destination is not None,
+        )
         evaluate_ms = round((time.monotonic() - evaluate_started) * 1000)
         total_ms = round((time.monotonic() - started) * 1000)
 
@@ -412,7 +413,7 @@ class RouteGenerator:
 
         evaluate_started = time.monotonic()
         candidates = await self._evaluate_and_aggregate(context, [traced], start_time)
-        candidates = _label(candidates, "spliced", "組み合わせたルート")
+        candidates = _label(candidates, "spliced", "組み合わせたルート", spliceable=True)
         evaluate_ms = round((time.monotonic() - evaluate_started) * 1000)
         logger.info(
             "generate(spliced) origin=%s edges=%d -> distance_km=%.1f "
@@ -464,7 +465,7 @@ class RouteGenerator:
                 origin_label, max_routes, side or "unknown", prepare_ms, select_ms,
             )
             self.last_no_candidates_reason = (
-                f"起点{origin_label}から走り出せる道が見つかりませんでした。"
+                "起点から走り出せる道が見つかりませんでした。"
                 "出発地を道路沿いへ動かしてお試しください。"
                 if side == "origin"
                 else "指定した目的地までの経路が見つかりませんでした。地点や除外する道路の設定を変えてお試しください。"
@@ -487,21 +488,8 @@ class RouteGenerator:
         candidates = await self._evaluate_and_aggregate(context, traced, start_time)
         # 件数を切るときに残し、印を付けるために、基準線をオブジェクトの同一性で覚えておく。
         baseline = candidates[fastest_index] if fastest_index is not None else None
-        candidates.sort(key=_difficulty_order)
-        # max_routesを超えたぶんは難易度の高い側から切るが、基準線は難易度で最下位でも残す。
-        # ただし`max_routes`が1のときは残さない。基準線は**比べる相手があって初めて基準**
-        # であり、1本だけ返すなら比べる相手が無い。残すと返る唯一の候補が常に時間最短に
-        # なり、軸の重みが結果に一切現れない（利用者から見ると「設定が効かない」）。
-        excess = len(candidates) - max_routes
-        if excess > 0:
-            keep_fastest = max_routes >= 2
-            droppable = [i for i, c in enumerate(candidates) if not (keep_fastest and c is baseline)]
-            dropped = set(droppable[-excess:])
-            candidates = [c for i, c in enumerate(candidates) if i not in dropped]
-        # 印も同じ理由で、比べる相手が残ったときだけ付ける（1本だけなら何とも比べない）。
-        candidates = _label(
-            candidates, "destination", "目的地ルート", fastest=baseline if len(candidates) >= 2 else None,
-        )
+        candidates, baseline = keep_routes_with_baseline(candidates, baseline, max_routes)
+        candidates = _label(candidates, "destination", "目的地ルート", fastest=baseline, spliceable=True)
         evaluate_ms = round((time.monotonic() - evaluate_started) * 1000)
         total_ms = round((time.monotonic() - started) * 1000)
 

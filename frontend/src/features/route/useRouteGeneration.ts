@@ -17,8 +17,8 @@ import type { GenerationConditionsState } from "@/features/route/useGenerationCo
 import type { Coordinates, RouteCandidate, RoutePreferenceWeights } from "@/types/route";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 
-/** 直近の生成の案内。失敗は前の候補を残したまま出すため、候補0件の理由と分けて持つ。 */
-type GenerationNotice = { kind: "failed" | "empty"; message: string };
+/** 押した「生成」の直近の結果。失敗は前の候補を残したまま出すため、候補0件の理由と分けて持つ。 */
+type GenerationNotice = { kind: "failed" | "empty"; message: string } | { kind: "generated"; count: number };
 
 /** ルート生成の進み方。同時に成り立つのは1つだけ。 */
 type Generation =
@@ -53,8 +53,8 @@ interface RouteGenerationInputs {
   onOutcome: (outcome: RouteOutcomeKind) => void;
 }
 
-/** 押した「生成」・「作成」の結果の種類。失敗だけを見分ける。 */
-export type RouteOutcomeKind = "fresh" | "failed";
+/** 押した「生成」・「作成」の結果の種類。候補0件と失敗を、候補が出たことと見分ける。 */
+export type RouteOutcomeKind = "fresh" | "empty" | "failed";
 
 /**
  * ルート生成: 検証と送信、実行中の進み方、直近の案内（候補0件の理由・失敗の文言）、表示中の候補を作った条件と
@@ -153,13 +153,14 @@ export function useRouteGeneration({
         weightsNotApplied: conditions.weightOverrideEnabled && generatedInput.routePreference === null,
         input: generatedInput,
       });
-      if (candidates.length === 0) {
-        notice = {
-          kind: "empty",
-          message: noCandidatesReason ?? "条件に合うルート候補が見つかりませんでした。条件を変えて試してください。",
-        };
-      }
-      onOutcome("fresh");
+      notice =
+        candidates.length > 0
+          ? { kind: "generated", count: candidates.length }
+          : {
+              kind: "empty",
+              message: noCandidatesReason ?? "条件に合うルート候補が見つかりませんでした。条件を変えて試してください。",
+            };
+      onOutcome(candidates.length > 0 ? "fresh" : "empty");
     } catch (error) {
       const message = error instanceof Error ? error.message : "不明なエラーが発生しました";
       notice = { kind: "failed", message };
@@ -200,6 +201,12 @@ export function useRouteGeneration({
 
   const running = generation.status === "running";
   const progress = generation.status === "running" ? generation.progress : null;
+  // 入力の誤りは生成の前に止まるので、直前の生成の結果より先に出す。
+  const outcome: GenerationNotice | null = routeFormSubmit.error
+    ? { kind: "failed", message: routeFormSubmit.error }
+    : generation.status === "idle"
+      ? generation.notice
+      : null;
 
   return {
     submit,
@@ -211,14 +218,10 @@ export function useRouteGeneration({
         : progress?.status === "running"
           ? `生成中...(${Math.round(progress.elapsedMs / 1000)}秒経過)`
           : undefined,
-    /** 押した「生成」が入力の誤りで通らなかった理由。直す場所は「ルート設定」なので、そこにも出す。 */
-    inputError: routeFormSubmit.error,
+    /** 押した「生成」の直近の結果（件数・候補0件の理由・入力の誤りか失敗）。実行中と、まだ押していないときはnull。 */
+    outcome,
     /** 押した「生成」が通らなかった理由（入力の誤り・生成の失敗）。候補がある間も、前の候補の上に出す。 */
-    failure:
-      routeFormSubmit.error ??
-      (generation.status === "idle" && generation.notice?.kind === "failed" ? generation.notice.message : null),
-    /** 候補が無いときに出す直近の案内（入力の誤りを先に）。 */
-    lastMessage: routeFormSubmit.error ?? (generation.status === "idle" ? generation.notice?.message : undefined),
+    failure: outcome?.kind === "failed" ? outcome.message : null,
     conditionsDirty,
     destinationCorrected: generatedConditions?.destinationCorrected ?? false,
     weightsNotApplied: generatedConditions?.weightsNotApplied ?? false,

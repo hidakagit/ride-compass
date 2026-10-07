@@ -111,7 +111,9 @@ export default function TuningPanel() {
         client.setQueryData<TuningParameter[]>(TUNING_QUERY_KEY, (prev) =>
           prev?.map((p) => (p.id === updated.id ? updated : p)),
         );
+        // 送った値のままの行だけ下書きを消す（保存を待つ間に打ち直した値は、次に保存するまで残す）。
         setDrafts((prev) => {
+          if (prev[updated.id] !== next) return prev;
           const rest = { ...prev };
           delete rest[updated.id];
           return rest;

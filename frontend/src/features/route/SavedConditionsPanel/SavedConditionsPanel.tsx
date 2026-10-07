@@ -192,6 +192,8 @@ export default function SavedConditionsPanel({
                         size="bare"
                         className="flex-none p-1 text-xs"
                         aria-label={`「${entry.name}」を消す`}
+                        aria-haspopup="dialog"
+                        aria-expanded={removing === entry.name}
                         onClick={() => setRemoving(entry.name)}
                       >
                         ✕

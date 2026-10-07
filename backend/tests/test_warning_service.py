@@ -13,7 +13,6 @@ import logging
 
 import pytest
 
-from app.infrastructure import jma_area_boundaries
 from app.infrastructure.jma_warning_client import new_area_data_cache, new_warning_cache
 from app.services.warning_service import WarningService
 from tests.jma_area_fixtures import (
@@ -25,16 +24,16 @@ from tests.jma_area_fixtures import (
 )
 
 
-def _service(monkeypatch, tmp_path, **kwargs) -> WarningService:
+def _service(boundary_path, **kwargs) -> WarningService:
     return WarningService(
-        area_lookup_upstream(monkeypatch, tmp_path, **kwargs),
+        area_lookup_upstream(boundary_path, **kwargs),
         area_data_cache=new_area_data_cache(),
         warning_cache=new_warning_cache(),
     )
 
 
-async def test_get_warnings_returns_empty_when_the_point_is_in_no_area(monkeypatch, tmp_path):
-    result = await _service(monkeypatch, tmp_path).get_warnings(OFFSHORE_POINT)
+async def test_get_warnings_returns_empty_when_the_point_is_in_no_area(boundary_path):
+    result = await _service(boundary_path).get_warnings(OFFSHORE_POINT)
     assert result is not None
     assert result.warnings == []
 
@@ -44,26 +43,26 @@ async def test_get_warnings_returns_empty_when_the_point_is_in_no_area(monkeypat
     {"class20_code": "9999900"},  # 境界が返した区域を地域マスタで辿れない
     {"warning_documents": None},
 ])
-async def test_get_warnings_is_unknown_rather_than_empty_when_a_step_fails(monkeypatch, tmp_path, failure):
+async def test_get_warnings_is_unknown_rather_than_empty_when_a_step_fails(boundary_path, failure):
     """取れなかったことを「警報なし」と同じ空で返すと、画面は警報が出ていないと見せる。"""
-    assert await _service(monkeypatch, tmp_path, **failure).get_warnings(CHIYODA_POINT) is None
+    assert await _service(boundary_path, **failure).get_warnings(CHIYODA_POINT) is None
 
 
-async def test_get_warnings_names_the_area_the_master_cannot_follow(monkeypatch, tmp_path, caplog):
+async def test_get_warnings_names_the_area_the_master_cannot_follow(boundary_path, caplog):
     """区域の境界と地域マスタは別々に配られ、片方だけが区域の変更に追いつくと起きる。運用者が気づけるように出す。"""
     with caplog.at_level(logging.WARNING, logger="ridecompass.external"):
-        await _service(monkeypatch, tmp_path, class20_code="9999900").get_warnings(CHIYODA_POINT)
+        await _service(boundary_path, class20_code="9999900").get_warnings(CHIYODA_POINT)
 
     assert any("9999900" in record.getMessage() for record in caplog.records)
 
 
-async def test_get_warnings_is_unknown_when_area_boundaries_are_unreadable(monkeypatch, tmp_path):
-    service = _service(monkeypatch, tmp_path, warning_documents=[])
-    monkeypatch.setattr(jma_area_boundaries, "BOUNDARY_PATH", tmp_path / "missing.json")
+async def test_get_warnings_is_unknown_when_area_boundaries_are_unreadable(boundary_path):
+    service = _service(boundary_path, warning_documents=[])
+    boundary_path.unlink()
     assert await service.get_warnings(CHIYODA_POINT) is None
 
 
-async def test_get_warnings_merges_across_documents_and_dedupes(monkeypatch, tmp_path):
+async def test_get_warnings_merges_across_documents_and_dedupes(boundary_path):
     """区域の項目の無い電文は、二次細分区域で引く。"""
     documents = [
         {
@@ -89,12 +88,15 @@ async def test_get_warnings_merges_across_documents_and_dedupes(monkeypatch, tmp
         },
     ]
 
-    result = await _service(monkeypatch, tmp_path, warning_documents=documents).get_warnings(CHIYODA_POINT)
+    result = await _service(boundary_path, warning_documents=documents).get_warnings(CHIYODA_POINT)
 
-    assert sorted(w.code for w in result.warnings) == ["14", "43"]
+    assert sorted((w.code, w.name, w.level) for w in result.warnings) == [
+        ("14", "雷注意報", "advisory"),
+        ("43", "大雨危険警報", "severe_warning"),
+    ]
 
 
-async def test_get_warnings_returns_empty_when_no_active_cycling_relevant_codes(monkeypatch, tmp_path):
+async def test_get_warnings_returns_empty_when_no_active_cycling_relevant_codes(boundary_path):
     documents = [
         {
             "reportDatetime": "2026-08-22T15:29:00+09:00",
@@ -102,6 +104,6 @@ async def test_get_warnings_returns_empty_when_no_active_cycling_relevant_codes(
         }
     ]
 
-    result = await _service(monkeypatch, tmp_path, warning_documents=documents).get_warnings(CHIYODA_POINT)
+    result = await _service(boundary_path, warning_documents=documents).get_warnings(CHIYODA_POINT)
 
     assert result.warnings == []

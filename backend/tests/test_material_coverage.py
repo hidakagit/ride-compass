@@ -11,12 +11,10 @@
 
 from datetime import datetime, timezone
 
-import asyncpg
 import pytest
 
 from app.batch import derive_raster_materials, derive_topology
 from app.batch.dem_tile_store import PRODUCT_PRIORITY
-from app.batch.common import asyncpg_dsn
 from app.domain.material_catalog import MATERIAL_CATALOG
 from app.domain.region import BoundingBox
 from app.infrastructure.material_coverage import (
@@ -31,7 +29,7 @@ from app.services.material_coverage_service import (
     MaterialCoverageService,
     build_material_coverage_report,
 )
-from tests.conftest import postgis_database_url
+from tests.conftest import raw_connection
 from tests.source_ingest import dem_tile_records, ingest_records, way_record
 
 COMPUTED_AT = datetime(2026, 9, 4, tzinfo=timezone.utc)
@@ -103,12 +101,9 @@ async def test_the_report_counts_missing_values_per_population_on_the_database(r
     area = BoundingBox(min_latitude=35.6805, min_longitude=139.6995, max_latitude=35.6835, max_longitude=139.7015)
     await ingest_records("dem", dem_tile_records(
         PRODUCT_PRIORITY[0], 15, area, lambda lon, lat: 50.0 if lat < 35.6815 else None))
-    conn = await asyncpg.connect(asyncpg_dsn(postgis_database_url()))
-    try:
+    async with raw_connection() as conn:
         await derive_topology.derive(conn)
         await derive_raster_materials.derive(conn)
-    finally:
-        await conn.close()
 
     report = await MaterialCoverageService(MaterialCoverageQuery(road_graph_session)).get_material_coverage()
     by_id = {e.material_id: e for e in report.materials}

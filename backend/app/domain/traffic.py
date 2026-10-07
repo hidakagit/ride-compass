@@ -164,6 +164,11 @@ if _UNDECLARED_STOP_KINDS:
         f"停止要因の較正値が`domain/tuning.py`に宣言されていない種別: {_UNDECLARED_STOP_KINDS}")
 
 
+def stop_seconds_subjects() -> dict[str, tuple[str, ...]]:
+    """停止の待ちの較正値のid → 数える種別の名前。管理画面が較正値の名前へ添える。"""
+    return {stop_seconds_parameter_id(kind): (label,) for kind, label in POI_COUNT_KINDS.items()}
+
+
 # 停止要因1回あたりの時間損失（秒）は**待ちの期待値＋減速と再加速のロス**の合計で、
 # 所要時間へそのまま足す量。信号の無い横断歩道が0なのは、自転車が止まらず通過できるため。
 def stop_seconds(kind: str) -> float:
@@ -385,6 +390,11 @@ def stop_kind_sql(alias: str) -> str:
     read = ", ".join(_quote(kind) for kind in _SIGNAL_READ_KINDS)
     return (f"(CASE WHEN {alias}.has_traffic_signals AND {alias}.kind IN ({read})"
             f" THEN {_quote(_SIGNAL_KIND)} ELSE {alias}.kind END)")
+
+
+def kinds_shown_as(kind: str) -> tuple[str, ...]:
+    """地図へ`kind`として出る取込時の種別（`stop_kind_sql`の信号の読み替えで`kind`になるものを含む）。"""
+    return _SIGNAL_READ_KINDS if kind == _SIGNAL_KIND else (kind,)
 
 
 def kind_map_sql(kind_sql: str, mapping: Mapping[_Kind, str], *, otherwise: str = "NULL") -> str:

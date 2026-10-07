@@ -383,7 +383,7 @@ export function AxisScoringSection({ draft, setDraft, materialOptions, axisTermO
                     description={
                       "材料の値×係数の合計がマイナスでも、プラスと同じ大きさとして点数にします" +
                       "（例: 勾配は上りが+・下りが−の符号付きですが、これを付けると上り・下りのどちらでも急なほど走りにくい軸になります）。" +
-                      "単一の数値材料でこれを付けた軸だけ、地図は符号つきの生値で塗ります。"
+                      "軸の形によっては、地図の塗りも符号つきの生値に変わります。"
                     }
                   />
                 </label>
@@ -394,7 +394,7 @@ export function AxisScoringSection({ draft, setDraft, materialOptions, axisTermO
                     "この2つの値と効き方から、材料の値→スコアの変換を作ります。値の大小はどちら向きでも構いません" +
                     "（0点にする値の方が大きくてもよい）。細かい形は実データを見ながら決めるもので、ここでは大枠だけ決めます。" +
                     (primaryMaterial && primaryMaterialReferencePoints.length > 0
-                      ? "下のボタンは材料の参考点（目安）です。"
+                      ? "下のボタンは材料の参考点（目安）です。押すとその点に当たる値を「0点」へ入れます。"
                       : "")
                   }
                 />
@@ -449,7 +449,6 @@ export function AxisScoringSection({ draft, setDraft, materialOptions, axisTermO
                         <Button
                           size="xs"
                           key={p.label}
-                          title={`${p.label}: ${p.value}${primaryMaterial.unit}`}
                           onClick={() => {
                             setGeneratorZeroValue(x);
                             applyScoringRange(x, generatorHundredValue, generatorShape);
@@ -459,7 +458,7 @@ export function AxisScoringSection({ draft, setDraft, materialOptions, axisTermO
                             applyScoringRange(generatorZeroValue, x, generatorShape);
                           }}
                         >
-                          {p.label}
+                          {`${p.label}（${p.value}${primaryMaterial.unit}）`}
                         </Button>
                       );
                     })}

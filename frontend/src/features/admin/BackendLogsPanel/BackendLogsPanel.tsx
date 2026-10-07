@@ -108,13 +108,9 @@ export default function BackendLogsPanel() {
           {/* 行ごとのdivを1件ずつドラッグ選択するのは手間なため、表示中の全行を
               まとめてクリップボードへコピーするボタンを用意する。 */}
           <div className="flex justify-end">
-            <Button
-              variant="secondary"
-              onClick={() => copy(lines.join("\n"))}
-              aria-label={copied ? "ログ全体をコピーしました" : "ログ全体をコピー"}
-              title={copied ? "コピーしました" : "ログ全体をコピー"}
-            >
+            <Button variant="secondary" onClick={() => copy(lines.join("\n"))}>
               <CopyIcon size={14} />
+              {copied ? "ログ全体をコピーしました" : "ログ全体をコピー"}
             </Button>
           </div>
           {/* ログ取得の失敗（error）とは原因も対処も別なので、同じ行へ混ぜない。 */}

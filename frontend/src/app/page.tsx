@@ -29,6 +29,7 @@ import SavedConditionsPanel from "@/features/route/SavedConditionsPanel/SavedCon
 import { useGenerationConditions } from "@/features/route/useGenerationConditions";
 import { useSavedConditions } from "@/features/route/useSavedConditions";
 import type { RouteOutcomeKind } from "@/features/route/useRouteGeneration";
+import type { Coordinates, PinRole } from "@/types/route";
 import { useRoutePlanner } from "@/features/route/useRoutePlanner";
 import RouteOutcome from "@/features/route/RouteOutcome/RouteOutcome";
 import WeatherPanel from "@/features/conditions/WeatherPanel/WeatherPanel";
@@ -71,7 +72,8 @@ type MobileSheet = "routeSettings" | "routeOutcome" | null;
 const MOBILE_TAB_USAGES = {
   routeSettings:
     "ルートを作る条件[距離・地点・重み・除外・保存した設定]と「ルート生成」を開きます。もう一度押すと閉じます。",
-  routeOutcome: "作った候補の一覧と、その難易度の内訳を開きます。点は新しい結果か条件の変更の合図で、赤は失敗です。",
+  routeOutcome:
+    "作った候補の一覧と、その難易度の内訳を開きます。点は新しい結果か条件の変更の合図で、赤は失敗、中が空いた丸は候補が無かったことです。",
 } as const;
 
 /** モバイルの下部タブ（シートと同じ並び）。 */
@@ -94,11 +96,17 @@ export default function Home() {
 
   const axisCatalog = useAxisCatalog();
 
-  // 生成の結果が出て、まだ「ルート結果」を開いていない（モバイルのタブの合図）。失敗だけは色を変えて見分けられるようにする。
+  // 生成の結果が出て、まだ「ルート結果」を開いていない（モバイルのタブの合図）。失敗と候補0件は形を変えて見分けられるようにする。
   const [unseenOutcome, setUnseenOutcome] = useState<RouteOutcomeKind | null>(null);
 
   // 生成の条件（「ルート設定」の入力）と走行条件。
   const conditions = useGenerationConditions({ onOriginPlace: setManualLocation });
+  // 住所の検索で置いた地点。置くたびに地図をそこへ寄せる（ピンを直すのは地図の上なので）。
+  const [foundPoint, setFoundPoint] = useState<Coordinates | null>(null);
+  function placeFound(role: PinRole, point: Coordinates) {
+    conditions.placeFound(role, point);
+    setFoundPoint(point);
+  }
   const ride = useRideConditions();
   // 名前を付けて保存した生成の条件（「保存」タブ）。
   const savedConditions = useSavedConditions({
@@ -242,15 +250,17 @@ export default function Home() {
     [locationFailure, warningFetchFailures, axisCatalogFailure],
   );
 
-  // モバイルの「ルート結果」タブの印。失敗だけ色を変える（条件の変更と新しい結果は、開けば新しいものがある点で同じ）。
-  const outcomeTabSignal: { tone: "error" | "warning"; label: string } | null =
+  // モバイルの「ルート結果」タブの印。失敗と候補0件は形を変える（条件の変更と新しい結果は、開けば新しいものがある点で同じ）。
+  const outcomeTabSignal: { tone: "error" | "empty" | "warning"; label: string } | null =
     unseenOutcome === "failed"
       ? { tone: "error", label: "生成に失敗しました" }
-      : unseenOutcome === "fresh"
-        ? { tone: "warning", label: "新しい結果があります" }
-        : generation.conditionsDirty
-          ? { tone: "warning", label: "生成条件が変更されています" }
-          : null;
+      : unseenOutcome === "empty"
+        ? { tone: "empty", label: "候補が見つかりませんでした" }
+        : unseenOutcome === "fresh"
+          ? { tone: "warning", label: "新しい結果があります" }
+          : generation.conditionsDirty
+            ? { tone: "warning", label: "生成条件が変更されています" }
+            : null;
 
   // 「ルート設定」のタブ列は見出し行に置き（本文の縦を空ける）、「ルート生成」は同じ行の右端に離して置く（どのタブを
   // 見ていても押せる）。
@@ -260,7 +270,7 @@ export default function Home() {
         <TabsTrigger value="generate" usage="周回か目的地か、距離・地点・候補の数を決めます。">
           条件
         </TabsTrigger>
-        <TabsTrigger value="weights" usage="道を選ぶときに、どの評価をどれだけ重く見るかを決めます。">
+        <TabsTrigger value="weights" usage="道を選ぶときに、どの評価軸をどれだけ重く見るかを決めます。">
           重み
         </TabsTrigger>
         <TabsTrigger value="exclusions" usage="ルートに使わない道路の種類を選びます。">
@@ -299,26 +309,31 @@ export default function Home() {
     );
   }
 
+  // 押した「生成」の結果の1行（件数・候補0件の理由・入力の誤りか失敗）。モバイルの「ルート設定」シートの見出しの下に出す
+  // ——シートは1枚ずつしか開かず、押した直後に見えるのは「ルート結果」タブの点だけで、点では理由が読めないため。
+  function renderGenerationOutcomeNote() {
+    const { outcome } = generation;
+    if (!outcome) return null;
+    if (outcome.kind === "failed") return <ErrorText>{outcome.message}</ErrorText>;
+    return (
+      <p role="status" className={textVariants({ variant: "hint" })}>
+        {outcome.kind === "generated"
+          ? `候補を${outcome.count}件作りました。「ルート結果」で見られます。`
+          : outcome.message}
+      </p>
+    );
+  }
+
   // 「ルート設定」の中身（デスクトップの区分・モバイルのシートの両方）。生成の結果・誤りはここに出さない（ボタンは
-  // 本文を畳んだままでも押せるため）。出し先は「ルート結果」で、モバイルのシートだけは入力の誤りも添える（シートの側）。
+  // 本文を畳んだままでも押せるため）。出し先は「ルート結果」で、モバイルのシートだけは見出しの下に結果の1行も添える。
   function renderRouteSectionBody() {
     return (
       <RouteForm
-        distance={conditions.distanceInput}
-        onDistanceChange={conditions.setDistanceInput}
-        maxRoutes={conditions.maxRoutesInput}
-        onMaxRoutesChange={conditions.setMaxRoutesInput}
-        routeMode={conditions.routeMode}
-        onRouteModeChange={conditions.changeRouteMode}
-        waypointCount={conditions.waypoints.length}
-        onWaypointsClear={conditions.clearWaypoints}
-        destinationSet={conditions.destination !== null}
-        onDestinationClear={conditions.clearDestination}
+        conditions={conditions}
         originManual={locationSource === "manual"}
         originLocated={locationKnown}
         onOriginReset={handleLocateMe}
-        armedPinRole={conditions.armedPinRole}
-        onArmPinRole={conditions.armPinRole}
+        onPlaceFound={placeFound}
         weightsPanel={
           <RouteSettingsPanel
             routePreference={conditions.routePreference}
@@ -355,6 +370,8 @@ export default function Home() {
           size="panelIcon"
           onClick={() => setConfirmingClear(true)}
           aria-label="候補を全消去"
+          aria-haspopup="dialog"
+          aria-expanded={confirmingClear}
           usage="作った候補をすべて消します。地図に置いた地点は残ります。"
         >
           <ClearRoutesIcon size={18} />
@@ -518,6 +535,7 @@ export default function Home() {
             armedPinRole={pinPlacementArmedRole}
             pointEditingEnabled={pointEditingEnabled}
             onPinPlace={conditions.placePin}
+            focusPoint={foundPoint}
             measureRouteFitObscuredPx={measureRouteFitObscuredPx}
           />
 
@@ -662,9 +680,8 @@ export default function Home() {
               onHeightCommit={handleMobileSheetHeightCommit}
               autoFitHeight={!sheetHeightChosen}
               fitKey={`${settingsTab}:${conditions.routeMode}`}
+              headerNote={renderGenerationOutcomeNote()}
             >
-              {/* シートは1枚ずつしか開かず「ルート結果」の誤りは見えないため、直す場所であるここにも出す。 */}
-              {generation.inputError && <ErrorText>{generation.inputError}</ErrorText>}
               {renderRouteSectionBody()}
             </BottomSheet>
           </Tabs>

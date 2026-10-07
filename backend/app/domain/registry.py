@@ -108,6 +108,14 @@ class PrimaryAttributeSpec(StrictModel):
     #: 属性だけが持つ。**どのソースから読むかを画面が決めない**——決めさせると、系統を
     #: 1つ足したときに画面側の対応表も直すことになる。
     tile_kind: TileKind | None = None
+    #: 地図の点の不透明度。既定（`map_display.py: POINT_OPACITY`）と違う濃さで描く点の属性だけが持つ。
+    point_opacity: float | None = Field(default=None, gt=0, le=1)
+
+    @model_validator(mode="after")
+    def _point_opacity_is_for_points(self) -> "PrimaryAttributeSpec":
+        if self.point_opacity is not None and self.geometry != "point":
+            raise ValueError(f"点でない一次属性'{self.attr_id}'に点の不透明度がある")
+        return self
 
 
 class TileInputSpec(StrictModel):
@@ -194,7 +202,7 @@ class AxisDisplaySpec(StrictModel):
       レイヤーファクトリが自動生成する。新しい軸はこれを宣言するだけで地図に現れる。
     - kind="none": 専用の二次レイヤーを持たない（既存レイヤーで代替、またはデータ未整備）。
 
-    凡例に添える単位はここに持たず、軸カタログの`raw_value_unit`が持つ。
+    凡例に添える単位と目盛りはここに持たず、これを`tiles`に持つ`map_paint.py: MapPaint`が持つ。
     """
 
     kind: Literal["ramp", "none"]

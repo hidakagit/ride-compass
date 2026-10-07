@@ -35,7 +35,7 @@ from app.infrastructure.road_graph_repository import NETWORK_SQL_SOURCES, RoadGr
 logger = logging.getLogger("ridecompass.road_network")
 
 #: 本番の読み手はこのファイルだけだが、テストがディスク（プロセス境界）の置き場を一時ディレクトリへ差し替えるために公開する
-#: （testing.md「確かめる高さ」の例外）。置き場を引数で受けると、本番がいつも同じ置き場を渡すだけの、テストのための口になる。
+#: （testing.md「確かめる高さ」の (c)）。
 ROOT = Path(__file__).resolve().parent.parent.parent / "data" / "road_network"
 
 NETWORK_SHAPE = shape_digest(RoadNetwork, *NETWORK_SQL_SOURCES)
@@ -249,7 +249,7 @@ async def _read_nodes(repository: RoadGraphRepository) -> dict[str, np.ndarray]:
 
 async def _read_directed_edges(repository: RoadGraphRepository, node_osm_id: np.ndarray) -> dict[str, Any]:
     """区間を有向の行へ広げる。一方通行は走れる向きだけ、端点のノードが無い区間は落とし、落とした
-    有向の行の数を`dropped_without_endpoint`で返す（道の行が無い区間は`_NETWORK_EDGES_SQL`の結合で既に落ちている）。"""
+    有向の行の数を`dropped_without_endpoint`で返す（道の値の行は、区間が持つ外部キーが保証する）。"""
     highway_vocab: dict[str, int] = {}
     dropped_without_endpoint = 0
     parts: dict[str, list[np.ndarray]] = {
@@ -337,8 +337,8 @@ class MaterialColumns:
     def add(self, materials: EdgeMaterialArrays) -> None:
         """次の束を、前の束の続きの行へ詰める。"""
         if not self._arrays:
-            self._ids = {"numeric_ids": materials.numeric_ids, "boolean_ids": materials.boolean_ids,
-                         "categorical_ids": materials.categorical_ids, "hard_filter_ids": materials.hard_filter_ids}
+            self._ids = {"numeric_ids": materials.numeric_ids, "categorical_ids": materials.categorical_ids,
+                         "hard_filter_ids": materials.hard_filter_ids}
             self._vocab = [{None: 0} for _ in materials.categorical_ids]
             self._arrays["categorical_codes"] = np.zeros(
                 (self._edge_count, len(materials.categorical_ids)), dtype=np.int16)
@@ -368,7 +368,7 @@ class MaterialColumns:
 #: `EdgeMaterialArrays`から、そのまま行を写す配列の列（分類の材料は束ごとの語彙の番号を全体の語彙の番号へ
 #: 付け替えるので含めない）。
 _MATERIAL_ARRAY_FIELDS = (
-    "numeric_values", "boolean_values", "hard_filter_flags", "distance_m", "bearing_deg", "mid_lat", "mid_lon",
+    "numeric_values", "hard_filter_flags", "distance_m", "bearing_deg", "mid_lat", "mid_lon",
     "elevation_present", "elevation_gain_m", "elevation_loss_m",
 )
 

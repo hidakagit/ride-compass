@@ -14,7 +14,7 @@
 |---|---|
 | `lib/mapDisplay/routeStyleModes.ts` | ルート確定後の色分けモード一覧・色式 |
 | `lib/mapDisplay/dedicatedWayValueLayer.ts` | ルート確定前の評価軸グループ線（専用way値レイヤー）の表示宣言の型（`DedicatedWayValueDisplay`）。凡例は`features/map/view/lens.ts: dedicatedWayValueLegend`が作る。軸カタログの表示宣言だけから組み立て、軸ごとのファイル・定数を持たない |
-| `lib/mapDisplay/valueScale.ts` | 地図表示値の種類（`MapValueKind`: 難易度／符号付き材料）ごとの既定しきい値・配色（HSL補間）と、軸を塗る段の並び（`valueBands`・`rampAxisBands`・`dedicatedAxisBands`）。ルート前（ramp軸・専用配信軸）・ルート後の色分け・凡例・管理画面のプレビューが共有する（下記「valueScale.ts」）。難易度を出す桁（`formatDifficulty`。backendの`DIFFICULTY_DECIMALS`を生成物`mapDisplay.valueScale.difficultyDecimals`で読む）も持つ |
+| `lib/mapDisplay/valueScale.ts` | 地図表示値の種類（`MapValueKind`: 難易度／符号付き材料）ごとの既定しきい値・配色（HSL補間）と、軸を塗る段の並び（`valueBands`・`rampAxisBands`・`dedicatedAxisBands`）。ルート前（ramp軸・専用配信軸）・ルート後の色分け・凡例・管理画面のプレビューが共有する（下記「valueScale.ts」）。画面に出す難易度と負荷の数字の桁（`DIFFICULTY_DECIMALS`・`formatDifficulty`はbackendの`DIFFICULTY_DECIMALS`を生成物`mapDisplay.valueScale.difficultyDecimals`で読む。負荷は`LOAD_DECIMALS`・`formatLoad`で整数）も持ち、難易度の数字を出す画面はどれもここを通す（[ルート設定・結果パネル](route-settings-and-results.md)「難易度の数字の桁」） |
 | `features/map/scene/groups/axisLines.ts` | ルート確定前に評価軸（ramp軸・専用way値配信軸）で道を塗る線の宣言と、ramp軸の値・不明のMapLibre式（`buildAxisRampValueExpression`・`buildAxisRampUnknownExpression`）。段の色、値が無い道・取得中の道の色と濃さ、凡例で隠した段の落とし方（下記「評価軸の線」） |
 | `features/map/layers/dynamicWayValues.ts` | タイル座標計算・複数タイル応答の統合（材料非依存の共通部分） |
 | `lib/mapDisplay/axisLayers.ts`（`RampAxis`関連のみ） | 軸カタログ→ramp軸一覧の変換（`rampAxesFromCatalogAxes`）。段の色は持たない（`valueScale.ts: rampAxisBands`）。値が無い道の色は`palette.json: semantic.no_data`を別名を付けずに指す。ramp軸自体の全面的な生成ロジックは主に[地図: 静的レイヤー・道路表示](static-map-layers.md)の管轄 |
@@ -54,7 +54,7 @@
 **段階の境界は`map_paint.thresholds`（`GET /api/axis-catalog`）だけを使う。**
 軸スタジオが編集したしきい値の上書きは生値で、スケールは軸がramp表示を持つかで
 変わる——ramp軸ではタイルの材料値を重み付き和にしたスケール（`buildAxisRampValueExpression`が
-組み立てる値、ルート前の`display.thresholds`が使う側）であり、難易度と直接は比べられない。
+組み立てる値、ルート前の`map_paint.tiles.thresholds`が使う側）であり、難易度と直接は比べられない。
 backend（`domain/map_paint.py: map_paint`）が軸の折れ線で写してから返し、カタログは上書きの生の値を配らないため、
 フロントはスケールの判断を持たない。折れ線が飽和する範囲へ置かれた境界は同じスコアへ写り、
 その分だけ段階が減る。
@@ -252,14 +252,14 @@ axis_display_for`が前の境界を決め、`domain/map_paint.py: map_paint`が
 ## dedicatedWayValueLayer.ts（ルート確定前の評価軸グループ線）
 
 - `DedicatedWayValueDisplay`: `{kind, boundaries, legend, bandLabels?}`。軸カタログの
-  `map_paint`/`display_band_labels_override`から、
+  `map_paint`（境界`thresholds`・凡例の目盛り`legend`・段階ラベル`band_labels`）から、
   `axisLayers.ts: dedicatedWayValueAxesFromCatalogAxes`が軸と同じ行で組み立てて
   `DedicatedWayValueAxis.display`へ載せる。**軸と表示宣言を別々に配らない**——別々に配ると
   「軸はあるのに表示宣言が無い」状態が生まれ、それを既定値で埋める経路が要る（既定値で
   埋めると、伝播の失敗が地図の見た目に出なくなる）。
 - `dedicatedWayValueLegend(display)`（`features/map/view/lens.ts`）: 同じ配色・しきい値から地図上の凡例
   （`mapColorLegend.ts: MapColorLegendBand[]`）を組み立てる。段階ラベル（軸スタジオの
-  `display_band_labels_override`。backendが地図の段へ引き直して配るため件数は段数と一致する）は
+  `display_band_labels_override`。backendが地図の段へ引き直して`map_paint.band_labels`で配るため件数は段数と一致する）は
   `mapColorLegend.ts: bandLabelsForBandCount`が
   「件数が段階数と一致する間だけ」に絞ってから数値レンジの前に添える——**ルート後の凡例も
   同じ関数を使う**（後述の`routeStyleModes.ts`）。範囲の文字は`display.legend`で書く。

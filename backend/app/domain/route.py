@@ -11,13 +11,20 @@ from app.domain.difficulty import (
     round_difficulty,
     weighted_mean_by_distance,
 )
+from app.domain.attributes import ElevationAttribute
 from app.domain.geo import Latitude, Longitude
+from app.domain.graph import LeanEdge
 from app.domain.strict_model import StrictModel
+
+#: 応答の距離（km）の桁。区間・ビン・候補の距離をこの桁へ丸める。
+DISTANCE_KM_DECIMALS = 2
+#: 応答の獲得標高（m）の桁。
+ELEVATION_GAIN_DECIMALS = 1
 
 
 # GeoJSONのLineString（座標は[経度, 緯度]）。契約には形を載せるが、検証はしない——数千点の座標を
 # 組み立てのたびにたどることになる。形は組み立てる側（`_concat_segment_geometries`・
-# `services/road_graph_engine.py: concat_edge_geometries`等）が決める。
+# `concat_edge_geometries`）が決める。
 LineStringGeometry = Annotated[
     dict[str, Any],
     WithJsonSchema(
@@ -99,10 +106,13 @@ class RouteCandidate(StrictModel):
     集約したもので、「データ無しはキーを持たない」規約も引き継ぐ。
     """
 
-    # 応答の中で一意のid・種類・名前・最速の印は、`services/route_generator.py: _label`だけが付ける。エンジンが
+    # 応答の中で一意のid・種類・名前・最速の印・乗り換えの可否は、`services/route_generator.py: _label`だけが付ける。エンジンが
     # 組み立てる時点では並びも種類も決まっておらず、idと種類は既定のまま、名前は周回の方位だけを持つ。
     id: str = ""
     kind: RouteKind = "loop"
+    # この候補を元に区間を乗り換えられるか（目的地を持つ生成の候補だけ。合成の要求は目的地を要る:
+    # `api/routers/routes.py: RouteGenerateRequest._resolve_target`）。画面は生成の入力から決め直さずにこれを読む。
+    spliceable: bool = False
     direction_label: str
     # 所要時間だけで探した1本（基準線）。経由地の無い目的地の生成で、比べる相手があるときだけ1本に付く。
     # 画面はこの1本を一覧の「最速」に置き、時間の列の基準にする。
@@ -112,7 +122,7 @@ class RouteCandidate(StrictModel):
     elevation_gain_m: float | None = None
     segments: list[RouteSegmentDetail] = Field(default_factory=list)
     overall_difficulty: OverallDifficulty | None = None
-    # 所要時間の見積もり（秒）。区間の走行時間（走行モデル: 巡航速度・勾配・風から求めた
+    # 所要時間の見積もり（秒）。区間の走行時間（`domain/cycling_speed.py`の走行モデルが巡航速度と区間の条件から求めた
     # 速度）＋停止の待ち＋ターンの待ち。経路の選び方には使っておらず、表示のためだけに持つ。
     estimated_duration_seconds: float | None = None
     # 所要時間の見積もりで風を使えなかった（風の予報が読めず、無風として計算した）。画面が利用者へ知らせる。
@@ -126,7 +136,7 @@ class RouteCandidate(StrictModel):
     axis_contributions: dict[str, float] = Field(default_factory=dict)
     # axis_id→折れ点を通す前の生値。単位が定まる軸だけが持つ。得点（0-100）は目盛りの
     # 引き方に依存する相対評価のため、軸単体で経路を判断するにはこの絶対値が要る。
-    # 単位は`GET /api/axis-catalog`の`raw_value_unit`が持ち、「◯◯/km」なら走行距離を
+    # 単位は`GET /api/axis-catalog`の`raw_value_units.unit`が持ち、`total_unit`のある軸は走行距離を
     # 掛けて経路全体の実数（例: 止まる回数）にできる。区間の値は持たない（`route_axis_raw_values`）。
     axis_raw_values: dict[str, float] = Field(default_factory=dict)
     material_values: dict[str, float] = Field(default_factory=dict)
@@ -267,7 +277,7 @@ def route_axis_raw_values(edges: list[tuple[float, Mapping[str, float]]]) -> dic
     bins = _split_into_bins(edges, lambda edge: edge[0])
     return _merge_weighted_dicts(
         [
-            (round(sum(distance for distance, _ in bin_edges), 2), _merge_weighted_dicts(bin_edges, _round_significant))
+            (round(sum(distance for distance, _ in bin_edges), DISTANCE_KM_DECIMALS), _merge_weighted_dicts(bin_edges, _round_significant))
             for bin_edges in bins
         ],
         _round_significant,
@@ -334,7 +344,7 @@ BIN_FIELD_MERGERS: dict[str, Callable[[list[RouteSegmentDetail]], object]] = {
     "end_latitude": lambda segments: segments[-1].end_latitude,
     "end_longitude": lambda segments: segments[-1].end_longitude,
     "cumulative_distance_km": lambda segments: segments[0].cumulative_distance_km,
-    "distance_km": lambda segments: round(sum(s.distance_km for s in segments), 2),
+    "distance_km": lambda segments: round(sum(s.distance_km for s in segments), DISTANCE_KM_DECIMALS),
     "estimated_arrival_time": lambda segments: segments[0].estimated_arrival_time,
     # 到達予想と同じく、ビンに入った先頭の区間の値（ビンの中で予報の時刻が変わっても、入るときの風を出す）。
     "wind": lambda segments: segments[0].wind,
@@ -358,3 +368,53 @@ if _undeclared_fields():
 
 def _merge_segment_bin(segments: list[RouteSegmentDetail]) -> RouteSegmentDetail:
     return RouteSegmentDetail.model_validate({name: merge(segments) for name, merge in BIN_FIELD_MERGERS.items()})
+
+
+def concat_edge_geometries(edges: list[LeanEdge]) -> tuple[dict, list[int]]:
+    """経路上のEdge群を、ひとつながりのGeoJSON LineStringとEdgeの境界点の位置へ変換する。
+
+    隣接するEdgeの境界点（前Edgeの終端＝次Edgeの始端）は重複させないため、**座標列だけ
+    からはどこがEdgeの境目か復元できない**。Edge単位で決めた区間を地図へ帯として描く
+    ために境界の位置を併せて返す。
+
+    2つ目の戻り値は`len(edges) + 1`件で、`coordinates[offsets[i]:offsets[j] + 1]`が
+    Edge i〜j-1のひとつながりの形状になる。**同じ関数が両方を作る**——別々に組み立てると
+    ずれても型でも例外でも現れず、地図上で帯だけが1点ずれる。
+    """
+    coordinates: list[list[float]] = []
+    offsets: list[int] = []
+    for edge in edges:
+        points = [[lon, lat] for lat, lon in edge.geometry]
+        if coordinates and points and coordinates[-1] == points[0]:
+            points = points[1:]
+        offsets.append(max(len(coordinates) - 1, 0))
+        coordinates.extend(points)
+    offsets.append(max(len(coordinates) - 1, 0))
+    return {"type": "LineString", "coordinates": coordinates}, offsets
+
+
+def reverse_elevation_by_edge(
+    edges_in_path: list[LeanEdge],
+    reverse_edges: list[LeanEdge],
+    elevation_by_edge: dict[str, ElevationAttribute],
+) -> dict[str, ElevationAttribute]:
+    """逆方向Edge列ぶんの`ElevationAttribute`を、順方向の値から代数的に導出する。
+
+    順方向で標高が取れなかったEdgeは逆方向側にもキーを持たせない（欠損をそのまま伝える）。
+    """
+    result: dict[str, ElevationAttribute] = {}
+    for forward_edge, reverse_edge in zip(reversed(edges_in_path), reverse_edges):
+        forward_attribute = elevation_by_edge.get(forward_edge.edge_id)
+        if forward_attribute is not None:
+            result[reverse_edge.edge_id] = forward_attribute.reversed_as(reverse_edge.edge_id)
+    return result
+
+
+def route_elevation_gain(edges: list[LeanEdge], elevation_by_edge: dict) -> float | None:
+    """経路の獲得標高（m、`ELEVATION_GAIN_DECIMALS`の桁）。値が1つも無ければNone（0mと「標高が取れなかった」を分ける）。"""
+    gains = [
+        attribute.elevation_gain_m
+        for edge in edges
+        if (attribute := elevation_by_edge.get(edge.edge_id)) is not None
+    ]
+    return round(sum(gains), ELEVATION_GAIN_DECIMALS) if gains else None

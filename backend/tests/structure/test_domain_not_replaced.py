@@ -22,22 +22,10 @@ import ast
 from collections.abc import Iterator
 from pathlib import Path
 
-from tests.structure.source_symbols import Scope, SourceTree, Symbol
+from tests.structure.source_symbols import Scope, SourceTree, Symbol, replacement_calls
 
 BACKEND_ROOT = Path(__file__).resolve().parent.parent.parent
 DOMAIN = "app.domain"
-
-
-def _replacement_calls(tree: ast.Module) -> Iterator[tuple[ast.Call, ast.AST]]:
-    """差し替えの呼び出しと、それを含む最上位の定義（関数・クラス。無ければモジュール）。"""
-    for top in tree.body:
-        for node in ast.walk(top):
-            if not isinstance(node, ast.Call) or not node.args:
-                continue
-            func = node.func
-            name = func.attr if isinstance(func, ast.Attribute) else func.id if isinstance(func, ast.Name) else None
-            if name in ("setattr", "patch", "object"):
-                yield node, top
 
 
 def _string_literals(node: ast.AST) -> set[str]:
@@ -80,7 +68,7 @@ def domain_replacements(root: Path) -> list[str]:
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
         scope = Scope(source, source.module_of(path), tree)
-        for call, enclosing in _replacement_calls(tree):
+        for call, enclosing in replacement_calls(tree):
             for text, target in _replaced(scope, call, enclosing):
                 if target.kind in ("function", "class") and (
                     target.module == DOMAIN or target.module.startswith(f"{DOMAIN}.")

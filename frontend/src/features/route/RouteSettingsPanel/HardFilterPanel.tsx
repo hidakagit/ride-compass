@@ -34,7 +34,7 @@ export default function HardFilterPanel({ hardFilters, onHardFiltersChange }: Ha
       <div className="flex items-center gap-1">
         <p className={textVariants({ variant: "hint" })}>除外する道路</p>
         <InfoPopover triggerAriaLabel="除外する道路の説明">
-          ONにした種類は経路から完全に外れます[重みづけと違い、多少コストが高くても通る、ということが無くなります]。
+          ONにした種類は経路から完全に外れます[重みづけと違い、多少難易度が高くても通る、ということが無くなります]。
         </InfoPopover>
       </div>
       <div className="flex flex-wrap gap-2">

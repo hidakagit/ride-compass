@@ -19,7 +19,7 @@ Road Graphのトポロジーと、既に計算済みのEdge Costのみ。
 import logging
 import math
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Container, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TypeVar
 
@@ -1080,6 +1080,55 @@ class NodeJunction:
     # 繋いだときの前向き側・後ろ向き側の状態（Edge index）。繋げないNodeは-1。
     forward_state: np.ndarray
     backward_state: np.ndarray
+
+
+def add_terminal_candidate(
+    junction: NodeJunction, forward: TurnExpandedTree, destination_index: int
+) -> None:
+    """目的地そのものを経由Nodeとする候補（＝どこも経由せず目的地で終わる経路）を足す。
+
+    `combine_forward_backward_at_nodes`は「入る区間×出る区間」の対でNodeを繋ぐため、
+    そこで終わる経路は現れない。後ろ向きの区間が無いことは`backward_state=-1`で表す。
+
+    **`NodeJunction`の全フィールドを揃えて書く**——1つでも繋ぎ目側の値が残ると、コストと
+    所要時間が別々の経路のものになり、`(cost/seconds - 1)/P`で逆算するdifficultyが壊れる。
+    """
+    state = int(forward.node_best_state[destination_index])
+    if state < 0:
+        return
+    junction.cost[destination_index] = forward.node_cost[destination_index]
+    junction.length_m[destination_index] = forward.node_length_m[destination_index]
+    junction.seconds[destination_index] = forward.node_seconds[destination_index]
+    junction.forward_state[destination_index] = state
+    junction.backward_state[destination_index] = -1
+
+
+def lengths_by_physical_segment(
+    edge_from: np.ndarray, edge_to: np.ndarray, edge_length_m: np.ndarray, path: list[int]
+) -> dict[frozenset[int], float]:
+    """区間の番号列を、進行方向を無視した物理区間キー（両端のノード番号のfrozenset）→距離(m)の
+    辞書へ変換する。同じ物理区間を指す順・逆の区間を同一キーへ正規化することで、「同じ周回の
+    逆回り」や「行って戻る形」を比べられるようにする。
+
+    同じ物理区間を2回通る経路は1回ぶんとして数える（加算しない）。重複率の分母が実際の
+    経路長より短くなるぶん似ていると判定されやすくなるが、似た周回を並べるより棄却する
+    側へ倒す。
+    """
+    result: dict[frozenset[int], float] = {}
+    for index in path:
+        result[frozenset({int(edge_from[index]), int(edge_to[index])})] = float(edge_length_m[index])
+    return result
+
+
+def physical_overlap_ratio(
+    candidate: Mapping[frozenset[int], float], accepted: Container[frozenset[int]]
+) -> float:
+    """`lengths_by_physical_segment`の辞書`candidate`のうち、`accepted`にもある物理区間の距離加重
+    割合（0〜1）。全長が0以下なら0（どの経路とも重ならないと読む）。"""
+    total = sum(candidate.values())
+    if total <= 0:
+        return 0.0
+    return sum(length for key, length in candidate.items() if key in accepted) / total
 
 
 def combine_forward_backward_at_nodes(

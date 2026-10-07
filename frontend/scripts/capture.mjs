@@ -13,7 +13,7 @@
 // （backend/scripts/serve_capture.py。DB を読まずに起動する）が返す。backend が変える応答のうち DB を読まない経路（タイルの中継等）を
 // 後の画面へ出すときに使い、何度でも付けられる。DB を読む経路の応答は、脚本の patch で替える。
 // 脚本は default export の関数（capture/context.ts: CaptureScript）で、受け取った口（open・openAdmin・chooseLens・openLegend・clickMap・
-// clickVisible・patch・shot 等）だけを使い、何も読み込まない。管理画面は openAdmin で開く（モックの応答のときだけ。撮影用の資格情報はここが渡す）。
+// clickVisible・clickFeature・patch・shot 等）だけを使い、何も読み込まない。管理画面は openAdmin で開く（モックの応答のときだけ。撮影用の資格情報はここが渡す）。
 // 作業ツリーの外に置いてよい（.ts も読める）。省略すると開いて1枚撮る。例は capture/examples/。
 // 撮る前に、宛先（本番の frontend・本物の backend）が応答するまで待ち、Playwright の Chromium と、Linux なら起こすのに要る依存と
 // 日本語のフォント（無いと文字が豆腐になる）を入れる。画像は <出力>/<版>/<番号>-<名前>.png。
@@ -76,7 +76,8 @@ function frontendEnv(target, commit) {
 function unpassedEnv(dir, env) {
   const names = new Set();
   for (const file of readdirSync(path.join(dir, "src"), { recursive: true })) {
-    if (!/\.(ts|tsx)$/.test(file)) continue;
+    // テストはビルドに入らず、足場の文字列に書いた process.env を読まない。
+    if (!/\.(ts|tsx)$/.test(file) || /\.test\.tsx?$/.test(file)) continue;
     for (const [, name] of readFileSync(path.join(dir, "src", file), "utf-8").matchAll(
       /process\.env\.([A-Za-z_]\w*)/g,
     )) {

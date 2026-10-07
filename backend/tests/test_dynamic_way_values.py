@@ -18,9 +18,10 @@ import math
 import pytest
 
 from app.domain import map_paint
-from app.domain.axis_definitions import AxisDefinition, BreakpointLinearShape, MaterialTerm, PriorityCondition
+from app.domain.axis_definitions import BreakpointLinearShape, MaterialTerm, PriorityCondition
 from app.domain.dynamic_way_values import transform_dedicated_way_values
 from app.domain.material_catalog import CoverageExcluded, MaterialSpec
+from tests.axis_system_fixture import shaped_axis
 
 
 def _material(material_id, unit="") -> MaterialSpec:
@@ -53,11 +54,7 @@ def _line(*materials, breakpoints=((0.0, 0.0), (10.0, 100.0)), preprocess="ident
     )
 
 
-def _axis(shape, axis_id="axis_a", **fields) -> AxisDefinition:
-    return AxisDefinition(axis_id=axis_id, shape=shape, default_weight=1.0, label="軸A", **fields)
-
-
-SIGNED = _axis(_line("num_live", breakpoints=((0.0, 0.0), (2.0, 30.0), (6.0, 100.0)), preprocess="abs"))
+SIGNED = shaped_axis(_line("num_live", breakpoints=((0.0, 0.0), (2.0, 30.0), (6.0, 100.0)), preprocess="abs"))
 
 
 # --- 生値から塗る値へ ---
@@ -71,7 +68,7 @@ def test_a_signed_material_axis_paints_the_raw_values_unchanged():
 
 def test_a_difficulty_axis_paints_each_feature_by_the_axis():
     """折れ線の外は両端の得点へ寄る。"""
-    definition = _axis(_line("num_live"))
+    definition = shaped_axis(_line("num_live"))
 
     assert transform_dedicated_way_values(definition, "num_live", VALUES) == {
         "way:1": 0.0,
@@ -82,28 +79,28 @@ def test_a_difficulty_axis_paints_each_feature_by_the_axis():
 
 def test_a_feature_the_axis_cannot_evaluate_is_left_unpainted():
     """地図では「データなし」になる。"""
-    result = transform_dedicated_way_values(_axis(_line("num_live")), "num_live", {"way:1": math.nan, "way:2": 5.0})
+    result = transform_dedicated_way_values(shaped_axis(_line("num_live")), "num_live", {"way:1": math.nan, "way:2": 5.0})
 
     assert result == {"way:2": 50.0}
 
 
 def test_a_feature_undetermined_by_the_bearing_stays_undetermined():
     """地図では「向きで決まらない」になり、値の無い道（鍵ごと無い）と見分けられる。"""
-    result = transform_dedicated_way_values(_axis(_line("num_live")), "num_live", {"way:1": None, "way:2": 5.0})
+    result = transform_dedicated_way_values(shaped_axis(_line("num_live")), "num_live", {"way:1": None, "way:2": 5.0})
 
     assert result == {"way:1": None, "way:2": 50.0}
 
 
 def test_an_axis_that_also_needs_a_material_not_served_paints_nothing():
     """配信が値を持つのは1つの材料だけ。必須の別の材料が無ければ、どの道も評価できない。"""
-    definition = _axis(_line("num_live", "num_other"))
+    definition = shaped_axis(_line("num_live", "num_other"))
 
     assert transform_dedicated_way_values(definition, "num_live", VALUES) == {}
 
 
 def test_a_condition_on_a_material_not_served_paints_nothing():
     """条件が当たるかを決められない。条件を落として塗ると、条件の当たる道で評価と食い違う。"""
-    definition = _axis(
+    definition = shaped_axis(
         _line("num_live"), priority_overrides=[PriorityCondition(material="num_other", equals="x", value=0.0)]
     )
 
@@ -112,7 +109,7 @@ def test_a_condition_on_a_material_not_served_paints_nothing():
 
 def test_a_condition_on_the_served_material_does_not_stop_the_painting():
     """条件が配る材料にだけ置かれていれば、当たるかを決められるので塗る（ここで当たらない条件は得点を変えない）。"""
-    definition = _axis(
+    definition = shaped_axis(
         _line("num_live"), priority_overrides=[PriorityCondition(material="num_live", equals="x", value=0.0)]
     )
 

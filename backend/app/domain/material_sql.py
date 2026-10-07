@@ -15,8 +15,8 @@
 | `em` | `edge_materials`（区間に付く値） |
 | `wm` | `way_materials`（道1本に付く値） |
 
-**未計算はNULL**。値の列がNULLなら、その材料はまだ計算されていない。「タグが無い」は
-別で、そちらは非該当（false）になる（`tag_absent_is_false_sql`）。
+**値が無ければNULL**（NULLの意味は`docs/modules/backend/static-road-attributes.md`「値が無ければNULL」）。真偽の材料の
+「タグが無い」は別で、道の行があれば非該当（false）になる（`tag_absent_is_false_sql`）。
 """
 
 from collections.abc import Iterable, Sequence
@@ -103,9 +103,10 @@ _CYCLEWAY_TAGS_ARRAY_SQL = "ARRAY[" + ", ".join(f"lower(btrim(w.tags->>'{tag}'))
 
 
 def tag_absent_is_false_sql(condition: str) -> str:
-    """タグが無ければ非該当（false）。**wayの行は必ずある**——区間はwayの派生で、
-    `road_edges.osm_way_id`がNOT NULL + FKのため「wayの行が無い区間」は作れない。"""
-    return f"COALESCE({condition}, false)"
+    """タグが無ければ非該当（false）。`w`の行が無ければ不明（NULL）——行が無い区間はありうる。
+    `road_edges.osm_way_id`の外部キーは`way_materials`へ向き、道の生データへは向かないため、取込で消えた道を、
+    派生を作り直すまでの区間が指し続ける。"""
+    return f"CASE WHEN w.osm_way_id IS NOT NULL THEN COALESCE({condition}, false) END"
 
 
 def tag_is_value_sql(tag: str, expected: str) -> str:
@@ -129,10 +130,14 @@ def cycleway_has_value_sql(*values: str) -> str:
     return tag_absent_is_false_sql(f"{_CYCLEWAY_TAGS_ARRAY_SQL} && ARRAY[{listed}]")
 
 
+def per_km_value_sql(count: str) -> str:
+    """区間の件数の式`count`を区間の長さ1kmあたりにする。件数がNULLなら欠損のまま。"""
+    return f"{count} / (re.distance_m / 1000.0)"
+
+
 def poi_density_value_sql(kind: str) -> str:
-    """停止要因POIの種別別密度。列がNULLなら未計算＝欠損。"""
-    column = f"em.{poi_count_column(kind)}"
-    return f"{column} / (re.distance_m / 1000.0)"
+    """停止要因POIの種別別密度。列がNULLなら値が無い＝欠損。"""
+    return per_km_value_sql(f"em.{poi_count_column(kind)}")
 
 
 def landcover_value_sql(key: str) -> str:

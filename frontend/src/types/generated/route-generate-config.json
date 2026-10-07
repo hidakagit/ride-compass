@@ -14,6 +14,16 @@
   "job_result_ttl_seconds": 600.0,
   "wind_forecast_hours_per_leg": 4.0,
   "wind_time_bin_hours": 1.0,
+  "segment_speed_conditions": [
+    "坂",
+    "風",
+    "路面"
+  ],
+  "overall_difficulty_wording": {
+    "average": "区間ごとの難易度を距離で重みづけて平均した値です。長く走っても難しさが同じなら増えません。",
+    "load": "平均に距離[km]を掛けた総量で、走り切るまでのしんどさの目安です。平均は遠回りして難所を避けるほど下がりますが、総量は走った分だけ増えます。",
+    "missing": "値の無い区間は、平均の難易度の区間として数えます。"
+  },
   "client_tuning": {
     "speed.cda_m2": 0.32,
     "speed.mass_kg": 80.0,

@@ -16,6 +16,9 @@ import numpy as np
 from app.domain.geo import nearest_point_indices
 from app.domain.weather import PRECIPITATION_MIN_MM
 
+#: 雨の材料を地図へ配る桁。
+RAIN_MATERIAL_DECIMALS = 1
+
 RAIN_WINDOW_HOURS: tuple[int, ...] = (1, 3, 4, 6, 12, 24, 48, 72)
 #: 観測所ごとに持つ1時間雨量の本数。最も長い窓と、止んでからの時間の上限を兼ねる。
 RAIN_HISTORY_HOURS = max(RAIN_WINDOW_HOURS)

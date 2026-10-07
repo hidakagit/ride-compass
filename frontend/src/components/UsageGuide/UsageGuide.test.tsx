@@ -5,15 +5,16 @@
  * 見るもの: 案内の「やめる」、部品を押したときに部品が動かず説明が出ること、説明に出す名前（読み上げ名の引き方）と
  * 使い方の文（自分か囲む要素の印・無いときの文言）、ラベルを押したときに説明する入力、押せないボタンでも出ること、
  * 動かした（なぞった・取り消された）押し方では出さないこと、部品の外を押したとき（閉じる押し操作が外へ届かないことも）、キー操作（Esc・Enter・Space・
- * 値を動かすキー）、案内と説明の面の上の操作は止めないこと、説明している部品を囲む枠と測り直し、
+ * 値を動かすキー）、説明の✕で説明だけを閉じて部品を選ぶ続きへ戻ること、案内と説明の面の上の操作は止めないこと、説明している部品を囲む枠と測り直し、
  * 説明の外へフォーカスを移したときに終えること、マウスの操作は既定の動きまで止め、タッチは既定の動き（スクロール）を残すこと、
- * 終えたら部品が動くこと。
+ * 終えたら部品が動くこと、開くボタンの「中を見る」で開いた浮きパネルの中の部品も説明し、外の部品・終える操作で閉じること。
  *
  * ここで見ないもの:
  * - 案内の文言——部品の宣言で、書き写して突き合わせるだけになる
  * - 共有部品が使い方の文を印に書くこと → それぞれの部品（`components/ui/Button/Button.tsx`等）。ここでは本物の
  *   `Button`で1つだけ通す
- * - 説明の面の置き方（部品の上端の中央・画面の端との間）——Radix Popoverの振る舞いで、テスト環境に実寸が無い
+ * - 説明の面の置き方 → 選び方は`usagePlacement.test.ts`、実際の画面でほかの部品に重ならないことは
+ *   e2e（`e2e/usage-guide.spec.ts`）。テスト環境に実寸もヒットテストも無い
  *
  * 部品の実寸はテスト環境に無いレイアウトの値なので、枠を見るテストだけ`getBoundingClientRect`をテストが決める。
  */
@@ -23,6 +24,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { Button } from "@/components/ui/Button/Button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/Popover/Popover";
 import UsageGuide from "./UsageGuide";
 
 function renderScreen() {
@@ -309,13 +311,23 @@ describe("UsageGuide", () => {
     });
   });
 
-  it("説明の✕を押すと、終える操作が上がる", async () => {
-    const { onEnd } = renderScreen();
+  it("説明の✕を押すと、説明と枠だけを閉じ、続けて別の部品の説明を出せる", async () => {
+    const { onEnd, onGenerate } = renderScreen();
+    const frame = () => document.querySelector<HTMLElement>('[aria-hidden="true"][style]');
     await userEvent.click(screen.getByRole("button", { name: "地図の色分け" }));
+    expect(frame()).not.toBeNull();
 
     await userEvent.click(screen.getByRole("button", { name: "説明を閉じる" }));
 
-    expect(onEnd).toHaveBeenCalledTimes(1);
+    expect(onEnd).not.toHaveBeenCalled();
+    expect(explanation()).toBeNull();
+    expect(frame()).toBeNull();
+    expect(screen.getByRole("button", { name: "やめる" })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "生成" }));
+
+    expect(onGenerate).not.toHaveBeenCalled();
+    expect(explanation()).toHaveTextContent("いまの条件で候補を作ります。");
   });
 
   it("説明を出している間にフォーカスを説明の外へ移すと、終える操作が上がる", async () => {
@@ -370,6 +382,99 @@ describe("UsageGuide", () => {
     fireEvent.touchStart(screen.getByRole("button", { name: "押す" }), { touches: [{ clientX: 0, clientY: 0 }] });
 
     expect(onTouchStart).not.toHaveBeenCalled();
+  });
+
+  describe("「中を見る」で開いた浮きパネル", () => {
+    function renderPopoverScreen() {
+      const onEnd = vi.fn();
+      const onSpeed = vi.fn();
+      function Screen() {
+        const [active, setActive] = useState(true);
+        return (
+          <>
+            <p>本文の文字</p>
+            <Button usage="いまの条件で候補を作ります。">生成</Button>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button usage="速さを決める面を開きます。">想定速度</Button>
+              </PopoverTrigger>
+              <PopoverContent aria-label="想定速度の面">
+                <Button onClick={onSpeed} usage="速さを1つ上げます。">
+                  速く
+                </Button>
+              </PopoverContent>
+            </Popover>
+            {active && (
+              <UsageGuide
+                onEnd={() => {
+                  onEnd();
+                  setActive(false);
+                }}
+              />
+            )}
+          </>
+        );
+      }
+      render(<Screen />);
+      return { onEnd, onSpeed };
+    }
+    const popover = () => screen.queryByRole("dialog", { name: "想定速度の面" });
+
+    async function openInside() {
+      await userEvent.click(screen.getByRole("button", { name: "想定速度" }));
+      expect(popover()).toBeNull();
+      await userEvent.click(screen.getByRole("button", { name: "中を見る" }));
+    }
+
+    it("開くボタンの説明の「中を見る」で開き、中の部品は動かずに説明が出て、✕でも開いたまま", async () => {
+      const { onEnd, onSpeed } = renderPopoverScreen();
+
+      await openInside();
+      expect(popover()).toBeInTheDocument();
+      expect(explanation()).toBeNull();
+
+      await userEvent.click(screen.getByRole("button", { name: "速く" }));
+      expect(onSpeed).not.toHaveBeenCalled();
+      expect(explanation()).toHaveTextContent("速さを1つ上げます。");
+      expect(explanation()).not.toHaveTextContent("中を見る");
+
+      await userEvent.click(screen.getByRole("button", { name: "説明を閉じる" }));
+      expect(popover()).toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: "速く" }));
+      expect(explanation()).toHaveTextContent("速さを1つ上げます。");
+      expect(popover()).toBeInTheDocument();
+      expect(onEnd).not.toHaveBeenCalled();
+    });
+
+    it("外の部品を押すと、浮きパネルを閉じてその部品を説明する", async () => {
+      renderPopoverScreen();
+      await openInside();
+
+      await userEvent.click(screen.getByRole("button", { name: "生成" }));
+
+      expect(popover()).toBeNull();
+      expect(explanation()).toHaveTextContent("いまの条件で候補を作ります。");
+    });
+
+    it.each([
+      ["「やめる」で", async () => userEvent.click(screen.getByRole("button", { name: "やめる" }))],
+      ["Escで", async () => userEvent.keyboard("{Escape}")],
+      [
+        "中の部品の説明を出している間に部品の外を押して",
+        async () => {
+          await userEvent.click(screen.getByRole("button", { name: "速く" }));
+          await userEvent.click(screen.getByText("本文の文字"));
+        },
+      ],
+    ])("%s終えると、浮きパネルも閉じる", async (_, operate) => {
+      const { onEnd } = renderPopoverScreen();
+      await openInside();
+
+      await operate();
+
+      expect(onEnd).toHaveBeenCalledTimes(1);
+      expect(popover()).toBeNull();
+    });
   });
 
   it("説明を見る状態を外すと、部品は押したとおりに動く", async () => {

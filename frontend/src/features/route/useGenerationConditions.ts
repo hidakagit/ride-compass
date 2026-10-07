@@ -100,6 +100,16 @@ export function useGenerationConditions({ onOriginPlace }: GenerationConditionsI
     },
     [onOriginPlace, waypoints.length],
   );
+  // 検索で選んだ地点を置く。周回は経由地・目的地を使わず地図にも出さないので、目的地モードへ切り替えて置く。地図のタップで
+  // 置く状態は解く（次のタップで意図しない地点が置かれる）。
+  const placeFound = useCallback(
+    (role: PinRole, point: Coordinates) => {
+      if (role !== "origin") setRouteMode("destination");
+      placePin(role, point);
+      setArmedPinRole(null);
+    },
+    [placePin, setRouteMode],
+  );
   // 行を押して武装する。置いてある地点から武装しても値は残し、次のタップで置き換える（外してから置き直させない）。
   const armPinRole = useCallback((role: PinRole | null) => setArmedPinRole(role), []);
 
@@ -216,6 +226,7 @@ export function useGenerationConditions({ onOriginPlace }: GenerationConditionsI
     armedPinRole,
     armPinRole,
     placePin,
+    placeFound,
     weightOverrideEnabled,
     setWeightOverrideEnabled,
     routePreference,

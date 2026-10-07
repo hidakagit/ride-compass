@@ -6,7 +6,7 @@ import {
   assertWidthsStraddleBreakpoint,
   generate,
   installPageHelpers,
-  installSpliceMocks,
+  installScanMocks,
   openApp,
   resetPhase,
   splice,
@@ -30,7 +30,7 @@ for (const width of Object.keys(WIDTHS) as WidthName[]) {
     await page.addInitScript(installPageHelpers);
     await page.addInitScript(installMapFinder);
     await installApiMocks(page);
-    await installSpliceMocks(page);
+    await installScanMocks(page);
     const client = await context.newCDPSession(page);
     await client.send("Accessibility.enable");
     await client.send("DOM.enable");

@@ -17,7 +17,7 @@ from app.domain.dynamic_materials import DynamicAxisRequestContext, evaluate_dyn
 from app.domain.time_zone import JST, as_series_time
 from app.domain.material_catalog import WIND_DRAG_RATIO
 from app.domain.region import BoundingBox, tile_bounds_lonlat
-from app.domain.wind import kmh_to_ms
+from app.domain.wind import WIND_DRAG_RATIO_DECIMALS, kmh_to_ms
 from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
 from app.infrastructure.debug_log import log_external_call, log_throttled_warning, mark_failed
 from app.infrastructure.road_graph_repository import RoadGraphRepository
@@ -105,4 +105,4 @@ class WindWayService:
             values = evaluate_dynamic_material_arrays(context)[self.material_id]
             fields["computed"] = len(keys)
             # 値はキャッシュしない（docs/modules/backend/dynamic-way-values.md「キャッシュ」節）。
-            return {key: round(float(value), 3) for key, value in zip(keys, values)}
+            return {key: round(float(value), WIND_DRAG_RATIO_DECIMALS) for key, value in zip(keys, values)}

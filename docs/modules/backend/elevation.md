@@ -24,7 +24,7 @@ source_features(source='dem')          ← 生データ。取り直さない限�
 edge_materials（start/end・gain/loss・average）
    │ 探索フェーズが材料として読む（road_graph_repository.py）
    ▼
-経路の集計（services/road_graph_engine.py: route_elevation_gain）
+経路の集計（domain/route.py: route_elevation_gain）
 ```
 
 値の出し方そのものは`domain/attributes.py: elevation_values_sql`が持つ。派生バッチは
@@ -32,7 +32,7 @@ edge_materials（start/end・gain/loss・average）
 
 ## 勾配を出さない区間
 
-`average_grade`がNULLなのは「まだ計算していない」だけではない。**舗装公道としてありえない
+`average_grade`がNULLなのは、標高を出せなかった区間だけではない。**舗装公道としてありえない
 急勾配**（`MAX_PLAUSIBLE_AVERAGE_GRADE_PERCENT`）は、計算したうえで**値を持たせない**と決めた
 区間である。道の起伏ではなくDEMの読み違いで、丸めても上限で切っても直らない。
 
@@ -76,9 +76,9 @@ DEMが返すのは地表面の標高で、桁や坑道の高さではない—�
 （`road_graph_repository.py: _REVERSED_ELEVATION_COLUMNS`）ので、材料の式も評価も向きを
 知らない。
 
-## 経路の集計（`services/road_graph_engine.py: route_elevation_gain`）
+## 経路の集計（`domain/route.py: route_elevation_gain`）
 
-確定した経路の区間ぶんの値から、獲得標高を組み立てる（エンジンの一部で、
+確定した経路の区間ぶんの値から、獲得標高を組み立てる（エンジンが呼ぶ domain の関数で、
 ファイルは[ルート生成エンジン](routing-engine.md)の対象）。区間の値は探索フェーズで読んだ
 材料がそのまま持っているため、ここでDBへ問い合わせ直さない。値が1つも無ければNone
 （0mと「標高が取れなかった」を分ける）。

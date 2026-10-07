@@ -1,14 +1,16 @@
 """`api/routers/region.py`——地域の配信（路面・点・土地被覆のタイル、動的材料の値、区間インスペクタ）のHTTPの入口。
 
 確かめるのは、経路ごとの受け渡し（要求のどの値がサービスへ渡り、サービスの結果が応答のどこへ出るか）と、この口が
-使う判断: タイル座標の範囲（`_tile_http.py: validate_tile_coords`。土地被覆は自分のズーム範囲）、一時的に取れなかった
+使う判断: 量ごとの値の範囲（タイル座標・走行方位・想定速度。範囲そのものは domain の型と`domain/region.py:
+check_tile_index`が持ち、ここでは入口ごとにそれを使っていることを見る。土地被覆は自分のズーム範囲）、一時的に取れなかった
 タイルをキャッシュさせないこと（`_tile_http.py: tile_response`）、宣言に無い点のレイヤー・配信できない軸の404、
 条件の欠けの422（`domain/dynamic_way_values.py: assemble_conditions`）、土地被覆のラスタが無いときの503、
 区間インスペクタが条件の揃った材料だけを足すこと（`services/dedicated_way_values.py: DirectionalMaterialService`）、
 種類ごとに別に数えるレート制限。
 
-差し替えるのは、注入されるサービス（`RegionService`・配信サービス。区間インスペクタは、代役の`RegionService`と材料で
-組んだ本物の`AxisInspectorService`を注入する）・土地被覆のタイルの取得・道路網の読み出し・レート制限の記録だけ。
+差し替えるのは、注入されるサービス（`RegionService`・配信サービス。地図のレンズは配信サービスの代役で組んだ本物の
+`AxisWayValueLens`を、区間インスペクタは代役の`RegionService`と材料で組んだ本物の`AxisInspectorService`を注入する）・
+土地被覆のタイルの取得・道路網の読み出し・レート制限の記録だけ。
 
 ここで見ないもの:
 - タイルの中身とキャッシュ → `test_region_service.py`・`test_landcover_tile.py`
@@ -42,7 +44,7 @@ from app.infrastructure.point_tile_layers import POINT_TILE_LAYERS
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.infrastructure.region_tile_cache import TileResponse
 from app.domain.dynamic_way_values import transform_dedicated_way_values
-from app.services.dedicated_way_values import DirectionalMaterialService
+from app.services.dedicated_way_values import AxisWayValueLens, DirectionalMaterialService
 from app.services.region_service import AxisInspectorService
 from app.services.gradient_way_service import GradientConditions
 from app.services.wind_way_service import WindConditions
@@ -119,29 +121,44 @@ def test_region_tiles_hand_the_services_mvt_over(path, cacheable, requested, cac
     assert fake.tile_request == requested
 
 
+# 外れた値がサービスまで届くと、domain の前提（速度は正・方位は有限・列と行はズームの範囲の中）が崩れて500になるか、
+# 在りもしない範囲を引く。入口ごとに、量の型と列・行の上限の検査を使っていることを1行ずつ見る。
 @pytest.mark.usefixtures("dedicated_axes")
 @pytest.mark.parametrize(
-    "path",
+    ("path", "inspected"),
     [
-        f"/api/region/road-surface-tiles/{ROAD_TILE_MIN_ZOOM - 1}/0/0.pbf",
-        f"/api/region/road-surface-tiles/{ROAD_TILE_MAX_ZOOM + 1}/0/0.pbf",
-        "/api/region/road-surface-tiles/14/-1/6447.pbf",
-        f"/api/region/road-surface-tiles/14/{2**14}/6447.pbf",
-        f"/api/region/road-surface-tiles/14/14551/{2**14}.pbf",
-        f"/api/region/point-tiles/{POINT_LAYER}/{ROAD_TILE_MIN_ZOOM - 1}/0/0.pbf",
-        f"/api/region/dynamic-way-values/axis_way_value_signed/{ROAD_TILE_MIN_ZOOM - 1}/0/0?bearing_deg=0",
+        (f"/api/region/road-surface-tiles/{ROAD_TILE_MIN_ZOOM - 1}/0/0.pbf", None),
+        (f"/api/region/road-surface-tiles/{ROAD_TILE_MAX_ZOOM + 1}/0/0.pbf", None),
+        ("/api/region/road-surface-tiles/14/-1/6447.pbf", None),
+        (f"/api/region/road-surface-tiles/14/{2**14}/6447.pbf", None),
+        (f"/api/region/road-surface-tiles/14/14551/{2**14}.pbf", None),
+        (f"/api/region/point-tiles/{POINT_LAYER}/{ROAD_TILE_MIN_ZOOM - 1}/0/0.pbf", None),
+        (f"/api/region/point-tiles/{POINT_LAYER}/14/{2**14}/6447.pbf", None),
+        (f"/api/region/landcover-tiles/10/{2**10}/403.png", None),
+        (f"/api/region/dynamic-way-values/axis_way_value_signed/{ROAD_TILE_MIN_ZOOM - 1}/0/0?bearing_deg=0", None),
+        (f"/api/region/dynamic-way-values/axis_way_value_signed/14/{2**14}/6447?bearing_deg=0", None),
+        ("/api/region/dynamic-way-values/axis_way_value_signed/14/14551/6447?bearing_deg=nan", None),
+        ("/api/region/dynamic-way-values/axis_way_value_scored/14/14551/6447?bearing_deg=0&speed_kmh=0", None),
+        ("/api/region/dynamic-way-values/axis_way_value_scored/14/14551/6447?bearing_deg=0&speed_kmh=nan", None),
+        ("/api/region/axis-inspector", {"z": ROAD_TILE_MAX_ZOOM + 1}),
+        ("/api/region/axis-inspector", {"x": 2**14}),
+        ("/api/region/axis-inspector", {"bearing_deg": 360.0}),
+        ("/api/region/axis-inspector", {"speed_kmh": 0.0}),
     ],
 )
-def test_region_tiles_outside_the_served_range_are_refused(path):
+def test_region_requests_outside_each_quantitys_range_are_refused(path, inspected):
     app.dependency_overrides[get_region_service] = lambda: FakeRegionService()
-    app.dependency_overrides[get_dedicated_way_value_service] = lambda: FakeDynamicWayValueService()
+    app.dependency_overrides[get_dedicated_way_value_service] = lambda: _lens(SIGNED, FakeDynamicWayValueService())
+    app.dependency_overrides[get_axis_inspector_service] = lambda: AxisInspectorService(
+        FakeRegionService(), NoDirectionalMaterials()
+    )
 
     try:
-        response = client.get(path)
+        response = client.get(path) if inspected is None else client.post(path, json={**INSPECTED, **inspected})
     finally:
         app.dependency_overrides.clear()
 
-    assert response.status_code == 400
+    assert response.status_code == 422
 
 
 def test_region_point_tile_rejects_an_undeclared_layer():
@@ -166,7 +183,7 @@ def test_each_kind_of_region_request_is_counted_on_its_own():
     road = "/api/region/road-surface-tiles/14/14551/6447.pbf"
     point = "/api/region/point-tiles/{}/14/14551/6447.pbf"
     app.dependency_overrides[get_region_service] = lambda: FakeRegionService()
-    app.dependency_overrides[get_dedicated_way_value_service] = lambda: FakeDynamicWayValueService()
+    app.dependency_overrides[get_dedicated_way_value_service] = lambda: _lens(SIGNED, FakeDynamicWayValueService())
     app.dependency_overrides[get_axis_inspector_service] = lambda: AxisInspectorService(
         FakeRegionService(), NoDirectionalMaterials()
     )
@@ -297,6 +314,12 @@ class FakeDynamicWayValueService:
         return self._values
 
 
+def _lens(axis_id: str, service: FakeDynamicWayValueService) -> AxisWayValueLens:
+    return AxisWayValueLens(axis_id, service)
+
+
+SIGNED = "axis_way_value_signed"
+
 #: 専用way値配信を持つ軸。時刻・方位・速度を要るもの（得点を塗る）と、方位だけを要るもの
 #: （符号付きの生値を塗る）の2本。
 DEDICATED_AXES = {
@@ -351,7 +374,7 @@ def test_region_dedicated_way_values_returns_map_values_json(axis_id, material_i
     raw = {"1": 2.0, "2": -1.5}
     expected = transform_dedicated_way_values(AXIS_DEFINITIONS[axis_id], material_id, raw)
     fake = FakeDynamicWayValueService(values=dict(raw), material_id=material_id, conditions_type=type(conditions))
-    app.dependency_overrides[get_dedicated_way_value_service] = lambda: fake
+    app.dependency_overrides[get_dedicated_way_value_service] = lambda: _lens(axis_id, fake)
 
     try:
         response = client.get(f"/api/region/dynamic-way-values/{axis_id}/14/14551/6447", params=params)
@@ -366,7 +389,7 @@ def test_region_dedicated_way_values_returns_map_values_json(axis_id, material_i
 @pytest.mark.usefixtures("dedicated_axes")
 def test_region_dedicated_way_values_names_the_missing_condition():
     fake = FakeDynamicWayValueService(material_id="wind_drag_ratio", conditions_type=WindConditions)
-    app.dependency_overrides[get_dedicated_way_value_service] = lambda: fake
+    app.dependency_overrides[get_dedicated_way_value_service] = lambda: _lens("axis_way_value_scored", fake)
 
     try:
         response = client.get(
@@ -441,10 +464,10 @@ def test_landcover_tile_endpoint_without_raster_reports_unavailable(landcover_ti
 @pytest.mark.parametrize(
     ("z", "status"),
     [
-        (LANDCOVER_TILE_MIN_ZOOM - 1, 400),
+        (LANDCOVER_TILE_MIN_ZOOM - 1, 422),
         (LANDCOVER_TILE_MIN_ZOOM, 200),
         (LANDCOVER_TILE_MAX_ZOOM, 200),
-        (LANDCOVER_TILE_MAX_ZOOM + 1, 400),
+        (LANDCOVER_TILE_MAX_ZOOM + 1, 422),
     ],
 )
 def test_landcover_tile_endpoint_serves_only_its_own_zoom_range(z, status):

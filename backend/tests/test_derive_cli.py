@@ -14,13 +14,13 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.batch import derive_cli
-from app.batch.common import asyncpg_dsn
 from app.batch.source_adapters.npa_honhyo import HonhyoRows
-from app.domain.accident import BICYCLE_PARTY_TYPE_CODES
+from app.domain.accident import PartyType
 from app.domain.material_catalog import ACCIDENT_COUNT_PER_KM_YEAR
 from app.infrastructure import derived_data_meta, road_network_store
 from app.infrastructure.road_graph_repository import RoadGraphRepository
-from tests.conftest import postgis_database_url
+from app.infrastructure.source_models import PARTY_TYPE_CODES
+from tests.conftest import postgis_database_url, raw_connection
 from tests.source_ingest import ingest_records, point_record, way_record
 
 pytestmark = [
@@ -64,10 +64,6 @@ async def _ingest_ways(conn: asyncpg.Connection, way_100_tags: dict[str, str] | 
         for way_id, node_ids, tags in WAYS], conn=conn)
 
 
-def _dsn() -> str:
-    return asyncpg_dsn(postgis_database_url())
-
-
 async def _schemas(conn: asyncpg.Connection) -> set[str]:
     """一時の表のスキーマ（接続ごとに作られ、残る）を除いたスキーマ。作り直しが作業用のスキーマを残さないことを見る。"""
     return {row["nspname"] for row in await conn.fetch(
@@ -82,32 +78,27 @@ async def _revision(conn: asyncpg.Connection) -> int | None:
 @pytest_asyncio.fixture(loop_scope="module")
 async def schemas_at_start(road_graph_engine) -> set[str]:
     """作り直しを1度も走らせる前のスキーマ。作り直しが作業用のスキーマを残さないことは、これと比べて見る。"""
-    conn = await asyncpg.connect(_dsn())
-    try:
+    async with raw_connection() as conn:
         return await _schemas(conn)
-    finally:
-        await conn.close()
 
 
 @pytest_asyncio.fixture(loop_scope="module")
-async def derived_before(road_graph_engine, schemas_at_start, monkeypatch, tmp_path):
-    """作り直す前の状態: 今の生データから最初の段まで作り直し、世代1の表と道路網がある。道路網の置き場は一時ディレクトリ。
+async def derived_before(road_graph_engine, schemas_at_start, road_network_root):
+    """作り直す前の状態: 今の生データから最初の段まで作り直し、世代1の表と道路網がある。道路網の置き場は一時ディレクトリ（`road_network_root`）。
 
     `road_graph_engine`に依存するのはスキーマを作らせるため。
     """
-    monkeypatch.setattr(road_network_store, "ROOT", tmp_path / "road_network")
-    conn = await asyncpg.connect(_dsn())
-    try:
-        await conn.execute("TRUNCATE " + ", ".join(DERIVED) + ", source_features, source_runs, derived_data_meta CASCADE")
-        await ingest_records("osm_node", [point_record(n, *_point(n)) for n in range(1, 5)], conn=conn)
-        await _ingest_ways(conn)
-        assert await derive_cli.run(postgis_database_url(), None) == 0
-        yield conn
-    finally:
-        for left in await _schemas(conn) - schemas_at_start:
-            await conn.execute(f'DROP SCHEMA "{left}" CASCADE')
-        await conn.execute("TRUNCATE " + ", ".join(DERIVED) + ", source_features, source_runs, derived_data_meta CASCADE")
-        await conn.close()
+    async with raw_connection() as conn:
+        try:
+            await conn.execute("TRUNCATE " + ", ".join(DERIVED) + ", source_features, source_runs, derived_data_meta CASCADE")
+            await ingest_records("osm_node", [point_record(n, *_point(n)) for n in range(1, 5)], conn=conn)
+            await _ingest_ways(conn)
+            assert await derive_cli.run(postgis_database_url(), None) == 0
+            yield conn
+        finally:
+            for left in await _schemas(conn) - schemas_at_start:
+                await conn.execute(f'DROP SCHEMA "{left}" CASCADE')
+            await conn.execute("TRUNCATE " + ", ".join(DERIVED) + ", source_features, source_runs, derived_data_meta CASCADE")
 
 
 def _observe_after(stage_name: str, monkeypatch, observe) -> None:
@@ -128,8 +119,7 @@ async def test_readers_see_the_previous_tables_until_the_swap_and_the_rebuilt_on
     準備済みの文も作り直した表を読み、世代が1つ進み、その世代の道路網は作り直した表から作られている。"""
     structure_before = await derived_before.fetch(_STRUCTURE_SQL, list(DERIVED))
     await _ingest_ways(derived_before, ONEWAY)
-    reader = await asyncpg.connect(_dsn())
-    try:
+    async with raw_connection() as reader:
         direction = await reader.prepare("SELECT direction FROM way_materials WHERE osm_way_id = $1")
         seen_while_rebuilding: list[tuple[str, int | None]] = []
 
@@ -143,8 +133,6 @@ async def test_readers_see_the_previous_tables_until_the_swap_and_the_rebuilt_on
         assert seen_while_rebuilding == [("both", 1)]
         assert await direction.fetchval(100) == "forward"
         assert await _revision(reader) == 2
-    finally:
-        await reader.close()
 
     network = road_network_store.current()
     assert network.revision == 2
@@ -219,7 +207,7 @@ async def test_the_accident_density_is_divided_by_the_years_of_the_import_that_w
 
     # 道100の途中のノード2の上で、自転車の関わった事故が1件。
     accident = point_record("on-way-100", *_point(2), {
-        "当事者種別（当事者A）": min(BICYCLE_PARTY_TYPE_CODES), "当事者種別（当事者B）": "59", "死者数": "000"})
+        "当事者種別（当事者A）": PARTY_TYPE_CODES[PartyType.BICYCLE], "当事者種別（当事者B）": "59", "死者数": "000"})
     await ingest_records("accident", [accident], conn=derived_before, rows=HonhyoRows(years=[2024]))
     assert await derive_cli.run(postgis_database_url(), None) == 0
     one_year = density_on_way_100()

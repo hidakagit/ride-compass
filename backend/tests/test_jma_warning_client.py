@@ -1,8 +1,9 @@
 """`infrastructure/jma_warning_client.py`——気象庁の地域マスタ（area.json）と警報・注意報の電文の取得と、応答の形の解き方。
 
 入口は`fetch_area_data`・`fetch_warning_documents`の2つで、気象庁の代役（respx）へ本物の`httpx.AsyncClient`を
-向けて呼ぶ。見るのは、返る値（`AreaMaster`・`WarningBulletin`）と、取得に失敗したときのNone、プロセス内
-キャッシュで上流を引き直さないこと（電文は府県予報区ごと）。
+向けて呼ぶ。見るのは、返る値（`AreaMaster`・`WarningBulletin`。種別はコードを名称へ、状態を発表中かへ読み替えて
+持つ）と、取得に失敗したときのNone、プロセス内キャッシュで上流を引き直さないこと（電文は府県予報区ごと）。
+コード表`WARNING_KINDS`（配信元の資料の写し）は差し替えず、期待する名称は配信元の資料の別表3から引く。
 
 ここで見ないもの:
 - キャッシュの骨格（失敗をキャッシュしない・ログの`fields`）→ `test_simple_api_client.py`
@@ -96,8 +97,8 @@ async def test_area_master_failure_is_none(response):
 
 
 async def test_bulletins_are_read_per_document_of_the_office():
-    """府県予報区の電文の配列を1件ずつ解く。区域・二次細分区域ごとに種別を持ち、警報の無い地域は
-    コードの無い「なし」の1件になる。"""
+    """府県予報区の電文の配列を1件ずつ解く。区域・二次細分区域ごとに種別を持ち、警報の無い地域
+    （コードの無い「なし」の1件）は種別を持たない。解除された種別は発表中でないとして持つ。"""
     router = respx.Router()
     router.get(_warning_url("130000")).respond(
         json=[
@@ -108,7 +109,9 @@ async def test_bulletins_are_read_per_document_of_the_office():
                         {"areaCode": "1310100", "kinds": [{"code": "10", "status": "発表", "additions": ["土砂災害"]}]},
                         {"areaCode": "1310200", "kinds": [{"status": "発表警報・注意報はなし"}]},
                     ],
-                    "class10Items": [{"areaCode": "130010", "kinds": [{"code": "14", "status": "継続"}]}],
+                    "class10Items": [
+                        {"areaCode": "130010", "kinds": [{"code": "14", "status": "継続"}, {"code": "03", "status": "解除"}]}
+                    ],
                 },
             },
             {"reportDatetime": "2026-08-29T16:00:00+09:00", "warning": {"class10Items": []}},
@@ -120,10 +123,15 @@ async def test_bulletins_are_read_per_document_of_the_office():
     assert bulletins == [
         WarningBulletin(
             class20_kinds={
-                "1310100": (AreaWarningKind(code="10", status="発表", additions=("土砂災害",)),),
-                "1310200": (AreaWarningKind(code=None, status="発表警報・注意報はなし", additions=()),),
+                "1310100": (AreaWarningKind(code="10", name="大雨注意報", active=True, additions=("土砂災害",)),),
+                "1310200": (),
             },
-            class10_kinds={"130010": (AreaWarningKind(code="14", status="継続", additions=()),)},
+            class10_kinds={
+                "130010": (
+                    AreaWarningKind(code="14", name="雷注意報", active=True, additions=()),
+                    AreaWarningKind(code="03", name="大雨警報", active=False, additions=()),
+                )
+            },
         ),
         WarningBulletin(class20_kinds={}, class10_kinds={}),
     ]
@@ -143,7 +151,7 @@ async def test_first_item_wins_when_an_area_appears_twice():
 
     [bulletin] = await jma_warning_client.fetch_warning_documents(answering(json=payload), "130000", new_warning_cache())
 
-    assert bulletin.class20_kinds == {"1310100": (AreaWarningKind(code="10", status="発表", additions=()),)}
+    assert bulletin.class20_kinds == {"1310100": (AreaWarningKind(code="10", name="大雨注意報", active=True, additions=()),)}
 
 
 async def test_malformed_parts_of_a_bulletin_are_skipped(caplog):
@@ -185,8 +193,8 @@ async def test_malformed_parts_of_a_bulletin_are_skipped(caplog):
         WarningBulletin(
             class20_kinds={
                 "1310200": (
-                    AreaWarningKind(code="10", status="発表", additions=()),
-                    AreaWarningKind(code="15", status="継続", additions=("雷",)),
+                    AreaWarningKind(code="10", name="大雨注意報", active=True, additions=()),
+                    AreaWarningKind(code="15", name="強風注意報", active=True, additions=("雷",)),
                 ),
                 "1310300": (),
             },
@@ -198,7 +206,7 @@ async def test_malformed_parts_of_a_bulletin_are_skipped(caplog):
 
 
 @pytest.mark.parametrize(("status", "logged"), [("発表", True), ("解除", False)], ids=["issued", "lifted"])
-async def test_an_issued_code_missing_from_the_table_is_logged_once_per_fetch(caplog, status, logged):
+async def test_a_code_missing_from_the_table_is_left_out_and_logged_once_per_fetch_while_issued(caplog, status, logged):
     """表が配信元のコード表より古くなった印として、運用者に見えるように出す。電文ごとに出すと、同じコードが
     種類の別の電文に並ぶたびに重なる。発表中でないものは画面へ出ないので、表に無くても出さない。"""
     kinds = [{"code": "t_unknown", "status": status}]
@@ -208,8 +216,14 @@ async def test_an_issued_code_missing_from_the_table_is_logged_once_per_fetch(ca
     ]
 
     with caplog.at_level(logging.WARNING, logger="ridecompass.jma_warning_client"):
-        await jma_warning_client.fetch_warning_documents(answering(json=payload), "130000", new_warning_cache())
+        bulletins = await jma_warning_client.fetch_warning_documents(
+            answering(json=payload), "130000", new_warning_cache()
+        )
 
+    assert bulletins == [
+        WarningBulletin(class20_kinds={"1310100": ()}, class10_kinds={}),
+        WarningBulletin(class20_kinds={}, class10_kinds={"130010": ()}),
+    ]
     assert [record.getMessage().count("t_unknown") for record in caplog.records] == ([1] if logged else [])
 
 

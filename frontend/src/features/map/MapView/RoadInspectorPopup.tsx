@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import AxisContributionBar from "@/components/AxisContributionBar/AxisContributionBar";
+import AxisDetail from "@/components/AxisContributionBar/AxisDetail";
 import type { CatalogAxis } from "@/lib/catalogAxis";
 import { isDebugEnabled } from "@/lib/debugLog";
 import { getQueryClient } from "@/lib/queryClient";
@@ -31,7 +32,7 @@ interface RoadInspectorPopupProps {
 
 // 地図の道をクリックしたときの中身。答えるのは「この道は何者で、なぜこの評価なのか」。
 //
-// **ルート結果と同じ部品・同じ配色で評価を出す**（`AxisContributionBar`）——同じ「軸ごとの
+// **ルート結果と同じ部品・同じ配色で評価を出す**（`AxisContributionBar`・`AxisDetail`）——同じ「軸ごとの
 // 効き方」を別の見た目で見せると、利用者は2つの読み方を覚えることになる。
 // 評価は押したときだけ取りに行く（クリックのたびに引くとレート制限に当たる）。
 // 開いたときに見せるのは名前と評価だけで、属性・土地被覆は畳む（地図の上の小さな枠に収めるため）。
@@ -112,23 +113,17 @@ export default function RoadInspectorPopup({
               renderDetail={(axis) => {
                 const found = result.axes.find((a) => a.axis_id === axis.axisId);
                 if (found === undefined || found.difficulty === null) return null;
-                return (
-                  <>
-                    <span className="font-semibold">{axis.label}</span>
-                    <span className="text-[length:var(--font-size-sm)]">{`軸別難易度 ${Math.round(found.difficulty)}/100`}</span>
-                    <span className={textVariants({ variant: "hint" })}>{axis.description}</span>
-                  </>
-                );
+                return <AxisDetail axis={axis} difficulty={found.difficulty} />;
               }}
             />
           ) : (
-            <p className={textVariants({ variant: "hint" })}>この区間で算出できる軸がありません。</p>
+            <p className={textVariants({ variant: "hint" })}>この道で値を出せる評価軸がありません。</p>
           )}
           {result.composite_difficulty !== null && (
             <p className={cn(textVariants({ variant: "hint" }), "m-0")}>
-              {`この道だけで見た合成: ${formatDifficulty(result.composite_difficulty.value)}/100`}
+              {`この道だけで見た難易度: ${formatDifficulty(result.composite_difficulty.value)}/100`}
               {coveredWeightPercent !== null && coveredWeightPercent < 100
-                ? `[重みの約${coveredWeightPercent}%ぶんの軸だけ。残りの軸は、この道とこの走る条件では値が出せません]`
+                ? `[重みの約${coveredWeightPercent}%ぶんの評価軸だけ。残りの評価軸は、この道とこの走る条件では値が出せません]`
                 : ""}
             </p>
           )}

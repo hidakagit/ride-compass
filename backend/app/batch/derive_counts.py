@@ -17,9 +17,8 @@ from app.batch.common import reset_columns_sql
 from app.domain.accident import (
     ACCIDENT_FATAL_WEIGHT,
     ACCIDENT_MATCH_MAX_DISTANCE_M,
-    BICYCLE_PARTY_TYPE_CODES,
+    BICYCLE_SQL,
     FATAL_SQL,
-    bicycle_sql,
 )
 from app.domain.geo import degrees_covering_m
 from app.infrastructure.source_models import (
@@ -146,7 +145,7 @@ WITH nearest AS (
           AND ST_DWithin(e.geom::geography, a.geom::geography, $3)
         ORDER BY ST_Distance(e.geom::geography, a.geom::geography), e.osm_way_id, e.segment_index
         LIMIT 1) n
-    WHERE {bicycle_sql("$4")}
+    WHERE {BICYCLE_SQL}
 )
 UPDATE edge_materials m SET accident_count = COALESCE(s.total, 0)
 FROM (
@@ -189,7 +188,7 @@ async def derive(conn: asyncpg.Connection) -> None:
         await conn.execute(_EDGE_STOP_COUNTS)
         await conn.execute(_EDGE_INTERSECTIONS, INTERSECTION_DEGREE_THRESHOLD)
         await conn.execute(_EDGE_ACCIDENTS, ACCIDENT_FATAL_WEIGHT, degrees_covering_m(ACCIDENT_MATCH_MAX_DISTANCE_M),
-                           ACCIDENT_MATCH_MAX_DISTANCE_M, sorted(BICYCLE_PARTY_TYPE_CODES))
+                           ACCIDENT_MATCH_MAX_DISTANCE_M)
         await conn.execute(_WAY_FROM_EDGES)
         await conn.execute("ANALYZE way_materials")
 

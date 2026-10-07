@@ -15,6 +15,10 @@ PRECIPITATION_MIN_MM = 0.1
 _PRECIPITATION_MODERATE_MM = 1.0
 _PRECIPITATION_HEAVY_MM = 4.0
 _SNOW_MAX_TEMPERATURE_C = 0.0
+#: 応答に出す桁。降水量（mm/h）は「今日」のパネル・コマ・地図の格子で揃える。
+PRECIPITATION_MM_DECIMALS = 2
+WIND_SPEED_MS_DECIMALS = 2
+WIND_DIRECTION_DEG_DECIMALS = 1
 
 #: 推計気象分布（天気）の区分。配信元の色からの読み替えは`infrastructure/jma_suikei_client.py`。
 SuikeiWeather = Literal["clear", "cloudy", "rain", "rain_or_snow", "snow"]
@@ -136,7 +140,7 @@ def period_outlooks(times: list[datetime], temperature: np.ndarray, precipitatio
             WeatherPeriodOutlook(
                 period=times[index].strftime("%H:%M"),
                 temperature_c=rounded_or_none(temperature[index], 1),
-                precipitation_mm=rounded_or_none(precipitation[index], 2),
+                precipitation_mm=rounded_or_none(precipitation[index], PRECIPITATION_MM_DECIMALS),
             )
         )
     return results

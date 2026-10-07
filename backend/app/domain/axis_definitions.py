@@ -48,7 +48,7 @@ from pydantic_core import PydanticCustomError
 
 from app.domain.attributes import CategoricalColumn, MaterialColumn
 from app.domain.axis_templates import evaluate_breakpoint_linear, evaluate_categorical
-from app.domain.difficulty import round_difficulty_array
+from app.domain.difficulty import round_difficulty_array, weight_share
 from app.domain import material_catalog
 from app.domain.material_catalog import WIND_DRAG_RATIO
 from app.domain.strict_model import StrictModel
@@ -883,19 +883,28 @@ def dynamic_axis_topological_order(definitions: dict[str, AxisDefinition]) -> li
     return order
 
 
+def published_axis_definitions(definitions: Mapping[str, AxisDefinition] | None = None) -> list[AxisDefinition]:
+    """公開軸（`is_published=True`）を宣言の順に。`definitions`を省くと今の`AXIS_DEFINITIONS`。
+
+    内部軸（`is_published=False`）は一般ユーザーの重み付け対象外で、軸カタログにも出ない。"""
+    return [definition for definition in (AXIS_DEFINITIONS if definitions is None else definitions).values()
+            if definition.is_published]
+
+
 def default_axis_weights() -> dict[str, float]:
     """axis_idキーの既定重み辞書（APIで上書きされる前の値、`RoutePreference`の
     既定値）。値は各軸の`default_weight`で、`GET /api/axis-catalog`が軸ごとに配る
-    `default_weight`と同じ。
+    `default_weight`と同じ。公開軸だけを持つ（`published_axis_definitions`）。
+    `RoutePreference`のバリデーション（未知のaxis_idを拒否）もこの集合と整合させる。"""
+    return {definition.axis_id: definition.default_weight for definition in published_axis_definitions()}
 
-    内部軸（`is_published=False`）は一般ユーザーの重み付け対象外のため
-    除外する。`RoutePreference`のバリデーション（未知のaxis_idを拒否）もこの集合と
-    整合させる。"""
-    return {
-        axis_id: definition.default_weight
-        for axis_id, definition in AXIS_DEFINITIONS.items()
-        if definition.is_published
-    }
+
+def weight_share_when_published(definition: AxisDefinition, definitions: Mapping[str, AxisDefinition]) -> float | None:
+    """`definition`を（保存した既定の重みで）公開したとき、公開軸の既定の重みの合計に占める割合。公開済みの軸は今の
+    割合。分母は`definitions`の公開軸で、合計が0ならNone（`difficulty.weight_share`）。"""
+    others = [other.default_weight for other in published_axis_definitions(definitions)
+              if other.axis_id != definition.axis_id]
+    return weight_share(definition.default_weight, others)
 
 
 def time_scoped_weights(
@@ -923,9 +932,8 @@ def _priority_override_mask(values: MaterialColumn, equals: str) -> np.ndarray:
     """0次条件が材料の値のどの要素に当たるか。**一致の判定はここだけが持つ**。
 
     `equals`は`CategoricalShape.mapping`のキーと同じ読み方をする（"true"/"false"だけを真偽へ読み、
-    それ以外は書いたとおりの値の名前）。真偽の材料は、欠損を持たないものは真偽の配列、「不明」を
-    持つものは1.0/0.0/NaNの数値の配列で届く（`material_catalog.material_array_group`）が、
-    どちらも真偽との`==`で同じ答えになる。分類の材料はルート選びでは`CategoricalColumn`で届き、
+    それ以外は書いたとおりの値の名前）。真偽の材料は1.0/0.0/NaNの数値の配列で届き
+    （`material_catalog.material_array_columns`）、真偽との`==`が1.0/0.0と一致する。分類の材料はルート選びでは`CategoricalColumn`で届き、
     語彙の値と比べる。欠損（None・NaN）はどの`equals`にも当たらない。
     """
     if isinstance(values, CategoricalColumn):
@@ -1060,13 +1068,7 @@ def _term_values(materials: Mapping[str, MaterialColumn], material_id: str) -> n
 
 
 def _missing_material_mask(values: np.ndarray) -> np.ndarray:
-    """材料配列の欠損マスク。
-
-    bool配列は`bool_default="false"`の材料（値が無いことを偽として畳んである）のため
-    欠損を持たない。それ以外の数値配列はNaNが欠損を表す。
-    """
-    if values.dtype == bool:
-        return np.zeros(values.shape, dtype=bool)
+    """材料配列の欠損マスク。項の材料は数値・真偽とも数値の配列で届き、NaNが欠損を表す。"""
     return np.isnan(values)
 
 
@@ -1163,7 +1165,7 @@ def has_axis_raw_value_array(definition: AxisDefinition) -> bool:
 def evaluate_axis_array(definition: AxisDefinition, materials: Mapping[str, MaterialColumn]) -> np.ndarray:
     """材料の配列から要素ごとの軸の得点を求める（欠損=NaN）。軸の評価はこれ1本。
 
-    `materials`は材料id→同じ長さの列（フラグ材料はbool配列、それ以外はfloat配列で
+    `materials`は材料id→同じ長さの列（数値・真偽の材料はfloat配列で、真偽は1.0/0.0、
     欠損はNaN。categorical材料はルート選びでは`CategoricalColumn`、Pythonの値の入口では
     dtype=object の配列で欠損はNone）。requiredな材料のNaNは演算で
     自然に伝播し、required=Falseの材料のNaNは0へ置き換えて寄与なしとして扱う。ただし全termの
@@ -1179,8 +1181,8 @@ def evaluate_axis_array(definition: AxisDefinition, materials: Mapping[str, Mate
     if isinstance(shape, BreakpointLinearShape):
         result = _breakpoint_score_array(shape, *_breakpoint_raw_total_array(shape, materials))
     else:
-        # CategoricalShape。真偽の材料は真偽の配列でも1.0/0.0の数値配列でも、真偽のキーとの
-        # 一致が同じ答えになるため、キーをfloatへ変えない。
+        # CategoricalShape。真偽の材料の1.0/0.0の数値配列は真偽のキーとの一致が同じ答えになるため、
+        # キーをfloatへ変えない。
         result = evaluate_categorical(materials[shape.material], shape.mapping)
     for override in reversed(definition.priority_overrides):
         mask = _priority_override_mask(materials[override.material], override.equals)

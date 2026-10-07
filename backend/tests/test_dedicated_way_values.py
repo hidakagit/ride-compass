@@ -5,7 +5,7 @@
 
 ここで見ないもの:
 - 軸から配信を選ぶこと・区間インスペクタが足す材料（`DirectionalMaterialService`） → `test_region_routes.py`
-- 地図が載せる条件の名前（`dedicated_way_value_conditions`） → `test_axis_catalog_routes.py`
+- 地図が載せる条件の名前（`dedicated_way_value_layers`） → `test_axis_catalog_routes.py`
 - 各サービスが返す値 → `test_gradient_way_service.py`・`test_rain_way_service.py`・`test_wind_way_service.py`
 """
 

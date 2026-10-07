@@ -3,6 +3,7 @@ import { mapDisplay } from "@/types/generated/mapDisplay";
 import {
   MOBILE_VIEWPORT,
   installApiMocks,
+  installMapFinder,
   openMobileApp,
   openMobileSheet,
   runGeneration,
@@ -148,6 +149,60 @@ test("モバイル: ルート結果を見ている間は地図タップでピン
   await expect(settingsAgain.getByRole("button", { name: "経由地をクリア" })).toHaveCount(0);
   await page.locator(".app-map-pane canvas").click({ position: { x: 240, y: 220 } });
   await expect(settingsAgain.getByRole("button", { name: "経由地をクリア" })).toBeVisible({ timeout: 5000 });
+});
+
+// 住所の検索で置いた地点は、実際の地図のその位置にピンとして立ち、ピンを実際につかんで動かすと地点が動く（パターン4 観点2）。
+// 単体テストの代役地図はピンの位置もドラッグも持たないため、ここで見る。置いた・動かした位置は、生成の要求に載る目的地で読む
+// ——画面の印とは別の出口で確かめる。
+test("住所の検索で目的地に置いた地点は地図のその位置にピンが立ち、ピンを動かすと目的地が動く", async ({ page }) => {
+  const candidate = { kind: "address", level: "aza", name: "東京都北区王子一丁目", latitude: 35.7536, longitude: 139.7378 };
+  await installApiMocks(page);
+  await page.route("**/api/place-search*", (route) => route.fulfill({ json: { candidates: [candidate] } }));
+  await seedStoredState(page, { "ridecompass:first-visit-intro-closed": "true" });
+  await page.addInitScript(installMapFinder);
+  await page.goto("/");
+  await expect(page.getByText("地図を読み込み中…")).toBeHidden({ timeout: 15_000 });
+
+  await page.getByRole("searchbox", { name: "住所で探す" }).fill("王子");
+  await page.getByRole("searchbox", { name: "住所で探す" }).press("Enter");
+  await page.getByRole("button", { name: new RegExp(candidate.name) }).click();
+  await page.getByRole("button", { name: "目的地にする" }).click();
+
+  // ピンの位置（印の要素の中心）が、地図がその地点を描く位置にある。寄せる動きが終わるまで待つ。
+  const pin = page.locator(".maplibregl-marker", { hasText: "⚑" });
+  const offset = async () => {
+    const box = (await pin.boundingBox())!;
+    const at = await page.evaluate(([lng, lat]) => {
+      const map = window.__liveMap();
+      const projected = map.project([lng, lat]);
+      const canvas = map.getCanvas().getBoundingClientRect();
+      return { x: canvas.left + projected.x, y: canvas.top + projected.y, moving: map.isMoving() };
+    }, [candidate.longitude, candidate.latitude]);
+    return at.moving ? Infinity : Math.hypot(box.x + box.width / 2 - at.x, box.y + box.height / 2 - at.y);
+  };
+  await expect.poll(offset, { timeout: 10_000 }).toBeLessThan(2);
+
+  // 落とす先の地点は、動かす前の地図で求める（ピンをつかめないと地図のほうが動き、後で求めると落とした先がずれる）。
+  const box = (await pin.boundingBox())!;
+  const from = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  const to = { x: from.x + 80, y: from.y + 50 };
+  const target = await page.evaluate(({ x, y }) => {
+    const map = window.__liveMap();
+    const canvas = map.getCanvas().getBoundingClientRect();
+    const lngLat = map.unproject([x - canvas.left, y - canvas.top]);
+    return { latitude: lngLat.lat, longitude: lngLat.lng };
+  }, to);
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(to.x, to.y, { steps: 10 });
+  await page.mouse.up();
+
+  const request = page.waitForRequest((r) => r.method() === "POST" && r.url().endsWith("/api/routes/generate"));
+  await page.getByRole("button", { name: "ルート生成" }).click();
+  const { destination } = (await request).postDataJSON() as { destination: { latitude: number; longitude: number } };
+  // 動かした量に比べて十分小さい差なら、落とした先に動いている。
+  const distance = (a: typeof target, b: typeof target) => Math.hypot(a.latitude - b.latitude, a.longitude - b.longitude);
+  expect(distance(destination, target)).toBeLessThan(distance(candidate, target) / 20);
 });
 
 // sceneが組むレイヤーの式は、MapLibreのスタイル検証（addLayer時）を実ブラウザでしか通らない。

@@ -23,15 +23,13 @@ highway/surface/smoothnessのようなOSMタグの生値でオープンエンド
 認可を要求する理由は`get_material_coverage`のdocstring参照。
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.admin_auth import require_admin_basic_auth
-from app.api.dependencies import get_material_coverage_service, get_road_graph_repository
+from app.api.dependencies import get_axis_preview_service, get_material_coverage_service
 from app.domain.material_catalog import MATERIAL_CATALOG, is_known_material
-from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
-from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.domain.value_distribution import EMPTY_SPREAD, ValueSpread
-from app.services.axis_preview_service import material_value_distribution, material_values
+from app.services.axis_preview_service import AxisPreviewService
 from app.services.material_coverage_service import MaterialCoverageReport, MaterialCoverageService
 from app.domain.strict_model import StrictModel
 
@@ -68,7 +66,7 @@ class MaterialDistributionResponse(ValueSpread):
 )
 async def get_material_distribution(
     material_id: str,
-    repository: RoadGraphRepository = Depends(get_road_graph_repository),
+    preview: AxisPreviewService = Depends(get_axis_preview_service),
 ) -> MaterialDistributionResponse:
     """材料の値が実データでどの範囲に散らばっているかを返す（軸スタジオ）。
 
@@ -78,7 +76,7 @@ async def get_material_distribution(
     """
     if not is_known_material(material_id):
         raise HTTPException(status_code=404, detail=f"unknown material '{material_id}'")
-    distribution = await material_value_distribution(repository, material_id)
+    distribution = await preview.material_value_distribution(material_id)
     if distribution is None:
         return MaterialDistributionResponse(available=False, **EMPTY_SPREAD.model_dump())
     return MaterialDistributionResponse(available=True, **distribution.model_dump())
@@ -91,13 +89,13 @@ async def get_material_distribution(
 )
 async def get_material_values(
     material_id: str,
-    repository: RoadGraphRepository = Depends(get_road_graph_repository),
+    preview: AxisPreviewService = Depends(get_axis_preview_service),
 ) -> MaterialValuesResponse:
     """材料idに対応する実データの値一覧（ソート済み、重複無し）を返す。
     未知の材料idは404（フロントのタイプミス検知用）。値一覧を持たない材料（カテゴリ以外の
     真偽・数値の材料と、値の求め方を持たない材料）は`available=true`の空リスト、
     DB障害・タイムアウトは`available=false`を返す
-    （`services/axis_preview_service.py: material_values`参照。「候補が無い」と「候補を出せなかった」を
+    （`services/axis_preview_service.py: AxisPreviewService.material_values`参照。「候補が無い」と「候補を出せなかった」を
     画面が区別できるようにするため、両方を空リストへ倒さない）。
 
     利用者は軸スタジオ（`/admin`）だけで、1リクエストにつき索引の効かない
@@ -107,7 +105,7 @@ async def get_material_values(
     """
     if not is_known_material(material_id):
         raise HTTPException(status_code=404, detail=f"unknown material '{material_id}'")
-    values = await material_values(repository, material_id)
+    values = await preview.material_values(material_id)
     if values is None:
         return MaterialValuesResponse(available=False, values=[])
     spec = MATERIAL_CATALOG[material_id]
@@ -127,12 +125,5 @@ async def get_material_coverage(
     読み取り専用のAPIだがBasic認証を要求する:
     道の生データと区間の材料の全表走査を伴う重いクエリで、認可なしに公開すると
     繰り返し呼ばれるだけでDBを圧迫できてしまう（管理画面`/admin`からのみ使う想定）。
-    DB例外は`axis_admin.py`と同じく503へ変換する（診断用APIのため空レポートへ倒さない）。
     """
-    try:
-        return await service.get_material_coverage()
-    except DB_UNAVAILABLE_ERRORS as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="材料の欠損割合の集計に失敗しました（DB接続と、テーブルが作られているかを確認してください）",
-        ) from exc
+    return await service.get_material_coverage()

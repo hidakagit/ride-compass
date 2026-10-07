@@ -1,5 +1,5 @@
 /**
- * 区間の乗り換えの編集（`useSpliceSession.ts`）——目的地の生成で候補が2本以上あり、候補を選んでいて、区間を割る下限を
+ * 区間の乗り換えの編集（`useSpliceSession.ts`）——乗り換えの元にできる（backendの印）候補が2本以上あり、候補を選んでいて、区間を割る下限を
  * 引けるときだけ始められる。始めると元の候補を編集面と地図（いま作っているルート）へ渡し、他の候補が別の道を通る
  * 区間を乗り換え先として地図へ出す。乗り換え・1つ戻す・全部戻す・やめるができ、組み合わせた経路は表示中の候補を
  * 作った生成の入力でbackendに評価させ（同じ組み合わせは投げ直さない。評価が既にある候補と同じ道ならその候補も渡す）、
@@ -31,8 +31,8 @@ import { CLIENT_TUNING_IDS } from "@/lib/axisCatalog";
 import { heldReplies, serveAxisCatalog } from "@/testing/backendServer";
 import { catalogEntry, catalogResponse } from "@/testing/catalogAxes";
 import { serveGenerationJobs } from "@/testing/generationJobs";
-import { makeRouteCandidate, routeThrough, type Places } from "@/testing/routeFixtures";
-import type { GenerationConditions, RouteCandidate } from "@/types/route";
+import { makeGenerationConditions, makeRouteCandidate, routeThrough, type Places } from "@/testing/routeFixtures";
+import type { RouteCandidate } from "@/types/route";
 
 import { useSpliceSession } from "./useSpliceSession";
 
@@ -51,10 +51,13 @@ const PLACES: Places = {
   nr: [139.715, 35.605],
 };
 
-/** 地点を順に通る候補。Edgeの境界の位置は座標の位置と食い違う（`testing/routeFixtures.ts: routeThrough`）。 */
+/** 地点を順に通る目的地の候補。Edgeの境界の位置は座標の位置と食い違う（`testing/routeFixtures.ts: routeThrough`）。 */
 function route(id: string, names: readonly string[]): RouteCandidate {
-  return makeRouteCandidate({ id, ...routeThrough(PLACES, names) });
+  return makeRouteCandidate({ id, kind: "destination", spliceable: true, ...routeThrough(PLACES, names) });
 }
+
+/** 同じ道を通る周回の候補（backendは乗り換えの元にできない印を付ける）。 */
+const asLoop = (candidate: RouteCandidate): RouteCandidate => ({ ...candidate, kind: "loop", spliceable: false });
 
 /** 地点を順に通る線の座標。 */
 const line = (...names: string[]) => routeThrough(PLACES, names).geometry.coordinates;
@@ -86,23 +89,19 @@ const BASIS: GenerationInput = {
 };
 
 // 評価の応答に付く生成の条件（乗り換えは読まない）。
-const CONDITIONS: GenerationConditions = {
+const CONDITIONS = makeGenerationConditions({
   latitude: BASIS.origin.latitude,
   longitude: BASIS.origin.longitude,
-  distance_km: 0,
   distance_tolerance_km: BASIS.distanceToleranceKm,
   route_preference: { axis_a: 1 },
   penalty_strength: 1,
-  max_average_grade_percent: null,
   hard_filters: BASIS.hardFilters,
   max_routes: BASIS.maxRoutes,
   start_time: BASIS.startTime.toISOString(),
   assumed_speed_kmh: BASIS.assumedSpeedKmh,
-  waypoints: null,
   destination: BASIS.destination,
-  corrected_destination: null,
   generated_at: "2026-10-04T09:00:30Z",
-};
+});
 
 type Props = Pick<Parameters<typeof useSpliceSession>[0], "routes" | "generatedInput" | "hasSelectedRoute">;
 
@@ -138,7 +137,7 @@ function tapStretch(rendered: Rendered, n = 0) {
 }
 
 function evaluated(edgeIds: string[], id = "spliced"): RouteCandidate {
-  return makeRouteCandidate({ id, edge_ids: edgeIds, distance_km: 12.3 });
+  return makeRouteCandidate({ id, kind: "spliced", spliceable: true, edge_ids: edgeIds, distance_km: 12.3 });
 }
 
 let jobs: ReturnType<typeof serveGenerationJobs>;
@@ -172,12 +171,13 @@ beforeEach(() => {
 });
 
 describe("入口", () => {
-  it("目的地の生成で候補が2本以上あり、候補を選んでいて、区間を割る下限を引けるときだけ始められる", async () => {
+  it("乗り換えの元にできる候補が2本以上あり、候補を選んでいて、区間を割る下限を引けるときだけ始められる", async () => {
     const rendered = renderSplice();
     await waitFor(() => expect(rendered.result.current.canStart).toBe(true));
 
+    // 周回の候補は、生成の入力が目的地を持っていても印に従って始めない（入力から決め直さない）
     const blocked: Partial<Props>[] = [
-      { generatedInput: { ...BASIS, destination: null } },
+      { routes: [asLoop(BASE), asLoop(VIA_Q)] },
       { routes: [BASE] },
       { hasSelectedRoute: false },
     ];
@@ -256,7 +256,13 @@ describe("編集", () => {
 
   it("線の形を持たない候補（Edge idだけ）では、地図に描けない乗り換え先を出さない", async () => {
     const edgesOnly = (route: RouteCandidate) =>
-      makeRouteCandidate({ id: route.id, edge_ids: route.edge_ids, node_ids: route.node_ids });
+      makeRouteCandidate({
+        id: route.id,
+        kind: route.kind,
+        spliceable: route.spliceable,
+        edge_ids: route.edge_ids,
+        node_ids: route.node_ids,
+      });
     const rendered = renderSplice({ routes: [edgesOnly(BASE), edgesOnly(VIA_Q)] });
 
     await startWithCatalog(rendered);

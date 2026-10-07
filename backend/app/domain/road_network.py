@@ -49,8 +49,6 @@ class RoadNetwork:
     # 材料（`EdgeMaterialArrays`と同じ列。区間と同じ行順）。
     numeric_ids: tuple[str, ...]
     numeric_values: np.ndarray  # (区間, 列) float64, NaN=欠損
-    boolean_ids: tuple[str, ...]
-    boolean_values: np.ndarray  # (区間, 列) bool
     categorical_ids: tuple[str, ...]
     categorical_codes: np.ndarray  # (区間, 列) int16。0は値なし
     categorical_vocab: tuple[tuple[str | None, ...], ...]  # 列ごとの語彙。先頭は必ずNone
@@ -81,7 +79,6 @@ class RoadNetwork:
             name: (matrix.shape[1], len(ids))
             for name, matrix, ids in (
                 ("numeric_values", self.numeric_values, self.numeric_ids),
-                ("boolean_values", self.boolean_values, self.boolean_ids),
                 ("categorical_codes", self.categorical_codes, self.categorical_ids),
                 ("hard_filter_flags", self.hard_filter_flags, self.hard_filter_ids),
             )
@@ -162,7 +159,6 @@ def material_arrays_of(road: RoadSlice) -> EdgeMaterialArrays:
 
     return EdgeMaterialArrays(
         numeric_ids=network.numeric_ids, numeric_values=take(network.numeric_values),
-        boolean_ids=network.boolean_ids, boolean_values=take(network.boolean_values),
         categorical_ids=network.categorical_ids,
         categorical_columns=tuple(
             CategoricalColumn(np.asarray(network.categorical_codes[rows, column]), vocab)
@@ -177,7 +173,7 @@ def material_arrays_of(road: RoadSlice) -> EdgeMaterialArrays:
 
 
 def elevation_attribute(network: RoadNetwork, row: int, edge_id: str) -> ElevationAttribute | None:
-    """全体の行`row`の区間の標高属性。標高が未計算ならNone。平均勾配は材料`gradient_percent`の値
+    """全体の行`row`の区間の標高属性。標高が無ければNone。平均勾配は材料`gradient_percent`の値
     （表示用の標高列と重複して持たないため、勾配だけは材料の列から読む）。"""
     if not network.elevation_present[row]:
         return None

@@ -13,13 +13,14 @@
  * - 読むだけの問い合わせへ送ったか・何を送ったか（応答を与えるだけにする）
  */
 import { useState } from "react";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import type { AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
 import type { getMaterialValues, ScoresPreviewRequest } from "@/features/admin/adminApi";
 import { heldReplies, onSameOrigin } from "@/testing/backendServer";
+import { settle } from "@/testing/settle";
 import type { AxisShape } from "@/types/route";
 
 import { emptyDraft, type Draft } from "./axisDraft";
@@ -108,10 +109,6 @@ function serveValues(materialId: string, response: MaterialValuesResponse) {
     Response.json(path.endsWith(`/${materialId}/values`) ? response : valuesResponse([])),
   );
 }
-
-/** 取得の応答が届くだけの間をおく（出ないことを確かめるため。届いた値を確かめるときは、その値が出るまで待つ。届くまでの
- * 時間は CI の負荷で変わる）。 */
-const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 50)));
 
 /** 点数は、分布が届いて階級の代表値が決まると、入力が落ち着くのを待って取り直す。その答えが届くまで待つ。 */
 const LATER = { timeout: 2000 };
@@ -357,12 +354,10 @@ describe("0点・100点・効き方", () => {
     // 入れると折れ点が変わり、点数を取り直す間は参考点のボタンが消えるので、押すたびに探す。
     const referenceButton = async (name: string) =>
       within(await screen.findByRole("group", { name: "参考点から値を選ぶ" }, LATER)).getByRole("button", { name });
-    expect(await referenceButton("下り")).toHaveAttribute("title", "下り: -5km/h");
-
-    await user.click(await referenceButton("平坦"));
+    await user.click(await referenceButton("平坦（30km/h）"));
     expect(screen.getByRole("spinbutton", { name: "0点にする値" })).toHaveValue(pointOf(30).x);
 
-    fireEvent.doubleClick(await referenceButton("下り"));
+    fireEvent.doubleClick(await referenceButton("下り（-5km/h）"));
     expect(screen.getByRole("spinbutton", { name: "100点にする値" })).toHaveValue(pointOf(-5).x);
   });
 

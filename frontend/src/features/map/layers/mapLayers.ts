@@ -5,7 +5,6 @@
 
 import weatherScales from "@/types/generated/weather-scales.json";
 import { mapDisplay } from "@/types/generated/mapDisplay";
-import regionTileConfig from "@/types/generated/region-tile-config.json";
 import {
   AccidentIcon,
   ElevationIcon,
@@ -25,6 +24,7 @@ import {
   type MapIconComponent,
 } from "@/components/ui/icons/icons";
 import type { LegendEntry } from "@/lib/mapDisplay/legendFilter";
+import { TILE_VERSION_GATED_SOURCES } from "@/lib/mapDisplay/tileVersionGated";
 import { LANDCOVER_PAINTED_CLASSES } from "./landcoverClasses";
 import { PRECIPITATION_INTENSITY_LEVELS } from "./precipitationNowcast";
 import { WIND_SPEED_LEGEND_LEVELS } from "./windLayer";
@@ -67,14 +67,28 @@ function readOnlyEntries(levels: readonly Omit<LegendEntry, "filter">[]): Legend
   return levels.map((level) => ({ ...level, filter: UNUSED_LEGEND_FILTER }));
 }
 
+/** 名前付きソースの宣言（同じソースを名乗る要素は名前・コマの規則・配信を共有するので、先頭の要素で引く）。 */
+function weatherSourceOf(source: string) {
+  const element = mapDisplay.weatherElements.find((candidate) => candidate.source === source);
+  if (!element) throw new Error(`${source}は宣言されていない`);
+  return element;
+}
+
 /** 名前付きソースを重ねる幅（「今」から何時間先まで）。源泉が要素の描くコマの規則として宣言する値。 */
 function windowHoursOf(source: string): number {
-  const minutes = mapDisplay.weatherElements.find((element) => element.source === source)?.frameRule.windowMinutes;
+  const minutes = weatherSourceOf(source).frameRule.windowMinutes;
   if (minutes == null) throw new Error(`${source}は重ねる幅を宣言していない`);
   return minutes / 60;
 }
 
 const LINEAR_RAINBAND_HOURS = windowHoursOf("linearRainband");
+
+/** 名前付きソースの予測が届く先（分）。源泉が配信の要素ごとに宣言する値。 */
+function forecastMinutesOf(source: string): number {
+  const minutes = weatherSourceOf(source).jmaElements[0]?.forecastMinutes;
+  if (minutes == null) throw new Error(`${source}は予測が届く先を宣言していない`);
+  return minutes;
+}
 
 type WeatherElementDeclaration = (typeof mapDisplay.weatherElements)[number];
 
@@ -135,7 +149,7 @@ const READ_ONLY_LEGENDS: Partial<Record<StaticMapLayerId, readonly ReadOnlyLegen
       legend: readOnlyEntries(PRECIPITATION_INTENSITY_LEVELS),
     },
     {
-      label: `線状降水帯予測マップ[現在〜${LINEAR_RAINBAND_HOURS}時間先のみ]`,
+      label: `${weatherSourceOf("linearRainband").label}[現在〜${LINEAR_RAINBAND_HOURS}時間先のみ]`,
       // 色は配信元の塗り色そのもの。矩形に見えることも書く（細かい雨域と重なると描画の不具合に見える）。
       legend: [
         {
@@ -147,7 +161,7 @@ const READ_ONLY_LEGENDS: Partial<Record<StaticMapLayerId, readonly ReadOnlyLegen
       ],
     },
     {
-      label: "線状降水帯の雨域[実況〜30分先のみ]",
+      label: `${weatherSourceOf("linearRainbandArea").label}[実況〜${forecastMinutesOf("linearRainbandAreaForecast")}分先のみ]`,
       // 文言は配信元の公式の画面の凡例に合わせる。
       legend: [
         {
@@ -352,9 +366,6 @@ export const TILE_ZOOM_TOO_WIDE_NOTICE = "ズームインすると表示され�
 
 /** チップ下に出す、タイルの世代が届いていないときの案内（届くまでソースを作らないので何も描けない）。 */
 export const TILE_VERSIONS_MISSING_NOTICE = "配信情報を取得できず表示できません";
-
-/** 世代が届くまで要求できない情報源（世代を配るタイルの系統の名前が、そのまま情報源の名前）。 */
-const TILE_VERSION_GATED_SOURCES: ReadonlySet<string> = new Set(regionTileConfig.tile_version_kinds);
 
 /** タイルの世代が届くまで何も描けないレイヤー。ramp軸も路面タイルを読むので含める。 */
 export function tileVersionGatedLayerIds(rampAxes: readonly RampAxis[]): readonly MapLayerId[] {

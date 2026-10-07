@@ -6,16 +6,14 @@
 import sys
 from pathlib import Path
 
-import asyncpg
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from app.batch import derive_node_materials, derive_topology  # noqa: E402
-from app.batch.common import asyncpg_dsn  # noqa: E402
 from app.domain.tuning import TUNING_PARAMETERS_BY_ID  # noqa: E402
 from derived_distribution import collect, select_targets  # noqa: E402
-from tests.conftest import postgis_database_url  # noqa: E402
+from tests.conftest import postgis_database_url, raw_connection  # noqa: E402
 from tests.source_ingest import ingest_records, point_record, way_record  # noqa: E402
 
 pytestmark = [
@@ -35,12 +33,9 @@ async def _derive_nodes() -> None:
     await ingest_records("osm_way", [
         way_record(way_id, [NODES[n][:2] for n in node_ids], node_ids) for way_id, node_ids in WAYS.items()])
     await ingest_records("osm_node", [point_record(n, lon, lat, tags) for n, (lon, lat, tags) in NODES.items()])
-    conn = await asyncpg.connect(asyncpg_dsn(postgis_database_url()))
-    try:
+    async with raw_connection() as conn:
         await derive_topology.derive(conn)
         await derive_node_materials.derive(conn, TUNING_PARAMETERS_BY_ID["signal.match_radius_m"].default)
-    finally:
-        await conn.close()
 
 
 async def test_each_column_type_gets_its_own_summary(road_graph_session):

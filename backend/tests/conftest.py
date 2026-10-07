@@ -1,9 +1,10 @@
 import asyncio
 import functools
 import hashlib
+import logging
 import os
 import re
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 
 from app.infrastructure.proj_data import pin_bundled_proj_data
@@ -22,8 +23,17 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from app.batch.common import asyncpg_dsn
-from app.infrastructure import debug_log, rate_limiter, redis_client, tile_cache, tile_persistent_cache
-from app.infrastructure.orm_base import Base
+from app.infrastructure import (
+    address_dictionary,
+    debug_log,
+    jma_area_boundaries,
+    rate_limiter,
+    redis_client,
+    road_network_store,
+    tile_cache,
+    tile_persistent_cache,
+)
+from app.infrastructure.orm_base import declared_metadata
 from app.infrastructure.road_graph_repository import (
     REQUIRED_EXTENSIONS,
     RoadGraphRepository,
@@ -41,10 +51,58 @@ hypothesis_settings.load_profile("ridecompass")
 
 
 @pytest.fixture
-def admin_credentials(monkeypatch):
-    """管理画面APIのBasic認証を、テスト用の固定の認証情報で通るようにする。"""
-    monkeypatch.setattr(settings, "admin_basic_auth_username", ADMIN_USERNAME)
-    monkeypatch.setattr(settings, "admin_basic_auth_password", ADMIN_PASSWORD)
+def admin_credentials(monkeypatch, request):
+    """管理画面APIのBasic認証を、テスト用の固定の認証情報で通るようにする。
+
+    `indirect`で`(ユーザー名, パスワード)`を渡すと、その値を置く（`("", "")`なら認証情報が無い本番の状態）。
+    """
+    username, password = getattr(request, "param", (ADMIN_USERNAME, ADMIN_PASSWORD))
+    monkeypatch.setattr(settings, "admin_basic_auth_username", username)
+    monkeypatch.setattr(settings, "admin_basic_auth_password", password)
+
+
+@pytest.fixture
+def road_network_root(monkeypatch, tmp_path) -> Path:
+    """道路網の置き場（`road_network_store.ROOT`）を、テストごとの空の一時ディレクトリへ移したパス。
+
+    前のテストが読み込んだ道路網は置き場の場所が違うので使われない。
+    """
+    root = tmp_path / "road_network"
+    monkeypatch.setattr(road_network_store, "ROOT", root)
+    return root
+
+
+@pytest.fixture
+def boundary_path(monkeypatch, tmp_path) -> Path:
+    """区域の境界の置き場（`jma_area_boundaries.BOUNDARY_PATH`）を、テストごとの一時ディレクトリの下へ移したパス。
+    ファイルはまだ無い（読めない置き場）。"""
+    path = tmp_path / "jma_area" / "boundaries.json"
+    monkeypatch.setattr(jma_area_boundaries, "BOUNDARY_PATH", path)
+    return path
+
+
+@pytest.fixture
+def address_dictionary_dir(monkeypatch, tmp_path) -> Path:
+    """住所の辞書の置き場（`address_dictionary.DICTIONARY_DIR`）を、テストごとの一時ディレクトリの下へ移したパス。
+    辞書はまだ無い（開けない置き場）。"""
+    path = tmp_path / "address_dictionary" / address_dictionary.DICTIONARY_DIR.name
+    monkeypatch.setattr(address_dictionary, "DICTIONARY_DIR", path)
+    return path
+
+
+@pytest.fixture
+def restore_debug_mode():
+    """debug_modeの切替の口を叩いたテストのあとで、debug_modeとルートロガーのレベルを元に戻す。
+
+    どちらもプロセス全体で共有される可変状態で、残すと後のテストのログの拾い方が変わる
+    （ルートロガーがINFOのままだと、`caplog.at_level`の外で出たINFOまで拾われる）。
+    """
+    original_debug_mode = settings.debug_mode
+    original_level = logging.getLogger().level
+    yield
+    settings.debug_mode = original_debug_mode
+    logging.getLogger().setLevel(original_level)
+
 
 @pytest.fixture(autouse=True)
 def _closed_redis_circuit_breaker():
@@ -253,7 +311,7 @@ async def _ensure_template_database(conn) -> None:
 async def _clear_app_tables(url: str) -> None:
     """複製に引き継がれたアプリ側の表を落とす。
 
-    テストは自分でテーブルを作る（`Base.metadata.create_all`）ので、複製元に残っていた
+    テストは自分でテーブルを作る（`declared_metadata().create_all`）ので、複製元に残っていた
     表と行が初期状態に混ざらないようにする。落とす対象は名前で並べず、**拡張が持ち込んだ
     表（`spatial_ref_sys`等）ではないこと**から導く。
     """
@@ -311,6 +369,25 @@ def postgis_database_url() -> str:
     return os.environ.get("TEST_DATABASE_URL") or (
         f"{TEST_DATABASE_SERVER}/{default_test_database_name(WORKTREE_ROOT)}"
     )
+
+
+@asynccontextmanager
+async def raw_connection():
+    """テストDBへの生の接続（asyncpg）。取込の入口と派生の段は、SQLAlchemyのセッションではなく
+    トランザクションの外のこの接続を受ける。抜けるときに閉じる。"""
+    conn = await asyncpg.connect(asyncpg_dsn(postgis_database_url()))
+    try:
+        yield conn
+    finally:
+        await conn.close()
+
+
+#: 生データと、派生の段が書く表。派生の段を生の接続で回すテストは、これを空にしてから取り込む。
+INGESTED_TABLES = ("edge_materials", "way_materials", "road_edges", "node_materials", "source_features", "source_runs")
+
+
+async def empty_ingested_tables(conn) -> None:
+    await conn.execute("TRUNCATE " + ", ".join(INGESTED_TABLES) + " CASCADE")
 
 
 def _prepare_worktree_database() -> str:
@@ -403,8 +480,23 @@ async def road_graph_engine():
 
 async def _delete_app_rows(engine) -> None:
     async with engine.begin() as conn:
-        for table in reversed(Base.metadata.sorted_tables):
+        for table in reversed(declared_metadata().sorted_tables):
             await conn.execute(table.delete())
+
+
+@pytest_asyncio.fixture(scope="module", loop_scope="module")
+async def derive_conn(road_graph_engine):
+    """テストファイル単位で使い回す生の接続（`raw_connection`）。ファイルの前後で`INGESTED_TABLES`を空にする。
+
+    `road_graph_engine`に依存するのは接続のためではなく、**スキーマを作らせるため**。生の接続は
+    テーブルを作る経路を通らないので、まっさらなDB（CI）では最初の文から落ちる。
+    """
+    async with raw_connection() as conn:
+        await empty_ingested_tables(conn)
+        try:
+            yield conn
+        finally:
+            await empty_ingested_tables(conn)
 
 
 @pytest_asyncio.fixture(loop_scope="module")

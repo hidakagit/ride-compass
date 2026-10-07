@@ -1,6 +1,7 @@
 """`domain/map_paint.py`——地図が軸について塗るもの（`map_paint`）。
 
-入口は`map_paint`1本で、塗る値の種類・材料・単位・ルート線の段の境界・凡例の目盛りを1つの値で返す。
+入口は`map_paint`1本で、塗る値の種類・材料・単位・ルート線の段の境界・凡例の目盛り・タイルの塗り・段の体感ラベルを
+1つの値で返す。段の並びの件数が揃うことは、`MapPaint`が値を作るときに確かめる。
 
 材料カタログと軸の集合は本番の正本を読まず、性質だけを持つ架空の材料・軸へ差し替える（`MATERIAL_CATALOG`・
 `AXIS_DEFINITIONS`。段の境界は`domain/axis_display.py`を、量の単位は`domain/axis_raw_value.py`を通るので、
@@ -25,10 +26,12 @@ from app.domain.map_paint import (
     DEFAULT_DIFFICULTY_BOUNDARIES,
     DifficultyMapValue,
     MapLegendScale,
+    MapPaint,
     SignedMaterialMapValue,
     map_paint,
 )
 from app.domain.material_catalog import CoverageExcluded, MaterialSpec
+from tests.axis_system_fixture import shaped_axis
 
 
 def _material(material_id, dtype="numeric", *, tile=True, unit="") -> MaterialSpec:
@@ -76,11 +79,7 @@ def _line(*materials, breakpoints=((0.0, 0.0), (10.0, 100.0)), preprocess="ident
     )
 
 
-def _axis(shape, axis_id="axis_a", **fields) -> AxisDefinition:
-    return AxisDefinition(axis_id=axis_id, shape=shape, default_weight=1.0, label="軸A", **fields)
-
-
-SIGNED = _axis(_line("num_live", breakpoints=((0.0, 0.0), (2.0, 30.0), (6.0, 100.0)), preprocess="abs"))
+SIGNED = shaped_axis(_line("num_live", breakpoints=((0.0, 0.0), (2.0, 30.0), (6.0, 100.0)), preprocess="abs"))
 
 
 # --- 塗る値の種類 ---
@@ -94,20 +93,20 @@ def test_a_single_material_axis_on_its_absolute_value_paints_the_signed_raw_valu
 
 
 DIFFICULTY_AXES = {
-    "符号を畳まない": _axis(_line("num_live")),
-    "項が2つ": _axis(_line("num_live", "num_other", preprocess="abs")),
-    "項が軸を指す": _axis(_line("inner", preprocess="abs")),
+    "符号を畳まない": shaped_axis(_line("num_live")),
+    "項が2つ": shaped_axis(_line("num_live", "num_other", preprocess="abs")),
+    "項が軸を指す": shaped_axis(_line("inner", preprocess="abs")),
     "0次条件を持つ": SIGNED.model_copy(
         update={"priority_overrides": [PriorityCondition(material="num_live", equals="x", value=0.0)]}
     ),
-    "分類の軸": _axis(CategoricalShape(material="kind", mapping={"x": 0.0, "y": 100.0})),
+    "分類の軸": shaped_axis(CategoricalShape(material="kind", mapping={"x": 0.0, "y": 100.0})),
 }
 
 
 @pytest.mark.parametrize("definition", DIFFICULTY_AXES.values(), ids=DIFFICULTY_AXES.keys())
 def test_other_axes_paint_the_difficulty(axes, definition):
     """軸を指す項の値は参照先の得点で、材料の符号も単位も持たない。0次条件の当たる道では生値が評価と食い違う。"""
-    axes["inner"] = _axis(_line("num_tiled"), axis_id="inner")
+    axes["inner"] = shaped_axis(_line("num_tiled"), axis_id="inner")
 
     assert map_paint(definition).value == DifficultyMapValue()
 
@@ -128,7 +127,7 @@ def test_an_override_on_an_axis_the_tiles_cannot_paint_is_used_as_is():
 
 
 def test_a_difficulty_axis_the_tiles_cannot_paint_is_cut_at_the_default_difficulty_bands():
-    assert map_paint(_axis(_line("num_live", "num_other", preprocess="abs"))).thresholds == list(
+    assert map_paint(shaped_axis(_line("num_live", "num_other", preprocess="abs"))).thresholds == list(
         DEFAULT_DIFFICULTY_BOUNDARIES
     )
 
@@ -142,7 +141,7 @@ def test_the_default_difficulty_boundaries_are_strictly_ascending():
 
 def test_route_line_bands_of_a_categorical_axis_are_the_map_bands():
     """分類の軸の地図の値は初めから得点なので、写さない。"""
-    definition = _axis(CategoricalShape(material="kind", mapping={"x": 0.0, "y": 40.0, "z": 100.0}))
+    definition = shaped_axis(CategoricalShape(material="kind", mapping={"x": 0.0, "y": 40.0, "z": 100.0}))
 
     assert map_paint(definition).thresholds == [20.0, 70.0]
 
@@ -154,7 +153,7 @@ RAIN_LINE = ((0.0, 0.0), (5.0, 30.0), (20.0, 70.0), (50.0, 100.0))
 
 def test_an_axis_scoring_a_quantity_is_cut_at_its_knots_and_written_in_that_quantity():
     """雨のように単位のある量1つから得点を作る軸は、軸が効きの変わり目とした節で段を切り、凡例はその量で書く。"""
-    paint = map_paint(_axis(_line("rain_live", breakpoints=RAIN_LINE), dedicated_way_value_layer=True))
+    paint = map_paint(shaped_axis(_line("rain_live", breakpoints=RAIN_LINE), dedicated_way_value_layer=True))
 
     assert paint.thresholds == [30.0, 70.0, 100.0]
     assert paint.legend == MapLegendScale(boundaries=[5.0, 20.0, 50.0], unit="mm")
@@ -164,7 +163,7 @@ def test_a_tile_painted_axis_scoring_a_quantity_is_written_at_its_map_bands_in_t
     """タイルで塗る軸の地図の段は初めから量の目盛りなので、凡例はそれをそのまま量で書く。地図は材料の重み付き和を、
     ルート線は難易度を塗るので、同じ段になるよう、ルート線の境界は地図の境界を折れ線で写す。"""
     paint = map_paint(
-        _axis(
+        shaped_axis(
             _line("count_tiled", breakpoints=((0.0, 0.0), (4.0, 20.0), (10.0, 80.0))),
             display_thresholds_override=[2.0, 7.0],
         )
@@ -175,12 +174,12 @@ def test_a_tile_painted_axis_scoring_a_quantity_is_written_at_its_map_bands_in_t
 
 
 SCORE_LEGEND_AXES = {
-    "量に単位が無い": _axis(_line("num_live", "num_other")),
-    "得点が量について増えない区間がある": _axis(
+    "量に単位が無い": shaped_axis(_line("num_live", "num_other")),
+    "得点が量について増えない区間がある": shaped_axis(
         _line("rain_live", breakpoints=((0.0, 0.0), (5.0, 50.0), (20.0, 50.0), (50.0, 100.0)))
     ),
-    "得点で刻んだ上書き": _axis(_line("rain_live", breakpoints=RAIN_LINE), display_thresholds_override=[40.0]),
-    "0次条件を持つ": _axis(
+    "得点で刻んだ上書き": shaped_axis(_line("rain_live", breakpoints=RAIN_LINE), display_thresholds_override=[40.0]),
+    "0次条件を持つ": shaped_axis(
         _line("rain_live", breakpoints=RAIN_LINE),
         priority_overrides=[PriorityCondition(material="rain_live", equals="x", value=0.0)],
     ),
@@ -197,3 +196,48 @@ def test_bands_that_cannot_be_written_as_a_quantity_are_written_as_scores(defini
 
 def test_a_signed_material_axis_is_written_in_the_material_unit():
     assert map_paint(SIGNED).legend == MapLegendScale(boundaries=[-6.0, -2.0, 2.0, 6.0], unit="%")
+
+
+# --- 段の並び ---
+
+#: 4つ刻んだ境界のうち、得点が上がらない3と4は地図で落ちる（段は5つから3つになる）。
+STEPPED = _line("num_tiled", breakpoints=((0.0, 0.0), (2.0, 50.0), (4.0, 50.0), (6.0, 100.0), (10.0, 100.0)))
+
+#: 段の数を上書きで変える軸。タイルで塗る軸は刻んだ境界の一部が落ち、専用配信の軸は刻んだ境界がそのまま段になる。
+OVERRIDDEN_BAND_AXES = {
+    "タイルで塗る軸": shaped_axis(
+        STEPPED, display_thresholds_override=[2.0, 3.0, 4.0, 8.0], display_band_labels_override=list("abcde")
+    ),
+    "専用配信の軸": shaped_axis(
+        _line("rain_live", breakpoints=RAIN_LINE),
+        dedicated_way_value_layer=True,
+        display_thresholds_override=[20.0, 40.0],
+        display_band_labels_override=list("abc"),
+    ),
+}
+
+
+@pytest.mark.parametrize("definition", OVERRIDDEN_BAND_AXES.values(), ids=OVERRIDDEN_BAND_AXES.keys())
+def test_every_band_sequence_has_as_many_entries_as_the_map_has_bands(definition):
+    """人が刻んだ境界が地図で落ちても、ルート線の境界・凡例の境界・タイルの境界・体感ラベルは同じ段を数える。"""
+    paint = map_paint(definition)
+
+    bands = len(paint.thresholds) + 1
+    assert len(paint.legend.boundaries) + 1 == bands
+    assert paint.band_labels is not None and len(paint.band_labels) == bands
+    if paint.tiles.kind == "ramp":
+        assert len(paint.tiles.thresholds) + 1 == bands
+
+
+def test_the_bands_left_by_a_tile_painted_axis_carry_the_labels_of_their_lower_ends():
+    paint = map_paint(OVERRIDDEN_BAND_AXES["タイルで塗る軸"])
+
+    assert (paint.tiles.thresholds, paint.band_labels) == ([2.0, 8.0], ["a", "b", "e"])
+
+
+def test_a_paint_whose_band_labels_miss_a_band_is_refused():
+    """読む側は段の番号でラベルを引くので、1件足りないと上の段から別の段のラベルが付く。"""
+    paint = map_paint(OVERRIDDEN_BAND_AXES["タイルで塗る軸"])
+
+    with pytest.raises(ValueError, match="band labels"):
+        MapPaint.model_validate({**paint.model_dump(), "band_labels": ["a", "b"]})

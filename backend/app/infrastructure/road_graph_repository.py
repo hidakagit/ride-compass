@@ -21,7 +21,7 @@ import shapely
 from sqlalchemy import Row, TextClause, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
-from app.domain.attributes import CategoricalColumn, EdgeMaterialArrays
+from app.domain.attributes import AVERAGE_GRADE_DECIMALS, CategoricalColumn, EdgeMaterialArrays
 from app.domain.graph import LeanEdge, edge_feature_key_sql, edge_key, node_key, parse_edge_feature_key
 from app.domain.hard_filters import HARD_FILTER_VALUE_SQL, hard_filter_columns
 from app.domain.landcover import LandcoverPercentages, landcover_key
@@ -42,7 +42,7 @@ from app.infrastructure.source_models import (
     ways_lookup_sql,
     ways_source_sql,
 )
-from app.domain.region import BoundingBox
+from app.domain.region import EDGE_UNIT_MIN_ZOOM, BoundingBox
 from app.infrastructure import derived_data_meta
 from app.infrastructure.cache_identity import shape_digest
 from app.infrastructure.derived_models import EdgeMaterialRow, WayMaterialRow
@@ -115,12 +115,6 @@ COVERAGE_SQL = f"""
 
 
 # --- タイルが焼く単位 ---------------------------------------------------------
-
-#: 路面タイルが1フィーチャーとして焼く単位。**区間が読めるズームでは区間、それより引いた
-#: 表示ではway丸ごと**にする。区間で焼くとgzip後の費用はz14で1.48倍・z12で1.81倍へ増える
-#: 一方、z12は1pxが約38mで、交差点で切った区間は数pxにしかならず塗り分けても読めない。
-EDGE_UNIT_MIN_ZOOM = 14
-
 
 #: どちらの単位も`feature_key`という同じ名前で出す。フロントは`promoteId`でこれを
 #: feature.idへ昇格させるだけでよく、中身がway_idか区間の鍵かを知らなくてよい。
@@ -294,7 +288,7 @@ _FEATURE_GRADIENT_INPUTS_IN_TILE_SQL = text(
             FROM (
                 SELECT
                     src.feature_key,
-                    round(({length_weighted_mean_sql(_GRADIENT_SQL)})::numeric, 2)
+                    round(({length_weighted_mean_sql(_GRADIENT_SQL)})::numeric, {AVERAGE_GRADE_DECIMALS})
                         ::double precision AS average_grade,
                     degrees(ref.azimuth) AS bearing_deg
                 FROM ({_TILE_FEATURE_SOURCE_SQL}) src
@@ -522,8 +516,8 @@ _EDGE_MATERIAL_ARRAYS_SQL = text(
 # （`infrastructure/road_network_store.py`）に作る。`way_materials.direction`が逆向きの枝を
 # 作ってよいかを決める。
 
-#: 取込範囲全体の区間（向きを持たない1行）。道の行が無い区間は現れない（区間は道を切って作る
-#: 派生なので、ふつうは起きない）。並びは`domain/road_network.py`の行順の前提。
+#: 取込範囲全体の区間（向きを持たない1行）。区間は道の値（`way_materials`）への外部キーを持つので、
+#: 道の値の内部結合で落ちる区間は無い。並びは`domain/road_network.py`の行順の前提。
 _NETWORK_EDGES_SQL = text(f"""
 SELECT re.osm_way_id, re.segment_index, re.from_node_id, re.to_node_id,
        w.highway, wm.direction,
@@ -688,13 +682,13 @@ class RoadGraphRepository:
         self, way_ids: list[int], segment_indexes: list[int], forwards: list[bool], accident_years_covered: int
     ) -> EdgeMaterialArrays:
         """有向の区間（`(osm_way_id, segment_index, forward)`を位置で揃えた3本の列）の材料を、
-        **DB側で導出し、dtypeごとの行列として**受け取る。
+        **DB側で導出し、数値の行列と分類の列として**受け取る。
 
         区間数に比例するPythonの仕事を持たない。**すべての列が同じ並びを持つ**必要がある
         （1つでも違うと値が列の間で静かにずれ、エラーは出ない）。並びは渡した区間の位置
         （`WITH ORDINALITY`）で固定する。
         """
-        numeric_ids, boolean_ids, categorical_ids = material_array_columns()
+        numeric_ids, categorical_ids = material_array_columns()
         raw: dict[str, list] = {name: [] for name in MATERIAL_ARRAY_COLUMN_ORDER}
         n = len(way_ids)
         for start in range(0, n, ID_CHUNK_SIZE):
@@ -714,13 +708,9 @@ class RoadGraphRepository:
         numeric_values = np.empty((n, len(numeric_ids)), dtype=np.float64)
         for i, material_id in enumerate(numeric_ids):
             numeric_values[:, i] = _float_array(raw[material_id])
-        boolean_values = np.empty((n, len(boolean_ids)), dtype=bool)
-        for i, material_id in enumerate(boolean_ids):
-            boolean_values[:, i] = [bool(v) for v in raw[material_id]]
 
         return EdgeMaterialArrays(
             numeric_ids=numeric_ids, numeric_values=numeric_values,
-            boolean_ids=boolean_ids, boolean_values=boolean_values,
             categorical_ids=categorical_ids,
             categorical_columns=tuple(CategoricalColumn.encode(raw[material_id]) for material_id in categorical_ids),
             hard_filter_ids=hard_filter_ids, hard_filter_flags=hard_filter_flags,

@@ -22,6 +22,7 @@
 | 天候（実測）・防災 | 気象庁の公開API（アメダス・警報・ナウキャスト・キキクル・洪水予報）・環境省WBGT | 予報と統合しない。数値予報モデルの出力は公式発表の代わりにならない |
 | 標高 | 国土地理院DEMタイル（APIキー不要、日本国内限定） | 評価の材料（勾配）は取込バッチだけが叩き、**ルート生成・評価が実行時に取りに行く経路は無い**。地図の地形の表示は、backendが実行時に取りに行って中継し、ディスクに持つ |
 | 土地被覆 | Esri × Impact Observatory の10m LULC（GeoTIFF） | リポジトリに持たず、デプロイがVMへ取得して読み取り専用でマウントする |
+| 住所の検索 | `jageocoder`（MIT）＋配布の住所の辞書（街区まで・全国。入れて約1.4GB） | 外部の検索サービス・別のサーバーを使わず、backendが手元の辞書を引く。辞書はリポジトリに持たず、デプロイがVMへ取得して読み取り専用でマウントする。版の制約は下記 |
 | 管理データの退避先 | Oracle Cloud Object Storage（非公開のバケット） | 本番VMのtimerが取り直せない管理データを置き、バケットのライフサイクルの規則が古いものを消す。仕組みと登録の手順は[deployment-sync.md](../conventions/deployment-sync.md)付録「管理データのバックアップ」 |
 | タスクの流れのゲート | Cloudflare Workers（`tools/flow-gate/wrangler.toml`。Webhookを受けるWorkerと、Cloudflare Accessで守る回答フォームのWorker） | アプリの外の運用の道具で、本番の利用者の経路に無い。公開するトークンは下の「秘密の値とトークン」、決まりは[flow.md](../conventions/flow.md) |
 
@@ -68,6 +69,14 @@
 0.17.0と同じ（差は長さ0の応答の判定だけ）。`package.json`の`^0.16.0`は0.x系のキャレットなので0.17へは上がらない。
 **上げるときは、上げた先でタプルを含む応答（例: `/api/admin/axis-definitions/preview-distribution`の`bins`）の
 推論した型がタプルのままかを`tsc --noEmit`で確かめる。**
+
+## `jageocoder`は辞書の版が読める版に留める
+
+配布の住所の辞書は、ファイル名の末尾（`_v22`等）で読める`jageocoder`の版が決まっている（`_v22`は2.2.xだけ。
+辞書に同梱のREADMEの「データ形式について」）。`requirements.txt`は2.2.xで固定してある。**辞書の版を変えずに
+`jageocoder`だけを上げない**——CIのテストは足場がその版の`jageocoder`で書いた小さな辞書を引くので通り、本番の
+配布の辞書を開いたときに初めて食い違う。上げるときは、上げた先が読む`_v<NN>`の配布があることを配布の一覧で見て、
+辞書の版と一緒に上げる（手順は[data-sources.md](data-sources.md)「版を持つ配布物の入れ替え」）。
 
 ## Windows: `uvicorn --reload`の多重プロセス
 

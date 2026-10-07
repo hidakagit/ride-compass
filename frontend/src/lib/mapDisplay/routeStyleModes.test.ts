@@ -81,9 +81,8 @@ describe("モードの一覧", () => {
 describe("難易度で塗る軸のモード", () => {
   const axis = catalogEntry({
     axis_id: "ax",
-    map_paint: { thresholds: [20, 50] },
+    map_paint: { thresholds: [20, 50], band_labels: ["弱", "中", "強"] },
     label: "風",
-    display_band_labels_override: ["弱", "中", "強"],
   });
   const mode = modeOf([axis], "ax");
   const segmentOf = (value: unknown) => ({ axis_difficulties: { ax: value, other: 99 } });

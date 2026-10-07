@@ -47,8 +47,9 @@
           "unknown": false
         },
         {
-          "road": "片方が0（タイルに載らない）",
+          "road": "片方が0",
           "properties": {
+            "built_pct": 0.0,
             "trees_pct": 20.0
           },
           "value": -10.0,
