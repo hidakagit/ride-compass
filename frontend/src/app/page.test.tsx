@@ -705,9 +705,9 @@ describe("画面の枠", () => {
     act(() => setDebugEnabled(true));
     await user.click(screen.getByRole("button", { name: "メニュー" }));
     await user.click(screen.getByRole("button", { name: "使い方を見る" }));
-    expect(screen.getByText("説明を見たい部品を押してください")).toBeInTheDocument();
+    expect(screen.getByText("説明モード")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "やめる" }));
-    expect(screen.queryByText("説明を見たい部品を押してください")).toBeNull();
+    expect(screen.queryByText("説明モード")).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "メニュー" }));
     await user.click(screen.getByRole("button", { name: "デバッグログを表示" }));

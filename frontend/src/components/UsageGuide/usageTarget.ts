@@ -7,6 +7,20 @@ export const USAGE_GUIDE_ATTRIBUTE = "data-usage-guide";
 /** 押すと浮きパネルを開く部品の印（`components/ui/Popover/Popover.tsx: PopoverTrigger`が付ける）。 */
 const USAGE_OPENS_ATTRIBUTE = "data-usage-opens";
 
+/** 押すと浮きパネルを開く部品か。開いたものは、外の部品を押したときと終えるときに閉じる。 */
+export function isPopoverOpener(element: Element): boolean {
+  return element.hasAttribute(USAGE_OPENS_ATTRIBUTE);
+}
+
+/**
+ * 押すと中を展開する、閉じた部品か（`aria-expanded="false"`。浮きパネル・折りたたみ・下部シートのタブ等）。
+ * 浮きパネルのほかの、別の面を開く部品（`aria-haspopup`。消す前の確かめのダイアログ等）は、開くと画面を塞ぐので除く。
+ */
+function opensInside(element: Element): boolean {
+  if (element.getAttribute("aria-expanded") !== "false") return false;
+  return isPopoverOpener(element) || !element.hasAttribute("aria-haspopup");
+}
+
 /** 押して何かが起きる要素。押された要素から最寄りのこれを、説明する部品とみなす。 */
 export const USAGE_PART_SELECTOR = [
   "button",
@@ -33,7 +47,7 @@ export interface UsageTarget {
   name: string | null;
   /** 部品か、それを囲む部品のうち最も近いものが持つ使い方の文。無ければnull。 */
   usage: string | null;
-  /** 押すと浮きパネルを開く部品か。説明に「中を見る」を出す。 */
+  /** 押すと中を展開する、閉じた部品か。説明に「中を見る」を出す。 */
   opens: boolean;
 }
 
@@ -70,6 +84,6 @@ export function usageTargetOf(pressed: Element): UsageTarget | null {
     element: part,
     name: nameOf(part),
     usage: part.closest(`[${USAGE_ATTRIBUTE}]`)?.getAttribute(USAGE_ATTRIBUTE) ?? null,
-    opens: part.hasAttribute(USAGE_OPENS_ATTRIBUTE),
+    opens: opensInside(part),
   };
 }

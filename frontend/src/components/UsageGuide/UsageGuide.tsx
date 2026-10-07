@@ -5,9 +5,15 @@ import { Popover, PopoverAnchor, PopoverContent, POPOVER_COLLISION_PADDING_PX } 
 import { Button } from "@/components/ui/Button/Button";
 import { GuideText } from "@/components/ui/GuideText/GuideText";
 import { textVariants } from "@/components/ui/Text/Text";
-import { cardVariants } from "@/components/ui/Card/Card";
+import FloatingPanel from "@/components/FloatingPanel/FloatingPanel";
 import { cn } from "@/lib/cn";
-import { USAGE_GUIDE_ATTRIBUTE, USAGE_PART_SELECTOR, usageTargetOf, type UsageTarget } from "./usageTarget";
+import {
+  USAGE_GUIDE_ATTRIBUTE,
+  USAGE_PART_SELECTOR,
+  isPopoverOpener,
+  usageTargetOf,
+  type UsageTarget,
+} from "./usageTarget";
 import { chooseUsagePlacement, type UsagePlacement } from "./usagePlacement";
 
 /** 押してから離すまでにこれ以上動いたら、押したのではなく動かした（なぞった・スクロールした）とみなす。 */
@@ -24,7 +30,7 @@ const TOUCH_EVENTS = ["touchstart", "touchmove", "touchend"] as const;
 const PANEL_OFFSET_PX = 6;
 
 interface UsageGuideProps {
-  /** 説明を見る状態を終える（「やめる」・Esc・説明を出している間に部品の外を押したとき）。 */
+  /** 説明を見る状態を終える（「やめる」・Escのときだけ）。 */
   onEnd: () => void;
 }
 
@@ -59,15 +65,14 @@ function pressThrough(element: Element, opening: RefObject<Opening>) {
   }
 }
 
-/** 「中を見る」で開いた浮きパネルを、後に開いたものから閉じる。`keep`を中に持つものとその外側は残す。残したものがあれば true。 */
-function closeOpened(opening: RefObject<Opening>, keep?: Element): boolean {
+/** 「中を見る」で開いた浮きパネルを、後に開いたものから閉じる。`keep`を中に持つものとその外側は残す。 */
+function closeOpened(opening: RefObject<Opening>, keep?: Element) {
   for (const opener of [...opening.current.openers].reverse()) {
     const panel = openedPanelOf(opener);
     if (panel === null) continue;
-    if (keep !== undefined && panel.contains(keep)) return true;
+    if (keep !== undefined && panel.contains(keep)) return;
     pressThrough(opener, opening);
   }
-  return false;
 }
 
 /** 説明を見る状態を終える。「中を見る」で開いた浮きパネルも一緒に閉じる。 */
@@ -97,7 +102,8 @@ function pressablePartsBesides(target: Element, panel: Element): DOMRect[] {
 /**
  * 説明を見る状態。出している間は、画面のどの部品を押しても部品は動かず、押した部品の使い方を出す。
  * 押す操作は窓の捕捉段階で1か所で止めるので、部品の側は止め方を持たない（持つのは使い方の文だけ）。
- * 置いた要素の上端の中央に案内を出す。説明の面は、ほかの部品と案内にできるだけ重ねない所へ出す。
+ * 終えるのは案内の「やめる」とEscだけで、ほかの抜け方（部品の外を押す・説明の外へのフォーカス）は説明だけを閉じる。
+ * 案内は画面の上の中央に浮かべ、つまみで動かせる。説明の面は、ほかの部品と案内にできるだけ重ねない所へ出す。
  */
 export default function UsageGuide({ onEnd }: UsageGuideProps) {
   const [target, setTarget] = useState<UsageTarget | null>(null);
@@ -110,47 +116,21 @@ export default function UsageGuide({ onEnd }: UsageGuideProps) {
     alignOffset: 0,
   });
   const onEndRef = useRef(onEnd);
-  const targetRef = useRef<UsageTarget | null>(null);
   const opening = useRef<Opening>({ openers: [], passing: false });
-  const [insideOpen, setInsideOpen] = useState(false);
   useEffect(() => {
     onEndRef.current = onEnd;
-    targetRef.current = target;
   });
 
   useEffect(() => {
     let down: { x: number; y: number } | null = null;
 
-    const choose = (pressed: EventTarget | null, end: () => void) => {
-      const found = pressed instanceof Element ? usageTargetOf(pressed) : null;
-      if (found) {
-        // 開いた浮きパネルの外の部品なら、浮きパネルを閉じてから説明する。
-        setInsideOpen(closeOpened(opening, found.element));
-        setTarget(found);
-      }
-      // 説明を出している間に部品の外を押したら、説明を閉じる（ほかの浮きパネルと同じ）。
-      else if (targetRef.current) end();
-    };
-    const endByKey = () => endGuide(opening, onEndRef);
-    // 離したときに閉じると、その押し操作の残りのマウスの出来事（click 等）は閉じたあとに届くので、click まで止め続ける。
-    // click の来ない押し方（タッチの長押し等）でも残らないよう、次の押し操作かキー操作で止めるのをやめる。
-    const endByPress = () => {
-      const swallow = (event: Event) => {
-        event.stopPropagation();
-        event.preventDefault();
-        if (event.type === "click") release();
-      };
-      const release = () => {
-        for (const type of MOUSE_EVENTS) window.removeEventListener(type, swallow, true);
-        window.removeEventListener("pointerdown", release, true);
-        window.removeEventListener("keydown", release, true);
-      };
-      // 浮きパネルを閉じる click は止める前に押す。
-      closeOpened(opening);
-      for (const type of MOUSE_EVENTS) window.addEventListener(type, swallow, true);
-      window.addEventListener("pointerdown", release, true);
-      window.addEventListener("keydown", release, true);
-      onEndRef.current();
+    const choose = (pressed: EventTarget | null) => {
+      const element = pressed instanceof Element ? pressed : undefined;
+      const found = element ? usageTargetOf(element) : null;
+      // 開いた浮きパネルの外を押したら、浮きパネルを閉じる。
+      closeOpened(opening, found?.element ?? element);
+      // 部品ならその説明に替え、部品の外なら説明だけを閉じる（✕と同じ）。
+      setTarget(found);
     };
     const onPointerDown = (event: PointerEvent) => {
       if (isInGuide(event)) {
@@ -170,7 +150,7 @@ export default function UsageGuide({ onEnd }: UsageGuideProps) {
       down = null;
       if (start === null) return;
       if (Math.hypot((event.clientX ?? 0) - start.x, (event.clientY ?? 0) - start.y) > TAP_SLOP_PX) return;
-      choose(event.target, endByPress);
+      choose(event.target);
     };
     const onPointerCancel = () => {
       down = null;
@@ -193,14 +173,14 @@ export default function UsageGuide({ onEnd }: UsageGuideProps) {
       if (event.key === "Escape") {
         event.stopPropagation();
         event.preventDefault();
-        endByKey();
+        endGuide(opening, onEndRef);
         return;
       }
       if (isInGuide(event)) return;
       if (event.key === "Enter" || event.key === " ") {
         event.stopPropagation();
         event.preventDefault();
-        choose(document.activeElement, endByKey);
+        choose(document.activeElement);
       } else if (VALUE_KEYS.has(event.key)) {
         event.stopPropagation();
         event.preventDefault();
@@ -246,7 +226,10 @@ export default function UsageGuide({ onEnd }: UsageGuideProps) {
         { width: window.innerWidth, height: window.innerHeight },
         [
           ...pressablePartsBesides(target.element, panel),
-          ...(bannerRef.current ? [bannerRef.current.getBoundingClientRect()] : []),
+          // 案内の箱は、包む要素の中の位置取りの要素（`FloatingPanel`が画面に固定して置く）が持つ。
+          ...(bannerRef.current?.firstElementChild
+            ? [bannerRef.current.firstElementChild.getBoundingClientRect()]
+            : []),
         ],
         PANEL_OFFSET_PX,
         POPOVER_COLLISION_PADDING_PX,
@@ -258,24 +241,17 @@ export default function UsageGuide({ onEnd }: UsageGuideProps) {
 
   return (
     <>
-      <div
-        {...{ [USAGE_GUIDE_ATTRIBUTE]: "" }}
-        ref={bannerRef}
-        role="status"
-        // 案内の下の部品も押せるよう、案内は押す操作を素通しし、「やめる」だけが受ける。浮きパネルを開いている間は、
-        // その中を覆わないよう、地図の下端の操作の列（app/page.tsx）のすぐ上へ移る。
-        className={cn(
-          cardVariants({ variant: "float" }),
-          insideOpen
-            ? "bottom-[calc(var(--space-3)+var(--bottom-control-row-height,0px)+var(--space-2))] max-mobile:bottom-[calc(max(calc(var(--space-3)+var(--mobile-tabbar-height)),calc(var(--space-2)+var(--mobile-tabbar-height)+var(--mobile-sheet-height)))+var(--bottom-control-row-height,0px)+var(--space-2))]"
-            : "top-16",
-          "pointer-events-none absolute left-1/2 z-[var(--z-usage-guide)] flex w-max max-w-[calc(100%-2*var(--space-3))] -translate-x-1/2 items-center gap-2 px-3 py-1.5 text-[length:var(--font-size-sm)]",
-        )}
-      >
-        <span>説明を見たい部品を押してください</span>
-        <Button size="xs" className="pointer-events-auto" onClick={() => endGuide(opening, onEndRef)}>
-          やめる
-        </Button>
+      <div {...{ [USAGE_GUIDE_ATTRIBUTE]: "" }} ref={bannerRef} role="status">
+        {/* 案内は見出しと「やめる」の1行だけ。部品の上に重なってよい（つまみで動かせる）。浮きパネルを開いている間も、その上に出す。 */}
+        <FloatingPanel
+          open
+          onClose={() => endGuide(opening, onEndRef)}
+          title="説明モード"
+          closeLabel="やめる"
+          layer="guide"
+          topRem={4.25}
+          widthRem={11}
+        />
       </div>
       {target && highlight && (
         <div
@@ -286,8 +262,9 @@ export default function UsageGuide({ onEnd }: UsageGuideProps) {
       )}
       <Popover
         open={target !== null}
+        // 説明の外へのフォーカスでも、説明だけを閉じる。
         onOpenChange={(open) => {
-          if (!open) endGuide(opening, onEndRef);
+          if (!open) setTarget(null);
         }}
       >
         <PopoverAnchor virtualRef={anchor} />
@@ -304,6 +281,10 @@ export default function UsageGuide({ onEnd }: UsageGuideProps) {
           className="flex max-w-72 flex-col gap-1"
           collisionPadding={POPOVER_COLLISION_PADDING_PX}
           aria-label="使い方の説明"
+          // 案内を動かしても、説明は閉じない。
+          onPointerDownOutside={(event) => {
+            if (isInGuide(event)) event.preventDefault();
+          }}
           // 浮きパネルを開いている間は、面へフォーカスを移さず、浮きパネルの中と開くボタンへのフォーカスで閉じない
           // （浮きパネルは外へのフォーカスで閉じ、閉じると開くボタンへフォーカスを戻す）。
           onOpenAutoFocus={(event) => {
@@ -337,12 +318,12 @@ export default function UsageGuide({ onEnd }: UsageGuideProps) {
             <Button
               size="xs"
               className="self-start"
-              // 浮きパネルを開いて説明だけを閉じ、中の部品を選ぶ続きへ戻る。
+              // 中を展開して説明だけを閉じ、中の部品を選ぶ続きへ戻る。浮きパネルは、外の部品を押したときと終えるときに閉じる。
               onClick={() => {
                 const opener = target.element;
-                opening.current.openers = [...opening.current.openers.filter((o) => o !== opener), opener];
+                if (isPopoverOpener(opener))
+                  opening.current.openers = [...opening.current.openers.filter((o) => o !== opener), opener];
                 pressThrough(opener, opening);
-                setInsideOpen(true);
                 setTarget(null);
               }}
             >

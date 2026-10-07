@@ -6,11 +6,15 @@ import { WIDTHS, installPageHelpers, openApp, type WidthName } from "./states";
 // 使い方の説明の面が、ほかの部品に重ならないこと（パターン4 観点1）。面の位置は実寸と位置取りで決まり、
 // 単体テストの環境は実寸を返さない。生成前の基本の画面で説明を見る状態に入り、押せる部品（押す点＝中心点の
 // ヒットテストが部品自身か子孫を返すもの）を全部集めて1つずつ押し、出た面の箱がほかの部品の箱と重ならないかを見る。
-// 面に重なった部品は、押すつもりで面（✕）に当たる。説明に「中を見る」を出す開くボタンは、それで浮きパネルを開き、
-// 中の部品も同じく押して、説明（使い方の文）が出て浮きパネルが開いたままで、面が重ならないかを見る。
+// 面に重なった部品は、押すつもりで面（✕）に当たる。説明に「中を見る」を出す部品のうち浮きパネルの開くボタンは、それで
+// 浮きパネルを開き、中の部品も同じく押して、説明（使い方の文）が出て浮きパネルが開いたままで、面が重ならないかを見る。
+// 折りたたみ・下部シートのタブ等の「中を見る」は開くだけで、開いた先は今の画面の部品と同じ扱いなので、ここでは開かない
+// （出す部品の見分けと開くことは単体テスト）。
 
 interface Part {
   label: string;
+  /** 浮きパネルの開くボタンか。 */
+  popover: boolean;
   box: { left: number; top: number; right: number; bottom: number };
 }
 
@@ -35,7 +39,11 @@ async function pressableParts(page: Page, insideOpened = false): Promise<Part[]>
         );
         if (sameSpot) continue;
         const label = el.getAttribute("aria-label") || el.textContent?.trim() || el.tagName;
-        found.push({ label, box: { left: r.left, top: r.top, right: r.right, bottom: r.bottom } });
+        found.push({
+          label,
+          popover: el.hasAttribute("data-usage-opens"),
+          box: { left: r.left, top: r.top, right: r.right, bottom: r.bottom },
+        });
       }
       return found;
     },
@@ -93,7 +101,7 @@ for (const width of Object.keys(WIDTHS) as WidthName[]) {
     const enter = async () => {
       await page.getByRole("button", { name: "メニュー" }).click();
       await page.getByRole("button", { name: "使い方を見る" }).click();
-      await expect(page.getByText("説明を見たい部品を押してください")).toBeVisible();
+      await expect(page.getByText("説明モード")).toBeVisible();
     };
     await enter();
 
@@ -109,11 +117,11 @@ for (const width of Object.keys(WIDTHS) as WidthName[]) {
       const shown = await explain(page, part, panel);
       const covered = overlapped(shown, part, parts);
       if (covered.length > 0) problems.push(`${part.label} の説明が ${covered.join("・")} に重なる`);
-      if (await openInside.isVisible()) openers.push(part);
+      if (part.popover && (await openInside.isVisible())) openers.push(part);
       // 説明だけを閉じ、次の部品を面の無い画面で押す。
       await panel.getByRole("button", { name: "説明を閉じる" }).click();
       await expect(panel).toBeHidden();
-      await expect(page.getByText("説明を見たい部品を押してください")).toBeVisible();
+      await expect(page.getByText("説明モード")).toBeVisible();
     }
     expect(openers.length, "「中を見る」を出す開くボタンが見つからない").toBeGreaterThan(3);
 
