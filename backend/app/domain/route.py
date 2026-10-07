@@ -115,7 +115,7 @@ class RouteCandidate(StrictModel):
     elevation_gain_m: float | None = None
     segments: list[RouteSegmentDetail] = Field(default_factory=list)
     overall_difficulty: OverallDifficulty | None = None
-    # 所要時間の見積もり（秒）。区間の走行時間（走行モデル: 巡航速度・勾配・風から求めた
+    # 所要時間の見積もり（秒）。区間の走行時間（`domain/cycling_speed.py`の走行モデルが巡航速度と区間の条件から求めた
     # 速度）＋停止の待ち＋ターンの待ち。経路の選び方には使っておらず、表示のためだけに持つ。
     estimated_duration_seconds: float | None = None
     # 所要時間の見積もりで風を使えなかった（風の予報が読めず、無風として計算した）。画面が利用者へ知らせる。

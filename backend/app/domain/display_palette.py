@@ -20,6 +20,8 @@ _MAX_LIGHTNESS = 58.0
 #: 分類を良し悪しの色で読ませない。暗い端は黒と見分けられる所で止める。
 _ORDERED_HUE_RANGE_DEG = (305.0, 205.0)
 _ORDERED_LIGHTNESS_RANGE = (26.0, 56.0)
+#: 上の範囲の両端（並びの先頭・末尾の行）の色を、画面で呼ぶ名前。地図の説明の文が差し込む。範囲を変えたら、ここも変える。
+ORDERED_END_COLOR_NAMES: tuple[str, str] = ("濃い紫", "明るい水色")
 #: 目標の彩度。暗い側の色相によってはsRGBに収まらないので、収まるところまで下げる（`_fit_chroma`）。
 _ORDERED_CHROMA = 45.0
 

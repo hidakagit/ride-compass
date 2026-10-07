@@ -20,6 +20,8 @@ import { axisNamesUsing } from "@/lib/catalogAxis";
 
 const MIN_SPEED_KMH = routeGenerateConfig.min_assumed_speed_kmh;
 const MAX_SPEED_KMH = routeGenerateConfig.max_assumed_speed_kmh;
+/** 区間ごとに速度を変える条件の名前（backendの走行モデルが宣言する並び）。 */
+const SPEED_CONDITIONS = routeGenerateConfig.segment_speed_conditions.join("・");
 
 interface RideConditionBarProps {
   /** 出発時刻（気象レイヤーの表示時刻と同じ共有state）。 */
@@ -203,7 +205,7 @@ export default function RideConditionBar({
               {/* JSXの改行は半角スペースになるので、文字列として繋ぐ。 */}
               <p>
                 {"普段の平均速度[信号待ち・坂を含む]ではなく、平らな道を風の無いときに巡航する速度です。" +
-                  "所要時間は、この速度から平地で出している力を逆算し、区間ごとの坂と風で速度を変えて計算します。"}
+                  `所要時間は、この速度から平地で出している力を逆算し、区間ごとの${SPEED_CONDITIONS}で速度を変えて計算します。`}
               </p>
               {riderDefaults && (
                 <p>
