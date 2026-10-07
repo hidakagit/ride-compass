@@ -315,7 +315,7 @@ DB側の値が変わっても追従しない。軸の中身が主題でないテ
 
 **地図の式が評価と同じ値を出すことは、表で確かめる。** 導出の形ごと（例: 真偽の材料・分類の未登録の値・
 実行時の係数・他の軸を参照する項）に、表のために組んだ軸と道1本の材料から、
-地図へ配る表示（`axis_display_for`）・タイルのプロパティ（`material_catalog.py: tile_property_value`）・評価が付ける値（折れ点の軸は折れ点を通す前の和、分類の軸は点数）と
+地図へ配る表示（`axis_display_for`）・タイルのプロパティ（`domain/material_catalog.py: tile_property_value`）・評価が付ける値（折れ点の軸は折れ点を通す前の和、分類の軸は点数）と
 「不明」かを`scripts/cross_language_expectations.py: axis_ramp_expectations`が表にして生成物へ出し、画面のテストが
 全行を画面の式へ通す（置き場と作り方は[testing.md](../../conventions/testing.md)「パターン11」）。
 
