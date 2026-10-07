@@ -67,6 +67,9 @@ _check_dedicated_layer_is_implemented`）、既存データ等で万一そうな
 **欠けを判定するのはここだけ**で、欠けていれば組み立てずに欠けた名前（`MissingConditions`）を
 返す——地図の配信は422に、区間インスペクタは「データなし」にする。サービスの
 `get_way_values`は組み立て済みの値だけを受け取るので、要る欄は`None`を許さない型のまま届く。
+値の範囲は欄の型（方位`domain/geo.py: BearingDeg`・速度`domain/route_request.py: AssumedSpeedKmh`・タイル座標
+`domain/region.py: RoadTileZoom`・`TileIndex`）が持ち、地図の配信のクエリ・パスも区間インスペクタの本文も同じ型で書く
+（外れ・NaN・無限大はどちらも422）。
 
 **地図が載せる条件**も同じ条件の型から導き、軸は宣言を持たない。`GET /api/axis-catalog`の
 `dynamic_way_value_conditions`は、軸が参照する材料のサービスの条件の型の欄の名前の並び
@@ -333,7 +336,7 @@ get_way_values(z, x, y, ...)
 （`RouteSegmentDetail.material_values`・`wind`）は、探索がその区間に使った時刻ビンの値を読む（詳細は
 [routing-engine.md](routing-engine.md)「レグ内の時刻ビン」「レグ別コスト配列」参照）。
 
-`ASSUMED_SPEED_KMH`（`domain/wind.py`、仮定巡航速度の既定値20km/h、`MIN/MAX_ASSUMED_SPEED_KMH`
+`ASSUMED_SPEED_KMH`（`domain/route_request.py`、仮定巡航速度の既定値20km/h、`MIN/MAX_ASSUMED_SPEED_KMH`
 ＝5〜60）はリクエスト（`assumed_speed_kmh`）で上書きでき、通過予定時刻・走行モデルの巡航速度
 （区間の到達予想と所要時間はこの走行モデルの秒から出る）と、風の材料`wind_drag_ratio`の走行速度（`kmh_to_ms`でm/sへ変換して
 `DynamicAxisRequestContext.travel_speed_ms`へ渡す）に使う。`ROUTE_DETOUR_RATIO`（1.3）は道なり距離／直線距離の初期値で、探索範囲ごとに往路木から

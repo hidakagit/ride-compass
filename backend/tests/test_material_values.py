@@ -9,8 +9,9 @@ SQLの中の条件はPythonのカバレッジに現れないので、式をテ�
 - 区間（`re`）・区間の値（`em`）: 派生の段が書く表の行の型（`road_edges`・`edge_materials`）で値を与える。
   値そのものの出し方（件数を数える等）は派生の段の責務なので、ここでは作らない。
 
-部品の節は架空のタグ・路面の区分で、タイルへの載せ方の節は架空の材料で確かめる。カタログの節だけは、カタログに直に書かれた式（部品を使わないもの）を
-本物の材料のidで引く——そこでは、その材料が何を返すかがテストの関心である。
+部品の節は架空のタグ・路面の区分で、タイルへの載せ方の節は架空の材料で確かめる。カタログの節は、カタログに直に書かれた式（部品を使わないもの）を
+本物の材料のidで引く——そこでは、その材料が何を返すかがテストの関心である。タイルへの載せ方の節の土地被覆の行も同じで、
+本物の材料の載せ方が0を省かないことが関心である。
 
 カタログの全部の式が、読み出しの各経路（`infrastructure/road_graph_repository.py: RoadGraphRepository`の区間の材料・
 道1本・道の標本・値の一覧・路面タイル）の中で実在の列だけを読むことも見る。上の節は別名を値で与えるので、
@@ -31,11 +32,13 @@ from sqlalchemy import text
 from app.domain import material_sql
 from app.domain.material_catalog import (
     ACCIDENT_COUNT_PER_KM_YEAR,
+    MATERIAL_CATALOG,
     CoverageExcluded,
     MaterialSpec,
     TileEncoding,
     material_value_sql,
     tile_column_sql,
+    tile_property_value,
 )
 from app.domain.region import BoundingBox
 from app.domain.road import SurfaceClass, TrackGrade
@@ -211,25 +214,33 @@ async def test_a_shared_pedestrian_path_is_a_footway_or_path_that_lets_bicycles_
 # --- タイルへの載せ方（domain/material_catalog.py: tile_column_sql） ---------------------------
 
 
-_DENSITY = {"dtype": "numeric", "value_sql": "em.accident_count / (re.distance_m / 1000.0)",
-            "tile_encoding": TileEncoding(round_digits=1, omit_zero=True)}
-_HAS_ANY = {"dtype": "boolean", "value_sql": "em.accident_count > 0"}
+def _material(missing: str, **fields) -> MaterialSpec:
+    return MaterialSpec(material_id="material_a", label="材料A", description="説明", tile_property="material_a",
+                        coverage=CoverageExcluded(reason="試し", missing_semantics=missing), **fields)
 
 
-@pytest.mark.parametrize(("fields", "missing", "count", "expected"), [
-    (_DENSITY, "unknown", 5.0, "double precision:1.3"),  # ST_AsMVTはnumericを文字列で載せる。地図は数として読めない
-    (_DENSITY, "unknown", 0.1, "double precision:null"),  # 丸めて0になる値はキーごと省く（地図は欠損を0として読む）
-    (_HAS_ANY, "definite", 0.0, "boolean:null"),  # 非該当はキーごと省く（地図は欠損を非該当として読む）
-], ids=["rounded", "zero", "definite-false"])
-async def test_a_value_goes_on_the_tile_in_the_form_the_map_reads(road_graph_session, fields, missing, count, expected):
-    material = MaterialSpec(material_id="material_a", label="材料A", description="説明", tile_property="material_a",
-                            coverage=CoverageExcluded(reason="試し", missing_semantics=missing), **fields)
+_DENSITY = _material("unknown", dtype="numeric", value_sql="em.accident_count / (re.distance_m / 1000.0)",
+                     tile_encoding=TileEncoding(round_digits=1, omit_zero=True))
+_HAS_ANY = _material("definite", dtype="boolean", value_sql="em.accident_count > 0")
+
+
+@pytest.mark.parametrize(("material", "edge_materials", "expected_type", "expected"), [
+    (_DENSITY, {"accident_count": 5.0}, "double precision", 1.3),  # ST_AsMVTはnumericを文字列で載せる。地図は数として読めない
+    (_DENSITY, {"accident_count": 0.1}, "double precision", None),  # 丸めて0になる値はキーごと省く（地図は欠損を0として読む）
+    (_HAS_ANY, {"accident_count": 0.0}, "boolean", None),  # 非該当はキーごと省く（地図は欠損を非該当として読む）
+    (MATERIAL_CATALOG["built_percent"], {"lc_built": 0.0}, "double precision", 0.0),  # 土地被覆の割合は0も載る
+], ids=["rounded", "zero", "definite-false", "landcover-zero"])
+async def test_a_value_goes_on_the_tile_in_the_form_the_map_reads(road_graph_session, material, edge_materials,
+                                                                  expected_type, expected):
+    """焼く式（`tile_column_sql`）と、画面へ配る期待値の表がタイルの値を作る関数（`tile_property_value`）の両方。"""
     column = tile_column_sql(material)
 
-    value = await _edge_value(road_graph_session, f"pg_typeof({column})::text || ':' || coalesce(({column})::text, 'null')",
-                              distance_m=4000.0, accident_count=count)
+    baked_type, baked = await _edge_value(road_graph_session, f"ARRAY[pg_typeof({column})::text, ({column})::text]",
+                                          distance_m=4000.0, **edge_materials)
+    value = await _edge_value(road_graph_session, material.value_sql, distance_m=4000.0, **edge_materials)
 
-    assert value == expected
+    assert (baked_type, None if baked is None else float(baked)) == (expected_type, expected)
+    assert tile_property_value(material, value) == expected
 
 
 # --- 読み出しの経路（infrastructure/road_graph_repository.py） -----------------------------

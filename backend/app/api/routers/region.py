@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from pydantic import model_validator
 
 from app.api.dependencies import (
     get_axis_inspector_service,
@@ -21,8 +22,11 @@ from app.domain.dynamic_way_values import (
     transform_dedicated_way_values,
 )
 from app.domain.axis_inspector import AxisInspectorResult
+from app.domain.geo import BearingDeg
 from app.domain.route_preference import RoutePreference
-from app.domain.landcover import LANDCOVER_TILE_MAX_ZOOM, LANDCOVER_TILE_MIN_ZOOM
+from app.domain.route_request import AssumedSpeedKmh
+from app.domain.landcover import LandcoverTileZoom
+from app.domain.region import RoadTileZoom, TileIndex, check_tile_index
 from app.infrastructure.media_types import PNG_CONTENT_TYPE
 from app.infrastructure.point_tile_layers import POINT_TILE_LAYERS
 from app.services.landcover_tile_service import get_landcover_tile
@@ -64,9 +68,9 @@ def _check_tile_rate_limit(request: Request, prefix: str) -> None:
 
 @router.get("/api/region/road-surface-tiles/{z}/{x}/{y}.pbf")
 async def region_road_surface_tile(
-    z: int,
-    x: int,
-    y: int,
+    z: RoadTileZoom,
+    x: TileIndex,
+    y: TileIndex,
     request: Request,
     region_service: RegionService = Depends(get_region_service),
 ) -> Response:
@@ -84,9 +88,9 @@ async def region_road_surface_tile(
 @router.get("/api/region/point-tiles/{layer}/{z}/{x}/{y}.pbf")
 async def region_point_tile(
     layer: str,
-    z: int,
-    x: int,
-    y: int,
+    z: RoadTileZoom,
+    x: TileIndex,
+    y: TileIndex,
     request: Request,
     region_service: RegionService = Depends(get_region_service),
 ) -> Response:
@@ -104,14 +108,14 @@ async def region_point_tile(
 
 
 @router.get("/api/region/landcover-tiles/{z}/{x}/{y}.png")
-async def region_landcover_tile(z: int, x: int, y: int, request: Request) -> Response:
+async def region_landcover_tile(z: LandcoverTileZoom, x: TileIndex, y: TileIndex, request: Request) -> Response:
     """土地被覆ラスタ（Esri×Impact Observatory 10m LULC）をそのまま面で塗ったラスタタイル。
 
     DBを読まないため`_region_tile_semaphore`（DB接続プールの取り合いを抑えるもの）には
     乗せず、CPU/ディスクI/Oの上限は`landcover_tile_max_concurrent`の専用semaphoreで持つ。
     """
     _check_tile_rate_limit(request, "landcover-tile")
-    validate_tile_coords(z, x, y, LANDCOVER_TILE_MIN_ZOOM, LANDCOVER_TILE_MAX_ZOOM)
+    validate_tile_coords(z, x, y)
     async with _landcover_tile_semaphore:
         tile = await get_landcover_tile(z, x, y)
     if tile is None:
@@ -122,13 +126,13 @@ async def region_landcover_tile(z: int, x: int, y: int, request: Request) -> Res
 @router.get("/api/region/dynamic-way-values/{axis_id}/{z}/{x}/{y}")
 async def region_dedicated_way_values(
     axis_id: str,
-    z: int,
-    x: int,
-    y: int,
+    z: RoadTileZoom,
+    x: TileIndex,
+    y: TileIndex,
     request: Request,
-    bearing_deg: float | None = None,
+    bearing_deg: BearingDeg | None = None,
     at: datetime | None = None,
-    speed_kmh: float | None = None,
+    speed_kmh: AssumedSpeedKmh | None = None,
     service: DedicatedWayValueService[Any] | None = Depends(get_dedicated_way_value_service),
 ) -> dict[str, float | None]:
     """「評価軸」グループとしての動的材料（風・勾配・雨等）。指定タイル内のフィーチャーごとの
@@ -187,14 +191,19 @@ class AxisInspectorRequest(StrictModel):
     # （`/dynamic-way-values`へ送っているものと同じ）。時刻・速度を省くと、それを要る材料の軸は「データなし」。
     # `z`/`x`/`y`はクリックしたタイル——地図は既に知っており、way idから逆算するより
     # 確かで、同じタイルの値がキャッシュに載っていれば追加のDBアクセスも要らない。
-    z: int
-    x: int
-    y: int
-    bearing_deg: float
+    z: RoadTileZoom
+    x: TileIndex
+    y: TileIndex
+    bearing_deg: BearingDeg
     at: datetime | None = None
-    speed_kmh: float | None = None
+    speed_kmh: AssumedSpeedKmh | None = None
     # 合成に使う重み。利用者がいま設定している重み（ルート生成へ送るのと同じ形・同じ検証）を送る。省略すると既定の重み。
     route_preference: RoutePreferenceWeights | None = None
+
+    @model_validator(mode="after")
+    def _check_tile_index(self) -> "AxisInspectorRequest":
+        check_tile_index(self.z, self.x, self.y)
+        return self
 
 
 @router.post("/api/region/axis-inspector")

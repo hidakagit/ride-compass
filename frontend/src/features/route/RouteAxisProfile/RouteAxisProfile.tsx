@@ -94,7 +94,7 @@ export default function RouteAxisProfile({
       <AxisDetail axis={axis} difficulty={axisDifficulties[axis.axisId]}>
         {rawText && <span className="block text-[var(--color-muted-strong)] tabular-nums">{rawText}</span>}
         {breakdownTexts.length > 0 && (
-          <span className="block text-[var(--color-muted-strong)] tabular-nums">{`この軸の内訳: ${breakdownTexts.join("・")}`}</span>
+          <span className="block text-[var(--color-muted-strong)] tabular-nums">{`この評価軸の内訳: ${breakdownTexts.join("・")}`}</span>
         )}
       </AxisDetail>
     );
@@ -114,7 +114,7 @@ export default function RouteAxisProfile({
               <InfoPopover triggerAriaLabel="総合難易度の説明">
                 <p>
                   区間ごとの難しさを距離で重みづけて平均した値です。長く走っても難しさが同じなら増えません。
-                  軸の重み配分を反映していて、下の内訳の合計とほぼ一致します。候補の一覧は、最速ルートのほかは所要時間の短い順に並びます。
+                  評価軸の重み配分を反映していて、下の内訳の合計とほぼ一致します。候補の一覧は、最速ルートのほかは所要時間の短い順に並びます。
                 </p>
               </InfoPopover>
             </span>
@@ -143,7 +143,7 @@ export default function RouteAxisProfile({
                 </p>
                 <p>
                   上のグラフは横が距離、縦が区間ごとの難易度で、塗られた面積がこの負荷にあたります
-                  [色ごとの面積がその軸の負荷]。灰色は値の無い区間で、平均の高さで数えています。
+                  [色ごとの面積がその評価軸の負荷]。灰色は値の無い区間で、平均の高さで数えています。
                 </p>
               </InfoPopover>
             </span>
@@ -169,7 +169,7 @@ export default function RouteAxisProfile({
               renderDetail={renderAxisDetail}
             />
           ) : (
-            <p className={textVariants({ variant: "hint" })}>このルートで表示できる評価軸データがありません</p>
+            <p className={textVariants({ variant: "hint" })}>このルートで表示できる評価軸の値がありません</p>
           )}
         </div>
       )}

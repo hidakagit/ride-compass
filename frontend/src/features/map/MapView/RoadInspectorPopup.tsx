@@ -115,20 +115,20 @@ export default function RoadInspectorPopup({
                 return (
                   <>
                     <span className="font-semibold">{axis.label}</span>
-                    <span className="text-[length:var(--font-size-sm)]">{`軸別難易度 ${Math.round(found.difficulty)}/100`}</span>
+                    <span className="text-[length:var(--font-size-sm)]">{`この評価軸の難易度 ${Math.round(found.difficulty)}/100`}</span>
                     <span className={textVariants({ variant: "hint" })}>{axis.description}</span>
                   </>
                 );
               }}
             />
           ) : (
-            <p className={textVariants({ variant: "hint" })}>この区間で算出できる軸がありません。</p>
+            <p className={textVariants({ variant: "hint" })}>この道で値を出せる評価軸がありません。</p>
           )}
           {result.composite_difficulty !== null && (
             <p className={cn(textVariants({ variant: "hint" }), "m-0")}>
-              {`この道だけで見た合成: ${formatDifficulty(result.composite_difficulty.value)}/100`}
+              {`この道だけで見た難易度: ${formatDifficulty(result.composite_difficulty.value)}/100`}
               {coveredWeightPercent !== null && coveredWeightPercent < 100
-                ? `[重みの約${coveredWeightPercent}%ぶんの軸だけ。残りの軸は、この道とこの走る条件では値が出せません]`
+                ? `[重みの約${coveredWeightPercent}%ぶんの評価軸だけ。残りの評価軸は、この道とこの走る条件では値が出せません]`
                 : ""}
             </p>
           )}

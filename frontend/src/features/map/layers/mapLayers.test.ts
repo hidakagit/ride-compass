@@ -45,7 +45,7 @@ describe("buildMapLayers（レイヤーの一覧）", () => {
     expect(layer(withoutAxes, "accident_point").description).not.toContain("[");
   });
 
-  it("説明は、そのレイヤーの元データを材料に持つ公開中の評価を名前で挙げ、無ければ評価に触れない", () => {
+  it("説明は、そのレイヤーの元データを材料に持つ公開中の評価軸を名前で挙げ、無ければ評価軸に触れない", () => {
     const axes = buildMapLayers(
       mapCatalogOf([
         catalogEntry({ axis_id: "night", label: "暗さ", primary_attribute_ids: ["lit", "tunnel"] }),
@@ -53,9 +53,9 @@ describe("buildMapLayers（レイヤーの一覧）", () => {
         catalogEntry({ axis_id: "wind", label: "向かい風", weather_layer_groups: ["windVector"] }),
       ]),
     );
-    expect(layer(axes, "tunnel").panelHint).toContain("評価「暗さ」");
-    expect(layer(axes, "stop_poi").panelHint).toContain("評価「止まりやすさ」");
-    expect(layer(axes, "windVector").panelHint).toContain("評価「向かい風」");
+    expect(layer(axes, "tunnel").panelHint).toContain("評価軸「暗さ」");
+    expect(layer(axes, "stop_poi").panelHint).toContain("評価軸「止まりやすさ」");
+    expect(layer(axes, "windVector").panelHint).toContain("評価軸「向かい風」");
     for (const id of ["tunnel", "stop_poi", "windVector"]) {
       expect(layer(withoutAxes, id).panelHint).not.toContain("評価");
     }
