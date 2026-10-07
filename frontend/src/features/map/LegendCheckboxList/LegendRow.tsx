@@ -34,6 +34,7 @@ export default function LegendRow({
           aria-controls={open ? descriptionId : undefined}
           aria-label={`${entry.label}の説明を${open ? "隠す" : "表示"}`}
           onClick={() => setOpen((current) => !current)}
+          usage="この段階の意味を、行のすぐ下に開きます。"
         >
           <InfoIcon />
         </Button>

@@ -128,6 +128,7 @@ export default function RideConditionBar({
             id={departureInputId}
             type="datetime-local"
             aria-label="出発日時を直接指定"
+            data-usage="出発する日時を、日付と時刻で直に入れます。"
             value={toJstLocalValue(departureTime)}
             onChange={(e) => {
               const next = parseJstLocalValue(e.target.value);
@@ -136,18 +137,23 @@ export default function RideConditionBar({
             className="h-8 tabular-nums"
           />
           {departureAnchor && (
-            <DynamicLayerTimeSlider
-              frames={departureFrames}
-              index={nearestTimeIndex(departureTimeline, departureTime)}
-              // 「今」の目盛りを選んだら、その時刻に固定せず「今」への追従へ戻す——固定すると、
-              // 放置するうちに過去になり、予報のレイヤーの範囲から外れて表示が消える。
-              onIndexChange={(index) =>
-                index === nowIndex ? onDepartureNow() : onDepartureTimeChange(departureTimeline[index])
-              }
-              currentIndex={nowIndex}
-              onNow={onDepartureNow}
-              ariaLabel="出発時刻"
-            />
+            <div
+              className="contents"
+              data-usage="目盛りをなぞって出発時刻を選びます。‹ › で1つずつ動かし、「現在」で今の時刻に合わせ続ける状態へ戻します。"
+            >
+              <DynamicLayerTimeSlider
+                frames={departureFrames}
+                index={nearestTimeIndex(departureTimeline, departureTime)}
+                // 「今」の目盛りを選んだら、その時刻に固定せず「今」への追従へ戻す——固定すると、
+                // 放置するうちに過去になり、予報のレイヤーの範囲から外れて表示が消える。
+                onIndexChange={(index) =>
+                  index === nowIndex ? onDepartureNow() : onDepartureTimeChange(departureTimeline[index])
+                }
+                currentIndex={nowIndex}
+                onNow={onDepartureNow}
+                ariaLabel="出発時刻"
+              />
+            </div>
           )}
         </PopoverContent>
       </Popover>
@@ -174,7 +180,7 @@ export default function RideConditionBar({
           align="end"
           collisionPadding={POPOVER_COLLISION_PADDING_PX}
         >
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2" data-usage="平地・無風で巡航する速さを、つまみか数値で決めます。">
             <input
               type="range"
               aria-label="想定速度スライダー"
