@@ -32,11 +32,9 @@ from app.domain.material_catalog import (
     WayMaterialCoverageSpec,
 )
 from app.domain.primary_attributes import PRIMARY_ATTRIBUTES
-from app.domain.registry import PrimaryAttributeSpec
 from app.domain.traffic import NODE_KINDS, STOP_POI_KINDS
 
-ATTR_A = PrimaryAttributeSpec(attr_id="attr_a", label="属性A", geometry="line", tile_kind="road_surface")
-ATTR_B = PrimaryAttributeSpec(attr_id="attr_b", label="属性B", geometry="line", tile_kind="road_surface")
+ATTR_A, ATTR_B = PRIMARY_ATTRIBUTES[:2]
 
 WAY_UNKNOWN = WayMaterialCoverageSpec(missing_condition="w.x IS NULL", source="x", missing_semantics="unknown")
 WAY_DEFINITE = WayMaterialCoverageSpec(missing_condition="w.y IS NULL", source="y", missing_semantics="definite")
@@ -84,6 +82,12 @@ def test_a_declaration_that_does_not_fit_its_dtype_is_refused(fields):
     fields.setdefault("dtype", "numeric")
     with pytest.raises(ValidationError):
         spec("x", **fields)
+
+
+def test_a_material_pointing_to_an_attribute_outside_the_table_is_refused():
+    """地図の表示の軸は材料を一次属性の宣言そのもので照らすので、同じ`attr_id`の写しを指す材料も表に無いものとして断る。"""
+    with pytest.raises(ValidationError):
+        spec("x", primary_attribute=ATTR_A.model_copy())
 
 
 def test_a_value_is_shown_with_its_label_when_the_table_has_one():

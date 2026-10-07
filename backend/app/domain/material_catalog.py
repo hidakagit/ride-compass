@@ -28,7 +28,7 @@ from itertools import groupby
 
 from typing import Literal, NamedTuple
 
-from pydantic import ConfigDict, Field, model_validator
+from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from app.domain.landcover import (
     LANDCOVER_CLASSES,
@@ -42,6 +42,7 @@ from app.domain.landcover import (
 from app.domain.divided_carriageway import oneway_material_sql
 from app.domain.registry import PrimaryAttributeSpec
 from app.domain.primary_attributes import (
+    PRIMARY_ATTRIBUTES,
     ATTR_ACCIDENT_POINT,
     ATTR_CYCLEWAY,
     ATTR_ELEVATION,
@@ -282,8 +283,8 @@ class MaterialSpec(StrictModel):
     # 方向で値が変わる材料は方向を持たないMVTプロパティへ焼き込めないため、
     # `tile_property=None`と両輪で「この材料はramp化しない」を宣言する。
     tile_property_direction_dependent: bool = False
-    # この材料の由来となる一次属性。`domain/primary_attributes.py: PRIMARY_ATTRIBUTES`の要素を、表の中で付けた名前で指す
-    # （idの文字列で指さない——表に無い一次属性を指す材料を書けないようにするため）。
+    # この材料の由来となる一次属性。`domain/primary_attributes.py: PRIMARY_ATTRIBUTES`の要素そのものを、表の中で付けた名前で指す
+    # （表の外の宣言は`_check_primary_attribute_is_declared`が断る）。
     # 材料id（例: highway_is_cycleway・maxspeed_kmh・intersection_count_per_km）と一次属性id
     # （例: cycleway・maxspeed・intersection）は名前が異なる別の名前空間のため、対応が
     # 自明でない材料には明示的にここへ書く。Noneは「対応する一次属性が無い」（動的データ
@@ -331,6 +332,15 @@ class MaterialSpec(StrictModel):
         """材料名を「論理名 - 物理名」形式の表示用ラベルにする（例: "道路種別 - highway"、
         value_labelと同じ理由で軸スタジオの材料選択肢に物理名[material_id]を併記する）。"""
         return f"{self.label} - {self.material_id}"
+
+    @field_validator("primary_attribute")
+    @classmethod
+    def _check_primary_attribute_is_declared(cls, attr: PrimaryAttributeSpec | None) -> PrimaryAttributeSpec | None:
+        """表の要素そのものだけを受ける。地図の表示の軸は材料を宣言そのもので照らし（`display_axis_missing_semantics`）、
+        軸カタログは`attr_id`で地図の層を引くので、表の外の宣言（同じ`attr_id`の写しも）を指す材料は、どちらかの連動を黙って外す。"""
+        if attr is not None and not any(attr is declared for declared in PRIMARY_ATTRIBUTES):
+            raise ValueError(f"{attr.attr_id}: 材料の一次属性は`primary_attributes.py: PRIMARY_ATTRIBUTES`の要素そのものを指す")
+        return attr
 
     @model_validator(mode="after")
     def _check_fields_match_the_dtype(self) -> "MaterialSpec":
