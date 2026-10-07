@@ -32,12 +32,12 @@ function materialIdsOf(shape: AxisShape): string[] {
   return shape.terms.map((t) => t.material);
 }
 
-// shapeのtermは材料idと他の軸idのどちらも指しうる。軸として見つかればその表示名を、
-// 見つからなければ材料カタログから引く。
 const LEFT_AS_DRAFT_NOTICE =
   `「調整する」で下書きへ戻したまま編集を終えました。この軸は一般ユーザーには表示されません。` +
   `下書きタブで編集を保存すると公開へ戻ります。`;
 
+// shapeのtermは材料idと他の軸idのどちらも指しうる。軸として見つかればその表示名を、
+// 見つからなければ材料カタログから引く。
 function labelForMaterialOrAxis(id: string, definitions: readonly AxisDefinitionResponse[]): string {
   return definitions.find((d) => d.axis_id === id)?.label ?? materialCatalogLabel(id, MATERIAL_CATALOG);
 }
