@@ -7,7 +7,7 @@
  * 動かした（なぞった・取り消された）押し方では出さないこと、部品の外を押したとき（閉じる押し操作が外へ届かないことも）、キー操作（Esc・Enter・Space・
  * 値を動かすキー）、説明の✕で説明だけを閉じて部品を選ぶ続きへ戻ること、案内と説明の面の上の操作は止めないこと、説明している部品を囲む枠と測り直し、
  * 説明の外へフォーカスを移したときに終えること、マウスの操作は既定の動きまで止め、タッチは既定の動き（スクロール）を残すこと、
- * 終えたら部品が動くこと。
+ * 終えたら部品が動くこと、開くボタンの「中を見る」で開いた浮きパネルの中の部品も説明し、外の部品・終える操作で閉じること。
  *
  * ここで見ないもの:
  * - 案内の文言——部品の宣言で、書き写して突き合わせるだけになる
@@ -24,6 +24,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { Button } from "@/components/ui/Button/Button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/Popover/Popover";
 import UsageGuide from "./UsageGuide";
 
 function renderScreen() {
@@ -381,6 +382,91 @@ describe("UsageGuide", () => {
     fireEvent.touchStart(screen.getByRole("button", { name: "押す" }), { touches: [{ clientX: 0, clientY: 0 }] });
 
     expect(onTouchStart).not.toHaveBeenCalled();
+  });
+
+  describe("「中を見る」で開いた浮きパネル", () => {
+    function renderPopoverScreen() {
+      const onEnd = vi.fn();
+      const onSpeed = vi.fn();
+      function Screen() {
+        const [active, setActive] = useState(true);
+        return (
+          <>
+            <Button usage="いまの条件で候補を作ります。">生成</Button>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button usage="速さを決める面を開きます。">想定速度</Button>
+              </PopoverTrigger>
+              <PopoverContent aria-label="想定速度の面">
+                <Button onClick={onSpeed} usage="速さを1つ上げます。">
+                  速く
+                </Button>
+              </PopoverContent>
+            </Popover>
+            {active && (
+              <UsageGuide
+                onEnd={() => {
+                  onEnd();
+                  setActive(false);
+                }}
+              />
+            )}
+          </>
+        );
+      }
+      render(<Screen />);
+      return { onEnd, onSpeed };
+    }
+    const popover = () => screen.queryByRole("dialog", { name: "想定速度の面" });
+
+    async function openInside() {
+      await userEvent.click(screen.getByRole("button", { name: "想定速度" }));
+      expect(popover()).toBeNull();
+      await userEvent.click(screen.getByRole("button", { name: "中を見る" }));
+    }
+
+    it("開くボタンの説明の「中を見る」で開き、中の部品は動かずに説明が出て、✕でも開いたまま", async () => {
+      const { onEnd, onSpeed } = renderPopoverScreen();
+
+      await openInside();
+      expect(popover()).toBeInTheDocument();
+      expect(explanation()).toBeNull();
+
+      await userEvent.click(screen.getByRole("button", { name: "速く" }));
+      expect(onSpeed).not.toHaveBeenCalled();
+      expect(explanation()).toHaveTextContent("速さを1つ上げます。");
+      expect(explanation()).not.toHaveTextContent("中を見る");
+
+      await userEvent.click(screen.getByRole("button", { name: "説明を閉じる" }));
+      expect(popover()).toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: "速く" }));
+      expect(explanation()).toHaveTextContent("速さを1つ上げます。");
+      expect(popover()).toBeInTheDocument();
+      expect(onEnd).not.toHaveBeenCalled();
+    });
+
+    it("外の部品を押すと、浮きパネルを閉じてその部品を説明する", async () => {
+      renderPopoverScreen();
+      await openInside();
+
+      await userEvent.click(screen.getByRole("button", { name: "生成" }));
+
+      expect(popover()).toBeNull();
+      expect(explanation()).toHaveTextContent("いまの条件で候補を作ります。");
+    });
+
+    it.each([
+      ["「やめる」", async () => userEvent.click(screen.getByRole("button", { name: "やめる" }))],
+      ["Esc", async () => userEvent.keyboard("{Escape}")],
+    ])("%sで終えると、浮きパネルも閉じる", async (_, operate) => {
+      const { onEnd } = renderPopoverScreen();
+      await openInside();
+
+      await operate();
+
+      expect(onEnd).toHaveBeenCalledTimes(1);
+      expect(popover()).toBeNull();
+    });
   });
 
   it("説明を見る状態を外すと、部品は押したとおりに動く", async () => {

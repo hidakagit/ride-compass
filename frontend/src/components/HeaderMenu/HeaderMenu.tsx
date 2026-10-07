@@ -45,6 +45,7 @@ export default function HeaderMenu({
         <Button
           variant="menu"
           size="sm"
+          usage="部品を押すと、その部品の使い方が出る状態に入ります。"
           onClick={() => {
             setOpen(false);
             onStartUsageGuide();
@@ -54,7 +55,12 @@ export default function HeaderMenu({
           使い方を見る
         </Button>
         {debugEnabled && (
-          <Toggle variant="menu" onClick={onToggleDebugConsole} pressed={debugConsoleOpen}>
+          <Toggle
+            variant="menu"
+            onClick={onToggleDebugConsole}
+            pressed={debugConsoleOpen}
+            usage="開発者向けの記録の窓を出し入れします。"
+          >
             <LogIcon size={15} />
             {debugConsoleOpen ? "デバッグログを隠す" : "デバッグログを表示"}
           </Toggle>
