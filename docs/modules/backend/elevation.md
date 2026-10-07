@@ -32,7 +32,7 @@ edge_materials（start/end・gain/loss・average）
 
 ## 勾配を出さない区間
 
-`average_grade`がNULLなのは「まだ計算していない」だけではない。**舗装公道としてありえない
+`average_grade`がNULLなのは、標高を出せなかった区間だけではない。**舗装公道としてありえない
 急勾配**（`MAX_PLAUSIBLE_AVERAGE_GRADE_PERCENT`）は、計算したうえで**値を持たせない**と決めた
 区間である。道の起伏ではなくDEMの読み違いで、丸めても上限で切っても直らない。
 
