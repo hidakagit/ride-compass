@@ -176,8 +176,8 @@ def _landcover_coverage(key: str) -> EdgeMaterialCoverageSpec:
     """土地被覆1クラスの欠損判定。クラスごとに書き写すと、増えたときここだけ取り残される。
 
     **値を読む列そのものを数える**（`landcover_value_sql`と同じ`edge_materials.lc_*`）。
-    別の表を数えると、値が空でも「揃っている」と報告しうる。列がNULLなのは
-    「未計算」か「算出不能（ラスタ範囲外等）」で、どちらも値が無いことに変わりはない。
+    別の表を数えると、値が空でも「揃っている」と報告しうる。列がNULLなら値が無い
+    （NULLの意味は`docs/modules/backend/static-road-attributes.md`「値が無ければNULL」）。
     """
     return EdgeMaterialCoverageSpec(
         present_condition=f"{landcover_value_sql(key)} IS NOT NULL",
