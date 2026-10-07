@@ -49,7 +49,7 @@ test("23 作業時間は作業の状態にいた区間の和で、回答待ち�
   const records = {
     1: [start(ago(2))],
     2: [start(ago(10)), { by: c, at: ago(9.9), body: notes.reason(config.todo, "段階に分けた") }], // 段階を待つ親
-    3: [{ by: gate, at: ago(40), body: `## 問い\n${config.adoption}` }, answered(ago(31)), start(ago(30)), asked(ago(29.5)), answered(ago(2)), start(ago(1))],
+    3: [{ by: gate, at: ago(40), body: `## 問い\n${config.question}` }, answered(ago(31)), start(ago(30)), asked(ago(29.5)), answered(ago(2)), start(ago(1))],
     4: [start(ago(3)), { by: gate, at: ago(2), body: notes.back("表に無い。", config.review) }, start(ago(1), "確かめる")],
     5: [start("2026-09-30T00:00:00Z")],
     21: [answered(ago(1.5)), { closed: ago(1) }],
