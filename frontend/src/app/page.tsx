@@ -355,6 +355,8 @@ export default function Home() {
           size="panelIcon"
           onClick={() => setConfirmingClear(true)}
           aria-label="候補を全消去"
+          aria-haspopup="dialog"
+          aria-expanded={confirmingClear}
           usage="作った候補をすべて消します。地図に置いた地点は残ります。"
         >
           <ClearRoutesIcon size={18} />
