@@ -8,7 +8,7 @@
 ここには、回すときの開発機での前提と所要を置く。
 
 ```bash
-cd backend && pytest tests/test_road_graph_engine.py -q
+cd backend && pytest tests/test_route_search.py -q
 cd frontend && ./node_modules/.bin/vitest run <対象ファイル> --pool=threads
 cd frontend && ./node_modules/.bin/tsc --noEmit
 ```

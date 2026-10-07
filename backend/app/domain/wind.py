@@ -4,8 +4,13 @@ from datetime import datetime
 
 import numpy as np
 
-from app.domain.geo import haversine_distance_km_array
+from app.domain.geo import haversine_distance_km, haversine_distance_km_array
 from app.domain.route import Coordinates
+
+#: 出発時の風（`DepartureWind`）の風速・風向を応答に載せる桁。
+DEPARTURE_WIND_DECIMALS = 1
+#: 風の材料（向かい風の抗力比）を地図へ配る桁。
+WIND_DRAG_RATIO_DECIMALS = 3
 
 # 道なり距離／直線距離の比の想定値。探索前に各Edgeの通過予定時刻を「基準点からの直線距離
 # ×この比÷仮定速度」で推定するときに使う。風の時間解像度は1時間のため、この比のばらつきに
@@ -14,6 +19,16 @@ ROUTE_DETOUR_RATIO = 1.3
 
 def kmh_to_ms(speed_kmh: float) -> float:
     return speed_kmh / 3.6
+
+
+def detour_ratio_or_default(learned: float | None) -> float:
+    """レグの時刻の推定に使う迂回率。探索範囲の学習値があればそれ、無ければ`ROUTE_DETOUR_RATIO`。"""
+    return learned if learned is not None else ROUTE_DETOUR_RATIO
+
+
+def is_usable_detour_ratio(measured: float) -> bool:
+    """実測の迂回率を学習値・到着予定時刻に使ってよいか（NaN・非正は使わない）。"""
+    return math.isfinite(measured) and measured > 0
 
 
 # 風の追加負荷（`wind_drag_ratio_array`）を無次元化する基準速度（m/s、時速20km）。
@@ -205,4 +220,22 @@ def estimate_passage_hours(
     if speed_kmh <= 0:
         raise ValueError("estimate_passage_hours: speed_kmh must be positive")
     distance_km = haversine_distance_km_array(mid_lat, mid_lon, anchor)
-    return offset_hours + direction * detour_ratio * distance_km / speed_kmh
+    return offset_hours + direction * cruise_hours(detour_ratio * distance_km, speed_kmh)
+
+
+def cruise_hours(distance_km, speed_kmh: float):
+    """`distance_km`を巡航速度で走ったとみなした所要時間（h）。走行モデルを通さない見込み（レグの時刻の置き方・
+    探索の前の通過時刻の推定）はどれもこの模型で、レグごと・経路ごとに式を写さない。"""
+    return distance_km / speed_kmh
+
+
+def straight_line_hours(origin: Coordinates, destination: Coordinates, speed_kmh: float, detour_ratio: float) -> float:
+    """起点から目的地までの見込み所要時間（h）。直線距離に迂回率を掛けた道なり距離を巡航速度で走るとみなす
+    （`estimate_passage_hours`と同じ模型）。"""
+    return cruise_hours(detour_ratio * haversine_distance_km(origin, destination), speed_kmh)
+
+
+def reached_or_estimated_hours(reached_hours: np.ndarray, estimated_hours: np.ndarray) -> np.ndarray:
+    """区間ごとの通過時刻: 前向きの探索が届いた区間は実際の到達時刻`reached_hours`、届かない（有限でない）
+    区間だけ直線距離からの推定`estimated_hours`。"""
+    return np.where(np.isfinite(reached_hours), reached_hours, estimated_hours)

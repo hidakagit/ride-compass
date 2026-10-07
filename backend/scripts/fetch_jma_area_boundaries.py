@@ -38,7 +38,7 @@ logger = logging.getLogger("ridecompass.fetch_jma_area_boundaries")
 
 #: 境界を簡略化する許容誤差（度。おおむね10m）。元の境界は頂点が1,400万を超え、そのまま
 #: 持つとbackendのメモリを数百MB使う。簡略化でできる隣の区域との隙間は、引く側が最寄りの
-#: 区域へ寄せる（`jma_area_boundaries.NEAREST_LIMIT_DEG`）。
+#: 区域へ寄せる（`domain/jma_area.py: NEAREST_LIMIT_DEG`）。
 SIMPLIFY_TOLERANCE_DEG = 0.0001
 
 _CODE_FIELD = "regioncode"

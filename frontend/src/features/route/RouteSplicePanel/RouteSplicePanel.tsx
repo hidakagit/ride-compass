@@ -7,6 +7,7 @@ import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
 import { NewRouteIcon, RouteDiffIcon, UndoAllIcon, UndoIcon } from "@/components/ui/icons/icons";
 import type { CatalogAxis } from "@/lib/catalogAxis";
 import { formatDelta, formatMetric, metricDifferences, roundToDigits } from "@/features/route/routeEditDiff";
+import { DIFFICULTY_DECIMALS } from "@/lib/mapDisplay/valueScale";
 import type { RouteCandidate } from "@/types/route";
 import { Button } from "@/components/ui/Button/Button";
 import { GuideText } from "@/components/ui/GuideText/GuideText";
@@ -233,7 +234,9 @@ export default function RouteSplicePanel({
               <div
                 className="flex h-3 min-w-0 flex-1 items-stretch"
                 role="img"
-                aria-label={deltas.map((item) => `${item.label} ${formatDelta(item.delta, 1)}`).join("、")}
+                aria-label={deltas
+                  .map((item) => `${item.label} ${formatDelta(item.delta, DIFFICULTY_DECIMALS)}`)
+                  .join("、")}
               >
                 <div className="flex min-w-0 flex-[1_1_50%] justify-end">
                   {deltas
@@ -292,7 +295,7 @@ export default function RouteSplicePanel({
             {deltas.length > 0 ? (
               deltas.slice(0, LABELLED_DELTA_COUNT).map((item) => (
                 <span className="mr-2.5" key={item.axisId}>
-                  {item.label} {formatDelta(item.delta, 1)}
+                  {item.label} {formatDelta(item.delta, DIFFICULTY_DECIMALS)}
                 </span>
               ))
             ) : appliedCount > 0 ? (

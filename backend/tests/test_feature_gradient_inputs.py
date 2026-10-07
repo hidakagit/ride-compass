@@ -14,8 +14,7 @@ import pytest
 from sqlalchemy import text
 
 from app.batch import derive_topology
-from app.domain.region import BoundingBox
-from app.infrastructure.road_graph_repository import EDGE_UNIT_MIN_ZOOM
+from app.domain.region import EDGE_UNIT_MIN_ZOOM, BoundingBox
 from tests.conftest import raw_connection
 from tests.source_ingest import ingest_records, way_record
 

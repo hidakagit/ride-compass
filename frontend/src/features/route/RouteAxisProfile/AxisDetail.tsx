@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { CatalogAxis } from "@/lib/catalogAxis";
+import { formatDifficulty } from "@/lib/mapDisplay/valueScale";
 
 interface AxisDetailProps {
   axis: CatalogAxis;
@@ -16,7 +17,7 @@ export default function AxisDetail({ axis, difficulty, children }: AxisDetailPro
       <span className="block font-medium">{axis.label}</span>
       <span className="mt-1 block tabular-nums">
         {/* チップの数字（重み付き寄与度）とは別の値。 */}
-        {difficulty == null ? "データなし" : `この評価軸の難易度 ${Math.round(difficulty)}/100`}
+        {difficulty == null ? "データなし" : `この評価軸の難易度 ${formatDifficulty(difficulty)}/100`}
       </span>
       {children}
       <span className="mt-2 block text-[var(--color-muted)]">{axis.description}</span>

@@ -1,13 +1,13 @@
 """`services/route_generator.py`——ルート生成の戦略層（周回・経由地・目的地・乗り換えの4つの入口）。
 
 ここで見ないもの:
-- 折返し点の選定・経路探索・評価の中身 → `RoadGraphEngine`（`test_road_graph_engine.py`）。ここでは代役に置き換える
+- 折返し点の選定・経路探索・評価の中身 → `RoadGraphEngine`（`test_route_generation_behavior.py`と、その判断の部品は`test_route_search.py`）。ここでは代役に置き換える
 - 区間から候補への集約の計算（距離加重平均・丸め） → `test_route.py`・`domain/difficulty.py`のテスト
 - APIの受け口（ジョブの投稿・202） → `test_routes_generate.py`
 - エンジンへ渡す引数（探索の範囲・経由地の並び・出発時刻・候補数）と、エンジンを呼んだか・何回か → 読むだけの呼び出しなので
   確かめない。経由地を順に通って起点か目的地で終わることは`test_route_generation_behavior.py`が経路で見る。経由地・目的地を
   探索の範囲に入れることは、範囲の余白が小さな格子を覆って入口の結果に現れないため確かめず、理由は実装のコメントが持つ
-- 算出不能の候補を末尾へ回すことの目的地の側 → 周回と目的地が同じ並びの鍵（`_difficulty_order`）を通るので、両側は
+- 算出不能の候補を末尾へ回すことの目的地の側 → 周回と目的地が同じ並びの鍵（`domain/route_search.py: difficulty_order`）を通るので、両側は
   周回の並びのテストが見る
 - 前の生成の理由・目的地の補正を持ち越さないこと → 本番は生成ごとに`RouteGenerator`を作るので、持ち越す状態が起こらない
 
@@ -35,7 +35,6 @@ from app.services.route_generator import RouteGenerator
 from tests.bound_fake import bound
 
 ORIGIN = Coordinates(latitude=35.6789, longitude=139.7712)
-ORIGIN_LABEL = "(35.68,139.77)"  # 常時出るログ・利用者向けの理由は座標を小数2桁で出す
 WAYPOINT = Coordinates(latitude=35.69, longitude=139.78)
 DESTINATION = Coordinates(latitude=35.70, longitude=139.80)
 START = datetime(2026, 9, 24, 8, 0, tzinfo=JST)
@@ -214,7 +213,7 @@ async def test_missing_road_data_gives_no_candidates_and_says_why(entrance, phra
     with caplog.at_level(logging.WARNING, logger=route_generator.logger.name):
         assert await ENTRANCES[entrance](generator, start_time=START) == []
 
-    assert generator.last_no_candidates_reason == f"起点{ORIGIN_LABEL}付近の道路データが未整備のため、{phrase}"
+    assert generator.last_no_candidates_reason == f"起点付近の道路データが未整備のため、{phrase}"
     assert _warnings(caplog)
 
 
@@ -553,7 +552,7 @@ async def test_destination_without_a_fastest_route_returns_the_alternatives():
     [
         (
             "origin",
-            f"起点{ORIGIN_LABEL}から走り出せる道が見つかりませんでした。出発地を道路沿いへ動かしてお試しください。",
+            "起点から走り出せる道が見つかりませんでした。出発地を道路沿いへ動かしてお試しください。",
         ),
         (
             "destination",
