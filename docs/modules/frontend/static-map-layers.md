@@ -128,7 +128,7 @@ backendから取り、タイル本体はrewrites経由に戻る。
 
 コードの宣言にある事実（凡例の行の名前・順序の色の両端の呼び名・点の大きさ・予測が届く先）も文に写さず、源泉が文を組むときに
 宣言から引く（`map_display.py: ordered_ends_text`・`size_text`・`_row_label`、`weather_elements.py: forecast_reach`）。
-凡例の行の説明の元のタグも、行の値（道路種別・等級）かタグ→種別の表（`domain/traffic.py: TAG_KIND_RULES`）から組む
+凡例の行の説明の元のタグも、行の値（道路種別・等級）かタグ→種別の表（`domain/traffic.py: TAG_KIND_RULES`）と信号の読み替え（`kinds_shown_as`）から組む
 （`primary_attributes.py: _tag_row`・`_kind_row`）。凡例の見本が示す見た目（色の灰・破線）と、画面の部品の名前・位置は文に書かない。
 
 ## 表示専用の凡例（`MapLayerDescriptor.readOnlyLegend`）

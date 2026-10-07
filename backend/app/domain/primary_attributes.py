@@ -7,7 +7,7 @@ from collections import Counter
 
 from app.domain.registry import DisplayAxisSpec, DisplayCategorySpec, PointFactSpec, PrimaryAttributeSpec
 from app.domain.road import SURFACE_CLASSES, TRACK_GRADES, surface_class_description
-from app.domain.traffic import TAG_KIND_RULES, kind_map_sql, stop_kind_sql
+from app.domain.traffic import TAG_KIND_RULES, kind_map_sql, kinds_shown_as, stop_kind_sql
 
 #: 元のタグの値をこの数より多く持つ種別は、説明でタグの名前だけを言う（値を並べると説明が値の一覧になる）。
 _LISTED_TAG_VALUES = 3
@@ -24,11 +24,12 @@ def _values_note(tag_key: str, values: tuple[str, ...]) -> str:
 
 
 def _kinds_note(kinds: tuple[str, ...]) -> str:
-    """種別を行の値に持つ行の、説明の末尾に添える元のタグ。タグ→種別の表（`domain/traffic.py: TAG_KIND_RULES`）から
-    引くので、表を変えると説明にも出る。"""
+    """種別を行の値に持つ行の、説明の末尾に添える元のタグ。タグ→種別の表（`domain/traffic.py: TAG_KIND_RULES`）と
+    信号の読み替え（`kinds_shown_as`）から引くので、どちらを変えても説明に出る。"""
+    shown = {k for kind in kinds for k in kinds_shown_as(kind)}
     tags: dict[str, list[str]] = {}
     for tag_key, value, kind, _priority in TAG_KIND_RULES:
-        if kind in kinds:
+        if kind in shown:
             tags.setdefault(tag_key, []).append(value)
     if not tags:
         raise ValueError(f"種別{kinds}にタグ→種別の表の行が無い")
