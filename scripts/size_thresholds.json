@@ -18,6 +18,7 @@
   },
   "on_fire": {
     "backend/app/domain/axis_definitions.py": "評価の計算（evaluate_*・生値・_python_value_columns）を domain/axis_evaluation.py へ出す",
+    "docs/conventions/flow.md": "判定が機械で決まる手順（コマンドの出力の文言・件数・回数で分かれるもの）を tools/flow-gate の道具にし、節を道具を打つ1行と失敗したときの扱いにする",
     "docs/conventions/testing.md": "書き方のパターン（パターン1〜）を別文書へ出す",
     "docs/modules/backend/routing-engine.md": "レグ内の時刻ビン・レグ別コスト配列・domain層の節を別文書へ出す"
   }
