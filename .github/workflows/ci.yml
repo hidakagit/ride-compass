@@ -51,6 +51,10 @@ concurrency:
 jobs:
   changes:
     runs-on: ubuntu-latest
+    # master の実行の一覧を読む（下の BASE）。
+    permissions:
+      contents: read
+      actions: read
     outputs:
       heavy: ${{ steps.diff.outputs.heavy }}
     steps:
@@ -59,9 +63,19 @@ jobs:
           fetch-depth: 0
       - id: diff
         env:
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          # 比べる相手が無い（手での実行）ときは、すべて走らせる。
+          # master の push は、直前のコミット（github.event.before）でなく、master の祖先のうち push の実行が成功で
+          # 終わった一番近いコミットと比べる。直前のコミットの実行が失敗で終わったか、待ちのまま取り消された
+          # （concurrency）とき、その変更は検査もデプロイもされていないので、この実行の判定に入れる。
+          # 一覧の並びは公式の文書に無いので、並びに頼らず祖先の側から辿る（見つからなければすべて走らせる）。
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            ok=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=master&event=push&status=success&per_page=100" --jq '.workflow_runs[].head_sha') || ok=""
+            BASE=$(git rev-list --first-parent --skip=1 "$GITHUB_SHA" | awk 'NR == FNR { ok[$0] = 1; next } !found && ($0 in ok) { print; found = 1 }' <(printf '%s\n' "$ok") -)
+            echo "比べる相手: ${BASE:-無し}"
+          fi
+          # 比べる相手が無い（手での実行・成功した master の実行が見つからない）ときは、すべて走らせる。
           if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}"; then
             echo "heavy=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
