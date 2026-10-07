@@ -6,20 +6,14 @@
 道具の実行口（`main`）。
 """
 
-import importlib.util
-import sys
 from pathlib import Path
 
 import pytest
 
 from tests.git_repo import git
+from tests.script_module import load_script
 
-_SPEC = importlib.util.spec_from_file_location(
-    "break_tests", Path(__file__).resolve().parents[2] / "scripts" / "break_tests.py"
-)
-bt = importlib.util.module_from_spec(_SPEC)
-sys.modules["break_tests"] = bt
-_SPEC.loader.exec_module(bt)
+bt = load_script("break_tests")
 
 _CALC = 'def sign(x):\n    return "neg" if x < 0 else "pos"\n'
 _NEGATIVE = 'from calc import sign\n\n\ndef test_negative():\n    assert sign(-1) == "neg"\n'

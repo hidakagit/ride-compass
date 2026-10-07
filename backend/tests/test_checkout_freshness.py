@@ -5,20 +5,14 @@ origin は一時的な bare リポジトリで作り、git は本物を通す。
 ここで見ないもの: 道具の実行口（`main`）と、道具から呼ぶ所（`review_checks.py` 等）の結線。
 """
 
-import importlib.util
-import sys
 from pathlib import Path
 
 import pytest
 
 from tests.git_repo import git
+from tests.script_module import load_script
 
-_SPEC = importlib.util.spec_from_file_location(
-    "checkout_freshness", Path(__file__).resolve().parents[2] / "scripts" / "checkout_freshness.py"
-)
-cf = importlib.util.module_from_spec(_SPEC)
-sys.modules["checkout_freshness"] = cf
-_SPEC.loader.exec_module(cf)
+cf = load_script("checkout_freshness")
 
 
 def _commit(repo: Path, name: str, text: str) -> str:

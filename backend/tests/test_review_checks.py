@@ -7,20 +7,15 @@
 """
 
 import argparse
-import importlib.util
 import sys
 from pathlib import Path
 
 import pytest
 
 from tests.git_repo import git
+from tests.script_module import load_script
 
-_SPEC = importlib.util.spec_from_file_location(
-    "review_checks", Path(__file__).resolve().parents[2] / "scripts" / "review_checks.py"
-)
-rc = importlib.util.module_from_spec(_SPEC)
-sys.modules["review_checks"] = rc
-_SPEC.loader.exec_module(rc)
+rc = load_script("review_checks")
 
 
 def _commit(repo: Path, files: dict[str, str | None]) -> str:

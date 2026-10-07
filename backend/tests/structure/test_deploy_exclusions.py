@@ -16,16 +16,15 @@ importすると、**そのファイルの変更だけが本番へ届かなくな
 from __future__ import annotations
 
 import ast
-import importlib.util
 import subprocess
 from pathlib import Path
+
+from tests.script_module import load_script
 
 BACKEND = Path(__file__).resolve().parents[2]
 REPO = BACKEND.parent
 
-_SPEC = importlib.util.spec_from_file_location("deploy_backend_gate", REPO / "scripts" / "deploy_backend_gate.py")
-_GATE = importlib.util.module_from_spec(_SPEC)
-_SPEC.loader.exec_module(_GATE)
+_GATE = load_script("deploy_backend_gate")
 
 
 def _image_code_dirs() -> list[Path]:
