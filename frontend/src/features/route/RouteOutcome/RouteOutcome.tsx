@@ -57,7 +57,7 @@ interface RouteOutcomeProps {
     RouteGeneration,
     | "running"
     | "progressLabel"
-    | "lastMessage"
+    | "outcome"
     | "failure"
     | "conditionsDirty"
     | "weightsNotApplied"
@@ -81,14 +81,22 @@ export default function RouteOutcome({ results, generation, splice, routeWeights
     if (reusedRouteId !== null) reusedRowRef.current?.scrollIntoView({ block: "nearest" });
   }, [reusedRouteId]);
 
-  // 「ルート結果」に候補が無いときの中身（生成前・生成中・失敗）。候補0件で生成前の案内へ戻ると、押したのに何も
+  // 「ルート結果」に候補が無いときの中身（生成前・生成中・候補0件・失敗）。候補0件で生成前の案内へ戻ると、押したのに何も
   // 起きていないように見える。
   function renderRouteOutcomeEmptyState() {
+    const { outcome } = generation;
     if (generation.running) {
       return <p className={textVariants({ variant: "hint" })}>{generation.progressLabel ?? "生成中..."}</p>;
     }
-    if (generation.lastMessage) {
-      return <ErrorText>{generation.lastMessage}</ErrorText>;
+    if (outcome?.kind === "failed") {
+      return <ErrorText>{outcome.message}</ErrorText>;
+    }
+    if (outcome?.kind === "empty") {
+      return (
+        <p role="status" className={textVariants({ variant: "hint" })}>
+          {outcome.message}
+        </p>
+      );
     }
     return (
       <p className={textVariants({ variant: "hint" })}>
