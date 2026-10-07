@@ -321,7 +321,7 @@ export const primaryAttributes = [
             "values": [
               "traffic_signals"
             ],
-            "description": "信号機。信号付きの横断歩道もここに入る[OSM の highway=traffic_signals]。",
+            "description": "信号機。信号付きの横断歩道もここに入る[OSM の highway=traffic_signals・crossing]。",
             "color": "#885270"
           },
           {
