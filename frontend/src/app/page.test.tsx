@@ -8,7 +8,7 @@
  *   生成と地図の道の詳細へ同じ値で渡ること、「地図の色分け」の未使用を分ける重み（生成の前はいまの重み・後は使われた重み）、
  *   保存した条件が地図で置いた出発地を持ち、呼び出すとその出発地から生成すること
  * - 地図で扱えること: 地点を置けるのは「ルート設定」の条件タブを見ている間だけで（地図の上端の住所の検索の欄も同じ間だけ出す）、
- *   周回の間は目的地を地図へ出さないこと、
+ *   周回の間は目的地を地図へ出さないこと、住所の検索で経由地へ置けるのは置いた経由地が上限に届くまでのこと、
  *   区間を押して詳細を出せるのは「ルート結果」を見ている間だけのこと、編集の間は地図で地点も区間も扱わず全部の候補を重ね、
  *   作り直すと編集が終わること、作ると直前の作り直しの失敗の文言を消し、合成ルートを選んでいる間は元のルートだけを重ねること、
  *   地図の下のまとめて元に戻す操作
@@ -44,6 +44,7 @@ import { makeGenerationConditions, makeRouteCandidate, makeRouteSegment } from "
 import type { Coordinates, RouteCandidate } from "@/types/route";
 import type { AxisInspectorResult } from "@/types/traffic";
 import regionTileConfig from "@/types/generated/region-tile-config.json";
+import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import type { AmedasObservation, WeatherConditions } from "@/types/weather";
 
 import Home from "./page";
@@ -397,6 +398,35 @@ describe("地図で扱えること", () => {
     expect(marksAt(ELSEWHERE)).toEqual([expect.objectContaining({ draggable: true })]);
     await user.click(screen.getByRole("radio", { name: "周回" }));
     expect(marksAt(DESTINATION)).toEqual([]);
+  });
+
+  it("住所の検索で経由地へ置けるのは、置いた経由地が上限に届くまで", async () => {
+    const candidate = {
+      kind: "address",
+      level: "block",
+      name: "東京都千代田区丸の内一丁目9番",
+      latitude: 35.681,
+      longitude: 139.767,
+    } as const;
+    onBackend("GET", "/api/place-search", () => Response.json({ candidates: [candidate] }));
+    const { user } = renderHome();
+    const searchBox = screen.getByRole("searchbox", { name: "住所で探す" });
+    await user.type(searchBox, "丸の内");
+    // 置くと候補の一覧が閉じるので、置くたびに引き直して候補を選ぶ。
+    const chooseCandidate = async () => {
+      await user.type(searchBox, "{Enter}");
+      await user.click(await screen.findByRole("button", { name: new RegExp(candidate.name) }));
+    };
+
+    for (let placed = 0; placed < routeGenerateConfig.max_waypoints; placed++) {
+      await chooseCandidate();
+      await user.click(
+        within(screen.getByRole("list", { name: "住所の候補" })).getByRole("button", { name: "経由地へ" }),
+      );
+    }
+    await chooseCandidate();
+    const candidates = screen.getByRole("list", { name: "住所の候補" });
+    expect(within(candidates).getByRole("button", { name: "経由地は上限まで置いてあります" })).toBeDisabled();
   });
 
   it("地図で区間を押して詳細を出せるのは「ルート結果」を見ている間だけ", async () => {
