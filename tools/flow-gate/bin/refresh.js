@@ -1,4 +1,4 @@
-// 公開の直後に、開いた issue を全部、今のゲートの規則の姿（担当者・本文の先頭）へ揃える（hidakagit-bot の名義）。
+// 公開の直後に、開いた issue を全部、今のゲートの規則の姿（担当者・本文の先頭・回答待ちの問い）へ揃える（hidakagit-bot の名義）。
 import { Gate } from "../src/gate.js";
 import { args, config } from "./cli.js";
 

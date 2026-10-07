@@ -32,6 +32,9 @@ export function judge(config, from, to, { close, body } = {}) {
   return { ok: true };
 }
 
+// 答えていない問いがあるか: 問いと答えのコメント（古い順の本文）のうち、最新が問い。
+export const unanswered = (bodies) => /^## 問い\n/.test(bodies.map(normalize).findLast((b) => /^## (問い|回答)\n/.test(b)) ?? "");
+
 // 問い（docs/conventions/flow.md「問い」）: 「## 問い」の行・問いの文1行・（あれば）「### 案」と1行1案・（あれば）<details> の
 // 判断材料だけ。ほかの行があれば形に合わないので null。
 export function parseQuestion(text) {
