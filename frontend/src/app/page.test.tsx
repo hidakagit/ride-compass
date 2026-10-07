@@ -304,7 +304,7 @@ describe("ルートを作る", () => {
     await user.click(screen.getByRole("button", { name: "路面" }));
     clickMap(HERE, [{ layer: "road-tiles-surface", properties: { osm_way_id: 1 } }]);
     await user.click(screen.getByRole("button", { name: "この道の評価を見る" }));
-    expect(await screen.findByText(/この道だけで見た合成/)).toBeInTheDocument();
+    expect(await screen.findByText(/この道だけで見た難易度/)).toBeInTheDocument();
     jobs.respond([FIRST], LOOP_CONDITIONS);
     expect(await generate(user)).toMatchObject({ assumed_speed_kmh: 25, start_time: departure.toISOString() });
   });
@@ -637,7 +637,7 @@ describe("画面の枠", () => {
     onBackend("GET", "/api/weather/warnings", () => Response.json({ detail: "失敗" }, { status: 502 }));
     const { user } = renderHome();
     const missing = () => screen.getByRole("button", { name: /を取得できていません/ });
-    await waitFor(() => expect(missing()).toHaveAccessibleName(/現在地.*軸一覧|軸一覧.*現在地/));
+    await waitFor(() => expect(missing()).toHaveAccessibleName(/現在地.*評価軸の一覧|評価軸の一覧.*現在地/));
     expect(missing()).not.toHaveAccessibleName(/警報/);
 
     await user.click(screen.getByRole("button", { name: "現在地に移動" }));

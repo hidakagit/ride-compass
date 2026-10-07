@@ -5,7 +5,6 @@
 
 import weatherScales from "@/types/generated/weather-scales.json";
 import { mapDisplay } from "@/types/generated/mapDisplay";
-import regionTileConfig from "@/types/generated/region-tile-config.json";
 import {
   AccidentIcon,
   ElevationIcon,
@@ -25,6 +24,7 @@ import {
   type MapIconComponent,
 } from "@/components/ui/icons/icons";
 import type { LegendEntry } from "@/lib/mapDisplay/legendFilter";
+import { TILE_VERSION_GATED_SOURCES } from "@/lib/mapDisplay/tileVersionGated";
 import { LANDCOVER_PAINTED_CLASSES } from "./landcoverClasses";
 import { PRECIPITATION_INTENSITY_LEVELS } from "./precipitationNowcast";
 import { WIND_SPEED_LEGEND_LEVELS } from "./windLayer";
@@ -352,9 +352,6 @@ export const TILE_ZOOM_TOO_WIDE_NOTICE = "ズームインすると表示され�
 
 /** チップ下に出す、タイルの世代が届いていないときの案内（届くまでソースを作らないので何も描けない）。 */
 export const TILE_VERSIONS_MISSING_NOTICE = "配信情報を取得できず表示できません";
-
-/** 世代が届くまで要求できない情報源（世代を配るタイルの系統の名前が、そのまま情報源の名前）。 */
-const TILE_VERSION_GATED_SOURCES: ReadonlySet<string> = new Set(regionTileConfig.tile_version_kinds);
 
 /** タイルの世代が届くまで何も描けないレイヤー。ramp軸も路面タイルを読むので含める。 */
 export function tileVersionGatedLayerIds(rampAxes: readonly RampAxis[]): readonly MapLayerId[] {

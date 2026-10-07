@@ -201,7 +201,7 @@ export default function LensControl({
             )}
             {used.length > 0 && (
               <span className={cn(textVariants({ variant: "note" }), "basis-full pt-0.5 tracking-wide")}>
-                評価に使用中
+                評価軸に使用中
               </span>
             )}
             {used.map(renderAxis)}

@@ -522,8 +522,8 @@ _EDGE_MATERIAL_ARRAYS_SQL = text(
 # （`infrastructure/road_network_store.py`）に作る。`way_materials.direction`が逆向きの枝を
 # 作ってよいかを決める。
 
-#: 取込範囲全体の区間（向きを持たない1行）。道の行が無い区間は現れない（区間は道を切って作る
-#: 派生なので、ふつうは起きない）。並びは`domain/road_network.py`の行順の前提。
+#: 取込範囲全体の区間（向きを持たない1行）。区間は道の値（`way_materials`）への外部キーを持つので、
+#: 道の値の内部結合で落ちる区間は無い。並びは`domain/road_network.py`の行順の前提。
 _NETWORK_EDGES_SQL = text(f"""
 SELECT re.osm_way_id, re.segment_index, re.from_node_id, re.to_node_id,
        w.highway, wm.direction,

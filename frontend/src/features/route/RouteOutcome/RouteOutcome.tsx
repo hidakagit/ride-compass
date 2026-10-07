@@ -318,7 +318,7 @@ export default function RouteOutcome({ results, generation, splice, routeWeights
                     {selectedRouteSegment.segment.difficulty !== null &&
                       !Object.keys(selectedRouteSegment.segment.axis_contributions).some((axisId) =>
                         hasContribution(selectedRouteSegment.segment.axis_contributions, axisId),
-                      ) && <p className={cn(textVariants({ variant: "hint" }), "m-0")}>どの評価も0（易しい）</p>}
+                      ) && <p className={cn(textVariants({ variant: "hint" }), "m-0")}>どの評価軸も0（易しい）</p>}
                     <AxisContributionBar
                       axes={axisCatalog.axes}
                       contributions={selectedRouteSegment.segment.axis_contributions}

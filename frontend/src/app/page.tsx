@@ -260,7 +260,7 @@ export default function Home() {
         <TabsTrigger value="generate" usage="周回か目的地か、距離・地点・候補の数を決めます。">
           条件
         </TabsTrigger>
-        <TabsTrigger value="weights" usage="道を選ぶときに、どの評価をどれだけ重く見るかを決めます。">
+        <TabsTrigger value="weights" usage="道を選ぶときに、どの評価軸をどれだけ重く見るかを決めます。">
           重み
         </TabsTrigger>
         <TabsTrigger value="exclusions" usage="ルートに使わない道路の種類を選びます。">

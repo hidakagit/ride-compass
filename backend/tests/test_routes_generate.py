@@ -32,7 +32,7 @@ from app.domain.geo import haversine_distance_km
 from app.domain.hard_filters import DEFAULT_HARD_FILTERS, HARD_FILTER_NAMES
 from app.domain.route_request import DEFAULT_DISTANCE_TOLERANCE_KM, DEFAULT_MAX_ROUTES, MAX_SPLICED_EDGES, MAX_WAYPOINTS
 from app.domain.tuning import TUNING_VALUES
-from app.domain.wind import ASSUMED_SPEED_KMH
+from app.domain.route_request import ASSUMED_SPEED_KMH
 from app.infrastructure import rate_limiter, road_network_store
 from app.infrastructure.road_network_store import RoadNetworkUnavailableError
 from app.main import app
@@ -269,6 +269,7 @@ async def test_a_destination_moved_to_the_nearest_reachable_road_is_echoed(clien
     {"hard_filters": {}},
     {"spliced_edge_ids": ["way-100-seg0-fwd"]},                       # 目的地が無い
     {"distance_km": None},                                           # 周回なのに目標距離が無い
+    {"assumed_speed_kmh": 0},                                        # 想定速度の型（`AssumedSpeedKmh`）
 ])
 async def test_a_request_outside_what_can_be_generated_is_refused_before_any_job(client, body):
     response = await _post(client, **body)

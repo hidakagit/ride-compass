@@ -19,7 +19,7 @@ from app.domain import cycling_speed
 from app.domain.attributes import CategoricalColumn
 from app.domain.cycling_speed import RiderProfile, SegmentSpeedModel
 from app.domain.tuning import TUNING_VALUES
-from app.domain.wind import MAX_ASSUMED_SPEED_KMH, MIN_ASSUMED_SPEED_KMH
+from app.domain.route_request import MAX_ASSUMED_SPEED_KMH, MIN_ASSUMED_SPEED_KMH
 
 # 二分法が詰める幅（下限〜上限を12回半分にした幅）より広く、速度の違いとして意味のある差より狭い許容。
 SOLVE_TOLERANCE_MS = 0.005

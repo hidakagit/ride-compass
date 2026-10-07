@@ -7,14 +7,6 @@ import numpy as np
 from app.domain.geo import haversine_distance_km_array
 from app.domain.route import Coordinates
 
-# 仮定巡航速度（km/h）の画面の既定値。区間ごとの推定到達時刻と、風の追加負荷
-# （`wind_drag_ratio_array`の走行速度）の算出に使う速度は、要求ごとに送られる
-# （範囲は下記MIN/MAX）。風・勾配に依存しない一律の定数として扱うことが前提——速度を風で
-# 可変にすると「時刻の算出に速度が要り、速度が風（時刻依存）に影響される」循環が生まれる。
-ASSUMED_SPEED_KMH = 20.0
-MIN_ASSUMED_SPEED_KMH = 5.0
-MAX_ASSUMED_SPEED_KMH = 60.0
-
 # 道なり距離／直線距離の比の想定値。探索前に各Edgeの通過予定時刻を「基準点からの直線距離
 # ×この比÷仮定速度」で推定するときに使う。風の時間解像度は1時間のため、この比のばらつきに
 # よる推定誤差は同じビンへ収まる程度で足りる。
@@ -25,9 +17,10 @@ def kmh_to_ms(speed_kmh: float) -> float:
 
 
 # 風の追加負荷（`wind_drag_ratio_array`）を無次元化する基準速度（m/s、時速20km）。
-# `ASSUMED_SPEED_KMH`とは独立の専用定数にする——既定の想定速度を変えても材料のスケール
+# `domain/route_request.py: ASSUMED_SPEED_KMH`とは独立の専用定数にする——既定の想定速度を変えても材料のスケール
 # （軸スタジオのbreakpointsが前提にする値域）がずれないようにするため。
-WIND_DRAG_REFERENCE_SPEED_MS = kmh_to_ms(20.0)
+WIND_DRAG_REFERENCE_SPEED_KMH = 20.0
+WIND_DRAG_REFERENCE_SPEED_MS = kmh_to_ms(WIND_DRAG_REFERENCE_SPEED_KMH)
 
 
 def _wind_relative_angle_rad(wind_direction_deg, travel_bearing_deg) -> np.ndarray:
@@ -80,7 +73,8 @@ def wind_drag_ratio(wind_speed_ms: float, wind_direction_deg: float, travel_bear
 
 
 #: 道の風を引く予報の格子点の間隔（度）。MSMの格子（緯度0.05度・経度0.0625度、`domain/msm.py`）と同じ
-#: 細かさ——これより細かくしても補間の点が増えるだけで、予報の解像度は上がらない。
+#: 細かさ——これより細かくしても補間の点が増えるだけで、予報の解像度は上がらない。MSMの格子が変わっても、値は
+#: 実際の格子（`MsmGrid`）から補間するので狂わず、細かさが合わなくなるだけのため、配信元のメタ情報からは導かない。
 WIND_FORECAST_LAT_STEP_DEG = 0.05
 WIND_FORECAST_LON_STEP_DEG = 0.0625
 
