@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import math
 from functools import partial
 from datetime import datetime
 from typing import Annotated, Literal
@@ -24,16 +23,16 @@ from app.domain.route_request import (
     MAX_SPLICED_EDGES,
     MAX_WAYPOINTS,
     MIN_ROUTES,
+    AssumedSpeedKmh,
     LoopTarget,
     RouteTarget,
     SplicedTarget,
     WaypointsTarget,
-    check_point_distance,
     check_spliced_edge_count,
     check_waypoint_count,
+    search_distance_km,
 )
 from app.domain.geo import Latitude, Longitude, haversine_distance_km
-from app.domain.wind import MAX_ASSUMED_SPEED_KMH, MIN_ASSUMED_SPEED_KMH
 from app.domain.route import Coordinates, RouteCandidate
 from app.infrastructure import job_registry
 from app.infrastructure.debug_log import record_rate_limit_rejection
@@ -135,7 +134,7 @@ class RouteGenerateRequest(StrictModel):
     # 仮定巡航速度（km/h）。各区間の通過予定時刻（探索時の風の時刻選択）・到達予想時刻の
     # 算出に使う。範囲と画面の既定値はOpenAPI生成物（route-generate-config.json）経由でフロントへ
     # 渡す唯一の情報源にする。
-    assumed_speed_kmh: float = Field(ge=MIN_ASSUMED_SPEED_KMH, le=MAX_ASSUMED_SPEED_KMH)
+    assumed_speed_kmh: AssumedSpeedKmh
     # ユーザーが地図上で指定した経由地（起点→経由地1→...→起点の順で通過する単一経路を
     # 生成する）。指定時は周回候補の生成を行わない。bboxが際限なく広がらないよう、
     # 起点からdistance_km以内という緩いガードのみ課す（詳細な妥当性はルーティング自体の
@@ -176,8 +175,7 @@ class RouteGenerateRequest(StrictModel):
 
     @model_validator(mode="after")
     def _resolve_target(self) -> "RouteGenerateRequest":
-        # 経由地・目的地を置いたときの距離は探索の範囲と「点が遠すぎないか」の検査に使う値で、最も遠い点より
-        # 長くする（ただし上限`MAX_ROUTE_DISTANCE_KM`を超えないので、最も遠い点が上限ちょうどなら等しい）。
+        # 経由地・目的地を置いたときの距離は探索の範囲で、置いた点から決める（`search_distance_km`）。
         # 周回では距離が目標そのものなので送られた値が要る。
         points = [*(self.waypoints or []), *([self.destination] if self.destination else [])]
         if not points:
@@ -188,9 +186,7 @@ class RouteGenerateRequest(StrictModel):
             self._target = LoopTarget(distance_km=self.distance_km)
             return self
         origin = Coordinates(latitude=self.latitude, longitude=self.longitude)
-        farthest_km = max(haversine_distance_km(origin, point) for point in points)
-        check_point_distance(farthest_km)
-        distance_km = min(MAX_ROUTE_DISTANCE_KM, math.ceil(farthest_km) + 1)
+        distance_km = search_distance_km(max(haversine_distance_km(origin, point) for point in points))
         if self.spliced_edge_ids:
             # 合成の対象は目的地ルートだけ（周回は起点へ戻る制約があり、途中で別候補へ
             # 乗り換えると戻れる保証が無くなる）。

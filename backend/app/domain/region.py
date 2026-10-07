@@ -1,7 +1,9 @@
 import math
 from collections.abc import Sequence
+from typing import Annotated
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
+from pydantic_core import PydanticCustomError
 
 from app.domain.geo import KM_PER_DEGREE_LATITUDE, Latitude, LatLon, Longitude, km_per_degree_longitude
 from app.domain.strict_model import StrictModel
@@ -10,6 +12,18 @@ from app.domain.strict_model import StrictModel
 # 要求しないが、直接APIを叩かれた場合に備えてバックエンド側でもこの範囲外を拒否する。
 ROAD_TILE_MIN_ZOOM = 12
 ROAD_TILE_MAX_ZOOM = 15
+# タイル座標の型。ズームはレイヤーごとに範囲が違うので、レイヤーの宣言の隣に置く（路面・点は`RoadTileZoom`、
+# 土地被覆は`domain/landcover.py`、標高は`domain/gsi_tiles.py`）。列・行の上限はズームに依り、欄の型だけでは
+# 書けないので`check_tile_index`が見る。
+RoadTileZoom = Annotated[int, Field(ge=ROAD_TILE_MIN_ZOOM, le=ROAD_TILE_MAX_ZOOM)]
+TileIndex = Annotated[int, Field(ge=0)]
+
+
+def check_tile_index(z: int, x: int, y: int) -> None:
+    """列・行がズーム`z`に在る範囲（2**z未満）か。外れたまま`tile_bounds_lonlat`へ渡すと在りもしない範囲を引き、
+    極端な値では`math.sinh`が桁あふれする。"""
+    if x >= 2**z or y >= 2**z:
+        raise PydanticCustomError("tile_index", "タイル座標がズームの範囲の外です。")
 
 
 class BoundingBox(StrictModel):

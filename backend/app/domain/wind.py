@@ -7,14 +7,6 @@ import numpy as np
 from app.domain.geo import haversine_distance_km_array
 from app.domain.route import Coordinates
 
-# 仮定巡航速度（km/h）の画面の既定値。区間ごとの推定到達時刻と、風の追加負荷
-# （`wind_drag_ratio_array`の走行速度）の算出に使う速度は、要求ごとに送られる
-# （範囲は下記MIN/MAX）。風・勾配に依存しない一律の定数として扱うことが前提——速度を風で
-# 可変にすると「時刻の算出に速度が要り、速度が風（時刻依存）に影響される」循環が生まれる。
-ASSUMED_SPEED_KMH = 20.0
-MIN_ASSUMED_SPEED_KMH = 5.0
-MAX_ASSUMED_SPEED_KMH = 60.0
-
 # 道なり距離／直線距離の比の想定値。探索前に各Edgeの通過予定時刻を「基準点からの直線距離
 # ×この比÷仮定速度」で推定するときに使う。風の時間解像度は1時間のため、この比のばらつきに
 # よる推定誤差は同じビンへ収まる程度で足りる。
@@ -25,7 +17,7 @@ def kmh_to_ms(speed_kmh: float) -> float:
 
 
 # 風の追加負荷（`wind_drag_ratio_array`）を無次元化する基準速度（m/s、時速20km）。
-# `ASSUMED_SPEED_KMH`とは独立の専用定数にする——既定の想定速度を変えても材料のスケール
+# `domain/route_request.py: ASSUMED_SPEED_KMH`とは独立の専用定数にする——既定の想定速度を変えても材料のスケール
 # （軸スタジオのbreakpointsが前提にする値域）がずれないようにするため。
 WIND_DRAG_REFERENCE_SPEED_KMH = 20.0
 WIND_DRAG_REFERENCE_SPEED_MS = kmh_to_ms(WIND_DRAG_REFERENCE_SPEED_KMH)
