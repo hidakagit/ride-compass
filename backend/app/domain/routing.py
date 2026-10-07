@@ -19,7 +19,7 @@ Road Graphのトポロジーと、既に計算済みのEdge Costのみ。
 import logging
 import math
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Container, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TypeVar
 
@@ -1118,6 +1118,17 @@ def lengths_by_physical_segment(
     for index in path:
         result[frozenset({int(edge_from[index]), int(edge_to[index])})] = float(edge_length_m[index])
     return result
+
+
+def physical_overlap_ratio(
+    candidate: Mapping[frozenset[int], float], accepted: Container[frozenset[int]]
+) -> float:
+    """`lengths_by_physical_segment`の辞書`candidate`のうち、`accepted`にもある物理区間の距離加重
+    割合（0〜1）。全長が0以下なら0（どの経路とも重ならないと読む）。"""
+    total = sum(candidate.values())
+    if total <= 0:
+        return 0.0
+    return sum(length for key, length in candidate.items() if key in accepted) / total
 
 
 def combine_forward_backward_at_nodes(

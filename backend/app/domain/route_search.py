@@ -240,6 +240,30 @@ def reverse_leg_assignment(leg_of_edge: list[int]) -> list[int]:
     return [max_leg - leg for leg in reversed(leg_of_edge)]
 
 
+def leg_of_edge_by_half(weights: Sequence[float]) -> list[int]:
+    """前向き木・後ろ向き木の境目を持たない経路の区間を、往路（0）と復路（1）へ割り当てる。
+
+    区間より前の重み（走行秒か距離）の累積が全体の半分に届いていなければ往路、届いていれば復路
+    ——レグが表す「走り始めの時刻帯／走り終わりの時刻帯」の近似が入れ替わる点として中間を採る。
+    """
+    half = sum(weights) / 2
+    leg_of_edge, travelled = [], 0.0
+    for weight in weights:
+        leg_of_edge.append(0 if travelled < half else 1)
+        travelled += weight
+    return leg_of_edge
+
+
+def leg_duration_hours(route_km: float, speed_kmh: float) -> float:
+    """1本のレグの見込み所要時間（時間）。レグは経路の半分なので、全長の半分を巡航速度で割る。"""
+    return route_km / 2 / speed_kmh
+
+
+def best_first(ranked: list[int], best: int) -> list[int]:
+    """代替経路の候補の並び`ranked`の先頭へ、最良路の経由Node`best`を置く（最良路は並べ方によらず1本目）。"""
+    return [best, *(node for node in ranked if node != best)]
+
+
 def _route_composite_difficulty(candidate: RouteCandidate) -> float | None:
     """候補のsegmentsから距離加重平均の合成difficultyを求める。順方向と逆回りの比較に使う。
 
@@ -267,6 +291,27 @@ def difficulty_order(candidate: RouteCandidate) -> float:
     if candidate.overall_difficulty is None:
         return float("inf")
     return candidate.overall_difficulty.average
+
+
+def keep_routes_with_baseline(
+    candidates: list[RouteCandidate], baseline: RouteCandidate | None, max_routes: int
+) -> tuple[list[RouteCandidate], RouteCandidate | None]:
+    """目的地ルートの候補を`difficulty_order`で並べて`max_routes`件へ切り、残った候補と、印を付ける
+    基準線（所要時間だけで選んだ経路）を返す。
+
+    超えたぶんは難易度の高い側から切るが、基準線は難易度で最下位でも残す。ただし`max_routes`が1のときは
+    残さない。基準線は**比べる相手があって初めて基準**であり、1本だけ返すなら比べる相手が無い。残すと返る
+    唯一の候補が常に時間最短になり、軸の重みが結果に一切現れない（利用者から見ると「設定が効かない」）。
+    印も同じ理由で、比べる相手が残ったときだけ付ける（1本だけなら何とも比べないので None を返す）。
+    """
+    ordered = sorted(candidates, key=difficulty_order)
+    excess = len(ordered) - max_routes
+    if excess > 0:
+        keep_baseline = max_routes >= 2
+        droppable = [i for i, c in enumerate(ordered) if not (keep_baseline and c is baseline)]
+        dropped = set(droppable[-excess:])
+        ordered = [c for i, c in enumerate(ordered) if i not in dropped]
+    return ordered, baseline if len(ordered) >= 2 else None
 
 
 def fits_loop_distance(loop_km: float, target_km: float, tolerance_km: float) -> bool:

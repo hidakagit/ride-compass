@@ -19,7 +19,12 @@ from typing import TYPE_CHECKING, Any
 from app.domain.difficulty import overall_difficulty
 from app.domain.errors import RoutingError, SearchAreaTooLargeError
 from app.domain.loop_routing import TracedLoop
-from app.domain.route_search import by_closeness_to_target, difficulty_order, fits_loop_distance
+from app.domain.route_search import (
+    by_closeness_to_target,
+    difficulty_order,
+    fits_loop_distance,
+    keep_routes_with_baseline,
+)
 
 if TYPE_CHECKING:
     from app.services.road_graph_engine import RoadGraphEngine, _RoadGraphContext
@@ -477,21 +482,8 @@ class RouteGenerator:
         candidates = await self._evaluate_and_aggregate(context, traced, start_time)
         # 件数を切るときに残し、印を付けるために、基準線をオブジェクトの同一性で覚えておく。
         baseline = candidates[fastest_index] if fastest_index is not None else None
-        candidates.sort(key=difficulty_order)
-        # max_routesを超えたぶんは難易度の高い側から切るが、基準線は難易度で最下位でも残す。
-        # ただし`max_routes`が1のときは残さない。基準線は**比べる相手があって初めて基準**
-        # であり、1本だけ返すなら比べる相手が無い。残すと返る唯一の候補が常に時間最短に
-        # なり、軸の重みが結果に一切現れない（利用者から見ると「設定が効かない」）。
-        excess = len(candidates) - max_routes
-        if excess > 0:
-            keep_fastest = max_routes >= 2
-            droppable = [i for i, c in enumerate(candidates) if not (keep_fastest and c is baseline)]
-            dropped = set(droppable[-excess:])
-            candidates = [c for i, c in enumerate(candidates) if i not in dropped]
-        # 印も同じ理由で、比べる相手が残ったときだけ付ける（1本だけなら何とも比べない）。
-        candidates = _label(
-            candidates, "destination", "目的地ルート", fastest=baseline if len(candidates) >= 2 else None,
-        )
+        candidates, baseline = keep_routes_with_baseline(candidates, baseline, max_routes)
+        candidates = _label(candidates, "destination", "目的地ルート", fastest=baseline)
         evaluate_ms = round((time.monotonic() - evaluate_started) * 1000)
         total_ms = round((time.monotonic() - started) * 1000)
 

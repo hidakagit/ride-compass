@@ -7,8 +7,8 @@ from app.domain.msm import wind_speed_and_direction
 from app.domain.route import Coordinates
 from app.domain.twilight import sunrise_sunset_jst
 from app.domain.weather import (
-    PERIOD_INTERVAL_HOURS, WeatherConditions, daily_max, daily_range, period_outlooks, rounded_or_none, rounded_rows,
-    today_indices,
+    PERIOD_INTERVAL_HOURS, PRECIPITATION_MM_DECIMALS, WIND_DIRECTION_DEG_DECIMALS, WIND_SPEED_MS_DECIMALS,
+    WeatherConditions, daily_max, daily_range, period_outlooks, rounded_or_none, rounded_rows, today_indices,
 )
 from app.domain.region import BoundingBox
 from app.domain.wind import (
@@ -106,9 +106,9 @@ class WeatherService:
         speed, direction = wind_speed_and_direction(series.wind_u_ms, series.wind_v_ms)
         # 数万要素をPythonのループで丸めると地点数に比例して重くなるため、配列のまま
         # まとめて丸めてからリストへ変換する。
-        speeds = rounded_rows(speed, 2)
-        directions = rounded_rows(direction, 1)
-        precipitations = rounded_rows(series.precipitation_mm, 2)
+        speeds = rounded_rows(speed, WIND_SPEED_MS_DECIMALS)
+        directions = rounded_rows(direction, WIND_DIRECTION_DEG_DECIMALS)
+        precipitations = rounded_rows(series.precipitation_mm, PRECIPITATION_MM_DECIMALS)
         results = [
             WindGridPoint(
                 latitude=point.latitude,
@@ -131,7 +131,7 @@ class WeatherService:
         today = today_indices(times)
 
         return WeatherConditions(
-            precipitation_mm=rounded_or_none(precipitation[0], 2),
+            precipitation_mm=rounded_or_none(precipitation[0], PRECIPITATION_MM_DECIMALS),
             twilight=sunrise_sunset_jst(point, times[0].date()),
             precipitation_max_mm=daily_max(precipitation, today),
             wind_speed_max_ms=daily_max(speed, today),

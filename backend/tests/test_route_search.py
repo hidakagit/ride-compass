@@ -40,6 +40,7 @@ from app.domain.route import (
 )
 from app.domain.routing import NodeJunction, TurnExpandedTree, add_terminal_candidate
 from app.domain.route_search import (
+    leg_of_edge_by_half,
     order_by_bearing_spread,
     pick_better_candidate,
     rank_by_pareto_layers,
@@ -164,6 +165,18 @@ def test_reverse_elevation_by_edge_pairs_the_path_in_reverse_order():
 def test_reverse_leg_assignment_renumbers_as_well_as_reverses():
     """並びだけ反転すると、走り始めを帰着時刻の風で評価することになる。"""
     assert reverse_leg_assignment([0, 0, 0, 1, 1]) == [0, 0, 1, 1, 1]
+
+
+@pytest.mark.parametrize(
+    ("weights", "expected"),
+    [
+        ([1.0, 1.0, 1.0, 1.0], [0, 0, 1, 1]),  # 半分ちょうどから始まる区間は復路
+        ([1.0, 2.0, 1.0], [0, 0, 1]),  # 半分をまたぐ区間は往路
+    ],
+)
+def test_leg_of_edge_by_half_switches_where_the_accumulated_weight_reaches_half(weights, expected):
+    """境目がずれると、帰りの時刻の風で評価する区間が変わる。"""
+    assert leg_of_edge_by_half(weights) == expected
 
 
 @pytest.mark.parametrize(

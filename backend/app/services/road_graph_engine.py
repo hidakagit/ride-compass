@@ -22,7 +22,6 @@ docs/modules/backend/routing-engine.mdが持つ。ここには、このファイ
 """
 
 import asyncio
-import itertools
 import logging
 import math
 import time
@@ -81,7 +80,10 @@ from app.domain.route_search import (
     VIA_NODE_MAX_OVERLAP_RATIO,
     VIA_NODE_RELAXED_OVERLAP_RATIO,
     alternative_via_nodes,
+    best_first,
     heuristic_seconds,
+    leg_duration_hours,
+    leg_of_edge_by_half,
     median_detour_ratio,
     order_by_bearing_spread,
     pick_better_candidate,
@@ -109,6 +111,7 @@ from app.domain.routing import (
     find_nearest_node_indexed,
     lengths_by_physical_segment,
     overlap_ratio,
+    physical_overlap_ratio,
     select_diverse_by_overlap,
     time_bin_of,
     turn_expanded_path_edge_indices,
@@ -560,7 +563,7 @@ class RoadGraphEngine:
         # 木は出発からの経過時間を持ち回れるため、風を推定ではなく実際の経過時間で引ける。
         outbound = context.composer.compose(
             "outbound", context.origin, 0.0, +1,
-            duration_hours=distance_km / 2 / context.composer.speed_kmh,
+            duration_hours=leg_duration_hours(distance_km, context.composer.speed_kmh),
         )
         context.legs = [outbound]
         # コストは秒（体感の所要時間）のため、上限もリング上限の距離を秒へ直して決める。
@@ -603,7 +606,7 @@ class RoadGraphEngine:
         # 到着予定時刻に置いて合成する（距離フィルタが目標±許容を強制するため定数扱いできる）。
         inbound = context.composer.compose(
             "inbound", context.origin, distance_km / context.composer.speed_kmh, -1,
-            duration_hours=distance_km / 2 / context.composer.speed_kmh,
+            duration_hours=leg_duration_hours(distance_km, context.composer.speed_kmh),
         )
         context.legs = [context.legs[0], inbound]
         closeness_key = np.abs(ring_length - ring_center_m)
@@ -845,9 +848,7 @@ class RoadGraphEngine:
                 "（上位から順に見るため、打ち切られたのは並べた後の下位）",
                 len(candidates), _MAX_VIA_NODE_CANDIDATES_EXAMINED,
             )
-        if best_index in ranked:
-            ranked.remove(best_index)
-        ranked.insert(0, best_index)
+        ranked = best_first(ranked, best_index)
 
         full_edges_cache: dict[int, list[int] | None] = {}
         forward_edge_count: dict[int, int] = {}
@@ -944,26 +945,14 @@ class RoadGraphEngine:
             logger.warning("select_fastest_route no path to destination=%s", _node_label(context, destination_index))
             return None
 
-        seconds = [float(outbound.travel_seconds_lazy[index]) for index in edges]
-        half_seconds = sum(seconds) / 2
-        # 走行時間は必ず有限（`SegmentSpeedModel.speed_ms`が押して歩く速度を下限に置く）ため、累積が半分を
-        # 越える位置が必ずある。
-        split = next(
-            position
-            for position, total in enumerate(itertools.accumulate(seconds), 1)
-            if total >= half_seconds
-        )
-        forward_edges = edges[:split]
-        backward_edges = edges[split:]
-        path = forward_edges + backward_edges
-        distance_km = _path_km(context, path)
-        leg_of_edge = [0] * len(forward_edges) + [1] * len(backward_edges)
+        leg_of_edge = leg_of_edge_by_half([float(outbound.travel_seconds_lazy[index]) for index in edges])
+        distance_km = _path_km(context, edges)
 
         logger.info(
             "select_fastest_route fastest_km=%.1f edges=%d forward_edges=%d elapsed_ms=%d",
-            distance_km, len(path), len(forward_edges), round((time.monotonic() - started) * 1000),
+            distance_km, len(edges), leg_of_edge.count(0), round((time.monotonic() - started) * 1000),
         )
-        return TracedLoop(bearing=None, distance_km=distance_km, data=path, leg_of_edge=leg_of_edge)
+        return TracedLoop(bearing=None, distance_km=distance_km, data=edges, leg_of_edge=leg_of_edge)
 
     async def trace_loop_from_turnaround(self, context: _RoadGraphContext, turnaround: LoopTurnaround) -> TracedLoop:
         """往路（一対全木上の経路、`select_loop_turnarounds`で確定済み）に、往路と別の
@@ -1039,9 +1028,8 @@ class RoadGraphEngine:
         実際に終わったNodeになる——目的地がメインの道路網から孤立していて補正した場合も、
         補正後の地点が条件として返っており、合成もその地点で送られてくる。
 
-        レグはこの経路自身の距離の半分で切る。合成経路はvia-nodeを持たないため前向き木・
-        後ろ向き木の境目が無く、レグが表す「走り始めの時刻帯／走り終わりの時刻帯」の
-        近似が入れ替わる点として中間を採る。**レグ番号を振る側が、その番号のレグを
+        合成経路はvia-nodeを持たないため、レグはこの経路自身の距離で`leg_of_edge_by_half`が
+        切る。**レグ番号を振る側が、その番号のレグを
         `context.legs`へ用意する**——`prepare`が作るのは往路レグだけで、復路レグは探索
         （折返し点の選定・経由Nodeの選定）が作る。合成経路はどちらの探索も通らない。
         """
@@ -1068,16 +1056,14 @@ class RoadGraphEngine:
 
         lengths = context.statics.edge_length_m[path].tolist()
         total_m = sum(lengths)
-        leg_of_edge, travelled_m = [], 0.0
-        for length in lengths:
-            leg_of_edge.append(0 if travelled_m < total_m / 2 else 1)
-            travelled_m += length
+        leg_of_edge = leg_of_edge_by_half(lengths)
         if max(leg_of_edge) > 0 and len(context.legs) < 2:
             total_hours = total_m / 1000 / context.composer.speed_kmh
             context.legs = [
                 context.legs[0],
                 context.composer.compose(
-                    "inbound", context.origin, total_hours, -1, duration_hours=total_hours / 2
+                    "inbound", context.origin, total_hours, -1,
+                    duration_hours=leg_duration_hours(total_m / 1000, context.composer.speed_kmh),
                 ),
             ]
         return TracedLoop(
@@ -1094,15 +1080,8 @@ class RoadGraphEngine:
         区間の番号列（往路＋復路、`trace_loop_from_turnaround`/`trace_loop`参照）。
         """
         candidate_lengths = _physical_segments(context, candidate.data)
-        if not candidate_lengths:
-            return False
-        total = sum(candidate_lengths.values())
-        if total <= 0:
-            return False
         for other in accepted:
-            other_keys = _physical_segments(context, other.data)
-            shared = sum(length for key, length in candidate_lengths.items() if key in other_keys)
-            ratio = shared / total
+            ratio = physical_overlap_ratio(candidate_lengths, _physical_segments(context, other.data))
             if ratio > LOOP_MAX_OVERLAP_RATIO:
                 logger.debug(
                     "loop dedup rejected bearing=%d overlap_ratio=%.2f vs accepted bearing=%s",

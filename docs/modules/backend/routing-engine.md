@@ -255,7 +255,7 @@ RouteGenerator.generate_loops(origin, distance_km, distance_tolerance_km, max_ro
 ——目的地が孤立していて補正した場合、補正後の地点を条件として返す。
 **同じ地点を2度通る列はここでは落とさない**。走れはするので「経路として成立しない」形では
 なく、選択肢として出さない側（フロント）で止める。レグは合成経路自身の距離の半分で
-切る——via-nodeが無く前向き木・後ろ向き木の境目が存在しないため。
+切る（`domain/route_search.py: leg_of_edge_by_half`）——via-nodeが無く前向き木・後ろ向き木の境目が存在しないため。
 
 ### 較正値（走ってみて決める値）
 
@@ -361,7 +361,7 @@ import済みの参照が古い辞書を指したままになる）。差し替�
   **基準線も他の候補と同じ難易度順の位置に並ぶ**——並びの
   先頭は周回と同じく最も易しい候補で、画面は所要時間の同着をこの並びのまま保つ。件数は`max_routes`を超えず、切るのは
   難易度の高い側から、ただし**基準線は難易度が最下位でも残す**（切ると一覧の中に
-  比べる基準が無くなる）。**`max_routes`が1のときは基準線を残さない**——基準線は比べる
+  比べる基準が無くなる）。**`max_routes`が1のときは基準線を残さない**（切り方は`domain/route_search.py: keep_routes_with_baseline`）——基準線は比べる
   相手があって初めて基準であり、1本だけ返すときに残すと返る唯一の候補が常に時間最短に
   なって軸の重みが結果に現れない。
 - **経由地が1つ以上ある**: レグごとに代替案が組合せで増えるためv1では対象にせず、
@@ -596,7 +596,7 @@ A*のヒューリスティックも秒の下界にする（直線距離÷出せ�
 表現する（軸コスト経路で`cost_lazy`が`inf`になっているのと同じ意味）。
 
 `select_via_nodes`の後に呼ぶ前提で、目的地の再スナップ結果（`destination_correction`）を
-引き継ぐ。レグは経路の所要時間が半分になる位置で割る——他の候補と同じく往路レグ・
+引き継ぐ。レグは経路の所要時間が半分になる位置で割る（合成経路と同じ`leg_of_edge_by_half`へ走行秒を渡す）——他の候補と同じく往路レグ・
 復路レグへ概ね半分ずつ割れ、レグごとに時刻の異なる風の評価が候補間で揃う。
 
 ### `trace_loop`（経由地・目的地指定ルート）
@@ -775,8 +775,8 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
   含む」、常駐メモリはEdge数×8B）で持つ——`max_count`（実際の呼び出し元の上限は
   `route_generator.py: _TURNAROUND_POOL_MAX`=40・`route_request.py: MAX_ROUTES`=15）は64を超えられず、超える呼び出しは
   `ValueError`になる。
-- `RoadGraphEngine.is_loop_too_similar`（`_loop_edge_lengths_by_
-  physical_segment`）: 距離フィルタ合格後の候補が、既に採用済みの候補と周回全体
+- `RoadGraphEngine.is_loop_too_similar`（重複率は`domain/routing.py: lengths_by_physical_segment`・
+  `physical_overlap_ratio`）: 距離フィルタ合格後の候補が、既に採用済みの候補と周回全体
   （`TracedLoop.data`、往路＋復路の区間の番号列）で`LOOP_MAX_OVERLAP_RATIO`（0.7、往路のみ
   比較する`TURNAROUND_MAX_OVERLAP_RATIO`＝0.6より緩め）を超えて重複するか判定する。
   区間を両端のノード番号のfrozensetへ正規化し進行方向を無視して比較する
