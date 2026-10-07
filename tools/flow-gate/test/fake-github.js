@@ -15,7 +15,7 @@ export const config = {
   done: "済", waiting: "答え待ち", hold: "置き", todo: "前", working: "中", review: "検",
   adoption: "やる？",
   transitions: { 答え待ち: ["前", "置き", "済"], 置き: ["前", "済"], 前: ["中", "答え待ち", "置き", "済"], 中: ["検", "前", "置き", "答え待ち", "済"], 検: ["済", "前", "答え待ち"], 済: [] },
-  code: { repository: "o/code", branchPrefix: "work/t-", base: "main" },
+  code: { repository: "o/code", branchPrefix: "work/t-", base: "main", gather: "まとめ" },
   coordinator: { workflow: "w.yml", slots: { 作る: 2, 確かめる: 1 }, devLabel: "機", recent: 4, recordsSince: "2026-10-01T00:00:00Z", backendVariable: "B", backupMaxHours: 24 },
 };
 
