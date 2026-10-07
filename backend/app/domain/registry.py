@@ -194,7 +194,7 @@ class AxisDisplaySpec(StrictModel):
       レイヤーファクトリが自動生成する。新しい軸はこれを宣言するだけで地図に現れる。
     - kind="none": 専用の二次レイヤーを持たない（既存レイヤーで代替、またはデータ未整備）。
 
-    凡例に添える単位はここに持たず、軸カタログの`raw_value_unit`が持つ。
+    凡例に添える単位と目盛りはここに持たず、これを`tiles`に持つ`map_paint.py: MapPaint`が持つ。
     """
 
     kind: Literal["ramp", "none"]

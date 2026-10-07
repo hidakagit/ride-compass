@@ -147,7 +147,7 @@ class RouteGenerateRequest(StrictModel):
     # 選ばれていれば区間表示のためにレグごとの風で評価する（探索コストには影響しない）。
     # 未知のidや軸以外（総合難易度・なし）は無視される。
     lens_axis_id: str | None = None
-    # 出発時刻。風の時間変化評価（レグごとの通過予測時刻）の起点になる。naive値はJSTとして扱う。
+    # 出発時刻。風の時間変化評価（レグごとの通過予測時刻）の起点になる。naive値はJSTとして扱い、JSTの時刻にして持つ。
     start_time: datetime
     # 区間の乗り換え: クライアントが候補の`edge_ids`から区間を差し替えて組み立てた経路。
     # 指定時は探索を行わず、この経路だけを既存候補と同じ経路で評価して1件返す
@@ -170,6 +170,11 @@ class RouteGenerateRequest(StrictModel):
         if isinstance(value, list):
             check_spliced_edge_count(len(value))
         return value
+
+    @field_validator("start_time")
+    @classmethod
+    def _start_time_in_jst(cls, value: datetime) -> datetime:
+        return as_jst(value)
 
     _target: RouteTarget = PrivateAttr()
 
@@ -359,7 +364,6 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest, open_set
         )
 
         job_registry.set_running(job_id)
-        start_time = as_jst(request.start_time)
         target = request.target
         generated = await generate_route_candidates(
             partial(
@@ -373,7 +377,7 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest, open_set
             ),
             origin=Coordinates(latitude=request.latitude, longitude=request.longitude),
             target=target,
-            start_time=start_time,
+            start_time=request.start_time,
             max_routes=request.max_routes,
             distance_tolerance_km=request.distance_tolerance_km,
         )
@@ -391,7 +395,7 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest, open_set
                 max_average_grade_percent=applied.max_average_grade_percent,
                 hard_filters=HardFilterOverride.from_frozenset(applied.hard_filters),
                 max_routes=generated.max_routes,
-                start_time=start_time,
+                start_time=request.start_time,
                 assumed_speed_kmh=applied.assumed_speed_kmh,
                 waypoints=request.waypoints,
                 destination=request.destination,

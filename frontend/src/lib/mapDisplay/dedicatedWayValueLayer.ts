@@ -7,7 +7,7 @@ import type { MapLegendScale, MapValueKind } from "./valueScale";
 
 /** 軸カタログ（GET /api/axis-catalog）から軸ごとに組み立てる表示宣言。しきい値は
  * map_paint.thresholds（地図が塗る値のスケールへ揃えた境界。宣言の無い軸の既定もbackendが解いて入れる）、
- * 凡例がそれを書く目盛りはmap_paint.legend、段階ラベルはdisplay_band_labels_override（未設定なら数値レンジのみ）。 */
+ * 凡例がそれを書く目盛りはmap_paint.legend、段階ラベルはmap_paint.band_labels（未設定なら数値レンジのみ）。 */
 export interface DedicatedWayValueDisplay {
   kind: MapValueKind;
   boundaries: readonly number[];

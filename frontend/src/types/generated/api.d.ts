@@ -681,22 +681,16 @@ export interface components {
             category: "観測" | "推定" | "動的";
             /** Default Weight */
             default_weight: number;
-            display: components["schemas"]["AxisDisplaySpec"];
             /** Icon Id */
             icon_id: string | null;
             /** Primary Attribute Ids */
             primary_attribute_ids: string[];
             /** Weather Layer Groups */
             weather_layer_groups: string[];
-            /** Display Band Labels Override */
-            display_band_labels_override: string[] | null;
             /** Dedicated Way Value Layer */
             dedicated_way_value_layer: boolean;
             map_paint: components["schemas"]["MapPaint"];
-            /** Raw Value Unit */
-            raw_value_unit: string | null;
-            /** Raw Value Total Unit */
-            raw_value_total_unit: string | null;
+            raw_value_units: components["schemas"]["RawValueUnits"];
             /** Material Breakdown */
             material_breakdown: components["schemas"]["AxisMaterialBreakdownEntry"][];
             /** Dynamic Way Value Conditions */
@@ -1294,6 +1288,9 @@ export interface components {
             /** Thresholds */
             thresholds: number[];
             legend: components["schemas"]["MapLegendScale"];
+            tiles: components["schemas"]["AxisDisplaySpec"];
+            /** Band Labels */
+            band_labels: string[] | null;
         };
         /** MaterialCoverageCounted */
         MaterialCoverageCounted: {
@@ -1442,6 +1439,13 @@ export interface components {
             equals: string;
             /** Value */
             value: number;
+        };
+        /** RawValueUnits */
+        RawValueUnits: {
+            /** Unit */
+            unit: string | null;
+            /** Total Unit */
+            total_unit: string | null;
         };
         /** RouteCandidate */
         RouteCandidate: {
