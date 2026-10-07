@@ -9,6 +9,7 @@ import {
   PinMark,
 } from "@/components/PinMark/PinMark";
 import type { PinRole } from "@/types/route";
+import type { GenerationConditionsState } from "@/features/route/useGenerationConditions";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import { MIN_DISTANCE_KM } from "@/features/route/savedConditions";
 import { fixedRouteCount, type RouteMode } from "./useRouteFormSubmit";
@@ -22,24 +23,28 @@ import { cn } from "@/lib/cn";
  * ここは各タブの中身だけを描く。 */
 export type SettingsTab = "generate" | "weights" | "exclusions" | "saved";
 
+/** 「条件」タブが読む生成の条件（`features/route/useGenerationConditions.ts`の返り値をそのまま渡す）。距離・候補数は
+ * 文字列のまま持つ——生成条件のdirty判定（`features/route/useRouteGeneration.ts`）に使うため。候補数は周回モードと、
+ * 目的地モードで経由地が無い場合に意味を持つ（経由地を伴う目的地ルートはbackendが常に1件へ固定し無視する）。 */
+type RouteFormConditions = Pick<
+  GenerationConditionsState,
+  | "distanceInput"
+  | "setDistanceInput"
+  | "maxRoutesInput"
+  | "setMaxRoutesInput"
+  | "routeMode"
+  | "changeRouteMode"
+  | "waypoints"
+  | "clearWaypoints"
+  | "destination"
+  | "clearDestination"
+  | "armedPinRole"
+  | "armPinRole"
+>;
+
 interface RouteFormProps {
-  /** 距離入力の現在値（文字列のまま）。生成条件のdirty判定（`features/route/useRouteGeneration.ts`）に使うため親が持つ */
-  distance: string;
-  onDistanceChange: (value: string) => void;
-  /** 候補件数入力の現在値（文字列のまま）。距離と同じ理由で親が持つ。周回モードと、
-   * 目的地モードで経由地が無い場合に意味を持つ（経由地を伴う目的地ルートはbackendが
-   * 常に1件へ固定し無視する）。 */
-  maxRoutes: string;
-  onMaxRoutesChange: (value: string) => void;
-  /** 周回（距離指定）/目的地（経由地・目的地を地図で指定）モードの切り替え。距離入力・
-   * 候補数入力と同じ場所に置く。 */
-  routeMode: RouteMode;
-  onRouteModeChange: (mode: RouteMode) => void;
-  waypointCount: number;
-  onWaypointsClear: () => void;
-  /** 目的地を置いてあるか。 */
-  destinationSet: boolean;
-  onDestinationClear: () => void;
+  /** 生成の条件と、それを変える操作。 */
+  conditions: RouteFormConditions;
   /** 出発地を地図で置き直してあるか（falseなら現在地のまま）。 */
   originManual: boolean;
   /** 出発地が実際の位置か（現在地を取れたか、地図で置いたか）。falseの間は地図のピンと同じく印を灰色にし、
@@ -47,10 +52,6 @@ interface RouteFormProps {
   originLocated: boolean;
   /** 出発地を現在地へ戻す（現在地の取得もこの操作が兼ねる）。 */
   onOriginReset: () => void;
-  /** いま地図のタップで置ける役割。nullなら地図を触ってもピンは増えない。 */
-  armedPinRole: PinRole | null;
-  /** 行の操作で武装する／やめる（同じ役割をもう一度押すと解除）。 */
-  onArmPinRole: (role: PinRole | null) => void;
   /** 「重み」タブの中身。タブの列と「ルート生成」ボタンは見出しの行（page.tsx）、検証は`useRouteFormSubmit`が持つ。 */
   weightsPanel: React.ReactNode;
   /** 「除外」タブの中身。 */
@@ -66,31 +67,34 @@ const MAX_ROUTES = routeGenerateConfig.max_routes;
 const MAX_WAYPOINTS = routeGenerateConfig.max_waypoints;
 
 export default function RouteForm({
-  distance,
-  onDistanceChange,
-  maxRoutes,
-  onMaxRoutesChange,
-  routeMode,
-  onRouteModeChange,
-  waypointCount,
-  onWaypointsClear,
-  destinationSet,
-  onDestinationClear,
+  conditions,
   originManual,
   originLocated,
   onOriginReset,
-  armedPinRole,
-  onArmPinRole,
   weightsPanel,
   exclusionsPanel,
   savedPanel,
 }: RouteFormProps) {
+  const {
+    distanceInput,
+    setDistanceInput,
+    maxRoutesInput,
+    setMaxRoutesInput,
+    routeMode,
+    changeRouteMode,
+    clearWaypoints,
+    clearDestination,
+    armedPinRole,
+    armPinRole,
+  } = conditions;
+  const waypointCount = conditions.waypoints.length;
+  const destinationSet = conditions.destination !== null;
   const fixedCount = fixedRouteCount(routeMode, waypointCount);
   const maxRoutesRelevant = fixedCount === null;
 
   // 範囲の端ではボタンを押せなくするので、足した値は範囲を出ない。
   function stepMaxRoutes(delta: number) {
-    onMaxRoutesChange(String(Number(maxRoutes) + delta));
+    setMaxRoutesInput(String(Number(maxRoutesInput) + delta));
   }
 
   // 出発地・経由地・目的地は同じ形の行で並べる（役割が同じ「地点を置く」操作のため）。
@@ -124,7 +128,7 @@ export default function RouteForm({
           aria-label={
             full ? `${label}は上限まで置いてあります` : armed ? `${label}の指定をやめる` : `${label}を${armLabel}`
           }
-          onClick={() => onArmPinRole(armed ? null : role)}
+          onClick={() => armPinRole(armed ? null : role)}
           usage={usage}
         >
           {/* 地図のピンと同じ図形を出す。同じものを2度描くと、片方だけ直したときに行とピンが
@@ -202,7 +206,7 @@ export default function RouteForm({
           <ToggleGroup
             className="shrink-0"
             value={routeMode}
-            onValueChange={(mode) => onRouteModeChange(mode as RouteMode)}
+            onValueChange={(mode) => changeRouteMode(mode as RouteMode)}
             aria-label="ルート生成モード"
           >
             <ToggleGroupItem value="loop" usage="出発地から出て出発地へ戻る、指定した距離のルートを作ります。">
@@ -231,18 +235,18 @@ export default function RouteForm({
                 variant="stepper"
                 size="sm"
                 onClick={() => stepMaxRoutes(-1)}
-                disabled={!maxRoutesRelevant || Number(maxRoutes) <= MIN_ROUTES}
+                disabled={!maxRoutesRelevant || Number(maxRoutesInput) <= MIN_ROUTES}
                 aria-label="候補数を減らす"
                 usage="一度に作る候補の数を減らします。経由地を置いている間は変えられません。"
               >
                 ‹
               </Button>
-              <span className="min-w-[2.5em] text-center tabular-nums">{`${fixedCount ?? maxRoutes}件`}</span>
+              <span className="min-w-[2.5em] text-center tabular-nums">{`${fixedCount ?? maxRoutesInput}件`}</span>
               <Button
                 variant="stepper"
                 size="sm"
                 onClick={() => stepMaxRoutes(1)}
-                disabled={!maxRoutesRelevant || Number(maxRoutes) >= MAX_ROUTES}
+                disabled={!maxRoutesRelevant || Number(maxRoutesInput) >= MAX_ROUTES}
                 aria-label="候補数を増やす"
                 usage="一度に作る候補の数を増やします。経由地を置いている間は変えられません。"
               >
@@ -266,12 +270,12 @@ export default function RouteForm({
                   min={MIN_DISTANCE_KM}
                   max={MAX_DISTANCE_KM}
                   step={1}
-                  value={distance}
-                  onChange={(e) => onDistanceChange(e.target.value)}
+                  value={distanceInput}
+                  onChange={(e) => setDistanceInput(e.target.value)}
                   className="h-6 min-w-0 flex-1"
                   data-usage={`周回するルートの長さを決めます。作る候補は、この距離の±${DISTANCE_TOLERANCE_KM}kmに入るものだけです。`}
                 />
-                <span className="min-w-[3.5em] flex-shrink-0 text-right tabular-nums">{distance}km</span>
+                <span className="min-w-[3.5em] flex-shrink-0 text-right tabular-nums">{distanceInput}km</span>
                 <span className={cn(textVariants({ variant: "hint" }), "flex-shrink-0 tabular-nums")}>
                   ±{DISTANCE_TOLERANCE_KM}km
                 </span>
@@ -292,7 +296,7 @@ export default function RouteForm({
                     size="bare"
                     className="p-1 text-xs"
                     aria-label="経由地をクリア"
-                    onClick={onWaypointsClear}
+                    onClick={clearWaypoints}
                   >
                     ✕
                   </Button>
@@ -313,7 +317,7 @@ export default function RouteForm({
                     size="bare"
                     className="p-1 text-xs"
                     aria-label="目的地をクリア"
-                    onClick={onDestinationClear}
+                    onClick={clearDestination}
                   >
                     ✕
                   </Button>
