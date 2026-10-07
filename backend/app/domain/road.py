@@ -187,3 +187,11 @@ def _check_estimates_are_consistent(
 
 
 _check_estimates_are_consistent(SURFACE_CLASSES, TRACK_GRADES, SURFACE_ESTIMATES)
+
+
+def rolling_resistance_subjects() -> dict[str, tuple[str, ...]]:
+    """転がり抵抗の較正値のid → その値を使う路面の見込みの呼び名。管理画面が較正値の名前へ添える。"""
+    subjects: dict[str, tuple[str, ...]] = {}
+    for estimate in SURFACE_ESTIMATES:
+        subjects[estimate.rolling_resistance] = (*subjects.get(estimate.rolling_resistance, ()), estimate.label)
+    return subjects
