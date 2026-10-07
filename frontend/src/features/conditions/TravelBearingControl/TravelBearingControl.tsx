@@ -52,7 +52,9 @@ export default function TravelBearingControl({ value, onChange }: TravelBearingC
         </Button>
       </PopoverTrigger>
       <PopoverContent className="p-2" side="left" align="start" sideOffset={8}>
-        <WindBearingSlider value={value} onChange={onChange} ariaLabel="走行方位" />
+        <div className="contents" data-usage="ダイヤルを回して、走る向きを決めます。">
+          <WindBearingSlider value={value} onChange={onChange} ariaLabel="走行方位" />
+        </div>
       </PopoverContent>
     </Popover>
   );

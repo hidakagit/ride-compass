@@ -191,6 +191,7 @@ export default function LensControl({
             value={lens}
             onValueChange={(id) => select(id as LensId)}
             aria-label={LENS_SCREEN_NAME}
+            usage="押した項目で、地図の道路（ルートを作った後はルートの線）を色分けします。"
           >
             {renderOption(LENS_NONE_ID, FIXED_LENS_LABELS[LENS_NONE_ID], LENS_NEUTRAL_COLOR)}
             {renderOption(
@@ -210,7 +211,10 @@ export default function LensControl({
             )}
             {unused.map(renderAxis)}
           </ToggleGroup>
-          <label className="mt-2 flex items-center gap-1.5 border-t border-dashed border-[var(--color-border)] pt-2">
+          <label
+            className="mt-2 flex items-center gap-1.5 border-t border-dashed border-[var(--color-border)] pt-2"
+            data-usage="ルートを作った後も、ルートの外の道路を薄く色分けしたまま残します。"
+          >
             <Checkbox
               checked={keepAfterRoute}
               onCheckedChange={onKeepAfterRouteChange}
@@ -219,7 +223,10 @@ export default function LensControl({
             ルート後も周囲の道路を薄く塗る
           </label>
           {legend.length > 0 && (
-            <div className="mt-2 border-t border-[var(--color-border)] pt-2">
+            <div
+              className="mt-2 border-t border-[var(--color-border)] pt-2"
+              data-usage="チェックを外した段階は、地図の色分けから隠れます。「凡例」のチェックで全部をまとめて切り替えます。"
+            >
               <label className="mb-1 flex cursor-pointer items-center gap-1.5 font-semibold text-[var(--color-muted)]">
                 <Checkbox
                   checked={hiddenLegendKeys.length === 0}

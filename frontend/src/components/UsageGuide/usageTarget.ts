@@ -4,6 +4,9 @@ const USAGE_ATTRIBUTE = "data-usage";
 /** 説明を見る状態の自分の部品（案内・説明の面）に付ける印。ここを押した操作は止めない。 */
 export const USAGE_GUIDE_ATTRIBUTE = "data-usage-guide";
 
+/** 押すと浮きパネルを開く部品の印（`components/ui/Popover/Popover.tsx: PopoverTrigger`が付ける）。 */
+const USAGE_OPENS_ATTRIBUTE = "data-usage-opens";
+
 /** 押して何かが起きる要素。押された要素から最寄りのこれを、説明する部品とみなす。 */
 export const USAGE_PART_SELECTOR = [
   "button",
@@ -30,6 +33,8 @@ export interface UsageTarget {
   name: string | null;
   /** 部品か、それを囲む部品のうち最も近いものが持つ使い方の文。無ければnull。 */
   usage: string | null;
+  /** 押すと浮きパネルを開く部品か。説明に「中を見る」を出す。 */
+  opens: boolean;
 }
 
 function textOf(element: Element | null | undefined): string {
@@ -65,5 +70,6 @@ export function usageTargetOf(pressed: Element): UsageTarget | null {
     element: part,
     name: nameOf(part),
     usage: part.closest(`[${USAGE_ATTRIBUTE}]`)?.getAttribute(USAGE_ATTRIBUTE) ?? null,
+    opens: part.hasAttribute(USAGE_OPENS_ATTRIBUTE),
   };
 }

@@ -100,7 +100,13 @@ function WarningFetchFailureMark({ failures }: { failures: readonly FetchFailure
               <span className="block">{failure.detail ? `${failure.label}: ${failure.detail}` : failure.label}</span>
               <span className="block">{failure.effect}</span>
               {failure.onRetry && (
-                <Button variant="warning" size="xs" className="mt-0.5" onClick={failure.onRetry}>
+                <Button
+                  variant="warning"
+                  size="xs"
+                  className="mt-0.5"
+                  onClick={failure.onRetry}
+                  usage="この情報をもう一度取りに行きます。"
+                >
                   再試行
                 </Button>
               )}
