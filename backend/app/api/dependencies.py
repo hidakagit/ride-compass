@@ -43,6 +43,7 @@ from app.services.flood_service import FloodService
 from app.services.graph_service import GraphService
 from app.services.jma_amedas_service import JmaAmedasService
 from app.services.material_coverage_service import MaterialCoverageService
+from app.services.place_search_service import PlaceSearchService
 from app.services.region_service import AxisInspectorService, RegionService
 from app.services.route_generation_setup import (
     RouteGenerationSetup,
@@ -169,6 +170,10 @@ async def get_region_service():
 
 def get_wind_grid_service(weather_service: WeatherService = Depends(get_weather_service)):
     return WindGridService(weather_service, open_region_service)
+
+
+def get_place_search_service():
+    return PlaceSearchService(open_region_service)
 
 
 async def get_dedicated_way_value_service(

@@ -46,6 +46,9 @@ install_ring_buffer_handler()
 # httpxは1リクエストごとに"HTTP Request: ..."をINFOで出す。外部呼び出しの記録は
 # log_external_call(debug_log.py)が担うため、タイルプロキシ等でログを埋めるだけのこれは抑える。
 logging.getLogger("httpx").setLevel(logging.WARNING)
+# 住所の辞書（jageocoder）は開くたびに、異体字の表が辞書に無いので同梱の既定を使う、とWARNINGで出す。配布の辞書は
+# どの版もその表を持たず、検索のたびに辞書を開くため、知らせではなくログを埋めるだけになる。
+logging.getLogger("jageocoder.itaiji").setLevel(logging.ERROR)
 
 logging.getLogger("ridecompass.startup").info(
     "starting commit=%s debug_mode=%s",

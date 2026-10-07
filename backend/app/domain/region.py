@@ -58,6 +58,11 @@ class BoundingBox(StrictModel):
             )
         return self
 
+    def contains(self, point: LatLon) -> bool:
+        """地点が範囲に入るか（縁の上も入る）。"""
+        return (self.min_latitude <= point.latitude <= self.max_latitude
+                and self.min_longitude <= point.longitude <= self.max_longitude)
+
 
 def bbox_covering_points(points: Sequence[LatLon], margin_km: float) -> BoundingBox:
     """複数地点すべてを覆う外接矩形に、`margin_km`の余裕を足したもの。経度方向の余裕は

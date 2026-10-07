@@ -180,6 +180,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/place-search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["search_places_api_place_search_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/region/road-surface-tiles/{z}/{x}/{y}.pbf": {
         parameters: {
             query?: never;
@@ -1434,6 +1450,30 @@ export interface components {
             /** Load */
             load: number;
         };
+        /** PlaceCandidate */
+        PlaceCandidate: {
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "address";
+            /**
+             * Level
+             * @enum {string}
+             */
+            level: "prefecture" | "county" | "city" | "ward" | "oaza" | "aza" | "block" | "building";
+            /** Name */
+            name: string;
+            /** Latitude */
+            latitude: number;
+            /** Longitude */
+            longitude: number;
+        };
+        /** PlaceSearchResult */
+        PlaceSearchResult: {
+            /** Candidates */
+            candidates: components["schemas"]["PlaceCandidate"][];
+        };
         /** PriorityCondition */
         PriorityCondition: {
             /** Material */
@@ -2242,6 +2282,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WindGridResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    search_places_api_place_search_get: {
+        parameters: {
+            query: {
+                q: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlaceSearchResult"];
                 };
             };
             /** @description Validation Error */

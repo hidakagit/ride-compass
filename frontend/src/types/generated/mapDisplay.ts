@@ -781,7 +781,8 @@ export const mapDisplay = {
     "<a href=\"https://www.jma.go.jp/\" target=\"_blank\" rel=\"noreferrer\">気象庁ホームページ</a>(アメダス・警報・キキクル・ナウキャスト等)と気象庁「<a href=\"https://www.data.jma.go.jp/developer/gis.html\" target=\"_blank\" rel=\"noreferrer\">予報区等GISデータ</a>」を加工して作成",
     "気象庁メソ数値予報モデル(MSM)を加工して作成。配布: <a href=\"https://open-meteo.com/\" target=\"_blank\" rel=\"noreferrer\">Weather data by Open-Meteo.com</a> (<a href=\"https://creativecommons.org/licenses/by/4.0/\" target=\"_blank\" rel=\"noreferrer\">CC BY 4.0</a>)",
     "暑さ指数: 出典 <a href=\"https://www.wbgt.env.go.jp/\" target=\"_blank\" rel=\"noreferrer\">環境省熱中症予防情報サイト</a>",
-    "土地被覆: <a href=\"https://livingatlas.arcgis.com/landcover/\" target=\"_blank\" rel=\"noreferrer\">Esri, Impact Observatory, Microsoft</a> (CC BY 4.0)"
+    "土地被覆: <a href=\"https://livingatlas.arcgis.com/landcover/\" target=\"_blank\" rel=\"noreferrer\">Esri, Impact Observatory, Microsoft</a> (CC BY 4.0)",
+    "「位置参照情報（大字町丁目・街区レベル）令和6年」（国土交通省）、「Geolonia 住所データ」（株式会社Geolonia） <a href=\"https://geolonia.github.io/japanese-addresses/\" target=\"_blank\" rel=\"noreferrer\">https://geolonia.github.io/japanese-addresses/</a>、「アドレス・ベース・レジストリ」（デジタル庁） <a href=\"https://www.digital.go.jp/policies/base_registry_address_tos/\" target=\"_blank\" rel=\"noreferrer\">https://www.digital.go.jp/policies/base_registry_address_tos/</a> をもとに、株式会社情報試作室が加工した jageocoder 用住所データベース（街区レベル）を利用"
   ],
   "noDataDash": [
     1,
