@@ -408,9 +408,8 @@ DB側の値が変わっても追従しない。軸の中身が主題でないテ
 
 材料（`MaterialSpec.primary_attribute`）は一次属性を
 idの文字列ではなく宣言そのもので指す。材料が指す要素には`PRIMARY_ATTRIBUTES`の表の中で`:=`により
-名前を付け、材料カタログはその名前をimportして書く——名前は表の要素にしか付かないので、表に無い一次属性を指す材料は
-書けない（書けば材料カタログのimport時に落ちる。importの一覧に無い名前を足せば`ImportError`、一覧に足さずに
-名前だけを書けば`NameError`で、後者は`ruff`も未定義名（F821）として出す）。
+名前を付け、材料カタログはその名前をimportして書く。表の要素そのものでない一次属性（同じ`attr_id`の写しも）を指す材料は、
+`MaterialSpec`の検証（`domain/material_catalog.py: MaterialSpec._check_primary_attribute_is_declared`）が断る。
 既存の一次属性を指す材料を足すときは、材料の宣言だけで済む。逆向き（材料を1つも持たない一次属性）は
 許す: 地図の分類としてだけ存在し（例: 補給・休憩ポイント）、軸の`primary_attribute_ids`には
 現れないため評価に効かない。一次属性が複数の材料に共有される（例: `landcover`は土地被覆の区分ごとの材料が指す）ため、

@@ -1,6 +1,7 @@
 import asyncio
 import functools
 import hashlib
+import logging
 import os
 import re
 from contextlib import contextmanager
@@ -23,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from app.batch.common import asyncpg_dsn
 from app.infrastructure import debug_log, rate_limiter, redis_client, tile_cache, tile_persistent_cache
-from app.infrastructure.orm_base import Base
+from app.infrastructure.orm_base import declared_metadata
 from app.infrastructure.road_graph_repository import (
     REQUIRED_EXTENSIONS,
     RoadGraphRepository,
@@ -45,6 +46,21 @@ def admin_credentials(monkeypatch):
     """管理画面APIのBasic認証を、テスト用の固定の認証情報で通るようにする。"""
     monkeypatch.setattr(settings, "admin_basic_auth_username", ADMIN_USERNAME)
     monkeypatch.setattr(settings, "admin_basic_auth_password", ADMIN_PASSWORD)
+
+
+@pytest.fixture
+def restore_debug_mode():
+    """debug_modeの切替の口を叩いたテストのあとで、debug_modeとルートロガーのレベルを元に戻す。
+
+    どちらもプロセス全体で共有される可変状態で、残すと後のテストのログの拾い方が変わる
+    （ルートロガーがINFOのままだと、`caplog.at_level`の外で出たINFOまで拾われる）。
+    """
+    original_debug_mode = settings.debug_mode
+    original_level = logging.getLogger().level
+    yield
+    settings.debug_mode = original_debug_mode
+    logging.getLogger().setLevel(original_level)
+
 
 @pytest.fixture(autouse=True)
 def _closed_redis_circuit_breaker():
@@ -253,7 +269,7 @@ async def _ensure_template_database(conn) -> None:
 async def _clear_app_tables(url: str) -> None:
     """複製に引き継がれたアプリ側の表を落とす。
 
-    テストは自分でテーブルを作る（`Base.metadata.create_all`）ので、複製元に残っていた
+    テストは自分でテーブルを作る（`declared_metadata().create_all`）ので、複製元に残っていた
     表と行が初期状態に混ざらないようにする。落とす対象は名前で並べず、**拡張が持ち込んだ
     表（`spatial_ref_sys`等）ではないこと**から導く。
     """
@@ -403,7 +419,7 @@ async def road_graph_engine():
 
 async def _delete_app_rows(engine) -> None:
     async with engine.begin() as conn:
-        for table in reversed(Base.metadata.sorted_tables):
+        for table in reversed(declared_metadata().sorted_tables):
             await conn.execute(table.delete())
 
 
