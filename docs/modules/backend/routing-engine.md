@@ -563,7 +563,7 @@ Nodeを「リング」として抽出する。**距離は最短実距離では�
    （そのNodeで曲がる費用を含む）、
    合成コスト最小のNode（＝経由地無しの従来の単一生成が返す経路、"最良路"）の長さの
    `ALTERNATIVE_MAX_STRETCH`（1.3）倍以内のNodeだけを候補にする。
-4. 経路長と平均difficulty`(合成コスト/経由路長-1)/P`のパレート層の順、層の中は平均difficultyの昇順、同点はNode index順に
+4. 経路長と所要時間あたりの平均difficulty`(合成コスト/所要時間-1)/P×100`（`domain/evaluation.py: difficulty_from_cost`）のパレート層の順、層の中は平均difficultyの昇順、同点はNode index順に
    並べる（`rank_by_pareto_layers`。折返し点と違い経路長では同点を割らない）。ただし最良路のNodeは常に
    先頭へ回す——伸び率の許す範囲でより平均difficultyの低い経路が他に存在すれば難易度順
    ではそちらが上位に来うるため、「最良路は必ず結果に含まれる」をランキングとは独立に

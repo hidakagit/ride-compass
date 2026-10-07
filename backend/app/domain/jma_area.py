@@ -17,6 +17,7 @@ from dataclasses import dataclass
 #: 持つため隣の区域との間に隙間ができ、海岸の区域は岸壁・橋の上を含まないことがある。
 NEAREST_LIMIT_DEG = 0.01
 
+
 @dataclass(frozen=True)
 class ResolvedArea:
     class20_code: str
