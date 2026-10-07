@@ -1,4 +1,4 @@
-// 約束 1〜11（ゲート・回答フォーム・問いの形）を、ゲートの入口（gate.js: handleEvent）と回答フォームの入口（form.js: answerForm）で
+// 約束 1〜12（ゲート・回答フォーム・問いの形）を、ゲートの入口（gate.js: handleEvent）と回答フォームの入口（form.js: answerForm）で
 // 確かめる。設定は架空のもの（fake-github.js: config）を渡し、差し替えるのは GitHub（網）だけ。確かめるのは約束の結果（ステータス・
 // 担当者・開き閉じ・本文・書いたかどうか）。
 // ここで見ないもの: 文言・画面の並びと見た目（合意したモックと実物で見比べる）・出来事の署名（GitHub が受け手に求める標準の手順で、
@@ -53,7 +53,7 @@ test("3 担当者はステータスの番で、手で変えても戻る", async 
   }
 });
 
-test("4 入口: ユーザーの起票と段階は未着手、Claude の起票は回答待ちで採否の問いをコメントに置く。段階でないものの優先度は書かず、段階は親の値", async () => {
+test("4 入口: ユーザーの起票と段階は未着手、Claude の起票は回答待ちで問いをコメントに置く。段階でないものの優先度は書かず、段階は親の値", async () => {
   let gh = fakeGitHub({ issue: { number: 1, status: "中" } });
   await deliver("projects_v2_item", item({ action: "created" }));
   assert.deepEqual([gh.issue.status, gh.issue.fields.重さ], ["前", undefined]);
@@ -92,7 +92,7 @@ test("7 公開の直後の揃え: 開いた issue を今の規則の姿へ揃え
   const gh = fakeGitHub({ issue: { number: 3, status: "答え待ち", assignees: ["c"] } });
   const gate = await Gate.open({ GITHUB_TOKEN: "bot-token" }, config);
   assert.deepEqual(await gate.refreshAll(), [3]);
-  assert.deepEqual([gh.issue.assignees, gh.issue.body === "本文"], [["u"], false]);
+  assert.deepEqual([gh.issue.assignees, gh.issue.body === "本文", said(gh).length], [["u"], false, 1]);
   assert.deepEqual(await gate.refreshAll(), []);
 });
 
@@ -123,6 +123,20 @@ test("9 回答フォームの完成は、残りの完了の条件を全部チェ
   await answer("完成");
   assert.deepEqual([gh.issue.status, gh.writes.length], ["答え待ち", 0]);
   gh = waiting(left);
+  await answer("完成", ["マージのあとの操作"]);
+  assert.deepEqual([gh.issue.status, gh.issue.state, /- \[x\] マージのあとの操作/.test(gh.issue.body)], ["済", "CLOSED", true]);
+});
+
+test("12 回答待ちの間は答えていない問いがいつもある: どの状態からボードで入っても、答えていない問いが無ければゲートが1つ置き、あれば置かない。置いた問いはフォームで完成にできる", async () => {
+  const q = { author: "c", body: "## 問い\nどうする？" };
+  const a = { author: "u", body: "## 回答\n**どうする？**\n\n次のステータス: 置き" };
+  for (const [from, comments, want] of [["置き", [q, a], 1], ["前", [], 1], ["中", [q, a], 1], ["検", [], 1], ["前", [a, q], 0]]) {
+    const gh = fakeGitHub({ issue: { number: 4, status: "答え待ち", comments } });
+    await move(from, "答え待ち");
+    assert.deepEqual([gh.issue.status, said(gh).length, said(gh).every((b) => parseQuestion(b))], ["答え待ち", want, true], `${from} ${comments.length}`);
+  }
+  const gh = fakeGitHub({ issue: { number: 4, status: "答え待ち", body: left, comments: [q, a] } });
+  await move("置き", "答え待ち");
   await answer("完成", ["マージのあとの操作"]);
   assert.deepEqual([gh.issue.status, gh.issue.state, /- \[x\] マージのあとの操作/.test(gh.issue.body)], ["済", "CLOSED", true]);
 });

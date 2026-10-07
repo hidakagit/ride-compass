@@ -1,6 +1,6 @@
 // ゲート: GitHub の出来事と回答フォームの送信を受け、遷移の表で照らして書く。1つの出来事では、タスクを1回読み、1回で書く。
 import { GitHub, readTask, setField } from "./github.js";
-import { bodyRest, judge, normalize, notes, ownerOf, strayInBlock, withButton } from "./rules.js";
+import { bodyRest, judge, normalize, notes, ownerOf, SCAN, strayInBlock, unanswered, withButton } from "./rules.js";
 
 export class Gate {
   // env.GITHUB_TOKEN があればその名義（公開の直後の揃えを CI で流すとき）、無ければ App の名義で読み書きする。
@@ -11,8 +11,9 @@ export class Gate {
     return gate;
   }
 
+  // 答えていない問いを見分けるため、コメントは回答フォームが今の問いを探すのと同じ件数を読む。
   async read(ref, options) {
-    const r = await readTask(this.gh, this.config, ref, options);
+    const r = await readTask(this.gh, this.config, ref, { comments: SCAN, ...options });
     this.project = r.project;
     this.labelIds = r.labels;
     return r.issue;
@@ -27,8 +28,14 @@ export class Gate {
     return issue.state === "OPEN" && issue.status === this.config.waiting ? withButton(rest, `${form}/answer?issue=${issue.number}`, `${gate}/button.svg`) : rest;
   }
 
+  // 問い: 回答待ちの間、答えていない問いが無ければ（どの経路で入ったかによらず）、回答フォームで答えられるように問いを1つ置く。
+  questionFor(issue, comments = []) {
+    const bodies = [...issue.comments.nodes.map((c) => c.body), ...comments];
+    return issue.state === "OPEN" && issue.status === this.config.waiting && !unanswered(bodies) ? [`## 問い\n${this.config.question}`] : [];
+  }
+
   // want に変えたいものだけを渡す（status・fields・comments・labels・unlabels・close・reopen・body）。担当者はステータスの番、
-  // 本文の先頭は書いた後の状態に合わせて、同じ要求に入れる。
+  // 本文の先頭と問いは書いた後の状態に合わせて、同じ要求に入れる。
   async write(issue, want = {}) {
     const next = { ...issue, status: want.status ?? issue.status, state: want.close ? "CLOSED" : want.reopen ? "OPEN" : issue.state, body: want.body ?? issue.body };
     const ops = [];
@@ -36,7 +43,7 @@ export class Gate {
       if (issue.fields[name] !== value && (this.project.fields[name]?.options?.[value] || name === this.config.project.statusField)) ops.push(setField(this.project, issue.item, name, value));
     const stray = strayInBlock(next.body);
     const notes = stray ? [`本文の先頭のゲートの印の間に、ゲートが書かないものがあった。消さずに印の外（本文の先頭）へ出した。\n\n${stray}`] : [];
-    for (const body of [...(want.comments ?? []), ...notes]) ops.push(["addComment", { subjectId: issue.id, body }]);
+    for (const body of [...(want.comments ?? []), ...this.questionFor(next, want.comments), ...notes]) ops.push(["addComment", { subjectId: issue.id, body }]);
     if (want.reopen) ops.push(["reopenIssue", { issueId: issue.id }]);
     const update = {};
     const owner = ownerOf(this.config, next);
@@ -60,7 +67,7 @@ export class Gate {
     return verdict;
   }
 
-  // Project に入った: 段階（親のある issue）とユーザーの起票は未着手、Claude の起票は回答待ちにして採否の問いをコメントに置く。
+  // Project に入った: 段階（親のある issue）とユーザーの起票は未着手、Claude の起票は回答待ち（問いは write が置く）。
   // 段階は優先度の欄が空なら親の優先度を継ぐ。段階でないものの優先度は書かない（誰も決めていない欄は空のまま見せ、起票の直後に
   // 入れた値を、読んでから書くまでの間に消さない）。入った時点のステータス（ボードで選んだ列）は見ない。
   async enter(nodeId, projectNodeId) {
@@ -70,8 +77,7 @@ export class Gate {
     const priority = this.config.project.priorityField;
     const inherited = issue.parent ? (await readTask(this.gh, this.config, { number: issue.parent.number })).issue?.fields[priority] : null;
     const fields = inherited && !issue.fields[priority] ? { [priority]: inherited } : {};
-    const asks = !issue.parent && !byUser;
-    await this.write(issue, { status: asks ? this.config.waiting : this.config.todo, fields, comments: asks ? [`## 問い\n${this.config.adoption}`] : [] });
+    await this.write(issue, { status: !issue.parent && !byUser ? this.config.waiting : this.config.todo, fields });
   }
 
   // ステータスか開き閉じが変わった（ボードの移動・Claude の道具・閉じる・開き直す）。同じ照らしで、通れば開き閉じとステータスを
@@ -106,7 +112,7 @@ export class Gate {
     if (!done.ok) await this.apply(issue, this.config.todo, said(`をマージしました。${done.reason}Claude に戻します。`));
   }
 
-  // 公開の直後: 開いた issue を全部、今の規則の姿（担当者・本文の先頭）へ揃える。揃っているものには書かない。揃えた番号を返す。
+  // 公開の直後: 開いた issue を全部、今の規則の姿（担当者・本文の先頭・問い）へ揃える。揃っているものには書かない。揃えた番号を返す。
   async refreshAll({ dry = false } = {}) {
     const [o, n] = this.config.repository.split("/");
     const changed = [];
@@ -117,7 +123,7 @@ export class Gate {
         const issue = await this.read({ number });
         if (!issue?.item) continue;
         const owner = ownerOf(this.config, issue);
-        const off = this.bodyFor(issue) !== normalize(issue.body) || (owner && (issue.assignees.nodes.length !== 1 || issue.assignees.nodes[0].login !== owner));
+        const off = this.bodyFor(issue) !== normalize(issue.body) || this.questionFor(issue).length || (owner && (issue.assignees.nodes.length !== 1 || issue.assignees.nodes[0].login !== owner));
         if (!off) continue;
         changed.push(number);
         if (!dry) await this.write(issue);
