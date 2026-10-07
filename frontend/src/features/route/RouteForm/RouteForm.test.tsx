@@ -26,39 +26,63 @@ import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import RouteForm, { type SettingsTab } from "./RouteForm";
 
 type Props = ComponentProps<typeof RouteForm>;
+/** 部品へ渡す値。生成の条件の欄（`conditions`）とほかの props を並べて渡し、`renderForm` が分ける。 */
+type Options = Partial<Props["conditions"]> & Partial<Omit<Props, "conditions">>;
 
 /** コールバック以外の既定。見たい値はテストが渡す。 */
 const BASE = {
-  distance: "30",
-  maxRoutes: "8",
+  distanceInput: "30",
+  maxRoutesInput: "8",
   routeMode: "loop",
-  waypointCount: 0,
-  destinationSet: false,
+  waypoints: [],
+  destination: null,
   originManual: false,
   originLocated: true,
   armedPinRole: null,
   weightsPanel: null,
   exclusionsPanel: null,
   savedPanel: null,
-} satisfies Partial<Props>;
+} satisfies Options;
 
-function renderForm(props: Partial<Props> = {}, tab: SettingsTab = "generate") {
+/** 置いた経由地（件数だけを見るので、地点は並べるだけ）。 */
+function waypointsOf(count: number) {
+  return Array.from({ length: count }, (_, i) => ({ latitude: 35 + i * 0.01, longitude: 139 }));
+}
+
+const DESTINATION = { latitude: 35.1, longitude: 139.1 };
+
+function renderForm(options: Options = {}, tab: SettingsTab = "generate") {
   const handlers = {
-    onDistanceChange: vi.fn(),
-    onMaxRoutesChange: vi.fn(),
-    onRouteModeChange: vi.fn(),
-    onWaypointsClear: vi.fn(),
-    onDestinationClear: vi.fn(),
+    setDistanceInput: vi.fn(),
+    setMaxRoutesInput: vi.fn(),
+    changeRouteMode: vi.fn(),
+    clearWaypoints: vi.fn(),
+    clearDestination: vi.fn(),
     onOriginReset: vi.fn(),
-    onArmPinRole: vi.fn(),
+    armPinRole: vi.fn(),
   };
-  const element = (next: Partial<Props>, nextTab: SettingsTab) => (
-    <Tabs value={nextTab}>
-      <RouteForm {...BASE} {...handlers} {...next} />
-    </Tabs>
-  );
-  const view = render(element(props, tab));
-  return { ...handlers, showTab: (nextTab: SettingsTab) => view.rerender(element(props, nextTab)) };
+  const element = (nextTab: SettingsTab) => {
+    const { originManual, originLocated, onOriginReset, weightsPanel, exclusionsPanel, savedPanel, ...conditions } = {
+      ...BASE,
+      ...handlers,
+      ...options,
+    };
+    return (
+      <Tabs value={nextTab}>
+        <RouteForm
+          conditions={conditions}
+          originManual={originManual}
+          originLocated={originLocated}
+          onOriginReset={onOriginReset}
+          weightsPanel={weightsPanel}
+          exclusionsPanel={exclusionsPanel}
+          savedPanel={savedPanel}
+        />
+      </Tabs>
+    );
+  };
+  const view = render(element(tab));
+  return { ...handlers, showTab: (nextTab: SettingsTab) => view.rerender(element(nextTab)) };
 }
 
 function pointRow(name: string | RegExp) {
@@ -67,32 +91,32 @@ function pointRow(name: string | RegExp) {
 
 describe("RouteForm 生成モード", () => {
   it("もう一方のモードを選ぶとそのモードを上げる", async () => {
-    const { onRouteModeChange } = renderForm({ routeMode: "loop" });
+    const { changeRouteMode } = renderForm({ routeMode: "loop" });
 
     await userEvent.click(screen.getByRole("radio", { name: "目的地" }));
 
-    expect(onRouteModeChange).toHaveBeenCalledExactlyOnceWith("destination");
+    expect(changeRouteMode).toHaveBeenCalledExactlyOnceWith("destination");
   });
 });
 
 describe("RouteForm 候補数", () => {
   it("1件ずつ増減した値を文字列で上げる", async () => {
-    const { onMaxRoutesChange } = renderForm({ maxRoutes: "8" });
+    const { setMaxRoutesInput } = renderForm({ maxRoutesInput: "8" });
 
     await userEvent.click(screen.getByRole("button", { name: "候補数を増やす" }));
     await userEvent.click(screen.getByRole("button", { name: "候補数を減らす" }));
 
-    expect(onMaxRoutesChange.mock.calls).toEqual([["9"], ["7"]]);
+    expect(setMaxRoutesInput.mock.calls).toEqual([["9"], ["7"]]);
   });
 
   it("1件では減らせない", () => {
-    renderForm({ maxRoutes: "1" });
+    renderForm({ maxRoutesInput: "1" });
 
     expect(screen.getByRole("button", { name: "候補数を減らす" })).toBeDisabled();
   });
 
   it("上限では増やせない", () => {
-    renderForm({ maxRoutes: String(routeGenerateConfig.max_routes) });
+    renderForm({ maxRoutesInput: String(routeGenerateConfig.max_routes) });
 
     expect(screen.getByRole("button", { name: "候補数を増やす" })).toBeDisabled();
   });
@@ -101,14 +125,14 @@ describe("RouteForm 候補数", () => {
     ["周回", { routeMode: "loop" }, "8件", false],
     [
       "経由地を置いた目的地",
-      { routeMode: "destination", waypointCount: 2 },
+      { routeMode: "destination", waypoints: waypointsOf(2) },
       `${routeGenerateConfig.routes_with_waypoints}件`,
       true,
     ],
   ] as const)(
     "%sでは件数を出し、決まった件数なら増減できなくして変えられない理由の(i)を置く",
     (_mode, props, count, fixed) => {
-      renderForm({ maxRoutes: "8", ...props });
+      renderForm({ maxRoutesInput: "8", ...props });
 
       expect(screen.getByText(count)).toBeInTheDocument();
       for (const name of ["候補数を減らす", "候補数を増やす"]) {
@@ -136,11 +160,11 @@ describe("RouteForm モードごとの入力", () => {
   );
 
   it("距離を動かすと、選んだ値を文字列のまま上げる", () => {
-    const { onDistanceChange } = renderForm({ routeMode: "loop", distance: "30" });
+    const { setDistanceInput } = renderForm({ routeMode: "loop", distanceInput: "30" });
 
     fireEvent.change(screen.getByRole("slider", { name: "距離" }), { target: { value: "55" } });
 
-    expect(onDistanceChange).toHaveBeenCalledExactlyOnceWith("55");
+    expect(setDistanceInput).toHaveBeenCalledExactlyOnceWith("55");
   });
 });
 
@@ -172,14 +196,14 @@ describe("RouteForm 出発地の行", () => {
   ] as const)(
     "置ける役割が%sなら行を「%s」とし、押すと置ける状態を切り替える",
     async (armedPinRole, name, pressed, value, raised) => {
-      const { onArmPinRole } = renderForm({ armedPinRole });
+      const { armPinRole } = renderForm({ armedPinRole });
 
       const row = pointRow(name);
       expect(row).toHaveAttribute("aria-pressed", pressed);
       expect(within(row).getByText(value)).toBeInTheDocument();
       await userEvent.click(row);
 
-      expect(onArmPinRole).toHaveBeenCalledExactlyOnceWith(raised);
+      expect(armPinRole).toHaveBeenCalledExactlyOnceWith(raised);
     },
   );
 
@@ -195,18 +219,18 @@ describe("RouteForm 出発地の行", () => {
 
 describe("RouteForm 経由地の行", () => {
   it("経由地が無い間は「なし」と出して消す操作を出さず、押すと経由地を置ける状態を上げる", async () => {
-    const { onArmPinRole } = renderForm({ routeMode: "destination", waypointCount: 0 });
+    const { armPinRole } = renderForm({ routeMode: "destination", waypoints: waypointsOf(0) });
 
     expect(within(pointRow("経由地を追加")).getByText("なし")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "経由地をクリア" })).not.toBeInTheDocument();
 
     await userEvent.click(pointRow("経由地を追加"));
 
-    expect(onArmPinRole).toHaveBeenCalledExactlyOnceWith("waypoint");
+    expect(armPinRole).toHaveBeenCalledExactlyOnceWith("waypoint");
   });
 
   it("経由地があれば件数を値と印に出し、消す操作を押すと上げる", async () => {
-    const { onWaypointsClear } = renderForm({ routeMode: "destination", waypointCount: 3 });
+    const { clearWaypoints } = renderForm({ routeMode: "destination", waypoints: waypointsOf(3) });
 
     const row = pointRow("経由地を追加");
     expect(within(row).getByText("3地点")).toBeInTheDocument();
@@ -214,14 +238,14 @@ describe("RouteForm 経由地の行", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "経由地をクリア" }));
 
-    expect(onWaypointsClear).toHaveBeenCalledOnce();
+    expect(clearWaypoints).toHaveBeenCalledOnce();
   });
 
   it.each([
     [3, "地図をタップ[3地点]"],
     [0, "地図をタップ"],
   ])("置いた経由地が%i件のとき、置ける間は件数があれば添えて「地図をタップ」を出す", (waypointCount, hint) => {
-    renderForm({ routeMode: "destination", waypointCount, armedPinRole: "waypoint" });
+    renderForm({ routeMode: "destination", waypoints: waypointsOf(waypointCount), armedPinRole: "waypoint" });
 
     expect(within(pointRow("経由地の指定をやめる")).getByText(hint)).toBeInTheDocument();
   });
@@ -232,7 +256,7 @@ describe("RouteForm 経由地の行", () => {
   ])(
     "%i件では行を「%s」とし、生成が受け付ける数までなら押せなくする。消す操作は残す",
     (waypointCount, name, action, full) => {
-      renderForm({ routeMode: "destination", waypointCount });
+      renderForm({ routeMode: "destination", waypoints: waypointsOf(waypointCount) });
 
       const row = pointRow(name);
       expect(row).toHaveProperty("disabled", full);
@@ -244,24 +268,24 @@ describe("RouteForm 経由地の行", () => {
 
 describe("RouteForm 目的地の行", () => {
   it("目的地が無い間は「未設定」と出して消す操作を出さず、押すと目的地を置ける状態を上げる", async () => {
-    const { onArmPinRole } = renderForm({ routeMode: "destination", destinationSet: false });
+    const { armPinRole } = renderForm({ routeMode: "destination", destination: null });
 
     expect(within(pointRow("目的地を地図で選ぶ")).getByText("未設定")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "目的地をクリア" })).not.toBeInTheDocument();
 
     await userEvent.click(pointRow("目的地を地図で選ぶ"));
 
-    expect(onArmPinRole).toHaveBeenCalledExactlyOnceWith("destination");
+    expect(armPinRole).toHaveBeenCalledExactlyOnceWith("destination");
   });
 
   it("置いた目的地は「地図で指定」と出して置き直す行にし、消す操作を押すと上げる", async () => {
-    const { onDestinationClear } = renderForm({ routeMode: "destination", destinationSet: true });
+    const { clearDestination } = renderForm({ routeMode: "destination", destination: DESTINATION });
 
     expect(within(pointRow("目的地を置き直す")).getByText("地図で指定")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "目的地をクリア" }));
 
-    expect(onDestinationClear).toHaveBeenCalledOnce();
+    expect(clearDestination).toHaveBeenCalledOnce();
   });
 });
 

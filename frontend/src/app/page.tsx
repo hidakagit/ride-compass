@@ -322,21 +322,10 @@ export default function Home() {
   function renderRouteSectionBody() {
     return (
       <RouteForm
-        distance={conditions.distanceInput}
-        onDistanceChange={conditions.setDistanceInput}
-        maxRoutes={conditions.maxRoutesInput}
-        onMaxRoutesChange={conditions.setMaxRoutesInput}
-        routeMode={conditions.routeMode}
-        onRouteModeChange={conditions.changeRouteMode}
-        waypointCount={conditions.waypoints.length}
-        onWaypointsClear={conditions.clearWaypoints}
-        destinationSet={conditions.destination !== null}
-        onDestinationClear={conditions.clearDestination}
+        conditions={conditions}
         originManual={locationSource === "manual"}
         originLocated={locationKnown}
         onOriginReset={handleLocateMe}
-        armedPinRole={conditions.armedPinRole}
-        onArmPinRole={conditions.armPinRole}
         weightsPanel={
           <RouteSettingsPanel
             routePreference={conditions.routePreference}

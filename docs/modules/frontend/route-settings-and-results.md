@@ -28,6 +28,7 @@
 | `components/AxisContributionBar/AxisContributionBar.tsx` | 「重み付き寄与度」内訳の表示部品（積み上げ1本バー＋凡例）。ルート全体の内訳（RouteAxisProfile）・区間クリック詳細（`RouteOutcome.tsx`）・道の詳細（`RoadInspectorPopup.tsx`）が共用する |
 | `components/AxisContributionBar/AxisDetail.tsx` | 内訳のチップを押して開く軸の詳細の形（名前・軸別難易度［値が無ければ「データなし」］・説明）。ルート全体の内訳（`RouteAxisProfile`。生値・材料の内訳を間へ足す）・区間の詳細（`RouteOutcome.tsx`）・道の詳細（`RoadInspectorPopup.tsx`）が同じこの形で出す |
 | `components/PinMark/PinMark.tsx` | 地点（出発地・経由地・目的地）の印の中身と背景色。行頭の印と地図のピンが共用する（下記「地点の指定」） |
+| `features/map/MapView/useMapMarkers.tsx` | 地図の地点の印（出発地・経由地・目的地）と選んでいる区間の印の作成・位置の更新・ドラッグ・後始末を1か所に持つフック。`MapView`は地図を作ったあとに呼ぶだけ（下記「地点の指定」「区間クリック詳細」） |
 | `hooks/useAxisCatalog.ts` | `GET /api/axis-catalog`の取得。機能をまたいで読むカタログ（軸一覧・既定重み・軸ラベル・識別色・較正値）を`useAxisCatalog`が返す。1つの機能だけが読む形は、その機能が同じ取得の応答から`useAxisCatalogSelect`で導く（地図の表示の軸・タイルの世代は[地図: 静的レイヤー・道路表示](static-map-layers.md)の`features/map/useMapAxisCatalog.ts`）——共有のカタログへ相乗りさせると、読み手が1機能だけの知識を共有の層が運ぶ |
 | `lib/axisCatalog.ts` | 上記フックが返すカタログを、応答から導く純関数（`axisCatalogFromResponse`）と、画面が読む較正値（`CLIENT_TUNING_IDS`・`clientTuningValue`。並べるidは生成物`route-generate-config.json`に在るものだけを型が通す）。フックが持つのは「いつ取りに行き、誰と共有するか」だけ |
 | `services/axisCatalogApi.ts` | 上記フックが叩くbackend APIの薄いラッパー |
@@ -379,6 +380,8 @@ DBの`ROUTE_GENERATION_COMMAND_TIMEOUT_SECONDS`はクエリ1本ごとの上限�
 `RouteMode`（"loop"|"destination"）で周回/目的地モードを切り替える入力欄一式
 （`RouteForm.tsx`）と、その検証・送信ロジック（`useRouteFormSubmit.ts`）を分離する。
 デスクトップ・モバイルとも「ルート設定」区分（`RouteSettingsPanel`と同じ場所）から呼ぶ。
+`RouteForm`は生成の条件を`useGenerationConditions.ts`の返り値（`conditions`）のまままとめて受け取る——`page.tsx`が
+欄を1つずつ中継すると、入力を足すたびに中継の行も増える。
 
 「ルート設定」区分自体を「条件」（`RouteForm`のモード切替・距離・候補数）・
 「重み」（`weightsPanel`propで受け取る`RouteSettingsPanel`一式）・
@@ -436,7 +439,7 @@ page-composition.md「生成に関するフィードバックの置き場」）�
 **出発地の行はどちらのモードにも出す**（周回では距離の上、`RouteForm.tsx: originRow`）。経由地・目的地の行は目的地モードだけ。
 現在地が取れないときの案内（上記）は出発地の「地図で選ぶ」を指すため、既定の周回モードにもその入口が要る。
 
-- 地図のピンは3つとも同じ丸いバッジ（`MapView.tsx: createPointMarkerElement`、出発地だけは
+- 地図のピンは3つとも同じ丸いバッジ（`features/map/MapView/useMapMarkers.tsx: createPointMarkerElement`、出発地だけは
   現在地アイコン入りの白バッジ）で、**どれもつかんで動かせる**。**行頭の印と地図のピンは
   同じ図形を使う**（`components/PinMark/PinMark.tsx`が中身と背景色を持ち、出発地の現在地の印はアイコン集の
   `components/ui/icons/icons.tsx: LocateIcon`。地図側はMarkerへ渡す要素へ出発地の印をportalで描き、経由地・目的地の
