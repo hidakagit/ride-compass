@@ -13,6 +13,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+#: どの区域にも入らない地点を、最も近い区域へ寄せる距離の上限（度。おおむね1km）。境界は簡略化して
+#: 持つため隣の区域との間に隙間ができ、海岸の区域は岸壁・橋の上を含まないことがある。
+NEAREST_LIMIT_DEG = 0.01
+
 @dataclass(frozen=True)
 class ResolvedArea:
     class20_code: str

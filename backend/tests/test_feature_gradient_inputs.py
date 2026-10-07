@@ -17,7 +17,7 @@ from sqlalchemy import text
 from app.batch import derive_topology
 from app.batch.common import asyncpg_dsn
 from app.domain.region import BoundingBox
-from app.infrastructure.road_graph_repository import EDGE_UNIT_MIN_ZOOM
+from app.domain.region import EDGE_UNIT_MIN_ZOOM
 from tests.conftest import postgis_database_url
 from tests.source_ingest import ingest_records, way_record
 

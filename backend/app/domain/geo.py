@@ -88,6 +88,11 @@ def compass_label(bearing_deg: float) -> str:
     return COMPASS_LABELS[index]
 
 
+def compass_degrees(bearing_deg: float) -> int:
+    """方位（度）を応答に載せる桁（0〜359の整数の度）へ丸める。"""
+    return int(round(bearing_deg)) % 360
+
+
 def bearing_between(origin: LatLon, destination: LatLon) -> float:
     """originからdestinationを見た初期方位角（0=北、時計回り、0-360）を球面三角法で求める。
 

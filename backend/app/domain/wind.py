@@ -7,6 +7,11 @@ import numpy as np
 from app.domain.geo import haversine_distance_km_array
 from app.domain.route import Coordinates
 
+#: 出発時の風（`DepartureWind`）の風速・風向を応答に載せる桁。
+DEPARTURE_WIND_DECIMALS = 1
+#: 風の材料（向かい風の抗力比）を地図へ配る桁。
+WIND_DRAG_RATIO_DECIMALS = 3
+
 # 仮定巡航速度（km/h）の画面の既定値。区間ごとの推定到達時刻と、風の追加負荷
 # （`wind_drag_ratio_array`の走行速度）の算出に使う速度は、要求ごとに送られる
 # （範囲は下記MIN/MAX）。風・勾配に依存しない一律の定数として扱うことが前提——速度を風で

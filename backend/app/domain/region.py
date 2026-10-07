@@ -10,6 +10,10 @@ from app.domain.strict_model import StrictModel
 # 要求しないが、直接APIを叩かれた場合に備えてバックエンド側でもこの範囲外を拒否する。
 ROAD_TILE_MIN_ZOOM = 12
 ROAD_TILE_MAX_ZOOM = 15
+#: 路面タイルが1フィーチャーとして焼く単位。**区間が読めるズームでは区間、それより引いた
+#: 表示ではway丸ごと**にする。区間で焼くとgzip後の費用はz14で1.48倍・z12で1.81倍へ増える
+#: 一方、z12は1pxが約38mで、交差点で切った区間は数pxにしかならず塗り分けても読めない。
+EDGE_UNIT_MIN_ZOOM = 14
 
 
 class BoundingBox(StrictModel):

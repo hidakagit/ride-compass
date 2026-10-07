@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 from app.domain.difficulty import overall_difficulty
 from app.domain.errors import RoutingError, SearchAreaTooLargeError
 from app.domain.loop_routing import TracedLoop
+from app.domain.route_search import by_closeness_to_target, difficulty_order, fits_loop_distance
 
 if TYPE_CHECKING:
     from app.services.road_graph_engine import RoadGraphEngine, _RoadGraphContext
@@ -90,14 +91,6 @@ def _label(
         })
         for rank, candidate in enumerate(candidates)
     ]
-
-
-def _difficulty_order(candidate: RouteCandidate) -> float:
-    """候補を返す並びの鍵。周回・目的地とも総合難易度の昇順で、先頭が最も易しい候補という
-    契約で配る。平均は難易度の桁へ丸めてあるので、その桁で同点になる。算出不能の候補は末尾へ回す。"""
-    if candidate.overall_difficulty is None:
-        return float("inf")
-    return candidate.overall_difficulty.average
 
 
 class RouteGenerator:
@@ -241,7 +234,7 @@ class RouteGenerator:
                 failed += 1
                 logger.error("trace turnaround bearing=%d unexpected error", turnaround.bearing, exc_info=True)
                 continue
-            if abs(loop.distance_km - distance_km) > distance_tolerance_km:
+            if not fits_loop_distance(loop.distance_km, distance_km, distance_tolerance_km):
                 filtered_out += 1
                 logger.debug(
                     "distance filter rejected bearing=%d distance_km=%.1f (target=%.1f±%.1f)",
@@ -256,10 +249,7 @@ class RouteGenerator:
             traced.append(loop)
         trace_ms = round((time.monotonic() - trace_started) * 1000)
 
-        # 評価前に目標距離に近い順へ並べておく（最終順序はoverall_difficultyで決まるが、
-        # 同点[小数1桁]の候補はこの順で並ぶ——周囲に重みを振った軸のデータが無く全候補が
-        # 同じdifficultyになる場合、結果は実質的に目標距離に近い順になる）。
-        traced.sort(key=lambda t: abs(t.distance_km - distance_km))
+        traced = by_closeness_to_target(traced, distance_km)
 
         if not traced:
             logger.warning(
@@ -279,7 +269,7 @@ class RouteGenerator:
         candidates = await self._evaluate_and_aggregate(context, traced, start_time)
 
         # 同点は上記の「目標距離に近い順」を安定ソートで引き継ぐ。
-        candidates.sort(key=_difficulty_order)
+        candidates.sort(key=difficulty_order)
         # 名前はエンジンが方位から付けたもの（同じ方位に複数並びうるので、idは並びの位置から作る）。
         candidates = _label(candidates, "loop")
         evaluate_ms = round((time.monotonic() - evaluate_started) * 1000)
@@ -487,7 +477,7 @@ class RouteGenerator:
         candidates = await self._evaluate_and_aggregate(context, traced, start_time)
         # 件数を切るときに残し、印を付けるために、基準線をオブジェクトの同一性で覚えておく。
         baseline = candidates[fastest_index] if fastest_index is not None else None
-        candidates.sort(key=_difficulty_order)
+        candidates.sort(key=difficulty_order)
         # max_routesを超えたぶんは難易度の高い側から切るが、基準線は難易度で最下位でも残す。
         # ただし`max_routes`が1のときは残さない。基準線は**比べる相手があって初めて基準**
         # であり、1本だけ返すなら比べる相手が無い。残すと返る唯一の候補が常に時間最短に

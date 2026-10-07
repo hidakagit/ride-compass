@@ -12,7 +12,8 @@ from app.domain.weather import (
 )
 from app.domain.region import BoundingBox
 from app.domain.wind import (
-    WIND_FORECAST_LAT_STEP_DEG, WIND_FORECAST_LON_STEP_DEG, DepartureWind, WindForecastSeries, WindLattice,
+    DEPARTURE_WIND_DECIMALS, WIND_FORECAST_LAT_STEP_DEG, WIND_FORECAST_LON_STEP_DEG, DepartureWind, WindForecastSeries,
+    WindLattice,
 )
 from app.domain.wind_grid import WindGridPoint, WindGridResponse
 from app.infrastructure import msm_client
@@ -55,7 +56,10 @@ class WeatherService:
         if series is None or not series.times:
             return None
         speed, direction = wind_speed_and_direction(series.wind_u_ms[0], series.wind_v_ms[0])
-        return DepartureWind(speed_ms=round(float(speed[0]), 1), direction_deg=round(float(direction[0]), 1))
+        return DepartureWind(
+            speed_ms=round(float(speed[0]), DEPARTURE_WIND_DECIMALS),
+            direction_deg=round(float(direction[0]), DEPARTURE_WIND_DECIMALS),
+        )
 
     async def get_wind_forecast_lattice(self, bbox: BoundingBox) -> WindForecastSeries | None:
         """`bbox`を覆う格子点ごとの時別風向・風速の予報系列（1時間刻み、JSTのローカル時刻）。

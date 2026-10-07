@@ -17,10 +17,10 @@ from typing import SupportsFloat, cast
 
 from cachetools import TTLCache
 
-from app.domain.axis_definitions import AxisShape, raw_values, referenced_materials
+from app.domain.axis_definitions import AxisShape
 from app.domain.material_catalog import material_dtype
 from app.domain.region import BoundingBox
-from app.domain.value_distribution import ValueDistribution, ValueSpread, weighted_distribution, weighted_spread
+from app.domain.value_distribution import ValueDistribution, ValueSpread, raw_value_distribution, weighted_spread
 from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
 from app.infrastructure.debug_log import log_external_call, mark_failed
 from app.infrastructure.road_graph_repository import RoadGraphRepository
@@ -69,16 +69,6 @@ async def axis_raw_value_distribution(
 ) -> ValueDistribution:
     """候補の`shape`の生値（折れ点を通す前）の分布。"""
     return raw_value_distribution(shape, await _load_sample(repository))
-
-
-def raw_value_distribution(shape: AxisShape, sample: list[tuple[float, dict[str, object]]]) -> ValueDistribution:
-    """道の標本（`(長さm, 材料id→値)`）から、`shape`の生値の延長で重み付けた分布。生値を出せない道は数えない。"""
-    material_ids = referenced_materials(shape, [])
-    values = raw_values(
-        shape, {m: [materials.get(m) for _, materials in sample] for m in material_ids}, len(sample)
-    )
-    pairs = [(length_m, value) for (length_m, _), value in zip(sample, values) if value is not None]
-    return weighted_distribution(pairs)
 
 
 async def material_value_distribution(repository: RoadGraphRepository, material_id: str) -> ValueSpread | None:

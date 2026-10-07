@@ -11,13 +11,20 @@ from app.domain.difficulty import (
     round_difficulty,
     weighted_mean_by_distance,
 )
+from app.domain.attributes import ElevationAttribute
 from app.domain.geo import Latitude, Longitude
+from app.domain.graph import LeanEdge
 from app.domain.strict_model import StrictModel
+
+#: 応答の距離（km）の桁。区間・ビン・候補の距離をこの桁へ丸める。
+DISTANCE_KM_DECIMALS = 2
+#: 応答の獲得標高（m）の桁。
+ELEVATION_GAIN_DECIMALS = 1
 
 
 # GeoJSONのLineString（座標は[経度, 緯度]）。契約には形を載せるが、検証はしない——数千点の座標を
 # 組み立てのたびにたどることになる。形は組み立てる側（`_concat_segment_geometries`・
-# `services/road_graph_engine.py: concat_edge_geometries`等）が決める。
+# `concat_edge_geometries`）が決める。
 LineStringGeometry = Annotated[
     dict[str, Any],
     WithJsonSchema(
@@ -267,7 +274,7 @@ def route_axis_raw_values(edges: list[tuple[float, Mapping[str, float]]]) -> dic
     bins = _split_into_bins(edges, lambda edge: edge[0])
     return _merge_weighted_dicts(
         [
-            (round(sum(distance for distance, _ in bin_edges), 2), _merge_weighted_dicts(bin_edges, _round_significant))
+            (round(sum(distance for distance, _ in bin_edges), DISTANCE_KM_DECIMALS), _merge_weighted_dicts(bin_edges, _round_significant))
             for bin_edges in bins
         ],
         _round_significant,
@@ -334,7 +341,7 @@ BIN_FIELD_MERGERS: dict[str, Callable[[list[RouteSegmentDetail]], object]] = {
     "end_latitude": lambda segments: segments[-1].end_latitude,
     "end_longitude": lambda segments: segments[-1].end_longitude,
     "cumulative_distance_km": lambda segments: segments[0].cumulative_distance_km,
-    "distance_km": lambda segments: round(sum(s.distance_km for s in segments), 2),
+    "distance_km": lambda segments: round(sum(s.distance_km for s in segments), DISTANCE_KM_DECIMALS),
     "estimated_arrival_time": lambda segments: segments[0].estimated_arrival_time,
     # 到達予想と同じく、ビンに入った先頭の区間の値（ビンの中で予報の時刻が変わっても、入るときの風を出す）。
     "wind": lambda segments: segments[0].wind,
@@ -358,3 +365,53 @@ if _undeclared_fields():
 
 def _merge_segment_bin(segments: list[RouteSegmentDetail]) -> RouteSegmentDetail:
     return RouteSegmentDetail.model_validate({name: merge(segments) for name, merge in BIN_FIELD_MERGERS.items()})
+
+
+def concat_edge_geometries(edges: list[LeanEdge]) -> tuple[dict, list[int]]:
+    """経路上のEdge群を、ひとつながりのGeoJSON LineStringとEdgeの境界点の位置へ変換する。
+
+    隣接するEdgeの境界点（前Edgeの終端＝次Edgeの始端）は重複させないため、**座標列だけ
+    からはどこがEdgeの境目か復元できない**。Edge単位で決めた区間を地図へ帯として描く
+    ために境界の位置を併せて返す。
+
+    2つ目の戻り値は`len(edges) + 1`件で、`coordinates[offsets[i]:offsets[j] + 1]`が
+    Edge i〜j-1のひとつながりの形状になる。**同じ関数が両方を作る**——別々に組み立てると
+    ずれても型でも例外でも現れず、地図上で帯だけが1点ずれる。
+    """
+    coordinates: list[list[float]] = []
+    offsets: list[int] = []
+    for edge in edges:
+        points = [[lon, lat] for lat, lon in edge.geometry]
+        if coordinates and points and coordinates[-1] == points[0]:
+            points = points[1:]
+        offsets.append(max(len(coordinates) - 1, 0))
+        coordinates.extend(points)
+    offsets.append(max(len(coordinates) - 1, 0))
+    return {"type": "LineString", "coordinates": coordinates}, offsets
+
+
+def reverse_elevation_by_edge(
+    edges_in_path: list[LeanEdge],
+    reverse_edges: list[LeanEdge],
+    elevation_by_edge: dict[str, ElevationAttribute],
+) -> dict[str, ElevationAttribute]:
+    """逆方向Edge列ぶんの`ElevationAttribute`を、順方向の値から代数的に導出する。
+
+    順方向で標高が取れなかったEdgeは逆方向側にもキーを持たせない（欠損をそのまま伝える）。
+    """
+    result: dict[str, ElevationAttribute] = {}
+    for forward_edge, reverse_edge in zip(reversed(edges_in_path), reverse_edges):
+        forward_attribute = elevation_by_edge.get(forward_edge.edge_id)
+        if forward_attribute is not None:
+            result[reverse_edge.edge_id] = forward_attribute.reversed_as(reverse_edge.edge_id)
+    return result
+
+
+def route_elevation_gain(edges: list[LeanEdge], elevation_by_edge: dict) -> float | None:
+    """経路の獲得標高（m、`ELEVATION_GAIN_DECIMALS`の桁）。値が1つも無ければNone（0mと「標高が取れなかった」を分ける）。"""
+    gains = [
+        attribute.elevation_gain_m
+        for edge in edges
+        if (attribute := elevation_by_edge.get(edge.edge_id)) is not None
+    ]
+    return round(sum(gains), ELEVATION_GAIN_DECIMALS) if gains else None

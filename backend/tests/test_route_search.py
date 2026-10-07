@@ -1,6 +1,7 @@
-"""`services/road_graph_engine.py`——探索エンジンの中の、配列だけで確かめられる計算。
+"""探索エンジンが呼ぶ domain の判断のうち、配列だけで確かめられる計算（`domain/route_search.py`と、
+`domain/route.py`の形状・標高、`domain/routing.py`の繋ぎ目の候補）。
 
-対象は、エンジンが自分で決める計算のうち、入力を配列や値で直接与えられるもの。
+対象は、入力を配列や値で直接与えられるもの。
 
 - 表示値の部品（ジオメトリの連結・標高の集約と逆回りの付け替え・候補の難易度の比較）
 - 探索の部品（繋ぎ目の候補・同点グループの試行順）
@@ -30,16 +31,20 @@ import pytest
 
 from app.domain.attributes import ElevationAttribute
 from app.domain.graph import LeanEdge
-from app.domain.route import RouteCandidate, RouteSegmentDetail
-from app.domain.routing import NodeJunction, TurnExpandedTree
-from app.services.road_graph_engine import (
-    add_terminal_candidate,
+from app.domain.route import (
+    RouteCandidate,
+    RouteSegmentDetail,
     concat_edge_geometries,
+    reverse_elevation_by_edge,
+    route_elevation_gain,
+)
+from app.domain.routing import NodeJunction, TurnExpandedTree, add_terminal_candidate
+from app.domain.route_search import (
     order_by_bearing_spread,
     pick_better_candidate,
-    reverse_elevation_by_edge,
+    rank_by_pareto_layers,
     reverse_leg_assignment,
-    route_elevation_gain,
+    turnaround_ring_m,
 )
 
 
@@ -253,3 +258,35 @@ def test_order_by_bearing_spread_breaks_ties_by_node_index():
         [12, 11], [99], {11: 90.0, 12: 90.0, 99: 0.0}, {11: 5.0, 12: 5.0}
     )
     assert order == [11, 12]
+
+
+# --------------------------------------------------------------------------------------
+# 候補の並べ方と、折返し点を探す範囲
+# --------------------------------------------------------------------------------------
+
+
+def _ranked_ids(ids, distance, difficulty, *, tie_by_distance):
+    seconds = np.full(len(ids), 100.0)
+    ranking = rank_by_pareto_layers(
+        np.array(ids), np.array(distance, dtype=float), seconds * (1 + np.array(difficulty) / 100), seconds, 1.0,
+        max_items=10, max_examined=10, tie_by_distance=tie_by_distance,
+    )
+    return np.array(ids)[ranking.order].tolist()
+
+
+def test_rank_puts_the_pareto_layer_before_the_difficulty():
+    """遠回りして難所を避けた候補（7）だけが上位を占めず、近くて難所を通る候補（5）も一覧に残る。
+    両方に負ける候補（9）は難易度が真ん中でも後ろへ回る。"""
+    assert _ranked_ids([5, 7, 9], [0.0, 2000.0, 2000.0], [50.0, 10.0, 30.0], tie_by_distance=False) == [7, 5, 9]
+
+
+@pytest.mark.parametrize(("tie_by_distance", "expected"), [(True, [8, 3]), (False, [3, 8])])
+def test_rank_breaks_ties_by_distance_only_when_asked(tie_by_distance, expected):
+    """同じ層・同じ難易度の中は、周回なら距離の鍵（リング中心からのずれ）の順、目的地なら番号の順。"""
+    assert _ranked_ids([3, 8], [60.0, 10.0], [20.0, 20.0], tie_by_distance=tie_by_distance) == expected
+
+
+def test_turnaround_ring_falls_back_to_half_the_loop_when_the_tolerance_is_too_narrow():
+    """許容が狭いと`[(目標-許容)/MIN, (目標+許容)/MAX]`が逆転し、折返し点が1つも見つからない。"""
+    lower_m, upper_m, _ = turnaround_ring_m(10.0, 0.5)
+    assert (lower_m, upper_m) == (4750.0, 5250.0)

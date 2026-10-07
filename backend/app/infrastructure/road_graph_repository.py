@@ -21,7 +21,7 @@ import shapely
 from sqlalchemy import Row, TextClause, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
-from app.domain.attributes import CategoricalColumn, EdgeMaterialArrays
+from app.domain.attributes import AVERAGE_GRADE_DECIMALS, CategoricalColumn, EdgeMaterialArrays
 from app.domain.graph import LeanEdge, edge_feature_key_sql, edge_key, node_key, parse_edge_feature_key
 from app.domain.hard_filters import HARD_FILTER_VALUE_SQL, hard_filter_columns
 from app.domain.landcover import LandcoverPercentages, landcover_key
@@ -42,7 +42,7 @@ from app.infrastructure.source_models import (
     ways_lookup_sql,
     ways_source_sql,
 )
-from app.domain.region import BoundingBox
+from app.domain.region import EDGE_UNIT_MIN_ZOOM, BoundingBox
 from app.infrastructure import derived_data_meta
 from app.infrastructure.cache_identity import shape_digest
 from app.infrastructure.derived_models import EdgeMaterialRow, WayMaterialRow
@@ -115,12 +115,6 @@ COVERAGE_SQL = f"""
 
 
 # --- タイルが焼く単位 ---------------------------------------------------------
-
-#: 路面タイルが1フィーチャーとして焼く単位。**区間が読めるズームでは区間、それより引いた
-#: 表示ではway丸ごと**にする。区間で焼くとgzip後の費用はz14で1.48倍・z12で1.81倍へ増える
-#: 一方、z12は1pxが約38mで、交差点で切った区間は数pxにしかならず塗り分けても読めない。
-EDGE_UNIT_MIN_ZOOM = 14
-
 
 #: どちらの単位も`feature_key`という同じ名前で出す。フロントは`promoteId`でこれを
 #: feature.idへ昇格させるだけでよく、中身がway_idか区間の鍵かを知らなくてよい。
@@ -294,7 +288,7 @@ _FEATURE_GRADIENT_INPUTS_IN_TILE_SQL = text(
             FROM (
                 SELECT
                     src.feature_key,
-                    round(({length_weighted_mean_sql(_GRADIENT_SQL)})::numeric, 2)
+                    round(({length_weighted_mean_sql(_GRADIENT_SQL)})::numeric, {AVERAGE_GRADE_DECIMALS})
                         ::double precision AS average_grade,
                     degrees(ref.azimuth) AS bearing_deg
                 FROM ({_TILE_FEATURE_SOURCE_SQL}) src
