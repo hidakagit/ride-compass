@@ -209,11 +209,9 @@ export default function AxisStudio() {
   function renderRowMain(def: AxisDefinitionResponse) {
     return (
       <div className="flex min-w-0 flex-col">
-        <span className={textVariants({ variant: "heading" })} title={`axis_id: ${def.axis_id}`}>
-          {def.label}
-        </span>
+        <span className={textVariants({ variant: "heading" })}>{def.label}</span>
         <span className={cn(textVariants({ variant: "hint" }), "[overflow-wrap:anywhere]")}>
-          {def.category} ・ 重み{def.default_weight.toFixed(2)} ・{" "}
+          {def.axis_id} ・ {def.category} ・ 重み{def.default_weight.toFixed(2)} ・{" "}
           {materialIdsOf(def.shape)
             .map((id) => labelForMaterialOrAxis(id, definitions ?? []))
             .join("・")}
@@ -268,8 +266,19 @@ export default function AxisStudio() {
         </TabsContent>
 
         <TabsContent className={cn(cardVariants({ variant: "outline" }), "flex flex-col gap-2")} value="published">
-          {publishedDefs.length === 0 && (
+          {publishedDefs.length === 0 ? (
             <p className={textVariants({ variant: "hint" })}>公開済みの軸はありません。</p>
+          ) : (
+            <ul className={cn(textVariants({ variant: "hint" }), "list-disc pl-5")}>
+              <li>
+                表示だけ編集: アイコン・色分けしきい値等の表示の項目だけを変えます。材料・計算式・重みは変えられません。
+              </li>
+              <li>調整する: 材料・計算式・折れ点を変えます。編集の間は一時的に下書きになり、保存で公開に戻ります。</li>
+              <li>
+                非公開に戻す:
+                一般向けの軸カタログから外し、下書きへ戻します。削除するには、そのあと下書きの一覧で「削除」を押します。
+              </li>
+            </ul>
           )}
           {publishedDefs.map((def) => (
             <div
@@ -278,18 +287,13 @@ export default function AxisStudio() {
             >
               {renderRowMain(def)}
               <div className="flex flex-wrap gap-1">
-                <Button
-                  size="sm"
-                  onClick={() => setEditingAxisId(def.axis_id)}
-                  title="材料・計算式・重みは変更できません。アイコン・色分けしきい値等の表示専用フィールドのみ編集できます"
-                >
+                <Button size="sm" onClick={() => setEditingAxisId(def.axis_id)}>
                   表示だけ編集
                 </Button>
                 <Button
                   size="sm"
                   onClick={() => handleAdjustPublished(def)}
                   disabled={unpublishingAxisId === def.axis_id}
-                  title="材料・計算式・折れ点を変更します。編集中は一時的に下書きへ戻り、保存すると公開へ戻ります"
                 >
                   調整する
                 </Button>
@@ -300,7 +304,6 @@ export default function AxisStudio() {
                   size="sm"
                   onClick={() => handleUnpublish(def.axis_id)}
                   disabled={unpublishingAxisId === def.axis_id}
-                  title="一般ユーザー向けの軸カタログから外し、下書きへ戻します（削除するにはこの後もう一度「削除」を押します）"
                 >
                   非公開に戻す
                 </Button>
