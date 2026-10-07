@@ -26,10 +26,12 @@ const RAMP_AXES = rampAxesFromCatalogAxes(
   [
     catalogEntry({
       axis_id: "ramp",
-      display: {
-        kind: "ramp",
-        tile_inputs: [tileInput({ property: "v", has_unknown_fallback: true })],
-        thresholds: [50],
+      map_paint: {
+        tiles: {
+          kind: "ramp",
+          tile_inputs: [tileInput({ property: "v", has_unknown_fallback: true })],
+          thresholds: [50],
+        },
       },
     }),
   ],
