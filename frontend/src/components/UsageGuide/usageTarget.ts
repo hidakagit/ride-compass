@@ -5,7 +5,7 @@ const USAGE_ATTRIBUTE = "data-usage";
 export const USAGE_GUIDE_ATTRIBUTE = "data-usage-guide";
 
 /** 押して何かが起きる要素。押された要素から最寄りのこれを、説明する部品とみなす。 */
-const PART_SELECTOR = [
+export const USAGE_PART_SELECTOR = [
   "button",
   "a[href]",
   "input",
@@ -57,7 +57,7 @@ function nameOf(element: Element): string | null {
 
 /** 押された要素から、説明する部品を引く。部品の外（地図の余白・本文の文字）ならnull。 */
 export function usageTargetOf(pressed: Element): UsageTarget | null {
-  let part = pressed.closest(PART_SELECTOR);
+  let part = pressed.closest(USAGE_PART_SELECTOR);
   if (part === null) return null;
   // ラベルは押すと中の入力が動く。説明するのはその入力。
   if (part instanceof HTMLLabelElement && part.control) part = part.control;

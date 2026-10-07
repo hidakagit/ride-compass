@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Popover, PopoverAnchor, PopoverContent, POPOVER_COLLISION_PADDING_PX } from "@/components/ui/Popover/Popover";
 import { Button } from "@/components/ui/Button/Button";
 import { GuideText } from "@/components/ui/GuideText/GuideText";
 import { textVariants } from "@/components/ui/Text/Text";
 import { cardVariants } from "@/components/ui/Card/Card";
 import { cn } from "@/lib/cn";
-import { USAGE_GUIDE_ATTRIBUTE, usageTargetOf, type UsageTarget } from "./usageTarget";
+import { USAGE_GUIDE_ATTRIBUTE, USAGE_PART_SELECTOR, usageTargetOf, type UsageTarget } from "./usageTarget";
+import { chooseUsagePlacement, type UsagePlacement } from "./usagePlacement";
 
 /** 押してから離すまでにこれ以上動いたら、押したのではなく動かした（なぞった・スクロールした）とみなす。 */
 const TAP_SLOP_PX = 10;
@@ -19,8 +20,11 @@ const VALUE_KEYS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "
 const MOUSE_EVENTS = ["mousedown", "mouseup", "click", "dblclick", "auxclick", "contextmenu"] as const;
 const TOUCH_EVENTS = ["touchstart", "touchmove", "touchend"] as const;
 
+/** 説明の面と部品の間。 */
+const PANEL_OFFSET_PX = 6;
+
 interface UsageGuideProps {
-  /** 説明を見る状態を終える（「やめる」・説明の✕・Esc・説明を出している間に部品の外を押したとき）。 */
+  /** 説明を見る状態を終える（「やめる」・Esc・説明を出している間に部品の外を押したとき）。 */
   onEnd: () => void;
 }
 
@@ -28,14 +32,39 @@ function isInGuide(event: Event): boolean {
   return event.target instanceof Element && event.target.closest(`[${USAGE_GUIDE_ATTRIBUTE}]`) !== null;
 }
 
+/** 説明している部品のほかに、いま押せる部品の箱（押す点＝中心点が、説明の面を除いて最前面にあるもの）。 */
+function pressablePartsBesides(target: Element, panel: Element): DOMRect[] {
+  const parts: DOMRect[] = [];
+  for (const part of document.querySelectorAll(USAGE_PART_SELECTOR)) {
+    if (panel.contains(part) || part.contains(target) || target.contains(part)) continue;
+    const rect = part.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) continue;
+    const x = rect.left + rect.width / 2;
+    const y = rect.top + rect.height / 2;
+    // 面と、面を包む位置取りの要素は、まだ前の位置にあるので除いて見る。
+    const hit = document
+      .elementsFromPoint(x, y)
+      .find((element) => !panel.contains(element) && !element.contains(panel));
+    if (hit !== undefined && part.contains(hit)) parts.push(rect);
+  }
+  return parts;
+}
+
 /**
  * 説明を見る状態。出している間は、画面のどの部品を押しても部品は動かず、押した部品の使い方を出す。
  * 押す操作は窓の捕捉段階で1か所で止めるので、部品の側は止め方を持たない（持つのは使い方の文だけ）。
- * 置いた要素の上端の中央に案内を出す。
+ * 置いた要素の上端の中央に案内を出す。説明の面は、ほかの部品と案内にできるだけ重ねない所へ出す。
  */
 export default function UsageGuide({ onEnd }: UsageGuideProps) {
   const [target, setTarget] = useState<UsageTarget | null>(null);
   const [highlight, setHighlight] = useState<DOMRect | null>(null);
+  const [panel, setPanel] = useState<HTMLDivElement | null>(null);
+  const bannerRef = useRef<HTMLDivElement>(null);
+  const [placement, setPlacement] = useState<UsagePlacement>({
+    side: "bottom",
+    sideOffset: PANEL_OFFSET_PX,
+    alignOffset: 0,
+  });
   const onEndRef = useRef(onEnd);
   const targetRef = useRef<UsageTarget | null>(null);
   useEffect(() => {
@@ -145,12 +174,31 @@ export default function UsageGuide({ onEnd }: UsageGuideProps) {
     };
   }, [target]);
 
+  // 面の大きさは中身（部品の名前と文）で決まるので、中身が替わるたびに描いてから測り、描き直す前に向きを決める。
+  useLayoutEffect(() => {
+    if (target === null || panel === null) return;
+    setPlacement(
+      chooseUsagePlacement(
+        target.element.getBoundingClientRect(),
+        { width: panel.offsetWidth, height: panel.offsetHeight },
+        { width: window.innerWidth, height: window.innerHeight },
+        [
+          ...pressablePartsBesides(target.element, panel),
+          ...(bannerRef.current ? [bannerRef.current.getBoundingClientRect()] : []),
+        ],
+        PANEL_OFFSET_PX,
+        POPOVER_COLLISION_PADDING_PX,
+      ),
+    );
+  }, [target, panel]);
+
   const anchor = useMemo(() => ({ current: target?.element ?? null }), [target]);
 
   return (
     <>
       <div
         {...{ [USAGE_GUIDE_ATTRIBUTE]: "" }}
+        ref={bannerRef}
         role="status"
         // 案内の下の部品も押せるよう、案内は押す操作を素通しし、「やめる」だけが受ける。
         className={cn(
@@ -163,7 +211,7 @@ export default function UsageGuide({ onEnd }: UsageGuideProps) {
           やめる
         </Button>
       </div>
-      {highlight && (
+      {target && highlight && (
         <div
           aria-hidden="true"
           className="pointer-events-none fixed z-[var(--z-usage-guide)] rounded-sm outline-2 outline-offset-2 outline-[var(--color-accent-strong)]"
@@ -179,6 +227,13 @@ export default function UsageGuide({ onEnd }: UsageGuideProps) {
         <PopoverAnchor virtualRef={anchor} />
         <PopoverContent
           {...{ [USAGE_GUIDE_ATTRIBUTE]: "" }}
+          ref={setPanel}
+          side={placement.side}
+          align="start"
+          sideOffset={placement.sideOffset}
+          alignOffset={placement.alignOffset}
+          // 既定（partial）は面を部品から離れないところまで寄せ戻し、離して選んだ位置がずれる。
+          sticky="always"
           layer="guide"
           className="flex max-w-72 flex-col gap-1"
           collisionPadding={POPOVER_COLLISION_PADDING_PX}
@@ -191,7 +246,8 @@ export default function UsageGuide({ onEnd }: UsageGuideProps) {
               size="bare"
               className="px-1"
               aria-label="説明を閉じる"
-              onClick={() => onEndRef.current()}
+              // 説明だけを閉じ、部品を選ぶ続きへ戻る。
+              onClick={() => setTarget(null)}
             >
               ✕
             </Button>

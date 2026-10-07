@@ -5,7 +5,7 @@
  * 見るもの: 案内の「やめる」、部品を押したときに部品が動かず説明が出ること、説明に出す名前（読み上げ名の引き方）と
  * 使い方の文（自分か囲む要素の印・無いときの文言）、ラベルを押したときに説明する入力、押せないボタンでも出ること、
  * 動かした（なぞった・取り消された）押し方では出さないこと、部品の外を押したとき（閉じる押し操作が外へ届かないことも）、キー操作（Esc・Enter・Space・
- * 値を動かすキー）、案内と説明の面の上の操作は止めないこと、説明している部品を囲む枠と測り直し、
+ * 値を動かすキー）、説明の✕で説明だけを閉じて部品を選ぶ続きへ戻ること、案内と説明の面の上の操作は止めないこと、説明している部品を囲む枠と測り直し、
  * 説明の外へフォーカスを移したときに終えること、マウスの操作は既定の動きまで止め、タッチは既定の動き（スクロール）を残すこと、
  * 終えたら部品が動くこと。
  *
@@ -13,7 +13,8 @@
  * - 案内の文言——部品の宣言で、書き写して突き合わせるだけになる
  * - 共有部品が使い方の文を印に書くこと → それぞれの部品（`components/ui/Button/Button.tsx`等）。ここでは本物の
  *   `Button`で1つだけ通す
- * - 説明の面の置き方（部品の上端の中央・画面の端との間）——Radix Popoverの振る舞いで、テスト環境に実寸が無い
+ * - 説明の面の置き方 → 選び方は`usagePlacement.test.ts`、実際の画面でほかの部品に重ならないことは
+ *   e2e（`e2e/usage-guide.spec.ts`）。テスト環境に実寸もヒットテストも無い
  *
  * 部品の実寸はテスト環境に無いレイアウトの値なので、枠を見るテストだけ`getBoundingClientRect`をテストが決める。
  */
@@ -309,13 +310,23 @@ describe("UsageGuide", () => {
     });
   });
 
-  it("説明の✕を押すと、終える操作が上がる", async () => {
-    const { onEnd } = renderScreen();
+  it("説明の✕を押すと、説明と枠だけを閉じ、続けて別の部品の説明を出せる", async () => {
+    const { onEnd, onGenerate } = renderScreen();
+    const frame = () => document.querySelector<HTMLElement>('[aria-hidden="true"][style]');
     await userEvent.click(screen.getByRole("button", { name: "地図の色分け" }));
+    expect(frame()).not.toBeNull();
 
     await userEvent.click(screen.getByRole("button", { name: "説明を閉じる" }));
 
-    expect(onEnd).toHaveBeenCalledTimes(1);
+    expect(onEnd).not.toHaveBeenCalled();
+    expect(explanation()).toBeNull();
+    expect(frame()).toBeNull();
+    expect(screen.getByRole("button", { name: "やめる" })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "生成" }));
+
+    expect(onGenerate).not.toHaveBeenCalled();
+    expect(explanation()).toHaveTextContent("いまの条件で候補を作ります。");
   });
 
   it("説明を出している間にフォーカスを説明の外へ移すと、終える操作が上がる", async () => {

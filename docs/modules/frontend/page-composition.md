@@ -24,7 +24,7 @@
 | features/route | `routeApi.ts`（ルート生成API。ジョブを投げ、終わるまで問い合わせる）・`formatDuration.ts`（秒を「102分」の形にする。1時間を超えても分で書き、候補の一覧・候補の中身・差し替えの比較で同じ単位で見比べる）・`generationRequest.ts`（生成リクエストのpayloadと`conditionsDirty`の比較キーを同じ入力から導出する純関数）・`routeSplice.ts`（候補どうしが別々の道を通る区間を`edge_ids`の集合演算で求め、表示中の側と相手側を対応づけ、選んだ区間を差し替えた経路を組み立て純関数。差し替えた経路の評価はbackendが行うため計算式は持たない。区間を割る下限は持たず呼び出し側から受け取る［backendの較正値で、管理画面から変えられる］） |
 | features/conditions | `useRideConditions.ts`（走行条件: 走行方位・出発時刻・想定速度。想定速度だけを保存し、保存値は画面の範囲内の整数だけを受け入れる）・`useDepartureTime.ts`（出発時刻。選ぶまでは5分刻みの「今」へ追従し、選んだ時刻は動かさない）・`rideConditions.ts`（走行条件の出発時刻ラベルと想定速度の丸め。速度の上下限はbackendの`routeGenerateConfig`から読む） |
 | types | `types/route.ts`（`RouteCandidate`等の生成APIレスポンス型）・`types/fetchFailure.ts`（常設ヘッダーの「未取得」の印に並ぶ項目の型。下記「失敗・空・待ちの伝え方」） |
-| components（特定モジュールの責務ではない共通部品） | `BottomSheet/BottomSheet.tsx`（モバイル下部シート、下記「モバイル/デスクトップのレイアウト分岐」節参照）・`Disclosure/Disclosure.tsx`（折りたたみ表示、[ルート設定・結果パネル](route-settings-and-results.md)等が使う）・`UsageGuide/UsageGuide.tsx`（説明を見る状態。下記「使い方の説明」）・`UsageGuide/usageTarget.ts`（押された要素から説明する部品・名前・使い方の文を引く）・`FirstVisitIntro/FirstVisitIntro.tsx`（初めて開いたときだけ出す案内。下記「初回の案内」） |
+| components（特定モジュールの責務ではない共通部品） | `BottomSheet/BottomSheet.tsx`（モバイル下部シート、下記「モバイル/デスクトップのレイアウト分岐」節参照）・`Disclosure/Disclosure.tsx`（折りたたみ表示、[ルート設定・結果パネル](route-settings-and-results.md)等が使う）・`UsageGuide/UsageGuide.tsx`（説明を見る状態。下記「使い方の説明」）・`UsageGuide/usageTarget.ts`（押された要素から説明する部品・名前・使い方の文を引く）・`UsageGuide/usagePlacement.ts`（説明の面を、ほかの部品に重ねない位置へ選ぶ）・`FirstVisitIntro/FirstVisitIntro.tsx`（初めて開いたときだけ出す案内。下記「初回の案内」） |
 | features/conditions/RideConditionBar | `RideConditionBar.tsx`（地図右上、走行方位アイコン直下の走行条件アイコン列本体。出発時刻・想定速度ともTravelBearingControlと同じ列の幅のアイコンボタンで、アイコンの下へ現在値（出発時刻は当日なら「12:40」、別の日は「9/24」「12:40」の2行。想定速度は「20km/h」）を出す。表示・`aria-label`・`title`は同じ文字列から作る。タップしたポップオーバー内はドラッグ式タイムライン（「今」の目盛りを選ぶと追従へ戻す）＋`input[type=datetime-local]`の直接指定[出発時刻、日本時間で読み書きする。説明の文は、出発時刻で値の変わる評価の名前を軸カタログから差し込み、無ければ評価に触れない]、スライダー＋数値入力[想定速度。平地・無風の巡航速度であることを添え、(i)の奥に走行モデルの体格・機材の標準値を軸カタログの較正値から書く——引けない間は標準値の文を出さない]）・`departureTimeline.ts`（出発時刻ポップオーバーのドラッグタイムライン用の目盛り生成。気象レイヤーの実フレームには依存しない自己完結した合成タイムライン） |
 | features/conditions/TravelBearingControl | `TravelBearingControl.tsx`（地図右上の走行方位のアイコンボタン。押すと`WindBearingSlider`のダイヤルをPopoverで開く。説明の文は、向きで値の変わる評価の名前を軸カタログ（`dynamic_way_value_conditions`）から差し込み、無ければ評価に触れない。詳しくは[ルート設定・結果パネル](route-settings-and-results.md)） |
 | features/conditions/DynamicLayerTimeSlider | `DynamicLayerTimeSlider.tsx`（ドラッグ/横スクロールで時刻を選ぶ汎用タイムラインUI。`RideConditionBar`が出発時刻ピッカーとして使う唯一の呼び出し元） |
@@ -191,7 +191,8 @@ backendも日本時間で扱う。`domain/time_zone.py`）。暦と時刻の取�
 ## 使い方の説明（`components/UsageGuide/`）
 
 ヘッダーのメニューの「使い方を見る」で**説明を見る状態**に入る。この間は、どの部品を押しても部品は動かず、押した部品の
-近くに名前と使い方の文を出し、部品を枠で示す。「やめる」・説明の✕・Esc・説明を出したあとに部品の外を押すと抜ける。
+近くに名前と使い方の文を出し、部品を枠で示す。「やめる」・Esc・説明を出したあとに部品の外を押すと抜ける。説明の✕は説明と枠だけを
+閉じ、部品を選ぶ続きへ戻る（次の部品を押すつもりで✕に当たっても、状態は終わらない）。
 説明を出している間に別の部品を押すと、その部品の説明に替わる。スマホもPCも同じ操作。
 
 - **止め方は1か所**: 押す操作（ポインタ・マウス・タッチ・Enter/Space・値を動かすキー）を窓の捕捉段階で止めるので、部品・地図の
@@ -209,6 +210,10 @@ backendも日本時間で扱う。`domain/time_zone.py`）。暦と時刻の取�
   みなす。名前は読み上げ名と同じ順（`aria-label`→`aria-labelledby`→ラベル→文字→`title`）で引く。文は部品か、それを囲む部品の
   うち最も近いものが持つ`data-usage`で、選択肢のように同じ使い方の並びは囲む側へ1つ渡せばよい。文が無ければ「説明はまだありません」と
   名前だけを出す——名前が`title`にしか無いアイコンのボタンも、タップで名前が分かる。
+- **説明の面は、ほかの部品に重ねない所へ出す**（`usagePlacement.ts`）: 面が部品に重なると、次の部品を押すつもりで面に当たり、
+  説明が替わらない。面を描いてから大きさを測り、いま押せる部品（押す点＝中心点が最前面にあるもの）と案内の箱を避けて、画面の中の
+  位置のうち重なるものがいちばん少なく、その中で部品に近い所を選ぶ。隣で済めば隣（右の列の部品なら左）、済まなければ離して置き、
+  どの部品の説明かは枠が示す。離した位置をRadixが部品の側へ寄せ戻さないよう、`sticky="always"`で渡す。
 - 案内（「説明を見たい部品を押してください」）は地図の上端の中央に出し、押す操作を素通しする（案内の下の部品も押せる）。
   重なり順は`--z-usage-guide`（開いているほかの浮きパネルより上）。
 
