@@ -7,7 +7,8 @@
  *   全消去は確認の窓で「消す」を押してから両方から消えること、候補がある間だけ条件のずれの印が点き全消去で消えること、走行条件の想定速度・出発時刻が
  *   生成と地図の道の詳細へ同じ値で渡ること、「地図の色分け」の未使用を分ける重み（生成の前はいまの重み・後は使われた重み）、
  *   保存した条件が地図で置いた出発地を持ち、呼び出すとその出発地から生成すること
- * - 地図で扱えること: 地点を置けるのは「ルート設定」の条件タブを見ている間だけで、周回の間は目的地を地図へ出さないこと、
+ * - 地図で扱えること: 地点を置けるのは「ルート設定」の条件タブを見ている間だけで（地図の上端の住所の検索の欄も同じ間だけ出す）、
+ *   周回の間は目的地を地図へ出さないこと、
  *   区間を押して詳細を出せるのは「ルート結果」を見ている間だけのこと、編集の間は地図で地点も区間も扱わず全部の候補を重ね、
  *   作り直すと編集が終わること、作ると直前の作り直しの失敗の文言を消し、合成ルートを選んでいる間は元のルートだけを重ねること、
  *   地図の下のまとめて元に戻す操作
@@ -366,8 +367,10 @@ describe("ルートを作る", () => {
 });
 
 describe("地図で扱えること", () => {
-  it("地点を置けるのは「ルート設定」の条件タブを見ている間だけ（パネルを畳むと区分ごと隠れる）で、周回の間は目的地を地図へ出さない", async () => {
+  it("地点を置けるのは「ルート設定」の条件タブを見ている間だけ（パネルを畳むと区分ごと隠れる）で、住所の検索の欄も同じ間だけ出す。周回の間は目的地を地図へ出さない", async () => {
     const { user } = renderHome();
+    const searchBox = () => screen.queryByRole("searchbox", { name: "住所で探す" });
+    expect(searchBox()).toBeInTheDocument();
     await user.click(screen.getByRole("radio", { name: "目的地" }));
     clickMap(DESTINATION);
     expect(marksAt(DESTINATION)).toEqual([expect.objectContaining({ draggable: true })]);
@@ -375,6 +378,7 @@ describe("地図で扱えること", () => {
 
     await user.click(screen.getByRole("button", { name: "経由地を追加" }));
     await user.click(screen.getByRole("tab", { name: "重み" }));
+    expect(searchBox()).toBeNull();
     clickMap(ELSEWHERE);
     expect(marksAt(ELSEWHERE)).toEqual([]);
     expect(marksAt(DESTINATION)).toEqual([expect.objectContaining({ draggable: false })]);
@@ -382,11 +386,13 @@ describe("地図で扱えること", () => {
     await user.click(screen.getByRole("tab", { name: "条件" }));
     await user.click(screen.getByRole("button", { name: "パネルを閉じる" }));
     expect(screen.queryByRole("button", { name: "ルート設定" })).toBeNull();
+    expect(searchBox()).toBeNull();
     clickMap(ELSEWHERE);
     expect(marksAt(ELSEWHERE)).toEqual([]);
     expect(marksAt(DESTINATION)).toEqual([expect.objectContaining({ draggable: false })]);
 
     await user.click(screen.getByRole("button", { name: "パネルを開く" }));
+    expect(searchBox()).toBeInTheDocument();
     clickMap(ELSEWHERE);
     expect(marksAt(ELSEWHERE)).toEqual([expect.objectContaining({ draggable: true })]);
     await user.click(screen.getByRole("radio", { name: "周回" }));
@@ -540,9 +546,13 @@ describe("画面の枠", () => {
     const originMark = () => mapOnScreen().markers()[0];
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(originMark().draggable).toBe(false);
+    expect(screen.queryByRole("searchbox", { name: "住所で探す" })).toBeNull();
 
     await user.click(settingsTab());
     const settingsSheet = screen.getByRole("dialog", { name: "ルート設定" });
+    // 住所の検索の欄はシートの中ではなく地図の上端に出す（候補の一覧がシートの高さに縛られない）。
+    expect(screen.getByRole("searchbox", { name: "住所で探す" })).toBeInTheDocument();
+    expect(within(settingsSheet).queryByRole("searchbox")).toBeNull();
     await user.click(within(settingsSheet).getByRole("button", { name: "ルート生成" }));
     expect(within(settingsSheet).getByText(/^現在地が分かりません/)).toBeInTheDocument();
     expect(outcomeTab).toHaveAccessibleDescription("生成に失敗しました");
