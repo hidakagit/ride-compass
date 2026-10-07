@@ -5,7 +5,7 @@ import type { CatalogAxis } from "@/lib/catalogAxis";
 import { formatDurationShort } from "@/features/route/formatDuration";
 import type { OverallDifficulty, RoutePreferenceWeights } from "@/types/route";
 import AxisContributionBar, { hasContribution } from "@/components/AxisContributionBar/AxisContributionBar";
-import AxisDetail from "./AxisDetail";
+import AxisDetail from "@/components/AxisContributionBar/AxisDetail";
 import { formatAxisRawValue, formatCategoryBreakdown, formatMaterialBreakdown } from "./axisRawValue";
 import { textVariants } from "@/components/ui/Text/Text";
 import { cn } from "@/lib/cn";

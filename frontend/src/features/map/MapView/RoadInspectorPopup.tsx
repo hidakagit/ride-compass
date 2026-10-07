@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import AxisContributionBar from "@/components/AxisContributionBar/AxisContributionBar";
+import AxisDetail from "@/components/AxisContributionBar/AxisDetail";
 import type { CatalogAxis } from "@/lib/catalogAxis";
 import { isDebugEnabled } from "@/lib/debugLog";
 import { getQueryClient } from "@/lib/queryClient";
@@ -31,7 +32,7 @@ interface RoadInspectorPopupProps {
 
 // 地図の道をクリックしたときの中身。答えるのは「この道は何者で、なぜこの評価なのか」。
 //
-// **ルート結果と同じ部品・同じ配色で評価を出す**（`AxisContributionBar`）——同じ「軸ごとの
+// **ルート結果と同じ部品・同じ配色で評価を出す**（`AxisContributionBar`・`AxisDetail`）——同じ「軸ごとの
 // 効き方」を別の見た目で見せると、利用者は2つの読み方を覚えることになる。
 // 評価は押したときだけ取りに行く（クリックのたびに引くとレート制限に当たる）。
 // 開いたときに見せるのは名前と評価だけで、属性・土地被覆は畳む（地図の上の小さな枠に収めるため）。
@@ -112,13 +113,7 @@ export default function RoadInspectorPopup({
               renderDetail={(axis) => {
                 const found = result.axes.find((a) => a.axis_id === axis.axisId);
                 if (found === undefined || found.difficulty === null) return null;
-                return (
-                  <>
-                    <span className="font-semibold">{axis.label}</span>
-                    <span className="text-[length:var(--font-size-sm)]">{`この評価軸の難易度 ${formatDifficulty(found.difficulty)}/100`}</span>
-                    <span className={textVariants({ variant: "hint" })}>{axis.description}</span>
-                  </>
-                );
+                return <AxisDetail axis={axis} difficulty={found.difficulty} />;
               }}
             />
           ) : (

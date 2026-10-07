@@ -10,7 +10,7 @@ interface AxisDetailProps {
   children?: ReactNode;
 }
 
-/** 内訳のチップを押して開く軸の詳細（名前・評価軸ごとの難易度・説明）。ルート全体の内訳と区間の詳細が同じ形で出す。 */
+/** 内訳のチップを押して開く軸の詳細（名前・評価軸ごとの難易度・説明）。ルート全体の内訳・区間の詳細・道の詳細が同じ形で出す。 */
 export default function AxisDetail({ axis, difficulty, children }: AxisDetailProps) {
   return (
     <>
