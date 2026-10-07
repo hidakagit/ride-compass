@@ -1,8 +1,8 @@
 """`domain/material_catalog.py`——材料の宣言と、宣言から導く一覧・判定。
 
 入口は次のとおり。
-- `MaterialSpec`: dtypeと噛み合わない宣言を断る・表示用の名前・欠損を配列でどう持つか
-- カタログから導く一覧: `material_dtype`・`material_array_columns`（`material_array_group`・`material_value_sql`を通る）・
+- `MaterialSpec`: dtypeと噛み合わない宣言を断る・表示用の名前
+- カタログから導く一覧: `material_dtype`・`material_array_columns`（`material_value_sql`を通る）・
   `material_coverage_specs`・`material_coverage_exclusions`
 - `display_axis_missing_semantics`: 地図の表示の軸の値が欠けたときの意味
 - `tile_runtime_scales`: タイルの生値に掛ける、実行時に決まる係数
@@ -97,28 +97,16 @@ def test_a_value_is_shown_with_its_label_when_the_table_has_one():
     assert material.value_label("new_value") == "new_value"
 
 
-@pytest.mark.parametrize(
-    ("dtype", "coverage", "expected"),
-    [
-        ("boolean", WAY_UNKNOWN, "nan"),  # 不明を非該当と混同しない
-        ("boolean", WAY_DEFINITE, "false"),  # タグの不在は非該当
-        ("numeric", WAY_UNKNOWN, "false"),
-    ],
-)
-def test_a_missing_boolean_is_nan_only_when_missing_means_unknown(dtype, coverage, expected):
-    assert spec("x", dtype, coverage).bool_default == expected
-
-
 def test_materials_are_known_by_their_id(catalog):
     assert material_catalog.material_dtype("cat_a") == "categorical"
     assert material_catalog.material_dtype("nothing") is None
 
 
 def test_the_matrix_columns_are_the_materials_with_sql_sorted_by_id(catalog):
-    numeric, boolean, categorical = material_catalog.material_array_columns()
+    numeric, categorical = material_catalog.material_array_columns()
 
-    assert numeric == ("bool_unknown", "num_a", "num_b", "per_year_a")
-    assert boolean == ("bool_definite",)
+    # 真偽の材料も、タグの不在の意味によらず数値の行列に載る（欠損をNaNで持てる）。
+    assert numeric == ("bool_definite", "bool_unknown", "num_a", "num_b", "per_year_a")
     assert categorical == ("cat_a",)
 
 

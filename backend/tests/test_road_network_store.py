@@ -77,8 +77,6 @@ def _network(revision: int | None, distance_m: float = 100.0) -> RoadNetwork:
         edge_max_lat=np.array([35.001, 35.001]),
         numeric_ids=("num_a",),
         numeric_values=np.array([[1.5], [np.nan]]),
-        boolean_ids=("bool_a",),
-        boolean_values=np.array([[True], [False]]),
         categorical_ids=("cat_a", "cat_b"),
         categorical_codes=np.array([[1, 0], [2, 1]], dtype=np.int16),
         categorical_vocab=((None, "x", "y"), (None, "z")),
@@ -210,7 +208,6 @@ def _batch(distance_m: list[float], surface: list[str | None]) -> EdgeMaterialAr
     nan = np.full(n, np.nan)
     return EdgeMaterialArrays(
         numeric_ids=("num",), numeric_values=np.array(distance_m).reshape(n, 1),
-        boolean_ids=(), boolean_values=np.zeros((n, 0), dtype=bool),
         categorical_ids=("surface",), categorical_columns=(CategoricalColumn.encode(surface),),
         hard_filter_ids=(), hard_filter_flags=np.zeros((n, 0), dtype=bool),
         distance_m=np.array(distance_m), bearing_deg=nan, mid_lat=nan, mid_lon=nan,

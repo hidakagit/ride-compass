@@ -154,11 +154,10 @@
 - `CategoricalShape`: 単一`material`の値を`mapping`（カテゴリ値→スコア）で引く。
   材料の列は材料と入口によって別の形で届く——ルート選びの分類材料は語彙への番号の列
   （`domain/attributes.py: CategoricalColumn`。欠損は番号0）、Pythonの値の入口（区間の内訳・専用way値配信）の
-  分類材料は文字列のobject配列（欠損は`None`）、欠損を持たない真偽配列、欠損を「不明」とする真偽材料の
-  数値配列（1.0/0.0、欠損は`NaN`。`material_catalog.material_array_group`が数値の行列へ載せる）。
+  分類材料は文字列のobject配列（欠損は`None`）、真偽材料は数値配列（1.0/0.0、欠損は`NaN`。
+  `material_catalog.material_array_columns`が数値の行列へ載せる）。
   `evaluate_categorical`は、番号の列なら語彙の値ごとに1回引いた表を番号で配り、それ以外は
   `np.searchsorted`の二分探索で解決する（O(要素数×log(キー数))）。
-  真偽のキーの対応表は、真偽配列と数値配列の両方で引かれる。
   JSONのキーは文字列なので、真偽の材料の対応表は`"true"`/`"false"`で届く。真偽として読むのは
   この2つの綴りだけで、それ以外（`"yes"`・`"on"`・`"1"`等、pydanticなら真偽と読む綴りを含む）は
   書いたとおりの値の名前として扱う。

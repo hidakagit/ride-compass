@@ -15,8 +15,8 @@
 | `em` | `edge_materials`（区間に付く値） |
 | `wm` | `way_materials`（道1本に付く値） |
 
-**値が無ければNULL**（NULLの意味は`docs/modules/backend/static-road-attributes.md`「値が無ければNULL」）。「タグが無い」は
-別で、そちらは非該当（false）になる（`tag_absent_is_false_sql`）。
+**値が無ければNULL**（NULLの意味は`docs/modules/backend/static-road-attributes.md`「値が無ければNULL」）。真偽の材料の
+「タグが無い」は別で、道の行があれば非該当（false）になる（`tag_absent_is_false_sql`）。
 """
 
 from collections.abc import Iterable, Sequence
@@ -103,10 +103,10 @@ _CYCLEWAY_TAGS_ARRAY_SQL = "ARRAY[" + ", ".join(f"lower(btrim(w.tags->>'{tag}'))
 
 
 def tag_absent_is_false_sql(condition: str) -> str:
-    """タグが無ければ非該当（false）。式は`w`の行の有無を見ず、行が無い区間でもfalseになる。
-    行が無い区間はありうる——`road_edges.osm_way_id`の外部キーは`way_materials`へ向き、道の生データへは
-    向かないため、取込で消えた道を、派生を作り直すまでの区間が指し続ける。"""
-    return f"COALESCE({condition}, false)"
+    """タグが無ければ非該当（false）。`w`の行が無ければ不明（NULL）——行が無い区間はありうる。
+    `road_edges.osm_way_id`の外部キーは`way_materials`へ向き、道の生データへは向かないため、取込で消えた道を、
+    派生を作り直すまでの区間が指し続ける。"""
+    return f"CASE WHEN w.osm_way_id IS NOT NULL THEN COALESCE({condition}, false) END"
 
 
 def tag_is_value_sql(tag: str, expected: str) -> str:

@@ -27,7 +27,6 @@ def no_materials(n: int) -> EdgeMaterialArrays:
     nan = np.full(n, np.nan)
     return EdgeMaterialArrays(
         numeric_ids=(), numeric_values=np.empty((n, 0)),
-        boolean_ids=(), boolean_values=np.empty((n, 0), dtype=bool),
         categorical_ids=(), categorical_columns=(),
         hard_filter_ids=(), hard_filter_flags=np.empty((n, 0), dtype=bool),
         distance_m=np.full(n, 100.0), bearing_deg=nan, mid_lat=nan, mid_lon=nan,

@@ -163,7 +163,7 @@ class CoverageExcluded:
     「どちらの一覧にも載っていない材料」は型として作れない。
 
     測らない材料も`missing_semantics`は持つ。**欠損率を測るかと、値が無いときにどう
-    評価するかは別の問い**で、後者は`MaterialSpec.bool_default`が全材料に対して答える
+    扱うかは別の問い**で、後者は地図の表示（`display_axis_missing_semantics`・`axis_display.py`）が全材料について読む
     ——3つの型のうち1つだけがこの宣言を欠くと、そこだけ答えを作り出すことになる。"""
 
     reason: str
@@ -358,18 +358,6 @@ class MaterialSpec(StrictModel):
             raise ValueError(f"{self.material_id}: タイルへ焼く材料は値式（value_sql）を持つ")
         return self
 
-
-    @property
-    def bool_default(self) -> Literal["false", "nan"]:
-        """欠損を配列上どう持つか。**宣言は`coverage`1つにする**——2か所に置くと、片方だけ
-        書き換えたときに画面と評価が食い違い、どちらが正しいかを誰も保証しない。
-
-        bool配列とfloat配列は数値的に等価ではない（`axis_definitions.py:
-        evaluate_axis_array`が`values.dtype == bool`で分岐する）。
-        """
-        if self.dtype != "boolean":
-            return "false"  # bool配列を作らない材料では参照されない
-        return "nan" if self.coverage.missing_semantics == "unknown" else "false"
 
 _WIND_REFERENCE_SPEED_LABEL = f"時速{WIND_DRAG_REFERENCE_SPEED_KMH:g}km"
 
@@ -979,33 +967,19 @@ def material_dtype(material_id: str) -> MaterialDType | None:
     return spec.dtype if spec is not None else None
 
 
-MaterialArrayGroup = Literal["numeric", "boolean", "categorical"]
-
-
-def material_array_group(spec: MaterialSpec) -> MaterialArrayGroup:
-    """その材料の値をどのdtypeの行列へ載せるか。
-
-    真偽の材料でも`bool_default="nan"`のもの（「不明」を「非該当」と混同してはいけない
-    材料）はNaNを持てる必要があるため数値側へ載る。この判定はここだけが持つ——
-    載せる側と読む側がそれぞれ判定すると、食い違ったとき列が静かに別の行列へ行く。
-    """
-    if spec.dtype == "categorical":
-        return "categorical"
-    if spec.dtype == "boolean" and spec.bool_default == "false":
-        return "boolean"
-    return "numeric"
-
-
-def material_array_columns() -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
-    """dtypeの群ごとの材料idと、その並び（数値・真偽・分類）。
+def material_array_columns() -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """行列ごとの材料idと、その並び（数値・分類）。真偽の材料は数値の行列へ1.0/0.0で載り、
+    欠損（道の生データが無い区間等）はNaNで持つ——真偽の行列に載せると欠損を持てず、
+    「不明」が「非該当」に化ける。
 
     行列の列がどう並ぶかの唯一の定義。組み立てる側と読む側が別々に並べると、
     材料を1つ足したときに列の意味が静かにずれる。
     """
-    groups: dict[str, list[str]] = {"numeric": [], "boolean": [], "categorical": []}
-    for material_id in sorted(material_value_sql()):
-        groups[material_array_group(MATERIAL_CATALOG[material_id])].append(material_id)
-    return tuple(groups["numeric"]), tuple(groups["boolean"]), tuple(groups["categorical"])
+    ids = sorted(material_value_sql())
+    return (
+        tuple(m for m in ids if MATERIAL_CATALOG[m].dtype != "categorical"),
+        tuple(m for m in ids if MATERIAL_CATALOG[m].dtype == "categorical"),
+    )
 
 
 def material_value_sql() -> dict[str, str]:

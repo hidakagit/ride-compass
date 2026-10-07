@@ -77,8 +77,6 @@ def network() -> RoadNetwork:
         edge_max_lat=np.maximum(lat[edge_from], lat[edge_to]),
         numeric_ids=("num_a", GRADE),
         numeric_values=np.column_stack([row * 10, [3.0, -3.0, NAN, 1.5, 2.5]]),
-        boolean_ids=("bool_a",),
-        boolean_values=np.array([[True], [False], [True], [False], [True]]),
         categorical_ids=("cat_a",),
         categorical_codes=np.array([[1], [1], [2], [0], [2]], dtype=np.int16),
         categorical_vocab=((None, "x", "y"),),
@@ -144,7 +142,6 @@ def test_the_materials_of_a_slice_follow_its_rows():
 
     columns = materials.columns()
     assert columns["num_a"].tolist() == [20.0, 30.0]
-    assert columns["bool_a"].tolist() == [True, False]
     assert [columns["cat_a"].value_at(i) for i in range(2)] == ["y", None]
     assert materials.hard_filter_columns()["filter_a"].tolist() == [True, False]
 

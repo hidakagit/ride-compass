@@ -337,8 +337,8 @@ class MaterialColumns:
     def add(self, materials: EdgeMaterialArrays) -> None:
         """次の束を、前の束の続きの行へ詰める。"""
         if not self._arrays:
-            self._ids = {"numeric_ids": materials.numeric_ids, "boolean_ids": materials.boolean_ids,
-                         "categorical_ids": materials.categorical_ids, "hard_filter_ids": materials.hard_filter_ids}
+            self._ids = {"numeric_ids": materials.numeric_ids, "categorical_ids": materials.categorical_ids,
+                         "hard_filter_ids": materials.hard_filter_ids}
             self._vocab = [{None: 0} for _ in materials.categorical_ids]
             self._arrays["categorical_codes"] = np.zeros(
                 (self._edge_count, len(materials.categorical_ids)), dtype=np.int16)
@@ -368,7 +368,7 @@ class MaterialColumns:
 #: `EdgeMaterialArrays`から、そのまま行を写す配列の列（分類の材料は束ごとの語彙の番号を全体の語彙の番号へ
 #: 付け替えるので含めない）。
 _MATERIAL_ARRAY_FIELDS = (
-    "numeric_values", "boolean_values", "hard_filter_flags", "distance_m", "bearing_deg", "mid_lat", "mid_lon",
+    "numeric_values", "hard_filter_flags", "distance_m", "bearing_deg", "mid_lat", "mid_lon",
     "elevation_present", "elevation_gain_m", "elevation_loss_m",
 )
 

@@ -682,13 +682,13 @@ class RoadGraphRepository:
         self, way_ids: list[int], segment_indexes: list[int], forwards: list[bool], accident_years_covered: int
     ) -> EdgeMaterialArrays:
         """有向の区間（`(osm_way_id, segment_index, forward)`を位置で揃えた3本の列）の材料を、
-        **DB側で導出し、dtypeごとの行列として**受け取る。
+        **DB側で導出し、数値の行列と分類の列として**受け取る。
 
         区間数に比例するPythonの仕事を持たない。**すべての列が同じ並びを持つ**必要がある
         （1つでも違うと値が列の間で静かにずれ、エラーは出ない）。並びは渡した区間の位置
         （`WITH ORDINALITY`）で固定する。
         """
-        numeric_ids, boolean_ids, categorical_ids = material_array_columns()
+        numeric_ids, categorical_ids = material_array_columns()
         raw: dict[str, list] = {name: [] for name in MATERIAL_ARRAY_COLUMN_ORDER}
         n = len(way_ids)
         for start in range(0, n, ID_CHUNK_SIZE):
@@ -708,13 +708,9 @@ class RoadGraphRepository:
         numeric_values = np.empty((n, len(numeric_ids)), dtype=np.float64)
         for i, material_id in enumerate(numeric_ids):
             numeric_values[:, i] = _float_array(raw[material_id])
-        boolean_values = np.empty((n, len(boolean_ids)), dtype=bool)
-        for i, material_id in enumerate(boolean_ids):
-            boolean_values[:, i] = [bool(v) for v in raw[material_id]]
 
         return EdgeMaterialArrays(
             numeric_ids=numeric_ids, numeric_values=numeric_values,
-            boolean_ids=boolean_ids, boolean_values=boolean_values,
             categorical_ids=categorical_ids,
             categorical_columns=tuple(CategoricalColumn.encode(raw[material_id]) for material_id in categorical_ids),
             hard_filter_ids=hard_filter_ids, hard_filter_flags=hard_filter_flags,
