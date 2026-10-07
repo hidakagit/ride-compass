@@ -132,8 +132,8 @@ export default function SystemStatusPanel({ open, onClose }: SystemStatusPanelPr
               </TableHead>
               <TableBody>
                 {externalEntries.map(([category, s]) => {
-                  // エラーセルのtitleに原因別件数を出す。
-                  // 一覧に列を増やさずとも「429かタイムアウトか」等をホバーで確認できるようにする。
+                  // エラー件数の下に原因別件数を1行に1つずつ小さく添える。一覧に列を増やさずに「429かタイムアウトか」等を
+                  // 読めるようにする（titleはスマホで出ない）。
                   const errorTypeParts = Object.entries(s.error_types).map(([type, count]) => `${type}:${count}`);
                   return (
                     <TableRow
@@ -145,8 +145,13 @@ export default function SystemStatusPanel({ open, onClose }: SystemStatusPanelPr
                         {category}
                       </TableCell>
                       <TableCell>{s.calls}</TableCell>
-                      <TableCell title={errorTypeParts.length > 0 ? errorTypeParts.join(" / ") : undefined}>
+                      <TableCell>
                         {s.errors}
+                        {errorTypeParts.map((part) => (
+                          <span key={part} className={cn(textVariants({ variant: "note" }), "block whitespace-nowrap")}>
+                            {part}
+                          </span>
+                        ))}
                       </TableCell>
                       <TableCell>{formatLastError(s.last_error)}</TableCell>
                       <TableCell>{s.cache_hit_rate != null ? `${Math.round(s.cache_hit_rate * 100)}%` : "—"}</TableCell>

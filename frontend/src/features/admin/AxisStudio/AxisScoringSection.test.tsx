@@ -357,12 +357,10 @@ describe("0点・100点・効き方", () => {
     // 入れると折れ点が変わり、点数を取り直す間は参考点のボタンが消えるので、押すたびに探す。
     const referenceButton = async (name: string) =>
       within(await screen.findByRole("group", { name: "参考点から値を選ぶ" }, LATER)).getByRole("button", { name });
-    expect(await referenceButton("下り")).toHaveAttribute("title", "下り: -5km/h");
-
-    await user.click(await referenceButton("平坦"));
+    await user.click(await referenceButton("平坦（30km/h）"));
     expect(screen.getByRole("spinbutton", { name: "0点にする値" })).toHaveValue(pointOf(30).x);
 
-    fireEvent.doubleClick(await referenceButton("下り"));
+    fireEvent.doubleClick(await referenceButton("下り（-5km/h）"));
     expect(screen.getByRole("spinbutton", { name: "100点にする値" })).toHaveValue(pointOf(-5).x);
   });
 

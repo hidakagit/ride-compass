@@ -253,7 +253,9 @@ describe("保存", () => {
     await user.type(labelField(), "打ちかけ");
     await held.answer(0, Response.json(saved));
 
-    await waitFor(() => expect(screen.getByTitle(`axis_id: ${DRAFT.axis_id}`)).toHaveTextContent("保存した軸"));
+    await waitFor(() =>
+      expect(screen.getByText(new RegExp(`^${DRAFT.axis_id} ・`)).parentElement).toHaveTextContent("保存した軸"),
+    );
     expect(screen.getByRole("dialog", { name: "新しい軸を作る" })).toBeInTheDocument();
     expect(labelField()).toHaveValue("打ちかけ");
   });
