@@ -19,13 +19,12 @@ import asyncpg
 import shapely
 from shapely.geometry import LineString, Point
 
-from app.batch.common import asyncpg_dsn
 from app.batch.ingest import ADAPTERS, RegisteredAdapter, SourceRecord, ingest_source
 from app.batch.source_adapters.raster_wkb import tile_bbox_wkb
 from app.batch.source_adapters.osm_pbf import way_payload
 from app.batch.source_profile import NoFields, SourceProfile, SourceSpec, Target, load_source_profile
 from app.infrastructure.source_models import WAY_KIND_TAG
-from tests.conftest import postgis_database_url
+from tests.conftest import raw_connection
 
 #: テストが渡した行を返すアダプタの名前。取込の間だけ`ADAPTERS`に置く。
 _ADAPTER = "given_records"
@@ -83,11 +82,11 @@ async def ingest_records(source: str, records: Iterable[SourceRecord], *,
         for record in records:
             yield record
 
-    connection = conn if conn is not None else await asyncpg.connect(asyncpg_dsn(postgis_database_url()))
+    if conn is None:
+        async with raw_connection() as connection:
+            return await ingest_records(source, records, conn=connection, bbox=bbox, rows=rows)
     ADAPTERS[_ADAPTER] = RegisteredAdapter(read=read, rows=NoFields, grid=NoFields)
     try:
-        return await ingest_source(connection, _profile(source, bbox, rows), source)
+        return await ingest_source(conn, _profile(source, bbox, rows), source)
     finally:
         del ADAPTERS[_ADAPTER]
-        if conn is None:
-            await connection.close()

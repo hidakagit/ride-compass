@@ -9,8 +9,6 @@
  * - 節の中の入力欄 → `AxisScoringSection.test.tsx`・`AxisMapDisplaySection.test.tsx`
  * - どのモードで開くか・保存の結果をどう扱うか → `AxisStudio.test.tsx`
  */
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -18,6 +16,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MATERIAL_CATALOG, type AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
 import { onSameOrigin } from "@/testing/backendServer";
+import { openApi } from "@/testing/openApi";
 import type { AxisDefinitionPayload, AxisDefinitionResponse } from "@/types/route";
 
 import AxisComposer from "./AxisComposer";
@@ -105,10 +104,7 @@ beforeEach(() => {
 });
 
 describe("保存するpayload", () => {
-  const payloadKeys: string[] = Object.keys(
-    JSON.parse(readFileSync(join(__dirname, "../../../types/generated/openapi.json"), "utf-8")).components.schemas
-      .AxisDefinitionPayload.properties,
-  );
+  const payloadKeys: string[] = Object.keys(openApi.components.schemas.AxisDefinitionPayload.properties ?? {});
 
   it("既存の軸を開いて何も変えずに保存すると、backendの契約の全項目が元の軸と同じ値で届く", async () => {
     const editing = axis({

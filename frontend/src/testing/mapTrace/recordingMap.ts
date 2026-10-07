@@ -13,6 +13,7 @@ interface FakeLayer {
   id: string;
   type: string;
   source?: string;
+  sourceLayer?: string;
   visibility: string;
   filter?: unknown;
   paint: Record<string, unknown>;
@@ -33,6 +34,16 @@ interface RecordingMap {
   sourceContent(sourceId: string): { data?: unknown; tiles?: readonly string[] } | undefined;
   /** スタイルを差し替えたときの状態（このアプリが足したものが消える）。 */
   dropEverything(): void;
+  /** スタイルを読み込み直した状態にする。`layers` はスタイルが最初から持つレイヤー（背面から前面の順）で、undefined なら
+   * 読み込み中（MapLibre と同じく `getStyle` が undefined を返す）。 */
+  loadStyle(layers: readonly StyleLayer[] | undefined): void;
+}
+
+/** スタイルが持つレイヤー（`getStyle` が返す形）。 */
+export interface StyleLayer {
+  readonly id: string;
+  readonly type: string;
+  readonly "source-layer"?: string;
 }
 
 /**
@@ -54,6 +65,7 @@ export function createRecordingMap(options: { styleReady?: boolean; basemapLayer
   let sourceHandles = new Map<string, { setData: (data: unknown) => void; setTiles: (tiles: string[]) => void }>();
   const content = new Map<string, { data?: unknown; tiles?: readonly string[] }>();
   let featureStates = new Map<string, Record<string, unknown>>();
+  let styleLoading = false;
 
   const record = (call: string, ...args: unknown[]) => {
     trace.push({ call, args });
@@ -77,7 +89,16 @@ export function createRecordingMap(options: { styleReady?: boolean; basemapLayer
     // スタイルの準備を待つ仕組み（`mapStyleOps.ts: runWhenStyleReady`）が読む印。
     __rcStyleReady: options.styleReady ?? true,
 
-    getStyle: () => ({ layers: layers.map((layer) => ({ id: layer.id, type: layer.type })) }),
+    getStyle: () =>
+      styleLoading
+        ? undefined
+        : {
+            layers: layers.map(({ id, type, sourceLayer }) => ({
+              id,
+              type,
+              ...(sourceLayer === undefined ? {} : { "source-layer": sourceLayer }),
+            })),
+          },
     getLayer: (id: string) => layers[indexOf(id)],
     getSource: (id: string) => sourceHandles.get(id),
     // 記号の絵はブラウザのcanvasが要るため、「登録済み」を返して作らせない
@@ -210,6 +231,17 @@ export function createRecordingMap(options: { styleReady?: boolean; basemapLayer
       content.clear();
       featureStates = new Map();
       trace.push({ call: "__styleReplaced", args: [] });
+    },
+    loadStyle: (next) => {
+      styleLoading = next === undefined;
+      layers = (next ?? []).map((layer) => ({
+        id: layer.id,
+        type: layer.type,
+        sourceLayer: layer["source-layer"],
+        visibility: "visible",
+        paint: {},
+        layout: {},
+      }));
     },
   };
 

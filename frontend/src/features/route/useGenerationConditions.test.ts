@@ -21,7 +21,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_HARD_FILTERS } from "@/features/route/RouteSettingsPanel/HardFilterPanel";
 import { heldReplies, onBackend, serveAxisCatalog } from "@/testing/backendServer";
-import { catalogEntry, catalogResponse } from "@/testing/catalogAxes";
+import { catalogEntry, catalogResponse, TWO_AXIS_CATALOG } from "@/testing/catalogAxes";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import type { Coordinates } from "@/types/route";
 
@@ -30,11 +30,6 @@ import { useGenerationConditions } from "./useGenerationConditions";
 const A: Coordinates = { latitude: 35.1, longitude: 139.1 };
 const B: Coordinates = { latitude: 35.2, longitude: 139.2 };
 const C: Coordinates = { latitude: 35.3, longitude: 139.3 };
-
-const CATALOG = catalogResponse([
-  catalogEntry({ axis_id: "axis_a", default_weight: 0.4 }),
-  catalogEntry({ axis_id: "axis_b", default_weight: 0.6 }),
-]);
 
 function renderConditions() {
   const onOriginPlace = vi.fn();
@@ -229,7 +224,7 @@ describe("距離と候補数", () => {
 describe("重み", () => {
   it("揃えても保存した重みは書き換えず、公開を取り下げた軸が戻ればその重みも戻る", async () => {
     window.localStorage.setItem("ridecompass:route-preference", JSON.stringify({ axis_a: 0.7, axis_c: 0.2 }));
-    serveAxisCatalog(CATALOG);
+    serveAxisCatalog(TWO_AXIS_CATALOG);
     const first = renderConditions();
     await waitFor(() => expect(first.result.current.routePreference).toEqual({ axis_a: 0.7, axis_b: 0.6 }));
 
@@ -245,7 +240,7 @@ describe("重み", () => {
   });
 
   it("上書きは既定で無効で、動かした重みと上書きの有効は開き直しても残る", async () => {
-    serveAxisCatalog(CATALOG);
+    serveAxisCatalog(TWO_AXIS_CATALOG);
     const first = renderConditions();
     expect(first.result.current.weightOverrideEnabled).toBe(false);
     act(() => first.result.current.setRoutePreference({ axis_a: 0.7, axis_b: 0.3 }));

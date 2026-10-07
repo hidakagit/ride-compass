@@ -11,15 +11,12 @@
 
 from typing import NamedTuple
 
-import asyncpg
 import pytest
 import pytest_asyncio
 
 from app.batch import derive_counts, derive_topology, derive_way_materials
-from app.batch.common import asyncpg_dsn
 from app.domain.divided_carriageway import GEOMETRIC_GAP_M, NAMED_GAP_M
 from app.domain.geo import KM_PER_DEGREE_LATITUDE
-from tests.conftest import postgis_database_url
 from tests.source_ingest import ingest_records, way_record
 
 # road_graph_session（conftest.py）と同じDBを使うため、docs/conventions/testing.mdのパターン2どおり
@@ -70,9 +67,6 @@ SCENES: dict[str, Scene] = {
         {**ONEWAY, "name": "A"}, {**ONEWAY, "name": "B"}, GEOMETRIC_GAP_M - 5, True, False),
 }
 
-TABLES = ("edge_materials", "way_materials", "road_edges", "node_materials",
-          "source_features", "source_runs")
-
 
 def _ways() -> dict[str, list[tuple[int, dict[str, str], list[tuple[float, float]]]]]:
     """場面ごとの (wayのid, タグ, 頂点の(経度, 緯度)列)。"""
@@ -93,21 +87,16 @@ WAYS = _ways()
 
 
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
-async def divided_conn(road_graph_engine):
-    """`road_graph_engine`に依存するのはスキーマを作らせるため（`test_derive_topology.py`と同じ）。"""
-    conn = await asyncpg.connect(asyncpg_dsn(postgis_database_url()))
-    try:
-        await conn.execute("TRUNCATE " + ", ".join(TABLES) + " CASCADE")
-        await ingest_records("osm_way", [
-            way_record(way_id, points, [way_id * 10 + k for k in range(len(points))], tags)
-            for ways in WAYS.values() for way_id, tags, points in ways], conn=conn)
-        await derive_topology.derive(conn)
-        await derive_counts.derive(conn)
-        await derive_way_materials.derive(conn)
-        yield conn
-    finally:
-        await conn.execute("TRUNCATE " + ", ".join(TABLES) + " CASCADE")
-        await conn.close()
+async def divided_conn(derive_conn):
+    """場面ごとの道を取り込み、区間・数え上げ・道ごとの材料まで作った状態。"""
+    conn = derive_conn
+    await ingest_records("osm_way", [
+        way_record(way_id, points, [way_id * 10 + k for k in range(len(points))], tags)
+        for ways in WAYS.values() for way_id, tags, points in ways], conn=conn)
+    await derive_topology.derive(conn)
+    await derive_counts.derive(conn)
+    await derive_way_materials.derive(conn)
+    return conn
 
 
 @pytest.mark.parametrize("scene", SCENES)

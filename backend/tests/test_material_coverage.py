@@ -11,11 +11,9 @@
 
 from datetime import datetime, timezone
 
-import asyncpg
 import pytest
 
 from app.batch import derive_topology
-from app.batch.common import asyncpg_dsn
 from app.domain.material_catalog import MATERIAL_CATALOG
 from app.infrastructure.material_coverage import (
     MATERIAL_COVERAGE_EXCLUSIONS,
@@ -29,7 +27,7 @@ from app.services.material_coverage_service import (
     MaterialCoverageService,
     build_material_coverage_report,
 )
-from tests.conftest import postgis_database_url
+from tests.conftest import raw_connection
 from tests.source_ingest import ingest_records, way_record
 
 COMPUTED_AT = datetime(2026, 9, 4, tzinfo=timezone.utc)
@@ -98,12 +96,9 @@ async def test_the_report_counts_missing_values_per_population_on_the_database(r
         way_record(way_id, [(139.70, 35.68 + 0.001 * way_id), (139.701, 35.68 + 0.001 * way_id)],
                    [way_id * 10, way_id * 10 + 1], tags)
         for way_id, tags in {1: {"surface": "asphalt"}, 2: {}, 3: {}}.items()])
-    conn = await asyncpg.connect(asyncpg_dsn(postgis_database_url()))
-    try:
+    async with raw_connection() as conn:
         await derive_topology.derive(conn)
         await conn.execute("UPDATE edge_materials SET average_grade = 1.0 WHERE osm_way_id = 1")
-    finally:
-        await conn.close()
 
     report = await MaterialCoverageService(MaterialCoverageQuery(road_graph_session)).get_material_coverage()
     by_id = {e.material_id: e for e in report.materials}

@@ -156,7 +156,7 @@ python scripts/review_checks.py docs
    - 業務判断（分類・閾値・重み）がinfrastructureのSQL文字列に入っている／外部の形
      （SQL文字列・HTTP・ファイルパス）がdomainへ漏れている
    - 本番から到達しない口（テストからしか呼ばれない関数・引数、置き換えられた旧実装。テストが読むことを公開の理由に
-     してよいもの——`docs/conventions/testing.md`「確かめる高さ」の (a)(b)——は除く）
+     してよいもの——`docs/conventions/testing.md`「確かめる高さ」の (a)〜(c)——は除く）
    - backendが決めるべき値をfrontendが計算し直している。
      **frontendの層では、読む前に母集団を道具で取る**——読んで探すと回ごとに別の綴りで拾い、別の形が残る。
      `node frontend/scripts/structure-population.mjs --axis-catalog <ファイル>`（軸カタログは本番のbackendの

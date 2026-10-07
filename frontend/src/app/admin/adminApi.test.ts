@@ -15,7 +15,7 @@
  * - 骨格（失敗時の文言・204・ログ） → `lib/apiClient.ts`
  * - 判断の無い詰め替え（応答の項目名・問い合わせの絞り込み） → 使う側（`useMapBandsOfThresholds.test.ts`・`BackendLogsPanel.test.tsx`）が網の層で見る
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -23,6 +23,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as adminApi from "@/features/admin/adminApi";
 import * as adminRoute from "@/app/admin/api/[...path]/route";
 import { ADMIN_PROXY_TIMEOUT_MS } from "@/lib/apiTimeouts";
+import { openApi } from "@/testing/openApi";
 
 vi.mock("@/lib/adminBasicAuth", () => ({
   adminBasicAuthCredentials: () => ({ username: "admin", password: "secret" }),
@@ -33,13 +34,9 @@ const SRC = join(__dirname, "../..");
 interface Operation {
   requestBody?: { content: Record<string, { schema: { $ref?: string } }> };
 }
-const openApi: {
-  paths: Record<string, Record<string, Operation>>;
-  components: { schemas: Record<string, { properties?: Record<string, unknown> }> };
-} = JSON.parse(readFileSync(join(SRC, "types/generated/openapi.json"), "utf-8"));
 
 function backendOperation(pathname: string, method: string): Operation | undefined {
-  for (const [template, operations] of Object.entries(openApi.paths)) {
+  for (const [template, operations] of Object.entries(openApi.paths as Record<string, Record<string, Operation>>)) {
     if (new RegExp(`^${template.replace(/\{[^}]+\}/g, "[^/]+")}$`).test(pathname)) {
       const operation = operations[method.toLowerCase()];
       if (operation) return operation;

@@ -5,6 +5,7 @@ import { HttpResponse } from "msw";
 
 import { getQueryClient } from "@/lib/queryClient";
 import { heldReplies, inTurn, onBackend } from "@/testing/backendServer";
+import { settle } from "@/testing/settle";
 
 import { useWeatherConditions } from "./useWeatherConditions";
 
@@ -44,9 +45,6 @@ afterEach(() => {
 // CI の負荷で変わる。時間の早送りは取り直しの間隔だけ）。答え終える前に間隔を早送りすると、取り直しが取得中の
 // ものに重なって要求を出さない。
 const fetched = () => vi.waitFor(() => expect(getQueryClient().isFetching()).toBe(0));
-
-/** 取りに行っていれば応答が届くだけの間をおく（取りに行かないことを確かめるため）。 */
-const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 50)));
 
 function render(location = TOKYO, ready = true) {
   return renderHook(({ location, ready }) => useWeatherConditions(location, ready), {

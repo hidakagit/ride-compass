@@ -15,7 +15,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_HARD_FILTERS } from "@/features/route/RouteSettingsPanel/HardFilterPanel";
 import { serveAxisCatalog } from "@/testing/backendServer";
-import { catalogEntry, catalogResponse } from "@/testing/catalogAxes";
+import { TWO_AXIS_CATALOG } from "@/testing/catalogAxes";
 import type { Coordinates } from "@/types/route";
 
 import { useGenerationConditions } from "./useGenerationConditions";
@@ -24,11 +24,6 @@ import { useSavedConditions } from "./useSavedConditions";
 const A: Coordinates = { latitude: 35.1, longitude: 139.1 };
 const B: Coordinates = { latitude: 35.2, longitude: 139.2 };
 const ORIGIN: Coordinates = { latitude: 35.3, longitude: 139.3 };
-
-const CATALOG = catalogResponse([
-  catalogEntry({ axis_id: "axis_a", default_weight: 0.4 }),
-  catalogEntry({ axis_id: "axis_b", default_weight: 0.6 }),
-]);
 
 interface OriginProps {
   origin: Coordinates | null;
@@ -53,7 +48,7 @@ function renderSaved(initialOrigin: OriginProps = { origin: ORIGIN, originManual
 
 beforeEach(() => {
   window.localStorage.clear();
-  serveAxisCatalog(CATALOG);
+  serveAxisCatalog(TWO_AXIS_CATALOG);
 });
 
 describe("保存して呼び出す", () => {

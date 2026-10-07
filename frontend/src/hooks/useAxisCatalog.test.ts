@@ -18,6 +18,7 @@ import { describe, expect, it } from "vitest";
 import { getQueryClient } from "@/lib/queryClient";
 import { heldReplies, onBackend, serveAxisCatalog } from "@/testing/backendServer";
 import { catalogEntry, catalogResponse } from "@/testing/catalogAxes";
+import { settle } from "@/testing/settle";
 import type { AxisCatalogResponse } from "@/types/route";
 
 import { axisCatalogFetchFailure, retryAxisCatalogFetch, useAxisCatalog, useAxisCatalogSelect } from "./useAxisCatalog";
@@ -36,9 +37,6 @@ function deferredFetches() {
     reject: (index: number) => answer(index, new Response(null, { status: 503 })),
   };
 }
-
-/** 取り直しが起きていれば応答が届くだけの間をおく（起きないことを確かめるため）。 */
-const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 50)));
 
 function axisIds(catalog: ReturnType<typeof useAxisCatalog>) {
   return catalog.axes.map((axis) => axis.axisId);

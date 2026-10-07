@@ -10,15 +10,12 @@
 - 取込範囲の外・結果の形 → `test_road_graph_repository_contracts.py`
 """
 
-import asyncpg
 import pytest
 from sqlalchemy import text
 
 from app.batch import derive_topology
-from app.batch.common import asyncpg_dsn
-from app.domain.region import BoundingBox
-from app.domain.region import EDGE_UNIT_MIN_ZOOM
-from tests.conftest import postgis_database_url
+from app.domain.region import EDGE_UNIT_MIN_ZOOM, BoundingBox
+from tests.conftest import raw_connection
 from tests.source_ingest import ingest_records, way_record
 
 pytestmark = [
@@ -43,11 +40,8 @@ async def _ingest_switchback(session) -> dict[int, float]:
         way_record(SWITCHBACK_WAY_ID, SWITCHBACK, [1, 2, 3]),
         way_record(2, [SWITCHBACK[1], (139.706, 35.6795)], [2, 9]),
     ], bbox=(AREA.min_latitude, AREA.min_longitude, AREA.max_latitude, AREA.max_longitude))
-    conn = await asyncpg.connect(asyncpg_dsn(postgis_database_url()))
-    try:
+    async with raw_connection() as conn:
         await derive_topology.derive(conn)
-    finally:
-        await conn.close()
     for segment_index, grade in SEGMENT_GRADES.items():
         await session.execute(
             text("UPDATE edge_materials SET average_grade = :grade WHERE osm_way_id = :way AND segment_index = :seg"),

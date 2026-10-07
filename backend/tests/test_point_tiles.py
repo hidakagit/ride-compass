@@ -15,17 +15,15 @@
 
 from collections import Counter
 
-import asyncpg
 import mapbox_vector_tile
 import pytest
 
 from app.batch import derive_node_materials
-from app.batch.common import asyncpg_dsn
 from app.domain.region import BoundingBox, tile_bounds_lonlat, tiles_covering_bbox
 from app.domain.tuning import TUNING_PARAMETERS_BY_ID
 from app.infrastructure.point_tile_layers import POINT_TILE_LAYERS
 from app.infrastructure.road_graph_repository import RoadGraphRepository
-from tests.conftest import postgis_database_url
+from tests.conftest import raw_connection
 from tests.source_ingest import ingest_records, point_record
 
 pytestmark = [
@@ -61,11 +59,8 @@ async def _ingest_pois(nodes: list[tuple[float, float, dict[str, str]]], road_ar
     """道の取込（範囲の宣言）とノードを取り込み、種別を付ける派生の段を流す。"""
     await ingest_records("osm_way", [], bbox=road_area)
     await ingest_records("osm_node", [point_record(i, lon, lat, tags) for i, (lon, lat, tags) in enumerate(nodes, 1)])
-    conn = await asyncpg.connect(asyncpg_dsn(postgis_database_url()))
-    try:
+    async with raw_connection() as conn:
         await derive_node_materials.derive(conn, TUNING_PARAMETERS_BY_ID["signal.match_radius_m"].default)
-    finally:
-        await conn.close()
 
 
 async def _tile(repository: RoadGraphRepository, name: str, x: int = X) -> bytes | None:

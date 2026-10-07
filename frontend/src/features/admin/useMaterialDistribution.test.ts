@@ -9,6 +9,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { heldReplies, inTurn, onSameOrigin } from "@/testing/backendServer";
+import { settle } from "@/testing/settle";
 
 import type { MaterialDistribution } from "./adminApi";
 import { useMaterialDistribution } from "./useMaterialDistribution";
@@ -18,9 +19,6 @@ const DISTRIBUTION = "/admin/api/material-catalog/:materialId/distribution";
 function distribution(p50: number): MaterialDistribution {
   return { available: true, quantiles: { p50 }, zero_share: 0 };
 }
-
-/** 取り直しが起きていれば応答が届くだけの間をおく（起きないことを確かめるため）。 */
-const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 50)));
 
 describe("useMaterialDistribution", () => {
   it("材料が無ければ取りに行かない", async () => {

@@ -1,8 +1,12 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 import type { components } from "@/types/generated/api";
 import type { RouteCandidate, RouteGenerateJobStatusResponse } from "@/types/route";
-import { catalogEntry, tileInput } from "@/testing/catalogAxes";
-import { makeRouteCandidate as makeCandidate } from "@/testing/routeFixtures";
+import { catalogEntry, catalogResponse, tileInput } from "@/testing/catalogAxes";
+import {
+  makeGenerationConditions,
+  makeRouteCandidate as makeCandidate,
+  makeRouteSegment,
+} from "@/testing/routeFixtures";
 import type {
   AmedasObservation,
   FloodForecasts,
@@ -23,21 +27,16 @@ const API_BASE = "http://localhost:8000";
 
 // backend/app/domain/route.py RouteCandidate相当の最小フィクスチャ（1候補）。
 function makeSegment(index: number, coordinates: [number, number][]) {
-  return {
-    geometry: { type: "LineString" as const, coordinates },
+  return makeRouteSegment({
+    geometry: { type: "LineString", coordinates },
     start_latitude: coordinates[0][1],
     start_longitude: coordinates[0][0],
     end_latitude: coordinates[coordinates.length - 1][1],
     end_longitude: coordinates[coordinates.length - 1][0],
     cumulative_distance_km: index * 10,
     distance_km: 10,
-    estimated_arrival_time: null,
-    axis_difficulties: {},
-    material_values: {},
-    axis_contributions: {},
     difficulty: 20 + index * 30,
-    wind: null,
-  };
+  });
 }
 
 // geometryは往復可能な閉じたループの体裁のみ整える（実座標としての精度は問わない）。
@@ -91,23 +90,18 @@ export function routeGenerateResponseFixture(): DoneJob["result"] {
   return {
     routes: [makeRouteCandidate("route-1", "北", 20.3, 66 * 60), makeRouteCandidate("route-2", "南", 19.8, 60 * 60)],
     no_candidates_reason: null,
-    conditions: {
+    conditions: makeGenerationConditions({
       latitude: 35.7597,
       longitude: 139.7387,
       distance_km: 20,
       distance_tolerance_km: 5,
-      route_preference: {},
       penalty_strength: 1.0,
-      max_average_grade_percent: null,
       hard_filters: { no_bicycle: true, motorway: true, trunk: true },
       max_routes: 8,
       assumed_speed_kmh: 20,
       start_time: "2026-09-05T09:30:00+09:00",
-      waypoints: null,
-      destination: null,
-      corrected_destination: null,
       generated_at: new Date().toISOString(),
-    },
+    }),
   };
 }
 
@@ -156,7 +150,7 @@ export function axisCatalogFixture(
   axes: ReturnType<typeof catalogEntry>[],
 ): components["schemas"]["AxisCatalogResponse"] {
   const tile_versions = Object.fromEntries(regionTileConfig.tile_version_kinds.map((kind) => [kind, "e2e"]));
-  return { axes, tile_versions, tile_runtime_scales: {}, client_tuning: {}, accident_years: [] };
+  return catalogResponse(axes, { tile_versions });
 }
 
 /** 既定の軸カタログ。アプリが軸一覧を引ける最小の1軸だけを持つ。 */

@@ -10,9 +10,7 @@ import pytest
 import pytest_asyncio
 
 from app.batch import derive_counts, derive_node_materials, derive_topology
-from app.batch.common import asyncpg_dsn
 from app.domain.tuning import TUNING_PARAMETERS_BY_ID
-from tests.conftest import postgis_database_url
 from tests.source_ingest import ingest_records, point_record, way_record
 
 # road_graph_session（conftest.py）と同じDBを使うため、docs/conventions/testing.mdのパターン2どおり
@@ -61,9 +59,6 @@ ROUTES: dict[str, tuple[int, ...]] = {
     "複線の踏切を渡る": (8,),
 }
 
-TABLES = ("edge_materials", "way_materials", "road_edges", "node_materials",
-          "source_features", "source_runs")
-
 
 def _point(node_id: int) -> tuple[float, float]:
     dlon, dlat, _ = NODES[node_id]
@@ -71,24 +66,19 @@ def _point(node_id: int) -> tuple[float, float]:
 
 
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
-async def stop_conn(road_graph_engine):
-    """`road_graph_engine`に依存するのはスキーマを作らせるため（`test_derive_topology.py`と同じ）。"""
-    conn = await asyncpg.connect(asyncpg_dsn(postgis_database_url()))
-    try:
-        await conn.execute("TRUNCATE " + ", ".join(TABLES) + " CASCADE")
-        await ingest_records("osm_way", [
-            way_record(way_id, [_point(n) for n in node_ids], node_ids)
-            for way_id, node_ids in WAYS.items()], conn=conn)
-        await ingest_records("osm_node", [
-            point_record(node_id, *_point(node_id), tags)
-            for node_id, (_, _, tags) in NODES.items()], conn=conn)
-        await derive_topology.derive(conn)
-        await derive_node_materials.derive(conn, TUNING_PARAMETERS_BY_ID["signal.match_radius_m"].default)
-        await derive_counts.derive(conn)
-        yield conn
-    finally:
-        await conn.execute("TRUNCATE " + ", ".join(TABLES) + " CASCADE")
-        await conn.close()
+async def stop_conn(derive_conn):
+    """道とノードを取り込み、区間・ノードの材料・数え上げまで作った状態。"""
+    conn = derive_conn
+    await ingest_records("osm_way", [
+        way_record(way_id, [_point(n) for n in node_ids], node_ids)
+        for way_id, node_ids in WAYS.items()], conn=conn)
+    await ingest_records("osm_node", [
+        point_record(node_id, *_point(node_id), tags)
+        for node_id, (_, _, tags) in NODES.items()], conn=conn)
+    await derive_topology.derive(conn)
+    await derive_node_materials.derive(conn, TUNING_PARAMETERS_BY_ID["signal.match_radius_m"].default)
+    await derive_counts.derive(conn)
+    return conn
 
 
 async def _along(conn: asyncpg.Connection, column: str) -> dict[str, float]:

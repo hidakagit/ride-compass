@@ -8,11 +8,12 @@
 
 import argparse
 import importlib.util
-import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+
+from tests.git_repo import git
 
 _SPEC = importlib.util.spec_from_file_location(
     "review_checks", Path(__file__).resolve().parents[2] / "scripts" / "review_checks.py"
@@ -22,33 +23,22 @@ sys.modules["review_checks"] = rc
 _SPEC.loader.exec_module(rc)
 
 
-def _git(repo: Path, *args: str) -> str:
-    return subprocess.run(
-        ["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", *args],
-        cwd=repo,
-        check=True,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-    ).stdout.strip()
-
-
 def _commit(repo: Path, files: dict[str, str | None]) -> str:
     for name, text in files.items():
         path = repo / name
         if text is None:
-            _git(repo, "rm", "-q", name)
+            git(repo, "rm", "-q", name)
             continue
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
-        _git(repo, "add", name)
-    _git(repo, "commit", "-q", "-m", "c")
-    return _git(repo, "rev-parse", "HEAD")
+        git(repo, "add", name)
+    git(repo, "commit", "-q", "-m", "c")
+    return git(repo, "rev-parse", "HEAD")
 
 
 @pytest.fixture
 def repo(tmp_path, monkeypatch):
-    _git(tmp_path, "init", "-q", "-b", "master")
+    git(tmp_path, "init", "-q", "-b", "master")
     monkeypatch.setattr(rc, "REPO_ROOT", tmp_path)
     return tmp_path
 
@@ -86,7 +76,7 @@ def test_change_splits_lines_by_kind_and_labels_the_size(repo, monkeypatch, caps
 @pytest.mark.parametrize(("lines", "label"), [(200, "S"), (201, "M"), (1000, "M"), (1001, "L")])
 def test_change_counts_the_working_tree_with_untracked_files(repo, monkeypatch, capsys, lines, label):
     base = _commit(repo, {"README.md": "x\n"})
-    _git(repo, "checkout", "-q", "-b", "work")
+    git(repo, "checkout", "-q", "-b", "work")
     (repo / "app.py").write_text("a\n" * lines, encoding="utf-8")
 
     out = _run(monkeypatch, capsys, "change", "--base", base)
@@ -97,9 +87,9 @@ def test_change_counts_the_working_tree_with_untracked_files(repo, monkeypatch, 
 
 def test_metrics_counts_everything_outside_the_product_places_as_tooling(repo, capsys):
     _commit(repo, {"backend/app/a.py": "a\n", "frontend/src/b.ts": "b\n"})
-    _git(repo, "tag", "-a", "periodic-review/001", "-m", "r")
+    git(repo, "tag", "-a", "periodic-review/001", "-m", "r")
     (repo / "stop-dev.bat").write_bytes("rem 止める\r\n".encode("cp932") * 2)
-    _git(repo, "add", "stop-dev.bat")
+    git(repo, "add", "stop-dev.bat")
     _commit(
         repo,
         {
