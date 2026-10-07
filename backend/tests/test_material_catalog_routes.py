@@ -5,7 +5,7 @@
 
 ここで見ないもの:
 - 値の表示名の形（「論理名 - 物理名」・対訳の無い値） → `test_material_catalog.py`
-- 分布の計算 → `test_axis_preview_service.py`
+- 分布の計算 → `test_value_distribution.py`
 - 欠損割合の組み立て（並び・割合・集計の対象外） → `test_material_coverage.py`
 - 認可 → `test_admin_route_authorization.py`
 - DBの失敗の503 → `test_admin_db_unavailable.py`

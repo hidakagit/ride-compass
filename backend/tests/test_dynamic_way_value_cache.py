@@ -12,9 +12,8 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
+from app.domain.dynamic_way_values import BEARING_BUCKET_DEG, bearing_bucket
 from app.infrastructure.dynamic_way_value_cache import (
-    BEARING_BUCKET_DEG,
-    bearing_bucket,
     get_tile_values,
     set_tile_values,
 )

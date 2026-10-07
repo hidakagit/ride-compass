@@ -10,7 +10,7 @@
 - 軸の得点の重み付き平均と、データの無い区間の扱い → `test_difficulty.py`・`test_axis_definitions.py`
 - 風を進行方向の成分へ分けることと、予報の格子点の引き当て → `test_wind.py`・`test_wind_grid.py`
 - ある時刻が夜か（市民薄明の外か） → `test_twilight.py`
-- 合成した配列で探索し、経路の区間を組み立てること → `test_road_graph_engine.py`
+- 合成した配列で探索し、経路の区間を組み立てること → `test_route_generation_behavior.py`
 """
 
 import logging

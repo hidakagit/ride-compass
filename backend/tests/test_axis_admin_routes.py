@@ -6,7 +6,7 @@
 - 書き込みの本体（DBへの反映と`AXIS_DEFINITIONS`の差し替え） → `test_axis_registry_service.py`
 - 地図表示の導出・段が落ちるかの判定 → `test_axis_display.py`
 - 下書きの点数の計算と段の境界の並びの検証の入力違い → `test_axis_definitions.py`
-- 分布の計算 → `test_axis_preview_service.py`
+- 分布の計算 → `test_value_distribution.py`
 - 認可（どの口もBasic認証の依存を持つこと・その依存が拒むこと） → `test_admin_route_authorization.py`
 - DBの失敗の503 → `test_admin_db_unavailable.py`
 

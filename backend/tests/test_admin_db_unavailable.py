@@ -6,7 +6,7 @@ DBに繋がらない状態は、本物のアプリのセッション工場を接
 ここで見ないもの:
 - どの例外をDB障害に数えるか → `test_database.py`
 - 認可 → `test_admin_route_authorization.py`
-- DBの失敗を空へ倒す口（材料の値の一覧の`available=false`）の倒し方 → `test_axis_preview_service.py`
+- DBの失敗を空へ倒す口（材料の値の一覧の`available=false`）の倒し方 → `test_material_catalog_routes.py`
 """
 
 import pytest
