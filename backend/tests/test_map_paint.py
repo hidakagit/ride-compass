@@ -1,6 +1,7 @@
 """`domain/map_paint.py`——地図が軸について塗るもの（`map_paint`）。
 
-入口は`map_paint`1本で、塗る値の種類・材料・単位・ルート線の段の境界・凡例の目盛りを1つの値で返す。
+入口は`map_paint`1本で、塗る値の種類・材料・単位・ルート線の段の境界・凡例の目盛り・タイルの塗り・段の体感ラベルを
+1つの値で返す。段の並びの件数が揃うことは、`MapPaint`が値を作るときに確かめる。
 
 材料カタログと軸の集合は本番の正本を読まず、性質だけを持つ架空の材料・軸へ差し替える（`MATERIAL_CATALOG`・
 `AXIS_DEFINITIONS`。段の境界は`domain/axis_display.py`を、量の単位は`domain/axis_raw_value.py`を通るので、
@@ -25,6 +26,7 @@ from app.domain.map_paint import (
     DEFAULT_DIFFICULTY_BOUNDARIES,
     DifficultyMapValue,
     MapLegendScale,
+    MapPaint,
     SignedMaterialMapValue,
     map_paint,
 )
@@ -197,3 +199,48 @@ def test_bands_that_cannot_be_written_as_a_quantity_are_written_as_scores(defini
 
 def test_a_signed_material_axis_is_written_in_the_material_unit():
     assert map_paint(SIGNED).legend == MapLegendScale(boundaries=[-6.0, -2.0, 2.0, 6.0], unit="%")
+
+
+# --- 段の並び ---
+
+#: 4つ刻んだ境界のうち、得点が上がらない3と4は地図で落ちる（段は5つから3つになる）。
+STEPPED = _line("num_tiled", breakpoints=((0.0, 0.0), (2.0, 50.0), (4.0, 50.0), (6.0, 100.0), (10.0, 100.0)))
+
+#: 段の数を上書きで変える軸。タイルで塗る軸は刻んだ境界の一部が落ち、専用配信の軸は刻んだ境界がそのまま段になる。
+OVERRIDDEN_BAND_AXES = {
+    "タイルで塗る軸": _axis(
+        STEPPED, display_thresholds_override=[2.0, 3.0, 4.0, 8.0], display_band_labels_override=list("abcde")
+    ),
+    "専用配信の軸": _axis(
+        _line("rain_live", breakpoints=RAIN_LINE),
+        dedicated_way_value_layer=True,
+        display_thresholds_override=[20.0, 40.0],
+        display_band_labels_override=list("abc"),
+    ),
+}
+
+
+@pytest.mark.parametrize("definition", OVERRIDDEN_BAND_AXES.values(), ids=OVERRIDDEN_BAND_AXES.keys())
+def test_every_band_sequence_has_as_many_entries_as_the_map_has_bands(definition):
+    """人が刻んだ境界が地図で落ちても、ルート線の境界・凡例の境界・タイルの境界・体感ラベルは同じ段を数える。"""
+    paint = map_paint(definition)
+
+    bands = len(paint.thresholds) + 1
+    assert len(paint.legend.boundaries) + 1 == bands
+    assert paint.band_labels is not None and len(paint.band_labels) == bands
+    if paint.tiles.kind == "ramp":
+        assert len(paint.tiles.thresholds) + 1 == bands
+
+
+def test_the_bands_left_by_a_tile_painted_axis_carry_the_labels_of_their_lower_ends():
+    paint = map_paint(OVERRIDDEN_BAND_AXES["タイルで塗る軸"])
+
+    assert (paint.tiles.thresholds, paint.band_labels) == ([2.0, 8.0], ["a", "b", "e"])
+
+
+def test_a_paint_whose_band_labels_miss_a_band_is_refused():
+    """読む側は段の番号でラベルを引くので、1件足りないと上の段から別の段のラベルが付く。"""
+    paint = map_paint(OVERRIDDEN_BAND_AXES["タイルで塗る軸"])
+
+    with pytest.raises(ValueError, match="band labels"):
+        MapPaint.model_validate({**paint.model_dump(), "band_labels": ["a", "b"]})

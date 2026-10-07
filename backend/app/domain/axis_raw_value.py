@@ -7,11 +7,14 @@
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from pydantic import model_validator
+
 from app.domain.axis_definitions import (
     AxisDefinition,
     BreakpointLinearShape,
 )
 from app.domain.material_catalog import MATERIAL_CATALOG
+from app.domain.strict_model import StrictModel
 
 
 def raw_value_unit(definition: AxisDefinition) -> str | None:
@@ -44,15 +47,37 @@ def raw_value_unit(definition: AxisDefinition) -> str | None:
     return specs[0].unit
 
 
-def raw_value_total_unit(definition: AxisDefinition) -> str | None:
-    """生値へ走行距離を掛けた総量に付けられる単位。出す意味が無ければNone。
+class RawValueUnits(StrictModel):
+    """軸の生値に添える単位。"""
+
+    #: 折れ点を通す前の重み付き和の単位（`raw_value_unit`）。付けられなければNone。
+    unit: str | None
+    #: 生値へ走行距離を掛けた総量の単位。生値の単位が無い軸と、総量を出しても読み手の判断が
+    #: 変わらない軸はNone。
+    total_unit: str | None
+
+    @model_validator(mode="after")
+    def _check_total_has_a_rate(self) -> "RawValueUnits":
+        """総量は生値に距離を掛けたものなので、生値の単位が無いのに総量の単位だけがあると、
+        読む側は掛ける元の値の無い総量を出す。"""
+        if self.total_unit is not None and self.unit is None:
+            raise ValueError(f"total unit {self.total_unit!r} without a raw value unit")
+        return self
+
+
+def raw_value_units(definition: AxisDefinition) -> RawValueUnits:
+    """軸の生値と、それへ走行距離を掛けた総量に添える単位。"""
+    unit = raw_value_unit(definition)
+    return RawValueUnits(unit=unit, total_unit=None if unit is None else _total_unit(definition))
+
+
+def _total_unit(definition: AxisDefinition) -> str | None:
+    """生値の単位がある軸で、総量に付けられる単位。出す意味が無ければNone。
 
     「0.8回/km」に距離を掛けた「約26回」は何回止まるかを答えるが、「151度/km」に掛けた
     「約3322度」は比べる尺度が無く読み手の判断を変えない。単位が「◯◯/km」であることを
     条件にすると両者が同じ扱いになるため、出す意味があるかは材料の`total_unit`が持つ。
     """
-    if raw_value_unit(definition) is None:
-        return None
     shape = definition.shape
     assert isinstance(shape, BreakpointLinearShape)  # raw_value_unitが非Noneなら成り立つ
     total_units = {

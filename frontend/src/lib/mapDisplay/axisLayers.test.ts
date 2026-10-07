@@ -31,14 +31,16 @@ describe("rampAxesFromCatalogAxes", () => {
 
   it("実行時の係数が要る入力は、届いた係数を重みへ掛け、届いていなければ寄与0で塗らず「不明」の印を付ける", () => {
     const entry = rampEntry("a", [1], {
-      display: {
-        kind: "ramp",
-        thresholds: [1],
-        tile_inputs: [
-          tileInput({ property: "scaled", weight: 2, needs_runtime_scale: true }),
-          tileInput({ property: "unscaled", weight: 2, needs_runtime_scale: true }),
-          tileInput({ property: "plain", weight: 2 }),
-        ],
+      map_paint: {
+        tiles: {
+          kind: "ramp",
+          thresholds: [1],
+          tile_inputs: [
+            tileInput({ property: "scaled", weight: 2, needs_runtime_scale: true }),
+            tileInput({ property: "unscaled", weight: 2, needs_runtime_scale: true }),
+            tileInput({ property: "plain", weight: 2 }),
+          ],
+        },
       },
     });
 
