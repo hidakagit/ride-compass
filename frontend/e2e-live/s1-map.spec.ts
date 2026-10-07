@@ -14,6 +14,7 @@ import {
   roadSourceId,
   settleMap,
 } from "./live";
+import { clickFeature } from "../e2e/fixtures";
 import materialCatalog from "@/types/generated/material-catalog.json";
 
 /** 道の詳細が必ず持つ行（路面の区分）の項目名。名前は材料カタログが持つ。 */
@@ -92,25 +93,8 @@ test("S1 地図の描画（生成前）", async ({ page }) => {
     page,
     "道を押す",
     async () => {
-      const point = await page.evaluate((road) => {
-        const map = window.__liveMap();
-        const canvas = map.getCanvas().getBoundingClientRect();
-        for (const feature of map.queryRenderedFeatures().filter((f) => f.source === road)) {
-          if (feature.geometry.type !== "LineString") continue;
-          const coordinates = feature.geometry.coordinates;
-          const [lng, lat] = coordinates[Math.floor(coordinates.length / 2)];
-          const { x, y } = map.project([lng, lat]);
-          const client = { x: canvas.left + x, y: canvas.top + y };
-          // 地図の上に重なる部品（チップ・パネル）の下ではなく、地図そのものが押される点だけを使う。
-          if (document.elementFromPoint(client.x, client.y) !== map.getCanvas()) continue;
-          // 全レイヤーONでは道の上に点（事故・POI）が重なる。押して一番上に来るのが道である点だけを使う。
-          if (map.queryRenderedFeatures([x, y])[0]?.source === road) return client;
-        }
-        return null;
-      }, source);
-      expect(point, "押せる位置に描かれた道が無い").not.toBeNull();
       const errorsBefore = watch.pageErrors.length;
-      await page.mouse.click(point!.x, point!.y);
+      await clickFeature(page, "road");
       await expect(page.locator(".maplibregl-popup")).toBeVisible({ timeout: 10_000 });
       // 開いたのが道の詳細であること（道の詳細は路面の区分の行を必ず持つ。属性は畳んで開くので、開いてから見る）。
       // 描画の例外はエラー境界（app/error.tsx）が受けてページの例外にならないので、中身が出たかで見る。
