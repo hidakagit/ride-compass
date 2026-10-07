@@ -26,6 +26,8 @@ export type LocationSource = "geolocation" | "default" | "manual";
 export type RouteSegmentDetail = Schemas["RouteSegmentDetail"];
 
 export type RouteCandidate = Schemas["RouteCandidate"];
+/** 住所の検索で当たった地点の候補（種類・当たった段・表示名・位置）。 */
+export type PlaceCandidate = Schemas["PlaceCandidate"];
 export type OverallDifficulty = Schemas["OverallDifficulty"];
 
 // フロント専用。APIには現れない。地図上でクリックされた区間

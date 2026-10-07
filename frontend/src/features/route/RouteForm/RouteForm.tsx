@@ -8,7 +8,8 @@ import {
   PIN_MARK_BACKGROUND,
   PinMark,
 } from "@/components/PinMark/PinMark";
-import type { PinRole } from "@/types/route";
+import type { Coordinates, PinRole } from "@/types/route";
+import PlaceSearch from "@/features/route/PlaceSearch/PlaceSearch";
 import type { GenerationConditionsState } from "@/features/route/useGenerationConditions";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import { MIN_DISTANCE_KM } from "@/features/route/savedConditions";
@@ -52,6 +53,8 @@ interface RouteFormProps {
   originLocated: boolean;
   /** 出発地を現在地へ戻す（現在地の取得もこの操作が兼ねる）。 */
   onOriginReset: () => void;
+  /** 住所の検索で選んだ候補を、選んだ役割の地点として置く。 */
+  onPlaceFound: (role: PinRole, point: Coordinates) => void;
   /** 「重み」タブの中身。タブの列と「ルート生成」ボタンは見出しの行（page.tsx）、検証は`useRouteFormSubmit`が持つ。 */
   weightsPanel: React.ReactNode;
   /** 「除外」タブの中身。 */
@@ -71,6 +74,7 @@ export default function RouteForm({
   originManual,
   originLocated,
   onOriginReset,
+  onPlaceFound,
   weightsPanel,
   exclusionsPanel,
   savedPanel,
@@ -257,6 +261,8 @@ export default function RouteForm({
         </div>
 
         <div className="flex flex-col gap-2">
+          {/* 出発地はどちらのモードでも置けるので、検索もどちらのモードにも出す。 */}
+          <PlaceSearch onPlace={onPlaceFound} waypointsFull={waypointCount >= MAX_WAYPOINTS} />
           {routeMode === "loop" ? (
             <>
               {originRow}

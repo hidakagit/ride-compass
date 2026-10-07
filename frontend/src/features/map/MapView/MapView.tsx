@@ -175,6 +175,13 @@ function mergeObscured(a: RouteFitObscuredPx | undefined, b: RouteFitObscuredPx)
   };
 }
 
+/** 地図の上に重なるもの（呼び出し側が測った覆いと、印の付いた部品）を避けた、見えている所までの辺ごとの余白。 */
+function visiblePadding(map: MapLibreMap, measureObscured: () => RouteFitObscuredPx | undefined) {
+  const canvas = map.getCanvas();
+  const obscured = mergeObscured(measureObscured(), measureMapOverlayEdges(canvas.getBoundingClientRect()));
+  return computeRouteFitPadding(obscured, { width: canvas.clientWidth, height: canvas.clientHeight });
+}
+
 function fitBoundsToRoutes(
   map: MapLibreMap,
   routes: RouteCandidate[],
@@ -185,11 +192,24 @@ function fitBoundsToRoutes(
   const bounds = computeRouteBounds(routes);
 
   runWhenStyleReady(map, () => {
-    const canvas = map.getCanvas();
-    const obscured = mergeObscured(measureObscured(), measureMapOverlayEdges(canvas.getBoundingClientRect()));
-    const padding = computeRouteFitPadding(obscured, { width: canvas.clientWidth, height: canvas.clientHeight });
+    const padding = visiblePadding(map, measureObscured);
     debugLog("map:viewport", "ルートを収める", { padding });
     map.fitBounds(bounds, { padding });
+  });
+}
+
+// 住所の検索で置いた地点へ寄せる倍率。ピンを直せるように、街区が見分けられるまで寄る。
+const FOCUS_ZOOM = 16;
+
+/** 地点を、見えている所の中ほどへ寄せる。`flyTo`の`padding`は寄せたあとも地図に残るので、残らない`offset`でずらす。 */
+function flyToVisible(map: MapLibreMap, point: Coordinates, measureObscured: () => RouteFitObscuredPx | undefined) {
+  runWhenStyleReady(map, () => {
+    const padding = visiblePadding(map, measureObscured);
+    map.flyTo({
+      center: [point.longitude, point.latitude],
+      zoom: FOCUS_ZOOM,
+      offset: [(padding.left - padding.right) / 2, (padding.top - padding.bottom) / 2],
+    });
   });
 }
 
@@ -270,6 +290,8 @@ interface MapViewProps {
   destination: Coordinates | null;
   /** 目的地マーカークリックで呼ばれる（解除）。 */
   onDestinationClear: () => void;
+  /** 地図を寄せる地点（住所の検索で置いた地点）。新しい値を渡すたびに寄せる。 */
+  focusPoint: Coordinates | null;
   /** 地図の上に重なるUIで覆われている辺ごとの高さ(px)をいま測る。ルートを収めるとき、覆われた所へ収めないため。
    * レイアウトを持つ呼び出し側が測る。地図の上に置いた部品は、ここで測らず`mapOverlayEdge`の印を付ければ地図が測る。 */
   measureRouteFitObscuredPx: () => RouteFitObscuredPx | undefined;
@@ -296,6 +318,7 @@ export default function MapView({
   onWaypointMove,
   destination,
   onDestinationClear,
+  focusPoint,
   measureRouteFitObscuredPx,
 }: MapViewProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -651,6 +674,14 @@ export default function MapView({
     onDestinationClear,
     onRouteSegmentSelect,
   });
+
+  // 住所の検索で置いた地点へ寄せる。出発地を置いたときは印のフックの位置の更新も寄せるが、このeffectが後に走るので
+  // こちらが勝つ。
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !focusPoint) return;
+    flyToVisible(map, focusPoint, latest.current.measureRouteFitObscuredPx);
+  }, [focusPoint]);
 
   // 地図に載るもの（面・道路の線・評価軸・点・気象・ルート）は、1つの scene として
   // 組み立てて1本の経路で当てる。**表示・絞り込み・重なり順はすべてここを通る。**
