@@ -102,6 +102,9 @@ jobs:
             # ディレクトリにする——消しても作り直せるキャッシュと違い、これは取り直すまで
             # 地図レイヤーを出せなくなる生データで、一緒に消えてよいものではない。
             sudo mkdir -p /home/ubuntu/ridecompass-raster
+            # 住所の辞書（地点の検索が引く。配布の街区までの全国の辞書で、入れて約1.4GB）の置き場。ラスタと同じく、
+            # 取り直すまで検索を出せなくなる配布物なので、消してよいキャッシュとは別のディレクトリにする。
+            sudo mkdir -p /home/ubuntu/ridecompass-address-dictionary
             # ラスタの所在（コンテナ内のパス）を環境変数ファイルへ用意する（上の
             # CORS_ALLOWED_ORIGINSと同じ流儀の自己修復。何度実行しても安全）。
             # **キーの有無ではなく値が入っているかで見る**——`LULC_RASTER_PATHS=`（空）が
@@ -123,6 +126,16 @@ jobs:
               --env-file /home/ubuntu/ridecompass-backend.env \
               ridecompass-backend:latest \
               python scripts/fetch_lulc_raster.py
+            # 住所の辞書の取得。今のコードが指す版が既にあれば他の版を消すだけなので、実際に取るのは初回と、
+            # コードが版を上げたとき（取って入れるので数十秒）だけ。新しい版を入れた回は旧い版を残す——下で入れ替えるまで、
+            # 旧いコンテナが旧い版を検索のたびに開くため（旧い版は次のデプロイで消える）。ラスタと同じく旧コンテナを
+            # 止めるより前に置き、落ちたら止める——辞書の無いコンテナは地点の検索だけが503を返し続ける。
+            sudo docker run --rm \
+              --network=host \
+              -v /home/ubuntu/ridecompass-address-dictionary:/app/address_dictionary \
+              --env-file /home/ubuntu/ridecompass-backend.env \
+              ridecompass-backend:latest \
+              python scripts/fetch_address_dictionary.py
             # 警報・洪水予報の区域を引く境界（気象庁の区域の境界データ）の取得。今のコードが指す版が
             # 既にあれば何もしないため、実際に効くのは初回と、コードが版を上げたときだけ（取得と変換で
             # 数分）。ラスタと同じく旧コンテナを止めるより前に置き、落ちたら止める——境界無しで起動
@@ -174,6 +187,7 @@ jobs:
               --log-opt max-size=10m --log-opt max-file=5 \
               -v /home/ubuntu/ridecompass-cache-data:/app/data \
               -v /home/ubuntu/ridecompass-raster:/app/raster:ro \
+              -v /home/ubuntu/ridecompass-address-dictionary:/app/address_dictionary:ro \
               --env-file /home/ubuntu/ridecompass-backend.env \
               -e GIT_COMMIT="$GIT_COMMIT" \
               ridecompass-backend:latest
