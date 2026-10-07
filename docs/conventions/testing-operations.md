@@ -289,7 +289,9 @@ DBを使うテストを手元で回さずに実装を変えてテストを直し
   （`frontend/capture/context.ts: CaptureScript`）に分かれ、手元で起動する版には本番と同じ組の環境変数を渡す（`frontend` が読む環境変数を渡していなければ撮る前に止まる）。
   見せたい状態（位置・レイヤー・レンズ・凡例・応答の差し替え等）は引数でなく脚本で書く。脚本は受け取る口だけを使い何も読み込まないので、
   作業ツリーの外に置ける。地図を開く・レンズを選ぶ・読み終わりを待つ段取りは`e2e-live/live.ts`、画面を進める段取りは
-  `e2e/fixtures.ts`・`e2e/states.ts`を使い、書き直さない。e2e の段取りと応答の雛形（`e2e/fixtures.ts`・`e2e/states.ts`・
+  `e2e/fixtures.ts`・`e2e/states.ts`を使い、書き直さない。地図に描かれた、押すと開くもの（道・点・ルートの区間・乗り換えの帯等）は、経度・緯度を
+  渡さずに`e2e/fixtures.ts: clickFeature`で押す（e2e-live も同じものを呼ぶ）。押せる対象は地図の当たり判定の宣言（scene の
+  `hitTargets`）を実行時に読むので、当たり判定を足せば口を変えずに撮れる。e2e の段取りと応答の雛形（`e2e/fixtures.ts`・`e2e/states.ts`・
   `src/testing/catalogAxes.ts`）はモジュールごと口に載るので、そこへ足した関数は口を変えずに脚本から呼べる。ブラウザで開く前に、入口が宛先の応答を待ち（休止明けの本番等）、PlaywrightのChromiumと、
   Linuxなら起こすのに要る依存と日本語のフォント（無いと文字が豆腐になる）を入れる。
 
