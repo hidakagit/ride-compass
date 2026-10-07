@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/Popover/Popover";
 import { Button } from "@/components/ui/Button/Button";
 import { HelpIcon, LogIcon, MenuIcon } from "@/components/ui/icons/icons";
@@ -26,10 +26,12 @@ export default function HeaderMenu({
   onStartUsageGuide,
 }: HeaderMenuProps) {
   const [open, setOpen] = useState(false);
+  const startingGuide = useRef(false);
+  const trigger = useRef<HTMLButtonElement>(null);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
+      <PopoverTrigger asChild ref={trigger}>
         <Button
           variant="ghost"
           size="sm"
@@ -40,15 +42,29 @@ export default function HeaderMenu({
           <MenuIcon size={15} />
         </Button>
       </PopoverTrigger>
-      <PopoverContent layer="header" className="flex min-w-56 flex-col gap-1 p-1.5" side="bottom" align="end">
+      <PopoverContent
+        layer="header"
+        className="flex min-w-56 flex-col gap-1 p-1.5"
+        side="bottom"
+        align="end"
+        // メニューが閉じきり、フォーカスを開くボタンへ戻してから入る。先に入ると、閉じる動きの間に部品を押して出た
+        // 説明の面が、あとから戻るフォーカスを外への移りと読んで説明を見る状態ごと終える。
+        onCloseAutoFocus={(event) => {
+          if (!startingGuide.current) return;
+          startingGuide.current = false;
+          event.preventDefault();
+          trigger.current?.focus();
+          onStartUsageGuide();
+        }}
+      >
         {/* メニューを閉じてから入る（開いたままだと、次に押す部品の上にメニューが残る）。 */}
         <Button
           variant="menu"
           size="sm"
           usage="部品を押すと、その部品の使い方が出る状態に入ります。"
           onClick={() => {
+            startingGuide.current = true;
             setOpen(false);
-            onStartUsageGuide();
           }}
         >
           <HelpIcon size={15} />
