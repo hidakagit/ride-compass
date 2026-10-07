@@ -33,14 +33,6 @@ import { describe, expect, it } from "vitest";
 
 import { SRC_ROOT, removeTree, walkTree, writeTree } from "./sourceTree";
 
-/** 自前のモジュールの差し替えのうち、起こし直しまで残す例外（ファイル → 理由）。載っているのに差し替えが無ければ落ちる。 */
-const OWN_MODULE_MOCK_EXCEPTIONS: Readonly<Record<string, string>> = {
-  "src/features/map/view/useMapView.test.ts":
-    "地図の表示を組むフックが読む取得のフックと間引きを差し替えて組まれている。起こし直しは tasks#616",
-  "src/features/map/useDynamicWeatherLayers.test.ts":
-    "配信元への取得の口と失敗の記録を差し替えて組まれている。起こし直しは tasks#616",
-};
-
 const MIN_VALUE_LEAVES = 5;
 const MIN_COPIES = 3;
 
@@ -325,15 +317,11 @@ function ownModuleMocks(sources: Source[]): Finding[] {
 
 function scaffoldViolations(root: string) {
   const sources = readSources(root);
-  const mocks = ownModuleMocks(sources);
   return {
     copies: copiedDefinitions(sources),
     builders: bypassedBuilders(sources),
     standIns: bypassedStandIns(sources),
-    ownMocks: mocks.filter(({ file }) => !(file in OWN_MODULE_MOCK_EXCEPTIONS)),
-    staleExceptions: Object.keys(OWN_MODULE_MOCK_EXCEPTIONS).filter(
-      (file) => !mocks.some((found) => found.file === file),
-    ),
+    ownMocks: ownModuleMocks(sources),
   };
 }
 
@@ -354,9 +342,8 @@ describe("共有の足場の写し", () => {
     expect(lines(found.standIns)).toEqual([]);
   });
 
-  it("自前のモジュールを差し替えない（境界の表の読み取り口・ファイルを落とす関数・子の部品を除く）。例外の表は実態と揃う", () => {
+  it("自前のモジュールを差し替えない（境界の表の読み取り口・ファイルを落とす関数・子の部品を除く）", () => {
     expect(lines(found.ownMocks)).toEqual([]);
-    expect(found.staleExceptions).toEqual([]);
   });
 });
 

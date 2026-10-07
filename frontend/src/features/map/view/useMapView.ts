@@ -127,6 +127,7 @@ export function useMapView({
     now,
   });
   const painted = paintedAxisId(lens, hasDetail, keepAfterRoute);
+  // 専用配信の値は、全道路を塗っている軸の分だけ取る（塗っていない軸の値は地図に出ない。表示中のものだけ叩く）。
   const fetchAxes = useMemo(
     () => mapCatalog.dedicatedAxes.filter((axis) => axis.axisId === painted),
     [mapCatalog.dedicatedAxes, painted],
