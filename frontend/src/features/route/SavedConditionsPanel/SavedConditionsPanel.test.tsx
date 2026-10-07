@@ -1,5 +1,5 @@
 /**
- * 「保存」タブ（`SavedConditionsPanel.tsx`）——保存の前に、保存する条件・重み・除外と出発地の扱いを並べ、名前の欄に
+ * 「保存」タブ（`SavedConditionsPanel.tsx`）——保存の前に、保存する条件・重みの割合・除外と出発地の扱いを並べ、名前の欄に
  * 仮の名前を入れて出し、そのまま・書き換えて保存できる。出発地は固定するかを選べ、選ぶまでは地図で置いたかで決まる。
  * 同じ名前があれば上書きと分かるように出す。保存した設定を並べ、開くと中身を読め、「呼び出す」で呼び出し、✕は確認の窓で
  * 「消す」を押したときだけ消す。
@@ -69,11 +69,11 @@ beforeEach(() => {
 });
 
 describe("保存", () => {
-  it("保存の前に、いまの設定の条件と重みの説明を並べる", async () => {
+  it("保存の前に、いまの設定の条件と重みの割合を並べる", async () => {
     renderPanel();
 
     expect(screen.getByText("周回 40km・候補 8本")).toBeInTheDocument();
-    expect(await screen.findByText("おすすめの配分（軸A 50%・軸B 50%）")).toBeInTheDocument();
+    expect(await screen.findByText("軸A 50%・軸B 50%")).toBeInTheDocument();
   });
 
   it("仮の名前が入った欄をそのまま保存でき、書き換えればその名前で保存する", async () => {
@@ -117,7 +117,6 @@ describe("保存", () => {
     const { onSave } = renderPanel();
 
     await userEvent.click(screen.getByRole("radio", { name: "今の出発地に固定" }));
-    expect(screen.getByText("いまの出発地を保存し、どこで呼び出してもその地点から作ります")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "保存" }));
 
     expect(onSave).toHaveBeenLastCalledWith("周回 40km", true);
@@ -142,20 +141,12 @@ describe("保存した設定", () => {
     await userEvent.click(trip);
 
     expect(screen.getByText("保存した地点に固定")).toBeInTheDocument();
-    expect(await screen.findByText("自分で変えた配分（軸B 75%・軸A 25%）")).toBeInTheDocument();
+    expect(await screen.findByText("軸B 75%・軸A 25%")).toBeInTheDocument();
   });
 
   it.each([
-    [
-      "固定しない設定",
-      LOOP,
-      "「朝の荒川」の条件・重み・除外にしました。出発地は今いる場所です。「ルート生成」で作れます。",
-    ],
-    [
-      "出発地を固定した設定",
-      TRIP,
-      "「週末」の条件・重み・除外にしました。出発地は保存した地点です。「ルート生成」で作れます。",
-    ],
+    ["固定しない設定", LOOP, "「朝の荒川」を呼び出しました。出発地は今いる場所です。"],
+    ["出発地を固定した設定", TRIP, "「週末」を呼び出しました。出発地は保存した地点です。"],
   ])("「呼び出す」で%sを呼び出し、呼び出したことと出発地を出す", async (_, entry, expected) => {
     const { onRecall } = renderPanel([LOOP, TRIP]);
 

@@ -46,7 +46,8 @@ function DescriptionRows({ rows }: { rows: [term: string, detail: React.ReactNod
   );
 }
 
-// 「ルート設定」区分の「保存」タブ。保存の前に、何が保存され出発地をどう扱うかを並べる。呼び出すと各タブの値と
+// 「ルート設定」区分の「保存」タブ。保存の前に、残るもの（条件・出発地の扱い・重みの割合・除外）だけを並べる
+// （スマホではパネルの高さが限られるので、残らないものや重みを変えたかは書かない）。呼び出すと各タブの値と
 // 地図のピンが入れ替わり、生成はいつもの「ルート生成」で行う（入れ替えたあとに値を確かめたり少し変えたりできる）。
 export default function SavedConditionsPanel({
   saved,
@@ -80,38 +81,28 @@ export default function SavedConditionsPanel({
             ["条件", currentDescription.route],
             [
               "出発地",
-              <div key="origin" className="flex flex-col gap-1">
-                <ToggleGroup
-                  aria-label="保存する出発地"
-                  value={fixOrigin ? "fixed" : "current"}
-                  onValueChange={(value) => setFixOriginDraft(value === "fixed")}
-                  className="self-start"
+              <ToggleGroup
+                key="origin"
+                aria-label="保存する出発地"
+                value={fixOrigin ? "fixed" : "current"}
+                onValueChange={(value) => setFixOriginDraft(value === "fixed")}
+              >
+                <ToggleGroupItem value="current" usage="呼び出すたびに、その時いる場所から作ります。">
+                  呼び出した時の現在地
+                </ToggleGroupItem>
+                <ToggleGroupItem
+                  value="fixed"
+                  disabled={!originKnown}
+                  usage="いまの出発地を保存して、いつもそこから作ります。"
                 >
-                  <ToggleGroupItem value="current" usage="呼び出すたびに、その時いる場所から作ります。">
-                    呼び出した時の現在地
-                  </ToggleGroupItem>
-                  <ToggleGroupItem
-                    value="fixed"
-                    disabled={!originKnown}
-                    usage="いまの出発地を保存して、いつもそこから作ります。"
-                  >
-                    今の出発地に固定
-                  </ToggleGroupItem>
-                </ToggleGroup>
-                <span className={textVariants({ variant: "hint" })}>
-                  {fixOrigin
-                    ? "いまの出発地を保存し、どこで呼び出してもその地点から作ります"
-                    : "どこで呼び出しても、その時いる場所から作ります"}
-                </span>
-              </div>,
+                  今の出発地に固定
+                </ToggleGroupItem>
+              </ToggleGroup>,
             ],
             ["重み", currentDescription.weights],
             ["除外", currentDescription.exclusions],
           ]}
         />
-        <p className={textVariants({ variant: "hint" })}>
-          出発時刻・想定速度・走行方位は保存しません（その日に決めます）
-        </p>
         <form
           className="flex items-center gap-2"
           onSubmit={(event) => {
@@ -141,9 +132,7 @@ export default function SavedConditionsPanel({
 
       <p role="status" className={textVariants({ variant: "hint" })}>
         {recalled !== null && saved.some((entry) => entry.name === recalled.name)
-          ? `「${recalled.name}」の条件・重み・除外にしました。出発地は${
-              recalled.origin === null ? "今いる場所" : "保存した地点"
-            }です。「ルート生成」で作れます。`
+          ? `「${recalled.name}」を呼び出しました。出発地は${recalled.origin === null ? "今いる場所" : "保存した地点"}です。`
           : ""}
       </p>
 
