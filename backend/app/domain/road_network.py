@@ -177,7 +177,7 @@ def material_arrays_of(road: RoadSlice) -> EdgeMaterialArrays:
 
 
 def elevation_attribute(network: RoadNetwork, row: int, edge_id: str) -> ElevationAttribute | None:
-    """全体の行`row`の区間の標高属性。標高が未計算ならNone。平均勾配は材料`gradient_percent`の値
+    """全体の行`row`の区間の標高属性。標高が無ければNone。平均勾配は材料`gradient_percent`の値
     （表示用の標高列と重複して持たないため、勾配だけは材料の列から読む）。"""
     if not network.elevation_present[row]:
         return None

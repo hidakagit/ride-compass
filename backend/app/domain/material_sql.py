@@ -15,7 +15,7 @@
 | `em` | `edge_materials`（区間に付く値） |
 | `wm` | `way_materials`（道1本に付く値） |
 
-**未計算はNULL**。値の列がNULLなら、その材料はまだ計算されていない。「タグが無い」は
+**値が無ければNULL**（NULLの意味は`docs/modules/backend/static-road-attributes.md`「値が無ければNULL」）。「タグが無い」は
 別で、そちらは非該当（false）になる（`tag_absent_is_false_sql`）。
 """
 
@@ -135,7 +135,7 @@ def per_km_value_sql(count: str) -> str:
 
 
 def poi_density_value_sql(kind: str) -> str:
-    """停止要因POIの種別別密度。列がNULLなら未計算＝欠損。"""
+    """停止要因POIの種別別密度。列がNULLなら値が無い＝欠損。"""
     return per_km_value_sql(f"em.{poi_count_column(kind)}")
 
 
