@@ -98,6 +98,8 @@ def database_down(monkeypatch):
     monkeypatch.setattr(axis_preview_service, "_sample_cache", TTLCache(maxsize=1, ttl=60))
 
 
+# debug_modeの切替の口も本物で叩くため、切り替えた状態を後のテストへ残さない。
+@pytest.mark.usefixtures("restore_debug_mode")
 @pytest.mark.parametrize(("method", "path"), ROUTES)
 def test_a_database_failure_becomes_a_503_on_every_admin_route_that_reads_it(
     database_down, admin_credentials, method, path
