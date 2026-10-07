@@ -243,6 +243,18 @@ describe("RouteSplicePanel 案内", () => {
     expect(screen.getByText(/乗り換えた結果が出ます/)).toHaveTextContent("差分を見るを押すと、乗り換えた結果が出ます");
   });
 
+  it("差分を見て寄与度が0.1以上動いた軸が無ければ、棒も「差分を見る」を押す案内も出さず、どの軸もほぼ変わらないと出す", () => {
+    const unmoved = makeRouteCandidate({
+      edge_ids: ["e1", "e4", "e3"],
+      axis_contributions: { width: 10.05, traffic: 5, slope: 3 },
+    });
+    renderPanel({ appliedCount: 1, preview: unmoved });
+
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    expect(screen.queryByText(/乗り換えた結果が出ます/)).not.toBeInTheDocument();
+    expect(screen.getByText("どの評価軸も、元とほぼ変わりません")).toBeInTheDocument();
+  });
+
   it.each([
     ["2", ["この組み合わせは「2」と同じ道です"], "「2」に切り替える"],
     [null, [], "新しいルートを作成"],

@@ -298,6 +298,9 @@ export default function RouteSplicePanel({
                   {item.label} {formatDelta(item.delta, DIFFICULTY_DECIMALS)}
                 </span>
               ))
+            ) : preview ? (
+              // 評価済みで棒が空なのは、どの軸の差も棒に出す下限に届かないとき。押す案内を残すと押しても変わらない。
+              "どの評価軸も、元とほぼ変わりません"
             ) : appliedCount > 0 ? (
               <GuideText text="「差分を見る」を押すと、乗り換えた結果が出ます" />
             ) : hasAlternatives ? (
