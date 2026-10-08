@@ -13,6 +13,7 @@ import {
   Droplet,
   EllipsisVertical,
   Gauge,
+  Import,
   Info,
   Layers,
   MapPin,
@@ -503,6 +504,10 @@ export const SnowflakeIcon = fromLucide(Snowflake);
 export const GenerateRoutesIcon = fromLucide(Play);
 /** 生成した候補を捨てる。バツ印にしない——パネルを閉じる✕の隣に並び、同じ形だと見分けられない。 */
 export const ClearRoutesIcon = fromLucide(Trash);
+/** 保存した設定を消す。 */
+export const DeleteSavedIcon = fromLucide(Trash);
+/** 保存した設定を各タブへ呼び出す（取り込む）。 */
+export const RecallSavedIcon = fromLucide(Import);
 export const InfoIcon = fromLucide(Info, 14);
 export const CopyIcon = fromLucide(Copy);
 export const RedrawMapIcon = fromLucide(RotateCw);
