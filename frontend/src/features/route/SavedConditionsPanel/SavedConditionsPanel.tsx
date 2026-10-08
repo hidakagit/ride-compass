@@ -73,7 +73,7 @@ export default function SavedConditionsPanel({
   // 呼び出すを押した設定。確認の窓で中身を見せ、「反映する」を押すまで入れ替えない。
   const [recalling, setRecalling] = useState<SavedCondition | null>(null);
   const [recalled, setRecalled] = useState<SavedCondition | null>(null);
-  // ✕を押した設定の名前。確認の窓で「消す」を押すまで消さない。
+  // 消すを押した設定の名前。確認の窓で「消す」を押すまで消さない。
   const [removing, setRemoving] = useState<string | null>(null);
   const currentDescription = describeConditions(current, catalog);
   const recallingDescription = recalling && describeConditions(recalling, catalog);
