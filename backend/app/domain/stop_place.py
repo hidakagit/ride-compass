@@ -1,7 +1,7 @@
-"""立ち寄り先（食べる・飲む・入浴・自転車・景色・名所・泊まる・コンビニ）の群と、地点を群へ入れる判断。
+"""立ち寄り先（食べる・飲む・入浴・自転車・景色・名所・泊まる・コンビニ・寺社）の群と、地点を群へ入れる判断。
 
-地点の生データの列の読み替えは`infrastructure/source_models.py: OVERTURE_PLACES_SOURCE_SQL`が持ち、
-ここへは読み替えた列で届く。群へ入れ、近くの同じ店をまとめるのは派生の段（`batch/derive_stop_places.py`）で、
+地点の生データの列の読み替えは`infrastructure/source_models.py: OVERTURE_PLACES_SOURCE_SQL`・`BUNKA_HERITAGES_SOURCE_SQL`
+が持ち、ここへは読み替えた列で届く。群へ入れ、近くの同じ店をまとめるのは派生の段（`batch/derive_stop_places.py`）で、
 取込（`batch/source_adapters/overture_places.py`）はどの群にも当たりえない地点を落とすだけである。
 
 寺社・宗教施設と、補給の点のうちコンビニ以外（自販機・トイレ・給水・駐輪場）に当たる分類は、どの群の語にも
@@ -21,6 +21,8 @@ class StopPlaceGroup(StrEnum):
     SCENIC = "scenic"
     LODGING = "lodging"
     CONVENIENCE = "convenience"
+    #: 国の指定・登録の文化財の建造物を持つ寺社（下の`temple_shrine_owner_sql`）。
+    TEMPLE_SHRINE = "temple_shrine"
 
 
 #: Overture の分類（`taxonomy.hierarchy`。上の段から下の段への語の並び）の語 → 群。道筋に語が1つでも
@@ -131,3 +133,42 @@ def overture_group_sql(hierarchy: str) -> str:
         f"WHEN {hierarchy} ?| ARRAY[{', '.join(repr(word) for word in sorted(words))}] THEN '{group}'"
         for group, words in OVERTURE_GROUP_WORDS)
     return f"CASE {whens} END"
+
+
+#: 同じ所有者の文化財の建物を1つの寺社にまとめる距離（地面の m）。境内に散らばる建物（本堂・山門・別院）は1つにし、
+#: 同じ名前の別の寺社・離れた奥之院は分ける。値の根拠は docs/modules/backend/static-road-attributes.md「立ち寄り先」。
+HERITAGE_MERGE_RADIUS_M = 1000.0
+
+#: 所有者の名前がこの語で終われば寺社。所有者の欄が寺社を名指すのは、法人の名前が寺社そのものの名前だから。
+#: キリスト教の教会・教団・教区と、新しい宗教団体（「〜教」「〜殿」等）はどれでも終わらない。
+TEMPLE_SHRINE_SUFFIXES: tuple[str, ...] = (
+    "寺", "院", "神社", "大社", "神宮", "宮", "社", "稲荷", "八幡", "権現", "坊", "庵", "斎", "廟")
+
+#: 寺社の語で終わっても寺社でない名前の終わり。
+NOT_TEMPLE_SHRINE_SUFFIXES: tuple[str, ...] = ("病院", "医院", "学院", "修道院", "美術院", "研究院")
+
+#: 寺社の語で終わっても、これを含めば寺社でない（学校法人○○学院・株式会社○○社・特定非営利活動法人○○寺 等）。
+#: 宗教法人の印は名前から先に外す（`owner_name_sql`）。
+NOT_TEMPLE_SHRINE_WORDS: tuple[str, ...] = ("法人", "会社")
+
+
+def owner_lines_sql(owners_expr: str) -> str:
+    """文化財の所有者の欄を、1人ずつの行に分ける式（集合を返す）。複数の所有者は改行か読点で並ぶ。"""
+    return f"regexp_split_to_table({owners_expr}, '[\\n、,，]')"
+
+
+def owner_name_sql(owner_expr: str) -> str:
+    """所有者の欄の1人ぶんから、頭の宗教法人の印（「宗教法人」「（宗教法人）」）と末尾の括弧書き（「（豊川）」）を除いた名前の式。"""
+    # 空白には全角の空白も入る（「宗教法人　日本基督教団」）。
+    trimmed = f"regexp_replace({owner_expr}, '^[[:space:]　]+|[[:space:]　]+$', '', 'g')"
+    stripped = f"regexp_replace({trimmed}, '^[（(]?宗教法人[）)]?[[:space:]　]*', '')"
+    return f"regexp_replace({stripped}, '[[:space:]　]*[（(][^）)]*[）)]$', '')"
+
+
+def temple_shrine_owner_sql(name_expr: str) -> str:
+    """`owner_name_sql`の名前が寺社の名前かの式。"""
+    suffixes = "|".join(TEMPLE_SHRINE_SUFFIXES)
+    not_suffixes = "|".join(NOT_TEMPLE_SHRINE_SUFFIXES)
+    not_words = "|".join(NOT_TEMPLE_SHRINE_WORDS)
+    return (f"({name_expr} ~ '({suffixes})$' AND {name_expr} !~ '({not_suffixes})$'"
+            f" AND {name_expr} !~ '{not_words}')")

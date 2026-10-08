@@ -263,7 +263,7 @@ class NodeMaterialRow(Base):
 
 
 #: 立ち寄り先の表へ地点を入れるソース。
-STOP_PLACE_SOURCES: frozenset[str] = frozenset({Source.OVERTURE_PLACE})
+STOP_PLACE_SOURCES: frozenset[str] = frozenset({Source.OVERTURE_PLACE, Source.BUNKA_HERITAGE})
 
 
 class StopPlaceRow(Base):
@@ -285,7 +285,7 @@ class StopPlaceRow(Base):
 
     #: 地点を入れたソース（`source_features.source`と同じ綴り）。
     source: Mapped[str] = mapped_column(String, primary_key=True)
-    #: そのソースでの識別子（Overtureの地点のID等）。
+    #: そのソースでの識別子（Overtureの地点のID・まとめた文化財の鍵等）。
     source_key: Mapped[str] = mapped_column(String, primary_key=True)
     name: Mapped[str] = mapped_column(String, nullable=False)
     #: 名前の表記の揺れを除いた形（`domain/stop_place.py: normalized_sql`）。地点の検索が引く。

@@ -44,6 +44,7 @@ class Source(StrEnum):
     OSM_NODE = "osm_node"
     ACCIDENT = "accident"
     OVERTURE_PLACE = "overture_place"
+    BUNKA_HERITAGE = "bunka_heritage"
     DEM = "dem"
     LULC = "lulc"
 
@@ -270,6 +271,14 @@ OVERTURE_PLACES_SOURCE_SQL = (
     " (attrs->>'confidence')::float8 AS confidence,"
     " attrs->'taxonomy'->'hierarchy' AS hierarchy"
     f" FROM {_TABLE} WHERE source = '{Source.OVERTURE_PLACE}')"
+)
+
+#: 国の指定・登録の文化財の建造物（1件=1つの建物）。寺社の判断（`domain/stop_place.py`）が読む列へ読み替える。
+#: ジャパンサーチの項目の列（文化遺産オンラインの所有者の項目`bunka-14-s`）はここだけが名指す。
+BUNKA_HERITAGES_SOURCE_SQL = (
+    "(SELECT natural_key AS heritage_id, geom,"
+    " attrs->>'bunka-14-s' AS owners"
+    f" FROM {_TABLE} WHERE source = '{Source.BUNKA_HERITAGE}')"
 )
 
 

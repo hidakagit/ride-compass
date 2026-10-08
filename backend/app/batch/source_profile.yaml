@@ -67,6 +67,14 @@ sources:
       # 確からしさは地点が実在する見込み（0〜1）。閉じた地点は0になる。
       min_confidence: 0.5
 
+  # 寺社。国の指定・登録の文化財の建造物（文化遺産オンラインをジャパンサーチで）。取得は全国で、範囲は取込が絞る。
+  # 寺社かは所有者で派生が決める（domain/stop_place.py）。取り直しの手順は docs/architecture/data-sources.md「文化財の建造物」。
+  - name: bunka_heritage
+    adapter: bunka_heritages
+    rows:
+      snapshot: "2026-10-08"
+      designations: ["国宝", "重要文化財", "登録有形文化財(建造物)"]
+
   # --- ラスタ ---------------------------------------------------------------
   # ズームは元データの分解能から導く。UIの都合で決めない。
   # 標高は製品ごとに、配信元が公表する最大ズームで取る（https://maps.gsi.go.jp/development/hyokochi.html）。

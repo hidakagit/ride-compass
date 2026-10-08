@@ -147,6 +147,9 @@ ALWAYS_SHOWN_ATTRIBUTIONS: tuple[str, ...] = (
     '<a href="/licenses/apache-2.0.txt" target="_blank" rel="noreferrer">Apache 2.0</a>. '
     "Foursquare data was transformed to the Overture schema. "
     '<a href="/licenses/foursquare-places-NOTICE.txt" target="_blank" rel="noreferrer">NOTICE</a>)',
+    # ジャパンサーチのサイトポリシーの出典の記載例（編集・加工して使う場合）の形。
+    '寺社: ジャパンサーチ「<a href="https://jpsearch.go.jp/database/bunka" target="_blank" rel="noreferrer">'
+    "文化遺産オンライン（文化庁・国立情報学研究所）</a>」のメタデータを改変して利用（所有者で寺社ごとにまとめた）",
 )
 
 

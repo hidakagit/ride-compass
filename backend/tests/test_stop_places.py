@@ -18,7 +18,7 @@ from app.batch import derive_stop_places
 from app.batch.ingest import ingest_source
 from app.batch.source_adapters import overture_places
 from app.batch.source_profile import load_source_profile
-from app.domain.geo import km_per_degree_longitude
+from app.domain.geo import KM_PER_DEGREE_LATITUDE, km_per_degree_longitude
 from app.infrastructure.source_models import Source
 
 pytestmark = [
@@ -34,6 +34,8 @@ LON = 139.70
 LAT = 35.65
 #: 経度の1mの度。
 M = 1 / (km_per_degree_longitude(LAT) * 1000)
+#: 緯度の1mの度。
+M_LAT = 1 / (KM_PER_DEGREE_LATITUDE * 1000)
 #: 見本どうしを、まとめる距離（30m）より十分に離す間。
 APART = 1000 * M
 
@@ -145,6 +147,9 @@ async def test_the_same_chain_close_together_in_a_group_becomes_its_most_confide
         # 表に無いチェーンはブランドの一致で見る
         _place("Cafe A 1", LON + 2 * APART, FOOD, brand="Cafe A", confidence=0.8),
         _place("Cafe A 2", LON + 2 * APART + 20 * M, FOOD, brand="CAFE A", confidence=0.95),
+        # 南北に20m → 1つ
+        _place("ミニストップ 1", LON + 7 * APART, store, confidence=0.95),
+        _place("ミニストップ 2", LON + 7 * APART, store, confidence=0.8, lat=LAT + 20 * M_LAT),
         # 同じチェーンで40m → 両方
         _place("ローソン 1", LON + 3 * APART, store),
         _place("ローソン 2", LON + 3 * APART + 40 * M, store),
@@ -161,7 +166,7 @@ async def test_the_same_chain_close_together_in_a_group_becomes_its_most_confide
 
     assert set(await _stop_places(derive_conn, overture_dir, places)) == {
         "セブンイレブン 南浦和駅西口店", "ファミリーマート 東上野店", "Cafe A 2", "ローソン 1", "ローソン 2", "ローソン 3",
-        "ローソンストア100 3", "個店1", "個店2", "セブン-イレブン ホテル", "セブン-イレブン 店"}
+        "ローソンストア100 3", "個店1", "個店2", "セブン-イレブン ホテル", "セブン-イレブン 店", "ミニストップ 1"}
 
 
 async def test_each_place_keeps_its_name_without_variations_in_notation(derive_conn, overture_dir):
