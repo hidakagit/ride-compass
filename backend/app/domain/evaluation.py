@@ -166,16 +166,17 @@ def route_facing_categorical_material_ids(definitions: dict[str, AxisDefinition]
     return list(seen)
 
 
-def displayed_material_ids(weights: Mapping[str, float], lens_axis_id: str | None) -> set[str]:
+def displayed_material_ids(weights: Mapping[str, float]) -> set[str]:
     """区間表示へ載せるべき材料id。軸名のハードコードは持たない。
 
-    重み>0の公開軸が参照する材料に加え、`lens_axis_id`が符号付き材料を塗る軸を指す場合はその
-    材料も**重みに関わらず**含める。符号付き材料は難易度0-100へ変換すると符号（登り/下り）が
-    失われるため、地図のレンズは難易度ではなく生値の側を塗る。含めないと、重み0の軸を
-    レンズに選んだときだけ表示が欠ける。
+    重み>0の公開軸が参照する材料に加え、符号付き材料を塗る公開軸の材料は**重みに関わらず**
+    いつも含める。符号付き材料は難易度0-100へ変換すると符号（登り/下り）が失われるため、
+    地図のレンズは難易度ではなく生値の側を塗る。レンズはルートを作ったあとにも切り替わり、
+    切り替えでは作り直さないので、重みで絞ると重み0の軸をあとからレンズに選んだときに
+    全区間が「データなし」になる。
 
     `route_facing_material_ids`（スコア行列が運ぶ列の既定）とは別物で、
-    こちらはそのうちリクエストの好みとレンズに応じて実際に見せる部分集合を決める。
+    こちらはそのうちリクエストの好みに応じて実際に見せる部分集合を決める。
     """
     material_ids: set[str] = set()
     for axis_id, weight in weights.items():
@@ -189,10 +190,12 @@ def displayed_material_ids(weights: Mapping[str, float], lens_axis_id: str | Non
         # `definition.materials`は1段しか見ないため、これが無いと車の圧迫感のように
         # 内部軸を経由する軸の内訳が1件も運ばれない。
         material_ids.update(entry.material_id for entry in axis_material_shares(definition, AXIS_DEFINITIONS))
-    if lens_axis_id is not None:
-        lens_definition = AXIS_DEFINITIONS.get(lens_axis_id)
-        if lens_definition is not None and isinstance(map_paint(lens_definition).value, SignedMaterialMapValue):
-            material_ids.update(m for m in lens_definition.materials if is_known_material(m))
+    for definition in AXIS_DEFINITIONS.values():
+        if not definition.is_published:
+            continue
+        value = map_paint(definition).value
+        if isinstance(value, SignedMaterialMapValue) and is_known_material(value.material):
+            material_ids.add(value.material)
     return material_ids
 
 

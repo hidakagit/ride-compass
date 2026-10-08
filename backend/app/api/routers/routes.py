@@ -143,10 +143,6 @@ class RouteGenerateRequest(StrictModel):
     # 指定時は起点に戻らず目的地で終わる片道ルートにする（経由地のみの場合は起点で
     # 終わる周回）。
     destination: Coordinates | None = None
-    # 地図のレンズ（色分け）が表示を要求している軸id。探索の重みが0の軸でも、レンズに
-    # 選ばれていれば区間表示のためにレグごとの風で評価する（探索コストには影響しない）。
-    # 未知のidや軸以外（総合難易度・なし）は無視される。
-    lens_axis_id: str | None = None
     # 出発時刻。風の時間変化評価（レグごとの通過予測時刻）の起点になる。naive値はJSTとして扱い、JSTの時刻にして持つ。
     start_time: datetime
     # 区間の乗り換え: クライアントが候補の`edge_ids`から区間を差し替えて組み立てた経路。
@@ -373,7 +369,6 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest, open_set
                 max_average_grade_percent=request.max_average_grade_percent,
                 hard_filters=request.hard_filters.to_frozenset(),
                 assumed_speed_kmh=request.assumed_speed_kmh,
-                lens_axis_id=request.lens_axis_id,
             ),
             origin=Coordinates(latitude=request.latitude, longitude=request.longitude),
             target=target,

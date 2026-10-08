@@ -170,7 +170,7 @@ def generator_for(monkeypatch, network: RoadNetwork, avoid_weight: float, wind: 
         GraphService(NetworkRepository(network)), Weather(wind),
         preference_override=RoutePreference(weights={AVOID_AXIS: avoid_weight}),
         penalty_strength=1.0, max_average_grade_percent=None, hard_filters=DEFAULT_HARD_FILTERS,
-        assumed_speed_kmh=20.0, lens_axis_id=None,
+        assumed_speed_kmh=20.0,
     ).generator
 
 

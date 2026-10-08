@@ -76,8 +76,6 @@ interface MapViewState {
   overlayControls: ComponentProps<typeof MapOverlayControls>;
   /** 地図の表示をまとめて元に戻す操作。 */
   bulk: ComponentProps<typeof MapResetMenu>;
-  /** いまのレンズ。生成リクエストの`lens_axis_id`はここから作る。 */
-  lens: LensId;
   /** 地図の見えている範囲の真ん中。地図がまだ範囲を知らせていなければnull。 */
   center: Coordinates | null;
 }
@@ -226,7 +224,6 @@ export function useMapView({
       showAllLegendRows: () => setHidden(NO_HIDDEN),
       redraw: () => setRefreshToken((token) => token + 1),
     },
-    lens,
     center,
   };
 }

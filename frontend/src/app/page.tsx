@@ -293,7 +293,7 @@ export default function Home() {
           variant="primary"
           size="panelIcon"
           disabled={generation.running}
-          onClick={() => void generation.submit(mapView.lens)}
+          onClick={() => void generation.submit()}
           aria-label={generation.running ? (generation.progressLabel ?? "生成中...") : "ルート生成"}
           usage="いまの条件・重み・除外でルートの候補を作ります。候補は「ルート結果」に並び、地図に線が出ます。"
         >

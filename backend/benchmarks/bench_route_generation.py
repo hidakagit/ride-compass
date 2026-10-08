@@ -142,7 +142,7 @@ async def main() -> int:
     # 評価条件を省いた生成の要求と、画面の既定の除外で組む。
     async with get_route_generation_setup_opener()(
         preference_override=None, penalty_strength=None, max_average_grade_percent=None,
-        hard_filters=DEFAULT_HARD_FILTERS, assumed_speed_kmh=ASSUMED_SPEED_KMH, lens_axis_id=None,
+        hard_filters=DEFAULT_HARD_FILTERS, assumed_speed_kmh=ASSUMED_SPEED_KMH,
     ) as setup:
         generator = setup.generator
         for index in range(runs):

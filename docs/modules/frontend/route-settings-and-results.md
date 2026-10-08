@@ -141,16 +141,13 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
 `loaded`と対になる`failed`は「取得を試みて失敗し、まだ一度も成功していない」を表す
 （未取得=両方false／成功=`loaded`のみ／失敗=`failed`のみ）。取り直している間（再試行・別の部品の
 マウント）は`failed`を下ろして取得中に戻す。この状態でも重み配分は
-編集できてしまうが、生成（`features/route/useRouteGeneration.ts`）は`loaded`ガードにより`route_preference`と
-`lens_axis_id`を送らず、backendの既定配分で探索される。黙って捨てると「重みを変えたのに
+編集できてしまうが、生成（`features/route/useRouteGeneration.ts`）は`loaded`ガードにより`route_preference`を
+送らず、backendの既定配分で探索される。黙って捨てると「重みを変えたのに
 結果が変わらない」を実験の差だと取り違えるため、常設ヘッダーの印と`RouteSettingsPanel`が失敗の表示と
 再試行導線（`retryAxisCatalogFetch`、成功済みなら何もしない）を出し、重みを上書きしていたのに送れずに
 作った候補には「ルート結果」の先頭に「重み配分を反映できず、既定の配分で作りました。」を出す
 （`useRouteGeneration.ts: weightsNotApplied`）。上書きしていない生成には出さない——元から既定の配分で、
 反映できなかったものが無い。生成そのものは断らない——既定の配分のルートでも走るには使える。
-
-`lens_axis_id`にも同じガードを掛ける。**存在しない軸idはエラーにならず黙って無視される**
-ため、送ってしまうと「選んだ軸で塗られない」が手掛かり無しで起きる。
 
 ## WindBearingSlider.tsx（走行方位ダイヤル）／TravelBearingControl.tsx（地図上の入口）
 
@@ -413,8 +410,7 @@ DBの`ROUTE_GENERATION_COMMAND_TIMEOUT_SECONDS`はクエリ1本ごとの上限�
 フィードバックの置き場」参照）。同じ見出し行には、生成条件が表示中の候補とずれている間だけ
 印（`conditionsDirty`）を出す——条件を変えている本人は設定側を見ているため。印は押すと意味が開く（`InfoPopover`の中身を印に差し替えたもの）。検証・送信ロジック自体は
 `useRouteFormSubmit`（`{error, check}`を返す）へ切り出し、生成（`useRouteGeneration.ts: submit`）が検証して送る。
-`page.tsx`はヘッダーのボタンからその送信を、地図のレンズを引数にして呼ぶ（塗る軸は押した時点のレンズで決まり、
-「条件が変わったか」の比較には入らないので、生成のフックは地図の見え方を読まない）。候補数の指定が効くか（効かないならbackendの決まった数）は
+`page.tsx`はヘッダーのボタンからその送信を呼ぶ（地図のレンズは要求に載らず、生成のフックは地図の見え方を読まない）。候補数の指定が効くか（効かないならbackendの決まった数）は
 `useRouteFormSubmit.ts: fixedRouteCount`が1か所で決め、`RouteForm`（候補数ステッパーの表示）・
 `useRouteGeneration.ts`（送る値と「条件が変わった」の比較）が読む。
 
