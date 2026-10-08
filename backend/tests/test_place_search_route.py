@@ -284,11 +284,12 @@ async def test_facilities_are_found_by_a_part_of_the_name_within_the_area(query)
 
 @pytest.mark.usefixtures("area", "dictionary")
 async def test_facilities_are_ordered_by_how_the_name_matches_then_by_the_distance():
-    """名前が入力と同じ → 入力で始まる → 入力を含む。同じ中では、画面が見ている所の真ん中に近い順（名前の長さに依らない）。"""
+    """名前が入力と同じ → 入力で始まる → 入力を含む。同じ中では、画面が見ている所の真ん中に近い順（名前の長さに依らない）。
+    近さは測地の距離: 東へ経度0.01度（約0.90km）の店が、北へ緯度0.009度（約1.00km）の店より先（度のままなら逆になる）。"""
     await _ingest_facilities([
         _facility_record(1, "珈琲小杉", LON, LAT),
         _facility_record(2, "小杉コーヒー店", LON + 0.01, LAT),
-        _facility_record(3, "小杉亭", LON + 0.02, LAT),
+        _facility_record(3, "小杉亭", LON, LAT + 0.009),
         _facility_record(4, "小杉", LON + 0.03, LAT),
     ])
 
@@ -298,7 +299,7 @@ async def test_facilities_are_ordered_by_how_the_name_matches_then_by_the_distan
     assert response.json() == {"candidates": [
         _facility("小杉", LON + 0.03),
         _facility("小杉コーヒー店", LON + 0.01),
-        _facility("小杉亭", LON + 0.02),
+        _facility("小杉亭", LON, LAT + 0.009),
         _facility("珈琲小杉", LON),
     ]}
 
