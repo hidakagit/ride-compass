@@ -554,7 +554,7 @@ export default function Home() {
                 speedKmh={ride.speedKmh}
                 onSpeedKmhChange={ride.setSpeedKmh}
               />
-              <div className="relative">
+              <div className="relative flex">
                 <Button
                   variant="mapCtrl"
                   size="mapCtrl"
