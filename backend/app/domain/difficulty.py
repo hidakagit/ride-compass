@@ -8,7 +8,7 @@
 
 
 import math
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 
 import numpy as np
 
@@ -210,7 +210,7 @@ def composite_difficulty(
     return (None if math.isnan(value) else value), contributions
 
 
-def weighted_mean_by_distance(segments: list[tuple[float | None, float]]) -> float | None:
+def weighted_mean_by_distance(segments: Sequence[tuple[float | None, float]]) -> float | None:
     """(区間の値, 区間distance_km)のリストから距離加重平均を求める（**丸めない**）。
 
     値がNoneの区間は除外し残りの距離で再正規化する（composite_difficultyと同じ考え方）。
