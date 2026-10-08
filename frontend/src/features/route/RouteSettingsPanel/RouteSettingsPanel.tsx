@@ -5,7 +5,7 @@ import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
 import { axisIconFor } from "@/components/ui/icons/axisIconPalette";
 import {
   ENABLED_AXIS_WEIGHT,
-  MAX_AXIS_WEIGHT,
+  MAX_AXIS_SHARE,
   WEIGHT_STEP,
   clampBoundaryDrag,
   totalWeight,
@@ -121,7 +121,7 @@ export default function RouteSettingsPanel({
     const pixelsPerUnit = bar.getBoundingClientRect().width / total;
     const handleWindowPointerMove = (moveEvent: PointerEvent) => {
       const rawDelta = (moveEvent.clientX - startClientX) / pixelsPerUnit;
-      const { weightA, weightB } = clampBoundaryDrag(startWeightA, startWeightB, rawDelta);
+      const { weightA, weightB } = clampBoundaryDrag(startWeightA, startWeightB, rawDelta, total);
       handlePairWeightChange(axisIdA, weightA, axisIdB, weightB);
     };
     const handleWindowPointerUp = () => {
@@ -146,7 +146,7 @@ export default function RouteSettingsPanel({
     else if (e.key === "ArrowRight" || e.key === "ArrowUp") rawDelta = WEIGHT_STEP;
     else return;
     e.preventDefault();
-    const next = clampBoundaryDrag(weightA, weightB, rawDelta);
+    const next = clampBoundaryDrag(weightA, weightB, rawDelta, total);
     if (next.weightA === weightA && next.weightB === weightB) return;
     handlePairWeightChange(axisIdA, next.weightA, axisIdB, next.weightB);
   }
@@ -206,7 +206,7 @@ export default function RouteSettingsPanel({
           <p className={textVariants({ variant: "hint" })}>評価軸の重みの配分</p>
           <InfoPopover triggerAriaLabel="重みの配分の説明">
             帯の境目を動かして、評価軸ごとの重みの割合を変えます。1つの評価軸に置ける重みは
-            {Math.round(MAX_AXIS_WEIGHT * 100)}%までで、境目はそこで止まります。
+            {Math.round(MAX_AXIS_SHARE * 100)}%までで、境目はそこで止まります。
           </InfoPopover>
         </div>
         <div className="relative" ref={stackBarRef}>
