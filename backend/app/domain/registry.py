@@ -61,7 +61,7 @@ class PointThinningSpec(StrictModel):
 
     #: 先頭の軸の行の鍵の全部を、残す順に並べたもの。
     rows: tuple[str, ...]
-    #: 0〜1の値を持つタイルのプロパティ。値の無い点は0とみなす。
+    #: 0〜1の値を持つタイルのプロパティ。
     ratio_property: str
 
 

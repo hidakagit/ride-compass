@@ -148,15 +148,12 @@ export const POINT_ICONS: readonly { id: string; color: string; glyph: PointGlyp
  * 先にする——刻みが割合の幅より広いので、行をまたいで順が入れ替わらない。 */
 function thinningSortKey(layer: PointLayer, thinning: NonNullable<PointLayer["point_thinning"]>): unknown {
   const axis = layer.display_axes[0];
+  // 行の鍵は先頭の軸の行を1度ずつ全部並べる（backend の宣言の検査が守る）。
   const cases = thinning.rows.flatMap((key, rank) => {
-    const category = axis.categories.find((c) => c.key === key);
-    return category === undefined ? [] : [["in", valueOf(axis), ["literal", [...category.values]]], rank * 2];
+    const category = axis.categories.find((c) => c.key === key)!;
+    return [["in", valueOf(axis), ["literal", [...category.values]]], rank * 2];
   });
-  return [
-    "+",
-    ["case", ...cases, thinning.rows.length * 2],
-    ["-", 1, ["to-number", ["coalesce", ["get", thinning.ratio_property], 0]]],
-  ];
+  return ["+", ["case", ...cases, thinning.rows.length * 2], ["-", 1, ["to-number", ["get", thinning.ratio_property]]]];
 }
 
 function iconImageExpression(layer: PointLayer, categories: readonly GlyphCategory[]): unknown {

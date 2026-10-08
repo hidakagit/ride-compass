@@ -44,18 +44,14 @@ describe("重なった点の間引き", () => {
     expect(layout["icon-ignore-placement"]).toBe(false);
 
     // 鍵の小さい点ほど先に置かれ、重なったほかの点を退ける。
-    const sortKey = (rowKey: string, ratio: number | undefined) => {
+    const sortKey = (rowKey: string, ratio: number) => {
       const value = axis.categories.find((category) => category.key === rowKey)!.values[0];
       return evaluate(layout["symbol-sort-key"], {
         [axis.property]: value,
-        ...(ratio === undefined ? {} : { [thinning.ratio_property]: ratio }),
+        [thinning.ratio_property]: ratio,
       }) as number;
     };
-    const keys = thinning.rows.flatMap((rowKey) => [
-      sortKey(rowKey, 1),
-      sortKey(rowKey, 0.5),
-      sortKey(rowKey, undefined),
-    ]);
+    const keys = thinning.rows.flatMap((rowKey) => [sortKey(rowKey, 1), sortKey(rowKey, 0.5), sortKey(rowKey, 0)]);
     expect(keys).toEqual([...keys].sort((a, b) => a - b));
     expect(new Set(keys).size).toBe(keys.length);
   });
