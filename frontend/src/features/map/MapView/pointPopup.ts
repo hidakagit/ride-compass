@@ -18,7 +18,7 @@ function popupBody(lines: readonly string[]): HTMLDivElement {
 
 /** 名前と位置で地点を探す外の地図（Google マップの検索。公式の文書「Maps URLs」の`search`）。位置を添えるのは、
  * 名前だけでは見ている人の今いる所の近くで探すため。 */
-export function externalMapSearchUrl(name: string, lngLat: { lng: number; lat: number }): string {
+function externalMapSearchUrl(name: string, lngLat: { lng: number; lat: number }): string {
   const query = `${name} ${lngLat.lat.toFixed(6)},${lngLat.lng.toFixed(6)}`;
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
 }
