@@ -26,6 +26,11 @@
 # - deploy-backend・deploy-frontend: masterへのpushで上の全ジョブが通ったときだけ、backend・frontendを本番へ出す
 #   （出すかの判定と手順は deploy-backend.yml・deploy-frontend.yml）。**本番へ出る前の検査はこのワークフロー**で、
 #   どれかが赤ならデプロイは起動しない。
+# - 持ち時間（各ジョブの timeout-minutes）: 2026-10-07 に測った成功した実行（masterへのpushの直近20件と
+#   Pull Requestの直近60件）の、ジョブごとの最長の所要の2倍を5分単位へ切り上げた値（e2e-scan は幅のうち長いほう）。
+#   段が止まったジョブ（playwright install が進まなくなった等）を既定の360分まで待たせず、取り消しで終わらせて、
+#   作る担当・確かめる担当が流し直す（tools/flow-gate/src/rerun.js）。成功する実行が切られるようになったら、同じ決め方で
+#   測り直す。deploy-backend・deploy-frontend の持ち時間は、呼ばれる側の deploy-*.yml が持つ。
 name: CI
 
 on:
@@ -51,6 +56,7 @@ concurrency:
 jobs:
   changes:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     # master の実行の一覧を読む（下の BASE）。
     permissions:
       contents: read
@@ -98,6 +104,7 @@ jobs:
     # 本番（Oracle Cloud VMのAmpere A1）と同じaarch64・同じUbuntu 24.04で判定する。版の正本は
     # docs/architecture/tech-stack.md「DBの版」。
     runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: backend
@@ -142,6 +149,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.heavy == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     defaults:
       run:
         working-directory: backend
@@ -177,6 +185,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.heavy == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     defaults:
       run:
         working-directory: frontend
@@ -205,6 +214,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.heavy == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 50
     defaults:
       run:
         working-directory: frontend
@@ -235,6 +245,7 @@ jobs:
         width: [mobile, desktop]
     name: e2e-scan (${{ matrix.width }})
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     defaults:
       run:
         working-directory: frontend
@@ -259,6 +270,7 @@ jobs:
     needs: [changes, backend, api-contract, frontend, e2e, e2e-scan]
     if: always()
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - env:
           NEEDS: ${{ toJSON(needs) }}
