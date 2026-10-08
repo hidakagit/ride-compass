@@ -17,7 +17,7 @@
 | レイヤー | ファイル |
 |---|---|
 | app | `page.tsx`・`layout.tsx`・`error.tsx`・`global-error.tsx` |
-| hooks | `useStoredState.ts`・`useIsMobile.ts`・`useElementHeightCssVar.ts`・`useLocation.ts`・`useDebouncedValue.ts`・`useIsomorphicLayoutEffect.ts` |
+| hooks | `useStoredState.ts`・`useIsMobile.ts`・`useLocation.ts`・`useDebouncedValue.ts`・`useIsomorphicLayoutEffect.ts` |
 | features/map/view | `useMapView.ts`（地図の見え方の状態と、地図・操作部品へ渡す値）・`mapLook.ts`（地図へ渡す見え方の値の型）・`lens.ts`（レンズから塗る軸・凡例・選択肢を導く）・`overlayChips.ts`（地図上チップの状態とレイヤー表示の保存形式）・`legendFilters.ts`（凡例で隠した行の保存先の読み書き） |
 | features/map/MapView | `useLayerDataStatus.ts`（MapLibreのソースイベントからレイヤーごとの取得状態を算出して渡す） |
 | lib | `apiBaseUrl.ts`・`apiClient.ts`（backendのAPIを呼ぶ口と、全呼び出しが共有する骨格。下記）・`apiPath.ts`（アプリ自身が呼ばないURL［地図ライブラリへ渡すタイル・スタイル］のパスをOpenAPIの宣言と型で照合して作る）・`apiError.ts`・`backendInternalUrl.ts`・`queryClient.ts`（画面のデータ取得が共有するTanStack Queryのキャッシュ。下記「データ取得の骨格」）・`apiTimeouts.ts`（APIリクエストのタイムアウト。呼び出しの性質ごとの名前付き定数）・`safeStorage.ts`（localStorageの読み書きで例外を外へ出さない薄いラッパ）・`paletteCssVariables.ts`（地図に塗る色と同じ色をUIにも出す箇所へ、配信された値をCSS変数として流す。`layout.tsx`がサーバー側で`:root`へ入れる。CSSが値を持つのはライト/ダークで2値を持つものだけ）・`mapOverlayEdges.ts`（地図の上に重ねる部品へ付ける「どの辺を覆うか」の印と、印の付いた部品が覆う幅の実測。印を付ける部品は地図の機能の外にもあるので共有の層に置く。下記「`MapView`との境界」） |
@@ -239,7 +239,7 @@ backendも日本時間で扱う。`domain/time_zone.py`）。暦と時刻の取�
 | 種別 | コンポーネント |
 |---|---|
 | 地図本体 | `features/map/MapView/MapView`（全静的/動的レイヤーのMapLibre実装本体） |
-| 地図オーバーレイ制御 | `MapOverlayControls`（地図上チップ）・`TravelBearingControl`（走行方位ダイヤルの地図右上アイコン）・`LensControl`（地図上部中央のレンズ選択ピル）・`RideConditionBar`（走行方位アイコン直下、地図右上の走行条件アイコン列、出発時刻・想定速度） |
+| 地図オーバーレイ制御 | `MapOverlayControls`（地図上チップ）・`TravelBearingControl`（走行方位ダイヤルの地図右上アイコン）・`LensControl`（地図上部中央のレンズ選択ピル）・`RideConditionBar`（走行方位アイコン直下、地図右上の走行条件アイコン列、出発時刻・想定速度）・`MapResetMenu`（右の列の末尾の、まとめて戻すメニュー） |
 | ルート設定 | `RouteForm`（モード切替/距離/候補件数/生成ボタン）・`RouteSettingsPanel`（0次除外・軸選択・重み） |
 | ルート結果 | `features/route/RouteOutcome/RouteOutcome.tsx`（「ルート結果」の中身: 空の状態・候補の一覧［縦タブ］・候補の操作・区間の詳細・編集面）・`RouteAxisProfile`（候補ごとのタブの中身、軸別難易度） |
 | レイアウト | `BottomSheet`（モバイル下部シート） |
@@ -322,11 +322,11 @@ backendも日本時間で扱う。`domain/time_zone.py`）。暦と時刻の取�
 `WindBearingSlider`ダイヤルをRadix Popoverで開く。
 
 地図右上は、MapLibreのズーム+/−・回転（`MapView.tsx: NavigationControl`）の下へ
-`TravelBearingControl`・`RideConditionBar`を積んだ**1本の列**で、幅・間隔・アイコンの大きさは
+`TravelBearingControl`・`RideConditionBar`・「現在地に移動」・「まとめて戻す」（`MapResetMenu`）を積んだ**1本の列**で、幅・間隔・アイコンの大きさは
 `globals.css`の`--map-ctrl-*`だけが持つ。MapLibre側のボタンの幅もそこで列の幅へ広げ、
 アプリのボタンを積み始める位置はNavigationControlの既定のボタン数（3つ）から導く——
 どこか1か所だけ別の値を持つと、その継ぎ目だけ間隔や幅がずれる。値を出すボタンは高さだけが
-中身に合わせて伸びる。右下の現在地ボタン（44px）も、この列と中心がそろう位置に置く。
+中身に合わせて伸びる。地図の下側には操作を浮かせない（スマホでシートを開いても地図の下側が見える）。
 MapLibreが自分の部品（ズーム・方位のボタン、出典の開閉、ポップアップの閉じる、地図そのもの）に付ける読み上げ名・titleは
 既定が英語のため、地図を作るときの`locale`でこの地図が使う部品の分を日本語へ上書きする（`MapView.tsx: MAP_UI_LOCALE`）。
 MapLibreの部品を新しく足すときは、その部品の文言のキー（`maplibre-gl/src/ui/default_locale.ts`）も足す。
@@ -444,10 +444,7 @@ JSはその旗を読むだけで数値を写さない:
   条件が変わっている印）をデスクトップと同じヘルパーから渡し、`headerNote`propへ押した結果の1行を渡す。
 
 `BottomSheet`はposition:fixedのオーバーレイで暗幕を敷かない（表示中も地図をパン/ズーム
-できる）。地図の操作ボタンは画面の下端からの距離で置いているため、シートが占める高さを
-`--mobile-sheet-height`として地図ペイン（`app/page.tsx: mapPaneRef`）へ渡し、下端からの距離は「元の位置」と「シートの
-上端のすぐ上」の大きい方にする（シートを持ち上げたときに裏へ隠れない。閉じている間は0で
-従来どおり）。見出し行には差し込み口が2つあり、見出しのすぐ右（左寄せ）が`headerLead`、右上の
+できる）。地図の操作ボタンは右上の列にあり、シートを持ち上げるとその下側から順にシートの裏へ隠れる。見出し行には差し込み口が2つあり、見出しのすぐ右（左寄せ）が`headerLead`、右上の
 アクション群が`headerAction`——中身を切り替えるタブと、押して何かを走らせるボタンを
 同じ行に置きつつ役割で離すため。見出し行の下の`headerNote`は本文の外に置き、本文を送っても見え続ける。ドラッグ中は`onHeightChange`のみ（見た目の即時反映）、確定時に
 `onHeightCommit`（永続化）を呼ぶ2段階のコールバック構成を持つ。
@@ -563,7 +560,7 @@ composite_difficulty`と同じ考え方で軸の重みを反映した寄与度�
 シート・タブバーの存在を知らないままでいられ、画面の寸法を状態として持ち続けなくてよい。`MapView`側はそれを基本余白へ足し、対向する2辺が地図の縦・横を食い尽くす
 場合だけ可視領域が残るところまで縮める（`computeRouteFitPadding`）。フィット自体は候補一覧が
 変わったときだけ行う（シートの開閉・高さ変更では地図を動かさない）。
-地図の上に重ねた操作部品（左のチップ列・右の操作列・上のレンズ・上端の住所の検索の一覧と案内・下のまとめて操作する行等）も同じ理由で余白へ足す。
+地図の上に重ねた操作部品（左のチップ列・右の操作列・上のレンズ・上端の住所の検索の一覧と案内等）も同じ理由で余白へ足す。
 これらは部品の側に「どの辺を覆うか」の印（`mapOverlayEdge`）を付け、`MapView`がフィットする瞬間に印の付いた部品の実寸を
 測って、呼び出し側が測った値と辺ごとに大きい方を取る——部品を足す人は印を1つ付ければよく、`page.tsx`の測る関数へ
 部品ごとの計算を足さない。印は位置取りを持つ要素（`absolute`で置いた外枠）に付ける。中の小さい要素に付けると、覆う幅を

@@ -84,8 +84,6 @@
 
   /* モバイルの下部タブバーの高さ。下部シートはこの高さぶん上に置き、タブバーの上に乗せる。 */
   --mobile-tabbar-height: 3.5rem;
-  /* 下部シートが占める高さ（page.tsxが地図ペインへ実値を与える。閉じている間は0）。 */
-  --mobile-sheet-height: 0px;
 
   /* 重なり順の共通スケール。**画面全体で重なり合う層はここにあるものだけ**——部品ごとに素の数値を
    * 持つと、新しい層がどれより上か下かを確かめる手立てが無くなる（Radix Portalでbody直下へ出る
@@ -382,12 +380,6 @@
   background-color: var(--color-surface);
   color: var(--foreground);
   box-shadow: var(--shadow-float);
-}
-
-/* 展開した出典は地図の下端の操作（元に戻すボタンの列・現在地ボタン）と重なる。出典は読めることが利用条件なので、
-   展開している間だけ操作系より前に出す（ⓘで畳めば操作系が戻る）。 */
-.app-map-pane .maplibregl-ctrl-bottom-right:has(.maplibregl-compact-show) {
-  z-index: var(--z-map-popup);
 }
 
 .app-map-pane .maplibregl-ctrl-attrib a {

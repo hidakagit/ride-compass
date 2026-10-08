@@ -155,7 +155,13 @@ test("モバイル: ルート結果を見ている間は地図タップでピン
 // 単体テストの代役地図はピンの位置もドラッグも持たないため、ここで見る。置いた・動かした位置は、生成の要求に載る目的地で読む
 // ——画面の印とは別の出口で確かめる。
 test("住所の検索で目的地に置いた地点は地図のその位置にピンが立ち、ピンを動かすと目的地が動く", async ({ page }) => {
-  const candidate = { kind: "address", level: "aza", name: "東京都北区王子一丁目", latitude: 35.7536, longitude: 139.7378 };
+  const candidate = {
+    kind: "address",
+    level: "aza",
+    name: "東京都北区王子一丁目",
+    latitude: 35.7536,
+    longitude: 139.7378,
+  };
   await installApiMocks(page);
   await page.route("**/api/place-search*", (route) => route.fulfill({ json: { candidates: [candidate] } }));
   await seedStoredState(page, { "ridecompass:first-visit-intro-closed": "true" });
@@ -172,12 +178,15 @@ test("住所の検索で目的地に置いた地点は地図のその位置に�
   const pin = page.locator(".maplibregl-marker", { hasText: "⚑" });
   const offset = async () => {
     const box = (await pin.boundingBox())!;
-    const at = await page.evaluate(([lng, lat]) => {
-      const map = window.__liveMap();
-      const projected = map.project([lng, lat]);
-      const canvas = map.getCanvas().getBoundingClientRect();
-      return { x: canvas.left + projected.x, y: canvas.top + projected.y, moving: map.isMoving() };
-    }, [candidate.longitude, candidate.latitude]);
+    const at = await page.evaluate(
+      ([lng, lat]) => {
+        const map = window.__liveMap();
+        const projected = map.project([lng, lat]);
+        const canvas = map.getCanvas().getBoundingClientRect();
+        return { x: canvas.left + projected.x, y: canvas.top + projected.y, moving: map.isMoving() };
+      },
+      [candidate.longitude, candidate.latitude],
+    );
     return at.moving ? Infinity : Math.hypot(box.x + box.width / 2 - at.x, box.y + box.height / 2 - at.y);
   };
   await expect.poll(offset, { timeout: 10_000 }).toBeLessThan(2);
@@ -201,7 +210,8 @@ test("住所の検索で目的地に置いた地点は地図のその位置に�
   await page.getByRole("button", { name: "ルート生成" }).click();
   const { destination } = (await request).postDataJSON() as { destination: { latitude: number; longitude: number } };
   // 動かした量に比べて十分小さい差なら、落とした先に動いている。
-  const distance = (a: typeof target, b: typeof target) => Math.hypot(a.latitude - b.latitude, a.longitude - b.longitude);
+  const distance = (a: typeof target, b: typeof target) =>
+    Math.hypot(a.latitude - b.latitude, a.longitude - b.longitude);
   expect(distance(destination, target)).toBeLessThan(distance(candidate, target) / 20);
 });
 
@@ -259,9 +269,10 @@ test("ルートを収めるとき、地図の上の操作部品が覆う所へ�
   };
   const depths = {
     left: (await covers(/の表示項目$/)).map((box) => box.x + box.width - canvas.x),
-    right: (await covers(/^(拡大|縮小|走行方位を設定|現在地に移動)$/)).map((box) => canvas.x + canvas.width - box.x),
+    right: (await covers(/^(拡大|縮小|走行方位を設定|現在地に移動|まとめて戻す)$/)).map(
+      (box) => canvas.x + canvas.width - box.x,
+    ),
     top: (await covers(/^地図の色分け:/)).map((box) => box.y + box.height - canvas.y),
-    bottom: (await covers("地図の表示を再描画する")).map((box) => canvas.y + canvas.height - box.y),
   };
   for (const [edge, values] of Object.entries(depths) as [keyof typeof depths, number[]][]) {
     expect(values.length, `${edge}の辺を覆う部品が見つからない`).toBeGreaterThan(0);

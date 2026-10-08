@@ -11,7 +11,7 @@
  *   周回の間は目的地を地図へ出さないこと、住所の検索で経由地へ置けるのは置いた経由地が上限に届くまでのこと、
  *   区間を押して詳細を出せるのは「ルート結果」を見ている間だけのこと、編集の間は地図で地点も区間も扱わず全部の候補を重ね、
  *   作り直すと編集が終わること、作ると直前の作り直しの失敗の文言を消し、合成ルートを選んでいる間は元のルートだけを重ねること、
- *   地図の下のまとめて元に戻す操作
+ *   地図の右の列のまとめて戻すメニュー
  * - 画面の枠: スマホの下部タブとシート（1枚ずつ開く・地点を扱える間・結果の合図・押した結果の1行・ルートを収めるときに避ける
  *   シートの高さ・高さの保存と保存値の検査）、区分の開閉の保存、ヘッダーの「未取得」に並ぶ出所と「現在地に移動」の失敗、
  *   メニューから入る使い方の説明とデバッグログ
@@ -22,8 +22,8 @@
  * 機能の状態の移り変わり（生成の検証と要求の形・候補の並び・地点の置き方・レイヤーと凡例の状態）は各フックのテストが
  * 見る。子へ渡す受け口へフックの関数や値をそのまま渡す所（重み・除外の入力・経由地を地図で動かす・消す・「現在地に戻す」・
  * 保存した条件を呼び出して現在地へ戻す・実行中の「ルート生成」・取り直している間の「現在地に移動」・まとめてレイヤーを消す
- * 操作を押せるか）は1行の委譲なので見ない。中身に合わせたシートの高さと、シートの高さに合わせて地図の
- * 操作部品を持ち上げることは、レイアウトの実寸が要るので見ない（テスト環境は実寸を0で返し、シートは合わせない）。
+ * 操作を押せるか）は1行の委譲なので見ない。中身に合わせたシートの高さは、レイアウトの実寸が要るので見ない
+ * （テスト環境は実寸を0で返し、シートは合わせない）。
  *
  * 差し替えたもの: backend の応答（網の層）、位置情報の取得（`navigator.geolocation`）、地図の描画（`maplibre-gl`）。
  * どれもテスト環境に無いものか、その手前の境界。地図は `@/testing/maplibre` の代役が受けたものを記録し、地図の操作
@@ -547,27 +547,37 @@ describe("地図で扱えること", () => {
     });
   });
 
-  it("まとめて元に戻す操作: レイヤーを消すと全部消え、絞り込みを解くのは凡例で隠している間だけ押せる。再描画は地図の描き直しを求める", async () => {
+  it("まとめて戻すメニュー: レイヤーを消すと全部消え、絞り込みを解くのは凡例で隠している間だけ押せる。再描画は地図の描き直しを求める。押すとメニューは閉じる", async () => {
     const { user } = renderHome();
-    const hideAll = screen.getByRole("button", { name: "表示中のレイヤーをすべて非表示にする" });
+    // 押した項目のあと、メニューは閉じている（開いたままだと戻した地図の上に残る）。
+    const runFromMenu = async (name: string) => {
+      await user.click(screen.getByRole("button", { name: "まとめて戻す" }));
+      await user.click(screen.getByRole("button", { name }));
+      expect(screen.queryByRole("button", { name })).toBeNull();
+    };
+    const canRun = async (name: string) => {
+      await user.click(screen.getByRole("button", { name: "まとめて戻す" }));
+      const enabled = !(screen.getByRole("button", { name }) as HTMLButtonElement).disabled;
+      await user.keyboard("{Escape}");
+      return enabled;
+    };
     expect(mapOnScreen().visibleLayerIds()).not.toEqual([]);
-    await user.click(hideAll);
+    await runFromMenu("表示中のレイヤーをすべて非表示");
     expect(mapOnScreen().visibleLayerIds()).toEqual([]);
 
-    const showAll = screen.getByRole("button", { name: "絞り込みをすべて解除する" });
-    expect(showAll).toBeDisabled();
+    expect(await canRun("絞り込みをすべて解除")).toBe(false);
     jobs.respond([FIRST], LOOP_CONDITIONS);
     await generate(user);
     await user.click(await screen.findByRole("button", { name: /^地図の色分け: / }));
     const legendAll = await screen.findByRole("checkbox", { name: "凡例の全段階をまとめて表示/非表示" });
     await user.click(legendAll);
     await user.keyboard("{Escape}");
-    expect(showAll).toBeEnabled();
-    await user.click(showAll);
-    expect(showAll).toBeDisabled();
+    expect(await canRun("絞り込みをすべて解除")).toBe(true);
+    await runFromMenu("絞り込みをすべて解除");
+    expect(await canRun("絞り込みをすべて解除")).toBe(false);
 
     const before = mapOnScreen().styles.length;
-    await user.click(screen.getByRole("button", { name: "地図の表示を再描画する" }));
+    await runFromMenu("地図の表示を再描画");
     expect(mapOnScreen().styles).toHaveLength(before + 1);
   });
 });

@@ -20,6 +20,7 @@ import {
 import type { LensId } from "@/lib/mapDisplay/routeStyleModes";
 import type { MapViewport } from "@/features/map/layers/windLayer";
 import type MapOverlayControls from "@/features/map/MapOverlayControls/MapOverlayControls";
+import type MapResetMenu from "@/features/map/MapResetMenu/MapResetMenu";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
@@ -72,14 +73,8 @@ interface MapViewState {
   look: MapLook;
   lensControl: ComponentProps<typeof LensControl>;
   overlayControls: ComponentProps<typeof MapOverlayControls>;
-  /** 地図下部の、まとめて操作するボタン。 */
-  bulk: {
-    anyLayerOn: boolean;
-    hideAllLayers: () => void;
-    anyLegendHidden: boolean;
-    showAllLegendRows: () => void;
-    redraw: () => void;
-  };
+  /** 地図の表示をまとめて元に戻す操作。 */
+  bulk: ComponentProps<typeof MapResetMenu>;
   /** いまのレンズ。生成リクエストの`lens_axis_id`はここから作る。 */
   lens: LensId;
 }
