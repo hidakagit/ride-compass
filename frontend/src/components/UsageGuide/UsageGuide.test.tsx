@@ -414,7 +414,6 @@ describe("UsageGuide", () => {
     ])("%s終えても、浮きパネルは開いたまま残る", async (_, operate) => {
       const { onEnd } = renderPopoverScreen();
       await openInside();
-      await userEvent.click(screen.getByRole("button", { name: "速く" }));
 
       await operate();
 
