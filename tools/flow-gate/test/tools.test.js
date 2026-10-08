@@ -1,7 +1,7 @@
 // 約束 18・24（担当の後始末の行き先と手番の記録の置き場。src/after.js: settle・keepLog）・26（GitHub の一時的な失敗。src/github.js: GitHub）・
 // 27（問いの打ち直し。src/move.js: askTask）・28（開発機の対話のセッションが持つ・手放す。src/hold.js）・29（直すもの無しに取り消された
-// 実行の見分け。src/rerun.js: verdict）・30（画像の貼り方。src/attach.js: attach）を確かめる。設定は架空のもの（fake-github.js: config）を渡し、
-// 24・26・27・28 は GitHub（網）だけを、30 は gh を打つ口と待つ口だけを差し替える。
+// 実行の見分け。src/rerun.js: verdict）・30（画像の貼り方。src/attach.js: attach）・31（本番での確かめの問いを本番に出てから置く。src/deployed.js: askDeployed）を確かめる。設定は架空のもの（fake-github.js: config）を渡し、
+// 24・26・27・28 は GitHub（網）だけを、31 は GitHub（網）と本番を見る口・時計を、30 は gh を打つ口と待つ口だけを差し替える。
 // ここで見ないもの: 終わりのコメントの中身（文言で、`bin/after.js --dry-run` が出す姿で見る）・ステータスを動かす道具（src/move.js）の表の照らし
 // （rules.js: judge を呼ぶだけなので、照らしは gate.test.js が見る）・打ち直しの回数と間（公式の SDK の既定を写した値で、約束ではない）・
 // 道具（bin/rerun.js・bin/attach.js）が読む API と打つ gh（`bin/rerun.js --dry-run` で本物の実行を読んで見る）。
@@ -10,6 +10,7 @@ import { test } from "node:test";
 import { keepLog, settle } from "../src/after.js";
 import { GitHub } from "../src/github.js";
 import { hold, release } from "../src/hold.js";
+import { askDeployed } from "../src/deployed.js";
 import { askTask, moveTask } from "../src/move.js";
 import { RERUNS, verdict } from "../src/rerun.js";
 import { attach, TRIES, WAIT } from "../src/attach.js";
@@ -89,6 +90,25 @@ test("27 問いは、答えの無い最新の問いが同じ文なら書き直�
   assert.deepEqual(await at(config.waiting, [question]), [config.waiting, 1]);
   assert.deepEqual(await at(config.waiting, ["## 問い\n別の問い"]), [config.waiting, 1]);
   assert.deepEqual(await at(config.todo, [question, answer]), [config.waiting, 2]);
+});
+
+test("31 本番での確かめの問いは、マージが本番に出てから置き、上限を過ぎても出なければ問いを置かずに保留へ動かす。どちらでもなければ何も書かない", async () => {
+  const question = "## 問い\n本番で直っているか\n\n<details><summary>判断材料</summary>\n\n材料\n</details>";
+  const merge = { number: 5, sha: "m".repeat(40), mergedAt: "2026-10-08T22:41:00Z" };
+  const at = async (seen, minutesAfterMerge) => {
+    const gh = fakeGitHub({ issue: { number: 7, status: config.todo } });
+    let clock = Date.parse(merge.mergedAt) + minutesAfterMerge * 60e3;
+    const look = async () => (seen.length > 1 ? seen.shift() : seen[0]); // 最後の姿のまま変わらない
+    const { kind } = await askDeployed(new GitHub("bot-token"), config, 7, question,
+      { merge, look, stopAt: clock + 60e3, now: () => clock, sleep: async (ms) => (clock += ms) });
+    return [kind, gh.issue.status, gh.issue.comments.map((c) => c.body)];
+  };
+  const out = { ok: false, frontend: "f".repeat(40), backend: null };
+  const deployed = { ok: true, frontend: "f".repeat(40), backend: "b".repeat(40) };
+  const material = "- 本番に出た: 10/9 07:46（日本時間）に見た時点で、本番の画面（frontend）は ffffffff、backend は bbbbbbbb で動いており、どちらもこのマージ（mmmmmmmm）の変更を含む。";
+  assert.deepEqual(await at([out, deployed], 5), ["問うた", config.waiting, [question.replace("\n\n材料", `\n\n${material}\n\n材料`)]]);
+  assert.deepEqual(await at([out], 5), ["まだ", config.todo, []]);
+  assert.deepEqual(await at([out], config.coordinator.deployWaitMinutes), ["上限", config.hold, [`${config.hold}にする理由: Pull Request #5 のマージ（mmmmmmmm、10/9 07:41 日本時間）から 60分たっても本番に出ていない（本番の画面（frontend）は ffffffff、backend は 読めない）。本番での確かめの問いを置かずに止める。master の CI のデプロイを見て、本番に出たら未着手へ戻すと、次の担当が問う`]]);
 });
 
 test("28 開発機の対話のセッションが持つ: 待ちの開発機の実行は持っているに数えずに待ち直し、手放しは持った実行を一覧に出なくても取り消して止まるまで待ち、待ちと手放しは GitHub の一時的な失敗1回で落ちない", async () => {
