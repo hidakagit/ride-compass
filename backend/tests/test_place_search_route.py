@@ -2,7 +2,7 @@
 
 経路から、サービス（`services/place_search_service.py`）と住所の辞書を引く層（`infrastructure/address_dictionary.py`）の
 判断を見る: 候補の種類・段・表示名・位置、入力の空白を除くこと、何も当たらない入力は空、旧い市の名前を今の住所で出すこと、
-対象範囲の外の候補を落とすこと、打ちかけの入力の続きを足すこと（並び・最短の長さ・件数の上限・位置を持たない節）、
+対象範囲の外の候補を落とすこと、打ちかけの入力の続きを足すこと（並び・1文字から・件数の上限・位置を持たない節）、
 辞書が無ければ503、対象範囲を読めなければ502、回数制限。
 辞書はテストの足場が数件の節で書いたもの（`tests/address_dictionary_fixture.py`）を本物の検索で引き、対象範囲は
 地域サービスのフェイクで与える。
@@ -95,7 +95,7 @@ def _address(place: Place, name: str, level: str) -> dict:
         _address(NISHI_SHINJUKU, "東京都新宿区西新宿", "oaza"),
         _address(NEW_SHINJUKU_WARD, "東京都新宿区", "city"),
     ], id="打ちかけの続き"),
-    pytest.param("西", [], id="1文字には続きを足さない"),
+    pytest.param("西", [_address(NISHI_SHINJUKU, "東京都新宿区西新宿", "oaza")], id="1文字にも続きを足す"),
 ])
 def test_returns_the_candidates_within_the_area(dictionary, query, candidates):
     _serve_area(AREA)
@@ -122,6 +122,22 @@ def test_continuations_are_the_shortest_ones_up_to_the_limit(address_dictionary_
     assert response.json() == {"candidates": [
         *(_address(place, f"東京都千代田区{place.name}", "oaza") for place in shortest),
         _address(ward, "東京都千代田区", "city"),
+    ]}
+
+
+def test_continuations_of_the_same_length_put_the_coarser_level_first(address_dictionary_dir):
+    """同じ長さの表記（「柏下」と「柏市」）は、市区町村が大字より先（打ちかけの「柏」で柏市が上限から漏れない）。"""
+    oaza = Place("柏下", AddressLevel.OAZA, 139.96, 35.87)
+    city = Place("柏市", AddressLevel.CITY, 139.975, 35.8676, (oaza,))
+    write_dictionary(address_dictionary_dir, (Place("千葉県", AddressLevel.PREF, 140.1233, 35.6047, (city,)),))
+    _serve_area(AREA)
+
+    response = client.get("/api/place-search", params={"q": "柏"})
+
+    assert response.status_code == 200
+    assert response.json() == {"candidates": [
+        _address(city, "千葉県柏市", "city"),
+        _address(oaza, "千葉県柏市柏下", "oaza"),
     ]}
 
 
