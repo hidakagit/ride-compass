@@ -175,10 +175,18 @@ function mergeObscured(a: RouteFitObscuredPx | undefined, b: RouteFitObscuredPx)
   };
 }
 
-/** 地図の上に重なるもの（呼び出し側が測った覆いと、印の付いた部品）を避けた、見えている所までの辺ごとの余白。 */
-function visiblePadding(map: MapLibreMap, measureObscured: () => RouteFitObscuredPx | undefined) {
+/** 地図の上に重なるもの（呼び出し側が測った覆いと、印の付いた部品）を避けた、見えている所までの辺ごとの余白。
+ * 閉じられる一時の重なりは`includeTransient`のときだけ避ける（`mapOverlayEdge`）。 */
+function visiblePadding(
+  map: MapLibreMap,
+  measureObscured: () => RouteFitObscuredPx | undefined,
+  { includeTransient }: { includeTransient: boolean },
+) {
   const canvas = map.getCanvas();
-  const obscured = mergeObscured(measureObscured(), measureMapOverlayEdges(canvas.getBoundingClientRect()));
+  const obscured = mergeObscured(
+    measureObscured(),
+    measureMapOverlayEdges(canvas.getBoundingClientRect(), { includeTransient }),
+  );
   return computeRouteFitPadding(obscured, { width: canvas.clientWidth, height: canvas.clientHeight });
 }
 
@@ -192,7 +200,7 @@ function fitBoundsToRoutes(
   const bounds = computeRouteBounds(routes);
 
   runWhenStyleReady(map, () => {
-    const padding = visiblePadding(map, measureObscured);
+    const padding = visiblePadding(map, measureObscured, { includeTransient: false });
     debugLog("map:viewport", "ルートを収める", { padding });
     map.fitBounds(bounds, { padding });
   });
@@ -204,7 +212,8 @@ const FOCUS_ZOOM = 16;
 /** 地点を、見えている所の中ほどへ寄せる。`flyTo`の`padding`は寄せたあとも地図に残るので、残らない`offset`でずらす。 */
 function flyToVisible(map: MapLibreMap, point: Coordinates, measureObscured: () => RouteFitObscuredPx | undefined) {
   runWhenStyleReady(map, () => {
-    const padding = visiblePadding(map, measureObscured);
+    // 置いたあとの案内の下にピンを隠さない。
+    const padding = visiblePadding(map, measureObscured, { includeTransient: true });
     map.flyTo({
       center: [point.longitude, point.latitude],
       zoom: FOCUS_ZOOM,
@@ -484,7 +493,13 @@ export default function MapView({
       // 道はルート結果と同じ「軸ごとの効き方」を見せるためReactの部品で描く。点（事故・POI）は数行の事実だけなので
       // MapLibreのPopupへ直接載せる。
       const point = POINT_LAYER_BY_SCENE_ID.get(feature.layer.id);
-      const pointContent = point === undefined ? null : buildPointPopupContent(point, feature.properties);
+      // 外の地図で探す位置は点そのものの位置（押した所は絵の端のことがある）。点の層のタイルは点1つずつを焼く。
+      let pointContent: HTMLDivElement | null = null;
+      if (point !== undefined) {
+        if (feature.geometry.type !== "Point") throw new Error(`点の層 ${point.attr_id} の地物が点でない`);
+        const [lng, lat] = feature.geometry.coordinates;
+        pointContent = buildPointPopupContent(point, feature.properties, { lng, lat });
+      }
 
       popupRef.current?.remove();
       popupRef.current = null;

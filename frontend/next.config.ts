@@ -3,6 +3,9 @@ import { BACKEND_INTERNAL_URL } from "./src/lib/backendInternalUrl";
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // e2eのビルド（npm run build:e2e）だけ型を検査しない。型はCIのfrontendジョブのtsc --noEmitが見る
+  // （docs/conventions/testing-operations.md「E2E・画面の撮影の走らせ方」）。
+  typescript: { ignoreBuildErrors: process.env.npm_lifecycle_event === "build:e2e" },
   experimental: {
     // rewritesの外部プロキシ（下記のタイル類）は既定で30秒で打ち切り、backendが処理を完走
     // していてもブラウザへは「フロントエンド発の500」を返す（next/dist/server/lib/router-utils/

@@ -72,6 +72,10 @@ export const mapDisplay = {
       "minZoom": 12
     },
     {
+      "key": "stop_place",
+      "minZoom": 12
+    },
+    {
       "key": "gsiRelief",
       "minZoom": null
     },
@@ -266,6 +270,22 @@ export const mapDisplay = {
       ],
       "panelHint": [
         "コンビニ、飲料自販機、自販機(中身不明)、トイレ、給水、駐輪場の位置です。自販機は飲み物が買えると分かっているものだけを「飲料自販機」として出し、売っているものが分からないものは「自販機(中身不明)」として区別します[たばこ・切符の機械は出しません]。コンビニはOverture Mapsの地点のうちチェーンの店を、ほかはOSMのデータを出します。どれも閉店・撤去にデータが追いついていないことがあります。現地の状況と異なる場合があることをご留意ください。"
+      ]
+    },
+    {
+      "id": "stop_place",
+      "label": "立ち寄り先",
+      "dataSource": "stop_place",
+      "category": "amenity",
+      "kind": "static",
+      "dataNature": "raw",
+      "defaultOn": false,
+      "chipLabel": "立ち寄り",
+      "description": [
+        "飲食店、銭湯・温泉、自転車、景色・名所、宿、寺社の位置を群ごとに色分け表示"
+      ],
+      "panelHint": [
+        "飲食店、銭湯・温泉、自転車、景色・名所、宿、寺社の位置です。寺社は国の文化財の建造物を持つものを、ほかはOverture Mapsの地点を出します。閉店にデータが追いついていないことがあります。現地の状況と異なる場合があることをご留意ください。"
       ]
     },
     {
@@ -805,7 +825,8 @@ export const mapDisplay = {
     "opacityByLayer": {
       "stop_poi": 0.9,
       "accident_point": 0.75,
-      "supply_poi": 0.9
+      "supply_poi": 0.9,
+      "stop_place": 0.9
     }
   },
   "area": {

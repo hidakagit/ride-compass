@@ -227,8 +227,9 @@ DBを使うテストを手元で回さずに実装を変えてテストを直し
 
 何をE2Eで見るか・書き方は[testing.md](testing.md)パターン4が持つ。
 
-- **`npm run test:e2e`**（`npm run build`→`playwright test`）。CIのe2eジョブも同じ
-  コマンドを使う。
+- **`npm run test:e2e`**（`npm run build:e2e`→`playwright test`）。CIのe2eジョブも同じ
+  コマンドを使う。`build:e2e`は型の検査を外した本番ビルドで（`next.config.ts`の`typescript.ignoreBuildErrors`）、
+  型はCIの`frontend`ジョブの`tsc --noEmit`が見る。本番のimage（`Dockerfile`の`npm run build`）は型を検査する。
 - **全状態の走査（`e2e/all-states.spec.ts`）は、CIでは別ジョブ（`e2e-scan`）で走らせ、
   それ以外のspecは`e2e`ジョブで走らせる。** 走査は幅 × 段階ごとに1本で、`e2e-scan`は幅ごとに段階の数のジョブへ
   分ける（`--shard`）。masterへのpushとPull Requestのどちらでも走る。CIで落ちた走査を手元で再現するときは

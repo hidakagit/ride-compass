@@ -5,7 +5,13 @@
 
 from collections import Counter
 
-from app.domain.registry import DisplayAxisSpec, DisplayCategorySpec, PointFactSpec, PrimaryAttributeSpec
+from app.domain.registry import (
+    DisplayAxisSpec,
+    DisplayCategorySpec,
+    PointFactSpec,
+    PointThinningSpec,
+    PrimaryAttributeSpec,
+)
 from app.domain.road import SURFACE_CLASSES, TRACK_GRADES, surface_class_description
 from app.domain.stop_place import StopPlaceGroup
 from app.domain.traffic import TAG_KIND_RULES, kind_map_sql, kinds_shown_as, stop_kind_sql
@@ -346,6 +352,81 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
                 ),
             ),
         ),
+        # 名前を持つのはコンビニの点だけ（OpenStreetMap の点の名前は焼かない）。
+        point_name_property="name",
+    ),
+    # 群「コンビニ」は補給の点に出すので、ここの行に入れない。
+    PrimaryAttributeSpec(
+        attr_id="stop_place",
+        tile_kind="stop_place",
+        label="立ち寄り先",
+        geometry="point",
+        display_axes=(
+            DisplayAxisSpec(
+                key="group",
+                property="group",
+                palette="nominal",
+                hue_slot=6,
+                tone="vivid",
+                categories=(
+                    DisplayCategorySpec(
+                        key=StopPlaceGroup.EAT_DRINK.value,
+                        label="飲食店",
+                        values=(StopPlaceGroup.EAT_DRINK.value,),
+                        glyph="cup",
+                        description="飲食店・カフェ・酒場[Overture Maps の地点の飲食の分類]。",
+                    ),
+                    DisplayCategorySpec(
+                        key=StopPlaceGroup.BATH.value,
+                        label="銭湯・温泉",
+                        values=(StopPlaceGroup.BATH.value,),
+                        glyph="steam",
+                        description="銭湯・温泉・サウナ[Overture Maps の地点の分類]。",
+                    ),
+                    DisplayCategorySpec(
+                        key=StopPlaceGroup.BICYCLE.value,
+                        label="自転車",
+                        values=(StopPlaceGroup.BICYCLE.value,),
+                        glyph="wrench",
+                        description="自転車の店・修理・貸し自転車[Overture Maps の地点の分類]。",
+                    ),
+                    DisplayCategorySpec(
+                        key=StopPlaceGroup.SCENIC.value,
+                        label="景色・名所",
+                        values=(StopPlaceGroup.SCENIC.value,),
+                        glyph="mountain",
+                        description="公園・庭園・湖・滝・山・浜・城・展望台・博物館の類[Overture Maps の地点の分類]。",
+                    ),
+                    DisplayCategorySpec(
+                        key=StopPlaceGroup.LODGING.value,
+                        label="宿",
+                        values=(StopPlaceGroup.LODGING.value,),
+                        glyph="bed",
+                        description="ホテル・旅館・民宿・キャンプ場の類[Overture Maps の地点の分類]。",
+                    ),
+                    DisplayCategorySpec(
+                        key=StopPlaceGroup.TEMPLE_SHRINE.value,
+                        label="寺社",
+                        values=(StopPlaceGroup.TEMPLE_SHRINE.value,),
+                        glyph="gate",
+                        description="国の指定・登録の文化財の建造物を持つ寺社[文化遺産オンライン]。",
+                    ),
+                ),
+            ),
+        ),
+        # 街中は飲食店で埋まるので、地点の少ない群から残す（並びは都内の件数の少ない順）。
+        point_thinning=PointThinningSpec(
+            rows=(
+                StopPlaceGroup.TEMPLE_SHRINE.value,
+                StopPlaceGroup.BATH.value,
+                StopPlaceGroup.BICYCLE.value,
+                StopPlaceGroup.LODGING.value,
+                StopPlaceGroup.SCENIC.value,
+                StopPlaceGroup.EAT_DRINK.value,
+            ),
+            ratio_property="confidence",
+        ),
+        point_name_property="name",
     ),
 )
 # 読む側はidで1件を引く（`next(...)`）ため、同じidを2度宣言すると後の宣言が黙って消える。

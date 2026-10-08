@@ -7,7 +7,13 @@ import type { StyleLayer } from "@/testing/mapTrace/recordingMap";
 
 vi.mock("maplibre-gl", () => import("@/testing/maplibre"));
 
-import { areaLayerAnchor, prepareBasemap, resetBasemapPreparation, runWhenStyleReady } from "./mapStyleOps";
+import {
+  areaLayerAnchor,
+  labelLayerAnchor,
+  prepareBasemap,
+  resetBasemapPreparation,
+  runWhenStyleReady,
+} from "./mapStyleOps";
 
 /** スタイル`layers`を読み込んだ地図（undefined なら読み込み中）。 */
 function drawMap(layers: readonly StyleLayer[] | undefined) {
@@ -84,6 +90,24 @@ describe("面レイヤーの差し込み位置", () => {
   });
 });
 
+describe("文字に場所を譲る点の差し込み位置", () => {
+  it("基礎地図が最後まで続けて描く記号の並びの頭にする（途中の記号の後ろに線・面があれば、その後ろ）", () => {
+    // libertyの並び: 道路網の途中に一方通行の矢印（記号）があり、その後ろに橋の線・建物・境界を描いてから文字が続く。
+    const { map } = drawMap([
+      { id: "road_minor", type: "line", "source-layer": "transportation" },
+      { id: "road_one_way_arrow", type: "symbol", "source-layer": "transportation" },
+      { id: "bridge_street", type: "line", "source-layer": "transportation" },
+      { id: "building", type: "fill", "source-layer": "building" },
+      { id: "boundary_2", type: "line", "source-layer": "boundary" },
+      { id: "water_name_point_label", type: "symbol", "source-layer": "water_name" },
+      { id: "poi_r1", type: "symbol", "source-layer": "poi" },
+      { id: "label_city", type: "symbol", "source-layer": "place" },
+    ]);
+    prepareBasemap(map);
+    expect(labelLayerAnchor(map)).toBe("water_name_point_label");
+  });
+});
+
 describe("基礎地図の店・施設", () => {
   // libertyの店・施設のレイヤーの絞り（OpenFreeMapのスタイルから写した）。点を順位で3段に分け、駅・バス・空港は別に描く。
   const POINT = ["match", ["geometry-type"], ["MultiPoint", "Point"], true, false];
@@ -121,15 +145,34 @@ describe("基礎地図の店・施設", () => {
       );
   }
 
-  it("コンビニ（補給の点が別の出どころから出す）は描かず、ほかの店・施設と駅はそのまま描く", () => {
+  // OpenMapTilesのスキーマの値（`class`は束ねた種類、`subclass`は元のOSMのタグの値）。
+  it.each([
+    ["コンビニ（補給の点）", { class: "shop", subclass: "convenience" }],
+    ["飲食店", { class: "restaurant", subclass: "restaurant" }],
+    ["カフェ", { class: "cafe", subclass: "cafe" }],
+    ["酒場", { class: "beer", subclass: "pub" }],
+    ["自転車の店", { class: "bicycle", subclass: "bicycle" }],
+    ["公園", { class: "park", subclass: "park" }],
+    ["展望地", { class: "attraction", subclass: "viewpoint" }],
+    ["宿", { class: "lodging", subclass: "hotel" }],
+    ["キャンプ場", { class: "campsite", subclass: "camp_site" }],
+    ["礼拝の場所（寺社は文化財から出す）", { class: "place_of_worship", subclass: "place_of_worship" }],
+  ])("%s は、アプリの点の層が別の出どころから出すので、どの順位でも描かない", (_, kind) => {
     const { map } = drawMap(POI_LAYERS);
     prepareBasemap(map);
 
-    // OpenMapTilesのスキーマで、OSMの`shop=convenience`は`class=shop`・`subclass=convenience`になる。
-    expect(drawnBy(map, { class: "shop", subclass: "convenience", rank: 3 })).toEqual([]);
-    expect(drawnBy(map, { class: "shop", subclass: "convenience", rank: 25 })).toEqual([]);
+    for (const rank of [3, 8, 25]) expect(drawnBy(map, { ...kind, rank })).toEqual([]);
+  });
+
+  it("病院・銀行・郵便局・学校・ほかの店と駅は、そのまま描く", () => {
+    const { map } = drawMap(POI_LAYERS);
+    prepareBasemap(map);
+
     expect(drawnBy(map, { class: "shop", subclass: "bakery", rank: 3 })).toEqual(["poi_r1"]);
     expect(drawnBy(map, { class: "hospital", subclass: "hospital", rank: 8 })).toEqual(["poi_r7"]);
+    expect(drawnBy(map, { class: "bank", subclass: "bank", rank: 8 })).toEqual(["poi_r7"]);
+    expect(drawnBy(map, { class: "post", subclass: "post_office", rank: 8 })).toEqual(["poi_r7"]);
+    expect(drawnBy(map, { class: "school", subclass: "school", rank: 8 })).toEqual(["poi_r7"]);
     expect(drawnBy(map, { class: "rail", subclass: "station", rank: 25 })).toEqual(["poi_r20", "poi_transit"]);
   });
 

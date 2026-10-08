@@ -1,7 +1,7 @@
 /**
  * `PlaceSearch/PlaceSearch.tsx`——住所・施設の名前を入れて、地図の真ん中を添えて引き、候補（表示名・種類・当たった段、施設は地図の真ん中からの直線距離）を並べ、選んだ候補を目的地・出発地・
- * 経由地のどれかとして置く。打ちかけでも、決まった文字数から、打つのが止まると引く（かな漢字の変換中は引かない）。置いたあとは、当たった段が粗ければピンを直すように出す（施設は施設の位置なので出さない）。引けないとき・当たらないときはそう出す。
- * 引いたあとに地図を動かしても引き直さない。経由地が上限なら経由地には置けない。地図に重ねて出す一覧と案内は閉じられる。
+ * 経由地のどれかとして置く。打ちかけでも、決まった文字数から、打つのが止まると引く（かな漢字の変換中は引かない）。置いたあとは1行で出し、当たった段が粗ければ代表の位置だと添える（施設は施設の位置なので添えない）。引けないとき・当たらないときはそう出す。
+ * 引いたあとに地図を動かしても引き直さない。経由地が上限なら経由地には置けない。地図に重ねて出す一覧と案内は閉じられ、置いたあとの案内は地図がルートへ寄るときにも閉じる。
  *
  * ここで見ないもの:
  * - 周回で経由地・目的地を選んだときのモードの切り替えと、置ける状態を解くこと → `features/route/useGenerationConditions.test.ts`
@@ -16,7 +16,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import { onBackend } from "@/testing/backendServer";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
-import type { Coordinates, PlaceCandidate } from "@/types/route";
+import { makeRouteCandidate } from "@/testing/routeFixtures";
+import type { Coordinates, PlaceCandidate, RouteCandidate } from "@/types/route";
 
 import PlaceSearch from "./PlaceSearch";
 
@@ -49,11 +50,16 @@ const NEAR_SENSOJI: Coordinates = { latitude: 35.713, longitude: 139.7967 };
 
 function renderSearch({ waypointsFull = false, mapCenter = TOKYO_STATION } = {}) {
   const onPlace = vi.fn();
-  const { rerender } = render(<PlaceSearch mapCenter={mapCenter} onPlace={onPlace} waypointsFull={waypointsFull} />);
+  let props = { mapCenter, onPlace, waypointsFull, routes: [] as readonly RouteCandidate[] };
+  const { rerender } = render(<PlaceSearch {...props} />);
+  const update = (changed: Partial<typeof props>) => {
+    props = { ...props, ...changed };
+    rerender(<PlaceSearch {...props} />);
+  };
   return {
     onPlace,
-    moveMap: (center: Coordinates) =>
-      rerender(<PlaceSearch mapCenter={center} onPlace={onPlace} waypointsFull={waypointsFull} />),
+    moveMap: (center: Coordinates) => update({ mapCenter: center }),
+    showRoutes: (routes: RouteCandidate[]) => update({ routes }),
   };
 }
 
@@ -72,7 +78,7 @@ async function searchFor(text: string) {
 }
 
 describe("PlaceSearch", () => {
-  it("入れた住所・施設の候補を種類と当たった段（施設は地図の真ん中からの距離も）つきで並べ、選んだ役割の地点として置き、段が粗ければピンを直すように出す", async () => {
+  it("入れた住所・施設の候補を種類と当たった段（施設は地図の真ん中からの距離も）つきで並べ、選んだ役割の地点として置いたことを1行で出し、段が粗ければ代表の位置だと添える", async () => {
     const sent = onBackend("GET", "/api/place-search", () => Response.json({ candidates: [BLOCK, AZA, FACILITY] }));
     const { onPlace } = renderSearch();
 
@@ -94,33 +100,44 @@ describe("PlaceSearch", () => {
       longitude: AZA.longitude,
     });
     expect(screen.queryByRole("list", { name: "地点の候補" })).toBeNull();
-    expect(screen.getByRole("status")).toHaveTextContent(
-      `「${AZA.name}」を目的地にしました。ピンは字・丁目の代表の位置です。つかんで動かせます。`,
-    );
+    expect(screen.getByRole("status").textContent).toBe(`「${AZA.name}」を目的地にしました（代表の位置）`);
 
-    // 街区まで当たった地点は、直せることだけを出す。
+    // 街区まで当たった地点は、置いたことだけを出す。
     await searchFor("1-9");
     await userEvent.click(await screen.findByRole("button", { name: new RegExp(BLOCK.name) }));
     await userEvent.click(screen.getByRole("button", { name: "経由地へ" }));
 
     expect(onPlace).toHaveBeenLastCalledWith("waypoint", { latitude: BLOCK.latitude, longitude: BLOCK.longitude });
-    expect(screen.getByRole("status")).toHaveTextContent(
-      `「${BLOCK.name}」を経由地に足しました。ピンはつかんで動かせます。`,
-    );
+    expect(screen.getByRole("status").textContent).toBe(`「${BLOCK.name}」を経由地に足しました`);
 
-    // 施設は施設そのものの位置なので、街区と同じく直せることだけを出す。
+    // 施設は施設そのものの位置なので、街区と同じく置いたことだけを出す。
     await searchFor("浅草寺");
     await userEvent.click(await screen.findByRole("button", { name: new RegExp(FACILITY.name) }));
     await userEvent.click(screen.getByRole("button", { name: "出発地へ" }));
 
     expect(onPlace).toHaveBeenLastCalledWith("origin", { latitude: FACILITY.latitude, longitude: FACILITY.longitude });
-    expect(screen.getByRole("status")).toHaveTextContent(
-      `「${FACILITY.name}」を出発地にしました。ピンはつかんで動かせます。`,
-    );
+    expect(screen.getByRole("status").textContent).toBe(`「${FACILITY.name}」を出発地にしました`);
 
     // 案内は地図に重なるので、閉じて地図を空けられる。
     await userEvent.click(screen.getByRole("button", { name: "検索の結果を閉じる" }));
     expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("置いたあとの案内は、地図に描くルートが1本以上に変わると、引いた候補の一覧を出し直さずに閉じる（地図がルートへ寄るので、地図の上を空ける）", async () => {
+    onBackend("GET", "/api/place-search", () => Response.json({ candidates: [AZA] }));
+    const { showRoutes } = renderSearch();
+    await searchFor("丸の内");
+    await userEvent.click(await screen.findByRole("button", { name: new RegExp(AZA.name) }));
+    await userEvent.click(screen.getByRole("button", { name: "目的地へ" }));
+    expect(screen.getByRole("status")).toBeInTheDocument();
+
+    // ルートが消えただけでは地図は寄らないので、案内は残す。
+    showRoutes([]);
+    expect(screen.getByRole("status")).toBeInTheDocument();
+
+    showRoutes([makeRouteCandidate()]);
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.queryByRole("list", { name: "地点の候補" })).toBeNull();
   });
 
   it("打ちかけでも、決まった文字数から、打つのが止まると引く", async () => {
