@@ -1,4 +1,4 @@
-"""地点の検索の段取り: 入力を整え、住所の辞書を引き、対象範囲の外の候補を落とす。
+"""地点の検索の段取り: 対象範囲を読み、入力を整えて、住所の辞書を範囲の中で引く。
 
 対象範囲はサービスの対象範囲（取り込んだ道路の範囲、`RegionService.get_ingested_area`）で、範囲の外の地点では
 ルートを作れない。辞書は全国を持つ。
@@ -25,9 +25,8 @@ class PlaceSearchService:
     async def search(self, query: str) -> PlaceSearchResult:
         """辞書を開けなければ`AddressDictionaryUnavailableError`、対象範囲を読めなければ
         `PlaceSearchAreaUnavailable`を送出する。"""
-        candidates = await search_addresses(normalize_place_query(query))
         async with self._open_region_service() as region_service:
             area = await region_service.get_ingested_area()
         if area is None:
             raise PlaceSearchAreaUnavailable
-        return PlaceSearchResult(candidates=[c for c in candidates if area.contains(c)])
+        return PlaceSearchResult(candidates=await search_addresses(normalize_place_query(query), area))

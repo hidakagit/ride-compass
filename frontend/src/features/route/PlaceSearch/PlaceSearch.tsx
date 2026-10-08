@@ -1,7 +1,7 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/Badge/Badge";
 import { Button } from "@/components/ui/Button/Button";
@@ -14,6 +14,7 @@ import { searchPlaces } from "@/features/route/placeSearchApi";
 import { cn } from "@/lib/cn";
 import { mapOverlayEdge } from "@/lib/mapOverlayEdges";
 import { getQueryClient } from "@/lib/queryClient";
+import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import { vocabulary } from "@/types/generated/vocabulary";
 import type { Coordinates, PinRole, PlaceCandidate } from "@/types/route";
 
@@ -26,6 +27,9 @@ const LEVEL_LABELS = Object.fromEntries(vocabulary.placeMatchLevels.map((l) => [
   PlaceCandidate["level"],
   string
 >;
+// 打ちかけで引き始める長さ（空白を除いた文字数）と、打つのが止まってから引くまでの間。口の回数制限はこの間から決まる。
+const PREDICTION_MIN_LENGTH = routeGenerateConfig.place_prediction_min_length;
+const PREDICTION_DELAY_MS = routeGenerateConfig.place_prediction_delay_seconds * 1000;
 // 街区より粗い段で当たった地点は、その範囲の代表の位置にすぎず、行きたい所から離れうる。
 const PRECISE_LEVELS: ReadonlySet<PlaceCandidate["level"]> = new Set(["block", "building"]);
 
@@ -58,8 +62,9 @@ interface PlaceSearchProps {
  */
 export default function PlaceSearch({ onPlace, waypointsFull }: PlaceSearchProps) {
   const [text, setText] = useState("");
-  // 引いた文字列。打つたびには引かない（口の回数制限に当たる）。
+  // 引いた文字列。打つのが止まってから引く（打つたびに引くと口の回数制限に当たる）。
   const [query, setQuery] = useState("");
+  const lookUpTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [placed, setPlaced] = useState<{ candidate: PlaceCandidate; message: string } | null>(null);
 
@@ -68,17 +73,34 @@ export default function PlaceSearch({ onPlace, waypointsFull }: PlaceSearchProps
       queryKey: ["place-search", query],
       queryFn: () => searchPlaces(query),
       enabled: query !== "",
+      // 打ちかけで引き直す間も、前の候補を出しておく（一覧が「探しています…」と入れ替わってちらつかない）。
+      placeholderData: keepPreviousData,
     },
     getQueryClient(),
   );
 
-  function submit() {
-    const trimmed = text.trim();
-    if (trimmed === "") return;
+  useEffect(() => () => clearTimeout(lookUpTimer.current), []);
+
+  function lookUp(trimmed: string) {
     setSelectedIndex(null);
     setPlaced(null);
+    setQuery(trimmed);
+  }
+
+  // かな漢字の変換中は呼ばない（変換を確定したときに呼ぶ）。
+  function scheduleLookUp(value: string) {
+    clearTimeout(lookUpTimer.current);
+    if (value.replace(/\s/g, "").length < PREDICTION_MIN_LENGTH) return;
+    const trimmed = value.trim();
+    lookUpTimer.current = setTimeout(() => lookUp(trimmed), PREDICTION_DELAY_MS);
+  }
+
+  function submit() {
+    clearTimeout(lookUpTimer.current);
+    const trimmed = text.trim();
+    if (trimmed === "") return;
+    lookUp(trimmed);
     if (trimmed === query) void search.refetch();
-    else setQuery(trimmed);
   }
 
   function place(candidate: PlaceCandidate, role: PinRole, message: string) {
@@ -112,8 +134,12 @@ export default function PlaceSearch({ onPlace, waypointsFull }: PlaceSearchProps
           placeholder="住所で探す（例: 千代田区丸の内1-9）"
           className="min-w-0 flex-auto"
           value={text}
-          onChange={(event) => setText(event.target.value)}
-          data-usage="住所を入れて探します。候補を選ぶと、目的地・出発地・経由地のどれにするかを選べます。"
+          onChange={(event) => {
+            setText(event.target.value);
+            if (!(event.nativeEvent as InputEvent).isComposing) scheduleLookUp(event.target.value);
+          }}
+          onCompositionEnd={(event) => scheduleLookUp(event.currentTarget.value)}
+          data-usage={`住所を入れて探します。${PREDICTION_MIN_LENGTH}文字から、打つのを止めると続きの候補が出ます。候補を選ぶと、目的地・出発地・経由地のどれにするかを選べます。`}
         />
         <Button type="submit" size="sm" className="flex-none" usage="入れた住所で地点の候補を探します。">
           検索
@@ -139,7 +165,7 @@ export default function PlaceSearch({ onPlace, waypointsFull }: PlaceSearchProps
             ✕
           </Button>
           {showingResults &&
-            (search.isFetching ? (
+            (search.isFetching && !search.isPlaceholderData ? (
               <p role="status" className={textVariants({ variant: "hint" })}>
                 探しています…
               </p>
