@@ -248,18 +248,34 @@ test("宣言された地図レイヤーを全部ONにしても、スタイル検
 });
 
 // ルートを収める余白は、地図の上に重ねた部品が覆う幅を含む（含まないと、ルートの端が操作列の下に隠れる）。
+// 閉じられる一時の重なり（住所の検索の候補の一覧）は含まない（含むと、すぐ閉じる一覧のためにルートが小さく収まる）。
 // 余白はMapLibreへ渡した値をデバッグログで読み、覆う幅は部品を名前で探して実寸で測る——余白を決めた側の印とは
 // 別の入力で確かめる。
-test("ルートを収めるとき、地図の上の操作部品が覆う所へルートの端を置かない", async ({ page }) => {
+test("ルートを収めるとき、地図の上の操作部品が覆う所へルートの端を置かず、検索の候補の一覧の分は空けない", async ({
+  page,
+}) => {
   const fit: { padding?: Record<"top" | "bottom" | "left" | "right", number> } = {};
   page.on("console", async (message) => {
     if (!message.text().includes("[map:viewport] ルートを収める")) return;
     Object.assign(fit, await message.args()[1]?.jsonValue());
   });
   await installApiMocks(page);
+  // 一覧が上の操作部品より深く地図を覆う件数。
+  const candidates = Array.from({ length: 5 }, (_, i) => ({
+    kind: "address",
+    level: "block",
+    name: `東京都千代田区丸の内一丁目${i + 1}番`,
+    latitude: 35.681,
+    longitude: 139.767,
+  }));
+  await page.route("**/api/place-search*", (route) => route.fulfill({ json: { candidates } }));
   await seedStoredState(page, { "ridecompass:debug-enabled": "1" });
   await page.goto("/");
   await expect(page.getByText("地図を読み込み中…")).toBeHidden({ timeout: 15_000 });
+  await page.getByRole("searchbox", { name: "住所・施設で探す" }).fill("丸の内");
+  await page.getByRole("searchbox", { name: "住所・施設で探す" }).press("Enter");
+  const list = page.getByRole("list", { name: "地点の候補" });
+  await expect(list).toBeVisible();
   await runGeneration(page);
   await expect.poll(() => fit.padding, { timeout: 10_000 }).toBeDefined();
 
@@ -279,6 +295,8 @@ test("ルートを収めるとき、地図の上の操作部品が覆う所へ�
     expect(values.length, `${edge}の辺を覆う部品が見つからない`).toBeGreaterThan(0);
     expect(fit.padding![edge], `${edge}の余白`).toBeGreaterThanOrEqual(Math.max(...values));
   }
+  const listBox = (await list.boundingBox())!;
+  expect(fit.padding!.top, "一覧の下まで空けている").toBeLessThan(listBox.y + listBox.height - canvas.y);
 });
 
 // 地図の上で始めたピンチは、ページではなく地図を拡大する（パターン4 観点2）。地図のcanvas以外の部品から

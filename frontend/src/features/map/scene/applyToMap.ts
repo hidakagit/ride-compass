@@ -22,7 +22,13 @@ import type {
   DynamicWeatherRenderPayload,
 } from "@/features/map/layers/dynamicWeather";
 import { withJmaTileProtocol } from "@/features/map/layers/jmaTileProtocol";
-import { areaLayerAnchor, prepareBasemap, runWhenStyleReady } from "@/features/map/layers/mapStyleOps";
+import {
+  areaLayerAnchor,
+  hideBasemapPois,
+  labelLayerAnchor,
+  prepareBasemap,
+  runWhenStyleReady,
+} from "@/features/map/layers/mapStyleOps";
 import { primaryAttributeIdsToLayerIds } from "@/features/map/layers/primaryAttributes";
 import { ROUTE_ARROW_ICON_ID, createRouteArrowIcon } from "@/features/map/layers/routeArrowIcon";
 import type { LensId, RouteStyleMode } from "@/lib/mapDisplay/routeStyleModes";
@@ -52,7 +58,7 @@ import type { RoutePath, RouteState } from "@/features/map/scene/groups/routes";
 import { drawPointIcon } from "@/features/map/layers/pointIcon";
 import { POINT_ICONS, POINT_TILE_SOURCES } from "@/features/map/scene/groups/points";
 import { WEATHER_ICONS, type WeatherPayload, type WeatherState } from "@/features/map/scene/groups/weather";
-import { EMPTY_MAP_SCENE, type MapScene } from "./mapScene";
+import { EMPTY_MAP_SCENE, hiddenBasemapPois, type MapScene } from "./mapScene";
 
 /** 乗り換えられる区間1本ぶんの入力。`index`は押されたときに呼び出し側が見分ける値。 */
 export interface SpliceStretchInput {
@@ -293,10 +299,11 @@ export function applyScene(map: MapLibreMap, scene: MapScene, options: { reset?:
       map.addImage(icon.id, data, { pixelRatio });
     }
     prepareBasemap(map);
+    hideBasemapPois(map, hiddenBasemapPois(scene));
     applyMapScene(map, {
       scene,
       previous: options.reset === true ? EMPTY_MAP_SCENE : (appliedScene.get(map) ?? EMPTY_MAP_SCENE),
-      areaLayerBeforeId: areaLayerAnchor(map),
+      basemapAnchors: { roads: areaLayerAnchor(map), labels: labelLayerAnchor(map) },
     });
     appliedScene.set(map, scene);
   });

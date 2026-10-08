@@ -7,7 +7,16 @@ import type { StyleLayer } from "@/testing/mapTrace/recordingMap";
 
 vi.mock("maplibre-gl", () => import("@/testing/maplibre"));
 
-import { areaLayerAnchor, prepareBasemap, resetBasemapPreparation, runWhenStyleReady } from "./mapStyleOps";
+import {
+  type BasemapPoiKinds,
+  NO_BASEMAP_POI_KINDS,
+  areaLayerAnchor,
+  hideBasemapPois,
+  labelLayerAnchor,
+  prepareBasemap,
+  reloadStyle,
+  runWhenStyleReady,
+} from "./mapStyleOps";
 
 /** スタイル`layers`を読み込んだ地図（undefined なら読み込み中）。 */
 function drawMap(layers: readonly StyleLayer[] | undefined) {
@@ -52,12 +61,12 @@ describe("面レイヤーの差し込み位置", () => {
       { id: "water", type: "fill", "source-layer": "water" },
       { id: "highway", type: "line", "source-layer": "transportation" },
     ];
+    reloadStyle(map, "replaced", () => prepareBasemap(map));
     screen.loadStyle(replaced);
     prepareBasemap(map);
     expect(areaLayerAnchor(map)).toBeUndefined();
 
-    resetBasemapPreparation(map);
-    prepareBasemap(map);
+    screen.emit("style.load");
     expect(areaLayerAnchor(map)).toBe("highway");
   });
 
@@ -81,6 +90,24 @@ describe("面レイヤーの差し込み位置", () => {
     prepareBasemap(map);
     screen.loadStyle([{ id: "background", type: "background" }]);
     expect(areaLayerAnchor(map)).toBeUndefined();
+  });
+});
+
+describe("文字に場所を譲る点の差し込み位置", () => {
+  it("基礎地図が最後まで続けて描く記号の並びの頭にする（途中の記号の後ろに線・面があれば、その後ろ）", () => {
+    // libertyの並び: 道路網の途中に一方通行の矢印（記号）があり、その後ろに橋の線・建物・境界を描いてから文字が続く。
+    const { map } = drawMap([
+      { id: "road_minor", type: "line", "source-layer": "transportation" },
+      { id: "road_one_way_arrow", type: "symbol", "source-layer": "transportation" },
+      { id: "bridge_street", type: "line", "source-layer": "transportation" },
+      { id: "building", type: "fill", "source-layer": "building" },
+      { id: "boundary_2", type: "line", "source-layer": "boundary" },
+      { id: "water_name_point_label", type: "symbol", "source-layer": "water_name" },
+      { id: "poi_r1", type: "symbol", "source-layer": "poi" },
+      { id: "label_city", type: "symbol", "source-layer": "place" },
+    ]);
+    prepareBasemap(map);
+    expect(labelLayerAnchor(map)).toBe("water_name_point_label");
   });
 });
 
@@ -121,24 +148,66 @@ describe("基礎地図の店・施設", () => {
       );
   }
 
-  it("コンビニ（補給の点が別の出どころから出す）は描かず、ほかの店・施設と駅はそのまま描く", () => {
+  const RESTAURANT = { class: "restaurant", subclass: "restaurant" };
+  const CONVENIENCE = { class: "shop", subclass: "convenience" };
+  const HIDE = { class: ["restaurant"], subclass: ["convenience"] };
+
+  it("名指した種類（束ねた種類か元のタグの値）だけを、どの順位でも描かない", () => {
     const { map } = drawMap(POI_LAYERS);
     prepareBasemap(map);
 
-    // OpenMapTilesのスキーマで、OSMの`shop=convenience`は`class=shop`・`subclass=convenience`になる。
-    expect(drawnBy(map, { class: "shop", subclass: "convenience", rank: 3 })).toEqual([]);
-    expect(drawnBy(map, { class: "shop", subclass: "convenience", rank: 25 })).toEqual([]);
+    hideBasemapPois(map, HIDE);
+
+    for (const rank of [3, 8, 25]) {
+      expect(drawnBy(map, { ...RESTAURANT, rank })).toEqual([]);
+      expect(drawnBy(map, { ...CONVENIENCE, rank })).toEqual([]);
+    }
     expect(drawnBy(map, { class: "shop", subclass: "bakery", rank: 3 })).toEqual(["poi_r1"]);
-    expect(drawnBy(map, { class: "hospital", subclass: "hospital", rank: 8 })).toEqual(["poi_r7"]);
     expect(drawnBy(map, { class: "rail", subclass: "station", rank: 25 })).toEqual(["poi_r20", "poi_transit"]);
   });
 
-  it("同じスタイルへ何度当てても絞りを重ねない", () => {
+  it("種類を空にすると、配信元の絞りへ戻す", () => {
     const { map } = drawMap(POI_LAYERS);
     prepareBasemap(map);
-    const once = map.getStyle().layers;
+    const original = map.getStyle().layers;
+
+    hideBasemapPois(map, HIDE);
+    hideBasemapPois(map, NO_BASEMAP_POI_KINDS);
+
+    expect(map.getStyle().layers).toEqual(original);
+  });
+
+  it("何度当てても絞りを重ねない", () => {
+    const { map } = drawMap(POI_LAYERS);
     prepareBasemap(map);
+    hideBasemapPois(map, HIDE);
+    const once = map.getStyle().layers;
+
+    hideBasemapPois(map, { class: ["park"], subclass: [] });
+    hideBasemapPois(map, HIDE);
+
     expect(map.getStyle().layers).toEqual(once);
+  });
+
+  it("スタイルを取り直す間に当てても、新しいスタイルが読み込まれてから、その配信元の絞りへ当て直す", () => {
+    const { map, screen } = drawMap(POI_LAYERS);
+    const apply = (kinds: BasemapPoiKinds) => {
+      prepareBasemap(map);
+      hideBasemapPois(map, kinds);
+    };
+    apply(HIDE);
+    const hidden = map.getStyle().layers;
+
+    reloadStyle(map, "basemap", () => apply(HIDE));
+    apply(HIDE);
+    screen.loadStyle(POI_LAYERS);
+    screen.emit("style.load");
+
+    expect(drawnBy(map, { ...RESTAURANT, rank: 3 })).toEqual([]);
+    apply(NO_BASEMAP_POI_KINDS);
+    expect(drawnBy(map, { ...RESTAURANT, rank: 3 })).toEqual(["poi_r1"]);
+    apply(HIDE);
+    expect(map.getStyle().layers).toEqual(hidden);
   });
 });
 

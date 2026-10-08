@@ -127,9 +127,9 @@ Edgeコストは「探索範囲の静的Edge×公開軸スコア行列＋リク�
 参照する材料id→値、`AXIS_DEFINITIONS`の`materials`プロパティから導出、
 `evaluation.py: displayed_material_ids`が集合を決める）は、動的材料（風等）は`material_arrays`から
 （`material_value_at`）、静的材料（`gradient_percent`）はEdgeごとに計算済みの値を
-そのまま読む。`displayed_material_ids`はリクエストの`lens_axis_id`（地図のレンズが表示を
-要求している軸）が符号付き材料を塗る軸（`map_paint.py: map_paint`の`value`）を指す場合、
-その軸の材料も重みに関わらず含める（地図の色分けが重み0の軸でも成立するため）。
+そのまま読む。`displayed_material_ids`は符号付き材料を塗る公開軸（`map_paint.py: map_paint`の`value`）の
+材料も重みに関わらずいつも含める（地図のレンズはルートを作ったあとにも切り替わり、作り直さずに
+区間の値で塗るため。レンズは要求に載らない）。
 逆回り候補はレグ割当ても反転する（先に走る側が往路配列、`reverse_leg_assignment`）。レグ番号は走行順に振られるため、Edge列の反転と同時に番号自体も`max_leg - leg`へ振り直す。探索範囲を覆う格子点ごとの時別風予報
 （`WeatherService.get_wind_forecast_lattice`。格子はMSMと同じ細かさ、`domain/wind.py: WindLattice`・
 `WIND_FORECAST_LAT_STEP_DEG`/`WIND_FORECAST_LON_STEP_DEG`。格子は緯度・経度0度から数えた固定の線に揃い、
@@ -137,7 +137,7 @@ Edgeコストは「探索範囲の静的Edge×公開軸スコア行列＋リク�
 `LegCostComposer`の`_wind_points`）が無く、時間帯を持つ軸にも重みが無い場合は、出発時点のスナップショットで
 合成した1本を全レグで共有する（追加コストゼロ）。**重みが0でも時刻ビンは畳まない**——走行モデル（向かい風は速度そのものを落とす）が
 時刻で変わるため、重み0を理由に時刻固定へ落とすと所要時間が狂う。時別系列があれば重みにもレンズにも依らず
-時刻で合成し、`lens_axis_id`が効くのは区間に載せる材料の集合（`displayed_material_ids`）だけである。
+時刻で合成する。
 仮定巡航速度は`RouteGenerateRequest.assumed_speed_kmh`（画面の既定`ASSUMED_SPEED_KMH`）で
 リクエストごとに送られ、通過予定時刻と風の材料`wind_drag_ratio`（走行速度依存）の
 両方に効く。迂回率（道なり距離÷直線距離）は定数ではなく実測値を使う。直線距離を走行時間へ直す係数

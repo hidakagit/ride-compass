@@ -82,7 +82,6 @@ const BASIS: GenerationInput = {
   startTime: new Date("2026-10-04T09:00:00Z"),
   startTimePinned: true,
   hardFilters: { motorway: true },
-  lensAxisId: null,
   routePreference: { axis_a: 1 },
   waypoints: [],
   destination: { latitude: 35.6, longitude: 139.73 },

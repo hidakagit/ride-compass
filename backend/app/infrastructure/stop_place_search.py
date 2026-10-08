@@ -8,12 +8,14 @@
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.domain.geo import LatLon
 from app.domain.place_search import PLACE_PREDICTION_LIMIT, PlaceCandidate
 from app.domain.region import BoundingBox
 from app.domain.stop_place import normalized_sql
 
 # 整えると空になる入力（中点・ハイフンだけ）は、空の文字列がどの名前にも含まれるので引かない。
-# 並びの最後の鍵は、同じ名前・同じ確からしさの店の並びを毎回同じにするため。
+# 近さは測地の距離で測る（度のままの距離は、関東の緯度で東西を2割ほど短く数える）。並びの最後の鍵は、同じ位置の店の
+# 並びを毎回同じにするため。
 _SEARCH_SQL = text(f"""
     WITH q AS (SELECT {normalized_sql(":query")} AS name)
     SELECT s.name, s.area, ST_Y(s.geom) AS latitude, ST_X(s.geom) AS longitude
@@ -21,7 +23,8 @@ _SEARCH_SQL = text(f"""
     WHERE q.name <> '' AND strpos(s.search_name, q.name) > 0
       AND s.geom && ST_MakeEnvelope(:min_lon, :min_lat, :max_lon, :max_lat, 4326)
     ORDER BY CASE WHEN s.search_name = q.name THEN 0 WHEN starts_with(s.search_name, q.name) THEN 1 ELSE 2 END,
-             length(s.name), s.confidence DESC, s.source, s.source_key
+             ST_Distance(s.geom::geography, ST_SetSRID(ST_MakePoint(:near_lon, :near_lat), 4326)::geography),
+             s.source, s.source_key
     LIMIT :limit
 """)
 
@@ -30,13 +33,14 @@ class StopPlaceSearchQuery:
     def __init__(self, session: AsyncSession):
         self._session = session
 
-    async def search(self, query: str, area: BoundingBox) -> list[PlaceCandidate]:
+    async def search(self, query: str, area: BoundingBox, near: LatLon) -> list[PlaceCandidate]:
         """対象範囲の中で、名前に入力を含む施設を`PLACE_PREDICTION_LIMIT`件まで。並びは、名前が入力と同じ → 入力で
-        始まる → 入力を含む、同じ中では名前の短い順 → 確からしさの高い順。"""
+        始まる → 入力を含む、同じ中では`near`に近い順——同じ名前の店が上限を超えても、`near`の近くの店が入る。"""
         rows = (await self._session.execute(_SEARCH_SQL, {
             "query": query,
             "min_lat": area.min_latitude, "min_lon": area.min_longitude,
             "max_lat": area.max_latitude, "max_lon": area.max_longitude,
+            "near_lat": near.latitude, "near_lon": near.longitude,
             "limit": PLACE_PREDICTION_LIMIT,
         })).mappings()
         return [

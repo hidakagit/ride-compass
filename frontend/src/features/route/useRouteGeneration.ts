@@ -2,9 +2,7 @@
 
 import { useCallback, useState } from "react";
 
-import { useAxisCatalog } from "@/hooks/useAxisCatalog";
 import { debugLog } from "@/lib/debugLog";
-import { LENS_DIFFICULTY_ID, LENS_NONE_ID } from "@/lib/mapDisplay/routeStyleModes";
 import { fixedRouteCount, useRouteFormSubmit } from "@/features/route/RouteForm/useRouteFormSubmit";
 import {
   buildGenerateRequest,
@@ -18,7 +16,7 @@ import type { Coordinates, RouteCandidate, RoutePreferenceWeights } from "@/type
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 
 /** 押した「生成」の直近の結果。失敗は前の候補を残したまま出すため、候補0件の理由と分けて持つ。 */
-type GenerationNotice = { kind: "failed" | "empty"; message: string } | { kind: "generated"; count: number };
+type GenerationNotice = { kind: "failed" | "empty"; message: string };
 
 /** ルート生成の進み方。同時に成り立つのは1つだけ。 */
 type Generation =
@@ -33,8 +31,7 @@ interface GeneratedConditions {
   destinationCorrected: boolean;
   /** 利用者が重みを上書きしていたのに、軸カタログが無く送れなかったか（backendの既定の配分で探した）。 */
   weightsNotApplied: boolean;
-  /** 送った入力そのもの。乗り換えで合成した経路も同じ条件で評価する。返ってきた条件（`conditions`）でなく入力を
-   * 持つのは、そちらが塗る軸（`lens_axis_id`）を含まないため。 */
+  /** 送った入力そのもの。乗り換えで合成した経路も同じ条件で評価する。 */
   input: GenerationInput;
 }
 
@@ -70,16 +67,15 @@ export function useRouteGeneration({
   onGenerated,
   onOutcome,
 }: RouteGenerationInputs) {
-  const axisCatalog = useAxisCatalog();
   // 実行中は順番待ちか実行中かと経過時間をボタンへ出し、終わった後は直近の案内を「ルート結果」欄に残す。
   const [generation, setGeneration] = useState<Generation>(GENERATION_IDLE);
   const [generatedConditions, setGeneratedConditions] = useState<GeneratedConditions | null>(null);
 
   const { routePreferenceToSend } = conditions;
   const { routeMode, waypoints, destination, maxRoutes, hardFilters } = conditions.snapshot;
-  // いまの条件から生成の入力を組み立てる。`lens`は地図のレンズ、`destinationOverride`はbackendが補正した目的地。
+  // いまの条件から生成の入力を組み立てる。`destinationOverride`はbackendが補正した目的地。
   const buildCurrentGenerationInput = useCallback(
-    (distanceKm: number, lens: string, destinationOverride?: Coordinates): GenerationInput => {
+    (distanceKm: number, destinationOverride?: Coordinates): GenerationInput => {
       const effectiveDestination = destinationOverride ?? destination;
       const destinationModePoints =
         routeMode === "destination" ? [...waypoints, ...(effectiveDestination ? [effectiveDestination] : [])] : [];
@@ -93,8 +89,6 @@ export function useRouteGeneration({
         startTime: departure.at,
         startTimePinned: departure.pinned,
         hardFilters,
-        // 軸カタログが届くまでは塗る軸を送らない（backendは知らない軸を黙って無視する）。
-        lensAxisId: axisCatalog.loaded && lens !== LENS_NONE_ID && lens !== LENS_DIFFICULTY_ID ? lens : null,
         routePreference: routePreferenceToSend,
         waypoints: routeMode === "destination" ? waypoints : [],
         destination: routeMode === "destination" ? effectiveDestination : null,
@@ -110,24 +104,22 @@ export function useRouteGeneration({
       departure.at,
       departure.pinned,
       hardFilters,
-      axisCatalog.loaded,
       routePreferenceToSend,
     ],
   );
 
-  // 表示中の候補を作った条件と、いまのフォームがずれているか（変えただけでは何も起きないことを知らせる）。塗る軸は
-  // 比べない（`generationRequest.ts: IGNORED_WHEN_COMPARING`）ので、レンズは無しで組み立てる。
+  // 表示中の候補を作った条件と、いまのフォームがずれているか（変えただけでは何も起きないことを知らせる）。
   const conditionsDirty =
     generatedConditions != null &&
     hasRoutes &&
-    generationConditionsKey(buildCurrentGenerationInput(Number(conditions.snapshot.distance), LENS_NONE_ID)) !==
+    generationConditionsKey(buildCurrentGenerationInput(Number(conditions.snapshot.distance))) !==
       generatedConditions.key;
 
-  async function generate(distanceKm: number, lens: string) {
+  async function generate(distanceKm: number) {
     setGeneration({ status: "running", progress: null });
     let notice: GenerationNotice | null = null;
     try {
-      const generationInput = buildCurrentGenerationInput(distanceKm, lens);
+      const generationInput = buildCurrentGenerationInput(distanceKm);
       const {
         routes: candidates,
         conditions: used,
@@ -145,7 +137,7 @@ export function useRouteGeneration({
       onGenerated(orderGenerated(candidates), used.route_preference);
       // 補正があったら補正後の地点で入力を組み直す（ピンも動かしたので、直後に「条件が変わった」にならない）。
       const generatedInput = used.corrected_destination
-        ? buildCurrentGenerationInput(distanceKm, lens, used.corrected_destination)
+        ? buildCurrentGenerationInput(distanceKm, used.corrected_destination)
         : generationInput;
       setGeneratedConditions({
         key: generationConditionsKey(generatedInput),
@@ -153,13 +145,13 @@ export function useRouteGeneration({
         weightsNotApplied: conditions.weightOverrideEnabled && generatedInput.routePreference === null,
         input: generatedInput,
       });
-      notice =
-        candidates.length > 0
-          ? { kind: "generated", count: candidates.length }
-          : {
-              kind: "empty",
-              message: noCandidatesReason ?? "条件に合うルート候補が見つかりませんでした。条件を変えて試してください。",
-            };
+      // 候補が出たことは「ルート結果」の一覧と合図で分かるので、案内は候補0件のときだけ持つ。
+      if (candidates.length === 0) {
+        notice = {
+          kind: "empty",
+          message: noCandidatesReason ?? "条件に合うルート候補が見つかりませんでした。条件を変えて試してください。",
+        };
+      }
       onOutcome(candidates.length > 0 ? "fresh" : "empty");
     } catch (error) {
       const message = error instanceof Error ? error.message : "不明なエラーが発生しました";
@@ -179,11 +171,11 @@ export function useRouteGeneration({
     originKnown,
   });
 
-  /** 検証して生成する。`lens`は地図のレンズ（塗る軸を送るかはここから決める）。入力の誤りも押した結果として知らせる。 */
-  async function submit(lens: string) {
+  /** 検証して生成する。入力の誤りも押した結果として知らせる。 */
+  async function submit() {
     const distanceKm = routeFormSubmit.check();
     if (distanceKm === null) onOutcome("failed");
-    else await generate(distanceKm, lens);
+    else await generate(distanceKm);
   }
 
   /** 直近の案内を消す（実行中なら何もしない）。 */
@@ -218,7 +210,7 @@ export function useRouteGeneration({
         : progress?.status === "running"
           ? `生成中...(${Math.round(progress.elapsedMs / 1000)}秒経過)`
           : undefined,
-    /** 押した「生成」の直近の結果（件数・候補0件の理由・入力の誤りか失敗）。実行中と、まだ押していないときはnull。 */
+    /** 押した「生成」の直近の案内（候補0件の理由・入力の誤りか失敗）。候補が出たとき・実行中・まだ押していないときはnull。 */
     outcome,
     /** 押した「生成」が通らなかった理由（入力の誤り・生成の失敗）。候補がある間も、前の候補の上に出す。 */
     failure: outcome?.kind === "failed" ? outcome.message : null,

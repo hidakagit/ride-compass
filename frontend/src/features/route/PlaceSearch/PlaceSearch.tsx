@@ -10,13 +10,14 @@ import { cardVariants } from "@/components/ui/Card/Card";
 import { Input } from "@/components/ui/Input/Input";
 import { textVariants } from "@/components/ui/Text/Text";
 import ErrorText from "@/features/route/ErrorText/ErrorText";
+import { haversineKm } from "@/features/route/geoDistance";
 import { searchPlaces } from "@/features/route/placeSearchApi";
 import { cn } from "@/lib/cn";
 import { mapOverlayEdge } from "@/lib/mapOverlayEdges";
 import { getQueryClient } from "@/lib/queryClient";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import { vocabulary } from "@/types/generated/vocabulary";
-import type { Coordinates, PinRole, PlaceCandidate } from "@/types/route";
+import type { Coordinates, PinRole, PlaceCandidate, RouteCandidate } from "@/types/route";
 
 // 種類と段の名前はbackendの語彙（生成物）から読む。種類を足しても行の形は変わらない。
 const KIND_LABELS = Object.fromEntries(vocabulary.placeKinds.map((k) => [k.key, k.label])) as Record<
@@ -50,28 +51,41 @@ const ROLE_CHOICES: { role: PinRole; label: string; placed: string; usage: strin
 ];
 
 interface PlaceSearchProps {
+  /** 地図でいま見ている所の真ん中。施設の候補はここから近い順に並び、ここからの直線距離を添える。 */
+  mapCenter: Coordinates;
   /** 選んだ候補を、選んだ役割の地点として置く。 */
   onPlace: (role: PinRole, point: Coordinates) => void;
   /** 経由地を上限まで置いてあり、もう足せない。 */
   waypointsFull: boolean;
+  /** 地図に描くルート。1本以上に変わると地図がルートへ寄るので、置いたあとの案内を閉じて地図の上を空ける。 */
+  routes: readonly RouteCandidate[];
 }
 
 /**
  * 住所か施設の名前で地点を探し、候補を目的地・出発地・経由地のどれかとして置く。欄は地図の上端の帯で、候補の一覧と置いたあとの案内は
  * 帯の下へ地図に重ねて出す（面の中に置くと、一覧が面の高さに縛られて地図を隠す）。
  */
-export default function PlaceSearch({ onPlace, waypointsFull }: PlaceSearchProps) {
+export default function PlaceSearch({ mapCenter, onPlace, waypointsFull, routes }: PlaceSearchProps) {
   const [text, setText] = useState("");
-  // 引いた文字列。打つのが止まってから引く（打つたびに引くと口の回数制限に当たる）。
+  // 引いた文字列と、引いたときの地図の真ん中。打つのが止まってから引く（打つたびに引くと口の回数制限に当たる）。
+  // 引いたあとに地図を動かしても引き直さない（選んでいる最中に並びと距離が変わらない）。
   const [query, setQuery] = useState("");
+  const [near, setNear] = useState(mapCenter);
   const lookUpTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [placed, setPlaced] = useState<{ candidate: PlaceCandidate; message: string } | null>(null);
+  // 描いている間に閉じる（effectで閉じると、地図がルートへ寄るときに閉じる前の案内を測る）。✕と同じく一覧ごと閉じる
+  // （案内だけを消すと、引いた候補の一覧が出直す）。
+  const [routesSeen, setRoutesSeen] = useState(routes);
+  if (routes !== routesSeen) {
+    setRoutesSeen(routes);
+    if (routes.length > 0 && placed !== null) close();
+  }
 
   const search = useQuery(
     {
-      queryKey: ["place-search", query],
-      queryFn: () => searchPlaces(query),
+      queryKey: ["place-search", query, near.latitude, near.longitude],
+      queryFn: () => searchPlaces(query, near),
       enabled: query !== "",
       // 打ちかけで引き直す間も、前の候補を出しておく（一覧が「探しています…」と入れ替わってちらつかない）。
       placeholderData: keepPreviousData,
@@ -85,6 +99,7 @@ export default function PlaceSearch({ onPlace, waypointsFull }: PlaceSearchProps
     setSelectedIndex(null);
     setPlaced(null);
     setQuery(trimmed);
+    setNear(mapCenter);
   }
 
   // かな漢字の変換中は呼ばない（変換を確定したときに呼ぶ）。
@@ -100,7 +115,7 @@ export default function PlaceSearch({ onPlace, waypointsFull }: PlaceSearchProps
     const trimmed = text.trim();
     if (trimmed === "") return;
     lookUp(trimmed);
-    if (trimmed === query) void search.refetch();
+    if (trimmed === query && near === mapCenter) void search.refetch();
   }
 
   function place(candidate: PlaceCandidate, role: PinRole, message: string) {
@@ -148,7 +163,7 @@ export default function PlaceSearch({ onPlace, waypointsFull }: PlaceSearchProps
 
       {(showingResults || placed !== null) && (
         <div
-          {...mapOverlayEdge("top")}
+          {...mapOverlayEdge("top", { transient: true })}
           className={cn(
             cardVariants({ variant: "float" }),
             "absolute top-full left-3 z-[var(--z-map-detail)] mt-1 flex w-[calc(100%-1.5rem)] max-w-xl max-h-[min(50vh,20rem)] flex-col gap-1 overflow-y-auto rounded-sm p-2 pr-9",
@@ -196,6 +211,9 @@ export default function PlaceSearch({ onPlace, waypointsFull }: PlaceSearchProps
                             <span className={cn("ml-1.5", textVariants({ variant: "note" }))}>{candidate.area}</span>
                           )}
                         </span>
+                        {candidate.kind === "facility" && (
+                          <span className="flex-none tabular-nums">{haversineKm(near, candidate).toFixed(1)}km</span>
+                        )}
                         <Badge>{KIND_LABELS[candidate.kind]}</Badge>
                         <Badge variant="outline">{LEVEL_LABELS[candidate.level]}</Badge>
                       </Button>
@@ -224,12 +242,18 @@ export default function PlaceSearch({ onPlace, waypointsFull }: PlaceSearchProps
               </ul>
             ))}
 
+          {/* 1行に収め、収まらなければ名前を省く（置いた役割と代表の位置かは省かない）。 */}
           {placed !== null && (
-            <Callout role="status" tone={PRECISE_LEVELS.has(placed.candidate.level) ? "neutral" : "warning"}>
-              「{placed.candidate.name}」を{placed.message}。
-              {PRECISE_LEVELS.has(placed.candidate.level)
-                ? "ピンはつかんで動かせます。"
-                : `ピンは${LEVEL_LABELS[placed.candidate.level]}の代表の位置です。つかんで動かせます。`}
+            <Callout
+              role="status"
+              tone={PRECISE_LEVELS.has(placed.candidate.level) ? "neutral" : "warning"}
+              className="flex min-w-0 whitespace-nowrap"
+            >
+              <span className="min-w-0 truncate">「{placed.candidate.name}</span>
+              <span className="flex-none">
+                」を{placed.message}
+                {!PRECISE_LEVELS.has(placed.candidate.level) && "（代表の位置）"}
+              </span>
             </Callout>
           )}
         </div>

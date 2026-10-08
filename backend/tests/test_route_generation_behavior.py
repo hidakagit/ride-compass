@@ -16,6 +16,7 @@
 import logging
 import math
 import re
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
@@ -24,6 +25,7 @@ import pytest
 from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisDefinition, BreakpointLinearShape, MaterialTerm
 from app.domain.geo import haversine_distance_km
 from app.domain.graph import node_key
+from app.domain.material_catalog import GRADIENT_PERCENT
 from app.domain.rain import rain_window_material_id
 from app.domain.road_network import RoadNetwork
 from app.domain.route import Coordinates
@@ -327,6 +329,32 @@ async def test_a_segment_without_data_does_not_show_the_axis_as_zero(engine_over
     first, second = fastest.segments
     assert AVOID_AXIS not in first.axis_difficulties
     assert second.axis_difficulties[AVOID_AXIS] == 0.0
+
+
+def _slope_axis(*, is_published: bool) -> AxisDefinition:
+    """勾配の符号付きの値を地図が塗る軸（本番の勾配の軸と同じく、勾配の絶対値を読む折れ線）。"""
+    return AxisDefinition(
+        axis_id="slope", label="勾配", default_weight=0.0, is_published=is_published,
+        shape=BreakpointLinearShape(
+            terms=[MaterialTerm(material=GRADIENT_PERCENT)], preprocess="abs", breakpoints=[(0.0, 0.0), (10.0, 100.0)],
+        ),
+    )
+
+
+@pytest.mark.parametrize(("is_published", "carried"), [(True, True), (False, False)])
+async def test_a_published_slope_axis_carries_its_grade_on_every_segment_even_with_no_weight(
+    engine_over, is_published, carried,
+):
+    """地図のレンズはルートを作ったあとにも勾配へ切り替わり、切り替えでは作り直さない。重み0の勾配の軸でも
+    区間が勾配の値を持たないと、あとから勾配のレンズにしたとき全区間が「データなし」になる。下書きの軸はレンズに出ない。"""
+    network = grid_network()
+    flat = np.zeros(len(network.edge_way_id))
+    surveyed = replace(network, elevation_present=flat == 0, elevation_gain_m=flat, elevation_loss_m=flat)
+    with replaced_axis_definitions({**AXIS_DEFINITIONS, "slope": _slope_axis(is_published=is_published)}):
+        candidates = await engine_over(surveyed).generate_via_waypoints(
+            at(SOUTH_WEST), [], 3.0, destination=at(SOUTH_EAST), max_routes=1, start_time=DEPARTURE)
+
+    assert [GRADIENT_PERCENT in segment.material_values for segment in candidates[0].segments] == [carried, carried]
 
 
 @pytest.mark.parametrize("missing", ["no_gradient_ways", "no_stop_count_ways"])

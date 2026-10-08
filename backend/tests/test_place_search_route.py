@@ -4,8 +4,9 @@
 施設の表を引く層（`infrastructure/stop_place_search.py`）の判断を見る: 候補の種類・段・表示名・位置、入力の空白を除くこと、
 何も当たらない入力は空、旧い市の名前を今の住所で出すこと（大字の無い区域はその市区町村で）、今は無い区画を落とすこと、
 対象範囲の外の候補を落とすこと、打ちかけの入力の続きを足すこと（並び・1文字から・件数の上限・位置を持たない節）、
-施設の名前を表記の揺れを除いて部分一致で引くこと（並び・件数の上限）、施設に添える辺り（立ち寄り先の派生の段が住所の辞書を
-逆引きして入れる。市区町村から字・丁目まで、旧い住所の節を除く、大字の無い区域は市区町村まで）、住所と施設を混ぜる並び、
+施設の名前を表記の揺れを除いて部分一致で引くこと（並び・地図の真ん中に近い店から上限まで）、施設に添える辺り（立ち寄り先の
+派生の段が住所の辞書を逆引きして入れる。市区町村から字・丁目まで、旧い住所の節を除く、大字の無い区域は市区町村まで）、
+住所と施設を混ぜる並び、
 辞書が無ければ503、対象範囲を読めなければ502、回数制限。
 辞書はテストの足場が数件の節で書いたもの（`tests/address_dictionary_fixture.py`）を本物の検索で引く。対象範囲は道路の
 取込の記録から、施設は Overture の地点の取込から立ち寄り先の派生の段を本物のまま流して作り、注入から本物を通す。
@@ -48,6 +49,10 @@ pytestmark = [pytest.mark.asyncio(loop_scope="module"), pytest.mark.xdist_group(
 AREA = BoundingBox(min_latitude=34.9, min_longitude=138.4, max_latitude=37.2, max_longitude=140.9)
 #: `httpx.ASGITransport`が要求の接続元にする番地（回数制限の鍵になる）。
 CLIENT_HOST = "127.0.0.1"
+#: 対象範囲の中（新宿）と外（大阪）の位置。施設は名前ごとに経度をずらして置く（チェーンでないのでまとまらない）。
+#: 画面が見ている所の真ん中は、指定しなければ新宿の位置。
+LON, LAT = 139.70, 35.69
+OUTSIDE_LON, OUTSIDE_LAT = 135.50, 34.68
 
 
 @pytest_asyncio.fixture(loop_scope="module")
@@ -67,16 +72,17 @@ async def area(app_db):
         AREA.min_latitude, AREA.min_longitude, AREA.max_latitude, AREA.max_longitude))
 
 
-async def _search(query: str) -> httpx.Response:
+async def _search(query: str, near_longitude: float = LON) -> httpx.Response:
     transport = httpx.ASGITransport(app=app, client=(CLIENT_HOST, 50000))
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        return await client.get("/api/place-search", params={"q": query})
+        return await client.get(
+            "/api/place-search", params={"q": query, "latitude": LAT, "longitude": near_longitude})
 
 
-def _facility_record(key: int, name: str, longitude: float, latitude: float, confidence: float = 0.75) -> object:
+def _facility_record(key: int, name: str, longitude: float, latitude: float) -> object:
     """Overture の地点の1件（群「食べる・飲む」に入る分類）。"""
     return point_record(key, longitude, latitude, {
-        "names": {"primary": name}, "confidence": confidence,
+        "names": {"primary": name}, "confidence": 0.75,
         "brand": {"names": {"primary": None}}, "taxonomy": {"hierarchy": ["food_and_drink", "cafe"]}})
 
 
@@ -245,11 +251,6 @@ async def test_the_search_is_rate_limited_per_client():
 
 # --- 施設 ----------------------------------------------------------------------
 
-#: 対象範囲の中（新宿）と外（大阪）の位置。施設は名前ごとに経度をずらして置く（チェーンでないのでまとまらない）。
-LON, LAT = 139.70, 35.69
-OUTSIDE_LON, OUTSIDE_LAT = 135.50, 34.68
-
-
 #: 足場の辞書で、新宿の位置（`LON`・`LAT`）の辺り。
 SHINJUKU_AREA = "新宿区西新宿二丁目"
 
@@ -285,37 +286,42 @@ async def test_facilities_are_found_by_a_part_of_the_name_within_the_area(query)
 
 
 @pytest.mark.usefixtures("area", "placed_address_dictionary")
-async def test_facilities_are_ordered_by_how_the_name_matches_then_by_length_then_by_confidence():
-    """名前が入力と同じ → 入力で始まる → 入力を含む。同じ中では名前の短い順、同じ長さなら確からしさの高い順。"""
+async def test_facilities_are_ordered_by_how_the_name_matches_then_by_the_distance():
+    """名前が入力と同じ → 入力で始まる → 入力を含む。同じ中では、画面が見ている所の真ん中に近い順（名前の長さに依らない）。
+    近さは測地の距離: 東へ経度0.01度（約0.90km）の店が、北へ緯度0.009度（約1.00km）の店より先（度のままなら逆になる）。"""
     await _ingest_facilities([
-        _facility_record(1, "珈琲小杉", LON, LAT, confidence=0.9),
-        _facility_record(2, "小杉コーヒー店", LON + 0.01, LAT, confidence=0.9),
-        _facility_record(3, "小杉湯", LON + 0.02, LAT, confidence=0.6),
-        _facility_record(4, "小杉亭", LON + 0.03, LAT, confidence=0.9),
-        _facility_record(5, "小杉", LON + 0.04, LAT, confidence=0.5),
+        _facility_record(1, "珈琲小杉", LON, LAT),
+        _facility_record(2, "小杉コーヒー店", LON + 0.01, LAT),
+        _facility_record(3, "小杉亭", LON, LAT + 0.009),
+        _facility_record(4, "小杉", LON + 0.03, LAT),
     ])
 
-    response = await _search("小杉")
+    response = await _search("小杉", near_longitude=LON)
 
     assert response.status_code == 200
     assert response.json() == {"candidates": [
-        _facility("小杉", LON + 0.04),
-        _facility("小杉亭", LON + 0.03),
-        _facility("小杉湯", LON + 0.02),
+        _facility("小杉", LON + 0.03),
         _facility("小杉コーヒー店", LON + 0.01),
+        _facility("小杉亭", LON, LAT + 0.009),
         _facility("珈琲小杉", LON),
     ]}
 
 
 @pytest.mark.usefixtures("area", "placed_address_dictionary")
-async def test_facilities_are_the_best_ones_up_to_the_limit():
-    names = ["喫茶" + "あ" * length for length in range(PLACE_PREDICTION_LIMIT + 1, 0, -1)]
-    await _ingest_facilities([_facility_record(i, name, LON + i / 100, LAT) for i, name in enumerate(names)])
+async def test_facilities_with_the_same_name_beyond_the_limit_are_the_nearest_ones():
+    """同じ名前の店が上限を超えると、画面が見ている所の真ん中に近い店から上限まで。"""
+    count = PLACE_PREDICTION_LIMIT + 2
+    # チェーンの分からない地点は、名前が同じでも別々の店のまま（立ち寄り先の派生の段）。経度の東端は対象範囲の中。
+    await _ingest_facilities([_facility_record(i, "喫茶ことり", LON + i / 10, LAT) for i in range(count)])
+    near_longitude = LON + (count - 1) / 10
 
-    response = await _search("喫茶")
+    response = await _search("喫茶ことり", near_longitude=near_longitude)
 
     assert response.status_code == 200
-    assert [c["name"] for c in response.json()["candidates"]] == sorted(names, key=len)[:PLACE_PREDICTION_LIMIT]
+    # 辺りは足場の辞書で最も近い節しだいで、並びと関係しないので比べない（施設の辺りの節で見る）。
+    assert [c["longitude"] for c in response.json()["candidates"]] == [
+        LON + i / 10 for i in range(count - 1, count - 1 - PLACE_PREDICTION_LIMIT, -1)
+    ]
 
 
 @pytest.mark.usefixtures("area", "placed_address_dictionary")

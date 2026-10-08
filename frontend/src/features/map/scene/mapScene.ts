@@ -1,23 +1,32 @@
 import type { FilterSpecification, LayerSpecification, SourceSpecification } from "maplibre-gl";
 
+import { NO_BASEMAP_POI_KINDS, type BasemapPoiKinds } from "@/features/map/layers/mapStyleOps";
+
 /**
  * 重なりの段。背面から前面の順に並べ、地図上の重なりはこの宣言だけが決める
  * （scene を組み立てる側が配列へ挿す位置では決まらない）。
  * 並びは「後から前面へ積まれる側が、先に積まれた側を塗り潰さない」ように決める。
  * 面の塗りは下にあるものを隠すため、基礎地図の道路網より下へ潜らせる。
+ * 重なった絵を省く点は、基礎地図の文字より下へ潜らせる——MapLibre は前面の層の記号から場所を取るので、
+ * 下にあれば文字が先に置かれ、文字と重なった絵のほうが省かれる。
  */
 const MAP_SCENE_TIERS = [
-  { id: "area", underBasemapRoads: true },
-  { id: "observedLine", underBasemapRoads: false },
-  { id: "lensLine", underBasemapRoads: false },
-  { id: "point", underBasemapRoads: false },
-  { id: "route", underBasemapRoads: false },
+  { id: "area", under: "roads" },
+  { id: "pointUnderLabels", under: "labels" },
+  { id: "observedLine", under: null },
+  { id: "lensLine", under: null },
+  { id: "point", under: null },
+  { id: "route", under: null },
 ] as const;
 
 export type MapSceneTier = (typeof MAP_SCENE_TIERS)[number]["id"];
 
-export function isTierUnderBasemapRoads(tier: MapSceneTier): boolean {
-  return MAP_SCENE_TIERS.some((entry) => entry.id === tier && entry.underBasemapRoads);
+/** 段を潜らせる基礎地図の位置。 */
+export type BasemapAnchor = NonNullable<(typeof MAP_SCENE_TIERS)[number]["under"]>;
+
+/** 段が潜る基礎地図の位置。null なら基礎地図より前面に積む。 */
+export function basemapAnchorOf(tier: MapSceneTier): BasemapAnchor | null {
+  return MAP_SCENE_TIERS.find((entry) => entry.id === tier)!.under;
 }
 
 /** feature-state へ載せられる値。 */
@@ -79,6 +88,8 @@ export type MapSceneLayer = {
   readonly hitTargets: readonly string[];
   /** 省略は「絞り込み無し」。前回あった絞り込みは解除される。 */
   readonly filter?: FilterSpecification;
+  /** このレイヤーが出ている間、基礎地図から隠す店・施設の種類。省略は「隠さない」。 */
+  readonly hidesBasemapPois?: BasemapPoiKinds;
 };
 
 /**
@@ -100,6 +111,15 @@ export function orderedSceneLayers(scene: MapScene): readonly MapSceneLayer[] {
     .map((layer, index) => ({ layer, index }))
     .sort((a, b) => tierIndex(a.layer.tier) - tierIndex(b.layer.tier) || a.index - b.index)
     .map((entry) => entry.layer);
+}
+
+/** 基礎地図から隠す店・施設の種類。出ているレイヤーが名指した種類を合わせる——出ていないレイヤーの種類は隠さない。 */
+export function hiddenBasemapPois(scene: MapScene): BasemapPoiKinds {
+  const shown = scene.layers
+    .filter((layer) => layer.visible)
+    .map((layer) => layer.hidesBasemapPois ?? NO_BASEMAP_POI_KINDS);
+  const union = (pick: (kinds: BasemapPoiKinds) => readonly string[]) => [...new Set(shown.flatMap(pick))].sort();
+  return { class: union((kinds) => kinds.class), subclass: union((kinds) => kinds.subclass) };
 }
 
 /** 押せるレイヤーの id。MapLibre へ渡すのは呼び出し側で、ここは宣言から導くだけ。 */

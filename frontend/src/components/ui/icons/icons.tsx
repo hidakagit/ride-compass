@@ -14,6 +14,7 @@ import {
   EllipsisVertical,
   Eraser,
   Gauge,
+  GitCommitHorizontal,
   Import,
   Info,
   Layers,
@@ -282,6 +283,17 @@ export function SupplyPoiIcon({ size = 16 }: IconProps) {
   );
 }
 
+/** 立ち寄り先: 旗を立てた地点 */
+export function StopPlaceIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path d="M6 18V3" strokeWidth="1.5" strokeLinecap="round" />
+      <path d="M6 4h8l-1.5 3L14 10H6" strokeWidth="1.5" strokeLinejoin="round" />
+      <path d="M3 18h6" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 /** 環境（地図チップ最上位グループ）: 標高（terrain）・降水/風/雷等（weather）をまとめて
  * 表す雲のシルエット。 */
 export function EnvironmentDataIcon({ size = 16 }: IconProps) {
@@ -525,5 +537,7 @@ export const MenuIcon = fromLucide(EllipsisVertical);
 export const DownloadIcon = fromLucide(Download);
 export const SpeedGaugeIcon = fromLucide(Gauge);
 export const HelpIcon = fromLucide(CircleQuestionMark);
+/** 動いている版（コミット）。 */
+export const VersionIcon = fromLucide(GitCommitHorizontal);
 /** 地図で選んでいる区間の地点。 */
 export const SelectedSpotIcon = fromLucide(MapPin);

@@ -36,7 +36,7 @@ function snapshot(handle: RecordingMapHandle): unknown {
 }
 
 const BASEMAP_LAYER_IDS = ["basemap-water", "basemap-road", "basemap-label"];
-const AREA_BEFORE_ID = "basemap-road";
+const BASEMAP_ANCHORS = { roads: "basemap-road", labels: "basemap-label" };
 const ROAD_TILES = ["https://tiles.test/v1/{z}/{x}/{y}.pbf"];
 
 /** 呼び出し側が「どう差し替えるか」を宣言する形の一例。 */
@@ -117,7 +117,7 @@ const EXPECTED_ORDER = [
 ];
 
 function applied(map: MapSceneTarget, next: MapScene, previous = EMPTY_MAP_SCENE): void {
-  applyMapScene(map, { scene: next, previous, areaLayerBeforeId: AREA_BEFORE_ID });
+  applyMapScene(map, { scene: next, previous, basemapAnchors: BASEMAP_ANCHORS });
 }
 
 function statesScene(states: ReadonlyMap<string, ReadonlyMap<string, MapSceneFeatureStateValue>>): MapScene {
@@ -145,6 +145,24 @@ describe("applyMapScene", () => {
     expect(handle.layerOrder()).toEqual(EXPECTED_ORDER);
     expect(handle.sourceSpec("roads")).toEqual({ type: "vector", tiles: ROAD_TILES });
     expect(handle.layer("surface-line")?.visibility).toBe("visible");
+  });
+
+  it("文字に場所を譲る点の段は、呼び出し側が渡した基礎地図の文字の位置より下へ入る", () => {
+    const { map, handle } = createRecordingMap({ basemapLayerIds: BASEMAP_LAYER_IDS });
+
+    applied(map, scene([...SCENE_LAYERS, lineLayer("thinned-poi", "pointUnderLabels")].reverse()));
+
+    expect(handle.layerOrder()).toEqual([
+      "basemap-water",
+      "landcover-fill",
+      "basemap-road",
+      "thinned-poi",
+      "basemap-label",
+      "surface-line",
+      "lens-line",
+      "poi",
+      "route",
+    ]);
   });
 
   it("あとから足したレイヤーも段の順の位置へ入る", () => {

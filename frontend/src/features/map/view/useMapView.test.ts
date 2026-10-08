@@ -68,9 +68,9 @@ describe("useMapView", () => {
 
     const { result } = render();
 
-    expect(result.current.lens).toBe("difficulty");
+    expect(result.current.lensControl.lens).toBe("difficulty");
     await waitFor(() => expect(chip(result, "highway")?.dataStatus).not.toBe("loading"));
-    expect(result.current.lens).toBe(lens);
+    expect(result.current.lensControl.lens).toBe(lens);
     expect(result.current.look.lens).toBe(lens);
   });
 
@@ -174,7 +174,7 @@ describe("useMapView", () => {
 
     const { result } = render();
 
-    await waitFor(() => expect(result.current.lens).toBe("axis_ramp"));
+    await waitFor(() => expect(result.current.lensControl.lens).toBe("axis_ramp"));
     expect(result.current.look.layerVisibility.hillshade).toBe(true);
     expect(result.current.lensControl.keepAfterRoute).toBe(false);
     expect(chip(result, "disaster")?.legendDetails?.[0].hiddenKeys).toEqual(["heavyRain"]);

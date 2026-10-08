@@ -1,16 +1,21 @@
 /**
- * `components/HeaderMenu/HeaderMenu.tsx`——ヘッダーのメニュー（使い方を見る・デバッグログの開閉）。
+ * `components/HeaderMenu/HeaderMenu.tsx`——ヘッダーのメニュー（使い方を見る・デバッグログの開閉・バージョン表示）。
  *
  * 見るもの: メニューを開くと出る項目、「使い方を見る」を押すとメニューが閉じ、フォーカスが開くボタンへ戻ってから説明を見る状態に入る操作が上がること、
- * デバッグログの項目がデバッグモードの間だけ出て、開閉の状態を名前で出し、押すと開閉の操作が上がること。
+ * デバッグログの項目がデバッグモードの間だけ出て、開閉の状態を名前で出し、押すと開閉の操作が上がること、
+ * 「バージョン表示」を押すと、フロントの版の口（`/api/version`）が返した版と直近の変更の件名が窓に出ること。
  *
  * ここで見ないもの: デバッグモードそのもののON/OFF → `features/admin/DebugPanel/DebugPanel.tsx`（このメニューは呼び出し側から受け取るだけ）。
  * 説明を見る状態で部品の使い方が出ること → `components/UsageGuide/UsageGuide.test.tsx`（メニューのボタンの使い方の文は宣言）。
  * 押下の状態（`aria-pressed`）——`components/ui/Toggle`へそのまま渡すだけ。
+ * 直近の変更をGitHubから取ること → `app/api/version/route.test.ts`。
  */
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+
+import type { FrontendVersion } from "@/services/versionApi";
+import { onSameOrigin } from "@/testing/backendServer";
 
 import HeaderMenu from "./HeaderMenu";
 
@@ -67,6 +72,43 @@ describe("HeaderMenu", () => {
       await userEvent.click(screen.getByRole("button", { name: "デバッグログを表示" }));
 
       expect(onToggleDebugConsole).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("バージョン表示", () => {
+    async function openVersion(version: FrontendVersion) {
+      onSameOrigin("GET", "/api/version", () => Response.json(version));
+      await openMenu();
+      await userEvent.click(screen.getByRole("button", { name: "バージョン表示" }));
+      return screen.findByRole("dialog", { name: "バージョン" });
+    }
+
+    it("版の口が返したコミットの頭と、最後のマージの時刻（日本時間）、直近の変更の件名を新しい順に出す", async () => {
+      const dialog = await openVersion({
+        commit: "9c2521ce0123456789abcdef0123456789abcdef",
+        started_at: "2026-10-08T22:00:00Z",
+        recent: [
+          { subject: "tasks#656: 施設の候補を並べる", committed_at: "2026-10-08T21:58:00Z" },
+          { subject: "tasks#659: 画面の脚本を貼る", committed_at: "2026-10-08T21:30:00Z" },
+        ],
+      });
+
+      expect(await within(dialog).findByText(/版/)).toHaveTextContent("版 9c2521ce（10/9 06:58 までのマージ）");
+      expect(
+        within(dialog)
+          .getAllByRole("listitem")
+          .map((item) => item.textContent),
+      ).toEqual(["tasks#656: 施設の候補を並べる", "tasks#659: 画面の脚本を貼る"]);
+    });
+
+    it.each([
+      ["本番で件名を取れなかった", "0123456789abcdef", "入っている変更の件名は取れませんでした。"],
+      ["手元で動いている", null, "手元で動いている版です（本番の版ではありません）。"],
+    ])("%s版は、件名の代わりにそう出す", async (_, commit, message) => {
+      const dialog = await openVersion({ commit, started_at: "2026-10-08T22:00:00Z", recent: [] });
+
+      expect(await within(dialog).findByText(message)).toBeInTheDocument();
+      expect(within(dialog).queryByRole("listitem")).not.toBeInTheDocument();
     });
   });
 });

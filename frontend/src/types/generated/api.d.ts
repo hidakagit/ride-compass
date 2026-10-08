@@ -1623,8 +1623,6 @@ export interface components {
             /** Waypoints */
             waypoints?: components["schemas"]["Coordinates"][] | null;
             destination?: components["schemas"]["Coordinates"] | null;
-            /** Lens Axis Id */
-            lens_axis_id?: string | null;
             /**
              * Start Time
              * Format: date-time
@@ -2301,6 +2299,8 @@ export interface operations {
         parameters: {
             query: {
                 q: string;
+                latitude: number;
+                longitude: number;
             };
             header?: never;
             path?: never;

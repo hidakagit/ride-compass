@@ -423,6 +423,16 @@ _LAYER_SPECS: dict[str, MapLayerSpec] = {
             "どれも閉店・撤去にデータが追いついていないことがあります。現地の状況と異なる場合があることをご留意ください。",
         ),
     ),
+    "stop_place": _tile_layer(
+        "stop_place",
+        "amenity",
+        chip_label="立ち寄り",
+        description=(f"{_point_kind_list('stop_place')}の位置を群ごとに色分け表示",),
+        panel_hint=(
+            f"{_point_kind_list('stop_place')}の位置です。寺社は国の文化財の建造物を持つものを、ほかはOverture Mapsの地点を出します。"
+            "閉店にデータが追いついていないことがあります。現地の状況と異なる場合があることをご留意ください。",
+        ),
+    ),
     "accident_point": _tile_layer(
         "accident_point",
         "trafficSafety",
