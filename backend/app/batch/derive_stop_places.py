@@ -5,7 +5,9 @@
 
 同じ群・同じチェーン（`domain/stop_place.py: chain_sql`）で`MERGE_RADIUS_M`以内に並ぶ地点は、確からしさの最も
 高い1つにまとめる（同じなら識別子の小さいほう）。まとまりは近い点を連ねて作るので、端と端がその距離より離れることが
-ある。チェーンの分からない地点は別々の店としてまとめない。
+ある。チェーンの分からない地点は別々の店としてまとめない。群「コンビニ」は、コンビニのチェーン（`CHAIN_WORDS`）に
+当たる地点だけを入れる（`kept_sql`）。店の中の ATM の地点は、名前を店の名前へ直してから群とチェーンを決める
+（`store_name_sql`）——店の隣にあれば店とまとまり、無ければ店として残る。
 
 道の網とは何も読み合わないので、どの段の後ろに置いてもよい。
 """
@@ -15,7 +17,15 @@ import time
 
 import asyncpg
 
-from app.domain.stop_place import MERGE_RADIUS_M, chain_sql, normalized_sql, overture_group_sql
+from app.domain.stop_place import (
+    MERGE_RADIUS_M,
+    chain_sql,
+    chain_text_sql,
+    kept_sql,
+    normalized_sql,
+    overture_group_sql,
+    store_name_sql,
+)
 from app.infrastructure.source_models import OVERTURE_PLACES_SOURCE_SQL, Source
 
 logger = logging.getLogger("ridecompass.derive_stop_places")
@@ -26,16 +36,20 @@ _GROUND_M_GEOM = "ST_Scale(ST_Transform(o.geom, 3857), cos(radians(ST_Y(o.geom))
 
 _GROUPED = f"""
 CREATE TEMP TABLE _grouped_places ON COMMIT DROP AS
-SELECT g.overture_id, g.name, g.normalized_name, g.brand, g.confidence, g.geom, g.place_group,
-       {chain_sql("g.normalized_name", "g.normalized_brand")} AS chain
+SELECT c.overture_id, c.name, c.normalized_name, c.brand, c.confidence, c.geom, c.place_group, c.chain
 FROM (
-    SELECT o.overture_id, o.name, o.brand, o.confidence, o.geom,
-           {overture_group_sql("o.hierarchy")} AS place_group,
-           {normalized_sql("o.name")} AS normalized_name,
-           {normalized_sql("o.brand")} AS normalized_brand
-    FROM {OVERTURE_PLACES_SOURCE_SQL} o
-) g
-WHERE g.place_group IS NOT NULL
+    SELECT g.*, {chain_sql(chain_text_sql("g.normalized_name"), chain_text_sql("g.normalized_brand"))} AS chain
+    FROM (
+        SELECT n.*, {normalized_sql("n.name")} AS normalized_name, {normalized_sql("n.brand")} AS normalized_brand
+        FROM (
+            SELECT o.overture_id, {store_name_sql("o.name")} AS name, o.brand, o.confidence, o.geom,
+                   {overture_group_sql("o.hierarchy")} AS place_group
+            FROM {OVERTURE_PLACES_SOURCE_SQL} o
+        ) n
+    ) g
+    WHERE g.place_group IS NOT NULL
+) c
+WHERE {kept_sql("c.place_group", "c.chain")}
 """
 
 _INSERT = f"""

@@ -32,6 +32,7 @@ from app.domain.material_catalog import (
     WayMaterialCoverageSpec,
 )
 from app.domain.primary_attributes import PRIMARY_ATTRIBUTES
+from app.domain.stop_place import StopPlaceGroup
 from app.domain.traffic import NODE_KINDS, STOP_POI_KINDS
 
 ATTR_A, ATTR_B = PRIMARY_ATTRIBUTES[:2]
@@ -260,7 +261,8 @@ def test_a_line_axis_knows_what_a_missing_value_means(attr):
 
 @pytest.mark.parametrize(
     ("attr_id", "kinds"),
-    [("stop_poi", STOP_POI_KINDS), ("supply_poi", NODE_KINDS - STOP_POI_KINDS)],
+    # 補給の点のコンビニは、ノードの種別でなく立ち寄り先の群「コンビニ」から足す（`point_tile_layers.py`の`poi`）。
+    [("stop_poi", STOP_POI_KINDS), ("supply_poi", NODE_KINDS - STOP_POI_KINDS | {StopPlaceGroup.CONVENIENCE})],
 )
 def test_the_rows_of_a_point_layer_cover_every_kind_it_draws(attr_id, kinds):
     """行に無い種別の点は地図から消え、凡例にも出ない。種別に無い行は何も塗らない。種別の分類は取込が持ち、

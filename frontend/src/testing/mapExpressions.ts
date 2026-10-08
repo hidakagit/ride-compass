@@ -17,7 +17,11 @@ export function evaluateExpression(
   return compiled.value.evaluateWithoutErrorHandling(GLOBALS, { type: 2, properties } as never, state);
 }
 
-/** 凡例の行の述語が、そのプロパティの地物に当てはまるか。 */
-export function matchesFilter(filter: unknown, properties: Record<string, unknown>): boolean {
-  return featureFilter(filter as FilterSpecification, "filter").filter(GLOBALS, { type: 2, properties } as never);
+/** 絞り（凡例の行の述語・レイヤーの`filter`）が、そのプロパティの地物に当てはまるか。`geometry`は地物の形
+ * （MapLibreの番号で1が点・2が線・3が面。絞りが`geometry-type`を読むときに効く）。 */
+export function matchesFilter(filter: unknown, properties: Record<string, unknown>, geometry: 1 | 2 | 3 = 2): boolean {
+  return featureFilter(filter as FilterSpecification, "filter").filter(GLOBALS, {
+    type: geometry,
+    properties,
+  } as never);
 }

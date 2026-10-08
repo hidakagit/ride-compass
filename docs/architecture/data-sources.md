@@ -92,6 +92,8 @@ git grep -h -o -E "https?://[a-zA-Z0-9.-]+" -- backend/app backend/scripts front
 1. リリースノートで places のスキーマの変更（列の名前・`taxonomy`の語）と、出どころ（`sources[].dataset`）の増減を読む。
    取込と派生が読む列（`backend/app/infrastructure/source_models.py: OVERTURE_PLACES_SOURCE_SQL`・アダプタの絞り）と群の語
    （`backend/app/domain/stop_place.py: OVERTURE_GROUP_WORDS`）が変わっていれば合わせる。
+   新しい版で`convenience_store`の地点のうちコンビニのチェーンの語（同じファイルの`CHAIN_WORDS`）に当たらない名前を
+   数え、新しいコンビニのチェーン・看板の掛け替え・まとまった表記の崩れがあれば語を足す（当たらない店は補給休憩のコンビニに出ない）。
 2. [出典の文書](https://docs.overturemaps.org/attribution/)と Foursquare の NOTICE を読み、出どころと文言が変わっていれば
    `ALWAYS_SHOWN_ATTRIBUTIONS`の行と`frontend/public/licenses/foursquare-places-NOTICE.txt`を合わせる（生成物`mapDisplay.ts`を作り直す）。
    上の表の行の確認日も直す。

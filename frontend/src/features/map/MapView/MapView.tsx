@@ -35,7 +35,7 @@ import {
 } from "@/features/map/layers/mapLayers";
 import { apiPath } from "@/lib/apiPath";
 import { tileBaseUrl } from "@/lib/tileBaseUrl";
-import { resetBasemapAreaLayerPreparation, runWhenStyleReady } from "@/features/map/layers/mapStyleOps";
+import { resetBasemapPreparation, runWhenStyleReady } from "@/features/map/layers/mapStyleOps";
 import {
   applyScene,
   ROAD_TILE_SOURCE_LAYER,
@@ -716,7 +716,7 @@ export default function MapView({
       redrawFromCurrentProps(map);
     });
     // クエリでスタイルURLを変えることで、ブラウザのHTTPキャッシュではなく取り直しにする。
-    resetBasemapAreaLayerPreparation(map);
+    resetBasemapPreparation(map);
     map.setStyle(`${mapStyleUrl()}?t=${Date.now()}`);
   }, [look.refreshToken, redrawFromCurrentProps]);
 

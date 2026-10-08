@@ -195,18 +195,25 @@ DOM/MapLibreを一切知らない。`MapView.tsx`は画面の状態をsceneの�
 「線が最も長く連なる区間の先頭」では、トンネル（`tunnel_*`）と地上の道路（`road_*`）の
 境目に入り、道路網がトンネル区間だけ面の下に沈んで**道が途切れて見える**。
 
-道路網より後ろに残る面（歩行者areaの塗り・建物）は`prepareBasemapForAreaLayers`が道路網の
+道路網より後ろに残る面（歩行者areaの塗り・建物）は`prepareBasemap`が道路網の
 手前へ動かす。動かさないと、道路の下へ潜らせた面が建物の不透明な塗りに穴を開けられる。
 
-位置は`applyScene`がsceneを当てる直前に`prepareBasemapForAreaLayers`がスタイルごとに1度だけ
+位置は`applyScene`がsceneを当てる直前に`prepareBasemap`がスタイルごとに1度だけ
 決める。呼ぶ時機に縛りは無い——このアプリのレイヤーは`transportation`を名乗らないため、既に
 載っていても位置は変わらず、道路網より後ろに積まれていたこのアプリの面も一緒に手前へ入る。
-`map.setStyle()`で作り直すときは`resetBasemapAreaLayerPreparation`で解決済みの記録を落として
+`map.setStyle()`で作り直すときは`resetBasemapPreparation`で解決済みの記録を落として
 から差し替える。差し替えから`style.load`までは`getStyle()`が読めないため解決を見送り、
 作り直しの`applyScene`で決まる。
 
 **暗黙の前提**: 建物を道路の手前へ動かすと、面レイヤーを1枚も出していないときの基礎地図も
 「建物の上に道路」へ変わる。この地図はpitchを持たないため影響は小さい。
+
+同じ`prepareBasemap`が、基礎地図の店・施設（`source-layer`が`poi`のレイヤー全部。libertyでは`poi_r1`・`poi_r7`・
+`poi_r20`・`poi_transit`）の絞りに「`subclass`が`BASEMAP_POI_SUBCLASSES_SHOWN_ELSEWHERE`でない」を足す。このアプリの
+点の層が同じ種類をOpenStreetMapでない出どころから出すもの（補給休憩のコンビニ）で、基礎地図（OpenStreetMap）と混ぜて
+出すとODbLの共有の義務がかかる（[データソース](../../architecture/data-sources.md)）。値はOpenMapTilesのスキーマの
+`subclass`（元のOSMのタグの値）で、`class`では絞らない（コンビニは店全体の`class=shop`に入る）。基礎地図の絞りが
+式の形であること（libertyはそう書いている）を前提にする——旧い形の絞りと式は1つの`all`に混ぜられない。
 
 重なり順は**宣言だけ**が決める（段の並びは`scene/mapScene.ts: MAP_SCENE_TIERS`）。
 宣言が自分の段を持ち、`composeScene`が段の順に並べてから`applyMapScene`が当てる——**作る側の配列の並びは順序に関係せず、レイヤーを
@@ -739,10 +746,10 @@ E2Eの`e2e/map-runtime.spec.ts`「宣言された地図レイヤーを全部ON�
 そもそも配られない（[静的道路属性](../backend/static-road-attributes.md)）。2つを別の行に
 分けるのは、同じ確からしさに見せないため。
 
-補給休憩の説明文（`domain/map_display.py`の`panel_hint`）が、コンビニは目安に使いやすく、自販機・トイレ・給水・駐輪場は閉店・撤去に
-データが追いついていないことがあると書き分けるのは、OSMの要素の最終編集日時の差による。関東全域の抽出（2026-08）で、
-コンビニは直近2年以内に編集されたものが62.4%だったのに対し、ほかの4種は5年以上編集されていないものが58〜59%だった
-（実地の確認日のタグ`check_date`・`survey:date`は2〜11%にしか付かないので、最終編集日時で見た）。
+補給休憩の説明文（`domain/map_display.py`の`panel_hint`）は、コンビニがOverture Mapsの地点のうちチェーンの店から、
+ほかがOSMから出ることと、どれも閉店・撤去にデータが追いついていないことがあると書く。OSMの自販機・トイレ・給水・駐輪場は、
+関東全域の抽出（2026-08）で5年以上編集されていないものが58〜59%あった（実地の確認日のタグ`check_date`・`survey:date`は
+2〜11%にしか付かないので、最終編集日時で見た）。Overtureの地点は営業中かの情報をほぼ持たない。
 
 点の色も上の「地図全体で共有する配色の読み方」に従う。事故の当事者区分のように評価へ寄与する
 分類も、評価配色（緑〜赤）ではなく中立の色相で分ける。

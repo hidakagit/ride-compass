@@ -416,9 +416,8 @@ _LAYER_SPECS: dict[str, MapLayerSpec] = {
             f"{_point_kind_list('supply_poi')}の位置です。自販機は飲み物が買えると分かって"
             f"いるものだけを「{_row_label('supply_poi', 'vending_drinks')}」として出し、売っているものが分からないものは"
             f"「{_row_label('supply_poi', 'vending_unknown')}」として区別します[たばこ・切符の機械は出しません]。"
-            f"{_row_label('supply_poi', 'convenience')}はOSMデータの更新が比較的新しく目安として使いやすい一方、"
-            f"自販機・{'・'.join(_row_label('supply_poi', key) for key in ('toilets', 'drinking_water', 'bicycle_parking'))}は"
-            "閉店・撤去にデータが追いついていないことがあります。現地の状況と異なる場合があることをご留意ください。",
+            f"{_row_label('supply_poi', 'convenience')}はOverture Mapsの地点のうちチェーンの店を、ほかはOSMのデータを出します。"
+            "どれも閉店・撤去にデータが追いついていないことがあります。現地の状況と異なる場合があることをご留意ください。",
         ),
     ),
     "accident_point": _tile_layer(

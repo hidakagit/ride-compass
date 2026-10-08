@@ -20,6 +20,7 @@ from app.domain.accident import BICYCLE_SQL, FATAL_SQL
 from app.domain.geo import degrees_covering_m
 from app.domain.primary_attributes import stop_poi_map_group_sql
 from app.domain.registry import TileKind
+from app.domain.stop_place import StopPlaceGroup
 from app.domain.traffic import POI_CLUSTER_EPS_M, STOP_POI_KINDS, stop_kind_sql
 from app.infrastructure.cache_identity import shape_digest
 from app.infrastructure.road_graph_repository import COVERAGE_SQL
@@ -41,7 +42,7 @@ class PointTileLayer:
 
 
 # 種別は`node_materials.kind`（派生側の分類器が付けたもの）に信号の読み替えを済ませたもので、
-# 位置は`source_features`の点。
+# 位置は`source_features`の点。コンビニだけは立ち寄り先の表（`stop_places`）から足す。
 _POI_KIND_EXPR = stop_kind_sql("nm")
 _POI_GROUP_EXPR = stop_poi_map_group_sql("nm")
 
@@ -88,6 +89,13 @@ _POI_TILE_MVT_SQL = text(
                               ST_Expand(
                                   ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326),
                                   :cluster_pad_deg))
+                        UNION ALL
+                        -- 補給POIのコンビニは立ち寄り先の群「コンビニ」の行から出す。群の値が種別の値。
+                        SELECT s.place_group, s.place_group, s.geom,
+                               's' || s.source || ':' || s.source_key
+                        FROM stop_places s
+                        WHERE s.place_group = :convenience_group
+                          AND ST_Intersects(s.geom, ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326))
                     ) clustered
                     GROUP BY clustered.map_group, clustered.cluster_key
                 ) grouped
@@ -102,6 +110,7 @@ _POI_TILE_MVT_SQL = text(
     bindparam("stop_kinds", value=sorted(STOP_POI_KINDS), type_=ARRAY(Text())),
     bindparam("cluster_eps_m", value=POI_CLUSTER_EPS_M, type_=Float()),
     bindparam("cluster_pad_deg", value=_POI_CLUSTER_PAD_DEG, type_=Float()),
+    bindparam("convenience_group", value=StopPlaceGroup.CONVENIENCE.value, type_=Text()),
 )
 
 # 事故。表示に使う値（死亡事故か・自転車が絡むか・発生年）は生データの列から都度導く。判定の

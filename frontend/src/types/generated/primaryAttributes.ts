@@ -484,7 +484,7 @@ export const primaryAttributes = [
             "values": [
               "convenience"
             ],
-            "description": "コンビニエンスストア[OSM の shop=convenience]。",
+            "description": "コンビニのチェーンの店[Overture Maps の地点のコンビニの分類のうち、チェーンの名前に当たるもの]。",
             "glyph": "bag",
             "color": "#7d89ba"
           },
