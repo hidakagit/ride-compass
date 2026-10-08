@@ -2297,6 +2297,8 @@ export interface operations {
         parameters: {
             query: {
                 q: string;
+                latitude: number;
+                longitude: number;
             };
             header?: never;
             path?: never;

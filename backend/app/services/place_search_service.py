@@ -8,6 +8,7 @@ from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 
+from app.domain.geo import LatLon
 from app.domain.place_search import PlaceSearchResult, normalize_place_query
 from app.infrastructure.address_dictionary import search_addresses
 from app.infrastructure.stop_place_search import StopPlaceSearchQuery
@@ -32,13 +33,13 @@ class PlaceSearchService:
     def __init__(self, open_reads: Callable[[], AbstractAsyncContextManager[PlaceSearchReads]]):
         self._open_reads = open_reads
 
-    async def search(self, query: str) -> PlaceSearchResult:
-        """辞書を開けなければ`AddressDictionaryUnavailableError`、対象範囲を読めなければ
+    async def search(self, query: str, near: LatLon) -> PlaceSearchResult:
+        """施設は`near`に近い順に並べる。辞書を開けなければ`AddressDictionaryUnavailableError`、対象範囲を読めなければ
         `PlaceSearchAreaUnavailable`を送出する。"""
         async with self._open_reads() as reads:
             area = await reads.region.get_ingested_area()
             if area is None:
                 raise PlaceSearchAreaUnavailable
-            facilities = await reads.stop_places.search(query, area)
+            facilities = await reads.stop_places.search(query, area, near)
         addresses = await search_addresses(normalize_place_query(query), area)
         return PlaceSearchResult(candidates=[*addresses.whole, *facilities, *addresses.partial])
