@@ -33,6 +33,16 @@ function areaLayerAnchorIndex(layers: readonly { id: string; "source-layer"?: st
   return layers.findIndex((layer) => layer["source-layer"] === ROAD_NETWORK_SOURCE_LAYER);
 }
 
+/** 文字に場所を譲る点を差し込む位置（このidのレイヤーの直前＝下へ入る）。基礎地図が最後まで続けて描く記号の並びの
+ * 頭を返す。基礎地図は文字（地名・通りの名前・店や駅の印）を最後にまとめて描くが、その前にも記号を挟む（libertyでは道路網の
+ * 途中に一方通行の矢印があり、その後ろに橋の線・建物・境界を描く）。最初の記号の層の下に入れると、その後ろの線と面が
+ * 点の絵の上に描かれる。
+ *
+ * 求めるのはこのアプリのレイヤーが載る前（スタイルを読んだ直後）に限る——このアプリの線が最前面にあると、並びの頭が求まらない。 */
+function labelLayerAnchorIndex(layers: readonly { type: string }[]): number {
+  return layers.findLastIndex((layer) => layer.type !== "symbol") + 1;
+}
+
 /** 差し込み位置より後ろにある面レイヤーのid（追加順のまま）。基礎地図が道路より後ろに置いて
  * いる面（建物）を指す。 */
 function basemapAreaLayersAfter(layers: readonly { id: string; type: string }[], anchorIndex: number): string[] {
@@ -45,18 +55,48 @@ function basemapAreaLayersAfter(layers: readonly { id: string; type: string }[],
 /** 基礎地図のベクタタイルが店・施設の点を収めているレイヤー名（OpenMapTilesスキーマ）。 */
 const POI_SOURCE_LAYER = "poi";
 
-/** 基礎地図に出さない店・施設の`subclass`（OpenMapTilesスキーマで、元のOSMのタグの値）。このアプリの点の層が
- * 同じ種類をOSMでない出どころから出すもの——同じ種類を基礎地図（OSM）と混ぜて出すと、ODbLの共有の義務がかかる。
- * `class`で絞らないのは、`class`が粗いため（コンビニは店全体の`shop`に入る）。
- * - `convenience`: 補給の点のコンビニはOverture Mapsの地点から出す */
-const BASEMAP_POI_SUBCLASSES_SHOWN_ELSEWHERE: readonly string[] = ["convenience"];
+/** 基礎地図に出さない店・施設の種類（OpenMapTilesのスキーマの`poi`の値）。このアプリの点の層が同じ種類をOSMでない
+ * 出どころから出すもの——同じ種類を基礎地図（OSM）と混ぜて出すと、ODbLの共有の義務がかかる。`class`はスキーマが束ねた
+ * 種類（束ねる先の無い値は`subclass`と同じ値）で、`class`が粗すぎる種類だけ`subclass`で名指す（コンビニは店全体の`shop`に入る）。
+ * 病院・銀行・郵便局・学校と駅・バス・空港（`poi_transit`）は出したまま残す。 */
+const BASEMAP_POIS_SHOWN_ELSEWHERE: { readonly class: readonly string[]; readonly subclass: readonly string[] } = {
+  class: [
+    // 立ち寄り先の飲食店
+    "restaurant",
+    "fast_food",
+    "cafe",
+    "bar",
+    "beer",
+    "ice_cream",
+    // 立ち寄り先の自転車（店・貸し自転車）
+    "bicycle",
+    "bicycle_rental",
+    // 立ち寄り先の景色・名所（公園・庭園・城・博物館・観光地と展望地）
+    "park",
+    "garden",
+    "castle",
+    "museum",
+    "attraction",
+    // 立ち寄り先の宿（ホテル・旅館の類とキャンプ場）
+    "lodging",
+    "campsite",
+    // 立ち寄り先の寺社は文化財の一覧から出す
+    "place_of_worship",
+  ],
+  // 補給の点のコンビニはOverture Mapsの地点から出す
+  subclass: ["convenience"],
+};
 
-/** 基礎地図の店・施設を描く全部のレイヤーの絞りに「`subclass`が`BASEMAP_POI_SUBCLASSES_SHOWN_ELSEWHERE`でない」を足す。
+/** 基礎地図の店・施設を描く全部のレイヤーの絞りに「`BASEMAP_POIS_SHOWN_ELSEWHERE`の種類でない」を足す。
  * 基礎地図の絞りは式の形（libertyはそう書いている）を前提にする——旧い形の絞りと式は1つの`all`に混ぜられない。 */
 function hideBasemapPoisShownElsewhere(map: MapLibreMap, layers: StyleSpecification["layers"]): void {
   const notShownElsewhere: ExpressionSpecification = [
     "!",
-    ["in", ["get", "subclass"], ["literal", BASEMAP_POI_SUBCLASSES_SHOWN_ELSEWHERE]],
+    [
+      "any",
+      ["in", ["get", "class"], ["literal", BASEMAP_POIS_SHOWN_ELSEWHERE.class]],
+      ["in", ["get", "subclass"], ["literal", BASEMAP_POIS_SHOWN_ELSEWHERE.subclass]],
+    ],
   ];
   const hidden: string[] = [];
   for (const layer of layers) {
@@ -69,21 +109,20 @@ function hideBasemapPoisShownElsewhere(map: MapLibreMap, layers: StyleSpecificat
     );
     hidden.push(layer.id);
   }
-  debugLog("map:lifecycle", "基礎地図の店・施設から隠す種類", {
-    layers: hidden,
-    subclasses: BASEMAP_POI_SUBCLASSES_SHOWN_ELSEWHERE,
-  });
+  debugLog("map:lifecycle", "基礎地図の店・施設から隠す種類", { layers: hidden, ...BASEMAP_POIS_SHOWN_ELSEWHERE });
 }
 
 interface StyleReadyTag {
   __rcStyleReady?: boolean;
   __rcBasemapPrepared?: boolean;
   __rcAreaLayerAnchorId?: string;
+  __rcLabelLayerAnchorId?: string;
 }
 
 /** 基礎地図をこのアプリの層を重ねられる形にする。同じスタイルに対しては1度しか実行しない。
  * - 店・施設のうち、このアプリの点の層が別の出どころから出す種類を隠す（`hideBasemapPoisShownElsewhere`）
  * - 面レイヤーの差し込み位置を求めて記録し、基礎地図が道路より後ろに置いている面をその手前へ動かす
+ * - 文字に場所を譲る点の差し込み位置を求めて記録する
  *
  * 建物を道路より前へ動かすと、基礎地図そのものの見た目も「建物の上に道路」へ変わる。
  * この地図はpitchを持たない（建物は平面の足元だけが描かれる）ため影響は小さく、面レイヤーが
@@ -102,6 +141,8 @@ export function prepareBasemap(map: MapLibreMap): void {
 
   const { layers } = style;
   hideBasemapPoisShownElsewhere(map, layers);
+  tagged.__rcLabelLayerAnchorId = layers[labelLayerAnchorIndex(layers)]?.id;
+  debugLog("map:lifecycle", "文字に場所を譲る点の差し込み位置", { anchorId: tagged.__rcLabelLayerAnchorId ?? null });
   const anchorIndex = areaLayerAnchorIndex(layers);
   const anchorId = anchorIndex < 0 ? undefined : layers[anchorIndex].id;
   tagged.__rcAreaLayerAnchorId = anchorId;
@@ -116,9 +157,18 @@ export function prepareBasemap(map: MapLibreMap): void {
 
 /** `prepareBasemap`が記録した位置。記録が無い・今のスタイルに無いときは
  * undefined（差し込まず最前面へ）——**今のスタイルに無いidを`addLayer`へ渡すと例外になる**。 */
-export function areaLayerAnchor(map: MapLibreMap): string | undefined {
-  const anchorId = (map as unknown as StyleReadyTag).__rcAreaLayerAnchorId;
+function recordedAnchor(map: MapLibreMap, anchorId: string | undefined): string | undefined {
   return anchorId !== undefined && map.getLayer(anchorId) ? anchorId : undefined;
+}
+
+/** 面レイヤーの差し込み位置（`recordedAnchor`）。 */
+export function areaLayerAnchor(map: MapLibreMap): string | undefined {
+  return recordedAnchor(map, (map as unknown as StyleReadyTag).__rcAreaLayerAnchorId);
+}
+
+/** 文字に場所を譲る点の差し込み位置（`recordedAnchor`）。 */
+export function labelLayerAnchor(map: MapLibreMap): string | undefined {
+  return recordedAnchor(map, (map as unknown as StyleReadyTag).__rcLabelLayerAnchorId);
 }
 
 /** スタイルが差し替わった（`map.setStyle()`）ときに呼ぶ。次の`prepareBasemap`が

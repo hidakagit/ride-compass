@@ -162,6 +162,17 @@ async def test_convenience_stores_come_from_the_stop_places_and_not_from_openstr
     assert _kinds(await _tile(road_graph_repository, "poi")) == Counter({"convenience": 1, "toilets": 1})
 
 
+async def test_only_a_convenience_store_carries_its_name(road_graph_repository):
+    """コンビニは押すと店の名前で外の地図を開けるように名前を持つ。OpenStreetMap の点は名前を焼かない。"""
+    await _ingest_pois([(LON + FAR, LAT, {**TOILETS, "name": "公園のトイレ"})])
+    await _ingest_stop_places([_overture_place(1, LON - FAR, "ローソン 渋谷店", ("shopping", "convenience_store"))])
+
+    names = {f["properties"]["kind"]: f["properties"].get("name") for f in _features(
+        await _tile(road_graph_repository, "poi"), "poi")}
+
+    assert names == {"convenience": "ローソン 渋谷店", "toilets": None}
+
+
 async def test_a_merged_point_on_a_tile_edge_is_drawn_once(road_graph_repository):
     """タイルの境目をまたぐ塊は、両側のタイルで別々の点にならず、真ん中が入るタイルにだけ1点出る。
     まとめない点は、それぞれ自分の入るタイルにだけ出る。"""
@@ -216,8 +227,13 @@ async def test_an_accident_point_carries_bicycle_fatal_and_year(road_graph_repos
 
 
 async def test_a_stop_place_point_carries_its_group_confidence_and_name(road_graph_repository):
-    """立ち寄り先は事故と同じく対象範囲を一括で取り込むので、道を取り込んでいない所でも出す。タイルの外の地点は出ない。"""
-    await _ingest_stop_places([_overture_place(1, LON, "店1"), _overture_place(2, LON + 10 * FAR, "店2")])
+    """立ち寄り先は事故と同じく対象範囲を一括で取り込むので、道を取り込んでいない所でも出す。タイルの外の地点と、
+    補給の点に出す群「コンビニ」は出ない。"""
+    await _ingest_stop_places([
+        _overture_place(1, LON, "店1"),
+        _overture_place(2, LON + 10 * FAR, "店2"),
+        _overture_place(3, LON + FAR, "ローソン 渋谷店", ("shopping", "convenience_store")),
+    ])
 
     [feature] = _features(await _tile(road_graph_repository, "stop_place"), "stop_place")
 

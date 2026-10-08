@@ -11,7 +11,7 @@
  * backendのテスト（`test_material_catalog.py`）が全種別で確かめる。
  *
  * 点の形も源泉が決める。先頭の軸の行が絵記号（`glyph`）を持つレイヤーは、行の色の角丸四角に絵記号を載せた
- * 記号で描き、持たないレイヤーは丸い点で描く。
+ * 記号で描き、持たないレイヤーは丸い点で描く。重なった絵を間引くか・どれを残すかも源泉（`point_thinning`）が決める。
  *
  * **タイルの世代が届くまでソースを作らない**。先に作ると、世代の違う中身がブラウザの
  * キャッシュへ載って以後ずっと残る。
@@ -144,6 +144,18 @@ export const POINT_ICONS: readonly { id: string; color: string; glyph: PointGlyp
   })),
 );
 
+/** 間引くときに先に残す順の鍵（小さいほど先に残す）。行の順位を2つ刻みにし、行の中では割合（0〜1）の大きいほうを
+ * 先にする——刻みが割合の幅より広いので、行をまたいで順が入れ替わらない。 */
+function thinningSortKey(layer: PointLayer, thinning: NonNullable<PointLayer["point_thinning"]>): unknown {
+  const axis = layer.display_axes[0];
+  // 行の鍵は先頭の軸の行を1度ずつ全部並べる（backend の宣言の検査が守る）。
+  const cases = thinning.rows.flatMap((key, rank) => {
+    const category = axis.categories.find((c) => c.key === key)!;
+    return [["in", valueOf(axis), ["literal", [...category.values]]], rank * 2];
+  });
+  return ["+", ["case", ...cases, thinning.rows.length * 2], ["-", 1, ["to-number", ["get", thinning.ratio_property]]]];
+}
+
 function iconImageExpression(layer: PointLayer, categories: readonly GlyphCategory[]): unknown {
   const axis = layer.display_axes[0];
   const cases = categories.flatMap((category) => [
@@ -191,7 +203,8 @@ export const pointGroup = declareGroup<PointState>((state) => {
     const filter = layerFilter(layer, state.hiddenKeys);
     return {
       role: layer.attr_id,
-      tier: "point",
+      // 重なった絵を省く層は、基礎地図の文字に場所を譲る（文字と重なった絵のほうを省く）。
+      tier: layer.point_thinning === null ? "point" : "pointUnderLabels",
       source: POINT_TILE_SOURCES[layer.tile_kind].sourceId,
       sourceLayer: POINT_TILE_SOURCES[layer.tile_kind].sourceLayer,
       ...(glyphs.length === 0
@@ -208,11 +221,17 @@ export const pointGroup = declareGroup<PointState>((state) => {
         : {
             type: "symbol" as const,
             paint: { "icon-opacity": opacity },
-            // 点を間引かない。丸い点と同じく、重なっても全部描く。
             layout: {
               "icon-image": iconImageExpression(layer, glyphs),
-              "icon-allow-overlap": true,
-              "icon-ignore-placement": true,
+              ...(layer.point_thinning === null
+                ? // 間引かない。丸い点と同じく、重なっても全部描く。
+                  { "icon-allow-overlap": true, "icon-ignore-placement": true }
+                : // 重なった絵を省く。自分どうしで省き合うには、置いた絵がほかの絵を退ける（ignore-placementを付けない）。
+                  {
+                    "icon-allow-overlap": false,
+                    "icon-ignore-placement": false,
+                    "symbol-sort-key": thinningSortKey(layer, layer.point_thinning),
+                  }),
             },
           }),
       visible: state.visible[layer.attr_id] === true,

@@ -42,7 +42,7 @@ class PointTileLayer:
 
 
 # 種別は`node_materials.kind`（派生側の分類器が付けたもの）に信号の読み替えを済ませたもので、
-# 位置は`source_features`の点。コンビニだけは立ち寄り先の表（`stop_places`）から足す。
+# 位置は`source_features`の点。コンビニだけは立ち寄り先の表（`stop_places`）から足し、店の名前も添える。
 _POI_KIND_EXPR = stop_kind_sql("nm")
 _POI_GROUP_EXPR = stop_poi_map_group_sql("nm")
 
@@ -64,10 +64,12 @@ _POI_TILE_MVT_SQL = text(
                         ST_Transform(grouped.geom, 3857),
                         ST_TileEnvelope(:z, :x, :y), :extent, 256, true
                     ) AS geom,
-                    grouped.kind AS kind
+                    grouped.kind AS kind,
+                    grouped.name AS name
                 FROM (
                     -- まとめた点の種別はどれを代表にしても凡例の同じ行に入る。
                     SELECT min(clustered.kind) AS kind,
+                           min(clustered.name) AS name,
                            ST_Centroid(ST_Collect(clustered.geom)) AS geom
                     FROM (
                         SELECT {_POI_KIND_EXPR} AS kind,
@@ -80,7 +82,8 @@ _POI_TILE_MVT_SQL = text(
                                        ST_Transform(p.geom, 3857),
                                        eps := :cluster_eps_m, minpoints := 1
                                    ) OVER (PARTITION BY {_POI_GROUP_EXPR})
-                               ELSE 'n' || p.osm_node_id END AS cluster_key
+                               ELSE 'n' || p.osm_node_id END AS cluster_key,
+                               NULL::text AS name
                         FROM {NODES_SOURCE_SQL} p
                         JOIN node_materials nm ON nm.osm_node_id = p.osm_node_id
                         WHERE nm.kind IS NOT NULL
@@ -92,7 +95,7 @@ _POI_TILE_MVT_SQL = text(
                         UNION ALL
                         -- 補給POIのコンビニは立ち寄り先の群「コンビニ」の行から出す。群の値が種別の値。
                         SELECT s.place_group, s.place_group, s.geom,
-                               's' || s.source || ':' || s.source_key
+                               's' || s.source || ':' || s.source_key, s.name
                         FROM stop_places s
                         WHERE s.place_group = :convenience_group
                           AND ST_Intersects(s.geom, ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326))
@@ -151,12 +154,14 @@ _STOP_PLACE_TILE_MVT_SQL = text(
                     s.confidence,
                     s.name
                 FROM stop_places s
-                WHERE ST_Intersects(s.geom, ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326))
+                -- 群「コンビニ」は補給の点のタイル（`poi`）が出す。
+                WHERE s.place_group <> :convenience_group
+                  AND ST_Intersects(s.geom, ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326))
             ) mvt
             WHERE mvt.geom IS NOT NULL
         ) AS tile
     """
-)
+).bindparams(bindparam("convenience_group", value=StopPlaceGroup.CONVENIENCE.value, type_=Text()))
 
 #: 名前→点のレイヤー。
 POINT_TILE_LAYERS: dict[str, PointTileLayer] = {
