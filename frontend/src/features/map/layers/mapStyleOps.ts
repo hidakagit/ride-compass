@@ -111,8 +111,9 @@ interface StyleReadyTag {
 export function prepareBasemap(map: MapLibreMap): void {
   const tagged = map as unknown as StyleReadyTag;
   if (tagged.__rcBasemapPrepared) return;
-  // `setStyle()`から新しいスタイルの`style.load`までは`getStyle()`がundefinedを返す。その間は
-  // 解決済みにせず、読めるようになった後の呼び出しへ回す。
+  // `getStyle()`がundefinedを返すのは、スタイルが読み込まれる前（最初の読み込みと、差分にできず作り直す
+  // `setStyle()`から新しいスタイルの`style.load`まで）だけ。差分で当てる間は今のスタイルを返す（`reloadStyle`）。
+  // undefinedの間は解決済みにせず、読めるようになった後の呼び出しへ回す。
   const style: StyleSpecification | undefined = map.getStyle();
   if (style === undefined) return;
   tagged.__rcBasemapPrepared = true;
