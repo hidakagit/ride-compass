@@ -26,7 +26,7 @@ _GROUND_M_GEOM = "ST_Scale(ST_Transform(o.geom, 3857), cos(radians(ST_Y(o.geom))
 
 _GROUPED = f"""
 CREATE TEMP TABLE _grouped_places ON COMMIT DROP AS
-SELECT g.overture_id, g.name, g.brand, g.confidence, g.geom, g.place_group,
+SELECT g.overture_id, g.name, g.normalized_name, g.brand, g.confidence, g.geom, g.place_group,
        {chain_sql("g.normalized_name", "g.normalized_brand")} AS chain
 FROM (
     SELECT o.overture_id, o.name, o.brand, o.confidence, o.geom,
@@ -39,9 +39,9 @@ WHERE g.place_group IS NOT NULL
 """
 
 _INSERT = f"""
-INSERT INTO stop_places (source, source_key, name, place_group, confidence, brand, geom)
+INSERT INTO stop_places (source, source_key, name, search_name, place_group, confidence, brand, geom)
 SELECT DISTINCT ON (place_group, chain, merge_key)
-       '{Source.OVERTURE_PLACE}', overture_id, name, place_group, confidence, brand, geom
+       '{Source.OVERTURE_PLACE}', overture_id, name, normalized_name, place_group, confidence, brand, geom
 FROM (
     -- まとまりの番号は群・チェーンごとに0から振られるので、鍵は群・チェーンと組にして使う。
     SELECT o.*, 'c' || ST_ClusterDBSCAN({_GROUND_M_GEOM}, eps := $1, minpoints := 1)
