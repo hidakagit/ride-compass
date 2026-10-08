@@ -81,7 +81,6 @@ export function hideBasemapPois(map: MapLibreMap, kinds: BasemapPoiKinds): void 
           ],
         ];
   for (const [layerId, filter] of original) {
-    if (!map.getLayer(layerId)) continue;
     if (notHidden === null) map.setFilter(layerId, filter ?? null);
     else
       map.setFilter(layerId, filter === undefined ? notHidden : ["all", filter as ExpressionSpecification, notHidden]);
