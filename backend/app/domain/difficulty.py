@@ -150,6 +150,29 @@ def composite_difficulty_array(
     return round_difficulty_array(composite), weight_sums
 
 
+def axis_weight_shares_at_row(
+    axis_arrays: Mapping[str, np.ndarray],
+    weights: Mapping[str, float | np.ndarray],
+    weight_sums: np.ndarray,
+    row: int,
+) -> dict[str, float]:
+    """1区間ぶんの、データのある軸の重みの割合（`重み ÷ weight_sums[row]`）。合成に入らない区間（重みの和が0）は空。
+
+    軸の得点にこれを掛けると寄与度になる（`axis_contributions_at_row`）。区間をまたいで得点を作り直す
+    軸（`domain/route.py: DensityScoreInput`）は、作り直した得点にこれを掛けて寄与度を出す。
+    """
+    total = float(weight_sums[row])
+    if total == 0 or math.isnan(total):
+        return {}
+    shares: dict[str, float] = {}
+    for axis_id, arr in axis_arrays.items():
+        if math.isnan(arr[row]):
+            continue
+        weight = weights.get(axis_id, 0.0)
+        shares[axis_id] = float(weight[row] if isinstance(weight, np.ndarray) else weight) / total
+    return shares
+
+
 def axis_contributions_at_row(
     axis_arrays: Mapping[str, np.ndarray],
     weights: Mapping[str, float | np.ndarray],
@@ -161,17 +184,10 @@ def axis_contributions_at_row(
     全区間ぶんは作らない——読むのは経路上の数百区間だけのため。全軸を足すと丸め前の
     合成difficultyに一致する（合成とその内訳を食い違わせないための式）。区間の値は丸めない。
     """
-    total = float(weight_sums[row])
-    if total == 0 or math.isnan(total):
-        return {}
-    values: dict[str, float] = {}
-    for axis_id, arr in axis_arrays.items():
-        value = arr[row]
-        if math.isnan(value):
-            continue
-        weight = weights.get(axis_id, 0.0)
-        values[axis_id] = float(value) * float(weight[row] if isinstance(weight, np.ndarray) else weight) / total
-    return values
+    return {
+        axis_id: float(axis_arrays[axis_id][row]) * share
+        for axis_id, share in axis_weight_shares_at_row(axis_arrays, weights, weight_sums, row).items()
+    }
 
 
 def composite_difficulty(
@@ -215,18 +231,11 @@ def weighted_mean_by_distance(segments: list[tuple[float | None, float]]) -> flo
     return sum(value * distance for value, distance in available) / distance_sum
 
 
-def distance_weighted_difficulty(segments: list[tuple[float | None, float]]) -> float | None:
-    """(区間difficulty, 区間distance_km)のリストから距離加重平均を求める。
-    0〜100のdifficulty向けに小数1桁へ丸める。"""
-    mean = weighted_mean_by_distance(segments)
-    return None if mean is None else round_difficulty(mean)
-
-
 class OverallDifficulty(StrictModel):
     """ルート全体の難易度。
 
-    `average`は区間の`difficulty`（絶対基準0-100）の距離加重平均で、重み・条件が違う実験の
-    間でも比較できる。`load`は難易度の総量（平均×距離km）で、平均が距離で正規化されるため
+    `average`は区間の`difficulty`（絶対基準0-100）の距離加重平均（1kmあたりの回数で測る軸の分は、回数を平均して
+    から得点にする。`domain/route.py: merge_difficulty`）で、重み・条件が違う実験の間でも比較できる。`load`は難易度の総量（平均×距離km）で、平均が距離で正規化されるため
     遠回りするほど下がるのに対し、総量は距離が伸びればそのまま増える——「走り切るのに
     どれだけしんどいか」に近く、遠回りが正直に不利に出る。総量は候補の順位付けには使わず、
     平均と併せて判断材料として示す。
@@ -236,10 +245,13 @@ class OverallDifficulty(StrictModel):
     load: float
 
 
-#: ルート全体の難易度の数え方を利用者に言う文（下の`overall_difficulty`の式の言い換え。式を変えたら、ここも変える）。
+#: ルート全体の難易度の数え方を利用者に言う文（`domain/route.py: merge_overall_difficulty`の式の言い換え。式を変えたら、ここも変える）。
 #: 画面は自分の部品（グラフ・内訳）を指す文だけを足す。
 OVERALL_DIFFICULTY_WORDING: dict[str, str] = {
-    "average": "区間ごとの難易度を距離で重みづけて平均した値です。長く走っても難しさが同じなら増えません。",
+    "average": (
+        "区間ごとの難易度を距離で重みづけて平均した値です。長く走っても難しさが同じなら増えません。"
+        "停止や事故のように1kmあたりの回数で測る評価軸は、回数を距離で平均してから点数にします。"
+    ),
     "load": (
         "平均に距離[km]を掛けた総量で、走り切るまでのしんどさの目安です。"
         "平均は遠回りして難所を避けるほど下がりますが、総量は走った分だけ増えます。"
@@ -248,23 +260,8 @@ OVERALL_DIFFICULTY_WORDING: dict[str, str] = {
 }
 
 
-def overall_difficulty(segments: list[tuple[float | None, float]]) -> OverallDifficulty | None:
-    """(区間difficulty, 区間distance_km)のリストからルート全体の難易度を求める。
-    値のある区間が無ければNone。
-
-    総量は丸めた平均（応答の`average`）に掛ける。
-    difficultyがNoneの区間の扱いは、総量も平均と一致させる（平均×全区間の距離合計）。区間ごとに
-    積分して欠損区間を単純に飛ばすと「データが無い区間が多いほど総量が小さい」ことに
-    なり、欠損の多いルートが有利に見えてしまう。
-    """
-    average = distance_weighted_difficulty(segments)
-    if average is None:
-        return None
-    return OverallDifficulty(average=average, load=round(average * sum(distance for _, distance in segments), 1))
-
-
 def distance_weighted_difficulty_array(difficulty: np.ndarray, distance_m: np.ndarray) -> float | None:
-    """`distance_weighted_difficulty`のnumpyベクトル化版。`difficulty`の
+    """`weighted_mean_by_distance`を難易度の桁へ丸めた値のnumpyベクトル化版。`difficulty`の
     NaN要素は除外し残りの距離で再正規化する。1つも有効な要素が無い、または距離の合計が
     0以下ならNone。呼び出し元は数万〜十数万件規模のEdge配列を想定し、Pythonループを避ける。
     """

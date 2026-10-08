@@ -249,7 +249,8 @@ TravelBearingControl.tsx`（`page.tsx`から直接importされ地図上に置か
   （このコンポーネント自身が持つ、負荷の説明と同じ形）を置く。
 - **軸別内訳（重み付き寄与度）**: `RouteCandidate.axis_contributions`（axis_id→重み付き
   寄与度0-100、backend側で区間ごとの合成に使ったのと同じ重み配分を軸別に分解しルート
-  全体へ距離加重平均で集約した値。評価できなかった軸（データ欠損）はキー自体が無く非表示。
+  全体へ距離加重平均で集約した値。1kmあたりの回数で測る軸は、回数を平均してから得点にした値に重みの割合を掛けたもの
+  （backend: `domain/route.py: merge_axis_contributions`）。評価できなかった軸（データ欠損）はキー自体が無く非表示。
   重み0の軸はキー自体は残り値が常に0.0になる（backend:
   `domain/difficulty.py: axis_contributions_at_row`参照。frontend側で値0を除外する、
   下記`AxisContributionBar.tsx`参照）を、「総合難易度」の数字の

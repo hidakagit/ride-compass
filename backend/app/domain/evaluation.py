@@ -36,6 +36,7 @@ from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
     REQUEST_DYNAMIC_MATERIAL_IDS,
     AxisDefinition,
+    BreakpointLinearShape,
     axis_raw_value_array,
     copy_axis_definitions,
     has_axis_raw_value_array,
@@ -65,6 +66,27 @@ def has_route_facing_raw_value(definition: AxisDefinition) -> bool:
     if raw_value_unit(definition) is None:
         return False
     return not (set(definition.materials) & REQUEST_DYNAMIC_MATERIAL_IDS)
+
+
+def averages_density(definition: AxisDefinition) -> bool:
+    """区間をまたいだ値（ビン・候補）を、点数の平均ではなく折れ線の横軸の値の距離平均から点数にする軸か。
+
+    横軸の値が1kmあたりの量（密度）の重み付き和なら、距離で平均した値がその範囲の密度（回数÷距離）になる。
+    折れ線は上に凸で上限で頭打ちになることが多く、短い区間に回数が集まる道（交差点の脇の信号）では、
+    区間ごとの点数の平均が回数どおりの点数よりずっと低く出る。そうした軸だけを、平均してから点数にする。
+
+    - 足せる材料（`MaterialSpec.additive`。どれも1kmあたりの密度）だけを項に持つ。他の軸を項に持つ軸は、
+      中の軸の点数が密度でないため外す。勾配（%）のような密度でない材料も、短い急坂を平均でならすと
+      坂のつらさが消えるため外す。
+    - 前処理が無い（`abs`は平均と絶対値の順を入れ替えると値が変わる）。
+    """
+    shape = definition.shape
+    if not isinstance(shape, BreakpointLinearShape) or shape.preprocess != "identity":
+        return False
+    terms = [term for term in shape.terms if term.weight != 0]
+    return bool(terms) and all(
+        (spec := MATERIAL_CATALOG.get(term.material)) is not None and spec.additive for term in terms
+    )
 
 
 def route_facing_raw_axis_ids(definitions: dict[str, AxisDefinition]) -> list[str]:
@@ -283,6 +305,15 @@ def difficulty_from_cost(cost: np.ndarray, seconds: np.ndarray, penalty_strength
     return np.where(np.isfinite(difficulty), difficulty, 0.0)
 
 
+@dataclass(frozen=True)
+class DensityAxisColumn:
+    """密度の軸（`averages_density`）1本ぶんの、折れ線の横軸の値の列と、それを点数にする折れ線。"""
+
+    shape: BreakpointLinearShape
+    # 折れ点を通す前の重み付き和（切り出した区間の順、欠損=NaN）。点数（`axis_scores`）と同じ区間が欠損になる。
+    inputs: np.ndarray
+
+
 @dataclass(frozen=True, slots=True)
 class StaticEdgeScoreMatrix:
     """探索範囲の区間ごとの「Edge×公開軸」の静的スコア行列＋0次フィルタ・A*
@@ -325,6 +356,9 @@ class StaticEdgeScoreMatrix:
     # 数値の行列へは載せられないため別に持つ。
     categorical_material_ids: list[str]
     categorical_material_columns: list[CategoricalColumn]
+    # 密度の軸（`averages_density`の公開軸）のid→横軸の値の列。ビンと候補の点数を、この値の
+    # 距離平均から作るために運ぶ（`domain/route.py: DensityScoreInput`）。
+    density_axes: dict[str, DensityAxisColumn]
 
     def __post_init__(self) -> None:
         """行と列が揃っていることを、組み立てた場所で確かめる。
@@ -358,6 +392,7 @@ class StaticEdgeScoreMatrix:
                 *((name, matrix) for name, matrix, _ in matrices),
                 *((f"categorical_material_columns[{material_id}]", column.codes) for material_id, column in zip(
                     self.categorical_material_ids, self.categorical_material_columns)),
+                *((f"density_axes[{axis_id}]", column.inputs) for axis_id, column in self.density_axes.items()),
             )
             if array.shape[0] != rows
         }
@@ -418,6 +453,15 @@ def build_static_edge_score_matrix(
         raw = axis_raw_value_array(definitions[axis_id], material_arrays_with_axes)
         assert raw is not None, f"route_facing_raw_axis_idsが返した{axis_id}の生値が作れない"
         axis_raw_arrays[axis_id] = raw
+    density_axes: dict[str, DensityAxisColumn] = {}
+    for axis_id in axis_arrays:
+        definition = definitions[axis_id]
+        if not averages_density(definition):
+            continue
+        inputs = axis_raw_value_array(definition, material_arrays_with_axes)
+        # `averages_density`は折れ線の軸だけを通すので、横軸の値は必ず作れる。
+        assert isinstance(definition.shape, BreakpointLinearShape) and inputs is not None
+        density_axes[axis_id] = DensityAxisColumn(shape=definition.shape, inputs=inputs)
     material_value_arrays = {
         material_id: np.asarray(values, dtype=float)
         for material_id in route_facing_material_ids(definitions)
@@ -441,6 +485,7 @@ def build_static_edge_score_matrix(
         material_values=material_values,
         categorical_material_ids=list(categorical_material_columns),
         categorical_material_columns=list(categorical_material_columns.values()),
+        density_axes=density_axes,
         distance_m=materials.distance_m,
         bearing_deg=materials.bearing_deg,
         hard_filter_flags=materials.hard_filter_columns(),

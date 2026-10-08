@@ -16,7 +16,6 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from app.domain.difficulty import overall_difficulty
 from app.domain.errors import RoutingError, SearchAreaTooLargeError
 from app.domain.loop_routing import TracedLoop
 from app.domain.route_search import (
@@ -35,6 +34,7 @@ from app.domain.route import (
     merge_axis_contributions,
     merge_axis_difficulties,
     merge_material_values,
+    merge_overall_difficulty,
 )
 
 logger = logging.getLogger("ridecompass.generate")
@@ -64,7 +64,7 @@ def turnaround_pool_size(max_routes: int) -> int:
 #: 並び順・id等を読まないため、呼び出し側がそれらを付ける前でも後でも結果は変わらない。
 SEGMENT_AGGREGATES: dict[str, Callable[[list[Any]], Any]] = {
     # ルート単位の絶対基準。エンジン非依存のため、engine実装側には持たせない。
-    "overall_difficulty": lambda segments: overall_difficulty([(s.difficulty, s.distance_km) for s in segments]),
+    "overall_difficulty": merge_overall_difficulty,
     "axis_difficulties": merge_axis_difficulties,
     # overall_difficultyの内訳。合計は丸め誤差を除いてoverall_difficultyと一致する。
     "axis_contributions": merge_axis_contributions,
