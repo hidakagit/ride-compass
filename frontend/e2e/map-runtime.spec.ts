@@ -159,6 +159,7 @@ test("住所の検索で目的地に置いた地点は地図のその位置に�
     kind: "address",
     level: "aza",
     name: "東京都北区王子一丁目",
+    area: null,
     latitude: 35.7536,
     longitude: 139.7378,
   };

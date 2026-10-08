@@ -1464,6 +1464,8 @@ export interface components {
             level: "prefecture" | "county" | "city" | "ward" | "oaza" | "aza" | "block" | "building" | "point";
             /** Name */
             name: string;
+            /** Area */
+            area: string | null;
             /** Latitude */
             latitude: number;
             /** Longitude */

@@ -2,7 +2,7 @@
 
 名前は、派生の段が入れた表記の揺れを除いた形の列（`search_name`）を、入力を同じ式（`domain/stop_place.py: normalized_sql`）で
 整えて部分一致で引く。引くたびに名前を整えると表の全部の行に式がかかって遅い（時間は docs/modules/backend/place-search.md
-「引き方」）。
+「引き方」）。候補には、派生の段が入れた辺り（`area`）を添える。
 """
 
 from sqlalchemy import text
@@ -16,7 +16,7 @@ from app.domain.stop_place import normalized_sql
 # 並びの最後の鍵は、同じ名前・同じ確からしさの店の並びを毎回同じにするため。
 _SEARCH_SQL = text(f"""
     WITH q AS (SELECT {normalized_sql(":query")} AS name)
-    SELECT s.name, ST_Y(s.geom) AS latitude, ST_X(s.geom) AS longitude
+    SELECT s.name, s.area, ST_Y(s.geom) AS latitude, ST_X(s.geom) AS longitude
     FROM stop_places s, q
     WHERE q.name <> '' AND strpos(s.search_name, q.name) > 0
       AND s.geom && ST_MakeEnvelope(:min_lon, :min_lat, :max_lon, :max_lat, 4326)
@@ -40,7 +40,7 @@ class StopPlaceSearchQuery:
             "limit": PLACE_PREDICTION_LIMIT,
         })).mappings()
         return [
-            PlaceCandidate(kind="facility", level="point", name=row["name"],
+            PlaceCandidate(kind="facility", level="point", name=row["name"], area=row["area"],
                            latitude=row["latitude"], longitude=row["longitude"])
             for row in rows
         ]

@@ -150,6 +150,7 @@ async def test_supply_pois_are_never_merged(road_graph_repository):
     assert _kinds(await _tile(road_graph_repository, "poi")) == Counter({"toilets": 2})
 
 
+@pytest.mark.usefixtures("placed_address_dictionary")
 async def test_convenience_stores_come_from_the_stop_places_and_not_from_openstreetmap(road_graph_repository):
     """補給の点のコンビニは立ち寄り先の群「コンビニ」の行から出し、OpenStreetMap の`shop=convenience`は出さない。
     ほかの群の立ち寄り先は補給の点に出ない。"""
@@ -215,6 +216,7 @@ async def test_an_accident_point_carries_bicycle_fatal_and_year(road_graph_repos
 # --- 立ち寄り先 ----------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("placed_address_dictionary")
 async def test_a_stop_place_point_carries_its_group_confidence_and_name(road_graph_repository):
     """立ち寄り先は事故と同じく対象範囲を一括で取り込むので、道を取り込んでいない所でも出す。タイルの外の地点は出ない。"""
     await _ingest_stop_places([_overture_place(1, LON, "店1"), _overture_place(2, LON + 10 * FAR, "店2")])

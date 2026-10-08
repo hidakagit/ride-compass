@@ -4,7 +4,8 @@
 施設の表を引く層（`infrastructure/stop_place_search.py`）の判断を見る: 候補の種類・段・表示名・位置、入力の空白を除くこと、
 何も当たらない入力は空、旧い市の名前を今の住所で出すこと（大字の無い区域はその市区町村で）、今は無い区画を落とすこと、
 対象範囲の外の候補を落とすこと、打ちかけの入力の続きを足すこと（並び・1文字から・件数の上限・位置を持たない節）、
-施設の名前を表記の揺れを除いて部分一致で引くこと（並び・件数の上限）、住所と施設を混ぜる並び、
+施設の名前を表記の揺れを除いて部分一致で引くこと（並び・件数の上限）、施設に添える辺り（立ち寄り先の派生の段が住所の辞書を
+逆引きして入れる。市区町村から字・丁目まで、旧い住所の節を除く、大字の無い区域は市区町村まで）、住所と施設を混ぜる並び、
 辞書が無ければ503、対象範囲を読めなければ502、回数制限。
 辞書はテストの足場が数件の節で書いたもの（`tests/address_dictionary_fixture.py`）を本物の検索で引く。対象範囲は道路の
 取込の記録から、施設は Overture の地点の取込から立ち寄り先の派生の段を本物のまま流して作り、注入から本物を通す。
@@ -72,11 +73,6 @@ async def _search(query: str) -> httpx.Response:
         return await client.get("/api/place-search", params={"q": query})
 
 
-@pytest.fixture
-def dictionary(address_dictionary_dir):
-    write_dictionary(address_dictionary_dir)
-
-
 def _facility_record(key: int, name: str, longitude: float, latitude: float, confidence: float = 0.75) -> object:
     """Overture の地点の1件（群「食べる・飲む」に入る分類）。"""
     return point_record(key, longitude, latitude, {
@@ -96,7 +92,8 @@ NEW_SHINJUKU_WARD = PLACES[0].children[0]
 
 
 def _address(place: Place, name: str, level: str) -> dict:
-    return {"kind": "address", "level": level, "name": name, "latitude": place.latitude, "longitude": place.longitude}
+    return {"kind": "address", "level": level, "name": name, "area": None,
+            "latitude": place.latitude, "longitude": place.longitude}
 
 
 @pytest.mark.parametrize(("query", "candidates"), [
@@ -116,7 +113,7 @@ def _address(place: Place, name: str, level: str) -> dict:
     ], id="打ちかけの続き"),
     pytest.param("西", [_address(NISHI_SHINJUKU, "東京都新宿区西新宿", "oaza")], id="1文字にも続きを足す"),
 ])
-@pytest.mark.usefixtures("area", "dictionary")
+@pytest.mark.usefixtures("area", "placed_address_dictionary")
 async def test_returns_the_candidates_within_the_area(query, candidates):
     response = await _search(query)
 
@@ -227,7 +224,7 @@ async def test_the_search_is_unavailable_without_the_dictionary(address_dictiona
     assert response.json() == {"detail": "住所の検索は今は使えません"}
 
 
-@pytest.mark.usefixtures("app_db", "dictionary")
+@pytest.mark.usefixtures("app_db", "placed_address_dictionary")
 async def test_the_search_is_a_failure_when_the_area_cannot_be_read():
     """対象範囲が読めない（DB障害・道路を未取込）ときは、候補を範囲で絞れない。"""
     response = await _search("東京都新宿区")
@@ -236,7 +233,7 @@ async def test_the_search_is_a_failure_when_the_area_cannot_be_read():
     assert response.json() == {"detail": "対象範囲を読めませんでした"}
 
 
-@pytest.mark.usefixtures("area", "dictionary")
+@pytest.mark.usefixtures("area", "placed_address_dictionary")
 async def test_the_search_is_rate_limited_per_client():
     limit = settings.place_search_rate_limit_per_minute
     for _ in range(limit - 1):
@@ -253,8 +250,13 @@ LON, LAT = 139.70, 35.69
 OUTSIDE_LON, OUTSIDE_LAT = 135.50, 34.68
 
 
-def _facility(name: str, longitude: float, latitude: float = LAT) -> dict:
-    return {"kind": "facility", "level": "point", "name": name, "latitude": latitude, "longitude": longitude}
+#: 足場の辞書で、新宿の位置（`LON`・`LAT`）の辺り。
+SHINJUKU_AREA = "新宿区西新宿二丁目"
+
+
+def _facility(name: str, longitude: float, latitude: float = LAT, area: str = SHINJUKU_AREA) -> dict:
+    return {"kind": "facility", "level": "point", "name": name, "area": area, "latitude": latitude,
+            "longitude": longitude}
 
 
 @pytest.mark.parametrize("query", [
@@ -262,7 +264,7 @@ def _facility(name: str, longitude: float, latitude: float = LAT) -> dict:
     pytest.param("ｲﾁﾗﾝ", id="半角のかな"),
     pytest.param("らーめん 一蘭", id="空白"),
 ])
-@pytest.mark.usefixtures("area", "dictionary")
+@pytest.mark.usefixtures("area", "placed_address_dictionary")
 async def test_facilities_are_found_by_a_part_of_the_name_within_the_area(query):
     await _ingest_facilities([
         _facility_record(1, "らーめん一蘭 新宿店", LON, LAT),
@@ -282,7 +284,7 @@ async def test_facilities_are_found_by_a_part_of_the_name_within_the_area(query)
     assert response.json() == {"candidates": expected}
 
 
-@pytest.mark.usefixtures("area", "dictionary")
+@pytest.mark.usefixtures("area", "placed_address_dictionary")
 async def test_facilities_are_ordered_by_how_the_name_matches_then_by_length_then_by_confidence():
     """名前が入力と同じ → 入力で始まる → 入力を含む。同じ中では名前の短い順、同じ長さなら確からしさの高い順。"""
     await _ingest_facilities([
@@ -305,7 +307,7 @@ async def test_facilities_are_ordered_by_how_the_name_matches_then_by_length_the
     ]}
 
 
-@pytest.mark.usefixtures("area", "dictionary")
+@pytest.mark.usefixtures("area", "placed_address_dictionary")
 async def test_facilities_are_the_best_ones_up_to_the_limit():
     names = ["喫茶" + "あ" * length for length in range(PLACE_PREDICTION_LIMIT + 1, 0, -1)]
     await _ingest_facilities([_facility_record(i, name, LON + i / 100, LAT) for i, name in enumerate(names)])
@@ -316,7 +318,7 @@ async def test_facilities_are_the_best_ones_up_to_the_limit():
     assert [c["name"] for c in response.json()["candidates"]] == sorted(names, key=len)[:PLACE_PREDICTION_LIMIT]
 
 
-@pytest.mark.usefixtures("area", "dictionary")
+@pytest.mark.usefixtures("area", "placed_address_dictionary")
 async def test_an_input_without_letters_finds_no_facility():
     """表記の揺れを除くと空になる入力（中点・ハイフンだけ）は、どの名前にも含まれるとみなさない。"""
     await _ingest_facilities([_facility_record(1, "小杉湯", LON, LAT)])
@@ -342,6 +344,55 @@ async def test_facilities_come_between_addresses_matching_the_whole_input_and_th
     assert response.status_code == 200
     assert response.json() == {"candidates": [
         _address(kosugiyu_town, "神奈川県川崎市小杉湯町", "oaza"),
-        _facility("小杉湯", LON),
+        _facility("小杉湯", LON, area="川崎市小杉湯町"),
         _address(kosugi, "神奈川県川崎市小杉", "oaza"),
     ]}
+
+
+# --- 施設の辺り ------------------------------------------------------------------
+
+
+@pytest.mark.usefixtures("area", "placed_address_dictionary")
+async def test_facilities_of_the_same_name_show_the_area_each_one_is_in():
+    """チェーンの名前で探すと同じ表示名の店が並ぶので、辺り（市区町村から字・丁目まで）で見分ける。"""
+    await _ingest_facilities([
+        _facility_record(1, "ファミリーマート", SHINJUKU_8.longitude, SHINJUKU_8.latitude),
+        _facility_record(2, "ファミリーマート", SHIBUYA_HONMACHI.longitude, SHIBUYA_HONMACHI.latitude),
+    ])
+
+    response = await _search("ファミリーマート")
+
+    assert response.status_code == 200
+    assert response.json() == {"candidates": [
+        _facility("ファミリーマート", SHINJUKU_8.longitude, SHINJUKU_8.latitude, "新宿区西新宿二丁目"),
+        _facility("ファミリーマート", SHIBUYA_HONMACHI.longitude, SHIBUYA_HONMACHI.latitude, "渋谷区本町"),
+    ]}
+
+
+@pytest.mark.parametrize(("places", "expected_area"), [
+    # 旧い市の節は、今の住所の節と並んで当たる（今の住所の節より近いこともある）。
+    pytest.param((Place("埼玉県", AddressLevel.PREF, 139.649, 35.85736, (
+        Place("さいたま市", AddressLevel.CITY, 139.645502, 35.861515, (
+            Place("岩槻区", AddressLevel.WARD, 139.694182, 35.949882, (
+                Place("本町", AddressLevel.OAZA, LON + 0.002, LAT),
+            ), "postcode:3390000"),
+        )),
+        Place("岩槻市", AddressLevel.CITY, 139.694182, 35.949882, (
+            Place("本町", AddressLevel.OAZA, LON + 0.001, LAT, note="ref:埼玉県さいたま市岩槻区本町"),
+        )),
+    )),), "さいたま市岩槻区本町", id="旧い住所の節を除き、市から区へつなぐ"),
+    pytest.param((Place("茨城県", AddressLevel.PREF, 140.446793, 36.341813, (
+        Place("龍ケ崎市", AddressLevel.CITY, 140.182265, 35.911594, (
+            Place(".", AddressLevel.OAZA, LON, LAT, (Place("3710番地", AddressLevel.BLOCK, LON, LAT),)),
+        ), "postcode:3010000"),
+    )),), "龍ケ崎市", id="大字の無い区域は市区町村まで"),
+])
+@pytest.mark.usefixtures("area")
+async def test_the_area_is_the_nearest_current_address_from_the_city(address_dictionary_dir, places, expected_area):
+    write_dictionary(address_dictionary_dir, places)
+    await _ingest_facilities([_facility_record(1, "小杉湯", LON, LAT)])
+
+    response = await _search("小杉湯")
+
+    assert response.status_code == 200
+    assert response.json() == {"candidates": [_facility("小杉湯", LON, area=expected_area)]}

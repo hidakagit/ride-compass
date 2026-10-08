@@ -412,6 +412,7 @@ describe("地図で扱えること", () => {
       kind: "address",
       level: "block",
       name: "東京都千代田区丸の内一丁目9番",
+      area: null,
       latitude: 35.681,
       longitude: 139.767,
     } as const;

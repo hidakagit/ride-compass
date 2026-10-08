@@ -4294,6 +4294,17 @@
             "type": "string",
             "title": "Name"
           },
+          "area": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Area"
+          },
           "latitude": {
             "type": "number",
             "maximum": 90.0,
@@ -4313,6 +4324,7 @@
           "kind",
           "level",
           "name",
+          "area",
           "latitude",
           "longitude"
         ],
