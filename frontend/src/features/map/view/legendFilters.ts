@@ -11,9 +11,9 @@ export function hiddenKeysOf(store: HiddenLegendKeys, axisId: string): readonly 
   return store[axisId] ?? NONE;
 }
 
+/** 空にした軸も空の並びとして残す——消すと、最初に隠す行を持つ軸が次の訪問でまた隠れる。 */
 export function withHiddenKeys(store: HiddenLegendKeys, axisId: string, keys: readonly string[]): HiddenLegendKeys {
-  const rest = Object.fromEntries(Object.entries(store).filter(([id]) => id !== axisId));
-  return keys.length === 0 ? rest : { ...rest, [axisId]: keys };
+  return { ...store, [axisId]: keys };
 }
 
 export function toggleHiddenKey(store: HiddenLegendKeys, axisId: string, key: string): HiddenLegendKeys {
@@ -27,14 +27,13 @@ export function presentHiddenKeys(legend: readonly { key: string }[], hidden: re
   return hidden.filter((key) => legend.some((entry) => entry.key === key));
 }
 
-/** 文字列の配列でない鍵は捨てる（読めない保存値の例外は`useStoredState`が既定値へ倒す）。 */
-export function deserializeHiddenLegendKeys(raw: string): HiddenLegendKeys | null {
+/** 保存値を、最初に隠す行（`initial`）の上に重ねる。保存値に無い軸（触ったことの無い軸・あとから足した層）は最初に
+ * 隠す行のままにする。文字列の配列でない鍵は捨てる（読めない保存値の例外は`useStoredState`が既定値へ倒す）。 */
+export function deserializeHiddenLegendKeys(raw: string, initial: HiddenLegendKeys): HiddenLegendKeys | null {
   const parsed: unknown = JSON.parse(raw);
   if (parsed === null || typeof parsed !== "object") return null;
-  return Object.fromEntries(
-    Object.entries(parsed).filter(
-      (entry): entry is [string, string[]] =>
-        Array.isArray(entry[1]) && entry[1].length > 0 && entry[1].every((key) => typeof key === "string"),
-    ),
+  const stored = Object.entries(parsed).filter(
+    (entry): entry is [string, string[]] => Array.isArray(entry[1]) && entry[1].every((key) => typeof key === "string"),
   );
+  return { ...initial, ...Object.fromEntries(stored) };
 }

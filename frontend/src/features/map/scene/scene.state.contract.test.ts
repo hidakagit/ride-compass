@@ -64,15 +64,16 @@ function rebuild(map: unknown, state: State) {
 }
 
 describe("状態を地図へ伝えた結果", () => {
-  describe("面（標高図・土地被覆・起伏）", () => {
+  describe("面（起伏）", () => {
     it("表示ONにしたものだけが見えている", () => {
-      const { map, handle } = createRecordingMap();
+      const on = createRecordingMap();
+      const off = createRecordingMap();
 
-      rebuild(map as never, shown({ elevation: true, landcover: false, hillshade: false }));
+      rebuild(on.map as never, shown({ hillshade: true }));
+      rebuild(off.map as never, shown({ hillshade: false }));
 
-      expect(handle.layer(areaLayerId("elevation"))?.visibility).toBe("visible");
-      expect(handle.layer(areaLayerId("landcover"))?.visibility).toBe("none");
-      expect(handle.layer(areaLayerId("hillshade"))?.visibility).toBe("none");
+      expect(on.handle.layer(areaLayerId("hillshade"))?.visibility).toBe("visible");
+      expect(off.handle.layer(areaLayerId("hillshade"))?.visibility).toBe("none");
     });
   });
 
@@ -89,10 +90,10 @@ describe("状態を地図へ伝えた結果", () => {
     });
 
     // 同じ道へ複数の線を重ねると後から描いた方が隠す。ON中の本数から対称に割り付ける。
-    it("路面と道路種別を同時に出すと、線が左右へ分かれる", () => {
+    it("路面とトンネルを同時に出すと、線が左右へ分かれる", () => {
       const { map, handle } = createRecordingMap();
 
-      rebuild(map as never, shown({ surface: true, highway: true }));
+      rebuild(map as never, shown({ surface: true, tunnel: true }));
 
       const offsets = ROAD_TRACKS.map((track) => handle.layer(roadLayerId(track.attr_id))?.paint["line-offset"]).filter(
         (value) => value !== undefined,
@@ -190,7 +191,7 @@ describe("レイヤーを横断する要求", () => {
     const visibility: Record<string, boolean> = {};
     for (const track of ROAD_TRACKS) visibility[track.attr_id] = true;
     for (const layer of POINT_LAYERS) visibility[layer.attr_id] = true;
-    for (const role of ["elevation", "landcover", "hillshade"]) visibility[role] = true;
+    visibility.hillshade = true;
     visibility.route = true;
     const mode = { id: "difficulty", label: "難易度", colorExpression: ["literal", "#16a34a"], legend: [] };
     const candidate = {

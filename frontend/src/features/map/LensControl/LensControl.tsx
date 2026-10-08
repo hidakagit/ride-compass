@@ -3,7 +3,6 @@
 import { Popover, PopoverContent, PopoverTrigger, POPOVER_COLLISION_PADDING_PX } from "@/components/ui/Popover/Popover";
 import { useState } from "react";
 import LegendCheckboxList from "@/features/map/LegendCheckboxList/LegendCheckboxList";
-import { mapOverlayEdge } from "@/lib/mapOverlayEdges";
 import { LEGEND_SWATCH_RING_CLASS, legendSwatchBackground, type LegendEntry } from "@/lib/mapDisplay/legendFilter";
 import { LAYER_DATA_STATUS_LABELS, layerDataStatusNotice, type LayerDataStatus } from "@/features/map/layers/mapLayers";
 import {
@@ -59,7 +58,7 @@ const LENS_SCREEN_NAME = "地図の色分け";
 /** ルートを作る前は道に何も塗らない色分けに付ける札。 */
 const ROUTE_ONLY_BADGE = "ルート後のみ";
 
-/** レンズ（地図を何で塗るか）の唯一の入口。地図の上の中央のピルが今のレンズを示し、押すと一覧を開く。 */
+/** レンズ（地図を何で塗るか）の唯一の入口。地図の左上のピルが今のレンズを示し、押すと一覧を開く。置き場は呼び出し側が決める。 */
 export default function LensControl({
   lens,
   onLensChange,
@@ -121,10 +120,7 @@ export default function LensControl({
   }
 
   return (
-    <div
-      className="absolute top-3 left-1/2 z-[var(--z-map-control)] max-w-[min(14rem,calc(100%-7rem))] -translate-x-1/2"
-      {...mapOverlayEdge("top")}
-    >
+    <div className="pointer-events-auto min-w-0 max-w-56">
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <Button
@@ -173,7 +169,7 @@ export default function LensControl({
         <PopoverContent
           className="max-h-[70vh] w-[min(24rem,calc(100vw-1.5rem))] overflow-y-auto rounded-sm px-3 py-2.5"
           side="bottom"
-          align="center"
+          align="start"
           collisionPadding={POPOVER_COLLISION_PADDING_PX}
         >
           <p className="mb-1.5 font-semibold">{LENS_SCREEN_NAME}</p>

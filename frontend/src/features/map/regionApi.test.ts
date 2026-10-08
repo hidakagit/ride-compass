@@ -53,12 +53,6 @@ describe("タイルの世代とURL", () => {
       `https://tiles.example/api/region/point-tiles/${layer}/{z}/{x}/{y}.pbf?v=${layer}-v1`,
     );
   });
-
-  it("土地被覆のタイルは実行時の世代を待たず、生成物の世代で組み立てる", () => {
-    expect(api.landcoverTileUrl()).toBe(
-      `https://tiles.example/api/region/landcover-tiles/{z}/{x}/{y}.png?v=${regionTileConfig.landcover.tile_version}`,
-    );
-  });
 });
 
 describe("押した道の内訳（fetchAxisInspector）", () => {

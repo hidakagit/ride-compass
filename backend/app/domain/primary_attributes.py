@@ -12,22 +12,13 @@ from app.domain.registry import (
     PointThinningSpec,
     PrimaryAttributeSpec,
 )
-from app.domain.road import SURFACE_CLASSES, TRACK_GRADES, surface_class_description
+from app.domain.material_sql import CYCLEWAY_CLASSES
+from app.domain.road import SURFACE_CLASSES, surface_class_description
 from app.domain.stop_place import StopPlaceGroup
 from app.domain.traffic import TAG_KIND_RULES, kind_map_sql, kinds_shown_as, stop_kind_sql
 
 #: 元のタグの値をこの数より多く持つ種別は、説明でタグの名前だけを言う（値を並べると説明が値の一覧になる）。
 _LISTED_TAG_VALUES = 3
-
-
-def _values_note(tag_key: str, values: tuple[str, ...]) -> str:
-    """行の説明の末尾に添える元のタグ（OSM の値そのものを行の値に持つ行）。行の値から組むので、値を足すと説明にも出る。
-    連絡路（`<値>_link`）が元の値とそろっていれば「とその連絡路」とまとめる。"""
-    links = sorted(v for v in values if v.endswith("_link"))
-    bases = [v for v in values if not v.endswith("_link")]
-    if links and links == sorted(f"{v}_link" for v in bases):
-        return f"[OSM の {tag_key}={'・'.join(bases)} とその連絡路]"
-    return f"[OSM の {tag_key}={'・'.join(values)}]"
 
 
 def _kinds_note(kinds: tuple[str, ...]) -> str:
@@ -46,13 +37,6 @@ def _kinds_note(kinds: tuple[str, ...]) -> str:
     ) + "]"
 
 
-def _tag_row(
-    tag_key: str, key: str, label: str, values: tuple[str, ...], meaning: str
-) -> DisplayCategorySpec:
-    """OSM の`tag_key`の値を行の値に持つ行。説明は意味の文`meaning`に元のタグを添える。"""
-    return DisplayCategorySpec(key=key, label=label, values=values, description=f"{meaning}{_values_note(tag_key, values)}。")
-
-
 def _kind_row(key: str, label: str, values: tuple[str, ...], meaning: str, glyph: str | None = None) -> DisplayCategorySpec:
     """種別を行の値に持つ行。説明は意味の文`meaning`に元のタグを添える。"""
     return DisplayCategorySpec(
@@ -65,54 +49,28 @@ def _kind_row(key: str, label: str, values: tuple[str, ...], meaning: str, glyph
 #: 材料を1つも持たない属性（どの軸からも参照されず評価に効かない）も同じ表に並ぶ——
 #: 材料を持つかどうかは材料カタログを引けば分かるため、表を分けない。
 PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
-    ATTR_HIGHWAY := PrimaryAttributeSpec(
-        attr_id="highway",
+    ATTR_HIGHWAY := PrimaryAttributeSpec(attr_id="highway", label="道路の種類", geometry="line"),
+    ATTR_LANES := PrimaryAttributeSpec(attr_id="lanes", label="車線数", geometry="line"),
+    ATTR_MAXSPEED := PrimaryAttributeSpec(attr_id="maxspeed", label="制限速度", geometry="line"),
+    ATTR_CYCLEWAY := PrimaryAttributeSpec(
+        attr_id="cycleway",
         tile_kind="road_surface",
-        label="道路の種類",
+        label="自転車インフラ",
         geometry="line",
-        # 順序のある分類なので、色相ではなく濃淡で幹線→細街路を表す。
+        # 行は材料「自転車の走る場所」の値そのもの。当てはまらない道は値を持たない（該当なし）。
         display_axes=(
             DisplayAxisSpec(
-                key="highway",
-                property="highway",
-                palette="ordered",
-                categories=(
-                    _tag_row(
-                        "highway",
-                        "arterial",
-                        "幹線道路",
-                        ("motorway", "motorway_link", "trunk", "trunk_link", "primary", "primary_link"),
-                        "高速道路・国道・主要な県道など、車が遠くへ行くための太い通り",
-                    ),
-                    _tag_row(
-                        "highway",
-                        "secondary",
-                        "主要道",
-                        ("secondary", "secondary_link", "tertiary", "tertiary_link"),
-                        "県道・市町村の主な道など、地域の中を結ぶ通り",
-                    ),
-                    _tag_row(
-                        "highway",
-                        "local",
-                        "生活道路",
-                        ("residential", "unclassified", "living_street", "service", "road"),
-                        "住宅街の道・名前の付かない細い道・施設の中の通路など、主に近くへ行くための道",
-                    ),
-                    _tag_row(
-                        "highway",
-                        "cycleway",
-                        "自転車・歩行者道",
-                        ("cycleway", "path", "footway", "pedestrian", "bridleway", "steps"),
-                        "自転車道・歩道・遊歩道・歩行者専用の道・階段など、車が通らない道",
-                    ),
-                    _tag_row("highway", "track", "農道・林道", ("track",), "田畑や山林へ入るための道。舗装も未舗装もある"),
+                key="cycleway",
+                property="cycleway_class",
+                palette="nominal",
+                hue_slot=5,
+                categories=tuple(
+                    DisplayCategorySpec(key=c.key, label=c.label, values=(c.key,), description=c.description)
+                    for c in CYCLEWAY_CLASSES
                 ),
             ),
         ),
     ),
-    ATTR_LANES := PrimaryAttributeSpec(attr_id="lanes", label="車線数", geometry="line"),
-    ATTR_MAXSPEED := PrimaryAttributeSpec(attr_id="maxspeed", label="制限速度", geometry="line"),
-    ATTR_CYCLEWAY := PrimaryAttributeSpec(attr_id="cycleway", label="自転車インフラ", geometry="line"),
     ATTR_SURFACE := PrimaryAttributeSpec(
         attr_id="surface",
         tile_kind="road_surface",
@@ -135,23 +93,7 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
             ),
         ),
     ),
-    ATTR_TRACKTYPE := PrimaryAttributeSpec(
-        attr_id="tracktype",
-        tile_kind="road_surface",
-        label="農道・林道の等級",
-        geometry="line",
-        # 等級は固い路面から柔らかい路面への順序を持つ。
-        display_axes=(
-            DisplayAxisSpec(
-                key="tracktype",
-                property="tracktype",
-                palette="ordered",
-                categories=tuple(
-                    _tag_row("tracktype", g.value, g.label, (g.value,), g.description) for g in TRACK_GRADES
-                ),
-            ),
-        ),
-    ),
+    ATTR_TRACKTYPE := PrimaryAttributeSpec(attr_id="tracktype", label="農道・林道の等級", geometry="line"),
     ATTR_MOTOR_VEHICLE_ACCESS := PrimaryAttributeSpec(attr_id="motor_vehicle_access", label="自動車通行可否", geometry="line"),
     ATTR_LIT := PrimaryAttributeSpec(attr_id="lit", label="街灯", geometry="line"),
     ATTR_TUNNEL := PrimaryAttributeSpec(
@@ -176,31 +118,7 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
             ),
         ),
     ),
-    ATTR_ONEWAY := PrimaryAttributeSpec(
-        attr_id="oneway",
-        tile_kind="road_surface",
-        label="一方通行",
-        geometry="line",
-        display_axes=(
-            DisplayAxisSpec(
-                key="oneway",
-                property="oneway",
-                palette="nominal",
-                hue_slot=5,
-                categories=(
-                    DisplayCategorySpec(
-                        key="oneway",
-                        label="一方通行",
-                        values=(True,),
-                        description=(
-                            "一方向にしか進めない道。環状交差点も含み、自転車だけ両方向に通れる道は含まない"
-                            "[OSM の oneway・oneway:bicycle・junction タグ]。"
-                        ),
-                    ),
-                ),
-            ),
-        ),
-    ),
+    ATTR_ONEWAY := PrimaryAttributeSpec(attr_id="oneway", label="一方通行", geometry="line"),
     ATTR_ELEVATION := PrimaryAttributeSpec(attr_id="elevation", label="標高図", geometry="area"),
     ATTR_STOP_POI := PrimaryAttributeSpec(
         attr_id="stop_poi",

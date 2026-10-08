@@ -50,22 +50,11 @@
   --color-surface-2: #f3f4f2;
   --color-accent-strong: #1d4ed8;
 
-  /* 地図チップの最上位グループを見分ける色。ON状態の青（--color-accent）・展開見出しの地味色
-   * （--color-neutral）と別の意味で使うので、それらと被らない色相にする。OFF状態の枠線に使う。 */
+  /* 「表示」の一覧で、群（道路・環境・スポット）の見出しを見分ける色。ONのチェックの青（--color-accent）と
+   * 別の意味で使うので、それと被らない色相にする。 */
   --color-group-road: #0d9488;
   --color-group-environment: #b45309;
   --color-group-spot: #db2777;
-  /* ON状態の塗りつぶし背景。グループの色と同じ値にし、ダークモードでは明るく差し替えたOFF用の色へ
-   * そろえる（別の値にすると、同じグループの見出しとメンバーで色相がずれて見える）。 */
-  --color-group-road-on: #0d9488;
-  --color-group-environment-on: #b45309;
-  --color-group-spot-on: #db2777;
-  /* -onの背景に乗せる文字色。ダークモードは背景が明るい色になるので黒系へ切り替える。 */
-  --color-group-on-text: #ffffff;
-  /* グループの見出しチップを展開している間の薄い背景。文字と枠線は同じグループの濃い色を乗せる。 */
-  --color-group-road-bg: #ccfbf1;
-  --color-group-environment-bg: #fef3c7;
-  --color-group-spot-bg: #fce7f3;
 
   --shadow-float: 0 1px 4px rgba(0, 0, 0, 0.3);
 
@@ -145,14 +134,6 @@
     --color-group-road: #2dd4bf;
     --color-group-environment: #fbbf24;
     --color-group-spot: #f472b6;
-    --color-group-road-bg: #0f2e2b;
-    --color-group-environment-bg: #3a2a0f;
-    --color-group-spot-bg: #3a1329;
-    /* ON状態の背景は明るく差し替えたOFF用の色へそろえ、その上の文字は黒系にする。 */
-    --color-group-road-on: var(--color-group-road);
-    --color-group-environment-on: var(--color-group-environment);
-    --color-group-spot-on: var(--color-group-spot);
-    --color-group-on-text: #171717;
   }
 }
 

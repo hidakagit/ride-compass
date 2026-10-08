@@ -6,6 +6,7 @@ import { cn } from "@/lib/cn";
 interface CheckboxProps {
   checked: boolean;
   onCheckedChange: (checked: boolean) => void;
+  disabled?: boolean;
   "aria-label"?: string;
 }
 
@@ -22,7 +23,7 @@ export function Checkbox({ checked, onCheckedChange, ...props }: CheckboxProps) 
         // 明示することで、グローバル側の個別パッチ（モバイル限定の[role=checkbox]上書き等）に
         // 頼らず単体で正しいサイズになるようにする。
         // 押す所は24px四方（`Button`と同じ）で、見た目の四角はその中に小さく描く。
-        "group flex size-6 min-h-0 shrink-0 items-center justify-center border-0 bg-transparent p-0",
+        "group flex size-6 min-h-0 shrink-0 items-center justify-center border-0 bg-transparent p-0 disabled:opacity-40",
       )}
       {...props}
     >

@@ -533,9 +533,14 @@ export default function Home() {
               measureRouteFitObscuredPx={measureRouteFitObscuredPx}
             />
 
-            <LensControl {...mapView.lensControl} />
-
-            <MapOverlayControls {...mapView.overlayControls} />
+            {/* 地図の左上に「表示」（重ねる情報の一覧）と色分けを横に並べる。右の縦の列（走行方位・走行条件等）の幅を空ける。 */}
+            <div
+              {...mapOverlayEdge("top")}
+              className="pointer-events-none absolute top-3 right-[calc(var(--map-ctrl-margin)+var(--map-ctrl-button-size)+var(--space-2))] left-3 z-[var(--z-map-control)] flex items-start gap-2"
+            >
+              <MapOverlayControls {...mapView.overlayControls} />
+              <LensControl {...mapView.lensControl} />
+            </div>
 
             <FirstVisitIntro isMobile={isMobile} locationUnknown={locationFailure !== null} />
 

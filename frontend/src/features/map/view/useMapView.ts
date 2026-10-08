@@ -29,6 +29,7 @@ import { useDynamicWeatherLayers } from "@/features/map/useDynamicWeatherLayers"
 import { useStoredBooleanState, useStoredState } from "@/hooks/useStoredState";
 import type { Coordinates } from "@/types/route";
 import { useMapAxisCatalog } from "@/features/map/useMapAxisCatalog";
+import { initiallyHiddenLegendKeys } from "@/features/map/scene/legends";
 
 import {
   deserializeHiddenLegendKeys,
@@ -53,7 +54,9 @@ import { deserializeLayerVisibility, overlayChips } from "./overlayChips";
 const LEGEND_FILTER_DEBOUNCE_MS = 400;
 
 const ROUTE_LAYER_ID = "route";
-const NO_HIDDEN: HiddenLegendKeys = {};
+const INITIAL_HIDDEN: HiddenLegendKeys = initiallyHiddenLegendKeys();
+/** 凡例のどの行も隠していない状態。最初に隠す行を持つ軸も、空の並びで「出す」と覚える。 */
+const NONE_HIDDEN: HiddenLegendKeys = Object.fromEntries(Object.keys(INITIAL_HIDDEN).map((axisId) => [axisId, []]));
 
 interface MapViewInputs {
   /** 候補を選んでいるか。 */
@@ -102,9 +105,9 @@ export function useMapView({
     reloadKey: catalog.loaded,
   });
   const [keepAfterRoute, setKeepAfterRoute] = useStoredBooleanState("ridecompass:lens-keep-after-route", true);
-  const [hidden, setHidden] = useStoredState<HiddenLegendKeys>("ridecompass:hidden-legend-keys", NO_HIDDEN, {
+  const [hidden, setHidden] = useStoredState<HiddenLegendKeys>("ridecompass:hidden-legend-keys", INITIAL_HIDDEN, {
     serialize: JSON.stringify,
-    deserialize: deserializeHiddenLegendKeys,
+    deserialize: (raw) => deserializeHiddenLegendKeys(raw, INITIAL_HIDDEN),
   });
   const [viewport, setViewport] = useState<MapViewport | null>(null);
   const [mapLayerStatus, setMapLayerStatus] = useState<LayerDataStatusByLayer>({});
@@ -221,7 +224,7 @@ export function useMapView({
       anyLegendHidden:
         lensHidden.length > 0 ||
         chips.some((chip) => (chip.legendDetails ?? []).some((axis) => axis.hiddenKeys.length > 0)),
-      showAllLegendRows: () => setHidden(NO_HIDDEN),
+      showAllLegendRows: () => setHidden(NONE_HIDDEN),
       redraw: () => setRefreshToken((token) => token + 1),
     },
     center,

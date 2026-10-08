@@ -53,6 +53,18 @@ export function roadLegendAxes(): readonly SceneLegendAxis[] {
   }));
 }
 
+/** 最初に凡例で隠しておく行。源泉が`hideMissingRows`を宣言した道の線の、値の無い道の行（データなし、タグの不在も
+ * 確定した値として載る属性では該当なし）。 */
+export function initiallyHiddenLegendKeys(): Readonly<Record<string, readonly string[]>> {
+  const hiding = new Set<string>(mapDisplay.layers.filter((layer) => layer.hideMissingRows).map((layer) => layer.id));
+  return Object.fromEntries(
+    ROAD_TRACKS.filter((track) => hiding.has(track.attr_id)).map((track) => [
+      track.attr_id,
+      [roadTrackHasMissing(track) ? NO_DATA_LEGEND_BAND.key : ROAD_OTHER_KEY],
+    ]),
+  );
+}
+
 /** 点の凡例。**色見本を出すのは、地図の色式が読む先頭の軸だけ**——2本目以降（重大度）は
  * 地図では大きさだけで表れるので、見本も色を持たない灰で、地図と同じ大きさにする。絵記号で描く行は見本も絵記号にする。 */
 function pointAxisLegend(layer: (typeof POINT_LAYERS)[number], axis: PointAxis, index: number): SceneLegendAxis {

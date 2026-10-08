@@ -67,7 +67,7 @@ Tailwindのユーティリティで書く。CSS Modulesは使わない（CSSの�
 
 | トークン | 値 | 層 |
 |---|---|---|
-| `--z-map-control` | 20 | 地図に重ねる操作系（チップ列・現在地ボタン・走行条件列） |
+| `--z-map-control` | 20 | 地図に重ねる操作系（「表示」と色分け・現在地ボタン・走行条件列） |
 | `--z-map-popup` | 25 | MapLibreのポップアップ |
 | `--z-map-detail` | 30 | 地図内の詳細パネル |
 | `--z-bottom-sheet` | 45 | モバイルのBottomSheet・下部タブバー |
