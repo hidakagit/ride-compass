@@ -657,7 +657,7 @@ export default function MapOverlayControls({
 
   return (
     <div
-      className="pointer-events-none absolute top-3 left-3 z-[var(--z-map-control)] flex w-max max-w-[calc(100%-2*var(--space-3)-3rem)] flex-col items-start gap-2 max-mobile:bottom-[calc(var(--space-3)+var(--mobile-tabbar-height)+var(--bottom-control-row-height,0px))]"
+      className="pointer-events-none absolute top-3 left-3 z-[var(--z-map-control)] flex w-max max-w-[calc(100%-2*var(--space-3)-3rem)] flex-col items-start gap-2 max-mobile:bottom-[calc(var(--space-3)+var(--mobile-tabbar-height))]"
       {...mapOverlayEdge("left")}
     >
       {hasLess && (

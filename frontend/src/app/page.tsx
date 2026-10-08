@@ -10,13 +10,11 @@ import { cn } from "@/lib/cn";
 import MapView from "@/features/map/MapView/MapView";
 import { mapOverlayEdge, type RouteFitObscuredPx } from "@/lib/mapOverlayEdges";
 import MapOverlayControls from "@/features/map/MapOverlayControls/MapOverlayControls";
+import MapResetMenu from "@/features/map/MapResetMenu/MapResetMenu";
 import {
-  ClearAllFiltersIcon,
-  ClearAllLayersIcon,
   ClearRoutesIcon,
   GenerateRoutesIcon,
   LocateIcon,
-  RedrawMapIcon,
   RouteIcon,
   RouteSettingsIcon,
 } from "@/components/ui/icons/icons";
@@ -46,7 +44,6 @@ import { axisCatalogFetchFailure, useAxisCatalog } from "@/hooks/useAxisCatalog"
 import DebugConsole from "@/components/DebugConsole/DebugConsole";
 import { useDebugEnabled } from "@/hooks/useDebugLog";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { useElementHeightCssVar } from "@/hooks/useElementHeightCssVar";
 import { useLocation } from "@/hooks/useLocation";
 import { useStoredState, useStoredBooleanState } from "@/hooks/useStoredState";
 import { useRideConditions } from "@/features/conditions/useRideConditions";
@@ -198,11 +195,6 @@ export default function Home() {
   const pointEditingEnabled = routeSettingsActive && settingsTab === "generate" && editingRoute === null;
   const routeInspectionEnabled = routeOutcomeActive && editingRoute === null;
   const pinPlacementArmedRole = pointEditingEnabled ? conditions.armedPinRole : null;
-
-  // 地図のチップ列は、下部の行（時刻スライダー等）の高さを知らない。地図の枠へ実測の高さをCSS変数で渡す。
-  const mapPaneRef = useRef<HTMLDivElement>(null);
-  const bottomControlRowRef = useRef<HTMLDivElement>(null);
-  useElementHeightCssVar(bottomControlRowRef, mapPaneRef, "--bottom-control-row-height");
 
   // 地図はモバイルの下部タブバー・シートの下にも描かれるため、ルートを収めるときに覆われた高さを測って渡す
   // （そのままだとシートの裏へ収まって1本も見えない）。
@@ -512,17 +504,7 @@ export default function Home() {
               waypointsFull={conditions.waypoints.length >= routeGenerateConfig.max_waypoints}
             />
           )}
-          {/* 下部シートの高さを地図の側へ渡す（地図の操作ボタンは画面の下端からの距離で置くため、シートの裏へ隠れない
-            よう持ち上げる）。 */}
-          <div
-            ref={mapPaneRef}
-            className="app-map-pane relative min-h-0 flex-1"
-            style={
-              {
-                "--mobile-sheet-height": isMobile && mobileSheet ? `${mobileSheetHeightVh}vh` : "0px",
-              } as React.CSSProperties
-            }
-          >
+          <div className="app-map-pane relative min-h-0 flex-1">
             <MapView
               routes={route.mapRoutes}
               {...splice.map}
@@ -557,53 +539,13 @@ export default function Home() {
 
             {usageGuideActive && <UsageGuide onEnd={() => setUsageGuideActive(false)} />}
 
-            {/* 地図の下の中央に「まとめて元に戻す」操作を並べる（レイヤーのON/OFFと凡例の絞り込みは別の状態）。 */}
-            <div
-              ref={bottomControlRowRef}
-              {...mapOverlayEdge("bottom")}
-              className="pointer-events-none absolute bottom-3 left-1/2 z-[var(--z-map-control)] flex max-w-[100vw] -translate-x-1/2 flex-row items-center gap-2 max-mobile:bottom-[max(calc(var(--space-3)+var(--mobile-tabbar-height)),calc(var(--space-2)+var(--mobile-tabbar-height)+var(--mobile-sheet-height)))]"
-            >
-              <Button
-                variant="float"
-                size="iconRound"
-                onClick={mapView.bulk.hideAllLayers}
-                disabled={!mapView.bulk.anyLayerOn}
-                aria-label="表示中のレイヤーをすべて非表示にする"
-                title="表示中のレイヤーをすべて非表示にする"
-                usage="地図の左のチップでONにした表示を、まとめてOFFにします。"
-              >
-                <ClearAllLayersIcon size={14} />
-              </Button>
-              <Button
-                variant="float"
-                size="iconRound"
-                onClick={mapView.bulk.showAllLegendRows}
-                disabled={!mapView.bulk.anyLegendHidden}
-                aria-label="絞り込みをすべて解除する"
-                title="絞り込みをすべて解除する"
-                usage="凡例のチェックを外して隠した段階を、まとめて地図に戻します。"
-              >
-                <ClearAllFiltersIcon size={14} />
-              </Button>
-              {/* 押した人の地図だけを描き直す（ページを読み込み直すと生成したルートが消える）。 */}
-              <Button
-                variant="float"
-                size="iconRound"
-                onClick={mapView.bulk.redraw}
-                aria-label="地図の表示を再描画する"
-                title="地図の表示を再描画する"
-                usage="地図の表示が欠けたときに、地図だけを描き直します。作ったルートは消えません。"
-              >
-                <RedrawMapIcon size={14} />
-              </Button>
-            </div>
-
             <TravelBearingControl value={ride.bearingDeg} onChange={ride.setBearingDeg} />
 
-            {/* 走行条件（出発時刻・想定速度）は走行方位の直下に積む。出発時刻は気象レイヤーの表示時刻と同じもの。 */}
+            {/* 走行条件（出発時刻・想定速度）は走行方位の直下に積む。出発時刻は気象レイヤーの表示時刻と同じもの。
+              その下へ現在地とまとめて戻すメニューを続ける。 */}
             <div
               {...mapOverlayEdge("right")}
-              className="pointer-events-none absolute top-[calc(var(--map-ctrl-stack-top)+var(--map-ctrl-button-size)+var(--map-ctrl-stack-gap))] right-[var(--map-ctrl-margin)] z-[var(--z-map-control)]"
+              className="pointer-events-none absolute top-[calc(var(--map-ctrl-stack-top)+var(--map-ctrl-button-size)+var(--map-ctrl-stack-gap))] right-[var(--map-ctrl-margin)] z-[var(--z-map-control)] flex flex-col gap-[var(--map-ctrl-stack-gap)]"
             >
               <RideConditionBar
                 departureTime={ride.departure.at}
@@ -612,37 +554,32 @@ export default function Home() {
                 speedKmh={ride.speedKmh}
                 onSpeedKmhChange={ride.setSpeedKmh}
               />
-            </div>
-
-            <Button
-              variant="float"
-              size="bare"
-              shape="pill"
-              onClick={handleLocateMe}
-              disabled={locating}
-              {...mapOverlayEdge("right")}
-              aria-label="現在地に移動"
-              title="現在地に移動"
-              usage="現在地を取り直して地図をそこへ動かし、出発地を現在地にします。"
-              className={cn(
-                "absolute right-[calc(var(--map-ctrl-margin)+(var(--map-ctrl-column-width)-44px)/2)] bottom-10 z-[var(--z-map-control)] max-mobile:bottom-[max(calc(5rem+var(--mobile-tabbar-height)),calc(var(--space-2)+var(--mobile-tabbar-height)+var(--mobile-sheet-height)))]",
-                "size-11 text-[1.3rem]",
-                locating && "cursor-wait opacity-60",
-              )}
-            >
-              {locating ? "…" : <LocateIcon size={20} />}
-            </Button>
-
-            {locateError && (
-              <p
-                className={cn(
-                  cardVariants({ variant: "float" }),
-                  "pointer-events-none absolute right-3 bottom-25 z-[var(--z-map-control)] max-w-55 border-0 px-2.5 py-1.5 text-[length:var(--font-size-sm)] text-[var(--color-danger)] max-mobile:bottom-[max(calc(8.5rem+var(--mobile-tabbar-height)),calc(var(--space-2)+3.5rem+var(--mobile-tabbar-height)+var(--mobile-sheet-height)))]",
+              <div className="relative">
+                <Button
+                  variant="mapCtrl"
+                  size="mapCtrl"
+                  onClick={handleLocateMe}
+                  disabled={locating}
+                  aria-label="現在地に移動"
+                  title="現在地に移動"
+                  usage="現在地を取り直して地図をそこへ動かし、出発地を現在地にします。"
+                  className={cn(locating && "cursor-wait opacity-60")}
+                >
+                  {locating ? "…" : <LocateIcon />}
+                </Button>
+                {locateError && (
+                  <p
+                    className={cn(
+                      cardVariants({ variant: "float" }),
+                      "pointer-events-none absolute top-0 right-full mr-2 w-max max-w-55 border-0 px-2.5 py-1.5 text-[length:var(--font-size-sm)] text-[var(--color-danger)]",
+                    )}
+                  >
+                    {locateError}
+                  </p>
                 )}
-              >
-                {locateError}
-              </p>
-            )}
+              </div>
+              <MapResetMenu {...mapView.bulk} />
+            </div>
           </div>
         </div>
       </div>
