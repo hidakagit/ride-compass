@@ -11,6 +11,7 @@ import {
   USAGE_GUIDE_ATTRIBUTE,
   USAGE_PART_SELECTOR,
   isPopoverOpener,
+  isUnselectedTab,
   usageTargetOf,
   type UsageTarget,
 } from "./usageTarget";
@@ -54,12 +55,13 @@ function isAnyOpen(opening: RefObject<Opening>): boolean {
   return opening.current.openers.some((opener) => openedPanelOf(opener) !== null);
 }
 
-/** 止めている押し操作の外で、部品を押す（開くボタンで浮きパネルを開く・閉じる）。 */
+/** 止めている押し操作の外で、部品を押す（開くボタンで浮きパネルを開く・閉じる、タブを切り替える）。 */
 function pressThrough(element: Element, opening: RefObject<Opening>) {
   if (!(element instanceof HTMLElement)) return;
   opening.current.passing = true;
   try {
-    element.click();
+    if (isUnselectedTab(element)) element.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
+    else element.click();
   } finally {
     opening.current.passing = false;
   }
