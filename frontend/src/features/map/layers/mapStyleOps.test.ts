@@ -8,12 +8,13 @@ import type { StyleLayer } from "@/testing/mapTrace/recordingMap";
 vi.mock("maplibre-gl", () => import("@/testing/maplibre"));
 
 import {
+  type BasemapPoiKinds,
   NO_BASEMAP_POI_KINDS,
   areaLayerAnchor,
   hideBasemapPois,
   labelLayerAnchor,
   prepareBasemap,
-  resetBasemapPreparation,
+  reloadStyle,
   runWhenStyleReady,
 } from "./mapStyleOps";
 
@@ -60,12 +61,12 @@ describe("面レイヤーの差し込み位置", () => {
       { id: "water", type: "fill", "source-layer": "water" },
       { id: "highway", type: "line", "source-layer": "transportation" },
     ];
+    reloadStyle(map, "replaced", () => prepareBasemap(map));
     screen.loadStyle(replaced);
     prepareBasemap(map);
     expect(areaLayerAnchor(map)).toBeUndefined();
 
-    resetBasemapPreparation(map);
-    prepareBasemap(map);
+    screen.emit("style.load");
     expect(areaLayerAnchor(map)).toBe("highway");
   });
 
@@ -188,17 +189,25 @@ describe("基礎地図の店・施設", () => {
     expect(map.getStyle().layers).toEqual(once);
   });
 
-  it("スタイルを差し替えたら、新しいスタイルの絞りへ当て直す", () => {
+  it("スタイルを取り直す間に当てても、新しいスタイルが読み込まれてから、その配信元の絞りへ当て直す", () => {
     const { map, screen } = drawMap(POI_LAYERS);
-    prepareBasemap(map);
-    hideBasemapPois(map, HIDE);
+    const apply = (kinds: BasemapPoiKinds) => {
+      prepareBasemap(map);
+      hideBasemapPois(map, kinds);
+    };
+    apply(HIDE);
+    const hidden = map.getStyle().layers;
 
-    resetBasemapPreparation(map);
+    reloadStyle(map, "basemap", () => apply(HIDE));
+    apply(HIDE);
     screen.loadStyle(POI_LAYERS);
-    prepareBasemap(map);
-    hideBasemapPois(map, HIDE);
+    screen.emit("style.load");
 
     expect(drawnBy(map, { ...RESTAURANT, rank: 3 })).toEqual([]);
+    apply(NO_BASEMAP_POI_KINDS);
+    expect(drawnBy(map, { ...RESTAURANT, rank: 3 })).toEqual(["poi_r1"]);
+    apply(HIDE);
+    expect(map.getStyle().layers).toEqual(hidden);
   });
 });
 

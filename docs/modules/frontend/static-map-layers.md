@@ -202,9 +202,10 @@ DOM/MapLibreを一切知らない。`MapView.tsx`は画面の状態をsceneの�
 位置は`applyScene`がsceneを当てる直前に`prepareBasemap`がスタイルごとに1度だけ
 決める。呼ぶ時機に縛りは無い——このアプリのレイヤーは`transportation`を名乗らないため、既に
 載っていても位置は変わらず、道路網より後ろに積まれていたこのアプリの面も一緒に手前へ入る。
-`map.setStyle()`で作り直すときは`resetBasemapPreparation`で解決済みの記録を落として
-から差し替える。差し替えから`style.load`までは`getStyle()`が読めないため解決を見送り、
-作り直しの`applyScene`で決まる。
+スタイルを取り直すときは`reloadStyle`で取り直し、新しいスタイルの`style.load`で解決済みの記録を落としてから
+作り直しの`applyScene`を呼ぶ。記録を落とすのは読み込まれたあと——`map.setStyle()`は既定で今のスタイルとの差分を当て、
+差分が届くまで`getStyle()`は今の（このアプリの層を足し、店・施設を隠した）スタイルを返すので、その間に決め直すと
+隠した後の絞りを配信元の絞りとして記録する（`maplibre-gl`の`src/ui/map.ts: _diffStyle`・`_updateDiff`）。
 
 **暗黙の前提**: 建物を道路の手前へ動かすと、面レイヤーを1枚も出していないときの基礎地図も
 「建物の上に道路」へ変わる。この地図はpitchを持たないため影響は小さい。

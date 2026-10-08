@@ -35,7 +35,7 @@ import {
 } from "@/features/map/layers/mapLayers";
 import { apiPath } from "@/lib/apiPath";
 import { tileBaseUrl } from "@/lib/tileBaseUrl";
-import { resetBasemapPreparation, runWhenStyleReady } from "@/features/map/layers/mapStyleOps";
+import { reloadStyle, runWhenStyleReady } from "@/features/map/layers/mapStyleOps";
 import {
   applyScene,
   ROAD_TILE_SOURCE_LAYER,
@@ -726,13 +726,11 @@ export default function MapView({
     if (styleReloadPendingRef.current) return;
     styleReloadPendingRef.current = true;
 
-    map.once("style.load", () => {
+    // クエリでスタイルURLを変えることで、ブラウザのHTTPキャッシュではなく取り直しにする。
+    reloadStyle(map, `${mapStyleUrl()}?t=${Date.now()}`, () => {
       styleReloadPendingRef.current = false;
       redrawFromCurrentProps(map);
     });
-    // クエリでスタイルURLを変えることで、ブラウザのHTTPキャッシュではなく取り直しにする。
-    resetBasemapPreparation(map);
-    map.setStyle(`${mapStyleUrl()}?t=${Date.now()}`);
   }, [look.refreshToken, redrawFromCurrentProps]);
 
   // 道の詳細のポップアップ（MapLibreのPopupを器にする）。開いている間はその道を強調する（scene）。

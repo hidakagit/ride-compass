@@ -69,9 +69,6 @@ export function hideBasemapPois(map: MapLibreMap, kinds: BasemapPoiKinds): void 
   const tagged = map as unknown as StyleReadyTag;
   const original = tagged.__rcBasemapPoiFilters;
   if (original === undefined) return;
-  const key = JSON.stringify(kinds);
-  if (tagged.__rcBasemapPoisHidden === key) return;
-  tagged.__rcBasemapPoisHidden = key;
   const notHidden: ExpressionSpecification | null =
     kinds.class.length === 0 && kinds.subclass.length === 0
       ? null
@@ -99,8 +96,6 @@ interface StyleReadyTag {
   __rcLabelLayerAnchorId?: string;
   /** 基礎地図の店・施設を描くレイヤーの配信元の絞り（id → 絞り）。 */
   __rcBasemapPoiFilters?: ReadonlyMap<string, FilterSpecification | undefined>;
-  /** 今の基礎地図に当てた、隠す種類（`hideBasemapPois`の引数を文字にしたもの）。 */
-  __rcBasemapPoisHidden?: string;
 }
 
 /** 基礎地図をこのアプリの層を重ねられる形にする。同じスタイルに対しては1度しか実行しない。
@@ -129,7 +124,6 @@ export function prepareBasemap(map: MapLibreMap): void {
       "source-layer" in layer && layer["source-layer"] === POI_SOURCE_LAYER ? [[layer.id, layer.filter] as const] : [],
     ),
   );
-  tagged.__rcBasemapPoisHidden = undefined;
   tagged.__rcLabelLayerAnchorId = layers[labelLayerAnchorIndex(layers)]?.id;
   debugLog("map:lifecycle", "文字に場所を譲る点の差し込み位置", { anchorId: tagged.__rcLabelLayerAnchorId ?? null });
   const anchorIndex = areaLayerAnchorIndex(layers);
@@ -160,10 +154,16 @@ export function labelLayerAnchor(map: MapLibreMap): string | undefined {
   return recordedAnchor(map, (map as unknown as StyleReadyTag).__rcLabelLayerAnchorId);
 }
 
-/** スタイルが差し替わった（`map.setStyle()`）ときに呼ぶ。次の`prepareBasemap`が
- * 新しいスタイルに対して改めて走るようにする。 */
-export function resetBasemapPreparation(map: MapLibreMap): void {
-  (map as unknown as StyleReadyTag).__rcBasemapPrepared = false;
+/** スタイルを`url`から取り直し、新しいスタイルが読み込まれたら（`style.load`）、次の`prepareBasemap`が新しいスタイルに
+ * 対して改めて走るようにしてから`onLoaded`を呼ぶ。準備を解くのは読み込まれたあと——MapLibreの`setStyle`は既定で今の
+ * スタイルとの差分を当て、差分が届くまで`getStyle()`は今の（このアプリの層を足し、店・施設を隠した）スタイルを返すので、
+ * その間に準備し直すと、隠した後の絞りを配信元の絞りとして記録する。 */
+export function reloadStyle(map: MapLibreMap, url: string, onLoaded: () => void): void {
+  map.once("style.load", () => {
+    (map as unknown as StyleReadyTag).__rcBasemapPrepared = false;
+    onLoaded();
+  });
+  map.setStyle(url);
 }
 
 // map.isStyleLoaded()はタイル読み込み中も一時的にfalseを返すため、
