@@ -326,6 +326,11 @@ describe("ルートを作る", () => {
     const recall = async (name: string) => {
       await user.click(screen.getByRole("tab", { name: "保存" }));
       await user.click(screen.getByRole("button", { name: `「${name}」を呼び出す` }));
+      await user.click(
+        within(screen.getByRole("dialog", { name: `「${name}」を反映します` })).getByRole("button", {
+          name: "反映する",
+        }),
+      );
     };
     const origin = (body: Record<string, unknown>) => ({ latitude: body.latitude, longitude: body.longitude });
 

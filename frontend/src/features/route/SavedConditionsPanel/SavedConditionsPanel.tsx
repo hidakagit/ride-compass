@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 
-import Disclosure from "@/components/Disclosure/Disclosure";
 import { Button } from "@/components/ui/Button/Button";
 import { ConfirmDialog, DialogContent, DialogRoot } from "@/components/ui/Dialog/Dialog";
+import { DeleteSavedIcon, RecallSavedIcon } from "@/components/ui/icons/icons";
 import { Input } from "@/components/ui/Input/Input";
 import { textVariants } from "@/components/ui/Text/Text";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/ToggleGroup/ToggleGroup";
@@ -47,8 +47,9 @@ function DescriptionRows({ rows }: { rows: [term: string, detail: React.ReactNod
 
 // 「ルート設定」区分の「保存」タブ。タブには保存の窓を開くボタンと保存した一覧だけを置き、保存の前に窓で、残るもの
 // （条件・出発地の扱い・重みの割合・除外）だけを並べる（スマホではパネルの高さが限られ、走行中に使う一覧を上に見せる
-// ため。残らないものや重みを変えたかは書かない）。呼び出すと各タブの値と
-// 地図のピンが入れ替わり、生成はいつもの「ルート生成」で行う（入れ替えたあとに値を確かめたり少し変えたりできる）。
+// ため。残らないものや重みを変えたかは書かない）。一覧の行は名前と条件の1行とアイコンの操作だけで、呼び出すと窓で同じ
+// 中身を見せ、「反映する」で各タブの値と地図のピンが入れ替わる。生成はいつもの「ルート生成」で行う（入れ替えたあとに値を
+// 確かめたり少し変えたりできる）。
 export default function SavedConditionsPanel({
   saved,
   current,
@@ -69,10 +70,13 @@ export default function SavedConditionsPanel({
   const fixOrigin = originKnown && (fixOriginDraft ?? originManual);
   // 「いまの設定を保存」の窓を開いているか。保存すると閉じる。
   const [saving, setSaving] = useState(false);
+  // 呼び出すを押した設定。確認の窓で中身を見せ、「反映する」を押すまで入れ替えない。
+  const [recalling, setRecalling] = useState<SavedCondition | null>(null);
   const [recalled, setRecalled] = useState<SavedCondition | null>(null);
   // ✕を押した設定の名前。確認の窓で「消す」を押すまで消さない。
   const [removing, setRemoving] = useState<string | null>(null);
   const currentDescription = describeConditions(current, catalog);
+  const recallingDescription = recalling && describeConditions(recalling, catalog);
 
   return (
     <div className="flex flex-col gap-3">
@@ -158,68 +162,76 @@ export default function SavedConditionsPanel({
         <p className={textVariants({ variant: "hint" })}>まだありません。</p>
       ) : (
         <ul className="flex flex-col gap-1">
-          {saved.map((entry) => {
-            const description = describeConditions(entry, catalog);
-            return (
-              <li key={entry.name} className="rounded-sm border border-[var(--color-border)] px-1.5 py-1">
-                <Disclosure
-                  headerClassName="flex items-center gap-1"
-                  triggerClassName="group flex min-w-0 items-center gap-1.5"
-                  bodyClassName="pt-1"
-                  usage="押すと、この設定に保存した出発地・重み・除外を開きます。"
-                  summary={
-                    <>
-                      <span
-                        aria-hidden="true"
-                        className="size-1.5 flex-none -rotate-45 border-r-2 border-b-2 border-[var(--color-neutral)] transition-transform duration-150 group-data-[state=open]:rotate-45"
-                      />
-                      <span className="flex min-w-0 flex-col">
-                        <span className="truncate font-semibold">{entry.name}</span>
-                        <span className={cn(textVariants({ variant: "hint" }), "truncate")}>{description.route}</span>
-                      </span>
-                    </>
-                  }
-                  trailing={
-                    <>
-                      <Button
-                        size="sm"
-                        className="ml-auto flex-none"
-                        aria-label={`「${entry.name}」を呼び出す`}
-                        usage="この設定で各タブの値と地図の地点を入れ替えます。作るのはいつもの「ルート生成」です。"
-                        onClick={() => {
-                          onRecall(entry);
-                          setRecalled(entry);
-                        }}
-                      >
-                        呼び出す
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="bare"
-                        className="flex-none p-1 text-xs"
-                        aria-label={`「${entry.name}」を消す`}
-                        aria-haspopup="dialog"
-                        aria-expanded={removing === entry.name}
-                        onClick={() => setRemoving(entry.name)}
-                      >
-                        ✕
-                      </Button>
-                    </>
-                  }
-                >
-                  <DescriptionRows
-                    rows={[
-                      ["出発地", originDescription(entry.origin !== null)],
-                      ["重み", description.weights],
-                      ["除外", description.exclusions],
-                    ]}
-                  />
-                </Disclosure>
-              </li>
-            );
-          })}
+          {saved.map((entry) => (
+            <li
+              key={entry.name}
+              className="flex items-center gap-1 rounded-sm border border-[var(--color-border)] px-1.5 py-1"
+            >
+              <span className="flex min-w-0 flex-auto flex-col">
+                <span className="truncate font-semibold">{entry.name}</span>
+                <span className={cn(textVariants({ variant: "hint" }), "truncate")}>
+                  {describeConditions(entry, catalog).route}
+                </span>
+              </span>
+              <Button
+                size="panelIcon"
+                aria-label={`「${entry.name}」を呼び出す`}
+                aria-haspopup="dialog"
+                aria-expanded={recalling?.name === entry.name}
+                usage="この設定の中身を窓で見て、「反映する」で各タブの値と地図の地点を入れ替えます。作るのはいつもの「ルート生成」です。"
+                onClick={() => setRecalling(entry)}
+              >
+                <RecallSavedIcon size={18} />
+              </Button>
+              <Button
+                variant="ghost"
+                size="panelIcon"
+                aria-label={`「${entry.name}」を消す`}
+                aria-haspopup="dialog"
+                aria-expanded={removing === entry.name}
+                onClick={() => setRemoving(entry.name)}
+              >
+                <DeleteSavedIcon size={18} />
+              </Button>
+            </li>
+          ))}
         </ul>
       )}
+      <DialogRoot
+        open={recalling !== null}
+        onOpenChange={(open) => {
+          if (!open) setRecalling(null);
+        }}
+      >
+        {recalling !== null && recallingDescription !== null && (
+          <DialogContent title={`「${recalling.name}」を反映します`}>
+            <DescriptionRows
+              rows={[
+                ["条件", recallingDescription.route],
+                ["出発地", originDescription(recalling.origin !== null)],
+                ["重み", recallingDescription.weights],
+                ["除外", recallingDescription.exclusions],
+              ]}
+            />
+            <div className="mt-3 flex justify-end gap-2">
+              <Button size="sm" onClick={() => setRecalling(null)}>
+                キャンセル
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => {
+                  onRecall(recalling);
+                  setRecalled(recalling);
+                  setRecalling(null);
+                }}
+              >
+                反映する
+              </Button>
+            </div>
+          </DialogContent>
+        )}
+      </DialogRoot>
       <ConfirmDialog
         open={removing !== null}
         title={`「${removing ?? ""}」を消します`}

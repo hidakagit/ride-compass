@@ -1,8 +1,8 @@
 /**
  * 「保存」タブ（`SavedConditionsPanel.tsx`）——タブには保存の窓を開くボタンだけを置き、窓で保存する条件・重みの割合・除外と
  * 出発地の扱いを並べ、名前の欄に仮の名前を入れて出し、そのまま・書き換えて保存でき、保存すると窓を閉じる。出発地は固定するかを選べ、選ぶまでは地図で置いたかで決まる。
- * 同じ名前があれば上書きと分かるように出す。保存した設定を並べ、開くと中身を読め、「呼び出す」で呼び出し、✕は確認の窓で
- * 「消す」を押したときだけ消す。
+ * 同じ名前があれば上書きと分かるように出す。保存した設定を名前と条件の1行で並べ、「呼び出す」は窓で中身を見せて「反映する」を
+ * 押したときだけ呼び出し、「消す」は確認の窓で「消す」を押したときだけ消す。
  *
  * ここで見ないもの:
  * - 説明の文の作り方（割合・除外の名前） → `savedConditions.test.ts`
@@ -151,32 +151,41 @@ describe("保存した設定", () => {
     expect(screen.getByText("まだありません。")).toBeInTheDocument();
   });
 
-  it("行は名前と条件を出し、開くと出発地・重み・除外を読める", async () => {
+  it("行は名前と条件の1行だけを出し、出発地・重み・除外は呼び出しの窓で読める", async () => {
     renderPanel([LOOP, TRIP]);
 
-    const trip = screen.getByRole("button", { name: /^週末/ });
+    const trip = screen.getAllByRole("listitem")[1];
     expect(trip).toHaveTextContent("目的地へ・経由 2地点・候補 8本");
     expect(screen.queryByText("保存した地点に固定")).not.toBeInTheDocument();
 
-    await userEvent.click(trip);
+    await userEvent.click(screen.getByRole("button", { name: "「週末」を呼び出す" }));
 
-    expect(screen.getByText("保存した地点に固定")).toBeInTheDocument();
-    expect(await screen.findByText("軸B 75%・軸A 25%")).toBeInTheDocument();
+    const dialog = screen.getByRole("dialog", { name: "「週末」を反映します" });
+    expect(within(dialog).getByText("保存した地点に固定")).toBeInTheDocument();
+    expect(await within(dialog).findByText("軸B 75%・軸A 25%")).toBeInTheDocument();
   });
 
   it.each([
     ["固定しない設定", LOOP, "「朝の荒川」を呼び出しました。出発地は今いる場所です。"],
     ["出発地を固定した設定", TRIP, "「週末」を呼び出しました。出発地は保存した地点です。"],
-  ])("「呼び出す」で%sを呼び出し、呼び出したことと出発地を出す", async (_, entry, expected) => {
+  ])("窓の「反映する」を押したときだけ%sを呼び出し、呼び出したことと出発地を出す", async (_, entry, expected) => {
     const { onRecall } = renderPanel([LOOP, TRIP]);
+    const recallDialog = () => screen.getByRole("dialog", { name: `「${entry.name}」を反映します` });
 
     await userEvent.click(screen.getByRole("button", { name: `「${entry.name}」を呼び出す` }));
+    await userEvent.click(within(recallDialog()).getByRole("button", { name: "キャンセル" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(onRecall).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: `「${entry.name}」を呼び出す` }));
+    await userEvent.click(within(recallDialog()).getByRole("button", { name: "反映する" }));
 
     expect(onRecall).toHaveBeenCalledExactlyOnceWith(entry);
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.getByRole("status")).toHaveTextContent(expected);
   });
 
-  it("✕で、確認の窓の「消す」を押したときだけその行の名前を消す", async () => {
+  it("「消す」で、確認の窓の「消す」を押したときだけその行の名前を消す", async () => {
     const { onRemove, onRecall } = renderPanel([LOOP, TRIP]);
     const confirmDialog = () => screen.getByRole("dialog", { name: "「週末」を消します" });
 
